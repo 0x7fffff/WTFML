@@ -28,12 +28,14 @@
 #pragma once
 
 #include <QDialog>
+#include <QHash>
 #include <QList>
 #include <QString>
 #include <QStringList>
 
 class QCheckBox;
 class QComboBox;
+class QGridLayout;
 class QLabel;
 class QLineEdit;
 class QListWidget;
@@ -54,8 +56,21 @@ public:
         QString name;
         QString description;
         QString updatedText;   ///< 已经翻好的"最后修改：…"（空则不显示）
+        /// 这一份属于哪一类。★ 这里只是一把**不透明**的钥匙：页面拿它和筛选项的
+        /// `CategoryOption::key` 逐字比、原样交给外面；四类叫什么、怎么翻，全在控制器。
+        QString categoryKey;
+        QString categoryText;  ///< 已经翻好的类别名（工具提示与右栏摘要里显示）
         int sectionCount = 0;
         bool isDefault = false;
+    };
+
+    /// 类别筛选那一排 chip 里的一项，以及"新建为"那个下拉框里的一项。
+    /// `key` 空串 = 「全部」（只用于筛选，不出现在新建下拉框里）。
+    struct CategoryOption {
+        QString key;
+        QString text;
+        /// 只出现在筛选项里（「全部」/「旧版（未分类）」）—— 不让它成为"新建为"的一项。
+        bool filterOnly = false;
     };
 
     /// 左栏底下那几份**读不回来**的（`PresetStore::BrokenPreset`）。它们不进可选列表，
@@ -92,12 +107,29 @@ public:
         bool shaderPacks = false;
         bool malilib = true;
         bool malilibValues = false;
+        bool dataPacks = false;
 
         bool isEmpty() const {
             return !vanillaOptions && !vanillaKeys && !servers && !config && !defaultConfigs &&
-                   !resourcePacks && !shaderPacks && !malilib;
+                   !resourcePacks && !shaderPacks && !malilib && !dataPacks;
         }
     };
+
+    /// 「从实例提取」那十样各占一位（`setCaptureAvailability()` 的掩码用）。
+    /// 顺序和 `CaptureChoice` 的字段一致，页面只认位、不认位背后的意思。
+    enum CaptureBit : quint32 {
+        CaptureVanillaOptions = 1u << 0,
+        CaptureVanillaKeys = 1u << 1,
+        CaptureServers = 1u << 2,
+        CaptureConfig = 1u << 3,
+        CaptureDefaultConfigs = 1u << 4,
+        CaptureResourcePacks = 1u << 5,
+        CaptureShaderPacks = 1u << 6,
+        CaptureMalilib = 1u << 7,
+        CaptureMalilibValues = 1u << 8,
+        CaptureDataPacks = 1u << 9,
+    };
+    static quint32 captureMaskAll() { return 0x3FFu; }
 
     /// 计划表上的一行（外面已经用 `PresetApplyRowText()` 翻好了）。
     struct PlanLine {
@@ -134,9 +166,15 @@ public:
     /// 左栏整份换掉。@param selectId 换完之后选中哪一份（不在列表里就选第一份）。
     void setPresets(const QList<PresetItem> &presets, const QList<BrokenItem> &broken,
                     const QString &selectId);
+    /// 类别筛选 chip + 「新建为」下拉框的内容。第一项 `key` 空串 = 「全部」。
+    /// ★ 只摆一次（外面那几类是从枚举翻过来的，运行期间不会变）；重复调会整排重建。
+    void setCategories(const QList<CategoryOption> &categories);
+    /// 这一份预设能收哪几样（掩码见 `CaptureBit`）。不许收的那几格**禁掉并清勾**，
+    /// `note` 挂到它们的工具提示尾巴上（一句人话：为什么这一类不收）。
+    void setCaptureAvailability(quint32 mask, const QString &note);
     /// 右栏"这一份是什么"。
     void showPreset(const QString &id, const QString &name, const QString &description,
-                    const QList<SectionItem> &sections);
+                    const QString &categoryText, const QList<SectionItem> &sections);
     /// 两个下拉框里的实例列表。@param selectId 空则保留各自原来的选择。
     void setInstances(const QList<InstanceItem> &instances, const QString &selectId = QString());
     /// 计划表。`canApply` 决定「应用」亮不亮；`needsConfirm` 决定它是不是要走"点两次"。
@@ -160,6 +198,10 @@ public:
 
     // ---------- 控件的 objectName（验证工程靠这些名字认控件） ----------
     static QString presetListName() { return QStringLiteral("presetList"); }
+    static QString categoryFilterName(int index) {
+        return QStringLiteral("presetCategoryFilter%1").arg(index);
+    }
+    static QString newCategoryComboName() { return QStringLiteral("presetNewCategoryCombo"); }
     static QString newButtonName() { return QStringLiteral("presetNewButton"); }
     static QString duplicateButtonName() { return QStringLiteral("presetDuplicateButton"); }
     static QString deleteButtonName() { return QStringLiteral("presetDeleteButton"); }
@@ -185,7 +227,8 @@ signals:
     void presetSelected(const QString &id);
 
     // ---------- 增删改 ----------
-    void createRequested();
+    /// @param categoryKey 用户在「新建为」下拉框里选的那一类（不透明钥匙，外面翻成枚举）。
+    void createRequested(const QString &categoryKey);
     void duplicateRequested(const QString &id);
     /// 名字和说明一起交出去（改名 + 改说明是一颗按钮干的两件事）。
     void detailsEdited(const QString &id, const QString &name, const QString &description);
@@ -198,6 +241,7 @@ signals:
     void captureRequested(const QString &presetId, const QString &instanceId,
                           const PresetManagePage::CaptureChoice &choice);
     void captureAsNewRequested(const QString &instanceId, const QString &name,
+                               const QString &categoryKey,
                                const PresetManagePage::CaptureChoice &choice);
 
     // ---------- 应用 ----------
@@ -210,6 +254,10 @@ private:
     void buildUi();
     void refreshActions();
     void refreshCaptureEnabled();
+    void rebuildPresetList(const QString &selectId, bool emitSelection);
+    void applyCategoryFilter(const QString &key);
+    void setCaptureCheckEnabled(QCheckBox *box, quint32 bit, quint32 mask,
+                                const QString &note);
     void armDelete();
     void disarmDelete();
     void armApply();
@@ -223,6 +271,14 @@ private:
     static QString comboInstanceId(const QComboBox *combo);
 
     QListWidget *m_presetList = nullptr;
+    /// 类别筛选那一排 chip 所在的那一格（每次 `setCategories()` 整片重建）。
+    QWidget *m_filterRow = nullptr;
+    QGridLayout *m_filterLayout = nullptr;
+    QList<QPushButton *> m_filterChips;
+    QComboBox *m_newCategoryCombo = nullptr;
+    QList<PresetItem> m_presets;
+    QList<BrokenItem> m_broken;
+    QString m_filterKey;
     QPushButton *m_newButton = nullptr;
     QPushButton *m_duplicateButton = nullptr;
     QPushButton *m_deleteButton = nullptr;
@@ -246,9 +302,17 @@ private:
     QCheckBox *m_captureShaderPacks = nullptr;
     QCheckBox *m_captureMalilib = nullptr;
     QCheckBox *m_captureMalilibValues = nullptr;
+    QCheckBox *m_captureDataPacks = nullptr;
     QPushButton *m_captureButton = nullptr;
     QPushButton *m_captureAsNewButton = nullptr;
     QLineEdit *m_newPresetNameEdit = nullptr;
+    /// 每一格勾选框**出厂时**的那句工具提示（`setCaptureAvailability()` 会临时往后拼一句，
+    /// 反复切换类别时要能还原成原来那句，不能越拼越长）。
+    QHash<QCheckBox *, QString> m_captureTips;
+    /// 当前这一份预设能收哪几样（`setCaptureAvailability()` 灌进来，`refreshCaptureEnabled()`
+    /// 靠它保住"这一类不许收"的格子，别被忙碌状态那一趟重新点亮）。
+    quint32 m_captureMask = 0x3FFu;
+    QString m_captureNote;
 
     QComboBox *m_applyInstanceCombo = nullptr;
     QPushButton *m_previewButton = nullptr;

@@ -12,6 +12,8 @@
 #include <QDateTime>
 #include <QElapsedTimer>
 #include <QHash>
+#include <QMap>
+#include <QPair>
 #include <QJsonObject>
 #include <QMainWindow>
 #include <QPixmap>
@@ -379,6 +381,11 @@ private slots:
     // 用户选好了一张皮肤图。**尺寸那条规矩在这条路上判**（SkinApi::isAcceptableSkinSize，
     // 唯一出处），失败按产品约定弹窗。
     void onSkinUploadRequested(const QString &path, const QString &variant);
+    // 离线账号自己挑的那张（「账号与外观」→「换一张…」）：只存本机、不联网、不要令牌。
+    // 尺寸仍走 SkinApi::isAcceptableSkinSize()，失败弹窗。
+    void onOfflineSkinPickRequested(const QString &path, const QString &variant);
+    // 撤掉自己挑的那张，回到算出来的 / 随机挑的那一档。
+    void onOfflineSkinResetRequested();
     void onCapeSelectRequested(const QString &capeId);
     void onCapeHideRequested();
 
@@ -1042,7 +1049,6 @@ private slots:
     ///       自己那几百行一行都不用重新缩进。
     void openInstanceSettingsNow(const QString &versionId, const QString &pageKey);
     void openJavaManageNow();
-    void openPresetManageNow();
     void openGroupDialogNow();
 
     /// 这个实例的服务器列表（名字 + 地址，按文件里的顺序）。servers.dat 读不动时是空的。
@@ -1179,10 +1185,6 @@ private slots:
     void onInstallNameEdited();
     /// 点了「安装」。名字校验、重名那一问、Java 挑选、忙态，都在这里收口。
     void onInstallButtonClicked();
-    /// 「实例预设」下拉框变了：记下"这是用户自己选的"（从此默认项不再顶掉它）。
-    void onInstallPresetChosen();
-    /// 「查看内容」：把这一份预设对着"还没装出来的那个实例"会做什么摊开看（只读）。
-    void onInstallPresetViewClicked();
     /// requestLoaderVersions() 的回复：填进**那一条**底下的子条目。
     ///
     /// 参数收的是**下标**（不是 VersionManager::LoaderKind）：这是给 moc 看的槽，
@@ -1887,9 +1889,6 @@ private:
     void onMainTabChanged();
     /// 开「Java 管理」那一页（设置页「启动」栏那颗按钮），打开后在后台重扫一遍盘。
     void openJavaManage();
-    /// 开「实例预设」那一页（设置页「启动」栏最后一节）。页面、读写、备份全在
-    /// `PresetController` 里 —— 这儿只有"让开覆盖层再开"这一层。
-    void openPresetManage();
     /// 把 m_localJavaVersions 里的四个主版本灌进那一页。
     void pushJavaRowsToPage();
     /// 那一页发上来的三件事；实际扫描 / 下载由 JavaRuntimeController 在后台完成。
@@ -2021,6 +2020,13 @@ private:
     void onDownloadSourceChanged();
     /// 「下载源」那一组里那颗「并发数」下拉框（2026-10-13，§9.2）。
     void onDownloadConcurrencyChanged();
+    /// 「下载速度上限」改了（2026-10-18，§9.2）：落盘 + 立刻推给下载器。
+    void onDownloadSpeedLimitChanged();
+    /// 「代理」那一档改了（2026-10-18，§9.2）：落盘 + 立刻装到进程上，
+    /// 同时把手动地址那一格按档位露/收起来。
+    void onDownloadProxyModeChanged();
+    /// 手动代理地址那一格改完了（回车或点到别处）：落盘 + 校验 + 立刻装到进程上。
+    void onDownloadProxyManualChanged();
     /// 「下载新模组时直接放进当前实例」那一格（设置页「下载」栏）。
     ///
     /// 改了这一项**不影响已经发出的那一批下载** —— 落点在点下那一瞬间就定死了（见
@@ -2146,6 +2152,10 @@ private:
     /// 把「同时最多下几个」（设置 → 下载 → 并发数，§9.2）交给真正发请求的那一层。
     /// 和上面那条同一个形状：读盘和用户改都走这一句，别各写一遍。
     void syncDownloadConcurrency();
+    void syncDownloadSpeedLimit();
+    /// 把「代理」（设置 → 下载 → 代理，§9.2）装到进程上（`QNetworkProxy::setApplicationProxy`）。
+    /// 读盘和用户改都走这一句。
+    void syncDownloadProxy();
     /// 把 CurseForge 那两项设置交给数据层（VersionManager）。同上：读盘和用户改都走这一句。
     void syncCurseForgeSettings();
     /// 启动成功后按「启动后」那一项处理启动器自己。
@@ -2684,6 +2694,23 @@ private:
     int selectedLoaderIndex() const;
     /// 那棵树里某一条加载器的条目（顶层第 @p loaderIndex 条）；找不到回 nullptr。
     QTreeWidgetItem *loaderItem(int loaderIndex) const;
+    /// 那棵树里「预设」那一行（`UserRole == installPresetRowRole()`）；找不到回 nullptr。
+    QTreeWidgetItem *installPresetRowItem() const;
+    /// 把「预设」那一行第二行小字刷成当前的摘要（「未选择」/「已选择 N 类」）。
+    /// **唯一出处** —— 进安装页、弹窗点确定、装完一单之后都走它。
+    void updateInstallPresetSummary();
+    /**
+     * @brief 点「预设」那一行时开的那张紧凑弹窗（coding plan §7.1）。
+     *
+     * **不跳页**：弹窗压在安装页上（`execPrompt`），顶上写清楚"这一份基于哪个版本 /
+     * 加载器"；里面四类各挑一份，选一份就现算那份计划（只读）。
+     *
+     * 取消 / 点「前往预设管理」都**不写** `m_installPresetChoices` —— 用户回来时还是
+     * 原来那一份选择（§7.1 验收：取消不丢安装配置）。
+     */
+    void openInstallPresetPicker();
+    /// 现在四类里选中了哪几份（只含非空 id，按四类的次序）。安装那一刻读它。
+    QList<QPair<QString, QString>> currentInstallPresetSelections() const;
     /// 某一条加载器"钉住"的那一格（它在树上点的那一条）。三种可能，别当成"一定是版本号"：
     /// 一个**具体版本号**、那两档的键（`@latest` / `@stable`，见 LoaderMeta::loaderChannelKey）、
     /// 或者**空串**（没挑过 —— 数据层按稳定档算，和改动前"让安装器按老规矩挑"一个意思）。
@@ -3347,18 +3374,18 @@ private:
     // 用户**自己改过**名称框没有。改过之后默认名就不再跟着加载器变了（不然他敲到一半
     // 的名字会被一次"选了 Forge"顶掉）；每次进安装页重置。
     bool m_installNameTouched = false;
-    // 安装页「实例预设」那一格（2026-10-18，coding plan §7）。三笔分开记：
-    //   · touched：用户**自己动过**那个下拉框没有。动过之后默认项再也不顶掉他的选择
-    //     （§7「用户手动选择后，不因后台默认项变化而偷偷切换」）；
-    //   · choice：他选的那一份（空串 = 「不使用预设」，也是合法的一种"选过"）；
-    //   · pending*：这一次安装**真的**带着预设走（点「安装」那一刻定下来，收尾时用）。
-    //     ★ 从点下安装到 versionDownloadFinished 之间用户还可能去动下拉框 —— 那一动
-    //       不该改变这一趟已经发出去的安装。所以收尾读的是 pending 这三笔，不是界面。
-    bool m_installPresetTouched = false;
-    QString m_installPresetChoice;
-    QString m_installPendingPresetId;
+    // 安装页「预设」那一行（2026-10-18，coding plan §7.1）。四类**各选一份**：
+    // key = `Presets::presetCategoryKey()` 的串，value = 预设 id（空串 / 不在 map 里 = 这一类不用）。
+    // ★ 只有用户在弹窗里点「确定选择」时才改 —— 取消、点「前往预设管理」都不动它
+    //   （§7.1 验收：「取消不丢安装配置」）。默认一个都不选：§4 那条"不猜旧混合预设属于
+    //   哪一类"在安装页这一侧同样成立。
+    QMap<QString, QString> m_installPresetChoices;
+    // 这一次安装**真的**带着哪几份预设走（点「安装」那一刻定死；收尾时按这个次序应用）。
+    // 每一对是 (预设 id, 是否已确认「覆盖」那一档)；空的 = 这一趟不带预设。
+    // ★ 从点下安装到 versionDownloadFinished 之间用户还可能去改弹窗里的选择 —— 那一动
+    //   不该改变这一趟已经发出去的安装。所以收尾读的是这两笔，不是界面。
+    QList<QPair<QString, bool>> m_installPendingPresets;
     QString m_installPendingPresetInstance;
-    bool m_installPendingReplaceConfirmed = false;
     // "有版本目录但 jar 名对不上"这件事是否已经写过日志。refreshInstalledVersions()
     // 一次会话会被调很多次，不记一笔就是同样的告警反复刷。
     bool m_reportedUnrecognizedVersions = false;

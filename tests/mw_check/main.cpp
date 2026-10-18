@@ -31,6 +31,7 @@
 
 #include <QApplication>
 #include "RangeChecks.hpp"
+#include "SegmentInstallChecks.hpp"
 #include "ToolFeatureChecks.hpp"
 #include <QFontDatabase>
 #include "controllers/DirectDownloadController.hpp"
@@ -48,6 +49,7 @@
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QNetworkAccessManager>
+#include <QNetworkProxy>
 #include <QNetworkReply>
 #include <QPainter>
 #include <QImage>
@@ -133,6 +135,9 @@
 #include "JavaManageDialog.hpp"  // T26：设置页那颗「Java 管理…」开出来的整页
 #include "JavaMismatchDialog.hpp"
 #include "MainWindowUI.hpp"
+#include "PresetInstallPicker.hpp"  // P1：安装页点「预设」那一行开的那张紧凑弹窗
+#include "controllers/PresetController.hpp"  // P1：四类的次序 / 标题（弹窗里那几个页签）
+#include <QTabBar>  // P1：数弹窗里是不是四类各一页
 #include "TaskCenterPanel.hpp"
 #include "SkinModel.hpp"
 #include "SkinViewer.hpp"
@@ -172,11 +177,15 @@
 #include "settings/GameWindowSettings.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/LauncherSettings.hpp"
+// 速度上限那几档的数字（§9.2 限速）—— N 节要拿它们去数框里的项和 itemData。
+#include "download/DownloadSpeedLimit.hpp"
 // T35：世界与实例备份那一层的**引擎**（清单 / 打包 / 还原）。这一节从界面那几个入口
 // 点下去，然后拿它把盘上那个包**读回来**核对 —— "真打出一个包了"和"包里是我要的那些"
 // 是两件事，只有读回来才说得清。
 #include "manage/BackupFiles.hpp"
 #include "manage/DefaultSkin.hpp"
+// 离线账号「换一张…」的落盘层（ZG 段最后那几条接线断言要直接读它写出来的东西）。
+#include "manage/OfflineSkin.hpp"
 #include "manage/FolderManager.hpp"
 // T36：「上一次启动」那本账（主页那张卡的数据源）+ 服务器列表的写侧（夹具要往
 // servers.dat 里加一条"朋友的服"，验"服务器那一档记的是名字不是地址"）。
@@ -9745,6 +9754,50 @@ static void runOfflineDefaultSkinTests() {
                       QFileInfo(cachePath).absolutePath() == AppPaths::skinsDir(),
                   "ZG6 算出来那张落在 <数据目录>/skins 底下（只进缓存，不缝进资源、不写仓库）",
                   cachePath);
+
+            // ---- ZG8 离线账号「换一张…」：手动挑的那张压过官方默认与随机那张 ----
+            // 这一节起的是**真的 MainWindow**，所以验的是接线：按钮那边发出来的意图 →
+            // MainWindow 落盘 → PlayerSkinController 重走一遍 → 屏幕上那张图 / 那句话。
+            const QColor tintManual(0xC0, 0x30, 0x40);
+            check(!OfflineSkin::hasSkin(uuid), "ZG8 前提：这个账号还没手动挑过");
+            const QString pickedPath = root.filePath(QStringLiteral("picked-skin.png"));
+            QImage picked(64, 64, QImage::Format_ARGB32_Premultiplied);
+            picked.fill(tintManual);
+            check(picked.save(pickedPath, "PNG"), "ZG8 前提：造一张 64×64 的源图", pickedPath);
+            const bool pickedOk = QMetaObject::invokeMethod(
+                &w, "onOfflineSkinPickRequested", Q_ARG(QString, pickedPath),
+                Q_ARG(QString, QStringLiteral("slim")));
+            QApplication::processEvents();
+            check(pickedOk && OfflineSkin::hasSkin(uuid),
+                  "ZG8 「换一张…」那一发落进了 manual-<账号键>.png");
+            check(viewer->skin().pixelColor(0, 0) == tintManual && viewer->isSlim(),
+                  "ZG8 屏幕上当场换成手动挑的那张（模型也照选的来：窄）",
+                  QStringLiteral("%1 / slim=%2")
+                      .arg(viewer->skin().pixelColor(0, 0).name())
+                      .arg(viewer->isSlim() ? QStringLiteral("true") : QStringLiteral("false")));
+            check(hint->text() == MainWindowUI::skinHintOfflineCustomSkinText(name),
+                  "ZG8 那句话说的是「你自己换的」，不再说默认/随机那两句", hint->text());
+
+            // 换版本：手动挑的那张**不按实例算**，不许被默认皮肤顶掉。
+            combo->setCurrentIndex(combo->findData(modernId));
+            QApplication::processEvents();
+            check(viewer->skin().pixelColor(0, 0) == tintManual &&
+                      hint->text() == MainWindowUI::skinHintOfflineCustomSkinText(name),
+                  "ZG8 换实例之后还是手动挑的那张（它压过算出来的官方默认）");
+
+            // 「恢复默认外观」：两张文件一起没，屏幕上回落到这个实例算出来的那张。
+            const bool resetOk =
+                QMetaObject::invokeMethod(&w, "onOfflineSkinResetRequested");
+            QApplication::processEvents();
+            check(resetOk && !OfflineSkin::hasSkin(uuid) &&
+                      !QFile::exists(OfflineSkin::modelPathFor(uuid)),
+                  "ZG8 「恢复默认外观」把图与模型那一行一起删掉");
+            check(viewer->skin().pixelColor(0, 0) == tintModern,
+                  "ZG8 恢复之后画的是当前实例算出来的官方默认皮肤",
+                  viewer->skin().pixelColor(0, 0).name());
+            check(hint->text() == MainWindowUI::skinHintOfflineDefaultSkinText(
+                                      name, combo->itemText(combo->currentIndex())),
+                  "ZG8 那句话也退回「…的默认皮肤」", hint->text());
         }
     }
 
@@ -18445,6 +18498,7 @@ int main(int argc, char *argv[]) {
     // 从这一行起收集所有日志（MainWindow 构造里就开始写了，晚了就漏）。
     if (app.arguments().contains(QStringLiteral("range-resume-child"))) return runRangeChild(app.arguments());
     if (app.arguments().contains(QStringLiteral("segmented-download-check"))) return runRangeChecks();
+    if (app.arguments().contains(QStringLiteral("segment-install-check"))) return runSegmentInstallChecks();
     if (app.arguments().contains(QStringLiteral("tool-features-check"))) return runToolFeatureChecks();
     if (argc >= 6 && QString::fromLocal8Bit(argv[1]) == QLatin1String("loader-install-live")) {
         const QString root = QFileInfo(QString::fromLocal8Bit(argv[2])).absoluteFilePath();
@@ -18679,6 +18733,16 @@ int main(int argc, char *argv[]) {
                    !DownloadRetryPolicy::transient(QNetworkReply::SslHandshakeFailedError, 0) &&
                    DownloadRetryPolicy::delayMs(3, {}) == -1 && DownloadRetryPolicy::delayMs(0, "999999999") == 60000,
                "policy retries weak-network failures, caps Retry-After and excludes cancel/TLS errors");
+        // 429 专用退避：服务器说"你太快了"时，通用那条 0.5/1/2 秒比限流窗口还快
+        // （2026-10-18 诊断日志：一条分段 3 秒内连吃 4 个 429）。没给 Retry-After 就
+        // 2/4/8 秒；给了就听服务器的。`delayMs()` 那一档一个字都不许跟着变。
+        expect(DownloadRetryPolicy::throttleDelayMs(0, {}) == 2000 &&
+                   DownloadRetryPolicy::throttleDelayMs(1, {}) == 4000 &&
+                   DownloadRetryPolicy::throttleDelayMs(2, {}) == 8000 &&
+                   DownloadRetryPolicy::throttleDelayMs(3, {}) == -1 &&
+                   DownloadRetryPolicy::throttleDelayMs(0, "7") == 7000 &&
+                   DownloadRetryPolicy::delayMs(0, {}) == 500,
+               "429 backoff starts at two seconds, doubles, and honours Retry-After");
         // 握手**没做完**（明文回到 TLS 端口 / 连接被掐）换一条连接就可能好；证书判断失败
         // 一万次也一样 —— 这两档必须分开（2026-10-17 一个 wrong version number 打断整段安装）。
         expect(DownloadRetryPolicy::sslHandshakeTransient(
@@ -21996,6 +22060,13 @@ int main(int argc, char *argv[]) {
         {
             LauncherSettings seed;
             seed.setDownloadConcurrency(6);
+            // 2026-10-18（§9.2 限速）：同一个做法 —— 盘上钉一个非默认的上限（1 MiB/s），
+            // 下一节看新窗口认不认、**以及限值有没有真推到发请求的那一层**。
+            seed.setDownloadSpeedLimit(1024 * 1024);
+            // 2026-10-18（§9.2 代理）：同一个做法 —— 盘上钉一个「手动 + 127.0.0.1:7890」，
+            // 下一节看新窗口认不认、**以及代理有没有真装到进程上**。
+            seed.setProxyMode(DownloadProxy::Mode::Manual);
+            seed.setProxyManualText(QStringLiteral("127.0.0.1:7890"));
         }
         {
             MainWindow w5;
@@ -22057,6 +22128,102 @@ int main(int argc, char *argv[]) {
                     }
                 }
 
+                // ---- 速度上限（2026-10-18，§9.2 限速）----
+                // 和并发数同一个形状：盘上写着 1 MiB/s ⇒ 框里那几档都在、选中的是它、
+                // 而且发请求那一层也拿到同一个数（漏了最后那半句的表现是「界面显示限了、
+                // 实际满速跑」，不报错、也看不出哪儿没接上）。
+                QComboBox *speed5 =
+                    comboByObjectName(&w5, MainWindowUI::downloadSpeedLimitComboName());
+                check(speed5 != nullptr, "第五个窗口里那颗「速度上限」下拉框找得到");
+                if (speed5 != nullptr) {
+                    check(speed5->count() == DownloadSpeedLimit::presets().size(),
+                          "★ 预设那几档都在框里（正好的那个数，不多不少）",
+                          QStringLiteral("框里有 %1 项").arg(speed5->count()));
+                    check(speed5->currentData().toLongLong() == 1024 * 1024,
+                          "★★ 盘上写着的 1 MB/s，冷启动就选上了（applySettingsToUi 灌的那一条路）",
+                          QString::number(speed5->currentData().toLongLong()));
+                    VersionManager *vm5s = w5.findChild<VersionManager *>();
+                    check(vm5s != nullptr &&
+                              vm5s->downloads()->speedLimitBytesPerSecond() == 1024 * 1024,
+                          "★★ 而且**真发请求的那一层**也拿到 1 MB/s 了（漏了它 = 界面显示限了、"
+                          "实际还是满速）",
+                          vm5s != nullptr
+                              ? QString::number(vm5s->downloads()->speedLimitBytesPerSecond())
+                              : QStringLiteral("拿不到 VersionManager"));
+                    // 当场改一档：盘上要跟着变、数据层也要跟着变。
+                    const int twoM = speed5->findData(int(2 * 1024 * 1024));
+                    if (twoM >= 0 && vm5s != nullptr) {
+                        speed5->setCurrentIndex(twoM);
+                        QApplication::processEvents();
+                        QSettings written;
+                        check(written.value(QStringLiteral("Download/SpeedLimitBytes"))
+                                      .toLongLong() == 2 * 1024 * 1024 &&
+                                  vm5s->downloads()->speedLimitBytesPerSecond() ==
+                                      2 * 1024 * 1024,
+                              "★★ 当场拨到 2 MB/s：盘上那一位和数据层那一个值**一起变**",
+                              QStringLiteral("盘上 %1 / 数据层 %2")
+                                  .arg(written.value(QStringLiteral("Download/SpeedLimitBytes"))
+                                           .toLongLong())
+                                  .arg(vm5s->downloads()->speedLimitBytesPerSecond()));
+                    } else {
+                        check(false, "框里找得到「2 MB/s」那一档（预设都在）");
+                    }
+                }
+
+                // ---- 代理（2026-10-18，§9.2）----
+                // 盘上写着「手动 + 127.0.0.1:7890」⇒ 框选中「手动」、地址那一格露着并回填，
+                // 而且 **`QNetworkProxy::applicationProxy()` 真的换成了那个 HTTP 代理**
+                // （少了最后那半句 = 界面显示手动、请求还是走系统那条路）。
+                QComboBox *proxy5 =
+                    comboByObjectName(&w5, MainWindowUI::downloadProxyComboName());
+                QLineEdit *proxyEdit5 =
+                    w5.findChild<QLineEdit *>(MainWindowUI::downloadProxyManualEditName());
+                check(proxy5 != nullptr && proxyEdit5 != nullptr,
+                      "第五个窗口里「代理」那颗下拉框和手动地址那一格都找得到");
+                if (proxy5 != nullptr && proxyEdit5 != nullptr) {
+                    check(proxy5->count() == DownloadProxy::modes().size(),
+                          "★ 三档都在框里（正好的那个数，不多不少）",
+                          QStringLiteral("框里有 %1 项").arg(proxy5->count()));
+                    check(proxy5->currentData().toInt() == int(DownloadProxy::Mode::Manual),
+                          "★★ 盘上写着的「手动」，冷启动就选上了",
+                          QString::number(proxy5->currentData().toInt()));
+                    check(proxyEdit5->text() == QStringLiteral("127.0.0.1:7890") &&
+                              !proxyEdit5->isHidden(),
+                          "★★ 手动地址回填了，而且那一格在「手动」档是露着的",
+                          proxyEdit5->text());
+                    QNetworkProxy applied = QNetworkProxy::applicationProxy();
+                    check(applied.type() == QNetworkProxy::HttpProxy &&
+                              applied.hostName() == QStringLiteral("127.0.0.1") &&
+                              applied.port() == 7890,
+                          "★★ **进程上的代理**真的换成了 127.0.0.1:7890（HTTP）",
+                          QStringLiteral("type=%1 host=%2 port=%3")
+                              .arg(int(applied.type()))
+                              .arg(applied.hostName())
+                              .arg(applied.port()));
+                    // 当场拨到「直连」：盘上跟着变、进程上的代理跟着变、地址格子收起来。
+                    const int directIndex =
+                        proxy5->findData(int(DownloadProxy::Mode::Direct));
+                    if (directIndex >= 0) {
+                        proxy5->setCurrentIndex(directIndex);
+                        QApplication::processEvents();
+                        QSettings written;
+                        applied = QNetworkProxy::applicationProxy();
+                        check(written.value(QStringLiteral("Download/ProxyMode")).toString()
+                                      == QStringLiteral("direct") &&
+                                  applied.type() == QNetworkProxy::NoProxy &&
+                                  proxyEdit5->isHidden(),
+                              "★★ 当场拨到「直连」：盘上、进程上的代理、地址那一格的显隐"
+                              "**一起变**",
+                              QStringLiteral("盘上 %1 / 代理类型 %2 / 地址格藏了 %3")
+                                  .arg(written.value(QStringLiteral("Download/ProxyMode"))
+                                           .toString())
+                                  .arg(int(applied.type()))
+                                  .arg(proxyEdit5->isHidden() ? 1 : 0));
+                    } else {
+                        check(false, "框里找得到「直连」那一档（三档都在）");
+                    }
+                }
+
                 // 切回「自动」：**不**清掉记着的路径 —— 那个字段同时是"上次挑中的 Java"
                 // 的缓存，清掉的话每次启动都要重扫一遍本地 Java。走的是 onJavaUseAuto()
                 // 里那对 setter 的**同一个对象**（那颗按钮只在「Java 管理」那一页上，
@@ -22089,6 +22256,15 @@ int main(int argc, char *argv[]) {
         {
             LauncherSettings reset;
             reset.setDownloadConcurrency(DownloadConcurrency::kDefault);
+            // 速度上限同理（§9.2 限速）：留个 2 MB/s 的话后面真下东西的几节会慢得莫名其妙。
+            reset.setDownloadSpeedLimit(DownloadSpeedLimit::kUnlimited);
+            // 代理同理（§9.2）：删掉「手动」那一档并把进程代理还回默认，否则后面真联网的
+            // 那几节会全部往 127.0.0.1:7890 发请求（那儿没人接，一律超时）。
+            reset.setProxyMode(DownloadProxy::kDefaultMode);
+            reset.setProxyManualText(QString());
+            QNetworkProxy defaultProxy;
+            defaultProxy.setType(QNetworkProxy::DefaultProxy);
+            QNetworkProxy::setApplicationProxy(defaultProxy);
         }
     }
 
@@ -25936,6 +26112,42 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       "★ T39.5 新那一个也出现在列表里了（切页顺手重扫过）",
                       QString::number(serverTree->topLevelItemCount()));
             }
+
+            // ---------- ⑥ 下载页「服务端」那一栏那颗「新建服务端…」走同一条路 ----------
+            //
+            // 2026-10-18（coding plan §1.4）：下载页左栏补了「服务端」一栏，那一页只有
+            // 一句说明 + 一颗「新建服务端…」。它和实例页那颗**必须**是同一个动作 ——
+            // 另写一条实现的话，两边迟早会在"建什么、建到哪儿"上分家。
+            {
+                auto *categories = byObjectName<QListWidget>(
+                    &w, MainWindowUI::downloadCategoryListName());
+                auto *downloadNewServer = byObjectName<QPushButton>(
+                    &w, MainWindowUI::downloadNewServerButtonName());
+                check(categories != nullptr && downloadNewServer != nullptr,
+                      "★ T39.5b 前提：下载页分类列表和「服务端」那一栏那颗按钮都找得到");
+                if (categories != nullptr && downloadNewServer != nullptr) {
+                    categories->setCurrentRow(MainWindowUI::downloadCategoryServerIndex());
+                    QApplication::processEvents();
+                    bool pageSeen = false;
+                    QTimer::singleShot(0, [&pageSeen] {
+                        OverlayHost *host = currentOverlay();
+                        auto *page = host == nullptr ? nullptr
+                                                     : host->findChild<NewServerPage *>();
+                        pageSeen = page != nullptr;
+                        if (page != nullptr) {
+                            page->reject();  // 收页（这一条只管"开的是哪一页"，不建东西）
+                        }
+                    });
+                    downloadNewServer->click();  // 进嵌套循环，直到上面那一发收页
+                    QApplication::processEvents();
+                    check(pageSeen,
+                          "★★ T39.5b 下载页「服务端」那一栏那颗按钮开的就是「新建服务端」"
+                          "那一页（和实例页那颗同一个动作）");
+                    check(serverTree->topLevelItemCount() == 2,
+                          "T39.5b 收页之后服务端列表一条都没多（reject 那条路不建东西）",
+                          QString::number(serverTree->topLevelItemCount()));
+                }
+            }
         }
 
         w.close();
@@ -27446,9 +27658,16 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         //           「与 X 不兼容」）。
         //       这两样正是用户看得见的东西，比"组里的 checkedId"更接近用户实际拿到的那份。
         QTreeWidget *loaderTree = byObjectName<QTreeWidget>(&window, MainWindowUI::loaderTreeName());
+        // ★ 2026-10-18（P1）：树顶还多了一条「预设」行 —— 它不是加载器，身份是
+        //   `installPresetRowRole()`（负数）。这里按"身份 >= 0"把加载器那五条挑出来，
+        //   `rows.at(i)` 依旧等于第 i 个加载器；预设行单独在下面那一块里验。
         QVector<QTreeWidgetItem *> rows;
         for (int i = 0; loaderTree != nullptr && i < loaderTree->topLevelItemCount(); ++i) {
-            rows.append(loaderTree->topLevelItem(i));
+            QTreeWidgetItem *item = loaderTree->topLevelItem(i);
+            if (item != nullptr &&
+                item->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt() >= 0) {
+                rows.append(item);
+            }
         }
         const auto rowSubText = [loaderTree](QTreeWidgetItem *item) {
             return item != nullptr
@@ -27481,8 +27700,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             QApplication::sendEvent(viewport, &release);
             QApplication::processEvents();
         };
-        check(loaderTree != nullptr && rows.size() == names.size(),
-              "加载器那棵树按 objectName 找得回来，而且正好五条顶层条目",
+        check(loaderTree != nullptr && rows.size() == names.size() &&
+                  loaderTree->topLevelItemCount() == names.size() + 1,
+              "加载器那棵树按 objectName 找得回来：四个加载器 + 「不装」+ 一条预设行",
               QString("树 %1，条目 %2/%3")
                   .arg(loaderTree != nullptr ? QStringLiteral("有") : QStringLiteral("没有"))
                   .arg(rows.size())
@@ -27620,29 +27840,131 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   installNameHint->text());
             check(installBtn->isEnabled(), "默认名合法，「安装」是亮的");
 
-            // 实例预设那一格（2026-10-18，coding plan §7「安装流程集成」）。三件东西都在，
-            // 而且进这一页那一刻已经灌好了：第一项**固定**是「不使用预设」，它的
-            // `Qt::UserRole` 是空串（"这一趟不带预设"就是靠这个空串判的，不认文字）。
+            // 实例预设那一行（2026-10-18，coding plan §10.1 P1「OptiFine 下预设行、
+            // 紧凑弹窗、四类切换及本次安装选择」）。它现在**是加载器树上的第六行**，
+            // 不再是卡片里那三件控件（老的下拉框 / 查看 / 勾选框已经整块退场）。
+            // 这一行的身份是负数（`installPresetRowRole()`），所以加载器那张下标表
+            // 一个字节都没动；位置**固定**在「不装（纯原版）」前面一行。
             {
-                QComboBox *presetCombo =
-                    window.findChild<QComboBox *>(MainWindowUI::installPresetComboName());
-                QCheckBox *presetCheck =
-                    window.findChild<QCheckBox *>(MainWindowUI::installPresetApplyCheckName());
-                QPushButton *presetView =
-                    window.findChild<QPushButton *>(MainWindowUI::installPresetViewButtonName());
-                check(presetCombo != nullptr && presetCheck != nullptr && presetView != nullptr,
-                      "★ 安装页有「实例预设」那一格的三件东西（下拉框 / 查看内容 / 勾选框）");
-                check(presetCombo != nullptr && presetCombo->count() >= 1 &&
-                          presetCombo->itemData(0).toString().isEmpty() &&
-                          presetCombo->itemText(0) == QStringLiteral("不使用预设"),
-                      "★★ 下拉框第一项是「不使用预设」，身份是空串（装完什么都不改）",
-                      presetCombo != nullptr && presetCombo->count() > 0
-                          ? presetCombo->itemText(0) + QStringLiteral(" / ") +
-                                presetCombo->itemData(0).toString()
-                          : QStringLiteral("<没有下拉框>"));
-                check(presetCheck != nullptr && !presetCheck->isChecked(),
-                      "★ 「安装完成后应用」默认**不勾**（§10：默认自动应用要等预览/备份/错误"
-                      "报告都齐了再谈）");
+                QTreeWidgetItem *presetRow = nullptr;
+                if (loaderTree != nullptr) {
+                    for (int i = 0; i < loaderTree->topLevelItemCount(); ++i) {
+                        QTreeWidgetItem *item = loaderTree->topLevelItem(i);
+                        if (item != nullptr &&
+                            item->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole)
+                                    .toInt() == MainWindowUI::installPresetRowRole()) {
+                            presetRow = item;
+                            break;
+                        }
+                    }
+                }
+                check(presetRow != nullptr && loaderTree != nullptr &&
+                          loaderTree->indexOfTopLevelItem(presetRow) ==
+                              MainWindowUI::modLoaderNoneIndex(),
+                      "★ 加载器树上多了一条「预设」行，就排在「不装（纯原版）」前面"
+                      "（P1：OptiFine 下预设行）",
+                      QString::number(presetRow != nullptr && loaderTree != nullptr
+                                          ? loaderTree->indexOfTopLevelItem(presetRow)
+                                          : -1));
+                const QString presetSubText =
+                    presetRow != nullptr
+                        ? presetRow->data(MainWindowUI::loaderTreeKeyColumn(),
+                                          MainWindowUI::rowSubTextRole())
+                              .toString()
+                        : QString();
+                check(presetRow != nullptr &&
+                          presetRow->text(MainWindowUI::loaderTreeKeyColumn()) ==
+                              MainWindowUI::installPresetRowText() &&
+                          presetSubText == MainWindowUI::installPresetSummaryText(0),
+                      "★ 那一行写「预设」，小字一开始是「未选择」（这一趟还没挑过）",
+                      presetRow != nullptr
+                          ? presetRow->text(MainWindowUI::loaderTreeKeyColumn()) +
+                                QStringLiteral(" / ") + presetSubText
+                          : QStringLiteral("<没有这一行>"));
+
+                // 点它：开的是**内容区中间那一块紧凑弹窗**（`execPrompt`），不是另开一页、
+                // 也不是独立窗口。弹窗里四类各一页，默认停在第 0 页（游戏设置）。
+                // 检查员排在这一发前面 —— 产品那条路会阻塞在嵌套事件循环里，
+                // 定时器正是在那个循环里醒过来的（见本文件那些提示助手）。
+                const int pageBefore = gameStack->currentIndex();
+                bool pickerSeen = false;
+                bool contextOk = false;
+                bool tabsOk = false;
+                bool firstPageOk = false;
+                bool switchOk = false;
+                int tabsSeen = -1;
+                QString pickerNote;
+                const auto inspectPicker = [&] {
+                    InlineMessageBox *box = currentPrompt();
+                    if (box == nullptr) {
+                        pickerNote = QStringLiteral("没弹东西");
+                        return;
+                    }
+                    auto *picker = box->findChild<PresetInstallPicker *>();
+                    if (picker == nullptr) {
+                        pickerNote = QStringLiteral("弹的不是预设弹窗");
+                        box->close();
+                        return;
+                    }
+                    pickerSeen = true;
+                    const auto *context =
+                        picker->findChild<QLabel *>(PresetInstallPicker::contextLabelName());
+                    contextOk = context != nullptr &&
+                                context->text().contains(kPickedId);
+                    auto *tabs = picker->findChild<QTabBar *>(PresetInstallPicker::tabBarName());
+                    const QList<PresetController::InstallCategory> categories =
+                        PresetController::installCategories();
+                    tabsSeen = tabs != nullptr ? tabs->count() : -1;
+                    tabsOk = tabs != nullptr && tabs->count() == categories.size() &&
+                             categories.size() == 4;
+                    if (tabsOk) {
+                        for (int i = 0; i < categories.size(); ++i) {
+                            tabsOk = tabsOk && tabs->tabText(i) == categories.at(i).title;
+                        }
+                    }
+                    auto *stack = picker->findChild<QStackedWidget *>();
+                    firstPageOk = stack != nullptr && stack->currentIndex() == 0;
+                    // 「四类切换」：点第 2 页签，正文那一层得跟着翻。
+                    if (tabs != nullptr && stack != nullptr && tabs->count() > 2) {
+                        tabs->setCurrentIndex(2);
+                        QApplication::processEvents();
+                        switchOk = stack->currentIndex() == 2;
+                    }
+                    // 取消（第二颗）：草稿整个丢掉 —— 摘要一个字都不许变。
+                    if (auto *cancel =
+                            box->findChild<QPushButton *>(InlineMessageBox::buttonName(1))) {
+                        cancel->click();
+                    } else {
+                        box->close();
+                    }
+                };
+                QTimer::singleShot(0, inspectPicker);
+                if (presetRow != nullptr && loaderTree != nullptr) {
+                    clickRow(loaderTree, presetRow);
+                }
+                check(pickerSeen,
+                      "★★ 点「预设」那一行开的是中间那块紧凑弹窗（不是另开一页）",
+                      pickerNote);
+                check(contextOk,
+                      "★ 弹窗顶上写清了这一份基于哪个版本（安装上下文没丢）");
+                check(tabsOk && tabsSeen == 4,
+                      "★★ 弹窗里四类各一页：游戏设置 / 模组 / 资源包 / 数据包（四类切换）",
+                      QStringLiteral("页签 %1").arg(tabsSeen));
+                check(firstPageOk, "★ 弹窗默认停在第一类（游戏设置）");
+                check(switchOk, "★ 点第二个页签，正文跟着翻到第二类");
+                const QString presetSubTextAfter =
+                    presetRow != nullptr
+                        ? presetRow->data(MainWindowUI::loaderTreeKeyColumn(),
+                                          MainWindowUI::rowSubTextRole())
+                              .toString()
+                        : QString();
+                check(presetSubTextAfter == MainWindowUI::installPresetSummaryText(0),
+                      "★★ 取消那一发什么都不写：那一行小字还是「未选择」"
+                      "（P1 验收：取消不丢安装配置）",
+                      presetSubTextAfter);
+                check(gameStack->currentIndex() == pageBefore,
+                      "★ 弹窗开着、收掉之后，下面那一页都没被换走（即开不跳页）",
+                      QString("%1 → %2").arg(pageBefore).arg(gameStack->currentIndex()));
             }
 
             // Y2b. **列表是进这一页就全问出去的**，不是点开哪条才问哪条（用户原话：
@@ -28755,8 +29077,12 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         const int kForgeRow = 1;  // Y1 段钉过：第 1 条是 Forge
         const int kNoneRow = MainWindowUI::modLoaderNoneIndex();
         const auto loaderRow = [loaderTree](int index) {
-            return loaderTree != nullptr && index >= 0 && index < loaderTree->topLevelItemCount()
-                       ? loaderTree->topLevelItem(index)
+            // ★ 2026-10-18（P1）：树上多了「预设」那一行，插在「不装」前面 ——
+            //   none 之前一对一，none 及其后整体后移一位。
+            const int row = index >= 0 && index < MainWindowUI::modLoaderNoneIndex() ? index
+                                                                                      : index + 1;
+            return loaderTree != nullptr && index >= 0 && row < loaderTree->topLevelItemCount()
+                       ? loaderTree->topLevelItem(row)
                        : nullptr;
         };
         const auto loaderSubText = [](QTreeWidgetItem *item) {
@@ -29388,9 +29714,13 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 if (candidate == nullptr || candidate->isDisabled()) {
                     continue;
                 }
-                if (candidate->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt()
-                    == MainWindowUI::modLoaderNoneIndex()) {
+                const int candidateId =
+                    candidate->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt();
+                if (candidateId == MainWindowUI::modLoaderNoneIndex()) {
                     continue;  // 「不装」点它是选中，算做事 —— 不是开关
+                }
+                if (candidateId < 0) {
+                    continue;  // 「预设」那一行点它开的是弹窗（P1），不是开关
                 }
                 if (candidate->data(MainWindowUI::loaderTreeKeyColumn(),
                                     MainWindowUI::rowClearRole())
@@ -29685,6 +30015,63 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                     w10.findChild<OverlayHost *>(OverlayHost::overlayHostName());
                 check(after != nullptr && !after->isOpen(),
                       "Z2 返回箭头点过之后覆盖层收干净了（回到没有覆盖层的状态）");
+            }
+        }
+
+        // ---- Z2b 覆盖层被"收着的整页"占着时，按「账号与外观…」 ----
+        //
+        // ★ 2026-10-18（coding plan §1.4 那两处）：从前 `onAccountSkinButtonClicked()`
+        //   开头那道 `overlay->isOpen()` 会**直接 return** —— 用户在别的选项卡上逛、
+        //   「账号与外观」这一页还**收着**占住那一位时，再按入口**屏幕上什么都不会发生**。
+        //   现在先让位（静默收掉那一层）再开，和实例设置那一颗齿轮同一个规矩。
+        //
+        //   这一条**不经过面板末行**（那一颗在底栏、不在这一节的判断范围里）：它直接把
+        //   设置页那颗入口按下去 —— 那条接线和面板末行那颗接的是**同一个槽**。
+        {
+            MainWindow w10b;
+            w10b.show();
+            QApplication::processEvents();
+            QTabWidget *tabs = byObjectName<QTabWidget>(&w10b, MainWindowUI::tabWidgetName());
+            QPushButton *settingsEntry =
+                byObjectName<QPushButton>(&w10b, MainWindowUI::accountSkinSettingsButtonName());
+            OverlayHost *host =
+                w10b.findChild<OverlayHost *>(OverlayHost::overlayHostName());
+            check(tabs != nullptr && settingsEntry != nullptr && host != nullptr,
+                  "Z2b 前提：选项卡、设置页那颗「账号与外观…」入口、覆盖层都找得到");
+            if (tabs != nullptr && settingsEntry != nullptr && host != nullptr) {
+                tabs->setCurrentIndex(MainWindowUI::settingsTabIndex());
+                QApplication::processEvents();
+                bool reopenedSeen = false;
+                QTimer::singleShot(0, [&] {
+                    // 这一发跑在第一次 execPage 的嵌套循环里：那一页正开着。
+                    check(host->pageOpen(), "Z2b 前提：入口把「账号与外观」开出来了");
+                    // 用户切到主页：整页那一档**收起来**（`isOpen()` 仍真 —— 它仍占着
+                    // 那一位，这正是"点了没反应"那一档的现场）。
+                    tabs->setCurrentIndex(MainWindowUI::homeTabIndex());
+                    QApplication::processEvents();
+                    check(host->isOpen(),
+                          "Z2b 前提：切到主页之后那一页只是收起来、仍占着这一位");
+                    // 就在这一档按入口。让位那一发只是**请求**（见 runWhenOverlayFree），
+                    // 所以"重开"排在下一轮；这里再排一发断言跟在它后面（同一轮 FIFO），
+                    // 重开出来的那一页一露面就用返回箭头收掉，别让上面的 click 卡死。
+                    QMetaObject::invokeMethod(&w10b, "onAccountSkinButtonClicked",
+                                              Qt::DirectConnection);
+                    QTimer::singleShot(0, [&] {
+                        reopenedSeen = host->pageOpen();
+                        if (auto *back = host->findChild<QPushButton *>(
+                                OverlayHost::overlayBackButtonName())) {
+                            back->click();
+                        } else {
+                            host->closeOverlay();  // 兜底：至少别把测试挂死在嵌套循环里
+                        }
+                    });
+                });
+                settingsEntry->click();  // 进 execPage 的嵌套循环，直到上面那发断言收页
+                QApplication::processEvents();
+                check(reopenedSeen,
+                      "★★ Z2b 覆盖层被收着的整页占着时，按这道入口会先静默收掉它、"
+                      "再开出新页（不是「点了没反应」）");
+                check(!host->isOpen(), "Z2b 收尾：覆盖层收干净了");
             }
         }
 

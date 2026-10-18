@@ -1451,13 +1451,25 @@ int main(int argc, char *argv[]) {
             // 下标就是 VersionManager::LoaderKind 的顺序 + 末尾那条「不装」——
             // 下标和枚举之间只有一处翻译（loaderKindFromIndex），这里把它排整齐就少一个
             // "点了 A 装成 B"的机会。
-            check(loaderTree != nullptr && loaderTree->topLevelItemCount() == texts.size(),
-                  "树上正好五条顶层条目",
+            // ★ 2026-10-18（P1）：树顶多了第六行「预设」—— 它不是加载器，身份是负数的
+            //   `installPresetRowRole()`，**插在「不装」前面**（于是「不装」的树上是 5、
+            //   表里的下标仍旧是 4）。下面按"表里的下标 → 树上第几行"翻：
+            //   none 之前一对一，none 及其后整体后移一位。
+            const auto treeRowForLoader = [](int loaderIndex) {
+                return loaderIndex < MainWindowUI::modLoaderNoneIndex() ? loaderIndex
+                                                                        : loaderIndex + 1;
+            };
+            check(loaderTree != nullptr && loaderTree->topLevelItemCount() == texts.size() + 1,
+                  "树上 = 五条加载器 + 一条「预设」行",
                   loaderTree != nullptr ? QString::number(loaderTree->topLevelItemCount())
                                         : QStringLiteral("<null>"));
             for (int i = 0; i < texts.size() && loaderTree != nullptr &&
                             i < loaderTree->topLevelItemCount(); ++i) {
-                QTreeWidgetItem *item = loaderTree->topLevelItem(i);
+                QTreeWidgetItem *item = loaderTree->topLevelItem(treeRowForLoader(i));
+                if (item == nullptr) {
+                    check(false, QString("第 %1 条找得到").arg(i));
+                    continue;
+                }
                 check(item->text(MainWindowUI::loaderTreeKeyColumn()) == texts.at(i),
                       QString("第 %1 条上写的是那张表里的字").arg(i),
                       item->text(MainWindowUI::loaderTreeKeyColumn()));
@@ -1469,15 +1481,42 @@ int main(int argc, char *argv[]) {
                 check(!item->icon(MainWindowUI::loaderTreeKeyColumn()).isNull(),
                       QString("第 %1 条前面挂着标志（%2）").arg(i).arg(texts.value(i)));
             }
-            // 第 4 条是「不装」：四个加载器占 0..3 是有讲究的（见上）。
-            check(loaderTree != nullptr && loaderTree->topLevelItemCount() == 5 &&
-                      loaderTree->topLevelItem(4)->text(MainWindowUI::loaderTreeKeyColumn()) ==
+            // 第 4 条是「不装」：四个加载器占 0..3 是有讲究的（见上）。树上它是第 5 行
+            // （「预设」那一行插在它前面）。
+            check(loaderTree != nullptr && loaderTree->topLevelItemCount() == 6 &&
+                      loaderTree->topLevelItem(5)->text(MainWindowUI::loaderTreeKeyColumn()) ==
                           QStringLiteral("不装（纯原版）") &&
                       MainWindowUI::modLoaderNoneIndex() == 4,
-                  "第 4 条是「不装（纯原版）」（0..3 留给四个加载器）",
-                  loaderTree != nullptr && loaderTree->topLevelItemCount() == 5
-                      ? loaderTree->topLevelItem(4)->text(MainWindowUI::loaderTreeKeyColumn())
+                  "第 4 条是「不装（纯原版）」（0..3 留给四个加载器；树下标的映射没动，"
+                  "只是树上多了一行预设）",
+                  loaderTree != nullptr && loaderTree->topLevelItemCount() == 6
+                      ? loaderTree->topLevelItem(5)->text(MainWindowUI::loaderTreeKeyColumn())
                       : QStringLiteral("<缺>"));
+            // 那条「预设」行：字 / 身份 / 小字（「未选择」）三样。
+            {
+                QTreeWidgetItem *presetRow = loaderTree != nullptr
+                                                 ? loaderTree->topLevelItem(
+                                                       MainWindowUI::modLoaderNoneIndex())
+                                                 : nullptr;
+                check(presetRow != nullptr &&
+                          presetRow->text(MainWindowUI::loaderTreeKeyColumn()) ==
+                              MainWindowUI::installPresetRowText() &&
+                          presetRow->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole)
+                                  .toInt() == MainWindowUI::installPresetRowRole() &&
+                          presetRow->data(MainWindowUI::loaderTreeKeyColumn(),
+                                          MainWindowUI::rowSubTextRole())
+                                  .toString() == MainWindowUI::installPresetSummaryText(0) &&
+                          !presetRow->icon(MainWindowUI::loaderTreeKeyColumn()).isNull(),
+                      "★ 「预设」那一行在「不装」前面：写「预设」、身份是负数、小字「未选择」、"
+                      "前面挂着拼图（P1）",
+                      presetRow != nullptr
+                          ? presetRow->text(MainWindowUI::loaderTreeKeyColumn()) +
+                                QStringLiteral(" / ") +
+                                presetRow->data(MainWindowUI::loaderTreeKeyColumn(),
+                                                MainWindowUI::rowSubTextRole())
+                                    .toString()
+                          : QStringLiteral("<缺>"));
+            }
             // 搭出来的这一刻五条全收着：底下那条版本号是点开才出现的（用户原话
             // "点击以后展开版本"），一上来就摊开会把安装按钮挤下去。
             bool anyExpanded = false;
@@ -1553,9 +1592,11 @@ int main(int argc, char *argv[]) {
               "「安装」不在主页（它只在下载页的安装页上）");
         check(instancePage != nullptr && isAncestor(instancePage, folderList) &&
                   isAncestor(instancePage, instanceList) &&
-                  instancePage->findChildren<QPushButton *>().size() == 10,
-              // 十个 = 下面那三颗 + 搜索行那四颗筛选 chip（§7.2）+ 模式行那两颗
-              // （客户端实例 / 服务端）+ 右下那颗「新建服务端…」（§6.1 / M4）。
+                  instancePage->findChildren<QPushButton *>().size() == 11,
+              // 十一个 = 下面那三颗 + 搜索行那四颗筛选 chip（§7.2）+ 模式行那三颗
+              // （客户端实例 / 服务端 / 预设）+ 右下那颗「新建服务端…」（§6.1 / M4）。
+              // 模式行 2026-10-18 从两颗变三颗：预设管理从「设置」里搬了过来（coding
+              // plan §10.1 presets P0），这一颗是三颗里的第三颗。
               // 三个 = 左栏「游戏文件夹」那一组的两个（「添加文件夹…」+「导入整合包…」）
               // + 「分组设置…」那一颗（它在「实例列表」那个框外面的右上角）。
               // 这个数字是**故意**钉死的：往这一页加控件时，要么它是这里数得着的一个，
@@ -1577,7 +1618,7 @@ int main(int argc, char *argv[]) {
               // 建入口）。
               // 实例行行尾那三颗（齿轮/上箭头/垃圾桶）**不是按钮**：它们是代理画出来的格子，
               // 数不进来（它们的命中在 mw_check 里量）。
-              "实例页是「左文件夹 + 右实例」两张列表 + 模式行两颗 + 三颗页面按钮 + 四颗筛选 chip",
+              "实例页是「左文件夹 + 右实例」两张列表 + 模式行三颗 + 三颗页面按钮 + 四颗筛选 chip",
               QString::number(instancePage != nullptr
                                   ? instancePage->findChildren<QPushButton *>().size()
                                   : -1));
@@ -1801,18 +1842,23 @@ int main(int argc, char *argv[]) {
         // "Forge 那条上画着 NeoForge 的狐狸"，图标这东西没人会去逐条核对，只能靠这条钉住。
         const int iconSize = MainWindowUI::versionTreeIconSize();
         bool iconsWired = loaderTree != nullptr &&
-                          loaderTree->topLevelItemCount() == 5;
+                          loaderTree->topLevelItemCount() == 6;
         for (int i = 0; loaderTree != nullptr && i < loaderTree->topLevelItemCount(); ++i) {
-            const QIcon icon = loaderTree->topLevelItem(i)->icon(MainWindowUI::loaderTreeKeyColumn());
+            QTreeWidgetItem *row = loaderTree->topLevelItem(i);
+            const int id = row->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt();
+            if (id < 0 || id == MainWindowUI::modLoaderNoneIndex()) {
+                continue;  // 「预设」和「不装」各自有自己的图（下面分开验）
+            }
+            const QIcon icon = row->icon(MainWindowUI::loaderTreeKeyColumn());
             iconsWired = iconsWired && !icon.isNull() &&
                          icon.pixmap(iconSize, iconSize).toImage() ==
-                             VersionIcons::loaderMark(i, iconSize).toImage();
+                             VersionIcons::loaderMark(id, iconSize).toImage();
         }
-        check(iconsWired, "五条上各是自己那个加载器的标志（图标和下标一一对应，没串行）",
+        check(iconsWired, "四条加载器上各是自己那个加载器的标志（图标和下标一一对应，没串行）",
               QStringLiteral("size=%1").arg(iconSize));
         const QIcon noneIcon =
-            loaderTree != nullptr && loaderTree->topLevelItemCount() == 5
-                ? loaderTree->topLevelItem(MainWindowUI::modLoaderNoneIndex())
+            loaderTree != nullptr && loaderTree->topLevelItemCount() == 6
+                ? loaderTree->topLevelItem(MainWindowUI::modLoaderNoneIndex() + 1)
                       ->icon(MainWindowUI::loaderTreeKeyColumn())
                 : QIcon();
         check(!noneIcon.isNull() &&
@@ -2962,15 +3008,16 @@ int main(int argc, char *argv[]) {
               "那棵树自己不画边框（四周已经是那张卡片，再套一圈就是框套框）",
               loaderTree != nullptr ? QString::number(int(loaderTree->frameShape()))
                                     : QStringLiteral("<null>"));
-        // 树的高度是**按现在展开了几条**算出来的（五条收着就是 5 行高 + 边框）：
-        // 写死成"铺满整页"的话，收着的时候底下空一大片、安装按钮还被顶到窗口最底下。
-        const int expectedRows = 5;  // 刚搭好时五条全收着（见上面那节）
+        // 树的高度是**按现在展开了几条**算出来的（六条收着 —— 五条加载器 + 预设行 ——
+        // 就是 6 行高 + 边框）：写死成"铺满整页"的话，收着的时候底下空一大片、
+        // 安装按钮还被顶到窗口最底下。
+        const int expectedRows = 6;  // 刚搭好时六条全收着（见上面那节）
         check(!rTree.isNull() &&
                   rTree.height() >= expectedRows * MainWindowUI::versionTreeRowHeight() &&
                   rTree.height() <= expectedRows * MainWindowUI::versionTreeRowHeight() +
                                          2 * loaderTree->frameWidth() + 2,
-              "收着的时候那棵树正好五条那么高（不多不少，底下不留一大片空白）",
-              QString("tree.h=%1 5行+边框=%2")
+              "收着的时候那棵树正好六条那么高（不多不少，底下不留一大片空白）",
+              QString("tree.h=%1 6行+边框=%2")
                   .arg(rTree.height())
                   .arg(expectedRows * MainWindowUI::versionTreeRowHeight() +
                        2 * loaderTree->frameWidth()));
@@ -3448,7 +3495,10 @@ int main(int argc, char *argv[]) {
         bool filterMaxWidthOk = stack != nullptr;
         QString filterRowProblem;
         for (int i = 0; i < keys.size() && stack != nullptr; ++i) {
-            if (i == MainWindowUI::downloadCategoryGameIndex()) {
+            // 「游戏」和「服务端」都不是资源搜索页（前者是版本树 + 安装页，后者只有一句
+            // 说明 + 一颗「新建服务端…」），这一节只量后面那几张资源页。
+            if (i == MainWindowUI::downloadCategoryGameIndex() ||
+                i == MainWindowUI::downloadCategoryServerIndex()) {
                 continue;
             }
             QWidget *page = stack->widget(i);
@@ -3602,7 +3652,10 @@ int main(int argc, char *argv[]) {
             bool typeBoxEverywhere = true;
             QString detail;
             for (int i = 0; i < keys.size(); ++i) {
-                if (i == MainWindowUI::downloadCategoryGameIndex()) {
+                // 「游戏」「服务端」都没有筛子（后者连搜索框都没有），跳过它们 ——
+                // 一起查的话报的是"控件没找到"，那是在查一件不存在的东西。
+                if (i == MainWindowUI::downloadCategoryGameIndex() ||
+                    i == MainWindowUI::downloadCategoryServerIndex()) {
                     continue;
                 }
                 const QString key = keys.value(i);
@@ -3644,6 +3697,66 @@ int main(int argc, char *argv[]) {
                   importButton == nullptr ? QStringLiteral("没找到") : importButton->objectName());
         }
 
+        // ---- 「服务端」那一栏（2026-10-18，coding plan §1.4）----
+        //
+        // 它和「游戏」一样**不是资源搜索页**：没有搜索框、没有三层树、没有筛子，
+        // 也没有行尾/页头那颗「刷新」（它不向任何资源站问东西）。那一页只有一句说明
+        // + 一颗「新建服务端…」，按下去走的路和实例页那颗完全一样。
+        // 这一节钉的是"里头到底摆了哪几件"——接线的活（按下去真的开了那一页）在 mw_check。
+        {
+            const int serverIndex = MainWindowUI::downloadCategoryServerIndex();
+            check(serverIndex >= 0 && serverIndex < keys.size() &&
+                      keys.value(serverIndex) == QStringLiteral("server") &&
+                      texts.value(serverIndex) == QStringLiteral("服务端"),
+                  "★ 「服务端」是分类表里的最后一栏（键 server / 字「服务端」）",
+                  QStringLiteral("index=%1 key=%2 text=%3")
+                      .arg(serverIndex)
+                      .arg(keys.value(serverIndex), texts.value(serverIndex)));
+            QWidget *page = stack->widget(serverIndex);
+            check(page != nullptr && page->objectName() == MainWindowUI::downloadServerPageName(),
+                  "★ 那一栏有自己的一页（objectName 按约定）",
+                  page != nullptr ? page->objectName() : QStringLiteral("<null>"));
+            auto *hint = page == nullptr
+                             ? nullptr
+                             : page->findChild<QLabel *>(MainWindowUI::downloadServerHintName());
+            auto *newServer = page == nullptr
+                                  ? nullptr
+                                  : page->findChild<QPushButton *>(
+                                        MainWindowUI::downloadNewServerButtonName());
+            check(hint != nullptr && hint->text() == MainWindowUI::downloadServerHintText(),
+                  "★ 那一页那句说明逐字就是约定的那一句（装好之后去「管理 → 服务端」）",
+                  hint != nullptr ? hint->text() : QStringLiteral("<没找到>"));
+            check(newServer != nullptr && newServer->text() == MainWindowUI::newServerText(),
+                  "★ 那一页那颗「新建服务端…」在、字和实例页那颗同一句",
+                  newServer != nullptr ? newServer->text() : QStringLiteral("<没找到>"));
+            check(ui.getDownloadNewServerButton() == newServer,
+                  "★ 按访问器取回来的就是那一颗（接线读的正是它）");
+            // 资源搜索那一套在这一页上**一件都没有** —— 少这一条，哪天有人把服务端
+            // 当成第六张资源表塞进那个循环，界面上会长出一整行筛子 + 一棵空树。
+            check(ui.getDownloadSearchEdit(QStringLiteral("server")) == nullptr &&
+                      ui.getDownloadResourceTree(QStringLiteral("server")) == nullptr &&
+                      ui.getDownloadFilterVersionCombo(QStringLiteral("server")) == nullptr &&
+                      ui.getDownloadFilterTypeBox(QStringLiteral("server")) == nullptr,
+                  "★ 服务端那一页没有搜索框 / 资源树 / 筛子（它不是资源搜索页）");
+            // 页头那句说明也得是这一栏自己的（别掉到「游戏」那句上）。
+            check(MainWindowUI::downloadHeaderSubtitle(serverIndex) ==
+                      QStringLiteral("新建一个服务端；装好之后在「管理 → 服务端」里启动和看控制台"),
+                  "★ 页头说明在「服务端」那一栏说的是这一页能干什么",
+                  MainWindowUI::downloadHeaderSubtitle(serverIndex));
+            // 页头那颗「刷新」在服务端那一栏**收起来**（那一页没有"重新问一遍"这回事）。
+            QPushButton *headerRefresh = ui.getDownloadHeaderRefreshButton();
+            ui.setDownloadHeaderRow(serverIndex);
+            const bool hiddenOnServer = headerRefresh != nullptr && headerRefresh->isHidden();
+            ui.setDownloadHeaderRow(MainWindowUI::downloadCategoryGameIndex());
+            check(headerRefresh != nullptr && hiddenOnServer && !headerRefresh->isHidden(),
+                  "★ 页头那颗刷新在「服务端」那一栏收起来、翻回「游戏」又露出来",
+                  headerRefresh == nullptr
+                      ? QStringLiteral("<没找到>")
+                      : QStringLiteral("服务端上藏着=%1 游戏上藏着=%2")
+                            .arg(hiddenOnServer)
+                            .arg(headerRefresh->isHidden()));
+        }
+
         // 「游戏」那页**不在**那几页里：它的形状是另外一套（版本树 + 安装页），
         // 所以按它的键去找搜索框/资源树必须都找不到。
         // NOTE: 不能断言"那一页上没有 QLineEdit" —— 它上面**有**一个（安装页那个实例名
@@ -3662,13 +3775,15 @@ int main(int argc, char *argv[]) {
         // 那种错法是静默的：点「光影」搜出来的是一堆模组。
         {
             const QList<ResourceCatalog::Kind> kinds = ResourceCatalog::allKinds();
-            bool sameSet = kinds.size() == keys.size() - 1;
+            // 分类表里有两栏不是资源搜索页：「游戏」和「服务端」，所以是对 kind 数 + 2。
+            bool sameSet = kinds.size() == keys.size() - 2;
             QStringList kindKeys;
             for (ResourceCatalog::Kind kind : kinds) {
                 kindKeys.append(ResourceCatalog::kindKey(kind));
             }
             for (int i = 0; i < keys.size(); ++i) {
-                if (i == MainWindowUI::downloadCategoryGameIndex()) {
+                if (i == MainWindowUI::downloadCategoryGameIndex() ||
+                    i == MainWindowUI::downloadCategoryServerIndex()) {
                     continue;
                 }
                 ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
@@ -3849,6 +3964,9 @@ int main(int argc, char *argv[]) {
                                  : versionTreeForFont->font().pointSize()));
 
         // ② 每一条都挂着那个标记（少一条就是"这一类没有刷新"）
+        // ★ 2026-10-18：「服务端」那一栏**故意没有**这一格 —— 它不向任何资源站问东西，
+        //   「刷新」在那儿没有可做的事。所以判据是"除它以外一条不落"。
+        const int serverRefreshIndex = MainWindowUI::downloadCategoryServerIndex();
         int marked = 0;
         for (int i = 0; categoryList != nullptr && i < categoryList->count(); ++i) {
             if (categoryList->item(i) != nullptr &&
@@ -3856,9 +3974,13 @@ int main(int argc, char *argv[]) {
                 ++marked;
             }
         }
-        check(categoryList != nullptr && marked == categoryList->count() &&
-                  marked == MainWindowUI::downloadCategoryKeys().size(),
-              "五个条目**一条不落**都挂着刷新那一格",
+        check(categoryList != nullptr && marked == categoryList->count() - 1 &&
+                  marked == MainWindowUI::downloadCategoryKeys().size() - 1 &&
+                  serverRefreshIndex >= 0 && serverRefreshIndex < categoryList->count() &&
+                  categoryList->item(serverRefreshIndex) != nullptr &&
+                  !categoryList->item(serverRefreshIndex)
+                       ->data(MainWindowUI::rowRefreshRole()).toBool(),
+              "除「服务端」以外**一条不落**都挂着刷新那一格（服务端那一栏故意没有）",
               QString("挂上的=%1 条目=%2")
                   .arg(marked)
                   .arg(categoryList == nullptr ? -1 : categoryList->count()));
@@ -4408,11 +4530,12 @@ int main(int argc, char *argv[]) {
     // 那棵树刚搭好时**一个子条目都没有**：版本列表要点开某一条加载器才去拉
     // （拉的过程和结果都由 MainWindow 灌，见 mw_check 那几节）。
     {
-        bool noChildren = loaderTree != nullptr && loaderTree->topLevelItemCount() == 5;
+        bool noChildren = loaderTree != nullptr && loaderTree->topLevelItemCount() == 6;
         for (int i = 0; loaderTree != nullptr && i < loaderTree->topLevelItemCount(); ++i) {
             noChildren = noChildren && loaderTree->topLevelItem(i)->childCount() == 0;
         }
-        check(noChildren, "开局五条底下都是空的（版本列表要点开那条才去拉）");
+        check(noChildren, "开局六条（五条加载器 + 预设行）底下都是空的"
+                          "（版本列表要点开那条才去拉）");
     }
     // 两个占位串必须**都非空**：空串会让 QComboBox 在往空模型里插第一批数据时
     // 静默选中第 0 项（qcombobox.cpp:1753-1759）。界面初始值用"一个都没装"那一个。
@@ -4442,14 +4565,14 @@ int main(int argc, char *argv[]) {
               "树上没有任何条目是选中/当前状态（选中是 MainWindow 那一处的事）",
               loaderTree != nullptr ? QString::number(loaderTree->selectedItems().size())
                                     : QStringLiteral("<null>"));
-        // 五条 loading 都点得动：这一组里没有"灰着不让人点"的条目 —— 用户点到哪条
+        // 六条都点得动：这一组里没有"灰着不让人点"的条目 —— 用户点到哪条
         // 就是改用哪条（本启动器一次只装一个加载器，"不兼容"说的是不能同时装，
-        // 不是这一条点不得）。
-        bool allEnabled = loaderTree != nullptr && loaderTree->topLevelItemCount() == 5;
+        // 不是这一条点不得）。「预设」那一行点它开的是弹窗（P1），一样要可点。
+        bool allEnabled = loaderTree != nullptr && loaderTree->topLevelItemCount() == 6;
         for (int i = 0; loaderTree != nullptr && i < loaderTree->topLevelItemCount(); ++i) {
             allEnabled = allEnabled && loaderTree->topLevelItem(i)->flags().testFlag(Qt::ItemIsEnabled);
         }
-        check(allEnabled, "五条顶层条目一律可点（没有灰着的那一条）");
+        check(allEnabled, "六条顶层条目一律可点（没有灰着的那一条）");
     }
 
     std::printf("===== E2. 滚轮防护（行为验证） =====\n");
@@ -8755,7 +8878,9 @@ int main(int argc, char *argv[]) {
             int resourceTreesTracked = 0;
             int resourceTreesExpected = 0;
             for (int i = 0; i < allCategoryKeys.size(); ++i) {
-                if (i == gameIndex) {
+                // 「游戏」和「服务端」都没有资源表（前者有版本树，后者只有一句说明 +
+                // 一颗「新建服务端…」），跳过它们。
+                if (i == gameIndex || i == MainWindowUI::downloadCategoryServerIndex()) {
                     continue;
                 }
                 ++resourceTreesExpected;
@@ -18619,6 +18744,10 @@ int main(int argc, char *argv[]) {
             qobject_cast<QLineEdit *>(child(AccountSkinDialog::offlineNameEditName()));
         QPushButton *addOfflineBtn =
             qobject_cast<QPushButton *>(child(AccountSkinDialog::addOfflineButtonName()));
+        QPushButton *pickOfflineBtn = qobject_cast<QPushButton *>(
+            child(AccountSkinDialog::offlineSkinButtonName()));
+        QPushButton *resetOfflineBtn = qobject_cast<QPushButton *>(
+            child(AccountSkinDialog::offlineSkinResetButtonName()));
         SkinViewer *viewer = qobject_cast<SkinViewer *>(child(AccountSkinDialog::viewerName()));
 
         const bool allThere = accountList != nullptr && capeList != nullptr &&
@@ -18628,8 +18757,9 @@ int main(int argc, char *argv[]) {
                               hideCapeBtn != nullptr && closeBtn != nullptr &&
                               statusLabel != nullptr && variantCombo != nullptr &&
                               viewer != nullptr && offlineEdit != nullptr &&
-                              addOfflineBtn != nullptr;
-        check(allThere, "十五块控件都按 objectName 找得到");
+                              addOfflineBtn != nullptr && pickOfflineBtn != nullptr &&
+                              resetOfflineBtn != nullptr;
+        check(allThere, "十七块控件都按 objectName 找得到");
         // NOTE: 下面整段都挂在这个 if 里 —— 少一块控件时直接解引用会段错误，
         //       那样后半套断言的结果就全看不到了。
         if (allThere) {
@@ -18673,6 +18803,39 @@ int main(int argc, char *argv[]) {
             check(!switchBtn->isEnabled() && !removeBtn->isEnabled() &&
                       !applyCapeBtn->isEnabled(),
                   "还没喂数据时，三个「对所选做事」的按钮都灰着");
+
+            // ---- X1b 离线账号的「换一张…」/「恢复默认外观」 ----
+            // 两组按钮**互斥**：正版账号走「上传皮肤」（那是 Mojang 上传），离线账号走本地
+            // 挑图 —— 两个一起露会让用户以为离线也能上传。
+            check(pickOfflineBtn->text() == AccountSkinDialog::offlineSkinButtonText() &&
+                      resetOfflineBtn->text() ==
+                          AccountSkinDialog::offlineSkinResetButtonText(),
+                  "离线那两颗的文字是产品文案",
+                  pickOfflineBtn->text() + " / " + resetOfflineBtn->text());
+            check(pickOfflineBtn->toolTip() ==
+                          AccountSkinDialog::offlineSkinButtonToolTip() &&
+                      resetOfflineBtn->toolTip() ==
+                          AccountSkinDialog::offlineSkinResetButtonToolTip(),
+                  "两颗的 tooltip 都在（说清只影响启动器里的预览）");
+            check(!uploadBtn->isHidden() && pickOfflineBtn->isHidden() &&
+                      resetOfflineBtn->isHidden(),
+                  "默认（正版 / 还没喂状态）：只露「上传皮肤」");
+            dialog.setOfflineSkinState(true, /*hasCustomSkin=*/false);
+            QApplication::processEvents();
+            check(uploadBtn->isHidden() && !pickOfflineBtn->isHidden() &&
+                      !resetOfflineBtn->isHidden(),
+                  "离线账号：「上传皮肤」收起来，露出「换一张…」「恢复默认外观」");
+            check(pickOfflineBtn->isEnabled() && !resetOfflineBtn->isEnabled(),
+                  "还没手动挑过时，「恢复默认外观」灰着（没东西可恢复）");
+            dialog.setOfflineSkinState(true, /*hasCustomSkin=*/true);
+            QApplication::processEvents();
+            check(resetOfflineBtn->isEnabled(),
+                  "手动挑过之后，「恢复默认外观」可点");
+            dialog.setOfflineSkinState(false, /*hasCustomSkin=*/false);
+            QApplication::processEvents();
+            check(!uploadBtn->isHidden() && pickOfflineBtn->isHidden() &&
+                      resetOfflineBtn->isHidden(),
+                  "切回正版账号：又只剩「上传皮肤」（两组不共存）");
 
             // ---- X2 一个账号都没有：摆一句说明，而不是一片空白 ----
             // 空白让人以为"还没加载完"，于是一直等 —— 一行说明才是"就是没有"。
@@ -29965,32 +30128,42 @@ int main(int argc, char *argv[]) {
             ui.getInstanceModeButton(MainWindowUI::InstanceMode::Client);
         QPushButton *serverChip =
             ui.getInstanceModeButton(MainWindowUI::InstanceMode::Server);
+        QPushButton *presetChip =
+            ui.getInstanceModeButton(MainWindowUI::InstanceMode::Preset);
         QStackedWidget *modeStack = ui.getInstanceModeStack();
         QTreeWidget *serverTree = ui.getServerList();
         QLabel *serverEmpty = ui.getServerEmptyLabel();
         QPushButton *newServer = ui.getNewServerButton();
+        QWidget *presetHost = ui.getInstancePresetPage();
         const bool modeThere = clientChip != nullptr && serverChip != nullptr &&
-                               modeStack != nullptr && serverTree != nullptr &&
-                               serverEmpty != nullptr && newServer != nullptr;
+                               presetChip != nullptr && modeStack != nullptr &&
+                               serverTree != nullptr && serverEmpty != nullptr &&
+                               newServer != nullptr && presetHost != nullptr;
         check(modeThere,
-              "U34.0 前提：模式行那两颗 chip / 换页容器 / 服务端那棵树 / 空状态那句 / "
-              "「新建服务端…」都按 objectName 找得到");
+              "U34.0 前提：模式行那三颗 chip / 换页容器 / 服务端那棵树 / 空状态那句 / "
+              "「新建服务端…」/ 预设那一页的宿主都按 objectName 找得到");
         if (modeThere) {
-            // ---------- ① 两颗 chip：文字、能亮/能灭、初始停在「客户端实例」 ----------
+            // ---------- ① 三颗 chip：文字、能亮/能灭、初始停在「客户端实例」 ----------
             check(clientChip->isCheckable() && serverChip->isCheckable() &&
+                      presetChip->isCheckable() &&
                       clientChip->text() == MainWindowUI::instanceModeText(
                                                 MainWindowUI::InstanceMode::Client) &&
                       serverChip->text() == MainWindowUI::instanceModeText(
-                                                MainWindowUI::InstanceMode::Server),
-                  "★ U34.1 两颗模式 chip 的文字逐字是约定的「客户端实例 / 服务端」，而且都是"
-                  "「能亮/能灭」的那一档（它们要的是「正停在哪一边」这个状态）",
-                  QStringLiteral("%1 / %2").arg(clientChip->text(), serverChip->text()));
-            check(!clientChip->toolTip().isEmpty() && !serverChip->toolTip().isEmpty(),
-                  "★ U34.1 两颗各自挂着一句说明（悬停能看出这两半各自管什么）");
-            check(modeStack->count() == 2 && modeStack->currentIndex() == 0 &&
-                      clientChip->isChecked() && !serverChip->isChecked(),
+                                                MainWindowUI::InstanceMode::Server) &&
+                      presetChip->text() == MainWindowUI::instanceModeText(
+                                                MainWindowUI::InstanceMode::Preset),
+                  "★ U34.1 三颗模式 chip 的文字逐字是约定的「客户端实例 / 服务端 / 预设」，"
+                  "而且都是「能亮/能灭」的那一档（它们要的是「正停在哪一边」这个状态）",
+                  QStringLiteral("%1 / %2 / %3")
+                      .arg(clientChip->text(), serverChip->text(), presetChip->text()));
+            check(!clientChip->toolTip().isEmpty() && !serverChip->toolTip().isEmpty() &&
+                      !presetChip->toolTip().isEmpty(),
+                  "★ U34.1 三颗各自挂着一句说明（悬停能看出这半页各自管什么）");
+            check(modeStack->count() == 3 && modeStack->currentIndex() == 0 &&
+                      clientChip->isChecked() && !serverChip->isChecked() &&
+                      !presetChip->isChecked(),
                   "★★ U34.2 起手停在「客户端实例」：换页容器的第 0 页 + 左边那颗勾着、"
-                  "右边那颗没勾",
+                  "另外两颗没勾",
                   QStringLiteral("页数=%1 停在第%2页").arg(modeStack->count())
                       .arg(modeStack->currentIndex()));
 
@@ -29998,17 +30171,25 @@ int main(int argc, char *argv[]) {
             ui.setInstanceMode(MainWindowUI::InstanceMode::Server);
             QApplication::processEvents();
             check(modeStack->currentIndex() == 1 && serverChip->isChecked() &&
-                      !clientChip->isChecked(),
-                  "★★ U34.2 切到服务端：换页容器停到第 1 页，而且**勾跟着换**（两颗是一组"
-                  "互斥的 chip，不是两颗各自能按的按钮）",
-                  QStringLiteral("停在第%1页 服务端勾=%2 客户端勾=%3")
+                      !clientChip->isChecked() && !presetChip->isChecked(),
+                  "★★ U34.2 切到服务端：换页容器停到第 1 页，而且**勾跟着换**（三颗是一组"
+                  "互斥的 chip，不是各自能按的按钮）",
+                  QStringLiteral("停在第%1页 服务端勾=%2 客户端勾=%3 预设勾=%4")
                       .arg(modeStack->currentIndex())
                       .arg(serverChip->isChecked() ? 1 : 0)
-                      .arg(clientChip->isChecked() ? 1 : 0));
+                      .arg(clientChip->isChecked() ? 1 : 0)
+                      .arg(presetChip->isChecked() ? 1 : 0));
+            ui.setInstanceMode(MainWindowUI::InstanceMode::Preset);
+            QApplication::processEvents();
+            check(modeStack->currentIndex() == 2 && presetChip->isChecked() &&
+                      !clientChip->isChecked() && !serverChip->isChecked() &&
+                      modeStack->widget(2) == presetHost,
+                  "★★ U34.2 切到预设：停在第 2 页（那一页正是 `instancePresetPage` 宿主），"
+                  "勾也换过去");
             ui.setInstanceMode(MainWindowUI::InstanceMode::Client);
             QApplication::processEvents();
             check(modeStack->currentIndex() == 0 && clientChip->isChecked() &&
-                      !serverChip->isChecked(),
+                      !serverChip->isChecked() && !presetChip->isChecked(),
                   "★ U34.2 切回客户端：又回到第 0 页、勾也换回来");
 
             // ---------- ③ 那一行摆在哪：和换页容器同栏、在它上面 ----------
@@ -31697,16 +31878,23 @@ int main(int argc, char *argv[]) {
 
         // 切到新加那两件：`showTool()` 真的换到它们各自那一片（不是只换了 chip 的勾）。
         page.showTool(ToolboxPage::Tool::Beacon);
+        // 显隐落在 QStackedWidget 那一页（面板外面的滚动容器）上 —— 面板是它的子控件，
+        // 拿 `panel->isHidden()` 量「前一片收起来」永远是绿的。
         auto *beaconPanel =
             page.findChild<QWidget *>(ToolboxPage::toolPanelName(ToolboxPage::Tool::Beacon));
         auto *brewPanel =
             page.findChild<QWidget *>(ToolboxPage::toolPanelName(ToolboxPage::Tool::Brewing));
+        auto *beaconPage =
+            page.findChild<QWidget *>(ToolboxPage::toolPageName(ToolboxPage::Tool::Beacon));
+        auto *brewPage =
+            page.findChild<QWidget *>(ToolboxPage::toolPageName(ToolboxPage::Tool::Brewing));
         check(page.currentTool() == ToolboxPage::Tool::Beacon && beaconPanel != nullptr
-                  && brewPanel != nullptr && !beaconPanel->isHidden(),
+                  && brewPanel != nullptr && beaconPage != nullptr && brewPage != nullptr
+                  && !beaconPage->isHidden(),
               "★★ U39 `showTool(Beacon)` 换到信标那一片（chip 与 QStackedWidget 的次序同源）");
         page.showTool(ToolboxPage::Tool::Brewing);
-        check(page.currentTool() == ToolboxPage::Tool::Brewing && !brewPanel->isHidden()
-                  && beaconPanel->isHidden(),
+        check(page.currentTool() == ToolboxPage::Tool::Brewing && !brewPage->isHidden()
+                  && beaconPage->isHidden(),
               "★★ U39 再换到酿造那一片：前一片收起来、这一片露出来");
         page.close();
         QApplication::processEvents();
@@ -31896,12 +32084,17 @@ int main(int argc, char *argv[]) {
             page.findChild<QWidget *>(ToolboxPage::toolPanelName(ToolboxPage::Tool::Banner));
         auto *trimPanel =
             page.findChild<QWidget *>(ToolboxPage::toolPanelName(ToolboxPage::Tool::Trim));
+        auto *bannerPage =
+            page.findChild<QWidget *>(ToolboxPage::toolPageName(ToolboxPage::Tool::Banner));
+        auto *trimPage =
+            page.findChild<QWidget *>(ToolboxPage::toolPageName(ToolboxPage::Tool::Trim));
         check(page.currentTool() == ToolboxPage::Tool::Banner && bannerPanel != nullptr
-                  && trimPanel != nullptr && !bannerPanel->isHidden(),
+                  && trimPanel != nullptr && bannerPage != nullptr && trimPage != nullptr
+                  && !bannerPage->isHidden(),
               "★★ U40 `showTool(Banner)` 换到旗帜那一片");
         page.showTool(ToolboxPage::Tool::Trim);
-        check(page.currentTool() == ToolboxPage::Tool::Trim && !trimPanel->isHidden()
-                  && bannerPanel->isHidden(),
+        check(page.currentTool() == ToolboxPage::Tool::Trim && !trimPage->isHidden()
+                  && bannerPage->isHidden(),
               "★★ U40 再换到纹饰那一片：前一片收起来、这一片露出来");
         page.close();
         QApplication::processEvents();

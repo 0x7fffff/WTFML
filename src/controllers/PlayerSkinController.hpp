@@ -10,9 +10,9 @@
  * 输出是"屏幕上该画哪一张皮肤 + 右栏那句话该说哪一句 + 这张脸记在谁名下"。这里面有真
  * 决策 ——
  *
- *   · **哪一张**：离线账号先按游戏自己的规矩算官方默认皮肤（`DefaultSkin`，图在客户端
- *     JAR 里），算不出来才去 MineSkin 随机挑一张；正版账号先用盘上那份档案画出来，
- *     再后台刷一次。
+ *   · **哪一张**：离线账号先看**用户自己挑的那张**（`OfflineSkin`：「换一张…」），没有才按
+ *     游戏自己的规矩算官方默认皮肤（`DefaultSkin`，图在客户端 JAR 里），再算不出来才去
+ *     MineSkin 随机挑一张；正版账号先用盘上那份档案画出来，再后台刷一次。
  *   · **认领**：贴图是按 URL 分开回来的（皮肤一张、披风一张），回来时得认得出"这一张是
  *     谁的、是皮肤还是披风"，中间用户可能已经切了账号 —— 过期的整份丢掉。
  *   · **记账的时机**：随机挑的那一张**等字节真落在盘上**才写 `skins/random-<uuid>.txt`
@@ -69,8 +69,11 @@ public:
         /// 有请求在路上（那句话是"正在获取"还是"取不到"就看它）。
         bool fetching = false;
         /// 手上这张是"照游戏规矩算出来的官方默认皮肤"时，是**按哪个实例**算的（版本 id）。
-        /// 空 = 手上那张不是算出来的那一张（是随机挑的、或者正版档案里那张）。
+        /// 空 = 手上那张不是算出来的那一张（是手动挑的、随机挑的、或者正版档案里那张）。
         QString offlineDefaultSkinVersionId;
+        /// 手上这张是**用户自己挑的**（「账号与外观」里那颗「换一张…」，见 `OfflineSkin`）。
+        /// 和上面那格互斥：手动挑的那张不按实例算，换实例也不会变。
+        bool offlineCustomSkin = false;
     };
 
     PlayerSkinController(AuthManager *auth, PlayerSkinStore *store, RandomSkinStore *randomStore,
@@ -170,6 +173,9 @@ private:
     // NOTE: 它有两个读者 —— 那句话要按它说出版本名，底栏面板要按它去猜缓存路径；两处都
     //       是"用户换版本时要按新版本**重算**"这件事的产物。
     QString m_offlineDefaultSkinVersion;
+    // 手上这张是用户在「账号与外观」里自己挑的那张（见 `OfflineSkin`）。换账号 / 换版本
+    // 都重算，所以它只在**这一轮**算出来之后才为真（reload() 开头会清掉）。
+    bool m_offlineCustomSkin = false;
     // 随机挑中的那一张（地址 + 它该记在哪个账号名下）。**挑的那一刻不落盘** ——
     // 等贴图真的到了盘上再由 onTextureReady() 记账，见那边那段。空串 = 没有待记的。
     QString m_pendingRandomSkinUrl;

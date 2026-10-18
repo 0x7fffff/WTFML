@@ -80,6 +80,8 @@ struct PresetApplyRequest {
     bool gameRunning = false;
     /// 用户已经明确点过"覆盖"了。第一趟**必须**是 false。
     bool replaceConfirmed = false;
+    /// 这个实例的游戏版本有没有数据包（默认 true，见 `TargetSnapshot::supportsDataPacks`）。
+    bool supportsDataPacks = true;
 };
 
 /// 每一段这一趟怎么样（= §7 计划表右边那一列的"实际版"）。
@@ -98,6 +100,9 @@ struct PresetApplyRow {
     int added = 0;         ///< 其中目标上原来没有的
     int removed = 0;       ///< 被拿掉的（覆盖档）
     int skippedItems = 0;  ///< 预设里有、这一趟没动的项数
+    /// 目标上还没有对应世界、记成「待应用」的项数（数据包那一段）。★ 它**不是** `written`：
+    /// 东西没进任何存档，等那个世界建出来之后才挪得进去（见 `DataPackPreset.hpp`）。
+    int deferred = 0;
 
     /// 一句话（`blocked` 时是给人看的原文，**原样能显示**）。
     QString problem;
@@ -122,6 +127,7 @@ struct PresetApplyResult {
 
     int written = 0;
     int removed = 0;
+    int deferred = 0;
     QStringList details;
 
     /// 这一趟是不是**什么都没写**（跳过 / 要选择 / 全做不了）。

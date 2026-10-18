@@ -620,13 +620,36 @@ public:
     /// 返回值，界面这边不抄一份规则）。名字能用的时候它是空的、也藏起来 —— 于是名字框、
     /// 加载器树、安装按钮在正常情况下一个像素都不动。
     static QString installNameErrorName() { return QStringLiteral("installNameError"); }
-    /// 安装页「实例预设」那一小节：选一份预设、装好之后应用（coding plan §7）。
-    /// ★ 控件本身**不读盘**：盘上有哪些预设、默认是哪一份，全由 MainWindow 灌
-    ///   （`PresetController::fillInstallSelector()`）。组合框里每一项的 `Qt::UserRole`
-    ///   是预设 id，**空串那一项 = 不使用预设**。
-    static QString installPresetComboName() { return QStringLiteral("installPresetCombo"); }
-    static QString installPresetViewButtonName() { return QStringLiteral("installPresetViewButton"); }
-    static QString installPresetApplyCheckName() { return QStringLiteral("installPresetApplyCheck"); }
+    /// 安装页那棵树里「预设」那一行（coding plan §7.1 那张图：就在 OptiFine 下面、
+    /// 「不装（纯原版）」上面）。
+    ///
+    /// ★ 它**不是加载器**：`Qt::UserRole` 是下面那个哨兵值，不是 `modLoaderOptionNames()`
+    ///   的下标。点它 = 开那张四类的紧凑弹窗（`PresetInstallPicker`），不是选加载器。
+    ///   行号不写死：摆的时候插在 `modLoaderNoneIndex()` 那一条**前面**，加载器那五条的
+    ///   UserRole 一个都不动（身份认的是 UserRole，不是行号）。
+    static int installPresetRowRole() { return -1; }
+    /// 那一行左边那两个字（树里没有 objectName，认这一行就靠 UserRole + 这句话）。
+    static QString installPresetRowText() {
+        return QCoreApplication::translate("MainWindowUI", "预设");
+    }
+    /// 那一行第二行小字（摘要）：一类都没选 = 「未选择」，选了就说几类。
+    /// **唯一出处** —— MainWindow::updateInstallPresetSummary() 和验证工程都读它。
+    static QString installPresetSummaryText(int selectedCategories) {
+        return selectedCategories <= 0
+                   ? QCoreApplication::translate("MainWindowUI", "未选择")
+                   : QCoreApplication::translate("MainWindowUI", "已选择 %1 类")
+                         .arg(selectedCategories);
+    }
+    /// 那张弹窗的标题、底上两颗按钮的字。
+    static QString installPresetPickerTitle() {
+        return QCoreApplication::translate("MainWindowUI", "实例预设");
+    }
+    static QString installPresetConfirmText() {
+        return QCoreApplication::translate("MainWindowUI", "确定选择");
+    }
+    static QString installPresetCancelText() {
+        return QCoreApplication::translate("MainWindowUI", "取消");
+    }
     /// 那行红字的红。色值放在这儿当唯一出处（验证工程量像素时要认的就是它）。
     ///
     /// NOTE: 2026-09-25 起**跟着调色板分深浅两档**，不再是一个写死的值。那句"产品里只有
@@ -679,15 +702,6 @@ public:
     static QString installBackButtonText() {
         return QCoreApplication::translate("MainWindowUI", "← 返回版本列表");
     }
-    static QString installPresetSectionLabelText() {
-        return QCoreApplication::translate("MainWindowUI", "实例预设");
-    }
-    static QString installPresetViewText() {
-        return QCoreApplication::translate("MainWindowUI", "查看内容");
-    }
-    static QString installPresetApplyCheckText() {
-        return QCoreApplication::translate("MainWindowUI", "安装完成后应用");
-    }
     /// 安装页顶上那句话：告诉用户这一份是**基于哪个原版**装的（点了树里哪一条，到这里
     /// 必须还看得见 —— 否则"我在给哪个版本装加载器"就全靠记忆了）。
     static QString installTargetText(const QString &gameVersion) {
@@ -719,6 +733,12 @@ public:
     ///   只写在搜索框的提示文字里（空框里才看得见，一打字就没了），现在它同时挂在页头上。
     ///   「游戏」那一类没有搜索框（提示是空串），它自己有一句（挑版本、挑加载器、装）。
     static QString downloadHeaderSubtitle(int index) {
+        // 「服务端」那一栏不是资源搜索页（见 downloadCategoryServerIndex() 那段），
+        // 它自己有一句；漏了这一条就会掉到下面「游戏」那一句上，页头说的和这一页
+        // 能干的完全不是一回事。
+        if (index == downloadCategoryServerIndex()) {
+            return QStringLiteral("新建一个服务端；装好之后在「管理 → 服务端」里启动和看控制台");
+        }
         const QString hint = downloadSearchHint(index);
         if (!hint.isEmpty()) {
             return hint;
@@ -740,15 +760,23 @@ public:
     }
     /// 分类的键（进条目的 userData，也是那几张资源表的 objectName 前缀）。
     /// **顺序就是界面上从上到下的顺序**，第 0 个是「游戏」（它没有资源表，有别的两张）。
+    ///
+    /// ★ 2026-10-18：「服务端」补在**表尾**（coding plan §1.4 那条「下载页里没有
+    ///   『服务端』入口栏」）。补在末尾不是为了好写 —— 第 0/1/2 条的下标
+    ///   （downloadCategoryGameIndex / ModpackIndex / ModIndex）是别处写死判据的，
+    ///   插在中间会把它们全挪位。它和「游戏」一样**没有资源搜索那一套**（见
+    ///   downloadCategoryServerIndex() 那段），所以后面那些"按分类键建资源页"的循环
+    ///   必须和跳过第 0 条一样跳过它。
     static QStringList downloadCategoryKeys() {
         return {QStringLiteral("game"), QStringLiteral("modpack"), QStringLiteral("mod"),
                 QStringLiteral("datapack"), QStringLiteral("resourcepack"),
-                QStringLiteral("shader")};
+                QStringLiteral("shader"), QStringLiteral("server")};
     }
     /// 条目上写的字。和上面那张表**一一对应**，顺序不能各排各的。
     static QStringList downloadCategoryTexts() {
         return {QStringLiteral("游戏"), QStringLiteral("整合包"), QStringLiteral("模组"),
-                QStringLiteral("数据包"), QStringLiteral("资源包"), QStringLiteral("光影")};
+                QStringLiteral("数据包"), QStringLiteral("资源包"), QStringLiteral("光影"),
+                QStringLiteral("服务端")};
     }
     /// 有内容的那个分类的下标（「游戏」）。写死数字的地方一律用它。
     static int downloadCategoryGameIndex() { return 0; }
@@ -761,6 +789,34 @@ public:
     /// 而写歪的症状是"那一页多长了一个控件/少长了一个控件"。表里现在这两条的位子见那张表。
     static int downloadCategoryModpackIndex() { return 1; }
     static int downloadCategoryModIndex() { return 2; }
+    /// 「服务端」那一栏的下标（表尾那一条，2026-10-18 加的）。
+    ///
+    /// ★ 它**不是**资源搜索页：没有搜索框、没有那张三层树、没有「刷新」那一格（三样
+    ///   都没有意义 —— 它不向任何一家资源站问东西）。那一页只有一句说明 + 一颗
+    ///   「新建服务端…」，按下去走的是实例页那颗「新建服务端…」同一条路
+    ///   （`MainWindow::openNewServerPage()`）。
+    ///
+    /// ★ 凡是"除「游戏」以外每一类都建一张资源页"的循环，都要和跳过第 0 条一样跳过
+    ///   这一条 —— 漏了它，那一页会被建成一棵空的三层树，而「刷新」那一格点下去
+    ///   什么都不做（`refreshDownloadCategory()` 认不出这个键）。
+    static int downloadCategoryServerIndex() { return 6; }
+    /// 「服务端」那一页（一个说明 + 一颗按钮）。
+    static QString downloadServerPageName() { return QStringLiteral("serverPage"); }
+    /// 那一页上那句说明（**唯一出处**）。
+    ///
+    /// 为什么要把"装好之后去哪儿"写出来：这一页只负责**造**，造完的服务端不住在
+    /// 下载页里（它在「管理 → 服务端」那一页的列表里）。不写这一句，用户装完就停在
+    /// 这一页上，找不到刚才那个东西。
+    static QString downloadServerHintName() { return QStringLiteral("downloadServerHint"); }
+    static QString downloadServerHintText() {
+        return QStringLiteral("服务端装好之后会出现在「管理 → 服务端」那一页：启动、看控制台、"
+                              "改设置都在那儿。");
+    }
+    /// 「新建服务端…」那一颗。**和实例页那颗是同一个动作**（同一串字、同一条路），
+    /// 只是换个入口；字直接复用 `newServerText()`，别在这儿再写一遍。
+    static QString downloadNewServerButtonName() {
+        return QStringLiteral("downloadNewServerButton");
+    }
     /// 每个分类**能在这儿干什么**的一句话（「游戏」那条是空的：它没有搜索框）。
     ///
     /// 这句话现在的去处是那一页搜索框里的**提示文字** —— 用户原话「上方预留搜索功能
@@ -1173,6 +1229,7 @@ public:
     enum class InstanceMode {
         Client,  ///< 客户端实例（老那一页）
         Server,  ///< 服务端（M4 新那一页）
+        Preset,  ///< 实例预设（2026-10-18 从设置页搬进来：管理页不再是一扇覆盖页）
     };
     static QString instanceModeRowName() { return QStringLiteral("instanceModeRow"); }
     /// 某一颗模式按钮的 objectName。**按这一档点名找**（不解析文字）。
@@ -1182,6 +1239,8 @@ public:
             return QStringLiteral("instanceModeClient");
         case InstanceMode::Server:
             return QStringLiteral("instanceModeServer");
+        case InstanceMode::Preset:
+            return QStringLiteral("instanceModePreset");
         }
         return QString();
     }
@@ -1192,6 +1251,8 @@ public:
             return QStringLiteral("客户端实例");
         case InstanceMode::Server:
             return QStringLiteral("服务端");
+        case InstanceMode::Preset:
+            return QStringLiteral("预设");
         }
         return QString();
     }
@@ -1203,11 +1264,16 @@ public:
         case InstanceMode::Server:
             return QStringLiteral("这一页管的是服务端（装在数据目录的 Servers/ 底下、能开服"
                                   "的那些）。");
+        case InstanceMode::Preset:
+            return QStringLiteral("这一页管的是实例预设：把一份实例的按键、游戏设置、服务器"
+                                  "列表这些收成一份，再落到别的实例上。");
         }
         return QString();
     }
-    /// 正文那一层 `QStackedWidget`（第 0 页 = 客户端，第 1 页 = 服务端）。
+    /// 正文那一层 `QStackedWidget`（第 0 页 = 客户端，第 1 页 = 服务端，第 2 页 = 预设）。
     static QString instanceModeStackName() { return QStringLiteral("instanceModeStack"); }
+    /// 「预设」那一页的宿主（内容由 `PresetController` 塞进来）。
+    static QString instancePresetPageName() { return QStringLiteral("instancePresetPage"); }
 
     // ---------- 服务端那一页（coding plan §6 / M4）----------
     static QString serverListName() { return QStringLiteral("serverList"); }
@@ -2897,9 +2963,6 @@ public:
     /// 「Java 管理」那一页，这里只剩一颗开门按钮。**别把那个下拉框加回来**：
     /// 加了就成两处都在说"这一台机器用哪个 Java"，而它们谁也不会跟着谁变。
     static QString javaManageButtonName() { return QStringLiteral("javaManageButton"); }
-    /// 「实例预设…」那颗按钮（设置 →「启动」栏最后一节）。整页归
-    /// `ui/PresetManagePage` + `src/controllers/PresetController`，这里只是那扇门。
-    static QString presetManageButtonName() { return QStringLiteral("presetManageButton"); }
     /// 「这一层现在用的是哪个 Java」。和那颗按钮**不是一回事**：按钮是"去哪儿改"，
     /// 这一行是"现在是什么"（「自动：上次用的是 …」/「手动指定：…」）。
     static QString javaPathLabelName() { return QStringLiteral("javaPathLabel"); }
@@ -2938,6 +3001,25 @@ public:
     }
     /// 这一行的行标题（左列那一格）。
     static QString downloadConcurrencyRowText() { return QStringLiteral("并发数"); }
+
+    // ---------- 「下载速度上限」（2026-10-18 加的，§9.2 限速，在「下载源」那一组里） ----------
+    // 和上面那颗同一个形状：**只有框没有项** —— 档位表（字节/秒）在 src/ 的
+    // `DownloadSpeedLimit.hpp` 里（唯一出处；ui/ 不许 include src/）。项由 MainWindow 灌
+    // （每项 itemData 是 qint64 的字节/秒，0 = 不限）。
+    static QString downloadSpeedLimitComboName() {
+        return QStringLiteral("downloadSpeedLimitCombo");
+    }
+    /// 这一行的行标题（左列那一格）。
+    static QString downloadSpeedLimitRowText() { return QStringLiteral("速度上限"); }
+
+    // ---------- 「代理」（2026-10-18 加的，§9.2，在「下载源」那一组里） ----------
+    // 三档（跟随系统 / 直连 / 手动）的语义和 `host:port` 怎么解析在 src/ 的
+    // `DownloadProxy.hpp`（唯一出处；ui/ 不许 include src/）。下拉框**只有框没有项**，
+    // 项由 MainWindow 灌；手动那一格只在「手动」档露出来。
+    static QString downloadProxyComboName() { return QStringLiteral("downloadProxyCombo"); }
+    static QString downloadProxyManualEditName() { return QStringLiteral("downloadProxyManualEdit"); }
+    /// 这一行的行标题（左列那一格）。
+    static QString downloadProxyRowText() { return QStringLiteral("代理"); }
 
     // ---------- CurseForge API key（2026-09-25 加的，在「下载源」那一组里） ----------
     // CurseForge 那一条路（下载页把来源选成 CurseForge、以及 CurseForge 格式的整合包导入）
@@ -3358,6 +3440,12 @@ public:
     static QString skinHintOfflineDefaultSkinText(const QString &name, const QString &versionId) {
         return QStringLiteral("%1 的外观（离线账号 · %2 的默认皮肤）").arg(name, versionId);
     }
+    /// 离线账号**用户自己挑的那张**（「账号与外观」里「换一张…」）。不能借用上面那两句：
+    /// 随机那句说的是"启动器里挑的"，默认皮肤那句说的是"跟这个实例走" —— 自己挑的这张
+    /// 两样都不对（它是明确的"我要这张"，而且换实例也不变）。
+    static QString skinHintOfflineCustomSkinText(const QString &name) {
+        return QStringLiteral("%1 的外观（离线账号 · 你自己换的）").arg(name);
+    }
     /// 正在去官方要。
     static QString skinHintLoadingText(const QString &name) {
         return QStringLiteral("正在获取 %1 的外观…").arg(name);
@@ -3472,8 +3560,10 @@ public:
         return index >= 0 && index < instanceModeButtons.size() ? instanceModeButtons.at(index)
                                                                 : nullptr;
     }
-    /// 正文那一层 `QStackedWidget`（0 = 客户端实例，1 = 服务端）。
+    /// 正文那一层 `QStackedWidget`（0 = 客户端实例，1 = 服务端，2 = 预设）。
     QStackedWidget *getInstanceModeStack() const { return instanceModeStack; }
+    /// 「预设」那一页的宿主（内容由 `PresetController` 塞进来）。
+    QWidget *getInstancePresetPage() const { return instancePresetPage; }
     /// 服务端那一页的列表（一行一个服务端）。
     QTreeWidget *getServerList() const { return serverList; }
     /// 「还没有服务端」那句（平时收着）。
@@ -3515,6 +3605,13 @@ public:
     ///   `MainWindow::refreshDownloadCategory()`；这一颗作用于
     ///   `getDownloadCategoryList()->currentRow()`。
     QPushButton *getDownloadHeaderRefreshButton() const { return downloadHeaderRefreshButton; }
+
+    /// 下载页「服务端」那一栏里那颗「新建服务端…」（2026-10-18）。
+    ///
+    /// ★ 它和实例页那颗（`getNewServerButton()`）**是同一个动作**：都接
+    ///   `MainWindow::openNewServerPage()`。这一颗的存在只是把那条路也摆到下载页上
+    ///   （coding plan §1.4：「服务端功能齐全，但下载页那一栏始终没接」）。
+    QPushButton *getDownloadNewServerButton() const { return downloadNewServerButton; }
 
     /// 下载页页头**那一整块**（标题 + 说明 + 右上角动作）。
     ///
@@ -3580,12 +3677,6 @@ public:
     QLabel *getInstallNameHint() const { return installNameHint; }
     /// 名称框底下那行红字（名字不能用时的原因；能用时它空着且藏着）。
     QLabel *getInstallNameError() const { return installNameError; }
-    /// 安装页「实例预设」那个下拉框（每一项的 `Qt::UserRole` 是预设 id，空串 = 不使用）。
-    QComboBox *getInstallPresetCombo() const { return installPresetCombo; }
-    /// 「查看内容」：把这一份预设**对着这个还没装出来的实例**会做什么摊开看一眼。
-    QPushButton *getInstallPresetViewButton() const { return installPresetViewButton; }
-    /// 「安装完成后应用」：**默认不勾**（coding plan §10：预览、备份、错误报告都齐了才谈默认）。
-    QCheckBox *getInstallPresetApplyCheck() const { return installPresetApplyCheck; }
     /// 安装页顶上那句"将基于原版 X 安装"。
     QLabel *getInstallTargetLabel() const { return installTargetLabel; }
     /// 安装页那个「安装」按钮。原来那个「下载版本」按钮的位子 —— 它现在只在这一页上，
@@ -3661,7 +3752,6 @@ public:
     // 设置页的控件。**只搭出来、只负责显隐**，值由 MainWindow 灌（它才知道
     // 那些设置存在哪、改了要不要落盘）。
     QPushButton *getJavaManageButton() const { return javaManageButton; }
-    QPushButton *getPresetManageButton() const { return presetManageButton; }
     QLabel *getJavaPathLabel() const { return javaPathLabel; }
     QCheckBox *getJavaWarnMismatchCheck() const { return javaWarnMismatchCheck; }
     QLabel *getMemoryHint() const { return memoryHint; }
@@ -3674,6 +3764,9 @@ public:
     QPushButton *getApplyExtraJvmArgsButton() const { return applyExtraJvmArgsButton; }
     QComboBox *getDownloadSourceCombo() const { return downloadSourceCombo; }
     QComboBox *getDownloadConcurrencyCombo() const { return downloadConcurrencyCombo; }
+    QComboBox *getDownloadSpeedLimitCombo() const { return downloadSpeedLimitCombo; }
+    QComboBox *getDownloadProxyCombo() const { return downloadProxyCombo; }
+    QLineEdit *getDownloadProxyManualEdit() const { return downloadProxyManualEdit; }
     QLineEdit *getCurseForgeApiKeyEdit() const { return curseForgeApiKeyEdit; }
     QCheckBox *getShowGameLogCheck() const { return showGameLogCheck; }
     QCheckBox *getDownloadAutoIntoInstanceCheck() const { return downloadAutoIntoInstanceCheck; }
@@ -3915,9 +4008,11 @@ private:
     QList<QPushButton *> instanceFilterButtons;
     /// "没有符合筛选条件的实例"那一行（默认收着）。
     QLabel *instanceNoMatchLabel = nullptr;
-    /// 实例页正文那一层（第 0 页 = 客户端实例，第 1 页 = 服务端，见 coding plan §6.1）。
+    /// 实例页正文那一层（第 0 页 = 客户端实例，第 1 页 = 服务端，第 2 页 = 预设）。
     QStackedWidget *instanceModeStack = nullptr;
-    /// 顶上那两颗模式按钮，下标 = `InstanceMode` 的序号（见 `getInstanceModeButton()`）。
+    /// 「预设」那一页的宿主（`PresetController` 把管理页塞进这一格）。
+    QWidget *instancePresetPage = nullptr;
+    /// 顶上那三颗模式按钮，下标 = `InstanceMode` 的序号（见 `getInstanceModeButton()`）。
     QList<QPushButton *> instanceModeButtons;
     /// 服务端那一页：列表 + 空态那句 + 「新建服务端…」那颗（coding plan §6 / M4）。
     QTreeWidget *serverList = nullptr;
@@ -3935,6 +4030,8 @@ private:
     QPushButton *downloadBackButton = nullptr;
     /// 下载页页头右上角那颗刷新（见 getDownloadHeaderRefreshButton() 那段）。
     QPushButton *downloadHeaderRefreshButton = nullptr;
+    /// 下载页「服务端」那一栏里那颗「新建服务端…」（见 getDownloadNewServerButton()）。
+    QPushButton *downloadNewServerButton = nullptr;
     /// 下载页页头那一整块（见 getDownloadHeader() 那段）。
     QWidget *downloadHeader = nullptr;
     /// 安装页中间那层滚动区（见 installScrollName() 那段）。
@@ -3966,10 +4063,6 @@ private:
     QLineEdit *installNameEdit = nullptr;
     QLabel *installNameHint = nullptr;
     QLabel *installNameError = nullptr;
-    /// 安装页「实例预设」那一小节的三个控件（见 installPresetComboName() 那段）。
-    QComboBox *installPresetCombo = nullptr;
-    QPushButton *installPresetViewButton = nullptr;
-    QCheckBox *installPresetApplyCheck = nullptr;
     QPushButton *installButton = nullptr;
     QPushButton *installBackButton = nullptr;
     /// 安装页那棵「模组加载器」树（见头文件上面那段）。顶层五条按 modLoaderOptionNames()
@@ -3994,8 +4087,6 @@ private:
     QPushButton *downloadImportModpackButton = nullptr;
     /// 「Java 管理…」那颗按钮（见 javaManageButtonName()）。
     QPushButton *javaManageButton = nullptr;
-    /// 「实例预设…」那颗按钮（见 presetManageButtonName()）。
-    QPushButton *presetManageButton = nullptr;
     QLabel *javaPathLabel = nullptr;
     QCheckBox *javaWarnMismatchCheck = nullptr;
     QLabel *memoryHint = nullptr;
@@ -4009,6 +4100,11 @@ private:
     QComboBox *downloadSourceCombo = nullptr;
     /// 「同时最多下几个」那个下拉框（2026-10-13，§9.2）。项由 MainWindow 灌。
     QComboBox *downloadConcurrencyCombo = nullptr;
+    /// 「下载速度上限」那个下拉框（2026-10-18，§9.2）。项由 MainWindow 灌（0 = 不限）。
+    QComboBox *downloadSpeedLimitCombo = nullptr;
+    /// 「代理」那颗下拉框与手动地址那一格（2026-10-18，§9.2）。项由 MainWindow 灌。
+    QComboBox *downloadProxyCombo = nullptr;
+    QLineEdit *downloadProxyManualEdit = nullptr;
     QLineEdit *curseForgeApiKeyEdit = nullptr;
     QCheckBox *showGameLogCheck = nullptr;
     /// 「下载」栏里那个勾选框（2026-09-28）。

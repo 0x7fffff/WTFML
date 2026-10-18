@@ -121,10 +121,10 @@ void ConnectionsController::setup() {
             &MainWindow::onImportModpackClicked);
     // ---------- 实例页顶部的模式切换 + 服务端那一页（coding plan §6.1 / M4）----------
     //
-    // 两颗模式按钮互斥（点一颗就把另一颗的勾摘掉）—— `m_owner->setInstanceMode()` 是"停在哪一页 +
+    // 三颗模式按钮互斥（点一颗就把另外两颗的勾摘掉）—— `m_owner->setInstanceMode()` 是"停在哪一页 +
     // 谁勾着"的唯一出处，所以这里只把"用户点了哪一颗"交给它，不自己动 setChecked。
     {
-        const int modeCount = 2;
+        const int modeCount = 3;
         for (int i = 0; i < modeCount; ++i) {
             const auto mode = static_cast<MainWindowUI::InstanceMode>(i);
             QPushButton *button = m_owner->m_ui->getInstanceModeButton(mode);
@@ -374,14 +374,9 @@ void ConnectionsController::setup() {
             &MainWindow::backToVersionTree);
     connect(m_owner->m_ui->getInstallButton(), &QPushButton::clicked, m_owner,
             &MainWindow::onInstallButtonClicked);
-    // 实例预设那一格（2026-10-18，coding plan §7）：选一份 / 看一眼会做什么。
-    // ★ 只接 currentIndexChanged，**不接"少了一句 setEditText"**：那个下拉框是只读的；
-    //   而程序填数据那一趟由 `fillInstallSelector()` 里的 QSignalBlocker 挡着，到不了这儿。
-    connect(m_owner->m_ui->getInstallPresetCombo(),
-            QOverload<int>::of(&QComboBox::currentIndexChanged), m_owner,
-            &MainWindow::onInstallPresetChosen);
-    connect(m_owner->m_ui->getInstallPresetViewButton(), &QPushButton::clicked, m_owner,
-            &MainWindow::onInstallPresetViewClicked);
+    // 实例预设那一行（2026-10-18，coding plan §7.1）：它是**加载器树里的一条**，点它是
+    // 开那张四类弹窗（在 onLoaderTreeClicked 里按 UserRole 认出来）—— 没有单独的控件
+    // 要接线。
     // 名称框：每敲一个字都要重算那句小字（重名提示要"实时"——用户原话）。
     connect(m_owner->m_ui->getInstallNameEdit(), &QLineEdit::textChanged, m_owner,
             &MainWindow::onInstallNameEdited);
@@ -409,6 +404,12 @@ void ConnectionsController::setup() {
         if (item->parent() == nullptr) {
             const int index =
                 item->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt();
+            // 「预设」那一行：不是加载器（UserRole 是哨兵），点它开弹窗、**不展开**。
+            // 这一段必须在「不装（纯原版）」那条判断之前 —— 否则它会被当成某个加载器。
+            if (index == MainWindowUI::installPresetRowRole()) {
+                m_owner->openInstallPresetPicker();
+                return;
+            }
             if (index == MainWindowUI::modLoaderNoneIndex()) {
                 m_owner->selectLoader(index);
                 return;
@@ -448,8 +449,12 @@ void ConnectionsController::setup() {
             if (item->parent() != nullptr || item->isDisabled()) {
                 return false;
             }
-            return item->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt()
-                   != MainWindowUI::modLoaderNoneIndex();
+            const int role = item->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt();
+            // 哨兵那一行（「预设」）是**做事**（开弹窗），不是开关：双击不能补第二发。
+            if (role == MainWindowUI::installPresetRowRole()) {
+                return false;
+            }
+            return role != MainWindowUI::modLoaderNoneIndex();
         });
     // 行里那个「取消」小叉（选中那条加载器右边那个 ×，见 m_owner->updateLoaderRows()）：它不是
     // "点这一行"，所以不走上面两条路 —— 走**视口上的事件过滤器**，判据是
@@ -517,6 +522,12 @@ void ConnectionsController::setup() {
             QListWidget *categories = m_owner->m_ui->getDownloadCategoryList();
             m_owner->refreshDownloadCategory(categories != nullptr ? categories->currentRow() : -1);
         });
+    }
+    // 下载页「服务端」那一栏里那颗「新建服务端…」（2026-10-18，coding plan §1.4）。
+    // **和实例页那颗是同一个动作**（`MainWindow::openNewServerPage()`），这里只是把
+    // 那条路也摆到下载页上 —— 别另开一条"在下载页里建服务端"的实现。
+    if (QPushButton *newServer = m_owner->m_ui->getDownloadNewServerButton()) {
+        connect(newServer, &QPushButton::clicked, m_owner, &MainWindow::openNewServerPage);
     }
     // 顶上那四颗导航（2026-09-28，用户原话「点击顶部下载按钮就刷新页面回到主页」）。
     //
@@ -707,9 +718,8 @@ void ConnectionsController::setup() {
     // 那一页自己只发信号（它不认识 Java），点哪一行、点哪颗按钮都在下面这几个槽里落地。
     connect(m_owner->m_ui->getJavaManageButton(), &QPushButton::clicked, m_owner,
             &MainWindow::openJavaManage);
-    // 「实例预设…」同一种形状：那一页自己也只发信号，读写全在 PresetController 里。
-    connect(m_owner->m_ui->getPresetManageButton(), &QPushButton::clicked, m_owner,
-            &MainWindow::openPresetManage);
+    // 「实例预设」那一页 2026-10-18 搬进了实例页的模式行（第三档），设置页里那颗门跟着撤了 ——
+    // 接线在下面「模式切换」那一段（三颗 chip 同一个槽）。
     // 「实例指定的 Java 版本不符时提醒」这个总闸。管的是**启动时那个三岔口**
     // （onStartButtonClicked 里问的那一次），不是这一页的显示。
     connect(m_owner->m_ui->getJavaWarnMismatchCheck(), &QCheckBox::toggled, m_owner,
@@ -736,6 +746,16 @@ void ConnectionsController::setup() {
     // 「同时最多下几个」（2026-10-13，§9.2）。和上面那颗同一个形状：改完立刻生效。
     connect(m_owner->m_ui->getDownloadConcurrencyCombo(), &QComboBox::currentIndexChanged, m_owner,
             &MainWindow::onDownloadConcurrencyChanged);
+    // 「下载速度上限」（2026-10-18，§9.2）：同一个形状 —— 改完立刻生效（正在下的那一批也慢下来）。
+    connect(m_owner->m_ui->getDownloadSpeedLimitCombo(), &QComboBox::currentIndexChanged, m_owner,
+            &MainWindow::onDownloadSpeedLimitChanged);
+    // 「代理」（2026-10-18，§9.2）：档位改完立刻装到进程上；手动地址那一格按回车 /
+    // 点到别处（editingFinished）才提交 —— 每敲一个字就重装一次代理没有意义，而且
+    // 半截地址会让请求短暂走错路。
+    connect(m_owner->m_ui->getDownloadProxyCombo(), &QComboBox::currentIndexChanged, m_owner,
+            &MainWindow::onDownloadProxyModeChanged);
+    connect(m_owner->m_ui->getDownloadProxyManualEdit(), &QLineEdit::editingFinished, m_owner,
+            &MainWindow::onDownloadProxyManualChanged);
     // 「下载新模组时直接放进当前实例」（2026-09-28）：和上面那一项同一条路 —— 设置里改完
     // 立刻生效（下载那一刻现读），不用重启启动器。
     connect(m_owner->m_ui->getDownloadAutoIntoInstanceCheck(), &QCheckBox::toggled, m_owner,

@@ -585,6 +585,11 @@ public:
     /// 那一侧，见 `DownloadConcurrency.hpp`。
     void setDownloadConcurrency(int count);
 
+    /// 下载速度上限（字节/秒，0 = 不限；设置 → 下载 → 速度上限，coding plan §9.2）。
+    /// 和上面那条同一个形状：数据层看不见 LauncherSettings，值由 MainWindow 推过来。
+    /// 归一化（0 / 越界回 0）与那几档在 `DownloadSpeedLimit.hpp`。
+    void setDownloadSpeedLimit(qint64 bytesPerSecond);
+
     /**
      * @brief 这一层内部那**唯一一份**下载器（`m_downloads` 那个成员）。
      *

@@ -462,6 +462,10 @@ QString ToolboxPage::toolPanelName(Tool tool) {
     return QStringLiteral("toolboxPanel_%1").arg(toolKey(tool));
 }
 
+QString ToolboxPage::toolPageName(Tool tool) {
+    return toolPanelName(tool) + QStringLiteral("Scroll");
+}
+
 QString ToolboxPage::toolButtonName(Tool tool) {
     return QStringLiteral("toolboxTool_%1").arg(toolKey(tool));
 }
@@ -530,7 +534,7 @@ ToolboxPage::ToolboxPage(QWidget *parent) : QDialog(parent) {
         panel->setObjectName(toolPanelName(tool));
         // 长工具页在自身滚动，不把整个窗口的最小高度撑大。
         auto *scroll = new QScrollArea(m_stack);
-        scroll->setObjectName(toolPanelName(tool) + QStringLiteral("Scroll"));
+        scroll->setObjectName(toolPageName(tool));
         scroll->setWidgetResizable(true); scroll->setFrameShape(QFrame::NoFrame);
         scroll->setWidget(panel); m_stack->addWidget(scroll);
     }

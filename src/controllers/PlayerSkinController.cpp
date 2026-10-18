@@ -15,6 +15,7 @@
 #include "auth/AccountStore.hpp"
 #include "auth/AuthManager.hpp"
 #include "manage/DefaultSkin.hpp"
+#include "manage/OfflineSkin.hpp"
 #include "manage/RandomSkinStore.hpp"
 
 PlayerSkinController::PlayerSkinController(AuthManager *auth, PlayerSkinStore *store,
@@ -61,6 +62,7 @@ PlayerSkinController::HintFacts PlayerSkinController::hintFacts() const {
     facts.hasCape = !m_capePath.isEmpty();
     facts.fetching = m_skinFetchInFlight;
     facts.offlineDefaultSkinVersionId = m_offlineDefaultSkinVersion;
+    facts.offlineCustomSkin = m_offlineCustomSkin;
     return facts;
 }
 
@@ -102,8 +104,9 @@ void PlayerSkinController::reload(const QString &versionId) {
     // 同理：下面重新算出来之前，"这张脸是按哪个版本算的"这件事不能留着上一轮的值 ——
     // 留着会让右栏那句话拿旧版本的显示名去说新的一张图。
     m_offlineDefaultSkinVersion.clear();
+    m_offlineCustomSkin = false;
 
-    // ---------- 离线账号那一档：从库里的随机挑一张 ----------
+    // ---------- 离线账号那一档：手动挑的 → 算出来的 → 随机挑的 ----------
     //
     // 这一档必须在下面 !loggedIn() **之前**：离线账号必然同时是"没有登录态"
     // （AuthManager::setOfflinePlayer() 把 uuid 和令牌一起清了，见 AuthManager.cpp），
@@ -114,6 +117,22 @@ void PlayerSkinController::reload(const QString &versionId) {
     // **未登录（压根没有当前账号）不走这一档**：没有身份就没有可记的地方（那张图要按
     // 账号记在盘上），也没人可挑。
     if (offlineIdentity()) {
+        // ⓪ **用户自己挑的那张最优先**（「账号与外观」里那颗「换一张…」，见 OfflineSkin）。
+        //    这是一句明确的产品次序：手动挑过 = 用户说了算，游戏规矩算出来的那张只是"没有
+        //    手动挑过时"的默认值。它不像官方默认皮肤那样跟着实例走 —— 换版本不该把用户
+        //    亲自挑的那张换掉。
+        const QString accountUuid = AccountStore::activeUuid();
+        const QString manualPath = OfflineSkin::skinPathFor(accountUuid);
+        if (!manualPath.isEmpty() && QFile::exists(manualPath)) {
+            m_offlineCustomSkin = true;
+            // 图是从盘上直接读的，不是"在路上"。
+            m_skinFetchInFlight = false;
+            applyPlayerSkin(manualPath, QString(),
+                            OfflineSkin::loadModel(accountUuid) == QStringLiteral("slim"));
+            emit hintChanged();
+            return;
+        }
+
         // ① 先算"游戏会给这个名字分配哪一张官方默认皮肤"（见 DefaultSkin）：那个"随机"其实
         //    是确定的，图就在**本地那个版本的客户端 JAR** 里，一个字节都不用下。同一个
         //    (账号, 版本) 算过一次之后连 JAR 都不碰（缓存命中 = 两次 QFile::exists）。
@@ -145,10 +164,9 @@ void PlayerSkinController::reload(const QString &versionId) {
 
         // ② 算不出来才走"随机挑一张"。
         //
-        // 身份用的是 AccountStore 里那个 uuid，**不是** m_auth->playerUuid() ——
-        // 后者对离线账号返回空串（它的 m_uuid 被清掉了）。离线账号的 uuid 是
+        // 身份用的是上面那个 accountUuid（AccountStore 里那个），**不是** m_auth->playerUuid()
+        // —— 后者对离线账号返回空串（它的 m_uuid 被清掉了）。离线账号的 uuid 是
         // md5("OfflinePlayer:" + 名字)，同名就是同一个 uuid，所以同一个人换不掉那张脸。
-        const QString accountUuid = AccountStore::activeUuid();
         const QString chosen = RandomSkinStore::loadChosenSkinUrl(accountUuid);
         if (chosen.isEmpty()) {
             // 还没挑过（第一次用这个账号）→ 要一页去。回来之后 onRandomSkinReady()
@@ -388,7 +406,8 @@ void PlayerSkinController::onRandomSkinReady(const QString &skinUrl) {
     // requestTexture() 会因为超时、非 200、或者"不是一张 64 宽的皮肤 PNG"
     // （PlayerSkinStore::fetchTexture）**一个字节都不落盘**，而记录已经写下了 —— 那条记录
     // 是永不失效的，于是这个账号从此每次都去重下同一条永远失败的地址、永远停在默认外观，
-    // 而且"换一张"没有界面入口（要手动删 skins/random-<uuid>.txt）。记账的语义本来是
+    // 而且**这条随机记录没有界面入口**（要手动删 skins/random-<uuid>.txt —— 注意「恢复默认
+    // 外观」那颗按钮清的是 manual-<uuid>.png，见 OfflineSkin，不是这一行）。记账的语义本来是
     // "这个人挑过哪一张、那张是好的"，那就该等它好。
     m_pendingRandomSkinUrl = skinUrl;
     m_pendingRandomSkinUuid = AccountStore::activeUuid();

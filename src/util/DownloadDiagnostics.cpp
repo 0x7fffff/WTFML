@@ -45,6 +45,7 @@ bool g_capped = false;
 qint64 g_written = 0;
 QString g_path;
 QElapsedTimer g_clock;
+std::function<void(const QString &)> g_sink;
 
 QString timestamp() {
     if (!g_clock.isValid()) {
@@ -192,10 +193,18 @@ QString logFilePath() {
     return g_path;
 }
 
+void setSink(std::function<void(const QString &)> sink) {
+    QMutexLocker locker(&g_mutex);
+    g_sink = std::move(sink);
+}
+
 void line(const QString &text) {
     if (!enabled()) {
         return;
     }
+    std::function<void(const QString &)> sink;
+    { QMutexLocker locker(&g_mutex); sink = g_sink; }
+    if (sink) { sink(text); return; }
     const QString body = timestamp() + QLatin1Char(' ') + text;
     // 走 qInfo 的第一份：进 wtfml.log（+ stderr）。qInfo 自己那条 handler 不碰这一层。
     qInfo().noquote() << body;

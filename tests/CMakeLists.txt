@@ -69,6 +69,10 @@ set(PROJECT_SOURCES
     # 见 mw_check 的 AH 段之外那几条一次性探针）。
     ${REPO_ROOT}/src/manage/RandomSkinStore.cpp
     ${REPO_ROOT}/src/manage/RandomSkinStore.hpp
+    # OfflineSkin：离线账号自己挑的那张图存在哪、模型那一行怎么归一化、撤掉之后
+    # 是不是真的一张都不剩。纯文件读写，不联网。
+    ${REPO_ROOT}/src/manage/OfflineSkin.cpp
+    ${REPO_ROOT}/src/manage/OfflineSkin.hpp
     ${REPO_ROOT}/src/manage/VersionManager.cpp
     ${REPO_ROOT}/src/manage/VersionManager.hpp
     ${REPO_ROOT}/src/manage/VersionDisplay.cpp
@@ -137,6 +141,24 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/presets/PresetCapture.hpp
     ${REPO_ROOT}/src/presets/PresetApply.cpp
     ${REPO_ROOT}/src/presets/PresetApply.hpp
+    # 资源包次序 / 启用 + 存档数据包（2026-10-18，coding plan §6 P4）：`verify` 的 **PL**
+    # 一节 —— 资源包按 options.txt 那一行摆启用与次序（内置包不动）、数据包落进真存档 /
+    # 没那个存档时进 `datapacks-pending/` 并记进 `wtfml.datapacks`（**从不冒充已启用**）。
+    ${REPO_ROOT}/src/presets/ResourcePackPreset.cpp
+    ${REPO_ROOT}/src/presets/ResourcePackPreset.hpp
+    ${REPO_ROOT}/src/presets/DataPackPreset.cpp
+    ${REPO_ROOT}/src/presets/DataPackPreset.hpp
+    # 模组「真正去下」之前的判据层（2026-10-18，coding plan §10.1 第 7 项 / P5）：
+    # `verify` 的 **PM** 一节 —— 必要/可选失败分开、依赖按 `平台:项目号` 去重展开、
+    # optional 只列不下、embedded 无视、incompatible 挡住、替代项目不确认就不换、
+    # 落盘大小/sha1 校验。全拿手搭的假答复，**一条都不用联网**。
+    ${REPO_ROOT}/src/presets/ModInstallPlan.cpp
+    ${REPO_ROOT}/src/presets/ModInstallPlan.hpp
+    # 模组预设的兼容检查（2026-10-18，coding plan §6.0 P2 / §7.2）：本地筛选、去重、
+    # 有限并发、generation 隔离、缓存命中/过期、超时 ⇒ `Unknown` —— 全部拿假提供方
+    # 逐格念，**一条都不用联网**。`verify` 的 **PH** 一节。
+    ${REPO_ROOT}/src/presets/PresetCompatibility.cpp
+    ${REPO_ROOT}/src/presets/PresetCompatibility.hpp
     # MaLiLib 那一族的热键（2026-10-17，coding plan §6 P4 / §10 第 12 项）：按**结构**认这一族
     # （不看文件名）、一格一格地读/写（认三档：整格是热键 / 一格装开关+热键 / 别的值）、
     # 冲突分析、以及在两份真形状的 `config/*.json` 之间真写一遍。`verify` 的 **PF** 一节拿
@@ -399,6 +421,11 @@ target_include_directories(verify PRIVATE ${REPO_ROOT}/src ${REPO_ROOT}/ui)
 target_link_libraries(verify PRIVATE Qt6::Core Qt6::Network Qt6::Gui)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(verify PRIVATE -O0)
+    # main.cpp 已经长到 COFF 的 32767 个节装不下（2026-10-18 加了代理那节之后真的炸了：
+    # `too many sections` / `file too big`，这是链接**之前**汇编器那一步报的）。
+    # -Wa,-mbig-obj 让汇编器写大对象格式；不加的话只能靠拆文件，而这条回归本来就该是
+    # 一个可执行文件。
+    target_compile_options(verify PRIVATE -Wa,-mbig-obj)
 endif()
 
 # TokenStore 的 DPAPI（CryptProtectData）在这个库里；Gui 是 AuthManager.cpp 里的

@@ -13,6 +13,8 @@
 #include <QStringList>
 
 #include "../download/DownloadConcurrency.hpp"
+#include "../download/DownloadProxy.hpp"
+#include "../download/DownloadSpeedLimit.hpp"
 #include "../launcher/ProcessPriority.hpp"
 #include "../manage/VersionDisplay.hpp"
 #include "GameWindowSettings.hpp"
@@ -179,6 +181,36 @@ public:
 
     /// 设置并发数并立刻落盘（存进去的是归一化之后的那个数）。
     void setDownloadConcurrency(int count);
+
+    /// 下载速度上限（字节/秒，0 = 不限；设置 → 下载 → 速度上限；coding plan §9.2）。
+    ///
+    /// 出厂 = `DownloadSpeedLimit::kUnlimited`（0），也就是"谁都不动这一项时行为一个字都
+    /// 不变"。几档、上下限、归一化**唯一出处**是 `DownloadSpeedLimit.hpp`（这一层只管
+    /// 存取那一个数）。它只约束 `DownloadManager` 那条路；工具箱里的直链下载不受它管。
+    qint64 downloadSpeedLimit() const { return m_downloadSpeedLimit; }
+
+    /// 设置速度上限并立刻落盘（存进去的是归一化之后的那个数）。
+    void setDownloadSpeedLimit(qint64 bytesPerSecond);
+
+    // ------------------------------------------------------------------
+    // 代理（设置 → 下载 →「代理」；coding plan §9.2）
+    // ------------------------------------------------------------------
+    // 三档的语义与 `host:port` 怎么解析**唯一出处**是 `DownloadProxy.hpp`
+    // （这一层只管存取那两个值）。出厂 = 跟随系统 —— 加这一项之前整个启动器
+    // 就是走系统代理的，谁都不动这一项时行为一个字都不变。
+
+    /// 当前档位；盘上没有这一项、或者存的是不认识的值时是 System。
+    DownloadProxy::Mode proxyMode() const { return m_proxyMode; }
+
+    /// 设置档位并立刻落盘。
+    void setProxyMode(DownloadProxy::Mode mode);
+
+    /// 手动那一档填的地址（原样存；空串 = 还没填）。别的不档位不读它。
+    QString proxyManualText() const { return m_proxyManualText; }
+
+    /// 设置手动地址并立刻落盘（两头的空白会修掉；不在这里校验格式 —— 认不认得出由
+    /// `DownloadProxy::parseManual()` 说了算，界面会把那句原因显示出来）。
+    void setProxyManualText(const QString &text);
 
     // ------------------------------------------------------------------
     // 「下载新模组时直接放进当前实例」（2026-09-28 加的，在设置页「下载」栏里）
@@ -397,6 +429,11 @@ private:
     DownloadSource m_downloadSource = DownloadSource::Official;
     /// 同时最多几个下载（见上面那一节）。默认取判据层那个出厂值 —— 别在这儿另写一个 24。
     int m_downloadConcurrency = DownloadConcurrency::kDefault;
+    /// 下载速度上限（字节/秒，0 = 不限；见上面那一节）。默认取判据层那个出厂值。
+    qint64 m_downloadSpeedLimit = DownloadSpeedLimit::kUnlimited;
+    /// 代理档位 / 手动地址（见上面那一节）。默认取判据层那个出厂值 = 跟随系统。
+    DownloadProxy::Mode m_proxyMode = DownloadProxy::kDefaultMode;
+    QString m_proxyManualText;
     /// 从实例设置里点的「下载新模组…」要不要直接落进那个实例（见上面那一节）。默认勾上。
     bool m_downloadAutoIntoInstance = true;
     /// 点下载模组 / 光影包时要不要先查前置（见上面那一节）。默认勾上。

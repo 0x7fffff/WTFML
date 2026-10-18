@@ -31,6 +31,13 @@ static constexpr const char kDownloadSource[] = "Download/Source";
 // ★ 存的是**整数**，不是 `Download/Source` 那种记号 —— 那四档要有第五档"自定义"的位置
 //   （手改过配置的人写个 [1,64] 里的别的数，界面上就该照他写的显示），记号表反而挡路。
 static constexpr const char kDownloadConcurrency[] = "Download/Concurrency";
+// 「下载速度上限」（2026-10-18，§9.2 限速）。单位**字节/秒**，0 = 不限；和其他几项同一个
+// 前缀 —— 它也是"下载怎么走"。
+static constexpr const char kDownloadSpeedLimit[] = "Download/SpeedLimitBytes";
+// 「代理」（2026-10-18，§9.2）。档位存记号（system/direct/manual），手动那一档的
+// `host:port` 另存一格原串。同一个前缀：它也是"下载怎么走"。
+static constexpr const char kProxyMode[] = "Download/ProxyMode";
+static constexpr const char kProxyManual[] = "Download/ProxyManual";
 // 「下载新模组时直接放进当前实例」（2026-09-28，设置页「下载」栏那一项）。
 // 和上面那条同一个前缀：它也是"下下来的东西往哪儿去"这一件事。
 static constexpr const char kDownloadAutoIntoInstance[] = "Download/AutoIntoInstance";
@@ -188,6 +195,38 @@ void LauncherSettings::setDownloadConcurrency(int count) {
         return;
     }
     m_downloadConcurrency = normalized;
+    save();
+}
+
+void LauncherSettings::setDownloadSpeedLimit(qint64 bytesPerSecond) {
+    // 和上面并发数同一条规矩：存的是**归一化之后**的那个数 —— 盘上写的和真在用的
+    // 永远是同一个值。0 是合法值（= 不限），越界回 0（理由见 DownloadSpeedLimit.hpp）。
+    const qint64 normalized = DownloadSpeedLimit::normalize(bytesPerSecond);
+    if (m_downloadSpeedLimit == normalized) {
+        return;
+    }
+    m_downloadSpeedLimit = normalized;
+    save();
+}
+
+void LauncherSettings::setProxyMode(DownloadProxy::Mode mode) {
+    // 认不出来的档位（构造出别的 enum 值时）一律回出厂那一档 —— 和读盘那条路同一个判据。
+    if (!DownloadProxy::modes().contains(mode)) {
+        mode = DownloadProxy::kDefaultMode;
+    }
+    if (m_proxyMode == mode) {
+        return;
+    }
+    m_proxyMode = mode;
+    save();
+}
+
+void LauncherSettings::setProxyManualText(const QString &text) {
+    const QString trimmed = text.trimmed();
+    if (m_proxyManualText == trimmed) {
+        return;
+    }
+    m_proxyManualText = trimmed;
     save();
 }
 
@@ -380,6 +419,13 @@ void LauncherSettings::load() {
     // 归一化在这一句里 —— 盘上写着 999 或者一个负数时，读出来的是默认那一档。
     m_downloadConcurrency = DownloadConcurrency::normalize(
         settings.value(kDownloadConcurrency, m_downloadConcurrency).toInt());
+    // 同上：盘上写着负数 / 一个荒唐的大数时，读出来的是"不限"。
+    m_downloadSpeedLimit = DownloadSpeedLimit::normalize(
+        settings.value(kDownloadSpeedLimit, m_downloadSpeedLimit).toLongLong());
+    // 代理：档位认不出来回 System（= 加这一项之前的行为）；手动那一格原样读，不在这里校验。
+    m_proxyMode = DownloadProxy::modeFromKey(
+        settings.value(kProxyMode, DownloadProxy::modeKey(m_proxyMode)).toString());
+    m_proxyManualText = settings.value(kProxyManual, m_proxyManualText).toString().trimmed();
     // 默认值取当前成员（构造时是 true）：盘上那一项是个布尔，手改成一个不认识的值时
     // toBool() 给 false —— 那等于"用户关掉了"，也就是**每次都弹保存框**，这个方向是安全的
     // （多问一句 vs 悄悄把文件放进他不知道的地方）。
@@ -460,6 +506,9 @@ void LauncherSettings::save() const {
     settings.setValue(kAfterLaunch, behaviourKey(m_launcherBehaviour));
     settings.setValue(kDownloadSource, downloadSourceKey(m_downloadSource));
     settings.setValue(kDownloadConcurrency, m_downloadConcurrency);
+    settings.setValue(kDownloadSpeedLimit, m_downloadSpeedLimit);
+    settings.setValue(kProxyMode, DownloadProxy::modeKey(m_proxyMode));
+    settings.setValue(kProxyManual, m_proxyManualText);
     settings.setValue(kDownloadAutoIntoInstance, m_downloadAutoIntoInstance);
     settings.setValue(kWarnMissingDependencies, m_warnMissingDependencies);
     settings.setValue(kShowGameLog, m_showGameLog);

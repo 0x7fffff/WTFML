@@ -165,6 +165,12 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/presets/PresetPlanner.cpp
     ${REPO_ROOT}/src/presets/PresetCapture.cpp
     ${REPO_ROOT}/src/presets/PresetApply.cpp
+    ${REPO_ROOT}/src/presets/ResourcePackPreset.cpp
+    ${REPO_ROOT}/src/presets/DataPackPreset.cpp
+    # 安装前的兼容检查（2026-10-18，§7.2 / P2）：PresetController 构造里建 checker 与
+    # 真网络提供方，少了这两个文件链接期报一串未定义。
+    ${REPO_ROOT}/src/presets/PresetCompatibility.cpp
+    ${REPO_ROOT}/src/presets/ModrinthCompatibility.cpp
     # 结构 / 原理图的元数据与方块统计（2026-10-18）：InstanceDialogController 在
     # 「原理图」那一页接上了它，少了这一个文件链接期报 `SchematicInfo::read` 未定义。
     ${REPO_ROOT}/src/schematic/SchematicInfo.cpp
@@ -182,6 +188,9 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/manage/PlayerSkinStore.cpp
     # 离线账号那张随机皮肤：AF 段要拿它预置"已经挑好的一张"，还要读它记在哪儿。
     ${REPO_ROOT}/src/manage/RandomSkinStore.cpp
+    # 离线账号**自己挑的**那张（「换一张…」）：MainWindow / PlayerSkinController 直接调它，
+    # 少了这一个文件会在链接那一步报一串 `OfflineSkin::…` 的 undefined reference。
+    ${REPO_ROOT}/src/manage/OfflineSkin.cpp
     ${REPO_ROOT}/src/manage/VersionManager.cpp
     ${REPO_ROOT}/src/manage/VersionDisplay.cpp
     # 体检那一层：VersionManager::checkInstanceIntegrity() 直接调它，少了这一个文件会在
@@ -290,6 +299,8 @@ set(SOURCE_FILES
     ${REPO_ROOT}/ui/JavaManageDialog.cpp
     # 「实例预设」整页（2026-10-18）：PresetController 直接 new 它。
     ${REPO_ROOT}/ui/PresetManagePage.cpp
+    # 安装页「预设」那一行点开的紧凑弹窗（2026-10-18，§7.1）：MainWindow.cpp 直接 new 它。
+    ${REPO_ROOT}/ui/PresetInstallPicker.cpp
     ${REPO_ROOT}/ui/SkinModel.cpp
     ${REPO_ROOT}/ui/VersionIcons.cpp
     # 四个加载器的标志那几张真图（2026-09-28）：qrc 不列在这儿，
@@ -415,6 +426,7 @@ add_test(NAME wtfml.activity-selection COMMAND mw_check activity-selection-check
 add_test(NAME wtfml.download-retry COMMAND mw_check download-retry-check)
 add_test(NAME wtfml.high-speed-download COMMAND mw_check high-speed-download-check)
 add_test(NAME wtfml.segmented-download COMMAND mw_check segmented-download-check)
+add_test(NAME wtfml.segment-install COMMAND mw_check segment-install-check)
 add_test(NAME wtfml.tool-features COMMAND mw_check tool-features-check)
 set_tests_properties(wtfml.tool-features PROPERTIES
     LABELS "ui;tools;queue"
@@ -424,6 +436,11 @@ set_tests_properties(wtfml.tool-features PROPERTIES
 set_tests_properties(wtfml.segmented-download PROPERTIES
     LABELS "network;integration;resume"
     TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+set_tests_properties(wtfml.segment-install PROPERTIES
+    LABELS "network;integration;resume"
+    TIMEOUT 180
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
 set_tests_properties(wtfml.high-speed-download PROPERTIES

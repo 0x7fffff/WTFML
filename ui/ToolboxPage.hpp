@@ -103,6 +103,9 @@ public:
     /// 对应的那颗按钮** —— 后者长在 `MainWindowUI` 里，但名字跟着这张表走）。
     static QString toolChipName(Tool tool);
     static QString toolPanelName(Tool tool);
+    /// 面板外面那层滚动容器 —— **它才是 `QStackedWidget` 的那一页**。换工具时显隐落在
+    /// 这一层，面板自己是它的子控件（`panel->isHidden()` 量不出"这一片收起来了"）。
+    static QString toolPageName(Tool tool);
     static QString toolButtonName(Tool tool);
 
     /// 新加那四件（信标 / 酿造 / 旗帜 / 纹饰）里认控件用的名字（验证工程用）。

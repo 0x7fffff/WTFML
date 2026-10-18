@@ -61,6 +61,8 @@
 #include "auth/TokenStore.hpp"
 #include "download/DownloadConcurrency.hpp"
 #include "download/DownloadManager.hpp"
+#include "download/DownloadSpeedLimit.hpp"
+#include "download/DownloadProxy.hpp"
 #include "download/LegacyForgeInstall.hpp"
 #include "download/LoaderMeta.hpp"
 #include "download/ModDependencies.hpp"
@@ -105,6 +107,15 @@
 // 实例目录之间真收真落，覆盖那几样**真去备份目录里看**，游戏在跑时**真去比字节**。
 #include "presets/PresetApply.hpp"
 #include "presets/PresetCapture.hpp"
+#include "presets/PresetCompatibility.hpp"
+// 资源包次序 / 启用 + 存档数据包（2026-10-18，coding plan §6 P4）。见 PL 节 —— 在临时实例里
+// 真造 `options.txt` / `saves/<世界>/datapacks/`，验"部署"与"启用"分开报、没世界只记账。
+#include "presets/DataPackPreset.hpp"
+#include "presets/ResourcePackPreset.hpp"
+// 模组「真正去下」之前的判据层（2026-10-18，coding plan §10.1 第 7 项 / P5）。见 PM 节 ——
+// 必要/可选失败分开、依赖按 `平台:项目号` 去重展开、optional 只列不下、embedded 无视、
+// incompatible 挡住、替代项目不确认就不换、落盘大小/sha1 校验。全拿手搭的假答复逐格念。
+#include "presets/ModInstallPlan.hpp"
 // 工具箱那四件小工具的判据层（2026-10-16，coding plan §9.11）。见 ZAA–ZAD 四节 —— 全是
 // **纯函数**（哈希那一节要真读一个文件，它在一个 QTemporaryDir 里读），不联网、不开界面。
 #include "tools/AnvilPlanner.hpp"
@@ -122,6 +133,8 @@
 #include "manage/ModpackImport.hpp"
 #include "manage/ModpackExport.hpp"
 #include "manage/PlayerSkinStore.hpp"
+// 离线账号「换一张」那条路上的数据层（coding plan §1.4）。见 ZFa 节。
+#include "manage/OfflineSkin.hpp"
 #include "manage/RandomSkinStore.hpp"
 #include "manage/VersionDisplay.hpp"
 #include "manage/VersionManager.hpp"
@@ -4979,6 +4992,130 @@ static void runRandomSkinTests(const QString &sandbox) {
 }
 
 // ---------------------------------------------------------------------------
+// ZF 节：离线账号**自己挑的**那张皮肤（coding plan §1.4 那条「换一张」缺口的落点）
+// ---------------------------------------------------------------------------
+//
+// 这一节只验数据层：存在哪、模型那一行怎么归一化、撤掉之后是不是真的一张都不剩。
+// "挑完之后屏幕上换不换"由 controller / 主窗口那两条路走，不在这一节。
+static void runOfflineSkinTests(const QString &sandbox) {
+    section("ZFa. 离线账号自己挑的皮肤（换一张 / 恢复默认）");
+
+    // 一个合规矩的离线 uuid（32 位十六进制，和 AccountStore 算出来的同一种形态）。
+    const QString uuid = QStringLiteral("0123456789abcdef0123456789abcdef");
+    const QString key = QStringLiteral("0123456789abcdef0123456789abcdef");
+
+    // ---- ZF1 存在哪：skins/manual-<账号键>.png（模型一行是同一个名字的 .txt） ----
+    {
+        const QString skins = AppPaths::skinsDir();
+        check(skins.startsWith(sandbox),
+              "ZFa1 这一节写的是 mw/test 自己的沙盒（绝不碰用户那份 .minecraft）", skins);
+        check(OfflineSkin::skinPathFor(uuid) ==
+                  skins + QStringLiteral("/manual-") + key + QStringLiteral(".png"),
+              "ZFa1 皮肤存在 skins/manual-<账号键>.png", OfflineSkin::skinPathFor(uuid));
+        check(OfflineSkin::modelPathFor(uuid) ==
+                  skins + QStringLiteral("/manual-") + key + QStringLiteral(".txt"),
+              "ZFa1 模型那一行存在同一个名字的 .txt 里", OfflineSkin::modelPathFor(uuid));
+        // 带横线的那种 uuid 也要认（AccountStore 存的是带横线的形态）。
+        const QString dashed = QStringLiteral("01234567-89ab-cdef-0123-456789abcdef");
+        check(OfflineSkin::skinPathFor(dashed) == OfflineSkin::skinPathFor(uuid),
+              "ZFa1 带不带横线指的是同一个账号（同一个 uuidKey）");
+    }
+
+    // ---- ZF2 认不出来的 uuid：不拼野路径 ----
+    {
+        const QStringList bad = {QString(), QStringLiteral("不是 uuid"),
+                                 QStringLiteral("0123456789abcdef")};
+        QString firstAccepted;
+        for (const QString &one : bad) {
+            if (!OfflineSkin::skinPathFor(one).isEmpty() ||
+                !OfflineSkin::modelPathFor(one).isEmpty()) {
+                firstAccepted = one;
+                break;
+            }
+        }
+        check(firstAccepted.isEmpty(),
+              "ZFa2 uuid 认不出来 → 两个路径都是空串（不拼一个野路径，和 PlayerSkinStore 同一条规矩）",
+              firstAccepted);
+        check(!OfflineSkin::hasSkin(QString()) && !OfflineSkin::hasSkin(QStringLiteral("不是 uuid")),
+              "ZFa2 认不出来的 uuid 也不该「有皮肤」");
+        check(OfflineSkin::loadModel(QString()) == QStringLiteral("classic"),
+              "ZFa2 模型那一格读不出来时按经典算");
+    }
+
+    // ---- ZF3 一开始什么都没有 ----
+    {
+        check(!OfflineSkin::hasSkin(uuid), "ZFa3 前提：这个账号还没手动挑过");
+        check(OfflineSkin::loadModel(uuid) == QStringLiteral("classic"),
+              "ZFa3 没有模型记录 → 经典（绝大多数皮肤都是这一档）");
+    }
+
+    // ---- ZF4 存一张：落成 PNG、模型跟着记 ----
+    {
+        QImage image(64, 64, QImage::Format_ARGB32_Premultiplied);
+        image.fill(QColor(20, 200, 120));
+        QString error;
+        check(OfflineSkin::save(uuid, image, QStringLiteral("slim"), &error),
+              "ZFa4 存一张 64×64 的皮肤", error);
+        check(OfflineSkin::hasSkin(uuid), "ZFa4 存完就在（hasSkin 只问文件在不在）");
+        check(OfflineSkin::loadModel(uuid) == QStringLiteral("slim"),
+              "ZFa4 模型记下来了（slim）", OfflineSkin::loadModel(uuid));
+
+        // 后缀是 .png，内容也必须是 PNG —— 来源可能是 jpg，按原字节写会让后缀骗人。
+        QFile file(OfflineSkin::skinPathFor(uuid));
+        check(file.open(QIODevice::ReadOnly), "ZFa4 前提：存下来的那个文件打得开");
+        const QByteArray head = file.read(8);
+        file.close();
+        check(head == QByteArrayLiteral("\x89PNG\r\n\x1a\n"),
+              "ZFa4 存下来的一定是 PNG（来源是 jpg/bmp 时重新编码，不让后缀骗人）",
+              QString::fromLatin1(head.toHex()));
+        const QImage readBack(OfflineSkin::skinPathFor(uuid));
+        check(!readBack.isNull() && readBack.size() == QSize(64, 64) &&
+                  readBack.pixelColor(0, 0) == QColor(20, 200, 120),
+              "ZFa4 读回来还是那张 64×64、颜色没被改过");
+    }
+
+    // ---- ZF5 模型那一行：只认 slim，别的都按经典 ----
+    {
+        QImage image(64, 32, QImage::Format_ARGB32_Premultiplied);
+        image.fill(Qt::transparent);
+        QString error;
+        check(OfflineSkin::save(uuid, image, QStringLiteral("  SLIM  "), &error),
+              "ZFa5 大小写/空白也算 slim", error);
+        check(OfflineSkin::loadModel(uuid) == QStringLiteral("slim"),
+              "ZFa5 归一化之后是 slim");
+        check(OfflineSkin::save(uuid, image, QStringLiteral("乱写"), &error),
+              "ZFa5 不认识的档位照样存得了");
+        check(OfflineSkin::loadModel(uuid) == QStringLiteral("classic"),
+              "ZFa5 不认识的档位按经典记（不是留一个读不懂的值）",
+              OfflineSkin::loadModel(uuid));
+    }
+
+    // ---- ZF6 存不下来说清楚：坏图 / 坏 uuid ----
+    {
+        QString error;
+        check(!OfflineSkin::save(uuid, QImage(), QStringLiteral("classic"), &error) &&
+                  !error.isEmpty(),
+              "ZFa6 空图 → 失败并给一句原因", error);
+        error.clear();
+        check(!OfflineSkin::save(QStringLiteral("不是 uuid"), QImage(64, 64, QImage::Format_ARGB32),
+                                 QStringLiteral("classic"), &error) &&
+                  !error.isEmpty(),
+              "ZFa6 uuid 认不出来 → 失败并给一句原因", error);
+    }
+
+    // ---- ZF7 恢复默认：两张文件一起没 ----
+    {
+        check(OfflineSkin::hasSkin(uuid), "ZFa7 前提：现在有一张手动挑的");
+        check(OfflineSkin::clear(uuid), "ZFa7 撤掉成功");
+        check(!OfflineSkin::hasSkin(uuid), "ZFa7 图没了");
+        check(!QFile::exists(OfflineSkin::modelPathFor(uuid)), "ZFa7 模型那一行也没了");
+        check(OfflineSkin::loadModel(uuid) == QStringLiteral("classic"),
+              "ZFa7 撤掉之后模型那一格回到经典（下一次换一张时不会沿用旧模型）");
+        check(OfflineSkin::clear(uuid), "ZFa7 再撤一次也成功（没有任何东西可删不是失败）");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // ZF. 离线名字 → 游戏会给的那张官方默认皮肤（src/manage/DefaultSkin）
 //
 // 这一节有两半：**纯函数**那一半（Java 的 UUID.hashCode()、18 元表的下标、两套规矩各自的
@@ -7381,12 +7518,13 @@ static void runLoaderInstallTests() {
     //       24 那次就踩过这个：原来写死的 20 条在新上限下一条都不会排队，用例还照样绿。
     //
     // 【为什么非要**两台**假服务器】单看一台是量不出按主机那条判据的：Qt 自己对每个
-    //   host:port 也只开 6 条连接，所以"我们拦住了"和"Qt 拦住了"这两种情况在那台服务器上
-    //   看到的都是 6 条 —— 那么写的话，把判据整个删掉也照样绿（2026-09-23 加这条时就是为了
-    //   躲开这个：**断言要量"由我们自己决定"的那一格**）。两个端口就不一样了：Qt 的 6 条是
-    //   **每个 host:port** 各算各的（敢给的话它开 6 + 6 = 12 条），而我们的判据按**主机名**
-    //   算（同一个 127.0.0.1，两个端口合起来只有 6 条）。于是"两台服务器上一共挂了几条连接"
-    //   这一格由我们说了算：6 = 判据在，12 = 判据被删了。
+    //   host:port 也只开一个固定的通道数，所以"我们拦住了"和"Qt 拦住了"这两种情况在那台
+    //   服务器上看到的都是一样的条数 —— 那么写的话，把判据整个删掉也照样绿（2026-09-23
+    //   加这条时就是为了躲开这个：**断言要量"由我们自己决定"的那一格**）。
+    //   两台服务器就不一样了：Qt 的通道数按 host:port 各算各的（敢给的话它开 12 + 12），
+    //   而我们的判据按**主机名**算（同一个 127.0.0.1，两个端口合起来只有
+    //   kMaxConcurrentPerHost 条）。于是"两台服务器上一共挂了几条连接"这一格由我们说了算：
+    //   kMaxConcurrentPerHost = 判据在，翻倍 = 判据被删了。
     //
     // 这条同时是那次挂死的**直接**回归测试：改之前几百条会一个不落地全建连（422 条就是
     // 422 条），改之后多出来的留在我们自己的队列里 —— 只有"在我们手里排"才谈得上后面那些
@@ -7440,6 +7578,51 @@ static void runLoaderInstallTests() {
                     // 这时候整批当然还没完（6 条挂着、42 条排着）：界面不该解禁。
                     check(dm.isBusy(), "V6i 队列里还有活儿的时候 isBusy() 为真");
                 }
+            }
+        }
+    }
+
+    // (2b) Qt 的每主机通道数：同样一次性排满一档作业，但**全发给同一个 host:port**。
+    //
+    // Qt 默认每个 HTTP/1.1 主机只开 6 条通道，第 7 条起进它内部那个会超时的队列 ——
+    // 那正是 (2) 里那条端到端事故的形状。现在每条请求都带
+    // `QHttp1Configuration::setNumberOfConnectionsPerHost(kMaxConcurrentPerHost)`，
+    // 所以同一个 host:port 上应该真能看到超过 6 条连接。这条钉子量的就是
+    // "我们的按主机闸"和"Qt 的通道数"是不是同一个数：把 configureHttp1() 删掉，
+    // 这里会退回 6。
+    {
+        QTcpServer single;
+        const bool singleListening = single.listen(QHostAddress::LocalHost, 0);
+        check(singleListening, "V6i 量通道数用的假服务器起来了");
+        if (singleListening) {
+            QObject::connect(&single, &QTcpServer::newConnection, &single,
+                             [&single] { single.nextPendingConnection()->setParent(&single); });
+            QTemporaryDir channelDir(QDir::tempPath() + "/wtfml_channels-XXXXXX");
+            check(channelDir.isValid(), "V6i 通道数用例的临时目录建出来了");
+            if (channelDir.isValid()) {
+                DownloadManager dm;
+                QEventLoop spin;
+                const int jobs = DownloadManager::kMaxConcurrentPerHost;
+                dm.beginBatch();
+                for (int i = 0; i < jobs; ++i) {
+                    dm.downloadFile(QStringLiteral("http://127.0.0.1:%1/same%2.jar")
+                                        .arg(single.serverPort())
+                                        .arg(i),
+                                    channelDir.path() + QStringLiteral("/same%1.jar").arg(i));
+                }
+                dm.endBatch();
+                QTimer::singleShot(700, &spin, &QEventLoop::quit);
+                spin.exec();
+                const int sockets = single.findChildren<QTcpSocket *>().size();
+                out() << "        " << jobs << " 条同 host:port 作业 -> 假服务器上挂着 "
+                      << sockets << " 条连接（Qt 出厂每主机 6 条）\n";
+                check(sockets > 6,
+                      "V6i Qt 的每主机通道数已经抬到 kMaxConcurrentPerHost"
+                      "（没抬的话这里只有 6 条，多出来的两条会进 Qt 内部那个会超时的队列）",
+                      QStringLiteral("connections=%1").arg(sockets));
+                check(sockets <= DownloadManager::kMaxConcurrentPerHost,
+                      "V6i 抬通道数没有越过我们自己那道按主机闸",
+                      QStringLiteral("connections=%1").arg(sockets));
             }
         }
     }
@@ -14290,10 +14473,17 @@ static void runResourceCatalogTests() {
               url);
 
         // 没选游戏版本时**不问**筛条件（界面在用户还没选版本时不该把范围缩掉）。
+        // 唯一常带的那条是 `include_changelog=false`（2026-10-18 照 PCL 学的：这一层
+        // 一个字节的 changelog 都不读，接口默认却把每个文件的更新日志原文塞回来）。
         const QString bare = ResourceCatalog::versionsUrl(QStringLiteral("YL57xq9U"),
                                                           QString());
-        check(bare.endsWith(QStringLiteral("/project/YL57xq9U/version")),
-              "Z6 不筛的时候地址上不带问号", bare);
+        check(bare.contains(QStringLiteral("/project/YL57xq9U/version")),
+              "Z6 不筛的时候地址仍指向这个项目的版本列表", bare);
+        check(urlParam(bare, QStringLiteral("include_changelog")) == QStringLiteral("false"),
+              "Z6 不问更新日志（include_changelog=false）", bare);
+        check(urlParam(bare, QStringLiteral("game_versions")).isEmpty() &&
+                  urlParam(bare, QStringLiteral("loaders")).isEmpty(),
+              "Z6 不筛的时候不带 game_versions / loaders", bare);
     }
 
     QByteArray versionsJson;
@@ -24371,6 +24561,654 @@ static void runLaunchHistoryTests() {
 //
 // 整节纯函数 + 一个 QTemporaryDir 里的真存真读：不联网、不碰共享沙箱、不碰 ui/。
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// 模组预设的兼容检查（2026-10-18，coding plan §6.0 P2 / §7.2），见下面 PH 节。
+//
+// 这一节**一条网络都不碰**：`CompatibilityProvider` 就是为这件事留的口子，四个替身
+// 分别代表"立刻答"、"慢答"、"等我们手动放行"、"永远不答"。要验的也正是那几句规矩：
+//   · 本地能判的（钉死的版本/加载器、坏引用）不问网络；
+//   · 同一个项目只问一遍，必要项取"或"；
+//   · 在途请求数封顶；
+//   · 旧 generation 的迟到回调一个字都不许改（用户换了另一份预设）；
+//   · 网络失败 / 超时 / 429 只算「暂无法确认」，**绝不计入缺失**；
+//   · 缓存只收 `Matched` / `Missing`，过期的要重问。
+// ---------------------------------------------------------------------------
+namespace {
+
+struct ImmediateProvider : Presets::CompatibilityProvider {
+    QList<QString> asked;
+    QHash<QString, Presets::CompatibilityState> answers;
+    void query(const Presets::ModReference &reference, const Presets::CompatibilityContext &,
+               Reply reply) override {
+        asked.append(reference.key());
+        reply(answers.value(reference.key(), Presets::CompatibilityState::Matched),
+              QStringLiteral("替身给的结论"));
+    }
+};
+
+struct SlowProvider : Presets::CompatibilityProvider {
+    int delayMs = 25;
+    int inFlight = 0;
+    int maxSeen = 0;
+    int askedCount = 0;
+    void query(const Presets::ModReference &, const Presets::CompatibilityContext &,
+               Reply reply) override {
+        ++inFlight;
+        ++askedCount;
+        maxSeen = qMax(maxSeen, inFlight);
+        QTimer::singleShot(delayMs, [this, reply]() {
+            --inFlight;
+            reply(Presets::CompatibilityState::Matched, QString());
+        });
+    }
+};
+
+/// 把回调收着，等测试自己决定什么时候、按什么顺序放行（验 generation 用）。
+struct ControlledProvider : Presets::CompatibilityProvider {
+    QList<Reply> pending;
+    void query(const Presets::ModReference &, const Presets::CompatibilityContext &,
+               Reply reply) override {
+        pending.append(reply);
+    }
+};
+
+/// 永远不答（验超时那一档）。
+struct SilentProvider : Presets::CompatibilityProvider {
+    void query(const Presets::ModReference &, const Presets::CompatibilityContext &,
+               Reply) override {}
+};
+
+/// 等到这一代收尾；返回"真的收尾了"（false = 超时了，验证工程会红）。
+bool waitForChecker(Presets::CompatibilityChecker &checker, int timeoutMs = 5000) {
+    if (!checker.running()) {
+        return true;
+    }
+    QEventLoop loop;
+    QObject::connect(&checker, &Presets::CompatibilityChecker::finished, &loop,
+                     &QEventLoop::quit);
+    QTimer::singleShot(timeoutMs, &loop, &QEventLoop::quit);
+    loop.exec();
+    return !checker.running();
+}
+
+Presets::ModReference makeRef(const QString &platform, const QString &projectId,
+                              bool required = true, const QString &name = QString(),
+                              const QString &gameVersion = QString(),
+                              const QString &loader = QString()) {
+    Presets::ModReference reference;
+    reference.platform = platform;
+    reference.projectId = projectId;
+    reference.required = required;
+    reference.name = name;
+    reference.gameVersion = gameVersion;
+    reference.loader = loader;
+    return reference;
+}
+
+}  // namespace
+
+static void runPresetCompatibilityTests() {
+    // ---------------------------------------------------------------------
+    section("PH1. 状态行那句话：缺失与「暂无法确认」分开说（§7.2）");
+    // ---------------------------------------------------------------------
+    {
+        Presets::CompatibilitySummary empty;
+        check(empty.text() == QStringLiteral("没有模组引用要检查。"),
+              "PH1 一条引用都没有 ⇒ 直说没有要检查的", empty.text());
+
+        Presets::CompatibilitySummary allMatched;
+        allMatched.total = 2;
+        allMatched.matched = 2;
+        check(allMatched.isFinished() && allMatched.text() == QStringLiteral("全部匹配（2）。"),
+              "PH1 全部匹配只说一句（带总数）", allMatched.text());
+
+        Presets::CompatibilitySummary running;
+        running.total = 4;
+        running.matched = 1;
+        running.missing = 1;
+        running.unknown = 1;
+        running.pending = 1;
+        running.requiredMissing = 1;
+        const QString runningText = running.text();
+        check(!running.isFinished() && runningText.contains(QStringLiteral("检查中 3/4")) &&
+                  runningText.contains(QStringLiteral("已确认缺失 1")) &&
+                  runningText.contains(QStringLiteral("暂无法确认 1")) &&
+                  runningText.contains(QStringLiteral("必要项缺失 1")),
+              "PH1 查的过程中就把已确认的那几档说出来", runningText);
+
+        Presets::CompatibilitySummary done;
+        done.total = 3;
+        done.missing = 2;
+        done.unknown = 1;
+        done.requiredMissing = 1;
+        check(done.isFinished() &&
+                  done.text() ==
+                      QStringLiteral("缺失 2，暂无法确认 1，必要项缺失 1。"),
+              "★ PH1 缺失与暂无法确认是两个数，谁也不并进谁", done.text());
+
+        Presets::CompatibilitySummary bad;
+        bad.total = 1;
+        bad.invalid = 1;
+        check(bad.text().contains(QStringLiteral("引用无法识别 1")),
+              "PH1 坏引用单独一档", bad.text());
+    }
+
+    // ---------------------------------------------------------------------
+    section("PH2. 本地筛选：钉死的版本 / 加载器 / 坏引用都不问网络（§7.2）");
+    // ---------------------------------------------------------------------
+    {
+        Presets::CompatibilityContext context;
+        context.gameVersion = QStringLiteral("1.21.1");
+        context.loader = QStringLiteral("Fabric");
+
+        QString detail;
+        check(Presets::localCompatibilityCheck(makeRef(QString(), QStringLiteral("abc")), context,
+                                               &detail) ==
+                      Presets::CompatibilityState::Invalid &&
+                  !detail.isEmpty(),
+              "PH2 平台认不出来 ⇒ Invalid（本地判，不联网）", detail);
+        check(Presets::localCompatibilityCheck(makeRef(QStringLiteral("modrinth"), QString()),
+                                               context, &detail) ==
+                  Presets::CompatibilityState::Invalid,
+              "PH2 没有项目 id ⇒ Invalid", detail);
+        check(Presets::localCompatibilityCheck(
+                  makeRef(QStringLiteral("modrinth"), QStringLiteral("abc"), true, QString(),
+                          QStringLiteral("1.20.1")),
+                  context, &detail) == Presets::CompatibilityState::Missing,
+              "PH2 钉了另一个游戏版本 ⇒ 缺失（本地就能判）", detail);
+        check(Presets::localCompatibilityCheck(
+                  makeRef(QStringLiteral("modrinth"), QStringLiteral("abc"), true, QString(),
+                          QString(), QStringLiteral("forge")),
+                  context, &detail) == Presets::CompatibilityState::Missing,
+              "PH2 钉了另一个加载器 ⇒ 缺失（本地就能判）", detail);
+        check(Presets::localCompatibilityCheck(
+                  makeRef(QStringLiteral("modrinth"), QStringLiteral("abc"), true, QString(),
+                          QStringLiteral("1.21.1"), QStringLiteral("fabric")),
+                  context, &detail) == Presets::CompatibilityState::Pending,
+              "PH2 版本/加载器都对得上 ⇒ 交给平台查", detail);
+
+        check(Presets::normalizeCompatibilityLoader(QStringLiteral("NeoForge")) ==
+                      QStringLiteral("neoforge") &&
+                  Presets::normalizeCompatibilityLoader(QStringLiteral("原版")).isEmpty() &&
+                  Presets::normalizeCompatibilityLoader(QStringLiteral("none")).isEmpty(),
+              "PH2 加载器名归一：大小写 / 原版 / none");
+        check(Presets::CompatibilityContext{QStringLiteral("1.21.1"), QStringLiteral("NeoForge"),
+                                            true}
+                      .cacheKey() ==
+                  QStringLiteral("1.21.1|neoforge|client"),
+              "PH2 缓存键的格式固定（上下文 + 运行侧）");
+    }
+
+    // ---------------------------------------------------------------------
+    section("PH3. 检查器：去重 / 本地优先 / 并发上限 / 旧一代回调（§7.2）");
+    // ---------------------------------------------------------------------
+    {
+        ImmediateProvider provider;
+        Presets::CompatibilityChecker checker;
+        checker.setProvider(&provider);
+        checker.setOptions({4, 5000, 10 * 60 * 1000});
+
+        Presets::CompatibilityContext context;
+        context.gameVersion = QStringLiteral("1.21.1");
+        context.loader = QStringLiteral("fabric");
+
+        QList<Presets::ModReference> references;
+        references.append(makeRef(QStringLiteral("modrinth"), QStringLiteral("aaa"), false));
+        references.append(makeRef(QStringLiteral("modrinth"), QStringLiteral("aaa"), true));
+        references.append(makeRef(QStringLiteral("modrinth"), QStringLiteral("bbb")));
+        references.append(makeRef(QStringLiteral("modrinth"), QStringLiteral("bad"), true,
+                                  QString(), QStringLiteral("1.20.1")));
+        references.append(makeRef(QString(), QStringLiteral("nope")));
+
+        checker.start(references, context);
+        check(waitForChecker(checker), "PH3 这一代收得了尾");
+
+        check(provider.asked.size() == 2 &&
+                  provider.asked.contains(QStringLiteral("modrinth:aaa")) &&
+                  provider.asked.contains(QStringLiteral("modrinth:bbb")),
+              "★★ PH3 同一项目只问一遍；本地判死的（钉死版本 / 坏引用）一条都不问",
+              provider.asked.join(QStringLiteral(", ")));
+        QSet<QString> distinct;
+        for (const QString &key : provider.asked) {
+            distinct.insert(key);
+        }
+        check(provider.asked.size() == distinct.size(),
+              "PH3 问题清单本身没有重复");
+
+        const QList<Presets::CompatibilityResult> results = checker.results();
+        check(results.size() == 4, "★ PH3 重复引用合并成一条（4 条 ⇒ 3 条真项目 + 1 条坏引用）",
+              QString::number(results.size()));
+        bool dedupRequired = false;
+        for (const Presets::CompatibilityResult &result : results) {
+            if (result.key == QStringLiteral("modrinth:aaa")) {
+                dedupRequired = result.required;
+            }
+        }
+        check(dedupRequired, "PH3 同一项目出现两次时，必要项取「或」");
+        const Presets::CompatibilitySummary summary = checker.summary();
+        check(summary.matched == 2 && summary.missing == 1 && summary.invalid == 1 &&
+                  summary.requiredMissing == 1,
+              "PH3 汇总：2 匹配 / 1 缺失 / 1 引用无法识别 / 必要项缺失 1",
+              summary.text());
+    }
+
+    // 并发上限：同一时刻最多两条在途。
+    {
+        SlowProvider provider;
+        provider.delayMs = 20;
+        Presets::CompatibilityChecker checker;
+        checker.setProvider(&provider);
+        checker.setOptions({2, 5000, 0});
+
+        QList<Presets::ModReference> references;
+        for (int i = 0; i < 8; ++i) {
+            references.append(makeRef(QStringLiteral("modrinth"), QStringLiteral("p%1").arg(i)));
+        }
+        Presets::CompatibilityContext context;
+        context.gameVersion = QStringLiteral("1.21.1");
+
+        checker.start(references, context);
+        check(waitForChecker(checker), "PH3 八条引用也收得了尾");
+        check(provider.askedCount == 8, "PH3 每一条都问到了",
+              QString::number(provider.askedCount));
+        check(provider.maxSeen == 2,
+              "★ PH3 在途封顶：8 条引用、上限 2 ⇒ 任何时刻不超过 2",
+              QString::number(provider.maxSeen));
+        check(checker.summary().matched == 8, "PH3 八条都匹配", checker.summary().text());
+    }
+
+    // generation：旧一代的迟到回调必须被丢掉。
+    {
+        ControlledProvider provider;
+        Presets::CompatibilityChecker checker;
+        checker.setProvider(&provider);
+        checker.setOptions({4, 5000, 0});
+
+        Presets::CompatibilityContext context;
+        context.gameVersion = QStringLiteral("1.21.1");
+        QList<Presets::ModReference> references;
+        references.append(makeRef(QStringLiteral("modrinth"), QStringLiteral("abc")));
+
+        checker.start(references, context);
+        const int firstGeneration = checker.generation();
+        check(provider.pending.size() == 1, "PH3 第一代发出一条查询");
+        const Presets::CompatibilityProvider::Reply staleReply = provider.pending.takeFirst();
+
+        checker.start(references, context);
+        check(checker.generation() == firstGeneration + 1, "PH3 再 start 一次就是新一代");
+        check(provider.pending.size() == 1, "PH3 新一代又发出一条查询");
+        const Presets::CompatibilityProvider::Reply freshReply = provider.pending.takeFirst();
+
+        staleReply(Presets::CompatibilityState::Matched, QStringLiteral("旧的"));
+        QCoreApplication::processEvents();
+        check(checker.summary().matched == 0 && checker.running(),
+              "★★ PH3 旧 generation 的回调一个字都不许改",
+              checker.summary().text());
+
+        freshReply(Presets::CompatibilityState::Missing, QStringLiteral("新的"));
+        check(waitForChecker(checker), "PH3 新一代收得了尾");
+        check(checker.summary().missing == 1 && checker.results().value(0).detail ==
+                                                    QStringLiteral("新的"),
+              "PH3 新一代的结论才落得下来", checker.summary().text());
+    }
+
+    // ---------------------------------------------------------------------
+    section("PH4. 失败不报缺失 / 缓存只收准话（§7.2）");
+    // ---------------------------------------------------------------------
+    {
+        // 没装查询实现：每一项都是「暂无法确认」，不是缺失。
+        Presets::CompatibilityChecker checker;
+        checker.setOptions({4, 5000, 0});
+        Presets::CompatibilityContext context;
+        context.gameVersion = QStringLiteral("1.21.1");
+        checker.start({makeRef(QStringLiteral("modrinth"), QStringLiteral("abc"))}, context);
+        check(waitForChecker(checker), "PH4 没有查询实现也能收尾（弹窗不挂住）");
+        check(checker.summary().unknown == 1 && checker.summary().missing == 0 &&
+                  checker.summary().requiredMissing == 0,
+              "★★ PH4 没有查询实现 ⇒ 暂无法确认，绝不是缺失", checker.summary().text());
+
+        // 平台明确答「不知道」：同样不算缺失。
+        ImmediateProvider provider;
+        provider.answers.insert(QStringLiteral("modrinth:abc"),
+                                Presets::CompatibilityState::Unknown);
+        Presets::CompatibilityChecker unknownChecker;
+        unknownChecker.setProvider(&provider);
+        unknownChecker.setOptions({4, 5000, 0});
+        unknownChecker.start({makeRef(QStringLiteral("modrinth"), QStringLiteral("abc"))},
+                             context);
+        check(waitForChecker(unknownChecker), "PH4 平台答「不知道」也收得了尾");
+        check(unknownChecker.summary().unknown == 1 && unknownChecker.summary().missing == 0 &&
+                  unknownChecker.summary().requiredMissing == 0,
+              "★★ PH4 网络失败 / 429 ⇒ 暂无法确认，不计入缺失（那条验收）",
+              unknownChecker.summary().text());
+    }
+
+    // 超时：到点按「暂无法确认」报，不重试。
+    {
+        SilentProvider provider;
+        Presets::CompatibilityChecker checker;
+        checker.setProvider(&provider);
+        checker.setOptions({4, 30, 0});
+        Presets::CompatibilityContext context;
+        context.gameVersion = QStringLiteral("1.21.1");
+        checker.start({makeRef(QStringLiteral("modrinth"), QStringLiteral("abc"))}, context);
+        check(waitForChecker(checker), "PH4 超时也会收尾");
+        const QList<Presets::CompatibilityResult> results = checker.results();
+        check(results.size() == 1 &&
+                  results.at(0).state == Presets::CompatibilityState::Unknown &&
+                  results.at(0).detail.contains(QStringLiteral("超时")),
+              "PH4 超时 = 暂无法确认（原因写着超时）",
+              results.isEmpty() ? QString() : results.at(0).detail);
+        check(checker.summary().requiredMissing == 0, "★ PH4 超时的必要项不算缺失");
+    }
+
+    // 缓存：命中不重问、只收准话、过期要重问。
+    {
+        Presets::CompatibilityCache cache(10 * 60 * 1000);
+        ImmediateProvider provider;
+        provider.answers.insert(QStringLiteral("modrinth:abc"),
+                                Presets::CompatibilityState::Missing);
+        Presets::CompatibilityChecker checker(&cache);
+        checker.setProvider(&provider);
+        checker.setOptions({4, 5000, 10 * 60 * 1000});
+        Presets::CompatibilityContext context;
+        context.gameVersion = QStringLiteral("1.21.1");
+
+        checker.start({makeRef(QStringLiteral("modrinth"), QStringLiteral("abc"))}, context);
+        check(waitForChecker(checker), "PH4 第一趟查得完");
+        check(provider.asked.size() == 1 && checker.summary().missing == 1,
+              "PH4 第一趟是问出来的", checker.summary().text());
+
+        provider.asked.clear();
+        checker.start({makeRef(QStringLiteral("modrinth"), QStringLiteral("abc"))}, context);
+        check(waitForChecker(checker), "PH4 第二趟也收得尾");
+        check(provider.asked.isEmpty(), "★★ PH4 缓存没过期 ⇒ 一条都不重问",
+              provider.asked.join(QStringLiteral(", ")));
+        check(checker.results().value(0).fromCache &&
+                  checker.results().value(0).detail.contains(QStringLiteral("缓存结论")),
+              "PH4 缓存结论要标出来", checker.results().value(0).detail);
+
+        // 过期的条目不删（能看见上次的结论），但 stale = true。
+        Presets::CompatibilityCache::Entry entry;
+        bool stale = false;
+        const QString key =
+            Presets::CompatibilityCache::keyFor(makeRef(QStringLiteral("modrinth"),
+                                                        QStringLiteral("abc")),
+                                                context);
+        check(cache.lookup(key, &entry, &stale) && !stale,
+              "PH4 刚写进去的缓存是新鲜的");
+        cache.insert(QStringLiteral("1.21.1||client#modrinth:old"),
+                     Presets::CompatibilityState::Matched, QStringLiteral("旧结论"),
+                     QDateTime::currentMSecsSinceEpoch() - 11 * 60 * 1000);
+        check(cache.lookup(QStringLiteral("1.21.1||client#modrinth:old"), &entry, &stale) &&
+                  stale,
+              "PH4 过期条目不删，但 lookup 说它过期了");
+
+        // Unknown 一个字都不许进缓存。
+        const int before = cache.size();
+        cache.insert(QStringLiteral("modrinth:u"), Presets::CompatibilityState::Unknown,
+                     QStringLiteral("断网"));
+        check(cache.size() == before, "★★ PH4 Unknown 不进缓存（断网不许变成十分钟的假结论）");
+        check(!cache.lookup(QStringLiteral("1.21.1||client#modrinth:u"), &entry, nullptr),
+              "PH4 拒收的条目真的不在表里");
+    }
+
+    // ---------------------------------------------------------------------
+    section("PH5. 模组引用进 manifest：往返 / 旧版仍读得回 / 类别对不上");
+    // ---------------------------------------------------------------------
+    {
+        Presets::PresetManifest manifest;
+        manifest.id = Presets::newPresetId();
+        manifest.name = QStringLiteral("整合包 A");
+        manifest.category = Presets::PresetCategory::Mods;
+        manifest.modReferences.append(makeRef(QStringLiteral("Modrinth"),
+                                              QStringLiteral("sodium"), true,
+                                              QStringLiteral("Sodium")));
+        manifest.modReferences.append(makeRef(QStringLiteral("curseforge"),
+                                              QStringLiteral("238222"), false,
+                                              QStringLiteral("JEI"),
+                                              QStringLiteral("1.21.1"),
+                                              QStringLiteral("forge")));
+
+        const QJsonObject json = Presets::manifestToJson(manifest);
+        check(json.value(QStringLiteral("modReferences")).isArray() &&
+                  json.value(QStringLiteral("modReferences")).toArray().size() == 2,
+              "PH5 两条引用都写进 JSON");
+
+        const Presets::PresetManifest back =
+            Presets::manifestFromJson(QJsonDocument(json).toJson(QJsonDocument::Indented));
+        check(back.modReferences.size() == 2, "PH5 读得回来",
+              QString::number(back.modReferences.size()));
+        if (back.modReferences.size() == 2) {
+            check(back.modReferences.at(0).platform == QStringLiteral("modrinth") &&
+                      back.modReferences.at(0).projectId == QStringLiteral("sodium") &&
+                      back.modReferences.at(0).name == QStringLiteral("Sodium") &&
+                      back.modReferences.at(0).required,
+                  "PH5 顺序 / 平台名归一 / 名字 / 必要项都还在");
+            check(back.modReferences.at(1).projectId == QStringLiteral("238222") &&
+                      !back.modReferences.at(1).required &&
+                      back.modReferences.at(1).gameVersion == QStringLiteral("1.21.1") &&
+                      back.modReferences.at(1).loader == QStringLiteral("forge"),
+                  "PH5 钉死的版本 / 加载器 / 可选项原样往返");
+        }
+
+        // 旧版本写出来的 manifest 没有这一位：照旧读得回来，引用为空。
+        QJsonObject legacy = json;
+        legacy.remove(QStringLiteral("modReferences"));
+        const Presets::PresetManifest old =
+            Presets::manifestFromJson(QJsonDocument(legacy).toJson());
+        check(old.modReferences.isEmpty() && old.category == Presets::PresetCategory::Mods,
+              "PH5 没有 modReferences 的旧 manifest 照旧读得回");
+
+        // 类别对不上：模组引用只属于「模组」这一类。
+        Presets::PresetManifest wrong = manifest;
+        wrong.category = Presets::PresetCategory::GameSettings;
+        check(!Presets::categoryMismatch(wrong).isEmpty(),
+              "PH5 「游戏设置」里夹着模组引用 ⇒ categoryMismatch 说出来",
+              Presets::categoryMismatch(wrong));
+        Presets::PresetManifest right = manifest;
+        check(Presets::categoryMismatch(right).isEmpty(),
+              "PH5 「模组」类里的引用是合法的");
+    }
+}
+
+// §10.1 第 8 项 / P6：「大量预设、限流、切版本/关闭弹窗/取消与回归」。验收原话是
+// 「无过期回调、失控并发或主线程假死」—— 这一节里最值钱的三条：
+//   · 一次性几百条引用，检查器的在途数**绝不越过上限**，而且真的收得了尾；
+//   · 连着换几十代（用户来回切版本），旧一代的迟到回调**一个字都不许改**新结果；
+//   · 检查器比提供方先没（关闭那一页）时，晚到的 `Reply` 不许碰已析构对象。
+// 另外两格是数量级的粗检（几百份预设 / 几百条引用），只钉"能跑完、算得对"，不钉毫秒。
+// ---------------------------------------------------------------------------
+static void runPresetStressTests() {
+    // ---------- PN1 大量预设：建得出来、列得回来、次序就是下标那一次序 ----------
+    {
+        QTemporaryDir root;
+        check(root.isValid(), "PN1 建得出临时预设根目录");
+        if (root.isValid()) {
+            QElapsedTimer timer;
+            timer.start();
+            QStringList ids;
+            for (int i = 0; i < 150; ++i) {
+                const Presets::PresetManifest manifest = Presets::create(
+                    root.path(), QStringLiteral("预设 %1").arg(i), QString(),
+                    Presets::PresetCategory::GameSettings);
+                if (!manifest.id.isEmpty()) {
+                    ids.append(manifest.id);
+                }
+            }
+            check(ids.size() == 150, "★ PN1 连着建 150 份预设，一份都没丢",
+                  QString::number(ids.size()));
+            QList<Presets::BrokenPreset> broken;
+            const QList<Presets::PresetSummary> summaries =
+                Presets::list(root.path(), &broken);
+            check(summaries.size() == 150 && broken.isEmpty(),
+                  "★★ PN1 150 份全都读得回来（没有连坐）",
+                  QStringLiteral("listed=%1 broken=%2")
+                      .arg(summaries.size())
+                      .arg(broken.size()));
+            check(summaries.size() == 150 && !summaries.isEmpty() &&
+                      summaries.first().id == ids.first() &&
+                      summaries.last().id == ids.last(),
+                  "PN1 列表次序 = 下标次序");
+            check(timer.elapsed() < 30000,
+                  "★ PN1 150 份的新建 + 列表没有把主线程拖死（粗检 30 秒）",
+                  QStringLiteral("%1 ms").arg(timer.elapsed()));
+        }
+    }
+
+    // ---------- PN2 大量引用：判据层线性收尾、去重不漏 ----------
+    {
+        ResourceCatalog::VersionEntry version;
+        version.id = QStringLiteral("bulk-1");
+        version.gameVersions = {QStringLiteral("1.20.1")};
+        version.loaders = {QStringLiteral("fabric")};
+        ResourceCatalog::FileEntry file;
+        file.url = QStringLiteral("https://cdn.example.invalid/bulk.jar");
+        file.filename = QStringLiteral("bulk.jar");
+        file.primary = true;
+        version.files.append(file);
+
+        Presets::ModInstallRequest request;
+        request.gameVersion = QStringLiteral("1.20.1");
+        request.loader = QStringLiteral("fabric");
+        for (int i = 0; i < 200; ++i) {
+            Presets::ModReference reference;
+            reference.platform = QStringLiteral("modrinth");
+            reference.projectId = QStringLiteral("bulk-%1").arg(i);
+            reference.name = QStringLiteral("批量 %1").arg(i);
+            Presets::ModResolveInput input;
+            input.reference = reference;
+            input.queried = true;
+            input.title = reference.name;
+            input.versions = {version};
+            request.references.append(input);
+            request.references.append(input);  // 每一条都再来一遍
+        }
+        QElapsedTimer timer;
+        timer.start();
+        const Presets::ModInstallPlan plan = Presets::planModInstall(request);
+        check(plan.rows.size() == 200 && plan.download == 200,
+              "★★ PN2 400 条引用（两两重复）⇒ 200 行、200 个下载",
+              QStringLiteral("rows=%1 download=%2")
+                  .arg(plan.rows.size())
+                  .arg(plan.download));
+        check(plan.ok && plan.downloads().size() == 200,
+              "PN2 计划可继续，下载清单和总账对得上");
+        check(timer.elapsed() < 20000,
+              "★ PN2 几百条引用算完不卡主线程（粗检 20 秒）",
+              QStringLiteral("%1 ms").arg(timer.elapsed()));
+    }
+
+    // ---------- PN3 大量引用 + 并发上限：在途数不失控 ----------
+    {
+        SlowProvider provider;
+        provider.delayMs = 1;
+        Presets::CompatibilityChecker checker;
+        checker.setProvider(&provider);
+        checker.setOptions({8, 5000, 0});
+
+        QList<Presets::ModReference> references;
+        references.reserve(300);
+        for (int i = 0; i < 300; ++i) {
+            references.append(
+                makeRef(QStringLiteral("modrinth"), QStringLiteral("stress-%1").arg(i)));
+        }
+        Presets::CompatibilityContext context;
+        context.gameVersion = QStringLiteral("1.21.1");
+        checker.start(references, context);
+        check(waitForChecker(checker), "★★ PN3 300 条引用收得了尾（不许挂住）");
+        check(provider.askedCount == 300, "PN3 每一条都问到了",
+              QString::number(provider.askedCount));
+        check(provider.maxSeen <= 8 && provider.maxSeen >= 1,
+              "★★★ PN3 在途封顶：上限 8 ⇒ 任何时刻不超过 8",
+              QString::number(provider.maxSeen));
+        check(checker.summary().matched == 300 && checker.summary().pending == 0,
+              "PN3 300 条都落成结论，没有留在「进行中」",
+              checker.summary().text());
+    }
+
+    // ---------- PN4 连换几十代：旧回调一条都不许落 ----------
+    {
+        ControlledProvider provider;
+        Presets::CompatibilityChecker checker;
+        checker.setProvider(&provider);
+        checker.setOptions({4, 5000, 0});
+
+        Presets::CompatibilityContext context;
+        context.gameVersion = QStringLiteral("1.21.1");
+        for (int i = 0; i < 40; ++i) {
+            checker.start(
+                {makeRef(QStringLiteral("modrinth"), QStringLiteral("switch-%1").arg(i))},
+                context);
+        }
+        check(provider.pending.size() == 40,
+              "PN4 四十代各发出一发（每一代都记着收尾）",
+              QString::number(provider.pending.size()));
+        const Presets::CompatibilityProvider::Reply fresh = provider.pending.takeLast();
+        for (const Presets::CompatibilityProvider::Reply &stale : provider.pending) {
+            stale(Presets::CompatibilityState::Matched, QStringLiteral("旧的那一代"));
+        }
+        provider.pending.clear();
+        QCoreApplication::processEvents();
+        check(checker.running() && checker.summary().matched == 0 &&
+                  checker.summary().pending == 1,
+              "★★★ PN4 三十九发旧回调全部丢掉，界面还停在最新的那一代",
+              checker.summary().text());
+
+        fresh(Presets::CompatibilityState::Missing, QStringLiteral("最后那一代"));
+        check(waitForChecker(checker), "PN4 最新一代收得了尾");
+        check(checker.summary().missing == 1 && !checker.results().isEmpty() &&
+                  checker.results().first().projectId == QStringLiteral("switch-39"),
+              "★★ PN4 落下来的只有最后一代的结论",
+              checker.summary().text());
+    }
+
+    // ---------- PN5 失败之后再查：不会把上一趟的「说不清」当成缓存结论 ----------
+    {
+        ImmediateProvider provider;
+        provider.answers.insert(QStringLiteral("modrinth:flaky"),
+                                Presets::CompatibilityState::Unknown);
+        Presets::CompatibilityChecker checker;
+        checker.setProvider(&provider);
+        checker.setOptions({2, 5000, 10 * 60 * 1000});
+
+        Presets::CompatibilityContext context;
+        context.gameVersion = QStringLiteral("1.21.1");
+        checker.start({makeRef(QStringLiteral("modrinth"), QStringLiteral("flaky"))}, context);
+        // ★ 先收尾再念总账：函数实参的求值次序没保证，写在一个表达式里会念到"检查中"。
+        const bool firstDone = waitForChecker(checker);
+        check(firstDone && checker.summary().unknown == 1,
+              "PN5 第一趟问回来「说不清」", checker.summary().text());
+
+        provider.answers.insert(QStringLiteral("modrinth:flaky"),
+                                Presets::CompatibilityState::Matched);
+        checker.start({makeRef(QStringLiteral("modrinth"), QStringLiteral("flaky"))}, context);
+        check(waitForChecker(checker), "PN5 第二趟也收得了尾");
+        check(provider.asked.size() == 2 && checker.summary().matched == 1,
+              "★★ PN5 「说不清」不进缓存 ⇒ 第二趟真的重新问了",
+              QStringLiteral("asked=%1 %2")
+                  .arg(provider.asked.size())
+                  .arg(checker.summary().text()));
+    }
+
+    // ---------- PN6 关闭那一页：检查器先没，晚到的回调不许碰它 ----------
+    {
+        ControlledProvider provider;
+        auto *checker = new Presets::CompatibilityChecker;
+        checker->setProvider(&provider);
+        checker->setOptions({2, 5000, 0});
+        Presets::CompatibilityContext context;
+        context.gameVersion = QStringLiteral("1.21.1");
+        checker->start({makeRef(QStringLiteral("modrinth"), QStringLiteral("late"))}, context);
+        check(provider.pending.size() == 1, "PN6 有一发查在途");
+        const Presets::CompatibilityProvider::Reply late = provider.pending.takeFirst();
+        delete checker;
+        late(Presets::CompatibilityState::Matched, QStringLiteral("晚了"));
+        QCoreApplication::processEvents();
+        check(true, "★★★ PN6 检查器先析构，晚到的回调被挡在门外（整进程还活着）");
+    }
+}
+
 static void runPresetStoreTests() {
     section("PA. 实例预设：UUID 当目录名 / 一份坏了不连坐 / 那五件增删改（§5–§6 P1）");
 
@@ -24709,6 +25547,168 @@ static void runPresetStoreTests() {
               && listed.first().description == QStringLiteral("视野那一套")
               && listed.first().sectionCount == 0 && !listed.first().isDefault,
           "PA4 列表那一栏要的那几样：显示名 / 说明 / 段数 / 是不是默认项");
+
+    // ---------- PA4b. 四类（§4 / §6.0 P0「不串类别」） ----------
+    bool categoryRoundTrip = true;
+    for (Presets::PresetCategory category :
+         {Presets::PresetCategory::GameSettings, Presets::PresetCategory::Mods,
+          Presets::PresetCategory::ResourcePacks, Presets::PresetCategory::DataPacks}) {
+        categoryRoundTrip =
+            categoryRoundTrip
+            && Presets::presetCategoryFromKey(Presets::presetCategoryKey(category)) == category;
+    }
+    bool unknownCategoryOk = true;
+    const Presets::PresetCategory unknownCategory =
+        Presets::presetCategoryFromKey(QStringLiteral("futureCategory"), &unknownCategoryOk);
+    check(categoryRoundTrip
+              && Presets::presetCategoryKey(Presets::PresetCategory::Unset).isEmpty(),
+          "★ PA4b 四类：枚举 → 词 → 枚举一格不差；`Unset`（旧数据）**不写下去**（空串）");
+    check(!unknownCategoryOk && unknownCategory == Presets::PresetCategory::Unset,
+          "★★ PA4b 以后版本写的类别词 ⇒ ok=false（读不懂那一类的载荷，不能猜着当成混合预设）");
+
+    Presets::PresetManifest legacyManifest;
+    legacyManifest.id = Presets::newPresetId();
+    legacyManifest.name = QStringLiteral("旧版混合");
+    const QJsonObject legacyRoot =
+        QJsonDocument::fromJson(Presets::manifestToBytes(legacyManifest)).object();
+    bool legacyOk = false;
+    const Presets::PresetManifest legacyBack =
+        Presets::manifestFromJson(Presets::manifestToBytes(legacyManifest), &legacyOk);
+    check(legacyOk && legacyBack.category == Presets::PresetCategory::Unset
+              && !legacyRoot.contains(QStringLiteral("category")),
+          "★★ PA4b 旧数据（manifest 里没有 `category` 这一位）照读、算 `Unset`；"
+          "`Unset` 也绝不写下去 —— 回退一版启动器时新做的预设还在，只是不认类别");
+
+    Presets::PresetManifest modManifest;
+    modManifest.id = Presets::newPresetId();
+    modManifest.name = QStringLiteral("模组那一套");
+    modManifest.category = Presets::PresetCategory::Mods;
+    const QJsonObject modRoot =
+        QJsonDocument::fromJson(Presets::manifestToBytes(modManifest)).object();
+    bool modOk = false;
+    check(modRoot.value(QStringLiteral("category")).toString() == QStringLiteral("mods")
+              && Presets::manifestFromJson(Presets::manifestToBytes(modManifest), &modOk)
+                         .category
+                     == Presets::PresetCategory::Mods
+              && modOk,
+          "★ PA4b 写了类别的那一份：`category: \"mods\"` 落下去、读回来还是 `Mods`");
+
+    QByteArray futureCategoryBytes = Presets::manifestToBytes(modManifest);
+    futureCategoryBytes.replace(QByteArrayLiteral("\"mods\""), QByteArrayLiteral("\"future\""));
+    bool futureCategoryOk = true;
+    check(!Presets::manifestFromJson(futureCategoryBytes, &futureCategoryOk).isValid()
+              && !futureCategoryOk,
+          "★★ PA4b 盘上写着我们认不出的类别 ⇒ **整份**不认（和段种类那一条同一条理由）");
+
+    Presets::PresetSection optionsSection;
+    optionsSection.kind = Presets::SectionKind::VanillaOptions;
+    Presets::PresetSection keysSection;
+    keysSection.kind = Presets::SectionKind::VanillaKeys;
+    Presets::PresetSection serversSection;
+    serversSection.kind = Presets::SectionKind::ServerList;
+    Presets::PresetSection malilibSection;
+    malilibSection.kind = Presets::SectionKind::MalilibKeys;
+    Presets::PresetSection configSection;
+    configSection.kind = Presets::SectionKind::GenericFiles;
+    configSection.id = Presets::sectionIdFor(Presets::SectionKind::GenericFiles,
+                                             QStringLiteral("config"));
+    Presets::PresetSection defaultConfigsSection;
+    defaultConfigsSection.kind = Presets::SectionKind::GenericFiles;
+    defaultConfigsSection.id = Presets::sectionIdFor(Presets::SectionKind::GenericFiles,
+                                                     QStringLiteral("defaultconfigs"));
+    Presets::PresetSection resourcePacksSection;
+    resourcePacksSection.kind = Presets::SectionKind::GenericFiles;
+    resourcePacksSection.id = Presets::sectionIdFor(Presets::SectionKind::GenericFiles,
+                                                    QStringLiteral("resourcepacks"));
+    Presets::PresetSection shaderPacksSection;
+    shaderPacksSection.kind = Presets::SectionKind::GenericFiles;
+    shaderPacksSection.id = Presets::sectionIdFor(Presets::SectionKind::GenericFiles,
+                                                  QStringLiteral("shaderpacks"));
+    Presets::PresetSection customSection;
+    customSection.kind = Presets::SectionKind::Custom;
+
+    using Cat = Presets::PresetCategory;
+    check(Presets::sectionFitsCategory(Cat::GameSettings, optionsSection)
+              && Presets::sectionFitsCategory(Cat::GameSettings, keysSection)
+              && Presets::sectionFitsCategory(Cat::GameSettings, serversSection)
+              && Presets::sectionFitsCategory(Cat::GameSettings, malilibSection)
+              && Presets::sectionFitsCategory(Cat::GameSettings, configSection)
+              && Presets::sectionFitsCategory(Cat::GameSettings, defaultConfigsSection)
+              && !Presets::sectionFitsCategory(Cat::GameSettings, resourcePacksSection)
+              && !Presets::sectionFitsCategory(Cat::GameSettings, shaderPacksSection),
+          "★★ PA4b 「游戏设置」= 选项 / 按键 / 服务器列表 / MaLiLib 热键 + config 那一类"
+          "高级内容；资源包 / 光影包**不属于**它");
+    check(Presets::sectionFitsCategory(Cat::ResourcePacks, resourcePacksSection)
+              && Presets::sectionFitsCategory(Cat::ResourcePacks, shaderPacksSection)
+              && !Presets::sectionFitsCategory(Cat::ResourcePacks, optionsSection)
+              && !Presets::sectionFitsCategory(Cat::ResourcePacks, configSection),
+          "★★ PA4b 「资源包」= resourcepacks/ + shaderpacks/（光影跟资源包同一摊文件），"
+          "别的一概不收");
+    check(Presets::sectionFitsCategory(Cat::Mods, customSection)
+              && Presets::sectionFitsCategory(Cat::DataPacks, customSection)
+              && !Presets::sectionFitsCategory(Cat::Mods, optionsSection)
+              && !Presets::sectionFitsCategory(Cat::DataPacks, resourcePacksSection),
+          "★ PA4b 模组 / 数据包首版只放得下 `Custom`（模组引用与数据包载荷在 P4 / P5）");
+    check(Presets::sectionFitsCategory(Cat::Unset, optionsSection)
+              && Presets::sectionFitsCategory(Cat::Unset, resourcePacksSection),
+          "★★ PA4b 旧版混合预设（`Unset`）什么都放得下 —— 老数据一个字节都不动");
+
+    Presets::PresetManifest mismatchManifest;
+    mismatchManifest.id = Presets::newPresetId();
+    mismatchManifest.name = QStringLiteral("串了类");
+    mismatchManifest.category = Cat::Mods;
+    mismatchManifest.sections = {optionsSection};
+    check(!Presets::categoryMismatch(mismatchManifest).isEmpty(),
+          "★ PA4b 类别与段表对不上 ⇒ `categoryMismatch()` 给出一句人话");
+    mismatchManifest.category = Cat::GameSettings;
+    check(Presets::categoryMismatch(mismatchManifest).isEmpty()
+              && Presets::categoryMismatch(legacyManifest).isEmpty(),
+          "PA4b 对得上 / 旧数据 ⇒ 空串");
+
+    const QString catRoot = temp.path() + QStringLiteral("/presets-cat");
+    Presets::PresetManifest badWrite;
+    badWrite.id = Presets::newPresetId();
+    badWrite.name = QStringLiteral("写不进去的");
+    badWrite.category = Cat::Mods;
+    badWrite.sections = {optionsSection};
+    check(!Presets::saveManifest(catRoot, badWrite)
+              && !QFileInfo::exists(Presets::manifestPath(catRoot, badWrite.id)),
+          "★★ PA4b 写侧那道闸：类别和内容对不上的一份**一个字节都不写**（宁可这一趟存不下去，"
+          "也不要把串了类的预设写进盘里）");
+    const Presets::PresetManifest catCreated =
+        Presets::create(catRoot, QStringLiteral("资源包那一套"), QString(), Cat::ResourcePacks);
+    check(!catCreated.id.isEmpty() && catCreated.category == Cat::ResourcePacks
+              && Presets::loadManifest(catRoot, catCreated.id).category == Cat::ResourcePacks,
+          "★ PA4b `create(..., category)`：新的一份带着类别落盘、读回来还在");
+    const QList<Presets::PresetSummary> catListed = Presets::list(catRoot);
+    check(catListed.size() == 1 && catListed.first().category == Cat::ResourcePacks,
+          "★ PA4b 列表摘要里也带着类别（管理页靠它本地筛）");
+
+    // 手写一份"类别说 A、内容其实是 B"的 manifest：读侧也必须报坏（不是只管写侧）。
+    const QString tamperedId = Presets::newPresetId();
+    QDir().mkpath(Presets::presetDir(catRoot, tamperedId));
+    QJsonObject tampered;
+    tampered.insert(QStringLiteral("format"), Presets::manifestFormatTag());
+    tampered.insert(QStringLiteral("schemaVersion"), 1);
+    tampered.insert(QStringLiteral("id"), tamperedId);
+    tampered.insert(QStringLiteral("name"), QStringLiteral("手改过的"));
+    tampered.insert(QStringLiteral("category"), QStringLiteral("mods"));
+    tampered.insert(QStringLiteral("sections"),
+                    QJsonArray{QJsonObject{{QStringLiteral("kind"),
+                                            QStringLiteral("vanillaOptions")}}});
+    writeFileAt(Presets::manifestPath(catRoot, tamperedId),
+                QJsonDocument(tampered).toJson());
+    bool tamperedOk = true;
+    QString tamperedReason;
+    Presets::loadManifest(catRoot, tamperedId, &tamperedOk, &tamperedReason);
+    check(!tamperedOk && tamperedReason.contains(QStringLiteral("类别")),
+          "★★ PA4b 读侧那道闸：盘上那份类别和内容对不上 ⇒ 报坏（拿『类别说 A、内容其实是 B』"
+          "的预设去改用户实例，比少一份预设危险得多）",
+          tamperedReason);
+
+    // 这一整段用的是自己的 root，不碰 PA4 那三份。
+    Presets::remove(catRoot, catCreated.id);
+    QDir(catRoot).removeRecursively();
 
     // ---------- PA5. 那一道逃逸闸 ----------
     QDir().mkpath(outside);
@@ -27722,6 +28722,887 @@ static void runPresetCaptureApplyTests() {
     check(!snapshotProblem.isEmpty(),
           "★★★ PG7 `options.txt` 读不动 ⇒ 快照带着一句人话（不然整份设置会被当成空的铺掉）",
           snapshotProblem);
+}
+
+// §6 P4 / §10.1 第 6 项：「资源包顺序与启用」「世界级数据包待应用清单」。验收原话是
+// 「没世界就待应用；部署不冒充启用」—— 所以这一节最值钱的三条是：
+//   · 资源包只部署时，`options.txt` 一个字节都不许动（"部署成功"≠"游戏里开着"）；
+//   · 数据包没有同名世界 ⇒ 进 `datapacks-pending/` + `wtfml.datapacks`，**不建世界**；
+//   · 两种情况下报告都不许说"已启用"（数据包的启用记在 `level.dat`，这一层不碰它）。
+// ---------------------------------------------------------------------------
+static void runResourceAndDataPackTests() {
+    QTemporaryDir scratch;
+    check(scratch.isValid(), "PL 建得出一个临时目录来摆夹具");
+    if (!scratch.isValid()) {
+        return;
+    }
+
+    const auto writeBytes = [](const QString &path, const QByteArray &bytes) {
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            return false;
+        }
+        return file.write(bytes) == bytes.size();
+    };
+    const auto readBytes = [](const QString &path) {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            return QByteArray();
+        }
+        return file.readAll();
+    };
+
+    // ---------------------------------------------------------------------
+    section("PL1. 资源包：提取时把「启用 / 次序」记进那一段");
+    // ---------------------------------------------------------------------
+    const QString sourceInstance = scratch.filePath(QStringLiteral("rpSource"));
+    QDir().mkpath(sourceInstance + QStringLiteral("/resourcepacks"));
+    const QByteArray sourceOptions = QByteArrayLiteral(
+        "resourcePacks:[\"vanilla\",\"file/A.zip\",\"file/B.zip\"]\nfov:0.5\n");
+    check(writeBytes(sourceInstance + QStringLiteral("/options.txt"), sourceOptions),
+          "PL1 夹具：源实例的 options.txt 写下去了");
+    for (const char *name : {"A.zip", "B.zip", "C.zip"}) {
+        check(writeBytes(sourceInstance + QStringLiteral("/resourcepacks/") +
+                             QLatin1String(name),
+                         QByteArrayLiteral("zip")),
+              "PL1 夹具：资源包文件写下去了");
+    }
+
+    const Presets::ResourcePackOrderState order =
+        Presets::readResourcePackOrderState(sourceInstance);
+    check(order.problem.isEmpty() && order.hasList && order.enabledOrder.size() == 3,
+          "★★ PL1 `resourcePacks:` 那一行读得出来（3 项，低优先级在前）",
+          order.problem);
+
+    Presets::PresetSection packsSection;
+    packsSection.id = QStringLiteral("rp");
+    packsSection.kind = Presets::SectionKind::GenericFiles;
+    packsSection.mode = Presets::ApplyMode::CopyIfMissing;
+    for (const char *name : {"A.zip", "B.zip", "C.zip"}) {
+        QJsonObject item;
+        item.insert(QStringLiteral("path"),
+                    QStringLiteral("resourcepacks/") + QLatin1String(name));
+        item.insert(QStringLiteral("copyOnly"), true);
+        packsSection.items.append(item);
+    }
+    check(Presets::annotateResourcePackSection(packsSection, order),
+          "★★ PL1 启用信息真加进去了");
+    check(Presets::resourcePackSectionHasOrdering(packsSection),
+          "★★ PL1 这一段现在带启用信息");
+    const QJsonObject itemA = packsSection.items.at(0).toObject();
+    const QJsonObject itemC = packsSection.items.at(2).toObject();
+    check(itemA.value(QStringLiteral("enabled")).toBool() &&
+              itemA.value(QStringLiteral("priority")).toInt(-1) == 1,
+          "★★ PL1 A.zip 记成「开着，优先级 1」");
+    check(!itemC.value(QStringLiteral("enabled")).toBool() &&
+              !itemC.contains(QStringLiteral("priority")),
+          "★★ PL1 C.zip 记成「关着」，而且不编一个 priority 出来");
+    check(packsSection.items.at(1).toObject().value(QStringLiteral("priority")).toInt(-1) == 2,
+          "★★ PL1 B.zip 的优先级是 2（不是数组下标 1）");
+
+    // 没读到那一行（新实例）⇒ 一格都不加，绝不拿"全是关着"去冒充。
+    const QString noOptionsInstance = scratch.filePath(QStringLiteral("rpNoOptions"));
+    QDir().mkpath(noOptionsInstance);
+    const Presets::ResourcePackOrderState none =
+        Presets::readResourcePackOrderState(noOptionsInstance);
+    Presets::PresetSection untouched = packsSection;
+    untouched.items = QJsonArray();
+    for (const char *name : {"A.zip", "C.zip"}) {
+        QJsonObject item;
+        item.insert(QStringLiteral("path"),
+                    QStringLiteral("resourcepacks/") + QLatin1String(name));
+        untouched.items.append(item);
+    }
+    check(!Presets::annotateResourcePackSection(untouched, none),
+          "★★ PL1 没读到 options.txt ⇒ 一格启用信息都不加");
+    check(!untouched.items.at(0).toObject().contains(QStringLiteral("enabled")),
+          "★★ PL1 不许把「没读到」写成「全是关着」");
+
+    // ---------------------------------------------------------------------
+    section("PL2. 资源包：按预设重排并启用，目标上没点名的留着");
+    // ---------------------------------------------------------------------
+    const QString targetInstance = scratch.filePath(QStringLiteral("rpTarget"));
+    QDir().mkpath(targetInstance + QStringLiteral("/resourcepacks"));
+    const QByteArray targetOptions = QByteArrayLiteral(
+        "resourcePacks:[\"vanilla\",\"file/old.zip\"]\nfov:0.25\n");
+    check(writeBytes(targetInstance + QStringLiteral("/options.txt"), targetOptions),
+          "PL2 夹具：目标实例的 options.txt 写下去了");
+    for (const char *name : {"old.zip", "A.zip", "B.zip", "C.zip"}) {
+        check(writeBytes(targetInstance + QStringLiteral("/resourcepacks/") +
+                             QLatin1String(name),
+                         QByteArrayLiteral("zip")),
+              "PL2 夹具：目标上的资源包文件写下去了");
+    }
+    const QString rpBackupRoot = scratch.filePath(QStringLiteral("rpBackups"));
+
+    const Presets::ResourcePackOrderReport applied =
+        Presets::applyResourcePackOrdering(targetInstance, packsSection, rpBackupRoot);
+    check(applied.ok && applied.hasOrdering && applied.wrote,
+          "★★ PL2 资源包的启用顺序写进去了", applied.problem);
+    check(applied.enabled == 2, "★★ PL2 报告里「启用了 2 个」",
+          QString::number(applied.enabled));
+    const Presets::ResourcePackOrderState afterApply =
+        Presets::readResourcePackOrderState(targetInstance);
+    check(afterApply.enabledOrder ==
+              QStringList{QStringLiteral("vanilla"), QStringLiteral("file/old.zip"),
+                          QStringLiteral("file/A.zip"), QStringLiteral("file/B.zip")},
+          "★★★ PL2 内置包与没点名的 old.zip 原样留着，预设点名的按优先级排在末尾",
+          afterApply.enabledOrder.join(QStringLiteral(", ")));
+    check(!afterApply.enabledOrder.contains(QStringLiteral("file/C.zip")),
+          "★★ PL2 预设里明写「关着」的 C.zip 没有被打开");
+    check(readBytes(targetInstance + QStringLiteral("/options.txt"))
+              .contains(QByteArrayLiteral("fov:0.25")),
+          "★★ PL2 同一个文件里别的键一个字节都没动");
+
+    const Presets::ResourcePackOrderReport again =
+        Presets::applyResourcePackOrdering(targetInstance, packsSection, rpBackupRoot);
+    check(again.ok && again.hasOrdering && !again.wrote,
+          "★★ PL2 顺序已经对了 ⇒ 不重写 options.txt");
+
+    // ---------------------------------------------------------------------
+    section("PL3. 资源包：没有启用信息 / 目标太老 ⇒ 只部署，不冒充启用");
+    // ---------------------------------------------------------------------
+    Presets::PresetSection plainSection = packsSection;
+    for (int i = 0; i < plainSection.items.size(); ++i) {
+        QJsonObject item = plainSection.items.at(i).toObject();
+        item.remove(QStringLiteral("enabled"));
+        item.remove(QStringLiteral("priority"));
+        plainSection.items.replace(i, item);
+    }
+    check(!Presets::resourcePackSectionHasOrdering(plainSection),
+          "PL3 去掉那两格之后这一段就没有启用信息了");
+    const QByteArray beforePlain = readBytes(targetInstance + QStringLiteral("/options.txt"));
+    const Presets::ResourcePackOrderReport plain =
+        Presets::applyResourcePackOrdering(targetInstance, plainSection, rpBackupRoot);
+    check(plain.ok && !plain.hasOrdering && !plain.wrote,
+          "★★ PL3 没有启用信息 ⇒ 只部署、不写 options.txt");
+    check(readBytes(targetInstance + QStringLiteral("/options.txt")) == beforePlain,
+          "★★★ PL3 那份 options.txt 一个字节都没动");
+
+    const QString oldInstance = scratch.filePath(QStringLiteral("rpOld"));
+    QDir().mkpath(oldInstance + QStringLiteral("/resourcepacks"));
+    const QByteArray oldOptions = QByteArrayLiteral("fov:0.5\n");
+    writeBytes(oldInstance + QStringLiteral("/options.txt"), oldOptions);
+    writeBytes(oldInstance + QStringLiteral("/resourcepacks/A.zip"), QByteArrayLiteral("zip"));
+    const Presets::ResourcePackOrderReport oldTarget =
+        Presets::applyResourcePackOrdering(oldInstance, packsSection, rpBackupRoot);
+    check(oldTarget.ok && !oldTarget.wrote && !oldTarget.details.isEmpty(),
+          "★★ PL3 目标 options.txt 里没有 resourcePacks 那一行 ⇒ 只部署、不添加那一行",
+          oldTarget.problem);
+    check(readBytes(oldInstance + QStringLiteral("/options.txt")) == oldOptions,
+          "★★★ PL3 老版本那份 options.txt 一个字节都没动");
+
+    // ---------------------------------------------------------------------
+    section("PL4. 数据包：从存档里收出来");
+    // ---------------------------------------------------------------------
+    const QString dpSource = scratch.filePath(QStringLiteral("dpSource"));
+    QDir().mkpath(dpSource + QStringLiteral("/saves/W1/datapacks"));
+    QDir().mkpath(dpSource + QStringLiteral("/saves/W2"));
+    QDir().mkpath(dpSource + QStringLiteral("/saves/W3/datapacks/dirpack"));
+    const QByteArray packOne = QByteArrayLiteral("pack-one");
+    check(writeBytes(dpSource + QStringLiteral("/saves/W1/datapacks/pack1.zip"), packOne),
+          "PL4 夹具：W1 里那个 zip 写下去了");
+    check(writeBytes(dpSource + QStringLiteral("/saves/W3/datapacks/dirpack/pack.mcmeta"),
+                     QByteArrayLiteral("{}")),
+          "PL4 夹具：W3 里那个目录包写下去了");
+
+    const QString dpFiles = scratch.filePath(QStringLiteral("dpFiles"));
+    QDir().mkpath(dpFiles);
+    const Presets::DataPackCaptureReport dpCapture = Presets::captureDataPacks(dpSource, dpFiles);
+    check(dpCapture.ok, "★★ PL4 数据包收得回来", dpCapture.problem);
+    check(dpCapture.packs == 2 && dpCapture.worlds == 2 && dpCapture.sections.size() == 1,
+          "★★★ PL4 两个世界收到两个包，做成一段",
+          QStringLiteral("packs=%1 worlds=%2 sections=%3")
+              .arg(dpCapture.packs)
+              .arg(dpCapture.worlds)
+              .arg(dpCapture.sections.size()));
+    const Presets::PresetSection dpSection =
+        dpCapture.sections.isEmpty() ? Presets::PresetSection() : dpCapture.sections.first();
+    check(Presets::dataPackHandlesSection(dpSection),
+          "★★★ PL4 那一段的 id 与种类能重新认出来（旧版读到会当成「没有适配器」）");
+    check(dpSection.kind == Presets::SectionKind::Custom &&
+              dpSection.mode == Presets::ApplyMode::CopyIfMissing,
+          "★★ PL4 段种类是 Custom、落法是「缺了才拷」");
+    check(QFileInfo::exists(dpFiles + QStringLiteral("/saves/W1/datapacks/pack1.zip")) &&
+              QFileInfo::exists(dpFiles + QStringLiteral("/saves/W3/datapacks/dirpack/pack.mcmeta")),
+          "★★ PL4 包真的拷进了预设的 files/（目录包整棵拷）");
+    // ★ 预设里再摆一份「目标上没有那个世界」的包：PL5 要验的正是那一条。
+    QDir().mkpath(dpFiles + QStringLiteral("/saves/W2/datapacks"));
+    check(writeBytes(dpFiles + QStringLiteral("/saves/W2/datapacks/pack1.zip"), packOne),
+          "PL4 夹具：预设里 W2 那一份也摆好了（用来验「待应用」）");
+
+    // ---------------------------------------------------------------------
+    section("PL5. 数据包：有同名世界就部署，没有就记「待应用」且不建世界");
+    // ---------------------------------------------------------------------
+    const QString dpTarget = scratch.filePath(QStringLiteral("dpTarget"));
+    QDir().mkpath(dpTarget + QStringLiteral("/saves/W1"));
+
+    QList<Presets::DataPackItem> wanted;
+    Presets::DataPackItem one;
+    one.world = QStringLiteral("W1");
+    one.name = QStringLiteral("pack1.zip");
+    wanted.append(one);
+    Presets::DataPackItem missing;
+    missing.world = QStringLiteral("W2");
+    missing.name = QStringLiteral("pack1.zip");
+    wanted.append(missing);
+    QList<Presets::PresetSection> made;
+    QString makeWhy;
+    check(Presets::sectionsFromDataPacks(wanted, &made, &makeWhy),
+          "PL5 由两项做出一段", makeWhy);
+    check(made.size() == 1, "PL5 两项归在同一段");
+
+    const Presets::DataPackApplyReport dpApplied =
+        Presets::applyDataPacks(dpFiles, dpTarget, made.first(), Presets::ApplyMode::CopyIfMissing, false);
+    check(dpApplied.ok, "★★ PL5 数据包落得下去", dpApplied.problem);
+    check(dpApplied.deployed == 1 && dpApplied.deferred == 1 && dpApplied.skipped == 0,
+          "★★★ PL5 「部署 1 个、待应用 1 个」分开报（部署不许冒充成两个都装上了）",
+          QStringLiteral("%1 / %2 / %3")
+              .arg(dpApplied.deployed)
+              .arg(dpApplied.deferred)
+              .arg(dpApplied.skipped));
+    check(readBytes(dpTarget + QStringLiteral("/saves/W1/datapacks/pack1.zip")) == packOne,
+          "★★ PL5 已有的世界 W1 里那份真进去了");
+    check(!QFileInfo::exists(dpTarget + QStringLiteral("/saves/W2")),
+          "★★★ PL5 没有的世界没有被新建出来");
+    check(readBytes(dpTarget + QStringLiteral("/datapacks-pending/W2/pack1.zip")) == packOne,
+          "★★★ PL5 那一个进了 <实例>/datapacks-pending/<世界>/");
+    check(Presets::pendingDataPacks(dpTarget, QStringLiteral("W2")) ==
+              QStringList{QStringLiteral("pack1.zip")},
+          "★★ PL5 待应用清单里记着它");
+    check(readBytes(dpTarget + QStringLiteral("/wtfml.datapacks"))
+              .contains(QByteArrayLiteral("wtfml-datapacks/1")),
+          "★★ PL5 清单带着格式标记（读不懂的版本不会被当成空的盖掉）");
+    check(!QFileInfo::exists(dpTarget + QStringLiteral("/saves/W1/level.dat")),
+          "★★★ PL5 这一层不碰 level.dat ⇒ 不会冒充「游戏里已经启用」");
+    check(dpApplied.details.join(QStringLiteral("；")).contains(QStringLiteral("/datapack list")),
+          "★★ PL5 报告里明说「开没开由游戏里 /datapack list 决定」",
+          dpApplied.details.join(QStringLiteral("；")));
+
+    const Presets::DataPackApplyReport dpAgain =
+        Presets::applyDataPacks(dpFiles, dpTarget, made.first(), Presets::ApplyMode::CopyIfMissing, false);
+    check(dpAgain.ok && dpAgain.deployed == 0 && dpAgain.deferred == 0 && dpAgain.skipped == 2,
+          "★★ PL5 再来一趟「缺了才拷」⇒ 两个都跳过、一个字节不写",
+          QStringLiteral("%1/%2/%3")
+              .arg(dpAgain.deployed)
+              .arg(dpAgain.deferred)
+              .arg(dpAgain.skipped));
+
+    // ---------------------------------------------------------------------
+    section("PL6. 数据包：合并 / 追加做不了主，什么都别写；跳过就是跳过");
+    // ---------------------------------------------------------------------
+    const QByteArray pendingBefore = readBytes(dpTarget + QStringLiteral("/wtfml.datapacks"));
+    const QByteArray deployedBefore =
+        readBytes(dpTarget + QStringLiteral("/saves/W1/datapacks/pack1.zip"));
+    const Presets::DataPackApplyReport merged =
+        Presets::applyDataPacks(dpFiles, dpTarget, made.first(), Presets::ApplyMode::Merge, false);
+    check(merged.ok && merged.needsChoice == 2 && merged.deployed == 0 && merged.deferred == 0,
+          "★★★ PL6 「合并」对数据包报「要你选 2 个」，一个都不写",
+          QStringLiteral("%1/%2/%3").arg(merged.needsChoice).arg(merged.deployed).arg(merged.deferred));
+    check(!merged.details.isEmpty(), "★★ PL6 而且说清楚该怎么办");
+    check(readBytes(dpTarget + QStringLiteral("/saves/W1/datapacks/pack1.zip")) == deployedBefore &&
+              readBytes(dpTarget + QStringLiteral("/wtfml.datapacks")) == pendingBefore,
+          "★★★ PL6 盘上那份包和待应用清单逐字节相同");
+
+    const Presets::DataPackApplyReport skipped =
+        Presets::applyDataPacks(dpFiles, dpTarget, made.first(), Presets::ApplyMode::Skip, false);
+    check(skipped.ok && skipped.skipped == 2 && skipped.deployed == 0,
+          "★★ PL6 跳过那档只报跳过");
+
+    // ---------------------------------------------------------------------
+    section("PL7. 数据包：「覆盖」两趟 —— 不点头一个字节都不动");
+    // ---------------------------------------------------------------------
+    const QByteArray oldTargetPack = QByteArrayLiteral("old-on-target");
+    check(writeBytes(dpTarget + QStringLiteral("/saves/W1/datapacks/pack1.zip"), oldTargetPack),
+          "PL7 夹具：把目标上那份改成另一份");
+    const Presets::DataPackApplyReport notConfirmed =
+        Presets::applyDataPacks(dpFiles, dpTarget, made.first(), Presets::ApplyMode::Replace, false);
+    check(!notConfirmed.ok && !notConfirmed.problem.isEmpty(),
+          "★★★ PL7 覆盖没确认 ⇒ 整段不动", notConfirmed.problem);
+    check(readBytes(dpTarget + QStringLiteral("/saves/W1/datapacks/pack1.zip")) == oldTargetPack,
+          "★★★ PL7 目标上那份一个字节都没动");
+
+    const Presets::DataPackApplyReport replaced =
+        Presets::applyDataPacks(dpFiles, dpTarget, made.first(), Presets::ApplyMode::Replace, true);
+    check(replaced.ok && replaced.deployed == 1 && replaced.deferred == 1,
+          "★★ PL7 确认之后才真覆盖", replaced.problem);
+    check(readBytes(dpTarget + QStringLiteral("/saves/W1/datapacks/pack1.zip")) == packOne,
+          "★★ PL7 目标上那份换成了预设里的");
+
+    // ---------------------------------------------------------------------
+    section("PL8. 数据包：路径形状不对 ⇒ 整段不认（不猜）");
+    // ---------------------------------------------------------------------
+    Presets::PresetSection bad = dpSection;
+    QJsonObject badItem;
+    badItem.insert(QStringLiteral("path"), QStringLiteral("saves/W1/../W2/datapacks/x.zip"));
+    bad.items = QJsonArray{badItem};
+    QList<Presets::DataPackItem> ignored;
+    QString badWhy;
+    check(!Presets::dataPackItemsFromSection(bad, &ignored, &badWhy) && !badWhy.isEmpty(),
+          "★★★ PL8 带 `..` 的路径整段不认", badWhy);
+    badItem.insert(QStringLiteral("path"), QStringLiteral("mods/x.jar"));
+    bad.items = QJsonArray{badItem};
+    check(!Presets::dataPackItemsFromSection(bad, &ignored, &badWhy),
+          "★★ PL8 不是 saves/<世界>/datapacks/<包> 的路径也不认");
+    badItem.insert(QStringLiteral("path"), QStringLiteral("saves/W1/datapacks/x.zip"));
+    badItem.insert(QStringLiteral("world"), QStringLiteral("W2"));
+    bad.items = QJsonArray{badItem};
+    check(!Presets::dataPackItemsFromSection(bad, &ignored, &badWhy),
+          "★★ PL8 世界名和路径对不上也不认");
+
+    // ---------------------------------------------------------------------
+    section("PL9. 计划与应用引擎都认数据包：版本太老整行做不了");
+    // ---------------------------------------------------------------------
+    // 计划这边另开一个干净目标：`dpTarget` 上 W1 那份已经在 PL5 落过了（"缺了才拷"会
+    // 把部署数算成跳过），这一节要看的是「部署 1 / 待应用 1」那两格。
+    const QString dpPlanTarget = scratch.filePath(QStringLiteral("dpPlanTarget"));
+    QDir().mkpath(dpPlanTarget + QStringLiteral("/saves/W1"));
+    Presets::PlanRequest planRequest;
+    planRequest.presetFilesRoot = dpFiles;
+    planRequest.sections = made;
+    planRequest.target.instanceRoot = dpPlanTarget;
+    planRequest.target.supportsDataPacks = false;
+    const Presets::ApplyPlan blockedPlan = Presets::planPresetApplication(planRequest);
+    check(blockedPlan.ok && blockedPlan.rows.size() == 1 && blockedPlan.rows.first().blocked,
+          "★★★ PL9 17w43a 之前 ⇒ 数据包那一行是「做不了」",
+          blockedPlan.rows.isEmpty() ? QString() : blockedPlan.rows.first().problem);
+    check(blockedPlan.rows.first().problem.contains(QStringLiteral("17w43a")),
+          "★★ PL9 理由说清楚是哪条版本线", blockedPlan.rows.first().problem);
+
+    planRequest.target.supportsDataPacks = true;
+    const Presets::ApplyPlan livePlan = Presets::planPresetApplication(planRequest);
+    check(livePlan.ok && livePlan.rows.size() == 1 && !livePlan.rows.first().blocked,
+          "★★ PL9 支持的版本上这一段算得出来");
+    check(livePlan.rows.first().count == 1 && livePlan.rows.first().deferred == 1,
+          "★★★ PL9 计划表上「1 个部署、1 个待应用」是两格",
+          QStringLiteral("count=%1 deferred=%2")
+              .arg(livePlan.rows.first().count)
+              .arg(livePlan.rows.first().deferred));
+    check(Presets::applyPlanRowText(livePlan.rows.first()).contains(QStringLiteral("待应用")),
+          "★★★ PL9 计划表那一行真写着「待应用」",
+          Presets::applyPlanRowText(livePlan.rows.first()));
+    check(livePlan.writesAnything() && livePlan.deferredCount() == 1,
+          "★★ PL9 「有待应用」也算这一趟会写东西（它要写盘上的 pending 目录）");
+
+    // 应用引擎那一侧：版本闸真的一个字节都不写。
+    const QString presetsGateRoot = scratch.filePath(QStringLiteral("presetsGate"));
+    const QString gateInstance = scratch.filePath(QStringLiteral("gateInstance"));
+    QDir().mkpath(gateInstance);
+    Presets::PresetManifest gateManifest;
+    gateManifest.id = Presets::newPresetId();
+    gateManifest.name = QStringLiteral("PL 数据包");
+    gateManifest.sections = made;
+    const QString gateFiles = Presets::filesDir(presetsGateRoot, gateManifest.id);
+    for (const Presets::DataPackItem &item : wanted) {
+        // ★ 用 world/name 现拼（这两项是自己填的，`relativePath` 那一格本来就空）。
+        const QString relative = QStringLiteral("saves/%1/datapacks/%2")
+                                     .arg(item.world, item.name);
+        QDir().mkpath(QFileInfo(gateFiles + QStringLiteral("/") + relative).absolutePath());
+        writeBytes(gateFiles + QStringLiteral("/") + relative, packOne);
+    }
+    Presets::PresetApplyRequest gateRequest;
+    gateRequest.instanceId = QStringLiteral("gate");
+    gateRequest.instanceRoot = gateInstance;
+    gateRequest.supportsDataPacks = false;
+    const Presets::PresetApplyResult gateResult =
+        Presets::applyPresetToInstance(presetsGateRoot, gateManifest, gateRequest);
+    check(!gateResult.rows.isEmpty() && gateResult.rows.first().blocked,
+          "★★★ PL9 应用引擎也认那条版本闸", gateResult.problem);
+    check(!gateResult.wroteAnything() && gateResult.deferred == 0,
+          "★★★ PL9 被版本闸挡住 ⇒ 不报部署、也不报待应用");
+    check(!QFileInfo::exists(gateInstance + QStringLiteral("/wtfml.datapacks")) &&
+              !QFileInfo::exists(gateInstance + QStringLiteral("/saves")) &&
+              !QFileInfo::exists(gateInstance + QStringLiteral("/datapacks-pending")),
+          "★★★ PL9 目标实例上什么都没多出来");
+
+    gateRequest.supportsDataPacks = true;
+    QDir().mkpath(gateInstance + QStringLiteral("/saves/W1"));
+    const Presets::PresetApplyResult liveResult =
+        Presets::applyPresetToInstance(presetsGateRoot, gateManifest, gateRequest);
+    check(liveResult.deferred == 1 && liveResult.rows.first().deferred == 1,
+          "★★ PL9 支持的版本上应用引擎把「待应用 1 个」报出来",
+          QStringLiteral("deferred=%1").arg(liveResult.deferred));
+    check(QFileInfo::exists(gateInstance + QStringLiteral("/saves/W1/datapacks/pack1.zip")) &&
+              QFileInfo::exists(gateInstance + QStringLiteral("/datapacks-pending/W2/pack1.zip")),
+          "★★ PL9 该部署的部署了、该待应用的摆好了");
+}
+
+// §10.1 第 7 项 / P5：「模组平台身份、依赖/冲突、必要可选失败与下载校验」。验收原话是
+// 「不错装不兼容文件；替代项目需确认；落盘校验」—— 这一节的三条红线：
+//   · 本地先筛：版本自己的 `gameVersions` / `loaders` 对不上就不许下（"接口筛过"不算数）；
+//   · 替代项目**绝不自己挑**：没有用户确认就只报「等你确认」，确认了也要它自己过兼容关；
+//   · 下完的文件按大小 + sha1 对一遍；接口没给 sha1 时只能说"没校验"，不许说"校验通过"。
+// 这一层不发网络、不读实例盘：版本答复、实例里装了什么、确认过哪一条都是手搭的假值。
+// ---------------------------------------------------------------------------
+static void runModInstallPlanTests() {
+    QTemporaryDir scratch;
+    check(scratch.isValid(), "PM 建得出一个临时目录来做落盘校验");
+    if (!scratch.isValid()) {
+        return;
+    }
+
+    const auto makeFile = [](const QString &name, qint64 size = 1024,
+                             const QString &sha1 = QString()) {
+        ResourceCatalog::FileEntry file;
+        file.url = QStringLiteral("https://cdn.example.invalid/") + name;
+        file.filename = name;
+        file.size = size;
+        file.sha1 = sha1;
+        file.primary = true;
+        return file;
+    };
+    const auto makeDependency = [](const QString &projectId, const QString &type) {
+        ResourceCatalog::Dependency dependency;
+        dependency.projectId = projectId;
+        dependency.type = type;
+        return dependency;
+    };
+    const auto makeVersion = [&](const QString &id, const QStringList &games,
+                                 const QStringList &loaders,
+                                 const QList<ResourceCatalog::Dependency> &dependencies = {}) {
+        ResourceCatalog::VersionEntry version;
+        version.id = id;
+        version.versionNumber = id;
+        version.versionType = QStringLiteral("release");
+        version.gameVersions = games;
+        version.loaders = loaders;
+        version.files.append(makeFile(id + QStringLiteral(".jar")));
+        version.dependencies = dependencies;
+        return version;
+    };
+    const auto makeReference = [](const QString &projectId, const QString &name,
+                                  bool required = true) {
+        Presets::ModReference reference;
+        reference.platform = QStringLiteral("modrinth");
+        reference.projectId = projectId;
+        reference.name = name;
+        reference.required = required;
+        return reference;
+    };
+    const auto makeInput = [&](const Presets::ModReference &reference,
+                               const QList<ResourceCatalog::VersionEntry> &versions,
+                               bool queried = true, bool failed = false) {
+        Presets::ModResolveInput input;
+        input.reference = reference;
+        input.queried = queried;
+        input.queryFailed = failed;
+        input.title = reference.name;
+        input.versions = versions;
+        return input;
+    };
+    const auto findRow = [](const Presets::ModInstallPlan &plan, const QString &key)
+        -> const Presets::ModInstallRow * {
+        for (const Presets::ModInstallRow &row : plan.rows) {
+            if (row.key == key) {
+                return &row;
+            }
+        }
+        return nullptr;
+    };
+
+    Presets::ModInstallRequest base;
+    base.gameVersion = QStringLiteral("1.20.1");
+    base.loader = QStringLiteral("fabric");
+
+    // ---------- PM1 必要 / 可选：一条失败不拖垮另一条的账 ----------
+    {
+        Presets::ModInstallRequest request = base;
+        request.references.append(
+            makeInput(makeReference(QStringLiteral("P-OLD"), QStringLiteral("旧模组")),
+                      {makeVersion(QStringLiteral("old-1"), {QStringLiteral("1.16.5")},
+                                   {QStringLiteral("fabric")})}));
+        Presets::ModReference optional = makeReference(QStringLiteral("P-OPT"),
+                                                       QStringLiteral("可选模组"), false);
+        request.references.append(makeInput(optional, {}, false, true));
+
+        const Presets::ModInstallPlan plan = Presets::planModInstall(request);
+        check(plan.rows.size() == 2, "PM1 两条引用各出一行",
+              QStringLiteral("rows=%1").arg(plan.rows.size()));
+        check(!plan.rows.isEmpty() &&
+                  plan.rows.first().status == Presets::ModInstallStatus::Missing,
+              "★ PM1 目标版本对不上 ⇒ 缺失（不是「暂无法确认」）");
+        check(plan.rows.size() > 1 &&
+                  plan.rows.at(1).status == Presets::ModInstallStatus::Unknown,
+              "★ PM1 问平台失败 ⇒ 暂无法确认（不是「缺失」）");
+        check(!plan.ok && plan.requiredFailures() == 1 && plan.optionalFailures() == 1,
+              "★★ PM1 必要 1 / 可选 1 分开数，整份不可继续",
+              QStringLiteral("ok=%1 req=%2 opt=%3")
+                  .arg(plan.ok ? 1 : 0)
+                  .arg(plan.requiredFailures())
+                  .arg(plan.optionalFailures()));
+        check(plan.requiredFailures() + plan.optionalFailures() ==
+                  plan.missing + plan.unknown + plan.incompatible + plan.needsConfirm +
+                      plan.blocked,
+              "PM1 失败总数对得上各类计数");
+    }
+
+    // ---------- PM2 去重：同一条引用出现两次只算一次 ----------
+    {
+        Presets::ModInstallRequest request = base;
+        const Presets::ModReference reference =
+            makeReference(QStringLiteral("P-ONE"), QStringLiteral("一次"));
+        const Presets::ModResolveInput input =
+            makeInput(reference, {makeVersion(QStringLiteral("one-1"),
+                                              {QStringLiteral("1.20.1")},
+                                              {QStringLiteral("fabric")})});
+        request.references.append(input);
+        request.references.append(input);
+        const Presets::ModInstallPlan plan = Presets::planModInstall(request);
+        check(plan.rows.size() == 1 && plan.download == 1,
+              "★★ PM2 同一项目出现两次 ⇒ 只下一份",
+              QStringLiteral("rows=%1 download=%2").arg(plan.rows.size()).arg(plan.download));
+    }
+
+    // ---------- PM3 依赖展开：required 折进来、optional 只列、embedded 无视 ----------
+    {
+        Presets::ModInstallRequest request = base;
+        request.dependencyTitles.insert(QStringLiteral("modrinth:P-DEP"),
+                                        QStringLiteral("前置甲"));
+        request.dependencyAnswers.insert(
+            QStringLiteral("modrinth:P-DEP"),
+            {makeVersion(QStringLiteral("dep-1"), {QStringLiteral("1.20.1")},
+                         {QStringLiteral("fabric")})});
+        request.references.append(makeInput(
+            makeReference(QStringLiteral("P-PARENT"), QStringLiteral("父模组")),
+            {makeVersion(QStringLiteral("parent-1"), {QStringLiteral("1.20.1")},
+                         {QStringLiteral("fabric")},
+                         {makeDependency(QStringLiteral("P-DEP"), QStringLiteral("required")),
+                          makeDependency(QStringLiteral("P-OPTIONAL"), QStringLiteral("optional")),
+                          makeDependency(QStringLiteral("P-EMBED"), QStringLiteral("embedded")),
+                          makeDependency(QStringLiteral("P-BAD"), QStringLiteral("incompatible"))})}));
+
+        const Presets::ModInstallPlan plan = Presets::planModInstall(request);
+        check(plan.rows.size() == 2 && plan.download == 2,
+              "★★ PM3 必要前置折进同一张下载清单",
+              QStringLiteral("rows=%1 download=%2").arg(plan.rows.size()).arg(plan.download));
+        const Presets::ModInstallRow *dependency = findRow(plan, QStringLiteral("modrinth:P-DEP"));
+        check(dependency != nullptr &&
+                  dependency->status == Presets::ModInstallStatus::Download &&
+                  dependency->fromDependency && dependency->required,
+              "★★ PM3 前置行标着「从依赖来」、且跟着父项的「必要」走");
+        check(dependency != nullptr && dependency->title == QStringLiteral("前置甲"),
+              "PM3 前置的名字用答复里给的那一份",
+              dependency != nullptr ? dependency->title : QStringLiteral("<缺>"));
+        check(plan.optionalDependencyKeys ==
+                  QStringList{QStringLiteral("modrinth:P-OPTIONAL")},
+              "★★ PM3 optional 前置只列出来，**不自动下**",
+              plan.optionalDependencyKeys.join(QStringLiteral(",")));
+        check(findRow(plan, QStringLiteral("modrinth:P-EMBED")) == nullptr,
+              "★★ PM3 embedded 前置不单独下一份（已经打进 jar）");
+        check(findRow(plan, QStringLiteral("modrinth:P-BAD")) == nullptr,
+              "PM3 incompatible 不当下拉清单里的一条（它只管冲突）");
+        check(plan.ok, "PM3 全都能下 ⇒ 计划可以继续");
+    }
+
+    // ---------- PM4 必要前置没答复 ⇒ 暂无法确认（不许默认"没有前置"） ----------
+    {
+        Presets::ModInstallRequest request = base;
+        request.references.append(makeInput(
+            makeReference(QStringLiteral("P-PARENT4"), QStringLiteral("父模组")),
+            {makeVersion(QStringLiteral("parent-4"), {QStringLiteral("1.20.1")},
+                         {QStringLiteral("fabric")},
+                         {makeDependency(QStringLiteral("P-NOANSWER"), QStringLiteral("required"))})}));
+        const Presets::ModInstallPlan plan = Presets::planModInstall(request);
+        const Presets::ModInstallRow *dependency =
+            findRow(plan, QStringLiteral("modrinth:P-NOANSWER"));
+        check(dependency != nullptr &&
+                  dependency->status == Presets::ModInstallStatus::Unknown &&
+                  dependency->fromDependency,
+              "★★★ PM4 必要前置还没问到 ⇒ 那一行「暂无法确认」（不许当成「没有」）",
+              dependency != nullptr ? dependency->problem : QStringLiteral("<没有这一行>"));
+        check(!plan.ok, "★★ PM4 必要前置说不清 ⇒ 整份计划不可继续");
+    }
+
+    // ---------- PM5 实例里已经有了 ----------
+    {
+        Presets::ModInstallRequest request = base;
+        request.installedKeys.insert(QStringLiteral("modrinth:P-HAVE"));
+        request.references.append(makeInput(
+            makeReference(QStringLiteral("P-HAVE"), QStringLiteral("已装")),
+            {makeVersion(QStringLiteral("have-1"), {QStringLiteral("1.20.1")},
+                         {QStringLiteral("fabric")})}));
+        const Presets::ModInstallPlan plan = Presets::planModInstall(request);
+        check(plan.rows.size() == 1 &&
+                  plan.rows.first().status == Presets::ModInstallStatus::AlreadyInstalled &&
+                  plan.download == 0 && plan.ok,
+              "★★ PM5 已经装着 ⇒ 不重下，也不算失败",
+              QStringLiteral("download=%1").arg(plan.download));
+    }
+
+    // ---------- PM6 冲突：这一趟里的两项互相不兼容 ----------
+    {
+        Presets::ModInstallRequest request = base;
+        request.references.append(makeInput(
+            makeReference(QStringLiteral("P-A"), QStringLiteral("甲")),
+            {makeVersion(QStringLiteral("a-1"), {QStringLiteral("1.20.1")},
+                         {QStringLiteral("fabric")},
+                         {makeDependency(QStringLiteral("P-B"), QStringLiteral("incompatible"))})}));
+        request.references.append(makeInput(
+            makeReference(QStringLiteral("P-B"), QStringLiteral("乙")),
+            {makeVersion(QStringLiteral("b-1"), {QStringLiteral("1.20.1")},
+                         {QStringLiteral("fabric")})}));
+        const Presets::ModInstallPlan plan = Presets::planModInstall(request);
+        const Presets::ModInstallRow *a = findRow(plan, QStringLiteral("modrinth:P-A"));
+        const Presets::ModInstallRow *b = findRow(plan, QStringLiteral("modrinth:P-B"));
+        check(a != nullptr && a->status == Presets::ModInstallStatus::Incompatible,
+              "★★★ PM6 声明不兼容 ⇒ 这一项判「不兼容」，不下",
+              a != nullptr ? a->problem : QStringLiteral("<没有这一行>"));
+        check(b != nullptr && b->status == Presets::ModInstallStatus::Download,
+              "PM6 被声明的那一项自己没毛病 ⇒ 照下（谁声明谁让路）");
+        check(plan.conflicts.size() == 1 && !plan.ok && plan.incompatible == 1,
+              "★★ PM6 冲突点名一句话，整份不可继续",
+              plan.conflicts.join(QStringLiteral(" / ")));
+        check(!plan.conflicts.isEmpty() &&
+                  plan.conflicts.first().contains(QStringLiteral("甲")) &&
+                  plan.conflicts.first().contains(QStringLiteral("乙")),
+              "PM6 冲突那句话两头都点名");
+    }
+
+    // ---------- PM7 冲突：和实例里已经装着的撞上 ----------
+    {
+        Presets::ModInstallRequest request = base;
+        request.installedKeys.insert(QStringLiteral("modrinth:P-OLDENEMY"));
+        request.references.append(makeInput(
+            makeReference(QStringLiteral("P-NEW"), QStringLiteral("新来的")),
+            {makeVersion(QStringLiteral("new-1"), {QStringLiteral("1.20.1")},
+                         {QStringLiteral("fabric")},
+                         {makeDependency(QStringLiteral("P-OLDENEMY"),
+                                         QStringLiteral("incompatible"))})}));
+        const Presets::ModInstallPlan plan = Presets::planModInstall(request);
+        check(plan.rows.size() == 1 &&
+                  plan.rows.first().status == Presets::ModInstallStatus::Incompatible &&
+                  !plan.ok,
+              "★★★ PM7 和实例里已有的冲突 ⇒ 同样不下（「不错装不兼容文件」）");
+    }
+
+    // ---------- PM8 本地兼容筛：接口筛过不算数 ----------
+    {
+        ResourceCatalog::VersionEntry wrongGame =
+            makeVersion(QStringLiteral("v-wrong-game"), {QStringLiteral("1.20.4")},
+                        {QStringLiteral("fabric")});
+        ResourceCatalog::VersionEntry noUrl =
+            makeVersion(QStringLiteral("v-no-url"), {QStringLiteral("1.20.1")},
+                        {QStringLiteral("fabric")});
+        noUrl.files[0].url.clear();
+        ResourceCatalog::VersionEntry noMetadata =
+            makeVersion(QStringLiteral("v-unknown"), {}, {});
+
+        Presets::ModInstallRequest request = base;
+        request.references.append(makeInput(
+            makeReference(QStringLiteral("P-FILTER"), QStringLiteral("筛选")),
+            {wrongGame, noUrl, noMetadata}));
+        const Presets::ModInstallPlan plan = Presets::planModInstall(request);
+        check(plan.download == 1 && !plan.rows.isEmpty() &&
+                  plan.rows.first().version.id == QStringLiteral("v-unknown"),
+              "★★★ PM8 跳过版本对不上的、跳过没有下载地址的，挑到「元数据空着」那一版",
+              plan.rows.isEmpty() ? QString() : plan.rows.first().version.id);
+
+        Presets::ModInstallRequest onlyBad = base;
+        ResourceCatalog::VersionEntry onlyNoUrl =
+            makeVersion(QStringLiteral("v-only-no-url"), {QStringLiteral("1.20.1")},
+                        {QStringLiteral("fabric")});
+        onlyNoUrl.files[0].url.clear();
+        onlyBad.references.append(makeInput(
+            makeReference(QStringLiteral("P-NOURL"), QStringLiteral("没地址")), {onlyNoUrl}));
+        const Presets::ModInstallPlan noUrlPlan = Presets::planModInstall(onlyBad);
+        check(noUrlPlan.missing == 1 && !noUrlPlan.rows.isEmpty() &&
+                  noUrlPlan.rows.first().problem.contains(QStringLiteral("下载地址")),
+              "★★ PM8 只有「没有下载地址」的版本 ⇒ 缺失并说清为什么",
+              noUrlPlan.rows.isEmpty() ? QString() : noUrlPlan.rows.first().problem);
+    }
+
+    // ---------- PM9 缺失与说不清的理由分开写 ----------
+    {
+        Presets::ModInstallRequest failed = base;
+        Presets::ModResolveInput failedInput =
+            makeInput(makeReference(QStringLiteral("P-FAIL"), QStringLiteral("问挂了")), {},
+                      true, true);
+        failedInput.queryProblem = QStringLiteral("连接超时");
+        failed.references.append(failedInput);
+        const Presets::ModInstallPlan failedPlan = Presets::planModInstall(failed);
+        check(failedPlan.unknown == 1 && !failedPlan.rows.isEmpty() &&
+                  failedPlan.rows.first().status == Presets::ModInstallStatus::Unknown &&
+                  failedPlan.rows.first().problem == QStringLiteral("连接超时"),
+              "★ PM9 问平台失败的原话照抄到行上（不是「缺失」）",
+              failedPlan.rows.isEmpty() ? QString() : failedPlan.rows.first().problem);
+
+        Presets::ModInstallRequest notQueried = base;
+        notQueried.references.append(makeInput(
+            makeReference(QStringLiteral("P-WAIT"), QStringLiteral("还没问")), {}, false));
+        const Presets::ModInstallPlan waitPlan = Presets::planModInstall(notQueried);
+        check(waitPlan.unknown == 1 && !waitPlan.rows.isEmpty() &&
+                  waitPlan.rows.first().problem.contains(QStringLiteral("还没轮到")),
+              "★ PM9 没问过 ⇒ 暂无法确认（「还没轮到」，不是「没有」）",
+              waitPlan.rows.isEmpty() ? QString() : waitPlan.rows.first().problem);
+    }
+
+    // ---------- PM10 替代项目：不确认就不换 ----------
+    {
+        const Presets::ModReference original =
+            makeReference(QStringLiteral("P-GONE"), QStringLiteral("停更的"));
+        const Presets::ModReference alternative =
+            makeReference(QStringLiteral("P-ALT"), QStringLiteral("替代的"));
+
+        Presets::ModInstallRequest pending = base;
+        pending.references.append(makeInput(original, {}));
+        pending.alternativesByKey.insert(original.key(), {alternative});
+        const Presets::ModInstallPlan pendingPlan = Presets::planModInstall(pending);
+        check(pendingPlan.rows.size() == 1 &&
+                  pendingPlan.rows.first().status ==
+                      Presets::ModInstallStatus::AlternativeNeedsConfirm &&
+                  pendingPlan.needsConfirm == 1 && pendingPlan.download == 0,
+              "★★★ PM10 有候选替代但没确认 ⇒ 只报「等你确认」，绝不自作主张",
+              pendingPlan.rows.isEmpty() ? QString() : pendingPlan.rows.first().problem);
+        check(pendingPlan.rows.size() == 1 &&
+                  !pendingPlan.rows.first().details.isEmpty() &&
+                  pendingPlan.rows.first().details.first().contains(QStringLiteral("替代的")),
+              "PM10 候选替代的名字列给用户看");
+        check(!pendingPlan.ok, "PM10 等确认也算必要项失败（不能悄悄跳过）");
+
+        // 确认了，但没有给替代项的答复 ⇒ 也不能凭空造一份下载。
+        Presets::ModInstallRequest confirmedNoAnswer = base;
+        confirmedNoAnswer.references.append(makeInput(original, {}));
+        confirmedNoAnswer.alternativesByKey.insert(original.key(), {alternative});
+        confirmedNoAnswer.confirmedAlternatives.insert(alternative.key());
+        const Presets::ModInstallPlan noAnswerPlan =
+            Presets::planModInstall(confirmedNoAnswer);
+        check(noAnswerPlan.rows.size() == 1 &&
+                  noAnswerPlan.rows.first().key == alternative.key() &&
+                  noAnswerPlan.rows.first().status == Presets::ModInstallStatus::Unknown &&
+                  noAnswerPlan.download == 0,
+              "★★ PM10 确认过替代、但替代自己没答复 ⇒ 还是不造下载",
+              noAnswerPlan.rows.isEmpty() ? QString() : noAnswerPlan.rows.first().problem);
+
+        // 确认 + 替代项自己有兼容答复 ⇒ 换成它，并且它自己也过兼容关。
+        Presets::ModInstallRequest substituted = base;
+        substituted.references.append(makeInput(original, {}));
+        substituted.references.append(makeInput(
+            alternative, {makeVersion(QStringLiteral("alt-1"), {QStringLiteral("1.20.1")},
+                                      {QStringLiteral("fabric")})}));
+        substituted.alternativesByKey.insert(original.key(), {alternative});
+        substituted.confirmedAlternatives.insert(alternative.key());
+        const Presets::ModInstallPlan substitutedPlan = Presets::planModInstall(substituted);
+        check(substitutedPlan.rows.size() == 1 && substitutedPlan.download == 1,
+              "★★ PM10 确认过 ⇒ 换成替代项，原条目不再单占一行",
+              QStringLiteral("rows=%1 download=%2")
+                  .arg(substitutedPlan.rows.size())
+                  .arg(substitutedPlan.download));
+        check(substitutedPlan.rows.size() == 1 &&
+                  substitutedPlan.rows.first().key == alternative.key() &&
+                  substitutedPlan.rows.first().substituted &&
+                  substitutedPlan.rows.first().substitutedKey == alternative.key() &&
+                  substitutedPlan.substituted == 1,
+              "★★ PM10 那一行标着「用的是替代项目」，界面才说得清换了什么");
+        check(substitutedPlan.ok, "PM10 替代项自己兼容 ⇒ 计划可以继续");
+    }
+
+    // ---------- PM11 前置链太深 / 引用坏掉 ----------
+    {
+        Presets::ModInstallRequest deep = base;
+        deep.maxDependencyDepth = 1;
+        deep.dependencyAnswers.insert(
+            QStringLiteral("modrinth:P-D1"),
+            {makeVersion(QStringLiteral("d1"), {QStringLiteral("1.20.1")},
+                         {QStringLiteral("fabric")},
+                         {makeDependency(QStringLiteral("P-D2"), QStringLiteral("required"))})});
+        deep.references.append(makeInput(
+            makeReference(QStringLiteral("P-ROOT"), QStringLiteral("根")),
+            {makeVersion(QStringLiteral("root"), {QStringLiteral("1.20.1")},
+                         {QStringLiteral("fabric")},
+                         {makeDependency(QStringLiteral("P-D1"), QStringLiteral("required"))})}));
+        const Presets::ModInstallPlan deepPlan = Presets::planModInstall(deep);
+        const Presets::ModInstallRow *cut = findRow(deepPlan, QStringLiteral("modrinth:P-D2"));
+        check(cut != nullptr && cut->status == Presets::ModInstallStatus::Unknown &&
+                  cut->problem.contains(QStringLiteral("超过")) && !deepPlan.ok,
+              "★★ PM11 前置链超过上限 ⇒ 由一行「暂无法确认」点名，不静默截断",
+              cut != nullptr ? cut->problem : QStringLiteral("<没有那一行>"));
+
+        Presets::ModInstallRequest broken = base;
+        Presets::ModReference bad;
+        bad.projectId = QStringLiteral("P-NOPLATFORM");
+        broken.references.append(makeInput(bad, {}));
+        const Presets::ModInstallPlan brokenPlan = Presets::planModInstall(broken);
+        check(brokenPlan.blocked == 1 && !brokenPlan.rows.isEmpty() &&
+                  brokenPlan.rows.first().status == Presets::ModInstallStatus::Blocked &&
+                  !brokenPlan.ok,
+              "★ PM11 平台认不出来的引用 ⇒「做不了」并算必要失败");
+    }
+
+    // ---------- PM12 落盘校验 ----------
+    {
+        const QByteArray payload = QByteArrayLiteral("wtfml-verify-download");
+        const QString path = scratch.filePath(QStringLiteral("mod.jar"));
+        {
+            QFile file(path);
+            check(file.open(QIODevice::WriteOnly), "PM12 写得出临时文件");
+            file.write(payload);
+        }
+        const QString sha1 = QString::fromLatin1(
+            QCryptographicHash::hash(payload, QCryptographicHash::Sha1).toHex());
+
+        const Presets::DownloadVerification good =
+            Presets::verifyDownloadedFile(path, payload.size(), sha1);
+        check(good.ok && !good.unverified && good.size == payload.size() &&
+                  good.sha1.compare(sha1, Qt::CaseInsensitive) == 0,
+              "★★ PM12 大小 + sha1 都对 ⇒ 通过",
+              good.problem);
+
+        const Presets::DownloadVerification wrongSize =
+            Presets::verifyDownloadedFile(path, payload.size() + 1, sha1);
+        check(!wrongSize.ok && wrongSize.problem.contains(QStringLiteral("大小")),
+              "★★ PM12 大小对不上 ⇒ 不过，并说清差多少",
+              wrongSize.problem);
+
+        const Presets::DownloadVerification wrongHash =
+            Presets::verifyDownloadedFile(
+                path, payload.size(),
+                QStringLiteral("0000000000000000000000000000000000000000"));
+        check(!wrongHash.ok && wrongHash.problem.contains(QStringLiteral("sha1")),
+              "★★★ PM12 sha1 对不上 ⇒ 不过（这一条就是「不错装坏文件」）",
+              wrongHash.problem);
+
+        const Presets::DownloadVerification noHash =
+            Presets::verifyDownloadedFile(path, -1, QString());
+        check(noHash.ok && noHash.unverified &&
+                  noHash.problem.contains(QStringLiteral("没有给出")),
+              "★★ PM12 接口没给 sha1 ⇒ 只能说「没校验」，不许说「校验通过」",
+              noHash.problem);
+
+        const Presets::DownloadVerification missing = Presets::verifyDownloadedFile(
+            scratch.filePath(QStringLiteral("不存在.jar")), 10, sha1);
+        check(!missing.ok && !missing.unverified,
+              "PM12 文件都不在 ⇒ 不过（不是「没校验」）", missing.problem);
+    }
+
+    // ---------- PM13 界面上的字 ----------
+    {
+        check(Presets::modInstallStatusText(Presets::ModInstallStatus::Download) !=
+                  Presets::modInstallStatusText(Presets::ModInstallStatus::Missing),
+              "PM13 每一档状态有自己的字");
+
+        Presets::ModInstallPlan empty;
+        check(Presets::modInstallSummaryText(empty) == QStringLiteral("没有要动的东西。"),
+              "PM13 空计划一句人话", Presets::modInstallSummaryText(empty));
+
+        Presets::ModInstallPlan summary;
+        summary.download = 3;
+        summary.missing = 1;
+        summary.needsConfirm = 1;
+        const QString text = Presets::modInstallSummaryText(summary);
+        check(text.contains(QStringLiteral("下载 3 个")) &&
+                  text.contains(QStringLiteral("缺失 1 个")) &&
+                  text.contains(QStringLiteral("等你确认替代项目 1 个")),
+              "★ PM13 总账把三类都数出来", text);
+
+        check(Presets::modInstallPartialText().contains(QStringLiteral("部分应用")),
+              "PM13 部分应用那一句不撒谎");
+        check(Presets::modInstallAlternativeText({QStringLiteral("甲"), QStringLiteral("乙")})
+                  .contains(QStringLiteral("甲、乙")),
+              "PM13 替代候选列表点名到个");
+        check(Presets::modInstallSubstitutedText(QStringLiteral("甲"))
+                  .contains(QStringLiteral("甲")),
+              "PM13 换成了谁说得出来");
+    }
 }
 
 // §7.2 原话：「搜索实例名、版本号、加载器；筛选原版/模组实例、可更新、最近运行；搜索不
@@ -32081,6 +33962,301 @@ static void runDownloadConcurrencyTests() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ZP. 「下载速度上限」那几档（2026-10-18，coding plan §9.2 下载限速）
+//
+// 判据层是 `DownloadSpeedLimit`（唯一出处：几档、上下限、归一化、令牌桶容量）；这里钉的
+// 就是它 + 那条线在 DownloadManager 上真的被用上了。
+//
+// ★ 和 ZO 那条最大的不同：**0 是合法值**（= 不限，也是出厂值）。所以"越界回默认"在这里
+//   等于"越界回不限" —— 写成夹到下限（32 KiB/s）就把"关掉限速"变成了"最慢那一档"，
+//   用户改回「不限」时下载反而更慢，那种错误没有任何报错。
+// ---------------------------------------------------------------------------
+static void runDownloadSpeedLimitTests() {
+    section("ZP. 「下载速度上限」那几档（§9.2）");
+
+    // ---------- ZP0. 几档 + 出厂值 ----------
+    {
+        const QList<qint64> presets = DownloadSpeedLimit::presets();
+        check(!presets.isEmpty() && presets.first() == DownloadSpeedLimit::kUnlimited,
+              "ZP0 第一档就是「不限」（0）—— 用户找「关掉限速」时第一眼就能看到");
+        check(presets.contains(DownloadSpeedLimit::kUnlimited),
+              "★ ZP0 出厂值（不限）**必须**是那几档之一（否则下拉框一上来就指不到盘上那个值）");
+        bool ascending = true;
+        bool inRange = true;
+        for (int i = 1; i < presets.size(); ++i) {
+            if (presets.at(i) <= presets.at(i - 1)) ascending = false;
+            if (presets.at(i) < DownloadSpeedLimit::kMin
+                || presets.at(i) > DownloadSpeedLimit::kMax) {
+                inRange = false;
+            }
+        }
+        check(ascending, "ZP0 那几档从「不限」往上排，越往下越宽（次序 = 界面上的次序）");
+        check(inRange, "ZP0 每一档都落在 [kMin, kMax] 里（越界的那一档自己就选不中）");
+        check(DownloadSpeedLimit::kMin > 0 && DownloadSpeedLimit::kMax >= presets.last(),
+              "ZP0 下限为正、上限不低于最宽那一档",
+              QStringLiteral("%1 / %2").arg(DownloadSpeedLimit::kMin).arg(DownloadSpeedLimit::kMax));
+    }
+
+    // ---------- ZP1. 归一化：0 原样留，越界回 0，表外的合法值原样留 ----------
+    {
+        check(DownloadSpeedLimit::normalize(0) == DownloadSpeedLimit::kUnlimited,
+              "★ ZP1 0 ⇒ 0（不限是**合法值**，不是「没设」）");
+        check(DownloadSpeedLimit::normalize(-1) == DownloadSpeedLimit::kUnlimited
+                  && DownloadSpeedLimit::normalize(-1024 * 1024)
+                         == DownloadSpeedLimit::kUnlimited,
+              "ZP1 负数 ⇒ 0（不限）");
+        check(DownloadSpeedLimit::normalize(1) == DownloadSpeedLimit::kUnlimited
+                  && DownloadSpeedLimit::normalize(DownloadSpeedLimit::kMin - 1)
+                         == DownloadSpeedLimit::kUnlimited,
+              "★ ZP1 比下限还小 ⇒ 0，**不夹到 kMin** —— 夹上去等于悄悄给用户开了个最慢档");
+        check(DownloadSpeedLimit::normalize(DownloadSpeedLimit::kMax + 1)
+                      == DownloadSpeedLimit::kUnlimited
+                  && DownloadSpeedLimit::normalize(qint64(1) << 62)
+                         == DownloadSpeedLimit::kUnlimited,
+              "ZP1 越过大上限 / 荒唐的大数 ⇒ 0（不限）");
+        check(DownloadSpeedLimit::normalize(DownloadSpeedLimit::kMin) == DownloadSpeedLimit::kMin
+                  && DownloadSpeedLimit::normalize(DownloadSpeedLimit::kMax)
+                         == DownloadSpeedLimit::kMax,
+              "ZP1 两个边界值本身都留得住");
+        const qint64 custom = 1536 * 1024;  // 1.5 MB/s：手改过配置的人写的
+        check(DownloadSpeedLimit::normalize(custom) == custom
+                  && !DownloadSpeedLimit::isPreset(custom),
+              "★★ ZP1 表外的合法值（1.5 MB/s）**原样留**，并认成「不是那几档」（界面补一格自定义）",
+              QString::number(DownloadSpeedLimit::normalize(custom)));
+        bool presetsIntact = true;
+        for (qint64 v : DownloadSpeedLimit::presets()) {
+            if (DownloadSpeedLimit::normalize(v) != v || !DownloadSpeedLimit::isPreset(v)) {
+                presetsIntact = false;
+            }
+        }
+        check(presetsIntact, "ZP1 每一档自己过一遍归一化都原样回来，而且都被认成「是那一档」");
+    }
+
+    // ---------- ZP2. 令牌桶容量 ----------
+    {
+        check(DownloadSpeedLimit::burstBytes(0) == 0,
+              "ZP2 不限速时容量是 0（一个令牌都不该攒）");
+        check(DownloadSpeedLimit::burstBytes(DownloadSpeedLimit::kMin) >= 16 * 1024,
+              "★ ZP2 最低那档也留至少 16 KiB 的余量（100 ms 一拍时够吸收定时器迟到）",
+              QString::number(DownloadSpeedLimit::burstBytes(DownloadSpeedLimit::kMin)));
+        const qint64 eight = qint64(8) * 1024 * 1024;
+        check(DownloadSpeedLimit::burstBytes(eight) == eight / 4,
+              "ZP2 高档位的容量 = 限速的 1/4 秒（不多攒，改完设置不会先猛冲一下）",
+              QString::number(DownloadSpeedLimit::burstBytes(eight)));
+        check(DownloadSpeedLimit::burstBytes(eight) < eight,
+              "ZP2 容量永远小于一秒的量（否则那一瞬间就等于没限速）");
+    }
+
+    // ---------- ZP3. DownloadManager 上真在用哪一档 ----------
+    {
+        DownloadManager mgr;
+        check(mgr.speedLimitBytesPerSecond() == DownloadSpeedLimit::kUnlimited,
+              "ZP3 刚建的下载器是**不限速**（谁都不设的时候行为和加这一项之前一个字不变）",
+              QString::number(mgr.speedLimitBytesPerSecond()));
+        const qint64 twoMegabytes = qint64(2) * 1024 * 1024;
+        mgr.setSpeedLimitBytesPerSecond(twoMegabytes);
+        check(mgr.speedLimitBytesPerSecond() == twoMegabytes,
+              "★ ZP3 设成 2 MB/s ⇒ 就是 2 MB/s",
+              QString::number(mgr.speedLimitBytesPerSecond()));
+        mgr.setSpeedLimitBytesPerSecond(-5);
+        check(mgr.speedLimitBytesPerSecond() == DownloadSpeedLimit::kUnlimited,
+              "★ ZP3 设一个越界的值 ⇒ 回到不限（归一化在 setter 里过一遍）",
+              QString::number(mgr.speedLimitBytesPerSecond()));
+        mgr.setSpeedLimitBytesPerSecond(8);
+        check(mgr.speedLimitBytesPerSecond() == DownloadSpeedLimit::kUnlimited,
+              "ZP3 设一个比下限还小的值 ⇒ 不限（不是夹到 32 KB/s）",
+              QString::number(mgr.speedLimitBytesPerSecond()));
+        mgr.setSpeedLimitBytesPerSecond(1024 * 1024);
+        check(mgr.speedLimitBytesPerSecond() == 1024 * 1024,
+              "ZP3 再设成 1 MB/s ⇒ 1 MB/s",
+              QString::number(mgr.speedLimitBytesPerSecond()));
+    }
+}
+
+// ===========================================================================
+// ZQ. 代理：三档 + 手动地址解析（2026-10-18，coding plan §9.2）
+//
+// 这一节只碰纯判据（`DownloadProxy`）和 `LauncherSettings` 的存取；"装到进程上"那一下
+// （`QNetworkProxy::setApplicationProxy`）在 mw_check 的冷启动那一节里核。
+// ===========================================================================
+static void runDownloadProxyTests() {
+    section("ZPG. 代理：三档与手动地址（§9.2）");
+
+    // ---------- ZPG0. 三档 + 出厂值 + 键名 ----------
+    {
+        const QList<DownloadProxy::Mode> modes = DownloadProxy::modes();
+        check(modes.size() == 3, "ZPG0 正好三档（不多不少）",
+              QString::number(modes.size()));
+        check(!modes.isEmpty() && modes.first() == DownloadProxy::Mode::System,
+              "★ ZPG0 第一项是「跟随系统」—— 出厂那一档，也是加这一项之前的行为");
+        check(modes.contains(DownloadProxy::kDefaultMode),
+              "★ ZPG0 出厂值**必须**是那三档之一（否则下拉框一上来就指不到盘上那个值）");
+        check(DownloadProxy::kDefaultMode == DownloadProxy::Mode::System,
+              "ZPG0 出厂 = 跟随系统（不是直连，也不是一个空的手动地址）");
+        bool roundTrip = true;
+        for (DownloadProxy::Mode mode : modes) {
+            if (DownloadProxy::modeFromKey(DownloadProxy::modeKey(mode)) != mode) {
+                roundTrip = false;
+            }
+        }
+        check(roundTrip, "ZPG0 三档各自存盘再读回来都还是自己");
+        check(DownloadProxy::modeFromKey(QStringLiteral("system")) == DownloadProxy::Mode::System
+                  && DownloadProxy::modeFromKey(QStringLiteral("direct"))
+                         == DownloadProxy::Mode::Direct
+                  && DownloadProxy::modeFromKey(QStringLiteral("manual"))
+                         == DownloadProxy::Mode::Manual,
+              "ZPG0 那三个键就是 system / direct / manual（存盘格式）");
+        check(DownloadProxy::modeFromKey(QStringLiteral("DIRECT"))
+                      == DownloadProxy::Mode::Direct
+                  && DownloadProxy::modeFromKey(QStringLiteral("  manual  "))
+                         == DownloadProxy::Mode::Manual,
+              "ZPG0 键名认大小写、两头空白也认");
+        check(DownloadProxy::modeFromKey(QStringLiteral("proxy.example.com:8080"))
+                      == DownloadProxy::Mode::System
+                  && DownloadProxy::modeFromKey(QString())
+                         == DownloadProxy::Mode::System,
+              "★★ ZPG0 认不出来的值一律回「跟随系统」—— 一行坏配置不许把网络掐死");
+    }
+
+    // ---------- ZPG1. 手动地址：认的写法 ----------
+    {
+        const auto parsed = [](const QString &raw, DownloadProxy::Endpoint *endpoint) {
+            QString error;
+            const bool ok = DownloadProxy::parseManual(raw, endpoint, &error);
+            return ok && error.isEmpty();
+        };
+        DownloadProxy::Endpoint endpoint;
+
+        check(parsed(QStringLiteral("127.0.0.1:7890"), &endpoint)
+                  && endpoint.host == QStringLiteral("127.0.0.1") && endpoint.port == 7890 &&
+                  !endpoint.socks5,
+              "ZPG1 最普通的写法 127.0.0.1:7890 认（不带前缀 = HTTP 代理）");
+        check(parsed(QStringLiteral("  proxy.example.com:8080  "), &endpoint)
+                  && endpoint.host == QStringLiteral("proxy.example.com") &&
+                  endpoint.port == 8080,
+              "ZPG1 两头的空白会修掉（从网页上复制粘贴很容易带进来）");
+        check(parsed(QStringLiteral("http://127.0.0.1:7890"), &endpoint) &&
+                  endpoint.host == QStringLiteral("127.0.0.1") && !endpoint.socks5,
+              "ZPG1 写了 http:// 也是 HTTP 代理");
+        check(parsed(QStringLiteral("https://127.0.0.1:8443"), &endpoint) &&
+                  !endpoint.socks5,
+              "ZPG1 https:// 前缀按 HTTP 代理算（代理本身不跑 TLS，前缀只是习惯写法）");
+        check(parsed(QStringLiteral("socks5://127.0.0.1:1080"), &endpoint) &&
+                  endpoint.socks5 && endpoint.port == 1080,
+              "ZPG1 socks5:// 认，而且记成 SOCKS5");
+        check(parsed(QStringLiteral("socks5h://127.0.0.1:1080"), &endpoint) && endpoint.socks5,
+              "ZPG1 socks5h:// 也认（h = 主机名交给代理解析，对我们这一侧没区别）");
+        check(parsed(QStringLiteral("socks://127.0.0.1:1080"), &endpoint) && endpoint.socks5,
+              "ZPG1 socks:// 也认");
+        check(parsed(QStringLiteral("[::1]:7890"), &endpoint) &&
+                  endpoint.host == QStringLiteral("::1") && endpoint.port == 7890,
+              "ZPG1 IPv6 用方括号包起来认（[::1]:7890）");
+        check(parsed(QStringLiteral("::1:7890"), &endpoint) &&
+                  endpoint.host == QStringLiteral("::1") && endpoint.port == 7890,
+              "ZPG1 不包方括号的 IPv6 也按最后一个冒号切开（主机 ::1、端口 7890）");
+    }
+
+    // ---------- ZPG2. 手动地址：不该认的写法 ----------
+    {
+        const auto rejected = [](const QString &raw) {
+            DownloadProxy::Endpoint endpoint;
+            QString error;
+            const bool ok = DownloadProxy::parseManual(raw, &endpoint, &error);
+            return !ok && !error.isEmpty();
+        };
+        check(rejected(QString()), "★ ZPG2 空串不认（而且给得出原因）");
+        check(rejected(QStringLiteral("   ")), "ZPG2 全是空白也不认");
+        check(rejected(QStringLiteral("127.0.0.1")), "★ ZPG2 没写端口不认");
+        check(rejected(QStringLiteral(":8080")), "ZPG2 主机那截空着不认");
+        check(rejected(QStringLiteral("host:0")) && rejected(QStringLiteral("host:65536")) &&
+                  rejected(QStringLiteral("host:70000")),
+              "★ ZPG2 端口越界（0 / 65536 / 70000）不认");
+        check(rejected(QStringLiteral("host:abc")) && rejected(QStringLiteral("host:80x")),
+              "ZPG2 端口不是整数不认");
+        check(rejected(QStringLiteral("http://host:8080/path")),
+              "★★ ZPG2 带路径不认 —— 那是把「要访问的网址」填进来了");
+        check(rejected(QStringLiteral("ftp://host:21")),
+              "ZPG2 不认识的前缀不认（只认 http / https / socks*）");
+        check(rejected(QStringLiteral("ho st:8080")),
+              "ZPG2 主机里有空白不认");
+        check(rejected(QStringLiteral("user@host:8080")),
+              "ZPG2 带用户名那一截不认（这一项不支持认证）");
+        DownloadProxy::Endpoint endpoint;
+        check(!DownloadProxy::parseManual(QStringLiteral("nope"), &endpoint, nullptr),
+              "ZPG2 不传 error 指针也照样能判成败（不给 nullptr 崩）");
+    }
+
+    // ---------- ZPG3. endpointText：拼回一行，再解析还是自己 ----------
+    {
+        DownloadProxy::Endpoint http;
+        http.host = QStringLiteral("10.0.0.5");
+        http.port = 3128;
+        check(DownloadProxy::endpointText(http) == QStringLiteral("10.0.0.5:3128"),
+              "★ ZPG3 HTTP 代理拼出来**不带** http:// 前缀（于是存盘不会每次多一层）",
+              DownloadProxy::endpointText(http));
+        DownloadProxy::Endpoint socks;
+        socks.host = QStringLiteral("127.0.0.1");
+        socks.port = 1080;
+        socks.socks5 = true;
+        check(DownloadProxy::endpointText(socks) == QStringLiteral("socks5://127.0.0.1:1080"),
+              "ZPG3 SOCKS5 拼出来带 socks5:// 前缀（不然读回来就变成 HTTP 代理了）",
+              DownloadProxy::endpointText(socks));
+        DownloadProxy::Endpoint ipv6;
+        ipv6.host = QStringLiteral("::1");
+        ipv6.port = 7890;
+        check(DownloadProxy::endpointText(ipv6) == QStringLiteral("[::1]:7890"),
+              "ZPG3 IPv6 拼回来自动补方括号",
+              DownloadProxy::endpointText(ipv6));
+        DownloadProxy::Endpoint back;
+        const bool ok = DownloadProxy::parseManual(DownloadProxy::endpointText(ipv6), &back);
+        check(ok && back == ipv6, "ZPG3 拼出来再解析还是同一份地址（往返闭合）");
+        const bool ok2 = DownloadProxy::parseManual(DownloadProxy::endpointText(socks), &back);
+        check(ok2 && back == socks, "ZPG3 SOCKS5 那一份往返也闭合");
+    }
+
+    // ---------- ZPG4. LauncherSettings：默认值 + 跨实例读回来 ----------
+    // 和 I5 同一个做法：把 QSettings 搬进沙盒，跑完还回原生格式（别在用户机器上留键）。
+    {
+        const QString settingsDir = QDir::tempPath() + QStringLiteral("/wtfml-proxy-settings");
+        QDir(settingsDir).removeRecursively();
+        QDir().mkpath(settingsDir);
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir);
+        {
+            LauncherSettings fresh;
+            check(fresh.proxyMode() == DownloadProxy::Mode::System,
+                  "★ ZPG4 全新沙盒里是「跟随系统」（加这一项之前的行为）");
+            check(fresh.proxyManualText().isEmpty(),
+                  "ZPG4 全新沙盒里手动地址是空的");
+
+            fresh.setProxyMode(DownloadProxy::Mode::Manual);
+            fresh.setProxyManualText(QStringLiteral("  socks5://127.0.0.1:1080  "));
+            LauncherSettings reopened;
+            check(reopened.proxyMode() == DownloadProxy::Mode::Manual,
+                  "★ ZPG4 档位跨实例读得回来（读的是盘上 Download/ProxyMode）");
+            check(reopened.proxyManualText() == QStringLiteral("socks5://127.0.0.1:1080"),
+                  "★ ZPG4 手动地址跨实例读得回来，两头的空白已经修掉",
+                  reopened.proxyManualText());
+
+            // 手改 ini 写成不认识的值：读出来必须是 System，不是崩、也不是空档。
+            {
+                QSettings raw;
+                raw.setValue(QStringLiteral("Download/ProxyMode"), QStringLiteral("bogus"));
+                raw.sync();
+            }
+            LauncherSettings bogus;
+            check(bogus.proxyMode() == DownloadProxy::Mode::System,
+                  "★★ ZPG4 手改成不认识的值 ⇒ 读出来是「跟随系统」");
+
+            fresh.setProxyMode(DownloadProxy::Mode::System);
+            fresh.setProxyManualText(QString());
+        }
+        QSettings::setDefaultFormat(QSettings::NativeFormat);
+        QDir(settingsDir).removeRecursively();
+    }
+}
+
 // ===========================================================================
 // 工具箱那四层（2026-10-16，coding plan §9.11；用户那天点名的那一批小工具）
 //
@@ -35823,6 +37999,8 @@ int main(int argc, char *argv[]) {
     // 紧挨着它：这一节管的是"离线账号那张脸"的另一半 —— 能算出游戏会给哪一张时，
     // 就用那一张（随机那张是退路）。两节验的东西不同，别合并。
     runDefaultSkinTests(sandbox);
+    // 再往上一层：离线账号**用户自己挑的那张**（最优先，压过上面两者）。
+    runOfflineSkinTests(sandbox);
 
     // -----------------------------------------------------------------
     // 排在最后：这一节自己把 QSettings 搬进沙盒又搬回来（跑完是原生形态），
@@ -35974,6 +38152,25 @@ int main(int argc, char *argv[]) {
     // 覆盖那两趟（第一趟一个字节都不动）、游戏在跑整趟不写、以及备份里那份是不是原样。
     runPresetCaptureApplyTests();
     // -----------------------------------------------------------------
+    // 资源包次序 / 启用 + 世界级数据包（2026-10-18，coding plan §6 P4），见上面 PL 节。
+    // 验收原话是「没世界就待应用；部署不冒充启用」：这一节在两个临时实例里真造
+    // `options.txt` 与 `saves/<世界>/datapacks/`，比的都是逐字节。
+    runResourceAndDataPackTests();
+    // -----------------------------------------------------------------
+    // 模组「真正去下」之前的判据层（2026-10-18，coding plan §10.1 第 7 项 / P5），
+    // 见上面 PM 节。验收原话是「不错装不兼容文件；替代项目需确认；落盘校验」：
+    // 这一节全拿手搭的假答复逐格念，一条网络都不碰；落盘校验读的是临时目录里的真文件。
+    runModInstallPlanTests();
+    // -----------------------------------------------------------------
+    // 模组预设的兼容检查（2026-10-18，coding plan §6.0 P2 / §7.2），见上面 PH 节。
+    // **一条网络都不碰**：四个假提供方分别代表立刻答 / 慢答 / 手动放行 / 永远不答，
+    // 验的是去重、本地优先、并发上限、旧 generation 作废、失败不算缺失、缓存只收准话。
+    runPresetCompatibilityTests();
+    // -----------------------------------------------------------------
+    // 大量预设 / 大量引用 / 连换几十代 / 先关检查器（2026-10-18，coding plan §10.1
+    // 第 8 项 / P6），见上面 PN 节。验收原话是「无过期回调、失控并发或主线程假死」。
+    runPresetStressTests();
+    // -----------------------------------------------------------------
     // 实例页的搜索与筛选（2026-10-13，coding plan §7.2），见上面 ZS 节。**全是纯函数**：
     // 值进、bool 出，不读盘、不问时钟 —— 连一条实例都不必真的存在。
     runInstanceFilterTests();
@@ -36047,6 +38244,9 @@ int main(int argc, char *argv[]) {
     // **纯函数 + 一个字面对象**：四档那个表、归一化、以及"队列泵问的是这个对象当下那一档"
     // （真发请求那一半归 mw_check）。
     runDownloadConcurrencyTests();
+    // 「下载速度上限」那几档（2026-10-18，coding plan §9.2 下载限速），见上面 ZP 节。
+    runDownloadSpeedLimitTests();
+    runDownloadProxyTests();
 
     // -----------------------------------------------------------------
     // 工具箱那四件小工具（2026-10-16，coding plan §9.11），见上面 ZAA–ZAD 四节。

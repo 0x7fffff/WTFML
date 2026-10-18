@@ -79,6 +79,23 @@ bool isValidPresetId(const QString &id);
 /// **不**做任何路径处理（显示名不进路径，见文件头）。清完是空串 = 用户什么都没输。
 QString cleanDisplayName(const QString &raw);
 
+/**
+ * @brief 这一段**能不能**属于这一类预设（coding plan §4 / §6.0 P0「不串类别」）。
+ *
+ * 四类各自管什么（首版口径）：
+ *   · `GameSettings`  —— `options.txt` 那两段、MaLiLib 热键、服务器列表，以及
+ *     `config/` / `defaultconfigs/` 这两个**高级内容**组（§6.3 明说它们不新增第五类，
+ *     归到哪儿还没定案，首版先允许落在游戏设置里并如实显示）；
+ *   · `ResourcePacks` —— `resourcepacks/` 与 `shaderpacks/`（光影跟资源包同一摊文件）；
+ *   · `Mods` / `DataPacks` —— 首版还没有对应的段种类（模组引用与数据包载荷在 P4/P5），
+ *     只放得下 `Custom`；空预设完全合法；
+ *   · `Unset`（旧版混合预设）—— 什么都放得下，老数据一个字节都不动。
+ */
+bool sectionFitsCategory(PresetCategory category, const PresetSection &section);
+
+/// 一份预设里有没有"不属于它那一类"的段。空串 = 全都对得上（`Unset` 永远对得上）。
+QString categoryMismatch(const PresetManifest &manifest);
+
 /// 条目里那个**相对路径**安全吗（P3 的通用文件组要用，P1 先把闸立在这儿）。
 ///
 /// 挡掉四样：空串 / 绝对路径（含盘符和 UNC）/ 任何一段是 `..` / 任何一段带冒号。
@@ -158,9 +175,12 @@ QString defaultPresetId(const QString &root);
 ///
 /// @param name 显示名。清完是空串 ⇒ **不建**（回一个 `id` 为空的空壳）—— 名字是这一份的
 ///        身份里给用户看的那一半，界面上"点新建"那一趟总会先问到名字。
+/// @param category 这一份属于哪一类（§4 首版四类）。★ 界面新建时**必须**给一个四类里的；
+///        默认 `Unset` 只给"旧数据/测试"留门，新做的跨类总预设不在产品里。
 /// @return 建出来的那一份（失败时空壳，判据是 `id.isEmpty()`）。
 PresetManifest create(const QString &root, const QString &name,
-                      const QString &description = QString());
+                      const QString &description = QString(),
+                      PresetCategory category = PresetCategory::Unset);
 
 /// 复制一份：新 id、新目录，段和文件原样搬过去。
 ///

@@ -90,6 +90,156 @@ enum class ApplyMode {
     Skip,           ///< 这一段这一趟不动
 };
 
+/// 一份预设**属于哪一类**（coding plan §4 / §6.0 P0）。
+///
+/// 首版四类独立创建、展示和管理；**不再保存"跨类总预设"**。旧版本写的那些混合 manifest
+/// 读回来落进 `Unset`（界面上叫「旧版（混合）」）—— 它们照样能看、能用、能提取，只是
+/// 新建的那一档必须从四类里挑一个。
+///
+/// ★ 这一位是**加在 v1 上的可选字段**，没有动 `schemaVersion`：旧启动器读到新的 manifest
+///   只会无视 `category`（照旧当混合预设处理），不会因为"版本比认识的新"整份拒绝。
+///   加字段而不是换版本，是为了"旧数据可恢复"那一侧 —— 用户回退一版启动器时，新做的预设
+///   还在，只是不认类别。`Unset` **不写下去**（缺这一位就是旧数据）。
+enum class PresetCategory {
+    Unset,         ///< 没写类别（旧版混合预设 / 从旧预设复制出来的）
+    GameSettings,  ///< 游戏设置：选项、按键、热键，以及 config 一类高级内容
+    Mods,          ///< 模组
+    ResourcePacks, ///< 资源包（含光影包）
+    DataPacks,     ///< 数据包（世界级）
+};
+
+inline QString presetCategoryKey(PresetCategory category) {
+    switch (category) {
+    case PresetCategory::Unset:
+        return QString();
+    case PresetCategory::GameSettings:
+        return QStringLiteral("gameSettings");
+    case PresetCategory::Mods:
+        return QStringLiteral("mods");
+    case PresetCategory::ResourcePacks:
+        return QStringLiteral("resourcePacks");
+    case PresetCategory::DataPacks:
+        return QStringLiteral("dataPacks");
+    }
+    return QString();
+}
+
+/// 认不出来的词 ⇒ `Unset` + `ok = false`：那是以后版本的启动器写的类别，我们不知道它
+/// 那一类的载荷该怎么解释。★ 缺这一位**不算错**（旧版 manifest 就是这样）。
+inline PresetCategory presetCategoryFromKey(const QString &key, bool *ok = nullptr) {
+    if (ok != nullptr) {
+        *ok = true;
+    }
+    if (key.isEmpty()) {
+        return PresetCategory::Unset;
+    }
+    if (key == QLatin1String("gameSettings")) {
+        return PresetCategory::GameSettings;
+    }
+    if (key == QLatin1String("mods")) {
+        return PresetCategory::Mods;
+    }
+    if (key == QLatin1String("resourcePacks")) {
+        return PresetCategory::ResourcePacks;
+    }
+    if (key == QLatin1String("dataPacks")) {
+        return PresetCategory::DataPacks;
+    }
+    if (ok != nullptr) {
+        *ok = false;
+    }
+    return PresetCategory::Unset;
+}
+
+/**
+ * @brief 平台名归一（`Modrinth` / `mr` / `curseforge` / `CF` 都收）。
+ *
+ * 认不出来 ⇒ 空串。★ 这一层**只归一大小写和两种别名**，不猜"可能是哪个平台" ——
+ * 猜错的后果是拿一个项目的 id 去另一个平台查，然后把"查无此项"报成"缺失"。
+ */
+inline QString normalizeModPlatform(const QString &raw) {
+    const QString value = raw.trimmed().toLower();
+    if (value == QLatin1String("modrinth") || value == QLatin1String("mr")) {
+        return QStringLiteral("modrinth");
+    }
+    if (value == QLatin1String("curseforge") || value == QLatin1String("cf")) {
+        return QStringLiteral("curseforge");
+    }
+    return QString();
+}
+
+/**
+ * @brief 一条**模组引用**（coding plan §6.0 P2 的检查对象，§5「目标资源条目」的前两格）。
+ *
+ * ★ 身份是 `platform + projectId`，**不是显示名**（§5 那句「不以展示名称作为项目身份」）。
+ * `name` 只是快照时记下来给界面兜底用的；改名、翻译、重名都不影响这一条是谁。
+ *
+ * ★ `gameVersion` / `loader` 非空 = 这一项自己钉死了版本/加载器；空 = 跟着这一次安装走。
+ * 钉死的那种在**本地**就能判（§7.2「先做已知约束筛选」），不必等网络。
+ */
+struct ModReference {
+    /// `normalizeModPlatform()` 之后的词（`modrinth` / `curseforge`）；空 = 认不出来。
+    QString platform;
+    /// 平台上的稳定项目 id。★ **一律字符串**（§8.1「大整数 ID 保存为字符串」）。
+    QString projectId;
+    /// 快照时的显示名（只作提示；不作身份、不参与去重）。
+    QString name;
+    /// 必要项（缺失 ⇒ 安装结果要明确标出来）。默认是。
+    bool required = true;
+    /// 这一项自己钉死的游戏版本（空 = 跟随安装上下文）。
+    QString gameVersion;
+    /// 这一项自己钉死的加载器（空 = 跟随安装上下文）。
+    QString loader;
+
+    /// 查询 / 缓存的键。空串 = 这一条本地就判"引用无法识别"。
+    /// ★ 平台名在这里也过一遍归一：内存里手搭的引用可能是 `Modrinth`，而缓存 / 去重键
+    ///   必须只有一种写法（否则同一项目会被问两遍、缓存也命不中）。
+    QString key() const {
+        const QString normalized = normalizeModPlatform(platform);
+        if (normalized.isEmpty() || projectId.isEmpty()) {
+            return QString();
+        }
+        return normalized + QLatin1Char(':') + projectId;
+    }
+};
+
+inline QJsonObject modReferenceToJson(const ModReference &reference) {
+    QJsonObject object;
+    // ★ 下面两格**总是**写（哪怕空）：「缺这一位」和「写了但认不出来」在检查那一侧是
+    //   两种结论（前者是坏引用，后者也是），写出来才能让用户看见是哪一格坏。
+    object.insert(QStringLiteral("platform"), reference.platform);
+    object.insert(QStringLiteral("projectId"), reference.projectId);
+    if (!reference.name.isEmpty()) {
+        object.insert(QStringLiteral("name"), reference.name);
+    }
+    if (!reference.required) {
+        object.insert(QStringLiteral("required"), false);
+    }
+    if (!reference.gameVersion.isEmpty()) {
+        object.insert(QStringLiteral("gameVersion"), reference.gameVersion);
+    }
+    if (!reference.loader.isEmpty()) {
+        object.insert(QStringLiteral("loader"), reference.loader);
+    }
+    return object;
+}
+
+/// 读一条引用。**不返回失败**：认不出来的字段留空，由检查层判 `Invalid` 并如实计数 ——
+/// 一条坏引用不该让整份预设读不回来（§8.1「区分缺失、`null` 与错误类型」）。
+inline ModReference modReferenceFromJson(const QJsonObject &object) {
+    ModReference reference;
+    reference.platform = normalizeModPlatform(object.value(QStringLiteral("platform")).toString());
+    reference.projectId = object.value(QStringLiteral("projectId")).toString().trimmed();
+    reference.name = object.value(QStringLiteral("name")).toString();
+    if (object.contains(QStringLiteral("required"))) {
+        // 写了但不是 bool ⇒ 按"必要"算（默认那一档最保守：不会把必要项静默降级成可选）。
+        reference.required = object.value(QStringLiteral("required")).toBool(true);
+    }
+    reference.gameVersion = object.value(QStringLiteral("gameVersion")).toString().trimmed();
+    reference.loader = object.value(QStringLiteral("loader")).toString().trimmed();
+    return reference;
+}
+
 /// 段的**种类**（谁负责解释 `items`）。
 ///
 /// ★ 认不出来的种类 ⇒ **整份读不回来**（见 `sectionFromJson`）：那是以后版本的启动器写的，
@@ -251,6 +401,11 @@ struct PresetManifest {
     /// 从哪个实例提取来的（`versions/<id>` 那个目录名）。空 = 手建的、或者提取那一路还没记。
     /// ★ 只作参考：那个实例后来改了名 / 被删了，这一份照样用。
     QString sourceInstanceId;
+    /// 这一份属于哪一类（见 `PresetCategory`）。`Unset` = 旧版混合预设。
+    PresetCategory category = PresetCategory::Unset;
+    /// 模组引用（P2 的检查对象；P5 的下载依据）。★ 只写在 `Mods` 那类上
+    /// （旧混合预设也能带 —— 见 `PresetStore::categoryMismatch()`）。
+    QList<ModReference> modReferences;
     QList<PresetSection> sections;
 
     /// 拿得出去吗。**只判身份那两格**：载荷坏不坏归 `PresetStore::loadManifest()` 说。
@@ -289,6 +444,8 @@ struct PresetSummary {
     QString description;
     QDateTime updatedAt;
     int sectionCount = 0;
+    /// 这一份属于哪一类（`Unset` = 旧版混合预设，界面另作标注）。
+    PresetCategory category = PresetCategory::Unset;
     /// 是不是那个唯一的默认项。
     bool isDefault = false;
 };
@@ -395,6 +552,19 @@ inline QJsonObject manifestToJson(const PresetManifest &manifest) {
     if (!manifest.sourceInstanceId.isEmpty()) {
         root.insert(QStringLiteral("sourceInstanceId"), manifest.sourceInstanceId);
     }
+    // ★ `Unset` 不写：缺这一位就是"旧版混合预设"，和 v1 的盘上形状逐字节兼容。
+    if (manifest.category != PresetCategory::Unset) {
+        root.insert(QStringLiteral("category"), presetCategoryKey(manifest.category));
+    }
+    // 模组引用：空**不写**。旧启动器读到这一位会无视它（v1 里没有这个名字）⇒ 回退一版
+    // 启动器时那些引用还在盘上，只是不被检查 / 下载。
+    if (!manifest.modReferences.isEmpty()) {
+        QJsonArray references;
+        for (const ModReference &reference : manifest.modReferences) {
+            references.append(modReferenceToJson(reference));
+        }
+        root.insert(QStringLiteral("modReferences"), references);
+    }
     QJsonArray sections;
     for (const PresetSection &section : manifest.sections) {
         sections.append(sectionToJson(section));
@@ -451,6 +621,30 @@ inline PresetManifest manifestFromJson(const QByteArray &bytes, bool *ok = nullp
     manifest.updatedAt =
         QDateTime::fromString(root.value(QStringLiteral("updatedAt")).toString(), Qt::ISODateWithMs);
     manifest.sourceInstanceId = root.value(QStringLiteral("sourceInstanceId")).toString();
+
+    // 类别：**缺这一位 = 旧版混合预设**（`Unset`），不算坏。写了但不认识 = 以后版本的
+    // 启动器写的一类我们解释不了 ⇒ 整份不认（和"不认识的段种类"同一条）。
+    if (root.contains(QStringLiteral("category"))) {
+        bool categoryOk = true;
+        manifest.category =
+            presetCategoryFromKey(root.value(QStringLiteral("category")).toString(), &categoryOk);
+        if (!categoryOk) {
+            return PresetManifest();
+        }
+    }
+
+    // 模组引用：缺这一位 = 没有引用。写了但不是数组 = 这一份的载荷坏了（整份不认）；
+    // 数组里某一项不是对象 ⇒ 留成一条空引用（检查层报 `Invalid`），不连坐整份。
+    if (root.contains(QStringLiteral("modReferences"))) {
+        const QJsonValue references = root.value(QStringLiteral("modReferences"));
+        if (!references.isArray()) {
+            return PresetManifest();
+        }
+        for (const QJsonValue &value : references.toArray()) {
+            manifest.modReferences.append(
+                value.isObject() ? modReferenceFromJson(value.toObject()) : ModReference());
+        }
+    }
 
     if (root.contains(QStringLiteral("sections"))) {
         const QJsonValue sections = root.value(QStringLiteral("sections"));

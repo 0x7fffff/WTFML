@@ -322,7 +322,7 @@ inline int runToolFeatureChecks() {
     page.setBeamResult(mixed.segments, QStringLiteral("test beam"));
     auto *beam = page.findChild<QLabel *>(QStringLiteral("beamColorPreview"));
     expect(beam != nullptr && !beam->pixmap().isNull(), "beacon page displays segment preview");
-    expect(page.findChild<QScrollArea *>(ToolboxPage::toolPanelName(ToolboxPage::Tool::Banner) + QStringLiteral("Scroll")) != nullptr,
+    expect(page.findChild<QScrollArea *>(ToolboxPage::toolPageName(ToolboxPage::Tool::Banner)) != nullptr,
         "long tool page scrolls instead of increasing main-window minimum height");
     if (qEnvironmentVariableIsSet("WTFML_BANNER_TEST_JAR")) {
         const auto loaded = BannerTextures::load(qEnvironmentVariable("WTFML_BANNER_TEST_JAR"));

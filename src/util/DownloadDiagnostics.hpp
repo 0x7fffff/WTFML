@@ -28,8 +28,13 @@
 
 #include <QString>
 #include <QUrl>
+#include <functional>
 
 namespace DownloadDiag {
+
+// Standalone diagnostics may replace file/qInfo output with a redacting structured sink.
+// Empty restores normal launcher behavior. Configure before starting downloads.
+void setSink(std::function<void(const QString &)> sink);
 
 /// 这一份构建 / 这一次进程要不要记明细。
 ///

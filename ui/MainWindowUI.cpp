@@ -1376,7 +1376,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             auto *modeLayout = new QHBoxLayout(modeRow);
             modeLayout->setContentsMargins(0, 0, 0, 0);
             modeLayout->setSpacing(kFilterRowSpacing);
-            for (int i = 0; i < 2; ++i) {
+            for (int i = 0; i < 3; ++i) {
                 const auto mode = static_cast<InstanceMode>(i);
                 auto *button = new QPushButton(instanceModeText(mode), modeRow);
                 button->setObjectName(instanceModeButtonName(mode));
@@ -1398,11 +1398,12 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //   这一排后来才补上去），于是按 Tab 的顺序是"搜索框 → 四颗筛子 → 树 → 模式按钮"
         //   ——焦点从下面那棵树又窜回到最上面这一行。串成"左栏 → 模式 → 搜索"，一路往下。
         //   （左栏那两颗是建在这一排之前的，所以这里从它们接出去。）
-        if (importModpackButton != nullptr && instanceModeButtons.size() == 2) {
+        if (importModpackButton != nullptr && instanceModeButtons.size() == 3) {
             QWidget::setTabOrder(importModpackButton, instanceModeButtons.at(0));
             QWidget::setTabOrder(instanceModeButtons.at(0), instanceModeButtons.at(1));
+            QWidget::setTabOrder(instanceModeButtons.at(1), instanceModeButtons.at(2));
             if (instanceSearchEdit != nullptr) {
-                QWidget::setTabOrder(instanceModeButtons.at(1), instanceSearchEdit);
+                QWidget::setTabOrder(instanceModeButtons.at(2), instanceSearchEdit);
             }
         }
 
@@ -1463,6 +1464,18 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         serverLayout->addWidget(newServerButton);
 
         instanceModeStack->addWidget(serverPage);  // 第 1 页 = 服务端
+
+        // ---- 第 2 页：预设（2026-10-18）----
+        //
+        // 只是一个**宿主**：整页的内容（列表 / 提取 / 计划）由 `PresetController` 建好塞进来。
+        // 这一层不 include 预设那一层，也不该知道它长什么样。
+        instancePresetPage = new QWidget(instanceModeStack);
+        instancePresetPage->setObjectName(instancePresetPageName());
+        auto *presetHostLayout = new QVBoxLayout(instancePresetPage);
+        presetHostLayout->setContentsMargins(0, 0, 0, 0);
+        presetHostLayout->setSpacing(0);
+        instanceModeStack->addWidget(instancePresetPage);  // 第 2 页 = 预设
+
         instance.right.layout->addWidget(instanceModeStack, 1);
         // 起手停在第 0 页（客户端实例）—— 顺带把那两颗按钮的勾摆正（`setInstanceMode()`
         // 是"停在哪一页 + 谁勾着"的唯一出处）。
@@ -1498,7 +1511,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // ---------- 下载：左 = 分类入口（仿 PCL）；右 = 那个分类的内容 ----------
     //
     // 左栏 2026-09-22 从"挑加载器 + 挑版本"换成了 PCL 那种**一列分类**：游戏 / 整合包 /
-    // 模组 / 数据包 / 资源包 / 光影。点哪个，右栏那份 QStackedWidget 就换到哪一页。
+    // 模组 / 数据包 / 资源包 / 光影（2026-10-18 又补了「服务端」，见头文件那张表）。点哪个，
+    // 右栏那份 QStackedWidget 就换到哪一页。
     //
     // NOTE: 2026-09-23 起**后面几页全是真的**了。「游戏」那一页就是原来那一摊（挑加载器、
     //       挑版本、下载），一个控件都没少；其余几页是"一个搜索框 + 一棵三层树"（资源 →
@@ -1581,9 +1595,14 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             // MainWindow::eventFilter 接 —— 判据是 VersionTreeDelegate::refreshRect()。
             // NOTE: 这里是**两参数**那个 setData（QListWidgetItem 认的是 role，没有列）——
             //       三参数那一个是 QTreeWidgetItem 的，写在这儿编不过。
-            item->setData(rowRefreshRole(), true);
+            //
+            // ★ 2026-10-18：「服务端」那一栏**没有**这一格 —— 它不向任何资源站问东西，
+            //   「刷新」在那儿没有可做的事。画上去而不做事，比不画更糟（用户会一直按）。
+            if (i != downloadCategoryServerIndex()) {
+                item->setData(rowRefreshRole(), true);
+            }
         }
-        // 高度贴着内容：五个两三个字的条目，被拉成一整条空白看着像坏了。行高**交给样式
+        // 高度贴着内容：几个两三个字的条目，被拉成一整条空白看着像坏了。行高**交给样式
         // 算**（sizeHintForRow），别写死数字 —— 换字体/换样式就错（UI 样式基线那件事）。
         int rowsHeight = 0;
         for (int i = 0; i < downloadCategoryList->count(); ++i) {
@@ -1784,44 +1803,14 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         installNameError->setVisible(false);
         installBodyLayout->addWidget(nameBox);
 
-        // ---- 实例预设（2026-10-18，coding plan §7「安装流程集成」）----
+        // ---- 实例预设（coding plan §7.1：**不再是一张独立的卡片**）----
         //
-        // 形状照抄上面加载器那张卡片（同一套内边距、同一个缺口标题），因为它就是同一页上
-        // 并列的一小节。三件东西：
-        //   · 下拉框：盘上有哪几份预设、默认是哪一份，全由 MainWindow 在进这一页时灌
-        //     （`PresetController::fillInstallSelector()`）—— 界面这边**一个字节都不读**。
-        //   · 「查看内容」：把"对着这个还没装出来的实例会做什么"摊开给人看一眼。
-        //   · 「安装完成后应用」：**默认不勾**。coding plan §10 那条「默认自动应用必须等
-        //     预览、备份和错误报告完成后再开启」说的就是这一格 —— 今天预览和备份都有了，
-        //     但"默认开"是产品决定，不替用户做主。
-        auto *presetCard = new QFrame(installPage);
-        markSurface(presetCard, Theme::sectionSurfaceValue());
-        auto *presetCardLayout = new QVBoxLayout(presetCard);
-        presetCardLayout->setContentsMargins(18, 16, 18, 18);
-        presetCardLayout->setSpacing(10);
-        {
-            auto *presetTitle = new QLabel(installPresetSectionLabelText(), presetCard);
-            markTextRole(presetTitle, Theme::sectionTitleTextRoleValue());
-            QFont presetTitleFont = presetTitle->font();
-            presetTitleFont.setBold(true);
-            presetTitle->setFont(presetTitleFont);
-            presetCardLayout->addWidget(presetTitle);
-        }
-        auto *presetRow = new QHBoxLayout();
-        presetRow->setSpacing(8);
-        installPresetCombo = new QComboBox(presetCard);
-        installPresetCombo->setObjectName(installPresetComboName());
-        presetRow->addWidget(installPresetCombo, 1);
-        installPresetViewButton = new QPushButton(installPresetViewText(), presetCard);
-        installPresetViewButton->setObjectName(installPresetViewButtonName());
-        Theme::markButton(installPresetViewButton, Theme::ButtonKind::Neutral);
-        installPresetViewButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        presetRow->addWidget(installPresetViewButton);
-        presetCardLayout->addLayout(presetRow);
-        installPresetApplyCheck = new QCheckBox(installPresetApplyCheckText(), presetCard);
-        installPresetApplyCheck->setObjectName(installPresetApplyCheckName());
-        presetCardLayout->addWidget(installPresetApplyCheck);
-        installBodyLayout->addWidget(presetCard);
+        // 用户要的形状是加载器列表里的**一行**（就放在 OptiFine 下面），点开是一张紧凑
+        // 弹窗 —— 四类各挑一份、看一眼它要动什么，**不跳页**。原来那一张「实例预设」
+        // 卡片（下拉框 + 查看内容 + 安装完成后应用）在 2026-10-18 撤掉了：
+        //   · 一份下拉框只能装一份预设，而 P1 要的是四类各选一份；
+        //   · 「查看内容」和「安装完成后应用」两件本来就能并进那张弹窗（选择 + 计划）。
+        // 那一行本身在下面「顶层五条」之后插（见 `installPresetRowRole()`）。
 
         // 加载器：**一棵树**，和上一页的版本树同一个模式（用户原话见头文件里那段）：
         // 顶层五条 = 四个加载器 + 「不装（纯原版）」，点一条展开它底下的版本号，
@@ -1902,6 +1891,26 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
                 // 底下一直是空的、也不长展开箭头（代理按"有没有孩子"决定画不画）。
                 // NOTE: 这一条**不是凑数**：它是"回到装纯原版"那条路，初始选中的就是它。
             }
+        }
+        // 「预设」那一行（§7.1：OptiFine 下面）—— **不是加载器**，是一条开弹窗的行。
+        // ★ UserRole 是哨兵（`installPresetRowRole()`）：`loaderItem()` 按加载器下标找条目，
+        //   看见这个值就不能把它当成第几条加载器；点它开的是那张四类弹窗。
+        // ★ 插在「不装（纯原版）」**前面**（`modLoaderNoneIndex()` 那个位置）：加载器那五条
+        //   的 UserRole 一个都不动 —— 界面上多一行，数据层的身份不受影响。
+        {
+            auto *presetItem = new QTreeWidgetItem();
+            presetItem->setData(loaderTreeKeyColumn(), Qt::UserRole, installPresetRowRole());
+            presetItem->setText(loaderTreeKeyColumn(), installPresetRowText());
+            // 拼图：和文件页那边"这一份是资源"同一个意思（见 VersionIcons::puzzleMark 那段）。
+            presetItem->setIcon(
+                loaderTreeKeyColumn(),
+                QIcon(VersionIcons::puzzleMark(
+                    versionTreeIconSize(),
+                    QApplication::palette().color(QPalette::WindowText))));
+            // 第二行小字是摘要（「未选择」/「已选择 N 类」），由 MainWindow 按用户的选择刷。
+            presetItem->setData(loaderTreeKeyColumn(), rowSubTextRole(),
+                                installPresetSummaryText(0));
+            loaderTree->insertTopLevelItem(modLoaderNoneIndex(), presetItem);
         }
         // 这棵树的高度**跟着"现在展开了几条"变**：五条全收着就是 5 行高，展开一条之后
         // 按 5 + 那条的版本数往上长，长到 loaderTreeMaxRows() 行就停（再多出滚动条）。
@@ -2008,6 +2017,30 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //（和版本树/加载器树那两棵一样，界面这边一条业务判据都不写）。
         for (int i = 0; i < categoryKeys.size(); ++i) {
             if (i == downloadCategoryGameIndex()) {
+                continue;
+            }
+            // ★ 2026-10-18：「服务端」那一栏**不是资源搜索页**（coding plan §1.4 那条
+            //   「下载页里没有『服务端』入口栏」）。它只有一句说明 + 一颗「新建服务端…」，
+            //   按下去和实例页那颗走同一条路（见 ConnectionsController 里那条接线）。
+            //   和「游戏」一样要**先跳过这里那个资源页模板** —— 不然这一页会多出一整行
+            //   筛子和一棵永远搜不出东西的三层树（那个键在 ResourceCatalog 里根本不存在）。
+            if (i == downloadCategoryServerIndex()) {
+                QWidget *serverPage = new QWidget(downloadStack);
+                serverPage->setObjectName(downloadServerPageName());
+                auto *serverLayout = new QVBoxLayout(serverPage);
+                serverLayout->setContentsMargins(0, 0, 0, 0);
+                serverLayout->setSpacing(10);
+                auto *hint = new QLabel(downloadServerHintText(), serverPage);
+                hint->setObjectName(downloadServerHintName());
+                hint->setWordWrap(true);
+                serverLayout->addWidget(hint);
+                downloadNewServerButton = new QPushButton(newServerText(), serverPage);
+                downloadNewServerButton->setObjectName(downloadNewServerButtonName());
+                // 「新建服务端…」= 造一个新东西（和实例页那颗同一档，见那边那段）。
+                Theme::markButton(downloadNewServerButton, Theme::ButtonKind::Accent);
+                serverLayout->addWidget(downloadNewServerButton);
+                serverLayout->addStretch(1);
+                downloadStack->addWidget(serverPage);
                 continue;
             }
             const QString categoryKey = categoryKeys.value(i);
@@ -2543,6 +2576,12 @@ void MainWindowUI::setDownloadHeaderRow(int row) {
     // 说明是**这一页的状态**，永远露着（`fillPageHeader()` 那套"空串就收起来"在这儿
     // 用不上：它管的是"这一页有没有说明"，而这里每一类都有一句）。
     downloadHeaderSubtitleLabel->setVisible(true);
+    // ★ 2026-10-18：「服务端」那一栏没有"重新问一遍"这回事（它不向任何资源站问东西）
+    //   ⇒ 页头那颗刷新在这一栏**整颗收起来**（连位置都不占），翻回别的栏再露出来。
+    //   留着一颗按下去什么都不做的键，用户只会一直按。
+    if (downloadHeaderRefreshButton != nullptr) {
+        downloadHeaderRefreshButton->setVisible(row != downloadCategoryServerIndex());
+    }
 }
 
 void MainWindowUI::setInstanceMode(InstanceMode mode) {
@@ -2550,7 +2589,7 @@ void MainWindowUI::setInstanceMode(InstanceMode mode) {
     if (instanceModeStack == nullptr || index < 0 || index >= instanceModeStack->count()) {
         return;  // 界面没搭出来 / 越界：什么都不改（见头文件那段）
     }
-    // 两颗按钮的勾和停着的那一页**一起**改（这是这个函数存在的全部意义）。
+    // 三颗按钮的勾和停着的那一页**一起**改（这是这个函数存在的全部意义）。
     instanceModeStack->setCurrentIndex(index);
     for (int i = 0; i < instanceModeButtons.size(); ++i) {
         if (instanceModeButtons.at(i) != nullptr) {
@@ -2795,25 +2834,9 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         addSettingItem(section4, QStringLiteral("全局额外参数"), box, form);
     }
 
-    // ---------- 实例预设 ----------
-    // ---- 第 5 节：标题 + 一张小节卡片（见 addSettingsSection()）----
-    // §6 P1 / §7：新建、复制、改名、删除、从实例提取、应用前可见精确计划 —— 全在一页里，
-    // 这儿只留一颗开门的按钮（和上面「Java 管理…」同一种形状）。
-    const SettingsSection section5 = addSettingsSection(grid, row, QStringLiteral("实例预设"), form);
-    {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-        presetManageButton = new QPushButton(QStringLiteral("实例预设…"), box);
-        presetManageButton->setObjectName(presetManageButtonName());
-        Theme::markButton(presetManageButton, Theme::ButtonKind::Neutral);
-        boxLayout->addWidget(presetManageButton, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("把一份实例的按键、游戏设置、服务器列表、"
-                                    "config/ 这些收成一份，再落到别的实例上 —— "
-                                    "应用之前会先列出「哪一段、写几项、删几项」的精确计划，"
-                                    "改动过的文件也会先备份。"),
-                form);
-        addSettingItem(section5, QStringLiteral("预设管理"), box, form);
-    }
+    // NOTE: 「实例预设」那一节 2026-10-18 从设置页**整个撤掉了**：预设管理页搬进了
+    //       实例页顶部的模式行（客户端实例 | 服务端 | 预设），设置里再留一颗门就是同一个
+    //       东西两处入口（§10.1 P0「移除全局设置中的重复入口」）。
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
     grid->setRowStretch(row, 1);
@@ -3489,6 +3512,48 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
                                     "（已经在下的那几个不会被叫停）。"),
                 form);
         addSettingItem(section1, downloadConcurrencyRowText(), box, form);
+    }
+    {
+        // 「下载速度上限」（2026-10-18，§9.2）。和上面那格同一个位置、同一个形状：它也是
+        // "这一批文件怎么走"的一部分。档位表在 src/ 的 DownloadSpeedLimit.hpp（唯一出处），
+        // 这里是**只有框没有项**，项和选中的那一档都由 MainWindow 灌。
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        downloadSpeedLimitCombo = new QComboBox(box);
+        downloadSpeedLimitCombo->setObjectName(downloadSpeedLimitComboName());
+        WheelGuard::install(downloadSpeedLimitCombo);
+        boxLayout->addWidget(downloadSpeedLimitCombo, 0, Qt::AlignLeft);
+        addHint(box, QStringLiteral("给自动下载（游戏文件、模组、资源包这些）压一个总上限，"
+                                    "免得把整条网线占满。0 = 不限。\n"
+                                    "改完立刻生效：正在下的那一批也会慢下来（不会重新开始）。"
+                                    "工具箱里的「直链下载」是另一件工具，不受这一项管。"),
+                form);
+        addSettingItem(section1, downloadSpeedLimitRowText(), box, form);
+    }
+    {
+        // 「代理」（2026-10-18，§9.2）。和上面几格同一个位置：它也是"请求怎么走"。
+        // 三档的含义与地址解析在 src/ 的 DownloadProxy.hpp（唯一出处），这里是**只有框
+        // 没有项**；手动那一格只在「手动」档露出来（开/关与回填都由 MainWindow 管）。
+        QWidget *box = makeHintedControl(form);
+        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        downloadProxyCombo = new QComboBox(box);
+        downloadProxyCombo->setObjectName(downloadProxyComboName());
+        WheelGuard::install(downloadProxyCombo);
+        boxLayout->addWidget(downloadProxyCombo, 0, Qt::AlignLeft);
+        downloadProxyManualEdit = new QLineEdit(box);
+        downloadProxyManualEdit->setObjectName(downloadProxyManualEditName());
+        downloadProxyManualEdit->setPlaceholderText(
+            QStringLiteral("127.0.0.1:7890 或 socks5://127.0.0.1:7890"));
+        downloadProxyManualEdit->setVisible(false);
+        boxLayout->addWidget(downloadProxyManualEdit);
+        addHint(box, QStringLiteral("启动器所有的网络请求都走这一项。\n"
+                                    "「跟随系统」= 用 Windows 的 Internet 选项里配的那个；"
+                                    "「直连」= 一个代理都不走；「手动」= 填一个 HTTP 或 SOCKS5 "
+                                    "代理地址（只认主机和端口，不带路径）。\n"
+                                    "改完立刻生效 —— 已经在跑的那几个请求不会被掐断，下一次"
+                                    "请求就走新的。"),
+                form);
+        addSettingItem(section1, downloadProxyRowText(), box, form);
     }
     {
         // CurseForge 的 API key（2026-09-25 加）。放在「下载源」这一组里是因为它和上面那格

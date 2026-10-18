@@ -29,6 +29,9 @@ public:
     void launcherBehaviourChanged();
     void downloadSourceChanged();
     void downloadConcurrencyChanged();
+    void downloadSpeedLimitChanged();
+    void downloadProxyModeChanged();
+    void downloadProxyManualChanged();
     void downloadAutoIntoInstanceChanged();
     void warnMissingDependenciesChanged();
     void showGameLogChanged();
@@ -40,6 +43,8 @@ public:
     void updateGameWindowSizeEnabled();
     void syncDownloadSource();
     void syncDownloadConcurrency();
+    void syncDownloadSpeedLimit();
+    void syncDownloadProxy();
     void syncCatalogCredentials();
     void curseForgeApiKeyEdited();
     void versionNameOptionChanged();

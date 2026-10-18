@@ -11,13 +11,14 @@
 
 #include "controllers/PresetController.hpp"
 
-#include "MainWindowUI.hpp"
-#include "OverlayHost.hpp"
 #include "PresetManagePage.hpp"
 #include "manage/VersionManager.hpp"
+#include "presets/DataPackPreset.hpp"
 #include "presets/GenericFiles.hpp"
 #include "presets/MalilibKeys.hpp"
+#include "presets/ModrinthCompatibility.hpp"
 #include "presets/PresetApply.hpp"
+#include "presets/PresetCompatibility.hpp"
 #include "presets/PresetPlanner.hpp"
 #include "presets/PresetStore.hpp"
 #include "util/AppPaths.hpp"
@@ -26,7 +27,10 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QLayout>
 #include <QSignalBlocker>
+#include <QUrl>
+#include <QVBoxLayout>
 
 namespace {
 
@@ -41,6 +45,7 @@ Presets::CaptureSelection toSelection(const PresetManagePage::CaptureChoice &cho
     selection.shaderPacks = choice.shaderPacks;
     selection.malilib = choice.malilib;
     selection.malilibValues = choice.malilibValues;
+    selection.dataPacks = choice.dataPacks;
     return selection;
 }
 
@@ -69,7 +74,19 @@ QString installPresetNoneText() {
     return QStringLiteral("不使用预设");
 }
 
+/// 筛选项那把钥匙。★ `Unset` 在盘上**没有**类别字段（`presetCategoryKey()` 回空串），
+/// 而空串在页面上是「全部」那一档 —— 所以旧数据在筛选这一层另起一个不落盘的钥匙。
+QString categoryFilterKey(Presets::PresetCategory category) {
+    if (category == Presets::PresetCategory::Unset) {
+        return QStringLiteral("legacy");
+    }
+    return Presets::presetCategoryKey(category);
+}
+
 QString sectionKindText(const Presets::PresetSection &section) {
+    if (Presets::dataPackHandlesSection(section)) {
+        return QStringLiteral("数据包");
+    }
     if (section.kind == Presets::SectionKind::GenericFiles) {
         const QString subKey = Presets::fileGroupDirName(Presets::FileGroup::Config);
         if (section.id == Presets::sectionIdFor(section.kind, subKey)) {
@@ -100,10 +117,32 @@ QString sectionKindText(const Presets::PresetSection &section) {
 
 }  // namespace
 
-PresetController::PresetController(VersionManager *versions, OverlayHost *overlay,
-                                   QWidget *pageParent, Host host, QObject *parent)
-    : QObject(parent), m_versions(versions), m_overlay(overlay), m_pageParent(pageParent),
-      m_host(std::move(host)) {}
+PresetController::PresetController(VersionManager *versions, QWidget *hostPage, Host host,
+                                   QObject *parent)
+    : QObject(parent), m_versions(versions), m_hostPage(hostPage), m_host(std::move(host)) {
+    // 兼容检查那一套：真网络提供方 + 共享缓存 + 检查器。★ 缓存与 checker 都活到这一层
+    // 结束，所以"同一批模组在两个弹窗里连着看两次"第二趟是缓存结论（§7.2「共享缓存」）。
+    m_modProvider = new Presets::PlatformCompatibilityProvider(
+        QUrl(QStringLiteral("https://api.modrinth.com/v2")), this);
+    m_modChecker = new Presets::CompatibilityChecker(&m_modCache, this);
+    m_modChecker->setProvider(m_modProvider);
+    const auto push = [this](const QList<Presets::CompatibilityResult> &results,
+                             const Presets::CompatibilitySummary &summary, bool finished) {
+        ModCheckUpdate update;
+        update.presetId = m_modCheckPresetId;
+        update.generation = m_modChecker->generation();
+        update.results = results;
+        update.summary = summary;
+        update.finished = finished;
+        emit modCheckUpdated(update);
+    };
+    connect(m_modChecker, &Presets::CompatibilityChecker::updated, this,
+            [push](const QList<Presets::CompatibilityResult> &results,
+                   const Presets::CompatibilitySummary &summary) { push(results, summary, false); });
+    connect(m_modChecker, &Presets::CompatibilityChecker::finished, this,
+            [push](const QList<Presets::CompatibilityResult> &results,
+                   const Presets::CompatibilitySummary &summary) { push(results, summary, true); });
+}
 
 PresetController::~PresetController() = default;
 
@@ -116,24 +155,36 @@ QString PresetController::presetsRoot() {
 // ---------------------------------------------------------------------------
 
 void PresetController::open() {
-    if (m_overlay == nullptr) {
+    if (m_hostPage == nullptr) {
         return;
     }
     buildPage();
     pushInstances();
     pushListAndSelect(m_currentId.isEmpty() ? Presets::defaultPresetId(presetsRoot())
                                             : m_currentId);
-    m_overlay->execPage(m_page, m_page->titleText(), MainWindowUI::settingsTabIndex());
 }
 
 void PresetController::buildPage() {
     if (m_page != nullptr) {
         return;
     }
-    m_page = new PresetManagePage(m_pageParent);
+    m_page = new PresetManagePage(m_hostPage);
+    // 页面是实例页第三档的常驻内容（不是弹出来的覆盖页）：塞进宿主里，跟着换页容器一起露/收。
+    auto *hostLayout = qobject_cast<QVBoxLayout *>(m_hostPage->layout());
+    if (hostLayout != nullptr) {
+        hostLayout->addWidget(m_page);
+    } else {
+        auto *layout = new QVBoxLayout(m_hostPage);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(0);
+        layout->addWidget(m_page);
+    }
+
+    pushCategories();
 
     connect(m_page, &PresetManagePage::presetSelected, this, &PresetController::selectPreset);
-    connect(m_page, &PresetManagePage::createRequested, this, &PresetController::createPreset);
+    connect(m_page, &PresetManagePage::createRequested, this,
+            &PresetController::createPreset);
     connect(m_page, &PresetManagePage::duplicateRequested, this,
             &PresetController::duplicatePreset);
     connect(m_page, &PresetManagePage::detailsEdited, this,
@@ -150,9 +201,9 @@ void PresetController::buildPage() {
                 captureInto(presetId, instanceId, choice);
             });
     connect(m_page, &PresetManagePage::captureAsNewRequested, this,
-            [this](const QString &instanceId, const QString &name,
+            [this](const QString &instanceId, const QString &name, const QString &categoryKey,
                    const PresetManagePage::CaptureChoice &choice) {
-                captureAsNew(instanceId, name, choice);
+                captureAsNew(instanceId, name, categoryKey, choice);
             });
     connect(m_page, &PresetManagePage::planRequested, this, &PresetController::previewPlan);
     connect(m_page, &PresetManagePage::applyRequested, this, &PresetController::applyPlan);
@@ -163,6 +214,118 @@ void PresetController::pushInstances() {
         return;
     }
     m_page->setInstances(instanceItems());
+}
+
+QString PresetController::categoryText(Presets::PresetCategory category) {
+    switch (category) {
+    case Presets::PresetCategory::Unset:
+        return QStringLiteral("旧版（未分类）");
+    case Presets::PresetCategory::GameSettings:
+        return QStringLiteral("游戏设置");
+    case Presets::PresetCategory::Mods:
+        return QStringLiteral("模组");
+    case Presets::PresetCategory::ResourcePacks:
+        return QStringLiteral("资源包");
+    case Presets::PresetCategory::DataPacks:
+        return QStringLiteral("数据包");
+    }
+    return QStringLiteral("旧版（未分类）");
+}
+
+void PresetController::pushCategories() {
+    if (m_page == nullptr) {
+        return;
+    }
+    QList<PresetManagePage::CategoryOption> options;
+
+    PresetManagePage::CategoryOption all;
+    all.text = QStringLiteral("全部");
+    all.filterOnly = true;
+    options.append(all);
+
+    const Presets::PresetCategory creatable[] = {
+        Presets::PresetCategory::GameSettings,
+        Presets::PresetCategory::Mods,
+        Presets::PresetCategory::ResourcePacks,
+        Presets::PresetCategory::DataPacks,
+    };
+    for (const Presets::PresetCategory category : creatable) {
+        PresetManagePage::CategoryOption option;
+        option.key = categoryFilterKey(category);
+        option.text = categoryText(category);
+        options.append(option);
+    }
+
+    // 旧版混合预设（没写类别）：能看、能用、能复制，但不能**新做**出这一类。
+    PresetManagePage::CategoryOption legacy;
+    legacy.key = categoryFilterKey(Presets::PresetCategory::Unset);
+    legacy.text = categoryText(Presets::PresetCategory::Unset);
+    legacy.filterOnly = true;
+    options.append(legacy);
+
+    m_page->setCategories(options);
+}
+
+quint32 PresetController::captureMaskFor(Presets::PresetCategory category) {
+    using Bits = PresetManagePage;
+    switch (category) {
+    case Presets::PresetCategory::Unset:
+        return PresetManagePage::captureMaskAll();
+    case Presets::PresetCategory::GameSettings:
+        return Bits::CaptureVanillaOptions | Bits::CaptureVanillaKeys | Bits::CaptureServers |
+               Bits::CaptureConfig | Bits::CaptureDefaultConfigs | Bits::CaptureMalilib |
+               Bits::CaptureMalilibValues;
+    case Presets::PresetCategory::ResourcePacks:
+        return Bits::CaptureResourcePacks | Bits::CaptureShaderPacks;
+    case Presets::PresetCategory::DataPacks:
+        // 数据包只收世界里的那一坨（P4）；模组类仍然没有可提取的段（P5）。
+        return Bits::CaptureDataPacks;
+    case Presets::PresetCategory::Mods:
+        return 0;
+    }
+    return PresetManagePage::captureMaskAll();
+}
+
+QString PresetController::captureNoteFor(Presets::PresetCategory category) {
+    switch (category) {
+    case Presets::PresetCategory::Unset:
+        return QStringLiteral("旧版预设没写类别，九样都能收。");
+    case Presets::PresetCategory::GameSettings:
+        return QStringLiteral("「游戏设置」预设不收资源包 / 光影包。");
+    case Presets::PresetCategory::ResourcePacks:
+        return QStringLiteral("「资源包」预设只收资源包 / 光影包这一类文件。");
+    case Presets::PresetCategory::Mods:
+    case Presets::PresetCategory::DataPacks:
+        return QStringLiteral("这一类只收各个存档的 datapacks/；目标上没有同名存档时先记成「待应用」。");
+    }
+    return QString();
+}
+
+Presets::CaptureSelection PresetController::filterCapture(
+    Presets::PresetCategory category, const Presets::CaptureSelection &selection,
+    QStringList *skipped) {
+    const quint32 mask = captureMaskFor(category);
+    Presets::CaptureSelection out = selection;
+    auto drop = [mask, skipped](quint32 bit, bool &flag, const char *label) {
+        if ((mask & bit) == 0 && flag) {
+            flag = false;
+            if (skipped != nullptr) {
+                skipped->append(QString::fromUtf8(label));
+            }
+        }
+    };
+    using Bits = PresetManagePage;
+    drop(Bits::CaptureVanillaOptions, out.vanillaOptions, "基础设置");
+    drop(Bits::CaptureVanillaKeys, out.vanillaKeys, "标准按键");
+    drop(Bits::CaptureServers, out.servers, "服务器列表");
+    drop(Bits::CaptureConfig, out.config, "config/");
+    drop(Bits::CaptureDefaultConfigs, out.defaultConfigs, "defaultconfigs/");
+    drop(Bits::CaptureResourcePacks, out.resourcePacks, "资源包");
+    drop(Bits::CaptureShaderPacks, out.shaderPacks, "光影包");
+    drop(Bits::CaptureMalilib, out.malilib, "MaLiLib 热键");
+    drop(Bits::CaptureMalilibValues, out.malilibValues, "MaLiLib 值");
+    drop(Bits::CaptureDataPacks, out.dataPacks, "数据包");
+    return out;
 }
 
 QString PresetController::instanceRoot(const QString &instanceId) const {
@@ -229,6 +392,8 @@ void PresetController::pushListAndSelect(const QString &selectId) {
         }
         item.sectionCount = summary.sectionCount;
         item.isDefault = summary.isDefault;
+        item.categoryKey = categoryFilterKey(summary.category);
+        item.categoryText = categoryText(summary.category);
         items.append(item);
     }
 
@@ -278,7 +443,10 @@ void PresetController::pushPresetToPage(const QString &id) {
         m_page->clearPlan();
         return;
     }
-    m_page->showPreset(id, manifest.name, manifest.description, sectionItems(manifest));
+    m_page->showPreset(id, manifest.name, manifest.description, categoryText(manifest.category),
+                       sectionItems(manifest));
+    m_page->setCaptureAvailability(captureMaskFor(manifest.category),
+                                   captureNoteFor(manifest.category));
 }
 
 QList<PresetManagePage::SectionItem> PresetController::sectionItems(
@@ -329,16 +497,30 @@ QString PresetController::newPresetName() const {
 // 增删改
 // ---------------------------------------------------------------------------
 
-void PresetController::createPreset() {
+void PresetController::createPreset(const QString &categoryKey) {
+    bool categoryOk = true;
+    Presets::PresetCategory category = Presets::presetCategoryFromKey(categoryKey, &categoryOk);
+    if (categoryKey.isEmpty()) {
+        // 页面上第一项就是它；空串只可能来自"没摆下拉框"的测试。
+        category = Presets::PresetCategory::GameSettings;
+        categoryOk = true;
+    }
+    if (!categoryOk || category == Presets::PresetCategory::Unset) {
+        if (m_page != nullptr) {
+            m_page->showStatus(QStringLiteral("新建时得先选四类里的一类（跨类的总预设不做）。"));
+        }
+        return;
+    }
     const Presets::PresetManifest created =
-        Presets::create(presetsRoot(), newPresetName());
+        Presets::create(presetsRoot(), newPresetName(), QString(), category);
     if (created.id.isEmpty()) {
         if (m_page != nullptr) {
             m_page->showStatus(QStringLiteral("没能建出新的一份（预设目录写不进去）。"));
         }
         return;
     }
-    log(QStringLiteral("预设：新建了「%1」。").arg(created.name));
+    log(QStringLiteral("预设：新建了「%1」（%2）。")
+            .arg(created.name, categoryText(created.category)));
     refreshList(created.id);
     if (m_page != nullptr) {
         m_page->showStatus(QStringLiteral("建好了。在右边改名字和说明，然后从实例提取内容。"));
@@ -475,6 +657,11 @@ QString PresetController::captureSummary(const Presets::CaptureReport &report) c
     if (report.malilibValues > 0) {
         parts.append(QStringLiteral("MaLiLib 值 %1 格").arg(report.malilibValues));
     }
+    if (report.dataPackItems > 0) {
+        parts.append(QStringLiteral("数据包 %1 个（%2 个存档）")
+                         .arg(report.dataPackItems)
+                         .arg(report.dataPackWorlds));
+    }
     QString text = parts.isEmpty() ? QStringLiteral("什么都没收到。")
                                    : QStringLiteral("收到了 %1。").arg(parts.join(QStringLiteral("，")));
     if (!report.problems.isEmpty()) {
@@ -501,7 +688,20 @@ void PresetController::captureInto(const QString &presetId, const QString &insta
     request.instanceId = instanceId;
     request.instanceRoot = instanceRoot(instanceId);
     request.presetFilesRoot = Presets::filesDir(root, presetId);
-    request.selection = toSelection(choice);
+    // ★ 「不串类别」的第二道闸（第一道在界面上把格子禁掉）：外面要是还是塞进来了
+    //   不属于这一类的样，这里静默摘掉并说清楚，绝不让它落进 manifest。
+    QStringList skipped;
+    request.selection = filterCapture(manifest.category, toSelection(choice), &skipped);
+    if (request.selection.isEmpty()) {
+        if (m_page != nullptr) {
+            m_page->showStatus(
+                skipped.isEmpty()
+                    ? QStringLiteral("什么都没勾。")
+                    : QStringLiteral("这一类预设不收这几样：%1。")
+                          .arg(skipped.join(QStringLiteral("、"))));
+        }
+        return;
+    }
 
     const Presets::CaptureReport report = Presets::captureFromInstance(request);
     if (!report.ok) {
@@ -528,18 +728,37 @@ void PresetController::captureInto(const QString &presetId, const QString &insta
             .arg(report.sectionCount()));
     refreshList(presetId);
     if (m_page != nullptr) {
-        m_page->showStatus(captureSummary(report));
+        QString status = captureSummary(report);
+        if (!skipped.isEmpty()) {
+            status += QStringLiteral("\n这一类预设不收：%1。")
+                          .arg(skipped.join(QStringLiteral("、")));
+        }
+        m_page->showStatus(status);
     }
 }
 
 void PresetController::captureAsNew(const QString &instanceId, const QString &name,
+                                    const QString &categoryKey,
                                     const PresetManagePage::CaptureChoice &choice) {
+    bool categoryOk = true;
+    Presets::PresetCategory category = Presets::presetCategoryFromKey(categoryKey, &categoryOk);
+    if (categoryKey.isEmpty()) {
+        category = Presets::PresetCategory::GameSettings;
+        categoryOk = true;
+    }
+    if (!categoryOk || category == Presets::PresetCategory::Unset) {
+        if (m_page != nullptr) {
+            m_page->showStatus(QStringLiteral("新建时得先选四类里的一类（跨类的总预设不做）。"));
+        }
+        return;
+    }
+
     QString wanted = Presets::cleanDisplayName(name);
     if (wanted.isEmpty()) {
         wanted = QStringLiteral("%1 预设").arg(displayName(instanceId));
     }
     const QString root = presetsRoot();
-    Presets::PresetManifest created = Presets::create(root, wanted);
+    Presets::PresetManifest created = Presets::create(root, wanted, QString(), category);
     if (created.id.isEmpty()) {
         if (m_page != nullptr) {
             m_page->showStatus(QStringLiteral("没能建出新的一份（预设目录写不进去）。"));
@@ -551,7 +770,20 @@ void PresetController::captureAsNew(const QString &instanceId, const QString &na
     request.instanceId = instanceId;
     request.instanceRoot = instanceRoot(instanceId);
     request.presetFilesRoot = Presets::filesDir(root, created.id);
-    request.selection = toSelection(choice);
+    QStringList skipped;
+    request.selection = filterCapture(category, toSelection(choice), &skipped);
+    if (request.selection.isEmpty()) {
+        // 这一类什么都收不了（模组 / 数据包首版就是这样）：空壳比"报成功"诚实。
+        Presets::remove(root, created.id);
+        if (m_page != nullptr) {
+            m_page->showStatus(
+                skipped.isEmpty()
+                    ? QStringLiteral("什么都没勾，新预设没有建。")
+                    : QStringLiteral("这一类预设不收这几样：%1；新预设没有建。")
+                          .arg(skipped.join(QStringLiteral("、"))));
+        }
+        return;
+    }
 
     const Presets::CaptureReport report = Presets::captureFromInstance(request);
     if (!report.ok) {
@@ -581,7 +813,12 @@ void PresetController::captureAsNew(const QString &instanceId, const QString &na
             .arg(report.sectionCount()));
     refreshList(created.id);
     if (m_page != nullptr) {
-        m_page->showStatus(captureSummary(report));
+        QString status = captureSummary(report);
+        if (!skipped.isEmpty()) {
+            status += QStringLiteral("\n这一类预设不收：%1。")
+                          .arg(skipped.join(QStringLiteral("、")));
+        }
+        m_page->showStatus(status);
     }
 }
 
@@ -618,13 +855,16 @@ void PresetController::previewPlan(const QString &presetId, const QString &insta
     }
 
     QString snapshotProblem;
-    const Presets::TargetSnapshot snapshot =
+    Presets::TargetSnapshot snapshot =
         Presets::readTargetSnapshot(instanceRoot(instanceId), &snapshotProblem);
     if (!snapshotProblem.isEmpty()) {
         view.problem = snapshotProblem;
         m_page->showPlan(view);
         return;
     }
+    // 数据包从 17w43a 才有：老版本实例上那一段该报"做不了"，不是记成待应用。
+    snapshot.supportsDataPacks =
+        m_versions != nullptr && m_versions->instanceSupportsDatapacks(instanceId);
 
     Presets::PlanRequest request;
     request.presetFilesRoot = Presets::filesDir(presetsRoot(), presetId);
@@ -680,7 +920,7 @@ QString PresetController::applyRowText(const Presets::PresetApplyRow &row) const
         state = QStringLiteral("没做成%1").arg(row.problem.isEmpty()
                                                    ? QString()
                                                    : QStringLiteral("（%1）").arg(row.problem));
-    } else if (row.written == 0 && row.removed == 0) {
+    } else if (row.written == 0 && row.removed == 0 && row.deferred == 0) {
         state = QStringLiteral("没有变化");
     } else {
         QStringList bits;
@@ -692,6 +932,9 @@ QString PresetController::applyRowText(const Presets::PresetApplyRow &row) const
         }
         if (row.removed > 0) {
             bits.append(QStringLiteral("删掉 %1").arg(row.removed));
+        }
+        if (row.deferred > 0) {
+            bits.append(QStringLiteral("待应用 %1").arg(row.deferred));
         }
         if (row.skippedItems > 0) {
             bits.append(QStringLiteral("跳过 %1").arg(row.skippedItems));
@@ -723,6 +966,8 @@ void PresetController::applyPlan(const QString &presetId, const QString &instanc
     request.instanceRoot = instanceRoot(instanceId);
     request.gameRunning = m_host.isRunning ? m_host.isRunning(instanceId) : false;
     request.replaceConfirmed = replaceConfirmed;
+    request.supportsDataPacks =
+        m_versions != nullptr && m_versions->instanceSupportsDatapacks(instanceId);
 
     const Presets::PresetApplyResult result =
         Presets::applyPresetToInstance(presetsRoot(), manifest, request);
@@ -820,6 +1065,38 @@ void PresetController::fillInstallSelector(QComboBox *combo, const QString &pref
     combo->setCurrentIndex(index);
 }
 
+QList<PresetController::InstallCategory> PresetController::installCategories() {
+    // 次序 = 安装页弹窗那四个页签的次序。★ 改这里的次序就是改界面 —— 页签和数据同一份，
+    // 别处不要再写一遍四类的名字（`categoryText()` 是那四句话的唯一出处）。
+    const Presets::PresetCategory order[] = {
+        Presets::PresetCategory::GameSettings,
+        Presets::PresetCategory::Mods,
+        Presets::PresetCategory::ResourcePacks,
+        Presets::PresetCategory::DataPacks,
+    };
+    QList<InstallCategory> out;
+    for (const Presets::PresetCategory category : order) {
+        out.append({Presets::presetCategoryKey(category), categoryText(category)});
+    }
+    return out;
+}
+
+QList<Presets::PresetSummary> PresetController::presetsInCategory(
+    const QString &categoryKey) const {
+    bool ok = false;
+    const Presets::PresetCategory category = Presets::presetCategoryFromKey(categoryKey, &ok);
+    if (!ok || category == Presets::PresetCategory::Unset) {
+        return {};
+    }
+    QList<Presets::PresetSummary> out;
+    for (const Presets::PresetSummary &one : availablePresets()) {
+        if (one.category == category) {
+            out.append(one);
+        }
+    }
+    return out;
+}
+
 PresetController::InstallPreview PresetController::previewForInstall(
     const QString &presetId, const QString &instanceName) const {
     InstallPreview view;
@@ -839,12 +1116,14 @@ PresetController::InstallPreview PresetController::previewForInstall(
     view.presetName = manifest.name;
 
     QString snapshotProblem;
-    const Presets::TargetSnapshot snapshot =
+    Presets::TargetSnapshot snapshot =
         Presets::readTargetSnapshot(instanceRoot(instanceName), &snapshotProblem);
     if (!snapshotProblem.isEmpty()) {
         view.problem = snapshotProblem;
         return view;
     }
+    snapshot.supportsDataPacks =
+        m_versions != nullptr && m_versions->instanceSupportsDatapacks(instanceName);
 
     Presets::PlanRequest request;
     request.presetFilesRoot = Presets::filesDir(presetsRoot(), presetId);
@@ -863,9 +1142,25 @@ PresetController::InstallPreview PresetController::previewForInstall(
         view.lines.append(rowText(row));
     }
     for (const Presets::MalilibConflict &conflict : plan.keyConflicts) {
-        view.lines.append(QStringLiteral("⚠ 键位冲突：%1 ← %2")
-                              .arg(conflict.keys,
-                                   conflict.claims.join(QStringLiteral(" / "))));
+        const QString line = QStringLiteral("⚠ 键位冲突：%1 ← %2")
+                                 .arg(conflict.keys,
+                                      conflict.claims.join(QStringLiteral(" / ")));
+        view.lines.append(line);
+        view.reasons.append(line);
+    }
+    // 弹窗状态行那几格（§7.1）：动几项 / 跳过几项 / 哪几段做不了。三个数都是
+    // `ApplyPlan` 自己算的，这一层只做加法 —— 别在界面上拿 `lines.size()` 之类的近似。
+    view.itemCount = plan.totalCount();
+    for (const Presets::ApplyPlanRow &row : plan.rows) {
+        view.skippedCount += row.skipped;
+        if (row.blocked) {
+            ++view.blockedCount;
+        }
+        // 「缺失、未知、跳过」那几类原因：只在**用得上**的时候才给（正常合并的那些段
+        // 不进这张单子，否则展开之后是一屏"合并 18 项"的废话）。
+        if (row.risky() || row.skipped > 0 || !row.problem.isEmpty()) {
+            view.reasons.append(rowText(row));
+        }
     }
     // 这一段和 `previewPlan()` 里那句小结**同口径**：界面里两处说"会动几项"不该有两种说法。
     if (plan.ok) {
@@ -902,6 +1197,8 @@ PresetController::InstallApply PresetController::applyAfterInstall(const QString
     request.instanceRoot = instanceRoot(instanceName);
     request.gameRunning = m_host.isRunning ? m_host.isRunning(instanceName) : false;
     request.replaceConfirmed = replaceConfirmed;
+    request.supportsDataPacks =
+        m_versions != nullptr && m_versions->instanceSupportsDatapacks(instanceName);
 
     const Presets::PresetApplyResult result =
         Presets::applyPresetToInstance(presetsRoot(), manifest, request);
@@ -922,7 +1219,7 @@ PresetController::InstallApply PresetController::applyAfterInstall(const QString
 
     if (result.needsConfirm) {
         out.message = QStringLiteral("预设里有一段是「覆盖」，需要先确认计划才能应用（"
-                                     "可以在设置 →「实例预设…」里看计划并确认）。");
+                                     "可以在实例页 →「预设」那一档里看计划并确认）。");
     } else if (!result.blockedReason.isEmpty()) {
         out.message = result.blockedReason;
     } else if (!result.ok) {
@@ -960,12 +1257,13 @@ Presets::PresetApplyResult PresetController::planOnly(
     Presets::PresetApplyResult out;
 
     QString snapshotProblem;
-    const Presets::TargetSnapshot snapshot =
+    Presets::TargetSnapshot snapshot =
         Presets::readTargetSnapshot(request.instanceRoot, &snapshotProblem);
     if (!snapshotProblem.isEmpty()) {
         out.problem = snapshotProblem;
         return out;
     }
+    snapshot.supportsDataPacks = request.supportsDataPacks;
 
     Presets::PlanRequest planRequest;
     planRequest.presetFilesRoot = Presets::filesDir(presetsRoot(), manifest.id);
@@ -992,10 +1290,64 @@ Presets::PresetApplyResult PresetController::planOnly(
         one.written = row.count;
         one.removed = row.removed;
         one.skippedItems = row.skipped;
+        one.deferred = row.deferred;
         one.problem = row.problem;
         out.rows.append(one);
         out.written += row.count;
         out.removed += row.removed;
     }
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// 安装前的兼容检查（§7.2 / P2）
+// ---------------------------------------------------------------------------
+
+QList<Presets::ModReference> PresetController::modReferencesFor(const QString &presetId) const {
+    if (presetId.trimmed().isEmpty()) {
+        return {};
+    }
+    bool ok = false;
+    QString reason;
+    const Presets::PresetManifest manifest =
+        Presets::loadManifest(presetsRoot(), presetId, &ok, &reason);
+    if (!ok) {
+        return {};
+    }
+    return manifest.modReferences;
+}
+
+void PresetController::startModCheck(const QString &presetId, const QString &gameVersion,
+                                     const QString &loader, bool clientSide) {
+    if (m_modChecker == nullptr) {
+        return;
+    }
+    // ★ 先把"这一代查的是哪一份"记下来，再 start()：`start()` 会**同步**发一发
+    //   `updated`（本地能判的那几条立刻有结论），那一发里必须已经带着正确的 presetId。
+    m_modCheckPresetId = presetId;
+    Presets::CompatibilityContext context;
+    context.gameVersion = gameVersion.trimmed();
+    context.loader = loader;
+    context.clientSide = clientSide;
+    m_modChecker->start(modReferencesFor(presetId), context);
+}
+
+void PresetController::cancelModCheck() {
+    if (m_modChecker == nullptr) {
+        return;
+    }
+    m_modChecker->cancel();
+    m_modCheckPresetId.clear();
+}
+
+int PresetController::modCheckGeneration() const {
+    return m_modChecker == nullptr ? 0 : m_modChecker->generation();
+}
+
+void PresetController::setCurseForgeApiKey(const QString &apiKey) {
+    if (m_modProvider == nullptr) {
+        return;
+    }
+    m_modProvider->setCurseForge(QUrl(QStringLiteral("https://api.curseforge.com/v1")),
+                                 apiKey.toUtf8());
 }

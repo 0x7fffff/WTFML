@@ -20,8 +20,10 @@
 #include <QFileInfo>
 #include <QSet>
 
+#include "DataPackPreset.hpp"
 #include "GenericFiles.hpp"
 #include "MalilibKeys.hpp"
+#include "ResourcePackPreset.hpp"
 #include "ServerListPreset.hpp"
 #include "VanillaOptions.hpp"
 #include "manage/ServerListFile.hpp"
@@ -236,8 +238,24 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
                          &report);
     }
     if (request.selection.resourcePacks) {
-        captureFileGroup(request, FileGroup::ResourcePacks, &report.sections,
-                         &report);
+        const int before = static_cast<int>(report.sections.size());
+        captureFileGroup(request, FileGroup::ResourcePacks, &report.sections, &report);
+        if (static_cast<int>(report.sections.size()) > before) {
+            // ★ 「有那一份」和「游戏里开着它」是两件事（见 `ResourcePackPreset.hpp`）：
+            //   文件已经收进来了，这里再把当时的启用顺序补进这一段的载荷。读不到那一行
+            //   ⇒ 一格都不加（"没读到"不冒充"全是关着"），报告里说清楚这一份只带文件。
+            const ResourcePackOrderState state = readResourcePackOrderState(request.instanceRoot);
+            PresetSection &section = report.sections[before];
+            if (!state.problem.isEmpty()) {
+                report.problems.append(captureText("资源包的启用顺序没读到：%1").arg(state.problem));
+            } else if (!state.hasList) {
+                report.notes.append(captureText("实例的 options.txt 里还没有资源包列表，"
+                                                "这一份只收文件、不带启用状态。"));
+            } else if (annotateResourcePackSection(section, state)) {
+                report.notes.append(captureText("资源包的启用顺序也收进来了（%1 个开着）。")
+                                        .arg(state.enabledOrder.size()));
+            }
+        }
     }
     if (request.selection.shaderPacks) {
         captureFileGroup(request, FileGroup::ShaderPacks, &report.sections,
@@ -267,6 +285,23 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
             if (malilib.files == 0) {
                 report.notes.append(captureText("config/ 底下没认出 MaLiLib 那一族配置。"));
             }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 5. 世界级数据包（一个世界里的包合成一段）
+    // ------------------------------------------------------------------
+    if (request.selection.dataPacks) {
+        const DataPackCaptureReport packs =
+            captureDataPacks(request.instanceRoot, request.presetFilesRoot);
+        if (!packs.ok) {
+            report.problems.append(captureText("数据包没收成：%1").arg(packs.problem));
+        } else {
+            report.sections.append(packs.sections);
+            report.dataPackItems += packs.packs;
+            report.dataPackWorlds += packs.worlds;
+            report.notes.append(packs.notes);
+            report.problems.append(packs.problems);
         }
     }
 

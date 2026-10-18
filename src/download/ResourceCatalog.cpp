@@ -1637,7 +1637,10 @@ QString versionsUrl(const QString &projectId, const QString &gameVersion,
         return url;
     }
 
-    QStringList params;
+    // ★ `include_changelog=false`：这一层**一个字节的 changelog 都不读**（全仓搜不到那个字段），
+    //   可接口默认是把每个文件的更新日志原文塞回来 —— 实测一份资源包列表能因此大出好几倍。
+    //   这是从 PCL 的日志里学的（它每一发 `/version` 都带着这一条）。
+    QStringList params{QStringLiteral("include_changelog=false")};
     if (!gameVersion.isEmpty()) {
         params.append(QStringLiteral("game_versions=") + jsonArrayParam({gameVersion}));
     }

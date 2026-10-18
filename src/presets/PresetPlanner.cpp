@@ -40,6 +40,8 @@
 #include <QCoreApplication>
 #include <QSet>
 
+#include "DataPackPreset.hpp"
+
 namespace Presets {
 
 namespace {
@@ -86,12 +88,17 @@ QString unknownKindReason(SectionKind kind) {
 }
 
 /// 「覆盖」那一行：点头这件事是**这一层**判的（见文件头那段）。
-void markConfirm(ApplyPlanRow *row, const PlanRequest &request) {
+void markConfirm(ApplyPlanRow *row, const PlanRequest &request, const PresetSection &section) {
     if (row->blocked || row->mode != ApplyMode::Replace || request.replaceConfirmed) {
         return;
     }
     row->needsConfirm = true;
-    row->problem = confirmReason(row->kind);
+    // 数据包落在**存档里**：那句话得说清楚覆盖的是哪个位置的东西（`Custom` 那个种类名
+    // 说不出来这个）。
+    row->problem = dataPackHandlesSection(section)
+                       ? plannerText("「覆盖」会把目标存档里同名的数据包整个换成预设里的，"
+                                     "需要先确认。")
+                       : confirmReason(row->kind);
 }
 
 /// 落一段 `VanillaOptions` / `VanillaKeys` 的计划。
@@ -259,6 +266,43 @@ void planMalilibRow(const PlanRequest &request, const PresetSection &section, Ap
     }
 }
 
+/// 落一段数据包的计划（世界在不在那边说的是两件事）。
+void planDataPackRow(const PlanRequest &request, const PresetSection &section, ApplyPlanRow *row) {
+    if (row->title.isEmpty()) {
+        row->title = plannerText("数据包");
+    }
+    if (!request.target.supportsDataPacks) {
+        row->blocked = true;
+        row->problem = plannerText("这个实例的游戏版本还没有数据包（17w43a 之前），"
+                                   "这一段这一趟不动。");
+        return;
+    }
+    QList<DataPackItem> items;
+    QString why;
+    if (!dataPackItemsFromSection(section, &items, &why)) {
+        row->blocked = true;
+        row->problem = why;
+        return;
+    }
+    if (request.presetFilesRoot.trimmed().isEmpty() && !items.isEmpty()) {
+        row->blocked = true;
+        row->problem =
+            plannerText("没有给出预设那一侧的文件根（files/），不知道这些数据包从哪儿拷。");
+        return;
+    }
+    const DataPackPlan plan =
+        planDataPacks(request.target.instanceRoot, items, section.mode);
+    if (!plan.ok) {
+        row->blocked = true;
+        row->problem = plan.problem;
+        return;
+    }
+    row->count = plan.deploy;
+    row->deferred = plan.deferred;
+    row->skipped = plan.skipped;
+    row->needsChoice = plan.needsChoice;
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -292,9 +336,10 @@ QString applyPlanUnit(SectionKind kind) {
     // 服务器条目、配置文件、资源包都是"一个东西"，说「个」（§7：「服务器列表 追加 3 个」）。
     case SectionKind::ServerList:
     case SectionKind::GenericFiles:
-        return plannerText("个");
     case SectionKind::Custom:
-        break;
+        // `Custom` 这一档唯一有适配器接手的是数据包（`dataPackHandlesSection()`）；
+        // 别的 `Custom` 段落 `blocked`，量词用不上。
+        return plannerText("个");
     }
     return plannerText("项");
 }
@@ -321,6 +366,9 @@ QString applyPlanRowText(const ApplyPlanRow &row) {
         // ★ 会动的数是 0、却要删东西 —— 这就是"空段铺上去 = 把那一片清空"那一档。
         //   只写「覆盖 0 项」等于把最要紧的那半截藏起来了。
         parts.append(applyPlanVerb(row.mode));
+    } else if (row.deferred > 0) {
+        // 全是"目标上没有那个世界"的：这一行只说得出口"它们先记着"。
+        parts.append(plannerText("待应用 %1 %2").arg(row.deferred).arg(unit));
     }
 
     if (!parts.isEmpty()) {
@@ -329,6 +377,10 @@ QString applyPlanRowText(const ApplyPlanRow &row) {
         }
         if (row.conflictCount > 0) {
             parts.append(plannerText("冲突 %1 项").arg(row.conflictCount));
+        }
+        if (row.deferred > 0 && row.count > 0) {
+            // 只在这一行已经有"部署"那半截时补一句；全待应用的那种上面已经说过了。
+            parts.append(plannerText("待应用 %1 %2").arg(row.deferred).arg(unit));
         }
         if (row.skipped > 0) {
             parts.append(plannerText("跳过 %1 %2").arg(row.skipped).arg(unit));
@@ -354,6 +406,14 @@ int ApplyPlan::totalCount() const {
     int total = 0;
     for (const ApplyPlanRow &row : rows) {
         total += row.count;
+    }
+    return total;
+}
+
+int ApplyPlan::deferredCount() const {
+    int total = 0;
+    for (const ApplyPlanRow &row : rows) {
+        total += row.deferred;
     }
     return total;
 }
@@ -410,7 +470,11 @@ ApplyPlan planPresetApplication(const PlanRequest &request) {
         row.title = section.title;
         row.mode = section.mode;
 
-        if (!plannerKnowsKind(section.kind)) {
+        if (dataPackHandlesSection(section)) {
+            // ★ 排在 `plannerKnowsKind()` 之前：数据包挂在 `Custom` 底下（见
+            //   `DataPackPreset.hpp`），而 `Custom` 在那个函数里是"没人接手"的意思。
+            planDataPackRow(request, section, &row);
+        } else if (!plannerKnowsKind(section.kind)) {
             row.blocked = true;
             row.problem = unknownKindReason(section.kind);
         } else if (optionsHandlesSection(section.kind)) {
@@ -435,7 +499,7 @@ ApplyPlan planPresetApplication(const PlanRequest &request) {
             row.removed = 0;
         }
 
-        markConfirm(&row, request);
+        markConfirm(&row, request, section);
         plan.rows.append(row);
     }
 

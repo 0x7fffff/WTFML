@@ -73,10 +73,13 @@ struct CaptureSelection {
     /// 连开关和别的值一起收（§6 P4「可选合并全部已知设置」）。默认**只要热键**。
     bool malilibValues = false;
 
+    /// 世界级数据包（`saves/<世界>/datapacks/`，§6 P4 后半截）。默认不勾。
+    bool dataPacks = false;
+
     /// 这一趟是不是一样都没勾（界面上那颗按钮该是灰的）。
     bool isEmpty() const {
         return !vanillaOptions && !vanillaKeys && !servers && !config && !defaultConfigs &&
-               !resourcePacks && !shaderPacks && !malilib;
+               !resourcePacks && !shaderPacks && !malilib && !dataPacks;
     }
 };
 
@@ -129,6 +132,8 @@ struct CaptureReport {
     int malilibFiles = 0;      ///< MaLiLib 收了几个模组的配置
     int malilibHotkeys = 0;    ///< 其中热键（含 `hotkeyed`）几格
     int malilibValues = 0;     ///< 其中值几格（没勾"连值一起收"时必然是 0）
+    int dataPackItems = 0;     ///< 数据包收了几个
+    int dataPackWorlds = 0;    ///< 这几个包来自几个存档
 
     /// 收成了什么 / 哪一样本来是空的（原样能显示）。
     QStringList notes;
@@ -139,7 +144,8 @@ struct CaptureReport {
     /// 收进来的项数总和（不含通用文件组，那几个在界面上一项一项列不动）。
     int totalItems() const {
         return optionKeys + keybindings + servers + configItems + defaultConfigItems +
-               resourcePackItems + shaderPackItems + malilibHotkeys + malilibValues;
+               resourcePackItems + shaderPackItems + malilibHotkeys + malilibValues +
+               dataPackItems;
     }
 };
 

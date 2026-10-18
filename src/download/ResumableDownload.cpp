@@ -40,7 +40,13 @@ bool strongEtag(const QByteArray &value) {
 }
 }
 
-ResumableDownload::ResumableDownload(QObject *parent) : QObject(parent) {}
+ResumableDownload::ResumableDownload(QObject *parent, NetworkManagerFactory networkFactory)
+    : QObject(parent), m_networkFactory(std::move(networkFactory)) {
+    // 每 30 秒问一次"还在动吗"；真正的期限是 kStuckGiveUpMs（5 分钟）。
+    m_stuckTimer = new QTimer(this);
+    m_stuckTimer->setInterval(30 * 1000);
+    connect(m_stuckTimer, &QTimer::timeout, this, &ResumableDownload::checkStuck);
+}
 ResumableDownload::~ResumableDownload() { cancel(); }
 
 QString ResumableDownload::cacheDirectory(const QUrl &url, const QString &target, const QString &root) {
@@ -48,16 +54,31 @@ QString ResumableDownload::cacheDirectory(const QUrl &url, const QString &target
     return QDir(base).filePath(hashText(url.toEncoded() + '\n' + QFileInfo(target).absoluteFilePath().toUtf8()));
 }
 
+void ResumableDownload::setSpeedLimitBytesPerSecond(qint64 bytesPerSecond) {
+    m_speedLimitBytesPerSecond = bytesPerSecond;
+    // 已经在跑的那一份也当场改（设置页改限速时，正在下的分段作业也要慢下来）。
+    if (m_files != nullptr) {
+        m_files->setSpeedLimitBytesPerSecond(bytesPerSecond);
+    }
+}
+
 void ResumableDownload::start(const QUrl &url, const QString &target, const QString &sha1, qint64 size, bool overwrite, const QString &cacheRoot) {
     if (!cancel()) { emit statusChanged(tr("正在提交完整文件，请等待保存结束。")); return; }
     delete m_files;
-    m_files = new DownloadManager(this);
+    m_files = new DownloadManager(this, m_networkFactory);
     m_files->setUseMirror(false);
-    m_files->setMaxConcurrentDownloads(4);
+    m_files->setMaxConcurrentDownloads(kPartConcurrency);
+    // ★ 2026-10-18（§9.2 限速）：分段作业绕在自己这个下载器上 —— 限值必须在这儿也推一份，
+    //   否则"大于 4 MiB 的文件"整批不受限速管（设置里明明写着 1 MB/s，大文件照样满速）。
+    m_files->setSpeedLimitBytesPerSecond(m_speedLimitBytesPerSecond);
+    // 关键：协调器的单文件回退（startSingle）会带着 sha1 + size 走同一个 DownloadManager，
+    // 不关掉自动分段就会"探测 → 回退单发 → 又被升级成分段"无限递归。
+    m_files->setSegmentedDownloadEnabled(false);
     m_abort = QSharedPointer<QAtomicInt>::create(0);
     m_running = true; m_stage = Stage::Probe;
     m_url = url; m_target = target; m_sha1 = sha1; m_expectedSize = size; m_overwrite = overwrite;
-    m_total = -1; m_count = 0; m_complete.clear(); m_live.clear(); m_etag.clear();
+    m_total = -1; m_count = 0; m_complete.clear(); m_live.clear(); m_etag.clear(); m_networkAttempted = false;
+    m_partsRetried = false; m_partsRetryPending = false;
     m_urlHash = hashText(url.toEncoded()); m_cache = cacheDirectory(url, target, cacheRoot);
     if (!url.isValid() || (url.scheme() != QStringLiteral("http") && url.scheme() != QStringLiteral("https")) || !QDir::isAbsolutePath(target)) {
         finish(false, tr("下载地址或保存路径无效。")); return;
@@ -83,16 +104,40 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
         }
         if (m_stage != Stage::Parts) return;
         if (!success) {
-            if (error.startsWith(QStringLiteral("range:"))) {
-                if (DownloadDiag::enabled()) {
-                    DownloadDiag::line(QStringLiteral("resumable part rejected, switching to "
-                                                      "single download: %1")
-                                           .arg(error));
+            // 第一轮里某一条分段失败：**先只补缺的那几条**，不要立刻整文件重下。
+            // 已经完整校验过的分段都在 m_complete 里、`downloadParts()` 会跳过它们，
+            // 所以这一轮最坏只是把失败的那一条再走一遍；而整文件重下在 41 MB 的
+            // 客户端 jar 上就是白扔掉已经下好的几十 MB。
+            // 分段请求本身已由内部 DownloadManager 做过有限重试，剩下的失败多半来自
+            // "落点过期/单条链路死掉"，换一条落点重来一次通常就过去了。
+            //
+            // ★ 必须**等这一批剩下的分段都收尾**再补：现在就重发，同一批里还有别的
+            //   分段在飞，`downloadParts()` 会往同一个 part 文件再开一条写流。所以这里
+            //   只挂个标记，真正重发在 allDownloadsFinished 里（见 start() 的连接）。
+            if (!m_partsRetried && !m_complete.isEmpty()) {
+                if (!m_partsRetryPending) {
+                    m_partsRetryPending = true;
+                    if (DownloadDiag::enabled()) {
+                        DownloadDiag::line(QStringLiteral("resumable part failed, will retry missing "
+                                                          "parts only after this batch settles: %1 "
+                                                          "(complete=%2/%3)")
+                                               .arg(error)
+                                               .arg(m_complete.size())
+                                               .arg(m_count));
+                    }
                 }
-                m_stage = Stage::Switching;
-                const auto generation = m_generation;
-                QTimer::singleShot(0, this, [this, generation] { if (m_running && generation == m_generation) startSingle(); });
-            } else finish(false, error);
+                return;
+            }
+            // 补过一轮还失败（或者一条分段都没成功过，重来没意义）：退回整文件下载。
+            // 整文件 SHA-1 仍会在落盘前兜底。
+            if (DownloadDiag::enabled()) {
+                DownloadDiag::line(QStringLiteral("resumable part failed, switching to single "
+                                                  "download: %1")
+                                       .arg(error));
+            }
+            m_stage = Stage::Switching;
+            const auto generation = m_generation;
+            QTimer::singleShot(0, this, [this, generation] { if (m_running && generation == m_generation) startSingle(); });
             return;
         }
         bool valid = false;
@@ -110,6 +155,27 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
             QTimer::singleShot(0, this, [this, generation] { if (m_running && generation == m_generation) assemble(); });
         }
     });
+    // 第一轮某条分段失败后，等**这一批**剩下的分段都收尾再补缺的那几条。
+    // 立刻重发会和还在飞的分段抢同一个 part 文件，所以失败的处理只挂标记，
+    // 真正重发落在这里。
+    connect(m_files, &DownloadManager::allDownloadsFinished, this, [this](bool) {
+        if (!m_running || !m_partsRetryPending) return;
+        m_partsRetryPending = false;
+        if (m_stage != Stage::Parts) return;
+        m_partsRetried = true;
+        if (DownloadDiag::enabled()) {
+            DownloadDiag::line(QStringLiteral("resumable retry missing parts: missing=%1/%2")
+                                   .arg(m_count - m_complete.size())
+                                   .arg(m_count));
+        }
+        // 从 DownloadManager 自己的"整批结束"信号里再起一批会把内部记账卷进去，
+        // 排到下一轮事件循环再发。
+        const auto generation = m_generation;
+        QTimer::singleShot(0, this, [this, generation] {
+            if (!m_running || generation != m_generation || m_stage != Stage::Parts) return;
+            downloadParts();
+        });
+    });
     if (DownloadDiag::enabled()) {
         DownloadDiag::line(QStringLiteral("resumable start url=%1 target=%2 sha1=%3 size=%4 "
                                           "overwrite=%5 cache=%6")
@@ -121,11 +187,14 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
                                     QDir::toNativeSeparators(m_cache)));
     }
     emit statusChanged(tr("正在检查分段与续传支持…"));
+    m_progressClock.start();
+    m_stuckTimer->start();
     probe();
 }
 
 void ResumableDownload::probe(int attempt) {
     if (!m_running) return;
+    m_networkAttempted = true;
     QNetworkRequest request(m_url);
     request.setRawHeader("Range", "bytes=0-0"); request.setRawHeader("Accept-Encoding", "identity");
     request.setTransferTimeout(15000);
@@ -152,7 +221,14 @@ void ResumableDownload::probe(int attempt) {
         reply->setProperty("probeBytes", data);
         if (data.size() > 1) { reply->setProperty("rangeUnsupported", true); reply->abort(); }
     });
-    QTimer::singleShot(20000, reply, [reply] { if (!reply->isFinished()) reply->abort(); });
+    QTimer::singleShot(20000, reply, [reply] {
+        if (reply->isFinished()) return;
+        // 这是探测器自己的兜底（15 秒传输超时之外再兜一层）。它不是用户取消 ——
+        // 不标记的话下面那条 `OperationCanceledError` 不是瞬态错误，会把整条分段作业
+        // 直接判死（用户看到的是"操作已取消"，实际上谁也没取消）。
+        reply->setProperty("wtfmlProbeGuardAbort", true);
+        reply->abort();
+    });
     connect(reply, &QNetworkReply::finished, this, [this, reply, generation, attempt] {
         const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const auto code = reply->error();
@@ -161,7 +237,8 @@ void ResumableDownload::probe(int attempt) {
         const bool unsupported = reply->property("rangeUnsupported").toBool() || status == 200 || status == 400 || status == 405 || status == 416 || status == 501;
         auto data = reply->property("probeBytes").toByteArray();
         if (data.isEmpty()) data = reply->read(2);
-        const auto reason = reply->errorString();
+        const bool guardAbort = reply->property("wtfmlProbeGuardAbort").toBool();
+        const auto reason = guardAbort ? tr("探测源站超时。") : reply->errorString();
         const auto retryAfter = reply->rawHeader("Retry-After");
         const auto effectiveUrl = reply->url();
         reply->deleteLater();
@@ -195,9 +272,15 @@ void ResumableDownload::probe(int attempt) {
             return;
         }
         if (code != QNetworkReply::NoError) {
-            const int delay = DownloadRetryPolicy::transientReply(reply)
-                                  ? DownloadRetryPolicy::delayMs(attempt, retryAfter)
-                                  : -1;
+            // 429 用专用退避（通用那条 0.5/1/2 秒比限流窗口还快）；探测兜底掐出来的
+            // 超时也算瞬态，至少隔 2 秒再探，别把"源站很慢"当成"源站没有"。
+            int delay = -1;
+            if (status == 429) {
+                delay = DownloadRetryPolicy::throttleDelayMs(attempt, retryAfter);
+            } else if (DownloadRetryPolicy::transientReply(reply) || guardAbort) {
+                delay = DownloadRetryPolicy::delayMs(attempt, retryAfter);
+                if (delay >= 0 && guardAbort) delay = qMax(delay, 2000);
+            }
             if (delay >= 0) {
                 if (DownloadDiag::enabled()) {
                     DownloadDiag::line(QStringLiteral("probe transient retry attempt=%1 delay=%2ms "
@@ -243,11 +326,13 @@ void ResumableDownload::probe(int attempt) {
         }
         m_total = total;
         m_source = effectiveUrl;
-        m_urlHash = hashText(m_url.toEncoded() + '\n' + effectiveUrl.toEncoded());
+        // 续传身份只认**入口地址**：BMCLAPI 每次都 302 到 60 秒过期的预签名落点，把落点
+        // 算进身份会让每次重启的 urlHash 都变，跨重启续传永远失效。内容是否变化由
+        // manifest 里的 ETag / 总长 / 分段 SHA-256 和整文件 SHA-1 判断。
         if (strongEtag(etag)) m_etag = etag;
         // 没有强校验依据时不跨请求拼接，以免源文件变化而大小未变。
         // 先限制大小再做向上取整，避免恶意 Content-Range 的整数溢出。
-        if (total < 4 * 1024 * 1024 || total > 8192LL * 4 * 1024 * 1024 ||
+        if (total < kMinimumBytes || total > kMaximumBytes ||
             (m_etag.isEmpty() && m_sha1.isEmpty())) {
             if (DownloadDiag::enabled()) {
                 DownloadDiag::line(QStringLiteral("probe -> single: unsafe for ranges total=%1 "
@@ -260,7 +345,9 @@ void ResumableDownload::probe(int attempt) {
             startSingle();
             return;
         }
-        m_partSize = std::max<qint64>(1024 * 1024, std::min<qint64>(4 * 1024 * 1024, (total + 3) / 4));
+        m_partSize = std::max<qint64>(1024 * 1024,
+                                      std::min<qint64>(4 * 1024 * 1024,
+                                                       (total + kPartConcurrency - 1) / kPartConcurrency));
         if ((total + m_partSize - 1) / m_partSize > 8192) {
             if (DownloadDiag::enabled()) {
                 DownloadDiag::line(QStringLiteral("probe -> single: would need %1 parts (limit 8192)")
@@ -287,7 +374,13 @@ void ResumableDownload::probe(int attempt) {
 QString ResumableDownload::partPath(int index) const { return QDir(m_cache).filePath(QStringLiteral("part-%1.bin").arg(index)); }
 qint64 ResumableDownload::partLength(int index) const { return std::min(m_partSize, m_total - index * m_partSize); }
 qint64 ResumableDownload::completedBytes() const { qint64 result = 0; for (auto it = m_complete.cbegin(); it != m_complete.cend(); ++it) result += partLength(it.key()); return result; }
-void ResumableDownload::emitProgress() { qint64 result = completedBytes(); for (auto bytes : m_live) result += bytes; emit progress(result, m_total); }
+void ResumableDownload::emitProgress() {
+    // 有任何一段在动就算"有进展"：卡死兜底（checkStuck）看的是这个表。
+    m_progressClock.restart();
+    qint64 result = completedBytes();
+    for (auto bytes : m_live) result += bytes;
+    emit progress(result, m_total);
+}
 
 void ResumableDownload::prepareCache() {
     m_stage = Stage::Prepare;
@@ -365,10 +458,12 @@ void ResumableDownload::downloadParts() {
     emitProgress();
     m_files->setAllowOverwrite(true);
     m_files->beginBatch();
+    // 每条分段都请求**入口地址**，各自跟随 302 拿新的签名。BMCLAPI 的落点是 60 秒过期的
+    // 预签名 URL，直接复用探测时那一条会在慢链上的后半程 403。
     for (int index = 0; index < m_count; ++index) {
         if (m_complete.contains(index)) continue;
         DownloadRange range{index * m_partSize, index * m_partSize + partLength(index) - 1, m_total, m_etag};
-        m_files->downloadFile(m_source.toString(), partPath(index), {}, partLength(index), VerifyMode::AlwaysDownload, {}, range);
+        m_files->downloadFile(m_url.toString(), partPath(index), {}, partLength(index), VerifyMode::AlwaysDownload, {}, range);
     }
     m_files->endBatch();
 }
@@ -458,10 +553,38 @@ void ResumableDownload::assemble() {
     worker->start();
 }
 
+void ResumableDownload::checkStuck() {
+    if (!m_running) return;
+    // 只盯**网络阶段**：Prepare（本地校验缓存）和 Assemble（本地合并）可能合法地跑很久，
+    // 磁盘慢不该被当成"下载卡住"。
+    if (m_stage != Stage::Probe && m_stage != Stage::Parts) return;
+    if (m_progressClock.elapsed() < kStuckGiveUpMs) return;
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("resumable stuck stage=%1 elapsed=%2ms complete=%3/%4")
+                               .arg(m_stage == Stage::Parts ? QStringLiteral("parts")
+                                                            : QStringLiteral("probe"))
+                               .arg(m_progressClock.elapsed())
+                               .arg(m_complete.size())
+                               .arg(m_count));
+    }
+    if (m_stage == Stage::Parts && !m_partsRetried) {
+        // 进度账已经不可信：把这一批全掐掉、只补缺的段再来一次。这是**恢复**、不是失败，
+        // 和"某一段失败"那条路共用同一个次数上限（m_partsRetried），所以最多多花一轮。
+        m_partsRetried = true;
+        m_partsRetryPending = false;
+        m_files->cancelBatch();
+        m_progressClock.restart();
+        downloadParts();
+        return;
+    }
+    finish(false, tr("下载长时间没有任何进展，已停止。请检查网络后重试。"));
+}
+
 void ResumableDownload::clearCacheFiles() const { removeParts(m_cache); }
 void ResumableDownload::finish(bool success, const QString &error) {
     if (!m_running) return;
     m_running = false; m_stage = Stage::Done;
+    m_stuckTimer->stop();
     if (DownloadDiag::enabled()) {
         DownloadDiag::line(QStringLiteral("resumable finished success=%1 error=%2 target=%3")
                                .arg(success ? QStringLiteral("yes") : QStringLiteral("no"),
@@ -480,6 +603,7 @@ bool ResumableDownload::cancel() {
         !m_abort->testAndSetOrdered(0, 1) && m_abort->loadAcquire() >= 2) return false;
     ++m_generation;
     m_running = false; m_stage = Stage::Done;
+    if (m_stuckTimer) m_stuckTimer->stop();
     if (m_abort) m_abort->storeRelaxed(1);
     if (m_probe) { m_probe->abort(); m_probe = nullptr; }
     if (m_files) m_files->cancelBatch();

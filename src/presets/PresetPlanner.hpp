@@ -108,6 +108,11 @@ struct TargetSnapshot {
     int serversUntouchable = 0;
     /// 那一份读不动时的那句话（非空 ⇒ 服务器列表这一段这一趟做不了）。
     QString serversProblem;
+
+    /// 这个实例的游戏版本有没有**数据包**（`VersionManager::instanceSupportsDatapacks()`）。
+    /// 默认 true：验证工程 / 调用方不知道版本时按"有"算 —— 数据包从 17w43a 就有了，
+    /// 把它默认成 false 会让绝大多数实例上的数据包段被无故判成做不了。
+    bool supportsDataPacks = true;
 };
 
 // ---------------------------------------------------------------------------
@@ -172,6 +177,14 @@ struct ApplyPlanRow {
     int skipped = 0;
     /// 这一档我们**做不了主**、要用户选的项数（通用文件组那一段的 `Merge` / `Append`）。
     int needsChoice = 0;
+    /**
+     * @brief 目标上还没有对应世界、只能记为「待应用」的项数（数据包那一段）。
+     *
+     * ★ 它和 `count` 是两件事：`count` 是"真落进目标世界里的"，这个是"先摆进
+     *   `<实例>/datapacks-pending/` 等那个世界建出来"。计划表上得分开说 —— "部署了 2 个"
+     *   和"2 个在等世界"混成一句，用户会以为游戏里已经装上了。
+     */
+    int deferred = 0;
 
     /// 这一段这一趟**做不了**（不认识的种类 / 那一段读不回来 / 目标那一份读不动）。
     /// ★ 它只是一个报告：别的段照样算、照样能应用（见文件头）。
@@ -181,9 +194,11 @@ struct ApplyPlanRow {
     /// 一句话（`blocked` / `needsConfirm` 那两档是给人看的原文，**原样能显示**）。
     QString problem;
 
-    /// 这一行值不值得让用户多看一眼（做不了 / 要确认 / 会删东西 / 有冲突 / 要人拿主意）。
+    /// 这一行值不值得让用户多看一眼（做不了 / 要确认 / 会删东西 / 有冲突 / 要人拿主意 /
+    /// 有只能等世界的东西）。
     bool risky() const {
-        return blocked || needsConfirm || removed > 0 || conflictCount > 0 || needsChoice > 0;
+        return blocked || needsConfirm || removed > 0 || conflictCount > 0 || needsChoice > 0 ||
+               deferred > 0;
     }
 };
 
@@ -216,12 +231,14 @@ struct ApplyPlan {
 
     bool isEmpty() const { return rows.isEmpty(); }
     int totalCount() const;
+    int deferredCount() const;
     int riskyRowCount() const;
     int blockedRowCount() const;
     /// 有没有哪一行在等用户点头（「覆盖」那几段）。
     bool needsConfirm() const;
     /// 这一趟一个字节都不写吗（全是 `Skip` / `needsChoice` / 做不了的段）。
-    bool writesAnything() const { return totalCount() > 0; }
+    /// ★ 「待应用」那些也要算：它们会真往 `datapacks-pending/` 和清单里写。
+    bool writesAnything() const { return totalCount() > 0 || deferredCount() > 0; }
     /// 可以开始动手了吗：算得出来 ∧ 没有拦路虎 ∧ 该点头的都点过了。
     bool canApply() const { return ok && blockedReason.isEmpty() && !needsConfirm(); }
 };

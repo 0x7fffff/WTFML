@@ -121,6 +121,11 @@ set(HEADER_FILES
     # 落到实例上那一趟（2026-10-18，coding plan §7 / §8.1）：快照 → 计划 → 备份 → 执行。
     # 两趟确认协议照 `PresetPlanner` 那一份实现，别的层不再立第二套。
     src/presets/PresetApply.hpp
+    # 模组预设的兼容检查（2026-10-18，coding plan §6.0 P2 / §7.2）：先本地判、再查缓存、
+    # 最后有限并发问平台。★ 网络失败 / 429 / 超时只算「暂无法确认」，**不计入缺失**。
+    src/presets/PresetCompatibility.hpp
+    # 真网络版的平台查询（Modrinth 异步；CurseForge 要 key，没配置就一律「暂无法确认」）。
+    src/presets/ModrinthCompatibility.hpp
     # 结构 / 原理图的元数据与方块统计（2026-10-18，coding plan §9.5）：
     # Litematica / Sponge / 原版结构三种格式，只读盘、只算。
     src/schematic/SchematicInfo.hpp
@@ -138,6 +143,8 @@ set(HEADER_FILES
     src/settings/GameWindowSettings.hpp
     src/settings/LauncherSettings.hpp
     src/download/DownloadManager.hpp
+    src/download/DownloadSpeedLimit.hpp
+    src/download/DownloadProxy.hpp
     src/download/LoaderMeta.hpp
     src/download/ServerInstall.hpp
     src/download/ResourceCatalog.hpp
@@ -218,6 +225,9 @@ set(HEADER_FILES
     # 实例预设管理页（2026-10-18，coding plan §6 P1 / §10 第 10 项）：
     # 左侧列表 + 右侧摘要 / 提取 / 应用计划，全部在覆盖层里，不另开窗。
     ui/PresetManagePage.hpp
+    # 安装页「预设」那一行点开的紧凑弹窗（2026-10-18，coding plan §7.1）：
+    # 四类各挑一份、计划与原因可展开，**不跳页**。
+    ui/PresetInstallPicker.hpp
     # 底栏中间那格点开之后弹出来的任务中心面板（页面/行的形状见它的文件头）。
     ui/TaskCenterPanel.hpp
     # 自绘的进度条（2026-10-13，coding plan §3.3「统一自绘任务进度组件」）：
@@ -282,6 +292,8 @@ set(SOURCE_FILES
     src/manage/DefaultSkin.cpp
     src/manage/PlayerSkinStore.cpp
     src/manage/RandomSkinStore.cpp
+    # 离线账号自己挑的那张皮肤（coding plan §1.4「换一张」那一格）。
+    src/manage/OfflineSkin.cpp
     src/manage/VersionManager.cpp
     src/manage/VersionDisplay.cpp
     src/manage/VersionIntegrity.cpp
@@ -306,6 +318,15 @@ set(SOURCE_FILES
     # 提取与落到实例上（2026-10-18，coding plan §6 P1 / §7）。
     src/presets/PresetCapture.cpp
     src/presets/PresetApply.cpp
+    # 资源包次序 / 启用 + 存档数据包（2026-10-18，coding plan §6 P4）：见头文件那两位。
+    src/presets/ResourcePackPreset.cpp
+    src/presets/DataPackPreset.cpp
+    # 模组「真正去下」之前的判据层（2026-10-18，coding plan §10.1 第 7 项 / P5）：
+    # 必要/可选、依赖展开、冲突、替代确认与落盘校验，见头文件那一位。
+    src/presets/ModInstallPlan.cpp
+    # 模组预设的兼容检查（2026-10-18，coding plan §6.0 P2 / §7.2）：见头文件那一位。
+    src/presets/PresetCompatibility.cpp
+    src/presets/ModrinthCompatibility.cpp
     # MaLiLib 那一族的热键（2026-10-17，coding plan §6 P4）：见头文件那一位。
     src/presets/MalilibKeys.cpp
     # 结构 / 原理图的元数据与方块统计（2026-10-18，coding plan §9.5）。
@@ -398,6 +419,7 @@ set(SOURCE_FILES
     ui/JavaMismatchDialog.cpp
     ui/JavaManageDialog.cpp
     ui/PresetManagePage.cpp
+    ui/PresetInstallPicker.cpp
     ui/OverlayHost.cpp
     ui/SkinModel.cpp
     ui/VersionIcons.cpp
@@ -536,4 +558,9 @@ endif()
 if(WTFML_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+endif()
+
+option(WTFML_BUILD_NETWORK_DIAG "Build the standalone network diagnostic tool" ON)
+if(WTFML_BUILD_NETWORK_DIAG)
+    add_subdirectory(tools/network_diag)
 endif()

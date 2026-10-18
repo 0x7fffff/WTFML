@@ -4,11 +4,13 @@
 #include "download/ResourceStore.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/GlobalJavaSettings.hpp"
+#include "InlineMessage.hpp"
 
 #include <QCheckBox>
 #include <QComboBox>
 #include <QLabel>
 #include <QLineEdit>
+#include <QNetworkProxy>
 #include <QPlainTextEdit>
 #include <QSignalBlocker>
 #include <QSpinBox>
@@ -53,6 +55,72 @@ void LauncherPreferencesController::downloadConcurrencyChanged() {
     syncDownloadConcurrency();
     log(tr("下载：同时最多 %1 个文件在下载（对正在下的这一批也生效，已经在下的那几个不会被叫停）。")
             .arg(m_settings->downloadConcurrency()));
+}
+
+void LauncherPreferencesController::downloadSpeedLimitChanged() {
+    // itemData 存的是 int（见 MainWindow::applySettingsToUi 那段），读回来再转 qint64。
+    m_settings->setDownloadSpeedLimit(
+        qint64(m_ui->getDownloadSpeedLimitCombo()->currentData().toInt()));
+    syncDownloadSpeedLimit();
+    const qint64 limit = m_settings->downloadSpeedLimit();
+    log(limit > 0
+            ? tr("下载：速度上限 %1 KB/s（对正在下的这一批也生效）。")
+                  .arg(limit / 1024)
+            : tr("下载：不再限制速度。"));
+}
+
+void LauncherPreferencesController::downloadProxyModeChanged() {
+    const DownloadProxy::Mode mode = static_cast<DownloadProxy::Mode>(
+        m_ui->getDownloadProxyCombo()->currentData().toInt());
+    m_settings->setProxyMode(mode);
+    // 手动地址那一格只在「手动」档露出来（收起来时连位置都不占）。
+    m_ui->getDownloadProxyManualEdit()->setVisible(
+        m_settings->proxyMode() == DownloadProxy::Mode::Manual);
+    syncDownloadProxy();
+    switch (m_settings->proxyMode()) {
+    case DownloadProxy::Mode::Direct:
+        log(tr("网络：不走代理（直连）。"));
+        break;
+    case DownloadProxy::Mode::Manual:
+        log(tr("网络：使用手动指定的代理（%1）。")
+                .arg(m_settings->proxyManualText().isEmpty()
+                         ? tr("地址还没填，暂时仍按系统代理走")
+                         : m_settings->proxyManualText()));
+        break;
+    case DownloadProxy::Mode::System:
+        log(tr("网络：跟随系统代理设置。"));
+        break;
+    }
+}
+
+void LauncherPreferencesController::downloadProxyManualChanged() {
+    m_settings->setProxyManualText(m_ui->getDownloadProxyManualEdit()->text());
+    const QString text = m_settings->proxyManualText();
+    DownloadProxy::Endpoint endpoint;
+    QString error;
+    // 只在「手动」档校验（另外两档这一格收着，改了也不生效）；空着不弹 —— 用户可能
+    // 正要把地址打进去。认不出来时**明确弹一句**（错误要弹窗），并退回系统代理，
+    // 而不是把整条网络掐掉。
+    if (m_settings->proxyMode() == DownloadProxy::Mode::Manual && !text.isEmpty() &&
+        !DownloadProxy::parseManual(text, &endpoint, &error)) {
+        InlineMessage::warning(m_ui->overlay(), tr("代理地址写得不对"), error);
+        syncDownloadProxy();
+        return;
+    }
+    syncDownloadProxy();
+    if (m_settings->proxyMode() != DownloadProxy::Mode::Manual) {
+        return;
+    }
+    if (text.isEmpty()) {
+        log(tr("网络：手动代理的地址还空着，暂时仍按系统代理走。"));
+        return;
+    }
+    if (DownloadProxy::parseManual(text, &endpoint)) {
+        log(tr("网络：手动代理改为 %1:%2（%3）。")
+                .arg(endpoint.host)
+                .arg(endpoint.port)
+                .arg(endpoint.socks5 ? QStringLiteral("SOCKS5") : QStringLiteral("HTTP")));
+    }
 }
 
 void LauncherPreferencesController::downloadAutoIntoInstanceChanged() {
@@ -113,6 +181,38 @@ void LauncherPreferencesController::syncDownloadSource() {
 
 void LauncherPreferencesController::syncDownloadConcurrency() {
     m_versions->setDownloadConcurrency(m_settings->downloadConcurrency());
+}
+
+void LauncherPreferencesController::syncDownloadSpeedLimit() {
+    m_versions->setDownloadSpeedLimit(m_settings->downloadSpeedLimit());
+}
+
+void LauncherPreferencesController::syncDownloadProxy() {
+    // 这一项和上面几条不一样：它是**进程级**的（QNetworkProxy::setApplicationProxy），
+    // 管的不只是下载器 —— 版本清单、皮肤、资源搜索、工具箱全都走它。所以「改完立刻生效」
+    // 在这一项上的意思是"下一次请求就走新的"，已经在飞的请求不会被掐断。
+    QNetworkProxy proxy;
+    const DownloadProxy::Mode mode = m_settings->proxyMode();
+    if (mode == DownloadProxy::Mode::Direct) {
+        proxy.setType(QNetworkProxy::NoProxy);
+    } else if (mode == DownloadProxy::Mode::Manual) {
+        DownloadProxy::Endpoint endpoint;
+        if (DownloadProxy::parseManual(m_settings->proxyManualText(), &endpoint)) {
+            proxy.setType(endpoint.socks5 ? QNetworkProxy::Socks5Proxy
+                                          : QNetworkProxy::HttpProxy);
+            proxy.setHostName(endpoint.host);
+            proxy.setPort(quint16(endpoint.port));
+        } else {
+            // 地址认不出来（多半还没填）：退回系统代理 —— 那是加这一项之前的行为，
+            // 也是"宁可走系统那条能通的路，也不要把网络掐死"的那一侧。界面上那句
+            // 警告已经把原因说清楚了。
+            proxy.setType(QNetworkProxy::DefaultProxy);
+        }
+    } else {
+        // 跟随系统：DefaultProxy 就是 Qt 原来的默认值（加这一项之前一直是它）。
+        proxy.setType(QNetworkProxy::DefaultProxy);
+    }
+    QNetworkProxy::setApplicationProxy(proxy);
 }
 
 void LauncherPreferencesController::syncCatalogCredentials() {

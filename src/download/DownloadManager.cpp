@@ -9,13 +9,16 @@
  */
 
 #include "DownloadManager.hpp"
+#include "DownloadCache.hpp"
 #include "DownloadRetryPolicy.hpp"
+#include "ResumableDownload.hpp"
 #include "StreamedFile.hpp"
 
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFileInfo>
+#include <QHttp1Configuration>
 #include <QSaveFile>
 #include <QTimer>
 #include <QRegularExpression>
@@ -31,6 +34,19 @@
 #include "../util/DownloadDiagnostics.hpp"
 
 namespace {
+
+/// 把这个请求的 HTTP/1.1 通道数抬到我们自己的按主机上限。
+///
+/// Qt 默认每个主机只开 6 条 HTTP/1.1 连接，第 7 条起进 Qt 内部那个会超时的队列 ——
+/// 这正是 `mayIssueAnotherDownloadToHost()` 要挡的东西。Qt 6.5 起按请求可以改这个数
+/// （连接是按 URL 缓存的，**第一条**到某个主机的请求决定通道数），所以本类发出去的
+/// 每一条请求都要带上它；漏一条就可能让这个主机的连接以 6 条通道建出来，
+/// 后面那 6 条下载全被 Qt 排队（症状就是成批 `Operation timed out`）。
+void configureHttp1(QNetworkRequest &request) {
+    QHttp1Configuration http1;
+    http1.setNumberOfConnectionsPerHost(DownloadManager::kMaxConcurrentPerHost);
+    request.setHttp1Configuration(http1);
+}
 
 DownloadRange rangeOf(QNetworkReply *reply) {
     return {reply->property("rangeFirst").toLongLong(), reply->property("rangeLast").toLongLong(),
@@ -74,6 +90,13 @@ constexpr qint64 kStallMinBytesPerTick = 64 * 1024;
 ///       吐第一个字节"这件事**不会**被算成失速，那几十秒里 bytesSeen 一直是 0。照原文
 ///      （「照样会被这条判据算成失速」）去改，会去修一个不存在的问题。
 constexpr int kStallStrikesToDemote = 2;
+
+// ---------------------------------------------------------------------------
+// 下载限速那一个数（2026-10-18，§9.2）
+// ---------------------------------------------------------------------------
+/// 令牌泵多久放一次字节。100 ms 是"看起来连续"和"定时器开销"之间的折中：Windows 上
+/// 这个间隔常常迟到 10~20 ms，所以令牌桶另外留了 1/4 秒的容量（见 burstBytes()）。
+constexpr int kSpeedPumpMs = 100;
 
 /// 从**官方**那条版本 json 的地址里取出 sha1。
 ///
@@ -138,7 +161,7 @@ bool looksLikeZipArchive(const QString &path) {
 ///    前提，两处各写一遍就会漂开 —— 漂开之后的形状正是修掉的那一个：pumpDownloadQueue()
 ///    按**首选主机**问额度，而 startDownload() 换了个主机发出去、activeCountForHost() 又把
 ///    回复记在**新**主机头上 ⇒ 首选主机那一侧永远数到 0、那道闸永远放行，一次泵的 while
-///    循环就能往一个按设计只该放 kMaxConcurrentPerHost(6) 条的主机上塞满
+///    循环就能往一个按设计只该放 kMaxConcurrentPerHost 条的主机上塞满
 ///    kMaxConcurrentDownloads(24) 条。而那条路的代价是实测过的：h1.1 主机上 24 条一起
 ///    发出，30 秒传输超时**从请求建好就开始算** ⇒ 成批 `Operation timed out`，而且改道那
 ///    一侧 fallback 已经被清空（本来就走官方了），超时就是作业真死。
@@ -421,6 +444,7 @@ void DownloadManager::probeOfficialRoute(const QString &mirrorHost) {
     // HEAD：只要拿到 2xx 就说明这条路"接得上、答得快"，不必拉正文。官方资源 CDN 实测支持
     // （curl -I 200）。10 秒没答话就按"不通"处理 —— 探测本身也算延迟。
     QNetworkRequest request{QUrl(m_officialProbeUrl)};
+    configureHttp1(request);
     request.setTransferTimeout(10000);
     QNetworkReply *probe = networkManager->head(request);
     if (DownloadDiag::enabled()) {
@@ -508,14 +532,118 @@ void DownloadManager::setMaxConcurrentDownloads(int count) {
     pumpDownloadQueue();
 }
 
+void DownloadManager::setSpeedLimitBytesPerSecond(qint64 bytesPerSecond) {
+    // 归一化在判据层（唯一出处，见 DownloadSpeedLimit.hpp）：0 = 不限；越界回 0。
+    const qint64 normalized = DownloadSpeedLimit::normalize(bytesPerSecond);
+    if (normalized == m_speedLimitBytesPerSecond) {
+        return;
+    }
+    m_speedLimitBytesPerSecond = normalized;
+    if (normalized > 0) {
+        // 从零开始：用户刚设完不该先看到"猛冲一下"（burst 只用来吸收定时器抖动）。
+        m_speedTokens = 0;
+        m_speedLastRefillMs = m_clock.elapsed();
+        m_speedPump->start();
+    } else {
+        m_speedPump->stop();
+        // 从"限速"切回"不限"：攒在缓冲区里的那些**当场**读完，不等到下一拍。
+        // 快照的理由：写盘出错时下面会 abort，abort 可能同步走 finished、改这张表。
+        const QList<QNetworkReply *> waiting = m_throttledReplies.values();
+        m_throttledReplies.clear();
+        for (QNetworkReply *reply : waiting) {
+            const auto stream = m_streamedFiles.value(reply);
+            if (!stream) {
+                continue;
+            }
+            stream->drain(reply);
+            if (!stream->error.isEmpty()) {
+                reply->abort();
+            }
+        }
+        m_speedTokens = 0;
+    }
+    // 分段作业（大于 4 MiB 那些）各自有一份内部下载器，绕在我们这张表之外 —— 已经在跑的
+    // 也要当场改，不然"设置里改成 1 MB/s 了，大文件还在满速"（见 ResumableDownload 那个 setter）。
+    const QList<ResumableDownload *> segmentTasks = m_segmentJobs.keys();
+    for (ResumableDownload *task : segmentTasks) {
+        if (task != nullptr) {
+            task->setSpeedLimitBytesPerSecond(normalized);
+        }
+    }
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("speedlimit set request=%1 normalized=%2 inflight=%3 "
+                                          "waiting=%4")
+                               .arg(bytesPerSecond)
+                               .arg(normalized)
+                               .arg(activeDownloads.size())
+                               .arg(m_throttledReplies.size()));
+    }
+}
+
+void DownloadManager::onSpeedPumpTick() {
+    if (m_shuttingDown || m_speedLimitBytesPerSecond <= 0) {
+        return;
+    }
+    const qint64 now = m_clock.elapsed();
+    const qint64 elapsed = qMax<qint64>(0, now - m_speedLastRefillMs);
+    m_speedLastRefillMs = now;
+    const double capacity = double(DownloadSpeedLimit::burstBytes(m_speedLimitBytesPerSecond));
+    m_speedTokens = qMin(capacity, m_speedTokens + double(m_speedLimitBytesPerSecond) *
+                                                   double(elapsed) / 1000.0);
+    if (m_throttledReplies.isEmpty()) {
+        // 没有人在等：余额也别攒（不然下一批一开始就会冲一个 burst）。
+        m_speedTokens = 0;
+        return;
+    }
+    // 列"确实还有字节等着"的那些。两拍之间回复可能已经结束 —— 结束那一路自己会摘表，
+    // 这里再判一次 isReadable，双保险（摘漏了的也不会被 read 到一个关掉的设备）。
+    QList<QNetworkReply *> waiting;
+    const QList<QNetworkReply *> registered = m_throttledReplies.values();
+    waiting.reserve(registered.size());
+    for (QNetworkReply *reply : registered) {
+        if (!reply->isReadable() || reply->bytesAvailable() <= 0) {
+            m_throttledReplies.remove(reply);
+            continue;
+        }
+        waiting.append(reply);
+    }
+    // 平均分摊：每个等着的人最多拿"余额 ÷ 还剩几个人"。谁手上没那么多字节，余量自然
+    // 落到后面几个人身上（remaining 是先减后用的）。一轮就够 —— 100 ms 之后再来一拍。
+    int remaining = waiting.size();
+    for (QNetworkReply *reply : waiting) {
+        if (remaining <= 0 || m_speedTokens < 1.0) {
+            break;
+        }
+        const qint64 share = qint64(m_speedTokens / double(remaining));
+        --remaining;
+        if (share <= 0) {
+            continue;
+        }
+        const auto stream = m_streamedFiles.value(reply);
+        if (!stream) {
+            m_throttledReplies.remove(reply);
+            continue;
+        }
+        const qint64 taken = stream->drainUpTo(reply, share);
+        m_speedTokens -= double(taken);
+        if (!stream->error.isEmpty()) {
+            m_throttledReplies.remove(reply);
+            reply->abort();
+        } else if (reply->bytesAvailable() <= 0) {
+            m_throttledReplies.remove(reply);
+        }
+    }
+}
+
 bool DownloadManager::mayIssueAnotherDownloadToHost(int activeForHost, bool hostKnownHttp2) {
     // 已知 h2 的主机不受这条管（一条 TCP 连接上多路复用，放几条归全局上限说）。
     // 还不知道的主机按 Qt 每主机的连接上限守着 —— 多发的那些会进 Qt 内部那个会超时的队列。
     return hostKnownHttp2 || activeForHost < kMaxConcurrentPerHost;
 }
 
-DownloadManager::DownloadManager(QObject *parent)
-    : QObject(parent), networkManager(new QNetworkAccessManager(this)), pendingDownloads(0) {
+DownloadManager::DownloadManager(QObject *parent, NetworkManagerFactory networkFactory)
+    : QObject(parent), networkManager(networkFactory ? networkFactory(this) : new QNetworkAccessManager(this)),
+      m_networkFactory(std::move(networkFactory)), pendingDownloads(0) {
     // 为信号注册元类型
     qRegisterMetaType<MinecraftVersion>("MinecraftVersion");
     qRegisterMetaType<Library>("Library");
@@ -529,6 +657,10 @@ DownloadManager::DownloadManager(QObject *parent)
     m_stallWatchdog->setInterval(kStallTickMs);
     connect(m_stallWatchdog, &QTimer::timeout, this, &DownloadManager::onStallWatchdogTick);
     m_stallWatchdog->start();
+    // 限速泵**先不跳**：没设上限时它连一次空转都不该有（出厂就是不限速）。
+    m_speedPump = new QTimer(this);
+    m_speedPump->setInterval(kSpeedPumpMs);
+    connect(m_speedPump, &QTimer::timeout, this, &DownloadManager::onSpeedPumpTick);
 
     // "这个主机走不走 h2"只在这一处问，四条 finished 槽里一条都不问。
     // NOTE: 这条信号的连接**必须比我们自己那些 finished 连接早**，而它确实是：它是
@@ -559,17 +691,28 @@ DownloadManager::~DownloadManager() {
     activeDownloads.clear();
     m_streamedFiles.clear();
     m_replyGenerations.clear();
+    // 分段作业是子对象：先断信号（别让 cancel 的同步回调进来）再取消。已经获准原子提交的
+    // 那一个还会在后台把文件写完，但它已经不会再碰这个对象。
+    for (auto *task : m_segmentJobs.keys()) {
+        disconnect(task, nullptr, this, nullptr);
+        task->cancel();
+    }
+    m_segmentJobs.clear();
     // 队列里的作业一个请求都没发出去，abort 那套对它们无效，只能直接丢掉。
     m_pendingJobs.clear();
     m_officialFallbacks.clear();
     m_stallMeters.clear();
     m_metadataReplies.clear();
+    // 限速泵攥着的都是上面刚 abort 过的回复：表本身只是指针，清掉就行（对象都快没了，
+    // 但留着一份悬空指针没有半点用处）。
+    m_throttledReplies.clear();
 }
 
 void DownloadManager::fetchVersionManifest() {
     const QString officialUrl = officialVersionManifestUrl();
     QUrl url(endpoint(officialUrl));
     QNetworkRequest request(url);
+    configureHttp1(request);
     // 元数据请求也要有超时：下载期间 UI 会禁用按钮，卡死的连接会让它永远禁用下去。
     request.setTransferTimeout(30000);
     QNetworkReply *reply = networkManager->get(request);
@@ -622,6 +765,7 @@ void DownloadManager::fetchVersionJson(const QString &versionId) {
             // 详细说明在 onAssetIndexDownloaded() 上面。
             const QUrl versionQUrl(effectiveUrl);
             QNetworkRequest request(versionQUrl);
+            configureHttp1(request);
             request.setTransferTimeout(30000);
             QNetworkReply *reply = networkManager->get(request);
             reply->setProperty("wtfmlStartMs", m_clock.elapsed());
@@ -777,7 +921,26 @@ void DownloadManager::cancelBatch() {
     for (QNetworkReply *reply : inflight) {
         reply->abort();
     }
-    // 4. 队列空了、批次封口了、在飞的那几条也被逼着收尾了 —— 这时候 isBusy() 必然回 false，
+    // 4. 分段作业没有回复可 abort，逐个取消。cancel() 返回 true 时**不会**再发
+    //    finished（见 ResumableDownload::cancel），所以这里必须当场摘表并 deleteLater；
+    //    返回 false = 已经进入原子提交（QSaveFile 的 commit），只能让它做完 —— 批次已经
+    //    封口、代次也加了，它回来时只会清理，不会记账。isBusy() 会一直为真到提交结束，
+    //    这是对的：文件还在往盘上写。
+    const QList<ResumableDownload *> segmented = m_segmentJobs.keys();
+    for (ResumableDownload *task : segmented) {
+        const bool cancelled = task->cancel();
+        if (DownloadDiag::enabled()) {
+            DownloadDiag::line(QStringLiteral("segment cancel dest=%1 accepted=%2")
+                                   .arg(QDir::toNativeSeparators(
+                                            m_segmentJobs.value(task).destinationPath),
+                                        cancelled ? QStringLiteral("yes") : QStringLiteral("no")));
+        }
+        if (cancelled) {
+            m_segmentJobs.remove(task);
+            task->deleteLater();
+        }
+    }
+    // 5. 队列空了、批次封口了、在飞的那几条也被逼着收尾了 —— 这时候 isBusy() 必然回 false，
     //    界面（底栏那一格、下载页那几颗按钮）下一轮就会解禁。
 }
 
@@ -786,7 +949,10 @@ QList<DownloadManager::FailedJob> DownloadManager::failedJobs() const { return m
 bool DownloadManager::isBusy() const {
     // 队列也得算："还排着几百个没发出去"当然还是忙 —— 漏掉它的表现是界面解禁、
     // 用户以为下载完了，然后再点一次又叠一批上去。
-    return m_batchOpen || pendingDownloads > 0 || !m_pendingJobs.isEmpty();
+    // 分段作业没有 QNetworkReply（不计 pendingDownloads），漏掉它会表现为"只剩大文件时
+    // 界面显示空闲、取消按钮失效"。
+    return m_batchOpen || pendingDownloads > 0 || !m_pendingJobs.isEmpty()
+           || !m_segmentJobs.isEmpty();
 }
 
 DownloadStats DownloadManager::stats() const {
@@ -896,9 +1062,10 @@ void DownloadManager::scheduleFile(const QString &url, const QString &destinatio
     m_totalJobs++;
     // 排进队列之后立刻试着发一次：队列是空的、连接也有富余的时候，这一句就把它发出去了
     // （所以"只下一两个文件"的那些调用点感觉不到队列存在）。
+    const bool segmented = m_segmentEnabled && segmentedEligible(url, expectedSha1, expectedSize, range);
     m_pendingJobs.enqueue(
         PendingJob{url, destinationPath, expectedSha1, expectedSize, officialUrl,
-                   QUrl(url).host(), 0, 0, range});
+                   QUrl(url).host(), 0, 0, range, segmented});
     pumpDownloadQueue();
 }
 
@@ -916,9 +1083,11 @@ void DownloadManager::pumpDownloadQueue() {
     // 去后面的作业找（i 往前走），而不是一条堵住就整个不发了。跳过只是换一个发送次序，
     // 不丢作业、也不改变谁先谁后之外的任何事。
     int i = 0;
-    while (i < m_pendingJobs.size()
-           && mayIssueAnotherDownload(activeDownloads.size(), m_pendingJobs.size(),
-                                      m_maxConcurrentDownloads)) {
+    while (i < m_pendingJobs.size()) {
+        // 分段作业内部有 4 条连接，按真实连接数占全局额度；它不是 QNetworkReply，
+        // 所以 activeDownloads 里看不到，必须单独加回来。
+        const int streamActive = activeDownloads.size() + segmentConnections();
+        if (!mayIssueAnotherDownload(streamActive, m_pendingJobs.size(), m_maxConcurrentDownloads)) break;
         const PendingJob &candidate = m_pendingJobs.at(i);
         if (candidate.readyAtMs > m_clock.elapsed()) { ++i; continue; }
         // ★★ 2026-09-27：问的是**这条作业真正会打到**的那个主机，不是它首选地址那个主机。
@@ -926,20 +1095,228 @@ void DownloadManager::pumpDownloadQueue() {
         //    （见 activeCountForHost 里那条 NOTE）—— 按首选主机问额度的话，那道闸对它永远是
         //    放行的（那一侧一条都不会再记上去），一次泵就能把备用主机塞满 24 条。
         //    判据和 startDownload() 里那条**同源**：都走 effectiveDownloadUrl()。
-        const QString targetHost =
-            QUrl(effectiveDownloadUrl(candidate.url, candidate.officialUrl,
-                                      mirrorDemotedFor(candidate.host)))
-                .host();
-        if (!mayIssueAnotherDownloadToHost(activeCountForHost(targetHost),
-                                           m_http2Hosts.contains(targetHost))) {
+        const QString targetUrl =
+            effectiveDownloadUrl(candidate.url, candidate.officialUrl,
+                                 mirrorDemotedFor(candidate.host));
+        const QString targetHost = QUrl(targetUrl).host();
+        const bool hostHttp2 = m_http2Hosts.contains(targetHost);
+        bool segmented = candidate.segmented && m_segmentEnabled;
+        if (segmented) {
+            // 分段作业的 4 条连接走 ResumableDownload 自己的 QNAM，不占外层这个 QNAM 的
+            // 每主机额度（kMaxConcurrentPerHost 守的是 Qt 内部那个会超时的队列），所以
+            // 这里只按全局连接预算判断。名额/预算不够就**当场按普通下载发出去**：
+            // 让队头的大文件干等，会把后面几千个小文件一起卡住。
+            // 名额跟着并发档位走（见 maxSegmentedJobsFor）；另加一条下限保护：
+            // 全局只有 4~7 条连接时最多放一个分段作业，否则一条大文件就把整条队列占满。
+            const int maxSegments = qMin(
+                maxSegmentedJobsFor(m_maxConcurrentDownloads),
+                qMax(1, m_maxConcurrentDownloads / ResumableDownload::kPartConcurrency));
+            const bool budget = m_segmentJobs.size() < maxSegments
+                                && streamActive + ResumableDownload::kPartConcurrency
+                                       <= m_maxConcurrentDownloads;
+            const auto scheme = QUrl(targetUrl).scheme();
+            const bool schemeOk = scheme == QStringLiteral("http") || scheme == QStringLiteral("https");
+            segmented = budget && schemeOk;
+        }
+        // ★ 降级成普通下载（候选是分段作业、但名额/预算不够）**也要过每主机那道闸**：
+        //   它走的是外层这个 QNAM，多出来的会进 Qt 内部那个会超时的队列 —— 正是
+        //   kMaxConcurrentPerHost 要挡的东西。这里跳过的是"这一条暂时发不出去"，
+        //   不是"整队停住"：i 往前走，后面的作业照发（和上面那条循环同一个理由）。
+        if (!segmented
+            && !mayIssueAnotherDownloadToHost(activeCountForHost(targetHost), hostHttp2)) {
             ++i;
             continue;
         }
         // takeAt 之后上面那个引用就悬了，所以先拷出来再删。
         const PendingJob job = m_pendingJobs.takeAt(i);
-        startDownload(QUrl(job.url), job.destinationPath, job.expectedSha1, job.expectedSize,
-                      job.officialUrl, job.retryAttempts, job.range);
+        if (segmented) {
+            startSegmentedDownload(job);
+        } else {
+            startDownload(QUrl(job.url), job.destinationPath, job.expectedSha1, job.expectedSize,
+                          job.officialUrl, job.retryAttempts, job.range);
+        }
     }
+}
+
+void DownloadManager::requeueDownloadJob(const PendingJob &job) {
+    // 排头，不是队尾。理由和"为什么不会堵住别人"见头文件。
+    m_pendingJobs.prepend(job);
+}
+
+bool DownloadManager::segmentedEligible(const QString &url, const QString &expectedSha1,
+                                        qint64 expectedSize, const DownloadRange &range) {
+    // 分段请求本身（range.active()）绝不能再被升级一次。
+    if (range.active()) return false;
+    if (expectedSize < ResumableDownload::kMinimumBytes ||
+        expectedSize > ResumableDownload::kMaximumBytes) {
+        return false;
+    }
+    if (expectedSha1.isEmpty()) return false;
+    const QUrl target(url);
+    return target.scheme() == QStringLiteral("http") || target.scheme() == QStringLiteral("https");
+}
+
+int DownloadManager::segmentConnections() const {
+    return m_segmentJobs.size() * ResumableDownload::kPartConcurrency;
+}
+
+void DownloadManager::startSegmentedDownload(const PendingJob &job) {
+    const QString targetUrl =
+        effectiveDownloadUrl(job.url, job.officialUrl, mirrorDemotedFor(job.host));
+    const bool rerouted = (targetUrl != job.url);
+
+    auto *task = new ResumableDownload(this, m_networkFactory);
+    // 限速要跟着这一条走：它在 start() 里会建自己那份下载器（见那个 setter 的说明）。
+    task->setSpeedLimitBytesPerSecond(m_speedLimitBytesPerSecond);
+    SegmentJob record;
+    record.url = targetUrl;
+    record.destinationPath = job.destinationPath;
+    record.expectedSha1 = job.expectedSha1;
+    record.expectedSize = job.expectedSize;
+    // 已经因为镜像降级改道到官方了，"退回官方"这条退路就用掉了（和 startDownload 同源）。
+    record.officialUrl = rerouted ? QString() : job.officialUrl;
+    record.host = QUrl(targetUrl).host();
+    record.officialRetried = job.officialRetried;
+    record.plainRetried = job.plainRetried;
+    record.generation = m_batchGeneration;
+    // ★ 先登记、先连信号，再 start()：start() 在本地准备失败时会**同步**发 finished，
+    //   晚一步就会漏掉那一次失败（那条作业会永远占着名额）。
+    m_segmentJobs.insert(task, record);
+
+    connect(task, &ResumableDownload::progress, this, [this, task](qint64 done, qint64 total) {
+        const auto it = m_segmentJobs.constFind(task);
+        if (it == m_segmentJobs.constEnd() || it->generation != m_batchGeneration) return;
+        emit downloadProgress(QFileInfo(it->destinationPath).fileName(), done, total);
+        emitBatchProgress(it->destinationPath);
+    });
+    connect(task, &ResumableDownload::finished, this,
+            [this, task](bool success, const QString &error) {
+                finishSegmentedJob(task, success, error);
+            });
+
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("segment start gen=%1 url=%2 dest=%3 sha1=%4 size=%5 "
+                                          "parts=%6 official=%7")
+                               .arg(m_batchGeneration)
+                               .arg(DownloadDiag::safeUrl(targetUrl),
+                                    QDir::toNativeSeparators(job.destinationPath),
+                                    job.expectedSha1.isEmpty() ? QStringLiteral("-")
+                                                               : job.expectedSha1)
+                               .arg(job.expectedSize)
+                               .arg(ResumableDownload::kPartConcurrency)
+                               .arg(job.officialUrl.isEmpty()
+                                        ? QStringLiteral("-")
+                                        : DownloadDiag::safeUrl(job.officialUrl)));
+    }
+
+    // ResumableDownload 要求绝对路径；记录里仍保留调用方原来那条（信号/失败清单用它）。
+    m_startingSegment = true;
+    task->start(QUrl(targetUrl), QFileInfo(job.destinationPath).absoluteFilePath(),
+                job.expectedSha1, job.expectedSize, m_allowOverwrite,
+                m_rangeCacheRoot.isEmpty() ? DownloadCache::root() : m_rangeCacheRoot);
+    m_startingSegment = false;
+}
+
+void DownloadManager::finishSegmentedJob(ResumableDownload *task, bool success,
+                                         const QString &error) {
+    if (!task) return;
+    if (m_shuttingDown) {
+        task->deleteLater();
+        return;
+    }
+    // start() 同步发出来的 finished：等这一层调用栈退出去再结账，避免在 pump 的循环里
+    // 再次进 pump、改动 m_pendingJobs 的当前位置。
+    if (m_startingSegment) {
+        QTimer::singleShot(0, this, [this, task, success, error] {
+            finishSegmentedJob(task, success, error);
+        });
+        return;
+    }
+    const auto it = m_segmentJobs.find(task);
+    if (it == m_segmentJobs.end()) {
+        // 已经取消（cancel() 不会发 finished）或重复回调。
+        task->deleteLater();
+        return;
+    }
+    const SegmentJob record = *it;
+    m_segmentJobs.erase(it);
+
+    const QString fileName = QFileInfo(record.destinationPath).fileName();
+    const bool stale = record.generation != m_batchGeneration;
+    bool requeued = false;
+
+    if (stale) {
+        // 上一批的残留：文件本身照旧落盘，但计数 / 进度 / 完成信号一个字都不碰。
+    } else if (success) {
+        emit downloadFinished(fileName, true, QString());
+    } else if (!task->networkAttempted() && !record.plainRetried) {
+        // 本地准备失败（路径无效、缓存目录不可写、同一下载的缓存被占用）：这不是源站
+        // 失败，改走普通下载，别把本来能下成的文件判死。
+        PendingJob retry;
+        retry.url = record.url;
+        retry.destinationPath = record.destinationPath;
+        retry.expectedSha1 = record.expectedSha1;
+        retry.expectedSize = record.expectedSize;
+        retry.officialUrl = record.officialUrl;
+        retry.host = record.host;
+        retry.segmented = false;
+        retry.officialRetried = record.officialRetried;
+        retry.plainRetried = true;
+        requeueDownloadJob(retry);
+        requeued = true;
+    } else if (!record.officialUrl.isEmpty() && !record.officialRetried) {
+        PendingJob retry;
+        retry.url = record.officialUrl;
+        retry.destinationPath = record.destinationPath;
+        retry.expectedSha1 = record.expectedSha1;
+        retry.expectedSize = record.expectedSize;
+        retry.officialUrl = QString();  // 只退一次
+        retry.host = QUrl(record.officialUrl).host();
+        retry.segmented =
+            m_segmentEnabled &&
+            segmentedEligible(retry.url, retry.expectedSha1, retry.expectedSize, DownloadRange());
+        retry.officialRetried = true;
+        retry.plainRetried = record.plainRetried;
+        requeueDownloadJob(retry);
+        requeued = true;
+    } else {
+        m_failedJobs++;
+        FailedJob failed;
+        // ★ 记**入口地址**，不是 302 落点：failedJobs() 的重试会拿它再发一次，
+        //   预签名落点几秒后就过期了。
+        failed.url = record.url;
+        failed.destinationPath = record.destinationPath;
+        failed.expectedSha1 = record.expectedSha1;
+        failed.expectedSize = record.expectedSize;
+        failed.officialUrl = record.officialUrl;
+        m_failedJobInfos.append(failed);
+        if (!record.destinationPath.isEmpty() && !m_failedPaths.contains(record.destinationPath)) {
+            m_failedPaths << record.destinationPath;
+        }
+        emit downloadFinished(fileName, false,
+                              error.isEmpty() ? QStringLiteral("分段下载失败") : error);
+    }
+
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("segment finish gen=%1 dest=%2 result=%3 error=%4 "
+                                          "stale=%5 retried=%6")
+                               .arg(record.generation)
+                               .arg(QDir::toNativeSeparators(record.destinationPath),
+                                    success ? QStringLiteral("ok") : QStringLiteral("fail"),
+                                    error.isEmpty() ? QStringLiteral("-") : error)
+                               .arg(stale ? QStringLiteral("yes") : QStringLiteral("no"),
+                                    requeued ? QStringLiteral("yes") : QStringLiteral("no")));
+    }
+
+    task->deleteLater();
+    if (!stale && !requeued) {
+        // 和 onDownloadReplyFinished 的收尾一致：done 是"已结账"，失败也含在内。
+        m_doneJobs++;
+        emitBatchProgress(record.destinationPath);
+    }
+    // 先腾出预算再判整批是否结束（顺序和 onDownloadReplyFinished 一样）。
+    pumpDownloadQueue();
+    checkAllDownloadsFinished();
 }
 
 int DownloadManager::activeCountForHost(const QString &host) const {
@@ -1004,6 +1381,7 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     // 花括号不是风格：`QNetworkRequest request(QUrl(targetText));` 会被当成一个函数声明
     // （most vexing parse），下一句 setTransferTimeout 直接编不过。
     QNetworkRequest request{QUrl(targetText)};
+    configureHttp1(request);
     if (range.active()) {
         request.setRawHeader("Range", "bytes=" + QByteArray::number(range.first) + "-" + QByteArray::number(range.last));
         if (!range.validator.isEmpty()) request.setRawHeader("If-Range", range.validator);
@@ -1080,6 +1458,15 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
             reply->setProperty("wtfmlFirstByteMs", m_clock.elapsed());
         }
         if (!rangeProblem(reply, rangeOf(reply)).isEmpty()) { reply->abort(); return; }
+        // ★ 2026-10-18（§9.2 下载限速）：设了上限就**只登记、不读** —— 真正的读取由
+        //   onSpeedPumpTick() 按令牌放行。回复自己的 readBufferSize（256 KiB）就是闸门：
+        //   我们不读，socket 那边很快就没人往下拉了（背压）。
+        if (m_speedLimitBytesPerSecond > 0) {
+            if (reply->isReadable()) {
+                m_throttledReplies.insert(reply);
+            }
+            return;
+        }
         stream->drain(reply);
         if (auto meter = m_stallMeters.find(reply); meter != m_stallMeters.end()) {
             meter->bytesSeen = qMax(meter->bytesSeen, stream->bytes);
@@ -1216,8 +1603,9 @@ void DownloadManager::checkAllDownloadsFinished() {
     // pendingDownloads > 0：还有作业在飞。
     // m_pendingJobs：还排着队的作业也是"没下完"，漏掉这一条会在还差几百个文件的
     // 时候发出 allDownloadsFinished。
+    // m_segmentJobs：分段作业没有 QNetworkReply，不计 pendingDownloads，必须单独算上。
     if (m_shuttingDown || m_batchOpen || m_batchEmitted || pendingDownloads > 0
-        || !m_pendingJobs.isEmpty()) {
+        || !m_pendingJobs.isEmpty() || !m_segmentJobs.isEmpty()) {
         return;
     }
     m_batchEmitted = true;
@@ -1323,6 +1711,7 @@ void DownloadManager::downloadAssets(const AssetIndex &assetIndex) {
     //       是 `assetIndex.url` 这种带点的表达式，没法当形参名。
     const QUrl indexQUrl(indexUrl);
     QNetworkRequest request(indexQUrl);
+    configureHttp1(request);
     request.setTransferTimeout(30000);
     QNetworkReply *indexReply = networkManager->get(request);
     indexReply->setProperty("wtfmlStartMs", m_clock.elapsed());
@@ -1511,10 +1900,13 @@ bool DownloadManager::retryStalledFromMirror(QNetworkReply *reply,
     const int attempts = reply->property("wtfmlRetryAttempts").toInt();
     if (attempts >= 1) return false;  // 镜像只再试一次，之后照旧退官方
     const QString mirrorUrl = mirrorEntry.toString();
-    m_pendingJobs.enqueue(PendingJob{mirrorUrl, destinationPath, expectedSha1s.value(reply),
+    requeueDownloadJob(PendingJob{mirrorUrl, destinationPath, expectedSha1s.value(reply),
                                      expectedSizes.value(reply, -1),
                                      m_officialFallbacks.value(reply), mirrorEntry.host(),
-                                     attempts + 1, 0, rangeOf(reply)});
+                                     attempts + 1, 0, rangeOf(reply),
+                                     m_segmentEnabled && segmentedEligible(
+                                         mirrorUrl, expectedSha1s.value(reply),
+                                         expectedSizes.value(reply, -1), rangeOf(reply))});
     qInfo() << "Retrying a stalled mirror download from the mirror entry (it may pick another"
             << "backend this time):" << mirrorUrl;
     if (DownloadDiag::enabled()) {
@@ -1557,10 +1949,11 @@ bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &
     //
     // NOTE: 这一段**没有端到端用例**（验证工程里那个 V6f 只钉了降级那两条，钉不到这里）。
     //       要真区分出"我们拦住了"和"Qt 拦住了"，得让**同时**退回官方的作业数超过
-    //       kMaxConcurrentPerHost —— 也就是一次 tick 里要 abort 掉 6 条以上。而镜像那一侧
+    //       kMaxConcurrentPerHost —— 也就是一次 tick 里要 abort 掉整整一档以上。而镜像那一侧
     //       自己也受这条按主机守卫管着（假服务器都只会说 HTTP/1.1，拿不到"已证明 h2"那个
-    //       豁免），所以在飞的永远不超过 6 条、能同时退回的最多 6 条，正好等于官方那个主机
-    //       的上限：拦与不拦都是 6 条上链路，测试是绿的但什么都没证明。
+    //       豁免），所以在飞的永远不超过 kMaxConcurrentPerHost 条、能同时退回的最多也就这么
+    //       多，正好等于官方那个主机的上限：拦与不拦都是一样多条上链路，测试是绿的但什么都
+    //       没证明。
     //       真要做到，得有一台**真会协商 h2 的假镜像**（h2 主机才有 24 条豁免），本机做不到。
     //       所以要改写这一段，请按"这条判据没被用例守着"来对待。
     const QString retryHost = QUrl(officialUrl).host();
@@ -1582,9 +1975,12 @@ bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &
         }
         // 摘完表再收尾：这条回复已经结账了，晚到的 finished 会在入口处被"没登记"挡掉。
         reply->deleteLater();
-        m_pendingJobs.enqueue(
+        requeueDownloadJob(
             PendingJob{officialUrl, destinationPath, expectedSha1, expectedSize, QString(),
-                       retryHost, 0, 0, rangeOf(reply)});
+                       retryHost, 0, 0, rangeOf(reply),
+                       m_segmentEnabled &&
+                           segmentedEligible(officialUrl, expectedSha1, expectedSize,
+                                             rangeOf(reply))});
         // 别的作业可能刚腾出位置（也可能这一条立刻就能发出去），顺手泵一次。
         pumpDownloadQueue();
         if (DownloadDiag::enabled()) {
@@ -1606,6 +2002,7 @@ bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &
     qInfo() << "Mirror download failed, retrying from the official url:" << officialUrl;
     const QUrl url(officialUrl);
     QNetworkRequest request(url);
+    configureHttp1(request);
     request.setTransferTimeout(30000);
     QNetworkReply *retry = networkManager->get(request);
     retry->setProperty("wtfmlStartMs", m_clock.elapsed());
@@ -1994,12 +2391,19 @@ bool DownloadManager::requeueTransientFailure(QNetworkReply *reply, const QStrin
         m_http2Hosts.remove(host);
     }
     const int attempts = reply->property("wtfmlRetryAttempts").toInt();
-    const int delay = DownloadRetryPolicy::delayMs(attempts, reply->rawHeader("Retry-After"));
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QByteArray retryAfter = reply->rawHeader("Retry-After");
+    // 429 走专用退避：通用那条 0.5/1/2 秒比限流窗口还快（见 throttleDelayMs 的注释）。
+    int delay = attempts >= 3 ? -1
+                              : (status == 429 ? DownloadRetryPolicy::throttleDelayMs(attempts, retryAfter)
+                                               : DownloadRetryPolicy::delayMs(attempts, retryAfter));
     if (delay < 0) return false;
     const QString url = reply->request().url().toString();
     const qint64 readyAt = m_clock.elapsed() + delay;
-    m_pendingJobs.enqueue(PendingJob{url, destinationPath, expectedSha1s.value(reply),
-        expectedSizes.value(reply, -1), QString(), QUrl(url).host(), attempts + 1, readyAt, rangeOf(reply)});
+    requeueDownloadJob(PendingJob{url, destinationPath, expectedSha1s.value(reply),
+        expectedSizes.value(reply, -1), QString(), QUrl(url).host(), attempts + 1, readyAt, rangeOf(reply),
+        m_segmentEnabled && segmentedEligible(url, expectedSha1s.value(reply),
+                                              expectedSizes.value(reply, -1), rangeOf(reply))});
     const auto generation = m_batchGeneration;
     // QTimer 与 elapsed() 的取整边界可能不同；提前唤醒不能让队列错过唯一一次泵送。
     auto *wakeup = new QTimer(this);
@@ -2048,6 +2452,9 @@ void DownloadManager::onDownloadReplyFinished() {
         reply->deleteLater();
         return;
     }
+    // 限速那条路上，"结束"意味着以后不会再有人泵它了 —— 当场摘表。下面那一大段里
+    // 收尾用的是 stream->drain(reply)（不限量），缓冲区里剩的字节一个都不会漏。
+    m_throttledReplies.remove(reply);
 
     // 这一条属于**已经被放弃的那一批**吗（用户点了取消、之后又开了一批）。它回来的文件照样
     // 落盘（数据是好的），但计数、失败清单、进度和"整批下完"的判定一个字都不许碰 ——
@@ -2199,8 +2606,15 @@ void DownloadManager::onStallWatchdogTick() {
         //      onDownloadReplyFinished，那里先 retryStalledFromMirror() 重新掷一台落点
         //      （只掷一次），再不行就退官方。落到死落点这件事还要记一笔（noteDeadRedirectTarget），
         //      攒够了整条镜像先探官方、再决定降不降级。
-        if (meter.bytesSeen == 0 && m_officialFallbacks.contains(reply)
-            && now - meter.lastSignOfLifeMs > m_noFirstByteGiveUpMs) {
+        // ★ 2026-10-18 补：**分段 Range 请求也过这一条**。它自己身上没有备用地址，但协调器
+        //   有"只补缺的段"那条退路；一条 302 到死落点的分段以前只有 90 秒那条兜底会动它，
+        //   而协调器要等整批收尾才补段 —— 等于整条作业白等一分半。
+        if (meter.bytesSeen == 0
+            && (m_officialFallbacks.contains(reply) || rangeOf(reply).active())
+            && now - meter.lastSignOfLifeMs >
+                   (m_metadataReplies.contains(reply)
+                        ? qMin(m_noFirstByteGiveUpMs, kMetadataNoFirstByteGiveUpMs)
+                        : m_noFirstByteGiveUpMs)) {
             const QUrl landed = reply->url();
             const QUrl entry = reply->request().url();
             noteDeadRedirectTarget(landed, entry, m_officialFallbacks.value(reply));
@@ -2217,10 +2631,23 @@ void DownloadManager::onStallWatchdogTick() {
         }
         // (2) 慢镜像那条只对"有退路"的回复成立：abort 掉它 = 换一条路再试；没有退路的
         //     abort 掉就是纯粹把这次下载弄失败。
+        //     ★ 2026-10-18（用户那份 17:06 的诊断日志）：**分段请求（Range 作业）也算
+        //       "有退路"** —— 它自己身上没有官方备用地址，但协调器有"只补缺的段"那条
+        //       退路（见 ResumableDownload::downloadParts）。实测一条 4 MiB 的分段停在
+        //       3.7/4.2 MiB、以几百字节每秒往终点爬，`bytesAvailable()` 一直在涨 ⇒ 90 秒
+        //       的"卡死"兜底不响，而没备用地址又不进这一条 ⇒ 那条分段在 664 秒里一直攥着
+        //       连接；协调器要等整批收尾才补段，于是整条分段作业永远不会结束（用户只能
+        //       取消）。给 Range 作业也过这一条，abort 掉就是让协调器换一次落点重下。
         //     NOTE: "一个字节都还没收到"的不算数（判据在 countsTowardStallStrike 里，理由和
         //           2026-09-23 那次实测都写在头文件）—— 那种回复的进账天然是 0，会把
         //           "还在建连"误判成"链子太慢"。
-        if (m_officialFallbacks.contains(reply)) {
+        // ★ 2026-10-18（§9.2 下载限速）：**限速开着的时候这条整条不成立**。这条判据量的是
+        //   "链子来得多快"，而限速正是我们自己把它按住的方式 —— 512 KiB/s 分给 24 条，
+        //   每条每 5 秒只有 10 KB，比 kStallMinBytesPerTick（64 KB）还少 ⇒ 一开限速，
+        //   整批镜像作业每隔 10 秒就被 abort 一遍（用户看到的形状是"限速一开就疯狂重试、
+        //   根本下不完"）。"一个字节都不来"那两条（0b / 1）仍然照旧：那才是真的死了。
+        if (m_speedLimitBytesPerSecond <= 0
+            && (m_officialFallbacks.contains(reply) || rangeOf(reply).active())) {
             if (countsTowardStallStrike(meter.bytesSeen, meter.bytesSeen - meter.lastTickBytes,
                                         kStallMinBytesPerTick)) {
                 if (++meter.strikes >= kStallStrikesToDemote) {
@@ -2251,6 +2678,12 @@ void DownloadManager::onStallWatchdogTick() {
         //    同一个主机只降一次（顺延本身是幂等的，这里只是别把日志刷满）。
         QSet<QString> demotedHosts;
         for (QNetworkReply *reply : stalled) {
+            // 分段请求（Range 作业）没有备用地址：它慢不代表"这个入口该降级"，而且它
+            // 入口常常就是官方那一台 —— 把官方降 300 秒等于让排队里的镜像作业全改道，
+            // 正是 2026-10-17 那条事故的翻版。它们只 abort、由协调器补段。
+            if (!m_officialFallbacks.contains(reply)) {
+                continue;
+            }
             const QString host = reply->request().url().host();
             const QString finalHost = reply->url().host();
             if (!finalHost.isEmpty() && finalHost.compare(host, Qt::CaseInsensitive) != 0) {
@@ -2269,9 +2702,16 @@ void DownloadManager::onStallWatchdogTick() {
             // 这一条**不一定是退官方**：302 转过手的作业会先回镜像入口重新掷一台落点
             // （见 retryStalledFromMirror），真退官方是掷完之后还没成的那一次。日志按实际
             // 可能性写，别把"换条路再试"说成"已经决定走官方"。
-            qInfo() << "Aborting a stalled mirror download; the job retries from the mirror"
-                       " entry or the official url:"
-                    << jobLabel(reply);
+            // 分段请求（没有备用地址）abort 之后由 ResumableDownload 只补缺的那一段。
+            if (m_officialFallbacks.contains(reply)) {
+                qInfo() << "Aborting a stalled mirror download; the job retries from the mirror"
+                           " entry or the official url:"
+                        << jobLabel(reply);
+            } else {
+                qInfo() << "Aborting a stalled segmented-download part; the coordinator will"
+                           " re-request the missing range:"
+                        << jobLabel(reply);
+            }
             if (DownloadDiag::enabled()) {
                 DownloadDiag::line(QStringLiteral("watchdog: stalled job=%1 url=%2 %3")
                                        .arg(jobLabel(reply),
@@ -2354,11 +2794,14 @@ void DownloadManager::failWedgedDownload(QNetworkReply *reply) {
     const bool mirrorJob = m_officialFallbacks.contains(reply);
     if (mirrorJob && !m_shuttingDown && wedgedDelay >= 0 && replyIsFromCurrentBatch(reply)) {
         const QString retryUrl = reply->request().url().toString();
-        m_pendingJobs.enqueue(PendingJob{retryUrl, destPath, expectedSha1s.value(reply),
+        requeueDownloadJob(PendingJob{retryUrl, destPath, expectedSha1s.value(reply),
                                          expectedSizes.value(reply, -1),
                                          m_officialFallbacks.value(reply), QUrl(retryUrl).host(),
                                          wedgedAttempts + 1, m_clock.elapsed() + wedgedDelay,
-                                         rangeOf(reply)});
+                                         rangeOf(reply),
+                                         m_segmentEnabled && segmentedEligible(
+                                             retryUrl, expectedSha1s.value(reply),
+                                             expectedSizes.value(reply, -1), rangeOf(reply))});
         const auto generation = m_batchGeneration;
         auto *wakeup = new QTimer(this);
         wakeup->setSingleShot(true);

@@ -211,6 +211,29 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     WheelGuard::install(m_variantCombo);
     uploadRow->addWidget(m_uploadButton);
     uploadRow->addWidget(m_variantCombo);
+
+    // ---------- 离线账号那一档：换一张 / 恢复默认 ----------
+    // 这两颗和上面那颗「上传皮肤…」互斥（同一行里只露一档，见 setOfflineSkinState()）：
+    // 离线账号没有令牌，上传那一颗按下去只会失败；它要的是"从盘上挑一张"。
+    // 默认藏着 —— 这个窗第一次画出来时还没人喂"当前是不是离线"（那是业务层的事）。
+    auto *offlineSkinRow = new QHBoxLayout();
+    offlineSkinRow->setContentsMargins(0, 0, 0, 0);
+    m_offlineSkinButton = new QPushButton(offlineSkinButtonText(), this);
+    m_offlineSkinButton->setObjectName(offlineSkinButtonName());
+    m_offlineSkinButton->setAutoDefault(false);
+    m_offlineSkinButton->setToolTip(offlineSkinButtonToolTip());
+    m_offlineSkinResetButton = new QPushButton(offlineSkinResetButtonText(), this);
+    m_offlineSkinResetButton->setObjectName(offlineSkinResetButtonName());
+    m_offlineSkinResetButton->setAutoDefault(false);
+    m_offlineSkinResetButton->setToolTip(offlineSkinResetButtonToolTip());
+    // 「恢复默认外观」= 撤掉一层（和「不显示披风」同一档）；「换一张…」是正常操作。
+    Theme::markButton(m_offlineSkinResetButton, Theme::ButtonKind::Ghost);
+    offlineSkinRow->addWidget(m_offlineSkinButton);
+    offlineSkinRow->addWidget(m_offlineSkinResetButton);
+    controls->addLayout(offlineSkinRow);
+    m_offlineSkinButton->hide();
+    m_offlineSkinResetButton->hide();
+
     controls->addWidget(m_refreshButton);
 
     QLabel *capeTitle = new QLabel(capeSectionTitle(), this);
@@ -261,6 +284,10 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
             &AccountSkinDialog::submitOfflineName);
     connect(m_refreshButton, &QPushButton::clicked, this, &AccountSkinDialog::refreshRequested);
     connect(m_uploadButton, &QPushButton::clicked, this, &AccountSkinDialog::pickSkinFile);
+    connect(m_offlineSkinButton, &QPushButton::clicked, this,
+            &AccountSkinDialog::pickOfflineSkinFile);
+    connect(m_offlineSkinResetButton, &QPushButton::clicked, this,
+            &AccountSkinDialog::offlineSkinResetRequested);
     connect(m_accountList, &QListWidget::itemSelectionChanged, this,
             &AccountSkinDialog::refreshButtonStates);
     connect(m_capeList, &QListWidget::itemSelectionChanged, this,
@@ -372,6 +399,9 @@ void AccountSkinDialog::setBusy(bool busy, const QString &what) {
     m_loginButton->setEnabled(!busy);
     m_refreshButton->setEnabled(!busy);
     m_uploadButton->setEnabled(!busy);
+    // 离线那一档的两颗一起灰（忙的时候下面 refreshButtonStates() 也会按 idle 重算一遍）。
+    m_offlineSkinButton->setEnabled(!busy);
+    m_offlineSkinResetButton->setEnabled(!busy);
     // 两个列表一起灰：它们的内容正是「正在被刷新」的那两样（账号列表和披风列表都在
     // refreshAccountSkin() 里重填），忙的时候让用户改选中项，只会让「我点的是哪个」
     // 和「回来的结果是哪个」对不上。
@@ -380,6 +410,17 @@ void AccountSkinDialog::setBusy(bool busy, const QString &what) {
     if (busy) {
         m_statusLabel->setText(what);
     }
+    refreshButtonStates();
+}
+
+void AccountSkinDialog::setOfflineSkinState(bool offline, bool hasCustomSkin) {
+    m_offlineSkin = offline;
+    m_hasCustomSkin = hasCustomSkin;
+    // 两档互斥：「上传皮肤…」要令牌（离线账号没有），「换一张…」只动本机。
+    // 藏起来而不是灰着 —— 一颗永远点不动的按钮只会让人问"为什么它不亮"。
+    m_uploadButton->setVisible(!offline);
+    m_offlineSkinButton->setVisible(offline);
+    m_offlineSkinResetButton->setVisible(offline);
     refreshButtonStates();
 }
 
@@ -415,6 +456,17 @@ void AccountSkinDialog::pickSkinFile() {
     emit skinUploadRequested(path, selectedVariant());
 }
 
+void AccountSkinDialog::pickOfflineSkinFile() {
+    // 和上面那颗同一个选择框；区别只在**交出去的那件事**是什么（见头文件那两个信号）。
+    const QString path = QFileDialog::getOpenFileName(this, tr("选择皮肤图片"), QString(),
+                                                      tr("PNG 图片 (*.png)"));
+    if (path.isEmpty()) {
+        return;  // 用户取消了，不是错误
+    }
+    // 尺寸那条规矩同样不在这里判（唯一出处 SkinApi::isAcceptableSkinSize()，由 MainWindow 弹窗说）。
+    emit offlineSkinPickRequested(path, selectedVariant());
+}
+
 void AccountSkinDialog::submitOfflineName() {
     // 名字合不合法**不在这里判**（空、有空白、太长都在 AccountStore::addOffline() 里，
     // 唯一出处）：在这个窗里也判一遍就会出现"这里说不行、那边说行"两份判据，而这里判出来
@@ -445,4 +497,8 @@ void AccountSkinDialog::refreshButtonStates() {
     //   NOTE: 它**不看"有没有选中"**（取消披风作用于当前账号，不依赖右栏选中的那一项），
     //         所以只借 idle 这一半 —— 和上面「加离线账号」那两颗同一个形状。
     m_hideCapeButton->setEnabled(idle);
+    // 离线那一档：露着的时候才按 idle 判；「恢复默认外观」还要**确实有东西可撤** ——
+    // 没有手动挑过、按下去什么也不会变的按钮，灰着比亮着好懂。
+    m_offlineSkinButton->setEnabled(idle && m_offlineSkin);
+    m_offlineSkinResetButton->setEnabled(idle && m_offlineSkin && m_hasCustomSkin);
 }

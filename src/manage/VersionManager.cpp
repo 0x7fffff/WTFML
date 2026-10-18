@@ -639,6 +639,10 @@ void VersionManager::setDownloadConcurrency(int count) {
     downloadManager->setMaxConcurrentDownloads(count);
 }
 
+void VersionManager::setDownloadSpeedLimit(qint64 bytesPerSecond) {
+    downloadManager->setSpeedLimitBytesPerSecond(bytesPerSecond);
+}
+
 void VersionManager::setCurseForgeApiKey(const QString &apiKey) {
     m_curseForgeApiKey = apiKey.trimmed();
 }
@@ -1692,8 +1696,11 @@ void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply
     const bool fromMirror = slot->fromMirror;
     slot->reply = nullptr;
 
-    const QByteArray body = reply->readAll();
     if (reply->error() != QNetworkReply::NoError) {
+        // ★ 先判错误**再读**（2026-10-18）：超时回来的那条 `QNetworkReply` 已经不 open 了，
+        //   `readAll()` 会往 stderr 甩一句 `QIODevice::read (QNetworkReplyHttpImpl): device
+        //   not open`；日志里看着像另一处坏掉了，其实这一发本来就是要走下面的报错/换镜像。
+        //   下面成功那一支再取 body。
         // ★ 2026-10-17：官方那条**连不上**时往镜像退一次（只 NeoForge，理由见
         //   loaderVersionsMirrorFallback()）。判"连不上"用的是下载那条路同一个
         //   transientReply()：超时 / 连接被掐 / HTTP/2 断流都算，404、证书不对、
@@ -1714,6 +1721,9 @@ void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply
                 .arg(loaderDisplayName(kind), gameVersion, reply->errorString()));
         return;
     }
+
+    // ★ 不 open 就当空 body（见上面那一段注）：正常成功回来时它是 open 的。
+    const QByteArray body = reply->isOpen() ? reply->readAll() : QByteArray();
 
     const LoaderVersionParse parsed = parseLoaderVersions(kind, gameVersion, body, fromMirror);
     if (!parsed.error.isEmpty()) {
@@ -1900,7 +1910,10 @@ void VersionManager::onFabricLoaderListReply(QNetworkReply *reply) {
         return;
     }
 
-    const QByteArray body = reply->readAll();
+    // 读之前先看设备开没开：超时/掐断回来的那条已经不 open，readAll() 会甩
+    // `QIODevice::read ... device not open`（2026-10-18 日志里那一行就是它）。
+    // **仍然不拿 error() 当门**（理由见下面那条 ★★ 400 带正文的坑）。
+    const QByteArray body = reply->isOpen() ? reply->readAll() : QByteArray();
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
     // ★★ 2026-10-16（1.12.2 实测，用户报「明明有联网怎么老是失败」）：**先看回复里有没有
@@ -1956,7 +1969,7 @@ void VersionManager::onFabricProfileReply(QNetworkReply *reply) {
         return;
     }
 
-    const QByteArray body = reply->readAll();
+    const QByteArray body = reply->isOpen() ? reply->readAll() : QByteArray();
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
     if (reply->error() != QNetworkReply::NoError || !doc.isObject()) {
@@ -2099,7 +2112,7 @@ void VersionManager::onInstallerListReply(QNetworkReply *reply) {
         return;
     }
 
-    const QByteArray body = reply->readAll();
+    const QByteArray body = reply->isOpen() ? reply->readAll() : QByteArray();
     if (reply->error() != QNetworkReply::NoError) {
         if (retryInstallerListFromOfficial()) {
             return;
@@ -3013,7 +3026,7 @@ void VersionManager::onOptifineVersionListReply(QNetworkReply *reply, bool fromM
         return;
     }
 
-    const QByteArray body = reply->readAll();
+    const QByteArray body = reply->isOpen() ? reply->readAll() : QByteArray();
     if (reply->error() != QNetworkReply::NoError) {
         failLoaderInstall(tr("拿不到 %1 %2 的版本表（%3）。检查网络后重试。")
                               .arg(m_loaderInstall.loaderName, m_loaderInstall.gameVersion,
@@ -3138,7 +3151,7 @@ void VersionManager::onOptifineDownloadTokenReply(QNetworkReply *reply) {
         return;
     }
 
-    const QByteArray body = reply->readAll();
+    const QByteArray body = reply->isOpen() ? reply->readAll() : QByteArray();
     if (reply->error() != QNetworkReply::NoError) {
         failLoaderInstall(tr("拿不到 %1 %2 的下载地址（%3）。检查网络后重试。")
                               .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion,

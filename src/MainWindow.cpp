@@ -40,6 +40,9 @@
 // 内容区上面那一层（2026-09-25）：设置界面和各种提示都开在它里面，不再另开独立窗口。
 // 见它的文件头 —— ui/ 那边只管"开在哪儿、长什么样"，不认识业务。
 #include "..\ui\OverlayHost.hpp"
+// 安装页「预设」那一行点开的紧凑弹窗（coding plan §7.1）：四类各挑一份、看一眼计划。
+// 它只画外面喂进去的值（`ui/` 不读盘），所以这一边负责把 controller 算好的东西递进去。
+#include "..\ui\PresetInstallPicker.hpp"
 // QMessageBox 的替身（2026-09-25 换过来的）：`InlineMessage::warning(overlay, 标题, 正文)`
 // 顶掉原来的 `QMessageBox::warning(this, 标题, 正文)`。原来那些调用点**一行一行**对得上，
 // 语义一个字没变 —— 变的是"这一句说在哪"。
@@ -92,6 +95,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QLocale>
 // 拖进来的文件是从 QMimeData 上那串 url 读出来的（见 MainWindow::dropEvent）。
 #include <QMimeData>
 #include <QMenu>
@@ -177,6 +181,8 @@
 #include "manage/InstanceGroupStore.hpp"
 #include "manage/ModpackExport.hpp"
 #include "manage/ModpackImport.hpp"
+// 离线账号自己挑的那张皮肤（「账号与外观」→「换一张…」）—— 2026-10-18 加。
+#include "manage/OfflineSkin.hpp"
 #include "manage/PlayerSkinStore.hpp"
 #include "manage/RandomSkinStore.hpp"
 #include "manage/VersionDisplay.hpp"
@@ -1444,14 +1450,17 @@ MainWindow::MainWindow(QWidget *parent)
         m_ui, m_javaSettings, m_javaRuntimeController, this,
         JavaSettingsController::Host{[this](const QString &text) { appendLog(text); }}, this);
     // 「实例预设」那一页（coding plan §6 P1 / §7）：页面、增删改、提取、计划、备份、落盘
-    // 全在 PresetController 里；这儿只把"实例叫什么 / 在不在跑 / 日志往哪儿写"三样递过去。
+    // 全在 PresetController 里；这儿只把"实例叫什么 / 在不在跑 / 日志往哪儿写"三样递过去，
+    // 以及实例页第三档那个宿主（页面由 controller 自己塞进去）。
     m_presetController = new PresetController(
-        m_versionManager, m_ui->overlay(), this,
+        m_versionManager, m_ui->getInstancePresetPage(),
         PresetController::Host{
             [this](const QString &id) { return instanceDisplayName(id); },
             [this](const QString &id) { return m_launcherManager->isVersionRunning(id); },
             [this](const QString &text) { appendLog(text); }},
         this);
+    // 模组兼容检查里 CurseForge 那一侧要用同一个 key（设置里填过才算可用）。
+    m_presetController->setCurseForgeApiKey(m_settings->curseForgeApiKey());
     m_launcherPreferences = new LauncherPreferencesController(
         m_ui, m_settings, m_javaSettings, m_versionManager, m_resourceStore,
         LauncherPreferencesController::Host{
@@ -2704,8 +2713,15 @@ QPixmap MainWindow::accountFacePixmap(const SavedAccount &account) const {
             }
         }
     } else {
-        // ③ 离线账号优先用**他自己挑的那张**（RandomSkinStore 记在盘上的地址）。挑过就有
-        //    地址，图和正版走同一个缓存 —— 同一个账号在底栏、面板、主页看到的是同一张脸。
+        // ③ 离线账号优先用**他自己挑的那张**（「账号与外观」→「换一张…」，见 OfflineSkin）。
+        //    它排在这里是为了和 PlayerSkinController::reload() 的次序一致：那个函数里手动
+        //    挑的也排在随机 / 算出来的前面。次序不一致的症状就是"主页是这张、面板是那张"。
+        const QPixmap manualFace = faceFromTexture(OfflineSkin::skinPathFor(account.uuid));
+        if (!manualFace.isNull()) {
+            return manualFace;
+        }
+        // ④ 其次是**随机挑的那张**（RandomSkinStore 记在盘上的地址）。挑过就有地址，图和
+        //    正版走同一个缓存 —— 同一个账号在底栏、面板、主页看到的是同一张脸。
         //    NOTE: 认人用 account.uuid（离线账号的 uuid 是 md5("OfflinePlayer:"+名字)，
         //          和 startPlayerSkinLoad() 里读的是同一个值），不是 m_authManager 那个
         //          —— 后者对离线账号是空串。
@@ -2716,7 +2732,7 @@ QPixmap MainWindow::accountFacePixmap(const SavedAccount &account) const {
                 return face;
             }
         }
-        // ④ 再退一步：**算出来的**那张官方默认皮肤的缓存图（见 DefaultSkin）。
+        // ⑤ 再退一步：**算出来的**那张官方默认皮肤的缓存图（见 DefaultSkin）。
         //
         //    它的缓存名带三段（账号 / 版本 / 条目），所以这里得先猜"当初是按哪个实例算的"。
         //    猜错只是 QFile::exists 落空，**绝不会触发读 JAR** —— 那一条路要起一次
@@ -2762,6 +2778,10 @@ void MainWindow::updateSkinHint() {
     if (facts.hasSkin) {
         if (!facts.offline) {
             hint->setText(MainWindowUI::skinHintLoadedText(name, facts.hasCape));
+        } else if (facts.offlineCustomSkin) {
+            // 用户自己挑的那张（「账号与外观」→「换一张…」）：这是明确的选择，既不是
+            // "随机挑的"也不是"某个实例算出来的"，所以有它自己那一句。
+            hint->setText(MainWindowUI::skinHintOfflineCustomSkinText(name));
         } else if (!facts.offlineDefaultSkinVersionId.isEmpty()) {
             // 算出来的那张官方默认皮肤（见 DefaultSkin）：说得比"随机挑的"准一点 —— 这是
             // 那个版本的客户端本来就会给他分配的那一张。版本号**不是废话**：换版本这张脸
@@ -3438,16 +3458,10 @@ void MainWindow::openInstallPage(const QString &gameVersion) {
     // 名称框里的默认值：勾的是「不装」时就是原版号本身（那正是"装原版"这条老路）。
     updateInstallName();
 
-    // 实例预设那一格（§7）。每进一次这一页重灌一次：盘上有哪几份预设是数据层的事，
-    // 界面这边只负责摆。**用户自己选过的那一份优先**（`m_installPresetTouched`）——
-    // 默认项只在"他没选过"时说话，不然设了一个新默认就会把他手里的选择偷偷换掉。
-    if (m_presetController != nullptr) {
-        m_presetController->fillInstallSelector(m_ui->getInstallPresetCombo(),
-                                                m_installPresetChoice,
-                                                m_installPresetTouched);
-    }
-    // 「安装完成后应用」那一勾**不跟着翻页重置**：勾了它说明用户这一轮就想这么装，
-    // 换一个版本再看一眼不该让他的选择悄悄没了（那一格建出来时本来就是不勾的）。
+    // 实例预设那一行（§7.1）：摘要按 `m_installPresetChoices` 刷一遍。
+    // ★ 用户的选择**不跟着翻页重置**：换一个版本再看一眼，不该让他已经挑好的
+    //   哪几类预设悄悄没了（取消弹窗也不写它 —— 见 openInstallPresetPicker()）。
+    updateInstallPresetSummary();
 
     // 树那一层留着不动（用户按返回时回的就是它，连展开状态都还在）。
     m_ui->getGameStack()->setCurrentIndex(MainWindowUI::downloadGameInstallIndex());
@@ -3505,6 +3519,11 @@ int MainWindow::selectedLoaderIndex() const {
 }
 
 QTreeWidgetItem *MainWindow::loaderItem(int loaderIndex) const {
+    // 负数是「预设」那一行的哨兵（`installPresetRowRole()`），不是加载器下标 ——
+    // 放进去会正好把它找出来（那个 UserRole 就是 -1）。
+    if (loaderIndex < 0) {
+        return nullptr;
+    }
     QTreeWidget *tree = m_ui->getLoaderTree();
     if (tree == nullptr) {
         return nullptr;
@@ -3825,7 +3844,14 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
                 //   抓的是**此刻**这一位的值（下一轮里它可能已经变了）。
                 const QString instanceId = m_downloadFromInstanceId;
                 QTimer::singleShot(0, this, [this, iconKey, kindKey, instanceId] {
-                    openResourceDetailPage(iconKey, kindKey, DetailSource::Download, instanceId);
+                    // ★ 2026-10-18（coding plan §1.4 那两处之二）：从前覆盖层被别的页占着
+                    //   时（典型场面：实例设置那一页**收着**、用户切到下载页逛），下面
+                    //   `openResourceDetailPage()` 开头那条 `isOpen()` 会把这一下当场吃掉
+                    //   —— 用户点了行身，屏幕上一个反应都没有。现在先让位：静默收掉占着的
+                    //   那一层，再开（让位那一段的唯一出处是 `runWhenOverlayFree()`）。
+                    runWhenOverlayFree([this, iconKey, kindKey, instanceId] {
+                        openResourceDetailPage(iconKey, kindKey, DetailSource::Download, instanceId);
+                    });
                 });
             }
             return true;
@@ -4162,6 +4188,14 @@ void MainWindow::refreshDownloadCategory(int row) {
     if (row < 0 || row >= keys.size()) {
         // 过滤器交上来的行号理论上一定在表里（那一行是 MainWindowUI 按这张表建出来的），
         // 越界只可能是"表和列表对不上了"那种时候 —— 什么都不做比按错一页去做强。
+        return;
+    }
+    if (row == MainWindowUI::downloadCategoryServerIndex()) {
+        // 「服务端」那一栏**没有"重新问一遍"这回事**（2026-10-18）：它不向任何资源站
+        // 问东西，那一页只有一句说明 + 一颗「新建服务端…」。界面上那颗行尾刷新和页头
+        // 刷新在这一栏都已经不露了（见 MainWindowUI），这里再挡一道是因为
+        // `refreshDownloadCategory()` 还有别的调用点（键盘/测试），不能靠"用户点不到"
+        // 当保证。
         return;
     }
     // 点的那一类要是现在没选中的，先切过去 —— 不切的话请求飞出去了、结果落在看不见的
@@ -5738,6 +5772,9 @@ void MainWindow::setInstanceMode(MainWindowUI::InstanceMode mode) {
         // 切到服务端那一页时顺手重扫一遍：盘上那个 Servers/ 可能刚被别的东西动过
         // （用户在资源管理器里删了一个、或者拖进来一个装好的）。
         refreshServerList();
+    } else if (mode == MainWindowUI::InstanceMode::Preset && m_presetController != nullptr) {
+        // 预设那一页是常驻的，切过来时刷新一遍（列表 / 实例下拉框都可能刚变过）。
+        m_presetController->open();
     }
 }
 
@@ -8765,52 +8802,285 @@ void MainWindow::onInstallNameEdited() {
 // 安装页：实例预设（coding plan §7）
 // ---------------------------------------------------------------------------
 
-void MainWindow::onInstallPresetChosen() {
-    // 「用户自己选过」这件事从此刻起成立 —— 默认项不再顶掉它（§7 那句原话）。
-    // **连"不使用预设"也算一种选择**：用户明确清掉之后，下一次进来不该又被默认那份顶上。
-    m_installPresetTouched = true;
-    if (QComboBox *combo = m_ui->getInstallPresetCombo()) {
-        m_installPresetChoice = combo->currentData().toString();
+QTreeWidgetItem *MainWindow::installPresetRowItem() const {
+    QTreeWidget *tree = m_ui->getLoaderTree();
+    if (tree == nullptr) {
+        return nullptr;
     }
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem *item = tree->topLevelItem(i);
+        if (item->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt() ==
+            MainWindowUI::installPresetRowRole()) {
+            return item;
+        }
+    }
+    return nullptr;
 }
 
-void MainWindow::onInstallPresetViewClicked() {
+void MainWindow::updateInstallPresetSummary() {
+    QTreeWidgetItem *item = installPresetRowItem();
+    if (item == nullptr) {
+        return;
+    }
+    int selected = 0;
+    for (auto it = m_installPresetChoices.constBegin();
+         it != m_installPresetChoices.constEnd(); ++it) {
+        if (!it.value().isEmpty()) {
+            ++selected;
+        }
+    }
+    item->setData(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::rowSubTextRole(),
+                  MainWindowUI::installPresetSummaryText(selected));
+}
+
+QList<QPair<QString, QString>> MainWindow::currentInstallPresetSelections() const {
+    QList<QPair<QString, QString>> out;
+    // 按四类的次序（不是 QMap 的字典序）：显示 / 应用 / 日志里那几句话的次序要一样。
+    for (const PresetController::InstallCategory &category : PresetController::installCategories()) {
+        const QString id = m_installPresetChoices.value(category.key);
+        if (!id.isEmpty()) {
+            out.append({category.key, id});
+        }
+    }
+    return out;
+}
+
+void MainWindow::openInstallPresetPicker() {
     if (m_presetController == nullptr) {
-        return;
-    }
-    QComboBox *combo = m_ui->getInstallPresetCombo();
-    const QString presetId = combo == nullptr ? QString() : combo->currentData().toString();
-    if (presetId.isEmpty()) {
-        InlineMessage::information(
-            m_ui->overlay(), tr("没有选预设"),
-            tr("这个下拉框里现在是「不使用预设」：装好之后什么都不改。\n\n"
-               "要看看某一份预设会做什么，先在左边挑一份。"));
+        InlineMessage::warning(m_ui->overlay(), tr("预设不可用"),
+                               tr("这一份启动器里预设那一层没有初始化，没法挑预设。"));
         return;
     }
 
-    const QString name = m_ui->getInstallNameEdit()->text().trimmed();
-    const PresetController::InstallPreview preview =
-        m_presetController->previewForInstall(presetId, name);
+    // 这一趟弹窗里改的东西**只落在这张本地草稿上**：取消 / 点「前往预设管理」都
+    // 不写 `m_installPresetChoices`（§7.1 验收：取消不丢安装配置）。
+    QMap<QString, QString> draft = m_installPresetChoices;
 
-    // 这一格是**只读**的：它算的那份计划就是"装好之后会落成什么样"，一个字节都不写。
-    // 打不开（读不回来 / 目标那份 options.txt 读不动）也如实说，不吞。
-    if (!preview.ok || !preview.blockedReason.isEmpty() || !preview.problem.isEmpty()) {
-        const QString why = !preview.problem.isEmpty() ? preview.problem : preview.blockedReason;
-        InlineMessage::warning(m_ui->overlay(), tr("这份预设现在不能用"),
-                               why.isEmpty() ? tr("这一份算不出计划。") : why);
+    const QString instanceName = m_ui->getInstallNameEdit()->text().trimmed();
+    struct StatusText {
+        QString status;
+        QStringList reasons;
+        bool problem = false;
+    };
+    // 一份预设"对着这个还没装出来的实例"会做什么 —— **只读**。状态行只说结论，
+    // 原因（缺失 / 未知 / 跳过 / 覆盖）收在下面那块可展开的地方。
+    const auto describe = [this, &instanceName](const QString &presetId) {
+        StatusText out;
+        if (presetId.isEmpty()) {
+            return out;
+        }
+        if (instanceName.isEmpty()) {
+            out.status = tr("先在上面填好版本名称。");
+            out.problem = true;
+            return out;
+        }
+        const PresetController::InstallPreview preview =
+            m_presetController->previewForInstall(presetId, instanceName);
+        if (!preview.problem.isEmpty()) {
+            out.status = preview.problem;
+            out.problem = true;
+            return out;
+        }
+        if (!preview.blockedReason.isEmpty()) {
+            out.status = preview.blockedReason;
+            out.problem = true;
+            return out;
+        }
+        if (!preview.ok) {
+            out.status = tr("这一份算不出计划。");
+            out.problem = true;
+            return out;
+        }
+        QString text = tr("会动 %1 项").arg(preview.itemCount);
+        if (preview.skippedCount > 0) {
+            text += tr("，跳过 %1 项").arg(preview.skippedCount);
+        }
+        if (preview.blockedCount > 0) {
+            text += tr("，%1 段做不了").arg(preview.blockedCount);
+        }
+        if (preview.needsConfirm) {
+            text += tr("，有一段「覆盖」要先确认");
+        }
+        out.status = text;
+        out.reasons = preview.reasons;
+        // 「要做不了 / 要确认」才染红；"跳过几项"是正常计划的一部分。
+        out.problem = preview.blockedCount > 0 || preview.needsConfirm;
+        return out;
+    };
+
+    QList<PresetInstallPicker::Category> categories;
+    // 「模组」那一类：状态行让给兼容检查（§7.2），计划那几行收进原因里。
+    const QString modsCategoryKey = Presets::presetCategoryKey(Presets::PresetCategory::Mods);
+    for (const PresetController::InstallCategory &one : PresetController::installCategories()) {
+        PresetInstallPicker::Category category;
+        category.key = one.key;
+        category.title = one.title;
+        for (const Presets::PresetSummary &preset :
+             m_presetController->presetsInCategory(one.key)) {
+            category.options.append({preset.id, preset.name, true});
+        }
+        category.selectedId = draft.value(one.key);
+        // 选过、但盘上已经不在的那一份：**留在下拉框里**并标出来（§7.1「已删除/损坏的
+        // 所选项明确提示，不静默换为另一项」）。名字也读不出来了，只能拿 id 认。
+        if (!category.selectedId.isEmpty()) {
+            bool found = false;
+            for (const PresetInstallPicker::Option &option : category.options) {
+                if (option.id == category.selectedId) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                category.options.append({category.selectedId, category.selectedId, false});
+            }
+            if (one.key == modsCategoryKey) {
+                // 模组引用要联网查（本地/缓存那部分立刻就出来），先摆一句"正在检查"。
+                category.status = tr("正在检查模组兼容性…");
+                category.problem = false;
+            } else {
+                const StatusText status = describe(category.selectedId);
+                category.status = status.status;
+                category.reasons = status.reasons;
+                category.problem = status.problem;
+            }
+        }
+        categories.append(category);
+    }
+
+    // ★ 这一块**必须在堆上**：`InlineMessageBox::setContent()` 会 `setParent(box)`，
+    //   弹窗析构时按 QObject 的老规矩把子控件一起 delete。栈对象被 delete 是未定义行为
+    //   （2026-10-18 实测：mw_check 点到这一行时整个进程直接没了）。
+    auto *picker = new PresetInstallPicker();
+    const QString pickerLoaderName =
+        VersionManager::loaderKindFromIndex(m_selectedLoaderIndex, nullptr)
+            ? MainWindowUI::modLoaderOptionTexts().value(m_selectedLoaderIndex)
+            : QString();
+    picker->setContext(m_installGameVersion, pickerLoaderName);
+    picker->setCategories(categories);
+
+    InlineMessageBox box(MessageKind::Question, MainWindowUI::installPresetPickerTitle(),
+                         QString(),
+                         {MainWindowUI::installPresetConfirmText(),
+                          MainWindowUI::installPresetCancelText()},
+                         0, -1, this);
+    box.setContent(picker);  // box 接管它（弹窗析构时一起 delete）
+    box.setNote(tr("取消不会改动这里已经选好的预设；装好之后按这里选的那几类应用。"));
+
+    // 兼容检查那几行：一条引用一行（匹配的不列，只说有问题的 + 暂无法确认的）。
+    const auto modCompatReasons = [](const QList<Presets::CompatibilityResult> &results) {
+        QStringList out;
+        for (const Presets::CompatibilityResult &result : results) {
+            if (result.state == Presets::CompatibilityState::Matched) {
+                continue;
+            }
+            QString stateText;
+            switch (result.state) {
+            case Presets::CompatibilityState::Missing:
+                stateText = tr("缺失");
+                break;
+            case Presets::CompatibilityState::Unknown:
+                stateText = tr("暂无法确认");
+                break;
+            case Presets::CompatibilityState::Invalid:
+                stateText = tr("引用无法识别");
+                break;
+            case Presets::CompatibilityState::Pending:
+            case Presets::CompatibilityState::Checking:
+                stateText = tr("检查中");
+                break;
+            case Presets::CompatibilityState::Matched:
+                continue;
+            }
+            const QString name = result.name.isEmpty() ? result.projectId : result.name;
+            QString line = QStringLiteral("%1（%2）").arg(name, stateText);
+            if (!result.detail.isEmpty()) {
+                line += QStringLiteral("：%1").arg(result.detail);
+            }
+            line += result.required ? tr("【必要项】") : tr("【可选项】");
+            out.append(line);
+        }
+        return out;
+    };
+
+    // 兼容检查的每一发都只写到「模组」那一页 —— 且只有现在选的还是同一份时才写
+    // （换了一份 / 收掉弹窗前那一刻，旧 generation 的快照不许盖掉新的）。
+    QObject::connect(m_presetController, &PresetController::modCheckUpdated, &box,
+                     [picker, modsCategoryKey, modCompatReasons](
+                         const PresetController::ModCheckUpdate &update) {
+                         if (update.presetId.isEmpty() ||
+                             picker->selectedId(modsCategoryKey) != update.presetId) {
+                             return;
+                         }
+                         const bool problem = update.summary.requiredMissing > 0 ||
+                                              update.summary.invalid > 0;
+                         picker->setStatus(modsCategoryKey, update.summary.text(),
+                                           modCompatReasons(update.results), problem);
+                     });
+    // 弹窗一关就作废这一代（在途请求的回调按 generation 丢掉，不再擦已经关掉的那几行）。
+    QObject::connect(&box, &QObject::destroyed, m_presetController,
+                     [this]() { m_presetController->cancelModCheck(); });
+
+    // 换一份就现算一次（还是只读）。算不出来也照实写在那一行上 —— 别把上一份的数留着。
+    // ★ 模组那一类的状态行归兼容检查（§7.2），计划那几句收进「查看计划与原因」里。
+    QObject::connect(
+        picker, &PresetInstallPicker::selectionChanged, &box,
+        [this, picker, &describe, modsCategoryKey, pickerLoaderName](const QString &key,
+                                                                    const QString &presetId) {
+            const StatusText status = describe(presetId);
+            if (key != modsCategoryKey) {
+                picker->setStatus(key, status.status, status.reasons, status.problem);
+                return;
+            }
+            if (presetId.isEmpty()) {
+                m_presetController->cancelModCheck();
+                picker->setStatus(key, QString(), {}, false);
+                return;
+            }
+            QStringList reasons = status.reasons;
+            if (!status.status.isEmpty()) {
+                reasons.prepend(status.status);
+            }
+            picker->setStatus(key, tr("正在检查模组兼容性…"), reasons, status.problem);
+            m_presetController->startModCheck(presetId, m_installGameVersion, pickerLoaderName,
+                                              true);
+        });
+
+    // 打开时已经选着的那一份：立刻开查（本地能判的那几条同步就出来，其余排队）。
+    const QString initialModsPreset = draft.value(modsCategoryKey);
+    if (!initialModsPreset.isEmpty()) {
+        m_presetController->startModCheck(initialModsPreset, m_installGameVersion,
+                                          pickerLoaderName, true);
+    }
+
+    // 「前往预设管理」：收掉这张弹窗，**把用户带过去**，安装上下文一个字都不动。
+    bool goManage = false;
+    QObject::connect(picker, &PresetInstallPicker::manageRequested, &box, [this, &goManage]() {
+        goManage = true;
+        // 走 dismiss()：提示那一档发 promptDismissed ⇒ execPrompt 的嵌套循环醒过来。
+        // 直接 closeOverlay() 的话调用方要一直等下去（见 OverlayHost 那段）。
+        m_ui->overlay()->dismiss();
+    });
+
+    m_ui->overlay()->execPrompt(&box);
+    if (goManage) {
+        // 安装页那一趟的状态全在内存里（版本 / 名字 / 已选的几类）—— 切过去再切回来
+        // 还是原来那一份（§7.1「保留安装上下文并返回」）。
+        m_ui->getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
+        setInstanceMode(MainWindowUI::InstanceMode::Preset);
+        return;
+    }
+    if (box.clickedIndex() != 0) {
+        // 取消 / Esc / 点外面：草稿整个丢掉，界面上的摘要一个字都不变。
         return;
     }
 
-    InlineMessageBox box(MessageKind::Information,
-                         tr("预设「%1」会做什么").arg(preview.presetName),
-                         preview.summary, {tr("知道了")}, 0, -1, this);
-    if (!preview.lines.isEmpty()) {
-        box.setList(preview.lines, -1);
+    // 点「确定选择」：**整张表按弹窗里现在那几项重建**（不能只往里 insert —— 用户把
+    // 某一类改回「不使用」时，旧的那一条必须消失）。
+    m_installPresetChoices.clear();
+    for (const QPair<QString, QString> &one : picker->selections()) {
+        m_installPresetChoices.insert(one.first, one.second);
     }
-    if (preview.needsConfirm) {
-        box.setNote(tr("标了 ⚠ 的那几段是「覆盖」：到时候要先确认一次才会真动手。"));
-    }
-    m_ui->overlay()->execPrompt(&box, true);
+    updateInstallPresetSummary();
 }
 
 void MainWindow::onInstallButtonClicked() {
@@ -8854,53 +9124,67 @@ void MainWindow::onInstallButtonClicked() {
         appendLog(tr("开始校验 %1 的文件（已存在的会跳过）...").arg(name));
     }
 
-    // ---- 实例预设（2026-10-18，coding plan §7）：勾了就先把计划摊开 ----
+    // ---- 实例预设（coding plan §7.1）：带着走的那几份先把计划摊开 ----
     //
     // 这一步在**发请求之前**：用户看到的是"装好之后会改哪些文件、有没有覆盖"的精确计划，
     // 而不是装完了才发现某个段是「覆盖」。点了取消 ⇒ 整个安装也不开始（他取消的是这一次
     // "带预设的安装"，不是"不要装了"再点一次——但那两种在屏幕上分不开，宁可不做）。
     //
-    // ★ 三笔 pending 在这一刻定死：从点下安装到 versionDownloadFinished 之间用户还可能
-    //   去动下拉框，而那一动不该改变这一趟已经发出去的安装（见 MainWindow.hpp 那段）。
-    m_installPendingPresetId.clear();
+    // ★ pending 在这一刻定死：从点下安装到 versionDownloadFinished 之间用户还可能去改
+    //   弹窗里的选择，而那一动不该改变这一趟已经发出去的安装（见 MainWindow.hpp 那段）。
+    m_installPendingPresets.clear();
     m_installPendingPresetInstance.clear();
-    m_installPendingReplaceConfirmed = false;
-    QComboBox *presetCombo = m_ui->getInstallPresetCombo();
-    const QString presetId = presetCombo == nullptr ? QString()
-                                                    : presetCombo->currentData().toString();
-    if (m_ui->getInstallPresetApplyCheck()->isChecked() && !presetId.isEmpty()) {
+    const QList<QPair<QString, QString>> presetSelections = currentInstallPresetSelections();
+    if (!presetSelections.isEmpty()) {
         if (m_presetController == nullptr) {
             InlineMessage::warning(m_ui->overlay(), tr("预设不可用"),
                                    tr("这一份启动器里预设那一层没有初始化，没法应用预设。"));
             return;
         }
-        const PresetController::InstallPreview preview =
-            m_presetController->previewForInstall(presetId, name);
-        if (!preview.ok || !preview.blockedReason.isEmpty() || !preview.problem.isEmpty()) {
-            const QString why =
-                !preview.problem.isEmpty() ? preview.problem : preview.blockedReason;
-            InlineMessage::warning(m_ui->overlay(), tr("这份预设现在不能应用"),
-                                   why.isEmpty() ? tr("这一份算不出计划。") : why);
-            return;
+        // 四类里那几句标题（"游戏设置 / 模组 …"）只从 controller 拿，界面这边不抄一份。
+        const QList<PresetController::InstallCategory> categories =
+            PresetController::installCategories();
+
+        QStringList summaryLines;
+        QList<QPair<QString, bool>> pending;
+        for (const QPair<QString, QString> &one : presetSelections) {
+            const PresetController::InstallPreview preview =
+                m_presetController->previewForInstall(one.second, name);
+            if (!preview.ok || !preview.blockedReason.isEmpty() || !preview.problem.isEmpty()) {
+                const QString why =
+                    !preview.problem.isEmpty() ? preview.problem : preview.blockedReason;
+                QString title;
+                for (const PresetController::InstallCategory &category : categories) {
+                    if (category.key == one.first) {
+                        title = category.title;
+                        break;
+                    }
+                }
+                InlineMessage::warning(
+                    m_ui->overlay(), tr("这份预设现在不能应用"),
+                    tr("%1那一份「%2」：%3")
+                        .arg(title, preview.presetName,
+                             why.isEmpty() ? tr("这一份算不出计划。") : why));
+                return;
+            }
+            // ★ 每一份自己那一道「覆盖」闸：装好之后按这一格决定要不要再问一次。
+            pending.append({one.second, preview.needsConfirm});
+            summaryLines.append(
+                tr("· %1：%2").arg(preview.presetName, preview.summary));
         }
         InlineMessageBox box(
             MessageKind::Question, tr("安装完成后应用预设"),
-            tr("装好「%1」之后会把预设「%2」应用上去：\n\n%3")
-                .arg(name, preview.presetName, preview.summary),
+            tr("装好「%1」之后会把这些预设应用上去：\n\n%2")
+                .arg(name, summaryLines.join(QLatin1Char('\n'))),
             {tr("安装并应用"), tr("取消")}, 0, -1, this);
-        if (!preview.lines.isEmpty()) {
-            box.setList(preview.lines, -1);
-        }
         box.setNote(tr("应用前会把要改写的文件先备份到预设目录下的 backups/ 里。"));
         m_ui->overlay()->execPrompt(&box);
         if (box.clickedIndex() != 0) {
             appendLog(tr("已取消这次安装（带预设的那一趟）。"));
             return;
         }
-        m_installPendingPresetId = presetId;
+        m_installPendingPresets = pending;
         m_installPendingPresetInstance = name;
-        // 预览里用户已经看过「覆盖」那几行并点了「安装并应用」⇒ 收尾那一趟算已确认。
-        m_installPendingReplaceConfirmed = preview.needsConfirm;
     }
 
     QString installerJava = m_javaSettings->javaPath();
@@ -8994,6 +9278,36 @@ static QString downloadConcurrencyChoiceText(int value) {
     return QObject::tr("%1 个").arg(value);
 }
 
+/// 「下载速度上限」那颗下拉框里每一行的文字（2026-10-18，§9.2）。
+///
+/// 档位表在 `DownloadSpeedLimit.hpp`（字节/秒，**唯一出处**）；这里只有这一层的文字。
+/// 0 那一档写「不限」而不是「0 B/s」—— 用户读的是"限没限速"，不是那个数。
+static QString downloadSpeedLimitChoiceText(qint64 bytesPerSecond) {
+    if (bytesPerSecond <= 0) {
+        return QObject::tr("不限");
+    }
+    if (bytesPerSecond >= 1024 * 1024) {
+        return QObject::tr("%1 MB/s").arg(QLocale().toString(
+            double(bytesPerSecond) / (1024.0 * 1024.0), 'g', 3));
+    }
+    return QObject::tr("%1 KB/s").arg(bytesPerSecond / 1024);
+}
+
+/// 「代理」那颗下拉框里每一行的文字（2026-10-18，§9.2）。
+///
+/// 三档的语义在 `DownloadProxy.hpp`（唯一出处）；这里只有这一层的文字。
+static QString downloadProxyChoiceText(DownloadProxy::Mode mode) {
+    switch (mode) {
+    case DownloadProxy::Mode::Direct:
+        return QObject::tr("直连（不走代理）");
+    case DownloadProxy::Mode::Manual:
+        return QObject::tr("手动指定");
+    case DownloadProxy::Mode::System:
+        break;
+    }
+    return QObject::tr("跟随系统");
+}
+
 void MainWindow::applySettingsToUi() {
     // 灌值时把信号全挡上：下面这些控件现在反映的是**盘上的值**，不是用户改的。
     // 不挡的话每条 currentIndexChanged/valueChanged 都会触发一遍"保存"，白写几次盘，
@@ -9001,6 +9315,9 @@ void MainWindow::applySettingsToUi() {
     const QSignalBlocker blockBehaviour(m_ui->getLauncherBehaviourCombo());
     const QSignalBlocker blockSource(m_ui->getDownloadSourceCombo());
     const QSignalBlocker blockConcurrency(m_ui->getDownloadConcurrencyCombo());
+    const QSignalBlocker blockSpeedLimit(m_ui->getDownloadSpeedLimitCombo());
+    const QSignalBlocker blockProxyMode(m_ui->getDownloadProxyCombo());
+    const QSignalBlocker blockProxyManual(m_ui->getDownloadProxyManualEdit());
     const QSignalBlocker blockShowLog(m_ui->getShowGameLogCheck());
     const QSignalBlocker blockWarnDuplicate(m_ui->getWarnDuplicateLaunchCheck());
     const QSignalBlocker blockWarnWorldLoss(m_ui->getWarnWorldLossCheck());
@@ -9126,6 +9443,40 @@ void MainWindow::applySettingsToUi() {
         selectByEnumData(concurrencyCombo, concurrency);
     }
 
+    // ---------- 「下载速度上限」（2026-10-18，§9.2） ----------
+    // 和上面那格同一个形状。★ itemData 存的是 **int**（最大 1 GiB = 1073741824，装得下），
+    // 读的时候再转回 qint64 —— 别在这里用 toLongLong 之后又 findData(int)，两边对不上
+    // 就会"盘上有值、框里却停在第一项"。
+    QComboBox *speedLimitCombo = m_ui->getDownloadSpeedLimitCombo();
+    const QList<qint64> speedPresets = DownloadSpeedLimit::presets();
+    for (qint64 value : speedPresets) {
+        speedLimitCombo->addItem(downloadSpeedLimitChoiceText(value), int(value));
+    }
+    {
+        const qint64 limit = m_settings->downloadSpeedLimit();
+        // 手改过配置、落在合法区间里的表外值：补一格（理由和上面并发数那条一样）。
+        if (!speedPresets.contains(limit)) {
+            speedLimitCombo->addItem(
+                tr("%1（自定义）").arg(downloadSpeedLimitChoiceText(limit)), int(limit));
+        }
+        selectByEnumData(speedLimitCombo, int(limit));
+    }
+
+    // ---------- 「代理」（2026-10-18，§9.2） ----------
+    // 三档那个表在 DownloadProxy.hpp（**唯一出处**）；itemData 存 int(枚举)。
+    // 手动地址那一格只在「手动」档露出来（藏起来时连位置都不占 —— 它是这一行里的第二块，
+    // 露着的话另外两档会白白多出一格空白输入框）。
+    QComboBox *proxyCombo = m_ui->getDownloadProxyCombo();
+    for (DownloadProxy::Mode mode : DownloadProxy::modes()) {
+        proxyCombo->addItem(downloadProxyChoiceText(mode), int(mode));
+    }
+    selectByEnumData(proxyCombo, int(m_settings->proxyMode()));
+    {
+        QLineEdit *manual = m_ui->getDownloadProxyManualEdit();
+        manual->setText(m_settings->proxyManualText());
+        manual->setVisible(m_settings->proxyMode() == DownloadProxy::Mode::Manual);
+    }
+
     // CurseForge 的 API key（同一个「下载源」组里）。信号已经被上面那几个 blocker 挡上了。
     m_ui->getCurseForgeApiKeyEdit()->setText(m_settings->curseForgeApiKey());
 
@@ -9143,6 +9494,11 @@ void MainWindow::applySettingsToUi() {
     syncDownloadSource();
     // 「同时最多下几个」同理：不等用户去设置页改，开机那一刻就按盘上那一档发请求。
     syncDownloadConcurrency();
+    // 「下载速度上限」同理：开机那一刻就按盘上那一档压着（0 = 不限）。
+    syncDownloadSpeedLimit();
+    // 「代理」同理：**这是要在任何请求发出去之前装的** —— 别的几项只影响下载器，
+    // 这一项是进程级的（版本清单、皮肤、资源搜索全走它）。
+    syncDownloadProxy();
     // CurseForge 那两项同理（虽然要等到导入整合包才用得上）。
     syncCurseForgeSettings();
 }
@@ -9181,16 +9537,6 @@ void MainWindow::openJavaManage() {
 
 void MainWindow::openJavaManageNow() {
     m_javaSettingsController->openManagePage();
-}
-
-void MainWindow::openPresetManage() {
-    runWhenOverlayFree([this] { openPresetManageNow(); });
-}
-
-void MainWindow::openPresetManageNow() {
-    if (m_presetController != nullptr) {
-        m_presetController->open();
-    }
 }
 
 void MainWindow::pushJavaRowsToPage() {
@@ -9250,6 +9596,18 @@ void MainWindow::onDownloadSourceChanged() {
 
 void MainWindow::onDownloadConcurrencyChanged() {
     m_launcherPreferences->downloadConcurrencyChanged();
+}
+
+void MainWindow::onDownloadSpeedLimitChanged() {
+    m_launcherPreferences->downloadSpeedLimitChanged();
+}
+
+void MainWindow::onDownloadProxyModeChanged() {
+    m_launcherPreferences->downloadProxyModeChanged();
+}
+
+void MainWindow::onDownloadProxyManualChanged() {
+    m_launcherPreferences->downloadProxyManualChanged();
 }
 
 void MainWindow::onDownloadAutoIntoInstanceChanged() {
@@ -9382,12 +9740,24 @@ void MainWindow::syncDownloadConcurrency() {
     m_launcherPreferences->syncDownloadConcurrency();
 }
 
+void MainWindow::syncDownloadSpeedLimit() {
+    m_launcherPreferences->syncDownloadSpeedLimit();
+}
+
+void MainWindow::syncDownloadProxy() {
+    m_launcherPreferences->syncDownloadProxy();
+}
+
 void MainWindow::syncCurseForgeSettings() {
     m_launcherPreferences->syncCatalogCredentials();
 }
 
 void MainWindow::onCurseForgeApiKeyEdited() {
     m_launcherPreferences->curseForgeApiKeyEdited();
+    // 兼容检查那条路读的是同一份设置（用户改完立刻生效，不用重启）。
+    if (m_presetController != nullptr) {
+        m_presetController->setCurseForgeApiKey(m_settings->curseForgeApiKey());
+    }
 }
 
 void MainWindow::onVersionNameOptionChanged() {
@@ -9632,24 +10002,32 @@ void MainWindow::openHomeInstancePicker() {
 // 所以这里没有任何"界面布局"的代码，那边也没有任何"读注册表"的代码。
 
 void MainWindow::onAccountSkinButtonClicked() {
-    setupAccountSkinDialog();
-    OverlayHost *overlay = m_ui->overlay();
-    if (overlay == nullptr || overlay->isOpen()) {
-        // 已经有覆盖层开着（另一页、或者一条提示）。这一层不做页面栈，这一次就不开了
-        // —— 和 `openPage()` 返回 nullptr 是同一件事，见 OverlayHost.hpp 那段。
-        return;
-    }
-    // 从"另开一个窗"改成"把内容区整块盖掉"（2026-09-25 用户给的方向：最终不出现独立窗口）。
-    // 原来是**非模态** show()，理由是登录那一步会把浏览器推到前台、用户要在两边来回切；
-    // 嵌进内容区之后这一点照旧成立 —— execPage 内部那个嵌套事件循环一直在转，界面是活的，
-    // 浏览器本来也是外面的独立窗，谁都拦不着它。
-    //
-    // NOTE: 顺序照旧是**先摆出来、再刷新**。refreshAccountSkin() 最后那一段会去拉披风列表
-    //       （真联网，最长能等十几秒），倒过来做的话头一次点这个入口就是"什么也没发生"
-    //       —— 页面还没画出来，那个请求已经在跑了，用户只会以为按钮点坏了。
-    //       这里排一发队：execPage 一进它自己的嵌套循环就先跑这一发，那时页面已经在屏幕上了。
-    QMetaObject::invokeMethod(this, [this] { refreshAccountSkin(); }, Qt::QueuedConnection);
-    overlay->execPage(m_accountSkinDialog, AccountSkinDialog::windowTitle());
+    // ★ 2026-10-18（coding plan §1.4 那两处之一）：这一颗原来在"覆盖层已经开着"时**直接
+    //   return** —— 屏幕上什么都不发生。典型场面：用户在别的选项卡上逛，实例设置那一页
+    //   还收着占住那一层；这时按「账号与外观」看着就是"按钮点坏了"。现在并进同一套规矩：
+    //   **静默收掉占着的那一层，再开**（让位那一段的唯一出处是 `runWhenOverlayFree()`）。
+    runWhenOverlayFree([this] {
+        setupAccountSkinDialog();
+        OverlayHost *overlay = m_ui->overlay();
+        if (overlay == nullptr) {
+            return;  // 没有覆盖层就开不了（主界面建的时候就有，正常到不了这一支）
+        }
+        // 从"另开一个窗"改成"把内容区整块盖掉"（2026-09-25 用户给的方向：最终不出现独立窗口）。
+        // 原来是**非模态** show()，理由是登录那一步会把浏览器推到前台、用户要在两边来回切；
+        // 嵌进内容区之后这一点照旧成立 —— execPage 内部那个嵌套事件循环一直在转，界面是活的，
+        // 浏览器本来也是外面的独立窗，谁都拦不着它。
+        //
+        // NOTE: 顺序照旧是**先摆出来、再刷新**。refreshAccountSkin() 最后那一段会去拉披风列表
+        //       （真联网，最长能等十几秒），倒过来做的话头一次点这个入口就是"什么也没发生"
+        //       —— 页面还没画出来，那个请求已经在跑了，用户只会以为按钮点坏了。
+        //       这里排一发队：execPage 一进它自己的嵌套循环就先跑这一发，那时页面已经在屏幕上了。
+        QMetaObject::invokeMethod(this, [this] { refreshAccountSkin(); }, Qt::QueuedConnection);
+        // 那一发刷新排在 execPage 的嵌套循环里才跑；先把「皮肤」那一行摆对，免得开页的第一帧
+        // 露的是正版才有的「上传皮肤…」（离线账号按下去只会失败）。
+        m_accountSkinDialog->setOfflineSkinState(offlineIdentity(),
+                                                 OfflineSkin::hasSkin(AccountStore::activeUuid()));
+        overlay->execPage(m_accountSkinDialog, AccountSkinDialog::windowTitle());
+    });
 }
 
 void MainWindow::setupAccountSkinDialog() {
@@ -9671,6 +10049,11 @@ void MainWindow::setupAccountSkinDialog() {
             [this] { refreshAccountSkin(); });
     connect(m_accountSkinDialog, &AccountSkinDialog::skinUploadRequested, this,
             &MainWindow::onSkinUploadRequested);
+    // 离线账号那一档（「换一张…」/「恢复默认外观」）：改的是本机那份，不是官方档案。
+    connect(m_accountSkinDialog, &AccountSkinDialog::offlineSkinPickRequested, this,
+            &MainWindow::onOfflineSkinPickRequested);
+    connect(m_accountSkinDialog, &AccountSkinDialog::offlineSkinResetRequested, this,
+            &MainWindow::onOfflineSkinResetRequested);
     connect(m_accountSkinDialog, &AccountSkinDialog::capeSelectRequested, this,
             &MainWindow::onCapeSelectRequested);
     connect(m_accountSkinDialog, &AccountSkinDialog::hideCapeRequested, this,
@@ -9735,6 +10118,13 @@ void MainWindow::refreshAccountSkin() {
     //    同步请求已经回来了（下面第 4 步会再离开这个方法去联网）。
     m_accountSkinDialog->setBusy(false);
     m_accountSkinDialog->setStatusText(accountSkinStatusText());
+    // 「皮肤」那一行露哪一档（正版：上传；离线：换一张 / 恢复默认）。判据和下面那句
+    // `if (offlineIdentity())` 同一个出处，只是这里要的是"有没有自己挑过"那一格。
+    {
+        const QString activeUuid = AccountStore::activeUuid();
+        m_accountSkinDialog->setOfflineSkinState(
+            offlineIdentity(), OfflineSkin::hasSkin(activeUuid));
+    }
 
     // 3) 3D 预览走**和主页同一条路**（同一份缓存、同一次后台刷新）：applyPlayerSkin()
     //    会把同一份贴图同时喂给主页那个小人和这个窗里的预览。
@@ -10088,6 +10478,57 @@ void MainWindow::onSkinUploadRequested(const QString &path, const QString &varia
     }
     appendLog(tr("皮肤已上传（模型 %1）。").arg(variant));
     // 换完立刻重拉一遍：预览要显示**刚传上去的**那一张，而不是等下次开窗。
+    refreshAccountSkin();
+}
+
+void MainWindow::onOfflineSkinPickRequested(const QString &path, const QString &variant) {
+    // 离线账号那一颗。**尺寸那条规矩仍然只在 SkinApi::isAcceptableSkinSize() 里**
+    // （和正版上传那条路同一个出处，见 onSkinUploadRequested）。
+    const QString uuid = AccountStore::activeUuid();
+    if (!AccountStore::isOffline(uuid)) {
+        // 界面上这一颗只在离线档露着；真走到这里说明状态已经变了（比如另一处刚切了账号）。
+        InlineMessage::warning(m_ui->overlay(), tr("换皮肤失败"),
+                               tr("当前不是离线账号，这一张没有换。"));
+        return;
+    }
+    const QString fileName = QFileInfo(path).fileName();
+    const QImage image(path);
+    if (image.isNull()) {
+        InlineMessage::warning(m_ui->overlay(), tr("换皮肤失败"),
+                               tr("读不到「%1」这张图（或者它不是一张能读出来的图片）。")
+                                   .arg(fileName));
+        return;
+    }
+    if (!SkinApi::isAcceptableSkinSize(image.width(), image.height())) {
+        InlineMessage::warning(m_ui->overlay(), tr("换皮肤失败"),
+                               tr("皮肤图必须是 64×64（新格式）或者 64×32（老格式），这张是 "
+                                  "%1×%2。")
+                                   .arg(image.width())
+                                   .arg(image.height()));
+        return;
+    }
+    QString error;
+    if (!OfflineSkin::save(uuid, image, variant, &error)) {
+        InlineMessage::warning(m_ui->overlay(), tr("换皮肤失败"), error);
+        return;
+    }
+    appendLog(tr("已换成自己挑的皮肤（模型 %1）。").arg(OfflineSkin::loadModel(uuid)));
+    // 重走一遍：主页的小人、底栏的头像、这一页的 3D 预览都是同一份图（见
+    // PlayerSkinController::reload() 里手动那张排在最前面）。
+    refreshAccountSkin();
+}
+
+void MainWindow::onOfflineSkinResetRequested() {
+    const QString uuid = AccountStore::activeUuid();
+    if (!AccountStore::isOffline(uuid)) {
+        return;  // 这一颗只在离线档露着，同上
+    }
+    if (!OfflineSkin::clear(uuid)) {
+        InlineMessage::warning(m_ui->overlay(), tr("恢复默认外观失败"),
+                               tr("删不掉之前挑的那张皮肤，检查一下 data 目录的权限。"));
+        return;
+    }
+    appendLog(tr("已恢复默认外观。"));
     refreshAccountSkin();
 }
 
@@ -12679,24 +13120,35 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
     //   另一句话。所以 `success` 原样传下去，预设那一句并进结果文本里（见下面那一段）。
     QString resultMessage = errorMessage;
     QString presetApplyProblem;
-    if (wasInstallingInstance && success && !m_installPendingPresetId.isEmpty() &&
+    if (wasInstallingInstance && success && !m_installPendingPresets.isEmpty() &&
         m_installPendingPresetInstance == versionId) {
         if (m_presetController != nullptr) {
-            const PresetController::InstallApply outcome = m_presetController->applyAfterInstall(
-                m_installPendingPresetId, versionId, m_installPendingReplaceConfirmed);
-            if (outcome.ok) {
-                resultMessage = errorMessage + QStringLiteral("\n\n") + outcome.message;
+            QStringList applied;
+            QStringList failed;
+            for (const QPair<QString, bool> &one : m_installPendingPresets) {
+                // 四类各一份（§7.1）—— 每一份都走同一条路；一份失败不把前面已经落上去的
+                // 那几份从结果里抹掉（它们确实写进去了）。
+                const PresetController::InstallApply outcome =
+                    m_presetController->applyAfterInstall(one.first, versionId, one.second);
+                if (outcome.ok) {
+                    applied.append(outcome.message);
+                } else {
+                    presetApplyProblem = outcome.message;
+                    failed.append(outcome.message);
+                }
+            }
+            if (failed.isEmpty()) {
+                resultMessage = errorMessage + QStringLiteral("\n\n") +
+                                applied.join(QLatin1Char('\n'));
             } else {
-                presetApplyProblem = outcome.message;
                 resultMessage = errorMessage + QStringLiteral("\n\n预设没有应用上：") +
-                                outcome.message;
+                                failed.join(QLatin1Char('\n'));
             }
         }
     }
     // 不管这一趟成没成、带没带预设，pending 都在这一刻清干净：下一次安装不该继承这一次的。
-    m_installPendingPresetId.clear();
+    m_installPendingPresets.clear();
     m_installPendingPresetInstance.clear();
-    m_installPendingReplaceConfirmed = false;
 
     // 这一批在账本上收尾。**必须在 setDownloadUiBusy(false) 之前**：那个函数是"这一批
     // 结束了"的公共通道，它自己会在末尾兜一次底（见那边）——先在这儿按成败如实收，

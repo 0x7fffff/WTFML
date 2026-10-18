@@ -54,4 +54,18 @@ inline int delayMs(int attempts, const QByteArray &retryAfter) {
     if (date.isValid()) return int(std::clamp<qint64>(QDateTime::currentDateTimeUtc().msecsTo(date), 500, 60000));
     return 500 * (1 << attempts);
 }
+
+/// 429（Too Many Requests）专用的退避。
+///
+/// 服务器已经明说"你太快了"，而 `delayMs()` 那条通用退避是 500/1000/2000 毫秒 ——
+/// 2026-10-18 的诊断日志里一条分段在 3 秒内连吃 4 个 429，正是这个形状：重试跑得比
+/// 限流窗口还快，三条命全撞在同一条链路上。没有 `Retry-After` 时从 2 秒起步、翻倍、
+/// 8 秒封顶；服务器给了具体时间就听它的（`delayMs()` 已经夹在 0.5~60 秒）。
+///
+/// 单独开一个函数而不是改 `delayMs()`：其它错误码的退避节奏没有理由跟着变。
+inline int throttleDelayMs(int attempts, const QByteArray &retryAfter) {
+    if (attempts >= 3) return -1;
+    if (!retryAfter.trimmed().isEmpty()) return delayMs(attempts, retryAfter);
+    return int(std::min<qint64>(8000, 2000LL << std::min(attempts, 2)));
+}
 } // namespace DownloadRetryPolicy

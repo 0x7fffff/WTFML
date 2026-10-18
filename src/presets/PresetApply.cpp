@@ -12,12 +12,15 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QPair>
 #include <QSaveFile>
 #include <QSet>
 
+#include "DataPackPreset.hpp"
 #include "GenericFiles.hpp"
 #include "PresetPlanner.hpp"
 #include "PresetStore.hpp"
+#include "ResourcePackPreset.hpp"
 #include "ServerListPreset.hpp"
 #include "VanillaOptions.hpp"
 #include "manage/FolderManager.hpp"
@@ -148,6 +151,7 @@ PresetApplyRow rowFromPlan(const ApplyPlanRow &planRow) {
     row.written = planRow.count;
     row.removed = planRow.removed;
     row.skippedItems = planRow.skipped;
+    row.deferred = planRow.deferred;
     row.problem = planRow.problem;
     return row;
 }
@@ -235,11 +239,13 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
     // 1. 目标快照
     // ------------------------------------------------------------------
     QString snapshotProblem;
-    const TargetSnapshot snapshot = readTargetSnapshot(request.instanceRoot, &snapshotProblem);
+    TargetSnapshot snapshot = readTargetSnapshot(request.instanceRoot, &snapshotProblem);
     if (!snapshotProblem.isEmpty()) {
         result.problem = snapshotProblem;
         return result;
     }
+    // 版本那一格由调用方（它认识 `VersionManager`）递进来；默认 true。
+    snapshot.supportsDataPacks = request.supportsDataPacks;
 
     // ------------------------------------------------------------------
     // 2. 计划（只读）
@@ -400,6 +406,57 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
         }
     }
 
+    // ---------- 资源包启用顺序：这一段会改写 options.txt 的 resourcePacks 那一行 ----------
+    for (const PresetSection &section : manifest.sections) {
+        if (!genericFilesHandlesSection(section.kind) || section.mode == ApplyMode::Skip) {
+            continue;
+        }
+        FileGroup group = FileGroup::Config;
+        if (!fileGroupFromSectionId(section.id, &group) || group != FileGroup::ResourcePacks) {
+            continue;
+        }
+        if (resourcePackSectionHasOrdering(section) && QFileInfo::exists(optionsPath)) {
+            // 顺序真要变才改写；这儿不重算（`ResourcePackOptions::save()` 自己会判"没变
+            // 就不写"），多备一份和"该备没备"比，前者只是多一个文件。
+            backupPaths.insert(QStringLiteral("options.txt"));
+        }
+    }
+
+    // ---------- 数据包：覆盖已有世界里的同名包 / 改写待应用清单 ----------
+    for (const PresetSection &section : manifest.sections) {
+        if (!dataPackHandlesSection(section) || section.mode == ApplyMode::Skip) {
+            continue;
+        }
+        QList<DataPackItem> items;
+        QString why;
+        if (!dataPackItemsFromSection(section, &items, &why)) {
+            continue;
+        }
+        const DataPackPlan planned =
+            planDataPacks(request.instanceRoot, items, section.mode);
+        if (!planned.ok) {
+            continue;
+        }
+        if (section.mode == ApplyMode::Replace) {
+            for (const DataPackPlanItem &item : planned.items) {
+                if (!item.targetExists) {
+                    continue;
+                }
+                const QString relative =
+                    item.worldExists
+                        ? QStringLiteral("saves/%1/datapacks/%2").arg(item.world, item.name)
+                        : dataPackPendingDirName() + QLatin1Char('/') + item.world +
+                              QLatin1Char('/') + item.name;
+                backupPaths.insert(relative);
+            }
+        }
+        if (planned.deferred > 0 &&
+            QFileInfo::exists(request.instanceRoot + QLatin1Char('/') +
+                              dataPackPendingFileName())) {
+            backupPaths.insert(dataPackPendingFileName());
+        }
+    }
+
     if (!backupPaths.isEmpty()) {
         const QString instanceId = request.instanceId.isEmpty()
                                        ? QFileInfo(request.instanceRoot).fileName()
@@ -430,6 +487,8 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
     OptionsFile optionsTarget = snapshot.options;
     QList<int> optionsRowIndexes;
     bool optionsTouched = false;
+    /// 资源包那一段应用完之后还要再动一次 options.txt（启用顺序），所以记住是哪一行。
+    QList<QPair<int, PresetSection>> resourcePackRows;
 
     for (const PresetSection &section : manifest.sections) {
         PresetApplyRow row;
@@ -550,6 +609,39 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
                 row.details.append(applyText("这一档下这一组里有 %1 项做不了主，没有动。")
                                        .arg(applied.needsChoice));
             }
+            if (applied.ok && group == FileGroup::ResourcePacks &&
+                resourcePackSectionHasOrdering(section)) {
+                // ★ 留到**最后**再动：`options.txt` 那几段也在内存里叠着，谁先写谁被盖。
+                resourcePackRows.append(qMakePair(static_cast<int>(result.rows.size()), section));
+            }
+            result.rows.append(row);
+            continue;
+        }
+
+        if (dataPackHandlesSection(section)) {
+            if (row.title.isEmpty()) {
+                row.title = applyText("数据包");
+            }
+            if (!request.supportsDataPacks) {
+                row.blocked = true;
+                row.problem = applyText("这个实例的游戏版本还没有数据包（17w43a 之前），"
+                                        "这一段这一趟不动。");
+                result.rows.append(row);
+                continue;
+            }
+            const DataPackApplyReport applied = applyDataPacks(
+                presetFilesRoot, request.instanceRoot, section, section.mode,
+                request.replaceConfirmed);
+            row.ok = applied.ok;
+            row.blocked = !applied.ok;
+            row.problem = applied.problem;
+            row.written = applied.deployed;
+            row.skippedItems = applied.skipped;
+            row.deferred = applied.deferred;
+            row.details.append(applied.details);
+            if (applied.needsChoice > 0) {
+                row.skippedItems += applied.needsChoice;
+            }
             result.rows.append(row);
             continue;
         }
@@ -613,9 +705,39 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
         }
     }
 
+    // ---------- 资源包启用顺序（必须在 options.txt 最后那一次写之后） ----------
+    //
+    // ★ 顺序是**低优先级在前**，写的是最后一条 `resourcePacks:`。这一段单独走是因为它
+    //   和 `options.txt` 那两段落在同一个文件上：先写它再写选项，那几行就被盖掉了。
+    if (!resourcePackRows.isEmpty()) {
+        const QString instanceIdForBackup =
+            request.instanceId.isEmpty() ? QFileInfo(request.instanceRoot).fileName()
+                                         : request.instanceId;
+        const QString packBackupRoot = presetsRoot + QStringLiteral("/backups/") +
+                                       instanceIdForBackup +
+                                       QStringLiteral("/resource-packs");
+        for (const auto &one : resourcePackRows) {
+            PresetApplyRow &row = result.rows[one.first];
+            if (row.blocked) {
+                continue;
+            }
+            const ResourcePackOrderReport order =
+                applyResourcePackOrdering(request.instanceRoot, one.second, packBackupRoot);
+            row.details.append(order.details);
+            if (!order.ok) {
+                row.ok = false;
+                row.blocked = true;
+                row.problem = order.problem.isEmpty()
+                                  ? applyText("资源包的启用顺序没有写进去。")
+                                  : order.problem;
+            }
+        }
+    }
+
     for (const PresetApplyRow &row : result.rows) {
         result.written += row.written;
         result.removed += row.removed;
+        result.deferred += row.deferred;
     }
     result.ok = true;
     return result;

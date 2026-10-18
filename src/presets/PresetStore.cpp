@@ -19,6 +19,7 @@
 #include <QSaveFile>
 #include <QUuid>
 
+#include "GenericFiles.hpp"
 #include "manage/FolderManager.hpp"
 #include "util/AppPaths.hpp"
 
@@ -291,6 +292,66 @@ bool saveIndex(const QString &root, const PresetIndex &index) {
 }
 
 // ---------------------------------------------------------------------------
+// 类别约束（§4 / §6.0 P0）
+// ---------------------------------------------------------------------------
+
+bool sectionFitsCategory(PresetCategory category, const PresetSection &section) {
+    if (category == PresetCategory::Unset) {
+        // 旧版混合预设：老数据一个字节都不动（也照样能提取/应用）。
+        return true;
+    }
+    // 通用文件组那四段同一个 `SectionKind`，靠段 id 里那半截名字分家（`fileGroupFromSectionId`
+    // 是唯一出处，和 PresetController 显示那些细分名字用的是同一条判断）。
+    FileGroup group = FileGroup::Config;
+    const bool isGeneric =
+        section.kind == SectionKind::GenericFiles && fileGroupFromSectionId(section.id, &group);
+    switch (category) {
+    case PresetCategory::GameSettings:
+        switch (section.kind) {
+        case SectionKind::VanillaOptions:
+        case SectionKind::VanillaKeys:
+        case SectionKind::MalilibKeys:
+        case SectionKind::ServerList:
+            return true;
+        case SectionKind::GenericFiles:
+            // `config/` 与 `defaultconfigs/` 是"高级内容"（§6.3），首版先收在游戏设置里；
+            // 资源包/光影归 `ResourcePacks`，不许混进来。
+            return isGeneric && (group == FileGroup::Config || group == FileGroup::DefaultConfigs);
+        case SectionKind::Custom:
+            return false;
+        }
+        return false;
+    case PresetCategory::ResourcePacks:
+        return isGeneric && (group == FileGroup::ResourcePacks || group == FileGroup::ShaderPacks);
+    case PresetCategory::Mods:
+    case PresetCategory::DataPacks:
+        // 模组引用不走段表（`PresetManifest::modReferences`），模组类允许空预设；
+        // 数据包载荷（P4）还没有对应的段种类。首版这两类先只放得下 `Custom`。
+        return section.kind == SectionKind::Custom;
+    case PresetCategory::Unset:
+        break;
+    }
+    return false;
+}
+
+QString categoryMismatch(const PresetManifest &manifest) {
+    if (manifest.category == PresetCategory::Unset) {
+        return QString();
+    }
+    // 模组引用只属于「模组」这一类。放进别的类别 = 串类别（§6.0 P0 那条验收），
+    // 拼出来的安装计划会去改一类用户没选的东西。
+    if (!manifest.modReferences.isEmpty() && manifest.category != PresetCategory::Mods) {
+        return QStringLiteral("这一份的类别和内容对不上（模组引用只属于「模组」这一类）");
+    }
+    for (const PresetSection &section : manifest.sections) {
+        if (!sectionFitsCategory(manifest.category, section)) {
+            return QStringLiteral("这一份的类别和内容对不上（里面有一段不属于这一类）");
+        }
+    }
+    return QString();
+}
+
+// ---------------------------------------------------------------------------
 // 单份
 // ---------------------------------------------------------------------------
 
@@ -342,6 +403,12 @@ PresetManifest loadManifest(const QString &root, const QString &id, bool *ok, QS
     if (manifest.id != id) {
         return fail(faultAt(path, QStringLiteral("记的 id 是「%1」，和目录名对不上").arg(manifest.id)));
     }
+    // ★ `category` 与段表对不上（比如有人手改过、或者以后的数据被降级写回来）⇒ 同样报坏：
+    //   拿一份"类别说 A、内容其实是 B"的预设去改用户实例，比少一份预设危险得多。
+    const QString mismatch = categoryMismatch(manifest);
+    if (!mismatch.isEmpty()) {
+        return fail(faultAt(path, mismatch));
+    }
     return manifest;
 }
 
@@ -350,6 +417,11 @@ bool saveManifest(const QString &root, const PresetManifest &manifest) {
         return false;
     }
     if (cleanDisplayName(manifest.name).isEmpty()) {
+        return false;
+    }
+    // 写侧也过同一道"类别 ↔ 内容"闸：调用方那一侧漏过滤时，宁可这一趟存不下去，
+    // 也不要把一份串了类的预设写进盘里（读侧那道闸会把它当坏预设，用户就"丢"了一份）。
+    if (!categoryMismatch(manifest).isEmpty()) {
         return false;
     }
     const QString dir = presetDir(root, manifest.id);
@@ -392,6 +464,7 @@ QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken) {
         summary.description = manifest.description;
         summary.updatedAt = manifest.updatedAt;
         summary.sectionCount = manifest.sections.size();
+        summary.category = manifest.category;
         summary.isDefault = (id == index.defaultPresetId);
         summaries.append(summary);
     };
@@ -430,7 +503,8 @@ QString defaultPresetId(const QString &root) {
 // 增删改
 // ---------------------------------------------------------------------------
 
-PresetManifest create(const QString &root, const QString &name, const QString &description) {
+PresetManifest create(const QString &root, const QString &name, const QString &description,
+                      PresetCategory category) {
     const QString cleaned = cleanDisplayName(name);
     if (cleaned.isEmpty()) {
         // 名字是这一份身份里给用户看的那一半，空的建不了（界面上"新建"那一趟总会先问到名字）。
@@ -442,6 +516,7 @@ PresetManifest create(const QString &root, const QString &name, const QString &d
     manifest.description = cleanDescription(description);
     manifest.createdAt = QDateTime::currentDateTime();
     manifest.updatedAt = manifest.createdAt;
+    manifest.category = category;
 
     if (!QDir().mkpath(filesDir(root, manifest.id))) {
         return PresetManifest();

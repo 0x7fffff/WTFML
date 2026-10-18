@@ -20,6 +20,13 @@
  *
  * 和 `JavaSettingsController` 同一个理由：页面里的勾选（提取那九样）和下拉框的选择是
  * 用户的上下文，关掉再开不该丢。页面对象归 controller 所有，构造一次之后 `open()` 只刷新。
+ *
+ * 【页面落在实例页的第三个模式页里】
+ *
+ * 2026-10-18 起「实例预设」不再是设置页里那颗按钮弹出的覆盖页：它是实例页顶部模式行
+ * （客户端实例 | 服务端 | 预设）的第三页。页面由这一层塞进外面给的那个**宿主 QWidget**
+ * （`MainWindowUI::getInstancePresetPage()`）里，切模式就是切 `QStackedWidget`，
+ * 不再经过 `OverlayHost`。
  */
 
 #pragma once
@@ -34,12 +41,16 @@
 #include "PresetManagePage.hpp"
 #include "presets/PresetApply.hpp"
 #include "presets/PresetCapture.hpp"
+#include "presets/PresetCompatibility.hpp"
 #include "presets/PresetTypes.hpp"
 
-class OverlayHost;
 class VersionManager;
 class QComboBox;
 class QWidget;
+
+namespace Presets {
+class PlatformCompatibilityProvider;
+}
 
 class PresetController final : public QObject {
     Q_OBJECT
@@ -54,11 +65,11 @@ public:
         std::function<void(const QString &)> log;
     };
 
-    PresetController(VersionManager *versions, OverlayHost *overlay, QWidget *pageParent,
-                     Host host, QObject *parent = nullptr);
+    PresetController(VersionManager *versions, QWidget *hostPage, Host host,
+                     QObject *parent = nullptr);
     ~PresetController() override;
 
-    /// 打开管理页（从设置页那一栏进来）。
+    /// 刷新管理页（实例页切到「预设」那一档时调用；页面是常驻的，这里只重新灌数据）。
     void open();
 
     /// 预设根目录（验证工程与安装流程都问这一处，别各自拼路径）。
@@ -67,7 +78,9 @@ public:
     // ---------- 页面发上来的那几件事（公开出来，安装流程也能调） ----------
     void refreshList(const QString &selectId = QString());
     void selectPreset(const QString &id);
-    void createPreset();
+    /// @param categoryKey 页面「新建为」下拉框里那一项（`presetCategoryKey()` 的串）；
+    ///        空串 / 认不出 ⇒ 按「游戏设置」建（界面上第一项就是它）。
+    void createPreset(const QString &categoryKey);
     void duplicatePreset(const QString &id);
     void saveDetails(const QString &id, const QString &name, const QString &description);
     void removePreset(const QString &id);
@@ -77,6 +90,7 @@ public:
     void captureInto(const QString &presetId, const QString &instanceId,
                      const PresetManagePage::CaptureChoice &choice);
     void captureAsNew(const QString &instanceId, const QString &name,
+                      const QString &categoryKey,
                       const PresetManagePage::CaptureChoice &choice);
 
     void previewPlan(const QString &presetId, const QString &instanceId);
@@ -105,6 +119,18 @@ public:
     void fillInstallSelector(QComboBox *combo, const QString &preferredId = QString(),
                              bool preferredKnown = false) const;
 
+    /// 安装页弹窗里的**一类**（次序 = 页签次序，`key` 是 `presetCategoryKey()` 的串）。
+    struct InstallCategory {
+        QString key;
+        QString title;
+    };
+    /// 四类（游戏设置 / 模组 / 资源包 / 数据包）。★ 「旧版（混合）」`Unset` **不在里面**：
+    /// §4 那条"不静默拆分类别"在安装页这一侧同样是"不猜它属于哪一类"。
+    static QList<InstallCategory> installCategories();
+
+    /// 某一类的可用预设（按下标次序，只含读得回来的那些）。认不出的 key 回空表。
+    QList<Presets::PresetSummary> presetsInCategory(const QString &categoryKey) const;
+
     /// 安装前的计划预览（`lines` 每一项是"段名 + 那一行计划"，`summary` 是一句话）。
     struct InstallPreview {
         bool ok = false;
@@ -114,6 +140,15 @@ public:
         QString summary;
         QStringList lines;
         QString presetName;
+        /// 这一趟真会动的项数（`ApplyPlan::totalCount()`）。状态行那句「会动 12 项」用它。
+        int itemCount = 0;
+        /// 预设里有、这一趟不动的项数（各段 `skipped` 之和）。
+        int skippedCount = 0;
+        /// 这一份里**做不了的段落数**（不认识的种类 / 那一段读不回来 / 目标读不动）。
+        int blockedCount = 0;
+        /// 「查看计划与原因」展开之后那几行：只看得出问题的段（做不了 / 要确认 / 会删 /
+        /// 有冲突 / 要人选 / 跳过了东西）。
+        QStringList reasons;
     };
 
     /**
@@ -144,15 +179,65 @@ public:
     InstallApply applyAfterInstall(const QString &presetId, const QString &instanceName,
                                    bool replaceConfirmed);
 
+    // ---------- 安装前的兼容检查（coding plan §7.2 / P2） ----------
+    /**
+     * @brief 一次兼容检查的进度快照。
+     *
+     * `presetId` + `generation` 一起给出来，是因为这两样任一变了，界面手上那份就过期了
+     * （用户换了一份 / 又开了一次检查）。`results` 的次序 = 引用首次出现的次序。
+     */
+    struct ModCheckUpdate {
+        QString presetId;
+        int generation = 0;
+        QList<Presets::CompatibilityResult> results;
+        Presets::CompatibilitySummary summary;
+        /// 这一代是不是已经全部有结论（`updated` 与 `finished` 共用一个载荷）。
+        bool finished = false;
+    };
+
+    /// 那一份预设里的模组引用（读不出来 / 没有引用 ⇒ 空表）。
+    QList<Presets::ModReference> modReferencesFor(const QString &presetId) const;
+
+    /**
+     * @brief 开始查「这一份模组预设在这个版本 / 加载器下能不能拿到」。
+     *
+     * 弹窗**先出来**、这里再查（§7.2 第一条）：本地能判的立刻有结论，剩下的按
+     * 并发上限排队；网络失败 / 超时只算「暂无法确认」，**不计入缺失**。
+     * 在途期间再调一次就是新一代，旧回调作废（generation token）。
+     */
+    void startModCheck(const QString &presetId, const QString &gameVersion, const QString &loader,
+                       bool clientSide = true);
+    /// 作废当前这一代（关弹窗时调；不改变已经出来的结论）。
+    void cancelModCheck();
+    int modCheckGeneration() const;
+
+    /// CurseForge 那一侧用的 key（设置里用户自己填的那一个）。空 = 那一侧一律「暂无法确认」。
+    void setCurseForgeApiKey(const QString &apiKey);
+
+signals:
+    /// 兼容检查每出一条 / 收尾都会发（`finished` 那一发也在这条信号上）。
+    void modCheckUpdated(const PresetController::ModCheckUpdate &update);
+
 private:
     QString instanceRoot(const QString &instanceId) const;
     QString displayName(const QString &instanceId) const;
     void log(const QString &message) const;
 
     void buildPage();
+    void pushCategories();
     void pushInstances();
     void pushPresetToPage(const QString &id);
     void pushListAndSelect(const QString &selectId);
+    /// 这一类的预设允许收哪几样（`PresetManagePage::CaptureBit` 那九位）。
+    static quint32 captureMaskFor(Presets::PresetCategory category);
+    /// 掩码对应的"为什么这一类不收那几样"（挂到界面上被禁掉那几格的工具提示里）。
+    static QString captureNoteFor(Presets::PresetCategory category);
+    /// 把页面勾的那几样按类别闸一遍；被闸掉的样名收进 @p skipped（可为空）。
+    static Presets::CaptureSelection filterCapture(Presets::PresetCategory category,
+                                                   const Presets::CaptureSelection &selection,
+                                                   QStringList *skipped);
+    /// 类别 → 界面上的中文。★ 只有这一处（`ui/` 不认识 `PresetCategory`）。
+    static QString categoryText(Presets::PresetCategory category);
     QList<PresetManagePage::SectionItem> sectionItems(const Presets::PresetManifest &manifest) const;
     QList<PresetManagePage::InstanceItem> instanceItems() const;
     QString newPresetName() const;
@@ -163,10 +248,16 @@ private:
     static QString modeText(Presets::ApplyMode mode);
 
     VersionManager *m_versions = nullptr;
-    OverlayHost *m_overlay = nullptr;
-    QWidget *m_pageParent = nullptr;
+    /// 页面落进的那个宿主要器（实例页第三页，`getInstancePresetPage()`）。
+    QWidget *m_hostPage = nullptr;
     Host m_host;
     PresetManagePage *m_page = nullptr;
     /// 正在显示的那一份（应用/提取都带着它出门）。
     QString m_currentId;
+    /// 兼容检查那一套（缓存跨弹窗共享；checker / provider 都归这一层所有）。
+    Presets::CompatibilityCache m_modCache;
+    Presets::CompatibilityChecker *m_modChecker = nullptr;
+    Presets::PlatformCompatibilityProvider *m_modProvider = nullptr;
+    /// 这一代查的是哪一份（信号里原样带回，界面按它判"还是不是我现在选的那一份"）。
+    QString m_modCheckPresetId;
 };

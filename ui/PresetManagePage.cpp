@@ -18,6 +18,7 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLayoutItem>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QListWidgetItem>
@@ -98,6 +99,14 @@ void PresetManagePage::buildUi() {
     leftLayout->setSpacing(8);
     leftLayout->addWidget(makeSectionTitle(QStringLiteral("预设"), left));
 
+    // 类别筛选（本地筛，不读盘）：一排 chip，四类 + 旧版 / 全部。
+    m_filterRow = new QWidget(left);
+    m_filterLayout = new QGridLayout(m_filterRow);
+    m_filterLayout->setContentsMargins(0, 0, 0, 0);
+    m_filterLayout->setHorizontalSpacing(6);
+    m_filterLayout->setVerticalSpacing(6);
+    leftLayout->addWidget(m_filterRow);
+
     m_presetList = new QListWidget(left);
     m_presetList->setObjectName(presetListName());
     m_presetList->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -105,6 +114,18 @@ void PresetManagePage::buildUi() {
     leftLayout->addWidget(m_presetList, 1);
     connect(m_presetList, &QListWidget::currentItemChanged, this,
             &PresetManagePage::onCurrentPresetChanged);
+
+    // 「新建」建出来的是哪一类：★ 必须四类里选一个 —— 跨类总预设不在产品里（§6.0 P0）。
+    auto *newCategoryRow = new QHBoxLayout;
+    newCategoryRow->setContentsMargins(0, 0, 0, 0);
+    newCategoryRow->setSpacing(8);
+    newCategoryRow->addWidget(new QLabel(QStringLiteral("新建为"), left));
+    m_newCategoryCombo = new QComboBox(left);
+    m_newCategoryCombo->setObjectName(newCategoryComboName());
+    m_newCategoryCombo->setToolTip(
+        QStringLiteral("新建（以及「提取为新预设」）时这一份属于哪一类。"));
+    newCategoryRow->addWidget(m_newCategoryCombo, 1);
+    leftLayout->addLayout(newCategoryRow);
 
     auto *grid = new QGridLayout;
     grid->setContentsMargins(0, 0, 0, 0);
@@ -145,7 +166,9 @@ void PresetManagePage::buildUi() {
     grid->setColumnStretch(1, 1);
     leftLayout->addLayout(grid);
 
-    connect(m_newButton, &QPushButton::clicked, this, &PresetManagePage::createRequested);
+    connect(m_newButton, &QPushButton::clicked, this, [this] {
+        emit createRequested(m_newCategoryCombo->currentData().toString());
+    });
     connect(m_duplicateButton, &QPushButton::clicked, this, [this] {
         const QString id = currentPresetId();
         if (!id.isEmpty()) emit duplicateRequested(id);
@@ -251,6 +274,7 @@ void PresetManagePage::buildUi() {
         auto *box = new QCheckBox(text, right);
         box->setChecked(checked);
         box->setToolTip(tooltip);
+        m_captureTips.insert(box, tooltip);
         captureGrid->addWidget(box, row, column);
         *out = box;
         connect(box, &QCheckBox::toggled, this, &PresetManagePage::refreshCaptureEnabled);
@@ -287,6 +311,11 @@ void PresetManagePage::buildUi() {
     addCheck(4, 2, QStringLiteral("连值一起收"),
              QStringLiteral("把开关和别的值也收进来（§6 P4 的「可选合并全部已知设置」）。"),
              false, &m_captureMalilibValues);
+    captureGrid->addWidget(new QLabel(QStringLiteral("数据包"), right), 5, 0);
+    addCheck(5, 1, QStringLiteral("存档数据包"),
+             QStringLiteral("saves/<世界>/datapacks/；落到别的实例上时，目标那边还没有这个存档就先记成"
+                            "「待应用」摆着 —— 不新建存档，也不冒充已经在游戏里启用。"),
+             false, &m_captureDataPacks);
     captureGrid->setColumnStretch(3, 1);
     rightLayout->addLayout(captureGrid);
 
@@ -333,6 +362,7 @@ void PresetManagePage::buildUi() {
         const QString instanceId = comboInstanceId(m_captureInstanceCombo);
         if (instanceId.isEmpty()) return;
         emit captureAsNewRequested(instanceId, m_newPresetNameEdit->text().trimmed(),
+                                   m_newCategoryCombo->currentData().toString(),
                                    captureChoice());
     });
     connect(m_captureInstanceCombo, &QComboBox::currentIndexChanged, this,
@@ -423,12 +453,23 @@ void PresetManagePage::buildUi() {
 
 void PresetManagePage::setPresets(const QList<PresetItem> &presets,
                                   const QList<BrokenItem> &broken, const QString &selectId) {
+    m_presets = presets;
+    m_broken = broken;
+    rebuildPresetList(selectId, false);
+}
+
+void PresetManagePage::rebuildPresetList(const QString &selectId, bool emitSelection) {
     const QString keep = selectId.isEmpty() ? m_currentId : selectId;
 
     m_fillingList = true;
     m_presetList->clear();
     int selectRow = -1;
-    for (const PresetItem &preset : presets) {
+    int firstSelectable = -1;
+    for (const PresetItem &preset : m_presets) {
+        // 本地筛：只认类别钥匙逐字相等；「全部」那一档不筛。
+        if (!m_filterKey.isEmpty() && preset.categoryKey != m_filterKey) {
+            continue;
+        }
         auto *item = new QListWidgetItem(m_presetList);
         QString text = preset.name;
         if (preset.isDefault) {
@@ -439,36 +480,45 @@ void PresetManagePage::setPresets(const QList<PresetItem> &presets,
         item->setData(Qt::UserRole + 1, false);
         item->setData(Qt::UserRole + 2, preset.isDefault);
         QString tip = preset.description;
+        if (!preset.categoryText.isEmpty()) {
+            if (!tip.isEmpty()) tip += QLatin1Char('\n');
+            tip += QStringLiteral("类别：%1").arg(preset.categoryText);
+        }
         if (!preset.updatedText.isEmpty()) {
             if (!tip.isEmpty()) tip += QLatin1Char('\n');
             tip += preset.updatedText;
         }
         tip += QStringLiteral("\n%1 段").arg(preset.sectionCount);
         item->setToolTip(tip);
+        if (firstSelectable < 0) firstSelectable = m_presetList->count() - 1;
         if (preset.id == keep) {
             selectRow = m_presetList->count() - 1;
         }
     }
-    for (const BrokenItem &one : broken) {
-        // ★ 读不回来的那些**照样列出来**，但不可选：用户至少知道"它还在，只是读不动"。
-        auto *item = new QListWidgetItem(m_presetList);
-        QString name = one.id;
-        if (name.size() > 12) name = name.left(12) + QStringLiteral("…");
-        item->setText(QStringLiteral("⚠ 读不出来：%1").arg(name));
-        item->setData(Qt::UserRole, one.id);
-        item->setData(Qt::UserRole + 1, true);
-        item->setFlags(Qt::NoItemFlags);
-        item->setToolTip(one.reason);
+    // 读不回来的那几份**只在「全部」那一档列出来**：它们没写类别，硬塞进某一类里
+    // 等于替它们猜一个身份。
+    if (m_filterKey.isEmpty()) {
+        for (const BrokenItem &one : m_broken) {
+            // ★ 读不回来的那些**照样列出来**，但不可选：用户至少知道"它还在，只是读不动"。
+            auto *item = new QListWidgetItem(m_presetList);
+            QString name = one.id;
+            if (name.size() > 12) name = name.left(12) + QStringLiteral("…");
+            item->setText(QStringLiteral("⚠ 读不出来：%1").arg(name));
+            item->setData(Qt::UserRole, one.id);
+            item->setData(Qt::UserRole + 1, true);
+            item->setFlags(Qt::NoItemFlags);
+            item->setToolTip(one.reason);
+        }
     }
-    if (selectRow < 0 && m_presetList->count() > 0 && !presets.isEmpty()) {
-        selectRow = 0;
+    if (selectRow < 0) {
+        selectRow = firstSelectable;
     }
     if (selectRow >= 0) {
         m_presetList->setCurrentRow(selectRow);
     }
     m_fillingList = false;
 
-    if (m_presetList->count() == 0) {
+    if (currentPresetId().isEmpty()) {
         m_currentId.clear();
         m_nameEdit->clear();
         m_descriptionEdit->clear();
@@ -476,16 +526,130 @@ void PresetManagePage::setPresets(const QList<PresetItem> &presets,
         m_sectionList->clear();
     }
     refreshActions();
+
+    // 用户自己换了筛选项：新选中的那一份要跟着刷新右栏（外面靠这个信号知道"现在看的是谁"）。
+    const QString nowId = currentPresetId();
+    if (emitSelection && !nowId.isEmpty() && nowId != m_currentId) {
+        m_currentId = nowId;
+        clearPlan();
+        emit presetSelected(nowId);
+    }
+}
+
+void PresetManagePage::setCategories(const QList<CategoryOption> &categories) {
+    const QString keepFilter = m_filterKey;
+
+    // 整排重建（只摆一次，重复调用也安全）。
+    while (QLayoutItem *entry = m_filterLayout->takeAt(0)) {
+        delete entry->widget();
+        delete entry;
+    }
+    m_filterChips.clear();
+    m_filterKey.clear();
+    int column = 0;
+    int row = 0;
+    for (int i = 0; i < categories.size(); ++i) {
+        const CategoryOption &option = categories.at(i);
+        auto *chip = new QPushButton(option.text, m_filterRow);
+        chip->setObjectName(categoryFilterName(i));
+        chip->setCheckable(true);
+        chip->setAutoDefault(false);
+        chip->setToolTip(option.key.isEmpty()
+                             ? QStringLiteral("不筛类别，全都列出来。")
+                             : QStringLiteral("只看「%1」这一类（本地筛，不读盘）。")
+                                   .arg(option.text));
+        Theme::markChipButton(chip);
+        chip->setProperty("presetCategoryKey", option.key);
+        const QString key = option.key;
+        connect(chip, &QPushButton::clicked, this,
+                [this, key] { applyCategoryFilter(key); });
+        m_filterLayout->addWidget(chip, row, column);
+        m_filterChips.append(chip);
+        if (option.key == keepFilter) {
+            m_filterKey = keepFilter;
+        }
+        if (++column >= 3) {
+            column = 0;
+            ++row;
+        }
+    }
+    for (int i = 0; i < m_filterLayout->columnCount(); ++i) {
+        m_filterLayout->setColumnStretch(i, 1);
+    }
+
+    // 「新建为」：只列真正能新建的那些（「全部」那一项不进下拉框）。
+    const QString keepNew = m_newCategoryCombo->currentData().toString();
+    {
+        const QSignalBlocker blocker(m_newCategoryCombo);
+        m_newCategoryCombo->clear();
+        for (const CategoryOption &option : categories) {
+            if (!option.key.isEmpty() && !option.filterOnly) {
+                m_newCategoryCombo->addItem(option.text, option.key);
+            }
+        }
+        const int index = m_newCategoryCombo->findData(keepNew);
+        if (index >= 0) {
+            m_newCategoryCombo->setCurrentIndex(index);
+        }
+    }
+
+    applyCategoryFilter(m_filterKey);
+}
+
+void PresetManagePage::applyCategoryFilter(const QString &key) {
+    m_filterKey = key;
+    for (QPushButton *chip : m_filterChips) {
+        if (chip != nullptr) {
+            chip->setChecked(chip->property("presetCategoryKey").toString() == key);
+        }
+    }
+    rebuildPresetList(QString(), true);
+}
+
+void PresetManagePage::setCaptureCheckEnabled(QCheckBox *box, quint32 bit, quint32 mask,
+                                              const QString &note) {
+    if (box == nullptr) {
+        return;
+    }
+    const bool allowed = (mask & bit) != 0;
+    if (!allowed) {
+        box->setChecked(false);
+    }
+    box->setEnabled(allowed && !m_busy);
+    QString tip = m_captureTips.value(box, box->toolTip());
+    if (!allowed && !note.isEmpty()) {
+        tip += QStringLiteral("\n%1").arg(note);
+    }
+    box->setToolTip(tip);
+}
+
+void PresetManagePage::setCaptureAvailability(quint32 mask, const QString &note) {
+    m_captureMask = mask;
+    m_captureNote = note;
+    setCaptureCheckEnabled(m_captureOptions, CaptureVanillaOptions, mask, note);
+    setCaptureCheckEnabled(m_captureKeys, CaptureVanillaKeys, mask, note);
+    setCaptureCheckEnabled(m_captureServers, CaptureServers, mask, note);
+    setCaptureCheckEnabled(m_captureConfig, CaptureConfig, mask, note);
+    setCaptureCheckEnabled(m_captureDefaultConfigs, CaptureDefaultConfigs, mask, note);
+    setCaptureCheckEnabled(m_captureResourcePacks, CaptureResourcePacks, mask, note);
+    setCaptureCheckEnabled(m_captureShaderPacks, CaptureShaderPacks, mask, note);
+    setCaptureCheckEnabled(m_captureMalilib, CaptureMalilib, mask, note);
+    setCaptureCheckEnabled(m_captureMalilibValues, CaptureMalilibValues, mask, note);
+    setCaptureCheckEnabled(m_captureDataPacks, CaptureDataPacks, mask, note);
+    refreshCaptureEnabled();
 }
 
 void PresetManagePage::showPreset(const QString &id, const QString &name,
-                                  const QString &description,
+                                  const QString &description, const QString &categoryText,
                                   const QList<SectionItem> &sections) {
     m_currentId = id;
     m_nameEdit->setText(name);
     m_descriptionEdit->setText(description);
 
     QStringList parts;
+    if (!categoryText.isEmpty()) {
+        parts.append(QStringLiteral("类别：%1").arg(categoryText));
+    }
     parts.append(QStringLiteral("%1 段").arg(sections.size()));
     m_presetMeta->setText(parts.join(QStringLiteral(" · ")));
 
@@ -685,6 +849,7 @@ PresetManagePage::CaptureChoice PresetManagePage::captureChoice() const {
     choice.malilib = m_captureMalilib->isChecked();
     // 「连值一起收」只在「热键」也勾着的时候才有意义（不勾这一族就一段都不收）。
     choice.malilibValues = m_captureMalilib->isChecked() && m_captureMalilibValues->isChecked();
+    choice.dataPacks = m_captureDataPacks->isChecked();
     return choice;
 }
 
@@ -737,12 +902,31 @@ void PresetManagePage::refreshCaptureEnabled() {
     if (m_captureButton == nullptr) {
         return;  // 构造里第一轮 refreshActions() 可能先到（见 buildUi 末尾）
     }
+    // ★ 每一格能不能点 = 「这一类收不收它」（`m_captureMask`）×「忙不忙」。
+    //   只按忙碌状态写的话，切回这一份预设之后被禁掉的格子会重新亮起来 —— 那就是
+    //   "不串类别"在界面上破了一个口子。
+    const quint32 mask = m_captureMask;
+    auto enable = [this, mask](QCheckBox *box, quint32 bit, bool extra = true) {
+        if (box != nullptr) {
+            box->setEnabled((mask & bit) != 0 && !m_busy && extra);
+        }
+    };
+    enable(m_captureOptions, CaptureVanillaOptions);
+    enable(m_captureKeys, CaptureVanillaKeys);
+    enable(m_captureServers, CaptureServers);
+    enable(m_captureConfig, CaptureConfig);
+    enable(m_captureDefaultConfigs, CaptureDefaultConfigs);
+    enable(m_captureResourcePacks, CaptureResourcePacks);
+    enable(m_captureShaderPacks, CaptureShaderPacks);
+    enable(m_captureMalilib, CaptureMalilib);
+    enable(m_captureMalilibValues, CaptureMalilibValues, m_captureMalilib->isChecked());
+    enable(m_captureDataPacks, CaptureDataPacks);
+
     const bool hasPreset = !currentPresetId().isEmpty();
     const bool hasInstance = !comboInstanceId(m_captureInstanceCombo).isEmpty();
     const bool any = !captureChoice().isEmpty();
     m_captureButton->setEnabled(!m_busy && hasPreset && hasInstance && any);
     m_captureAsNewButton->setEnabled(!m_busy && hasInstance && any);
-    m_captureMalilibValues->setEnabled(!m_busy && m_captureMalilib->isChecked());
 }
 
 void PresetManagePage::armDelete() {

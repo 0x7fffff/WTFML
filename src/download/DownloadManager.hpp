@@ -30,11 +30,14 @@
 #include <QUrl>
 #include <QVariant>
 #include <QSharedPointer>
+#include "NetworkManagerFactory.hpp"
 
 #include "DownloadConcurrency.hpp"  // 「同时最多下几个」那四档（§9.2，唯一出处）
+#include "DownloadSpeedLimit.hpp"   // 「下载速度上限」那几档（§9.2，唯一出处）
 
 class QTimer;
 class StreamedFile;
+class ResumableDownload;
 
 struct DownloadRange {
     qint64 first = -1, last = -1, total = -1;
@@ -120,7 +123,7 @@ class DownloadManager : public QObject {
     Q_OBJECT
 
 public:
-    explicit DownloadManager(QObject *parent = nullptr);
+    explicit DownloadManager(QObject *parent = nullptr, NetworkManagerFactory networkFactory = {});
     ~DownloadManager();
 
     // ------------------------------------------------------------------
@@ -210,6 +213,19 @@ public:
     /// 走镜像、有退路、还没收到第一个字节的回复最多等多久（毫秒）。
     static constexpr qint64 kNoFirstByteGiveUpMs = 12 * 1000;
 
+    /// ★ 2026-10-18（照 PCL 的日志学的）：**元数据作业**（版本清单 / 版本 json / 资源索引）
+    /// 那条期限压到 4 秒。
+    ///
+    /// PCL 的日志里 piston-meta / piston-data 那几条**从来只走官方**，而 BMCLAPI 的版本 json
+    /// 路由在用户本机实测是「12 秒一个字节都不给、abort 之后官方 438 ms 就回来了」（诊断日志
+    /// 里那一发：镜像 15.6 秒 vs 官方 0.4 秒）。元数据只有几十 KB、又是整条安装的必经之路，
+    /// 等 12 秒毫无收益 —— 换路重取一次的成本比等它低一个数量级。资源对象**不**用这条：
+    /// 那些文件大、换路要重下几十 MB，12 秒（kNoFirstByteGiveUpMs）是量出来的平衡点。
+    ///
+    /// NOTE: 验证工程压 `setNoFirstByteGiveUpMs()` 时元数据期限跟着它一起降（看门狗里取
+    ///       两者的较小值），否则逐条用例会被这 4 秒拖住。
+    static constexpr qint64 kMetadataNoFirstByteGiveUpMs = 4 * 1000;
+
     /// 一台落点主机被判死之后，多久之内再转到它就直接 abort（毫秒）。
     /// 两分钟：BMCLAPI 的轮换大概就是分钟级的，久了会一直错过刚恢复的那台。
     static constexpr qint64 kDeadRedirectHostBanMs = 2 * 60 * 1000;
@@ -261,7 +277,7 @@ public:
     /// 所以"调大就是把请求塞回 Qt 那个会超时的内部队列"这条老顾虑，只在两种情形下还成立：
     /// 服务端把并发流数（SETTINGS_MAX_CONCURRENT_STREAMS）压得很低（本机实测没有，见下面那组数），
     /// 或者这个主机**根本不是 h2**。后一种由 kMaxConcurrentPerHost 那条判据守着（它没证明自己
-    /// 是 h2 之前只放 6 条），所以这个 24 是"全局上限"，不是"每个主机都能 24 条"。
+    /// 是 h2 之前只放 kMaxConcurrentPerHost 条），所以这个 24 是"全局上限"，不是"每个主机都能 24 条"。
     ///
     /// 2026-09-23 用真端点 + **本类**量了一遍（1.20.1 的全部 3598 个资源对象 / 620.43 MB，
     /// 官方源，一次性探针，不进仓库）：
@@ -300,6 +316,18 @@ public:
     void setMaxConcurrentDownloads(int count);
     int maxConcurrentDownloads() const { return m_maxConcurrentDownloads; }
 
+    /// ◆ 下载速度上限（字节/秒，0 = 不限；2026-10-18，§9.2）。
+    ///
+    /// 设置 → 下载 → 速度上限那一格推过来。**改完立刻生效**：正在下的那一批下一拍就按新的
+    /// 速率放行；从"限速"切回"不限"时，攒在回复缓冲区里的那些**当场**读完（不等到下一拍）。
+    ///
+    /// 实现是"背压 + 令牌桶"：`readyRead` 里不再把数据读空，只把回复记进
+    /// `m_throttledReplies`；一个 100 ms 的定时器按限速往各个回复里"喂"字节。回复自己的
+    /// `readBufferSize()`（256 KiB）就是闸门：读得慢，Qt 就不再从 socket 往下拉。
+    /// 几档、上下限、归一化在 `DownloadSpeedLimit.hpp`（**唯一出处**）。
+    void setSpeedLimitBytesPerSecond(qint64 bytesPerSecond);
+    qint64 speedLimitBytesPerSecond() const { return m_speedLimitBytesPerSecond; }
+
     /// 还能不能再往外发一条（排队那一步问它）。
     ///
     /// **纯函数**，就为了能钉住那条上限：activeCount 到顶之后**不管还排着多少条**都不发。
@@ -326,14 +354,46 @@ public:
     /// （6 路那条对照是一次都不死）。
     ///
     /// 所以"排队必须发生在我们自己的 m_pendingJobs 里"这条不变量，在 kMaxConcurrentDownloads
-    /// 从 6 调大之后要**按主机**守着：全局 24 条，但同一个主机在它证明自己走 h2 之前只放 6 条。
+    /// 从 6 调大之后要**按主机**守着：全局 24 条，但同一个主机在它证明自己走 h2 之前只放
+    /// kMaxConcurrentPerHost 条（2026-10-18 起是 12，见那个常量）。
     ///
     /// ★★ 2026-09-27：**改道那条路也算数**。首选地址那个主机正被降级时 startDownload() 会
     ///    当场改道到备用地址，而这条判据问的必须是**备用**那个主机 —— 判断只有一处
     ///    （`effectiveDownloadUrl()`），"发给谁"和"问谁"不会漂开。原来问的是首选主机那个，
     ///    而回复是按改道后的主机记账的 ⇒ 这条闸对改道的作业永远放行，一次 pump 就能把
     ///    备用主机塞满 kMaxConcurrentDownloads(24) 条。
-    static constexpr int kMaxConcurrentPerHost = 6;
+    /// ★ 2026-10-18：从 6 抬到 12。以前这个数就是 Qt 给每个 HTTP/1.1 主机的通道数
+    /// （`QHttpNetworkConnection` 默认 6），发多了会进 Qt 内部那个会超时的队列 —— 那条
+    /// 理由仍然成立，但 Qt 6.5 起可以用 `QHttp1Configuration::setNumberOfConnectionsPerHost()`
+    /// 按请求把通道数抬上去。本类现在给**每一条**请求都带上它（`configureHttp1()`，
+    /// 连接按 URL 缓存、第一条到的请求决定通道数），所以"我们允许几条在飞"重新等于
+    /// "Qt 会开几条"。
+    ///
+    /// 为什么是 12：2026-10-18 用本机 asset index 抽 40 个小对象（4 KiB–1 MiB，走 BMCLAPI
+    /// 的 assets 路由）量了小文件吞吐，四档各用互不重叠的清单：
+    ///     并发  6：46.06 s  0.9 请求/秒  p50 2.2 s
+    ///     并发 12：20.80 s  1.9 请求/秒  p50 1.9 s   ← 选它
+    ///     并发 24：18.16 s  2.2 请求/秒  p50 2.8 s
+    ///     并发 48：15.01 s  2.7 请求/秒  p50 3.7 s
+    /// 6→12 是唯一一档"翻倍"（再多只换来 15%~40%，p50 却一路涨）。当时镜像每文件要过
+    /// 302 到 MinIO 预签名落点、单文件 2 秒上下，延迟 bound 得很厉害，所以抬通道数的收益
+    /// 直接落在小文件上。h2 主机本来就不受这条判据管（见 mayIssueAnotherDownloadToHost）。
+    static constexpr int kMaxConcurrentPerHost = 12;
+
+    /// 同时最多几个作业走安全分段（每个作业内部固定 4 路）。上限只是别让几十个大文件
+    /// 一起抢带宽/连接；满了的作业**不排队等待**，当场按普通单连接下载发出去，避免
+    /// 队头的大文件把后面几千个小文件卡住。
+    ///
+    /// ★ 2026-10-18：这两个数改成了**跟着全局并发档位走的区间**（见
+    /// `maxSegmentedJobsFor()`）。原来恒为 2 —— 在 24 档下等于最多 8 条连接在给大文件
+    /// 干活，整理包导入里十几个大 jar 只能两个两个地排；在 12 档下又刚好够用。
+    /// 现在按"每 8 条连接放一个分段作业、另外一半留给小文件"算，12 档仍是 2、
+    /// 24 档 3、48/64 档 6。全局连接预算那一道闸照旧卡着，不会超发。
+    static constexpr int kMinSegmentedJobs = 2;
+    static constexpr int kMaxSegmentedJobs = 6;
+    static int maxSegmentedJobsFor(int concurrency) {
+        return qBound(kMinSegmentedJobs, concurrency / 8, kMaxSegmentedJobs);
+    }
 
     /// 还能不能再往**某一个主机**发一条。和上面那条一起判（两条都过才发）。
     /// @param activeForHost 这个主机当下有几条在飞。
@@ -342,7 +402,8 @@ public:
     /// 已知 h2 的主机：能 —— 几十条流跑在**一条** TCP 连接上，放几条由全局上限说了算。
     /// 还不知道的主机：只能 kMaxConcurrentPerHost 条。这是保守估计，**代价只有一次往返**：
     /// 这个主机上第一条回复一回来，Http2WasUsedAttribute 就把答案给出来了 —— 真是 h2 就
-    /// 立刻升到全局上限（官方 CDN 上实际等于安装开始时多花约 150 ms），真是 h1.1 就一直按 6 守。
+    /// 立刻升到全局上限（官方 CDN 上实际等于安装开始时多花约 150 ms），真是 h1.1 就一直按
+    /// kMaxConcurrentPerHost 守。
     ///
     /// NOTE: 服务端要是把 SETTINGS_MAX_CONCURRENT_STREAMS 压得比 24 小，多出来的流**还是会**
     ///       排在 Qt 里（这一条判据看不出来）。官方 CDN 实测 ≥48（3598 个对象、0 超时），
@@ -460,6 +521,14 @@ public:
                       VerifyMode mode = VerifyMode::SizeAndSha1,
                       const QString &officialUrl = QString(), const DownloadRange &range = DownloadRange());
     void setAllowOverwrite(bool allow) { m_allowOverwrite = allow; }
+    /// 分段下载的续传缓存根目录。空 = `DownloadCache::root()`（正式缓存）；测试用它指向
+    /// 临时目录，避免把用例的残留留在用户缓存里。
+    void setRangeCacheRoot(const QString &root) { m_rangeCacheRoot = root; }
+    /// 是否允许把满足判据的作业自动升级成安全分段。
+    /// `ResumableDownload` 内部的私有 DownloadManager **必须**关掉它，否则
+    /// `startSingle()`（带 sha1 + size、不带 Range）会再次被升级成分段，形成
+    /// "探测 → 回退单发 → 探测"的无限递归。
+    void setSegmentedDownloadEnabled(bool enabled) { m_segmentEnabled = enabled; }
     /// 分段协调器的探测请求复用同一代理、证书策略与网络连接池。
     QNetworkAccessManager *networkAccess() const { return networkManager; }
     void downloadLibraries(const QList<Library> &libraries, const QString &basePath);
@@ -587,6 +656,8 @@ signals:
 private slots:
     /// 看门狗每跳一次（5 秒）：看"在看之下"的那些回复动没动，没动就降级 + abort。
     void onStallWatchdogTick();
+    /// 限速泵每跳一次（100 ms，只有设了上限时才在跳）：按令牌往回复里喂字节。
+    void onSpeedPumpTick();
     void onVersionManifestReplyFinished();
     void onVersionJsonReplyFinished();
     void onDownloadReplyFinished();
@@ -595,6 +666,7 @@ private slots:
 
 private:
     QNetworkAccessManager *networkManager;
+    NetworkManagerFactory m_networkFactory;
     QList<MinecraftVersion> availableVersions;
     QJsonObject currentVersionJson;
     // 两张表都以 QNetworkReply* 为键，回复一结束就从表里摘掉（onDownloadReplyFinished）。
@@ -693,8 +765,28 @@ private:
         int retryAttempts = 0;
         qint64 readyAtMs = 0;
         DownloadRange range;
+        /// 这条作业要不要走安全分段（`scheduleFile()` 按判据置位）。分段作业不占
+        /// QNetworkReply，详见 m_segmentJobs 的说明。
+        bool segmented = false;
+        /// "已经退过官方地址" / "已经退过普通下载"的一次性标记：重新入队后要能记住，
+        /// 否则会在两条路之间来回打转。
+        bool officialRetried = false;
+        bool plainRetried = false;
     };
     QQueue<PendingJob> m_pendingJobs;
+
+    /// 一个正在跑的安全分段作业。它没有 QNetworkReply（内部由 ResumableDownload 用自己的
+    /// DownloadManager 发最多 4 条 Range 请求），所以**不计进 pendingDownloads**；全局并发
+    /// 额度按"一个作业槽"算，batch 收尾 / isBusy() 必须把这张表也算上。
+    struct SegmentJob {
+        QString url;  // 实际尝试的地址（可能已被镜像降级改道到官方）
+        QString destinationPath, expectedSha1, officialUrl, host;
+        qint64 expectedSize = -1;
+        bool officialRetried = false;
+        bool plainRetried = false;
+        quint64 generation = 0;
+    };
+    QHash<ResumableDownload *, SegmentJob> m_segmentJobs;
 
     /// 已经证明过走 HTTP/2 的主机。**只增不减**：一个主机是不是 h2 不会变。
     ///
@@ -727,8 +819,28 @@ private:
     // 下载源。false = 官方（默认，也是加这一项之前的行为）。
     bool m_useMirror = false;
     bool m_allowOverwrite = true;
+    bool m_segmentEnabled = true;
+    /// 正在 `ResumableDownload::start()` 的调用栈里：它可能同步发 finished，
+    /// 那一次结账要推迟到栈退出之后（见 finishSegmentedJob）。
+    bool m_startingSegment = false;
+    /// 空 = `DownloadCache::root()`（见 setRangeCacheRoot()）。
+    QString m_rangeCacheRoot;
     /// 同时最多几条在飞（出厂 = `kMaxConcurrentDownloads`；设置里能改，见 §9.2 那四档）。
     int m_maxConcurrentDownloads = kMaxConcurrentDownloads;
+
+    // ------------------------------------------------------------------
+    // 下载限速（2026-10-18，§9.2）
+    // ------------------------------------------------------------------
+    /// 上限（字节/秒），0 = 不限（出厂）。归一化在 DownloadSpeedLimit.hpp。
+    qint64 m_speedLimitBytesPerSecond = DownloadSpeedLimit::kUnlimited;
+    /// 100 ms 一拍的令牌泵。**只有设了上限才在跳**：不设的时候连一次空转都没有。
+    QTimer *m_speedPump = nullptr;
+    /// "缓冲区里有数据、等着被限速放行"的回复。这一张表**只**在限速时非空。
+    QSet<QNetworkReply *> m_throttledReplies;
+    /// 令牌余额（字节，带小数：低档位一拍只放几百字节，取整会把速率拖到远低于设定值）。
+    double m_speedTokens = 0;
+    /// 上一次续令牌的时刻（m_clock 读数）。
+    qint64 m_speedLastRefillMs = 0;
 
     // ------------------------------------------------------------------
     // 失速看门狗（见 .cpp 顶部那段实测记录）
@@ -840,6 +952,23 @@ private:
     /// 把队列里排着的作业发出去，直到连接用完（判据 = mayIssueAnotherDownload() 加
     /// mayIssueAnotherDownloadToHost()）。
     void pumpDownloadQueue();
+    /// 把一个**已经在途过**的作业放回队列**最前面**（重试 / 换源 / 补投都走这里）。
+    ///
+    /// 为什么不 `enqueue()` 到队尾：一条重试排在几千个还没发过的资源对象后面，等于
+    /// "失败一次就多等一整轮" —— 2026-10-18 实测一条 429 重试在队尾等了 160 秒。
+    /// 排头不会堵住别人：`pumpDownloadQueue()` 会跳过 `readyAtMs` 还没到的作业，
+    /// 退避期间的排头作业只是被跳过，后面的作业照发。
+    void requeueDownloadJob(const PendingJob &job);
+    /// 这条作业是否适合安全分段：大小已知且在 [4 MiB, 32 GiB]、有 SHA-1、不是分段请求本身、
+    /// 并且是 http(s)。纯函数，便于测试。
+    static bool segmentedEligible(const QString &url, const QString &expectedSha1,
+                                  qint64 expectedSize, const DownloadRange &range);
+    /// 把一个满足判据的作业交给 ResumableDownload（探测 + 最多 4 路 Range + 合并校验）。
+    void startSegmentedDownload(const PendingJob &job);
+    /// ResumableDownload 结束时的结账：成功 / 退官方 / 退普通下载 / 记失败，见 .cpp。
+    void finishSegmentedJob(ResumableDownload *task, bool success, const QString &error);
+    /// 所有分段作业按 4 条连接占用的全局额度（保守：探测/合并阶段实际更少）。
+    int segmentConnections() const;
     /// 这个主机当下有几条在飞。**从 activeDownloads 现算**，不另开一个计数器：
     /// 那张表有一堆摘除点（成功 / 失败 / 退回官方 / 看门狗判死），多一个计数器就多一处
     /// 能对不上的地方，而对不上的症状是队列**永远发不出去**（整批挂死）。

@@ -88,6 +88,20 @@ public:
     /// 点不动，这一句是给**登录**那条异步路用的（浏览器可能几十秒才回来）。
     void setBusy(bool busy, const QString &what = QString());
 
+    /**
+     * @brief 当前账号是不是离线身份（决定「皮肤」那一行露出哪一颗按钮）。
+     *
+     * 正版账号走「上传皮肤…」（要令牌、传到官方）；离线账号没有令牌，那一颗按下去只会
+     * 失败，所以**藏起来**，换成「换一张…」（从盘上挑一张，见 coding plan §1.4 那条缺口）。
+     * 两档互斥，不是两个都能点。
+     *
+     * @param offline 当前账号本身是不是离线账号（判据由调用方给，见
+     *        `PlayerSkinController::offlineIdentity()` —— 全仓唯一出处）。
+     * @param hasCustomSkin 这个离线账号现在是不是已经有一张自己挑的了 ——
+     *        「恢复默认外观」只在有东西可恢复时可用（没有就灰着，点了没反应比灰着更难懂）。
+     */
+    void setOfflineSkinState(bool offline, bool hasCustomSkin);
+
     // ---------- 数据出（现场读控件，没有影子状态） ----------
 
     /// 账号列表里选中那一条的 uuid（没选中返回空串）。
@@ -116,6 +130,14 @@ public:
     }
     static QString viewerName() { return QStringLiteral("accountSkinViewer"); }
     static QString uploadButtonName() { return QStringLiteral("accountSkinUploadButton"); }
+    /// 离线账号那一颗「换一张…」（正版账号露的是 uploadButtonName()，两档互斥）。
+    static QString offlineSkinButtonName() {
+        return QStringLiteral("accountSkinOfflineSkinButton");
+    }
+    /// 离线账号那一颗「恢复默认外观」（撤掉自己挑的那张）。
+    static QString offlineSkinResetButtonName() {
+        return QStringLiteral("accountSkinOfflineSkinResetButton");
+    }
     static QString variantComboName() { return QStringLiteral("accountSkinVariantCombo"); }
     static QString capeListName() { return QStringLiteral("accountSkinCapeList"); }
     static QString applyCapeButtonName() { return QStringLiteral("accountSkinApplyCapeButton"); }
@@ -132,6 +154,18 @@ public:
     static QString removeButtonText() { return QStringLiteral("删除所选"); }
     static QString refreshButtonText() { return QStringLiteral("刷新外观"); }
     static QString uploadButtonText() { return QStringLiteral("上传皮肤…"); }
+    /// 离线账号那一颗（见 `setOfflineSkinState()`）。用词和图片选择框/Coding plan 里那句
+    /// 「换一张」一致 —— 它换的只是**启动器里**显示的那张，不是游戏里那张脸。
+    static QString offlineSkinButtonText() { return QStringLiteral("换一张…"); }
+    static QString offlineSkinResetButtonText() { return QStringLiteral("恢复默认外观"); }
+    static QString offlineSkinButtonToolTip() {
+        return QStringLiteral(
+            "从盘上挑一张 PNG（64×64 或 64×32）当这个离线账号在启动器里的外观。"
+            "只影响启动器里的预览，游戏里那张脸是游戏自己定的。");
+    }
+    static QString offlineSkinResetButtonToolTip() {
+        return QStringLiteral("撤掉自己挑的那张，回到按这个账号算出来的 / 随机挑的那一张。");
+    }
     static QString applyCapeButtonText() { return QStringLiteral("显示所选披风"); }
     static QString hideCapeButtonText() { return QStringLiteral("不显示披风"); }
     static QString closeButtonText() { return QStringLiteral("关闭"); }
@@ -190,6 +224,15 @@ signals:
     /// 用户选好了要上传的皮肤文件。
     /// @param path 本地 PNG 路径。@param variant 想用哪个模型（classic / slim）。
     void skinUploadRequested(const QString &path, const QString &variant);
+    /// 离线账号：用户挑了一张本地皮肤当"启动器里那张脸"。
+    /// @param path 本地图片路径。@param variant 模型（classic / slim）。
+    ///
+    /// NOTE: 和 `skinUploadRequested()` **分开**：那个是传给 Mojang（要令牌、改的是
+    ///       官方档案），这个是只存在本机（不需要令牌、改的是启动器里的预览）。一个信号
+    ///       两件事的话，接收方就得按"当前是不是离线"再分一次 —— 那一分迟早分错。
+    void offlineSkinPickRequested(const QString &path, const QString &variant);
+    /// 离线账号：撤掉自己挑的那张。
+    void offlineSkinResetRequested();
     /// 用户要把某一件披风设成当前。
     void capeSelectRequested(const QString &capeId);
     /// 用户要取消披风（不显示）。
@@ -198,6 +241,8 @@ signals:
 private slots:
     /// 「上传皮肤…」：选文件，成了就发 skinUploadRequested()。
     void pickSkinFile();
+    /// 「换一张…」（只有离线账号露这一颗）：选文件，发 offlineSkinPickRequested()。
+    void pickOfflineSkinFile();
     /// 「添加离线账号」（或者在那个输入框里回车）：发 offlineAccountRequested()。
     void submitOfflineName();
     /// 列表选择变化时刷那几个按钮的可用性（没选中就点不动）。
@@ -213,6 +258,11 @@ private:
     /// 各写一遍凭据。这个成员就是给那个函数补上「忙的时候一律灰」这一条。
     bool m_busy = false;
 
+    /// 「皮肤」那一行现在露的是哪一档（见 setOfflineSkinState()）。两个都从外面喂进来，
+    /// 这个窗不自己判"当前账号是不是离线" —— 那件事的唯一出处在业务层。
+    bool m_offlineSkin = false;
+    bool m_hasCustomSkin = false;
+
     QLabel *m_statusLabel = nullptr;
     QListWidget *m_accountList = nullptr;
     QPushButton *m_loginButton = nullptr;
@@ -223,6 +273,9 @@ private:
     QPushButton *m_addOfflineButton = nullptr;
     SkinViewer *m_viewer = nullptr;
     QPushButton *m_uploadButton = nullptr;
+    /// 离线账号那一档的两颗（默认都藏着，见 setOfflineSkinState()）。
+    QPushButton *m_offlineSkinButton = nullptr;
+    QPushButton *m_offlineSkinResetButton = nullptr;
     QComboBox *m_variantCombo = nullptr;
     QListWidget *m_capeList = nullptr;
     QPushButton *m_applyCapeButton = nullptr;
