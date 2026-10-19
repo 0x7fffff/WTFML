@@ -26,6 +26,7 @@
 #pragma once
 
 #include <QColor>
+#include <QIcon>
 #include <QPixmap>
 #include <QString>
 #include <QStringList>
@@ -188,6 +189,9 @@ QPixmap windowMinimize(int size, const QColor &color);
 /// @param size 边长（像素）。
 /// @param color 线的颜色（和 cross 一样用次要那一档：它是行里的一个动作，不是正文）。
 QPixmap refresh(int size, const QColor &color);
+/// Theme-aware action icons resolve their colour when painted, not when the widget is created.
+enum class Action { Refresh, Settings, Edit, Folder, Details, Delete };
+QIcon actionIcon(Action action);
 
 /// 那个**电源**符号（⏻）：左面板每一行右边第一颗按钮，「关闭这个实例」。
 /// 画的是一圈留了缺口的环 + 从缺口穿上去的一竖（就是机箱上那个开关的长相）。
@@ -197,7 +201,7 @@ QPixmap refresh(int size, const QColor &color);
 QPixmap power(int size, const QColor &color);
 
 /// 那个**齿轮**（⚙）：左面板每一行右边第二颗按钮，「进这个实例的设置」。
-/// 八颗平顶的牙 + 中间一个洞（实心填充，不是描边 —— 16 px 下描边会糊成一个圈）。
+/// 六齿描边 + 中心圆孔，与刷新图标共用轻量线稿风格。
 /// @param size 边长（像素）。
 /// @param color 填充的颜色。
 QPixmap gear(int size, const QColor &color);
@@ -209,14 +213,13 @@ QPixmap gear(int size, const QColor &color);
 QPixmap pen(int size, const QColor &color);
 
 /// 一个**文件夹**：同一个菜单里「打开」那一行。
-/// 左上角一个突出来的标签页 + 底下一块面，中间横着一道透明缝把"后背 / 前脸"分开
-/// （18 px 下没有这道缝就只是一块圆角方块，读不出是文件夹）。
+/// 标签页 + 开口轮廓，与其余动作图标采用相同线宽和圆角端点。
 /// @param size 边长（像素）。
 /// @param color 文件夹的颜色。
 QPixmap folderMark(int size, const QColor &color);
 
 /// 一个**垃圾桶**：同一个菜单里「删除」那一行（红色那一行）。
-/// 桶盖 + 桶身（往下收一点的梯形），桶身上挖掉两条竖缝。
+/// 细线桶盖、提手与桶身，内侧两条线表示桶身，不再使用厚重实心块。
 /// @param size 边长（像素）。
 /// @param color 垃圾桶的颜色。
 QPixmap trash(int size, const QColor &color);
@@ -226,7 +229,7 @@ QPixmap trash(int size, const QColor &color);
 /// 「详情和启用/禁用换个顺序」，于是从"开关和删除中间"挪成了 `[详情][开关][删除]`）。
 ///
 /// 用户原话：「把点击条目进入对应详情页的功能变成一个详情按钮，放到开关和删除中间」。
-/// 画的是一个空心圆 + 中间一竖一横一个点拼成的「i」—— 和齿轮/垃圾桶同一档的实心字形，
+/// 画的是一个描边圆与「i」，和齿轮/垃圾桶采用同一套轻量线稿，
 /// 尺寸也取同一档（`MainWindowUI::instanceFileIconSize()`），一列下来行尾三格左右对得齐。
 /// @param size 边长（像素）。
 /// @param color 线的颜色（圈和那个 i 都用它）。

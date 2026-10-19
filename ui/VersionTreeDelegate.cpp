@@ -432,7 +432,7 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
         const QRect glyph = refreshBox.adjusted(2, 2, -2, -2);
         painter->drawPixmap(glyph.topLeft(),
                             VersionIcons::refresh(glyph.width(),
-                                                  palette.color(QPalette::PlaceholderText)));
+                                                  (index.flags() & Qt::ItemIsEnabled) ? Theme::tokens().primary : Theme::tokens().disabled));
     }
     painter->restore();
 

@@ -261,6 +261,44 @@ int runInstanceUpgradeChecks() {
         check(!result.ok && result.snapshotZip.isEmpty()
               && read(r.gameDir + "/versions/Instance/Instance.jar") == "old-core",
               "insufficient space stops before snapshot and replacement");
+        check(!QFileInfo::exists(InstanceUpgrade::transactionDir(r)),
+              "space rejection removes the staged copy instead of leaking it");
+    }
+    {
+        InstanceUpgrade::Request r{scratch.path() + "/prepare-failure", "Instance", "tx-cleanup", "Original"};
+        const QString old = r.gameDir + "/versions/Instance";
+        const QString target = r.gameDir + "/versions/Target";
+        check(write(old + "/Instance.json", R"({"id":"Instance"})")
+              && write(old + "/Instance.jar", "old-core")
+              && write(old + "/saves/World/level.dat", "world")
+              && write(old + "/wtfml.meta", "{not json")
+              && write(target + "/Target.jar", "new-core"),
+              "prepare failed-upgrade fixture");
+        InstanceUpgrade::Core core;
+        core.clientJar = target + "/Target.jar";
+        core.gameVersion = "1.21.1";
+        core.mergedJson = QJsonObject{{"mainClass", "ExampleMain"}};
+        const auto result = InstanceUpgrade::prepareAndCommit(r, core);
+        check(!result.ok && read(old + "/Instance.jar") == "old-core"
+              && read(old + "/saves/World/level.dat") == "world",
+              "unreadable original settings abort the upgrade");
+        check(!QFileInfo::exists(InstanceUpgrade::transactionDir(r)),
+              "failed preparation does not leave an instance-sized staging copy");
+    }
+    {
+        const auto r = fixture("orphan-prepared");
+        bool interrupted = false;
+        try {
+            InstanceUpgrade::commitPrepared(r, [&](InstanceUpgrade::Stage stage) {
+                if (stage == InstanceUpgrade::Stage::RetainOriginal) throw std::runtime_error("simulated crash");
+            });
+        } catch (const std::runtime_error &) { interrupted = true; }
+        check(interrupted && QFileInfo::exists(InstanceUpgrade::transactionDir(r) + "/prepared"),
+              "crash fixture leaves an unpublished staging copy");
+        const auto messages = InstanceUpgrade::recoverInterrupted(r.gameDir);
+        check(!messages.isEmpty() && !QFileInfo::exists(InstanceUpgrade::transactionDir(r))
+              && read(r.gameDir + "/versions/Instance/Instance.jar") == "old-core",
+              "startup recovery removes staging that never retained the original");
     }
     {
         const auto r = fixture("interrupted");

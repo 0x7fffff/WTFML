@@ -457,7 +457,7 @@ void DownloadManager::probeOfficialRoute(const QString &mirrorHost) {
         const bool reachable =
             probe->error() == QNetworkReply::NoError
             && (status == 0 || (status >= 200 && status < 300));
-        const QString errorText = probe->errorString();
+        const QString errorText = DownloadRetryPolicy::displayError(probe->error(), probe->errorString());
         probe->deleteLater();
         if (reachable) {
             // 官方探得通 ⇒ 把镜像入口降级 5 分钟：排队里的几千个作业从下一拍起直接走官方。
@@ -1827,7 +1827,7 @@ void DownloadManager::onAssetIndexDownloaded() {
             errorMessage = QStringLiteral("Failed to save asset index file");
         }
     } else {
-        errorMessage = reply->errorString();
+        errorMessage = DownloadRetryPolicy::displayError(reply->error(), reply->errorString());
     }
 
     if (success) {
@@ -2486,13 +2486,13 @@ void DownloadManager::onDownloadReplyFinished() {
     const auto range = rangeOf(reply);
     const QString rangeError = rangeProblem(reply, range);
     if (stale) {
-        errorMessage = QStringLiteral("Download cancelled or abandoned");
+        errorMessage = QStringLiteral("下载已取消或任务已失效");
     } else if (stream && !stream->error.isEmpty()) {
         errorMessage = stream->error;
     } else if (!rangeError.isEmpty()) {
         errorMessage = rangeError;
     } else if (reply->error() != QNetworkReply::NoError) {
-        errorMessage = reply->errorString();
+        errorMessage = DownloadRetryPolicy::displayError(reply->error(), reply->errorString());
     } else if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() != (range.active() ? 206 : 200)) {
         errorMessage = QStringLiteral("Expected a complete HTTP 200 response");
     } else if (!stream) {

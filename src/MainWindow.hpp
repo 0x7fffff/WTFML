@@ -298,6 +298,17 @@ public:
     }
 
     /**
+     * @brief **给验证工程摆现场用**：只压 `m_downloadInFlight` 这一位（不碰界面、不记账）。
+     *
+     * 「下载还没完的时候拖一个整合包进来」那条路没有别的入口能造出来（按钮灰着，而拖放
+     * 不经过按钮）—— 用 `setDownloadUiBusy()` 摆会顺手在账本上开一项下载任务、还会灰掉
+     * 一整排控件，把别的断言一起搅了。这里只要那一位。
+     *
+     * NOTE: 产品代码里**不要**调它。
+     */
+    void seedDownloadInFlightForTest(bool busy) { m_downloadInFlight = busy; }
+
+    /**
      * @brief **给验证工程摆现场用**：把某一号会话的"启动事实"直接摆出来。
      *
      * 那一份启动事实（`GameSessionController::m_sessionLaunchFacts`）正常只有一条写点

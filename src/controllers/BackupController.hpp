@@ -28,7 +28,8 @@ public:
         std::function<void(InstanceSettingsDialog *, const QString &)> refreshWorld;
         std::function<void(const QString &)> refreshServer;
         /// 记 / 摘"这一份实例正在搬文件"（唯一出处是 `MainWindow::installingVersionIds()`）。
-        /// 还原一份实例会把整个目录**换掉**，这期间它不能被启动、不能被删。
+        /// 还原一份实例会把整个目录**换掉**、快照 / 世界备份会把整个目录**读一遍**，
+        /// 这两类期间它都不能被启动、改名或删掉。
         std::function<void(const QString &, bool)> setFileOperationBusy;
         /// 盘上的实例清单变了（还原之后 meta / 图标 / json 全都是快照里的那一份）。
         std::function<void()> refreshInstances;
@@ -79,7 +80,16 @@ private:
     QString m_refreshWorldDir;
     QString m_refreshServerId;
     QPointer<InstanceSettingsDialog> m_refreshDialog;
-    /// 还原实例那一趟：忙标记记的是哪一份、要不要在收尾时收掉开着的那一页。
+    /// 还原那一趟记的"哪一份实例正在搬文件"（收尾时按它摘标记）。**实例还原与世界
+    /// 还原共用这一格**：两者都要把 `versions/<id>/` 底下的东西整个换掉，都记同一个
+    /// "忙"；`busy()` 保证它们不会同时跑。
     QString m_restoreInstanceId;
+    /// 快照 / 世界备份那一趟正在**读**哪一份实例（收尾时按它摘标记）。
+    /// 读的是整个目录树 —— 跑着的这十几秒里这一份实例如果被删 / 改名 / 启动，包里会
+    /// 静默少掉那些文件，而收尾照样报"打好了一份"。所以它和复制 / 还原一样记进
+    /// `MainWindow::installingVersionIds()`（那边是"谁动不得"的唯一出处）。
+    QString m_writeInstanceId;
+    /// 只有**实例**还原会设：那一页在还原之后全是旧值，收尾时直接收掉。世界还原不设
+    /// （页面留着，只重列存档行）。
     QPointer<InstanceSettingsDialog> m_restoreDialog;
 };

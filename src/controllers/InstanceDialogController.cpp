@@ -1770,6 +1770,18 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                                                tr("游戏正在运行，先关掉游戏再删这个世界。"));
                         return;
                     }
+                    // ★ 2026-10-19：和「重命名世界」同一条理由（见 InstanceTransferController
+                    //   里那段）。快照 / 世界备份正在读这棵目录树，删除会让它静默少收一批文件，
+                    //   收尾却报成功；还原正在往这个目录里解压，删除等于把半成品删掉。
+                    if (!instanceId.isEmpty() &&
+                        m_owner->installingVersionIds().contains(instanceId)) {
+                        InlineMessage::warning(
+                            m_owner->m_ui->overlay(), tr("删除世界"),
+                            tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），"
+                               "等它结束之后再删这个世界。")
+                                .arg(m_owner->instanceDisplayName(instanceId)));
+                        return;
+                    }
                     // 默认**不**落在「删除」上（`defaultYes = false`）：误按一下回车不该把
                     // 用户几百 MB 的游玩记录删掉（和 `m_owner->deleteInstanceFile()` 一个方向）。
                     if (!InlineMessage::question(

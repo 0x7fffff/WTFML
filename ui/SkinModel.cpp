@@ -226,7 +226,7 @@ bool hasTranslucentPixels(const QImage &texture, const QRect &uv) {
 void collectFace(QVector<DrawFace> &faces, const Cuboid &box, Face face, bool overlay,
                  const QImage &texture, const Camera &cam, const QPointF &origin, double scale) {
     const FaceGeometry geometry = faceGeometry(box, face, overlay);
-    if (!isFaceVisible(cam, geometry)) {
+    if (!box.doubleSided && !isFaceVisible(cam, geometry)) {
         return;  // 背面：看不见，连投都不用投
     }
 
@@ -247,6 +247,12 @@ void collectFace(QVector<DrawFace> &faces, const Cuboid &box, Face face, bool ov
         depthSum += depth;
     }
     draw.meanDepth = depthSum / static_cast<double>(geometry.corners.size());
+    if (box.mirror) {
+        std::swap(draw.screen[0], draw.screen[1]);
+        std::swap(draw.screen[3], draw.screen[2]);
+        std::swap(draw.depth[0], draw.depth[1]);
+        std::swap(draw.depth[3], draw.depth[2]);
+    }
     draw.translucent = hasTranslucentPixels(texture, draw.uv);
     faces << draw;
 }
@@ -316,7 +322,10 @@ void rasterizeFace(const DrawFace &face, Canvas &canvas, bool blendOnly) {
                     if (depth > depthLine[px] + 1e-4) {
                         continue;
                     }
-                } else if (depth >= depthLine[px]) {
+                // Coplanar armor pieces overlap. Use the buffer precision and the
+                // same 1e-4 tolerance as the translucent pass: projection of different
+                // cuboids otherwise gives tiny depth differences and visible speckles.
+                } else if (static_cast<float>(depth) >= depthLine[px] - 1e-4f) {
                     continue;  // 已经有更近的面了
                 }
 
@@ -577,7 +586,7 @@ double restWalkPhase() {
 
 FaceGeometry faceGeometry(const Cuboid &box, Face face, bool overlay) {
     const FaceBasis basis = faceBasis(face);
-    const Cuboid shaped = inflatedBox(box, overlay ? kOverlayInflate : 0.0);
+    const Cuboid shaped = inflatedBox(box, box.inflation + (overlay ? kOverlayInflate : 0.0));
     const QVector3D size = shaped.hi - shaped.lo;
 
     int w = 0;
@@ -589,6 +598,9 @@ FaceGeometry faceGeometry(const Cuboid &box, Face face, bool overlay) {
     // 贴图矩形**不跟着姿势转**：一块布怎么转，它上面那块图案还是从贴图同一个地方取
     // （转了之后"哪一块落在哪一面上"自然就变了 —— 披风那 180° 正是靠这个起作用的）。
     geometry.uv = faceRect(overlay ? box.overlayBase : box.base, w, h, d, face);
+    if (box.mirror && (face == Face::Right || face == Face::Left))
+        geometry.uv = faceRect(overlay ? box.overlayBase : box.base, w, h, d,
+                               face == Face::Right ? Face::Left : Face::Right);
 
     // 面在模型上的两个跨度。膨胀之后这两个跨度也跟着变大（覆盖层比里层大一圈），
     // 而贴图矩形**不变** —— 也就是把同一块贴图摊在稍大一点的面上。
@@ -747,6 +759,18 @@ void render(QPainter &painter, const QRectF &target, const Scene &scene) {
         for (Face face : allFaces()) {
             collectFace(faces, capedBox, face, false, cape, cam, origin, scale);
         }
+    }
+
+    // Keep converted textures alive and stationary until every face is rasterized.
+    QVector<QImage> extraTextures;
+    extraTextures.reserve(scene.additionalParts.size());
+    for (const auto &part : scene.additionalParts)
+        extraTextures.append(part.texture.convertToFormat(QImage::Format_ARGB32_Premultiplied));
+    for (int i = 0; i < scene.additionalParts.size(); ++i) {
+        if (extraTextures[i].isNull()) continue;
+        for (Face face : allFaces())
+            collectFace(faces, scene.additionalParts[i].box, face, false,
+                        extraTextures[i], cam, origin, scale);
     }
 
     Canvas canvas;

@@ -802,7 +802,10 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
         } else {
             panel->addWidget(button);
             if (action == SelectionAction::Update) button->setText(tr("更新选中项"));
-            if (action == SelectionAction::Delete) button->setText(tr("删除选中项"));
+            if (action == SelectionAction::Delete) {
+                button->setText(tr("删除选中项"));
+                button->setIcon(VersionIcons::actionIcon(VersionIcons::Action::Delete));
+            }
         }
     }
     for (bool move : {false, true}) {
@@ -824,7 +827,7 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
         inspect->setObjectName(QStringLiteral("modInspectDependencies"));
         inspect->setEnabled(!paths.isEmpty());
         connect(inspect, &QAction::triggered, this, [this, paths] { emit inspectDependenciesRequested(paths); });
-        auto *detail = menu.addAction(tr("查看详情"));
+        auto *detail = menu.addAction(VersionIcons::actionIcon(VersionIcons::Action::Details), tr("查看详情"));
         detail->setEnabled(paths.size() == 1 && m_resourceTips.contains(identityPath(paths.value(0))));
         connect(detail, &QAction::triggered, this, [this, paths] { emit detailRequested(paths.first()); });
         auto *website = menu.addAction(tr("打开项目网页"));
@@ -1988,8 +1991,7 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
         detail->setObjectName(detailButtonName());
         detail->setAutoRaise(true);
         const int glyph = MainWindowUI::instanceFileIconSize();
-        detail->setIcon(QIcon(VersionIcons::infoMark(
-            glyph, row->palette().color(QPalette::PlaceholderText))));
+        detail->setIcon(VersionIcons::actionIcon(VersionIcons::Action::Details));
         detail->setIconSize(QSize(glyph, glyph));
         // 文字仍然给着（虽然不画）：读出这一格是"详情"这件事**只剩这一个出口**
         // （悬停提示、无障碍，以及验证工程按它核对"这一颗是干什么的"）。
@@ -2049,8 +2051,7 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
         edit->setObjectName(editButtonName());
         edit->setAutoRaise(true);
         const int glyph = MainWindowUI::instanceFileIconSize();
-        edit->setIcon(QIcon(VersionIcons::pen(
-            glyph, row->palette().color(QPalette::PlaceholderText))));
+        edit->setIcon(VersionIcons::actionIcon(VersionIcons::Action::Edit));
         edit->setIconSize(QSize(glyph, glyph));
         edit->setText(editText());
         // ★ 2026-09-28：这一格里现在最实的一件事是**改游戏规则**（读的是这个存档自己的
@@ -2070,11 +2071,9 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
         remove->setAutoRaise(true);
         // 字形是**画的**（VersionIcons，全仓一个图片文件都没有），尺寸取和图标那一格
         // 一样的一档 —— 行尾两颗按钮和行首那枚图标同一个大小，看着才是一套的。
-        // 颜色用次要那一档：删除是行里的一个动作，不是正文（而且它是**危险**动作这件事
-        // 由点下去那句问话来说，不靠一个红图标在列表里一直喊）。
+        // 删除保留主题危险色，禁用时由公共图标引擎改用禁用色。
         const int glyph = MainWindowUI::instanceFileIconSize();
-        remove->setIcon(QIcon(VersionIcons::trash(
-            glyph, row->palette().color(QPalette::PlaceholderText))));
+        remove->setIcon(VersionIcons::actionIcon(VersionIcons::Action::Delete));
         remove->setIconSize(QSize(glyph, glyph));
         // 文字仍然给着（虽然不画）：读出这一格是"删除"这件事**只剩这一个出口**
         //（悬停提示、无障碍，以及验证工程按它核对"这一颗是干什么的"）。

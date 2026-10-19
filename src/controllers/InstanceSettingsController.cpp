@@ -119,6 +119,15 @@ bool InstanceSettingsController::rename(const QString &oldId, const QString &new
         notify(Notice::Kind::RenameBlockedScanning, oldId, QString());
         return false;
     }
+    // 闸口一之三：**正被别的作业占着**（安装 / 导入 / 复制 / 快照 / 还原）也不能改名。
+    // 那些作业手里攥着的是按下那一刻算好的绝对路径（`AppPaths::versionDir(id)`），
+    // 改了名之后它们会往已经不存在的旧目录里写 —— `mkpath()` 会把旧目录**重新建出来**，
+    // 于是文件一半在新目录、一半在旧目录，两边都不完整。判据是
+    // `MainWindow::installingVersionIds()`（"谁动不得"的唯一出处），不另立一个。
+    if (m_host.isFileOperationBusy && m_host.isFileOperationBusy(oldId)) {
+        notify(Notice::Kind::RenameBlockedBusy, oldId, QString());
+        return false;
+    }
 
     const QString name = newId.trimmed();
 

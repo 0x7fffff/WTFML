@@ -102,6 +102,20 @@ bool saveObject(const QString &path, const QJsonObject &json) {
     const auto bytes = QJsonDocument(json).toJson();
     return f.open(QIODevice::WriteOnly) && f.write(bytes) == bytes.size() && f.commit();
 }
+// A failed attempt can leave `prepared/` holding a full copy of the instance
+// (saving everything, mods, screenshots). The copy has no recovery value until
+// the original is retained: before that point nothing under `versions/` has
+// changed, and a journal without `original/` is ignored by recovery. Keep the
+// transaction directory only when it holds rollback material.
+void discardUnpublishedStaging(const Request &r) {
+    // Never resolve a relative/empty game dir against the process working
+    // directory; only a request that passed validation names a real location.
+    if (!validate(r).isEmpty()) return;
+    const QString root = transactionDir(r);
+    if (!QFileInfo(root).isDir() || redirected(root)) return;
+    if (QFileInfo(root + "/original").isDir() || QFileInfo(root + "/replaced").isDir()) return;
+    removeTreeWithoutFollowingLinks(root);
+}
 } // namespace
 
 QString transactionDir(const Request &r) {
@@ -139,8 +153,8 @@ QString dependentInstanceProblem(const QString &gameDir, const QString &instance
     return {};
 }
 
-Result prepareAndCommit(Request r, const Core &core, const std::function<void(Stage)> &progress,
-                        const std::function<bool()> &cancelled) {
+static Result prepareAndCommitImpl(Request r, const Core &core, const std::function<void(Stage)> &progress,
+                                   const std::function<bool()> &cancelled) {
     Result result;
     result.problem = validate(r);
     if (!result.problem.isEmpty()) return result;
@@ -240,6 +254,13 @@ Result prepareAndCommit(Request r, const Core &core, const std::function<void(St
     return result;
 }
 
+Result prepareAndCommit(Request r, const Core &core, const std::function<void(Stage)> &progress,
+                        const std::function<bool()> &cancelled) {
+    const auto result = prepareAndCommitImpl(r, core, progress, cancelled);
+    if (!result.ok) discardUnpublishedStaging(r);
+    return result;
+}
+
 static Result rollbackImpl(const Request &r, bool verifyRetained) {
     Result result;
     result.problem = validate(r);
@@ -299,8 +320,8 @@ static Result rollbackImpl(const Request &r, bool verifyRetained) {
 
 Result rollback(const Request &r) { return rollbackImpl(r, true); }
 
-Result commitPrepared(const Request &r, const std::function<void(Stage)> &progress,
-                      const std::function<bool()> &cancelled) {
+static Result commitPreparedImpl(const Request &r, const std::function<void(Stage)> &progress,
+                                 const std::function<bool()> &cancelled) {
     Result result;
     const auto report = [&](Stage stage) { if (progress) progress(stage); };
     const auto stopped = [&] { return cancelled && cancelled(); };
@@ -422,6 +443,13 @@ Result commitPrepared(const Request &r, const std::function<void(Stage)> &progre
     return result;
 }
 
+Result commitPrepared(const Request &r, const std::function<void(Stage)> &progress,
+                      const std::function<bool()> &cancelled) {
+    const auto result = commitPreparedImpl(r, progress, cancelled);
+    if (!result.ok) discardUnpublishedStaging(r);
+    return result;
+}
+
 QStringList recoverableTransactions(const QString &gameDir, const QString &instanceId) {
     QStringList ids;
     const QDir root(QDir(gameDir).filePath("cache/instance-upgrades"));
@@ -447,6 +475,15 @@ QStringList recoverInterrupted(const QString &gameDir) {
         if (!validate(r).isEmpty() || readJournal(r).isEmpty()) continue;
         const QString state = json.value("state").toString();
         if (state != "prepared" && state != "original_retained" && state != "rollback_pending") continue;
+        if (state == "prepared" && !QFileInfo(transactionDir(r) + "/original").isDir()) {
+            // Crash before the original was retained: nothing under versions/ was
+            // touched, so the staged copy has no recovery value. Do not leak it.
+            // (`prepared` with an original/ directory can only mean the crash hit
+            // between the rename and the journal update — that one must roll back.)
+            if (removeTreeWithoutFollowingLinks(transactionDir(r)))
+                messages.append(QStringLiteral("已清理未发布的升级暂存：%1").arg(r.instanceId));
+            continue;
+        }
         if (!QFileInfo(transactionDir(r) + "/original").isDir()) continue;
         const auto result = rollbackImpl(r, false);
         messages.append(result.rolledBack ? QStringLiteral("中断的升级已恢复原实例：%1").arg(r.instanceId)

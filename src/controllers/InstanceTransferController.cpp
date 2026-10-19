@@ -21,6 +21,36 @@ struct CopyOutcome {
     QString error;
 };
 
+namespace {
+
+// 目标文件夹是不是**当前这个游戏文件夹**。两处要问这件事（复制成功那句提示的语气、
+// 以及后台复制要不要把目标名字记进「文件操作中」），判据只能有一个。
+//
+// ★ 2026-10-19：**不能**只拿 `QDir::cleanPath` 比字面量。用户完全可以把游戏文件夹
+//   用另一条路指过来（junction / 符号链接）—— 那时两串字面量不同、而 `versions/<名字>/`
+//   落的就是同一个目录。漏判的后果分两处：
+//     · 后台复制期间目标名字**没被记进 `m_fileOperationInstanceIds`** ⇒ 拷到一半的实例
+//       下一次刷新就能被启动 / 删除（那两条闸只查 `installingVersionIds()`）；
+//     · 复制完成那句提示说"在另一个游戏文件夹里"，而它明明就在列表里。
+//   `InstanceFiles::pathIsSameOrInside()` 会解 junction / 8.3 短名 / 符号链接
+//   （`canonicalFilePath()` 自己**不解 junction**，见 InstanceFiles.cpp 里那一大段），
+//   所以拿它**两头各问一次**就是"同一个文件夹"。解不出来 / 两边只有大小写写法不同时
+//   退回原来那句字面量比较 —— 那正是这条判据从前的全部行为，不丢。
+bool isCurrentGameFolder(const QString &folder) {
+    if (folder.isEmpty()) {
+        return false;
+    }
+    const QString current = AppPaths::minecraftDir();
+    if (!current.isEmpty() && InstanceFiles::pathIsSameOrInside(current, folder)
+        && InstanceFiles::pathIsSameOrInside(folder, current)) {
+        return true;
+    }
+    return !current.isEmpty()
+           && QDir::cleanPath(folder).compare(QDir::cleanPath(current), Qt::CaseInsensitive) == 0;
+}
+
+}  // namespace
+
 InstanceTransferController::InstanceTransferController(VersionManager *versions,
                                                        LauncherManager *launcher,
                                                        OverlayHost *overlay, Host host,
@@ -87,8 +117,7 @@ void InstanceTransferController::announceCopySuccess(const QString &sourceId,
     const QString landed = QDir::toNativeSeparators(
         QDir(destGameFolder).absoluteFilePath(QStringLiteral("versions/") + name));
     log(tr("已复制实例 %1 → %2").arg(displayName(sourceId), landed));
-    const bool sameFolder = QDir::cleanPath(destGameFolder).compare(
-                                QDir::cleanPath(AppPaths::minecraftDir()), Qt::CaseInsensitive) == 0;
+    const bool sameFolder = isCurrentGameFolder(destGameFolder);
     if (sameFolder) {
         InlineMessage::information(m_overlay, tr("复制实例"),
                                    tr("「%1」已经复制好了，就在实例列表里。").arg(name));
@@ -178,10 +207,7 @@ void InstanceTransferController::copyInstanceInBackground(
     //   删除的闸只查 `installingVersionIds()`，所以这一段名字也得记进去。
     //   目标在**别的**游戏文件夹时不能记这个名字：那是另一个文件夹里的相对名，当前文件夹
     //   里可能有同名实例，记了会误伤它。
-    const bool copyIntoCurrentFolder =
-        QDir::cleanPath(destGameFolder)
-            .compare(QDir::cleanPath(AppPaths::minecraftDir()), Qt::CaseInsensitive)
-        == 0;
+    const bool copyIntoCurrentFolder = isCurrentGameFolder(destGameFolder);
     const bool markCopyTarget = copyIntoCurrentFolder && name != sourceId;
     if (m_host.setFileOperationBusy) {
         m_host.setFileOperationBusy(sourceId, true);
@@ -315,6 +341,17 @@ bool InstanceTransferController::renameWorld(const QString &instanceId,
     if (m_launcher->isVersionRunning(instanceId)) {
         InlineMessage::warning(m_overlay, tr("重命名世界"),
                                tr("游戏正在运行，先关掉游戏再改存档的名字。"));
+        return false;
+    }
+    // ★ 2026-10-19：这一份实例正在被别的作业占着（快照 / 世界备份 / 还原 / 复制 / 安装）
+    //   时不许改世界目录的名字。那些作业按**改名前算好的绝对路径**逐个读整棵目录树，
+    //   目录在扫描途中被改名，它们要么静默少读一批文件、要么把结果写到一半就找不到落点，
+    //   收尾却照样报成功 —— 一份看着成功、其实是残的备份比失败更糟。
+    if (m_host.isBeingModified && m_host.isBeingModified(instanceId)) {
+        InlineMessage::warning(m_overlay, tr("重命名世界"),
+                               tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），"
+                                  "等它结束之后再改这个世界。")
+                                   .arg(displayName(instanceId)));
         return false;
     }
     QString error;

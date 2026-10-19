@@ -16,8 +16,8 @@
  *
  * 【边界（谁在这一层里，谁不在）】
  *
- *   · 在：改名的**四道闸**（正在跑的不许改 / 正在体检的不许改 / 名字合不合法 / 数据层
- *     改不动）、改完之后**谁跟着走**（`LauncherSettings` 记的"上次启动的那一个"、分组
+ *   · 在：改名的**五道闸**（正在跑的不许改 / 正在体检的不许改 / 正被别的作业占着不许改 /
+ *     名字合不合法 / 数据层改不动）、改完之后**谁跟着走**（`LauncherSettings` 记的"上次启动的那一个"、分组
  *     归属键的老键新键、实例树、下拉框）、以及"哪一半成了、哪一半没成"这套分账。
  *   · 在：改一格就落一格那一整套 —— 先补稳定 id（没有它这次覆盖就"跟着目录名走"）、再把
  *     归属键搬过去、然后把 `Edit` 那一份拼成要写进 meta 的字段（**"跟随全局"要删键、
@@ -71,6 +71,10 @@ public:
             RenameBlockedRunning,
             /// 改名：这个实例正在做完整性检查（那一趟攥着改名前算好的绝对路径）。
             RenameBlockedScanning,
+            /// 改名：这个实例正被另一项作业占着（安装 / 导入 / 复制 / 快照 / 还原 ——
+            /// 判据是 `MainWindow::installingVersionIds()`）。那些作业攥着的是改名前的
+            /// 绝对路径，改到一半它们会往一个已经不存在的目录里写（或者重新建出来）。
+            RenameBlockedBusy,
             /// 改名：名字本身不合法（`InstanceFiles::validateRenameTarget()` 说不行）。
             RenameRejected,
             /// 改名：数据层改不动（原因里可能写着回滚到什么程度）。
@@ -146,6 +150,10 @@ public:
         std::function<bool(const QString &versionId)> isRunning;
         /// 这个实例现在正在做完整性检查吗（主窗口那几位扫描状态）。
         std::function<bool(const QString &versionId)> isScanning;
+        /// 这个实例现在正被别的作业占着吗（`MainWindow::installingVersionIds()` ——
+        /// 安装 / 导入 / 复制 / 快照 / 还原那几类）。**必须问那一份合集**：那些作业
+        /// 在改名前就算好了绝对路径，改名会让它们写到已经不存在的目录里去。
+        std::function<bool(const QString &versionId)> isFileOperationBusy;
         /// 弹一句（主窗口按 `kind` 挑标题与正文，再走 `InlineMessage`）。
         std::function<void(const Notice &)> notice;
         /// 记一行日志（主窗口的 `appendLog()`）。
@@ -183,7 +191,7 @@ public:
     /**
      * @brief 把 @p oldId 改名叫 @p newId（**用户已经答过名字了**）。
      *
-     * 四道闸按顺序：正在跑 → 正在体检 → 名字不合法 → 数据层改不动。任何一道拦下来都
+     * 五道闸按顺序：正在跑 → 正在体检 → 正被别的作业占着 → 名字不合法 → 数据层改不动。任何一道拦下来都
      * 返回 false，并且**把原因弹出去**（`Notice`）—— 不循环重问：用户看到原因后可以自己
      * 再点一次，那样他能顺便改别的决定。
      *

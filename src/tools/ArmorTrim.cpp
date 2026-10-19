@@ -13,19 +13,23 @@ struct TrimMaterialRow {
     const char *id;
     const char *name;
     const char *item;
+    const char *since;  ///< 哪个 Java 版本开始有
 };
 
+// ★ 名字照游戏 `zh_cn.json` 的 `trim_material.minecraft.*` 写（「紫水晶质」那一列），
+//   不是自己另起一套简称；`item` 是锻造台里真正摆进去的那件东西。
 const TrimMaterialRow kTrimMaterials[] = {
-    {"amethyst", "紫水晶", "紫水晶碎片"},
-    {"copper", "铜", "铜锭"},
-    {"diamond", "钻石", "钻石"},
-    {"emerald", "绿宝石", "绿宝石"},
-    {"gold", "黄金", "金锭"},
-    {"iron", "铁", "铁锭"},
-    {"lapis", "青金石", "青金石"},
-    {"netherite", "下界合金", "下界合金锭"},
-    {"quartz", "石英", "石英"},
-    {"redstone", "红石", "红石粉"},
+    {"amethyst", "紫水晶质", "紫水晶碎片", "1.20"},
+    {"copper", "铜质", "铜锭", "1.20"},
+    {"diamond", "钻石质", "钻石", "1.20"},
+    {"emerald", "绿宝石质", "绿宝石", "1.20"},
+    {"gold", "金质", "金锭", "1.20"},
+    {"iron", "铁质", "铁锭", "1.20"},
+    {"lapis", "青金石质", "青金石", "1.20"},
+    {"netherite", "下界合金质", "下界合金锭", "1.20"},
+    {"quartz", "石英质", "石英", "1.20"},
+    {"redstone", "红石质", "红石粉", "1.20"},
+    {"resin", "树脂质", "树脂砖", "1.21.4"},
 };
 
 struct TrimPatternRow {
@@ -35,26 +39,27 @@ struct TrimPatternRow {
     const char *since;   ///< 哪个 Java 版本开始有
 };
 
-// ★ 来源按 Java 1.20 / 1.21 的实际箱子写；不写"城堡里某处"这种含糊说法。
+// ★ 名字照游戏 `zh_cn.json` 的 `trim_pattern.minecraft.*` 写（「镶铆盔甲纹饰」那一列），
+//   来源按 Java 1.20 / 1.21 的实际箱子写；不写"城堡里某处"这种含糊说法。
 const TrimPatternRow kPatterns[] = {
     {"coast", "海岸", "沉船（藏宝箱）", "1.20"},
     {"sentry", "哨兵", "掠夺者前哨站", "1.20"},
     {"dune", "沙丘", "沙漠神殿", "1.20"},
     {"wild", "荒野", "丛林神庙", "1.20"},
-    {"ward", "守卫", "远古城市", "1.20"},
+    {"ward", "监守", "远古城市", "1.20"},
     {"eye", "眼眸", "要塞", "1.20"},
     {"vex", "恼鬼", "林地府邸", "1.20"},
-    {"tide", "潮汐", "海底神殿（击杀守卫者掉落）", "1.20"},
+    {"tide", "潮汐", "远古守卫者（击杀掉落）", "1.20"},
     {"snout", "猪鼻", "堡垒遗迹", "1.20"},
     {"rib", "肋骨", "下界要塞", "1.20"},
-    {"spire", "尖顶", "末地城", "1.20"},
-    {"wayfinder", "寻路者", "古迹废墟（可疑的沙砾）", "1.20"},
+    {"spire", "尖塔", "末地城", "1.20"},
+    {"wayfinder", "向导", "古迹废墟（可疑的沙砾）", "1.20"},
     {"shaper", "塑造", "古迹废墟（可疑的沙砾）", "1.20"},
-    {"silence", "静默", "远古城市", "1.20"},
-    {"raiser", "举升", "古迹废墟（可疑的沙砾）", "1.20"},
-    {"host", "主机", "古迹废墟（可疑的沙砾）", "1.20"},
+    {"silence", "幽静", "远古城市", "1.20"},
+    {"raiser", "牧民", "古迹废墟（可疑的沙砾）", "1.20"},
+    {"host", "雇主", "古迹废墟（可疑的沙砾）", "1.20"},
     {"flow", "涡流", "试炼密室（不祥宝库）", "1.21"},
-    {"bolt", "疾风", "试炼密室（不祥宝库）", "1.21"},
+    {"bolt", "镶铆", "试炼密室（宝库）", "1.21"},
 };
 
 const char *kParts[] = {"头盔", "胸甲", "护腿", "靴子"};
@@ -100,6 +105,10 @@ TrimMaterial trimMaterialAt(int index) {
             QString::fromUtf8(kTrimMaterials[index].item)};
 }
 
+QString trimMaterialSince(int index) {
+    return validTrimMaterial(index) ? QString::fromLatin1(kTrimMaterials[index].since) : QString();
+}
+
 QStringList trimMaterialNames() {
     QStringList list;
     for (const TrimMaterialRow &row : kTrimMaterials) {
@@ -141,6 +150,10 @@ QString partName(int index) {
 }
 
 int armorMaterialCount() { return kArmorMaterialCount; }
+
+QString armorMaterialId(int index) {
+    return validArmorMaterial(index) ? QString::fromLatin1(kArmorMaterials[index].id) : QString();
+}
 
 QString armorMaterialName(int index) {
     if (!validArmorMaterial(index)) {
@@ -214,6 +227,11 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
     if (pattern.since != QStringLiteral("1.20")) {
         result.notes.append(QStringLiteral("%1是 Java %2 才加入的 —— 更早的版本里没有这枚模板。")
                                 .arg(templateName, pattern.since));
+    }
+    const QString materialSince = trimMaterialSince(trimMaterial);
+    if (!materialSince.isEmpty() && materialSince != QStringLiteral("1.20")) {
+        result.notes.append(QStringLiteral("「%1」是 Java %2 才加入的纹饰材料 —— 更早的版本里没有。")
+                                .arg(material.name, materialSince));
     }
 
     if (wholeSet) {

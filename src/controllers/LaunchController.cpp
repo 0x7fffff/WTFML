@@ -218,9 +218,12 @@ void LaunchController::onStartButtonClicked() {
     //       这一道是兜底：滤掉那份列表和这道闸口读的是**同一个**
     //       m_owner->installingVersionIds()，两边不可能各说各的。
     if (m_owner->installingVersionIds().contains(versionId)) {
-        InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("下载进行中"),
-                             m_owner->tr("「%1」的文件还没有下载完成（或者还在安装加载器 / "
-                                "导入整合包），请等它结束后再启动。\n\n"
+        // 这一句盖的是**整份** `installingVersionIds()`：除了"文件没下完"，里面还有
+        // 复制 / 快照 / 还原那几类（它们也在读写这棵目录树）。说成"没下载完"会让
+        // 正在做快照的用户以为程序记错了，所以把几类都点出来。
+        InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("这个实例正忙"),
+                             m_owner->tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或"
+                                "还原），请等它结束后再启动。\n\n"
                                 "别的实例不受影响，可以直接启动。")
                                  .arg(m_owner->instanceDisplayName(versionId)));
         return;

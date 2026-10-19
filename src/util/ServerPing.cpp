@@ -854,18 +854,31 @@ void Pinger::start(const QStringList &addresses) {
     }
 
     // 上一趟那些线程对象还挂着（跑完了，但 deletion 还排着队）：先放它们走。不管的话，
-    // 用户每点一次「测速」就在父对象底下攒一堆僵尸 QThread（一整个会话下来能攒几十个），
-    // 而且 `m_threads` 会被下一段清掉、再也没人认领它们。
+    // 用户每点一次「测速」就在父对象底下攒一堆僵尸 QThread（一整个会话下来能攒几十个）。
     // NOTE: 从**主线程**调 deleteLater 是安全的 —— 这些对象本来就住在主线程（它们是在
     //       start() 里 new 出来的），线程跑完了不欠任何东西。
-    for (QThread *thread : m_threads) {
-        if (thread != nullptr) {
+    //
+    // ★ 只放走**已经收摊**的那些（2026-10-19）。abort() 只放下 `m_running`，每条线程
+    //   手上那一台还在同步 socket 的 4 秒超时里；用户取消之后立刻再点「测速」（取消会把
+    //   按钮重新点亮），上一版会把一条**还在跑**的 QThread `deleteLater` 掉并把它从表里
+    //   抹掉 —— 主线程处理那条 DeferredDelete 时 Qt 直接
+    //   `qFatal("QThread: Destroyed while thread is still running")`，整个启动器当场消失。
+    //   还在跑的那几条留在表里：它们自己会在超时到了之后退出，下一趟 start() 再收；
+    //   一直没收的由 `~Pinger()` wait 着收。
+    for (int i = m_threads.size() - 1; i >= 0; --i) {
+        QThread *thread = m_threads.at(i);
+        if (thread == nullptr) {
+            m_threads.removeAt(i);
+        } else if (thread->isFinished()) {
             thread->deleteLater();
+            m_threads.removeAt(i);
         }
     }
-    m_threads.clear();
 
     m_running.storeRelease(1);
+    // 本趟的代号（见头文件里 m_generation 那段）：abort() 之后紧接着的这一发 start()
+    // 会让旧线程手上的 `m_running` 重新变成 1，号对不上才分得开两趟。
+    const int generation = m_generation.fetchAndAddOrdered(1) + 1;
     const int total = addresses.size();
     // 同时开几条：**不超过台数**（三台就开三条，不开八条在那儿抢一个空号）。
     const int workers = qMin(total, kMaxConcurrentPings);
@@ -891,10 +904,12 @@ void Pinger::start(const QStringList &addresses) {
     // 工作线程里 `emit` 主线程那个对象的信号，Qt 按接收方所在线程自动排队（这就是"跨线程
     // 发信号"唯一要守的规矩）。
     for (int w = 0; w < workers; ++w) {
-        QThread *thread = QThread::create([this, addresses, total, cursor, live]() {
+        QThread *thread = QThread::create([this, addresses, total, cursor, live, generation]() {
             for (;;) {
                 // 每一台之前查一次"被叫停没有"：abort() 之后每条线程最多再跑完手上这一台。
-                if (m_running.loadAcquire() == 0) {
+                // ★ 号（generation）也得对得上：abort 之后紧跟着 start 会把 `m_running`
+                //   重新置 1，只看它的话上一趟的线程会接着往下跑、抢上一趟的号牌。
+                if (m_running.loadAcquire() == 0 || m_generation.loadAcquire() != generation) {
                     break;
                 }
                 const int i = cursor->fetchAndAddRelaxed(1);
@@ -902,13 +917,23 @@ void Pinger::start(const QStringList &addresses) {
                     break;  // 号牌发完了（别人已经把剩下的都领走了）
                 }
                 const ServerPing::Status status = ServerPing::ping(addresses.at(i));
+                // 手上这一台问完了：没被取消就照常报（abort 的约定是"手上那一台问完"）。
+                // 但如果这期间已经开了**新的一趟**，这一条结果属于上一趟的下标，报上去
+                // 会被接的人当成新表的第 i 台 —— 扔掉。
+                if (m_generation.loadAcquire() != generation) {
+                    break;
+                }
                 emit oneFinished(i, status);
             }
             // ★ `deref()` 是 `--i != 0`（**还有人在**）—— 所以"最后一条"是**回假**那一条。
             //   反着写的代价见上面 `live` 那一段。
             if (!live->deref()) {
-                m_running.storeRelease(0);
-                emit allFinished();
+                // 收尾也只收自己那一趟：上一趟的"最后一条"晚到时，新一趟可能正跑着，
+                // 这时候清零 / 发 allFinished 会把新一趟的忙态和结果一起打掉。
+                if (m_generation.loadAcquire() == generation) {
+                    m_running.storeRelease(0);
+                    emit allFinished();
+                }
             }
         });
         thread->setParent(this);

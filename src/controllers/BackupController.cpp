@@ -131,6 +131,14 @@ void BackupController::backupWorld(const QString &worldDir) {
     manifest.scope = QStringList{tr("这个存档的整个文件夹")};
     const QString zip = QDir(BackupFiles::backupDir(BackupFiles::Kind::World))
                             .filePath(BackupFiles::backupFileName(worldName, now));
+    // ★ 2026-10-19：这一趟在**读整棵目录树**（世界那一棵，连同它所在的实例）。跑着的
+    //   这十几秒里实例如果被删 / 改名 / 启动，包里会静默少掉正被改的那几个文件，收尾
+    //   却照样报"备份完成"。记进和复制 / 还原同一个集合 —— 那一条是 `installingVersionIds()`
+    //   的唯一出处，启动、改名、删除三处读的都是它。收尾在 writeFinished() 里摘。
+    m_writeInstanceId = instanceId;
+    if (!instanceId.isEmpty() && m_host.setFileOperationBusy) {
+        m_host.setFileOperationBusy(instanceId, true);
+    }
     startWrite(manifest, worldDir, zip, tr("备份世界「%1」").arg(worldName), instanceId,
                tr("备份完成"));
 }
@@ -164,6 +172,16 @@ void BackupController::restoreWorld(const QString &worldDir, InstanceSettingsDia
     }
     m_refreshWorldDir = worldDir;
     m_refreshDialog = dialog;
+    // ★ 2026-10-19：和「还原实例」同一个理由（见 restoreInstance() 那段）—— 这一趟
+    //   要把存档目录整个换掉，跑着的时候这一份实例不能启动、不能删（启动器读到的
+    //   会是换到一半的存档；删除则会让解压往一个正在被删的目录里写）。
+    //   复用 `m_restoreInstanceId` 记账：上面 `busy()` 挡着，世界还原和实例还原
+    //   不会同时跑。**不收那一页**（`m_restoreDialog` 这里刻意不设）—— 世界还原
+    //   只需要重列那几行存档，页面留着才是用户想看的。
+    m_restoreInstanceId = instanceId;
+    if (!instanceId.isEmpty() && m_host.setFileOperationBusy) {
+        m_host.setFileOperationBusy(instanceId, true);
+    }
     startRestore(zip, QFileInfo(worldDir).absolutePath(), tr("还原世界「%1」").arg(worldName),
                  instanceId, tr("还原完成"));
 }
@@ -225,6 +243,13 @@ void BackupController::snapshotInstance(const QString &versionId) {
     }
     const QString zip = QDir(BackupFiles::backupDir(BackupFiles::Kind::Instance))
                             .filePath(BackupFiles::backupFileName(dirName, now));
+    // ★ 2026-10-19：开头那两道闸（isBeingModified / isRunning）只管**按下这一颗那一刻**。
+    //   快照的这十几秒一直在读这棵目录树；期间这一份实例照样能被删掉、被改名、被启动
+    //   （启动后游戏往存档 / 日志里写），结果就是包里少了那些文件、而收尾照样报
+    //   "快照创建完成" —— 一份看着成功、其实是残的备份比失败更糟。记进和复制 / 还原
+    //   同一个集合（`installingVersionIds()` 的唯一出处），收尾在 writeFinished() 里摘。
+    m_writeInstanceId = versionId;
+    if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(versionId, true);
     startWrite(manifest, instanceDir, zip,
                tr("创建「%1」的快照").arg(displayName(versionId)), versionId,
                tr("快照创建完成"));
@@ -337,6 +362,16 @@ Tasks::TaskId BackupController::startRestore(const QString &zipPath,
 
 void BackupController::writeFinished(const BackupFiles::WriteResult &result,
                                      const QString &successTitle) {
+    // ★ 先摘"正在读这一份实例"的标记、再刷新（理由和 restoreFinished() 那一段逐字
+    //   相同）：`refreshInstalledVersions()` 会按 `installingVersionIds()` 把忙的那一份
+    //   从启动列表里滤掉，反过来的话刚摘掉标记这一趟刷新还看不见它。快照本身没动盘，
+    //   但这一趟期间别的刷新可能已经把这一份滤掉过，所以这里补一发。
+    const QString writtenId = m_writeInstanceId;
+    m_writeInstanceId.clear();
+    if (!writtenId.isEmpty() && m_host.setFileOperationBusy) {
+        m_host.setFileOperationBusy(writtenId, false);
+        if (m_host.refreshInstances) m_host.refreshInstances();
+    }
     const Tasks::TaskId id = m_taskId;
     m_taskId = Tasks::invalidTaskId();
     if (id != Tasks::invalidTaskId() && m_activity->tasks()->has(id)) {

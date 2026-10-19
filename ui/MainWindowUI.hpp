@@ -2245,7 +2245,7 @@ public:
     /// 面板里一行上面那几个词的**唯一出处**（面板画它、验证工程断言它）。
     static QString taskCenterPanelActiveSectionText() { return QStringLiteral("当前工作"); }
     static QString taskCenterPanelDoneSectionText() { return QStringLiteral("已完成"); }
-    static QString taskCenterPanelClearText() { return QStringLiteral("清除已完成"); }
+    static QString taskCenterPanelClearText() { return QStringLiteral("清除已结束记录"); }
     static QString taskCenterPanelEmptyText() { return QStringLiteral("现在没有任务"); }
     /// 一行是**谁**。值就是 `TaskCenter::Item::key`（任务号的十进制字符串）。
     ///

@@ -123,6 +123,7 @@
 #include "tools/Brewing.hpp"
 #include "tools/Banner.hpp"
 #include "tools/ArmorTrim.hpp"
+#include "tools/ArmorTrimAssets.hpp"
 #include "tools/CoordConvert.hpp"
 #include "tools/FileHash.hpp"
 #include "tools/TextFormat.hpp"
@@ -17891,8 +17892,33 @@ public:
 
         if (m_mode == Silent) {
             // 收下、不回：让客户端自己等到超时（那一档验的就是这个）。
-            socket->waitForDisconnected(3000);
-            delete socket;
+            //
+            // ★ **监听不能收**：「叫停之后马上再测一趟」那一节会在上一趟还卡在超时里时
+            //   再连进来。要是这里等第一条断开就 `return`，监听跟着没了，第二趟那条
+            //   已经握上手、还在 backlog 里没被 accept 的连接会被 RST 掉 —— 量到的
+            //   是"对面把连接断了"，不是"连上了没答话"，`timedOut` 也就不是 true。
+            //   所以这里继续守着端口，来一条收一条、一条都不答，守够 4 秒再收摊
+            //   （测试那边最多等到两趟各 600 ms，离 4 秒很远）。
+            QList<QTcpSocket *> held;
+            held.append(socket);
+            QEventLoop holdLoop;
+            QObject::connect(&server, &QTcpServer::newConnection, &holdLoop, &QEventLoop::quit);
+            QTimer tick;
+            tick.setInterval(50);
+            QObject::connect(&tick, &QTimer::timeout, &holdLoop, &QEventLoop::quit);
+            tick.start();
+            QElapsedTimer holdClock;
+            holdClock.start();
+            while (holdClock.elapsed() < 4000) {
+                while (server.hasPendingConnections()) {
+                    if (QTcpSocket *next = server.nextPendingConnection()) {
+                        ++connections;
+                        held.append(next);
+                    }
+                }
+                holdLoop.exec();
+            }
+            qDeleteAll(held);
             return;
         }
 
@@ -18861,6 +18887,78 @@ static void runServerPingTests() {
             delete server;
         }
         ServerPing::setTimeoutMs(savedTimeout);
+    }
+
+    // ---------------------------------------------------------------------
+    section("ZH11. 叫停之后马上再测一趟（2026-10-19：上一趟的线程还在超时里）");
+    // ---------------------------------------------------------------------
+
+    {
+        // ★ 这一条钉的是一次**进程级的崩**（不是某个数字不对）：`abort()` 只放下
+        //   `m_running`，每一条线程手上那一台还在同步 socket 的超时里；「取消」会把
+        //   「测速」那颗按钮重新点亮，用户立刻再点一次 —— 上一版的 `start()` 会把这些
+        //   **还在跑**的 QThread `deleteLater()` 掉，主线程处理那条 DeferredDelete 时
+        //   Qt 直接 `qFatal("QThread: Destroyed while thread is still running")`，
+        //   整个启动器当场消失。判据就是"这条测试进程还活着、第二趟照常收尾"。
+        const int saved = ServerPing::timeoutMs();
+        ServerPing::setTimeoutMs(600);
+        FakeStatusServer silent(FakeStatusServer::Silent);
+        silent.startAndWait();
+        check(silent.listening, "ZH11 那台「收下不回」的服务器起来了",
+              QStringLiteral("127.0.0.1:%1").arg(silent.port));
+
+        int oneFinishedCount = 0;
+        int finishCount = 0;
+        bool lastTimedOut = false;
+        ServerPing::Pinger pinger;
+        QObject::connect(&pinger, &ServerPing::Pinger::oneFinished, &pinger,
+                         [&oneFinishedCount, &lastTimedOut](int, const ServerPing::Status &status) {
+                             ++oneFinishedCount;
+                             lastTimedOut = status.timedOut;
+                         });
+        QObject::connect(&pinger, &ServerPing::Pinger::allFinished, &pinger,
+                         [&finishCount] { ++finishCount; });
+
+        const QStringList addresses{QStringLiteral("127.0.0.1:%1").arg(silent.port)};
+        QElapsedTimer sinceStart;
+        sinceStart.start();
+        pinger.start(addresses);
+        // 先等它真的进到 ping() 里（不是"还没被调度到"）：那一步要等 socket 超时。
+        while (sinceStart.elapsed() < 150) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+        }
+        pinger.abort();
+        // 上一趟那条线程这会儿还卡在超时里。马上再开一趟（就是用户连点那一下）。
+        pinger.start(addresses);
+
+        QElapsedTimer clock;
+        clock.start();
+        while (finishCount == 0 && clock.elapsed() < 5000) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+        }
+        check(finishCount == 1, "★ ZH11 第二趟照常跑完（测试进程没被 Qt 掐掉）",
+              QStringLiteral("allFinished 发了 %1 次").arg(finishCount));
+        // 再转一会儿，让上一趟那条线程真的收摊（它自己也快到 600 ms 超时了）。
+        // 它收摊时**不该**再补发一条 allFinished / 报上一条作废的结果 —— 那会把新一趟
+        // 的忙态和同一格结果一起打掉。
+        const qint64 tail = clock.elapsed();
+        while (clock.elapsed() < tail + 1200) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+        }
+        check(finishCount == 1,
+              "★★ ZH11 上一趟那条线程晚到收摊时**没有**补发 allFinished"
+              "（补发的话新一趟会被当成已经跑完）",
+              QStringLiteral("allFinished 发了 %1 次").arg(finishCount));
+        check(oneFinishedCount == 1,
+              "★ ZH11 上一趟那条作废的结果也没有报上来（它会顶掉新一趟同一格）",
+              QStringLiteral("oneFinished 发了 %1 次").arg(oneFinishedCount));
+        check(lastTimedOut, "ZH11 新一趟拿回的仍然是「超时」那一档");
+
+        // 假服务器那一趟会守着端口最多 4 秒（见 FakeStatusServer 里 Silent 那一段），
+        // 这儿必须等它收摊 —— 一个还在跑的 QThread 被析构会把整个测试进程带崩，
+        // 后面几节一条都跑不到。
+        waitFakeServer(silent);
+        ServerPing::setTimeoutMs(saved);
     }
 }
 
@@ -29763,6 +29861,45 @@ static void runModInstallPlanTests() {
               "★ PM11 平台认不出来的引用 ⇒「做不了」并算必要失败");
     }
 
+    // Exact platform version IDs must not be confused with project identity.
+    {
+        auto dependency = makeDependency(QStringLiteral("PIN-DEP"), QStringLiteral("required"));
+        dependency.versionId = QStringLiteral("release-a");
+        const auto parent = [&](const QString &id, const ResourceCatalog::Dependency &dep) {
+            return makeInput(makeReference(id, id),
+                {makeVersion(id, {QStringLiteral("1.20.1")}, {QStringLiteral("fabric")}, {dep})});
+        };
+        Presets::ModInstallRequest request = base;
+        request.references.append(parent(QStringLiteral("PIN-A"), dependency));
+        request.installedKeys.insert(QStringLiteral("modrinth:PIN-DEP"));
+        auto plan = Presets::planModInstall(request);
+        check(!plan.ok && plan.unknown == 1, "PM-PIN 已安装项目身份不能证明精确发行版满足");
+        request.installedVersionIds.insert(QStringLiteral("modrinth:PIN-DEP"), QStringLiteral("release-a"));
+        plan = Presets::planModInstall(request);
+        check(plan.ok && plan.download == 1, "PM-PIN 精确发行版已安装时允许父项安装");
+        request.installedVersionIds[QStringLiteral("modrinth:PIN-DEP")] = QStringLiteral("release-b");
+        plan = Presets::planModInstall(request);
+        check(!plan.ok && plan.incompatible == 1 && !plan.conflicts.isEmpty(),
+              "PM-PIN 已装不同发行版需确认替换而非静默满足");
+        request.installedVersionIds[QStringLiteral("modrinth:PIN-DEP")] = QStringLiteral("release-a");
+        auto other = dependency;
+        other.versionId = QStringLiteral("release-b");
+        request.references.append(parent(QStringLiteral("PIN-B"), other));
+        plan = Presets::planModInstall(request);
+        check(!plan.ok && plan.incompatible == 2 && plan.conflicts.size() == 1,
+              "PM-PIN 两个父项要求不同精确前置时汇总冲突");
+        std::reverse(request.references.begin(), request.references.end());
+        const auto reversed = Presets::planModInstall(request);
+        check(reversed.conflicts == plan.conflicts && reversed.incompatible == plan.incompatible,
+              "PM-PIN 精确约束冲突不依赖引用顺序");
+        request.references.clear();
+        dependency.projectId.clear();
+        request.references.append(parent(QStringLiteral("PIN-ONLY-VERSION"), dependency));
+        plan = Presets::planModInstall(request);
+        check(!plan.ok && plan.unknown == 1 && plan.download == 0,
+              "PM-PIN 只有发行版 ID 的必要前置不得静默忽略");
+    }
+
     // ---------- PM12 落盘校验 ----------
     {
         const QByteArray payload = QByteArrayLiteral("wtfml-verify-download");
@@ -33509,9 +33646,9 @@ static void runToolboxExtraTests() {
 
     // ---------- ZAJ3. 纹饰：表与限制 ----------
     {
-        check(ArmorTrim::trimMaterialCount() == 10 && ArmorTrim::patternCount() == 18
+        check(ArmorTrim::trimMaterialCount() == 11 && ArmorTrim::patternCount() == 18
                   && ArmorTrim::partCount() == 4 && ArmorTrim::armorMaterialCount() == 7,
-              "★★ ZAJ3 十种材料 / 十八种图案 / 四个部位 / 七种盔甲材质",
+              "★★ ZAJ3 十一种材料 / 十八种图案 / 四个部位 / 七种盔甲材质",
               QStringLiteral("%1 / %2 / %3 / %4")
                   .arg(ArmorTrim::trimMaterialCount())
                   .arg(ArmorTrim::patternCount())
@@ -33529,6 +33666,86 @@ static void runToolboxExtraTests() {
               "★ ZAJ3 每种纹饰材料在锻造台里摆的那件东西写在表里",
               ArmorTrim::trimMaterialAt(0).item + QStringLiteral(" / ")
                   + ArmorTrim::trimMaterialAt(9).item);
+        // ★ 名字以游戏 zh_cn.json 为准：`trim_material.minecraft.*` / `trim_pattern.minecraft.*`
+        const QStringList materialNames = ArmorTrim::trimMaterialNames();
+        check(materialNames
+                  == QStringList{QStringLiteral("紫水晶质"), QStringLiteral("铜质"),
+                                 QStringLiteral("钻石质"), QStringLiteral("绿宝石质"),
+                                 QStringLiteral("金质"), QStringLiteral("铁质"),
+                                 QStringLiteral("青金石质"), QStringLiteral("下界合金质"),
+                                 QStringLiteral("石英质"), QStringLiteral("红石质"),
+                                 QStringLiteral("树脂质")},
+              "★★ ZAJ3 材料名照游戏（金质 / 树脂质都在，不自己起「黄金」这种简称）",
+              materialNames.join(QStringLiteral(" / ")));
+        check(ArmorTrim::trimMaterialAt(10).id == QStringLiteral("resin")
+                  && ArmorTrim::trimMaterialAt(10).item == QStringLiteral("树脂砖")
+                  && ArmorTrim::trimMaterialSince(10) == QStringLiteral("1.21.4"),
+              "★★ ZAJ3 第 11 种 = 树脂质（1.21.4 的树脂砖）",
+              ArmorTrim::trimMaterialAt(10).item + QStringLiteral(" / ")
+                  + ArmorTrim::trimMaterialSince(10));
+        check(ArmorTrim::trimMaterialAt(4).name == QStringLiteral("金质"),
+              "★ ZAJ3 gold 的官方名是「金质」，不是「黄金」");
+        const QStringList patternNames = ArmorTrim::patternNames();
+        check(patternNames
+                  == QStringList{QStringLiteral("海岸"), QStringLiteral("哨兵"),
+                                 QStringLiteral("沙丘"), QStringLiteral("荒野"),
+                                 QStringLiteral("监守"), QStringLiteral("眼眸"),
+                                 QStringLiteral("恼鬼"), QStringLiteral("潮汐"),
+                                 QStringLiteral("猪鼻"), QStringLiteral("肋骨"),
+                                 QStringLiteral("尖塔"), QStringLiteral("向导"),
+                                 QStringLiteral("塑造"), QStringLiteral("幽静"),
+                                 QStringLiteral("牧民"), QStringLiteral("雇主"),
+                                 QStringLiteral("涡流"), QStringLiteral("镶铆")},
+              "★★ ZAJ3 图案名照游戏（监守 / 尖塔 / 向导 / 幽静 / 牧民 / 雇主 / 镶铆）",
+              patternNames.join(QStringLiteral(" / ")));
+        check(ArmorTrim::patternSource(7).contains(QStringLiteral("远古守卫者"))
+                  && !ArmorTrim::patternSource(7).contains(QStringLiteral("海底神殿（击杀守卫者")),
+              "★★ ZAJ3 潮汐是远古守卫者掉的（不是普通守卫者）",
+              ArmorTrim::patternSource(7));
+        check(ArmorTrim::patternSource(17).contains(QStringLiteral("宝库"))
+                  && !ArmorTrim::patternSource(17).contains(QStringLiteral("不祥")),
+              "★★ ZAJ3 镶铆在普通宝库，涡流才在不祥宝库",
+              ArmorTrim::patternSource(17));
+        // ★ 2026-10-20：预览资源按**版本发布时间**从新到旧挑 jar。按版本目录 mtime 排
+        //   （几十个版本同一天解压）会挑到 1.21 以前的客户端，涡流/镶铆/树脂质就永远缺。
+        const auto ranked = ArmorTrimAssets::newestFirst(
+            {{QStringLiteral("1.12.2-Forge"), QStringLiteral("C:/mc/versions/1.12.2/1.12.2.jar"), 100},
+             {QStringLiteral("26.3"), QStringLiteral("C:/mc/versions/26.3/26.3.jar"), 900},
+             {QStringLiteral("1.21.4-Fabric"), QStringLiteral("C:/mc/versions/1.21.4/1.21.4.jar"), 500},
+             {QStringLiteral("1.21.4-副本"), QStringLiteral("C:\\MC\\versions\\1.21.4\\1.21.4.jar"), 500}});
+        check(ranked.size() == 3 && ranked[0].id == QStringLiteral("26.3")
+                  && ranked[1].id == QStringLiteral("1.21.4-Fabric")
+                  && ranked[2].id == QStringLiteral("1.12.2-Forge"),
+              "★★ ZAJ3 预览资源按发布时间从新到旧挑 jar（同一份 jar 只留一次）",
+              QStringLiteral("%1 个候选：%2")
+                  .arg(ranked.size())
+                  .arg([&] {
+                      QStringList ids;
+                      for (const auto &candidate : ranked) ids.append(candidate.id);
+                      return ids.join(QStringLiteral(" / "));
+                  }()));
+        // 1.21.2+ 把盔甲/纹饰挪进"装备层"、26.x 又把调色板挪走：路径变了，UV 没变。
+        check(ArmorTrimAssets::legacyKey(QStringLiteral("entity/equipment/humanoid/iron"))
+                      == QLatin1String("models/armor/iron_layer_1")
+                  && ArmorTrimAssets::legacyKey(QStringLiteral("entity/equipment/humanoid_leggings/iron"))
+                      == QLatin1String("models/armor/iron_layer_2")
+                  && ArmorTrimAssets::legacyKey(QStringLiteral("entity/equipment/humanoid/turtle_scute"))
+                      == QLatin1String("models/armor/turtle_layer_1")
+                  && ArmorTrimAssets::legacyKey(QStringLiteral("entity/equipment/humanoid/leather_overlay"))
+                      == QLatin1String("models/armor/leather_layer_1_overlay")
+                  && ArmorTrimAssets::legacyKey(QStringLiteral("trims/entity/humanoid/flow"))
+                      == QLatin1String("trims/models/armor/flow")
+                  && ArmorTrimAssets::legacyKey(QStringLiteral("trims/entity/humanoid_leggings/flow"))
+                      == QLatin1String("trims/models/armor/flow_leggings")
+                  && ArmorTrimAssets::legacyKey(QStringLiteral("palettes/trim/resin"))
+                      == QLatin1String("trims/color_palettes/resin")
+                  && ArmorTrimAssets::legacyKey(QStringLiteral("palettes/trim_base"))
+                      == QLatin1String("trims/color_palettes/trim_palette")
+                  && ArmorTrimAssets::legacyKey(QStringLiteral("models/armor/iron_layer_1"))
+                      == QLatin1String("models/armor/iron_layer_1")
+                  && ArmorTrimAssets::legacyKey(QStringLiteral("entity/equipment/humanoid_baby/iron"))
+                      == QLatin1String("entity/equipment/humanoid_baby/iron"),
+              "★★ ZAJ3 1.21.2+/26.x 装备层与新调色板路径折回旧名（旧路径原样、幼年装备不误认）");
     }
 
     // ---------- ZAJ4. 纹饰：计划与整套 ----------
@@ -33597,6 +33814,13 @@ static void runToolboxExtraTests() {
                   && flowPlan.notes.join(QStringLiteral(" / ")).contains(QStringLiteral("1.21")),
               "★★ ZAJ5 1.21 的模板会提醒版本（更早的版本里没有）",
               flowPlan.notes.join(QStringLiteral(" / ")));
+        const ArmorTrim::Plan resinPlan =
+            ArmorTrim::plan(4, 1, coast, ArmorTrim::trimMaterialCount() - 1, 1);
+        check(resinPlan.ok
+                  && resinPlan.notes.join(QStringLiteral(" / ")).contains(QStringLiteral("树脂质"))
+                  && resinPlan.notes.join(QStringLiteral(" / ")).contains(QStringLiteral("1.21.4")),
+              "★★ ZAJ5 1.21.4 才有的材料也会提醒版本",
+              resinPlan.notes.join(QStringLiteral(" / ")));
 
         const ArmorTrim::Plan whole = ArmorTrim::plan(4, 0, coast, 0, 1, true);
         check(whole.ok && whole.summary.contains(QStringLiteral("钻石四件套")),

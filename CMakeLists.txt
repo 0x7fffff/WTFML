@@ -391,6 +391,7 @@ set(SOURCE_FILES
     src/tools/Brewing.cpp
     src/tools/Banner.cpp
     src/tools/ArmorTrim.cpp
+    src/controllers/ArmorTrimPreviewController.cpp
     ui/AccountSkinDialog.cpp
     ui/GameLogWindow.cpp
     # 运行输出共用模型（§9.8）：上面那一窗和 ServerConsolePage 都直接用它。

@@ -37,6 +37,8 @@
 class QScrollArea;
 class QPushButton;
 class QLabel;
+class QComboBox;
+class QLineEdit;
 class QResizeEvent;
 
 namespace TaskCenter {
@@ -208,6 +210,7 @@ public:
 
     /// 作为覆盖层里的完整工作区使用。此时不做屏幕定位，也没有 Popup 的点击外部关闭语义。
     void showEmbedded();
+    QWidget *headerActions() const { return m_toolbar; }
 
     /// 内容变了重画一遍（面板开着的时候 MainWindow 会喊）。**不重播滑入动效** ——
     /// 它这会儿已经在屏幕上，再滑一次看着就是"整块面板跳了一下"。
@@ -275,6 +278,10 @@ private:
     OutsidePressHandler m_onOutsidePress;
     /// 内容都装在这里面（面板本身只有一个滚动区 + 它的边距）。
     QWidget *m_content = nullptr;
+    QWidget *m_toolbar = nullptr;
+    QComboBox *m_filter = nullptr;
+    QLineEdit *m_search = nullptr;
+    QPushButton *m_clearFinished = nullptr;
     QWidget *m_runningContent = nullptr;
     QWidget *m_detailContent = nullptr;
     QWidget *m_runningPane = nullptr;

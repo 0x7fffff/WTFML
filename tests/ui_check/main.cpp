@@ -38,6 +38,7 @@
  */
 
 #include <QApplication>
+#include "ArmorTrimChecks.hpp"
 #include <QAccessible>
 #include <QStyleFactory>
 #include <QCheckBox>
@@ -368,6 +369,96 @@ int main(int argc, char *argv[]) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
 
     QApplication app(argc, argv);
+    if (app.arguments().contains(QStringLiteral("--install-layout-check"))) {
+        const int fontId = QFontDatabase::addApplicationFont(QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc")));
+        const auto families = QFontDatabase::applicationFontFamilies(fontId);
+        if (!families.isEmpty()) app.setFont(QFont(families.first(), 10));
+        app.setStyle(Theme::createStyle());
+        Theme::setSpec(Theme::defaultSpec());
+        Theme::apply(app);
+        Anim::setEnabled(false);
+        QMainWindow window;
+        MainWindowUI ui(&window);
+        ui.getTabWidget()->setCurrentIndex(MainWindowUI::downloadTabIndex());
+        ui.getDownloadStack()->setCurrentIndex(0);
+        ui.getGameStack()->setCurrentIndex(1);
+        int failures = 0;
+        const auto expect = [&](bool ok, const char *label) {
+            printf("%s %s\n", ok ? "PASS" : "FAIL", label);
+            if (!ok) ++failures;
+        };
+        auto *tree = ui.getLoaderTree();
+        int visibleRows = 0;
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            auto *row = tree->topLevelItem(i);
+            if (!row->isHidden()) ++visibleRows;
+            if (row->data(0, Qt::UserRole).toInt() == MainWindowUI::modLoaderNoneIndex())
+                expect(row->isHidden(), "vanilla sentinel is not a duplicate visible option");
+        }
+        expect(visibleRows == 5, "four loaders and one preset entry are visible");
+        const QIcon themedGear = VersionIcons::actionIcon(VersionIcons::Action::Settings);
+        const QIcon themedDetails = VersionIcons::actionIcon(VersionIcons::Action::Details);
+        const QIcon themedDelete = VersionIcons::actionIcon(VersionIcons::Action::Delete);
+        QImage lastIcon;
+        for (const auto &preset : Theme::presetIds()) {
+            if (preset == QStringLiteral("system")) continue; // May legitimately match a named preset.
+            auto spec = Theme::defaultSpec();
+            spec.presetId = preset;
+            Theme::setSpec(spec);
+            Theme::apply(app);
+            const QImage normal = themedGear.pixmap(24, 24, QIcon::Normal).toImage();
+            const QImage disabled = themedGear.pixmap(24, 24, QIcon::Disabled).toImage();
+            expect(!normal.isNull() && normal != disabled, "action icons preserve a disabled colour");
+            if (!lastIcon.isNull()) expect(normal != lastIcon, "existing icon follows theme changes");
+            lastIcon = normal;
+            for (const auto &icon : {themedDetails, themedDelete}) {
+                const QImage enabled = icon.pixmap(24, 24, QIcon::Normal).toImage();
+                expect(!enabled.isNull() && enabled != icon.pixmap(24, 24, QIcon::Disabled).toImage(),
+                       "details and delete have distinct enabled and disabled icons");
+            }
+        }
+        Theme::setSpec(Theme::defaultSpec());
+        Theme::apply(app);
+        for (const QSize size : {QSize(900, 620), QSize(1200, 800)}) {
+            window.resize(size);
+            window.show();
+            for (int pass = 0; pass < 5; ++pass) app.processEvents();
+            auto *button = ui.getInstallButton();
+            auto *scroll = ui.getInstallScroll();
+            const QPoint origin = scroll->mapFromGlobal(button->mapToGlobal(QPoint()));
+            expect(qAbs(origin.x() + button->width() / 2 - scroll->width() / 2) <= 2,
+                   "install action is centred in the right pane");
+            expect(origin.y() > 0 && origin.y() + button->height() <= scroll->height(),
+                   "floating action remains inside the content pane");
+            expect(!scroll->isAncestorOf(button), "action does not scroll with the form");
+            auto *row = tree->topLevelItem(0);
+            for (int i = 0; i < 20; ++i) new QTreeWidgetItem(row, {QString::number(i)});
+            row->setExpanded(true);
+            // Nested layouts post their own LayoutRequest events; one pass only
+            // updates the inner tree, not necessarily the outer scroll range.
+            for (int pass = 0; pass < 5; ++pass) app.processEvents();
+            scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
+            tree->scrollToItem(tree->topLevelItem(4));
+            for (int pass = 0; pass < 5; ++pass) app.processEvents();
+            expect(scroll->mapFromGlobal(button->mapToGlobal(QPoint())) == origin, "expansion and scrolling do not move the action");
+            const QPoint last = scroll->mapFromGlobal(tree->viewport()->mapToGlobal(tree->visualItemRect(tree->topLevelItem(4)).bottomLeft()));
+            printf("layout last=%d action=%d outer=%d/%d tree=%d/%d\n", last.y(), origin.y(),
+                   scroll->verticalScrollBar()->value(), scroll->verticalScrollBar()->maximum(),
+                   tree->verticalScrollBar()->value(), tree->verticalScrollBar()->maximum());
+            expect(last.y() < origin.y(), "last visible entry can scroll above the floating action");
+            row->setExpanded(false);
+            qDeleteAll(row->takeChildren());
+            for (int pass = 0; pass < 5; ++pass) app.processEvents();
+            if (app.arguments().contains(QStringLiteral("--install-layout-preview"))) {
+                scroll->verticalScrollBar()->setValue(0);
+                app.processEvents();
+                QDir().mkpath(QStringLiteral("build/install-previews"));
+                window.grab().save(QStringLiteral("build/install-previews/install-%1.png").arg(size.width()));
+            }
+        }
+        return failures == 0 ? 0 : 1;
+    }
+    if (app.arguments().contains(QStringLiteral("--armor-trim-check"))) return runArmorTrimChecks(app);
     if (app.arguments().contains(QStringLiteral("--toolbox-polish-check"))) {
         const int fontId = QFontDatabase::addApplicationFont(QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc")));
         const auto families = QFontDatabase::applicationFontFamilies(fontId);
@@ -1023,6 +1114,70 @@ int main(int argc, char *argv[]) {
             expect(row(interrupted.key)->property("taskCenterSelected").toBool(), "selection survives refresh by task key");
             tasks.removeLast(); panel.refresh();
             expect(attention(0), "removing the selected task restores the unselected overview");
+        }
+        {
+            QList<TaskCenter::Item> tasks;
+            for (const auto state : {TaskCenter::State::Running, TaskCenter::State::WaitingUser,
+                                     TaskCenter::State::Failed, TaskCenter::State::Succeeded}) {
+                TaskCenter::Item item;
+                item.key = QString::number(tasks.size());
+                item.title = QStringLiteral("任务-%1").arg(tasks.size());
+                item.state = state;
+                tasks.append(item);
+            }
+            TaskCenterPanel panel(nullptr, [&] { return tasks; }, [&] {
+                tasks.removeIf([](const auto &item) { return !TaskCenter::stateIsActive(item.state); });
+            }, {}, {}, {}, nullptr, true);
+            panel.resize(1000, 500); panel.showEmbedded();
+            app.processEvents();
+            auto *filter = panel.findChild<QComboBox *>(QStringLiteral("taskCenterFilter"));
+            auto *search = panel.findChild<QLineEdit *>(QStringLiteral("taskCenterSearch"));
+            auto *clear = panel.findChild<QPushButton *>(MainWindowUI::taskCenterPanelClearButtonName());
+            auto *scroll = panel.findChild<QScrollArea *>(QStringLiteral("taskCenterTaskList"));
+            expect(filter && search && clear && scroll && !scroll->isAncestorOf(clear),
+                   "task filtering and clear action stay outside the scrolling history");
+            const auto rows = [&]() {
+                int count = 0;
+                for (auto *widget : panel.findChildren<QWidget *>())
+                    if (widget->property(MainWindowUI::taskCenterPanelRowKeyProperty()).isValid()) ++count;
+                return count;
+            };
+            const auto settle = [&]() { for (int pass = 0; pass < 5; ++pass) app.processEvents(); };
+            if (filter && search && clear) {
+                filter->setCurrentIndex(1); settle();
+                expect(rows() == 2, "active filter includes running and waiting for a decision");
+                filter->setCurrentIndex(2); settle();
+                expect(rows() == 2, "finished filter includes both success and failure");
+                filter->setCurrentIndex(3); settle();
+                expect(rows() == 2, "attention filter includes unseen failures and decisions");
+                auto *errorRow = panel.findChild<QWidget *>(MainWindowUI::taskCenterPanelRowName(1));
+                if (errorRow) {
+                    const QPointF p(errorRow->rect().center());
+                    QMouseEvent press(QEvent::MouseButtonPress, p, QPointF(errorRow->mapToGlobal(p.toPoint())),
+                                      Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                    QApplication::sendEvent(errorRow, &press);
+                }
+                tasks[2].attentionAcknowledged = true;
+                panel.refresh(); settle();
+                auto *detail = panel.findChild<QLabel *>(MainWindowUI::taskDetailTitleName());
+                expect(detail && detail->text() == tasks[2].title,
+                       "acknowledging an error does not close its readable detail under attention filtering");
+                search->setText(QStringLiteral("任务-1")); settle();
+                expect(rows() == 1, "search combines with the state filter");
+                search->clear(); filter->setCurrentIndex(0); settle();
+                clear->click(); settle();
+                expect(tasks.size() == 2 && rows() == 2 && !clear->isEnabled(),
+                       "clear removes finished records but never cancels active work");
+            }
+            auto *host = ui.overlay();
+            QWidget *page = host->openPage(QStringLiteral("任务工具栏测试"));
+            expect(page != nullptr, "header actions can be attached to an open page");
+            if (page) {
+                host->setPageHeaderWidget(panel.headerActions());
+                expect(panel.headerActions()->parentWidget() != &panel, "task toolbar occupies the page title row");
+                host->closeOverlay();
+                expect(panel.headerActions()->parentWidget() == &panel, "closing the page returns toolbar ownership safely");
+            }
         }
         Anim::setEnabled(true);
         const auto settle = [] {
@@ -3017,10 +3172,10 @@ int main(int argc, char *argv[]) {
               "那棵树自己不画边框（四周已经是那张卡片，再套一圈就是框套框）",
               loaderTree != nullptr ? QString::number(int(loaderTree->frameShape()))
                                     : QStringLiteral("<null>"));
-        // 树的高度是**按现在展开了几条**算出来的（六条收着 —— 五条加载器 + 预设行 ——
-        // 就是 6 行高 + 边框）：写死成"铺满整页"的话，收着的时候底下空一大片、
-        // 安装按钮还被顶到窗口最底下。
-        const int expectedRows = 6;  // 刚搭好时六条全收着（见上面那节）
+        // 树的高度是**按现在展开了几条**算出来的（收着的时候 = 四条加载器 + 预设行，
+        // 共五行；「不装（纯原版）」只留内部状态、不画成重复选项，见 coding plan）。
+        // 写死成"铺满整页"的话，收着的时候底下空一大片、安装按钮还被顶到窗口最底下。
+        const int expectedRows = 5;  // 刚搭好时五行全收着（见上面那节）
         check(!rTree.isNull() &&
                   rTree.height() >= expectedRows * MainWindowUI::versionTreeRowHeight() &&
                   rTree.height() <= expectedRows * MainWindowUI::versionTreeRowHeight() +
@@ -3041,8 +3196,8 @@ int main(int argc, char *argv[]) {
             installFooter != nullptr
                 ? installFooter->property(surfaceKey.constData()).toString()
                 : QString();
-        check(installFooter != nullptr && footerSurface == Theme::footerSurfaceValue(),
-              "安装页底下那条底栏在（wtfmlSurface=\"footer\"）",
+        check(installFooter != nullptr && footerSurface.isEmpty(),
+              "安装操作悬浮容器不画横跨页面的底栏",
               QStringLiteral("面=「%1」").arg(footerSurface));
         check(installFooter != nullptr && installBtn != nullptr &&
                   installFooter->isAncestorOf(installBtn) && !installFooter->isAncestorOf(installNameEdit),
@@ -3078,8 +3233,8 @@ int main(int argc, char *argv[]) {
                   ? QString::number(int(installScroll->horizontalScrollBarPolicy()))
                   : QStringLiteral("<null>"));
         check(!rInstall.isNull() && !rFooter.isNull() && !rScroll.isNull() &&
-                  rFooter.y() >= rScroll.y() + rScroll.height(),
-              "底栏在滚动区**下面**（钉在页面底上，内容再长也顶不走它）",
+                  rFooter.y() >= rScroll.y() && rFooter.bottom() <= rScroll.bottom(),
+              "悬浮操作位于滚动区可视范围内",
               QString("footer.y=%1 scroll.bottom=%2")
                   .arg(rFooter.y())
                   .arg(rScroll.y() + rScroll.height()));
@@ -3113,9 +3268,10 @@ int main(int argc, char *argv[]) {
         // 反面（"悬浮在页面中间"）就是两边差不多 —— 那一条现在必须不成立。
         const int footerLeftGap = rInstall.left() - rFooter.left();
         const int footerRightGap = rFooter.right() - rInstall.right();
-        check(!rInstall.isNull() && !rFooter.isNull() && footerRightGap <= 2 &&
-                  footerLeftGap > footerRightGap * 4,
-              "「安装」在底栏里**靠右**（左边垫着 stretch —— 不再悬浮在这一栏中间）",
+        check(!rInstall.isNull() && !rFooter.isNull() &&
+                  qAbs(footerLeftGap - footerRightGap) <= 2 &&
+                  qAbs(rInstall.center().x() - rScroll.center().x()) <= 2,
+              "「安装」在右侧内容区居中悬浮",
               QString("left=%1 right=%2 footer=%3..%4 btn=%5..%6")
                   .arg(footerLeftGap)
                   .arg(footerRightGap)
@@ -4355,8 +4511,8 @@ int main(int argc, char *argv[]) {
                 }
                 return count;
             }();
-            check(farInk >= 55,
-                  "刷新键那个箭头够大（探出环身外缘 0.355 那一截有 55 个像素以上）",
+            check(farInk > 0 && reach < 0.5,
+                  "新版线稿刷新箭头可辨认，且完整落在画布内（不再要求旧实心三角面积）",
                   QString("探出环外（半径 ≥ 0.36 × 边长）的墨 = %1 个，最远处 %2 × 边长"
                           "（改小之前实测 40 个 / 最远 0.425）")
                       .arg(farInk)
@@ -5680,9 +5836,12 @@ int main(int argc, char *argv[]) {
                       "I2 那一行的进度改由小字那句说（「已下载 3 / 9 个文件」）",
                       detail0 != nullptr ? detail0->text() : QStringLiteral("<没找到>"));
                 // 「清除已完成」那颗按钮：有处理器才出现，点了要回一声。
-                auto *clear =
-                    panel->findChild<QPushButton *>(MainWindowUI::taskCenterPanelClearButtonName());
-                check(clear != nullptr, "I2 有一件已完成 ⇒ 面板里那颗「清除已完成」在");
+                // ★ 它挂在**页标题行**（面板把 `headerActions()` 交给
+                //   `OverlayHost::setPageHeaderWidget()`），打开这一页时已不在面板子树里。
+                auto *clear = window.findChild<QPushButton *>(
+                    MainWindowUI::taskCenterPanelClearButtonName());
+                check(clear != nullptr,
+                      "I2 有一件已完成 ⇒ 面板标题行里有那颗「清除已完成」");
                 if (clear != nullptr) {
                     clear->click();
                     QApplication::processEvents();
@@ -21378,10 +21537,13 @@ int main(int argc, char *argv[]) {
             };
             // 「这个字形里有没有**饱和的红**」。判据必须连饱和度一起看：**灰的色相也是 0**
             // （HSV 里无彩色一律落在红那一头），只看色相会把正文色的字形也判成红的。
-            const auto hasDangerRed = [](const QIcon &icon) {
+            // ★ 取图要带上**按钮那一刻的 Mode**：图标现在走 QIconEngine，颜色按
+            //   Normal / Disabled 现算；灰按钮上 QStyle 问的是 Disabled（灰图标）。
+            const auto hasDangerRed = [](const QIcon &icon,
+                                        QIcon::Mode mode = QIcon::Normal) {
                 const QImage image =
                     icon.pixmap(MainWindowUI::folderMenuIconSize(),
-                                MainWindowUI::folderMenuIconSize())
+                                MainWindowUI::folderMenuIconSize(), mode)
                         .toImage();
                 for (int y = 0; y < image.height(); ++y) {
                     for (int x = 0; x < image.width(); ++x) {
@@ -21578,7 +21740,8 @@ int main(int argc, char *argv[]) {
                           remove != nullptr ? remove->toolTip() : QString());
                     // 灰掉那一档的垃圾桶**也不红**：红图标落在点不动的按钮上会被读成
                     // "这一项现在能点" —— 和字那边是同一条规矩（QSS 里那句 `:enabled`）。
-                    check(removeOther != nullptr && !hasDangerRed(removeOther->icon()),
+                    check(removeOther != nullptr &&
+                              !hasDangerRed(removeOther->icon(), QIcon::Disabled),
                           "自带那一份的垃圾桶不是红的（灰着的按钮上画红，会读成能点）");
                     // 再点同一颗齿轮 = **收回**（点一下开、再点一下关）。这是个真行为：
                     // 写成"又叠一块"的话用户点两下会看到两块框压在一起。

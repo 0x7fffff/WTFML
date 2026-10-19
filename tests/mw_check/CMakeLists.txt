@@ -258,6 +258,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/tools/Brewing.cpp
     ${REPO_ROOT}/src/tools/Banner.cpp
     ${REPO_ROOT}/src/tools/ArmorTrim.cpp
+    ${REPO_ROOT}/src/controllers/ArmorTrimPreviewController.cpp
     # 「导出错误报告」那一份文本（2026-09-28）：MainWindow.cpp 直接调它。
     ${REPO_ROOT}/src/util/ErrorReport.cpp
     # 游戏异常退出那几句话（2026-10-12，coding plan §4.3）：MainWindow::buildCrashRecord()

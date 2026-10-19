@@ -306,6 +306,34 @@ int runToolFeatureChecks() {
     expect(restored.trimWholeSet() && !restored.findChild<QComboBox *>(ToolboxPage::trimPartComboName())->isEnabled()
         && !restored.findChild<QSpinBox *>(ToolboxPage::trimPiecesSpinName())->isEnabled(),
         "remembered whole-set option restores dependent control presentation");
+    ToolboxPage equipmentPage;
+    const QStringList armorNames{"皮革","锁链","铁","金","钻石","下界合金","海龟壳"};
+    equipmentPage.setTrimArmorMaterials(armorNames); equipmentPage.setTrimParts({"头盔","胸甲","护腿","靴子"});
+    equipmentPage.setTrimPatterns({"海岸","哨兵"}); equipmentPage.setTrimMaterials({"紫水晶","铜"});
+    for(int slot=0;slot<4;++slot) {
+        auto *armor=equipmentPage.findChild<QComboBox *>(QStringLiteral("trimArmorSlot%1").arg(slot));
+        armor->setCurrentIndex(armor->findData(slot+1));
+        auto *pattern=equipmentPage.findChild<QComboBox *>(QStringLiteral("trimPatternSlot%1").arg(slot));
+        pattern->setCurrentIndex(pattern->findData(slot%2));
+    }
+    ToolboxPage equipmentRestored;
+    equipmentRestored.setTrimArmorMaterials(armorNames); equipmentRestored.setTrimParts({"头盔","胸甲","护腿","靴子"});
+    equipmentRestored.setTrimPatterns({"海岸","哨兵"}); equipmentRestored.setTrimMaterials({"紫水晶","铜"});
+    expect(ToolboxInputState::restore(&equipmentRestored,ToolboxInputState::capture(&equipmentPage)),
+           "per-equipment trim inputs restore successfully");
+    bool independent=true;
+    for(int slot=0;slot<4;++slot) independent &= equipmentRestored.trimEquipment()[slot].armor==slot+1
+                                                && equipmentRestored.trimEquipment()[slot].pattern==slot%2;
+    expect(independent,"per-slot memory is not overwritten by legacy whole-set fields");
+    auto oldDocument=QJsonDocument::fromJson(ToolboxInputState::capture(&equipmentPage)).object();
+    auto oldFields=oldDocument.value("fields").toObject();
+    for(int slot=0;slot<4;++slot) for(const QString &prefix:QStringList{"trimArmorSlot","trimPatternSlot","trimMaterialSlot"})
+        oldFields.remove(prefix+QString::number(slot));
+    oldFields.insert(ToolboxPage::trimArmorComboName(),4); oldFields.insert(ToolboxPage::trimWholeSetName(),true);
+    oldDocument.insert("fields",oldFields);
+    expect(ToolboxInputState::restore(&equipmentRestored,QJsonDocument(oldDocument).toJson())
+           && equipmentRestored.trimEquipment()[0].armor==4 && equipmentRestored.trimEquipment()[3].armor==4,
+           "legacy whole-set drafts migrate into all four equipment columns");
     expect(!ToolboxInputState::restore(&restored, "{bad") && restored.bannerLayers() == QStringList{red, blue},
         "corrupt remembered input is rejected without replacing the current draft");
     QSettings inputSettings(root.filePath(QStringLiteral("inputs.ini")), QSettings::IniFormat);

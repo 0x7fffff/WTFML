@@ -1779,7 +1779,14 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         installBodyLayout->setContentsMargins(0, 0, 0, 0);
         // 和 installLayout 同一个行距（名称框与卡片之间那 10 px 不变）。
         installBodyLayout->setSpacing(installLayout->spacing());
-        installLayout->addWidget(installScroll, 1);
+        auto *installContent = new QWidget(installPage);
+        installContent->setObjectName(QStringLiteral("installFloatingContent"));
+        auto *installContentLayout = new QGridLayout(installContent);
+        installContentLayout->setContentsMargins(0, 0, 0, 0);
+        installContentLayout->addWidget(installScroll, 0, 0);
+        installLayout->addWidget(installContent, 1);
+        // The floating action must not cover the last selectable row at the scroll limit.
+        installBodyLayout->setContentsMargins(0, 0, 0, qMax(48, installButtonMinHeight()) + 40);
 
         // 版本名称：实例的目录名（`versions/<这个名字>`）。默认名、重名提示、名字不合法
         // 那句原因，都在 MainWindow::updateInstallNameHint() 一处刷（界面这边不持有
@@ -1813,7 +1820,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 那一行本身在下面「顶层五条」之后插（见 `installPresetRowRole()`）。
 
         // 加载器：**一棵树**，和上一页的版本树同一个模式（用户原话见头文件里那段）：
-        // 顶层五条 = 四个加载器 + 「不装（纯原版）」，点一条展开它底下的版本号，
+        // 界面上是四条加载器（+ 一条预设行）；「不装（纯原版）」只留内部那条（默认值、
+        // 取消加载器后的落点），不再摆成一个重复选项 —— 点一条展开它底下的版本号，
         // 点一个版本号就收起来、把选中的版本号写在那一行的第二行小字上。
         //
         // NOTE: 这一组就是原来左栏那五个钮 —— 表、下标、文案一个字没改（见
@@ -1876,12 +1884,18 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
         // 顶层五条：四个加载器 + 最后那条「不装（纯原版）」。顺序、下标、文案全走
         // modLoaderOptionNames()/modLoaderOptionTexts() 那两张表（见头文件里那段 NOTE）。
+        // 「不装」那条**建出来但藏起来**：下标 4 仍是内部身份（默认选中、取消加载器后的
+        // 落点），只是界面上不再长成一个和行尾 × 重复的选项。
         {
             const QStringList texts = modLoaderOptionTexts();
             for (int i = 0; i < texts.size(); ++i) {
                 auto *item = new QTreeWidgetItem(loaderTree);
                 item->setData(loaderTreeKeyColumn(), Qt::UserRole, i);
                 item->setText(loaderTreeKeyColumn(), texts.at(i));
+                // Preserve the internal vanilla identity/index, but do not render a duplicate choice.
+                // 「不装（纯原版）」只留内部状态（下标 4 仍是默认值、也是取消加载器后的落点），
+                // 界面上不再摆成一条和行尾 × 重复的选项 —— 见上面那段 NOTE。
+                if (i == modLoaderNoneIndex()) item->setHidden(true);
                 // 每条前面那个标志（Fabric 的织纹 / Forge 的铁砧 / NeoForge 的狐狸 /
                 // OptiFine 的放大镜；「不装」那条是草方块 —— 那条路装出来的就是原版）。
                 // 画法是 ui/VersionIcons.cpp，那几个图标的画法表和这张表**同序**；
@@ -1928,9 +1942,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             int rows = 0;
             for (int i = 0; i < tree->topLevelItemCount(); ++i) {
                 QTreeWidgetItem *top = tree->topLevelItem(i);
+                if (top->isHidden()) continue;
                 rows += 1 + (top->isExpanded() ? top->childCount() : 0);
             }
-            rows = qBound(tree->topLevelItemCount(), rows, loaderTreeMaxRows());
+            rows = qBound(1, rows, loaderTreeMaxRows());
             const int frame = 2 * tree->frameWidth();
             tree->setFixedHeight(rows * versionTreeRowHeight() + frame);
         };
@@ -1953,36 +1968,24 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         installButton = new QPushButton(installButtonText(), installPage);
         installButton->setObjectName(installButtonName());
         installButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        installButton->setMinimumWidth(kDownloadButtonMinWidth);
+        installButton->setMinimumWidth(qMax(180, kDownloadButtonMinWidth));
+        Theme::markButton(installButton, Theme::ButtonKind::Primary);
         // 字放大两档、给一个最小高度（字大了还顶着老高度会显得挤）。
         //
-        // ★ 2026-10-12：摆法从"这一栏里横向居中"改成了**右下角的固定底栏**。用户那份
-        //   改版文档里的原话是「确认操作放右下角或固定底栏，不悬浮在页面中间」—— 居中
-        //   那一版正是"悬浮在页面中间"：上面是表单、下面是深浅不定的一截空白，这颗键
-        //   落在哪儿全看那一栏当时多高。现在它和表单之间有一条分隔线（`wtfmlSurface="footer"`
-        //   那条 `border-top`），摆位在**右下角**，和"填完表、按右下角那一颗"这条路上的
-        //   直觉一致。
-        //
-        // NOTE: 表格仍然是"内容在上、底栏在下"，只是中间不再垫 addStretch() ——
-        //       底栏**钉在页面最底下**（中间那层滚动区吃掉全部剩余高度，见上面那段），
-        //       所以加载器展开多少都不会把它顶出可视区。
+        // Latest design: a compact floating action at the bottom-centre of the right content pane.
+        // Only its own rectangle intercepts input; the surrounding scroll area remains interactive.
         QFont installFont = installButton->font();
         installFont.setPointSize(installFont.pointSize() + installButtonFontStep());
         installButton->setFont(installFont);
-        installButton->setMinimumHeight(installButtonMinHeight());
-        // 底栏那一块：一条分隔线 + 里面右对齐的操作（那颗键靠右，前面垫一条 stretch）。
-        auto *installFooter = new QFrame(installPage);
+        installButton->setMinimumHeight(qMax(48, installButtonMinHeight()));
+        auto *installFooter = new QFrame(installContent);
         installFooter->setObjectName(installFooterName());
-        markSurface(installFooter, Theme::footerSurfaceValue());
         auto *footerLayout = new QHBoxLayout(installFooter);
-        footerLayout->setContentsMargins(0, 12, 0, 0);
+        footerLayout->setContentsMargins(0, 12, 0, 16);
         footerLayout->setSpacing(kFilterRowSpacing);
-        footerLayout->addStretch(1);
         footerLayout->addWidget(installButton);
-        installLayout->addWidget(installFooter);
-        // ★ 2026-10-18：底下那条 stretch 撤了 —— 中间那层滚动区（`installScroll`，撑 1）
-        //   吃掉剩余高度，底栏就钉在页面最底下；原来那一条会把底栏顶在内容正下方，
-        //   内容一矮，底栏就悬在半空，和"固定底栏"这个说法对不上。
+        installContentLayout->addWidget(installFooter, 0, 0, Qt::AlignHCenter | Qt::AlignBottom);
+        installFooter->raise();
         gameStack->addWidget(installPage);
 
         // 第 0 页加在**最前面** —— 下面那个循环按同一个表、同一个顺序往后加，
@@ -4155,7 +4158,7 @@ public:
         m_gear = gear;
         gear->setObjectName(MainWindowUI::folderRowGearName(index));
         const int iconSize = MainWindowUI::folderMenuIconSize();
-        gear->setIcon(QIcon(VersionIcons::gear(iconSize, palette().color(QPalette::WindowText))));
+        gear->setIcon(VersionIcons::actionIcon(VersionIcons::Action::Settings));
         gear->setIconSize(QSize(iconSize, iconSize));
         gear->setFixedSize(MainWindowUI::folderRowGearSize(), MainWindowUI::folderRowGearSize());
         // 行尾那颗齿轮按自己的 24 来（报一句见 `Theme::markIconButton()`：`min-height`
@@ -4264,6 +4267,14 @@ public:
                 (a == MainWindowUI::FolderActionDelete && !protectedFolder)
                     ? MainWindowUI::folderDangerColor(menuPalette)
                     : menuPalette.color(QPalette::WindowText))));
+            if (a == MainWindowUI::FolderActionRefresh)
+                button->setIcon(VersionIcons::actionIcon(VersionIcons::Action::Refresh));
+            else if (a == MainWindowUI::FolderActionRename)
+                button->setIcon(VersionIcons::actionIcon(VersionIcons::Action::Edit));
+            else if (a == MainWindowUI::FolderActionOpen)
+                button->setIcon(VersionIcons::actionIcon(VersionIcons::Action::Folder));
+            else if (a == MainWindowUI::FolderActionDelete)
+                button->setIcon(VersionIcons::actionIcon(VersionIcons::Action::Delete));
             button->setIconSize(QSize(iconSize, iconSize));
             // 图标放在文字**前面**：QPushButton 本来就是这个摆法（图标在左、文字在右），
             // 前提是别把 text-align 设成居中 —— 下面那行 QSS 设的是 left，于是这一整块
@@ -5474,6 +5485,7 @@ void MainWindowUI::openTaskCenterPanel() {
             panel->deleteLater();
         }, false, tabWidget->geometry());
     });
+    overlayHost->setPageHeaderWidget(panel->headerActions());
     panel->showEmbedded();
     }, true, tabWidget->geometry());
 }
@@ -5917,7 +5929,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 });
                 line->addWidget(launch);
                 auto *edit = new QPushButton(card);
-                edit->setIcon(QIcon(VersionIcons::gear(18, QApplication::palette().color(QPalette::WindowText))));
+                edit->setIcon(VersionIcons::actionIcon(VersionIcons::Action::Settings));
                 edit->setToolTip(QStringLiteral("实例设置"));
                 Theme::markButton(edit, Theme::ButtonKind::Ghost);
                 QObject::connect(edit, &QPushButton::clicked, edit, [this, key = item.key]() {

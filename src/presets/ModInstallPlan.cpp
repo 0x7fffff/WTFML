@@ -437,6 +437,52 @@ ModInstallPlan planModInstall(const ModInstallRequest &request) {
         if (requiredKeys.contains(row.key)) { row.required = true; row.reference.required = true; }
     }
 
+    // Merge exact constraints before publishing the plan. Project-only identity is
+    // insufficient for pinned dependencies; never report an unknown on-disk version as satisfied.
+    QHash<QString, QSet<QString>> exactVersions;
+    for (const auto &row : plan.rows) {
+        if (row.status != ModInstallStatus::Download) continue;
+        for (const auto &dependency : row.version.dependencies) {
+            if (!dependency.required() || dependency.versionId.trimmed().isEmpty() ||
+                dependency.projectId.trimmed().isEmpty()) continue;
+            const QString key = platformOfKey(row.key) + QLatin1Char(':') + dependency.projectId.trimmed();
+            exactVersions[key].insert(dependency.versionId.trimmed());
+        }
+    }
+    for (auto &row : plan.rows) {
+        if (row.status != ModInstallStatus::Download) continue;
+        for (const auto &dependency : row.version.dependencies) {
+            if (!dependency.required() || dependency.versionId.trimmed().isEmpty()) continue;
+            if (dependency.projectId.trimmed().isEmpty()) {
+                row.status = ModInstallStatus::Unknown;
+                row.problem = planText("必要前置只提供发行版 ID（%1），尚无法确认所属项目，未允许安装。")
+                                  .arg(dependency.versionId);
+                break;
+            }
+            const QString key = platformOfKey(row.key) + QLatin1Char(':') + dependency.projectId.trimmed();
+            if (exactVersions.value(key).size() > 1) {
+                QStringList versions = exactVersions.value(key).values();
+                versions.sort();
+                row.status = ModInstallStatus::Incompatible;
+                row.problem = planText("「%1」存在互不相容的精确前置版本要求：%2。")
+                                  .arg(key, versions.join(QStringLiteral(" / ")));
+                if (!plan.conflicts.contains(row.problem)) plan.conflicts.append(row.problem);
+                break;
+            }
+            if (!request.installedKeys.contains(key)) continue;
+            const QString installed = request.installedVersionIds.value(key).trimmed();
+            if (installed == dependency.versionId.trimmed()) continue;
+            row.status = installed.isEmpty() ? ModInstallStatus::Unknown : ModInstallStatus::Incompatible;
+            row.problem = installed.isEmpty()
+                ? planText("已安装「%1」，但发行版身份未知，无法确认所需版本 %2。")
+                      .arg(key, dependency.versionId)
+                : planText("已安装「%1」的版本 %2，不满足所需版本 %3；需确认替换。")
+                      .arg(key, installed, dependency.versionId);
+            if (!installed.isEmpty()) plan.conflicts.append(row.problem);
+            break;
+        }
+    }
+
     // ---------- 总账 ----------
     for (const ModInstallRow &row : plan.rows) {
         switch (row.status) {

@@ -244,7 +244,7 @@ void ResumableDownload::probe(int attempt) {
         auto data = reply->property("probeBytes").toByteArray();
         if (data.isEmpty()) data = reply->read(2);
         const bool guardAbort = reply->property("wtfmlProbeGuardAbort").toBool();
-        const auto reason = guardAbort ? tr("探测源站超时。") : reply->errorString();
+        const auto reason = guardAbort ? tr("探测源站超时。") : DownloadRetryPolicy::displayError(reply->error(), reply->errorString());
         const auto retryAfter = reply->rawHeader("Retry-After");
         const auto effectiveUrl = reply->url();
         reply->deleteLater();

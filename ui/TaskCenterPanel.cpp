@@ -20,6 +20,8 @@
 #include <QIcon>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QComboBox>
+#include <QLineEdit>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPushButton>
@@ -468,7 +470,45 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     panelPalette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Panel));
     setPalette(panelPalette);
 
-    auto *workspace = new QHBoxLayout(this);
+    auto *outer = new QVBoxLayout(this);
+    outer->setContentsMargins(0, 0, 0, 0);
+    m_toolbar = new QWidget(this);
+    m_toolbar->setObjectName(QStringLiteral("taskCenterToolbar"));
+    auto *toolbar = new QHBoxLayout(m_toolbar);
+    toolbar->setContentsMargins(0, 0, 0, 0);
+    m_filter = new QComboBox(m_toolbar);
+    m_filter->setObjectName(QStringLiteral("taskCenterFilter"));
+    m_filter->addItems({tr("全部任务"), tr("正在进行"), tr("已结束"), tr("需要处理")});
+    m_filter->setAccessibleName(tr("筛选任务状态"));
+    toolbar->addWidget(m_filter);
+    m_search = new QLineEdit(m_toolbar);
+    m_search->setObjectName(QStringLiteral("taskCenterSearch"));
+    m_search->setPlaceholderText(tr("搜索任务"));
+    m_search->setClearButtonEnabled(true);
+    m_search->setMinimumWidth(0);
+    m_search->setMaximumWidth(240);
+    toolbar->addWidget(m_search, 1);
+    m_clearFinished = new QPushButton(MainWindowUI::taskCenterPanelClearText(), m_toolbar);
+    m_clearFinished->setObjectName(MainWindowUI::taskCenterPanelClearButtonName());
+    m_clearFinished->setToolTip(tr("清除全部已结束记录（不受筛选影响），不取消正在进行的任务，也不删除下载文件。"));
+    m_clearFinished->setVisible(bool(m_onClear));
+    Theme::markButton(m_clearFinished, Theme::ButtonKind::Neutral);
+    toolbar->addWidget(m_clearFinished);
+    outer->addWidget(m_toolbar);
+    const auto filterChanged = [this] {
+        m_selectedKey.clear();
+        m_compactDetailOpen = false;
+        applyWorkspaceMode();
+        requestRefresh();
+    };
+    connect(m_filter, &QComboBox::currentIndexChanged, this, filterChanged);
+    connect(m_search, &QLineEdit::textChanged, this, filterChanged);
+    connect(m_clearFinished, &QPushButton::clicked, this, [this] {
+        // Keep signal dispatch alive even when the owner immediately refreshes its task snapshot.
+        QTimer::singleShot(0, this, [this] { if (m_onClear) m_onClear(); requestRefresh(); });
+    });
+    auto *workspace = new QHBoxLayout;
+    outer->addLayout(workspace, 1);
     workspace->setContentsMargins(kPanelPadding, kPanelPadding, kPanelPadding, kPanelPadding);
     workspace->setSpacing(kSectionSpacing);
 
@@ -805,7 +845,25 @@ void TaskCenterPanel::rebuild() {
     QList<TaskCenter::Item> active;
     QList<TaskCenter::Item> finished;
     for (const TaskCenter::Item &item : items) {
+        const int filter = m_filter->currentIndex();
+        const bool attention = item.state == TaskCenter::State::WaitingUser ||
+            ((item.state == TaskCenter::State::Failed || item.state == TaskCenter::State::Interrupted) && !item.attentionAcknowledged);
+        if ((filter == 1 && !isActive(item.state)) || (filter == 2 && isActive(item.state)) ||
+            (filter == 3 && !attention)) continue;
+        const QString search = m_search->text().trimmed();
+        if (!search.isEmpty() && !(item.title + QLatin1Char(' ') + item.detail + QLatin1Char(' ') + item.errorSummary)
+                                    .contains(search, Qt::CaseInsensitive)) continue;
         (isActive(item.state) ? active : finished).append(item);
+    }
+    m_clearFinished->setEnabled(std::any_of(items.cbegin(), items.cend(), [](const auto &item) { return !isActive(item.state); }));
+    const auto selected = [this](const auto &item) { return item.key == m_selectedKey; };
+    // Viewing an error acknowledges it. In the attention filter its row may
+    // disappear, but keep the detail readable until the user changes selection/filter.
+    if (m_filter->currentIndex() != 3 && !m_selectedKey.isEmpty() && !std::any_of(active.cbegin(), active.cend(), selected) &&
+        !std::any_of(finished.cbegin(), finished.cend(), selected)) {
+        m_selectedKey.clear();
+        m_compactDetailOpen = false;
+        applyWorkspaceMode();
     }
 
     // 行的编号**两栏接着数**（不各从 0 开始）：行的名字是按号找的（验证工程靠它量），
@@ -817,9 +875,9 @@ void TaskCenterPanel::rebuild() {
         layout->addWidget(label);
     };
 
-    if (items.isEmpty()) {
+    if (active.isEmpty() && finished.isEmpty()) {
         // 一项都没有：面板里留一句话，不留一大块空白（和底栏那两块面板的空态一个路数）。
-        auto *empty = new QLabel(MainWindowUI::taskCenterPanelEmptyText(), m_content);
+        auto *empty = new QLabel(items.isEmpty() ? MainWindowUI::taskCenterPanelEmptyText() : tr("没有符合筛选条件的任务"), m_content);
         empty->setObjectName(MainWindowUI::taskCenterPanelEmptyLabelName());
         applyMutedFont(empty, 0);
         layout->addWidget(empty);
@@ -859,30 +917,6 @@ void TaskCenterPanel::rebuild() {
             layout->addWidget(new TaskCenterRowWidget(
                 item, index, rowActivate(item.key), m_content, m_onRowAction));
             ++index;
-        }
-        // 「清除已完成」靠右摆（它是这一栏的收尾动作，不是一行的动作）。
-        if (m_onClear) {
-            auto *row = new QWidget(m_content);
-            auto *rowLayout = new QHBoxLayout(row);
-            rowLayout->setContentsMargins(0, 0, 0, 0);
-            rowLayout->addStretch(1);
-            auto *clear = new QPushButton(MainWindowUI::taskCenterPanelClearText(), row);
-            clear->setObjectName(MainWindowUI::taskCenterPanelClearButtonName());
-            clear->setCursor(Qt::PointingHandCursor);
-            clear->setFlat(true);
-            applyMutedFont(clear, -1);
-            QWidget *const deferContext = m_content;  // 见下面那段 NOTE（别捕随时会没的东西）
-            QObject::connect(clear, &QPushButton::clicked, clear,
-                             [this, deferContext]() {
-                                 if (m_onClear) {
-                                     m_onClear();
-                                 }
-                                 // ★ 排到**下一轮**事件循环再重建：这一下是这颗按钮自己的
-                                 //   信号处理器，当场重建等于把它自己在脚下删掉。
-                                 QTimer::singleShot(0, deferContext, [this]() { refresh(); });
-                             });
-            rowLayout->addWidget(clear);
-            layout->addWidget(row);
         }
     }
     // 内容比上限矮的时候，行堆在上面而不是被摊开（stretch 吃掉下面的空）。

@@ -982,7 +982,7 @@ QList<MainWindowUI::PanelAction> runningPanelActions(const QColor &ink) {
     // 图标按钮**必须**有 tooltip：一个电源符号说明不了"点了会把游戏直接杀掉、不会存档"。
     stop.tooltip = QObject::tr("关闭这个实例（直接结束游戏进程，游戏不会存档）");
     MainWindowUI::PanelAction settings;
-    settings.icon = VersionIcons::gear(iconSize, ink);
+    settings.icon = VersionIcons::gear(iconSize, Theme::tokens().primary);
     settings.tooltip = QObject::tr("打开这个实例的设置");
     // 这一颗是**字的**（理由见 bottomBarPanelLogText() 那段：14 px 上画不出一个一眼认得出
     // 的"日志"符号）。NOTE: 图标那两颗是 `setFixedSize(actionSize)` 的正方形，这一颗按字
@@ -1753,6 +1753,11 @@ MainWindow::MainWindow(QWidget *parent)
             // 谁在体检。那一位是主窗口手上的（`m_integrityScanningVersion`），controller
             // 那一层够不着也不该够着。
             [this](const QString &versionId) { return integrityScanningVersion(versionId); },
+            // 谁正被别的作业占着（安装 / 导入 / 复制 / 快照 / 还原）。问的是那一份合集
+            // —— `installingVersionIds()` 是"谁动不得"的唯一出处，启动和删除读的也是它。
+            [this](const QString &versionId) {
+                return installingVersionIds().contains(versionId);
+            },
             [this](const InstanceSettingsController::Notice &notice) {
                 showInstanceSettingsNotice(notice);
             },
@@ -2730,6 +2735,7 @@ void MainWindow::onPlayerSkinChanged(const QImage &skin, const QImage &cape, boo
     // 收到的两张图一定是**画得出来的**（载不进来时那一边已经退回默认外观了），所以这里只管
     // 摆，不再有一句"这张图打不开怎么办"。
     m_ui->getSkinViewer()->setSkin(skin, cape, slim);
+    if (m_toolboxController) m_toolboxController->setPlayerSkin(skin, cape, slim);
     // 头像在这里**算一次存起来**：updateBottomBar() 每次进度刷新（几百毫秒一次）都会被调，
     // 在它里面现算等于一直在重渲染同一张 8×8 的皮肤。裁切和放大都在
     // SkinModel::headAvatar() 里（最近邻放大，保持像素画的那个方块感）。
@@ -3336,8 +3342,18 @@ void MainWindow::updateInstanceTreeRunState() {
             // 重新拼一遍而不是"在旧文本上加减后缀"：加减法要认得旧文本长什么样，
             // 而显示名本身会随"版本名格式"那一项变（那时 refreshInstalledVersions()
             // 会整棵重灌，不会走到这里）—— 每回从头拼，两条路的结果就一定一样。
-            (*it)->setText(0, instanceTreeItemText(m_versionManager->displayParts(id), options,
-                                                   m_launcherManager->isVersionRunning(id)));
+            QString text = instanceTreeItemText(m_versionManager->displayParts(id), options,
+                                                m_launcherManager->isVersionRunning(id));
+            // ★ 2026-10-19：这一趟只关心"在不在跑"，可它整行重写会把
+            //   `rebuildInstanceTree()` 补上去的「（文件操作中）」**擦掉** —— 而这一趟
+            //   是被**任何一份实例**的启动 / 退出触发的（`updateInstanceTreeRunState()`
+            //   整棵树都走一遍），所以另一份实例开始或退出时，正忙着搬文件的那一行上
+            //   那个后缀就没了。那一行此刻按不动、也说不出为什么，用户只能当成坏了。
+            //   补缀的判据和那边逐字同一条（`m_fileOperationInstanceIds`）。
+            if (m_fileOperationInstanceIds.contains(id)) {
+                text += tr("（文件操作中）");
+            }
+            (*it)->setText(0, text);
         }
         ++it;
     }
@@ -3687,12 +3703,14 @@ void MainWindow::updateLoaderRows() {
     // 那棵树的样子**全部**在这一处决定（别处一个 setText/setData 都不许写）：
     //   · 选中的那一条：第二行小字写它选的那一格（版本号 / 「最新版」/「稳定版」）；
     //   · 其余几条加载器：第二行小字写「与 X 不兼容」（用户要的那句话）；
-    //   · 「不装（纯原版）」那条：没有第二行（它不是加载器，不跟谁冲突）。
+    //   · 「不装（纯原版）」那条：没有第二行（它不是加载器，不跟谁冲突）；它仍然存在，
+    //     但**不画在界面上**（只留内部状态，见 MainWindowUI 里那段 NOTE）。
     // NOTE: 选中某一条之后，**其余几条加载器变灰、也点不开**（用户原话："选择以后让其他
-    //       选项变成不可用（不能点开）的模式"）。改选别的加载器要先点「不装（纯原版）」
-    //       —— 那条**故意不灰**，它既是"回纯原版"，也是唯一那条还点得动的退路；
-    //       换版本则点当前这条底下的版本号。本启动器一次只装一个加载器，所以"不兼容"
-    //       说的是"两个不能同时装"，而灰掉说的是"这一下点了也不会变成装它"。
+    //       选项变成不可用（不能点开）的模式"）。改选别的加载器先点**当前这条行尾的 ×**
+    //       —— 那一下退回「不装（纯原版）」，其余几条重新亮起来（那条内部条目本身不画，
+    //       界面上不再有一个重复的「不装」选项可点）；换版本则点当前这条底下的版本号。
+    //       本启动器一次只装一个加载器，所以"不兼容"说的是"两个不能同时装"，而灰掉
+    //       说的是"这一下点了也不会变成装它"。
     const int selected = selectedLoaderIndex();
     VersionManager::LoaderKind selectedKind = VersionManager::LoaderKind::Fabric;
     const bool hasLoader = VersionManager::loaderKindFromIndex(selected, &selectedKind);
@@ -5638,22 +5656,31 @@ void MainWindow::onUpdateCheckLatestFinished(
     //   NOTE: 判据是**这一趟攒下来的那一份**（`batchAnswered`，跨所有批量钥匙），
     //         不是这一发的回复 —— 批量现在分几发，只看这一发的话另一把钥匙答过的那些
     //         会被当成"没答"再问一遍（见上面那段）。
+    //
+    //   ★★ 2026-10-19：分流必须**逐条**做，不能"这一把钥匙底下只要有一条答过就整组跳过"。
+    //   一把钥匙 = 一个项目，而同一个项目完全可能对应盘上**两个文件**（比如它发过一个
+    //   本体包和一个附加包，用户两个都装了；或者同一个 jar 放过两份不同版本）。那种
+    //   情况下 Modrinth 完全可能只答得出其中一个 sha1：整组跳过的写法会把另一个文件
+    //   **一条结论都不给** —— 它既不在 `itemsByKey`（不会被问、不会被判），也不在
+    //   `verdicts` 里 ⇒ 报告里凭空少一行、`checked` 数也比盘上的文件少。屏幕上完全
+    //   看不出来（其余几条都正常），正是这一套最怕的那种"安静地少一条"。
     QStringList refire;
     for (auto it = m_updateCheck.fallbackItems.constBegin();
          it != m_updateCheck.fallbackItems.constEnd(); ++it) {
-        bool answered = false;
+        QList<ModDependencies::InstalledItem> unanswered;
         for (const ModDependencies::InstalledItem &item : it.value()) {
             if (!item.sha1.isEmpty() && m_updateCheck.batchAnswered.contains(item.sha1)) {
-                answered = true;
-                break;
+                continue; // Modrinth 答过这一条，上面那个循环已经把它判过了
             }
+            unanswered.append(item);
         }
-        if (answered) {
+        if (unanswered.isEmpty()) {
             continue;
         }
         // 挪进 `itemsByKey` —— **这一挪同时把它算进收尾判据**（那把钥匙发出去之后
-        // `onUpdateCheckVersionsFinished()` 判的就是这儿这一组）。
-        m_updateCheck.itemsByKey[it.key()].append(it.value());
+        // `onUpdateCheckVersionsFinished()` 判的就是这儿这一组）。只挪**没答过的那几条**：
+        // 答过的已经在上面判过了，再挪一遍就是同一个文件两条结论。
+        m_updateCheck.itemsByKey[it.key()].append(unanswered);
         // 同一个项目的**另一条**（比如它底下还有一个只有 CurseForge 认出来的文件）如果
         // 已经发出去过了，就不再发第二发 —— 答案本来就是同一份（版本列表是按项目问的），
         // 而 `onUpdateCheckVersionsFinished()` 是按**答案回来时**那一组来判的，照样判得到。
@@ -10029,7 +10056,7 @@ void MainWindow::updateHomeRecent() {
                 instance.icon = QIcon(instanceRowMark(
                     m_versionManager->displayParts(instance.id), m_versionManager, 32));
             }
-            instance.favorite = m_groupStore != nullptr && m_groupStore->isPinned(instance.id);
+            instance.favorite = m_groupStore != nullptr && m_groupStore->isPinned(instanceKey(instance.id));
             installed.append(instance);
         }
     }
@@ -10856,6 +10883,14 @@ void MainWindow::showInstanceSettingsNotice(const InstanceSettingsController::No
                                tr("「%1」正在做完整性检查，等它完了再改名。")
                                    .arg(instanceDisplayName(notice.instanceId)));
         break;
+    case InstanceSettingsController::Notice::Kind::RenameBlockedBusy:
+        // 装 / 导入 / 复制 / 快照 / 还原这几类作业都攥着改名前的绝对路径。把话说全，
+        // 用户才知道"等一会儿再改"是等什么。
+        InlineMessage::warning(m_ui->overlay(), tr("重命名实例"),
+                               tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），"
+                                  "等它结束后再改名。")
+                                   .arg(instanceDisplayName(notice.instanceId)));
+        break;
     case InstanceSettingsController::Notice::Kind::RenameRejected:
         // `detail` 就是 `InstanceFiles::validateRenameTarget()` 给的那一整句，原样说。
         InlineMessage::warning(m_ui->overlay(), tr("重命名实例"), notice.detail);
@@ -10994,8 +11029,12 @@ bool MainWindow::confirmDeleteInstance(const QString &versionId) {
     // 很具体：那一路还在往这个目录里写，写到收尾那一步会**把目录重新建出来**（json /
     // meta 那两笔），用户看到的是"删掉了、过一会儿它自己又回来了，而且是半截的"。
     if (installingVersionIds().contains(versionId)) {
+        // 这一份集合里不只有"正在安装"：复制 / 快照 / 还原也在这棵目录树上读写，删除
+        // 会让它们写到一半的目标消失（然后被 `mkpath()` 重新建出一个半截的）。话说全。
         InlineMessage::warning(m_ui->overlay(), tr("删除实例"),
-                              tr("「%1」正在安装，等它装完再删。").arg(name));
+                              tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），"
+                                 "等它结束后再删。")
+                                  .arg(name));
         return false;
     }
     // 闸口三：**正在体检的也不能删**（coding plan §4.1「同一实例不允许同时扫描和删除/
@@ -11039,8 +11078,12 @@ bool MainWindow::deleteInstance(const QString &versionId) {
     // 闸口二（和上面那一半逐字同款，理由也逐字相同）：守卫和动作留在同一个函数里，
     // 任何调用点都绕不过去 —— 包括以后直接从别处调 deleteInstance() 的那些。
     if (installingVersionIds().contains(versionId)) {
+        // 这一份集合里不只有"正在安装"：复制 / 快照 / 还原也在这棵目录树上读写，删除
+        // 会让它们写到一半的目标消失（然后被 `mkpath()` 重新建出一个半截的）。话说全。
         InlineMessage::warning(m_ui->overlay(), tr("删除实例"),
-                              tr("「%1」正在安装，等它装完再删。").arg(name));
+                              tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），"
+                                 "等它结束后再删。")
+                                  .arg(name));
         return false;
     }
     // 闸口三（同上，理由见 confirmDeleteInstance 那一半）：正在体检的不能删。

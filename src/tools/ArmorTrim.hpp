@@ -10,7 +10,8 @@
  * 【为什么这里不出预览图】
  *
  * 计划 §9.11 明说：素材来源不明确时不伪造游戏内精确预览，也不直接复制官方贴图。
- * 所以这一版给的是**成品名与材料账**（`紫水晶 · 海岸纹饰的钻石胸甲`），不是像素预览。
+ * 这一层仍只给成品名与材料账。可选三维预览由独立 controller 在运行时读取用户本地
+ * 或用户确认后从官方获取的客户端纹理；源码与发布包不携带官方纹理。
  *
  * 【一张模板打一件】
  *
@@ -30,16 +31,18 @@
 
 namespace ArmorTrim {
 
-/// 十种纹饰材料。
+/// 十一种纹饰材料（名字照游戏 `zh_cn.json` 的 `trim_material.minecraft.*`）。
 struct TrimMaterial {
     QString id;    ///< `amethyst`
-    QString name;  ///< `紫水晶`
+    QString name;  ///< `紫水晶质`
     QString item;  ///< 锻造台里摆的那件（`紫水晶碎片`）
 };
 
 int trimMaterialCount();
 /// 第 @p index 种（越界回空的那个）。
 TrimMaterial trimMaterialAt(int index);
+/// 这种材料哪个 Java 版本才有（`1.20` / `1.21.4`；越界回空串）。
+QString trimMaterialSince(int index);
 QStringList trimMaterialNames();
 
 /// 纹饰图案（模板）。
@@ -66,6 +69,7 @@ QString partName(int index);
 /// 盔甲材质（`皮革` / `锁链` / `铁` / `金` / `钻石` / `下界合金` / `海龟壳`）。
 int armorMaterialCount();
 QString armorMaterialName(int index);
+QString armorMaterialId(int index);
 /// 一件盔甲的全名（`钻石胸甲`；海龟壳固定回 `海龟壳`）。
 QString armorPieceName(int armorMaterial, int part);
 /// 这个材质能不能做这个部位（海龟壳只认头盔）。
@@ -76,7 +80,7 @@ struct Plan {
     bool ok = false;
     QString error;        ///< 非空 = 排不出来
     QStringList steps;    ///< 一步一步
-    QString summary;      ///< 一句总述（`紫水晶 · 海岸纹饰的钻石胸甲 × 1`）
+    QString summary;      ///< 一句总述（`紫水晶质 · 海岸纹饰的钻石胸甲 × 1`）
     QStringList materials;///< 材料清单（`海岸纹饰模板 × 1`…）
     QStringList notes;    ///< 要提醒的（模板复制那一条、整套那一条）
     /// 整份明细（总述 + 步骤 + 材料 + 提醒）。界面上那个结果框直接摆它。

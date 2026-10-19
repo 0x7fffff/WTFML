@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QNetworkReply>
+#include <QCoreApplication>
 #include <QByteArray>
 #include <QtGlobal>
 #include <QDateTime>
@@ -12,6 +13,15 @@
 #include <algorithm>
 
 namespace DownloadRetryPolicy {
+// UI text must not depend on whether Qt's translation catalogue was deployed.
+// A network abort does not prove that the user cancelled the task.
+inline QString displayError(QNetworkReply::NetworkError error, const QString &fallback) {
+    if (error == QNetworkReply::OperationCanceledError)
+        return QCoreApplication::translate("DownloadRetryPolicy", "网络请求已中止（可能由超时、换源或取消操作触发）。");
+    if (error == QNetworkReply::TimeoutError)
+        return QCoreApplication::translate("DownloadRetryPolicy", "网络请求超时，请检查网络后重试。");
+    return fallback;
+}
 // All download managers (including nested range workers) share origin cooldowns.
 // Monotonic deadlines avoid wall-clock changes; unrelated origins keep running.
 struct OriginThrottle {

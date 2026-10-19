@@ -284,6 +284,8 @@ public:
     static QString overlayTitleLabelName() { return QStringLiteral("overlayTitleLabel"); }
     /// 整页那一档装内容的容器（外面还套着滚动区）。
     static QString overlayPageContentName() { return QStringLiteral("overlayPageContent"); }
+    /// Borrow a page-owned toolbar for the title row; closing returns it to its owner.
+    void setPageHeaderWidget(QWidget *widget);
     /// 提示那一档装内容的容器（在中间那张卡片里）。
     static QString overlayPromptContentName() { return QStringLiteral("overlayPromptContent"); }
     static QString overlayPromptHostName() { return QStringLiteral("overlayPromptHost"); }
@@ -399,6 +401,8 @@ private:
     QVBoxLayout *m_pageLayout = nullptr;
     QPushButton *m_backButton = nullptr;
     QLabel *m_titleLabel = nullptr;
+    QPointer<QWidget> m_headerWidget;
+    QPointer<QWidget> m_headerWidgetOwner;
     /// 整页那一档的滚动区。**必须有一个**：设置页是按它自己的尺寸设计的（实例设置
     /// 要 820x560），而内容区是主窗口说了算 —— 窗口一小，"确定"就被切在下面点不着了。
     QScrollArea *m_pageScroll = nullptr;

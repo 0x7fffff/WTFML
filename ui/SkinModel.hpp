@@ -90,6 +90,10 @@ struct Cuboid {
     QVector3D pivot = QVector3D(0, 0, 0);
     /// 绕 pivot 转多少度。顺序是**先 Y、再 X、最后 Z**（见 posedDirection）。
     QVector3D rotation = QVector3D(0, 0, 0);
+    /// Additional shells (armor): geometry expands without changing the texture UV size.
+    float inflation = 0.0f;
+    bool mirror = false;
+    bool doubleSided = false; // Hollow armor can be viewed through its openings.
 };
 
 /**
@@ -223,6 +227,11 @@ QRectF projectedBounds(const QRectF &target, double yaw, double pitch, double zo
 // ---------- 场景与绘制 ----------
 
 /// 画什么、从哪个角度看。
+struct TexturedPart {
+    Cuboid box;
+    QImage texture;
+};
+
 struct Scene {
     /// 皮肤贴图。空的话什么都不画（调用方负责给默认外观）。
     QImage skin;
@@ -236,6 +245,7 @@ struct Scene {
     /// 走路的相位（0..1）。默认**立正**：姿势是视角那一层（SkinViewer）的事，几何层
     /// 给一个可复现的初值 —— 谁想要走动的那一帧就自己传（产品就是 SkinViewer 传的）。
     double walkPhase = restWalkPhase();
+    QVector<TexturedPart> additionalParts;
 };
 
 /**

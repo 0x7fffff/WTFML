@@ -4377,6 +4377,11 @@ static void runBackupTaskTests() {
             //   拿的就是它）—— 账本上写的是用户认得的那个名字，不是裸目录名。
             check(started.title == QStringLiteral("创建「%1」的快照").arg(expectedTitleName),
                   "★ T35.1 标题里带着**用户认得的那个名字**（不是裸目录名）", started.title);
+            // ★ 2026-10-19：快照跑着的时候这一号必须挂在「忙」名单上（`installingVersionIds()`
+            //   的唯一出处）。它这十几秒一直在读整棵目录树；期间实例被删 / 改名 / 启动，
+            //   包里就会静默少掉正在变的那几个文件，收尾却照样报"快照创建完成"。
+            check(w.instanceBusyForTest(id),
+                  "★★ T35.1 快照在跑的时候这一号在「忙」名单上（改名 / 删除 / 启动都被挡）");
 
             // ★ 同一时刻再来一发：不该冒出第二项（一次只跑一趟，见 MainWindow 里那段）。
             QMetaObject::invokeMethod(&w, "snapshotInstance", Qt::DirectConnection,
@@ -4390,6 +4395,8 @@ static void runBackupTaskTests() {
                 pumpUntil([&answerer, &wroteBack] { return wroteBack(answerer); }, 60000);
             answerer.stop();
             check(done, "T35.1 那一项跑完了（打包那一趟 + 收尾都走完了）");
+            check(!w.instanceBusyForTest(id),
+                  "★★ T35.1 快照收尾之后忙标记摘干净了（不然这一号以后再也启动不了 / 删不掉）");
             const Tasks::TaskSnapshot finished = newBackup(before);
             check(finished.state == Tasks::TaskState::Succeeded && finished.errorSummary.isEmpty(),
                   "★ T35.1 收尾是**成功**（账本上那一项说的是摘要这件事，详情不往盘上写）",
@@ -4465,10 +4472,17 @@ static void runBackupTaskTests() {
             const QSet<quint64> before = backupIds();
             QMetaObject::invokeMethod(&w, "backupWorldNow", Qt::DirectConnection,
                                       Q_ARG(QString, worldDir));
+            // ★ 2026-10-19：和实例快照同一个理由 —— 这一趟在**读整棵存档目录**（连同
+            //   它所在的实例），期间实例被删 / 改名 / 启动，包里会静默少掉正在写的那几个
+            //   文件，收尾照样报"备份完成"。
+            check(w.instanceBusyForTest(id),
+                  "★★ T35.2 世界备份在跑的时候这一号也在「忙」名单上");
             const bool done =
                 pumpUntil([&answerer, &wroteBack] { return wroteBack(answerer); }, 60000);
             answerer.stop();
             check(done, "T35.2 世界备份那一趟跑完了");
+            check(!w.instanceBusyForTest(id),
+                  "★★ T35.2 世界备份收尾之后忙标记也摘干净了");
             const Tasks::TaskSnapshot finished = newBackup(before);
             check(finished.state == Tasks::TaskState::Succeeded &&
                       finished.title == QStringLiteral("备份世界「基地周目」") &&
@@ -4495,6 +4509,36 @@ static void runBackupTaskTests() {
             check(manifest.excluded.isEmpty(),
                   "★ T35.2 存档没有「能重新下回来的部分」这一说 ⇒ 排除表是空的"
                   "（§4.4 那个分岔只对实例快照问）");
+        }
+
+        // ---------- ②b 实例正被别的作业占着时，世界不许改名 ----------
+        //
+        // 快照 / 世界备份按**改名前算好的绝对路径**逐个读整棵目录树。目录在扫描途中被
+        // 改名，那一趟要么静默少读一批文件、要么写到一半找不到落点，收尾却照样报
+        // "备份完成" —— 一份看着成功、其实是残的备份比失败更糟。
+        //
+        // NOTE: 「删除世界」那道闸读的是同一个集合（`installingVersionIds()`），断言就
+        //       钉在「改名」这一条上 —— 两处必须用同一个判据，不然删得掉、改不了。
+        {
+            w.markFileOperationBusyForTest(id);
+            dismissNextPrompt();
+            bool renamed = true;
+            const bool invoked =
+                QMetaObject::invokeMethod(&w, "renameInstanceWorld", Qt::DirectConnection,
+                                          Q_RETURN_ARG(bool, renamed), Q_ARG(QString, id),
+                                          Q_ARG(QString, worldDir),
+                                          Q_ARG(QString, QStringLiteral("不许改的名字")));
+            check(invoked && !renamed,
+                  "★★ T35.2b 这一号在「忙」名单上时世界改名被挡下（返回 false，不是悄悄改了）");
+            check(g_modalTitle == QStringLiteral("重命名世界") &&
+                      g_modalText.contains(QStringLiteral("正在被另一项操作占用")),
+                  "★★ T35.2b 挡下来时**当场说了一句人话**（说的是它正被占用，不是改名失败）",
+                  g_modalTitle + QStringLiteral(" / ") + g_modalText);
+            check(QFileInfo(worldDir).isDir() &&
+                      !QFileInfo(instancePath + QStringLiteral("/saves/不许改的名字")).exists(),
+                  "★★ T35.2b 盘上那座存档一个字节都没动（目录还在老地方）");
+            w.releaseFileOperationBusyForTest(id);
+            check(!w.instanceBusyForTest(id), "T35.2b 撇干净了（后面的节不受影响）");
         }
 
         // ---------- ③ 「从快照恢复」那一趟：内容回来、还原前那一份也留着 ----------
@@ -13426,6 +13470,62 @@ static void runCopyAndSavePageTests() {
     }
 
     // ---------------------------------------------------------------------
+    header("T27.3d 目标文件夹是当前游戏文件夹的 junction 别名 ⇒ 目标名字照样算「文件操作中」");
+    // ---------------------------------------------------------------------
+    //
+    // ★ 2026-10-19：那两个"目标在不在当前游戏文件夹"的判据原来拿 `QDir::cleanPath`
+    //   比字面量。用户把游戏文件夹用另一条路指过来（junction）时两串字面量不同、
+    //   而 `versions/<名字>/` 落的是同一个目录 —— 漏判的后果是后台复制期间**目标名字
+    //   没被记进 `m_fileOperationInstanceIds`**，拷到一半的实例下一次刷新就能被启动 / 删除
+    //   （那两条闸只查 `installingVersionIds()`，见 `copyInstanceInBackground()` 那段）。
+    //   现在判据走 `InstanceFiles::pathIsSameOrInside()` 两头各问一次（它解 junction）。
+    {
+        const QString link = aliasHome.path() + QStringLiteral("/game-link");
+        QProcess::execute(QStringLiteral("cmd"),
+                          {QStringLiteral("/c"), QStringLiteral("mklink"), QStringLiteral("/J"),
+                           QDir::toNativeSeparators(link), QDir::toNativeSeparators(root.path())});
+        const bool madeLink = QFileInfo(link).isJunction();
+        check(madeLink, "★ T27.3d 先造出一个真 junction 指着**当前游戏文件夹**（mklink /J）");
+        if (madeLink) {
+            pumpUntil([] { return currentOverlay() == nullptr; }, 3000);
+            // 复制收尾会弹一句「已经复制好了」。那句提示是在 pumpUntil 的
+            // processEvents 里弹出来的（nested execPrompt），没人点就一直卡在里层循环
+            // ——14 楼的 15 秒超时压在**外层**，进不去。T27.3a 也有同一句，它配了
+            // PromptAnswerer；这里照着配一个。
+            PromptAnswerer answerer({0});
+            answerer.start();
+            const QString aliasCopyName = QStringLiteral("T27-别名副本");
+            const QString aliasCopyDir =
+                root.path() + QStringLiteral("/versions/") + aliasCopyName;
+            const bool invoked = QMetaObject::invokeMethod(
+                &window, "copyInstanceToInBackground", Qt::DirectConnection,
+                Q_ARG(QString, id), Q_ARG(QString, link), Q_ARG(QString, aliasCopyName));
+            check(invoked, "T27.3d invokeMethod 认得后台复制那一发");
+            // 忙标记是**同步**记上的（在起后台线程之前），所以这一句一定问得到。
+            check(window.instanceBusyForTest(aliasCopyName),
+                  "★★ T27.3d 目标名字**当场**记进「文件操作中」（字面量比较在这里是 false）");
+            const bool finished = pumpUntil(
+                [&] {
+                    return !window.instanceBusyForTest(id)
+                           && !window.instanceBusyForTest(aliasCopyName)
+                           && QFileInfo::exists(aliasCopyDir + QLatin1Char('/')
+                                                + AppPaths::versionMetaFileName())
+                           && currentOverlay() == nullptr;
+                },
+                15000);
+            check(finished, "T27.3d 复制跑完、两边的忙标记都摘干净（副本落在别名底下）");
+            answerer.stop();
+            QDir(aliasCopyDir).removeRecursively();
+            check(!QFileInfo::exists(aliasCopyDir), "T27.3d 收尾：把这一份别名副本删掉");
+            // 收尾：junction 只能 rmdir（删链接本体，不跟着删它那一头）。
+            QProcess::execute(QStringLiteral("cmd"),
+                              {QStringLiteral("/c"), QStringLiteral("rmdir"),
+                               QDir::toNativeSeparators(link)});
+            check(!QFileInfo(link).isJunction(), "T27.3d 收尾：链接本体删掉（那一头一个字节没动）");
+        }
+    }
+
+    // ---------------------------------------------------------------------
     header("T27.3b 升级副本：拿「用户挑的目标版本」当底，不是当前实例的克隆");
     // ---------------------------------------------------------------------
     //
@@ -15471,6 +15571,240 @@ static void runUpdateCheckSourceFallbackTests() {
 
     restoreSettings();
     check(AppPaths::minecraftDir() == originalDir, "T32.9 数据根目录换回来了");
+}
+
+// =========================================================================
+// T32b. 同一个项目底下的**两个文件**，批量那一发只答得出其中一个（2026-10-19）
+//
+// 退回问 CurseForge 那一拨原来按**钥匙**（= 一个项目）整组判"答没答过"：只要底下的
+// 某一条 sha1 被 Modrinth 答过，整组就 `continue` —— 同一项目里**另一条没被答过**的
+// 文件于是既不会被问、也不会被判、更不会进 `verdicts`。症状是报告里凭空少一行、
+// "检查了 N 个资源"比盘上的文件少，而其余几条全正常，屏幕上完全看不出来。
+//
+// 夹具：两个**不同内容**的文件（sha1 / 指纹都不同），反查后都指向**同一个 CurseForge
+// 项目**；批量那一发只给 A 那个 sha1 答案（B 那个哈希"这一家没有"），CurseForge 的
+// 版本列表给的正是 B 那一份 ⇒ 两条都该有结论，而且**各只有一条**。
+// =========================================================================
+static void runUpdateCheckSameProjectFallbackTests() {
+    const QString originalDir = AppPaths::minecraftDir();
+    QTemporaryDir root;
+    check(root.isValid(), "T32b.0 临时数据根目录建出来了");
+    if (!root.isValid()) {
+        return;
+    }
+
+    FakeLookupApi api;
+    check(api.start(), "T32b.0 假接口服务器起来了");
+
+    QSettings sandbox;
+    const QVariant foldersBefore = sandbox.value(QStringLiteral("Launcher/Folders"));
+    const QVariant currentBefore = sandbox.value(QStringLiteral("Launcher/CurrentFolder"));
+    const QVariant sourceBefore = sandbox.value(QStringLiteral("Download/Source"));
+    const QVariant modrinthBefore = sandbox.value(QStringLiteral("Launcher/ModrinthApiBase"));
+    const QVariant curseForgeBefore = sandbox.value(QStringLiteral("Launcher/CurseForgeApiBase"));
+    const QString lastVersionBefore = LauncherSettings().lastLaunchedVersion();
+    const auto restoreSettings = [&] {
+        sandbox.setValue(QStringLiteral("Launcher/Folders"), foldersBefore);
+        sandbox.setValue(QStringLiteral("Launcher/CurrentFolder"), currentBefore);
+        sandbox.setValue(QStringLiteral("Download/Source"), sourceBefore);
+        sandbox.setValue(QStringLiteral("Launcher/ModrinthApiBase"), modrinthBefore);
+        sandbox.setValue(QStringLiteral("Launcher/CurseForgeApiBase"), curseForgeBefore);
+        sandbox.sync();
+        LauncherSettings().setLastLaunchedVersion(lastVersionBefore);
+        AppPaths::setMinecraftDir(originalDir);
+    };
+    sandbox.setValue(QStringLiteral("Launcher/Folders"), QStringList({root.path()}));
+    sandbox.setValue(QStringLiteral("Launcher/CurrentFolder"), root.path());
+    sandbox.setValue(QStringLiteral("Download/Source"),
+                     LauncherSettings::downloadSourceKey(DownloadSource::Official));
+    sandbox.setValue(QStringLiteral("Launcher/ModrinthApiBase"), api.modrinthBase());
+    sandbox.setValue(QStringLiteral("Launcher/CurseForgeApiBase"), api.curseForgeBase());
+    sandbox.sync();
+    AppPaths::setMinecraftDir(root.path());
+    QDir().mkpath(root.path() + QStringLiteral("/libraries"));
+    QDir().mkpath(root.path() + QStringLiteral("/assets"));
+
+    const QString idV = QStringLiteral("1.98.1");
+    const QDir versionsDir(root.path() + QStringLiteral("/versions"));
+    makeInstalledVersion(versionsDir, idV);
+    makeVersionMeta(versionsDir, idV,
+                    QByteArrayLiteral("{\"loaderName\":\"Fabric\",\"loaderVersion\":\"0.15.11\"}"));
+    const QString dirV = AppPaths::versionDir(idV);
+
+    const QString jarA = dirV + QStringLiteral("/mods/同项目A.jar");
+    const QString jarB = dirV + QStringLiteral("/mods/同项目B.jar");
+    writeFileAt(jarA, QByteArrayLiteral("T32B-SAME-PROJECT-A"));
+    writeFileAt(jarB, QByteArrayLiteral("T32B-SAME-PROJECT-B"));
+
+    ModpackExport::FileHashes hA;
+    ModpackExport::FileHashes hB;
+    QString hashError;
+    const bool hashed = ModpackExport::hashFile(jarA, true, &hA, &hashError) &&
+                        ModpackExport::hashFile(jarB, true, &hB, &hashError) &&
+                        hA.fingerprintOk && hB.fingerprintOk;
+    check(hashed, "T32b.0 两个文件的 sha1 + 指纹都算出来了", hashError);
+    if (!hashed) {
+        restoreSettings();
+        return;
+    }
+
+    const QString project = QStringLiteral("SAMEPROJ");
+    const QString modTitle = QStringLiteral("同项目模组");
+    const int cfModId = 9101;
+
+    // 反查：**两个都认得出**，而且指向同一个项目。
+    api.modrinthReply = QByteArrayLiteral("{\"") + hA.sha1.toUtf8() +
+                        QByteArrayLiteral("\":{\"project_id\":\"") + project.toUtf8() +
+                        QByteArrayLiteral("\",\"version_number\":\"1.0\",\"files\":[{\"hashes\":{"
+                                          "\"sha1\":\"") +
+                        hA.sha1.toUtf8() +
+                        QByteArrayLiteral("\",\"sha512\":\"a1\"},\"url\":\"https://cdn."
+                                          "modrinth.com/data/a.jar\",\"filename\":\"同项目A.jar\","
+                                          "\"size\":19}]},\"") +
+                        hB.sha1.toUtf8() +
+                        QByteArrayLiteral("\":{\"project_id\":\"") + project.toUtf8() +
+                        QByteArrayLiteral("\",\"version_number\":\"1.0\",\"files\":[{\"hashes\":{"
+                                          "\"sha1\":\"") +
+                        hB.sha1.toUtf8() +
+                        QByteArrayLiteral("\",\"sha512\":\"b1\"},\"url\":\"https://cdn."
+                                          "modrinth.com/data/b.jar\",\"filename\":\"同项目B.jar\","
+                                          "\"size\":19}]}}");
+    api.modrinthProjectsReply =
+        QByteArrayLiteral("[{\"id\":\"") + project.toUtf8() +
+        QByteArrayLiteral("\",\"title\":\"") + modTitle.toUtf8() +
+        QByteArrayLiteral("\",\"slug\":\"same\",\"description\":\"同项目两个文件\","
+                          "\"game_versions\":[\"1.98.1\"],\"loaders\":[\"fabric\"]}]");
+    // ★ 批量那一发**只答 A 那个 sha1**：B 那个哈希在 Modrinth 这边"没有版本"——
+    //   它必须退回问 CurseForge，否则这一条就从报告里消失了。
+    api.modrinthVersionFilesUpdateReply =
+        QByteArrayLiteral("{\"") + hA.sha1.toUtf8() +
+        QByteArrayLiteral("\":{\"id\":\"VNA\",\"version_number\":\"1.0\","
+                          "\"date_published\":\"2025-01-01T00:00:00Z\","
+                          "\"game_versions\":[\"1.98.1\"],\"loaders\":[\"fabric\"],"
+                          "\"files\":[{\"hashes\":{\"sha1\":\"") +
+        hA.sha1.toUtf8() +
+        QByteArrayLiteral("\",\"sha512\":\"a1\"},\"url\":\"https://cdn.modrinth.com/data/a.jar\","
+                          "\"filename\":\"同项目A.jar\",\"size\":19,\"primary\":true}]}}");
+    // CurseForge 指纹：**两条，同一个 modId**。
+    api.curseForgeReply =
+        QByteArrayLiteral("{\"data\":{\"exactMatches\":["
+                          "{\"id\":11,\"file\":{\"id\":11,\"modId\":") +
+        QByteArray::number(cfModId) +
+        QByteArrayLiteral(",\"displayName\":\"same-a\",\"fileName\":\"同项目A.jar\","
+                          "\"fileFingerprint\":") +
+        QByteArray::number(hA.fingerprint) +
+        QByteArrayLiteral(",\"fileLength\":19,\"isAvailable\":true,\"downloadUrl\":null,"
+                          "\"hashes\":[]}},"
+                          "{\"id\":12,\"file\":{\"id\":12,\"modId\":") +
+        QByteArray::number(cfModId) +
+        QByteArrayLiteral(",\"displayName\":\"same-b\",\"fileName\":\"同项目B.jar\","
+                          "\"fileFingerprint\":") +
+        QByteArray::number(hB.fingerprint) +
+        QByteArrayLiteral(",\"fileLength\":19,\"isAvailable\":true,\"downloadUrl\":null,"
+                          "\"hashes\":[]}}],\"unmatchedFingerprints\":[]}}");
+    api.curseForgeModsReply =
+        QByteArrayLiteral("{\"data\":[{\"id\":") + QByteArray::number(cfModId) +
+        QByteArrayLiteral(",\"name\":\"") + modTitle.toUtf8() +
+        QByteArrayLiteral("\",\"slug\":\"same\",\"summary\":\"同项目两个文件\","
+                          "\"logo\":{\"thumbnailUrl\":\"https://media.forgecdn.net/t.png\","
+                          "\"url\":\"https://media.forgecdn.net/u.png\"}}]}");
+    // 版本列表：**一条，正好是 B 那一份** ⇒ 退回那一发问回来能判"已是最新"。
+    api.curseForgeVersionListByMod.insert(
+        QString::number(cfModId),
+        QByteArrayLiteral("{\"data\":[{\"id\":91011,\"displayName\":\"1.0 for Fabric 1.98.1\","
+                          "\"fileName\":\"同项目B.jar\",\"fileDate\":\"2025-06-01T00:00:00Z\","
+                          "\"releaseType\":1,\"downloadCount\":5,"
+                          "\"gameVersions\":[\"1.98.1\",\"Fabric\"],\"fileLength\":19,"
+                          "\"hashes\":[{\"algo\":1,\"value\":\"") +
+            hB.sha1.toUtf8() +
+            QByteArrayLiteral("\"}],"
+                              "\"downloadUrl\":\"https://edge.forgecdn.net/files/same-b.jar\"}]}"));
+
+    TokenStore::clear(TokenStore::microsoftKey());
+    TokenStore::clear(TokenStore::minecraftKey());
+    TokenStore::clear(TokenStore::accountsKey());
+    TokenStore::clear(TokenStore::currentUuidKey());
+    const QString accountName = QStringLiteral("T32bUser");
+    seedOfflineRandomSkin(accountName, kSeededSkinUrl, QColor(0x40, 0x70, 0x60));
+    QString offlineError;
+    check(AccountStore::addOffline(accountName, &offlineError),
+          "T32b.0 建一个离线账号并设成当前身份（这一节一个外网请求都不发）", offlineError);
+
+    {
+        MainWindow w;
+        w.show();
+        QApplication::processEvents();
+        OverlayHost *overlay = w.ui() != nullptr ? w.ui()->overlay() : nullptr;
+        check(overlay != nullptr, "T32b.1 覆盖层拿得到");
+        if (overlay == nullptr) {
+            restoreSettings();
+            return;
+        }
+
+        PageCloser closer;
+        closer.setOnlyTitle(UpdateCenterPage::windowTitle());
+        closer.start();
+        QTimer::singleShot(0, [&] {
+            OverlayHost *host = currentPageOverlay();
+            auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
+            if (page == nullptr) {
+                return;
+            }
+            page->showPage(QStringLiteral("mod"));
+            if (auto *button = page->findChild<QPushButton *>(
+                    InstanceSettingsDialog::checkUpdatesButtonName())) {
+                button->click();
+            }
+            if (auto *back =
+                    host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
+                back->click();
+            } else {
+                host->closeOverlay();
+            }
+        });
+        QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
+                                  Q_ARG(QString, idV));
+        QApplication::processEvents();
+        pumpUntil([&closer] { return !closer.seen.isEmpty(); }, 20000);
+        closer.stop();
+        pumpUntil([] { return currentOverlay() == nullptr; }, 8000);
+
+        const auto countMatching = [&api](const QString &needle) {
+            int n = 0;
+            for (const QString &line : api.requests) {
+                if (line.contains(needle)) {
+                    ++n;
+                }
+            }
+            return n;
+        };
+
+        check(closer.seen.size() == 1, "T32b.1 那一趟真的跑完了、而且只开了一页",
+              QStringLiteral("开了 %1 页").arg(closer.seen.size()));
+        const PageCloser::Seen seen =
+            closer.seen.isEmpty() ? PageCloser::Seen() : closer.seen.first();
+        check(seen.updateCenterSummary.contains(ModDependencies::updateSummaryText(2, 0)),
+              "★★ T32b.2 顶上那句说的是「检查了 **2** 个资源，0 个有新版本」—— 两个文件都在"
+              "盘上，一个都不能少（整组跳过的写法在这里会写 1）",
+              seen.updateCenterSummary);
+        check(seen.updateCenterRowNames.size() == 2,
+              "★★ T32b.2 名单正好两行（每一条文件各一行）",
+              QStringLiteral("%1 行").arg(seen.updateCenterRowNames.size()));
+        const QString unknownText = MainWindowUI::updateCenterRowStateText(2, 0, QString());
+        check(!seen.updateCenterRowStates.contains(unknownText),
+              "★★ T32b.2 一条「说不清」都没有 —— B 那个文件真的退回问过 CurseForge 了",
+              seen.updateCenterRowStates.join(QStringLiteral(" / ")));
+        check(countMatching(QStringLiteral("/mods/9101/files")) == 1,
+              "★★ T32b.3 退回问 CurseForge 的版本列表**发出去了、而且只有一发**"
+              "（同一把钥匙只问一次 —— 两条文件共用这份答案）",
+              QStringLiteral("%1 发").arg(countMatching(QStringLiteral("/mods/9101/files"))));
+        check(countMatching(QStringLiteral("/version_files/update")) == 1,
+              "T32b.3 批量那一发还是只有一发",
+              QStringLiteral("%1 发").arg(countMatching(QStringLiteral("/version_files/update"))));
+    }
+
+    restoreSettings();
+    check(AppPaths::minecraftDir() == originalDir, "T32b.9 数据根目录换回来了");
 }
 
 /// 按 objectName 找**最新那一代**控件（同一个名字下面同时躺着好几代的时候取最后一个）。
@@ -18921,6 +19255,12 @@ int main(int argc, char *argv[]) {
             printf("%s %s\n", ok ? "PASS" : "FAIL", text);
             if (!ok) ++failures;
         };
+        expect(DownloadRetryPolicy::displayError(QNetworkReply::OperationCanceledError, QStringLiteral("Operation canceled"))
+                   .contains(QStringLiteral("网络请求已中止")), "network abort has Chinese text without claiming user cancellation");
+        expect(DownloadRetryPolicy::displayError(QNetworkReply::TimeoutError, QStringLiteral("Timeout"))
+                   .contains(QStringLiteral("超时")), "network timeout has Chinese text");
+        expect(DownloadRetryPolicy::displayError(QNetworkReply::HostNotFoundError, QStringLiteral("diagnostic")) == QStringLiteral("diagnostic"),
+               "unmapped network errors preserve their diagnostic text");
         const auto run = [&](int status, int failCount, bool cancel) {
             QTcpServer server;
             if (!server.listen(QHostAddress::LocalHost, 0)) { ++failures; return; }
@@ -19072,6 +19412,11 @@ int main(int argc, char *argv[]) {
         QDir().mkpath(gameRoot + QStringLiteral("/versions"));
         makeInstalledVersion(QDir(gameRoot + QStringLiteral("/versions")), version);
         {
+            QFile meta(gameRoot + QStringLiteral("/versions/") + version + QStringLiteral("/wtfml.meta"));
+            if (!meta.open(QIODevice::WriteOnly)) return 2;
+            meta.write(R"({"name":"workspace-test","instanceId":"workspace-stable-identity"})");
+        }
+        {
             QSettings settings;
             settings.setValue(QStringLiteral("Launcher/Folders"), QStringList{gameRoot});
             settings.setValue(QStringLiteral("Launcher/CurrentFolder"), gameRoot);
@@ -19088,6 +19433,24 @@ int main(int argc, char *argv[]) {
         auto *host = window.findChild<OverlayHost *>();
         check(tabs && host, "workspace navigation widgets exist");
         if (!tabs || !host) return 2;
+        auto *groups = window.findChild<InstanceGroupStore *>();
+        auto *versions = window.findChild<VersionManager *>();
+        check(groups && versions && versions->instanceId(version) == QStringLiteral("workspace-stable-identity"),
+              "favorite regression uses stable identity distinct from directory name");
+        if (groups && versions) {
+            const QString key = versions->instanceId(version);
+            const auto homeHasFavorite = [&]() {
+                auto *section = window.findChild<QWidget *>(QStringLiteral("homeFavoriteSection"));
+                return section && section->findChild<QPushButton *>(QStringLiteral("homeQuickCard_") + version);
+            };
+            QString error;
+            check(groups->pinInstance(key, &error), "management favorite write succeeds", error);
+            app.processEvents();
+            check(homeHasFavorite(), "management favorite immediately appears on home without restarting");
+            check(groups->unpinInstance(key, &error), "management favorite removal succeeds", error);
+            app.processEvents();
+            check(!homeHasFavorite(), "removing favorite immediately updates home");
+        }
         for (const int source : {MainWindowUI::homeTabIndex(), MainWindowUI::instancesTabIndex()}) {
             tabs->setCurrentIndex(source);
             if (source == MainWindowUI::homeTabIndex()) {
@@ -23137,9 +23500,14 @@ int main(int argc, char *argv[]) {
                 // 判据要**连饱和度一起看**：灰色像素的色相也是 0，只看色相的话把图标画成灰的
                 // 这条照样绿。量的是**按钮上挂着的那张图**，不是再调一次 folderActionIcon()
                 // —— 后者颜色是调用方自己传的，跟菜单里真用的那张是两回事。
-                const auto hasDangerRed = [](const QIcon &icon) {
+                // ★ 取图要带上**按钮那一刻的 Mode**：图标现在走 QIconEngine，颜色是按
+                //   Normal / Disabled 现算的。灰按钮上画图时 QStyle 问的是 Disabled
+                //   （灰图标），不问 Normal —— 一律按 Normal 取，会把"灰按钮上的灰图标"
+                //   读成"红的"，把这条本来就对的规矩判红。
+                const auto hasDangerRed = [](const QIcon &icon,
+                                             QIcon::Mode mode = QIcon::Normal) {
                     const QImage image = icon.pixmap(MainWindowUI::folderMenuIconSize(),
-                                                     MainWindowUI::folderMenuIconSize())
+                                                     MainWindowUI::folderMenuIconSize(), mode)
                                              .toImage();
                     for (int y = 0; y < image.height(); ++y) {
                         for (int x = 0; x < image.width(); ++x) {
@@ -23310,7 +23678,8 @@ int main(int argc, char *argv[]) {
                           "P2 同一块菜单里「刷新」还是亮的（没把整块一起灰掉）");
                     // 灰掉的「删除」连垃圾桶都不许是红的：红图标画在灰按钮上会被读成
                     // "这一项现在能点"，那正是灰掉它要避免的事。
-                    check(deleteOwn != nullptr && !hasDangerRed(deleteOwn->icon()),
+                    check(deleteOwn != nullptr &&
+                              !hasDangerRed(deleteOwn->icon(), QIcon::Disabled),
                           "P2 自带那一份的垃圾桶不是红的（灰着的按钮上画红，会读成能点）");
                     ownMenu->close();
                     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
@@ -31134,6 +31503,37 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             }
         }
 
+        // ---- AA11 已经有一批下载在跑：这时候**拖一个整合包进来** ----
+        //
+        // 那颗按钮这时候是灰的，可是窗口的拖放**不经过按钮**（用户从资源管理器里把文件
+        // 拖进来，走的是 dropEvent）。上一版这里没有闸：`m_importingInstanceId` 会被
+        // 第二趟直接覆盖，第一趟收尾时按那个 id 收，两趟互相把对方的忙态/目录认错。
+        {
+            const int startedBefore = countOccurrences(g_messages, QStringLiteral("开始导入整合包"));
+            window.seedDownloadInFlightForTest(true);
+            const int dirsBeforeDrop =
+                QDir(versionsDir).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size();
+            dismissNextPrompt();
+            const bool invoked =
+                QMetaObject::invokeMethod(&window, "importModpackFromFile", Qt::DirectConnection,
+                                          Q_ARG(QString, kZip), Q_ARG(QString, QString()));
+            check(invoked, "AA11 importModpackFromFile 接得上（两个参数都认得）");
+            check(g_modalTitle == QStringLiteral("现在正忙"),
+                  "★★ AA11 下载还没完时拖进来的整合包被挡下，并且当场说了一句人话"
+                  "（不是默默吞掉、也不是排进队列）",
+                  g_modalTitle + QStringLiteral(" / ") + g_modalText);
+            check(g_modalText.contains(QStringLiteral("已有下载或导入任务正在进行")),
+                  "AA11 那句话说的就是「已经有一件在跑」", g_modalText);
+            check(!g_modalWasWarning,
+                  "AA11 这是报信那一类（不是错误）");
+            check(countOccurrences(g_messages, QStringLiteral("开始导入整合包")) == startedBefore,
+                  "★★ AA11 它一个导入流程都没起（按钮灰着不等于拖放也被挡住）");
+            check(QDir(versionsDir).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size() ==
+                      dirsBeforeDrop,
+                  "AA11 沙盒里也没多出半个目录");
+            window.seedDownloadInFlightForTest(false);
+        }
+
         // ---- 收尾：这一节一条导入都没真开始过 ----
         check(countOccurrences(g_messages, QStringLiteral("开始导入整合包")) == importsBefore,
               "AA 收尾：日志里一次「开始导入整合包」都没有（全是被拦下的）",
@@ -31420,9 +31820,13 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 check(abDoneRow != nullptr && abDoneCancel == nullptr,
                       "AB4 收了尾（失败）那一件：行尾不再长那颗「取消」（终态上它没意义）",
                       abDoneCancel != nullptr ? abDoneCancel->text() : QStringLiteral("<没找到>"));
-                auto *clearBtn = abPanel2->findChild<QPushButton *>(
+                // 那颗「清除已结束记录」现在挂在**页标题行**：面板把自己的工具栏
+                // （`TaskCenterPanel::headerActions()`）交给 `OverlayHost::setPageHeaderWidget()`，
+                // 打开这一页时它已不是面板的子树 ⇒ 从窗口这一层找（收页后会自动还回面板）。
+                auto *clearBtn = window.findChild<QPushButton *>(
                     MainWindowUI::taskCenterPanelClearButtonName());
-                check(clearBtn != nullptr, "AB4 有已完成的那件 ⇒ 面板里有那颗「清除已完成」");
+                check(clearBtn != nullptr,
+                      "AB4 有已完成的那件 ⇒ 面板标题行里有那颗「清除已完成」");
                 if (clearBtn != nullptr) {
                     clearBtn->click();
                     QApplication::processEvents();
@@ -32898,6 +33302,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     // 另一半 —— 那一趟里"同一个文件被两家各认了一遍"这件事（见那一节的开头那段）。
     header("T32. 更新检测：一个文件只查一家 + 退回问 CurseForge（离线，假接口）");
     runUpdateCheckSourceFallbackTests();
+
+    // T32 的补充：同一个项目底下两个文件、批量只答得出其中一个（见那一节开头那段）。
+    header("T32b. 更新检测：同一项目两条文件、批量只答一条 ⇒ 另一条照样退回问（离线，假接口）");
+    runUpdateCheckSameProjectFallbackTests();
 
     // 同样排在**最后**：这一节造真 MainWindow、换数据根目录（节尾逐字还原），还从那一页
     // 上真按那几颗 chip（忽略 / 固定 / 更新 / 撤销），并且**真读盘**核那本账和那份回滚点。

@@ -6,6 +6,7 @@
  */
 
 #include "controllers/ToolboxController.hpp"
+#include "controllers/ArmorTrimPreviewController.hpp"
 #include "controllers/DirectDownloadController.hpp"
 #include "controllers/ToolboxInputState.hpp"
 
@@ -150,6 +151,10 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
                                     QObject *parent)
     : QObject(parent), m_overlay(overlay), m_pageParent(pageParent), m_host(std::move(host)) {
     m_page = new ToolboxPage(pageParent);
+    m_trimPreview = new ArmorTrimPreviewController(m_page, m_overlay, this);
+    // 「显示披风」勾选只改预览那一张图，不碰资源、不写盘 —— 直接重绘即可。
+    connect(m_page, &ToolboxPage::trimCapeVisibilityChanged, this,
+            [this](bool) { m_trimPreview->refresh(); });
     // 算完哈希之后盯着那个文件：它一变，屏幕上那串摘要就不再是"它现在的摘要"。
     m_hashWatcher = new QFileSystemWatcher(this);
     connect(m_hashWatcher, &QFileSystemWatcher::fileChanged, this,
@@ -330,11 +335,9 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
             });
     connect(m_page, &ToolboxPage::bannerRequested, this,
             [this](int baseColor, const QStringList &layers) { refreshBanner(baseColor, layers); });
-    connect(m_page, &ToolboxPage::trimRequested, this,
-            [this](int armorMaterial, int part, int patternIndex, int trimMaterial, int pieces,
-                   bool wholeSet) {
-                refreshTrim(armorMaterial, part, patternIndex, trimMaterial, pieces, wholeSet);
-            });
+    // 旧三件那套信号还在（隐藏的迁移适配器与验证工程用），但结果只看四列现在摆的装备。
+    connect(m_page, &ToolboxPage::trimRequested, this, [this] { refreshTrim(); });
+    connect(m_page, &ToolboxPage::trimEquipmentChanged, this, [this] { refreshTrim(); });
 
     ToolboxInputState::attach(m_page);
     // 一进来先把文本生成器那一页的两块空着的地方填上（空预览框看着像没搭好）。
@@ -345,16 +348,19 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
     refreshBrewing(m_page->brewingPotionIndex(), m_page->brewingExtended(),
                    m_page->brewingLevel2(), m_page->brewingFormIndex(), m_page->brewingBottles());
     refreshBanner(m_page->bannerBaseColor(), m_page->bannerLayers());
-    refreshTrim(m_page->trimArmorIndex(), m_page->trimPartIndex(), m_page->trimPatternIndex(),
-                m_page->trimMaterialIndex(), m_page->trimPieces(), m_page->trimWholeSet());
+    refreshTrim();
 }
 
 ToolboxController::~ToolboxController() { shutdown(); }
+void ToolboxController::setPlayerSkin(const QImage &skin, const QImage &cape, bool slim) {
+    m_trimPreview->setPlayerSkin(skin, cape, slim);
+}
 bool ToolboxController::ownsDownloadTask(quint64 id) const { return m_directDownload->owns(id); }
 bool ToolboxController::canCancelDownloadTask(quint64 id) const { return m_directDownload->canCancel(id); }
 bool ToolboxController::cancelDownloadTask(quint64 id) { return m_directDownload->cancel(id); }
 
 void ToolboxController::shutdown() {
+    m_trimPreview->shutdown();
     m_directDownload->shutdown();
     m_hashAbort.storeRelaxed(1);
     if (m_hashThread != nullptr) {
@@ -402,6 +408,7 @@ void ToolboxController::open(const QString &toolKey) {
     }
     // 换一件工具**先换再开**：这一页是复用的对象，开出来那一刻已经是用户点的那一件。
     m_page->showTool(tool);
+    if (tool == ToolboxPage::Tool::Trim) m_trimPreview->ensureLocal();
     // 「再开一页」不再问：覆盖层上压着东西时**静默收掉再继续**（`runWhenOverlayFree()`
     // 是那条路的唯一出处）。直接 execPage 的话，页正开着时它会原地返回 nullptr 那一档，
     // 用户看到的是"点了没反应"。
@@ -1112,12 +1119,70 @@ void ToolboxController::refreshBanner(int baseColor, const QStringList &layers) 
     m_page->setBannerPreview(image, notice);
 }
 
-void ToolboxController::refreshTrim(int armorMaterial, int part, int patternIndex,
-                                    int trimMaterial, int pieces, bool wholeSet) {
+void ToolboxController::refreshTrim() {
     if (m_page == nullptr) {
         return;
     }
-    m_page->setTrimResult(
-        ArmorTrim::plan(armorMaterial, part, patternIndex, trimMaterial, pieces, wholeSet)
-            .detailText());
+    QStringList equipped, notes;
+    QMap<QString, int> materials;
+    QString error;
+    const auto equipment = m_page->trimEquipment();
+    for (int slot = 0; slot < equipment.size(); ++slot) {
+        const auto selection = equipment[slot];
+        if (selection.armor < 0) {
+            continue;
+        }
+        const auto armor = ArmorTrim::armorPieceName(selection.armor, slot);
+        if (armor.isEmpty() || !ArmorTrim::armorMaterialFitsPart(selection.armor, slot)) {
+            continue;
+        }
+        materials[armor]++;
+        if (selection.pattern < 0) {
+            equipped.append(armor);
+            continue;
+        }
+        const auto pattern = ArmorTrim::patternAt(selection.pattern);
+        const auto material = ArmorTrim::trimMaterialAt(selection.material);
+        equipped.append(tr("%1：%2 · %3").arg(armor, pattern.name, material.name));
+        materials[pattern.name + tr("纹饰模板")]++;
+        materials[material.item]++;
+        // 提示（这枚模板从哪来 / 哪个版本才有 / 模板可以复制）只从判据层拿：
+        // 每件各算一条单件计划，只取它那几条 notes，材料账仍按四列合起来算。
+        const auto plan = ArmorTrim::plan(selection.armor, slot, selection.pattern,
+                                          selection.material, 1);
+        if (!plan.ok) {
+            error = plan.error;
+            break;
+        }
+        for (const QString &note : plan.notes) {
+            if (!notes.contains(note)) {
+                notes.append(note);
+            }
+        }
+    }
+    if (!error.isEmpty()) {
+        m_page->setTrimResult(error);
+        m_trimPreview->refresh();
+        return;
+    }
+    if (equipped.isEmpty()) {
+        m_page->setTrimResult(tr("尚未选择装备"));
+        m_trimPreview->refresh();
+        return;
+    }
+    QStringList items;
+    for (auto it = materials.cbegin(); it != materials.cend(); ++it) {
+        items.append(tr("%1 × %2").arg(it.key()).arg(it.value()));
+    }
+    QString text = equipped.join(QChar('\n')) + tr("\n\n材料：")
+                   + items.join(QStringLiteral(" · "));
+    if (!notes.isEmpty()) {
+        text += tr("\n\n提示：\n");
+        for (const QString &note : notes) {
+            text += tr("· %1\n").arg(note);
+        }
+        text.chop(1);
+    }
+    m_page->setTrimResult(text);
+    m_trimPreview->refresh();
 }

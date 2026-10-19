@@ -353,6 +353,24 @@ void OverlayHost::retargetCoveredPage() {
     }
 }
 
+void OverlayHost::setPageHeaderWidget(QWidget *widget) {
+    if (m_headerWidget == widget) return;
+    if (m_headerWidget) {
+        auto *old = m_headerWidget.data();
+        old->hide();
+        old->setParent(m_headerWidgetOwner ? m_headerWidgetOwner.data() : m_parking);
+        if (!m_headerWidgetOwner) old->deleteLater();
+    }
+    m_headerWidget = widget;
+    m_headerWidgetOwner = widget ? widget->parentWidget() : nullptr;
+    if (widget) {
+        if (m_headerWidgetOwner)
+            connect(m_headerWidgetOwner.data(), &QObject::destroyed, widget, &QObject::deleteLater);
+        m_titleLabel->parentWidget()->layout()->addWidget(widget);
+        widget->show();
+    }
+}
+
 void OverlayHost::releaseContent(QVBoxLayout *content) {
     if (content == nullptr) {
         return;
@@ -449,6 +467,7 @@ void OverlayHost::closeOverlay() {
         return;
     }
     if (m_mode == Mode::Page) {
+        setPageHeaderWidget(nullptr);
         releaseContent(m_pageContentLayout);
         m_mode = Mode::None;
         m_pageOwnerTab = -1;

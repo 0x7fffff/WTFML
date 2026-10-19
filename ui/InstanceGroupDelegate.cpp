@@ -318,7 +318,7 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         // 做的是同一件事（进实例设置），常显是给那件事一个看得见的入口。
         const QRect gearGlyph = instanceGearGlyphRect(option.rect);
         painter->drawPixmap(gearGlyph.topLeft(),
-                            VersionIcons::gear(gearGlyph.width(), ink));
+                            VersionIcons::gear(gearGlyph.width(), Theme::tokens().primary));
         // 中间那一格：悬停才画，而且是**一对反义词共用的一格**（见 MainWindowUI::
         // rowUnpinRole() 那段）—— 还没在置顶组里 ⇒ ↑「置顶」；已经在里面 ⇒ ↓「取消置顶」。
         // 两个角色都为假 = 这一格空着，那就不画（这份 .minecraft 里没有置顶组：
@@ -342,7 +342,7 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         if (hovered) {
             const QRect trashGlyph = instanceTrashGlyphRect(option.rect);
             painter->drawPixmap(trashGlyph.topLeft(),
-                                VersionIcons::trash(trashGlyph.width(), ink));
+                                VersionIcons::trash(trashGlyph.width(), Theme::dangerColor(rowPalette)));
         }
         painter->restore();
         return;
@@ -428,7 +428,7 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         const QRect glyph = gearGlyphRect(row);
         painter->drawPixmap(glyph.topLeft(),
                             VersionIcons::gear(glyph.width(),
-                                               palette.color(QPalette::PlaceholderText)));
+                                               Theme::tokens().primary));
     }
     // 最右边那个箭头：分组头**一定**画（"点一下打开/关闭"就是它）。用正文色 ——
     // 这一行真的能展开，和版本树那几条分类同一条规矩。

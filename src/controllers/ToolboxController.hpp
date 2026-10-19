@@ -17,8 +17,8 @@
  *   - **另三件**（附魔顺序、文本生成器、坐标换算）：当场就能算的纯函数，这里只做
  *     "把页面上的控件读成参数 → 调 `src/tools/` → 把结果翻成页面认的那几个字符串"。
  *
- * 不管：任何"往盘上写"的事（这一层是只读的 —— 工具箱里没有一件会改游戏文件；
- *       「高速下载」只写用户自己指定的目标文件，那条链在 `DirectDownloadController`）。
+ * 不改现有游戏文件。「高速下载」由 DirectDownloadController 写用户指定目标；
+ * 纹饰预览资源由 ArmorTrimPreviewController 写独立 cache/preview-resources，不安装或执行客户端。
  *
  * 【为什么那几张表由 controller 喂给页面】
  *
@@ -48,6 +48,7 @@ class QWidget;
 class ToolboxPage;
 class DirectDownloadController;
 class ActivityCenterController;
+class ArmorTrimPreviewController;
 
 namespace ServerPing {
 class Pinger;
@@ -79,6 +80,7 @@ public:
 
     /// 收线程（析构会调一次；`MainWindow` 收尾时也调一次）。
     void shutdown();
+    void setPlayerSkin(const QImage &skin, const QImage &cape, bool slim);
     bool ownsDownloadTask(quint64 id) const;
     bool canCancelDownloadTask(quint64 id) const;
     bool cancelDownloadTask(quint64 id);
@@ -112,8 +114,8 @@ private:
     void refreshBrewing(int potionIndex, bool extended, bool level2, int formIndex, int bottles);
     // ---------- 旗帜设计 / 纹饰搭配 ----------
     void refreshBanner(int baseColor, const QStringList &layers);
-    void refreshTrim(int armorMaterial, int part, int patternIndex, int trimMaterial, int pieces,
-                     bool wholeSet);
+    /// 按四列里每一件的选择重算结果（材料账 + 判据层给的提示）。
+    void refreshTrim();
 
     /// 那一页认的那几个维度（`setDimensionChoices` 喂的就是它）。**下标 = 页面上下拉框的
     /// 下标**，所以"第 i 项是哪个维度"只有这一处说得出口。
@@ -126,6 +128,7 @@ private:
     Host m_host;
     ToolboxPage *m_page = nullptr;
     DirectDownloadController *m_directDownload = nullptr;
+    ArmorTrimPreviewController *m_trimPreview = nullptr;
     ServerPing::Pinger *m_pinger = nullptr;
 
     /// 哈希那一趟的线程（`QThread::create` 那种，和 `IntegrityController` 同一套做法）。

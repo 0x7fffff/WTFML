@@ -65,6 +65,8 @@ class QSpinBox;
 class QStackedWidget;
 class QTableWidget;
 class QWidget;
+class ArmorTrimPreview;
+namespace SkinModel { struct Scene; }
 
 class ToolboxPage : public QDialog {
     Q_OBJECT
@@ -141,6 +143,8 @@ public:
     /// 「整套（四件）」那个勾（§9.11 第 10 项「单件 / 整套预览」）。
     static QString trimWholeSetName() { return QStringLiteral("toolboxTrimWholeSet"); }
     static QString trimResultName() { return QStringLiteral("toolboxTrimResult"); }
+    /// 「显示披风」那个勾（默认不勾；没有披风的账号那一格是灰的）。
+    static QString trimCapeCheckName() { return QStringLiteral("toolboxTrimCape"); }
     /// 哈希那一件：算完之后文件被改过的那句提醒（空串 = 收起来）。
     static QString hashNoticeName() { return QStringLiteral("toolboxHashNotice"); }
     static QString hashBatchName() { return QStringLiteral("toolboxHashBatch"); }
@@ -366,8 +370,18 @@ public:
     void setTrimParts(const QStringList &names);
     void setTrimPatterns(const QStringList &names);
     void setTrimMaterials(const QStringList &names);
-    /// 结果那一整段（`ArmorTrim::Plan::detailText()` 拼好的）。
+    /// 结果那一整段（controller 按四列合出来的材料账 + `ArmorTrim::plan()` 给的提示；
+    /// 怎么算的不在这一层）。
     void setTrimResult(const QString &text);
+    void setTrimPreview(const SkinModel::Scene &scene);
+    void setTrimResourceStatus(const QString &text, bool busy = false);
+    /// 当前账号有没有披风：没有就把「显示披风」那颗变灰并收回勾（不会自己画一条假的）。
+    void setTrimCapeAvailable(bool available);
+    /// 勾了「显示披风」吗（默认 false —— 披风是选修项，不是默认外观）。
+    bool trimShowCape() const;
+    struct TrimEquipmentSlot { int armor = -1; int pattern = -1; int material = 0; };
+    QList<TrimEquipmentSlot> trimEquipment() const;
+    void restoreTrimEquipment(bool perSlot);
     int trimArmorIndex() const;
     int trimPartIndex() const;
     int trimPatternIndex() const;
@@ -377,6 +391,10 @@ public:
     bool trimWholeSet() const;
 
 signals:
+    void trimEquipmentChanged();
+    /// 「显示披风」被勾上 / 取消（披风图由 controller 给，这一层只报这个开关）。
+    void trimCapeVisibilityChanged(bool visible);
+    void trimResourcesRequested(int action); // 0: scan local, 1: choose archive, 2: download, 3: cancel
     void beamRequested(const QList<int> &glass);
     void bannerTexturesRequested();
     void bannerSaveRequested();
@@ -548,4 +566,10 @@ private:
     QSpinBox *m_trimPieces = nullptr;
     QCheckBox *m_trimWholeSet = nullptr;
     QLabel *m_trimResult = nullptr;
+    ArmorTrimPreview *m_trimPreview = nullptr;
+    QCheckBox *m_trimCape = nullptr;
+    QLabel *m_trimResourceStatus = nullptr;
+    QList<QPushButton *> m_trimResourceButtons;
+    QList<QComboBox *> m_trimSlotArmor, m_trimSlotPattern, m_trimSlotMaterial;
+    bool m_trimSyncing = false;
 };

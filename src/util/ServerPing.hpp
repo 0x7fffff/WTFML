@@ -280,10 +280,16 @@ signals:
     void allFinished();
 
 private:
-    /// 这一趟开着的那几条线程（并发之后就不是一条了）。跑完的那些留在表里等 deleteLater，
-    /// 下一趟 start() 之前统一放走。
+    /// 开过的那几条线程（并发之后就不是一条了）。跑完的那些留在表里，下一趟 start() 时
+    /// **只把已经收摊的** deleteLater 掉；还在跑的（abort 之后手上那一台要等最多
+    /// timeoutMs()）继续留在表里等它自己收摊，再由下一趟 / 析构收走 —— **不能对还在跑的
+    /// QThread 调 deleteLater**：Qt 析构那条线程时直接 `qFatal`（整个进程消失）。
     QList<QThread *> m_threads;
     QAtomicInt m_running{0};
+    /// 第几趟。abort() 只把 `m_running` 放下，而紧接着的 start() 又会把它置回 1；
+    /// 旧线程只看 `m_running` 的话会把新一趟当成自己那一趟继续跑，收尾时还会把新一趟的
+    /// `m_running` 清零、替它发 allFinished。每条线程攥着自己那一趟的号，号对不上就退。
+    QAtomicInt m_generation{0};
 };
 
 /// 把异步那一支要跨线程传的 `Status` 登记进元类型系统。**构造函数里会自己调一次**，

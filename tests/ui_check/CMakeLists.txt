@@ -165,7 +165,19 @@ target_link_libraries(ui_check PRIVATE dwmapi)
 
 add_test(NAME wtfml.ui COMMAND ui_check)
 add_test(NAME wtfml.ui-refresh COMMAND ui_check --ui-refresh-check)
+add_test(NAME wtfml.install-layout COMMAND ui_check --install-layout-check)
+set_tests_properties(wtfml.install-layout PROPERTIES
+    LABELS "ui;install"
+    TIMEOUT 30
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
 add_test(NAME wtfml.toolbox-polish COMMAND ui_check --toolbox-polish-check)
+add_test(NAME wtfml.armor-trim COMMAND ui_check --armor-trim-check)
+set_tests_properties(wtfml.armor-trim PROPERTIES
+    LABELS "ui;toolbox"
+    TIMEOUT 90
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
 set_tests_properties(wtfml.toolbox-polish PROPERTIES
     LABELS "ui;toolbox"
     TIMEOUT 30

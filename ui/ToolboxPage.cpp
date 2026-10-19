@@ -6,6 +6,7 @@
  */
 
 #include "ToolboxPage.hpp"
+#include "ArmorTrimPreview.hpp"
 
 #include <QCheckBox>
 #include <QClipboard>
@@ -486,14 +487,18 @@ ToolboxPage::ToolboxPage(QWidget *parent) : QDialog(parent) {
     m_tools.removeAll(Tool::Download);
 
     auto *box = new QVBoxLayout(this);
-    box->setContentsMargins(12, 12, 12, 12);
-    box->setSpacing(10);
+    box->setContentsMargins(8, 2, 8, 6);
+    box->setSpacing(6);
 
-    box->addWidget(buildChipRow());
-    auto *remember = new QCheckBox(QStringLiteral("记住工具输入（仅本机，关闭后清除记忆）"), this);
+    auto *toolbar = new QHBoxLayout;
+    toolbar->setContentsMargins(0,0,0,0); toolbar->setSpacing(8);
+    toolbar->addWidget(buildChipRow(), 1);
+    auto *remember = new QCheckBox(QStringLiteral("记住输入"), this);
+    remember->setToolTip(QStringLiteral("仅保存在本机；关闭后清除工具输入记忆。"));
     remember->setObjectName(QStringLiteral("toolboxRememberInputs"));
     remember->setChecked(true);
-    box->addWidget(remember);
+    toolbar->addWidget(remember);
+    box->addLayout(toolbar);
     box->addWidget(makeSeparator(this));
 
     m_stack = new QStackedWidget(this);
@@ -547,9 +552,11 @@ QWidget *ToolboxPage::buildChipRow() {
     auto *row = new QWidget(this);
     auto *layout = new QHBoxLayout(row);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(8);
+    layout->setSpacing(5);
     for (Tool tool : m_tools) {
-        auto *chip = new QPushButton(toolName(tool), row);
+        auto *chip = new QPushButton(toolShortName(tool), row);
+        chip->setFixedHeight(28);
+        chip->setStyleSheet(QStringLiteral("padding: 2px 7px; min-height: 18px;"));
         chip->setObjectName(toolChipName(tool));
         chip->setCheckable(true);  // ★ chip 的样式只描述"勾上什么样"，能不能勾是调用方的事
         chip->setToolTip(toolSummary(tool));
@@ -2333,75 +2340,169 @@ void ToolboxPage::setBannerLayers(const QStringList &layers) {
 QWidget *ToolboxPage::buildTrimPanel() {
     auto *panel = new QWidget(this);
     auto *layout = new QVBoxLayout(panel);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(8);
-
-    addPanelHeader(layout, panel, Tool::Trim,
-                   QStringLiteral("（模板每打一件消耗一个；海龟壳只有头盔。）"));
-
-    auto *form = new QHBoxLayout;
-    form->setContentsMargins(0, 0, 0, 0);
-    form->setSpacing(8);
-    form->addWidget(makeFieldLabel(panel, QStringLiteral("盔甲")));
-    m_trimArmor = new QComboBox(panel);
-    m_trimArmor->setObjectName(trimArmorComboName());
-    form->addWidget(m_trimArmor);
-    form->addWidget(makeFieldLabel(panel, QStringLiteral("部位")));
-    m_trimPart = new QComboBox(panel);
-    m_trimPart->setObjectName(trimPartComboName());
-    form->addWidget(m_trimPart);
-    form->addWidget(makeFieldLabel(panel, QStringLiteral("纹饰")));
-    m_trimPattern = new QComboBox(panel);
-    m_trimPattern->setObjectName(trimPatternComboName());
-    form->addWidget(m_trimPattern);
-    form->addWidget(makeFieldLabel(panel, QStringLiteral("材料")));
-    m_trimMaterial = new QComboBox(panel);
-    m_trimMaterial->setObjectName(trimMaterialComboName());
-    form->addWidget(m_trimMaterial);
-    form->addWidget(makeFieldLabel(panel, QStringLiteral("做几件")));
-    m_trimPieces = new QSpinBox(panel);
-    m_trimPieces->setObjectName(trimPiecesSpinName());
-    m_trimPieces->setRange(1, 4);
-    m_trimPieces->setValue(1);
-    m_trimPieces->setToolTip(QStringLiteral("整套四件就填 4 —— 模板也是四份"));
-    form->addWidget(m_trimPieces);
-    m_trimWholeSet = new QCheckBox(QStringLiteral("整套（四件）"), panel);
-    m_trimWholeSet->setObjectName(trimWholeSetName());
-    m_trimWholeSet->setToolTip(QStringLiteral("头盔 / 胸甲 / 护腿 / 靴子各一件；勾上之后部位与件数不用改"));
-    form->addWidget(m_trimWholeSet);
-    form->addStretch(1);
-    layout->addLayout(form);
-
-    layout->addWidget(makeSectionTitle(panel, QStringLiteral("算出来的结果")));
-    m_trimResult = new QLabel(panel);
-    m_trimResult->setObjectName(trimResultName());
-    m_trimResult->setWordWrap(true);
-    m_trimResult->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_trimResult->setAlignment(Qt::AlignTop | Qt::AlignLeft);
-    m_trimResult->setMinimumHeight(160);
-    layout->addWidget(m_trimResult, 1);
-    addResultCopy(layout, m_trimResult);
-
-    const auto emitNow = [this]() {
-        emit trimRequested(m_trimArmor->currentIndex(), m_trimPart->currentIndex(),
-                           m_trimPattern->currentIndex(), m_trimMaterial->currentIndex(),
-                           m_trimPieces->value(), m_trimWholeSet->isChecked());
-    };
-    for (QComboBox *combo : {m_trimArmor, m_trimPart, m_trimPattern, m_trimMaterial}) {
-        connect(combo, &QComboBox::currentIndexChanged, this, [emitNow](int) { emitNow(); });
+    layout->setContentsMargins(0, 2, 0, 0); layout->setSpacing(6);
+    // 标题与那一句总述已经在覆盖页顶上（`toolName()` / `toolSummary()`），这里不再重复。
+    // 但旧版标题下面那句「模板每打一件消耗一个…」是这一页的规则，不能跟着标题一起没掉 ——
+    // 它现在是四列表格下面一行浅色小字。
+    auto *body = new QHBoxLayout; body->setSpacing(12);
+    auto *left = new QVBoxLayout; left->setSpacing(8);
+    auto *form = new QGridLayout; form->setHorizontalSpacing(6); form->setVerticalSpacing(6);
+    const QStringList parts{tr("头盔"),tr("胸甲"),tr("护腿"),tr("靴子")};
+    const QStringList rows{tr("材质"),tr("纹饰"),tr("材料")};
+    for (int row=0; row<3; ++row) form->addWidget(makeFieldLabel(panel,rows[row]),row+1,0);
+    for (int slot=0; slot<4; ++slot) {
+        auto *heading=makeSectionTitle(panel,parts[slot]); heading->setAlignment(Qt::AlignCenter);
+        form->addWidget(heading,0,slot+1); form->setColumnStretch(slot+1,1);
+        const QList<QList<QComboBox *> *> groups{&m_trimSlotArmor,&m_trimSlotPattern,&m_trimSlotMaterial};
+        const QStringList keys{"trimArmorSlot","trimPatternSlot","trimMaterialSlot"};
+        for (int row=0; row<3; ++row) {
+            auto *combo=new QComboBox(panel);
+            combo->setObjectName(keys[row]+QString::number(slot));
+            combo->setMinimumWidth(0); combo->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
+            groups[row]->append(combo); form->addWidget(combo,row+1,slot+1);
+            connect(combo,&QComboBox::currentIndexChanged,this,[this](int) {
+                if (!m_trimSyncing) restoreTrimEquipment(true);
+            });
+        }
     }
-    connect(m_trimPieces, &QSpinBox::valueChanged, this, [emitNow](int) { emitNow(); });
-    // 整套勾上之后部位与件数两格不参与计算 —— 收起来（不是偷偷忽略用户的设置：
-    // 取消勾选就原样回来）。
-    connect(m_trimWholeSet, &QCheckBox::toggled, this, [this, emitNow](bool checked) {
-        if (m_trimPart != nullptr) m_trimPart->setEnabled(!checked);
-        if (m_trimPieces != nullptr) m_trimPieces->setEnabled(!checked);
-        emitNow();
-    });
+    left->addLayout(form);
+    auto *trimHint=makeMutedLabel(panel);
+    trimHint->setText(tr("模板每打一件消耗一个；海龟壳只有头盔。"));
+    left->addWidget(trimHint);
+    m_trimResult=new QLabel(panel); m_trimResult->setObjectName(trimResultName());
+    m_trimResult->setWordWrap(true); m_trimResult->setAlignment(Qt::AlignTop|Qt::AlignLeft);
+    m_trimResult->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    left->addWidget(m_trimResult); addResultCopy(left,m_trimResult); left->addStretch(1);
+    body->addLayout(left,2);
+    auto *right=new QVBoxLayout; right->setSpacing(4);
+    m_trimPreview=new ArmorTrimPreview(panel); right->addWidget(m_trimPreview,1);
+    // 披风是选修项：默认不画（纹饰看的是盔甲本身），勾上才把账号现有的那件披上去。
+    m_trimCape=new QCheckBox(tr("显示披风"),panel);
+    m_trimCape->setObjectName(trimCapeCheckName());
+    m_trimCape->setChecked(false);
+    // 还没收到账号外观之前一律当"没有披风"：置灰比勾了却什么都不发生好。
+    m_trimCape->setEnabled(false);
+    m_trimCape->setToolTip(tr("默认不显示；勾上后使用当前账号的披风。"));
+    connect(m_trimCape,&QCheckBox::toggled,this,[this](bool visible){ emit trimCapeVisibilityChanged(visible); });
+    right->addWidget(m_trimCape);
+    m_trimResourceStatus=new QLabel(tr("未载入盔甲资源"),panel);
+    m_trimResourceStatus->setObjectName(QStringLiteral("trimResourceStatus"));
+    m_trimResourceStatus->setWordWrap(true); right->addWidget(m_trimResourceStatus);
+    auto *actions=new QGridLayout; actions->setSpacing(4);
+    const QStringList titles{tr("读取本地"),tr("选择 JAR"),tr("下载资源"),tr("取消")};
+    for(int i=0;i<titles.size();++i) {
+        auto *button=new QPushButton(titles[i],panel);
+        button->setObjectName(QStringLiteral("trimResourceAction%1").arg(i)); button->setAutoDefault(false);
+        Theme::markButton(button,Theme::ButtonKind::Neutral);
+        connect(button,&QPushButton::clicked,this,[this,i]{emit trimResourcesRequested(i);});
+        m_trimResourceButtons.append(button); actions->addWidget(button,i/2,i%2);
+    }
+    m_trimResourceButtons.last()->setEnabled(false); right->addLayout(actions); right->addStretch(0);
+    body->addLayout(right,1); layout->addLayout(body,1);
+
+    // Legacy controls are migration adapters only, never part of the visible editor.
+    m_trimArmor=new QComboBox(panel); m_trimArmor->setObjectName(trimArmorComboName());
+    m_trimPart=new QComboBox(panel); m_trimPart->setObjectName(trimPartComboName());
+    m_trimPattern=new QComboBox(panel); m_trimPattern->setObjectName(trimPatternComboName());
+    m_trimMaterial=new QComboBox(panel); m_trimMaterial->setObjectName(trimMaterialComboName());
+    m_trimPieces=new QSpinBox(panel); m_trimPieces->setObjectName(trimPiecesSpinName());
+    m_trimPieces->setRange(1,4); m_trimPieces->setValue(1);
+    m_trimWholeSet=new QCheckBox(panel); m_trimWholeSet->setObjectName(trimWholeSetName());
+    const QList<QWidget *> legacy{m_trimArmor,m_trimPart,m_trimPattern,m_trimMaterial,m_trimPieces,m_trimWholeSet};
+    for(auto *widget:legacy) widget->hide();
+    const auto oldChanged=[this] {
+        restoreTrimEquipment(false);
+        emit trimRequested(trimArmorIndex(),trimPartIndex(),trimPatternIndex(),trimMaterialIndex(),trimPieces(),trimWholeSet());
+    };
+    for(auto *combo:{m_trimArmor,m_trimPart,m_trimPattern,m_trimMaterial})
+        connect(combo,&QComboBox::currentIndexChanged,this,[oldChanged](int){oldChanged();});
+    connect(m_trimPieces,&QSpinBox::valueChanged,this,[oldChanged](int){oldChanged();});
+    connect(m_trimWholeSet,&QCheckBox::toggled,this,[oldChanged](bool){oldChanged();});
     return panel;
 }
 
+QList<ToolboxPage::TrimEquipmentSlot> ToolboxPage::trimEquipment() const {
+    QList<TrimEquipmentSlot> result;
+    for(int i=0;i<m_trimSlotArmor.size();++i)
+        result.append({m_trimSlotArmor[i]->currentIndex()<0 ? -1 : m_trimSlotArmor[i]->currentData().toInt(),
+                       m_trimSlotPattern[i]->currentIndex()<0 ? -1 : m_trimSlotPattern[i]->currentData().toInt(),
+                       m_trimSlotMaterial[i]->currentData().toInt()});
+    return result;
+}
+
+void ToolboxPage::restoreTrimEquipment(bool perSlot) {
+    if(m_trimSyncing || m_trimSlotArmor.size()!=4) return;
+    m_trimSyncing=true;
+    const bool turtle=m_trimArmor->count()==7 && trimArmorIndex()==6;
+    if(turtle) { const QSignalBlocker blocker(m_trimPart); m_trimPart->setCurrentIndex(0); }
+    m_trimPart->setEnabled(!turtle&&!trimWholeSet()); m_trimPieces->setEnabled(!trimWholeSet());
+    for(int slot=0;slot<4;++slot) {
+        if(!perSlot) {
+            const bool equipped=turtle ? slot==0 : trimWholeSet() || trimPartIndex()==slot;
+            const QSignalBlocker a(m_trimSlotArmor[slot]),b(m_trimSlotPattern[slot]),c(m_trimSlotMaterial[slot]);
+            m_trimSlotArmor[slot]->setCurrentIndex(m_trimSlotArmor[slot]->findData(equipped?trimArmorIndex():-1));
+            m_trimSlotPattern[slot]->setCurrentIndex(m_trimSlotPattern[slot]->findData(trimPatternIndex()));
+            m_trimSlotMaterial[slot]->setCurrentIndex(m_trimSlotMaterial[slot]->findData(trimMaterialIndex()));
+        }
+        auto *armor=m_trimSlotArmor[slot];
+        if(slot>0 && armor->currentData().toInt()==6) {
+            const QSignalBlocker blocker(armor); armor->setCurrentIndex(armor->findData(-1));
+        }
+        const bool equipped=armor->currentIndex()>=0 && armor->currentData().toInt()>=0;
+        m_trimSlotPattern[slot]->setEnabled(equipped);
+        m_trimSlotMaterial[slot]->setEnabled(equipped && m_trimSlotPattern[slot]->currentData().toInt()>=0);
+    }
+    m_trimSyncing=false;
+    emit trimEquipmentChanged();
+}
+
+void ToolboxPage::setTrimPreview(const SkinModel::Scene &scene) {
+    if (m_trimPreview) m_trimPreview->setScene(scene);
+}
+
+void ToolboxPage::setTrimCapeAvailable(bool available) {
+    if (m_trimCape == nullptr) return;
+    // 账号换了 / 披风没载进来：先把勾收回来（不带着一个「勾着却画不出来」的状态），
+    // 再决定这一格能不能点。收回时挡信号 —— 那不是用户改的，controller 自己会重画。
+    if (!available && m_trimCape->isChecked()) {
+        const QSignalBlocker blocker(m_trimCape);
+        m_trimCape->setChecked(false);
+    }
+    m_trimCape->setEnabled(available);
+    m_trimCape->setToolTip(available ? tr("默认不显示；勾上后使用当前账号的披风。")
+                                     : tr("当前账号没有可用的披风。"));
+}
+
+bool ToolboxPage::trimShowCape() const {
+    return m_trimCape != nullptr && m_trimCape->isEnabled() && m_trimCape->isChecked();
+}
+
+void ToolboxPage::setTrimResourceStatus(const QString &text, bool busy) {
+    if (m_trimResourceStatus) m_trimResourceStatus->setText(text);
+    for (int i = 0; i < m_trimResourceButtons.size(); ++i)
+        m_trimResourceButtons[i]->setEnabled(i == 3 ? busy : !busy);
+}
+
+namespace {
+void fillTrimSlots(const QList<QComboBox *> &combos, const QStringList &names, const QString &emptyLabel,
+                   bool armor = false) {
+    for (int slot=0;slot<combos.size();++slot) {
+        auto *combo=combos[slot]; const bool had=combo->count()>0;
+        const int previous=combo->currentData().toInt(); const QSignalBlocker blocker(combo);
+        combo->clear();
+        if(!emptyLabel.isEmpty()) combo->addItem(emptyLabel,-1);
+        for(int i=0;i<names.size();++i) combo->addItem(names[i],i);
+        if(armor && slot>0 && names.size()==7) {
+            if(auto *model=qobject_cast<QStandardItemModel *>(combo->model()))
+                if(auto *item=model->item(combo->findData(6))) item->setEnabled(false);
+        }
+        combo->setCurrentIndex(combo->findData(had?previous:0));
+    }
+}
+}
+
 void ToolboxPage::setTrimArmorMaterials(const QStringList &names) {
+    fillTrimSlots(m_trimSlotArmor,names,tr("未装备"),true);
     if (m_trimArmor == nullptr) {
         return;
     }
@@ -2420,6 +2521,7 @@ void ToolboxPage::setTrimParts(const QStringList &names) {
 }
 
 void ToolboxPage::setTrimPatterns(const QStringList &names) {
+    fillTrimSlots(m_trimSlotPattern,names,tr("无纹饰"));
     if (m_trimPattern == nullptr) {
         return;
     }
@@ -2429,6 +2531,7 @@ void ToolboxPage::setTrimPatterns(const QStringList &names) {
 }
 
 void ToolboxPage::setTrimMaterials(const QStringList &names) {
+    fillTrimSlots(m_trimSlotMaterial,names,QString());
     if (m_trimMaterial == nullptr) {
         return;
     }

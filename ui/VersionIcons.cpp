@@ -1,8 +1,11 @@
 #include "VersionIcons.hpp"
+#include "Theme.hpp"
 
 #include <QFileInfo>
+#include <QApplication>
 #include <QHash>
 #include <QImage>
+#include <QIconEngine>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPolygonF>
@@ -11,6 +14,35 @@
 #include <functional>
 
 namespace {
+
+class ActionIconEngine final : public QIconEngine {
+public:
+    explicit ActionIconEngine(VersionIcons::Action action) : m_action(action) {}
+    QIconEngine *clone() const override { return new ActionIconEngine(m_action); }
+    QPixmap pixmap(const QSize &size, QIcon::Mode mode, QIcon::State) override {
+        const auto tokens = Theme::tokens();
+        const QColor ink = mode == QIcon::Disabled ? tokens.disabled
+            : m_action == VersionIcons::Action::Delete ? Theme::dangerColor(QApplication::palette())
+            : (Theme::isDark() ? Theme::accentShade(Theme::AccentShade::Pure) : tokens.primary);
+        const int side = qMin(size.width(), size.height());
+        switch (m_action) {
+        case VersionIcons::Action::Refresh: return VersionIcons::refresh(side, ink);
+        case VersionIcons::Action::Settings: return VersionIcons::gear(side, ink);
+        case VersionIcons::Action::Edit: return VersionIcons::pen(side, ink);
+        case VersionIcons::Action::Folder: return VersionIcons::folderMark(side, ink);
+        case VersionIcons::Action::Details: return VersionIcons::infoMark(side, ink);
+        case VersionIcons::Action::Delete: return VersionIcons::trash(side, ink);
+        }
+        return {};
+    }
+    void paint(QPainter *painter, const QRect &rect, QIcon::Mode mode, QIcon::State state) override {
+        const qreal ratio = painter->device()->devicePixelRatioF();
+        const QPixmap image = pixmap(rect.size() * ratio, mode, state);
+        painter->drawPixmap(rect, image);
+    }
+private:
+    VersionIcons::Action m_action;
+};
 
 // ---------------------------------------------------------------------------
 // 草方块：16×16 的像素画，照 MC 那块贴图的侧面（上面一层绿、底下一层土，
@@ -361,45 +393,6 @@ QPixmap chevronPixmap(ChevronDir dir, int size, const QColor &color) {
                   });
 }
 
-/// 多边形上离 p 最近的那一点（三条边各投一次影，取最近的那个）。
-/// 只给刷新那个箭头用：转动之后要量"弧的端头离箭头还差多远"。
-QPointF closestPointOnPolygon(const QPolygonF &poly, const QPointF &p) {
-    QPointF best;
-    qreal bestDistance = -1.0;
-    for (int i = 0; i < poly.size(); ++i) {
-        const QPointF a = poly.at(i);
-        const QPointF b = poly.at((i + 1) % poly.size());
-        const QPointF edge = b - a;
-        const qreal length2 = edge.x() * edge.x() + edge.y() * edge.y();
-        qreal t = 0.0;
-        if (length2 > 0.0) {
-            t = qBound(0.0,
-                       ((p.x() - a.x()) * edge.x() + (p.y() - a.y()) * edge.y()) / length2, 1.0);
-        }
-        const QPointF candidate = a + edge * t;
-        const qreal distance = std::hypot(candidate.x() - p.x(), candidate.y() - p.y());
-        if (bestDistance < 0.0 || distance < bestDistance) {
-            bestDistance = distance;
-            best = candidate;
-        }
-    }
-    return best;
-}
-
-/// 把多边形绕 pivot 转 deg 度。正数 = **屏幕上顺时针**（y 轴朝下，所以就是普通的旋转矩阵）。
-QPolygonF rotatedPolygon(const QPolygonF &poly, const QPointF &pivot, qreal deg) {
-    const qreal angle = qDegreesToRadians(deg);
-    const qreal c = qCos(angle);
-    const qreal s = qSin(angle);
-    QPolygonF out;
-    out.reserve(poly.size());
-    for (const QPointF &point : poly) {
-        const qreal dx = point.x() - pivot.x();
-        const qreal dy = point.y() - pivot.y();
-        out.append(QPointF(pivot.x() + dx * c - dy * s, pivot.y() + dx * s + dy * c));
-    }
-    return out;
-}
 
 }  // namespace
 
@@ -571,107 +564,26 @@ QPixmap VersionIcons::windowMinimize(int size, const QColor &color) {
     });
 }
 
+QIcon VersionIcons::actionIcon(Action action) { return QIcon(new ActionIconEngine(action)); }
+
 QPixmap VersionIcons::refresh(int size, const QColor &color) {
-    if (size <= 0) {
-        return QPixmap();
-    }
-    return cached(QStringLiteral("refresh/%1/%2").arg(size).arg(color.name()), [size, color]() {
-        QPixmap pixmap(size, size);
-        pixmap.fill(Qt::transparent);
-        QPainter p(&pixmap);
-        p.setRenderHint(QPainter::Antialiasing, true);
-
-        // 一笔通到底的粗细：和 chevron / cross 同一个比例（size/7 ≈ 0.14），只是下界
-        // 抬高一点 —— 1.6 是"一条线"的下界，圆环那么细会发虚。
-        const qreal penWidth = qMax(1.5, size * 0.13);
-
-        // 圆心与半径：四周留 20% 边距（和 cross 那个 22% 是同一个打算 —— 贴到边上会
-        // 看着比同一个格里的箭头大一号）。笔宽和箭头都在这圈里，不会顶出去。
-        //
-        // NOTE: 半径从 0.30 收到 0.29 是 2026-09-24 跟箭头那次一起改的：箭头变长之后，
-        //       它那个底角会往圆心外那侧顶出去（见下面那段算账），环小一号正好让出地方。
-        const QPointF center(size / 2.0, size / 2.0);
-        const qreal radius = size * 0.29;
-        const QRectF box(center.x() - radius, center.y() - radius, 2 * radius, 2 * radius);
-
-        // 角度按 Qt 那套：0° 在正右、逆时针为正、**y 轴朝下**（所以 90° 是正上）。
-        // 缺口留在**正上方偏右**：起笔 30°、顺时针扫 285°（Qt 里负角就是顺时针）→ 收在
-        // 105°（左上），那 75° 就是缺口 —— 不断开的话就只是一个圆圈，读不出"转一圈回来"
-        // 这层意思。
-        //
-        // NOTE: 起笔位置 2026-09-24 从 55° 挪到了 30°（用户原话：「刷新键的"箭头"太小，
-        //       调大点」）。箭头是**顺着切向**画的，它的底边落在"来路上"，也就是往
-        //       12 点方向退 —— 箭头一长，那个底角就顶到格子顶上去了（55° 那一档实测已经
-        //       顶出画布外，会被裁掉一个角）。挪到 30° 之后来路偏向右上、上下留白够，
-        //       箭头才敢加大（0.22 → 0.32 长、0.13 → 0.165 半底），缺口还是 75°。
-        constexpr qreal kHeadDeg = 30.0;
-        constexpr qreal kSweepDeg = -285.0;
-
-        QPen pen(color);
-        pen.setWidthF(penWidth);
-        // 端头用平头：那一头会被下面的三角盖住，圆帽反而会从三角边上冒出来一小截。
-        pen.setCapStyle(Qt::FlatCap);
-        p.setPen(pen);
-        p.setBrush(Qt::NoBrush);
-        p.drawArc(box, int(kHeadDeg * 16), int(kSweepDeg * 16));
-
-        // 箭头画在 30° 那一头（两点那个位置）：**实心三角**，顶点顺着"顺时针继续转"
-        // 那个方向伸出去一点，底边横在来路上、**按径向**排开。
-        //
-        // NOTE: 原来是"两笔画一个 V"（顶点在弧上、两翼向来路张开）—— 18 px 下那两翼会
-        //       横着穿过圈身，看着像挂在圈上的一个多余疙瘩（用户 2026-09-23 原话：
-        //       "图标能不能重新画一个，好诡异"）。同样大小的实心三角干净得多，也是
-        //       浏览器刷新钮那种通用长相。
-        const qreal headRad = qDegreesToRadians(kHeadDeg);
-        const QPointF onArc(center.x() + radius * qCos(headRad),
-                            center.y() - radius * qSin(headRad));
-        // 顺时针的切向（屏幕坐标，y 朝下）= (sinθ, cosθ)；径向朝外 = (cosθ, −sinθ)。
-        const QPointF travel(qSin(headRad), qCos(headRad));
-        const QPointF outward(qCos(headRad), -qSin(headRad));
-        // 三角的三条边都按边长给比例：长 32%、底边半宽 16.5%（≈ 2.5 倍笔宽，看着才"实"）。
-        // 这一档是 2026-09-24 调大的（原来 22% / 13%）—— 老那一档在界面上那个 18 px 的
-        // 格子里只有 4.0 px 长、2.3 px 半底，和环身差不多粗，读起来更像环上沾了个疙瘩
-        // 而不是"往这儿转"。
-        //
-        // NOTE: 上限是画布：这个三角**沿切向**伸出去，离圆心最远的那个角是整张图里最靠
-        //       边的一点（30° 这一档落在 y = 0.037×size，也就是顶上第二三个像素那一行）。
-        //       再长就出画布被裁掉一个角了——ui_check 有一条断言量"最外一圈一个有色像素
-        //       都没有"，改这两个数之前先跑它。
-        const qreal length = size * 0.32;
-        const qreal halfBase = size * 0.165;
-        const QPointF tip = onArc + travel * (length * 0.15);
-        const QPointF base = tip - travel * length;
-        // 摆好之后再整体**绕它自己的重心转 −60°**（符号按 rotatedPolygon 那套：正数是屏幕上
-        // 的顺时针，所以 −60 就是屏幕上逆时针 60°）。
-        //
-        // NOTE: 这个角度是用户 2026-09-24 从一张"每 15° 一格"的扫描图上挑的（原话：「实心
-        //       三角的角度不对，右侧边现在是竖直的，感觉要在现在的状态下顺时针旋转45~60deg
-        //       才好」）。不转的话，底边是顺着**半径**摆的，那条外边（顶点→外底角）正好落到
-        //       竖直上：20 px 那一格里 dx = −0.31、dy = −6.47，看着像面竖着的小旗子。
-        constexpr qreal kHeadTurnDeg = -60.0;
-        const QPointF centroid = tip - travel * (length * 2.0 / 3.0);
-        QPolygonF head({tip, base + outward * halfBase, base - outward * halfBase});
-        head = rotatedPolygon(head, centroid, kHeadTurnDeg);
-
-        // 绕重心转完，三角会从弧的端头**飘开**一小截（用户原话：「三角形由于带一点点白边
-        // 会使得圆圈和三角形连接处有点白色像断开了」）：转之前弧的端点正好埋在三角里
-        // 85% 那一段上，转之后它落到三角外面去了（20 px 那一档差 1.3 px）。
-        //
-        // 挪回去的办法量的是**最小的一步**：找三角边界上离弧端点最近的那一点，沿"从弧端点
-        // 指向三角"这个方向把它推过去，推的比距离多半个笔宽 —— 多埋一点，弧那一笔和三角
-        // 才是**实心叠实心**，相接处不会留下一条比别处浅的线（抗锯齿只在整幅的外轮廓上走）。
-        const QPointF toHead = closestPointOnPolygon(head, onArc) - onArc;
-        const qreal gap = std::hypot(toHead.x(), toHead.y());
-        if (gap > 0.0) {
-            const QPointF shift = -(toHead / gap) * (gap + penWidth * 0.5);
-            for (QPointF &point : head) {
-                point += shift;
-            }
-        }
-        p.setPen(Qt::NoPen);
-        p.setBrush(color);
-        p.drawPolygon(head);
-        return pixmap;
+    if (size <= 0) return {};
+    return cached(QStringLiteral("refresh-line/%1/%2").arg(size).arg(color.name()), [size, color]() {
+        QPixmap image(size, size);
+        image.fill(Qt::transparent);
+        QPainter painter(&image);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.scale(size / 24.0, size / 24.0);
+        painter.setPen(QPen(color, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+        // A restrained circular arrow, with an open head rather than an oversized filled wedge.
+        painter.drawArc(QRectF(4.5, 4.5, 15, 15), 45 * 16, 290 * 16);
+        QPainterPath head;
+        head.moveTo(13.2, 6.7);
+        head.lineTo(17.3, 6.7);
+        head.lineTo(17.3, 2.8);
+        painter.drawPath(head);
+        return image;
     });
 }
 
@@ -712,208 +624,106 @@ QPixmap VersionIcons::power(int size, const QColor &color) {
 }
 
 QPixmap VersionIcons::gear(int size, const QColor &color) {
-    if (size <= 0) {
-        return QPixmap();
-    }
-    return cached(QStringLiteral("gear/%1/%2").arg(size).arg(color.name()), [size, color]() {
-        QPixmap pixmap(size, size);
-        pixmap.fill(Qt::transparent);
-        QPainter p(&pixmap);
-        p.setRenderHint(QPainter::Antialiasing, true);
-
-        // 八颗**平顶**的牙（不是星形）：星形在 16 px 下看着像个雪花，齿顶那一段平的
-        // 才读得出是个齿轮。一颗牙占一个齿距的：齿根 0.10 起、齿顶 0.30~0.70、
-        // 齿根 0.90 收，于是"齿"宽 40%、两颗牙之间那段根宽 20% —— 两条缝一样宽才对称。
-        constexpr int kTeeth = 8;
-        const qreal pitch = 360.0 / kTeeth;
-        const QPointF center(size / 2.0, size / 2.0);
-        const qreal rTip = size * 0.47;
-        const qreal rRoot = size * 0.33;
-
-        // 角度按 Qt 那套（90° 是正上），屏幕坐标 y 朝下所以取负号。
-        const auto at = [&](qreal degree, qreal r) {
-            const qreal rad = qDegreesToRadians(degree);
-            return QPointF(center.x() + r * qCos(rad), center.y() - r * qSin(rad));
-        };
-
-        QPainterPath toothed;
-        for (int i = 0; i < kTeeth; ++i) {
-            const qreal base = i * pitch;
-            const QPointF corner[4] = {at(base + pitch * 0.10, rRoot),
-                                       at(base + pitch * 0.30, rTip),
-                                       at(base + pitch * 0.70, rTip),
-                                       at(base + pitch * 0.90, rRoot)};
-            if (i == 0) {
-                toothed.moveTo(corner[0]);
-            } else {
-                toothed.lineTo(corner[0]);
+    if (size <= 0) return {};
+    return cached(QStringLiteral("gear-line/%1/%2").arg(size).arg(color.name()), [size, color]() {
+        QPixmap image(size, size);
+        image.fill(Qt::transparent);
+        QPainter painter(&image);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.scale(size / 24.0, size / 24.0);
+        painter.setPen(QPen(color, 1.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+        QPainterPath outline;
+        constexpr qreal pitch = 60.0;
+        for (int tooth = 0; tooth < 6; ++tooth) {
+            for (int corner = 0; corner < 4; ++corner) {
+                const qreal offsets[] = {0.06, 0.24, 0.76, 0.94};
+                const qreal radius = (corner == 0 || corner == 3) ? 7.0 : 9.3;
+                const qreal angle = qDegreesToRadians((tooth + offsets[corner]) * pitch);
+                const QPointF point(12 + radius * qCos(angle), 12 + radius * qSin(angle));
+                if (tooth == 0 && corner == 0) outline.moveTo(point);
+                else outline.lineTo(point);
             }
-            toothed.lineTo(corner[1]);
-            toothed.lineTo(corner[2]);
-            toothed.lineTo(corner[3]);
         }
-        // 收口：最后那颗牙的齿根连回第一颗的齿根，跨的也是 0.90~1.10 那 20%。
-        toothed.closeSubpath();
-
-        // 中间那个洞走**减去一个圆**，不是描边一个圆：16 px 下描边那一圈糊成一片，
-        // 整颗齿轮会变成一个实心疙瘩。
-        QPainterPath hole;
-        hole.addEllipse(center, size * 0.15, size * 0.15);
-
-        p.setPen(Qt::NoPen);
-        p.setBrush(color);
-        p.drawPath(toothed.subtracted(hole));
-        return pixmap;
+        outline.closeSubpath();
+        painter.drawPath(outline);
+        painter.drawEllipse(QPointF(12, 12), 3.0, 3.0);
+        return image;
     });
 }
 
 QPixmap VersionIcons::pen(int size, const QColor &color) {
-    if (size <= 0) {
-        return QPixmap();
-    }
-    return cached(QStringLiteral("pen/%1/%2").arg(size).arg(color.name()), [size, color]() {
-        QPixmap pixmap(size, size);
-        pixmap.fill(Qt::transparent);
-        QPainter p(&pixmap);
-        p.setRenderHint(QPainter::Antialiasing, true);
-
-        // 整支笔先当**笔尖朝下、笔杆竖直**画，最后把坐标系转 −45°：
-        // 这样"杆、箍、尖"三段的坐标全是纵轴上的一维数，比直接算斜着的四个角好读也难写错。
-        // 屏幕坐标 y 朝下，所以 −45° 转出来的笔尖落在**左下**（用户要的"斜着的"）。
-        p.translate(size / 2.0, size / 2.0);
-        p.rotate(-45.0);
-        p.setPen(Qt::NoPen);
-        p.setBrush(color);
-
-        // 一维尺寸全按边长给：长 0.80、杆宽 0.24、尖长 0.20、箍宽 0.06。
-        // 四周留的边距是**转过来之后**最靠外那一点到画布边的余量（0.10×size）——
-        // 45° 下对角长度是边长，直接铺满会被裁掉笔尖和笔尾两个角。
-        const qreal length = size * 0.80;
-        const qreal halfWidth = size * 0.12;
-        const qreal top = -length / 2.0;
-        const qreal tipStart = length / 2.0 - size * 0.20;
-        const qreal bandHeight = size * 0.06;
-        /// 箍和杆之间那道缝（也是"挖"出来的，见 folderMark 里那段）。
-        const qreal gap = qMax(1.0, size * 0.05);
-
-        // 笔尖：一个三角形，顶点在下（转完在左下角）。
-        QPainterPath tip;
-        tip.moveTo(-halfWidth, tipStart);
-        tip.lineTo(halfWidth, tipStart);
-        tip.lineTo(0.0, length / 2.0);
-        tip.closeSubpath();
-        // 杆：笔尾那一截往下、到笔尖为止。
-        const qreal bandBottom = top + bandHeight;
-        p.drawRect(QRectF(-halfWidth, bandBottom + gap, halfWidth * 2,
-                          tipStart - bandBottom - gap));
-        // 笔尾那一小截（箍）：和杆之间留一道透明缝 —— 18 px 下整根实心条读起来像一根
-        // 斜杠，断开一截才看得出是"笔"。
-        p.drawRect(QRectF(-halfWidth, top, halfWidth * 2, bandHeight));
-        p.drawPath(tip);
-        return pixmap;
+    if (size <= 0) return {};
+    return cached(QStringLiteral("pen-line/%1/%2").arg(size).arg(color.name()), [size, color]() {
+        QPixmap image(size, size);
+        image.fill(Qt::transparent);
+        QPainter painter(&image);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.scale(size / 24.0, size / 24.0);
+        painter.setPen(QPen(color, 1.7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawPolygon(QPolygonF({QPointF(4,16), QPointF(16,4), QPointF(20,8), QPointF(8,20), QPointF(4,20)}));
+        painter.drawLine(QPointF(14,6), QPointF(18,10));
+        return image;
     });
 }
 
 QPixmap VersionIcons::folderMark(int size, const QColor &color) {
-    if (size <= 0) {
-        return QPixmap();
-    }
-    return cached(QStringLiteral("folder/%1/%2").arg(size).arg(color.name()), [size, color]() {
-        QPixmap pixmap(size, size);
-        pixmap.fill(Qt::transparent);
-        QPainter p(&pixmap);
-        p.setRenderHint(QPainter::Antialiasing, true);
-        p.setPen(Qt::NoPen);
-        p.setBrush(color);
-
-        // 后背（含左上角那个突出来的标签页）和前面那块之间横着一道**透明缝**。
-        // 缝是"挖掉"的，不是画一条底色线 —— 图标底下是菜单的底色，画死颜色会在
-        // 浅色/深色主题里各错一次。
-        const qreal left = size * 0.10;
-        const qreal right = size * 0.90;
-        const qreal top = size * 0.26;
-        const qreal bottom = size * 0.84;
-        // 标签页：从后背的上沿往上顶出去一块（这就是"文件夹"和"一块方片"的全部区别）。
-        p.drawRect(QRectF(left, top - size * 0.13, size * 0.38, size * 0.13 + size * 0.04));
-        const qreal creaseY = top + (bottom - top) * 0.26;
-        const qreal creaseHeight = qMax(1.5, size * 0.09);
-        // 后背：上沿到那道缝。
-        p.drawRect(QRectF(left, top, right - left, creaseY - top));
-        // 前脸：缝下面到底。
-        p.drawRect(QRectF(left, creaseY + creaseHeight, right - left,
-                          bottom - creaseY - creaseHeight));
-        return pixmap;
+    if (size <= 0) return {};
+    return cached(QStringLiteral("folderMark-line/%1/%2").arg(size).arg(color.name()), [size, color]() {
+        QPixmap image(size, size);
+        image.fill(Qt::transparent);
+        QPainter painter(&image);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.scale(size / 24.0, size / 24.0);
+        painter.setPen(QPen(color, 1.7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+        QPainterPath folder;
+        folder.moveTo(3,7); folder.lineTo(9,7); folder.lineTo(11,10); folder.lineTo(21,10);
+        folder.lineTo(19,20); folder.lineTo(3,20); folder.closeSubpath();
+        painter.drawPath(folder);
+        painter.drawLine(QPointF(3,11), QPointF(20.8,11));
+        return image;
     });
 }
 
 QPixmap VersionIcons::trash(int size, const QColor &color) {
-    if (size <= 0) {
-        return QPixmap();
-    }
-    return cached(QStringLiteral("trash/%1/%2").arg(size).arg(color.name()), [size, color]() {
-        QPixmap pixmap(size, size);
-        pixmap.fill(Qt::transparent);
-        QPainter p(&pixmap);
-        p.setRenderHint(QPainter::Antialiasing, true);
-        p.setPen(Qt::NoPen);
-        p.setBrush(color);
-
-        // 提手（盖子上那个小方块）。
-        p.drawRect(QRectF(size * 0.38, size * 0.14, size * 0.24, size * 0.09));
-        // 盖（比桶身宽一点，才看得出"盖在上面"）。
-        p.drawRect(QRectF(size * 0.10, size * 0.25, size * 0.80, size * 0.10));
-
-        // 桶身：往下收的梯形（上宽下窄）。和桶盖之间留一道透明缝。
+    if (size <= 0) return {};
+    return cached(QStringLiteral("trash-line/%1/%2").arg(size).arg(color.name()), [size, color]() {
+        QPixmap image(size, size);
+        image.fill(Qt::transparent);
+        QPainter painter(&image);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.scale(size / 24.0, size / 24.0);
+        painter.setPen(QPen(color, 1.7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawLine(QPointF(4,7), QPointF(20,7));
+        painter.drawLine(QPointF(9,4), QPointF(15,4));
+        painter.drawLine(QPointF(9,4), QPointF(8,7));
+        painter.drawLine(QPointF(15,4), QPointF(16,7));
         QPainterPath body;
-        body.moveTo(size * 0.20, size * 0.39);
-        body.lineTo(size * 0.80, size * 0.39);
-        body.lineTo(size * 0.72, size * 0.86);
-        body.lineTo(size * 0.28, size * 0.86);
-        body.closeSubpath();
-
-        // 桶身上两条**挖掉**的竖缝（同样不是画底色线）。
-        // NOTE: 这个局部变量**不能叫 slots** —— `slots` 是 Qt 的关键字宏（空展开），
-        //       `QPainterPath slots;` 会被预处理成 `QPainterPath ;`，编译器报的是
-        //       "declaration does not declare anything"，和真正的原因差得很远。
-        QPainterPath holes;
-        holes.addRect(QRectF(size * 0.39, size * 0.48, size * 0.06, size * 0.28));
-        holes.addRect(QRectF(size * 0.55, size * 0.48, size * 0.06, size * 0.28));
-        p.drawPath(body.subtracted(holes));
-        return pixmap;
+        body.moveTo(6,7); body.lineTo(7,20); body.lineTo(17,20); body.lineTo(18,7);
+        painter.drawPath(body);
+        painter.drawLine(QPointF(10,11), QPointF(10.5,16));
+        painter.drawLine(QPointF(14,11), QPointF(13.5,16));
+        return image;
     });
 }
 
 QPixmap VersionIcons::infoMark(int size, const QColor &color) {
-    if (size <= 0) {
-        return QPixmap();
-    }
-    return cached(QStringLiteral("info/%1/%2").arg(size).arg(color.name()), [size, color]() {
-        QPixmap pixmap(size, size);
-        pixmap.fill(Qt::transparent);
-        QPainter p(&pixmap);
-        p.setRenderHint(QPainter::Antialiasing, true);
-        p.setPen(Qt::NoPen);
-        p.setBrush(color);
-
-        // ---------- 外面那个圈 ----------
-        // 空心圆环（外圆减内圆），不是描边：16 px 下 `setPen` 描出来的圈粗细不可控，
-        // 而且抗锯齿会把整圈糊成一团灰 —— 和垃圾桶/拼图那几支"实心路径相减"一个做法。
-        const qreal ring = size * 0.44;      // 外半径
-        const qreal inner = size * 0.34;     // 内半径 ⇒ 环宽约 size * 0.10
-        const QPointF center(size / 2.0, size / 2.0);
-        QPainterPath circle;
-        circle.addEllipse(center, ring, ring);
-        QPainterPath hole;
-        hole.addEllipse(center, inner, inner);
-        p.drawPath(circle.subtracted(hole));
-
-        // ---------- 圈里那个「i」 ----------
-        // 一个点 + 一竖。竖条比点窄一半（19 px 下两笔都是"看得见的一小块"，等宽的话会
-        // 读成一个感叹号）。
-        const qreal bar = size * 0.07;
-        p.drawRect(QRectF(center.x() - bar / 2.0, size * 0.24, bar, size * 0.10));
-        p.drawRect(QRectF(center.x() - bar / 2.0, size * 0.41, bar, size * 0.33));
-        return pixmap;
+    if (size <= 0) return {};
+    return cached(QStringLiteral("infoMark-line/%1/%2").arg(size).arg(color.name()), [size, color]() {
+        QPixmap image(size, size);
+        image.fill(Qt::transparent);
+        QPainter painter(&image);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.scale(size / 24.0, size / 24.0);
+        painter.setPen(QPen(color, 1.7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawEllipse(QPointF(12,12), 8.3, 8.3);
+        painter.drawPoint(QPointF(12,8));
+        painter.drawLine(QPointF(12,11.5), QPointF(12,16));
+        return image;
     });
 }
 

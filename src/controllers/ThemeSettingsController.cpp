@@ -19,6 +19,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QSaveFile>
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QStandardPaths>
@@ -240,8 +241,10 @@ void ThemeSettingsController::exportTheme() {
     const QString target = QFileDialog::getSaveFileName(
         m_dialogParent, tr("导出主题"), suggested, tr("主题文件 (*.json);;所有文件 (*)"));
     if (target.isEmpty()) return;
-    QFile file(target);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    // 写侧走 `QSaveFile`：导出目标可能是用户已有的那一份主题文件，写到一半失败
+    // （盘满 / 进程被杀）不该把原来那份完整可用的留下半截。
+    QSaveFile file(target);
+    if (!file.open(QIODevice::WriteOnly)) {
         InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
                                tr("写不进这个文件：\n%1\n\n%2")
                                    .arg(QDir::toNativeSeparators(target), file.errorString()));
@@ -250,11 +253,17 @@ void ThemeSettingsController::exportTheme() {
     const QByteArray json = QJsonDocument(Theme::specToJson(Theme::current()))
                                 .toJson(QJsonDocument::Indented);
     if (file.write(json) != json.size()) {
+        file.cancelWriting();
         InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
                                tr("写到一半写不进去了：\n%1").arg(file.errorString()));
         return;
     }
-    file.close();
+    if (!file.commit()) {
+        InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
+                               tr("文件没能保存下来：\n%1\n\n%2")
+                                   .arg(QDir::toNativeSeparators(target), file.errorString()));
+        return;
+    }
     InlineMessage::information(m_ui->overlay(), tr("导出完成"),
                                tr("主题已导出到：\n%1").arg(QDir::toNativeSeparators(target)));
 }

@@ -71,8 +71,7 @@ inline bool restore(ToolboxPage *page, const QByteArray &bytes) {
     }
     BannerDesign::Design design; QString error;
     // Re-run the existing presentation rule after blocked field restoration; no network/file action.
-    if (auto *whole = page->findChild<QCheckBox *>(ToolboxPage::trimWholeSetName()))
-        whole->toggled(whole->isChecked());
+    page->restoreTrimEquipment(fields.contains(QStringLiteral("trimArmorSlot0")));
     if (BannerDesign::decode(QJsonDocument(object.value("banner").toObject()).toJson(), &design, &error))
         page->setBannerDesign(design.base, design.layers, design.version);
     QList<int> colors;

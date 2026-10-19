@@ -200,7 +200,13 @@ TaskCenter::Item ActivityCenterController::item(const Tasks::TaskSnapshot &task,
     TaskCenter::Item result;
     result.key = QString::number(task.id);
     result.title = task.title;
-    result.detail = task.detail;
+    const auto displayText = [](QString text) {
+        // Historical Qt errors remain intact on disk; localise their known UI spelling.
+        text.replace(QStringLiteral("Operation canceled"), QStringLiteral("网络请求已中止"), Qt::CaseInsensitive);
+        text.replace(QStringLiteral("Operation cancelled"), QStringLiteral("网络请求已中止"), Qt::CaseInsensitive);
+        return text;
+    };
+    result.detail = displayText(task.detail);
     result.percent = Tasks::percentOf(task);
     result.state = presentationState(task.state);
     for (int i = 0; i < m_queue.size(); ++i) if (m_queue[i].id == task.id && isQueued(task.id)) {
@@ -211,7 +217,7 @@ TaskCenter::Item ActivityCenterController::item(const Tasks::TaskSnapshot &task,
     result.attentionAcknowledged = task.attentionAcknowledged;
     result.finishedAt = task.finishedAt;
     result.startedAt = task.startedAt;
-    result.errorSummary = task.errorSummary;
+    result.errorSummary = displayText(task.errorSummary);
     if (task.bytesTotal > 0) {
         result.bytesText = tr("已下载 %1 / %2")
                                .arg(InstanceFilesPage::formatSize(task.bytesDone),
@@ -231,7 +237,7 @@ TaskCenter::Item ActivityCenterController::item(const Tasks::TaskSnapshot &task,
 
     result.steps.reserve(task.steps.size());
     for (const Tasks::TaskStep &step : task.steps) {
-        result.steps.append({step.name, presentationStepState(step.state), step.note});
+        result.steps.append({step.name, presentationStepState(step.state), displayText(step.note)});
     }
     return result;
 }

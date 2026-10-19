@@ -44,6 +44,21 @@ void ImportController::onImportModpackClicked() {
 }
 
 void ImportController::importModpackFromFile(const QString &zipPath, const QString &namePrefill) {
+    // ★ 拖进来的这一路也得过忙态这道闸（2026-10-19）。上面那颗「导入整合包…」按钮在忙的
+    //   时候是灰的（`setDownloadUiBusy()`），但主窗口的拖放照收不误（`dropEvent()` 不看
+    //   忙态）。不拦的话：导入 A 的过程中再拖进来一个 B，B 会从问名字那一步一路走到下面
+    //   `m_importingInstanceId = B` —— A 的 id 被顶掉（A 下完时 `versionId !=
+    //   m_importingInstanceId`，连忙态都不收）、任务中心当前那条任务还是 A 的，而两条
+    //   导入同时在往 versions 下面写。判据和按钮那一处**是同一句话**（`m_downloadInFlight`），
+    //   不另立一个。
+    if (m_owner->m_downloadInFlight) {
+        m_owner->appendLog(m_owner->tr("已有下载或导入任务正在进行，%1 没有导入。")
+                               .arg(QFileInfo(zipPath).fileName()));
+        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("现在正忙"),
+                                   m_owner->tr("已有下载或导入任务正在进行，等它结束之后再试。"));
+        return;
+    }
+
     // 先只看一件事：这个压缩包的根目录里有没有清单。**不整包解开** —— 用户随手选一个
     // 几百 MB 的包，为了"知道它不是整合包"先解压几分钟是白等。
     //
