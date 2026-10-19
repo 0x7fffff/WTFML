@@ -45,7 +45,7 @@ inline int runSegmentInstallChecks() {
     // 有个别场景要连着看门狗一起等（失速那两跳各 5 秒），截止线单独放宽。
     int deadlineMs = 30000;
     // /flaky：第一条**分段**请求回 404（延迟 300 ms 才回，让同批其它分段先落地），
-    // 之后正常。用来钉住"只补缺的那一条、不整文件重下"。
+    // 之后正常。用来钉住"重新探测、只补缺的那一条、不整文件重下"。
     bool flakyFailed = false;
     // /stall：第一条**分段**请求回完头和半段 body 之后**不关连接、不再给字节** ——
     // 2026-10-18 用户日志里那条分段停在 3.7/4.2 MiB 的翻版。之后正常。
@@ -293,19 +293,20 @@ inline int runSegmentInstallChecks() {
                "range-unsupported fallback is billed as one ordinary download");
     }
 
-    // 4. 入口 302 到带令牌落点（BMCLAPI 形态）：探测和每条分段都重新走入口，
-    //    不能拿着第一次的落点去下剩余分段 —— 预签名 URL 几十秒后就会 403。
+    // 4. 入口 302 到带令牌落点（BMCLAPI 形态）：**探测一次拿到落点，四条分段复用这一条**
+    //    （docs/HIGH_SPEED_DOWNLOAD.md「2026-10-18 现场日志修正」：避免每段重复入口、
+    //    反复调度和 429）。令牌真过期的那一批会在补投前重新探测刷新。
     {
         resetCounters();
         const auto out = runOne(QStringLiteral("redirect.bin"), QStringLiteral("/redirect"), {}, cache, false);
         expect(out.deadlineHeld && out.bytes == body, "redirected segmented download assembles correct bytes");
         expect(probes == 1 && parts == 4 && full == 0,
                "redirected segmented download still sends one probe and four range requests");
-        // redirects 可能比 signedHits 多：夹具在 302 响应写完就关连接，Qt 偶尔会把
-        // 一条还没拿到响应的入口请求再发一次。真正要钉住的是**五个数据请求**
-        // （1 次探测 + 4 条分段）全都走入口拿到了新令牌，没有一个拿着旧令牌去撞 403。
-        expect(redirects >= 5 && signedHits == 5 && badSigned == 0,
-               "every probe and part re-enters the redirect and receives a fresh token");
+        // redirects 可能比 1 多：夹具在 302 响应写完就关连接，Qt 偶尔会把一条还没拿到
+        // 响应的入口请求再发一次。真正要钉住的是**五个数据请求**（1 次探测 + 4 条分段）
+        // 都落在了探测拿到的令牌上，没有一个拿着旧令牌去撞 403。
+        expect(redirects >= 1 && signedHits == 5 && badSigned == 0,
+               "the probe re-enters the redirect once and all four parts reuse that fresh token");
         expect(out.stats.failed == 0, "redirected segmented download reports no failure");
     }
 
@@ -404,9 +405,10 @@ inline int runSegmentInstallChecks() {
         const auto out = runOne(QStringLiteral("flaky.bin"), QStringLiteral("/flaky"), {}, cache, false);
         expect(out.deadlineHeld && out.bytes == body,
                "failed part is retried and the file still assembles");
-        // 1 次探测 + 第一轮 4 条 + 补发 1 条；整文件重下会是 full=1。
-        expect(probes == 1 && parts == 5 && full == 0,
-               "one failed part costs exactly one extra range request, never a whole-file re-download");
+        // 首轮探测 1 次 + 补投前重新探测刷新签名 1 次 + 第一轮 4 条 + 补发 1 条；
+        // 整文件重下会是 full=1。
+        expect(probes == 2 && parts == 5 && full == 0,
+               "one failed part costs one reprobe and one extra range request, never a whole-file re-download");
         expect(out.stats.total == 1 && out.stats.done == 1 && out.stats.failed == 0,
                "part-level retry keeps the job billed as one success");
     }
@@ -424,9 +426,10 @@ inline int runSegmentInstallChecks() {
         deadlineMs = 30000;
         expect(out.deadlineHeld && out.bytes == body,
                "a stalled segmented part is aborted and the file still assembles");
-        // 1 次探测 + 第一轮 4 条 + 补发卡住那条 1 条；整文件重下会是 full=1。
-        expect(probes == 1 && parts == 5 && full == 0,
-               "a stalled part costs exactly one extra range request, never a whole-file re-download");
+        // 首轮探测 1 次 + 补投前重新探测刷新签名 1 次 + 第一轮 4 条 + 补发卡住那条 1 条；
+        // 整文件重下会是 full=1。
+        expect(probes == 2 && parts == 5 && full == 0,
+               "a stalled part costs one reprobe and one extra range request, never a whole-file re-download");
         expect(out.stats.total == 1 && out.stats.done == 1 && out.stats.failed == 0,
                "aborting a slow part keeps the job billed as one success");
         expect(out.results == 1 && out.batchResults == 1 && out.batchSuccess,
@@ -445,9 +448,10 @@ inline int runSegmentInstallChecks() {
         deadlineMs = 30000;
         expect(out.deadlineHeld && out.bytes == body,
                "a part that never sends a body is aborted and the file still assembles");
-        // 1 次探测 + 第一轮 4 条 + 补发没给正文那条 1 条；整文件重下会是 full=1。
-        expect(probes == 1 && parts == 5 && full == 0,
-               "a no-first-byte part costs exactly one extra range request, never a whole-file re-download");
+        // 首轮探测 1 次 + 补投前重新探测刷新签名 1 次 + 第一轮 4 条 + 补发没给正文那条 1 条；
+        // 整文件重下会是 full=1。
+        expect(probes == 2 && parts == 5 && full == 0,
+               "a no-first-byte part costs one reprobe and one extra range request, never a whole-file re-download");
         expect(out.stats.total == 1 && out.stats.done == 1 && out.stats.failed == 0,
                "aborting a silent part keeps the job billed as one success");
         expect(out.results == 1 && out.batchResults == 1 && out.batchSuccess,

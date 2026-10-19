@@ -64,6 +64,32 @@ public:
         std::function<bool(const QString &)> isRunning;
         /// 一句进主日志的话。
         std::function<void(const QString &)> log;
+        /// 记 / 摘"这一份实例正在搬文件"（唯一出处是 `MainWindow::installingVersionIds()`）。
+        /// 模组预设那一趟要联网查版本、下模组、往 `mods/` 里写文件，这期间这一份实例
+        /// 不能被启动、不能被删。
+        std::function<void(const QString &, bool)> setFileOperationBusy;
+        /// 这一份实例**此刻**是不是已经在别的写目录作业手里（复制实例 / 还原 / 迁移 /
+        /// 导入整合包）。
+        /// ★ 2026-10-19：应用预设同样往实例目录里写（模组预设写 `mods/`，普通预设改
+        ///   `options.txt` / 服务器清单等），和后台拷树撞在一起时两边都不知道对方在写
+        ///   什么。所以开跑之前先问一句；别处那几条路都能查到这个名单，只有预设这一页
+        ///   原来漏了。
+        /// ★ 问的必须**只是搬文件那一份**，不是"不能启动"那个合集：安装向导收尾那一步
+        ///   是带着 `m_installingInstanceId` 调进来的（那是它自己的标记）。
+        std::function<bool(const QString &)> isFileOperationBusy;
+        /// 这一份实例此刻**任何一样**写作业占着它没有（= 不能启动的那个合集：
+        /// 后台搬文件 + 正在装 + 正在补全/修复）。只给 `applyPlan()` 用。
+        /// ★ 2026-10-19：预设页那颗「应用」是用户直接发起的，不会出现"安装向导自己挡
+        ///   自己"；而它要防的不只是复制 / 还原 / 导入 —— 正被安装、正被补全文件的
+        ///   实例同样不能在这时候往目录里落预设。`installModsAfterInstall()` 继续问窄的
+        ///   `isFileOperationBusy`：安装向导收尾那一步带着自己的标记进来，宽的会把这一趟
+        ///   自己拦掉。
+        std::function<bool(const QString &)> isInstanceBusy;
+        /// 重灌实例清单（`MainWindow::refreshInstalledVersions()`）。模组预设收尾之后要叫
+        /// 一次：这一趟记着"搬文件忙"，而刷新那条路会按 `installingVersionIds()` 把忙的
+        /// 实例**整份滤掉** —— 万一这期间别的事（下载收尾、改设置）已经刷过一次，用户看到
+        /// 的就是"实例没了"，不重刷它就一直不在列表里。
+        std::function<void()> refreshInstances;
     };
 
     PresetController(VersionManager *versions, QWidget *hostPage, Host host,
@@ -72,6 +98,12 @@ public:
 
     /// 刷新管理页（实例页切到「预设」那一档时调用；页面是常驻的，这里只重新灌数据）。
     void open();
+    /// 实例清单变了（后台装完一份 / 删掉一份 / 换了游戏文件夹）⇒ 重灌那两个实例下拉框。
+    ///
+    /// 页面还没建出来（用户从没切到过「预设」那一档）时什么都不做；建过的话
+    /// `fillInstances()` 按 id 保留当前选择。**不能只在 `open()` 里灌**：切到别的顶栏页
+    /// 之后后台装好一份实例，再切回实例页时模式行还停在「预设」上，`open()` 不会被叫到。
+    void refreshInstances();
 
     /// 预设根目录（验证工程与安装流程都问这一处，别各自拼路径）。
     static QString presetsRoot();

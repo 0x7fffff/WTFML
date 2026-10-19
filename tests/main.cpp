@@ -20592,6 +20592,42 @@ static void runTaskLedgerTests() {
         manager.succeed(b);
         check(manager.snapshot(b).doneUnits == 10, "AM1 成功收尾时完成数补齐到总数",
               QString::number(manager.snapshot(b).doneUnits));
+
+        // ★ 收尾**不许**把"收尾之后才露"的那几位一起抹掉。生产代码里两位都是这么用的：
+        //   · 重试：`ActivityCenterController::finish()` 在 `fail()` **之前**钉 `canRetry`
+        //     （`setCapabilities()` 只收活动态）；
+        //   · 崩溃项：`CrashReportController::report()` 建出来就带着导出报告那两位，
+        //     随即 `fail()`。
+        //   这两条都在 `TaskManager::finish()` 里被一句 `capabilities = TaskCapabilities()`
+        //   吃掉过 —— 症状就是「界面上永远没有重试 / 没有导出报告」。
+        {
+            const Tasks::TaskId c =
+                manager.begin(Tasks::TaskKind::Download, QStringLiteral("下载 C"));
+            Tasks::TaskCapabilities caps = manager.snapshot(c).capabilities;
+            caps.canRetry = true;
+            check(manager.setCapabilities(c, caps), "AM1 活动态可以钉下 canRetry");
+            check(manager.fail(c, QStringLiteral("两发失败")), "AM1 失败收尾");
+            check(manager.snapshot(c).capabilities.canRetry,
+                  "★★ AM1 fail() 不许抹掉收尾前钉下的 canRetry（否则那颗「重试」永远不露）");
+            check(!manager.snapshot(c).capabilities.canCancel,
+                  "AM1 收尾同时把「取消」收掉（它只在活动态有意义）");
+            check(Tasks::retryOffered(manager.snapshot(c), c, true),
+                  "★★ AM1 收尾之后 `retryOffered()` 真能靠这一位说\"露\"");
+        }
+        {
+            Tasks::TaskCapabilities crashCaps;
+            crashCaps.canExportReport = true;
+            crashCaps.canOpenCrashDir = true;
+            crashCaps.canOpenLog = true;
+            const Tasks::TaskId crash = manager.begin(
+                Tasks::TaskKind::Crash, QStringLiteral("游戏异常退出"),
+                QString(), {}, crashCaps);
+            check(crash != Tasks::invalidTaskId(), "AM1 崩溃项建出来了");
+            manager.fail(crash, QStringLiteral("退出码 1"));
+            const Tasks::TaskCapabilities after = manager.snapshot(crash).capabilities;
+            check(after.canExportReport && after.canOpenCrashDir && after.canOpenLog,
+                  "★★ AM1 崩溃项收尾之后「导出错误报告 / 打开崩溃报告目录 / 打开日志」都还在");
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -20790,6 +20826,179 @@ static void runTaskLedgerTests() {
         lazy.setHistoryPath(QString());
         check(lazy.historyPath() == Tasks::defaultHistoryPath(),
               "AM4 指回空串 = 回到默认那一份（不是「写到空路径去」）", lazy.historyPath());
+    }
+
+    // ---------------------------------------------------------------------
+    section("AM5. 压力：几百项任务一起推进 / 收尾（大量下载 + 多实例 + 批量改文件）");
+    // ---------------------------------------------------------------------
+    // 玩家真实形状：一边下几十个文件、一边开几个实例、一边批量启用/禁用模组 ——
+    // 账本里同时躺着几百项，每 200 ms 每项来一帧进度，收尾时刻还会挤在同一毫秒里。
+    // 这一节钉三件事：① 推进/收尾期间账本自身不串（数量、终态、迟到帧）；
+    // ② 「已完成」那一栏的顺序是确定的（同毫秒并列按号）；③ 落盘截断留的是最近的那批。
+    {
+        QTemporaryDir dir;
+        check(dir.isValid(), "AM5 建临时目录");
+        if (!dir.isValid()) {
+            return;
+        }
+        const QString path = dir.filePath(QStringLiteral("stress.tasks"));
+        Tasks::TaskManager manager;
+        manager.setHistoryPath(path);
+
+        int finishedSignals = 0;
+        int historySignals = 0;
+        QObject::connect(&manager, &Tasks::TaskManager::taskFinished,
+                         [&finishedSignals](Tasks::TaskId, bool) { ++finishedSignals; });
+        QObject::connect(&manager, &Tasks::TaskManager::historyChanged,
+                         [&historySignals]() { ++historySignals; });
+
+        constexpr int kCount = 240;
+        constexpr int kFrames = 50;
+        static constexpr Tasks::TaskKind kKinds[] = {Tasks::TaskKind::Download,
+                                                     Tasks::TaskKind::Launch,
+                                                     Tasks::TaskKind::Install};
+        QList<Tasks::TaskId> ids;
+        ids.reserve(kCount);
+        for (int i = 0; i < kCount; ++i) {
+            QList<Tasks::TaskStep> steps;
+            for (int s = 0; s < 6; ++s) {
+                steps.append({QStringLiteral("步骤 %1").arg(s + 1),
+                              Tasks::TaskStepState::Pending, {}});
+            }
+            ids.append(manager.begin(kKinds[i % 3], QStringLiteral("压力项 %1").arg(i),
+                                     QStringLiteral("target-%1").arg(i % 5), steps));
+        }
+        check(ids.size() == kCount && ids.constLast() == ids.constFirst() + kCount - 1,
+              "AM5 240 个号连着发、一个不重",
+              QStringLiteral("%1 → %2").arg(ids.constFirst()).arg(ids.constLast()));
+        check(manager.active().size() == kCount,
+              "AM5 开局 240 项全在「正在进行」里",
+              QString::number(manager.active().size()));
+
+        // 高速推进：50 帧 × 240 项（约等于 40 件同时在跑、每 200 ms 一帧跑十秒）。
+        for (int frame = 0; frame < kFrames; ++frame) {
+            for (const Tasks::TaskId id : ids) {
+                (void)manager.setProgress(id, qint64(frame) * 8, 400);
+                (void)manager.setBytes(id, qint64(frame) * 1024, 51200);
+                (void)manager.setStepState(id, frame / 9, Tasks::TaskStepState::Running);
+            }
+        }
+        check(manager.active().size() == kCount,
+              "AM5 推进 12000 帧期间没有一项被误收尾",
+              QString::number(manager.active().size()));
+        const Tasks::TaskSnapshot lastBefore = manager.snapshot(ids.constLast());
+        check(lastBefore.doneUnits == qint64(kFrames - 1) * 8 && lastBefore.totalUnits == 400
+                  && lastBefore.bytesDone == qint64(kFrames - 1) * 1024,
+              "AM5 最后一帧原样落在快照上（进度 / 字节都没被别的项串走）",
+              QStringLiteral("%1 / %2 · %3").arg(lastBefore.doneUnits)
+                  .arg(lastBefore.totalUnits).arg(lastBefore.bytesDone));
+
+        // 收掉一半（120 项：成功 / 失败 / 取消各 40），另一半继续跑 —— 模拟"下完一批、
+        // 另一批还在下"，以及同时有实例在启动、有批量文件操作在跑。
+        QList<Tasks::TaskId> terminalIds;
+        for (int i = 0; i < kCount; i += 2) {
+            const Tasks::TaskId id = ids.at(i);
+            switch (i % 6) {
+            case 0:
+                (void)manager.succeed(id);
+                break;
+            case 2:
+                (void)manager.fail(id, QStringLiteral("模拟失败"));
+                break;
+            default:
+                (void)manager.cancel(id);
+                break;
+            }
+            terminalIds.append(id);
+        }
+        check(manager.active().size() == kCount / 2 && terminalIds.size() == kCount / 2,
+              "AM5 收掉一半：120 项还在跑、120 项已收尾",
+              QStringLiteral("%1 / %2").arg(manager.active().size()).arg(manager.finished().size()));
+        check(finishedSignals == kCount / 2 && historySignals == kCount / 2,
+              "AM5 taskFinished / historyChanged 各 120 发（一项收尾只喊一次）",
+              QStringLiteral("%1 / %2").arg(finishedSignals).arg(historySignals));
+
+        // 迟到帧：终端项上再推进、再收尾 —— 一个都不许生效、快照一个字节都不许变。
+        bool lateAccepted = false;
+        for (const Tasks::TaskId id : terminalIds) {
+            const Tasks::TaskSnapshot before = manager.snapshot(id);
+            lateAccepted = manager.setProgress(id, 999, 1000) || lateAccepted;
+            lateAccepted = manager.setBytes(id, 999, 1000) || lateAccepted;
+            lateAccepted = manager.setStepState(id, 0, Tasks::TaskStepState::Done) || lateAccepted;
+            lateAccepted = manager.succeed(id) || lateAccepted;
+            lateAccepted = manager.cancel(id) || lateAccepted;
+            lateAccepted = manager.fail(id, QStringLiteral("迟到")) || lateAccepted;
+            const Tasks::TaskSnapshot after = manager.snapshot(id);
+            if (after.state != before.state || after.doneUnits != before.doneUnits
+                || after.bytesDone != before.bytesDone || after.errorSummary != before.errorSummary
+                || after.steps.size() != before.steps.size()) {
+                lateAccepted = true;
+            }
+        }
+        check(!lateAccepted, "AM5 120 个终端项上的迟到帧 / 二次收尾全部被拒，快照没变");
+        check(manager.active().size() == kCount / 2,
+              "AM5 迟到帧也没有把任何一项从「已完成」拽回来");
+
+        // 顺序：最近的在前；同一毫秒并列时号大的在前 —— 这条不靠运气，靠比较器里那个
+        // 第二把尺（批量操作就是几十项挤在同一毫秒里收尾的）。
+        const QList<Tasks::TaskSnapshot> finished = manager.finished();
+        bool ordered = finished.size() == kCount / 2;
+        bool sawTie = false;
+        for (int i = 1; ordered && i < finished.size(); ++i) {
+            const Tasks::TaskSnapshot &newer = finished.at(i - 1);
+            const Tasks::TaskSnapshot &older = finished.at(i);
+            if (newer.finishedAt < older.finishedAt) {
+                ordered = false;
+            } else if (newer.finishedAt == older.finishedAt) {
+                sawTie = true;
+                ordered = newer.id > older.id;  // 同毫秒：后发起的（号大的）排前面
+            }
+        }
+        check(ordered, "AM5 「已完成」一栏严格按「最近在前」；同毫秒并列按号定序",
+              QStringLiteral("并列=%1 第一条=%2 / 最后一条=%3")
+                  .arg(sawTie ? QStringLiteral("有") : QStringLiteral("无"))
+                  .arg(finished.isEmpty() ? 0 : finished.constFirst().id)
+                  .arg(finished.isEmpty() ? 0 : finished.constLast().id));
+
+        // all() = 活动的（发起顺序）在前，收尾的（最近在前）在后。
+        const QList<Tasks::TaskSnapshot> everything = manager.all();
+        bool splitOk = everything.size() == kCount;
+        for (int i = 0; splitOk && i < everything.size(); ++i) {
+            splitOk = Tasks::isActiveState(everything.at(i).state) == (i < kCount / 2);
+        }
+        check(splitOk, "AM5 all() 先活动、后收尾，各 120 条",
+              QString::number(everything.size()));
+
+        // 落盘截断：账本里 120 活动 + 120 已完成，盘上只留**最近的 50 条**已完成。
+        check(manager.saveHistory(), "AM5 压力账本落盘成功", path);
+        const QList<Tasks::TaskSnapshot> onDisk = Tasks::load(path);
+        const int limit = Tasks::finishedHistoryLimit();
+        check(onDisk.size() == kCount / 2 + limit,
+              "AM5 盘上 = 120 条没跑完的 + 最近 50 条已完成的",
+              QStringLiteral("%1（上限 %2）").arg(onDisk.size()).arg(limit));
+        bool keptNewest = false;
+        bool keptOldest = false;
+        for (const Tasks::TaskSnapshot &task : onDisk) {
+            if (task.id == ids.at(kCount - 2)) keptNewest = true;  // 238：最后一个收尾的
+            if (task.id == ids.at(0)) keptOldest = true;           // 0：最早收尾的
+        }
+        check(keptNewest && !keptOldest,
+              "AM5 截断留下的是**最近**那 50 条（最新那件在、最早那件不在）",
+              QStringLiteral("newest=%1 oldest=%2").arg(keptNewest).arg(keptOldest));
+
+        // 读回来：没跑完的算已中断、号从盘上最大的那个续（再发一个不许撞上旧历史）。
+        Tasks::TaskManager reloaded;
+        reloaded.setHistoryPath(path);
+        const int loaded = reloaded.loadHistory();
+        check(loaded == onDisk.size() && reloaded.active().isEmpty()
+                  && reloaded.finished().size() == onDisk.size(),
+              "AM5 读回之后没有「正在跑」的：全成了已中断 / 已完成",
+              QStringLiteral("loaded=%1 active=%2")
+                  .arg(loaded).arg(reloaded.active().size()));
+        const Tasks::TaskId nextId =
+            reloaded.begin(Tasks::TaskKind::Download, QStringLiteral("压力之后的新项"));
+        check(nextId > ids.constLast(), "AM5 新号从盘上最大的那个之后续（不撞号）",
+              QStringLiteral("new=%1（压力里最大 %2）").arg(nextId).arg(ids.constLast()));
     }
 }
 
@@ -21017,6 +21226,32 @@ static void runCopyInstanceAndWorldTests() {
               "ZJ5 目标里还没有 versions/ 时也成（自己建出来）", error);
         check(existsAt(fresh + QStringLiteral("/versions/第一份/第一份.jar")),
               "ZJ5 而且落在新建的 versions/ 下面");
+    }
+    {
+        // ★ 2026-10-19：「复制实例」/「升级副本」的拷树已经挪进**后台线程**。后台一律走
+        //    copyInstanceFrom()（源目录在主线程算好传进去）—— `copyInstance()` 内部现读
+        //    `AppPaths::versionDir()`，而那是进程级可变状态：用户完全可以在这趟跑着的
+        //    时候切换游戏文件夹，worker 里去读就是数据竞争，而且真会拷错目录。
+        //    这一条把"当前数据目录"换成另一份，里面摆一个**同名、内容不同**的实例：
+        //    实现要是偷懒去问 AppPaths，拷出来的就是替身那一份的 jar。
+        const QString decoyRoot = scratch.path() + QStringLiteral("/换过去的游戏文件夹");
+        const QString decoyDir = makeInstanceDir(decoyRoot + QStringLiteral("/versions"), srcId,
+                                                 R"({"name":"替身","instanceId":"decoy-uuid"})");
+        writeFileAt(decoyDir + QLatin1Char('/') + srcId + QStringLiteral(".jar"),
+                    "decoy-jar-bytes");
+        AppPaths::setMinecraftDir(decoyRoot);
+        QString error;
+        check(vm.copyInstanceFrom(srcDir, srcId, destRootPath, QStringLiteral("显式源"), &error),
+              "ZJ5 copyInstanceFrom 用传进来的源目录（不看当前数据目录）", error);
+        const QString explicitDest = destRootPath + QStringLiteral("/versions/显式源");
+        QFile copiedJar(explicitDest + QStringLiteral("/显式源.jar"));
+        const bool jarReadable = copiedJar.open(QIODevice::ReadOnly);
+        const QByteArray copiedBytes = jarReadable ? copiedJar.readAll() : QByteArray();
+        check(jarReadable && copiedBytes == QByteArrayLiteral("fake-jar-bytes"),
+              "★ ZJ5 拷的是传进来的那一份源，不是当前游戏文件夹里的同名替身", copiedBytes);
+        check(!existsAt(explicitDest + QLatin1Char('/') + srcId + QStringLiteral(".jar")),
+              "ZJ5 显式源这一份的 jar 也跟着新名字改了");
+        AppPaths::setMinecraftDir(sourceRoot.path());  // 后面几条拒绝路径还在用当前目录
     }
     {
         QString error;

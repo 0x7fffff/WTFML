@@ -27,11 +27,6 @@ bool stateIsDanger(TaskCenter::State state) {
     return state == TaskCenter::State::Failed || state == TaskCenter::State::Interrupted;
 }
 
-bool stateIsActive(TaskCenter::State state) {
-    return state == TaskCenter::State::Queued || state == TaskCenter::State::Running
-           || state == TaskCenter::State::WaitingUser || state == TaskCenter::State::Paused;
-}
-
 /// 一行小字（次要信息）。挂上 objectName 是为了验证工程找得到它（找不到的按"没画"算）。
 QLabel *makeMutedLabel(QWidget *parent, const QString &objectName) {
     auto *label = new QLabel(parent);
@@ -203,7 +198,7 @@ void TaskDetailPage::setTask(const TaskCenter::Item &item) {
 
 void TaskDetailPage::rebuild() {
     const TaskCenter::State state = m_item.state;
-    const bool active = stateIsActive(state);
+    const bool active = TaskCenter::stateIsActive(state);
 
     // ---------- 状态那一行 ----------
     const QString mark = TaskCenter::terminalMark(state);
@@ -250,7 +245,8 @@ void TaskDetailPage::rebuild() {
             delete child;
         }
         for (int i = 0; i < m_item.steps.size(); ++i) {
-            const TaskCenter::Step &step = m_item.steps.at(i);
+            const TaskCenter::Step step =
+                TaskCenter::stepForTask(m_item.state, m_item.steps.at(i));
             auto *label = new QLabel(m_body);
             label->setObjectName(MainWindowUI::taskDetailStepName(i));
             const QString note = step.note.isEmpty() ? QString()

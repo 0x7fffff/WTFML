@@ -158,7 +158,11 @@ void CrashReportController::exportReport(const QString &key) {
     const Tasks::TaskId id = key.toInt(&parsed);
     const auto found = parsed ? m_records.constFind(id) : m_records.cend();
     if (found == m_records.cend()) return;
-    const Record &record = found.value();
+    // ★ 2026-10-19：这里必须是**一份拷贝**，不能是 `m_records` 里那个引用。下面
+    //   `QFileDialog::getSaveFileName()` 是一层嵌套事件循环，这期间别处再报一次异常退出
+    //   （游戏正好崩了）就会往同一个 `QHash` 里插、可能 rehash ⇒ 那个引用回头就是野的，
+    //   而它还要被用来拼报告正文（`record.errorExcerpt` / `record.logTail`）。
+    const Record record = found.value();
     ErrorReport::Facts facts;
     facts.launcherVersion = QCoreApplication::applicationVersion();
     facts.instanceName = record.facts.instanceName;

@@ -814,11 +814,16 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
         });
     }
     auto *more = new QPushButton(tr("更多…"), m_selectionBar);
+    more->setObjectName(QStringLiteral("modMoreActions"));
     Theme::markButton(more, Theme::ButtonKind::Neutral);
     panel->addWidget(more);
     connect(more, &QPushButton::clicked, this, [this, more] {
         const auto paths = selectedPathList();
         QMenu menu(this);
+        auto *inspect = menu.addAction(tr("依赖与冲突"));
+        inspect->setObjectName(QStringLiteral("modInspectDependencies"));
+        inspect->setEnabled(!paths.isEmpty());
+        connect(inspect, &QAction::triggered, this, [this, paths] { emit inspectDependenciesRequested(paths); });
         auto *detail = menu.addAction(tr("查看详情"));
         detail->setEnabled(paths.size() == 1 && m_resourceTips.contains(identityPath(paths.value(0))));
         connect(detail, &QAction::triggered, this, [this, paths] { emit detailRequested(paths.first()); });

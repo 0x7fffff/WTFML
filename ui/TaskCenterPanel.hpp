@@ -148,6 +148,19 @@ using RunningActionHandler = std::function<void(const QString &key, int action)>
 /// 一步那一个小记号。**唯一出处**：面板里画它、验证工程比对它，都读这一个函数。
 QString stepMark(StepState state);
 
+/// 一步在**某一项任务**里该画成什么（名字、记号、备注都可能是改写过的）。
+///
+/// NOTE: 任务收尾时，正在跑的那一步会原样留在 `Running`（`TaskManager::finish()` 只把
+///       失败那一档的 Running 改成 Failed —— 取消/中断是"人叫停的"，改写成一堆 ✗ 是
+///       在冤枉那些步骤）。于是**画**的那一侧要补这一眼：任务已经有终态记号了，步骤再
+///       画一个 ● 就是"这一项已经结束、里面还有东西在跑"的自相矛盾。
+///       面板行、详情页、复制成文本三处**都走这一个函数**：以前详情弹层那一处自己做对了，
+///       另外几处各漏各的。
+Step stepForTask(State taskState, const Step &step);
+
+/// 任务还在走（排队 / 运行 / 等用户 / 暂停）。收尾过的一律 false。
+bool stateIsActive(State state);
+
 /// 已结束任务左边的状态记号。活动状态返回空串。
 QString terminalMark(State state);
 

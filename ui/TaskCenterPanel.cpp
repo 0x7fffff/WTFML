@@ -64,8 +64,8 @@ private:
 };
 
 bool isActive(TaskCenter::State state) {
-    return state == TaskCenter::State::Queued || state == TaskCenter::State::Running
-           || state == TaskCenter::State::WaitingUser || state == TaskCenter::State::Paused;
+    // 判定只有一处（见 TaskCenter::stateIsActive()）。
+    return TaskCenter::stateIsActive(state);
 }
 
 // ---------- 这一块面板自己的几个尺寸 ----------
@@ -280,7 +280,8 @@ public:
             stepsRow->setContentsMargins(0, 0, 0, 0);
             stepsRow->setSpacing(MainWindowUI::taskCenterPanelStepSpacing());
             for (int i = 0; i < item.steps.size(); ++i) {
-                const TaskCenter::Step &step = item.steps.at(i);
+                const TaskCenter::Step step =
+                    TaskCenter::stepForTask(item.state, item.steps.at(i));
                 auto *label = new QLabel(this);
                 label->setObjectName(MainWindowUI::taskCenterPanelRowStepName(index, i));
                 label->setText(TaskCenter::stepMark(step.state) + QLatin1Char(' ') + step.name);
@@ -378,6 +379,43 @@ QString TaskCenter::stepMark(StepState state) {
         return QCoreApplication::translate("TaskCenter", "✗");
     }
     return QString();
+}
+
+bool TaskCenter::stateIsActive(State state) {
+    return state == State::Queued || state == State::Running || state == State::WaitingUser
+           || state == State::Paused;
+}
+
+TaskCenter::Step TaskCenter::stepForTask(State taskState, const Step &step) {
+    Step out = step;
+    if (out.state != StepState::Running || stateIsActive(taskState)) {
+        return out;
+    }
+    // 收尾了，但这一步还停在"正在跑"。
+    switch (taskState) {
+    case State::Succeeded:
+        out.state = StepState::Done;
+        break;
+    case State::Cancelled:
+        out.state = StepState::Pending;
+        if (out.note.isEmpty()) {
+            out.note = QCoreApplication::translate("TaskCenter", "已取消");
+        }
+        break;
+    case State::Interrupted:
+    case State::Failed:
+        out.state = StepState::Failed;
+        if (taskState == State::Interrupted && out.note.isEmpty()) {
+            out.note = QCoreApplication::translate("TaskCenter", "已中断");
+        }
+        break;
+    case State::Queued:
+    case State::Running:
+    case State::WaitingUser:
+    case State::Paused:
+        break;  // 上面已经返回；这里只为把枚举写全
+    }
+    return out;
 }
 
 QString TaskCenter::terminalMark(State state) {
@@ -1087,18 +1125,9 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
         heading->setObjectName(QStringLiteral("taskCenterFlowHeading"));
         layout->addWidget(heading);
         for (int index = 0; index < item.steps.size(); ++index) {
-            auto step = item.steps.at(index);
-            // 兼容旧任务历史：终态不能再把当时的当前步骤画成“仍在运行”。
-            if (step.state == TaskCenter::StepState::Running && !isActive(item.state)) {
-                if (item.state == TaskCenter::State::Succeeded) step.state = TaskCenter::StepState::Done;
-                else if (item.state == TaskCenter::State::Cancelled) {
-                    step.state = TaskCenter::StepState::Pending;
-                    if (step.note.isEmpty()) step.note = tr("已取消");
-                } else {
-                    step.state = TaskCenter::StepState::Failed;
-                    if (item.state == TaskCenter::State::Interrupted && step.note.isEmpty()) step.note = tr("已中断");
-                }
-            }
+            // 兼容旧任务历史：终态不能再把当时的当前步骤画成“仍在运行”。判定和另外三处
+            // 共用 `stepForTask()`（以前这一段是这里独有的一份）。
+            const auto step = TaskCenter::stepForTask(item.state, item.steps.at(index));
             auto *row = new QWidget(m_detailContent);
             row->setObjectName(QStringLiteral("taskCenterFlowStep_%1").arg(index));
             auto *column = new QVBoxLayout(row);

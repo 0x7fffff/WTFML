@@ -1457,7 +1457,36 @@ MainWindow::MainWindow(QWidget *parent)
         PresetController::Host{
             [this](const QString &id) { return instanceDisplayName(id); },
             [this](const QString &id) { return m_launcherManager->isVersionRunning(id); },
-            [this](const QString &text) { appendLog(text); }},
+            [this](const QString &text) { appendLog(text); },
+            // 模组预设那一趟在后台往 `mods/` 里写文件：期间这一份不能启动、不能删
+            // （和「复制实例」「还原」同一个集合，见 installingVersionIds()）。
+            [this](const QString &id, bool busy) {
+                if (busy) {
+                    markFileOperationBusy(id);
+                } else {
+                    releaseFileOperationBusy(id);
+                }
+            },
+            // ★ 2026-10-19：应用预设**也要先问一句**"这一份是不是正在别的作业手里"。
+            //   ★ 这里问的是**搬文件那一份**（`m_fileOperationInstanceIds`），不是
+            //   `installingVersionIds()` 的合集 —— 后者在「装完实例、接着跑安装时选的
+            //   预设」那一趟里**故意**还压着 `m_installingInstanceId`（见
+            //   `onVersionDownloadFinished()` 开头那段），问合集的话，安装向导最后
+            //   那一步会被自己挡掉。
+            [this](const QString &id) {
+                // 导入整合包那一路也会把 overrides 整棵解压进实例根目录（`m_importingInstanceId`），
+                // 和预设写的是同一片地方。它不在搬文件那个计数集合里，单独并进来。
+                return m_fileOperationInstanceIds.contains(id) || id == m_importingInstanceId;
+            },
+            // ★ 2026-10-19：`applyPlan()` 专用、宽的那一份 —— 正被安装 / 补全文件的
+            //   实例也不能这时候落预设。它只从预设页那一颗「应用」进来，不存在
+            //   "安装向导收尾自己挡自己"的问题（那一步走的是下面窄的那道闸）。
+            [this](const QString &id) {
+                return installingVersionIds().contains(id);
+            },
+            // 收尾之后重灌实例清单：这一趟期间别的刷新（下载收尾、改设置）会把这一份
+            // 按 `installingVersionIds()` 滤掉，不重刷它就一直不在列表里。
+            [this]() { refreshInstalledVersions(); }},
         this);
     // 模组兼容检查里 CurseForge 那一侧要用同一个 key（设置里填过才算可用）。
     m_presetController->setCurseForgeApiKey(m_settings->curseForgeApiKey());
@@ -1503,7 +1532,16 @@ MainWindow::MainWindow(QWidget *parent)
                 if (m_serverSettingsPage != nullptr && m_serverSettingsId == serverId) {
                     refreshServerSettingsPage();
                 }
-            }},
+            },
+            // 还原一份实例期间它算「正在搬文件」：不能启动、不能删（见 restoreInstance()）。
+            [this](const QString &id, bool busy) {
+                if (busy) {
+                    markFileOperationBusy(id);
+                } else {
+                    releaseFileOperationBusy(id);
+                }
+            },
+            [this] { refreshInstalledVersions(); }},
         this);
     m_serverPingController = new ServerPingController(
         ServerPingController::Host{
@@ -1569,6 +1607,13 @@ MainWindow::MainWindow(QWidget *parent)
             },
             [this] { refreshInstalledVersions(); },
             [this](const QString &text) { appendLog(text); },
+            [this](const QString &id, bool busy) {
+                if (busy) {
+                    markFileOperationBusy(id);
+                } else {
+                    releaseFileOperationBusy(id);
+                }
+            },
             // 任务中心那一格：「复制实例」后台那一趟（coding plan §9.9）。收尾同样**不走**
             // `MainWindow::finishTask()` —— 复制没有"可重试的下载批次"。
             [this](Tasks::TaskKind kind, const QString &title, const QString &targetId,
@@ -2468,6 +2513,7 @@ void MainWindow::updateBottomBarTaskSummary() {
 ///   `VersionManager::canCancelDownload()` 上头那句"别再加阶段判据，`isBusy()` 那时候
 ///   本来就是 false，那一格自然就没有取消可点" —— **说的就是这里**，从前没人接它。
 bool MainWindow::cancelWouldWork(const Tasks::TaskSnapshot &task) const {
+    if (m_modTransferCancels.contains(task.id)) return true;
     if (task.id == m_downloadTaskId && m_presetController && m_presetController->isInstallingMods()) return true;
     if (m_toolboxController && m_toolboxController->ownsDownloadTask(task.id))
         return m_toolboxController->canCancelDownloadTask(task.id);
@@ -2477,7 +2523,20 @@ bool MainWindow::cancelWouldWork(const Tasks::TaskSnapshot &task) const {
         return true;
     }
     // ② 其余的（下载 / 安装 / 导入）底下都是 `VersionManager` 那一批：有批次在飞才真能掐。
-    return m_versionManager != nullptr && m_versionManager->canCancelDownload();
+    // ★ 2026-10-19：判据里**必须**带"这一项自己就是那一批"。原来只看"下载器忙不忙"，
+    //   于是任何被记成 Install 的**别种**任务（典型：升级副本那种后台搬文件，见
+    //   InstanceDialogController 的 begin）都会长出一颗「取消」，按下去掐掉的却是当时
+    //   正好在飞的**另一批**版本下载。`cancelTaskFromDetail()` 里那一句分派必须同口径。
+    // ★ 2026-10-19 再补：`VersionManager` 上可以同时挂两批，账本里也就有两个号 ——
+    //   ① `m_downloadTaskId`（`beginDownloadTask()` 记的版本 / 整合包 / 资源下载）；
+    //   ② `m_updateBatch.task`（「更新某个实例的 N 个资源」，见
+    //   `updateInstanceResources()`）。两批都是 `canCancelDownload()` 的真主人，少认一个
+    //   就是"取消按钮整个消失"。别的号（升级副本、导入搬文件…）仍然一律不认。
+    const bool ownsVersionBatch =
+        task.id == m_downloadTaskId
+        || (m_updateBatch.task != Tasks::invalidTaskId() && task.id == m_updateBatch.task);
+    return m_versionManager != nullptr && ownsVersionBatch
+           && m_versionManager->canCancelDownload();
 }
 
 bool MainWindow::retryWouldWork(const Tasks::TaskSnapshot &task) const {
@@ -2523,6 +2582,12 @@ void MainWindow::onTaskDetailAction(const QString &key, TaskDetailPage::Action a
 }
 
 void MainWindow::cancelTaskFromDetail(const QString &key) {
+    bool transferParsed = false;
+    const auto transferId = key.toULongLong(&transferParsed);
+    if (transferParsed && m_modTransferCancels.contains(transferId)) {
+        m_modTransferCancels.value(transferId)();
+        return;
+    }
     bool directKey = false;
     const auto directId = key.toULongLong(&directKey);
     if (directKey && m_toolboxController && m_toolboxController->cancelDownloadTask(directId)) return;
@@ -2541,7 +2606,14 @@ void MainWindow::cancelTaskFromDetail(const QString &key) {
         m_serverInstall->cancel();
         return;
     }
-    if (m_versionManager != nullptr && m_versionManager->cancelActiveDownload()) {
+    // ★ 和 `cancelWouldWork()` 的 ② 逐字同口径：版本下载 / 整合包导入那一批认
+    //   `m_downloadTaskId`，「更新某个实例资源」那一批认 `m_updateBatch.task`。
+    //   两者底下是同一个下载器，所以都是同一条 `cancelActiveDownload()`。
+    if (m_versionManager != nullptr
+        && (key == QString::number(m_downloadTaskId)
+            || (m_updateBatch.task != Tasks::invalidTaskId()
+                && key == QString::number(m_updateBatch.task)))
+        && m_versionManager->cancelActiveDownload()) {
         appendLog(tr("下载已取消。已经下好的文件留在原处。"));
     }
 }
@@ -2887,11 +2959,39 @@ void MainWindow::appendLog(const QString &text) {
     qDebug().noquote() << QStringLiteral("[WTFML]") << text;
 }
 
+void MainWindow::markFileOperationBusy(const QString &versionId) {
+    if (versionId.isEmpty()) {
+        return;
+    }
+    // ★ 2026-10-19：计数而不是集合 —— 同一份实例上可以叠两趟作业。收尾顺序不受控
+    //   （复制跑完的可能比模组预设早），先到先摘的话另一趟就裸奔了。
+    ++m_fileOperationBusyCounts[versionId];
+    m_fileOperationInstanceIds.insert(versionId);
+}
+
+void MainWindow::releaseFileOperationBusy(const QString &versionId) {
+    if (versionId.isEmpty()) {
+        return;
+    }
+    auto it = m_fileOperationBusyCounts.find(versionId);
+    if (it == m_fileOperationBusyCounts.end()) {
+        // 没记过就摘：说明调用方配错了一对，别把它变成负数、也别动集合（可能还有
+        // 别的一趟正压着这个 id）。
+        return;
+    }
+    if (--it.value() > 0) {
+        return;
+    }
+    m_fileOperationBusyCounts.erase(it);
+    m_fileOperationInstanceIds.remove(versionId);
+}
+
 QSet<QString> MainWindow::installingVersionIds() const {
     // 三个来源合起来才是"现在**不能启动**的那几个实例"。分开记是因为它们覆盖的时段
     // 不一样：VersionManager 那个只在一批文件真的在写的时候非空，而"点了导入、还在拉
     // 版本表"那几段是界面自己记的（数据层那会儿连批都还没开）。
-    QSet<QString> ids;
+    // 后台搬文件（模组迁移 / 「迁移」「升级副本」）两个入口共用这一份名单。
+    QSet<QString> ids = m_fileOperationInstanceIds;
     const QString busy = m_versionManager->busyVersionId();
     if (!busy.isEmpty()) {
         ids.insert(busy);
@@ -3019,6 +3119,13 @@ void MainWindow::refreshInstalledVersions() {
     // 而"换数据目录"正是这个函数被叫的场合之一（另一处是启动那一刻）。两页各自重灌，
     // 谁也不去猜对方缓存了什么。
     refreshServerList();
+    // 「预设」那一页的两个实例下拉框跟着这份清单走（页面还没建出来时它自己什么都不做，
+    // 建过之后按 id 保留当前选择）。**不能只在切到「预设」那一档时灌**：用户切到别的
+    // 顶栏页之后后台装好了一份实例，再切回来时模式行还停在「预设」上，`open()` 不会被
+    // 叫到 —— 下拉框里就少那一份，用户以为没装上。
+    if (m_presetController != nullptr) {
+        m_presetController->refreshInstances();
+    }
     updateHomeRecent();
 }
 
@@ -5272,13 +5379,11 @@ void MainWindow::checkInstanceUpdates(const QString &instanceId, InstanceSetting
     //    写下来，另一个就直接读。见 InstanceIconLookup 的 .hpp 里那段。
     options.cacheDir = AppPaths::instanceIconCacheDir();
     options.cacheKey = instanceId;
+    options.requireVersionMetadata = true;
 
-    // 上一趟那个线程对象还挂着就先放它走（同 startInstanceFileIconLookup 那段 ——
-    // 每查一次都在父对象底下攒一个僵尸 QThread 是要还的）。
-    if (m_updateCheck.thread != nullptr) {
-        m_updateCheck.thread->deleteLater();
-        m_updateCheck.thread = nullptr;
-    }
+    // NOTE: 这里以前还有一段"上一趟那个线程对象还挂着就先 deleteLater"——它**永远进不去**：
+    //       上面那道 `m_updateCheck.thread != nullptr` 已经把"上一趟没跑完"挡回去了，而跑完
+    //       的那一趟由 `finishUpdateCheck()` 自己收（见那一段 ★）。线程对象的回收一并放在那里。
     m_updateCheck.thread = QThread::create([this, paths, options, instanceId]() {
         const InstanceIconLookup::Result result = InstanceIconLookup::lookup(paths, options);
         QMetaObject::invokeMethod(
@@ -5333,6 +5438,9 @@ void MainWindow::onUpdateCheckLookupFinished(const InstanceIconLookup::Result &r
         item.iconKey = found.hit.iconCacheId();
         item.title = found.hit.title;
         item.sha1 = found.sha1;
+        item.currentVersion = found.currentVersion;
+        item.projectId = found.hit.projectId;
+        item.source = found.hit.source;
         // ★★ 2026-10-11：这一条问版本列表时**带不带加载器**（见
         //   `ModDependencies::kindUsesLoader()` 那段 —— 资源包 / 光影包 / 数据包带上
         //   实例的加载器就一条都问不到）。类别是收集候选文件那一步记下的。
@@ -5593,6 +5701,22 @@ void MainWindow::onUpdateCheckVersionsFinished(const QString &requestKey,
 //   QString 是隐式共享的，按值收不多拷一个字节的正文。
 void MainWindow::finishUpdateCheck(QString instanceId) {
     const UpdateCheckRun run = m_updateCheck;
+    // ★ 2026-10-19：`run.thread`（那一趟反查的 QThread）**不属于这一份账**，可它原来是
+    //   跟着 `m_updateCheck = UpdateCheckRun{}` 一起被丢掉的指针 —— 结果是：
+    //     · 每查一次都在 MainWindow 底下攒一个已经跑完的僵尸 QThread（父对象是 this，
+    //       要等整扇窗散掉才一起删）；
+    //     · 析构里那句 `m_updateCheck.thread->wait()` 对**刚收完尾**的那一趟永远看不到
+    //       它（指针已经没了）。而这一趟的回报正是它自己排过来的 —— 主线程处理这条
+    //       排队消息时，worker 可能还在 `run()` 的最后几条指令里。那个窗口里关窗，
+    //       Qt 对"线程在跑、父对象先散"是直接 abort。
+    //   所以先在这里把它收干净：已经停了就 deleteLater；还在收尾就等它一下（微秒级，
+    //   它那句 `invokeMethod` 已经是函数体最后一行）。
+    if (run.thread != nullptr) {
+        if (!run.thread->isFinished()) {
+            run.thread->wait();
+        }
+        run.thread->deleteLater();
+    }
     m_updateCheck = UpdateCheckRun{};
 
     // 报告：**有新版本的排最前面**（那才是用户点这一下的目的），然后是"说不清"，
@@ -12408,9 +12532,17 @@ void MainWindow::exportGameLog(int sessionId) {
         return;  // 走不到：这两颗键就长在那个窗上
     }
     const QDateTime now = QDateTime::currentDateTime();
+    // ★ 2026-10-19：窗口是**带 WA_DeleteOnClose 的**（见 `GameSessionController.hpp` 的
+    //   说明），而下面那个保存框是一层嵌套事件循环 —— 这期间游戏可能正好以 0 退出，
+    //   `autoCloseOnExit()` 会把这一扇 close() 掉、随之销毁。所以：要读的东西**在弹框
+    //   之前**读好（那一份日志也正好是用户点这颗键那一刻看到的），框回来之后只用
+    //   `QPointer` 判一下还能不能写回那行"已导出"。
+    const QString instanceName = window->instanceName();
+    const QString logText = window->allLogText();
+    QPointer<GameLogWindow> windowGuard(window);
     const QString suggested =
         QDir(exportDefaultDirectory())
-            .filePath(ErrorReport::suggestedLogFileName(window->instanceName(), now));
+            .filePath(ErrorReport::suggestedLogFileName(instanceName, now));
     // 保存框**挂在那个日志窗上**（不是主窗）：它是用户刚点过的那扇窗，弹出来的框该压着它，
     // 而不是被它盖住（日志窗没有父窗，是独立的顶层窗口，见它的文件头）。
     // NOTE: 不用 `DontUseNativeDialog` —— 这一颗是**导出到哪儿**，用户要的是那个熟悉的
@@ -12422,7 +12554,7 @@ void MainWindow::exportGameLog(int sessionId) {
     if (path.isEmpty()) {
         return;  // 用户取消
     }
-    const QString writeError = writeExportFile(path, window->allLogText());
+    const QString writeError = writeExportFile(path, logText);
     if (!writeError.isEmpty()) {
         appendLog(tr("导出日志失败：%1").arg(writeError));
         // 错误要弹窗（这一条是产品的硬约束）—— 弹的是启动器那一层，日志窗这时还在旁边
@@ -12437,7 +12569,10 @@ void MainWindow::exportGameLog(int sessionId) {
     // 成功那一下**写回那个日志窗**：用户就在那儿点的那颗键，眼睛也在那儿 —— 弹一个框
     // 还要他再点一次"知道了"，而这件事没有需要他决定的东西。写法跟着窗里已有的那几行
     // 自己补的话（"[游戏已退出，退出码：0]"），一样带方括号。
-    window->appendText(tr("\n[日志已导出：%1]\n").arg(shown));
+    // 窗在保存框开着的时候被自动关掉的话就不写了（文件已经导出成功，主日志里也有记录）。
+    if (!windowGuard.isNull()) {
+        windowGuard->appendText(tr("\n[日志已导出：%1]\n").arg(shown));
+    }
 }
 
 void MainWindow::exportGameErrorReport(int sessionId) {
@@ -12446,6 +12581,9 @@ void MainWindow::exportGameErrorReport(int sessionId) {
         return;
     }
     const QDateTime now = QDateTime::currentDateTime();
+    // 同上：窗带 WA_DeleteOnClose，保存框那一层嵌套循环里游戏可能以 0 退出、窗跟着没了。
+    // 报告正文全在弹框之前读好；框回来之后只用 `QPointer` 决定要不要写回那行"已导出"。
+    QPointer<GameLogWindow> windowGuard(window);
 
     // 事实从**快照**里取（理由见 GameSessionController::GameLogFacts 的说明：会话一结束，
     // 那份记录就查不到了，而"崩溃之后导一份报告"正是这件事最主要的用法）。
@@ -12491,7 +12629,9 @@ void MainWindow::exportGameErrorReport(int sessionId) {
     }
     const QString shown = QDir::toNativeSeparators(path);
     appendLog(tr("✓ 错误报告已导出：%1").arg(shown));
-    window->appendText(tr("\n[错误报告已导出：%1]\n").arg(shown));
+    if (!windowGuard.isNull()) {
+        windowGuard->appendText(tr("\n[错误报告已导出：%1]\n").arg(shown));
+    }
 }
 
 void MainWindow::exportLaunchScript(const QString &versionId, const QString &path) {
@@ -12777,8 +12917,9 @@ void MainWindow::snapshotInstance(const QString &versionId) {
     m_backupController->snapshotInstance(versionId);
 }
 
-void MainWindow::restoreInstanceSnapshot(const QString &versionId) {
-    m_backupController->restoreInstance(versionId);
+void MainWindow::restoreInstanceSnapshot(const QString &versionId,
+                                         InstanceSettingsDialog *dialog) {
+    m_backupController->restoreInstance(versionId, dialog);
 }
 
 Tasks::TaskId MainWindow::startBackupRestore(const QString &zipPath, const QString &targetParentDir,

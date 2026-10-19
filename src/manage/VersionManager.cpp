@@ -3912,6 +3912,16 @@ bool VersionManager::renameInstance(const QString &oldId, const QString &newName
 
 bool VersionManager::copyInstance(const QString &sourceId, const QString &destGameFolder,
                                   const QString &newName, QString *errorOut) {
+    // 主线程上的调用方走这一份：源目录就在**当前**数据目录底下，现算没问题。
+    // 后台线程的调用方必须走 copyInstanceFrom() —— 见 .hpp 里那段（AppPaths 是进程级
+    // 可变状态，worker 里现算会和"切换游戏文件夹"撞成数据竞争）。
+    return copyInstanceFrom(AppPaths::versionDir(sourceId.trimmed()), sourceId,
+                            destGameFolder, newName, errorOut);
+}
+
+bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &sourceId,
+                                      const QString &destGameFolder, const QString &newName,
+                                      QString *errorOut) {
     const auto fail = [errorOut](const QString &reason) {
         if (errorOut != nullptr) {
             *errorOut = reason;
@@ -3954,7 +3964,6 @@ bool VersionManager::copyInstance(const QString &sourceId, const QString &destGa
         return fail(nameProblem);
     }
 
-    const QString sourceDir = AppPaths::versionDir(id);
     if (!QDir(sourceDir).exists()) {
         return fail(tr("找不到实例目录 %1。").arg(QDir::toNativeSeparators(sourceDir)));
     }

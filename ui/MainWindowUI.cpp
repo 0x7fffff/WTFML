@@ -5370,18 +5370,31 @@ void MainWindowUI::openTaskCenterPanel() {
     // 任务中心是全局覆盖面板；主页实例列表是页面布局状态。两者不同时展开。
     closeHomeInstancePicker();
     if (TaskCenterPanel *panel = taskCenterPanel()) {
-        if (panel->isVisible() || !overlayHost->isOpen()) {
-            overlayHost->dismiss();
+        // 「开着」不能只看 findChild 找没找到：`close()` 之后面板要等 deleteLater 才真删
+        // —— 中间这一小段里它仍然是个子控件（嵌在覆盖页里，或者已经被还到停放区）。
+        // 真开着的两种样子：摊在本选项卡上（可见），或收在别的选项卡上（`parked()`）。
+        const bool open = overlayHost->isOpen() && (panel->isVisible() || overlayHost->parked());
+        if (open) {
+            if (panel->isVisible()) {
+                overlayHost->dismiss();
+                return;
+            }
+            // ★ 2026-10-17：任务中心开在**别的**选项卡上（收着，看不见）时，底栏这一按原来
+            //   调 `dismiss()` —— 而它按设计不收"收着的页"（见 OverlayHost::closeTopLayer），
+            //   于是这一按看着像"点了没反应"，那一页还占着覆盖层这一位。改成收掉、再在当前
+            //   这一页重新摊开（用户在这一页点任务中心，要的就是这一页的任务中心）。
+            if (overlayHost->evict()) {
+                QTimer::singleShot(0, taskSummaryButton, [this]() { openTaskCenterPanel(); });
+            }
             return;
         }
-        // ★ 2026-10-17：任务中心开在**别的**选项卡上（收着，看不见）时，底栏这一按原来
-        //   调 `dismiss()` —— 而它按设计不收"收着的页"（见 OverlayHost::closeTopLayer），
-        //   于是这一按看着像"点了没反应"，那一页还占着覆盖层这一位。改成收掉、再在当前
-        //   这一页重新摊开（用户在这一页点任务中心，要的就是这一页的任务中心）。
-        if (overlayHost->evict()) {
-            QTimer::singleShot(0, taskSummaryButton, [this]() { openTaskCenterPanel(); });
-        }
-        return;
+        // 残影（覆盖层已经关了 / 页面上这块被 close() 藏起来了，对象还没删）。
+        // ★ 早先这里对 `!overlayHost->isOpen()` 也调 `dismiss()` 然后 return ——
+        //   `dismiss()` 在 Mode::None 上什么都不做，于是这一按**被整个吞掉**：
+        //   用户点底栏中间那格，什么都没发生（mw_check AB6 那 5 条红就是这么来的）。
+        //   残影不能再挡路：直接排进删除队列，下面照常开一页新的。
+        //   NOTE: 只 `deleteLater()` 不 `delete` —— 它可能正处在自己的信号处理里。
+        panel->deleteLater();
     }
     if (overlayHost->isOpen()) {
         if (overlayHost->evict()) {
@@ -5527,6 +5540,7 @@ void MainWindowUI::toggleBottomBarPanel(const BottomBarAnchor &anchor) {
     //       "任务中心开着时点左下那格"就会变成两块面板同时在屏幕上。
     bool sameAnchor = false;
     bool anyOpen = false;
+    bool reopenTaskCenter = false;
     if (auto *open = dynamic_cast<BottomBarPanel *>(
             bottomBar->findChild<QWidget *>(MainWindowUI::bottomBarPanelName()))) {
         sameAnchor = open->anchor() == anchor.button;
@@ -5534,16 +5548,42 @@ void MainWindowUI::toggleBottomBarPanel(const BottomBarAnchor &anchor) {
         open->close();
     }
     if (auto *panel = taskCenterPanel()) {
-        sameAnchor = sameAnchor || panel->anchor() == anchor.button;
-        anyOpen = true;
-        if (overlayHost != nullptr) {
-            overlayHost->dismiss();
+        // 和 `openTaskCenterPanel()` 同一把尺：findChild 找得到不等于开着（close 之后
+        // 还要等 deleteLater）。真开着 = 覆盖层开着，而且这一页摊在本选项卡上或者
+        // 收在别的选项卡上。残影不能算「开着」—— 算进去的话这一按会被当成"收回"，
+        // 用户看到的就是「点底栏中间那格没反应」。
+        const bool open =
+            overlayHost != nullptr && overlayHost->isOpen()
+            && (panel->isVisible() || overlayHost->parked());
+        if (open) {
+            const bool same = panel->anchor() == anchor.button;
+            sameAnchor = sameAnchor || same;
+            anyOpen = true;
+            if (same && !panel->isVisible()) {
+                // ★ 2026-10-19：这一页收在**别的**选项卡上时，底栏这一按原先走
+                //   `dismiss()` —— 它按设计不收"收着的页"（见 OverlayHost::closeTopLayer），
+                //   而 `sameAnchor` 又是 true，于是下面那条早退把这一下**整个吞掉**：
+                //   用户在当前这一页点任务中心，什么都没发生（和 openTaskCenterPanel()
+                //   里 2026-10-17 修的是同一个坑，只是入口不一样）。
+                //   收掉那一页，排在下一轮在当前这一页重新摊开；别的面板照常先收。
+                reopenTaskCenter = true;
+            } else {
+                overlayHost->dismiss();
+            }
+        } else {
+            panel->deleteLater();
         }
     }
     if (bottomBar->findChild<QFrame *>(MainWindowUI::toolboxPanelName()) != nullptr) {
         sameAnchor = sameAnchor || anchor.kind == BottomBarAnchorKind::Tools;
         anyOpen = true;
         closeToolboxPanel();
+    }
+    if (reopenTaskCenter) {
+        if (overlayHost->evict()) {
+            QTimer::singleShot(0, taskSummaryButton, [this]() { openTaskCenterPanel(); });
+        }
+        return;
     }
     if (anyOpen && (sameAnchor || blocked)) {
         return;  // 再点一次**同一颗** = 收回去，就这一下

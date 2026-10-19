@@ -28,6 +28,7 @@
 #include <QString>
 
 class QTcpServer;
+class QTcpSocket;
 class QTimer;
 class QNetworkAccessManager;
 
@@ -223,6 +224,12 @@ private slots:
     void handleNewConnection();
 
 private:
+    /// 回调套接字上**已经把 HTTP 请求头收全**之后才进来。
+    ///
+    /// NOTE: 拆出来是因为 `handleNewConnection()` 不再阻塞等字节（见那里的说明）：
+    ///       它只负责收，收全了才交给这里走令牌链。解析失败的分支自己断开连接。
+    void processCallbackRequest(QTcpSocket *socket, const QByteArray &requestData);
+
     bool startCallbackServer();
     QString buildAuthUrl();
     QString createCodeVerifier() const;

@@ -11,11 +11,106 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QStringList>
+#include <QTemporaryFile>
+#include <QCryptographicHash>
+#include <QElapsedTimer>
 
 #include "manage/InstanceFiles.hpp"
 #include "tools/FileHash.hpp"
 
 namespace TransferApply {
+
+ModTransferResult transferMods(const QString &sourceRoot, const QString &targetRoot,
+                              const QStringList &paths, bool move, const ModProgress &progress,
+                              const std::function<bool()> &cancelled) {
+    ModTransferResult result;
+    QElapsedTimer elapsed; elapsed.start();
+    const auto stopped = [&] { return (cancelled && cancelled()) || elapsed.elapsed() >= 600000; };
+    const auto ordinaryDir = [](const QString &path) {
+        const QFileInfo info(path);
+        return info.isDir() && !info.isSymLink() && !info.isJunction();
+    };
+    const QString sourceMods = QDir(sourceRoot).filePath(QStringLiteral("mods"));
+    const QString targetMods = QDir(targetRoot).filePath(QStringLiteral("mods"));
+    if (!ordinaryDir(sourceRoot) || !ordinaryDir(targetRoot) || !ordinaryDir(sourceMods) ||
+        InstanceFiles::pathIsSameOrInside(sourceRoot, targetRoot) ||
+        InstanceFiles::pathIsSameOrInside(targetRoot, sourceRoot) ||
+        (QFileInfo::exists(targetMods) && !ordinaryDir(targetMods)) ||
+        !QDir().mkpath(targetMods) || !ordinaryDir(targetMods)) {
+        result.failed = paths.size();
+        result.problems.append(QStringLiteral("源或目标目录不可用、包含链接，或互相嵌套。"));
+        return result;
+    }
+    int completed = 0;
+    for (const auto &path : paths) {
+        if (stopped()) { result.cancelled = true; break; }
+        const QFileInfo source(path);
+        const auto report = [&](const QString &phase) {
+            if (progress) progress(completed, paths.size(), phase + QStringLiteral("：") + source.fileName());
+        };
+        const auto fail = [&](const QString &reason) {
+            ++result.failed;
+            if (result.problems.size() < 8) result.problems.append(source.fileName() + QStringLiteral("：") + reason);
+        };
+        if (!source.isFile() || source.isSymLink() || source.isJunction() ||
+            source.absolutePath() != QDir(sourceMods).absolutePath()) {
+            fail(QStringLiteral("不是源实例 mods 中的普通文件")); ++completed; continue;
+        }
+        const QString target = QDir(targetMods).filePath(source.fileName());
+        const QString suffix = QStringLiteral(".disabled");
+        const QString counterpart = target.endsWith(suffix, Qt::CaseInsensitive)
+            ? target.left(target.size() - suffix.size()) : target + suffix;
+        if (QFileInfo::exists(target) || QFileInfo(target).isSymLink() || QFileInfo::exists(counterpart)) {
+            ++result.skipped; ++completed; report(QStringLiteral("跳过同名文件")); continue;
+        }
+        report(QStringLiteral("复制"));
+        const auto stamp = FileHash::stampOf(path);
+        QFile input(path);
+        QTemporaryFile staging(QDir(targetMods).filePath(QStringLiteral(".wtfml-transfer-XXXXXX")));
+        if (!input.open(QIODevice::ReadOnly) || !staging.open()) {
+            fail(QStringLiteral("无法打开文件或创建临时文件")); ++completed; continue;
+        }
+        QCryptographicHash copiedHash(QCryptographicHash::Sha256);
+        bool writeOk = true;
+        qint64 reportedAt = elapsed.elapsed();
+        while (!input.atEnd() && !stopped()) {
+            const QByteArray chunk = input.read(256 * 1024);
+            if (chunk.isEmpty() || staging.write(chunk) != chunk.size()) { writeOk = false; break; }
+            copiedHash.addData(chunk);
+            if (elapsed.elapsed() - reportedAt >= 100) { report(QStringLiteral("复制")); reportedAt = elapsed.elapsed(); }
+        }
+        input.close();
+        if (stopped()) { result.cancelled = true; break; }
+        if (!writeOk || !staging.flush()) { fail(QStringLiteral("读取或写入失败")); ++completed; continue; }
+        staging.close();
+        report(QStringLiteral("校验"));
+        const auto sourceHash = FileHash::digestOfFile(path, FileHash::Algorithm::Sha256, {}, stopped);
+        const auto targetHash = FileHash::digestOfFile(staging.fileName(), FileHash::Algorithm::Sha256, {}, stopped);
+        if (stopped()) { result.cancelled = true; break; }
+        const QString copiedHex = QString::fromLatin1(copiedHash.result().toHex());
+        if (!sourceHash.ok || !targetHash.ok || sourceHash.hex != copiedHex || targetHash.hex != copiedHex ||
+            !FileHash::sameStamp(stamp, FileHash::stampOf(path))) {
+            fail(QStringLiteral("校验失败或来源在处理期间发生变化")); ++completed; continue;
+        }
+        // QFile::rename never replaces an existing destination. Recheck directory
+        // links before publishing; staging remains auto-removable on all failures.
+        if (!ordinaryDir(sourceRoot) || !ordinaryDir(targetRoot) || !ordinaryDir(sourceMods) ||
+            !ordinaryDir(targetMods) || QFileInfo::exists(counterpart) ||
+            !staging.rename(target)) {
+            fail(QStringLiteral("目标已变化或无法提交文件（未覆盖）")); ++completed; continue;
+        }
+        staging.setAutoRemove(false);
+        ++result.copied;
+        if (move) {
+            if (stopped()) { result.cancelled = true; break; }
+            if (FileHash::sameStamp(stamp, FileHash::stampOf(path)) && QFile::remove(path)) ++result.moved;
+            else fail(QStringLiteral("副本已验证，但未能删除来源；已保留两份"));
+        }
+        ++completed; report(QStringLiteral("完成"));
+    }
+    if (elapsed.elapsed() >= 600000) result.problems.append(QStringLiteral("已达到 600 秒截止时间。"));
+    return result;
+}
 
 namespace {
 

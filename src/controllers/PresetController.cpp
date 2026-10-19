@@ -295,6 +295,10 @@ void PresetController::pushInstances() {
     m_page->setInstances(instanceItems());
 }
 
+void PresetController::refreshInstances() {
+    pushInstances();
+}
+
 QString PresetController::categoryText(Presets::PresetCategory category) {
     switch (category) {
     case Presets::PresetCategory::Unset:
@@ -1048,6 +1052,18 @@ void PresetController::applyPlan(const QString &presetId, const QString &instanc
     }
     PresetManagePage::ApplyView view;
 
+    // ★ 2026-10-19：这个实例正在后台被别的作业写着 —— 复制 / 还原 / 迁移那一趟整棵
+    //   目录都在被读或被换掉，安装 / 补全文件那一趟也在改 `versions/<id>/`；而这一页
+    //   接下来也要往同一个目录里写（模组预设写 `mods/`，别的预设改 `options.txt`、
+    //   服务器清单这些文件）。原来这里只问"搬文件"那一份名单，正被安装 / 补全的实例
+    //   漏了过去。这里问宽的那一份（= `installingVersionIds()` 的合集）。
+    if (m_host.isInstanceBusy && m_host.isInstanceBusy(instanceId)) {
+        view.problem = tr("这个实例正在安装、补全文件或后台搬文件（复制、还原、导入），"
+                          "等它收尾之后再应用预设。");
+        m_page->showApplyResult(view);
+        return;
+    }
+
     bool ok = false;
     QString reason;
     const Presets::PresetManifest manifest =
@@ -1481,6 +1497,12 @@ void PresetController::installModsAfterInstall(const QStringList &presetIds, con
     std::function<void(bool, const QString &)> completed) {
     if (m_modInstallTask) { completed(false, tr("另一项模组预设仍在应用，请等待或取消。")); return; }
     if (!m_versions || instanceId.isEmpty()) { completed(false, tr("目标实例不可用。")); return; }
+    // 同一道闸在真正开跑之前再问一次（和 `applyPlan()` 那道是**同一个判断**）：从
+    // 「应用」按下去到这儿之间可能进过嵌套提示，期间另一趟搬文件已经起来了。
+    if (m_host.isFileOperationBusy && m_host.isFileOperationBusy(instanceId)) {
+        completed(false, tr("这个实例正在后台被其它作业写入（复制、还原或导入），等它收尾之后再应用模组预设。"));
+        return;
+    }
     QList<Presets::ModReference> references;
     QJsonArray snapshot;
     QSet<QString> seen;
@@ -1508,10 +1530,23 @@ void PresetController::installModsAfterInstall(const QStringList &presetIds, con
     auto *task = new Presets::PresetModInstaller(this);
     task->setSelectionSnapshot(snapshot);
     m_modInstallTask = task;
+    // ★ 2026-10-19：这一趟要联网查版本、下模组、往 `mods/` 里写文件，可原来**没有任何
+    //   "忙"标记** —— 用户在预设页按下「应用」之后，照样能启动这一份实例（启动器读到的
+    //   是一半的模组目录），也能把它整个删掉（安装器收尾时还会把目录重新建出来，用户
+    //   看到的是"删掉了、过一会儿它自己又回来了"）。记进和「复制实例」「还原」同一个集合。
+    //
+    //   必须在 `start()` **之前**记：`start()` 在"没有版本 / 加载器对不上"那几条路上
+    //   会**同步**回调 completed，先记后清才是对的顺序。
+    if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(instanceId, true);
     task->start(references, instanceRoot(instanceId), m_versions->instanceGameVersion(instanceId), loader,
                 m_presetApiKey, [this, instanceId] { return m_host.isRunning && m_host.isRunning(instanceId); },
-                [this, completed](const Presets::PresetModInstaller::Result &result) {
+                [this, instanceId, completed](const Presets::PresetModInstaller::Result &result) {
                     m_modInstallTask.clear();
+                    if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(instanceId, false);
+                    // ★ 2026-10-19：这一趟记着"搬文件忙"期间，别的刷新（下载收尾、改设置）
+                    //   已经按 `installingVersionIds()` 把这一份从实例页滤掉过的话，摘掉忙
+                    //   标记并不会让它自己回来 —— 这里补一次重灌。
+                    if (m_host.refreshInstances) m_host.refreshInstances();
                     const QString text = result.lines.join(QLatin1Char('\n'));
                     log(text);
                     completed(result.ok, text);

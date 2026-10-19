@@ -1103,6 +1103,25 @@ public:
     bool copyInstance(const QString &sourceId, const QString &destGameFolder, const QString &newName,
                       QString *errorOut = nullptr);
 
+    /**
+     * @brief 同 `copyInstance()`，但**源目录由调用方在主线程算好传进来**。
+     *
+     * 为什么要有这一份：`copyInstance()` 内部用 `AppPaths::versionDir(sourceId)` 现算源目录，
+     * 而它现在会被**后台线程**调用（「复制实例」/「升级副本」都挪进了 `QtConcurrent::run`）。
+     * `AppPaths::minecraftDir()` 读的是进程级的可变 `QString`，用户完全可以在这趟跑着的
+     * 时候切换游戏文件夹 —— 两个线程一读一写就是数据竞争，而且真的会拷错目录
+     * （拷的是**新**游戏文件夹里同名的那一份，或者直接报"找不到实例目录"）。
+     *
+     * 后台调用方一律走这一份：把 `AppPaths::versionDir(id)` 在**主线程**取好，捕进 worker。
+     *
+     * @param sourceDir 源实例目录的绝对路径（调用方在主线程算好）。
+     * @param sourceId 源实例的目录名（用来把副本里的 `<老名>.jar/.json` 改成新名）。
+     * @param destGameFolder / @param newName / @param errorOut 同 `copyInstance()`。
+     */
+    bool copyInstanceFrom(const QString &sourceDir, const QString &sourceId,
+                          const QString &destGameFolder, const QString &newName,
+                          QString *errorOut = nullptr);
+
     // ---------- 下载页那几类资源：把一个文件下到实例里（模组 / 数据包 / 资源包 / 光影）----------
     //
     // 一次点击 = 一个（或几个）文件，下完就结束，没有"接着装点什么"的后续 —— 所以它

@@ -168,16 +168,45 @@ void InstanceTransferController::copyInstanceInBackground(
     }
     log(tr("开始复制实例 %1 → %2 …").arg(displayName(sourceId), name));
     m_copyBusy = true;
+    // ★ 2026-10-19：拷树在后台跑，可这段时间原先**没有任何"忙"标记**。源实例照样能被
+    //   启动（游戏一边写存档、这一边读 ⇒ 副本里是半截世界）、能被删、能再改设置。
+    //   开始前的 `isVersionRunning` / `isBeingModified` 两道闸只管"按下去那一刻"。
+    //   **源**必须记；**目标**在"目标游戏文件夹就是当前游戏文件夹"时也得分两说：
+    //   实例识别只看 `versions/<名字>/` 里有没有主 jar（`InstanceFiles::resolveInstance`），
+    //   而拷树是边拷边落盘的 —— 拷到一半时 `<name>/<sourceId>.jar` 已经躺在那儿，下一次
+    //   任何全量刷新都能把它认成一份实例（`instanceId` 还是源的、meta 也没改）。启动 /
+    //   删除的闸只查 `installingVersionIds()`，所以这一段名字也得记进去。
+    //   目标在**别的**游戏文件夹时不能记这个名字：那是另一个文件夹里的相对名，当前文件夹
+    //   里可能有同名实例，记了会误伤它。
+    const bool copyIntoCurrentFolder =
+        QDir::cleanPath(destGameFolder)
+            .compare(QDir::cleanPath(AppPaths::minecraftDir()), Qt::CaseInsensitive)
+        == 0;
+    const bool markCopyTarget = copyIntoCurrentFolder && name != sourceId;
+    if (m_host.setFileOperationBusy) {
+        m_host.setFileOperationBusy(sourceId, true);
+        if (markCopyTarget) m_host.setFileOperationBusy(name, true);
+    }
 
     // ★ 为什么在后台线程里**另起一个** `VersionManager`：`copyInstance()` 最后会动
     //   `versionJsons` / `mergedVersionJsons` 两份缓存，拿主线程那一份在别的线程里跑就是
     //   数据竞争。导出那一层（`ModpackExportController`）用的是同一条写法。
     auto *watcher = new QFutureWatcher<CopyOutcome>(this);
     connect(watcher, &QFutureWatcher<CopyOutcome>::finished, this,
-            [this, watcher, sourceId, sourceDir, destGameFolder, name, done] {
+            [this, watcher, sourceId, sourceDir, destGameFolder, name, markCopyTarget, done] {
                 const CopyOutcome outcome = watcher->result();
                 watcher->deleteLater();
                 m_copyBusy = false;
+                // 先摘忙标记，再走下面任何一条早退（复制失败 / 校验没对上）。
+                if (m_host.setFileOperationBusy) {
+                    m_host.setFileOperationBusy(sourceId, false);
+                    if (markCopyTarget) m_host.setFileOperationBusy(name, false);
+                }
+                // ★ 2026-10-19：刷新必须**跟着摘标记走**，不能只挂在成功那一条路上。
+                //   复制期间源实例被 `installingVersionIds()` 滤掉；万一这中间别处
+                //   （换文件夹 / 下载收尾 / 别的对话框）刷新过一次列表，屏幕上就少了
+                //   这一行。复制 / 校验失败时用户更需要看见它还在。
+                if (m_host.refreshInstances) m_host.refreshInstances();
                 const auto finishTask = [this](bool success, const QString &error) {
                     if (m_host.finishTask && m_copyTaskId != Tasks::invalidTaskId()) {
                         m_host.finishTask(m_copyTaskId, success, error);
@@ -235,14 +264,18 @@ void InstanceTransferController::copyInstanceInBackground(
                     if (m_host.setTaskProgress) m_host.setTaskProgress(m_copyTaskId, 3, 3);
                 }
                 finishTask(true, {});
-                if (m_host.refreshInstances) m_host.refreshInstances();
                 announceCopySuccess(sourceId, destGameFolder, name);
                 done(true, {});
             });
-    watcher->setFuture(QtConcurrent::run([sourceId, destGameFolder, name] {
+    // ★ sourceDir 在**主线程**算好再捕进来（上面 `const QString sourceDir`）。
+    //   `copyInstance()` 内部会现读 `AppPaths::versionDir()`，而那是进程级可变状态 ——
+    //   用户在这趟跑着的时候能切换游戏文件夹（这页复制期间没有禁用），worker 里去读
+    //   就是数据竞争，而且可能拷错目录。后台一律走 `copyInstanceFrom()`。
+    watcher->setFuture(QtConcurrent::run([sourceDir, sourceId, destGameFolder, name] {
         VersionManager worker;
         CopyOutcome outcome;
-        outcome.ok = worker.copyInstance(sourceId, destGameFolder, name, &outcome.error);
+        outcome.ok = worker.copyInstanceFrom(sourceDir, sourceId, destGameFolder, name,
+                                             &outcome.error);
         return outcome;
     }));
 }

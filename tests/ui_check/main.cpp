@@ -5555,6 +5555,32 @@ int main(int argc, char *argv[]) {
                       && TaskCenter::terminalMark(TaskCenter::State::Cancelled) == QStringLiteral("—")
                       && TaskCenter::terminalMark(TaskCenter::State::Interrupted) == QStringLiteral("!"),
                   "I2 四种终态各有自己的记号（取消/中断不冒充成功）");
+            // 收尾时还停在「正在跑」的那一步：面板行 / 详情页 / 复制文本三处都走
+            // `stepForTask()`。取消不能被画成 ●（任务已经结束、里面还有东西在跑）。
+            {
+                TaskCenter::Step runningStep;
+                runningStep.name = QStringLiteral("复制文件");
+                runningStep.state = TaskCenter::StepState::Running;
+                const TaskCenter::Step cancelledStep =
+                    TaskCenter::stepForTask(TaskCenter::State::Cancelled, runningStep);
+                const TaskCenter::Step interruptedStep =
+                    TaskCenter::stepForTask(TaskCenter::State::Interrupted, runningStep);
+                const TaskCenter::Step succeededStep =
+                    TaskCenter::stepForTask(TaskCenter::State::Succeeded, runningStep);
+                const TaskCenter::Step activeStep =
+                    TaskCenter::stepForTask(TaskCenter::State::Running, runningStep);
+                check(cancelledStep.state == TaskCenter::StepState::Pending &&
+                          cancelledStep.note == QStringLiteral("已取消") &&
+                          interruptedStep.state == TaskCenter::StepState::Failed &&
+                          interruptedStep.note == QStringLiteral("已中断") &&
+                          succeededStep.state == TaskCenter::StepState::Done &&
+                          activeStep.state == TaskCenter::StepState::Running,
+                      "I2 终态任务里停在 Running 的那一步跟着收尾改写；活动中的任务照旧",
+                      QStringLiteral("取消 %1/%2 · 中断 %3/%4 · 成功 %5 · 运行中 %6")
+                          .arg(int(cancelledStep.state)).arg(cancelledStep.note)
+                          .arg(int(interruptedStep.state)).arg(interruptedStep.note)
+                          .arg(int(succeededStep.state)).arg(int(activeStep.state)));
+            }
             check(MainWindowUI::taskSummaryText(QStringLiteral("任务"),
                                                 TaskCenter::State::Cancelled)
                           .endsWith(MainWindowUI::taskSummaryCancelledSuffix())

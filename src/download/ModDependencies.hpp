@@ -258,6 +258,9 @@ struct InstalledItem {
     /// "没问到版本列表（网络或接口没成）"—— 而同一个 sha1 把 `loaders` 去掉再问，
     /// 接口**当场就答**（同一条 `curl` 实测，见 FEATURES.md）。
     bool loaderApplies = true;
+    ResourceCatalog::VersionEntry currentVersion;
+    QString projectId;
+    ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
 };
 
 /// 这一类资源问版本列表时，**要不要带实例的加载器**（上面那一位的语义出处）。
@@ -288,12 +291,17 @@ struct UpdateVerdict {
     int newerCount = -1;
     /// 说不清时那一句中文（空了就是说得清）。
     QString reason;
+    ResourceCatalog::VersionEntry currentVersion;
 };
 
 /// An empty scope replaces the whole result; a partial check preserves unqueried files.
 QList<UpdateVerdict> mergeScopedUpdates(const QList<UpdateVerdict> &previous,
                                       const QList<UpdateVerdict> &checked,
                                       const QSet<QString> &scope);
+QString updateDifferenceText(const ResourceCatalog::VersionEntry &current,
+                             const ResourceCatalog::VersionEntry &target,
+                             const QHash<QString, QString> &plannedVersions = {},
+                             const QHash<QString, QString> &projectNames = {});
 
 /**
  * @brief 拿"这个资源问回来的版本列表"判盘上这一条是不是最新的。

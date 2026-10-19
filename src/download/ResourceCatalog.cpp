@@ -1730,6 +1730,7 @@ static VersionEntry entryFromModrinthObject(const QJsonObject &object) {
         entry.files.append(file);
     }
 
+    entry.dependencyMetadataKnown = object.value(QStringLiteral("dependencies")).isArray();
     const QJsonArray dependencies = object.value(QStringLiteral("dependencies")).toArray();
     entry.dependencies.reserve(dependencies.size());
     for (const QJsonValue &dependencyValue : dependencies) {
@@ -1908,14 +1909,20 @@ static QList<VersionEntry> parseCurseForgeDocument(const QJsonDocument &document
         // 前置模组那一栏这一轮不用（`requiredDependenciesOf` 现在没有调用方），但**顺手读出来**
         // 比留着不读强：那边的 `relationType` 是个数字（3 = required、2 = optional……），
         // 和 Modrinth 的字符串不是一套，将来接的时候这里就是唯一需要翻译的地方。
+        entry.dependencyMetadataKnown = object.value(QStringLiteral("dependencies")).isArray();
         const QJsonArray dependencies = object.value(QStringLiteral("dependencies")).toArray();
         for (const QJsonValue &dependency : dependencies) {
             const QJsonObject dependencyObject = dependency.toObject();
             Dependency entryDependency;
             entryDependency.projectId = QString::number(
                 static_cast<qint64>(dependencyObject.value(QStringLiteral("modId")).toDouble()));
-            if (dependencyObject.value(QStringLiteral("relationType")).toInt() == 3) {
-                entryDependency.type = QStringLiteral("required");
+            // CurseForge FileRelationType: docs.curseforge.com/rest-api/
+            switch (dependencyObject.value(QStringLiteral("relationType")).toInt()) {
+            case 1: entryDependency.type = QStringLiteral("embedded"); break;
+            case 2: entryDependency.type = QStringLiteral("optional"); break;
+            case 3: entryDependency.type = QStringLiteral("required"); break;
+            case 5: entryDependency.type = QStringLiteral("incompatible"); break;
+            default: break; // Tools/unknown relations are not invented as dependencies.
             }
             entry.dependencies.append(entryDependency);
         }

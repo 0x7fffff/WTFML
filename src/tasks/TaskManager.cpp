@@ -11,6 +11,24 @@
 
 #include "TaskHistory.hpp"
 
+namespace {
+
+/// 「已完成」那一栏的顺序：最近的在前。
+///
+/// ★ 只比 `finishedAt` 是不够的 —— 批量下载/批量文件操作会在同一毫秒里收掉几十项
+///   （`QDateTime` 只到毫秒），并列时 `std::sort` 给出的是**未定义**的相对顺序。
+///   面板每次重画都重排一遍，并列出会让这些行在两次重画之间换位；落盘截断那头
+///   更实际：`finishedHistoryLimit()` 卡在第 50 条边上时，丢掉的是"并列里的任意一条"，
+///   而不是最旧那一条。号是单调发的 ⇒ 同毫秒里号大的就是后发起的，拿它当第二把尺。
+bool finishedNewerFirst(const Tasks::TaskSnapshot &a, const Tasks::TaskSnapshot &b) {
+    if (a.finishedAt != b.finishedAt) {
+        return a.finishedAt > b.finishedAt;
+    }
+    return a.id > b.id;
+}
+
+}  // namespace
+
 namespace Tasks {
 
 TaskManager::TaskManager(QObject *parent) : QObject(parent) {
@@ -48,10 +66,7 @@ bool TaskManager::saveHistory() const {
             keep.append(task);
         }
     }
-    std::sort(finishedTasks.begin(), finishedTasks.end(),
-              [](const TaskSnapshot &a, const TaskSnapshot &b) {
-                  return a.finishedAt > b.finishedAt;
-              });
+    std::sort(finishedTasks.begin(), finishedTasks.end(), finishedNewerFirst);
     const int limit = finishedHistoryLimit();
     for (int i = 0; i < finishedTasks.size() && i < limit; ++i) {
         keep.append(finishedTasks.at(i));
@@ -133,7 +148,20 @@ bool TaskManager::finish(TaskId id, TaskState state, const QString &errorSummary
         for (auto &step : task->steps)
             if (step.state == TaskStepState::Running) step.state = TaskStepState::Failed;
     }
-    task->capabilities = TaskCapabilities();  // 收尾之后没什么可操作的（M1 里本来就没有可点的）
+    // ★ 收尾之后**只**收掉"干活时才有的"那两位，其余几位原样留着。
+    //
+    //   这里原来是一句 `task->capabilities = TaskCapabilities()`（M1 时确实没有可点的），
+    //   后来 §4.2 的「重试」和 §4.3 的崩溃项都是**收尾之后才露**的按钮：
+    //     · 「重试」：`ActivityCenterController::finish()` 在 `fail()` **之前**把 `canRetry`
+    //       写进快照（`setCapabilities()` 只收活动态），结果下一句 `fail()` 走进这里又把它
+    //       整份抹掉 ⇒ `Tasks::retryOffered()` 恒 false，界面上永远没有那颗按钮；
+    //     · 崩溃项（`CrashReportController::report()`）建出来那一刻就带着
+    //       `canExportReport` / `canOpenCrashDir`，随即 `finish()` —— 一起抹掉的话详情页
+    //       上「导出错误报告」「打开崩溃报告目录」「打开日志」一颗都不露。
+    //   「取消 / 暂停」反过来只在活动态有意义（`ActivityCenterController::item()` 那边也
+    //   再按状态挡一道），收尾时清掉它们是这里唯一该做的事。
+    task->capabilities.canCancel = false;
+    task->capabilities.canPause = false;
     task->doneUnits = (state == TaskState::Succeeded) ? task->totalUnits : task->doneUnits;
     saveHistory();
     emit taskChanged(id);
@@ -277,9 +305,7 @@ QList<TaskSnapshot> TaskManager::finished() const {
             result.append(task);
         }
     }
-    std::sort(result.begin(), result.end(), [](const TaskSnapshot &a, const TaskSnapshot &b) {
-        return a.finishedAt > b.finishedAt;
-    });
+    std::sort(result.begin(), result.end(), finishedNewerFirst);
     return result;
 }
 

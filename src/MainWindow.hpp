@@ -269,6 +269,35 @@ public:
     }
 
     /**
+     * @brief **给验证工程量"忙"用**：这一份实例现在在不在"谁都不许启动 / 不许删 /
+     *        不许再开一份搬文件"的名单上。
+     *
+     * 后台复制、模组迁移、升级副本都会把被碰到的实例记进 `installingVersionIds()`
+     * （那是唯一出处）。界面上看得见的表现是"开设置页被挡下来"，但**收尾有没有把标记
+     * 摘干净**只有问这一格才知道 —— 靠"再开一次设置页"去间接猜会弹一条提示，
+     * 和别的收尾消息撞在一起时还会被 OverlayHost 丢掉（提示不叠提示）。
+     *
+     * NOTE: 产品代码里**不要**调它（同上面那几个 seed*ForTest）。
+     */
+    bool instanceBusyForTest(const QString &versionId) const {
+        return installingVersionIds().contains(versionId);
+    }
+
+    /**
+     * @brief **给验证工程用**：直接压 / 放一次"这一份实例正在搬文件"的计数。
+     *
+     * ★ 2026-10-19：这一笔是**引用计数**（同一份实例上可以叠两趟作业，先收尾的那一趟
+     *   不许把另一趟的标记一起摘掉）。验证工程要能造出"叠了两趟、收掉一趟"这个现场，
+     *   否则那个洞只能靠读代码相信。
+     *
+     * NOTE: 产品代码里**不要**调它。
+     */
+    void markFileOperationBusyForTest(const QString &versionId) { markFileOperationBusy(versionId); }
+    void releaseFileOperationBusyForTest(const QString &versionId) {
+        releaseFileOperationBusy(versionId);
+    }
+
+    /**
      * @brief **给验证工程摆现场用**：把某一号会话的"启动事实"直接摆出来。
      *
      * 那一份启动事实（`GameSessionController::m_sessionLaunchFacts`）正常只有一条写点
@@ -684,7 +713,11 @@ private slots:
     void backupWorldNow(const QString &worldDir);
     void restoreWorldBackup(const QString &worldDir);
     void snapshotInstance(const QString &versionId);
-    void restoreInstanceSnapshot(const QString &versionId);
+    /// @param dialog 从实例设置页点进来时那一页（可为空）。还原会把整个实例目录换掉，
+    ///        那一页控件的值是还原之前的 —— 所以还原期间先禁用、动过盘之后直接收掉
+    ///        （见 `BackupController::restoreInstance()`）。
+    void restoreInstanceSnapshot(const QString &versionId,
+                                 InstanceSettingsDialog *dialog = nullptr);
     /// 起一趟"还原一份备份"（先做安全快照 → 挪走旧的那一份 → 解压 → 对账）—— 界面**不直接
     /// 走它**（走上面那两条），它是 `BackupController::startRestore()` 的薄壳，留着是给
     /// **mw_check 按名字驱动**的那几条断言（T35.3 / T35.4，见 .cpp 里那条 ★★）。
@@ -2315,6 +2348,15 @@ private:
     ///     就要被重写，照样不该被启动。
     QSet<QString> installingVersionIds() const;
 
+    /// 记 / 摘"这一份实例正在后台搬文件"。**唯一入口**，别直接动下面那个集合。
+    ///
+    /// ★ 2026-10-19：为什么是引用计数而不是一个集合 —— 同一份实例上**可以**叠两趟作业
+    ///   （模组预设往 `mods/` 里写的同时，复制实例正在拷整棵树）。用集合的话，先收尾的
+    ///   那一趟会把这个 id 整个摘掉，另一趟还在写，实例却已经"可以启动 / 可以删"了 ——
+    ///   正是这份标记要防的那件事。计数归零才真摘。
+    void markFileOperationBusy(const QString &versionId);
+    void releaseFileOperationBusy(const QString &versionId);
+
     // ------------------------------------------------------------------
     // 启动前那两条提醒（设置页「提示」栏，2026-09-25 加的）
     // NOTE: 2026-09-26 设置页分栏时那一栏叫「提示」（启动 / 游戏 / 提示 / 个性化 / 下载），
@@ -2992,6 +3034,18 @@ private:
     ///       「检查更新」。这是**刻意**的：现算一份"现在还是不是最新的"要再跑一整趟
     ///       反查 + 版本列表，而那正是他刚点过的那颗按钮。
     QHash<QString, QHash<QString, ResourceCatalog::VersionEntry>> m_instanceUpdateTargets;
+    /// 正在**后台搬文件**的那几个实例（模组预设 / 复制实例 / 迁移 / 升级副本 / 还原）。
+    /// 它们全都会进 `installingVersionIds()`，也就是"这期间谁都不许启动、不许删、
+    /// 不许再开一份搬文件"。
+    ///
+    /// ★ 2026-10-19：它是下面那份计数的**投影**，**别直接 insert/remove** —— 同一份实例
+    ///   上可以叠两趟作业（例如复制实例在拷树时，模组预设正在往 `mods/` 里写），一个
+    ///   无计数的集合会让先收尾的那一趟把另一趟的标记一起摘掉。用
+    ///   `markFileOperationBusy()` / `releaseFileOperationBusy()`（计数归零才摘）。
+    QSet<QString> m_fileOperationInstanceIds;
+    /// 上面那个集合的引用计数：实例 id → 此刻还压着几趟作业。**它才是真相。**
+    QHash<QString, int> m_fileOperationBusyCounts;
+    QHash<Tasks::TaskId, std::function<void()>> m_modTransferCancels;
     /// **会话级**：上一趟检测的**原始结论**（实例 id → 那一趟判出来的每一条 + 反查那一趟
     /// 自己的毛病）。★ §7.1 加的。
     ///

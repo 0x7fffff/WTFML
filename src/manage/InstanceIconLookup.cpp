@@ -56,6 +56,7 @@ struct CacheEntry {
     /// 认出来了（假 = **问过了、这两家都没有**）—— 见 .hpp 里那条 NOTE。
     bool found = false;
     ResourceCatalog::Hit hit;
+    ResourceCatalog::VersionEntry currentVersion;
 };
 
 /// 摘掉「禁用」那四个字（`X.jar.disabled` → `X.jar`）。摘不动就原样回。
@@ -74,13 +75,15 @@ bool sameFile(const CacheEntry &entry, const QFileInfo &info) {
 
 /// 把这个文件填成缓存里的一行。调用方保证 `info` 是刚问过的。
 CacheEntry entryFor(const QFileInfo &info, const QString &sha1, bool found,
-                    const ResourceCatalog::Hit &hit) {
+                    const ResourceCatalog::Hit &hit,
+                    const ResourceCatalog::VersionEntry &version = {}) {
     CacheEntry entry;
     entry.size = info.size();
     entry.mtimeMs = info.lastModified().toMSecsSinceEpoch();
     entry.sha1 = sha1;
     entry.found = found;
     entry.hit = hit;
+    entry.currentVersion = version;
     return entry;
 }
 
@@ -126,6 +129,9 @@ QHash<QString, CacheEntry> loadCache(const Options &options) {
         if (hitValue.isObject()) {
             entry.found = true;
             entry.hit = ResourceCatalog::hitFromJson(hitValue.toObject());
+            const auto versions = ResourceCatalog::parseVersions(QJsonDocument(
+                QJsonArray{object.value(QStringLiteral("currentVersion"))}).toJson());
+            if (!versions.isEmpty()) entry.currentVersion = versions.first();
         }
         out.insert(it.key(), entry);
     }
@@ -209,6 +215,7 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
     //   记成"路径 → 项目号"，等详情回来再摊成一条一条。
     if (!pathsBySha1.isEmpty()) {
         QHash<QString, QString> projectByPath;
+        QHash<QString, ResourceCatalog::VersionEntry> versionsByPath;
         QStringList wantedProjects;
         // 根地址：验证工程的口子优先，否则官方那一份（唯一出处仍是 ResourceCatalog 里
         // 那个 apiRoot()）—— 和 VersionManager 那边逐字同一条规矩。
@@ -246,6 +253,7 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
                 result.problem = problem;
                 return result;
             }
+            const auto versionMetadata = ResourceCatalog::parseVersionFilesUpdate(reply.raw);
             for (auto it = part.constBegin(); it != part.constEnd(); ++it) {
                 // 这个哈希对应哪几个文件（见上面那段）。同名的两个都要有图标。
                 const QString projectId = it.value().projectId;
@@ -266,6 +274,7 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
                 }
                 for (const QString &path : paths) {
                     projectByPath.insert(path, projectId);
+                    versionsByPath.insert(path, versionMetadata.value(it.key()));
                 }
             }
         }
@@ -320,6 +329,7 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
             Found found;
             found.path = it.key();
             found.sha1 = sha1ByPath.value(it.key());
+            found.currentVersion = versionsByPath.value(it.key());
             found.hit = hitsByProject.value(it.value());
             // 详情那一发没成、或者回复里没有这个号：**照样认这一条** —— 身份（项目号 +
             // 来源）是从哈希定下来的、那一步已经做完，缺的只是详情（名字空着 ⇒ 那一行
@@ -342,6 +352,7 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
 
         // 指纹 → 项目号。和 Modrinth 那一支一样分批发（同一台接口的同一个上限）。
         QHash<quint32, int> projectByFingerprint;
+        QHash<quint32, ResourceCatalog::VersionEntry> versionsByFingerprint;
         const QList<quint32> fingerprints = pathsByFingerprint.keys();
         for (int offset = 0; offset < fingerprints.size(); offset += kLookupChunk) {
             const QByteArray body = ModpackExport::curseForgeFingerprintsRequestBody(
@@ -363,6 +374,19 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
             QString problem;
             const QHash<quint32, ModpackExport::CurseForgeHit> part =
                 ModpackExport::parseCurseForgeFingerprints(reply.raw, &problem);
+            const auto matches = QJsonDocument::fromJson(reply.raw).object()
+                .value(QStringLiteral("data")).toObject().value(QStringLiteral("exactMatches")).toArray();
+            for (const auto &match : matches) {
+                const auto file = match.toObject().value(QStringLiteral("file")).toObject();
+                const auto number = file.value(QStringLiteral("fileFingerprint")).toInteger(-1);
+                if (number < 0 || number > 4294967295LL ||
+                    file.value(QStringLiteral("fileFingerprint")).toDouble() != double(number)) continue;
+                const auto fp = static_cast<quint32>(number);
+                if (!part.contains(fp)) continue;
+                const auto versions = ResourceCatalog::parseCurseForgeVersions(QJsonDocument(
+                    QJsonObject{{QStringLiteral("data"), QJsonArray{file}}}).toJson());
+                if (!versions.isEmpty()) versionsByFingerprint.insert(fp, versions.first());
+            }
             if (!problem.isEmpty()) {
                 result.problem = problem;
                 return result;
@@ -429,6 +453,7 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
                 Found found;
                 found.path = path;
                 found.sha1 = sha1ByPath.value(path);
+                found.currentVersion = versionsByFingerprint.value(it.key());
                 found.hit = hitsByProject.value(projectId);
                 // 详情那一发没成 / 那个号在回复里缺席也**照样认这一条**：图标是空的 ⇒
                 // ResourceStore 发一张空 pixmap ⇒ 那一格退回占位拼图。比"整个来源都不认"
@@ -486,7 +511,8 @@ void saveCache(const Options &options, const QStringList &paths, const Result &r
         const QString identity = identityPath(path);
         const auto found = foundByPath.constFind(identity);
         if (found != foundByPath.constEnd()) {
-            merged.insert(identity, entryFor(info, found.value().sha1, true, found.value().hit));
+            merged.insert(identity, entryFor(info, found.value().sha1, true, found.value().hit,
+                                            found.value().currentVersion));
             continue;
         }
         // 这一趟里没有它 ⇒ 两种可能：① 刚从盘上那份命中的（原样留着，别去动它）；
@@ -510,6 +536,18 @@ void saveCache(const Options &options, const QStringList &paths, const Result &r
         }
         if (it.value().found) {
             object.insert(QStringLiteral("hit"), ResourceCatalog::hitToJson(it.value().hit));
+            const auto &version = it.value().currentVersion;
+            QJsonObject metadata{{QStringLiteral("id"), version.id},
+                                 {QStringLiteral("version_number"), version.versionNumber},
+                                 {QStringLiteral("name"), version.name}};
+            if (version.dependencyMetadataKnown) {
+                QJsonArray dependencies;
+                for (const auto &dep : version.dependencies) dependencies.append(QJsonObject{
+                    {QStringLiteral("project_id"), dep.projectId}, {QStringLiteral("version_id"), dep.versionId},
+                    {QStringLiteral("dependency_type"), dep.type}});
+                metadata.insert(QStringLiteral("dependencies"), dependencies);
+            }
+            object.insert(QStringLiteral("currentVersion"), metadata);
         }
         files.insert(it.key(), object);
     }
@@ -548,7 +586,8 @@ Result lookup(const QStringList &paths, const Options &options) {
         }
         const QString identity = identityPath(path);
         const auto it = cached.constFind(identity);
-        if (it == cached.constEnd() || !sameFile(it.value(), QFileInfo(path))) {
+        if (it == cached.constEnd() || !sameFile(it.value(), QFileInfo(path)) ||
+            (options.requireVersionMetadata && !options.cacheOnly && it.value().found && it.value().currentVersion.id.isEmpty())) {
             todo.append(path);
             continue;
         }
@@ -558,6 +597,7 @@ Result lookup(const QStringList &paths, const Options &options) {
             found.path = path;
             found.sha1 = it.value().sha1;
             found.hit = it.value().hit;
+            found.currentVersion = it.value().currentVersion;
             result.found.append(found);
         }
         // found == false = **问过了、这两家都没有**：这一条到此为止（既不算 found，
@@ -565,7 +605,7 @@ Result lookup(const QStringList &paths, const Options &options) {
     }
 
     // ---------- ② 剩下的：算哈希 + 问接口 ----------
-    if (!todo.isEmpty()) {
+    if (!todo.isEmpty() && !options.cacheOnly) {
         const Result fresh = lookupNetwork(todo, options);
         // 两份合起来（顺序不定，见 Result::found 那段）。
         result.found.append(fresh.found);
@@ -582,7 +622,7 @@ Result lookup(const QStringList &paths, const Options &options) {
     // 摆在这一整个函数的**最后**（而不是每个 return 之前）：上面那两个来源有好几条早退路
     // （接口挂了、正文读不懂），而**没认出来的那些不该因为一次断网就被判成"没有"**
     // —— 那件事由 saveCache 里 `complete` 那一条管（见它那段）。
-    saveCache(options, paths, result, cached);
+    if (!options.cacheOnly) saveCache(options, paths, result, cached);
     return result;
 }
 

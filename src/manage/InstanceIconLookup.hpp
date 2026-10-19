@@ -85,6 +85,8 @@ struct Options {
     /// 这一批文件属于**哪一堆**（产品递实例 id）—— 缓存文件名是它的 sha1。
     /// 同一份目录表才该共用一份缓存；空串 = 不用缓存（同上）。
     QString cacheKey;
+    bool requireVersionMetadata = false;
+    bool cacheOnly = false; // Read valid cached identities only; no hashing/network/cache writes.
 };
 
 /// 一个文件认出来的资源身份。
@@ -113,6 +115,7 @@ struct Found {
     ///   **不许**改成"按文件名认版本"：模组文件重命名是家常便饭（`xxx-1.2.jar` 和
     ///   `xxx.jar` 是同一份），而同一个文件的 sha1 换不了。
     QString sha1;
+    ResourceCatalog::VersionEntry currentVersion;
 };
 
 /// 一趟反查的全部结果。

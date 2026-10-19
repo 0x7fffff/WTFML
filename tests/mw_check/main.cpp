@@ -10034,6 +10034,13 @@ static void runBottomBarPanelTests() {
             QApplication::processEvents();
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         }
+        // ★ 先让主窗口成为活动窗口：那块面板是 Qt::Popup，**应用不在前台时 Qt 会立刻
+        //   把它收掉**。真用户点之前鼠标已经激活了窗口，而这里的 `click()` 是程序化发的 ——
+        //   少了这一句，别的窗口一抢焦点，AH2 的「点出了左面板」就会偶发红（2026-10-19
+        //   实测跑出一遍）。
+        w.raise();
+        w.activateWindow();
+        QApplication::processEvents();
         button->click();
         QApplication::processEvents();
         return w.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
@@ -13331,6 +13338,247 @@ static void runCopyAndSavePageTests() {
                               {QStringLiteral("/c"), QStringLiteral("rmdir"),
                                QDir::toNativeSeparators(aliasDir)});
         }
+    }
+
+    // ---------------------------------------------------------------------
+    header("T27.3a 后台复制期间源实例算「正在搬文件」（设置页拒绝打开）");
+    // ---------------------------------------------------------------------
+    //
+    // ★ 2026-10-19：`copyInstanceInBackground()` 是界面上那颗「复制实例」真正走的路 ——
+    //   拷树落在后台线程。它开头**同步**把源实例记进 `m_fileOperationInstanceIds`，
+    //   收尾（成功或失败）第一件事就是摘掉。不记的话，拷树跑到一半用户照样能启动这一份
+    //   （游戏一边写存档、拷树一边读 ⇒ 副本里是半截世界），也能开设置页去改同一个目录。
+    //   判据看得见的是 `InstanceDialogController::open()` 那道闸 —— 它会回一句
+    //   「正在搬文件」，而不是把那一页开出来。
+    {
+        pumpUntil([] { return currentOverlay() == nullptr; }, 3000);
+        const QString destFolder = elsewhere.path();
+        const QString copyName = QStringLiteral("后台副本");
+        const QString copyDir = destFolder + QStringLiteral("/versions/") + copyName;
+
+        PromptAnswerer answerer({0});
+        answerer.start();
+        const bool invoked = QMetaObject::invokeMethod(
+            &window, "copyInstanceToInBackground", Qt::DirectConnection,
+            Q_ARG(QString, id), Q_ARG(QString, destFolder), Q_ARG(QString, copyName));
+        check(invoked,
+              "T27.3a invokeMethod 认得后台复制那一发（不认得就是静默 false，下面全假绿）");
+
+        // 忙标记是**同步**记上的（甚至可能还没进后台线程），所以这一发一定有东西挡着。
+        QMetaObject::invokeMethod(&window, "openInstanceSettings", Qt::DirectConnection,
+                                  Q_ARG(QString, id));
+        bool busyRefused = false;
+        for (const PromptAnswerer::Answered &one : answerer.answered) {
+            if (one.title == QStringLiteral("正在搬文件")
+                || one.text.contains(QStringLiteral("正在后台复制"))) {
+                busyRefused = true;
+                break;
+            }
+        }
+        check(busyRefused,
+              "★★ T27.3a 拷树还在后台跑的时候开设置页 ⇒ 被「正在搬文件」挡下来"
+              "（不挡的话用户就能在拷贝期间改同一个目录）");
+        check(currentPageOverlay() == nullptr,
+              "★★ T27.3a 而且那一页**没有**被开出来（挡在 controller 开页那一道闸上，"
+              "不是先开出来再报一句）");
+
+        // 判"这一趟真的收尾了"看两件事：副本落在盘上、忙标记摘掉了。
+        //
+        // NOTE: **不能**拿"收尾那一句报出来了"当完成判据：复制很快时它会和上面那条
+        //       「正在搬文件」撞在一起，而 OverlayHost 不叠提示（第二条只留一行日志）。
+        //       那是一条真实的（罕见）产品路径，但拿它当测试的完成信号就是一条会随机
+        //       红/绿的判据 —— 这里改成直接读忙名单。
+        const bool copied = pumpUntil(
+            [&] {
+                return !window.instanceBusyForTest(id)
+                       && QFileInfo::exists(copyDir + QLatin1Char('/')
+                                            + AppPaths::versionMetaFileName())
+                       && currentOverlay() == nullptr;
+            },
+            15000);
+        check(copied,
+              "T27.3a 后台复制跑完了、忙标记也摘干净了（副本落在另一个游戏文件夹）");
+        answerer.stop();
+
+        // 收尾之后忙标记必须摘干净：同一份实例的设置页要能正常打开。
+        bool pageOpened = false;
+        QTimer::singleShot(0, [&] {
+            OverlayHost *host = currentPageOverlay();
+            pageOpened = host != nullptr
+                         && host->findChild<InstanceSettingsDialog *>() != nullptr;
+            if (host != nullptr) {
+                if (auto *back = host->findChild<QPushButton *>(
+                        OverlayHost::overlayBackButtonName())) {
+                    back->click();
+                } else {
+                    host->closeOverlay();
+                }
+            }
+        });
+        QMetaObject::invokeMethod(&window, "openInstanceSettings", Qt::DirectConnection,
+                                  Q_ARG(QString, id));
+        QApplication::processEvents();
+        check(pageOpened,
+              "★★ T27.3a 复制收了尾 ⇒ 同一份实例的设置页又能开了（忙标记摘干净了；"
+              "一直红 = finished 里漏了 remove）");
+    }
+
+    // ---------------------------------------------------------------------
+    header("T27.3b 升级副本：拿「用户挑的目标版本」当底，不是当前实例的克隆");
+    // ---------------------------------------------------------------------
+    //
+    // ★ 2026-10-19：升级副本后台化那一版一开始把 `copyInstance()` 的源写成了 `sourceId`
+    //   （当前实例），于是"升级"造出来的是一份**当前实例的克隆** —— 版本号根本没变，
+    //   用户以为升了级、其实没升，而且没有任何报错。这一条钉的就是"底"是哪一个：
+    //   目标版本的主 jar 带一段认得出的内容，副本里必须是那一段。
+    {
+        pumpUntil([] { return currentOverlay() == nullptr; }, 3000);
+        const QString targetId = QStringLiteral("T27-新版本");
+        const QString targetDir = root.path() + QStringLiteral("/versions/") + targetId;
+        writeAt(targetDir + QLatin1Char('/') + targetId + QStringLiteral(".jar"),
+                "target-jar-bytes");
+        writeAt(targetDir + QLatin1Char('/') + targetId + QStringLiteral(".json"),
+                R"({"id":"1.20.4"})");
+        writeAt(targetDir + QStringLiteral("/wtfml.meta"),
+                R"({"name":"T27-新版本","instanceId":"t27-target-id"})");
+
+        // `getText()` 预填的就是这句建议名，而 PromptAnswerer 只点按钮、不改输入框 ⇒
+        // 这里拿到的名字就是建议名。
+        const QString newName = QStringLiteral("T27-源实例 升级副本");
+        const QString newDir = root.path() + QStringLiteral("/versions/") + newName;
+
+        bool emitted = false;
+        bool closed = false;
+        PromptAnswerer answerer({0, 0, 0, 0});
+        answerer.start();
+        // 操作收尾之后（四次问句都答完、提示都收了）才点返回箭头 —— 提前收页会让
+        // `finished` 里那两个捕着 `&dialog` 的 lambda 落到一份已经析构的页上。
+        QTimer closer;
+        closer.setInterval(30);
+        QObject::connect(&closer, &QTimer::timeout, [&] {
+            if (closed || answerer.answered.size() < 4 || currentPrompt() != nullptr) {
+                return;
+            }
+            closed = true;
+            closer.stop();
+            if (OverlayHost *host = currentPageOverlay()) {
+                if (auto *back = host->findChild<QPushButton *>(
+                        OverlayHost::overlayBackButtonName())) {
+                    back->click();
+                } else {
+                    host->closeOverlay();
+                }
+            }
+        });
+        closer.start();
+        // 兜底（栈上的 QTimer ⇒ 出了这一节一定不会再响）：失败路径可能只弹 1~3 条，
+        // 别把整个测试挂在 `execPage` 的嵌套循环里。
+        QTimer fallback;
+        fallback.setSingleShot(true);
+        QObject::connect(&fallback, &QTimer::timeout, [&] {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            closer.stop();
+            if (InlineMessageBox *box = currentPrompt()) {
+                box->close();
+            }
+            if (OverlayHost *host = currentPageOverlay()) {
+                if (auto *back = host->findChild<QPushButton *>(
+                        OverlayHost::overlayBackButtonName())) {
+                    back->click();
+                } else {
+                    host->closeOverlay();
+                }
+            }
+        });
+        fallback.start(20000);
+
+        QTimer::singleShot(0, [&] {
+            OverlayHost *host = currentPageOverlay();
+            auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
+            if (page == nullptr) {
+                return;
+            }
+            emitted = true;
+            // 和「创建升级副本…」那一颗**发出的东西逐字相同**（只发意图，不写盘）：
+            // `saves` 是夹具里唯一一份默认勾着的范围。
+            page->transferApplyRequested(QStringLiteral("upgrade"), targetId,
+                                         QStringList{QStringLiteral("saves")});
+        });
+        QMetaObject::invokeMethod(&window, "openInstanceSettings", Qt::DirectConnection,
+                                  Q_ARG(QString, id));
+        fallback.stop();
+        closer.stop();
+        answerer.stop();
+        QApplication::processEvents();
+
+        check(emitted, "T27.3b 「升级」页开出来了、信号也真的发出去了（这条红了下面都是假绿）");
+        check(answerer.answered.size() >= 4,
+              "★★ T27.3b 一路问下来是四句：确认 → 新名字 → 结果 → 快速启动",
+              QStringLiteral("收到 %1 句").arg(answerer.answered.size()));
+
+        QString jarBytes;
+        {
+            QFile f(newDir + QLatin1Char('/') + newName + QStringLiteral(".jar"));
+            if (f.open(QIODevice::ReadOnly)) {
+                jarBytes = QString::fromUtf8(f.readAll());
+            }
+        }
+        check(jarBytes == QStringLiteral("target-jar-bytes"),
+              "★★ T27.3b 新副本的主 jar 是**目标版本**那一份（不是当前实例的克隆）",
+              QStringLiteral("读到：%1（读到 jar-bytes 就是错抄了 sourceId）").arg(jarBytes));
+        QString jsonText;
+        {
+            QFile f(newDir + QLatin1Char('/') + newName + QStringLiteral(".json"));
+            if (f.open(QIODevice::ReadOnly)) {
+                jsonText = QString::fromUtf8(f.readAll());
+            }
+        }
+        check(jsonText.contains(QStringLiteral("1.20.4")),
+              "★★ T27.3b 版本 json 也是目标那一份（1.20.4）", jsonText);
+        check(QFileInfo::exists(newDir + QStringLiteral("/saves/我的世界/level.dat")),
+              "★ T27.3b 勾着的存档搬进了**新副本**里");
+        QFile srcJar(versionDir + QLatin1Char('/') + id + QStringLiteral(".jar"));
+        QByteArray srcBytes;
+        if (srcJar.open(QIODevice::ReadOnly)) {
+            srcBytes = srcJar.readAll();
+        }
+        check(srcBytes == QByteArray("jar-bytes"), "★ T27.3b 源实例一个字节都没动");
+    }
+
+    // ---------------------------------------------------------------------
+    header("T27.3c 「正在搬文件」是引用计数：叠两趟、收掉一趟，标记还在");
+    // ---------------------------------------------------------------------
+    //
+    // ★ 2026-10-19：这一笔原来是 `QSet<QString>` —— 同一份实例上叠两趟作业时（复制
+    //   实例还在拷树，模组预设已经在往 `mods/` 里写），先收尾的那一趟会把 id 整个
+    //   摘掉，另一趟就裸奔了：实例能启动、能删、能再开一趟搬文件。现在记的是计数，
+    //   归零才真摘。**集合写法在这一格会变红**（收掉一趟之后标记就没了）。
+    {
+        // 用一个不存在的 id：它只进这一份名单，不和别的判据互相干扰。
+        const QString busyId = QStringLiteral("T27-计数夹具");
+        check(!window.instanceBusyForTest(busyId), "T27.3c 前提：这一号本来不在名单上");
+
+        window.markFileOperationBusyForTest(busyId);
+        window.markFileOperationBusyForTest(busyId);
+        check(window.instanceBusyForTest(busyId), "T27.3c 压两趟 ⇒ 在名单上");
+
+        window.releaseFileOperationBusyForTest(busyId);
+        check(window.instanceBusyForTest(busyId),
+              "★★ T27.3c 收掉**一趟**之后标记必须还在（拿集合记的写法在这里会变红）");
+
+        window.releaseFileOperationBusyForTest(busyId);
+        check(!window.instanceBusyForTest(busyId),
+              "★★ T27.3c 两趟都收掉 ⇒ 干干净净摘掉（实例又能启动 / 删除了）");
+
+        // 多摘一次必须是空操作：配对写错时不许把计数拖成负数，也不许动别的一趟。
+        window.markFileOperationBusyForTest(busyId);
+        window.releaseFileOperationBusyForTest(busyId);
+        window.releaseFileOperationBusyForTest(busyId);
+        check(!window.instanceBusyForTest(busyId),
+              "T27.3c 多摘一次是空操作（计数不会变成负数、也不会留在名单上）");
     }
 
     // ---------------------------------------------------------------------
@@ -31175,7 +31423,16 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                     clearBtn->click();
                     QApplication::processEvents();
                 }
-                abPanel2->close();
+                // ★ 收页走产品的出口（`OverlayHost::evict()` → backPressed），不能只
+                //   `abPanel2->close()`：面板是**嵌在覆盖页里**的，close() 只把这一块藏
+                //   起来 —— 覆盖层那一位还占着、面板对象也还活着（等 deleteLater），
+                //   下面的 AB6 再点底栏那格时会被当成"同一块还开着"。
+                if (OverlayHost *abOverlay2 =
+                        window.ui() == nullptr ? nullptr : window.ui()->overlay()) {
+                    abOverlay2->evict();
+                } else {
+                    abPanel2->close();
+                }
                 QApplication::processEvents();
                 QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             }
@@ -31199,6 +31456,244 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             check(abVm == nullptr || !abVm->canCancelDownload(),
                   "AB5 放掉之后下载器不忙了（这一节不在环境里留一批永远下不完的活）",
                   abVm == nullptr ? QStringLiteral("<没拿到 vm>") : QStringLiteral("还忙着"));
+        }
+    }
+
+    header("AB6. 压力：几十项任务同屏（大量下载 + 多实例启动 + 批量改文件）");
+    // ------------------------------------------------------------------
+    // 用户点名的压力形状：一次性排一堆下载、几个实例同时在启动、一批文件在改。
+    // 这一节直接把账本塞到 30 项（每项 5 步），高速推 40 帧进度，再收掉一半，
+    // 然后打开任务中心，量「面板画出来的行」和「账本投影」是不是逐行一致 ——
+    // 包括顺序、活动/已完成两栏的切分，以及终态行上不许再长出「取消」。
+    {
+        auto *abStress = window.findChild<ActivityCenterController *>();
+        check(abStress != nullptr, "AB6 找得到活动中心");
+        if (abStress != nullptr) {
+            // 前面几节留下的已完成先清掉；还活着的项记个数，最后一起收。
+            abStress->clearFinished();
+            QApplication::processEvents();
+            const int baselineActive = abStress->tasks()->active().size();
+
+            QList<Tasks::TaskId> stressIds;
+            stressIds.reserve(30);
+            for (int i = 0; i < 30; ++i) {
+                const Tasks::TaskKind kind = i % 3 == 0 ? Tasks::TaskKind::Download
+                                             : i % 3 == 1 ? Tasks::TaskKind::Launch
+                                                          : Tasks::TaskKind::Install;
+                QList<Tasks::TaskStep> steps;
+                for (int s = 0; s < 5; ++s) {
+                    steps.append({QStringLiteral("步骤 %1").arg(s + 1),
+                                  Tasks::TaskStepState::Pending, {}});
+                }
+                stressIds.append(abStress->begin(kind, QStringLiteral("压力任务 %1").arg(i),
+                                                 QString(), steps));
+            }
+            check(abStress->tasks()->active().size() == baselineActive + 30,
+                  "AB6 30 项全在「正在进行」里（大量下载 / 多实例启动 / 批量改文件）",
+                  QString::number(abStress->tasks()->active().size()));
+
+            for (int frame = 0; frame < 40; ++frame) {
+                for (const Tasks::TaskId id : stressIds) {
+                    (void)abStress->tasks()->setProgress(id, qint64(frame) * 10, 400);
+                    (void)abStress->tasks()->setBytes(id, qint64(frame) * 2048, 81920);
+                    (void)abStress->tasks()->setStepState(id, qMin(4, frame / 8),
+                                                          Tasks::TaskStepState::Running);
+                }
+            }
+            // 收掉 15 项（成功 / 失败 / 取消交替），另外 15 项继续跑 —— 模拟"下完一批、
+            // 下一批还在下"、"一个实例已经起来、另一个还在启动"。
+            for (int i = 1; i < 30; i += 2) {
+                const Tasks::TaskId id = stressIds.at(i);
+                if (i % 6 == 1) {
+                    abStress->finish(id, true, QString(), false);
+                } else if (i % 6 == 3) {
+                    abStress->finish(id, false, QStringLiteral("模拟失败"), false);
+                } else {
+                    abStress->tasks()->cancel(id);
+                }
+            }
+            check(abStress->tasks()->active().size() == baselineActive + 15,
+                  "AB6 收掉一半之后还剩 15 项在跑",
+                  QString::number(abStress->tasks()->active().size()));
+
+            // 迟到帧不许把终端项拽回来（压力下最容易被漏掉的那一类）。
+            const Tasks::TaskId terminal = stressIds.at(1);
+            const Tasks::TaskSnapshot terminalBefore = abStress->tasks()->snapshot(terminal);
+            const bool lateAccepted =
+                abStress->tasks()->setProgress(terminal, 400, 400)
+                || abStress->tasks()->succeed(terminal);
+            check(!lateAccepted
+                      && abStress->tasks()->snapshot(terminal).state == terminalBefore.state,
+                  "AB6 已收尾的那一项：迟到帧 / 二次收尾都不生效");
+
+            // 打开面板：画出来的行数 / 顺序必须和账本投影逐行一致。
+            QPushButton *ab6Cell =
+                window.findChild<QPushButton *>(MainWindowUI::taskSummaryButtonName());
+            window.raise();
+            window.activateWindow();
+            QApplication::processEvents();
+            if (ab6Cell != nullptr) {
+                ab6Cell->click();
+            }
+            QApplication::processEvents();
+            QApplication::processEvents();
+            QWidget *ab6Panel =
+                window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
+            check(ab6Panel != nullptr && ab6Panel->isVisible(), "AB6 点开任务中心面板");
+            if (ab6Panel != nullptr) {
+                int rows = 0;
+                while (ab6Panel->findChild<QWidget *>(
+                           MainWindowUI::taskCenterPanelRowName(rows)) != nullptr) {
+                    ++rows;
+                }
+                const QList<TaskCenter::Item> expected = abStress->items(
+                    [](const Tasks::TaskSnapshot &) { return false; }, false, {}, nullptr);
+                check(rows == expected.size(),
+                      "AB6 面板画出来的行数 = 账本投影的行数（30 项一项不少）",
+                      QStringLiteral("面板 %1 / 账本 %2").arg(rows).arg(expected.size()));
+
+                bool orderOk = rows == expected.size() && rows > 0;
+                int activeSeen = 0;
+                int terminalSeen = 0;
+                bool terminalSection = false;
+                for (int i = 0; orderOk && i < rows; ++i) {
+                    QWidget *row = ab6Panel->findChild<QWidget *>(
+                        MainWindowUI::taskCenterPanelRowName(i));
+                    const QString rowKey =
+                        row->property(MainWindowUI::taskCenterPanelRowKeyProperty()).toString();
+                    orderOk = rowKey == expected.at(i).key;
+                    const bool active = TaskCenter::stateIsActive(expected.at(i).state);
+                    if (active) {
+                        ++activeSeen;
+                        // 「已完成」那一栏开始之后不许再出现活动项。
+                        orderOk = orderOk && !terminalSection;
+                    } else {
+                        ++terminalSeen;
+                        terminalSection = true;
+                    }
+                }
+                check(orderOk, "AB6 面板每一行的钥匙和账本投影同一顺序（活动在前、已完成在后）");
+                check(activeSeen == baselineActive + 15 && terminalSeen == 15,
+                      "AB6 两栏切分正确：活动 15 项、已完成 15 项",
+                      QStringLiteral("活动 %1 / 已完成 %2").arg(activeSeen).arg(terminalSeen));
+
+                // 最新收尾的那一件排「已完成」那一栏的最前面（号 29 是最后收的）。
+                const QString newestKey = QString::number(stressIds.at(29));
+                bool newestFirst = false;
+                for (int i = 0; i < expected.size(); ++i) {
+                    if (expected.at(i).key == newestKey) {
+                        // 「已完成」那一栏的第一行就是它（前面只剩活动项）。
+                        newestFirst = i == activeSeen;
+                        break;
+                    }
+                }
+                check(newestFirst, "AB6 「已完成」一栏最近收尾的那一件排在最前面");
+
+                // 终态行上不许再长「取消」（能力位 + 活着，两样缺一不可）。
+                int invalidCancel = 0;
+                for (int i = 0; i < expected.size(); ++i) {
+                    auto *cancel = ab6Panel->findChild<QPushButton *>(
+                        MainWindowUI::taskCenterPanelRowCancelName(i));
+                    if (!TaskCenter::stateIsActive(expected.at(i).state) && cancel != nullptr) {
+                        ++invalidCancel;
+                    }
+                }
+                check(invalidCancel == 0,
+                      "AB6 15 个已完成行上一颗「取消」都没有",
+                      QString::number(invalidCancel));
+
+                if (ab6Panel->isVisible()) {
+                    ab6Panel->close();
+                }
+                QApplication::processEvents();
+                QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            }
+
+            // 收场：把还在跑的那 15 项也收掉、清空已完成，底栏回到占位话（不给后面几节留活）。
+            for (const Tasks::TaskId id : stressIds) {
+                if (Tasks::isActiveState(abStress->tasks()->snapshot(id).state)) {
+                    abStress->tasks()->cancel(id);
+                }
+            }
+            abStress->clearFinished();
+            QApplication::processEvents();
+            auto *ab6Status = window.findChild<QLabel *>(MainWindowUI::statusLabelName());
+            check(ab6Status != nullptr
+                      && ab6Status->text() == MainWindowUI::taskSummaryNoTaskText(),
+                  "AB6 收场：账本清空之后底栏中间那格回到占位话",
+                  ab6Status == nullptr ? QStringLiteral("<没找到>") : ab6Status->text());
+        }
+    }
+
+    header("AB7. 任务中心收在别的选项卡上时，底栏那一按要把它收回当前页（2026-10-19）");
+    // ------------------------------------------------------------------
+    // 用户报的形状：在主页把任务中心点开 → 切到下载页（这一页按设计**收在**别的选项卡上，
+    // 不关也不销毁）→ 再点底栏中间那格，**什么都没发生**。
+    //
+    // 根子在 `toggleBottomBarPanel()`：它把"同一位还开着"判成 `overlayHost->isOpen() &&
+    // (panel->isVisible() || parked())`，可收回又只调 `dismiss()` —— 而 `dismiss()` 按设计
+    // **不收收着的页**（OverlayHost::closeTopLayer 里 `!evenWhenParked && !onOwnersTab()`
+    // 直接返回 false）。于是 `sameAnchor` 为真、`dismiss()` 空转、这一按被"同一颗 = 收回"
+    // 那条早退整个吞掉。`openTaskCenterPanel()` 里 2026-10-17 修的是同一个坑，只是入口不同。
+    //
+    // 修法：收着的页 + 点的就是它那一颗 ⇒ `evict()` 之后在当前这一页重新摊开。
+    {
+        QTabWidget *ab7Tabs = window.findChild<QTabWidget *>(MainWindowUI::tabWidgetName());
+        QPushButton *ab7Cell =
+            window.findChild<QPushButton *>(MainWindowUI::taskSummaryButtonName());
+        OverlayHost *ab7Overlay = window.ui() == nullptr ? nullptr : window.ui()->overlay();
+        check(ab7Tabs != nullptr && ab7Cell != nullptr && ab7Overlay != nullptr,
+              "AB7 找得到选项卡 / 底栏中间那格 / 覆盖层");
+        if (ab7Tabs != nullptr && ab7Cell != nullptr && ab7Overlay != nullptr) {
+            // 上一节（AB6）收页只 `close()` 了面板、覆盖层那一位还占着 —— 先按产品的
+            // 出口收干净，不然下面第一按会先走"残影 + evict"那一路。
+            if (ab7Overlay->pageOpen()) {
+                ab7Overlay->evict();
+            }
+            QApplication::processEvents();
+            QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+
+            // ---- ① 在主页摊开（这一页的 ownerTab 就是主页）----
+            ab7Tabs->setCurrentIndex(MainWindowUI::homeTabIndex());
+            QApplication::processEvents();
+            ab7Cell->click();
+            QApplication::processEvents();
+            QWidget *ab7Panel = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
+            check(ab7Panel != nullptr && ab7Panel->isVisible(),
+                  "AB7 先在主页把任务中心摊开（基线）");
+
+            // ---- ② 切到下载页：按设计收起来，页还在、覆盖层还占着这一位 ----
+            ab7Tabs->setCurrentIndex(MainWindowUI::downloadTabIndex());
+            QApplication::processEvents();
+            check(ab7Overlay->parked(),
+                  "AB7 切到下载页之后那一页**收着**（覆盖层没被释放）",
+                  QStringLiteral("parked=%1 open=%2")
+                      .arg(ab7Overlay->parked())
+                      .arg(ab7Overlay->isOpen()));
+
+            // ---- ③ 在当前这一页点底栏那格：必须重开，且不许把人踢回主页 ----
+            const int ab7TabBefore = ab7Tabs->currentIndex();
+            ab7Cell->click();
+            // singleShot(0) 排的那一发要两轮事件循环才轮到。
+            QApplication::processEvents();
+            QApplication::processEvents();
+            QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            QApplication::processEvents();
+            check(ab7Tabs->currentIndex() == ab7TabBefore,
+                  "AB7 这一按不许把人从当前选项卡踢走",
+                  QStringLiteral("%1 → %2").arg(ab7TabBefore).arg(ab7Tabs->currentIndex()));
+            QWidget *ab7Panel2 = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
+            check(ab7Panel2 != nullptr && ab7Panel2->isVisible(),
+                  "AB7 点在同一颗上 ⇒ 任务中心在**当前这一页**重新摊开（不再点了没反应）");
+
+            // 收干净 + 回主页，别给后面几节留一页开着的覆盖层。
+            if (ab7Overlay->pageOpen()) {
+                ab7Overlay->evict();
+            }
+            QApplication::processEvents();
+            QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            ab7Tabs->setCurrentIndex(MainWindowUI::homeTabIndex());
+            QApplication::processEvents();
         }
     }
 

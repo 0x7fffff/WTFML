@@ -230,7 +230,7 @@ void BackupController::snapshotInstance(const QString &versionId) {
                tr("快照创建完成"));
 }
 
-void BackupController::restoreInstance(const QString &versionId) {
+void BackupController::restoreInstance(const QString &versionId, InstanceSettingsDialog *dialog) {
     if (versionId.isEmpty()) return;
     if (busy()) {
         InlineMessage::information(m_overlay, tr("现在做不了"),
@@ -258,6 +258,18 @@ void BackupController::restoreInstance(const QString &versionId) {
             tr("还原"), tr("取消"), false, true)) {
         return;
     }
+    // ★ 2026-10-19：还原是"整个目录换掉"，可原来这一趟**没有任何"忙"标记** ——
+    //   还原跑着的这十几秒里，这一份实例照样能被启动（启动器去读一半是新、一半是旧的
+    //   jar / libraries）、能被删掉（快照解压还在往同一个目录里写），开着的那一页也
+    //   照样能改设置（改的是马上要被换掉的文件，收尾时这些改动静默消失）。
+    //   开头那两道闸只管"按下这一颗那一刻"。
+    //
+    //   记进和「复制实例」同一个集合（`MainWindow::installingVersionIds()` 的唯一出处），
+    //   收尾时先摘掉它再刷新实例清单。页面先禁用：这一趟结束之后它上面的值全是旧的。
+    m_restoreInstanceId = versionId;
+    m_restoreDialog = dialog;
+    if (m_restoreDialog != nullptr) m_restoreDialog->setEnabled(false);
+    if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(versionId, true);
     startRestore(zip, AppPaths::versionsDir(),
                  tr("还原「%1」的快照").arg(displayName(versionId)), versionId,
                  tr("还原完成"));
@@ -365,6 +377,16 @@ void BackupController::restoreFinished(const BackupFiles::RestoreResult &result,
                                        const QString &successTitle) {
     const Tasks::TaskId id = m_taskId;
     m_taskId = Tasks::invalidTaskId();
+    // 先摘忙标记、再把那一页解冻 —— 下面 `refreshInstances()` 里 `installingVersionIds()`
+    // 还判这一位（顺序反了的话，刚还原好的那一份会在列表里被滤掉一帧）。
+    const QString restoredId = m_restoreInstanceId;
+    const QPointer<InstanceSettingsDialog> restoredDialog = m_restoreDialog;
+    m_restoreInstanceId.clear();
+    m_restoreDialog = nullptr;
+    if (!restoredId.isEmpty() && m_host.setFileOperationBusy) {
+        m_host.setFileOperationBusy(restoredId, false);
+    }
+    if (!restoredDialog.isNull()) restoredDialog->setEnabled(true);
     const auto stepOf = [](BackupFiles::RestoreResult::Stage stage) {
         switch (stage) {
         case BackupFiles::RestoreResult::Stage::ReadManifest: return 0;
@@ -419,4 +441,19 @@ void BackupController::restoreFinished(const BackupFiles::RestoreResult &result,
         m_host.refreshServer(m_refreshServerId);
     }
     m_refreshServerId.clear();
+
+    // 还原的是**一整个实例**（不是某个世界）：盘上的 json / meta / 图标全换了 ⇒
+    // 实例清单要重扫一遍；开着的那一页控件的值还是还原之前的，动过盘就把它收掉
+    // （`reject()` 和顶上那颗返回是同一条路）。一个字节都没动过的话留着它，
+    // 只把文件页重列一次（那种失败多半是"快照读不出来 / 空间不够"）。
+    if (diskChanged && !restoredId.isEmpty() && m_host.refreshInstances) {
+        m_host.refreshInstances();
+    }
+    if (!restoredDialog.isNull()) {
+        if (diskChanged) {
+            restoredDialog->reject();
+        } else {
+            restoredDialog->refreshFilePages();
+        }
+    }
 }

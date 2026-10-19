@@ -1636,6 +1636,8 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                         this, &InstanceSettingsDialog::modCheckSelectedUpdatesRequested);
                 connect(files, &InstanceFilesPage::projectWebsiteRequested,
                         this, &InstanceSettingsDialog::modWebsiteRequested);
+                connect(files, &InstanceFilesPage::inspectDependenciesRequested,
+                        this, &InstanceSettingsDialog::modInspectDependenciesRequested);
             }
             // 存档只列文件夹（saves 底下那些 level.dat / session.lock 不是存档）。
             // ★ 2026-10-11：「模组」那一页**只列文件** —— `mods/` 底下那些目录不是模组

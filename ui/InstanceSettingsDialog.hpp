@@ -1968,6 +1968,7 @@ signals:
     void modTransferRequested(const QStringList &paths, bool move);
     void modCheckSelectedUpdatesRequested(const QStringList &paths);
     void modWebsiteRequested(const QString &path);
+    void modInspectDependenciesRequested(const QStringList &paths);
 
     /**
      * @brief 用户把几个文件**拖到这一页上**了（2026-09-29）。

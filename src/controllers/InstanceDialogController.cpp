@@ -10,8 +10,23 @@
 #include "OverlayHost.hpp"
 #include "WorldSettingsPage.hpp"
 #include "VersionIcons.hpp"
+#include "Theme.hpp"
+#include <QFutureWatcher>
+#include <QtConcurrent/QtConcurrentRun>
+#include <QProgressBar>
+#include <QPlainTextEdit>
+#include <QLabel>
+#include <QPushButton>
+#include <QVBoxLayout>
+#include <QMutex>
+#include <QMutexLocker>
+#include <QPointer>
+#include <QSet>
+#include <atomic>
+#include <memory>
 
 #include "controllers/BackupController.hpp"
+#include "controllers/InstanceTransferController.hpp"
 #include "controllers/ActivityCenterController.hpp"
 #include "controllers/InstancePagesController.hpp"
 #include "controllers/InstanceEditorController.hpp"
@@ -32,6 +47,8 @@
 #include "diagnose/StartupDiagnosis.hpp"
 #include "operations/TransferApply.hpp"
 #include "operations/TransferPlanner.hpp"
+#include "download/DependencyInspection.hpp"
+#include "manage/InstanceIconLookup.hpp"
 #include "tools/FileHash.hpp"
 #include "util/SystemMemory.hpp"
 #include "util/AppPaths.hpp"
@@ -51,6 +68,24 @@
 #include <QTimer>
 
 namespace {
+
+/// 迁移 / 升级副本在后台线程里跑完一趟的结果。
+///
+/// NOTE: 升级那一档先复制实例、再搬文件、最后校验，三步都在**同一个**后台任务里按顺序
+///       跑完 —— 分两趟的话中间那一小段里目标实例还没造出来，而任务中心已经开始报搬了。
+struct MigrationOutcome {
+    bool copyFailed = false;
+    QString copyError;
+    TransferApply::Result apply;
+    TransferApply::VerifySummary verify;
+};
+
+/// 后台线程写、界面线程每 100 ms 读一次的进度账（锁只护这几个值）。
+struct MigrationProgressState {
+    QMutex mutex;
+    int doneUnits = 0;
+    QHash<QString, int> itemStates;  // 块键 → 1 成功 / 0 有失败
+};
 
 InstanceSettingsDialog::Override toDialogOverride(
     const JavaSettingsOverride &from, const GameWindowOverride &window = GameWindowOverride()) {
@@ -178,6 +213,13 @@ InstanceDialogController::InstanceDialogController(MainWindow *owner)
     : QObject(owner), m_owner(owner) {}
 
 void InstanceDialogController::open(const QString &versionId, const QString &pageKey) {
+    if (m_owner->m_fileOperationInstanceIds.contains(versionId)) {
+        // 模组迁移和「迁移 / 升级副本」都会往这个实例的目录里写文件（后者连整棵目录
+        // 都在拷）。这期间开设置页去改同一个目录，两边都不知道对方在写什么。
+        InlineMessage::information(m_owner->m_ui->overlay(), tr("正在搬文件"),
+                                   tr("这个实例正在后台复制/移动文件，请等进度提示收尾后再修改实例。"));
+        return;
+    }
     // 主页快捷入口留在主页上，关闭设置后原来的实例选择状态仍在。
     // 从下载等其它入口返回设置时，仍归属实例管理页。
     const QTabWidget *entryTabs = m_owner->m_ui->getTabWidget();
@@ -639,6 +681,29 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     targetDir = AppPaths::versionDir(targetIdCopy);
                 }
 
+                // ★ 2026-10-19：上面两句 `InlineMessage::question` / `getText` 都是**嵌套
+                //   事件循环** —— 用户在这一问上停着的时候，完全可能把游戏开起来，或者
+                //   别的活儿（下载、导入、另一趟搬文件）恰好占了这两份实例。旧路径靠
+                //   `copyInstanceTo()` 那四道闸**再挡一遍**；后台化之后直接调
+                //   `VersionManager::copyInstance()`，那几道闸不在了，必须在这里补上。
+                //   否则升级副本会去拷一个正在写的实例目录。
+                if (m_owner->m_launcherManager != nullptr
+                    && (m_owner->m_launcherManager->isVersionRunning(sourceId)
+                        || m_owner->m_launcherManager->isVersionRunning(targetIdCopy))) {
+                    InlineMessage::warning(m_owner->m_ui->overlay(), title,
+                                           tr("有一份实例刚刚跑起来了。先关掉游戏再试 —— "
+                                              "开着的时候拷出来的是一份写到一半的东西。"));
+                    return;
+                }
+                {
+                    const QSet<QString> busyNow = m_owner->installingVersionIds();
+                    if (busyNow.contains(sourceId) || busyNow.contains(targetIdCopy)) {
+                        InlineMessage::warning(m_owner->m_ui->overlay(), title,
+                                               tr("有一份实例正在安装或搬文件，等它收尾再试。"));
+                        return;
+                    }
+                }
+
                 // ---------- 长操作进任务中心（§9.9 bullet 5）----------
                 //
                 // 一块勾选 = 一步。升级那一档前面再加一步「造出新的那一份」，因为它比后面
@@ -676,112 +741,308 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                                                   m_owner->instanceDisplayName(targetIdCopy)),
                     taskTargetId, steps);
                 Tasks::TaskManager *ledger = m_owner->m_activityCenter->tasks();
+                // ★ 2026-10-19：升级副本这一条用的是 `TaskKind::Install`，它的默认能力位
+                //   里 `canCancel` 是真的（下载/安装/导入默认都能掐）。但这一条**没有**取消
+                //   的入口：搬文件那一段是一个没有取消令牌的 `QFuture`。能力位必须照实
+                //   写，否则界面会摆一颗按了没用的「取消」。
+                if (upgrade && ledger != nullptr) {
+                    Tasks::TaskCapabilities caps =
+                        ActivityCenterController::defaultCapabilities(Tasks::TaskKind::Install);
+                    caps.canCancel = false;
+                    ledger->setCapabilities(taskId, caps);
+                }
                 const auto finishTask = [this, taskId](bool success, const QString &summary) {
                     m_owner->m_activityCenter->finish(taskId, success, summary, false);
                 };
 
-                if (upgrade
-                    && !m_owner->copyInstanceTo(targetIdCopy, AppPaths::minecraftDir(),
-                                                newName)) {
-                    ledger->setStepState(taskId, 0, Tasks::TaskStepState::Failed,
-                                         tr("复制实例没成（原因已经弹出来了）"));
-                    finishTask(false, tr("复制实例没成"));
-                    return;
-                }
-                if (upgrade) {
-                    ledger->setStepState(taskId, 0, Tasks::TaskStepState::Done);
-                    ledger->setDetail(taskId, tr("新的一份「%1」已经造好了，开始搬文件。")
-                                                 .arg(newName));
-                }
-
-                qint64 doneUnits = 0;
+                // ---------- 真正搬的那一段放在后台线程 ----------
+                //
+                // ★ 2026-10-19：这里以前是**同步**跑在 UI 线程上的 —— 升级副本先整棵
+                //   复制实例目录、再逐个文件搬、最后再递归校验一遍；一份多 GB 的实例能让
+                //   整扇窗几分钟不重绘（Windows 挂「无响应」），而同一页上的「复制实例」
+                //   早在 `copyInstanceInBackground()` 里走后台了。这一条是唯一漏掉的。
+                //
+                // 规矩和 `transferMods` 那条一样：
+                //   · 后台线程只碰盘和 `MigrationProgressState`（锁住的小账本），**不碰
+                //     任何 QWidget / 任务账本**；
+                //   · 界面线程每 100 ms 把账本抄进任务中心（步骤状态、进度、提示行）；
+                //   · 收尾那一发 `finished` 才弹结果、问快速启动。
+                //
+                // NOTE: 用户此时可能已经把实例设置页收掉了（这一整段不再阻塞 `execPage`）。
+                //       所以 finished 里对对话框的引用一律先过 `QPointer`；任务账本那一侧
+                //       不依赖对话框，照样收尾。
+                const QString sourceDir = AppPaths::versionDir(sourceId);
+                // ★ 2026-10-19：升级副本的"底"是**用户挑的那个目标版本**，而 `targetDir`
+                //   是这一趟要造出来的**新副本目录**（`versionDir(newName)`）—— 两回事。
+                //   worker 里那句 `copyInstanceFrom()` 要的是"从哪拷"，不是"拷到哪"；
+                //   后台化那一版把 `targetDir` 当源传了进去，于是每次升级都在拷一个
+                //   还不存在的目录：复制失败、只弹三句（确认 / 新名字 / 报错），
+                //   连新副本都不会出现。源目录同样必须在主线程取好（理由同上）。
+                const QString upgradeBaseDir =
+                    upgrade ? AppPaths::versionDir(targetIdCopy) : QString();
                 const qint64 totalUnits = stepIndexOf.size();
-                const TransferApply::Result result = TransferApply::apply(
-                    AppPaths::versionDir(sourceId), targetDir, plan.items, keys,
-                    [ledger, taskId, &stepIndexOf, &doneUnits, totalUnits](
-                        const QString &itemKey, bool ok) {
-                        ++doneUnits;
-                        // 回调是同步的（见 TransferApply.hpp 那段 NOTE），下标表按引用收。
-                        const int index = stepIndexOf.value(itemKey, -1);
-                        if (index >= 0) {
-                            ledger->setStepState(
-                                taskId, index,
-                                ok ? Tasks::TaskStepState::Done : Tasks::TaskStepState::Failed);
-                        }
-                        ledger->setProgress(taskId, doneUnits, totalUnits);
-                    });
-                if (!result.ok) {
-                    finishTask(false, result.problem);
-                    InlineMessage::critical(m_owner->m_ui->overlay(), title, result.problem);
-                    return;
-                }
-
-                // ---------- 校验（§9.9 bullet 3 的最后一步）----------
-                //
-                // 只看"点名搬的那些文件，目标里在不在"：`TransferApply` 只增不覆盖，所以
-                // 目标里原有的同名文件（大小不同也算）**不是失败**，只如实报数。
-                ledger->setStepState(taskId, verifyIndex, Tasks::TaskStepState::Running);
-                const TransferApply::VerifySummary checks = TransferApply::verify(
-                    AppPaths::versionDir(sourceId), targetDir, plan.items, keys);
-                const bool verified = checks.ok && checks.missingFiles == 0;
-                ledger->setStepState(taskId, verifyIndex,
-                                     verified ? Tasks::TaskStepState::Done
-                                              : Tasks::TaskStepState::Failed);
-
-                ledger->setDetail(taskId, result.text() + QStringLiteral("\n\n") + checks.text());
-                finishTask(result.failedFiles == 0 && verified,
-                           result.failedFiles == 0 && verified
-                               ? QString()
-                               : tr("有文件没搬成，或者搬完校验没对上"));
-
-                QString text = result.text() + QStringLiteral("\n\n") + checks.text();
-                if (upgrade) {
-                    text += tr("\n\n新实例「%1」已经在这个游戏文件夹里了。").arg(newName);
-                } else {
-                    text += tr("\n\n目标实例：「%1」。")
-                                .arg(m_owner->instanceDisplayName(targetIdCopy));
-                }
-                if (result.failedFiles > 0 || !verified) {
-                    InlineMessage::warning(m_owner->m_ui->overlay(), title, text);
-                } else {
-                    InlineMessage::information(m_owner->m_ui->overlay(), title, text);
-                }
-
-                // ---------- 收尾那一问（§9.9 bullet 6）----------
-                //
-                // 「快速启动」在这一版就是主页的收藏区（`pinInstance()` 把它移进置顶组，
-                // 主页快速启动区读的就是这一组；§2.8「不新增第三份快速启动数据」）。
-                // 三档都由用户点头，**收藏和最近里没有哪一条是被悄悄改的**：
-                //   · 保留原入口（默认）—— 什么都不动；
-                //   · 创建新入口 —— 把新的那一份收藏进来（升级 = 刚造的副本，迁移 = 目标实例）；
-                //   · 不加入 —— 新的不进去，原来那条入口也收起来（用户明说这次不要它）。
-                //
-                // NOTE: 「不加入」确实会动收藏（把源实例取消收藏）—— 它是**显式**选择，
-                //       不是悄悄改：按钮写的就是"不加入"。取消收藏本身可逆（下箭头那颗
-                //       随时能加回来）。
-                const QString entryId = upgrade ? newName : targetIdCopy;
-                const QString entryName =
-                    upgrade ? newName : m_owner->instanceDisplayName(targetIdCopy);
-                const int launchChoice = InlineMessage::ask(
-                    m_owner->m_ui->overlay(), MessageKind::Question,
-                    tr("快速启动"),
-                    tr("「%1」要不要放进主页的快速启动区？").arg(entryName),
-                    {tr("保留原入口"), tr("创建新入口"), tr("不加入")}, 0, -1, false,
-                    tr("快速启动区显示的就是收藏的那几份；「保留原入口」保持现在的样子，"
-                       "「不加入」会把原来那一条也收起来（以后随时能再加回来）。"));
-                if (launchChoice == 1) {
-                    m_owner->pinInstance(entryId);
-                } else if (launchChoice == 2) {
-                    // ★ 只有**真在快速启动区里**才收起来：`unpinInstance()` 对"根本不在里面"
-                    //   的那一份也会写一条「未分组」归属 —— 那会把用户自己分好的组挪走。
-                    if (m_owner->m_groupStore->isPinned(m_owner->instanceKey(sourceId))) {
-                        m_owner->unpinInstance(sourceId);
+                auto progress = std::make_shared<MigrationProgressState>();
+                auto appliedSteps = std::make_shared<QSet<QString>>();
+                const QPointer<InstanceSettingsDialog> dialogGuard(&dialog);
+                auto *overlay = m_owner->m_ui->overlay();
+                QWidget *promptContent = overlay->openPrompt(false);
+                QPointer<QLabel> promptDetail;
+                QPointer<QProgressBar> promptBar;
+                QPointer<QWidget> prompt;
+                if (promptContent != nullptr) {
+                    auto *promptLayout = qobject_cast<QVBoxLayout *>(promptContent->layout());
+                    if (promptLayout == nullptr) {
+                        promptLayout = new QVBoxLayout(promptContent);
                     }
+                    auto *heading = new QLabel(title, promptContent);
+                    auto *detail = new QLabel(
+                        upgrade ? tr("正在后台复制实例目录…") : tr("准备中…"), promptContent);
+                    detail->setWordWrap(true);
+                    auto *bar = new QProgressBar(promptContent);
+                    bar->setRange(0, int(totalUnits));
+                    promptLayout->addWidget(heading);
+                    promptLayout->addWidget(detail);
+                    promptLayout->addWidget(bar);
+                    promptDetail = detail;
+                    promptBar = bar;
+                    prompt = promptContent;
                 }
+                dialog.setEnabled(false);
+                auto *watcher = new QFutureWatcher<MigrationOutcome>(m_owner);
+                auto *timer = new QTimer(watcher);
+                connect(timer, &QTimer::timeout, watcher,
+                        [this, progress, promptDetail, promptBar, ledger, taskId, stepIndexOf,
+                         appliedSteps, totalUnits] {
+                            int done = 0;
+                            QHash<QString, int> states;
+                            {
+                                QMutexLocker guard(&progress->mutex);
+                                done = progress->doneUnits;
+                                states = progress->itemStates;
+                            }
+                            if (promptDetail != nullptr) {
+                                promptDetail->setText(
+                                    tr("已搬完 %1 / %2 项").arg(done).arg(totalUnits));
+                            }
+                            if (promptBar != nullptr) {
+                                promptBar->setValue(done);
+                            }
+                            ledger->setProgress(taskId, done, totalUnits);
+                            for (auto it = states.cbegin(); it != states.cend(); ++it) {
+                                if (appliedSteps->contains(it.key())) {
+                                    continue;
+                                }
+                                appliedSteps->insert(it.key());
+                                const int index = stepIndexOf.value(it.key(), -1);
+                                if (index >= 0) {
+                                    ledger->setStepState(
+                                        taskId, index,
+                                        it.value() ? Tasks::TaskStepState::Done
+                                                   : Tasks::TaskStepState::Failed);
+                                }
+                            }
+                        });
+                connect(watcher, &QFutureWatcher<MigrationOutcome>::finished, m_owner,
+                        [this, watcher, timer, overlay, prompt, promptDetail, promptBar,
+                         progress, appliedSteps, dialogGuard, title, ledger, taskId,
+                         verifyIndex, stepIndexOf, totalUnits, upgrade, newName, key,
+                         sourceId, targetIdCopy, plan, keys, refreshTransferPage,
+                         pushTransferPlan, buildTransferPlan, finishTask] {
+                            // 先摘"忙"标记，再走下面任何一条早退路径（复制失败 / 搬失败 /
+                            // 对话框已经没了）。挂在里面的话每加一条 return 就漏一次。
+                            m_owner->releaseFileOperationBusy(sourceId);
+                            m_owner->releaseFileOperationBusy(targetIdCopy);
+                            if (upgrade && !newName.isEmpty()) {
+                                m_owner->releaseFileOperationBusy(newName);
+                            }
+                            // ★ 2026-10-19：刷新跟着摘标记走。原来只在"升级副本复制成功"
+                            //   那一条路上刷（下面原来那一句），于是复制失败 / 搬文件失败 /
+                            //   普通迁移这几条早退之后，被 `installingVersionIds()` 滤掉的
+                            //   那一行就留在"不在"的状态里，直到下一次碰巧有东西再刷新。
+                            m_owner->refreshInstalledVersions();
+                            timer->stop();
+                            watcher->deleteLater();
+                            if (prompt != nullptr && prompt->isVisibleTo(overlay)
+                                && overlay->promptOpen()) {
+                                overlay->closeOverlay();
+                            }
+                            if (dialogGuard != nullptr) {
+                                dialogGuard->setEnabled(true);
+                            }
+                            const MigrationOutcome outcome = watcher->result();
+                            // 定时器那一拍可能还没来得及把最后几块抄进账本。
+                            {
+                                QHash<QString, int> states;
+                                {
+                                    QMutexLocker guard(&progress->mutex);
+                                    states = progress->itemStates;
+                                }
+                                for (auto it = states.cbegin(); it != states.cend(); ++it) {
+                                    if (appliedSteps->contains(it.key())) {
+                                        continue;
+                                    }
+                                    appliedSteps->insert(it.key());
+                                    const int index = stepIndexOf.value(it.key(), -1);
+                                    if (index >= 0) {
+                                        ledger->setStepState(
+                                            taskId, index,
+                                            it.value() ? Tasks::TaskStepState::Done
+                                                       : Tasks::TaskStepState::Failed);
+                                    }
+                                }
+                            }
 
-                // 搬过之后（或者刚多了一份副本）把目标列和计划重摆一遍。
-                if (upgrade) refreshTransferPage(key);
-                else pushTransferPlan(key, buildTransferPlan(key, targetIdCopy));
+                            if (upgrade) {
+                                if (outcome.copyFailed) {
+                                    ledger->setStepState(taskId, 0, Tasks::TaskStepState::Failed,
+                                                         outcome.copyError);
+                                    finishTask(false, tr("复制实例没成"));
+                                    InlineMessage::critical(overlay, title, outcome.copyError);
+                                    return;
+                                }
+                                ledger->setStepState(taskId, 0, Tasks::TaskStepState::Done);
+                                ledger->setDetail(
+                                    taskId,
+                                    tr("新的一份「%1」已经造好了，开始搬文件。").arg(newName));
+                                // 列表已经在本函数开头刷过一次（摘忙标记之后），这里别重复刷。
+                            }
+
+                            if (!outcome.apply.ok) {
+                                finishTask(false, outcome.apply.problem);
+                                InlineMessage::critical(overlay, title, outcome.apply.problem);
+                                return;
+                            }
+
+                            // ---------- 校验（§9.9 bullet 3 的最后一步）----------
+                            //
+                            // 只看"点名搬的那些文件，目标里在不在"：`TransferApply` 只增
+                            // 不覆盖，所以目标里原有的同名文件（大小不同也算）**不是
+                            // 失败**，只如实报数。
+                            ledger->setStepState(taskId, verifyIndex,
+                                                 Tasks::TaskStepState::Running);
+                            const TransferApply::VerifySummary &checks = outcome.verify;
+                            const bool verified = checks.ok && checks.missingFiles == 0;
+                            ledger->setStepState(taskId, verifyIndex,
+                                                 verified ? Tasks::TaskStepState::Done
+                                                          : Tasks::TaskStepState::Failed);
+
+                            ledger->setDetail(taskId,
+                                              outcome.apply.text() + QStringLiteral("\n\n")
+                                                  + checks.text());
+                            finishTask(outcome.apply.failedFiles == 0 && verified,
+                                       outcome.apply.failedFiles == 0 && verified
+                                           ? QString()
+                                           : tr("有文件没搬成，或者搬完校验没对上"));
+
+                            QString text =
+                                outcome.apply.text() + QStringLiteral("\n\n") + checks.text();
+                            if (upgrade) {
+                                text += tr("\n\n新实例「%1」已经在这个游戏文件夹里了。")
+                                            .arg(newName);
+                            } else {
+                                text += tr("\n\n目标实例：「%1」。")
+                                            .arg(m_owner->instanceDisplayName(targetIdCopy));
+                            }
+                            if (outcome.apply.failedFiles > 0 || !verified) {
+                                InlineMessage::warning(overlay, title, text);
+                            } else {
+                                InlineMessage::information(overlay, title, text);
+                            }
+
+                            // ---------- 收尾那一问（§9.9 bullet 6）----------
+                            //
+                            // 「快速启动」在这一版就是主页的收藏区（`pinInstance()` 把它
+                            // 移进置顶组，主页快速启动区读的就是这一组；§2.8「不新增第三份
+                            // 快速启动数据」）。三档都由用户点头：
+                            //   · 保留原入口（默认）—— 什么都不动；
+                            //   · 创建新入口 —— 把新的那一份收藏进来；
+                            //   · 不加入 —— 新的不进去，原来那条入口也收起来。
+                            const QString entryId = upgrade ? newName : targetIdCopy;
+                            const QString entryName =
+                                upgrade ? newName
+                                        : m_owner->instanceDisplayName(targetIdCopy);
+                            const int launchChoice = InlineMessage::ask(
+                                overlay, MessageKind::Question, tr("快速启动"),
+                                tr("「%1」要不要放进主页的快速启动区？").arg(entryName),
+                                {tr("保留原入口"), tr("创建新入口"), tr("不加入")}, 0, -1,
+                                false,
+                                tr("快速启动区显示的就是收藏的那几份；「保留原入口」保持"
+                                   "现在的样子，「不加入」会把原来那一条也收起来（以后随时"
+                                   "能再加回来）。"));
+                            if (launchChoice == 1) {
+                                m_owner->pinInstance(entryId);
+                            } else if (launchChoice == 2) {
+                                // ★ 只有**真在快速启动区里**才收起来：`unpinInstance()` 对
+                                //   "根本不在里面"的那一份也会写一条「未分组」归属。
+                                if (m_owner->m_groupStore->isPinned(
+                                        m_owner->instanceKey(sourceId))) {
+                                    m_owner->unpinInstance(sourceId);
+                                }
+                            }
+
+                            // 搬过之后（或者刚多了一份副本）把目标列和计划重摆一遍。
+                            // 对话框可能已经被收掉了（这一趟不再阻塞 execPage）——
+                            // 那两个 lambda 都捕着 `&dialog`，只能在它还活着时调。
+                            if (dialogGuard == nullptr) {
+                                return;
+                            }
+                            if (upgrade) {
+                                refreshTransferPage(key);
+                            } else {
+                                pushTransferPlan(key, buildTransferPlan(key, targetIdCopy));
+                            }
+                        });
+                timer->start(100);
+                // ★ 游戏目录必须在**主线程**取好再交给 worker：用户可以在这趟跑着的时候
+                //   换游戏文件夹（见 AppPaths::minecraftDir() 的注释），而 `QString` 的
+                //   隐式共享对象在两个线程里一读一写就是数据竞争。早先这里在 worker 里
+                //   现调 `AppPaths::minecraftDir()`，正是踩在那一枪上。
+                const QString gameDir = AppPaths::minecraftDir();
+                // ★ 2026-10-19：这一趟在后台写盘，可它原先**没在任何"忙"名单上**。
+                //   于是这段时间里源码实例照样能被启动（读到的是一份拷到一半的目录）、
+                //   能被删、还能再开一趟迁移 —— 和模组迁移那条路的闸不对称。
+                //   `installingVersionIds()` 就是"谁不许启动/删除"的唯一出处，
+                //   这里把三个真正会被碰到的 id 都记进去（读源码、写目标、造新副本）。
+                m_owner->markFileOperationBusy(sourceId);
+                m_owner->markFileOperationBusy(targetIdCopy);
+                if (upgrade && !newName.isEmpty()) {
+                    m_owner->markFileOperationBusy(newName);
+                }
+                watcher->setFuture(QtConcurrent::run(
+                    [sourceId, targetIdCopy, sourceDir, targetDir, upgradeBaseDir, plan, keys,
+                     progress, upgrade, newName, gameDir] {
+                        MigrationOutcome outcome;
+                        if (upgrade) {
+                            // 后台另起一份 VersionManager：`copyInstance()` 会动那两份
+                            // 版本 json 缓存，拿主线程那一份在别的线程里跑就是数据竞争
+                            //（同 `InstanceTransferController::copyInstanceInBackground`）。
+                            // ★ 拷的是**用户挑的那个目标版本**（`targetIdCopy`），不是当前
+                            //   实例 —— 升级副本的意思就是"拿新版本当底、把这一份里的东西
+                            //   搬过去"。后台化那一版一开始错写成 `sourceId`，结果造出来的
+                            //   是一份当前实例的克隆，版本号根本没变。
+                            // ★ 源目录 `targetDir` 也是在**主线程**取好的（见上面那两处
+                            //   `AppPaths::versionDir()`）：worker 里现算就是和"切换游戏
+                            //   文件夹"抢同一个 QString。
+                            VersionManager worker;
+                            if (!worker.copyInstanceFrom(upgradeBaseDir, targetIdCopy, gameDir,
+                                                         newName, &outcome.copyError)) {
+                                outcome.copyFailed = true;
+                                return outcome;
+                            }
+                        }
+                        outcome.apply = TransferApply::apply(
+                            sourceDir, targetDir, plan.items, keys,
+                            [progress](const QString &itemKey, bool ok) {
+                                QMutexLocker guard(&progress->mutex);
+                                ++progress->doneUnits;
+                                progress->itemStates.insert(itemKey, ok ? 1 : 0);
+                            });
+                        if (outcome.apply.ok) {
+                            outcome.verify = TransferApply::verify(sourceDir, targetDir,
+                                                                   plan.items, keys);
+                        }
+                        return outcome;
+                    }));
             });
 
     connect(&dialog, &InstanceSettingsDialog::resourcePackPageEntered, m_owner,            [this, &dialog, &targetId] {
@@ -834,6 +1095,56 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
             [this, &targetId, &dialog](const QStringList &paths) {
                 if (!paths.isEmpty()) m_owner->checkInstanceUpdates(targetId, &dialog, paths);
             });
+    connect(&dialog, &InstanceSettingsDialog::modInspectDependenciesRequested, &dialog,
+            [this, &targetId](const QStringList &paths) {
+                const QString root = m_owner->instanceFileDirs(targetId).value(QStringLiteral("mod"));
+                if (root.isEmpty() || !QFileInfo(root).isDir()) return;
+                if (m_owner->installingVersionIds().contains(targetId)) {
+                    InlineMessage::information(m_owner->m_ui->overlay(), tr("实例正在处理文件"),
+                        tr("请等待当前文件操作结束后再检查依赖。")); return;
+                }
+                QStringList currentPaths;
+                for (const auto &info : QDir(root).entryInfoList(QDir::Files | QDir::NoSymLinks, QDir::Name))
+                    currentPaths.append(info.absoluteFilePath());
+                InstanceIconLookup::Options options;
+                options.cacheDir = AppPaths::instanceIconCacheDir(); options.cacheKey = targetId;
+                options.cacheOnly = true;
+                const auto cached = InstanceIconLookup::lookup(currentPaths, options);
+                QHash<QString, InstanceIconLookup::Found> byPath;
+                for (const auto &found : cached.found) byPath.insert(found.path, found);
+                QHash<QString, ModDependencies::UpdateVerdict> checked;
+                for (const auto &entry : m_owner->m_instanceUpdateResults.value(targetId).verdicts)
+                    checked.insert(entry.item.path, entry);
+                QList<ModDependencies::InstalledItem> inventory, selected;
+                for (const auto &path : currentPaths) {
+                    ModDependencies::InstalledItem item; item.path = path;
+                    const auto found = byPath.constFind(path);
+                    if (found != byPath.cend()) {
+                        item.projectId = found->hit.projectId; item.source = found->hit.source;
+                        item.title = found->hit.title; item.sha1 = found->sha1;
+                        item.currentVersion = found->currentVersion;
+                        const auto previous = checked.constFind(path);
+                        if (!item.currentVersion.dependencyMetadataKnown && !item.sha1.isEmpty() &&
+                            previous != checked.cend() && previous->item.sha1 == item.sha1 &&
+                            previous->item.source == item.source && previous->item.projectId == item.projectId)
+                            item.currentVersion = previous->currentVersion;
+                    }
+                    inventory.append(item);
+                    if (paths.contains(path)) selected.append(item);
+                }
+                if (selected.isEmpty()) {
+                    InlineMessage::information(m_owner->m_ui->overlay(), tr("选择已变化"),
+                        tr("选中的文件已不存在，请刷新列表后重试。")); return;
+                }
+                InlineMessageBox box(MessageKind::Information, tr("依赖与冲突"),
+                    tr("只读检查当前启用文件及有效缓存，不联网。资料未知时可先检查更新，再回来查看。"),
+                    {tr("关闭")}, 0, -1);
+                auto *report = new QPlainTextEdit;
+                report->setObjectName(QStringLiteral("modDependencyInspectionText")); report->setReadOnly(true);
+                report->setPlainText(ModDependencies::inspectInstalledDependencies(selected, inventory));
+                report->setMinimumHeight(180); report->setMaximumHeight(300); box.setContent(report);
+                m_owner->m_ui->overlay()->execPrompt(&box);
+            });
     connect(&dialog, &InstanceSettingsDialog::modWebsiteRequested, &dialog,
             [this](const QString &path) {
                 QString key;
@@ -884,8 +1195,12 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     //       OverlayHost，那玩意儿在 MainWindow 手里，这一层连读都没有读。
     connect(&dialog, &InstanceSettingsDialog::createSnapshotRequested, m_owner,
             [this, &targetId]() { m_owner->snapshotInstance(targetId); });
+    // 多捕一个 &dialog：还原会把整个实例目录换掉，那一页控件的值全是旧的 ——
+    // BackupController 收尾时要能把它禁用 / 收掉（理由见 restoreInstance() 那段 ★）。
     connect(&dialog, &InstanceSettingsDialog::restoreSnapshotRequested, m_owner,
-            [this, &targetId]() { m_owner->restoreInstanceSnapshot(targetId); });
+            [this, &targetId, &dialog]() {
+                m_owner->restoreInstanceSnapshot(targetId, &dialog);
+            });
 
     // 「文件管理」那三发（2026-09-26）：开文件夹 / 启用·禁用一条 / 删一条。
     //
@@ -940,23 +1255,68 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     QStringList names;
                     const auto targets = m_owner->m_instanceUpdateTargets.value(contextId);
                     QStringList executable;
+                    QHash<QString, FileHash::Stamp> previewStamps;
                     for (const auto &path : paths) {
                         const auto version = targets.value(path);
                         const auto *file = version.primaryFile();
-                        if (!file || file->url.isEmpty()) continue;
+                        if (!file || file->url.isEmpty() || !QFileInfo(path).isFile()) continue;
                         executable.append(path);
-                        names.append(tr("%1\n  → %2 · %3\n  加载器：%4 · 游戏：%5")
-                            .arg(QFileInfo(path).fileName(), version.versionNumber.isEmpty() ? version.name : version.versionNumber,
-                                 file->filename, version.loaders.join(QStringLiteral(" / ")),
-                                 version.gameVersions.join(QStringLiteral(" / "))));
+                        previewStamps.insert(path, FileHash::stampOf(path));
                     }
                     if (executable.isEmpty()) {
                         InlineMessage::information(m_owner->m_ui->overlay(), tr("没有更新"),
                                                    tr("选中项没有可安装的更新，请先检查更新。")); return;
                     }
-                    if (!InlineMessage::question(m_owner->m_ui->overlay(), tr("更新选中模组"),
-                            tr("将更新以下选中项；没有可用更新的会跳过。\n更新可能改变依赖要求，请先关闭游戏。\n\n%1")
-                                .arg(names.join(QLatin1Char('\n'))), tr("更新"), tr("取消"), false, true)) return;
+                    const auto results = m_owner->m_instanceUpdateResults.value(contextId).verdicts;
+                    QHash<QString, ModDependencies::UpdateVerdict> byPath;
+                    for (const auto &entry : results) byPath.insert(entry.item.path, entry);
+                    QList<ResourceCatalog::Hit> recognizedActive;
+                    const QDir modDir(m_owner->instanceFileDirs(contextId).value(QStringLiteral("mod")));
+                    for (const auto &info : modDir.entryInfoList(QDir::Files | QDir::NoSymLinks)) {
+                        if (info.fileName().endsWith(InstanceFilesPage::disabledSuffix(), Qt::CaseInsensitive)) continue;
+                        QString key;
+                        if (m_owner->m_instanceIconController->fileResourceIconKey(info.absoluteFilePath(), &key)) {
+                            const auto hit = m_owner->m_resourceHits.value(key);
+                            if (!hit.projectId.isEmpty()) recognizedActive.append(hit);
+                        }
+                    }
+                    for (const auto &path : executable) {
+                        const auto entry = byPath.value(path);
+                        QHash<QString, QString> plannedVersions, projectNames;
+                        for (const auto &hit : recognizedActive) if (hit.source == entry.item.source) {
+                            plannedVersions.insert(hit.projectId, QString());
+                            projectNames.insert(hit.projectId, hit.title.isEmpty() ? hit.projectId : hit.title);
+                        }
+                        for (const auto &known : results) {
+                            if (known.item.source != entry.item.source || known.item.projectId.isEmpty()) continue;
+                            if (!QFileInfo(known.item.path).isFile() || known.item.path.endsWith(
+                                InstanceFilesPage::disabledSuffix(), Qt::CaseInsensitive)) continue;
+                            plannedVersions.insert(known.item.projectId, known.currentVersion.id);
+                            projectNames.insert(known.item.projectId, known.item.title.isEmpty() ? known.item.projectId : known.item.title);
+                        }
+                        for (const auto &plannedPath : executable) {
+                            const auto planned = byPath.value(plannedPath);
+                            if (planned.item.source == entry.item.source && !planned.item.projectId.isEmpty())
+                                plannedVersions.insert(planned.item.projectId, targets.value(plannedPath).id);
+                        }
+                        const auto version = targets.value(path);
+                        names.append(tr("%1\n%2\n目标文件：%3\n加载器：%4 · 游戏：%5")
+                            .arg(QFileInfo(path).fileName(), ModDependencies::updateDifferenceText(
+                                entry.currentVersion, version, plannedVersions, projectNames),
+                                version.primaryFile()->filename, version.loaders.join(QStringLiteral(" / ")),
+                                version.gameVersions.join(QStringLiteral(" / "))));
+                    }
+                    InlineMessageBox preview(MessageKind::Question, tr("模组更新差异"),
+                        tr("将更新 %1 项。请查看依赖变化与需确认项；不会自动补装或删除依赖。").arg(executable.size()),
+                        {tr("确认更新"), tr("取消")}, 1, 0);
+                    auto *text = new QPlainTextEdit;
+                    text->setObjectName(QStringLiteral("modUpdateDifferenceText"));
+                    text->setReadOnly(true);
+                    text->setPlainText(names.join(QStringLiteral("\n\n────────────────\n\n")));
+                    text->setMinimumHeight(180); text->setMaximumHeight(300);
+                    preview.setContent(text);
+                    m_owner->m_ui->overlay()->execPrompt(&preview);
+                    if (preview.clickedIndex() != 0) return;
                     if (targetId != contextId) return;
                     if (m_owner->installingVersionIds().contains(contextId) ||
                         (m_owner->m_launcherManager && m_owner->m_launcherManager->isVersionRunning(contextId))) {
@@ -965,9 +1325,10 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     }
                     const auto current = m_owner->m_instanceUpdateTargets.value(contextId);
                     for (const auto &path : executable) {
-                        if (current.value(path).id != targets.value(path).id) {
+                        if (current.value(path).id != targets.value(path).id ||
+                            !FileHash::sameStamp(previewStamps.value(path), FileHash::stampOf(path))) {
                             InlineMessage::information(m_owner->m_ui->overlay(), tr("更新清单已变化"),
-                                tr("检测结果在确认期间发生变化，请重新查看清单。")); return;
+                                tr("检测结果或本地文件在确认期间发生变化，请重新查看清单。")); return;
                         }
                     }
                     m_owner->updateInstanceFiles(contextId, pageKey, executable);
@@ -1031,39 +1392,88 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
             InlineMessage::warning(m_owner->m_ui->overlay(), title,
                                    tr("实例正在运行、安装，或当前实例已切换，请稍后重试。")); return;
         }
+        auto *overlay = m_owner->m_ui->overlay();
+        QWidget *content = overlay->openPrompt(false);
+        if (!content) return;
+        auto *layout = qobject_cast<QVBoxLayout *>(content->layout());
+        if (!layout) layout = new QVBoxLayout(content);
+        auto *heading = new QLabel(title, content);
+        auto *detail = new QLabel(tr("准备复制与校验…"), content);
+        detail->setWordWrap(true);
+        auto *bar = new QProgressBar(content);
+        bar->setRange(0, paths.size());
+        auto *cancel = new QPushButton(tr("取消"), content);
+        Theme::markButton(cancel, Theme::ButtonKind::Neutral);
+        layout->addWidget(heading); layout->addWidget(detail);
+        layout->addWidget(bar); layout->addWidget(cancel);
+        struct Progress { std::atomic_bool cancel{false}; QMutex mutex; int done = 0; QString detail; };
+        const auto state = std::make_shared<Progress>();
+        auto *watcher = new QFutureWatcher<TransferApply::ModTransferResult>(m_owner);
+        auto *timer = new QTimer(watcher);
+        const QPointer<QLabel> safeDetail(detail);
+        const QPointer<QProgressBar> safeBar(bar);
+        const QPointer<QWidget> prompt(content);
+        const QPointer<InstanceSettingsDialog> safeDialog(&dialog);
+        dialog.setEnabled(false);
+        const auto task = m_owner->m_activityCenter->begin(Tasks::TaskKind::Other,
+            title, sourceId, {Tasks::TaskStep{tr("复制并校验模组文件"), Tasks::TaskStepState::Running, {}}});
+        m_owner->m_modTransferCancels.insert(task, [state] { state->cancel = true; });
+        auto capabilities = m_owner->m_activityCenter->tasks()->snapshot(task).capabilities;
+        capabilities.canCancel = true;
+        m_owner->m_activityCenter->tasks()->setCapabilities(task, capabilities);
+        m_owner->markFileOperationBusy(sourceId);
+        m_owner->markFileOperationBusy(destId);
+        connect(cancel, &QPushButton::clicked, watcher, [state, cancel] {
+            state->cancel = true; cancel->setEnabled(false); cancel->setText(tr("正在取消…"));
+        });
+        const auto dismissConnection = connect(overlay, &OverlayHost::promptDismissed, watcher,
+            [state] { state->cancel = true; });
+        const auto quitConnection = connect(qApp, &QCoreApplication::aboutToQuit, watcher,
+            [state] { state->cancel = true; });
+        connect(timer, &QTimer::timeout, watcher, [this, state, safeDetail, safeBar, task, paths] {
+            QMutexLocker guard(&state->mutex);
+            if (safeDetail) safeDetail->setText(state->detail);
+            if (safeBar) safeBar->setValue(state->done);
+            m_owner->m_activityCenter->tasks()->setDetail(task, state->detail);
+            m_owner->m_activityCenter->tasks()->setProgress(task, state->done, paths.size());
+        });
+        connect(watcher, &QFutureWatcher<TransferApply::ModTransferResult>::finished, m_owner,
+            [this, watcher, timer, sourceId, destId, safeDialog, prompt, overlay, title, task,
+             dismissConnection, quitConnection] {
+                timer->stop(); disconnect(dismissConnection); disconnect(quitConnection);
+                const auto result = watcher->result(); watcher->deleteLater();
+                m_owner->releaseFileOperationBusy(sourceId);
+                m_owner->releaseFileOperationBusy(destId);
+                m_owner->m_modTransferCancels.remove(task);
+                // ★ 2026-10-19：两个实例都刚被摘掉忙标记 ⇒ 实例页那一行也要立刻回来。
+                //   对话框可能已经被收掉了（`safeDialog` 为空），所以这一刷不能挂在它上面。
+                m_owner->refreshInstalledVersions();
+                if (safeDialog) { safeDialog->setEnabled(true); safeDialog->refreshFilePages(); }
+                if (prompt && prompt->isVisibleTo(overlay) && overlay->promptOpen()) overlay->closeOverlay();
+                const QString summary = tr("已验证复制 %1 项，其中移动 %2 项；跳过 %3 项，失败 %4 项。%5\n%6")
+                    .arg(result.copied).arg(result.moved).arg(result.skipped).arg(result.failed)
+                    .arg(result.cancelled ? tr("\n已取消，未完成项的来源保留。") : QString())
+                    .arg(result.problems.join(QLatin1Char('\n')));
+                m_owner->m_activityCenter->tasks()->setDetail(task, summary);
+                if (!result.cancelled) {
+                    m_owner->m_activityCenter->tasks()->setProgress(task, 1, 1);
+                    m_owner->m_activityCenter->tasks()->setStepState(task, 0,
+                        result.failed == 0 ? Tasks::TaskStepState::Done : Tasks::TaskStepState::Failed);
+                }
+                if (result.cancelled) m_owner->m_activityCenter->tasks()->cancel(task);
+                else m_owner->m_activityCenter->finish(task, result.failed == 0, summary, false);
+                m_owner->appendLog(summary);
+                InlineMessage::information(overlay, title, summary);
+            });
+        timer->start(100);
         const QString sourceDir = AppPaths::versionDir(sourceId);
         const QString destDir = AppPaths::versionDir(destId);
-        const QString modDir = m_owner->instanceFileDirs(sourceId).value(QStringLiteral("mod"));
-        int succeeded = 0;
-        QStringList failures;
-        for (const QString &path : paths) {
-            const QFileInfo source(path);
-            // Only direct regular mod files; TransferApply also rejects junctions/links.
-            if (!source.isFile() || source.isSymLink() || source.absolutePath() != QDir(modDir).absolutePath()) {
-                failures.append(source.fileName()); continue;
-            }
-            TransferPlanner::Item item;
-            item.key = QStringLiteral("selectedMod");
-            item.relativePath = QDir(sourceDir).relativeFilePath(path);
-            item.isDirectory = false; item.exists = true;
-            const QString destPath = QDir(destDir).filePath(item.relativePath);
-            if (QFileInfo::exists(destPath)) { failures.append(source.fileName()); continue; }
-            const auto before = FileHash::stampOf(path);
-            const auto hash = FileHash::digestOfFile(path, FileHash::Algorithm::Sha256);
-            const auto result = TransferApply::apply(sourceDir, destDir, {item}, {item.key});
-            const auto targetHash = FileHash::digestOfFile(destPath, FileHash::Algorithm::Sha256);
-            const bool verified = result.ok && result.copiedFiles == 1 && hash.ok && targetHash.ok &&
-                hash.hex == targetHash.hex && FileHash::sameStamp(before, FileHash::stampOf(path));
-            // This file was created by this operation, never an existing target.
-            // Do not leave an unverified jar where the game would load it.
-            if (!verified && result.copiedFiles == 1) QFile::remove(destPath);
-            if (!verified || (move && !QFile::remove(path))) failures.append(source.fileName());
-            else ++succeeded;
-        }
-        dialog.refreshFilePages();
-        InlineMessage::information(m_owner->m_ui->overlay(), title,
-            tr("成功 %1 项；跳过或失败 %2 项。\n%3")
-                .arg(succeeded).arg(failures.size()).arg(failures.join(QLatin1Char('\n'))));
+        watcher->setFuture(QtConcurrent::run([sourceDir, destDir, paths, move, state] {
+            return TransferApply::transferMods(sourceDir, destDir, paths, move,
+                [state](int done, int, const QString &detail) {
+                    QMutexLocker guard(&state->mutex); state->done = done; state->detail = detail;
+                }, [state] { return state->cancel.load(); });
+        }));
     });
 
     // ---------- 「复制实例」（2026-09-28）----------
@@ -1083,7 +1493,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     //       ui/ 不碰 AppPaths，"该默认到哪儿"只有这儿知道）。它们**驱动不了**，所以真正
     //       动手的那一半被切了出去，验证工程直接喂路径。
     connect(&dialog, &InstanceSettingsDialog::copyInstanceRequested, m_owner,
-            [this, &targetId]() {
+            [this, &targetId, &dialog]() {
                 const QString sourceId = targetId;  // 按值收：下面那两条对话框会让出事件循环
                 const QString defaultDir = AppPaths::minecraftDir();
                 const QString folder = QFileDialog::getExistingDirectory(
@@ -1102,7 +1512,20 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 // ★ 后台版（coding plan §9.9「不在 UI 线程直接复制整个目录」）：拷一整个
                 //   实例动辄几十秒，以前这一按会把整扇窗按住。四道闸还是同一套，只是拷树
                 //   挪到后台，进度和结果落在任务中心。
-                m_owner->copyInstanceToInBackground(sourceId, folder, name);
+                //
+                // ★ 2026-10-19：拷树跑着的这段时间，原来这一页**还能点**。用户能在这儿
+                //   改设置（写的就是正在被拷的那份目录 ⇒ 副本里是一个前后不一致的中间态），
+                //   也能按「从快照恢复」把源目录整个换掉。和上面「移动替换模组文件」那一趟
+                //   同一个做法：期间禁用这一页，收尾（成功 / 失败 / 被挡下）再解冻。
+                //   直接问 transfer controller 是为了拿到 `whenDone` —— MainWindow 那一层
+                //   的薄壳是私有槽，参数里加不进 std::function。
+                //   QPointer：用户完全可能在复制期间把这一页收掉。
+                const QPointer<InstanceSettingsDialog> safeDialog(&dialog);
+                dialog.setEnabled(false);
+                m_owner->m_instanceTransferController->copyInstanceInBackground(
+                    sourceId, folder, name, [safeDialog](bool, const QString &) {
+                        if (safeDialog) safeDialog->setEnabled(true);
+                    });
             });
 
     // ---------- 「删除实例」（2026-09-28）----------

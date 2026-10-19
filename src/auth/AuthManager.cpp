@@ -29,6 +29,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QPointer>
 #include <QRandomGenerator>
 #include <QSettings>
 #include <QTcpServer>
@@ -432,12 +433,47 @@ void AuthManager::handleNewConnection() {
         return;
     }
 
-    if (!socket->waitForReadyRead(10000)) {
+    // ★ 2026-10-19：这里以前是 `waitForReadyRead(10000)` —— 在 **UI 线程**上真等，
+    //   于是本机任何一个进程随手连一下回调端口、一个字都不发，整个启动器就冻 10 秒
+    //   （窗口不重绘、点不动，Windows 还会挂上"无响应"）。现在改成异步收：先挂
+    //   readyRead，收全 HTTP 头才进 `processCallbackRequest()`；10 秒只是"这条连接
+    //   一直不把请求头说完就关掉"的看门狗，不再占用界面。
+    //   NOTE: 超时用 QTimer 而不是 `QTimer::singleShot` —— 它挂在 socket 底下，
+    //         socket 一删就跟着没了，不会在一个已经关掉的连接上多放一发。
+    auto *deadline = new QTimer(socket);
+    deadline->setSingleShot(true);
+    connect(deadline, &QTimer::timeout, socket, [socket] { socket->disconnectFromHost(); });
+    deadline->start(10000);
+    socket->setProperty("wtfmlCallbackBuffer", QByteArray());
+    connect(socket, &QTcpSocket::readyRead, this, [this, socket, deadline] {
+        QByteArray data = socket->property("wtfmlCallbackBuffer").toByteArray();
+        data += socket->readAll();
+        // 一个 GET 回调请求头只有几百字节；收过这么多还没有结束标记的，不是我们等的
+        // 那份请求（也不给本机别的程序拿它当上传口）。
+        if (data.size() > 64 * 1024) {
+            socket->disconnectFromHost();
+            return;
+        }
+        socket->setProperty("wtfmlCallbackBuffer", data);
+        if (!data.contains("\r\n\r\n")) {
+            return;
+        }
+        deadline->stop();
+        // 只交出一次：后续再来的字节不属于这一份请求（而且处理期间正卡在内嵌循环里）。
+        socket->disconnect(this);
+        processCallbackRequest(socket, data);
+    });
+}
+
+void AuthManager::processCallbackRequest(QTcpSocket *socket, const QByteArray &requestData) {
+    // 另一个回调已经在走令牌链了（内嵌事件循环期间别的连接照样收得到）—— 同
+    // `handleNewConnection()` 开头那道闸，这里再判一次：异步收之后，"另一个连接"
+    // 完全可能在第一条已经开跑之后才把请求头收全。
+    if (m_handlingCallback) {
         socket->disconnectFromHost();
         return;
     }
 
-    const QByteArray requestData = socket->readAll();
     const QString requestText = QString::fromUtf8(requestData);
     const QStringList requestLines = requestText.split(QLatin1String("\r\n"), Qt::SkipEmptyParts);
     if (requestLines.isEmpty()) {
@@ -475,6 +511,15 @@ void AuthManager::handleNewConnection() {
     //       loginSucceeded/loginFailed 信号就够了。
 
     m_handlingCallback = true;
+
+    // ★ 2026-10-19：下面那两段令牌交换是**同步** HTTP（`HttpClient::send()` 里有一个
+    //   嵌套 `QEventLoop`），而这条连接在 `handleNewConnection()` 里挂了
+    //   `disconnected → deleteLater`。用户在这几秒里把浏览器标签页关掉（很常见：
+    //   "授权都点完了"），FIN 到了 ⇒ `disconnected` 在**嵌套循环里**发出来 ⇒
+    //   `deleteLater` 排的 DeferredDelete 在同一个循环层级立刻被派发，socket 就被
+    //   释放了。回来以后这句 `socket->write(response)` 写的是已经释放的内存。
+    //   `QPointer` 是这道闸：令牌链照走、信号照发，只是不再往一个已经没了的连接上写。
+    const QPointer<QTcpSocket> socketGuard(socket);
 
     QString responseHtml;
     bool success = false;
@@ -518,15 +563,17 @@ void AuthManager::handleNewConnection() {
     response.append("\r\nConnection: close\r\n\r\n");
     response.append(responseBody);
 
-    socket->write(response);
-    socket->flush();
-    socket->waitForBytesWritten(3000);
+    if (!socketGuard.isNull()) {
+        socket->write(response);
+        socket->flush();
+        socket->waitForBytesWritten(3000);
 
-    // 当套接字仍然连接时断开连接
-    if (socket->state() == QAbstractSocket::ConnectedState) {
-        socket->disconnectFromHost();
-        if (socket->state() != QAbstractSocket::UnconnectedState) {
-            socket->waitForDisconnected(3000);
+        // 当套接字仍然连接时断开连接
+        if (socket->state() == QAbstractSocket::ConnectedState) {
+            socket->disconnectFromHost();
+            if (socket->state() != QAbstractSocket::UnconnectedState) {
+                socket->waitForDisconnected(3000);
+            }
         }
     }
 

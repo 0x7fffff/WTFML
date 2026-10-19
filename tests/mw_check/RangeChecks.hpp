@@ -103,20 +103,37 @@ inline int runRangeChecks() {
         if (!success) fprintf(stderr, "RANGE ERROR %s\n", qPrintable(problem));
         expect(success && read(target) == expected, "assembled or fallback output matches complete source bytes");
     };
+    // 分段请求本身出问题时（Content-Range 对不上 / 416 / ETag 变了）的现行口径
+    // （docs/HIGH_SPEED_DOWNLOAD.md「2026-10-18 现场日志修正」）：先只补缺的段，
+    // 补投仍失败就保留缓存并报错，**不自动整包重下**；目标文件绝不落半截错内容。
+    const auto runRejected = [&](const QString &endpoint, const QString &target) {
+        ResumableDownload download;
+        bool done = false, success = true; QString problem;
+        QObject::connect(&download, &ResumableDownload::finished, &download,
+                         [&](bool ok, const QString &error) { done = true; success = ok; problem = error; });
+        download.start(url(endpoint), target, {}, -1, true, cache);
+        expect(pump([&] { return done; }), "rejected transfer terminates within deadline");
+        expect(!success && !problem.isEmpty(), "rejected ranges fail with a reason");
+        expect(!QFileInfo::exists(target), "rejected ranges never publish a partial target");
+        if (!success) fprintf(stderr, "RANGE ERROR %s\n", qPrintable(problem));
+    };
     run(QStringLiteral("range"), fixture.filePath(QStringLiteral("parallel.bin")), body);
     expect(ranges.size() == 4 && peak >= 2 && peak <= 4 && full == 0, "large file downloads four bounded parallel ranges without whole-file request");
     ranges.clear(); full = 0;
     run(QStringLiteral("ignore"), fixture.filePath(QStringLiteral("ignore.bin")), body);
     expect(full == 1 && ranges.isEmpty(), "server ignoring probe Range falls back to exactly one ordinary GET");
-    full = 0;
-    run(QStringLiteral("bad-range"), fixture.filePath(QStringLiteral("bad-range.bin")), body);
-    expect(full == 1, "invalid Content-Range cannot be stitched; fallback starts a fresh whole response");
-    full = 0;
-    run(QStringLiteral("416"), fixture.filePath(QStringLiteral("416.bin")), body);
-    expect(full == 1, "HTTP 416 invalidates range attempt and falls back safely");
-    full = 0;
-    run(QStringLiteral("changing"), fixture.filePath(QStringLiteral("changed.bin")), second);
-    expect(full == 1, "ETag change mid-download never mixes representations");
+    full = 0; ranges.clear();
+    runRejected(QStringLiteral("bad-range"), fixture.filePath(QStringLiteral("bad-range.bin")));
+    expect(full == 0 && ranges.size() == 8,
+           "invalid Content-Range never gets stitched; missing parts are retried once, not a whole-file re-download");
+    full = 0; ranges.clear();
+    runRejected(QStringLiteral("416"), fixture.filePath(QStringLiteral("416.bin")));
+    expect(full == 0 && ranges.size() == 8,
+           "HTTP 416 on a part is retried part-wise, never a whole-file re-download");
+    full = 0; ranges.clear();
+    runRejected(QStringLiteral("changing"), fixture.filePath(QStringLiteral("changed.bin")));
+    expect(full == 0 && ranges.size() == 8,
+           "ETag change mid-download never mixes representations and never silently re-downloads the whole file");
 
     const auto crashCheckpoint = [&](const QString &target) {
         holdOthers = true; version2 = false;

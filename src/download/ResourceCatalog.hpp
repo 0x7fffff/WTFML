@@ -554,8 +554,10 @@ struct VersionEntry {
     ///       真写成「下载 0 次」看着像这一版有问题。
     qint64 downloads = 0;
 
+
     /// 界面上默认要下的那个文件（`primary` 那条；一个都没有时回第一条；空清单回 nullptr）。
     const FileEntry *primaryFile() const;
+    bool dependencyMetadataKnown = false; // Missing data is not an empty dependency list.
 };
 
 // ---------- 资源详情页要用的那几件（都是纯函数，离线钉得住）----------

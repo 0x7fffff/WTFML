@@ -219,7 +219,9 @@ void TaskDetailController::copySummary(const QString &key) {
     if (!item.bytesText.isEmpty()) {
         lines << item.bytesText;
     }
-    for (const TaskCenter::Step &step : item.steps) {
+    for (const TaskCenter::Step &raw : item.steps) {
+        // 和面板/详情页同一套收尾归一（终态任务里不出现"仍在跑"的步骤）。
+        const TaskCenter::Step step = TaskCenter::stepForTask(item.state, raw);
         lines << TaskCenter::stepMark(step.state) + QLatin1Char(' ') + step.name
                      + (step.note.isEmpty() ? QString() : QStringLiteral(" · ") + step.note);
     }

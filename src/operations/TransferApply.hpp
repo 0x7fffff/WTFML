@@ -29,6 +29,22 @@
 
 namespace TransferApply {
 
+struct ModTransferResult {
+    int copied = 0; // Verified destination files, including successful moves.
+    int moved = 0;
+    int skipped = 0;
+    int failed = 0;
+    bool cancelled = false;
+    QStringList problems;
+};
+using ModProgress = std::function<void(int completed, int total, const QString &detail)>;
+/// Worker-safe, chunked, exclusive publication; never overwrites a destination.
+/// Cancellation/600-second deadline leave source files intact for unfinished moves.
+ModTransferResult transferMods(const QString &sourceRoot, const QString &targetRoot,
+                              const QStringList &paths, bool move,
+                              const ModProgress &progress = {},
+                              const std::function<bool()> &cancelled = {});
+
 struct Result {
     bool ok = false;
     QString problem;  ///< `ok == false` 时的一句话（什么都没做 / 或做了但目标不可用）
