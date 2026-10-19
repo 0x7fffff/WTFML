@@ -1388,6 +1388,10 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     // （most vexing parse），下一句 setTransferTimeout 直接编不过。
     QNetworkRequest request{QUrl(targetText)};
     configureHttp1(request);
+    // ★ 2026-10-19：文件正文默认走 HTTP/1.1（见 header 里 preferHttp1ForFiles()）。
+    if (m_preferHttp1ForFiles) {
+        request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
+    }
     if (range.active()) {
         request.setRawHeader("Range", "bytes=" + QByteArray::number(range.first) + "-" + QByteArray::number(range.last));
         if (!range.validator.isEmpty()) request.setRawHeader("If-Range", range.validator);

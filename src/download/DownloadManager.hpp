@@ -316,6 +316,28 @@ public:
     void setMaxConcurrentDownloads(int count);
     int maxConcurrentDownloads() const { return m_maxConcurrentDownloads; }
 
+    /// ◆ 文件正文请求要不要强制 HTTP/1.1（默认 true，2026-10-19）。
+    ///
+    /// 【为什么默认改成 h1】2026-10-19 在本机（校园网 + Clash Verge 7897）用**本类**的真实
+    /// 下载路径、官方源 `resources.download.minecraft.net`、24 并发，同一窗口内交替 A/B
+    /// （1.20.1 最大的 40 个资源对象，共 391.4 MB）：
+    ///     h2  12.6 / 15.8 / 14.3 / 17.1 MB/s
+    ///     h1  23.1 / 35.6 / 33.2 / 39.6 MB/s     ← 约 2~2.5 倍
+    /// 另一组 80 个对象 / 450.9 MB：h2 直连 14.4、代理 21.2；h1 直连 31.9、代理 45.8 MB/s。
+    /// 同一时刻 curl 单连接 3~4 MB/s、8 连接 23~45 MB/s —— 这条链路是**按连接**限速的，
+    /// 而 h2 把几十条流塞进**一条** TCP，全局并发调到 24/48 也只能吃到那一条连接的上限。
+    /// PCL 在同一时刻 30~40 MB/s，它走的是 HTTP/1.1 多连接。
+    ///
+    /// NOTE: 镜像源（BMCLAPI）对 h1/h2 不敏感：2026-10-19 双向交替测 40 个对象，
+    ///       h1 13.3~14.3、h2 12.5~14.4 MB/s。它的资源地址 302 到落点后本来就是 h1.1，
+    ///       这里改不改都一样；这条默认值主要救的是官方源和整合包 CDN。
+    /// NOTE: 只关文件正文。版本清单 / 版本 json / 资源索引那几条元数据很小，h2 的多路复用
+    ///       对它没有坏处，仍是 Qt 的默认协商。
+    /// NOTE: 网络拥挤时 h1 也会掉到 10~16 MB/s（2026-10-19 晚些时候实测过一轮），
+    ///       但那几轮里 h2 同样只有 9~15 MB/s，没有一次 h2 更快。
+    void setPreferHttp1ForFiles(bool prefer) { m_preferHttp1ForFiles = prefer; }
+    bool preferHttp1ForFiles() const { return m_preferHttp1ForFiles; }
+
     /// ◆ 下载速度上限（字节/秒，0 = 不限；2026-10-18，§9.2）。
     ///
     /// 设置 → 下载 → 速度上限那一格推过来。**改完立刻生效**：正在下的那一批下一拍就按新的
@@ -355,7 +377,7 @@ public:
     ///
     /// 所以"排队必须发生在我们自己的 m_pendingJobs 里"这条不变量，在 kMaxConcurrentDownloads
     /// 从 6 调大之后要**按主机**守着：全局 24 条，但同一个主机在它证明自己走 h2 之前只放
-    /// kMaxConcurrentPerHost 条（2026-10-18 起是 12，见那个常量）。
+    /// kMaxConcurrentPerHost 条（2026-10-19 起是 24，见那个常量）。
     ///
     /// ★★ 2026-09-27：**改道那条路也算数**。首选地址那个主机正被降级时 startDownload() 会
     ///    当场改道到备用地址，而这条判据问的必须是**备用**那个主机 —— 判断只有一处
@@ -378,7 +400,17 @@ public:
     /// 6→12 是唯一一档"翻倍"（再多只换来 15%~40%，p50 却一路涨）。当时镜像每文件要过
     /// 302 到 MinIO 预签名落点、单文件 2 秒上下，延迟 bound 得很厉害，所以抬通道数的收益
     /// 直接落在小文件上。h2 主机本来就不受这条判据管（见 mayIssueAnotherDownloadToHost）。
-    static constexpr int kMaxConcurrentPerHost = 12;
+    ///
+    /// ★★ 2026-10-19：从 12 抬到 24，和出厂全局并发对齐。原因是这一版起**文件正文默认
+    /// 强制 HTTP/1.1**（见 setPreferHttp1ForFiles()）—— 官方 CDN 不再走 h2，那条"h2 主机
+    /// 不受这条闸管"的旁路也就不存在了；闸还留 12 的话，用户选 24 档时每个主机只用得上
+    /// 12 条连接，而这条网线是**按连接**限速的（单连接 3~4 MB/s、8 连接就能到 23~45 MB/s）。
+    /// 24 不是比从前的 h2 更激进：h2 时代这同一个 24 档本来就允许 24 条流同时在同一个主机上。
+    /// 2026-10-19 同窗口 A/B 里 12 与 24 的差别被校园网波动盖住了一部分（两组都是 11~16 MB/s），
+    /// 但在网络好的那几轮 24 档给到 31~52 MB/s，而且 24 永远不会比 12 少用连接。
+    /// NOTE：BMCLAPI 那类有 429 限流的主机，限的是**请求数**不是连接数；24 并发本来就会
+    ///       撞上它的 10 次/分钟，和这条闸无关（429 冷却另有处理）。
+    static constexpr int kMaxConcurrentPerHost = 24;
 
     /// 同时最多几个作业走安全分段（每个作业内部固定 4 路）。上限只是别让几十个大文件
     /// 一起抢带宽/连接；满了的作业**不排队等待**，当场按普通单连接下载发出去，避免
@@ -827,6 +859,8 @@ private:
     QString m_rangeCacheRoot;
     /// 同时最多几条在飞（出厂 = `kMaxConcurrentDownloads`；设置里能改，见 §9.2 那四档）。
     int m_maxConcurrentDownloads = kMaxConcurrentDownloads;
+    /// 文件正文强制 HTTP/1.1（见 setPreferHttp1ForFiles()）。
+    bool m_preferHttp1ForFiles = true;
 
     // ------------------------------------------------------------------
     // 下载限速（2026-10-18，§9.2）
