@@ -563,6 +563,15 @@ int main(int argc, char *argv[]) {
             printf("%s %s\n", ok ? "PASS" : "FAIL", message);
             if (!ok) ++failures;
         };
+        {
+            QWidget anchor;
+            QWidget home(&anchor);
+            OverlayHost host(&anchor, &home);
+            auto *prompt = new QDialog;
+            QTimer::singleShot(0, prompt, &QObject::deleteLater);
+            expect(host.execPrompt(prompt, false) == QDialog::Rejected && !host.isOpen(),
+                   "destroyed prompt exits embedded loop and closes overlay");
+        }
         using Dlg = InstanceSettingsDialog;
         Dlg dialog(QStringLiteral("Test"), QStringLiteral("test"), Dlg::Override(),
                    Dlg::GlobalValues(), {}, true);
@@ -21823,6 +21832,14 @@ int main(int argc, char *argv[]) {
               "execPrompt 卡到用户点了为止，并返回被点中的那一颗",
               QStringLiteral("code=%1 index=%2").arg(askCode).arg(askBox.clickedIndex()));
         check(!overlay->isOpen(), "execPrompt 回来之后覆盖层自己收掉了");
+
+        {
+            auto *destroyedPrompt = new QDialog;
+            QTimer::singleShot(0, destroyedPrompt, &QObject::deleteLater);
+            const int destroyedCode = overlay->execPrompt(destroyedPrompt, false);
+            check(destroyedCode == QDialog::Rejected && !overlay->isOpen(),
+                  "提示被直接销毁也退出等待并清理覆盖层");
+        }
 
         // ④ Esc 那一档：什么都没选 = **-1**（"关掉 / Esc / 点外面"一律算没选）。
         InlineMessageBox escBox(MessageKind::Question, QStringLiteral("删除账号"),

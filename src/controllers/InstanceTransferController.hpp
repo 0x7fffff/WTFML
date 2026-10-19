@@ -9,6 +9,7 @@
 class LauncherManager;
 class OverlayHost;
 class VersionManager;
+namespace InstanceUpgrade { struct Request; struct Core; }
 
 class InstanceTransferController final : public QObject {
     Q_OBJECT
@@ -50,11 +51,18 @@ public:
 
     /// 后台那一份还在拷吗（再按一次「复制实例」会被挡下来）。
     bool copying() const { return m_copyBusy; }
+    void upgradeInPlace(QString sourceId, QString targetId,
+                        std::function<void(bool, const QString &)> whenDone = {});
+    void rollbackUpgrade(QString sourceId,
+                         std::function<void(bool, const QString &)> whenDone = {});
 
     bool importWorld(const QString &instanceId, const QString &worldDir, const QString &name);
     bool renameWorld(const QString &instanceId, const QString &worldDir, const QString &newName);
 
 private:
+    void runUpgradeJob(const InstanceUpgrade::Request &request, const InstanceUpgrade::Core &core,
+                       const QStringList &lockedIds, bool restore,
+                       std::function<void(bool, const QString &)> whenDone);
     QString displayName(const QString &id) const;
     void log(const QString &text) const;
     void announceCopySuccess(const QString &sourceId, const QString &destGameFolder,

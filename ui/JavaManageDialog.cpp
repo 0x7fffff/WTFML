@@ -1,10 +1,10 @@
 /**
  * @file JavaManageDialog.cpp
- * @brief Implements the 「Java 管理」 page (four majors + the auto row).
+ * @brief Implements the 「Java 管理」 page (managed majors + the auto row).
  * @author 0x7fffff
  * @date 2026-09-28
- * @note 布局从上到下：五行（一行 = 版本 + 路径 + 「选用」 + 「下载 / 重新下载」）→
- *       那行说明 → 底下那排两颗动作按钮。前四行是用户原话里排的那四个主版本，
+ * @note 布局从上到下：各主版本（一行 = 版本 + 路径 + 「选用」 + 「下载 / 重新下载」）→
+ *       那行说明 → 底下那排两颗动作按钮。主版本列表由 managedMajors() 统一提供，
  *       顶上那一行是「自动（按版本挑选）」（它是"选哪个 Java"那把钥匙，见 .hpp）。
  */
 
@@ -43,7 +43,7 @@ void applyHintStyle(QLabel *hint) {
 }  // namespace
 
 QList<int> JavaManageDialog::managedMajors() {
-    return {25, 21, 17, 8};
+    return {25, 21, 17, 11, 8};
 }
 
 QString JavaManageDialog::rowLabelText(int major) {
@@ -116,7 +116,7 @@ JavaManageDialog::JavaManageDialog(QWidget *parent) : QDialog(parent) {
 
     // ---------- 顶上那一行：自动（按版本挑选） ----------
     // 它没有"下载"（自动那一档不是一份运行时，没什么可下的），所以只有「选用」。
-    // NOTE: 它占的是**同一个网格**，所以下面四行的两颗按钮和它在一条竖线上 ——
+    // NOTE: 它占的是同一个网格，下面各行的两颗按钮和它在一条竖线上。
     //       "每一行的『选用』都在同一列"是这一页看起来整齐的全部原因。
     m_autoLabel = new QLabel(this);
     m_autoLabel->setObjectName(autoLabelName());
@@ -198,8 +198,7 @@ JavaManageDialog::JavaManageDialog(QWidget *parent) : QDialog(parent) {
             &JavaManageDialog::downloadAllMissingRequested);
     connect(m_detect, &QPushButton::clicked, this, &JavaManageDialog::detectRequested);
 
-    // 四行先按"没装"摆一遍。外面（MainWindow）开这一页时会立刻把真实结果灌进来，灌之前
-    // 屏幕上这四行是「缺失」+「下载」—— 自洽的一对，不是一句谎话。
+    // 各行先按“没装”显示，控制器打开页面后会灌入扫描结果。
     //
     // ★ 这一轮**必须排在所有控件都建出来之后**（早先它写在上面那个行循环里，那样点第一下
     //   「Java 管理…」就崩）：`setRuntime()` 会顺着 `refreshDownloadAllState()` 去够底下
@@ -215,7 +214,7 @@ JavaManageDialog::JavaManageDialog(QWidget *parent) : QDialog(parent) {
 void JavaManageDialog::setRuntime(int major, const QString &javaPath) {
     auto it = m_rows.find(major);
     if (it == m_rows.end()) {
-        // 不是这一页管的那四个。**忽略而不是补一行** —— 见 .hpp 那段。
+        // 不在固定管理列表中，忽略而不是临时加行。
         return;
     }
     Row &entry = it.value();

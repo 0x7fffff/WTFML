@@ -599,6 +599,23 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     refreshTransferPage(QStringLiteral("migration"));
     refreshTransferPage(QStringLiteral("upgrade"));
 
+    const auto finishUpgradePage = [guard = QPointer<InstanceSettingsDialog>(&dialog)]
+        (bool changed, const QString &) {
+            if (!guard) return;
+            if (changed) guard->reject(); // Core/metadata changed; do not save stale controls.
+            else guard->setEnabled(true);
+        };
+    connect(&dialog, &InstanceSettingsDialog::upgradeInPlaceRequested, &dialog,
+        [this, &dialog, &targetId, finishUpgradePage](const QString &otherId) {
+            dialog.setEnabled(false);
+            m_owner->m_instanceTransferController->upgradeInPlace(targetId, otherId, finishUpgradePage);
+        });
+    connect(&dialog, &InstanceSettingsDialog::rollbackUpgradeRequested, &dialog,
+        [this, &dialog, &targetId, finishUpgradePage] {
+            dialog.setEnabled(false);
+            m_owner->m_instanceTransferController->rollbackUpgrade(targetId, finishUpgradePage);
+        });
+
     connect(&dialog, &InstanceSettingsDialog::transferTargetChosen, &dialog,
             [buildTransferPlan, pushTransferPlan](const QString &key, const QString &otherId) {
                 pushTransferPlan(key, buildTransferPlan(key, otherId));

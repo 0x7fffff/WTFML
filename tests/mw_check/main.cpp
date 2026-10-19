@@ -35,6 +35,8 @@
 #include "ToolFeatureChecks.hpp"
 #include "PresetInstallChecks.hpp"
 #include "ModActionPanelChecks.hpp"
+#include "JavaManageChecks.hpp"
+#include "InstanceUpgradeChecks.hpp"
 #include <QFontDatabase>
 #include "controllers/DirectDownloadController.hpp"
 #include "download/StreamedFile.hpp"
@@ -12797,8 +12799,8 @@ static void runJavaManageTests() {
 
             // ---------- 顶上那一条「自动」 + 四行 ----------
             const QList<int> majors = JavaManageDialog::managedMajors();
-            check(majors == QList<int>{25, 21, 17, 8},
-                  "T26.3 这一页管的就是用户点名的那四个主版本，连顺序都一样（从新到旧）",
+            check(majors == QList<int>{25, 21, 17, 11, 8},
+                  "T26.3 Java 管理包含 11，从新到旧排列",
                   QStringLiteral("%1 个").arg(majors.size()));
             auto *autoLabel = byObjectName<QLabel>(dialog, JavaManageDialog::autoLabelName());
             auto *autoUse =
@@ -12902,9 +12904,9 @@ static void runJavaManageTests() {
 
             // ★ 判据只能是**先把盘上改掉、再按这颗键**。只按一下再看"和按之前一样"是假绿 ——
             //   一个什么都不做的实现也长那样。这一按只扫盘：不发请求、不弹窗、不写盘。
-            plantRuntime(25);
-            plantRuntime(21);
-            plantRuntime(8);
+            for (int major : majors) {
+                if (major != 17) plantRuntime(major);
+            }
             if (detect != nullptr) {
                 detect->click();
                 QElapsedTimer detectionWait;
@@ -12916,7 +12918,7 @@ static void runJavaManageTests() {
             }
             bool allReFound = true;
             QString reFoundDetail;
-            for (int major : QList<int>{25, 21, 8}) {
+            for (int major : majors) {
                 const int i = majors.indexOf(major);
                 const bool ok =
                     i >= 0 && rowLabel.at(i) != nullptr && rowButton.at(i) != nullptr &&
@@ -12937,12 +12939,12 @@ static void runJavaManageTests() {
                 }
             }
             check(allReFound,
-                  "★★ T26.5 摆上另外三份之后再按「检测已有 Java」，那三行**当场**变成"
+                  "★★ T26.5 补齐管理列表的运行时后再按「检测已有 Java」，各行当场变成"
                   "「重新下载」+ 露出「选用」（这一颗键真的重新扫了盘，不是拿开页那一刻那份"
                   "陈旧的扫描结果重画一遍）",
                   reFoundDetail);
             check(!dialog->hasMissing() && downloadAll != nullptr && !downloadAll->isEnabled(),
-                  "★★ T26.5 四份齐了 ⇒「下载所有缺少的 Java」**变灰**（一份都不缺时留着它可点，"
+                  "★★ T26.5 管理列表各版本齐了 ⇒「下载所有缺少的 Java」变灰（一份都不缺时留着它可点，"
                   "就是让用户白点一下）");
 
             // ---------- 「选用」：这一页也是「选哪份 Java」那把钥匙 ----------
@@ -18752,6 +18754,8 @@ int main(int argc, char *argv[]) {
     if (app.arguments().contains(QStringLiteral("tool-features-check"))) return runToolFeatureChecks();
     if (app.arguments().contains(QStringLiteral("preset-install-check"))) return runPresetInstallChecks();
     if (app.arguments().contains(QStringLiteral("mod-action-panel-check"))) return runModActionPanelChecks();
+    if (app.arguments().contains(QStringLiteral("java-manage-check"))) return runJavaManageChecks();
+    if (app.arguments().contains(QStringLiteral("instance-upgrade-check"))) return runInstanceUpgradeChecks();
     if (argc >= 6 && QString::fromLocal8Bit(argv[1]) == QLatin1String("loader-install-live")) {
         const QString root = QFileInfo(QString::fromLocal8Bit(argv[2])).absoluteFilePath();
         const QString mc = QString::fromLocal8Bit(argv[3]);

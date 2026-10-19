@@ -8,6 +8,7 @@
 #pragma once
 
 #include <QJsonObject>
+#include <QFuture>
 #include <QObject>
 #include <QStringList>
 
@@ -1399,7 +1400,7 @@ private:
             WaitingParentFiles,  ///< 纯原版整合包：原版那一批正在下
             WritingVersionJson,  ///< 落实例自己那份薄 json（瞬时，但排在事件循环上）
             DownloadingFiles,    ///< 清单里那批文件正在下
-            ExtractingOverrides, ///< 正在解压 overrides（同步子进程，最慢的一段）
+            ExtractingOverrides, ///< 后台解压 overrides；完成前保持实例占用
         };
 
         Phase phase = Phase::Idle;
@@ -1655,6 +1656,8 @@ private:
     QNetworkAccessManager *loaderNetworkManager();
     LoaderInstall m_loaderInstall;
     ModpackInstall m_modpackInstall;
+    QFuture<void> m_modpackOverridesWork;
+    QString m_modpackOverridesFailure;
 
     /// CurseForge 那两发请求要用的设置（见 setCurseForgeApiKey 那一段）。
     QString m_curseForgeApiKey;

@@ -10,6 +10,7 @@
  */
 
 #include "MainWindow.hpp"
+#include "operations/InstanceUpgrade.hpp"
 
 #include "..\ui\Animations.hpp"  // 换游戏文件夹时那一栏淡一下（2026-09-29）
 #include "..\ui\ConfigFileEditorPage.hpp"
@@ -1893,6 +1894,9 @@ MainWindow::MainWindow(QWidget *parent)
     }
     // 本地已安装的先填上（同步扫盘）；在线清单是异步拉的，回来之后由
     // onVersionsFetched() 填"可安装"下拉框 —— 在那之前它显示占位文案。
+    // Pending upgrade journals use rename-only recovery, before scanning installed instances.
+    for (const QString &message : InstanceUpgrade::recoverInterrupted(AppPaths::minecraftDir()))
+        appendLog(message);
     refreshInstalledVersions();
     // 顺序要紧：必须在 refreshInstalledVersions() **之后**（下拉框里得先有条目可选），
     // 并且在 fetchAvailableVersions() 之前（免得用户在等待网络期间就手选了一个，
@@ -3049,12 +3053,27 @@ void MainWindow::refreshInstalledVersions() {
     }
 
     QList<VersionDisplayParts> parts;
+    QList<VersionDisplayParts> managementParts;
+    QSet<QString> previouslyVisible;
+    for (const VersionDisplayParts &part : m_instancePageParts) {
+        previouslyVisible.insert(part.id);
+    }
     parts.reserve(launchable.size());
-    for (const QString &id : launchable) {
+    managementParts.reserve(installed.size());
+    for (const QString &id : installed) {
         // 每个版本读一次 <id>/wtfml.meta（几百字节的可选文件，绝大多数版本没有）。
         // 刻意不缓存：这个文件会被"重命名"功能改写，缓存了就会变成"改了名不生效"。
         // 开销上不必担心 —— 真机上实例数可以到 61 个，而这个函数一次会话没有调用上界。
-        parts.append(m_versionManager->displayParts(id));
+        const VersionDisplayParts part = m_versionManager->displayParts(id);
+        if (!installing.contains(id)) {
+            parts.append(part);
+        }
+        // 文件操作只暂时禁止启动，不应让已经安装的实例从管理页消失。
+        // 尚在安装的新实例仍沿用原先的隐藏规则。
+        if (!installing.contains(id)
+            || (m_fileOperationInstanceIds.contains(id) && previouslyVisible.contains(id))) {
+            managementParts.append(part);
+        }
     }
     // 第一次用这一份 .minecraft：把五个默认组（置顶 / 可安装mod / 原版 / 快照版 /
     // 远古版）种进去。
@@ -3084,10 +3103,10 @@ void MainWindow::refreshInstalledVersions() {
     // 实例页那张树：**扫盘这一段先把原料留好**（见 m_instancePageParts 那段 —— 搜索框每
     // 敲一个字都要重灌树，那一条路不许再扫盘），然后重灌一遍。筛选条件此刻是什么样，
     // 那一趟自己会读（`instanceFilterQuery()`）。
-    m_instancePageParts = parts;
+    m_instancePageParts = managementParts;
     m_instancePageMarks.clear();
-    m_instancePageMarks.reserve(parts.size());
-    for (const VersionDisplayParts &part : parts) {
+    m_instancePageMarks.reserve(managementParts.size());
+    for (const VersionDisplayParts &part : managementParts) {
         m_instancePageMarks.insert(part.id, QIcon(instanceRowMark(
                                                   part, m_versionManager,
                                                   MainWindowUI::instanceTreeIconSize())));
@@ -3260,11 +3279,17 @@ void MainWindow::rebuildInstanceTree() {
     }
     fillInstanceTree(tree, buckets, m_settings->versionNameOptions(), runningVersionIds(),
                      m_instancePageMarks, pinnedGroupId, pinnedInstanceIds);
+    for (QTreeWidgetItemIterator it(tree); *it != nullptr; ++it) {
+        if (m_fileOperationInstanceIds.contains(instanceIdOf(*it))) {
+            (*it)->setText(0, (*it)->text(0) + tr("（文件操作中）"));
+            (*it)->setToolTip(0, tr("正在处理实例文件，完成后可再次启动或修改。"));
+        }
+    }
     syncTreeToCombo(m_ui->getInstalledVersionCombo(), tree);
 
     // ---- ③ 顶上那行说明：这一份文件夹里有几个实例（筛着的时候再说一句筛出来几个）----
     //
-    // 那个数字数的是**能启动的**（= 已经从 installed 里滤掉在装的那几个）：这一行是
+    // 数字与管理树一致：包含暂时文件操作中的已安装实例，不含尚在安装的新实例。这一行是
     // 实例页顶上那句"这里有几个实例"，和树里数得出来的行数必须是同一个数 —— 报
     // installed.size() 的话，正在装的那一个会让这句话比树上多一个，看着像漏画了。
     // 筛着的时候两个数**都要**：只报筛出来的那个数，用户会以为自己的实例没了。

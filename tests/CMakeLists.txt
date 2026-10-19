@@ -4,7 +4,7 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Network Gui)
+find_package(Qt6 REQUIRED COMPONENTS Core Network Gui Concurrent)
 
 set(REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
 get_filename_component(REPO_ROOT ${REPO_ROOT} REALPATH)
@@ -418,7 +418,7 @@ endif()
 add_executable(verify main.cpp ${PROJECT_SOURCES})
 
 target_include_directories(verify PRIVATE ${REPO_ROOT}/src ${REPO_ROOT}/ui)
-target_link_libraries(verify PRIVATE Qt6::Core Qt6::Network Qt6::Gui)
+target_link_libraries(verify PRIVATE Qt6::Core Qt6::Network Qt6::Gui Qt6::Concurrent)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(verify PRIVATE -O0)
     # main.cpp 已经长到 COFF 的 32767 个节装不下（2026-10-18 加了代理那节之后真的炸了：
@@ -443,6 +443,11 @@ endif()
 target_compile_definitions(verify PRIVATE REPO_ROOT_PATH="${REPO_ROOT}")
 
 add_test(NAME wtfml.core COMMAND verify)
+add_test(NAME wtfml.test-runner COMMAND pwsh -NoProfile -File "${REPO_ROOT}/tools/test-runner-check.ps1")
+set_tests_properties(wtfml.test-runner PROPERTIES
+    LABELS "tooling"
+    TIMEOUT 60
+)
 # TIMEOUT 900（2026-10-17）：300 秒在 CI 上不够。GitHub 那个 windows runner 上，300 秒
 # 只跑到 V5z（源码里大约四成），而被杀的那一刻还在稳定出 PASS —— 不是挂住，是慢
 # （O0 的验证工程 + 临时目录里一堆真文件 + 那几段等 10/30 秒超时的用例）。本机同样

@@ -1850,6 +1850,8 @@ signals:
     /// @param selectedKeys 用户勾着的那些范围键
     void transferApplyRequested(const QString &key, const QString &targetId,
                                 const QStringList &selectedKeys);
+    void upgradeInPlaceRequested(const QString &targetId);
+    void rollbackUpgradeRequested();
 
     /**
      * @brief 用户按了某一条行尾的「禁用」/「启用」。

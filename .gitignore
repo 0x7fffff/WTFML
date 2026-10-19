@@ -4,6 +4,7 @@ CMakeFiles/
 CMakeCache.txt
 Makefile
 *.cmake
+!/tests/test_runner/RunnerFixture.cmake
 *.pro.user*
 *.pro.user
 *.qmake.stash

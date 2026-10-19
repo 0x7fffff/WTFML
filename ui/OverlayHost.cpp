@@ -21,6 +21,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
+#include <QPointer>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QTabWidget>
@@ -563,13 +564,15 @@ int OverlayHost::execEmbedded(QDialog *dialog, const QString &title, bool asPage
     //    语义一个字不变（QMessageBox::exec() 本来就是嵌套事件循环，可重入性的风险面
     //    和以前完全相同，没有变差）。
     QEventLoop loop;
+    const QPointer<OverlayHost> hostGuard(this);
+    const QPointer<QDialog> dialogGuard(dialog);
     int result = QDialog::Rejected;
     QMetaObject::Connection backConnection;
     if (asPage) {
         // 返回箭头 = **reject**（不保存离开）。对话框自己那对「保存 / 取消」照旧在它身上，
         // 点它们走的是它自己的 accept()/reject()。
         backConnection = connect(this, &OverlayHost::backPressed, &loop,
-                                 [dialog] { dialog->reject(); });
+                                 [dialogGuard] { if (dialogGuard) dialogGuard->reject(); });
     }
     // ★ 这一发**只有提示那一层接**（`asPage == false`）。信号的名字和它的 doc 说的都是
     //   "最上面那条提示被点外面/按 Esc 关掉了"，而 `mousePressEvent()` / `keyPressEvent()`
@@ -589,7 +592,8 @@ int OverlayHost::execEmbedded(QDialog *dialog, const QString &title, bool asPage
     QMetaObject::Connection dismissConnection;
     if (!asPage) {
         dismissConnection =
-            connect(this, &OverlayHost::promptDismissed, &loop, [dialog] { dialog->reject(); });
+            connect(this, &OverlayHost::promptDismissed, &loop,
+                    [dialogGuard] { if (dialogGuard) dialogGuard->reject(); });
     }
     const QMetaObject::Connection finishedConnection =
         connect(dialog, &QDialog::finished, &loop, [&result, &loop](int code) {
@@ -597,6 +601,9 @@ int OverlayHost::execEmbedded(QDialog *dialog, const QString &title, bool asPage
             loop.quit();
         });
 
+    // QObject 销毁不会发 QDialog::finished。宿主/对话框销毁时也必须释放调用栈。
+    const auto dialogDestroyed = connect(dialog, &QObject::destroyed, &loop, &QEventLoop::quit);
+    const auto hostDestroyed = connect(this, &QObject::destroyed, &loop, &QEventLoop::quit);
     loop.exec();
 
     disconnect(backConnection);
@@ -605,8 +612,12 @@ int OverlayHost::execEmbedded(QDialog *dialog, const QString &title, bool asPage
         disconnect(dismissConnection);
     }
     disconnect(finishedConnection);
+    disconnect(dialogDestroyed);
+    disconnect(hostDestroyed);
     // 收**这一层**：提示收掉之后，底下压着的那一页还在（那是它的调用方在等的）。
-    closeOverlay();
+    if (hostGuard) {
+        hostGuard->closeOverlay();
+    }
     return result;
 }
 

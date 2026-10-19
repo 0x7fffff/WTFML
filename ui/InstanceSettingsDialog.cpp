@@ -3963,9 +3963,10 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             //         装好的那一份。要装新版本走下载页（这里只说清这一条，不假装能装）。
             const bool upgrade = key == QStringLiteral("upgrade");
             if (upgrade) {
-                hint(tr("升级副本 = 拿这个游戏文件夹里已经装好的另一份版本当底，复制成一份新实例，"
-                        "再把这一份实例的内容按你勾的搬进去。原实例一个字节都不动；"
-                        "这里不下载新版本 —— 目标版本要先在下载页装好。"));
+                hint(tr("升级副本：按下方勾选范围创建新实例，原实例不动。\n"
+                        "原地升级：忽略下方迁移勾选，保留全部用户文件，仅替换核心；先完整快照并验证，"
+                        "保留原目录以便回滚，旧模组另行确认是否禁用。\n"
+                        "目标版本仍须先在下载页装好，这里不自动安装或适配模组。"));
             } else {
                 hint(tr("把这一份实例的内容搬进这个游戏文件夹里的另一份实例。"
                         "只增加文件，不删除、不覆盖目标里已有的同名文件；这一份实例原样保留。"
@@ -4004,6 +4005,14 @@ void InstanceSettingsDialog::setupLifecyclePages() {
                 emit transferApplyRequested(key, transferTarget(key), transferSelectedKeys(key));
             });
             apply->setObjectName(transferApplyButtonName(key));
+            if (upgrade) {
+                auto *inPlace = action(tr("完整快照并原地升级…"), [this, key] {
+                    emit upgradeInPlaceRequested(transferTarget(key));
+                });
+                inPlace->setObjectName(QStringLiteral("instanceUpgradeInPlaceButton"));
+                action(tr("回滚最近一次原地升级…"), [this] { emit rollbackUpgradeRequested(); })
+                    ->setObjectName(QStringLiteral("instanceUpgradeRollbackButton"));
+            }
 
             // 换目标 ⇒ 只发"选的是谁"，计划由接的人算好再递回来（和选一行读元数据同一套）。
             connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
@@ -4225,6 +4234,10 @@ void InstanceSettingsDialog::updateTransferApplyState(const QString &key) {
     const bool hasTarget = !transferTarget(key).isEmpty();
     const bool hasSelection = !transferSelectedKeys(key).isEmpty();
     apply->setEnabled(hasTarget && hasSelection);
+    if (key == QStringLiteral("upgrade")) {
+        if (auto *inPlace = findChild<QPushButton *>(QStringLiteral("instanceUpgradeInPlaceButton")))
+            inPlace->setEnabled(hasTarget);
+    }
 }
 
 QWidget *InstanceSettingsDialog::addOverrideRow(QGridLayout *grid, int row, const QString &field,

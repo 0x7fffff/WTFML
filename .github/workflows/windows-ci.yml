@@ -2,7 +2,24 @@ name: Windows CI
 
 on:
   push:
+    branches: [main]
+    tags: ["v*"]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      visual:
+        description: "Run the full UI suite (includes known unstable cases)"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "0 19 * * 0"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   build-and-test:
@@ -15,16 +32,30 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.10.0"
+          version: "6.10.1"
           arch: win64_mingw
           tools: tools_mingw1310
           cache: true
 
-      - name: Configure
-        run: cmake --preset ci-verification
+      - name: Build and test
+        run: ./tools/test.ps1 -Suite full -BuildDir build/ci -ConfigurePreset ci-verification -BuildTimeoutSeconds 900
 
-      - name: Build
-        run: cmake --build --preset ci-verification
+      - name: Full UI verification
+        if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.visual == true) }}
+        run: ./tools/test.ps1 -Suite visual -BuildDir build/ci -NoBuild
 
-      - name: Test
-        run: ctest --preset ci-verification
+      - name: Upload verification reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            build/test-runs/**/summary.json
+            build/test-runs/**/*.log
+            build/test-runs/**/results.xml
+            build/test-runner-selfchecks/**/*.output.log
+            build/test-runner-selfchecks/**/summary.json
+            build/ci/Testing/Temporary/**
+            build/ci/**/download-tool-preview.png

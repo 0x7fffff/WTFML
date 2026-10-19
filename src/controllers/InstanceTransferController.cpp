@@ -283,6 +283,16 @@ void InstanceTransferController::copyInstanceInBackground(
 bool InstanceTransferController::importWorld(const QString &instanceId,
                                              const QString &worldDir,
                                              const QString &name) {
+    if (m_launcher && m_launcher->isVersionRunning(instanceId)) {
+        InlineMessage::warning(m_overlay, tr("导入世界"),
+                               tr("游戏正在运行，先关闭游戏再导入存档。"));
+        return false;
+    }
+    if (m_host.isBeingModified && m_host.isBeingModified(instanceId)) {
+        InlineMessage::warning(m_overlay, tr("导入世界"),
+                               tr("实例正在安装或处理文件，完成后再导入存档。"));
+        return false;
+    }
     const QString savesDir = m_host.instanceDirForKey
         ? m_host.instanceDirForKey(instanceId, QStringLiteral("save")) : QString();
     if (savesDir.isEmpty()) {

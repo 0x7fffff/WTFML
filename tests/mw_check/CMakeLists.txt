@@ -114,6 +114,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/controllers/ModpackExportController.cpp
     ${REPO_ROOT}/src/controllers/InstanceFileController.cpp
     ${REPO_ROOT}/src/controllers/InstanceTransferController.cpp
+    ${REPO_ROOT}/src/controllers/InstanceUpgradeController.cpp
     ${REPO_ROOT}/src/controllers/InstanceDialogController.cpp
     ${REPO_ROOT}/src/controllers/InstanceEditorController.cpp
     ${REPO_ROOT}/src/controllers/ImportController.cpp
@@ -185,6 +186,7 @@ set(SOURCE_FILES
     # 未定义。
     ${REPO_ROOT}/src/operations/TransferPlanner.cpp
     ${REPO_ROOT}/src/operations/TransferApply.cpp
+    ${REPO_ROOT}/src/operations/InstanceUpgrade.cpp
 
     ${REPO_ROOT}/src/manage/InstanceGroupStore.cpp
     ${REPO_ROOT}/src/manage/PlayerSkinStore.cpp
@@ -406,7 +408,15 @@ if(EXISTS ${REPO_ROOT}/src/download/LoaderMeta.hpp)
 endif()
 
 
-add_executable(mw_check main.cpp ${SOURCE_FILES})
+add_executable(mw_check main.cpp
+    JavaManageChecks.cpp
+    ModActionPanelChecks.cpp
+    RangeChecks.cpp
+    SegmentInstallChecks.cpp
+    ToolFeatureChecks.cpp
+    PresetInstallChecks.cpp
+    InstanceUpgradeChecks.cpp
+    ${SOURCE_FILES})
 
 if(MINGW)
     target_compile_options(mw_check PRIVATE -Wa,-mbig-obj)
@@ -432,6 +442,24 @@ add_test(NAME wtfml.high-speed-download COMMAND mw_check high-speed-download-che
 add_test(NAME wtfml.segmented-download COMMAND mw_check segmented-download-check)
 add_test(NAME wtfml.segment-install COMMAND mw_check segment-install-check)
 add_test(NAME wtfml.tool-features COMMAND mw_check tool-features-check)
+add_test(NAME wtfml.java-manage COMMAND mw_check java-manage-check)
+add_test(NAME wtfml.instance-upgrade COMMAND mw_check instance-upgrade-check)
+set_tests_properties(wtfml.instance-upgrade PROPERTIES
+    LABELS "integration;upgrade;files"
+    TIMEOUT 180
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+add_test(NAME wtfml.mod-action-panel COMMAND mw_check mod-action-panel-check)
+set_tests_properties(wtfml.mod-action-panel PROPERTIES
+    LABELS "ui;mods;integration"
+    TIMEOUT 90
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+set_tests_properties(wtfml.java-manage PROPERTIES
+    LABELS "ui;java"
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
 set_tests_properties(wtfml.tool-features PROPERTIES
     LABELS "ui;tools;queue"
     TIMEOUT 90

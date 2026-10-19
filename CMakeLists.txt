@@ -252,6 +252,7 @@ set(SOURCE_FILES
     src/controllers/ModpackExportController.cpp
     src/controllers/InstanceFileController.cpp
     src/controllers/InstanceTransferController.cpp
+    src/controllers/InstanceUpgradeController.cpp
     src/controllers/InstanceDialogController.cpp
     src/controllers/InstanceEditorController.cpp
     src/controllers/ImportController.cpp
@@ -339,6 +340,7 @@ set(SOURCE_FILES
     # 迁移 / 升级副本（2026-10-18，coding plan §9.9 第 15 项）。
     src/operations/TransferPlanner.cpp
     src/operations/TransferApply.cpp
+    src/operations/InstanceUpgrade.cpp
     src/settings/EffectiveJavaSettings.cpp
     src/settings/GlobalJavaSettings.cpp
     src/settings/GameWindowSettings.cpp

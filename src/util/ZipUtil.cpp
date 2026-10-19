@@ -617,7 +617,7 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
 
     QByteArray stdoutBytes;
     QString failure;
-    if (!runPowershell(script, 30 * 60 * 1000, &stdoutBytes, &failure,
+    if (!runPowershell(script, 600 * 1000, &stdoutBytes, &failure,
                        QStringLiteral("解压"))) {
         if (errorOut) {
             *errorOut = failure;

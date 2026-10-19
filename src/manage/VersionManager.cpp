@@ -21,6 +21,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFutureWatcher>
+#include <QtConcurrent/QtConcurrentRun>
+#include <memory>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonParseError>
@@ -317,6 +320,9 @@ VersionManager::VersionManager(QObject *parent)
 }
 
 VersionManager::~VersionManager() {
+    // 工作线程只持有路径与结果值；退出前等它结束，避免程序退出后仍在写实例。
+    // ZipUtil 的外部进程自身有 600 秒硬超时。
+    m_modpackOverridesWork.waitForFinished();
     // DownloadManager is automatically deleted as child
     //
     // ★ 2026-10-17（用户桌面版的 log 末尾）：关掉启动器时安装器可能还在跑 —— 那个
@@ -1235,8 +1241,7 @@ void VersionManager::extractModpackOverrides() {
 
     // 两个前缀一起解，顺序 = 优先级：Modrinth 的规矩是 client-overrides **盖过** overrides，
     // "谁在后谁赢"这一条是格式的一部分，不能调换。
-    // NOTE: 这一步是同步起 PowerShell 等它（最慢的一段，几百 MB 的包解起来要一会儿），
-    //       界面在这期间是卡住的 —— 和既有那几处解压一个形状，不是新问题。
+    // 只把明确路径交给后台，所有状态机和 UI 信号仍在主线程收尾。
     //
     // NOTE: 这两个目录名来自清单，**不是写死的**（2026-09-25 起）：CurseForge 的清单里
     //       `overrides` 那一项是自己写的（真包见过 `overrides` / `overrides-1.20.1` 这种），
@@ -1253,17 +1258,37 @@ void VersionManager::extractModpackOverrides() {
             layers.append(root);
         }
     }
-    QString error;
-    int extracted = 0;
-    if (!ZipUtil::extractSubtrees({m_modpackInstall.zipPath}, AppPaths::versionDir(id), layers,
-                                  &extracted, &error)) {
-        failModpackImport(tr("整合包里的覆盖文件没能解开：%1\n\n（清单里那些文件已经下好在 %2 "
-                             "里了，缺的是 config、资源包、光影这些。）")
-                              .arg(error, AppPaths::versionDir(id)));
-        return;
-    }
-    m_modpackInstall.extractedEntries = extracted;
-    finishModpackImport();
+    struct Result { bool ok = false; int extracted = 0; QString error; };
+    const auto result = std::make_shared<Result>();
+    const QString archive = m_modpackInstall.zipPath;
+    const QString destination = AppPaths::versionDir(id);
+    m_modpackOverridesFailure.clear();
+    auto *watcher = new QFutureWatcher<void>(this);
+    connect(watcher, &QFutureWatcher<void>::finished, this,
+            [this, watcher, result, id, destination] {
+        watcher->deleteLater();
+        if (m_modpackInstall.phase != ModpackInstall::Phase::ExtractingOverrides
+            || m_modpackInstall.instanceId != id) return;
+        if (!m_modpackOverridesFailure.isEmpty()) {
+            const QString reason = m_modpackOverridesFailure;
+            m_modpackOverridesFailure.clear();
+            failModpackImport(reason);
+            return;
+        }
+        if (!result->ok) {
+            failModpackImport(tr("整合包里的覆盖文件没能解开：%1\n\n（清单里那些文件已经下好在 %2 "
+                                 "里了，缺的是 config、资源包、光影这些。）")
+                                  .arg(result->error, destination));
+            return;
+        }
+        m_modpackInstall.extractedEntries = result->extracted;
+        finishModpackImport();
+    });
+    m_modpackOverridesWork = QtConcurrent::run([result, archive, destination, layers] {
+        result->ok = ZipUtil::extractSubtrees({archive}, destination, layers,
+                                              &result->extracted, &result->error);
+    });
+    watcher->setFuture(m_modpackOverridesWork);
 }
 
 void VersionManager::finishModpackImport() {
@@ -1339,6 +1364,11 @@ void VersionManager::finishModpackImport() {
 }
 
 void VersionManager::failModpackImport(const QString &reason) {
+    if (m_modpackOverridesWork.isRunning()) {
+        // 还在写盘时不释放占用，避免第二趟安装与尚未结束的解压互相覆盖。
+        m_modpackOverridesFailure = reason;
+        return;
+    }
     // 先把加载器那半截收掉。LoaderInstall::reset() **不发**任何信号正是为了这里：整件事的
     // 终态只能发一个，否则界面会先弹一次"加载器没装成"、再弹一次"整合包没导入"。
     m_loaderInstall.reset();
