@@ -1404,16 +1404,32 @@ int main(int argc, char *argv[]) {
             printf("%s %s\n", ok ? "PASS" : "FAIL", name);
             if (!ok) ++failures;
         };
+        // 2026-10-20：换配色不再重挂整份应用样式表 —— 样式表字符串必须与主题无关。
+        // 这一条直接钉住那个代价（6800 个控件重挂一次要 1.9 秒）：三套预设铺完，
+        // 应用身上挂的那一份必须还是同一串。
+        const QString themeIndependentSheet = Theme::widgetStyleSheet();
+        QString installedSheet;
         for (const QString &id : {QStringLiteral("emerald"), QStringLiteral("ocean"), QStringLiteral("dark")}) {
             Theme::setSpec(Theme::presetSpec(id));
             Theme::apply(app);
+            if (installedSheet.isEmpty()) {
+                installedSheet = app.styleSheet();
+            }
+            expect(app.styleSheet() == installedSheet, "theme switch does not reinstall the app stylesheet");
+            expect(Theme::widgetStyleSheet() == themeIndependentSheet,
+                   "widget style sheet is independent of the current preset");
             const auto t = Theme::tokens();
             expect(app.palette().color(QPalette::Window) == t.page, "page palette follows preset");
             expect(Theme::current().accent == t.primary, "brand follows preset");
             expect(Theme::partBackground(Theme::Part::TitleBar) == t.deep, "title uses deep brand");
             expect(Theme::partBackground(Theme::Part::BottomBar) == t.subtle, "bottom bar uses subtle surface");
             expect(Theme::selectionFill(t.card) == t.selected, "selection uses specified color");
-            expect(Theme::widgetStyleSheet().contains(t.input.name()), "inputs use theme colors");
+            // 2026-10-20：样式表里的颜色改成 `palette(...)` 引用了，输入框的底色仍由
+            // 调色板的 `Base` 那一档决定 —— 判据从"字符串里有没有那个色名"换成
+            // "样式表念的是不是 `palette(base)`，且那一档真的等于预设的 input"。
+            expect(Theme::widgetStyleSheet().contains(QStringLiteral("palette(base)")) &&
+                       app.palette().color(QPalette::Base).name() == t.input.name(),
+                   "inputs use theme colors");
             {
                 QWidget focusHost;
                 focusHost.resize(180, 80);

@@ -24,6 +24,7 @@
 #include <QPointer>
 #include <QProxyStyle>
 #include <QPushButton>
+#include <QScrollBar>
 #include <QSettings>
 #include <QStyle>
 #include <QStyleFactory>
@@ -33,7 +34,13 @@
 #include <QWidget>
 
 namespace Theme {
+bool platformColorSchemeDark();
+
 Tokens tokens(const QString &id) {
+    if (id == QLatin1String("system")) {
+        return tokens(platformColorSchemeDark() ? QStringLiteral("dark")
+                                                : QStringLiteral("emerald"));
+    }
     if (id == QLatin1String("dark")) {
         static const Tokens dark = {QColor("#536F80"), QColor("#303D46"), QColor("#648397"), QColor("#405A6A"),
                 QColor("#242C32"), QColor("#222A30"), QColor("#2C363D"), QColor("#303D46"),
@@ -68,9 +75,34 @@ Tokens tokens(const QString &id) {
     return emerald;
 }
 
+/// 平台现在是不是深色那一档。
+///
+/// ★ 为什么要单独问一句，而不是继续拿 `isDark()`（= 应用调色板的明度）：从 2026-10-20
+///   起「跟着系统」也会把一份**我们自己算的**调色板铺到应用上（这样按钮 / 输入框那些
+///   样式表颜色才能从调色板里读现成的，换配色不用重挂整份样式表）。铺过之后应用调色板
+///   就是"上一次算出来的那一份"，再拿它判深浅会自己咬自己。所以这一位先问平台的
+///   `colorScheme()`；平台不认（offscreen 就是 Unknown）才退回基样式那份标准调色板的明度。
+bool platformColorSchemeDark() {
+    if (QGuiApplication::instance() != nullptr) {
+        const Qt::ColorScheme scheme = QGuiApplication::styleHints()->colorScheme();
+        if (scheme == Qt::ColorScheme::Dark) {
+            return true;
+        }
+        if (scheme == Qt::ColorScheme::Light) {
+            return false;
+        }
+    }
+    auto *app = qobject_cast<QApplication *>(QCoreApplication::instance());
+    return app != nullptr && app->style() != nullptr &&
+           app->style()->standardPalette().color(QPalette::Window).lightness() < 128;
+}
+
 Tokens tokens() {
-    Tokens t = tokens(current().presetId == QLatin1String("system") && isDark()
-                          ? QStringLiteral("dark") : current().presetId);
+    const QString preset = current().presetId;
+    Tokens t = tokens(preset == QLatin1String("system")
+                          ? (platformColorSchemeDark() ? QStringLiteral("dark")
+                                                       : QStringLiteral("emerald"))
+                          : preset);
     const auto overrideRole = [](Role role, QColor &color) {
         const QColor value = current().roles.value(int(role));
         if (value.isValid()) color = value;
@@ -313,36 +345,10 @@ Spec &mutableSpec() {
     return spec;
 }
 
-/// 上一次 `apply()` 有没有往应用上调色板铺过东西（不是出厂那一份）。
-///
-/// 要它是因为"跟着系统"那一档得能**收回**：铺过深色预设之后用户又选回"跟着系统"，
-/// 光"什么都不做"是收敛不回去的（深色那一份还挂在应用上）。
-bool &installedExplicit() {
-    static bool installed = false;
-    return installed;
-}
-
-/// 我们**顶掉**的那一份调色板 = 平台自己给的那一份。
-///
-/// ★ 要它是因为"跟着系统"那一档得能**原样**收回来，而 `QStyle::standardPalette()` **不是**
-///   平台那一份：真机实测（2026-09-28）平台给的是 `Window = #f0f0f0`，Fusion 的
-///   `standardPalette()` 是 `#efefef` —— 于是"深色 → 跟着系统"之后整个窗口都差着一档。
-///   `ui_shot` 的 30) 是拿"换主题之前那一张"逐像素比出来的：**还有 141 万个像素停在别的
-///   颜色上**（那是 2026-09-28 修之前量的数），而界面上人眼是看不出来的 —— 典型的"改回来
-///   了、但没改回原样"。所以这儿把顶掉的那一份存下来，还原时用它，不用算出来的那一份。
-///
-/// NOTE: Qt 没有"把调色板还回去"这个接口（`setPalette()` 是单向的），所以只能自己记。
-/// NOTE: 记的是"还没顶掉过的时候应用身上挂着的那一份" —— 那一刻它就是平台给的
-///       （`apply()` 每次都会顺手刷新，见那儿的注释）。
-QPalette &platformPalette() {
-    static QPalette palette;
-    return palette;
-}
-
-bool &platformPaletteKnown() {
-    static bool known = false;
-    return known;
-}
+// ★ 2026-10-20：「跟着系统」那一档不再"把平台调色板原样还回去" —— 它现在也铺一份
+//   我们自己算的调色板（样式表里的 `palette(...)` 要读）。平台深浅变了由
+//   `ColorSchemeWatcher` 接住、重铺一遍，见 `apply()` 那一段。原来那对
+//   `platformPalette()` / `installedExplicit()` 因此一起删了（留着也没人读）。
 
 int clampOpacity(int value) {
     return qBound(0, value, 100);
@@ -1011,6 +1017,152 @@ QColor scrollHandlePressedColor() {
     return scrollHandleAt(205);
 }
 
+namespace {
+
+/// 滚动条那两段规则的**唯一模板**（竖的 + 横的，同一串参数）。
+///
+/// ★ 应用级样式表那一份用 `palette(...)` 当占位（换配色不用重挂整份表），
+///   每一根真滚动条身上那一份用 `rgba(...)` 精确色（`scrollHandleColor()` 那三档带 alpha）。
+///   两份用同一个模板，免得"竖的改了、横的没改"那种漂。
+QString scrollBarRules(const QString &handle, const QString &handleHover,
+                       const QString &handlePressed) {
+    return QStringLiteral(
+               "QScrollBar:vertical { background: transparent; width: %1px; margin: 0px; }"
+               "QScrollBar::handle:vertical { background: %2; min-height: %3px;"
+               " border-radius: %4px; margin: %5px; }"
+               "QScrollBar::handle:vertical:hover { background: %6; }"
+               "QScrollBar::handle:vertical:pressed { background: %7; }"
+               // ★ 2026-10-18：`Theme::GutterScrollArea` 那条常驻的条子装得下时是"空的"
+               //   （`wtfmlIdle`）—— 那一格是留给文字的**死区**，不是一根拖不动的把手。
+               //   放在 hover / pressed 之后：两者 QSS 优先级相同，后写的赢。
+               "QScrollBar::handle:vertical[wtfmlIdle=\"true\"] { background: transparent; }"
+               "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
+               "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
+               " background: transparent; }"
+               "QScrollBar:horizontal { background: transparent; height: %1px; margin: 0px; }"
+               "QScrollBar::handle:horizontal { background: %2; min-width: %3px;"
+               " border-radius: %4px; margin: %5px; }"
+               "QScrollBar::handle:horizontal:hover { background: %6; }"
+               "QScrollBar::handle:horizontal:pressed { background: %7; }"
+               "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }"
+               "QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {"
+               " background: transparent; }")
+        .arg(QString::number(scrollBarThickness()), handle,
+             QString::number(scrollBarMinHandleLength()),
+             QString::number(scrollBarHandleRadius()),
+             QString::number(scrollBarHandleMargin()), handleHover, handlePressed);
+}
+
+/// 每一根滚动条自己那一份"主题代数"（见 `styleScrollBar()`）。
+int &scrollBarThemeGeneration() {
+    static int generation = 0;
+    return generation;
+}
+
+constexpr const char kScrollBarThemeProperty[] = "wtfmlScrollTheme";
+
+/// 把**当前**那一支滚动条样式挂到 @p bar 身上（控件级样式表，压过应用级那一份）。
+///
+/// ★ 为什么滚动条要单独走控件级：它那三档是**带 alpha 的中性灰**（`scrollHandleColor()`），
+///   而 `palette(...)` 只能给出一个实色角色；把它塞进调色板又会占掉别的语义档。
+///   滚动条的数量是两位数，换主题时挨个重挂一遍不贵（按钮 / 输入框那几千个走的是
+///   调色板 + 一次 `repolishWidgets()`）。
+///
+/// ★ 新生出来的滚动条（换页之后冒出来那一根）由 `ScrollBarStyler` 在 `Show` 上补一次。
+void styleScrollBar(QScrollBar *bar) {
+    if (bar == nullptr) {
+        return;
+    }
+    const int generation = scrollBarThemeGeneration();
+    const QVariant stamp = bar->property(kScrollBarThemeProperty);
+    if (stamp.isValid() && stamp.toInt() == generation) {
+        return;
+    }
+    bar->setProperty(kScrollBarThemeProperty, generation);
+    bar->setStyleSheet(scrollBarRules(rgbaCss(scrollHandleColor()),
+                                      rgbaCss(scrollHandleHoverColor()),
+                                      rgbaCss(scrollHandlePressedColor())));
+}
+
+/// 新滚动条一露头就补上当前那一份样式（应用级那份只是个 `palette(...)` 的近似值）。
+class ScrollBarStyler : public QObject {
+public:
+    explicit ScrollBarStyler(QApplication &app) : QObject(&app) {
+        setObjectName(QStringLiteral("wtfmlScrollBarStyler"));
+        app.installEventFilter(this);
+    }
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        if (event->type() == QEvent::Show) {
+            if (auto *bar = qobject_cast<QScrollBar *>(watched)) {
+                styleScrollBar(bar);
+            }
+        }
+        return QObject::eventFilter(watched, event);
+    }
+};
+
+}  // namespace
+
+/// 挂过 `markButton()` 的按钮身上那一位"控件级配色已经登记过"的印记。
+constexpr const char kButtonKindStyledProperty[] = "wtfmlKindStyled";
+constexpr const char kButtonKindFollowProperty[] = "wtfmlKindFollow";
+
+/// 主动作 / 危险这两档的**悬停与按下**用的是比底色再深一档的同色，而调色板里
+/// 只备得起"本色 / 亮一档 / 深一档"那几个通用档位。这两档的按钮一共几十颗，
+/// 所以走**控件级样式表**：只影响它们自己，不动整份应用样式表（那才是卡顿的来源）。
+QString kindButtonStyleSheet(const QString &kind) {
+    if (kind == QLatin1String("primary")) {
+        const QColor pure = accentShade(AccentShade::Pure);
+        const Tokens t = tokens();
+        const QColor hover = pure == t.primary ? t.primaryHover : pure.darker(108);
+        const QColor pressed = pure == t.primary ? t.primaryPressed : pure.darker(118);
+        return QStringLiteral(
+                   "QPushButton { background-color: %1; color: #ffffff; border-color: %1; }"
+                   "QPushButton:hover:enabled { background-color: %2; border-color: %2; }"
+                   "QPushButton:pressed:enabled { background-color: %3; border-color: %3; }"
+                   "QPushButton[wtfmlKeyboardFocus=\"true\"]:focus { border-color: %4; }"
+                   "QPushButton:disabled { background-color: %5; color: %6;"
+                   " border-color: transparent; }")
+            .arg(pure.name(), hover.name(), pressed.name(), t.focus.name(),
+                 disabledFillColor().name(), disabledInkColor().name());
+    }
+    if (kind == QLatin1String("danger")) {
+        const QColor red = isDark() ? QColor("#FFB8BD") : QColor("#c02828");
+        const QColor fill = isDark() ? QColor("#493239") : QColor("#fdf1f1");
+        return QStringLiteral(
+                   "QPushButton { color: %1; background-color: %2; border-color: transparent; }"
+                   "QPushButton:hover:enabled { background-color: %3; }"
+                   "QPushButton:pressed:enabled { background-color: %4; }"
+                   "QPushButton[wtfmlKeyboardFocus=\"true\"]:focus { border-color: %1; }"
+                   "QPushButton:disabled { background-color: %5; color: %6;"
+                   " border-color: transparent; }")
+            .arg(red.name(), fill.name(), fill.darker(108).name(),
+                 fill.darker(118).name(), disabledFillColor().name(),
+                 disabledInkColor().name());
+    }
+    return QString();
+}
+
+/// 把按钮当前那一档的控件级配色重算一遍（非主动作 / 危险那几档 = 清掉本地的色）。
+void syncKindButtonStyle(QWidget *button) {
+    if (button == nullptr) {
+        return;
+    }
+    const QString kind = button->property(kButtonKindProperty).toString();
+    const QString sheet = kindButtonStyleSheet(kind);
+    if (sheet.isEmpty()) {
+        if (button->property(kButtonKindStyledProperty).toBool()) {
+            button->setProperty(kButtonKindStyledProperty, false);
+            button->setStyleSheet(QString());
+        }
+        return;
+    }
+    button->setProperty(kButtonKindStyledProperty, true);
+    button->setStyleSheet(sheet);
+}
+
 void markButton(QWidget *button, ButtonKind kind) {
     if (button == nullptr) {
         return;
@@ -1020,6 +1172,14 @@ void markButton(QWidget *button, ButtonKind kind) {
         button->setProperty(kButtonKindProperty, QVariant());
     } else {
         button->setProperty(kButtonKindProperty, key);
+    }
+    syncKindButtonStyle(button);
+    // 主动作 / 危险这两档挂过一次 `follow()` 就够了：它读按钮自己身上那个属性，
+    // 以后换主题 / 换档都在同一条回调里重算（不受这一趟是哪一档影响）。
+    if ((kind == ButtonKind::Primary || kind == ButtonKind::Danger) &&
+        !button->property(kButtonKindFollowProperty).toBool()) {
+        button->setProperty(kButtonKindFollowProperty, true);
+        follow(button, [button]() { syncKindButtonStyle(button); });
     }
 }
 
@@ -1151,25 +1311,42 @@ void markColorSwatch(QPushButton *button, const QColor &color) {
     }
 }
 
+QString paletteRef(const char *role) {
+    return QStringLiteral("palette(%1)").arg(QLatin1String(role));
+}
+
 QString widgetStyleSheet() {
-    const Tokens t = tokens();
-    const QColor ink = t.text;
-    const QColor border = t.focus;
-    const QColor pure = accentShade(AccentShade::Pure);
-    const QColor hover = t.hover;
-    const QColor pressed = t.selected;
+    // ★ 2026-10-20：这一份样式表里的**颜色**一律写成 `palette(角色)`，不再把十六进制
+    //   色名嵌进字符串。QSS 那边的 `palette(...)` 是"按控件自己的调色板现取"，于是
+    //   换配色只需要换调色板，样式表字符串**一个字节都不变** —— `installButtonSheet()`
+    //   那一层"没变就不重挂"才真正成立。
+    //
+    //   旧写法（`.arg(t.text.name())` 这一族）每换一次配色都会让整份样式表变成另一串，
+    //   `QApplication::setStyleSheet()` 于是把每一个控件重新 polish 一遍；实测 6800 个
+    //   控件要 1.9 秒，用户看到的就是"改完配色界面卡住一会"。现在的代价只有一次
+    //   `repolishWidgets()`（同量级 ~100 ms）。
+    //
+    //   这些角色在 `buildPalette()` 里**全部**备好（包括 `Accent` / `Light` / `LinkVisited`
+    //   这些平时没人用的档位）。别在这儿写死色名 —— 写死一个，就会回到"整份重挂"那条路。
+    const QString ink = paletteRef("button-text");
+    const QString border = paletteRef("link");
+    const QString pure = paletteRef("accent");
+    const QString hover = paletteRef("light");
+    const QString pressed = paletteRef("highlight");
     // 次要 / 危险那两档的色。红**故意不取 `dangerColor()`**：那一支是"按深浅现推"的；
     // 而按钮使用很浅的固定底色，深色预设给出的浅红在这里对比度不够。所以这一档直接钉死
-    // 那个对浅底仍有 4.8:1 的深红，
-    // 它和 `errorTextColor()` 浅底那一档是同一个。
-    const QColor red = isDark() ? QColor("#FFB8BD") : QColor("#c02828");
-    const QColor black = neutralInkColor();
-    const QColor disabledInk = disabledInkColor();
-    const QColor disabledBorder = disabledBorderColor();
-    const QColor disabledFill = disabledFillColor();
-    const QColor accentFill = t.subtle;
-    const QColor neutralFill = t.subtle;
-    const QColor dangerFill = isDark() ? QColor("#493239") : QColor("#fdf1f1");
+    // 那个对浅底仍有 4.8:1 的深红，它和 `errorTextColor()` 浅底那一档是同一个。
+    // 红色那一档由 `buildPalette()` 按当前深浅写进 `BrightText`；浅红底在控件级样式里。
+    const QString red = paletteRef("bright-text");
+    const QString black = paletteRef("text");
+    const QString disabledInk = paletteRef("link-visited");
+    const QString disabledBorder = paletteRef("shadow");
+    const QString disabledFill = paletteRef("button");
+    const QString accentFill = paletteRef("button");
+    const QString neutralFill = paletteRef("button");
+    // 危险那一档的完整配色（含浅红底）在 `kindButtonStyleSheet()` 里给每一颗 Danger
+    // 按钮挂控件级样式；这一份应用级规则只是它没走到那条路时的兜底（中性底，不刺眼）。
+    const QString dangerFill = paletteRef("button");
 
     // ★ `padding: 6px` 不是随手写的：Fusion 的 `PM_ButtonMargin` 就是 6，边框 1 ⇒
     //   2*(6+1) = 14，和样式自己算的**一模一样**。差一点点的话界面上是看不出来，但一堆
@@ -1203,13 +1380,13 @@ QString widgetStyleSheet() {
                       "QPushButton:hover:enabled { background-color: %4; }"
                       "QPushButton:pressed:enabled { background-color: %5; }"
                       "QPushButton[wtfmlKeyboardFocus=\"true\"]:focus { border-color: %2; }")
-                      .arg(ink.name(), border.name(), accentFill.name(), hover.name(), pressed.name())
+                      .arg(ink, border, accentFill, hover, pressed)
                       .arg(buttonRadius())
                       .arg(actionHeight() - kButtonChrome);
     // 主动作是页面上唯一一颗实心按钮。悬停和按下都向更深处走，白字对比度不会因为交互
     // 状态而降低；普通确认 / 危险 / 次要按钮仍是白底描边，不会整页争夺注意力。
-    const auto primaryBlock = [](const QString &key, const QColor &fill,
-                                 const QColor &hoverFill, const QColor &pressedFill) {
+    const auto primaryBlock = [](const QString &key, const QString &fill,
+                                 const QString &hoverFill, const QString &pressedFill) {
         // ★ 2026-10-12（coding plan §9.1）：主动作单独高一档（36）。它是页面上唯一一颗实心
         //   按钮，"这一页最重要的那一下"值得多 4px；其余那颗留在 32 上，一页里两档就够。
         return QStringLiteral("QPushButton[%1=\"%2\"], QPushButton[%1=\"%2\"]:default:enabled { background-color: %3; color: #ffffff;"
@@ -1218,29 +1395,30 @@ QString widgetStyleSheet() {
                               " border-color: %4; }"
                               "QPushButton[%1=\"%2\"]:pressed:enabled { background-color: %5;"
                               " border-color: %5; }")
-            .arg(QString::fromLatin1(kButtonKindProperty), key, fill.name(), hoverFill.name(),
-                 pressedFill.name())
+            .arg(QString::fromLatin1(kButtonKindProperty), key, fill, hoverFill, pressedFill)
             .arg(buttonRadius())
             .arg(primaryActionHeight() - kButtonChrome);
     };
-    qss += primaryBlock(QStringLiteral("primary"), pure,
-                        pure == t.primary ? t.primaryHover : pure.darker(108),
-                        pure == t.primary ? t.primaryPressed : pure.darker(118));
+    // 主动作那两颗（悬停 / 按下）由 `kindButtonStyleSheet()` 给每一颗 Primary 挂控件级
+    // 样式；这一份应用级规则只是兜底（同色），别拿它当"悬停会变深"的唯一出处。
+    qss += primaryBlock(QStringLiteral("primary"), pure, pure, pure);
 
     // 危险 / 次要两档用轻填充建立形状，不再常驻一圈深色框；透明边仍占着 1px，
     // 键盘焦点出现时才换成有意义的语义色，因此不会改变按钮几何。
-    const auto kindBlock = [](const QString &key, const QColor &color, const QColor &fill,
-                              const QColor &hoverFill, const QColor &pressedFill) {
+    const auto kindBlock = [](const QString &key, const QString &color, const QString &fill,
+                              const QString &hoverFill, const QString &pressedFill) {
         return QStringLiteral("QPushButton[%1=\"%2\"] { color: %3; background-color: %4;"
                               " border-color: transparent; }"
                               "QPushButton[%1=\"%2\"][wtfmlKeyboardFocus=\"true\"]:focus { border-color: %3; }"
                               "QPushButton[%1=\"%2\"]:hover:enabled { background-color: %5; }"
                               "QPushButton[%1=\"%2\"]:pressed:enabled { background-color: %6; }")
-            .arg(QString::fromLatin1(kButtonKindProperty), key, color.name(), fill.name(),
-                 hoverFill.name(), pressedFill.name());
+            .arg(QString::fromLatin1(kButtonKindProperty), key, color, fill, hoverFill, pressedFill);
     };
-    qss += kindBlock(QStringLiteral("danger"), red, dangerFill, dangerFill.darker(108), dangerFill.darker(118));
-    qss += kindBlock(QStringLiteral("neutral"), black, neutralFill, t.hover, t.selected);
+    // ★ 危险那一档的悬停 / 按下用的是比底色再深一档的红，调色板里没有第三、第四个红档；
+    //   这一对由 `markButton()` 给那一颗按钮挂的**控件级**样式补上（只影响挂 Danger 的
+    //   那几十颗，不影响整份应用样式表）。这里留同一档底色，保证没走那条路时也不会花。
+    qss += kindBlock(QStringLiteral("danger"), red, dangerFill, dangerFill, dangerFill);
+    qss += kindBlock(QStringLiteral("neutral"), black, neutralFill, hover, pressed);
 
     // ---------- Ghost（2026-10-14，coding plan §3.3「统一按钮视觉层级」）----------
     //
@@ -1255,14 +1433,13 @@ QString widgetStyleSheet() {
     //         两档的区别在"平时有没有形"，不在"按下去什么色"。
     //   NOTE: 勾上那一档给的是主题色那层淡底（和基样式里 `:default` 同一支色）—— 一颗
     //         checkable 的 Ghost（比如"只看选中的"那种小开关）得让人看出它现在是"亮着"的。
-    const QString ghostTint = t.selected.name();
+    const QString ghostTint = pressed;
     qss += QStringLiteral("QPushButton[%1=\"ghost\"] { background-color: transparent;"
                           " border-color: transparent; color: %2; }"
                           "QPushButton[%1=\"ghost\"]:hover:enabled { background-color: %3; }"
                           "QPushButton[%1=\"ghost\"]:pressed:enabled { background-color: %4; }"
                           "QPushButton[%1=\"ghost\"]:checked { background-color: %5; }")
-               .arg(QString::fromLatin1(kButtonKindProperty), black.name(),
-                    t.hover.name(), t.selected.name(), ghostTint);
+               .arg(QString::fromLatin1(kButtonKindProperty), black, hover, pressed, ghostTint);
 
     // ★ 「灰掉」这一条**必须摆在上面那两块之后**（2026-10-09 真机踩到）。
     //   Qt 的样式表按**优先级**排：`QPushButton[wtfmlButtonKind="neutral"]` 和
@@ -1276,7 +1453,7 @@ QString widgetStyleSheet() {
     qss += QStringLiteral(
                "QPushButton:disabled { background-color: %1; color: %2;"
                " border-color: transparent; }")
-               .arg(disabledFill.name(), disabledInk.name());
+               .arg(disabledFill, disabledInk);
 
     // ★ 图标按钮那一档**必须摆在最后**（2026-10-12）：它和 `[wtfmlButtonKind="primary"]`
     //   优先级一样（都是"元素 + 一个属性"），平手时后面写的赢。它只有一句话 ——
@@ -1302,7 +1479,7 @@ QString widgetStyleSheet() {
                " border: 1px dashed %3; }"
                "QPushButton[wtfmlQuickEmpty=\"true\"]:hover:enabled { background-color: %4; }"
                "QPushButton[wtfmlQuickEmpty=\"true\"]:pressed:enabled { background-color: %5; }")
-               .arg(t.main.name(), ink.name(), t.stroke.name(), t.hover.name(), t.selected.name());
+               .arg(paletteRef("alternate-base"), ink, paletteRef("dark"), hover, pressed);
 
     // 主页次动作使用浅主题色表面，避免和 Disabled 共用一脸系统灰。它仍比实心 Primary
     // 弱很多，因此“启动”保持唯一主动作，账号、设置和实例卡则明确表现为可以点击。
@@ -1312,7 +1489,7 @@ QString widgetStyleSheet() {
                "QPushButton[wtfmlHomeAction=\"true\"]:hover:enabled { background-color: %3; }"
                "QPushButton[wtfmlHomeAction=\"true\"]:pressed:enabled { background-color: %4; }"
                "QPushButton[wtfmlHomeAction=\"true\"][wtfmlKeyboardFocus=\"true\"]:focus { border-color: %5; }")
-               .arg(t.subtle.name(), ink.name(), t.hover.name(), t.selected.name(), border.name());
+               .arg(paletteRef("button"), ink, hover, pressed, border);
 
     // -----------------------------------------------------------------------
     // 输入框（2026-09-28）
@@ -1361,8 +1538,7 @@ QString widgetStyleSheet() {
                " min-height: 20px; }"
                "QLineEdit:focus { border-color: %2; }"
                "QLineEdit:disabled { background-color: %3; color: %4; border-color: %5; }")
-               .arg(border.name(), ink.name(), disabledFill.name(), disabledInk.name(),
-                    disabledBorder.name())
+               .arg(border, ink, disabledFill, disabledInk, disabledBorder)
                .arg(controlRadius());
     // 只钉最小高度，不钉最大高度：正常字号下三者仍是 24px；系统使用大字号时允许控件
     // 跟着长高，不能为了像素对齐把字裁掉。
@@ -1411,8 +1587,8 @@ QString widgetStyleSheet() {
                "QComboBox QAbstractItemView { background-color: #ffffff; color: #000000;"
                " border: 1px solid %1;"
                " selection-background-color: %6; selection-color: #000000; outline: none; }")
-               .arg(border.name(), ink.name(), disabledFill.name(), disabledInk.name(),
-                    disabledBorder.name(), pure.name())
+               .arg(border, ink, disabledFill, disabledInk,
+                    disabledBorder, pure)
                .arg(controlRadius());
 
     // -----------------------------------------------------------------------
@@ -1435,8 +1611,7 @@ QString widgetStyleSheet() {
                " border-radius: %6px; }"
                "QCheckBox::indicator:checked { background-color: %4; border-color: %2; }"
                "QCheckBox::indicator:disabled { background-color: %5; border-color: %3; }")
-               .arg(black.name(), ink.name(), disabledInk.name(), pure.name(),
-                    disabledFill.name())
+               .arg(black, ink, disabledInk, pure, disabledFill)
                .arg(controlRadius());
 
     // -----------------------------------------------------------------------
@@ -1465,34 +1640,10 @@ QString widgetStyleSheet() {
     //   某一列放不下就出来了）。只写竖的，横的那一条会**整条退回 Fusion 出厂样子** ——
     //   那时候屏幕上"竖的变了、横的没变"，比两处都不改还显眼。两段**同一个 `.arg()`**，
     //   就是不许它们漂开。
-    const QString handle = rgbaCss(scrollHandleColor());
-    const QString handleHover = rgbaCss(scrollHandleHoverColor());
-    const QString handlePressed = rgbaCss(scrollHandlePressedColor());
-    qss += QStringLiteral(
-               "QScrollBar:vertical { background: transparent; width: %1px; margin: 0px; }"
-               "QScrollBar::handle:vertical { background: %2; min-height: %3px;"
-               " border-radius: %4px; margin: %5px; }"
-               "QScrollBar::handle:vertical:hover { background: %6; }"
-               "QScrollBar::handle:vertical:pressed { background: %7; }"
-               // ★ 2026-10-18：`Theme::GutterScrollArea` 那条常驻的条子装得下时是"空的"
-               //   （`wtfmlIdle`）—— 那一格是留给文字的**死区**，不是一根拖不动的把手。
-               //   放在 hover / pressed 之后：两者 QSS 优先级相同，后写的赢。
-               "QScrollBar::handle:vertical[wtfmlIdle=\"true\"] { background: transparent; }"
-               "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
-               "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
-               " background: transparent; }"
-               "QScrollBar:horizontal { background: transparent; height: %1px; margin: 0px; }"
-               "QScrollBar::handle:horizontal { background: %2; min-width: %3px;"
-               " border-radius: %4px; margin: %5px; }"
-               "QScrollBar::handle:horizontal:hover { background: %6; }"
-               "QScrollBar::handle:horizontal:pressed { background: %7; }"
-               "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }"
-               "QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {"
-               " background: transparent; }")
-               .arg(QString::number(scrollBarThickness()), handle,
-                    QString::number(scrollBarMinHandleLength()),
-                    QString::number(scrollBarHandleRadius()),
-                    QString::number(scrollBarHandleMargin()), handleHover, handlePressed);
+    const QString handle = paletteRef("placeholder-text");
+    const QString handleHover = paletteRef("mid");
+    const QString handlePressed = paletteRef("dark");
+    qss += scrollBarRules(handle, handleHover, handlePressed);
 
     // -----------------------------------------------------------------------
     // 页面骨架那几层"面"（2026-10-12）
@@ -1500,7 +1651,8 @@ QString widgetStyleSheet() {
     //
     // 用户 2026-10-12 那份改版文档：整页只留**侧栏 + 正文**两个面，其余靠排版分层（不再
     // 用一堆 QGroupBox 套起来）。这两块的色**从调色板现问**（`QPalette::Base` / `Mid`）——
-    // 换深浅主题时 `apply()` 会重挂一遍样式表（见 `installButtonSheet()`），这一份跟着重算。
+    // 2026-10-20 起这句话是字面意思：样式表里写的是 `palette(...)`，换主题只铺调色板，
+    // **不再重挂样式表**（见这里上面 `widgetStyleSheet()` 开头那段）。
     //
     // ★ 侧栏是"轻微底色"（正文色混主题色 6%）：一眼分得出"这一列是导航"，又不至于像一块
     //   独立的卡片。正文面就是 `Base`（今天那份卡片色）加一圈极细的边 —— 边**只有一档**
@@ -1528,14 +1680,12 @@ QString widgetStyleSheet() {
     //     行高和圆角同理：那份列表的行高一直是 `versionTreeRowHeight()`（46 ≥ 文档要的 42），
     //     而代理画的是一整行**不带圆角**的方块 —— 多出来的圆角只能由代理画（今天没画）。
     {
-        const QColor sheetBase =
-            current().presetId != QLatin1String("system") ? t.main
-            : appColor(QPalette::Base).isValid() ? appColor(QPalette::Base) : QColor(Qt::white);
-        const QColor sidebarFill = t.subtle;
+        const QString sheetBase = paletteRef("alternate-base");
+        const QString sidebarFill = paletteRef("button");
         // 小节卡片要能和正文面分得开，但仍然只是正文内部的一层。6% 在默认绿色下
         // 足以建立层级，又不会像旧式 GroupBox 那样每节都变成一个沉重的框。
-        const QColor sectionFill = t.card;
-        const QColor sheetSecondary = appColor(QPalette::PlaceholderText);
+        const QString sectionFill = paletteRef("tooltip-base");
+        const QString sheetSecondary = paletteRef("placeholder-text");
         // ★ 2026-10-12（coding plan §9.1）：两个圆角各走 `surfaceRadius()`（8）/ `sectionRadius()`
         //   （10）—— **数没变**，变的是它从"样式表里写着 8"变成"令牌层说了算"。层级是
         //   小节卡片（10）> 主表面（8）> 普通动作（6）> 输入类（4），四档一路收小。
@@ -1550,9 +1700,9 @@ QString widgetStyleSheet() {
                    "QFrame[wtfmlSidebarRail=\"true\"] { background-color: %3; border: none; }"
                    "QListWidget[wtfmlSidebarRail=\"true\"] { background: transparent; border: none; }"
                    "QLabel[%5=\"secondary\"] { color: %6; }")
-                   .arg(QString::fromLatin1(kSurfaceProperty), sidebarFill.name(),
-                        sheetBase.name(), sectionFill.name(),
-                        QString::fromLatin1(kTextRoleProperty), sheetSecondary.name())
+                   .arg(QString::fromLatin1(kSurfaceProperty), sidebarFill,
+                        sheetBase, sectionFill,
+                        QString::fromLatin1(kTextRoleProperty), sheetSecondary)
                    .arg(surfaceRadius())
                    .arg(sectionRadius());
     }
@@ -1584,9 +1734,9 @@ QString widgetStyleSheet() {
         "QCheckBox::indicator:unchecked { background-color: %1; border-color: %3; }"
         "QComboBox QAbstractItemView { selection-background-color: %8; selection-color: %2; }"
         "QTabWidget::pane { background-color: %9; border: none; }")
-        .arg(t.input.name(), t.text.name(), t.stroke.name(), t.focus.name(),
-             t.disabled.name(), t.subtle.name(), QString::number(controlRadius()),
-             t.selected.name(), t.page.name());
+        .arg(paletteRef("base"), paletteRef("text"), paletteRef("dark"), paletteRef("link"),
+             paletteRef("placeholder-text"), paletteRef("button"),
+             QString::number(controlRadius()), paletteRef("highlight"), paletteRef("window"));
     return qss;
 }
 
@@ -1724,31 +1874,50 @@ bool isDark() {
 
 QPalette buildPalette(const Spec &spec, const QPalette &base) {
     QPalette palette = base;
-    if (spec.presetId != QLatin1String("system")) {
-        const Tokens t = tokens(spec.presetId);
-        palette.setColor(QPalette::Window, t.page);
-        palette.setColor(QPalette::Base, t.input);
-        palette.setColor(QPalette::AlternateBase, t.main);
-        palette.setColor(QPalette::WindowText, t.text);
-        palette.setColor(QPalette::Text, t.text);
-        palette.setColor(QPalette::Button, t.subtle);
-        palette.setColor(QPalette::ButtonText, t.text);
-        palette.setColor(QPalette::Highlight, t.selected);
-        palette.setColor(QPalette::HighlightedText, t.text);
-        palette.setColor(QPalette::PlaceholderText, t.secondary);
-        palette.setColor(QPalette::Mid, t.divider);
-        palette.setColor(QPalette::Dark, t.stroke);
-        palette.setColor(QPalette::ToolTipBase, t.card);
-        palette.setColor(QPalette::ToolTipText, t.text);
-        palette.setColor(QPalette::Link, t.focus);
-        for (const auto role : kInkRoles) palette.setColor(QPalette::Disabled, role, t.disabled);
-    }
+    const Tokens t = tokens(spec.presetId);
+    palette.setColor(QPalette::Window, t.page);
+    palette.setColor(QPalette::Base, t.input);
+    palette.setColor(QPalette::AlternateBase, t.main);
+    palette.setColor(QPalette::WindowText, t.text);
+    palette.setColor(QPalette::Text, t.text);
+    palette.setColor(QPalette::Button, t.subtle);
+    palette.setColor(QPalette::ButtonText, t.text);
+    palette.setColor(QPalette::Highlight, t.selected);
+    palette.setColor(QPalette::HighlightedText, t.text);
+    palette.setColor(QPalette::PlaceholderText, t.secondary);
+    palette.setColor(QPalette::Mid, t.divider);
+    palette.setColor(QPalette::Dark, t.stroke);
+    palette.setColor(QPalette::ToolTipBase, t.card);
+    palette.setColor(QPalette::ToolTipText, t.text);
+    palette.setColor(QPalette::Link, t.focus);
+    for (const auto role : kInkRoles) palette.setColor(QPalette::Disabled, role, t.disabled);
+
     for (auto it = spec.roles.constBegin(); it != spec.roles.constEnd(); ++it) {
         if (it.key() < 0 || it.key() >= roleCount() || !it.value().isValid()) {
             continue;
         }
         palette.setColor(qtRole(static_cast<Role>(it.key())), it.value());
     }
+
+    // ★ 2026-10-20：样式表里那些"跟着主题走"的颜色全部改成 `palette(...)` 引用，
+    //   所以调色板除了原来那几档，还得把样式表要念的这几档一起备好。**只在这里备**：
+    //   它们是样式表的"变量"，不是用户能单独挑的 `Role`（见头文件里 `Role` 那段）。
+    //
+    //   为什么非走这一步：换配色时旧做法是 `QApplication::setStyleSheet()` 重挂整份
+    //   样式表，Qt 会把**每一个**控件重新 polish 一遍 —— 真机 6800 个控件量到 1.9 秒，
+    //   界面就卡在那儿。改成调色板当变量之后，样式表字符串一个字节都不变，换配色只
+    //   铺调色板 + 重 polish（同一个量级降到 ~100 ms）。
+    const QColor accent = spec.accent.isValid() ? spec.accent : t.primary;
+    const bool dark = isDarkPalette(palette);
+    palette.setColor(QPalette::Accent, accent);
+    palette.setColor(QPalette::Light, t.hover);
+    palette.setColor(QPalette::BrightText, dark ? QColor("#FFB8BD") : QColor("#c02828"));
+    // 灰掉那一档的字和边借 `LinkVisited` / `Shadow` 两格（Fusion 不拿它们画控件）：
+    // 它们必须是真的 `t.disabled` / `t.divider`，不能拿 `PlaceholderText` 顶 ——
+    // 那一档是"次要文字"，比灰掉的字深，混用会让两档在屏幕上分不出来。
+    palette.setColor(QPalette::LinkVisited, t.disabled);
+    palette.setColor(QPalette::Shadow, t.divider);
+
     if (spec.textOpacity != 100) {
         for (QPalette::ColorRole role : kInkRoles) {
             for (QPalette::ColorGroup group : colorGroups) {
@@ -1791,56 +1960,141 @@ void notifyWidgets() {
     }
 }
 
-/// 把那一套控件外观（按钮 / 输入框 / 勾选框）挂到应用上。`force` = 样式表字符串没变也重挂一遍。
+/// 把那一套控件外观（按钮 / 输入框 / 勾选框）挂到应用上。**只在字符串真变了的时候挂**。
 ///
-/// ★ 为什么换过调色板之后**必须**重挂（2026-09-28 实测，ui_shot 那条"深色换回来"揪出来的）：
-///   应用身上挂着样式表的时候，`QApplication::setPalette()` 那套"发给每个控件"的传播会
-///   **漏掉一部分控件** —— 最明显的是 `QCheckBox`：从深色换回"跟着系统"之后，它记着的还是
-///   深色那一份调色板（白字 + 深色勾选框），在浅底上那行字就**看不见了**。
-///   实测（本机，设置页那一刻）：挂着样式表走一遍深浅来回，10 个勾选框 **10 个**残留；
-///   把同样那一份样式表**再挂一遍**（= 逼所有控件重新抛光一遍），残留 **0** 个；
-///   撤掉样式表再走，也 **0** 个 —— 所以这一位是样式表带来的，不是调色板本身。
-///   NOTE: 重挂只在"这一趟真换了调色板"时做（`apply()` 会被"换个背景图"这种小事调起来，
-///         每趟都重挂一遍全窗口就是白跑 —— 见上面那条 NOTE）。
-void installButtonSheet(QApplication &app, bool force) {
+/// ★ 2026-10-20：样式表里的颜色全部改成 `palette(...)` 引用之后，这一份字符串换主题时
+///   一个字节都不变 —— 于是 `QApplication::setStyleSheet()`（它会重新 polish 每一个
+///   控件）在换配色这条路上**一次都不会跑**。要让新调色板生效，走 `repolishWidgets()`。
+///
+/// ★ 历史（留着说明为什么从前必须重挂）：应用身上挂着样式表的时候，
+///   `QApplication::setPalette()` 那套"发给每个控件"的传播会**漏掉一部分控件** ——
+///   最明显的是 `QCheckBox`：从深色换回"跟着系统"之后，它记着的还是深色那一份调色板
+///   （白字 + 深色勾选框），在浅底上那行字就**看不见了**。把样式表再挂一遍能冲掉那层
+///   缓存，代价是整窗口重新 polish（6800 个控件 ~1.9 秒）。现在换成了显式
+///   `polish()` 一圈（~100 ms），同一个目的、小一个数量级。
+void installButtonSheet(QApplication &app) {
     const QString buttons = widgetStyleSheet();
     static QString installed;
-    if (!force && installed == buttons) {
+    if (installed == buttons) {
         return;
     }
     installed = buttons;
     app.setStyleSheet(buttons);
 }
 
+namespace {
+
+/// 当前是不是正在 `apply()` 里面（给"系统深浅变了"那条回调防自咬用）。
+bool &applyingTheme() {
+    static bool applying = false;
+    return applying;
+}
+
+/// 把"该重新取色了"这件事落到每一个控件身上（`polish()`）。
+///
+/// ★ 为什么不是 `QApplication::setStyleSheet()`：那一句会把**整份样式表**重新解析、
+///   给每个控件新建一遍 `QRenderRule`，6800 个控件实测 1.9 秒；而这里只是让已有的
+///   规则按**新的调色板**再算一遍（样式表字符串没变），同量级 100 ms。
+/// ★ 为什么只 `polish()`、不先 `unpolish()`：2026-10-20 探针实测，`polish()` 自己就会
+///   重新解析 `palette(...)`（`unpolish + polish` 多花 30%，画出来的色一模一样）。
+/// ★ 为什么要显式做：`palette(...)` 是 polish 那一刻解析成具体颜色的，`setPalette()`
+///   本身不会让 `QStyleSheetStyle` 重算（2026-10-20 探针实测：只设调色板，按钮颜色不变；
+///   `polish()` 之后才变）。
+void repolishWidgets() {
+    if (QGuiApplication::instance() == nullptr) {
+        return;
+    }
+    QList<QPointer<QWidget>> widgets;
+    const QList<QWidget *> all = QApplication::allWidgets();
+    widgets.reserve(all.size());
+    for (QWidget *widget : all) {
+        widgets.append(widget);
+    }
+    for (const QPointer<QWidget> &widget : widgets) {
+        if (widget.isNull()) {
+            continue;
+        }
+        // 滚动条身上挂的是控件级精确样式（见 `styleScrollBar()`）：那份颜色不来自
+        // `palette(...)`，刚刚已经由 `styleScrollBars()` 重挂过了，不必再白跑一趟。
+        if (qobject_cast<QScrollBar *>(widget.data()) != nullptr) {
+            continue;
+        }
+        // ★ 自己 `setPalette()` 过的控件（标题栏 / 底栏 / 侧栏 / 卡片…）**收不到**
+        //   `QApplication::setPalette()` 那套自动传播 —— Qt 只把"应用调色板变了"发给
+        //   没有本地调色板的控件。它们各自存着一份算好的色，靠 `changeEvent()` 重算；
+        //   从前的 `setStyleSheet(force)` 会顺手发一个 StyleChange 把它们叫醒，现在不走
+        //   那条路了，所以这里点名补一发。
+        //   NOTE: 判据用 `WA_SetPalette`，不乱发 —— 没本地调色板的控件 Qt 已经发过了。
+        if (widget->testAttribute(Qt::WA_SetPalette)) {
+            QEvent event(QEvent::PaletteChange);
+            QCoreApplication::sendEvent(widget.data(), &event);
+            if (widget.isNull()) {
+                continue;
+            }
+        }
+        widget->style()->polish(widget.data());
+    }
+}
+
+/// 换主题时把每一根滚动条的控件级样式重算一遍（数量是两位数，很便宜）。
+void styleScrollBars() {
+    ++scrollBarThemeGeneration();
+    const QList<QWidget *> all = QApplication::allWidgets();
+    for (QWidget *widget : all) {
+        if (auto *bar = qobject_cast<QScrollBar *>(widget)) {
+            styleScrollBar(bar);
+        }
+    }
+}
+
+/// 「跟着系统」那一档：平台深浅一换，重新铺一遍我们那份调色板。
+///
+/// ★ 为什么需要它：从 2026-10-20 起"跟着系统"也会铺一份我们自己算的调色板（样式表里
+///   的 `palette(...)` 需要它）。铺过之后 Qt 就不再自动把平台调色板同步过来了，所以
+///   平台深浅的变化得自己接住。
+class ColorSchemeWatcher : public QObject {
+public:
+    explicit ColorSchemeWatcher(QApplication &app) : QObject(&app) {
+        setObjectName(QStringLiteral("wtfmlColorSchemeWatcher"));
+        connect(app.styleHints(), &QStyleHints::colorSchemeChanged, this,
+                [](Qt::ColorScheme) {
+                    if (applyingTheme() || current().presetId != QLatin1String("system")) {
+                        return;
+                    }
+                    // 已经和平台一致就不用再铺（`apply()` 自己也会调 `setColorScheme()`，
+                    // 那一下可能把这条信号带回自己头上）。
+                    if (platformColorSchemeDark() ==
+                        isDarkPalette(QGuiApplication::palette())) {
+                        return;
+                    }
+                    apply(*qApp);
+                });
+    }
+};
+
+}  // namespace
+
 void apply(QApplication &app) {
+    if (applyingTheme()) {
+        return;
+    }
+    applyingTheme() = true;
     if (app.findChild<QObject *>(QStringLiteral("wtfmlButtonFocusVisibility")) == nullptr)
         new ButtonFocusVisibility(app);
+    if (app.findChild<QObject *>(QStringLiteral("wtfmlScrollBarStyler")) == nullptr)
+        new ScrollBarStyler(app);
+    if (app.findChild<QObject *>(QStringLiteral("wtfmlColorSchemeWatcher")) == nullptr)
+        new ColorSchemeWatcher(app);
+
     const Spec &spec = current();
     const bool followSystem = spec.presetId == QLatin1String("system");
 
-    // -1) 按钮那一套外观（白底 + 主题色的字和边）：走**应用级样式表**，不走调色板。
-    //
-    //     ★ 为什么按钮这一层非走样式表不可：用户要的是"按钮中心白、字和边是主题色"，
-    //       而 Fusion 画的按钮**边是它自己从按钮底色推出来的**（调色板里没有"这一圈边是
-    //       什么色"这个位置），把 `Role::Button` 改成白只会得到"白底 + 一圈灰边"。
-    //     ★ 为什么不能顺手把主题色塞进调色板（比如 `Role::Highlight` 也换成这一支绿）：
-    //       出厂那一份一旦带上角色覆盖，`touchesPalette` 就为真 ⇒ 每一趟都 `setPalette()`
-    //       ⇒ 应用调色板成了"我们设的"，**Qt 从此不再跟着系统深浅走了**（跟着系统那一档的
-    //       全部意义，见文件头那段）。样式表不碰调色板，所以这条路是干净的。
-    //     NOTE: 只在**真变了**的时候铺：`apply()` 会被"改一张背景图"这种小事调起来，
-    //           每次都铺一遍等于让整个界面重新 polish 一趟（样式没变也白跑）。
-    installButtonSheet(app, false);
+    // -1) 按钮 / 输入框那一套外观：应用级样式表。**换主题时不重挂**（字符串不变），
+    //     只在这一份字符串真的变了（第一次铺、或者以后改了结构）时挂一次。
+    installButtonSheet(app);
 
-    // 0) 记下"平台自己那一份"。`installedExplicit()` 为假 = 应用身上现在挂的就是平台给的
-    //    那一份（我们没顶掉过，或者已经还回去了）—— 这一刻存下来，还原时才有东西可还。
-    //    顶掉过的那一档不刷新：那时候应用身上挂着的是**我们**铺的，存它等于把深色当成了
-    //    "平台那一份"（见 `platformPalette()` 那段）。
-    if (!installedExplicit()) {
-        platformPalette() = app.palette();
-        platformPaletteKnown() = true;
-    }
-
-    // 1) 深浅那一档。**只有"跟着系统"那一档才不去动它**（见头文件那段 NOTE）。
+    // 1) 深浅那一档。"跟着系统"仍然交给平台（原生对话框那些也跟着走）；只是我们自己
+    //    那份调色板按平台的深浅算，见 `platformColorSchemeDark()`。
     if (followSystem) {
         app.styleHints()->unsetColorScheme();
     } else {
@@ -1851,48 +2105,25 @@ void apply(QApplication &app) {
 
     // 2) 基色一律现问样式要。**不能拿"现在的应用调色板"当基色**：铺过一次深色预设之后
     //    它就是深色那一份了，再叠一次"跟系统"的覆盖项会得到深底 + 浅色覆盖的怪东西。
-    //    这一刻深浅那一档已经定好，所以 standardPalette() 问到的就是那一档。
+    //    这一刻深浅那一档已经定好，所以 `standardPalette()` 问到的就是那一档。
     const QPalette base = app.style()->standardPalette();
-
-    const bool touchesPalette = !followSystem || !spec.roles.isEmpty() || spec.textOpacity != 100;
-    if (!touchesPalette) {
-        // 出厂那一份：今天的样子。**一个字节都不碰** —— 碰了就等于把"跟着系统"钉死
-        // （Qt 只在"调色板不是我们设的"时才跟着系统深浅走）。
-        if (installedExplicit()) {
-            // 例外：上一次铺过别的预设，这一次要选回"跟着系统" ⇒ 得把出厂那一份盖回去，
-            // 光"什么都不做"是收不回的（深色那份还挂在应用上）。
-            // ★ 还回去的是**记下来的平台那一份**，不是上面算出来的 `base`：`base` 是
-            //   `standardPalette()`，和平台那一份差着一档（见 `platformPalette()` 那段）。
-            //   没记下来过（理论上到不了）才退而求其次用 `base`。
-            app.setPalette(platformPaletteKnown() ? platformPalette() : base);
-            installedExplicit() = false;
-            // ★ 换过调色板就得把样式表重挂一遍，见 `installButtonSheet()` 那段。
-            installButtonSheet(app, true);
-        }
-        notifyWidgets();
-        return;
-    }
-
     const QPalette before = app.palette();
     app.setPalette(buildPalette(spec, base));
-    installedExplicit() = true;
+
     if (app.palette() != before) {
-        // ★ 同上：这一趟**真**把调色板换掉了，所以重挂一遍样式表把控件那层缓存冲掉。
-        //   没换（比如只是改了背景图）就不挂 —— 那正是上面 NOTE 说的"白跑一趟"。
-        installButtonSheet(app, true);
-        // 铺完之后 Qt 自己会把"调色板变了"发给每一个控件（`ui_check` W2 量着这件事），
-        // 所以这里**不再**敲第二遍 —— 敲了就是每换一次主题白跑一趟全窗口的重算。
+        // 这一趟**真**把调色板换掉了 ⇒ 让每一份 `palette(...)` 重新解析一遍。
+        styleScrollBars();
+        repolishWidgets();
     } else {
-        // ★ 2026-10-20：调色板**没变**的时候 Qt 一个通知都不发，而"换了一张背景图 /
-        //   改了摆法 / 调了不透明度 / 换了某一块的底色"这些东西**都不在调色板里**
-        //   （`buildPalette()` 只读 preset / roles / textOpacity）。于是 `apply()`
-        //   跑完了、规格也换了，屏幕上却还是上一张图 —— `ThemeBackground` 记着两份位图，
-        //   只有收到 "调色板变了" 才会重画（见它构造里那句 `follow`）。
+        // 调色板**没变**的时候 Qt 一个通知都不发，而"换了一张背景图 / 改了摆法 /
+        // 调了不透明度 / 换了某一块的底色"这些东西**都不在调色板里**
+        // （`buildPalette()` 只读 preset / roles / textOpacity）。于是 `apply()`
+        // 跑完了、规格也换了，屏幕上却还是上一张图 —— `ThemeBackground` 记着两份位图，
+        // 只有收到 "调色板变了" 才会重画（见它构造里那句 `follow`）。
         //   症状：换图之后要切到别的选项卡再切回来、或者拖一下窗口改尺寸，才看得见新图。
-        //   这里补发一遍（和上面那条"不重复敲"并不矛盾：那一趟真变了才轮到 Qt 发，
-        //   这一趟 Qt 不会发）。
         notifyWidgets();
     }
+    applyingTheme() = false;
 }
 
 // ---------------------------------------------------------------------------
