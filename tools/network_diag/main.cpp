@@ -401,6 +401,11 @@ public:
     }
 };
 
+static QString fixtureRequestPath(const QByteArray &request) {
+    const auto firstLine = request.left(request.indexOf("\r\n")).split(' ');
+    return QUrl::fromEncoded(firstLine.value(1)).path();
+}
+
 static int selfTest(QApplication &app) {
     QTemporaryDir directory;
     if (!directory.isValid()) return 1;
@@ -413,24 +418,29 @@ static int selfTest(QApplication &app) {
     QObject::connect(&server, &QTcpServer::newConnection, &app, [&] {
         while (auto *socket = server.nextPendingConnection()) {
             QObject::connect(socket, &QTcpSocket::readyRead, socket, [socket, payload, large, &dispatcherRequests, &refreshedRequests] {
+                if (socket->property("responded").toBool()) return;
                 const auto request = socket->property("request").toByteArray() + socket->readAll();
                 socket->setProperty("request", request);
                 if (!request.contains("\r\n\r\n")) return;
-                if (request.contains("/stall")) return;
+                // Route by the request target, never by a substring of all headers
+                // (redirect-related headers may contain the previous URL).
+                const auto path = fixtureRequestPath(request);
+                socket->setProperty("responded", true);
+                if (path == QStringLiteral("/stall")) return;
                 QByteArray response;
-                if (request.contains("/refresh")) {
+                if (path == QStringLiteral("/refresh")) {
                     ++refreshedRequests;
                     response = "HTTP/1.1 302 Found\r\nLocation: " + QByteArray(refreshedRequests == 1 ? "/expired" : "/large")
                         + "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-                } else if (request.contains("/expired") && !request.contains("bytes=0-0\r\n")) {
+                } else if (path == QStringLiteral("/expired") && !request.contains("bytes=0-0\r\n")) {
                     response = "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-                } else if (request.contains("/dispatch")) {
+                } else if (path == QStringLiteral("/dispatch")) {
                     ++dispatcherRequests;
                     response = "HTTP/1.1 302 Found\r\nLocation: /large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-                } else if (request.contains("/throttle")) response = "HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-                else if (request.contains("/redirect")) response = "HTTP/1.1 302 Found\r\nLocation: /ok?secret=redirect-token\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                } else if (path == QStringLiteral("/throttle")) response = "HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                else if (path == QStringLiteral("/redirect")) response = "HTTP/1.1 302 Found\r\nLocation: /ok?secret=redirect-token\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                 else {
-                    QByteArray data = (request.contains("/large") || request.contains("/expired")) ? large : payload;
+                    QByteArray data = (path == QStringLiteral("/large") || path == QStringLiteral("/expired")) ? large : payload;
                     const auto range = QRegularExpression(QStringLiteral("Range: bytes=(\\d+)-(\\d+)"), QRegularExpression::CaseInsensitiveOption).match(QString::fromLatin1(request));
                     if (range.hasMatch()) {
                         const auto total = data.size(); const auto first = range.captured(1).toLongLong();
@@ -447,6 +457,9 @@ static int selfTest(QApplication &app) {
     });
     int failures = 0;
     const auto check = [&](bool condition, const char *text) { std::printf("%s %s\n", condition ? "PASS" : "FAIL", text); if (!condition) ++failures; };
+    check(fixtureRequestPath("GET /ok?previous=/refresh HTTP/1.1\r\nReferer: http://localhost/expired\r\n\r\n") == QStringLiteral("/ok") &&
+          fixtureRequestPath("GET http://localhost/large HTTP/1.1\r\nReferer: http://localhost/refresh\r\n\r\n") == QStringLiteral("/large"),
+          "fixture routes by target path, ignoring query strings and redirect-related headers");
     check(!validProxy(QUrl(QStringLiteral("http://user:pass@127.0.0.1:7897"))) && validProxy(QUrl(QStringLiteral("socks5://127.0.0.1:7897"))), "proxy validation rejects credentials");
     check(!redact(QStringLiteral("https://user:pass@example.test/a?token=SECRET#fragment")).contains(QStringLiteral("SECRET")), "URL parameters are redacted");
     const QUrl cooled(QStringLiteral("https://cooldown.test/a"));
@@ -491,7 +504,9 @@ static int selfTest(QApplication &app) {
                                  "diagnostic worker stops promptly on HTTP 429");
         QFile events(QDir(base).filePath(QStringLiteral("events.jsonl"))); const bool opened = events.open(QIODevice::ReadOnly);
         const auto log = opened ? events.readAll() : QByteArray();
-        if (scenario == 9 && !result.value("success").toBool()) {
+        if (scenario == 9 && (refreshedRequests != 2 || !result.value("success").toBool())) {
+            std::printf("refresh fixture: dispatcher_requests=%d worker_success=%d requests=%d\n",
+                        refreshedRequests, result.value("success").toBool(), result.value("request_count").toInt());
             std::puts(QJsonDocument(result).toJson(QJsonDocument::Compact).constData());
             for (const auto &line : log.split('\n'))
                 if (line.contains("\"event\":\"engine\"")) std::puts(line.constData());
