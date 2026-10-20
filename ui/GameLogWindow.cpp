@@ -778,6 +778,23 @@ void GameLogWindow::updateFilterButtons() {
             button->setText(filterButtonText(levelAt(i), m_model.countFor(modelLevel(levelAt(i)))));
         }
     }
+    updateHintLabel();
+}
+
+void GameLogWindow::updateHintLabel() {
+    if (m_hintLabel == nullptr) {
+        return;  // 构造期还没摆到这一格（updateFilterButtons 只在收行/清空时来）
+    }
+    QString text = hintText();
+    const QString dropped = droppedHintText(m_model.droppedLineCount(), maxLogBlocks());
+    if (!dropped.isEmpty()) {
+        text += QLatin1Char(' ') + dropped;
+    }
+    // 每收一行都会走到这里：只在真的变了的时候 setText，不然行数一直在涨的那些
+    // 实例会把整行字反复重排（`QLabel::setText` 会触发布局）。
+    if (m_hintLabel->text() != text) {
+        m_hintLabel->setText(text);
+    }
 }
 
 void GameLogWindow::refreshFilterButtonStyles() {
@@ -1101,6 +1118,15 @@ QString GameLogWindow::windowTitleText(const QString &instanceName) {
 QString GameLogWindow::hintText() {
     return QStringLiteral("这里是这一份游戏自己的输出，和日志文件里的是同一份。"
                           "关掉这个窗口不会停游戏。");
+}
+
+QString GameLogWindow::droppedHintText(int dropped, int capacity) {
+    if (dropped <= 0) {
+        return QString();
+    }
+    return QStringLiteral("窗口最多保留 %1 行，更早的 %2 行已经丢弃。")
+        .arg(capacity)
+        .arg(dropped);
 }
 
 QString GameLogWindow::clearButtonText() { return QStringLiteral("清空"); }

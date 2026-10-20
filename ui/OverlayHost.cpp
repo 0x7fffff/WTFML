@@ -25,6 +25,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QTabWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -460,10 +461,14 @@ void OverlayHost::closeOverlay() {
             if (m_pageFocus == nullptr && m_backButton != nullptr && !parked()) {
                 m_backButton->setFocus();
             }
+            // 提示收掉了、底下那一页还在：排着的那几条纯报信提示照样该出来。
+            scheduleNotificationDrain();
             return;
         }
         m_mode = Mode::None;
         applyVisibility();
+        // 这一条提示收掉了：排着的那几条纯报信提示该出来了（2026-10-20）。
+        scheduleNotificationDrain();
         return;
     }
     if (m_mode == Mode::Page) {
@@ -475,6 +480,46 @@ void OverlayHost::closeOverlay() {
         applyVisibility();
         return;
     }
+}
+
+bool OverlayHost::queueNotification(std::function<void()> show) {
+    if (!show) {
+        return false;
+    }
+    // 只有**已经有提示开着**的时候才排队。没开着的时候调用方该直接摆 —— 排一轮反而
+    // 把"现在就弹"变成了"下一轮才弹"，那是没人要的顺序变化。
+    if (!promptOpen()) {
+        return false;
+    }
+    m_queuedNotifications.append(std::move(show));
+    return true;
+}
+
+void OverlayHost::scheduleNotificationDrain() {
+    if (m_queuedNotifications.isEmpty() || m_notificationDrainPending) {
+        return;
+    }
+    m_notificationDrainPending = true;
+    // 下一轮事件循环：这一下多半发生在 `execEmbedded()` 的收尾里，那一刻的调用栈属于
+    // **上一条提示的调用方**。当场摆下一条会把它按在嵌套事件循环里，等用户点完下一条
+    // 才返回 —— 收尾提示晚一步弹出来是能接受的，收尾本身被拖住不行。
+    QTimer::singleShot(0, this, [this] {
+        m_notificationDrainPending = false;
+        if (m_queuedNotifications.isEmpty()) {
+            return;
+        }
+        // 这中间又有人直接开了一条提示：留着，等它收掉时再排一次。
+        if (promptOpen()) {
+            return;
+        }
+        const auto show = m_queuedNotifications.takeFirst();
+        // ★ **先排下一次、再摆这一条**：`show()` 摆出来的那条不一定走 `closeOverlay()`
+        //   （比如宿主已经没了、开不出来，什么都没发生），先排好才不会把后面的堵死。
+        //   这一下排出来的定时器如果落进 `show()` 的嵌套事件循环里，会因为 `promptOpen()`
+        //   直接返回；那一条收掉时 `closeOverlay()` 会再排一次 —— 两条路都收得住。
+        scheduleNotificationDrain();
+        show();
+    });
 }
 
 bool OverlayHost::dismiss() {

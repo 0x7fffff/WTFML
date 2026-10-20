@@ -1,5 +1,6 @@
 #include "controllers/InstanceSettingsController.hpp"
 
+#include "controllers/InstanceMaintenanceController.hpp"
 #include "util/AppPaths.hpp"
 #include "manage/InstanceFiles.hpp"
 #include "manage/InstanceGroupStore.hpp"
@@ -175,6 +176,37 @@ bool InstanceSettingsController::rename(const QString &oldId, const QString &new
     // 刚改名的那个实例丢了。
     if (m_settings != nullptr && m_settings->lastLaunchedVersion() == oldId) {
         m_settings->setLastLaunchedVersion(name);
+    }
+
+    // ★ 2026-10-20：把按实例目录名认人的缓存备份格子一起搬过去。
+    //
+    //   配置回退（`cache/config-backups/<id>`）、资源包顺序备份、存档 level.dat 的
+    //   自动备份（格子名里带实例目录名和世界目录绝对路径的哈希）都是按目录名认人的。
+    //   不搬的后果很具体：改名之后新名字底下**一个备份都查不到**、清理也够不着它们，
+    //   界面上就是"改个名，自动备份全没了"—— 而磁盘上那份其实还在。
+    //
+    //   NOTE: 失败**不算改名失败**。实例本身已经改好了，这些只是缓存；逐条写进日志，
+    //         用户真需要那一份备份时至少知道它在哪儿、为什么没搬（多半是目标格子里
+    //         已经有另一个曾经同名的实例留下的东西）。
+    {
+        int movedCaches = 0;
+        int movedSlots = 0;
+        QStringList problems = InstanceFiles::migrateInstanceCacheDirs(
+            oldId, name,
+            {AppPaths::configBackupDir(), AppPaths::resourcePackBackupDir()}, &movedCaches);
+        problems += InstanceMaintenanceController::migrateWorldBackupSlots(
+            AppPaths::versionDir(oldId), AppPaths::versionDir(name), &movedSlots);
+        if (movedCaches + movedSlots > 0 && m_host.log) {
+            m_host.log(tr("改名时把 %1 处缓存备份搬到了新名字底下")
+                           .arg(movedCaches + movedSlots));
+        }
+        for (const QString &problem : problems) {
+            qWarning() << "Cache backup migration after renaming" << oldId << "to" << name
+                       << "did not finish:" << problem;
+            if (m_host.log) {
+                m_host.log(problem);
+            }
+        }
     }
 
     // 分组归属也要跟着挪。两件事叠在一起，所以这里必须按顺序取两次键：

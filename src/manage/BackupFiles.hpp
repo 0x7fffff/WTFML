@@ -35,6 +35,7 @@
  */
 
 #pragma once
+#include <functional>
 
 #include <QDateTime>
 #include <QList>
@@ -134,7 +135,8 @@ QStringList sortBackupsNewestFirst(const QStringList &paths, const QString &pref
 /// @param problemOut 失败原因（目录不在 / 读不动）。**跳过的东西不算失败**。
 /// @return 空表 + problemOut 非空 = 没走成；空表 + problemOut 空 = 这个目录本来就是空的。
 QList<FileRecord> collectFiles(const QString &rootDir, const QStringList &excludeTop = QStringList(),
-                               QString *problemOut = nullptr);
+                               QString *problemOut = nullptr,
+                               const std::function<bool()> &cancelled = {});
 
 /// 打一份备份。
 /// @param manifest 描述（`files` / `totalBytes` 由这一趟自己填，传进来的一律被覆盖）。
@@ -150,7 +152,7 @@ struct WriteResult {
     QString zipPath;
 };
 WriteResult writeBackup(const Manifest &manifest, const QString &sourceDir,
-                        const QString &targetZip);
+                        const QString &targetZip, const std::function<bool()> &cancelled = {});
 
 /// 读一份备份的清单（从 zip 里那个根条目）。**不是我们做的包**和**读不动**在这里是两件事
 /// （两句话不一样），调用方只要看 `ok`。
@@ -194,14 +196,22 @@ struct RestoreResult {
  *      一份）**不看这一眼**，理由见 .cpp 里那一处 NOTE；
  *   3. 现在那儿已经有一份 → **先给它做一份安全快照**（同样是一次 `writeBackup`，落进
  *      同一个备份目录），再把它整个挪走（`removeTreeWithoutFollowingLinks`，不跟链接）。
+ *      ★ 目标树里只要有链接（junction / 符号链接）就**停在安全快照之前**、一个字节都不动：
+ *      包里和安全快照里都记不住"这里是个链接"，解开就会被换成普通目录，这条路退不回来。
  *      ★ 安全快照**做不成就不往下走** —— "先把旧的删了、再告诉你备份没做出来"是这一整套里
  *      唯一不可接受的结果；
  *   4. 解压 + **逐文件对账**（`verifyTree()`）。对不上就把话说明白（那多半是解压被中途打断，
  *      或者盘满了）。
  *
  * NOTE: 这里**不碰界面也不碰账本**：进度那几句由调用方（MainWindow）往任务中心写。
+ *
+ * @param cancelled 协作式停止（关窗 / 整项超时）。★ **只在 ③ 开始挪走「现在这一份」
+ *        *之前* 生效**：那之后停下来，用户手上就既没有旧的那一份、也没有新的这一份。
+ *        停下来时返回 `ok = false` 且盘上原样（安全快照已经做出来的话会删掉它）；
+ *        `problem` 说清"取消或超时"，调用方照失败/取消如实报。
  */
-RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentDir);
+RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentDir,
+                            const std::function<bool()> &cancelled = {});
 
 /// 还原这一份备份大约要占多少字节 = 清单里各文件大小之和 + 一点余量（余量见 .cpp）。
 /// 纯函数（不碰盘）：`restoreBackup()` 拿它对着空闲空间判，验证工程拿它钉判据。

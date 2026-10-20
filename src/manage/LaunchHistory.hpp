@@ -112,6 +112,10 @@ QList<Record> prepend(const QList<Record> &records, const Record &record);
 /// @return 一条都没有时回一个 `isValid() == false` 的空记录。
 Record latestPlayable(const QList<Record> &records);
 
+/// Latest recorded process start for this instance, across accounts. Invalid if absent.
+/// Unlike latestPlayable(), a subsequently failed startup remains a real process start.
+QDateTime lastStartedAt(const QList<Record> &records, const QString &instanceId);
+
 /// 「昨天 22:14」这种写法。纯函数：给"什么时候"和"现在"，出一句人话。
 ///
 /// - 今天 → `22:14`；昨天 → `昨天 22:14`；前天 → `前天 22:14`；再早 → `2026-10-05 22:14`。

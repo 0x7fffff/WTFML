@@ -62,6 +62,7 @@
 #include "auth/TokenStore.hpp"
 #include "download/DownloadConcurrency.hpp"
 #include "download/DownloadManager.hpp"
+#include "download/LocalFileReuse.hpp"
 #include "download/DownloadSpeedLimit.hpp"
 #include "download/DownloadProxy.hpp"
 #include "download/LegacyForgeInstall.hpp"
@@ -120,6 +121,7 @@
 // 必要/可选失败分开、依赖按 `平台:项目号` 去重展开、optional 只列不下、embedded 无视、
 // incompatible 挡住、替代项目不确认就不换、落盘大小/sha1 校验。全拿手搭的假答复逐格念。
 #include "presets/ModInstallPlan.hpp"
+#include "presets/InstalledModInventory.hpp"
 // 工具箱那四件小工具的判据层（2026-10-16，coding plan §9.11）。见 ZAA–ZAD 四节 —— 全是
 // **纯函数**（哈希那一节要真读一个文件，它在一个 QTemporaryDir 里读），不联网、不开界面。
 #include "tools/AnvilPlanner.hpp"
@@ -154,6 +156,7 @@
 // 世界（存档）那几个改盘的动作：「导入世界」和世界改名。见 ZJ 节 —— 那一节是**真的动盘**
 // 的（造两个临时游戏文件夹），所以它要 .cpp 而不只是头文件。
 #include "manage/WorldFiles.hpp"
+#include "util/DirectorySessionLock.hpp"
 #include "manage/WorldMap.hpp"
 // §9.8 的运行输出共用模型：只依赖 QtCore，所以验证工程直接驱动它（ZAM 那一节）。
 #include "RuntimeOutputModel.hpp"
@@ -2220,6 +2223,49 @@ static int runInstanceFileTests(const QString &sandbox) {
         check(InstanceFiles::isUnfinishedImport(marked),
               "N5 有导入标记时就算 json 已经被盖成满的也算半成品");
 
+        // ★ 2026-10-20：同名**不等于**同一个包。标记里记着上一次那份清单的指纹，这一趟拿
+        //   另一个包的指纹来问时不能再走「接着下」—— 否则两个包的文件会混进一个目录，
+        //   而清单里 sha1 对不上的那几条会被当成"已经有文件"跳过。
+        const QByteArray manifestA =
+            QByteArrayLiteral("{\"formatVersion\":1,\"name\":\"A\",\"files\":[]}");
+        const QByteArray manifestB =
+            QByteArrayLiteral("{\"formatVersion\":1,\"name\":\"B\",\"files\":[]}");
+        check(InstanceFiles::importManifestFingerprint(manifestA) ==
+                  QStringLiteral(
+                      "c3740e8b1638e4cbb02449539cdcf45cccc8f0a59c150e0677391b75d58f71e4"),
+              "★ N5 清单指纹 = 清单原文的 sha256（钉死算法：重打包时字节不变才算同一个包）",
+              InstanceFiles::importManifestFingerprint(manifestA));
+        check(InstanceFiles::importManifestFingerprint(QByteArray()).isEmpty(),
+              "N5 没有清单字节就没有指纹（不写、也不拿它拦人）");
+        check(InstanceFiles::importMarkerFingerprint(marked).isEmpty(),
+              "N5 老格式标记（一行 ISO 时间）读不出指纹");
+
+        const QString printed = QStringLiteral("N段-有指纹");
+        writeFileAt(versionsRoot + "/" + printed + "/" + printed + ".json",
+                    "{\"id\":\"" + printed.toUtf8() +
+                        "\",\"inheritsFrom\":\"1.20.1\",\"type\":\"release\"}");
+        writeFileAt(InstanceFiles::importMarkerPath(printed),
+                    "{\"startedAt\":\"2026-10-20T00:00:00Z\",\"manifestSha256\":\"" +
+                        InstanceFiles::importManifestFingerprint(manifestA).toUtf8() + "\"}");
+        check(InstanceFiles::importMarkerFingerprint(printed) ==
+                  InstanceFiles::importManifestFingerprint(manifestA),
+              "N5 标记里的指纹读得回来");
+        check(InstanceFiles::checkImportTargetName(
+                  printed, &problem, InstanceFiles::importManifestFingerprint(manifestA)) ==
+                  InstanceFiles::ImportNameVerdict::OkResume,
+              "N5 同一个包（同一个指纹）仍然给「接着上次的导入」");
+        check(InstanceFiles::checkImportTargetName(
+                  printed, &problem, InstanceFiles::importManifestFingerprint(manifestB)) ==
+                  InstanceFiles::ImportNameVerdict::Taken,
+              "★★ N5 同名但是另一个整合包 ⇒ 不算「接着上次」（两个包的文件会混进一个目录）");
+        check(problem.contains(QStringLiteral("另一个整合包")) &&
+                  problem.contains(QStringLiteral("换一个名字")),
+              "N5 那句话说得清是另一个包、并给出两条出路", problem);
+        check(InstanceFiles::checkImportTargetName(
+                  marked, &problem, InstanceFiles::importManifestFingerprint(manifestB)) ==
+                  InstanceFiles::ImportNameVerdict::OkResume,
+              "N5 老标记没记指纹 ⇒ 仍然按「接着下」放行（升级不能把没下完的那份锁死）");
+
         const QString done = QStringLiteral("N段-做完了");
         writeFileAt(versionsRoot + "/" + done + "/" + done + ".json",
                     "{\"id\":\"" + done.toUtf8() +
@@ -2228,10 +2274,135 @@ static int runInstanceFileTests(const QString &sandbox) {
         check(!InstanceFiles::isUnfinishedImport(done),
               "N5 有 wtfml.meta 就永远不算半成品（哪怕 json 很薄）");
 
-        for (const QString &id : {stub, foreign, marked, done}) {
+        for (const QString &id : {stub, foreign, marked, printed, done}) {
             QDir(versionsRoot + "/" + id).removeRecursively();
         }
         check(!QDir(versionsRoot + "/" + marked).exists(), "N5 用例的沙盒目录删干净了");
+    }
+
+    // ---- N6：实例改名之后，按目录名认人的缓存备份跟着搬 ----
+    //
+    // ★ 2026-10-20：配置回退（`cache/config-backups/<id>`）、资源包备份
+    //   （`cache/resource-pack-backups/<id>`）和存档 level.dat 的备份格子
+    //   （`worldBackupSlot()`：实例目录名 + 世界目录绝对路径的哈希）都是由**目录名**
+    //   派生出来的。改名不搬的话，新名字底下查不到旧备份、清理也够不着 —— 用户看到的
+    //   是"改个名，自动备份全没了"，而磁盘上那份其实还在。
+    {
+        const QString configRoot = AppPaths::configBackupDir();
+        const QString packRoot = AppPaths::resourcePackBackupDir();
+        const QString oldName = QStringLiteral("N段-改名前");
+        const QString newName = QStringLiteral("N段-改名后");
+        const auto readAll = [](const QString &path) {
+            QFile file(path);
+            return file.open(QIODevice::ReadOnly) ? QString::fromUtf8(file.readAll())
+                                                  : QString();
+        };
+
+        // 1) 两个按名字分的格子都搬过去，里面的代数原样。
+        QDir().mkpath(configRoot + "/" + oldName + "/20261020-120000/sub");
+        writeFileAt(configRoot + "/" + oldName + "/20261020-120000/sub/a.toml", "keep=1");
+        QDir().mkpath(packRoot + "/" + oldName);
+        writeFileAt(packRoot + "/" + oldName + "/options.txt.bak", "resourcePacks:[]");
+        int moved = 0;
+        const QStringList problems = InstanceFiles::migrateInstanceCacheDirs(
+            oldName, newName, {configRoot, packRoot}, &moved);
+        check(moved == 2 && problems.isEmpty(),
+              "N6 两个缓存格子都搬到了新名字底下", problems.join(QStringLiteral(" / ")));
+        check(!QDir(configRoot + "/" + oldName).exists() &&
+                  readAll(configRoot + "/" + newName + "/20261020-120000/sub/a.toml") ==
+                      QStringLiteral("keep=1"),
+              "N6 配置回退格子整目录搬过去、代数那一层原样");
+        check(!QDir(packRoot + "/" + oldName).exists() &&
+                  readAll(packRoot + "/" + newName + "/options.txt.bak") ==
+                      QStringLiteral("resourcePacks:[]"),
+              "N6 资源包备份格子也搬了");
+
+        // 2) 目标格子已经有东西（以前叫过这个名字的另一个实例）⇒ 不合并、不删，
+        //    报一句让用户自己决定。
+        const QString takenOld = QStringLiteral("N段-占用旧");
+        const QString takenNew = QStringLiteral("N段-占用新");
+        QDir().mkpath(configRoot + "/" + takenOld + "/20261020-120000");
+        writeFileAt(configRoot + "/" + takenOld + "/20261020-120000/old.txt", "old");
+        QDir().mkpath(configRoot + "/" + takenNew + "/20261020-130000");
+        writeFileAt(configRoot + "/" + takenNew + "/20261020-130000/new.txt", "new");
+        int movedTaken = 0;
+        const QStringList takenProblems = InstanceFiles::migrateInstanceCacheDirs(
+            takenOld, takenNew, {configRoot}, &movedTaken);
+        check(movedTaken == 0 && takenProblems.size() == 1 &&
+                  takenProblems.value(0).contains(QStringLiteral("已经有另一个格子")),
+              "★ N6 目标格子已经有东西 ⇒ 不合并、说清楚", takenProblems.join(QStringLiteral(" / ")));
+        check(readAll(configRoot + "/" + takenOld + "/20261020-120000/old.txt") ==
+                      QStringLiteral("old") &&
+                  readAll(configRoot + "/" + takenNew + "/20261020-130000/new.txt") ==
+                      QStringLiteral("new"),
+              "N6 撞格子时两边的备份都一个字节没动");
+
+        // 3) 名字不能当目录名用（空 / `..` / 带分隔符）⇒ 一个字节都不动。
+        const QString impossible = QStringLiteral("N段-不该出现");
+        const QStringList badProblems = InstanceFiles::migrateInstanceCacheDirs(
+            QStringLiteral(".."), impossible, {configRoot});
+        check(!badProblems.isEmpty() && !QDir(configRoot + "/" + impossible).exists(),
+              "N6 非法的实例名不拼路径（`..` 拼出去就是 cache 根目录本身）",
+              badProblems.join(QStringLiteral(" / ")));
+
+        // 4) 存档 level.dat 的备份格子：格子名里同时有实例目录名和世界目录绝对路径的
+        //    哈希，改名把两样都改了。这里走一遍真实时序：先备份 → 改目录名 →
+        //    用新路径查不到（就是那条 bug）→ 搬家 → 新路径查得到、内容还是那一份。
+        const QString slotOld = QStringLiteral("N段-存档改名前");
+        const QString slotNew = QStringLiteral("N段-存档改名后");
+        const QString worldName = QStringLiteral("世界");
+        const QString oldInstanceDir = AppPaths::versionDir(slotOld);
+        const QString newInstanceDir = AppPaths::versionDir(slotNew);
+        const QString oldWorldDir =
+            oldInstanceDir + QStringLiteral("/saves/") + worldName;
+        const QString newWorldDir =
+            newInstanceDir + QStringLiteral("/saves/") + worldName;
+        QDir().mkpath(oldWorldDir);
+        writeFileAt(oldWorldDir + QStringLiteral("/level.dat"), "level-数据");
+        QString slotProblem;
+        check(InstanceMaintenanceController::backupWorldLevelData(oldWorldDir, 20, &slotProblem),
+              "N6 前提：改动存档前先留一份 level.dat", slotProblem);
+        const QString oldBackupBeforeRename =
+            InstanceMaintenanceController::latestWorldBackup(oldWorldDir);
+        check(!oldBackupBeforeRename.isEmpty(),
+              "N6 前提：旧路径查得到刚留的那一份");
+        check(QDir().rename(oldInstanceDir, newInstanceDir),
+              "N6 前提：实例目录被改了名（和 renameInstance() 最后一步同一个动作）");
+        check(InstanceMaintenanceController::latestWorldBackup(newWorldDir).isEmpty(),
+              "★★ N6 不改名搬家的话，新路径查不到旧备份（就是那条 bug）");
+        int movedSlots = 0;
+        const QStringList slotProblems = InstanceMaintenanceController::migrateWorldBackupSlots(
+            oldInstanceDir, newInstanceDir, &movedSlots);
+        const QString migrated = InstanceMaintenanceController::latestWorldBackup(newWorldDir);
+        check(movedSlots == 1 && slotProblems.isEmpty() && !migrated.isEmpty(),
+              "★ N6 改名后存档备份格子跟到了新名字底下",
+              slotProblems.join(QStringLiteral(" / ")));
+        check(!migrated.isEmpty() && readAll(migrated) == QStringLiteral("level-数据"),
+              "N6 搬过去的还是那一份 level.dat");
+        check(InstanceMaintenanceController::latestWorldBackup(oldWorldDir).isEmpty(),
+              "N6 旧格子已经不在原处（不是复制一份）");
+
+        // 收尾：把这一块在沙盒里造的东西删干净（版本目录 + 缓存格子）。
+        // 备份路径的形状是 `<world-backups>/<格子>/<时间戳>/level.dat`，删到格子那一层。
+        const auto removeSlotOf = [](const QString &backupPath) {
+            const QString stampDir = QFileInfo(backupPath).absolutePath();
+            const QString slotDir = QFileInfo(stampDir).absolutePath();
+            // 空路径在 QDir 里等于当前目录 —— 那种情况下什么都别删。
+            if (backupPath.isEmpty() || slotDir.isEmpty()) {
+                return;
+            }
+            QDir(slotDir).removeRecursively();
+        };
+        removeSlotOf(migrated);
+        removeSlotOf(oldBackupBeforeRename);
+        QDir(newInstanceDir).removeRecursively();
+        for (const QString &name : {newName, takenOld, takenNew}) {
+            QDir(configRoot + "/" + name).removeRecursively();
+        }
+        QDir(packRoot + "/" + newName).removeRecursively();
+        check(!QDir(configRoot + "/" + newName).exists() &&
+                  !QDir(newInstanceDir).exists(),
+              "N6 用例的沙盒目录删干净了");
     }
 
     {
@@ -21308,8 +21479,14 @@ static void runTaskLedgerTests() {
 
         // 顺序：最近的在前；同一毫秒并列时号大的在前 —— 这条不靠运气，靠比较器里那个
         // 第二把尺（批量操作就是几十项挤在同一毫秒里收尾的）。
+        //
+        // ★ 内存里也只留最近 `finishedHistoryLimit()` 条（2026-10-20 起和落盘同一把尺子）：
+        //   以前是"这一趟会话攒多少留多少、只有落盘才截断" —— 跑一天下来任务中心那一栏
+        //   能堆几千行，重启之后又只剩 50 条，同一份账本自己跟自己说的不一样。
+        const int runtimeLimit = Tasks::finishedHistoryLimit();
+        const int expectedFinished = qMin(kCount / 2, runtimeLimit);
         const QList<Tasks::TaskSnapshot> finished = manager.finished();
-        bool ordered = finished.size() == kCount / 2;
+        bool ordered = finished.size() == expectedFinished;
         bool sawTie = false;
         for (int i = 1; ordered && i < finished.size(); ++i) {
             const Tasks::TaskSnapshot &newer = finished.at(i - 1);
@@ -21327,14 +21504,18 @@ static void runTaskLedgerTests() {
                   .arg(finished.isEmpty() ? 0 : finished.constFirst().id)
                   .arg(finished.isEmpty() ? 0 : finished.constLast().id));
 
-        // all() = 活动的（发起顺序）在前，收尾的（最近在前）在后。
+        // all() = 活动的（发起顺序）在前，收尾的（最近在前）在后；已完成那截和 finished() 一样
+        // 只留最近 `finishedHistoryLimit()` 条。
         const QList<Tasks::TaskSnapshot> everything = manager.all();
-        bool splitOk = everything.size() == kCount;
+        bool splitOk = everything.size() == kCount / 2 + expectedFinished;
         for (int i = 0; splitOk && i < everything.size(); ++i) {
             splitOk = Tasks::isActiveState(everything.at(i).state) == (i < kCount / 2);
         }
-        check(splitOk, "AM5 all() 先活动、后收尾，各 120 条",
-              QString::number(everything.size()));
+        check(splitOk, "AM5 all() 先活动、后收尾：120 条在跑 + 最近 50 条已完成",
+              QStringLiteral("%1（活动 %2 + 已完成 %3）")
+                  .arg(everything.size())
+                  .arg(manager.active().size())
+                  .arg(finished.size()));
 
         // 落盘截断：账本里 120 活动 + 120 已完成，盘上只留**最近的 50 条**已完成。
         check(manager.saveHistory(), "AM5 压力账本落盘成功", path);
@@ -21428,6 +21609,37 @@ static void runCopyInstanceAndWorldTests() {
     writeFileAt(worldSrc + QStringLiteral("/level.dat"), "level-bytes");
     writeFileAt(worldSrc + QStringLiteral("/region/r.0.mca"), "region-bytes");
     writeFileAt(worldSrc + QStringLiteral("/.hidden"), "hidden-bytes");
+    {
+        using namespace DirectorySessionLock;
+        const auto key = keyFor(saves);
+        const bool wasEnabled = enabled;
+        enabled = true;
+        QString problem;
+        check(acquire(saves, &problem) && acquire(saves, &problem),
+              "ZJ3 同进程重复取得目录锁是幂等的", problem);
+        QLockFile contender(QDir::temp().filePath(QStringLiteral("wtfml-directory-%1.lock").arg(key)));
+        contender.setStaleLockTime(0);
+        check(!contender.tryLock(0), "ZJ3 已持有的目录锁拒绝第二个锁持有者");
+        check(keyFor(saves + QStringLiteral("/../saves/")) == key,
+              "ZJ3 路径别名不能绕过目录锁");
+        held.remove(key);
+        check(contender.tryLock(0), "ZJ3 释放后目录锁可重新取得");
+        enabled = wasEnabled;
+    }
+    {
+        QString error;
+        check(!WorldFiles::copyWorldInto(worldSrc, saves, QStringLiteral("取消导入"), &error,
+                                        [] { return true; }), "ZJ3 取消导入拒绝落盘");
+        check(!QFileInfo::exists(saves + QStringLiteral("/取消导入")),
+              "ZJ3 取消后没有正式世界半成品");
+        int polls = 0;
+        check(!WorldFiles::copyWorldInto(worldSrc, saves, QStringLiteral("中途取消"), &error,
+                                        [&] { return ++polls >= 4; }), "ZJ3 拷贝途中可取消");
+        check(!QFileInfo::exists(saves + QStringLiteral("/中途取消")) &&
+              QDir(saves).entryList({QStringLiteral(".wtfml-world-import-*")},
+                  QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty(),
+              "ZJ3 中途取消清理暂存且不发布");
+    }
     {
         QString error;
         check(WorldFiles::copyWorldInto(worldSrc, saves, QStringLiteral("搬进来的"), &error),
@@ -24741,6 +24953,24 @@ static void runBackupTests() {
 
     const QString worldZip = BackupFiles::backupDir(BackupFiles::Kind::World) + QLatin1Char('/')
                              + BackupFiles::backupFileName(spec.label, at);
+    {
+        QString problem;
+        check(BackupFiles::collectFiles(worldDir, {}, &problem, [] { return true; }).isEmpty()
+              && problem.contains(QStringLiteral("取消")), "ZQ3 备份扫描响应取消且不返回半张清单", problem);
+        const QString cancelledZip = work + QStringLiteral("/cancelled-backup.zip");
+        const auto cancelled = BackupFiles::writeBackup(spec, worldDir, cancelledZip, [] { return true; });
+        check(!cancelled.ok && !QFileInfo::exists(cancelledZip), "ZQ3 取消备份不创建归档");
+        int checks = 0;
+        const auto interrupted = BackupFiles::writeBackup(spec, worldDir, cancelledZip,
+            [&] { return ++checks >= 3; });
+        check(!interrupted.ok && !QFileInfo::exists(cancelledZip), "ZQ3 扫描途中取消不会发布不完整备份");
+        const QString existingZip = work + QStringLiteral("/existing-before-cancel.zip");
+        writeFileAt(existingZip, "preserved");
+        const bool stopped = !ZipUtil::createZip(existingZip, {}, &problem, [] { return true; });
+        QFile old(existingZip);
+        check(stopped && old.open(QIODevice::ReadOnly) && old.readAll() == QByteArray("preserved"),
+              "ZQ3 取消打包不删除原有文件");
+    }
     const BackupFiles::WriteResult written = BackupFiles::writeBackup(spec, worldDir, worldZip);
     check(written.ok && QFile::exists(worldZip), "ZQ3 世界备份真打出来了", written.problem);
     check(written.manifest.fileCount() == 6 && written.manifest.createdAt.isValid() &&
@@ -24885,6 +25115,93 @@ static void runBackupTests() {
                       QByteArrayLiteral("LEVELDATA"),
               "★★ ZQ4 落点是个空目录 ⇒ 照常还原（没有「现在这一份」可留，不算失败）",
               ontoEmpty.problem);
+    }
+
+    // ③''' ★ 2026-10-20：落点树里有链接（junction / 符号链接）⇒ **拒绝还原**，动盘之前停。
+    //    包里和安全快照里都记不住"这里是个链接"，而 `removeTreeWithoutFollowingLinks()`
+    //    会把链接本身摘掉、再按包里那份普通目录解出来 —— 链接指向的内容不会丢，但链接
+    //    这件事退不回来。
+    {
+        const QString linkedParent = work + QStringLiteral("/有链接的落点");
+        const QString linkedWorld = linkedParent + QStringLiteral("/基地周目");
+        QDir().mkpath(linkedWorld);
+        writeFileAt(linkedWorld + QStringLiteral("/level.dat"),
+                    QByteArrayLiteral("KEEP-LINKED"));
+        const QString outside = work + QStringLiteral("/链接那一头");
+        QDir().mkpath(outside);
+        writeFileAt(outside + QStringLiteral("/外面的.txt"), QByteArrayLiteral("OUTSIDE"));
+        const QString linkPath = linkedWorld + QStringLiteral("/共享目录");
+        const bool madeLink =
+            QProcess::execute(QStringLiteral("cmd"),
+                              {QStringLiteral("/c"), QStringLiteral("mklink"),
+                               QStringLiteral("/J"), QDir::toNativeSeparators(linkPath),
+                               QDir::toNativeSeparators(outside)}) == 0
+            && QFileInfo(linkPath).isJunction();
+        check(madeLink, "★ ZQ4' 先在落点里造一根真 junction（mklink /J）");
+        if (madeLink) {
+            const BackupFiles::RestoreResult refusedLink =
+                BackupFiles::restoreBackup(worldZip, linkedParent);
+            check(!refusedLink.ok &&
+                      refusedLink.stage == BackupFiles::RestoreResult::Stage::SafetySnapshot &&
+                      refusedLink.safetyZip.isEmpty() &&
+                      refusedLink.problem.contains(QStringLiteral("链接")),
+                  "★★ ZQ4' 落点里有链接 ⇒ 拒绝还原、停在安全快照之前"
+                  "（链接换成普通目录就退不回来了）",
+                  refusedLink.problem);
+            check(readAll(linkedWorld + QStringLiteral("/level.dat"))
+                          == QByteArrayLiteral("KEEP-LINKED") &&
+                      QFileInfo(linkPath).isJunction() &&
+                      QFileInfo(outside + QStringLiteral("/外面的.txt")).isFile(),
+                  "★★ ZQ4' 拒绝之后旧数据 / 链接本身 / 链接那一头全都原样");
+            check(QDir().rmdir(linkPath), "★ ZQ4' 清理 junction（只摘链接本体）");
+        }
+    }
+
+    // ③'' ★ 2026-10-20：还原接上停止条件（关窗 / 整项 600 秒），但**只在挪走旧那一份
+    //    之前**生效。三种停法各钉一条：一开始就停、读清单之后停、安全快照做完停。
+    {
+        const QString cancelParent = work + QStringLiteral("/取消还原");
+        QDir().mkpath(cancelParent + QStringLiteral("/基地周目"));
+        writeFileAt(cancelParent + QStringLiteral("/基地周目/level.dat"),
+                    QByteArrayLiteral("KEEP-ME"));
+        const BackupFiles::RestoreResult never =
+            BackupFiles::restoreBackup(worldZip, cancelParent, [] { return true; });
+        check(!never.ok && never.stage == BackupFiles::RestoreResult::Stage::ReadManifest &&
+                  never.problem.contains(QStringLiteral("取消")),
+              "★★ ZQ4 一开始就要停 ⇒ 读清单那一步停下，话里说得出「取消或超时」",
+              never.problem);
+        check(readAll(cancelParent + QStringLiteral("/基地周目/level.dat"))
+                  == QByteArrayLiteral("KEEP-ME"),
+              "★★ ZQ4 一开始就停时盘上原样（连安全快照都没做）");
+
+        // 第二次才停：入口那一次放行，走到「空间检查」之前那一次停下 —— 一个字节都没动。
+        int asked = 0;
+        const BackupFiles::RestoreResult early =
+            BackupFiles::restoreBackup(worldZip, cancelParent, [&asked] { return ++asked >= 2; });
+        check(!early.ok && early.stage == BackupFiles::RestoreResult::Stage::Space &&
+                  early.safetyZip.isEmpty(),
+              "★★ ZQ4 动盘之前停下：不做安全快照、不解压", early.problem);
+        check(readAll(cancelParent + QStringLiteral("/基地周目/level.dat"))
+                  == QByteArrayLiteral("KEEP-ME"),
+              "★★ ZQ4 动盘之前停下时旧那一份完好（取消不等于删旧数据）");
+
+        // 安全快照做完、旧目录还没动：这一档也必须收得住。判据是"备份目录里多了一份" ——
+        // 打包途中的检查点都还在写，只有发布之后才多出来。
+        const QString backupRoot = BackupFiles::backupDir(BackupFiles::Kind::World);
+        const auto zipCount = [&backupRoot] {
+            return QDir(backupRoot).entryList(QStringList{QStringLiteral("*.zip")}).size();
+        };
+        const int before = zipCount();
+        const BackupFiles::RestoreResult late = BackupFiles::restoreBackup(
+            worldZip, cancelParent, [&] { return zipCount() > before; });
+        check(!late.ok && late.stage == BackupFiles::RestoreResult::Stage::SafetySnapshot &&
+                  late.safetyZip.isEmpty(),
+              "★★ ZQ4 安全快照做完、旧目录还没动时停下", late.problem);
+        check(zipCount() == before,
+              "★★ ZQ4 停下时把这一趟刚做的安全快照删掉（不在列表里留下没要过的东西）");
+        check(readAll(cancelParent + QStringLiteral("/基地周目/level.dat"))
+                  == QByteArrayLiteral("KEEP-ME"),
+              "★★ ZQ4 这一档停下同样不碰旧那一份");
     }
 
     // ④ 解出来了但对不上账：手搓一个"清单说 A、包里是 B"的包。
@@ -25268,6 +25585,18 @@ static void runLaunchHistoryTests() {
         record.startedAt = at;
         return record;
     };
+    {
+        auto failed = makeRecord(QStringLiteral("a"), now);
+        failed.result = LaunchHistory::Result::StartFailed;
+        const QList<LaunchHistory::Record> records{
+            makeRecord(QStringLiteral("b"), now.addSecs(100)), failed,
+            makeRecord(QStringLiteral("a"), now.addSecs(-100))};
+        check(LaunchHistory::lastStartedAt(records, QStringLiteral("a")) == now,
+              "ZR 概览最后启动按实例取最新进程记录，不依赖账本顺序或退出结果");
+        check(!LaunchHistory::lastStartedAt(records, QStringLiteral("missing")).isValid()
+                  && !LaunchHistory::lastStartedAt(records, QString()).isValid(),
+              "ZR 没有启动记录不编造时间");
+    }
     const auto firstOf = [](const QList<LaunchHistory::Record> &list) {
         return list.isEmpty() ? LaunchHistory::Record() : list.first();
     };
@@ -30102,6 +30431,32 @@ static void runResourceAndDataPackTests() {
 // 这一层不发网络、不读实例盘：版本答复、实例里装了什么、确认过哪一条都是手搭的假值。
 // ---------------------------------------------------------------------------
 static void runModInstallPlanTests() {
+    {
+        QTemporaryDir inventoryRoot;
+        const auto jar = inventoryRoot.filePath(QStringLiteral("mods/renamed.jar"));
+        const QByteArray bytes("inventory-content");
+        writeFileAt(jar, bytes);
+        writeFileAt(inventoryRoot.filePath(QStringLiteral("mods/disabled.jar.disabled")), bytes);
+        const QString sha = QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha1).toHex());
+        writeFileAt(inventoryRoot.filePath(QStringLiteral("wtfml.preset-mod-install.json")),
+            QJsonDocument(QJsonObject{{"format", "wtfml-preset-mod-result/1"}, {"plannedFiles", QJsonArray{QJsonObject{
+                {"filename", "renamed.jar"}, {"project", "modrinth:dep"}, {"versionId", ""}, {"sha1", sha}}, QJsonObject{
+                {"filename", "renamed.jar"}, {"project", "modrinth:dep"}, {"versionId", "exact"}, {"sha1", sha}}}}}).toJson());
+        const auto inventory = Presets::scanInstalledMods(inventoryRoot.path(), nullptr);
+        check(inventory.problem.isEmpty() && inventory.files.size() == 1
+                  && inventory.files[0].projectKey == QStringLiteral("modrinth:dep")
+                  && inventory.files[0].versionId == QStringLiteral("exact"),
+              "PM 安装记录经实际 SHA-1 复核可确认项目/发行版；禁用文件不满足依赖");
+        check(Presets::sameInstalledMods(inventory, inventory), "PM 相同已安装清单可确认稳定");
+        writeFileAt(jar, QByteArray("changed-content!!"));
+        const auto changed = Presets::scanInstalledMods(inventoryRoot.path(), nullptr);
+        check(changed.problem.isEmpty() && changed.files[0].projectKey.isEmpty()
+                  && !Presets::sameInstalledMods(inventory, changed),
+              "PM 内容变化使历史身份失效，提交前的清单变化可检测");
+        std::atomic_bool stop{true};
+        check(!Presets::scanInstalledMods(inventoryRoot.path(), &stop).problem.isEmpty(),
+              "PM 已安装清单扫描响应取消");
+    }
     QTemporaryDir scratch;
     check(scratch.isValid(), "PM 建得出一个临时目录来做落盘校验");
     if (!scratch.isValid()) {
@@ -30170,6 +30525,32 @@ static void runModInstallPlanTests() {
     Presets::ModInstallRequest base;
     base.gameVersion = QStringLiteral("1.20.1");
     base.loader = QStringLiteral("fabric");
+
+    {
+        auto root = makeVersion(QStringLiteral("root-v"), {base.gameVersion}, {base.loader},
+            {makeDependency(QStringLiteral("EXISTING-DEP"), QStringLiteral("required"))});
+        root.dependencyMetadataKnown = true;
+        Presets::ModInstallRequest request = base;
+        request.references.append(makeInput(makeReference(QStringLiteral("EXISTING"), QStringLiteral("已安装")), {}));
+        request.installedKeys.insert(QStringLiteral("modrinth:EXISTING"));
+        request.installedVersionIds.insert(QStringLiteral("modrinth:EXISTING"), root.id);
+        request.installedVersions.insert(QStringLiteral("modrinth:EXISTING"), root);
+        auto plan = Presets::planModInstall(request);
+        check(!plan.ok && plan.unknown > 0, "PM 已安装父模组仍需检查自己的必要前置，不直接视为完整");
+        auto dep = makeVersion(QStringLiteral("dep-v"), {base.gameVersion}, {base.loader});
+        dep.dependencyMetadataKnown = true;
+        request.dependencyAnswers[QStringLiteral("modrinth:EXISTING-DEP")] = {dep};
+        plan = Presets::planModInstall(request);
+        check(plan.ok && plan.alreadyInstalled == 1 && plan.download == 1,
+              "PM 已安装父模组保留，只补缺少的前置");
+        root.dependencies[0].versionId = QStringLiteral("dep-required");
+        request.installedVersions[QStringLiteral("modrinth:EXISTING")] = root;
+        request.installedKeys.insert(QStringLiteral("modrinth:EXISTING-DEP"));
+        request.installedVersionIds[QStringLiteral("modrinth:EXISTING-DEP")] = QStringLiteral("dep-other");
+        request.installedVersions[QStringLiteral("modrinth:EXISTING-DEP")] = dep;
+        plan = Presets::planModInstall(request);
+        check(!plan.ok && !plan.conflicts.isEmpty(), "PM 已安装父模组的精确前置版本不符仍阻止，不静默替换");
+    }
 
     // ---------- PM1 必要 / 可选：一条失败不拖垮另一条的账 ----------
     {
@@ -36835,6 +37216,32 @@ static void runSchematicInfoTests() {
         NbtTree::Node size;
         size.type = NbtTree::Type::List;
         size.itemType = NbtTree::Type::Int;
+        const int kinds = SchematicInfo::kTopBlockLimit + 5;
+        size.items = {intNode(kinds), intNode(1), intNode(1)};
+        addField(&structure, QStringLiteral("size"), size);
+        NbtTree::Node palette, blocks;
+        palette.type = blocks.type = NbtTree::Type::List;
+        palette.itemType = blocks.itemType = NbtTree::Type::Compound;
+        for (int index = 0; index < kinds; ++index) {
+            palette.items.append(namedEntry(QStringLiteral("test:block_%1").arg(index)));
+            auto block = compoundNode();
+            addField(&block, QStringLiteral("state"), intNode(index));
+            blocks.items.append(block);
+        }
+        addField(&structure, QStringLiteral("palette"), palette);
+        addField(&structure, QStringLiteral("blocks"), blocks);
+        const auto path = root + QStringLiteral("/all-block-kinds.nbt");
+        writeTree(path, structure);
+        const auto info = SchematicInfo::read(path);
+        check(info.ok && info.countsComplete && info.blocks.size() == kinds
+              && info.topBlocks.size() == SchematicInfo::kTopBlockLimit,
+              "SG1 完整详情保留排行截断以外的全部方块种类", info.problem);
+    }
+    {
+        NbtTree::Node structure = compoundNode();
+        NbtTree::Node size;
+        size.type = NbtTree::Type::List;
+        size.itemType = NbtTree::Type::Int;
         size.items.append(intNode(3));
         size.items.append(intNode(2));
         size.items.append(intNode(4));
@@ -36870,6 +37277,8 @@ static void runSchematicInfoTests() {
               "SG1 `size` 三个数就是 宽 × 高 × 长（体积 24）",
               QStringLiteral("%1×%2×%3/%4")
                   .arg(info.width).arg(info.height).arg(info.length).arg(info.volume));
+        check(info.blocks.size() == 2 && info.blocks.at(0).count + info.blocks.at(1).count == info.blockCount,
+              "SG1 完整方块清单数量与非空气总数一致");
         check(info.paletteSize == 3, "SG1 调色板条目数（**含空气**那一格）",
               QString::number(info.paletteSize));
         check(info.countsComplete && info.blockCount == 5,
@@ -37878,6 +38287,386 @@ static void runTransferPlannerTests() {
             TransferApply::verify(source, target, plan.items, {});
         check(empty.ok && empty.checkedFiles == 0 && empty.missingFiles == 0,
               "TR7 一项都没勾 ⇒ 校验看过 0 个、缺 0 个（不冤枉目标）");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 「从别的游戏文件夹里借文件」（2026-10-20）
+// ---------------------------------------------------------------------------
+// 用户原话：「下载新版本的时候（甚至在全新文件夹里下载新东西的时候）复用其它 mc
+// 文件夹/版本的文件以减少等待时间」；随后补的那道闸：「文件夹的使用仅限用户添加了的和
+// 官方启动器默认文件夹（如果存在），不要全盘扫描」。
+//
+// 这一节分两半：
+//   · LF1–LF5 是纯值层（`LocalFileReuse`）：路径怎么对、候选怎么排、来源算不算数、
+//     硬链接 / 复制怎么落 —— 一个 QTemporaryDir 里造两棵树就能逐格念，不联网。
+//   · LF6 之后是 `DownloadManager` 那一层：证明"借到了就真的不发网络请求"，以及
+//     点名 / AlwaysDownload 那两条路**不许**借。
+static void runLocalFileReuseTests() {
+    // ---------------------------------------------------------------------
+    section("LF1. 目标 → 当前游戏文件夹里的相对路径");
+    // ---------------------------------------------------------------------
+    using LocalFileReuse::relativePathWithin;
+    check(relativePathWithin(QStringLiteral("D:/mc/versions/a/a.jar"), QStringLiteral("D:/mc"))
+              == QStringLiteral("versions/a/a.jar"),
+          "LF1 普通路径");
+    check(relativePathWithin(QStringLiteral("D:/mc/versions/a/a.jar"), QStringLiteral("D:/mc/"))
+              == QStringLiteral("versions/a/a.jar"),
+          "LF1 根目录末尾带不带斜杠都一样");
+    check(relativePathWithin(QStringLiteral("D:/mc/libraries/x.jar"), QStringLiteral("d:/MC"))
+              == QStringLiteral("libraries/x.jar"),
+          "LF1 盘符 / 大小写不敏感");
+    check(relativePathWithin(QStringLiteral("D:/mc2/x.jar"), QStringLiteral("D:/mc")).isEmpty(),
+          "★ LF1 同前缀的兄弟目录不算在里面（D:/mc2 不是 D:/mc）");
+    check(relativePathWithin(QStringLiteral("D:/mc"), QStringLiteral("D:/mc")).isEmpty(),
+          "LF1 就是根目录自己 ⇒ 空（它不是根里的某个文件）");
+    check(relativePathWithin(QStringLiteral("D:/mcx/y"), QStringLiteral("D:/mc")).isEmpty(),
+          "LF1 只差一个字符的目录也不认");
+    check(relativePathWithin(QStringLiteral("D:/anything"), QStringLiteral("D:/"))
+              == QStringLiteral("anything"),
+          "LF1 卷根作根目录（cleanPath 之后是 `D:` 的那种形状）");
+    check(relativePathWithin(QStringLiteral("D:/mc/x"), QString()).isEmpty()
+              && relativePathWithin(QString(), QStringLiteral("D:/mc")).isEmpty(),
+          "LF1 空的一头 ⇒ 空");
+
+    // ---------------------------------------------------------------------
+    section("LF2. 候选来源怎么排");
+    // ---------------------------------------------------------------------
+    using LocalFileReuse::candidatePaths;
+    for (const QString &unsafe : {QStringLiteral("../outside.jar"), QStringLiteral("..\\outside.jar"),
+                                 QStringLiteral("D:/outside.jar"), QStringLiteral("/outside.jar"),
+                                 QStringLiteral("libraries/x.jar:stream")}) {
+        check(candidatePaths(unsafe, {QStringLiteral("D:/source")}, QStringLiteral("D:/current")).isEmpty(),
+              "LF2 非相对路径及路径穿越不产生来源候选", unsafe);
+    }
+    {
+        const QStringList got = candidatePaths(
+            QStringLiteral("libraries/x/y.jar"),
+            {QStringLiteral("D:/source1"), QStringLiteral("D:/current"), QStringLiteral("D:/source2")},
+            QStringLiteral("D:/current"));
+        check(got
+                  == QStringList{QStringLiteral("D:/source1/libraries/x/y.jar"),
+                                 QStringLiteral("D:/source2/libraries/x/y.jar")},
+              "★★ LF2 当前文件夹自己跳过；其余按调用方给的顺序", got.join(QStringLiteral(" ; ")));
+
+        const QStringList renamed = candidatePaths(
+            QStringLiteral("versions/我的实例/1.20.1.jar"), {QStringLiteral("D:/s")},
+            QStringLiteral("D:/c"));
+        check(renamed
+                  == QStringList{QStringLiteral("D:/s/versions/我的实例/1.20.1.jar"),
+                                 QStringLiteral("D:/s/versions/1.20.1/1.20.1.jar")},
+              "★★ LF2 实例改过名 ⇒ 再试一次 jar 的原版目录（versions/<owner>/<owner>.jar）",
+              renamed.join(QStringLiteral(" ; ")));
+
+        const QStringList sameName = candidatePaths(QStringLiteral("versions/1.20.1/1.20.1.jar"),
+                                                    {QStringLiteral("D:/s")}, QStringLiteral("D:/c"));
+        check(sameName.size() == 1, "LF2 名字本来就一样 ⇒ 不多出一条重复的", sameName.join(" ; "));
+
+        check(candidatePaths(QStringLiteral("versions/../x"), {QStringLiteral("D:/s")},
+                             QStringLiteral("D:/c"))
+                  .isEmpty(),
+              "★ LF2 相对路径里有 `..` ⇒ 一条候选都不拼（不许跑出根目录）");
+        check(candidatePaths(QStringLiteral("a/b"), {QStringLiteral("D:/current")},
+                             QStringLiteral("D:/current"))
+                  .isEmpty(),
+              "LF2 只有当前文件夹 ⇒ 没得借");
+    }
+
+    // ---------------------------------------------------------------------
+    section("LF3. 来源算不算数");
+    // ---------------------------------------------------------------------
+    using LocalFileReuse::Check;
+    using LocalFileReuse::sourceMatches;
+    QTemporaryDir temp(QDir::tempPath() + QStringLiteral("/wtfml_localreuse-XXXXXX"));
+    check(temp.isValid(), "LF3 临时目录建出来了");
+    const QByteArray payload = QByteArrayLiteral("pretend-jar-bytes-0123456789");
+    const QString sourcePath = temp.filePath(QStringLiteral("src.bin"));
+    writeFileAt(sourcePath, payload);
+    const QString payloadSha1 =
+        QString::fromLatin1(QCryptographicHash::hash(payload, QCryptographicHash::Sha1).toHex());
+    const QString wrongSha1 = QString(40, QLatin1Char('0'));
+
+    check(sourceMatches(sourcePath, payloadSha1, payload.size(), Check::SizeAndSha1),
+          "LF3 大小 + SHA-1 都对 ⇒ 能用");
+    std::atomic_bool cancelledReuse{true};
+    check(!sourceMatches(sourcePath, payloadSha1, payload.size(), Check::SizeAndSha1, &cancelledReuse)
+              && !sourceMatches(sourcePath, payloadSha1, payload.size(), Check::Exists, &cancelledReuse),
+          "LF3 已取消的校验不再接受来源");
+    check(!sourceMatches(sourcePath, wrongSha1, payload.size(), Check::SizeAndSha1),
+          "★ LF3 SHA-1 不对 ⇒ 不用（宁可去下，也不把一份可疑的文件当官方的）");
+    check(!sourceMatches(sourcePath, payloadSha1, payload.size() + 1, Check::SizeAndSha1),
+          "LF3 大小不对 ⇒ 先短掉，连哈希都不算");
+    check(sourceMatches(sourcePath, payloadSha1, 0, Check::Exists),
+          "LF3 资源对象那一档：文件在、非空就算数");
+    check(sourceMatches(sourcePath, wrongSha1, payload.size(), Check::Exists),
+          "LF3 Exists 那一档不比哈希（和 fileAlreadyValid() 对盘上资源的信任级别一致）");
+    check(!sourceMatches(sourcePath, QString(), payload.size(), Check::SizeAndSha1),
+          "★★ LF3 没有 SHA-1 的文件一律不借（同名 ≠ 同内容）");
+    const QString emptyPath = temp.filePath(QStringLiteral("empty.bin"));
+    writeFileAt(emptyPath, QByteArray());
+    check(!sourceMatches(emptyPath, payloadSha1, 0, Check::Exists),
+          "★ LF3 0 字节不算数（哪一档都不算）");
+    check(!sourceMatches(temp.filePath(QStringLiteral("nope.bin")), payloadSha1,
+                         payload.size(), Check::SizeAndSha1),
+          "LF3 文件不存在 ⇒ 不用");
+
+    // ---------------------------------------------------------------------
+    section("LF4. 硬链接 / 复制");
+    // ---------------------------------------------------------------------
+    using LocalFileReuse::materialize;
+    using LocalFileReuse::Method;
+    QString error;
+    const QString linkDest = temp.filePath(QStringLiteral("copy/linked.bin"));
+    const Method linked = materialize(sourcePath, linkDest, payloadSha1, true, nullptr,
+                                      /*allowHardLink=*/true, &error);
+    check(linked == Method::HardLink, "LF4 同一卷 ⇒ 硬链接（一个字节都不拷）", error);
+    {
+        QFile in(linkDest);
+        check(in.open(QIODevice::ReadOnly) && in.readAll() == payload,
+              "LF4 硬链接出来的目标内容一模一样");
+    }
+
+    error.clear();
+    const QString copyDest = temp.filePath(QStringLiteral("copy/deep/copied.bin"));
+    const Method copied = materialize(sourcePath, copyDest, payloadSha1, true, nullptr,
+                                      /*allowHardLink=*/false, &error);
+    check(copied == Method::Copy, "LF4 关掉硬链接 ⇒ 走复制那条路（跨卷时就是它）", error);
+    {
+        QFile in(copyDest);
+        check(in.open(QIODevice::ReadOnly) && in.readAll() == payload,
+              "LF4 复制出来的目标内容一模一样");
+    }
+
+    error.clear();
+    const QString badDest = temp.filePath(QStringLiteral("copy/bad.bin"));
+    const Method wrong = materialize(sourcePath, badDest, wrongSha1, true, nullptr,
+                                     /*allowHardLink=*/false, &error);
+    check(wrong == Method::None, "★ LF4 边写边核、SHA-1 对不上 ⇒ 这一份作废", error);
+    check(!QFile::exists(badDest),
+          "★★ LF4 作废的那一份**没留在盘上**（QSaveFile 的临时文件也跟着撤了）");
+
+    // ---------------------------------------------------------------------
+    section("LF5. 一整套 reuseFrom()");
+    // ---------------------------------------------------------------------
+    using LocalFileReuse::reuseFrom;
+    const QString currentRoot = temp.filePath(QStringLiteral("current"));
+    const QString sourceRoot = temp.filePath(QStringLiteral("source"));
+    const QString relPath = QStringLiteral("versions/1.20.1/1.20.1.jar");
+    writeFileAt(sourceRoot + QLatin1Char('/') + relPath, payload);
+    const QString targetPath = currentRoot + QLatin1Char('/') + relPath;
+    error.clear();
+    const Method reused = reuseFrom(targetPath, relPath, {sourceRoot}, currentRoot, payloadSha1,
+                                    payload.size(), Check::SizeAndSha1, nullptr,
+                                    /*allowHardLink=*/true, &error);
+    check(reused != Method::None, "LF5 来源里有 ⇒ 借到了", error);
+    {
+        QFile in(targetPath);
+        check(in.open(QIODevice::ReadOnly) && in.readAll() == payload,
+              "LF5 目标路径上那份内容正确（父目录不用调用方先建）");
+    }
+
+    error.clear();
+    const QString missingTarget = currentRoot + QStringLiteral("/versions/9.9/9.9.jar");
+    const Method missed =
+        reuseFrom(missingTarget, QStringLiteral("versions/9.9/9.9.jar"), {sourceRoot}, currentRoot,
+                  payloadSha1, payload.size(), Check::SizeAndSha1, nullptr, true, &error);
+    check(missed == Method::None && error == QStringLiteral("no matching source file"),
+          "LF5 来源里没有这一份 ⇒ None，并且原因说清楚", error);
+    check(!QFile::exists(missingTarget), "LF5 没借到的时候目标一个字节都不留");
+
+    error.clear();
+    const Method onlyCurrent = reuseFrom(
+        currentRoot + QStringLiteral("/x.bin"), QStringLiteral("x.bin"), {currentRoot},
+        currentRoot, payloadSha1, payload.size(), Check::SizeAndSha1, nullptr, true, &error);
+    check(onlyCurrent == Method::None, "LF5 只有当前文件夹 ⇒ 没得借（不自己借自己）");
+
+    // ---------------------------------------------------------------------
+    section("LF6. DownloadManager：借到了就真的不发网络请求");
+    // ---------------------------------------------------------------------
+    // 目标路径必须是**当前游戏文件夹里**的（相对路径是候选来源的拼法），所以这一小段
+    // 换一下全局根目录，跑完还原。
+    const QString originalDir = AppPaths::minecraftDir();
+    {
+        QTemporaryDir gameRoot(QDir::tempPath() + QStringLiteral("/wtfml_reuse-game-XXXXXX"));
+        check(gameRoot.isValid(), "LF6 临时游戏文件夹建出来了");
+        const QString currentDir = gameRoot.filePath(QStringLiteral("current"));
+        const QString sourceDir = gameRoot.filePath(QStringLiteral("source"));
+        QDir().mkpath(currentDir);
+
+        const QByteArray jarBytes = QByteArrayLiteral("pretend-client-jar-1.20.1");
+        const QString sha = QString::fromLatin1(
+            QCryptographicHash::hash(jarBytes, QCryptographicHash::Sha1).toHex());
+        const QString jarRel = QStringLiteral("versions/1.20.1/1.20.1.jar");
+        writeFileAt(sourceDir + QLatin1Char('/') + jarRel, jarBytes);
+        AppPaths::setMinecraftDir(currentDir);
+
+        // 一条**一定取不回来**的地址：真去下就必然失败。于是"这一批成功"本身就是
+        // "一个网络请求都没发"的证明（比数日志硬）。
+        const QString deadUrl = QStringLiteral("file:///wtfml/no-such-file.jar");
+
+        const auto runBatch = [&deadUrl](DownloadManager &dm, const QString &dest,
+                                         const QString &expectedSha1, qint64 expectedSize,
+                                         VerifyMode mode, bool flagged) {
+            dm.beginBatch();
+            if (flagged) {
+                dm.setFlaggedPaths({dest});
+            }
+            QEventLoop loop;
+            bool success = false;
+            bool timedOut = false;
+            const QMetaObject::Connection conn =
+                QObject::connect(&dm, &DownloadManager::allDownloadsFinished, &loop,
+                                 [&](bool ok) {
+                                     success = ok;
+                                     loop.quit();
+                                 });
+            QTimer timeout;
+            timeout.setSingleShot(true);
+            QObject::connect(&timeout, &QTimer::timeout, &loop, [&] {
+                timedOut = true;
+                loop.quit();
+            });
+            dm.downloadFile(deadUrl, dest, expectedSha1, expectedSize, mode);
+            dm.endBatch();
+            timeout.start(10000);
+            loop.exec();
+            QObject::disconnect(conn);
+            return QPair<bool, bool>{success, timedOut};
+        };
+
+        {
+            DownloadManager dm;
+            dm.setReuseSourceFolders({sourceDir});
+            const QString dest = currentDir + QLatin1Char('/') + jarRel;
+            int finishedSignals = 0;
+            bool finishedOk = false;
+            QObject::connect(&dm, &DownloadManager::downloadFinished, &dm,
+                             [&](const QString &, bool ok, const QString &) {
+                                 ++finishedSignals;
+                                 finishedOk = ok;
+                             });
+            const QPair<bool, bool> result =
+                runBatch(dm, dest, sha, jarBytes.size(), VerifyMode::SizeAndSha1, false);
+            const DownloadStats st = dm.stats();
+            check(!result.second, "LF6 借文件在 10 秒内收尾（没挂住）");
+            check(result.first && st.failed == 0,
+                  "★★ LF6 整批成功 ⇒ 那条一定失败的地址根本没被请求过");
+            check(st.total == 0 && st.done == 0,
+                  "★ LF6 借来的**不进** total / done（进度条分母 = 真要下的）",
+                  QStringLiteral("total=%1 done=%2").arg(st.total).arg(st.done));
+            check(st.reused == 1, "LF6 reused = 1", QString::number(st.reused));
+            check(finishedSignals == 1 && finishedOk, "LF6 每一个借到的文件也发一次 downloadFinished(true)");
+            check(!dm.isBusy(), "★ LF6 收尾之后 isBusy() 为假（否则界面一直忙）");
+            QFile in(dest);
+            check(in.open(QIODevice::ReadOnly) && in.readAll() == jarBytes,
+                  "LF6 目标路径上的内容正确");
+        }
+
+        // -----------------------------------------------------------------
+        section("LF7. 体检点名 / AlwaysDownload 那两条路**不许**借");
+        // -----------------------------------------------------------------
+        // 它们的意思就是"盘上/本机任何一份都不算数、重新拿一次"。借过来一份同样不算数，
+        // 而那条假地址必然失败 —— 失败本身就是"真去下了"的证明。
+        {
+            const QString flaggedRel = QStringLiteral("libraries/flag/flag.jar");
+            writeFileAt(sourceDir + QLatin1Char('/') + flaggedRel, jarBytes);
+            DownloadManager dm;
+            dm.setReuseSourceFolders({sourceDir});
+            const QString dest = currentDir + QLatin1Char('/') + flaggedRel;
+            const QPair<bool, bool> result =
+                runBatch(dm, dest, sha, jarBytes.size(), VerifyMode::SizeAndSha1, true);
+            const DownloadStats st = dm.stats();
+            check(!result.second, "LF7 点名那一条也在 10 秒内收尾");
+            check(!result.first && st.failed == 1 && st.reused == 0,
+                  "★★ LF7 体检点名 ⇒ 不去别的文件夹借，老老实实重下",
+                  QStringLiteral("failed=%1 reused=%2").arg(st.failed).arg(st.reused));
+            check(!QFile::exists(dest), "LF7 没借 ⇒ 目标不存在（借了的话它会躺在那儿）");
+        }
+        {
+            const QString alwaysRel = QStringLiteral("libraries/always/always.jar");
+            writeFileAt(sourceDir + QLatin1Char('/') + alwaysRel, jarBytes);
+            DownloadManager dm;
+            dm.setReuseSourceFolders({sourceDir});
+            const QString dest = currentDir + QLatin1Char('/') + alwaysRel;
+            const QPair<bool, bool> result =
+                runBatch(dm, dest, sha, jarBytes.size(), VerifyMode::AlwaysDownload, false);
+            const DownloadStats st = dm.stats();
+            check(!result.second, "LF7 AlwaysDownload 也在 10 秒内收尾");
+            check(!result.first && st.failed == 1 && st.reused == 0,
+                  "★★ LF7 AlwaysDownload ⇒ 不去别的文件夹借",
+                  QStringLiteral("failed=%1 reused=%2").arg(st.failed).arg(st.reused));
+        }
+
+        // 没有来源根 = 这个功能关着（默认形态）：同一条作业老老实实去网络，失败。
+        {
+            DownloadManager dm;
+            const QString rel = QStringLiteral("libraries/nosrc/nosrc.jar");
+            writeFileAt(sourceDir + QLatin1Char('/') + rel, jarBytes);
+            const QString dest = currentDir + QLatin1Char('/') + rel;
+            const QPair<bool, bool> result =
+                runBatch(dm, dest, sha, jarBytes.size(), VerifyMode::SizeAndSha1, false);
+            const DownloadStats st = dm.stats();
+            check(!result.second, "LF7 没有来源根时也在 10 秒内收尾");
+            check(!result.first && st.failed == 1 && st.reused == 0,
+                  "LF7 来源根为空 ⇒ 一个文件都不去看（默认关着）",
+                  QStringLiteral("failed=%1 reused=%2").arg(st.failed).arg(st.reused));
+        }
+    }
+    AppPaths::setMinecraftDir(originalDir == AppPaths::defaultMinecraftDir() ? QString()
+                                                                             : originalDir);
+
+    // ---------------------------------------------------------------------
+    section("LF8. 允许的来源只有那两处");
+    // ---------------------------------------------------------------------
+    {
+        const QString appData = qEnvironmentVariable("APPDATA");
+        const QString official = FolderManager::officialLauncherFolder();
+        if (appData.isEmpty()) {
+            check(official.isEmpty(), "LF8 没有 APPDATA ⇒ 说没有这一份（不猜别的位置）");
+        } else {
+            check(official == QDir::cleanPath(appData + QStringLiteral("/.minecraft")),
+                  "★ LF8 官方启动器那份 = %APPDATA%\\.minecraft", official);
+        }
+
+        // 用 nullptr 的 LauncherSettings：只看"允许的来源"这一条，不碰用户的设置。
+        const FolderManager manager(nullptr);
+        const QStringList roots = manager.reuseSourceFolders();
+        bool allDirs = true;
+        for (const QString &root : roots) {
+            allDirs = allDirs && QFileInfo(root).isDir();
+        }
+        check(allDirs, "LF8 列出来的每一份都是**盘上真的存在**的目录",
+              roots.join(QStringLiteral(" ; ")));
+        bool duplicate = false;
+        for (int i = 0; i < roots.size(); ++i) {
+            for (int j = i + 1; j < roots.size(); ++j) {
+                duplicate = duplicate
+                            || QDir::cleanPath(roots.at(i)).compare(QDir::cleanPath(roots.at(j)),
+                                                                    Qt::CaseInsensitive)
+                                   == 0;
+            }
+        }
+        check(!duplicate, "LF8 不重复（官方那份往往就是用户添加过的那一份）");
+        if (!official.isEmpty() && QFileInfo(official).isDir()) {
+            check(roots.contains(official), "LF8 官方那份存在 ⇒ 在里面");
+        }
+        bool invented = false;
+        for (const QString &root : roots) {
+            bool known = false;
+            for (const QString &folder : manager.folders()) {
+                known = known
+                        || QDir::cleanPath(folder).compare(QDir::cleanPath(root),
+                                                           Qt::CaseInsensitive)
+                               == 0;
+            }
+            known = known
+                    || (!official.isEmpty()
+                        && QDir::cleanPath(official).compare(QDir::cleanPath(root),
+                                                             Qt::CaseInsensitive)
+                               == 0);
+            invented = invented || !known;
+        }
+        check(!invented, "★★ LF8 一个来源都不是自己编的（只来自 folders() + 官方那份）");
     }
 }
 
@@ -39377,6 +40166,12 @@ int main(int argc, char *argv[]) {
     // Java 8 的 ASCII 别名（路径里带非 ASCII 字符就起不来），见上面 ZM 节。自己开一个临时
     // 游戏文件夹、跑完换回去 —— 这一节要真建联接和硬链接，留在共享沙箱里会碍后面的事。
     runAsciiAliasTests();
+
+    // -----------------------------------------------------------------
+    // 「从别的游戏文件夹里借文件」（2026-10-20，见上面 LF 节）。纯值那半不碰盘；
+    // DownloadManager 那半自己开临时游戏文件夹、跑完换回去 —— 那几条证明的是
+    // "借到了就真的一个网络请求都不发"（地址给的是一条必然失败的 file://）。
+    runLocalFileReuseTests();
 
     // -----------------------------------------------------------------
     // natives 解压的完成标记（半套目录不许复用），见上面 ZNat 节。同样自开临时游戏文件夹。

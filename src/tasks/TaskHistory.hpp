@@ -44,7 +44,9 @@ namespace Tasks {
 /// 它是启动器级账本，不跟随当前游戏文件夹切换。
 QString defaultHistoryPath();
 
-/// 盘上最多留几条**已完成**的（多了从最老的开始丢）。第 0 条是最近的。
+/// 账本里最多留几条**已完成**的（多了从最老的开始丢）。第 0 条是最近的。
+/// ★ 盘上与运行期内存用**同一把尺子**：`saveHistory()` 和 `TaskManager::pruneFinished()`
+///   都读它，不再出现"面板里有 N 条、重启后只剩最近 50 条"。
 int finishedHistoryLimit();
 
 /// 账本 ⇒ JSON 字节。**纯函数**：喂什么写什么，不看盘也不看时钟。

@@ -138,6 +138,12 @@ private:
     TaskSnapshot *find(TaskId id);
     /// 收尾的公共部分（三个入口都走它）。
     bool finish(TaskId id, TaskState state, const QString &errorSummary);
+    /// 把内存里超量的终态项按**落盘那份口径**丢掉（留最近的 `finishedHistoryLimit()` 条）。
+    ///
+    /// NOTE: 不剪的话面板会一直长（跑一天的批量下载能攒几百条），而重启之后只剩 50 条 ——
+    ///       用户看到的是"昨天那件失败的任务今天找不到了"，却没有任何一处说过会这样。
+    ///       剪的时机是 `finish()`（刚多出一条终态时），活动中的任务一条都不动。
+    void pruneFinished();
     /// 变了之后该干的事：落盘（需要的话）再发 `taskChanged`。
     void touch(TaskId id, bool persist);
 

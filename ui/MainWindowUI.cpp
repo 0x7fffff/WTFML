@@ -50,6 +50,25 @@
 
 namespace {
 
+// Always reserve the scrollbar gutter: expanding a category must not move the
+// right-aligned arrow/clear targets or change the width available to row text.
+void stabilizeDownloadTree(QTreeWidget *tree) {
+    tree->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    tree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    auto *bar = tree->verticalScrollBar();
+    const auto syncIdle = [bar] {
+        const bool idle = bar->maximum() <= bar->minimum();
+        if (bar->property("wtfmlIdle").isValid() && bar->property("wtfmlIdle").toBool() == idle) return;
+        bar->setProperty("wtfmlIdle", idle);
+        bar->style()->unpolish(bar);
+        bar->style()->polish(bar);
+        bar->update();
+    };
+    QObject::connect(bar, &QScrollBar::rangeChanged, tree, syncIdle);
+    syncIdle();
+}
+
 // Popup 会截获底下按钮的点击；必须主动处理关闭，避免一次点击被吞掉或重放后重新展开。
 class ToolboxPopup : public QFrame {
 public:
@@ -1707,6 +1726,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //       这里关掉的只是装饰格：分类从 x=0 起画，子条目照样缩进 indent 那么多。
         versionTree->setRootIsDecorated(false);
         versionTree->setColumnCount(1);
+        stabilizeDownloadTree(versionTree);
         // 每一行长什么样（草方块 + 版本号 + 下面那行发布时间 + 最右边的 >/V）全在这个代理里。
         // 条目还是普通 QTreeWidgetItem（身份、展开状态、点击那条路一个都没变）。
         versionTree->setItemDelegate(new VersionTreeDelegate(versionTree));
@@ -1862,6 +1882,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         loaderTree->setUniformRowHeights(true);
         loaderTree->setRootIsDecorated(false);
         loaderTree->setColumnCount(1);
+        stabilizeDownloadTree(loaderTree);
         // 末一个参数 false：这棵树的**叶子**（两档 + 具体版本号）右边不画那个 `>` ——
         // 那一层是"选中它"，底下没有下一页（见 VersionTreeDelegate 的构造函数）。
         // 顶层那五条照画（它们是真的能展开）。
@@ -2199,6 +2220,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             tree->setUniformRowHeights(true);
             tree->setRootIsDecorated(false);
             tree->setColumnCount(1);
+            stabilizeDownloadTree(tree);
             tree->setItemDelegate(
                 new VersionTreeDelegate(tree, /*leafArrow=*/true, resourceTreeIconSize()));
             // ★ 悬停底色要它，理由见版本树那第一处：视图不填 State_MouseOver 就不出底色，也不报错。

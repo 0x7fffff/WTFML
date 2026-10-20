@@ -21,6 +21,7 @@
 #include <QJsonValue>
 #include <QProcess>
 #include <QUuid>
+#include <QElapsedTimer>
 
 namespace {
 
@@ -137,7 +138,12 @@ QString readProcessError(const QString &raw) {
 ///       一句说不通的话：打包那一条原来报的是「**解压**没跑起来」（2026-09-26 真实例上撞
 ///       出来的），用户拿着这句话往解压上找，而全程根本没解压。
 bool runPowershell(const QString &script, int timeoutMs, QByteArray *stdoutOut,
-                   QString *errorOut, const QString &what) {
+                   QString *errorOut, const QString &what,
+                   const std::function<bool()> &cancelled = {}) {
+    if (cancelled && cancelled()) {
+        if (errorOut) *errorOut = QStringLiteral("%1已取消或超时。").arg(what);
+        return false;
+    }
     const QString encoded = encodeCommand(script);
     // 兜底闸：Windows 一条命令行只有 32767 个字符，超了 CreateProcess 直接失败，QProcess
     // 报的是「文件名或扩展名太长」（ERROR_FILENAME_EXCED_RANGE）—— 那句话和真正的原因
@@ -162,14 +168,28 @@ bool runPowershell(const QString &script, int timeoutMs, QByteArray *stdoutOut,
                   {QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
                    QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
                    QStringLiteral("-EncodedCommand"), encoded});
-    if (!process.waitForFinished(timeoutMs)) {
+    bool finished = false;
+    bool interrupted = false;
+    if (!cancelled) {
+        finished = process.waitForFinished(timeoutMs);
+    } else {
+        QElapsedTimer elapsed;
+        elapsed.start();
+        while (elapsed.elapsed() < timeoutMs) {
+            if (cancelled()) { interrupted = true; break; }
+            if (process.waitForFinished(100)) { finished = true; break; }
+            if (process.state() == QProcess::NotRunning) break;
+        }
+    }
+    if (!finished) {
         // error() / errorString() 要在 kill 之前读：kill 会把状态改成 Crashed。
         const QProcess::ProcessError failure = process.error();
         const QString detail = process.errorString();
         process.kill();
         process.waitForFinished(5000);
         if (errorOut != nullptr) {
-            *errorOut = describeProcessFailure(failure, detail, what);
+            *errorOut = interrupted ? QStringLiteral("%1已取消或超时。").arg(what)
+                                    : describeProcessFailure(failure, detail, what);
         }
         return false;
     }
@@ -767,7 +787,11 @@ bool ZipUtil::gzipFrom(const QString &sourcePath, const QString &targetGz, QStri
 }
 
 bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entries,
-                        QString *errorOut) {
+                        QString *errorOut, const std::function<bool()> &cancelled) {
+    if (cancelled && cancelled()) {
+        if (errorOut) *errorOut = QStringLiteral("打包已取消或超时。");
+        return false;
+    }
     if (targetZip.trimmed().isEmpty()) {
         if (errorOut != nullptr) {
             *errorOut = QStringLiteral("没有给出要写到哪去。");
@@ -892,7 +916,7 @@ bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entrie
     //   "一次没打成的包顺手毁掉了上一次那份好的"。正常调用方（备份）现在都会先挑一个
     //   没人占的名字，所以这一条在它们那儿不会触发；留着是给"目标已经存在"这种调用兜底。
     const bool targetExisted = QFileInfo::exists(targetZip);
-    const bool ok = runPowershell(script, 1800 * 1000, nullptr, &failure, QStringLiteral("打包"));
+    const bool ok = runPowershell(script, 1800 * 1000, nullptr, &failure, QStringLiteral("打包"), cancelled);
     // 临时表两份出路都要删（成功、失败都一样）—— 它躺在系统临时目录里，里面是用户的
     // 实例里都有哪些文件，没理由留一份。
     QFile::remove(tablePath);

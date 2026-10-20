@@ -76,6 +76,8 @@
 #include <QString>
 #include <QWidget>
 
+#include <functional>
+
 class QDialog;
 class QLabel;
 class QPushButton;
@@ -277,6 +279,19 @@ public:
     /// 同上，但按"提示"摆（中间 + 四周变暗）。
     int execPrompt(QDialog *dialog, bool dismissOnOutsideClick = false);
 
+    /// 已经有一条提示开着的时候，把这一条**纯报信的**提示先排着（2026-10-20）。
+    ///
+    /// 只有"一颗按钮都没给"的那一档（`InlineMessage::warning()` / `information()` /
+    /// `critical()`）能走这儿：它们不向调用方要答案，晚一步弹出来不改变任何人的语义。
+    /// 要人回答的提示（`question()` / `getText()` / 带按钮的 `ask()`）**仍然不叠** ——
+    /// 排队会让调用方从"阻塞到用户答"变成"立刻拿到一个空答案"，那是另一回事。
+    ///
+    /// 上一条提示收掉、调用栈退出去之后（下一轮事件循环）才摆下一条；多条按入队顺序。
+    ///
+    /// @return 排上了才 true。当前**没有**提示开着的时候返回 false —— 调用方应当直接摆，
+    ///         不该先排一轮。
+    bool queueNotification(std::function<void()> show);
+
     // ---------- objectName / 尺寸常量（验证工程靠它们认控件、量几何） ----------
 
     static QString overlayHostName() { return QStringLiteral("overlayHost"); }
@@ -380,6 +395,10 @@ private:
     /// `dismiss()` / `evict()` 共用的那一半：真正去收最上面那一层。
     /// @param evenWhenParked 收着的页面**也**收（`evict()` 要的；`dismiss()` 不要）。
     bool closeTopLayer(bool evenWhenParked);
+    /// 提示收掉之后，把排着的那一条纯报信提示摆出来（见 `queueNotification()`）。
+    /// 排在下一轮事件循环：这时的调用栈属于**上一条提示的调用方**，不能把它按在这儿
+    /// 等用户点完下一条。
+    void scheduleNotificationDrain();
 
     QWidget *m_anchor = nullptr;
     Mode m_mode = Mode::None;
@@ -431,6 +450,12 @@ private:
     /// ★ 2026-09-27 加：提示开着时要跟着按住的控件（底栏）。见 setPromptBlockedWidget()。
     /// QPointer：底栏是 MainWindowUI 的成员，先于这一层析构的话别留下悬空指针。
     QPointer<QWidget> m_promptBlockedWidget;
+
+    /// 已经有提示开着时排着的那几条纯报信提示（见 `queueNotification()`）。调用方的
+    /// lambda 自己负责重建提示内容、自己拿 `QPointer` 兜住宿主。
+    QList<std::function<void()>> m_queuedNotifications;
+    /// 已经排了"下一轮去摆"这一下：同一条提示收掉时别排两遍（收页 / 收提示两条路都会走到）。
+    bool m_notificationDrainPending = false;
 
     /// 还回来的内容先寄存在这儿：一个藏起来的空控件。**不能直接 setParent(nullptr)** ——
     /// 那会让它变回顶层窗口（Qt 里"没有父控件的 QWidget 就是窗口"），哪怕它一直是 hide 的，

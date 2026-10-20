@@ -169,8 +169,16 @@ void ConnectionsController::setup() {
     });
     // FolderManager 才是改状态的那一方：加载/删除目录、当前目录不存在时的退回，
     // 都会从它这儿发信号出来，界面只管跟着重画。
-    connect(m_owner->m_folderManager, &FolderManager::foldersChanged, m_owner,
-            &MainWindow::refreshFolderList);
+    connect(m_owner->m_folderManager, &FolderManager::foldersChanged, m_owner, [this] {
+        m_owner->refreshFolderList();
+        // 列表变了 = 可借的来源也变了（加进来的 / 移走的），重新推一遍（2026-10-20）。
+        m_owner->syncDownloadReuseSources();
+    });
+    connect(m_owner->m_folderManager, &FolderManager::directoryAccessDenied, m_owner,
+        [this](const QString &problem) {
+            InlineMessage::warning(m_owner->m_ui->overlay(), tr("目录正在使用"), problem);
+            m_owner->refreshFolderList();
+        });
     connect(m_owner->m_folderManager, &FolderManager::currentFolderChanged, m_owner, [this] {
         m_owner->applyCurrentFolderToPaths();
         // 换了一整份 .minecraft，三件跟着"上一份"走的事要重置：

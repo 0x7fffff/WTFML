@@ -1641,7 +1641,10 @@ MainWindow::MainWindow(QWidget *parent)
             },
             [this](Tasks::TaskId id, bool success, const QString &errorSummary) {
                 m_activityCenter->finish(id, success, errorSummary, false);
-            }},
+            },
+            // 用户按了「取消」、后台导入真的停下来之后：收成 Cancelled 而不是 Failed
+            // （取消不是失败，底栏不该亮红点）。2026-10-20。
+            [this](Tasks::TaskId id) { m_activityCenter->tasks()->cancel(id); }},
         this);
     m_instanceDialogController = new InstanceDialogController(this);
     m_instanceEditorController = new InstanceEditorController(this);
@@ -2570,8 +2573,8 @@ void MainWindow::updateBottomBarTaskSummary() {
 
 /// 「这一项**此刻**按『取消』真的会做点什么吗」。
 ///
-/// ★ 判据必须和 `onTaskDetailAction()` 里那条取消分派**逐字对齐** —— 那儿能做的只有两件
-///   事（服务端安装那一趟、和 `VersionManager` 那一批下载）。所以这里也只问这两处，
+/// ★ 判据必须和 `onTaskDetailAction()` 里那条取消分派**逐字对齐** —— 那儿能做的只有三件
+///   事（服务端安装那一趟、`VersionManager` 那一批下载、后台导入世界那一趟）。所以这里也只问这几处，
 ///   **不在这一层按 kind 或状态另推一遍**（推错的下场：装作某一阶段还能取消）。
 ///
 /// ★ 为什么非要现问一遍：账本里那位 `canCancel` 是 `begin()` 按**种类**记的（"这一类活
@@ -2582,6 +2585,12 @@ void MainWindow::updateBottomBarTaskSummary() {
 ///   本来就是 false，那一格自然就没有取消可点" —— **说的就是这里**，从前没人接它。
 bool MainWindow::cancelWouldWork(const Tasks::TaskSnapshot &task) const {
     if (m_modTransferCancels.contains(task.id)) return true;
+    // ③ 后台导入世界（2026-10-20）：拷贝器每 1 MiB 看一次取消位，取消得动。
+    //    判据和 `cancelTaskFromDetail()` 里那一发逐字对齐。
+    if (m_instanceTransferController != nullptr
+        && m_instanceTransferController->canCancelTask(task.id)) {
+        return true;
+    }
     if (task.id == m_downloadTaskId && m_presetController && m_presetController->isInstallingMods()) return true;
     if (m_toolboxController && m_toolboxController->ownsDownloadTask(task.id))
         return m_toolboxController->canCancelDownloadTask(task.id);
@@ -2654,6 +2663,13 @@ void MainWindow::cancelTaskFromDetail(const QString &key) {
     const auto transferId = key.toULongLong(&transferParsed);
     if (transferParsed && m_modTransferCancels.contains(transferId)) {
         m_modTransferCancels.value(transferId)();
+        return;
+    }
+    // ③ 后台导入世界：和 `cancelWouldWork()` 里那一问同口径 —— 只有这一趟导入自己的
+    //    取消位会被置上，不会顺手掐到别人的下载或别的实例的导入。
+    if (transferParsed && m_instanceTransferController != nullptr
+        && m_instanceTransferController->cancelTask(transferId)) {
+        appendLog(tr("已请求取消后台导入世界；没拷完的这一份不会发布成存档。"));
         return;
     }
     bool directKey = false;
@@ -13531,6 +13547,17 @@ void MainWindow::applyCurrentFolderToPaths() {
     // 跟着 exe 走，而不是钉死在上次记下的那个老位置。
     AppPaths::setMinecraftDir(FolderManager::isDefaultFolder(root) ? QString() : root);
     appendLog(tr("当前游戏文件夹：%1").arg(QDir::toNativeSeparators(root)));
+    // 借文件的来源跟着当前文件夹一起变（当前那一份由下载器自己跳过）。
+    syncDownloadReuseSources();
+}
+
+void MainWindow::syncDownloadReuseSources() {
+    if (m_versionManager == nullptr || m_folderManager == nullptr) {
+        return;
+    }
+    // 唯一出处见 FolderManager::reuseSourceFolders()：用户添加的 + 官方启动器那份。
+    // 这里**不做**任何"再补几个可能的位置"的加工 —— 用户明确要求不许扫盘。
+    m_versionManager->setReuseSourceFolders(m_folderManager->reuseSourceFolders());
 }
 
 /**

@@ -18,6 +18,18 @@
 #include "util/AppPaths.hpp"
 
 namespace LaunchHistory {
+
+QDateTime lastStartedAt(const QList<Record> &records, const QString &instanceId) {
+    QDateTime latest;
+    if (instanceId.isEmpty()) return latest;
+    for (const auto &record : records) {
+        if (record.instanceId == instanceId && record.startedAt.isValid()
+            && (!latest.isValid() || record.startedAt > latest)) {
+            latest = record.startedAt;
+        }
+    }
+    return latest;
+}
 namespace {
 
 /// 盘上那个格式标记。**写死一个字符串**而不是"看有没有哪个字段"：以后改格式时，旧文件在

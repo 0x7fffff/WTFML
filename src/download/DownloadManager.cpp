@@ -20,6 +20,8 @@
 #include <QFileInfo>
 #include <QHttp1Configuration>
 #include <QSaveFile>
+#include <QRunnable>
+#include <QThreadPool>
 #include <QTimer>
 #include <QRegularExpression>
 
@@ -34,6 +36,9 @@
 #include "../util/DownloadDiagnostics.hpp"
 
 namespace {
+
+/// 「借文件」那条线同时跑几个。见构造函里 m_reusePool 的说明。
+constexpr int kMaxReuseWorkers = 4;
 
 /// 把这个请求的 HTTP/1.1 通道数抬到我们自己的按主机上限。
 ///
@@ -722,6 +727,13 @@ DownloadManager::DownloadManager(QObject *parent, NetworkManagerFactory networkF
     //       没证明过 h2"，白等一轮往返（不会错，只是慢）。
     connect(networkManager, &QNetworkAccessManager::finished, this,
             &DownloadManager::noteReplyProtocol);
+
+    // 「从别的游戏文件夹里借文件」那条线的线程池（2026-10-20）。4 条：这个活要么是
+    // 一瞬间的硬链接，要么是一次整文件 SHA-1 + 复制；4 条既能把 SSD 喂饱，又不会在
+    // 机械盘上把刚从网络落盘的那几条挤到没响应。
+    m_reusePool = new QThreadPool(this);
+    m_reusePool->setMaxThreadCount(kMaxReuseWorkers);
+    m_reuseCancel = QSharedPointer<std::atomic_bool>::create(false);
 }
 
 DownloadManager::~DownloadManager() {
@@ -735,6 +747,19 @@ DownloadManager::~DownloadManager() {
     // 对象正在析构，那些回调不该再跑，用这个标志在 checkAllDownloadsFinished
     // 和槽函数入口处挡掉。
     m_shuttingDown = true;
+    // 「借文件」那条线先收手再等干净（2026-10-20）。等这一步是必须的：复制那条路会
+    // 一直往盘上写，本对象没了它还在写就是"程序都退了还在动文件"。取消令牌 + clear()
+    // 只停"还没开跑"的那些，已经开跑的要靠复制循环里那个判据自己退出来，所以最后是
+    // waitForDone()。排队进来的结果投递是 context = this 的 queued invocation，对象没了
+    // 就自动丢弃（见 pumpReuseQueue()）。
+    if (m_reuseCancel) {
+        m_reuseCancel->store(true, std::memory_order_relaxed);
+    }
+    m_reuseQueue.clear();
+    if (m_reusePool) {
+        m_reusePool->clear();
+        m_reusePool->waitForDone();
+    }
     // 挂在 QNetworkAccessManager::finished 上那条（noteReplyProtocol）在这里断掉。
     // 理由和别的槽不一样：那个槽会写 m_http2Hosts，而**成员是在析构函数体跑完之后**才销毁的、
     // manager 这个子对象还要更晚（在 QObject 基类析构里）—— 中间那一段 manager 只要再发一次
@@ -769,11 +794,12 @@ DownloadManager::~DownloadManager() {
 
 void DownloadManager::fetchVersionManifest() {
     const QString officialUrl = officialVersionManifestUrl();
-    QUrl url(endpoint(officialUrl));
+    // 列表优先走镜像，与大文件的下载源/测速降级策略分开；失败仍走下方官方兜底。
+    QUrl url(mirrorUrl(officialUrl));
     QNetworkRequest request(url);
     configureHttp1(request);
     // 元数据请求也要有超时：下载期间 UI 会禁用按钮，卡死的连接会让它永远禁用下去。
-    request.setTransferTimeout(30000);
+    request.setTransferTimeout(10000);
     QNetworkReply *reply = networkManager->get(request);
     reply->setProperty("wtfmlStartMs", m_clock.elapsed());
     if (DownloadDiag::enabled()) {
@@ -880,6 +906,9 @@ void DownloadManager::beginBatch() {
     m_doneJobs = 0;
     m_failedJobs = 0;
     m_skippedJobs = 0;
+    // 上一批的借文件作业跟着这一批作废（见 clearReuseJobs()）。新一批从 0 开始数。
+    m_reusedJobs = 0;
+    clearReuseJobs();
     m_failedPaths.clear();
     m_failedJobInfos.clear();
     // "体检点名的那几条"只对**上一批**成立（见 setFlaggedPaths）：新的一批谁都没点名。
@@ -890,12 +919,13 @@ void DownloadManager::beginBatch() {
     if (DownloadDiag::enabled()) {
         DownloadDiag::line(QStringLiteral(
                                "batch begin gen=%1 mirror=%2 mirrorPreferred=%3 cap=%4 "
-                               "official-manifest=%5")
+                               "official-manifest=%5 reuse-roots=%6")
                                .arg(m_batchGeneration)
                                .arg(m_useMirror ? QStringLiteral("on") : QStringLiteral("off"))
                                .arg(mirrorPreferred() ? QStringLiteral("yes") : QStringLiteral("no"))
                                .arg(m_maxConcurrentDownloads)
-                               .arg(officialVersionManifestUrl()));
+                               .arg(officialVersionManifestUrl())
+                               .arg(m_reuseSourceFolders.size()));
     }
 }
 
@@ -903,12 +933,13 @@ void DownloadManager::endBatch() {
     m_batchOpen = false;
     if (DownloadDiag::enabled()) {
         DownloadDiag::line(QStringLiteral("batch end gen=%1 total=%2 done=%3 failed=%4 skipped=%5 "
-                                          "inflight=%6 queued=%7")
+                                          "reused=%6 inflight=%7 queued=%8")
                                .arg(m_batchGeneration)
                                .arg(m_totalJobs)
                                .arg(m_doneJobs)
                                .arg(m_failedJobs)
                                .arg(m_skippedJobs)
+                               .arg(m_reusedJobs)
                                .arg(pendingDownloads)
                                .arg(m_pendingJobs.size()));
     }
@@ -920,12 +951,13 @@ void DownloadManager::endBatch() {
 void DownloadManager::abandonBatch() {
     if (DownloadDiag::enabled()) {
         DownloadDiag::line(QStringLiteral("batch abandoned gen=%1 total=%2 done=%3 failed=%4 "
-                                          "skipped=%5 inflight=%6 queued=%7")
+                                          "skipped=%5 reused=%6 inflight=%7 queued=%8")
                                .arg(m_batchGeneration)
                                .arg(m_totalJobs)
                                .arg(m_doneJobs)
                                .arg(m_failedJobs)
                                .arg(m_skippedJobs)
+                               .arg(m_reusedJobs)
                                .arg(pendingDownloads)
                                .arg(m_pendingJobs.size()));
     }
@@ -935,6 +967,9 @@ void DownloadManager::abandonBatch() {
     // NOTE: 队列曾经只装资源对象，而资源对象只在批次里排，所以漏掉这一句不要紧；
     //       现在库、整合包文件也走这条队列，"放弃"就必须把队列一起清掉。
     m_pendingJobs.clear();
+    // 借文件那条线同理：还在后台找来源 / 复制的那些也一起作废（它们的结账会因为代次
+    // 对不上被丢掉，不会往这一批里记任何数）。
+    clearReuseJobs();
     // 置真 = "这一批的完成信号已经发过了"：checkAllDownloadsFinished() 之后一个字都不会发
     // （那几个交完货才回来的回复会走到那里，然后立刻返回）。
     m_batchEmitted = true;
@@ -947,19 +982,22 @@ void DownloadManager::abandonBatch() {
 void DownloadManager::cancelBatch() {
     if (DownloadDiag::enabled()) {
         DownloadDiag::line(QStringLiteral("batch cancelled gen=%1 oldGen=%2 total=%3 done=%4 "
-                                          "failed=%5 skipped=%6 inflight=%7 queued=%8")
+                                          "failed=%5 skipped=%6 reused=%7 inflight=%8 queued=%9")
                                .arg(m_batchGeneration + 1)
                                .arg(m_batchGeneration)
                                .arg(m_totalJobs)
                                .arg(m_doneJobs)
                                .arg(m_failedJobs)
                                .arg(m_skippedJobs)
+                               .arg(m_reusedJobs)
                                .arg(pendingDownloads)
                                .arg(m_pendingJobs.size()));
     }
     // 1. 还排着队的**不发了**。几百个作业留着的话，用户按了取消之后它们会一批批地继续
     //    发出去（每一次有回复收尾都会泵一遍队列），看着就是"取消了还在下"。
     m_pendingJobs.clear();
+    // 借文件那条线同理：排着的不找了，已经开跑的复制循环每个块看一次取消令牌。
+    clearReuseJobs();
     // 2. 封口 + 加代次。这两句合起来的**唯一**意思是"这一批到此为止、之后回来的所有回复
     //    都与我无关"：m_batchEmitted 挡住收尾那一次发射，代次让已经在飞的那几条
     //    （下面 abort() 逼回来的那些）在 `onDownloadReplyFinished` / `handleDownloadError`
@@ -1010,8 +1048,10 @@ bool DownloadManager::isBusy() const {
     // 用户以为下载完了，然后再点一次又叠一批上去。
     // 分段作业没有 QNetworkReply（不计 pendingDownloads），漏掉它会表现为"只剩大文件时
     // 界面显示空闲、取消按钮失效"。
+    // 「借文件」那条线也是这样：它没发网络请求，但它确实还在干活（找来源 / 复制几 MB）。
+    // 漏掉它的表现和分段那条一样 —— 界面解禁、用户以为已经就绪，而文件还没落盘。
     return m_batchOpen || pendingDownloads > 0 || !m_pendingJobs.isEmpty()
-           || !m_segmentJobs.isEmpty();
+           || !m_segmentJobs.isEmpty() || m_reuseActive > 0 || !m_reuseQueue.isEmpty();
 }
 
 DownloadStats DownloadManager::stats() const {
@@ -1020,6 +1060,7 @@ DownloadStats DownloadManager::stats() const {
     s.done = m_doneJobs;
     s.failed = m_failedJobs;
     s.skipped = m_skippedJobs;
+    s.reused = m_reusedJobs;
     s.failedPaths = m_failedPaths;
     return s;
 }
@@ -1118,6 +1159,43 @@ void DownloadManager::scheduleFile(const QString &url, const QString &destinatio
         return;
     }
 
+    // ★ 盘上没有，但**别的游戏文件夹里可能有一模一样的**（2026-10-20，见
+    //   setReuseSourceFolders()）。这一步排在 m_totalJobs++ 之前是故意的：借成功的话它
+    //   压根不走网络，就不该占进度条分母（和跳过那一支同一个道理）；借不到再回来补记。
+    //
+    // 四道闸：
+    //   · AlwaysDownload / 体检点名 —— 它们的意思就是"盘上任何一份都不算数"，从本机再拿
+    //     一份同样不算数（点名那几条本来就在 fileAlreadyValid() 里被挡下了，这里只是把
+    //     "不许借"写明白）；
+    //   · expectedSha1 为空 —— 没有内容判据，"同名"不等于"同内容"（加载器安装器）；
+    //   · range.active() —— 分段请求要的是某一截，借整份只会写坏目标；
+    //   · 当前文件夹里相对路径 —— 拼不出相对路径 = 这个目标不在游戏目录下（或者路径里
+    //     有 `.`/`..`），没有可对照的位置，不借。
+    if (mode != VerifyMode::AlwaysDownload && !m_flaggedPaths.contains(destinationPath)
+        && !expectedSha1.isEmpty() && !range.active() && !m_reuseSourceFolders.isEmpty()) {
+        const QString relativePath =
+            LocalFileReuse::relativePathWithin(destinationPath, AppPaths::minecraftDir());
+        if (!relativePath.isEmpty()) {
+            ReuseJob job;
+            job.url = url;
+            job.destinationPath = destinationPath;
+            job.relativePath = relativePath;
+            job.expectedSha1 = expectedSha1;
+            job.expectedSize = expectedSize;
+            job.mode = mode;
+            job.officialUrl = officialUrl;
+            m_reuseQueue.enqueue(job);
+            pumpReuseQueue();
+            return;
+        }
+    }
+
+    queueNetworkJob(url, destinationPath, expectedSha1, expectedSize, officialUrl, range);
+}
+
+void DownloadManager::queueNetworkJob(const QString &url, const QString &destinationPath,
+                                      const QString &expectedSha1, qint64 expectedSize,
+                                      const QString &officialUrl, const DownloadRange &range) {
     m_totalJobs++;
     // 排进队列之后立刻试着发一次：队列是空的、连接也有富余的时候，这一句就把它发出去了
     // （所以"只下一两个文件"的那些调用点感觉不到队列存在）。
@@ -1206,6 +1284,106 @@ void DownloadManager::pumpDownloadQueue() {
 void DownloadManager::requeueDownloadJob(const PendingJob &job) {
     // 排头，不是队尾。理由和"为什么不会堵住别人"见头文件。
     m_pendingJobs.prepend(job);
+}
+
+void DownloadManager::pumpReuseQueue() {
+    if (m_shuttingDown || m_reusePool == nullptr || !m_reuseCancel) {
+        return;
+    }
+    while (m_reuseActive < kMaxReuseWorkers && !m_reuseQueue.isEmpty()) {
+        const ReuseJob job = m_reuseQueue.dequeue();
+        // 代次和取消令牌都在**开跑那一刻**拷一份：作业跑起来之后，主线程可能又开了新一批
+        // （clearReuseJobs 会换令牌、加代次），那一条回来时按代次对不上就丢掉。
+        const quint64 generation = m_reuseGeneration;
+        const QSharedPointer<std::atomic_bool> cancel = m_reuseCancel;
+        const QStringList roots = m_reuseSourceFolders;
+        const QString currentRoot = AppPaths::minecraftDir();
+        ++m_reuseActive;
+        m_reusePool->start(QRunnable::create(
+            [this, job, generation, cancel, roots, currentRoot]() {
+                const LocalFileReuse::Check check =
+                    job.mode == VerifyMode::ExistsOnly ? LocalFileReuse::Check::Exists
+                                                       : LocalFileReuse::Check::SizeAndSha1;
+                QString error;
+                const LocalFileReuse::Method method = LocalFileReuse::reuseFrom(
+                    job.destinationPath, job.relativePath, roots, currentRoot, job.expectedSha1,
+                    job.expectedSize, check, cancel.data(), /*allowHardLink=*/true, &error);
+                // 后台线程**只**算这一份结论，记账 / 发信号一律回主线程做：DownloadStats、
+                // batchProgress 和 QObject 的信号都不是线程安全的。
+                QMetaObject::invokeMethod(
+                    this,
+                    [this, job, generation, method, error]() {
+                        if (m_shuttingDown) {
+                            return;
+                        }
+                        if (m_reuseActive > 0) {
+                            --m_reuseActive;
+                        }
+                        if (generation == m_reuseGeneration) {
+                            onReuseFinished(job, method, error);
+                        }
+                        pumpReuseQueue();
+                        checkAllDownloadsFinished();
+                    },
+                    Qt::QueuedConnection);
+            }));
+    }
+}
+
+void DownloadManager::onReuseFinished(const ReuseJob &job, LocalFileReuse::Method method,
+                                      const QString &error) {
+    const QString fileName = QFileInfo(job.destinationPath).fileName();
+    if (method != LocalFileReuse::Method::None) {
+        // 借成功**不进 total / done**（见 DownloadStats::reused）：进度条的分母是"真要下
+        // 的那几个"，借来的这些一个字节都没走网络。
+        ++m_reusedJobs;
+        if (DownloadDiag::enabled()) {
+            DownloadDiag::line(QStringLiteral("reuse hit dest=%1 method=%2")
+                                   .arg(QDir::toNativeSeparators(job.destinationPath),
+                                        method == LocalFileReuse::Method::HardLink
+                                            ? QStringLiteral("hardlink")
+                                            : QStringLiteral("copy")));
+        }
+        emit downloadFinished(fileName, true, QString());
+        emitBatchProgress(job.destinationPath);
+        checkAllDownloadsFinished();
+        return;
+    }
+
+    // 借不到（来源没有、判据不过、复制到一半被取消或来源变了）。退回网络之前**再问一次
+    // 盘上那份**：借文件这一小段时间里，另一个作业可能已经把同一个目标下完了
+    // （整合包清单与版本 json 引用同一个库的那种情况）。问过就不会白下一次。
+    if (fileAlreadyValid(job.destinationPath, job.expectedSha1, job.expectedSize, job.mode)) {
+        ++m_skippedJobs;
+        emit downloadFinished(fileName, true, QString());
+        emitBatchProgress(job.destinationPath);
+        checkAllDownloadsFinished();
+        return;
+    }
+
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("reuse miss dest=%1 reason=%2")
+                               .arg(QDir::toNativeSeparators(job.destinationPath), error));
+    }
+    // 到这一步才计进 m_totalJobs（见 ReuseJob 的说明）。range 恒为空：能进借文件队列的
+    // 作业本来就不带 Range（见 scheduleFile 里那道闸）。
+    queueNetworkJob(job.url, job.destinationPath, job.expectedSha1, job.expectedSize,
+                    job.officialUrl, DownloadRange());
+}
+
+void DownloadManager::clearReuseJobs() {
+    // 旧令牌置真 → 已经开跑的复制循环下一个 1 MiB 块就收手（找来源那一步每扫描一个候选
+    // 也会看一次）。再换一个新的给下一批用：同一个布尔复用的话，取消过一次之后新的作业
+    // 一启动就被判成"已取消"。
+    if (m_reuseCancel) {
+        m_reuseCancel->store(true, std::memory_order_relaxed);
+    }
+    m_reuseQueue.clear();
+    m_reuseCancel = QSharedPointer<std::atomic_bool>::create(false);
+    ++m_reuseGeneration;
+    // NOTE: **不**碰 m_reuseActive。那几条还在池子里跑，它们回来时自己减（见
+    // pumpReuseQueue 的完成回调）—— 在这里清零的话，池里的作业永远减不到零，
+    // 下一批会以为还有 4 条在跑而再也不启动新的。
 }
 
 bool DownloadManager::segmentedEligible(const QString &url, const QString &expectedSha1,
@@ -1693,20 +1871,23 @@ void DownloadManager::checkAllDownloadsFinished() {
     // m_pendingJobs：还排着队的作业也是"没下完"，漏掉这一条会在还差几百个文件的
     // 时候发出 allDownloadsFinished。
     // m_segmentJobs：分段作业没有 QNetworkReply，不计 pendingDownloads，必须单独算上。
+    // 借文件那条线同理：排队 / 正在复制的那些也还没交货（见 m_reuseActive）。
     if (m_shuttingDown || m_batchOpen || m_batchEmitted || pendingDownloads > 0
-        || !m_pendingJobs.isEmpty() || !m_segmentJobs.isEmpty()) {
+        || !m_pendingJobs.isEmpty() || !m_segmentJobs.isEmpty() || m_reuseActive > 0
+        || !m_reuseQueue.isEmpty()) {
         return;
     }
     m_batchEmitted = true;
     if (DownloadDiag::enabled()) {
         DownloadDiag::line(QStringLiteral("batch complete gen=%1 success=%2 total=%3 done=%4 "
-                                          "failed=%5 skipped=%6")
+                                          "failed=%5 skipped=%6 reused=%7")
                                .arg(m_batchGeneration)
                                .arg(m_failedJobs == 0 ? QStringLiteral("yes") : QStringLiteral("no"))
                                .arg(m_totalJobs)
                                .arg(m_doneJobs)
                                .arg(m_failedJobs)
-                               .arg(m_skippedJobs));
+                               .arg(m_skippedJobs)
+                               .arg(m_reusedJobs));
         // 失败清单最多列 200 条：几千个资源对象一起失败时，前 200 条已经足够看出是
         // "整类地址都不通"还是"偶发几条"，无上限地抄下来只会把日志撑爆。
         constexpr int kMaxListed = 200;

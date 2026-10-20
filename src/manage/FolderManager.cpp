@@ -15,6 +15,7 @@
 
 #include "../settings/LauncherSettings.hpp"
 #include "../util/AppPaths.hpp"
+#include "util/DirectorySessionLock.hpp"
 
 namespace {
 
@@ -115,7 +116,9 @@ bool removeTreeWithoutFollowingLinks(const QString &path) {
 /// NOTE: 顺序上**先把目标目录建出来**再往里灌。中途失败时盘上会留下一个"拷了一半"的
 ///       目录 —— 这是故意的：调用方（复制实例、导入世界）拿到的 from/to 都是它自己算
 ///       出来的，它比这里更清楚该不该收拾，而"留一半"比"悄悄删掉用户别的东西"安全。
-bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to) {
+bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to,
+                                   const std::function<bool()> &cancelled) {
+    if (cancelled && cancelled()) return false;
     const QFileInfo source(from);
     if (isLinkToElsewhere(source)) {
         // 链接照拷的话，会在新位置复制出**那一头**的一整棵 —— 用户挂到别的盘上的东西
@@ -136,7 +139,7 @@ bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to) {
             QDir::Files | QDir::Dirs | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
         for (const QFileInfo &entry : entries) {
             if (!copyTreeWithoutFollowingLinks(entry.absoluteFilePath(),
-                                               to + QLatin1Char('/') + entry.fileName())) {
+                                               to + QLatin1Char('/') + entry.fileName(), cancelled)) {
                 return false;
             }
         }
@@ -153,6 +156,19 @@ bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to) {
         // 其实只是把"为什么会失败"说清楚一点，真正挡住覆盖的是 copy() 自己。
         qWarning() << "copyTreeWithoutFollowingLinks: target already exists:" << to;
         return false;
+    }
+    if (cancelled) {
+        QFile input(from), output(to);
+        if (!input.open(QIODevice::ReadOnly) ||
+            !output.open(QIODevice::WriteOnly | QIODevice::NewOnly)) return false;
+        while (!input.atEnd()) {
+            if (cancelled()) return false;
+            const auto bytes = input.read(1024 * 1024);
+            if (bytes.isEmpty() || output.write(bytes) != bytes.size()) return false;
+        }
+        if (input.error() != QFile::NoError || !output.flush() || cancelled()) return false;
+        output.setPermissions(input.permissions());
+        return true;
     }
     if (!QFile::copy(from, to)) {
         qWarning() << "copyTreeWithoutFollowingLinks: cannot copy" << from << "to" << to;
@@ -182,7 +198,11 @@ FolderManager::FolderManager(LauncherSettings *settings, QObject *parent)
     const QStringList storedNames =
         m_settings != nullptr ? m_settings->folderNames() : QStringList();
     for (const QString &entry : storedNames) {
-        const int tab = entry.indexOf(QLatin1Char('\t'));
+        // ★ 按**最后一个**制表符切，不是第一个：名字那一半由 validateDisplayName()
+        //   挡着制表符（进不去），而路径那一半在 NTFS 上是**可以**带制表符的。
+        //   按第一个切的话，`D:\MC\foo<TAB>bar` 这种目录配的名字会被读成
+        //   路径 `D:\MC\foo` + 名字 `bar<TAB>…` —— 名字没了、还可能认给别的目录。
+        const int tab = entry.lastIndexOf(QLatin1Char('\t'));
         if (tab <= 0) {
             continue;  // 连分隔符都没有（手改的）：这一项读不出是给谁起的名字
         }
@@ -249,6 +269,40 @@ QString FolderManager::defaultFolder() { return normalized(AppPaths::defaultMine
 bool FolderManager::isDefaultFolder(const QString &path) {
     const QString target = normalized(path);
     return !target.isEmpty() && target == defaultFolder();
+}
+
+QString FolderManager::officialLauncherFolder() {
+    // `%APPDATA%` 不存在 = 不是一台有用户配置的 Windows（服务账户 / 精简环境）。这时候
+    // 返回空串，上层按"没有这一份"处理 —— 不要退到 QStandardPaths，它给的可能是另一个
+    // 位置（甚至我们的沙盒），那就不是在说"官方启动器"了。
+    const QString appData = qEnvironmentVariable("APPDATA");
+    if (appData.isEmpty()) {
+        return QString();
+    }
+    return QDir::cleanPath(appData + QStringLiteral("/.minecraft"));
+}
+
+QStringList FolderManager::reuseSourceFolders() const {
+    QStringList roots;
+    const auto appendUnique = [&roots](const QString &path) {
+        if (path.isEmpty() || !QFileInfo(path).isDir()) {
+            return;
+        }
+        const QString clean = QDir::cleanPath(path);
+        for (const QString &existing : roots) {
+            if (QDir::cleanPath(existing).compare(clean, Qt::CaseInsensitive) == 0) {
+                return;
+            }
+        }
+        roots.append(clean);
+    };
+    // 顺序有讲究：自带那份 + 用户添加的在前（用户自己挑的目录更可能是他常玩的那一份），
+    // 官方那一份垫后。
+    for (const QString &folder : folders()) {
+        appendUnique(folder);
+    }
+    appendUnique(officialLauncherFolder());
+    return roots;
 }
 
 QStringList FolderManager::folders() const {
@@ -372,6 +426,11 @@ bool FolderManager::deleteFolder(const QString &path, QString *error) {
         }
         return false;
     }
+    QString lockProblem;
+    if (!DirectorySessionLock::acquire(target, &lockProblem)) {
+        if (error) *error = lockProblem;
+        return false;
+    }
     // 盘上那个目录不存在（U 盘没插、已经被手工删掉）不算失败：列表里那一条照样要清掉。
     //
     // NOTE: 走的是 removeTreeWithoutFollowingLinks() 而**不是** QDir::removeRecursively()
@@ -410,6 +469,11 @@ void FolderManager::storeNames() {
 bool FolderManager::setCurrentFolder(const QString &path) {
     const QString target = normalized(path);
     if (target.isEmpty() || !QFileInfo(target).isDir() || !folders().contains(target)) {
+        return false;
+    }
+    QString lockProblem;
+    if (!DirectorySessionLock::acquire(target, &lockProblem)) {
+        emit directoryAccessDenied(lockProblem);
         return false;
     }
     if (target == m_current) {

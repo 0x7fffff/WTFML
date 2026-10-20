@@ -96,6 +96,7 @@ struct Info {
     int paletteSize = 0;    ///< 不同的方块状态数
     qint64 blockCount = 0;  ///< 非空气方块数（`countsComplete` 为假时是 0）
     bool countsComplete = false;  ///< 方块表解出来了没有
+    QList<BlockCount> blocks;     ///< 完整的非空气方块 ID 计数，按数量降序
     QList<BlockCount> topBlocks;  ///< 最多的前 `kTopBlockLimit` 种（降序）
 
     int dataVersion = 0;    ///< 0 = 文件里没写 / 读不出来

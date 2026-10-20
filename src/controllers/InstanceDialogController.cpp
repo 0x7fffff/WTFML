@@ -21,6 +21,12 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <QPointer>
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QLineEdit>
+#include <QDialogButtonBox>
+#include <QApplication>
+#include <QClipboard>
 #include <QSet>
 #include <atomic>
 #include <memory>
@@ -31,6 +37,7 @@
 #include "controllers/InstancePagesController.hpp"
 #include "controllers/InstanceEditorController.hpp"
 #include "controllers/InstanceIconController.hpp"
+#include "controllers/LaunchHistoryController.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "manage/FolderManager.hpp"
 #include "manage/InstanceFiles.hpp"
@@ -43,6 +50,75 @@
 #include "settings/GameWindowSettings.hpp"
 #include "settings/LauncherSettings.hpp"
 #include "schematic/SchematicInfo.hpp"
+
+namespace {
+void showSchematicDetails(OverlayHost *overlay, QWidget *parent, const QString &path) {
+    QDialog detail(parent);
+    detail.setObjectName(QStringLiteral("schematicDetailsDialog"));
+    detail.resize(720, 500);
+    auto *layout = new QVBoxLayout(&detail);
+    auto *summary = new QLabel(QObject::tr("正在读取原理图方块统计…"), &detail);
+    summary->setWordWrap(true);
+    layout->addWidget(summary);
+    auto *search = new QLineEdit(&detail);
+    search->setPlaceholderText(QObject::tr("搜索方块 ID，例如 minecraft:stone"));
+    search->setClearButtonEnabled(true);
+    layout->addWidget(search);
+    auto *table = new QTableWidget(0, 2, &detail);
+    table->setObjectName(QStringLiteral("schematicBlockCounts"));
+    table->setHorizontalHeaderLabels({QObject::tr("方块 ID"), QObject::tr("数量")});
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->verticalHeader()->hide();
+    table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    layout->addWidget(table, 1);
+    auto *buttons = new QDialogButtonBox(&detail);
+    auto *copy = buttons->addButton(QObject::tr("复制清单"), QDialogButtonBox::ActionRole);
+    auto *close = buttons->addButton(QObject::tr("关闭"), QDialogButtonBox::RejectRole);
+    copy->setEnabled(false);
+    QObject::connect(close, &QPushButton::clicked, &detail, &QDialog::reject);
+    QObject::connect(copy, &QPushButton::clicked, &detail, [table] {
+        QStringList lines{QStringLiteral("方块 ID\t数量")};
+        for (int row = 0; row < table->rowCount(); ++row)
+            if (!table->isRowHidden(row)) lines.append(table->item(row, 0)->text() + '\t' + table->item(row, 1)->text());
+        QApplication::clipboard()->setText(lines.join('\n'));
+    });
+    QObject::connect(search, &QLineEdit::textChanged, table, [table](const QString &text) {
+        for (int row = 0; row < table->rowCount(); ++row)
+            table->setRowHidden(row, !table->item(row, 0)->text().contains(text.trimmed(), Qt::CaseInsensitive));
+    });
+    layout->addWidget(buttons);
+    search->setEnabled(false);
+    auto *watcher = new QFutureWatcher<SchematicInfo::Info>(&detail);
+    QObject::connect(watcher, &QFutureWatcher<SchematicInfo::Info>::finished, &detail,
+        [watcher, summary, table, search, copy] {
+            const auto info = watcher->result();
+            watcher->deleteLater();
+            if (!info.ok || !info.countsComplete) {
+                summary->setText(QObject::tr("无法给出完整方块清单：%1").arg(
+                    info.problem.isEmpty() ? QObject::tr("方块数据未完整解析，不能把未知数量当成零。") : info.problem));
+                return;
+            }
+            summary->setText(QObject::tr("%1 × %2 × %3 · %4 种方块 ID · %5 个非空气方块\n同一 ID 的不同状态合并；不等同于生存模式所需物品数量。")
+                .arg(info.width).arg(info.height).arg(info.length).arg(info.blocks.size()).arg(info.blockCount));
+            table->setRowCount(info.blocks.size());
+            for (int row = 0; row < info.blocks.size(); ++row) {
+                const auto &block = info.blocks.at(row);
+                table->setItem(row, 0, new QTableWidgetItem(block.id));
+                auto *count = new QTableWidgetItem;
+                count->setData(Qt::DisplayRole, QVariant::fromValue(block.count));
+                table->setItem(row, 1, count);
+            }
+            table->setSortingEnabled(true);
+            table->sortItems(1, Qt::DescendingOrder);
+            search->setEnabled(true);
+            copy->setEnabled(true);
+        });
+    watcher->setFuture(QtConcurrent::run([path] { return SchematicInfo::read(path); }));
+    overlay->execPrompt(&detail, false);
+}
+}
 #include "replay/ReplayInfo.hpp"
 #include "diagnose/StartupDiagnosis.hpp"
 #include "operations/TransferApply.hpp"
@@ -253,6 +329,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                                   global, m_owner->m_versionManager->versionJvmArgs(versionId),
                                   !m_owner->m_versionManager->skipJavaVersionWarning(versionId),
                                   windowModeChoices(), m_owner);
+    dialog.setLastLaunch(LaunchHistory::lastStartedAt(m_owner->m_launchHistory->records(), versionId));
     connect(&dialog, &InstanceSettingsDialog::launchInstanceRequested, m_owner,
             [this, versionId]() {
                 QComboBox *combo = m_owner->m_ui->getInstalledVersionCombo();
@@ -380,6 +457,10 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
             schematics->setInfoPanelEnabled(true);
             if (!schematics->property("wtfmlSchematicInfoWired").toBool()) {
                 schematics->setProperty("wtfmlSchematicInfoWired", true);
+                connect(schematics, &InstanceFilesPage::infoDetailsRequested, schematics,
+                    [this](const QString &path) {
+                        showSchematicDetails(m_owner->m_ui->overlay(), m_owner, path);
+                    });
                 connect(
                     schematics, &InstanceFilesPage::infoRequested, schematics,
                     [this, schematics, &targetId](const QString &path) {
@@ -388,7 +469,11 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                             m_owner->m_versionManager->displayParts(targetId);
                         const QString targetVersion =
                             parts.realVersion.isEmpty() ? parts.id : parts.realVersion;
-                        const SchematicInfo::Info info = SchematicInfo::read(path);
+                        auto *reader = new QFutureWatcher<SchematicInfo::Info>(schematics);
+                        connect(reader, &QFutureWatcher<SchematicInfo::Info>::finished, schematics,
+                            [reader, schematics, path, targetVersion] {
+                        const auto info = reader->result();
+                        reader->deleteLater();
                         if (!info.ok) {
                             // 读失败也占着这一格（用户刚点的那一行，总得听到一句为什么）。
                             schematics->setInfoText(
@@ -398,6 +483,8 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                         schematics->setInfoText(path,
                                                 SchematicInfo::summaryText(info, targetVersion),
                                                 SchematicInfo::topBlocksText(info));
+                            });
+                        reader->setFuture(QtConcurrent::run([path] { return SchematicInfo::read(path); }));
                     });
             }
         }
@@ -1651,9 +1738,11 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     if (!ok) {
                         return;
                     }
-                    if (m_owner->importWorldInto(targetId, dir, name)) {
-                        dialog.refreshFilePages();
-                    }
+                    const QPointer<InstanceSettingsDialog> page(&dialog);
+                    m_owner->m_instanceTransferController->importWorldInBackground(
+                        targetId, dir, name, [page](bool success, const QString &) {
+                            if (success && page) page->refreshFilePages();
+                        });
                 });
 
         // ★ 顶上那颗「批量编辑」：**今天是个占位**（用户原话「这个先做占位」）。
@@ -1797,25 +1886,39 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                             /*destructive=*/true)) {
                         return;
                     }
-                    // **不能**用 `QDir::removeRecursively()`：实测它会跟着 junction / 符号
-                    // 链接走进目标目录（见 FolderManager.cpp 里那段）—— 把 saves 挂到网盘是
-                    // 常见做法，而这一颗点的是"删掉这个世界"。
-                    if (!removeTreeWithoutFollowingLinks(worldDir)) {
-                        InlineMessage::warning(
-                            m_owner->m_ui->overlay(), tr("删除失败"),
-                            tr("没能删掉「%1」：多半是它正被游戏（或者别的程序）占着。"
-                               "先把游戏关掉再试。")
-                                .arg(QDir::toNativeSeparators(worldDir)));
-                        return;
-                    }
-                    m_owner->appendLog(tr("删除世界：%1").arg(QDir::toNativeSeparators(worldDir)));
-                    // 世界没了 —— 这一页留着也没有对象了，收掉它，再把存档页重列一遍
-                    //（那一行现在指着一条不存在的目录）。
-                    dialog.closeWorldSettings();
-                    m_owner->m_worldDir.clear();
-                    m_owner->m_worldStampSize = 0;
-                    m_owner->m_worldStampMtimeMs = 0;
-                    dialog.refreshFilePages();
+                    // 删整棵目录树走后台（2026-10-20）：几百 MB 的世界删起来可能好几秒，
+                    // 不能把 UI 线程按住。**不能**用 `QDir::removeRecursively()`：实测它会
+                    // 跟着 junction / 符号链接走进目标目录（见 FolderManager.cpp 里那段）
+                    // —— 把 saves 挂到网盘是常见做法，而这一颗点的是"删掉这个世界"。
+                    //
+                    // NOTE: 删除**不提供取消**：删到一半停下留下的是半截世界，比删完更难
+                    //       收拾。控制器那一侧按 `TaskKind::Other` 记账（默认没有取消位）。
+                    // NOTE: 完成回调里的 `page` 用 `QPointer`：页面可以在这期间被关掉。
+                    const QPointer<InstanceSettingsDialog> page(&dialog);
+                    m_owner->m_instanceTransferController->deleteWorldInBackground(
+                        instanceId, worldDir,
+                        [this, page, worldDir](bool success, const QString &) {
+                            if (!success) {
+                                return;  // 失败提示控制器已经弹过
+                            }
+                            // 用户在这期间可能已经退回去、甚至点开了**别的**世界：只有
+                            // 这一层记的仍是删掉的那一个时才收页、清缓存，否则只重列一遍
+                            // 存档页（那一行现在指着一条不存在的目录）。
+                            const bool sameWorld = m_owner->m_worldDir == worldDir;
+                            if (sameWorld) {
+                                m_owner->m_worldDir.clear();
+                                m_owner->m_worldStampSize = 0;
+                                m_owner->m_worldStampMtimeMs = 0;
+                            }
+                            if (page == nullptr) {
+                                return;
+                            }
+                            if (sameWorld) {
+                                page->closeWorldSettings();
+                            } else {
+                                page->refreshFilePages();
+                            }
+                        });
                 });
 
         // ★ 「修改存档文件」那个折叠框（2026-09-29 新加）。用户原话：「修改文件的设置放在一个

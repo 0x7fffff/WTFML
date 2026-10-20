@@ -2,15 +2,20 @@
 
 #include "InlineMessage.hpp"
 #include "launcher/LauncherManager.hpp"
+#include "manage/FolderManager.hpp"
 #include "manage/InstanceFiles.hpp"
 #include "manage/VersionManager.hpp"
 #include "manage/WorldFiles.hpp"
 #include "util/AppPaths.hpp"
+#include "util/DirectorySessionLock.hpp"
 
 #include <QDir>
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrentRun>
+#include <QElapsedTimer>
+#include <atomic>
+#include <memory>
 
 #include <utility>
 
@@ -102,6 +107,10 @@ bool InstanceTransferController::copyInstance(const QString &sourceId,
         return false;
     }
     QString error;
+    if (!DirectorySessionLock::acquire(destGameFolder, &error)) {
+        InlineMessage::warning(m_overlay, tr("复制实例"), error);
+        return false;
+    }
     if (!m_versions->copyInstance(sourceId, destGameFolder, name, &error)) {
         InlineMessage::critical(m_overlay, tr("复制实例失败"), error);
         return false;
@@ -180,6 +189,11 @@ void InstanceTransferController::copyInstanceInBackground(
     }
 
     // ---------- 任务中心：规划 → 执行 → 验证 ----------
+    QString lockProblem;
+    if (!DirectorySessionLock::acquire(destGameFolder, &lockProblem)) {
+        failNow(tr("复制实例"), lockProblem);
+        return;
+    }
     const QList<Tasks::TaskStep> steps{
         Tasks::TaskStep{tr("规划：检查名字与目标文件夹"), Tasks::TaskStepState::Done, {}},
         Tasks::TaskStep{tr("执行：复制实例目录"), Tasks::TaskStepState::Running, {}},
@@ -332,6 +346,164 @@ bool InstanceTransferController::importWorld(const QString &instanceId,
     }
     log(tr("导入世界：%1 → %2").arg(QDir::toNativeSeparators(worldDir),
                                       QDir::toNativeSeparators(savesDir)));
+    return true;
+}
+
+void InstanceTransferController::importWorldInBackground(
+    const QString &instanceId, const QString &worldDir, const QString &name,
+    std::function<void(bool, const QString &)> whenDone) {
+    const auto reject = [this, &whenDone](const QString &problem) {
+        if (whenDone) whenDone(false, problem);
+        InlineMessage::warning(m_overlay, tr("导入世界失败"), problem);
+    };
+    if ((m_launcher && m_launcher->isVersionRunning(instanceId)) ||
+        (m_host.isBeingModified && m_host.isBeingModified(instanceId))) {
+        reject(tr("实例正在运行或处理文件，完成后再导入存档。"));
+        return;
+    }
+    const QString savesDir = m_host.instanceDirForKey
+        ? m_host.instanceDirForKey(instanceId, QStringLiteral("save")) : QString();
+    if (savesDir.isEmpty()) {
+        reject(tr("认不出这个实例的存档目录。"));
+        return;
+    }
+    // Kind::Import 而不是 Other：账本按种类给的默认能力位里只有三类能取消，
+    // 「导入世界」本来就是其中的一类 —— 手动取消那颗按钮（见 cancelTask()）靠它才露出来。
+    const auto task = m_host.beginTask
+        ? m_host.beginTask(Tasks::TaskKind::Import, tr("导入世界：%1").arg(name), instanceId,
+            {{tr("复制并验证世界"), Tasks::TaskStepState::Running, {}}})
+        : Tasks::invalidTaskId();
+    const auto state = std::make_shared<ImportState>();
+    if (task != Tasks::invalidTaskId()) m_importStates.insert(task, state);
+    if (m_host.setTaskDetail) m_host.setTaskDetail(task, tr("正在后台导入存档，请勿修改源世界。"));
+    if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(instanceId, true);
+    auto *watcher = new QFutureWatcher<CopyOutcome>(this);
+    connect(watcher, &QFutureWatcher<CopyOutcome>::finished, this,
+        [this, watcher, instanceId, savesDir, worldDir, name, task, state,
+         whenDone = std::move(whenDone)] {
+            const auto result = watcher->result();
+            watcher->deleteLater();
+            if (task != Tasks::invalidTaskId()) m_importStates.remove(task);
+            if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(instanceId, false);
+            // 「用户按了取消」只在**真的没做成**时才算数：复制已经完整跑完、发布也成功了，
+            // 那一下点晚了 —— 该报成功（存档确实在那儿），不能把它记成取消。
+            const bool cancelledByUser =
+                state->cancelledByUser.load(std::memory_order_relaxed) && !result.ok;
+            if (cancelledByUser) {
+                // 取消不是失败：账本收成 Cancelled（不亮红点），也不弹失败提示。
+                if (m_host.markTaskCancelled) m_host.markTaskCancelled(task);
+                log(tr("导入世界已取消：%1").arg(name));
+            } else {
+                if (m_host.setTaskStepState) m_host.setTaskStepState(task, 0,
+                    result.ok ? Tasks::TaskStepState::Done : Tasks::TaskStepState::Failed);
+                if (m_host.finishTask) m_host.finishTask(task, result.ok, result.error);
+            }
+            if (m_host.refreshInstances) m_host.refreshInstances();
+            if (result.ok) log(tr("导入世界：%1 → %2").arg(worldDir, savesDir));
+            if (whenDone) whenDone(result.ok, cancelledByUser ? tr("已取消，未发布存档。")
+                                                              : result.error);
+            if (!result.ok && !cancelledByUser)
+                InlineMessage::warning(m_overlay, tr("导入世界失败"), result.error);
+        });
+    // 不在 worker 读取 AppPaths / 当前实例选择，也不捕获控制器或页面。
+    const auto destroyed = connect(this, &QObject::destroyed, [state] {
+        state->abort.store(true, std::memory_order_relaxed);
+    });
+    connect(watcher, &QFutureWatcher<CopyOutcome>::finished, watcher, [destroyed] {
+        QObject::disconnect(destroyed);
+    });
+    watcher->setFuture(QtConcurrent::run([worldDir, savesDir, name, state] {
+        CopyOutcome result;
+        QElapsedTimer elapsed;
+        elapsed.start();
+        result.ok = WorldFiles::copyWorldInto(worldDir, savesDir, name, &result.error,
+            [&] {
+                return state->abort.load(std::memory_order_relaxed)
+                       || elapsed.elapsed() >= 600000;
+            });
+        return result;
+    }));
+}
+
+void InstanceTransferController::deleteWorldInBackground(
+    const QString &instanceId, const QString &worldDir,
+    std::function<void(bool, const QString &)> whenDone) {
+    const auto reject = [this, &whenDone](const QString &problem) {
+        if (whenDone) whenDone(false, problem);
+        InlineMessage::warning(m_overlay, tr("删除失败"), problem);
+    };
+    if (worldDir.isEmpty()) {
+        reject(tr("认不出要删除哪个世界。"));
+        return;
+    }
+    // ★ 用户确认那一问和真正开删之间隔着一次事件循环：这中间游戏可能刚被启动。
+    //   游戏退出（或者在游戏里存一次）的时候会把整个世界重新写一遍，而那时目录已经
+    //   没了 —— 所以和 `InstanceDialogController` 里那道闸同一条理由，这里**再查一次**。
+    if (!instanceId.isEmpty() && m_launcher && m_launcher->isVersionRunning(instanceId)) {
+        reject(tr("游戏正在运行，先关掉游戏再删这个世界。"));
+        return;
+    }
+    if (m_host.isBeingModified && m_host.isBeingModified(instanceId)) {
+        const QString who =
+            m_host.displayName ? m_host.displayName(instanceId) : instanceId;
+        reject(tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），"
+                  "等它结束之后再删这个世界。")
+                   .arg(who));
+        return;
+    }
+    const QString worldName = QFileInfo(worldDir).fileName();
+    // Kind::Other（不是 Import）：删除**不提供取消** —— 删到一半停下留下的是半截世界，
+    // 比删完更难收拾。Other 的默认能力位里本来就没有「取消」，和这里的语义对得上。
+    const auto task = m_host.beginTask
+        ? m_host.beginTask(Tasks::TaskKind::Other, tr("删除世界：%1").arg(worldName), instanceId,
+            {{tr("删除世界文件"), Tasks::TaskStepState::Running, {}}})
+        : Tasks::invalidTaskId();
+    if (m_host.setTaskDetail) m_host.setTaskDetail(task, tr("正在删除世界文件。"));
+    if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(instanceId, true);
+    auto *watcher = new QFutureWatcher<CopyOutcome>(this);
+    connect(watcher, &QFutureWatcher<CopyOutcome>::finished, this,
+        [this, watcher, instanceId, worldDir, task, whenDone = std::move(whenDone)] {
+            const auto result = watcher->result();
+            watcher->deleteLater();
+            if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(instanceId, false);
+            // 删不干净时的说法沿用原来那一句：用户要的是"为什么没删掉 + 接下来做什么"。
+            const QString error =
+                result.ok
+                    ? QString()
+                    : tr("没能删掉「%1」：多半是它正被游戏（或者别的程序）占着。"
+                         "先把游戏关掉再试。")
+                          .arg(QDir::toNativeSeparators(worldDir));
+            if (m_host.setTaskStepState) m_host.setTaskStepState(task, 0,
+                result.ok ? Tasks::TaskStepState::Done : Tasks::TaskStepState::Failed);
+            if (m_host.finishTask) m_host.finishTask(task, result.ok, error);
+            if (m_host.refreshInstances) m_host.refreshInstances();
+            log(result.ok ? tr("删除世界：%1").arg(QDir::toNativeSeparators(worldDir))
+                          : tr("删除世界失败：%1").arg(QDir::toNativeSeparators(worldDir)));
+            if (whenDone) whenDone(result.ok, error);
+            if (!result.ok) InlineMessage::warning(m_overlay, tr("删除失败"), error);
+        });
+    // 工人只碰路径：不读 AppPaths、不碰当前实例选择、不捕获控制器或页面。
+    watcher->setFuture(QtConcurrent::run([worldDir] {
+        CopyOutcome result;
+        // 不能换成 `QDir::removeRecursively()`：它会跟着 junction / 符号链接走进目标目录
+        //（见 FolderManager.cpp 里那段）。
+        result.ok = removeTreeWithoutFollowingLinks(worldDir);
+        return result;
+    }));
+}
+
+bool InstanceTransferController::canCancelTask(Tasks::TaskId id) const {
+    return id != Tasks::invalidTaskId() && m_importStates.contains(id);
+}
+
+bool InstanceTransferController::cancelTask(Tasks::TaskId id) {
+    const auto it = m_importStates.constFind(id);
+    if (it == m_importStates.cend()) {
+        return false;
+    }
+    // cancelledByUser 先落：工人看到 abort 就返回，收尾那一格读的就是这两位的先后。
+    (*it)->cancelledByUser.store(true, std::memory_order_relaxed);
+    (*it)->abort.store(true, std::memory_order_release);
     return true;
 }
 

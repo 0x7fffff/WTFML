@@ -321,6 +321,8 @@ public:
     static QString windowTitleText(const QString &instanceName);
     /// 顶上那行灰字。
     static QString hintText();
+    /// 挤掉过行时补在 `hintText()` 后面那一句；没挤掉回空串（两段之间由调用方补空格）。
+    static QString droppedHintText(int dropped, int capacity);
     static QString clearButtonText();
     static QString closeButtonText();
     /// 底下那两颗导出键（2026-09-28 加的，用户原话见文件头）。两颗都写成"带省略号"那种
@@ -486,6 +488,12 @@ private:
     void dropPendingFromView();
     /// 那一排按钮上的计数与勾重新对一遍。
     void updateFilterButtons();
+    /// 搜索框下面那行灰字：模型被行数上限挤掉过东西时补一句「更早的 N 行已经丢弃」。
+    ///
+    /// ★ 以前那句「上面还有 N 行被挤掉」只活在导出的错误报告里，界面上只说"最多保留
+    ///   20000 行"—— 用户看见的是一份**从中间开始**的日志，却没有任何一处告诉他前面
+    ///   少了多少。数就在 `m_model.droppedLineCount()` 里，这里只是把它摆出来。
+    void updateHintLabel();
     /// 五颗开关的样式表按**现在这一份调色板**重算一遍（构造函数和 `changeEvent()` 都走它）。
     void refreshFilterButtonStyles();
     /// 空的时候该说哪句话（"还没有输出"还是"都被筛掉了"）。

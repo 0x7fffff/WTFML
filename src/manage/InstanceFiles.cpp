@@ -9,6 +9,7 @@
 
 #include "InstanceFiles.hpp"
 
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -246,7 +247,30 @@ QString importMarkerPath(const QString &id) {
     return AppPaths::versionDir(id) + QStringLiteral("/wtfml.importing");
 }
 
-ImportNameVerdict checkImportTargetName(const QString &rawName, QString *problemOut) {
+QString importManifestFingerprint(const QByteArray &manifestJson) {
+    if (manifestJson.isEmpty()) {
+        return QString();
+    }
+    return QString::fromLatin1(
+        QCryptographicHash::hash(manifestJson, QCryptographicHash::Sha256).toHex());
+}
+
+QString importMarkerFingerprint(const QString &id) {
+    QFile marker(importMarkerPath(id));
+    if (!marker.open(QIODevice::ReadOnly)) {
+        return QString();
+    }
+    // 老版本留下的标记是一行 ISO 时间（不是 JSON）：解析失败 = 没有指纹。别把它当成
+    // "指纹对不上" —— 那会把升级前没导完的那一份锁死，用户只能删掉重下几百 MB。
+    const QJsonDocument doc = QJsonDocument::fromJson(marker.readAll());
+    if (!doc.isObject()) {
+        return QString();
+    }
+    return doc.object().value(QStringLiteral("manifestSha256")).toString();
+}
+
+ImportNameVerdict checkImportTargetName(const QString &rawName, QString *problemOut,
+                                        const QString &manifestFingerprint) {
     const QString problem = validateRenameTarget(rawName, QString());
     if (problem.isEmpty()) {
         if (problemOut != nullptr) {
@@ -264,6 +288,22 @@ ImportNameVerdict checkImportTargetName(const QString &rawName, QString *problem
     }
     const QString name = rawName.trimmed();
     if (isUnfinishedImport(name)) {
+        // ★ 2026-10-20：同名还不够，得是**同一个包**。上一次那趟把清单指纹写在了标记里；
+        //   这一趟的指纹和它对不上时不能接着下 —— 两个包的文件会混进一个目录（见 .hpp）。
+        //   任何一侧认不出指纹（老标记 / 调用方没给）就照旧放行，宁可少拦一次也不锁死
+        //   用户已经下到一半的那一份。
+        const QString recorded = importMarkerFingerprint(name);
+        if (!recorded.isEmpty() && !manifestFingerprint.isEmpty()
+            && recorded.compare(manifestFingerprint, Qt::CaseInsensitive) != 0) {
+            if (problemOut != nullptr) {
+                *problemOut = QStringLiteral(
+                    "「%1」里是上一次没导完的另一个整合包（那一份的清单和这一份对不上）。\n\n"
+                    "换一个名字导入不会碰它，已经下好的那些还留在原处。"
+                    "要接着导上一次那一份，请取消这一步，重新选中上一次那个整合包文件。")
+                    .arg(name);
+            }
+            return ImportNameVerdict::Taken;
+        }
         if (problemOut != nullptr) {
             problemOut->clear();
         }
@@ -565,11 +605,10 @@ static QString resolveJunctions(const QString &absPath, int guard) {
     return absPath;
 }
 
-bool pathIsSameOrInside(const QString &parent, const QString &candidate) {
+QString canonicalPath(const QString &p) {
     // 规范化：能解成真路径就解（解掉符号链接 / 8.3 短名 / 大小写那些别名），**再加一轮
     // junction**（canonicalFilePath 不管 junction，见上面那段）；解不了就退到 cleanPath +
     // absolutePath —— 见 .hpp 上那段 NOTE（判据不消失）。
-    const auto realPath = [](const QString &p) {
         if (p.isEmpty()) {
             return QString();
         }
@@ -588,9 +627,11 @@ bool pathIsSameOrInside(const QString &parent, const QString &candidate) {
         //   它只剩下把剩下的别名收干净这一件事。
         const QString normalized = QFileInfo(resolved).canonicalFilePath();
         return normalized.isEmpty() ? resolved : normalized;
-    };
-    QString a = realPath(parent);
-    QString b = realPath(candidate);
+}
+
+bool pathIsSameOrInside(const QString &parent, const QString &candidate) {
+    QString a = canonicalPath(parent);
+    QString b = canonicalPath(candidate);
     if (a.isEmpty() || b.isEmpty()) {
         return false;  // 空串不比（"没给路径"不是"包含"）
     }
@@ -613,6 +654,71 @@ bool pathIsSameOrInside(const QString &parent, const QString &candidate) {
     //       那种情况下把不相干的路径判成包含（Windows 上那种目录同源目录里是建不出来的，
     //       但网络盘/挂载点上未必）。
     return b.startsWith(a + QLatin1Char('/'));
+}
+
+QStringList migrateInstanceCacheDirs(const QString &oldId, const QString &newId,
+                                     const QStringList &roots, int *movedOut) {
+    if (movedOut != nullptr) {
+        *movedOut = 0;
+    }
+    QStringList problems;
+    const auto badName = [](const QString &id) {
+        return id.isEmpty() || id == QStringLiteral(".") || id == QStringLiteral("..")
+            || id.contains(QLatin1Char('/')) || id.contains(QLatin1Char('\\'));
+    };
+    // 名字都是先过 validateDirName()／validateRenameTarget() 的；这里再挡一次纯属自卫 ——
+    // 下面拿它拼路径，空串拼出来是**根目录本身**，那会把整个 cache 根当成一个格子搬走。
+    if (badName(oldId) || badName(newId)) {
+        problems.append(QStringLiteral("缓存备份没有搬：%1 → %2 里有一个不能当目录名用。")
+                            .arg(oldId, newId));
+        return problems;
+    }
+    if (oldId == newId) {
+        return problems;
+    }
+
+    int moved = 0;
+    for (const QString &rawRoot : roots) {
+        const QString root = rawRoot.trimmed();
+        if (root.isEmpty()) {
+            continue;
+        }
+        const QDir dir(root);
+        const QString from = dir.filePath(oldId);
+        const QString to = dir.filePath(newId);
+        // 只差大小写：Windows 上两边是同一个目录，新名字本来就能直接看见它，搬是空操作。
+        // （真正把目录名大小写改过来的是实例目录那一步，cache 这里不掺和。）
+        if (from.compare(to, Qt::CaseInsensitive) == 0) {
+            continue;
+        }
+        const QFileInfo fromInfo(from);
+        if (!fromInfo.exists()) {
+            continue;  // 没备份过（绝大多数实例都是这样）
+        }
+        if (!fromInfo.isDir() || fromInfo.isSymLink() || fromInfo.isJunction()) {
+            problems.append(QStringLiteral("缓存备份没有搬：%1 不是一个普通目录。")
+                                .arg(QDir::toNativeSeparators(from)));
+            continue;
+        }
+        // 目标格子已经有东西：不合并（见头文件那条 —— 两边的"第 N 代"没法排先后）。
+        if (QFileInfo::exists(to)) {
+            problems.append(QStringLiteral("缓存备份没有搬：%1 里已经有另一个格子叫「%2」，"
+                                           "旧的那一份留在原处。")
+                                .arg(QDir::toNativeSeparators(root), newId));
+            continue;
+        }
+        if (!QDir().rename(from, to)) {
+            problems.append(QStringLiteral("缓存备份没有搬：%1 改不成 %2（可能有别的程序正开着它）。")
+                                .arg(QDir::toNativeSeparators(from),
+                                     QDir::toNativeSeparators(to)));
+            continue;
+        }
+        ++moved;
+    }
+    if (movedOut != nullptr) {
+        *movedOut = moved;
+    }
+    return problems;
 }
 
 bool pathHasLinkComponent(const QString &root, const QString &relativePath) {

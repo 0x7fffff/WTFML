@@ -217,11 +217,39 @@ bool TaskManager::finish(TaskId id, TaskState state, const QString &errorSummary
     task->capabilities.canCancel = false;
     task->capabilities.canPause = false;
     task->doneUnits = (state == TaskState::Succeeded) ? task->totalUnits : task->doneUnits;
+    pruneFinished();
     saveHistory();
     emit taskChanged(id);
     emit taskFinished(id, state == TaskState::Succeeded);
     emit historyChanged();
     return true;
+}
+
+void TaskManager::pruneFinished() {
+    // 和 saveHistory() 用同一把尺子（`finishedNewerFirst`）：活着的一律留着，
+    // 终态里超出上限的那些挑**最旧的**丢。不排序就按插入顺序丢的话，同一毫秒里
+    // 收掉的一批（批量下载）丢掉的是"并列里的任意一条"，和落盘那份对不上。
+    QList<TaskSnapshot> finishedTasks;
+    finishedTasks.reserve(m_tasks.size());
+    for (const TaskSnapshot &task : m_tasks) {
+        if (isTerminalState(task.state)) {
+            finishedTasks.append(task);
+        }
+    }
+    const int limit = finishedHistoryLimit();
+    if (finishedTasks.size() <= limit) {
+        return;
+    }
+    std::sort(finishedTasks.begin(), finishedTasks.end(), finishedNewerFirst);
+    QSet<TaskId> drop;
+    for (int i = limit; i < finishedTasks.size(); ++i) {
+        drop.insert(finishedTasks.at(i).id);
+    }
+    m_tasks.erase(std::remove_if(m_tasks.begin(), m_tasks.end(),
+                                 [&drop](const TaskSnapshot &task) {
+                                     return drop.contains(task.id);
+                                 }),
+                  m_tasks.end());
 }
 
 bool TaskManager::succeed(TaskId id) {

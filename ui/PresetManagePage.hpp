@@ -273,6 +273,7 @@ private:
     static QString comboInstanceId(const QComboBox *combo);
 
     QListWidget *m_presetList = nullptr;
+    QLineEdit *m_searchEdit = nullptr;
     /// 类别筛选那一排 chip 所在的那一格（每次 `setCategories()` 整片重建）。
     QWidget *m_filterRow = nullptr;
     QGridLayout *m_filterLayout = nullptr;

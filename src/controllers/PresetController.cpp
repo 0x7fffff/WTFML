@@ -378,6 +378,7 @@ QString PresetController::captureNoteFor(Presets::PresetCategory category) {
     case Presets::PresetCategory::ResourcePacks:
         return QStringLiteral("「资源包」预设只收资源包 / 光影包这一类文件。");
     case Presets::PresetCategory::Mods:
+        return QStringLiteral("模组预设请使用“编辑模组清单”添加平台项目，当前不从实例提取本地 JAR。");
     case Presets::PresetCategory::DataPacks:
         return QStringLiteral("这一类只收各个存档的 datapacks/；目标上没有同名存档时先记成「待应用」。");
     }
@@ -1529,6 +1530,7 @@ void PresetController::installModsAfterInstall(const QStringList &presetIds, con
     m_versions->instanceLoaderInfo(instanceId, &loader, &loaderVersion);
     auto *task = new Presets::PresetModInstaller(this);
     task->setSelectionSnapshot(snapshot);
+    task->setInstanceIdentityKey(instanceId);
     m_modInstallTask = task;
     // ★ 2026-10-19：这一趟要联网查版本、下模组、往 `mods/` 里写文件，可原来**没有任何
     //   "忙"标记** —— 用户在预设页按下「应用」之后，照样能启动这一份实例（启动器读到的

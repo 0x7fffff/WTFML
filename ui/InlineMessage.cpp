@@ -459,8 +459,26 @@ int ask(OverlayHost *host, MessageKind kind, const QString &title, const QString
         return -1;
     }
     if (host->promptOpen()) {
-        // 提示叠提示不做（见 OverlayHost::openPrompt 里那段）。这一条比上面那条更少见，
-        // 但一样**不许静默吞掉**：调用方拿到的是"什么都没选"，而那和"用户按了 Esc"分不开 ——
+        // ★ 2026-10-20：纯报信的那一档（一颗按钮都没给 —— `warning()` / `information()` /
+        //   `critical()` 全走这儿）**排着，不当场丢**。后台任务收尾最常撞上这一格：用户
+        //   正开着一个「要不要…」的提示，下载失败那句话原来只留一行 qWarning 就没了。
+        //   它不向调用方要答案，晚一步弹出来不改变任何语义。
+        //
+        //   要人回答的提示**仍然不叠**（见 OverlayHost::openPrompt 里那段）：排队会让
+        //   调用方从"阻塞到用户答"变成"立刻拿到一个空答案"，那是另一个问题。
+        if (buttons.isEmpty()) {
+            const QPointer<OverlayHost> guard(host);
+            if (host->queueNotification([guard, kind, title, text, buttons, defaultIndex,
+                                         destructiveIndex, dismissOnOutsideClick, note] {
+                    if (guard) {
+                        ask(guard, kind, title, text, buttons, defaultIndex, destructiveIndex,
+                            dismissOnOutsideClick, note);
+                    }
+                })) {
+                return -1;
+            }
+        }
+        // 不许静默吞掉：调用方拿到的是"什么都没选"，而那和"用户按了 Esc"分不开 ——
         // 所以至少要在日志里留下痕迹，不然"那条下载失败的消息去哪了"没法查。
         qWarning("InlineMessage: 已经有一条提示开着，这一条没有显示（%s）",
                  qUtf8Printable(title));

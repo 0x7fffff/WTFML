@@ -29,6 +29,10 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/net/HttpClient.cpp
     ${REPO_ROOT}/src/net/HttpClient.hpp
     ${REPO_ROOT}/src/download/DownloadManager.cpp
+    # 「从别的游戏文件夹里借文件」（2026-10-20）：DownloadManager 现在会调它
+    # （来源为空 = 一个文件都不看）。纯值进结论出那一层直接编进 verify 逐格念。
+    ${REPO_ROOT}/src/download/LocalFileReuse.cpp
+    ${REPO_ROOT}/src/download/LocalFileReuse.hpp
     ${REPO_ROOT}/src/download/ResumableDownload.cpp
     ${REPO_ROOT}/src/download/ResumableDownload.hpp
     ${REPO_ROOT}/src/download/DownloadManager.hpp
@@ -153,6 +157,7 @@ set(PROJECT_SOURCES
     # optional 只列不下、embedded 无视、incompatible 挡住、替代项目不确认就不换、
     # 落盘大小/sha1 校验。全拿手搭的假答复，**一条都不用联网**。
     ${REPO_ROOT}/src/presets/ModInstallPlan.cpp
+    ${REPO_ROOT}/src/presets/InstalledModInventory.cpp
     ${REPO_ROOT}/src/presets/ModInstallPlan.hpp
     # 模组预设的兼容检查（2026-10-18，coding plan §6.0 P2 / §7.2）：本地筛选、去重、
     # 有限并发、generation 隔离、缓存命中/过期、超时 ⇒ `Unknown` —— 全部拿假提供方

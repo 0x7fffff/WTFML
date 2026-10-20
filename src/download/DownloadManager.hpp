@@ -34,8 +34,10 @@
 
 #include "DownloadConcurrency.hpp"  // 「同时最多下几个」那四档（§9.2，唯一出处）
 #include "DownloadSpeedLimit.hpp"   // 「下载速度上限」那几档（§9.2，唯一出处）
+#include "LocalFileReuse.hpp"       // 「从别的游戏文件夹里借一个一模一样的文件」（2026-10-20）
 
 class QTimer;
+class QThreadPool;
 class StreamedFile;
 class ResumableDownload;
 
@@ -107,6 +109,10 @@ enum class VerifyMode {
  *   · `skipped` —— 问过盘、本来就好好的那几个。**不进 total**：它们的字节一个都没动，算进
  *     分母只会让进度条在开跑那一瞬间就满、收尾时又读成"n 个里面 n-1 个已存在"。它不是
  *     "这一批做了什么"，是"这一批省下了什么"，只在收尾那句话里报一个数。
+ *   · `reused` —— 目标本来不在，但**别的游戏文件夹里有一份一模一样的**（2026-10-20）。
+ *     同样**不进 total**：它没走网络，进度条上也不该占一格；收尾那句话单独报一个数。
+ *     判据比 `skipped` 严：`SizeAndSha1` 那一档要求来源的字节数 + SHA-1 都对得上，
+ *     `Exists` 那一档和盘上资源对象一个信任级别（文件名就是 SHA-1，不重算哈希）。
  *   · 资源索引（`assets/indexes/<id>.json`）**两边都不算**：它每次都要重取（是"清单"不是
  *     "文件"，见 downloadAssets），让它占一格的话，一个什么都没缺的实例点补全也会报
  *     "下载了 1 个"。
@@ -116,6 +122,7 @@ struct DownloadStats {
     int done = 0;     // 其中已结束的（成功、失败都算）
     int failed = 0;   // 其中失败的
     int skipped = 0;  // 因为文件已存在而跳过的（**不在 total 里**）
+    int reused = 0;   // 从别的游戏文件夹硬链接 / 复制过来的（**不在 total 里**）
     QStringList failedPaths;  // 失败文件的完整路径，比 40 位哈希文件名可读
 };
 
@@ -564,6 +571,23 @@ public:
                       VerifyMode mode = VerifyMode::SizeAndSha1,
                       const QString &officialUrl = QString(), const DownloadRange &range = DownloadRange());
     void setAllowOverwrite(bool allow) { m_allowOverwrite = allow; }
+
+    /// ◆ 允许从哪些游戏文件夹里"借"现成文件（2026-10-20）。
+    ///
+    /// 用户原话：「下载新版本的时候（甚至在全新文件夹里下载新东西的时候）复用其它 mc
+    /// 文件夹/版本的文件以减少等待时间」；同时限定「文件夹的使用仅限用户添加了的和官方
+    /// 启动器默认文件夹（如果存在），不要全盘扫描」。
+    ///
+    /// 这里传进来的就是**全部**可用的根，`DownloadManager` 自己不扫盘、不猜路径 —— 传空 =
+    /// 关掉复用（默认就是空）。`VersionManager` 在切换游戏文件夹 / 文件夹列表变化时推过来
+    /// （见 `FolderManager::reuseSourceFolders()`），当前文件夹自己会被跳过。
+    ///
+    /// NOTE: 只借有 SHA-1 的文件。没有 SHA-1 的那种（加载器安装器）跨文件夹"同名"不代表
+    ///       "同内容"，借过来等于把一份来源不明的文件当成官方的。
+    /// NOTE: `VerifyMode::AlwaysDownload` 与体检点名的那几条（`setFlaggedPaths()`）**不借**：
+    ///       它们的存在意义就是"盘上那份不算数、重新拿一次"，从本机再拷一份同样不算数。
+    void setReuseSourceFolders(const QStringList &folders) { m_reuseSourceFolders = folders; }
+    QStringList reuseSourceFolders() const { return m_reuseSourceFolders; }
     /// 分段下载的续传缓存根目录。空 = `DownloadCache::root()`（正式缓存）；测试用它指向
     /// 临时目录，避免把用例的残留留在用户缓存里。
     void setRangeCacheRoot(const QString &root) { m_rangeCacheRoot = root; }
@@ -820,6 +844,44 @@ private:
     };
     QQueue<PendingJob> m_pendingJobs;
 
+    // ------------------------------------------------------------------
+    // 「从别的游戏文件夹里借文件」（2026-10-20，见 setReuseSourceFolders()）
+    // ------------------------------------------------------------------
+    /// 一条**还在盘上找来源**的作业。它既没占网络连接、也**还没计进 m_totalJobs** ——
+    /// 借成功就计进 m_reusedJobs（不进分母），借不到再退回 PendingJob 那条路，那时候才
+    /// 计进 m_totalJobs。所以队列里每一条对进度条分母的影响都是"还没定"。
+    ///
+    /// NOTE: 和 PendingJob 一样把 url / officialUrl 带上：借不到的那一瞬间要能原样退回网络，
+    ///       而那时候调用方（VersionManager）早就走远了。
+    struct ReuseJob {
+        QString url;
+        QString destinationPath;
+        /// 目标在**当前**游戏文件夹里的相对路径（`LocalFileReuse::relativePathWithin()` 的结果）。
+        /// 候选来源是按它拼出来的，见 `candidatePaths()`。
+        QString relativePath;
+        QString expectedSha1;
+        qint64 expectedSize = -1;
+        VerifyMode mode = VerifyMode::SizeAndSha1;
+        QString officialUrl;
+    };
+    QQueue<ReuseJob> m_reuseQueue;
+    /// 允许借文件的根（见 setReuseSourceFolders()）。空 = 这个功能关着。
+    QStringList m_reuseSourceFolders;
+    /// 借文件专用的线程池。**不能**用 QThreadPool::globalInstance()：那儿还跑着别的活，
+    /// 而且几千个作业同时往里丢会把全局池的排队人数撑爆（哈希是大文件、一次几百毫秒）。
+    QThreadPool *m_reusePool = nullptr;
+    /// 正在后台找来源 / 落盘的作业数。isBusy() 与 checkAllDownloadsFinished() 都要算上它，
+    /// 否则借文件那一段会被当成"这一批已经下完了"。
+    int m_reuseActive = 0;
+    /// 这一批借成功了多少个（见 DownloadStats::reused）。
+    int m_reusedJobs = 0;
+    /// 取消令牌：beginBatch / 取消 / 放弃 / 析构都换一个新的，旧的那个置真。
+    /// 后台作业只读它（复制循环每个 1 MiB 块看一次），换新 = 让旧作业尽快收手。
+    QSharedPointer<std::atomic_bool> m_reuseCancel;
+    /// 借文件那条线的代次。**和 m_batchGeneration 分开**：纯值层（LocalFileReuse）的用例
+    /// 不走 beginBatch，而借文件的结果要能单独作废（见 clearReuseJobs()）。
+    quint64 m_reuseGeneration = 0;
+
     /// 一个正在跑的安全分段作业。它没有 QNetworkReply（内部由 ResumableDownload 用自己的
     /// DownloadManager 发最多 4 条 Range 请求），所以**不计进 pendingDownloads**；全局并发
     /// 额度按"一个作业槽"算，batch 收尾 / isBusy() 必须把这张表也算上。
@@ -1017,6 +1079,25 @@ private:
     /// 把队列里排着的作业发出去，直到连接用完（判据 = mayIssueAnotherDownload() 加
     /// mayIssueAnotherDownloadToHost()）。
     void pumpDownloadQueue();
+
+    /// 把一条作业真正交给网络：计进 m_totalJobs、算出主机与"要不要分段"，排进
+    /// m_pendingJobs，再泵一次。
+    ///
+    /// `scheduleFile()` 与"借文件没借到、退回网络"（onReuseFinished）共用这一处 ——
+    /// 两条路的记账必须一模一样，否则用户会看到"总数比实际下载数少一个"这种账。
+    void queueNetworkJob(const QString &url, const QString &destinationPath,
+                         const QString &expectedSha1, qint64 expectedSize,
+                         const QString &officialUrl, const DownloadRange &range);
+
+    /// 往后台池里丢新作业，直到 m_reuseActive 到 4 条。
+    void pumpReuseQueue();
+    /// 一条借文件作业的结账（主线程）：成功记 reused，失败退回网络（见 .cpp）。
+    void onReuseFinished(const ReuseJob &job, LocalFileReuse::Method method, const QString &error);
+    /// 把排着队的借文件作业全部丢掉，并让已经在跑的那些尽快收手（换一个取消令牌）。
+    ///
+    /// 什么时候调：beginBatch（新一批不继承上一批的）、abandonBatch / cancelBatch、析构。
+    /// **不**改 m_reuseActive：那几条还在池子里跑，它们回来时会自己减掉。
+    void clearReuseJobs();
     /// 把一个**已经在途过**的作业放回队列**最前面**（重试 / 换源 / 补投都走这里）。
     ///
     /// 为什么不 `enqueue()` 到队尾：一条重试排在几千个还没发过的资源对象后面，等于

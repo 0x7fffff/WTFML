@@ -17,6 +17,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <functional>
 
 class LauncherSettings;
 
@@ -57,7 +58,8 @@ bool removeTreeWithoutFollowingLinks(const QString &path);
 /// NOTE: 和 removeTreeWithoutFollowingLinks 一样，它声明在头文件里、实现留在 .cpp（那边
 ///       有更细的注释）。两个调用者（VersionManager::copyInstance、WorldFiles 那条路）
 ///       都只想要"把一棵目录树拷成新的一份"，和文件夹列表没关系。
-bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to);
+bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to,
+                                   const std::function<bool()> &cancelled = {});
 
 class FolderManager : public QObject {
     Q_OBJECT
@@ -86,6 +88,29 @@ public:
      * @param path 待判定的路径（内部会先归一化，所以写法不同也能认出来）。
      */
     static bool isDefaultFolder(const QString &path);
+
+    /**
+     * @brief 官方启动器（Mojang 那个）默认用的那一份 .minecraft。
+     * @return `%APPDATA%\.minecraft`；APPDATA 没定义时返回空串。
+     *
+     * NOTE: 只看**这一个**约定位置，不看盘上还有没有别的（更不扫盘）。存在与否由
+     *       `reuseSourceFolders()` 判 —— 这个函数只负责把路径说出来。
+     */
+    static QString officialLauncherFolder();
+
+    /**
+     * @brief 下载时可以"从里面借现成文件"的那些根目录（2026-10-20）。
+     * @return 存在的那些目录：`folders()` 里在盘上的 + `officialLauncherFolder()`（存在时）。
+     *         当前在用的那一份也在里面 —— `DownloadManager` 自己会跳过它。
+     *
+     * 用户原话：「文件夹的使用仅限用户添加了的和官方启动器默认文件夹（如果存在），
+     * 不要全盘扫描」。所以这个函数就是"允许的来源"的**唯一出处**：不在这里的目录，
+     * 下载逻辑永远不会去看。
+     *
+     * NOTE: 结果会去重（不区分大小写）。官方那一份很可能**就是**用户添加过的那一份，
+     *       同一个目录出现两次只是让每一次候选检查白做一遍。
+     */
+    QStringList reuseSourceFolders() const;
 
     /**
      * @brief 全部可选根目录。
@@ -193,6 +218,7 @@ signals:
     void foldersChanged();
     /// 当前根目录变了 —— 界面据此切 AppPaths 并重灌所有跟路径有关的东西。
     void currentFolderChanged(const QString &path);
+    void directoryAccessDenied(const QString &problem);
 
 private:
     /// 把用户输入/盘上读来的路径归一化成可比对的形式：绝对路径 + cleanPath；

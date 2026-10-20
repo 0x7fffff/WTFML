@@ -31,6 +31,9 @@ namespace {
 // 官方哪天换了贴图布局，这里不会悄悄跟着变。
 const QString kSha1 = QStringLiteral("a7e5a6024bfd3cd614625aa05629adf760020304");
 constexpr qint64 kBytes = 28335587;
+/// 后台读归档的总预算。**唯一出处**：工人循环的判据和析构里等它的时长都读它 ——
+/// 两边写死两个数（90 秒 / 40 秒）时，析构会在工人还在跑的时候返回，见析构那段 NOTE。
+constexpr int kLoadBudgetMs = 90000;
 const QUrl kClient(QStringLiteral("https://piston-data.mojang.com/v1/objects/") + kSha1 + QStringLiteral("/client.jar"));
 
 /// 这个版本（顺着 inheritsFrom 往上）是什么时候发布的 —— 给候选排序用。
@@ -94,7 +97,15 @@ ArmorTrimPreviewController::ArmorTrimPreviewController(ToolboxPage *page, Overla
 
 ArmorTrimPreviewController::~ArmorTrimPreviewController() {
     shutdown();
-    if (m_worker) m_worker->wait(40000); // extraction itself is bounded to 38 seconds
+    // ★ 2026-10-20：等多久必须跟工人自己的上限**对齐**。工人那段循环的判据是
+    //   `timer.elapsed() > kLoadBudgetMs`（90 秒），这里原来只等 40 秒 —— 关掉工具箱
+    //   时如果正好卡在最后一份归档的读取上，析构会在工人还在跑的时候返回，QThread
+    //   对象随后被 deleteLater 掉（或者进程退出时被丢掉），那句
+    //   "Destroyed while thread is still running" 就是这么来的。
+    //   多给 5 秒让 finished 信号和 deleteLater 走完。
+    if (m_worker) {
+        m_worker->wait(kLoadBudgetMs + 5000);
+    }
 }
 
 void ArmorTrimPreviewController::shutdown() {
@@ -167,7 +178,7 @@ void ArmorTrimPreviewController::load(const QStringList &archives,bool verifyCac
     auto *worker=QThread::create([result,archives,verifyCache] {
         QElapsedTimer timer; timer.start();
         for(const auto &archive:archives) {
-            if(QThread::currentThread()->isInterruptionRequested() || timer.elapsed()>90000) break;
+            if(QThread::currentThread()->isInterruptionRequested() || timer.elapsed() > kLoadBudgetMs) break;
             if(verifyCache) {
                 QFile file(archive); QCryptographicHash hash(QCryptographicHash::Sha1);
                 bool valid=QFileInfo(file).size()==kBytes && file.open(QIODevice::ReadOnly);

@@ -107,6 +107,13 @@ void PresetManagePage::buildUi() {
     m_filterLayout->setVerticalSpacing(6);
     leftLayout->addWidget(m_filterRow);
 
+    m_searchEdit = new QLineEdit(left);
+    m_searchEdit->setObjectName(QStringLiteral("presetSearchEdit"));
+    m_searchEdit->setPlaceholderText(tr("搜索名称或说明"));
+    m_searchEdit->setClearButtonEnabled(true);
+    leftLayout->addWidget(m_searchEdit);
+    connect(m_searchEdit, &QLineEdit::textChanged, this, [this] { rebuildPresetList(QString(), true); });
+
     m_presetList = new QListWidget(left);
     m_presetList->setObjectName(presetListName());
     m_presetList->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -144,7 +151,7 @@ void PresetManagePage::buildUi() {
     m_defaultButton->setObjectName(defaultButtonName());
     m_defaultButton->setAutoDefault(false);
     m_defaultButton->setToolTip(
-        QStringLiteral("安装实例时可以默认选它。同一时间只有一份是默认项。"));
+        QStringLiteral("安装实例时优先选中这一份。当前只有一个全局默认项，安装时仍可按类别调整选择。"));
     m_deleteButton = new QPushButton(QStringLiteral("删除"), left);
     m_deleteButton->setObjectName(deleteButtonName());
     m_deleteButton->setAutoDefault(false);
@@ -278,9 +285,22 @@ void PresetManagePage::buildUi() {
     });
 
     // ---------- 从实例提取 ----------
-    rightLayout->addWidget(makeSectionTitle(QStringLiteral("从实例提取"), right));
+    auto *captureToggle = new QPushButton(tr("从已有实例提取…"), right);
+    captureToggle->setObjectName(QStringLiteral("presetCaptureToggle"));
+    captureToggle->setCheckable(true);
+    captureToggle->setAutoDefault(false);
+    Theme::markButton(captureToggle, Theme::ButtonKind::Neutral);
+    rightLayout->addWidget(captureToggle, 0, Qt::AlignLeft);
+    auto *captureBody = new QWidget(right);
+    captureBody->setObjectName(QStringLiteral("presetCaptureBody"));
+    auto *captureLayout = new QVBoxLayout(captureBody);
+    captureLayout->setContentsMargins(0, 0, 0, 0);
+    rightLayout->addWidget(captureBody);
+    captureBody->hide();
+    connect(captureToggle, &QPushButton::toggled, captureBody, &QWidget::setVisible);
 
     auto *captureGrid = new QGridLayout;
+    captureGrid->setObjectName(QStringLiteral("presetCaptureGrid"));
     captureGrid->setContentsMargins(0, 0, 0, 0);
     captureGrid->setHorizontalSpacing(12);
     captureGrid->setVerticalSpacing(6);
@@ -333,7 +353,7 @@ void PresetManagePage::buildUi() {
                             "「待应用」摆着 —— 不新建存档，也不冒充已经在游戏里启用。"),
              false, &m_captureDataPacks);
     captureGrid->setColumnStretch(3, 1);
-    rightLayout->addLayout(captureGrid);
+    captureLayout->addLayout(captureGrid);
 
     auto *captureRow = new QHBoxLayout;
     captureRow->setContentsMargins(0, 0, 0, 0);
@@ -343,12 +363,12 @@ void PresetManagePage::buildUi() {
     m_captureInstanceCombo->setObjectName(captureInstanceComboName());
     m_captureInstanceCombo->setMinimumWidth(220);
     captureRow->addWidget(m_captureInstanceCombo, 1);
-    rightLayout->addLayout(captureRow);
+    captureLayout->addLayout(captureRow);
 
     auto *captureButtons = new QHBoxLayout;
     captureButtons->setContentsMargins(0, 0, 0, 0);
     captureButtons->setSpacing(8);
-    m_captureButton = new QPushButton(QStringLiteral("收进这一份预设"), right);
+    m_captureButton = new QPushButton(QStringLiteral("更新当前预设"), right);
     m_captureButton->setObjectName(captureButtonName());
     m_captureButton->setAutoDefault(false);
     m_captureButton->setToolTip(
@@ -366,7 +386,7 @@ void PresetManagePage::buildUi() {
     Theme::markButton(m_captureAsNewButton, Theme::ButtonKind::Neutral);
     captureButtons->addWidget(m_captureAsNewButton);
     captureButtons->addStretch(1);
-    rightLayout->addLayout(captureButtons);
+    captureLayout->addLayout(captureButtons);
 
     connect(m_captureButton, &QPushButton::clicked, this, [this] {
         const QString presetId = currentPresetId();
@@ -390,7 +410,7 @@ void PresetManagePage::buildUi() {
     auto *applyRow = new QHBoxLayout;
     applyRow->setContentsMargins(0, 0, 0, 0);
     applyRow->setSpacing(8);
-    applyRow->addWidget(new QLabel(QStringLiteral("落到这个实例"), right));
+    applyRow->addWidget(new QLabel(QStringLiteral("目标实例"), right));
     m_applyInstanceCombo = new QComboBox(right);
     m_applyInstanceCombo->setObjectName(applyInstanceComboName());
     m_applyInstanceCombo->setMinimumWidth(220);
@@ -483,7 +503,9 @@ void PresetManagePage::rebuildPresetList(const QString &selectId, bool emitSelec
     int firstSelectable = -1;
     for (const PresetItem &preset : m_presets) {
         // 本地筛：只认类别钥匙逐字相等；「全部」那一档不筛。
-        if (!m_filterKey.isEmpty() && preset.categoryKey != m_filterKey) {
+        if ((!m_filterKey.isEmpty() && preset.categoryKey != m_filterKey) ||
+            (!m_searchEdit->text().trimmed().isEmpty() &&
+             !(preset.name + QLatin1Char(' ') + preset.description).contains(m_searchEdit->text().trimmed(), Qt::CaseInsensitive))) {
             continue;
         }
         auto *item = new QListWidgetItem(m_presetList);
@@ -540,6 +562,9 @@ void PresetManagePage::rebuildPresetList(const QString &selectId, bool emitSelec
         m_descriptionEdit->clear();
         m_presetMeta->clear();
         m_sectionList->clear();
+        m_presetMeta->setText(m_presets.isEmpty()
+            ? tr("先选择左侧类别并新建预设，再编辑内容或从已有实例提取。")
+            : tr("没有匹配的预设，请调整类别或清空搜索。"));
     }
     refreshActions();
 
@@ -632,6 +657,7 @@ void PresetManagePage::setCaptureCheckEnabled(QCheckBox *box, quint32 bit, quint
         box->setChecked(false);
     }
     box->setEnabled(allowed && !m_busy);
+    box->setVisible(allowed);
     QString tip = m_captureTips.value(box, box->toolTip());
     if (!allowed && !note.isEmpty()) {
         tip += QStringLiteral("\n%1").arg(note);
@@ -652,6 +678,11 @@ void PresetManagePage::setCaptureAvailability(quint32 mask, const QString &note)
     setCaptureCheckEnabled(m_captureMalilib, CaptureMalilib, mask, note);
     setCaptureCheckEnabled(m_captureMalilibValues, CaptureMalilibValues, mask, note);
     setCaptureCheckEnabled(m_captureDataPacks, CaptureDataPacks, mask, note);
+    if (auto *toggle = findChild<QPushButton *>(QStringLiteral("presetCaptureToggle"))) {
+        toggle->setVisible(mask != 0);
+        if (auto *body = findChild<QWidget *>(QStringLiteral("presetCaptureBody")))
+            body->setVisible(mask != 0 && toggle->isChecked());
+    }
     refreshCaptureEnabled();
 }
 
@@ -671,8 +702,7 @@ void PresetManagePage::showPreset(const QString &id, const QString &name,
 
     m_sectionList->clear();
     if (sections.isEmpty()) {
-        auto *item = new QListWidgetItem(QStringLiteral("这一份还是空的 —— 用它下面的"
-                                                        "「从实例提取」收一份进来。"),
+        auto *item = new QListWidgetItem(tr("尚未添加内容：点击下方编辑按钮，或展开“从已有实例提取”。"),
                                          m_sectionList);
         item->setFlags(Qt::NoItemFlags);
     } else {
@@ -937,6 +967,16 @@ void PresetManagePage::refreshCaptureEnabled() {
     enable(m_captureMalilib, CaptureMalilib);
     enable(m_captureMalilibValues, CaptureMalilibValues, m_captureMalilib->isChecked());
     enable(m_captureDataPacks, CaptureDataPacks);
+    if (auto *grid = findChild<QGridLayout *>(QStringLiteral("presetCaptureGrid"))) {
+        for (int row = 0; row < grid->rowCount(); ++row) {
+            bool visible = false;
+            for (int col = 1; col <= 2; ++col) {
+                const auto *item = grid->itemAtPosition(row, col);
+                if (item && item->widget() && !item->widget()->isHidden()) visible = true;
+            }
+            if (auto *label = grid->itemAtPosition(row, 0); label && label->widget()) label->widget()->setVisible(visible);
+        }
+    }
 
     const bool hasPreset = !currentPresetId().isEmpty();
     const bool hasInstance = !comboInstanceId(m_captureInstanceCombo).isEmpty();

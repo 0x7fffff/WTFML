@@ -113,6 +113,11 @@ public:
      * （versions 空、problem 空）/ 正常 —— 前两条在界面上是两句不同的话
      *（加载器树那边「无可用版本」和「列表没取到」踩过同一个坑）。
      */
+    /// Resolve a Modrinth release whose dependency supplies no project identity.
+    /// Uses the same request-key cancellation and bounded transport as version lists.
+    void fetchModrinthVersion(const QString &requestKey, const QString &versionId);
+    // Exact installed files, not latest updates. At most 100 unique SHA-1s per call.
+    void fetchModrinthFiles(const QString &requestKey, const QStringList &sha1s);
     void fetchVersions(const QString &requestKey, const QString &projectId,
                        ResourceCatalog::Source source, const QString &gameVersion,
                        const QString &loader = QString());
@@ -396,6 +401,11 @@ signals:
     void searchFinished(const QString &requestKey, const ResourceCatalog::SearchResult &result);
 
     /// 版本列表回来了。problem 非空 = 没取到；problem 空 + versions 空 = 问到了、就是没有。
+    void modrinthVersionFinished(const QString &requestKey, const QString &projectId,
+                                const ResourceCatalog::VersionEntry &version, const QString &problem);
+    void modrinthFilesFinished(const QString &requestKey, const QHash<QString, QString> &projects,
+                              const QHash<QString, ResourceCatalog::VersionEntry> &versions,
+                              const QString &problem);
     void versionsFinished(const QString &requestKey,
                           const QList<ResourceCatalog::VersionEntry> &versions,
                           const QString &problem);

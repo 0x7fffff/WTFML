@@ -181,6 +181,45 @@ ModInstallPlan planModInstall(const ModInstallRequest &request) {
     }
 
     std::function<void(const ModReference &, bool, const ModResolveInput *, int)> visit;
+    const auto expandDependencies = [&](const ModReference &reference,
+                                        const ResourceCatalog::VersionEntry &chosen,
+                                        const QString &key, int depth) {
+        for (const auto &dependency : chosen.dependencies) {
+            if (dependency.projectId.trimmed().isEmpty()) continue;
+            ModReference depRef;
+            depRef.platform = platformOfKey(key);
+            depRef.projectId = dependency.projectId.trimmed();
+            depRef.name = request.dependencyTitles.value(depRef.key());
+            depRef.required = reference.required;
+            const QString depKey = depRef.key();
+            if (dependency.type == QLatin1String("embedded")) continue;
+            if (dependency.type == QLatin1String("optional")) {
+                if (!optionalSeen.contains(depKey)) {
+                    optionalSeen.insert(depKey);
+                    plan.optionalDependencyKeys.append(depKey);
+                }
+                continue;
+            }
+            if (dependency.type == QLatin1String("incompatible")) {
+                incompatible[key].insert(depKey);
+                continue;
+            }
+            if (!dependency.required() || seen.contains(depKey)) continue;
+            if (depth >= request.maxDependencyDepth) {
+                ModInstallRow cut;
+                cut.reference = depRef;
+                cut.key = depKey;
+                cut.title = depRef.name.isEmpty() ? depRef.projectId : depRef.name;
+                cut.required = depRef.required;
+                cut.fromDependency = true;
+                cut.status = ModInstallStatus::Unknown;
+                cut.problem = planText("前置链超过 %1 层，没有继续往下展开。").arg(request.maxDependencyDepth);
+                plan.rows.append(cut);
+                continue;
+            }
+            visit(depRef, true, nullptr, depth + 1);
+        }
+    };
     visit = [&](const ModReference &reference, bool fromDependency,
                 const ModResolveInput *given, int depth) {
         const QString key = reference.key();
@@ -205,7 +244,15 @@ ModInstallPlan planModInstall(const ModInstallRequest &request) {
         if (request.installedKeys.contains(key)) {
             row.status = ModInstallStatus::AlreadyInstalled;
             row.title = resolvedTitle(given ? *given : ModResolveInput(), reference);
+            row.version = request.installedVersions.value(key);
+            if (!row.version.id.isEmpty() && !versionMatches(row.version,
+                effectiveGameVersion(request, reference), effectiveLoader(request, reference))) {
+                row.status = ModInstallStatus::Incompatible;
+                row.problem = planText("已安装发行版不兼容目标游戏版本或加载器，未自动替换。");
+            }
             plan.rows.append(row);
+            if (row.status == ModInstallStatus::AlreadyInstalled)
+                expandDependencies(reference, row.version, key, depth);
             return;
         }
 
@@ -324,56 +371,7 @@ ModInstallPlan planModInstall(const ModInstallRequest &request) {
         row.status = ModInstallStatus::Download;
         plan.rows.append(row);
 
-        // ---------- 把这一版声明的依赖折进来 ----------
-        for (const ResourceCatalog::Dependency &dependency : chosen.dependencies) {
-            if (dependency.projectId.trimmed().isEmpty()) {
-                continue;
-            }
-            const QString platform = platformOfKey(key);
-            ModReference depRef;
-            depRef.platform = platform;
-            depRef.projectId = dependency.projectId.trimmed();
-            depRef.name = request.dependencyTitles.value(depRef.key());
-            // ★ 必要前置失败会不会拖垮整份，跟着**父行**走：可选模组的必要前置失败
-            //   只算可选失败（用户本来就没说要这个模组）。
-            depRef.required = reference.required;
-            const QString depKey = depRef.key();
-
-            if (dependency.type == QLatin1String("embedded")) {
-                continue;  // 已经打进那个 jar 里，再下一份反而两份
-            }
-            if (dependency.type == QLatin1String("optional")) {
-                if (!optionalSeen.contains(depKey)) {
-                    optionalSeen.insert(depKey);
-                    plan.optionalDependencyKeys.append(depKey);
-                }
-                continue;
-            }
-            if (dependency.type == QLatin1String("incompatible")) {
-                incompatible[key].insert(depKey);
-                continue;
-            }
-            if (!dependency.required()) {
-                continue;
-            }
-            if (request.installedKeys.contains(depKey) || seen.contains(depKey)) {
-                continue;
-            }
-            if (depth >= request.maxDependencyDepth) {
-                ModInstallRow cut;
-                cut.reference = depRef;
-                cut.key = depKey;
-                cut.title = depRef.name.isEmpty() ? depRef.projectId : depRef.name;
-                cut.required = depRef.required;
-                cut.fromDependency = true;
-                cut.status = ModInstallStatus::Unknown;
-                cut.problem = planText("前置链超过 %1 层，没有继续往下展开。")
-                                  .arg(request.maxDependencyDepth);
-                plan.rows.append(cut);
-                continue;
-            }
-            visit(depRef, true, nullptr, depth + 1);
-        }
+        expandDependencies(reference, chosen, key, depth);
     };
 
     for (const ModResolveInput &input : request.references) {
@@ -441,7 +439,7 @@ ModInstallPlan planModInstall(const ModInstallRequest &request) {
     // insufficient for pinned dependencies; never report an unknown on-disk version as satisfied.
     QHash<QString, QSet<QString>> exactVersions;
     for (const auto &row : plan.rows) {
-        if (row.status != ModInstallStatus::Download) continue;
+        if (row.status != ModInstallStatus::Download && row.status != ModInstallStatus::AlreadyInstalled) continue;
         for (const auto &dependency : row.version.dependencies) {
             if (!dependency.required() || dependency.versionId.trimmed().isEmpty() ||
                 dependency.projectId.trimmed().isEmpty()) continue;
@@ -450,7 +448,7 @@ ModInstallPlan planModInstall(const ModInstallRequest &request) {
         }
     }
     for (auto &row : plan.rows) {
-        if (row.status != ModInstallStatus::Download) continue;
+        if (row.status != ModInstallStatus::Download && row.status != ModInstallStatus::AlreadyInstalled) continue;
         for (const auto &dependency : row.version.dependencies) {
             if (!dependency.required() || dependency.versionId.trimmed().isEmpty()) continue;
             if (dependency.projectId.trimmed().isEmpty()) {

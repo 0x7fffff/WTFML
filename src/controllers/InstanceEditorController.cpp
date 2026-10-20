@@ -210,7 +210,8 @@ void InstanceEditorController::saveResourcePacks(InstanceSettingsDialog *dialog,
         m_owner->m_versionManager->instanceGameVersion(instanceId), ResourcePackOptions::parse(expected));
     QSet<QString> available;
     for (const auto &pack : resourcePacksIn(dir)) available.insert(pack.id);
-    const QString backupRoot = AppPaths::minecraftDir() + QStringLiteral("/cache/resource-pack-backups/") + instanceId;
+    const QString backupRoot =
+        QDir(AppPaths::resourcePackBackupDir()).filePath(instanceId);
     if (problem.isEmpty()) ResourcePackOptions::save(root + QStringLiteral("/options.txt"), expected,
                                                     expectedExists, ids, available, backupRoot, &problem);
     // 无论成功失败，界面都重新读取事实；失败不留下一个看似已经生效的名单。

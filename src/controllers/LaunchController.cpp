@@ -16,8 +16,10 @@
 #include "util/AppPaths.hpp"
 #include <QComboBox>
 #include <QDateTime>
+#include <QEventLoop>
 #include <QGuiApplication>
 #include <QScreen>
+#include <QThread>
 
 #include <functional>
 
@@ -44,6 +46,29 @@ public:
 private:
     bool &m_flag;
 };
+
+/// 把一段会在 UI 线程上阻塞几十秒到几分钟的重活放到工作线程上跑；UI 线程在这一边
+/// 跑一个**嵌套事件循环**等它。
+///
+/// 为什么不是「整条启动路改成回调」：那条路的顺序（换令牌 → natives → 挑 Java → 拼参数
+/// → startGame）是一串前后依赖的同步步骤，拆成回调等于把整台状态机重画一遍，而收益
+/// 只是"同一次点击晚一点返回"。真正要解决的是**界面在等的时候不重画、系统给标题挂
+/// 『(无响应)』**—— 一个嵌套事件循环就够了：窗口照常重绘，底栏那句「正在准备…」也看得见。
+///
+/// ★ 嵌套循环**会**把用户输入送回来（`enterSyncWait()` 里那次 processEvents 才排输入）。
+///   所以「启动」那条路自己的重入闸（`m_startInProgress`）必须继续挡着；这一段返回之前
+///   调用方**不许**读工作线程写的那几个变量（`loop.exec()` 只在 worker 的 finished 之后
+///   才退出，`wait()` 只是把最后那一下收干净）。
+template <typename Work>
+void runOffUiThread(Work work) {
+    QEventLoop loop;
+    QThread *worker = QThread::create([work] { work(); });
+    QObject::connect(worker, &QThread::finished, &loop, &QEventLoop::quit);
+    worker->start();
+    loop.exec();
+    worker->wait();
+    delete worker;
+}
 
 QString selectedVersionId(const QComboBox *combo) {
     return combo == nullptr ? QString() : combo->currentData().toString();
@@ -418,10 +443,19 @@ void LaunchController::onStartButtonClicked() {
     //   占着的那几秒（老版本、natives 体积大、或者盘慢的时候是几十秒）窗口不重画、底栏
     //   什么也不说，用户看到的是"点了启动，启动器卡死了" —— 而它其实正在干活。同一个手法
     //   和下面"准备 Java 运行时"那一截一样：先摆忙态，干完再收。
+    //
+    // ★ 2026-10-20（第二批）：它现在**跑在工作线程上**（`runOffUiThread()`）。这一段底下是
+    //   180 秒的 PowerShell；同步跑在 UI 线程上时，`enterSyncWait()` 只能保证"进去之前
+    //   把话说出来"，之后窗口是真的不重绘 —— 老版本第一次启动那几秒到几十秒里，用户看到
+    //   的就是标题挂上「(无响应)」。挪到工作线程之后窗口照常重绘，底栏那句也一直看得见。
+    //   `prepareNatives()` 是 const、只碰参数和盘上的文件，不读启动器的可变状态。
     QStringList nativeErrors;
+    QString nativesDir;
+    LauncherManager *launcher = m_owner->m_launcherManager;
     m_owner->enterSyncWait(m_owner->tr("正在准备游戏文件..."));
-    const QString nativesDir =
-        m_owner->m_launcherManager->prepareNatives(versionJson, versionId, &nativeErrors);
+    runOffUiThread([&] {
+        nativesDir = launcher->prepareNatives(versionJson, versionId, &nativeErrors);
+    });
     m_owner->leaveSyncWait();
     if (nativesDir.isEmpty() && !nativeErrors.isEmpty()) {
         m_owner->appendLog(m_owner->tr("准备 natives 失败："));
@@ -554,13 +588,24 @@ void LaunchController::onStartButtonClicked() {
     }
 
     QString javaError;
-    // 这一段也可能是同步的、而且可能是**最久**的一段：本机没有匹配的 Java 时它会直接在
-    // UI 线程上下一个完整的运行时（component 那份，或者退到 Adoptium 的那份），几百 MB。
-    // 就算不用下，挑的过程里也要逐个 `java -version` 冷启 JVM、扫盘。
+    bool javaReady = false;
+    // 这一段可能是**最久**的一段：本机没有匹配的 Java 时它会下一个完整的运行时（component
+    // 那份，或者退到 Adoptium 的那份），几百 MB。就算不用下，挑的过程里也要逐个
+    // `java -version` 冷启 JVM（每个候选最多 5 秒）、扫盘。
+    //
+    // ★ 2026-10-20（第二批）：整段挪到工作线程（`runOffUiThread()`）。以前它同步跑在 UI
+    //   线程上，扫盘/冷启 JVM 那几段各自阻塞几秒（最坏是候选数 × 5 秒），窗口一直不重绘；
+    //   下载那几发虽然转的是内嵌事件循环，窗口能重绘，但"扫盘"那几段又把它按住。
+    //   挪过去之后**整段**都让出 UI 线程 —— 挑、扫、下、解压，界面一直是活的。
+    //   工作线程只碰 `javaSettings` 这份副本和静态/自由函数（挑 Java 那一套不读
+    //   `GlobalJavaSettings` 的可变状态），结果在 `runOffUiThread()` 返回之后才读。
+    GlobalJavaSettings *javaStore = m_owner->m_javaSettings;
     m_owner->enterSyncWait(m_owner->tr("正在准备 Java 运行时..."));
-    const bool javaReady = m_owner->m_javaSettings->ensureJavaForVersion(
-        javaSettings, javaMajorVersion, javaComponent, allowAutoSelect, &javaError,
-        allowMismatchedPath);
+    runOffUiThread([&] {
+        javaReady = javaStore->ensureJavaForVersion(javaSettings, javaMajorVersion, javaComponent,
+                                                    allowAutoSelect, &javaError,
+                                                    allowMismatchedPath);
+    });
     m_owner->leaveSyncWait();
     // 下 Java / 探 Java 那一段同样转过嵌套事件循环（本机没 Java 时它就在那里面下几百 MB）。
     if (shouldStop()) {

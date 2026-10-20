@@ -524,6 +524,10 @@ public:
      *        界面先解析、拿它弹确认框，再把同一个结果交进来 —— 不解析两遍。
      * @param installerJavaPath 跑外部安装器（Forge/NeoForge）用哪个 Java，空 = PATH 上的
      *        `java`。Fabric 和纯原版的整合包用不上它。
+     * @param manifestFingerprint 这一趟导入的包那份清单的指纹
+     *        （`InstanceFiles::importManifestFingerprint()` 的产物，空 = 不知道）。
+     *        写进 `wtfml.importing` 标记里 —— 下次同名再来时 `checkImportTargetName()`
+     *        靠它区分"同一个包接着下"和"另一个包撞了名字"（见那边的 ★）。
      *
      * 【一次点击 = 四件事】（和装加载器那条约定的形状一样，中间每一步都不单独报"下载完成"，
      * 整件事只在最后发**一个** `versionDownloadFinished(instanceId, ...)`）：
@@ -545,7 +549,8 @@ public:
      */
     void importModpack(const QString &zipPath, const QString &instanceId,
                        const ModpackImport::Pack &pack,
-                       const QString &installerJavaPath = QString());
+                       const QString &installerJavaPath = QString(),
+                       const QString &manifestFingerprint = QString());
 
     /**
      * @brief 整合包依赖表里那个加载器的键 -> LoaderKind（**纯函数**）。
@@ -599,6 +604,13 @@ public:
     /// 归一化（0 / 越界回 0）与那几档在 `DownloadSpeedLimit.hpp`。
     void setDownloadSpeedLimit(qint64 bytesPerSecond);
 
+    /// 下载时允许"借现成文件"的那些游戏文件夹（2026-10-20）。
+    /// 和上面几条同一个形状：值由 MainWindow 从 `FolderManager::reuseSourceFolders()` 推过来。
+    /// 空 = 关掉复用（默认就是空 —— 单测里那份 DownloadManager 不该去翻开发机的盘）。
+    void setReuseSourceFolders(const QStringList &folders) {
+        downloadManager->setReuseSourceFolders(folders);
+    }
+
     /**
      * @brief 这一层内部那**唯一一份**下载器（`m_downloads` 那个成员）。
      *
@@ -647,6 +659,22 @@ public:
      *       所以调用点可以对所有格式无脑调它一次。
      */
     QString resolveCurseForgeFiles(ModpackImport::Pack *pack);
+
+    /// 这一发要用的两条设置（API key / 地址覆盖）的**快照**。
+    ///
+    /// ★ 2026-10-20：整合包预览现在会把 `resolveCurseForgeFiles()` 放到工作线程上跑
+    ///   （见 ImportController 里 `runOffUiThread()`）。工作线程**不许**去读
+    ///   `VersionManager` 的成员 —— 那边嵌套事件循环还在跑，用户可能正在设置页改这两个
+    ///   值。调用方在 UI 线程上取一份快照，再交给下面那个收快照的重载。
+    struct CurseForgeResolveSettings {
+        QString apiKey;
+        QString apiBaseOverride;
+    };
+    CurseForgeResolveSettings curseForgeResolveSettings() const {
+        return {m_curseForgeApiKey, m_curseForgeApiBaseOverride};
+    }
+    QString resolveCurseForgeFiles(ModpackImport::Pack *pack,
+                                   const CurseForgeResolveSettings &settings);
 
     // ---------------------------------------------------------------------
     // 导出整合包（清单/枚举/打包都在 ModpackExport 那一层，这里只做"要联网和要读盘"的三件）
@@ -1416,6 +1444,9 @@ private:
         QString instanceId; ///< 落地的实例名（= versions/<id> 那个目录名）
         QString loaderId;   ///< 实例的父版本：加载器那个目录（纯原版包就是原版号）
         ModpackImport::Pack pack;
+        /// 这个包那份清单的指纹（`InstanceFiles::importManifestFingerprint()`）。
+        /// 落进 `wtfml.importing` 标记：同名的下一次导入靠它认"是不是同一个包"。
+        QString manifestFingerprint;
         int extractedEntries = 0; ///< 解开了几个覆盖文件（收尾那句话要说出来）
 
         bool active() const { return phase != Phase::Idle; }

@@ -16,6 +16,7 @@
 #include <QSaveFile>
 #include <QSet>
 #include <QUuid>
+#include <QTemporaryDir>
 
 #include <algorithm>
 
@@ -129,7 +130,7 @@ QString nameProblem(const QString &rawName) {
 }
 
 bool copyWorldInto(const QString &worldDir, const QString &savesDir, const QString &name,
-                   QString *problemOut) {
+                   QString *problemOut, const std::function<bool()> &cancelled) {
     const auto fail = [problemOut](const QString &reason) {
         if (problemOut != nullptr) {
             *problemOut = reason;
@@ -183,16 +184,29 @@ bool copyWorldInto(const QString &worldDir, const QString &savesDir, const QStri
                         .arg(dirName));
     }
 
-    if (!copyTreeWithoutFollowingLinks(source, destDir)) {
+    if (InstanceFiles::pathIsSameOrInside(source, target)) {
+        return fail(QStringLiteral("不能把世界导入到它自己或其子目录中。"));
+    }
+    if (cancelled && cancelled()) return fail(QStringLiteral("导入世界已取消或超时。"));
+    QTemporaryDir staging(QDir(target).filePath(QStringLiteral(".wtfml-world-import-XXXXXX")));
+    if (!staging.isValid()) return fail(QStringLiteral("无法创建世界导入暂存目录。"));
+    const QString candidate = staging.filePath(QStringLiteral("world"));
+    if (!copyTreeWithoutFollowingLinks(source, candidate, cancelled)) {
         // 半成品自己收拾掉（理由见头文件）：世界是几百 MB 一坨，没有"接着拷"这回事。
-        if (!removeTreeWithoutFollowingLinks(destDir)) {
+        if (!removeTreeWithoutFollowingLinks(candidate)) {
+            staging.setAutoRemove(false);
             return fail(QStringLiteral("导入「%1」的时候中断了，这一份没有做出来。\n"
                                        "（另外，那份没拷完的 %2 也没能删掉，你需要自己"
                                        "删掉它。）")
-                            .arg(dirName, destDir));
+                            .arg(dirName, staging.path()));
         }
         return fail(QStringLiteral("导入「%1」的时候中断了，这一份没有做出来。").arg(dirName));
     }
+    if ((cancelled && cancelled()) || !looksLikeWorld(candidate))
+        return fail(QStringLiteral("导入已取消、超时或源世界在复制期间发生变化，未发布存档。"));
+    // 同卷改名发布，游戏和存档列表不会看到半份正式世界；重名绝不覆盖。
+    if (!QDir().rename(candidate, destDir))
+        return fail(QStringLiteral("无法发布导入的世界，目标可能已被其它程序创建，未覆盖。"));
     return true;
 }
 

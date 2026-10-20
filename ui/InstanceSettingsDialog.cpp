@@ -525,6 +525,11 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         auto *nameHint = new QLabel(instanceNameHint(), cell);
         nameHint->setWordWrap(true);
         nameColumn->addWidget(nameHint);
+        m_lastLaunchLabel = new QLabel(cell);
+        m_lastLaunchLabel->setObjectName(QStringLiteral("instanceLastLaunch"));
+        m_lastLaunchLabel->setWordWrap(true);
+        nameColumn->addWidget(m_lastLaunchLabel);
+        setLastLaunch(QDateTime());
         line->addLayout(nameColumn, 1);
 
         grid->addWidget(cell, row++, 0, 1, 2);
@@ -1592,16 +1597,20 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             const bool isSave = key == QStringLiteral("save");
             const bool isResourcePack = key == QStringLiteral("resourcepack");
             QStackedWidget *resourceStack = nullptr;
+            QPushButton *resourceMode = nullptr;
             if (isResourcePack) {
                 resourceStack = new QStackedWidget(page);
                 auto *switchMode = new QPushButton(tr("启用与顺序"), page);
+                resourceMode = switchMode;
                 switchMode->setObjectName(QStringLiteral("resourcePackMode"));
                 switchMode->setCheckable(true);
                 Theme::markButton(switchMode, Theme::ButtonKind::Neutral);
                 layout->addWidget(switchMode, 0, Qt::AlignLeft);
+                switchMode->hide();
                 connect(switchMode, &QPushButton::toggled, this, [this, resourceStack, switchMode](bool on) {
                     resourceStack->setCurrentIndex(on ? 1 : 0);
                     switchMode->setText(on ? tr("返回文件管理") : tr("启用与顺序"));
+                    switchMode->setVisible(on);
                     if (on) emit resourcePackPageEntered();
                 });
             }
@@ -1626,6 +1635,15 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
 
             auto *files = new InstanceFilesPage(listHost);
             files->setObjectName(filesPageName(key));
+            if (resourceMode) {
+                auto *mode = new QPushButton(tr("启用与顺序"), files);
+                mode->setObjectName(QStringLiteral("resourcePackFileMode"));
+                Theme::markButton(mode, Theme::ButtonKind::Neutral);
+                connect(mode, &QPushButton::clicked, resourceMode, [resourceMode] { resourceMode->setChecked(true); });
+                files->setCompactHeader(mode);
+            } else if (key == QStringLiteral("schematic") || key == QStringLiteral("structure")) {
+                files->setCompactHeader();
+            }
             if (key == QStringLiteral("mod")) {
                 files->setActionPanelEnabled(true);
                 connect(files, &InstanceFilesPage::checkUpdatesRequested,
@@ -1693,11 +1711,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             //   InlineMessage 都用不了）。
             if (isSave) {
                 files->setImportText(importWorldText(), importWorldTip());
-                files->setBatchText(batchEditWorldsText(), batchEditWorldsTip());
                 auto *backups = new QPushButton(tr("世界备份"), listHost);
                 backups->setObjectName(QStringLiteral("instanceSaveBackups"));
                 Theme::markButton(backups, Theme::ButtonKind::Neutral);
-                target->addWidget(backups, 0, Qt::AlignLeft);
+                files->setWorldLayout(backups);
                 connect(backups, &QPushButton::clicked, this,
                         [this]() { showPage(QStringLiteral("worldbackup")); });
             }
@@ -1781,7 +1798,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             //   `filesDetailHint()` 这一趟已删，见 .hpp 里那段）。
             //   判据就是上面那一发 `batch` —— 和"这一页有没有那一套按钮"是同一句话，
             //   不新开第二张名单。
-            if (!batch) {
+            if (!batch && !isSave && key != QStringLiteral("schematic") && key != QStringLiteral("structure")) {
                 auto *hint = new QLabel(filesHint(key), listHost);
                 hint->setObjectName(filesHintName(key));
                 hint->setWordWrap(true);
@@ -1901,8 +1918,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 });
                 // 顺序 = 用户给的那一串（刷新 / 编辑 / 添加 / 删除），「加入服务器」压尾。
                 // 每行三颗（`kActionButtonsPerRow`）⇒ 自动折成「刷新 编辑 添加 / 删除 加入」。
-                layoutActionButtons(top, {m_serverRefresh, m_serverEdit, m_serverAdd,
-                                          m_serverDelete, m_serverJoin});
+                int actionColumn = 0;
+                for (auto *button : {m_serverRefresh, m_serverEdit, m_serverAdd, m_serverDelete, m_serverJoin})
+                    top->addWidget(button, 0, actionColumn++);
+                top->setColumnStretch(actionColumn, 1);
                 layout->addLayout(top);
 
                 m_serverNotice = new QLabel(page);
@@ -1937,8 +1956,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 if (header != nullptr) {
                     header->setStretchLastSection(false);
                     header->setSectionResizeMode(0, QHeaderView::Stretch);
-                    header->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-                    header->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+                    header->setSectionResizeMode(1, QHeaderView::Interactive);
+                    header->setSectionResizeMode(2, QHeaderView::Interactive);
+                    m_serverTree->setColumnWidth(1, 120);
+                    m_serverTree->setColumnWidth(2, 144);
                 }
                 // 表头那一格也跟着靠右，不然「状态」两个字会和它底下的数字错开一个身位。
                 m_serverTree->headerItem()->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
@@ -1995,10 +2016,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 // 展开/折叠动画（2026-09-29，规则见 ui/Animations.hpp）。
                 Anim::animateExpansion(m_serverTree);
 
-                auto *hint = new QLabel(filesHint(QStringLiteral("server")), page);
-                hint->setObjectName(filesHintName(QStringLiteral("server")));
-                hint->setWordWrap(true);
-                layout->addWidget(hint);
+                m_serverTree->setToolTip(filesHint(QStringLiteral("server")));
             }
             // 没被 setServerList() 叫过的时候（验证工程里那些只验结构的构造点）先摆成
             // "还没读到" —— 露出一张空表格比说一句话更像坏了。
@@ -3484,6 +3502,14 @@ QString InstanceSettingsDialog::ungroupedGroupText() {
 }
 
 int InstanceSettingsDialog::iconPreviewSize() { return kIconPreviewSize; }
+
+void InstanceSettingsDialog::setLastLaunch(const QDateTime &at) {
+    if (m_lastLaunchLabel == nullptr) return;
+    m_lastLaunchLabel->setText(at.isValid()
+        ? tr("最后启动：%1").arg(at.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm")))
+        : tr("尚无启动记录"));
+    m_lastLaunchLabel->setToolTip(tr("以成功创建游戏进程的时间为准，不代表进入世界的时间。"));
+}
 
 void InstanceSettingsDialog::setIcon(const QString &icon, const QPixmap &defaultMark,
                                      const QPixmap &localMark) {

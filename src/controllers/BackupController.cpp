@@ -434,7 +434,10 @@ Tasks::TaskId BackupController::startWrite(const BackupFiles::Manifest &manifest
         m_thread = nullptr;
     }
     m_thread = QThread::create([this, manifest, sourceDir, targetZip, successTitle, failureTitle] {
-        const auto result = BackupFiles::writeBackup(manifest, sourceDir, targetZip);
+        QElapsedTimer elapsed;
+        elapsed.start();
+        const auto result = BackupFiles::writeBackup(manifest, sourceDir, targetZip,
+            [this, &elapsed] { return m_abort.loadRelaxed() != 0 || elapsed.elapsed() >= 600000; });
         if (m_abort.loadRelaxed() == 0) {
             QMetaObject::invokeMethod(this, [this, result, successTitle, failureTitle] {
                 writeFinished(result, successTitle, failureTitle);
@@ -475,7 +478,15 @@ Tasks::TaskId BackupController::startRestore(const QString &zipPath,
         m_thread = nullptr;
     }
     m_thread = QThread::create([this, zipPath, targetParentDir, successTitle, failureTitle] {
-        const auto result = BackupFiles::restoreBackup(zipPath, targetParentDir);
+        // ★ 2026-10-20：还原也接上和创建备份同一条停止条件（关窗 / 整项 600 秒预算）。
+        //   它**只在挪走「现在这一份」之前**生效（判据在 restoreBackup 里）；一旦开始
+        //   替换目录就必须走完，停下会让用户既没有旧的也没有新的。
+        QElapsedTimer elapsed;
+        elapsed.start();
+        const auto result = BackupFiles::restoreBackup(
+            zipPath, targetParentDir, [this, &elapsed] {
+                return m_abort.loadRelaxed() != 0 || elapsed.elapsed() >= 600000;
+            });
         if (m_abort.loadRelaxed() == 0) {
             QMetaObject::invokeMethod(this, [this, result, successTitle, failureTitle] {
                 restoreFinished(result, successTitle, failureTitle);

@@ -46,6 +46,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QDateTime>
 #include <QHash>
 #include <QIcon>  // ServerRowStatus 里那一枚（服务器图标）
 #include <QJsonObject>  // pageChoices() / setPageChoices()（"藏起来的那几页"）
@@ -850,6 +851,7 @@ public:
     ///
     /// NOTE: 三张图都由调用方解好，这一层不碰盘 —— 它只在用户**刚挑了一张新图**的时候
     ///       读那个路径（那一下它手上只有一条路径，见 pickedIconPath()）。
+    void setLastLaunch(const QDateTime &at);
     void setIcon(const QString &icon, const QPixmap &defaultMark,
                  const QPixmap &localMark = QPixmap());
 
@@ -2368,6 +2370,7 @@ private:
     QPixmap m_localIconMark;
     /// 那一张预览。边长固定（见 .cpp 里 kIconPreviewSize）—— 换图时整行不该跟着跳。
     QLabel *m_iconPreview = nullptr;
+    QLabel *m_lastLaunchLabel = nullptr;
     /// 八颗候选按钮，下标与 VersionIcons::iconCandidateKeys() 一一对应。
     QList<QToolButton *> m_iconButtons;
     /// 「更改图标」那颗按钮，以及它底下那个**常驻**浮层（见 .cpp 里那段 NOTE）。

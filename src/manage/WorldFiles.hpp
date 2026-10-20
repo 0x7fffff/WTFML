@@ -17,6 +17,7 @@
 #pragma once
 
 #include <QString>
+#include <functional>
 
 #include "util/NbtTree.hpp"
 
@@ -73,7 +74,7 @@ QString nameProblem(const QString &rawName);
  *       一个来路不明的目录还不知道是谁留的。
  */
 bool copyWorldInto(const QString &worldDir, const QString &savesDir, const QString &name,
-                   QString *problemOut = nullptr);
+                   QString *problemOut = nullptr, const std::function<bool()> &cancelled = {});
 
 /**
  * @brief 把 `<某目录>/<老名字>` 改成同目录下的 `<新名字>`。

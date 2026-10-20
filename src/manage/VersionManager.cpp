@@ -26,6 +26,7 @@
 #include <memory>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QJsonParseError>
 #include <QJsonValue>
 #include <QMetaObject>
@@ -682,17 +683,22 @@ void VersionManager::setModrinthApiBaseOverride(const QString &base) {
 }
 
 QString VersionManager::resolveCurseForgeFiles(ModpackImport::Pack *pack) {
+    return resolveCurseForgeFiles(pack, curseForgeResolveSettings());
+}
+
+QString VersionManager::resolveCurseForgeFiles(ModpackImport::Pack *pack,
+                                               const CurseForgeResolveSettings &settings) {
     if (pack == nullptr || pack->format != ModpackImport::Format::CurseForge ||
         pack->pendingRefs.isEmpty()) {
         // 不是 CF 的包、或者已经换过一次（pendingRefs 空了）：调用点可以对所有格式无脑调一次。
         return QString();
     }
     const QString base =
-        ModpackImport::curseForgeApiBase(m_curseForgeApiKey, m_curseForgeApiBaseOverride);
-    const bool hasKey = !m_curseForgeApiKey.isEmpty();
+        ModpackImport::curseForgeApiBase(settings.apiKey, settings.apiBaseOverride);
+    const bool hasKey = !settings.apiKey.isEmpty();
     QList<QPair<QByteArray, QByteArray>> headers;
     if (hasKey) {
-        headers.append({QByteArrayLiteral("x-api-key"), m_curseForgeApiKey.toUtf8()});
+        headers.append({QByteArrayLiteral("x-api-key"), settings.apiKey.toUtf8()});
     }
 
     /// 这一发没成时那句话（**必须给出一条用户自己能走的路**：镜像是别人的服务）。
@@ -715,13 +721,20 @@ QString VersionManager::resolveCurseForgeFiles(ModpackImport::Pack *pack) {
     // 我们自己定 100：正文小、重来代价小，而一个大包（几百条）也就三四发。
     constexpr int kChunk = 100;
 
+    // ★ 这一发**不借 `loaderNetworkManager()`**：那个 QNAM 归主线程（`new` 在
+    //   VersionManager 身上），而导入整合包这条路的预览现在会整段放到工作线程上跑
+    //   （见 ImportController 里 `runOffUiThread()` 那两处）。跨线程用同一个 QNAM 是
+    //   数据竞争，Qt 的文档也明说一个 QNAM 只能在一个线程里用。这里自己开一个：
+    //   resolve 一次只发两三类请求（每类一两发），不依赖连接池复用；应用级代理
+    //   （QNetworkProxy::setApplicationProxy）对新开的 QNAM 一样生效。
+    QNetworkAccessManager network;
     // ---- 第一发：号 → 文件（地址、字节数、sha1 都在这一发的答复里）----
     const QList<ModpackImport::PackRef> refs = pack->pendingRefs;
     ModpackImport::CurseForgeFiles files;
     for (int offset = 0; offset < refs.size(); offset += kChunk) {
         const QList<ModpackImport::PackRef> chunk = refs.mid(offset, kChunk);
         const HttpClient::Reply reply = HttpClient::send(
-            loaderNetworkManager(), QUrl(base + QStringLiteral("/mods/files")),
+            &network, QUrl(base + QStringLiteral("/mods/files")),
             HttpClient::Verb::Post, ModpackImport::curseForgeFilesRequestBody(chunk),
             QByteArrayLiteral("application/json"), QByteArray(), HttpClient::kDefaultTimeoutMs,
             headers);
@@ -758,7 +771,7 @@ QString VersionManager::resolveCurseForgeFiles(ModpackImport::Pack *pack) {
     for (int offset = 0; offset < projectIds.size(); offset += kChunk) {
         const QList<int> chunk = projectIds.mid(offset, kChunk);
         const HttpClient::Reply reply = HttpClient::send(
-            loaderNetworkManager(), QUrl(base + QStringLiteral("/mods")), HttpClient::Verb::Post,
+            &network, QUrl(base + QStringLiteral("/mods")), HttpClient::Verb::Post,
             ModpackImport::curseForgeModsRequestBody(chunk),
             QByteArrayLiteral("application/json"), QByteArray(), HttpClient::kDefaultTimeoutMs,
             headers);
@@ -1127,7 +1140,8 @@ bool VersionManager::loaderKindForDependencyKey(const QString &key, LoaderKind *
 
 void VersionManager::importModpack(const QString &zipPath, const QString &instanceId,
                                    const ModpackImport::Pack &pack,
-                                   const QString &installerJavaPath) {
+                                   const QString &installerJavaPath,
+                                   const QString &manifestFingerprint) {
     // 三道闸和 installLoaderVersion() 的入口一样，理由也一样：一次只做一件事。不这么拦的话，
     // 两个状态机同时开着，谁先收到别人那批文件的信号就说不清了。
     if (m_modpackInstall.active() || m_loaderInstall.active() || downloadManager->isBusy()) {
@@ -1174,6 +1188,7 @@ void VersionManager::importModpack(const QString &zipPath, const QString &instan
     m_modpackInstall.zipPath = zipPath;
     m_modpackInstall.instanceId = instanceId;
     m_modpackInstall.pack = pack;
+    m_modpackInstall.manifestFingerprint = manifestFingerprint;
 
     const QString loaderText =
         hasLoader ? tr(" + %1 %2").arg(loaderKnown ? loaderDisplayName(kind) : pack.loaderKey,
@@ -1222,9 +1237,18 @@ void VersionManager::startModpackFiles() {
     // ★ 2026-10-20：导入开始的标记先落下（`isUnfinishedImport()` 靠它区分"我们没导完的"
     //   和"别的启动器装好的加载器实例"，见那边的 ④）。写不进去也不算失败：那种老办法
     //   （看薄 json 的形状）仍然认得出这一份；它只是少一层最硬的证据。
+    //   标记里顺手记下**这一份清单的指纹**：同名再导入时，`checkImportTargetName()` 靠它
+    //   认出"上一次没导完的是这个包"还是"另一个包撞了名字"。老版本写的是纯时间戳，
+    //   读侧把解析不出来的当成"没有指纹"放行，不影响升级前留下的半成品。
     QDir().mkpath(AppPaths::versionDir(id));
+    QJsonObject markerJson;
+    markerJson[QStringLiteral("startedAt")] =
+        QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    if (!m_modpackInstall.manifestFingerprint.isEmpty()) {
+        markerJson[QStringLiteral("manifestSha256")] = m_modpackInstall.manifestFingerprint;
+    }
     if (QFile marker(InstanceFiles::importMarkerPath(id)); marker.open(QIODevice::WriteOnly)) {
-        marker.write(QDateTime::currentDateTimeUtc().toString(Qt::ISODate).toUtf8());
+        marker.write(QJsonDocument(markerJson).toJson(QJsonDocument::Compact));
     }
     if (!writeVersionJson(id, AppPaths::versionDir(id), json, &error)) {
         failModpackImport(tr("实例的版本文件没能写进 %1：%2\n\n（这份文件是启动器认这个实例的"
@@ -4637,13 +4661,33 @@ void VersionManager::onAllDownloadsFinished(bool success) {
         // `total` = "这一次真的下了几个"，`skipped` = "问了盘、本来就在的那几个"，
         // 两者**不是**包含关系 —— 从前那句「其中 %2 个本来就存在」按包含读，于是
         // "13 个已全部就绪（其中 12 个本来就存在）"被读成"只下了 1 个"，用户报的就是它。
+        // `reused`（2026-10-20）是同一个形状的第三个来源：从本机别的游戏文件夹借来的，
+        // 也不在 total 里 —— 它省掉的正是用户最想看到被省掉的那一段等待。
         if (stats.total == 0) {
             // 一个都没下 = 全都好好的（补全那颗按钮点在一个装好的实例上就是这个形状）。
             // 另有 skipped == 0 的情况：这一批压根没有作业登记上来。
-            message = stats.skipped > 0
-                          ? tr("一个文件都不用下：%1 个文件都已在盘上（已跳过）。")
-                                .arg(stats.skipped)
-                          : tr("没有要下载的文件。");
+            if (stats.reused > 0 && stats.skipped > 0) {
+                message = tr("一个文件都不用下：%1 个已从本机其它游戏文件夹复用，%2 个本来就在盘上。")
+                              .arg(stats.reused)
+                              .arg(stats.skipped);
+            } else if (stats.reused > 0) {
+                message = tr("一个文件都不用下：%1 个文件已从本机其它游戏文件夹复用。")
+                              .arg(stats.reused);
+            } else {
+                message = stats.skipped > 0
+                              ? tr("一个文件都不用下：%1 个文件都已在盘上（已跳过）。")
+                                    .arg(stats.skipped)
+                              : tr("没有要下载的文件。");
+            }
+        } else if (stats.reused > 0 && stats.skipped > 0) {
+            message = tr("已下载 %1 个文件，另有 %2 个从本机其它游戏文件夹复用、%3 个本来就存在。全部就绪。")
+                          .arg(stats.total)
+                          .arg(stats.reused)
+                          .arg(stats.skipped);
+        } else if (stats.reused > 0) {
+            message = tr("已下载 %1 个文件，另有 %2 个从本机其它游戏文件夹复用。全部就绪。")
+                          .arg(stats.total)
+                          .arg(stats.reused);
         } else if (stats.skipped > 0) {
             message = tr("%1 个文件已全部就绪（另有 %2 个本来就存在，已跳过）。")
                           .arg(stats.total)

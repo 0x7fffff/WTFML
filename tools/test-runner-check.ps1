@@ -17,6 +17,19 @@ function Check([bool]$Ok, [string]$Text) {
 }
 
 try {
+    . (Join-Path $PSScriptRoot 'ci-object-batches.ps1')
+    $objectFixture = @(
+        'CMakeFiles/WTFMinecraftLauncher.dir/src/one.cpp.obj: CXX_COMPILER__WTFMinecraftLauncher_unscanned_Release',
+        'CMakeFiles/WTFMinecraftLauncher.dir/src/one.cpp.obj: CXX_COMPILER__WTFMinecraftLauncher_unscanned_Release',
+        'CMakeFiles/WTFMinecraftLauncher.dir/src/space name.cpp.obj: CXX_COMPILER__WTFMinecraftLauncher_unscanned_Release',
+        'tests/CMakeFiles/verify.dir/one.cpp.obj: CXX_COMPILER__verify_unscanned_Release',
+        'WTFMinecraftLauncher.exe: CXX_EXECUTABLE_LINKER__WTFMinecraftLauncher_Release'
+    )
+    $planned = @(Get-CiLauncherObjects $objectFixture)
+    Check ($planned.Count -eq 2 -and $planned[1] -like '*space name.cpp.obj') 'launcher object plan excludes other targets and deduplicates outputs'
+    $emptyRejected = $false
+    try { $null = Get-CiLauncherObjects @('unrelated: phony') } catch { $emptyRejected = $true }
+    Check $emptyRejected 'empty launcher object plan fails closed'
     foreach ($suite in @('core', 'mods', 'java', 'window')) {
         # These failures are intentional fixture outcomes, isolated from normal CI reports.
         $timeout = if ($suite -eq 'java') { 2 } else { 15 }

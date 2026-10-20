@@ -8,6 +8,10 @@
 #include <QTimer>
 #include <QRegularExpression>
 #include <QJsonDocument>
+#include <QFutureWatcher>
+#include <QtConcurrent/QtConcurrentRun>
+#include "manage/InstanceIconLookup.hpp"
+#include "util/AppPaths.hpp"
 
 namespace Presets {
 namespace {
@@ -17,6 +21,9 @@ bool redirected(const QString &path) {
 }
 }
 PresetModInstaller::PresetModInstaller(QObject *parent, ResourceStore *store) : QObject(parent), m_store(store) {}
+PresetModInstaller::~PresetModInstaller() {
+    m_scanCancel->store(true, std::memory_order_relaxed);
+}
 
 void PresetModInstaller::start(const QList<ModReference> &references, const QString &root,
     const QString &gameVersion, const QString &loader, const QString &apiKey,
@@ -44,6 +51,72 @@ void PresetModInstaller::start(const QList<ModReference> &references, const QStr
     }
     if (!m_store) m_store = new ResourceStore(this);
     m_store->setCurseForgeApiKey(apiKey);
+    connect(m_store, &ResourceStore::modrinthFilesFinished, this,
+        [this](const QString &key, const QHash<QString, QString> &projects,
+               const QHash<QString, ResourceCatalog::VersionEntry> &versions, const QString &problem) {
+            if (m_done || key != m_waiting) return;
+            m_waiting.clear();
+            if (!problem.isEmpty()) m_result.lines.append(tr("部分已安装模组身份未确认：%1").arg(problem));
+            for (auto &file : m_inventory.files) {
+                const QString sha = file.sha1.toLower();
+                if (!projects.contains(sha) || !versions.contains(sha)) continue;
+                if (!file.projectKey.isEmpty() && !file.projectKey.startsWith(QStringLiteral("modrinth:"))) continue;
+                const QString projectKey = QStringLiteral("modrinth:") + projects.value(sha);
+                const auto version = versions.value(sha);
+                if (!file.projectKey.isEmpty() && (file.projectKey != projectKey
+                    || (!file.versionId.isEmpty() && file.versionId != version.id))) {
+                    m_hashIdentityConflicts.insert(file.projectKey);
+                    m_hashIdentityConflicts.insert(projectKey);
+                    m_result.lines.append(tr("文件身份反查与已有记录不一致，未自动改写：%1").arg(QFileInfo(file.path).fileName()));
+                    continue;
+                }
+                file.projectKey = projectKey;
+                file.versionId = version.id;
+                file.version = version;
+            }
+            QTimer::singleShot(0, this, [this] { resolveNext(); });
+        });
+    connect(m_store, &ResourceStore::modrinthVersionFinished, this,
+        [this](const QString &key, const QString &project, const ResourceCatalog::VersionEntry &version,
+               const QString &problem) {
+            if (m_done || key != m_waiting) return;
+            const QString releaseId = key.mid(QStringLiteral("preset-version:").size());
+            m_waiting.clear();
+            if (!problem.isEmpty()) {
+                m_result.lines.append(tr("无法确认前置发行版 %1：%2").arg(releaseId, problem));
+            } else {
+                const QString projectKey = QStringLiteral("modrinth:") + project;
+                if (!m_answers.contains(projectKey) && m_answers.size() >= 256) {
+                    finish(tr("模组依赖超过本次安全检查上限（256 项）。")); return;
+                }
+                // Enrich only identities backed by this exact release response.
+                // Keep all release alternatives; the planner still merges exact pins.
+                for (auto &answer : m_answers) {
+                    for (auto &entry : answer.versions) {
+                        for (auto &dependency : entry.dependencies) {
+                            if (answer.reference.platform == QStringLiteral("modrinth")
+                                && dependency.projectId.isEmpty() && dependency.versionId == releaseId)
+                                dependency.projectId = project;
+                        }
+                    }
+                }
+                for (auto &file : m_inventory.files) {
+                    if (!file.projectKey.startsWith(QStringLiteral("modrinth:"))) continue;
+                    for (auto &dependency : file.version.dependencies)
+                        if (dependency.projectId.isEmpty() && dependency.versionId == releaseId) dependency.projectId = project;
+                }
+                auto &resolved = m_answers[projectKey];
+                resolved.reference.platform = QStringLiteral("modrinth");
+                resolved.reference.projectId = project;
+                resolved.queried = true;
+                resolved.queryFailed = false;
+                resolved.queryProblem.clear();
+                bool found = false;
+                for (const auto &entry : resolved.versions) if (entry.id == version.id) found = true;
+                if (!found) resolved.versions.append(version);
+            }
+            QTimer::singleShot(0, this, [this] { resolveNext(); });
+        });
     connect(m_store, &ResourceStore::versionsFinished, this,
         [this](const QString &key, const QList<ResourceCatalog::VersionEntry> &versions, const QString &problem) {
             if (m_done || key != m_waiting) return;
@@ -56,7 +129,102 @@ void PresetModInstaller::start(const QList<ModReference> &references, const QStr
             QTimer::singleShot(0, this, [this] { resolveNext(); });
         });
     QTimer::singleShot(600000, this, [this] { if (!m_done) { cancel(); } });
-    resolveNext();
+    readInventory();
+}
+
+void PresetModInstaller::readInventory(bool beforeCommit) {
+    auto *watcher = new QFutureWatcher<InstalledModInventory>(this);
+    connect(watcher, &QFutureWatcher<InstalledModInventory>::finished, this, [this, watcher, beforeCommit] {
+        auto inventory = watcher->result();
+        watcher->deleteLater();
+        if (m_done) return;
+        if (!inventory.problem.isEmpty()) { finish(inventory.problem); return; }
+        if (beforeCommit) {
+            if (!sameInstalledMods(m_inventory, inventory)) {
+                finish(tr("已安装模组在检查期间发生变化，未写入；请刷新后重试。")); return;
+            }
+            commit();
+        } else {
+            m_inventory = std::move(inventory);
+            resolveNext();
+        }
+    });
+    InstanceIconLookup::Options options;
+    options.cacheOnly = true;
+    options.cacheDir = AppPaths::instanceIconCacheDir();
+    options.cacheKey = m_identityKey;
+    watcher->setFuture(QtConcurrent::run([root = m_root, cancel = m_scanCancel, options, beforeCommit] {
+        auto inventory = scanInstalledMods(root, cancel.get());
+        if (beforeCommit || !inventory.problem.isEmpty() || options.cacheKey.isEmpty()) return inventory;
+        QStringList paths;
+        for (const auto &file : inventory.files) paths.append(file.path);
+        const auto cached = InstanceIconLookup::lookup(paths, options);
+        QHash<QString, InstanceIconLookup::Found> byPath;
+        for (const auto &found : cached.found) byPath.insert(found.path, found);
+        for (auto &file : inventory.files) {
+            const auto found = byPath.value(file.path);
+            if (found.sha1.isEmpty() || found.sha1.compare(file.sha1, Qt::CaseInsensitive) != 0
+                || found.hit.projectId.isEmpty()) continue;
+            const QString key = ResourceCatalog::sourceKey(found.hit.source) + QLatin1Char(':') + found.hit.projectId;
+            if (!file.projectKey.isEmpty() && (file.projectKey != key
+                || (!file.versionId.isEmpty() && !found.currentVersion.id.isEmpty() && file.versionId != found.currentVersion.id))) {
+                inventory.problem = QStringLiteral("已安装模组的识别缓存与安装记录冲突，未允许安装。");
+                return inventory;
+            }
+            file.projectKey = key;
+            if (!found.currentVersion.id.isEmpty()) file.versionId = found.currentVersion.id;
+            file.version = found.currentVersion;
+        }
+        return inventory;
+    }));
+}
+
+void PresetModInstaller::updateInstalledIdentities() {
+    m_request.installedKeys.clear();
+    m_request.installedVersionIds.clear();
+    m_request.installedVersions.clear();
+    m_duplicateInstalled.clear();
+    m_identifiedFiles.clear();
+    m_ambiguousInstalledProjects = m_hashIdentityConflicts;
+    QHash<QString, QList<QPair<QString, ResourceCatalog::VersionEntry>>> byHash;
+    for (auto answer = m_answers.cbegin(); answer != m_answers.cend(); ++answer)
+        for (const auto &version : answer->versions)
+            for (const auto &file : version.files)
+                if (!file.sha1.isEmpty()) byHash[file.sha1.toLower()].append({answer.key(), version});
+    for (const auto &observed : m_inventory.files) {
+        auto file = observed; // Re-evaluate against all answers; don't pin an early partial match.
+        QString key = file.projectKey;
+        QString release = file.versionId;
+        auto metadata = file.version;
+        QHash<QString, ResourceCatalog::VersionEntry> candidates;
+        for (const auto &candidate : byHash.value(file.sha1.toLower())) {
+            if (!key.isEmpty() && candidate.first != key) continue;
+            if (!release.isEmpty() && candidate.second.id != release) continue;
+            candidates.insert(candidate.first + QLatin1Char('\n') + candidate.second.id, candidate.second);
+        }
+        if (candidates.size() == 1) {
+            const auto identity = candidates.constBegin();
+            key = identity.key().section(QLatin1Char('\n'), 0, 0);
+            release = identity.value().id;
+            metadata = identity.value();
+        } else if (key.isEmpty() && candidates.size() > 1) {
+            for (auto candidate = candidates.cbegin(); candidate != candidates.cend(); ++candidate)
+                m_ambiguousInstalledProjects.insert(candidate.key().section(QLatin1Char('\n'), 0, 0));
+        }
+        if (key.isEmpty()) continue; // Unknown is not proof of project absence.
+        file.projectKey = key;
+        file.versionId = release;
+        file.version = metadata;
+        m_identifiedFiles.append(file);
+        if (m_request.installedKeys.contains(key)) m_duplicateInstalled.insert(key);
+        m_request.installedKeys.insert(key);
+        if (!release.isEmpty()) m_request.installedVersionIds[key] = release;
+        if (metadata.dependencyMetadataKnown) m_request.installedVersions[key] = metadata;
+    }
+    for (const auto &key : m_duplicateInstalled) {
+        m_request.installedVersionIds.remove(key);
+        m_request.installedVersions.remove(key);
+    }
 }
 
 void PresetModInstaller::resolveNext() {
@@ -71,12 +239,30 @@ void PresetModInstaller::resolveNext() {
     for (auto it = m_answers.cbegin(); it != m_answers.cend(); ++it) {
         if (it->queried && !it->queryFailed) m_request.dependencyAnswers[it.key()] = it->versions;
     }
+    updateInstalledIdentities();
     m_plan = planModInstall(m_request);
+    // Version-only dependencies are valid Modrinth metadata. Resolve the identity
+    // before treating the planner's provisional Unknown as a final failure.
+    for (const auto &row : m_plan.rows) {
+        if (row.reference.platform != QStringLiteral("modrinth")) continue;
+        for (const auto &dependency : row.version.dependencies) {
+            if (!dependency.required() || !dependency.projectId.isEmpty() || dependency.versionId.isEmpty()
+                || m_versionLookups.contains(dependency.versionId)) continue;
+            if (m_versionLookups.size() >= 256) {
+                finish(tr("精确前置身份查询超过安全上限（256 项），未安装模组。")); return;
+            }
+            m_versionLookups.insert(dependency.versionId);
+            m_waiting = QStringLiteral("preset-version:") + dependency.versionId;
+            m_store->fetchModrinthVersion(m_waiting, dependency.versionId);
+            return;
+        }
+    }
     // Honour exact dependency versions present in the platform answers instead of
     // choosing the newest dependency and then unnecessarily refusing the install.
     for (int pass = 0; pass < 8; ++pass) {
         QHash<QString, QString> pins;
-        for (const auto &row : m_plan.downloads()) {
+        for (const auto &row : m_plan.rows) {
+            if (row.status != ModInstallStatus::Download && row.status != ModInstallStatus::AlreadyInstalled) continue;
             for (const auto &dependency : row.version.dependencies) {
                 if (!dependency.required() || dependency.versionId.isEmpty() || dependency.projectId.isEmpty()) continue;
                 const QString key = row.reference.platform + QLatin1Char(':') + dependency.projectId;
@@ -120,16 +306,36 @@ void PresetModInstaller::resolveNext() {
             row.reference.loader.isEmpty() ? m_request.loader : row.reference.loader);
         return;
     }
+    if (queryUnidentifiedFiles()) return;
     for (const auto &row : m_plan.rows) if (row.isFailure()) m_result.lines.append(row.title + QStringLiteral("：") + row.problem);
+    const int unidentified = static_cast<int>(m_inventory.files.size() - m_identifiedFiles.size());
+    if (unidentified > 0) m_result.lines.append(tr("%1 个启用模组的项目身份尚未确认，未将它们当作前置已满足。") .arg(unidentified));
     m_result.optionalFailures = m_plan.optionalFailures();
     if (!m_plan.ok) { finish(tr("必要模组或前置缺失、未知或冲突；未写入模组文件。")); return; }
+    QSet<QString> unsafeOptional;
+    for (const auto &row : m_plan.rows) {
+        QString problem;
+        if (m_ambiguousInstalledProjects.contains(row.key))
+            problem = tr("已有模组文件可能对应「%1」的多个项目或发行版，无法确认是否重复，未写入。") .arg(row.title);
+        else if (row.status == ModInstallStatus::AlreadyInstalled
+                 && (m_duplicateInstalled.contains(row.key) || !row.version.dependencyMetadataKnown))
+            problem = tr("已安装「%1」有重复文件或发行版依赖身份尚未确认，未自动覆盖。") .arg(row.title);
+        if (problem.isEmpty()) continue;
+        if (row.required) { finish(problem); return; }
+        if (!unsafeOptional.contains(row.key)) {
+            unsafeOptional.insert(row.key);
+            ++m_result.optionalFailures;
+            m_result.lines.append(problem);
+        }
+    }
     for (const auto &row : m_plan.downloads()) {
         // Never deploy an optional parent whose necessary dependency failed. Until
         // component-level attribution is available, conservatively skip optional rows.
         if (!row.required && m_result.optionalFailures > 0) continue;
         for (const auto &dependency : row.version.dependencies) {
             if (dependency.required() && !dependency.versionId.isEmpty()) {
-                bool pinnedMatch = false;
+                const QString dependencyKey = row.reference.platform + QLatin1Char(':') + dependency.projectId;
+                bool pinnedMatch = m_request.installedVersionIds.value(dependencyKey) == dependency.versionId;
                 for (const auto &candidate : m_plan.downloads())
                     if (candidate.reference.platform == row.reference.platform &&
                         candidate.reference.projectId == dependency.projectId &&
@@ -144,6 +350,25 @@ void PresetModInstaller::resolveNext() {
     download();
 }
 
+bool PresetModInstaller::queryUnidentifiedFiles() {
+    QSet<QString> confirmed;
+    for (const auto &file : m_identifiedFiles)
+        if (file.version.dependencyMetadataKnown && !file.versionId.isEmpty()) confirmed.insert(file.path);
+    QSet<QString> pending;
+    for (const auto &file : m_inventory.files) {
+        const QString sha = file.sha1.toLower();
+        if (confirmed.contains(file.path) || m_hashLookups.contains(sha)) continue;
+        if (!file.projectKey.isEmpty() && !file.projectKey.startsWith(QStringLiteral("modrinth:"))) continue;
+        pending.insert(sha);
+        if (pending.size() >= 100) break;
+    }
+    if (pending.isEmpty()) return false;
+    m_hashLookups.unite(pending);
+    m_waiting = QStringLiteral("preset-file-identities");
+    m_store->fetchModrinthFiles(m_waiting, pending.values());
+    return true;
+}
+
 void PresetModInstaller::download() {
     if (!QDir::isAbsolutePath(m_root) || redirected(m_root) ||
         redirected(QDir(m_root).filePath(QStringLiteral("mods")))) {
@@ -155,7 +380,7 @@ void PresetModInstaller::download() {
     m_download->setUseMirror(false);
     m_download->setMaxConcurrentDownloads(4);
     connect(m_download, &DownloadManager::allDownloadsFinished, this, [this](bool) {
-        if (!m_done) QTimer::singleShot(0, this, [this] { if (!m_done) commit(); });
+        if (!m_done) QTimer::singleShot(0, this, [this] { if (!m_done) readInventory(true); });
     });
     m_download->beginBatch();
     const auto rows = m_downloadRows;
@@ -250,6 +475,7 @@ void PresetModInstaller::cancel() {
 void PresetModInstaller::finish(const QString &problem) {
     if (m_done) return;
     m_done = true;
+    m_scanCancel->store(true, std::memory_order_relaxed);
     if (!problem.isEmpty()) { m_result.ok = false; m_result.lines.prepend(problem); }
     if (!problem.isEmpty() && m_result.installed > 0)
         m_result.lines.append(tr("失败前已写入 %1 个模组；基础实例和已写入文件保留。").arg(m_result.installed));
@@ -261,6 +487,26 @@ void PresetModInstaller::finish(const QString &problem) {
         for (const auto &input : m_request.references) references.append(modReferenceToJson(input.reference));
         for (const auto &row : m_downloadRows) files.append(QJsonObject{
             {"project", row.key}, {"versionId", row.version.id}, {"filename", row.file.filename}, {"sha1", row.file.sha1}});
+        for (const auto &file : m_identifiedFiles) if (!file.projectKey.isEmpty()) files.append(QJsonObject{
+            {"project", file.projectKey}, {"versionId", file.versionId},
+            {"filename", QFileInfo(file.path).fileName()}, {"sha1", file.sha1}});
+        // A failed/cancelled operation must not erase identities from a previous
+        // successful operation. These claims are always rehashed before reuse.
+        QFile previous(path);
+        if (!QFileInfo(path).isSymLink() && previous.open(QIODevice::ReadOnly) && previous.size() <= 8 * 1024 * 1024) {
+            const auto object = QJsonDocument::fromJson(previous.readAll()).object();
+            if (object.value(QStringLiteral("format")).toString() == QStringLiteral("wtfml-preset-mod-result/1")) {
+                const auto oldFiles = object.value(QStringLiteral("plannedFiles")).toArray();
+                QSet<QByteArray> retained;
+                for (const auto &file : files) retained.insert(QJsonDocument(file.toObject()).toJson(QJsonDocument::Compact));
+                for (const auto &old : oldFiles) {
+                    if (files.size() >= 20000) break;
+                    const auto identity = QJsonDocument(old.toObject()).toJson(QJsonDocument::Compact);
+                    if (!retained.contains(identity)) { files.append(old); retained.insert(identity); }
+                }
+            }
+        }
+        previous.close();
         for (const auto &line : m_result.lines) lines.append(line);
         const QByteArray bytes = QJsonDocument(QJsonObject{{"format", "wtfml-preset-mod-result/1"},
             {"finishedAt", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)}, {"gameVersion", m_request.gameVersion},

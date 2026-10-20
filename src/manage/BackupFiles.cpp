@@ -55,21 +55,64 @@ bool isLinkToElsewhere(const QFileInfo &info) {
     return info.isJunction() || info.isSymLink();
 }
 
+/// 这棵树里第一条链接的**绝对路径**；一个链接都没有就回空串。**只认链接本身、不跟进去**
+/// （理由和 `isLinkToElsewhere()` 那段一样：跟进去就可能转不完、或者跑到树外面去）。
+///
+/// 调用方是 `restoreBackup()`：还原会把链接**本身**摘掉、再按包里那份普通目录解出来，
+/// 而包里与安全快照里都**从来没有**链接这一条 —— 所以见到链接必须停下来问清楚之前
+/// 什么都不做（`collectFiles()` 跳过链接是备份那一侧有意为之，不是这里能补回来的）。
+QString firstLinkInside(const QString &rootDir) {
+    const QFileInfo rootInfo(rootDir);
+    if (!rootInfo.exists()) {
+        return QString();
+    }
+    if (isLinkToElsewhere(rootInfo)) {
+        return rootInfo.absoluteFilePath();  // 根本身就是个链接
+    }
+    QStringList stack{rootInfo.absoluteFilePath()};
+    QSet<QString> seen;
+    while (!stack.isEmpty()) {
+        const QString dir = stack.takeLast();
+        const QString key = dir.toLower();
+        if (seen.contains(key)) {
+            continue;
+        }
+        seen.insert(key);
+        // 文件那一边也要看：指向文件的符号链接在还原时同样会被换成普通文件
+        // （`removeTreeWithoutFollowingLinks()` 摘的是链接本身）。
+        const QFileInfoList entries = QDir(dir).entryInfoList(
+            QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden, QDir::Name);
+        for (const QFileInfo &entry : entries) {
+            if (isLinkToElsewhere(entry)) {
+                return entry.absoluteFilePath();
+            }
+            if (entry.isDir()) {
+                stack.append(entry.absoluteFilePath());
+            }
+        }
+    }
+    return QString();
+}
+
 /// 一份文件的 sha1（小写十六进制）。读不动时回空串 —— **调用方必须把空串当失败**，
 /// 不能当成"这个文件的哈希是空的"（那样这一份备份就永远对得了账了）。
 ///
 /// NOTE: 走 `addData(QIODevice*)` 是**流式**的，不是 `readAll()`。一个存档的 region 文件
 ///       几十 MB、一个实例快照里有几百 MB 的 jar —— 整份读到内存里只是为了让哈希函数看
 ///       一遍，是不必要的峰值。
-QString sha1OfFile(const QString &path) {
+QString sha1OfFile(const QString &path, const std::function<bool()> &cancelled = {}) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         return QString();
     }
     QCryptographicHash hash(QCryptographicHash::Sha1);
-    if (!hash.addData(&file)) {
-        return QString();
+    while (!file.atEnd()) {
+        if (cancelled && cancelled()) return {};
+        const auto bytes = file.read(1024 * 1024);
+        if (bytes.isEmpty()) return {};
+        hash.addData(bytes);
     }
+    if (file.error() != QFile::NoError || (cancelled && cancelled())) return {};
     return QString::fromLatin1(hash.result().toHex());
 }
 
@@ -349,7 +392,7 @@ QStringList sortBackupsNewestFirst(const QStringList &paths, const QString &pref
 }
 
 QList<FileRecord> collectFiles(const QString &rootDir, const QStringList &excludeTop,
-                               QString *problemOut) {
+                               QString *problemOut, const std::function<bool()> &cancelled) {
     if (problemOut != nullptr) {
         problemOut->clear();
     }
@@ -371,6 +414,10 @@ QList<FileRecord> collectFiles(const QString &rootDir, const QStringList &exclud
     QSet<QString> seenDirs;  // 同一个目录（大小写/`.` 这类差别）只走一遍
 
     while (!stack.isEmpty()) {
+        if (cancelled && cancelled()) {
+            if (problemOut) *problemOut = QObject::tr("备份扫描已取消或超时。");
+            return {};
+        }
         const Frame frame = stack.takeLast();
         const QString key = frame.abs.toLower();
         if (seenDirs.contains(key)) {
@@ -390,12 +437,14 @@ QList<FileRecord> collectFiles(const QString &rootDir, const QStringList &exclud
             FileRecord record;
             record.path = frame.prefix + entry.fileName();
             record.size = entry.size();
-            record.sha1 = sha1OfFile(entry.absoluteFilePath());
+            record.sha1 = sha1OfFile(entry.absoluteFilePath(), cancelled);
             if (record.sha1.isEmpty()) {
                 // 读不动就是读不动 —— 不能记一条没有校验值的记录假装它在，那样还原之后的
                 // 对账反而会**放过**这个文件（"空校验值 = 不查"）。
                 if (problemOut != nullptr) {
-                    *problemOut = QObject::tr("读不动这个文件：%1")
+                    *problemOut = cancelled && cancelled()
+                        ? QObject::tr("备份扫描已取消或超时。")
+                        : QObject::tr("读不动这个文件：%1")
                                       .arg(QDir::toNativeSeparators(entry.absoluteFilePath()));
                 }
                 return QList<FileRecord>();
@@ -428,7 +477,7 @@ QList<FileRecord> collectFiles(const QString &rootDir, const QStringList &exclud
 }
 
 WriteResult writeBackup(const Manifest &manifest, const QString &sourceDir,
-                        const QString &targetZip) {
+                        const QString &targetZip, const std::function<bool()> &cancelled) {
     WriteResult result;
     result.zipPath = targetZip;
     result.manifest = manifest;
@@ -439,7 +488,7 @@ WriteResult writeBackup(const Manifest &manifest, const QString &sourceDir,
     }
 
     QString problem;
-    result.manifest.files = collectFiles(sourceDir, manifest.excluded, &problem);
+    result.manifest.files = collectFiles(sourceDir, manifest.excluded, &problem, cancelled);
     if (!problem.isEmpty()) {
         result.problem = problem;
         result.manifest.files.clear();
@@ -533,7 +582,7 @@ WriteResult writeBackup(const Manifest &manifest, const QString &sourceDir,
         }
     }
     result.zipPath = target;
-    const bool made = ZipUtil::createZip(target, entries, &error);
+    const bool made = ZipUtil::createZip(target, entries, &error, cancelled);
     // 成功失败都一样删：它躺在系统临时目录里，里面是这个实例 / 世界都有哪些文件。
     QFile::remove(manifestPath);
     if (!made) {
@@ -614,8 +663,21 @@ bool hasRoomFor(qint64 freeBytes, qint64 neededBytes) {
     return freeBytes >= neededBytes;
 }
 
-RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentDir) {
+RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentDir,
+                            const std::function<bool()> &cancelled) {
     RestoreResult result;
+    const auto stopped = [&cancelled] { return cancelled && cancelled(); };
+    const QString stoppedText =
+        QObject::tr("还原已取消或超时；盘上原有的东西没有动。");
+
+    // ★ 2026-10-20：关窗 / 整项超时在**动盘之前**就能停下。下面每一个检查点都摆在
+    //   "再走一步就要改盘"的那条线之前；一旦开始挪走「现在这一份」，就不再听取消 ——
+    //   停在那儿会让用户手里既没有旧的那一份、也没有新的这一份。
+    if (stopped()) {
+        result.stage = RestoreResult::Stage::ReadManifest;
+        result.problem = stoppedText;
+        return result;
+    }
 
     bool readable = false;
     QString problem;
@@ -648,6 +710,12 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
     //
     //    ★ 这一眼**在安全快照之前**：判出放不下时盘上一共就动过零个字节 —— 和"读清单"
     //      那一档一样干净。
+    // 读清单 / 拼路径都没动过盘 —— 这里停下照样是"一个字节都没动"。
+    if (stopped()) {
+        result.stage = RestoreResult::Stage::Space;
+        result.problem = stoppedText;
+        return result;
+    }
     const QFileInfo existing(target);
     if (!existing.exists()) {
         const qint64 free = QStorageInfo(targetParentDir).bytesAvailable();
@@ -659,6 +727,31 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
                                          "\n**现在盘上原有的东西一个字节都没动。**")
                                  .arg(QLocale().formattedDataSize(needed),
                                       QLocale().formattedDataSize(free));
+            return result;
+        }
+    }
+
+    // ★ 2026-10-20：落点树里**有链接**（junction / 符号链接）时拒绝还原。
+    //
+    //   `collectFiles()` 不跟链接 —— 备份包里因此**从来没有**链接这一条，还原前的安全
+    //   快照同样不含它。而下面 `removeTreeWithoutFollowingLinks()` 会把链接**本身**摘掉，
+    //   再按包里那份普通目录解出来：链接指向的内容不会丢（它不在这个树里），但
+    //   "这个目录是个链接"这件事就再也回不去了，安全快照也退不回来。
+    //
+    //   两条改法里选了"拒绝并说清"（另一条要在清单里多记一类链接条目，还得定义链接目标
+    //   谁来保证存在、跨盘链接怎么处理）。这里停在**动盘之前**：一个字节都没动。
+    if (existing.isDir()) {
+        const QString link = firstLinkInside(target);
+        if (!link.isEmpty()) {
+            result.stage = RestoreResult::Stage::SafetySnapshot;
+            result.problem = QObject::tr("这个目录里有链接：%1\n\n"
+                                         "还原会把链接本身换成备份里的普通目录（链接指向的内容"
+                                         "不会丢），而「这里是个链接」这件事还原不回来 —— "
+                                         "还原前的安全快照同样不含链接。\n\n"
+                                         "为了不动你的链接，这一份没有解开；现在盘上原有的东西"
+                                         "一个字节都没动。要接着还原的话，先把那个链接挪走，"
+                                         "或者删掉整个目录再还原。")
+                                 .arg(QDir::toNativeSeparators(link));
             return result;
         }
     }
@@ -694,7 +787,8 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
             const QString safetyZip =
                 QDir(dir).filePath(backupFileName(safety.label, safety.createdAt, /*safety=*/true));
 
-            const WriteResult snapshot = writeBackup(safety, target, safetyZip);
+            // 取消传进安全快照那一趟：它本身支持协作式停止（扫描 / 分块读取 / 打包）。
+            const WriteResult snapshot = writeBackup(safety, target, safetyZip, cancelled);
             if (!snapshot.ok) {
                 // ★ 2026-10-20：落点是个**空目录**（上一次解压被杀在第一份文件之前、或者
                 //   游戏 / 用户自己建了一个空存档目录）时没有"现在这一份"可留 ——
@@ -717,6 +811,18 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
                 // 名字，见那里），不是我们上面按时间戳拼出来的候选名。
                 result.safetyZip = snapshot.zipPath;
             }
+            // ★ 安全快照做完了、旧目录**还没**动：这里仍然可以安全地停下。刚做出来的
+            //   那份快照是这一趟自己的产物、还原并没有发生 —— 删掉它，别在备份列表里
+            //   留下一份用户没要过的东西。盘上原有的东西一个字节都没动。
+            if (stopped()) {
+                if (!result.safetyZip.isEmpty()) {
+                    QFile::remove(result.safetyZip);
+                    result.safetyZip.clear();
+                }
+                result.stage = RestoreResult::Stage::SafetySnapshot;
+                result.problem = stoppedText;
+                return result;
+            }
         } else {
             // 同名的**文件**（不是目录）：没有"快照"这一说，直接挪开。备份里那是一条
             // 记录不了的东西 —— 走到这儿多半是用户自己在那儿放过一个同名文件。
@@ -737,6 +843,14 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
                                       QDir::toNativeSeparators(result.safetyZip));
             return result;
         }
+    }
+
+    // ★ 落点本来是一块空地（没有旧数据可留、也没什么可删）：解压开始之前停下同样什么
+    //   都不会丢。旧的那一份**已经挪走**的这条路上不能停（上面那一段说得清楚）。
+    if (!existing.exists() && stopped()) {
+        result.stage = RestoreResult::Stage::Extract;
+        result.problem = stoppedText;
+        return result;
     }
 
     // ④ 解压。走 `extractSubtrees()` 是**故意的**：它把前缀剥掉，而且**不属于那个前缀的

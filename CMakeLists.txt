@@ -143,6 +143,7 @@ set(HEADER_FILES
     src/settings/GameWindowSettings.hpp
     src/settings/LauncherSettings.hpp
     src/download/DownloadManager.hpp
+    src/download/LocalFileReuse.hpp
     src/download/DownloadSpeedLimit.hpp
     src/download/DownloadProxy.hpp
     src/download/LoaderMeta.hpp
@@ -326,6 +327,7 @@ set(SOURCE_FILES
     # 模组「真正去下」之前的判据层（2026-10-18，coding plan §10.1 第 7 项 / P5）：
     # 必要/可选、依赖展开、冲突、替代确认与落盘校验，见头文件那一位。
     src/presets/ModInstallPlan.cpp
+    src/presets/InstalledModInventory.cpp
     # 模组预设的兼容检查（2026-10-18，coding plan §6.0 P2 / §7.2）：见头文件那一位。
     src/presets/PresetCompatibility.cpp
     src/presets/ModrinthCompatibility.cpp
@@ -346,6 +348,7 @@ set(SOURCE_FILES
     src/settings/GameWindowSettings.cpp
     src/settings/LauncherSettings.cpp
     src/download/DownloadManager.cpp
+    src/download/LocalFileReuse.cpp
     src/download/ResumableDownload.cpp
     src/download/ResumableDownload.hpp
     src/download/ResourceCatalog.cpp

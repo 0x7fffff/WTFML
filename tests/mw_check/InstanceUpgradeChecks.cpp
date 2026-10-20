@@ -43,6 +43,140 @@ int runInstanceUpgradeChecks() {
     QTemporaryDir scratch;
     if (!scratch.isValid()) return 1;
     {
+        const QString source = scratch.filePath("world-source");
+        const QString saves = scratch.filePath("saves");
+        check(write(source + "/level.dat", "world") && QDir().mkpath(saves), "prepare background world import");
+        bool busy = false, completed = false, success = false, returned = false;
+        bool callbackWasAsync = false;
+        InstanceTransferController::Host host;
+        host.isBeingModified = [&](const QString &) { return busy; };
+        host.instanceDirForKey = [&](const QString &, const QString &) { return saves; };
+        host.setFileOperationBusy = [&](const QString &, bool value) { busy = value; };
+        InstanceTransferController controller(nullptr, nullptr, nullptr, host);
+        QEventLoop loop;
+        controller.importWorldInBackground("id", source, "Imported", [&](bool ok, const QString &) {
+            callbackWasAsync = returned;
+            completed = true;
+            success = ok;
+            loop.quit();
+        });
+        returned = true;
+        check(busy && !completed, "background world import returns immediately and reserves instance");
+        QTimer::singleShot(10000, &loop, &QEventLoop::quit);
+        loop.exec();
+        check(completed && success && callbackWasAsync && !busy,
+              "background world import finishes asynchronously and releases reservation");
+        check(read(saves + "/Imported/level.dat") == "world" && read(source + "/level.dat") == "world",
+              "background world import publishes complete copy without altering source");
+    }
+    {
+        // 后台导入世界的「取消」（2026-10-20）：任务中心那颗按钮的判据 + 协作式停机。
+        // 源世界故意做一个 32 MiB 的 region —— 拷贝器每 1 MiB 看一次取消位，
+        // 主线程发完请求立刻按下取消，不会出现"还没按就已经拷完"的竞态。
+        const QString source = scratch.filePath("world-cancel-source");
+        const QString saves = scratch.filePath("saves-cancel");
+        check(write(source + "/level.dat", "world") && QDir().mkpath(saves)
+                  && write(source + "/region/r.0.0.mca", QByteArray(32 * 1024 * 1024, 'x')),
+              "prepare cancellable world import");
+        bool busy = false, completed = false, success = true, markedCancelled = false;
+        bool finishCalled = false;
+        Tasks::TaskId importTask = Tasks::invalidTaskId();
+        InstanceTransferController::Host host;
+        host.isBeingModified = [&](const QString &) { return busy; };
+        host.instanceDirForKey = [&](const QString &, const QString &) { return saves; };
+        host.setFileOperationBusy = [&](const QString &, bool value) { busy = value; };
+        host.beginTask = [&](Tasks::TaskKind, const QString &, const QString &,
+                             const QList<Tasks::TaskStep> &) {
+            importTask = 4242;
+            return importTask;
+        };
+        host.finishTask = [&](Tasks::TaskId, bool, const QString &) { finishCalled = true; };
+        host.markTaskCancelled = [&](Tasks::TaskId id) { markedCancelled = id == importTask; };
+        InstanceTransferController controller(nullptr, nullptr, nullptr, host);
+        QEventLoop loop;
+        controller.importWorldInBackground("id", source, "Cancelled", [&](bool ok, const QString &) {
+            completed = true;
+            success = ok;
+            loop.quit();
+        });
+        check(controller.canCancelTask(importTask),
+              "running background world import advertises a working cancel");
+        check(!controller.canCancelTask(Tasks::invalidTaskId()),
+              "invalid task id is never cancellable");
+        check(controller.cancelTask(importTask), "background world import accepts cancellation");
+        QTimer::singleShot(10000, &loop, &QEventLoop::quit);
+        loop.exec();
+        check(completed && !success && markedCancelled && !finishCalled && !busy,
+              "cancelled world import ends as cancelled, not failed, and releases instance");
+        check(!QFileInfo::exists(saves + "/Cancelled"),
+              "cancelled world import publishes nothing");
+        check(read(source + "/level.dat") == "world", "cancelled world import leaves source intact");
+    }
+    {
+        // 后台删除世界（2026-10-20）：确认之后整棵树在工作线程里删，删完才回调。
+        const QString world = scratch.filePath("world-delete");
+        check(write(world + "/level.dat", "world")
+                  && write(world + "/region/r.0.0.mca", QByteArray(2 * 1024 * 1024, 'y')),
+              "prepare background world delete");
+        bool busy = false, completed = false, success = false, returned = false;
+        bool callbackWasAsync = false, taskFinished = false, finishSuccess = false;
+        Tasks::TaskId deleteTask = Tasks::invalidTaskId();
+        InstanceTransferController::Host host;
+        host.isBeingModified = [&](const QString &) { return busy; };
+        host.beginTask = [&](Tasks::TaskKind, const QString &, const QString &,
+                             const QList<Tasks::TaskStep> &) {
+            deleteTask = 4343;
+            return deleteTask;
+        };
+        host.setFileOperationBusy = [&](const QString &, bool value) { busy = value; };
+        host.finishTask = [&](Tasks::TaskId id, bool ok, const QString &) {
+            taskFinished = id == deleteTask;
+            finishSuccess = ok;
+        };
+        InstanceTransferController controller(nullptr, nullptr, nullptr, host);
+        QEventLoop loop;
+        controller.deleteWorldInBackground("id", world, [&](bool ok, const QString &) {
+            callbackWasAsync = returned;
+            completed = true;
+            success = ok;
+            loop.quit();
+        });
+        returned = true;
+        check(busy && !completed,
+              "background world delete returns immediately and reserves instance");
+        QTimer::singleShot(10000, &loop, &QEventLoop::quit);
+        loop.exec();
+        check(completed && success && callbackWasAsync && !busy,
+              "background world delete finishes asynchronously and releases reservation");
+        check(!QFileInfo::exists(world), "background world delete removes the whole tree");
+        check(taskFinished && finishSuccess,
+              "background world delete closes its task as succeeded");
+    }
+    {
+        // 删除的闸：实例正被别的操作占着时一个字都不许动盘，当场拒绝。
+        const QString world = scratch.filePath("world-delete-busy");
+        check(write(world + "/level.dat", "world"), "prepare rejected world delete");
+        InstanceTransferController::Host host;
+        host.isBeingModified = [&](const QString &) { return true; };
+        host.displayName = [&](const QString &) { return QStringLiteral("Busy"); };
+        bool began = false;
+        host.beginTask = [&](Tasks::TaskKind, const QString &, const QString &,
+                             const QList<Tasks::TaskStep> &) {
+            began = true;
+            return 4344;
+        };
+        InstanceTransferController controller(nullptr, nullptr, nullptr, host);
+        bool called = false, ok = true;
+        controller.deleteWorldInBackground("id", world, [&](bool value, const QString &) {
+            called = true;
+            ok = value;
+        });
+        check(called && !ok && !began,
+              "busy instance refuses background world delete before touching disk");
+        check(read(world + "/level.dat") == "world",
+              "refused world delete leaves the world intact");
+    }
+    {
         InstanceSettingsDialog page("Test", "Instance", InstanceSettingsDialog::Override(),
                                    InstanceSettingsDialog::GlobalValues(), {}, true);
         page.setTransferTargets("upgrade", {{"Target", "target-id"}});

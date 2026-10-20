@@ -432,11 +432,19 @@ int main(int argc, char *argv[]) {
                    "floating action remains inside the content pane");
             expect(!scroll->isAncestorOf(button), "action does not scroll with the form");
             auto *row = tree->topLevelItem(0);
+            const int stableWidth = tree->viewport()->width();
+            const QRect clearBefore = VersionTreeDelegate::clearRect(tree->visualItemRect(row));
+            const QRect arrowBefore = VersionTreeDelegate::arrowRect(tree->visualItemRect(row));
             for (int i = 0; i < 20; ++i) new QTreeWidgetItem(row, {QString::number(i)});
             row->setExpanded(true);
             // Nested layouts post their own LayoutRequest events; one pass only
             // updates the inner tree, not necessarily the outer scroll range.
             for (int pass = 0; pass < 5; ++pass) app.processEvents();
+            expect(tree->verticalScrollBar()->maximum() > 0, "expanded loader list exercises a real scrollbar");
+            expect(tree->viewport()->width() == stableWidth &&
+                       VersionTreeDelegate::clearRect(tree->visualItemRect(row)).x() == clearBefore.x() &&
+                       VersionTreeDelegate::arrowRect(tree->visualItemRect(row)).x() == arrowBefore.x(),
+                   "scrollbar appearance preserves text width and arrow/clear positions");
             scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
             tree->scrollToItem(tree->topLevelItem(4));
             for (int pass = 0; pass < 5; ++pass) app.processEvents();
@@ -647,6 +655,15 @@ int main(int argc, char *argv[]) {
         return failures == 0 ? 0 : 1;
     }
     if (app.arguments().contains(QStringLiteral("--lifecycle-check"))) {
+        if (app.arguments().contains(QStringLiteral("--lifecycle-preview"))) {
+            const int fontId = QFontDatabase::addApplicationFont(
+                QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc")));
+            const auto families = QFontDatabase::applicationFontFamilies(fontId);
+            if (!families.isEmpty()) app.setFont(QFont(families.first(), 9));
+            app.setStyle(Theme::createStyle());
+            Theme::setSpec(Theme::defaultSpec());
+            Theme::apply(app);
+        }
         QTemporaryDir scratch(QDir::current().filePath(QStringLiteral(".lifecycle-check-XXXXXX")));
         if (!scratch.isValid()) return 1;
         int failures = 0;
@@ -666,6 +683,16 @@ int main(int argc, char *argv[]) {
         using Dlg = InstanceSettingsDialog;
         Dlg dialog(QStringLiteral("Test"), QStringLiteral("test"), Dlg::Override(),
                    Dlg::GlobalValues(), {}, true);
+        auto *lastLaunch = dialog.findChild<QLabel *>(QStringLiteral("instanceLastLaunch"));
+        expect(lastLaunch && lastLaunch->text() == QStringLiteral("尚无启动记录"),
+               "overview does not invent a last launch for a new instance");
+        const auto launched = QDateTime::fromString(QStringLiteral("2026-10-20T10:20:00"), Qt::ISODate);
+        dialog.setLastLaunch(launched);
+        expect(lastLaunch && lastLaunch->text().contains(QStringLiteral("2026-10-20 10:20")),
+               "overview displays the supplied real launch timestamp");
+        dialog.setLastLaunch(QDateTime());
+        expect(lastLaunch && lastLaunch->text() == QStringLiteral("尚无启动记录"),
+               "overview clears a previous timestamp when the record is absent");
         QHash<QString, QString> dirs;
         const QStringList keys{QStringLiteral("screenshots"), QStringLiteral("replay"),
                                QStringLiteral("logs"), QStringLiteral("crash"), QStringLiteral("structure")};
@@ -732,8 +759,64 @@ int main(int argc, char *argv[]) {
         expect(dialog.findChild<QPushButton *>(Dlg::checkUpdatesButtonName())->isVisibleTo(&dialog),
                "overview retains update check entry");
         dialog.showPage(QStringLiteral("save"));
+        dialog.showPage(QStringLiteral("resourcepack"));
+        auto *packMode = dialog.findChild<QPushButton *>(QStringLiteral("resourcePackFileMode"));
+        auto *packReturn = dialog.findChild<QPushButton *>(QStringLiteral("resourcePackMode"));
+        expect(packMode && packReturn && packMode->isVisibleTo(&dialog) && !packReturn->isVisibleTo(&dialog),
+               "resource pack file mode puts its switch inside the compact toolbar");
+        if (packMode && packReturn) {
+            packMode->click();
+            expect(packReturn->isVisibleTo(&dialog), "resource pack order mode retains a visible way back");
+            packReturn->click();
+            expect(packMode->isVisibleTo(&dialog), "resource pack file toolbar returns after changing mode");
+        }
+        dialog.showPage(QStringLiteral("server"));
+        auto *serverColumns = dialog.findChild<QTreeWidget *>(Dlg::serverTreeName());
+        expect(serverColumns && serverColumns->columnWidth(1) == 120 && serverColumns->columnWidth(2) == 144,
+               "server address and status have bounded default widths instead of following long error text");
+        {
+            InstanceFilesPage details;
+            details.setDirectory(dirs.value(QStringLiteral("logs")));
+            details.setInfoPanelEnabled(true);
+            int requested = 0;
+            QObject::connect(&details, &InstanceFilesPage::infoDetailsRequested, &details,
+                [&](const QString &path) { if (path == details.currentPath()) ++requested; });
+            details.list()->setCurrentRow(0);
+            auto *button = details.findChild<QPushButton *>(QStringLiteral("instanceSchematicDetails"));
+            expect(button && button->isEnabled(), "schematic details is available for a selected file");
+            if (button) button->click();
+            expect(requested == 1, "schematic details request carries the selected file path");
+            details.list()->clearSelection();
+            expect(button && !button->isEnabled(), "schematic details cannot act without a selection");
+        }
+        dialog.showPage(QStringLiteral("save"));
         auto *backups = dialog.findChild<QPushButton *>(QStringLiteral("instanceSaveBackups"));
         expect(backups != nullptr, "saves page provides world backup entry");
+        auto *saves = dialog.findChild<InstanceFilesPage *>(Dlg::filesPageName(QStringLiteral("save")));
+        if (saves) {
+            saves->setJoinText(QStringLiteral("加入选中的世界"), QStringLiteral("启动并进入选中存档"));
+            auto *join = saves->findChild<QPushButton *>(InstanceFilesPage::joinButtonName());
+            auto *state = saves->findChild<QComboBox *>(InstanceFilesPage::stateComboName());
+            auto *batchEdit = saves->findChild<QPushButton *>(InstanceFilesPage::batchButtonName());
+            auto *search = saves->findChild<QLineEdit *>(InstanceFilesPage::searchEditName());
+            auto *path = saves->findChild<QWidget *>(InstanceFilesPage::pathLabelName());
+            expect(state && !state->isVisibleTo(&dialog), "worlds never expose enabled/disabled filters");
+            saves->setStateFilter(InstanceFilesPage::StateFilter::Disabled);
+            expect(saves->stateFilter() == InstanceFilesPage::StateFilter::All,
+                   "worlds cannot retain a hidden disabled-state filter");
+            expect(backups && join && backups->parentWidget() == join->parentWidget()
+                   && join->text() == QStringLiteral("加入世界"), "world actions share one compact toolbar");
+            expect(search && path && search->parentWidget() == path->parentWidget(),
+                   "world path shares the search row instead of squeezing toolbar actions");
+            expect(batchEdit && !batchEdit->isVisibleTo(&dialog), "unimplemented batch world edit does not occupy toolbar");
+            expect(!dialog.findChild<QLabel *>(Dlg::filesHintName(QStringLiteral("save"))),
+                   "obsolete world-management footer no longer reduces list height");
+            if (app.arguments().contains(QStringLiteral("--lifecycle-preview"))) {
+                dialog.resize(1100, 650);
+                app.processEvents();
+                dialog.grab().save(QStringLiteral("build/world-layout-preview.png"));
+            }
+        }
         if (backups) backups->click();
         expect(dialog.currentPageKey() == QStringLiteral("worldbackup") && navigation &&
                    navigation->currentItem() && navigation->currentItem()->data(0, Qt::UserRole).toString() == QStringLiteral("save"),
@@ -938,16 +1021,51 @@ int main(int argc, char *argv[]) {
         account.show();
         app.processEvents();
         expect(account.width() == 900, "account page width is not capped");
-        expect(account.height() <= 560, "account page height is capped");
+        auto *accountsPane = account.findChild<QWidget *>(QStringLiteral("accountManagementPane"));
+        expect(accountsPane && accountsPane->width() <= 340,
+               "account management pane stays compact instead of consuming half the page");
         auto *status = account.findChild<QLabel *>(AccountSkinDialog::statusLabelName());
         expect(status && status->alignment().testFlag(Qt::AlignRight), "account identity is right aligned");
         auto *viewer = account.findChild<SkinViewer *>(AccountSkinDialog::viewerName());
-        expect(viewer && viewer->width() == 160, "account character preview has bounded width");
+        expect(viewer && viewer->width() == 208 && viewer->height() == 312,
+               "account character preview has bounded dimensions");
         auto *login = account.findChild<QPushButton *>(AccountSkinDialog::loginButtonName());
+        auto *body = account.findChild<QWidget *>(QStringLiteral("accountBody"));
+        expect(body && body->height() < 520 && login &&
+               login->mapTo(&account, QPoint()).y() < 120,
+               "account controls stay top aligned without distributing surplus height into gaps");
         expect(login && login->grab().toImage().pixelColor(8, 8) == Theme::tokens().primary,
                "default login button keeps solid primary background");
         if (app.arguments().contains(QStringLiteral("--ui-refresh-preview")))
             account.grab().save(QStringLiteral("build/account-layout-preview.png"));
+        account.resize(720, 700);
+        app.processEvents();
+        expect(accountsPane && viewer &&
+               viewer->mapTo(&account, QPoint()).y() > accountsPane->geometry().bottom(),
+               "narrow account page stacks sections instead of clipping horizontal controls");
+        account.hide();
+        preview.resize(1200, 760);
+        app.processEvents();
+        auto *accountHost = ui.overlay();
+        auto *accountArea = accountHost->openPage(AccountSkinDialog::windowTitle());
+        expect(accountArea != nullptr, "account page opens in the real overlay shell");
+        if (accountArea) {
+            account.setParent(accountArea, Qt::Widget);
+            accountArea->layout()->addWidget(&account);
+            account.show();
+            app.processEvents();
+            auto *header = account.findChild<QWidget *>(QStringLiteral("accountHeaderBar"));
+            // 工具栏在宿主中，不再属于 account 的子树。
+            if (!header) header = preview.findChild<QWidget *>(QStringLiteral("accountHeaderBar"));
+            expect(header && header->parentWidget() != &account && header->isVisible(),
+                   "account identity and refresh occupy the existing page header");
+            expect(body && body->y() <= 16, "embedded account content starts without a redundant identity row");
+            if (app.arguments().contains(QStringLiteral("--ui-refresh-preview")))
+                preview.grab().save(QStringLiteral("build/account-embedded-preview.png"));
+            accountHost->closeOverlay();
+            expect(header && header->parentWidget() == &account,
+                   "closing account page returns header ownership safely");
+        }
         QList<TaskCenter::RunningItem> runningItems;
         TaskCenterPanel running(nullptr, {}, {}, [&runningItems]() { return runningItems; }, {}, {}, nullptr, true);
         running.resize(1000, 500);
@@ -13194,17 +13312,14 @@ int main(int argc, char *argv[]) {
                               InstanceSettingsDialog::importWorldText(),
                           "U10O 「导入世界」那几个字来自唯一出处",
                           saves->importButton()->text());
-                    check(saves->batchButton()->text() ==
-                              InstanceSettingsDialog::batchEditWorldsText(),
-                          "U10O 「批量编辑」那几个字来自唯一出处",
-                          saves->batchButton()->text());
-                    check(saves->importButton()->isVisible() && saves->batchButton()->isVisible(),
-                          "U10O 这一页开着的时候两颗都看得见");
+                    check(saves->batchButton()->isHidden(),
+                          "U10O 未实现的批量编辑不占用存档工具栏");
+                    check(saves->importButton()->isVisible(),
+                          "U10O 存档工具栏保留真实导入入口");
                     // ★ 「批量编辑」今天是个**占位**：它的 tooltip 必须自己先说清"还没做"
                     //   —— 只靠点下去弹的那句话的话，用户要先把鼠标移过去点一下才知道。
-                    check(saves->batchButton()->toolTip().contains(QStringLiteral("还没做")),
-                          "★ U10O 「批量编辑」的 tooltip 自己就说了「还没做」（占位不许装成能用）",
-                          saves->batchButton()->toolTip());
+                    check(!saves->batchButton()->isVisibleTo(saves),
+                          "U10O 占位批量编辑刷新后仍不显示");
                     // 导入那一颗是**真的**，tooltip 里不该出现"还没做"。
                     check(!saves->importButton()->toolTip().contains(QStringLiteral("还没做")),
                           "★ U10O 而「导入世界」是真的，tooltip 里没有那三个字",
@@ -13580,7 +13695,8 @@ int main(int argc, char *argv[]) {
             QStringList badHints;
             for (const QString &key : Dlg::filePageKeys()) {
                 auto *hint = dialog.findChild<QLabel *>(Dlg::filesHintName(key));
-                if (Dlg::filesNameOpensResource(key)) {
+                if (Dlg::filesNameOpensResource(key) || key == QStringLiteral("save") ||
+                    key == QStringLiteral("schematic") || key == QStringLiteral("structure") || key == QStringLiteral("server")) {
                     // 批量管理那四页：**不该有**小字。
                     if (hint != nullptr) {
                         badHints.append(key + QStringLiteral(":有(不该有)"));
@@ -14575,11 +14691,10 @@ int main(int argc, char *argv[]) {
                           "★★ U10Q 没开批量的页上**没有**那颗「详情」（它只在开了批量的页上建）");
                     check(saves->stateCombo() != nullptr && saves->stateButtonAt(
                               InstanceFilesPage::StateFilter::All) != nullptr &&
-                              saves->stateCombo()->isVisibleTo(saves) &&
+                              !saves->stateCombo()->isVisibleTo(saves) &&
                               !saves->stateButtonAt(InstanceFilesPage::StateFilter::All)
                                    ->isVisibleTo(saves),
-                          "★★ U10Q 没开批量的页仍旧用**下拉框**（四颗横向按钮藏起来）—— "
-                          "两套控件都在，按这一位显隐");
+                          "U10Q 存档页不显示启用/禁用筛选，也不显示资源批量筛选按钮");
                     check(saves->selectionBar() != nullptr &&
                               !saves->selectionBar()->isVisible(),
                           "★★ U10Q 没开批量的页上那条操作条**不露**（哪怕把行选上）");
@@ -15560,8 +15675,8 @@ int main(int argc, char *argv[]) {
                     check(header->sectionResizeMode(0) == QHeaderView::Stretch,
                           "★★ U10L 第 0 列（名字 + MOTD）**吃掉剩下的全部宽度** —— "
                           "这一条就是「保证左侧的 motd 能显示全」的落法");
-                    check(header->sectionResizeMode(1) == QHeaderView::ResizeToContents &&
-                              header->sectionResizeMode(2) == QHeaderView::ResizeToContents,
+                    check(header->sectionResizeMode(1) == QHeaderView::Interactive &&
+                              header->sectionResizeMode(2) == QHeaderView::Interactive,
                           "U10L 地址和状态那两栏按内容定宽（地址是遮过的、本来就窄）");
                 }
                 check(tree->topLevelItemCount() > 0 &&
@@ -22477,6 +22592,39 @@ int main(int argc, char *argv[]) {
         overlay->closeOverlay();
         QApplication::processEvents();
         check(!overlay->isOpen(), "拒绝之后外面那条提示照旧收得掉");
+
+        // ★ 2026-10-20：已经有提示开着的时候，后台收尾那种**纯报信**提示（warning /
+        //   information / critical，一颗按钮都没给）排队，不再像以前那样只留一行 qWarning
+        //   就丢掉。要人回答的提示仍然不叠（语义见 OverlayHost::queueNotification()）。
+        {
+            InlineMessageBox holder(MessageKind::Information, QStringLiteral("先来的"),
+                                    QStringLiteral("上一条还开着。"), QStringList(), 0, -1);
+            overlay->openPrompt(true)->layout()->addWidget(&holder);
+            QApplication::processEvents();
+            // 这一条不该把上一条顶掉、也不该当场丢：它被排着。
+            InlineMessage::warning(overlay, QStringLiteral("下载失败"),
+                                   QStringLiteral("后台收尾的那一句。"));
+            check(overlay->promptOpen(), "纯报信提示不顶掉已经开着的那一条");
+            bool sawQueued = false;
+            QTimer::singleShot(100, overlay, [&] {
+                if (overlay->promptOpen()) {
+                    sawQueued = true;
+                    // 和用户按 Esc 同一发：`execPrompt()` 的循环靠它退出（`closeOverlay()`
+                    // 只收外壳、不 reject 对话框）。
+                    QKeyEvent esc(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+                    QApplication::sendEvent(overlay, &esc);
+                }
+            });
+            overlay->closeOverlay();  // 收掉上一条 → 排着的那一条下一轮摆出来
+            QElapsedTimer wait;
+            wait.start();
+            while (!sawQueued && wait.elapsed() < 3000) {
+                QApplication::processEvents();
+            }
+            check(sawQueued, "上一条提示收掉之后，排着的那条纯报信提示真的摆出来了");
+            QApplication::processEvents();
+            check(!overlay->isOpen(), "排队那条收掉之后覆盖层回到全关");
+        }
 
         // ---------- ★ 提示叠在**产品那条路**上：点掉提示不能把底下那一页一起拒掉 ----------
         // （2026-09-26 修的那条：`execEmbedded` 里 `promptDismissed` 原来**两层都接**。）

@@ -12,12 +12,16 @@
 #include <QFile>
 #include <QStyleFactory>
 #include <QTextStream>
+#include <QMessageBox>
 
 #include "MainWindow.hpp"
 #include "../ui/Animations.hpp"  // 按下按钮那一份动效（见下面那段 NOTE）
 #include "../ui/Theme.hpp"   // 主题从盘上读回来、铺开（见下面那段 NOTE）
 #include "util/AppPaths.hpp"
 #include "util/DownloadDiagnostics.hpp"
+#include "util/DirectorySessionLock.hpp"
+#include "manage/FolderManager.hpp"
+#include "settings/LauncherSettings.hpp"
 
 namespace {
 
@@ -139,6 +143,16 @@ int main(int argc, char *argv[]) {
     // **不许在这儿写第二份字面量** —— 这两处长期对不上（CMakeLists 0.1.0 / 这儿 1.0.0）。
     app.setApplicationVersion(QStringLiteral(WTFML_VERSION));
     app.setOrganizationName("WTFML");
+
+    DirectorySessionLock::enabled = true;
+    LauncherSettings startupSettings;
+    FolderManager startupFolders(&startupSettings);
+    QString lockProblem;
+    if (!DirectorySessionLock::acquire(startupFolders.currentFolder(), &lockProblem) ||
+        !DirectorySessionLock::acquire(FolderManager::defaultFolder(), &lockProblem)) {
+        QMessageBox::information(nullptr, QStringLiteral("启动器已在运行或目录不可用"), lockProblem);
+        return 1;
+    }
 
     // 主题（背景 / 字色 / 文字不透明度 / 语义色）从盘上读回来铺开。
     //

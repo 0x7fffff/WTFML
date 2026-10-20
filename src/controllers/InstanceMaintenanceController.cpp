@@ -172,3 +172,56 @@ QString InstanceMaintenanceController::latestWorldBackup(const QString &worldDir
     }
     return QString();
 }
+
+QStringList InstanceMaintenanceController::migrateWorldBackupSlots(
+    const QString &oldInstanceDir, const QString &newInstanceDir, int *movedOut) {
+    if (movedOut != nullptr) {
+        *movedOut = 0;
+    }
+    QStringList problems;
+    if (oldInstanceDir.trimmed().isEmpty() || newInstanceDir.trimmed().isEmpty()) {
+        return problems;
+    }
+    // ★ 列的是**新**目录：这一条在改名成功之后才调，旧目录已经不在了。世界目录相对
+    //   `saves/` 的那一段没变，所以拿它拼回旧路径就能算出旧格子名。
+    const QDir newSaves(QDir(newInstanceDir).filePath(QStringLiteral("saves")));
+    const QString root = AppPaths::worldBackupDir();
+    int moved = 0;
+    for (const QString &world : newSaves.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+        const QString newWorldDir = newSaves.filePath(world);
+        const QString oldWorldDir =
+            QDir(oldInstanceDir).filePath(QStringLiteral("saves/") + world);
+        const QString fromSlot = worldBackupSlot(oldWorldDir);
+        const QString toSlot = worldBackupSlot(newWorldDir);
+        if (fromSlot == toSlot) {
+            continue;  // 不是标准布局之类，格子名没跟着实例名走
+        }
+        const QString from = root + QLatin1Char('/') + fromSlot;
+        const QString to = root + QLatin1Char('/') + toSlot;
+        if (!QFileInfo::exists(from)) {
+            continue;  // 这个世界没备份过（绝大多数都是这样）
+        }
+        const QFileInfo fromInfo(from);
+        if (!fromInfo.isDir() || fromInfo.isSymLink() || fromInfo.isJunction()) {
+            problems.append(QStringLiteral("存档备份没有搬：%1 不是一个普通目录。")
+                                .arg(QDir::toNativeSeparators(from)));
+            continue;
+        }
+        if (QFileInfo::exists(to)) {
+            problems.append(QStringLiteral("存档备份没有搬：%1 已经存在，旧的那一份留在原处。")
+                                .arg(QDir::toNativeSeparators(to)));
+            continue;
+        }
+        if (!QDir().rename(from, to)) {
+            problems.append(QStringLiteral("存档备份没有搬：%1 改不成 %2（可能有别的程序正开着它）。")
+                                .arg(QDir::toNativeSeparators(from),
+                                     QDir::toNativeSeparators(to)));
+            continue;
+        }
+        ++moved;
+    }
+    if (movedOut != nullptr) {
+        *movedOut = moved;
+    }
+    return problems;
+}

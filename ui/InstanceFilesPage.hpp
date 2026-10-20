@@ -180,6 +180,9 @@ public:
     void setBatchMode(bool batchMode);
     bool batchMode() const { return m_batchMode; }
     void setActionPanelEnabled(bool enabled);
+    /// 存档专用布局：操作集中一排，搜索/路径一排，不提供启用状态筛选。
+    void setWorldLayout(QPushButton *backupButton);
+    void setCompactHeader(QPushButton *leadingAction = nullptr);
 
     /// 顶上那颗「导入世界」（只有存档那一页给）。用户 2026-09-28 原话：「顶端加个导入
     /// 世界按钮」。
@@ -956,6 +959,7 @@ signals:
     /// NOTE: 选择一变就会发一次（而且合并了 150 ms 内的连点，见 .cpp 里那个节拍器）——
     ///       读一份大投影要几百毫秒，快速翻行时不该每行都读一遍。
     void infoRequested(const QString &path);
+    void infoDetailsRequested(const QString &path);
 
     /// 用户点了某一条行尾的「编辑」（那支笔）。@param path 是这一条的绝对路径
     /// （= `item->data(pathRole())`）。
@@ -1293,6 +1297,8 @@ private:
     QLineEdit *m_search = nullptr;
     /// 上面那一排（路径 + 两颗按钮）。「用不上」的时候整排一起收起来。
     QWidget *m_pathRow = nullptr;
+    bool m_worldLayout = false;
+    bool m_compactHeader = false;
     /// 顶上那几排「来源」下拉框的容器（**只有「结构/原理图」那一页会露**，见
     /// setStructureSources）。摆在路径那一排**之下**、状态那一排之上。
     QWidget *m_structureRows = nullptr;
@@ -1333,6 +1339,7 @@ private:
     /// 那一格标签。**每一页都建**（这几页是同一段循环搭的），只有
     /// `setInfoPanelEnabled(true)` 的页上它才可能露出来。
     QLabel *m_info = nullptr;
+    QPushButton *m_infoDetails = nullptr;
     /// 这一页要不要那一格（默认关 —— 别的七页一个像素都不变）。
     bool m_infoPanelEnabled = false;
     /// 已经为哪一条发过请求（避免"选中没变、只是列表重列"时又读一遍盘）。

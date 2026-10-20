@@ -11,6 +11,7 @@
  *       "我明明失败了，盘上却躺着一个能打开的坏包"）。
  */
 #pragma once
+#include <functional>
 
 #include <QByteArray>
 #include <QList>
@@ -46,7 +47,7 @@ struct ZipSource {
  *       ⇒ **别为了"省一次写盘"把表改回拼进脚本**。
  */
 bool createZip(const QString &targetZip, const QList<ZipSource> &entries,
-               QString *errorOut = nullptr);
+                QString *errorOut = nullptr, const std::function<bool()> &cancelled = {});
 
 /// 读一个条目的结果。**这四样必须分得清**：用户选的那个压缩包到底是不是整合包
 /// （NotFound），和它是不是一个坏文件（NotAnArchive / Failed），要给的是两句完全不同的话。

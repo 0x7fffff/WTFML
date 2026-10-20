@@ -551,7 +551,17 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     m_info->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_info->setVisible(false);
     makeSecondary(m_info);
-    outer->addWidget(m_info);
+    auto *infoRow = new QHBoxLayout;
+    infoRow->addWidget(m_info, 1);
+    m_infoDetails = new QPushButton(tr("方块详情"), this);
+    m_infoDetails->setObjectName(QStringLiteral("instanceSchematicDetails"));
+    Theme::markButton(m_infoDetails, Theme::ButtonKind::Neutral);
+    m_infoDetails->hide();
+    infoRow->addWidget(m_infoDetails);
+    outer->addLayout(infoRow);
+    connect(m_infoDetails, &QPushButton::clicked, this, [this] {
+        if (!m_infoPath.isEmpty()) emit infoDetailsRequested(m_infoPath);
+    });
 
     // 连点合并：在一个文件上停 150 ms 才真去读。读一份大投影要几百毫秒（gzip 还要
     // 起一次 PowerShell 解压），用户快速翻行时不该每一行都读一遍。
@@ -927,7 +937,7 @@ void InstanceFilesPage::setJoinText(const QString &text, const QString &tip) {
     if (m_join == nullptr) {
         return;
     }
-    m_join->setText(text);
+    m_join->setText(m_worldLayout && !text.isEmpty() ? tr("加入世界") : text);
     m_join->setVisible(!text.isEmpty());
     // ★ 2026-10-10：提示**存在成员里**而不是就地塞给按钮 —— 它还要在"没选中一条"时换成
     //   另一句（见 updateJoinEnabled()），而那之后得换得回**原来这一句**（那句话是调用方
@@ -1203,6 +1213,7 @@ int InstanceFilesPage::stateFilterCount(StateFilter filter) const {
 }
 
 bool InstanceFilesPage::stateFilterVisible(StateFilter filter) const {
+    if (m_worldLayout && filter != StateFilter::All) return false;
     // 「全部」恒在（用户 2026-10-10 那句的后半截：「…全部的默认显示」）。
     if (filter == StateFilter::All) {
         return true;
@@ -2136,6 +2147,7 @@ QLabel *InstanceFilesPage::pathLabel() const {
 // 都是 src/ 的事，由接的人算好递回来。
 
 void InstanceFilesPage::setInfoPanelEnabled(bool enabled) {
+    m_infoDetails->setVisible(enabled);
     if (m_infoPanelEnabled == enabled) {
         return;
     }
@@ -2185,6 +2197,7 @@ void InstanceFilesPage::updateInfoPanel() {
             isDir = entry != nullptr && entry->isDir;
         }
     }
+    m_infoDetails->setEnabled(!path.isEmpty() && !isDir);
     if (path.isEmpty() || isDir) {
         if (m_infoTimer != nullptr) {
             m_infoTimer->stop();
@@ -2210,6 +2223,32 @@ void InstanceFilesPage::updateInfoPanel() {
     }
 }
 
+void InstanceFilesPage::setWorldLayout(QPushButton *backupButton) {
+    if (m_worldLayout) return;
+    m_worldLayout = true;
+    setStateFilter(StateFilter::All);
+    setCompactHeader(backupButton);
+    m_search->setPlaceholderText(tr("搜索存档名称"));
+    m_join->setText(tr("加入世界"));
+    applyState();
+}
+
+void InstanceFilesPage::setCompactHeader(QPushButton *leadingAction) {
+    if (m_compactHeader) return;
+    m_compactHeader = true;
+    auto *actions = qobject_cast<QHBoxLayout *>(m_pathRow->layout());
+    actions->removeWidget(m_pathLabel);
+    if (leadingAction) actions->insertWidget(0, leadingAction);
+    actions->insertStretch(actions->indexOf(m_join) + 1, 1);
+    auto *search = qobject_cast<QHBoxLayout *>(m_searchRow->layout());
+    search->setStretchFactor(m_search, 2);
+    search->addWidget(m_pathLabel, 1);
+    auto *outer = qobject_cast<QVBoxLayout *>(layout());
+    outer->removeWidget(m_pathRow);
+    outer->insertWidget(0, m_pathRow);
+    applyState();
+}
+
 void InstanceFilesPage::applyState() {
     const bool unavailable = !m_unavailable.isEmpty();
     const bool empty = !unavailable && m_empty;
@@ -2224,7 +2263,9 @@ void InstanceFilesPage::applyState() {
         m_searchRow->setVisible(filtersUseful);
     }
     if (m_stateRow != nullptr) {
-        m_stateRow->setVisible(filtersUseful);
+        const bool choice = stateFilterVisible(StateFilter::Enabled) ||
+            stateFilterVisible(StateFilter::Disabled) || stateFilterVisible(StateFilter::Update);
+        m_stateRow->setVisible(filtersUseful && !m_worldLayout && (!m_compactHeader || choice));
     }
     // ★ 那一排里**下拉框和四颗按钮互相显隐**（2026-10-09，见 .hpp 里 m_stateRow 那段）：
     //   开了批量的页摆那四颗（连「显示」那个标签一起收掉 —— 那四颗自己就写着「全部(352)」），

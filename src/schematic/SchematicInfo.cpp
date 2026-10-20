@@ -154,6 +154,7 @@ void fillTopBlocks(Info *info, const QHash<QString, qint64> &counts) {
         }
         return left.id < right.id;  // 同数时定序，界面上不会每次刷新换一行
     });
+    info->blocks = list;
     while (list.size() > kTopBlockLimit) {
         list.removeLast();
     }

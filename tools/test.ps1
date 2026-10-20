@@ -96,6 +96,29 @@ try {
             default { @('WTFMinecraftLauncher', 'verify', 'ui_check', 'mw_check') }
         }
         foreach ($target in $targets) {
+            if ($Suite -eq 'ci-app' -and $target -eq 'WTFMinecraftLauncher') {
+                # Cold launcher compilation can exceed one 900s stage. Build explicit,
+                # non-overlapping object batches first, then let CMake link the full target.
+                # Dependencies (including Qt autogen) remain managed by Ninja itself.
+                $cache = Get-Content -LiteralPath (Join-Path $build 'CMakeCache.txt')
+                if ($cache -contains 'CMAKE_GENERATOR:INTERNAL=Ninja') {
+                    # Refresh before enumerating: newly added translation units must join
+                    # a bounded batch, not accumulate in the final link stage.
+                    Invoke-Stage 'refresh-build-graph' $cmake @('-S', $repo, '-B', $build) $BuildTimeoutSeconds
+                    $makeLine = @($cache | Where-Object { $_ -match '^CMAKE_MAKE_PROGRAM:FILEPATH=' })
+                    if ($makeLine.Count -ne 1) { throw 'Cannot identify the configured Ninja executable.' }
+                    $ninja = ($makeLine[0] -split '=', 2)[1]
+                    Invoke-Stage 'list-launcher-objects' $ninja @('-C', $build, '-t', 'targets', 'all') 60
+                    . (Join-Path $PSScriptRoot 'ci-object-batches.ps1')
+                    $objects = @(Get-CiLauncherObjects (Get-Content -LiteralPath (Join-Path $run 'list-launcher-objects.stdout.log')))
+                    for ($offset = 0; $offset -lt $objects.Count; $offset += 32) {
+                        $last = [math]::Min($offset + 31, $objects.Count - 1)
+                        $batch = @($objects[$offset..$last])
+                        Invoke-Stage "build-launcher-objects-$([int]($offset / 32) + 1)" $cmake `
+                            (@('--build', $build, '--parallel', "$BuildJobs", '--target') + $batch) $BuildTimeoutSeconds
+                    }
+                }
+            }
             Invoke-Stage "build-$target" $cmake @('--build', $build, '--target', $target, '--parallel', "$BuildJobs") $BuildTimeoutSeconds
         }
         if ($Suite -eq 'full') {

@@ -10,12 +10,14 @@
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPair>
 #include <QUrl>
+#include <QRegularExpression>
 
 #include "manage/ModpackImport.hpp"  // curseForgeApiBase() —— 那条接口根地址的唯一出处
 #include "net/HttpClient.hpp"
@@ -368,6 +370,103 @@ void ResourceStore::search(const QString &requestKey, ResourceCatalog::Kind kind
                                          !m_curseForgeApiKey.isEmpty());
         }
         emit searchFinished(requestKey, result);
+    });
+}
+
+void ResourceStore::fetchModrinthFiles(const QString &requestKey, const QStringList &sha1s) {
+    if (auto *previous = m_replies.take(requestKey)) previous->abort();
+    QSet<QString> requested;
+    const QRegularExpression hashPattern(QStringLiteral("^[0-9a-fA-F]{40}$"));
+    for (const auto &sha : sha1s) {
+        if (!hashPattern.match(sha).hasMatch()) {
+            emit modrinthFilesFinished(requestKey, {}, {}, QStringLiteral("文件身份查询包含无效 SHA-1。")); return;
+        }
+        requested.insert(sha.toLower());
+    }
+    if (requested.size() > 100) {
+        emit modrinthFilesFinished(requestKey, {}, {}, QStringLiteral("单批文件身份查询超过 100 项。")); return;
+    }
+    if (requested.isEmpty()) { emit modrinthFilesFinished(requestKey, {}, {}, {}); return; }
+    QString base = m_modrinthApiBaseOverride.isEmpty()
+        ? QStringLiteral("https://api.modrinth.com/v2") : m_modrinthApiBaseOverride;
+    while (base.endsWith(QLatin1Char('/'))) base.chop(1);
+    const auto body = QJsonDocument(QJsonObject{{QStringLiteral("algorithm"), QStringLiteral("sha1")},
+        {QStringLiteral("hashes"), QJsonArray::fromStringList(requested.values())}}).toJson(QJsonDocument::Compact);
+    auto *reply = m_net->post(resourceRequest(base + QStringLiteral("/version_files"), {},
+        QByteArrayLiteral("application/json")), body);
+    m_replies.insert(requestKey, reply);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, requestKey, requested] {
+        reply->deleteLater();
+        if (m_replies.value(requestKey) != reply) return;
+        m_replies.remove(requestKey);
+        const auto body = reply->readAll();
+        if (!okStatus(statusOf(reply))) {
+            emit modrinthFilesFinished(requestKey, {}, {}, failureText(reply, body, QStringLiteral("识别已安装模组"))); return;
+        }
+        const auto document = QJsonDocument::fromJson(body);
+        if (!document.isObject()) {
+            emit modrinthFilesFinished(requestKey, {}, {}, QStringLiteral("模组哈希查询响应不是有效对象。")); return;
+        }
+        QHash<QString, QString> projects;
+        QHash<QString, ResourceCatalog::VersionEntry> versions;
+        QSet<QString> ambiguous;
+        QString problem;
+        const auto object = document.object();
+        for (auto it = object.begin(); it != object.end(); ++it) {
+            const QString sha = it.key().toLower();
+            if (!requested.contains(sha) || ambiguous.contains(sha)) continue;
+            const auto entry = it.value().toObject();
+            const QString project = entry.value(QStringLiteral("project_id")).toString().trimmed();
+            const auto parsed = ResourceCatalog::parseVersions(QJsonDocument(QJsonArray{entry}).toJson());
+            bool matched = false;
+            if (parsed.size() == 1) for (const auto &file : parsed.first().files)
+                if (file.sha1.compare(sha, Qt::CaseInsensitive) == 0) matched = true;
+            if (project.isEmpty() || parsed.size() != 1 || parsed.first().id.isEmpty() || !matched) {
+                problem = QStringLiteral("部分模组身份响应缺少项目/发行版，或文件哈希不符；未采信这些条目。");
+                continue;
+            }
+            if (projects.contains(sha) && (projects.value(sha) != project || versions.value(sha).id != parsed.first().id)) {
+                projects.remove(sha);
+                versions.remove(sha);
+                ambiguous.insert(sha);
+                problem = QStringLiteral("同一文件哈希返回了相互冲突的项目或发行版，未采信。");
+                continue;
+            }
+            projects.insert(sha, project);
+            versions.insert(sha, parsed.first());
+        }
+        emit modrinthFilesFinished(requestKey, projects, versions, problem);
+    });
+}
+
+void ResourceStore::fetchModrinthVersion(const QString &requestKey, const QString &versionId) {
+    if (auto *previous = m_replies.take(requestKey)) previous->abort();
+    QString base = m_modrinthApiBaseOverride.isEmpty()
+        ? QStringLiteral("https://api.modrinth.com/v2") : m_modrinthApiBaseOverride;
+    while (base.endsWith(QLatin1Char('/'))) base.chop(1);
+    auto *reply = m_net->get(resourceRequest(base + QStringLiteral("/version/")
+        + QString::fromLatin1(QUrl::toPercentEncoding(versionId))));
+    m_replies.insert(requestKey, reply);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, requestKey, versionId] {
+        reply->deleteLater();
+        if (m_replies.value(requestKey) != reply) return;
+        m_replies.remove(requestKey);
+        const QByteArray body = reply->readAll();
+        if (!okStatus(statusOf(reply))) {
+            emit modrinthVersionFinished(requestKey, {}, {},
+                failureText(reply, body, QStringLiteral("读取精确前置版本")));
+            return;
+        }
+        const auto document = QJsonDocument::fromJson(body);
+        const auto object = document.object();
+        const QString project = object.value(QStringLiteral("project_id")).toString().trimmed();
+        const auto parsed = ResourceCatalog::parseVersions(QJsonDocument(QJsonArray{object}).toJson());
+        if (!document.isObject() || project.isEmpty() || parsed.size() != 1 || parsed.first().id != versionId) {
+            emit modrinthVersionFinished(requestKey, {}, {},
+                QStringLiteral("精确前置版本响应缺少项目身份或发行版 ID 不匹配。"));
+            return;
+        }
+        emit modrinthVersionFinished(requestKey, project, parsed.first(), {});
     });
 }
 

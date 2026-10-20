@@ -34,6 +34,7 @@
  */
 #pragma once
 
+#include <QByteArray>
 #include <QString>
 #include <QStringList>
 
@@ -267,6 +268,8 @@ QString validatePathSegment(const QString &segment);
  *       （`"D:/ab".startsWith("D:/a")` 是 true 的那种经典错法）。
  */
 bool pathIsSameOrInside(const QString &parent, const QString &candidate);
+/// 解析符号链接、junction 与路径别名；不存在的路径保留绝对形式。
+QString canonicalPath(const QString &path);
 
 /**
  * @brief @p relativePath 这一条（相对 @p root 的）路径上，**有没有任何一层是链接**
@@ -310,6 +313,15 @@ enum class ImportNameVerdict {
  * @brief 整合包导入的名字判据：validateRenameTarget() + 一条"接着下"的口子。
  * @param rawName 用户输入的名字。
  * @param problemOut 非空时，Taken 那条路会把给用户看的那句话写进来（另两种清空）。
+ * @param manifestFingerprint 这一趟要导入的包那份清单的指纹（`importManifestFingerprint()`
+ *        的产物；空 = 调用方不知道，不查这一条）。
+ *
+ * ★ 2026-10-20：同名**不等于**同一个包。盘上那次没导完的导入记着上一次那份清单的指纹，
+ *   这一趟的指纹和它对不上时回 `Taken`（措辞说清是"另一个整合包"）：否则把两个不同的
+ *   包往同一个目录里接着导，前一包的半份文件会和新包混在一起 —— 清单里 sha1 对不上的
+ *   那几条还会被当成"已经有文件"跳过，装出来是个谁都没见过的组合。
+ *   老版本留下的标记里没有指纹（那时只记了开始时间），认不出来就仍然按 `OkResume`
+ *   放行 —— 那是升级前就有的行为，不能因为升级反而把用户已经下到一半的那一份锁死。
  *
  * 和「重命名」判据的差别**只有这一条**：撞上的是"上次没下完的导入"时不算被占 ——
  * 整合包是几百个文件分着下的，网一断就留下半份（真机上那次是 600+ MB / 300 多个文件），
@@ -320,7 +332,8 @@ enum class ImportNameVerdict {
  *       确认框）—— 接着下会重新解开包里的 config/资源包，压在用户改过的文件上。
  */
 ImportNameVerdict checkImportTargetName(const QString &rawName,
-                                        QString *problemOut = nullptr);
+                                        QString *problemOut = nullptr,
+                                        const QString &manifestFingerprint = QString());
 
 /**
  * @brief 这个目录像不像"一次没下完的整合包导入"。
@@ -355,6 +368,38 @@ bool isUnfinishedImport(const QString &id);
 /// 它和 `wtfml.meta` 是相反的两件事：meta 是"做完了"，这个是"正在做、还没做完"。
 /// 单独一个文件、不进版本 json，是因为 json 的字段第三方工具也会读写，多一个私有字段
 /// 既容易被清掉，也会让"那份 json 是不是我们写的"更难看出来。成功收尾时删掉。
+/// ★ 2026-10-20 起内容是 JSON：`{"startedAt": "...", "manifestSha256": "..."}`。
+///   老版本写的是一行 ISO 时间 —— 读侧把它当"没有指纹"，不影响升级前留下的半成品。
 QString importMarkerPath(const QString &id);
+
+/// 整合包清单的指纹：对**清单文件的原始字节**算 sha256（小写十六进制，64 个字符）。
+///
+/// 为什么认原始字节而不是解析出来的字段：重新打一次包（zip 重新压过、修改时间变了）时
+/// 里面那份清单的字节还是一模一样，而"是不是同一个包"问的正是这件事；反过来说，两个
+/// 不同的包几乎不可能连清单字节都一样（名字、版本号、文件表里总有一样不同）。
+/// 传空字节回空串 —— 那表示"不知道"，标记里不记指纹、比较时也不拿它拦人。
+QString importManifestFingerprint(const QByteArray &manifestJson);
+
+/// 读 `<实例目录>/wtfml.importing` 里记着的清单指纹。
+/// 没有标记 / 老版本留下的纯时间戳标记 / 读不动 ⇒ 空串（= 认不出，不拿它拦人）。
+QString importMarkerFingerprint(const QString &id);
+
+/// 实例改名之后，把"按目录名认人"的缓存格子搬到新名字底下
+/// （`<每个根>/<oldId>` → `<每个根>/<newId>`）。
+///
+/// 为什么要有（2026-10-20）：配置备份（`cache/config-backups/<id>/…`）、资源包备份
+/// （`cache/resource-pack-backups/<id>`）这些格子的名字都由实例目录名派生。不改名之前
+/// 一切正常，改名之后**新名字查不到那些备份、清理也够不着它们** —— 用户看到的是
+/// "改了个名，我的配置回退记录全没了"，而磁盘上其实还在，只是没人再按那个名字去找。
+///
+/// 只搬**目录**：格子里面是时间戳那一层，内容里不抄实例名，所以整目录 rename 就够。
+/// 目标格子已经有东西时**不合并** —— 那多半是以前叫过这个名字的另一个实例留下的，
+/// 两边的"第 N 代"没法排先后，合并会把一边挤掉。留在原地并报一句，让用户自己决定。
+///
+/// @param roots 缓存根目录（拼上实例名的那一层）。
+/// @param movedOut 真搬成功的格子数（可空）。
+/// @return 没搬成的那几处，一句一处（空 = 全搬好了或本来就没有可搬的）。
+QStringList migrateInstanceCacheDirs(const QString &oldId, const QString &newId,
+                                     const QStringList &roots, int *movedOut = nullptr);
 
 }  // namespace InstanceFiles

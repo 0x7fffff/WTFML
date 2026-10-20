@@ -34,6 +34,7 @@
 #include <QString>
 
 class QComboBox;
+class QBoxLayout;
 class QLabel;
 class QLineEdit;
 class QListWidget;
@@ -238,6 +239,10 @@ signals:
     /// 用户要取消披风（不显示）。
     void hideCapeRequested();
 
+protected:
+    void showEvent(QShowEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
+
 private slots:
     /// 「上传皮肤…」：选文件，成了就发 skinUploadRequested()。
     void pickSkinFile();
@@ -257,6 +262,9 @@ private:
     /// 忙的时候那几个按钮会被重新点亮，等于登录还在飞用户就能切账号，回来之后两条路
     /// 各写一遍凭据。这个成员就是给那个函数补上「忙的时候一律灰」这一条。
     bool m_busy = false;
+    QWidget *m_headerBar = nullptr;
+    QWidget *m_accountsPanel = nullptr;
+    QBoxLayout *m_bodyLayout = nullptr;
 
     /// 「皮肤」那一行现在露的是哪一档（见 setOfflineSkinState()）。两个都从外面喂进来，
     /// 这个窗不自己判"当前账号是不是离线" —— 那件事的唯一出处在业务层。

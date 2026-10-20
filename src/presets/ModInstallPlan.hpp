@@ -79,6 +79,7 @@ struct ModInstallRequest {
     QSet<QString> installedKeys;
     /// 平台发行版 ID（不是展示版本号）。仅确认项目存在不能证明精确前置满足。
     QHash<QString, QString> installedVersionIds;
+    QHash<QString, ResourceCatalog::VersionEntry> installedVersions;
 
     /// 某一条缺失时**候选的替代项目**（键 = 原引用 `key()`）。空 = 没有候选。
     QHash<QString, QList<ModReference>> alternativesByKey;

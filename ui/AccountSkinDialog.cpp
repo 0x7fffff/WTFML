@@ -13,6 +13,9 @@
 #include "SkinModel.hpp"
 #include "Theme.hpp"   // 这一窗里「删除所选」那一颗是危险按钮（红字红边，见构造函数）
 #include "SkinViewer.hpp"
+#include "OverlayHost.hpp"
+#include <QShowEvent>
+#include <QResizeEvent>
 
 #include <QComboBox>
 #include <QDateTime>
@@ -31,41 +34,9 @@
 #include <QVBoxLayout>
 
 namespace {
-/// 3D 预览那一块的最小高度。比主页那个小人小一档：这里是"看一眼确认换上了没有"，
-/// 不是主界面那张主角图。
-/// ★ 2026-09-29 用户原话「账户管理那里太长了做短一点」：**260 → 200**。
-constexpr int kViewerMinHeight = 200;
-/// 账号/披风那两个列表的最小高度。太小的时候列表里只看得见一两行，
-/// "我到底有几个账号"这件事就看不出来了。
-/// ★ 同上那一句：**120 → 96**（这么高还看得见四行，够看出"我有几个账号"）。
 constexpr int kListMinHeight = 96;
-/// 整窗的初始尺寸。★ 同上那一句：**760x520 → 720x460** —— 用户说的是"太长了"，
-/// 所以砍的多是高度（−60），宽度只收一档（−40，四颗按钮 + 离线那一行还摆得开）。
-/// NOTE: 砍的是**初始**尺寸，最小高度仍然是上面那两个 `kXxxMinHeight` 撑出来的那一个
-///       （窗口照样能拉到更大，这个窗里的东西是固定的几块）。
-constexpr int kInitialWidth = 720;
+constexpr int kInitialWidth = 980;
 constexpr int kInitialHeight = 460;
-/// 人物预览那一块的高度上限。★ 上面那句「做短一点」管的是**上限**这一侧：这一块
-/// 的策略是"宽固定、高跟着涨"，一页里那点富余高度全被它吃掉，人就被拉成一根柱子。
-/// 所以给它个盖：涨到 260（≈ 刚做短之前那一档）就停，多出来的高度让给下面的披风表。
-constexpr int kViewerMaxHeight = 260;
-/// 整页的高度上限。★★ 2026-10-16 用户原话「那个账号页的宽度恢复一下，高度窄一点」。
-///
-/// 这一页是**内嵌页**（`OverlayHost::execPage()`）：它由 `m_pageContent` 那个纵向布局
-/// 摆着、**只有它一个控件、也没有对齐**，于是多出来的高度全摊在它身上 ——
-///   · 宽：这一页**一道宽度约束都没有、也不该有** —— 外面那层滚动区是
-///         `setWidgetResizable(true)` 的，`m_pageContent` 永远等于内容区那么宽，这一页跟着
-///         铺满。屏幕上看着窄是**里面**那两栏 5:6 + 固定 160 的预览分出来的，不是这一页
-///         被谁钉住了。
-///         NOTE: 这一步我（2026-10-16）先在这儿写过一句"原来那句 `setMaximumWidth(760)`
-///               已删" —— 翻遍仓库（`git log -S`）**那一行从来没有过**，是记错了；宽度这边
-///               今天没有可"恢复"的东西，别照着那半句去改。
-///   · 高：不盖的话这一页就一路长到窗口底（就是个又高又窄的长条），用户要的是**窄一点**。
-///        盖在 kInitialHeight 上面留一档（460 → 560）：这一页是"固定的几块"，多出来的
-///        高度只是把它抻长，盖住之后底下留白反而更像一张"页"。
-/// NOTE: 盖的是**页**这一档；独立成窗那会儿（验证工程里 `resize()` 出来的那一份）照样
-///       按 kInitialWidth/kInitialHeight 起，两条不冲突。
-constexpr int kPageMaxHeight = 560;
 }  // namespace
 
 AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
@@ -73,29 +44,44 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     setObjectName(QStringLiteral("accountSkinDialog"));
     // 尺寸**不**跟着内容长：这个窗里的东西是固定的四块，摆好之后让用户自己拉。
     resize(kInitialWidth, kInitialHeight);
-    setMaximumHeight(kPageMaxHeight);
 
     QVBoxLayout *root = new QVBoxLayout(this);
     root->setContentsMargins(16, 12, 16, 12);
     root->setSpacing(12);
+    root->setAlignment(Qt::AlignTop);
 
     // ---------- 顶部：当前身份 / 最近一次动作的结果 ----------
     m_statusLabel = new QLabel(notLoggedInNote(), this);
     m_statusLabel->setObjectName(statusLabelName());
-    m_statusLabel->setWordWrap(true);
+    m_statusLabel->setWordWrap(false);
+    m_statusLabel->setMaximumWidth(480);
     m_statusLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    auto *statusRow = new QHBoxLayout;
+    m_headerBar = new QWidget(this);
+    m_headerBar->setObjectName(QStringLiteral("accountHeaderBar"));
+    m_headerBar->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    auto *statusRow = new QHBoxLayout(m_headerBar);
+    statusRow->setContentsMargins(0, 0, 0, 0);
     statusRow->addWidget(m_statusLabel, 1);
-    root->addLayout(statusRow);
+    root->addWidget(m_headerBar);
 
-    QHBoxLayout *main = new QHBoxLayout();
-    main->setSpacing(20);
-    root->addLayout(main, 1);
+    auto *body = new QWidget(this);
+    body->setObjectName(QStringLiteral("accountBody"));
+    body->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
+    QHBoxLayout *main = new QHBoxLayout(body);
+    main->setContentsMargins(0, 0, 0, 0);
+    main->setSpacing(24);
+    m_bodyLayout = main;
+    root->addWidget(body);
 
     // ---------- 左：账号 ----------
-    QVBoxLayout *left = new QVBoxLayout();
+    m_accountsPanel = new QWidget(this);
+    m_accountsPanel->setObjectName(QStringLiteral("accountManagementPane"));
+    m_accountsPanel->setMaximumWidth(340);
+    QVBoxLayout *left = new QVBoxLayout(m_accountsPanel);
+    left->setContentsMargins(0, 0, 0, 0);
     left->setSpacing(8);
-    main->addLayout(left, 5);
+    left->setAlignment(Qt::AlignTop);
+    main->addWidget(m_accountsPanel, 3, Qt::AlignTop);
 
     QLabel *accountTitle = new QLabel(accountSectionTitle(), this);
     QFont sectionFont = accountTitle->font();
@@ -118,19 +104,14 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_accountList = new QListWidget(this);
     m_accountList->setObjectName(accountListName());
     m_accountList->setMinimumHeight(kListMinHeight);
+    m_accountList->setMaximumHeight(144);
 
-    QLabel *loginHint = new QLabel(loginHintNote(), this);
-    loginHint->setWordWrap(true);
-    // 说明行的颜色**统一**用 PlaceholderText（和底栏那两行、登录页那几句一个口径）：
-    // 它是注释，不是内容。
-    QPalette hintPalette = loginHint->palette();
-    hintPalette.setColor(QPalette::WindowText, hintPalette.color(QPalette::PlaceholderText));
-    loginHint->setPalette(hintPalette);
 
     QGridLayout *accountButtons = new QGridLayout();
     left->addLayout(accountButtons);
     m_loginButton = new QPushButton(loginButtonText(), this);
     m_loginButton->setObjectName(loginButtonName());
+    m_loginButton->setToolTip(loginHintNote());
     m_switchButton = new QPushButton(switchButtonText(), this);
     m_switchButton->setObjectName(switchButtonName());
     // 「用这个账号」= 换个身份（一般性那一档）。
@@ -146,9 +127,10 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_refreshButton->setObjectName(refreshButtonName());
     // 「重新取一次」= 刷新（一般性那一档）。
     Theme::markButton(m_refreshButton, Theme::ButtonKind::Ghost);
-    accountButtons->addWidget(m_loginButton, 0, 0);
-    accountButtons->addWidget(m_switchButton, 0, 1);
-    accountButtons->addWidget(m_removeButton, 0, 2);
+    accountButtons->addWidget(m_loginButton, 0, 0, 1, 2);
+    accountButtons->addWidget(m_switchButton, 1, 0);
+    accountButtons->addWidget(m_removeButton, 1, 1);
+    statusRow->addWidget(m_refreshButton);
     // 「刷新外观」和账号那三个按钮排在一行：它刷的是**这一整个窗**（账号列表 + 皮肤 +
     // 披风，见 MainWindow::refreshAccountSkin()），不是只管右边那一栏。
     Theme::markButton(m_loginButton, Theme::ButtonKind::Primary);
@@ -168,11 +150,11 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     // 上面那几行都是固定高的，**列表吃剩下的高度**（窗口拉高拉矮只动它这一块）。
     left->addWidget(m_accountList, 1);
     // 说明摆最后 —— 它是注释，不是内容（见这上面 hintPalette 那几句）。
-    left->addWidget(loginHint);
 
     // ---------- 右：外观 ----------
     QVBoxLayout *right = new QVBoxLayout();
     right->setSpacing(8);
+    right->setAlignment(Qt::AlignTop);
     main->addLayout(right, 6);
 
     QLabel *looksTitle = new QLabel(looksSectionTitle(), this);
@@ -184,16 +166,15 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
 
     m_viewer = new SkinViewer(this);
     m_viewer->setObjectName(viewerName());
-    m_viewer->setMinimumHeight(kViewerMinHeight);
-    m_viewer->setMaximumHeight(kViewerMaxHeight);
-    m_viewer->setFixedWidth(160);
+    m_viewer->setFixedSize(208, 312);
     m_viewer->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     // 一进来就有东西可看：没登录、还没取到、取不到，看到的都是这套默认外观
     // （和主页右栏同一个做法 —— 那个控件任何时候都不该是空白的）。
     m_viewer->setSkin(SkinModel::defaultSteveSkin(), QImage(), false);
-    appearance->addWidget(m_viewer);
+    appearance->addWidget(m_viewer, 0, Qt::AlignTop);
     auto *controls = new QVBoxLayout;
     controls->setSpacing(8);
+    controls->setAlignment(Qt::AlignTop);
     appearance->addLayout(controls, 1);
 
     QVBoxLayout *uploadRow = new QVBoxLayout();
@@ -234,7 +215,6 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_offlineSkinButton->hide();
     m_offlineSkinResetButton->hide();
 
-    controls->addWidget(m_refreshButton);
 
     QLabel *capeTitle = new QLabel(capeSectionTitle(), this);
     capeTitle->setFont(sectionFont);
@@ -244,6 +224,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_capeList = new QListWidget(this);
     m_capeList->setObjectName(capeListName());
     m_capeList->setMinimumHeight(72);
+    m_capeList->setMaximumHeight(132);
     controls->addWidget(m_capeList, 1);
 
     QHBoxLayout *capeButtons = new QHBoxLayout();
@@ -316,8 +297,33 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     refreshButtonStates();
 }
 
+void AccountSkinDialog::showEvent(QShowEvent *event) {
+    QDialog::showEvent(event);
+    OverlayHost *host = nullptr;
+    for (auto *ancestor = parentWidget(); ancestor; ancestor = ancestor->parentWidget()) {
+        if ((host = qobject_cast<OverlayHost *>(ancestor))) break;
+    }
+    if (host && host->isOpen()) {
+        layout()->removeWidget(m_headerBar);
+        host->setPageHeaderWidget(m_headerBar);
+        m_closeButton->hide(); // 内嵌页已有返回，不再占用一整排页脚。
+    } else {
+        qobject_cast<QVBoxLayout *>(layout())->insertWidget(0, m_headerBar);
+        m_headerBar->show();
+        m_closeButton->show();
+    }
+}
+
+void AccountSkinDialog::resizeEvent(QResizeEvent *event) {
+    QDialog::resizeEvent(event);
+    const bool narrow = width() < 860;
+    m_bodyLayout->setDirection(narrow ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
+    m_accountsPanel->setMaximumWidth(narrow ? QWIDGETSIZE_MAX : 340);
+}
+
 void AccountSkinDialog::setAccounts(const QList<AccountRow> &rows) {
     m_accountList->clear();
+    m_accountList->setMaximumHeight(qBound(96, int(rows.size()) * (fontMetrics().height() + 12), 192));
     for (const AccountRow &row : rows) {
         addAccountRow(row);
     }
@@ -371,6 +377,7 @@ void AccountSkinDialog::clearOfflineNameDraft() { m_offlineNameEdit->clear(); }
 
 void AccountSkinDialog::setStatusText(const QString &text) {
     m_statusLabel->setText(text);
+    m_statusLabel->setToolTip(text);
 }
 
 void AccountSkinDialog::setLooks(const QImage &skin, const QImage &cape, bool slim) {

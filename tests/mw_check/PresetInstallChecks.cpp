@@ -5,6 +5,11 @@
 #include "download/ResourceStore.hpp"
 #include "PresetModEditor.hpp"
 #include "PresetOptionsEditor.hpp"
+#include "PresetManagePage.hpp"
+#include <QLineEdit>
+#include <QPushButton>
+#include <QSpinBox>
+#include <QStyledItemDelegate>
 #include "presets/PresetStore.hpp"
 #include "presets/PresetApply.hpp"
 #include <QTcpServer>
@@ -20,6 +25,7 @@
 #include <QTableWidget>
 #include <QFontDatabase>
 #include <QApplication>
+#include <QPointer>
 #include <cstdio>
 
 int runPresetInstallChecks() {
@@ -30,16 +36,37 @@ int runPresetInstallChecks() {
     check(scratch.isValid() && server.listen(QHostAddress::LocalHost, 0), "local preset fixture starts");
     if (!server.isListening()) return 1;
     const QByteArray payload("preset-fixture-jar");
+    const QByteArray legacyPayload("legacy-installed-jar");
     int scenario = 0;
+    int exactQueries = 0;
+    QPointer<Presets::PresetModInstaller> activeTask;
+    QString activeRoot;
+    bool mutatedInventory = false;
+    int hashQueries = 0;
+    bool validHashRequests = true;
     QObject::connect(&server, &QTcpServer::newConnection, &server, [&] {
         while (auto *socket = server.nextPendingConnection()) {
             QObject::connect(socket, &QTcpSocket::readyRead, socket, [&, socket] {
                 const auto request = socket->property("request").toByteArray() + socket->readAll();
                 socket->setProperty("request", request);
                 if (!request.contains("\r\n\r\n") || socket->property("served").toBool()) return;
+                const int headerEnd = request.indexOf("\r\n\r\n") + 4;
+                qint64 contentLength = 0;
+                for (const auto &line : request.left(headerEnd).split('\n'))
+                    if (line.toLower().startsWith("content-length:")) contentLength = line.mid(15).trimmed().toLongLong();
+                if (request.size() < headerEnd + contentLength) return;
                 socket->setProperty("served", true);
                 if (scenario == 5) return;
                 QByteArray body = payload;
+                if (scenario == 29 && request.contains("/file.jar") && !mutatedInventory) {
+                    mutatedInventory = QDir().rmdir(activeRoot); // Empty fixture directory only.
+                }
+                if (scenario == 25 && request.contains("/file.jar") && !mutatedInventory) {
+                    mutatedInventory = true;
+                    QFile changed(activeRoot + QStringLiteral("/mods/renamed.jar"));
+                    if (changed.open(QIODevice::WriteOnly)) changed.write("externally-changed");
+                }
+                int status = 200;
                 if (request.contains("/project/")) {
                     const bool missing = request.contains("/missing/");
                     const bool dependency = request.contains("/dep/");
@@ -51,6 +78,10 @@ int runPresetInstallChecks() {
                         if (!dependency) dependencies.append(QJsonObject{{"project_id", "dep"}, {"dependency_type", "required"}});
                         if (!dependency && scenario == 8) {
                             auto pin = dependencies[0].toObject(); pin.insert("version_id", "dep-old"); dependencies[0] = pin;
+                        }
+                        if (!dependency && scenario >= 11) {
+                            dependencies = QJsonArray{QJsonObject{{"version_id", "dep-exact"}, {"dependency_type", "required"}}};
+                            if (scenario == 16) dependencies.append(dependencies[0]);
                         }
                         versions.append(QJsonObject{{"id", dependency ? "dep-version" : "main-version"},
                             {"version_number", "1"}, {"game_versions", QJsonArray{"1.20.1"}}, {"loaders", QJsonArray{"fabric"}},
@@ -67,27 +98,120 @@ int runPresetInstallChecks() {
                     }
                     body = QJsonDocument(versions).toJson(QJsonDocument::Compact);
                 }
-                socket->write("HTTP/1.1 200 OK\r\nContent-Length: " + QByteArray::number(body.size()) +
+                if (request.contains("/version/")) {
+                    ++exactQueries;
+                    if (scenario == 17) {
+                        // Cancel only after the request actually arrived: no timing race
+                        // with metadata processing on a slow CI runner.
+                        if (activeTask) QTimer::singleShot(0, activeTask, [task = activeTask] {
+                            if (task) task->cancel();
+                        });
+                        return;
+                    }
+                    const bool leaf = request.contains("/leaf-exact");
+                    QJsonObject release{
+                        {"id", scenario == 14 ? "wrong-release" : (leaf ? "leaf-exact" : "dep-exact")},
+                        {"project_id", leaf ? "leaf" : "dep"},
+                        {"version_number", "1"},
+                        {"game_versions", QJsonArray{scenario == 15 ? "1.19.4" : "1.20.1"}},
+                        {"loaders", QJsonArray{"fabric"}},
+                        {"dependencies", scenario == 18 && !leaf
+                            ? QJsonArray{QJsonObject{{"version_id", "leaf-exact"}, {"dependency_type", "required"}}}
+                            : QJsonArray{}},
+                        {"files", QJsonArray{QJsonObject{
+                            {"url", QStringLiteral("http://127.0.0.1:%1/file.jar").arg(server.serverPort())},
+                            {"filename", leaf ? "leaf-exact.jar" : "dep-exact.jar"},
+                            {"size", payload.size()}, {"primary", true},
+                            {"hashes", QJsonObject{{"sha1", QString::fromLatin1(QCryptographicHash::hash(payload, QCryptographicHash::Sha1).toHex())}}}}}}};
+                    if (scenario == 12) status = 404;
+                    if (scenario == 19) release.remove("project_id");
+                    body = scenario == 13 ? QByteArray("not-json") : QJsonDocument(release).toJson(QJsonDocument::Compact);
+                }
+                if (request.startsWith("POST /version_files ")) {
+                    ++hashQueries;
+                    const auto lookup = QJsonDocument::fromJson(request.mid(headerEnd)).object();
+                    const auto hashes = lookup.value("hashes").toArray();
+                    QSet<QString> unique;
+                    for (const auto &hash : hashes) unique.insert(hash.toString());
+                    validHashRequests = validHashRequests && !hashes.isEmpty() && hashes.size() <= 100
+                        && hashes.size() == unique.size() && lookup.size() == 2
+                        && lookup.value("algorithm").toString() == QStringLiteral("sha1");
+                    if (scenario == 38) {
+                        if (activeTask) QTimer::singleShot(0, activeTask, [task = activeTask] { if (task) task->cancel(); });
+                        return;
+                    }
+                    QJsonObject found;
+                    const QString legacySha = QString::fromLatin1(QCryptographicHash::hash(legacyPayload, QCryptographicHash::Sha1).toHex());
+                    if (scenario >= 30 && scenario != 33 && scenario != 34 && scenario != 35 && scenario != 40) {
+                        const QJsonObject release{
+                            {"id", scenario == 31 ? "dep-old" : "dep-exact"}, {"project_id", "dep"},
+                            {"version_number", "old"}, {"game_versions", QJsonArray{scenario == 32 ? "1.19.4" : "1.20.1"}},
+                            {"loaders", QJsonArray{"fabric"}}, {"dependencies", QJsonArray{}},
+                            {"files", QJsonArray{QJsonObject{{"filename", "old-download-name.jar"},
+                                {"url", QStringLiteral("http://127.0.0.1:%1/file.jar").arg(server.serverPort())},
+                                {"size", legacyPayload.size()}, {"primary", true},
+                                {"hashes", QJsonObject{{"sha1", scenario == 37 ? QString(40, QLatin1Char('0')) : legacySha}}}}}}};
+                        found.insert(scenario == 36 ? QString(40, QLatin1Char('1')) : legacySha, release);
+                    }
+                    if (scenario == 34) status = 429;
+                    body = scenario == 35 ? QByteArray("invalid-json") : QJsonDocument(found).toJson(QJsonDocument::Compact);
+                }
+                socket->write("HTTP/1.1 " + QByteArray::number(status) + " Fixture\r\nContent-Length: " + QByteArray::number(body.size()) +
                               "\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n" + body);
                 socket->disconnectFromHost();
             });
             QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
         }
     });
-    for (scenario = 0; scenario < 11; ++scenario) {
+    for (scenario = 0; scenario < 41; ++scenario) {
+        exactQueries = 0;
+        hashQueries = 0;
+        validHashRequests = true;
         const QString root = scratch.filePath(QString::number(scenario)); QDir().mkpath(root);
+        activeRoot = root;
+        mutatedInventory = false;
         ResourceStore store;
         store.setModrinthApiBaseOverride(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort()));
         auto *task = new Presets::PresetModInstaller(&store, &store);
+        activeTask = task;
         QList<Presets::ModReference> refs;
         Presets::ModReference main; main.platform = QStringLiteral("modrinth");
         main.projectId = scenario == 1 ? QStringLiteral("missing") : QStringLiteral("main");
         if (scenario == 7 || scenario == 10) main.required = false;
-        if (scenario == 9) main.gameVersion = QStringLiteral("1.19.4");
+        if (scenario == 9 || scenario == 26) main.gameVersion = QStringLiteral("1.19.4");
         refs.append(main);
+        if (scenario == 28) { auto optional = main; optional.projectId = QStringLiteral("optional"); optional.required = false; refs.append(optional); }
         if (scenario == 10) { auto dependency = main; dependency.projectId = QStringLiteral("dep"); dependency.required = true; refs.append(dependency); }
         if (scenario == 2) { auto optional = main; optional.projectId = QStringLiteral("missing"); optional.required = false; refs.append(optional); }
         if (scenario == 4) { QDir().mkpath(root + "/mods"); QFile f(root + "/mods/main.jar"); if (f.open(QIODevice::WriteOnly)) f.write("existing"); }
+        if (scenario >= 20 && scenario < 29) {
+            QDir().mkpath(root + "/mods");
+            const QString name = scenario == 22 ? QStringLiteral("renamed.jar.disabled") : QStringLiteral("renamed.jar");
+            QFile existing(root + "/mods/" + name);
+            if (existing.open(QIODevice::WriteOnly)) existing.write(payload);
+            existing.close();
+            const auto identity = [&](const QString &filename) { return QJsonObject{
+                {"filename", filename}, {"sha1", QString::fromLatin1(QCryptographicHash::hash(payload, QCryptographicHash::Sha1).toHex())},
+                {"project", scenario == 24 ? "modrinth:main" : (scenario == 28 ? "modrinth:optional" : "modrinth:dep")},
+                {"versionId", scenario == 24 ? "main-version" : ((scenario == 21 || scenario == 28) ? "dep-old" : "dep-exact")}}; };
+            QJsonArray seeded{identity(name)};
+            if (scenario == 23) {
+                QFile duplicate(root + "/mods/duplicate.jar");
+                if (duplicate.open(QIODevice::WriteOnly)) duplicate.write(payload);
+                seeded.append(identity(QStringLiteral("duplicate.jar")));
+            }
+            QFile audit(root + "/wtfml.preset-mod-install.json");
+            if (scenario != 27 && audit.open(QIODevice::WriteOnly)) audit.write(QJsonDocument(QJsonObject{
+                {"format", "wtfml-preset-mod-result/1"}, {"plannedFiles", seeded}}).toJson());
+        }
+        if (scenario >= 30) {
+            QDir().mkpath(root + "/mods");
+            const int count = scenario == 40 ? 101 : (scenario == 39 ? 2 : 1);
+            for (int i = 0; i < count; ++i) {
+                QFile old(root + QStringLiteral("/mods/untracked-%1.jar").arg(i));
+                if (old.open(QIODevice::WriteOnly)) old.write(scenario == 40 ? legacyPayload + QByteArray::number(i) : legacyPayload);
+            }
+        }
         QEventLoop loop; QTimer deadline; deadline.setSingleShot(true);
         Presets::PresetModInstaller::Result result;
         bool completed = false;
@@ -96,7 +220,58 @@ int runPresetInstallChecks() {
             [&] { return scenario == 6; }, [&](const auto &value) { result = value; completed = true; loop.quit(); });
         if (scenario == 5) QTimer::singleShot(50, task, [task] { task->cancel(); });
         if (!completed) loop.exec();
-        check(completed && result.ok == (scenario == 0 || scenario == 8), "preset resolves/downloads or reports an explicit partial/failure result");
+        check(completed && result.ok == (scenario == 0 || scenario == 8 || scenario == 11 || scenario == 16 || scenario == 18
+                                         || scenario == 20 || scenario == 22 || scenario == 24 || scenario == 30
+                                         || (scenario >= 33 && scenario <= 37) || scenario == 40), "preset resolves/downloads or reports an explicit partial/failure result");
+        if (scenario >= 30) {
+            check(validHashRequests && hashQueries == (scenario == 40 ? 2 : 1),
+                  "exact installed hash requests are deduplicated, bounded to 100 and contain only hashes/algorithm");
+            if (scenario == 30) check(result.installed == 1 && QFile::exists(root + "/mods/main.jar")
+                && !QFile::exists(root + "/mods/dep-exact.jar"),
+                "hash lookup recognizes an untracked renamed exact dependency without downloading a duplicate");
+            if (scenario == 31 || scenario == 32 || scenario == 38 || scenario == 39)
+                check(!QFile::exists(root + "/mods/main.jar") && !QFile::exists(root + "/mods/dep-exact.jar"),
+                      "old/incompatible/duplicate installed identity or cancellation blocks new writes");
+            if (scenario == 38) check(result.cancelled, "hash lookup cancellation is explicit");
+            if ((scenario >= 33 && scenario <= 37) || scenario == 40) {
+                bool unknownReported = false;
+                for (const auto &line : result.lines) if (line.contains(QStringLiteral("身份尚未确认"))) unknownReported = true;
+                check(unknownReported && QFile::exists(root + "/mods/untracked-0.jar"),
+                      "unmatched/throttled/malformed/extra/mismatched hash response stays unknown and preserves old files");
+            }
+        }
+        if (scenario >= 11 && scenario < 20) {
+            check(exactQueries == (scenario == 18 ? 2 : 1), "version-only dependency lookup is bounded and deduplicated");
+            if (scenario == 11 || scenario == 16 || scenario == 18) {
+                check(QFile::exists(root + "/mods/main.jar") && QFile::exists(root + "/mods/dep-exact.jar")
+                          && !QFile::exists(root + "/mods/dep.jar"),
+                      "version-only dependency installs its exact release, never a guessed latest release");
+                if (scenario == 18) check(QFile::exists(root + "/mods/leaf-exact.jar"), "version-only transitive dependency resolves recursively");
+            } else {
+                check(!QFile::exists(root + "/mods/main.jar") && !QFile::exists(root + "/mods/dep-exact.jar"),
+                      "failed/malformed/mismatched/incompatible/cancelled identity lookup writes no mods");
+                check(!result.lines.isEmpty(), "identity lookup failure has an explicit report");
+                if (scenario == 17) check(result.cancelled, "identity lookup cancellation remains explicit");
+            }
+        }
+        if (scenario == 20) check(result.installed == 1 && QFile::exists(root + "/mods/main.jar")
+            && !QFile::exists(root + "/mods/dep-exact.jar"), "renamed installed exact dependency is satisfied without a duplicate JAR");
+        if (scenario == 21 || scenario == 23) check(!QFile::exists(root + "/mods/main.jar") && !QFile::exists(root + "/mods/dep-exact.jar"),
+            "different installed release or duplicate project blocks the install without replacing anything");
+        if (scenario == 22) check(QFile::exists(root + "/mods/renamed.jar.disabled") && QFile::exists(root + "/mods/dep-exact.jar"),
+            "disabled dependency is preserved but does not satisfy an enabled dependency");
+        if (scenario == 24) check(result.installed == 1 && !QFile::exists(root + "/mods/main.jar")
+            && QFile::exists(root + "/mods/dep-exact.jar"), "installed parent is kept while its missing dependency is repaired");
+        if (scenario == 25) check(mutatedInventory && !QFile::exists(root + "/mods/main.jar"),
+            "inventory mutation during downloads aborts before writing new mods");
+        if (scenario == 27) check(!result.ok && !QFile::exists(root + "/mods/main.jar")
+            && !QFile::exists(root + "/mods/dep-exact.jar"),
+            "a partial hash match is reconsidered when another project shares the bytes; ambiguity blocks duplicates");
+        if (scenario == 28) check(result.optionalFailures > 0 && QFile::exists(root + "/mods/main.jar")
+            && QFile::exists(root + "/mods/dep-exact.jar"),
+            "unknown installed optional release is reported without blocking required mods");
+        if (scenario == 29) check(mutatedInventory && !QDir(root).exists(),
+            "externally removed empty instance is not recreated by the commit phase");
         if (scenario == 0 || scenario == 2)
             check(QFile::exists(root + "/mods/main.jar") && QFile::exists(root + "/mods/dep.jar"), "main mod and required dependency reach the instance");
         if (scenario == 1 || scenario == 3 || scenario == 5 || scenario == 6)
@@ -114,17 +289,68 @@ int runPresetInstallChecks() {
         QFile audit(root + "/wtfml.preset-mod-install.json");
         const bool audited = audit.open(QIODevice::ReadOnly);
         const auto record = audited ? QJsonDocument::fromJson(audit.readAll()).object() : QJsonObject();
-        check(audited && record.value("gameVersion").toString() == QStringLiteral("1.20.1") &&
+        if (scenario >= 30) {
+            bool tracked = false;
+            for (const auto &entry : record.value("plannedFiles").toArray())
+                if (entry.toObject().value("filename").toString() == QStringLiteral("untracked-0.jar")) tracked = true;
+            check(tracked == (scenario == 30 || scenario == 31 || scenario == 32 || scenario == 39),
+                  "only verified hash identity is recorded for preexisting untracked files");
+        }
+        if (scenario != 29) check(audited && record.value("gameVersion").toString() == QStringLiteral("1.20.1") &&
               record.value("success").toBool() == result.ok, "preset operation records context and truthful result");
+        if (scenario >= 20 && scenario != 27 && scenario < 29) {
+            bool retained = false;
+            for (const auto &entry : record.value("plannedFiles").toArray())
+                if (entry.toObject().value("filename").toString().startsWith(QStringLiteral("renamed.jar"))) retained = true;
+            check(retained, "success or failure preserves previously recorded installed identities");
+        }
     }
     PresetModEditor editor({{QStringLiteral("modrinth"), QStringLiteral("abc123"), QStringLiteral("Example"), {}, {}, false}});
     const auto values = editor.entries();
     check(values.size() == 1 && values[0].projectId == QStringLiteral("abc123") && !values[0].required,
           "mod preset editor round-trips stable identity and optional status");
+    auto *quickInput = editor.findChild<QLineEdit *>(QStringLiteral("presetModQuickAdd"));
+    auto *quickAdd = editor.findChild<QPushButton *>(QStringLiteral("presetModQuickAddButton"));
+    quickInput->setText(QStringLiteral("https://modrinth.com/mod/sodium?from=test")); quickAdd->click();
+    check(editor.entries().size() == 2 && editor.entries().last().projectId == QStringLiteral("sodium"),
+          "mod preset accepts a public Modrinth URL without asking the user for an ID");
+    quickInput->setText(QStringLiteral("https://modrinth.com/mod/sodium")); quickAdd->click();
+    check(editor.entries().size() == 2, "duplicate quick add locates existing row instead of duplicating it");
+    quickInput->setText(QStringLiteral("https://untrusted.example/mod/foo")); quickAdd->click();
+    check(editor.entries().size() == 2, "unknown site cannot become a trusted project reference");
     PresetOptionsEditor options({{QStringLiteral("fov"), QStringLiteral("0.5")},
                                 {QStringLiteral("key_key.jump"), QStringLiteral("key.keyboard.space")}});
     check(options.entries().size() == 2 && options.entries()[0].value == QStringLiteral("0.5"),
           "game settings editor round-trips selected options and keys");
+    auto *optionTable = options.findChild<QTableWidget *>(QStringLiteral("presetOptionsEditorTable"));
+    const QModelIndex fovIndex = optionTable->model()->index(0, 1);
+    auto *fovEditor = optionTable->itemDelegate()->createEditor(&options, QStyleOptionViewItem(), fovIndex);
+    optionTable->itemDelegate()->setEditorData(fovEditor, fovIndex);
+    auto *degrees = qobject_cast<QSpinBox *>(fovEditor);
+    check(degrees && degrees->value() == 90, "stored FOV is edited in human-readable degrees");
+    if (degrees) {
+        degrees->setValue(80);
+        optionTable->itemDelegate()->setModelData(degrees, optionTable->model(), fovIndex);
+        check(options.entries()[0].value == QStringLiteral("0.25"), "human-readable FOV writes the original normalized game format");
+    }
+    delete fovEditor;
+    {
+        PresetManagePage manage;
+        PresetManagePage::PresetItem one; one.id = QStringLiteral("one"); one.name = QStringLiteral("建筑"); one.description = QStringLiteral("creative keys");
+        PresetManagePage::PresetItem two; two.id = QStringLiteral("two"); two.name = QStringLiteral("生存");
+        manage.setPresets({one, two}, {}, one.id);
+        auto *search = manage.findChild<QLineEdit *>(QStringLiteral("presetSearchEdit"));
+        search->setText(QStringLiteral("CREATIVE"));
+        check(manage.currentPresetId() == one.id, "preset search matches descriptions case-insensitively");
+        search->setText(QStringLiteral("no-match"));
+        check(manage.currentPresetId().isEmpty(), "empty search results cannot retain an actionable stale preset");
+        search->clear();
+        check(!manage.currentPresetId().isEmpty(), "clearing preset search restores selectable entries");
+        auto *body = manage.findChild<QWidget *>(QStringLiteral("presetCaptureBody"));
+        auto *toggle = manage.findChild<QPushButton *>(QStringLiteral("presetCaptureToggle"));
+        check(body && body->isHidden(), "advanced extraction starts collapsed");
+        toggle->click(); check(!body->isHidden(), "extraction remains accessible with one click");
+    }
     const auto presetRoot = scratch.filePath(QStringLiteral("presets"));
     auto manifest = Presets::create(presetRoot, QStringLiteral("settings"), {}, Presets::PresetCategory::GameSettings);
     Presets::PresetSection section;

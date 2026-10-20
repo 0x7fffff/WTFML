@@ -328,6 +328,16 @@ inline QString asciiAliasRootDir() {
     return minecraftDir() + QStringLiteral("/cache/ascii");
 }
 
+/// 资源包启用顺序保存前留的那一份：<数据目录>/cache/resource-pack-backups/<实例 id>/…。
+///
+/// 和 `configBackupDir()` 同一个理由：改 `options.txt` 之前把原文留一份，用户能照着改
+/// 回去。没有界面读它 —— 它是"用户自己去那一格子里找"的那种备份，所以那一格的布局
+/// 只求一眼看得懂。格子名由实例目录名派生，改名时要跟着搬（见
+/// `InstanceFiles::migrateInstanceCacheDirs()`）。
+inline QString resourcePackBackupDir() {
+    return minecraftDir() + QStringLiteral("/cache/resource-pack-backups");
+}
+
 /// 存档写之前留的那一份：<数据目录>/cache/world-backups/<格子名>/<时间戳>/level.dat。
 ///
 /// NOTE: 两层目录里**格子名在外面**（和配置备份逐字同一形状：那边也是

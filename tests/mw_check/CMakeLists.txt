@@ -105,6 +105,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/controllers/PresetController.cpp
     ${REPO_ROOT}/src/presets/PresetModInstaller.cpp
     ${REPO_ROOT}/src/presets/ModInstallPlan.cpp
+    ${REPO_ROOT}/src/presets/InstalledModInventory.cpp
     ${REPO_ROOT}/src/controllers/LauncherPreferencesController.cpp
     ${REPO_ROOT}/src/controllers/CrashReportController.cpp
     ${REPO_ROOT}/src/controllers/IntegrityController.cpp
@@ -215,6 +216,8 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/settings/GlobalJavaSettings.cpp
     ${REPO_ROOT}/src/settings/LauncherSettings.cpp
     ${REPO_ROOT}/src/download/DownloadManager.cpp
+    # 「从别的游戏文件夹里借文件」（2026-10-20）：DownloadManager 现在会调它。
+    ${REPO_ROOT}/src/download/LocalFileReuse.cpp
     ${REPO_ROOT}/src/download/ResumableDownload.cpp
     ${REPO_ROOT}/src/download/ResumableDownload.hpp
     # 下载诊断层（2026-10-17）：上面两个 .cpp 现在无条件调它，不进来就是链接期

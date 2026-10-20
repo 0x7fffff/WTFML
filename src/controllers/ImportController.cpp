@@ -15,20 +15,60 @@
 #include "settings/GlobalJavaSettings.hpp"
 #include "util/AppPaths.hpp"
 #include <QDir>
+#include <QEventLoop>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QSaveFile>
+#include <QThread>
 #include <QTimer>
 
 ImportController::ImportController(MainWindow *owner) : QObject(owner), m_owner(owner) {}
 
 namespace {
 QString pageKeyForKind(ResourceCatalog::Kind kind) { return ResourceCatalog::kindKey(kind); }
+
+/// 把一段阻塞的重活放到工作线程上跑，UI 线程用**嵌套事件循环**等它。
+///
+/// 现在唯一的用户是 CurseForge 整合包预览：那一发是同步 HTTP（每批 100 条、一个整合包
+/// 通常两三类请求），以前整段跑在 UI 线程上 —— 网络慢的时候窗口不重绘，底栏那句
+/// 「正在向 CurseForge 换取文件清单…」也只是一张不动的截图。
+/// `resolveCurseForgeFiles()` 自己开 QNAM（不借主线程那个），所以能安全地放在这边。
+///
+/// ★ 嵌套循环会把用户输入送回来 ⇒ 调用方要自己挡住"再来一次"（见 `m_importFlow`）。
+template <typename Work>
+void runOffUiThread(Work work) {
+    QEventLoop loop;
+    QThread *worker = QThread::create([work] { work(); });
+    QObject::connect(worker, &QThread::finished, &loop, &QEventLoop::quit);
+    worker->start();
+    loop.exec();
+    worker->wait();
+    delete worker;
+}
+
+/// 进流程时置真、离开（含所有 early return）复原。
+class FlowGuard {
+public:
+    explicit FlowGuard(bool &flag) : m_flag(flag) { m_flag = true; }
+    ~FlowGuard() { m_flag = false; }
+    FlowGuard(const FlowGuard &) = delete;
+    FlowGuard &operator=(const FlowGuard &) = delete;
+private:
+    bool &m_flag;
+};
 }
 
 void ImportController::onImportModpackClicked() {
     if (m_owner->m_downloadInFlight) {
         m_owner->appendLog(m_owner->tr("已有下载任务正在进行，请等它结束。"));
+        return;
+    }
+    // 另一条导入流程还没走完（多半正卡在 CurseForge 预览那一发网络请求上，见
+    // `m_importFlow`）：别开第二个文件选择框，直接说清楚。
+    if (m_importFlow) {
+        m_owner->appendLog(m_owner->tr("已有导入流程正在进行，请等它结束。"));
+        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("现在正忙"),
+                                   m_owner->tr("另一个整合包还在导入流程里，等它结束之后再试。"));
         return;
     }
 
@@ -58,6 +98,17 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
                                    m_owner->tr("已有下载或导入任务正在进行，等它结束之后再试。"));
         return;
     }
+    // 另一条导入流程还没走完（`m_downloadInFlight` 管不到这一段：CurseForge 预览在
+    // 真正开始下载**之前**）。拖放 / 再点一次按钮都会走到这里 —— 两趟同时问名字、
+    // 同时写 `m_importingInstanceId` 的后果见头文件里 `m_importFlow` 那段。
+    if (m_importFlow) {
+        m_owner->appendLog(m_owner->tr("已有导入流程正在进行，%1 没有导入。")
+                               .arg(QFileInfo(zipPath).fileName()));
+        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("现在正忙"),
+                                   m_owner->tr("另一个整合包还在导入流程里，等它结束之后再试。"));
+        return;
+    }
+    const FlowGuard flowGuard(m_importFlow);
 
     // 先只看一件事：这个压缩包的根目录里有没有清单。**不整包解开** —— 用户随手选一个
     // 几百 MB 的包，为了"知道它不是整合包"先解压几分钟是白等。
@@ -119,6 +170,11 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
     }
     ModpackImport::Pack &pack = result.pack;
 
+    // 清单指纹（原始字节的 sha256）：问名字那一步拿它判断"同名的那一份是不是同一个包"，
+    // 导入开始后写进 `wtfml.importing` 标记，供下一次同名导入比较。同一个包重新打一次
+    // zip，里面那份清单的字节不变 ⇒ 仍然认得出是同一个包。
+    const QString manifestFingerprint = InstanceFiles::importManifestFingerprint(manifestJson);
+
     // 加载器要不上，在**问名字之前**就拦掉：装不了的包，问完名字再说装不了是白耽误他。
     const QString loaderProblem =
         ModpackImport::unsupportedLoaderText(pack.loaderKey, pack.loaderVersion);
@@ -154,7 +210,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
         // currentId 传空串 = "这是个新实例，盘上没有它"（见 checkImportTargetName）。
         QString problem;
         const InstanceFiles::ImportNameVerdict verdict =
-            InstanceFiles::checkImportTargetName(name, &problem);
+            InstanceFiles::checkImportTargetName(name, &problem, manifestFingerprint);
         if (verdict == InstanceFiles::ImportNameVerdict::Ok) {
             break;
         }
@@ -163,7 +219,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
             // 改名的路：改名重导等于把已经下好的几百 MB 再下一遍。仍然要问一句 ——
             // 这一步会重新解开包里的 config / 资源包，压在用户改过的文件上。
             const auto resumeAnswer = InlineMessage::question(m_owner->m_ui->overlay(), m_owner->tr("接着上次的导入"),
-                m_owner->tr("versions 下面已经有一个「%1」了，是上一次**没下完**的导入。\n\n"
+                m_owner->tr("versions 下面已经有一个「%1」了，是上一次没下完的导入。\n\n"
                    "接着往它里面下吗？已经下好的文件会按 sha1 跳过、不会重下，"
                    "没下成的那几个会重新下。\n\n"
                    "选「否」就换个名字重新导入 —— 那样已经下好的那些要重下一遍。")
@@ -184,10 +240,16 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
     // 之前看到真实数字**：这个包要下多少个文件、其中几个作者不许第三方代下 —— 那些数
     // 只有换完才知道。其他格式这一句立刻返回，不联网。
     if (format == ModpackImport::Format::CurseForge) {
-        // 同步等一两发请求（通常一两秒）。底栏那格要顶着"在等什么"，不然用户看到的是
+        // 等一两发请求（通常一两秒）。底栏那格要顶着"在等什么"，不然用户看到的是
         // 点完确认之后界面卡住（和启动路径那三段同步等是同一个手法）。
+        // ★ 2026-10-20：请求本身挪到工作线程上（`runOffUiThread()`）。网络慢的时候
+        //   UI 线程不再被钉住 —— 窗口照常重绘，底栏那句一直看得见。
+        QString problem;
+        VersionManager *versions = m_owner->m_versionManager;
+        const VersionManager::CurseForgeResolveSettings settings =
+            versions->curseForgeResolveSettings();
         m_owner->enterSyncWait(m_owner->tr("正在向 CurseForge 换取文件清单..."));
-        const QString problem = m_owner->m_versionManager->resolveCurseForgeFiles(&pack);
+        runOffUiThread([&] { problem = versions->resolveCurseForgeFiles(&pack, settings); });
         m_owner->leaveSyncWait();
         if (!problem.isEmpty()) {
             m_owner->appendLog(m_owner->tr("没有导入 %1：%2").arg(QFileInfo(zipPath).fileName(), problem));
@@ -251,6 +313,10 @@ bool ImportController::applyModpackImport(const QString &zipPath, const QString 
         return false;
     }
     ModpackImport::Pack pack = result.pack;
+    // 和上面问名字那一步同一份指纹（同一个函数、同一串字节）：这一半要拿它再查一遍重名，
+    // 还要交给数据层写进标记。这里重算而不是从外面传，是为了守住"确认框说的包"和"真的
+    // 去装的那个包"是同一个 —— 外面传进来的是解析结果，指纹只认字节。
+    const QString manifestFingerprint = InstanceFiles::importManifestFingerprint(manifestJson);
 
     const QString loaderProblem =
         ModpackImport::unsupportedLoaderText(pack.loaderKey, pack.loaderVersion);
@@ -264,8 +330,12 @@ bool ImportController::applyModpackImport(const QString &zipPath, const QString 
     // 自己手里的那份 `pack` 是完整的，不靠外面传进来的任何解析结果。数据层那边也有
     // 第二道闸（importModpack 里那句"没换过就报错"），所以这里漏了也不会装出一个空实例。
     if (format == ModpackImport::Format::CurseForge) {
+        QString problem;
+        VersionManager *versions = m_owner->m_versionManager;
+        const VersionManager::CurseForgeResolveSettings settings =
+            versions->curseForgeResolveSettings();
         m_owner->enterSyncWait(m_owner->tr("正在向 CurseForge 换取文件清单..."));
-        const QString problem = m_owner->m_versionManager->resolveCurseForgeFiles(&pack);
+        runOffUiThread([&] { problem = versions->resolveCurseForgeFiles(&pack, settings); });
         m_owner->leaveSyncWait();
         if (!problem.isEmpty()) {
             InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("拿不到文件清单"), problem);
@@ -281,7 +351,7 @@ bool ImportController::applyModpackImport(const QString &zipPath, const QString 
     // 「已经有一个叫…的实例了」，而他刚才明明点了「接着下」。
     QString nameProblem;
     const InstanceFiles::ImportNameVerdict nameVerdict =
-        InstanceFiles::checkImportTargetName(instanceName, &nameProblem);
+        InstanceFiles::checkImportTargetName(instanceName, &nameProblem, manifestFingerprint);
     if (nameVerdict == InstanceFiles::ImportNameVerdict::Taken) {
         InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("换个名字"), nameProblem);
         return false;
@@ -331,7 +401,8 @@ bool ImportController::applyModpackImport(const QString &zipPath, const QString 
         m_owner->appendLog(m_owner->tr("接着「%1」上次没下完的那一份往下下（已经下好的按 sha1 跳过）。")
                       .arg(instanceName));
     }
-    m_owner->m_versionManager->importModpack(zipPath, instanceName, pack, installerJava);
+    m_owner->m_versionManager->importModpack(zipPath, instanceName, pack, installerJava,
+                                             manifestFingerprint);
     return true;
 }
 
