@@ -183,4 +183,10 @@ void TokenStore::clear(const QString &key) {
     QSettings settings;
     settings.remove(key);
     settings.sync();
+    // ★ 2026-10-20：清不掉**不是静默的**。登出 / 切离线账号那两条路清的就是活动槽，写不
+    //   进去的话用户会看到"已退出登录"，下次启动却还是那个账号 —— 而 QSettings 落盘失败
+    //   本身一个字都不说。至少留一行日志（和 writeJson() 那条同一个理由）。
+    if (settings.status() != QSettings::NoError) {
+        qWarning() << "凭据清不掉（QSettings 状态异常）：" << key << settings.fileName();
+    }
 }

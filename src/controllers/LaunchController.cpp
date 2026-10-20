@@ -34,6 +34,17 @@ private:
     bool m_armed = true;
 };
 
+/// 进来把 @p flag 置真、离开复原 —— 只给 onStartButtonClicked() 那道"不许重入"的闸用。
+class FlagGuard {
+public:
+    explicit FlagGuard(bool &flag) : m_flag(flag) { m_flag = true; }
+    ~FlagGuard() { m_flag = false; }
+    FlagGuard(const FlagGuard &) = delete;
+    FlagGuard &operator=(const FlagGuard &) = delete;
+private:
+    bool &m_flag;
+};
+
 QString selectedVersionId(const QComboBox *combo) {
     return combo == nullptr ? QString() : combo->currentData().toString();
 }
@@ -52,17 +63,23 @@ void versionRuntimeIds(const QJsonObject &json, QString *assetIndexId, int *java
 QString sessionIdentityKey(const LauncherManager::GameSession &session) {
     return session.accountUuid.isEmpty() ? session.accountName : session.accountUuid;
 }
+
+/// 身份键的**唯一算法**：正版认 uuid、离线认账号名（uuid 空着也退回名字）。
+///
+/// `launchIdentityKey()`（从当前账号现读）和"这一趟启动绑定的那个身份"（开头钉下来的）
+/// 都走这一句 —— 两处不一致的症状见 `launchIdentityKey()` 里那段。
+QString identityKeyFor(bool offline, const QString &name, const QString &uuid) {
+    if (offline) return name;
+    return uuid.isEmpty() ? name : uuid;
+}
 }
 
 QString LaunchController::launchIdentityKey() const {
     // 规矩的整段理由在头文件里。这里只强调一处：**会话那一侧走的是同一份算法**
     // （sessionIdentityKey()，就在本文件顶上那个匿名 namespace 里）—— 两处不一致的症状
     // 是"我自己刚启动的那一份被当成别人开的"，于是「重复启动」那条永远不响。
-    if (m_owner->offlineIdentity()) {
-        return m_owner->m_authManager->playerName();
-    }
-    const QString uuid = m_owner->m_authManager->playerUuid();
-    return uuid.isEmpty() ? m_owner->m_authManager->playerName() : uuid;
+    return identityKeyFor(m_owner->offlineIdentity(), m_owner->m_authManager->playerName(),
+                          m_owner->m_authManager->playerUuid());
 }
 
 bool LaunchController::confirmLaunchWhileRunning(const QString &versionId) {
@@ -183,7 +200,43 @@ QStringList LaunchController::launchArguments(const QString &versionId, const QJ
         m_owner->m_authManager->playerUuid(), window, screen, quickPlay);
 }
 
+void LaunchController::abortStart() {
+    // 只竖旗子、不做别的：调用方是 `closeEvent`，它自己正卡在"启动"那条调用栈的嵌套
+    // 事件循环里。在这里直接收尾（finishTask / 删东西）会踩到那条栈上的状态。
+    m_abortRequested = true;
+    // 排着的那一发"加入世界"也一起作废：这一趟都被取消了，它没有"下一次"可等 ——
+    // 留着它，用户下次自己点「启动」时游戏会莫名其妙地进一个他早就放弃的世界。
+    m_owner->m_pendingQuickPlay = QuickPlay::Target();
+}
+
 void LaunchController::onStartButtonClicked() {
+    // ★ 2026-10-20：不许**重入**。
+    //
+    // 这一条路是同步的（换令牌 / 挑 Java / startGame() 等进程起来都在 UI 线程上等），而前
+    // 两段各自会转起一个**嵌套事件循环**（AuthManager 和 GlobalJavaSettings 里等网络用的
+    // 那个 `QEventLoop::exec()`）。`enterSyncWait()` 里那次 `processEvents()` 排掉了用户
+    // 输入，但嵌套循环**不排** —— 于是那十几秒（网速慢时是几分钟）里「启动」按钮照样点得
+    // 动，而点了就是同一条路**并行走第二遍**：
+    //   · 第二发 beginTask（任务中心里同一件事出现两项）；
+    //   · 第二发换令牌 —— 刷新令牌是**轮换**的，两发抢同一张，后发把先发手里的作废；
+    //   · 第二发 ensureJavaForVersion（同一个运行时目录两路同时写）；
+    //   · 最后同一个实例起**两个**进程 —— 正是「启动提醒」拼命想拦住的那件事（同一份存档
+    //     被两个 JVM 同时打开，后保存的盖掉先保存的），从侧门进来了。
+    //
+    // 拦在这一层而不是灰按钮：等待中用户看到的是忙指针，这一下点击**没有第二个意思**，
+    // 静默丢掉就是他要的。判据必须摆在取 quickPlay **之前** —— 被丢掉的那次点击不该把
+    // "加入选中的世界"那一发顺手消费掉。
+    if (m_startInProgress) {
+        return;
+    }
+    const FlagGuard startGuard(m_startInProgress);
+    // 上一趟"关窗取消"留下的旗子不能带到这一趟里来（见 `abortStart()`）。
+    m_abortRequested = false;
+    // 检查点：每一处**刚从一个嵌套事件循环里出来**的地方都用它判一次。用户在那段等待里
+    // （换令牌最长 15 秒、下 Java 可能几分钟）点关闭并确认之后，路就停在这里，
+    // 不再把游戏拉起来、也不再往下写盘。
+    const auto shouldStop = [this] { return m_abortRequested; };
+
     // ★ 「加入选中的世界 / 加入服务器」排上的那一发：**开头就取走并清掉**（2026-10-10）。
     //
     // 为什么是开头不是末尾：这一路上有七八个早退（版本 json 缺了 / natives 没备成 /
@@ -225,6 +278,19 @@ void LaunchController::onStartButtonClicked() {
                              m_owner->tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或"
                                 "还原），请等它结束后再启动。\n\n"
                                 "别的实例不受影响，可以直接启动。")
+                                 .arg(m_owner->instanceDisplayName(versionId)));
+        return;
+    }
+
+    // ★ 2026-10-20：**上一次没导完的整合包**不能启动。它已经从「已安装版本」里滤掉了
+    //   （见 VersionManager::installedVersions），这一道是兜底：本会话里较早放进下拉框、
+    //   或者别处传进来的 id 仍然可能指到它。启动它会崩在缺库上；而且启动过程中那一步
+    //   `updateVersionMeta()` 会写出 wtfml.meta —— `isUnfinishedImport()` 从此认不出它，
+    //   "接着上次的导入"（`ImportNameVerdict::OkResume`）那条路就永久断了。
+    if (InstanceFiles::isUnfinishedImport(versionId)) {
+        InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("这个实例还没装完"),
+                             m_owner->tr("「%1」是上一次没导完的整合包，文件不齐，启动会崩在缺库上。\n\n"
+                                "重新导入同一个整合包、用同一个名字，就能接着上次下好的部分往下装。")
                                  .arg(m_owner->instanceDisplayName(versionId)));
         return;
     }
@@ -290,6 +356,30 @@ void LaunchController::onStartButtonClicked() {
         }
     }
 
+    // 换令牌那一段转过嵌套事件循环 —— 用户可能在里面点了关闭。
+    if (shouldStop()) {
+        m_owner->appendLog(m_owner->tr("启动已取消：启动器正在关闭。"));
+        return;
+    }
+
+    // ★ 2026-10-20：**这一趟是替谁启动的**，在这里跟着令牌一起钉下来。
+    //
+    //   令牌（上面那句 `loadSavedToken()`）和身份（`launchArguments()` / `startGame()` 里面
+    //   读的 playerName()/playerUuid()）原来是**两处、两个时刻**取的：中间隔着"准备 Java
+    //   运行时"那一大段 —— 本机没 Java 时它会在 UI 线程上下几百 MB 的运行时，而同步 HTTP /
+    //   同步等待转的都是嵌套事件循环，账号面板在这中间照旧点得动（`onAccountSwitchRequested()`
+    //   没有忙态闸）。用户在下载 Java 的时候切个账号，游戏就会用**B 的 --username/--uuid**
+    //   配 **A 的 accessToken** 起来：正版服务器一律回 Invalid session（联机/Realms 直接
+    //   进不去），而界面上没有任何一句话说这件事发生过。
+    //   所以身份也在这一刻取好，Java 那一段回来之后**对一遍**，对不上就不启动。
+    const QString launchPlayerName = m_owner->m_authManager->playerName();
+    const QString launchPlayerUuid = m_owner->m_authManager->playerUuid();
+    // 账本（「上一次启动」/ 任务详情里"当时是谁"）读的也是这一份，不是"记账那一刻的当前账号"：
+    // 从这行往下到 `appendLaunchRecord()` 之间**还有**会转嵌套事件循环的同步段（准备 Java
+    // 运行时、启动前的磁盘检查），账号面板在那中间点得动。记账时现读会把这一趟记到 B 头上
+    // （而游戏其实是用 A 起来的），「重复启动」那条判据也会跟着对错人。
+    const QString launchAccountKey = identityKeyFor(offlineMode, launchPlayerName, launchPlayerUuid);
+
     m_owner->m_activityCenter->tasks()->setStepState(launchTask, 0, Tasks::TaskStepState::Done,
         offlineMode ? m_owner->tr("离线账号，无需联网登录") : QString());
     m_owner->m_activityCenter->tasks()->setStepState(launchTask, 1, Tasks::TaskStepState::Running);
@@ -322,9 +412,17 @@ void LaunchController::onStartButtonClicked() {
 
     // 旧格式（1.18.2 及以下）的 natives 必须先落地，否则会被 checkPreLaunch 拦下。
     // 该方法自带守卫，已经解压过的版本直接返回，不会重复解压。
+    //
+    // ★ 2026-10-20：这一段也**走忙态**。它底下是 `ZipUtil::extractArchives()` —— 一个同步
+    //   起的 PowerShell 进程，超时给到 180 秒。以前它不进 `enterSyncWait()`：UI 线程被它
+    //   占着的那几秒（老版本、natives 体积大、或者盘慢的时候是几十秒）窗口不重画、底栏
+    //   什么也不说，用户看到的是"点了启动，启动器卡死了" —— 而它其实正在干活。同一个手法
+    //   和下面"准备 Java 运行时"那一截一样：先摆忙态，干完再收。
     QStringList nativeErrors;
+    m_owner->enterSyncWait(m_owner->tr("正在准备游戏文件..."));
     const QString nativesDir =
         m_owner->m_launcherManager->prepareNatives(versionJson, versionId, &nativeErrors);
+    m_owner->leaveSyncWait();
     if (nativesDir.isEmpty() && !nativeErrors.isEmpty()) {
         m_owner->appendLog(m_owner->tr("准备 natives 失败："));
         for (const QString &error : nativeErrors) {
@@ -438,6 +536,11 @@ void LaunchController::onStartButtonClicked() {
     if (answer == MainWindow::JavaMismatchAnswer::AbortLaunch) {
         return;
     }
+    // 那一问本身也是内嵌提示（`execPrompt` 转嵌套事件循环）。
+    if (shouldStop()) {
+        m_owner->appendLog(m_owner->tr("启动已取消：启动器正在关闭。"));
+        return;
+    }
     // 「仍然用这个 Java 启动」只有一个后果：把"允许不匹配"那个口子打开。判在
     // javaMatchesMajor() 之前（见 ensureJavaForVersion 的值版），所以哪怕那条路径
     // 根本起不来，用户也已经明说了"就用它"。
@@ -459,6 +562,11 @@ void LaunchController::onStartButtonClicked() {
         javaSettings, javaMajorVersion, javaComponent, allowAutoSelect, &javaError,
         allowMismatchedPath);
     m_owner->leaveSyncWait();
+    // 下 Java / 探 Java 那一段同样转过嵌套事件循环（本机没 Java 时它就在那里面下几百 MB）。
+    if (shouldStop()) {
+        m_owner->appendLog(m_owner->tr("启动已取消：启动器正在关闭。"));
+        return;
+    }
     if (!javaReady) {
         m_owner->appendLog(m_owner->tr("无法获取所需的 Java 运行时环境：版本 %1").arg(javaMajorVersion));
         InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("Java 运行时缺失"),
@@ -468,6 +576,23 @@ void LaunchController::onStartButtonClicked() {
                       .arg(m_owner->instanceDisplayName(versionId))
                       .arg(javaMajorVersion)
                 : m_owner->tr("找不到或无法下载 Java %1，请手动指定 Java 路径。").arg(javaMajorVersion));
+        return;
+    }
+
+    // ★ 2026-10-20：准备 Java 那一段（可能要下几百 MB）转过嵌套事件循环，账号面板在那期间
+    //   是点得动的。令牌是上面换的、身份是刚才钉的 —— 用户要是切了账号，接着启动就会拿
+    //   **新账号的 --username/--uuid** 配 **旧账号的 accessToken**（见 launchPlayerName
+    //   那一段）。不启动、说清楚，让用户再点一次：再点的时候令牌和身份就都是新账号的了。
+    if (m_owner->offlineIdentity() != offlineMode
+        || m_owner->m_authManager->playerName() != launchPlayerName
+        || m_owner->m_authManager->playerUuid() != launchPlayerUuid) {
+        m_owner->appendLog(m_owner->tr("启动已取消：准备 Java 的途中账号被切换了（%1）。")
+                               .arg(launchPlayerName));
+        InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("账号被切换了"),
+            m_owner->tr("准备 Java 运行环境的时候账号从「%1」换成了「%2」。\n"
+                        "这一次没有启动 —— 不然游戏会带着**另一个账号的身份**配**原来那个账号的"
+                        "登录令牌**起来，联机时会被服务器拒绝。\n\n请再点一次启动。")
+                .arg(launchPlayerName, m_owner->m_authManager->playerName()));
         return;
     }
 
@@ -537,16 +662,47 @@ void LaunchController::onStartButtonClicked() {
     // 界面根本没机会重画 —— 所以那一段报不出百分比，只能报"在等什么"。
     // NOTE: 这里那句和下面 m_owner->updateBottomBar() 里那句是**同一句话**（都出自
     //       MainWindowUI::launchingStatusText()），所以进程起来的那一刻文字不会跳。
+    // 最后一道：到这里为止没有再让出过事件循环，但下面那句 `startGame()` 一旦返回就
+    // 已经有进程了 —— 取消只在这一句之前还有意义。
+    if (shouldStop()) {
+        m_owner->appendLog(m_owner->tr("启动已取消：启动器正在关闭。"));
+        return;
+    }
     m_owner->enterSyncWait(MainWindowUI::launchingStatusText(m_owner->instanceDisplayName(versionId)));
     // 身份和实例名都在**启动这一刻**钉进会话里（LauncherManager 的 GameSession 快照）：
     // 之后切账号、改实例名都不会影响"这一份当初是谁跑的"。多开这件事最要紧的就是这条 ——
     // 同一个实例挂两个账号各开一个时，两份会话的 accountName 必须是各自的，不能都读
     // "当前登录的那个"。
+    // ★ 2026-10-20：startGame() 那三条早退路径（会话数到顶 / Java 找不到 / 进程起不来）
+    //   只发一句 `processError`，而那个信号平时是**游戏 stderr 的出口**（不能弹框），
+    //   接它的 onProcessError() 因此只往日志面板里写一行 —— 可日志面板在主页是收起来的，
+    //   用户点了启动，看到的只是"没反应"（任务中心那一行失败、却不带原因）。
+    //
+    //   这三条都发生在 startGame() **返回之前**、同步发出，所以只在这一小段里接一份：
+    //   接完立刻断开。游戏跑起来之后的 stderr 也走同一个信号，那种不是"启动失败"。
+    QString startFailure;
+    const QMetaObject::Connection startErrorConnection =
+        QObject::connect(m_owner->m_launcherManager, &LauncherManager::processError, m_owner,
+                         [&startFailure](int, const QString &text) {
+                             if (startFailure.isEmpty()) startFailure = text;
+                         },
+                         Qt::DirectConnection);
     const int sessionId = m_owner->m_launcherManager->startGame(
         jvmArgs, javaSettings, versionId, m_owner->instanceDisplayName(versionId),
-        m_owner->m_authManager->playerName(), m_owner->m_authManager->playerUuid(),
+        launchPlayerName, launchPlayerUuid,
         m_owner->m_settings->processPriority());
+    QObject::disconnect(startErrorConnection);
     m_owner->leaveSyncWait();
+    if (sessionId <= 0 && !startFailure.isEmpty()) {
+        // 拦下用户操作的消息一律要弹窗（产品硬约束），并且要把原因写进那件任务 ——
+        // 否则任务中心里只有一行"失败"，点进去也说不清是为什么。
+        // 这一支之后不会再往下走（sessionId <= 0），栈上那个兜底撤销要收掉，
+        // 不然它会拿一个空原因把刚才这笔覆盖掉（终态只落一次，覆盖不了，但那句
+        // `finishTask` 就是多余的）。
+        InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("无法启动"), startFailure);
+        m_owner->finishTask(launchTask, false, startFailure);
+        launchGuard.disarm();
+    }
     if (sessionId > 0) {
         m_owner->m_settings->setLastLaunchedVersion(versionId);
         m_owner->appendLog(m_owner->tr("已开始启动游戏，正在执行 JVM 参数..."));
@@ -580,7 +736,7 @@ void LaunchController::onStartButtonClicked() {
             GameSessionController::GameSessionFacts facts;
             facts.instanceId = versionId;
             facts.instanceName = m_owner->instanceDisplayName(versionId);
-            facts.accountName = m_owner->m_authManager->playerName();
+            facts.accountName = launchPlayerName;
             facts.requiredJavaMajor = javaMajorVersion;
             facts.javaPath = javaSettings.javaPath;
             facts.xmxMb = javaSettings.xmx;
@@ -600,7 +756,7 @@ void LaunchController::onStartButtonClicked() {
         //   落点** —— 这一整个 `if (sessionId > 0)` 块只有"进程真起来了"才走得到（startGame()
         //   那三条早退路径在上面就返回了）。`quickPlay` 是这一趟开头取走的那个目标：空 = 普通
         //   启动，有值 = 这一趟游戏自己会进那个世界 / 那台服务器。
-        appendLaunchRecord(versionId, quickPlay, session.startedAtMs);
+        appendLaunchRecord(versionId, quickPlay, session.startedAtMs, launchAccountKey);
         // 实例树上"（运行中）"要当场出来：这一份已经从"开始启动"走到"进程真的起来了"。
         m_owner->updateInstanceTreeRunState();
         // 这一档只对"真的起来了"生效 —— startGame() 那三条早退路径下面根本走不到这里。
@@ -610,15 +766,16 @@ void LaunchController::onStartButtonClicked() {
 }
 
 void LaunchController::appendLaunchRecord(const QString &versionId, const QuickPlay::Target &quickPlay,
-                                    qint64 startedAtMs) {
+                                    qint64 startedAtMs, const QString &accountKey) {
     // 转手之前只补两格"只有这一层说得出来"的事实：
     //   · **显示名**：`m_owner->instanceDisplayName()` 读的是界面上那个下拉框，而且这一句要被**记下来**
     //     —— 实例以后改名、被删都不影响这一条（"记录"该有的样子就是当时那句话）；
-    //   · **身份键**：`launchIdentityKey()` 读的是当前账号（离线账号的 uuid 是空的，那种情况
-    //     退回账号名）。
+    //   · **身份键**：由调用方给（`onStartButtonClicked()` 在开头跟令牌一起钉下来的那一份）；
+    //     没给（测试脚手架那种"直接记账"的调用）才从当前账号现读。
     // 记账本身（认不认这一趟、快捷启动的目标怎么翻、结局怎么改写、写不进去怎么说话）全在
     // 那一层里，见它文件头那段"为什么这一件事该有一个自己的 controller"。
-    m_owner->m_launchHistory->recordStart(versionId, m_owner->instanceDisplayName(versionId), launchIdentityKey(),
+    const QString identity = accountKey.isEmpty() ? launchIdentityKey() : accountKey;
+    m_owner->m_launchHistory->recordStart(versionId, m_owner->instanceDisplayName(versionId), identity,
                                  quickPlay, startedAtMs);
 }
 

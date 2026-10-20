@@ -8,6 +8,7 @@
 #include "TaskHistory.hpp"
 
 #include <QDateTime>
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -242,7 +243,21 @@ QList<TaskSnapshot> load(const QString &path) {
     }
     const QByteArray bytes = file.readAll();
     file.close();
-    QList<TaskSnapshot> tasks = fromJson(bytes, nullptr);
+    bool parsed = false;
+    QList<TaskSnapshot> tasks = fromJson(bytes, &parsed);
+    // ★ 2026-10-20：账本读不动（不是 JSON / 不是数组）**不许当成"没有历史"就这么吞掉**。
+    //   这条路后面紧跟着的那次 `saveHistory()` 会把文件整个覆写，用户看到的是"任务中心
+    //   突然空了"，而盘上那份坏账本（里面也许还留着一半能读的行）连证据都不剩。
+    //   原文件**一个字节都不动**，只在旁边留一份 `<账本>.corrupt`（已经有了就不覆盖，
+    //   留最早那一份）；正常流程照走 —— 读出来是空的，和以前一样开得起来。
+    if (!parsed && !bytes.trimmed().isEmpty()) {
+        const QString evidencePath = path + QStringLiteral(".corrupt");
+        if (!QFile::exists(evidencePath) && QFile::copy(path, evidencePath)) {
+            qWarning() << "Task history is not valid JSON; kept a copy at" << evidencePath;
+        } else {
+            qWarning() << "Task history is not valid JSON and the copy could not be kept:" << path;
+        }
+    }
     markInterrupted(tasks);
     return tasks;
 }

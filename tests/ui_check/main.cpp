@@ -1116,6 +1116,46 @@ int main(int argc, char *argv[]) {
             expect(attention(0), "removing the selected task restores the unselected overview");
         }
         {
+            // ★ 2026-10-20：失败行落在滚动区**下面**（用户没滚到）时，不许被标成"看过了"。
+            //   旧实现只看 `m_scroll` 整体可不可见，一开面板就把所有失败行整批标掉 ——
+            //   底栏那颗"没看过的失败"红点当场熄灭，用户却一行都没看见（而且是落盘的）。
+            //   新判据是**逐行和视口相交**：滚下去露脸了才算看过。
+            QList<TaskCenter::Item> tasks;
+            for (int i = 0; i < 14; ++i) {
+                TaskCenter::Item done;
+                done.key = QStringLiteral("done-%1").arg(i);
+                done.title = QStringLiteral("Completed task %1").arg(i);
+                done.state = TaskCenter::State::Succeeded;
+                tasks.append(done);
+            }
+            TaskCenter::Item failed;
+            failed.key = QStringLiteral("failed-bottom");
+            failed.title = QStringLiteral("Failed below the fold");
+            failed.state = TaskCenter::State::Failed;
+            failed.unreadFailure = true;
+            tasks.append(failed);
+            bool acknowledged = false;
+            TaskCenterPanel panel(nullptr, [&tasks] { return tasks; }, {}, {}, {}, {}, nullptr, true);
+            panel.setRowActionHandler([&acknowledged](const QString &key, TaskCenter::RowAction action) {
+                if (action == TaskCenter::RowAction::Seen && key == QStringLiteral("failed-bottom")) {
+                    acknowledged = true;
+                }
+            });
+            panel.resize(1000, 420);
+            panel.showEmbedded();
+            app.processEvents();
+            expect(!acknowledged, "a failed row below the fold is not silently marked as viewed");
+            auto *list = panel.findChild<QScrollArea *>(QStringLiteral("taskCenterTaskList"));
+            expect(list && list->verticalScrollBar()->maximum() > 0,
+                   "the test really pushes the failed row out of the viewport");
+            if (list) {
+                list->verticalScrollBar()->setValue(list->verticalScrollBar()->maximum());
+                app.processEvents();
+                expect(acknowledged, "scrolling a failure into view marks unread only, not attention");
+            }
+            panel.hide();
+        }
+        {
             QList<TaskCenter::Item> tasks;
             for (const auto state : {TaskCenter::State::Running, TaskCenter::State::WaitingUser,
                                      TaskCenter::State::Failed, TaskCenter::State::Succeeded}) {
@@ -14886,16 +14926,41 @@ int main(int argc, char *argv[]) {
 
                 // ---- ⑤ 点一下开关（改名）之后，这一行**还选着** ----
                 //
-                // 「点开关」在 MainWindow 那边就是"把 `X.jar` 改成 `X.jar.disabled`，再回头
-                // 喊一声 refreshFilePages()"（见 toggleInstanceFile）。这里手工把盘上那一份
-                // 改成那个样子，再走同一趟 refresh() —— 路径变了，按**盘上那个名字**还选择的
-                // 话这一行当场掉出选择（用户原话：「修复点击开关的时候会取消选中的问题」）。
+                // 「点开关」在真机上是这条路：行尾那颗 `ToggleSwitch` 按下去 → 这一页的
+                // `requestToggle()`（先记一笔"这是**我刚发出去的开关**"）→ `toggleRequested`
+                // → MainWindow 把 `X.jar` 改成 `X.jar.disabled`，再回头喊一声
+                // refreshFilePages()（见 toggleInstanceFile）。
+                //
+                // ★ 2026-10-20：这一档从前是**绕开这一页**直接 `QFile::rename` +
+                //   `refresh()`。产品后来只把"这一页刚发出去的开关"解释成改名
+                //   （`m_pendingIdentityMigration`）—— 否则一条**被删掉**的文件也会把同名的
+                //   `.disabled` 那一行重新选上（见 ⑥ 那一档）。测试照着那条捷径走，这笔账
+                //   没人记，于是成了假红。现在按真那条路走。
+                const auto simulateDiskToggle = [](const QString &path) {
+                    const QString suffix = InstanceFilesPage::disabledSuffix();
+                    const QString target = path.endsWith(suffix)
+                                               ? path.left(path.size() - suffix.size())
+                                               : path + suffix;
+                    return QFile::rename(path, target);
+                };
+                const QMetaObject::Connection simConn = QObject::connect(
+                    page, &InstanceFilesPage::toggleRequested, page,
+                    [page, &simulateDiskToggle](const QString &path) {
+                        check(simulateDiskToggle(path),
+                              "U10R 前提：盘上改名必须成功（= 点一下开关）", path);
+                        page->refresh();
+                    });
                 selectOnly(modA);
                 check(list->selectedItems().size() == 1, "U10R 前提：先选中「甲」那一条");
                 const QString modARenamed = modA + InstanceFilesPage::disabledSuffix();
-                check(QFile::rename(modA, modARenamed),
-                      "U10R 前提：盘上把「甲.jar」改成「甲.jar.disabled」（= 点一下开关）");
-                page->refresh();
+                QAbstractButton *rowSwitch = page->toggleButtonAt(rowOf(modA));
+                check(rowSwitch != nullptr, "U10R 前提：行尾那颗开关在（按得下去才谈得上这条路）");
+                if (rowSwitch != nullptr) {
+                    rowSwitch->click();
+                }
+                check(QFile::exists(modARenamed) && !QFile::exists(modA),
+                      "U10R 前提：点完开关盘上真改成了「甲.jar.disabled」",
+                      QFile::exists(modARenamed) ? QStringLiteral("在") : QStringLiteral("没有"));
                 const int renamedRow = rowOf(modARenamed);
                 check(renamedRow >= 0 && list->selectedItems().size() == 1 &&
                           list->item(renamedRow) != nullptr && list->item(renamedRow)->isSelected(),
@@ -14923,13 +14988,49 @@ int main(int argc, char *argv[]) {
                       "★★ U10R 账上记的是**改过名之后那个名字**（`X.jar.disabled`）—— 报出去的"
                       "路径必须是盘上真那一个",
                       account.join(QStringLiteral(" | ")));
-                // 再反过来（启用）：同一条规矩的另一面。
-                check(QFile::rename(modARenamed, modA), "U10R 前提：再把它改回来");
-                page->refresh();
+                // 再反过来（启用）：同一条规矩的另一面，同样走**真那条路**。
+                QAbstractButton *rowSwitchBack = page->toggleButtonAt(rowOf(modARenamed));
+                check(rowSwitchBack != nullptr, "U10R 前提：改名之后那条的行尾开关也在");
+                if (rowSwitchBack != nullptr) {
+                    rowSwitchBack->click();
+                }
+                check(QFile::exists(modA) && !QFile::exists(modARenamed),
+                      "U10R 前提：再点一下开关，盘上改回「甲.jar」",
+                      QFile::exists(modA) ? QStringLiteral("在") : QStringLiteral("没有"));
                 check(rowOf(modA) >= 0 && list->selectedItems().size() == 1 &&
                           list->item(rowOf(modA)) != nullptr &&
                           list->item(rowOf(modA))->isSelected(),
                       "★★ U10R 改回来（启用）也一样：那一行照旧选着");
+                QObject::disconnect(simConn);
+
+                // ---- ⑥ 「同名的一对」不许被身份一起选中（2026-10-20）----
+                //
+                // `X.jar` 和 `X.jar.disabled` **同时在场**时两行的身份一样（`identityPath()`
+                // 把后缀抹掉算）。还选择那一趟要是只按身份比，用户只点了一条、重列之后两条
+                // 都选上 —— 紧接着一次「删除选中项」就把**用户从来没选过**的那一份也删了
+                // （不可逆）。这一档钉的是"重列之后选中集只许不变或变小，不许自己变大"。
+                const QString twinOn = rRoot + QStringLiteral("/mods/戊.jar");
+                const QString twinOff = twinOn + InstanceFilesPage::disabledSuffix();
+                mkfileR(twinOn);
+                mkfileR(twinOff);
+                page->refresh();
+                check(rowOf(twinOn) >= 0 && rowOf(twinOff) >= 0,
+                      "U10R 前提：同名的一对（`戊.jar` 与 `戊.jar.disabled`）两条都列出来了",
+                      QString::number(list->count()));
+                selectOnly(twinOn);
+                check(list->selectedItems().size() == 1,
+                      "U10R 前提：只点了**启用着的那一条**");
+                // 再列一遍 —— 搜索框敲一个字、任一批量操作跑完之后都会走到这里。
+                page->refresh();
+                check(list->selectedItems().size() == 1 &&
+                          list->item(rowOf(twinOn)) != nullptr &&
+                          list->item(rowOf(twinOn))->isSelected() &&
+                          list->item(rowOf(twinOff)) != nullptr &&
+                          !list->item(rowOf(twinOff))->isSelected(),
+                      "★★ U10R 同名的一对同时在场时，重列**不许把用户没点过的那一条也选上**"
+                      "（身份抹掉 `.disabled` 算，只按身份还选择会把选中集悄悄放大 ⇒ 随后的"
+                      "「删除选中项」多删一份）",
+                      QStringLiteral("选中 %1 条").arg(list->selectedItems().size()));
             }
         }
 
@@ -15889,9 +15990,29 @@ int main(int argc, char *argv[]) {
                     // 拨开关那件事**在盘上就是改个名**（`X.jar` → `X.jar.disabled`），
                     // 然后回头喊 `refresh()` —— 产品那一路（见 InstanceSettingsDialog /
                     // MainWindow::toggleInstanceFile）一字不差地这么走。
+                    //
+                    // ★ 2026-10-20：和 U10R ⑤ 同一个理由 —— 这一发必须**从这一页自己
+                    //   走出去**（行尾开关 → `requestToggle()` 先记一笔"刚发出去的开关"），
+                    //   不能绕开它手工改名。绕开的那一路产品里根本不存在，而"改名之后
+                    //   还选着"那一笔账正是 `requestToggle()` 记下的（删除不许被当成改名，
+                    //   见 `m_pendingIdentityMigration`）。
                     const QString renamed = target + QStringLiteral(".disabled");
-                    check(QFile::rename(target, renamed), "U10M 前提：盘上改好名了");
-                    many->refresh();
+                    const QMetaObject::Connection simConn = QObject::connect(
+                        many, &InstanceFilesPage::toggleRequested, many,
+                        [many](const QString &path) {
+                            const QString suffix = InstanceFilesPage::disabledSuffix();
+                            const QString dest =
+                                path.endsWith(suffix)
+                                    ? path.left(path.size() - suffix.size())
+                                    : path + suffix;
+                            check(QFile::rename(path, dest), "U10M 前提：盘上改好名了", path);
+                            many->refresh();
+                        });
+                    QAbstractButton *rowSwitch = many->toggleButtonAt(targetRow);
+                    check(rowSwitch != nullptr, "U10M 前提：那一行行尾的开关在");
+                    if (rowSwitch != nullptr) {
+                        rowSwitch->click();
+                    }
                     // 还原锚点那一发排在 0 毫秒的定时器里（见 rebuildRows() 末尾那段）。
                     QEventLoop settle;
                     QTimer::singleShot(50, &settle, &QEventLoop::quit);
@@ -15934,6 +16055,7 @@ int main(int argc, char *argv[]) {
                           toggled != nullptr
                               ? toggled->data(InstanceFilesPage::pathRole()).toString()
                               : QString());
+                    QObject::disconnect(simConn);
                 }
 
                 // ---- U10M-2 从详情页退回来：位置**跨过那一页本身**活下来（2026-10-11）----
@@ -25857,6 +25979,24 @@ int main(int argc, char *argv[]) {
         page.ruleEditorAt(1)->setText(QStringLiteral("7"));
         check(page.saveButton()->isEnabled(), "Z16d 填回去就又点得动了");
 
+        // ★★ 2026-10-20：筛掉的那一条**照样算数**。原来这里只量屏幕上摆出来的那几行
+        //   （`m_ruleList->count()`）⇒ "清空一条 → 在搜索框里搜个别的词把它筛掉"之后
+        //   「保存」重新点得动了，写下去的是一条空值。
+        page.ruleEditorAt(1)->setText(QString());
+        page.ruleFilter()->setText(QStringLiteral("motd"));
+        settleFilter();
+        check(!page.saveButton()->isEnabled(),
+              "★★ Z16d 清空的那一条被搜索框筛掉之后，「保存」照样点不动（判据走整张规则表）");
+        page.ruleFilter()->setText(QString());
+        settleFilter();
+        // 编辑器那个正则挡得住字母，挡不住**单独一个 `-`**（"还没打完"的中间态）——
+        // 存下去游戏读不成数字，静悄悄按默认值来。
+        page.ruleEditorAt(1)->setText(QStringLiteral("-"));
+        check(!page.saveButton()->isEnabled(),
+              "★★ Z16d 只填了一个 `-` 也算没填完 ⇒ 「保存」点不动");
+        page.ruleEditorAt(1)->setText(QStringLiteral("7"));
+        check(page.saveButton()->isEnabled(), "Z16d 改回一个整数又点得动了");
+
         // ---- 存下去之后：基线往前挪，值还是页面上这一份 ----
         page.markSaved();
         check(!page.isDirty(),
@@ -26039,6 +26179,21 @@ int main(int argc, char *argv[]) {
                   "★★ Z16h 存过之后差集**清空** —— 刚写下去的就是页面上这一份（不清的话，"
                   "用户存完接着改一条别的规则、再存一次，会把刚存过的那几格又写一遍，"
                   "白吃掉一格备份代数）");
+        }
+
+        // ★★ 2026-10-20：盘上那一格带个尾空格 ⇒ **一打开不许算改过**（原来 `valueAt()`
+        //   会 trim：屏幕上那个值和 `m_opened` 一不等，这一页就成了"改过还没保存" ——
+        //   按返回会被问一句，保存还会顺手把那个空格吃掉）。
+        {
+            WorldSettingsPage spaced;
+            WorldSettingsPage::WorldView spacedView = view;
+            spacedView.rules[1].value = QStringLiteral("42 ");
+            spaced.setWorld(spacedView);
+            check(!spaced.isDirty(), "★★ Z16h' 盘上那一格带个尾空格，一打开不算改过");
+            check(spaced.editedView().rules.value(1).value == QStringLiteral("42 "),
+                  "★ Z16h' 原样交出去（不替用户 trim）",
+                  spaced.editedView().rules.value(1).value);
+            spaced.hide();
         }
 
         page.hide();
@@ -26396,6 +26551,30 @@ int main(int argc, char *argv[]) {
                   .arg(salvaged.roles.size())
                   .arg(salvaged.parts.size()));
 
+        // ★ 2026-10-20：数字那几位**认不出来**时不许当成 0。`toInt()` 对 "abc" 回的是 0，
+        //   而 0% 的文字透明度 = 所有字都不画（界面一片空白）、0% 的图 = 一张看不见的背景。
+        //   认不出就退回出厂那一档（和上面"认不出的预设"同一条原则）。
+        {
+            QSettings().clear();
+            QSettings junk;
+            junk.setValue(QStringLiteral("Theme/TextOpacity"), QStringLiteral("abc"));
+            junk.setValue(QStringLiteral("Theme/Parts/panel/Image"), QStringLiteral("C:/tmp/pic.png"));
+            junk.setValue(QStringLiteral("Theme/Parts/panel/ImageOpacity"), QStringLiteral("abc"));
+            junk.setValue(QStringLiteral("Theme/Parts/panel/TextOpacity"), QStringLiteral("oops"));
+            junk.sync();
+            const Theme::Spec salvagedNumbers = Theme::load();
+            const Theme::PartStyle panelNumbers =
+                salvagedNumbers.parts.value(int(Theme::Part::Panel));
+            check(salvagedNumbers.textOpacity == 100 && panelNumbers.imageOpacity == 100 &&
+                      panelNumbers.textOpacity < 0,
+                  "★★ W8 手改出来的「不是数字」的不透明度不许被读成 0"
+                  "（0% 的文字 = 界面一片空白、0% 的图 = 看不见的背景；认不出就退回出厂那一档）",
+                  QStringLiteral("全局 %1，图 %2，这一块的字 %3")
+                      .arg(salvagedNumbers.textOpacity)
+                      .arg(panelNumbers.imageOpacity)
+                      .arg(panelNumbers.textOpacity));
+        }
+
         QSettings().clear();
         QCoreApplication::setOrganizationName(savedOrg);
         QCoreApplication::setApplicationName(savedAppName);
@@ -26597,6 +26776,56 @@ int main(int argc, char *argv[]) {
             Theme::setSpec(withInvisible);
             check(host.grab().toImage().pixelColor(20, 20) == hostColor,
                   "★ W11 不透明度调到 0 ⇒ 图上不来，底下那一层原样透出来");
+
+            // ⑥ ★ 2026-10-20：换了一张图之后要**当场**重画。
+            //   修之前这是个真实症状：在设置页换图 / 清除 / 改摆法 / 改不透明度，屏幕上还是
+            //   旧图 —— 得切到别的选项卡再切回来、或者拖一下窗口改尺寸，才看得见新的。
+            //   根子：`ThemeBackground` 只靠 `Theme::follow()` 那条"调色板变了"重算，而
+            //   `apply()` 在调色板**没变**的时候（只换了图 / 摆法 / 不透明度 / 底色，
+            //   这几样都不在 `buildPalette()` 里）一个通知都不发。
+            //   这里用一份"碰调色板"的预设（emerald）走两趟：第一趟铺预设，第二趟只换摆法。
+            host.show();
+            QApplication::processEvents();
+
+            class PaintCounter : public QObject {
+            public:
+                int paints = 0;
+                bool eventFilter(QObject *, QEvent *event) override {
+                    if (event->type() == QEvent::Paint) {
+                        ++paints;
+                    }
+                    return false;
+                }
+            };
+            PaintCounter counter;
+            background->installEventFilter(&counter);
+
+            Theme::PartStyle counterStyle = stretchStyle;
+            Theme::Spec emeraldPicture = Theme::presetSpec(QStringLiteral("emerald"));
+            emeraldPicture.parts.insert(int(Theme::Part::PageBackground), counterStyle);
+            Theme::setSpec(emeraldPicture);
+            Theme::apply(*qApp);
+            QApplication::processEvents();
+            const int baselinePaints = counter.paints;
+
+            // 第二趟：只把摆法从「拉伸」换成「完整放下」。调色板一个字节都不变。
+            counterStyle.fit = Theme::ImageFit::Contain;
+            Theme::Spec emeraldContain = emeraldPicture;
+            emeraldContain.parts.insert(int(Theme::Part::PageBackground), counterStyle);
+            Theme::setSpec(emeraldContain);
+            Theme::apply(*qApp);
+            QApplication::processEvents();
+            check(counter.paints > baselinePaints,
+                  "★★ W11 只换图 / 摆法 / 不透明度（调色板没有变）也要**当场**重画，"
+                  "不许等用户切选项卡或拖窗口才生效",
+                  QStringLiteral("第二趟画了 %1 次（第一趟为止 %2 次）")
+                      .arg(counter.paints - baselinePaints)
+                      .arg(baselinePaints));
+
+            background->removeEventFilter(&counter);
+            Theme::setSpec(Theme::defaultSpec());
+            Theme::apply(*qApp);
+            QApplication::processEvents();
         }
 
         // ③ 存盘往返。和 W7 一样的规矩：这一段要写盘，先把 QSettings 窝换成一对专供验证的

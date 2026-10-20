@@ -811,7 +811,9 @@ private slots:
     ///       QDialog::exec() 阻塞在事件循环里，offscreen 的验证工程驱动不了它。
     ///       而这一半里藏着真会错的东西（"跟随全局"的项要**删键**而不是写一个等于
     ///       全局的值、写盘前得先确保实例有稳定 id），必须验得了。
-    bool applyInstanceSettings(const QString &versionId, const InstanceSettingsDialog &dialog);
+    /// @note 收的是**非 const** 引用：用户刚挑的那张图标真落进实例目录之后，要回头让
+    ///       对话框忘掉那个源路径（见 `InstanceSettingsDialog::markPickedIconSaved()`）。
+    bool applyInstanceSettings(const QString &versionId, InstanceSettingsDialog &dialog);
 
     // ---------- 实例设置「文件管理」那八页（2026-09-26）----------
     //
@@ -1192,6 +1194,9 @@ private slots:
     /// 那种消息是"又开一个被拦下了"这类，不挂在任何实例名下）。
     void onProcessOutput(int sessionId, const QString &text);
     void onProcessError(int sessionId, const QString &text);
+    /// 这一号会话在真的起来之前就被收回了（启动那三条早退），界面据此把刚为它建出来的
+    /// 那一扇日志窗和按号记的底账收掉（见 GameSessionController::onSessionDiscarded()）。
+    void onSessionDiscarded(int sessionId);
     void onGameFinished(int sessionId, int exitCode, QProcess::ExitStatus exitStatus);
     /// 停掉**一份**会话（**现在只有底栏左面板里那行电源走它**）：先问、再停 ——
     /// @param sessionId 那一行是谁（面板弹出来时抄下来的会话号，见 PanelRow::key）。
@@ -1468,12 +1473,17 @@ private:
     ///
     /// @param kind 是哪一类资源（决定落到哪个目录、要不要过加载器那道闸）
     /// @param displayTitle 界面上这一个资源叫什么（下载 label 的前半截，另一半是版本号）
-    /// @param version 要下的那一版（`primaryFile()` 是它的文件清单）
+    /// @param version 要下的那一版（`primaryFile()` 是它的文件清单）。
+    ///        ★ **按值收**，不是按引用：两条来路递给它的都是容器里的元素（下载页那张
+    ///        `m_resourceVersions` 的 QHash、详情页的 `m_resourcePage.versions`），而它
+    ///        下面会开嵌套事件循环（"存哪儿"的 `QFileDialog`、加载器那道闸的
+    ///        `InlineMessage`）—— 那一期间任何一发回信插进那张 QHash 都可能让它 rehash，
+    ///        引用当场悬空。按值收 = 进门先拷一份，容器怎么变都不关它的事。
     /// @param source 这一条资源是**从哪一家搜出来的**（前置也去同一家问 —— 两家的项目号
     ///        不是一套）。★ 2026-09-28 加：原来不用它，因为这一条路上一个跨项目的请求都
     ///        不发；前置要问"那个号叫什么、有哪些版本"，来源就必须跟着走了。
     void installResourceVersion(ResourceCatalog::Kind kind, const QString &displayTitle,
-                                const ResourceCatalog::VersionEntry &version,
+                                ResourceCatalog::VersionEntry version,
                                 ResourceCatalog::Source source);
 
     // ---------- 资源详情页（2026-09-26）----------
@@ -1682,7 +1692,7 @@ private:
     /// NOTE: 实例文件页那颗「更新」（悬浮条上那一颗）**不走这儿** —— 它是一批一起下，见
     ///       `updateInstanceFiles()` 里那段（`downloadResourceFiles()` 一次只收一批）。
     void installResourceVersionNow(ResourceCatalog::Kind kind, const QString &displayTitle,
-                                   const ResourceCatalog::VersionEntry &version,
+                                   ResourceCatalog::VersionEntry version,
                                    const QList<ModDependencies::Resolved> &extras,
                                    const QString &forcedInstanceId = QString());
 
@@ -3115,6 +3125,11 @@ private:
     /// 哪些服务端的**这一次退出是我们让的**（「停止」/「强制结束」）。退出回调里据此
     /// 把这一趟判成 `UserStop` —— 被强杀的进程退出码往往非 0，但它不是"崩了"。
     QSet<QString> m_serverStopRequested;
+    /// 哪些服务端的**世界正在被备份 / 还原**（唯一出处是 `BackupController` 的
+    /// `setServerFileOperationBusy` 回调；服务端那一趟收尾时摘）。这一趟要把世界目录
+    /// 整个读 / 换 ⇒ 期间它不能启动、不能删（`startServer()` / `removeServer()` 各一道闸）。
+    /// ★ 实例那一侧的同类标记在 `installingVersionIds()`，服务端不是实例，不能混用。
+    QSet<QString> m_serverFileBusy;
     ServerSettingsController *m_serverSettingsController = nullptr;
     ThemeSettingsController *m_themeSettingsController = nullptr;
     JavaSettingsController *m_javaSettingsController = nullptr;
@@ -3474,7 +3489,33 @@ private:
     ActivityCenterController *m_activityCenter = nullptr;
     /// 正在跑的那一批下载对应的任务号（无效号 = 没有这一批）。**一批一个号**：
     /// 从 `setDownloadUiBusy(true)` 起、到那一条终态信号为止（见 beginDownloadTask()）。
+    /// ★ 2026-10-20 起，下载页那几类资源（模组 / 数据包 / 资源包 / 光影 / 整合包）和
+    ///   「重试」那一批也在这上面挂一件事（见 installResourceVersionNow() 与
+    ///   retryTaskFromDetail()）—— 以前它们**一行都不进任务中心**：下大文件时用户看不到
+    ///   进度，失败了也没有任何地方能点「重试」。
     Tasks::TaskId m_downloadTaskId = Tasks::invalidTaskId();
+    /// 那一格失败清单**归账本里的哪一件任务**（"重试"资格的出处，见 finishTask()）。
+    ///
+    /// 绝大多数时候它就等于 `m_downloadTaskId`；两处不能现读的地方靠它：
+    /// ① 「更新中心」那一批挂在 `m_updateBatch.task` 上，而那一批收尾时 `m_updateBatch`
+    ///    已经先被清空了；② 资源下载 / 重试那一批的号会在成功收尾后立刻清掉。
+    /// 没有它的话，任何一件**别的**任务（启动、导出、服务端安装、复制实例…）在这一刻收尾，
+    /// 都会把"这份失败清单是谁的"改成它自己 —— 于是真失败那一件上的「重试」消失，而
+    /// 点别人的「重试」重做的却是这一批文件。
+    Tasks::TaskId m_downloadBatchOwnerTaskId = Tasks::invalidTaskId();
+    /// 资源下载那一批的 label（`resourceDownloadFinished(label, …)` 回来时按它认领那件任务）。
+    /// 空 = 当前没有资源下载在跑。
+    QString m_resourceBatchLabel;
+    /// ★ 2026-10-20：这一发终态是不是**用户自己按的取消**（只在这一个同步调用栈里为真）。
+    ///
+    /// `VersionManager::cancelActiveDownload()` 收尾时走的是和"真失败"**同一条**终态信号
+    /// （`versionDownloadFinished` / `resourceDownloadFinished`，success=false），于是那几个
+    /// 槽把它当成失败：账本记成 Failed、点亮底栏那颗"没看过的失败"红点，还当场弹一句
+    /// 「下载失败」—— 用户刚点完取消。账本里本来就有一档 `Cancelled`（服务端安装那条路
+    /// 就是这么收的），这里只是补上"哪一发是取消"这个**只有主窗口知道**的事实。
+    /// 取消是同步收尾的（信号在 `cancelActiveDownload()` 返回之前就发完了），所以用一个
+    /// 只在那一小段里为真的成员就够，不必给两条信号各加一个参数。
+    bool m_downloadCancelInFlight = false;
     /// 「那一批**失败下来、等着重试**的东西是谁的」—— 就是 `VersionManager::m_failedBatch`
     /// 里那一份失败清单的主人（那里面**只留得住一批**，见 `finishTask()`）。
     ///
@@ -3496,6 +3537,10 @@ private:
     // 由 enterSyncWait() 写进来、leaveSyncWait() 清掉 —— 做成字符串而不是布尔量，
     // 是因为"在等什么"只有进那一段的人知道（换令牌 / 挑 Java / 等进程起来）。
     QString m_syncWaitStatus;
+    /// 同步等待**可以嵌套**（换令牌那一段自己会转嵌套事件循环，而那个循环里还能再点进
+    /// 另一条会同步等的路）。这一摞记的是每一层进来**之前**那一句：内层离开时要把外层
+    /// 那句还回去，而不是把"在等什么"和忙指针一起收掉（见 enterSyncWait()）。
+    QStringList m_syncWaitStack;
     // 后台正在写整合包。用它挡住同一实例页上的重复点击；完成回调会清掉。
     // 进度按网络分片到达（5000 多个 asset），节流一下再刷界面
     QElapsedTimer m_progressThrottle;

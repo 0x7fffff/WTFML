@@ -33,6 +33,11 @@ public:
         std::function<void(const QString &, bool)> setFileOperationBusy;
         /// 盘上的实例清单变了（还原之后 meta / 图标 / json 全都是快照里的那一份）。
         std::function<void()> refreshInstances;
+        /// 记 / 摘"这个**服务端**的世界正在备份或还原"。世界还原要把世界目录整个换掉、
+        /// 世界备份要把它整个读一遍，这一趟期间它不能启动、不能删。
+        /// 和上面那一格分开：上面那一位落进的是 `installingVersionIds()`（实例的世界），
+        /// 服务端不是实例 —— 拿实例 id 去记的话，那一份服务端根本没人认。
+        std::function<void(const QString &, bool)> setServerFileOperationBusy;
     };
 
     BackupController(VersionManager *versions, ActivityCenterController *activity,
@@ -55,20 +60,26 @@ public:
     Tasks::TaskId startWrite(const BackupFiles::Manifest &manifest, const QString &sourceDir,
                              const QString &targetZip, const QString &title,
                              const QString &targetId, const QString &successTitle,
-                             const QString &refreshServerId = QString());
+                             const QString &refreshServerId = QString(),
+                             const QString &failureTitle = QString());
     Tasks::TaskId startRestore(const QString &zipPath, const QString &targetParentDir,
                                const QString &title, const QString &targetId,
                                const QString &successTitle,
-                               const QString &refreshServerId = QString());
+                               const QString &refreshServerId = QString(),
+                               const QString &failureTitle = QString());
 
 private:
     static QString sizeText(qint64 bytes);
-    static QString pickLine(const QString &zipPath);
-    QString pickZip(const QString &dir, const QString &label, const QString &what);
+    static QString pickLine(const QString &zipPath, const QString &from = QString());
+    void pickZip(BackupFiles::Kind kind, const QString &label, const QString &what,
+                 std::function<void(QString)> selected);
+    bool m_scanning = false;
     QString displayName(const QString &id) const;
     void log(const QString &message) const;
-    void writeFinished(const BackupFiles::WriteResult &result, const QString &successTitle);
-    void restoreFinished(const BackupFiles::RestoreResult &result, const QString &successTitle);
+    void writeFinished(const BackupFiles::WriteResult &result, const QString &successTitle,
+                       const QString &failureTitle);
+    void restoreFinished(const BackupFiles::RestoreResult &result, const QString &successTitle,
+                         const QString &failureTitle);
 
     VersionManager *m_versions = nullptr;
     ActivityCenterController *m_activity = nullptr;
@@ -79,6 +90,11 @@ private:
     QAtomicInt m_abort{0};
     QString m_refreshWorldDir;
     QString m_refreshServerId;
+    /// 这一趟记下的"哪个服务端的世界正在被读写"（服务端备份 / 世界还原）。
+    /// 和 `m_refreshServerId` 分开：那一格只是"收尾时要不要重摆那一页"，这一格决定
+    /// 收尾时要不要把「动不得」的标记摘掉 —— 还原在动盘之前就失败的话，那一页不一定
+    /// 会被刷新，但标记一定得摘。
+    QString m_busyServerId;
     QPointer<InstanceSettingsDialog> m_refreshDialog;
     /// 还原那一趟记的"哪一份实例正在搬文件"（收尾时按它摘标记）。**实例还原与世界
     /// 还原共用这一格**：两者都要把 `versions/<id>/` 底下的东西整个换掉，都记同一个

@@ -34,6 +34,8 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#include <algorithm>
+
 #include "ElidedLabel.hpp"
 #include "GameRuleNames.hpp"   // 规则那一格名字上盖的那层官方中文（见 rebuildRuleRows）
 #include "Theme.hpp"   // 頂上那四颗按钮的身份（见下面那几行）
@@ -1029,7 +1031,12 @@ QString WorldSettingsPage::valueAt(int row) const {
         return toggle->isChecked() ? QStringLiteral("true") : QStringLiteral("false");
     }
     if (QLineEdit *edit = ruleEditorAt(row)) {
-        return edit->text().trimmed();
+        // ★ 2026-10-20：这里原来 `.trimmed()`。于是盘上那一格要是带个尾空格（被工具 /
+        //   模组写过的档），一打开这一页 `editedView()` 就和 `m_opened` 对不上 ⇒ **什么
+        //   都没动就已经是"改过还没存"**（按返回会被问一句，保存还会把那个空格吃掉）。
+        //   原样回框里的字；"是不是空的""是不是整数"那两条判据在 refreshSaveEnabled()
+        //   里各自 trim 一遍，不靠这里改值。
+        return edit->text();
     }
     return QString();
 }
@@ -1038,17 +1045,49 @@ void WorldSettingsPage::refreshSaveEnabled() {
     if (m_unreadable) {
         return;
     }
+    // ★ 2026-10-20：原来只看**屏幕上摆出来的那几行**（`m_ruleList->count()`）。于是
+    //   "改一条 → 清空 → 在搜索框里搜个别的词把它筛掉"之后，空值那一行不在表里 ⇒
+    //   「保存」重新可点，写下去的是一条空值。现在按 `editedView()` 走**整张规则表**
+    //   （被筛掉的那几条取的是 `m_view` 里收上来的值）。
+    //
+    //   只有"用户把它改坏了"才算，两种不算：
+    //   ①盘上本来就那样（空值 / 不是整数）—— 用户没碰这一条，存下去和现在盘上一样，
+    //     拿它挡住保存等于让这一页永远存不了；
+    //   ②正在输入到一半的 "-"—— 那是这一格自己说了"还没填完"，下面按整数解析挡住。
+    const WorldView now = editedView();
     bool ok = true;
-    for (int row = 0; row < m_ruleList->count(); ++row) {
-        QLineEdit *edit = ruleEditorAt(row);
-        if (edit != nullptr && edit->text().trimmed().isEmpty()) {
+    for (const Rule &rule : now.rules) {
+        if (rule.kind == Kind::Bool) {
+            continue;
+        }
+        const auto opened = std::find_if(m_opened.rules.cbegin(), m_opened.rules.cend(),
+                                         [&rule](const Rule &other) {
+                                             return other.name == rule.name;
+                                         });
+        if (opened != m_opened.rules.cend() && opened->value == rule.value) {
+            continue;  // 这一条没动过：盘上是什么就存什么
+        }
+        const QString value = rule.value.trimmed();
+        if (value.isEmpty()) {
             ok = false;
             break;
+        }
+        if (rule.kind == Kind::Int) {
+            // 编辑器那个正则挡得住字母，但挡不住**单独一个 `-`**（那是"还没打完"的中间态，
+            // `QRegularExpressionValidator` 判 Intermediate，照样能留在框里）。存下去的话
+            // 游戏那一边读不成数字，静悄悄按默认值来 —— 屏幕上一点异常都没有。
+            bool parsed = false;
+            value.toLongLong(&parsed);
+            if (!parsed) {
+                ok = false;
+                break;
+            }
         }
     }
     m_save->setEnabled(ok);
     m_save->setToolTip(ok ? QString()
-                          : tr("有一条规则的值是空的 —— 填上再存（空值等于把它写成坏值）。"));
+                          : tr("有一条规则的值是空的，或者填的不是整数 —— 改好再存"
+                               "（游戏读到坏值会静悄悄按默认值来）。"));
 }
 
 WorldSettingsPage::WorldView WorldSettingsPage::editedView() const {

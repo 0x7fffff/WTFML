@@ -99,7 +99,7 @@ try {
         }
     }
     $selection = switch ($Suite) {
-        'quick' { @('-R', '^wtfml\.(test-runner|java-manage|mod-action-panel|workspace|activity-selection|theme|ui-refresh|lifecycle|toolbox-polish)$') }
+        'quick' { @('-R', '^wtfml\.(test-runner|java-manage|mod-action-panel|workspace|activity-selection|theme|ui-refresh|install-layout|lifecycle|toolbox-polish|armor-trim)$') }
         'core' { @('-R', '^wtfml\.core$') }
         'java' { @('-R', '^wtfml\.java-manage$') }
         'window' { @('-R', '^wtfml\.main-window$') }

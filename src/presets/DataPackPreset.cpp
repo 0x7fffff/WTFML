@@ -18,6 +18,7 @@
 #include <QMap>
 #include <QSaveFile>
 #include <QSet>
+#include <QUuid>
 
 #include "GenericFiles.hpp"
 #include "manage/FolderManager.hpp"
@@ -199,23 +200,51 @@ bool removeTreeNoLinks(const QString &path, QString *problem) {
     return true;
 }
 
-/// 把一份文件/一棵目录拷到目标上（**先删掉目标上已有的那一份**）。目标上一根链接都不跟。
+/// 把一份文件/一棵目录拷到目标上（**换掉目标上已有的那一份**）。目标上一根链接都不跟。
+///
+/// ★ 2026-10-20：次序改成"**先拷到旁边、再换过去**"。从前是"先删目标、再拷"—— 拷到一半
+///   失败（盘满、源在枚举之后消失、目标被占用）时，目标上原来那一份**已经没了**，而且
+///   采集那一档（往预设 `files/` 里收）没有任何备份可回滚：用户重收一次数据包失败，预设里
+///   之前收好的那一份就永久丢了。现在的次序里，拷失败时目标原样还在；换过去那一步用的是
+///   目录改名（同盘、原子），失败的话把原来那一份改名回来。
 bool copyOverwrite(const QString &source, const QString &target, QString *problem) {
-    const QFileInfo targetInfo(target);
-    if (targetInfo.exists() || targetInfo.isSymLink()) {
-        if (!removeTreeNoLinks(target, problem)) {
-            return false;
-        }
-    }
     const QString parent = QFileInfo(target).absolutePath();
     if (!parent.isEmpty() && !QDir().mkpath(parent)) {
         *problem = dataPackText("建不了目录「%1」。").arg(parent);
         return false;
     }
-    if (!copyTreeWithoutFollowingLinks(source, target)) {
+
+    const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const QString staging = parent + QStringLiteral("/.wtfml-copy-") + token;
+    QString scratch;
+    if (!copyTreeWithoutFollowingLinks(source, staging)) {
+        removeTreeNoLinks(staging, &scratch);
         *problem = dataPackText("拷不进去「%1」（源那一侧也许是一根链接，或者目标建不出来）。")
                        .arg(target);
         return false;
+    }
+
+    const QFileInfo targetInfo(target);
+    const bool existed = targetInfo.exists() || targetInfo.isSymLink();
+    QString displaced;
+    if (existed) {
+        displaced = parent + QStringLiteral("/.wtfml-old-") + token;
+        if (!QDir().rename(target, displaced)) {
+            removeTreeNoLinks(staging, &scratch);
+            *problem = dataPackText("换不掉目标上已有的「%1」（它可能正被占用）。").arg(target);
+            return false;
+        }
+    }
+    if (!QDir().rename(staging, target)) {
+        removeTreeNoLinks(staging, &scratch);
+        if (existed) {
+            QDir().rename(displaced, target);  // 换不上去 ⇒ 原来那一份放回去
+        }
+        *problem = dataPackText("换不掉目标上已有的「%1」（它可能正被占用）。").arg(target);
+        return false;
+    }
+    if (existed) {
+        removeTreeNoLinks(displaced, &scratch);
     }
     return true;
 }
@@ -241,12 +270,20 @@ ParsedPath parseDataPackPath(const QString &relativePath) {
 }
 
 /// 世界目录（`<实例>/saves/<world>`）能不能往下写。链接 ⇒ 不写。
+///
+/// ★ 判的是**一路上每一层**（2026-10-20）：从前只看 `saves/<world>` 这一格本身，而
+///   `<实例>/saves` 自己是一根 junction 时它一字不差地判"能用" —— 采集那一侧对 `saves/`
+///   明确判过链接（见下面 `captureDataPacks()`），应用这一侧当时却没有，同一个功能两套标准。
 bool worldUsable(const QString &instanceRoot, const QString &world, bool *exists) {
     const QString path =
         instanceRoot + QLatin1Char('/') + QLatin1String(kSavesDir) + QLatin1Char('/') + world;
     const QFileInfo info(path);
-    *exists = info.exists() && info.isDir() && !isLink(info);
-    return !isLink(info);
+    const bool linked =
+        isLink(info) ||
+        InstanceFiles::pathHasLinkComponent(instanceRoot,
+                                            QStringLiteral("saves/%1").arg(world));
+    *exists = info.exists() && info.isDir() && !linked;
+    return !linked;
 }
 
 /// 一个包在目标上的落点（有世界 ⇒ 世界里；没有 ⇒ `datapacks-pending/`）。
@@ -523,7 +560,9 @@ DataPackPlan planDataPacks(const QString &instanceRoot, const QList<DataPackItem
         if (!worldUsable(instanceRoot, item.world, &exists)) {
             // 世界那一格是一根链接：不往里写。当成"没有这个世界"会悄悄记成待应用，
             // 但用户明明有那个存档 —— 所以整段做不了，理由说清楚。
-            plan.problem = dataPackText("目标上的存档「%1」是一根链接，没有往里写。").arg(item.world);
+            plan.problem =
+                dataPackText("目标上的存档「%1」是一根链接（或者 `saves/` 这一层是），没有往里写。")
+                    .arg(item.world);
             return plan;
         }
         const QFileInfo worldInfo(instanceRoot + QLatin1Char('/') + QLatin1String(kSavesDir) +
@@ -650,6 +689,13 @@ DataPackApplyReport applyDataPacks(const QString &presetFilesRoot, const QString
                                  .arg(item.relativePath);
             return report;
         }
+        // ★ 预设 `files/` 里这一条**路过的**某一层是链接（手改过的预设、或者别处塞进来的
+        //   一棵树）：上面那一格只判最后那一个包名，判不到 `saves/` / `datapacks/` 中间层。
+        if (InstanceFiles::pathHasLinkComponent(presetFilesRoot, item.relativePath)) {
+            report.problem = dataPackText("预设里「%1」的路上有一层是链接，没有跟着它走。")
+                                 .arg(item.relativePath);
+            return report;
+        }
 
         const QString target = targetPathFor(instanceRoot, item.world, item.name, item.worldExists);
         const QFileInfo targetInfo(target);
@@ -664,14 +710,24 @@ DataPackApplyReport applyDataPacks(const QString &presetFilesRoot, const QString
                 dataPackText("目标上的「%1」是一根链接，没有动它。").arg(target);
             return report;
         }
-        if (mode == ApplyMode::Replace && targetExists) {
-            QString removeWhy;
-            if (!removeTreeNoLinks(target, &removeWhy)) {
-                report.problem = removeWhy;
-                return report;
-            }
+        // ★ 落点**上面那几层**（`saves/`、`saves/<世界>/datapacks/`、`datapacks-pending/`）
+        //   也得是普通目录（2026-10-20）：存档放在网盘/另一块盘是常见做法，那些目录被做成
+        //   junction 时，`removeTreeNoLinks()` / 拷贝会一路穿到链接那头 —— 删改的就不是
+        //   "这个实例里的包"了。`worldUsable()` 只判到 `<世界>` 这一格，`datapacks/` 那一层
+        //   在这儿。
+        const QString parentRelative =
+            item.worldExists ? QStringLiteral("saves/%1/datapacks").arg(item.world)
+                             : QStringLiteral("%1/%2").arg(dataPackPendingDirName(), item.world);
+        if (InstanceFiles::pathHasLinkComponent(instanceRoot, parentRelative)) {
+            report.problem =
+                dataPackText("目标上的「%1」是一根链接（或者它上面一层是），没有往里写。")
+                    .arg(parentRelative);
+            return report;
         }
-
+        // ★ 2026-10-20：「覆盖」**不再先删目标**。`copyOverwrite()` 自己就是"先拷到旁边、
+        //   再改名换过去，换不上去把原来那一份放回去"的原子换法 —— 这里再来一发预删除，
+        //   等于把它的保护绕开：拷贝失败（盘满 / IO 错）时目标上原来那个包已经没了，
+        //   而备份那一份不会自动还原，用户只能自己去 `presets/backups/` 里摸。
         QString copyWhy;
         if (!copyOverwrite(source, target, &copyWhy)) {
             report.problem = copyWhy;

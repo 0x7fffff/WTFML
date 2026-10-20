@@ -595,8 +595,11 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
                     continue;
                 }
             }
-            const GenericReport applied =
-                applyFileGroup(presetFilesRoot, request.instanceRoot, group, section.mode);
+            // ★ 按**段里这份清单**落（2026-10-20）。从前这里是重扫预设的 `files/<组>`：
+            //   盘上多出来的旧文件也会被应用，而计划表和备份范围都是按清单算的 ——
+            //   于是"落下去的那一份"不在备份里（见 `applyFileGroup(…, items)` 那段）。
+            const GenericReport applied = applyFileGroup(presetFilesRoot, request.instanceRoot,
+                                                         group, section.mode, items);
             row.ok = applied.ok;
             row.blocked = !applied.ok;
             row.problem = applied.problem;
@@ -660,7 +663,11 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             row.ok = applied.ok;
             row.blocked = !applied.ok;
             row.problem = applied.problem;
-            row.written = applied.written;
+            // ★ 这一格报的是"**真改了几个**"：`written` 里含"目标上本来就是那个值"的那些
+            //   （`MalilibKeys.hpp` 里那条口径，和原版设置那边同源）。那一档一个字节都没写
+            //   —— 同一份预设连落两趟时，照抄 `applied.written` 会让界面/日志说"写入 N 项"，
+            //   而盘上一个字都没动（options 那一段在下面专门归过一次零，理由一样）。
+            row.written = applied.written - applied.unchanged;
             row.added = applied.added;
             row.removed = applied.removed;
             row.skippedItems = applied.skipped;
@@ -739,7 +746,17 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
         result.removed += row.removed;
         result.deferred += row.deferred;
     }
+    // ★ `ok` 是"**这一趟办完了没有**"，不是"流程走到了末尾"（2026-10-20 修）：
+    //   从前这里无条件置真，于是某一段写盘失败（servers.dat 被占用、options.txt 提交
+    //   失败、通用文件组中途拷不动……）时，管理页顶上照样写「应用完成。」、日志照样记
+    //   "写入 N 项"，而面板里某一行明写着"做不了"。`Skip` 那几行是**办完了**（不算失败）。
     result.ok = true;
+    for (const PresetApplyRow &row : result.rows) {
+        if (row.blocked) {
+            result.ok = false;
+            break;
+        }
+    }
     return result;
 }
 

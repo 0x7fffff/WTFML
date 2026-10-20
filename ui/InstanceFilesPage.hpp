@@ -1195,6 +1195,13 @@ private:
     /// 只返回需要改变状态的选中文件，保持界面顺序。
     QStringList selectedTogglePaths(bool disable) const;
 
+    /// 发「启用 / 禁用」之前**先登记**这几条（`m_pendingIdentityMigration`，见那段）。
+    ///
+    /// 所有会改名的地方都必须走这两句，不要直接 `emit batchToggleRequested/toggleRequested`：
+    /// 少登记一处，那一处点完开关、重列之后那一行就会掉出选择（用户 2026-10-10 报的原 bug）。
+    void requestToggle(const QString &path);
+    void requestToggle(const QStringList &paths, bool disable);
+
     /// 这一条那一格该摆什么：真图标在 `m_icons` 里就摆它，否则摆占位图（形状按 isDir 分，
     /// 见 .cpp 里 placeholderIcon）。makeRow() 和 setIconForPath() 都走这一处 ——
     /// 两处各写一遍的话，"没查到"那一档迟早会有一处漏掉、退成空白。
@@ -1355,12 +1362,24 @@ private:
     ///   ⚠ 从前这里写的是"改过名就掉出选择" —— 那是还没有 `identityPath()` 之前的话。那时候
     ///     点一下开关（改名 + 重列）在屏幕上是：那一行不再选中；它要是当时唯一选中的一条，
     ///     整条悬浮操作条跟着一起消失。那正是用户这次报的那一条。
-    ///   ⚠ 已知道的边界（故意的，见 identityPath 那段）：`X.jar` 与 `X.jar.disabled` 同时
-    ///     存在时身份会撞上 ⇒ 选中一条会把两条一起选上。少见，不为它把这一层拆细。
+    ///   ⚠ `X.jar` 与 `X.jar.disabled` 同时在场时身份撞上 —— 那种情况**一条都不替用户
+    ///     选**（见 `m_pendingIdentityMigration` 和 `rebuildRows()` 里那两份准账）。
     /// ★ 重列之后**只认屏幕上真摆出来的那些行**（`syncSelectedPaths()` 一句从列表里现问
     ///   一遍）：选择永远只含看得见的条目，"已选择 3 个文件"说的就是那 3 个能看见的。筛一下
     ///   搜索就掉出几条，是对的行为（用户要的"全选/反选只作用于当前筛出来的"是同一个口径）。
     QSet<QString> m_selectedPaths;
+
+    /// ★ 2026-10-20：这一趟重列**允许按身份还选择**的那几条（用户刚点了开关）。
+    ///
+    /// 原来"还选择"只看"旧路径从盘上消失了"，可**删除**也是消失：`X.jar` 与
+    /// `X.jar.disabled` 同时在场、用户只勾了 `X.jar` 去删，删完重列时同身份只剩
+    /// `X.jar.disabled` 一条 ⇒ 它被当成"刚刚改过名的那一条"自动选中，用户再按一次
+    /// 「删除选中」就把自己**从没选过**的文件删掉了（不可逆）。
+    ///
+    /// 现在只有**从这一页发出去的启用/禁用**（唯一会改名的动作）才登记身份；删除 /
+    /// 移动 / 别处改名的消失一律不还选择。登记之后下发那一趟是同步刷新（`refreshFilePages()`
+    /// → `refresh()` → 这里），重列末尾会清掉它 —— 一次登记只服务一趟重列。
+    QSet<QString> m_pendingIdentityMigration;
 
     /// ★ 2026-10-12（coding plan §9.4）：上一趟摆出来的那些行的**身份**（`identityPath()`）——
     /// 这一趟拿它认"哪几行是新冒出来的"（新来的那几行淡进来，整页不重播，见 `rebuildRows()`

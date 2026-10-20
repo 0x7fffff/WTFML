@@ -210,7 +210,40 @@ bool isUnfinishedImport(const QString &id) {
     if (!resolved.jarName.isEmpty()) {
         return false;
     }
-    return !resolved.inheritsFrom.isEmpty();
+    if (resolved.inheritsFrom.isEmpty()) {
+        return false;
+    }
+    // ④ 光有 inheritsFrom 不够：别的启动器装出来的加载器版本也长这样（见 .hpp 那段）。
+    //    先看导入开始时亲手落的那枚标记 —— 那是最硬的证据。
+    if (QFileInfo::exists(importMarkerPath(id))) {
+        return true;
+    }
+    //    没有标记的（老版本启动器留下的半成品）只能看那份 json 的形状：导入第一步写的
+    //    只有 `id` / `inheritsFrom` / `type` 三格。第三方 profile 一律带 `mainClass` /
+    //    `libraries` 之类，不会这么薄 —— 那些是**正常实例**，认成半成品会让它们从列表里
+    //    消失、点启动还被拦一句"还没装完"。
+    const QString jsonName =
+        resolved.jsonName.isEmpty() ? id + QStringLiteral(".json") : resolved.jsonName;
+    QFile file(AppPaths::versionDir(id) + QLatin1Char('/') + jsonName);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    if (!doc.isObject()) {
+        return false;
+    }
+    const QJsonObject object = doc.object();
+    for (const QString &key : object.keys()) {
+        if (key != QStringLiteral("id") && key != QStringLiteral("inheritsFrom")
+            && key != QStringLiteral("type")) {
+            return false;
+        }
+    }
+    return true;
+}
+
+QString importMarkerPath(const QString &id) {
+    return AppPaths::versionDir(id) + QStringLiteral("/wtfml.importing");
 }
 
 ImportNameVerdict checkImportTargetName(const QString &rawName, QString *problemOut) {
@@ -544,7 +577,17 @@ bool pathIsSameOrInside(const QString &parent, const QString &candidate) {
         if (canonical.isEmpty()) {
             canonical = QDir::cleanPath(QDir(p).absolutePath());
         }
-        return resolveJunctions(canonical, 32);
+        const QString resolved = resolveJunctions(canonical, 32);
+        // ★ 2026-10-20：**解完 junction 还要再规范一遍**。`resolveJunctions()` 给回的
+        //   是重解析点里**存着的那个写法**（盘符/目录大小写、8.3 短名都可能和盘上真实的
+        //   写法不同），而下面那句比较是**大小写敏感**的 —— 不补这一轮，
+        //   `versions/<id>` 的真实路径和"经 junction 走回来的同一条路径"会被判成不包含，
+        //   `InstanceTransferController` 拿它挡的"目标不能在自己里面"就在 junction 存在时
+        //   漏判（复制/移动可以把实例塞进它自己）。canonicalFilePath() 不解 junction，
+        //   所以顺序必须是"先解 junction、再规范化"：这时路径里已经没有 junction 成分了，
+        //   它只剩下把剩下的别名收干净这一件事。
+        const QString normalized = QFileInfo(resolved).canonicalFilePath();
+        return normalized.isEmpty() ? resolved : normalized;
     };
     QString a = realPath(parent);
     QString b = realPath(candidate);
@@ -570,6 +613,25 @@ bool pathIsSameOrInside(const QString &parent, const QString &candidate) {
     //       那种情况下把不相干的路径判成包含（Windows 上那种目录同源目录里是建不出来的，
     //       但网络盘/挂载点上未必）。
     return b.startsWith(a + QLatin1Char('/'));
+}
+
+bool pathHasLinkComponent(const QString &root, const QString &relativePath) {
+    if (root.trimmed().isEmpty() || relativePath.isEmpty()) {
+        return false;
+    }
+    QString path = QDir::cleanPath(root);
+    QString relative = relativePath;
+    relative.replace(QLatin1Char('\\'), QLatin1Char('/'));
+    const QStringList segments = relative.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+    for (const QString &segment : segments) {
+        path += QLatin1Char('/');
+        path += segment;
+        const QFileInfo info(path);
+        if (info.isJunction() || info.isSymLink()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 }  // namespace InstanceFiles

@@ -102,7 +102,9 @@ public:
      * @param errors Optional output list for error descriptions.
      * @return 返回 natives 目录的绝对路径；该版本不需要 natives，或准备失败时返回空。
      *
-     * NOTE: 解压只在该目录还没有任何 .dll 时才做，所以除第一次启动外几乎零开销。
+     * NOTE: 解压只在该目录**整套解完过**（`natives/` 里那个完成标记 + DLL 都在）时才
+     *       跳过，所以除第一次启动外几乎零开销；解压中途失败会把整个目录删掉，下一趟从头来
+     *       （只判"有一个 .dll"会把残缺的一套当成齐了，崩在 UnsatisfiedLinkError）。
      */
     QString prepareNatives(const QJsonObject &versionJson, const QString &versionId,
                            QStringList *errors = nullptr) const;
@@ -263,6 +265,13 @@ signals:
     void processOutput(int sessionId, const QString &text);
     /// 同上，stderr。
     void processError(int sessionId, const QString &text);
+    /// 一份会话在**真的起来之前**就被收回（`startGame()` 的三条早退路径：会话数到顶、
+    /// 找不到 Java、进程起不来）。号码和上面那几条信号对得上 —— 收信号的槽据此把"刚为它
+    /// 建出来、但从此再也不会更新的"那些东西收掉（日志窗、按号记的底账）。
+    ///
+    /// NOTE: 那三条路是**先**带号发一句 `processError`、**再**发这一条（顺序固定）：报错
+    ///       那一行因此还能挂上实例名（界面按号查显示名），收尾这一步只负责清理。
+    void sessionDiscarded(int sessionId);
     /// 某份会话的游戏进程结束了。发之前那份会话已经从表里摘掉 ——
     /// 收信号的槽去查 session(id) 会查不到，要用的东西请从参数/自己那边拿。
     void gameFinished(int sessionId, int exitCode, QProcess::ExitStatus exitStatus);
@@ -311,7 +320,12 @@ private:
     /// 把一个已经结束/失败的会话从表里摘掉并释放它的 QProcess（进程指针从会话自己那一格
     /// 上取，这里不需要外面再传一个）。
     /// @param sessionId 要收掉的那个会话号。
-    void discardSession(int sessionId);
+    /// @param abandoned 这一份**从没真的起来过**（`startGame()` 的三条早退路径）⇒ true：
+    ///        摘完再发一条 sessionDiscarded，让界面把刚为它建出来的日志窗/底账收干净。
+    ///        从 handleProcessFinished() 来的那一路**必须留在 false** —— 那一份的收尾归
+    ///        gameFinished（日志窗关不关、崩溃那几行留不留全在那边判），在这里抢先发
+    ///        sessionDiscarded 会把崩溃现场一起清掉。
+    void discardSession(int sessionId, bool abandoned = false);
 
     void handleReadyReadStandardOutput(int sessionId);
     void handleReadyReadStandardError(int sessionId);

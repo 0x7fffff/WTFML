@@ -179,7 +179,7 @@ Snapshot manifestFromJson(const QByteArray &bytes, bool *ok) {
 }
 
 Snapshot create(const QString &instanceDir, const QString &instanceId,
-                const QStringList &relativePaths, QString *problemOut) {
+                const QStringList &relativePaths, QString *problemOut, bool keepPrevious) {
     if (problemOut != nullptr) {
         problemOut->clear();
     }
@@ -219,6 +219,56 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
     }
 
     const QString dir = snapshotDir(instanceId);
+    // ★ 2026-10-20（keepPrevious）：上一趟那份**先改名、不删**。
+    //
+    //   从前这里是一句"先清掉上一趟那一份"：清完再抄新的。抄新的失败（盘满、文件被占着），
+    //   旧的回滚点已经没了；抄成了但调用方那一批被拒（下载器正忙 / 另一套安装状态机占着 /
+    //   接口给的文件名不能用），调用方 discard() 一撤，旧的同样没了 —— 两次都是"一个字节
+    //   都没动，用户却失去了『撤销上一次更新』"。
+    //   现在：旧的改名成 `<dir>.previous` 先留着；摆新的失败 → 改名回来；这一批被拒
+    //   （discard）→ 改名回来；只有这一批真开起来了，调用方才 commit() 把它删掉。
+    const QString previous = dir + QStringLiteral(".previous");
+    // An interrupted preparation has not accepted a new batch. Restore the retained
+    // snapshot first, including when a partial new directory was already created.
+    if (keepPrevious && QFileInfo::exists(previous)) {
+        QFile retained(previous + QLatin1Char('/') + manifestName());
+        bool valid = false;
+        Snapshot retainedSnapshot;
+        if (retained.open(QIODevice::ReadOnly) && retained.size() <= 16 * 1024 * 1024)
+            retainedSnapshot = manifestFromJson(retained.readAll(), &valid);
+        retained.close();
+        if (!valid || retainedSnapshot.instanceId != instanceId) {
+            if (problemOut) *problemOut = QObject::tr("中断前的回滚清单损坏，已保留两份目录供检查。");
+            return Snapshot{};
+        }
+        if ((QFileInfo::exists(dir) && !removeTreeWithoutFollowingLinks(dir))
+            || !QDir().rename(previous, dir)) {
+            if (problemOut) *problemOut = QObject::tr("无法恢复中断前的回滚点，未创建新快照。");
+            return Snapshot{};
+        }
+    }
+    const auto restorePrevious = [&] {
+        removeTreeWithoutFollowingLinks(dir);  // 这一趟抄的半份不要
+        if (keepPrevious && QFileInfo::exists(previous)) {
+            QDir().rename(previous, dir);
+        }
+    };
+    if (keepPrevious) {
+        if (QFileInfo::exists(previous) && !removeTreeWithoutFollowingLinks(previous)) {
+            if (problemOut != nullptr) {
+                *problemOut = QObject::tr("清不掉上一次留下的旧回滚点（%1），它可能正被别的程序占着。")
+                                  .arg(QDir::toNativeSeparators(previous));
+            }
+            return Snapshot{};
+        }
+        if (QFileInfo::exists(dir) && !QDir().rename(dir, previous)) {
+            if (problemOut != nullptr) {
+                *problemOut = QObject::tr("没能把上一次的回滚点先收起来（%1）。")
+                                  .arg(QDir::toNativeSeparators(dir));
+            }
+            return Snapshot{};
+        }
+    }
     // ★ **先清掉上一趟那一份**（见 .hpp 里"为什么只留最新那一份"那段）。清不动就当场
     //   停：留着上一趟的东西混进这一趟，还原的时候会把上一次的文件写回来。
     if (QFileInfo::exists(dir) && !removeTreeWithoutFollowingLinks(dir)) {
@@ -226,12 +276,16 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
             *problemOut = QObject::tr("清不掉上一次的回滚点（%1），它可能正被别的程序占着。")
                               .arg(QDir::toNativeSeparators(dir));
         }
+        if (keepPrevious && QFileInfo::exists(previous)) {
+            QDir().rename(previous, dir);
+        }
         return Snapshot{};
     }
     if (!QDir().mkpath(filesDirOf(dir))) {
         if (problemOut != nullptr) {
             *problemOut = QObject::tr("建不了回滚点目录（%1）。").arg(QDir::toNativeSeparators(dir));
         }
+        restorePrevious();
         return Snapshot{};
     }
 
@@ -252,6 +306,7 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
                                       .arg(QDir::toNativeSeparators(QFileInfo(target).absolutePath()));
                 }
                 removeTreeWithoutFollowingLinks(dir);  // 半份也不要留
+                if (keepPrevious && QFileInfo::exists(previous)) QDir().rename(previous, dir);
                 return Snapshot{};
             }
             if (!QFile::copy(source, target)) {
@@ -259,7 +314,7 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
                     *problemOut = QObject::tr("抄不动「%1」（多半被别的程序占着，或者盘满了）。")
                                       .arg(QDir::toNativeSeparators(source));
                 }
-                removeTreeWithoutFollowingLinks(dir);
+                restorePrevious();
                 return Snapshot{};
             }
             entry.existed = true;
@@ -271,7 +326,7 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
                     *problemOut = QObject::tr("抄下来的「%1」读不回来，这一份回滚点不敢用。")
                                       .arg(QDir::toNativeSeparators(source));
                 }
-                removeTreeWithoutFollowingLinks(dir);
+                restorePrevious();
                 return Snapshot{};
             }
         } else {
@@ -288,7 +343,7 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
             *problemOut = QObject::tr("回滚点的清单写不出去（%1）。")
                               .arg(QDir::toNativeSeparators(manifest.fileName()));
         }
-        removeTreeWithoutFollowingLinks(dir);
+        restorePrevious();
         return Snapshot{};
     }
     const QByteArray bytes = manifestToJson(snapshot);
@@ -299,7 +354,7 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
             *problemOut = QObject::tr("回滚点的清单没写完（%1）。")
                               .arg(QDir::toNativeSeparators(manifest.fileName()));
         }
-        removeTreeWithoutFollowingLinks(dir);
+        restorePrevious();
         return Snapshot{};
     }
     return snapshot;
@@ -312,7 +367,12 @@ Snapshot read(const QString &instanceId, bool *ok, QString *problemOut) {
     if (problemOut != nullptr) {
         problemOut->clear();
     }
-    const QString dir = snapshotDir(instanceId);
+    QString dir = snapshotDir(instanceId);
+    // Crash between retaining the previous snapshot and publishing the new manifest:
+    // keep rollback available immediately, not only after the next update attempt.
+    if (!QFileInfo::exists(dir + QLatin1Char('/') + manifestName())
+        && QFileInfo::exists(dir + QStringLiteral(".previous/") + manifestName()))
+        dir += QStringLiteral(".previous");
     QFile manifest(dir + QLatin1Char('/') + manifestName());
     if (!manifest.exists()) {
         return Snapshot{};  // 没有那一份 —— **不是错误**，从来没更新过就是这样
@@ -343,10 +403,28 @@ Snapshot read(const QString &instanceId, bool *ok, QString *problemOut) {
 
 bool discard(const QString &instanceId) {
     const QString dir = snapshotDir(instanceId);
+    const QString previous = dir + QStringLiteral(".previous");
+    // ★ 2026-10-20：`create(..., keepPrevious=true)` 把上一趟那份改名成了 `.previous`。
+    //   走到这儿 = 这一批没开起来（一个字节都没动）⇒ 把上一趟那份**还回去**，
+    //   而不是连同这一趟刚抄的一起删掉（那样用户就失去了「撤销上一次更新」）。
+    if (QFileInfo::exists(previous)) {
+        if (QFileInfo::exists(dir) && !removeTreeWithoutFollowingLinks(dir)) {
+            return false;
+        }
+        return QDir().rename(previous, dir);
+    }
     if (!QFileInfo::exists(dir)) {
         return true;
     }
     return removeTreeWithoutFollowingLinks(dir);
+}
+
+bool commit(const QString &instanceId) {
+    const QString previous = snapshotDir(instanceId) + QStringLiteral(".previous");
+    if (!QFileInfo::exists(previous)) {
+        return true;
+    }
+    return removeTreeWithoutFollowingLinks(previous);
 }
 
 RestoreResult restore(const Snapshot &snapshot, const QString &instanceDir) {

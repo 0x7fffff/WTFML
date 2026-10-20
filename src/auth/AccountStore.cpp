@@ -95,7 +95,13 @@ QJsonObject entryFor(const QString &uuid) {
 
 /// 把某个离线账号记成"当前"，并且**清空活动槽**（离开在线身份）。
 /// 切换和添加两条路共用这一句，免得一处改了另一处忘。
-void makeOfflineCurrent(const QString &uuid) {
+///
+/// ★ 2026-10-20：`CurrentAccountUuid` 那一格写不进去**要让调用方知道**（@return false）。
+///   在线账号的"当前是谁"是从活动槽里那份凭据推出来的，这一格坏了不影响它；可**离线账号
+///   只有这一格**（见 activeUuid() 第二档）—— 写不进去，用户切过去之后界面会说"没登录"，
+///   而他刚刚明明选了那个账号。QSettings 写失败是**静默**的（没有组织名/权限/注册表被占），
+///   所以这一格必须自己查状态。
+bool makeOfflineCurrent(const QString &uuid, QString *errorOut) {
     // **清空活动槽之前，先把里面那位在线账号收进列表**（2026-09-24 补的）。
     // 下面两句一执行，活动槽里那份 refresh_token 就在盘上没有了 —— 而它**可能根本不在
     // 列表里**：从没有多账号的版本升上来的用户就是这样（那时凭据只存活动槽），
@@ -116,6 +122,18 @@ void makeOfflineCurrent(const QString &uuid) {
     QSettings settings;
     settings.setValue(TokenStore::currentUuidKey(), uuid);
     settings.sync();
+    if (settings.status() != QSettings::NoError) {
+        const QString why = QStringLiteral("没能把「当前账号」记到盘上（%1）。")
+                                .arg(settings.fileName());
+        qWarning().noquote() << "切到离线账号失败（写 QSettings）：" << why;
+        if (errorOut != nullptr) {
+            *errorOut = QStringLiteral("这个账号已经保存在列表里了，但%1\n\n再点一次它试试；"
+                                       "一直不行的话，可能是这台机器上的启动器配置写不进去。")
+                            .arg(why);
+        }
+        return false;
+    }
+    return true;
 }
 }  // namespace
 
@@ -255,6 +273,10 @@ bool AccountStore::captureActive(QString *errorOut) {
     QSettings settings;
     settings.setValue(TokenStore::currentUuidKey(), uuid);
     settings.sync();
+    if (settings.status() != QSettings::NoError) {
+        // 在线账号的"当前"是从活动槽里那份凭据推出来的，这一格坏了不影响它 —— 只留一行日志。
+        qWarning() << "当前账号记不下来（QSettings 状态异常）：" << settings.fileName();
+    }
     return true;
 }
 
@@ -277,8 +299,7 @@ bool AccountStore::activate(const QString &uuid, QString *errorOut) {
     // 离线账号**没有**副本可写（它本来就没有凭据）：切过去 = 清空活动槽 + 记下当前是它。
     // 所以下面那两个"凭据不完整"的判断对它不适用，得先返回。
     if (entry.value(QLatin1String(kOfflineField)).toBool()) {
-        makeOfflineCurrent(uuid);
-        return true;
+        return makeOfflineCurrent(uuid, errorOut);
     }
 
     const QJsonObject microsoft = entry.value(QLatin1String(kMicrosoftField)).toObject();
@@ -303,6 +324,10 @@ bool AccountStore::activate(const QString &uuid, QString *errorOut) {
     QSettings settings;
     settings.setValue(TokenStore::currentUuidKey(), uuid);
     settings.sync();
+    if (settings.status() != QSettings::NoError) {
+        // 在线账号的"当前"是从活动槽里那份凭据推出来的，这一格坏了不影响它 —— 只留一行日志。
+        qWarning() << "当前账号记不下来（QSettings 状态异常）：" << settings.fileName();
+    }
     return true;
 }
 
@@ -439,8 +464,7 @@ bool AccountStore::addOffline(const QString &name, QString *errorOut) {
     if (!writeAccounts(array, errorOut)) {
         return false;
     }
-    makeOfflineCurrent(uuid);
-    return true;
+    return makeOfflineCurrent(uuid, errorOut);
 }
 
 bool AccountStore::isOffline(const QString &uuid) {

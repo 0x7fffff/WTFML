@@ -903,6 +903,10 @@ void ConnectionsController::setup() {
     connect(m_owner->m_launcherManager, &LauncherManager::processOutput, m_owner, &MainWindow::onProcessOutput);
     connect(m_owner->m_launcherManager, &LauncherManager::processError, m_owner, &MainWindow::onProcessError);
     connect(m_owner->m_launcherManager, &LauncherManager::gameFinished, m_owner, &MainWindow::onGameFinished);
+    // 一份会话在**真的起来之前**就被收回（启动那三条早退）。上面那条 processError 会替它
+    // 建出一扇日志窗、记一笔底账，而这一号此后不会再有任何信号 —— 收尾归这一条。
+    connect(m_owner->m_launcherManager, &LauncherManager::sessionDiscarded, m_owner,
+            &MainWindow::onSessionDiscarded);
 
     // 版本管理器信号
     // NOTE: 这里以前接的是 MainWindow 自己 new 出来的一个 DownloadManager，

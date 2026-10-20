@@ -10,6 +10,25 @@
 #include <QThread>
 #include <QTimer>
 
+namespace {
+
+/// 这个实例那几个目录的**签名**（键值对排序拼出来）。用来回答"这一页认的是哪个实例" ——
+/// 光比 versionId 不够，见 `InstanceIconRun::dirsSignature`。
+QString fileDirsSignature(const QHash<QString, QString> &dirs) {
+    if (dirs.isEmpty()) {
+        return QString();
+    }
+    QStringList parts;
+    parts.reserve(dirs.size());
+    for (auto it = dirs.constBegin(); it != dirs.constEnd(); ++it) {
+        parts.append(it.key() + QLatin1Char('=') + it.value());
+    }
+    parts.sort();
+    return parts.join(QLatin1Char('\n'));
+}
+
+}  // namespace
+
 InstanceIconController::InstanceIconController(LauncherSettings *settings, ResourceStore *resourceStore,
                                                Host host, QObject *parent)
     : QObject(parent), m_host(std::move(host)), m_settings(settings), m_resourceStore(resourceStore) {}
@@ -72,6 +91,9 @@ void InstanceIconController::requestInstanceFileIcons(InstanceSettingsDialog *di
     // 这一页现在是谁 —— 结果回来时按它认人（见 InstanceIconRun::dialog 那段）。
     m_instanceIcons.dialog = dialog;
     m_instanceIcons.versionId = versionId;
+    // ★ 2026-10-20：连"这个实例的目录"也记下来（见 dirsSignature 那段）——同一个 versionId
+    //   在**另一个游戏文件夹**里也有一份的时候，光比名字会把它当成"认过了"。
+    m_instanceIcons.dirsSignature = fileDirsSignature(m_host.fileDirs(versionId));
     m_instanceIcons.paths = instanceIconCandidatePaths(versionId);
     // 已经知道的先摆上：这一趟要问的那几个还在路上，但上一趟问到的、以及这一趟里
     // "已经问过、没有"的那些，现在就该是对的（不是等整个后台线程跑完才一起摆）。
@@ -116,12 +138,15 @@ void InstanceIconController::startInstanceFileIconLookup() {
     options.cacheDir = AppPaths::instanceIconCacheDir();
     options.cacheKey = m_instanceIcons.versionId;
 
-    // 上一趟那个线程对象还挂着（跑完了，但 deletion 还排着队）：先放它走 —— 不收拾的话
-    // 每问一次就在父对象底下攒一个僵尸 QThread（同 ServerPing::Pinger::start() 那段）。
-    if (m_instanceIconThread != nullptr) {
-        m_instanceIconThread->deleteLater();
-        m_instanceIconThread = nullptr;
-    }
+    // 上一趟那个线程对象还挂着（跑完了，但 deletion 还排着队）：只把指针放掉 —— 它自己接好了
+    // finished → deleteLater（见下面创建处）。
+    //
+    // ★ 2026-10-20：这里原来是对它调 deleteLater()。能走到这一句，上一趟的收尾函数已经跑过
+    //   了，但那条 `QThread` 往往还差最后几条指令才退出 `run()` —— 对一条仍在跑的 QThread
+    //   调 deleteLater() 会让 Qt 处理 DeferredDelete 时
+    //   `qFatal("QThread: Destroyed while thread is still running")`，整个启动器当场消失
+    //   （ServerPing 2026-10-19、IntegrityController / BackupController 今天踩过同一个坑）。
+    m_instanceIconThread = nullptr;
 
     m_instanceIcons.active = true;
     // ★★ 2026-09-27：**这一趟问的是哪几个文件**记一份，回调里只认这一份（理由见
@@ -144,6 +169,14 @@ void InstanceIconController::startInstanceFileIconLookup() {
             this, [this, result]() { onInstanceIconLookupFinished(result); }, Qt::QueuedConnection);
     });
     m_instanceIconThread->setParent(this);
+    // 自己收自己；清指针排在删除之前（waitForLookup() 里那句 wait() 在析构时跑，
+    // 指针不清掉就会对一块已经释放的内存调 wait()）。
+    connect(m_instanceIconThread, &QThread::finished, this,
+            [this, thread = m_instanceIconThread] {
+                if (m_instanceIconThread == thread) m_instanceIconThread = nullptr;
+            });
+    connect(m_instanceIconThread, &QThread::finished, m_instanceIconThread,
+            &QObject::deleteLater);
     m_instanceIconThread->start();
 }
 
@@ -301,7 +334,17 @@ QSet<QString> InstanceIconController::recognizedResourceKeysUnder(const QString 
 bool InstanceIconController::recognizedInstanceIs(const QString &instanceId) const {
     // ★ 说的是"这个实例到底认过没有"，而不是"认出来几个" —— 一个都没认出（新实例、全是
     //   自己改过的 jar）和"没进过文件管理页"都表现为空表，而界面上那两句话不一样。
-    return !m_instanceIcons.versionId.isEmpty() && m_instanceIcons.versionId == instanceId;
+    if (m_instanceIcons.versionId.isEmpty() || m_instanceIcons.versionId != instanceId) {
+        return false;
+    }
+    // ★★ 2026-10-20：名字一样**还不够**。同一个 versionId（`1.20.1`、`26.3`）在另一个
+    //   游戏文件夹里也完全可能有一份（切换游戏文件夹、多开、两个启动器各指一个目录都是
+    //   常事）。只比名字的话，用户在 A 里进过文件管理页、切到 B 之后，B 里同名的那一份
+    //   会被当成"认过了"：`installedModKeys()` 拿到的 `known` 是 true、可那些认出来的键
+    //   一条也落不到 B 的 mods 目录下 ⇒ 前置检查会理直气壮地说"你一个都没装"（而 B 里
+    //   可能整整齐齐装着一套）。目录签名对不上就老实回"没认过"，界面上那句话会退回
+    //   "无法确认你装了没有"，那才是事实。
+    return m_instanceIcons.dirsSignature == fileDirsSignature(m_host.fileDirs(instanceId));
 }
 
 bool InstanceIconController::fileResourceIconKey(const QString &path, QString *iconKey) const {
@@ -321,5 +364,11 @@ void InstanceIconController::waitForLookup() {
     //       关上（同一个取舍，见 MainWindow 析构里备份那一段）。
     if (m_instanceIconThread != nullptr) {
         m_instanceIconThread->wait();
+    }
+    // ★ 2026-10-20：指针可能已经被放掉了（新的一趟把旧的顶掉，见 requestIcons 那段），
+    //   而那条线程还在最后几条指令里。析构 QObject 会把子对象连同一条**仍在跑**的线程
+    //   一起删掉 ⇒ qFatal。这里按子对象兜一遍底，保证关窗时它们都已经退出。
+    for (QThread *thread : findChildren<QThread *>()) {
+        if (thread != m_instanceIconThread) thread->wait();
     }
 }

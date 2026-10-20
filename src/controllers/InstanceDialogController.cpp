@@ -1248,9 +1248,15 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
             });
     connect(&dialog, &InstanceSettingsDialog::toggleInstanceFileRequested, m_owner,
             [this, &dialog](const QString &path) {
-                if (m_owner->toggleInstanceFile(path)) {
-                    dialog.refreshFilePages();
-                }
+                // ★ 2026-10-20：**成败都要重列**（和紧接着那两条批量处理器同一个做法）。
+                //   行尾那颗 `ToggleSwitch` 是可 check 的 `QAbstractButton` —— Qt 在发出
+                //   `clicked` **之前**就把它翻过去了，而这一层的约定是"改完盘再回头摆状态、
+                //   真生效了没有看下一轮刷新"（ToggleSwitch.hpp 那段）。失败那条路（同名
+                //   `.disabled` 已存在 / 文件被游戏占着 / 权限）原来直接不刷新 ⇒ 开关停在
+                //   "翻过去"的位置，盘上名字一个字节没变，界面和盘正好相反；用户对着这份
+                //   假现状按下一次，以为自己在"启用"一个其实早就启用着的文件。
+                m_owner->toggleInstanceFile(path);
+                dialog.refreshFilePages();
             });
     connect(&dialog, &InstanceSettingsDialog::deleteInstanceFileRequested, m_owner,
             [this, &dialog](const QString &path) {
@@ -1912,8 +1918,10 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     //   **整个「实例设置」** —— 而编辑器那一格里可能正压着改了一半的东西。对话框把那一关
     //   挡下来了（见它那条 reject()）：这一发就是"挡下来了、你说怎么办"。
     //
-    // NOTE: 用户说"丢掉"之后要用 `done(QDialog::Rejected)` 而不是 `reject()` —— 后者会
-    //       又走回对话框那条 override 上，于是又发一次这一发（问不完的问）。
+    // NOTE: 用户说"丢掉"之后**重新走一遍 `dialog.reject()`** 而不是直接 `done()`：
+    //       这一格是干净的，下一轮 reject() 会落到「世界设置」那道闸上。两格里同时压着
+    //       东西是可能的（在世界那一页改过、切到配置文件那一页又改过），直接 done()
+    //       会把世界那一页的改动静默丢掉 —— 问都没问。
     connect(&dialog, &InstanceSettingsDialog::closeBlockedByUnsavedConfigFile, m_owner,
             [this, &dialog]() {
                 ConfigFileEditorPage *editor = dialog.configFilePage();
@@ -1921,7 +1929,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     return;  // 留在这儿：页照旧开着，编辑器那一格原样。
                 }
                 editor->discardChanges();
-                dialog.done(QDialog::Rejected);
+                dialog.reject();
             });
     // 「世界设置」那一页上的同一件事（上面那条的第二个实例，逐字适用）。
     //

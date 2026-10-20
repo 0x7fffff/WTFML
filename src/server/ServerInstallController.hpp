@@ -83,6 +83,15 @@ public:
     bool isRunning() const { return m_running; }
 
     /**
+     * @brief 共用下载器上**开着的那一批**是不是这一趟开的（还在下的那一段）。
+     *
+     * “正在装服务端”和“**正占着下载器**”是两件事：中间跑安装器那一段可能要好几分钟，
+     * 那时候这一趟一条网络作业都没有，别人开一批下载完全没问题。`cancel()` 与各处忙态
+     * 闸门问的是这后一件事 —— 只问 `isRunning()` 会把安装器那几分钟也算成“下载器忙”。
+     */
+    bool ownsDownloadBatch() const { return m_batchOwned; }
+
+    /**
      * @brief 开装。
      *
      * @param serverId `Servers/<这个名字>` 那个目录（**调用方得先建好它和那一份记账** ——
@@ -141,6 +150,8 @@ private:
 
     bool m_running = false;
     bool m_cancelling = false;
+    /// 共用下载器上开着的这一批是**这一趟**开的（见 `ownsDownloadBatch()`）。
+    bool m_batchOwned = false;
 
     ServerInstall::Request m_request;
     ServerInstall::Plan m_plan;

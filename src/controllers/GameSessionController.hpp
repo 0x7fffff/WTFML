@@ -94,6 +94,11 @@ public:
         std::function<void(Tasks::TaskId id, int sessionId)> bindTaskSession;
         /// 把那件任务收尾（终态只落一次，见 `TaskManager::finish()`）。
         std::function<void(Tasks::TaskId id, bool success, const QString &errorSummary)> finishLaunchTask;
+        /// 把那件任务按**用户取消**收尾（`TaskState::Cancelled`，不记失败、不点红点）。
+        /// ★ 2026-10-20：用户自己按「停止游戏」停在一行日志都没出的时候，那一次启动**不是
+        ///   失败** —— 从前它走 `finishLaunchTask(..., false, ...)`，任务中心于是多出一条
+        ///   红色的「启动 X 失败」外加底栏那颗红点，全是用户自己点出来的。
+        std::function<void(Tasks::TaskId id)> cancelLaunchTask;
         /// 底栏按当前状态重画一遍（左下角那颗三态方块 + 中间那格）。
         std::function<void()> updateBottomBar;
         /// 实例树上那些"（运行中）"重画一遍。
@@ -140,6 +145,19 @@ public:
     /// 那一份"导出错误报告"要用的快照（见 `GameLogFacts` 的说明）。
     GameLogFacts logFacts(int sessionId) const { return m_gameLogFacts.value(sessionId); }
 
+    /// 这一份会话**最近一段原始输出**（不管日志窗开没开、有没有被用户关掉）。
+    ///
+    /// 为什么要有这一份：`MainWindow::reportGameCrash()` 原来只从**日志窗**里取日志，而
+    /// 「显示游戏日志」默认是**关**的（`LauncherSettings::m_showGameLog = false`）——
+    /// 于是默认配置下崩溃报告里 `logCaptured = false`、一行日志都没有，偏偏这份报告就是
+    /// 崩溃那一刻给人看的。用户开过窗又关掉，同样是一行都没有。
+    ///
+    /// 存的是最近 `kSessionLogTailLines` 行原文（级别在查询时现认，规则仍是
+    /// `RuntimeOutputModel::classifyLine` 那一个出处）。日志窗还开着时报告优先读窗
+    /// （那边留 20000 行），**只有窗不在**才用这一份。
+    QString sessionLogTail(int sessionId) const;
+    QString sessionLogTailErrors(int sessionId) const;
+
     /// 关启动器那一刻把还开着的日志窗收掉。
     ///
     /// 那些窗**没有父窗口**（在 Windows 上"有主的窗"永远压在启动器上面，见
@@ -156,6 +174,9 @@ public:
     void onProcessOutput(int sessionId, const QString &text);
     void onProcessError(int sessionId, const QString &text);
     void onGameFinished(int sessionId, int exitCode, QProcess::ExitStatus exitStatus);
+    /// 这一号会话在**真的起来之前**就被收回（`LauncherManager::sessionDiscarded`）——
+    /// 把刚才那条报错顺手替它建出来的东西收干净（见实现里那段）。
+    void onSessionDiscarded(int sessionId);
 
     // ---------- 日志窗 ----------
 
@@ -240,4 +261,18 @@ private:
     QSet<int> m_gameLogDismissedSessions;
     /// 导出那一份报告要用的事实（见 `GameLogFacts` 的说明）。
     QHash<int, GameLogFacts> m_gameLogFacts;
+
+    // ---------- ③ 进程输出的底账（和日志窗无关）----------
+
+    /// 会话号 → 最近收下的整行输出。**和日志窗的开关无关**：窗是"给用户看的那一份"，这里
+    /// 是"崩溃报告要用的那一份"。上限见 kSessionLogTailLines，超出丢最老的。
+    QHash<int, QStringList> m_sessionLogLines;
+    /// 会话号 → 还没等到换行的那半行。QProcess 吐出来的是一段一段的字节，一行可能分两发
+    /// 到（和 `GameLogWindow` 里 m_pending 同一个道理）。
+    QHash<int, QString> m_sessionLogPending;
+    /// 一份会话留多少行。500 行的 logTail 上限（GameExitDiagnosis::kLogTailLineLimit）
+    /// 之外还要留得下更有用的上下文，又不至于把几个实例的日志堆到几十 MB。
+    static constexpr int kSessionLogTailLines = 4000;
+
+    void rememberSessionLogText(int sessionId, const QString &text);
 };

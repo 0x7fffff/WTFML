@@ -350,6 +350,17 @@ public:
     void setSpeedLimitBytesPerSecond(qint64 bytesPerSecond);
     qint64 speedLimitBytesPerSecond() const { return m_speedLimitBytesPerSecond; }
 
+    /// ◆ 和另一个下载器**共用同一个令牌桶**（2026-10-20）。
+    ///
+    /// 分段作业（大于 4 MiB 那些）跑在 `ResumableDownload` 自己的那一个 `DownloadManager`
+    /// 上，绕在本对象之外。以前限速是**每个下载器各一份**：设 1 MB/s，三个分段作业加上
+    /// 外层各拿满一份 ⇒ 实际能跑到四倍。这里把外层这一个桶交给内部那个用，整条作业
+    /// 合计起来才真的是设置里那个数。
+    ///
+    /// 只在 `DownloadManager::startSegmentedDownload()` 里用；别的下载器（直链下载工具
+    /// 那种用户手动开的另一件工具）不共用。
+    void shareSpeedLimitBucketWith(DownloadManager *owner);
+
     /// 还能不能再往外发一条（排队那一步问它）。
     ///
     /// **纯函数**，就为了能钉住那条上限：activeCount 到顶之后**不管还排着多少条**都不发。
@@ -871,10 +882,28 @@ private:
     QTimer *m_speedPump = nullptr;
     /// "缓冲区里有数据、等着被限速放行"的回复。这一张表**只**在限速时非空。
     QSet<QNetworkReply *> m_throttledReplies;
-    /// 令牌余额（字节，带小数：低档位一拍只放几百字节，取整会把速率拖到远低于设定值）。
-    double m_speedTokens = 0;
-    /// 上一次续令牌的时刻（m_clock 读数）。
-    qint64 m_speedLastRefillMs = 0;
+    /// 令牌桶。**可以和外层那个下载器共用**（见 shareSpeedLimitBucketWith()）：
+    /// 分段作业的内部下载器拿的是同一份，不然每个作业各算一份上限、"1 MB/s"实际能跑出好几倍。
+    struct SpeedBucket {
+        /// 上限（字节/秒），0 = 不限。共用时改在这里，所有用它的下载器下一拍都按新值走。
+        qint64 limit = DownloadSpeedLimit::kUnlimited;
+        /// 令牌余额（字节，带小数：低档位一拍只放几百字节，取整会把速率拖到远低于设定值）。
+        double tokens = 0;
+        /// 上一次续令牌的时刻（`clock` 读数）。共用时两个下载器先后续，用同一个时刻。
+        qint64 lastRefillMs = 0;
+        QElapsedTimer clock;
+        /// 有几个下载器**借用**了这一份（见 shareSpeedLimitBucketWith()）。0 = 只有建它的那个。
+        ///
+        /// ★ 2026-10-20：`QSharedPointer` 没有公开的引用计数可问（`useCount()` 在 Qt 6 里
+        ///   不存在），而"这一拍没人等就把余额抹掉"这条只在**独占**时成立：共用时外层这一拍
+        ///   没人等，不代表内层那个分段作业也没人等，抹了就是每 100 ms 把它的节奏打回零。
+        int sharers = 0;
+    };
+    QSharedPointer<SpeedBucket> m_speedBucket;
+    /// 这一份桶是**借来的**（`shareSpeedLimitBucketWith()` 加过 `sharers`）。析构时要还回去
+    /// —— 分段作业那个内层下载器是每个作业新建的，不还的话外层的 `sharers` 只增不减，
+    /// "没人等就把余额抹掉"那条永远不成立（一次几秒的作业会让之后每一次都自带一小口余量）。
+    bool m_speedBucketBorrowed = false;
 
     // ------------------------------------------------------------------
     // 失速看门狗（见 .cpp 顶部那段实测记录）
@@ -1024,7 +1053,14 @@ private:
     void emitBatchProgress(const QString &currentFile);
     bool fileAlreadyValid(const QString &path, const QString &expectedSha1, qint64 expectedSize,
                           VerifyMode mode);
-    void parseAndDownloadAssets(const QString &indexPath);
+    /// 读索引、把里面每个对象排进下载队列。
+    /// ★ 2026-10-20 起**回 bool**：索引读不动 / 不是 JSON 是"这一趟安装没有资源可下"的
+    ///   真故障，从前只 `qWarning` 就 return —— 而索引这条**故意不占** total/done 的格子，
+    ///   于是整批照样报成功（版本装好了，材质音效一个都没有）。调用方拿 false 走失败那条路
+    ///   （`handleDownloadError` + 镜像退官方），用户至少能看见"索引解析失败"。
+    ///   另外两种"看着像、其实不是索引"的也回 false：`objects` 为空、以及对象全被
+    ///   40 位 hash 那道过滤剔掉（一个都没排上）。
+    bool parseAndDownloadAssets(const QString &indexPath, QString *problemOut);
 };
 
 Q_DECLARE_METATYPE(MinecraftVersion)

@@ -7,6 +7,7 @@
 #include "controllers/InstanceMaintenanceController.hpp"
 
 #include <QDateTime>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -18,6 +19,51 @@
 #include "manage/WorldFiles.hpp"
 #include "ConfigFileText.hpp"
 #include "util/AppPaths.hpp"
+
+namespace {
+
+/// 一个存档在 `<数据目录>/cache/world-backups` 底下占的**格子名**。
+///
+/// ★★ 2026-10-20：原来这里只用**存档目录名**（`QFileInfo(worldDir).fileName()`），于是
+///    两个实例各有一个叫 `world`（中文环境里更常见的是都叫「新的世界」）的存档就共用一个
+///    格子，两件坏事同时发生：
+///      · 清理按"每个格子只留最近 N 代"算 —— A 备份一次就把 B 的代数挤掉一份，B 那份
+///        可能是唯一一份；
+///      · `latestWorldBackup()` 会拿到**另一个世界**的 level.dat，而界面上那句提示正是
+///        "要还原的话把那一份拷回存档目录" —— 用户照着做，拿到的是别人的种子、地形生成
+///        设置和出生点，而原来那份再也回不来了（自动备份只留 N 代，早被挤掉）。
+///    所以格子名必须能区分"哪个实例的哪个世界"。
+///
+/// 标准布局 `<数据目录>/versions/<实例 id>/saves/<世界>` 下取
+/// `"<实例 id>__<世界>-<绝对路径哈希>"`：
+/// 一眼看得懂是哪个实例的哪个存档；实例目录改名/删掉之后旧备份不再和这一份认亲 ——
+/// 那是"另一个世界"了，正是这里要的。别的布局拿绝对路径的短哈希兜底（**不能**只退回
+/// 世界名，那正是这次要修的那个撞车）。
+///
+/// ★ 2026-10-20 补：**最后那段哈希不能省**。`__` 在实例名和世界名里都是合法字符
+///   （`validatePathSegment` 只挡 `<>:"/\|?*`），所以纯 `实例__世界` 仍然不是单射：
+///   实例「SMP__2024」+ 世界「old」和实例「SMP」+ 世界「2024__old」拼出来是同一个
+///   格子名 —— 两个不同世界的 level.dat 又回到"互相挤掉代数、latestWorldBackup()
+///   拿到别人的文件"那条老路上。加了绝对路径的哈希之后两边才真正分开。
+QString worldBackupSlot(const QString &worldDir) {
+    const QFileInfo info(worldDir);
+    const QString worldName = info.fileName();
+    const QString absolute = QDir::cleanPath(info.absoluteFilePath());
+    const QByteArray digest =
+        QCryptographicHash::hash(absolute.toUtf8(), QCryptographicHash::Sha256);
+    const QString tag = QString::fromLatin1(digest.toHex().left(8));
+    const QString versionsRoot =
+        QDir::cleanPath(AppPaths::minecraftDir() + QStringLiteral("/versions")) + QLatin1Char('/');
+    if (absolute.startsWith(versionsRoot, Qt::CaseInsensitive)) {
+        const QStringList parts = absolute.mid(versionsRoot.size()).split(QLatin1Char('/'));
+        if (parts.size() >= 3 && parts.at(1) == QStringLiteral("saves")) {
+            return parts.at(0) + QStringLiteral("__") + worldName + QLatin1Char('-') + tag;
+        }
+    }
+    return worldName + QLatin1Char('-') + tag;
+}
+
+}  // namespace
 
 QStringList InstanceMaintenanceController::configBackups(const QString &instanceId,
                                                          const QString &configDir,
@@ -87,12 +133,13 @@ bool InstanceMaintenanceController::backupWorldLevelData(const QString &worldDir
         return fail(QStringLiteral("这个存档里没有 level.dat。"));
     }
 
-    const QString worldName = QFileInfo(worldDir).fileName();
     const QString root = AppPaths::worldBackupDir();
-    const QString base = root + QLatin1Char('/') + worldName;
+    // 格子按"哪个实例的哪个世界"分（见 worldBackupSlot() 顶上那段）—— 不能只用世界名。
+    const QString slot = worldBackupSlot(worldDir);
+    const QString base = root + QLatin1Char('/') + slot;
     const QStringList existing = QDir(base).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
     const QString folder = ConfigFileText::backupFolderName(QDateTime::currentDateTime(), existing);
-    const QString target = ConfigFileText::backupPathFor(root, worldName, worldDir, path, folder);
+    const QString target = ConfigFileText::backupPathFor(root, slot, worldDir, path, folder);
     if (!QDir().mkpath(QFileInfo(target).absolutePath())) {
         return fail(QStringLiteral("建不出备份目录：%1").arg(QDir::toNativeSeparators(target)));
     }
@@ -109,8 +156,7 @@ bool InstanceMaintenanceController::backupWorldLevelData(const QString &worldDir
 }
 
 QString InstanceMaintenanceController::latestWorldBackup(const QString &worldDir) {
-    const QString dir =
-        AppPaths::worldBackupDir() + QLatin1Char('/') + QFileInfo(worldDir).fileName();
+    const QString dir = AppPaths::worldBackupDir() + QLatin1Char('/') + worldBackupSlot(worldDir);
     QStringList candidates;
     for (const QString &name : QDir(dir).entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
         if (ConfigFileText::isBackupFolderName(name)) {

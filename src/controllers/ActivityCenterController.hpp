@@ -46,6 +46,7 @@ public:
     bool isUnreadFailure(Tasks::TaskId id) const;
     bool markAllViewed();
     bool markViewed(const QString &key);
+    bool markSeen(const QString &key);
     bool retryWouldWork(const Tasks::TaskSnapshot &task, bool retryPayloadAvailable) const;
     void markRetryConsumed();
 

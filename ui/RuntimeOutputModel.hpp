@@ -101,6 +101,25 @@ public:
     /// 上一行的级别（空模型回 Info）—— 认不出级别时的 fallback。
     Level lastLevel() const;
 
+    // ---------- 被容量挤掉的行 ----------
+    //
+    // ★ 2026-10-20：模型超出 capacity 时会把最老的行丢掉，而导出那边（`allText()` /
+    //   `textFrom()`）拿到的只有**现在留着的**那几行。以前这两件事对不上却没人说：
+    //   错误报告的标题写着「完整日志（共 N 行）」/「错误与致命（共 N 行）」，而 N 只是
+    //   "还留着的行数"—— 真正的"原始共多少行"早就查不到了。跑得久一点（或者用户把行数
+    //   上限调到 500）导出来的报告就是一句假话：看报告的人会把"前面都正常"当成结论，
+    //   而真正的起因正是被挤掉的那几行。
+    //
+    //   下面三个数就是补这一格的：收下过多少行、丢了多少行、丢的行里够级别的是哪几行。
+    //   `clear()` 会把它们一起归零（用户主动清掉的不算"被上限挤掉"）。
+
+    /// 收下过多少行（= 现在留着的 + 被上限挤掉的）。
+    int receivedLineCount() const { return m_lines.size() + m_dropped; }
+    /// 被容量上限挤掉的行数。
+    int droppedLineCount() const { return m_dropped; }
+    /// 被挤掉的行里、级别**不轻于** @p minLevel 的有几行（导出"错误摘录"时要把它加回去）。
+    int droppedLineCountFrom(Level minLevel) const;
+
     // ---------- 筛选 ----------
 
     void setLevelVisible(Level level, bool visible);
@@ -147,4 +166,7 @@ private:
     QString m_searchText;
     int m_capacity = defaultCapacity();
     int m_displayLimit = 0;
+    /// 被容量上限挤掉的行：总数 + 每一档各几行（导出时把"原始共多少"补回去）。
+    int m_dropped = 0;
+    QVector<int> m_droppedByLevel;
 };

@@ -11,9 +11,11 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
+#include <QHash>
 #include <QMetaObject>
 #include <QThread>
 #include <QUrl>
+#include <QElapsedTimer>
 
 #include <algorithm>
 #include <functional>
@@ -28,13 +30,19 @@ BackupController::~BackupController() {
 }
 
 bool BackupController::busy() const {
-    return m_taskId != Tasks::invalidTaskId();
+    return m_scanning || m_taskId != Tasks::invalidTaskId();
 }
 
 void BackupController::shutdown() {
     m_abort.storeRelaxed(1);
     if (m_thread != nullptr) {
         m_thread->wait();
+    }
+    // ★ 2026-10-20：指针可能已经被放掉了（见 startWrite / startRestore 里那段），而那条线程
+    //   还在最后几条指令里。析构 QObject 会把子对象连同一条仍在跑的线程一起删掉 ⇒ qFatal。
+    //   按子对象兜一遍底，保证收手时它们都已经退出。
+    for (QThread *thread : findChildren<QThread *>()) {
+        if (thread != m_thread) thread->wait();
     }
 }
 
@@ -58,11 +66,17 @@ QString BackupController::sizeText(qint64 bytes) {
     return QStringLiteral("%1 KB").arg(QString::number(double(bytes) / 1024.0, 'f', 1));
 }
 
-QString BackupController::pickLine(const QString &zipPath) {
+QString BackupController::pickLine(const QString &zipPath, const QString &from) {
     const QFileInfo info(zipPath);
-    return tr("%1（%2，%3）")
-        .arg(info.fileName(), sizeText(info.size()),
-             info.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm")));
+    QString line = tr("%1（%2，%3）")
+                       .arg(info.fileName(), sizeText(info.size()),
+                            info.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm")));
+    // ★ 2026-10-20：两份实例里同名的世界（都叫 world / 新世界）备份打出来是一样的名字。
+    //   清单里本来就记了"从哪一份实例备出来的"，摆出来才分得清该挑哪一份。
+    if (!from.isEmpty()) {
+        line += tr(" · 来自「%1」").arg(from);
+    }
+    return line;
 }
 
 void BackupController::openFolder(BackupFiles::Kind kind) {
@@ -71,36 +85,103 @@ void BackupController::openFolder(BackupFiles::Kind kind) {
     QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
 }
 
-QString BackupController::pickZip(const QString &dir, const QString &label, const QString &what) {
+void BackupController::pickZip(BackupFiles::Kind kind, const QString &label, const QString &what,
+                               std::function<void(QString)> selected) {
+    const QString dir = BackupFiles::backupDir(kind);
     const QString prefix = BackupFiles::backupFilePrefix(label);
+    const QString gameRoot = AppPaths::minecraftDir();
+    m_scanning = true;
+    m_abort.storeRelaxed(0);
+    log(tr("正在后台检查备份清单……"));
+    auto *scanner = QThread::create([this, kind, label, what, dir, prefix, gameRoot,
+                                    selected = std::move(selected)] {
+    QElapsedTimer deadline;
+    deadline.start();
     QStringList zips;
+    QStringList rejected;
+    QHash<QString, QString> sourceNames;
     const QFileInfoList entries =
         QDir(dir).entryInfoList(QStringList{QStringLiteral("*.zip")}, QDir::Files, QDir::Name);
     for (const QFileInfo &entry : entries) {
-        if (entry.fileName().startsWith(prefix, Qt::CaseInsensitive)) {
-            zips.append(entry.absoluteFilePath());
+        if (m_abort.loadRelaxed() || deadline.elapsed() > 240000) break;
+        if (!entry.fileName().startsWith(prefix, Qt::CaseInsensitive)) {
+            continue;
+        }
+        // ★ 2026-10-20：文件名只是"看着像"，说了算的是包里那份清单。
+        //
+        //   原来这里只比名字前缀 ⇒ 三件事都能漏进来：从别处拷进备份目录、恰好叫得
+        //   像模像样的 zip；改了名/换过实例之后留下来的旧包；以及**世界备份**被挪到
+        //   `instances/` 目录里（前缀碰巧一样时）。还原的最后一步是拿 `manifest.root`
+        //   拼落点、把那个目录**整个换掉**，所以"名字对不对"必须在**列出来之前**问，
+        //   不是等用户挑完、点了"还原"再由 `readManifest` 报错。
+        bool readable = false;
+        QString problem;
+        const BackupFiles::Manifest manifest =
+            BackupFiles::readManifest(entry.absoluteFilePath(), &readable, &problem);
+        if (!readable || manifest.kind != kind
+            || manifest.root.compare(label, Qt::CaseInsensitive) != 0) {
+            rejected.append(entry.fileName());
+            continue;
+        }
+        zips.append(entry.absoluteFilePath());
+        if (kind == BackupFiles::Kind::World) {
+            sourceNames.insert(entry.absoluteFilePath(), manifest.sourceInstanceName);
         }
     }
+    QMetaObject::invokeMethod(this, [this, kind, what, dir, prefix, gameRoot,
+                                   timedOut = deadline.elapsed() > 240000,
+                                   zips = std::move(zips), rejected = std::move(rejected),
+                                   sourceNames = std::move(sourceNames), selected]() mutable {
+    m_scanning = false;
+    if (m_abort.loadRelaxed() || AppPaths::minecraftDir() != gameRoot) return;
+    if (timedOut) {
+        InlineMessage::information(m_overlay, tr("备份检查超时"),
+            tr("检查已停止，未还原任何文件。请检查备份所在磁盘，或减少目录中的归档后重试。"));
+        return;
+    }
     if (zips.isEmpty()) {
+        if (!rejected.isEmpty()) {
+            InlineMessage::information(
+                m_overlay, tr("没有能还原的备份"),
+                tr("备份目录里有 %1 个名字对得上的压缩包，但包里那份清单说的不是%2"
+                   "（要么不是这个启动器做的备份，要么是从别处拷来的、改过名的）。\n\n"
+                   "为了不把不相干的东西解到你的目录里，它们一个都没有列出来：\n%3\n\n"
+                   "备份放在这儿：%4")
+                    .arg(QString::number(rejected.size()), what,
+                         rejected.join(QLatin1Char('\n')), QDir::toNativeSeparators(dir)));
+            return;
+        }
         InlineMessage::information(
             m_overlay, tr("还没有备份"),
             tr("%1还没有备份过，所以没有能还原的东西。\n\n备份放在这儿：%2\n"
                "（在这一页上先做一份备份，再来还原。）")
                 .arg(what, QDir::toNativeSeparators(dir)));
-        return {};
+        return;
     }
-    std::sort(zips.begin(), zips.end(), std::greater<QString>());
+    // ★ 2026-10-20：原来这里是把文件名**从大到小**排（`std::greater<QString>`）。可是
+    //   自动留下的「恢复前-」安全快照在名字里多插了一段汉字，而汉字的码位在数字之后
+    //   ⇒ 每一份安全快照都排到了**最新的常规备份前面**。刚还原过一次，列表最上面就是
+    //   刚才自动留的那一份，"越上面越新"当场不成立，点下去还原的其实是很久以前那份。
+    //   排序挪进 `BackupFiles::sortBackupsNewestFirst()`（纯函数，verify 里有一条钉子）。
+    zips = BackupFiles::sortBackupsNewestFirst(zips, prefix);
     QStringList items;
     for (const QString &zip : std::as_const(zips)) {
-        items.append(pickLine(zip));
+        items.append(pickLine(zip, sourceNames.value(zip)));
     }
     int row = -1;
+    const QPointer<BackupController> alive(this);
     if (!InlineMessage::pickFromList(m_overlay, tr("挑一份备份"),
                                      tr("要还原哪一份？（越上面越新）"), items, 0, &row)
         || row < 0 || row >= zips.size()) {
-        return {};
+        return;
     }
-    return zips.at(row);
+    if (!alive) return;
+    selected(zips.at(row));
+    }, Qt::QueuedConnection);
+    });
+    connect(scanner, &QThread::finished, scanner, &QObject::deleteLater);
+    scanner->setParent(this);
+    scanner->start();
 }
 
 void BackupController::backupWorld(const QString &worldDir) {
@@ -140,7 +221,7 @@ void BackupController::backupWorld(const QString &worldDir) {
         m_host.setFileOperationBusy(instanceId, true);
     }
     startWrite(manifest, worldDir, zip, tr("备份世界「%1」").arg(worldName), instanceId,
-               tr("备份完成"));
+               tr("备份完成"), QString(), tr("备份没有完成"));
 }
 
 void BackupController::restoreWorld(const QString &worldDir, InstanceSettingsDialog *dialog) {
@@ -158,9 +239,16 @@ void BackupController::restoreWorld(const QString &worldDir, InstanceSettingsDia
         return;
     }
     const QString worldName = QFileInfo(worldDir).fileName();
-    const QString zip = pickZip(BackupFiles::backupDir(BackupFiles::Kind::World), worldName,
-                                tr("这个世界"));
+    const QPointer<InstanceSettingsDialog> guardedDialog(dialog);
+    const QString root = AppPaths::minecraftDir();
+    pickZip(BackupFiles::Kind::World, worldName, tr("这个世界"),
+            [this, worldDir, worldName, instanceId, guardedDialog, root](const QString &zip) {
+    auto *dialog = guardedDialog.data();
+    if (AppPaths::minecraftDir() != root || busy()
+        || (m_host.isRunning && m_host.isRunning(instanceId))
+        || (m_host.isBeingModified && m_host.isBeingModified(instanceId))) return;
     if (zip.isEmpty()) return;
+    const QPointer<BackupController> alive(this);
     if (!InlineMessage::question(
             m_overlay, tr("恢复备份"),
             tr("「%1」现在的文件会被备份里那一份**整个换掉**。\n\n"
@@ -170,6 +258,9 @@ void BackupController::restoreWorld(const QString &worldDir, InstanceSettingsDia
             tr("还原"), tr("取消"), false, true)) {
         return;
     }
+    if (!alive || AppPaths::minecraftDir() != root || busy()
+        || (m_host.isRunning && m_host.isRunning(instanceId))
+        || (m_host.isBeingModified && m_host.isBeingModified(instanceId))) return;
     m_refreshWorldDir = worldDir;
     m_refreshDialog = dialog;
     // ★ 2026-10-19：和「还原实例」同一个理由（见 restoreInstance() 那段）—— 这一趟
@@ -183,7 +274,8 @@ void BackupController::restoreWorld(const QString &worldDir, InstanceSettingsDia
         m_host.setFileOperationBusy(instanceId, true);
     }
     startRestore(zip, QFileInfo(worldDir).absolutePath(), tr("还原世界「%1」").arg(worldName),
-                 instanceId, tr("还原完成"));
+                 instanceId, tr("还原完成"), QString(), tr("还原没有完成"));
+    });
 }
 
 void BackupController::snapshotInstance(const QString &versionId) {
@@ -252,7 +344,7 @@ void BackupController::snapshotInstance(const QString &versionId) {
     if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(versionId, true);
     startWrite(manifest, instanceDir, zip,
                tr("创建「%1」的快照").arg(displayName(versionId)), versionId,
-               tr("快照创建完成"));
+               tr("快照创建完成"), QString(), tr("快照没有做成"));
 }
 
 void BackupController::restoreInstance(const QString &versionId, InstanceSettingsDialog *dialog) {
@@ -271,9 +363,16 @@ void BackupController::restoreInstance(const QString &versionId, InstanceSetting
         return;
     }
     const QString instanceDir = AppPaths::versionDir(versionId);
-    const QString zip = pickZip(BackupFiles::backupDir(BackupFiles::Kind::Instance),
-                                QFileInfo(instanceDir).fileName(), tr("这个实例"));
+    const QPointer<InstanceSettingsDialog> guardedDialog(dialog);
+    const QString root = AppPaths::minecraftDir();
+    pickZip(BackupFiles::Kind::Instance, QFileInfo(instanceDir).fileName(), tr("这个实例"),
+            [this, versionId, guardedDialog, root](const QString &zip) {
+    auto *dialog = guardedDialog.data();
+    if (AppPaths::minecraftDir() != root || busy()
+        || (m_host.isRunning && m_host.isRunning(versionId))
+        || (m_host.isBeingModified && m_host.isBeingModified(versionId))) return;
     if (zip.isEmpty()) return;
+    const QPointer<BackupController> alive(this);
     if (!InlineMessage::question(
             m_overlay, tr("从快照恢复"),
             tr("「%1」现在的文件会被快照里那一份**整个换掉** —— 模组、配置、存档全算。\n\n"
@@ -291,40 +390,63 @@ void BackupController::restoreInstance(const QString &versionId, InstanceSetting
     //
     //   记进和「复制实例」同一个集合（`MainWindow::installingVersionIds()` 的唯一出处），
     //   收尾时先摘掉它再刷新实例清单。页面先禁用：这一趟结束之后它上面的值全是旧的。
+    if (!alive || AppPaths::minecraftDir() != root || busy()
+        || (m_host.isRunning && m_host.isRunning(versionId))
+        || (m_host.isBeingModified && m_host.isBeingModified(versionId))) return;
     m_restoreInstanceId = versionId;
     m_restoreDialog = dialog;
     if (m_restoreDialog != nullptr) m_restoreDialog->setEnabled(false);
     if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(versionId, true);
     startRestore(zip, AppPaths::versionsDir(),
                  tr("还原「%1」的快照").arg(displayName(versionId)), versionId,
-                 tr("还原完成"));
+                 tr("还原完成"), QString(), tr("还原没有完成"));
+    });
 }
 
 Tasks::TaskId BackupController::startWrite(const BackupFiles::Manifest &manifest,
                                             const QString &sourceDir, const QString &targetZip,
                                             const QString &title, const QString &targetId,
                                             const QString &successTitle,
-                                            const QString &refreshServerId) {
+                                            const QString &refreshServerId,
+                                            const QString &failureTitle) {
     QList<Tasks::TaskStep> steps{{tr("统计并核对文件"), Tasks::TaskStepState::Running, {}},
                                  {tr("打包"), Tasks::TaskStepState::Pending, {}}};
     m_taskId = m_activity->begin(Tasks::TaskKind::Backup, title, targetId, steps);
     m_refreshServerId = refreshServerId;
+    // ★ 2026-10-20：服务端世界的那一趟（备份 / 还原）读 / 换的是**这一个服务端**的目录。
+    //   跑着的时候它不能启动、不能删 —— 原来只有实例那一侧记了"动不得"，服务端这条
+    //   路一个标记都没有（见 MainWindow::startServer() / removeServer() 那两道闸）。
+    m_busyServerId = refreshServerId;
+    if (!m_busyServerId.isEmpty() && m_host.setServerFileOperationBusy) {
+        m_host.setServerFileOperationBusy(m_busyServerId, true);
+    }
     log(tr("%1：%2 → %3").arg(title, QDir::toNativeSeparators(sourceDir),
                               QDir::toNativeSeparators(targetZip)));
     m_abort.storeRelaxed(0);
     if (m_thread != nullptr) {
-        m_thread->deleteLater();
+        // ★ 2026-10-20：**不能**在这里对旧的那条调 deleteLater()。能走到这儿，是因为上一趟的
+        //   收尾函数已经跑过了（任务号收了、忙态放了）—— 但那一条 `QThread` 这会儿往往还差
+        //   最后几条指令才退出 `run()`。对一条仍在跑的 QThread 调 deleteLater() 会让 Qt 处理
+        //   DeferredDelete 时 `qFatal("QThread: Destroyed while thread is still running")`，
+        //   整个启动器当场消失（ServerPing 那边 2026-10-19、IntegrityController 那边今天都
+        //   踩过同一个坑）。线程对象自己接好了 finished → deleteLater（见下面创建处），
+        //   这里只放掉指针。
         m_thread = nullptr;
     }
-    m_thread = QThread::create([this, manifest, sourceDir, targetZip, successTitle] {
+    m_thread = QThread::create([this, manifest, sourceDir, targetZip, successTitle, failureTitle] {
         const auto result = BackupFiles::writeBackup(manifest, sourceDir, targetZip);
         if (m_abort.loadRelaxed() == 0) {
-            QMetaObject::invokeMethod(this, [this, result, successTitle] {
-                writeFinished(result, successTitle);
+            QMetaObject::invokeMethod(this, [this, result, successTitle, failureTitle] {
+                writeFinished(result, successTitle, failureTitle);
             }, Qt::QueuedConnection);
         }
     });
     m_thread->setParent(this);
+    // 先放指针、再排删除（理由同上；`shutdown()` 里会用这个指针 wait()）。
+    connect(m_thread, &QThread::finished, this, [this, thread = m_thread] {
+        if (m_thread == thread) m_thread = nullptr;
+    });
+    connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
     m_thread->start();
     return m_taskId;
 }
@@ -333,35 +455,46 @@ Tasks::TaskId BackupController::startRestore(const QString &zipPath,
                                               const QString &targetParentDir,
                                               const QString &title, const QString &targetId,
                                               const QString &successTitle,
-                                              const QString &refreshServerId) {
+                                              const QString &refreshServerId,
+                                              const QString &failureTitle) {
     QList<Tasks::TaskStep> steps{{tr("读清单"), Tasks::TaskStepState::Running, {}},
                                  {tr("把现在这一份收起来"), Tasks::TaskStepState::Pending, {}},
                                  {tr("解出备份里的文件"), Tasks::TaskStepState::Pending, {}},
                                  {tr("逐文件核对"), Tasks::TaskStepState::Pending, {}}};
     m_taskId = m_activity->begin(Tasks::TaskKind::Backup, title, targetId, steps);
     m_refreshServerId = refreshServerId;
+    m_busyServerId = refreshServerId;
+    if (!m_busyServerId.isEmpty() && m_host.setServerFileOperationBusy) {
+        m_host.setServerFileOperationBusy(m_busyServerId, true);
+    }
     log(tr("%1：%2 → %3").arg(title, QDir::toNativeSeparators(zipPath),
                               QDir::toNativeSeparators(targetParentDir)));
     m_abort.storeRelaxed(0);
     if (m_thread != nullptr) {
-        m_thread->deleteLater();
+        // 只放指针，不 deleteLater（理由逐字同 startWrite() 里那一段）。
         m_thread = nullptr;
     }
-    m_thread = QThread::create([this, zipPath, targetParentDir, successTitle] {
+    m_thread = QThread::create([this, zipPath, targetParentDir, successTitle, failureTitle] {
         const auto result = BackupFiles::restoreBackup(zipPath, targetParentDir);
         if (m_abort.loadRelaxed() == 0) {
-            QMetaObject::invokeMethod(this, [this, result, successTitle] {
-                restoreFinished(result, successTitle);
+            QMetaObject::invokeMethod(this, [this, result, successTitle, failureTitle] {
+                restoreFinished(result, successTitle, failureTitle);
             }, Qt::QueuedConnection);
         }
     });
     m_thread->setParent(this);
+    // 先放指针、再排删除（同 startWrite()）。
+    connect(m_thread, &QThread::finished, this, [this, thread = m_thread] {
+        if (m_thread == thread) m_thread = nullptr;
+    });
+    connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
     m_thread->start();
     return m_taskId;
 }
 
 void BackupController::writeFinished(const BackupFiles::WriteResult &result,
-                                     const QString &successTitle) {
+                                     const QString &successTitle,
+                                     const QString &failureTitle) {
     // ★ 先摘"正在读这一份实例"的标记、再刷新（理由和 restoreFinished() 那一段逐字
     //   相同）：`refreshInstalledVersions()` 会按 `installingVersionIds()` 把忙的那一份
     //   从启动列表里滤掉，反过来的话刚摘掉标记这一趟刷新还看不见它。快照本身没动盘，
@@ -399,17 +532,25 @@ void BackupController::writeFinished(const BackupFiles::WriteResult &result,
                                        .arg(result.manifest.fileCount())
                                        .arg(sizeText(result.manifest.totalBytes)));
     } else {
-        log(tr("%1 没成：%2").arg(successTitle, result.problem));
-        InlineMessage::warning(m_overlay, successTitle, result.problem);
+        // ★ 2026-10-20：失败这一路原来拿**成功标题**去弹（「备份完成」下面的正文说
+        //   "没打成"）。标题和正文自相矛盾，用户扫一眼标题就当成功了。
+        const QString title = failureTitle.isEmpty() ? tr("没有完成") : failureTitle;
+        log(tr("%1：%2").arg(title, result.problem));
+        InlineMessage::warning(m_overlay, title, result.problem);
     }
     if (!m_refreshServerId.isEmpty() && m_host.refreshServer) {
         m_host.refreshServer(m_refreshServerId);
     }
     m_refreshServerId.clear();
+    if (!m_busyServerId.isEmpty() && m_host.setServerFileOperationBusy) {
+        m_host.setServerFileOperationBusy(m_busyServerId, false);
+    }
+    m_busyServerId.clear();
 }
 
 void BackupController::restoreFinished(const BackupFiles::RestoreResult &result,
-                                       const QString &successTitle) {
+                                       const QString &successTitle,
+                                       const QString &failureTitle) {
     const Tasks::TaskId id = m_taskId;
     m_taskId = Tasks::invalidTaskId();
     // 先摘忙标记、再把那一页解冻 —— 下面 `refreshInstances()` 里 `installingVersionIds()`
@@ -460,8 +601,9 @@ void BackupController::restoreFinished(const BackupFiles::RestoreResult &result,
         log(tr("%1：%2").arg(successTitle, tr("核对过 %1 个文件").arg(result.checked)));
         InlineMessage::information(m_overlay, successTitle, text);
     } else {
-        log(tr("%1 没成：%2").arg(successTitle, result.problem));
-        InlineMessage::warning(m_overlay, successTitle, result.problem);
+        const QString title = failureTitle.isEmpty() ? tr("没有完成") : failureTitle;
+        log(tr("%1：%2").arg(title, result.problem));
+        InlineMessage::warning(m_overlay, title, result.problem);
     }
     const bool diskChanged = result.ok || result.stage == BackupFiles::RestoreResult::Stage::RemoveOld
                              || result.stage == BackupFiles::RestoreResult::Stage::Extract
@@ -476,6 +618,12 @@ void BackupController::restoreFinished(const BackupFiles::RestoreResult &result,
         m_host.refreshServer(m_refreshServerId);
     }
     m_refreshServerId.clear();
+    // 标记一定要摘：还原在动盘之前就失败的话（读清单 / 空间不够）上面那一页不刷新，
+    // 但"动不得"是这一趟自己记的，不能指望别人来摘。
+    if (!m_busyServerId.isEmpty() && m_host.setServerFileOperationBusy) {
+        m_host.setServerFileOperationBusy(m_busyServerId, false);
+    }
+    m_busyServerId.clear();
 
     // 还原的是**一整个实例**（不是某个世界）：盘上的 json / meta / 图标全换了 ⇒
     // 实例清单要重扫一遍；开着的那一页控件的值还是还原之前的，动过盘就把它收掉

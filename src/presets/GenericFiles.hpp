@@ -281,9 +281,25 @@ struct GenericReport {
  *
  * ★ 用的是 `planFileGroup()` 算出来的那个计划（报告里那些数和"真的做了什么"同源）。
  * ★ `ok = false` 时报告里说清楚；**已经写下去的那些留在盘上**（见文件头末尾那段）。
+ *
+ * ★ 清单**从 `sourceRoot` 盘上扫**（见下面那个重载：要按清单落的那一路上）。扫的时候
+ *   组根自身是链接 ⇒ 整组失败（`scanFileGroup()` 那一档）。
  */
 GenericReport applyFileGroup(const QString &sourceRoot, const QString &targetRoot, FileGroup group,
                              ApplyMode mode);
+
+/**
+ * @brief 同上，但**落的就是 @p items 这一份清单**（不再重扫 @p sourceRoot）。
+ *
+ * 预设管理页 "应用" 走的是这一档：清单来自预设段（计划、备份范围都用它算）。
+ * 盘上那份 `files/<组>` 目录里可能有**清单之外**的旧文件（提取是"覆盖同名、多出来的不删"），
+ * 重扫会让它们一起落进实例 —— 计划里没提、备份里也没有。
+ *
+ * ★ 清单里列了、盘上却不在的那一项：报成 `ok = false`（`walkItem()` 的那句话），
+ *   和"缺了一份"这件事一致，**不静默少拷**。
+ */
+GenericReport applyFileGroup(const QString &sourceRoot, const QString &targetRoot, FileGroup group,
+                             ApplyMode mode, const QList<GenericItem> &items);
 
 /**
  * @brief 反过来：把实例上的这一组**收进**预设的 `files/` 里（提取那一趟）。

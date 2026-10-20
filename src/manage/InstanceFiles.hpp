@@ -269,6 +269,22 @@ QString validatePathSegment(const QString &segment);
 bool pathIsSameOrInside(const QString &parent, const QString &candidate);
 
 /**
+ * @brief @p relativePath 这一条（相对 @p root 的）路径上，**有没有任何一层是链接**
+ *        （符号链接 / junction）。
+ *
+ * 判的是**逐段**，不是整条：`config/共享/热键.json` 里真正危险的往往是中间那层
+ * `config/共享` 是一根指着别处的 junction —— 只看最后的文件判不出来（它自己不是链接）。
+ *
+ * ★ 与 `pathIsSameOrInside()` 分工不同：那一条判"**最终落到哪儿**"，这一条判"**经过哪儿**"。
+ *   两者都不是对方的替代 —— 目标目录本身是一根链接时，"在不在里面"两边解出来是一致的
+ *   （所以那条闸放行），能挡住它的只有这一条。
+ *
+ * NOTE: 不存在的段一律当成"不是链接"（路径还不存在是最正常的事）；`isJunction()` /
+ *       `isSymLink()` 对不存在的路径都回 false。
+ */
+bool pathHasLinkComponent(const QString &root, const QString &relativePath);
+
+/**
  * @brief 改名时的完整校验：validateDirName() + "重名了没有 / 是不是没改"。
  * @param rawName 用户输入的新名字。
  * @param currentId 现在这个实例的目录名（不参与重名比较的那个）。
@@ -310,18 +326,35 @@ ImportNameVerdict checkImportTargetName(const QString &rawName,
  * @brief 这个目录像不像"一次没下完的整合包导入"。
  * @param id 目录名（= 实例 id）。
  *
- * 三条判据，缺一不可（都只看盘，不联网）：
+ * 判据（都只看盘，不联网），缺一不可：
  *   ① **没有** `wtfml.meta`：启动器把一份实例做成功过就会留下它（导入是在最后一步写的、
  *      装加载器是装完写的、改名时也会补）。没有它 = 启动器从没把这一份做完。
  *   ② **没有**客户端 jar：整合包装出来的实例目录里只有一份薄 json + 下下来的那些文件，
  *      主 jar 在原版/加载器那一层。顶层出现 jar 说明这一份不是导入留下的（用户自己放的，
  *      或者手工做的），那种目录不该被导入盖上去。
  *   ③ 自己的版本 json 声明了父版本（`inheritsFrom`）—— 那正是导入写下的那份 json 的形状。
+ *   ④ **而且**能认出它是"导入留下的"：有导入开始时落下的那枚标记
+ *      （`importMarkerPath()`），或者 json 恰好只有导入第一步写的那三格
+ *      （`id` / `inheritsFrom` / `type`）。
+ *
+ * ★ 2026-10-20 补的 ④：③ 单独一条**太宽** —— 别的启动器装出来的加载器版本（Fabric /
+ *   Forge / NeoForge 的 profile）、用户从别处整个拷来的加载器实例，同样是"没有 meta、
+ *   没有顶层 jar、json 里有 inheritsFrom"。只按 ①–③ 判的话，那些**完全正常**的实例会
+ *   从启动列表里消失、点启动还会被拦一句"还没装完"。真正能区分的只有两点：我们在导入
+ *   开始时亲手落的标记，以及导入写的那份 json 薄到只有三格（第三方 profile 都带
+ *   `mainClass` / `libraries`，长得不这么薄）。
  *
  * 三条都满足时它**仍然可能是**一台机器上手工拼出来的实例（那种目录也没有 meta、也没有
  * jar），所以调用方要问一句。判据宁可偏保守：认错了的代价是"少一条能接着下的路"，
  * 而放宽的代价是"把用户的实例盖掉"。
  */
 bool isUnfinishedImport(const QString &id);
+
+/// 导入开始时在实例目录里落下的标记（`<实例目录>/wtfml.importing`）。
+///
+/// 它和 `wtfml.meta` 是相反的两件事：meta 是"做完了"，这个是"正在做、还没做完"。
+/// 单独一个文件、不进版本 json，是因为 json 的字段第三方工具也会读写，多一个私有字段
+/// 既容易被清掉，也会让"那份 json 是不是我们写的"更难看出来。成功收尾时删掉。
+QString importMarkerPath(const QString &id);
 
 }  // namespace InstanceFiles

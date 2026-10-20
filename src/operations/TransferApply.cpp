@@ -101,12 +101,18 @@ ModTransferResult transferMods(const QString &sourceRoot, const QString &targetR
         }
         staging.setAutoRemove(false);
         ++result.copied;
+        // ★ 发布成功就算这一条"复制完成"，进度要跟着走：
+        //   2026-10-20 之前这里先判停再 `++completed`，于是"刚发布完就收到取消"那一
+        //   瞬间账上 `copied` 已经是 1、进度却还停在上一条（界面少记一个）。
+        //   移动删源是另一件事（没删掉时来源原样保留），它的成败不影响这条文件已复制。
+        ++completed;
+        report(QStringLiteral("已复制"));
         if (move) {
             if (stopped()) { result.cancelled = true; break; }
             if (FileHash::sameStamp(stamp, FileHash::stampOf(path)) && QFile::remove(path)) ++result.moved;
             else fail(QStringLiteral("副本已验证，但未能删除来源；已保留两份"));
         }
-        ++completed; report(QStringLiteral("完成"));
+        report(QStringLiteral("完成"));
     }
     if (elapsed.elapsed() >= 600000) result.problems.append(QStringLiteral("已达到 600 秒截止时间。"));
     return result;
@@ -141,7 +147,15 @@ void copyOneFile(const QString &sourceFile, const QString &targetFile, Result *r
         noteFailure(result, sourceFile);  // 链接不跟
         return;
     }
-    if (QFileInfo::exists(targetFile)) {
+    // ★ 目标那一格自己是一根链接 ⇒ 也不写（2026-10-20）。上面的"目标已存在就跳过"只挡
+    //   得住**指得通**的那种；一根悬空的链接 `exists()` 是 false，接着 `QFile::copy()`
+    //   会顺着它写到链接那一头去。承诺是"只动目标实例里的文件"（见 .hpp 文件头 ②）。
+    const QFileInfo targetInfo(targetFile);
+    if (targetInfo.isJunction() || targetInfo.isSymLink()) {
+        noteFailure(result, targetFile);
+        return;
+    }
+    if (targetInfo.exists()) {
         ++result->skippedFiles;
         return;
     }
@@ -159,6 +173,20 @@ void copyOneFile(const QString &sourceFile, const QString &targetFile, Result *r
 
 /// 把一棵目录**合并**进目标：只拷目标里没有的文件，目录先建出来。
 void mergeTree(const QString &sourceDir, const QString &targetDir, Result *result) {
+    // ★ 这一层（目标）自己是一根链接 ⇒ 不进去（2026-10-20）。递归到下一层时子目录那道
+    //   `sub.isJunction()` 挡的是**源**那一侧；目标那一侧从前一条闸都没有 ——
+    //   `<目标>/config/共享` 是 junction 时，`mkpath()` 对着一根已经存在的链接回 true，
+    //   接着就写到链接那头去了。
+    const QFileInfo sourceInfo(sourceDir);
+    if (sourceInfo.isJunction() || sourceInfo.isSymLink()) {
+        noteFailure(result, sourceDir);
+        return;
+    }
+    const QFileInfo targetInfo(targetDir);
+    if (targetInfo.isJunction() || targetInfo.isSymLink()) {
+        noteFailure(result, targetDir);
+        return;
+    }
     if (!QDir().mkpath(targetDir)) {
         noteFailure(result, targetDir);
         return;
@@ -285,6 +313,20 @@ Result apply(const QString &sourceDir, const QString &targetDir,
         }
         const QString sourcePath = source + QLatin1Char('/') + item.relativePath;
         const QString targetPath = target + QLatin1Char('/') + item.relativePath;
+        // ★ 这一项**路过的每一层**都得是普通目录（2026-10-20）。选中的那一项自己是
+        //   junction / symlink 时，`item.isDirectory && isDir()` 对它回 true（`isDir()`
+        //   跟着链接走），下面整棵就搬到链接那一头去了 —— `mergeTree()` 里那道
+        //   `sub.isJunction()` 只判**子树里的子目录**，判不到项根。
+        //   ★ 两侧都判：源是链接 ⇒ 从别处读；目标是链接 ⇒ 写到别处去。
+        const bool sourceLinked =
+            InstanceFiles::pathHasLinkComponent(source, item.relativePath);
+        const bool targetLinked =
+            InstanceFiles::pathHasLinkComponent(target, item.relativePath);
+        if (sourceLinked || targetLinked) {
+            noteFailure(&result, sourceLinked ? sourcePath : targetPath);
+            if (progress) progress(item.key, false);
+            continue;
+        }
         const int failedBefore = result.failedFiles;
         if (item.isDirectory && QFileInfo(sourcePath).isDir()) {
             mergeTree(sourcePath, targetPath, &result);
@@ -353,6 +395,12 @@ VerifySummary verify(const QString &sourceDir, const QString &targetDir,
         if (!keys.contains(item.key)) continue;
         if (!item.exists) continue;
         if (!safeRelativePath(item.relativePath)) continue;   // apply() 里已经记过这一条失败
+        // apply() 对"这一项路过的某一层是链接"的那几项是**当场失败、一个字节都不搬**的
+        // （见上面那一段）—— 它们不算"该在目标里"，这里也就不该报"缺了"。
+        if (InstanceFiles::pathHasLinkComponent(source, item.relativePath) ||
+            InstanceFiles::pathHasLinkComponent(target, item.relativePath)) {
+            continue;
+        }
         const QString sourcePath = source + QLatin1Char('/') + item.relativePath;
         const QString targetPath = target + QLatin1Char('/') + item.relativePath;
         if (item.isDirectory && QFileInfo(sourcePath).isDir()) {

@@ -94,6 +94,7 @@ void ServerInstallController::start(const ServerInstall::Request &request,
     m_javaPath = javaPath;
     m_running = true;
     m_cancelling = false;
+    m_batchOwned = false;
     m_downloaded = 0;
     m_failedDownload.clear();
     m_failedDownloadReason.clear();
@@ -292,6 +293,17 @@ void ServerInstallController::beginDownloads() {
         return;
     }
 
+    // ★ 2026-10-20：**这里必须再看一眼忙不忙**。`start()` 那道闸问的是"用户点下去的那一刻"，
+    //   而中间隔着取元数据那一段网络来回（Paper 要问构建列表、原版本地没装过时要问版本清单）
+    //   —— 那几秒钟里用户完全可能在下载页上排了一批。`beginBatch()` 碰到开着的批次会
+    //   **静默把它关掉**（`DownloadManager::beginBatch()` 里那句 qWarning 后面跟的就是
+    //   `endBatch()`），别人的那一批于是永远等不到 `allDownloadsFinished`：任务中心那一行
+    //   停在「进行中」，取消也取消不掉（收尾信号已经不会来了）。
+    if (m_downloads->isBusy()) {
+        fail(QStringLiteral("等版本信息的这会儿，已经有别的下载开始了。等那一批结束再装这个服务端。"));
+        return;
+    }
+
     connect(m_downloads, &DownloadManager::downloadFinished, this,
             &ServerInstallController::onDownloadFinished, Qt::UniqueConnection);
     connect(m_downloads, &DownloadManager::downloadProgress, this,
@@ -308,6 +320,7 @@ void ServerInstallController::beginDownloads() {
     //   顺带把"整批结束"那一发也挪到了这一批自己的收尾上（信号是谁接走的，见
     //   `VersionManager::beginOwnBatch()` 那一大段）。
     m_downloads->beginBatch();
+    m_batchOwned = true;
     for (const ServerInstall::Download &download : m_plan.downloads) {
         const QString path = m_dir + QLatin1Char('/') + download.fileName;
         m_downloadNames.insert(download.fileName);
@@ -342,6 +355,11 @@ void ServerInstallController::onDownloadFinished(const QString &fileName, bool s
     if (m_downloaded < m_plan.downloads.size()) {
         return;
     }
+
+    // ★ 2026-10-20：这一批的作业**全交代完了**，从这一刻起共用下载器上剩下的活儿跟我们
+    //   没关系（下一段是安装器进程，可能跑好几分钟）。放开认领 —— 不然用户在安装器跑着的
+    //   时候开一批下载，再点取消，`cancel()` 会把**人家那一批**掐掉。
+    m_batchOwned = false;
 
     if (!m_failedDownload.isEmpty()) {
         fail(QStringLiteral("%1 没下下来：%2")
@@ -472,6 +490,7 @@ void ServerInstallController::finishWith(Outcome outcome, const QString &errorSu
         return;  // 已经收过尾了（终态只落一次，和 TaskManager 那边同一条规矩）
     }
     m_running = false;
+    m_batchOwned = false;
     if (m_process != nullptr) {
         m_process->disconnect(this);
         if (m_process->state() != QProcess::NotRunning) {
@@ -500,7 +519,10 @@ void ServerInstallController::cancel() {
     m_cancelling = true;
     emit message(QStringLiteral("停下了。已经下下来的那几个文件留在目录里，再点「修复」会接着用。"));
     // 在飞的回复 / 排着队的作业一起掐掉（`cancelBatch()` 那四个动作见它自己的说明）。
-    if (m_downloads != nullptr && m_downloads->isBusy()) {
+    // ★ 2026-10-20：判据是**这一批是不是我们开的**，不是"下载器现在忙不忙"。下载器是共用的：
+    //   安装器那一段（可能好几分钟）里就是空闲的，而用户完全可能已经开了一批新的 ——
+    //   按 `isBusy()` 掐的话，取消一次服务端安装会顺手把人家那一批也掐掉。
+    if (m_downloads != nullptr && m_batchOwned) {
         m_downloads->cancelBatch();
     }
     if (m_process != nullptr && m_process->state() != QProcess::NotRunning) {

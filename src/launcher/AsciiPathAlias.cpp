@@ -263,19 +263,51 @@ bool sameFile(const QString &left, const QString &right) {
     return a.volume == b.volume && a.indexHigh == b.indexHigh && a.indexLow == b.indexLow;
 }
 
+/// 这个联接指着谁（reparse 数据里那个目标）。
+///
+/// ★ 2026-10-20：**必须**先问 `junctionTarget()`。我们建的是 `mklink /J` 那种目录联接
+///   （IO_REPARSE_TAG_MOUNT_POINT），而 Qt 6.10.1 把这两种 reparse 分得很清：
+///   `isSymLink()` 对目录联接近恒为 false，`symLinkTarget()` 读的也是符号链接那一份，
+///   对目录联接回**空串**。原来这里（以及 `linkUsable()`）只用 `symLinkTarget()`，注释还
+///   写着"悬空时也读得到"—— 那条只对符号链接成立。症状不是报错，是**静默**：
+///   `liveTargetOfAlias()` 恒回空 ⇒ 每一趟 `ensure()` 都把兄弟目录里**正在跑的那个实例**
+///   的别名当过期删掉，正在跑的那场游戏之后每写一个文件都失败（存档、日志轮转、
+///   还没加载过的类）。
+QString targetOfAlias(const QString &link) {
+    const QFileInfo info(link);
+    QString target = info.symLinkTarget();
+    if (target.isEmpty() && info.isJunction()) {
+        target = info.junctionTarget();
+    }
+    return target;
+}
+
 /// 这个联结指着的地方对不对、而且目标真的在（= 不用重做）。
 ///
-/// 两条都判：`isDir()` 问"通不通"，`symLinkTarget()` 问"指着的是不是那一份" —— 后者读的
-/// 是 reparse 数据里的 **PrintName**（人可读那一份），悬空时也读得到。读不出目标名字
-/// （不是链接、数据坏了、Qt 没认出来）时只按"通不通"算 —— 目标通就算它对：重做一次是
-/// 便宜的，但**每次启动都重做**会让"这一套是什么时候建的"失去意义（那是排查时唯一能看的
-/// 东西），也白白多一次删除/重建的窗口。
+/// 两条都判：`isDir()` 问"通不通"，`targetOfAlias()` 问"指着的是不是那一份" —— 后者读的
+/// 是 reparse 数据里的目标路径，悬空时也读得到（见 `targetOfAlias()` 那段：目录联接走
+/// `junctionTarget()`）。
+///
+/// ★ 2026-10-20：读不出目标名字时**不能**只按"通不通"算，还得确认它真是个链接。
+///   原来那句 `actual.isEmpty() || samePath(...)` 把**普通目录**也算成了可用：`createJunction()`
+///   是"先 `mkpath` 再 `mklink /J`"，中间那一步失败（或者用户/杀软在位置上手建了一个空
+///   目录）留下的正是一个同名普通目录 —— 于是这一套别名被判"可用"，`--gameDir` 指向
+///   `cache/ascii/<hash>/game` 这个空壳，游戏把存档、截图、logs 全写进缓存目录，
+///   而实例文件夹里一份都没有；下次清缓存就没了。natives 那一份同理（空的
+///   java.library.path ⇒ UnsatisfiedLinkError）。
+///   反过来"每次启动都重做"的风险由另一条守住：目标读得出来时照旧比路径，
+///   只有真链接才会走到这里判 true。
 bool linkUsable(const QString &link, const QString &target) {
     if (!isLiveDir(link)) {
         return false;
     }
-    const QString actual = QFileInfo(link).symLinkTarget();
-    return actual.isEmpty() || samePath(actual, target);
+    const QFileInfo info(link);
+    const bool actuallyLinked = info.isJunction() || info.isSymLink();
+    const QString actual = targetOfAlias(link);
+    if (actual.isEmpty()) {
+        return actuallyLinked;
+    }
+    return samePath(actual, target);
 }
 
 /// 这一套别名还指着一个**活着**的实例吗（清过期那几套时的判据）。
@@ -285,7 +317,7 @@ bool linkUsable(const QString &link, const QString &target) {
 ///   true（第一版就是按它判的，真机上过期的那几套一套都清不掉，ZM6 那条断言钉的就是这里）。
 QString liveTargetOfAlias(const QString &aliasRoot) {
     const QString game = aliasRoot + QStringLiteral("/game");
-    const QString target = QFileInfo(game).symLinkTarget();
+    const QString target = targetOfAlias(game);
     return QFileInfo(target).isDir() ? target : QString();
 }
 #else

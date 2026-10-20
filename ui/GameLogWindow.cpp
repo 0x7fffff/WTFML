@@ -768,6 +768,10 @@ int GameLogWindow::lineCountFor(LogLevel level) const {
     return m_model.countFor(modelLevel(level));
 }
 
+int GameLogWindow::droppedLineCountFor(LogLevel level) const {
+    return m_model.droppedLineCountFrom(modelLevel(level));
+}
+
 void GameLogWindow::updateFilterButtons() {
     for (int i = 0; i < levelCount(); ++i) {
         if (QToolButton *button = m_filterButtons.at(i)) {

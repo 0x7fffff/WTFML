@@ -4,6 +4,7 @@
 #include "InlineMessage.hpp"
 #include "MainWindowUI.hpp"
 #include "OverlayHost.hpp"
+#include "RuntimeOutputModel.hpp"
 #include "controllers/LaunchHistoryController.hpp"
 #include "diag/GameExitDiagnosis.hpp"
 #include "launcher/LauncherManager.hpp"
@@ -63,6 +64,8 @@ void GameSessionController::closeAllGameLogWindows() {
 
 void GameSessionController::onProcessOutput(int sessionId, const QString &text) {
     m_host.log(tr("[游戏输出] %1%2").arg(sessionLogTag(m_launcherManager->session(sessionId)), text));
+    // 底账先记（崩溃报告要用它），窗是附加的那一份。
+    rememberSessionLogText(sessionId, text);
     // 「显示游戏日志」开着时，同一段字也进那一份的游戏日志窗。**放在 appendLog 之后**是
     // 刻意的：日志文件那一份是永远要写的（用户的排查底账），弹窗是附加的。
     showGameLogLine(sessionId, text);
@@ -84,6 +87,8 @@ void GameSessionController::onProcessOutput(int sessionId, const QString &text) 
 
 void GameSessionController::onProcessError(int sessionId, const QString &text) {
     m_host.log(tr("[游戏错误] %1%2").arg(sessionLogTag(m_launcherManager->session(sessionId)), text));
+    // stderr 也进底账（和 stdout 同一个去处）—— 很多版本把日志整个写在 stderr 上。
+    rememberSessionLogText(sessionId, text);
     // stderr 也进日志窗（下面那一行），理由和上面那条一样。**不**给它加"错误"前缀：
     // 游戏往 stderr 写的不全是错误（很多模组把 INFO 也写 stderr），在窗里加前缀反而误导。
     showGameLogLine(sessionId, text);
@@ -95,6 +100,29 @@ void GameSessionController::onProcessError(int sessionId, const QString &text) {
         m_host.finishLaunchTask(launchTask, true, QString());
         m_host.updateBottomBar();
     }
+}
+
+void GameSessionController::onSessionDiscarded(int sessionId) {
+    // ★ 2026-10-20：`startGame()` 的三条早退路径（会话数到顶 / 找不到 Java / 进程起不来）
+    //   会先带号发一句 `processError`，再把这一号会话收回。那一句本身是对的（用户要看到
+    //   原因，`LaunchController` 那边负责弹出来），但它走的是**和游戏 stderr 同一条槽** ——
+    //   `showGameLogLine()` 收到"这一份的第一行"就给这一号建了一扇游戏日志窗，底账也按号
+    //   记了一笔。会话一收，从此再没有任何信号提到这个号：那扇窗不会自己关（自动关窗只
+    //   发生在"正常以 0 退出"那条路上，见 onGameFinished()），底账也不会被删 —— 每启动
+    //   失败一次就多留一扇只有一行字的窗和一笔内存，直到用户手动去关。
+    //
+    //   这里把刚才顺手建出来的那几笔一起收掉。窗走 `close()`（不是 `delete`）：和用户自己
+    //   关窗、以及 closeAllGameLogWindows() 之外的收尾走同一条路，finished 里那一笔
+    //   "用户关过"随之落下 —— 下面紧跟着就把它清掉（这一份已经结束了，那个集合不该为它
+    //   留名，和 onGameFinished() 末尾同一个理由）。
+    if (GameLogWindow *window = m_gameLogWindows.take(sessionId)) {
+        window->close();
+    }
+    m_gameLogDismissedSessions.remove(sessionId);
+    m_gameLogFacts.remove(sessionId);
+    m_sessionLogLines.remove(sessionId);
+    m_sessionLogPending.remove(sessionId);
+    m_sessionDisplayNames.remove(sessionId);
 }
 
 void GameSessionController::showGameLogLine(int sessionId, const QString &text) {
@@ -113,6 +141,58 @@ void GameSessionController::showGameLogLine(int sessionId, const QString &text) 
         return;
     }
     window->appendText(text);
+}
+
+void GameSessionController::rememberSessionLogText(int sessionId, const QString &text) {
+    if (sessionId <= 0 || text.isEmpty()) {
+        return;
+    }
+    QString &pending = m_sessionLogPending[sessionId];
+    pending += text;
+    QStringList lines = pending.split(QLatin1Char('\n'));
+    pending = lines.takeLast();
+    // 一行长到 1 MB 还没等到换行（有的模组会把整份配置文件打出来）：别让这半行无限长。
+    if (pending.size() > 1024 * 1024) {
+        lines.append(pending);
+        pending.clear();
+    }
+    if (lines.isEmpty()) {
+        return;
+    }
+    QStringList &tail = m_sessionLogLines[sessionId];
+    tail += lines;
+    if (tail.size() > kSessionLogTailLines) {
+        tail = tail.mid(tail.size() - kSessionLogTailLines);
+    }
+}
+
+QString GameSessionController::sessionLogTail(int sessionId) const {
+    // 和 `GameLogWindow::allLogText()` 同一个拼法：整行各带换行，末尾那半行原样接上。
+    const QStringList lines = m_sessionLogLines.value(sessionId);
+    const QString pending = m_sessionLogPending.value(sessionId);
+    if (lines.isEmpty()) {
+        return pending;
+    }
+    return lines.join(QLatin1Char('\n')) + QLatin1Char('\n') + pending;
+}
+
+QString GameSessionController::sessionLogTailErrors(int sessionId) const {
+    // 认级别的规则只有一个出处（`RuntimeOutputModel::classifyLine`）—— 和日志窗、
+    // 错误报告是同一套，不在这里按字符串再猜一遍。
+    const QStringList lines = m_sessionLogLines.value(sessionId);
+    if (lines.isEmpty()) {
+        return {};
+    }
+    QStringList errors;
+    RuntimeOutputModel::Level last = RuntimeOutputModel::Level::Info;
+    for (const QString &line : lines) {
+        last = RuntimeOutputModel::classifyLine(line, last);
+        if (RuntimeOutputModel::levelIndex(last)
+            >= RuntimeOutputModel::levelIndex(RuntimeOutputModel::Level::Error)) {
+            errors.append(line);
+        }
+    }
+    return errors.isEmpty() ? QString() : errors.join(QLatin1Char('\n')) + QLatin1Char('\n');
 }
 
 GameLogWindow *GameSessionController::ensureGameLogWindow(int sessionId, bool userAsked) {
@@ -311,9 +391,18 @@ void GameSessionController::onGameFinished(int sessionId, int exitCode, QProcess
     //       所以"游戏跑了三小时后正常退出"不会把那次成功改写成失败。
     const auto finishingLaunchTask = m_launchTaskIds.take(sessionId);
     const bool launchSucceeded = exitCode == 0 && exitStatus != QProcess::CrashExit;
-    if (launchSucceeded) m_host.launchTaskStepDone(finishingLaunchTask);
-    m_host.finishLaunchTask(finishingLaunchTask, launchSucceeded,
-                            tr("游戏进程没等到能打日志就结束了，退出码 %1。").arg(exitCode));
+    // ★ 2026-10-20：用户自己按的「停止游戏」不是失败。`kill()` 在 Windows 上报的是
+    //   CrashExit / 非零退出码，从前这一段不看 `userStopped`，于是一次**主动取消**会以
+    //   「游戏进程没等到能打日志就结束了，退出码 1」收尾 —— 任务中心多一行红色失败、
+    //   底栏亮起红点，说的全是用户自己刚做的事。按 `Cancelled` 收才对得上他的操作
+    //   （和任务中心里手动取消一件任务同一个终态、同样不点红点）。
+    if (userStopped) {
+        m_host.cancelLaunchTask(finishingLaunchTask);
+    } else {
+        if (launchSucceeded) m_host.launchTaskStepDone(finishingLaunchTask);
+        m_host.finishLaunchTask(finishingLaunchTask, launchSucceeded,
+                                tr("游戏进程没等到能打日志就结束了，退出码 %1。").arg(exitCode));
+    }
 
     // ---------- §4.3：异常退出 → 账本上补一项「游戏异常退出」 ----------
     //
@@ -335,6 +424,10 @@ void GameSessionController::onGameFinished(int sessionId, int exitCode, QProcess
     // 名字也到此为止（它唯一的用途就是上面那一行前缀）。不清的话这个表会随着开过的
     // 实例数一直长 —— 和 m_gameLogDismissedSessions 同一个理由。
     m_sessionDisplayNames.remove(sessionId);
+    // 进程输出的底账同理：**必须在 reportGameCrash 那一发之后**（它就是在那儿被读走的）。
+    // 会话号不会回头复用，留着只会让"开过的实例数 × 4000 行"一直堆在内存里。
+    m_sessionLogLines.remove(sessionId);
+    m_sessionLogPending.remove(sessionId);
     // 启动事实同理（它唯一的用途是上面那一项）：**必须在 reportGameCrash 那一发之后**。
     m_sessionLaunchFacts.remove(sessionId);
     m_host.updateInstanceTreeRunState();

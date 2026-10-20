@@ -29,11 +29,21 @@ QString digest(const QString &path, const QSharedPointer<QAtomicInt> &abort) {
 }
 QString hashText(const QByteArray &text) { return QString::fromLatin1(QCryptographicHash::hash(text, QCryptographicHash::Sha256).toHex()); }
 void removeParts(const QString &directory) {
-    // 只删除本协调器命名的文件，不递归删除目录，不跟随符号链接。
+    // 只删除本协调器命名的文件，不递归删除目录，不跟随符号链接 / junction。
+    // ★ 2026-10-20：`QDir::entryList` 默认**不会**替你筛掉链接（`QDir::NoSymLinks` 没给），
+    //   而 junction 在 `NoSymLinks` 下也照样列得出来（Qt 只认 symlink）—— 所以逐条自己判。
+    //   目录本身是链接的那一档在 `start()` 里已经拒了，这里挡的是"链接混在缓存目录里"。
     static const QRegularExpression name(QStringLiteral("^part-[0-9]+\\.bin$"));
-    for (const auto &file : QDir(directory).entryList({QStringLiteral("part-*.bin")}, QDir::Files | QDir::Hidden | QDir::System))
-        if (name.match(file).hasMatch()) QFile::remove(QDir(directory).filePath(file));
-    QFile::remove(QDir(directory).filePath(QStringLiteral("manifest.json")));
+    for (const auto &file : QDir(directory).entryList({QStringLiteral("part-*.bin")}, QDir::Files | QDir::Hidden | QDir::System)) {
+        if (!name.match(file).hasMatch()) continue;
+        const QString path = QDir(directory).filePath(file);
+        const QFileInfo info(path);
+        if (info.isSymLink() || info.isJunction()) continue;
+        QFile::remove(path);
+    }
+    const QString manifest = QDir(directory).filePath(QStringLiteral("manifest.json"));
+    const QFileInfo manifestInfo(manifest);
+    if (!manifestInfo.isSymLink() && !manifestInfo.isJunction()) QFile::remove(manifest);
 }
 bool strongEtag(const QByteArray &value) {
     return value.size() >= 2 && value.size() <= 4096 && value.startsWith('"') && value.endsWith('"') && !value.contains('\r') && !value.contains('\n');
@@ -66,6 +76,8 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
     if (!cancel()) { emit statusChanged(tr("正在提交完整文件，请等待保存结束。")); return; }
     delete m_files;
     m_files = new DownloadManager(this, m_networkFactory);
+    // 先共用一个令牌桶，再推限速（顺序不能反：setter 写的是桶里那一份）。
+    m_files->shareSpeedLimitBucketWith(m_speedBucketOwner);
     m_files->setUseMirror(false);
     m_files->setMaxConcurrentDownloads(kPartConcurrency);
     // ★ 2026-10-18（§9.2 限速）：分段作业绕在自己这个下载器上 —— 限值必须在这儿也推一份，
@@ -83,7 +95,14 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
     if (!url.isValid() || (url.scheme() != QStringLiteral("http") && url.scheme() != QStringLiteral("https")) || !QDir::isAbsolutePath(target)) {
         finish(false, tr("下载地址或保存路径无效。")); return;
     }
-    if (QFileInfo(m_cache).isSymLink() || !QDir().mkpath(m_cache)) { finish(false, tr("续传缓存目录不可用。")); return; }
+    // ★ 2026-10-20：junction 也要判。Qt 对 Windows junction 的 `isSymLink()` 是 false
+    //   （见 `InstanceFiles.hpp` 那段），只判前者的话，一个指着别处的 junction 会让分段和
+    //   manifest 写进链接那一头；收尾的 `removeParts()` 也会去那儿删同名文件。
+    const QFileInfo cacheInfo(m_cache);
+    if (cacheInfo.isSymLink() || cacheInfo.isJunction() || !QDir().mkpath(m_cache)) {
+        finish(false, tr("续传缓存目录不可用。"));
+        return;
+    }
     m_lock = QSharedPointer<QLockFile>::create(QDir(m_cache).filePath(QStringLiteral("lock")));
     if (!m_lock->tryLock(0)) { finish(false, tr("同一下载的缓存正被其他任务使用，请稍后重试。")); return; }
     connect(m_files, &DownloadManager::downloadProgress, this, [this](const QString &file, qint64 done, qint64 total) {
@@ -579,11 +598,24 @@ void ResumableDownload::checkStuck() {
     if (m_stage == Stage::Parts && !m_partsRetried) {
         // 进度账已经不可信：把这一批全掐掉、只补缺的段再来一次。这是**恢复**、不是失败，
         // 和"某一段失败"那条路共用同一个次数上限（m_partsRetried），所以最多多花一轮。
+        //
+        // ★ 2026-10-20：重发之前**必须重新 probe()**，不能直接 `downloadParts()`。
+        //   `m_source` 是探测那一趟拿到的 302 落点（BMCLAPI 那种预签名地址 60 秒就过期，
+        //   见上面 `m_source` 那一行的注释），而能走到这里说明**至少 5 分钟**没有进展了 ——
+        //   拿那个落点发 Range 等于打在一条早就作废的地址上：403 → 这一轮再失败一次 →
+        //   `m_partsRetried` 已经是 true ⇒ 落进"整条判死"，用户看到"下载失败"，而正确的
+        //   恢复代码（`probe()` → `prepareCache()` 复核 ETag / 分段 SHA）就在旁边。
+        //   源站内容换了的时候也一样：重新探测的 ETag 对不上 ⇒ 缓存整批作废、老实重下，
+        //   而不是带着旧的 If-Range 去撞一个 416。
+        //   `probe()` 自己会走 `prepareCache()`，那儿会把上一批残留的 `m_live` 清掉
+        //   （不然进度会先虚高再回落 —— 这就是从前进度账看着"跳过一段"的那个来源）。
         m_partsRetried = true;
         m_partsRetryPending = false;
+        m_stage = Stage::Probe;  // 先改状态：`cancelBatch()` 的收尾信号别再走进分段分支
         m_files->cancelBatch();
+        m_live.clear();
         m_progressClock.restart();
-        downloadParts();
+        probe();
         return;
     }
     finish(false, tr("下载长时间没有任何进展，已停止。请检查网络后重试。"));

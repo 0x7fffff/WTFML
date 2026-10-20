@@ -28,6 +28,7 @@
 #include <QResizeEvent>
 #include <QScreen>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QTimer>
 #include <QVBoxLayout>
 // `setProperty()` 收的是 QVariant（那一行"这行是谁"的钥匙）—— 少了它，编译器报的是
@@ -576,6 +577,10 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     m_scroll->setWidget(m_content);
     m_content->installEventFilter(this);
     m_scroll->viewport()->installEventFilter(this);
+    // ★ 2026-10-20：滚下去看见了才算"看过"（`acknowledgeVisibleFailures()` 按视口相交判）。
+    //   没有这一发的话，首屏之外那些失败行会一直不标 —— 用户滚到它跟前也没人再问一次。
+    connect(m_scroll->verticalScrollBar(), &QScrollBar::valueChanged, this,
+            [this](int) { acknowledgeVisibleFailures(); });
 
     workspace->addWidget(m_scroll, 1);
 
@@ -709,8 +714,53 @@ void TaskCenterPanel::refresh() {
     if (!m_opened) {
         return;  // 还没弹出来过：下一次 popUp() 自己会重建
     }
+    // ★ 2026-10-20：**鼠标键还按着的时候不重建**。
+    //   `rebuild()` 是"全删全建"（`delete`，不是 `deleteLater`），而下载进度是 ~200 ms 一帧、
+    //   每一帧都会走到这儿。用户按住行尾那颗「取消」（或队列里的 ↑/↓）时，只要这中间落下一帧，
+    //   他被按下去的那颗 QPushButton 就被**当场删掉**了；松手落在原位新造出来的那颗上，
+    //   而新按钮从没收到过 press（`QAbstractButton::down` 是 false）—— Qt 不会发 `clicked`，
+    //   表现出来就是「取消点了没反应」，再点可能又撞上一帧。`taskDragActive` 那道闸只挡住
+    //   了拖拽（`drag->exec()` 期间），挡不住"按下之后、松手之前"这一段。
+    //   所以这里推迟到松手再重建；进度条这几百毫秒不刷新，用户看不出来。
+    if (QGuiApplication::mouseButtons() != Qt::NoButton) {
+        deferRefreshUntilRelease();
+        return;
+    }
+    m_deferTicks = 0;
     rebuild();
     place(/*animate=*/false);
+    // 重建之后**当场**再判一次"露脸了没有"：`rebuild()` 里那一发是排到下一轮的（布局那时
+    // 还没算完），而面板刚打开这一趟的几何在这里已经定下来了 —— 不补这一下，底栏那颗
+    // 红点要多等一个事件轮才灭（mw_check AB4 量的就是"打开过之后灭掉"）。
+    acknowledgeVisibleFailures();
+}
+
+void TaskCenterPanel::deferRefreshUntilRelease() {
+    if (m_refreshDeferred) {
+        return;  // 已经排着了：松手那一趟会把这一期间攒下的所有变化一起画出来
+    }
+    m_refreshDeferred = true;
+    QTimer::singleShot(40, this, [this]() {
+        m_refreshDeferred = false;
+        if (!m_opened || !isVisible()) {
+            return;  // 面板收起来了：下一次 popUp()/showEvent() 自己会刷新
+        }
+        if (QGuiApplication::mouseButtons() != Qt::NoButton) {
+            // 还按着：接着等。但**不能无限等** —— 真按着不放 2 秒以上（或者 Qt 那边
+            // 因为焦点切换丢了 release）时，宁可恢复原来的"随时重画"，也别让进度停住。
+            if (++m_deferTicks >= 50) {
+                m_deferTicks = 0;
+                // 直接重建：走 `refresh()` 会又一次看到"按着"、再排一次，永远等下去。
+                rebuild();
+                place(/*animate=*/false);
+                return;
+            }
+            deferRefreshUntilRelease();
+            return;
+        }
+        m_deferTicks = 0;
+        refresh();
+    });
 }
 
 void TaskCenterPanel::requestRefresh() {
@@ -856,6 +906,26 @@ void TaskCenterPanel::rebuild() {
         (isActive(item.state) ? active : finished).append(item);
     }
     m_clearFinished->setEnabled(std::any_of(items.cbegin(), items.cend(), [](const auto &item) { return !isActive(item.state); }));
+    // ★ 2026-10-20：只把**真在视口里露了脸的**失败行标成"看过了"（`unreadFailure` = 还没看过）。
+    //   以前这一笔在 provider 里整批做（`taskCenterItems()` → `markAllViewed()`），而且发生在
+    //   筛子和搜索之前；上一版改成了"按筛出来的行标"，但仍然只看 `m_scroll` 整体可不可见 ——
+    //   面板只有屏幕可用高度的 60%，失败行排在下面、用户压根没滚到，照样被标成看过了
+    //   （底栏红点当场熄灭、它也从「需要处理」里消失，而且是**落盘**的）。
+    //   现在：先把这一趟**建出来**的失败行钥匙收进 `m_unreadFailureKeys`，等布局落定之后
+    //   （下一轮事件）只标**和视口相交**的那些；滚动条一动再补一遍（滚下去看见了才算看过）。
+    m_unreadFailureKeys.clear();
+    if (m_onRowAction != nullptr && isVisible() && m_scroll->isVisible()) {
+        for (const QList<TaskCenter::Item> *rows : {&active, &finished}) {
+            for (const TaskCenter::Item &item : *rows) {
+                if (item.unreadFailure) {
+                    m_unreadFailureKeys.insert(item.key);
+                }
+            }
+        }
+        if (!m_unreadFailureKeys.isEmpty()) {
+            QTimer::singleShot(0, this, [this]() { acknowledgeVisibleFailures(); });
+        }
+    }
     const auto selected = [this](const auto &item) { return item.key == m_selectedKey; };
     // Viewing an error acknowledges it. In the attention filter its row may
     // disappear, but keep the detail readable until the user changes selection/filter.
@@ -929,6 +999,43 @@ void TaskCenterPanel::rebuild() {
     revealBuiltChildren(m_content);
     revealBuiltChildren(m_runningContent);
     revealBuiltChildren(m_detailContent);
+}
+
+void TaskCenterPanel::acknowledgeVisibleFailures() {
+    if (m_ackInProgress || m_onRowAction == nullptr || !m_opened || !isVisible() || !m_scroll->isVisible()) {
+        return;
+    }
+    m_ackInProgress = true;
+    // 行的几何可能是上一趟布局的（刚 addWidget 完还没摆）：先让它算完再量。
+    if (auto *layout = m_content->layout()) {
+        layout->activate();
+    }
+    // 视口那块在 `m_content` 坐标系里：滚动值就是内容已经往上滚掉的像素数。
+    const QRect viewport =
+        m_scroll->viewport()->rect().translated(0, m_scroll->verticalScrollBar()->value());
+    QStringList seen;
+    const QList<QWidget *> rows =
+        m_content->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly);
+    for (QWidget *row : rows) {
+        const QVariant key = row->property(MainWindowUI::taskCenterPanelRowKeyProperty());
+        if (!key.isValid()) continue;
+        const QString keyText = key.toString();
+        if (!m_unreadFailureKeys.contains(keyText)) continue;
+        // `QRect::intersects` 判"挨着也算"（只露一条边不标才怪），这里要的是起码露一部分。
+        if (!viewport.intersects(row->geometry())) continue;
+        seen.append(keyText);
+    }
+    for (const QString &key : seen) {
+        m_unreadFailureKeys.remove(key);
+    }
+    m_ackInProgress = false;
+    // 动作放在最后发：`onRowAction` → 账本 `taskChanged` → 面板请求重建，重建会把上面
+    // 摸过的那些控件全删掉 —— 先收集、后发，循环里就不再碰控件。
+    for (const QString &key : seen) {
+        if (m_onRowAction) {
+            m_onRowAction(key, TaskCenter::RowAction::Seen);
+        }
+    }
 }
 
 void TaskCenterPanel::selectTask(const QString &key) {
@@ -1109,11 +1216,26 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
         back->setObjectName(QStringLiteral("taskCenterCompactBack"));
         Theme::markButton(back, Theme::ButtonKind::Ghost);
         connect(back, &QPushButton::clicked, back, [this]() {
-            m_compactDetailOpen = false;
-            m_selectedKey.clear();
-            syncSelection();
-            rebuildDetail(m_provider ? m_provider() : QList<TaskCenter::Item>());
-            applyWorkspaceMode();
+            // ★ 2026-10-20：这一发**不能同步**做。`rebuildDetail()` 第一件事就是把
+            //   `m_detailContent` 的全部子控件 delete 掉 —— 而 `back` 自己正站在这条信号栈
+            //   里（发送者就是它）。Qt 对"在 clicked 里删掉按钮本身"并不保证安全
+            //   （QAbstractButton 在发完 clicked 之后还要接着用自己的成员）。排到下一轮事件
+            //   循环：那时这条信号早就返回了，按钮也只剩一个待删除的对象。
+            QTimer::singleShot(0, this, [this]() {
+                if (!m_compact) {
+                    // 这一轮里面板换了形态/被关掉：「返回列表」这件事已经没有意义。
+                    return;
+                }
+                m_compactDetailOpen = false;
+                m_selectedKey.clear();
+                syncSelection();
+                // 窄屏那一档是"列表 ⇄ 详情"整块换的（见 applyWorkspaceMode()）—— 标志清了
+                // 得当场让它摆一次，不能等下面那一趟重建（那一趟是异步的，中间会空一帧）。
+                applyWorkspaceMode();
+                // 回到列表时顺手刷一次：这一页开着的这段时间里账本可能已经动过，而详情那一页
+                // 显示的是点开那一刻的快照。
+                requestRefresh();
+            });
         });
         layout->addWidget(back, 0, Qt::AlignLeft);
     }

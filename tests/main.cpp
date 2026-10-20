@@ -53,6 +53,7 @@
 #include <QWaitCondition>
 
 #include <algorithm>
+#include <limits>
 #include <stdexcept>
 
 #include "auth/AccountStore.hpp"
@@ -81,6 +82,9 @@
 // （真打 zip、真删目录、真还原），所以它要 .cpp 而不只是头文件，而且要在一个临时游戏
 // 文件夹里跑（备份落点就是 `<数据目录>/cache/backups`）。
 #include "manage/BackupFiles.hpp"
+// 删一棵目录那两个自由函数（`removeTreeWithoutFollowingLinks` / 只读文件那一手）。见 ZAN 节
+// —— 那两条**必须真动盘**才验得出来（只读位是盘上的属性、junction 更是）。
+#include "manage/FolderManager.hpp"
 // 「上一次启动」那本账（coding plan §5.1，2026-10-13）：主页那张卡唯一的数据源。见 ZR 节 ——
 // 那一节全是**纯函数**（给值、出字符串 / 一段字节），连时钟都不问（`whenText()` 的"现在"
 // 是参数），所以它不需要临时游戏文件夹，只有"落在哪个文件上"那一条要换一下数据根目录。
@@ -219,6 +223,9 @@
 // MainWindow 搬出来）。见 ZK13 起那一节 —— 它收成一个假 Host 就能驱动的形状，所以这一层
 // 现在验得了。**一个 QWidget 都不碰**。
 #include "controllers/ServerListController.hpp"
+// 实例配置 / 世界 level.dat 的世代备份（ZQ9 那一节量"格子按哪个实例的哪个世界分"）。
+// 那一层只碰 `AppPaths::worldBackupDir()` 和传进来的 worldDir，所以整节在临时数据根里跑。
+#include "controllers/InstanceMaintenanceController.hpp"
 // 「开游戏直接进某个存档 / 直接连某台服务器」那一对参数（--quickPlaySingleplayer /
 // --quickPlayMultiplayer）的判据层。见 ZL 节。
 #include "launcher/QuickPlay.hpp"
@@ -803,6 +810,53 @@ static int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
         check(o.stats.total == 4,
               "★ F6 索引 SHA1 不对: 索引没被解析（否则会多出 3 个 asset 任务）—— "
               "分母为 jar 1 + 库 2 + 失败索引 1；成功索引不计进度，失败索引计入并结算",
+              QString("total=%1").arg(o.stats.total));
+    }
+
+    // F6b 索引"能解析、但不是索引"：镜像/代理回一段合法 JSON 的错误体（{"error":...}）。
+    //
+    // ★ 2026-10-20：资源对象**故意不占** total/done 的格子（见 downloadAssets），所以从
+    //   前解析失败只 `qWarning` 一句就 return —— 整批照样以"0 个资源、全部成功"收尾：
+    //   版本装好了，材质音效一个都没有，界面上找不到任何异常。现在解析失败必须让索引这
+    //   一条算失败（走镜像退官方 → handleDownloadError），用户至少能看见"索引解析失败"。
+    {
+        const synth::RemoteFile brokenIndex = synth::makeRemote(
+            remoteDir, QStringLiteral("indexes/brokenidx.json"),
+            QByteArray(R"({"error":"mirror says no"})"));
+        QJsonObject brokenJson = goodJson;
+        QJsonObject ai = brokenJson[QStringLiteral("assetIndex")].toObject();
+        ai[QStringLiteral("id")] = QStringLiteral("brokenidx");
+        ai[QStringLiteral("url")] = brokenIndex.url;
+        ai[QStringLiteral("sha1")] = brokenIndex.sha1;
+        ai[QStringLiteral("size")] = brokenIndex.size;
+        brokenJson[QStringLiteral("assetIndex")] = ai;
+
+        const QString indexPath = sandbox + "/assets/indexes/brokenidx.json";
+        QFile::remove(indexPath);  // 先清掉，才能断言"坏索引没被留在盘上"
+
+        const QString brokenBase = work + "/brokenindex";
+        const BatchObservation o = runBatch(app, [&](DownloadManager &mgr) {
+            const QJsonObject client = goodJson[QStringLiteral("downloads")].toObject()
+                                           [QStringLiteral("client")].toObject();
+            mgr.downloadClientJar(QStringLiteral("synth-1"),
+                                  client[QStringLiteral("url")].toString(),
+                                  brokenBase + "/versions/synth-1/synth-1.jar",
+                                  client[QStringLiteral("sha1")].toString(),
+                                  client[QStringLiteral("size")].toVariant().toLongLong());
+            mgr.downloadLibraries(mgr.extractLibraries(brokenJson), brokenBase + "/libraries");
+            mgr.downloadAssets(mgr.extractAssetIndex(brokenJson));
+        });
+        out() << "        索引不是索引: emissions=" << o.emissions << " success=" << o.success
+              << " failed=" << o.stats.failed << " total=" << o.stats.total << "\n";
+        check(!o.success, "★ F6b 索引是合法 JSON 但不是资源索引: 整批报失败（改动前 success == true）");
+        check(o.stats.failed == 1 && o.stats.failedPaths.contains(indexPath),
+              "F6b 失败清单里是索引文件本身（不是 5000 个资源对象）",
+              QStringLiteral("failed=%1 contains=%2")
+                  .arg(o.stats.failed)
+                  .arg(o.stats.failedPaths.contains(indexPath)));
+        check(!QFile::exists(indexPath), "F6b 坏索引没有留在盘上");
+        check(o.stats.total == 4,
+              "F6b 一个 asset 任务都没排（分母 = jar 1 + 库 2 + 失败索引 1）",
               QString("total=%1").arg(o.stats.total));
     }
 
@@ -2128,6 +2182,56 @@ static int runInstanceFileTests(const QString &sandbox) {
         }
         check(!QDir(versionsRoot + "/" + loader).exists(),
               "N4 继承型用例的沙盒目录删干净了");
+    }
+
+    // ---- N5：半成品导入 vs 别的启动器装好的加载器实例 ----
+    //
+    // ★ 2026-10-20：这两者**长得一样**（没有 wtfml.meta、没有顶层 jar、json 里都有
+    //   inheritsFrom）。只按那三条判会把第三方实例从启动列表里弄消失、点启动还被拦一句
+    //   "还没装完"；所以判据多了第 ④ 条：导入开始时落的标记，或者"薄到只有三格"的 json。
+    {
+        const QString stub = QStringLiteral("N段-半成品导入");
+        writeFileAt(versionsRoot + "/" + stub + "/" + stub + ".json",
+                    "{\"id\":\"" + stub.toUtf8() +
+                        "\",\"inheritsFrom\":\"1.20.1\",\"type\":\"release\"}");
+        check(InstanceFiles::isUnfinishedImport(stub),
+              "N5 导入写下的薄 json（id / inheritsFrom / type）认成半成品");
+        QString problem;
+        check(InstanceFiles::checkImportTargetName(stub, &problem) ==
+                  InstanceFiles::ImportNameVerdict::OkResume,
+              "N5 撞上它时给的是「接着上次的导入」，不是「换个名字」");
+
+        const QString foreign = QStringLiteral("N段-第三方加载器");
+        writeFileAt(versionsRoot + "/" + foreign + "/" + foreign + ".json",
+                    "{\"id\":\"" + foreign.toUtf8() + "\",\"inheritsFrom\":\"1.20.1\","
+                    "\"mainClass\":\"net.fabricmc.loader.impl.launch.knot.KnotClient\","
+                    "\"libraries\":[]}");
+        check(!InstanceFiles::isUnfinishedImport(foreign),
+              "★ N5 别的启动器装的加载器实例**不是**半成品（否则会从列表里消失）");
+        check(InstanceFiles::checkImportTargetName(foreign, &problem) ==
+                  InstanceFiles::ImportNameVerdict::Taken,
+              "N5 那种目录仍然算「名字被占了」");
+
+        const QString marked = QStringLiteral("N段-有标记");
+        writeFileAt(versionsRoot + "/" + marked + "/" + marked + ".json",
+                    "{\"id\":\"" + marked.toUtf8() + "\",\"inheritsFrom\":\"1.20.1\","
+                    "\"mainClass\":\"x\",\"libraries\":[]}");
+        writeFileAt(InstanceFiles::importMarkerPath(marked), "2026-10-20T00:00:00Z");
+        check(InstanceFiles::isUnfinishedImport(marked),
+              "N5 有导入标记时就算 json 已经被盖成满的也算半成品");
+
+        const QString done = QStringLiteral("N段-做完了");
+        writeFileAt(versionsRoot + "/" + done + "/" + done + ".json",
+                    "{\"id\":\"" + done.toUtf8() +
+                        "\",\"inheritsFrom\":\"1.20.1\",\"type\":\"release\"}");
+        writeFileAt(AppPaths::versionMetaPath(done), "{}");
+        check(!InstanceFiles::isUnfinishedImport(done),
+              "N5 有 wtfml.meta 就永远不算半成品（哪怕 json 很薄）");
+
+        for (const QString &id : {stub, foreign, marked, done}) {
+            QDir(versionsRoot + "/" + id).removeRecursively();
+        }
+        check(!QDir(versionsRoot + "/" + marked).exists(), "N5 用例的沙盒目录删干净了");
     }
 
     {
@@ -12774,6 +12878,32 @@ static void runModpackImportTests(const QString &sandbox) {
                   replaced == manifest,
               "V5n 覆盖之后盘上那份是新包（原来那份已经不在了）");
 
+        // ③b `★ 2026-10-20`：目标旁边那两个"陪跑名"**不归我们处置**。
+        //     `<目标>.part` / `<目标>.bak` 这两个后缀太常见（别的下载器的半截、用户自己手
+        //     打的备份），原来那一趟上来就 `QFile::remove()` 它们。现在换一个没人用的名字，
+        //     用户那两份必须原样留在盘上（逐字节），而这一趟照样得打成功。
+        {
+            const QByteArray userPart = QByteArrayLiteral("用户的半截（别的下载器留下的）");
+            const QByteArray userBak = QByteArrayLiteral("用户的备份（自己手打的）");
+            writeFileAt(target + QStringLiteral(".part"), userPart);
+            writeFileAt(target + QStringLiteral(".bak"), userBak);
+            const QString beside = vm.writePackArchive(plan, target);
+            check(beside.isEmpty(), "V5n 目标旁边已经有一个 .part / .bak 时照样打得成", beside);
+            QFile partFile(target + QStringLiteral(".part"));
+            QFile bakFile(target + QStringLiteral(".bak"));
+            check(partFile.open(QIODevice::ReadOnly) && partFile.readAll() == userPart,
+                  "★★ V5n 那个现成的 `.part`（不是我们留下的）**一个字节都没被删/被改**");
+            check(bakFile.open(QIODevice::ReadOnly) && bakFile.readAll() == userBak,
+                  "★★ V5n 那个现成的 `.bak` 也原样在（别把用户自己的备份当残骸删了）");
+            QByteArray besideManifest;
+            check(ZipUtil::readEntry(target,
+                                     ModpackExport::indexFileName(ModpackExport::Format::Modrinth),
+                                     &besideManifest, &readError, QStringLiteral("读清单")) ==
+                      ZipUtil::EntryStatus::Ok &&
+                      besideManifest == manifest,
+                  "V5n 这一趟打出来的还是新包（陪跑名换了，结果没变）");
+        }
+
         // ④ 取消 / 出问题 / 没有实例目录：一律不写盘
         ModpackExport::ExportPlan cancelled = plan;
         cancelled.cancelled = true;
@@ -20241,6 +20371,39 @@ static void runErrorReportTests() {
     check(noErrors.contains(QStringLiteral("[21:03:10] 一切正常")),
           "ZI2 日志那一段照旧在");
 
+    // ★ 2026-10-20：内容截过就要**说出来**。崩溃报告正文只有末尾 200 / 500 行，而标题
+    //   原来照样写「共 N 行」—— 玩家把一份八千行的日志导出、发给别人排查时，前面真正的
+    //   起因早就不在文件里了，而文件自己说它是完整的。旗子由 `CrashReportController`
+    //   在"记录里的总行数 > 实际留下的行数"时竖起来；日志窗那条导出是全量，两个都 false。
+    {
+        ErrorReport::Facts truncated = full;
+        truncated.errorLines = 8000;
+        truncated.totalLines = 12000;
+        truncated.errorTruncated = true;
+        truncated.logTruncated = true;
+        const QString clipped = ErrorReport::text(
+            truncated, now,
+            QStringLiteral("[21:03:11] [Render thread/ERROR] 最后一条错误\n"),
+            QStringLiteral("[21:03:10] 起\n[21:03:11] 中\n"));
+        check(clipped.contains(QStringLiteral("错误与致命（末尾 1 行 / 原始共 8000 行）")),
+              "ZI2 ★ 截过的错误摘录：标题写「末尾几行 / 原始共 N 行」");
+        check(clipped.contains(
+                  QStringLiteral("日志末尾（最近 2 行 / 原始共 12000 行；完整日志没有导出）")),
+              "ZI2 ★ 截过的日志：标题明说完整日志不在这份文件里");
+        // 标题里那个"最近几行"读的是**递进来的文本**，不是记录里的总数 —— 换一份短的
+        // 文本，那个数就得跟着变（不然它写的是一句没人核对过的话）。
+        check(ErrorReport::text(truncated, now, QStringLiteral("一行"), QStringLiteral("一行"))
+                  .contains(QStringLiteral("日志末尾（最近 1 行 / 原始共 12000 行；完整日志没有导出）")),
+              "ZI2 截过的日志标题按**实际留下来的行数**写（不是拿总数冒充）");
+        // 旗子不竖 = 全量导出（日志窗那条路）—— 标题必须回到老写法。
+        ErrorReport::Facts atLimit = full;
+        atLimit.errorLines = 200;
+        atLimit.totalLines = 500;
+        check(ErrorReport::text(atLimit, now, QStringLiteral("一行"), QStringLiteral("一行"))
+                  .contains(QStringLiteral("完整日志（共 500 行）")),
+              "ZI2 没截（两个旗子都不竖）时标题照旧");
+    }
+
     // ---------------------------------------------------------------------
     section("ZI3. 两种文件名的推荐值（实例名里的坏字符要换掉）");
     // ---------------------------------------------------------------------
@@ -20825,6 +20988,112 @@ static void runTaskLedgerTests() {
                                                      QStringLiteral("新的"));
             check(next > 2, "AM3 新发的号在盘上那些之后（不撞号）",
                   QStringLiteral("新号 %1（盘上最大 2）").arg(next));
+        }
+
+        // ★★ AM3b（2026-10-20）：盘上那份是**普通文本文件**，重号 / 号回绕这两种坏账
+        //   都得在 `loadHistory()` 里挡住 ——
+        //     · 重号：`find()` 只认第一条，后面那条从此收不了尾；面板拿号当行钥匙，
+        //       两行共用一个钥匙 ⇒ 点一行的按钮打到另一条身上。
+        //     · `TaskId` 最大值：`id + 1` 回绕成 0 ⇒ 计数器退回 1 ⇒ 新任务和历史撞号，
+        //       而历史那一条是终态 ⇒ 真在跑的那件事**再也收不了尾**。
+        const QString badPath = dir.filePath(QStringLiteral("bad.tasks"));
+        {
+            QFile bad(badPath);
+            if (bad.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                bad.write(R"([
+                    {"id":"3","kind":"download","state":"succeeded","title":"甲"},
+                    {"id":"3","kind":"download","state":"succeeded","title":"甲（重号那一条）"},
+                    {"id":"18446744073709551615","kind":"download","state":"succeeded","title":"号到头了"},
+                    {"id":"5","kind":"download","state":"succeeded","title":"乙"}
+                ])");
+                bad.close();
+            }
+        }
+        {
+            Tasks::TaskManager manager;
+            manager.setHistoryPath(badPath);
+            const int loaded = manager.loadHistory();
+            check(loaded == 2, "AM3b 重号与最大号那两条被跳过，只留 3 与 5 两条",
+                  QString::number(loaded));
+            check(manager.snapshot(3).title == QStringLiteral("甲"),
+                  "AM3b 重号时留**第一条**（后面那条认不出是谁）",
+                  manager.snapshot(3).title);
+            check(!manager.has(std::numeric_limits<Tasks::TaskId>::max()),
+                  "AM3b 号等于 TaskId 最大值的那一条不进账本");
+            const Tasks::TaskId next = manager.begin(Tasks::TaskKind::Download,
+                                                     QStringLiteral("新的"));
+            check(next == 6, "AM3b 新发的号接在盘上最大值之后，没被回绕成 1",
+                  QString::number(next));
+            check(manager.succeed(next) && manager.snapshot(next).state == Tasks::TaskState::Succeeded,
+                  "AM3b 新那一件收得了尾（撞号的话这里会是 false）");
+        }
+
+        // ★★ AM3d（2026-10-20）：AM3b 只挡了"盘上正好写着最大值"那一档，还差半步 ——
+        //   盘上最大是 `max - 1` 时，`m_nextId` 算出来就是 `max`，发出去之后 `max + 1`
+        //   原地回绕成 0 ⇒ **从那以后每一件新任务都是 `invalidTaskId()`**：任务中心上
+        //   一行都不出现、`finish()` 永远收不了尾。号是**发出去的**，得自己确认这一个
+        //   没人用；最大值本身也不发（`loadHistory()` 下次会把它当坏账丢掉）。
+        const QString wrapPath = dir.filePath(QStringLiteral("wrap.tasks"));
+        {
+            QFile bad(wrapPath);
+            if (bad.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                bad.write(R"([
+                    {"id":"1","kind":"download","state":"succeeded","title":"一"},
+                    {"id":"18446744073709551614","kind":"download","state":"succeeded","title":"差一号到头"}
+                ])");
+                bad.close();
+            }
+        }
+        {
+            Tasks::TaskManager manager;
+            manager.setHistoryPath(wrapPath);
+            const int loaded = manager.loadHistory();
+            check(loaded == 2, "AM3d 前提：两条都读进来了（最大值减一不算坏账）",
+                  QString::number(loaded));
+            const Tasks::TaskId first =
+                manager.begin(Tasks::TaskKind::Download, QStringLiteral("新的甲"));
+            check(first != Tasks::invalidTaskId() && first != 1 &&
+                      first != std::numeric_limits<Tasks::TaskId>::max(),
+                  "AM3d 号快到头时新号的落点：不是 0（回绕）、不是已被占的 1、也不是最大值"
+                  "（下次读盘会被当坏账丢掉）",
+                  QString::number(first));
+            check(manager.succeed(first), "AM3d 新那件收得了尾",
+                  QString::number(first));
+            const Tasks::TaskId second =
+                manager.begin(Tasks::TaskKind::Download, QStringLiteral("新的乙"));
+            check(second != Tasks::invalidTaskId() && second != first && manager.succeed(second),
+                  "AM3d 紧跟着下一件也拿得到号、收得了尾（先前那一版这里就是 0）",
+                  QString::number(second));
+        }
+
+        // ★ AM3c（2026-10-20）：账本读不动的时候**不许当成"没有历史"默默吞掉**。
+        //   `loadHistory()` 之后紧跟着的第一次 `saveHistory()` 会把文件整个覆写 ——
+        //   用户看见的是"任务中心突然空了"，而盘上那份坏账本连证据都不剩。
+        //   现在原文件不动，旁边留一份 `<账本>.corrupt`。
+        {
+            const QString corruptPath = dir.filePath(QStringLiteral("corrupt.tasks"));
+            const QByteArray garbage = "{这不是 JSON，也不是数组";
+            {
+                QFile bad(corruptPath);
+                if (bad.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                    bad.write(garbage);
+                    bad.close();
+                }
+            }
+            Tasks::TaskManager manager;
+            manager.setHistoryPath(corruptPath);
+            check(manager.loadHistory() == 0, "AM3c 读不动的账本按空账本处理（照常起得来）");
+            const QString evidencePath = corruptPath + QStringLiteral(".corrupt");
+            check(QFile::exists(evidencePath), "AM3c 坏账本旁边留了一份 .corrupt", evidencePath);
+            const auto readAll = [](const QString &p) {
+                QFile f(p);
+                return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+            };
+            check(readAll(evidencePath) == garbage, "AM3c 留的是**原始字节**（不是重新序列化过的）");
+            // 之后那次落盘把账本重写成正常形状了，证据那份**不许跟着被覆盖**。
+            manager.begin(Tasks::TaskKind::Download, QStringLiteral("新的"));
+            check(readAll(evidencePath) == garbage,
+                  "AM3c 账本被重新写盘以后证据那一份原样留着");
         }
 
         // 「没跑完的读回来算已中断」：另起一个账本写一份**没跑完**的（begin 之后就丢下）。
@@ -22812,6 +23081,40 @@ static void runCopyInstanceAndWorldTests() {
                   NbtTree::descend(bare.root, QStringLiteral("Data"))->fields.size() == bareFields,
               "★★ ZL5 什么都没改 ⇒ 一个字段都没多出来");
 
+        // ★★ 2026-10-20：盘上那一格在、但**类型不对**（这里 `allowCommands` 是个 Int）。
+        //   游戏读它是按 Byte 读的，类型对不上就当没有这一项 —— 原来照写不误：值改成了 1、
+        //   类型还是 Int，界面上"开了"、进游戏却没开、收尾还报成功。
+        {
+            NbtTree::Document oddTypes;
+            oddTypes.root.type = NbtTree::Type::Compound;
+            oddTypes.root.fields = NbtTree::FieldList{field(
+                QStringLiteral("Data"),
+                compound(NbtTree::FieldList{field(QStringLiteral("allowCommands"), intNode(0)),
+                                            field(QStringLiteral("LevelName"), intNode(1))}))};
+            WorldFiles::WorldInfo oddInfo;
+            WorldFiles::readWorldInfo(oddTypes, false, &oddInfo);
+            check(oddInfo.hasAllowCommands && !oddInfo.hasLevelName,
+                  "ZL5' 数值那一格读得出来（Int 也算「有这一项」），文字那一格类型不对当没有");
+            WorldFiles::WorldInfo fix;
+            fix.hasAllowCommands = true;
+            fix.allowCommands = true;
+            QString oddWhy;
+            check(WorldFiles::applyWorldInfo(&oddTypes, fix, &oddWhy),
+                  "★★ ZL5' 类型不对的**数值格**照样写得进去（就地换成游戏认的类型）", oddWhy);
+            const NbtTree::Node *fixedNode =
+                NbtTree::descend(oddTypes.root, QStringLiteral("Data/allowCommands"));
+            check(fixedNode != nullptr && fixedNode->type == NbtTree::Type::Byte &&
+                      fixedNode->number == 1,
+                  "★★ ZL5' 写完之后是 Byte 的 1 —— 游戏那边才真读得住（不是「写成功了但没人认」）");
+            WorldFiles::WorldInfo again;
+            WorldFiles::readWorldInfo(oddTypes, false, &again);
+            check(again.hasAllowCommands && again.allowCommands, "ZL5' 读回来也是新的");
+            fix.hasLevelName = true;
+            fix.levelName = QStringLiteral("改个名");
+            check(!WorldFiles::applyWorldInfo(&oddTypes, fix, &oddWhy),
+                  "★★ ZL5' 文字那一格类型不对 ⇒ 明说写不进去（不写一个游戏不认的值）", oddWhy);
+        }
+
         // ★★ 2026-09-29：`MissingField::Create` 那一档 —— 界面上那四格**不再按"盘上有没有"
         //    灰掉**（用户原话「并允许修改值」），所以"盘上没有这一格"必须有个着落。
         //    上面那一条量的是**默认那一档**（`Refuse`，一个字段都不多）；这里量 `Create`。
@@ -23321,6 +23624,61 @@ static void runAsciiAliasTests() {
           "ZM6 ★ 另一套指向已消失实例的别名被顺手清掉了（不然会一直攒着）");
     check(QFileInfo(alias.root).isDir(), "ZM6 清的时候没碰自己这一套");
 
+    // --- ZM6'. ★ 反方向：**还活着**的那一套不许被当成过期的清掉（2026-10-20 修的那条） ---
+    //
+    // 判据 `liveTargetOfAlias()` 原来只读 `QFileInfo::symLinkTarget()`。我们建的是
+    // `mklink /J` 那种目录联接（IO_REPARSE_TAG_MOUNT_POINT），Qt 对它的 `isSymLink()`
+    // 恒为 false、`symLinkTarget()` 恒为空（读目标要用 `junctionTarget()`）—— 于是那个
+    // 判据恒回空，每一趟 `ensure()` 都把兄弟目录里**正在跑的那个实例**的别名当过期删掉。
+    // 后果不是报错：那场游戏之后每写一个文件（存档 / 日志轮转 / 还没加载过的类）都失败。
+    // 这里用"目标目录还在"当"还活着"的替身（产品侧那一条判据就是这么写的）。
+    {
+        const QString liveId = QStringLiteral("还在跑的实例");
+        const QString liveDir = AppPaths::versionDir(liveId);
+        writeFileAt(liveDir + QLatin1Char('/') + liveId + QStringLiteral(".jar"), QByteArray("k"));
+        const AsciiPathAlias::Paths liveAlias = AsciiPathAlias::pathsFor(liveId);
+        check(AsciiPathAlias::ensure(liveAlias, liveId, QString()).isEmpty(),
+              "ZM6' 先给一个活着的实例建一套别名");
+        check(AsciiPathAlias::ensure(alias, unicodeId, realNatives).isEmpty(),
+              "ZM6' 再启动一次本实例（ensure() 会顺手扫一遍兄弟目录）");
+        check(QFileInfo(liveAlias.root).isDir() && QFileInfo(liveAlias.gameDir).isDir() &&
+                  QFileInfo(liveAlias.gameDir).isJunction(),
+              "★★ ZM6' 目标还活着的那一套别名**原地留着**（扫过期的时候不许把它当过期删掉 ——"
+              "删了正在跑的那场游戏之后每个写盘都要失败）",
+              QStringLiteral("root 在 %1 / game 在 %2")
+                  .arg(QFileInfo(liveAlias.root).isDir() ? 1 : 0)
+                  .arg(QFileInfo(liveAlias.gameDir).isDir() ? 1 : 0));
+        // junctionTarget() 读得出目标（symLinkTarget() 对目录联接读不出来）—— 这条钉的是
+        // 上面那个修复所依赖的 Qt 行为，Qt 那边分类一变就得回来改。
+        check(QDir::cleanPath(QFileInfo(liveAlias.gameDir).junctionTarget())
+                      .compare(QDir::cleanPath(liveDir), Qt::CaseInsensitive) == 0,
+              "★ ZM6' 目录联接的目标读得出来（`junctionTarget()`），而且是那个实例目录",
+              QFileInfo(liveAlias.gameDir).junctionTarget());
+    }
+
+    // --- ZM6''. ★ 普通空目录不许当成"联接已经建好了"（2026-10-20 修的那条） ---
+    //
+    // `createJunction()` 是"先 mkpath、再设 reparse 点"两步。中间那一步失败（杀软、权限、
+    // 盘突然没了）留下的正是一个同名普通目录。`linkUsable()` 原来在"读不出目标名字"时
+    // 只判"通不通"——普通目录当然通，于是这一套被判成可用：`--gameDir` 指向缓存里的空壳，
+    // 游戏把存档、截图、logs 全写进 `cache/ascii/<hash>/game`，实例目录里一份都没有，
+    // 清一次缓存就全没了。natives 那一份同理（空的 java.library.path ⇒ UnsatisfiedLinkError）。
+    {
+        check(QDir().rmdir(alias.gameDir), "ZM6'' 先把 game 那个联接摘掉（前置）");
+        check(QDir().mkpath(alias.gameDir),
+              "ZM6'' 再在原位置建一个普通空目录（模拟 mklink 那一步失败留下的形状）");
+        check(!QFileInfo(alias.gameDir).isJunction(),
+              "ZM6'' 现在它确实是个普通目录（前置条件）");
+        check(AsciiPathAlias::ensure(alias, unicodeId, realNatives).isEmpty(),
+              "ZM6'' ensure() 在这一套上照样成功");
+        check(QFileInfo(alias.gameDir).isJunction(),
+              "★★ ZM6'' 普通目录被换**回**联接（不然存档会写进缓存目录、清缓存就没了）",
+              QFileInfo(alias.gameDir).junctionTarget());
+        writeFileAt(alias.gameDir + QStringLiteral("/saves/probe2.txt"), QByteArray("x"));
+        check(QFileInfo(instanceDir + QStringLiteral("/saves/probe2.txt")).isFile(),
+              "ZM6'' 重建之后从别名写进去的东西真的落在实例目录里");
+    }
+
     // --- ZM7. 数据目录自己带非 ASCII 时：宁可直说，不建一套没用的 ----------
     const QString unicodeRoot = temp.path() + QStringLiteral("/我的游戏");
     AppPaths::setMinecraftDir(unicodeRoot);
@@ -23333,6 +23691,129 @@ static void runAsciiAliasTests() {
           "ZM7 而且一个字节都没往盘上写");
 
     AppPaths::setMinecraftDir(originalDir);  // 收摊：后面那些节读的还是原来那一份
+}
+
+// ============================================================================
+// ZNat. natives 解压的"整套解完了"标记（2026-10-20）
+//
+// 旧判据是"目录里有没有 .dll"。可 natives 是**分组**解压的（每组一次
+// `ZipUtil::extractArchives`），第一组成功、第二组失败（盘满 / 被杀软锁住 / 用户中途关掉
+// 启动器）时目录里已经躺着第一组的 DLL：这一趟如实报错，**下一趟**却被当成"解过了"直接
+// 复用这份残缺目录 —— 症状从"解压失败"变成"进游戏崩在 UnsatisfiedLinkError"，而且每次
+// 启动都复用同一份坏东西，永远修不好。
+//
+// 标记只在全部解完、DLL 确实在了之后才写；解压失败时整个目录删掉。
+// 这一节全在临时游戏文件夹里跑（`AppPaths::setMinecraftDir()` 一处切换）。
+// ============================================================================
+static void runNativesMarkerTests() {
+    section("ZNat. natives 解压的完成标记（半套目录不许复用）");
+
+    const QString originalDir = AppPaths::minecraftDir();
+    QTemporaryDir temp;
+    check(temp.isValid(), "ZNat0 临时数据根目录建出来了");
+    if (!temp.isValid()) {
+        return;
+    }
+    AppPaths::setMinecraftDir(temp.path());
+
+    const QString versionId = QStringLiteral("1.99.9-natives");
+    const QString libRelative = QStringLiteral("synth/natives/1.0/natives-1.0.zip");
+    const QString libFile = QDir(AppPaths::libraryDir()).absoluteFilePath(libRelative);
+    const QString nativesDir = AppPaths::nativesDir(versionId);
+    // 产品侧那个标记的名字（`LauncherManager.cpp` 里的 `kNativeReadyMarker`，文件内
+    // static —— 这一条故意写成字面量：它一变，这里就该红）。
+    const QString marker = nativesDir + QStringLiteral("/.wtfml-natives-ok");
+    QDir().mkpath(QFileInfo(libFile).absolutePath());
+
+    // 形状照真 version.json 里旧格式的 natives 库抄：natives 字段 + downloads.classifiers。
+    // `url` 非空是 `NativeClassifier::valid()` 的一部分，这里不会真去下它（文件已在盘上）。
+    QJsonObject versionJson;
+    versionJson[QStringLiteral("libraries")] = QJsonArray{QJsonObject{
+        {QStringLiteral("name"), QStringLiteral("synth:natives:1.0")},
+        {QStringLiteral("natives"),
+         QJsonObject{{QStringLiteral("windows"), QStringLiteral("natives-windows")}}},
+        {QStringLiteral("downloads"),
+         QJsonObject{{QStringLiteral("classifiers"),
+                      QJsonObject{{QStringLiteral("natives-windows"),
+                                   QJsonObject{
+                                       {QStringLiteral("path"), libRelative},
+                                       {QStringLiteral("url"),
+                                        QStringLiteral("https://example.invalid/n.jar")}}}}}}}}};
+
+    // 造一份"里面只有一个 DLL"的压缩包（和 V5 一样借 Compress-Archive）。
+    const auto buildLib = [&](const QString &dllName) {
+        const QString src = temp.path() + QStringLiteral("/src-natives");
+        QDir(src).removeRecursively();
+        writeFileAt(src + QLatin1Char('/') + dllName, QByteArray("dll"));
+        QFile::remove(libFile);
+        const QString script =
+            QStringLiteral("Compress-Archive -Path %1 -DestinationPath %2 -Force")
+                .arg(QStringLiteral("'") + QDir::toNativeSeparators(src) + QStringLiteral("\\*'"),
+                     QStringLiteral("'") + QDir::toNativeSeparators(libFile) + QStringLiteral("'"));
+        QProcess ps;
+        ps.start(QStringLiteral("powershell"),
+                 {QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
+                  QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
+                  QStringLiteral("-Command"), script});
+        const bool ok = ps.waitForFinished(180000) &&
+                        ps.exitStatus() == QProcess::NormalExit && ps.exitCode() == 0;
+        check(ok, QStringLiteral("ZNat 造出 natives 压缩包（%1）").arg(dllName),
+              QString::fromLocal8Bit(ps.readAllStandardError()).trimmed().left(200));
+        return ok;
+    };
+
+    LauncherManager launcher;
+    QStringList errors;
+
+    // ---------- ZNat1. 第一次：解出来、DLL 在、标记写上了 ----------
+    if (!buildLib(QStringLiteral("lwjgl64.dll"))) {
+        AppPaths::setMinecraftDir(originalDir);
+        return;
+    }
+    const QString ready = launcher.prepareNatives(versionJson, versionId, &errors);
+    check(ready == nativesDir && errors.isEmpty(), "ZNat1 第一次解压成功，回的是 natives 目录",
+          errors.join(QStringLiteral(" / ")));
+    check(QFileInfo(nativesDir + QStringLiteral("/lwjgl64.dll")).isFile(),
+          "ZNat1 DLL 解出来了");
+    check(QFileInfo(marker).isFile(), "ZNat1 ★ 全部解完之后写了完成标记");
+    check(launcher.prepareNatives(versionJson, versionId, &errors) == nativesDir,
+          "ZNat1 第二趟走的是复用那条路（标记 + DLL 都在）");
+
+    // ---------- ZNat2. ★ 半套目录（DLL 在、标记不在）必须重解，不许复用 ----------
+    // 这就是"第一组成功、第二组失败"留下的形状：目录里有 DLL，但没有完成标记。
+    // 旧判据（只看有没有 .dll）会在这里直接返回 —— 换一份**多了个 DLL** 的压缩包，
+    // 复用的话那个新 DLL 永远不会出现。
+    QFile::remove(marker);
+    if (buildLib(QStringLiteral("lwjgl2.dll"))) {
+        const QString repaired = launcher.prepareNatives(versionJson, versionId, &errors);
+        check(repaired == nativesDir, "ZNat2 半套目录照样能再解一遍",
+              errors.join(QStringLiteral(" / ")));
+        check(QFileInfo(nativesDir + QStringLiteral("/lwjgl2.dll")).isFile(),
+              "★★ ZNat2 没有标记 ⇒ **重新解压**了（旧判据看到那个 DLL 就直接复用，"
+              "这一份永远不会出现 —— 崩在 UnsatisfiedLinkError 的那条路）");
+        check(QFileInfo(marker).isFile(), "ZNat2 重解成功之后标记补回来了");
+    }
+
+    // ---------- ZNat3. 解压失败：整套删掉，不留半截 ----------
+    QFile::remove(marker);
+    QDir().mkpath(QFileInfo(libFile).absolutePath());
+    {
+        QFile garbage(libFile);
+        if (garbage.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            garbage.write("这不是压缩包");
+        }
+    }
+    QStringList failureErrors;
+    const QString failed = launcher.prepareNatives(versionJson, versionId, &failureErrors);
+    check(failed.isEmpty() && !failureErrors.isEmpty(),
+          "ZNat3 坏掉的压缩包 ⇒ 返回空 + 一句错误（调用方据此弹窗、不启动）",
+          failureErrors.join(QStringLiteral(" / ")));
+    check(!QDir(nativesDir).exists(),
+          "★★ ZNat3 解压失败之后那半个目录被**整个删掉**了（留着它，下一趟会被当成"
+          "「解过了」复用）");
+    check(!QFileInfo(marker).isFile(), "ZNat3 当然也没有留下完成标记");
+
+    AppPaths::setMinecraftDir(originalDir);  // 收摊
 }
 
 // ============================================================================
@@ -24144,6 +24625,24 @@ static void runBackupTests() {
     check(!escape.isValid(), "★★ ZQ1 前缀是绝对路径的清单不认");
     escape.root = QStringLiteral("..");
     check(!escape.isValid(), "ZQ1 前缀就是 `..` 的清单不认");
+    // ★ 2026-10-20：Windows 打开路径时会把每一段末尾的空格 / 点折掉 —— 这几种写法和 `..`
+    //   是同一个落点（父目录本身），而下面几步会把那个路径**整个删掉**。
+    for (const QString &sneaky : {QStringLiteral(".. "), QStringLiteral(". "),
+                                  QStringLiteral("..."), QStringLiteral("a. "),
+                                  QStringLiteral("a "), QStringLiteral("CON"),
+                                  QStringLiteral("nul.txt")}) {
+        escape.root = sneaky;
+        check(!escape.isValid(),
+              QStringLiteral("★★ ZQ1 前缀「%1」不认（Windows 会把末尾的空格/点折掉 ⇒ 它落回的"
+                             "是**上一层/本层目录**，不是一个新的名字；保留设备名同理）")
+                  .arg(sneaky));
+    }
+    const QByteArray trailingSpaceRoot = QByteArrayLiteral(
+        "{\"format\":\"wtfml-backup/1\",\"kind\":\"world\",\"root\":\".. \","
+        "\"createdAt\":\"2026-10-13T10:15:30\"}");
+    bool trailingOk = true;
+    check(!BackupFiles::manifestFromJson(trailingSpaceRoot, &trailingOk).isValid() && !trailingOk,
+          "★★ ZQ1 从 JSON 读进来那条路也挡住了末尾空格（不是只有手搓的结构体才查）");
     const QByteArray slashRoot = QByteArrayLiteral(
         "{\"format\":\"wtfml-backup/1\",\"kind\":\"world\",\"root\":\"../../x\","
         "\"createdAt\":\"2026-10-13T10:15:30\"}");
@@ -24371,6 +24870,23 @@ static void runBackupTests() {
     check(readAll(restoredWorld + QStringLiteral("/level.dat")) == QByteArrayLiteral("STILL-HERE"),
           "★★ ZQ4 拒绝的时候现在这一份**一个字节都没动**（读清单在动盘之前）");
 
+    // ③' ★ 2026-10-20：落点已经是个**空目录**时照常还原，不许卡死在这一档。
+    //   原来只要落点是个已存在的目录就无条件先做安全快照，而空目录的 `writeBackup()`
+    //   必然失败（「这个目录是空的，没什么可备份的」）⇒ 之后每一次还原都停在
+    //   安全快照那一档，界面只说"目录没有被改动"，用户没有任何出口（上一次解压被杀在
+    //   第一份文件之前留下的正是这么一个空目录）。
+    {
+        const QString emptyParent = work + QStringLiteral("/空落点");
+        QDir().mkpath(emptyParent + QStringLiteral("/基地周目"));
+        const BackupFiles::RestoreResult ontoEmpty =
+            BackupFiles::restoreBackup(worldZip, emptyParent);
+        check(ontoEmpty.ok && ontoEmpty.safetyZip.isEmpty() &&
+                  readAll(emptyParent + QStringLiteral("/基地周目/level.dat")) ==
+                      QByteArrayLiteral("LEVELDATA"),
+              "★★ ZQ4 落点是个空目录 ⇒ 照常还原（没有「现在这一份」可留，不算失败）",
+              ontoEmpty.problem);
+    }
+
     // ④ 解出来了但对不上账：手搓一个"清单说 A、包里是 B"的包。
     {
         const QString tamper = work + QStringLiteral("/对不上");
@@ -24478,6 +24994,37 @@ static void runBackupTests() {
     check(BackupFiles::scopeLine(QStringLiteral("saves/基地周目"), 6)
               == QStringLiteral("saves/基地周目（6 个文件）"),
           "ZQ6 范围那一句的唯一出处");
+
+    // ---------- ZQ6'. 挑备份那一列的顺序（「越上面越新」） ----------
+    {
+        const QString label = QStringLiteral("新世界");
+        const QString prefix = BackupFiles::backupFilePrefix(label);
+        const QString dir = BackupFiles::backupDir(BackupFiles::Kind::World) + QLatin1Char('/');
+        const QString newerFile = dir + BackupFiles::backupFileName(
+                                            label, QDateTime(QDate(2026, 10, 19), QTime(21, 30)));
+        const QString safetyFile = dir + BackupFiles::backupFileName(
+                                             label, QDateTime(QDate(2026, 10, 19), QTime(21, 30)),
+                                             /*safety=*/true);
+        const QString midFile = dir + BackupFiles::backupFileName(
+                                          label, QDateTime(QDate(2026, 10, 10), QTime(9, 0)));
+        const QString oldFile = dir + BackupFiles::backupFileName(
+                                          label, QDateTime(QDate(2026, 10, 1), QTime(8, 0)));
+        const QStringList sorted = BackupFiles::sortBackupsNewestFirst(
+            QStringList{oldFile, safetyFile, midFile, newerFile}, prefix);
+        // ★ 2026-10-20：原来按整名字典序倒排 —— 安全快照名字里那段汉字码位在数字之后，
+        //   于是**每一份安全快照都排到了最新那份的上面**，"越上面越新"当场不成立。
+        check(sorted.size() == 4 && sorted.value(0) == safetyFile && sorted.value(1) == newerFile,
+              "★★ ZQ6' 「恢复前-」安全快照不会因为汉字排在数字后面就被摆到最新那份前面"
+              "（同一秒里它在前、常规那份紧跟）",
+              sorted.join(QLatin1Char('|')));
+        check(sorted.value(2) == midFile && sorted.value(3) == oldFile,
+              "★ ZQ6' 剩下的按时间从新到旧", sorted.join(QLatin1Char('|')));
+        const QStringList junk = BackupFiles::sortBackupsNewestFirst(
+            QStringList{dir + QStringLiteral("新世界-随手放的一份.zip"), newerFile}, prefix);
+        check(junk.size() == 2 && junk.value(0) == newerFile,
+              "★ ZQ6' 名字里认不出时间戳的那一份排最后（宁可往下摆，也不能顶掉最新那份）",
+              junk.join(QLatin1Char('|')));
+    }
 
     // ---------- ZQ7. 还原之后的逐文件对账（verifyTree）单独钉一遍 ----------
     const QString checkDir = work + QStringLiteral("/对账");
@@ -24595,6 +25142,93 @@ static void runBackupTests() {
               "★★ ZQ8 原地替换那一趟**不**因为「清单吹牛」就报空间不足"
               "（旧那份挪走会把空间还回来，那一趟交给解压/对账如实报）",
               inPlace.problem);
+    }
+
+    // -----------------------------------------------------------------
+    section("ZQ9. 世界 level.dat 的世代备份：**按「哪个实例的哪个世界」分格子**（§4.4）");
+    // -----------------------------------------------------------------
+    // ★ 2026-10-20：格子原来只按**存档目录名**分（`cache/world-backups/world/<时间戳>`），
+    //   两个实例各有一个叫 `world`（中文环境里更常见的是都叫「新的世界」）的存档就共用
+    //   一格。两件坏事：A 备份一次会把 B 的代数挤掉一份（清理按每格只留最近 N 代算），
+    //   而 `latestWorldBackup()` 会拿到**另一个世界**的 level.dat —— 界面上那句提示正是
+    //   "要还原的话把那一份拷回存档目录"，用户照着做，拿到的就是别人的种子和地形设置。
+    //   这一节拿两个同名的世界（分别在两个实例目录下）把两个方向都钉死。
+    {
+        const auto writeWorld = [](const QString &dir, const QByteArray &bytes) {
+            QDir().mkpath(dir);
+            writeFileAt(dir + QStringLiteral("/level.dat"), bytes);
+        };
+        const auto readAll = [](const QString &path) {
+            QFile file(path);
+            return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+        };
+        const QString instanceA = temp.path() + QStringLiteral("/versions/实例甲");
+        const QString instanceB = temp.path() + QStringLiteral("/versions/实例乙");
+        const QString worldA = instanceA + QStringLiteral("/saves/world");
+        const QString worldB = instanceB + QStringLiteral("/saves/world");
+        // 两份内容必须一眼分得出（下面比的是字节，不是"有没有"）。
+        writeWorld(worldA, QByteArrayLiteral("LEVEL-A"));
+        writeWorld(worldB, QByteArrayLiteral("LEVEL-B"));
+
+        QString why;
+        check(InstanceMaintenanceController::backupWorldLevelData(worldA, 20, &why),
+              "ZQ9 甲实例的 world 备份成功", why);
+        check(InstanceMaintenanceController::backupWorldLevelData(worldB, 20, &why),
+              "ZQ9 乙实例的 world 也备份成功（同名不冲突）", why);
+
+        const QString latestA = InstanceMaintenanceController::latestWorldBackup(worldA);
+        const QString latestB = InstanceMaintenanceController::latestWorldBackup(worldB);
+        check(!latestA.isEmpty() && !latestB.isEmpty(), "ZQ9 两边的「最近一份」都找得到",
+              latestA + QStringLiteral(" / ") + latestB);
+        check(latestA != latestB,
+              "★★ ZQ9 两个实例的同名世界**各自一格**（不是同一个 path 被两边当成自己的）",
+              latestA + QStringLiteral(" / ") + latestB);
+        check(readAll(latestA) == QByteArrayLiteral("LEVEL-A"),
+              "★★ ZQ9 甲实例查到的「最近一份」是**甲自己的** level.dat（不是乙的）",
+              QString::fromLatin1(readAll(latestA)));
+        check(readAll(latestB) == QByteArrayLiteral("LEVEL-B"),
+              "★★ ZQ9 乙实例查到的「最近一份」是**乙自己的** level.dat",
+              QString::fromLatin1(readAll(latestB)));
+        check(QDir::cleanPath(latestA).contains(QStringLiteral("实例甲")),
+              "ZQ9 备份路径里认得出是哪个实例（不是一串看不懂的哈希）", latestA);
+
+        // 清理是**按格**算代数的：乙再备份一次（keep=1）只能删乙自己那一代，
+        // 甲那一份必须原样在 —— 这正是"共用一格"时会被误删的那种东西。
+        check(InstanceMaintenanceController::backupWorldLevelData(worldB, 1, &why),
+              "ZQ9 乙实例再备份一次（keep=1）", why);
+        const QString latestAAfter = InstanceMaintenanceController::latestWorldBackup(worldA);
+        check(!latestAAfter.isEmpty() && readAll(latestAAfter) == QByteArrayLiteral("LEVEL-A"),
+              "★★ ZQ9 乙清自己的老代数时**没有**把甲那一份一起删掉", latestAAfter);
+        const QString slotB = QFileInfo(QFileInfo(latestB).absolutePath()).absolutePath();
+        const int gensB = QDir(slotB).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size();
+        check(gensB == 1, "ZQ9 乙那一格按 keep=1 收成了一代", QString::number(gensB));
+
+        // ★★ 2026-10-20：**"实例__世界"不是单射**。"__" 在实例名和世界名里都合法，
+        //    所以「SMP」+「2024__old」和「SMP__2024」+「old」拼出来的是同一格 ——
+        //    又是上面那两件坏事。格子名最后那段绝对路径哈希就是为了分开它们。
+        const QString instanceSmp = temp.path() + QStringLiteral("/versions/SMP");
+        const QString instanceSmp2024 = temp.path() + QStringLiteral("/versions/SMP__2024");
+        const QString worldSmpOld = instanceSmp + QStringLiteral("/saves/2024__old");
+        const QString worldSmp2024 = instanceSmp2024 + QStringLiteral("/saves/old");
+        writeWorld(worldSmpOld, QByteArrayLiteral("LEVEL-SMP"));
+        writeWorld(worldSmp2024, QByteArrayLiteral("LEVEL-SMP2024"));
+        check(InstanceMaintenanceController::backupWorldLevelData(worldSmpOld, 20, &why),
+              "ZQ9 名里带 __ 的那一对（甲）备份成功", why);
+        check(InstanceMaintenanceController::backupWorldLevelData(worldSmp2024, 20, &why),
+              "ZQ9 名里带 __ 的那一对（乙）备份成功", why);
+        const QString latestSmpOld = InstanceMaintenanceController::latestWorldBackup(worldSmpOld);
+        const QString latestSmp2024 =
+            InstanceMaintenanceController::latestWorldBackup(worldSmp2024);
+        check(!latestSmpOld.isEmpty() && !latestSmp2024.isEmpty()
+                  && latestSmpOld != latestSmp2024,
+              "★★ ZQ9 「SMP / 2024__old」和「SMP__2024 / old」各占一格（`__` 拼出来的"
+              "同形格子名不许再撞）",
+              latestSmpOld + QStringLiteral(" / ") + latestSmp2024);
+        check(readAll(latestSmpOld) == QByteArrayLiteral("LEVEL-SMP")
+                  && readAll(latestSmp2024) == QByteArrayLiteral("LEVEL-SMP2024"),
+              "★★ ZQ9 两格里的 level.dat 各是各的",
+              QString::fromLatin1(readAll(latestSmpOld)) + QStringLiteral(" / ")
+                  + QString::fromLatin1(readAll(latestSmp2024)));
     }
 
     AppPaths::setMinecraftDir(originalDir);
@@ -30469,6 +31103,21 @@ static void runUpdateRollbackTests() {
               "ZU3 上一趟那份的原件跟着没了");
     }
 
+    {
+        const QString dir = UpdateRollback::snapshotDir(instanceId);
+        check(QDir().rename(dir, dir + QStringLiteral(".previous")),
+              "ZU3 interrupted preparation retains prior snapshot");
+        check(UpdateRollback::read(instanceId).isValid(),
+              "ZU3 orphaned previous snapshot remains readable before retry");
+        QDir().mkpath(dir + QStringLiteral("/files"));
+        writeAt(dir + QStringLiteral("/files/incomplete"), QByteArrayLiteral("partial"));
+        const auto retry = UpdateRollback::create(instanceDir, instanceId,
+            QStringList{QStringLiteral("shaderpacks/光影.zip")}, nullptr, true);
+        check(retry.isValid() && UpdateRollback::discard(instanceId)
+                  && UpdateRollback::read(instanceId).isValid(),
+              "ZU3 rejected retry after interrupted copy preserves last good rollback");
+    }
+
     // ---------- ZU4. 读 / 撤干净 / 清单读不动 ----------
     {
         bool ok = false;
@@ -33229,6 +33878,109 @@ static void runServerContentTests() {
 //   · **酿造**：链式前驱（隐身 ← 夜视 ← 粗制的药水）、水瓶直出（虚弱 / 缓降）、
 //     红石与荧石二选一、以及"滞留必须先从喷溅来"那一步。
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// 删一棵目录（`FolderManager` 里那两个自由函数）。见 ZAN 节。
+//
+// ★ 2026-10-20：这一节钉的是两件**只有在真盘上才看得见**的事：
+//   ① Windows 上 Qt 6.10 的 `QFile::remove()` 就是一句 `DeleteFile()`，**不会**替你摘
+//      `FILE_ATTRIBUTE_READONLY` —— 只读文件于是"删不掉"。用户从只读介质拷来的整合包、被
+//      网盘/别的启动器标成只读的 jar，删实例、删文件时会卡在这一步，而界面那句提示写的是
+//      "多半是它正被游戏占着"：关掉游戏再删一百次也没用。
+//   ② 删这一棵**绝不许顺着链接走过去**：`QDir::removeRecursively()` 跟进去把链接那头的东西
+//      真删掉（见 FolderManager.cpp 文件头那段实测记录）。
+// ---------------------------------------------------------------------------
+static void runFolderRemovalTests() {
+    section("ZAN. 删一棵目录（FolderManager）：只读文件删得掉，链接那一头一个字节都不动");
+
+    QTemporaryDir temp;
+    check(temp.isValid(), "ZAN1 前提：临时目录建出来了", temp.errorString());
+    if (!temp.isValid()) {
+        return;
+    }
+
+    // ---------- ZAN1. 只读的**单件文件** ----------
+    {
+        const QString path = temp.filePath(QStringLiteral("只读.txt"));
+        const bool written = writeBytesAt(path, QByteArrayLiteral("ro"));
+        const bool marked = QFile::setPermissions(
+            path, QFileDevice::ReadOwner | QFileDevice::ReadUser | QFileDevice::ReadGroup |
+                      QFileDevice::ReadOther);
+        check(written && marked && !(QFileInfo(path).permissions() & QFileDevice::WriteUser),
+              "★ ZAN1 前提：那一件真的落成了只读（没有写位）",
+              QStringLiteral("写=%1 标=%2 权限=%3")
+                  .arg(written)
+                  .arg(marked)
+                  .arg(int(QFileInfo(path).permissions())));
+        check(removeTreeWithoutFollowingLinks(path) && !QFile::exists(path),
+              "★★ ZAN1 只读文件**删得掉**（第一次失败后摘掉只读位再试一次）—— 这是"
+              "「删不掉，多半是游戏占着」那句提示不再指错方向的根据");
+    }
+
+    // ---------- ZAN2. 一棵目录里躺着只读文件（嵌两层，走的是递归那一条路）----------
+    {
+        const QString root = temp.filePath(QStringLiteral("实例"));
+        const QString nested = root + QStringLiteral("/mods/子目录");
+        const bool made = QDir().mkpath(nested);
+        const bool wroteNormal = writeBytesAt(root + QStringLiteral("/普通.txt"),
+                                              QByteArrayLiteral("正常"));
+        const bool wroteRo = writeBytesAt(nested + QStringLiteral("/只读.jar"),
+                                          QByteArrayLiteral("只读"));
+        QFile::setPermissions(nested + QStringLiteral("/只读.jar"),
+                              QFileDevice::ReadOwner | QFileDevice::ReadUser);
+        check(made && wroteNormal && wroteRo, "★ ZAN2 前提：那一棵树摆好了");
+        // NOTE: 最后那一栏只报**路径**。`check()` 的几个实参求值次序是没保证的 —— 在这里再问
+        //       一次 `QDir(root).exists()` 的话，问到的可能是"删之前"那一份，红的时候反而
+        //       把人带偏。
+        check(removeTreeWithoutFollowingLinks(root) && !QDir(root).exists(),
+              "★★ ZAN2 整棵删干净了 —— 中间躺着一件只读文件也不该让「删实例」停在一半",
+              QDir::toNativeSeparators(root));
+        // 只读位**只有在第一次真的失败之后才动**：正常文件一次成功，权限一个字节都不碰。
+        // 这一条只能验"删完之后没人回来把只读位留在别人的文件上"—— 那一件文件已经没了，
+        // 所以真正钉住它的是上面那条"删干净了"（多一步摘位不会让结果不同，这里只为记下
+        // 这条约定的位置）。
+        check(!QFile::exists(nested + QStringLiteral("/只读.jar")),
+              "★ ZAN2 那件只读文件本身也没了（不是只把目录拆了）");
+    }
+
+    // ---------- ZAN3. 本来就不在：算成功（删两次不会报错）----------
+    {
+        const QString gone = temp.filePath(QStringLiteral("压根没有/也没有.txt"));
+        check(removeTreeWithoutFollowingLinks(gone),
+              "★ ZAN3 删一个本来就不存在的东西回 true —— 调用方问的是「它还在不在」，"
+              "不是「这一下有没有真干活」");
+    }
+
+    // ---------- ZAN4. 里面那根 junction：只摘链接，那一头一个字节都不动 ----------
+    {
+        const QString outside = temp.filePath(QStringLiteral("外面那一块盘"));
+        const QString victim = temp.filePath(QStringLiteral("受害"));
+        QDir().mkpath(outside);
+        QDir().mkpath(victim);
+        const bool outsideWritten =
+            writeBytesAt(outside + QStringLiteral("/别人的存档.dat"), QByteArrayLiteral("别删我"));
+        const bool victimWritten =
+            writeBytesAt(victim + QStringLiteral("/自己的.txt"), QByteArrayLiteral("可以删"));
+        const QString link = victim + QStringLiteral("/挂过来的目录");
+        const bool madeLink =
+            QProcess::execute(QStringLiteral("cmd"),
+                              {QStringLiteral("/c"), QStringLiteral("mklink"), QStringLiteral("/J"),
+                               QDir::toNativeSeparators(link),
+                               QDir::toNativeSeparators(outside)}) == 0 &&
+            QFileInfo(link).isJunction();
+        check(outsideWritten && victimWritten && madeLink,
+              "★ ZAN4 前提：真造出一根 junction（mklink /J）");
+        if (madeLink) {
+            check(removeTreeWithoutFollowingLinks(victim) && !QDir(victim).exists(),
+                  "★★ ZAN4 这一棵删掉了（链接本身也算删掉了）");
+            check(QFile::exists(outside + QStringLiteral("/别人的存档.dat")) &&
+                      QDir(outside).exists(),
+                  "★★ ZAN4 链接那一头**一个字节都不动** —— 删实例不许牵连挂在外面的存档/"
+                  "网盘目录（`QDir::removeRecursively()` 会跟进去）");
+        }
+        QDir(outside).removeRecursively();
+    }
+}
+
 static void runToolboxExtraTests() {
     section("ZAI. 工具箱：信标计算 / 酿造助手（§9.11）");
 
@@ -34161,6 +34913,59 @@ static void runToolboxExtraTests() {
               QStringLiteral("%1 行，首行「%2」")
                   .arg(capped.lineCount())
                   .arg(capped.lines().isEmpty() ? QString() : capped.lines().first().text));
+
+        // ★ 2026-10-20：被上限挤掉的行**要记得数**。导出错误报告那一段写的是"原始共 N 行"，
+        // 而 N 只从模型这儿问得出来 —— 从前模型只知道自己**留着**几行，被挤掉的那些无声无息
+        // 就没了，报告于是把"挤掉了一大半"写成"一共就这么多"。
+        check(capped.receivedLineCount() == 5 && capped.droppedLineCount() == 2 &&
+                  capped.droppedLineCountFrom(Level::Info) == 2 &&
+                  capped.droppedLineCountFrom(Level::Error) == 0,
+              "★★ ZAM2b 挤掉的行要记账：收到的（5）= 留着的（3）+ 挤掉的（2），"
+              "而且按每一行自己的级别分开记",
+              QStringLiteral("收到=%1 留着=%2 挤掉=%3（Info=%4 Error=%5）")
+                  .arg(capped.receivedLineCount())
+                  .arg(capped.lineCount())
+                  .arg(capped.droppedLineCount())
+                  .arg(capped.droppedLineCountFrom(Level::Info))
+                  .arg(capped.droppedLineCountFrom(Level::Error)));
+
+        RuntimeOutputModel cappedMix(3);
+        cappedMix.addLine(QStringLiteral("[main/ERROR] e1"));
+        cappedMix.addLine(QStringLiteral("[main/ERROR] e2"));
+        cappedMix.addLine(QStringLiteral("[main/INFO] i1"));
+        cappedMix.addLine(QStringLiteral("[main/INFO] i2"));
+        check(cappedMix.droppedLineCount() == 1 &&
+                  cappedMix.droppedLineCountFrom(Level::Error) == 1 &&
+                  cappedMix.droppedLineCountFrom(Level::Warn) == 1 &&
+                  cappedMix.droppedLineCountFrom(Level::Fatal) == 0 &&
+                  cappedMix.receivedLineCount() == 4,
+              "★★ ZAM2c droppedLineCountFrom() 是从那一级往上求和（导出报告问"
+              "「错误与致命挤掉了几行」用的就是 Error）",
+              QStringLiteral("挤掉=%1 Error起=%2 Warn起=%3 Fatal起=%4")
+                  .arg(cappedMix.droppedLineCount())
+                  .arg(cappedMix.droppedLineCountFrom(Level::Error))
+                  .arg(cappedMix.droppedLineCountFrom(Level::Warn))
+                  .arg(cappedMix.droppedLineCountFrom(Level::Fatal)));
+
+        // `setCapacity()` 往下缩也是同一条路（用户在设置里调小上限 / 日志窗改容量）。
+        cappedMix.setCapacity(1);
+        check(cappedMix.lineCount() == 1 && cappedMix.droppedLineCount() == 3 &&
+                  cappedMix.receivedLineCount() == 4 && cappedMix.countFor(Level::Info) == 1,
+              "★★ ZAM2d 缩小容量走的是同一条记账路（挤掉的 3 行 = 两条 ERROR + 一条 INFO）",
+              QStringLiteral("留着=%1 挤掉=%2 收到=%3")
+                  .arg(cappedMix.lineCount())
+                  .arg(cappedMix.droppedLineCount())
+                  .arg(cappedMix.receivedLineCount()));
+
+        // 「清空」是主动不要这些行了：之后再问"原始共几行"必须从零开始，
+        // 不然用户清空之后导出的报告还挂着上一次那一大截。
+        capped.clear();
+        check(capped.receivedLineCount() == 0 && capped.droppedLineCount() == 0 &&
+                  capped.droppedLineCountFrom(Level::Info) == 0,
+              "★★ ZAM2e clear() 把挤掉的那一份也归零（收到的行数跟着回 0）",
+              QStringLiteral("收到=%1 挤掉=%2")
+                  .arg(capped.receivedLineCount())
+                  .arg(capped.droppedLineCount()));
 
         // 档位筛选。
         RuntimeOutputModel filt(100);
@@ -38072,14 +38877,37 @@ int main(int argc, char *argv[]) {
         // (a) 找不到 Java 的早退路径：返回 0，而且**不留会话**。
         GlobalJavaSettings missing;
         missing.setJavaPath(sandbox + "/no-such-java.exe");
+        // ★ 2026-10-20：早退路径除了那句带号的 processError，还必须再发一条
+        //   `sessionDiscarded`。界面（GameSessionController）收到 processError 时会按号
+        //   给这一份建一扇游戏日志窗、记一笔底账 —— 而这一号此后**再也不会有任何信号**
+        //   （它连进程都没起），所以不补这一条的话，那些东西会随"启动失败的次数"一直留在
+        //   内存里、窗也永远不自己关。两发的号码必须对得上。
+        QList<int> errorSessionIds;
+        QList<int> discardedSessionIds;
+        QObject::connect(&mgr, &LauncherManager::processError, &app,
+                         [&errorSessionIds](int sessionId, const QString &) {
+                             errorSessionIds.append(sessionId);
+                         });
+        QObject::connect(&mgr, &LauncherManager::sessionDiscarded, &app,
+                         [&discardedSessionIds](int sessionId) {
+                             discardedSessionIds.append(sessionId);
+                         });
         check(mgr.startGame({QStringLiteral("-version")}, missing, QStringLiteral("1.20.1")) == 0,
               "Java 路径不存在时 startGame 返回 0（不是会话号）");
+        check(errorSessionIds.size() == 1 && errorSessionIds.first() > 0,
+              "报错那一句带着会话号发出来（界面据此把话挂到实例名上）",
+              QString::number(errorSessionIds.size()));
+        check(discardedSessionIds == errorSessionIds,
+              "早退之后**再发一条 sessionDiscarded**，号码和报错那一句是同一个"
+              "（界面靠它把刚替这一号建出来的日志窗和底账收掉）",
+              QStringLiteral("discarded=%1 error=%2")
+                  .arg(discardedSessionIds.size())
+                  .arg(errorSessionIds.size()));
         check(mgr.runningCount() == 0 && !mgr.hasRunningGame(),
               "启动失败**不留下会话** —— 底栏不该挂着一句「实例运行中」",
               QString::number(mgr.runningCount()));
-        check(mgr.session(1).sessionId == 0,
-              "失败的那一份连号都不占（会话表里没有它）",
-              QString::number(mgr.session(1).sessionId));
+        check(mgr.session(errorSessionIds.isEmpty() ? 0 : errorSessionIds.first()).sessionId == 0,
+              "失败的那一份连号都不占（会话表里没有它）");
 
         const QString ping = QStandardPaths::findExecutable(QStringLiteral("ping"));
         if (ping.isEmpty()) {
@@ -38194,6 +39022,13 @@ int main(int argc, char *argv[]) {
                   "全停掉之后一份都不剩（会话表收干净了）",
                   QString::number(mgr.runningCount()));
             check(mgr.runningGames().isEmpty(), "会话列表也跟着空了");
+            // ★ 2026-10-20：**跑完的会话不许发 sessionDiscarded**。它只属于"从没真的起来过"
+            //   的那三条早退路径；在正常结束那一路抢先发一句，界面会把这一份的底账和日志窗
+            //   一起清掉 —— 崩溃那几行没了、「导出错误报告」也导不出来（收尾本来归
+            //   gameFinished，见 GameSessionController::onGameFinished）。
+            check(discardedSessionIds.size() == 1,
+                  "正常结束的那些会话一条 sessionDiscarded 都不发（那是早退路径的专利）",
+                  QString::number(discardedSessionIds.size()));
         }
     }
 
@@ -38544,6 +39379,10 @@ int main(int argc, char *argv[]) {
     runAsciiAliasTests();
 
     // -----------------------------------------------------------------
+    // natives 解压的完成标记（半套目录不许复用），见上面 ZNat 节。同样自开临时游戏文件夹。
+    runNativesMarkerTests();
+
+    // -----------------------------------------------------------------
     // 体检（只报不装）那套判据，见上面 ZN 节。**一个文件都不下、一个字节都不写**，
     // 所以它只在一个临时游戏文件夹里摆文件、比结论。清单和实例对不对得上（"体检说的就是
     // 这个实例装配时会去下的那些"）在 mw_check 的 T19.15。
@@ -38689,6 +39528,9 @@ int main(int argc, char *argv[]) {
     runServerResourcePackTests();
     // 服务端内容（§9.7）：模组 / 数据包的名字与分类（ZAH）。
     runServerContentTests();
+    // 删一棵目录（FolderManager）：只读文件 + 不追链接。见上面 ZAN 节 —— **真动盘**
+    // （只读位是盘上的属性，junction 更是）。
+    runFolderRemovalTests();
     // 工具箱那两件（§9.11）：信标计算 / 酿造助手（ZAI）。
     runToolboxExtraTests();
 

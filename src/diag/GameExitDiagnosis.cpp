@@ -211,15 +211,22 @@ QStringList hints(const Facts &facts) {
     //   两句一起说等于让用户二选一，那比只说一句糟。
     if (!facts.crashed && facts.exitCode != 0 && facts.logCaptured && facts.errorLineCount == 0
         && !isLoadFailure(facts.exitCode)) {
-        say(QStringLiteral("日志里一条 ERROR/WARN 都没有 —— 这多半不是崩溃，是游戏自己退出的"
+        // ★ 2026-10-20：这句话原来写「ERROR/WARN 都没有」，可 `errorLineCount` 数的是
+        //   **ERROR 及以上**（Error / Fatal，出处 `GameLogWindow::logTextFrom(Error)` 和
+        //   `sessionLogTailErrors()`）—— 日志里只有 WARN 时它也会照说不误，玩家照着
+        //   "WARN 也没有"去排除，把真正的线索漏掉。文案跟着判据写。
+        say(QStringLiteral("日志里一条 ERROR/Fatal 都没有 —— 这多半不是崩溃，是游戏自己退出的"
                            "（比如点了退出，或者这个存档已经在别的地方开着）。"));
     }
 
     // ⑧ 压根没拿到输出。放在最后：它是"上面那些结论的依据缺一块"的说明，不是原因本身。
     if (!facts.logCaptured) {
-        say(QStringLiteral("这一趟没有收到游戏的输出 —— 「设置 → 启动选项」里那个「显示游戏"
-                           "日志」关着。再遇到问题可以先把它打开，那时这一页会多几句能指认"
-                           "原因的话。"));
+        // ★ 2026-10-20：这句原来把原因归到「显示游戏日志」那个开关上。现在不是了 ——
+        //   进程输出另有一份和窗无关的底账（`GameSessionController::sessionLogTail`），
+        //   开关关着也照样收得到。真的一行都没有，那是游戏自己没打到能收的地方。
+        say(QStringLiteral("这一趟没有收到游戏的输出 —— 进程起来之后一行都没打出来。"
+                           "多半是 JVM 还没初始化就退出了：先看「设置 → 启动选项」里的 "
+                           "Java 选得对不对、内存是不是塞得太满。"));
     }
 
     return out;

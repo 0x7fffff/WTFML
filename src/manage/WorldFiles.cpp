@@ -78,6 +78,19 @@ bool readStringField(const NbtTree::Node &root, const QString &path, bool *prese
 bool writeFieldOrCreate(NbtTree::Node *root, const QString &path, const QString &text,
                         NbtTree::Type type, WorldFiles::MissingField whenMissing) {
     if (NbtTree::Node *node = NbtTree::descend(root, path)) {
+        // ★ 2026-10-20：盘上那一格在、但类型和这一项**该有的**不一样（典型：`allowCommands`
+        //   是个 Int）—— 原来照写不误：值改成了 1，类型还是 Int，而游戏读它是按 Byte 读的，
+        //   类型对不上就当**没有这一项**。结果是界面上"开了"、进游戏却没开、收尾还报成功。
+        //   数值那几格（声明的类型是整数）就地换成声明的类型再写：用户要的是这个值，类型
+        //   是游戏要的；文字那一格（世界名）不做这种转换 —— 类型不对就**明说写不进去**。
+        //   和上面"建出来一个类型错的字段"是同一条理由（见 ZL5 那条断言）。
+        if (node->type != type) {
+            if (NbtTree::integerBits(type) == 0 || NbtTree::integerBits(node->type) == 0) {
+                return false;
+            }
+            node->type = type;
+            node->number = 0;
+        }
         return NbtTree::setValueText(node, text);
     }
     if (whenMissing != WorldFiles::MissingField::Create) {
@@ -475,18 +488,18 @@ bool applyWorldInfo(NbtTree::Document *document, const WorldInfo &info, QString 
         !writeFieldOrCreate(root, QStringLiteral("Data/allowCommands"),
                             info.allowCommands ? QStringLiteral("1") : QStringLiteral("0"),
                             NbtTree::Type::Byte, whenMissing)) {
-        return fail(QStringLiteral("「允许作弊」没写进去。"));
+        return fail(QStringLiteral("「允许作弊」没写进去（盘上那一格不是 0/1 那种数）。"));
     }
     if (info.hasHardcore &&
         !writeFieldOrCreate(root, QStringLiteral("Data/hardcore"),
                             info.hardcore ? QStringLiteral("1") : QStringLiteral("0"),
                             NbtTree::Type::Byte, whenMissing)) {
-        return fail(QStringLiteral("「极限模式」没写进去。"));
+        return fail(QStringLiteral("「极限模式」没写进去（盘上那一格不是 0/1 那种数）。"));
     }
     if (info.hasDifficulty &&
         !writeFieldOrCreate(root, QStringLiteral("Data/Difficulty"),
                             QString::number(info.difficulty), NbtTree::Type::Byte, whenMissing)) {
-        return fail(QStringLiteral("「难度」没写进去。"));
+        return fail(QStringLiteral("「难度」没写进去（盘上那一格不是 0/1/2/3 那种数）。"));
     }
 
     // 游戏规则：逐条走 `setGameRule()`。它**只改已有的**（不发明），名字对不上就是"没写

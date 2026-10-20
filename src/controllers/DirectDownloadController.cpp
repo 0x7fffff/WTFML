@@ -183,13 +183,30 @@ bool DirectDownloadController::canCancel(Tasks::TaskId id) const {
 bool DirectDownloadController::cancel(Tasks::TaskId id) {
     if (!owns(id)) return false;
     if (m_activity != nullptr && m_activity->isQueued(id)) { m_pendingPaths.remove(id); m_activity->tasks()->cancel(id); return true; }
-    if (canCancel(id)) {
-        if (!m_download->cancel()) return true;
-        m_running = false;
-        m_activity->tasks()->cancel(m_task);
-        m_status = tr("已取消，原文件未替换；完整分段已保留，重开程序后用同一链接和目标可继续。");
-        if (m_dialog) { m_dialog->setBusy(false); m_dialog->showProgress(0, 1, m_status); }
+    if (id != m_task || !m_running || m_download == nullptr) return true;
+    // ★ 2026-10-20：`canCancel()` 为假、或者 `cancel()` 回 false，都是**这一步真的停不下来**
+    //   （分段作业已经进了校验 / 原子提交那一段 —— 见 `ResumableDownload::cancel()`：提交
+    //   半路打断只会留一个半截文件）。以前这两条路照样 `return true` 且一句话不说：用户
+    //   看到的是"按了取消、进度条还在走、什么都没发生"。这里把那句话摆到小窗和任务中心
+    //   那一行上，然后**仍然按 true 收场**（这一下就是冲这一项来的，别让调用方再往别的
+    //   分支上找；那不是它的事）。
+    const auto reportUnstoppable = [this]() {
+        m_status = tr("已经进入收尾（校验 / 写盘），这一步停不下来，等它写完。");
+        if (m_dialog) m_dialog->status->setText(m_status);
+        if (m_activity != nullptr) m_activity->tasks()->setDetail(m_task, m_status);
+    };
+    if (!canCancel(id)) {
+        reportUnstoppable();
+        return true;
     }
+    if (!m_download->cancel()) {
+        reportUnstoppable();
+        return true;
+    }
+    m_running = false;
+    m_activity->tasks()->cancel(m_task);
+    m_status = tr("已取消，原文件未替换；完整分段已保留，重开程序后用同一链接和目标可继续。");
+    if (m_dialog) { m_dialog->setBusy(false); m_dialog->showProgress(0, 1, m_status); }
     return true;
 }
 void DirectDownloadController::shutdown() {

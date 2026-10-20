@@ -119,6 +119,15 @@ QString backupFilePrefix(const QString &label);
 /// 字符先过一遍替换，见 .cpp）。`safety` 为真时中间多一个「恢复前」。
 QString backupFileName(const QString &label, const QDateTime &at, bool safety = false);
 
+/// 把挑备份那一段要摆出来的那几份**按时间从新到旧**排好（`backupFileName()` 的逆运算：
+/// 认名字里那串定宽时间戳，**不是**按整个文件名字典序）。
+///
+/// 为什么不能直接按文件名字典序：自动留下的「恢复前-」安全快照在名字里多插了一段汉字，
+/// 汉字码位在数字之后 ⇒ 每一份安全快照都会排到最新的常规备份前面，"越上面越新"就反了。
+/// 同一秒里自动那份排前面（它就是用户刚点的那份改动之前的原样，一眼要看得见）。
+/// 名字里认不出时间戳的那几份排在最后（按名字倒序，稳定可复现）。
+QStringList sortBackupsNewestFirst(const QStringList &paths, const QString &prefix);
+
 /// 走一遍目录，把要记进清单的文件列出来（**按路径排序**，可复现）。
 /// @param rootDir 要走的目录（必须存在）。
 /// @param excludeTop 要跳过的**顶层目录名**（实例快照排 assets / libraries 用的就是它）。

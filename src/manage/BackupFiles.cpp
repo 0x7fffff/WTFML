@@ -117,6 +117,44 @@ QStringList stringListOf(const QJsonValue &value) {
     return out;
 }
 
+/// 这一串能不能原样当一个**目录名**用（还原的落点是 `targetParentDir + "/" + root` 拼出来的）。
+///
+/// ★ 只挡 `/`、`\`、`.`、`..` 是不够的（2026-10-20 补）：Windows 在打开路径时会把每一段
+///   **末尾的空格和点折掉** —— `".. "`、`". "`、`"..."`、`"a. "` 全都解析回上一层 / 本层
+///   目录。于是 `target = 父目录/".. "` 指向的就是父目录本身：安全快照照做（把父目录整个
+///   收进去）、`isDir()` 为真、整棵父目录被删掉，再把包里那一份解回来，最后报「还原完成」。
+///   所以末尾的空格 / 点一律不认；保留设备名（CON / NUL / COM1 …）同样不认。
+bool isSafeComponent(const QString &name) {
+    if (name.isEmpty() || name == QLatin1String(".") || name == QLatin1String("..")) {
+        return false;
+    }
+    if (name.endsWith(QLatin1Char('.')) || name.endsWith(QLatin1Char(' '))) {
+        return false;
+    }
+    for (const QChar &character : name) {
+        const ushort code = character.unicode();
+        if (code < 0x20 || character == QLatin1Char('/') || character == QLatin1Char('\\') ||
+            character == QLatin1Char(':') || character == QLatin1Char('<') ||
+            character == QLatin1Char('>') || character == QLatin1Char('"') ||
+            character == QLatin1Char('|') || character == QLatin1Char('?') ||
+            character == QLatin1Char('*')) {
+            return false;
+        }
+    }
+    // 保留设备名：`CON`、`NUL`、`COM1`…，带扩展名也一样（`CON.txt` 仍是设备）。
+    const QString stem = name.section(QLatin1Char('.'), 0, 0).trimmed().toUpper();
+    static const QStringList reserved{
+        QStringLiteral("CON"),  QStringLiteral("PRN"),  QStringLiteral("AUX"),
+        QStringLiteral("NUL"),  QStringLiteral("COM1"), QStringLiteral("COM2"),
+        QStringLiteral("COM3"), QStringLiteral("COM4"), QStringLiteral("COM5"),
+        QStringLiteral("COM6"), QStringLiteral("COM7"), QStringLiteral("COM8"),
+        QStringLiteral("COM9"), QStringLiteral("LPT1"), QStringLiteral("LPT2"),
+        QStringLiteral("LPT3"), QStringLiteral("LPT4"), QStringLiteral("LPT5"),
+        QStringLiteral("LPT6"), QStringLiteral("LPT7"), QStringLiteral("LPT8"),
+        QStringLiteral("LPT9")};
+    return !reserved.contains(stem);
+}
+
 }  // namespace
 
 bool Manifest::isValid() const {
@@ -126,16 +164,9 @@ bool Manifest::isValid() const {
     // 前缀只能是**一个目录名**。还原时落点是 `targetParentDir + "/" + root` 拼出来的，
     // 里面带上 `/`、`..` 或者盘符就能把文件写到别的地方去 —— 我们自己写的包不会这样，
     // 但"拿一个别人的包来还原"是用户能做的事，所以读回来的那一刻就得挡住。
-    if (root.contains(QLatin1Char('/')) || root.contains(QLatin1Char('\\'))) {
-        return false;
-    }
-    if (root == QLatin1String(".") || root == QLatin1String("..")) {
-        return false;
-    }
-    if (QDir::isAbsolutePath(root)) {
-        return false;
-    }
-    return true;
+    // ★ 2026-10-20：判据收在 `isSafeComponent()` 一处（末尾空格/点、保留设备名那几类
+    //   Windows 会自己折掉 / 换掉的写法也在那儿挡）。
+    return isSafeComponent(root);
 }
 
 QString manifestEntryName() {
@@ -286,6 +317,37 @@ QString backupFileName(const QString &label, const QDateTime &at, bool safety) {
     return name;
 }
 
+QStringList sortBackupsNewestFirst(const QStringList &paths, const QString &prefix) {
+    const QString safetyMark = QStringLiteral("恢复前-");
+    struct Key {
+        QString stamp;   // 名字里那串时间戳（不含「恢复前-」和 `.zip`）
+        bool stamped = false;
+        bool safety = false;
+    };
+    const auto keyOf = [&prefix, &safetyMark](const QString &path) {
+        Key key;
+        // 前缀长度是定死的（label + '-'），大小写不敏感匹配也不影响截取位置。
+        QString rest = QFileInfo(path).fileName().mid(prefix.size());
+        key.safety = rest.startsWith(safetyMark);
+        if (key.safety) rest = rest.mid(safetyMark.size());
+        key.stamped = !rest.isEmpty() && rest.at(0).isDigit();
+        key.stamp = rest;
+        return key;
+    };
+    QStringList sorted = paths;
+    std::sort(sorted.begin(), sorted.end(), [&keyOf](const QString &a, const QString &b) {
+        const Key aKey = keyOf(a);
+        const Key bKey = keyOf(b);
+        // 认得出时间戳的排前面；两边都认得出才按时间戳从新到旧。
+        if (aKey.stamped != bKey.stamped) return aKey.stamped;
+        if (aKey.stamped && aKey.stamp != bKey.stamp) return aKey.stamp > bKey.stamp;
+        // 同一秒（或者都认不出）：自动留下的那一份在前，剩下的按名字倒序。
+        if (aKey.safety != bKey.safety) return aKey.safety;
+        return a > b;
+    });
+    return sorted;
+}
+
 QList<FileRecord> collectFiles(const QString &rootDir, const QStringList &excludeTop,
                                QString *problemOut) {
     if (problemOut != nullptr) {
@@ -319,7 +381,9 @@ QList<FileRecord> collectFiles(const QString &rootDir, const QStringList &exclud
         const QDir dir(frame.abs);
         // 和 `ModpackExport::collectInstanceFiles()` 同一组 flags：隐藏文件**要收**
         // （存档里 `.gitignore`、加载器写的状态文件都带点，"名字带不带点"不该决定
-        // 它进不进备份），目录**不跟链接**（见 isLinkToElsewhere）。
+        // 它进不进备份），目录**不跟链接**（见 isLinkToElsewhere）—— 一个指回祖先的
+        // junction 能让这圈枚举转不完，指向实例外面的会把别人的东西打进包。文件那一边
+        // 跟着链接（一个指向文件的符号链接就是一份文件，ModpackExport 那边同一取舍）。
         const QFileInfoList plainFiles =
             dir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden, QDir::Name);
         for (const QFileInfo &entry : plainFiles) {
@@ -445,7 +509,31 @@ WriteResult writeBackup(const Manifest &manifest, const QString &sourceDir,
     }
 
     QString error;
-    const bool made = ZipUtil::createZip(targetZip, entries, &error);
+    // ★ 2026-10-20：**同一秒里打两份的时候名字是一样的**（`backupFileName()` 只精确到秒），
+    //   而 .NET 那边是 `ZipFile::Open($target,'Create')` —— 同名文件会被**截断重写**。
+    //   连着点两下「立即备份」，或者"还原前的安全快照"正好和用户点的那一份同秒，前一份就
+    //   这样被静默丢掉了（更糟：打包半路失败时 `ZipUtil::createZip()` 还会把目标删掉 ——
+    //   连"上一次那份好的"一起没）。所以落盘之前先找一个**没人占**的名字，并把实际路径
+    //   写回 `result.zipPath`（调用方弹窗和日志读的都是它，不是原来那个）。
+    QString target = targetZip;
+    if (QFileInfo::exists(target)) {
+        const QFileInfo info(target);
+        const QString suffix = info.suffix();
+        const QString stem = suffix.isEmpty() ? info.fileName()
+                                              : info.fileName().chopped(suffix.size() + 1);
+        for (int n = 2; QFileInfo::exists(target) && n < 1000; ++n) {
+            target = QDir(info.absolutePath())
+                         .filePath(suffix.isEmpty() ? QStringLiteral("%1-%2").arg(stem).arg(n)
+                                                    : QStringLiteral("%1-%2.%3").arg(stem).arg(n).arg(suffix));
+        }
+        if (QFileInfo::exists(target)) {
+            result.problem = QObject::tr("同名的备份太多了，换一个时间再试：%1")
+                                 .arg(QDir::toNativeSeparators(targetZip));
+            return result;
+        }
+    }
+    result.zipPath = target;
+    const bool made = ZipUtil::createZip(target, entries, &error);
     // 成功失败都一样删：它躺在系统临时目录里，里面是这个实例 / 世界都有哪些文件。
     QFile::remove(manifestPath);
     if (!made) {
@@ -539,6 +627,16 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
     }
 
     const QString target = QDir(targetParentDir).filePath(manifest.root);
+    // ★ 双保险：落点必须正好是父目录底下的**那一层**。`Manifest::isValid()` 那一头已经
+    //   把奇怪的名字挡住了，这里再问一遍拼出来的路径最后一段还是不是 `root` —— 下面几步
+    //   会**整个删掉**这个路径，拼错一层就是删掉别人的东西。
+    if (QFileInfo(target).fileName().compare(manifest.root, Qt::CaseInsensitive) != 0) {
+        result.stage = RestoreResult::Stage::ReadManifest;
+        result.problem = QObject::tr("这份备份里记的落点（%1）不是一个能找到的目录名，"
+                                     "为了不动到别的东西，这一份没有解开。")
+                             .arg(manifest.root);
+        return result;
+    }
     result.targetPath = target;
 
     // ② 动盘之前先看一眼这块盘放不放得下 —— **只在落点是一块空地时**看。
@@ -579,12 +677,17 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
             safety.sourceInstanceName = manifest.sourceInstanceName;
             safety.gameVersion = manifest.gameVersion;
             safety.worldName = manifest.worldName;
-            safety.complete = manifest.complete;
-            safety.excluded = manifest.excluded;
+            // ★ 2026-10-20：安全快照**必须完整**，不能把被还原那一份的 `excluded` /
+            //   `complete` 原样抄过来。下面几步是把 `target` **整个**删掉再解开新的一份 ——
+            //   删的时候不分什么 assets / libraries。照抄的话，用户还原一份普通快照
+            //   （excluded = assets、libraries）时，那两棵目录被删了、安全快照里也没有，
+            //   而我们上一条还在跟用户说"这一步是能退回来的"。
+            safety.complete = true;
+            safety.excluded.clear();
             safety.safety = true;
             safety.createdAt = QDateTime::currentDateTime();
             safety.scope = QStringList{
-                QObject::tr("还原之前自动给「现在这一份」做的安全快照")};
+                QObject::tr("还原之前自动给「现在这一份」做的完整安全快照")};
 
             const QString dir = backupDir(safety.kind);
             QDir().mkpath(dir);
@@ -593,13 +696,27 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
 
             const WriteResult snapshot = writeBackup(safety, target, safetyZip);
             if (!snapshot.ok) {
-                result.stage = RestoreResult::Stage::SafetySnapshot;
-                result.problem = QObject::tr("没能在还原之前给「现在这一份」做安全快照：%1"
-                                             "\n为了不让你丢东西，这个目录**没有被改动**。")
-                                     .arg(snapshot.problem);
-                return result;
+                // ★ 2026-10-20：落点是个**空目录**（上一次解压被杀在第一份文件之前、或者
+                //   游戏 / 用户自己建了一个空存档目录）时没有"现在这一份"可留 ——
+                //   `writeBackup()` 会以「这个目录是空的，没什么可备份的」失败，而这里
+                //   又要求"快照不成就不往下走" ⇒ 之后**每一次**还原都卡死在这一档，
+                //   界面上只说"目录没被改动"，用户没有任何出口。
+                //   空目录删掉本来就没有损失，所以这一种失败放行（别种失败照旧拦）。
+                QString probeProblem;
+                const QList<FileRecord> present = collectFiles(target, QStringList(), &probeProblem);
+                if (!probeProblem.isEmpty() || !present.isEmpty()) {
+                    result.stage = RestoreResult::Stage::SafetySnapshot;
+                    result.problem = QObject::tr("没能在还原之前给「现在这一份」做安全快照：%1"
+                                                 "\n为了不让你丢东西，这个目录**没有被改动**。")
+                                         .arg(snapshot.problem);
+                    return result;
+                }
+                // 空目录：不留安全快照，接着往下（`result.safetyZip` 保持空）。
+            } else {
+                // `zipPath` 才是**真正**落盘的那一个（同秒撞名时 `writeBackup()` 会换一个
+                // 名字，见那里），不是我们上面按时间戳拼出来的候选名。
+                result.safetyZip = snapshot.zipPath;
             }
-            result.safetyZip = safetyZip;
         } else {
             // 同名的**文件**（不是目录）：没有"快照"这一说，直接挪开。备份里那是一条
             // 记录不了的东西 —— 走到这儿多半是用户自己在那儿放过一个同名文件。

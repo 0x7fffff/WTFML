@@ -522,6 +522,14 @@ PresetManifest create(const QString &root, const QString &name, const QString &d
         return PresetManifest();
     }
     if (!saveManifest(root, manifest)) {
+        // ★ 建目录成、清单没写成 ⇒ 把这个 id 的目录整棵收掉（2026-10-20）。不收的话盘上
+        //   留下一个**有目录没 manifest** 的 UUID：`list()` 会把它当成"坏预设"列出来，
+        //   用户看到一条自己没建过的坏条目，重试还会再留一个。`duplicate()` 那条路早就
+        //   是这么收的（下面），这里原来漏了。
+        const QString dir = presetDir(root, manifest.id);
+        if (QFileInfo::exists(dir)) {
+            removeTreeWithoutFollowingLinks(dir);
+        }
         return PresetManifest();
     }
 

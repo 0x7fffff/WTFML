@@ -363,6 +363,22 @@ QStringList VersionManager::installedVersions(QStringList *warnings) const {
             // 宁可在这里说不认识，也不能让列表里躺着一个点了会炸的条目。
             const InstanceFiles::Resolved resolved = InstanceFiles::resolveInstance(versionDir);
             if (resolved.recognized()) {
+                // ★ 2026-10-20：**半成品导入不算装好了**。整合包导入第一步就把那份薄 json
+                //   （`id` + `inheritsFrom`）落盘，失败时目录刻意留着（已下的几百 MB 在里面）。
+                //   `recognized()` 只看"jar 在不在或有没有 inheritsFrom"，于是这种目录满足它 ——
+                //   列进启动列表就能被启动（缺文件，崩在缺库上），而且启动时那一步
+                //   `updateVersionMeta()` 会写出 wtfml.meta，`isUnfinishedImport()` 从此再也
+                //   认不出它，"接着上次的导入"那条路就断了。
+                //   它该由 ImportController 在同一名字上认出来（`ImportNameVerdict::OkResume`）。
+                if (InstanceFiles::isUnfinishedImport(versionDir)) {
+                    if (warnings != nullptr) {
+                        warnings->append(
+                            tr("目录 %1 是上一次没导完的整合包（没有顶层 jar），先不列在启动列表里；"
+                               "重新导入同一个整合包、用同一个名字就能接着下。")
+                                .arg(versionDir));
+                    }
+                    continue;
+                }
                 versions.append(versionDir);
                 continue;
             }
@@ -576,6 +592,10 @@ bool VersionManager::cancelActiveDownload() {
 }
 
 bool VersionManager::canRetryDownload() const { return m_failedBatch.valid; }
+
+QString VersionManager::retryBatchLabel() const {
+    return m_failedBatch.valid ? m_failedBatch.label : QString();
+}
 
 bool VersionManager::retryDownload() {
     if (!m_failedBatch.valid || m_failedBatch.jobs.isEmpty()) {
@@ -1199,6 +1219,13 @@ void VersionManager::startModpackFiles() {
     json[QStringLiteral("type")] = QStringLiteral("release");
 
     QString error;
+    // ★ 2026-10-20：导入开始的标记先落下（`isUnfinishedImport()` 靠它区分"我们没导完的"
+    //   和"别的启动器装好的加载器实例"，见那边的 ④）。写不进去也不算失败：那种老办法
+    //   （看薄 json 的形状）仍然认得出这一份；它只是少一层最硬的证据。
+    QDir().mkpath(AppPaths::versionDir(id));
+    if (QFile marker(InstanceFiles::importMarkerPath(id)); marker.open(QIODevice::WriteOnly)) {
+        marker.write(QDateTime::currentDateTimeUtc().toString(Qt::ISODate).toUtf8());
+    }
     if (!writeVersionJson(id, AppPaths::versionDir(id), json, &error)) {
         failModpackImport(tr("实例的版本文件没能写进 %1：%2\n\n（这份文件是启动器认这个实例的"
                              "凭据，写不进去就等于没导入。）")
@@ -1329,6 +1356,10 @@ void VersionManager::finishModpackImport() {
         emit modpackImportMessage(tr("装好了，但没能写进 wtfml.meta（%1）——「版本名」里会少一段。")
                                       .arg(metaError));
     }
+    // 导入做完了：把"正在导入"的标记摘掉（判据见 InstanceFiles::isUnfinishedImport()）。
+    // ★ 摘了也不会把"meta 没写成功"那一种变成正常实例：那份 json 还是薄的三格，形状判据
+    //   照样认得出它 —— 用户想再导一遍时仍然走"接着上次的导入"，不会丢那条路。
+    QFile::remove(InstanceFiles::importMarkerPath(id));
 
     // 少装了什么必须说出来（跳过的文件、解开的覆盖文件）—— 用户看不到的那部分最容易
     // 变成"进了游戏才发现少个 mod"。
@@ -3852,6 +3883,26 @@ bool VersionManager::renameInstance(const QString &oldId, const QString &newName
     if (!QDir(oldDir).exists()) {
         return fail(tr("找不到实例目录 %1。").arg(QDir::toNativeSeparators(oldDir)));
     }
+    // ★ 2026-10-20：实例目录本身是 junction / 符号链接时**拒绝改名**。
+    //
+    //   下面这几步对链接的含义全是"穿过去":写 meta、把 `<旧名>.jar` / `<旧名>.json`
+    //   改成新名字 —— 动的是**链接那一头**的文件；最后 `QDir().rename(oldDir, newDir)`
+    //   又只挪链接本身（目标原地不动）。两头一对，用户看到的是"改名成功了"，而实际状态是
+    //   "那一头的 jar/json 被改了名、链接换了个名字指着它" —— 如果那一头是几个启动器/
+    //   几个游戏文件夹共用的目录，别名启动器也会跟着坏；更常见的是用户把另一个盘上的实例
+    //   挂进来，点一下改名就把那边动了。
+    //
+    //   和删除（`removeTreeWithoutFollowingLinks`）、复制（`copyTreeWithoutFollowingLinks`
+    //   直接拒收链接）同一条规矩：**链接不追**，说不清楚就不动手。想改就去那一头改。
+    {
+        const QFileInfo oldDirInfo(oldDir);
+        if (oldDirInfo.isJunction() || oldDirInfo.isSymLink()) {
+            return fail(tr("「%1」本身是一个链接（它指向另一个目录）。\n\n"
+                           "给链接改名会动到它指向的那一边，所以这里不做。"
+                           "请到那个目录上直接改名，或者先把它换成普通文件夹。")
+                            .arg(QDir::toNativeSeparators(oldDir)));
+        }
+    }
     // NOTE: 这里**不判** `QDir(newDir).exists()`。目标已经存在的情况
     //       validateRenameTarget() 里按重名挡过了，而它挡不了、这里也不该挡的正是
     //       "只差大小写"那一种 —— 那种目标就是它自己，判存在会把唯一合法的改名拒掉。
@@ -3917,19 +3968,28 @@ bool VersionManager::renameInstance(const QString &oldId, const QString &newName
                         .arg(reason, stuck.join(QStringLiteral("\n"))));
     };
 
-    if (!renameOnto(oldJarPath, newJarPath)) {
-        return rollbackAndFail(tr("无法把 %1 改名成 %2（可能有别的程序正开着它）。")
-                                   .arg(QDir::toNativeSeparators(oldJarPath),
-                                        QDir::toNativeSeparators(newJarPath)));
+    // ★ 2026-10-20：只改**真在盘上**的那几个文件。`InstanceFiles::jarName()` 对"主 jar 在
+    //   父版本目录里"的加载器实例返回的是**父版本**那个文件名（见它的说明），那个文件本来
+    //   就不在 oldDir 里；`jsonName()` 也有"认不出来就退回 `<id>.json`"的那一档。照着一个
+    //   不存在的位置去 rename，失败信息会指着一个**从来没存在过**的路径，用户照着去查只会
+    //   更糊涂（而且那本来就不该算一次失败 —— 没有自己的 jar 不是错误）。
+    if (QFileInfo::exists(oldJarPath)) {
+        if (!renameOnto(oldJarPath, newJarPath)) {
+            return rollbackAndFail(tr("无法把 %1 改名成 %2（可能有别的程序正开着它）。")
+                                       .arg(QDir::toNativeSeparators(oldJarPath),
+                                            QDir::toNativeSeparators(newJarPath)));
+        }
+        jarRenamed = true;
     }
-    jarRenamed = true;
 
-    if (!renameOnto(oldJsonPath, newJsonPath)) {
-        return rollbackAndFail(tr("无法把 %1 改名成 %2（可能有别的程序正开着它）。")
-                                   .arg(QDir::toNativeSeparators(oldJsonPath),
-                                        QDir::toNativeSeparators(newJsonPath)));
+    if (QFileInfo::exists(oldJsonPath)) {
+        if (!renameOnto(oldJsonPath, newJsonPath)) {
+            return rollbackAndFail(tr("无法把 %1 改名成 %2（可能有别的程序正开着它）。")
+                                       .arg(QDir::toNativeSeparators(oldJsonPath),
+                                            QDir::toNativeSeparators(newJsonPath)));
+        }
+        jsonRenamed = true;
     }
-    jsonRenamed = true;
 
     if (!QDir().rename(oldDir, newDir)) {
         return rollbackAndFail(tr("无法把目录 %1 改名成 %2（可能有别的程序正开着它）。")
@@ -4071,8 +4131,8 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
     // NOTE: 用 renameOnto() 而不是 QFile::rename：只差大小写的那种"目标已存在"其实是
     //       同一个文件（Windows 的路径比较本来就不区分大小写），那种改名是合法的。
     //       这里的 renameOnto 落到的是**刚拷出来的那一份**里，不是源。
-    const auto moveInCopy = [&](const QString &suffix) -> bool {
-        const QString from = destDir + QLatin1Char('/') + id + suffix;
+    const auto moveInCopy = [&](const QString &suffix, const QString &oldName) -> bool {
+        const QString from = destDir + QLatin1Char('/') + oldName;
         const QString to = destDir + QLatin1Char('/') + name + suffix;
         if (from.compare(to, Qt::CaseSensitive) == 0 || !QFile::exists(from)) {
             // 名字一样（副本叫原来的名）或者这一份本来就没有那个文件（比如只有 json、
@@ -4081,7 +4141,29 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
         }
         return renameOnto(from, to);
     };
-    if (!moveInCopy(QStringLiteral(".jar")) || !moveInCopy(QStringLiteral(".json"))) {
+    // ★ 2026-10-20：**源文件名要现扫源目录**，不能拿 `id` 现拼。用户在资源管理器里
+    //   把目录改过名的那种实例，jar / json 还叫旧名字（真机上就有：目录 `原版ATT2地图（无模组）`
+    //   里躺着 `ATT2原版地图（无模组）.jar`）。按 `id + 后缀` 找的话 from 不存在，这一句
+    //   会当"本来就没有"静默跳过 —— 副本里那份 jar 于是还叫旧名，而下面第 4 步的 meta 与
+    //   整个副本都按新名成立，只有这一对名字没跟上。
+    //
+    //   NOTE: 不能用 `InstanceFiles::jarName(id)` —— 那个算的是**当前数据目录**下的
+    //         `versions/<id>`，而这一份的源可能是另一个游戏文件夹（见 `copyInstanceFrom()`
+    //        的 sourceDir）。这里要的是"源目录自己那三个清单"，所以只借纯函数 `resolve()`。
+    InstanceFiles::DirListing sourceListing;
+    sourceListing.dirName = id;
+    {
+        const QDir source(sourceDir);
+        sourceListing.jarNames = source.entryList(QStringList() << QStringLiteral("*.jar"), QDir::Files);
+        sourceListing.jsonNames = source.entryList(QStringList() << QStringLiteral("*.json"), QDir::Files);
+    }
+    const InstanceFiles::Resolved sourceNames = InstanceFiles::resolve(sourceListing);
+    const QString sourceJar = sourceNames.jarName.isEmpty() ? id + QStringLiteral(".jar")
+                                                            : sourceNames.jarName;
+    const QString sourceJson = sourceNames.jsonName.isEmpty() ? id + QStringLiteral(".json")
+                                                              : sourceNames.jsonName;
+    if (!moveInCopy(QStringLiteral(".jar"), sourceJar)
+        || !moveInCopy(QStringLiteral(".json"), sourceJson)) {
         return fail(tr("复制出来了，但里面的 jar / json 没能跟着改名，这一份用不了。%1")
                         .arg(removePartial()));
     }
@@ -5692,8 +5774,21 @@ QString VersionManager::writePackArchive(const ModpackExport::ExportPlan &plan,
 
     // 「先写 .part、成功了再改名」：用户中途关掉启动器、或者磁盘满了，盘上留下的是一个
     // `xxx.mrpack.part`，而不是一个看着像整合包、双击却打不开的文件。
-    const QString partPath = targetZip + QStringLiteral(".part");
-    QFile::remove(partPath);
+    //
+    // ★ 2026-10-20：**不删**已经在那儿的 `<目标>.part` / `<目标>.bak`，换一个没人用的
+    //   名字（`.part-2`、`.bak-2`…）。这两个后缀太常见了 —— 别的下载器留下的半截、用户
+    //   自己手打的一份备份，都可能正好叫这个名字。原来那两行 `QFile::remove()` 会把它们
+    //   当"我们上一趟的残骸"直接删掉，而那不是我们的文件（那个 `.bak` 尤其像用户自己的
+    //   备份：我们自己的 `.bak` 只在成功换名之后存在几毫秒，崩溃留下的那种又只会在目标
+    //   已经不存在时才出现，而那种情况这一趟根本不会走到这儿）。
+    const auto freshSidecar = [](const QString &base, const QString &suffix) {
+        QString candidate = base + suffix;
+        for (int i = 2; QFile::exists(candidate) && i < 1000; ++i) {
+            candidate = base + suffix + QLatin1Char('-') + QString::number(i);
+        }
+        return candidate;
+    };
+    const QString partPath = freshSidecar(targetZip, QStringLiteral(".part"));
     QString error;
     if (!ZipUtil::createZip(partPath, ModpackExport::archiveEntries(plan, manifestPath), &error)) {
         QFile::remove(partPath);
@@ -5711,10 +5806,10 @@ QString VersionManager::writePackArchive(const ModpackExport::ExportPlan &plan,
     // 现在这个顺序：先把原来那份挪到 `<目标>.bak`，成了再删它；中途任何一步失败就把它放回
     // 去。整段里用户原来那份文件**要么还在原地、要么还在 .bak 上** —— 不会出现"包没换成功、
     // 原来那份也没了"。目标本来不存在时（第一次导出）就是一条干净的改名。
-    const QString backupPath = targetZip + QStringLiteral(".bak");
     const bool hadTarget = QFile::exists(targetZip);
+    const QString backupPath = hadTarget ? freshSidecar(targetZip, QStringLiteral(".bak"))
+                                         : QString();
     if (hadTarget) {
-        QFile::remove(backupPath);  // 上一趟留下的残骸（没见过，但别让它挡住这一次）
         if (!QFile::rename(targetZip, backupPath)) {
             // 挪不开就**一个字节都不动**：新包留在 .part 上，把它的位置说出来。
             return tr("盘上原来那份 %1 挪不开（它可能正被别的程序占着），没有替换它。\n"

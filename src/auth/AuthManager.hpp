@@ -241,8 +241,14 @@ private:
                                    QString *errorMessage);
     /// 微软令牌过期时用 refresh_token 换一份新的。写回盘上时保住旧的 refresh_token
     /// （响应里没带新的那种情况）。**不会**顺手把 Minecraft 那条链也走一遍。
+    ///
+    /// ★ 2026-10-20 @p expectedActiveUuid：这一趟刷新是**替谁**刷的。空 = 不查（登录那条
+    ///   路用不着）。非空时，落盘之前会确认当前账号还是它 —— 整条链是好几个同步 HTTP
+    ///   往返，`HttpClient::send()` 里那个嵌套事件循环会照常派发用户输入（账号面板的
+    ///   「选择」就在这中间能点），切走之后照写就是把 A 的启动令牌配成 B 的刷新令牌。
     bool requestMicrosoftTokenRefresh(const QString &refreshToken, QString *accessToken,
-                                      QString *errorMessage);
+                                      QString *errorMessage,
+                                      const QString &expectedActiveUuid = QString());
 
     /// 微软 access_token → Xbox Live → XSTS → Minecraft 令牌 → 玩家档案。整条链走通才
     /// 返回 true：中途任何一步失败，**Minecraft 那份令牌和玩家名一个都不写**
@@ -253,7 +259,8 @@ private:
     ///       同文件实现里那段 NOTE 也记着）。它单独用不了（是"下次续期用的凭据"、不是
     ///       "已登录"），但盘上确实有它 —— 2026-09-20 真机上正是靠它把失败的链重放了一遍，
     ///       才查出 login_with_xbox 的 403。
-    bool runMinecraftChain(const QString &microsoftAccessToken, QString *errorMessage);
+    bool runMinecraftChain(const QString &microsoftAccessToken, QString *errorMessage,
+                           const QString &expectedActiveUuid = QString());
     bool requestXboxLiveToken(const QString &microsoftAccessToken, QString *xblToken,
                               QString *userHash, QString *errorMessage);
     bool requestXstsToken(const QString &xblToken, QString *xstsToken, QString *userHash,

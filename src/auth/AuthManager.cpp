@@ -285,11 +285,18 @@ bool AuthManager::refreshMinecraftToken(QString *errorMessage) {
     if (refreshToken.isEmpty()) {
         return fail(tr("还没有登录过，或者登录信息已经不完整了。"));
     }
+    // ★ 2026-10-20：这一趟是**替谁**刷的。整条链（微软 → XBL → XSTS → Minecraft → 档案）
+    //   全是同步 HTTP，`HttpClient::send()` 里面那个嵌套事件循环会照常派发用户输入 ——
+    //   账号面板的「选择」在这中间点得动（MainWindow::onAccountSwitchRequested() 没有忙态
+    //   闸），于是用户切走之后这一趟还在替上一个人写盘：微软槽在链头、Minecraft 槽在链尾，
+    //   两处一前一后被 activate() 夹在中间，写出来的就是"A 的 uuid 配 B 的刷新令牌"。
+    //   下面每一步落盘之前都比一次；对不上就整趟作废（**一个字节都不写**）。
+    const QString refreshUuid = AccountStore::activeUuid();
 
     QString microsoftToken;
     QString failure;
-    if (!requestMicrosoftTokenRefresh(refreshToken, &microsoftToken, &failure) ||
-        !runMinecraftChain(microsoftToken, &failure)) {
+    if (!requestMicrosoftTokenRefresh(refreshToken, &microsoftToken, &failure, refreshUuid) ||
+        !runMinecraftChain(microsoftToken, &failure, refreshUuid)) {
         // 走到这儿的原因多数是网络或者账户本身的问题，写一行给命令行看
         // （用户那边由调用方弹窗，见 loadSavedToken() 的 errorMessage）。
         qWarning().noquote() << "刷新登录失败：" << failure;
@@ -305,9 +312,15 @@ bool AuthManager::refreshMinecraftToken(QString *errorMessage) {
     //
     // NOTE: 收不进列表**不算这次刷新失败**：活动槽里那份是好的、游戏照常能启动，
     //       为一件"备份没更新"的事拦住启动不值得（原因写一行日志）。
-    QString captureError;
-    if (!AccountStore::captureActive(&captureError)) {
-        qWarning().noquote() << "刷新成功，但没能把凭据写回账号列表：" << captureError;
+    // ★ 2026-10-20：收之前再认一次人（见上面 refreshUuid 那段）。切换过的话活动槽已经不是
+    //   这一趟刷的那个人了，这时 captureActive() 收进去的会是新旧混着的一对 —— 不收。
+    if (refreshUuid.isEmpty() || AccountStore::activeUuid() == refreshUuid) {
+        QString captureError;
+        if (!AccountStore::captureActive(&captureError)) {
+            qWarning().noquote() << "刷新成功，但没能把凭据写回账号列表：" << captureError;
+        }
+    } else {
+        qWarning().noquote() << "刷新途中账号被切走了，这一趟不写回账号列表。";
     }
     return true;
 }
@@ -781,7 +794,8 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code, QString *access
 }
 
 bool AuthManager::requestMicrosoftTokenRefresh(const QString &refreshToken, QString *accessToken,
-                                               QString *errorMessage) {
+                                               QString *errorMessage,
+                                               const QString &expectedActiveUuid) {
     if (refreshToken.isEmpty()) {
         *errorMessage = tr("没有可用的刷新凭据，请重新登录。");
         return false;
@@ -808,6 +822,13 @@ bool AuthManager::requestMicrosoftTokenRefresh(const QString &refreshToken, QStr
     if (tokenData.value("refresh_token").toString().isEmpty()) {
         tokenData.insert(QStringLiteral("refresh_token"), refreshToken);
     }
+    // ★ 2026-10-20：这一发 HTTP 期间用户可能把账号切走了（嵌套事件循环，见 refreshMinecraftToken()
+    //   那段）。切走了就**不写**：写进去的是 B 槽里那份微软令牌覆盖掉的新令牌 —— 微软那边
+    //   已经把旧的轮换作废了，等于把 B 的刷新令牌丢掉。
+    if (!expectedActiveUuid.isEmpty() && AccountStore::activeUuid() != expectedActiveUuid) {
+        *errorMessage = tr("刷新登录的途中切了账号，这一趟作废（盘上的登录信息没有改动）。");
+        return false;
+    }
     if (!storeMicrosoftTokenData(tokenData)) {
         *errorMessage = tr("登录信息保存失败（写不进配置文件）。");
         return false;
@@ -821,7 +842,8 @@ bool AuthManager::requestMicrosoftTokenRefresh(const QString &refreshToken, QStr
     return true;
 }
 
-bool AuthManager::runMinecraftChain(const QString &microsoftAccessToken, QString *errorMessage) {
+bool AuthManager::runMinecraftChain(const QString &microsoftAccessToken, QString *errorMessage,
+                                    const QString &expectedActiveUuid) {
     QString xblToken;
     QString userHash;
     if (!requestXboxLiveToken(microsoftAccessToken, &xblToken, &userHash, errorMessage)) {
@@ -847,6 +869,12 @@ bool AuthManager::runMinecraftChain(const QString &microsoftAccessToken, QString
         return false;
     }
 
+    // ★ 2026-10-20：链尾落盘之前再认一次人（理由见 refreshMinecraftToken() 那段）。
+    //   对不上就整趟作废：这里写下去的那一份会把 B 的 Minecraft 槽覆盖成 A 的。
+    if (!expectedActiveUuid.isEmpty() && AccountStore::activeUuid() != expectedActiveUuid) {
+        *errorMessage = tr("刷新登录的途中切了账号，这一趟作废（盘上的登录信息没有改动）。");
+        return false;
+    }
     if (!storeMinecraftTokenData(mcToken, expiresIn, name, uuid)) {
         *errorMessage = tr("登录信息保存失败（写不进配置文件）。");
         return false;

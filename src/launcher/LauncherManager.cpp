@@ -46,6 +46,7 @@
 
 #include "../auth/AccountStore.hpp"
 #include "../auth/AuthManager.hpp"
+#include "../manage/FolderManager.hpp"
 #include "../manage/InstanceFiles.hpp"
 #include "../settings/EffectiveJavaSettings.hpp"
 #include "../util/AppPaths.hpp"
@@ -117,6 +118,21 @@ QString nativesDirectory(const QString &versionId) {
  */
 bool hasNativeLibraries(const QString &dir) {
     return !QDir(dir).entryList(QStringList() << QStringLiteral("*.dll"), QDir::Files).isEmpty();
+}
+
+/// "这一份 natives 是**整套**解出来的"那个标记文件（写在 natives 目录里）。
+///
+/// ★ 2026-10-20：原来"解压过了"的判据只有 `hasNativeLibraries()` —— **任意一个** .dll 就算
+///   齐了。可 natives 是按排除项分组、一组一次 `extractArchives()` 解的，第一组成功、第二组
+///   失败（盘满、被杀毒锁住、用户中途关掉启动器）时目录里已经躺着第一组的 DLL：这一趟启动
+///   会如实报错，**下一趟**却在 `hasNativeLibraries()` 那一句直接复用这份残缺目录，于是
+///   症状从"解压失败"变成"进游戏崩在 UnsatisfiedLinkError"，而且再也修不好（每次都复用）。
+///   标记只在**全部**解完、且 DLL 确实在了之后才写；失败时连目录一起删掉。
+constexpr char kNativeReadyMarker[] = ".wtfml-natives-ok";
+
+bool nativesExtractionComplete(const QString &dir) {
+    return QFileInfo(QDir(dir).filePath(QLatin1String(kNativeReadyMarker))).isFile()
+           && hasNativeLibraries(dir);
 }
 
 /**
@@ -334,8 +350,9 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
     }
 
     const QString nativesDir = nativesDirectory(versionId);
-    // 守卫：上一次已经解压过就直接复用。除第一次启动外，这里几乎是零开销。
-    if (hasNativeLibraries(nativesDir)) {
+    // 守卫：上一次**整套**解压过就直接复用。除第一次启动外，这里几乎是零开销。
+    // ★ 判据是标记文件（见 `nativesExtractionComplete()`），不是"有一个 DLL 了"。
+    if (nativesExtractionComplete(nativesDir)) {
         return nativesDir;
     }
 
@@ -389,6 +406,9 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
         const QStringList ownExcludes =
             it.key().isEmpty() ? QStringList() : it.key().split(QLatin1Char('\n'));
         if (!ZipUtil::extractArchives(it.value(), nativesDir, ownExcludes, &error)) {
+            // 这一组没解完，前面几组已经躺进目录里了 —— 整个删掉，不留半套（见
+            // `kNativeReadyMarker` 那段 NOTE：留着它，下一趟会被当成"解压过了"复用）。
+            removeTreeWithoutFollowingLinks(nativesDir);
             if (errors) {
                 errors->append(tr("解压 natives 失败：%1").arg(error));
             }
@@ -397,10 +417,22 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
     }
 
     if (!hasNativeLibraries(nativesDir)) {
+        removeTreeWithoutFollowingLinks(nativesDir);
         if (errors) {
             errors->append(tr("natives 解压后未找到 DLL：%1").arg(nativesDir));
         }
         return QString();
+    }
+
+    // 全部解完、DLL 也确实在了 —— 这才写标记。
+    // NOTE: 写不进去**不算失败**：那只会让下一趟重新解一遍（代价几秒），而"解压成功却报
+    //       失败"会把一次能起来的启动拦下来。
+    QFile marker(QDir(nativesDir).filePath(QLatin1String(kNativeReadyMarker)));
+    if (!marker.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        qWarning() << "Cannot write natives marker, next launch will extract again:"
+                   << marker.fileName() << marker.errorString();
+    } else {
+        marker.close();
     }
 
     qDebug() << "Natives ready at" << nativesDir;
@@ -592,13 +624,21 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         useAsciiAlias ? QDir::toNativeSeparators(asciiAlias.gameDir)
                       : QDir::toNativeSeparators(AppPaths::versionDir(versionId));
     // 实例目录顶层某个 jar 在 classpath 上该用的路径（要不要走别名都在这里一处判）。
-    const auto classpathJarFor = [&](const QString &fileName) {
+    // ★ 2026-10-20：`ownerId` 是**必填**的。原来这个 lambda 自己调
+    //   `jarOwnerId(versionId)`，而下面"兄弟 jar"那一圈读的是 `versionDir(versionId)` 里的
+    //   文件 —— 两处对同一个 `versionId` 问出了**不同**的目录：PCL 那种合并实例里客户端
+    //   jar 在 `versions/<原版>`、兄弟 jar 在 `versions/<实例>`，于是兄弟 jar 的读取用实例
+    //   目录、拼出来的路径却指回原版目录。轻则那个 jar 不在 classpath 上（主类找不到，症状
+    //   和这个功能要修的 bug 一模一样），重则**同名不同物**：原版目录里恰好有个同名 jar 时
+    //   塞进 classpath 的是另一个文件。读取方和拼路径方必须是同一个目录。
+    const auto classpathJarFor = [&](const QString &ownerId, const QString &fileName) {
         return useAsciiAlias ? QDir::toNativeSeparators(asciiAlias.jarFor(fileName))
-                             : absoluteEntry(QStringLiteral("versions/%1/%2")
-                                                 .arg(InstanceFiles::jarOwnerId(versionId), fileName));
+                             : absoluteEntry(
+                                   QStringLiteral("versions/%1/%2").arg(ownerId, fileName));
     };
 
-    addClasspathPath(classpathJarFor(InstanceFiles::jarName(versionId)));
+    addClasspathPath(classpathJarFor(InstanceFiles::jarOwnerId(versionId),
+                                     InstanceFiles::jarName(versionId)));
 
     // 根据 version.json library 依赖构建 classpath
     if (!versionJson.isEmpty()) {
@@ -710,7 +750,8 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
             // 读的还是**真实**那一份（别名里的是硬链接，字节一模一样，但真实那份肯定在）；
             // 加进 classpath 的是要递给 Java 的那一个路径（Java 8 时是别名，见上面）。
             const QString full = QDir::toNativeSeparators(instanceDir + QLatin1Char('/') + jar);
-            const QString jarPath = classpathJarFor(jar);
+            // 这些 jar 就在**实例自己**的目录里（`instanceDir` 上面那句），owner 传 versionId。
+            const QString jarPath = classpathJarFor(versionId, jar);
             if (classpathSeen.contains(jarPath.toCaseFolded())) {
                 continue;  // 已经在 classpath 上了（客户端 jar 自己，或者别的路径已经把
                            // 同一个文件加过一遍）—— 别再进一遍
@@ -805,7 +846,8 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
 
     // 声明的参数引用了 natives 目录就把它建出来：26.3 把它的 /lwjgl /jna /netty /java
     // 子目录当作 LWJGL/JNA/netty 的提取目录，原版启动器在启动前总会创建这个目录。
-    // 建个空目录本身无害（prepareNatives 只认目录里有没有 .dll）。
+    // 建个空目录本身无害（prepareNatives 认的是"解压完成"标记 + DLL，空目录两样都没有，
+    // 需要解压的版本会照常重解一遍）。
     if (!QDir(nativesDir).exists()) {
         for (const QString &arg : declared) {
             if (arg.contains(nativesDir, Qt::CaseInsensitive)) {
@@ -1098,7 +1140,7 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
             emit processError(sessionId,
                               tr("没有找到 Java：设置里没有指定 Java 路径，系统 PATH 上也没"
                                  "有 java。请在「设置 → Java」里指定一份。"));
-            discardSession(sessionId);
+            discardSession(sessionId, /*abandoned=*/true);
             return 0;
         }
         qDebug() << "Java resolved from PATH:" << program;
@@ -1114,7 +1156,7 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     if (!javaInfo.exists()) {
         qWarning() << "Java executable not found at:" << program;
         emit processError(sessionId, tr("Java可执行文件未找到：%1").arg(program));
-        discardSession(sessionId);
+        discardSession(sessionId, /*abandoned=*/true);
         return 0;
     }
     qDebug() << "Java path verified:" << javaInfo.absoluteFilePath();
@@ -1189,8 +1231,21 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     if (!process->waitForStarted(3000)) {
         qWarning() << "Failed to start game process";
         qWarning() << "Error:" << process->errorString();
-        emit processError(sessionId, tr("无法启动游戏进程：%1").arg(process->errorString()));
-        discardSession(sessionId);
+        // ★ 2026-10-20：这一句现在会**弹给用户看**（`LaunchController` 在 `startGame()`
+        //   那一小段里接了一份 `processError`，见那边的说明），所以不能把 %1 原样递出去。
+        //   Windows 系统自己那几句消息是**格式串**（`FormatMessage` 给的是
+        //   「%1 不是有效的 Win32 应用程序。」），Qt 的 errorString() 把它留在
+        //   「Process failed to start: %1 …」里 —— 用户看到的会是一个像程序坏了才有的 %1。
+        //   把 %1 换成那个可执行文件（系统那句话里的"主体"就是它），再去掉 Qt 那句英文
+        //   前缀，剩下的就是系统自己一句完整的话。
+        QString startReason = process->errorString();
+        startReason.replace(QLatin1String("%1"), QDir::toNativeSeparators(program));
+        const QString englishPrefix = QStringLiteral("Process failed to start: ");
+        if (startReason.startsWith(englishPrefix)) {
+            startReason.remove(0, englishPrefix.size());
+        }
+        emit processError(sessionId, tr("无法启动游戏进程：%1").arg(startReason));
+        discardSession(sessionId, /*abandoned=*/true);
         return 0;
     }
 
@@ -1328,7 +1383,7 @@ QString LauncherManager::decodeGameOutput(bool utf8, std::shared_ptr<QStringDeco
     return utf8 ? QString::fromUtf8(bytes) : QString::fromLocal8Bit(bytes);
 }
 
-void LauncherManager::discardSession(int sessionId) {
+void LauncherManager::discardSession(int sessionId, bool abandoned) {
     const auto it = m_sessions.find(sessionId);
     if (it == m_sessions.end()) {
         return;
@@ -1341,6 +1396,23 @@ void LauncherManager::discardSession(int sessionId) {
         process->disconnect();
         process->deleteLater();
     }
+    if (!abandoned) {
+        // **不是**"从没起来过"的那一路（正常走完的 handleProcessFinished）：什么都不发。
+        // 界面自己有一条完整的收尾（gameFinished 那一路：日记窗按 autoCloseOnExit 决定
+        // 关不关、崩溃时留着让用户看、底账留给「导出错误报告」）。在这里再发一条
+        // sessionDiscarded 会抢在 gameFinished **之前**把那些东西全清掉 —— 崩溃后窗没了、
+        // 报告也导不出来了。这个参数就是那两者的分界线。
+        return;
+    }
+    // ★ 2026-10-20：`startGame()` 的三条早退路径（找不到 Java / 路径不对 / 进程起不来）
+    //   会先带号发一句 `processError`，再把这一号会话收回。那一句本身是对的（用户要看到
+    //   原因），但它走的是**和游戏 stderr 同一条槽** —— 界面可能已经替它建了一扇游戏
+    //   日志窗、记了一笔按号归档的底账 —— 而从此以后再没有任何一条信号会提到这个号：
+    //   那扇窗不会自己关（自动关窗只发生在"正常以 0 退出"那条路上），底账也不会被删。
+    //   发这一条，让界面把那一份收干净。
+    // NOTE: 摆在 erase **之后**：收信号的槽里不许再查到一份已经不存在的会话（和
+    //       gameFinished 同一条规矩），要用的东西自己在收到报错那一刻就取走。
+    emit sessionDiscarded(sessionId);
 }
 
 void LauncherManager::handleReadyReadStandardOutput(int sessionId) {
@@ -1415,6 +1487,9 @@ void LauncherManager::handleProcessFinished(int sessionId, int exitCode,
 
     // 摘在 emit 之前：接 gameFinished 的槽会去读 runningGames() 刷新底栏，反过来的话
     // 它会读到"刚退出的那一份还在跑"。
+    // NOTE: **不**带 abandoned —— 这一份是真跑完了，收尾归 gameFinished 那一路（界面靠它
+    //       决定日志窗关不关、崩溃那几行留不留），绝不能在这里再发 sessionDiscarded 抢先把
+    //       那一份底账清掉。
     discardSession(sessionId);
     emit gameFinished(sessionId, exitCode, exitStatus);
 }

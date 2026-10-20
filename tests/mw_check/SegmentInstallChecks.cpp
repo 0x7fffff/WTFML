@@ -144,8 +144,9 @@ int runSegmentInstallChecks() {
                         QByteArray payload = data.mid(begin, end - begin + 1);
                         const QByteArray declared = QByteArray::number(payload.size());
                         if (ranged && path == "/stall" && !stallTriggered) {
-                            // 头 + 一小段 body，之后每 2 秒补 4 KB —— **一直在动，但每 5 秒
-                            // 那一跳都远不够 64 KB**。这是 2026-10-18 日志里那条分段停在
+                            // 头 + 一小段 body，之后每 2 秒补 512 B（256 B/s）。
+                            // 必须低于新分段阈值 4 KiB / 5 s；旧夹具的 2 KiB/s
+                            // 已属于本轮刻意保留的慢速可用链路，不能再期待它被掐掉。这是那条分段停在
                             // 3.7/4.2 MiB、以几百字节/秒往终点爬的形状：Qt 的 30 秒传输超时
                             // 因为一直有活动而不响，90 秒"一个字节都没有"的兜底也不响，
                             // 只有"有退路 + 一直太慢"那条判据该动手。
@@ -177,12 +178,12 @@ int runSegmentInstallChecks() {
                         socket->disconnectFromHost();
                         return;
                     }
-                    // 细水长流：每 2 秒 4 KB，永远够不到完成。定时器挂在 socket 上，
+                    // 细水长流：每 2 秒 512 B，永远够不到完成。定时器挂在 socket 上，
                     // 客户端 abort、socket 释放时它跟着一起没了。
                     auto *trickle = new QTimer(socket);
                     trickle->setInterval(2000);
                     QObject::connect(trickle, &QTimer::timeout, socket,
-                                     [socket] { socket->write(QByteArray(4096, 'x')); });
+                                     [socket] { socket->write(QByteArray(512, 'x')); });
                     trickle->start();
                 });
             });
@@ -418,11 +419,11 @@ int runSegmentInstallChecks() {
     //     bytesAvailable 涨过一次 ⇒ 90 秒卡死兜底不响；它身上又没有官方备用地址 ⇒ 旧口径
     //     下"太慢"那条也不管它。结果就是那条分段 664 秒里一直攥着连接，协调器要等整批
     //     收尾才补段 ⇒ 整条作业永远不会结束。
-    //     修法：Range 作业也算"有退路"（协调器会只补缺的段），两跳不动就 abort 掉。
+    //     Range 作业也算"有退路"（协调器只补缺段）；新口径持续六跳低于阈值才 abort。
     //     断言：看门狗把那条段掐掉 → 协调器补一条 → 整条作业成功；**只多一条 Range**。
     {
         resetCounters();
-        deadlineMs = 45000;  // 看门狗两跳（≈10~15 s）+ 补段，30 s 太紧
+        deadlineMs = 45000;  // 六跳（约 30–35 s）+ 补段，留出调度余量
         const auto out = runOne(QStringLiteral("stall.bin"), QStringLiteral("/stall"), {}, cache, false);
         deadlineMs = 30000;
         expect(out.deadlineHeld && out.bytes == body,

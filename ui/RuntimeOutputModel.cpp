@@ -117,6 +117,7 @@ RuntimeOutputModel::RuntimeOutputModel(int capacity) {
     // 先摆好两张定长的表再定容量：`setCapacity()` 会顺着 m_counts 减计数，顺序反了就是
     // 往一张空表里写。
     m_counts = QVector<int>(levelCount(), 0);
+    m_droppedByLevel = QVector<int>(levelCount(), 0);
     m_visible = QVector<bool>(levelCount(), true);
     setCapacity(capacity);
 }
@@ -125,6 +126,10 @@ void RuntimeOutputModel::setCapacity(int capacity) {
     m_capacity = qMax(1, capacity);
     while (m_lines.size() > m_capacity) {
         const Line dropped = m_lines.takeFirst();
+        ++m_dropped;
+        if (!m_droppedByLevel.isEmpty()) {
+            ++m_droppedByLevel[levelIndex(dropped.level)];
+        }
         if (dropped.counted && !m_counts.isEmpty()) {
             --m_counts[levelIndex(dropped.level)];
         }
@@ -134,6 +139,10 @@ void RuntimeOutputModel::setCapacity(int capacity) {
 void RuntimeOutputModel::clear() {
     m_lines.clear();
     m_counts.fill(0);
+    // 被上限挤掉的那几行也一起归零：用户按「清空」是**主动**不要这些行了，之后再导出的
+    // 报告不该还拿它们说"原始共 N 行"。
+    m_dropped = 0;
+    m_droppedByLevel.fill(0);
 }
 
 RuntimeOutputModel::Level RuntimeOutputModel::addLine(const QString &text) {
@@ -156,11 +165,23 @@ RuntimeOutputModel::Level RuntimeOutputModel::addLine(const QString &text) {
     }
     if (m_lines.size() > m_capacity) {
         const Line dropped = m_lines.takeFirst();
+        ++m_dropped;
+        ++m_droppedByLevel[levelIndex(dropped.level)];
         if (dropped.counted) {
             --m_counts[levelIndex(dropped.level)];
         }
     }
     return level;
+}
+
+int RuntimeOutputModel::droppedLineCountFrom(Level minLevel) const {
+    // 被挤掉的行是按**每一行自己的级别**记的（续行也算一行 —— 导出那一段就是逐行输出，
+    // 续行本来也会出现在 `textFrom()` 里）。
+    int count = 0;
+    for (int index = levelIndex(minLevel); index < m_droppedByLevel.size(); ++index) {
+        count += m_droppedByLevel.at(index);
+    }
+    return count;
 }
 
 int RuntimeOutputModel::countFor(Level level) const {

@@ -366,6 +366,12 @@ void ToolboxController::shutdown() {
     if (m_hashThread != nullptr) {
         m_hashThread->wait();
     }
+    // ★ 2026-10-20：指针可能已经被放掉了（见两处算哈希的收尾），而那条线程还在最后几条
+    //   指令里。析构 QObject 会把子对象连同一条仍在跑的线程一起删掉 ⇒ qFatal。按子对象
+    //   兜一遍底，保证收手时它们都已经退出。
+    for (QThread *thread : findChildren<QThread *>()) {
+        if (thread != m_hashThread) thread->wait();
+    }
     if (m_pinger != nullptr) {
         m_pinger->abort();
     }
@@ -822,14 +828,23 @@ void ToolboxController::runHash(const QString &path, int algorithmIndex, const Q
                                    : tr("哈希没算成：%1（%2）").arg(path, result.error));
                 }
                 // 线程自己收掉（这一趟结束了，下一趟要的是一条新的）。
+                // ★ 2026-10-20：**只放指针、不 deleteLater**。这一句跑的时候那条 QThread 还在
+                //   `run()` 的尾巴上（`invokeMethod` 投完就返回）；对一条仍在跑的线程调
+                //   deleteLater() 会让 Qt 处理 DeferredDelete 时
+                //   `qFatal("QThread: Destroyed while thread is still running")`。
+                //   线程对象自己接好了 finished → deleteLater（见下面创建处）。
                 if (m_hashThread != nullptr) {
-                    m_hashThread->deleteLater();
                     m_hashThread = nullptr;
                 }
             },
             Qt::QueuedConnection);
     });
     m_hashThread->setParent(this);
+    // 自己收自己；清指针排在删除之前（理由同单文件那一趟）。
+    connect(m_hashThread, &QThread::finished, this, [this, thread = m_hashThread] {
+        if (m_hashThread == thread) m_hashThread = nullptr;
+    });
+    connect(m_hashThread, &QThread::finished, m_hashThread, &QObject::deleteLater);
     m_hashThread->start();
 }
 
@@ -964,13 +979,18 @@ void ToolboxController::runHashBatch(const QStringList &paths, int algorithmInde
                                              .arg(failed));
                 }
                 if (m_hashThread != nullptr) {
-                    m_hashThread->deleteLater();
+                    // ★ 2026-10-20：同上（单文件那一趟），只放指针、不 deleteLater。
                     m_hashThread = nullptr;
                 }
             },
             Qt::QueuedConnection);
     });
     m_hashThread->setParent(this);
+    // 自己收自己；清指针排在删除之前（`shutdown()` 里那句 wait() 在析构时跑）。
+    connect(m_hashThread, &QThread::finished, this, [this, thread = m_hashThread] {
+        if (m_hashThread == thread) m_hashThread = nullptr;
+    });
+    connect(m_hashThread, &QThread::finished, m_hashThread, &QObject::deleteLater);
     m_hashThread->start();
 }
 

@@ -160,6 +160,18 @@ int runModActionPanelChecks() {
     check(outcome.cancelled && outcome.moved == 1 && QFileInfo::exists(targetPath("first.jar")) &&
           !QFileInfo::exists(sourcePath("first.jar")) && QFileInfo::exists(sourcePath("second.jar")),
           "partial cancellation retains completed move and untouched pending source");
+    if (!writeFile(sourcePath("published.jar"), payload)) return 1;
+    cancelFlag = false;
+    int lastCompleted = -1;
+    outcome = TransferApply::transferMods(sourceRoot, targetRoot, {sourcePath("published.jar")}, true,
+        [&](int completed, int, const QString &detail) {
+            lastCompleted = completed;
+            if (detail.startsWith(QStringLiteral("已复制"))) cancelFlag = true;
+        },
+        [&] { return cancelFlag; });
+    check(outcome.cancelled && outcome.copied == 1 && outcome.moved == 0 && lastCompleted == 1 &&
+          QFileInfo::exists(targetPath("published.jar")) && QFileInfo::exists(sourcePath("published.jar")),
+          "cancellation between publish and source removal still counts the completed copy");
     if (!writeFile(sourcePath("changing.jar"), payload)) return 1;
     outcome = TransferApply::transferMods(sourceRoot, targetRoot, {sourcePath("changing.jar")}, true,
         [&](int, int, const QString &detail) {

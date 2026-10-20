@@ -130,7 +130,18 @@ Snapshot manifestFromJson(const QByteArray &bytes, bool *ok = nullptr);
  *   当场拒绝，比往实例目录外面写/删东西强。
  */
 Snapshot create(const QString &instanceDir, const QString &instanceId,
-                const QStringList &relativePaths, QString *problemOut = nullptr);
+                const QStringList &relativePaths, QString *problemOut = nullptr,
+                bool keepPrevious = false);
+
+/// 这一批**真的开起来了** ⇒ 上一趟那份可以扔了（`create(..., keepPrevious=true)` 之后调）。
+///
+/// ★ 2026-10-20：`create()` 从前是"先把上一趟那份删掉、再摆新的"。于是"这一批没开起来"
+///   （下载器正忙、另一套安装状态机占着、接口给的文件名不能用）那个分支虽然一个字节都没
+///   动过，上一趟的回滚点却已经没了 —— 用户失去了"撤销上一次更新"这个能力。现在调用方
+///   传 `keepPrevious = true`：旧的那份先改名成 `<dir>.previous`，摆新的失败就还回去；
+///   摆好了但这一批被拒（`discard()`）也还回去；只有这一批真的开始了才在这里删掉。
+///   默认 false 保持原语义（只留最新那一份，不留旧账）。
+bool commit(const QString &instanceId);
 
 /// 读盘上那一个实例的回滚点（`snapshotDir()` + 清单）。**不读那份清单就不是"有一份"**：
 /// 清单读不动 = 这一份回滚点用不了（数据不全的东西不能拿去还原）。

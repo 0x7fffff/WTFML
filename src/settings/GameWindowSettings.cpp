@@ -29,6 +29,7 @@
 //         zero in #if"）。
 #if defined(QT_WIDGETS_LIB)
 #include <QApplication>
+#include <QEventLoop>  // QEventLoop::ExcludeUserInputEvents
 #include <QScreen>
 #include <QWidget>
 #endif
@@ -217,7 +218,11 @@ ScreenWorkArea maximizedContentSize(const ScreenWorkArea &workArea) {
         // 摆到桌面外面去：量边框**不影响窗口在哪儿**，而摆在屏幕里会让用户看见一个白框闪一下。
         probe.move(-32000, -32000);
         probe.show();
-        QApplication::processEvents();
+        // ★ 2026-10-20：只转事件循环、**不收用户输入**。这一句是在拼启动参数的最后一步里跑的，
+        //   一次 `processEvents()` 会把此刻积在队列里的鼠标/键盘事件派发出去 —— 用户正好在点
+        //   「启动」时按下的东西（比如再点一下别的按钮、或者勾/取消勾一个选项）会插进这一趟
+        //   正在拼的命令行中间。量边框只需要窗口被真正创建出来，和用户输入无关。
+        QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
         const QSize frame = probe.frameGeometry().size() - probe.size();
         probe.hide();
         if (frame.width() > 0 && frame.height() > 0 &&

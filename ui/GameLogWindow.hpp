@@ -260,6 +260,11 @@ public:
     int lineCount() const { return m_model.lineCount(); }
     /// 这一档有几条独立日志记录（续行不重复计数，含被筛掉的记录）。
     int lineCountFor(LogLevel level) const;
+    /// 被行数上限（capacity）**挤掉**的行数 —— 导出时要把它们加回"原始共 N 行"里。
+    /// 用户按「清空」之后归零（那是主动不要，不是被上限挤掉）。
+    int droppedLineCount() const { return m_model.droppedLineCount(); }
+    /// 被挤掉的行里、级别不轻于 @p level 的有几行。
+    int droppedLineCountFor(LogLevel level) const;
     bool levelVisible(LogLevel level) const;
     /// 改一档的显示与否（会顺手把那颗按钮的勾也对上，然后重画）。给验证工程用。
     void setLevelVisible(LogLevel level, bool visible);

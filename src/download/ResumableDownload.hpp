@@ -46,6 +46,11 @@ public:
     /// 工具箱里那个「直链下载」不推这一项 —— 它是用户手动开的另一件工具。
     void setSpeedLimitBytesPerSecond(qint64 bytesPerSecond);
 
+    /// 把外层那个下载器交给协调器（2026-10-20）：`start()` 建自己那份 `DownloadManager`
+    /// 时和它**共用一个令牌桶** —— 分段作业合计起来才等于设置里的那个上限，而不是每个
+    /// 作业各拿满一份。`DownloadManager::startSegmentedDownload()` 在 start() 之前调。
+    void setSpeedLimitBucketOwner(DownloadManager *owner) { m_speedBucketOwner = owner; }
+
     static QString cacheDirectory(const QUrl &url, const QString &target, const QString &root = {});
 signals:
     void progress(qint64 done, qint64 total);
@@ -79,6 +84,8 @@ private:
     /// 速度上限（字节/秒，0 = 不限；见 setSpeedLimitBytesPerSecond()）。`m_files` 每次
     /// start() 都会重建，所以这个值留在协调器身上、建好之后当场推过去。
     qint64 m_speedLimitBytesPerSecond = 0;
+    /// 外层那个下载器（共用令牌桶的对方）。本对象是它的子对象，活得比它短。
+    DownloadManager *m_speedBucketOwner = nullptr;
     QPointer<QNetworkReply> m_probe;
     QSharedPointer<QLockFile> m_lock;
     QSharedPointer<QAtomicInt> m_abort;

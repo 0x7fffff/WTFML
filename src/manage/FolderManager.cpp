@@ -32,6 +32,28 @@ bool isLinkToElsewhere(const QFileInfo &info) {
     return info.isJunction() || info.isSymLink();
 }
 
+/// 删一个**文件**（文件符号链接也走这里）。
+///
+/// ★ 2026-10-20：第一次失败时**清掉只读位再试一次**。Qt 6.10 在 Windows 上的
+/// `QFile::remove()` 就是一句 `DeleteFile()`（qfilesystemengine_win.cpp），**不会**替你
+/// 摘 `FILE_ATTRIBUTE_READONLY` —— 而只读文件恰恰删不掉（ERROR_ACCESS_DENIED）。用户从只读
+/// 介质拷来的整合包、被别的启动器/网盘标成只读的 jar，都会卡在这一步，而调用方那句
+/// 提示写的是"多半是它正被游戏占着"：方向完全是错的，关掉游戏再删一百次也没用。
+///
+/// 只读位**只有在第一次真的失败之后才动**：正常文件一次成功，权限一个字节都不碰。
+bool removeFileAllowingReadOnly(const QString &path) {
+    if (QFile::remove(path)) {
+        return true;
+    }
+    const QFileInfo info(path);
+    if (!info.exists() && !info.isSymLink()) {
+        return true;  // 已经没了（并发删掉的那一种）= 这一步的目的达成
+    }
+    const QFileDevice::Permissions perms = info.permissions();
+    QFile::setPermissions(path, perms | QFileDevice::WriteOwner | QFileDevice::WriteUser);
+    return QFile::remove(path);
+}
+
 }  // namespace
 
 /// 递归删掉 @p path 这一棵，但**一个链接都不追进去**：链接只把链接本身摘掉，那一头的东西
@@ -59,13 +81,13 @@ bool isLinkToElsewhere(const QFileInfo &info) {
 bool removeTreeWithoutFollowingLinks(const QString &path) {
     const QFileInfo info(path);
     if (isLinkToElsewhere(info)) {
-        return info.isDir() ? QDir().rmdir(path) : QFile::remove(path);
+        return info.isDir() ? QDir().rmdir(path) : removeFileAllowingReadOnly(path);
     }
     if (!info.exists()) {
         return true;  // 已经不在了 = 这一步想要的结果已经达成
     }
     if (!info.isDir()) {
-        return QFile::remove(path);
+        return removeFileAllowingReadOnly(path);
     }
     const QDir dir(path);
     const QStringList entries =

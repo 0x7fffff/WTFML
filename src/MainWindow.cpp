@@ -1542,7 +1542,16 @@ MainWindow::MainWindow(QWidget *parent)
                     releaseFileOperationBusy(id);
                 }
             },
-            [this] { refreshInstalledVersions(); }},
+            [this] { refreshInstalledVersions(); },
+            // 服务端世界正在备份 / 还原：那一个服务端不能启动、不能删（见 startServer() /
+            // removeServer() 那两道闸）。服务端不是实例，记不进 `installingVersionIds()`。
+            [this](const QString &id, bool busy) {
+                if (busy) {
+                    m_serverFileBusy.insert(id);
+                } else {
+                    m_serverFileBusy.remove(id);
+                }
+            }},
         this);
     m_serverPingController = new ServerPingController(
         ServerPingController::Host{
@@ -1676,6 +1685,11 @@ MainWindow::MainWindow(QWidget *parent)
                 m_activityCenter->bindSession(id, sessionId);
             },
             [this](Tasks::TaskId id, bool ok, const QString &note) { finishTask(id, ok, note); },
+            // 用户自己停掉、一行日志都没出的那一次启动：按"取消"收，不记失败（见
+            // `GameSessionController::Host::cancelLaunchTask` 的说明）。
+            [this](Tasks::TaskId id) {
+                if (id != Tasks::invalidTaskId()) m_activityCenter->tasks()->cancel(id);
+            },
             [this] { updateBottomBar(); },
             [this] { updateInstanceTreeRunState(); },
             [this](const QString &versionId) { return instanceDisplayName(versionId); },
@@ -1803,6 +1817,9 @@ MainWindow::MainWindow(QWidget *parent)
                 break;
             case TaskCenter::RowAction::Viewed:
                 m_activityCenter->markViewed(key);
+                break;
+            case TaskCenter::RowAction::Seen:
+                m_activityCenter->markSeen(key);
                 break;
             case TaskCenter::RowAction::Cancel:
                 onTaskDetailAction(key, TaskDetailPage::Action::Cancel);
@@ -2049,6 +2066,32 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     // 同一个顺序，不然同一件事两句话看着像两件事）。
     const QStringList serverIds = m_serverWorkspace->runningServerIds();
 
+    // ★ 2026-10-20：启动**还在半路**（换令牌 / 挑 Java / 下 Java 那几段同步等待里用户点了
+    //   关闭）。那时候一个游戏都还没起来，下面那句"没有游戏在跑"会直接放行 —— 窗口关掉，
+    //   可启动那条路还在嵌套事件循环后面继续走：接着下几百 MB 的运行时、接着把游戏拉起来，
+    //   而启动器已经不在了。问一句，默认那一边照旧是"别动它"。
+    if (m_launchController->isStarting()) {
+        const int choice = InlineMessage::ask(
+            m_ui->overlay(), MessageKind::Question, tr("正在启动"),
+            tr("启动器正在启动游戏（校验登录、准备 Java 运行时）。\n\n"
+               "现在关掉会取消这次启动，游戏不会开起来。\n要现在关掉吗？"),
+            QStringList{tr("取消启动并关闭"), tr("继续启动")}, 1, 0);
+        if (choice < 0) {
+            // ★ 2026-10-20：`ask()` 回 -1 不是"用户选了继续启动"，而是**这一问根本没被摆出来**
+            //   （已经有一条提示开着；提示不叠提示，见 InlineMessage::ask）。那时候底下什么
+            //   反馈都没有 —— 用户点关闭、窗口不动、也没有一句解释，只能再点一次。照旧不关
+            //   （启动还在半路），但把原因说出来；那条提示答完以后再点关闭会照常问。
+            appendLog(tr("关闭被搁置：还有一条提示没答完，答完再关一次。"));
+            event->ignore();
+            return;
+        }
+        if (choice != 0) {
+            event->ignore();
+            return;
+        }
+        m_launchController->abortStart();
+    }
+
     if (games.isEmpty() && serverIds.isEmpty()) {
         QMainWindow::closeEvent(event);
         return;
@@ -2167,6 +2210,14 @@ void MainWindow::enterSyncWait(const QString &statusText) {
     // 这一段里 UI 线程在等网络或等进程（见 .hpp 里那三种情况），Qt 不重绘、不响应输入，
     // Windows 过几秒还会给标题挂上"(无响应)"——用户看到的就是"点了启动就卡死"。
     // 这里能做的只有"进去之前先把话说出来"：底栏那格写上在等什么，再套一个忙指针。
+    //
+    // ★ 2026-10-20：**嵌套要记账**。等网络那几段用的是 `QEventLoop::exec()`，而那个嵌套
+    //   循环会把用户输入照常送回来 —— 里面还能再进另一条会同步等的路（见
+    //   LaunchController::onStartButtonClicked() 开头那道闸）。不记账的话内层
+    //   leaveSyncWait() 会把外层那句"在等什么"清成空、忙指针也一起还掉，外层明明还在等，
+    //   界面却看起来空闲。这一摞记的是每层进来**之前**那一句（可能是空串，也可能是导出
+    //   进度那种直接写 m_syncWaitStatus 的话），离开时逐层还回去。
+    m_syncWaitStack.append(m_syncWaitStatus);
     m_syncWaitStatus = statusText;
     updateBottomBar();
     QGuiApplication::setOverrideCursor(Qt::WaitCursor);
@@ -2177,7 +2228,12 @@ void MainWindow::enterSyncWait(const QString &statusText) {
 }
 
 void MainWindow::leaveSyncWait() {
-    m_syncWaitStatus.clear();
+    // 多出来的 leave 直接忽略：那样说明调用方出了错，但这里能做的只有别把忙指针再还一次
+    // （restoreOverrideCursor() 多还一次会把**别人的**忙指针弹掉）。
+    if (m_syncWaitStack.isEmpty()) {
+        return;
+    }
+    m_syncWaitStatus = m_syncWaitStack.takeLast();
     QGuiApplication::restoreOverrideCursor();
     updateBottomBar();
 }
@@ -2621,9 +2677,17 @@ void MainWindow::cancelTaskFromDetail(const QString &key) {
     if (m_versionManager != nullptr
         && (key == QString::number(m_downloadTaskId)
             || (m_updateBatch.task != Tasks::invalidTaskId()
-                && key == QString::number(m_updateBatch.task)))
-        && m_versionManager->cancelActiveDownload()) {
-        appendLog(tr("下载已取消。已经下好的文件留在原处。"));
+                && key == QString::number(m_updateBatch.task)))) {
+        // ★ 2026-10-20：取消走的是和"真失败"同一条终态信号（success=false），那几个槽
+        //   分不出来 —— 于是用户刚点完取消就被弹一句「下载失败」、账本上记成 Failed、底栏
+        //   还亮起一颗"没看过的失败"红点。这一位只在下面这一发里为真：终态信号是**同步**
+        //   发完的（`cancelActiveDownload()` 返回之前），所以槽里读到的就是"这一次是取消"。
+        m_downloadCancelInFlight = true;
+        const bool cancelled = m_versionManager->cancelActiveDownload();
+        m_downloadCancelInFlight = false;
+        if (cancelled) {
+            appendLog(tr("下载已取消。已经下好的文件留在原处。"));
+        }
     }
 }
 
@@ -2632,15 +2696,58 @@ void MainWindow::retryTaskFromDetail(const QString &key) {
     //   已经把不合条件的那颗按钮收起来了，这里是第二道闸 —— 页对象是**建一次留着**的，
     //   用户完全可能在页开着的时候又失败了一批，而按钮画的还是上一帧那份。
     bool parsed = false;
-    const Tasks::TaskId retryId = key.toInt(&parsed);
-    if (parsed && m_versionManager != nullptr
-        && retryWouldWork(m_activityCenter->tasks()->snapshot(retryId))
-        && m_versionManager->retryDownload()) {
-        // 那一格失败清单**刚被这一按吃掉了**（`retryDownload()` 自己 reset）⇒ 号也跟着
-        // 松开，不然同一颗按钮留在页上还能再点一次（再点一次什么都不会发生）。
-        m_activityCenter->markRetryConsumed();
-        appendLog(tr("正在重试上一次没下下来的那几个文件…"));
+    // 行钥匙是 64 位的 `TaskId`（见 `ActivityCenterController::markViewed()` 那段的 NOTE）。
+    const Tasks::TaskId retryId = key.toULongLong(&parsed);
+    if (!parsed || m_versionManager == nullptr) {
+        return;
     }
+    const Tasks::TaskSnapshot retryTask = m_activityCenter->tasks()->snapshot(retryId);
+    if (!retryWouldWork(retryTask)) {
+        return;
+    }
+    // ★ 2026-10-20：忙的时候要**说一句**。以前这里直接调 retryDownload()，它因为
+    //   「一次只有一批」返回 false，而界面一声不吭 —— 点了没反应。
+    //
+    //   ★★ 2026-10-20：判据里补上 `m_downloadInFlight`。只问 `isDownloading()` 有一个
+    //   **真的窗口**：版本安装刚点下去、正在取 version.json 的那一段（元数据作业，
+    //   不计进 `DownloadManager::isBusy()`），忙态已经是 true、账本里"安装 X"那一件
+    //   也已经建好了，可这里会放行 —— 于是 `m_downloadTaskId = newTask()` 把安装那一件
+    //   的号**顶掉**。之后安装那一路收尾（`onVersionDetailsFetched()` 失败支 /
+    //   `onAllDownloadsFinished()`）收的是**别人的号**，自己那件永远停在"进行中"。
+    //   ★ 服务端安装那一段同理：它的下载批次是共用下载器上的，正在下的那几秒 `isDownloading()`
+    //   已经为真；这里补的是"它正占着那一批"那一位（安装器跑着的那几分钟不算）。
+    if (m_downloadInFlight || m_versionManager->isDownloading()
+        || (m_serverInstall != nullptr && m_serverInstall->ownsDownloadBatch())) {
+        InlineMessage::information(
+            m_ui->overlay(), tr("现在做不了"),
+            tr("已经有一个下载或者安装任务在跑了，等它结束再重试这几个文件。"));
+        return;
+    }
+    // ★ 重试也要在任务中心里看得见：账本里原来那一件已经是终态了（终态只落一次），
+    //   不另起一行的话，这一次重试期间看不到进度、也取消不了。名字沿用原来那一件。
+    //
+    //   号和名字都要在 `retryDownload()` **之前**摆好：失败清单里那几个文件要是盘上
+    //   其实都已经好好的（"重下 = 校验跳过"），这一批会**同步**收尾 —— 先摆好才认领得到
+    //   那一条终态。名字从数据层取（`retryBatchLabel()`），因为 retryDownload() 一进去
+    //   就把失败清单吃掉了；空名字 = 版本文件那一路，终态走 `versionDownloadFinished`。
+    const QString retryLabel = m_versionManager->retryBatchLabel();
+    const Tasks::TaskId newTask = beginTask(
+        retryTask.kind, tr("重试：%1").arg(retryTask.title), retryTask.targetId);
+    m_downloadTaskId = newTask;
+    m_downloadBatchOwnerTaskId = newTask;
+    m_resourceBatchLabel = retryLabel;
+    if (!m_versionManager->retryDownload()) {
+        // 正常走不到（忙态上面刚问过）：别在账本里留一条永远"进行中"的行。
+        m_activityCenter->tasks()->fail(newTask, tr("没能开始重试。"));
+        m_downloadTaskId = Tasks::invalidTaskId();
+        m_downloadBatchOwnerTaskId = Tasks::invalidTaskId();
+        m_resourceBatchLabel.clear();
+        return;
+    }
+    // 那一格失败清单**刚被这一按吃掉了**（`retryDownload()` 自己 reset）⇒ 号也跟着
+    // 松开，不然同一颗按钮留在页上还能再点一次（再点一次什么都不会发生）。
+    m_activityCenter->markRetryConsumed();
+    appendLog(tr("正在重试上一次没下下来的那几个文件…"));
 }
 
 Tasks::TaskId MainWindow::beginTask(Tasks::TaskKind kind, const QString &title,
@@ -2650,9 +2757,22 @@ Tasks::TaskId MainWindow::beginTask(Tasks::TaskKind kind, const QString &title,
 }
 
 void MainWindow::finishTask(Tasks::TaskId id, bool success, const QString &errorSummary) {
-    const bool retryPayloadAvailable =
-        m_versionManager != nullptr && m_versionManager->canRetryDownload();
+    // ★ 2026-10-20：那格失败清单只认**这一批的主人**（见 `m_downloadBatchOwnerTaskId`）。
+    //   原来这一句问的是 `canRetryDownload()`（全局），于是任何一件任务在"清单还攥着"
+    //   的时候收尾，账本都会把重试资格记到**它**头上：
+    //     · 真失败的那一件（比如补全文件）上的「重试」凭空消失；
+    //     · 服务端安装 / 导出 / 启动这一类**跟下载批次毫无关系**的任务反而长出「重试」，
+    //       点下去重做的是别人的文件。
+    const bool ownsDownloadBatch = id != Tasks::invalidTaskId()
+                                   && id == m_downloadBatchOwnerTaskId;
+    const bool retryPayloadAvailable = ownsDownloadBatch && m_versionManager != nullptr
+                                       && m_versionManager->canRetryDownload();
     m_activityCenter->finish(id, success, errorSummary, retryPayloadAvailable);
+    // 收过尾了，这一批不再"占着"重试资格 —— 清单本身（m_failedBatch）还在，
+    // 露不露由账本里那一位 m_retryableTaskId 说了算。
+    if (ownsDownloadBatch) {
+        m_downloadBatchOwnerTaskId = Tasks::invalidTaskId();
+    }
 }
 
 void MainWindow::beginDownloadTask() {
@@ -2683,6 +2803,8 @@ void MainWindow::beginDownloadTask() {
         title = tr("下载游戏文件");
     }
     m_downloadTaskId = beginTask(kind, title);
+    // 这一批就是账本里这个号 —— 收尾时"重试"资格只认它（见 finishTask()）。
+    m_downloadBatchOwnerTaskId = m_downloadTaskId;
 }
 
 void MainWindow::startPlayerSkinLoad() {
@@ -5009,7 +5131,7 @@ void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
 }
 
 void MainWindow::installResourceVersion(ResourceCatalog::Kind kind, const QString &displayTitle,
-                                        const ResourceCatalog::VersionEntry &version,
+                                        ResourceCatalog::VersionEntry version,
                                         ResourceCatalog::Source source) {
     // ★ 2026-09-28：模组这一路**先看一眼前置**（用户原话：「在模组下载页，选择模组后显示
     //   其依赖，点击下载后弹出窗口，让用户可以点击一键下载所有缺少的依赖」）。
@@ -6265,6 +6387,20 @@ void MainWindow::startServer(const QString &serverId, bool automatic) {
     if (serverId.isEmpty()) {
         return;
     }
+    // 闸⓪：这一份的世界正在备份 / 还原。那一趟现在读 / 换的正是这个世界目录 —— 这时候
+    // 起服，它读写到的是"一半新一半旧"的存档，收尾还会把那几份文件当成新内容再盖一遍。
+    if (m_serverFileBusy.contains(serverId)) {
+        if (automatic) {
+            // 自动重启是它自己起的（用户没在等这一下），不弹窗，记一行就够。
+            appendLog(tr("%1 的世界正在备份或者还原，这一次没有自动重启。").arg(serverId));
+        } else {
+            InlineMessage::information(
+                m_ui->overlay(), tr("这个服务端这会儿动不得"),
+                tr("它的世界正在备份或者还原。等那一趟完了再启动 —— 现在起服读写到的是"
+                   "一半新一半旧的存档。"));
+        }
+        return;
+    }
     // 用户亲手起的 = 新的一轮：上一轮的"连着崩几次"从这里清零。自动重启那一路**不清**
     // （理由见 `ServerRestart::decide()`：清了就等于不限次数）。
     if (!automatic) {
@@ -6431,6 +6567,14 @@ void MainWindow::removeServer(const QString &serverId) {
     }
     const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
     const QString shown = entry.name.isEmpty() ? serverId : entry.name;
+    // 世界正在备份 / 还原：那一趟还在往这个目录里读 / 写，删掉它等于把正在解压的落点
+    // 从底下抽走（备份那一趟则会把"删到一半的目录"打进包里）。
+    if (m_serverFileBusy.contains(serverId)) {
+        InlineMessage::warning(m_ui->overlay(), tr("这一份这会儿不能删"),
+                               tr("「%1」的世界正在备份或者还原。等那一趟完了再删。")
+                                   .arg(shown));
+        return;
+    }
     // ★ 这是**唯一一处会删用户东西的地方**，而且删的是别人几个月的存档 —— 所以：默认那
     //   一边是「取消」（`defaultYes = false`，回车不会把它删掉）、那颗按钮按危险档染红。
     const bool go = InlineMessage::question(
@@ -6750,10 +6894,18 @@ void MainWindow::refreshServerSettingsPage() {
             m_serverSettingsController->backupLabel(serverId));
         const QFileInfoList entries = QDir(backupDir).entryInfoList(
             QStringList{QStringLiteral("*.zip")}, QDir::Files, QDir::Name | QDir::Reversed);
+        QStringList matching;
         for (const QFileInfo &info : entries) {
-            if (!info.fileName().startsWith(prefix, Qt::CaseInsensitive)) {
-                continue;
+            if (info.fileName().startsWith(prefix, Qt::CaseInsensitive)) {
+                matching.append(info.absoluteFilePath());
             }
+        }
+        // ★ 2026-10-20：原来是 `QDir::Name | QDir::Reversed`（整名字典序倒排）—— 自动留的
+        //   「恢复前-」安全快照名字里多一段汉字，码位在数字之后 ⇒ 它们全被排到最新的常规
+        //   备份前面，这一列"最新在上面"就不成立了。和挑备份那一段同一个出处。
+        matching = BackupFiles::sortBackupsNewestFirst(matching, prefix);
+        for (const QString &path : std::as_const(matching)) {
+            const QFileInfo info(path);
             ServerSettingsPage::BackupRow row;
             row.path = info.absoluteFilePath();
             row.when = info.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm"));
@@ -7521,7 +7673,7 @@ void MainWindow::backupServerWorld(const QString &serverId) {
     // ★ 跑完之后要把这一页的备份那一列**重摆一遍**（多了一份）—— 记下是哪个服务端。
     m_backupController->startWrite(manifest, worldDir, zip,
                                    tr("备份世界「%1」").arg(worldName), entry.dirPath,
-                                   tr("备份完成"), serverId);
+                                   tr("备份完成"), serverId, tr("备份没有完成"));
 }
 
 void MainWindow::restoreServerWorldBackup(const QString &serverId, const QString &zipPath) {
@@ -7542,6 +7694,27 @@ void MainWindow::restoreServerWorldBackup(const QString &serverId, const QString
     }
     const QString worldName = serverWorldName(serverId);
     const QString serverDir = ServerRegistry::describe(serverId).dirPath;
+    // ★ 2026-10-20：这一页的备份列只按**文件名前缀**筛（读清单要起一次 PowerShell，那一列
+    //   可能摆着几十份，见 `BackupFiles::backupFilePrefix()` 那段）。可按下「还原…」之后
+    //   要拿清单里的 `root` 去解压、把那个目录整个换掉 —— 名字能凑出来（从别处拷来的、
+    //   改过名的、碰巧和前缀一样的），而清单说的不是这个世界的包，必须在这里拦住，不能
+    //   等解到一半。`BackupController::pickZip()` 那条路一直有这道闸，服务端这条没有。
+    bool readable = false;
+    QString problem;
+    const BackupFiles::Manifest manifest = BackupFiles::readManifest(zipPath, &readable, &problem);
+    if (!readable || manifest.kind != BackupFiles::Kind::World
+        || manifest.root.compare(worldName, Qt::CaseInsensitive) != 0) {
+        InlineMessage::warning(
+            m_ui->overlay(), tr("这份包不是这个世界的备份"),
+            readable ? tr("这一份里记的是「%1」的备份，跟这个世界（%2）对不上 —— "
+                         "名字看着像不算数，为了不动到别的东西，它没有解开。")
+                           .arg(manifest.root.isEmpty() ? tr("（没写）") : manifest.root,
+                                worldName.isEmpty() ? serverId : worldName)
+                     : tr("这一份读不出清单，认不出它是什么备份，没有解开。\n\n%1")
+                           .arg(problem));
+        refreshServerSettingsPage();
+        return;
+    }
     // 默认**不**落在「还原」上：这一步会把这个世界现在的文件整个换掉（和删世界同一档）。
     if (!InlineMessage::question(
             m_ui->overlay(), tr("恢复备份"),
@@ -7556,7 +7729,7 @@ void MainWindow::restoreServerWorldBackup(const QString &serverId, const QString
     // `root`（zip 里那一层前缀）就是世界目录名 ⇒ 解到**服务端目录**底下正好落回原地。
     m_backupController->startRestore(zipPath, serverDir,
                                      tr("还原世界「%1」").arg(worldName), serverDir,
-                                     tr("还原完成"), serverId);
+                                     tr("还原完成"), serverId, tr("还原没有完成"));
 }
 
 void MainWindow::deleteServerBackup(const QString &zipPath) {
@@ -8191,13 +8364,23 @@ void MainWindow::finishUpdateBatch(bool success, const QString &errorMessage) {
     if (run.label.isEmpty()) {
         return;
     }
-    if (m_activityCenter->tasks()->has(run.task)) {
+    // ★ 2026-10-20：取消和真失败走同一条终态信号（见 `m_downloadCancelInFlight`）——
+    //   用户按了取消就记 Cancelled，不记 Failed、不点亮底栏那颗"没看过的失败"红点。
+    const bool userCancelled = !success && m_downloadCancelInFlight;
+    if (userCancelled && m_activityCenter->tasks()->has(run.task)) {
+        m_activityCenter->tasks()->cancel(run.task);
+    } else if (m_activityCenter->tasks()->has(run.task)) {
         m_activityCenter->tasks()->setDetail(run.task, tr("换好 %1 个，失败 %2 个。")
                                                .arg(run.succeeded.size())
                                                .arg(run.failedSteps));
         finishTask(run.task, success && run.failedSteps == 0,
                    run.failedSteps > 0 ? tr("有 %1 个文件没能换掉。").arg(run.failedSteps)
                                        : errorMessage);
+    }
+    // finishTask() 认领过就会自己清掉；这一段是"那一件已经不在账本里"的兜底，
+    // 别让重试资格留在一次已经收尾的更新上（见 m_downloadBatchOwnerTaskId）。
+    if (m_downloadBatchOwnerTaskId == run.task) {
+        m_downloadBatchOwnerTaskId = Tasks::invalidTaskId();
     }
     appendLog(success ? tr("更新「%1」结束：换好 %2 个，失败 %3 个。")
                             .arg(instanceDisplayName(run.instanceId))
@@ -8249,7 +8432,7 @@ void MainWindow::finishUpdateBatch(bool success, const QString &errorMessage) {
 
 void MainWindow::installResourceVersionNow(ResourceCatalog::Kind kind,
                                            const QString &displayTitle,
-                                           const ResourceCatalog::VersionEntry &version,
+                                           ResourceCatalog::VersionEntry version,
                                            const QList<ModDependencies::Resolved> &extras,
                                            const QString &forcedInstanceId) {
     const bool isModpack = kind == ResourceCatalog::Kind::Modpack;
@@ -8308,6 +8491,10 @@ void MainWindow::installResourceVersionNow(ResourceCatalog::Kind kind,
     // 实例在被写，锁着它等于白挡别人启动）。
     QString busyInstanceId = instanceId;
     if (!m_settings->downloadAutoIntoInstance() || !cameFromInstance) {
+        // ★ 这个框是**嵌套事件循环**：开着的这一会儿，网络回信照常派发 —— 也就可能有一发
+        //   版本清单插进 `m_resourceVersions`（那张 QHash 一 rehash，调用方递进来的
+        //   元素引用就悬空了）。所以 `version` 这一格是**按值**收的（见头文件那一处），
+        //   下面 `version.primaryFile()` 读的是自己手里这份拷贝，容器怎么变都不关它的事。
         const QString chosen = QFileDialog::getExistingDirectory(
             this, tr("下载到哪个文件夹"), defaultDir);
         if (chosen.isEmpty()) {
@@ -8416,15 +8603,55 @@ void MainWindow::installResourceVersionNow(ResourceCatalog::Kind kind,
     appendLog(tr("正在下载 %1（%2）。").arg(label, QDir::toNativeSeparators(destinationDir)));
     // busyInstanceId 传空的有两路：整合包下到缓存里（盘上没有任何实例在被写），以及用户
     // 自己挑了实例之外的目录那一路 —— 两路都不该锁住谁（见上面算落点那一段）。
+    //
+    // ★ 2026-10-20：这一批也要在任务中心里**看得见**（状态、进度、取消、失败后的重试）。
+    //   以前资源下载一件任务都不记：下几百 MB 的整合包时底栏那格一直是空的，失败之后
+    //   也没有任何地方能点「重试」（失败清单是有的，可没有一行任务认领它）。
+    //
+    //   号必须在 `downloadResourceFiles()` **之前**建：所有文件盘上都已经有的时候，那一批
+    //   会**同步**收尾（当场发 `resourceDownloadFinished`），先建号才认领得到那一条终态。
+    //   反过来，"忙"的那几种拒绝也会同步发一条失败终态 —— 所以先自己把忙态问一遍，
+    //   被拒的白问不该在账本上留一行红字（判据和 updateInstanceFiles() 那道闸同一个）。
+    //
+    //   ★★ 2026-10-20：`m_downloadInFlight` 必须一起问。版本安装取 version.json 的那
+    //   一段是元数据作业（不计进 `isDownloading()`），而那一趟的号已经在
+    //   `m_downloadTaskId` 里了 —— 只问下面那几个谓词的话，这一句会放行，紧接着
+    //   `m_downloadTaskId = beginTask(...)` 把安装那一件顶掉：安装收尾时收的是**这一单**，
+    //   它自己永远停在"进行中"（而且下载器那边还会以"已有下载任务"拒掉安装）。
+    if (m_downloadInFlight || m_versionManager->isDownloading() || m_versionManager->isLoaderInstalling()
+        || m_versionManager->isModpackImporting()
+        || m_versionManager->isNamedInstanceInstalling()
+        || (m_serverInstall != nullptr && m_serverInstall->ownsDownloadBatch())) {
+        InlineMessage::information(
+            m_ui->overlay(), tr("现在做不了"),
+            tr("已经有一个下载或者安装任务在跑了，等它结束再下这个。"));
+        return;
+    }
+    m_resourceBatchLabel = label;
+    m_downloadTaskId = beginTask(Tasks::TaskKind::Download, label);
+    // ★★ 2026-10-20：这一单的登记**必须摆在 `downloadResourceFiles()` 之前**。
+    //
+    //   上一版把它放在"开起来了"之后，理由是"被拒时那一发失败终态会把记录 take() 走"
+    //   —— 那个理由已经过时（失败那一支**不** take，只有成功那一支才取，见
+    //   `onResourceDownloadFinished()` 里那段 ★ 2026-10-20）。而放在后面有一个真的漏洞：
+    //   这批文件**盘上都已经有**时（上次下完了但导入失败 / 被取消，`.mrpack` 还躺在缓存
+    //   里），`downloadResourceFiles()` 会在它**返回之前**就同步发完
+    //   `resourceDownloadFinished(label, true, …)` —— 那时这一句还没执行，没有人接得到
+    //   这一单，导入永远不开始；界面却照样弹「已经装进实例里了」。
+    if (!modpackPath.isEmpty()) {
+        m_pendingModpackImports.insert(label, modpackPath);
+    }
     const bool started =
         m_versionManager->downloadResourceFiles(destinationDir, busyInstanceId, label, files);
-    // ★ 登记**必须**在这一批真的开起来之后。被拒绝时上面那次调用**照样会发**一个
-    //   `resourceDownloadFinished(label, false, …)`，label 还是同一个字符串 —— 先登记的话，
-    //   那一下就会把记录 take() 走。这不是假想的：双击那一行"点它就是下它"时，第二发
-    //   撞的正是这道闸，于是真的整合包下完时记录已经没了 → 界面弹「已经装进实例里了」，
-    //   而实际**一个字节都没导入**。先问"开起来没有"就没有这个窗口。
-    if (started && !modpackPath.isEmpty()) {
-        m_pendingModpackImports.insert(label, modpackPath);
+    if (started) {
+        // 只有真开起来了才算"这一批的主人"（被拒那一发已经在上面那句里收过尾了，
+        // 见 onResourceDownloadFinished()）。
+        m_downloadBatchOwnerTaskId = m_downloadTaskId;
+        m_activityCenter->tasks()->setProgress(m_downloadTaskId, 0, 0);
+    } else if (!modpackPath.isEmpty()) {
+        // 没开起来（撞上上面那道忙闸）：刚登记的那一单作废，留着就是一条永远等不到
+        // 下载的记录。
+        m_pendingModpackImports.remove(label);
     }
 }
 
@@ -8872,16 +9099,6 @@ void MainWindow::downloadResourcePageVersion(const QString &versionId) {
 
 void MainWindow::onResourceDownloadFinished(const QString &label, bool success,
                                             const QString &errorMessage) {
-    // 整合包那一页下回来的 .mrpack：下完要接着走导入那条路。这一单**只活一次**，所以先
-    // 取走再判成功与否 —— 不清的话，用户手动导入过一个包之后，下一个下完的模组也会顺手
-    // 再触发一次导入。
-    //
-    // NOTE: 按 `label` **只取自己那一单**（不是整根成员一刀切）。以前不分单，于是任何一次
-    //       下载完成都会把这笔记录读走：整合包还在下、用户又点了个模组，模组先下完就把
-    //       记录吃了 —— 拿半截 .mrpack 去导入，而且整合包真下完时再没人接它。
-    //       用 take() 而不是 value()+remove()：这一单**只活一次**，取走本身就是"用掉了"。
-    const QString pendingModpack = m_pendingModpackImports.take(label);
-
     // ★ 2026-10-13（§7.1）：这一批是不是「更新中心」那一批？是的话收尾归那一边 —— 那边
     //   要说的是"**每个资源**的结果"（任务账本里那几步 + 一行一条的日志），而不是一句
     //   "下好了 / 没下下来"。所以这里**整个交出去**（不弹那个通用框：那边失败时会弹一份
@@ -8891,12 +9108,54 @@ void MainWindow::onResourceDownloadFinished(const QString &label, bool success,
         return;
     }
 
+    // ★ 2026-10-20：这一发是不是**用户自己按的取消**（见 `m_downloadCancelInFlight`）：
+    //   取消和真失败走的是同一条终态信号，可账本里它们该落成两档。
+    const bool userCancelled = !success && m_downloadCancelInFlight;
+
+    // ★ 2026-10-20：资源下载自己那一件任务（见 installResourceVersionNow() /
+    //   retryTaskFromDetail()）。按 **label 认领** —— 别的一批在下的时候也可能有一发回来，
+    //   名字对不上就不是我们的号。
+    if (!m_resourceBatchLabel.isEmpty() && label == m_resourceBatchLabel
+        && m_downloadTaskId != Tasks::invalidTaskId()) {
+        const Tasks::TaskId task = m_downloadTaskId;
+        m_downloadTaskId = Tasks::invalidTaskId();
+        m_resourceBatchLabel.clear();
+        if (userCancelled) {
+            m_activityCenter->tasks()->cancel(task);
+            if (m_downloadBatchOwnerTaskId == task) {
+                m_downloadBatchOwnerTaskId = Tasks::invalidTaskId();
+            }
+        } else {
+            finishTask(task, success, success ? QString() : errorMessage);
+        }
+    }
+
     if (!success) {
+        if (userCancelled) {
+            // 取消不是失败：日志照写，不弹「下载失败」、也不算一次没看过的失败。
+            appendLog(tr("✗ %1 已由用户取消下载。").arg(label));
+            return;
+        }
         appendLog(tr("✗ %1 没有下下来：%2").arg(label, errorMessage));
         InlineMessage::warning(m_ui->overlay(), tr("下载失败"),
                              tr("%1 有文件没能下下来。\n\n%2").arg(label, errorMessage));
         return;
     }
+
+    // 整合包那一页下回来的 .mrpack：下完要接着走导入那条路。这一单**只活一次**，所以
+    // 取走一次就用掉了 —— 不清的话，用户手动导入过一个包之后，下一个下完的模组也会顺手
+    // 再触发一次导入。
+    //
+    // NOTE: 按 `label` **只取自己那一单**（不是整根成员一刀切）。以前不分单，于是任何一次
+    //       下载完成都会把这笔记录读走：整合包还在下、用户又点了个模组，模组先下完就把
+    //       记录吃了 —— 拿半截 .mrpack 去导入，而且整合包真下完时再没人接它。
+    //       用 take() 而不是 value()+remove()：这一单**只活一次**，取走本身就是"用掉了"。
+    //
+    // ★ 2026-10-20：**只在成功这一支取**。以前它挂在函数开头，失败那一发也会把记录吃掉
+    //   —— 于是"整合包下到一半失败 → 点重试 → 下回来了"的结局是：文件在缓存里躺着，
+    //   导入却永远不会开始（界面上那句「已经装进实例里了」也永远等不到）。失败时留着
+    //   这一单，重试成功那一发照样认领得到；用户再也不重试的话，它只是内存里一条记录。
+    const QString pendingModpack = m_pendingModpackImports.take(label);
 
     appendLog(tr("✓ %1 下好了：%2").arg(label, errorMessage));
     if (!pendingModpack.isEmpty()) {
@@ -11612,6 +11871,16 @@ void MainWindow::startQuickPlay(const QString &versionId, QuickPlay::Kind kind,
 }
 
 void MainWindow::startQuickPlayNow(const QString &versionId, const QuickPlay::Target &target) {
+    // ★ 2026-10-20：启动**已经在走**的时候又来了这一发（换令牌 / 下 Java 的同步等待里，
+    //   用户回到实例设置页点了「加入世界」）。这一发不能排进 `m_pendingQuickPlay` ——
+    //   正在走的那一趟在开头就把待办取走了，这里排上的会一直留到**下一次**用户自己点
+    //   「启动」时才被消费：游戏莫名其妙地进了一个他早就忘了的世界。直接丢掉并说一句。
+    if (m_launchController->isStarting()) {
+        InlineMessage::warning(m_ui->overlay(), tr("正在启动"),
+                               tr("上一次启动还没走完（正在校验登录 / 准备 Java 运行时），"
+                                  "等它结束之后再试。"));
+        return;
+    }
     QComboBox *combo = m_ui->getInstalledVersionCombo();
     const int row = combo == nullptr ? -1 : combo->findData(versionId);
     if (row < 0) {
@@ -12235,6 +12504,23 @@ void MainWindow::updateInstanceFiles(const QString &instanceId, const QString &p
     const QHash<QString, ResourceCatalog::VersionEntry> targets =
         m_instanceUpdateTargets.value(instanceId);
 
+    // ★ 2026-10-20：先看下载器空不空，**在摆回滚点之前**。下面那句
+    //   `downloadResourceFiles()` 本来就失败得快（另一个批次开着时它返回 false），可那时
+    //   候回滚点已经摆好了 —— 这一批几百 MB 的文件会先被原样抄一份、再原样撤掉，用户
+    //   看到的是"点了更新，卡一下，然后说没能开始"。判据和「补全文件」那道闸同一个，
+    //   外加那三套安装状态机（`downloadResourceFiles()` 拒绝它们的理由见那边）和
+    //   "服务端正占着共用下载器"那一位（它开的是同一批，被我们 beginBatch() 顶掉之后
+    //   它那一条任务永远等不到收尾）。
+    if (m_downloadInFlight || m_versionManager->isDownloading()
+        || m_versionManager->isLoaderInstalling() || m_versionManager->isModpackImporting()
+        || m_versionManager->isNamedInstanceInstalling()
+        || (m_serverInstall != nullptr && m_serverInstall->ownsDownloadBatch())) {
+        InlineMessage::information(
+            m_ui->overlay(), tr("现在做不了"),
+            tr("已经有一个下载或者安装任务在跑了，等它结束再更新这几个文件。"));
+        return;
+    }
+
     QList<VersionManager::ResourceFile> files;
     QStringList skipped;
     /// 和 `files` **一一对应**的那两条：实例内相对路径（回滚点要它）和盘上那个绝对路径
@@ -12298,7 +12584,8 @@ void MainWindow::updateInstanceFiles(const QString &instanceId, const QString &p
     //       `instanceFileDirs()` 保证（那些目录都是 `<实例目录>/<目录名>`）。
     QString rollbackProblem;
     const UpdateRollback::Snapshot snapshot =
-        UpdateRollback::create(instanceDir, instanceId, relativePaths, &rollbackProblem);
+        UpdateRollback::create(instanceDir, instanceId, relativePaths, &rollbackProblem,
+                               /*keepPrevious=*/true);
     if (!snapshot.isValid()) {
         InlineMessage::warning(m_ui->overlay(), tr("没有更新"),
                                tr("没能给这一批文件留一份回滚点，所以一个都没动。\n\n%1")
@@ -12339,6 +12626,9 @@ void MainWindow::updateInstanceFiles(const QString &instanceId, const QString &p
                                        .arg(files.size()),
         instanceId, steps);
     m_activityCenter->tasks()->setProgress(m_updateBatch.task, 0, static_cast<qint64>(files.size()));
+    // 这一批的失败清单归它（`finishUpdateBatch()` 会先把 `m_updateBatch` 清空，所以
+    // "重试"资格不能等到收尾时现读，见 finishTask()）。
+    m_downloadBatchOwnerTaskId = m_updateBatch.task;
 
     appendLog(tr("正在更新 %1（%2）。")
                   .arg(label, QDir::toNativeSeparators(files.first().dir)));
@@ -12352,8 +12642,15 @@ void MainWindow::updateInstanceFiles(const QString &instanceId, const QString &p
         // 别留一条永远"正在跑"的记录，回滚点也一起撤掉（一个字节都没动过，留着只会让
         // 更新中心上那颗「撤销上一次更新」指向一次没发生的更新）。
         m_activityCenter->tasks()->fail(m_updateBatch.task, tr("没能开始这一批更新。"));
+        if (m_downloadBatchOwnerTaskId == m_updateBatch.task) {
+            m_downloadBatchOwnerTaskId = Tasks::invalidTaskId();
+        }
         m_updateBatch = UpdateBatchRun{};
         UpdateRollback::discard(instanceId);
+    } else {
+        // ★ 2026-10-20：这一批**真开起来了** ⇒ 上一趟那份回滚点可以扔了（见 create 的
+        //   keepPrevious 那段）。被拒的时候走上面那条 discard，把上一趟那份还回去。
+        UpdateRollback::commit(instanceId);
     }
     // NOTE: 这一批下完之后**不刷新那一页**。理由：换的是同一个文件名，列表上那一行
     //       一个字都不会变；而"可更新"那几颗计数在收尾时按**真换成功的**那几条摘掉
@@ -12414,7 +12711,7 @@ void MainWindow::pushInstanceFileUpdates(InstanceSettingsDialog *dialog,
 }
 
 bool MainWindow::applyInstanceSettings(const QString &versionId,
-                                      const InstanceSettingsDialog &dialog) {
+                                      InstanceSettingsDialog &dialog) {
     // ★ 2026-10-15：那一整套（补稳定 id → 搬归属键 → 拼字段 → 图标那几个字节 → 写 meta →
     //   判要不要重扫树 → 分组/置顶那三条规则）搬进了 `InstanceSettingsController::apply()`。
     //   这一层剩下的是**只有它能做的那一半**：把对话框现读成一份 `Edit`（那些值），以及
@@ -12446,7 +12743,16 @@ bool MainWindow::applyInstanceSettings(const QString &versionId,
                       m_versionManager->displayParts(versionId), m_versionManager,
                       knownGroupIdsOf(m_groupStore));
 
-    return m_instanceSettings->apply(versionId, edit);
+    bool pickedIconStored = false;
+    const bool ok = m_instanceSettings->apply(versionId, edit, &pickedIconStored);
+    // ★ 2026-10-20：那张图**真落进实例目录了** ⇒ 让对话框忘掉源路径。留着的话，往后每一
+    //   次"改了就写"（改个内存、勾个开关）都会**再从那个源文件抄一遍** —— 而那张图早就不
+    //   需要了；用户把源文件挪走/删掉之后，下一次保存还会平白弹一句「图标没保存」（盘上
+    //   明明已经是这张图）。meta 没写成（`!ok`）时**不清**：这一次等于没成，还得靠它重试。
+    if (ok && pickedIconStored) {
+        dialog.markPickedIconSaved();
+    }
+    return ok;
 }
 
 /// 把一个参数按 cmd.exe 的规矩包起来（「导出启动脚本」那一串参数要用它）。
@@ -12582,6 +12888,15 @@ void MainWindow::reportGameCrash(int sessionId, int exitCode, bool crashed) {
     if (const GameLogWindow *window = m_gameSessionController->gameLogWindow(sessionId)) {
         errors = window->logTextFrom(GameLogWindow::LogLevel::Error);
         all = window->allLogText();
+    } else {
+        // ★ 2026-10-20：**没有日志窗才是常态** ——「显示游戏日志」默认关
+        //   （`LauncherSettings::m_showGameLog = false`），用户也可以把窗随手关掉。
+        //   原来这一支只有窗，于是默认配置下崩出来的那一项任务里
+        //   `logCaptured = false`、退出诊断读不到半行日志 —— 而这份报告正是给崩溃看的。
+        //   控制器那边一直留着每份会话最近 4000 行原文（见 sessionLogTail 的说明），
+        //   窗不在时就用它；窗在的时候仍然读窗（那边留 20000 行，还带着没换行的半行）。
+        errors = m_gameSessionController->sessionLogTailErrors(sessionId);
+        all = m_gameSessionController->sessionLogTail(sessionId);
     }
     m_crashReports->report(sessionId, exitCode, crashed, facts, errors, all);
 }
@@ -12674,8 +12989,17 @@ void MainWindow::exportGameErrorReport(int sessionId) {
     // 用户勾着 ERROR 的时候导出，报告里照样要是完整日志）。
     const QString errors = window->logTextFrom(GameLogWindow::LogLevel::Error);
     const QString log = window->allLogText();
-    facts.errorLines = lineCountOf(errors);
-    facts.totalLines = lineCountOf(log);
+    // ★ 2026-10-20：窗里只留得下 `capacity()`（20000）行，超出的老行模型直接丢掉。以前这两格
+    //   报的是"现在还留着的行数"，而 `ErrorReport` 的标题照样写「完整日志（共 N 行）」——
+    //   跑得久一点导出来的报告里那个数就是假话，前面没导出来的那些（很可能正是起因）也没人
+    //   说一句。模型现在自己记着挤掉了多少行（`RuntimeOutputModel::droppedLineCount()`），
+    //   把"原始共多少"补回去，并把截断那一面照实报给报告。
+    const int droppedErrors = window->droppedLineCountFor(GameLogWindow::LogLevel::Error);
+    const int droppedAll = window->droppedLineCount();
+    facts.errorLines = lineCountOf(errors) + droppedErrors;
+    facts.totalLines = lineCountOf(log) + droppedAll;
+    facts.errorTruncated = droppedErrors > 0;
+    facts.logTruncated = droppedAll > 0;
 
     const QString suggested =
         QDir(exportDefaultDirectory())
@@ -12851,7 +13175,8 @@ void MainWindow::repairInstanceFiles(const QString &versionId) {
                 .arg(instanceDisplayName(versionId)));
         return;
     }
-    if (m_downloadInFlight || m_versionManager->isDownloading()) {
+    if (m_downloadInFlight || m_versionManager->isDownloading()
+        || (m_serverInstall != nullptr && m_serverInstall->ownsDownloadBatch())) {
         InlineMessage::information(
             m_ui->overlay(), tr("现在做不了"),
             tr("已经有一个下载或者安装任务在跑了，等它结束再检查这个实例。"));
@@ -12905,7 +13230,9 @@ void MainWindow::submitIntegrityCheck(const QString &versionId) {
     busy.targetBeingModified = versionId == m_installingInstanceId
                                || versionId == m_importingInstanceId
                                || versionId == m_repairingInstanceId;
-    busy.anotherDownloadRunning = m_downloadInFlight || m_versionManager->isDownloading();
+    busy.anotherDownloadRunning = m_downloadInFlight || m_versionManager->isDownloading()
+                                  || (m_serverInstall != nullptr
+                                      && m_serverInstall->ownsDownloadBatch());
     m_integrityController->submit(versionId, busy);
 }
 
@@ -13229,6 +13556,10 @@ void MainWindow::onProcessError(int sessionId, const QString &text) {
     m_gameSessionController->onProcessError(sessionId, text);
 }
 
+void MainWindow::onSessionDiscarded(int sessionId) {
+    m_gameSessionController->onSessionDiscarded(sessionId);
+}
+
 void MainWindow::showGameLogLine(int sessionId, const QString &text) {
     m_gameSessionController->showGameLogLine(sessionId, text);
 }
@@ -13365,6 +13696,10 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
     if (wasRepairing) {
         m_repairingInstanceId.clear();
     }
+    // ★ 2026-10-20：这一发是不是**用户自己按的取消**（判据见 `m_downloadCancelInFlight`）。
+    //   `cancelActiveDownload()` 走的是和"真失败"同一条终态信号，下面每一个分支都必须
+    //   分开说：账本记 Cancelled、底栏不点红点、也不弹「失败」那个框。
+    const bool userCancelled = !success && m_downloadCancelInFlight;
 
     // 安装任务的最后一步：把这一趟带着的那份预设落上去（coding plan §7 那条
     // 「生成并显示 ApplyPlan → 备份 → 应用预设 → 写入实例元数据和任务结果」）。
@@ -13433,7 +13768,19 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
     // 结束了"的公共通道，它自己会在末尾兜一次底（见那边）——先在这儿按成败如实收，
     // 兜底那一句就什么都不做；反过来顺序的话，兜底会先把任务按失败收掉，这一句再说什么
     // 都晚了（终态只落一次）。
-    finishTask(m_downloadTaskId, success, resultMessage);
+    if (userCancelled && m_downloadTaskId != Tasks::invalidTaskId()) {
+        // ★ 2026-10-20：用户主动取消是**正常收场**，账本里那一档就叫 Cancelled
+        //   （服务端安装那条路也是这么收的，见 ConnectionsController 里那段 NOTE）。
+        //   借 `finishTask(..., false, …)` 的话：状态是 Failed、底栏亮一颗"没看过的失败"
+        //   红点、「需要处理」筛选里多一条假失败，而用户只是按了一下取消。
+        m_activityCenter->tasks()->cancel(m_downloadTaskId);
+        // 重试资格跟着松开（和 finishTask() 里那一句同一个理由：这一批已经收尾了）。
+        if (m_downloadBatchOwnerTaskId == m_downloadTaskId) {
+            m_downloadBatchOwnerTaskId = Tasks::invalidTaskId();
+        }
+    } else {
+        finishTask(m_downloadTaskId, success, resultMessage);
+    }
     m_downloadTaskId = Tasks::invalidTaskId();
 
     // 整批结束，无论成败都要把界面恢复回来
@@ -13463,6 +13810,9 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
             }
             updateStartButtonText();
             InlineMessage::information(m_ui->overlay(), tr("导入完成"), errorMessage);
+        } else if (userCancelled) {
+            // 用户自己按的取消：日志照写，但**不弹「导入失败」**（那不是失败）。
+            appendLog(tr("✗ 整合包导入已由用户取消。"));
         } else {
             appendLog(tr("✗ 整合包没有导入：%1").arg(errorMessage));
             InlineMessage::warning(m_ui->overlay(), tr("导入失败"), errorMessage);
@@ -13494,6 +13844,8 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
             } else {
                 InlineMessage::information(m_ui->overlay(), tr("安装完成"), resultMessage);
             }
+        } else if (userCancelled) {
+            appendLog(tr("✗ 安装「%1」已由用户取消。").arg(instanceDisplayName(versionId)));
         } else {
             appendLog(tr("✗ %1").arg(errorMessage));
             InlineMessage::warning(m_ui->overlay(), tr("安装失败"), errorMessage);
@@ -13522,6 +13874,8 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
             InlineMessage::information(m_ui->overlay(), tr("检查完成"),
                                        tr("实例「%1」的文件都齐了。\n\n%2")
                                            .arg(displayName, errorMessage));
+        } else if (userCancelled) {
+            appendLog(tr("✗ 实例「%1」的文件校验已由用户取消。").arg(displayName));
         } else {
             appendLog(tr("✗ 实例「%1」的文件没补齐：%2").arg(displayName, errorMessage));
             InlineMessage::warning(m_ui->overlay(), tr("文件没补齐"),
@@ -13555,6 +13909,10 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
 
         InlineMessage::information(m_ui->overlay(), tr("下载完成"),
                                  tr("版本 %1 的文件已全部就绪。\n\n%2").arg(versionId, errorMessage));
+    } else if (userCancelled) {
+        // 用户自己按的取消：一句日志就够（`cancelTaskFromDetail()` 那边已经写过「已取消」）。
+        // 不弹「下载失败」—— 那不是失败。
+        appendLog(tr("✗ 版本 %1 的下载已由用户取消。").arg(versionId));
     } else {
         // 失败就不刷新了：没成功就不该有新条目冒出来（jar 大概率没落地）
         appendLog(tr("✗ 版本 %1 下载失败：%2").arg(versionId, errorMessage));

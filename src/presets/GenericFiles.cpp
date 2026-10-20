@@ -224,6 +224,23 @@ bool walkItem(const QString &sourceRoot, const QString &targetRoot, FileGroup gr
     const QString sourceGroupDir = genericJoined(sourceRoot, groupDirName);
     const QString targetGroupDir = genericJoined(targetRoot, groupDirName);
 
+    // ★ 组根自己是一根链接 ⇒ 不往下走（2026-10-20）。`walkDir()` 那道 `isLink(targetDir)`
+    //   判的是**这一次要落的那个目录**，而组根在它上面一层：`<实例>/config` 是 junction 时，
+    //   `walkDir()` 拿到的是 `<实例>/config/某某`（孩子本身不是链接），于是整条路穿过去。
+    //   ★ 源那一侧同理：`scanFileGroup()` 现在也会挡，但这里再判一次是因为
+    //     `applyFileGroup(…, items)` 那一档的清单可以来自预设段（那一趟没有扫盘）。
+    if (isLink(QFileInfo(sourceGroupDir))) {
+        failWith(problemOut,
+                 presetText("「%1」是一根链接（符号链接 / junction），没有跟着它走。")
+                     .arg(sourceGroupDir));
+        return false;
+    }
+    if (isLink(QFileInfo(targetGroupDir))) {
+        failWith(problemOut,
+                 presetText("目标上的「%1」是一根链接，没有往它里面写。").arg(targetGroupDir));
+        return false;
+    }
+
     const QString sourceAbs = genericJoined(sourceRoot, item.relativePath);
     const QFileInfo sourceInfo(sourceAbs);
     if (!sourceInfo.exists()) {
@@ -469,6 +486,17 @@ bool scanFileGroup(const QString &root, FileGroup group, QList<GenericItem> *out
     const QString groupDirName = fileGroupDirName(group);
     const QString groupDir = genericJoined(root, groupDirName);
     const QFileInfo groupInfo(groupDir);
+    // ★ 这一组**自己**是一根链接 ⇒ 整组不扫（2026-10-20）。这一道挡的是"组根被挂到别处"：
+    //   逐项那道 `isLink(entry)` 只看组里的**条目**，组根本身是 junction 时它一条都不挡 ——
+    //   扫（和后面的写）全都会穿到链接那一头去。用户把 `config` / `resourcepacks` 挂到
+    //   共享盘是常见做法，而这一层的承诺是"只动这个实例"（见 .hpp 文件头）。
+    //   ★ 先判链接再判存在：一根**悬空**的 junction `exists()` 是 false，按"这一组不在"
+    //     放过去的话，后面 `mkpath()` 会顺着它建到链接那一头。
+    if (isLink(groupInfo)) {
+        failWith(problemOut,
+                 presetText("「%1」是一根链接（符号链接 / junction），没有扫它。").arg(groupDir));
+        return false;
+    }
     if (!groupInfo.exists()) {
         // 这一组不在 ⇒ 空清单（"这一组是空的"不是失败：一个刚建的实例没有 `shaderpacks/`
         // 是最正常的事）。
@@ -609,21 +637,18 @@ GenericPlan planFileGroup(const QString &sourceRoot, const QList<GenericItem> &i
 // 落盘
 // ---------------------------------------------------------------------------
 
-GenericReport applyFileGroup(const QString &sourceRoot, const QString &targetRoot, FileGroup group,
-                             ApplyMode mode) {
+/// 落盘的公共那一半：清单**已经定好**（扫出来的，或者预设段里读回来的）。
+GenericReport applyFileGroupItems(const QString &sourceRoot, const QString &targetRoot,
+                                  FileGroup group, const QList<GenericItem> &items, ApplyMode mode,
+                                  const QStringList &refused) {
     GenericReport report;
+    report.refused = refused;
     if (sourceRoot.trimmed().isEmpty() || targetRoot.trimmed().isEmpty()) {
         report.problem = presetText("没有指定要落到哪个实例上。");
         return report;
     }
 
-    QList<GenericItem> items;
     QString why;
-    if (!scanFileGroup(sourceRoot, group, &items, &report.refused, &why)) {
-        report.problem = why;
-        return report;
-    }
-
     const GenericPlan plan = planFileGroup(sourceRoot, items, targetRoot, mode);
     if (!plan.ok) {
         report.problem = plan.problem;
@@ -655,6 +680,30 @@ GenericReport applyFileGroup(const QString &sourceRoot, const QString &targetRoo
     report.needsChoice = plan.needsChoice;
     report.ok = true;
     return report;
+}
+
+GenericReport applyFileGroup(const QString &sourceRoot, const QString &targetRoot, FileGroup group,
+                             ApplyMode mode) {
+    QStringList refused;
+    QList<GenericItem> items;
+    QString why;
+    if (!sourceRoot.trimmed().isEmpty() && !targetRoot.trimmed().isEmpty() &&
+        !scanFileGroup(sourceRoot, group, &items, &refused, &why)) {
+        GenericReport report;
+        report.refused = refused;
+        report.problem = why;
+        return report;
+    }
+    return applyFileGroupItems(sourceRoot, targetRoot, group, items, mode, refused);
+}
+
+GenericReport applyFileGroup(const QString &sourceRoot, const QString &targetRoot, FileGroup group,
+                             ApplyMode mode, const QList<GenericItem> &items) {
+    // ★ 清单就是清单（2026-10-20 加的那一档）：预设段里列了哪几项，这一趟就只动哪几项。
+    //   从前这里不管调用方手里的清单、直接重扫预设的 `files/<组>` —— 而那份目录里可能
+    //   躺着**清单之外**的文件（提取那一档"覆盖同名、多出来的不删"，重收之后旧的仍在），
+    //   于是计划/备份按清单算、真正落盘的按盘上算，两边对不上（多落的那几份还不在备份里）。
+    return applyFileGroupItems(sourceRoot, targetRoot, group, items, mode, QStringList());
 }
 
 GenericReport extractFileGroup(const QString &sourceRoot, const QString &presetFilesRoot,

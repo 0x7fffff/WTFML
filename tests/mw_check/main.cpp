@@ -872,7 +872,24 @@ void answerJavaMismatchDialog(const QString &buttonName, bool checkDontRemind) {
     };
     QTimer::singleShot(0, handle);
     // 兜底那一条的理由和 dismissNextPrompt() 一样。
-    QTimer::singleShot(300, handle);
+    //
+    // ★ 2026-10-20：它原来是一发 300 毫秒的**单次**定时器。现在点启动那一下的失败
+    //   （进程起不来）也会弹一条提示，而那条提示排在**三岔口之后** —— 单发很容易在
+    //   "三岔口已经收了、提示还没摆上来"的那段空档里醒过来，什么都不做就走了，于是
+    //   那条提示没人收、测试挂死在嵌套事件循环里。所以改成**盯着看**：每 50 毫秒看
+    //   一眼，直到后面某个助手换掉这一发（gen 变了）或者 15 秒到头。
+    auto *watcher = new QTimer;
+    watcher->setInterval(50);
+    QObject::connect(watcher, &QTimer::timeout, watcher,
+                     [watcher, gen, handle, ticks = 0]() mutable {
+                         if (gen != g_modalHandlerGeneration || ++ticks > 300) {
+                             watcher->stop();
+                             watcher->deleteLater();
+                             return;
+                         }
+                         handle();
+                     });
+    watcher->start();
 }
 
 /// 「连着答几条提示」的那台小答话器（AJ 那一节用）。
@@ -4161,6 +4178,33 @@ static void runGameCrashTests() {
         check(crashTasks().size() == baseline + 3,
               "★★ T34.5 用户主动停止 ⇒ 即使是 CrashExit / 非零码也不补异常退出任务",
               QString::number(crashTasks().size()));
+
+        // ---------- ⑥ 出过话的崩溃：没有日志窗也要带着那段日志 ----------
+        //
+        // 「显示游戏日志」**默认关**（LauncherSettings::m_showGameLog = false）⇒ "没有日志窗"
+        // 是常态，不是异常。这一条钉的是进程输出那份**底账**（GameSessionController 那边
+        // 与窗无关地留着每份会话最近 4000 行）：窗不在时崩溃报告从它那儿取日志，而不是
+        // 报"一行都没收到"。2026-10-20 修的就是这一条 —— 原来只从窗里读。
+        const int talkativeSession = 4246;
+        w.seedSessionFactsForTest(talkativeSession, QStringLiteral("1.199.4-T34出过话"),
+                                  QStringLiteral("T34出过话"), 17, javaPath, 0, 0,
+                                  QStringLiteral("Fabric"), QStringLiteral("0.15.11"));
+        QMetaObject::invokeMethod(&w, "onProcessOutput", Qt::DirectConnection,
+                                  Q_ARG(int, talkativeSession),
+                                  Q_ARG(QString, QStringLiteral("[12:00:00] [main/ERROR] boom\n")));
+        const QSet<quint64> beforeTalkative = crashIds();
+        QMetaObject::invokeMethod(&w, "onGameFinished", Qt::DirectConnection,
+                                  Q_ARG(int, talkativeSession), Q_ARG(int, -1073741819),
+                                  Q_ARG(QProcess::ExitStatus, QProcess::CrashExit));
+        check(crashTasks().size() == baseline + 4,
+              "★ T34.6 出过话的崩溃照样补一项",
+              QString::number(crashTasks().size()));
+        if (crashTasks().size() == baseline + 4) {
+            const Tasks::TaskSnapshot added = newCrash(beforeTalkative);
+            check(!added.errorSummary.contains(QStringLiteral("没有收到游戏的输出")),
+                  "★★ T34.6 进程输出有底账（和日志窗无关）⇒ 不再说「一行都没收到」",
+                  added.errorSummary);
+        }
     }
 
     TokenStore::clear(TokenStore::microsoftKey());
@@ -14399,7 +14443,20 @@ static void runCopyAndSavePageTests() {
 
                 // ---------- 备份 ----------
                 {
-                    const QString dir = AppPaths::worldBackupDir() + QStringLiteral("/笔改的");
+                    // 格子名是「实例 id__世界名」（见 InstanceMaintenanceController.cpp 的
+                    // worldBackupSlot()）—— 两个实例都有叫 `world` 的存档时不能再撞在一起。
+                    // 格子名里最后那段路径哈希测试算不出来，按前缀找那一格。
+                    const QString backupRoot = AppPaths::worldBackupDir();
+                    QString dir;
+                    for (const QString &slot :
+                         QDir(backupRoot).entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+                        if (slot.startsWith(QStringLiteral("T27-源实例__笔改的-"))) {
+                            dir = backupRoot + QLatin1Char('/') + slot;
+                            break;
+                        }
+                    }
+                    check(!dir.isEmpty(),
+                          "★★ T27.7 找得到「T27-源实例__笔改的」那一格备份", dir);
                     const QStringList gens =
                         QDir(dir).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
                     check(gens.size() == 1,
@@ -14513,7 +14570,17 @@ static void runCopyAndSavePageTests() {
                 check(world == nullptr || !world->isHidden(),
                       "★ T27.7 备份完**还站在那一页上**（备份不是「离开」）");
                 {
-                    const QString dir = AppPaths::worldBackupDir() + QStringLiteral("/坏掉的");
+                    const QString backupRoot = AppPaths::worldBackupDir();
+                    QString dir;
+                    for (const QString &slot :
+                         QDir(backupRoot).entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+                        if (slot.startsWith(QStringLiteral("T27-源实例__坏掉的-"))) {
+                            dir = backupRoot + QLatin1Char('/') + slot;
+                            break;
+                        }
+                    }
+                    check(!dir.isEmpty(),
+                          "★★ T27.7 找得到「T27-源实例__坏掉的」那一格备份", dir);
                     const QStringList gens =
                         QDir(dir).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
                     check(gens.size() == 1,
@@ -19374,6 +19441,9 @@ int main(int argc, char *argv[]) {
         activity.finish(failed, false, QStringLiteral("crash"), false);
         const auto other = activity.begin(Tasks::TaskKind::Download, QStringLiteral("Other error"));
         activity.finish(other, false, QStringLiteral("network"), false);
+        expect(activity.markSeen(QString::number(failed)), "visible failure clears unread indication");
+        expect(!activity.item(activity.tasks()->snapshot(failed), false, false, false).attentionAcknowledged,
+               "viewport visibility does not resolve attention");
         activity.markAllViewed();
         expect(!activity.item(activity.tasks()->snapshot(failed), false, false, false).attentionAcknowledged,
                "opening the task center does not acknowledge error attention");
@@ -19398,6 +19468,33 @@ int main(int argc, char *argv[]) {
                "acknowledged attention survives history reload");
         expect(restored.tasks()->snapshot(active).state == Tasks::TaskState::Interrupted &&
                    restored.markViewed(QString::number(active)), "interrupted tasks can be acknowledged on viewing");
+        // ★ C2（2026-10-20）：「清除已完成」把行删了，**没看过的失败**那一份必须跟着收窄 ——
+        //   否则 `markViewed()` 再也没有出口（它要求 `has(id)`），面板里一行不剩、底栏那颗
+        //   红点却挂到重启为止。触发它不需要特殊操作：面板停在「进行中」或搜索没命中那一行
+        //   时点「清除已完成」即可。顺带钉住"收窄之后要有人重画底栏"（clearFinished 里那一发
+        //   `activityChanged`）—— 少了它，红点要等账本下一次变动才灭。
+        //
+        //   位置摆在最后：`clearFinished()` 会把前面那些终态行从账本里删掉，而上面
+        //   `restored` 那几条读的正是盘上那些行。
+        {
+            const auto c2 = activity.begin(Tasks::TaskKind::Download, QStringLiteral("C2 error"));
+            activity.finish(c2, false, QStringLiteral("boom"), false);
+            expect(activity.isUnreadFailure(c2), "C2 前提：那一条失败还没被看过");
+            int activityEmissions = 0;
+            const QMetaObject::Connection counter = QObject::connect(
+                &activity, &ActivityCenterController::activityChanged, &activity,
+                [&activityEmissions] { ++activityEmissions; });
+            activity.clearFinished();
+            expect(!activity.tasks()->has(c2),
+                   "C2 「清除已完成」把终态那一条收掉了");
+            expect(!activity.isUnreadFailure(c2),
+                   "C2 行没了，「没看过的失败」也跟着摘掉（红点的出处不再指着一个不存在的号）");
+            expect(!activity.collapsedSummary(QDateTime::currentDateTime(), 10 * 60 * 1000).hasFailure,
+                   "C2 收起态摘要里那颗红点真的灭了");
+            expect(activityEmissions >= 1,
+                   "C2 收窄之后自己再发一发 activityChanged（底栏立刻重画，不等下一次变动）");
+            QObject::disconnect(counter);
+        }
         return failures == 0 ? 0 : 1;
     }
     if (app.arguments().contains(QStringLiteral("workspace-check"))) {
@@ -27879,9 +27976,18 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             QMetaObject::invokeMethod(&w, "onStartButtonClicked", Qt::DirectConnection);
             QApplication::processEvents();
 
-            check(g_modalText.isEmpty(),
+            // ★ 2026-10-20：这里原来断言"一个框都没弹"，因为进程起不来那条路以前只写日志。
+            //   现在产品会**弹一条「无法启动」**（见 LaunchController 里那份 processError 的
+            //   接法）—— 假的 java.exe 是个**空文件**，CreateProcess 当然起不来，所以说的是
+            //   「不是有效的 Win32 应用程序」。这一节真正要钉住的是"**不该**落到
+            //   `Java 运行时缺失` 那条硬错误上"，不是"一个框都不许有"。
+            check(!g_modalText.contains(QStringLiteral("Java 运行时"))
+                      && !g_modalText.contains(QStringLiteral("请手动指定 Java 路径")),
                   "U4 没有弹「Java 运行时缺失」（走了新那条路，不该再落到硬错误上）",
                   g_modalTitle + QStringLiteral(" / ") + g_modalText);
+            check(g_modalText.contains(QStringLiteral("无法启动游戏进程")),
+                  "U4 进程起不来那一条现在是**弹出来**的（假 java.exe 是个空文件，这句正是用户该看到的）",
+                  g_modalText);
             check(!g_mismatchLabel.isEmpty(), "U4 弹了三岔口那个框", g_mismatchLabel);
             check(g_mismatchLabel.contains(QStringLiteral("版本提醒测试")) &&
                       g_mismatchLabel.contains(QStringLiteral("Java 8")) &&
@@ -27922,8 +28028,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             answerJavaMismatchDialog(JavaMismatchDialog::continueButtonName(), false);
             QMetaObject::invokeMethod(&w, "onStartButtonClicked", Qt::DirectConnection);
             QApplication::processEvents();
-            check(g_mismatchLabel.isEmpty() && g_modalText.isEmpty(),
-                  "U5 记住之后第二次启动不再弹框",
+            // 同上：这一趟依旧会在后面弹「无法启动」（空文件当 java.exe），要钉的是
+            // **Java 版本那个框**不再出现。
+            check(g_mismatchLabel.isEmpty() && !g_modalText.contains(QStringLiteral("Java 运行时")),
+                  "U5 记住之后第二次启动不再弹 Java 版本那个框",
                   g_mismatchLabel + QStringLiteral(" / ") + g_modalText);
         }
 
@@ -27940,7 +28048,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             QApplication::processEvents();
 
             check(!g_mismatchLabel.isEmpty(), "U6 前提：问了");
-            check(g_modalText.isEmpty(), "U6 挑 Java 那一步没出错",
+            // 「挑 Java」那一步成功的判据是**没有 Java 运行时缺失**；后面那条「无法启动」
+            // 是假的 java.exe 本身（空文件）起不来，属于这一节故意接受的代价。
+            check(!g_modalText.contains(QStringLiteral("Java 运行时")),
+                  "U6 挑 Java 那一步没出错",
                   g_modalTitle + QStringLiteral(" / ") + g_modalText);
             const QJsonObject meta =
                 QJsonDocument::fromJson(readBytesAt(remindMetaPath)).object();
@@ -27977,7 +28088,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             QMetaObject::invokeMethod(&w, "onStartButtonClicked", Qt::DirectConnection);
             QApplication::processEvents();
 
-            check(g_mismatchLabel.isEmpty() && g_modalText.isEmpty(),
+            check(g_mismatchLabel.isEmpty() && !g_modalText.contains(QStringLiteral("Java 运行时")),
                   "U7 总闸关着就不弹框（连「Java 运行时缺失」那条硬错误都不该有）",
                   g_mismatchLabel + QStringLiteral(" / ") + g_modalText);
             check(readBytesAt(remindMetaPath) == metaBefore,

@@ -59,8 +59,14 @@ QString rangeProblem(QNetworkReply *reply, const DownloadRange &range) {
     if (status == 200 || status == 416) return QStringLiteral("range:unsupported-or-changed");
     if (status != 206) return {};
     const QByteArray expected = "bytes " + QByteArray::number(range.first) + "-" + QByteArray::number(range.last) + "/" + QByteArray::number(range.total);
-    if (reply->rawHeader("Content-Range").trimmed() != expected ||
-        (!range.validator.isEmpty() && reply->rawHeader("ETag") != range.validator))
+    if (reply->rawHeader("Content-Range").trimmed() != expected) return QStringLiteral("range:source-changed");
+    // ★ 2026-10-20：**必须回 ETag**这条不许要。RFC 9110 只要求 206 带 Content-Range，没要求
+    //   回显 ETag；而 If-Range 已经保证"校验值不匹配时只能回 200"（上面那一句已经把它挡掉了）。
+    //   以前这里少了"服务器回了才比"这一层：探测那一条带了 ETag、分段那几条没带（代理剥掉
+    //   了、或者落到另一台后端节点），每一条分段都被判成 "range:source-changed"，大文件
+    //   整批失败、重试也是同一结果。没回显时靠整文件 sha1 兜底（分段只对带 sha1 的文件开）。
+    const QByteArray echoedEtag = reply->rawHeader("ETag");
+    if (!range.validator.isEmpty() && !echoedEtag.isEmpty() && echoedEtag != range.validator)
         return QStringLiteral("range:source-changed");
     return {};
 }
@@ -90,6 +96,14 @@ constexpr qint64 kStallMinBytesPerTick = 64 * 1024;
 ///       吐第一个字节"这件事**不会**被算成失速，那几十秒里 bytesSeen 一直是 0。照原文
 ///      （「照样会被这条判据算成失速」）去改，会去修一个不存在的问题。
 constexpr int kStallStrikesToDemote = 2;
+/// 分段 Range 请求那一档的"太慢"判据（2026-10-20）。比镜像那一档宽得多：一条分段手里没有
+/// 任何备用地址，abort 掉它 = 协调器只能把这一整段（最多 4 MiB）从 0 重下，而且只补一次。
+/// 按镜像那档 12.8 KB/s 判的话，一条 10 KB/s 的慢链子永远下不完一段（4 MiB / 10 KB/s =
+/// 410 秒，而它每 10 秒就被 abort 一次）—— 慢但能用的链路会把整批大文件拖失败。
+/// 0.8 KB/s × 30 秒：真爬不动的（2026-10-18 实测那条 664 秒几百字节/秒）照样断，
+/// 慢但在动的（≥ 1 KB/s）让它慢慢下完。
+constexpr qint64 kStallMinBytesPerTickRange = 4 * 1024;
+constexpr int kStallStrikesToDemoteRange = 6;
 
 // ---------------------------------------------------------------------------
 // 下载限速那一个数（2026-10-18，§9.2）
@@ -532,22 +546,50 @@ void DownloadManager::setMaxConcurrentDownloads(int count) {
     pumpDownloadQueue();
 }
 
+void DownloadManager::shareSpeedLimitBucketWith(DownloadManager *owner) {
+    if (owner == nullptr || owner == this || owner->m_speedBucket.isNull()) {
+        return;
+    }
+    if (m_speedBucket == owner->m_speedBucket) {
+        return;  // 已经在共用了
+    }
+    // 从前借的那一份（如果有）先还掉计数，再借新的。
+    if (m_speedBucket && m_speedBucket->sharers > 0 && m_speedBucketBorrowed) {
+        --m_speedBucket->sharers;
+    }
+    m_speedBucket = owner->m_speedBucket;
+    m_speedBucket->sharers += 1;
+    m_speedBucketBorrowed = true;
+    m_speedLimitBytesPerSecond = m_speedBucket->limit;
+    if (m_speedBucket->limit > 0) {
+        m_speedPump->start();
+    }
+}
+
 void DownloadManager::setSpeedLimitBytesPerSecond(qint64 bytesPerSecond) {
     // 归一化在判据层（唯一出处，见 DownloadSpeedLimit.hpp）：0 = 不限；越界回 0。
     const qint64 normalized = DownloadSpeedLimit::normalize(bytesPerSecond);
-    if (normalized == m_speedLimitBytesPerSecond) {
-        return;
-    }
+    const bool changed = normalized != m_speedBucket->limit;
     m_speedLimitBytesPerSecond = normalized;
+    // ★ 2026-10-20：写的是**桶**里的那份（分段作业的内部下载器共用它）。内层那个对象
+    //   自己的 `m_speedLimitBytesPerSecond` 也在这里跟着更新 —— 外层改档时会把新值转发给
+    //   每个分段作业，走到这里时桶已经是新值了（changed=false），但成员必须照写，不然
+    //   内层 readyRead / 看门狗读到的还是旧档。
+    m_speedBucket->limit = normalized;
     if (normalized > 0) {
-        // 从零开始：用户刚设完不该先看到"猛冲一下"（burst 只用来吸收定时器抖动）。
-        m_speedTokens = 0;
-        m_speedLastRefillMs = m_clock.elapsed();
+        if (changed) {
+            // 从零开始：用户刚设完不该先看到"猛冲一下"（burst 只用来吸收定时器抖动）。
+            m_speedBucket->tokens = 0;
+            m_speedBucket->lastRefillMs = m_speedBucket->clock.elapsed();
+        }
         m_speedPump->start();
     } else {
         m_speedPump->stop();
         // 从"限速"切回"不限"：攒在缓冲区里的那些**当场**读完，不等到下一拍。
         // 快照的理由：写盘出错时下面会 abort，abort 可能同步走 finished、改这张表。
+        //
+        // 这一步**不看 changed**：内层那个共用桶的下载器被外层转发 0 的时候，桶里已经是 0 了
+        // （changed=false），但它自己缓冲区里同样攒着人 —— 泵一停，那些回复就再也没人读了。
         const QList<QNetworkReply *> waiting = m_throttledReplies.values();
         m_throttledReplies.clear();
         for (QNetworkReply *reply : waiting) {
@@ -560,14 +602,16 @@ void DownloadManager::setSpeedLimitBytesPerSecond(qint64 bytesPerSecond) {
                 reply->abort();
             }
         }
-        m_speedTokens = 0;
+        if (changed) m_speedBucket->tokens = 0;
     }
     // 分段作业（大于 4 MiB 那些）各自有一份内部下载器，绕在我们这张表之外 —— 已经在跑的
     // 也要当场改，不然"设置里改成 1 MB/s 了，大文件还在满速"（见 ResumableDownload 那个 setter）。
-    const QList<ResumableDownload *> segmentTasks = m_segmentJobs.keys();
-    for (ResumableDownload *task : segmentTasks) {
-        if (task != nullptr) {
-            task->setSpeedLimitBytesPerSecond(normalized);
+    if (changed) {
+        const QList<ResumableDownload *> segmentTasks = m_segmentJobs.keys();
+        for (ResumableDownload *task : segmentTasks) {
+            if (task != nullptr) {
+                task->setSpeedLimitBytesPerSecond(normalized);
+            }
         }
     }
     if (DownloadDiag::enabled()) {
@@ -581,18 +625,24 @@ void DownloadManager::setSpeedLimitBytesPerSecond(qint64 bytesPerSecond) {
 }
 
 void DownloadManager::onSpeedPumpTick() {
-    if (m_shuttingDown || m_speedLimitBytesPerSecond <= 0) {
+    // ★ 2026-10-20：速率和余额都读**桶**（分段作业内部那个下载器共用同一份）。
+    const qint64 limit = m_speedBucket->limit;
+    if (m_shuttingDown || limit <= 0) {
         return;
     }
-    const qint64 now = m_clock.elapsed();
-    const qint64 elapsed = qMax<qint64>(0, now - m_speedLastRefillMs);
-    m_speedLastRefillMs = now;
-    const double capacity = double(DownloadSpeedLimit::burstBytes(m_speedLimitBytesPerSecond));
-    m_speedTokens = qMin(capacity, m_speedTokens + double(m_speedLimitBytesPerSecond) *
-                                                   double(elapsed) / 1000.0);
+    const qint64 now = m_speedBucket->clock.elapsed();
+    const qint64 elapsed = qMax<qint64>(0, now - m_speedBucket->lastRefillMs);
+    m_speedBucket->lastRefillMs = now;
+    const double capacity = double(DownloadSpeedLimit::burstBytes(limit));
+    m_speedBucket->tokens = qMin(
+        capacity, m_speedBucket->tokens + double(limit) * double(elapsed) / 1000.0);
     if (m_throttledReplies.isEmpty()) {
         // 没有人在等：余额也别攒（不然下一批一开始就会冲一个 burst）。
-        m_speedTokens = 0;
+        // ★ 2026-10-20：桶是共用的时候**不许**抹 —— 这个下载器这一拍没人等，不代表共用它的
+        //   那个（分段作业内部那个）也没人等；抹掉的话它那边的节奏会被这里每 100 ms 打回零。
+        if (m_speedBucket->sharers <= 0) {
+            m_speedBucket->tokens = 0;
+        }
         return;
     }
     // 列"确实还有字节等着"的那些。两拍之间回复可能已经结束 —— 结束那一路自己会摘表，
@@ -611,10 +661,10 @@ void DownloadManager::onSpeedPumpTick() {
     // 落到后面几个人身上（remaining 是先减后用的）。一轮就够 —— 100 ms 之后再来一拍。
     int remaining = waiting.size();
     for (QNetworkReply *reply : waiting) {
-        if (remaining <= 0 || m_speedTokens < 1.0) {
+        if (remaining <= 0 || m_speedBucket->tokens < 1.0) {
             break;
         }
-        const qint64 share = qint64(m_speedTokens / double(remaining));
+        const qint64 share = qint64(m_speedBucket->tokens / double(remaining));
         --remaining;
         if (share <= 0) {
             continue;
@@ -625,7 +675,7 @@ void DownloadManager::onSpeedPumpTick() {
             continue;
         }
         const qint64 taken = stream->drainUpTo(reply, share);
-        m_speedTokens -= double(taken);
+        m_speedBucket->tokens -= double(taken);
         if (!stream->error.isEmpty()) {
             m_throttledReplies.remove(reply);
             reply->abort();
@@ -653,6 +703,9 @@ DownloadManager::DownloadManager(QObject *parent, NetworkManagerFactory networkF
     // 看门狗从对象建好就开始跳：没有"在看之下"的回复时它什么都不做（一次 QHash 判空），
     // 所以不需要在每条下载的开始/结束处去起停它。
     m_clock.start();
+    // 令牌桶从建好那一刻就在（共用的对象也是它，见 shareSpeedLimitBucketWith()）。
+    m_speedBucket = QSharedPointer<SpeedBucket>::create();
+    m_speedBucket->clock.start();
     m_stallWatchdog = new QTimer(this);
     m_stallWatchdog->setInterval(kStallTickMs);
     connect(m_stallWatchdog, &QTimer::timeout, this, &DownloadManager::onStallWatchdogTick);
@@ -672,6 +725,12 @@ DownloadManager::DownloadManager(QObject *parent, NetworkManagerFactory networkF
 }
 
 DownloadManager::~DownloadManager() {
+    // 借来的限速桶要还计数（见 m_speedBucketBorrowed 的说明）。放在函数体最前面：
+    // 后面那几段收尾会发信号、走回调，没有一处需要这个计数还是"在借"的状态。
+    if (m_speedBucketBorrowed && m_speedBucket && m_speedBucket->sharers > 0) {
+        --m_speedBucket->sharers;
+    }
+    m_speedBucketBorrowed = false;
     // abort() 有可能同步触发 finished，处理函数会走完一套收尾甚至发信号。
     // 对象正在析构，那些回调不该再跑，用这个标志在 checkAllDownloadsFinished
     // 和槽函数入口处挡掉。
@@ -1173,7 +1232,10 @@ void DownloadManager::startSegmentedDownload(const PendingJob &job) {
 
     auto *task = new ResumableDownload(this, m_networkFactory);
     // 限速要跟着这一条走：它在 start() 里会建自己那份下载器（见那个 setter 的说明）。
-    task->setSpeedLimitBytesPerSecond(m_speedLimitBytesPerSecond);
+    // ★ 2026-10-20：并且**和外层共用一个令牌桶** —— 从前每个分段作业各拿一份上限，
+    //   设 1 MB/s 时三个作业加上外层能跑出四倍。
+    task->setSpeedLimitBucketOwner(this);
+    task->setSpeedLimitBytesPerSecond(m_speedBucket->limit);
     SegmentJob record;
     record.url = targetUrl;
     record.destinationPath = job.destinationPath;
@@ -1405,6 +1467,11 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     QNetworkReply *reply = networkManager->get(request);
     reply->setProperty("wtfmlRetryAttempts", retryAttempts);
     reply->setProperty("wtfmlStartMs", m_clock.elapsed());
+    // ★ 2026-10-20：把**发出去的那个入口地址**记在回复身上。`reply->url()` 在 302 之后
+    //   已经变成落点地址了，拿它去记失败清单（见 handleDownloadError）等于把"下一次该
+    //   往哪儿重试"记成了那台随机挑的落点 —— 用户点重试时直打落点，绕开了入口重新
+    //   选一台的机会。分段那条路（ResumableDownload）一直记的就是入口地址，这里对齐。
+    reply->setProperty("wtfmlEntryUrl", targetText);
     // 这条是"降级改道"发出去的 ⇒ 记住它是从哪只镜像主机改道过来的。改道之后身上没有
     // 备用地址（fallback 已清空），所以官方这条再失败就真的失败了；这个属性是
     // noteReroutedReplyOutcome() 唯一能知道"该把谁的降级撤掉"的地方。
@@ -1471,7 +1538,7 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
         // ★ 2026-10-18（§9.2 下载限速）：设了上限就**只登记、不读** —— 真正的读取由
         //   onSpeedPumpTick() 按令牌放行。回复自己的 readBufferSize（256 KiB）就是闸门：
         //   我们不读，socket 那边很快就没人往下拉了（背压）。
-        if (m_speedLimitBytesPerSecond > 0) {
+        if (m_speedBucket->limit > 0) {
             if (reply->isReadable()) {
                 m_throttledReplies.insert(reply);
             }
@@ -1590,7 +1657,13 @@ void DownloadManager::handleDownloadError(QNetworkReply *reply, const QString &e
     //         同一份路径失败两次（镜像一次、官方一次）也不去重：后一条覆盖不了前一条的
     //         sha1/字节数，两条都重试一遍是安全的（第二次会走"已经下好了"那条路跳过）。
     FailedJob failed;
-    failed.url = reply->url().toString();
+    // 记**入口地址**（发出去的那一条），不是 302 之后的落点：重试要重新经过入口才有机会
+    // 换一台落点（理由同分段那条路，见 ResumableDownload 的 failed.url）。属性在
+    // startDownload() 里登记；老回复没有它时退回 reply->url()。
+    failed.url = reply->property("wtfmlEntryUrl").toString();
+    if (failed.url.isEmpty()) {
+        failed.url = reply->url().toString();
+    }
     failed.destinationPath = destPath;
     failed.expectedSha1 = expectedSha1s.value(reply);
     failed.expectedSize = expectedSizes.value(reply, -1);
@@ -1806,16 +1879,31 @@ void DownloadManager::onAssetIndexDownloaded() {
                 // downloadAssets() 里就登记好了（version.json 的 assetIndex.sha1）。
                 const QString expectedSha1 = expectedSha1s.value(reply);
                 if (expectedSha1.isEmpty() || verifyFileSha1(indexPath, expectedSha1)) {
-                    success = true;
-                    if (DownloadDiag::enabled()) {
-                        DownloadDiag::line(QStringLiteral("asset-index saved path=%1 bytes=%2")
-                                               .arg(QDir::toNativeSeparators(indexPath))
-                                               .arg(body.size()));
-                    }
                     // 已经放弃的那一批**不往下发**资源对象：那几千个作业会被算进**当前**
                     // 这一批的总数里（用户点了取消却看见进度条的分母又涨了几千）。
-                    if (!stale) {
-                        parseAndDownloadAssets(indexPath);
+                    if (stale) {
+                        success = true;
+                    } else {
+                        // ★ 2026-10-20：解析失败必须让这一条作业**算失败**。资源对象故意
+                        // 不占 total/done 的格子（见 downloadAssets），所以从前来这里
+                        // `qWarning` 一句就 return 的话，整批会以"0 个资源、全部成功"收尾
+                        // —— 版本装好了，材质音效一个都没有，界面上找不到任何异常。
+                        // 失败走下面同一条退路：先退官方地址重下一次，确实不行才
+                        // handleDownloadError 弹出来。
+                        QString parseProblem;
+                        if (parseAndDownloadAssets(indexPath, &parseProblem)) {
+                            success = true;
+                            if (DownloadDiag::enabled()) {
+                                DownloadDiag::line(
+                                    QStringLiteral("asset-index saved path=%1 bytes=%2")
+                                        .arg(QDir::toNativeSeparators(indexPath))
+                                        .arg(body.size()));
+                            }
+                        } else {
+                            errorMessage = parseProblem;
+                            // 坏索引同样不留盘：留着它下次还是解析失败，而且没有任何价值。
+                            QFile::remove(indexPath);
+                        }
                     }
                 } else {
                     // 坏文件不留盘：它是"资源列表"本身，留在那儿没有任何价值，只会误导排查。
@@ -2056,11 +2144,17 @@ bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &
     return true;
 }
 
-void DownloadManager::parseAndDownloadAssets(const QString &indexPath) {
+bool DownloadManager::parseAndDownloadAssets(const QString &indexPath, QString *problemOut) {
+    if (problemOut != nullptr) {
+        problemOut->clear();
+    }
     QFile file(indexPath);
     if (!file.open(QIODevice::ReadOnly)) {
         qWarning() << "Failed to open asset index file:" << indexPath;
-        return;
+        if (problemOut != nullptr) {
+            *problemOut = QStringLiteral("Failed to read the asset index file");
+        }
+        return false;
     }
 
     QJsonParseError error;
@@ -2069,11 +2163,25 @@ void DownloadManager::parseAndDownloadAssets(const QString &indexPath) {
 
     if (error.error != QJsonParseError::NoError) {
         qWarning() << "Failed to parse asset index JSON:" << error.errorString();
-        return;
+        if (problemOut != nullptr) {
+            *problemOut = QStringLiteral("Asset index is not valid JSON: %1")
+                              .arg(error.errorString());
+        }
+        return false;
     }
 
     QJsonObject indexObj = json.object();
     QJsonObject objects = indexObj["objects"].toObject();
+
+    // 能解析成 JSON 不等于"这就是资源索引"：镜像/代理偶尔会回一段合法 JSON 的错误体
+    // （{"error":...}），少了这一道就会安静地下 0 个对象、整批报成功。
+    if (objects.isEmpty()) {
+        qWarning() << "Asset index has no objects:" << indexPath;
+        if (problemOut != nullptr) {
+            *problemOut = QStringLiteral("Asset index contains no objects");
+        }
+        return false;
+    }
 
     if (DownloadDiag::enabled()) {
         DownloadDiag::line(QStringLiteral("asset-index parsed path=%1 objects=%2")
@@ -2084,6 +2192,7 @@ void DownloadManager::parseAndDownloadAssets(const QString &indexPath) {
     QString basePath = AppPaths::assetsDir();
     QString objectsPath = basePath + "/objects";
 
+    int scheduled = 0;
     for (auto it = objects.begin(); it != objects.end(); ++it) {
         QString assetName = it.key();
         QJsonObject assetObj = it.value().toObject();
@@ -2109,7 +2218,18 @@ void DownloadManager::parseAndDownloadAssets(const QString &indexPath) {
         // 文件名就是 SHA1，所以只按存在性判断：assets 目录已经 3 GB 出头，
         // 每次点下载都把 5000 多个对象重新哈希一遍会让界面卡死好几秒。
         scheduleFile(assetUrl, assetPath, hash, -1, VerifyMode::ExistsOnly, officialAssetUrl);
+        ++scheduled;
     }
+    // 结构对、但一个对象都没排上（每条 hash 都不是 40 位）—— 和上面"没有 objects"同一种
+    // 故障，只是藏得更深。放它过去的话整批照样以 0 个资源报成功。
+    if (scheduled == 0) {
+        qWarning() << "Asset index has no usable objects:" << indexPath;
+        if (problemOut != nullptr) {
+            *problemOut = QStringLiteral("Asset index contains no usable objects");
+        }
+        return false;
+    }
+    return true;
 }
 
 void DownloadManager::downloadClientJar(const QString &versionId, const QString &url,
@@ -2663,11 +2783,17 @@ void DownloadManager::onStallWatchdogTick() {
         //   每条每 5 秒只有 10 KB，比 kStallMinBytesPerTick（64 KB）还少 ⇒ 一开限速，
         //   整批镜像作业每隔 10 秒就被 abort 一遍（用户看到的形状是"限速一开就疯狂重试、
         //   根本下不完"）。"一个字节都不来"那两条（0b / 1）仍然照旧：那才是真的死了。
-        if (m_speedLimitBytesPerSecond <= 0
+        if (m_speedBucket->limit <= 0
             && (m_officialFallbacks.contains(reply) || rangeOf(reply).active())) {
+            // ★ 2026-10-20：分段那一档另用一套阈值（见 kStallMinBytesPerTickRange 那段）。
+            const bool rangePart = rangeOf(reply).active();
+            const qint64 minBytes =
+                rangePart ? kStallMinBytesPerTickRange : kStallMinBytesPerTick;
+            const int strikesToDemote =
+                rangePart ? kStallStrikesToDemoteRange : kStallStrikesToDemote;
             if (countsTowardStallStrike(meter.bytesSeen, meter.bytesSeen - meter.lastTickBytes,
-                                        kStallMinBytesPerTick)) {
-                if (++meter.strikes >= kStallStrikesToDemote) {
+                                        minBytes)) {
+                if (++meter.strikes >= strikesToDemote) {
                     stalled.append(reply);
                 }
             } else {
@@ -2752,6 +2878,13 @@ void DownloadManager::onStallWatchdogTick() {
         }
         failWedgedDownload(reply);
     }
+    // ★ 2026-10-20：这一拍顺带**泵一次队列**。pumpDownloadQueue() 里有一条"这个源还在
+    //   冷却里，跳过"（429 的退避，见 requeueTransientFailure）。冷却到期之后，如果这一批
+    //   剩下的作业全排在那一个源上、而且一条都不在飞，就再没有谁会来叫泵了 —— finished
+    //   不会来（没有在飞的回复）、重排那边的唤醒定时器也只管它自己那一条。整批会永远
+    //   停在"下载中"。原来那句注释写的是"The periodic watchdog pumps again"，可这个槽
+    //   以前从来没泵过。5 秒一拍，队列空时第一行就返回，代价可以忽略。
+    pumpDownloadQueue();
 }
 
 QString DownloadManager::jobLabel(QNetworkReply *reply) const {
@@ -2854,6 +2987,10 @@ void DownloadManager::failWedgedDownload(QNetworkReply *reply) {
         expectedSizes.remove(reply);
         m_stallMeters.remove(reply);
         m_officialFallbacks.remove(reply);
+        // ★ 2026-10-20：限速泵攥着的那张表也得摘。这条回复是在**设了限速**的时候被判死
+        //   的，readyRead 早就把它登记进去了；不摘的话 `onSpeedPumpTick` 下一拍会拿着
+        //   一个 deleteLater 之后的指针去问 `isReadable()`（悬空）。
+        m_throttledReplies.remove(reply);
         reply->abort();
         reply->deleteLater();
         --pendingDownloads;
@@ -2881,6 +3018,8 @@ void DownloadManager::failWedgedDownload(QNetworkReply *reply) {
     expectedSizes.remove(reply);
     m_stallMeters.remove(reply);
     m_officialFallbacks.remove(reply);
+    // 同上面镜像重排那一支：限速泵的表也摘掉，别留悬空指针。
+    m_throttledReplies.remove(reply);
     // abort() 还是要叫一声：能在连接层面收干净最好（收不干净也不影响上面的记账）。
     reply->abort();
     reply->deleteLater();

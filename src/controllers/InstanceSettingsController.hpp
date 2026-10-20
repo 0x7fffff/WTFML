@@ -211,9 +211,13 @@ public:
      * 报一声，其余各项照常保存（理由写在实现里那两段 NOTE 里：为一件小事把整次保存赔进去
      * 是替用户做主）。
      *
+     * @param pickedIconStoredOut 非空时写入"用户刚挑的那张图**真的落进实例目录了**没有"
+     *        （没挑 = false；挑了指到一半失败也没成）。调用方靠这一位决定要不要让对话框
+     *        **忘掉那个源路径** —— 详见 `InstanceSettingsDialog::markPickedIconSaved()` 那段。
+     *
      * @return 那份 meta 真的写下去了没有。
      */
-    bool apply(const QString &versionId, const Edit &edit);
+    bool apply(const QString &versionId, const Edit &edit, bool *pickedIconStoredOut = nullptr);
 
     /// 这个实例的身份键（`instanceKeyFor()` 的成员版本，省得到处传 manager）。
     QString instanceKey(const QString &versionId) const;

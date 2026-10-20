@@ -13,6 +13,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLockFile>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QStorageInfo>
@@ -115,6 +116,20 @@ void discardUnpublishedStaging(const Request &r) {
     if (!QFileInfo(root).isDir() || redirected(root)) return;
     if (QFileInfo(root + "/original").isDir() || QFileInfo(root + "/replaced").isDir()) return;
     removeTreeWithoutFollowingLinks(root);
+}
+// Recovery first acquires the transaction lock. Copied files preserve source mtimes,
+// so include the staging directory's own timestamp in the abandonment grace period.
+bool stagingIsStale(const QString &dir) {
+    QDateTime newest = QFileInfo(dir).lastModified();
+    QDirIterator it(dir, QDir::Files | QDir::Hidden | QDir::System, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        it.next();
+        const QDateTime at = it.fileInfo().lastModified();
+        if (at.isValid() && (newest.isNull() || at > newest)) newest = at;
+    }
+    if (newest.isNull()) newest = QFileInfo(dir).lastModified();  // 一个文件都还没拷
+    return newest.isValid()
+           && newest.secsTo(QDateTime::currentDateTime()) > 30 * 60;
 }
 } // namespace
 
@@ -221,6 +236,57 @@ static Result prepareAndCommitImpl(Request r, const Core &core, const std::funct
         result.problem = QStringLiteral("目标客户端文件未通过校验，原实例未改变。"); return result;
     }
     jar.close();
+    // Remove the previous core's jar/json pair before writing the new one.
+    //
+    // A directory that was renamed outside the launcher (or whose rename failed halfway)
+    // still holds a jar/json named after the *old* name. Leaving them beside the new pair
+    // is not cosmetic: the launcher adds any top-level jar that contains the main class to
+    // the classpath, and the stale client jar of course does — so the old and new cores
+    // end up on one classpath.
+    //
+    // Only these two names count as the previous core (other jars in a version directory,
+    // e.g. `lwjgl3ify-forgePatches.jar`, are required at runtime and must not be touched):
+    //   · `<json id>.jar` (both vanilla and instances the launcher created), and
+    //   · `<json stem>.jar` (the leftover half of a rename).
+    // NOTE: the json's own `jar` field is *not* used — in a version json it names another
+    //       *version id*, not a file in this directory, so deleting by it could hit an
+    //       unrelated jar.
+    const QString oldJsonName = InstanceFiles::jsonName(r.instanceId);
+    if (oldJsonName.contains('/') || oldJsonName.contains('\\') || oldJsonName.contains(':')) {
+        result.problem = QStringLiteral("旧版本信息文件名不安全，原实例未改变。"); return result;
+    }
+    const QString newJarName = r.instanceId + QStringLiteral(".jar");
+    const QString newJsonName = r.instanceId + QStringLiteral(".json");
+    QJsonObject oldJson;
+    {
+        QFile oldJsonFile(candidate + '/' + oldJsonName);
+        if (oldJsonFile.open(QIODevice::ReadOnly) && oldJsonFile.size() <= 16 * 1024 * 1024) {
+            const auto document = QJsonDocument::fromJson(oldJsonFile.readAll());
+            if (document.isObject()) oldJson = document.object();
+        }
+    }
+    const QStringList staleJars{oldJson.value(QStringLiteral("id")).toString() + QStringLiteral(".jar"),
+                                QFileInfo(oldJsonName).completeBaseName() + QStringLiteral(".jar")};
+    for (const QString &name : staleJars) {
+        if (name.contains('/') || name.contains('\\') || name.contains(':')
+            || !InstanceFiles::validateDirName(name).isEmpty()) {
+            result.problem = QStringLiteral("旧版本信息包含不安全的客户端文件名，原实例未改变。");
+            return result;
+        }
+        if (name.isEmpty() || name.compare(newJarName, Qt::CaseInsensitive) == 0) continue;
+        const QString stale = candidate + '/' + name;
+        if (QFileInfo::exists(stale) && !QFile::remove(stale)) {
+            result.problem = QStringLiteral("无法清理暂存副本中的旧客户端文件，原实例未改变。");
+            return result;
+        }
+    }
+    if (oldJsonName.compare(newJsonName, Qt::CaseInsensitive) != 0) {
+        const QString stale = candidate + '/' + oldJsonName;
+        if (QFileInfo::exists(stale) && !QFile::remove(stale)) {
+            result.problem = QStringLiteral("无法清理暂存副本中的旧版本信息，原实例未改变。");
+            return result;
+        }
+    }
     const QString client = candidate + '/' + r.instanceId + ".jar";
     if ((QFileInfo::exists(client) && !QFile::remove(client)) || !QFile::copy(core.clientJar, client)
         || !saveObject(candidate + '/' + r.instanceId + ".json", json) || !saveObject(metaPath, meta)) {
@@ -256,6 +322,15 @@ static Result prepareAndCommitImpl(Request r, const Core &core, const std::funct
 
 Result prepareAndCommit(Request r, const Core &core, const std::function<void(Stage)> &progress,
                         const std::function<bool()> &cancelled) {
+    const QString invalid = validate(r);
+    if (!invalid.isEmpty()) { Result result; result.problem = invalid; return result; }
+    const QString parent = QFileInfo(transactionDir(r)).absolutePath();
+    QDir().mkpath(parent);
+    QLockFile lock(transactionDir(r) + QStringLiteral(".lock"));
+    lock.setStaleLockTime(0);
+    if (!lock.tryLock()) {
+        Result result; result.problem = QStringLiteral("升级事务正在使用，未修改实例。"); return result;
+    }
     const auto result = prepareAndCommitImpl(r, core, progress, cancelled);
     if (!result.ok) discardUnpublishedStaging(r);
     return result;
@@ -385,12 +460,15 @@ static Result commitPreparedImpl(const Request &r, const std::function<void(Stag
     manifest.complete = true;
     manifest.safety = true;
     manifest.scope = {QStringLiteral("原地升级前完整实例快照（不排除 assets、libraries 或用户文件）")};
-    const QString zip = QDir(r.gameDir).filePath("cache/backups/instances/")
+    QString zip = QDir(r.gameDir).filePath("cache/backups/instances/")
         + BackupFiles::backupFileName(manifest.label, QDateTime::currentDateTime(), true)
               .chopped(4) + '-' + r.transactionId + ".zip";
     if (QFileInfo::exists(zip) || redirected(zip)) { result.problem = QStringLiteral("快照名称已存在或是链接，未覆盖。"); return result; }
     const auto snapshot = BackupFiles::writeBackup(manifest, original, zip);
     if (!snapshot.ok) { result.problem = snapshot.problem; return result; }
+    // `snapshot.zipPath` 才是真正落盘的那一个（撞名时 `writeBackup()` 会换一个名字）。
+    // 回滚读的是**记进事务文件的那条路径**，记错名字等于那一份快照永远找不回来。
+    zip = snapshot.zipPath;
     result.snapshotZip = zip;
     report(Stage::VerifySnapshot);
     {
@@ -466,9 +544,25 @@ QStringList recoverInterrupted(const QString &gameDir) {
     const QDir root(QDir(gameDir).filePath("cache/instance-upgrades"));
     if (redirected(root.absolutePath())) return {QStringLiteral("升级事务目录是链接，未自动恢复。")};
     for (const auto &id : root.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+        QLockFile lock(root.filePath(id + QStringLiteral(".lock")));
+        lock.setStaleLockTime(0);
+        if (!lock.tryLock()) continue;
         QFile f(root.filePath(id + "/journal.json"));
-        if (redirected(root.filePath(id)) || redirected(f.fileName())
-            || !f.open(QIODevice::ReadOnly) || f.size() > 64 * 1024) continue;
+        if (redirected(root.filePath(id)) || redirected(f.fileName())) continue;
+        if (!f.exists()) {
+            // ★ 2026-10-20：没有清单的事务目录只有两种来路 —— 「准备」拷到一半就崩了
+            //   （暂存里有整整一份实例，几个 GB，永远没人清），或者**另一个启动器正在拷**
+            //   （这份程序没有"只许开一个"的锁）。判据用"最近改过没有"：正在拷的那一份
+            //   时时刻刻在写文件；半个小时没人碰它，就只能是一具尸体。
+            const QString txn = QDir(gameDir).filePath("cache/instance-upgrades/" + id);
+            const bool shaped = QRegularExpression("^[A-Za-z0-9-]{1,80}$").match(id).hasMatch();
+            if (shaped && !QFileInfo(txn + "/original").isDir()
+                && !QFileInfo(txn + "/replaced").isDir() && stagingIsStale(txn)
+                && removeTreeWithoutFollowingLinks(txn))
+                messages.append(QStringLiteral("已清理未登记的升级暂存：%1").arg(id));
+            continue;
+        }
+        if (!f.open(QIODevice::ReadOnly) || f.size() > 64 * 1024) continue;
         const auto json = QJsonDocument::fromJson(f.readAll()).object();
         f.close();
         const Request r{gameDir, json.value("instanceId").toString(), id, {}};

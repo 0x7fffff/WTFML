@@ -47,6 +47,12 @@ QStringList IntegrityController::flaggedPaths(const QString &versionId) const {
 void IntegrityController::shutdown() {
     m_abort.storeRelaxed(1);
     if (m_thread != nullptr) m_thread->wait();
+    // ★ 2026-10-20：指针可能已经被放掉了（`submit()` 里重开一趟时，或者 finished 已经把
+    //   它清成 nullptr），而那条线程还在最后几条指令里。析构 QObject 会把子对象连同一条
+    //   仍在跑的线程一起删掉 ⇒ qFatal。按子对象兜一遍底。
+    for (QThread *thread : findChildren<QThread *>()) {
+        if (thread != m_thread) thread->wait();
+    }
 }
 
 void IntegrityController::submit(const QString &versionId, const BusyFacts &busy) {
@@ -93,7 +99,13 @@ void IntegrityController::submit(const QString &versionId, const BusyFacts &busy
     m_scanVersionId = versionId;
     m_abort.storeRelaxed(0);
     if (m_thread != nullptr) {
-        m_thread->deleteLater();
+        // ★ 2026-10-20：**不能**在这里对旧的 `m_thread` 调 deleteLater()。它能被走到这儿，
+        //   是因为上一趟的 `finished()` 已经把 `m_scanVersionId` 清掉了 —— 那条线程正是
+        //   刚把 `finished()` 排到主线程、自己还差最后几条指令才退出。对一条仍在跑的
+        //   QThread 调 deleteLater() 会让 Qt 处理 DeferredDelete 时
+        //   `qFatal("QThread: Destroyed while thread is still running")` —— 整个启动器
+        //   当场消失（ServerPing 那边 2026-10-19 踩过同一个坑）。线程对象自己接好了
+        //   finished → deleteLater（见下面创建处），这里只要放掉指针。
         m_thread = nullptr;
     }
     m_thread = QThread::create([this, files] {
@@ -121,6 +133,15 @@ void IntegrityController::submit(const QString &versionId, const BusyFacts &busy
         QMetaObject::invokeMethod(this, [this, report] { finished(report); }, Qt::QueuedConnection);
     });
     m_thread->setParent(this);
+    // 自己收自己（见 submit() 里那段：重开一趟时**不许**对还在跑的线程 deleteLater）。
+    // ★ 先放指针、再排删除：`shutdown()` 里那句 `m_thread->wait()` 是在析构时跑的，
+    //   而 deleteLater 会把这个对象真的删掉 —— 指针不清掉的话，那一句就是对一块已经
+    //   释放的内存调 wait()。两件事都接到 `finished` 上，按连接顺序投递，清指针一定排在
+    //   删除之前（两个接收者都住在主线程，投递顺序就是连接顺序）。
+    connect(m_thread, &QThread::finished, this, [this, thread = m_thread] {
+        if (m_thread == thread) m_thread = nullptr;
+    });
+    connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
     m_thread->start();
 }
 

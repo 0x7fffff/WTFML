@@ -19,6 +19,7 @@
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
+#include <QTimer>
 #include <QUrl>
 
 #include <utility>
@@ -29,6 +30,18 @@ TaskDetailController::TaskDetailController(ActivityCenterController *activity,
                                            QWidget *pageParent, Host host, QObject *parent)
     : QObject(parent), m_activity(activity), m_crash(crash), m_versions(versions),
       m_sessions(sessions), m_overlay(overlay), m_pageParent(pageParent), m_host(std::move(host)) {
+    // ★ 2026-10-20：这一页开着的时候账本**照样在动**（下载会跑完 / 失败、启动那几步会往前走、
+    //   用户在别处把这一批取消了），而页上那一份 `TaskCenter::Item` 是点开那一刻的快照。
+    //   以前只有"在这一页上按了某颗按钮"才会重摆 —— 于是一个正在下载的任务在页上永远停在
+    //   40%，底下的调用早就收尾了；「取消」那颗按钮也还亮着（点了才发现已经没什么可取消）。
+    //   `execPage()` 是嵌套事件循环，这些信号在这里收得到，重摆就会当场出现在屏幕上。
+    //
+    //   NOTE: 只接账本这两条（`taskChanged` 每一发都来，所以走合并版）。页没开着时什么都不
+    //         做（见 refreshOpenPage 的第一行），不会为了没人看的页一遍遍造控件。
+    connect(activity->tasks(), &Tasks::TaskManager::taskChanged, this,
+            [this](Tasks::TaskId) { scheduleRefreshOpenPage(); });
+    connect(activity->tasks(), &Tasks::TaskManager::historyChanged, this,
+            [this] { scheduleRefreshOpenPage(); });
 }
 
 void TaskDetailController::log(const QString &message) const {
@@ -134,7 +147,8 @@ void TaskDetailController::openLog(const QString &key) {
     //
     //   §4.3 那一项「游戏异常退出」另外给「打开日志」一个**明确的**去处：它就是下面这一段。
     bool parsed = false;
-    const Tasks::TaskId id = key.toInt(&parsed);
+    // 行钥匙是 64 位的 `TaskId`（见 `ActivityCenterController::markViewed()` 那段的 NOTE）。
+    const Tasks::TaskId id = key.toULongLong(&parsed);
     const int crashSessionId = parsed ? m_crash->sessionIdForTask(id) : 0;
     if (crashSessionId > 0) {
         // 这一项知道自己是**哪一场**。异常退出时日志窗不会自动关（见
@@ -167,7 +181,7 @@ void TaskDetailController::openLog(const QString &key) {
 
 void TaskDetailController::openTarget(const QString &key) {
     bool ok = false;
-    const Tasks::TaskId id = key.toInt(&ok);
+    const Tasks::TaskId id = key.toULongLong(&ok);
     if (!ok || !m_activity->tasks()->has(id)) {
         return;
     }
@@ -204,8 +218,7 @@ void TaskDetailController::copySummary(const QString &key) {
     TaskCenter::Item item;
     if (!fillItem(key, &item)) {
         return;
-    }
-    // 摘要 = 这一页上那几行字，纯文本（贴到哪儿都读得下去）。**不带上整份日志**：
+    }    // 摘要 = 这一页上那几行字，纯文本（贴到哪儿都读得下去）。**不带上整份日志**：
     // 那是「导出错误报告」的活（见 util/ErrorReport），这一颗要的是"把这一项说清楚"。
     QStringList lines;
     lines << QStringLiteral("%1: %2").arg(MainWindowUI::taskDetailStateText(item.state),
@@ -230,4 +243,33 @@ void TaskDetailController::copySummary(const QString &key) {
     }
     QGuiApplication::clipboard()->setText(lines.join(QLatin1Char('\n')));
     log(tr("这一项的摘要已经复制到剪贴板。"));
+}
+
+void TaskDetailController::refreshOpenPage() {
+    if (m_page == nullptr || !m_page->isVisible()) {
+        return;
+    }
+    const QString key = m_page->taskKey();
+    if (key.isEmpty()) {
+        return;
+    }
+    TaskCenter::Item fresh;
+    if (fillItem(key, &fresh)) {
+        m_page->setTask(fresh);
+        return;
+    }
+    // 号已经不在账本上了（「清除已完成」把行删掉了，或者这一页摆的是上一轮读盘的历史）。
+    // **不弹窗、不自动关页**：页上那份快照仍然是"它当时是什么"，用户没做错什么 ——
+    // 和 `open()` 里同一条理由。
+}
+
+void TaskDetailController::scheduleRefreshOpenPage() {
+    if (m_page == nullptr || !m_page->isVisible() || m_refreshPending) {
+        return;
+    }
+    m_refreshPending = true;
+    QTimer::singleShot(0, this, [this]() {
+        m_refreshPending = false;
+        refreshOpenPage();
+    });
 }

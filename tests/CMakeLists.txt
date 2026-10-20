@@ -236,6 +236,16 @@ set(PROJECT_SOURCES
     # 它只要 ServerListFile（在上面）和 QtCore。
     ${REPO_ROOT}/src/controllers/ServerListController.cpp
     ${REPO_ROOT}/src/controllers/ServerListController.hpp
+    # InstanceMaintenanceController（2026-10-20）：世界 level.dat 的世代备份落在哪个格子 ——
+    # ZQ9 那一节拿两个实例下**同名**的存档钉住"各占一格、清理互不挤代数、最近一份不串门"。
+    # 它只要 FolderManager（在上面）、WorldFiles（在上面）、ConfigFileText（头文件）、QtCore。
+    ${REPO_ROOT}/src/controllers/InstanceMaintenanceController.cpp
+    ${REPO_ROOT}/src/controllers/InstanceMaintenanceController.hpp
+    # ConfigFileText 的**备份那一半**（`backupPathFor` / `backupFolderName` / `isBackupFolderName`
+    # / `backupFoldersToRemove`）上面那个控制器要用。整份 .cpp 只依赖 QtCore（文本往返那半也在，
+    # 但这里只驱动备份这几个纯函数）。
+    ${REPO_ROOT}/ui/ConfigFileText.cpp
+    ${REPO_ROOT}/ui/ConfigFileText.hpp
     ${REPO_ROOT}/src/launcher/QuickPlay.hpp
     ${REPO_ROOT}/src/util/ZipUtil.cpp
     ${REPO_ROOT}/src/util/ZipUtil.hpp

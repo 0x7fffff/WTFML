@@ -19,6 +19,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QTemporaryDir>
+#include <QLockFile>
 #include <cstdio>
 #include <stdexcept>
 
@@ -91,6 +92,38 @@ int runInstanceUpgradeChecks() {
               && read(old + "/saves/World/level.dat") == "world" && read(old + "/mods/old-mod.jar.disabled") == "mod"
               && !QFileInfo::exists(old + "/saves/Unwanted"),
               "all original user content stays and target user content is not imported");
+    }
+    {
+        InstanceUpgrade::Request r{scratch.path() + "/unsafe", "Instance", "unsafe-id", "Original"};
+        const QString old = r.gameDir + "/versions/Instance";
+        write(old + "/Instance.json", R"({"id":"../../../../victim"})");
+        write(old + "/Instance.jar", "old-core");
+        write(old + "/wtfml.meta", R"({"name":"Original"})");
+        const QString victim = QDir::cleanPath(InstanceUpgrade::candidateDir(r) + "/../../../../victim.jar");
+        write(victim, "keep");
+        const QString client = r.gameDir + "/target.jar";
+        write(client, "new-core");
+        InstanceUpgrade::Core core;
+        core.clientJar = client; core.gameVersion = "1.21.1";
+        core.mergedJson = QJsonObject{{"mainClass", "ExampleMain"}};
+        const auto result = InstanceUpgrade::prepareAndCommit(r, core);
+        check(!result.ok && read(victim) == "keep" && read(old + "/Instance.jar") == "old-core",
+              "traversal in old version id aborts upgrade without changing original");
+    }
+    {
+        InstanceUpgrade::Request r{scratch.path() + "/active", "Instance", "active-stage", "Original"};
+        const QString txn = InstanceUpgrade::transactionDir(r);
+        write(txn + "/prepared/old.jar", "old");
+        write(txn + "/journal.json", R"({"instanceId":"Instance"})");
+        QLockFile lock(txn + ".lock");
+        lock.setStaleLockTime(0);
+        check(lock.tryLock(), "active transaction owns recovery exclusion lock");
+        const auto competing = InstanceUpgrade::prepareAndCommit(r, InstanceUpgrade::Core{});
+        check(!competing.ok && QFileInfo::exists(txn + "/prepared/old.jar"),
+              "competing failed preparation cannot discard an active transaction");
+        InstanceUpgrade::recoverInterrupted(r.gameDir);
+        check(QFileInfo::exists(txn + "/prepared/old.jar"),
+              "recovery leaves locked active preparation untouched");
     }
     const auto fixture = [&](const QString &name) {
         InstanceUpgrade::Request r{scratch.path() + '/' + name, "Instance", "tx-test", "Display name"};

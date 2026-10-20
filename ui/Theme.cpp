@@ -21,6 +21,7 @@
 #include <QJsonValue>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPointer>
 #include <QProxyStyle>
 #include <QPushButton>
 #include <QSettings>
@@ -1769,13 +1770,24 @@ void notifyWidgets() {
     if (QGuiApplication::instance() == nullptr) {
         return;
     }
-    const QList<QWidget *> widgets = QApplication::allWidgets();
-    for (QWidget *widget : widgets) {
-        if (widget == nullptr) {
+    // ★ 2026-10-20：这一圈里跑的是**别的代码**（`Theme::follow()` 的回调多半会
+    //   `setStyleSheet()` / `setPalette()`，也有的会重建自己的子控件）。真有哪一个在这
+    //   期间被删掉时，`allWidgets()` 那份裸指针就悬了 —— 往悬着的指针上发事件是
+    //   堆上的一处随机写，症状是几十条断言之后在**另一个**对话框析构时炸掉（实测：
+    //   `InstanceSettingsDialog::~InstanceSettingsDialog()` 里 free 到坏块 / 0xC0000374）。
+    //   所以先换成一圈 `QPointer`：被删掉的自己变空，跳过就是。
+    QList<QPointer<QWidget>> widgets;
+    const QList<QWidget *> all = QApplication::allWidgets();
+    widgets.reserve(all.size());
+    for (QWidget *widget : all) {
+        widgets.append(widget);
+    }
+    for (const QPointer<QWidget> &widget : widgets) {
+        if (widget.isNull()) {
             continue;
         }
         QEvent event(QEvent::PaletteChange);
-        QCoreApplication::sendEvent(widget, &event);
+        QCoreApplication::sendEvent(widget.data(), &event);
     }
 }
 
@@ -1868,9 +1880,19 @@ void apply(QApplication &app) {
         // ★ 同上：这一趟**真**把调色板换掉了，所以重挂一遍样式表把控件那层缓存冲掉。
         //   没换（比如只是改了背景图）就不挂 —— 那正是上面 NOTE 说的"白跑一趟"。
         installButtonSheet(app, true);
+        // 铺完之后 Qt 自己会把"调色板变了"发给每一个控件（`ui_check` W2 量着这件事），
+        // 所以这里**不再**敲第二遍 —— 敲了就是每换一次主题白跑一趟全窗口的重算。
+    } else {
+        // ★ 2026-10-20：调色板**没变**的时候 Qt 一个通知都不发，而"换了一张背景图 /
+        //   改了摆法 / 调了不透明度 / 换了某一块的底色"这些东西**都不在调色板里**
+        //   （`buildPalette()` 只读 preset / roles / textOpacity）。于是 `apply()`
+        //   跑完了、规格也换了，屏幕上却还是上一张图 —— `ThemeBackground` 记着两份位图，
+        //   只有收到 "调色板变了" 才会重画（见它构造里那句 `follow`）。
+        //   症状：换图之后要切到别的选项卡再切回来、或者拖一下窗口改尺寸，才看得见新图。
+        //   这里补发一遍（和上面那条"不重复敲"并不矛盾：那一趟真变了才轮到 Qt 发，
+        //   这一趟 Qt 不会发）。
+        notifyWidgets();
     }
-    // 铺完之后 Qt 自己会把"调色板变了"发给每一个控件（`ui_check` W2 量着这件事），
-    // 所以这里**不再**敲第二遍 —— 敲了就是每换一次主题白跑一趟全窗口的重算。
 }
 
 // ---------------------------------------------------------------------------
@@ -2078,7 +2100,16 @@ Spec load() {
     Spec spec = defaultSpec();
     spec.presetId = settings.value(QLatin1String(kPresetKey), spec.presetId).toString();
     spec.accent = tokens(spec.presetId).primary;
-    spec.textOpacity = settings.value(QLatin1String(kTextOpacityKey), spec.textOpacity).toInt();
+    // ★ 2026-10-20：这一行是能手改的。`toInt()` 认不出来的字符串回的是 **0**，而 0% 的
+    //   文字透明度 = 所有字都不画（界面一片空白），0% 的图 = 一张看不见的背景 ——
+    //   都不是"读不懂"该有的样子。认不出就退回出厂那一档（同一个文件末尾对语义色
+    //   写的那条原则：认不出的一律退回出厂）。
+    bool textOpacityOk = false;
+    const int textOpacity =
+        settings.value(QLatin1String(kTextOpacityKey), spec.textOpacity).toInt(&textOpacityOk);
+    if (textOpacityOk) {
+        spec.textOpacity = textOpacity;
+    }
     // 主题色：没写过（老版本存的那一份）就是出厂那一支 —— 它没有"空"这个状态。
     const QColor accent = colorFromString(settings.value(QLatin1String(kAccentKey)).toString());
     if (accent.isValid()) {
@@ -2103,7 +2134,12 @@ Spec load() {
         style.hasForeground = style.foreground.isValid();
         const QVariant opacity = settings.value(partSettingKey(part, "TextOpacity"));
         if (opacity.isValid()) {
-            style.textOpacity = opacity.toInt();
+            // 同上：认不出（手改成 "abc"）不许当成 0 —— -1 才是"这一块没调过"。
+            bool opacityOk = false;
+            const int value = opacity.toInt(&opacityOk);
+            if (opacityOk) {
+                style.textOpacity = value;
+            }
         }
         // 图：路径统一成 `/`（写盘时是 `\`，见 `save()`）。**不认识就不留下这一条**
         // （下一句由 `normalize()` 收尾：空的路径 = 没设过）。
@@ -2116,8 +2152,11 @@ Spec load() {
             style.fit = fit;
             const QVariant imageOpacity = settings.value(partSettingKey(part, "ImageOpacity"));
             // 没写过这一项（手改注册表删掉了）⇒ 默认 100，不是 0 —— 0 是一张看不见的图，
-            // 那个"空白"会被当成坏了。
-            style.imageOpacity = imageOpacity.isValid() ? imageOpacity.toInt() : 100;
+            // 那个"空白"会被当成坏了。**认不出也一样**（"abc" 的 toInt 也是 0）。
+            bool imageOpacityOk = false;
+            const int imageOpacityValue = imageOpacity.toInt(&imageOpacityOk);
+            style.imageOpacity =
+                (imageOpacity.isValid() && imageOpacityOk) ? imageOpacityValue : 100;
             // 「当初挑的那张叫什么」：没有这一项（老版本存的、或者手改注册表删了）就留空，
             // 界面那一侧会退回落盘那个文件的名字 —— 不许因为少一位就写不出话。
             style.imageName = settings.value(partSettingKey(part, "ImageName")).toString();

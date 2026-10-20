@@ -1038,7 +1038,21 @@ MalilibTarget malilibReadTarget(const QString &instanceRoot, const QStringList &
             target.files.append(file);
             continue;
         }
-        const QString path = QDir(instanceRoot).filePath(malilibConfigRelativePath(modId));
+        const QString relativePath = malilibConfigRelativePath(modId);
+        // ★ 2026-10-20：`config/` 或 `config/<mod>.json` 是 junction / 符号链接时**一个字节
+        //   都不碰**。这一层原来只查文件名合法不合法，于是"把 config 做成指向另一个实例
+        //   （或者网盘）的链接"这种共享配置的做法会让预设把热键写到**别人**头上；而目标
+        //   文件本身是符号链接时，`QSaveFile::commit()` 的改名会把链接换成普通文件 ——
+        //   链接被悄悄破坏。同一批落点的 DataPack / Generic 两个适配器都是这条规矩
+        //   （见 InstanceFiles::pathHasLinkComponent()）。
+        if (InstanceFiles::pathHasLinkComponent(instanceRoot, relativePath)) {
+            file.problem =
+                presetText("「%1」这一条路上有链接目录（junction / 符号链接），不动它。")
+                    .arg(relativePath);
+            target.files.append(file);
+            continue;
+        }
+        const QString path = QDir(instanceRoot).filePath(relativePath);
         const QFileInfo info(path);
         if (!info.exists()) {
             // ★ 没有这一份**不是问题**（`CopyIfMissing` 就靠这个）：`present = false`。
@@ -1215,7 +1229,17 @@ MalilibApplyReport applyMalilibToInstance(const QString &instanceRoot,
         if (!file.changed) {
             continue;  // 一个字都没改的那几份不写（见文件头第 2 条）
         }
-        const QString path = QDir(instanceRoot).filePath(malilibConfigRelativePath(file.modId));
+        const QString relativePath = malilibConfigRelativePath(file.modId);
+        // 读那一侧已经拦过（见 malilibReadTarget()），这里再判一次：这一层是唯一真写盘的
+        // 地方，路径上任何一段是链接都不写 —— 不然 `mkpath` / `QSaveFile` 会穿过它。
+        if (InstanceFiles::pathHasLinkComponent(instanceRoot, relativePath)) {
+            report.ok = false;
+            report.problem =
+                presetText("「%1」这一条路上有链接目录（junction / 符号链接），没有写到那儿。")
+                    .arg(relativePath);
+            return report;
+        }
+        const QString path = QDir(instanceRoot).filePath(relativePath);
         const QString dirPath = QFileInfo(path).absolutePath();
         if (!QDir().mkpath(dirPath)) {
             report.ok = false;

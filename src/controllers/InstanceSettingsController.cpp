@@ -6,7 +6,10 @@
 #include "manage/VersionManager.hpp"
 #include "settings/LauncherSettings.hpp"
 
+#include <QByteArray>
+#include <QDebug>
 #include <QDir>
+#include <QFile>
 #include <QImage>
 #include <QJsonObject>
 #include <QObject>
@@ -149,6 +152,18 @@ bool InstanceSettingsController::rename(const QString &oldId, const QString &new
     // （可能带"回滚到什么程度"），界面原样弹出来，不再自己加工。
     QString error;
     if (!m_versions->renameInstance(oldId, name, &error)) {
+        // 失败的那一趟里，`renameInstance()` 有可能**已经把稳定 id 写进磁盘**了
+        // （先写 id、再挪目录；目录挪不动时 id 留在原地）。目录名没变，但
+        // `instanceKey()` 从"老目录名"变成了那个 uuid —— 分组表还挂在老键上，
+        // 于是实例看着没动、却从组里掉了出来。所以这里要**重算一次键**，
+        // 变了就把分组归属搬过去（和成功那条路同一把 `rekey()`）。
+        const QString failedKey = instanceKey(oldId);
+        QString groupError;
+        if (failedKey != oldKey && m_groups != nullptr
+            && !m_groups->rekey(oldKey, failedKey, &groupError)) {
+            // 弹窗说的是改名失败；分组这一半也没搬成，再单独说一句。
+            notify(Notice::Kind::RenameGroupNotMoved, oldId, groupError);
+        }
         notify(Notice::Kind::RenameFailed, name, error);
         // NOTE: 失败可能是"回滚干净了"也可能是"停在半路上"。两种都不在这里重刷列表 ——
         //       刷新只会把界面对着磁盘重画一遍，而用户需要的是先看清弹窗里那句话。
@@ -191,7 +206,11 @@ bool InstanceSettingsController::rename(const QString &oldId, const QString &new
     return true;
 }
 
-bool InstanceSettingsController::apply(const QString &versionId, const Edit &edit) {
+bool InstanceSettingsController::apply(const QString &versionId, const Edit &edit,
+                                       bool *pickedIconStoredOut) {
+    if (pickedIconStoredOut != nullptr) {
+        *pickedIconStoredOut = false;
+    }
     const auto notify = [this](Notice::Kind kind, const QString &instanceId,
                                const QString &detail) {
         if (m_host.notice) {
@@ -273,10 +292,31 @@ bool InstanceSettingsController::apply(const QString &versionId, const Edit &edi
     //   （见函数末尾那一发"要不要重扫树"）。
     const QString iconBefore = m_versions->versionIcon(versionId);
     QString iconValue = edit.iconChoice;
+    // ★ 2026-10-20：写新图之前把**盘上原来那张**收进内存，并记住"这次写没写过图"。
+    //   往下 `updateVersionMeta()` 还有一次可能失败的写（盘满 / meta 文件被别的进程开着），
+    //   那一步失败时这张刚落地的图**必须退回去**：meta 里还写着老值，而 icon.png 已经换成了
+    //   新图 —— 实例树 / 文件页都是照着这个名字读的，用户看到的是"保存失败，但图标已经换了"
+    //   （再失败一次就再换一次，永久生效）。`writeInstanceIcon()` 走 QSaveFile 原子替换，
+    //   老图**只剩内存里这一份**，不提前收就再也找不回来。
+    const QString iconPath = AppPaths::versionIconPath(versionId);
+    QByteArray iconBackup;
+    bool iconBackupValid = false;
+    bool iconWritten = false;
+    if (!edit.pickedIconPath.isEmpty()) {
+        QFile existing(iconPath);
+        // 上限 8 MB：icon.png 正常只有几十 KB，读不进去/大得离谱的就当"原来没有"——
+        // 那种情况下退回去的动作是删掉新图。
+        if (existing.exists() && existing.size() <= 8 * 1024 * 1024
+            && existing.open(QIODevice::ReadOnly)) {
+            iconBackup = existing.readAll();
+            iconBackupValid = iconBackup.size() > 0 && existing.error() == QFileDevice::NoError;
+        }
+    }
     if (!edit.pickedIconPath.isEmpty()) {
         QString iconError;
         if (writeInstanceIcon(versionId, edit.pickedIconPath, &iconError)) {
             iconValue = edit.localIconValue;
+            iconWritten = true;
         } else {
             notify(Notice::Kind::IconNotSaved, versionId, iconError);
             iconValue = m_versions->versionIcon(versionId);
@@ -301,9 +341,31 @@ bool InstanceSettingsController::apply(const QString &versionId, const Edit &edi
 
     QString error;
     if (!m_versions->updateVersionMeta(versionId, fields, &error)) {
+        // ★ 2026-10-20：meta 没写下去 ⇒ 刚落地的新图标要**退回去**（理由见上面收备份那一段）。
+        //   退不回去也要留一句 qWarning：那是盘本身的问题，用户至少能在日志里看到。
+        if (iconWritten) {
+            bool restored = false;
+            if (iconBackupValid) {
+                QSaveFile restore(iconPath);
+                restored = restore.open(QIODevice::WriteOnly)
+                           && restore.write(iconBackup) == iconBackup.size()
+                           && restore.commit();
+            } else {
+                restored = QFile::remove(iconPath) || !QFile::exists(iconPath);
+            }
+            if (!restored) {
+                qWarning() << "InstanceSettingsController: could not restore" << iconPath
+                           << "after the meta write failed";
+            }
+        }
         // 数据层不弹窗是约定，所以弹在这一层。error 里已经写清了"是哪个文件、为什么"。
         notify(Notice::Kind::SettingsSaveFailed, versionId, error);
         return false;
+    }
+    // "用户刚挑的那张图真的落进实例目录了" —— 到这里才算真的：上面那次 meta 写失败时
+    // 新图已经被退回去了（见那段）。
+    if (iconWritten && pickedIconStoredOut != nullptr) {
+        *pickedIconStoredOut = true;
     }
     if (m_host.log) {
         m_host.log(tr("实例设置已保存：%1").arg(versionId));

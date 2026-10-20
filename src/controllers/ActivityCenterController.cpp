@@ -41,16 +41,67 @@ ActivityCenterController::ActivityCenterController(QObject *parent)
 
 void ActivityCenterController::loadHistory() {
     m_tasks.loadHistory();
+    // ★ 2026-10-20：账本从盘上读回来了，"还没看过的失败"那一份却还停在空表上（它是内存
+    //   里的，新进程一开始就是空的）。症状：上一次会话里失败、用户还没来得及点「知道了」
+    //   的任务，重启之后**底栏那颗红点不见了** —— 而面板「需要处理」里照样列着它
+    //   （那一栏看的是落盘的 `attentionAcknowledged`）。两处说的不是一回事，用户就会漏掉
+    //   那件真的失败过的事。
+    //
+    //   重建的判据和 `finish()` 里那一句对齐（只认 Failed；Interrupted 是"启动器被关掉时
+    //   还在跑"，面板把它算进「需要处理」，但没有单独的红点语义），并且尊重已经落盘的
+    //   `attentionAcknowledged`（点过「知道了」的不再变回未读）。
+    QSet<Tasks::TaskId> unread;
+    for (const Tasks::TaskSnapshot &task : m_tasks.all()) {
+        if (task.state == Tasks::TaskState::Failed && !task.attentionAcknowledged) {
+            unread.insert(task.id);
+        }
+    }
+    if (unread != m_unreadFailures) {
+        m_unreadFailures = unread;
+        emit activityChanged();
+    }
 }
 
 void ActivityCenterController::clearFinished() {
     m_tasks.clearFinished();
+    // ★ 2026-10-20：「清除已完成」把行删了，可"还没看过的失败"那一份**也得跟着收窄**。
+    //   那一份是按 id 记的（底栏的合并摘要 `TaskSnapshot.hpp::hasFailure` 直接看它），而
+    //   `markViewed()` 只在 `m_tasks.has(id)` 时才肯把 id 摘掉 —— 行一没，这个 id 就再没有
+    //   任何出口（`markAllViewed()` 在生产代码里没有调用者）。症状：面板里一行都不剩、
+    //   底栏写着「暂无后台任务」，那颗红色失败点却永远亮着，直到重启启动器（它不落盘）。
+    //
+    //   触发它**不需要**什么特殊操作：面板正停在「进行中」筛选、或者搜索词恰好匹配不到
+    //   那一行失败项时，那一行根本没被建出来（面板的"逐行标记看过"只标建出来的行），
+    //   于是它就是一条"没看过"的失败 —— 这时点「清除已完成」。
+    bool pruned = false;
+    for (auto it = m_unreadFailures.begin(); it != m_unreadFailures.end();) {
+        if (m_tasks.has(*it)) {
+            ++it;
+        } else {
+            it = m_unreadFailures.erase(it);
+            pruned = true;
+        }
+    }
+    // ★ 2026-10-20：上面这一笔必须**自己再发一发**。`clearFinished()` 里的
+    //   `historyChanged` 是在**删行那一刻**同步发出去的，主窗口接上就重画底栏 —— 那时候
+    //   这份"没看过的失败"还带着刚被删掉的那些号，于是红点按旧账画了出来；等我们在这里
+    //   收窄完，再也没有人重画它，红点就挂在底栏上直到下一次账本变动。
+    if (pruned) {
+        emit activityChanged();
+    }
 }
 
 Tasks::TaskId ActivityCenterController::enqueue(Tasks::TaskKind kind, const QString &title, const QString &target,
     const QList<Tasks::TaskStep> &steps, const QString &lane, QObject *owner, std::function<void(Tasks::TaskId)> start) {
     if (lane.isEmpty() || owner == nullptr || !start || m_queue.size() >= 64) return Tasks::invalidTaskId();
     const auto id = m_tasks.begin(kind, title, target, steps, defaultCapabilities(kind), true);
+    // ★ 2026-10-20：号发完了（`TaskManager::begin()` 那段：0 和最大值都不用，全占满时老实回
+    //   `invalidTaskId()`）。**绝不能把 0 排进队列**：`dispatch()` 拿 `snapshot(0)` 找不到，
+    //   `cancel()` / `startQueued()` 全是 no-op，于是这一件作业**无声无息地消失**，而调用方
+    //   还以为它排上了（按钮按下去了、底栏什么也没有）。
+    if (id == Tasks::invalidTaskId()) {
+        return id;
+    }
     m_queue.append({id, lane, owner, std::move(start)});
     m_tasks.setDetail(id, tr("等待执行；可拖动手柄调整同队列内的顺序。"));
     connect(owner, &QObject::destroyed, this, [this, id] {
@@ -149,9 +200,22 @@ bool ActivityCenterController::markAllViewed() {
     return true;
 }
 
+bool ActivityCenterController::markSeen(const QString &key) {
+    bool ok = false;
+    const auto id = key.toULongLong(&ok);
+    if (!ok || !m_unreadFailures.remove(id)) return false;
+    emit activityChanged();
+    return true;
+}
+
 bool ActivityCenterController::markViewed(const QString &key) {
     bool ok = false;
-    const auto id = key.toInt(&ok);
+    // ★ 2026-10-20：行钥匙是 `QString::number(TaskId)`，而 `TaskId` 是 64 位 —— 这里原来
+    //   用 `toInt()`：号一旦越过 INT_MAX（手工改过的历史文件就能造出来，见
+    //   `TaskManager::loadHistory()`），解析直接失败 ⇒ 这一行的「已看过」永远落不下去，
+    //   底栏那颗红点到重启都在。同一个钥匙在 `itemForKey()` / 详情页两个动作 /
+    //   `retryTaskFromDetail()` 里也有，全部按 64 位读。
+    const auto id = key.toULongLong(&ok);
     if (!ok || !m_tasks.has(id)) return false;
     const auto state = m_tasks.snapshot(id).state;
     // 等待选择不能因为“看过”而消失，只随业务完成选择后离开 WaitingUser。
@@ -261,9 +325,13 @@ QList<TaskCenter::Item> ActivityCenterController::items(
         if (rank(a) != rank(b)) return rank(a) < rank(b);
         return a.state == TaskCenter::State::Queued && b.state == TaskCenter::State::Queued && a.queueOrder < b.queueOrder;
     });
-    const bool changed = markAllViewed();
+    // ★ 2026-10-20：这里**不再**顺手把"没看过的失败"整批标成看过。
+    //   从前这一笔在这里（`markAllViewed()`），可这一发发生在**面板筛子和搜索之前**：
+    //   用户把面板停在「进行中」（或者输了搜索词）时，失败那几行根本没露脸，红点却已经
+    //   灭了 —— 一次失败就这样被"悄悄看过"了。现在由面板在**真建出那一行**之后，按行
+    //   发 `RowAction::Viewed`（见 TaskCenterPanel::rebuild）。
     if (viewStateChanged != nullptr) {
-        *viewStateChanged = changed;
+        *viewStateChanged = false;
     }
     return result;
 }
@@ -273,7 +341,7 @@ bool ActivityCenterController::itemForKey(
     const std::function<bool(const Tasks::TaskSnapshot &)> &cancelAvailable,
     bool retryPayloadAvailable, const QSet<Tasks::TaskId> &crashRecordIds) const {
     bool ok = false;
-    const Tasks::TaskId id = key.toInt(&ok);
+    const Tasks::TaskId id = key.toULongLong(&ok);
     if (!ok || out == nullptr || !m_tasks.has(id)) {
         return false;
     }

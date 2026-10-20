@@ -68,8 +68,12 @@ CrashReportController::Record CrashReportController::buildRecord(
     record.logTail = lastLines(fullLog, GameExitDiagnosis::kLogTailLineLimit);
     record.facts.errorLineCount = record.errorLines;
     record.facts.logCaptured = !record.logTail.isEmpty();
-    record.facts.sawOutOfMemory = GameExitDiagnosis::logShowsOutOfMemory(record.logTail);
-    record.facts.sawMissingDependency = GameExitDiagnosis::logShowsMissingDependency(record.logTail);
+    // ★ 2026-10-20：这两样用**整份日志**判，不用截过的 `logTail`。日志前部（加载器列前置、
+    //   模组初始化早期）出现 `OutOfMemoryError` / `Missing or unsupported mandatory
+    //   dependencies` 时，末尾 500 行里通常一个字都不剩 —— 症状是"明明日志里有这句话，
+    //   报告的「可能的原因」里却一条都不提"。展示可以截，判据不能截。
+    record.facts.sawOutOfMemory = GameExitDiagnosis::logShowsOutOfMemory(fullLog);
+    record.facts.sawMissingDependency = GameExitDiagnosis::logShowsMissingDependency(fullLog);
     return record;
 }
 
@@ -155,7 +159,8 @@ QString CrashReportController::writeExportFile(const QString &path, const QStrin
 
 void CrashReportController::exportReport(const QString &key) {
     bool parsed = false;
-    const Tasks::TaskId id = key.toInt(&parsed);
+    // 行钥匙是 `TaskId`（64 位，见 `ActivityCenterController::markViewed()` 那段的 NOTE）。
+    const Tasks::TaskId id = key.toULongLong(&parsed);
     const auto found = parsed ? m_records.constFind(id) : m_records.cend();
     if (found == m_records.cend()) return;
     // ★ 2026-10-19：这里必须是**一份拷贝**，不能是 `m_records` 里那个引用。下面
@@ -176,6 +181,13 @@ void CrashReportController::exportReport(const QString &key) {
     facts.exitCode = record.facts.exitCode;
     facts.errorLines = record.errorLines;
     facts.totalLines = record.totalLines;
+    // ★ 2026-10-20：截了多少要**告诉报告**。下面递过去的是末尾 200 / 500 行，而标题原来
+    //   照样写「共 N 行」—— 玩家把一份 8000 行的日志导出、发给别人排查时，前面真正的起因
+    //   已经不在文件里，而文件自己说它是完整的。（用户按「导出错误报告」可能是很久以后，
+    //   那时会话底账早就删了 —— 这一份内存里的记录是唯一还能说明"截过"的地方，所以判据
+    //   留在这里、从记录里那两个总数和实际留下来的行数比出来。）
+    facts.errorTruncated = record.errorLines > lineCount(record.errorExcerpt);
+    facts.logTruncated = record.totalLines > lineCount(record.logTail);
     if (record.facts.usedJavaMajor > 0 && !record.facts.javaPath.isEmpty())
         facts.javaVersion = tr("%1（%2）").arg(record.facts.usedJavaMajor).arg(record.facts.javaPath);
     else if (record.facts.usedJavaMajor > 0)

@@ -73,6 +73,10 @@ private:
     /// **没有副作用**（面板那个 `taskCenterItems()` 有"看一眼 = 看过了"那一笔）。
     bool fillItem(const QString &key, TaskCenter::Item *out) const;
     void log(const QString &message) const;
+    /// 页开着的时候账本动了：按这一项的号重摆一遍。
+    void refreshOpenPage();
+    /// 上面那条的**合并版**：同一轮事件里账本动了几十下（下载进度是逐块报的）也只重摆一次。
+    void scheduleRefreshOpenPage();
 
     ActivityCenterController *m_activity = nullptr;
     CrashReportController *m_crash = nullptr;
@@ -83,4 +87,6 @@ private:
     Host m_host;
     /// 这一页（建一次留着、之后复用）。
     TaskDetailPage *m_page = nullptr;
+    /// `scheduleRefreshOpenPage()` 已经排了一发、还没跑。
+    bool m_refreshPending = false;
 };

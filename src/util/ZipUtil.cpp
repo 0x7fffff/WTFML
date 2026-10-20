@@ -14,6 +14,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -232,6 +233,13 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
     // 看到的是"整合包导完了但少东西"。判分量之后 `..` 仍然拦得住（`../x` 拆出来第一段
     // 就是 `..`），而 `a..b` 拆出来是一段 `a..b`、不等于 `..`，放行。
     skipConditions << QStringLiteral("(%1.Split('/') -contains '..')").arg(fullName);
+    // ★ 2026-10-20：Windows 在打开路径时会把**每一段末尾的空格和点折掉** —— `".. "`、
+    //   `". "`、`"..."` 全都会解析回上一层 / 本层目录。上面那条按分量判 `..` 的写法一个都
+    //   不认它们：`a/.. /x` 交给 Path.Combine 拼出来是 `$out/a/.. /x`，落盘时折成 `$out/x`，
+    //   再往上几层就是 $out 外面（`BackupFiles::isSafeComponent()` 里那段注释记的就是这个
+    //   行为）。正则说的就是这件事：**任意一段是空的、或者以 `.` / 空格结尾** ⇒ 丢掉。
+    //   （空段 = `a//b`，正常压缩包里不会有；悬着的那一截同样是"落点说不清"。）
+    skipConditions << QStringLiteral("(%1 -match '(^|/)([^/]*[. ])?(/|$)')").arg(fullName);
     skipConditions << QStringLiteral("%1.StartsWith('/')").arg(fullName);
     skipConditions << QStringLiteral("%1.Contains(':')").arg(fullName);
     // NOTE: exclude 这几条**区分大小写**（.NET 的 StartsWith(string) 就是区分大小写的），
@@ -593,6 +601,9 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
                        "        if(-not $full.ToLowerInvariant().StartsWith($low)){continue}\n"
                        "        $rel=$full.Substring($r.Length)\n"
                        "        if($rel.Split('/') -contains '..'){continue}\n"
+                       // 同上那条：Windows 折掉每段末尾的空格 / 点 ⇒ `.. ` / `. ` / `...`
+                       // 都能折回父目录。剥完前缀之后同样得挡（`BackupFiles` 的还原走这条）。
+                       "        if($rel -match '(^|/)([^/]*[. ])?(/|$)'){continue}\n"
                        "        if($rel.StartsWith('/') -or $rel.Contains(':')){continue}\n"
                        "        $dest=[System.IO.Path]::Combine($out,$rel)\n"
                        "        [void][System.IO.Directory]::CreateDirectory"
@@ -615,9 +626,14 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
                        "[Console]::Out.Write($count)\n")
             .arg(psQuote(QDir(targetDir).absolutePath()), psArray(normalized), psArray(archives));
 
+    // ★ 30 分钟（2026-10-20 从 10 分钟改上来）。原来那句注释自己就写着"实测一个 1.66 GB
+    //   / 422 个文件的整合包解压就跑了十几分钟"—— 十几分钟**大于** 10 分钟，也就是说按那
+    //   份实测，大包的这一趟会被自己的超时掐掉（然后半成品被清掉，用户看到"解压超时"）。
+    //   这跑在工作线程上（导入那一趟），等久一点只是"更晚才发现真挂住了"，而掐掉一份正在
+    //   正常解的大包是**误杀**。
     QByteArray stdoutBytes;
     QString failure;
-    if (!runPowershell(script, 600 * 1000, &stdoutBytes, &failure,
+    if (!runPowershell(script, 1800 * 1000, &stdoutBytes, &failure,
                        QStringLiteral("解压"))) {
         if (errorOut) {
             *errorOut = failure;
@@ -867,16 +883,22 @@ bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entrie
                        "}\n")
             .arg(psQuote(QDir::toNativeSeparators(targetZip)), psQuote(tablePath));
 
-    // 10 分钟。这个数按**大包**来定：实测一个 1.66 GB / 422 个文件的整合包（导入那一次）
-    // 解压就跑了十几分钟，打包只会更慢（Optimal 要真去压一遍）。
+    // 30 分钟（2026-10-20 从 10 分钟改上来，理由和解压那一段逐字相同：按注释里那份实测，
+    // 光**解压**一个 1.66 GB 的整合包就要十几分钟，打包只会更慢 —— 10 分钟会在正常的大包
+    // 上误杀。这一趟同样跑在工作线程上）。
     QString failure;
-    const bool ok = runPowershell(script, 600000, nullptr, &failure, QStringLiteral("打包"));
+    // ★ 2026-10-20：**开工之前**就问一眼目标在不在。下面失败那一路会把目标删掉（"半成品
+    //   不留"），可这一句删的是**我们写的那个路径** —— 那份文件要是本来就在，删掉它等于
+    //   "一次没打成的包顺手毁掉了上一次那份好的"。正常调用方（备份）现在都会先挑一个
+    //   没人占的名字，所以这一条在它们那儿不会触发；留着是给"目标已经存在"这种调用兜底。
+    const bool targetExisted = QFileInfo::exists(targetZip);
+    const bool ok = runPowershell(script, 1800 * 1000, nullptr, &failure, QStringLiteral("打包"));
     // 临时表两份出路都要删（成功、失败都一样）—— 它躺在系统临时目录里，里面是用户的
     // 实例里都有哪些文件，没理由留一份。
     QFile::remove(tablePath);
     if (!ok) {
         // 半成品删掉（见 .hpp）。NOTE: 删的是**我们写的那个目标路径**，不碰别的。
-        QFile::remove(targetZip);
+        if (!targetExisted) QFile::remove(targetZip);
         if (errorOut != nullptr) {
             *errorOut = failure.isEmpty() ? QStringLiteral("打包失败") : failure;
         }

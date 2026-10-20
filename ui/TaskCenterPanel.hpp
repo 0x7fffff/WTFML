@@ -29,6 +29,7 @@
 #include <QDateTime>
 #include <QList>
 #include <QPixmap>
+#include <QSet>
 #include <QString>
 #include <QWidget>
 
@@ -119,7 +120,7 @@ using ItemProvider = std::function<QList<Item>()>;
 /// 「查看详情」不在这一枚举里 —— 它是**点那一行本身**（整行的行为，不是行尾一颗按钮）。
 /// 两样分开是因为它们的位置不一样：详情页是"我想看看这是怎么回事"，取消是"别下了"，
 /// 后者要是也藏在详情页里，用户得点两下才够得着。
-enum class RowAction { Cancel, Retry, OpenTarget, OpenLog, ExportReport, OpenCrashDir, Viewed, MoveUp, MoveDown };
+enum class RowAction { Cancel, Retry, OpenTarget, OpenLog, ExportReport, OpenCrashDir, Seen, Viewed, MoveUp, MoveDown };
 
 /// 行尾那颗小按钮被点了。参数是那一行的 `key` 和点的是哪一颗。
 using RowActionHandler = std::function<void(const QString &key, RowAction action)>;
@@ -251,6 +252,10 @@ private:
     void rebuildDetail(const QList<TaskCenter::Item> &items);
     void selectTask(const QString &key);
     void syncSelection();
+    /// 把**真在视口里露了脸**的失败行标成"看过了"（见 `rebuild()` 里那段 ★ 2026-10-20）。
+    void acknowledgeVisibleFailures();
+    /// 鼠标键还按着的时候不重建，排到松手之后（见 `refresh()` 里那段 ★ 2026-10-20）。
+    void deferRefreshUntilRelease();
     /// 宽屏三列 / 窄屏“列表或详情占满整页”的唯一布局切换点。
     void applyWorkspaceMode();
     /// 按当前宽度摆**收起/展开**那一套（栏宽、箭头、标题）。**只读 `m_runningCollapsed`**。
@@ -300,5 +305,13 @@ private:
     bool m_compactDetailOpen = false;
     bool m_opened = false;
     bool m_refreshPending = false;
+    /// 本次重建里**还没看过**的失败行钥匙（`rebuild()` 收集，`acknowledgeVisibleFailures()` 消费）。
+    QSet<QString> m_unreadFailureKeys;
+    /// 重建已经排到"鼠标松开之后"了（见 `refresh()` 里那段 ★ 2026-10-20）。
+    bool m_refreshDeferred = false;
+    /// 为了"松手之后再重建"已经等了几个 40 ms 拍（到 50 拍就放弃等待、照常重建）。
+    int m_deferTicks = 0;
+    /// 正在 `acknowledgeVisibleFailures()` 里（那一趟会 `onRowAction` → 重建，别被滚动条回调插进来）。
+    bool m_ackInProgress = false;
     bool m_embedded = false;
 };

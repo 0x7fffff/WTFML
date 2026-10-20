@@ -650,7 +650,7 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
                 button->setToolTip(selectionToggleTip(disable));
                 connect(button, &QPushButton::clicked, this, [this, disable] {
                     const QStringList paths = selectedTogglePaths(disable);
-                    if (!paths.isEmpty()) emit batchToggleRequested(paths, disable);
+                    requestToggle(paths, disable);
                 });
                 break;
             }
@@ -763,8 +763,7 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
             QAction *action = menu.addAction(disable ? tr("全部禁用") : tr("全部启用"));
             action->setEnabled(!selectedTogglePaths(disable).isEmpty());
             connect(action, &QAction::triggered, this, [this, disable] {
-                const auto paths = selectedTogglePaths(disable);
-                if (!paths.isEmpty()) emit batchToggleRequested(paths, disable);
+                requestToggle(selectedTogglePaths(disable), disable);
             });
         }
         menu.exec(m_stateAction->mapToGlobal(QPoint(0, m_stateAction->height())));
@@ -847,8 +846,8 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
             // Snapshot both subsets before either operation refreshes/renames rows.
             const auto disable = selectedTogglePaths(true);
             const auto enable = selectedTogglePaths(false);
-            if (!disable.isEmpty()) emit batchToggleRequested(disable, true);
-            if (!enable.isEmpty()) emit batchToggleRequested(enable, false);
+            if (!disable.isEmpty()) requestToggle(disable, true);
+            if (!enable.isEmpty()) requestToggle(enable, false);
         });
         menu.exec(more->mapToGlobal(QPoint(0, more->height())));
     });
@@ -1699,10 +1698,36 @@ void InstanceFilesPage::rebuildRows() {
     // ★★ 2026-10-10：把"上一趟选着的那些"先换算成**身份**（一趟只算一次，下面逐行比）。
     //   为什么不是拿 `m_selectedPaths` 直接比：那里面记的是**盘上真那个名字**，而点一下
     //   开关就会把它换掉（见下面还选择那一段）。
-    QSet<QString> selectedIdentities;
-    selectedIdentities.reserve(m_selectedPaths.size());
+    //
+    // ★★ 2026-10-20：身份**只在"那一条刚刚改过名"时才拿来还选择**。身份是把 `.disabled`
+    //   抹掉算的（见 `identityPath`），于是 `X.jar` 和 `X.jar.disabled` **同时在场**时
+    //   两行同身份 —— 原来那一版会在重列之后把"用户只点了一条"的选择变成两条（搜索框敲
+    //   一个字、批量开关跑完之后那一次重列，都会走到这里），紧接着一次「删除选中项」就
+    //   把用户**从来没选过**的那一份也删掉了（不可逆）。两份准账，各管一件事：
+    //     · `presentPaths` —— 盘上还在的所有路径（**含被筛掉的**）。某个旧路径还在
+    //       ⇒ 那不是改名，是它暂时被筛出去了；
+    //     · `visibleIdentityCounts` —— 这一趟**看得见**的条目里每个身份有几条。不止一条
+    //       ⇒ 身份本身分不出"是哪一条"，不许拿它替用户选。
+    QSet<QString> presentPaths;
+    QHash<QString, int> visibleIdentityCounts;
+    presentPaths.reserve(m_entries.size());
+    for (const Entry &entry : m_entries) {
+        presentPaths.insert(entry.path);
+        if (entryMatchesFilter(entry)) {
+            ++visibleIdentityCounts[identityPath(entry.path)];
+        }
+    }
+    QSet<QString> renamedIdentities;
+    renamedIdentities.reserve(m_selectedPaths.size());
     for (const QString &path : m_selectedPaths) {
-        selectedIdentities.insert(identityPath(path));
+        if (!presentPaths.contains(path)) {
+            // ★ 2026-10-20：只有**这一页刚发出去的启用/禁用**（`m_pendingIdentityMigration`）
+            //   才把"旧路径消失"解释成改名。删除 / 移动也是消失 —— 删除 `X.jar` 之后
+            //   `X.jar.disabled` 会自己变成选中的，下一次「删除选中」就删掉用户没选过的文件。
+            if (m_pendingIdentityMigration.contains(identityPath(path))) {
+                renamedIdentities.insert(identityPath(path));
+            }
+        }
     }
     // ★ 2026-10-12（coding plan §9.4）：这一趟攒下来的两样东西（下面逐行填，出了循环再用）：
     //   · `freshRows` —— 这一趟**新冒出来**的那几行控件（上一趟没摆过它们，见那一小段）；
@@ -1745,10 +1770,16 @@ void InstanceFilesPage::rebuildRows() {
             //   `X.jar` 改成了 `X.jar.disabled` 再回头重列，按名字比的话这一行**当场掉出选择**
             //   （用户原话：「修复点击开关的时候会取消选中的问题」）。盘上还是同一个文件、
             //   用户手里选的就是"这一条"，身份一比就还上了。
-            //   ⚠ 已知道的边界（故意的，见 identityPath 那段）：`X.jar` 和 `X.jar.disabled`
-            //     **同时存在**时两行的身份一样 ⇒ 选中一条会把两条一起选上。那种情况本身少见，
-            //     不为它把这一层拆细。
-            if (m_batchMode && selectedIdentities.contains(identity)) {
+            //   ★ 2026-10-20：身份只在**这一条是刚才那一条改过名**时才替用户选 ——
+            //     ① 路径逐字对得上（没改名的那一趟，最常见）；
+            //     ② 或者旧名字已经不在盘上了（= 真的改了名），并且这一页里同身份只有
+            //        它一条（`X.jar` 和 `X.jar.disabled` 同时在场时身份分不出是谁，
+            //        那就一条都不替用户选，见上面那两份准账）。
+            const bool keptSelected =
+                m_selectedPaths.contains(entry.path)
+                || (renamedIdentities.contains(identity)
+                    && visibleIdentityCounts.value(identity) == 1);
+            if (m_batchMode && keptSelected) {
                 item->setSelected(true);
             }
         }
@@ -1780,6 +1811,12 @@ void InstanceFilesPage::rebuildRows() {
             shownPaths.append(item->data(pathRole()).toString());
         }
     }
+
+    // ★ 2026-10-20：这一趟已经消费掉那几张"刚点过开关"的身份了（见 .hpp 里
+    //   `m_pendingIdentityMigration` 那段）。清掉 —— 下一次重列是别的原因（删除、搜索、
+    //   统计回来了…），那时一个身份都不该拿"改过名"还选择。开关失败（盘上没改成）时
+    //   这里也照样清：旧路径还在、根本没走进改名那一支，登记本来就用不上。
+    m_pendingIdentityMigration.clear();
 
     // ★★ 2026-10-10：账**从列表里现问一遍**（见 syncSelectedPaths）。上面按身份还回去的
     //   那些行此刻真正选着的就是它们，而账上要记的是**盘上真那个名字** —— 刚被改过名的
@@ -2033,7 +2070,7 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
                                ? tr("%1：把名字改回去，游戏又能扫到它了。").arg(toggleOffText())
                                : tr("%1：把名字改成 %2%3，游戏就扫不到它了（文件还在）。")
                                      .arg(toggleOnText(), fileName, disabledSuffix()));
-        connect(toggle, &ToggleSwitch::clicked, this, [this, path] { emit toggleRequested(path); });
+        connect(toggle, &ToggleSwitch::clicked, this, [this, path] { requestToggle(path); });
         layout->addWidget(toggle);
     }
 
@@ -2777,6 +2814,26 @@ void InstanceFilesPage::setRowDetailVisible(QWidget *rowWidget, bool visible) {
     if (auto *button = rowWidget->findChild<QToolButton *>(detailButtonName())) {
         button->setVisible(visible);
     }
+}
+
+void InstanceFilesPage::requestToggle(const QString &path) {
+    if (path.isEmpty()) {
+        return;
+    }
+    // 登记要在 emit **之前**：下面那一发是直接连接，处理函数里就会同步刷新 + 重列，
+    // 重列读完这份登记才轮到我们回到这儿。
+    m_pendingIdentityMigration.insert(identityPath(path));
+    emit toggleRequested(path);
+}
+
+void InstanceFilesPage::requestToggle(const QStringList &paths, bool disable) {
+    if (paths.isEmpty()) {
+        return;
+    }
+    for (const QString &path : paths) {
+        m_pendingIdentityMigration.insert(identityPath(path));
+    }
+    emit batchToggleRequested(paths, disable);
 }
 
 void InstanceFilesPage::syncSelectedPaths() {

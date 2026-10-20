@@ -35,6 +35,16 @@ QString stampForName(const QDateTime &now) {
     return now.toString(QStringLiteral("yyyyMMdd-HHmmss"));
 }
 
+/// 一段文本有多少行（和 `CrashReportController::lineCount()` 同一个口径：末尾那个换行
+/// 不算"又多了一行"，末尾半行算一行）。
+int lineCountOf(const QString &text) {
+    if (text.isEmpty()) {
+        return 0;
+    }
+    const int breaks = text.count(QLatin1Char('\n'));
+    return breaks + (text.endsWith(QLatin1Char('\n')) ? 0 : 1);
+}
+
 }  // namespace
 
 namespace ErrorReport {
@@ -121,12 +131,31 @@ QString text(const Facts &facts, const QDateTime &now, const QString &errors, co
         out += QLatin1Char('\n');
     }
 
-    out += sectionDivider(QStringLiteral("错误与致命（共 %1 行）").arg(facts.errorLines));
+    // ★ 2026-10-20：标题写的是**事实**，不是"这一段本可以有多长"。崩溃报告那条路只留
+    //   末尾 200 / 500 行（见 `Facts::errorTruncated` 那段），原来照样写「共 N 行」——
+    //   看报告的人会把"前面都正常"当成结论，而真正的起因已经被截掉了。
+    const QString errorTitle =
+        facts.errorTruncated && !errors.isEmpty()
+            ? QStringLiteral("错误与致命（末尾 %1 行 / 原始共 %2 行）")
+                  .arg(lineCountOf(errors))
+                  .arg(facts.errorLines)
+            : (facts.errorTruncated
+                   // 被挤掉的那些**全是**错误行（再没有别的错误行留在窗里）：不写这一档，
+                   // 标题就只能退回「共 0 行」，而下面那句"这一趟没有 ERROR 以上的输出"
+                   // 和事实正好相反。
+                   ? QStringLiteral("错误与致命（原始共 %1 行；正文已经被日志行数上限挤掉）")
+                         .arg(facts.errorLines)
+                   : QStringLiteral("错误与致命（共 %1 行）").arg(facts.errorLines));
+    out += sectionDivider(errorTitle);
     out += QLatin1Char('\n');
     if (errors.isEmpty()) {
         // 照样写上那一段（理由见 .hpp）：空着的话看的人分不清"没出错"和"导出漏了"。
-        out += QStringLiteral("（这一段里一行都没有 —— 这一趟没有 ERROR 以上的输出。日志本身"
-                              "在下面。）");
+        out += facts.errorTruncated
+                   ? QStringLiteral("（这一段里现在一行都没有 —— 早先那几行已经被日志行数上限"
+                                    "挤掉了，原始共 %1 行。）")
+                         .arg(facts.errorLines)
+                   : QStringLiteral("（这一段里一行都没有 —— 这一趟没有 ERROR 以上的输出。日志本身"
+                                    "在下面。）");
         out += QLatin1Char('\n');
     } else {
         out += errors;
@@ -138,7 +167,14 @@ QString text(const Facts &facts, const QDateTime &now, const QString &errors, co
     }
 
     out += QLatin1Char('\n');
-    out += sectionDivider(QStringLiteral("完整日志（共 %1 行）").arg(facts.totalLines));
+    // 同上：只留了末尾一截时不能再叫「完整日志」—— 那份文件**不是**完整的。
+    const QString logTitle =
+        facts.logTruncated && !log.isEmpty()
+            ? QStringLiteral("日志末尾（最近 %1 行 / 原始共 %2 行；完整日志没有导出）")
+                  .arg(lineCountOf(log))
+                  .arg(facts.totalLines)
+            : QStringLiteral("完整日志（共 %1 行）").arg(facts.totalLines);
+    out += sectionDivider(logTitle);
     out += QLatin1Char('\n');
     out += log;
     if (!out.endsWith(QLatin1Char('\n'))) {

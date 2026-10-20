@@ -8,6 +8,10 @@
 #include "TaskManager.hpp"
 
 #include <algorithm>
+#include <limits>
+
+#include <QDebug>
+#include <QSet>
 
 #include "TaskHistory.hpp"
 
@@ -45,7 +49,29 @@ int TaskManager::loadHistory() {
     QList<TaskSnapshot> loaded = load(resolvedHistoryPath());
     // 读回来的是**上一份账本**（含当时还在跑的那几项 —— 它们这会儿已经是 `Interrupted`）。
     // 当前账本整个换掉：这个方法只在启动时调一次，那时候手上本来就没有东西。
-    m_tasks = std::move(loaded);
+    //
+    // ★ 2026-10-20：盘上那份是**普通文本文件**（还可能被手工改过、被两个进程前后覆写
+    //   过），所以"号唯一、且最大那个加一不溢出"不是可以当成的先验，得在这里立住：
+    //     · **重号**：`find()`/`snapshot()` 只认第一条，后面那几条从此再也收不了尾；
+    //       而面板拿 `QString::number(id)` 当行钥匙，重号 = 两行共用一个钥匙，点其中
+    //       一行的「重试 / 打开日志 / 打开目标」打到的是**另一条**身上。
+    //     · **`TaskId` 最大值**：`task.id + 1` 在原地回绕成 0 ⇒ `m_nextId` 退回 1 ⇒
+    //       新任务和盘上某条历史撞号，而那一条是终态、`finish()` 会直接回 false ——
+    //       **真在跑的那件事再也收不了尾**（正是 TaskId.hpp 里那段注释要挡的东西，
+    //       只是它假定盘上的号是"我们自己写下去的"）。
+    //   两种都当"认不出是谁的那一行"跳过：和 `fromJson()` 里 `id == 0` 同一种处置。
+    constexpr TaskId kMaxTaskId = std::numeric_limits<TaskId>::max();
+    QSet<TaskId> seenIds;
+    QList<TaskSnapshot> unique;
+    unique.reserve(loaded.size());
+    for (const TaskSnapshot &task : loaded) {
+        if (task.id == invalidTaskId() || task.id == kMaxTaskId || seenIds.contains(task.id)) {
+            continue;
+        }
+        seenIds.insert(task.id);
+        unique.append(task);
+    }
+    m_tasks = std::move(unique);
     m_nextId = 1;
     for (const TaskSnapshot &task : m_tasks) {
         m_nextId = std::max(m_nextId, task.id + 1);
@@ -71,13 +97,41 @@ bool TaskManager::saveHistory() const {
     for (int i = 0; i < finishedTasks.size() && i < limit; ++i) {
         keep.append(finishedTasks.at(i));
     }
-    return save(resolvedHistoryPath(), keep);
+    const bool saved = save(resolvedHistoryPath(), keep);
+    // 落盘失败（盘满、目录变成只读、账本被别的进程删成目录……）以前是一声不吭：
+    // 这一次会话看着一切正常，关掉启动器以后历史就没了。日志里至少得留一行。
+    if (!saved) {
+        qWarning() << "Failed to save the task history to" << resolvedHistoryPath();
+    }
+    return saved;
 }
 
 TaskId TaskManager::begin(TaskKind kind, const QString &title, const QString &targetId,
                           const QList<TaskStep> &steps, const TaskCapabilities &capabilities, bool queued) {
+    // ★ 2026-10-20：号是**发出去的**，不是"下一个一定空着"。`loadHistory()` 挡住的是"盘上
+    //   正好写着最大值"那一档；这一档还剩下半步 —— 盘上最大是 `max - 1` 时，`m_nextId`
+    //   算出来就是 `max`，`begin()` 发出去之后 `max + 1` 原地回绕成 0，**从那以后每一件新
+    //   任务都拿到 0**（= `invalidTaskId()`，`find()` 永远找不到、`finish()` 永远收不了尾，
+    //   任务中心上也一行都不出现）。这里从当前号往后找第一个**没用过**的：0 不用、
+    //   最大值也不用（`loadHistory()` 下次会把最大值那条当坏账丢掉），都用完了就老实回
+    //   invalidTaskId()，而不是发一个和谁都能撞、或者一落盘就消失的号。
+    constexpr TaskId kMaxTaskId = std::numeric_limits<TaskId>::max();
+    TaskId id = m_nextId;
+    if (id == invalidTaskId() || id == kMaxTaskId) {
+        id = 1;
+    }
+    for (;;) {
+        if (id == kMaxTaskId) {
+            return invalidTaskId();
+        }
+        if (find(id) == nullptr) {
+            break;
+        }
+        ++id;
+    }
+    m_nextId = id + 1;
     TaskSnapshot task;
-    task.id = m_nextId++;
+    task.id = id;
     task.kind = kind;
     task.state = queued ? TaskState::Queued : TaskState::Running;
     task.title = title;

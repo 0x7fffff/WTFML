@@ -3628,6 +3628,23 @@ QString InstanceSettingsDialog::iconChoice() const { return m_iconChoice; }
 
 QString InstanceSettingsDialog::pickedIconPath() const { return m_pickedIconPath; }
 
+void InstanceSettingsDialog::markPickedIconSaved() {
+    if (m_pickedIconPath.isEmpty()) {
+        return;
+    }
+    // 那一份字节现在就是实例目录里的图标 ⇒ 它成了「本地那张」的画法。不换的话，这一格
+    // 下一次重画会退回**上一张**本地图（`m_localIconMark` 是 setIcon() 灌的旧值）。
+    const QPixmap picked(m_pickedIconPath);
+    if (!picked.isNull()) {
+        m_localIconMark = picked;
+    }
+    m_pickedIconPath.clear();
+    // 签名跟着挪到"本地那张"这一档，否则下一次任何改动都会拿 `local` 去和
+    // `local|源路径` 比，白触发一次写盘（内容其实一模一样）。
+    m_lastSignature = valueSignature();
+    refreshIconRow();
+}
+
 QString InstanceSettingsDialog::chosenGroupId() const {
     if (m_chosenGroupIndex < 0 || m_chosenGroupIndex >= m_groupIds.size()) {
         // 还没灌过候选（setGroupChoices() 没调过）⇒ 空串 = 未分组。调用方（MainWindow）
