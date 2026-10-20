@@ -54,6 +54,7 @@ public:
     static QString cacheDirectory(const QUrl &url, const QString &target, const QString &root = {});
 signals:
     void progress(qint64 done, qint64 total);
+    void transferBytes(qint64 bytes);
     void statusChanged(const QString &message);
     void finished(bool success, const QString &error);
     void checkpointSaved(qint64 reusableBytes);

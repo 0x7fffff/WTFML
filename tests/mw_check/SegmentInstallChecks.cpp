@@ -207,6 +207,7 @@ int runSegmentInstallChecks() {
         bool busyAfter = false;
         int results = 0;
         int batchResults = 0;
+        qint64 wireBytes = 0;
         DownloadStats stats;
         QByteArray bytes;
     };
@@ -218,6 +219,8 @@ int runSegmentInstallChecks() {
         DownloadManager downloads;
         downloads.setUseMirror(false);
         downloads.setRangeCacheRoot(cacheRoot);
+        QObject::connect(&downloads, &DownloadManager::transferBytes, &downloads,
+                         [&out](qint64 bytes) { out.wireBytes += bytes; });
         const QString destination = fixture.filePath(name);
         QEventLoop loop;
         QTimer deadline;
@@ -265,6 +268,7 @@ int runSegmentInstallChecks() {
         const auto out = runOne(QStringLiteral("large.bin"), QStringLiteral("/file"), {}, cache, false);
         expect(out.deadlineHeld, "large install download terminates within deadline");
         expect(out.bytes == body, "automatically segmented install download produces complete bytes");
+        expect(out.wireBytes == body.size(), "segmented telemetry counts each received byte exactly once");
         expect(probes == 1 && parts == 4 && full == 0,
                "eligible install file uses one probe and four bounded range requests");
         expect(out.results == 1 && out.batchResults == 1 && out.batchSuccess,
@@ -278,6 +282,7 @@ int runSegmentInstallChecks() {
         resetCounters();
         const auto out = runOne(QStringLiteral("small.bin"), QStringLiteral("/small"), {}, cache, false);
         expect(out.deadlineHeld && out.bytes == small, "small install file still downloads correctly");
+        expect(out.wireBytes == small.size(), "plain file telemetry counts actual received bytes");
         expect(probes == 0 && parts == 0 && full == 1,
                "below-threshold install file never probes and sends exactly one ordinary GET");
         expect(out.stats.total == 1 && out.stats.done == 1 && out.stats.failed == 0,

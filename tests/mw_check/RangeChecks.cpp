@@ -4,6 +4,7 @@
 #include <QFileInfo>
 #include <QJsonObject>
 #include "download/ResumableDownload.hpp"
+#include "download/DownloadRate.hpp"
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QTemporaryDir>
@@ -37,6 +38,31 @@ int runRangeChecks() {
     if (!fixture.isValid()) return 2;
     int failures = 0;
     auto expect = [&](bool ok, const char *text) { printf("%s %s\n", ok ? "PASS" : "FAIL", text); fflush(stdout); if (!ok) ++failures; };
+    {
+        DownloadRate rate;
+        rate.reset();
+        expect(rate.bytesPerSecond(0) < 0 && rate.remainingSeconds(0, 100000) < 0,
+               "telemetry never invents speed or ETA before receiving bytes");
+        rate.sample(1000, 1000);
+        expect(rate.remainingSeconds(1000, 99000) < 0, "ETA waits for a two-second warmup");
+        rate.sample(2000, 2000);
+        expect(rate.bytesPerSecond(2000) == 1000 && rate.remainingSeconds(2000, 98000) == 98,
+               "constant transfer rate produces a truthful ETA");
+        rate.sample(3000, 12000);
+        expect(rate.bytesPerSecond(3000) > 1000 && rate.bytesPerSecond(3000) < 4000,
+               "a one-second burst cannot multiply the displayed speed tenfold");
+        const auto eta = rate.remainingSeconds(3000, 88000);
+        expect(eta > 80 && eta < 98, "ETA blends bursts instead of jumping to their instantaneous estimate");
+        expect(rate.remainingSeconds(3000, -1) < 0, "unknown total never produces an ETA");
+        rate.sample(9000, 12000);
+        expect(rate.bytesPerSecond(9000) == 0 && rate.remainingSeconds(9000, 88000) < 0,
+               "a real stall clears the countdown rather than pretending it is still downloading");
+        rate.reset(10000, 500000);
+        rate.sample(11000, 501000);
+        expect(rate.bytesPerSecond(11000) == 1000, "resumed baseline bytes are not counted as network speed");
+        rate.sample(12000, 100);
+        expect(rate.bytesPerSecond(12000) < 0, "a reset counter starts a fresh telemetry window");
+    }
     QByteArray body(8 * 1024 * 1024, 'x');
     for (qsizetype i = 0; i < body.size(); ++i) body[i] = char(i % 251);
     QByteArray second(body.size(), 'z');

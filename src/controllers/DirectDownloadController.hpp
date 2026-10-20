@@ -2,12 +2,11 @@
 #include <QObject>
 #include <QPointer>
 #include <QElapsedTimer>
-#include <QPair>
 #include <QSet>
 #include <QHash>
-#include <QVector>
 #include "tasks/TaskId.hpp"
 #include "download/DirectDownloadRequest.hpp"
+#include "download/DownloadRate.hpp"
 
 class ActivityCenterController;
 class ResumableDownload;
@@ -35,6 +34,7 @@ private:
     Tasks::TaskId m_lastSubmitted = Tasks::invalidTaskId();
     bool m_stopping = false;
     void finish(bool success, const QString &error);
+    void updateProgress(qint64 done, qint64 total);
     ActivityCenterController *m_activity;
     QWidget *m_window;
     QPointer<DownloadToolDialog> m_dialog;
@@ -44,7 +44,9 @@ private:
     bool m_running = false;
     QString m_path;
     QElapsedTimer m_rateClock;
-    /// 最近五秒的 (毫秒, 已完成字节) 采样，用来算稳定得多的预计剩余时间（见 .cpp 里那条 ★）。
-    QVector<QPair<qint64, qint64>> m_rateSamples;
+    DownloadRate m_rate;
+    qint64 m_transferred = 0, m_lastRateUi = -1000;
+    qint64 m_lastDone = 0, m_lastTotal = -1;
+    bool m_showTransferTelemetry = false;
     QString m_status;
 };

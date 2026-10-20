@@ -22,9 +22,19 @@ permissions:
   contents: read
 
 jobs:
-  build-and-test:
+  verify:
+    name: ${{ matrix.suite }}
     runs-on: windows-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [ci-app, ci-core, ci-ui, ci-integration]
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      SCCACHE_GHA_VERSION: wtfml-qt6101-mingw1310-ci-v1
+      SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
+      CMAKE_CXX_COMPILER_LAUNCHER: sccache
 
     steps:
       - uses: actions/checkout@v4
@@ -37,18 +47,29 @@ jobs:
           tools: tools_mingw1310
           cache: true
 
+      - name: Set up compiler cache
+        uses: mozilla-actions/sccache-action@v0.0.11
+        with:
+          version: "v0.16.0"
+
+      - name: Check build tools
+        run: |
+          Get-Command ninja, g++, sccache | Select-Object Name, Source
+          & g++ --version
+          & sccache --show-stats
+
       - name: Build and test
-        run: ./tools/test.ps1 -Suite full -BuildDir build/ci -ConfigurePreset ci-verification -BuildTimeoutSeconds 900
+        run: ./tools/test.ps1 -Suite ${{ matrix.suite }} -BuildDir build/ci -ConfigurePreset ci-verification -BuildTimeoutSeconds 900 -BuildJobs 2
 
       - name: Full UI verification
-        if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.visual == true) }}
+        if: ${{ success() && matrix.suite == 'ci-ui' && (github.event_name == 'schedule' || inputs.visual == true) }}
         run: ./tools/test.ps1 -Suite visual -BuildDir build/ci -NoBuild
 
       - name: Upload verification reports
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: verification-${{ github.run_id }}-${{ github.run_attempt }}
+          name: verification-${{ matrix.suite }}-${{ github.run_id }}-${{ github.run_attempt }}
           retention-days: 14
           if-no-files-found: warn
           path: |
@@ -57,5 +78,22 @@ jobs:
             build/test-runs/**/results.xml
             build/test-runner-selfchecks/**/*.output.log
             build/test-runner-selfchecks/**/summary.json
+            build/ci-partition-checks/**
             build/ci/Testing/Temporary/**
             build/ci/**/download-tool-preview.png
+
+  # Keep the existing aggregate check name for branch-protection rules.
+  build-and-test:
+    if: ${{ always() }}
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every verification partition
+        env:
+          RESULT: ${{ needs.verify.result }}
+        run: |
+          if [ "$RESULT" != "success" ]; then
+            echo "Verification partitions did not all succeed: $RESULT"
+            exit 1
+          fi

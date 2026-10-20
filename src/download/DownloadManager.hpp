@@ -690,6 +690,8 @@ signals:
     void versionManifestFetched(const QList<MinecraftVersion> &versions);
     void versionJsonFetched(const QJsonObject &versionJson);
     void downloadProgress(const QString &fileName, qint64 bytesReceived, qint64 bytesTotal);
+    /// Newly received file-body bytes, including range retries, excluding restored cache.
+    void transferBytes(qint64 bytes);
     void downloadFinished(const QString &fileName, bool success,
                           const QString &errorMessage = QString());
     // 进度用标量发，避免每来一个网络分片就拷贝一份 DownloadStats。

@@ -1251,6 +1251,12 @@ void DownloadManager::startSegmentedDownload(const PendingJob &job) {
     //   晚一步就会漏掉那一次失败（那条作业会永远占着名额）。
     m_segmentJobs.insert(task, record);
 
+    connect(task, &ResumableDownload::transferBytes, this, [this, task](qint64 bytes) {
+        const auto it = m_segmentJobs.constFind(task);
+        if (it != m_segmentJobs.constEnd() && it->generation == m_batchGeneration)
+            emit transferBytes(bytes);
+    });
+
     connect(task, &ResumableDownload::progress, this, [this, task](qint64 done, qint64 total) {
         const auto it = m_segmentJobs.constFind(task);
         if (it == m_segmentJobs.constEnd() || it->generation != m_batchGeneration) return;
@@ -3065,6 +3071,11 @@ void DownloadManager::onDownloadReplyProgress(qint64 bytesReceived, qint64 bytes
     }
 
     QString destPath = activeDownloads.value(reply);
+    const qint64 previous = reply->property("wtfmlTransferBytes").toLongLong();
+    if (bytesReceived > previous) {
+        reply->setProperty("wtfmlTransferBytes", bytesReceived);
+        emit transferBytes(bytesReceived - previous);
+    }
     emit downloadProgress(QFileInfo(destPath).fileName(), bytesReceived, bytesTotal);
     // 单发大文件（41 MB 的客户端 jar）期间也要让进度条动起来，否则界面像是卡住了。
     emitBatchProgress(destPath);

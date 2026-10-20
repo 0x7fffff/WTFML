@@ -76,6 +76,7 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
     if (!cancel()) { emit statusChanged(tr("正在提交完整文件，请等待保存结束。")); return; }
     delete m_files;
     m_files = new DownloadManager(this, m_networkFactory);
+    connect(m_files, &DownloadManager::transferBytes, this, &ResumableDownload::transferBytes);
     // 先共用一个令牌桶，再推限速（顺序不能反：setter 写的是桶里那一份）。
     m_files->shareSpeedLimitBucketWith(m_speedBucketOwner);
     m_files->setUseMirror(false);

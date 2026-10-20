@@ -47,6 +47,8 @@ public:
     bool markAllViewed();
     bool markViewed(const QString &key);
     bool markSeen(const QString &key);
+    void setTransferSpeed(Tasks::TaskId id, qint64 bytesPerSecond);
+    qint64 transferSpeed(Tasks::TaskId id) const { return m_transferSpeeds.value(id, -1); }
     bool retryWouldWork(const Tasks::TaskSnapshot &task, bool retryPayloadAvailable) const;
     void markRetryConsumed();
 
@@ -79,4 +81,5 @@ private:
     Tasks::TaskManager m_tasks;
     Tasks::TaskId m_retryableTaskId = Tasks::invalidTaskId();
     QSet<Tasks::TaskId> m_unreadFailures;
+    QHash<Tasks::TaskId, qint64> m_transferSpeeds; // Live only; never persisted with history.
 };

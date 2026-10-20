@@ -46,10 +46,13 @@
     {
       "name": "ci-verification",
       "displayName": "CI verification (toolchain from PATH)",
-      "generator": "MinGW Makefiles",
+      "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/ci",
       "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "g++",
         "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O1 -DNDEBUG",
+        "WTFML_BUILD_NETWORK_DIAG": "ON",
         "WTFML_BUILD_TESTS": "ON",
         "WTFML_STRICT_WARNINGS": "ON",
         "WTFML_WARNINGS_AS_ERRORS": "ON"

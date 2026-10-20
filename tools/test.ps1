@@ -1,7 +1,8 @@
 #Requires -Version 7.0
 [CmdletBinding()]
 param(
-    [ValidateSet('quick', 'full', 'core', 'window', 'java', 'mods', 'upgrade', 'network', 'visual')]
+    [ValidateSet('quick', 'full', 'core', 'window', 'java', 'mods', 'upgrade', 'network', 'visual',
+                 'ci-app', 'ci-core', 'ci-ui', 'ci-integration')]
     [string]$Suite = 'quick',
     [string]$BuildDir = 'build/verification-mingw13',
     [string]$ConfigurePreset = 'verification',
@@ -80,6 +81,10 @@ try {
             Invoke-Stage 'configure' $cmake @('--preset', $ConfigurePreset, '-B', $build) $BuildTimeoutSeconds
         }
         $targets = switch ($Suite) {
+            'ci-app' { @('WTFMinecraftLauncher', 'WTFMLNetworkDiag') }
+            'ci-core' { @('verify') }
+            'ci-ui' { @('ui_check') }
+            'ci-integration' { @('mw_check') }
             'core' { @('verify') }
             'java' { @('mw_check') }
             'window' { @('mw_check') }
@@ -99,6 +104,7 @@ try {
         }
     }
     $selection = switch ($Suite) {
+        { $_ -in @('ci-app', 'ci-core', 'ci-ui', 'ci-integration') } { @('-L', "^$Suite$", '-LE', 'visual') }
         'quick' { @('-R', '^wtfml\.(test-runner|java-manage|mod-action-panel|workspace|activity-selection|theme|ui-refresh|install-layout|lifecycle|toolbox-polish|armor-trim)$') }
         'core' { @('-R', '^wtfml\.core$') }
         'java' { @('-R', '^wtfml\.java-manage$') }

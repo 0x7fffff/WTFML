@@ -14,6 +14,10 @@
 #include "controllers/JavaSettingsController.hpp"
 #include "controllers/PlayerSkinController.hpp"
 #include "download/ResourceStore.hpp"
+#include "download/DownloadRate.hpp"
+#include <memory>
+#include <QTimer>
+#include <QElapsedTimer>
 #include "launcher/LauncherManager.hpp"
 #include "manage/FolderManager.hpp"
 #include "manage/InstanceGroupStore.hpp"
@@ -919,6 +923,47 @@ void ConnectionsController::setup() {
             &MainWindow::onVersionDetailsFetched);
     connect(m_owner->m_versionManager, &VersionManager::versionDownloadStats, m_owner,
             &MainWindow::onVersionDownloadStats);
+    // The shared game downloader also serves repair, resource updates and servers.
+    // Account physical transfers once, never sum file-name-based progress or cache hits.
+    struct LiveRate {
+        QElapsedTimer clock;
+        DownloadRate estimate;
+        Tasks::TaskId task = Tasks::invalidTaskId();
+        qint64 received = 0;
+    };
+    const auto rate = std::make_shared<LiveRate>();
+    rate->clock.start();
+    const auto ownerTask = [this] {
+        return m_owner->m_downloadBatchOwnerTaskId != Tasks::invalidTaskId()
+            ? m_owner->m_downloadBatchOwnerTaskId : m_owner->m_serverInstallTaskId;
+    };
+    const auto switchTask = [rate](Tasks::TaskId id) {
+        if (rate->task == id) return;
+        rate->task = id;
+        rate->received = 0;
+        rate->estimate.reset(rate->clock.elapsed());
+    };
+    connect(m_owner->m_versionManager->downloads(), &DownloadManager::transferBytes, this,
+            [rate, ownerTask, switchTask](qint64 bytes) {
+                switchTask(ownerTask());
+                rate->received += qMax<qint64>(0, bytes);
+            });
+    auto *rateTimer = new QTimer(this);
+    rateTimer->setInterval(1000);
+    connect(rateTimer, &QTimer::timeout, this, [this, rate, ownerTask, switchTask] {
+        const auto id = ownerTask();
+        switchTask(id);
+        if (!m_owner->m_versionManager->downloads()->isBusy()) {
+            m_owner->m_activityCenter->setTransferSpeed(id, -1);
+            rate->received = 0;
+            rate->estimate.reset(rate->clock.elapsed());
+            return;
+        }
+        const qint64 now = rate->clock.elapsed();
+        rate->estimate.sample(now, rate->received);
+        m_owner->m_activityCenter->setTransferSpeed(id, rate->estimate.bytesPerSecond(now));
+    });
+    rateTimer->start();
     connect(m_owner->m_versionManager, &VersionManager::versionDownloadFinished, m_owner,
             &MainWindow::onVersionDownloadFinished);
     // 下载页那几类资源（模组/数据包/资源包/光影）里挑中的那个版本下完了。**和上面那条分开**

@@ -8,10 +8,17 @@
 #include <QFileInfo>
 #include <QMessageBox>
 #include <QLocale>
+#include <QTimer>
 #include <algorithm>
 
 DirectDownloadController::DirectDownloadController(ActivityCenterController *activity, QWidget *window, QObject *parent)
     : QObject(parent), m_activity(activity), m_window(window) {
+    auto *rateTimer = new QTimer(this);
+    rateTimer->setInterval(1000);
+    connect(rateTimer, &QTimer::timeout, this, [this] {
+        if (m_running && m_showTransferTelemetry) updateProgress(m_lastDone, m_lastTotal);
+    });
+    rateTimer->start();
     if (m_activity != nullptr) connect(m_activity->tasks(), &Tasks::TaskManager::taskFinished, this,
         [this](Tasks::TaskId id, bool) { m_pendingPaths.remove(id); });
     if (m_activity != nullptr) connect(m_activity, &QObject::destroyed, this, [this] {
@@ -119,38 +126,22 @@ void DirectDownloadController::startJob(Tasks::TaskId id, const DirectDownloadRe
     m_activity->tasks()->setStepState(id, 0, Tasks::TaskStepState::Running);
     m_status = tr("正在连接；进度可在任务中心查看。关闭工具窗口后下载继续。");
     m_activity->tasks()->setDetail(m_task, m_status);
-    m_rateClock.start(); m_rateSamples.clear(); m_rateSamples.append({0, 0});
+    m_rateClock.start(); m_rate.reset(); m_transferred = 0; m_lastRateUi = -1000;
+    m_lastDone = 0; m_lastTotal = -1; m_showTransferTelemetry = false;
     if (m_dialog) { m_dialog->setBusy(true); m_dialog->showProgress(0, 0, m_status); }
     connect(m_download, &ResumableDownload::progress, this, [this](qint64 done, qint64 total) {
         if (!m_running) return;
-        // ★ 预计剩余按**最近五秒的平均速度**算，不用"上一拍和这一拍"的瞬时速度：分段下载
-        //   天然一跳一跳的（一段收尾、下一段才起来），瞬时速度能差好几倍，剩余时间就跟着乱跳。
-        //   采样每 200 ms 最多一条；淘汰窗口外的旧样本时**至少留两条**，这样 first() 永远是
-        //   窗口起点（或窗口左边最近的那一条），两端之差除以真实跨度就是平均速度。
-        constexpr qint64 kRateWindowMs = 5000;
-        const qint64 now = m_rateClock.elapsed();
-        if (now - m_rateSamples.constLast().first >= 200) {
-            m_rateSamples.append({now, done});
-            while (m_rateSamples.size() > 2 && now - m_rateSamples.at(1).first >= kRateWindowMs)
-                m_rateSamples.removeFirst();
-        }
-        double speed = 0;
-        if (m_rateSamples.size() >= 2) {
-            const auto &first = m_rateSamples.constFirst();
-            const qint64 span = now - first.first;
-            if (span > 0) speed = double(qMax<qint64>(0, done - first.second)) * 1000.0 / double(span);
-        }
-        if (now < 200) return;
-        const auto size = [](qint64 bytes) { return QLocale().formattedDataSize(qMax<qint64>(0, bytes)); };
-        m_status = tr("%1 / %2 · %3/s").arg(size(done), total > 0 ? size(total) : tr("大小未知"), size(qint64(speed)));
-        if (total > done && speed > 0) m_status += tr(" · 预计剩余 %1 秒").arg(qint64((total - done) / speed));
-        m_activity->tasks()->setBytes(m_task, done, total);
-        m_activity->tasks()->setProgress(m_task, done, total);
-        m_activity->tasks()->setDetail(m_task, m_status);
-        if (m_dialog) m_dialog->showProgress(done, total, m_status);
+        m_showTransferTelemetry = true;
+        updateProgress(done, total);
+    });
+    connect(m_download, &ResumableDownload::transferBytes, this, [this](qint64 bytes) {
+        if (!m_running || bytes <= 0) return;
+        if (m_transferred == 0) m_rate.reset(m_rateClock.elapsed());
+        m_transferred += bytes;
     });
     connect(m_download, &ResumableDownload::statusChanged, this, [this](const QString &message) {
         if (!m_running) return;
+        m_showTransferTelemetry = false; // Preserve connection/checksum/commit phase messages.
         m_status = message;
         m_activity->tasks()->setDetail(m_task, message);
         if (m_dialog) m_dialog->status->setText(message);
@@ -158,6 +149,34 @@ void DirectDownloadController::startJob(Tasks::TaskId id, const DirectDownloadRe
     connect(m_download, &ResumableDownload::finished, this, [this](bool success, const QString &message) { finish(success, message); });
     m_download->start(validated.url, validated.path, {}, -1, allowOverwrite);
     manageCache(1);
+}
+
+void DirectDownloadController::updateProgress(qint64 done, qint64 total) {
+    if (!m_running || m_activity == nullptr) return;
+    m_lastDone = done; m_lastTotal = total;
+    m_activity->tasks()->setBytes(m_task, done, total);
+    m_activity->tasks()->setProgress(m_task, done, total);
+    const qint64 now = m_rateClock.elapsed();
+    m_rate.sample(now, m_transferred);
+    if (now - m_lastRateUi < 1000 && (total <= 0 || done < total)) return;
+    m_lastRateUi = now;
+    const auto size = [](qint64 bytes) { return QLocale().formattedDataSize(qMax<qint64>(0, bytes)); };
+    const qint64 speed = m_rate.bytesPerSecond(now);
+    m_status = tr("%1 / %2 · %3").arg(size(done), total > 0 ? size(total) : tr("大小未知"),
+        speed < 0 ? tr("测量速度中…") : size(speed) + QStringLiteral("/s"));
+    if (total > done) {
+        const qint64 eta = m_rate.remainingSeconds(now, total - done);
+        if (eta > 0) {
+            const qint64 seconds = qMax<qint64>(5, ((eta + 2) / 5) * 5);
+            const QString duration = seconds >= 3600
+                ? tr("%1 小时 %2 分").arg(seconds / 3600).arg((seconds % 3600) / 60)
+                : seconds >= 60 ? tr("%1 分 %2 秒").arg(seconds / 60).arg(seconds % 60)
+                                : tr("%1 秒").arg(seconds);
+            m_status += tr(" · 预计剩余约 %1").arg(duration);
+        } else m_status += speed == 0 ? tr(" · 等待数据…") : tr(" · 正在估算剩余时间…");
+    }
+    m_activity->tasks()->setDetail(m_task, m_status);
+    if (m_dialog) m_dialog->showProgress(done, total, m_status);
 }
 
 void DirectDownloadController::finish(bool success, const QString &error) {

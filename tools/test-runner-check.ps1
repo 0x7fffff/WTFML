@@ -8,6 +8,7 @@ $null = New-Item -ItemType Directory -Path $fixture -Force
 Copy-Item -LiteralPath (Join-Path $repo 'tests/test_runner/RunnerFixture.cmake') -Destination (Join-Path $fixture 'CTestTestfile.cmake')
 $oldTemp = $env:TEMP
 $oldTmp = $env:TMP
+$oldPartitionCase = $env:WTFML_PARTITION_FIXTURE_CASE
 $failed = 0
 
 function Check([bool]$Ok, [string]$Text) {
@@ -45,12 +46,24 @@ try {
             default { Check $false 'unexpected fixture suite' }
         }
     }
+    $partitionFixture = Join-Path $work 'partitions space 测试'
+    $null = New-Item -ItemType Directory -Path $partitionFixture -Force
+    Copy-Item -LiteralPath (Join-Path $repo 'tests/test_runner/PartitionFixture.cmake') `
+        -Destination (Join-Path $partitionFixture 'CTestTestfile.cmake')
+    foreach ($case in @('valid', 'missing', 'duplicate', 'empty')) {
+        $env:WTFML_PARTITION_FIXTURE_CASE = $case
+        & (Join-Path $PSScriptRoot 'check-ci-partitions.ps1') -BuildDir $partitionFixture `
+            *> (Join-Path $work "partition-$case.output.log")
+        Check ($LASTEXITCODE -eq $(if ($case -eq 'valid') { 0 } else { 1 })) `
+            "CI partition check handles $case (visual tests excluded)"
+    }
 } catch {
     Write-Host "FAIL runner self-check: $_"
     $failed++
 } finally {
     $env:TEMP = $oldTemp
     $env:TMP = $oldTmp
+    $env:WTFML_PARTITION_FIXTURE_CASE = $oldPartitionCase
     Write-Host "Self-check evidence: $work"
 }
 exit $(if ($failed) { 1 } else { 0 })

@@ -2520,6 +2520,9 @@ void MainWindow::updateBottomBarTaskSummary() {
     summary.percent = picked.percent;
     summary.extraCount = picked.extraCount;
     summary.title = picked.title;
+    if (picked.state == Tasks::TaskState::Running && m_activityCenter->transferSpeed(picked.id) >= 0)
+        summary.title += QStringLiteral(" · %1/s").arg(
+            InstanceFilesPage::formatSize(m_activityCenter->transferSpeed(picked.id)));
     // 红点看的是"**有没有没看过的失败**"，和正显示的是哪一项无关（§3.1：正在下载而上一件
     // 事失败了，两个信号都该看得见）—— 这条也是账本层算的，原样搬过来。
     summary.unreadFailure = picked.hasFailure;

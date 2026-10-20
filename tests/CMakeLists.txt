@@ -454,6 +454,11 @@ target_compile_definitions(verify PRIVATE REPO_ROOT_PATH="${REPO_ROOT}")
 
 add_test(NAME wtfml.core COMMAND verify)
 add_test(NAME wtfml.test-runner COMMAND pwsh -NoProfile -File "${REPO_ROOT}/tools/test-runner-check.ps1")
+if(NOT DEFINED WTFML_BUILD_NETWORK_DIAG OR WTFML_BUILD_NETWORK_DIAG)
+    add_test(NAME wtfml.ci-partitions COMMAND pwsh -NoProfile -File "${REPO_ROOT}/tools/check-ci-partitions.ps1"
+        -BuildDir "${CMAKE_BINARY_DIR}")
+    set_tests_properties(wtfml.ci-partitions PROPERTIES LABELS "tooling" TIMEOUT 60)
+endif()
 set_tests_properties(wtfml.test-runner PROPERTIES
     LABELS "tooling"
     TIMEOUT 60
@@ -483,6 +488,9 @@ set_property(TEST wtfml.core APPEND PROPERTY
     ENVIRONMENT "PATH=${WTFML_TEST_PATH}"
 )
 set(WTFML_TEST_RUNTIME_ENVIRONMENT "PATH=${WTFML_TEST_PATH}")
+
+get_property(WTFML_CORE_TESTS DIRECTORY PROPERTY TESTS)
+set_property(TEST ${WTFML_CORE_TESTS} APPEND PROPERTY LABELS ci-core)
 
 add_subdirectory(ui_check)
 add_subdirectory(mw_check)

@@ -19434,6 +19434,12 @@ int main(int argc, char *argv[]) {
         const QString path = fixture.filePath(QStringLiteral("tasks.json"));
         ActivityCenterController activity;
         activity.tasks()->setHistoryPath(path);
+        const auto speedTask = activity.begin(Tasks::TaskKind::Download, QStringLiteral("Speed"));
+        activity.setTransferSpeed(speedTask, 1048576);
+        expect(activity.item(activity.tasks()->snapshot(speedTask), false, false, false).bytesText.contains("/s"),
+               "game download speed remains visible when total byte size is unknown");
+        activity.finish(speedTask, true, QString(), false);
+        expect(activity.transferSpeed(speedTask) < 0, "finished tasks do not retain a stale live speed");
         const auto failed = activity.begin(Tasks::TaskKind::Crash, QStringLiteral("Game error"), {},
             {{QStringLiteral("登录"), Tasks::TaskStepState::Done, {}},
              {QStringLiteral("检查"), Tasks::TaskStepState::Running, {}},

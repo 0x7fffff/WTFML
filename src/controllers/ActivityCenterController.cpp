@@ -28,6 +28,7 @@ ActivityCenterController::ActivityCenterController(QObject *parent)
             [this](Tasks::TaskId) { emit activityChanged(); });
     connect(&m_tasks, &Tasks::TaskManager::taskFinished, this,
             [this](Tasks::TaskId id, bool) {
+                m_transferSpeeds.remove(id);
                 m_queue.removeIf([id](const QueuedJob &job) { return job.id == id; });
                 for (auto it = m_runningLanes.begin(); it != m_runningLanes.end();)
                     if (it.value() == id) it = m_runningLanes.erase(it); else ++it;
@@ -40,6 +41,7 @@ ActivityCenterController::ActivityCenterController(QObject *parent)
 }
 
 void ActivityCenterController::loadHistory() {
+    m_transferSpeeds.clear();
     m_tasks.loadHistory();
     // ★ 2026-10-20：账本从盘上读回来了，"还没看过的失败"那一份却还停在空表上（它是内存
     //   里的，新进程一开始就是空的）。症状：上一次会话里失败、用户还没来得及点「知道了」
@@ -208,6 +210,14 @@ bool ActivityCenterController::markSeen(const QString &key) {
     return true;
 }
 
+void ActivityCenterController::setTransferSpeed(Tasks::TaskId id, qint64 bytesPerSecond) {
+    if (!m_tasks.has(id) || m_tasks.snapshot(id).state != Tasks::TaskState::Running) return;
+    if (transferSpeed(id) == bytesPerSecond) return;
+    if (bytesPerSecond < 0) m_transferSpeeds.remove(id);
+    else m_transferSpeeds.insert(id, bytesPerSecond);
+    emit activityChanged();
+}
+
 bool ActivityCenterController::markViewed(const QString &key) {
     bool ok = false;
     // ★ 2026-10-20：行钥匙是 `QString::number(TaskId)`，而 `TaskId` 是 64 位 —— 这里原来
@@ -286,6 +296,10 @@ TaskCenter::Item ActivityCenterController::item(const Tasks::TaskSnapshot &task,
         result.bytesText = tr("已下载 %1 / %2")
                                .arg(InstanceFilesPage::formatSize(task.bytesDone),
                                     InstanceFilesPage::formatSize(task.bytesTotal));
+    }
+    if (task.state == Tasks::TaskState::Running && transferSpeed(task.id) >= 0) {
+        if (!result.bytesText.isEmpty()) result.bytesText += QStringLiteral(" · ");
+        result.bytesText += InstanceFilesPage::formatSize(transferSpeed(task.id)) + QStringLiteral("/s");
     }
 
     result.capabilities.cancel = task.capabilities.canCancel
