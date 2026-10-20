@@ -42,8 +42,10 @@
  * 位图）靠 `follow()` 跟着重算一遍 —— 它就是"下一次重算"这一个动作的登记处。没登记过的
  * 地方不是错的：每次现建的那些（浮层 / 菜单 / 列表行）下次打开自然就是新的。
  *
- * NOTE: **跟着系统**那一档（`presetId == "system"`）是唯一"我们不去动 ColorScheme"的
- *       一档：用户在 Windows 设置里切深浅，界面跟着变（这是加这一层之前就有的行为）。
+ * NOTE: **跟着系统**那一档（`presetId == "system"`）仍然是我们唯一不去钉死
+ *       `ColorScheme` 的一档：用户在 Windows 设置里切深浅，界面跟着变（`ColorSchemeWatcher`
+ *       接住平台的 `colorSchemeChanged` 之后重铺一遍调色板）。调色板本身现在也由我们铺
+ *       —— 样式表里的颜色是 `palette(...)` 引用，不铺就没地方读那些档位。
  *       明确选了"浅色 / 深色"之后，我们就把那一档钉住 —— 那时候还跟着系统走，等于用户
  *       选了"深色"而界面是浅的。
  */
@@ -207,9 +209,9 @@ bool roleFromKey(const QString &key, Role *out);
  *   "白底上一行小字"上不是一回事。纯色要兼顾白字，描边按钮的文字和细边则继续走更深
  *   的两档：既保留层级，也不会让小尺寸文字显得发虚。
  *
- * ★ 这些档**不进调色板**（不是 `Role`）：它们落在顶栏那一块（`Part::TitleBar`）和按钮的
- *   应用级样式表上。理由见 `apply()` 里那段 —— 往调色板里塞东西等于把"跟着系统深浅走"
- *   钉死（出厂那一份必须"一个字节都不碰调色板"，ui_check W1 钉着这条）。
+ * ★ 这些档**不进 `Role`**（用户不能单独挑其中一个），但会作为样式表的"变量"写进调色板
+ *   的几个通用角色（`Accent` / `Light` 等，见 `buildPalette()`）—— 换配色时只要换调色板，
+ *   不必重挂整份应用样式表。
  */
 enum class AccentShade {
     Pure,     ///< 用户点名的那个色 —— 顶栏的底、当前那一颗导航底下那条线
@@ -787,8 +789,8 @@ const Spec &current();
 /// 只换内存里这一份（不落盘、也不铺开 —— 要生效得再 `apply()`）。参数越界会被收拾干净。
 void setSpec(const Spec &spec);
 
-/// "出厂"那一份：跟着系统、一项覆盖都没有（**主题色除外** —— 它出厂就是那一支绿，
-/// 2026-09-28 用户点名要的）。覆盖项一个都没有 ⇒ 调色板照旧一个字节都不碰。
+/// "出厂"那一份：翡翠实验室、一项覆盖都没有（**主题色除外** —— 它出厂就是那一支绿，
+/// 2026-09-28 用户点名要的）。
 Spec defaultSpec();
 
 /// 三个预设：`system`（跟着系统）/ `light` / `dark`。
@@ -813,7 +815,9 @@ bool isDarkPalette(const QPalette &palette);
 /// 当前这一份算不算深色（拿应用调色板问上面那个函数）。
 bool isDark();
 
-/// 从 `base` 出发，叠上 `spec` 的角色覆盖与文字不透明度。纯函数（不碰 `qApp`）。
+/// 从 `base` 出发，叠上 `spec` 的角色覆盖与文字不透明度。
+/// NOTE: 「跟着系统」那一档要先问平台现在是不是深色（`platformColorSchemeDark()`），
+///       所以严格说它会读一下 `qApp` 的 `styleHints()`；其余预设是纯函数。
 QPalette buildPalette(const Spec &spec, const QPalette &base);
 
 /**
@@ -821,8 +825,12 @@ QPalette buildPalette(const Spec &spec, const QPalette &base);
  *
  * 三件事，按这个顺序：定深浅那一档 → 算调色板 → 铺开（并让该重算的重新算一遍）。
  *
- * NOTE: 默认那一份（跟系统 + 没有任何覆盖）下**一个字节都不碰** —— 不调 `setPalette`、
- *       也不去敲那些跟着调色板走的控件。见文件头那段。
+ * ★ 2026-10-20：换配色**不再重挂整份应用样式表**（那是 1.9 秒的卡顿来源）。样式表里的
+ *   颜色写成 `palette(...)` 引用，换主题只 `setPalette()` + 一圈 `polish()`（~100 ms）。
+ *   第一次铺、或者样式表结构真的变了，才走 `QApplication::setStyleSheet()`。
+ *
+ * NOTE: 「跟着系统」也会铺一份我们自己算的调色板；平台深浅变了由 `ColorSchemeWatcher`
+ *       接住重铺（见 .cpp 里那段）。
  */
 void apply(QApplication &app);
 
