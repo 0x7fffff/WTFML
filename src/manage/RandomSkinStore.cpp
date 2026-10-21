@@ -1,10 +1,8 @@
 /**
  * @file RandomSkinStore.cpp
  * @brief 实现"挑一张随机皮肤"：要一页库、随机取一个哈希、拼成官方贴图地址。
- * @author 0x7fffff
- * @date 2026-09-24
  * @note 为什么不是 NameMC、为什么只给离线账号、为什么挑一次就记盘，都写在 .hpp 里，
- *       这里只实现。
+ * 这里只实现。
  */
 
 #include "RandomSkinStore.hpp"
@@ -131,8 +129,8 @@ QString RandomSkinStore::loadChosenSkinUrl(const QString &uuid) {
     // 把 http 升级成 https）。文件是可以被手改的，改坏了就当没挑过、重新挑一张。
     //
     // NOTE: 返回的是**盘上原样那一行**，不是升级之后的 QUrl —— 缓存路径和 textureReady()
-    //       发出去的 url 都按原样那个地址认（见 PlayerSkinStore::textureRequestUrl 的 NOTE）。
-    //       我们写下去的就是 https，所以两者本来就一致。
+    // 发出去的 url 都按原样那个地址认（见 PlayerSkinStore::textureRequestUrl 的 NOTE）。
+    // 我们写下去的就是 https，所以两者本来就一致。
     if (!PlayerSkinStore::textureRequestUrl(line).isValid()) {
         return QString();
     }
@@ -171,12 +169,6 @@ bool RandomSkinStore::fetchRandomSkin() {
     if (m_inFlight) {
         // 已经有一次在飞了。这条路会被反复走到（每次刷新外观、每次切账号都重新
         // startPlayerSkinLoad()），不挡一下就会攒出一串一样的请求。
-        //
-        // ★ 2026-09-27：被挡掉的这一趟**什么都没开始**，所以要把这件事告诉调用方（返回值）
-        //   —— 它正等着拿"发请求时那位是谁"当同一性判据用，见 MainWindow::onRandomSkinReady()。
-        //   另外调用方在丢掉一趟过期结果之后会**再调一次 startPlayerSkinLoad()** 来补这一次
-        //   被挡掉的（那一趟里 m_inFlight 已经落回 false 了，见下面 reply 的回调第一句），
-        //   所以"换到 B 之后 B 一直没挑过"这个坑也顺带补上了。
         return false;
     }
     m_inFlight = true;

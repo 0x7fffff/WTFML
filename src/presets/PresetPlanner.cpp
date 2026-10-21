@@ -1,26 +1,21 @@
 /**
  * @file PresetPlanner.cpp
  * @brief 实现 PresetPlanner.hpp（一段一行地算这一趟会怎么样）。取舍都写在那边文件头。
- * @author 0x7fffff
- * @date 2026-10-15
  *
  * 【这一层里那些"数"是从哪儿来的（一段一段地对）】
  *
- *   · `VanillaOptions` / `VanillaKeys` —— `planOptionsApply()` 的 `OptionsApplyReport`
- *     （`written` / `added` / `removed` / `skipped` / `conflicts`）。
- *   · `ServerList` —— `planServerListApply()` 的 `ServerListReport`
- *     （`written` / `added` / `removed` / `skipped` / `untouchable`）。
- *   · `GenericFiles` —— `planFileGroup()` 的 `GenericPlan`
- *     （`replaced + copied` / `skipped` / `needsChoice`）+ 逐项的理由。
- *   · `MalilibKeys` —— `planMalilibApply()` 的 `MalilibApplyReport`
- *     （`written` / `removed` / `skipped` / `conflicts`）。
+ * · `VanillaOptions` / `VanillaKeys` —— `planOptionsApply()` 的 `OptionsApplyReport`
+ * （`written` / `added` / `removed` / `skipped` / `conflicts`）。
+ * · `ServerList` —— `planServerListApply()` 的 `ServerListReport`
+ * （`written` / `added` / `removed` / `skipped` / `untouchable`）。
+ * · `GenericFiles` —— `planFileGroup()` 的 `GenericPlan`
+ * （`replaced + copied` / `skipped` / `needsChoice`）+ 逐项的理由。
+ * · `MalilibKeys` —— `planMalilibApply()` 的 `MalilibApplyReport`
+ * （`written` / `removed` / `skipped` / `conflicts`）。
  *
- * ★ **五个报告都不在这儿重算**：这一层只做"取数 + 翻译"。哪天某个适配器改了算法的口径，
- *   表上跟着变的是它自己那一行 —— 这一层里的加法和它无关。
- *
- * ★ MaLiLib 那一段的"冲突"和原版按键那一档**是同一件事**（两个东西抢同一组键位），
- *   所以它报在同一个格子上（`conflictCount`）。它和"要你选"（通用文件组那一档）不是
- *   一回事，别混着看。
+ * MaLiLib 那一段的"冲突"和原版按键那一档**是同一件事**（两个东西抢同一组键位），
+ * 所以它报在同一个格子上（`conflictCount`）。它和"要你选"（通用文件组那一档）不是
+ * 一回事，别混着看。
  *
  * 【"还没确认"的那一趟为什么照样算】
  *
@@ -29,10 +24,6 @@
  * 用户正要拿这张表去决定要不要点头，跟他说"这一行是覆盖，几项不知道"等于没给他任何
  * 信息。所以这一层一律按 `replaceConfirmed = true` 去算，再把"还没点头"**自己**标在
  * 行上（`mode == Replace && !request.replaceConfirmed`）。
- *
- * ★ 那两个适配器里 `needsConfirm` 那一档**照样把数给出来**（`ServerListPreset` 那边
- *   明说了"报告里那几个数照给，界面正是拿它去问用户"），所以哪天想改成直接透传它们那份
- *   报告也行 —— 只要别把"数"丢掉。
  */
 
 #include "PresetPlanner.hpp"
@@ -111,16 +102,16 @@ void planOptionsRow(const PlanRequest &request, const PresetSection &section, Ap
         return;
     }
 
-    // ★ 「勾了哪些键」= **这一段里有的那些键**。段里的内容本来就是用户勾过的那一套
-    //   （`sectionsFromOptions()` 只写勾中的），所以这一趟不该拿"默认该勾什么"再猜一遍 ——
-    //   猜的后果是用户特意没勾的硬件项被我们偷偷写进去（§6 P2 点名的「显示器、全屏分辨率等
-    //   硬件相关项默认不选」）。
+    // 「勾了哪些键」= **这一段里有的那些键**。段里的内容本来就是用户勾过的那一套
+    // （`sectionsFromOptions()` 只写勾中的），所以这一趟不该拿"默认该勾什么"再猜一遍 ——
+    // 猜的后果是用户特意没勾的硬件项被我们偷偷写进去（§6 P2 点名的「显示器、全屏分辨率等
+    // 硬件相关项默认不选」）。
     QSet<QString> selected;
     for (const QString &key : source.keys()) {
         selected.insert(key);
     }
 
-    // ★ 一律按"已确认"算（见文件头），"还没点头"由 `markConfirm()` 标在行上。
+    // 一律按"已确认"算（见文件头），"还没点头"由 `markConfirm()` 标在行上。
     const OptionsApplyReport report =
         planOptionsApply(section.kind, source, request.target.options, selected, section.mode, true);
     if (!report.ok) {
@@ -186,8 +177,8 @@ void planGenericFilesRow(const PlanRequest &request, const PresetSection &sectio
         return;
     }
     if (idSays && !items.isEmpty()) {
-        // ★ 两份说法对了一下：id 说是 A 组、载荷里每一条路径却在 B 组底下 —— 这种段**不认**。
-        //   （`fileGroupFromSection()` 只保证载荷内部自洽；和 id 是否一致只有这儿判得了。）
+        // 两份说法对了一下：id 说是 A 组、载荷里每一条路径却在 B 组底下 —— 这种段**不认**。
+        // （`fileGroupFromSection()` 只保证载荷内部自洽；和 id 是否一致只有这儿判得了。）
         FileGroup fromPaths = FileGroup::Config;
         if (fileGroupOfPath(items.at(0).relativePath, &fromPaths) && fromPaths != group) {
             row->blocked = true;
@@ -219,9 +210,9 @@ void planGenericFilesRow(const PlanRequest &request, const PresetSection &sectio
 
 /// 落一段 `MalilibKeys` 的计划。
 ///
-/// ★ 这一段也要**读盘**（`config/<modId>.json`），和通用文件组那一档同一个形状：不读目标
-///   上那一份，就说不出"这一趟会解绑几格"。读的是**那一段点名的模组**那几份（不是整片扫
-///   `config/`）—— 段里装着模组名，所以这一层知道该读谁。
+/// 这一段也要**读盘**（`config/<modId>.json`），和通用文件组那一档同一个形状：不读目标
+/// 上那一份，就说不出"这一趟会解绑几格"。读的是**那一段点名的模组**那几份（不是整片扫
+/// `config/`）—— 段里装着模组名，所以这一层知道该读谁。
 void planMalilibRow(const PlanRequest &request, const PresetSection &section, ApplyPlanRow *row,
                     QList<MalilibEntry> *afterOut) {
     QList<MalilibEntry> entries;
@@ -239,15 +230,15 @@ void planMalilibRow(const PlanRequest &request, const PresetSection &section, Ap
         }
     }
 
-    // ★ 空段（一格都没有）到这儿是 `modIds` 空 —— `malilibReadTarget()` 一份都不读，
-    //   下面自然算出"不动"。那不是错误（用户可能就是把这一段的勾全去掉了）。
+    // 空段（一格都没有）到这儿是 `modIds` 空 —— `malilibReadTarget()` 一份都不读，
+    // 下面自然算出"不动"。那不是错误（用户可能就是把这一段的勾全去掉了）。
     const MalilibTarget target = malilibReadTarget(request.target.instanceRoot, modIds);
-    // ★ 一律按"已确认"算（见文件头）：这时候"还没点头"由 `markConfirm()` 标在行上。
+    // 一律按"已确认"算（见文件头）：这时候"还没点头"由 `markConfirm()` 标在行上。
     const MalilibApplyResult applied = applyMalilibEntries(entries, target, section.mode, true);
     const MalilibApplyReport &report = applied.report;
     if (!report.ok) {
-        // ★ 今天**到不了这儿**（上面那句"按已确认算"关掉了适配器里唯一一条 `ok = false` 的
-        //   路）。留着是防着哪天那条路变成两条 —— 那一段该在表上落"做不了"，而不是悄悄报 0。
+        // 今天**到不了这儿**（上面那句"按已确认算"关掉了适配器里唯一一条 `ok = false` 的
+        // 路）。留着是防着哪天那条路变成两条 —— 那一段该在表上落"做不了"，而不是悄悄报 0。
         row->blocked = true;
         row->problem = report.problem;
         return;
@@ -258,9 +249,9 @@ void planMalilibRow(const PlanRequest &request, const PresetSection &section, Ap
     row->skipped = report.skipped;
     row->conflictCount = report.conflicts.size();
 
-    // ★ 这一份**这一趟之后**绑着的那几格交给**整份**那一张单子（跨模组的冲突只有攒到一处
-    //   才看得出来 —— 见 `ApplyPlan::keyConflicts`）。被跳过的段（`blocked`）不交：那一段
-    //   这一趟压根不动，拿它的格子去说"整份有冲突"是假的。
+    // 这一份**这一趟之后**绑着的那几格交给**整份**那一张单子（跨模组的冲突只有攒到一处
+    // 才看得出来 —— 见 `ApplyPlan::keyConflicts`）。被跳过的段（`blocked`）不交：那一段
+    // 这一趟压根不动，拿它的格子去说"整份有冲突"是假的。
     if (afterOut != nullptr) {
         *afterOut += applied.after;
     }
@@ -363,8 +354,8 @@ QString applyPlanRowText(const ApplyPlanRow &row) {
         parts.append(applyPlanVerb(row.mode) + QLatin1Char(' ') + QString::number(row.count) +
                      QLatin1Char(' ') + unit);
     } else if (row.removed > 0) {
-        // ★ 会动的数是 0、却要删东西 —— 这就是"空段铺上去 = 把那一片清空"那一档。
-        //   只写「覆盖 0 项」等于把最要紧的那半截藏起来了。
+        // 会动的数是 0、却要删东西 —— 这就是"空段铺上去 = 把那一片清空"那一档。
+        // 只写「覆盖 0 项」等于把最要紧的那半截藏起来了。
         parts.append(applyPlanVerb(row.mode));
     } else if (row.deferred > 0) {
         // 全是"目标上没有那个世界"的：这一行只说得出口"它们先记着"。
@@ -471,8 +462,8 @@ ApplyPlan planPresetApplication(const PlanRequest &request) {
         row.mode = section.mode;
 
         if (dataPackHandlesSection(section)) {
-            // ★ 排在 `plannerKnowsKind()` 之前：数据包挂在 `Custom` 底下（见
-            //   `DataPackPreset.hpp`），而 `Custom` 在那个函数里是"没人接手"的意思。
+            // 排在 `plannerKnowsKind()` 之前：数据包挂在 `Custom` 底下（见
+            // `DataPackPreset.hpp`），而 `Custom` 在那个函数里是"没人接手"的意思。
             planDataPackRow(request, section, &row);
         } else if (!plannerKnowsKind(section.kind)) {
             row.blocked = true;

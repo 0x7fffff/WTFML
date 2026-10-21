@@ -12,7 +12,7 @@
 
 /**
  * Owns the activity ledger and the cross-task decisions used by the activity
- * centre.  Executors still live in their own domains; during the incremental
+ * centre. Executors still live in their own domains; during the incremental
  * migration they may update the ledger through tasks().
  */
 class ActivityCenterController final : public QObject {
@@ -38,8 +38,6 @@ public:
                         const QList<Tasks::TaskStep> &steps = {});
     void finish(Tasks::TaskId id, bool success, const QString &errorSummary,
                 bool retryPayloadAvailable);
-    /// 把一项任务和一次运行对上（§9.8 第三条）。账本那一侧是 `TaskManager::setSessionId()`；
-    /// 这一层只是"谁都可以调"的那一个口子（启动 / 崩溃报告两条路都走它）。
     bool bindSession(Tasks::TaskId id, int sessionId);
 
     Tasks::TaskSummary collapsedSummary(const QDateTime &now, qint64 recentWindowMs) const;

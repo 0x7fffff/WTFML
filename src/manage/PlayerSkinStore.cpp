@@ -1,8 +1,6 @@
 /**
  * @file PlayerSkinStore.cpp
  * @brief 实现免鉴权的档案请求与内容寻址的贴图缓存。
- * @author 0x7fffff
- * @date 2026-09-21
  * @note 协议形状、缓存策略与"为什么不弹窗"都写在 .hpp 里，这里只实现。
  */
 
@@ -100,8 +98,8 @@ PlayerSkinProfile PlayerSkinStore::parseProfileJson(const QByteArray &body, QStr
 
     // 里面那层 base64 解出来才是真档案。
     // NOTE: 带上 AbortOnBase64DecodingErrors —— 默认那个选项**会跳过非法字符**，
-    //       于是一段被截断的 base64 也能"成功"解出半截 JSON，报出来的错会指向
-    //       "JSON 解不动"而不是"base64 就是坏的"，白查一轮。
+    // 于是一段被截断的 base64 也能"成功"解出半截 JSON，报出来的错会指向
+    // "JSON 解不动"而不是"base64 就是坏的"，白查一轮。
     const auto decoded = QByteArray::fromBase64Encoding(
         encoded.toLatin1(), QByteArray::Base64Encoding | QByteArray::AbortOnBase64DecodingErrors);
     if (!decoded) {
@@ -178,13 +176,13 @@ QUrl PlayerSkinStore::textureRequestUrl(const QString &url) {
         return QUrl();
     }
 
-    // NOTE: **官方档案里的贴图地址就是 http:// 的**（2026-09-21 真机上取的档案，
-    //       skin 和 cape 两条都是，存下来的 profile-*.json 里白纸黑字）。
-    //       所以"不是 https 就拒"那条规矩的后果不是"挡掉被改过的档案"，而是**每一份真
-    //       档案都被挡掉**：右栏永远画着默认外观、那句话永远说"取不到 <名字> 的皮肤"，
-    //       而缓存目录里只躺着一份 profile-*.json、一张 .png 都没有（真机上看到的就是
-    //       这个样子 —— 那一张 .png 的缺席就是这条 bug 的指纹）。
-    //       同一个内容寻址的地址，https 拿到的字节和 http 一模一样，所以这里升级掉它。
+    // NOTE: **官方档案里的贴图地址就是 http:// 的**（ 真机上取的档案，
+    // skin 和 cape 两条都是，存下来的 profile-*.json 里白纸黑字）。
+    // 所以"不是 https 就拒"那条规矩的后果不是"挡掉被改过的档案"，而是**每一份真
+    // 档案都被挡掉**：右栏永远画着默认外观、那句话永远说"取不到 <名字> 的皮肤"，
+    // 而缓存目录里只躺着一份 profile-*.json、一张 .png 都没有（真机上看到的就是
+    // 这个样子 —— 那一张 .png 的缺席就是这条 bug 的指纹）。
+    // 同一个内容寻址的地址，https 拿到的字节和 http 一模一样，所以这里升级掉它。
     QUrl target = raw;
     target.setScheme(QStringLiteral("https"));
     return target;
@@ -425,9 +423,9 @@ void PlayerSkinStore::fetchTexture(const QString &url) {
 
     // 地址来自**外面**（我们解出来的档案），所以取之前过一遍 textureRequestUrl()：
     // 它认官方那个 host，并把 http 升级成 https（**官方档案里的地址就是 http 的**，
-    // 那一段是 2026-09-21 真机上一张 .png 都没下下来才发现的）。
+    // 那一段是 真机上一张 .png 都没下下来才发现的）。
     // （贴图不走 BMCLAPI 镜像：那个镜像只镜像 launchermeta/libraries/resources 那三个
-    //   host，贴图不在其中，拼出来的地址是假的。）
+    // host，贴图不在其中，拼出来的地址是假的。）
     const QUrl target = textureRequestUrl(url);
     if (!target.isValid()) {
         emit failed(QStringLiteral("贴图地址不可用：%1").arg(url));

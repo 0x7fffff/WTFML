@@ -1,8 +1,6 @@
 /**
  * @file InstanceMaintenanceController.hpp
  * @brief 管理实例配置与世界 level.dat 的轻量备份，不依赖主窗口状态。
- * @author Agent
- * @date 2026-10
  */
 #pragma once
 

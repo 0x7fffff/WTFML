@@ -1,8 +1,6 @@
 /**
  * @file LaunchHistory.cpp
  * @brief 「上一次启动」那本账的实现（形状与取舍见头文件）。
- * @author 0x7fffff
- * @date 2026-10-13
  */
 
 #include "LaunchHistory.hpp"
@@ -237,9 +235,9 @@ QString whenText(const QDateTime &at, const QDateTime &now) {
         return QString();
     }
     const QString clock = at.toString(QStringLiteral("HH:mm"));
-    // ★ 按**日期**比，不按"差了多少秒"：23:59 和 00:01 之间只差两分钟，可那两分钟正好跨了
-    //   一天 —— 写成"2 分钟前"没错，但卡片上那句要的是"哪一天"，`昨天 00:01` 才是用户
-    //   心里那一句。
+    // 按**日期**比，不按"差了多少秒"：23:59 和 00:01 之间只差两分钟，可那两分钟正好跨了
+    // 一天 —— 写成"2 分钟前"没错，但卡片上那句要的是"哪一天"，`昨天 00:01` 才是用户
+    // 心里那一句。
     const int days = at.date().daysTo(now.date());
     if (days == 0) {
         return clock;
@@ -291,9 +289,9 @@ QString durationText(qint64 seconds) {
     if (seconds < 0) {
         return QString();
     }
-    // ★ 出的是**整句**（「玩了 1 小时 12 分」），不是光一个数量：卡片上那一行是"目标 ·
-    //   时长（结局）"拼出来的，量词不同（分钟 / 小时）时"玩了"两个字必须一起挪 ——
-    //   让调用方去拼会拼出「玩了 不到 1 分钟」这种话。
+    // 出的是**整句**（「玩了 1 小时 12 分」），不是光一个数量：卡片上那一行是"目标 ·
+    // 时长（结局）"拼出来的，量词不同（分钟 / 小时）时"玩了"两个字必须一起挪 ——
+    // 让调用方去拼会拼出「玩了 不到 1 分钟」这种话。
     if (seconds < 60) {
         return QStringLiteral("玩了不到 1 分钟");
     }

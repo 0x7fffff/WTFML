@@ -1,8 +1,6 @@
 /**
  * @file ServerPing.cpp
  * @brief ServerPing 的实现（协议说明在 .hpp 开头那一段）。
- * @author 0x7fffff
- * @date 2026-09-27
  */
 #include "ServerPing.hpp"
 
@@ -70,10 +68,10 @@ QByteArray packet(const QByteArray &body) {
 /// `description` 那一格展平成**没洗过**的一行（见 motdText()）。
 ///
 /// 这块 JSON 的形态（都不是我们编的，wiki.vg 上那几种真机上都见过）：
-///   - `"description": "一句纯文本"`
-///   - `"description": {"text": "前半", "extra": [{"text":"后半","color":"red"}, "再来一段"]}`
-///   - `extra` 里还能再嵌 `extra`（递归下去）；`color` / `bold` 那些**不要**（我们不画富文本）
-///   - 1.20.3 之后 `description` 也可能是**数组**（一段一段的），所以数组那一档也认
+/// - `"description": "一句纯文本"`
+/// - `"description": {"text": "前半", "extra": [{"text":"后半","color":"red"}, "再来一段"]}`
+/// - `extra` 里还能再嵌 `extra`（递归下去）；`color` / `bold` 那些**不要**（我们不画富文本）
+/// - 1.20.3 之后 `description` 也可能是**数组**（一段一段的），所以数组那一档也认
 QString flattenMotd(const QJsonValue &value) {
     if (value.isString()) {
         return value.toString();
@@ -116,8 +114,8 @@ QString flattenMotd(const QJsonValue &value) {
 /// （兄弟之间不继承，只有父子继承）。
 ///
 /// NOTE: `"bold": false` 这种**明写关掉**才是关掉（不写就是继承）。要关掉一个字形只能
-///       发 `§r`，而 `§r` 连颜色一起清 —— 所以关任何一位之前先把颜色复位再补回来，
-///       不然症状是"那一小段的颜色莫名变成白的"。
+/// 发 `§r`，而 `§r` 连颜色一起清 —— 所以关任何一位之前先把颜色复位再补回来，
+/// 不然症状是"那一小段的颜色莫名变成白的"。
 struct MotdState {
     QString colorCode;  ///< `§` 后面那一串（`c` / `x§f§f§0§0§0§0`）；空 = 没指定
     bool bold = false;
@@ -173,7 +171,7 @@ QString codesTo(const MotdState &to, bool explicitReset, MotdState *state) {
     QString out;
     MotdState cur = *state;
     // ① 有哪一位要**关掉**（或者元素自己写了 `"color":"reset"`）：只能发 `§r`，它会把颜色
-    //    和字形一起清掉。
+    // 和字形一起清掉。
     const bool anyOff = explicitReset || (cur.bold && !to.bold) || (cur.italic && !to.italic) ||
                         (cur.underline && !to.underline) || (cur.strike && !to.strike) ||
                         (to.colorCode.isEmpty() && !cur.colorCode.isEmpty());
@@ -379,8 +377,6 @@ SrvOutcome lookupSrv(const QString &host, int budgetMs) {
     });
     deadline.start(qMax(1, budgetMs));
     lookup.lookup();
-    // `lookup()` 偶尔会**同步**就完成（比如本机 hosts 文件里直接没有这个域）——
-    // 那时 isFinished() 已经是 true，再进一次 exec() 会一直等一个不会来的信号。
     if (!lookup.isFinished()) {
         loop.exec();
     }
@@ -709,14 +705,14 @@ Status ping(const QString &address) {
         return status;
     }
 
-    // ★ 延迟从**这儿**起算，不是从进这个函数起算（2026-09-27 改）：上面那一段（DNS 解析 +
-    //   TCP 三次握手）不算进 `latencyMs`。原来两样一起算，于是那一格写的是"解析域名 +
-    //   建连 + 握手一个来回"—— 一个 RTT 的服务器在我们这儿看着像两个 RTT，用户
-    //   2026-09-27 报的「服务器的延迟有问题」就是它（见 .hpp 里 latencyMs 那一段：
-    //   游戏里那一列量的也是连上之后的一个来回）。
+    // 延迟从**这儿**起算，不是从进这个函数起算（ 改）：上面那一段（DNS 解析 +
+    // TCP 三次握手）不算进 `latencyMs`。原来两样一起算，于是那一格写的是"解析域名 +
+    // 建连 + 握手一个来回"—— 一个 RTT 的服务器在我们这儿看着像两个 RTT，用户
+    // 报的「服务器的延迟有问题」就是它（见 .hpp 里 latencyMs 那一段：
+    // 游戏里那一列量的也是连上之后的一个来回）。
     //
     // NOTE: **两把表各管各的**。`clock` 管整趟预算（超时还得从进函数起算，否则一个连不
-    //       上的地址会连着超时两回），`roundTrip` 只量延迟。
+    // 上的地址会连着超时两回），`roundTrip` 只量延迟。
     QElapsedTimer roundTrip;
     roundTrip.start();
 
@@ -856,15 +852,15 @@ void Pinger::start(const QStringList &addresses) {
     // 上一趟那些线程对象还挂着（跑完了，但 deletion 还排着队）：先放它们走。不管的话，
     // 用户每点一次「测速」就在父对象底下攒一堆僵尸 QThread（一整个会话下来能攒几十个）。
     // NOTE: 从**主线程**调 deleteLater 是安全的 —— 这些对象本来就住在主线程（它们是在
-    //       start() 里 new 出来的），线程跑完了不欠任何东西。
+    // start() 里 new 出来的），线程跑完了不欠任何东西。
     //
-    // ★ 只放走**已经收摊**的那些（2026-10-19）。abort() 只放下 `m_running`，每条线程
-    //   手上那一台还在同步 socket 的 4 秒超时里；用户取消之后立刻再点「测速」（取消会把
-    //   按钮重新点亮），上一版会把一条**还在跑**的 QThread `deleteLater` 掉并把它从表里
-    //   抹掉 —— 主线程处理那条 DeferredDelete 时 Qt 直接
-    //   `qFatal("QThread: Destroyed while thread is still running")`，整个启动器当场消失。
-    //   还在跑的那几条留在表里：它们自己会在超时到了之后退出，下一趟 start() 再收；
-    //   一直没收的由 `~Pinger()` wait 着收。
+    // 只放走**已经收摊**的那些。abort() 只放下 `m_running`，每条线程
+    // 手上那一台还在同步 socket 的 4 秒超时里；用户取消之后立刻再点「测速」（取消会把
+    // 按钮重新点亮），上一版会把一条**还在跑**的 QThread `deleteLater` 掉并把它从表里
+    // 抹掉 —— 主线程处理那条 DeferredDelete 时 Qt 直接
+    // `qFatal("QThread: Destroyed while thread is still running")`，整个启动器当场消失。
+    // 还在跑的那几条留在表里：它们自己会在超时到了之后退出，下一趟 start() 再收；
+    // 一直没收的由 `~Pinger()` wait 着收。
     for (int i = m_threads.size() - 1; i >= 0; --i) {
         QThread *thread = m_threads.at(i);
         if (thread == nullptr) {
@@ -891,12 +887,12 @@ void Pinger::start(const QStringList &addresses) {
     // 发 allFinished()。**不能让每条线程都发一次**：接的人按 allFinished 收掉"测速中"，
     // 收八次和收一次在屏幕上是一个样子，但那个信号的意思是"这一趟完了"，一份信号发八遍
     // 不是这个意思。
-    // ★ 这里的方向**唯一出处就是 deref() 自己的语义**：它等价于 `--i != 0`（减完还有人在
-    //   就回真），所以"最后一条"是**回假**那一条。2026-09-27 写成"回真"了 —— 症状是
-    //   最先收摊的那条线程（往往是号牌发完、一台都没轮上的那条，几乎立刻就退出）抢先把
-    //   allFinished 发出去，接的人当这一趟完了：**屏幕上只有最先回来的那一台有结果**，
-    //   其余几台永远停在「还没测」，而按钮已经变回「测速」、看着像跑完了。
-    //   验证工程 T20.6（三台：答话的/不答话的/没人听的）抓的就是这一条。
+    // 这里的方向**唯一出处就是 deref() 自己的语义**：它等价于 `--i != 0`（减完还有人在
+    // 就回真），所以"最后一条"是**回假**那一条。 写成"回真"了 —— 症状是
+    // 最先收摊的那条线程（往往是号牌发完、一台都没轮上的那条，几乎立刻就退出）抢先把
+    // allFinished 发出去，接的人当这一趟完了：**屏幕上只有最先回来的那一台有结果**，
+    // 其余几台永远停在「还没测」，而按钮已经变回「测速」、看着像跑完了。
+    // 验证工程 T20.6（三台：答话的/不答话的/没人听的）抓的就是这一条。
     auto live = std::make_shared<QAtomicInt>(workers);
 
     // `QThread::create` 那个重载收的是一个函数对象（Qt 5.10 起）—— **它省掉了"再写一个
@@ -907,8 +903,8 @@ void Pinger::start(const QStringList &addresses) {
         QThread *thread = QThread::create([this, addresses, total, cursor, live, generation]() {
             for (;;) {
                 // 每一台之前查一次"被叫停没有"：abort() 之后每条线程最多再跑完手上这一台。
-                // ★ 号（generation）也得对得上：abort 之后紧跟着 start 会把 `m_running`
-                //   重新置 1，只看它的话上一趟的线程会接着往下跑、抢上一趟的号牌。
+                // 号（generation）也得对得上：abort 之后紧跟着 start 会把 `m_running`
+                // 重新置 1，只看它的话上一趟的线程会接着往下跑、抢上一趟的号牌。
                 if (m_running.loadAcquire() == 0 || m_generation.loadAcquire() != generation) {
                     break;
                 }
@@ -925,8 +921,8 @@ void Pinger::start(const QStringList &addresses) {
                 }
                 emit oneFinished(i, status);
             }
-            // ★ `deref()` 是 `--i != 0`（**还有人在**）—— 所以"最后一条"是**回假**那一条。
-            //   反着写的代价见上面 `live` 那一段。
+            // `deref()` 是 `--i != 0`（**还有人在**）—— 所以"最后一条"是**回假**那一条。
+            // 反着写的代价见上面 `live` 那一段。
             if (!live->deref()) {
                 // 收尾也只收自己那一趟：上一趟的"最后一条"晚到时，新一趟可能正跑着，
                 // 这时候清零 / 发 allFinished 会把新一趟的忙态和结果一起打掉。

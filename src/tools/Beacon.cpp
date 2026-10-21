@@ -1,8 +1,6 @@
 /**
  * @file Beacon.cpp
  * @brief Beacon.hpp 的实现（数值与那张效果表，见头文件）。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "tools/Beacon.hpp"
@@ -191,8 +189,8 @@ QString detailText(int fromLevel, int level) {
 
     QStringList lines;
     lines << summaryText(level);
-    // ★ 说的是**从下面数第 level 层**（搭到这一级时新铺的那一层，也是最大的那一层）——
-    //   不是"最上面那一层"：最上面永远是 3 × 3。
+    // 说的是**从下面数第 level 层**（搭到这一级时新铺的那一层，也是最大的那一层）——
+    // 不是"最上面那一层"：最上面永远是 3 × 3。
     lines << QStringLiteral("· 从下面数第 %1 层：%2 × %2 = %3 块（最上面那层永远是 3 × 3）")
                  .arg(level)
                  .arg(2 * level + 1)

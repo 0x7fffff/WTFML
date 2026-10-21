@@ -134,7 +134,7 @@ int runRangeChecks() {
         expect(success && read(target) == expected, "assembled or fallback output matches complete source bytes");
     };
     // 分段请求本身出问题时（Content-Range 对不上 / 416 / ETag 变了）的现行口径
-    // （docs/HIGH_SPEED_DOWNLOAD.md「2026-10-18 现场日志修正」）：先只补缺的段，
+    // （docs/HIGH_SPEED_DOWNLOAD.md「 现场日志修正」）：先只补缺的段，
     // 补投仍失败就保留缓存并报错，**不自动整包重下**；目标文件绝不落半截错内容。
     const auto runRejected = [&](const QString &endpoint, const QString &target) {
         ResumableDownload download;

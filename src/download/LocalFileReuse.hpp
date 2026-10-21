@@ -1,11 +1,9 @@
 /**
  * @file LocalFileReuse.hpp
  * @brief 从**已经添加过的**游戏文件夹里捡现成文件，省掉一次网络下载。
- * @author 0x7fffff
- * @date 2026-10-20
- * @note 用户原话：「下载新版本的时候（甚至在全新文件夹里下载新东西的时候）复用其它 mc
- *       文件夹/版本的文件以减少等待时间」，以及随后补的那道闸：「文件夹的使用仅限用户
- *       添加了的和官方启动器默认文件夹（如果存在），不要全盘扫描」。
+ * @note 要求：「下载新版本的时候（甚至在全新文件夹里下载新东西的时候）复用其它 mc
+ * 文件夹/版本的文件以减少等待时间」，以及随后补的那道闸：「文件夹的使用仅限用户
+ * 添加了的和官方启动器默认文件夹（如果存在），不要全盘扫描」。
  *
  * 【为什么单独一层】
  * 三个判据（路径怎么对上、来源算不算数、怎么落到目标）都是纯值进、结论出：临时目录里
@@ -47,8 +45,8 @@ enum class Check {
  * @return 在里面就返回相对路径；不在、或者相对路径里有 `.` / `..` 段时返回空串。
  *
  * NOTE: 只做字面比较（`QDir::cleanPath` + 不区分大小写的前缀），**不**解 junction /
- *       符号链接。目标路径全是 `AppPaths` 拼出来的，字面比较就是它们的真实关系；每一条
- *       下载都去 `canonicalFilePath()` 一次，几千个资源对象会把主线程拖住。
+ * 符号链接。目标路径全是 `AppPaths` 拼出来的，字面比较就是它们的真实关系；每一条
+ * 下载都去 `canonicalFilePath()` 一次，几千个资源对象会把主线程拖住。
  */
 QString relativePathWithin(const QString &path, const QString &root);
 
@@ -81,7 +79,7 @@ bool sourceMatches(const QString &path, const QString &expectedSha1, qint64 expe
  * @param verifyWhileCopying 复制时要不要核 SHA-1（`Check::SizeAndSha1` 那一档为真）。
  * @param cancel 取消标志（批次取消 / 程序退出），复制循环每个块看一次。
  * @param allowHardLink false = 跳过硬链接、直接复制。**只给验证工程用**：同一个临时目录
- *        永远在同一卷上，要覆盖"跨卷"那条分支只能让它认这个开关。
+ * 永远在同一卷上，要覆盖"跨卷"那条分支只能让它认这个开关。
  * @param errorOut 失败原因（可以传空）。
  * @return 怎么落成的；`None` = 没做成，调用方按"没复用"处理。
  *

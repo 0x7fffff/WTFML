@@ -1,9 +1,7 @@
 /**
  * @file InstanceSettingsController.hpp
  * @brief 「实例设置」那一页**写侧**的那一套：改名那条路（`rename()`）、以及改一格就落一格
- *        （`apply()`）。
- * @author 0x7fffff
- * @date 2026-10-15
+ * （`apply()`）。
  *
  * 【为什么要有一个自己的 controller】
  *
@@ -16,28 +14,28 @@
  *
  * 【边界（谁在这一层里，谁不在）】
  *
- *   · 在：改名的**五道闸**（正在跑的不许改 / 正在体检的不许改 / 正被别的作业占着不许改 /
- *     名字合不合法 / 数据层改不动）、改完之后**谁跟着走**（`LauncherSettings` 记的"上次启动的那一个"、分组
- *     归属键的老键新键、实例树、下拉框）、以及"哪一半成了、哪一半没成"这套分账。
- *   · 在：改一格就落一格那一整套 —— 先补稳定 id（没有它这次覆盖就"跟着目录名走"）、再把
- *     归属键搬过去、然后把 `Edit` 那一份拼成要写进 meta 的字段（**"跟随全局"要删键、
- *     空串要删键**这套约定在这儿的落点）、图标那几个字节、写下去、以及"要不要重扫树"那个
- *     判据（比的是写之前和写之后盘上那个值，**不是**"这次碰没碰图标那一格"）、最后是
- *     分组/置顶那三条规则。
- *   · 在：**身份键**那一条规矩（有稳定 id 用 id、没有退回目录名）—— `instanceKeyFor()`
- *     是全仓唯一出处，主窗口那个同名成员只是转发（两处各写一遍的话，读侧按目录名、写侧
- *     按 id，归属会在存下去的那一刻就对不上，而且不报任何东西）。
- *   · 不在：**文案**。「正在运行，先关掉游戏再改名」这句话是主窗口按 `Notice::Kind` 挑的
- *     （见下），这一层只说"哪一档、是谁、数据层给的原因是什么"。
- *   · 不在：把新名字填进标题、把下拉框选中它、重扫实例树、以及 `setInstanceHomeGroup` /
- *     `pinInstance` / `unpinInstance` 这三个入口 —— 那些是主窗口的活，走 `Host` 里那几个
- *     回调（那三个入口各自还会发 `groupsChanged`、写失败还会弹一句，都在那边）。
- *   · 不在：**问用户**。"叫什么名字"是对话框/输入框那边问的（`renameRequested()`），
- *     走到这里时用户已经答过了；这一层一步都不问，所以验证工程能直接驱动它。
- *   · 不在：**那个对话框类型**（`ui/InstanceSettingsDialog`）。主窗口读一份 `Edit` 出来再
- *     交进来 —— 这一层认的是"这些值"，不是"哪一格长什么样"。所以 `apply()` 是能被验证
- *     工程直接驱动的（`applyInstanceSettings()` 收的是对话框引用，驱动不了 —— 见
- *     `tests/main.cpp` 里那条注记）。
+ * · 在：改名的**五道闸**（正在跑的不许改 / 正在体检的不许改 / 正被别的作业占着不许改 /
+ * 名字合不合法 / 数据层改不动）、改完之后**谁跟着走**（`LauncherSettings` 记的"上次启动的那一个"、分组
+ * 归属键的老键新键、实例树、下拉框）、以及"哪一半成了、哪一半没成"这套分账。
+ * · 在：改一格就落一格那一整套 —— 先补稳定 id（没有它这次覆盖就"跟着目录名走"）、再把
+ * 归属键搬过去、然后把 `Edit` 那一份拼成要写进 meta 的字段（**"跟随全局"要删键、
+ * 空串要删键**这套约定在这儿的落点）、图标那几个字节、写下去、以及"要不要重扫树"那个
+ * 判据（比的是写之前和写之后盘上那个值，**不是**"这次碰没碰图标那一格"）、最后是
+ * 分组/置顶那三条规则。
+ * · 在：**身份键**那一条规矩（有稳定 id 用 id、没有退回目录名）—— `instanceKeyFor()`
+ * 是全仓唯一出处，主窗口那个同名成员只是转发（两处各写一遍的话，读侧按目录名、写侧
+ * 按 id，归属会在存下去的那一刻就对不上，而且不报任何东西）。
+ * · 不在：**文案**。「正在运行，先关掉游戏再改名」这句话是主窗口按 `Notice::Kind` 挑的
+ * （见下），这一层只说"哪一档、是谁、数据层给的原因是什么"。
+ * · 不在：把新名字填进标题、把下拉框选中它、重扫实例树、以及 `setInstanceHomeGroup` /
+ * `pinInstance` / `unpinInstance` 这三个入口 —— 那些是主窗口的活，走 `Host` 里那几个
+ * 回调（那三个入口各自还会发 `groupsChanged`、写失败还会弹一句，都在那边）。
+ * · 不在：**问用户**。"叫什么名字"是对话框/输入框那边问的（`renameRequested()`），
+ * 走到这里时用户已经答过了；这一层一步都不问，所以验证工程能直接驱动它。
+ * · 不在：**那个对话框类型**（`ui/InstanceSettingsDialog`）。主窗口读一份 `Edit` 出来再
+ * 交进来 —— 这一层认的是"这些值"，不是"哪一格长什么样"。所以 `apply()` 是能被验证
+ * 工程直接驱动的（`applyInstanceSettings()` 收的是对话框引用，驱动不了 —— 见
+ * `tests/main.cpp` 里那条注记）。
  */
 
 #pragma once
@@ -105,9 +103,9 @@ public:
      * 对话框上的一格，但"那一格摆着的是什么"和"该不该写、写成什么"是两件事 —— 后者在这一层。
      *
      * NOTE: `java` / `window` 里"有没有值"这一位**就是**界面上「跟随全局 / 自定义」的状态
-     *       （见 `JavaSettingsOverride` 文件头）。所以"跟随全局的要**删键**"这条规矩在这一层
-     *       才写得出来：`javaOverrideMetaFields()` / `gameWindowOverrideToJson()` 收的就是
-     *       这两份带 optional 的值，`Null` = 删键。
+     * （见 `JavaSettingsOverride` 文件头）。所以"跟随全局的要**删键**"这条规矩在这一层
+     * 才写得出来：`javaOverrideMetaFields()` / `gameWindowOverrideToJson()` 收的就是
+     * 这两份带 optional 的值，`Null` = 删键。
      */
     struct Edit {
         /// Java 那五项（空 optional = 跟随全局 ⇒ 删键）。
@@ -134,8 +132,8 @@ public:
         QString chosenGroupId;
         /// **打开对话框那一刻**它的老家在哪一组（判"老家被用户改过没有"用）。
         ///
-        /// ★ 这一格必须由主窗口填：算它要问"按版本分类该归哪一组"（`homeGroupIdOf()`），
-        ///   那一位住在主窗口那边（它是显示层那一套：树上那一行画在哪个组里用的也是它）。
+        /// 这一格必须由主窗口填：算它要问"按版本分类该归哪一组"（`homeGroupIdOf()`），
+        /// 那一位住在主窗口那边（它是显示层那一套：树上那一行画在哪个组里用的也是它）。
         QString homeGroupAtOpen;
     };
 
@@ -173,7 +171,7 @@ public:
 
     /**
      * @param versions 元数据那一层（`renameInstance()` 真干活的地方）。
-     * @param groups   分组归属（改名/换 id 之后键要跟着挪）。
+     * @param groups 分组归属（改名/换 id 之后键要跟着挪）。
      * @param settings 启动器设置（里面记着"上次启动的那一个"是哪个 id）。
      */
     InstanceSettingsController(VersionManager *versions, InstanceGroupStore *groups,
@@ -183,7 +181,7 @@ public:
     /**
      * @brief 这个实例的**身份键**：有稳定 id 用它，没有就退回目录名。
      *
-     * ★ **唯一出处**。主窗口那个同名成员转发到这里；`InstanceGroupStore` 文件头那段解释了
+     * **唯一出处**。主窗口那个同名成员转发到这里；`InstanceGroupStore` 文件头那段解释了
      * 为什么"有 id 用 id"（目录名会被改，改名之后按目录名记的东西全丢）。
      */
     static QString instanceKeyFor(const VersionManager *versions, const QString &versionId);
@@ -212,8 +210,8 @@ public:
      * 是替用户做主）。
      *
      * @param pickedIconStoredOut 非空时写入"用户刚挑的那张图**真的落进实例目录了**没有"
-     *        （没挑 = false；挑了指到一半失败也没成）。调用方靠这一位决定要不要让对话框
-     *        **忘掉那个源路径** —— 详见 `InstanceSettingsDialog::markPickedIconSaved()` 那段。
+     * （没挑 = false；挑了指到一半失败也没成）。调用方靠这一位决定要不要让对话框
+     * **忘掉那个源路径** —— 详见 `InstanceSettingsDialog::markPickedIconSaved()` 那段。
      *
      * @return 那份 meta 真的写下去了没有。
      */

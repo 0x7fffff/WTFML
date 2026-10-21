@@ -1,8 +1,7 @@
 /**
  * @file ResourceDetailPage.cpp
- * @brief Implements the resource detail page (see ResourceDetailPage.hpp for the whole picture).
- * @author 0x7fffff
- * @date 2026-09-26
+ * @brief 实现资源详情页。
+ * @note 页面结构与信号约定见 ResourceDetailPage.hpp。
  */
 
 #include "ResourceDetailPage.hpp"
@@ -48,19 +47,19 @@ constexpr int kChipRowHeight = 40;
 /// 都走这一份 —— 两处各算一遍的话，"量到的那串"和"屏幕上的那串"迟早不是一回事。
 ///
 /// NOTE: 它得摆在 ElidedLabel **前面**：成员函数的函数体是按"类定义之后"那一处编译的，
-///       但名字查找只认**写在类前面**的那些声明。
+/// 但名字查找只认**写在类前面**的那些声明。
 QString elidedFor(const QLabel *label);
 
 /// 放不下时把尾巴截成省略号的 QLabel。
 ///
 /// **为什么非它不可**：资源名和简介都能长过这一格（CurseForge 上的简介常常是整段话），
 /// 而 QLabel 在控件比文字窄的时候是**硬裁**的 —— 最后一个字被切掉半个、右边什么都没有，
-/// 看着像画坏了（`VersionTreeDelegate::paint()` 里那条 2026-09-26 的注释讲的是同一件事）。
+/// 看着像画坏了（`VersionTreeDelegate::paint()` 里那条 的注释讲的是同一件事）。
 /// QLabel 自己没有 elide 相关的 API（翻遍 qlabel.h 都没有），所以只能自己接 paintEvent。
 ///
 /// NOTE: 和 `MainWindowUI.cpp` 里底栏用的那一个**是同一种东西、不是同一份代码**（那个在
-///       它的匿名命名空间里，这一层看不见）。这边只留了这两行字需要的那两档：字号与字重
-///       由外面设，截哪一头固定是尾巴。
+/// 它的匿名命名空间里，这一层看不见）。这边只留了这两行字需要的那两档：字号与字重
+/// 由外面设，截哪一头固定是尾巴。
 class ElidedLabel : public QLabel {
 public:
     explicit ElidedLabel(QWidget *parent = nullptr) : QLabel(parent) {}
@@ -68,9 +67,9 @@ public:
     /// 宽度报 **0**：这一格**可以被压窄**，压窄之后字被截成省略号（见 paintEvent）。
     ///
     /// NOTE: 不覆写的话 QLabel 报的是**整句话的宽度**（单行标签的 minimumSizeHint 就是它），
-    ///       而"最小宽度"是布局里唯一一个能把父窗口顶开的量：症状是这一页的最小宽度等于
-    ///       最长那句简介的宽度，窄窗口下页面底下多出一根横向滚动条，怎么拖窗口都消不掉
-    ///       （`OverlayHost` 那个整页滚动区的 widgetResizable 认的正是这个量）。
+    /// 而"最小宽度"是布局里唯一一个能把父窗口顶开的量：症状是这一页的最小宽度等于
+    /// 最长那句简介的宽度，窄窗口下页面底下多出一根横向滚动条，怎么拖窗口都消不掉
+    /// （`OverlayHost` 那个整页滚动区的 widgetResizable 认的正是这个量）。
     QSize minimumSizeHint() const override {
         return QSize(0, QLabel::minimumSizeHint().height());
     }
@@ -89,7 +88,7 @@ QString elidedFor(const QLabel *label) {
                                           qMax(0, label->contentsRect().width()));
 }
 
-/// 一处卡的调色板：底出厂是 `Base`，2026-09-28 起归 `Theme::Part::Card` 管。
+/// 一处卡的调色板：底出厂是 `Base`， 起归 `Theme::Part::Card` 管。
 /// NOTE: 基色取**应用调色板**，不能取卡自己的（它身上已经写着算好的那一份）。
 QPalette cardChromePalette() {
     QPalette palette = QApplication::palette();
@@ -98,7 +97,6 @@ QPalette cardChromePalette() {
 }
 
 /// 底色是 Base 的卡（头卡用它）。层级靠底色和留白，不画额外框线。
-///
 QFrame *makeCard(QWidget *parent) {
     auto *card = new QFrame(parent);
     card->setFrameShape(QFrame::NoFrame);
@@ -109,7 +107,7 @@ QFrame *makeCard(QWidget *parent) {
     return card;
 }
 
-/// chip 那一排的形状与颜色**从 2026-10-13 起是 `Theme::markChipButton()` 一处说了算**
+/// chip 那一排的形状与颜色**从 起是 `Theme::markChipButton()` 一处说了算**
 /// （实例页那排搜索筛子是第二个读者）：原来这一页自己那份 QSS 搬去了 `ui/Theme.cpp`
 /// （`chipStyleSheet()`），一个字节都没改。这一页唯一那句话照旧：chip 的外观不走 QSS 之外
 /// 的东西（其余外观都交给 Fusion + 代理，见用户定的 UI 样式基线）。
@@ -196,11 +194,11 @@ using ResourceDetail::Row;
 
 ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     setWindowTitle(tr("资源详情"));
-    // ★ 这一页自己要收键盘：那颗「显示快照版」还配着一个裸 Alt（见 keyPressEvent），
-    //   而**嵌进覆盖层的时候焦点不在这一页身上** —— `openPage()` 把焦点给了页眉那颗返回
-    //   箭头（覆盖层那一层的控件），键事件只沿着"父控件链"往上传，返回箭头和这一页是
-    //   兄弟，它在的那条链上根本没有这一页。所以：允许拿焦点（下面那一行）+ 开页时把焦点
-    //   摆回来（showEvent 里那段）。
+    // 这一页自己要收键盘：那颗「显示快照版」还配着一个裸 Alt（见 keyPressEvent），
+    // 而**嵌进覆盖层的时候焦点不在这一页身上** —— `openPage()` 把焦点给了页眉那颗返回
+    // 箭头（覆盖层那一层的控件），键事件只沿着"父控件链"往上传，返回箭头和这一页是
+    // 兄弟，它在的那条链上根本没有这一页。所以：允许拿焦点（下面那一行）+ 开页时把焦点
+    // 摆回来（showEvent 里那段）。
     setFocusPolicy(Qt::StrongFocus);
     // 只影响"单独拿出来用"（验证工程那几处）：嵌进覆盖层的时候，这一页拿到的是内容区的
     // 整幅宽（见 OverlayHost::execEmbedded 里那句 area->layout()->addWidget(dialog)）。
@@ -350,9 +348,9 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     chipLine->addWidget(m_modSettings, 0, Qt::AlignVCenter);
     outer->addLayout(chipLine);
 
-    // ---------- chip 那一排与版本列表中间那一行（2026-09-28）----------
+    // ---------- chip 那一排与版本列表中间那一行----------
     //
-    // 用户原话：「如果有前置模组，在下载页的游戏版本选择和模组版本选择中间加一条写明」。
+    // 要求：「如果有前置模组，在下载页的游戏版本选择和模组版本选择中间加一条写明」。
     // "游戏版本选择"就是上面那一排 chip、"模组版本选择"就是下面那棵树 —— 于是这一行夹在
     // 它俩中间（chipLine 的 addLayout 之后、m_list 的 addWidget 之前）。
     //
@@ -369,8 +367,8 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     //
     // 三层设置和下载页那四张表**逐项相同**（表头藏起来、行高常数、根上那个小三角不画、
     // 同一个字号偏移、同一个代理），只有两处不一样：
-    //   ① 图标换成那一枚字母方块（代理见到条目给了 DecorationRole 就画它）；
-    //   ② 叶子那一层**不画**右边的 `>`（点是"下它"这个动作，不是"还有下一页"）。
+    // ① 图标换成那一枚字母方块（代理见到条目给了 DecorationRole 就画它）；
+    // ② 叶子那一层**不画**右边的 `>`（点是"下它"这个动作，不是"还有下一页"）。
     m_list = new QTreeWidget(this);
     m_list->setObjectName(versionListName());
     m_list->setHeaderHidden(true);
@@ -380,7 +378,7 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     m_list->setItemDelegate(new VersionTreeDelegate(m_list, /*leafArrow=*/false,
                                                     ResourceDetailMarks::badgeSize()));
     // 悬停底色由代理画（`Theme::rowHoverFill()`），但那一位 `State_MouseOver` 是**视图**填的。
-    // ★ 少了这一句，代理里那段一个字都不会生效 —— 不报错、断言也不一定先红，屏幕上就是"悬停没反应"。
+    // 少了这一句，代理里那段一个字都不会生效 —— 不报错、断言也不一定先红，屏幕上就是"悬停没反应"。
     m_list->setMouseTracking(true);
     m_list->setExpandsOnDoubleClick(false);
     QFont listFont = m_list->font();
@@ -389,7 +387,7 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     m_list->setIconSize(QSize(ResourceDetailMarks::badgeSize(),
                               ResourceDetailMarks::badgeSize()));
     outer->addWidget(m_list, 1);
-    // 展开/折叠动画（2026-09-29，规则见 ui/Animations.hpp）。
+    // 展开/折叠动画（，规则见 ui/Animations.hpp）。
     Anim::animateExpansion(m_list);
 
     // 组头那一行是**开关**（点一下展开、再点一下收起），版本那一行是**动作**（下它）——
@@ -451,13 +449,13 @@ void ResourceDetailPage::setHeader(const Header &header) {
         m_open->setVisible(true);
     } else {
         m_open->setVisible(false);
-        // ★ 2026-09-27：**文字也要清掉**，不能光藏。这一颗的文字是 openButtonText() 的唯一
-        //   出处，而那个访问器的约定是"没摆 = 空串"（见 .hpp）—— 光藏不清的话，先看过一个
-        //   有来源页的资源、再翻到一个没有的（CurseForge 那一类），那一格**看不见**但
-        //   openButtonText() 照旧答「转到 Modrinth」：界面和读它的人各说各的，
-        //   而验证工程正是照着那句话断言"这一页有没有可跳转的来源"。
-        //   NOTE: 判"摆没摆"**不能**改成去看 isVisible() —— 这一页自己收起来的时候，
-        //         子控件跟着一起 isVisible()=false，那样答出来的空串是假的。
+        // **文字也要清掉**，不能光藏。这一颗的文字是 openButtonText() 的唯一
+        // 出处，而那个访问器的约定是"没摆 = 空串"（见 .hpp）—— 光藏不清的话，先看过一个
+        // 有来源页的资源、再翻到一个没有的（CurseForge 那一类），那一格**看不见**但
+        // openButtonText() 照旧答「转到 Modrinth」：界面和读它的人各说各的，
+        // 而验证工程正是照着那句话断言"这一页有没有可跳转的来源"。
+        // NOTE: 判"摆没摆"**不能**改成去看 isVisible() —— 这一页自己收起来的时候，
+        // 子控件跟着一起 isVisible()=false，那样答出来的空串是假的。
         m_open->setText(QString());
     }
     m_mcmod->setVisible(!header.mcmodUrl.isEmpty());
@@ -558,9 +556,9 @@ void ResourceDetailPage::applyChipChecked(const QString &key) {
         // 说的是另一颗）。
         //
         // NOTE: 判据得比**挑中的那一颗**，不能比 `key != m_currentChip` —— 那两个入参
-        //       在三个调用点上都已经被调成相等了（setChips 先赋再调、onChipClicked 那两处
-        //       也一样），拿它当判据等于这一句永远不执行，而它要修的正是"调用方给了一个
-        //       表里没有的 key"那一档（界面上按着「全部」、currentChip() 却回那个空 key）。
+        // 在三个调用点上都已经被调成相等了（setChips 先赋再调、onChipClicked 那两处
+        // 也一样），拿它当判据等于这一句永远不执行，而它要修的正是"调用方给了一个
+        // 表里没有的 key"那一档（界面上按着「全部」、currentChip() 却回那个空 key）。
         const QString picked = target->property("chipKey").toString();
         if (picked != m_currentChip) {
             m_currentChip = picked;
@@ -591,7 +589,7 @@ void ResourceDetailPage::setModSettingsSlot(bool show) {
     if (m_modSettings == nullptr || m_showSnapshots == nullptr) {
         return;
     }
-    // 同一格只露一个 —— 摆谁就把另一个**整个收起来**（用户原话「右上角显示快照版那里替换为
+    // 同一格只露一个 —— 摆谁就把另一个**整个收起来**（要求「右上角显示快照版那里替换为
     // 模组设置」："替换"就是这个意思，不是两颗并排）。
     m_modSettings->setVisible(show);
     m_modSettings->setEnabled(show);
@@ -641,7 +639,7 @@ void ResourceDetailPage::fillGroups(const QList<Group> &groups) {
         }
         // 组头一律**展开**：用户点进这一页就是想看版本，先收着等于让他再点十几下。
         // NOTE: 换一颗 chip 会把整份列表重建（分组的算法在业务层），展开状态也就跟着复位 ——
-        //       这是这一版有意接受的（要留住它得按组名记一份，而组名会随 chip 改）。
+        // 这是这一版有意接受的（要留住它得按组名记一份，而组名会随 chip 改）。
         groupItem->setExpanded(true);
     }
 }
@@ -651,7 +649,7 @@ void ResourceDetailPage::setDependencies(const QString &text) {
         return;
     }
     // 空串 = **整个收起来**（不是摆一条空的）：这一行的存在本身就是一条信息
-    //（"这一版有前置"），而一条空白会把上面那排 chip 和下面那棵树推开一格。
+    // （"这一版有前置"），而一条空白会把上面那排 chip 和下面那棵树推开一格。
     m_dependencies->setText(text);
     m_dependencies->setToolTip(text);
     m_dependencies->setVisible(!text.isEmpty());
@@ -732,9 +730,9 @@ void ResourceDetailPage::showEvent(QShowEvent *event) {
     m_title->update();
     m_description->update();
     m_meta->update();
-    // ★ 焦点摆回这一页自己身上（理由见构造函数里那段 + keyPressEvent）。**只在焦点不在这一页
-    //   里面的时候拿** —— 焦点已经在本页某个控件上（用户点了某颗 chip、或者上面那条提示关掉
-    //   之后这一页又露出来）时不该把它抢走。
+    // 焦点摆回这一页自己身上（理由见构造函数里那段 + keyPressEvent）。**只在焦点不在这一页
+    // 里面的时候拿** —— 焦点已经在本页某个控件上（用户点了某颗 chip、或者上面那条提示关掉
+    // 之后这一页又露出来）时不该把它抢走。
     QWidget *focus = QApplication::focusWidget();
     if (focus == nullptr || !isAncestorOf(focus)) {
         setFocus(Qt::OtherFocusReason);
@@ -746,10 +744,9 @@ void ResourceDetailPage::keyPressEvent(QKeyEvent *event) {
     // 的那几发**不算** —— 那是别的快捷键，放给下面那一层。
     const Qt::KeyboardModifiers others =
         event->modifiers() & ~(Qt::AltModifier | Qt::KeypadModifier);
-    //
-    // ★ 摆着「模组设置」的时候**这一发不吃**（2026-09-27）：那一格上压根没有「显示快照版」，
-    //   拨了也是拨一个**看不见**的勾 —— 屏幕上什么都不动，用户按一下 Alt 只能得出"这软件
-    //   没反应"的结论。放给基类，让它该干嘛干嘛。
+    // 摆着「模组设置」的时候**这一发不吃**：那一格上压根没有「显示快照版」，
+    // 拨了也是拨一个**看不见**的勾 —— 屏幕上什么都不动，用户按一下 Alt 只能得出"这软件
+    // 没反应"的结论。放给基类，让它该干嘛干嘛。
     if (event->key() == Qt::Key_Alt && others == Qt::NoModifier) {
         if (!m_modSettingsShown && m_showSnapshots != nullptr) {
             // 走 setChecked：`toggled` 那一发会照常发出去（这一下就是"用户拨了"）。

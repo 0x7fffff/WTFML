@@ -1,10 +1,8 @@
 /**
  * @file NbtUtil.cpp
  * @brief NbtUtil 的实现：一个只读到够用的最小 NBT 读取器，外加 gzip 那一档的接线。
- * @author 0x7fffff
- * @date 2026-09-26
  * @note 判据与三种结果的分别写在 .hpp 的块注释里；这里只有实现，几处 NOTE 说的是
- *       「为什么不能照直觉改」。
+ * 「为什么不能照直觉改」。
  */
 #include "NbtUtil.hpp"
 
@@ -26,8 +24,8 @@ namespace {
 /// 一份 .dat 最多按几 MB 算。
 ///
 /// NOTE: 真机上 servers.dat 是**几百字节**（几十条服务器也就几 KB），16 MB 是给
-///       「用户自己塞进来的怪文件」留的余量。这道闸在**读进来之前**就得落下：
-///       NBT 里每一个长度都是 int32，先按 2 GB 分配再喊「读不动」是来不及的。
+/// 「用户自己塞进来的怪文件」留的余量。这道闸在**读进来之前**就得落下：
+/// NBT 里每一个长度都是 int32，先按 2 GB 分配再喊「读不动」是来不及的。
 constexpr qint64 kMaxFileSize = 16LL * 1024 * 1024;
 
 /// 复合/列表的嵌套深度上限。真实 NBT 深不过十几层；这一条挡的是**构造出来的
@@ -227,9 +225,9 @@ bool skipPayload(Cursor &cursor, quint8 type, int depth);
  * @brief 跳过一个 TAG_List 的元素区（类型与个数已经读掉了）。
  *
  * NOTE: 这里那道 `count > remaining()` 是**必须的**：元素至少占 1 个字节，所以
- *       count 大于剩余字节数时这份文件必然是坏的；不先卡这一下，一份写着
- *       `count = 0x7FFFFFFF` 的文件会被老老实实循环二十多亿次（每次都在同一个
- *       位置失败，但它就是不停），用户看到的是启动器卡住而不是一句报错。
+ * count 大于剩余字节数时这份文件必然是坏的；不先卡这一下，一份写着
+ * `count = 0x7FFFFFFF` 的文件会被老老实实循环二十多亿次（每次都在同一个
+ * 位置失败，但它就是不停），用户看到的是启动器卡住而不是一句报错。
  */
 bool skipListElements(Cursor &cursor, quint8 elementType, qint32 count, int depth) {
     if (depth >= kMaxDepth) {
@@ -326,7 +324,7 @@ bool skipPayload(Cursor &cursor, quint8 type, int depth) {
 /// 读一条服务器（一个 TAG_Compound）里的 `name` / `ip`。
 ///
 /// NOTE: 只认 TAG_String 的那两格。同名但类型不对的（有人把 name 写成 TAG_Int）
-///       当**没有这一格**处理：值取不出来，跟着类型硬解只会得到一条乱码地址。
+/// 当**没有这一格**处理：值取不出来，跟着类型硬解只会得到一条乱码地址。
 bool readServerEntry(Cursor &cursor, ServerEntry *entry, QString *problem) {
     for (;;) {
         const quint8 type = cursor.readU8();
@@ -542,9 +540,9 @@ Status readServerList(const QString &datPath, QList<ServerEntry> *out, QString *
             return Status::Unreadable;
         }
         // NOTE: 上面那道 16 MB 的门量的是**压缩后**的尺寸，一份解出来几 GB 的压缩
-        //       炸弹照样过得来 —— 所以解完按同一根尺子再量一次。这一道自己量、自己
-        //       说话：readWholeFile 那句里会带出临时文件的路径，而那个路径对用户
-        //       没有任何意义（他递进来的是 servers.dat）。
+        // 炸弹照样过得来 —— 所以解完按同一根尺子再量一次。这一道自己量、自己
+        // 说话：readWholeFile 那句里会带出临时文件的路径，而那个路径对用户
+        // 没有任何意义（他递进来的是 servers.dat）。
         const QFileInfo decompressed(target);
         if (decompressed.size() > kMaxFileSize) {
             if (problemOut != nullptr) {
@@ -561,11 +559,6 @@ Status readServerList(const QString &datPath, QList<ServerEntry> *out, QString *
             }
             return Status::Unreadable;
         }
-        // NOTE: 截断的 gzip **不一定报错**。实测把一份 127 字节的 gz 切掉尾巴 20 字节，
-        //       .NET 的 GZipStream.CopyTo 会**静静地**收场（PowerShell 退出码 0，目标文件
-        //       0 字节）—— 于是 gunzipTo 返回 true，一路走到 NBT 解析那儿才说「文件是空的」，
-        //       而那句话说的是**解压后**那份，用户根本看不出是谁的问题（真机上这个形状 =
-        //       没下完的一份 servers.dat）。所以「解出来一个字节都没有」要在这儿认出来。
         if (bytes.isEmpty()) {
             if (problemOut != nullptr) {
                 *problemOut = QStringLiteral("servers.dat 解压出来是空的（这份 gzip 多半是坏的或者没下完）");

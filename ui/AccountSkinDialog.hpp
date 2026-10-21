@@ -1,12 +1,10 @@
 /**
  * @file AccountSkinDialog.hpp
  * @brief 「账号与外观」对话框：左边管多个正版账号（登录/切换/删除），右边管外观
- *        （换皮肤、换披风、不显示披风）。
- * @author 0x7fffff
- * @date 2026-09-22
+ * （换皮肤、换披风、不显示披风）。
  * @note 和 GroupDialog / InstanceSettingsDialog 同一条约定：**ui/ 不依赖业务层**，本文件
- *       不 include 任何 src/ 下的头；进参出参都是值，对话框只发"用户想做什么"的信号，
- *       真正的干活（登录、拉列表、上传）全在 MainWindow 里。
+ * 不 include 任何 src/ 下的头；进参出参都是值，对话框只发"用户想做什么"的信号，
+ * 真正的干活（登录、拉列表、上传）全在 MainWindow 里。
  *
  * 【为什么这个模块单独开一个对话框，而不是塞进设置页】
  *
@@ -69,7 +67,7 @@ public:
 
     /// 重建账号列表。当前账号那一条会被选中（列表空/没当前账号时选中第一条）。
     /// NOTE: 选中项**故意不跨调用保留**：这一列会被刷新好几遍（登录成功、切换、删除），
-    ///       保留一个 uuid 就得处理"它已经不在列表里了"，而用户看的是"当前账号是哪一条"。
+    /// 保留一个 uuid 就得处理"它已经不在列表里了"，而用户看的是"当前账号是哪一条"。
     void setAccounts(const QList<AccountRow> &rows);
 
     /// 当前身份那一句（"已登录为「X」（正版登录）" / "已登录为「X」（离线登录）" /
@@ -97,9 +95,9 @@ public:
      * 两档互斥，不是两个都能点。
      *
      * @param offline 当前账号本身是不是离线账号（判据由调用方给，见
-     *        `PlayerSkinController::offlineIdentity()` —— 全仓唯一出处）。
+     * `PlayerSkinController::offlineIdentity()` —— 全仓唯一出处）。
      * @param hasCustomSkin 这个离线账号现在是不是已经有一张自己挑的了 ——
-     *        「恢复默认外观」只在有东西可恢复时可用（没有就灰着，点了没反应比灰着更难懂）。
+     * 「恢复默认外观」只在有东西可恢复时可用（没有就灰着，点了没反应比灰着更难懂）。
      */
     void setOfflineSkinState(bool offline, bool hasCustomSkin);
 
@@ -114,7 +112,7 @@ public:
 
     /// 把离线名字那个输入框清空。
     /// NOTE: **只能由调用方在添加成功之后调**，别塞进 setAccounts() —— 那个函数是"刷新
-    ///       列表"的意思，用户正打字时来一次刷新就把没提交的名字擦掉了。
+    /// 列表"的意思，用户正打字时来一次刷新就把没提交的名字擦掉了。
     void clearOfflineNameDraft();
 
     // ---------- 控件的 objectName ----------
@@ -201,10 +199,10 @@ public:
     /// 另外两种（当前是离线账号 / 没登录）各自有专门那句，见 offlineIdentityText() /
     /// notLoggedInNote()。
     ///
-    /// NOTE: 2026-09-24 之前这里还有第三档 —— 「勾着「离线模式」但账号是正版的」，
-    ///       对应的是主页那个勾选框。那个勾选框去掉了（用户原话：「现在不要启动界面那个
-    ///       离线登录勾选框了，在添加账户那里选择添加离线账号」），于是"离线"只剩一种
-    ///       意思：**当前账号本身是离线账号**。那一档连同 offlineModeNote() 一起作废。
+    /// NOTE: 之前这里还有第三档 —— 「勾着「离线模式」但账号是正版的」，
+    /// 对应的是主页那个勾选框。那个勾选框去掉了（要求：「现在不要启动界面那个
+    /// 离线登录勾选框了，在添加账户那里选择添加离线账号」），于是"离线"只剩一种
+    /// 意思：**当前账号本身是离线账号**。那一档连同 offlineModeNote() 一起作废。
     /// @param name 账号名。
     static QString identityText(const QString &name) {
         return QStringLiteral("已登录为「%1」（正版登录）").arg(name);
@@ -229,8 +227,8 @@ signals:
     /// @param path 本地图片路径。@param variant 模型（classic / slim）。
     ///
     /// NOTE: 和 `skinUploadRequested()` **分开**：那个是传给 Mojang（要令牌、改的是
-    ///       官方档案），这个是只存在本机（不需要令牌、改的是启动器里的预览）。一个信号
-    ///       两件事的话，接收方就得按"当前是不是离线"再分一次 —— 那一分迟早分错。
+    /// 官方档案），这个是只存在本机（不需要令牌、改的是启动器里的预览）。一个信号
+    /// 两件事的话，接收方就得按"当前是不是离线"再分一次 —— 那一分迟早分错。
     void offlineSkinPickRequested(const QString &path, const QString &variant);
     /// 离线账号：撤掉自己挑的那张。
     void offlineSkinResetRequested();

@@ -1,8 +1,6 @@
 /**
  * @file TaskCenterPanel.cpp
  * @brief 任务中心那块面板的实现（形状与取舍见头文件）。
- * @author 0x7fffff
- * @date 2026-10-12
  */
 
 #include "TaskCenterPanel.hpp"
@@ -74,9 +72,9 @@ bool isActive(TaskCenter::State state) {
 // ---------- 这一块面板自己的几个尺寸 ----------
 //
 // NOTE: 这里的留白**另起一套**（不复用 `MainWindowUI.cpp` 里 `BottomBarPanel` 那几个
-//       `kPanelPadding` / `kPanelRowSpacing`）：那一套是给"一行一个实例"的短行调的
-//       （行高矮、行挨得近），这一块里是标题 + 小字 + 进度条 + 步骤，行高一档。两个面板
-//       长得很不一样，共用一个数只会两边都不合适。
+// `kPanelPadding` / `kPanelRowSpacing`）：那一套是给"一行一个实例"的短行调的
+// （行高矮、行挨得近），这一块里是标题 + 小字 + 进度条 + 步骤，行高一档。两个面板
+// 长得很不一样，共用一个数只会两边都不合适。
 constexpr int kPanelPadding = 14;
 /// 两行之间（同一个按钮那一栏里）。
 constexpr int kRowSpacing = 9;
@@ -90,7 +88,7 @@ constexpr int kWorkspaceMinWidth = 820;
 constexpr int kWorkspaceMaxWidth = 1120;
 constexpr int kRunningWidth = 220;
 /// 右栏宽度的**下限 / 上限**。真正用多少按工作区宽度算（见 `kDetailWidthPercent`）：
-/// 用户 2026-10-17 原话「右侧栏宽度定死了，要不让其能够随窗口大小变化」—— 从前这里是
+/// 要求「右侧栏宽度定死了，要不让其能够随窗口大小变化」—— 从前这里是
 /// 一个定死的 260，窗口再宽它也还是 260。
 constexpr int kDetailWidth = 260;
 constexpr int kDetailWidthPercent = 27;
@@ -104,10 +102,10 @@ constexpr int kTextMaxWidth = kCompactWidth - 2 * kPanelPadding - 56;
 
 /// 小一号、灰一点的字（"正在下载资源对象"、"19:42"、栏名都用它）。
 ///
-/// ★ 参数是 `QWidget *` 而不是 `QLabel *`：面板底下那颗「清除已完成」是 `QPushButton`，
-///   它也要这一身灰字。**两个色角色都要摆** —— QLabel 的字取 `WindowText`，QPushButton
-///   的字取的是 `ButtonText`；只摆前者的话按钮上那四个字会一点没变（不报错、不崩，
-///   看着就是"这句 setPalette 没生效"）。
+/// 参数是 `QWidget *` 而不是 `QLabel *`：面板底下那颗「清除已完成」是 `QPushButton`，
+/// 它也要这一身灰字。**两个色角色都要摆** —— QLabel 的字取 `WindowText`，QPushButton
+/// 的字取的是 `ButtonText`；只摆前者的话按钮上那四个字会一点没变（不报错、不崩，
+/// 看着就是"这句 setPalette 没生效"）。
 void applyMutedFont(QWidget *widget, int pointDelta) {
     QFont font = widget->font();
     font.setPointSize(qMax(1, font.pointSize() + pointDelta));
@@ -121,11 +119,11 @@ void applyMutedFont(QWidget *widget, int pointDelta) {
 
 /// 一行的宽度上限：面板最宽那一档减掉左右边距、再给右边那个百分比/时间留一段。
 ///
-/// ★★ 2026-10-17：**水平方向必须是 `Ignored`**。QLabel 的 `minimumSizeHint()` 是整串字的
-///    宽度，`setMaximumWidth()` 只封得住上限、封不住"布局不许把它压得比最小值还窄" ——
-///    于是长文件名会把整行撑宽，行尾那颗「取消」被挤到视口外面（用户原话：「下载的文件名
-///    长度会导致取消按钮位置发生偏移 / 有的时候会被右侧栏挡住」）。Ignored 之后布局只问
-///    "这一格分到多宽"，`ElidedLabel` 自己按拿到的宽度画省略号。
+/// **水平方向必须是 `Ignored`**。QLabel 的 `minimumSizeHint()` 是整串字的
+/// 宽度，`setMaximumWidth()` 只封得住上限、封不住"布局不许把它压得比最小值还窄" ——
+/// 于是长文件名会把整行撑宽，行尾那颗「取消」被挤到视口外面（要求：「下载的文件名
+/// 长度会导致取消按钮位置发生偏移 / 有的时候会被右侧栏挡住」）。Ignored 之后布局只问
+/// "这一格分到多宽"，`ElidedLabel` 自己按拿到的宽度画省略号。
 ElidedLabel *makeTextLabel(QWidget *parent, const QString &objectName) {
     auto *label = new ElidedLabel(parent);
     label->setObjectName(objectName);
@@ -142,10 +140,10 @@ ElidedLabel *makeTextLabel(QWidget *parent, const QString &objectName) {
  * 行里每一块的 objectName 都带上**行号**（`MainWindowUI::taskCenterPanelRow*Name()` 给的）
  * —— 验证工程不用数"这一行里有几个 QLabel"这种一改就碎的判据。
  *
- * ★ 整行**可点**（2026-10-12，M2）：点一下进任务详情页（coding plan §3.2 的"点击任务进入
- *   内嵌 `TaskDetailPage`"）。M1 里这一行故意不点 —— 那时候详情页还不存在，"点了没反应的
- *   整行"比不给还糟。现在它只在**真挂上了处理器**的时候才装作可点（手型光标 + 悬停底色），
- *   没挂的时候就是一行字（`MainWindow` 那边永远会挂，挂不上的只有验证工程搭的裸面板）。
+ * 整行**可点**（，M2）：点一下进任务详情页（coding plan §3.2 的"点击任务进入
+ * 内嵌 `TaskDetailPage`"）。M1 里这一行故意不点 —— 那时候详情页还不存在，"点了没反应的
+ * 整行"比不给还糟。现在它只在**真挂上了处理器**的时候才装作可点（手型光标 + 悬停底色），
+ * 没挂的时候就是一行字（`MainWindow` 那边永远会挂，挂不上的只有验证工程搭的裸面板）。
  */
 class TaskCenterRowWidget : public QWidget {
 public:
@@ -219,7 +217,7 @@ public:
         // 只在**能力位说可以**、而且外面真挂了处理器的时候才长。没挂却露出来 = 一颗点了
         // 没反应的按钮（这一面板是能单独搭起来用的，验证工程那几处就没挂）。
         // NOTE: 它是**真按钮**（不是画出来靠事件过滤器认位置），所以点它**不会**同时触发
-        //       整行那一下 —— 父子控件的鼠标事件不会一起送给两边。
+        // 整行那一下 —— 父子控件的鼠标事件不会一起送给两边。
         if (item.capabilities.cancel && onRowAction) {
             auto *cancel = new QPushButton(MainWindowUI::taskCenterPanelRowCancelText(), this);
             cancel->setObjectName(MainWindowUI::taskCenterPanelRowCancelName(index));
@@ -233,11 +231,11 @@ public:
                 if (onRowAction) {
                     onRowAction(key, TaskCenter::RowAction::Cancel);
                 }
-                // ★ 这里**故意不重建面板**：取消要走一趟异步（下载器得先把在飞的那几条收
-                //   干净才发终态），当场重画的话画出来的还是"正在进行"那一行，看着像点了没
-                //   反应。等账本那边 `taskChanged` 传来，`refreshTaskCenterPanel()` 会把这里
-                //   重画一遍。没成功取消（那一批刚好已经收尾）时账本一动不动、这一行也
-                //   不动 —— 那一刻它确实没有新状态可说。
+                // 这里**故意不重建面板**：取消要走一趟异步（下载器得先把在飞的那几条收
+                // 干净才发终态），当场重画的话画出来的还是"正在进行"那一行，看着像点了没
+                // 反应。等账本那边 `taskChanged` 传来，`refreshTaskCenterPanel()` 会把这里
+                // 重画一遍。没成功取消（那一批刚好已经收尾）时账本一动不动、这一行也
+                // 不动 —— 那一刻它确实没有新状态可说。
             });
             titleRow->addWidget(cancel, 0, Qt::AlignVCenter);
         }
@@ -265,8 +263,8 @@ public:
 
         // ---------- 第三样：进度条（只在**测得出百分比**时才有） ----------
         // NOTE: 测不出总量的时候**不画一根不确定态的条**（coding plan §3.4：「无
-        //       Content-Length 的 Fabric 下载显示'已下载多少'，不显示假百分比」）。
-        //       那种情况下这一行的信息在 `detail` 那句里（"已下载 2.8 MB"）。
+        // Content-Length 的 Fabric 下载显示'已下载多少'，不显示假百分比」）。
+        // 那种情况下这一行的信息在 `detail` 那句里（"已下载 2.8 MB"）。
         if (active && item.percent >= 0) {
             // 自绘那条（§3.3）：条本身就**不画数**，数在上面那一行的 `percent` 里。
             auto *bar = new TaskProgressBar(this);
@@ -277,7 +275,7 @@ public:
             column->addWidget(bar);
         }
 
-        // ---------- 第四样：步骤（"✓ 校验文件  ✓ 准备 Java  ● 等待游戏输出"） ----------
+        // ---------- 第四样：步骤（"✓ 校验文件 ✓ 准备 Java ● 等待游戏输出"） ----------
         if (!item.steps.isEmpty()) {
             auto *stepsRow = new QHBoxLayout();
             stepsRow->setContentsMargins(0, 0, 0, 0);
@@ -445,7 +443,7 @@ QString TaskCenter::timeText(const QDateTime &when) {
         return QString();
     }
     // 只写"几点几分"：已完成那一栏里最远的东西也就是几十条之前那一次，日期那一截
-    // （"2026-10-12 19:42"）会把这半行撑满，而它旁边那个位置本来就是给"什么时候"留的。
+    // （" 19:42"）会把这半行撑满，而它旁边那个位置本来就是给"什么时候"留的。
     return when.toString(QStringLiteral("HH:mm"));
 }
 
@@ -577,8 +575,8 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     m_scroll->setWidget(m_content);
     m_content->installEventFilter(this);
     m_scroll->viewport()->installEventFilter(this);
-    // ★ 2026-10-20：滚下去看见了才算"看过"（`acknowledgeVisibleFailures()` 按视口相交判）。
-    //   没有这一发的话，首屏之外那些失败行会一直不标 —— 用户滚到它跟前也没人再问一次。
+    // 滚下去看见了才算"看过"（`acknowledgeVisibleFailures()` 按视口相交判）。
+    // 没有这一发的话，首屏之外那些失败行会一直不标 —— 用户滚到它跟前也没人再问一次。
     connect(m_scroll->verticalScrollBar(), &QScrollBar::valueChanged, this,
             [this](int) { acknowledgeVisibleFailures(); });
 
@@ -667,7 +665,7 @@ void TaskCenterPanel::updateDetailPaneWidth() {
         return;  // 窄屏那一档详情占满整页，宽度归布局管（见 applyWorkspaceMode()）
     }
     // 右栏跟着工作区一起长：窄的时候仍是 kDetailWidth，宽了按比例多分一点，
-    // 但**最多一倍**（再宽中列那一排任务就没地方了）。用户 2026-10-17 要的就是这一条。
+    // 但**最多一倍**（再宽中列那一排任务就没地方了）。用户 要的就是这一条。
     const int wanted = qBound(kDetailWidth, width() * kDetailWidthPercent / 100,
                               kDetailWidth * 2);
     if (m_detailPane->minimumWidth() == wanted && m_detailPane->maximumWidth() == wanted) {
@@ -714,14 +712,6 @@ void TaskCenterPanel::refresh() {
     if (!m_opened) {
         return;  // 还没弹出来过：下一次 popUp() 自己会重建
     }
-    // ★ 2026-10-20：**鼠标键还按着的时候不重建**。
-    //   `rebuild()` 是"全删全建"（`delete`，不是 `deleteLater`），而下载进度是 ~200 ms 一帧、
-    //   每一帧都会走到这儿。用户按住行尾那颗「取消」（或队列里的 ↑/↓）时，只要这中间落下一帧，
-    //   他被按下去的那颗 QPushButton 就被**当场删掉**了；松手落在原位新造出来的那颗上，
-    //   而新按钮从没收到过 press（`QAbstractButton::down` 是 false）—— Qt 不会发 `clicked`，
-    //   表现出来就是「取消点了没反应」，再点可能又撞上一帧。`taskDragActive` 那道闸只挡住
-    //   了拖拽（`drag->exec()` 期间），挡不住"按下之后、松手之前"这一段。
-    //   所以这里推迟到松手再重建；进度条这几百毫秒不刷新，用户看不出来。
     if (QGuiApplication::mouseButtons() != Qt::NoButton) {
         deferRefreshUntilRelease();
         return;
@@ -809,7 +799,7 @@ void TaskCenterPanel::place(bool animate) {
                                                kWorkspaceMaxWidth);
     resize(wantedWidth, height());
     // 上面那句 resize 之后才是"这一块真正有多宽"；右栏按它重新分一次（见
-    // updateDetailPaneWidth() —— 定死 260 的那一版用户 2026-10-17 点名要改）。
+    // updateDetailPaneWidth() —— 定死 260 的那一版用户 点名要改）。
     updateDetailPaneWidth();
 
     const QPoint anchorTopLeft = m_anchor->mapToGlobal(QPoint(0, 0));
@@ -836,22 +826,18 @@ void TaskCenterPanel::place(bool animate) {
 
 /// 把「这一轮刚做出来、还留在隐藏态」的子控件 show 出来。
 ///
-/// ★★ 为什么需要它：整块重建出来的那张脸，**只在面板还没露出来的时候**才会跟着父控件
-///    一起 show。面板**已经露着**的时候重建（`refresh()`：账本变了、行内动作回了话、面板
-///    自己 showEvent 那一发）新做的控件全是留在隐藏态的 —— Qt 的规矩是"挂到一个已经可见的
-///    父控件底下、自己没被 show 过的新控件，只跟父控件**下一次** show 一起露脸"，而父控件
-///    早就是可见的，那一发永远不会来。症状是**最难查的那一种**：行、行尾那颗「取消」、里面
-///    那根条全都真在那儿（`findChild` 找得到、`click()` 点得着、`setFixedHeight()` 量的
-///    高度也对），就是**一个像素都不画**（`isVisible()` 是 false，几何还停在 0,0 —— 隐藏的
-///    控件在布局里算"空"，连位置都不会被摆）。
-///
-///    2026-10-16 就是这么炸的：`refresh()` 改成排到下一轮（`requestRefresh()`）之后，第一次
-///    重建从 `showEmbedded()` 那句 `show()` **之前**挪到了**之后**，面板一开就是空的一页
-///    （`ui_check` I6 那条「行尾长出那颗取消」由绿转红）。
+/// 为什么需要它：整块重建出来的那张脸，**只在面板还没露出来的时候**才会跟着父控件
+/// 一起 show。面板**已经露着**的时候重建（`refresh()`：账本变了、行内动作回了话、面板
+/// 自己 showEvent 那一发）新做的控件全是留在隐藏态的 —— Qt 的规矩是"挂到一个已经可见的
+/// 父控件底下、自己没被 show 过的新控件，只跟父控件**下一次** show 一起露脸"，而父控件
+/// 早就是可见的，那一发永远不会来。症状是**最难查的那一种**：行、行尾那颗「取消」、里面
+/// 那根条全都真在那儿（`findChild` 找得到、`click()` 点得着、`setFixedHeight()` 量的
+/// 高度也对），就是**一个像素都不画**（`isVisible()` 是 false，几何还停在 0,0 —— 隐藏的
+/// 控件在布局里算"空"，连位置都不会被摆）。
 ///
 /// NOTE: 只补「**没被显式藏过**」的那些（`WA_WState_ExplicitShowHide` 是 false）。这一块
-///       里现在没有"故意先藏着"的子控件，但这条判据让这个函数**不会**把将来真被 `hide()`
-///       过的东西顺手露出来 —— 那种得靠调用方显式 `setVisible(true)` 恢复。
+/// 里现在没有"故意先藏着"的子控件，但这条判据让这个函数**不会**把将来真被 `hide()`
+/// 过的东西顺手露出来 —— 那种得靠调用方显式 `setVisible(true)` 恢复。
 static void revealBuiltChildren(QWidget *container) {
     if (container == nullptr || !container->isVisible()) {
         return;  // 容器自己还藏着：它 show 的那一发会把这些一起带出来，这里别抢
@@ -879,9 +865,9 @@ void TaskCenterPanel::rebuild() {
     }
     // 清空（末尾那个 stretch 也一起拿走，重建时再补）。
     // NOTE: 这里用的是 delete（不是 deleteLater）：下面马上要往同一个布局里摆新行，
-    //       留着一批"待删"的老行只会让一帧里看到新旧两套。这个函数**不许**被某一行的
-    //       信号处理器直接调到（「清除已完成」那颗按钮走 QTimer 排下一轮，见下面），
-    //       所以删到自己脚底下这种可能不存在。
+    // 留着一批"待删"的老行只会让一帧里看到新旧两套。这个函数**不许**被某一行的
+    // 信号处理器直接调到（「清除已完成」那颗按钮走 QTimer 排下一轮，见下面），
+    // 所以删到自己脚底下这种可能不存在。
     while (QLayoutItem *item = layout->takeAt(0)) {
         delete item->widget();
         delete item;
@@ -906,13 +892,13 @@ void TaskCenterPanel::rebuild() {
         (isActive(item.state) ? active : finished).append(item);
     }
     m_clearFinished->setEnabled(std::any_of(items.cbegin(), items.cend(), [](const auto &item) { return !isActive(item.state); }));
-    // ★ 2026-10-20：只把**真在视口里露了脸的**失败行标成"看过了"（`unreadFailure` = 还没看过）。
-    //   以前这一笔在 provider 里整批做（`taskCenterItems()` → `markAllViewed()`），而且发生在
-    //   筛子和搜索之前；上一版改成了"按筛出来的行标"，但仍然只看 `m_scroll` 整体可不可见 ——
-    //   面板只有屏幕可用高度的 60%，失败行排在下面、用户压根没滚到，照样被标成看过了
-    //   （底栏红点当场熄灭、它也从「需要处理」里消失，而且是**落盘**的）。
-    //   现在：先把这一趟**建出来**的失败行钥匙收进 `m_unreadFailureKeys`，等布局落定之后
-    //   （下一轮事件）只标**和视口相交**的那些；滚动条一动再补一遍（滚下去看见了才算看过）。
+    // 只把**真在视口里露了脸的**失败行标成"看过了"（`unreadFailure` = 还没看过）。
+    // 以前这一笔在 provider 里整批做（`taskCenterItems()` → `markAllViewed()`），而且发生在
+    // 筛子和搜索之前；上一版改成了"按筛出来的行标"，但仍然只看 `m_scroll` 整体可不可见 ——
+    // 面板只有屏幕可用高度的 60%，失败行排在下面、用户压根没滚到，照样被标成看过了
+    // （底栏红点当场熄灭、它也从「需要处理」里消失，而且是**落盘**的）。
+    // 现在：先把这一趟**建出来**的失败行钥匙收进 `m_unreadFailureKeys`，等布局落定之后
+    // （下一轮事件）只标**和视口相交**的那些；滚动条一动再补一遍（滚下去看见了才算看过）。
     m_unreadFailureKeys.clear();
     if (m_onRowAction != nullptr && isVisible() && m_scroll->isVisible()) {
         for (const QList<TaskCenter::Item> *rows : {&active, &finished}) {
@@ -993,9 +979,9 @@ void TaskCenterPanel::rebuild() {
     layout->addStretch(1);
     rebuildDetail(items);
     syncSelection();
-    // ★★ 面板**已经露着**的时候整块重建，新做出来的那些控件得自己 show 一下
-    //    （理由全文在 `revealBuiltChildren()` 上面那段）。三个容器都要过一遍：
-    //    任务清单、运行中实例那一栏、右边详情。
+    // 面板**已经露着**的时候整块重建，新做出来的那些控件得自己 show 一下
+    // （理由全文在 `revealBuiltChildren()` 上面那段）。三个容器都要过一遍：
+    // 任务清单、运行中实例那一栏、右边详情。
     revealBuiltChildren(m_content);
     revealBuiltChildren(m_runningContent);
     revealBuiltChildren(m_detailContent);
@@ -1082,13 +1068,13 @@ void TaskCenterPanel::rebuildRunning() {
     }
     const QList<TaskCenter::RunningItem> rows =
         m_runningProvider ? m_runningProvider() : QList<TaskCenter::RunningItem>();
-    // ★ 左栏的默认姿态（用户 2026-10-17）：「左侧没有实例运行时默认不展开」 —— 没有实例
-    //   在跑的时候，那一栏收成 36 px 的一条（只剩箭头），别让一句「当前没有运行中的实例」
-    //   占着 220 px。实例跑起来之后**自动展开**（同一句判据的另一头）。
-    //   NOTE: 用户亲手点过那颗按钮之后就不再替他做主（`m_runningUserToggled`）——
-    //         他展开就是想看着，下一次 rebuild 又收回去等于跟用户抢。
-    //   NOTE: 这里**不走动效**：rebuild 可能发生在面板还没露头的时候，而且"重画一行"
-    //         顺手展开一下会看着像整块面板跳了。
+    // 左栏的默认姿态（用户 ）：「左侧没有实例运行时默认不展开」 —— 没有实例
+    // 在跑的时候，那一栏收成 36 px 的一条（只剩箭头），别让一句「当前没有运行中的实例」
+    // 占着 220 px。实例跑起来之后**自动展开**（同一句判据的另一头）。
+    // NOTE: 用户亲手点过那颗按钮之后就不再替他做主（`m_runningUserToggled`）——
+    // 他展开就是想看着，下一次 rebuild 又收回去等于跟用户抢。
+    // NOTE: 这里**不走动效**：rebuild 可能发生在面板还没露头的时候，而且"重画一行"
+    // 顺手展开一下会看着像整块面板跳了。
     if (!m_runningUserToggled) {
         setRunningCollapsed(rows.isEmpty(), /*animate=*/false);
     }
@@ -1216,11 +1202,11 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
         back->setObjectName(QStringLiteral("taskCenterCompactBack"));
         Theme::markButton(back, Theme::ButtonKind::Ghost);
         connect(back, &QPushButton::clicked, back, [this]() {
-            // ★ 2026-10-20：这一发**不能同步**做。`rebuildDetail()` 第一件事就是把
-            //   `m_detailContent` 的全部子控件 delete 掉 —— 而 `back` 自己正站在这条信号栈
-            //   里（发送者就是它）。Qt 对"在 clicked 里删掉按钮本身"并不保证安全
-            //   （QAbstractButton 在发完 clicked 之后还要接着用自己的成员）。排到下一轮事件
-            //   循环：那时这条信号早就返回了，按钮也只剩一个待删除的对象。
+            // 这一发**不能同步**做。`rebuildDetail()` 第一件事就是把
+            // `m_detailContent` 的全部子控件 delete 掉 —— 而 `back` 自己正站在这条信号栈
+            // 里（发送者就是它）。Qt 对"在 clicked 里删掉按钮本身"并不保证安全
+            // （QAbstractButton 在发完 clicked 之后还要接着用自己的成员）。排到下一轮事件
+            // 循环：那时这条信号早就返回了，按钮也只剩一个待删除的对象。
             QTimer::singleShot(0, this, [this]() {
                 if (!m_compact) {
                     // 这一轮里面板换了形态/被关掉：「返回列表」这件事已经没有意义。

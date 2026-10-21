@@ -1,8 +1,6 @@
 /**
  * @file ServerConsolePage.hpp
  * @brief 一个服务端的**控制台**那一页（coding plan §6.2 / 里程碑 M4-3）。
- * @author 0x7fffff
- * @date 2026-10-13
  *
  * 【它是干什么的】
  *
@@ -14,13 +12,13 @@
  *
  * `ui/` **不 include `src/`**（见 `GroupDialog.hpp` 文件头那段老规矩），所以：
  *
- *   * **哪一档状态、那句话怎么说** —— 由 `MainWindow` 翻好（`ServerModel::statusName()`）
- *     用 `setStatusText()` 喂进来；
- *   * **「停止」/「强制结束」能不能点** —— 同样由那一层判（宽限时间那套在
- *     `ServerRun::gracefulStopMs()` / `ServerProcess::forceKillAllowed()` 里），这一页只
- *     照着一个 bool 摆灰/亮；
- *   * **写进它 stdin 的那一行** —— 这一页只把用户敲的字原样发出去（`commandSubmitted`），
- *     加不加换行、要不要拦下 `stop`，是那一层的事。
+ * * **哪一档状态、那句话怎么说** —— 由 `MainWindow` 翻好（`ServerModel::statusName()`）
+ * 用 `setStatusText()` 喂进来；
+ * * **「停止」/「强制结束」能不能点** —— 同样由那一层判（宽限时间那套在
+ * `ServerRun::gracefulStopMs()` / `ServerProcess::forceKillAllowed()` 里），这一页只
+ * 照着一个 bool 摆灰/亮；
+ * * **写进它 stdin 的那一行** —— 这一页只把用户敲的字原样发出去（`commandSubmitted`），
+ * 加不加换行、要不要拦下 `stop`，是那一层的事。
  *
  * 所以验证工程能离线把这一页整页驱动一遍（灌日志 → 读回来、敲一行 → 看信号）。
  *
@@ -68,8 +66,8 @@ public:
 
     /// 日志最多留几行（`QPlainTextEdit::setMaximumBlockCount()`）。见文件头那段。
     ///
-    /// ★ §9.8 起这个数同时钉在**共用模型**的容量上：视图那一格只是"现在显示多少"，
-    ///   模型那一边才是真正的保留上限（搜索/切行数之后还能把行找回来）。
+    /// §9.8 起这个数同时钉在**共用模型**的容量上：视图那一格只是"现在显示多少"，
+    /// 模型那一边才是真正的保留上限（搜索/切行数之后还能把行找回来）。
     void setMaxLines(int lines);
     /**
      * @brief 把日志整片换掉（开页时灌一次历史）。

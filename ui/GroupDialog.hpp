@@ -1,23 +1,10 @@
 /**
  * @file GroupDialog.hpp
  * @brief 「分组设置…」对话框：管**分组本身** —— 有哪些组、叫什么、什么顺序、默认展开还是
- *        收着、哪一个是置顶组。
- * @author 0x7fffff
- * @date 2026-09-21
+ * 收着、哪一个是置顶组。
  * @note 【它不管实例】
  *
- *       2026-09-25 之前这张窗里还有一半是"这个实例归到哪个组"（一排单选钮）。用户原话：
- *       「下方的分组设置不再是针对单个实例的设置，而是对现有分组数目/名称等的设置（恢复
- *       默认分组设置，给组重命名，给组排列展示顺序，默认展开/关闭等）」—— 于是那半整个
- *       没了，把实例放进某个组这件事搬到**组行行尾那颗齿轮**上（那里的第一项「把选中的
- *       实例移入分组…」，见 MainWindowUI::openGroupPicker()）。所以这张窗现在**不读**当前
- *       选中的实例，也不认得任何实例。
- *
  * 【进参出参都是值，本文件不 include 任何 src/ 下的头】
- *
- *       ui/ 一直不依赖业务层（ui_check 那个工程只编 ui/ 就能跑，就是靠这条）。所以这里的
- *       Group 是它自己的一份，和 InstanceGroupStore::Group 逐字段相同、由 MainWindow 在
- *       两边转换。代价是那几行转换，换来的是"界面层不知道文件长什么样"。
  *
  * 【约定：对话框只改自己手里那份清单，不碰磁盘】
  *
@@ -34,16 +21,16 @@
  * setGroupExpanded() / restoreDefaults() 这几个 public 槽里，按钮那条路只是"问一句 → 调它们"。
  * 验证工程驱动的也一直是后者。
  *
- * NOTE: 2026-09-25 之前上面那段写的是"三个都是模态的、在 offscreen 里驱动不了"——"驱动不了"
- *       这一半从换成内嵌提示起就**不成立了**（问名字那一格现在是能找得到、能打字的
- *       QLineEdit），但"问/做分开"这个约定留着：干活那一半不该依赖界面在不在。
+ * NOTE: 之前上面那段写的是"三个都是模态的、在 offscreen 里驱动不了"——"驱动不了"
+ * 这一半从换成内嵌提示起就**不成立了**（问名字那一格现在是能找得到、能打字的
+ * QLineEdit），但"问/做分开"这个约定留着：干活那一半不该依赖界面在不在。
  *
- * 【上移/下移那两条路 2026-09-25 起不是按钮了】
+ * 【上移/下移那两条路 起不是按钮了】
  *
- *       那两颗按钮删了，改成点组清单**行尾那两颗三角**（画在 ui/GroupListDelegate 里，
- *       认下那一下的是下面那个 eventFilter()）—— 用户原话：「这个箭头不应该在这里，而应该
- *       在 分组设置 里面，这里的删了，去分组设置里面加上，设置那个框下方的上移下移的按钮
- *       就删了」。上面那几个槽一个没动。和 MainWindow::onRenameInstanceClicked() / applyRename() 的拆法
+ * 那两颗按钮删了，改成点组清单**行尾那两颗三角**（画在 ui/GroupListDelegate 里，
+ * 认下那一下的是下面那个 eventFilter()）—— 要求：「这个箭头不应该在这里，而应该
+ * 在 分组设置 里面，这里的删了，去分组设置里面加上，设置那个框下方的上移下移的按钮
+ * 就删了」。上面那几个槽一个没动。和 MainWindow::onRenameInstanceClicked() / applyRename() 的拆法
  * 完全一样，理由也一样：这一半里藏着真会错的东西（重名怎么办、删组要不要连实例一起删、
  * 顺序换到边界上怎么办），它必须验得了。
  */
@@ -69,20 +56,20 @@ public:
     struct Group {
         QString id;
         QString name;
-        /// 这一组在实例树里**画成展开的还是收着的**（用户原话里的「默认展开/关闭」）。
+        /// 这一组在实例树里**画成展开的还是收着的**（要求里的「默认展开/关闭」）。
         ///
         /// NOTE: 它既是"默认"也是"当前" —— **只有这一份状态**（全文在
-        ///       InstanceGroupStore::Group 那段）。这张窗里的勾选框改的就是它，
-        ///       而且改完要等用户按「确定」才落盘（对话框不碰磁盘那条约定）。
+        /// InstanceGroupStore::Group 那段）。这张窗里的勾选框改的就是它，
+        /// 而且改完要等用户按「确定」才落盘（对话框不碰磁盘那条约定）。
         bool expanded = true;
 
         /// 这一组是**置顶组**：实例行行尾那颗上箭头点了就把实例移进这一组
-        /// （用户 2026-09-25 原话：「置顶以后进选了这个的组」）。
+        /// （要求：「置顶以后进选了这个的组」）。
         ///
         /// NOTE: 全清单里**最多一个** —— 这一格改的不是"这一组怎么样"，而是"别的组都不是
-        ///       置顶组了"，所以 setGroupPinned() 把别人一起清掉（和
-        ///       InstanceGroupStore::setGroupPinned() 那句逐字对应）。这份工作副本和
-        ///       store 那份逐字段相同（见文件头），包括这一格。
+        /// 置顶组了"，所以 setGroupPinned() 把别人一起清掉（和
+        /// InstanceGroupStore::setGroupPinned() 那句逐字对应）。这份工作副本和
+        /// store 那份逐字段相同（见文件头），包括这一格。
         bool pinned = false;
 
         friend bool operator==(const Group &, const Group &) = default;
@@ -92,14 +79,14 @@ public:
      * @brief 构造对话框。
      * @param groups 现有的组清单（顺序就是界面上的顺序，也是树上的顺序）。
      * @param memberCounts 每个组里有多少个实例（按组 id）。缺的键当 0。
-     *                     只用来显示「组名 (N)」和"删这个组会有多少实例回到未分组"。
+     * 只用来显示「组名 (N)」和"删这个组会有多少实例回到未分组"。
      * @param defaultGroups 五个默认分组（"恢复默认"要换成的就是它们）。
-     *                     顺序就是界面上从上到下的顺序，名字用来拼确认框里那句话。
+     * 顺序就是界面上从上到下的顺序，名字用来拼确认框里那句话。
      * @param defaultCounts 恢复默认**之后**每个默认组里会有多少个实例（按组 id）。
-     *                     这一格是调用方算出来的：恢复默认会把用户自己建的组全拆掉，
-     *                     那些实例回到"没表过态"，于是按版本类型自动归类 —— 落到哪一组
-     *                     只有 MainWindow 那边算得出来（defaultGroupIdFor()）。
-     *                     缺的键当 0。
+     * 这一格是调用方算出来的：恢复默认会把用户自己建的组全拆掉，
+     * 那些实例回到"没表过态"，于是按版本类型自动归类 —— 落到哪一组
+     * 只有 MainWindow 那边算得出来（defaultGroupIdFor()）。
+     * 缺的键当 0。
      * @param parent 父窗口。
      */
     GroupDialog(const QList<Group> &groups, const QHash<QString, int> &memberCounts,
@@ -117,28 +104,28 @@ public slots:
     /// 把某个组改名。@return 改成功了返回 true。
     ///
     /// NOTE: 组改名**不动归属** —— 归属挂的是组的 id，不是名字。id 不变，所以
-    ///       "给组改个名"不会把组里的实例抖出去。这正是 id 和名字分开的理由。
+    /// "给组改个名"不会把组里的实例抖出去。这正是 id 和名字分开的理由。
     bool renameGroup(const QString &groupId, const QString &name);
 
     /// 删掉一个组。组里的实例**一个都不会被删**，它们只是变成未分组。
     /// @return 删掉了返回 true（找不到这个组时返回 false）。
     bool deleteGroup(const QString &groupId);
 
-    /// 把某个组在清单里**往上挪一格**（用户原话里的「给组排列展示顺序」）。
+    /// 把某个组在清单里**往上挪一格**（要求里的「给组排列展示顺序」）。
     /// 已经在最上面、或者找不到这个组时**什么都不做**，返回 false。
     bool moveGroupUp(const QString &groupId);
 
     /// 同上，往下挪一格。
     bool moveGroupDown(const QString &groupId);
 
-    /// 把某个组**直接挪到最上面**（用户原话：「按住 shift 时点击就直接放最顶上/底下」）。
+    /// 把某个组**直接挪到最上面**（要求：「按住 shift 时点击就直接放最顶上/底下」）。
     /// 已经在最上面、或者找不到这个组时什么都不做，返回 false。
     ///
     /// NOTE: 和 moveGroupUp() 拆成两个槽（不是给那个加个 bool 参数）：**置顶不是"挪很多
-    ///       格"**，它一步到位、和现在排第几无关。
+    /// 格"**，它一步到位、和现在排第几无关。
     /// NOTE: 界面那条路（按住 Shift 点那颗箭头）读的是**那一发鼠标事件上的**修饰键
-    ///       （`QMouseEvent::modifiers()`），不是 QApplication::keyboardModifiers() ——
-    ///       后者读的是"此刻键盘的全局状态"，验证工程造那一发事件时对不上。
+    /// （`QMouseEvent::modifiers()`），不是 QApplication::keyboardModifiers() ——
+    /// 后者读的是"此刻键盘的全局状态"，验证工程造那一发事件时对不上。
     bool moveGroupToTop(const QString &groupId);
 
     /// 同上，**直接挪到最下面**。
@@ -147,34 +134,34 @@ public slots:
     /// 改某一组的「默认展开」。
     ///
     /// NOTE: 摆勾选框的**那一下**会发一次 toggled，那一次不该被当成用户点的（那会绕回去
-    ///       再改一遍状态）；挡它的是 m_updatingExpanded，和以前那排单选钮的
-    ///       m_updatingAssignment 同一个路数。
+    /// 再改一遍状态）；挡它的是 m_updatingExpanded，和以前那排单选钮的
+    /// m_updatingAssignment 同一个路数。
     void setGroupExpanded(const QString &groupId, bool expanded);
 
     /// 把某一组设成**置顶组**（或者取消它）。设上去时**别的组这一位一律清掉** ——
     /// 置顶组只能有一个，而这一格的位置在文件里、在界面上都是"谁当家"这一件事。
     ///
     /// NOTE: 和 setGroupExpanded() **完全对称**：改的是 m_groups 这份**工作副本**，
-    ///       **一个字节都不碰磁盘**（等用户按「确定」，见文件头那条约定），勾选框那一发
-    ///       toggled 由 m_updatingPinned 挡。唯一的差别是它改完要 rebuildGroupList()：
-    ///       这一下动的**不止选中的那一组**（别组这一位全被清掉了），重画一遍顺带把
-    ///       refreshActionButtons() 再走一次，于是"现在谁是置顶组"立刻是对的 —— 而勾选框
-    ///       本来就是跟着选中的那一行摆的，用户切到哪个组看到的就是那一组的实话。
+    /// **一个字节都不碰磁盘**（等用户按「确定」，见文件头那条约定），勾选框那一发
+    /// toggled 由 m_updatingPinned 挡。唯一的差别是它改完要 rebuildGroupList()：
+    /// 这一下动的**不止选中的那一组**（别组这一位全被清掉了），重画一遍顺带把
+    /// refreshActionButtons() 再走一次，于是"现在谁是置顶组"立刻是对的 —— 而勾选框
+    /// 本来就是跟着选中的那一行摆的，用户切到哪个组看到的就是那一组的实话。
     void setGroupPinned(const QString &groupId, bool pinned);
 
-    /// 把整份清单换成五个默认分组（用户原话里的「恢复默认分组设置」）。
+    /// 把整份清单换成五个默认分组（要求里的「恢复默认分组设置」）。
     ///
     /// NOTE: 这是**工作副本**上的动作，和别的槽一样等「确定」才落盘 —— 半路按「取消」
-    ///       就等于什么都没发生。实例一个都不会被删：自己建的那些组分没了之后，里面的
-    ///       实例回到"没表过态"，下一次刷新按版本类型自动归类（见 InstanceGroupStore::
-    ///       restoreDefaultGroups() 那段，两边的说法必须一致）。
+    /// 就等于什么都没发生。实例一个都不会被删：自己建的那些组分没了之后，里面的
+    /// 实例回到"没表过态"，下一次刷新按版本类型自动归类（见 InstanceGroupStore::
+    /// restoreDefaultGroups() 那段，两边的说法必须一致）。
     /// @return 换了返回 true（清单本来就等于默认那一份时也返回 true，只是没变）。
     bool restoreDefaults();
 
     // ---------- 控件的 objectName ----------
     // 验证工程靠这些名字认控件，别改回按条目文本去认（组名是用户起的，随时会变）。
-    /// 这一页叫什么。**唯一出处** —— 覆盖层的页眉和这个窗自己的标题栏写的是同一句
-    /// （页面型那一档里页眉就是标题栏，两边各写各的迟早会对不上）。
+    // / 这一页叫什么。**唯一出处** —— 覆盖层的页眉和这个窗自己的标题栏写的是同一句
+    // / （页面型那一档里页眉就是标题栏，两边各写各的迟早会对不上）。
     static QString windowTitle() { return QStringLiteral("分组设置"); }
 
     static QString groupListName() { return QStringLiteral("groupList"); }
@@ -189,10 +176,10 @@ public slots:
     static QString pinnedCheckText() { return QStringLiteral("设为收藏组"); }
     /// 勾选框底下那句极短的说明。
     ///
-    /// NOTE: 「置顶组」是个新概念（2026-09-25 才有的），光看那五个字不知道勾上会怎样 ——
-    ///       所以紧挨着它写一句。**上限 40 个汉字，而且这个数字是量出来的、不是随便定的**：
-    ///       这张窗只有 460 宽，折行的 QLabel 一长就把整窗的 sizeHint 顶宽（这个仓库有过
-    ///       一次"一句话把整窗顶破"的记录）。现在这句 21 个字，一行放得下。
+    /// NOTE: 「置顶组」是个新概念（ 才有的），光看那五个字不知道勾上会怎样 ——
+    /// 所以紧挨着它写一句。**上限 40 个汉字，而且这个数字是量出来的、不是随便定的**：
+    /// 这张窗只有 460 宽，折行的 QLabel 一长就把整窗的 sizeHint 顶宽（这个仓库有过
+    /// 一次"一句话把整窗顶破"的记录）。现在这句 21 个字，一行放得下。
     static QString pinnedHintText() {
         return QStringLiteral("收藏的实例会同时显示在这个组和主页快速启动区。");
     }
@@ -207,15 +194,15 @@ public slots:
     /// 挡下来是为了让用户当场知道"名字太长了"，而不是过一会儿才发现看不全。
     ///
     /// NOTE: 组行行尾那颗齿轮里的「重命名这一组…」也归它管（那是另一条改名的路，
-    ///       MainWindow::renameGroupTo()）—— 两个入口必须是同一把尺子，不然"从这个口
-    ///       进去能起 32 个字的名字、从那个口进不去"。
+    /// MainWindow::renameGroupTo()）—— 两个入口必须是同一把尺子，不然"从这个口
+    /// 进去能起 32 个字的名字、从那个口进不去"。
     static int maxGroupNameLength() { return 32; }
 
     /// 组在列表里的那行文字。
     /// @param name 组名。@param count 组里有多少个实例。
     ///
     /// NOTE: 个数放在名字里（而不是单开一列）是因为这个对话框很窄，多一列会把组名
-    ///       挤成省略号 —— 而组名才是用户认这个组的东西。
+    /// 挤成省略号 —— 而组名才是用户认这个组的东西。
     /// NOTE: 树上那个组头写的也是这一句（MainWindowUI::groupItemText() 转发的就是它）。
     static QString groupItemText(const QString &name, int count) {
         return QStringLiteral("%1 (%2)").arg(name).arg(count);
@@ -226,7 +213,7 @@ protected:
     ///
     /// 为什么是事件过滤器而不是委托的 editorEvent()：点箭头不能让那一行**顺手被选中**，
     /// 更不能让点得快的那第二发落到"双击 = 重命名"那条路上（那会弹一个模态框）——
-    /// 而 itemClicked / itemDoubleClicked 是视图自己发的，代理那边压不住（2026-09-25 用户
+    /// 而 itemClicked / itemDoubleClicked 是视图自己发的，代理那边压不住（ 用户
     /// 报的「点击一下就同时展开和调整了」正是这个形状，见 ui/RowActivation.hpp 那段）。
     bool eventFilter(QObject *watched, QEvent *event) override;
 

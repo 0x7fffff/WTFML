@@ -1,9 +1,7 @@
 /**
  * @file ServerInstallRun.hpp
  * @brief 「拿一份安装计划，真的把这一档装出来」这条路上的**判据层**（coding plan §6.2 /
- *        里程碑 M4-2）。
- * @author 0x7fffff
- * @date 2026-10-13
+ * 里程碑 M4-2）。
  *
  * 【它和 `download/ServerInstall.hpp` 差在哪】
  *
@@ -13,12 +11,12 @@
  *
  * 这一层回答的是计划里**留了两处口子**之后怎么办：
  *
- *   ① 「地址还没取回来」的那两档（原版 / Paper）。原版的地址在版本 json 的 `downloads.server`
- *      里，Paper 的地址里带着对象 sha256（`…/v1/objects/<sha256>/paper-1.21.4-232.jar`）——
- *      两者都不是"游戏版本 + 构建号"两个字符串拼得出来的，所以计划里 `downloads` 是**空的**，
- *      得先把那份元数据取回来。**取哪一份**（`needFor`）和**取回来怎么读**（`fillDownloads`）
- *      是两件纯事，在这一层。
- *   ② 「跑它那个工具的那条命令行长什么样」「这一件事在任务中心里该分成几步」——也都是纯的。
+ * ① 「地址还没取回来」的那两档（原版 / Paper）。原版的地址在版本 json 的 `downloads.server`
+ * 里，Paper 的地址里带着对象 sha256（`…/v1/objects/<sha256>/paper-1.21.4-232.jar`）——
+ * 两者都不是"游戏版本 + 构建号"两个字符串拼得出来的，所以计划里 `downloads` 是**空的**，
+ * 得先把那份元数据取回来。**取哪一份**（`needFor`）和**取回来怎么读**（`fillDownloads`）
+ * 是两件纯事，在这一层。
+ * ② 「跑它那个工具的那条命令行长什么样」「这一件事在任务中心里该分成几步」——也都是纯的。
  *
  * 【这一层里没有 QObject、没有网络、没有进程、不看时钟】
  *
@@ -28,7 +26,7 @@
  *
  * 【为什么"哪一档这一轮不做"也记在这儿】
  *
- * 2026-10-13 用户定的：Spigot 那一档**界面上照旧列出来**（用户得知道有这一档），但选中它时
+ * 用户定的：Spigot 那一档**界面上照旧列出来**（用户得知道有这一档），但选中它时
  * 明说这一轮还没接、并把「创建」收起来 —— **不留一颗按下去什么都不发生的按钮**。
  * 这个判据只有一个出处，就在下面的 `flavorSupported()` / `unsupportedReason()`。
  */
@@ -53,12 +51,12 @@ namespace ServerInstallRun {
 /**
  * @brief 这一档的安装（从"点创建"到"目录里真的站着一个能启动的服务端"）接好了没有。
  *
- * ★ **唯一出处**：`NewServerPage` 那颗「创建」的禁用、摘要里那句"暂时不支持"、以及驱动层
- *   入口那道闸，三处读的都是这里。
+ * **唯一出处**：`NewServerPage` 那颗「创建」的禁用、摘要里那句"暂时不支持"、以及驱动层
+ * 入口那道闸，三处读的都是这里。
  *
  * Spigot 为什么不做：官方**不发成品**，得下它的 BuildTools 现编（要几分钟、要联网、而且要
  * 用户本机装着 git）。这条路单独一档的量比另外七档加起来还大，而它失败的姿势（"本机没有
- * git"）又不是我们能修的那种。用户 2026-10-13 选的是"列出但明说暂不支持"。
+ * git"）又不是我们能修的那种。用户 选的是"列出但明说暂不支持"。
  */
 inline bool flavorSupported(ServerInstall::Flavor flavor) {
     return flavor != ServerInstall::Flavor::Spigot;
@@ -89,9 +87,9 @@ enum class Metadata {
  * @brief 要取的那一份元数据。
  *
  * NOTE: `VersionJson` 特意**不给 url** —— 那一份**先看本地**（`versions/<版本>/<版本>.json`，
- *       装服务端的人多半已经把客户端那个版本装过了，那份 json 里就有 `downloads.server`），
- *       本地没有才去问版本清单。所以"去哪儿取"是驱动层的事（它手上有版本清单 / 版本管理器），
- *       这一层只负责说"还差这一份"。
+ * 装服务端的人多半已经把客户端那个版本装过了，那份 json 里就有 `downloads.server`），
+ * 本地没有才去问版本清单。所以"去哪儿取"是驱动层的事（它手上有版本清单 / 版本管理器），
+ * 这一层只负责说"还差这一份"。
  */
 struct Need {
     Metadata kind = Metadata::None;
@@ -133,7 +131,7 @@ inline Need needFor(const ServerInstall::Request &request, const ServerInstall::
  * @brief `fillDownloads()` 的结论。
  *
  * NOTE: `plan` 只在 `ok == true` 时是完整的（和 `ServerInstall::Plan` 那条一样：不行的时候
- *       只有 `problem` 有意义）。
+ * 只有 `problem` 有意义）。
  */
 struct Fill {
     bool ok = false;
@@ -147,9 +145,9 @@ struct Fill {
  *
  * @param payload `Need::kind` 对应的字节。`Metadata::None` 时**不读它**（传空的就行）。
  *
- * ★ 判据一律用 `ServerInstall` 自己那一套解析（`vanillaServerDownload` / `paperBuildsFromJson`
- *   / `pickPaperBuild`），这一层一个字段都不自己抠 —— 上游改了哪里、退回哪一条，两边必须是
- *   同一个说法，否则会出现"页面上写着构建 #232、真下的却是别的那一条"。
+ * 判据一律用 `ServerInstall` 自己那一套解析（`vanillaServerDownload` / `paperBuildsFromJson`
+ * / `pickPaperBuild`），这一层一个字段都不自己抠 —— 上游改了哪里、退回哪一条，两边必须是
+ * 同一个说法，否则会出现"页面上写着构建 #232、真下的却是别的那一条"。
  */
 inline Fill fillDownloads(const ServerInstall::Request &request, const ServerInstall::Plan &plan,
                           const QByteArray &payload) {
@@ -253,8 +251,8 @@ inline QString installerJarName(const ServerInstall::Plan &plan) {
  * 里"没有总量就不显示百分比"同一条规矩）。
  *
  * NOTE: 「核对装好了没有」那一步**不省**：它是"失败之后不留一个被当成成品的半成品"这句话的
- *       落点 —— 判据是 `ServerModel::isInstalled()`（计划里那几条相对路径都在不在），
- *       不是"最后那个进程退出码是 0"。
+ * 落点 —— 判据是 `ServerModel::isInstalled()`（计划里那几条相对路径都在不在），
+ * 不是"最后那个进程退出码是 0"。
  */
 inline QStringList stepNames(const ServerInstall::Request &request,
                              const ServerInstall::Plan &plan) {

@@ -1,25 +1,7 @@
 /**
  * @file GameLogWindow.cpp
- * @brief Implements the per-session game log window.
- * @author 0x7fffff
- * @date 2026-09-24
- * @note 布局：顶上一排（五档开关 + 行数下拉框 + 清空）、一行说明、中间一整块只读文本、
- *       底下一排（只有一个右对齐的关闭）。那块文本是**唯一的正文**，所以它拿走了整份竖直
- *       空间（addWidget(..., 1) 那个 1），说明和按钮都只是一行 —— 日志窗里的每一像素都该给日志。
- *
- * 【这一块文本是"模型 → 视图"重画出来的，不是"往里塞字"】
- *
- * 加了按级别染底色和筛选之后，"文本控件里有什么"就不再等于"收到过什么"了：
- * 筛掉的那几档不在里面。于是有一份**自己的模型**（m_lines，一行 = 级别 + 正文），
- * 视图是它的一个投影；切筛选那一下整块重画。模型和视图都封在 maxLogBlocks() 行上，
- * 两个上限一起丢最老的，所以它们不会各说各话（视图多留一格的道理见构造函数里那段）。
- *
- * 【为什么攒够一整行才认级别】
- *
- * 进程输出是按块来的（LauncherManager 把 stdout/stderr 的每一块原样发过来），一个块
- * 完全可能断在行中间。不攒的话 `[12:34:56] [main/ER` 这一块会被当成一整行 —— 级别认不
- * 出来，而且摆出去之后还要多一个换行（一行被劈成两行，看着就像游戏自己换的行）。
- * 所以末尾那半行先原样摆着、不染底色（它的级别还不知道），等换行到了再合成一条。
+ * @brief 实现每次游戏会话的日志窗口。
+ * @note 顶部筛选/行数，中间日志正文，底部关闭；正文占用剩余空间。
  */
 
 #include "GameLogWindow.hpp"
@@ -64,7 +46,7 @@ constexpr int kWarnBg[] = {0xff, 0xf0, 0xbf};
 constexpr int kErrorBg[] = {0xf9, 0xd9, 0xde};
 constexpr int kFatalBg[] = {0xed, 0xb5, 0xbd};
 
-/// ★ 深色底那一套（2026-10-13 加的，coding plan §8.3 开放深浅色入口那一天）。
+/// 深色底那一套（ 加的，coding plan §8.3 开放深浅色入口那一天）。
 ///
 /// 上面那一组是照着"白纸"挑的：深色预设下正文区的 `Base` 是深底、墨是浅的，同一批浅色
 /// 方块铺上去就是"浅墨压浅底" —— 一个字都读不出来。所以同一族色相各压一版：
@@ -78,34 +60,27 @@ constexpr int kFatalBgDark[] = {0xd3, 0x2f, 0x2f};
 
 /// 顶上那排开关"没开"和"开着但这一档没有颜色"（只有 Info 是后者）那两种灰。
 ///
-/// **这两个值原来是量出来的**：2026-09-24 改成自己画之前，原生 Fusion 画出来就是这个关态
+/// **这两个值原来是量出来的**： 改成自己画之前，原生 Fusion 画出来就是这个关态
 /// `#ababab`、开态 `#dbdbdb`（ui_check 里量过一整排五颗，五个都一样）。之所以它们得由我们
 /// 自己给出而不是继续交给样式：**开关的两种状态都得由我们自己画**（理由见
 /// filterButtonStyle），一旦交给样式，就必须自己给出这两种灰。
 ///
-/// ★ 2026-10-13：从字面量改成**算出来的**（`Theme::neutralFill()`，见
-///   `GameLogWindow::switchOffColor()`）—— 浅色下算出来和原来那两位只差 1（`#aa` / `#d9`），
-///   深色下自动是深灰。**关态那一个百分比（29）只有一个出处**（那边那个函数）。
-///   `kSwitchOnRgb` 那个兜底灰现在只剩这一处（下面那个 9%），
-///   真用到的档一个都不会走到它（只有 Info 没有底色，而它另有去处，见下）。
+/// 从字面量改成**算出来的**（`Theme::neutralFill()`，见
+/// `GameLogWindow::switchOffColor()`）—— 浅色下算出来和原来那两位只差 1（`#aa` / `#d9`），
+/// 深色下自动是深灰。**关态那一个百分比（29）只有一个出处**（那边那个函数）。
+/// `kSwitchOnRgb` 那个兜底灰现在只剩这一处（下面那个 9%），
+/// 真用到的档一个都不会走到它（只有 Info 没有底色，而它另有去处，见下）。
 constexpr int kSwitchOnPercent = 9;
-/// Info 那颗"开着"时候的颜色（2026-09-24 用户说「info 的按钮再亮一点」）。
-///
-/// 正文区自己的底色（浅色下 `#ffffff`，ui_check 量过：没染色的那一行、以及末尾那半行，
-/// 那一格都是纯白）就是这一档的颜色 —— INFO 在正文里"没有颜色"这件事本身就是它。
-/// 拿它当 Info 的开关色有三层好处：比原来那个灰亮、还是"这一档的颜色"、而且和
-/// Debug 的 `#eef2f6` 差得开（三通道距离 39，验证工程那条"五档两两不同"的阈值是 20）。
-/// ★ 现在是**问调色板要**（`QPalette::Base`）而不是写死 `#ffffff`：深色下它就是那个深底，
-///   这一档"和正文区同色"的意思两种主题下都成立。
+/// Info 那颗"开着"时候的颜色（ 用户说「info 的按钮再亮一点」）。
 
-/// 行与行之间那条细线的颜色（用户 2026-09-24 说的「日志行与行之间加一条细线分隔一下」）。
+/// 行与行之间那条细线的颜色（用户 说的「日志行与行之间加一条细线分隔一下」）。
 ///
 /// 挑这个灰的理由是"两头都得看得见"：白底上差 39*√3 ≈ 67，Debug 那个 `#eef2f6` 上差 45
 /// （验证工程里"五档两两看得出来"的阈值是 20）。**不能比这更深** —— 再深一点整块正文就
 /// 变成表格了，而这里要的只是"两条 INFO 之间有条界线"（相邻两档的底色本来就分得开，
 /// 分不开的恰恰是相邻的两条 INFO：它们都不染底）。
-/// ★ 2026-10-13 起也是算出来的（`separatorColor()`，从**正文区**的 `Base` 往它的墨混 15%）
-///   —— 浅色下算出来 `#d9d9d9`，和原来那个字面量差 1。
+/// 起也是算出来的（`separatorColor()`，从**正文区**的 `Base` 往它的墨混 15%）
+/// —— 浅色下算出来 `#d9d9d9`，和原来那个字面量差 1。
 
 /// 中性档的那三个百分比（关态底 / 边 / 那个兜底的开态灰）—— **和上一段说的同一件事**。
 constexpr int kSwitchOffPercent = 29;
@@ -141,12 +116,12 @@ QString filterButtonStyle(const QColor &onBg, const QColor &onInk, const QColor 
 
     // 【悬停那一档为什么必须自己写一条】
     //
-    // ★ 一旦给控件挂了样式表，Qt 就把这颗按钮整只交给样式表去画 —— 原生 Fusion 那层
-    //   "鼠标停上来会亮一点"的立体感**一并被顶掉**，而且不写 `:hover` 也不会漏回原生
-    //   （上面那条 `QToolButton { ... }` 已经把这只控件接管了）。所以不显式补一条，
-    //   划过时就是**一点变化都没有**（这五颗原来正是这样：用户说的"划过毫无反应"）。
-    // ★ 只收**没勾着**的那一颗：勾着的那档划过去是"选中"的样子，不该跟着变（`:!checked`）。
-    // ★ `:enabled` 兜住以后万一有被 disable 的一颗（和 `QPushButton:hover:enabled` 同款）。
+    // 一旦给控件挂了样式表，Qt 就把这颗按钮整只交给样式表去画 —— 原生 Fusion 那层
+    // "鼠标停上来会亮一点"的立体感**一并被顶掉**，而且不写 `:hover` 也不会漏回原生
+    // （上面那条 `QToolButton { ... }` 已经把这只控件接管了）。所以不显式补一条，
+    // 划过时就是**一点变化都没有**（这五颗原来正是这样：用户说的"划过毫无反应"）。
+    // 只收**没勾着**的那一颗：勾着的那档划过去是"选中"的样子，不该跟着变（`:!checked`）。
+    // `:enabled` 兜住以后万一有被 disable 的一颗（和 `QPushButton:hover:enabled` 同款）。
     //
     // 【这一颗为什么不走 `Theme::rowHoverFill()`，而是把自己往下压】
     //
@@ -157,8 +132,8 @@ QString filterButtonStyle(const QColor &onBg, const QColor &onInk, const QColor 
     // **升高**了 —— 又淡又发绿，恰恰是"加深"的反面。
     // 所以这一档改成把**自己的底色**往下压同一档：`darker(100 + rowHoverAccentPercent())`
     // 即 `darker(112)` = `#999999`（距离 31，和别处白底那一档的 27 是同一个量级）。
-    // ★ **"一档是多少"这个数仍然只有 Theme 一个出处**（`rowHoverAccentPercent()`）——
-    //   变的只是"从哪一档出发、往哪边压"，那是底色自己决定的，别处也一样。
+    // **"一档是多少"这个数仍然只有 Theme 一个出处**（`rowHoverAccentPercent()`）——
+    // 变的只是"从哪一档出发、往哪边压"，那是底色自己决定的，别处也一样。
     const QColor hoverBg = offBg.darker(100 + Theme::rowHoverAccentPercent());
 
     return QStringLiteral("QToolButton { background-color: %1; color: %2; border: 1px solid %3;"
@@ -179,8 +154,8 @@ QString filterButtonStyle(const QColor &onBg, const QColor &onInk, const QColor 
 /// 复制出去还是干净的一行。
 ///
 /// NOTE: 没有底色那一档（Info）返回的就是一个**空的**块格式 —— `setBlockFormat` 是
-///       "换掉"不是"合并"，所以空的那份正好把上一行继承下来的底色清掉（不显式清的话，
-///       记在 Fatal 后面的一行会拖一条红底）。
+/// "换掉"不是"合并"，所以空的那份正好把上一行继承下来的底色清掉（不显式清的话，
+/// 记在 Fatal 后面的一行会拖一条红底）。
 QTextBlockFormat blockFormatFor(GameLogWindow::LogLevel level, const QPalette &palette, bool colors) {
     QTextBlockFormat format;
     const QColor background = colors ? GameLogWindow::levelBackground(level, palette) : QColor();
@@ -284,7 +259,7 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     logPalette.setColor(QPalette::PlaceholderText, logTokens.logHint);
     setPalette(logPalette);
     setWindowTitle(windowTitleText(instanceName));
-    // 允许最大化/最小化（2026-09-24 用户说的「允许这个窗口最大化最小化」）。QDialog 默认
+    // 允许最大化/最小化（ 用户说的「允许这个窗口最大化最小化」）。QDialog 默认
     // 只给一个关闭钮：一个"想摊开看"的窗，拉到整屏看长崩栈是常态（一行几十个字符，
     // 820 宽要左右拖）。**必须在 show() 之前设** —— show 之后改 flags 会把窗藏起来。
     setWindowFlags(windowFlags() | Qt::WindowMinimizeButtonHint | Qt::WindowMaximizeButtonHint);
@@ -324,9 +299,9 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
         // 五颗都走同一份样式（**含 INFO 那颗**）：两种状态都由我们自己画，"没开"那个灰也就
         // 由同一份样式给 —— 单独留一颗走原生的话，它那圈立体感会和旁边四颗不一样。
         // INFO 那颗的"开"色是**正文区自己的底色**（它没有颜色可借，见 filterButtonBackground）。
-        // ★ 样式**不在这里算**：`refreshFilterButtonStyles()` 一处算五颗（主题一变还得重来
-        //   一遍，见 changeEvent()）—— 两份的话迟早有一份忘了跟着调色板走，而忘了的表现
-        //   正是"深色主题下这几颗还是浅色的"。
+        // 样式**不在这里算**：`refreshFilterButtonStyles()` 一处算五颗（主题一变还得重来
+        // 一遍，见 changeEvent()）—— 两份的话迟早有一份忘了跟着调色板走，而忘了的表现
+        // 正是"深色主题下这几颗还是浅色的"。
         connect(button, &QToolButton::toggled, this, [this, level](bool on) {
             m_model.setLevelVisible(modelLevel(level), on);
             rebuildView();
@@ -341,7 +316,7 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     // 右边这两件：**先摆下拉框，再摆清空**（"把清除放到这个的旁边"）—— 于是清空在最右、
     // 下拉框紧贴着它左边那一格。
     //
-    // 这一颗是 2026-09-24 从「显示全部」按钮换过来的：那一颗的位置给行数上限，清空从底下
+    // 这一颗是 从「显示全部」按钮换过来的：那一颗的位置给行数上限，清空从底下
     // 那一排挪上来。换掉的代价（五档全关之后没有一键全勾回来）写在 .hpp 里。
     m_lineLimitCombo = new QComboBox(this);
     m_lineLimitCombo->setObjectName(lineLimitComboName());
@@ -427,36 +402,33 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     // 而且丢弃是最老的那些，不需要重排整块文本。
     //
     // NOTE: **比模型多一格**。多出来的那一格是"还没等到换行的那半行"（它不在模型里，
-    //       见 insertPendingIntoView）。两个上限必须对齐，不然跑满两万行之后模型里最早
-    //       那一行会被视图悄悄丢掉、而模型还留着 —— 切一次筛选它就又冒出来了。
+    // 见 insertPendingIntoView）。两个上限必须对齐，不然跑满两万行之后模型里最早
+    // 那一行会被视图悄悄丢掉、而模型还留着 —— 切一次筛选它就又冒出来了。
     m_view->setMaximumBlockCount(viewBlockLimit());
     m_view->setPlaceholderText(emptyPlaceholderText());
     // 等宽字体：日志里有缩进、有对齐的表格（崩栈、模组列表），比例字体读起来是散的。
-    // 字号比系统那个大一号（用户 2026-09-24 说的「字号稍微大一点」），见 logFont()。
+    // 字号比系统那个大一号（用户 说的「字号稍微大一点」），见 logFont()。
     m_view->setFont(logFont());
     // 长行不折行：MC 的日志里有很长的路径和 JSON，折了反而更难认；横向滚动条由它自己出。
     m_view->setLineWrapMode(QPlainTextEdit::NoWrap);
     layout->addWidget(m_view, 1);
 
-    // 底下一排：「关闭」**右对齐**（用户 2026-09-24 说的），2026-09-28 起在它左边多两颗
-    // 导出键（用户原话：「把日志和错误报告导出功能加上，就在那个日志窗口下方，右下角放着」）。
-    //
-    // ★ 这两颗**摆在关闭的左边**、三颗一起靠右：用户说的"右下角"就是这个位置，而
-    //   「关闭」从 2026-09-24 起就在最右（那是那一次点名的），不该因为加了两颗就把它挤走 ——
-    //   一扇窗上最右边那颗永远是该是"退出这一页"的那一颗。
+    // 这两颗**摆在关闭的左边**、三颗一起靠右：用户说的"右下角"就是这个位置，而
+    // 「关闭」从 起就在最右（那是那一次点名的），不该因为加了两颗就把它挤走 ——
+    // 一扇窗上最右边那颗永远是该是"退出这一页"的那一颗。
     // NOTE: 左边的 stretch 还留着（原来那句"左边的空档留给以后还有别的按钮"就是这么写的）：
-    //       三颗键的宽度会随字号变，靠这个 stretch 让它们**贴着右边**，而不是被拉开。
+    // 三颗键的宽度会随字号变，靠这个 stretch 让它们**贴着右边**，而不是被拉开。
     auto *buttons = new QHBoxLayout;
     buttons->addStretch(1);
     m_exportLogButton = new QPushButton(exportLogButtonText(), this);
     m_exportLogButton->setObjectName(exportLogButtonName());
     m_exportLogButton->setToolTip(exportLogButtonTooltip());
-    // 两颗导出键走 **Ghost**（2026-10-14，coding plan §3.3）：它们是这一页最不打紧的
+    // 两颗导出键走 **Ghost**（，coding plan §3.3）：它们是这一页最不打紧的
     // 两下 —— 只读、低频（出事的时候才按一次）、按错了也没有任何后果。摆成有框的按钮，
     // 它们会和「关闭」抢同一条视线；只留字，视线就自然落在"退出这一页"那颗上。
     // NOTE: 「关闭」和上面那颗「清空」**留在一般性（黑）**：一扇窗最右边那颗永远是
-    //       "退出这一页"，它得是个看得出是按钮的东西；「清空」清的是这个窗看到的内容
-    //       （盘上那份一行没少），够"一般性"。
+    // "退出这一页"，它得是个看得出是按钮的东西；「清空」清的是这个窗看到的内容
+    // （盘上那份一行没少），够"一般性"。
     Theme::markButton(m_exportLogButton, Theme::ButtonKind::Ghost);
     buttons->addWidget(m_exportLogButton);
     m_exportReportButton = new QPushButton(exportReportButtonText(), this);
@@ -470,8 +442,6 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     buttons->addWidget(m_closeButton);
     layout->addLayout(buttons);
 
-    // 两颗导出键都只发信号（一个字都不往盘上写，理由见 .hpp 里那段）—— 存到哪儿、
-    // 报告里还要写哪些环境事实，全是 MainWindow 那边的事。
     connect(m_exportLogButton, &QPushButton::clicked, this,
             &GameLogWindow::exportLogRequested);
     connect(m_exportReportButton, &QPushButton::clicked, this,
@@ -583,14 +553,7 @@ void GameLogWindow::insertRun(LogLevel level, const QStringList &lines) {
     if (lines.isEmpty()) {
         return;
     }
-    // 【为什么是"一段一次"，不是"一行一次"】（2026-09-24 改）
-    //
-    // 文档操作是按**次数**收钱的，ui_check 里逐条量过（两万行）：
-    //   · 一行一次 insertText 248 ms、逐块设底色 357 ms、一行一次 insertBlock 533 ms；
-    //   · 一次 insertText 写完全部 21 ms、一次跨块 setBlockFormat 盖完全部 3 ms。
-    // 而"点一下筛选"原来是把整块重画一遍、每行两次操作 —— 两千行 48 ms、两万行 559 ms，
-    // 用户的原话是「点击按钮变色和隐藏延迟较大」。攒成段之后，操作次数从"行数"降到
-    // "档数变化次数"（典型日志里几十次）。
+    // 【为什么是"一段一次"，不是"一行一次"】（ 改）
     QString text = lines.join(QLatin1Char('\n'));
     text += QLatin1Char('\n');  // 末尾这一下把"光标行"那一格也造出来（见下）
 
@@ -599,28 +562,19 @@ void GameLogWindow::insertRun(LogLevel level, const QStringList &lines) {
     cursor.insertText(text);
     const int endPos = cursor.position();
 
-    // ★★ 2026-09-27 修：这一段的起点**从"插完的位置"往回数**（`endPos - text.size()`），
-    //    不能用插入**之前**记下的那个整数。
+    // 修：这一段的起点**从"插完的位置"往回数**（`endPos - text.size()`），
+    // 不能用插入**之前**记下的那个整数。
     //
-    //    文档写到 `maximumBlockCount`（顶上「行数」那一档）之后，`insertText()` 会**同步**
-    //    把最老的块从头裁掉 —— 文档里每一个位置都往前挪了。`endPos` 是从光标读回来的，
-    //    Qt 会跟着裁自动修正它；而"插入前那个位置"是个死整数，它不会动，两者就此错位。
-    //    实测（同一版 Qt，探针在 build/verify 之外）：一到上限，两者**相等** ⇒ 下面这个
-    //    选区落成末尾那个空选区 ⇒ **这一段一个字都不染色**（Fatal 那档的白墨也跟着没了）。
-    //    触发路径很短：开日志窗 → 顶上「行数」选 500（下拉第一档，点一下就中）→ 写满 500 行
-    //    之后新来的每一行都没有级别底色；切档时 rebuildView() 从头重画也一样中招
-    //    （第一段之后就全白）。「全部」那一档要写满 20000 行才碰得到，所以平时看不见。
-    //
-    //    NOTE: 往回数的长度就是 `text.size()`（`insertText` 插的是纯文本，一个字符不多不少），
-    //          所以不裁的时候这一句和原来的整数**是同一个值**，正常路上零区别。
+    // NOTE: 往回数的长度就是 `text.size()`（`insertText` 插的是纯文本，一个字符不多不少），
+    // 所以不裁的时候这一句和原来的整数**是同一个值**，正常路上零区别。
     const int startPos = endPos - text.size();
     if (startPos >= 0 && endPos > startPos) {
         // 底色和墨色各一次盖过这一整段。选区从这段的第一个字到**最后一个换行之前** ——
         // 末尾那一格空的（光标行）不在选区里，它得留着不带底色。
         //
         // NOTE: 外面那个 if 是"这一整段**全被裁掉了**"的兜底（一段比整个行数上限还长时
-        //       才会走到）：那种情况下起点是个负数，不去碰句子里的位置（`setPosition` 拿到
-        //       越界值会把光标弄到未定义处，之后两行 setFormat 打在不知道什么地方上）。
+        // 才会走到）：那种情况下起点是个负数，不去碰句子里的位置（`setPosition` 拿到
+        // 越界值会把光标弄到未定义处，之后两行 setFormat 打在不知道什么地方上）。
         QTextCursor span(m_view->document());
         span.setPosition(startPos);
         span.setPosition(endPos - 1, QTextCursor::KeepAnchor);
@@ -650,7 +604,7 @@ void GameLogWindow::insertPendingIntoView() {
     }
     QTextCursor cursor(m_view->document());
     cursor.movePosition(QTextCursor::End);
-    // 半行**按猜的那一档染**（2026-09-24 改，原来是"不染"）。
+    // 半行**按猜的那一档染**（ 改，原来是"不染"）。
     //
     // 改的原因是用户那句话：「日志框的最后一行不会被渲染颜色」—— 而"最后一行"这个位置上
     // 站着的**就是**这半行：进程输出按块到，末尾那一条往往还没等到换行（游戏崩了的那一行
@@ -827,27 +781,25 @@ void GameLogWindow::changeEvent(QEvent *event) {
     if (event->type() != QEvent::PaletteChange && event->type() != QEvent::StyleChange) {
         return;
     }
-    // ★★ **构造还没走完的时候这两个事件也会来**（2026-10-14 实测，深色那一份下直接崩）。
+    // 来源：构造函数里那一发 `setWindowFlags()`（要加最大化/最小化两颗钮，见那一段的
+    // NOTE）会走到 `QWidgetPrivate::setParent()` → `inheritStyle()`。而**应用级样式表
+    // 在这一趟跑之前被换过**（换主题 / 启动时铺首那一份）时，这一发就在新控件**刚建出来
+    // 还没摆完**的时候送一个 StyleChange 进来 —— 那一刻 `m_filterButtons` 还是空向量、
+    // `m_view` 还是 nullptr，`refreshFilterButtonStyles()` 里那句 `.at(i)` 读到界外、
+    // `rebuildView()` 里那句 `m_view->verticalScrollBar()` 直接空指针。
     //
-    //    来源：构造函数里那一发 `setWindowFlags()`（要加最大化/最小化两颗钮，见那一段的
-    //    NOTE）会走到 `QWidgetPrivate::setParent()` → `inheritStyle()`。而**应用级样式表
-    //    在这一趟跑之前被换过**（换主题 / 启动时铺首那一份）时，这一发就在新控件**刚建出来
-    //    还没摆完**的时候送一个 StyleChange 进来 —— 那一刻 `m_filterButtons` 还是空向量、
-    //    `m_view` 还是 nullptr，`refreshFilterButtonStyles()` 里那句 `.at(i)` 读到界外、
-    //    `rebuildView()` 里那句 `m_view->verticalScrollBar()` 直接空指针。
+    // 为什么平时看不见：**应用级样式表这一趟没换过**的时候 `inheritStyle()` 算出"继承的
+    // 样式和手上这个是同一个"，Qt 压根不发这一个事件（浅色那一趟一直是这么过来的 ——
+    // 所以这一条只在"主题是运行时换的 / 换了之后再开这个窗"这一条路上才露头）。
     //
-    //    为什么平时看不见：**应用级样式表这一趟没换过**的时候 `inheritStyle()` 算出"继承的
-    //    样式和手上这个是同一个"，Qt 压根不发这一个事件（浅色那一趟一直是这么过来的 ——
-    //    所以这一条只在"主题是运行时换的 / 换了之后再开这个窗"这一条路上才露头）。
-    //
-    //    这一趟**没有任何东西要重算**：一个字都还没往模型里装，构造收尾自己会调一次
-    //    `refreshFilterButtonStyles()`。所以直接早退（判据取 `m_view` —— 它在构造里是
-    //    **最后一个**建出来的，它在了就意味着上面那几件都在了）。
+    // 这一趟**没有任何东西要重算**：一个字都还没往模型里装，构造收尾自己会调一次
+    // `refreshFilterButtonStyles()`。所以直接早退（判据取 `m_view` —— 它在构造里是
+    // **最后一个**建出来的，它在了就意味着上面那几件都在了）。
     if (m_view == nullptr) {
         return;
     }
-    // ★ 先比一遍算出来的色：这两个事件会因为各种原因连着来（挂样式表、换调色板、
-    //   父窗重抛光……），每次都重建一遍视图（最多两万行）是白跑。
+    // 先比一遍算出来的色：这两个事件会因为各种原因连着来（挂样式表、换调色板、
+    // 父窗重抛光……），每次都重建一遍视图（最多两万行）是白跑。
     const QColor off = switchOffColor(palette());
     if (off == m_lastSwitchOff) {
         return;
@@ -860,9 +812,9 @@ void GameLogWindow::changeEvent(QEvent *event) {
 
 void GameLogWindow::refreshPlaceholder() {
     // 三句话**各说各的下一步**：
-    //   · 一行都没有                         → 「还没有输出」（下一步是等游戏出话）；
-    //   · 有行、但档位筛得一行不剩          → 「都被筛掉了」（下一步是勾回来）；
-    //   · 有行、档位没筛干净但搜索没匹配上  → 「没有搜到」（下一步是清掉搜索词）。
+    // · 一行都没有 → 「还没有输出」（下一步是等游戏出话）；
+    // · 有行、但档位筛得一行不剩 → 「都被筛掉了」（下一步是勾回来）；
+    // · 有行、档位没筛干净但搜索没匹配上 → 「没有搜到」（下一步是清掉搜索词）。
     // 做成一句的话，用户看到空窗只会以为日志窗坏了。
     //
     // 判据是"**现在一行都没有显示**"，不是"模型是不是空的"：还有行、只是全被筛掉的
@@ -1034,8 +986,8 @@ QPoint GameLogWindow::placementFor(const QRect &launcherFrame, const QSize &wind
     // 那时至少别把它甩到屏幕外面去。
     //
     // NOTE: 挑边看的是**不带错开**的那个位置，错开的那点距离（28）不该决定整扇窗去哪一边
-    //       —— 第一版把错开算进"放得下吗"，于是第二扇窗因为右边少了 28 像素就整个翻到左边，
-    //       正好压在左边那扇上。错开只影响挑完边之后往哪偏。
+    // —— 第一版把错开算进"放得下吗"，于是第二扇窗因为右边少了 28 像素就整个翻到左边，
+    // 正好压在左边那扇上。错开只影响挑完边之后往哪偏。
     const int cascade = qMax(0, index) * kPlacementCascade;
     const int plainRight = launcherFrame.right() + 1 + kPlacementGap;
     const int plainLeft = launcherFrame.left() - kPlacementGap - windowSize.width();
@@ -1138,8 +1090,8 @@ QString GameLogWindow::exportLogButtonText() { return QStringLiteral("导出日�
 QString GameLogWindow::exportReportButtonText() { return QStringLiteral("导出错误报告…"); }
 
 QString GameLogWindow::exportLogButtonTooltip() {
-    // ★ 这句话（和下面那句）唯一的用途就是把两颗键**分开**：它们只差"要不要给别人的那一份
-    //   环境信息"，而这一点从键上的字看不出来。所以两句都写成"你会拿到什么"。
+    // 这句话（和下面那句）唯一的用途就是把两颗键**分开**：它们只差"要不要给别人的那一份
+    // 环境信息"，而这一点从键上的字看不出来。所以两句都写成"你会拿到什么"。
     return QStringLiteral("把这一份游戏输出原样存成文本文件（上面筛掉的几档也在里面，最多 %1 行）。")
         .arg(maxLogBlocks());
 }

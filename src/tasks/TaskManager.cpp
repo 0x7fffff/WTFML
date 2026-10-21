@@ -1,8 +1,6 @@
 /**
  * @file TaskManager.cpp
  * @brief 任务账本的实现（形状与取舍见头文件）。
- * @author 0x7fffff
- * @date 2026-10-12
  */
 
 #include "TaskManager.hpp"
@@ -19,11 +17,11 @@ namespace {
 
 /// 「已完成」那一栏的顺序：最近的在前。
 ///
-/// ★ 只比 `finishedAt` 是不够的 —— 批量下载/批量文件操作会在同一毫秒里收掉几十项
-///   （`QDateTime` 只到毫秒），并列时 `std::sort` 给出的是**未定义**的相对顺序。
-///   面板每次重画都重排一遍，并列出会让这些行在两次重画之间换位；落盘截断那头
-///   更实际：`finishedHistoryLimit()` 卡在第 50 条边上时，丢掉的是"并列里的任意一条"，
-///   而不是最旧那一条。号是单调发的 ⇒ 同毫秒里号大的就是后发起的，拿它当第二把尺。
+/// 只比 `finishedAt` 是不够的 —— 批量下载/批量文件操作会在同一毫秒里收掉几十项
+/// （`QDateTime` 只到毫秒），并列时 `std::sort` 给出的是**未定义**的相对顺序。
+/// 面板每次重画都重排一遍，并列出会让这些行在两次重画之间换位；落盘截断那头
+/// 更实际：`finishedHistoryLimit()` 卡在第 50 条边上时，丢掉的是"并列里的任意一条"，
+/// 而不是最旧那一条。号是单调发的 ⇒ 同毫秒里号大的就是后发起的，拿它当第二把尺。
 bool finishedNewerFirst(const Tasks::TaskSnapshot &a, const Tasks::TaskSnapshot &b) {
     if (a.finishedAt != b.finishedAt) {
         return a.finishedAt > b.finishedAt;
@@ -50,16 +48,16 @@ int TaskManager::loadHistory() {
     // 读回来的是**上一份账本**（含当时还在跑的那几项 —— 它们这会儿已经是 `Interrupted`）。
     // 当前账本整个换掉：这个方法只在启动时调一次，那时候手上本来就没有东西。
     //
-    // ★ 2026-10-20：盘上那份是**普通文本文件**（还可能被手工改过、被两个进程前后覆写
-    //   过），所以"号唯一、且最大那个加一不溢出"不是可以当成的先验，得在这里立住：
-    //     · **重号**：`find()`/`snapshot()` 只认第一条，后面那几条从此再也收不了尾；
-    //       而面板拿 `QString::number(id)` 当行钥匙，重号 = 两行共用一个钥匙，点其中
-    //       一行的「重试 / 打开日志 / 打开目标」打到的是**另一条**身上。
-    //     · **`TaskId` 最大值**：`task.id + 1` 在原地回绕成 0 ⇒ `m_nextId` 退回 1 ⇒
-    //       新任务和盘上某条历史撞号，而那一条是终态、`finish()` 会直接回 false ——
-    //       **真在跑的那件事再也收不了尾**（正是 TaskId.hpp 里那段注释要挡的东西，
-    //       只是它假定盘上的号是"我们自己写下去的"）。
-    //   两种都当"认不出是谁的那一行"跳过：和 `fromJson()` 里 `id == 0` 同一种处置。
+    // 盘上那份是**普通文本文件**（还可能被手工改过、被两个进程前后覆写
+    // 过），所以"号唯一、且最大那个加一不溢出"不是可以当成的先验，得在这里立住：
+    // · **重号**：`find()`/`snapshot()` 只认第一条，后面那几条从此再也收不了尾；
+    // 而面板拿 `QString::number(id)` 当行钥匙，重号 = 两行共用一个钥匙，点其中
+    // 一行的「重试 / 打开日志 / 打开目标」打到的是**另一条**身上。
+    // · **`TaskId` 最大值**：`task.id + 1` 在原地回绕成 0 ⇒ `m_nextId` 退回 1 ⇒
+    // 新任务和盘上某条历史撞号，而那一条是终态、`finish()` 会直接回 false ——
+    // **真在跑的那件事再也收不了尾**（正是 TaskId.hpp 里那段注释要挡的东西，
+    // 只是它假定盘上的号是"我们自己写下去的"）。
+    // 两种都当"认不出是谁的那一行"跳过：和 `fromJson()` 里 `id == 0` 同一种处置。
     constexpr TaskId kMaxTaskId = std::numeric_limits<TaskId>::max();
     QSet<TaskId> seenIds;
     QList<TaskSnapshot> unique;
@@ -108,13 +106,6 @@ bool TaskManager::saveHistory() const {
 
 TaskId TaskManager::begin(TaskKind kind, const QString &title, const QString &targetId,
                           const QList<TaskStep> &steps, const TaskCapabilities &capabilities, bool queued) {
-    // ★ 2026-10-20：号是**发出去的**，不是"下一个一定空着"。`loadHistory()` 挡住的是"盘上
-    //   正好写着最大值"那一档；这一档还剩下半步 —— 盘上最大是 `max - 1` 时，`m_nextId`
-    //   算出来就是 `max`，`begin()` 发出去之后 `max + 1` 原地回绕成 0，**从那以后每一件新
-    //   任务都拿到 0**（= `invalidTaskId()`，`find()` 永远找不到、`finish()` 永远收不了尾，
-    //   任务中心上也一行都不出现）。这里从当前号往后找第一个**没用过**的：0 不用、
-    //   最大值也不用（`loadHistory()` 下次会把最大值那条当坏账丢掉），都用完了就老实回
-    //   invalidTaskId()，而不是发一个和谁都能撞、或者一落盘就消失的号。
     constexpr TaskId kMaxTaskId = std::numeric_limits<TaskId>::max();
     TaskId id = m_nextId;
     if (id == invalidTaskId() || id == kMaxTaskId) {
@@ -187,9 +178,9 @@ void TaskManager::touch(TaskId id, bool persist) {
 
 /// 三个收尾入口的公共部分。
 ///
-/// ★ 「终态只能落一次」在这里兜住：**已经收尾的、找不到的，一律回 false 并且一个信号都不发**。
-///   上游那几条路（下载批次收尾、进程结束、用户点取消）都可能在同一个状态上被触发两遍 ——
-///   真按第二遍再记一次，"同一件事出现两行历史""进度条上的数字比总数还大"就是从这里来的。
+/// 「终态只能落一次」在这里兜住：**已经收尾的、找不到的，一律回 false 并且一个信号都不发**。
+/// 上游那几条路（下载批次收尾、进程结束、用户点取消）都可能在同一个状态上被触发两遍 ——
+/// 真按第二遍再记一次，"同一件事出现两行历史""进度条上的数字比总数还大"就是从这里来的。
 bool TaskManager::finish(TaskId id, TaskState state, const QString &errorSummary) {
     TaskSnapshot *task = find(id);
     if (task == nullptr || isTerminalState(task->state)) {
@@ -202,18 +193,18 @@ bool TaskManager::finish(TaskId id, TaskState state, const QString &errorSummary
         for (auto &step : task->steps)
             if (step.state == TaskStepState::Running) step.state = TaskStepState::Failed;
     }
-    // ★ 收尾之后**只**收掉"干活时才有的"那两位，其余几位原样留着。
+    // 收尾之后**只**收掉"干活时才有的"那两位，其余几位原样留着。
     //
-    //   这里原来是一句 `task->capabilities = TaskCapabilities()`（M1 时确实没有可点的），
-    //   后来 §4.2 的「重试」和 §4.3 的崩溃项都是**收尾之后才露**的按钮：
-    //     · 「重试」：`ActivityCenterController::finish()` 在 `fail()` **之前**把 `canRetry`
-    //       写进快照（`setCapabilities()` 只收活动态），结果下一句 `fail()` 走进这里又把它
-    //       整份抹掉 ⇒ `Tasks::retryOffered()` 恒 false，界面上永远没有那颗按钮；
-    //     · 崩溃项（`CrashReportController::report()`）建出来那一刻就带着
-    //       `canExportReport` / `canOpenCrashDir`，随即 `finish()` —— 一起抹掉的话详情页
-    //       上「导出错误报告」「打开崩溃报告目录」「打开日志」一颗都不露。
-    //   「取消 / 暂停」反过来只在活动态有意义（`ActivityCenterController::item()` 那边也
-    //   再按状态挡一道），收尾时清掉它们是这里唯一该做的事。
+    // 这里原来是一句 `task->capabilities = TaskCapabilities()`（M1 时确实没有可点的），
+    // 后来 §4.2 的「重试」和 §4.3 的崩溃项都是**收尾之后才露**的按钮：
+    // · 「重试」：`ActivityCenterController::finish()` 在 `fail()` **之前**把 `canRetry`
+    // 写进快照（`setCapabilities()` 只收活动态），结果下一句 `fail()` 走进这里又把它
+    // 整份抹掉 ⇒ `Tasks::retryOffered()` 恒 false，界面上永远没有那颗按钮；
+    // · 崩溃项（`CrashReportController::report()`）建出来那一刻就带着
+    // `canExportReport` / `canOpenCrashDir`，随即 `finish()` —— 一起抹掉的话详情页
+    // 上「导出错误报告」「打开崩溃报告目录」「打开日志」一颗都不露。
+    // 「取消 / 暂停」反过来只在活动态有意义（`ActivityCenterController::item()` 那边也
+    // 再按状态挡一道），收尾时清掉它们是这里唯一该做的事。
     task->capabilities.canCancel = false;
     task->capabilities.canPause = false;
     task->doneUnits = (state == TaskState::Succeeded) ? task->totalUnits : task->doneUnits;
@@ -285,11 +276,8 @@ bool TaskManager::setDetail(TaskId id, const QString &detail) {
 }
 
 bool TaskManager::setSessionId(TaskId id, int sessionId) {
-    // 只活在内存里（理由见 TaskSnapshot::sessionId）：这里 touch 的 persist 是 false。
-    // 收尾之后也允许补：崩溃报告那一项可能在进程已经退出之后才和会话对上。
-    //
-    // ★ 一项任务只对**一份**会话。已经对上了还要换个号 = 调用方那边把两件事搞混了，
-    //   这里不替它改口（改了口之后"这一项说的是哪一次运行"就再也说不清）。
+    // 一项任务只对**一份**会话。已经对上了还要换个号 = 调用方那边把两件事搞混了，
+    // 这里不替它改口（改了口之后"这一项说的是哪一次运行"就再也说不清）。
     TaskSnapshot *task = find(id);
     if (task == nullptr || sessionId <= 0 || task->sessionId != 0) {
         return false;

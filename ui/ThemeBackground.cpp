@@ -1,8 +1,6 @@
 /**
  * @file ThemeBackground.cpp
  * @brief ThemeBackground 的实现：铺底色、按摆法铺图，以及那两级缓存怎么失效。
- * @author 0x7fffff
- * @date 2026-09-28
  */
 
 #include "ThemeBackground.hpp"
@@ -45,18 +43,11 @@ void ThemeBackground::paintEvent(QPaintEvent *) {
     const Theme::PartImage image = Theme::partImage(m_part);
     const bool hasBase = Theme::partHasBackground(m_part);
 
-    // ★ 0) **一笔都不画**那一条路。
-    //
-    // 这一块自身的底**不是调色板里的某个色**：主页左栏和四个页面都长在选项卡内容区上，用户
-    // 看到的那一层底是 `QTabWidget` 自己画的（实测 2026-09-28：Fusion 下 #fcfcfc，而
-    // `QPalette::Window` 是 #f0f0f0 —— 差着一档）。所以"没设图、也没有人给它设过底色"时，
-    // **正确做法是让它透明**、把底下那一层原样透上来；拿 `Window` 填一遍等于把选项卡画的
-    // 那一层顶掉，屏幕上就是整块颜色悄悄变了一点（这正是加这一层时先踩到的那一脚，靠
-    // ui_shot 逐像素比出来的）。
+    // 0) **一笔都不画**那一条路。
     //
     // NOTE: 不画不等于"画一个透明色"：这条路上连 QPainter 都不建 —— Qt 的默认行为就是
-    //       子控件不盖住父控件画过的地方（我们没开 `autoFillBackground`，也没开
-    //       `WA_OpaquePaintEvent`）。
+    // 子控件不盖住父控件画过的地方（我们没开 `autoFillBackground`，也没开
+    // `WA_OpaquePaintEvent`）。
     if (!hasBase && !image.isSet()) {
         return;
     }
@@ -64,7 +55,7 @@ void ThemeBackground::paintEvent(QPaintEvent *) {
     QPainter painter(this);
 
     // 1) 底色。只有**用户自己给这一块设过底色**（`partHasBackground()`）才铺这一层 ——
-    //    设过图之后它就派上用场了：不透明度调低时透上来的是它，`contain` 四周留的也是它。
+    // 设过图之后它就派上用场了：不透明度调低时透上来的是它，`contain` 四周留的也是它。
     if (hasBase) {
         const QColor background = Theme::partBackground(m_part);
         if (background.isValid()) {
@@ -100,8 +91,8 @@ void ThemeBackground::paintEvent(QPaintEvent *) {
 
     // Cover / Contain：按当前尺寸缩一张出来，条件没变就接着用缓存的那一张。
     //
-    // ★ 判据里**必须带上源图那一串**（`m_sourceKey`）：先设一张 4:3 的、再换成一张 16:9 的，
-    //   控件尺寸一点没变 —— 光看尺寸的话，屏幕上还是上一张图缩出来的那一份（"换了没生效"）。
+    // 判据里**必须带上源图那一串**（`m_sourceKey`）：先设一张 4:3 的、再换成一张 16:9 的，
+    // 控件尺寸一点没变 —— 光看尺寸的话，屏幕上还是上一张图缩出来的那一份（"换了没生效"）。
     const QString scaledKey = m_sourceKey + QLatin1Char('|') +
                               QString::number(static_cast<int>(image.fit)) + QLatin1Char('|') +
                               QString::number(area.width()) + QLatin1Char('x') +

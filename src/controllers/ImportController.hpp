@@ -20,9 +20,9 @@ private:
     /// 一条导入流程正在走（从读清单到 `applyModpackImport` 返回）。
     ///
     /// NOTE: 这不是"在下载"（`m_downloadInFlight`），而是"还在问名字/换清单"那一小段：
-    ///       CurseForge 预览现在已经让出 UI 线程（嵌套事件循环），那期间「导入整合包…」
-    ///       和拖放**仍然点得动**。没有这道闸的话第二趟会从问名字一路走到
-    ///       `m_importingInstanceId = B`，两趟同时往 versions 下面写。
+    /// CurseForge 预览现在已经让出 UI 线程（嵌套事件循环），那期间「导入整合包…」
+    /// 和拖放**仍然点得动**。没有这道闸的话第二趟会从问名字一路走到
+    /// `m_importingInstanceId = B`，两趟同时往 versions 下面写。
     bool m_importFlow = false;
 };
 

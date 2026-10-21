@@ -1,8 +1,6 @@
 /**
  * @file ServerWorkspaceController.hpp
  * @brief 持有全部服务端进程及其生命周期，向主窗口暴露稳定的领域信号。
- * @author Agent
- * @date 2026-10
  */
 #pragma once
 

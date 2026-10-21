@@ -1,11 +1,9 @@
 /**
  * @file GameRuleNames.cpp
  * @brief 实现 GameRuleNames：官方中文名那张表（界面上盖在英文名上面的那一层）。
- * @author 0x7fffff
- * @date 2026-09-29
  * @note 这一层**只给界面看**（`ui/` 里的东西，一个字节的盘都不碰，也不参与写盘时的任何
- *       判断）—— 规则叫什么、值是什么，出处仍然是 `WorldFiles` 和盘上那份 `level.dat`。
- *       表本身是从哪儿抄的、照什么手抄，见下面那两段加长说明。
+ * 判断）—— 规则叫什么、值是什么，出处仍然是 `WorldFiles` 和盘上那份 `level.dat`。
+ * 表本身是从哪儿抄的、照什么手抄，见下面那两段加长说明。
  */
 
 #include "GameRuleNames.hpp"
@@ -18,9 +16,6 @@ namespace {
 
 /**
  * @brief **官方那张表**：从游戏自己的语言文件里抄来的规则中文名。
- *
- * 键 = 官方 `zh_cn.json` 里 `gamerule.` 后面那一段，值原样抄过来（2026-09-29 抄的，抄的是
- * 本机已装客户端 assets 里**最新那个 asset index** 指向的那一份）。
  *
  * 【怎么再抄一遍】`assets/indexes/<最新的那个>.json` 里找 `"minecraft/lang/zh_cn.json"`
  * 的 `hash`，文件就在 `assets/objects/<hash 前两位>/<hash>`；抄 `gamerule.*` 里**没有**
@@ -106,19 +101,19 @@ const QList<QPair<QString, QString>> &officialTable() {
 /**
  * @brief 别名表：**同一个规矩的另一种写法**。
  *
- * ★ 为什么需要它：官方 lang 里的键名和盘上那个规则名**不总是一样** ——
+ * 为什么需要它：官方 lang 里的键名和盘上那个规则名**不总是一样** ——
  *
- *   * 规则改过名：`spawnRadius`（1.8~1.21.1）在 1.21.2 改叫 `respawnRadius`，而 lang 里
- *     留着的还是老键；
- *   * 1.21.2 起有的规矩从"禁用某某"翻成了"启用某某"（`disableRaids` → `raids`、
- *     `disableElytraMovementCheck` → `elytraMovementCheck`），lang 里这两条**各有一条**
- *     （老的 `gamerule.disableXxx` 上面那张表里有，新的 `gamerule.minecraft.xxx_yyy` 是
- *     另一条）；
- *   * 新记法把规则名收进了命名空间（`minecraft:elytra_movement_check`），盘上、游戏里的
- *     `/gamerule` 里都可能是这一种写法。
+ * * 规则改过名：`spawnRadius`（1.8~1.21.1）在 1.21.2 改叫 `respawnRadius`，而 lang 里
+ * 留着的还是老键；
+ * * 1.21.2 起有的规矩从"禁用某某"翻成了"启用某某"（`disableRaids` → `raids`、
+ * `disableElytraMovementCheck` → `elytraMovementCheck`），lang 里这两条**各有一条**
+ * （老的 `gamerule.disableXxx` 上面那张表里有，新的 `gamerule.minecraft.xxx_yyy` 是
+ * 另一条）；
+ * * 新记法把规则名收进了命名空间（`minecraft:elytra_movement_check`），盘上、游戏里的
+ * `/gamerule` 里都可能是这一种写法。
  *
- *   所以这一张表认另一头那几种写法。**多出来的条目不会凭空多出规则** —— 这一层只翻译
- *   名字，列表里有什么是 `WorldFiles::allGameRules()` 说了算。
+ * 所以这一张表认另一头那几种写法。**多出来的条目不会凭空多出规则** —— 这一层只翻译
+ * 名字，列表里有什么是 `WorldFiles::allGameRules()` 说了算。
  */
 const QList<QPair<QString, QString>> &aliasTable() {
     static const QList<QPair<QString, QString>> table = {

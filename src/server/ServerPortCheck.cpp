@@ -1,8 +1,6 @@
 /**
  * @file ServerPortCheck.cpp
  * @brief 端口占用那一次的落点（形状与取舍见头文件）。
- * @author 0x7fffff
- * @date 2026-10-13
  */
 
 #include "server/ServerPortCheck.hpp"
@@ -24,9 +22,9 @@ State stateOf(int port, QString *problemOut) {
         return State::Unknown;
     }
     QTcpServer probe;
-    // ★ 听的是 `Any`（0.0.0.0）而不是 `LocalHost`：服务端自己听的就是 `Any`，而"127.0.0.1
-    //   上没人占"和"这个端口能拿来开服"是两件事 —— 别的程序在别的网卡地址上占着同一个端口号
-    //   时，服务端起手那一句 `bind` 会失败。
+    // 听的是 `Any`（0.0.0.0）而不是 `LocalHost`：服务端自己听的就是 `Any`，而"127.0.0.1
+    // 上没人占"和"这个端口能拿来开服"是两件事 —— 别的程序在别的网卡地址上占着同一个端口号
+    // 时，服务端起手那一句 `bind` 会失败。
     const bool listening = probe.listen(QHostAddress::Any, static_cast<quint16>(port));
     if (listening) {
         probe.close();

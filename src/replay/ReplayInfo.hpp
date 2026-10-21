@@ -1,8 +1,6 @@
 /**
  * @file ReplayInfo.hpp
  * @brief 读一份 ReplayMod 录像（`.mcpr`）的**元数据**。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 【这是拿来干什么的】
  *
@@ -17,8 +15,8 @@
  *
  * 它就是一个 zip（ReplayMod 自己写的），我们只读其中两样：
  *
- *   · `metaData.json` —— 录制开始时写的那一份（版本、时长、时间、作者那一批玩家）；
- *   · `recording.tmcpr` —— 真正的数据流（`int32 时间戳 + int32 长度 + 包体`）。
+ * · `metaData.json` —— 录制开始时写的那一份（版本、时长、时间、作者那一批玩家）；
+ * · `recording.tmcpr` —— 真正的数据流（`int32 时间戳 + int32 长度 + 包体`）。
  *
  * **只读 `metaData.json`**：`recording.tmcpr` 动辄几百 MB，把它整个读出来只为数一数
  * 有几个包，是拿界面的一次点击换一次几百 MB 的 IO。所以这里**只起一个 PowerShell
@@ -29,9 +27,9 @@
  *
  * 和 `SchematicInfo` 一个口径：认不出来就如实说，**不猜**。
  *
- *   · 不是 zip / 坏了 ⇒ `problem` 里说「打不开」；
- *   · 是 zip 但没有 `metaData.json` ⇒ 说「不是 Replay 录像」；
- *   · JSON 解析失败 ⇒ 说「元数据读不懂」。
+ * · 不是 zip / 坏了 ⇒ `problem` 里说「打不开」；
+ * · 是 zip 但没有 `metaData.json` ⇒ 说「不是 Replay 录像」；
+ * · JSON 解析失败 ⇒ 说「元数据读不懂」。
  *
  * 【哪些字段可能没有】
  *

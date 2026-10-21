@@ -38,9 +38,9 @@ void BackupController::shutdown() {
     if (m_thread != nullptr) {
         m_thread->wait();
     }
-    // ★ 2026-10-20：指针可能已经被放掉了（见 startWrite / startRestore 里那段），而那条线程
-    //   还在最后几条指令里。析构 QObject 会把子对象连同一条仍在跑的线程一起删掉 ⇒ qFatal。
-    //   按子对象兜一遍底，保证收手时它们都已经退出。
+    // 指针可能已经被放掉了（见 startWrite / startRestore 里那段），而那条线程
+    // 还在最后几条指令里。析构 QObject 会把子对象连同一条仍在跑的线程一起删掉 ⇒ qFatal。
+    // 按子对象兜一遍底，保证收手时它们都已经退出。
     for (QThread *thread : findChildren<QThread *>()) {
         if (thread != m_thread) thread->wait();
     }
@@ -71,8 +71,6 @@ QString BackupController::pickLine(const QString &zipPath, const QString &from) 
     QString line = tr("%1（%2，%3）")
                        .arg(info.fileName(), sizeText(info.size()),
                             info.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm")));
-    // ★ 2026-10-20：两份实例里同名的世界（都叫 world / 新世界）备份打出来是一样的名字。
-    //   清单里本来就记了"从哪一份实例备出来的"，摆出来才分得清该挑哪一份。
     if (!from.isEmpty()) {
         line += tr(" · 来自「%1」").arg(from);
     }
@@ -107,13 +105,11 @@ void BackupController::pickZip(BackupFiles::Kind kind, const QString &label, con
         if (!entry.fileName().startsWith(prefix, Qt::CaseInsensitive)) {
             continue;
         }
-        // ★ 2026-10-20：文件名只是"看着像"，说了算的是包里那份清单。
-        //
-        //   原来这里只比名字前缀 ⇒ 三件事都能漏进来：从别处拷进备份目录、恰好叫得
-        //   像模像样的 zip；改了名/换过实例之后留下来的旧包；以及**世界备份**被挪到
-        //   `instances/` 目录里（前缀碰巧一样时）。还原的最后一步是拿 `manifest.root`
-        //   拼落点、把那个目录**整个换掉**，所以"名字对不对"必须在**列出来之前**问，
-        //   不是等用户挑完、点了"还原"再由 `readManifest` 报错。
+        // 原来这里只比名字前缀 ⇒ 三件事都能漏进来：从别处拷进备份目录、恰好叫得
+        // 像模像样的 zip；改了名/换过实例之后留下来的旧包；以及**世界备份**被挪到
+        // `instances/` 目录里（前缀碰巧一样时）。还原的最后一步是拿 `manifest.root`
+        // 拼落点、把那个目录**整个换掉**，所以"名字对不对"必须在**列出来之前**问，
+        // 不是等用户挑完、点了"还原"再由 `readManifest` 报错。
         bool readable = false;
         QString problem;
         const BackupFiles::Manifest manifest =
@@ -158,11 +154,11 @@ void BackupController::pickZip(BackupFiles::Kind kind, const QString &label, con
                 .arg(what, QDir::toNativeSeparators(dir)));
         return;
     }
-    // ★ 2026-10-20：原来这里是把文件名**从大到小**排（`std::greater<QString>`）。可是
-    //   自动留下的「恢复前-」安全快照在名字里多插了一段汉字，而汉字的码位在数字之后
-    //   ⇒ 每一份安全快照都排到了**最新的常规备份前面**。刚还原过一次，列表最上面就是
-    //   刚才自动留的那一份，"越上面越新"当场不成立，点下去还原的其实是很久以前那份。
-    //   排序挪进 `BackupFiles::sortBackupsNewestFirst()`（纯函数，verify 里有一条钉子）。
+    // 原来这里是把文件名**从大到小**排（`std::greater<QString>`）。可是
+    // 自动留下的「恢复前-」安全快照在名字里多插了一段汉字，而汉字的码位在数字之后
+    // ⇒ 每一份安全快照都排到了**最新的常规备份前面**。刚还原过一次，列表最上面就是
+    // 刚才自动留的那一份，"越上面越新"当场不成立，点下去还原的其实是很久以前那份。
+    // 排序挪进 `BackupFiles::sortBackupsNewestFirst()`（纯函数，verify 里有一条钉子）。
     zips = BackupFiles::sortBackupsNewestFirst(zips, prefix);
     QStringList items;
     for (const QString &zip : std::as_const(zips)) {
@@ -212,10 +208,10 @@ void BackupController::backupWorld(const QString &worldDir) {
     manifest.scope = QStringList{tr("这个存档的整个文件夹")};
     const QString zip = QDir(BackupFiles::backupDir(BackupFiles::Kind::World))
                             .filePath(BackupFiles::backupFileName(worldName, now));
-    // ★ 2026-10-19：这一趟在**读整棵目录树**（世界那一棵，连同它所在的实例）。跑着的
-    //   这十几秒里实例如果被删 / 改名 / 启动，包里会静默少掉正被改的那几个文件，收尾
-    //   却照样报"备份完成"。记进和复制 / 还原同一个集合 —— 那一条是 `installingVersionIds()`
-    //   的唯一出处，启动、改名、删除三处读的都是它。收尾在 writeFinished() 里摘。
+    // 这一趟在**读整棵目录树**（世界那一棵，连同它所在的实例）。跑着的
+    // 这十几秒里实例如果被删 / 改名 / 启动，包里会静默少掉正被改的那几个文件，收尾
+    // 却照样报"备份完成"。记进和复制 / 还原同一个集合 —— 那一条是 `installingVersionIds()`
+    // 的唯一出处，启动、改名、删除三处读的都是它。收尾在 writeFinished() 里摘。
     m_writeInstanceId = instanceId;
     if (!instanceId.isEmpty() && m_host.setFileOperationBusy) {
         m_host.setFileOperationBusy(instanceId, true);
@@ -263,12 +259,12 @@ void BackupController::restoreWorld(const QString &worldDir, InstanceSettingsDia
         || (m_host.isBeingModified && m_host.isBeingModified(instanceId))) return;
     m_refreshWorldDir = worldDir;
     m_refreshDialog = dialog;
-    // ★ 2026-10-19：和「还原实例」同一个理由（见 restoreInstance() 那段）—— 这一趟
-    //   要把存档目录整个换掉，跑着的时候这一份实例不能启动、不能删（启动器读到的
-    //   会是换到一半的存档；删除则会让解压往一个正在被删的目录里写）。
-    //   复用 `m_restoreInstanceId` 记账：上面 `busy()` 挡着，世界还原和实例还原
-    //   不会同时跑。**不收那一页**（`m_restoreDialog` 这里刻意不设）—— 世界还原
-    //   只需要重列那几行存档，页面留着才是用户想看的。
+    // 和「还原实例」同一个理由（见 restoreInstance() 那段）—— 这一趟
+    // 要把存档目录整个换掉，跑着的时候这一份实例不能启动、不能删（启动器读到的
+    // 会是换到一半的存档；删除则会让解压往一个正在被删的目录里写）。
+    // 复用 `m_restoreInstanceId` 记账：上面 `busy()` 挡着，世界还原和实例还原
+    // 不会同时跑。**不收那一页**（`m_restoreDialog` 这里刻意不设）—— 世界还原
+    // 只需要重列那几行存档，页面留着才是用户想看的。
     m_restoreInstanceId = instanceId;
     if (!instanceId.isEmpty() && m_host.setFileOperationBusy) {
         m_host.setFileOperationBusy(instanceId, true);
@@ -335,11 +331,11 @@ void BackupController::snapshotInstance(const QString &versionId) {
     }
     const QString zip = QDir(BackupFiles::backupDir(BackupFiles::Kind::Instance))
                             .filePath(BackupFiles::backupFileName(dirName, now));
-    // ★ 2026-10-19：开头那两道闸（isBeingModified / isRunning）只管**按下这一颗那一刻**。
-    //   快照的这十几秒一直在读这棵目录树；期间这一份实例照样能被删掉、被改名、被启动
-    //   （启动后游戏往存档 / 日志里写），结果就是包里少了那些文件、而收尾照样报
-    //   "快照创建完成" —— 一份看着成功、其实是残的备份比失败更糟。记进和复制 / 还原
-    //   同一个集合（`installingVersionIds()` 的唯一出处），收尾在 writeFinished() 里摘。
+    // 开头那两道闸（isBeingModified / isRunning）只管**按下这一颗那一刻**。
+    // 快照的这十几秒一直在读这棵目录树；期间这一份实例照样能被删掉、被改名、被启动
+    // （启动后游戏往存档 / 日志里写），结果就是包里少了那些文件、而收尾照样报
+    // "快照创建完成" —— 一份看着成功、其实是残的备份比失败更糟。记进和复制 / 还原
+    // 同一个集合（`installingVersionIds()` 的唯一出处），收尾在 writeFinished() 里摘。
     m_writeInstanceId = versionId;
     if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(versionId, true);
     startWrite(manifest, instanceDir, zip,
@@ -382,14 +378,8 @@ void BackupController::restoreInstance(const QString &versionId, InstanceSetting
             tr("还原"), tr("取消"), false, true)) {
         return;
     }
-    // ★ 2026-10-19：还原是"整个目录换掉"，可原来这一趟**没有任何"忙"标记** ——
-    //   还原跑着的这十几秒里，这一份实例照样能被启动（启动器去读一半是新、一半是旧的
-    //   jar / libraries）、能被删掉（快照解压还在往同一个目录里写），开着的那一页也
-    //   照样能改设置（改的是马上要被换掉的文件，收尾时这些改动静默消失）。
-    //   开头那两道闸只管"按下这一颗那一刻"。
-    //
-    //   记进和「复制实例」同一个集合（`MainWindow::installingVersionIds()` 的唯一出处），
-    //   收尾时先摘掉它再刷新实例清单。页面先禁用：这一趟结束之后它上面的值全是旧的。
+    // 记进和「复制实例」同一个集合（`MainWindow::installingVersionIds()` 的唯一出处），
+    // 收尾时先摘掉它再刷新实例清单。页面先禁用：这一趟结束之后它上面的值全是旧的。
     if (!alive || AppPaths::minecraftDir() != root || busy()
         || (m_host.isRunning && m_host.isRunning(versionId))
         || (m_host.isBeingModified && m_host.isBeingModified(versionId))) return;
@@ -413,9 +403,9 @@ Tasks::TaskId BackupController::startWrite(const BackupFiles::Manifest &manifest
                                  {tr("打包"), Tasks::TaskStepState::Pending, {}}};
     m_taskId = m_activity->begin(Tasks::TaskKind::Backup, title, targetId, steps);
     m_refreshServerId = refreshServerId;
-    // ★ 2026-10-20：服务端世界的那一趟（备份 / 还原）读 / 换的是**这一个服务端**的目录。
-    //   跑着的时候它不能启动、不能删 —— 原来只有实例那一侧记了"动不得"，服务端这条
-    //   路一个标记都没有（见 MainWindow::startServer() / removeServer() 那两道闸）。
+    // 服务端世界的那一趟（备份 / 还原）读 / 换的是**这一个服务端**的目录。
+    // 跑着的时候它不能启动、不能删 —— 原来只有实例那一侧记了"动不得"，服务端这条
+    // 路一个标记都没有（见 MainWindow::startServer() / removeServer() 那两道闸）。
     m_busyServerId = refreshServerId;
     if (!m_busyServerId.isEmpty() && m_host.setServerFileOperationBusy) {
         m_host.setServerFileOperationBusy(m_busyServerId, true);
@@ -424,13 +414,13 @@ Tasks::TaskId BackupController::startWrite(const BackupFiles::Manifest &manifest
                               QDir::toNativeSeparators(targetZip)));
     m_abort.storeRelaxed(0);
     if (m_thread != nullptr) {
-        // ★ 2026-10-20：**不能**在这里对旧的那条调 deleteLater()。能走到这儿，是因为上一趟的
-        //   收尾函数已经跑过了（任务号收了、忙态放了）—— 但那一条 `QThread` 这会儿往往还差
-        //   最后几条指令才退出 `run()`。对一条仍在跑的 QThread 调 deleteLater() 会让 Qt 处理
-        //   DeferredDelete 时 `qFatal("QThread: Destroyed while thread is still running")`，
-        //   整个启动器当场消失（ServerPing 那边 2026-10-19、IntegrityController 那边今天都
-        //   踩过同一个坑）。线程对象自己接好了 finished → deleteLater（见下面创建处），
-        //   这里只放掉指针。
+        // **不能**在这里对旧的那条调 deleteLater()。能走到这儿，是因为上一趟的
+        // 收尾函数已经跑过了（任务号收了、忙态放了）—— 但那一条 `QThread` 这会儿往往还差
+        // 最后几条指令才退出 `run()`。对一条仍在跑的 QThread 调 deleteLater() 会让 Qt 处理
+        // DeferredDelete 时 `qFatal("QThread: Destroyed while thread is still running")`，
+        // 整个启动器当场消失（ServerPing 那边 、IntegrityController 那边今天都
+        // 踩过同一个坑）。线程对象自己接好了 finished → deleteLater（见下面创建处），
+        // 这里只放掉指针。
         m_thread = nullptr;
     }
     m_thread = QThread::create([this, manifest, sourceDir, targetZip, successTitle, failureTitle] {
@@ -478,9 +468,9 @@ Tasks::TaskId BackupController::startRestore(const QString &zipPath,
         m_thread = nullptr;
     }
     m_thread = QThread::create([this, zipPath, targetParentDir, successTitle, failureTitle] {
-        // ★ 2026-10-20：还原也接上和创建备份同一条停止条件（关窗 / 整项 600 秒预算）。
-        //   它**只在挪走「现在这一份」之前**生效（判据在 restoreBackup 里）；一旦开始
-        //   替换目录就必须走完，停下会让用户既没有旧的也没有新的。
+        // 还原也接上和创建备份同一条停止条件（关窗 / 整项 600 秒预算）。
+        // 它**只在挪走「现在这一份」之前**生效（判据在 restoreBackup 里）；一旦开始
+        // 替换目录就必须走完，停下会让用户既没有旧的也没有新的。
         QElapsedTimer elapsed;
         elapsed.start();
         const auto result = BackupFiles::restoreBackup(
@@ -506,10 +496,10 @@ Tasks::TaskId BackupController::startRestore(const QString &zipPath,
 void BackupController::writeFinished(const BackupFiles::WriteResult &result,
                                      const QString &successTitle,
                                      const QString &failureTitle) {
-    // ★ 先摘"正在读这一份实例"的标记、再刷新（理由和 restoreFinished() 那一段逐字
-    //   相同）：`refreshInstalledVersions()` 会按 `installingVersionIds()` 把忙的那一份
-    //   从启动列表里滤掉，反过来的话刚摘掉标记这一趟刷新还看不见它。快照本身没动盘，
-    //   但这一趟期间别的刷新可能已经把这一份滤掉过，所以这里补一发。
+    // 先摘"正在读这一份实例"的标记、再刷新（理由和 restoreFinished() 那一段逐字
+    // 相同）：`refreshInstalledVersions()` 会按 `installingVersionIds()` 把忙的那一份
+    // 从启动列表里滤掉，反过来的话刚摘掉标记这一趟刷新还看不见它。快照本身没动盘，
+    // 但这一趟期间别的刷新可能已经把这一份滤掉过，所以这里补一发。
     const QString writtenId = m_writeInstanceId;
     m_writeInstanceId.clear();
     if (!writtenId.isEmpty() && m_host.setFileOperationBusy) {
@@ -543,8 +533,8 @@ void BackupController::writeFinished(const BackupFiles::WriteResult &result,
                                        .arg(result.manifest.fileCount())
                                        .arg(sizeText(result.manifest.totalBytes)));
     } else {
-        // ★ 2026-10-20：失败这一路原来拿**成功标题**去弹（「备份完成」下面的正文说
-        //   "没打成"）。标题和正文自相矛盾，用户扫一眼标题就当成功了。
+        // 失败这一路原来拿**成功标题**去弹（「备份完成」下面的正文说
+        // "没打成"）。标题和正文自相矛盾，用户扫一眼标题就当成功了。
         const QString title = failureTitle.isEmpty() ? tr("没有完成") : failureTitle;
         log(tr("%1：%2").arg(title, result.problem));
         InlineMessage::warning(m_overlay, title, result.problem);

@@ -1,8 +1,6 @@
 /**
  * @file InstanceMaintenanceController.cpp
  * @brief 实现实例配置与世界 level.dat 的轻量备份。
- * @author Agent
- * @date 2026-10
  */
 #include "controllers/InstanceMaintenanceController.hpp"
 
@@ -24,15 +22,15 @@ namespace {
 
 /// 一个存档在 `<数据目录>/cache/world-backups` 底下占的**格子名**。
 ///
-/// ★★ 2026-10-20：原来这里只用**存档目录名**（`QFileInfo(worldDir).fileName()`），于是
-///    两个实例各有一个叫 `world`（中文环境里更常见的是都叫「新的世界」）的存档就共用一个
-///    格子，两件坏事同时发生：
-///      · 清理按"每个格子只留最近 N 代"算 —— A 备份一次就把 B 的代数挤掉一份，B 那份
-///        可能是唯一一份；
-///      · `latestWorldBackup()` 会拿到**另一个世界**的 level.dat，而界面上那句提示正是
-///        "要还原的话把那一份拷回存档目录" —— 用户照着做，拿到的是别人的种子、地形生成
-///        设置和出生点，而原来那份再也回不来了（自动备份只留 N 代，早被挤掉）。
-///    所以格子名必须能区分"哪个实例的哪个世界"。
+/// 原来这里只用**存档目录名**（`QFileInfo(worldDir).fileName()`），于是
+/// 两个实例各有一个叫 `world`（中文环境里更常见的是都叫「新的世界」）的存档就共用一个
+/// 格子，两件坏事同时发生：
+/// · 清理按"每个格子只留最近 N 代"算 —— A 备份一次就把 B 的代数挤掉一份，B 那份
+/// 可能是唯一一份；
+/// · `latestWorldBackup()` 会拿到**另一个世界**的 level.dat，而界面上那句提示正是
+/// "要还原的话把那一份拷回存档目录" —— 用户照着做，拿到的是别人的种子、地形生成
+/// 设置和出生点，而原来那份再也回不来了（自动备份只留 N 代，早被挤掉）。
+/// 所以格子名必须能区分"哪个实例的哪个世界"。
 ///
 /// 标准布局 `<数据目录>/versions/<实例 id>/saves/<世界>` 下取
 /// `"<实例 id>__<世界>-<绝对路径哈希>"`：
@@ -40,11 +38,11 @@ namespace {
 /// 那是"另一个世界"了，正是这里要的。别的布局拿绝对路径的短哈希兜底（**不能**只退回
 /// 世界名，那正是这次要修的那个撞车）。
 ///
-/// ★ 2026-10-20 补：**最后那段哈希不能省**。`__` 在实例名和世界名里都是合法字符
-///   （`validatePathSegment` 只挡 `<>:"/\|?*`），所以纯 `实例__世界` 仍然不是单射：
-///   实例「SMP__2024」+ 世界「old」和实例「SMP」+ 世界「2024__old」拼出来是同一个
-///   格子名 —— 两个不同世界的 level.dat 又回到"互相挤掉代数、latestWorldBackup()
-///   拿到别人的文件"那条老路上。加了绝对路径的哈希之后两边才真正分开。
+/// 补：**最后那段哈希不能省**。`__` 在实例名和世界名里都是合法字符
+/// （`validatePathSegment` 只挡 `<>:"/\|?*`），所以纯 `实例__世界` 仍然不是单射：
+/// 实例「SMP__2024」+ 世界「old」和实例「SMP」+ 世界「2024__old」拼出来是同一个
+/// 格子名 —— 两个不同世界的 level.dat 又回到"互相挤掉代数、latestWorldBackup()
+/// 拿到别人的文件"那条老路上。加了绝对路径的哈希之后两边才真正分开。
 QString worldBackupSlot(const QString &worldDir) {
     const QFileInfo info(worldDir);
     const QString worldName = info.fileName();
@@ -182,8 +180,8 @@ QStringList InstanceMaintenanceController::migrateWorldBackupSlots(
     if (oldInstanceDir.trimmed().isEmpty() || newInstanceDir.trimmed().isEmpty()) {
         return problems;
     }
-    // ★ 列的是**新**目录：这一条在改名成功之后才调，旧目录已经不在了。世界目录相对
-    //   `saves/` 的那一段没变，所以拿它拼回旧路径就能算出旧格子名。
+    // 列的是**新**目录：这一条在改名成功之后才调，旧目录已经不在了。世界目录相对
+    // `saves/` 的那一段没变，所以拿它拼回旧路径就能算出旧格子名。
     const QDir newSaves(QDir(newInstanceDir).filePath(QStringLiteral("saves")));
     const QString root = AppPaths::worldBackupDir();
     int moved = 0;

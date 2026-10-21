@@ -1,11 +1,7 @@
 /**
  * @file JavaMismatchDialog.cpp
- * @brief Implements the "instance Java does not match this version" three-way dialog.
- * @author 0x7fffff
- * @date 2026-09-21
- * @note 布局从上到下：正文 → 「以后不再提醒」→ 按钮那一排。正文里必须同时出现
- *       **实例名**和**两个版本号** —— 用户看到这个框时的第一反应是"我哪个实例又出事了"，
- *       少写一个他就得自己去猜。
+ * @brief 实现实例 Java 与版本要求不匹配时的三岔口对话框。
+ * @note 正文必须同时显示实例名和两个 Java 版本。
  */
 
 #include "JavaMismatchDialog.hpp"
@@ -23,7 +19,7 @@
 namespace {
 
 /// 实际那个 Java 的可读写法。版本串可能是空的（release 快路径不回填 versionOutput），
-/// 所以这里必须兜住"只有主版本号"这一种，否则正文里会出现「Java （）」。
+/// 所以这里必须兜住"只有主版本号"这一种，否则正文里会出现「Java 」。
 QString describeActual(int actualMajor, const QString &actualVersionText) {
     const QString text = actualVersionText.trimmed();
     if (text.isEmpty()) {
@@ -51,12 +47,6 @@ JavaMismatchDialog::JavaMismatchDialog(const QString &instanceName, int expected
                                        const QString &javaPath, QWidget *parent)
     : QDialog(parent) {
     setWindowTitle(tr("Java 版本对不上"));
-    // 2026-09-25：原来这里有一句 `setMinimumWidth(560)`。它当时的意思是"这句话很长，别挤
-    // 成一条竖线"。现在这个框开在**内容区中间那一块**里（见 OverlayHost::execPrompt），
-    // 而那一块的宽度是**全项目一个常数**（`promptWidth()`，用户原话「不会让界面出现
-    // 尺寸不一样的弹窗」）—— 560 会把这一档撑成跟别的提示不一样宽，所以那句话去掉了。
-    // 宽度改由下面那个正文标签**钉成 `promptContentWidth()`**：和 `InlineMessageBox`
-    // 同一套做法，钉了之后"这段字换几行"是个确定的数，卡片的 `sizeHint().height()` 才准。
 
     auto *layout = new QVBoxLayout(this);
     // 留白由卡片自己给（`promptPadding()`），这里再给一层就成了双层留白。

@@ -1,8 +1,6 @@
 /**
  * @file TaskHistory.hpp
  * @brief 任务历史的**落盘**：只存摘要与错误，存成一份 JSON。
- * @author 0x7fffff
- * @date 2026-10-12
  *
  * coding plan §3.2 末段：「任务历史只持久化摘要与错误，**不持久化 QObject、进程句柄或活动
  * 网络请求**。启动器异常退出后，上次未完成的项目在历史里标记为'已中断'，不自动假装继续」。
@@ -17,7 +15,7 @@
  * 默认落在 `<启动器自带数据目录>/wtfml.tasks`。它是启动器级账本，不能跟着用户当前选中的
  * 游戏文件夹切换；否则内存里的任务会在下一次落盘时被整本写进另一份 `.minecraft`。这个
  * 固定目录仍在 exe 旁边，因此保留“整个启动器连带数据可以整体拷走”的约定。
- * ★ **扩展名故意不是 `.json`**：那一条约定写在
+ * **扩展名故意不是 `.json`**：那一条约定写在
  * `src/util/AppPaths.hpp` 的 `instanceGroupFilePath()` 那一段（"它是给启动器读写的配置文件，
  * 扩展名跟别的 json 混在一起，早晚有人拿它当'某个版本的元数据'去读"）。coding plan 的草图
  * 里写的是 `tasks.json`，落成 `wtfml.tasks` 是为了合这条已经立过的规矩。
@@ -45,8 +43,8 @@ namespace Tasks {
 QString defaultHistoryPath();
 
 /// 账本里最多留几条**已完成**的（多了从最老的开始丢）。第 0 条是最近的。
-/// ★ 盘上与运行期内存用**同一把尺子**：`saveHistory()` 和 `TaskManager::pruneFinished()`
-///   都读它，不再出现"面板里有 N 条、重启后只剩最近 50 条"。
+/// 盘上与运行期内存用**同一把尺子**：`saveHistory()` 和 `TaskManager::pruneFinished()`
+/// 都读它，不再出现"面板里有 N 条、重启后只剩最近 50 条"。
 int finishedHistoryLimit();
 
 /// 账本 ⇒ JSON 字节。**纯函数**：喂什么写什么，不看盘也不看时钟。
@@ -54,9 +52,9 @@ QByteArray toJson(const QList<TaskSnapshot> &tasks);
 
 /// JSON 字节 ⇒ 账本。读不动就回空表（`ok` 不是 nullptr 时写 false）。
 ///
-/// ★ 它**原样**读回来：盘上写着 `Running` 就回 `Running`。"上次没跑完的那些算已中断"那条
-///   规则不在这里，在 `load()` —— 分开是为了两件事各自可测（`markInterrupted()` 有自己
-///   的真值表，见 tests/main.cpp）。
+/// 它**原样**读回来：盘上写着 `Running` 就回 `Running`。"上次没跑完的那些算已中断"那条
+/// 规则不在这里，在 `load()` —— 分开是为了两件事各自可测（`markInterrupted()` 有自己
+/// 的真值表，见 tests/main.cpp）。
 QList<TaskSnapshot> fromJson(const QByteArray &bytes, bool *ok = nullptr);
 
 /// 把**非终态**的那几项改成 `Interrupted`。

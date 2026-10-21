@@ -246,11 +246,11 @@ static Result prepareAndCommitImpl(Request r, const Core &core, const std::funct
     //
     // Only these two names count as the previous core (other jars in a version directory,
     // e.g. `lwjgl3ify-forgePatches.jar`, are required at runtime and must not be touched):
-    //   · `<json id>.jar` (both vanilla and instances the launcher created), and
-    //   · `<json stem>.jar` (the leftover half of a rename).
+    // · `<json id>.jar` (both vanilla and instances the launcher created), and
+    // · `<json stem>.jar` (the leftover half of a rename).
     // NOTE: the json's own `jar` field is *not* used — in a version json it names another
-    //       *version id*, not a file in this directory, so deleting by it could hit an
-    //       unrelated jar.
+    // *version id*, not a file in this directory, so deleting by it could hit an
+    // unrelated jar.
     const QString oldJsonName = InstanceFiles::jsonName(r.instanceId);
     if (oldJsonName.contains('/') || oldJsonName.contains('\\') || oldJsonName.contains(':')) {
         result.problem = QStringLiteral("旧版本信息文件名不安全，原实例未改变。"); return result;
@@ -550,10 +550,10 @@ QStringList recoverInterrupted(const QString &gameDir) {
         QFile f(root.filePath(id + "/journal.json"));
         if (redirected(root.filePath(id)) || redirected(f.fileName())) continue;
         if (!f.exists()) {
-            // ★ 2026-10-20：没有清单的事务目录只有两种来路 —— 「准备」拷到一半就崩了
-            //   （暂存里有整整一份实例，几个 GB，永远没人清），或者**另一个启动器正在拷**
-            //   （这份程序没有"只许开一个"的锁）。判据用"最近改过没有"：正在拷的那一份
-            //   时时刻刻在写文件；半个小时没人碰它，就只能是一具尸体。
+            // 没有清单的事务目录只有两种来路 —— 「准备」拷到一半就崩了
+            // （暂存里有整整一份实例，几个 GB，永远没人清），或者**另一个启动器正在拷**
+            // （这份程序没有"只许开一个"的锁）。判据用"最近改过没有"：正在拷的那一份
+            // 时时刻刻在写文件；半个小时没人碰它，就只能是一具尸体。
             const QString txn = QDir(gameDir).filePath("cache/instance-upgrades/" + id);
             const bool shaped = QRegularExpression("^[A-Za-z0-9-]{1,80}$").match(id).hasMatch();
             if (shaped && !QFileInfo(txn + "/original").isDir()

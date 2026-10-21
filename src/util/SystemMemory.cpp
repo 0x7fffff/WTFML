@@ -1,8 +1,6 @@
 /**
  * @file SystemMemory.cpp
  * @brief SystemMemory 的实现（Windows 走 GlobalMemoryStatusEx）。
- * @author 0x7fffff
- * @date 2026-09-20
  */
 
 #include "SystemMemory.hpp"

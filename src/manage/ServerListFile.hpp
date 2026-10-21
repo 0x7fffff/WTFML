@@ -1,12 +1,10 @@
 /**
  * @file ServerListFile.hpp
  * @brief 服务器列表那一页的写侧：**改 / 加 / 删** `servers.dat` 里的条目（读那一半仍旧走
- *        `NbtUtil`）。
- * @author 0x7fffff
- * @date 2026-10-10
- * @note 用户 2026-10-10 原话：「在服务器列表那里做一个编辑地址和名称的功能」。
- *       2026-10-10 稍后补上同一页的另两件事，用户原话：「编辑要能改名字改地址以及删除，
- *       服务器那个页面里放一个添加服务器的按钮，允许添加」。
+ * `NbtUtil`）。
+ * @note 要求：「在服务器列表那里做一个编辑地址和名称的功能」。
+ * 稍后补上同一页的另两件事，要求：「编辑要能改名字改地址以及删除，
+ * 服务器那个页面里放一个添加服务器的按钮，允许添加」。
  *
  * 【为什么新开一个文件，而不是往 NbtUtil 里加一个写入端】
  *
@@ -19,13 +17,13 @@
  * 【换过来的约束：不认识就不写】
  *
  * 写这一侧的纪律是「**读不懂就不动**」，具体三条：
- *   1. 解析走 `NbtTree`（整棵树，不是跳着读）—— 认不出的类型 / 越界的长度 / 末尾多出来
- *      一截，它一律当场拒绝，我们跟着一个字节都不写；
- *   2. **只动 `name` 和 `ip` 两格**，同一个复合标签里别的项（`icon` / `hidden` /
- *      `acceptTextures` / 将来新加的）原样带着走 —— `NbtTree` 保序，所以"没碰过的地方
- *      逐字节不变"这件事在盘上真成立；
- *   3. 认的是**值不是下标**（见 `updateEntry()` 的 @param）—— `NbtUtil::readServerList()`
- *      会**跳过**没有 `ip` 的元素，拿它的下标当行号去改盘上第 N 个元素，就会改错行。
+ * 1. 解析走 `NbtTree`（整棵树，不是跳着读）—— 认不出的类型 / 越界的长度 / 末尾多出来
+ * 一截，它一律当场拒绝，我们跟着一个字节都不写；
+ * 2. **只动 `name` 和 `ip` 两格**，同一个复合标签里别的项（`icon` / `hidden` /
+ * `acceptTextures` / 将来新加的）原样带着走 —— `NbtTree` 保序，所以"没碰过的地方
+ * 逐字节不变"这件事在盘上真成立；
+ * 3. 认的是**值不是下标**（见 `updateEntry()` 的 @param）—— `NbtUtil::readServerList()`
+ * 会**跳过**没有 `ip` 的元素，拿它的下标当行号去改盘上第 N 个元素，就会改错行。
  *
  * 这三条**改 / 加 / 删 三个入口一字不差地用同一套**（`addEntry` / `removeEntry` 就是照
  * `updateEntry` 的样子长出来的）：认不出整棵树就一个字节都不写，认准了那一条才动它，
@@ -64,9 +62,9 @@ namespace ServerListFile {
 
 /// 这个实例的 `servers.dat` 在哪儿 —— `AppPaths::versionDir(versionId) + "/servers.dat"`。
 ///
-/// ★ 这串路径**只有这一份实现**：写侧三个入口的调用方（`MainWindow`）和读侧原来各拼各的
-///   （`MainWindow.cpp` 里内联了三处），拼错一处就是"改了这份、读的是那份"。摆在这儿是因为
-///   三个入口本来就要一个 `datPath`，而这是它在真实世界里唯一的那一个值。
+/// 这串路径**只有这一份实现**：写侧三个入口的调用方（`MainWindow`）和读侧原来各拼各的
+/// （`MainWindow.cpp` 里内联了三处），拼错一处就是"改了这份、读的是那份"。摆在这儿是因为
+/// 三个入口本来就要一个 `datPath`，而这是它在真实世界里唯一的那一个值。
 QString pathFor(const QString &versionId);
 
 /// 读一遍服务器列表。**就是 `NbtUtil::readServerList()`**，在这儿转一道手只是为了让
@@ -82,19 +80,19 @@ NbtUtil::Status read(const QString &datPath, QList<NbtUtil::ServerEntry> *out,
  * @param oldAddress 这一条现在的地址（`ip` 那一格）。
  * @param newName 改成什么名字（空串 = 名字留空，游戏里显示成"未命名"）。
  * @param newAddress 改成什么地址。**空串直接拒绝** —— 地址是这一条唯一的实质内容
- *        （理由同 `NbtUtil::readServerList()` 跳过没有 `ip` 的元素那一条）。
+ * （理由同 `NbtUtil::readServerList()` 跳过没有 `ip` 的元素那一条）。
  * @param problemOut 失败时给用户看的一句话。
  * @return 成功（真的换了盘上那一份）返回 true。
  *
- * ★ **认的是值不是下标**：先在 `servers` 那个 list 里找"`ip` 逐字等于 @p oldAddress 且
- *   `name` 逐字等于 @p oldName"的那一格；找不到再退一步只按 `ip` 找。名字和地址都没
- *   对上时**不写**（报「这一条已经不在文件里了」）—— 用户在这一页上点编辑的这段时间里，
- *   游戏那头（或者别的工具）可能已经把这份文件重写过了，照着下标去改就是改错行。
+ * **认的是值不是下标**：先在 `servers` 那个 list 里找"`ip` 逐字等于 @p oldAddress 且
+ * `name` 逐字等于 @p oldName"的那一格；找不到再退一步只按 `ip` 找。名字和地址都没
+ * 对上时**不写**（报「这一条已经不在文件里了」）—— 用户在这一页上点编辑的这段时间里，
+ * 游戏那头（或者别的工具）可能已经把这份文件重写过了，照着下标去改就是改错行。
  *
  * NOTE: `name` 那一格在盘上**可以不存在**（1.12.2 那种老 fixture 里就只有 `ip`）——
- *       那一档按"名字是空串"认，改写成功时**补建**一格 `TAG_String`（类型和位置都照着
- *       原版自己写的形状来）。`ip` 那一格不存在时这一条根本不会出现在列表里（见
- *       `NbtUtil` 那条 NOTE），所以这里不补建 `ip`。
+ * 那一档按"名字是空串"认，改写成功时**补建**一格 `TAG_String`（类型和位置都照着
+ * 原版自己写的形状来）。`ip` 那一格不存在时这一条根本不会出现在列表里（见
+ * `NbtUtil` 那条 NOTE），所以这里不补建 `ip`。
  */
 bool updateEntry(const QString &datPath, const QString &oldName, const QString &oldAddress,
                  const QString &newName, const QString &newAddress, QString *problemOut);
@@ -105,17 +103,17 @@ bool updateEntry(const QString &datPath, const QString &oldName, const QString &
  * @param datPath `servers.dat` 的绝对路径（一般就是 `pathFor()` 给的那个）。
  * @param name 这一条的名字。**允许空串**（盘上的 `name` 真能是空串，见下面那条 NOTE）。
  * @param address 这一条的地址（`ip` 那一格）。**空串直接拒绝** —— 同 `updateEntry`：
- *        地址是这一条唯一的实质内容，没有它这一行在游戏里是一条点不动的空气。
+ * 地址是这一条唯一的实质内容，没有它这一行在游戏里是一条点不动的空气。
  * @param problemOut 失败时给用户看的一句话。
  * @return 成功（真的写进盘上那一份了）返回 true。
  *
- * ★ **文件不在 ≠ 失败**：这个实例从来没加过服务器时 `servers.dat` 就是不在的，而那正是
- *   "添加"最常见的第一次。这一档从零建一棵游戏认得出来的树（无名根 Compound + 一格
- *   `servers` 的 `TAG_List<TAG_Compound>`），并且**按 gzip 落盘**（理由见文件头）。
- *   文件在的时候形状跟着原来那份（gzip 还是 gzip、裸的还是裸的），一格都不重排。
+ * **文件不在 ≠ 失败**：这个实例从来没加过服务器时 `servers.dat` 就是不在的，而那正是
+ * "添加"最常见的第一次。这一档从零建一棵游戏认得出来的树（无名根 Compound + 一格
+ * `servers` 的 `TAG_List<TAG_Compound>`），并且**按 gzip 落盘**（理由见文件头）。
+ * 文件在的时候形状跟着原来那份（gzip 还是 gzip、裸的还是裸的），一格都不重排。
  *
  * NOTE: **不查重**。同一个地址在盘上出现两条是合法的（原版就不拦），所以"再加一条一样的"
- *       会真的加出第二条 —— 拦它需要一个"要不要覆盖"的问题，而那是编辑那条路的事。
+ * 会真的加出第二条 —— 拦它需要一个"要不要覆盖"的问题，而那是编辑那条路的事。
  */
 bool addEntry(const QString &datPath, const QString &name, const QString &address,
               QString *problemOut);
@@ -129,31 +127,31 @@ bool addEntry(const QString &datPath, const QString &name, const QString &addres
  * @param problemOut 失败时给用户看的一句话。
  * @return 成功（真的从盘上那一份里拿掉了）返回 true。
  *
- * ★ 认哪一条用的是**和 `updateEntry` 同一套**"认值不认下标"（先名字 + 地址，退一步只按
- *   地址）—— 界面上第 N 行未必是盘上第 N 个元素（`NbtUtil` 跳过没有 `ip` 的元素），
- *   照下标删就会删错行。认不出（找不到 / 那个地址不唯一）时**一个字节都不写**。
+ * 认哪一条用的是**和 `updateEntry` 同一套**"认值不认下标"（先名字 + 地址，退一步只按
+ * 地址）—— 界面上第 N 行未必是盘上第 N 个元素（`NbtUtil` 跳过没有 `ip` 的元素），
+ * 照下标删就会删错行。认不出（找不到 / 那个地址不唯一）时**一个字节都不写**。
  *
  * NOTE: 删掉**最后一条**之后留下的是一个**空列表**（不是把文件删掉）—— 原版里"一台都没有"
- *       就是这个形状，游戏读得动。删掉整个文件反而会让实例目录的形状和游戏预期对不上。
+ * 就是这个形状，游戏读得动。删掉整个文件反而会让实例目录的形状和游戏预期对不上。
  */
 bool removeEntry(const QString &datPath, const QString &name, const QString &address,
                  QString *problemOut);
 
 // ---------------------------------------------------------------------------
-// 预设那一段用的那几口（2026-10-15，coding plan §6 P3）
+// 预设那一段用的那几口（，coding plan §6 P3）
 //
 // 「实例预设」要把一批服务器**一次**落到这个文件上（§6 P3：Append / Replace / Skip、
 // 按规范化地址去重、保留顺序）—— 那是**同一棵树上的多次改动**，上面那三个"改一条 / 加一条
 // / 删一条"各走一趟的入口凑不出来。
 //
-// ★ 所以这里露出来的不是"再来一套写盘"，而是**同一条路的那几步**：上面那三个入口本来就是
-//   "读进来 → 认出 servers 那一格 → 动它 → 写回去"这三步加一小段判断。把这几步露出来，
-//   是为了让"这份文件怎么读进来、怎么写回去"**仍然只有一处实现** —— 预设那一段自己再写
-//   一遍 gzip 检测和 QSaveFile 原子替换，就是第二个能把用户的服务器列表写坏的入口，而那
-//   正是 `NbtUtil.hpp` 文件头那条设计决定要防的东西（见本文件头「为什么新开一个文件」）。
+// 所以这里露出来的不是"再来一套写盘"，而是**同一条路的那几步**：上面那三个入口本来就是
+// "读进来 → 认出 servers 那一格 → 动它 → 写回去"这三步加一小段判断。把这几步露出来，
+// 是为了让"这份文件怎么读进来、怎么写回去"**仍然只有一处实现** —— 预设那一段自己再写
+// 一遍 gzip 检测和 QSaveFile 原子替换，就是第二个能把用户的服务器列表写坏的入口，而那
+// 正是 `NbtUtil.hpp` 文件头那条设计决定要防的东西（见本文件头「为什么新开一个文件」）。
 //
-// ★ 判据（哪个地址算同一台、哪几条要跳过、Replace 要拿掉什么）**不在这儿** —— 在
-//   `src/presets/ServerListPreset.hpp`。这一层只认识"值"，不认识"预设"。
+// 判据（哪个地址算同一台、哪几条要跳过、Replace 要拿掉什么）**不在这儿** —— 在
+// `src/presets/ServerListPreset.hpp`。这一层只认识"值"，不认识"预设"。
 // ---------------------------------------------------------------------------
 
 /// 一份 `servers.dat` 在盘上的三种状态。★ 分开是有意义的：**没有这个文件**和**这个文件
@@ -169,7 +167,7 @@ enum class FileState {
  * @brief 把这个文件读成**整棵树**（gzip 那一层一起处理），一个字节都不改。
  *
  * @param gzipped 读到了就写"原来那份压没压"（`Missing` / `Unreadable` 时不动它）——
- *        写回去要跟着它（见本文件头「写回去的形状跟着读进来那一份」）。
+ * 写回去要跟着它（见本文件头「写回去的形状跟着读进来那一份」）。
  * @param problemOut `Unreadable` 那一档留一句给人看的话。
  */
 FileState loadDocument(const QString &datPath, NbtTree::Document *out, bool *gzipped,
@@ -183,7 +181,7 @@ bool storeDocument(const QString &datPath, const NbtTree::Document &document, bo
  * @brief 认出并校验 `servers` 那一格。
  *
  * @param out 认出来时指进 @p document 里的那一格（★ **两者必须一起用**：那个指针指向的东西
- *        跟着 `document` 走）。
+ * 跟着 `document` 走）。
  * @return 这一格不在 / 不是一张表（元素不是复合标签）⇒ false + 一句人话。
  */
 bool serversListOf(NbtTree::Document *document, NbtTree::Node **out, QString *problemOut);

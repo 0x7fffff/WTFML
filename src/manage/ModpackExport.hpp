@@ -1,30 +1,22 @@
 /**
  * @file ModpackExport.hpp
  * @brief 「导出…」那一半：把一个已装好的实例打成整合包。**从枚举到清单都在这一层**，
- *        但**不联网、不碰 zip**：反查那两发由调用点传进来的 query 走（buildExportPlan
- *        的入参），zip 由调用点在它上面再套一层（见 .cpp 末尾那段）。
- * @author 0x7fffff
- * @date 2026-09-26
+ * 但**不联网、不碰 zip**：反查那两发由调用点传进来的 query 走（buildExportPlan
+ * 的入参），zip 由调用点在它上面再套一层（见 .cpp 末尾那段）。
  * @note 导出和导入是**同一件事的两个方向**，所以这份代码的判据来源就是这个仓库自己的
- *       解析器（ModpackImport）：写出来的清单必须能被 parseModrinthIndex /
- *       parseCurseForgeManifest 原样读回来（加载器那一行、依赖表、路径规则都算）。
- *       这一条是**完全离线**能验的（build/verify 里就有往返断言），而它正好覆盖了
- *       导出最容易写错的那一层 —— 格式。
+ * 解析器（ModpackImport）：写出来的清单必须能被 parseModrinthIndex /
+ * parseCurseForgeManifest 原样读回来（加载器那一行、依赖表、路径规则都算）。
+ * 这一条是**完全离线**能验的（build/verify 里就有往返断言），而它正好覆盖了
+ * 导出最容易写错的那一层 —— 格式。
  *
  * 【导出长什么样】两种规范都是"一个 zip，根目录一份清单 + 一层 overrides"：
- *   - Modrinth（`.mrpack`）：`modrinth.index.json`。清单里每条**自己带地址、sha1、
- *     sha512、字节数**，所以导入方不需要问接口就能下；
- *   - CurseForge（`.zip`）：`manifest.json`。清单里每条**只有两个号**
- *     （`projectID` + `fileID`），导入方得自己拿号换地址（我们这边是
- *     VersionManager::resolveCurseForgeFiles）。
+ * - Modrinth（`.mrpack`）：`modrinth.index.json`。清单里每条**自己带地址、sha1、
+ * sha512、字节数**，所以导入方不需要问接口就能下；
+ * - CurseForge（`.zip`）：`manifest.json`。清单里每条**只有两个号**
+ * （`projectID` + `fileID`），导入方得自己拿号换地址（我们这边是
+ * VersionManager::resolveCurseForgeFiles）。
  * 两边都**不打包**清单里已经写了的文件本体（那样包会巨大、而且导入时会重复），
  * 只打包"认不出来"的那些，放进 overrides/ —— 所以"能认出来多少"直接决定包的质量。
- *
- * 【本地文件怎么换回项目号】两条路都实测过（2026-09-26）：
- *   - Modrinth：`POST /v2/version_files`，把 sha1 批量发过去，回一个 map；
- *   - CurseForge：`POST /v1/fingerprints`，把指纹批量发过去，回 exactMatches[]。
- *   指纹的算法见 curseForgeFingerprint() —— 那不是文档里的东西（CurseForge 官方
- *   从没公开过），是照着社区实现算 + 拿真文件跟官方记录对上的。
  */
 
 #pragma once
@@ -50,9 +42,9 @@ enum class Format {
 /// 一条**已经反查成功**的资源：它在清单里会变成一条"下载这个文件"。
 ///
 /// NOTE: `path` 是**它现在躺在实例里的那个相对路径**，不是接口给的原始文件名 ——
-///       两份规范里 `path` 说的是"放到哪儿"，而"是不是同一份文件"是由 hashes / 编号
-///       决定的。所以用户自己改过名字（或者被别的启动器加上 `.disabled` 后缀）的文件
-///       照样能写进清单，导回去还是原来的样子。
+/// 两份规范里 `path` 说的是"放到哪儿"，而"是不是同一份文件"是由 hashes / 编号
+/// 决定的。所以用户自己改过名字（或者被别的启动器加上 `.disabled` 后缀）的文件
+/// 照样能写进清单，导回去还是原来的样子。
 struct MatchedFile {
     QString path;         ///< 相对实例目录，如 `mods/sodium.jar`
     QString sha1;         ///< Modrinth 清单必须要（见 .cpp 里的 must-have）
@@ -93,10 +85,10 @@ struct Spec {
 /// 拼出 `modrinth.index.json`（UTF-8，紧凑）。`files` 那一格**总是写出来**（空的也写）。
 ///
 /// NOTE: 空 `files` 在规范里是合法的（一个纯 overrides 的包），但**我们自己的解析器认
-///       不下来**：`parseModrinthIndex` 在"一条文件都没有"时判整包无效
-///       （`src/manage/ModpackImport.cpp:379`）。所以调用方**不能**导出一个
-///       `spec.files` 为空的包 —— 那样出来的包我们自己都装不回去。一个都认不出来的
-///       实例要照实说（"没认出任何资源，整包都会是 overrides"），由用户决定要不要继续。
+/// 不下来**：`parseModrinthIndex` 在"一条文件都没有"时判整包无效
+/// （`src/manage/ModpackImport.cpp:379`）。所以调用方**不能**导出一个
+/// `spec.files` 为空的包 —— 那样出来的包我们自己都装不回去。一个都认不出来的
+/// 实例要照实说（"没认出任何资源，整包都会是 overrides"），由用户决定要不要继续。
 QByteArray buildModrinthIndex(const Spec &spec);
 
 /// 拼出 `manifest.json`（UTF-8，紧凑）。`spec.refs` 为空也合法。
@@ -105,9 +97,9 @@ QByteArray buildCurseForgeManifest(const Spec &spec);
 /// 清单的**正文** —— 按 `spec.format` 挑上面那两位里的一位。
 ///
 /// NOTE: 它和 indexFileName() **是一对**：一个给名字、一个给内容，两边认的是同一个枚举。
-///       调用点（写 zip 那一步）因此**不必自己写一个 `format ==` 的分岔** —— 分岔多一处，
-///       就多一处"文件名叫 manifest.json、正文却是 Modrinth 那份"的机会，而那种包**打得
-///       出来、也读得回来**（.NET 读 zip 不看内容），只有别人的启动器会当场说不认识。
+/// 调用点（写 zip 那一步）因此**不必自己写一个 `format ==` 的分岔** —— 分岔多一处，
+/// 就多一处"文件名叫 manifest.json、正文却是 Modrinth 那份"的机会，而那种包**打得
+/// 出来、也读得回来**（.NET 读 zip 不看内容），只有别人的启动器会当场说不认识。
 QByteArray buildIndexFile(const Spec &spec);
 
 /// 这条能不能作为一条 `files[]` 写进 Modrinth 清单。**这是调用方的分岔口**，
@@ -126,8 +118,8 @@ QString modrinthDependencyKey(const QString &loaderKey);
 /// 认不出来的加载器返回空串 —— 调用方要么照实说"这个包的加载器没法表达"，要么别导。
 ///
 /// NOTE: NeoForge 在 **1.20.1** 上要插一段游戏版本（`neoforge-1.20.1-47.1.106`），
-///       因为那一代的 NeoForge 版本号本身就长这样。这一段是照 Prism 的做法来的
-///       （官方只明文确认过 `fabric-x.y.z` 这一种写法），1.20.1 以外的版本不加。
+/// 因为那一代的 NeoForge 版本号本身就长这样。这一段是照 Prism 的做法来的
+/// （官方只明文确认过 `fabric-x.y.z` 这一种写法），1.20.1 以外的版本不加。
 QString curseForgeLoaderId(const QString &loaderKey, const QString &loaderVersion,
                            const QString &gameVersion);
 
@@ -137,13 +129,10 @@ QString curseForgeLoaderId(const QString &loaderKey, const QString &loaderVersio
  * 算法：把文件**整个**读一遍，剔掉空白字节（`0x09 \t`、`0x0A \n`、`0x0D \r`、
  * `0x20 空格`）之后，对剩下的字节做 murmur2（MurmurHash2 32 位），**种子恒为 1**。
  *
- * 就这么多。**没有**按 zip 条目拼、**没有**"class 文件只留到常量池结束"那一套 ——
- * 后面那条说法流传很广，但既没有出处、实测也不对（四种组合全不匹配）。
- *
  * NOTE: 这个函数**不缓存**。同一个文件会被算两遍的是调用方的事（PCL 那种
- *       "路径+大小+改动时间 做 key" 的缓存该做在调用点，因为那儿才知道文件没变）。
+ * "路径+大小+改动时间 做 key" 的缓存该做在调用点，因为那儿才知道文件没变）。
  * NOTE: 内存是 O(1) 的：先数一遍"有几个非空白字节"，再喂第二遍。murmur2 的初值是
- *       `种子 ^ 长度`，长度得先知道，所以**必须两趟**（或者把整个文件读进内存）。
+ * `种子 ^ 长度`，长度得先知道，所以**必须两趟**（或者把整个文件读进内存）。
  */
 bool curseForgeFingerprint(const QString &path, quint32 *out, QString *errorOut);
 
@@ -177,8 +166,8 @@ struct CollectResult {
     /// 被排除掉的目录名（去重、保持顺序），以及**没进包的文件个数**。
     /// 这两个数只为了在结果里**如实说**："`logs/`、`natives/`、存档没进包（共 N 个文件）"。
     /// NOTE: `skippedFileCount` 的**口径是"没进包的文件"**，不只是"被排除表拦下来的文件"：
-    ///       被排除掉的目录**里面的**文件也数进去（一个 `saves/` 是三百个文件，不是 0 个）。
-    ///       那个数是给用户看"少了多少东西"的，只数直接命中的那些等于把大头漏掉。
+    /// 被排除掉的目录**里面的**文件也数进去（一个 `saves/` 是三百个文件，不是 0 个）。
+    /// 那个数是给用户看"少了多少东西"的，只数直接命中的那些等于把大头漏掉。
     QStringList skippedDirs;
     int skippedFileCount = 0;
     /// 非空 = 这个目录根本没读成（枚举本身失败）。**不是**"包里一个文件都没有"。
@@ -188,16 +177,16 @@ struct CollectResult {
 /**
  * @brief 把实例目录里该进包的文件列出来（排除表见 instanceExclusionReason）。
  * @param instanceDir 我们的实例目录（`versions/<实例名>/`）—— 它本身就是规范里那个
- *        "Minecraft instance directory"，所以路径**不需要**任何换算。
+ * "Minecraft instance directory"，所以路径**不需要**任何换算。
  */
 CollectResult collectInstanceFiles(const QString &instanceDir, const IncludeOptions &options);
 
 /**
  * @brief 这条相对路径要不要排除。纯函数，为的是能直接断言（枚举那层只是照着它走）。
  * @param instanceId 实例目录名：`<实例名>.jar` 与 `<实例名>.json` 是这个实例自己的
- *        版本文件（真正该装什么由清单里的依赖管），**不**进包。
+ * 版本文件（真正该装什么由清单里的依赖管），**不**进包。
  * @return 空串 = 不排除；非空 = 排除的理由（一句给用户看的话）。**只按顶层那一段判** ——
- *         规则说的都是实例根底下的东西，`mods/logs/` 这种是另一回事，不跟着一起排。
+ * 规则说的都是实例根底下的东西，`mods/logs/` 这种是另一回事，不跟着一起排。
  */
 QString instanceExclusionReason(const QString &relativePath, const QString &instanceId,
                                 const IncludeOptions &options);
@@ -225,7 +214,7 @@ struct FileHashes {
  *
  * NOTE: `needFingerprint` 为假时只读一趟（Modrinth 那条路要的 sha1/sha512 一趟就够）。
  * NOTE: 同一个文件的两条路（这一趟 / `curseForgeFingerprint`）算出来的指纹必须一样 ——
- *       build/verify 里钉着这一条，因为它俩是两份代码。
+ * build/verify 里钉着这一条，因为它俩是两份代码。
  */
 bool hashFile(const QString &path, bool needFingerprint, FileHashes *out, QString *errorOut);
 
@@ -234,10 +223,10 @@ bool hashFile(const QString &path, bool needFingerprint, FileHashes *out, QStrin
 // ---------------------------------------------------------------------------
 //
 // 两份规范各有一条路，都是批量一发（不是一文件一发）：
-//   - Modrinth：`POST /v2/version_files`，体是 sha1 表，回一个"哈希 → 版本"的 map；
-//     认不出来的哈希**不在 map 里**（不是报错）。
-//   - CurseForge：`POST /v1/fingerprints`，体是指纹表，回 `exactMatches[]` +
-//     `unmatchedFingerprints[]`。
+// - Modrinth：`POST /v2/version_files`，体是 sha1 表，回一个"哈希 → 版本"的 map；
+// 认不出来的哈希**不在 map 里**（不是报错）。
+// - CurseForge：`POST /v1/fingerprints`，体是指纹表，回 `exactMatches[]` +
+// `unmatchedFingerprints[]`。
 // 两条路的请求体和回复解析都在这儿（纯函数），发请求那一步在调用点（要 HttpClient）。
 
 /// Modrinth 的批量反查请求体：`{"hashes":[...],"algorithm":"sha1"}`。
@@ -247,11 +236,11 @@ QByteArray modrinthVersionFilesRequestBody(const QStringList &sha1s);
 /**
  * @brief CurseForge 的批量反查请求体：`{"fingerprints":[1234567890, …]}`。
  *
- * ★ NOTE(2026-09-27）：数组里是 **JSON 数字**（int64），**不是**字符串。
- *   这条 NOTE 从前写的是反的（"必须是字符串"），而那一面正是洞 —— 实测：
- *   `["3816865428"]` 回 400（`invalid type: string … expected i64`），`[3816865428]` 回 200。
- *   发成字符串的代价不是"报个错"，是 **CurseForge 那一支整支不出声**：屏幕上只是那几格
- *   没有图标，而"这个资源本来就没传图标"长得一模一样（详见 .cpp 里那段）。
+ * NOTE(）：数组里是 **JSON 数字**（int64），**不是**字符串。
+ * 这条 NOTE 从前写的是反的（"必须是字符串"），而那一面正是洞 —— 实测：
+ * `["3816865428"]` 回 400（`invalid type: string … expected i64`），`[3816865428]` 回 200。
+ * 发成字符串的代价不是"报个错"，是 **CurseForge 那一支整支不出声**：屏幕上只是那几格
+ * 没有图标，而"这个资源本来就没传图标"长得一模一样（详见 .cpp 里那段）。
  */
 QByteArray curseForgeFingerprintsRequestBody(const QList<quint32> &fingerprints);
 
@@ -272,12 +261,12 @@ struct ModrinthHit {
 /**
  * @brief 解析 Modrinth 的反查回复。
  * @return **键是那份文件自己的 sha1**（小写）—— 调用方拿本地那个文件的 sha1 去查。
- *         解析不了时 `problemOut` 非空（此时返回空表）。
+ * 解析不了时 `problemOut` 非空（此时返回空表）。
  *
  * NOTE: 用的是回复里"哈希 → 版本"的**那一层键**（规范就是这么定义的），但取哪一份
- *       文件是按"文件自己的 sha1 与那个键相同"挑的。挑不到（理论上不该发生）**不认
- *       这一条**，绝不退回"版本里的第一个文件" —— 认错了的后果是往清单里写一个错的
- *       sha1，导入方会**永远**校不过、每次都重下同一个文件。
+ * 文件是按"文件自己的 sha1 与那个键相同"挑的。挑不到（理论上不该发生）**不认
+ * 这一条**，绝不退回"版本里的第一个文件" —— 认错了的后果是往清单里写一个错的
+ * sha1，导入方会**永远**校不过、每次都重下同一个文件。
  */
 QHash<QString, ModrinthHit> parseModrinthVersionFiles(const QByteArray &json, QString *problemOut);
 
@@ -287,7 +276,7 @@ struct CurseForgeHit {
     int fileId = 0;
     /// `isAvailable` 为假 = 不能分发：**不写进清单**（写了等于给出一个装不上的包），
     /// 退回 overrides 并单独报数。
-    /// ★ 2026-09-27：假的**原因有两种**，报告里那句话只能认其中一种 —— 所以还带
+    /// 假的**原因有两种**，报告里那句话只能认其中一种 —— 所以还带
     /// `availableKnown`：接口这一项**缺席**时 `toBool(false)` 也是假，而"接口没给这一项"
     /// 与"作者关掉了第三方分发"是两回事。不分开的话，报告会替接口认下一个它没做的决定
     /// （"作者关掉了"），而真实原因可能是接口换了字段名 —— 用户照着这句话去查作者的设置，
@@ -335,8 +324,8 @@ struct ExportRequest {
 
 /// 进度：`done` / `total` 按**要算哈希的文件**计，`current` 是正在处理的相对路径。
 /// NOTE: 从**调用 buildExportPlan 的那个线程**同步回调（不会蹦到别的线程上去）——
-///       界面上要刷新就自己把它挪到主线程（或者干脆整个 buildExportPlan 都放后台线程跑，
-///       那是最省事的用法：它本来就是一段"慢但不需要界面"的活）。
+/// 界面上要刷新就自己把它挪到主线程（或者干脆整个 buildExportPlan 都放后台线程跑，
+/// 那是最省事的用法：它本来就是一段"慢但不需要界面"的活）。
 using ExportProgress = std::function<void(int done, int total, const QString &current)>;
 
 /// 取消：返回真 = 用户叫停（在文件之间检查）。空函数 = 不取消。
@@ -380,9 +369,6 @@ struct ExportPlan {
     /// 改过名）—— 写进清单等于让收包的人那边落回作者给的原名（禁用着的会变成启用的）。
     /// 退回 overrides 原样带上（见 .cpp 里判那一条那段）。
     int keptLocalState = 0;
-    /// **真的发出去问过的**文件个数（报告里要写"问了 N 个，认出来 M 个"）。
-    /// NOTE: 接口没接上（一个字节都没发）时是 0，不是"本来打算问几个"—— 见 .cpp 里
-    ///       赋值那一段：把"没问"报成"问了、没答话"会让人去查网络。
     int queried = 0;
     bool lookupFailed = false;  ///< 反查那一发没成 —— 要不要继续**由用户决定**（不是错误）
     QString lookupProblem;      ///< 没成的那一句（直接给用户看）
@@ -400,11 +386,11 @@ struct ExportPlan {
  * 一条一条钉住。
  *
  * NOTE: 反查失败（`lookupFailed`）**不是**错误：照 PCL 那套，界面要问一句
- *       「联网获取部分文件信息失败，是否继续导出？（继续的话，认不出信息的文件会被
- *       直接打包进去）」—— 用户说继续，那就是一个挂在 overrides 上、断网也能做出来的包。
+ * 「联网获取部分文件信息失败，是否继续导出？（继续的话，认不出信息的文件会被
+ * 直接打包进去）」—— 用户说继续，那就是一个挂在 overrides 上、断网也能做出来的包。
  * NOTE: 哈希这一步现在是**串行**的。并行（QThreadPool）是留给以后的优化，不是漏了：
- *       进度回调是从调用线程同步发的，多线程之后"进度从哪个线程来"就成了契约的一部分，
- *       而这一步的 90% 时间在等网络（反查那一发）而不是在算哈希。
+ * 进度回调是从调用线程同步发的，多线程之后"进度从哪个线程来"就成了契约的一部分，
+ * 而这一步的 90% 时间在等网络（反查那一发）而不是在算哈希。
  */
 ExportPlan buildExportPlan(const ExportRequest &request, const ModrinthQuery &queryModrinth,
                            const CurseForgeQuery &queryCurseForge,
@@ -425,14 +411,14 @@ QString overridesPrefix(const Spec &spec);
 /**
  * @brief 把一份 plan 摊成"归档条目表"：清单一条 + 每个 overrides 文件一条。
  * @param plan 跑完的那一趟（实例目录从 `plan.instanceDir` 拿 —— `InstanceFile` 里只有
- *        相对路径）。
+ * 相对路径）。
  * @param manifestPath 清单**已经写到盘上**的那份（调用点先按 indexFileName() 写进
- *        暂存目录 —— 这一层不写盘，见 .hpp 顶上那句）。
+ * 暂存目录 —— 这一层不写盘，见 .hpp 顶上那句）。
  * @return 条目名一律 `/` 分隔、**清单在第一条**、其余按路径排序（同一个实例两次导出的
- *         归档顺序一样）。`overrides` 里那些文件本身就带相对路径，前面补一层前缀。
+ * 归档顺序一样）。`overrides` 里那些文件本身就带相对路径，前面补一层前缀。
  *
  * NOTE: 名字拼错是**静默**的：包照样打得出来、我们自己（.NET）也读得回来，只有别人的
- *       启动器认不出 —— 所以条目名这几条规则在这儿是纯函数，验证工程里一条一条钉着。
+ * 启动器认不出 —— 所以条目名这几条规则在这儿是纯函数，验证工程里一条一条钉着。
  */
 QList<ZipUtil::ZipSource> archiveEntries(const ExportPlan &plan, const QString &manifestPath);
 

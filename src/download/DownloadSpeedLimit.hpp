@@ -1,8 +1,6 @@
 /**
  * @file DownloadSpeedLimit.hpp
  * @brief 「下载速度上限」那几档（设置 → 下载 → 速度上限；coding plan §9.2）。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 【这一项管的是谁】
  *
@@ -23,8 +21,8 @@
  * 仍然得到限速，而不是被当成越界悄悄关掉。真正的节拍由 `DownloadManager` 那个 100 ms 的
  * 令牌桶负责（见 `burstBytes()`）。
  *
- * ★ 这个头文件**没有网络、没有 QObject、不看时钟**：qint64 进、qint64 出。verify 直接喂
- *   一串数进来钉归一化（见 tests/main.cpp 的 ZP 节）。
+ * 这个头文件**没有网络、没有 QObject、不看时钟**：qint64 进、qint64 出。verify 直接喂
+ * 一串数进来钉归一化（见 tests/main.cpp 的 ZP 节）。
  */
 
 #pragma once

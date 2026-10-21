@@ -1,16 +1,14 @@
 /**
  * @file ServerListController.cpp
  * @brief `ServerListController` 的实现。
- * @author 0x7fffff
- * @date 2026-10-15
  *
  * 三条链路都是从 `MainWindow::openInstanceSettingsNow()` 里**逐字**搬过来的（连注释也跟了
  * 过来）。搬的时候只改了两处**形状**：
  *
- *   ① 四句问话改成 `Host::ask()` 回出去（那一层才有 `OverlayHost`），这一层只说"问哪一格"。
- *   ② "改完重读重测"那一句 `loadServerList(...)` + `pingServers(...)` 收成一次
- *      `Host::changed()` —— 两条调用**必须一起**发生（只重读不重测的话，那一台的图标 /
- *      MOTD / 延迟会停在上一次的状态上，看着像"改了名之后这一台失联了"）。
+ * ① 四句问话改成 `Host::ask()` 回出去（那一层才有 `OverlayHost`），这一层只说"问哪一格"。
+ * ② "改完重读重测"那一句 `loadServerList(...)` + `pingServers(...)` 收成一次
+ * `Host::changed()` —— 两条调用**必须一起**发生（只重读不重测的话，那一台的图标 /
+ * MOTD / 延迟会停在上一次的状态上，看着像"改了名之后这一台失联了"）。
  */
 
 #include "controllers/ServerListController.hpp"
@@ -89,8 +87,8 @@ bool ServerListController::add(const QString &instanceId) {
 
 bool ServerListController::remove(const QString &instanceId, const QString &name,
                                   const QString &address) {
-    // ★ 那句问话**必须点名字**（用户点的是哪一台，问的就是哪一台）：里面那台没名字的服务器
-    //   光说"这一台"的话，两台没名字的在屏幕上是同一个问题。
+    // 那句问话**必须点名字**（用户点的是哪一台，问的就是哪一台）：里面那台没名字的服务器
+    // 光说"这一台"的话，两台没名字的在屏幕上是同一个问题。
     if (!m_host.confirmRemove(displayName(name), address)) {
         return false;
     }

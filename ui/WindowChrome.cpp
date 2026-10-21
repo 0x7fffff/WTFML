@@ -1,8 +1,6 @@
 /**
  * @file WindowChrome.cpp
  * @brief WindowChrome 的实现（Win32 那一层：WM_NCCALCSIZE / WM_NCHITTEST / 外框样式）。
- * @author 0x7fffff
- * @date 2026-09-25
  */
 
 #include "WindowChrome.hpp"
@@ -38,14 +36,14 @@ namespace {
 /// （qwindowswindow.cpp 那句 shouldOmitFrameAdjustment 认的就是这个标志位）—— 于是 Qt 那一侧的
 /// 几何账目（`geometry_sys()` = 窗口矩形 - 留白）与我们"客户区铺满整窗"完全对得上，不会出现
 /// "Qt 以为客户区比实际小一圈"那种错位。代价是 Qt 为这个标志位给的样式是 `WS_POPUP`
-/// （qwindowswindow.cpp 里 `if (flags & Qt::FramelessWindowHint) style = WS_POPUP;  // no border`），
+/// （qwindowswindow.cpp 里 `if (flags & Qt::FramelessWindowHint) style = WS_POPUP; // no border`），
 /// 而一个无主的 WS_POPUP 窗**没有原生缩放边、也不出现在任务栏里**。所以样式由我们按
 /// "一个正常的、可缩放的窗口"重新拼一遍；客户区照旧铺满整窗（WM_NCCALCSIZE 回 0），
 /// 于是那圈边框只在最外一两个像素上看得见 —— 圆角、阴影、1 px 边线仍然全是系统画的。
 ///
 /// NOTE: **没有** WS_MAXIMIZEBOX。主窗口本来就不许最大化（`MainWindowUI::setupUi` 里摘了
-///       `Qt::WindowMaximizeButtonHint`），这里跟着一起不给，免得双击标题条就最大化。
-///       没有它，系统菜单里的"最大化"也是灰的。
+/// `Qt::WindowMaximizeButtonHint`），这里跟着一起不给，免得双击标题条就最大化。
+/// 没有它，系统菜单里的"最大化"也是灰的。
 constexpr LONG_PTR kFrameStyle = WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX;
 
 /// 那两个度量是按**系统 DPI**给的物理像素（100% 下 4 + 4）。折回逻辑像素才是摆控件、
@@ -57,16 +55,16 @@ int resizeBorderPhysical() {
 /// 系统那一档缩放比（折物理 <-> 逻辑用）。
 ///
 /// NOTE: 用的是**系统 DPI**（`GetDeviceCaps(LOGPIXELSY)`），**不是** `QScreen::devicePixelRatio()`。
-///       上面那两个度量是 `GetSystemMetrics` 按系统 DPI 给的，折回来当然要用同一个数 ——
-///       拿 QScreen 那一份会掺进别的两件事：验证工程跑 offscreen 时 `primaryScreen()` 是个
-///       缩放比 1.0 的**假屏**，而 GetSystemMetrics 照旧按这台机器真实的 150% 给 11 ——
-///       两边一折就对不上，`buttonInset() >= resizeBorder()` 那条不变式会**假红**
-///       （红在一个跟产品没关系的地方）。`QScreen` 反而只在"真窗口"上才和系统同源。
+/// 上面那两个度量是 `GetSystemMetrics` 按系统 DPI 给的，折回来当然要用同一个数 ——
+/// 拿 QScreen 那一份会掺进别的两件事：验证工程跑 offscreen 时 `primaryScreen()` 是个
+/// 缩放比 1.0 的**假屏**，而 GetSystemMetrics 照旧按这台机器真实的 150% 给 11 ——
+/// 两边一折就对不上，`buttonInset() >= resizeBorder()` 那条不变式会**假红**
+/// （红在一个跟产品没关系的地方）。`QScreen` 反而只在"真窗口"上才和系统同源。
 ///
 /// NOTE: 多显示器、每屏缩放比不同时，这一份是"主屏那一档"的近似。要按窗口算得用
-///       GetDpiForWindow / GetSystemMetricsForDpi（Win10 1607 起）。这里不切过去，是因为
-///       **条上那几颗按钮的摆位与这一圈必须用同一个数**（`buttonInset()` 那条不变式就靠它），
-///       而"圈"和"摆位"只要彼此一致就不会出现"按按钮按成缩放"，副屏上最多宽两三个像素。
+/// GetDpiForWindow / GetSystemMetricsForDpi（Win10 1607 起）。这里不切过去，是因为
+/// **条上那几颗按钮的摆位与这一圈必须用同一个数**（`buttonInset()` 那条不变式就靠它），
+/// 而"圈"和"摆位"只要彼此一致就不会出现"按按钮按成缩放"，副屏上最多宽两三个像素。
 qreal systemDpr() {
     HDC screen = GetDC(nullptr);
     if (screen == nullptr) {
@@ -122,23 +120,23 @@ void WindowChrome::applyFrame() {
     }
 
     // 1) 外框样式加回去（见 kFrameStyle 那段）。这里用"或"而不是"等于"：Qt 自己那几位
-    //    （WS_CLIPSIBLINGS / WS_CLIPCHILDREN）不能弄丢。
+    // （WS_CLIPSIBLINGS / WS_CLIPCHILDREN）不能弄丢。
     SetWindowLongPtrW(hwnd, GWL_STYLE, GetWindowLongPtrW(hwnd, GWL_STYLE) | kFrameStyle);
 
     // 2) 任务栏条目。无主的 WS_POPUP 窗系统不往任务栏上摆，得自己说一声；这是"建窗时是
-    //    WS_POPUP、后来才加上 WS_CAPTION"的补救（正常情况下 WS_CAPTION|WS_SYSMENU 就够）。
+    // WS_POPUP、后来才加上 WS_CAPTION"的补救（正常情况下 WS_CAPTION|WS_SYSMENU 就够）。
     const LONG_PTR exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
     if ((exStyle & WS_EX_APPWINDOW) == 0) {
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, exStyle | WS_EX_APPWINDOW);
     }
 
     // 3) 圆角。样式是建窗之后才改的，DWM 那一侧可能还记着"这是个 POPUP，不给圆角"，
-    //    所以明说一次。Win11 才有这一位；老系统返回 E_INVALIDARG，忽略即可。
+    // 所以明说一次。Win11 才有这一位；老系统返回 E_INVALIDARG，忽略即可。
     const DWORD cornerPreference = DWMWCP_ROUND;
     DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &cornerPreference, sizeof(cornerPreference));
 
     // 4) 让系统按新的非客户区重算一遍（SWP_FRAMECHANGED = "外框样式变了，重算非客户区"）。
-    //    尺度和位置一个字不动：客户区本来就该等于整窗，窗口矩形没理由变。
+    // 尺度和位置一个字不动：客户区本来就该等于整窗，窗口矩形没理由变。
     SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
                  SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 #endif
@@ -168,14 +166,6 @@ bool WindowChrome::handleNativeEvent(void *message, qintptr *result) {
     }
     case WM_NCHITTEST: {
         // 1) 最外那一圈 = 缩放边。**这一手得我们自己回**。
-        //
-        //    实测（build/tools/chromeprobe2）：客户区铺满整窗之后，系统的命中测试看哪一点都在
-        //    客户区里，它**一律给 HTCLIENT** —— 连左上角都是，缩放边一根都没有。所以"交回
-        //    DefWindowProc 就有原生缩放边"这句话是错的（它成立的前提是窗口边上真有一圈非客户区）。
-        //    Qt 自己那条 ExpandedClientAreaHint 的路同样是**自己算**这几个 HTxxx
-        //    （qwindowswindow.cpp: handleNonClientHitTest 里那段 border/left/right/top/bottom）。
-        //    NOTE: 客户区坐标是**物理**像素（lParam 和 GetWindowRect 都是），所以这一圈按物理
-        //          量算，不折逻辑 —— 折一道就多一次取整，边上的手感就飘。
         RECT wr{};
         if (GetWindowRect(msg->hwnd, &wr) == FALSE) {
             return false;
@@ -232,8 +222,8 @@ bool WindowChrome::eventFilter(QObject *watched, QEvent *event) {
     if (watched == m_window) {
         switch (event->type()) {
         // Show：建窗那一次 WM_NCCALCSIZE **收不到**（CreateWindowEx 的过程中这个 HWND 还没登记
-        //       进 Qt 的窗口表，qwindowscontext.cpp 那句 filterNativeEvent 得先认得出是哪个
-        //       QWindow 才轮得到 nativeEvent），所以在这里自己催一次。
+        // 进 Qt 的窗口表，qwindowscontext.cpp 那句 filterNativeEvent 得先认得出是哪个
+        // QWindow 才轮得到 nativeEvent），所以在这里自己催一次。
         // WinIdChange：改窗口标志会重建 HWND，新 HWND 上得重贴一遍。
         // WindowStateChange：最小化/还原之后系统会按标志重摆样式，顺手贴回来。
         // 三样都是幂等的，多来一次没有代价。

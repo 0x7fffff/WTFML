@@ -1,15 +1,13 @@
 /**
  * @file ServerInstallController.cpp
  * @brief 服务端安装那四段真的跑起来（coding plan §6.2 / 里程碑 M4-2）。
- * @author 0x7fffff
- * @date 2026-10-13
  *
  * 四段是一条直线的状态机（见头文件那张图）。**每一段都只有一个入口、一个收尾**：
  *
- *   ① beginResolve      —— 还差的那一份元数据（多数档一个请求都不用发）
- *   ② beginDownloads    —— 计划里那几份文件，一份一份过 DownloadManager
- *   ③ beginInstaller    —— 跑安装器（那三档才跑）
- *   ④ verifyInstall     —— 核对装好了没有（判据是 `ServerRegistry::describe()`）
+ * ① beginResolve —— 还差的那一份元数据（多数档一个请求都不用发）
+ * ② beginDownloads —— 计划里那几份文件，一份一份过 DownloadManager
+ * ③ beginInstaller —— 跑安装器（那三档才跑）
+ * ④ verifyInstall —— 核对装好了没有（判据是 `ServerRegistry::describe()`）
  *
  * 任何一段栽了都走 `fail()`：发一句人话 + `finished(Failed, 同一句)`。中途被取消走
  * `cancel()`：把在飞的东西掐掉，然后 `finished(Cancelled, 空)`。
@@ -293,12 +291,12 @@ void ServerInstallController::beginDownloads() {
         return;
     }
 
-    // ★ 2026-10-20：**这里必须再看一眼忙不忙**。`start()` 那道闸问的是"用户点下去的那一刻"，
-    //   而中间隔着取元数据那一段网络来回（Paper 要问构建列表、原版本地没装过时要问版本清单）
-    //   —— 那几秒钟里用户完全可能在下载页上排了一批。`beginBatch()` 碰到开着的批次会
-    //   **静默把它关掉**（`DownloadManager::beginBatch()` 里那句 qWarning 后面跟的就是
-    //   `endBatch()`），别人的那一批于是永远等不到 `allDownloadsFinished`：任务中心那一行
-    //   停在「进行中」，取消也取消不掉（收尾信号已经不会来了）。
+    // **这里必须再看一眼忙不忙**。`start()` 那道闸问的是"用户点下去的那一刻"，
+    // 而中间隔着取元数据那一段网络来回（Paper 要问构建列表、原版本地没装过时要问版本清单）
+    // —— 那几秒钟里用户完全可能在下载页上排了一批。`beginBatch()` 碰到开着的批次会
+    // **静默把它关掉**（`DownloadManager::beginBatch()` 里那句 qWarning 后面跟的就是
+    // `endBatch()`），别人的那一批于是永远等不到 `allDownloadsFinished`：任务中心那一行
+    // 停在「进行中」，取消也取消不掉（收尾信号已经不会来了）。
     if (m_downloads->isBusy()) {
         fail(QStringLiteral("等版本信息的这会儿，已经有别的下载开始了。等那一批结束再装这个服务端。"));
         return;
@@ -313,12 +311,12 @@ void ServerInstallController::beginDownloads() {
             Qt::UniqueConnection);
 
     m_downloadNames.clear();
-    // ★ 这一趟**必须自己开一批**（2026-10-13 修的）。下载器是共用的，那几个计数器
-    //   （`m_totalJobs` / `m_doneJobs` / `m_failedJobs`）只有 `beginBatch()` 会清 ——
-    //   不在这儿开的话，这一趟拿到的是**上一批留下的**那几个数：`stats()` 报出来的总数和
-    //   失败数都是别人的（`m_failedJobs` 非零时整批还会被判成"有文件没下下来"）。
-    //   顺带把"整批结束"那一发也挪到了这一批自己的收尾上（信号是谁接走的，见
-    //   `VersionManager::beginOwnBatch()` 那一大段）。
+    // 这一趟**必须自己开一批**（ 修的）。下载器是共用的，那几个计数器
+    // （`m_totalJobs` / `m_doneJobs` / `m_failedJobs`）只有 `beginBatch()` 会清 ——
+    // 不在这儿开的话，这一趟拿到的是**上一批留下的**那几个数：`stats()` 报出来的总数和
+    // 失败数都是别人的（`m_failedJobs` 非零时整批还会被判成"有文件没下下来"）。
+    // 顺带把"整批结束"那一发也挪到了这一批自己的收尾上（信号是谁接走的，见
+    // `VersionManager::beginOwnBatch()` 那一大段）。
     m_downloads->beginBatch();
     m_batchOwned = true;
     for (const ServerInstall::Download &download : m_plan.downloads) {
@@ -332,7 +330,7 @@ void ServerInstallController::beginDownloads() {
     }
     m_downloads->endBatch();
     // NOTE: 起点是 m_stepIndex，下完一个往后挪一格；`onDownloadFinished` 收尾时就是按这个
-    //       顺序一格一格报的（步骤表里"取元数据"那一格已经在上一步报过了）。
+    // 顺序一格一格报的（步骤表里"取元数据"那一格已经在上一步报过了）。
 }
 
 void ServerInstallController::onDownloadFinished(const QString &fileName, bool success,
@@ -356,9 +354,6 @@ void ServerInstallController::onDownloadFinished(const QString &fileName, bool s
         return;
     }
 
-    // ★ 2026-10-20：这一批的作业**全交代完了**，从这一刻起共用下载器上剩下的活儿跟我们
-    //   没关系（下一段是安装器进程，可能跑好几分钟）。放开认领 —— 不然用户在安装器跑着的
-    //   时候开一批下载，再点取消，`cancel()` 会把**人家那一批**掐掉。
     m_batchOwned = false;
 
     if (!m_failedDownload.isEmpty()) {
@@ -461,8 +456,8 @@ void ServerInstallController::verifyInstall() {
     if (m_cancelling) {
         return;
     }
-    // ★ 判据**复用列表那一份**（`ServerRegistry::describe()` 里最后那一段）—— 这里要是自己
-    //   另判一遍，就会出现"任务中心说装好了、列表那一行还写着未安装"，而两边都没报错。
+    // 判据**复用列表那一份**（`ServerRegistry::describe()` 里最后那一段）—— 这里要是自己
+    // 另判一遍，就会出现"任务中心说装好了、列表那一行还写着未安装"，而两边都没报错。
     const ServerRegistry::Entry entry = ServerRegistry::describe(m_serverId, nullptr);
     if (!entry.installed) {
         fail(QStringLiteral("文件都放好了，可是核对下来还没装好：%1")
@@ -519,9 +514,9 @@ void ServerInstallController::cancel() {
     m_cancelling = true;
     emit message(QStringLiteral("停下了。已经下下来的那几个文件留在目录里，再点「修复」会接着用。"));
     // 在飞的回复 / 排着队的作业一起掐掉（`cancelBatch()` 那四个动作见它自己的说明）。
-    // ★ 2026-10-20：判据是**这一批是不是我们开的**，不是"下载器现在忙不忙"。下载器是共用的：
-    //   安装器那一段（可能好几分钟）里就是空闲的，而用户完全可能已经开了一批新的 ——
-    //   按 `isBusy()` 掐的话，取消一次服务端安装会顺手把人家那一批也掐掉。
+    // 判据是**这一批是不是我们开的**，不是"下载器现在忙不忙"。下载器是共用的：
+    // 安装器那一段（可能好几分钟）里就是空闲的，而用户完全可能已经开了一批新的 ——
+    // 按 `isBusy()` 掐的话，取消一次服务端安装会顺手把人家那一批也掐掉。
     if (m_downloads != nullptr && m_batchOwned) {
         m_downloads->cancelBatch();
     }

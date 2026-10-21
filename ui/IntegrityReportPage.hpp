@@ -1,9 +1,4 @@
 /**
- * @file IntegrityReportPage.hpp
- * @brief 完整性检查报告页（coding plan §4.1）：体检跑完之后，把结论摊在内容区上的那一整页。
- * @author 0x7fffff
- * @date 2026-10-12
- *
  * 【它和任务详情页是一个形状的"页"，不是窗口】
  *
  * 开出来的方式一模一样：`OverlayHost::execPage()` 把这一页整块盖在内容区上（**顶上四颗导航
@@ -18,10 +13,7 @@
  * （`integrityReportForPage()`）—— 和 `taskCenterItem()` 翻任务账本是同一个路数。
  *
  * 【三颗按钮都不动手，只报"点了哪一个"】
- *
- * 「复制报告」「补齐缺失或损坏文件」真正的活（拼那份纯文本进剪贴板、开一批补文件的下载）
- * 全在 `MainWindow` —— 这一页手里既没有 `VersionIntegrity` 也没有 `VersionManager`。
- * 「只查看」不是动作，它就是 `reject()`（= 覆盖层那条返回路），所以它不走信号。
+ * 页面只发信号，实际操作由 MainWindow 处理。
  */
 
 #pragma once
@@ -39,13 +31,11 @@ class IntegrityReportPage : public QDialog {
     Q_OBJECT
 
 public:
-    /// 报告里的一行：一个要修的文件（全是**显示用**的字符串）。
     struct Row {
         QString label;   ///< 给人看的名字（`客户端 jar` / 库坐标 / `资源对象 xxx`）
         QString detail;  ///< 那句话（`缺少文件` / `大小 … 字节，应为 …`）
         QString path;    ///< 它的绝对路径
     };
-    /// 报告里的一组（客户端 / 库 / 资源索引 / 资源对象）。
     struct Group {
         QString name;      ///< 组名（`客户端` / `库` / …）
         int missing = 0;   ///< 这一组缺几个
@@ -83,7 +73,6 @@ public:
     /// 这一页的标题（`OverlayHost::execPage` 顶上那一条写的字）。
     static QString windowTitle() { return QStringLiteral("完整性检查"); }
 
-    /// 摆一份报告。**每次开页都重新喂一遍**（同一页对象会被复用，见 MainWindow 那边）。
     void setReport(const Report &report);
 
     /// 用户点了 @p action（按钮的信号槽直接转发到它）。`MainWindow` 接 `actionRequested`。

@@ -1,14 +1,12 @@
 /**
  * @file ZipUtil.cpp
  * @brief ZipUtil 的实现。
- * @author 0x7fffff
- * @date 2026-09
  * @note 用 PowerShell + .NET System.IO.Compression 解压，一次进程调用可处理
- *       任意多个压缩包；脚本经 Base64 编码后交给 -EncodedCommand，绕开
- *       cmd/PowerShell 两层的引号与转义问题。
+ * 任意多个压缩包；脚本经 Base64 编码后交给 -EncodedCommand，绕开
+ * cmd/PowerShell 两层的引号与转义问题。
  * @note `-EncodedCommand` 换来的是**命令行长度上限**：整个脚本只能占一万二千来个字符
- *       （32767 的命令行 ÷ Base64 的 4/3 ÷ UTF-16LE 的 2）。所以脚本里**只放常量**，
- *       随数据长大的东西（打包那张条目表）一律走临时文件 —— 见 createZip 里那段。
+ * （32767 的命令行 ÷ Base64 的 4/3 ÷ UTF-16LE 的 2）。所以脚本里**只放常量**，
+ * 随数据长大的东西（打包那张条目表）一律走临时文件 —— 见 createZip 里那段。
  */
 #include "ZipUtil.hpp"
 
@@ -72,12 +70,12 @@ QString encodeCommand(const QString &script) {
  * @param failure process.error()（**必须在 kill 之前读**，kill 之后它可能已经变了）。
  * @param detail process.errorString()。
  * @param what 这次动作的名字（「解压」/「读整合包清单」），拼进句子里。**由调用方给**：这几句
- *        里有一部分是直接弹给用户看的，主语写错了就是一句说不通的话（见 readEntry 的 what）。
+ * 里有一部分是直接弹给用户看的，主语写错了就是一句说不通的话（见 readEntry 的 what）。
  * @return 返回给用户看的一句话。
  *
  * NOTE: 超时**不是**唯一一种"waitForFinished() 给 false"。进程压根没起来（PowerShell
- *       不存在、被安全软件拦下）也是 false，而三个调用点以前一律报「解压超时」——
- *       用户和排查的人都会往网络/磁盘上找，而真因在"进程没起来"那一头（2026-09-24 改的）。
+ * 不存在、被安全软件拦下）也是 false，而三个调用点以前一律报「解压超时」——
+ * 用户和排查的人都会往网络/磁盘上找，而真因在"进程没起来"那一头（ 改的）。
  */
 QString describeProcessFailure(QProcess::ProcessError failure, const QString &detail,
                                const QString &what) {
@@ -95,25 +93,21 @@ QString describeProcessFailure(QProcess::ProcessError failure, const QString &de
  * @brief 从 PowerShell 的错误输出里挑一句能给用户看的话。
  * @param raw runPowershell() 写进 errorOut 的东西。
  * @return 挑出来的那一句；**一句都挑不出来时返回空串**，让调用方用它自己那句兜底
- *         （宁可少说，也不要把 `#< CLIXML` 这种内部形状弹到用户脸上）。
+ * （宁可少说，也不要把 `#< CLIXML` 这种内部形状弹到用户脸上）。
  *
- * NOTE: **stderr 上从来不止我们那一句**。PowerShell 第一次跑起来时会往 stderr 上塞一条
- *       **进度记录**（「Preparing modules for first use.」），而进度/错误流在 stderr 被
- *       重定向（QProcess 就是重定向）时会被**序列化成 CLIXML**。实测拿到的是这个形状：
+ * #< CLIXML
+ * The compression mode specified in GZip header is unknown.
+ * <Objs Version="1.1.0.1" xmlns="...">...</Objs>
  *
- *           #< CLIXML
- *           The compression mode specified in GZip header is unknown.
- *           <Objs Version="1.1.0.1" xmlns="...">...</Objs>
- *
- *       —— **人话夹在中间那两行机器话之间**。只取第一行得到的是 `#< CLIXML` 七个字符
- *       （等于什么也没说）；只判「头一行是不是 CLIXML 就整段丢掉」会把真因一起丢掉
- *       （这个坑踩过：脚本里加了 catch、原因也写出来了，用户看到的还是兜底那句话，
- *       原因就在这儿）。所以按行过一遍，把机器话那两种行跳过，取第一条活下来的。
+ * —— **人话夹在中间那两行机器话之间**。只取第一行得到的是 `#< CLIXML` 七个字符
+ * （等于什么也没说）；只判「头一行是不是 CLIXML 就整段丢掉」会把真因一起丢掉
+ * （这个坑踩过：脚本里加了 catch、原因也写出来了，用户看到的还是兜底那句话，
+ * 原因就在这儿）。所以按行过一遍，把机器话那两种行跳过，取第一条活下来的。
  * NOTE: 脚本 catch 里那句是 `[Console]::Error.WriteLine()` 写的，走**原生 stderr**、
- *       不经过 PowerShell 的错误流序列化，所以它自己能干净地占一行 —— 上面那个形状
- *       就是这么来的。没被 catch 住的错则整个躺在 `<Objs>` 的那条 XML 里（换行写成
- *       `_x000D__x000A_` 那种转义），那种**不解**：解出来是给排查的人看的，不是给用户
- *       看的；那种形态只说明脚本自己就没跑起来，弹给用户的框里说不了。
+ * 不经过 PowerShell 的错误流序列化，所以它自己能干净地占一行 —— 上面那个形状
+ * 就是这么来的。没被 catch 住的错则整个躺在 `<Objs>` 的那条 XML 里（换行写成
+ * `_x000D__x000A_` 那种转义），那种**不解**：解出来是给排查的人看的，不是给用户
+ * 看的；那种形态只说明脚本自己就没跑起来，弹给用户的框里说不了。
  */
 QString readProcessError(const QString &raw) {
     const QStringList lines = raw.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
@@ -132,11 +126,11 @@ QString readProcessError(const QString &raw) {
 /// 起一次 PowerShell 跑这段脚本。返回 false 时 errorOut 里是原因。
 ///
 /// NOTE: 三个 - 号开头的开关一个都不能少，理由见 extractArchives 里原来那段（-NoProfile
-///       挡用户 profile 里的别名、-ExecutionPolicy Bypass 挡执行策略、-EncodedCommand
-///       绕开两层引号转义）。四个调用点共用这一份，免得哪天只给其中一个加了新开关。
+/// 挡用户 profile 里的别名、-ExecutionPolicy Bypass 挡执行策略、-EncodedCommand
+/// 绕开两层引号转义）。四个调用点共用这一份，免得哪天只给其中一个加了新开关。
 /// NOTE: `what` 是**这次动作的名字**，由调用方给 —— 这几句是要弹给用户看的，主语写错就是
-///       一句说不通的话：打包那一条原来报的是「**解压**没跑起来」（2026-09-26 真实例上撞
-///       出来的），用户拿着这句话往解压上找，而全程根本没解压。
+/// 一句说不通的话：打包那一条原来报的是「**解压**没跑起来」（ 真实例上撞
+/// 出来的），用户拿着这句话往解压上找，而全程根本没解压。
 bool runPowershell(const QString &script, int timeoutMs, QByteArray *stdoutOut,
                    QString *errorOut, const QString &what,
                    const std::function<bool()> &cancelled = {}) {
@@ -147,13 +141,13 @@ bool runPowershell(const QString &script, int timeoutMs, QByteArray *stdoutOut,
     const QString encoded = encodeCommand(script);
     // 兜底闸：Windows 一条命令行只有 32767 个字符，超了 CreateProcess 直接失败，QProcess
     // 报的是「文件名或扩展名太长」（ERROR_FILENAME_EXCED_RANGE）—— 那句话和真正的原因
-    // （脚本太长）一个字都对不上，2026-09-26 就是拿着它查了半天。这里自己先拦一道，
+    // （脚本太长）一个字都对不上， 就是拿着它查了半天。这里自己先拦一道，
     // 把它变成一句说得通的话。
     //
     // NOTE: 撞到这一道说明**我们自己的脚本里放了跟着数据长大的东西**，那是写错了，
-    //       不是用户在做什么奇怪的事：脚本正文里只该有常量，实例相关的东西（打包那张
-    //       条目表）走临时文件 —— 见 createZip。3 万这个数留了七百来个字符给
-    //       `powershell` 那几个开关和引号 —— 编码后的正文是 ASCII，字节数就是字符数。
+    // 不是用户在做什么奇怪的事：脚本正文里只该有常量，实例相关的东西（打包那张
+    // 条目表）走临时文件 —— 见 createZip。3 万这个数留了七百来个字符给
+    // `powershell` 那几个开关和引号 —— 编码后的正文是 ASCII，字节数就是字符数。
     if (encoded.size() > 32000) {
         if (errorOut != nullptr) {
             *errorOut = QStringLiteral("%1失败：递给 PowerShell 的脚本太长了（编码后 %2 个字符，"
@@ -199,10 +193,10 @@ bool runPowershell(const QString &script, int timeoutMs, QByteArray *stdoutOut,
             // 输出来自 PowerShell，不是 JVM，-Dstdout.encoding 管不到它（见
             // LauncherManager::decodeGameOutput 的说明）。
             //
-            // ★ 这一段**不能直接交给用户看**：stderr 被重定向时 PowerShell 会把错误流
-            //   序列化成 CLIXML（见 readProcessError() 上面那段），原文的头一行是
-            //   `#< CLIXML` 七个字符。三个调用点全都走这里，所以过滤放在这一层 ——
-            //   调用方拿到的永远是一句人话（挑不出来时才回它自己那句兜底的）。
+            // 这一段**不能直接交给用户看**：stderr 被重定向时 PowerShell 会把错误流
+            // 序列化成 CLIXML（见 readProcessError() 上面那段），原文的头一行是
+            // `#< CLIXML` 七个字符。三个调用点全都走这里，所以过滤放在这一层 ——
+            // 调用方拿到的永远是一句人话（挑不出来时才回它自己那句兜底的）。
             const QString raw = QString::fromLocal8Bit(process.readAllStandardError());
             const QString err = readProcessError(raw);
             *errorOut = err.isEmpty()
@@ -241,35 +235,29 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
     // 但解压工具没理由不设防。
     //
     // NOTE: 三条各自的来路：
-    //   - `..`：翻到 $out 上面去（`../x`、`a/../../x`，`\` 分隔也一样）；
-    //   - 头一个字符是 `/`、或者名字里带 `:`：.NET 的 Path.Combine 认为第二个参数已经是
-    //     绝对路径（`/x`、`\x`、`C:/x` 都算）→ **把 $out 丢掉**，文件写到目标目录外面；
-    //   - 判的必须是**归一过 `\`→`/` 的名字**：Windows 上 `\` 同样是分隔符，不归一的话
-    //     `META-INF\MANIFEST.MF` 这类条目还会从 excludePrefixes 底下溜过去。
+    // - `..`：翻到 $out 上面去（`../x`、`a/../../x`，`\` 分隔也一样）；
+    // - 头一个字符是 `/`、或者名字里带 `:`：.NET 的 Path.Combine 认为第二个参数已经是
+    // 绝对路径（`/x`、`\x`、`C:/x` 都算）→ **把 $out 丢掉**，文件写到目标目录外面；
+    // - 判的必须是**归一过 `\`→`/` 的名字**：Windows 上 `\` 同样是分隔符，不归一的话
+    // `META-INF\MANIFEST.MF` 这类条目还会从 excludePrefixes 底下溜过去。
     const QString fullName = QStringLiteral("$e.FullName.Replace('\\','/')");
-    // `..` 判的是**路径分量**，不是子串（2026-09-25 修）。`.Contains('..')` 会把名字里
+    // `..` 判的是**路径分量**，不是子串（ 修）。`.Contains('..')` 会把名字里
     // 正好带两个点的**正常文件**一并丢掉 —— `mods/foo..bar.jar`、`assets/a..b.png` 都是
     // 合法名字，而这里的丢弃是**静默的**（`continue`，不报错、不计入任何清单），于是用户
     // 看到的是"整合包导完了但少东西"。判分量之后 `..` 仍然拦得住（`../x` 拆出来第一段
     // 就是 `..`），而 `a..b` 拆出来是一段 `a..b`、不等于 `..`，放行。
     skipConditions << QStringLiteral("(%1.Split('/') -contains '..')").arg(fullName);
-    // ★ 2026-10-20：Windows 在打开路径时会把**每一段末尾的空格和点折掉** —— `".. "`、
-    //   `". "`、`"..."` 全都会解析回上一层 / 本层目录。上面那条按分量判 `..` 的写法一个都
-    //   不认它们：`a/.. /x` 交给 Path.Combine 拼出来是 `$out/a/.. /x`，落盘时折成 `$out/x`，
-    //   再往上几层就是 $out 外面（`BackupFiles::isSafeComponent()` 里那段注释记的就是这个
-    //   行为）。正则说的就是这件事：**任意一段是空的、或者以 `.` / 空格结尾** ⇒ 丢掉。
-    //   （空段 = `a//b`，正常压缩包里不会有；悬着的那一截同样是"落点说不清"。）
     skipConditions << QStringLiteral("(%1 -match '(^|/)([^/]*[. ])?(/|$)')").arg(fullName);
     skipConditions << QStringLiteral("%1.StartsWith('/')").arg(fullName);
     skipConditions << QStringLiteral("%1.Contains(':')").arg(fullName);
     // NOTE: exclude 这几条**区分大小写**（.NET 的 StartsWith(string) 就是区分大小写的），
-    //       和 extractSubtrees() 里那条**前缀**比对不一样 —— 那边是
-    //       `$full.ToLowerInvariant().StartsWith($r.ToLowerInvariant())`，故意不区分
-    //       （真实整合包里 `Overrides/` / `overrides/` 两种写法都有，认不出来就会一条都
-    //       不解压，而那种失败是静默的）。这里不跟着放宽，是因为排的是 `META-INF/` 这种
-    //       规范拼法：放宽只会多丢几个本来也无害的条目，收紧反而可能漏掉签名的目录。
-    //       上面那句"和 extractSubtrees() 里那组一样严"说的是**三条防穿越的判据**，
-    //       前缀比对这一条两边口径不同，这里写明白，别让读的人以为它们逐字一样。
+    // 和 extractSubtrees() 里那条**前缀**比对不一样 —— 那边是
+    // `$full.ToLowerInvariant().StartsWith($r.ToLowerInvariant())`，故意不区分
+    // （真实整合包里 `Overrides/` / `overrides/` 两种写法都有，认不出来就会一条都
+    // 不解压，而那种失败是静默的）。这里不跟着放宽，是因为排的是 `META-INF/` 这种
+    // 规范拼法：放宽只会多丢几个本来也无害的条目，收紧反而可能漏掉签名的目录。
+    // 上面那句"和 extractSubtrees() 里那组一样严"说的是**三条防穿越的判据**，
+    // 前缀比对这一条两边口径不同，这里写明白，别让读的人以为它们逐字一样。
     for (const QString &prefix : excludePrefixes) {
         const QString normalized = prefix.endsWith(QLatin1Char('/')) ? prefix : prefix + QLatin1Char('/');
         skipConditions << QStringLiteral("%1.StartsWith(%2)").arg(fullName, psQuote(normalized));
@@ -296,15 +284,15 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
                        "      [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e,$dest,$true)\n"
                        "    }\n"
                        "  } catch {\n"
-                       // ★ 2026-09-27：这一段 catch 是**必须的**，理由和 gunzipTo / createZip
-                       //   里那两段一模一样（见 readProcessError 上面那段）：没兜住的话 PowerShell
-                       //   会把错误流序列化成 `#< CLIXML` + 一整条 `<Objs>` XML，而真因（路径太长、
-                       //   目标被占用、包是半截下载）**就埋在那条 XML 里**，readProcessError 按行
-                       //   过滤时连同机器话一起跳过 ⇒ 用户拿到的是「解压失败：PowerShell 退出码 1」，
-                       //   一个字都说不出是哪个包怎么了 —— 而这一条是要弹给他看的。
-                       //   GetBaseException() 取最里面那一层（真因在包装里，和那两段同一个理由）。
-                       //   退出码 3 和 gunzipTo / createZip 保持一致（"脚本跑到了、里面出错了"，
-                       //   和"进程没起来/超时"分开）。
+                       // 这一段 catch 是**必须的**，理由和 gunzipTo / createZip
+                       // 里那两段一模一样（见 readProcessError 上面那段）：没兜住的话 PowerShell
+                       // 会把错误流序列化成 `#< CLIXML` + 一整条 `<Objs>` XML，而真因（路径太长、
+                       // 目标被占用、包是半截下载）**就埋在那条 XML 里**，readProcessError 按行
+                       // 过滤时连同机器话一起跳过 ⇒ 用户拿到的是「解压失败：PowerShell 退出码 1」，
+                       // 一个字都说不出是哪个包怎么了 —— 而这一条是要弹给他看的。
+                       // GetBaseException() 取最里面那一层（真因在包装里，和那两段同一个理由）。
+                       // 退出码 3 和 gunzipTo / createZip 保持一致（"脚本跑到了、里面出错了"，
+                       // 和"进程没起来/超时"分开）。
                        "    $msg=$_.Exception.GetBaseException().Message\n"
                        "    if([string]::IsNullOrEmpty($msg)){ $msg=$_.Exception.Message }\n"
                        "    [Console]::Error.WriteLine(('解压「' + $z + '」时出错：' + $msg))\n"
@@ -401,15 +389,6 @@ ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &e
     if (code != 0) {
         QFile::remove(tempPath);
         if (errorOut != nullptr) {
-            // ★ 2026-09-27 修：这里原来直接把 stderr 原文交出去，而**这条路和上面那两处
-            //   是同一件事**（readProcessError 上面那段说的：stderr 被重定向时 PowerShell
-            //   会把错误流序列化成 CLIXML，头一行是 `#< CLIXML`）。readEntry() 自己 new 了
-            //   一个 QProcess（它是 runPowershell() 之外的第四个跑 PowerShell 的地方，
-            //   见本文件 518 行附近那段），所以它不在那一层过滤的覆盖范围内。
-            //   走得到这儿的一例：导入整合包时临时目录写不进去（%TEMP% 被清理工具占着、
-            //   盘满、杀软拦新建文件）→ 脚本里 ExtractToFile 抛异常 → 退出码不是 3/4 那两档
-            //   → 调用方（MainWindow 读清单那条路）把 `#< CLIXML` 和一整条 <Objs> XML 拼进
-            //   「读这个压缩包的时候出错了：…」弹给用户，而真因就埋在那条 XML 里。
             const QString err = readProcessError(QString::fromLocal8Bit(stderrBytes));
             *errorOut = err.isEmpty() ? QStringLiteral("%1失败（退出码 %2）").arg(what).arg(code) : err;
         }
@@ -448,14 +427,14 @@ ZipUtil::EntryStatus ZipUtil::listEntries(const QString &archive, QStringList *o
     // 原来的字节了；而条目名恰恰是这一发唯一要传回来的东西。
     //
     // NOTE: 格式用 JSON 而不是"一行一个"：**条目名里可以有换行**（zip 规范不禁），
-    //       拼分隔符是给自己埋雷。JSON 由 PowerShell 那一侧写、Qt 这一侧用
-    //       QJsonDocument 读，两边都不用自己转义。
+    // 拼分隔符是给自己埋雷。JSON 由 PowerShell 那一侧写、Qt 这一侧用
+    // QJsonDocument 读，两边都不用自己转义。
     //
-    // ★ 外面套一层对象（`{ entries = @(...) }`）而不是直接 ConvertTo-Json 一个数组：
-    //   Windows PowerShell 5.1 的 ConvertTo-Json 会把**只有一条**的数组**摊成一个标量**
-    //   （`-AsArray` 是 PowerShell 7 才有的开关）。套一层之后那个成员还是会被摊，
-    //   但读的那一侧两种形态都接得住（见下面），比"少一条名字"（一个只有一条
-    //   `pack.mcmeta` 的资源包就被认成"空包"）好得多。
+    // 外面套一层对象（`{ entries = @(...) }`）而不是直接 ConvertTo-Json 一个数组：
+    // Windows PowerShell 5.1 的 ConvertTo-Json 会把**只有一条**的数组**摊成一个标量**
+    // （`-AsArray` 是 PowerShell 7 才有的开关）。套一层之后那个成员还是会被摊，
+    // 但读的那一侧两种形态都接得住（见下面），比"少一条名字"（一个只有一条
+    // `pack.mcmeta` 的资源包就被认成"空包"）好得多。
     const QString tempPath = QDir::tempPath() + QStringLiteral("/wtfml-entries-") +
                              QUuid::createUuid().toString(QUuid::WithoutBraces);
     const QByteArray temp = QFile::encodeName(tempPath);
@@ -596,12 +575,12 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
     }
 
     // NOTE: 这一段是**剥掉前缀之后**的那几条守卫，和 extractArchives 里那三条是同一个口径
-    //       （那边有完整来路）：剥完之后如果剩下的是 `C:/x` 或 `/x`，.NET 的 Path.Combine 会
-    //       **丢掉**前半截（它认为第二个参数已经是绝对路径了），于是文件被写到 $out 外面去。
-    //       条目名里的 `\` 也先换成 `/` 再判 —— Windows 上它同样是分隔符。
+    // （那边有完整来路）：剥完之后如果剩下的是 `C:/x` 或 `/x`，.NET 的 Path.Combine 会
+    // **丢掉**前半截（它认为第二个参数已经是绝对路径了），于是文件被写到 $out 外面去。
+    // 条目名里的 `\` 也先换成 `/` 再判 —— Windows 上它同样是分隔符。
     //
-    //       这里以前写的是「比 extractArchives 里那条**只判 `..`** 的严一点」——那句话在
-    //       extractArchives 补上另外两条（绝对路径 / `:`）之后就**说反了**，两边现在一样严。
+    // 这里以前写的是「比 extractArchives 里那条**只判 `..`** 的严一点」——那句话在
+    // extractArchives 补上另外两条（绝对路径 / `:`）之后就**说反了**，两边现在一样严。
     const QString script =
         QStringLiteral("$ErrorActionPreference='Stop'\n"
                        "Add-Type -AssemblyName System.IO.Compression.FileSystem\n"
@@ -646,11 +625,6 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
                        "[Console]::Out.Write($count)\n")
             .arg(psQuote(QDir(targetDir).absolutePath()), psArray(normalized), psArray(archives));
 
-    // ★ 30 分钟（2026-10-20 从 10 分钟改上来）。原来那句注释自己就写着"实测一个 1.66 GB
-    //   / 422 个文件的整合包解压就跑了十几分钟"—— 十几分钟**大于** 10 分钟，也就是说按那
-    //   份实测，大包的这一趟会被自己的超时掐掉（然后半成品被清掉，用户看到"解压超时"）。
-    //   这跑在工作线程上（导入那一趟），等久一点只是"更晚才发现真挂住了"，而掐掉一份正在
-    //   正常解的大包是**误杀**。
     QByteArray stdoutBytes;
     QString failure;
     if (!runPowershell(script, 1800 * 1000, &stdoutBytes, &failure,
@@ -675,16 +649,16 @@ bool ZipUtil::gunzipTo(const QString &sourceGz, const QString &targetPath, QStri
     // 一样（stdout 是文本通道，二进制过一趟就不再是原来的字节）。
     //
     // NOTE: 两个 Add-Type 都要有：GZipStream 与 CompressionMode 在
-    //       System.IO.Compression 里，只加 FileSystem 的话在只装了 .NET Framework
-    //       的机器上这一步会报「找不到类型」（FileSystem 依赖它，但别指望程序集
-    //       加载顺序替我们把类型也带进来）。
+    // System.IO.Compression 里，只加 FileSystem 的话在只装了 .NET Framework
+    // 的机器上这一步会报「找不到类型」（FileSystem 依赖它，但别指望程序集
+    // 加载顺序替我们把类型也带进来）。
     // NOTE: $dest 只出现一次（先赋给变量再用），不让同一个 %2 在脚本里出现两遍 ——
-    //       QString::arg 的占位符替换对「同一个编号出现多次」这件事不好读，绕开它。
+    // QString::arg 的占位符替换对「同一个编号出现多次」这件事不好读，绕开它。
     // NOTE: **整段脚本**（连 Add-Type 和建目录）都包在那一个 try 里，catch 里把原因
-    //       用 [Console]::Error.WriteLine() 写到**原生 stderr** 上再 exit 3。
-    //       两个原因：① 不兜住的话 PowerShell 把错误流序列化成 CLIXML 丢到 stderr 上
-    //       （见 readProcessError 的说明），调用方拿到的是 `#< CLIXML` 这种没人看得懂的
-    //       东西；② 退出码要和"进程没起来/超时"分开 —— 那两档 runPowershell 自己会说。
+    // 用 [Console]::Error.WriteLine() 写到**原生 stderr** 上再 exit 3。
+    // 两个原因：① 不兜住的话 PowerShell 把错误流序列化成 CLIXML 丢到 stderr 上
+    // （见 readProcessError 的说明），调用方拿到的是 `#< CLIXML` 这种没人看得懂的
+    // 东西；② 退出码要和"进程没起来/超时"分开 —— 那两档 runPowershell 自己会说。
     const QString script =
         QStringLiteral("$ErrorActionPreference='Stop'\n"
                        "try{\n"
@@ -741,12 +715,12 @@ bool ZipUtil::gzipFrom(const QString &sourcePath, const QString &targetGz, QStri
     // （3 = 脚本跑到了、里面出错了；"没起来/超时"由 runPowershell 自己那一档说）。
     //
     // NOTE: 写那一侧的顺序是**反的** —— 先开目标文件，再把 GZipStream 套在它外面，
-    //       最后把源文件 CopyTo 进 gz。两个 finally 的顺序也一样重要：`$out.Dispose()`
-    //       必须在 `$gz.Dispose()` **之前**（GZipStream 的 Dispose 要把压缩尾巴刷出去，
-    //       底下的流已经关了的话那一段就丢了 —— 症状是一个能建出来、谁解都报错的包）。
+    // 最后把源文件 CopyTo 进 gz。两个 finally 的顺序也一样重要：`$out.Dispose()`
+    // 必须在 `$gz.Dispose()` **之前**（GZipStream 的 Dispose 要把压缩尾巴刷出去，
+    // 底下的流已经关了的话那一段就丢了 —— 症状是一个能建出来、谁解都报错的包）。
     // NOTE: CompressionLevel 用的是 Optimal（和 createZip 那一档同一个理由：不为了几个
-    //       百分点造出一个"和大家不一样"的包）。level.dat 是几十 KB，这一档和最快那一档
-    //       的耗时差在人眼以下。
+    // 百分点造出一个"和大家不一样"的包）。level.dat 是几十 KB，这一档和最快那一档
+    // 的耗时差在人眼以下。
     const QString script =
         QStringLiteral("$ErrorActionPreference='Stop'\n"
                        "try{\n"
@@ -818,16 +792,16 @@ bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entrie
 
     // 条目表**写成一个临时文件，不拼进脚本正文**。
     //
-    // NOTE: 这是 2026-09-26 在真实例上撞出来的一条硬限制：脚本是经 `-EncodedCommand`
-    //       用**命令行**递给 PowerShell 的，而 Windows 给一条命令行只有 32767 个字符；
-    //       脚本要先做 Base64（×4/3）再算 UTF-16LE（×2）⇒ 能塞进去的脚本大约 1.2 万字符。
-    //       一个装着 133 个模组的实例，光这张 `@('条目名','盘上路径')` 表就一万七千多字符
-    //       ⇒ CreateProcess 当场失败，QProcess 报「文件名或扩展名太长」
-    //       （ERROR_FILENAME_EXCED_RANGE），用户看到的是「打包失败」而盘上什么都没留下。
-    //       **小夹具（两条三条）永远看不见这个** —— 断言得照真实例的量级摆（见 verify V5q）。
+    // NOTE: 这是 在真实例上撞出来的一条硬限制：脚本是经 `-EncodedCommand`
+    // 用**命令行**递给 PowerShell 的，而 Windows 给一条命令行只有 32767 个字符；
+    // 脚本要先做 Base64（×4/3）再算 UTF-16LE（×2）⇒ 能塞进去的脚本大约 1.2 万字符。
+    // 一个装着 133 个模组的实例，光这张 `@('条目名','盘上路径')` 表就一万七千多字符
+    // ⇒ CreateProcess 当场失败，QProcess 报「文件名或扩展名太长」
+    // （ERROR_FILENAME_EXCED_RANGE），用户看到的是「打包失败」而盘上什么都没留下。
+    // **小夹具（两条三条）永远看不见这个** —— 断言得照真实例的量级摆（见 verify V5q）。
     // NOTE: 表用 JSON 而不是"一行一条、TAB 分隔"：条目名和路径里什么都可能有（空格、单引号、
-    //       中文、`.`），拼分隔符迟早踩雷，而 JSON 由 Qt 这一侧写、PowerShell 那一侧
-    //       ConvertFrom-Json 读，两边都不用自己转义。
+    // 中文、`.`），拼分隔符迟早踩雷，而 JSON 由 Qt 这一侧写、PowerShell 那一侧
+    // ConvertFrom-Json 读，两边都不用自己转义。
     const QString tablePath = QDir::tempPath() + QStringLiteral("/wtfml-ziptable-") +
                               QUuid::createUuid().toString(QUuid::WithoutBraces) +
                               QStringLiteral(".json");
@@ -846,12 +820,12 @@ bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entrie
             }
             return false;
         }
-        // ★ 2026-09-27：这一发的返回值**从前是丢掉的**。写不进去（磁盘满、临时目录没有写
-        //   权限、被安全软件拦下）时 `write()` 回 -1，而流程照旧往下走：PowerShell 那一侧
-        //   拿到一个空文件，`ConvertFrom-Json` 报「不能对 Null 值表达式调用方法」，用户看到
-        //   的是这么一句和真因（盘满）毫无关系的话，而目标 zip 里**一个条目都没有**。
-        //   这里当场拦下。NOTE: 短写（盘刚好在半路满）也一并算失败 —— 半截 JSON 同样过不了
-        //   ConvertFrom-Json，早点说清楚比让它去猜强。
+        // 这一发的返回值**从前是丢掉的**。写不进去（磁盘满、临时目录没有写
+        // 权限、被安全软件拦下）时 `write()` 回 -1，而流程照旧往下走：PowerShell 那一侧
+        // 拿到一个空文件，`ConvertFrom-Json` 报「不能对 Null 值表达式调用方法」，用户看到
+        // 的是这么一句和真因（盘满）毫无关系的话，而目标 zip 里**一个条目都没有**。
+        // 这里当场拦下。NOTE: 短写（盘刚好在半路满）也一并算失败 —— 半截 JSON 同样过不了
+        // ConvertFrom-Json，早点说清楚比让它去猜强。
         const QByteArray payload = QJsonDocument(table).toJson(QJsonDocument::Compact);
         if (tableFile.write(payload) != payload.size()) {
             if (errorOut != nullptr) {
@@ -876,7 +850,7 @@ bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entrie
                        // ⇒ foreach 只跑一圈、`$p.name` 由成员枚举变成**所有名字拼成的一串**
                        // ⇒ CreateEntryFromFile 收到一个数组当路径，报
                        // 「The given path's format is not supported.」
-                       // （2026-09-26 撞的，改用临时文件后又踩了这一脚；`[array]` 两种形态
+                       // （ 撞的，改用临时文件后又踩了这一脚；`[array]` 两种形态
                        // 都是平铺的，实测见 verify V5q 与"只有一条条目"那些用例。）
                        "$pairs=[array]([System.IO.File]::ReadAllText"
                        "($table,[System.Text.Encoding]::UTF8) | ConvertFrom-Json)\n"
@@ -907,14 +881,11 @@ bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entrie
                        "}\n")
             .arg(psQuote(QDir::toNativeSeparators(targetZip)), psQuote(tablePath));
 
-    // 30 分钟（2026-10-20 从 10 分钟改上来，理由和解压那一段逐字相同：按注释里那份实测，
-    // 光**解压**一个 1.66 GB 的整合包就要十几分钟，打包只会更慢 —— 10 分钟会在正常的大包
-    // 上误杀。这一趟同样跑在工作线程上）。
     QString failure;
-    // ★ 2026-10-20：**开工之前**就问一眼目标在不在。下面失败那一路会把目标删掉（"半成品
-    //   不留"），可这一句删的是**我们写的那个路径** —— 那份文件要是本来就在，删掉它等于
-    //   "一次没打成的包顺手毁掉了上一次那份好的"。正常调用方（备份）现在都会先挑一个
-    //   没人占的名字，所以这一条在它们那儿不会触发；留着是给"目标已经存在"这种调用兜底。
+    // **开工之前**就问一眼目标在不在。下面失败那一路会把目标删掉（"半成品
+    // 不留"），可这一句删的是**我们写的那个路径** —— 那份文件要是本来就在，删掉它等于
+    // "一次没打成的包顺手毁掉了上一次那份好的"。正常调用方（备份）现在都会先挑一个
+    // 没人占的名字，所以这一条在它们那儿不会触发；留着是给"目标已经存在"这种调用兜底。
     const bool targetExisted = QFileInfo::exists(targetZip);
     const bool ok = runPowershell(script, 1800 * 1000, nullptr, &failure, QStringLiteral("打包"), cancelled);
     // 临时表两份出路都要删（成功、失败都一样）—— 它躺在系统临时目录里，里面是用户的

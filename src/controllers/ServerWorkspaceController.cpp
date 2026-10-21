@@ -1,8 +1,6 @@
 /**
  * @file ServerWorkspaceController.cpp
  * @brief 实现服务端进程集合与信号汇聚。
- * @author Agent
- * @date 2026-10
  */
 #include "controllers/ServerWorkspaceController.hpp"
 

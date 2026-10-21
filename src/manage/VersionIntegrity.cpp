@@ -1,8 +1,6 @@
 /**
  * @file VersionIntegrity.cpp
  * @brief 「体检」那套判据的实现（只报不装，见头文件里那几段说明）。
- * @author 0x7fffff
- * @date 2026-10-11
  */
 
 #include "VersionIntegrity.hpp"
@@ -20,7 +18,6 @@
 namespace VersionIntegrity {
 
 QString groupName(Group group) {
-    // 这四个字是给人看的（报告那段纯文本 + 界面上那一列分组标题），改这里就是改两处。
     switch (group) {
     case Group::ClientJar:
         return QStringLiteral("客户端");
@@ -162,9 +159,9 @@ void appendAssetObjects(QList<ExpectedFile> &files, const QJsonObject &objects) 
         files.append({QStringLiteral("资源对象 %1").arg(it.key()),
                       AppPaths::assetsDir() + QStringLiteral("/objects/") + hash.left(2)
                           + QLatin1Char('/') + hash,
-                      // ★ 判据里**故意**不带 sha1：见头文件里"资源对象不做哈希"那一段。
-                      //   文件路径本身就是那个 sha1，再哈希一遍等于把同一件事算两遍，
-                      //   而且是这 3000 个文件里最贵的那一步。
+                      // 判据里**故意**不带 sha1：见头文件里"资源对象不做哈希"那一段。
+                      // 文件路径本身就是那个 sha1，再哈希一遍等于把同一件事算两遍，
+                      // 而且是这 3000 个文件里最贵的那一步。
                       QString(), object.value(QStringLiteral("size")).toVariant().toLongLong(),
                       Group::AssetObjects});
     }
@@ -177,9 +174,9 @@ QList<ExpectedFile> plan(const QJsonObject &mergedJson, const QString &versionId
     QList<ExpectedFile> files;
 
     // ① 客户端 jar。地址和哈希来自 downloads.client，**落点**由 InstanceFiles 说了算 ——
-    //    装出来的加载器版本自己没有 jar（继承父版本那一份），jarPath() 会指到主人那边去。
-    //    这里和 registerVersionFiles() 一样判"有 client 这个对象"，不判 url 空不空：
-    //    url 空只说明这一份下不下来，而"盘上有没有那个文件"照样是个说得出口的问题。
+    // 装出来的加载器版本自己没有 jar（继承父版本那一份），jarPath() 会指到主人那边去。
+    // 这里和 registerVersionFiles() 一样判"有 client 这个对象"，不判 url 空不空：
+    // url 空只说明这一份下不下来，而"盘上有没有那个文件"照样是个说得出口的问题。
     const QJsonObject client =
         mergedJson.value(QStringLiteral("downloads")).toObject().value(QStringLiteral("client"))
             .toObject();
@@ -192,7 +189,7 @@ QList<ExpectedFile> plan(const QJsonObject &mergedJson, const QString &versionId
     }
 
     // ② 库。**全体实例共用** <数据目录>/libraries 那一份（见 registerVersionFiles 里那段
-    //    NOTE）。path 空的跳过 —— downloadLibraries() 也是这么跳的，那种库装配时落不了盘。
+    // NOTE）。path 空的跳过 —— downloadLibraries() 也是这么跳的，那种库装配时落不了盘。
     for (const Library &lib : libraries) {
         if (lib.path.isEmpty()) {
             continue;
@@ -202,7 +199,7 @@ QList<ExpectedFile> plan(const QJsonObject &mergedJson, const QString &versionId
     }
 
     // ③ 资源索引那个 json。url / id 有一个是空的时候装配侧一句都不下（downloadAssets()
-    //    开头那条早退），所以这里也不列 —— 列了就是无中生有的一条"缺文件"。
+    // 开头那条早退），所以这里也不列 —— 列了就是无中生有的一条"缺文件"。
     if (!assetIndex.id.isEmpty() && !assetIndex.url.isEmpty()) {
         files.append({QStringLiteral("资源索引 %1").arg(assetIndex.id),
                       AppPaths::assetsDir() + QStringLiteral("/indexes/") + assetIndex.id
@@ -211,8 +208,8 @@ QList<ExpectedFile> plan(const QJsonObject &mergedJson, const QString &versionId
     }
 
     // ④ 资源对象（索引里那份 objects 表）。这是这一层**唯一**的读盘：读的就是上面那条
-    //    索引文件。读不出来（不存在、或者不是 json）时一条都不列 —— 索引缺了这件事本身
-    //    已经在清单上了，用户修它就够，不用再叠 3000 条"资源对象 xx 缺失"的噪声。
+    // 索引文件。读不出来（不存在、或者不是 json）时一条都不列 —— 索引缺了这件事本身
+    // 已经在清单上了，用户修它就够，不用再叠 3000 条"资源对象 xx 缺失"的噪声。
     if (!assetIndex.id.isEmpty()) {
         QFile indexFile(AppPaths::assetsDir() + QStringLiteral("/indexes/") + assetIndex.id
                         + QStringLiteral(".json"));
@@ -233,8 +230,8 @@ Verdict check(const ExpectedFile &file) {
     verdict.label = file.label;
     verdict.path = file.path;
     verdict.expectedSize = file.size;
-    // ★ 分组一路带过来（plan() 在列清单那一刻就知道）：界面按组摊结果时就靠它，
-    //   不用回头去认 label 字符串（见头文件 Group 那段 NOTE）。
+    // 分组一路带过来（plan() 在列清单那一刻就知道）：界面按组摊结果时就靠它，
+    // 不用回头去认 label 字符串（见头文件 Group 那段 NOTE）。
     verdict.group = file.group;
 
     const QFileInfo info(file.path);
@@ -283,8 +280,6 @@ QString plainReport(const Report &report, const QString &instanceName) {
     }
     for (Group group : allGroups()) {
         const QList<Verdict> problems = report.problemsInGroup(group);
-        // ★ 四组**一个都不省**，哪怕是"0 个要修"：省掉的话用户看到报告里没有"库"这一行，
-        //   分不清是"库没问题"还是"压根没查库"。这一条和 Report 里那段 NOTE 是一件事。
         lines << QStringLiteral("%1（%2 个要修）").arg(groupName(group)).arg(problems.size());
         for (const Verdict &v : problems) {
             lines << QStringLiteral("  %1：%2").arg(v.label, v.detail());

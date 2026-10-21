@@ -1,8 +1,6 @@
 /**
  * @file ServerRestart.cpp
  * @brief ServerRestart.hpp 的实现（纯函数，不读盘、不看时钟）。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "server/ServerRestart.hpp"

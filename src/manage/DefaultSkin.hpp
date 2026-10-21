@@ -1,33 +1,24 @@
 /**
  * @file DefaultSkin.hpp
  * @brief 从离线账号的名字算出**游戏会给他分配哪张官方默认皮肤**，再从本地客户端 JAR 里把那张图取出来（只落缓存）。
- * @author 0x7fffff
- * @date 2026-09-24
  * @note 用户问的是「能不能根据假用户名推测会随机分配什么官方皮肤，到指定地址现下（只存进缓存，
- *       不缝进资源）」。能 —— 而且比他想的还强一层：**那个"随机"其实是确定的**，客户端里没有
- *       掷骰子，只有一条从 uuid 出发的映射。所以这里做的不是"猜一张好看的"，是"算出游戏本来
- *       就会给他的那一张"。于是它同时比随机那条路多两样东西：图是官方的，模型（窄/宽）也是对的。
- *
- * 【为什么"随机"是确定的：本机三个版本反编译出来的两套规矩】
+ * 不缝进资源）」。能 —— 而且比他想的还强一层：**那个"随机"其实是确定的**，客户端里没有
+ * 掷骰子，只有一条从 uuid 出发的映射。所以这里做的不是"猜一张好看的"，是"算出游戏本来
+ * 就会给他的那一张"。于是它同时比随机那条路多两样东西：图是官方的，模型（窄/宽）也是对的。
  *
  * 客户端里那个类叫 DefaultPlayerSkin，入口只有"给一个 uuid"这一种。`javap -p -c` 的结果：
  *
- *   - **新规矩（1.20.1 实测，混淆名 fvm）**：一个 18 元数组，
- *     `arr[Math.floorMod(uuid.hashCode(), 18)]`。18 条的顺序**就是常量池里那 18 个字符串的
- *     顺序**（不是照社区说法排的，是逐个从字节码里抄下来的）：前 9 条
- *     `textures/entity/player/slim/{alex,ari,efe,kai,makena,noor,steve,sunny,zuri}.png`，
- *     后 9 条同一个名字表、换成 `wide/`。**模型由条目自己带**：同一份字节码里 `fvm$a` 这个
- *     枚举是 `SLIM → "slim"`、`WIDE → "default"`（宽版那个模型串就叫 default），
- *     `b(uuid)` 取的就是它。所以模型不用另猜，算下标的时候一起出来了。
- *   - **老规矩（1.18.2 实测，fbf）**：只有两张图。私有谓词 `c(UUID)` 返回真走 alex，
- *     假走 steve；`b(UUID)` 是模型串，和 `c()` 同一个分支（同一段字节码里 ldc 出 `"slim"`
- *     和 `"default"`）—— **alex = slim、steve = default（宽）**，这一条是照字节码对上的，
- *     不是照老经验猜的。
- *
- * uuid 那一层游戏用的是 `UUID.nameUUIDFromBytes(("OfflinePlayer:" + 名字).getBytes(UTF_8))`，
- * 也就是 AccountStore::offlineUuidFor() 已经在算的那个（本机 JVM 出的真值、包括中文名，和它
- * 逐位对得上，真值表钉在 verify 里）。哈希是 Java 的 `UUID.hashCode()`：
- * `(int)(hilo >> 32) ^ (int)hilo`，其中 `hilo` = 高 64 位 ^ 低 64 位。
+ * - **新规矩（1.20.1 实测，混淆名 fvm）**：一个 18 元数组，
+ * `arr[Math.floorMod(uuid.hashCode(), 18)]`。18 条的顺序**就是常量池里那 18 个字符串的
+ * 顺序**（不是照社区说法排的，是逐个从字节码里抄下来的）：前 9 条
+ * `textures/entity/player/slim/{alex,ari,efe,kai,makena,noor,steve,sunny,zuri}.png`，
+ * 后 9 条同一个名字表、换成 `wide/`。**模型由条目自己带**：同一份字节码里 `fvm$a` 这个
+ * 枚举是 `SLIM → "slim"`、`WIDE → "default"`（宽版那个模型串就叫 default），
+ * `b(uuid)` 取的就是它。所以模型不用另猜，算下标的时候一起出来了。
+ * - **老规矩（1.18.2 实测，fbf）**：只有两张图。私有谓词 `c(UUID)` 返回真走 alex，
+ * 假走 steve；`b(UUID)` 是模型串，和 `c()` 同一个分支（同一段字节码里 ldc 出 `"slim"`
+ * 和 `"default"`）—— **alex = slim、steve = default（宽）**，这一条是照字节码对上的，
+ * 不是照老经验猜的。
  *
  * 【两套规矩**不按版本号判**】
  *
@@ -37,28 +28,17 @@
  * 两条都没有才算算不出来。好处是它对快照版本、对被人改过名字的版本目录、对未来新版本
  * 一样成立 —— 只要 JAR 里有，就能算。
  *
- * 【图从哪来：**本机客户端 JAR 里**，一个字节都不用下】
- *
- * 实测：那 18 张图**不在资产索引里**（`assets/indexes/<索引>.json` 里 `entity/player` 底下全是
- * 攻击/受伤的音效 .ogg，一张贴图都没有），它们在客户端 JAR 里，形如
- * `assets/minecraft/textures/entity/player/wide/kai.png`（1.20.1 实测那张 1585 字节；
- * 老规矩那两张是 `assets/minecraft/textures/entity/{alex,steve}.png`）。
- * 所以用户说的"到指定地址现下"在这里的答案是：**那个地址就是已经装在盘上的那个版本的
- * 客户端 JAR**，用现成的 ZipUtil::readEntry() 取一条出来即可，代价是一次 PowerShell
- * （实测 ~250-330 ms，一次只取一条）。本模块**完全没有网络** —— 它不是"另找一个源"，
- * 是"就地取材"。
- *
  * 【只落缓存，不缝进资源】
  *
  * 取出来的图写在 `<数据目录>/skins/default-<账号键>-<版本键>-<条目别名>.png`，仓库和 Qt 资源
  * 里一个像素都不进（用户明确要求）。缓存文件名里那三段都有用：
- *   - 账号键 = PlayerSkinStore::uuidKey(uuid)（同一套写法，见那边的 NOTE）；
- *   - **版本键** = md5(版本 id) 前 12 位十六进制。**它不能省**：换到低版本之后算出来的是
- *     另一条路径的另一张图，判据必须能分开"这个缓存算的是哪个版本"。用哈希而不是把版本 id
- *     直接拼进去，是因为版本 id 是**外面来的名字**（目录名，实测有空格、全角括号、中文），
- *     拿它拼路径就是在拼一个可能建不出来的文件名 —— 这和 PlayerSkinStore::uuidKey() 不肯
- *     拼野路径是同一条规矩。
- *   - 条目别名 = 条目路径去掉公共前缀、`/` 换成 `-`（`player-wide-kai` / 老规矩的 `alex`）。
+ * - 账号键 = PlayerSkinStore::uuidKey(uuid)（同一套写法，见那边的 NOTE）；
+ * - **版本键** = md5(版本 id) 前 12 位十六进制。**它不能省**：换到低版本之后算出来的是
+ * 另一条路径的另一张图，判据必须能分开"这个缓存算的是哪个版本"。用哈希而不是把版本 id
+ * 直接拼进去，是因为版本 id 是**外面来的名字**（目录名，实测有空格、全角括号、中文），
+ * 拿它拼路径就是在拼一个可能建不出来的文件名 —— 这和 PlayerSkinStore::uuidKey() 不肯
+ * 拼野路径是同一条规矩。
+ * - 条目别名 = 条目路径去掉公共前缀、`/` 换成 `-`（`player-wide-kai` / 老规矩的 `alex`）。
  *
  * 于是"算过没有"就是两次 QFile::exists（新老两条各一次，顺序：先新），**命中时一个进程都不起**；
  * 换版本、再换回来也各自命中自己那一份。想重算就删掉 `<数据目录>/skins/default-*`。
@@ -121,7 +101,7 @@ int eighteenCount();
  * @return 认不出这个 uuid（不是 32 位十六进制）时返回 false，*hashOut 不动。
  *
  * NOTE: **算法必须和 Java 逐位一致**，不然算出来的皮肤和游戏里那张对不上 —— 而"对不上"
- *       不会报错，只会静默显示另一张。真值（本机 JVM 出的）钉在 verify 里，包括中文名字。
+ * 不会报错，只会静默显示另一张。真值（本机 JVM 出的）钉在 verify 里，包括中文名字。
  */
 bool uuidHashCode(const QString &uuid, int *hashOut);
 
@@ -139,7 +119,7 @@ Prediction predict(const QString &uuid, Rule rule);
  * @param versionId 算它时用的是哪个实例（版本目录名）。
  * @param entryPath 客户端 JAR 里的条目名。
  * @return `<数据目录>/skins/default-<账号键>-<版本键>-<条目别名>.png`；
- *         uuid 认不出来时返回空串（**不是**拼一个野路径）。
+ * uuid 认不出来时返回空串（**不是**拼一个野路径）。
  *
  * 三段名字的来历见文件头。**这是这条路径的唯一出处**：读和写都走它。
  */
@@ -148,7 +128,7 @@ QString cachePathFor(const QString &uuid, const QString &versionId, const QStrin
 /**
  * @brief 算 + 取：把游戏会给这个名字的那张默认皮肤放到缓存里。
  * @param playerName 离线账号的名字 —— **必须是进 `--username` 的那一个**（游戏就是拿它算 uuid 的，
- *        差一个字符就是另一张脸）。
+ * 差一个字符就是另一张脸）。
  * @param versionId 拿哪个实例的客户端 JAR 来判断规矩、取图；空串 = 没选中版本。
  * @param pathOut 成功时写缓存图的绝对路径。
  * @param slimOut 成功时写那张图是不是窄模型。

@@ -1,11 +1,9 @@
 /**
  * @file ConfigFileEditorPage.cpp
  * @brief ConfigFileEditorPage 的实现。
- * @author 0x7fffff
- * @date 2026-09-27
  * @note 见 .hpp 那一段（为什么是文本编辑器、为什么它是 QWidget 不是 QDialog、
- *       为什么这一层自己算要写的字节）。这里只补两处实现上的说明：行号槽那一套
- *       （本文件里唯一一处自己画的控件），以及 Esc 那一颗得在这一层接住的原因。
+ * 为什么这一层自己算要写的字节）。这里只补两处实现上的说明：行号槽那一套
+ * （本文件里唯一一处自己画的控件），以及 Esc 那一颗得在这一层接住的原因。
  */
 #include "ConfigFileEditorPage.hpp"
 
@@ -73,10 +71,10 @@ private:
 /// 带行号的纯文本编辑框。
 ///
 /// NOTE: 用 `QPlainTextEdit` 而不是 `QTextEdit` —— 前者就是为**纯文本**设计的（没有富文本
-///       那一套文档结构），长行和大文件都稳；而这一页要的正好是纯文本。
+/// 那一套文档结构），长行和大文件都稳；而这一页要的正好是纯文本。
 /// NOTE: **不换行**（`NoWrap`）。这一条不只是"看着像编辑器"，它还是行号槽成立的前提：
-///       一个块正好占一个视觉行，所以第 n 个块的行号就画在第 n 行上。一换行，一个块占好几
-///       个视觉行，行号就得跟着算折行 —— 那是另一件事，也更容易画错。
+/// 一个块正好占一个视觉行，所以第 n 个块的行号就画在第 n 行上。一换行，一个块占好几
+/// 个视觉行，行号就得跟着算折行 —— 那是另一件事，也更容易画错。
 class CodeEditor : public QPlainTextEdit {
 public:
     explicit CodeEditor(QWidget *parent = nullptr) : QPlainTextEdit(parent) {
@@ -88,9 +86,9 @@ public:
         // （`carryon-common.toml` 里 `[settings]` 底下那一层全是 `\t`），照 Qt 默认那个
         // 8 格宽画出来，同一份文件的缩进会比在别处看着深一倍。
         setTabStopDistance(4 * fontMetrics().horizontalAdvance(QLatin1Char(' ')));
-        // ★ 这一页是**编辑器**：Tab 得是缩进，不是"焦点跳到下一个控件"。QPlainTextEdit
-        //   默认就是这样（tabChangesFocus 默认 false）；写出来是因为这一条哪天被改掉，
-        //   症状是"按 Tab 焦点跑了"，而用户只是想缩进一格。
+        // 这一页是**编辑器**：Tab 得是缩进，不是"焦点跳到下一个控件"。QPlainTextEdit
+        // 默认就是这样（tabChangesFocus 默认 false）；写出来是因为这一条哪天被改掉，
+        // 症状是"按 Tab 焦点跑了"，而用户只是想缩进一格。
         setTabChangesFocus(false);
 
         connect(this, &QPlainTextEdit::blockCountChanged, this,
@@ -189,8 +187,8 @@ void makeSecondary(QLabel *label) {
 
 ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
     setObjectName(pageName());
-    // ★ 这一页**自己要拿到焦点**（用户进来就是要敲键盘改字），而它是嵌在两格子里被切出来
-    //   的 —— 见 .hpp 里 showEvent() 那一 NOTE。
+    // 这一页**自己要拿到焦点**（用户进来就是要敲键盘改字），而它是嵌在两格子里被切出来
+    // 的 —— 见 .hpp 里 showEvent() 那一 NOTE。
     setFocusPolicy(Qt::StrongFocus);
 
     auto *outer = new QVBoxLayout(this);
@@ -205,14 +203,14 @@ ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
     topRow->setContentsMargins(0, 0, 0, 0);
     topRow->setSpacing(8);
 
-    // ★ 这一颗是必须的：覆盖层那颗返回箭头顶上顶着的是**整个「实例设置」**（点一下这一趟
-    //   就没了），而用户在这儿的下一步多半是"看另一个文件"。所以这一页自己带一颗。
+    // 这一颗是必须的：覆盖层那颗返回箭头顶上顶着的是**整个「实例设置」**（点一下这一趟
+    // 就没了），而用户在这儿的下一步多半是"看另一个文件"。所以这一页自己带一颗。
     m_back = new QPushButton(backText(), this);
     m_back->setObjectName(backButtonName());
     // 「← 返回」、「条目」、「还原上一次」、「打开文件夹」四颗都是**看一眼或者挪个地方**
     // （一般性）；只有右下角那颗「保存」是确认性。
     // NOTE：「还原上一次」**不是**危险那一档 —— 它只把那份备份摆进框里
-    //       （下面那条注释说得很死：“取回不许是一次悄悄的写入”），真写盘是点「保存」。
+    // （下面那条注释说得很死：“取回不许是一次悄悄的写入”），真写盘是点「保存」。
     Theme::markButton(m_back, Theme::ButtonKind::Neutral);
     connect(m_back, &QPushButton::clicked, this, [this] { emit backRequested(); });
     topRow->addWidget(m_back);
@@ -222,14 +220,14 @@ ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
     // 从**中间**截：这一串两头都有用 —— 前头是哪个实例、尾巴上才是文件名。
     //
     // NOTE: 这一格的真身份是 `ElidedLabel`，而 .hpp 里成员声明的是 `QLabel`（对外只要
-    //       setText / text 那两下，和 InstanceFilesPage::pathLabel() 同一条规矩：别把
-    //       ElidedLabel.hpp 拖进每一个用到这一页的地方）。所以在这儿转一次。
+    // setText / text 那两下，和 InstanceFilesPage::pathLabel() 同一条规矩：别把
+    // ElidedLabel.hpp 拖进每一个用到这一页的地方）。所以在这儿转一次。
     static_cast<ElidedLabel *>(m_pathLabel)->setElideMode(Qt::ElideMiddle);
     makeSecondary(m_pathLabel);
     topRow->addWidget(m_pathLabel, 1);
 
-    // ★ 「条目」那一颗：左边那一格的开合（见 .hpp 那段）。它不是在切"看什么文件"，
-    //   而是在切"这一格里看什么" —— 所以和「返回」摆在一头，不跟文件那两颗挤在另一头。
+    // 「条目」那一颗：左边那一格的开合（见 .hpp 那段）。它不是在切"看什么文件"，
+    // 而是在切"这一格里看什么" —— 所以和「返回」摆在一头，不跟文件那两颗挤在另一头。
     m_indexToggle = new QPushButton(indexToggleText(), this);
     m_indexToggle->setObjectName(indexToggleName());
     Theme::markButton(m_indexToggle, Theme::ButtonKind::Ghost);
@@ -238,14 +236,14 @@ ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
     connect(m_indexToggle, &QPushButton::toggled, this, [this] { refreshIndexVisibility(); });
     topRow->addWidget(m_indexToggle);
 
-    // ★ 「还原上一次」：每存一次**之前**都会把盘上那一份原样留一份（见 ConfigFileText 那一
-    //   节），这一颗就是把最近那一份取回来。它摆在这一头、和「条目」挨着 —— 那两颗干的都是
-    //   "看着这一格"的事，不是"换一份文件"。
+    // 「还原上一次」：每存一次**之前**都会把盘上那一份原样留一份（见 ConfigFileText 那一
+    // 节），这一颗就是把最近那一份取回来。它摆在这一头、和「条目」挨着 —— 那两颗干的都是
+    // "看着这一格"的事，不是"换一份文件"。
     //
-    // ★★ 取回来**只是摆进框里**：底下那行字会说清它是哪来的、还没写回盘上，用户按「保存」
-    //    才真的落到盘上。**取回不许是一次悄悄的写入** —— 那样用户按一下就叫"还原"，
-    //    而盘上那份已经被盖掉了，再想回到"刚才改的那一份"就没有路（它没被备份过：
-    //    备份留的永远是"写之前的那一份"）。
+    // 取回来**只是摆进框里**：底下那行字会说清它是哪来的、还没写回盘上，用户按「保存」
+    // 才真的落到盘上。**取回不许是一次悄悄的写入** —— 那样用户按一下就叫"还原"，
+    // 而盘上那份已经被盖掉了，再想回到"刚才改的那一份"就没有路（它没被备份过：
+    // 备份留的永远是"写之前的那一份"）。
     m_restore = new QPushButton(restoreText(), this);
     m_restore->setObjectName(restoreButtonName());
     Theme::markButton(m_restore, Theme::ButtonKind::Neutral);
@@ -310,13 +308,13 @@ ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
     m_index->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_index->header()->setStretchLastSection(true);
     m_index->setColumnWidth(0, 140);
-    // ★ 点一条就跳过去。**只在点叶子的时候有位置可跳**（分组那几行没有值的区间，
-    //   `jumpToEntry()` 自己会认出来）。
+    // 点一条就跳过去。**只在点叶子的时候有位置可跳**（分组那几行没有值的区间，
+    // `jumpToEntry()` 自己会认出来）。
     connect(m_index, &QTreeWidget::itemClicked, this,
             [this](QTreeWidgetItem *item, int /*column*/) { jumpToEntry(item); });
     panelColumn->addWidget(m_index, 1);
     middle->addWidget(m_indexPanel);
-    // 展开/折叠动画（2026-09-29，规则见 ui/Animations.hpp）。
+    // 展开/折叠动画（，规则见 ui/Animations.hpp）。
     Anim::animateExpansion(m_index);
 
     m_editor = new CodeEditor(this);
@@ -326,9 +324,9 @@ ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
     middle->addWidget(m_editor, 1);
     outer->addLayout(middle, 1);
 
-    // ★ 改字之后把索引重算一遍：**区间是拿正文算出来的，正文一动它就旧了**。
-    //   延时 250 ms（见 kIndexRebuildDelayMs）—— 不延时的话，一次保存型的大改动
-    //   （全选粘贴）会连着触发几十次重建。
+    // 改字之后把索引重算一遍：**区间是拿正文算出来的，正文一动它就旧了**。
+    // 延时 250 ms（见 kIndexRebuildDelayMs）—— 不延时的话，一次保存型的大改动
+    // （全选粘贴）会连着触发几十次重建。
     m_indexTimer = new QTimer(this);
     m_indexTimer->setSingleShot(true);
     m_indexTimer->setInterval(kIndexRebuildDelayMs);
@@ -381,10 +379,10 @@ void ConfigFileEditorPage::setFile(const QString &path, const ConfigFileText::Lo
     m_loaded = loaded;
     m_hasFile = true;
     m_stamp = stamp;
-    // ★ 换了一份文件 ⇒ **上一条的那个答案不作数了**：那个文件留过备份没有、框里是不是从
-    //   备份取回来的，都是"对某一份文件"说的。不清的话，用户从 A（有备份）切到 B（没备份）
-    //   会看见 B 上挂着一颗「还原上一次」，点下去取回来的是 A 的备份 —— 而且它看起来
-    //   完全合理。调用方紧接着会用 setBackupAvailable() 把这一份的真实答案摆上。
+    // 换了一份文件 ⇒ **上一条的那个答案不作数了**：那个文件留过备份没有、框里是不是从
+    // 备份取回来的，都是"对某一份文件"说的。不清的话，用户从 A（有备份）切到 B（没备份）
+    // 会看见 B 上挂着一颗「还原上一次」，点下去取回来的是 A 的备份 —— 而且它看起来
+    // 完全合理。调用方紧接着会用 setBackupAvailable() 把这一份的真实答案摆上。
     m_backupAvailable = false;
     m_restoredFrom.clear();
 
@@ -394,11 +392,11 @@ void ConfigFileEditorPage::setFile(const QString &path, const ConfigFileText::Lo
     const bool editable = loaded.editable();
     m_editor->setReadOnly(!editable);
     // 摆正文：`setPlainText()` 会把"改过没有"重置回"没改"（Qt 的文档模型就是这么做的，
-    // 2026-09-27 实测过）—— 不过 isDirty() 压根不看那一位，它是拿 m_loaded.text 现比的，
+    // 实测过）—— 不过 isDirty() 压根不看那一位，它是拿 m_loaded.text 现比的，
     // 所以这一句与它无关，写在这儿只是因为它是刚才量过的那件事。
     //
-    // ★ 这一句会发 textChanged，而"改字了 ⇒ 索引得重算"那台延时器接的就是它 —— 不挡住
-    //   的话，刚摆完一份文件又自己扫一遍全文（白扫，而且会把下面刚摆好的索引再清一次）。
+    // 这一句会发 textChanged，而"改字了 ⇒ 索引得重算"那台延时器接的就是它 —— 不挡住
+    // 的话，刚摆完一份文件又自己扫一遍全文（白扫，而且会把下面刚摆好的索引再清一次）。
     m_loading = true;
     m_editor->setPlainText(loaded.text);
     m_loading = false;
@@ -445,11 +443,11 @@ void ConfigFileEditorPage::restoreContent(const QString &text, const QString &wh
     if (!m_hasFile) {
         return;
     }
-    // ★ 只摆正文（见 .hpp）：`m_loaded` **一个字节都不动**。于是
-    //   - `isDirty()` 自己就变 true（它拿的是 m_loaded.text 比的）⇒「返回」会问一句、
-    //     「保存」才真的写盘 —— 还原不是一次悄悄的写入；
-    //   - 存的时候行尾/BOM 用的是**这个文件现在**的那些（`m_loaded.ends`）—— 备份里那几行
-    //     要是赶上不同的行尾/编码，写回去也还是这份文件本来的样子。
+    // 只摆正文（见 .hpp）：`m_loaded` **一个字节都不动**。于是
+    // - `isDirty()` 自己就变 true（它拿的是 m_loaded.text 比的）⇒「返回」会问一句、
+    // 「保存」才真的写盘 —— 还原不是一次悄悄的写入；
+    // - 存的时候行尾/BOM 用的是**这个文件现在**的那些（`m_loaded.ends`）—— 备份里那几行
+    // 要是赶上不同的行尾/编码，写回去也还是这份文件本来的样子。
     m_loading = true;
     m_editor->setPlainText(text);
     m_loading = false;
@@ -487,8 +485,8 @@ void ConfigFileEditorPage::markSaved() {
     if (!m_hasFile) {
         return;
     }
-    // ★ 存过之后"读过那一份"就得换成**刚写下去的那一份**：`isDirty()` 是拿它比的，
-    //   不换的话用户存完再点「返回」，还会被问一句"改了没保存"——而它明明刚存过。
+    // 存过之后"读过那一份"就得换成**刚写下去的那一份**：`isDirty()` 是拿它比的，
+    // 不换的话用户存完再点「返回」，还会被问一句"改了没保存"——而它明明刚存过。
     //
     // 换的东西就是把刚才那份字节解回来（`saveRequested` 里算的是同一份：同样的
     // `m_loaded` + 同样的正文，`encode()` 是纯函数），所以 `raw` 是盘上真实的那一份，
@@ -552,9 +550,9 @@ int ConfigFileEditorPage::rebuildIndex() {
     if (m_index == nullptr) {
         return 0;
     }
-    // ★ 重建之后原来选中的那一条还得选回来：改一个字就会重算索引，而用户手里往往正握着
-    //   一条（"找到它了、还没动手改"）—— 每一次重算都把它跳回顶层，用起来就是"索引自己
-    //   在动"。
+    // 重建之后原来选中的那一条还得选回来：改一个字就会重算索引，而用户手里往往正握着
+    // 一条（"找到它了、还没动手改"）—— 每一次重算都把它跳回顶层，用起来就是"索引自己
+    // 在动"。
     QString keepPath;
     if (QTreeWidgetItem *current = m_index->currentItem()) {
         keepPath = current->data(0, entryPathRole()).toString();
@@ -695,9 +693,9 @@ void ConfigFileEditorPage::refreshIndexVisibility() {
 }
 
 bool ConfigFileEditorPage::indexVisible() const {
-    // ★ 问的是 `isHidden()` 不是 `isVisible()`：这一页自己常常整个是藏着的（它是那个堆叠
-    //   里被切出来的一格，off 的时候父控件就没有可见性），那时候 `isVisible()` 对**任何**
-    //   子控件都回假 —— "这一格收起来了"这件事问的从来不是"它现在看不看得见"。
+    // 问的是 `isHidden()` 不是 `isVisible()`：这一页自己常常整个是藏着的（它是那个堆叠
+    // 里被切出来的一格，off 的时候父控件就没有可见性），那时候 `isVisible()` 对**任何**
+    // 子控件都回假 —— "这一格收起来了"这件事问的从来不是"它现在看不看得见"。
     return m_indexPanel != nullptr && !m_indexPanel->isHidden();
 }
 
@@ -715,17 +713,11 @@ void ConfigFileEditorPage::jumpToEntry(QTreeWidgetItem *item) {
     // 区间是从**上一次**认出来的正文算的（那个 250 ms 的延时器还没响）。正文动过之后
     // 它就可能落到别处 —— 越界的话宁可不跳，也不去选一段风马牛不相及的字。
     //
-    // ★★ 2026-09-27 修：**只挡越界是不够的**，而"没越界但已经错位"才是常态 ——
-    //    在正文里连着打字时每敲一个字都把那个 250 ms 重新计时，停手后 250 ms 内点左栏
-    //    任一条目：区间整体错位（改动在文件靠前的地方时，后面每一条都一起挪），跳过去
-    //    选中的是**另一段字**。这里原来那句注释（"宁可不跳，也不去选一段风马牛不相及的
-    //    字"）说的正是这件事，而代码只管了越界那一半。
-    //
-    //    判据：那一格第 1 列记着**值原文**（`键 = 值` 里那个值，缩进/引号/大小写都和文件
-    //    里逐字一样），而扫描器记区间时用的就是 `text.mid(begin, end - begin)`（见
-    //    ConfigEntries）。所以"这一段现在还是不是原来那一段"可以直接比字符串。
-    //    对不上 = 索引旧了 ⇒ **当场重算一遍**，再按路径把这一条找回来用新区间跳 ——
-    //    不是"干脆不跳"：用户点它就是要跳过去，把"请再点一次"推回去才是添麻烦。
+    // 判据：那一格第 1 列记着**值原文**（`键 = 值` 里那个值，缩进/引号/大小写都和文件
+    // 里逐字一样），而扫描器记区间时用的就是 `text.mid(begin, end - begin)`（见
+    // ConfigEntries）。所以"这一段现在还是不是原来那一段"可以直接比字符串。
+    // 对不上 = 索引旧了 ⇒ **当场重算一遍**，再按路径把这一条找回来用新区间跳 ——
+    // 不是"干脆不跳"：用户点它就是要跳过去，把"请再点一次"推回去才是添麻烦。
     const QString path = item->data(0, entryPathRole()).toString();
     const QString editor = text();
     const auto rangeStillMatches = [&editor](int from, int to, const QString &value) {
@@ -773,8 +765,8 @@ void ConfigFileEditorPage::jumpToEntry(QTreeWidgetItem *item) {
 }
 
 void ConfigFileEditorPage::keyPressEvent(QKeyEvent *event) {
-    // ★ Esc 得在这一层接住（见 .hpp）。它从编辑框冒上来走到这儿，说明编辑框自己不认这个
-    //   键 —— 那它就只该有"退回文件列表"这一个意思。
+    // Esc 得在这一层接住（见 .hpp）。它从编辑框冒上来走到这儿，说明编辑框自己不认这个
+    // 键 —— 那它就只该有"退回文件列表"这一个意思。
     if (event->key() == Qt::Key_Escape) {
         emit backRequested();
         event->accept();
@@ -785,9 +777,9 @@ void ConfigFileEditorPage::keyPressEvent(QKeyEvent *event) {
 
 void ConfigFileEditorPage::showEvent(QShowEvent *event) {
     QWidget::showEvent(event);
-    // ★ 焦点只能在这一刻补（见 .hpp 那一 NOTE）：这一块是被堆叠切出来的，露脸的那一下
-    //   焦点归了新露面的控件（或者还在刚才那张列表上）。**不补这一下，用户进来打不了
-    //   字** —— 而"改这个文件"是这一页唯一的主要功能。
+    // 焦点只能在这一刻补（见 .hpp 那一 NOTE）：这一块是被堆叠切出来的，露脸的那一下
+    // 焦点归了新露面的控件（或者还在刚才那张列表上）。**不补这一下，用户进来打不了
+    // 字** —— 而"改这个文件"是这一页唯一的主要功能。
     if (m_editor != nullptr && isEditable()) {
         m_editor->setFocus(Qt::OtherFocusReason);
     }

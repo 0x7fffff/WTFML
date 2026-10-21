@@ -19,7 +19,7 @@ bool isLinkEntry(const QFileInfo &info) {
     return info.isSymLink() || info.isJunction();
 }
 
-/// 单条删除那一问。★ 2026-10-20：链接**不能**按文件夹写 —— `removeUnasked()` 对目录走
+/// 单条删除那一问。★ ：链接**不能**按文件夹写 —— `removeUnasked()` 对目录走
 /// `removeTreeWithoutFollowingLinks()`，它碰到链接只摘掉链接本身、指向的东西一个字节都不动；
 /// 而 `QFileInfo::isDir()` 对 junction 是 `true`。原来那一问照着 `isDir()` 写，用户看到的是
 /// 「连同里面的东西一起删掉」，实际删掉的是个两字节的壳子 —— 反过来更糟：用户以为链接背后
@@ -95,11 +95,11 @@ bool InstanceFileController::removeUnasked(const QString &path, QString *problem
     const QFileInfo info(path);
     if (!info.exists())
         return fail(tr("「%1」现在不在盘上。").arg(QDir::toNativeSeparators(path)));
-    // ★ 2026-10-20：两条路都走 `removeTreeWithoutFollowingLinks()`。它对**文件**多做了
-    //   一件 `QFile::remove()` 不做的事：失败时先摘掉只读位再试一次（见 FolderManager.cpp
-    //   里那段）—— 从只读介质拷来的 jar、被网盘/别的启动器标成只读的整合包，不然永远删不掉，
-    //   而下面那句提示还把人往"游戏占着"引，关掉游戏也删不掉。
-    //   目录那条路本来就是它（连里面一起删、不追链接）。
+    // 两条路都走 `removeTreeWithoutFollowingLinks()`。它对**文件**多做了
+    // 一件 `QFile::remove()` 不做的事：失败时先摘掉只读位再试一次（见 FolderManager.cpp
+    // 里那段）—— 从只读介质拷来的 jar、被网盘/别的启动器标成只读的整合包，不然永远删不掉，
+    // 而下面那句提示还把人往"游戏占着"引，关掉游戏也删不掉。
+    // 目录那条路本来就是它（连里面一起删、不追链接）。
     const bool wasDirectory = info.isDir() && !isLinkEntry(info);
     const bool removed = removeTreeWithoutFollowingLinks(path);
     if (!removed)
@@ -136,11 +136,11 @@ void InstanceFileController::toggleMany(const QStringList &paths, bool disable) 
 
 void InstanceFileController::removeMany(const QStringList &paths) {
     if (paths.isEmpty()) return;
-    // ★ 2026-10-20：这一批里**可能有文件夹**。资源包 / 数据包 / 光影包那三页连目录一起列
-    //   （未压缩的目录包正是游戏认可的一种形态），而 `removeUnasked()` 对目录是**连里面的
-    //   东西一起递归删**（`removeTreeWithoutFollowingLinks`）。原来这一问无论收到什么都
-    //   写「这 N 个文件」—— 唯一的确认框把实际破坏范围说小了，用户以为只删一个壳子。
-    //   单条那条路（`remove()`）早就分开写了，批量这条路漏了同一件事。
+    // 这一批里**可能有文件夹**。资源包 / 数据包 / 光影包那三页连目录一起列
+    // （未压缩的目录包正是游戏认可的一种形态），而 `removeUnasked()` 对目录是**连里面的
+    // 东西一起递归删**（`removeTreeWithoutFollowingLinks`）。原来这一问无论收到什么都
+    // 写「这 N 个文件」—— 唯一的确认框把实际破坏范围说小了，用户以为只删一个壳子。
+    // 单条那条路（`remove()`）早就分开写了，批量这条路漏了同一件事。
     // 链接单独数：它们**不**是"里面的东西一起删"，只摘壳子（见 `removalQuestionFor()`）。
     int dirCount = 0;
     int linkCount = 0;

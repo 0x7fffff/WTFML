@@ -31,16 +31,16 @@ namespace {
 // 目标文件夹是不是**当前这个游戏文件夹**。两处要问这件事（复制成功那句提示的语气、
 // 以及后台复制要不要把目标名字记进「文件操作中」），判据只能有一个。
 //
-// ★ 2026-10-19：**不能**只拿 `QDir::cleanPath` 比字面量。用户完全可以把游戏文件夹
-//   用另一条路指过来（junction / 符号链接）—— 那时两串字面量不同、而 `versions/<名字>/`
-//   落的就是同一个目录。漏判的后果分两处：
-//     · 后台复制期间目标名字**没被记进 `m_fileOperationInstanceIds`** ⇒ 拷到一半的实例
-//       下一次刷新就能被启动 / 删除（那两条闸只查 `installingVersionIds()`）；
-//     · 复制完成那句提示说"在另一个游戏文件夹里"，而它明明就在列表里。
-//   `InstanceFiles::pathIsSameOrInside()` 会解 junction / 8.3 短名 / 符号链接
-//   （`canonicalFilePath()` 自己**不解 junction**，见 InstanceFiles.cpp 里那一大段），
-//   所以拿它**两头各问一次**就是"同一个文件夹"。解不出来 / 两边只有大小写写法不同时
-//   退回原来那句字面量比较 —— 那正是这条判据从前的全部行为，不丢。
+// **不能**只拿 `QDir::cleanPath` 比字面量。用户完全可以把游戏文件夹
+// 用另一条路指过来（junction / 符号链接）—— 那时两串字面量不同、而 `versions/<名字>/`
+// 落的就是同一个目录。漏判的后果分两处：
+// · 后台复制期间目标名字**没被记进 `m_fileOperationInstanceIds`** ⇒ 拷到一半的实例
+// 下一次刷新就能被启动 / 删除（那两条闸只查 `installingVersionIds()`）；
+// · 复制完成那句提示说"在另一个游戏文件夹里"，而它明明就在列表里。
+// `InstanceFiles::pathIsSameOrInside()` 会解 junction / 8.3 短名 / 符号链接
+// （`canonicalFilePath()` 自己**不解 junction**，见 InstanceFiles.cpp 里那一大段），
+// 所以拿它**两头各问一次**就是"同一个文件夹"。解不出来 / 两边只有大小写写法不同时
+// 退回原来那句字面量比较 —— 那正是这条判据从前的全部行为，不丢。
 bool isCurrentGameFolder(const QString &folder) {
     if (folder.isEmpty()) {
         return false;
@@ -211,16 +211,16 @@ void InstanceTransferController::copyInstanceInBackground(
     }
     log(tr("开始复制实例 %1 → %2 …").arg(displayName(sourceId), name));
     m_copyBusy = true;
-    // ★ 2026-10-19：拷树在后台跑，可这段时间原先**没有任何"忙"标记**。源实例照样能被
-    //   启动（游戏一边写存档、这一边读 ⇒ 副本里是半截世界）、能被删、能再改设置。
-    //   开始前的 `isVersionRunning` / `isBeingModified` 两道闸只管"按下去那一刻"。
-    //   **源**必须记；**目标**在"目标游戏文件夹就是当前游戏文件夹"时也得分两说：
-    //   实例识别只看 `versions/<名字>/` 里有没有主 jar（`InstanceFiles::resolveInstance`），
-    //   而拷树是边拷边落盘的 —— 拷到一半时 `<name>/<sourceId>.jar` 已经躺在那儿，下一次
-    //   任何全量刷新都能把它认成一份实例（`instanceId` 还是源的、meta 也没改）。启动 /
-    //   删除的闸只查 `installingVersionIds()`，所以这一段名字也得记进去。
-    //   目标在**别的**游戏文件夹时不能记这个名字：那是另一个文件夹里的相对名，当前文件夹
-    //   里可能有同名实例，记了会误伤它。
+    // 拷树在后台跑，可这段时间原先**没有任何"忙"标记**。源实例照样能被
+    // 启动（游戏一边写存档、这一边读 ⇒ 副本里是半截世界）、能被删、能再改设置。
+    // 开始前的 `isVersionRunning` / `isBeingModified` 两道闸只管"按下去那一刻"。
+    // **源**必须记；**目标**在"目标游戏文件夹就是当前游戏文件夹"时也得分两说：
+    // 实例识别只看 `versions/<名字>/` 里有没有主 jar（`InstanceFiles::resolveInstance`），
+    // 而拷树是边拷边落盘的 —— 拷到一半时 `<name>/<sourceId>.jar` 已经躺在那儿，下一次
+    // 任何全量刷新都能把它认成一份实例（`instanceId` 还是源的、meta 也没改）。启动 /
+    // 删除的闸只查 `installingVersionIds()`，所以这一段名字也得记进去。
+    // 目标在**别的**游戏文件夹时不能记这个名字：那是另一个文件夹里的相对名，当前文件夹
+    // 里可能有同名实例，记了会误伤它。
     const bool copyIntoCurrentFolder = isCurrentGameFolder(destGameFolder);
     const bool markCopyTarget = copyIntoCurrentFolder && name != sourceId;
     if (m_host.setFileOperationBusy) {
@@ -228,9 +228,9 @@ void InstanceTransferController::copyInstanceInBackground(
         if (markCopyTarget) m_host.setFileOperationBusy(name, true);
     }
 
-    // ★ 为什么在后台线程里**另起一个** `VersionManager`：`copyInstance()` 最后会动
-    //   `versionJsons` / `mergedVersionJsons` 两份缓存，拿主线程那一份在别的线程里跑就是
-    //   数据竞争。导出那一层（`ModpackExportController`）用的是同一条写法。
+    // 为什么在后台线程里**另起一个** `VersionManager`：`copyInstance()` 最后会动
+    // `versionJsons` / `mergedVersionJsons` 两份缓存，拿主线程那一份在别的线程里跑就是
+    // 数据竞争。导出那一层（`ModpackExportController`）用的是同一条写法。
     auto *watcher = new QFutureWatcher<CopyOutcome>(this);
     connect(watcher, &QFutureWatcher<CopyOutcome>::finished, this,
             [this, watcher, sourceId, sourceDir, destGameFolder, name, markCopyTarget, done] {
@@ -242,10 +242,10 @@ void InstanceTransferController::copyInstanceInBackground(
                     m_host.setFileOperationBusy(sourceId, false);
                     if (markCopyTarget) m_host.setFileOperationBusy(name, false);
                 }
-                // ★ 2026-10-19：刷新必须**跟着摘标记走**，不能只挂在成功那一条路上。
-                //   复制期间源实例被 `installingVersionIds()` 滤掉；万一这中间别处
-                //   （换文件夹 / 下载收尾 / 别的对话框）刷新过一次列表，屏幕上就少了
-                //   这一行。复制 / 校验失败时用户更需要看见它还在。
+                // 刷新必须**跟着摘标记走**，不能只挂在成功那一条路上。
+                // 复制期间源实例被 `installingVersionIds()` 滤掉；万一这中间别处
+                // （换文件夹 / 下载收尾 / 别的对话框）刷新过一次列表，屏幕上就少了
+                // 这一行。复制 / 校验失败时用户更需要看见它还在。
                 if (m_host.refreshInstances) m_host.refreshInstances();
                 const auto finishTask = [this](bool success, const QString &error) {
                     if (m_host.finishTask && m_copyTaskId != Tasks::invalidTaskId()) {
@@ -307,10 +307,10 @@ void InstanceTransferController::copyInstanceInBackground(
                 announceCopySuccess(sourceId, destGameFolder, name);
                 done(true, {});
             });
-    // ★ sourceDir 在**主线程**算好再捕进来（上面 `const QString sourceDir`）。
-    //   `copyInstance()` 内部会现读 `AppPaths::versionDir()`，而那是进程级可变状态 ——
-    //   用户在这趟跑着的时候能切换游戏文件夹（这页复制期间没有禁用），worker 里去读
-    //   就是数据竞争，而且可能拷错目录。后台一律走 `copyInstanceFrom()`。
+    // sourceDir 在**主线程**算好再捕进来（上面 `const QString sourceDir`）。
+    // `copyInstance()` 内部会现读 `AppPaths::versionDir()`，而那是进程级可变状态 ——
+    // 用户在这趟跑着的时候能切换游戏文件夹（这页复制期间没有禁用），worker 里去读
+    // 就是数据竞争，而且可能拷错目录。后台一律走 `copyInstanceFrom()`。
     watcher->setFuture(QtConcurrent::run([sourceDir, sourceId, destGameFolder, name] {
         VersionManager worker;
         CopyOutcome outcome;
@@ -436,9 +436,9 @@ void InstanceTransferController::deleteWorldInBackground(
         reject(tr("认不出要删除哪个世界。"));
         return;
     }
-    // ★ 用户确认那一问和真正开删之间隔着一次事件循环：这中间游戏可能刚被启动。
-    //   游戏退出（或者在游戏里存一次）的时候会把整个世界重新写一遍，而那时目录已经
-    //   没了 —— 所以和 `InstanceDialogController` 里那道闸同一条理由，这里**再查一次**。
+    // 用户确认那一问和真正开删之间隔着一次事件循环：这中间游戏可能刚被启动。
+    // 游戏退出（或者在游戏里存一次）的时候会把整个世界重新写一遍，而那时目录已经
+    // 没了 —— 所以和 `InstanceDialogController` 里那道闸同一条理由，这里**再查一次**。
     if (!instanceId.isEmpty() && m_launcher && m_launcher->isVersionRunning(instanceId)) {
         reject(tr("游戏正在运行，先关掉游戏再删这个世界。"));
         return;
@@ -486,7 +486,7 @@ void InstanceTransferController::deleteWorldInBackground(
     watcher->setFuture(QtConcurrent::run([worldDir] {
         CopyOutcome result;
         // 不能换成 `QDir::removeRecursively()`：它会跟着 junction / 符号链接走进目标目录
-        //（见 FolderManager.cpp 里那段）。
+        // （见 FolderManager.cpp 里那段）。
         result.ok = removeTreeWithoutFollowingLinks(worldDir);
         return result;
     }));
@@ -515,10 +515,10 @@ bool InstanceTransferController::renameWorld(const QString &instanceId,
                                tr("游戏正在运行，先关掉游戏再改存档的名字。"));
         return false;
     }
-    // ★ 2026-10-19：这一份实例正在被别的作业占着（快照 / 世界备份 / 还原 / 复制 / 安装）
-    //   时不许改世界目录的名字。那些作业按**改名前算好的绝对路径**逐个读整棵目录树，
-    //   目录在扫描途中被改名，它们要么静默少读一批文件、要么把结果写到一半就找不到落点，
-    //   收尾却照样报成功 —— 一份看着成功、其实是残的备份比失败更糟。
+    // 这一份实例正在被别的作业占着（快照 / 世界备份 / 还原 / 复制 / 安装）
+    // 时不许改世界目录的名字。那些作业按**改名前算好的绝对路径**逐个读整棵目录树，
+    // 目录在扫描途中被改名，它们要么静默少读一批文件、要么把结果写到一半就找不到落点，
+    // 收尾却照样报成功 —— 一份看着成功、其实是残的备份比失败更糟。
     if (m_host.isBeingModified && m_host.isBeingModified(instanceId)) {
         InlineMessage::warning(m_overlay, tr("重命名世界"),
                                tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），"

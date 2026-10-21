@@ -1,13 +1,11 @@
 /**
  * @file TextFormat.hpp
  * @brief 彩色文本：`§` 码 ↔ 一段一段带样式的正文 ↔ JSON 文本组件 ↔ `/tellraw` 命令。
- * @author 0x7fffff
- * @date 2026-10-16
- * @note 用户 2026-10-16 点名的工具箱第二件（coding plan §9.11 第 2 项）：「Minecraft 文本
- *       生成器：首版只做 MOTD 与传统 `§` 格式文本，编辑与预览能力和服务端设置页共用」，
- *       外加他那一句「看看还有彩色文本的命令什么的」—— 所以这一层除了 `§` 那种写法，
- *       还要出得了**命令那一侧**的两种形态：JSON 文本组件（`/tellraw` 的正文）和拼好的
- *       `/tellraw` 命令本身。
+ * @note 用户 点名的工具箱第二件（coding plan §9.11 第 2 项）：「Minecraft 文本
+ * 生成器：首版只做 MOTD 与传统 `§` 格式文本，编辑与预览能力和服务端设置页共用」，
+ * 外加他那一句「看看还有彩色文本的命令什么的」—— 所以这一层除了 `§` 那种写法，
+ * 还要出得了**命令那一侧**的两种形态：JSON 文本组件（`/tellraw` 的正文）和拼好的
+ * `/tellraw` 命令本身。
  *
  * 【三份形态，同一件事】
  *
@@ -26,14 +24,14 @@
  *
  * - `0-9 a-f` 十六色，`k` 随机、`l` 粗、`m` 删除线、`n` 下划线、`o` 斜体，`r` 全部复位；
  * - **颜色码会把格式位一起清掉**（`§c` 之后那个粗体就不算数了）—— 游戏是这么干的，
- *   `§a§lb` 里那个 `b` 是粗的、`§a§lb§cc` 里的 `c` 就不是；
+ * `§a§lb` 里那个 `b` 是粗的、`§a§lb§cc` 里的 `c` 就不是；
  * - `§r` 把颜色和格式位一起复位（回"默认色 + 都不加"）；
  * - **两个 `§` 挨着**（`§§`）不是转义，游戏照样按"后一个是码"读；这一层照抄，不做聪明事；
  * - 收尾那个孤零零的 `§`（后面什么都没有）**原样留着**：它是正文的一部分，丢掉就等于
- *   改写了用户输入。
+ * 改写了用户输入。
  *
  * NOTE: 这一层**不碰任何 Qt GUI**（`ui/` 不比 `src/` 高一级，方向不能倒过来）：那十六个
- *       颜色值以 `0xRRGGBB` 这种纯数字给出（`colorRgb()`），画成什么样是界面那一层的事。
+ * 颜色值以 `0xRRGGBB` 这种纯数字给出（`colorRgb()`），画成什么样是界面那一层的事。
  */
 
 #pragma once
@@ -75,7 +73,7 @@ enum class Color {
 struct Style {
     Color color = Color::Default;
     /// 1.16 起那份自定颜色（`#RRGGBB`；`§` 那边的写法是 `§x§R§R§G§G§B§B`）。
-    /// ★ 它一在位，`color` 就**不算数** —— 两个都写会让"到底哪个是色"得靠读者猜。
+    /// 它一在位，`color` 就**不算数** —— 两个都写会让"到底哪个是色"得靠读者猜。
     bool hasCustomColor = false;
     quint32 customRgb = 0xFFFFFF;
     bool bold = false;
@@ -154,7 +152,7 @@ QString toLegacy(const QList<Segment> &segments);
  * @brief 转成 JSON 文本组件（`/tellraw` 那个正文）。
  *
  * - 颜色与格式位**只写非默认的那些**（`{"text":"x"}` 而不是把五位全写 false）——
- *   写全了读起来噪音太大，而且游戏那边默认值本来就是这些；
+ * 写全了读起来噪音太大，而且游戏那边默认值本来就是这些；
  * - 提交的正文里 `"` 和 `\` 交给 QJson 转义，这一层不手拼。
  */
 QJsonArray toJson(const QList<Segment> &segments);
@@ -167,11 +165,11 @@ QString toJsonText(const QList<Segment> &segments);
  *
  * @param segments 正文。
  * @param target 收话的人（默认 `@a`）。**原样用**：这一层不认识选择器语法，也不去校验
- *        —— 它是用户自己填的一格，填错了游戏那边会说话。
+ * —— 它是用户自己填的一格，填错了游戏那边会说话。
  * @param leadingSlash 开头要不要带 `/`（聊天栏里粘要带、命令方块里不带）。
  *
  * NOTE: 空表**照样出一条合法命令**（正文是空数组）：这是"我点了一下生成"的产物，不是
- *       一份内容；返回空串会让界面无从区分"没生成"和"生成了个空的"。
+ * 一份内容；返回空串会让界面无从区分"没生成"和"生成了个空的"。
  */
 QString toTellrawCommand(const QList<Segment> &segments, const QString &target = QStringLiteral("@a"),
                          bool leadingSlash = true);

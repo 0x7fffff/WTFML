@@ -64,8 +64,8 @@ JavaSettingsController::JavaSettingsController(MainWindowUI *ui, GlobalJavaSetti
     });
 
     // 自动分配要"随系统可用内存更新"：设置页露着的时候每 2 秒重读一次并刷新展示。
-    // ★ 只在自动档 + 设置页可见时跑（见 refreshMemory() 末尾）—— 手动档下读系统内存
-    //   没有任何意义，页不在眼前时更新也没人看。
+    // 只在自动档 + 设置页可见时跑（见 refreshMemory() 末尾）—— 手动档下读系统内存
+    // 没有任何意义，页不在眼前时更新也没人看。
     m_memoryRefreshTimer = new QTimer(this);
     m_memoryRefreshTimer->setInterval(2000);
     connect(m_memoryRefreshTimer, &QTimer::timeout, this, [this]() {

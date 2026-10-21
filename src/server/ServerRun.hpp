@@ -1,31 +1,29 @@
 /**
  * @file ServerRun.hpp
  * @brief 「把一个已经装好的服务端跑起来、再让它干净地停下来」这条路上的**判据层**
- *        （coding plan §6.2 的操作那一段 + §6.3 的停止时序 / 里程碑 M4-3）。
- * @author 0x7fffff
- * @date 2026-10-13
+ * （coding plan §6.2 的操作那一段 + §6.3 的停止时序 / 里程碑 M4-3）。
  *
  * 【它和 `ServerModel` / `ServerInstall` 差在哪】
  *
- *   * `ServerModel` 说"一个服务端是什么"（状态那七个词、`eula.txt` 怎么读怎么写、
- *     `server.properties`、`isInstalled()`）；
- *   * `ServerInstall` 说"要下什么、装完是什么样"，并给出**装完之后启动它发什么**
- *     （`Plan::launchTokens`）；
- *   * 这一层说**那串 token 怎么变成一条真命令**（java 在哪、内存那几项插到第几位）、
- *     **怎么让它停**（先 `stop`、等多久才允许强杀）、以及**它吐出来的那些字节在说什么**
- *     （起来了没有、退了之后算哪一档状态）。
+ * * `ServerModel` 说"一个服务端是什么"（状态那七个词、`eula.txt` 怎么读怎么写、
+ * `server.properties`、`isInstalled()`）；
+ * * `ServerInstall` 说"要下什么、装完是什么样"，并给出**装完之后启动它发什么**
+ * （`Plan::launchTokens`）；
+ * * 这一层说**那串 token 怎么变成一条真命令**（java 在哪、内存那几项插到第几位）、
+ * **怎么让它停**（先 `stop`、等多久才允许强杀）、以及**它吐出来的那些字节在说什么**
+ * （起来了没有、退了之后算哪一档状态）。
  *
  * 和 `ServerInstallRun.hpp` 同一个形状：**header-only、全 `inline`、不联网、不起进程、
  * 不看时钟** —— 喂几个数进来、回一个结论出去。所以 `verify` 能直接把它整片钉死
  * （见 tests 的 **ZZ** 一节），真的 `QProcess` / `QTimer` 留给 `ServerProcess`。
  *
- * 【★ 内存那几项插在哪儿：一张被注释说反了的坑（2026-10-13 修的）】
+ * 【★ 内存那几项插在哪儿：一张被注释说反了的坑（ 修的）】
  *
  * `ServerInstall.hpp` 里原来那两张 NOTE 写的是"驱动层拼的时候要把内存那几项接在
  * **这几个 token 后面**"。照那句话实现出来是错的，而且错得很安静：
  *
- *   java @user_jvm_args.txt @libraries/…/win_args.txt nogui -Xmx4G
- *                                          ^^^^^^^^^^^^^^^^ 这一串是**主类 + 它的参数**
+ * java @user_jvm_args.txt @libraries/…/win_args.txt nogui -Xmx4G
+ * ^^^^^^^^^^^^^^^^ 这一串是**主类 + 它的参数**
  *
  * —— `win_args.txt` 不是"一堆 JVM 参数"，它**自带主类**（`--launchTarget forgeserver`
  * 前面那个 `net.minecraftforge.bootstrap.BootstrapLauncher` 就是）。java 从左往右认，
@@ -43,10 +41,10 @@
  *
  * `stop` 发出去之后服务端要存盘、要等各个 mod 收尾，大世界 + 几百个 mod 的服可能几十秒才
  * 退。这段时间里把「强制结束」放出来只会诱导用户在存盘中途把它打死（那正是丢存档的姿势）。
- * 用户 2026-10-13 点名：「基于模组数量和存档大小灵活调整」—— 见 `gracefulStopMs()`：
+ * 用户 点名：「基于模组数量和存档大小灵活调整」—— 见 `gracefulStopMs()`：
  *
- *   起手 15 s，每 32 个模组 +5 s（封顶 +45 s）、每 1 GiB 存档 +5 s（封顶 +60 s），
- *   总上限 120 s。
+ * 起手 15 s，每 32 个模组 +5 s（封顶 +45 s）、每 1 GiB 存档 +5 s（封顶 +60 s），
+ * 总上限 120 s。
  *
  * 三个数都由 `MainWindow` 现算现喂（模组 = `<目录>/mods` 下 `.jar` 的个数，
  * `.jar.disabled` 不算；存档 = `<目录>/world` 那棵树的大小），所以这一层不知道盘长什么样。
@@ -72,11 +70,11 @@ namespace ServerRun {
  *
  * @param plan 那一档的安装计划（要的是 `launchTokens` 和 `launchJvmArgsIndex`）。
  * @param memoryMb 内存上限，MB。**`<= 0` 就一项都不发**（"不限制"是 java 的默认档；
- *        编一个数出来比不发更危险 —— 同实例设置那条老规矩）。
+ * 编一个数出来比不发更危险 —— 同实例设置那条老规矩）。
  * @param extraJvmArgs 别的 JVM 参数（排在内存那几项后面）。空 = 不发。
  *
- * ★ 返回值**不含** `java` 自己（那是 `QProcess::setProgram()`）；调用方拼的时候别把
- *   `plan.launchTokens` 里的东西再抄一遍。
+ * 返回值**不含** `java` 自己（那是 `QProcess::setProgram()`）；调用方拼的时候别把
+ * `plan.launchTokens` 里的东西再抄一遍。
  */
 inline QStringList launchArguments(const ServerInstall::Plan &plan, int memoryMb,
                                    const QStringList &extraJvmArgs = QStringList()) {
@@ -113,8 +111,8 @@ inline QByteArray stopCommandBytes() {
  * 就算"启动中"，只有这一行才是"真的在跑了"（`Status::Running`）。
  *
  * NOTE: 判据是**完整的那一段** `Done (`，不是 `Done`：mod 的日志里出现一个光秃秃的 Done
- *       太容易了（"Done loading 512 recipes" 这种一眼就是别的意思），而带左括号那一截
- *       是服务端自己那台 `Server start-up complete` 才有的形状。
+ * 太容易了（"Done loading 512 recipes" 这种一眼就是别的意思），而带左括号那一截
+ * 是服务端自己那台 `Server start-up complete` 才有的形状。
  */
 inline bool isReadyLine(const QString &line) {
     return line.contains(QLatin1String("Done ("));
@@ -126,9 +124,9 @@ inline bool isReadyLine(const QString &line) {
 
 /**
  * @brief 把新到手的一截**字节**拼到 `pending` 上，切出里面**所有完整的行**，剩下的留在
- *        `pending` 里等下一趟。
+ * `pending` 里等下一趟。
  *
- * 这一层为什么必须按**字节**切、切完再解码 —— 2026-10-13 修的一个真 bug（mw_check 的
+ * 这一层为什么必须按**字节**切、切完再解码 —— 修的一个真 bug（mw_check 的
  * T41.3 偶发红那一次）：`QProcess::readAllStandardOutput()` 到手的是**字节**，而一次
  * `readyRead` 只保证"有东西来了"，**不保证切在字符边界上**。原来那版是
  * `QString::fromLocal8Bit(readAllStandardOutput())`（到手就整块解码），一个三字节的汉字
@@ -140,9 +138,9 @@ inline bool isReadyLine(const QString &line) {
  * 多字节字符的后续字节一律 ≥ 0x80 ⇒ 按这两个字节切永远不会把字符切开，切出来的每一段
  * 都是完整的字节序列、可以放心逐行解码。
  *
- * ★ 空行**不回来**（原来是 `if (!line.isEmpty())` 那个判断）—— 服务端自己会打空行，
- *   而且 `\r\n`（Windows 那套换行）会被切成"前一段 + 一个空段"，把空段也当一行报上去
- *   会让行数凭空多出来。这个行为是**故意保持**的（mw_check T41.2 数的行数就吃它）。
+ * 空行**不回来**（原来是 `if (!line.isEmpty())` 那个判断）—— 服务端自己会打空行，
+ * 而且 `\r\n`（Windows 那套换行）会被切成"前一段 + 一个空段"，把空段也当一行报上去
+ * 会让行数凭空多出来。这个行为是**故意保持**的（mw_check T41.2 数的行数就吃它）。
  *
  * @param pending 跨趟攒着的那截（进来时是上一趟剩下的，返回时是这一趟剩下的）。
  * @param chunk 刚 `readAllStandardOutput()` 到手的一截（**不要先解码**）。
@@ -174,8 +172,8 @@ inline QStringList takeLines(QByteArray &pending, const QByteArray &chunk) {
  * - 退出码 0 ⇒ `Stopped`（正常退出 —— 不管是我们发的 `stop` 还是它自己 `/stop`）；
  * - 非 0 ⇒ `Crashed`；
  * - ★ 我们还**没来得及**说"要停"它就 0 退出了，也算 `Stopped`：那种场面是"它在启动过程中
- *   自己关掉了"（比如 eula 没同意、端口被占，服务端自己 exit 0），把它写成「异常退出」会
- *   让用户去查一个不存在的崩溃。
+ * 自己关掉了"（比如 eula 没同意、端口被占，服务端自己 exit 0），把它写成「异常退出」会
+ * 让用户去查一个不存在的崩溃。
  *
  * @param exitCode `QProcess::exitCode()`。
  * @param wasStopping 退出之前我们是不是已经发过 `stop` / 按过强杀。
@@ -264,10 +262,10 @@ inline QString eulaUrl() {
  * @brief EULA 那道闸的正文与标题（**唯一出处**，界面照抄）。
  *
  * 三条规矩写死在这儿：
- *   ① **不自动接受**（coding plan §6.4 明写不做）—— 只有用户自己勾了才写 `eula=true`；
- *   ② 勾选框那一句只陈述"我读过并同意哪一份协议"，不替他判断"这个协议没问题"；
- *   ③ 原文地址是**可点的一行**（用户 2026-10-13 点名：「要提供通向 eula 的链接，且可以
- *      点击跳转」）—— 他把同意两个字打在屏幕上之前得能真看见那是什么。
+ * ① **不自动接受**（coding plan §6.4 明写不做）—— 只有用户自己勾了才写 `eula=true`；
+ * ② 勾选框那一句只陈述"我读过并同意哪一份协议"，不替他判断"这个协议没问题"；
+ * ③ 原文地址是**可点的一行**（用户 点名：「要提供通向 eula 的链接，且可以
+ * 点击跳转」）—— 他把同意两个字打在屏幕上之前得能真看见那是什么。
  */
 inline QString eulaPromptTitle() {
     return QStringLiteral("先同意这份协议");

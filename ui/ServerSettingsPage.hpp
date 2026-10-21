@@ -1,9 +1,7 @@
 /**
  * @file ServerSettingsPage.hpp
  * @brief 「服务端设置」那一整页（coding plan §6.3 第二阶段 / 里程碑 M4-4）：常用设置那张表单、
- *        原始文本编辑、世界备份、玩家名单、体检。
- * @author 0x7fffff
- * @date 2026-10-13
+ * 原始文本编辑、世界备份、玩家名单、体检。
  *
  * 【它是干什么的】
  *
@@ -16,18 +14,18 @@
  * §6.3 两句是并列的：**表单**（`server-port` 那一格只收 1~65535）和**原始文本**（整份文件
  * 一个字节不少地摆出来）。两种都要能原地往返，于是"以谁为准"必须只有一条规矩 ——
  *
- *   * 这一页手里**始终有一份原文**（`rawText()`），它是**唯一**会被写回盘上的东西；
- *   * 表单里改过的那几项是**叠在原文上的补丁**（`changedOnly()`），不是"另存一份配置"；
- *   * 保存 = 原文 + 补丁（`MainWindow` 那一段：`parseProperties` → `applyEdits` → 写盘）。
+ * * 这一页手里**始终有一份原文**（`rawText()`），它是**唯一**会被写回盘上的东西；
+ * * 表单里改过的那几项是**叠在原文上的补丁**（`changedOnly()`），不是"另存一份配置"；
+ * * 保存 = 原文 + 补丁（`MainWindow` 那一段：`parseProperties` → `applyEdits` → 写盘）。
  *
  * 这么切之后，两边都不会吃掉对方：用户只在表单里改了端口就保存 ⇒ 文件里别的行（注释、他
  * 手写的别的键、键的顺序、行尾）一个字节都不动；用户只在文本框里删了一行就保存 ⇒ 表单那
  * 一格都没被动过（补丁是空的）。
  *
- * ★ **切页那一下由 `MainWindow` 接**（`sectionChanged`）：从「常用设置」切到「原始文本」时
- *   把补丁先合进文本框（用户看得见自己刚改的那一项），从「原始文本」切回表单时按新原文重摆
- *   表单并把基线重设到那一份。这一页自己**不做这件事** —— 它不认 `server.properties` 的
- *   语法（`ui/` 不许 include `src/`），那一步的解析和拼字全在 `MainWindow`。
+ * **切页那一下由 `MainWindow` 接**（`sectionChanged`）：从「常用设置」切到「原始文本」时
+ * 把补丁先合进文本框（用户看得见自己刚改的那一项），从「原始文本」切回表单时按新原文重摆
+ * 表单并把基线重设到那一份。这一页自己**不做这件事** —— 它不认 `server.properties` 的
+ * 语法（`ui/` 不许 include `src/`），那一步的解析和拼字全在 `MainWindow`。
  *
  * 【原始文本是"原样"的：这一页不重排、不格式化】
  *
@@ -164,8 +162,8 @@ public:
     void setStatusText(const QString &text);
 
     // ---------- ① 常用设置 ----------
-    /// 摆那十几行（**每次开页都重新喂**：同一页对象会被复用）。会**清掉**上一次的表单，
-    /// 调用方接着要调一次 `setValues()`。
+    // / 摆那十几行（**每次开页都重新喂**：同一页对象会被复用）。会**清掉**上一次的表单，
+    // / 调用方接着要调一次 `setValues()`。
     void setFields(const QList<FieldView> &fields);
     /// 摆当前值，**并把"改过"的基线重设到这一份**（这一句同时也是 `clearChanged()`）。
     void setValues(const Values &values);
@@ -184,7 +182,7 @@ public:
     void setEditable(bool editable, const QString &reason);
 
     // ---------- ② 原始文本 ----------
-    /// 摆一份原文。**同时把"用户动过文本框"那个记号清掉**（这是程序摆进来的那一份）。
+    // / 摆一份原文。**同时把"用户动过文本框"那个记号清掉**（这是程序摆进来的那一份）。
     void setRawText(const QString &text);
     QString rawText() const;
     /// 用户在这个文本框里动过吗（**程序摆进来的那一份不算**）。
@@ -200,7 +198,7 @@ public:
     void markRawEdited();
 
     // ---------- ③ 内容（模组 / 数据包）----------
-    /// 现在选的是哪一类（下标 = `ServerContent::Kind`，也是下拉框的下标）。
+    // / 现在选的是哪一类（下标 = `ServerContent::Kind`，也是下拉框的下标）。
     int contentKind() const;
     /// 切到某一类（**不发 `contentKindChanged`** —— 这是程序摆的）。
     void setContentKind(int kindIndex);
@@ -221,7 +219,7 @@ public:
     void setBackupNote(const QString &text);
 
     // ---------- ⑤ 玩家名单 ----------
-    /// 现在选中哪一份名单（下标 = `ServerPlayers::List`，也是下拉框的下标）。
+    // / 现在选中哪一份名单（下标 = `ServerPlayers::List`，也是下拉框的下标）。
     int playerList() const;
     /// 切到某一份名单（**不发 `playerListChanged`** —— 这是程序摆的）。
     void setPlayerList(int listIndex);
@@ -243,8 +241,8 @@ public:
     void setCheckSummary(const QString &text);
 
     // ---------- 底下那条保存带 ----------
-    /// 「保存」那颗能不能点 + 左边那行小字。**由 `MainWindow` 现算现喂**
-    /// （"改过几项""在跑所以改不了""刚刚存过"这几句话是产品措辞，不在这一层）。
+    // / 「保存」那颗能不能点 + 左边那行小字。**由 `MainWindow` 现算现喂**
+    // / （"改过几项""在跑所以改不了""刚刚存过"这几句话是产品措辞，不在这一层）。
     void setSaveState(bool enabled, const QString &note);
 
     /// 切到某一页（**不发 `sectionChanged`** —— 这是程序摆的，不是用户点的）。
@@ -260,8 +258,8 @@ signals:
      * `MainWindow` 借它重算保存带那句话（"改过 3 项""还动过原始文本"…），然后回头喊一次
      * `setSaveState()` —— 那些字是产品措辞，不在这一层（见 `setSaveState()` 那段）。
      *
-     * ★ 程序摆值（`setValues()` / `setRawText()`）**不发**这一个 —— 那不是"用户改了"。
-     * ★ 接它的那一头要**便宜**：敲一个字就发一次。
+     * 程序摆值（`setValues()` / `setRawText()`）**不发**这一个 —— 那不是"用户改了"。
+     * 接它的那一头要**便宜**：敲一个字就发一次。
      */
     void edited();
     void saveRequested();
@@ -398,13 +396,13 @@ private:
     /**
      * @brief 盘上那一份的原文是不是 **CRLF** 行尾。
      *
-     * ★ 文本框（`QTextDocument`）只认 `\n`：`setPlainText()` 会把 `\r\n` 拆成段落，
-     *   `toPlainText()` 回来的是纯 `\n`。所以这一页把行尾**记在手边**：摆进来时统一成 `\n`，
-     *   读出去时再按盘上那份的规矩补回去。少了它，用户只是把端口从 25565 改成 25566，
-     *   保存下来那份文件的**每一行都换了行尾**（游戏自己写出来的是 CRLF）。
+     * 文本框（`QTextDocument`）只认 `\n`：`setPlainText()` 会把 `\r\n` 拆成段落，
+     * `toPlainText()` 回来的是纯 `\n`。所以这一页把行尾**记在手边**：摆进来时统一成 `\n`，
+     * 读出去时再按盘上那份的规矩补回去。少了它，用户只是把端口从 25565 改成 25566，
+     * 保存下来那份文件的**每一行都换了行尾**（游戏自己写出来的是 CRLF）。
      *
      * NOTE: 一份**混着**两种行尾的文件会被统一成第一种（真出现那种文件的话）。服务端自己
-     *       写出来的那份从来是统一的，所以这里不为它多留一条路。
+     * 写出来的那份从来是统一的，所以这里不为它多留一条路。
      */
     bool m_rawCrlf = false;
 };

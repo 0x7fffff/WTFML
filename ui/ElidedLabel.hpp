@@ -1,24 +1,22 @@
 /**
  * @file ElidedLabel.hpp
  * @brief 一个会**省略号收尾**的 QLabel（装不下的时候从指定的那一头截，而不是硬裁）。
- * @author 0x7fffff
- * @date 2026-09-27
  * @note **为什么非它不可**：QLabel 在控件比文字窄的时候是**硬裁**的 —— 最后一个字被切掉
- *       一半、右边什么都没有，看着像画坏了（用户 2026-09-26 报的「模组列表模组名称显示
- *       存在错误」就是它：`fabric-api-0.119.3+1.21.4.jar` 那一类比行名那一格宽，
- *       截出来的是一串看不出是"被截了"的名字）。也没法靠 QLabel 自己解决：翻遍
- *       qlabel.h 都没有 elide 相关的 API。
+ * 一半、右边什么都没有，看着像画坏了（用户 报的「模组列表模组名称显示
+ * 存在错误」就是它：`fabric-api-0.119.3+1.21.4.jar` 那一类比行名那一格宽，
+ * 截出来的是一串看不出是"被截了"的名字）。也没法靠 QLabel 自己解决：翻遍
+ * qlabel.h 都没有 elide 相关的 API。
  *
- *       这个类原先是 `MainWindowUI.cpp` 匿名 namespace 里的一份（底栏那三行会变的文字
- *       在用：左边那格钉死了固定宽度、右边那格封了上限，见 MainWindowUI 的
- *       bottomBarRunStateColumnWidth() / bottomBarAccountColumnWidth()），2026-09-27
- *       提到这儿来：文件管理那几页的行名也要同一件事，而 `ui/` 底下一个 .cpp 拿不到
- *       另一个 .cpp 里的匿名类。**一份实现，两处用**。
+ * 这个类原先是 `MainWindowUI.cpp` 匿名 namespace 里的一份（底栏那三行会变的文字
+ * 在用：左边那格钉死了固定宽度、右边那格封了上限，见 MainWindowUI 的
+ * bottomBarRunStateColumnWidth() / bottomBarAccountColumnWidth()），
+ * 提到这儿来：文件管理那几页的行名也要同一件事，而 `ui/` 底下一个 .cpp 拿不到
+ * 另一个 .cpp 里的匿名类。**一份实现，两处用**。
  *
  * `paintEvent` 里自己画（不走 QLabel 那套），所以：
- *   - `text()` 永远是**完整**那串（截的只是画出来的样子）；
- *   - `sizeHint()` 可以被 `setMaximumWidth()` 封顶（见下），于是"文字长短"不会把旁边的东西
- *     抻来抻去。
+ * - `text()` 永远是**完整**那串（截的只是画出来的样子）；
+ * - `sizeHint()` 可以被 `setMaximumWidth()` 封顶（见下），于是"文字长短"不会把旁边的东西
+ * 抻来抻去。
  */
 #pragma once
 
@@ -37,8 +35,8 @@ public:
     /// 从**哪一头**省略。默认是尾巴（底栏那几行是句子，尾巴上的字最不要紧）。
     ///
     /// NOTE: 两头都有用的文字要显式改成 Qt::ElideMiddle —— 路径那一类（盘符和最后一级
-    ///       目录名都要看）、以及文件管理那几页的行名（后面挂着「（已禁用）」那四个字，
-    ///       从尾巴截掉就等于把"这一条是关着的"这个最要紧的信息先扔了）。
+    /// 目录名都要看）、以及文件管理那几页的行名（后面挂着「（已禁用）」那四个字，
+    /// 从尾巴截掉就等于把"这一条是关着的"这个最要紧的信息先扔了）。
     void setElideMode(Qt::TextElideMode mode) {
         m_elideMode = mode;
         // 动态属性是给**验证工程**读的（工程那边不一定认得出这个类型）：有人把上面那句
@@ -62,10 +60,10 @@ public:
 protected:
     void paintEvent(QPaintEvent *) override {
         // NOTE: 这里**每次都重算**，不缓存。缓存（"宽度没变就接着用上次那串"）看着是省事，
-        //       但底栏那几个格子的宽度是**钉死的**：文字改了宽度也不改，resizeEvent 压根
-        //       不触发 —— 缓存就永远不失效，第一句话会一直挂在底栏上（「实例运行中」在三个
-        //       实例都跑着的时候还是「实例运行中」）。elidedText() 只在重画时算一次，
-        //       这几处重画都不频繁，不值当为它冒这个险。
+        // 但底栏那几个格子的宽度是**钉死的**：文字改了宽度也不改，resizeEvent 压根
+        // 不触发 —— 缓存就永远不失效，第一句话会一直挂在底栏上（「实例运行中」在三个
+        // 实例都跑着的时候还是「实例运行中」）。elidedText() 只在重画时算一次，
+        // 这几处重画都不频繁，不值当为它冒这个险。
         const QRect box = contentsRect();
         const QString shown = fontMetrics().elidedText(text(), m_elideMode, box.width());
         QPainter painter(this);

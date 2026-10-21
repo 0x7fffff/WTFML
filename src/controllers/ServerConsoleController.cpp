@@ -34,8 +34,8 @@ void ServerConsoleController::open(const QString &serverId) {
         m_page = new ServerConsolePage(m_pageParent);
         m_page->setMaxLines(ServerRun::ServerProcess::maxLogLines());
         // NOTE: 这三条只接一次（页面复用）。**认人认 `m_serverId`，不认"列表上现在
-        //       选中谁"** —— 用户完全可能边看控制台边点别处（同 m_updateCenterInstanceId
-        //       那一段的理由）。
+        // 选中谁"** —— 用户完全可能边看控制台边点别处（同 m_updateCenterInstanceId
+        // 那一段的理由）。
         connect(m_page, &ServerConsolePage::commandSubmitted, this,
                 [this](const QString &command) {
                     ServerRun::ServerProcess *process = m_workspace->process(m_serverId);
@@ -60,9 +60,9 @@ void ServerConsoleController::open(const QString &serverId) {
     // 只剩"从打开这一刻起"的日志。
     m_page->setLog(process != nullptr ? process->logLines() : QStringList());
     refresh();  // 状态那几行的唯一出处
-    // ★ 开页要说清 `ownerTab`、并且**先切过去**（见 OverlayHost::execPage 那段）：这一页
-    //   是从服务端列表上开出来的，那一位就是"实例"这一颗。不切的话，页眉上那颗返回箭头
-    //   收页之后用户会落在一个跟刚才没关系的选项卡上。
+    // 开页要说清 `ownerTab`、并且**先切过去**（见 OverlayHost::execPage 那段）：这一页
+    // 是从服务端列表上开出来的，那一位就是"实例"这一颗。不切的话，页眉上那颗返回箭头
+    // 收页之后用户会落在一个跟刚才没关系的选项卡上。
     const int instancesTab = MainWindowUI::instancesTabIndex();
     if (QTabWidget *tabs = m_ui->getTabWidget()) {
         if (instancesTab >= 0 && instancesTab < tabs->count()) {

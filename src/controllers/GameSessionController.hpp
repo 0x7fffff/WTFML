@@ -18,37 +18,36 @@ class LaunchHistoryController;
 class MainWindowUI;
 class VersionManager;
 
-/// **一次游戏会话从"进程起来"到"结束"**那一段的全部（2026-10-15 收进来）。
+/// **一次游戏会话从"进程起来"到"结束"**那一段的全部（ 收进来）。
 ///
-/// ★ 这一层管的是四件事，它们从头到尾说的都是同一件事（"这一份会话现在怎么样"）：
-///   ① **账本**：哪几份会话的启动进度还在走、各自对上哪件任务、这一份当初是谁（实例名 /
-///      身份 / Java / 内存 / 加载器），以及用户主动停过哪几份；
-///   ② **日志窗**：哪几份开着窗、哪几份用户手动关过（关过的不再自动弹）、以及"导出"要用的
-///      那一份事实快照；
-///   ③ **进程信号进来之后干什么**：出话 → 启动那件任务收尾、底栏让位；退出 → 记「上一次
-///      启动」的结局、异常退出补一项、收掉启动进度、把窗口叫回来；
-///   ④ **停止**：问一句（强杀不存档）、记"用户停的"、kill、收尾。
+/// 这一层管的是四件事，它们从头到尾说的都是同一件事（"这一份会话现在怎么样"）：
+/// ① **账本**：哪几份会话的启动进度还在走、各自对上哪件任务、这一份当初是谁（实例名 /
+/// 身份 / Java / 内存 / 加载器），以及用户主动停过哪几份；
+/// ② **日志窗**：哪几份开着窗、哪几份用户手动关过（关过的不再自动弹）、以及"导出"要用的
+/// 那一份事实快照；
+/// ③ **进程信号进来之后干什么**：出话 → 启动那件任务收尾、底栏让位；退出 → 记「上一次
+/// 启动」的结局、异常退出补一项、收掉启动进度、把窗口叫回来；
+/// ④ **停止**：问一句（强杀不存档）、记"用户停的"、kill、收尾。
 ///
-/// ★★ 这些状态**从前都摆在 `MainWindow` 里**（九个私有成员 + 一句 `friend class`），于是
-///   这一段每挪一行都得先拿到 `MainWindow *`。搬进来之后方向倒过来：主窗口只递几样
-///   "只有它说得出来"的东西（见 Host），**判断和记账全在这一层**。
+/// 这些状态**从前都摆在 `MainWindow` 里**（九个私有成员 + 一句 `friend class`），于是
+/// 这一段每挪一行都得先拿到 `MainWindow *`。搬进来之后方向倒过来：主窗口只递几样
+/// "只有它说得出来"的东西（见 Host），**判断和记账全在这一层**。
 ///
-/// ★ 唯一一个仍然写这一份账本的外人是 `LaunchController` —— 它在"进程真的起来了"那一刻
-///   调 `beginSession()`（那是这一层唯一说得出口的开端）。除此之外谁也不许碰这九个成员。
+/// 唯一一个仍然写这一份账本的外人是 `LaunchController` —— 它在"进程真的起来了"那一刻
+/// 调 `beginSession()`（那是这一层唯一说得出口的开端）。除此之外谁也不许碰这九个成员。
 class GameSessionController final : public QObject {
     Q_OBJECT
 public:
     /// 一趟启动**在进程起来之前**就已经定下来、而退出时再也拿不到的那几个值。
     ///
     /// NOTE: Java 可执行文件那条路径是挑完 Java 之后才知道的（`ensureJavaForVersion` 会把它
-    ///       写进 `javaSettings.javaPath`），退出时 `javaSettings` 早就不是那一趟的了 ——
-    ///       所以必须在启动那一刻抄下来。主版本**不在这里**：这一趟实际用的那个主版本是
-    ///       异常退出那一刻现读 `<javaPath>/release` 得到的（见 buildCrashRecord 那段），
-    ///       平时一次盘都不读。
+    /// 写进 `javaSettings.javaPath`），退出时 `javaSettings` 早就不是那一趟的了 ——
+    /// 所以必须在启动那一刻抄下来。主版本**不在这里**：这一趟实际用的那个主版本是
+    /// 异常退出那一刻现读 `<javaPath>/release` 得到的（见 buildCrashRecord 那段），
+    /// 平时一次盘都不读。
     struct GameSessionFacts {
         QString instanceId;
         QString instanceName;
-        /// 这一趟用的身份（报告头部要写的那一行）。
         QString accountName;
         qint64 processId = 0;
         qint64 startedAtMs = 0;
@@ -60,22 +59,14 @@ public:
         QString loaderVersion;
     };
 
-    /// 「导出错误报告」的头部要写的那几个值：实例名/id、账号、进程号、启动时间、退出码。
-    ///
-    /// 为什么单独留一份快照：这些东西里**大半在会话结束之后就查不到了** ——
-    /// `LauncherManager::session()` 在那一份结束时已经把记录摘掉了（那是它刻意的，见
-    /// gameFinished 的文档），而 `m_sessionDisplayNames` 也在 `onGameFinished()` 末尾清掉。
-    /// 崩溃之后导一份报告正是这件事最主要的用法，所以得在**会话还活着的时候**留一份。
-    ///
     /// NOTE: 这不是"把会话表抄一份"——抄的是**导出那一份文件要用的那几个值**，而且只在
-    ///       "这一份开着日志窗"时才有（窗关了、会话结束了，这一笔立刻删掉，见
-    ///       `ensureGameLogWindow()` 里那个 finished 接法）。不删的话它会随开过的实例数一直长。
+    /// "这一份开着日志窗"时才有（窗关了、会话结束了，这一笔立刻删掉，见
+    /// `ensureGameLogWindow()` 里那个 finished 接法）。不删的话它会随开过的实例数一直长。
     struct GameLogFacts {
         QString instanceId;   ///< `versions/` 下面那个目录名
         QString accountName;  ///< 这一趟用的身份
         qint64 processId = 0;
         qint64 startedAtMs = 0;
-        /// 收到过 `onGameFinished()` 没有（没收到 = 导出时游戏还在跑，报告里会明说）。
         bool finished = false;
         bool crashed = false;
         int exitCode = 0;
@@ -89,15 +80,13 @@ public:
         std::function<void(const QString &text)> log;
         /// 账本上那件「启动 X」的第 1 步（就是"起来了"）完成了。
         std::function<void(Tasks::TaskId id)> launchTaskStepDone;
-        /// 把任务和这次会话对上（§9.8 第三条：任务 / 日志 / 退出诊断 / 崩溃报告同一个号）。
-        /// ★ 那次 `beginTask()` 是在进程起来**之前**发的，所以只能在这里补这一笔。
         std::function<void(Tasks::TaskId id, int sessionId)> bindTaskSession;
         /// 把那件任务收尾（终态只落一次，见 `TaskManager::finish()`）。
         std::function<void(Tasks::TaskId id, bool success, const QString &errorSummary)> finishLaunchTask;
         /// 把那件任务按**用户取消**收尾（`TaskState::Cancelled`，不记失败、不点红点）。
-        /// ★ 2026-10-20：用户自己按「停止游戏」停在一行日志都没出的时候，那一次启动**不是
-        ///   失败** —— 从前它走 `finishLaunchTask(..., false, ...)`，任务中心于是多出一条
-        ///   红色的「启动 X 失败」外加底栏那颗红点，全是用户自己点出来的。
+        /// 用户自己按「停止游戏」停在一行日志都没出的时候，那一次启动**不是
+        /// 失败** —— 从前它走 `finishLaunchTask(..., false, ...)`，任务中心于是多出一条
+        /// 红色的「启动 X 失败」外加底栏那颗红点，全是用户自己点出来的。
         std::function<void(Tasks::TaskId id)> cancelLaunchTask;
         /// 底栏按当前状态重画一遍（左下角那颗三态方块 + 中间那格）。
         std::function<void()> updateBottomBar;
@@ -105,11 +94,9 @@ public:
         std::function<void()> updateInstanceTreeRunState;
         /// 实例的显示名（"N 个实例"那两句话、以及启动那一趟的快照要用）。
         std::function<QString(const QString &versionId)> instanceDisplayName;
-        /// 异常退出了 ⇒ 主窗口那边在账本上补一项（§4.3：打开日志 / 导出报告 / 崩溃报告目录）。
         std::function<void(int sessionId, int exitCode, bool crashed)> reportGameCrash;
         /// 日志窗底下那颗「导出日志…」。
         std::function<void(int sessionId)> exportGameLog;
-        /// 日志窗底下那颗「导出错误报告…」。
         std::function<void(int sessionId)> exportGameErrorReport;
         /// 启动器现在占着的那块几何（日志窗要摆到它**旁边**，别一上来就压住它）。
         std::function<QRect()> launcherFrame;
@@ -123,7 +110,7 @@ public:
 
     // ---------- 账本（写侧只有两处：LaunchController 的 beginSession，和"用户停的"那一笔）----------
 
-    /// ★ **这一层唯一的开端**：进程真的起来了（`startGame()` 返回了非零会话号）。
+    /// **这一层唯一的开端**：进程真的起来了（`startGame()` 返回了非零会话号）。
     ///
     /// 从这一刻起：启动进度算在走（到这一份自己吐出第一行输出为止）、这一份对上那件任务、
     /// 名字和启动事实各留一份（退出那一刻它们都查不到了）。
@@ -142,15 +129,9 @@ public:
         return m_gameLogWindows.value(sessionId, nullptr);
     }
 
-    /// 那一份"导出错误报告"要用的快照（见 `GameLogFacts` 的说明）。
     GameLogFacts logFacts(int sessionId) const { return m_gameLogFacts.value(sessionId); }
 
     /// 这一份会话**最近一段原始输出**（不管日志窗开没开、有没有被用户关掉）。
-    ///
-    /// 为什么要有这一份：`MainWindow::reportGameCrash()` 原来只从**日志窗**里取日志，而
-    /// 「显示游戏日志」默认是**关**的（`LauncherSettings::m_showGameLog = false`）——
-    /// 于是默认配置下崩溃报告里 `logCaptured = false`、一行日志都没有，偏偏这份报告就是
-    /// 崩溃那一刻给人看的。用户开过窗又关掉，同样是一行都没有。
     ///
     /// 存的是最近 `kSessionLogTailLines` 行原文（级别在查询时现认，规则仍是
     /// `RuntimeOutputModel::classifyLine` 那一个出处）。日志窗还开着时报告优先读窗
@@ -251,21 +232,18 @@ private:
     /// 混在一个窗里等于没法看，见 ui/GameLogWindow.hpp 的说明。
     ///
     /// NOTE: 那个窗建出来就带 WA_DeleteOnClose（关掉即销毁），所以这里的指针**会**失效 ——
-    ///       窗自己在 finished() 里把这一笔摘掉（见 showGameLogLine 里的接法）。不要在这里
-    ///       存裸指针却在别处直接用：除了 showGameLogLine() 和 onGameFinished()，
-    ///       没有第三处读它。
+    /// 窗自己在 finished() 里把这一笔摘掉（见 showGameLogLine 里的接法）。不要在这里
+    /// 存裸指针却在别处直接用：除了 showGameLogLine() 和 onGameFinished()，
+    /// 没有第三处读它。
     QHash<int, GameLogWindow *> m_gameLogWindows;
     /// 用户**手动关掉过**日志窗的那几份会话。关掉之后这一份不再自动开新窗 ——
     /// "我刚把它关了、下一行输出又给我弹回来"是这类窗最招人烦的失败模式。
     /// 会话结束（onGameFinished）时清掉：下一份游戏是另一回事。
     QSet<int> m_gameLogDismissedSessions;
-    /// 导出那一份报告要用的事实（见 `GameLogFacts` 的说明）。
     QHash<int, GameLogFacts> m_gameLogFacts;
 
     // ---------- ③ 进程输出的底账（和日志窗无关）----------
 
-    /// 会话号 → 最近收下的整行输出。**和日志窗的开关无关**：窗是"给用户看的那一份"，这里
-    /// 是"崩溃报告要用的那一份"。上限见 kSessionLogTailLines，超出丢最老的。
     QHash<int, QStringList> m_sessionLogLines;
     /// 会话号 → 还没等到换行的那半行。QProcess 吐出来的是一段一段的字节，一行可能分两发
     /// 到（和 `GameLogWindow` 里 m_pending 同一个道理）。

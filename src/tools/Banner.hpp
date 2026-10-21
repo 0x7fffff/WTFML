@@ -1,8 +1,6 @@
 /**
  * @file Banner.hpp
  * @brief 旗帜设计的判据层（coding plan §9.11 那一批里的「旗帜设计」）。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 只做两件事：**一张图案表**（原版织布机能叠的那几十种图案、各自要什么材料）和
  * **一条叠层计划**（底色 + 若干层，回一段"先做什么、每层在织布机里放什么、一共要多少染料"）。
@@ -91,7 +89,7 @@ struct Plan {
 /**
  * @brief 算一条叠层计划。
  * @param baseColorIndex 底色（`colorName()` 的下标）。
- * @param layers         从下往上叠的层（第 0 项是先用织布机叠的那一层）。
+ * @param layers 从下往上叠的层（第 0 项是先用织布机叠的那一层）。
  */
 Plan plan(int baseColorIndex, const QList<Layer> &layers);
 

@@ -1,8 +1,6 @@
 /**
  * @file TokenStore.cpp
  * @brief 凭据落盘的加解密与读写（见 .hpp 里那段说明）。
- * @author 0x7fffff
- * @date 2026-09-22
  */
 
 #include "TokenStore.hpp"
@@ -39,14 +37,14 @@ static constexpr const char kEncryptionKey[] = "WTFMLSecretKey2026";
 // 再记一个密码。代价也说明白：换用户、换机器就解不开（重登一次即可），这是设计的代价，不是 bug。
 //
 // NOTE: 故意**不加** optionalEntropy。熵是写死在二进制里的，挡不住任何能读到二进制的对手，
-//       却会多出一个"两边必须一模一样"的失配点。真正的边界是"同一个 Windows 用户"。
+// 却会多出一个"两边必须一模一样"的失配点。真正的边界是"同一个 Windows 用户"。
 //
 // 盘上的格式是自描述的，为的是兼容已经存在的旧值：
-//     以 kTokenMagic 开头 → 后面是 DPAPI 密文
-//     其它               → 旧的 XOR 混淆（读得出来；下次写盘就自动升级成新格式）
+// 以 kTokenMagic 开头 → 后面是 DPAPI 密文
+// 其它 → 旧的 XOR 混淆（读得出来；下次写盘就自动升级成新格式）
 //
 // NOTE: 这一层**只管"当前用户 + 这台机器"这一条边界**。多账号列表里那些副本用的是同一个
-//       格式、同一个 protect()，所以它们的强度完全一样 —— 换账号不需要用户重新输密码。
+// 格式、同一个 protect()，所以它们的强度完全一样 —— 换账号不需要用户重新输密码。
 
 static constexpr char kTokenMagic[] = "WTFML-PROTECTED-1\n";
 static constexpr int kTokenMagicLen = int(sizeof(kTokenMagic)) - 1;
@@ -183,9 +181,9 @@ void TokenStore::clear(const QString &key) {
     QSettings settings;
     settings.remove(key);
     settings.sync();
-    // ★ 2026-10-20：清不掉**不是静默的**。登出 / 切离线账号那两条路清的就是活动槽，写不
-    //   进去的话用户会看到"已退出登录"，下次启动却还是那个账号 —— 而 QSettings 落盘失败
-    //   本身一个字都不说。至少留一行日志（和 writeJson() 那条同一个理由）。
+    // 清不掉**不是静默的**。登出 / 切离线账号那两条路清的就是活动槽，写不
+    // 进去的话用户会看到"已退出登录"，下次启动却还是那个账号 —— 而 QSettings 落盘失败
+    // 本身一个字都不说。至少留一行日志（和 writeJson() 那条同一个理由）。
     if (settings.status() != QSettings::NoError) {
         qWarning() << "凭据清不掉（QSettings 状态异常）：" << key << settings.fileName();
     }

@@ -1,8 +1,6 @@
 /**
  * @file ReplayInfo.cpp
  * @brief ReplayInfo.hpp 的实现：从 `.mcpr` 里读 `metaData.json`。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "replay/ReplayInfo.hpp"

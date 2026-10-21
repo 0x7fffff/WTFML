@@ -1,8 +1,6 @@
 /**
  * @file HttpClient.cpp
  * @brief 同步 HTTP 的实现（见 .hpp）。
- * @author 0x7fffff
- * @date 2026-09-22
  */
 
 #include "HttpClient.hpp"
@@ -78,11 +76,11 @@ HttpClient::Reply HttpClient::send(QNetworkAccessManager *manager, const QUrl &u
 
 QString HttpClient::throttledText(const QString &what) {
     // NOTE: 官方 429 的正文长这样：
-    //       {"path":"…","errorType":"TOO_MANY_REQUESTS","error":"TOO_MANY_REQUESTS","status":429}
-    //       那个大写下划线的错误码**不端给用户**（和 401/403/404 那几句同一个口径：
-    //       能照着做的那句话才给用户看）。用户要知道的只有两件事：现在先别再试了，
-    //       以及这**不是**他的账号或者网络出了问题 —— 不然他会去换账号、重登，
-    //       那两件事都不会让服务器少挡一会儿。
+    // {"path":"…","errorType":"TOO_MANY_REQUESTS","error":"TOO_MANY_REQUESTS","status":429}
+    // 那个大写下划线的错误码**不端给用户**（和 401/403/404 那几句同一个口径：
+    // 能照着做的那句话才给用户看）。用户要知道的只有两件事：现在先别再试了，
+    // 以及这**不是**他的账号或者网络出了问题 —— 不然他会去换账号、重登，
+    // 那两件事都不会让服务器少挡一会儿。
     return QObject::tr("%1：请求太频繁，服务器暂时挡下了（HTTP 429）。\n"
                        "等一两分钟再试 —— 这不是账号或者网络的问题，短时间里连着重试，"
                        "它只会挡得更久。")

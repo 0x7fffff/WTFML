@@ -1,9 +1,7 @@
 /**
  * @file ResourceCatalog.cpp
  * @brief ResourceCatalog 的实现：拼请求地址 + 读接口回的那段 JSON。**一个网络请求都不发**
- *        （这个文件里没有 QNetworkAccessManager，将来也不会加 —— 发请求是 ResourceStore 的事）。
- * @author 0x7fffff
- * @date 2026-09-23
+ * （这个文件里没有 QNetworkAccessManager，将来也不会加 —— 发请求是 ResourceStore 的事）。
  */
 #include "ResourceCatalog.hpp"
 
@@ -24,7 +22,7 @@ namespace {
 
 /// 接口的根地址。Modrinth 官方那一个 —— mcimirror 那个镜像也认 `/modrinth/v2/...`，
 /// 但这一轮**先不接镜像**：搜索是一次一条的小请求，不是几千个对象那种非镜像不可的量，
-/// 而官方那个实测也通（2026-09-23）。将来要接镜像，改的只有这一处。
+/// 而官方那个实测也通。将来要接镜像，改的只有这一处。
 QString apiRoot() { return QStringLiteral("https://api.modrinth.com/v2"); }
 
 /// 图标的根地址。和 apiRoot 是**两个不同的域名**（cdn.），别合并。
@@ -39,8 +37,8 @@ QString enc(const QString &text) {
 /// 把一串字符串拼成一维 JSON 数组再编码：`["1.21.1"]`。
 ///
 /// NOTE: 用 QJsonDocument 拼，**不是手写方括号加引号**。手写的话，值里出现一个引号
-///       （搜索词里就可能有）就拼出一段读不懂的 JSON，接口回 400 —— 而 400 到界面上
-///       只是一句"搜索失败"，没人会想到是引号。
+/// （搜索词里就可能有）就拼出一段读不懂的 JSON，接口回 400 —— 而 400 到界面上
+/// 只是一句"搜索失败"，没人会想到是引号。
 QString jsonArrayParam(const QStringList &values) {
     QJsonArray array;
     for (const QString &value : values) {
@@ -84,10 +82,10 @@ QString unreadableText(const QJsonParseError &error) {
 /// Modrinth 搜索里当"加载器"用的那几个词。
 ///
 /// NOTE: 这张表和 ModpackImport::loaderDependencyKeys() **不是一回事**，别合并：
-///       那几个是**整合包清单**里 `dependencies` 的键（一份包里只会有一个，用来判
-///       "按哪个加载器装"）；这几个是**搜索接口**的 categories 词表（一个模组的 categories
-///       里可能一个都没有 —— 比如数据包）。两边的词也不完全重合：这里有 liteloader /
-///       modloader / rift，那边有 quilt。
+/// 那几个是**整合包清单**里 `dependencies` 的键（一份包里只会有一个，用来判
+/// "按哪个加载器装"）；这几个是**搜索接口**的 categories 词表（一个模组的 categories
+/// 里可能一个都没有 —— 比如数据包）。两边的词也不完全重合：这里有 liteloader /
+/// modloader / rift，那边有 quilt。
 /// CurseForge 那一家的接口根（`…/v1`，**带 v1 那一段**）。
 ///
 /// 这里刻意**不写域名**：默认走哪一台（不要 key 的社区镜像、还是官方 + key）、用户在设置里
@@ -117,8 +115,8 @@ QList<FilterOption> filterOptions(const QList<QPair<QString, QString>> &pairs) {
 /// `Forge` / `pre1` 这种一位数字都不带的 → (没有数字, 原文)。
 ///
 /// NOTE: 拆出"前导数字"而不是"整段是不是数"，正是为了 `5-pre1` 和 `6` 能按 **5 < 6** 比
-///       （`1.20.5-pre1` 该排在 `1.20.6` 前面）。整段判类型的写法在这里会退回字符串比，
-///       于是 `5-pre1` 大于 `6` —— 那是另一套次序（见下面那段）。
+/// （`1.20.5-pre1` 该排在 `1.20.6` 前面）。整段判类型的写法在这里会退回字符串比，
+/// 于是 `5-pre1` 大于 `6` —— 那是另一套次序（见下面那段）。
 struct VersionSegment {
     bool numbered = false;  ///< 有没有前导数字
     qint64 number = 0;      ///< 那个数（没有前导数字时无意义）
@@ -171,25 +169,13 @@ int compareVersionSegment(const VersionSegment &a, const VersionSegment &b) {
 /// compareVersionSegment()：带前导数字的按数比（字符串比会把 1.10 判成小于 1.9），
 /// 5-pre1 这种"数 + 后缀"先比数、再比后缀。
 ///
-/// ★ 2026-09-26 修：这个函数以前是**一段一段"要么都按数比、要么都按字符串比"**的写法 ——
-///   而两段**类型不同的那一次**落到字符串比，字符串比的次序和数比的次序不是同一个
-///   （`9` 用数比小于 `10`、用字符串比大于 `10`）。三段之间于是能比出**圈**来：
-///     1.9 < 1.10（数比）  ·  1.10 < 1.10-pre1（字符串比，`10` 是 `10-pre1` 的前缀）
-///     ·  1.10-pre1 < 1.9（字符串比，`1` < `9`）—— 三条同时成立。
-///   而它喂的正是 std::stable_sort（gameVersionsOldestFirst）：**非传递的比较器进任何
-///   标准排序都是未定义行为**，introsort 会按"这个圈"去分区，结果是次序随机（同一份入参
-///   换个排列能排出不同答案）、真机上还能读到数组外面去。
-///   新的写法**不靠字面值决定用哪把尺子**（先看"有没有前导数字"，再看数，再看后缀），
-///   圈就没了；真实数据上的次序和改之前一致（`1.20.5-pre1` < `1.20.6`、`1.21` < `1.21-pre1`、
-///   `Forge` 排在数字版本后面，都是原来那个答案）。
-///
 /// NOTE: 已知的、和改之前一致的近似：**预发布被排在它自己的正式版后面**（1.21 < 1.21-pre1，
-///       语义上该反过来）。这是原来就有的行为，这次只动"圈"，没动它。
+/// 语义上该反过来）。这是原来就有的行为，这次只动"圈"，没动它。
 /// 那把尺子的**预解析形**：把 `1.20.5-pre1` 拆成段（下面那个比较器只比这个）。
 ///
-/// ★ 拆成"拆"和"比"两步是有用意的：`groupVersions()` 要按游戏版本**组排序**，而一次排序
-///   是 N log N 次比较 —— 比较器里现拆的话，每次比较都要 split 两遍。2026-10-10 起那一趟
-///   先把每个组的键拆一遍（decorate-sort-undecorate），比较器只读预算好的这一份。
+/// 拆成"拆"和"比"两步是有用意的：`groupVersions()` 要按游戏版本**组排序**，而一次排序
+/// 是 N log N 次比较 —— 比较器里现拆的话，每次比较都要 split 两遍。 起那一趟
+/// 先把每个组的键拆一遍（decorate-sort-undecorate），比较器只读预算好的这一份。
 using VersionTextParts = QList<VersionSegment>;
 
 static VersionTextParts splitVersionText(const QString &text) {
@@ -233,9 +219,6 @@ const QStringList &curseForgeLoaderWords() {
 }
 
 /// CurseForge 的 `modLoader` / `modLoaderType` **数字** → 加载器的名字（小写）。
-///
-/// 实测那一套编号：1 Forge / 4 Fabric / 5 Quilt / 6 NeoForge。**0 和认不出来的回空串**
-/// （0 是"没写"，实测有些包两边都不写）—— 不猜：猜错的话加载器那道闸会拿一个假名字去比。
 QString curseForgeModLoaderName(int modLoader) {
     switch (modLoader) {
     case 1:
@@ -280,10 +263,6 @@ QString curseForgeSha1(const QJsonObject &file) {
 }
 
 /// 那一串 `gameVersions` 里，**哪些是真游戏版本**、哪些不是。
-///
-/// CurseForge 把三样东西混在同一个数组里（实测 JEI 那一条：`["1.21","Client","Forge",
-/// "1.21.1","Server"]`）—— 后三个是"哪一侧"和"哪个加载器"。判据是**以数字开头**：
-/// 游戏版本号一定这么开头（`1.20.1` / `26.3`），而 `Client` / `Server` / `Forge` 都不。
 bool looksLikeGameVersion(const QString &text) {
     return !text.isEmpty() && text.at(0).isDigit();
 }
@@ -437,7 +416,7 @@ int curseForgeClassId(Kind kind) {
 
 QList<FilterOption> categoryOptions(Source source, Kind kind) {
     if (source == Source::CurseForge) {
-        // 类目号来自 `/v1/categories?gameId=432`（2026-09-25 抄下来的）。**挑的是那一类底下
+        // 类目号来自 `/v1/categories?gameId=432`（ 抄下来的）。**挑的是那一类底下
         // 的常用子类**（parentCategoryId == 那个类目号），不是全抄 —— 模组那一类有 52 条，
         // 里面一半是 `Addons/<某个模组>` 那种"给 Create 做附属"的，摆进下拉框没人找得到。
         switch (kind) {
@@ -603,9 +582,6 @@ QList<FilterOption> categoryOptions(Source source, Kind kind) {
 }
 
 QList<FilterOption> loaderOptions(Source source) {
-    // 两边**顺序一样**（fabric / forge / neoforge / quilt），键不一样：Modrinth 要那个词，
-    // CurseForge 要 `modLoaderType` 的**数字**（实测 1 Forge / 4 Fabric / 5 Quilt /
-    // 6 NeoForge —— 这组数字和答复里 `latestFilesIndexes[].modLoader` 是同一套）。
     if (source == Source::CurseForge) {
         return filterOptions({
             {QStringLiteral("4"), QStringLiteral("Fabric")},
@@ -685,13 +661,6 @@ QString searchUrl(Kind kind, const QString &query, int offset, int limit,
         QStringList params;
         params.append(QStringLiteral("gameId=432"));  // Minecraft（写死的，这家还管别的游戏）
         params.append(QStringLiteral("classId=") + QString::number(curseForgeClassId(kind)));
-        // ★ 名称那一段叫 **`searchFilter`**，不是 `search`。2026-09-26 实测：发 `search=jei`
-        //   这一家**一个字都不筛**，安安静静地把这一类**最热门的那一批**回给你（`totalCount`
-        //   是 10000 = 整类的数，而不是 "jei" 那 377 条）—— 界面上看起来"搜出来了"，
-        //   其实搜什么都是同一批。**它不报错**，所以这个错只能靠"地址里那一段叫什么"来钉住
-        //   （见 build/verify 里 Z7e 那两条）。
-        //   （比它更早的那句"实测 Popularity 会把搜索词无视掉"是同一个错的另一副面孔：
-        //   词压根没送到，换哪个排序都一样。更正过之后 sortField=6 只是为了"按总下载量"。）
         params.append(QStringLiteral("searchFilter=") + enc(query));
         if (!gameVersion.isEmpty()) {
             params.append(QStringLiteral("gameVersion=") + enc(gameVersion));
@@ -742,11 +711,6 @@ QString searchUrl(Kind kind, const QString &query, int offset, int limit,
     params.append(QStringLiteral("offset=") + QString::number(qMax(0, offset)));
     params.append(QStringLiteral("limit=") + QString::number(qBound(1, limit, 100)));
 
-    // ★ 根地址那一格 `apiBase` **两个来源都要认**（2026-09-28 修）：从前这里写死 `apiRoot()`，
-    //   于是"把接口指到本机假服务器"那个口子（`Launcher/ModrinthApiBase`）在下载页这条路上
-    //   **一声不响地失效** —— CurseForge 那条路认它、Modrinth 这条不认，而症状是"验证工程
-    //   悄悄打到了真接口上"（T24 那一节一直以为自己全程离线）。
-    //   空 = 没人在乎，照旧走官方那一份。
     return (apiBase.isEmpty() ? apiRoot() : apiBase) + QStringLiteral("/search?") +
            params.join(QLatin1Char('&'));
 }
@@ -786,7 +750,6 @@ SearchResult parseSearch(const QByteArray &json) {
         hit.title = object.value(QStringLiteral("title")).toString();
         hit.description = object.value(QStringLiteral("description")).toString();
         hit.author = object.value(QStringLiteral("author")).toString();
-        // 下载量在 JSON 里可能大过 int（实测有 9 位数的），所以走 double 再截断。
         hit.downloads = static_cast<qint64>(object.value(QStringLiteral("downloads")).toDouble());
         // 最后一次更新（详情页头卡上那句「5 天前」）。两家名字不同，各自那一栏见
         // parseCurseForgeSearch。读不到就是空串（界面那一截不显示）。
@@ -802,7 +765,7 @@ SearchResult parseSearch(const QByteArray &json) {
     }
 
     // 一条都没有**不算错** —— "搜不到"和"没搜成"是两句话，界面上得分开说
-    //（同一个坑在加载器树那边踩过：详见 MainWindow 里「无可用版本」与「列表没取到」）。
+    // （同一个坑在加载器树那边踩过：详见 MainWindow 里「无可用版本」与「列表没取到」）。
     result.ok = true;
     return result;
 }
@@ -847,13 +810,13 @@ SearchResult parseCurseForgeSearch(const QByteArray &json) {
         hit.title = object.value(QStringLiteral("name")).toString();   // 名字在 `name` 里
         hit.description = object.value(QStringLiteral("summary")).toString();
         // 作者：那边是个数组（实测只有一位）。取第一个 —— 这一行小字放不下第二个。
-        // ★ 2026-09-27：**必须先判空**。`QJsonArray::first()` 在空数组上是越界读（Qt 里带
-        //   Q_ASSERT，release 下是未定义行为）—— 而空数组在这儿是**很容易到**的：
-        //   `toArray()` 对"没这个键 / 值是 null / 值是字符串"一律回空数组，所以镜像那边只要
-        //   漏了 `authors`（或者哪一天真给了一条没有作者的记录），搜到这一条就当场读到一个
-        //   垃圾值，轻则那行小字空着，重则整个搜索结果页画不出来。
-        //   这一段里别的字段（id/slug/summary/categories/…）全都写了缺省兜底，只有这一处
-        //   原来没有 —— 现在补上：取不到就是空作者，那行小字自己会少写一段。
+        // **必须先判空**。`QJsonArray::first()` 在空数组上是越界读（Qt 里带
+        // Q_ASSERT，release 下是未定义行为）—— 而空数组在这儿是**很容易到**的：
+        // `toArray()` 对"没这个键 / 值是 null / 值是字符串"一律回空数组，所以镜像那边只要
+        // 漏了 `authors`（或者哪一天真给了一条没有作者的记录），搜到这一条就当场读到一个
+        // 垃圾值，轻则那行小字空着，重则整个搜索结果页画不出来。
+        // 这一段里别的字段（id/slug/summary/categories/…）全都写了缺省兜底，只有这一处
+        // 原来没有 —— 现在补上：取不到就是空作者，那行小字自己会少写一段。
         const QJsonArray authors = object.value(QStringLiteral("authors")).toArray();
         if (!authors.isEmpty()) {
             hit.author = authors.first().toObject().value(QStringLiteral("name")).toString();
@@ -932,8 +895,8 @@ bool isWeeklySnapshotId(const QString &lower) {
 /// `1.21.4` / `26.2` 这种"纯数字加点"的前缀才认。
 ///
 /// NOTE: **不认的就不折**。愚人节版 `1.RV-Pre1` 里那一段是 `1.RV`，折出来是一个谁也不
-///       是的大版本 —— 摆在"游戏版本"那一排里，用户点进去什么都搜不到，而且看不出哪里
-///       错了。`20w14infinite` 那一路用的是同一条规矩（见头文件那段"不猜"）。
+/// 是的大版本 —— 摆在"游戏版本"那一排里，用户点进去什么都搜不到，而且看不出哪里
+/// 错了。`20w14infinite` 那一路用的是同一条规矩（见头文件那段"不猜"）。
 bool isPlainVersionStem(const QString &text) {
     if (text.isEmpty() || !text.at(0).isDigit()) {
         return false;
@@ -962,12 +925,12 @@ struct SnapshotShape {
 /**
  * @brief 认四套写法，都是 Mojang 真用过的。
  *
- * ① 新式快照 `26.2-snapshot-1` / `26.1-snapshot-11` —— 2026-09-27 之前**一条都不认**：
- *    它们既没有 `-pre`/`-rc`、长度也不是 6，于是不勾「显示快照版」时照样摆在那一排
- *    chip 上，下载页那棵树的第二层也一家伙多出十来行（26.3-snapshot-1…10 各占一行）。
+ * ① 新式快照 `26.2-snapshot-1` / `26.1-snapshot-11` —— 之前**一条都不认**：
+ * 它们既没有 `-pre`/`-rc`、长度也不是 6，于是不勾「显示快照版」时照样摆在那一排
+ * chip 上，下载页那棵树的第二层也一家伙多出十来行（26.3-snapshot-1…10 各占一行）。
  * ② 预览与候选 `1.21.4-pre3` / `26.2-rc1`（新老两套命名都长这样）。
  * ③ 空格式的预览版 `1.14 Pre-Release 3`、`1.14.2 Pre-Release 4` —— 老 Mojang 的写法：
- *    分隔符是**空格**、词也写全了。同样是以前一条都不认。
+ * 分隔符是**空格**、词也写全了。同样是以前一条都不认。
  * ④ 老式周号 `24w14a`：认得出是快照，但读不出属于哪个大版本（`stem` 留空 = 折不了）。
  *
  * 尾巴必须是**末尾那一段**（`1.21.4-pre3`，不是 `1.21.4-pre3-1`），前缀必须是纯数字加点
@@ -1088,8 +1051,8 @@ QString gameVersionAfterToggle(const QStringList &declaredGameVersions, bool sho
         return choices.contains(folded) ? folded : QString();
     }
     // ③ 不勾 → 勾：这条线上**没有正式版**（只声明过 rc / pre）。挑最新的那一条快照，
-    //    让用户留在同一条线上。声明表是**旧的在前**，所以从尾巴往前走，遇到的第一条
-    //    就是最新的那一条。
+    // 让用户留在同一条线上。声明表是**旧的在前**，所以从尾巴往前走，遇到的第一条
+    // 就是最新的那一条。
     for (int i = declaredGameVersions.size() - 1; i >= 0; --i) {
         const QString declared = declaredGameVersions.at(i);
         if (isSnapshotGameVersion(declared) && majorGameVersionOf(declared) == current) {
@@ -1109,15 +1072,15 @@ QString iconUrlForProject(const QString &projectId) {
     // 机器都解得动**（见 ImageDecode::webpAvailable）。解不动、或者接口干脆没给（
     // hit.iconUrl 为空）、或者给了条别的域名的，都退到这一条上来。
     //
-    // ★ 2026-09-27 实测更正：这条 `<id>/icon.png` **只是老项目的别名**，不是每个项目
-    //   都有的那一条。用户真实 mods/ 里 20 个模组量下来 11 个回 404（FerriteCore /
-    //   Fabric Language Kotlin / Carpet / Fabric Permissions API / ArmorQuickSwap …），
-    //   只有 9 个回 200（恰好是"图标当年就叫 icon.png"的那几个：Sodium / Fabric API /
-    //   Jade / cloth-config …）。修完在另一台盘上又量了一遍（`mw_check icon-lookup-live`
-    //   打一个真实例的 mods/，51 个模组）：**33 个回 404、18 个回 200** —— 比例和上一批
-    //   差不多，所以这不是"某一个实例特殊"。所以它**只配当最后一档**，谁要是拿它当
-    //   "自己拼得出来"的正常地址，那些项目就永远是那张占位拼图（那一发 404 被当成
-    //   "没传过图标"，屏幕上一个异常都没有）。真正那条只有问接口：projectsRequestUrl()。
+    // 实测更正：这条 `<id>/icon.png` **只是老项目的别名**，不是每个项目
+    // 都有的那一条。用户真实 mods/ 里 20 个模组量下来 11 个回 404（FerriteCore /
+    // Fabric Language Kotlin / Carpet / Fabric Permissions API / ArmorQuickSwap …），
+    // 只有 9 个回 200（恰好是"图标当年就叫 icon.png"的那几个：Sodium / Fabric API /
+    // Jade / cloth-config …）。修完在另一台盘上又量了一遍（`mw_check icon-lookup-live`
+    // 打一个真实例的 mods/，51 个模组）：**33 个回 404、18 个回 200** —— 比例和上一批
+    // 差不多，所以这不是"某一个实例特殊"。所以它**只配当最后一档**，谁要是拿它当
+    // "自己拼得出来"的正常地址，那些项目就永远是那张占位拼图（那一发 404 被当成
+    // "没传过图标"，屏幕上一个异常都没有）。真正那条只有问接口：projectsRequestUrl()。
     return cdnRoot() + QStringLiteral("/data/") + enc(projectId) + QStringLiteral("/icon.png");
 }
 
@@ -1135,8 +1098,8 @@ QList<Hit> parseProjects(const QByteArray &json) {
     QList<Hit> hits;
     QJsonParseError error{};
     const QJsonDocument document = QJsonDocument::fromJson(json, &error);
-    // ★ 回复是一个**数组**（`GET /projects?ids=…` 是这个形状），不是搜索那种 `{hits:[…]}`。
-    //   按对象读会一条都读不出来 —— 而"没有图标"和"读不懂"在屏幕上是一个样子。
+    // 回复是一个**数组**（`GET /projects?ids=…` 是这个形状），不是搜索那种 `{hits:[…]}`。
+    // 按对象读会一条都读不出来 —— 而"没有图标"和"读不懂"在屏幕上是一个样子。
     if (error.error != QJsonParseError::NoError || !document.isArray()) {
         return hits;
     }
@@ -1155,8 +1118,8 @@ QList<Hit> parseProjects(const QByteArray &json) {
         hit.description = object.value(QStringLiteral("description")).toString();
         // 下载量可能大过 int（9 位数的有的是），所以走 double 再截断 —— 和 parseSearch 一样。
         hit.downloads = static_cast<qint64>(object.value(QStringLiteral("downloads")).toDouble());
-        // ★ 更新时间这一栏在这一份响应里叫 `updated`（搜索那份叫 `date_modified`，
-        //   CurseForge 那边叫 `dateModified`）—— 三个名字，读到**同一栏**里去。
+        // 更新时间这一栏在这一份响应里叫 `updated`（搜索那份叫 `date_modified`，
+        // CurseForge 那边叫 `dateModified`）—— 三个名字，读到**同一栏**里去。
         hit.updatedIso = object.value(QStringLiteral("updated")).toString();
         hit.categories = stringList(object.value(QStringLiteral("categories")));
         hit.gameVersions = stringList(object.value(QStringLiteral("game_versions")));
@@ -1202,16 +1165,12 @@ bool isUsableIconUrl(const QString &url, Source source) {
     if (url.isEmpty()) {
         return false;
     }
-    // 图在**各自那一家**的域名上（实测）：Modrinth 是 cdn.modrinth.com，CurseForge 是
-    // media.forgecdn.net。**不是"两个域都放行"** —— CurseForge 那条路上收到一条
-    // cdn.modrinth.com 的地址是不该发生的事（要么接口换了、要么正文被人改过），
-    // 那种时候当"没给"比"照着要一张"稳。
     const QString expected = source == Source::CurseForge ? QStringLiteral("media.forgecdn.net")
                                                           : QStringLiteral("cdn.modrinth.com");
     const QUrl parsed(url);
     // 三件事都过才放行：协议是 https（明文 http 的图不要）、host **全等**（不是 endsWith
     // —— 见头文件里 `cdn.modrinth.com.别的.com` 那段）、以及解析本身没出岔子
-    //（QUrl 对读不懂的串会给一个 host 为空的东西，那也过不了）。
+    // （QUrl 对读不懂的串会给一个 host 为空的东西，那也过不了）。
     return parsed.isValid() && parsed.scheme() == QStringLiteral("https") && parsed.host() == expected;
 }
 
@@ -1226,8 +1185,8 @@ QString formatDownloads(qint64 downloads) {
     }
     if (downloads >= 10000) {
         // NOTE: 9999.95 万 ~ 1 亿 那一小段（不到一千万分之一的值）四舍五入后会显示成
-        //       「10000.0 万」。数字是对的，只是单位没跟着进位 —— 换个单位要再切一刀，
-        //       为一个这么窄的窗口不值当，先留着。
+        // 「10000.0 万」。数字是对的，只是单位没跟着进位 —— 换个单位要再切一刀，
+        // 为一个这么窄的窗口不值当，先留着。
         return QStringLiteral("%1 万").arg(downloads / 10000.0, 0, 'f', 1);
     }
     return QString::number(downloads);
@@ -1236,7 +1195,7 @@ QString formatDownloads(qint64 downloads) {
 // ---------- 资源详情页要用的那几件 ----------
 
 /// 加载器在界面上排列的固定次序。**和 loaderOptions() 那份表同一个次序**
-///（fabric / forge / neoforge / quilt）—— 两处不一样的话，同一组版本在不同地方会换个先后。
+/// （fabric / forge / neoforge / quilt）—— 两处不一样的话，同一组版本在不同地方会换个先后。
 /// 认不出来的一律排在这些后面。
 int loaderOrderIndex(const QString &loader) {
     static const QStringList order = {QStringLiteral("fabric"), QStringLiteral("forge"),
@@ -1249,7 +1208,7 @@ int loaderOrderIndex(const QString &loader) {
 ///
 /// 比法走 compareVersionText（`1.9` < `1.10` 那一套，也是"旧的在前"那个方向），
 /// 取最大的那个。**不按接口给的顺序取第一个**：CF 那条 `gameVersions` 的顺序是随机的
-///（见文件里那段），照抄第一个会把一条 1.21 的版本分到 1.7.10 那一组去。
+/// （见文件里那段），照抄第一个会把一条 1.21 的版本分到 1.7.10 那一组去。
 QString newestGameVersionOf(const VersionEntry &entry) {
     QString best;
     for (const QString &candidate : entry.gameVersions) {
@@ -1262,7 +1221,7 @@ QString newestGameVersionOf(const VersionEntry &entry) {
 
 /// 一条版本的**主加载器**（组头里那一个）：按固定次序取第一个认得的。
 /// 一个都不认得（`optifine` 这种、或者空）就取它自己第一个原样小写，没有就回空串
-///（= 通用）。
+/// （= 通用）。
 QString primaryLoaderOf(const VersionEntry &entry) {
     for (const QString &known : {QStringLiteral("fabric"), QStringLiteral("forge"),
                                  QStringLiteral("neoforge"), QStringLiteral("quilt")}) {
@@ -1283,7 +1242,7 @@ QString relativeTimeText(const QString &isoTime, const QDateTime &now) {
     if (isoTime.isEmpty()) {
         return QString();
     }
-    // 两条格式都试：接口给的那一串**带毫秒**（`2024-06-14T12:34:56.789Z`），而 ISO 那一档
+    // 两条格式都试：接口给的那一串**带毫秒**（`T12:34:56.789Z`），而 ISO 那一档
     // 读毫秒是分版本的（Qt 6 的 Qt::ISODate 认得，早先的版本要 Qt::ISODateWithMs）。
     // 两条都不认就把这一串当"读不懂"—— 那是空串，界面上不显示这一截。
     QDateTime then = QDateTime::fromString(isoTime, Qt::ISODate);
@@ -1400,10 +1359,10 @@ QList<VersionEntry> versionsForGameVersion(const QList<VersionEntry> &versions,
     }
     QList<VersionEntry> out;
     for (const VersionEntry &version : versions) {
-        // ★ 看的是 `gameVersions`（这一版**声明过**的每一个游戏版本），**不是**它落在哪个
-        //   组里（`groupVersions` 那个归属）。一条同时支持 1.20.1 / 1.20.2 的版本落在
-        //   1.20.2 那一组，但选了 1.20.1 那一格时它照样该在 —— 这两件事在详情页里是分开
-        //   的两步（先按 chip 筛、再分组），别合并成一步。
+        // 看的是 `gameVersions`（这一版**声明过**的每一个游戏版本），**不是**它落在哪个
+        // 组里（`groupVersions` 那个归属）。一条同时支持 1.20.1 / 1.20.2 的版本落在
+        // 1.20.2 那一组，但选了 1.20.1 那一格时它照样该在 —— 这两件事在详情页里是分开
+        // 的两步（先按 chip 筛、再分组），别合并成一步。
         if (version.gameVersions.contains(gameVersion)) {
             out.append(version);
             continue;
@@ -1490,10 +1449,10 @@ QList<VersionGroup> groupVersions(const QList<VersionEntry> &versions, bool show
     // 同一个游戏版本里按加载器的固定次序，空游戏版本（信息就是缺的）和最不认识的加载器
     // 都排到最后。stable_sort：两条完全同序的组保持它们进列表的先后。
     //
-    // ★ `preferredLoader`（2026-09-28）：同一个游戏版本里**点名的那一个加载器排最前**。
-    //   放在这里、而不是在调用方排一遍：组序只有这一处出处（见 .hpp 那段)，劈成两处
-    //   之后"两组各说各的"迟早错开。次序的**第一关键字仍然是游戏版本**——见 .hpp 那条
-    //   NOTE，不然筛了 1.21.1 之后一个老 Fabric 组会跑到 26.2 的 NeoForge 组前面。
+    // `preferredLoader`：同一个游戏版本里**点名的那一个加载器排最前**。
+    // 放在这里、而不是在调用方排一遍：组序只有这一处出处（见 .hpp 那段)，劈成两处
+    // 之后"两组各说各的"迟早错开。次序的**第一关键字仍然是游戏版本**——见 .hpp 那条
+    // NOTE，不然筛了 1.21.1 之后一个老 Fabric 组会跑到 26.2 的 NeoForge 组前面。
     const QString preferred = preferredLoader.trimmed().toLower();
     const auto rankOf = [&preferred](const QString &loader) {
         // 点名的那个排在最前（-1 比谁都小），其余照旧走那把固定的尺子。
@@ -1502,10 +1461,10 @@ QList<VersionGroup> groupVersions(const QList<VersionEntry> &versions, bool show
         }
         return loaderOrderIndex(loader);
     };
-    // ★ 排序前先把每个组要用的那两样**预算一遍**（decorate-sort-undecorate，2026-10-10）：
-    //   一次排序是 N log N 次比较，现拆的话每次比较都要 split 两遍版本号（`1.20.5-pre1`
-    //   那种还要逐段过一遍）—— 而这一趟**每按一颗 chip 都会重跑一遍**。判据一个字没改：
-    //   还是 compareVersionParts() + loaderOrderIndex() 那一套，只是值提前算好了。
+    // 排序前先把每个组要用的那两样**预算一遍**（decorate-sort-undecorate，）：
+    // 一次排序是 N log N 次比较，现拆的话每次比较都要 split 两遍版本号（`1.20.5-pre1`
+    // 那种还要逐段过一遍）—— 而这一趟**每按一颗 chip 都会重跑一遍**。判据一个字没改：
+    // 还是 compareVersionParts() + loaderOrderIndex() 那一套，只是值提前算好了。
     struct Row {
         VersionTextParts parts;   ///< gameVersion 拆好的那一份
         int loaderRank = 0;       ///< rankOf(loader) 的预算结果
@@ -1604,17 +1563,15 @@ const FileEntry *VersionEntry::primaryFile() const {
             return &file;
         }
     }
-    // 一个版本实测**总是**有一个 primary，但读不到时退回第一条比回 nullptr 有用：
-    // 前者下的是"作者写的那个文件"，后者在界面上是"点不动"。
     return files.isEmpty() ? nullptr : &files.first();
 }
 
 QString versionsUrl(const QString &projectId, const QString &gameVersion,
                     const QString &loader, Source source, const QString &apiBase) {
-    // ★ 加载器**先按来源翻一遍**（`loaderRequestValue()`，唯一出处）：两边要的词形不是一套
-    //   （Modrinth 是小写词、CurseForge 是数字），而递一个对不上的上去**不报错、只是筛不出
-    //   东西**。2026-10-10 之前这一层收的是**显示名**（`instanceLoaderName()` 给的「Fabric」），
-    //   于是前置检查那一路两边都没筛过 —— 落到实上就是"给 Fabric 实例挑了一个 Forge 的前置"。
+    // 加载器**先按来源翻一遍**（`loaderRequestValue()`，唯一出处）：两边要的词形不是一套
+    // （Modrinth 是小写词、CurseForge 是数字），而递一个对不上的上去**不报错、只是筛不出
+    // 东西**。 之前这一层收的是**显示名**（`instanceLoaderName()` 给的「Fabric」），
+    // 于是前置检查那一路两边都没筛过 —— 落到实上就是"给 Fabric 实例挑了一个 Forge 的前置"。
     const QString loaderParam = loaderRequestValue(loader, source);
     if (source == Source::CurseForge) {
         // `GET {base}/mods/{id}/files?gameVersion=&modLoaderType=`。名字和搜索那边**一样**
@@ -1637,9 +1594,6 @@ QString versionsUrl(const QString &projectId, const QString &gameVersion,
         return url;
     }
 
-    // ★ `include_changelog=false`：这一层**一个字节的 changelog 都不读**（全仓搜不到那个字段），
-    //   可接口默认是把每个文件的更新日志原文塞回来 —— 实测一份资源包列表能因此大出好几倍。
-    //   这是从 PCL 的日志里学的（它每一发 `/version` 都带着这一条）。
     QStringList params{QStringLiteral("include_changelog=false")};
     if (!gameVersion.isEmpty()) {
         params.append(QStringLiteral("game_versions=") + jsonArrayParam({gameVersion}));
@@ -1649,7 +1603,7 @@ QString versionsUrl(const QString &projectId, const QString &gameVersion,
         params.append(QStringLiteral("loaders=") + jsonArrayParam({loaderParam}));
     }
 
-    // ★ 根地址和 searchUrl 那一条逐字同一个理由（见那儿的 ★）：`apiBase` 两个来源都认。
+    // 根地址和 searchUrl 那一条逐字同一个理由（见那儿的 ★）：`apiBase` 两个来源都认。
     QString url = (apiBase.isEmpty() ? apiRoot() : apiBase) + QStringLiteral("/project/") +
                   enc(projectId) + QStringLiteral("/version");
     if (!params.isEmpty()) {
@@ -1696,11 +1650,6 @@ QString projectsRequestKey(const QStringList &projectIds, Source source) {
 static QList<VersionEntry> parseCurseForgeDocument(const QJsonDocument &document);
 
 /// 一个 Modrinth **版本对象** → 我们那一条 `VersionEntry`。
-///
-/// ★ 2026-10-11 从 `parseVersions()` 里提出来：`parseVersionFilesUpdate()` 读的是
-///   **同一个形状**（那边只是一个 `{sha1: 版本对象}` 的表），两处各写一遍的话，"哪几个
-///   字段被读了"这件事就有了两个出处 —— 而漏读一个字段的症状是"那一栏永远空着"，
-///   屏幕上看不出是漏了还是接口没给。
 static VersionEntry entryFromModrinthObject(const QJsonObject &object) {
     VersionEntry entry;
     entry.id = object.value(QStringLiteral("id")).toString();
@@ -1737,8 +1686,6 @@ static VersionEntry entryFromModrinthObject(const QJsonObject &object) {
         const QJsonObject dependencyObject = dependencyValue.toObject();
         Dependency dependency;
         dependency.projectId = dependencyObject.value(QStringLiteral("project_id")).toString();
-        // 实测这一项**可能是 null**（没钉具体版本，"随便哪个版本都行"）——
-        // toString() 对 null 回空串，正好就是"没钉"。
         dependency.versionId = dependencyObject.value(QStringLiteral("version_id")).toString();
         dependency.type = dependencyObject.value(QStringLiteral("dependency_type")).toString();
         entry.dependencies.append(dependency);
@@ -1757,8 +1704,8 @@ QList<VersionEntry> parseVersions(const QByteArray &json) {
     if (document.isObject()) {
         // 根是对象 = CurseForge 那一份（`{"data":[…]}`）。**按根分岔**而不是让调用方先判
         // 来源：调用方判的话，"哪个接口回哪种形状"这件事就抄到了调用点上。
-        // ★ 把**已经解析好的那一份**递下去（2026-10-10 修）：原来递的是原始 bytes，于是
-        //   这一份几百到几千条 file 的回复被整棵树建了两遍。
+        // 把**已经解析好的那一份**递下去（ 修）：原来递的是原始 bytes，于是
+        // 这一份几百到几千条 file 的回复被整棵树建了两遍。
         return parseCurseForgeDocument(document);
     }
     if (!document.isArray()) {
@@ -1793,16 +1740,16 @@ QByteArray versionFilesUpdateRequestBody(const QStringList &sha1s, const QString
     body.insert(QStringLiteral("hashes"), hashes);
     body.insert(QStringLiteral("algorithm"), QStringLiteral("sha1"));
     // 那两个筛和 `versionsUrl()` 里**同一个规矩**：空 = 不筛（连这个键都不出现）。
-    // ★★ 加载器**必须在这儿翻一道**（`loaderRequestValue()`，和 `versionsUrl()` 那一句
-    //   逐字同一个出处）：调用方递进来的是 `dependencyTargetFor()` 给的那一个，也就是
-    //   `loaderGroupKey(instanceLoaderName(…))` —— **显示名**（「Fabric」）或者用户盘上
-    //   那种别的词（「OptiFine」）。Modrinth 这一发只认**小写那个词**，递「Fabric」上去
-    //   不会报错、只是**一个都不匹配** ⇒ 整批模组全被退回问 CurseForge（而屏幕上看着
-    //   像"这一批没查到"）。翻不出来的词（OptiFine 这种）回空串 = 那一格**整个不发** ——
-    //   这也是对的：宁可宽一点，也别拼一个筛不出来的词上去。
+    // 加载器**必须在这儿翻一道**（`loaderRequestValue()`，和 `versionsUrl()` 那一句
+    // 逐字同一个出处）：调用方递进来的是 `dependencyTargetFor()` 给的那一个，也就是
+    // `loaderGroupKey(instanceLoaderName(…))` —— **显示名**（「Fabric」）或者用户盘上
+    // 那种别的词（「OptiFine」）。Modrinth 这一发只认**小写那个词**，递「Fabric」上去
+    // 不会报错、只是**一个都不匹配** ⇒ 整批模组全被退回问 CurseForge（而屏幕上看着
+    // 像"这一批没查到"）。翻不出来的词（OptiFine 这种）回空串 = 那一格**整个不发** ——
+    // 这也是对的：宁可宽一点，也别拼一个筛不出来的词上去。
     // NOTE: 这一发只有 Modrinth 认这一份形状，所以它**没有 `Source` 参数**（CurseForge
-    //       那边没有对应接口，调用方那边按来源分岔，见 `checkInstanceUpdates()`）；
-    //       翻的那一步于是写死走 `Source::Modrinth` 这一套词。
+    // 那边没有对应接口，调用方那边按来源分岔，见 `checkInstanceUpdates()`）；
+    // 翻的那一步于是写死走 `Source::Modrinth` 这一套词。
     if (!gameVersion.isEmpty()) {
         body.insert(QStringLiteral("game_versions"),
                     QJsonArray::fromStringList(QStringList{gameVersion}));
@@ -1856,13 +1803,10 @@ static QList<VersionEntry> parseCurseForgeDocument(const QJsonDocument &document
         VersionEntry entry;
         // 那边**一条就是一个文件**（不是"一个版本里带几个文件"）：每条有自己的 id、文件名
         // 和自己的 `gameVersions`。所以一条直接变成一个 VersionEntry、`files` 里只有它自己
-        //（Modrinth 那边是"一个版本带文件数组"，形状不同但到界面上的形状是同一个）。
+        // （Modrinth 那边是"一个版本带文件数组"，形状不同但到界面上的形状是同一个）。
         const qint64 fileId = static_cast<qint64>(object.value(QStringLiteral("id")).toDouble());
         entry.id = QString::number(fileId);
         const QString fileName = object.value(QStringLiteral("fileName")).toString();
-        // 版本号那两栏都用**接口给的那两串**：`displayName` 是给用户看的
-        //（实测 `19.57.0.449 for Forge 1.21.1`），`versionNumber` 用它比用文件名更像版本号。
-        // 界面第三层画的是**文件名**（要落盘的就是它），两者都留着。
         entry.versionNumber = object.value(QStringLiteral("displayName")).toString();
         entry.name = entry.versionNumber;
         entry.versionType =
@@ -1930,7 +1874,6 @@ static QList<VersionEntry> parseCurseForgeDocument(const QJsonDocument &document
         out.append(entry);
     }
 
-    // 顺序**原样**：那一家回的也是新的在前（实测 JEI 那条 19.57.0.449 → .448）。
     return out;
 }
 
@@ -1951,9 +1894,9 @@ QList<Dependency> requiredDependenciesOf(const QList<VersionEntry> &versions,
         break;
     }
     // NOTE: 光有 project_id 还下不了 —— 前置模组也得挑一个版本（`versionId` 常常是 null，
-    //       意思是"哪个版本都行"）。那一步要问接口，得看目标实例是什么游戏版本/加载器，
-    //       所以它不属于这个纯函数。用户要求这一轮**先不做**（原话「前置模组记得预留一键
-    //       下载的接口，先不急」），所以这里就停在"要下谁"。
+    // 意思是"哪个版本都行"）。那一步要问接口，得看目标实例是什么游戏版本/加载器，
+    // 所以它不属于这个纯函数。用户要求这一轮**先不做**（要求「前置模组记得预留一键
+    // 下载的接口，先不急」），所以这里就停在"要下谁"。
     return out;
 }
 

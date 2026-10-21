@@ -1,10 +1,7 @@
 /**
  * @file AsciiPathAlias.cpp
- * @brief Implements the ASCII alias set (junction / hardlink) for Java 8.
- * @author 0x7fffff
- * @date 2026-09-28
- * @note 来龙去脉（为什么 Java 8 打不开非 ASCII 路径、为什么是联接和硬链接）写在 .hpp 的
- *       块注释里；这里只有实现。几处 NOTE 说的是"为什么不能照直觉改"。
+ * @brief 实现 Java 8 的 ASCII 路径别名（junction/硬链接）。
+ * @note 规则与原因见 .hpp；这里只保留实现和不能按直觉修改的约束。
  */
 
 #include "AsciiPathAlias.hpp"
@@ -23,7 +20,7 @@
 
 #if defined(Q_OS_WIN)
 // NOTE: 放在所有 Qt 头之后 —— windows.h 定义的东西太多（min/max 宏……），先于 Qt 包含
-//       容易撞名。和 TokenStore.cpp / LauncherManager.cpp 里那一套同一个写法。
+// 容易撞名。和 TokenStore.cpp / LauncherManager.cpp 里那一套同一个写法。
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -39,11 +36,11 @@ namespace {
 
 /// 目录联接（junction）那条 reparse 数据的头部。
 ///
-/// ★ 自己声明，不用 `REPARSE_DATA_BUFFER` / `MountPointReparseBuffer`：那两个在 mingw 的
-///   头文件里时有时无（`winnt.h` 只在一部分版本里有），而这个结构**是 Windows 定义的线上
-///   格式**（`IO_REPARSE_TAG_MOUNT_POINT` 那份），写死它比自己赌一个宏存在更可靠。
-///   布局：tag(4) + 长度(2) + 保留(2) + 四个 USHORT + 路径缓冲区。**必须 1 字节对齐**，
-///   否则 USHORT 字段会因为编译器插的填充而整体移位。
+/// 自己声明，不用 `REPARSE_DATA_BUFFER` / `MountPointReparseBuffer`：那两个在 mingw 的
+/// 头文件里时有时无（`winnt.h` 只在一部分版本里有），而这个结构**是 Windows 定义的线上
+/// 格式**（`IO_REPARSE_TAG_MOUNT_POINT` 那份），写死它比自己赌一个宏存在更可靠。
+/// 布局：tag(4) + 长度(2) + 保留(2) + 四个 USHORT + 路径缓冲区。**必须 1 字节对齐**，
+/// 否则 USHORT 字段会因为编译器插的填充而整体移位。
 #pragma pack(push, 1)
 struct MountPointReparseData {
     ULONG ReparseTag;
@@ -82,7 +79,7 @@ void removeAliasJars(const QString &jarsDir) {
 /// 把 GetLastError() 变成一句人话（拿不到系统文案时退回错误码本身）。
 ///
 /// NOTE: 一定要在**失败之后立刻**调用：中间插一个会改 last error 的调用（哪怕是一次
-///       CreateDirectoryW），拿到的就是另一条错误了。
+/// CreateDirectoryW），拿到的就是另一条错误了。
 QString lastErrorText() {
     const DWORD code = GetLastError();
     LPWSTR buffer = nullptr;
@@ -117,16 +114,13 @@ bool isLiveDir(const QString &path) {
  * 症状是联接建得出来、但指向一个不存在的路径（"点进去说找不到"），而不是报错。
  *
  * NOTE: 目标用**两种**名字存（SubstituteName 给内核、PrintName 给人看和给
- *       `QFileInfo::symLinkTarget()` 读）。两个名字任何一个漏了，行为都还"看起来正常"，
- *       但 `dir` 命令、资源管理器、以及"这个联接还指不指着原来那个实例"这条判据会瞎掉。
+ * `QFileInfo::symLinkTarget()` 读）。两个名字任何一个漏了，行为都还"看起来正常"，
+ * 但 `dir` 命令、资源管理器、以及"这个联接还指不指着原来那个实例"这条判据会瞎掉。
  */
 bool createJunction(const QString &link, const QString &target, QString *errorOut) {
     const QString targetPath = QDir::toNativeSeparators(QDir(target).absolutePath());
     const QString linkPath = QDir::toNativeSeparators(QDir(link).absolutePath());
 
-    // UNC（`\\server\share`）要走 `\??\UNC\server\share` 那一套写法，我们没实测过。
-    // 宁可直说不行：真机上的数据目录都在本地盘，而"猜一种写法"会在网络盘上留下一个
-    // 指向不存在目标的联接，比一个字都不建更难查。
     if (targetPath.startsWith(QStringLiteral("\\\\"))) {
         if (errorOut != nullptr) {
             *errorOut = translate("别名不支持网络路径（%1）。").arg(targetPath);
@@ -190,12 +184,12 @@ bool createJunction(const QString &link, const QString &target, QString *errorOu
 
 /// 删掉一个目录联接。**只删联接本身**，目标一个字节都不动。
 ///
-/// ★ 这里用的是 `RemoveDirectoryW`，不是 `QDir::removeRecursively()`：后者是"把目录清空
-///   再删"，对联接来说"清空"落在哪一边不是我们能赌的 —— 赌错就是把**用户的实例目录**
-///   删了一部分。所以这里只删这一个目录项。
+/// 这里用的是 `RemoveDirectoryW`，不是 `QDir::removeRecursively()`：后者是"把目录清空
+/// 再删"，对联接来说"清空"落在哪一边不是我们能赌的 —— 赌错就是把**用户的实例目录**
+/// 删了一部分。所以这里只删这一个目录项。
 /// NOTE: **不先判"它在不在"**：联接指向的目标没了时（实例改名、被删，也正是这个函数最常被
-///       调用的时候）`QFileInfo::exists()` 和 `isSymLink()` 都可能给 false，判一下就漏删。
-///       直接删、失败就算了。
+/// 调用的时候）`QFileInfo::exists()` 和 `isSymLink()` 都可能给 false，判一下就漏删。
+/// 直接删、失败就算了。
 void removeJunction(const QString &link) {
     const std::wstring linkWide =
         QDir::toNativeSeparators(QDir(link).absolutePath()).toStdWString();
@@ -250,9 +244,9 @@ bool fileIdentity(const QString &path, FileIdentity *identityOut) {
  * @brief 两个路径是不是**同一份文件**（硬链接的判据只能是这个）。
  * @return 有一个打不开、或者不是同一份，都返回 false。
  *
- * ★ 判据**不能**是"文件在不在"、也不能是"大小一样不一样"：客户端 jar 被重下过一次、
- *   实例被删掉又建了一个同名的，别名那一份还停在旧数据上，症状是**游戏跑的是上一份 jar**，
- *   而屏幕上一点异常都没有（版本号、模组列表全都对不上，用户会以为是我们改坏了版本）。
+ * 判据**不能**是"文件在不在"、也不能是"大小一样不一样"：客户端 jar 被重下过一次、
+ * 实例被删掉又建了一个同名的，别名那一份还停在旧数据上，症状是**游戏跑的是上一份 jar**，
+ * 而屏幕上一点异常都没有（版本号、模组列表全都对不上，用户会以为是我们改坏了版本）。
  */
 bool sameFile(const QString &left, const QString &right) {
     FileIdentity a{};
@@ -265,14 +259,14 @@ bool sameFile(const QString &left, const QString &right) {
 
 /// 这个联接指着谁（reparse 数据里那个目标）。
 ///
-/// ★ 2026-10-20：**必须**先问 `junctionTarget()`。我们建的是 `mklink /J` 那种目录联接
-///   （IO_REPARSE_TAG_MOUNT_POINT），而 Qt 6.10.1 把这两种 reparse 分得很清：
-///   `isSymLink()` 对目录联接近恒为 false，`symLinkTarget()` 读的也是符号链接那一份，
-///   对目录联接回**空串**。原来这里（以及 `linkUsable()`）只用 `symLinkTarget()`，注释还
-///   写着"悬空时也读得到"—— 那条只对符号链接成立。症状不是报错，是**静默**：
-///   `liveTargetOfAlias()` 恒回空 ⇒ 每一趟 `ensure()` 都把兄弟目录里**正在跑的那个实例**
-///   的别名当过期删掉，正在跑的那场游戏之后每写一个文件都失败（存档、日志轮转、
-///   还没加载过的类）。
+/// **必须**先问 `junctionTarget()`。我们建的是 `mklink /J` 那种目录联接
+/// （IO_REPARSE_TAG_MOUNT_POINT），而 Qt 6.10.1 把这两种 reparse 分得很清：
+/// `isSymLink()` 对目录联接近恒为 false，`symLinkTarget()` 读的也是符号链接那一份，
+/// 对目录联接回**空串**。原来这里（以及 `linkUsable()`）只用 `symLinkTarget()`，注释还
+/// 写着"悬空时也读得到"—— 那条只对符号链接成立。症状不是报错，是**静默**：
+/// `liveTargetOfAlias()` 恒回空 ⇒ 每一趟 `ensure()` 都把兄弟目录里**正在跑的那个实例**
+/// 的别名当过期删掉，正在跑的那场游戏之后每写一个文件都失败（存档、日志轮转、
+/// 还没加载过的类）。
 QString targetOfAlias(const QString &link) {
     const QFileInfo info(link);
     QString target = info.symLinkTarget();
@@ -288,15 +282,15 @@ QString targetOfAlias(const QString &link) {
 /// 是 reparse 数据里的目标路径，悬空时也读得到（见 `targetOfAlias()` 那段：目录联接走
 /// `junctionTarget()`）。
 ///
-/// ★ 2026-10-20：读不出目标名字时**不能**只按"通不通"算，还得确认它真是个链接。
-///   原来那句 `actual.isEmpty() || samePath(...)` 把**普通目录**也算成了可用：`createJunction()`
-///   是"先 `mkpath` 再 `mklink /J`"，中间那一步失败（或者用户/杀软在位置上手建了一个空
-///   目录）留下的正是一个同名普通目录 —— 于是这一套别名被判"可用"，`--gameDir` 指向
-///   `cache/ascii/<hash>/game` 这个空壳，游戏把存档、截图、logs 全写进缓存目录，
-///   而实例文件夹里一份都没有；下次清缓存就没了。natives 那一份同理（空的
-///   java.library.path ⇒ UnsatisfiedLinkError）。
-///   反过来"每次启动都重做"的风险由另一条守住：目标读得出来时照旧比路径，
-///   只有真链接才会走到这里判 true。
+/// 读不出目标名字时**不能**只按"通不通"算，还得确认它真是个链接。
+/// 原来那句 `actual.isEmpty() || samePath(...)` 把**普通目录**也算成了可用：`createJunction()`
+/// 是"先 `mkpath` 再 `mklink /J`"，中间那一步失败（或者用户/杀软在位置上手建了一个空
+/// 目录）留下的正是一个同名普通目录 —— 于是这一套别名被判"可用"，`--gameDir` 指向
+/// `cache/ascii/<hash>/game` 这个空壳，游戏把存档、截图、logs 全写进缓存目录，
+/// 而实例文件夹里一份都没有；下次清缓存就没了。natives 那一份同理（空的
+/// java.library.path ⇒ UnsatisfiedLinkError）。
+/// 反过来"每次启动都重做"的风险由另一条守住：目标读得出来时照旧比路径，
+/// 只有真链接才会走到这里判 true。
 bool linkUsable(const QString &link, const QString &target) {
     if (!isLiveDir(link)) {
         return false;
@@ -312,9 +306,9 @@ bool linkUsable(const QString &link, const QString &target) {
 
 /// 这一套别名还指着一个**活着**的实例吗（清过期那几套时的判据）。
 ///
-/// ★ 判据是"**game 那个联结读出来的目标目录**还在不在"，不是"那个联结在不在"：实例被删掉
-///   之后，它的联结在 Windows 上**仍然是一个目录项**——`QFileInfo::isDir()` 那种问法会给
-///   true（第一版就是按它判的，真机上过期的那几套一套都清不掉，ZM6 那条断言钉的就是这里）。
+/// 判据是"**game 那个联结读出来的目标目录**还在不在"，不是"那个联结在不在"：实例被删掉
+/// 之后，它的联结在 Windows 上**仍然是一个目录项**——`QFileInfo::isDir()` 那种问法会给
+/// true（第一版就是按它判的，真机上过期的那几套一套都清不掉，ZM6 那条断言钉的就是这里）。
 QString liveTargetOfAlias(const QString &aliasRoot) {
     const QString game = aliasRoot + QStringLiteral("/game");
     const QString target = targetOfAlias(game);
@@ -348,7 +342,7 @@ QString AsciiPathAlias::jarFileNameInAlias(const QString &fileName) {
 
 AsciiPathAlias::Paths AsciiPathAlias::pathsFor(const QString &versionId) {
     // id 里可以是中文、`∞`、空格、括号，拼进路径就不是 ASCII 了；哈希是纯十六进制。
-    // ★ 不能用 qHash()：Qt 6 的 qHash(QString) 每次进程启动换一个随机种子（见 .hpp）。
+    // 不能用 qHash()：Qt 6 的 qHash(QString) 每次进程启动换一个随机种子（见 .hpp）。
     const QString digest = QString::fromLatin1(
         QCryptographicHash::hash(versionId.toUtf8(), QCryptographicHash::Sha1).toHex().left(12));
     Paths paths;
@@ -388,10 +382,10 @@ QString AsciiPathAlias::ensure(const Paths &paths, const QString &versionId,
     const QString realGameDir = AppPaths::versionDir(versionId);
     const QString rootDir = QDir::toNativeSeparators(paths.root);
 
-    // ★ 别名根**自己**必须是 ASCII 的。它挂在数据目录底下，而数据目录的路径是用户自己选的
-    //   （`D:\我的游戏\.minecraft` 完全合法）—— 那一路改出来的是**看起来做完了、其实一点
-    //   用没有**的别名（每条路径的前缀还是非 ASCII），症状和"根本没建"一模一样，所以宁可在
-    //   这里拦住，也不要把一句 `找不到或无法加载主类` 丢给用户。
+    // 别名根**自己**必须是 ASCII 的。它挂在数据目录底下，而数据目录的路径是用户自己选的
+    // （`D:\我的游戏\.minecraft` 完全合法）—— 那一路改出来的是**看起来做完了、其实一点
+    // 用没有**的别名（每条路径的前缀还是非 ASCII），症状和"根本没建"一模一样，所以宁可在
+    // 这里拦住，也不要把一句 `找不到或无法加载主类` 丢给用户。
     if (hasNonAscii(rootDir)) {
         return translate(
                    "这个实例只能用 Java 8 启动，而它所在的路径里有非 ASCII 字符 —— "
@@ -410,12 +404,12 @@ QString AsciiPathAlias::ensure(const Paths &paths, const QString &versionId,
     // 先清掉过期的那几套（上一次改名/删实例留下的那些**兄弟目录**），再做自己这一套。
     //
     // NOTE: 这里扫的是别名**集合**那一层（`cache/ascii`），不是自己这一套的里面。过期的那几套
-    //       是兄弟：实例一改名，实例 id 就变了，哈希跟着变，新根目录是另一个名字，旧的留在
-    //       原地指着已经不存在的目录。不扫的话它们会一直攒着（每一套里还有一个指向旧 jar 的
-    //       硬链接，那个 jar 被删掉之后数据就只靠它保着了 —— 越攒越占地方）。
+    // 是兄弟：实例一改名，实例 id 就变了，哈希跟着变，新根目录是另一个名字，旧的留在
+    // 原地指着已经不存在的目录。不扫的话它们会一直攒着（每一套里还有一个指向旧 jar 的
+    // 硬链接，那个 jar 被删掉之后数据就只靠它保着了 —— 越攒越占地方）。
     // NOTE: 清理只认我们自己那三个名字、绝不递归（理由见 removeJunction 那段），而且只删
-    //       "`game` 已经指不到实例"的那种。别的东西（用户自己往这里放的文件）一律不碰，
-    //       删完剩下的空壳如果非空就留着（QDir::rmdir 删不掉非空目录）。
+    // "`game` 已经指不到实例"的那种。别的东西（用户自己往这里放的文件）一律不碰，
+    // 删完剩下的空壳如果非空就留着（QDir::rmdir 删不掉非空目录）。
     const QString collectionDir = QDir::toNativeSeparators(AppPaths::asciiAliasRootDir());
     const QStringList siblingRoots =
         QDir(collectionDir).entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
@@ -433,7 +427,7 @@ QString AsciiPathAlias::ensure(const Paths &paths, const QString &versionId,
     QString problem;
 
     // ① 游戏目录：联接。判据是"通不通、而且指着的是不是那一份"而不是"这个目录在不在" ——
-    //    实例被改名、或者同名实例被删了又建，联接可能还在但指错了地方。
+    // 实例被改名、或者同名实例被删了又建，联接可能还在但指错了地方。
     if (!linkUsable(paths.gameDir, realGameDir)) {
         removeJunction(paths.gameDir);
         if (!createJunction(paths.gameDir, realGameDir, &problem)) {
@@ -443,11 +437,11 @@ QString AsciiPathAlias::ensure(const Paths &paths, const QString &versionId,
 
     // ② 那一批 jar：硬链接（省的是那十几 MB 和一次拷贝，见 .hpp）。
     //
-    //    链的是**两个目录**顶层的 jar，按名字去重：
-    //      - `jarOwnerId()` 那个目录：继承了加载器的实例，客户端 jar 在原版那个目录里；
-    //      - 实例自己那个目录：有的实例把主类放在自己目录里第二个 jar 里（见 .hpp）。
-    //    名字撞上的情况不重链（同名的两个 jar 是同一份的可能性远大于它们是两份不同的东西，
-    //    而"链了哪一个"这种事**没有地方能看出来** —— 宁可留一条写在这里的说明）。
+    // 链的是**两个目录**顶层的 jar，按名字去重：
+    // - `jarOwnerId()` 那个目录：继承了加载器的实例，客户端 jar 在原版那个目录里；
+    // - 实例自己那个目录：有的实例把主类放在自己目录里第二个 jar 里（见 .hpp）。
+    // 名字撞上的情况不重链（同名的两个 jar 是同一份的可能性远大于它们是两份不同的东西，
+    // 而"链了哪一个"这种事**没有地方能看出来** —— 宁可留一条写在这里的说明）。
     if (!QDir().mkpath(paths.jarsDir)) {
         return translate("建不出别名目录：%1").arg(QDir::toNativeSeparators(paths.jarsDir));
     }
@@ -477,7 +471,7 @@ QString AsciiPathAlias::ensure(const Paths &paths, const QString &versionId,
     // 原来链过、现在源目录里已经没有的那些名字（实例里删了个 jar）也要跟着清掉 ——
     // 留着的话 classpath 上会多出一个指向旧数据的 jar（见 sameFile() 那段说的那种症状）。
     // NOTE: 这里比的是**别名那一侧**的名字（linkedNames 里存的也是它）；两个名字混着比的话
-    //       非 ASCII 的那种会每次都判成"源没了"，于是每趟启动都白删白建一遍。
+    // 非 ASCII 的那种会每次都判成"源没了"，于是每趟启动都白删白建一遍。
     for (const QString &existing :
          QDir(paths.jarsDir).entryList(QStringList() << QStringLiteral("*.jar"), QDir::Files)) {
         if (!linkedNames.contains(existing, Qt::CaseInsensitive)) {

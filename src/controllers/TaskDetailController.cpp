@@ -30,14 +30,14 @@ TaskDetailController::TaskDetailController(ActivityCenterController *activity,
                                            QWidget *pageParent, Host host, QObject *parent)
     : QObject(parent), m_activity(activity), m_crash(crash), m_versions(versions),
       m_sessions(sessions), m_overlay(overlay), m_pageParent(pageParent), m_host(std::move(host)) {
-    // ★ 2026-10-20：这一页开着的时候账本**照样在动**（下载会跑完 / 失败、启动那几步会往前走、
-    //   用户在别处把这一批取消了），而页上那一份 `TaskCenter::Item` 是点开那一刻的快照。
-    //   以前只有"在这一页上按了某颗按钮"才会重摆 —— 于是一个正在下载的任务在页上永远停在
-    //   40%，底下的调用早就收尾了；「取消」那颗按钮也还亮着（点了才发现已经没什么可取消）。
-    //   `execPage()` 是嵌套事件循环，这些信号在这里收得到，重摆就会当场出现在屏幕上。
+    // 这一页开着的时候账本**照样在动**（下载会跑完 / 失败、启动那几步会往前走、
+    // 用户在别处把这一批取消了），而页上那一份 `TaskCenter::Item` 是点开那一刻的快照。
+    // 以前只有"在这一页上按了某颗按钮"才会重摆 —— 于是一个正在下载的任务在页上永远停在
+    // 40%，底下的调用早就收尾了；「取消」那颗按钮也还亮着（点了才发现已经没什么可取消）。
+    // `execPage()` 是嵌套事件循环，这些信号在这里收得到，重摆就会当场出现在屏幕上。
     //
-    //   NOTE: 只接账本这两条（`taskChanged` 每一发都来，所以走合并版）。页没开着时什么都不
-    //         做（见 refreshOpenPage 的第一行），不会为了没人看的页一遍遍造控件。
+    // NOTE: 只接账本这两条（`taskChanged` 每一发都来，所以走合并版）。页没开着时什么都不
+    // 做（见 refreshOpenPage 的第一行），不会为了没人看的页一遍遍造控件。
     connect(activity->tasks(), &Tasks::TaskManager::taskChanged, this,
             [this](Tasks::TaskId) { scheduleRefreshOpenPage(); });
     connect(activity->tasks(), &Tasks::TaskManager::historyChanged, this,
@@ -94,18 +94,18 @@ void TaskDetailController::open(const QString &key) {
 void TaskDetailController::action(const QString &key, TaskDetailPage::Action action) {
     switch (action) {
     case TaskDetailPage::Action::Cancel:
-        // ★ 取消要**按这一项是谁**分派：服务端安装那一趟和版本/资源下载那一批不是同一份
-        //   状态（一个自己跑 QProcess + 自己的元数据请求，一个走 `VersionManager` 的批次）。
-        //   两边都无脑叫一遍的话，取消一次服务端安装会顺手把别人正在跑的下载掐掉 ——
-        //   而下载那一批可能是用户在下载页上排的、跟这一项毫无关系。
-        //   **那一条分派留在主窗口**（它和 `cancelWouldWork()` 必须逐字对齐，见文件头）。
+        // 取消要**按这一项是谁**分派：服务端安装那一趟和版本/资源下载那一批不是同一份
+        // 状态（一个自己跑 QProcess + 自己的元数据请求，一个走 `VersionManager` 的批次）。
+        // 两边都无脑叫一遍的话，取消一次服务端安装会顺手把别人正在跑的下载掐掉 ——
+        // 而下载那一批可能是用户在下载页上排的、跟这一项毫无关系。
+        // **那一条分派留在主窗口**（它和 `cancelWouldWork()` 必须逐字对齐，见文件头）。
         if (m_host.cancelTask) m_host.cancelTask(key);
         break;
     case TaskDetailPage::Action::Retry:
-        // ★ 只认**这一项自己**那一批（`retryWouldWork()` 就是这条判据的唯一出处）：界面那边
-        //   已经把不合条件的那颗按钮收起来了，这里是第二道闸 —— 页对象是**建一次留着**的，
-        //   用户完全可能在页开着的时候又失败了一批，而按钮画的还是上一帧那份。
-        //   同「取消」：那一条判据留在主窗口。
+        // 只认**这一项自己**那一批（`retryWouldWork()` 就是这条判据的唯一出处）：界面那边
+        // 已经把不合条件的那颗按钮收起来了，这里是第二道闸 —— 页对象是**建一次留着**的，
+        // 用户完全可能在页开着的时候又失败了一批，而按钮画的还是上一帧那份。
+        // 同「取消」：那一条判据留在主窗口。
         if (m_host.retryTask) m_host.retryTask(key);
         break;
     case TaskDetailPage::Action::OpenLog:
@@ -118,8 +118,6 @@ void TaskDetailController::action(const QString &key, TaskDetailPage::Action act
         copySummary(key);
         break;
     case TaskDetailPage::Action::ExportReport:
-        // 「导出错误报告」那一份文本的出处是 `CrashReportController`（纯函数在
-        // `util/ErrorReport` 里），这一层只是按这一项的号转手。
         m_crash->exportReport(key);
         break;
     case TaskDetailPage::Action::OpenCrashDir:
@@ -137,15 +135,15 @@ void TaskDetailController::action(const QString &key, TaskDetailPage::Action act
 }
 
 void TaskDetailController::openLog(const QString &key) {
-    // ★ 这里打开的是**启动器自己那次启动的日志**（`<数据目录>/logs/wtfml.log`），不是某一场
-    //   游戏的日志窗。
+    // 这里打开的是**启动器自己那次启动的日志**（`<数据目录>/logs/wtfml.log`），不是某一场
+    // 游戏的日志窗。
     //
-    //   理由：任务中心记的是**启动器干的活**（下载 / 安装 / 导入 / 启动这一段调度），那些话
-    //   全在这份日志里；而 `GameLogWindow` 装的是**游戏进程的输出**，它是按会话号开的、
-    //   会话结束就没了（见 GameSessionController 里那一份表）。拿一次"下载失败"去开游戏日志，
-    //   开出来的多半是空的、或者上一次玩的那一场 —— 那比不开更让人糊涂。
+    // 理由：任务中心记的是**启动器干的活**（下载 / 安装 / 导入 / 启动这一段调度），那些话
+    // 全在这份日志里；而 `GameLogWindow` 装的是**游戏进程的输出**，它是按会话号开的、
+    // 会话结束就没了（见 GameSessionController 里那一份表）。拿一次"下载失败"去开游戏日志，
+    // 开出来的多半是空的、或者上一次玩的那一场 —— 那比不开更让人糊涂。
     //
-    //   §4.3 那一项「游戏异常退出」另外给「打开日志」一个**明确的**去处：它就是下面这一段。
+    // §4.3 那一项「游戏异常退出」另外给「打开日志」一个**明确的**去处：它就是下面这一段。
     bool parsed = false;
     // 行钥匙是 64 位的 `TaskId`（见 `ActivityCenterController::markViewed()` 那段的 NOTE）。
     const Tasks::TaskId id = key.toULongLong(&parsed);
@@ -160,8 +158,6 @@ void TaskDetailController::openLog(const QString &key) {
             window->activateWindow();
             return;
         }
-        // 用户把那一扇关了。**不留一句"没了"就完事** —— 那一刻留下的两段日志还在
-        // （`CrashRecord`），「导出错误报告」导出来的正是它。把这条路指给他。
         InlineMessage::warning(
             m_overlay, tr("那扇日志窗已经关掉了"),
             tr("这一场游戏的日志窗刚才被关掉了。当时留下的那两段日志还在 —— "
@@ -189,11 +185,11 @@ void TaskDetailController::openTarget(const QString &key) {
     // 目标就是那一项自己记的那个 id，空的话落到数据目录 —— 一样"点得开"，不给一颗点了
     // 没反应的按钮。
     //
-    // ★ **服务端那一批任务记的是服务端 id，不是实例 id**（M4-2 的安装 / M4-4 的备份都走
-    //   `beginTask(..., serverId, ...)`），而 `AppPaths::versionDir()` 拼出来的是
-    //   `<数据目录>/versions/<id>` —— 对服务端来说那个目录**永远不存在**。所以按下
-    //   「打开目标位置」本来会报一句"那个目录现在不在"（而它明明就在 `Servers/<id>`）。
-    //   先按实例认，认不出来再看它是不是一个服务端。
+    // **服务端那一批任务记的是服务端 id，不是实例 id**（M4-2 的安装 / M4-4 的备份都走
+    // `beginTask(..., serverId, ...)`），而 `AppPaths::versionDir()` 拼出来的是
+    // `<数据目录>/versions/<id>` —— 对服务端来说那个目录**永远不存在**。所以按下
+    // 「打开目标位置」本来会报一句"那个目录现在不在"（而它明明就在 `Servers/<id>`）。
+    // 先按实例认，认不出来再看它是不是一个服务端。
     QString dir;
     if (task.kind == Tasks::TaskKind::Download && QDir::isAbsolutePath(task.targetId)) {
         dir = task.targetId;
@@ -219,7 +215,6 @@ void TaskDetailController::copySummary(const QString &key) {
     if (!fillItem(key, &item)) {
         return;
     }    // 摘要 = 这一页上那几行字，纯文本（贴到哪儿都读得下去）。**不带上整份日志**：
-    // 那是「导出错误报告」的活（见 util/ErrorReport），这一颗要的是"把这一项说清楚"。
     QStringList lines;
     lines << QStringLiteral("%1: %2").arg(MainWindowUI::taskDetailStateText(item.state),
                                           item.title);

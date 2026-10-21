@@ -1,8 +1,6 @@
 /**
  * @file TextFormat.cpp
  * @brief TextFormat 的实现（三份形态的规矩在 .hpp 开头那一段）。
- * @author 0x7fffff
- * @date 2026-10-16
  */
 #include "TextFormat.hpp"
 
@@ -16,8 +14,8 @@ namespace {
 
 /// 那个十六色表（下标就是 `§` 的码位：0-9 a-f）。
 ///
-/// ★ 值取自游戏自己的那份（浅底正文色是 `§f` 白）。`Default` 不在表里 —— 它是"没写过
-///   颜色"，画成正文色才对；映射到某个具体的色上就等于替用户拿主意了。
+/// 值取自游戏自己的那份（浅底正文色是 `§f` 白）。`Default` 不在表里 —— 它是"没写过
+/// 颜色"，画成正文色才对；映射到某个具体的色上就等于替用户拿主意了。
 struct ColorInfo {
     TextFormat::Color color;
     QChar code;
@@ -213,7 +211,7 @@ bool parseHexColor(const QString &text, quint32 *rgb) {
     if (body.startsWith(QChar('#'))) {
         body = body.mid(1);
     }
-    // ★ 只认六位：`#f00` 那种缩写游戏那边不认，这一层替它展开就等于猜。
+    // 只认六位：`#f00` 那种缩写游戏那边不认，这一层替它展开就等于猜。
     if (body.size() != 6) {
         return false;
     }
@@ -314,7 +312,7 @@ QList<Segment> parseLegacy(const QString &text) {
         }
         // 收尾那个孤零零的 `§`、或者 `§x` 这种不是码的：**原样留着**。
         // NOTE: `x` 不是十六色也不是格式码，但它是 1.16 自定颜色那个 `§x§R§R§G§G§B§B`
-        //       的开头 —— 所以它得放进这道门里，再由下面那段确认后面六个是不是真接得上。
+        // 的开头 —— 所以它得放进这道门里，再由下面那段确认后面六个是不是真接得上。
         if (index + 1 >= text.size()
             || (!isAnyCode(text.at(index + 1)) && text.at(index + 1).toLower() != QChar('x'))) {
             pending.append(current);
@@ -351,7 +349,7 @@ QList<Segment> parseLegacy(const QString &text) {
         }
         if (isColorCode(code)) {
             flush();
-            // ★ 颜色码**把格式位一起清掉**（游戏就是这么读的）—— `§a§lb§cc` 里那个 c 不粗。
+            // 颜色码**把格式位一起清掉**（游戏就是这么读的）—— `§a§lb§cc` 里那个 c 不粗。
             style = Style{};
             style.color = colorFromCode(code);
             continue;
@@ -456,10 +454,10 @@ JsonParseResult parseJson(const QString &jsonText) {
     JsonParseResult result;
 
     // ---------- 先接住"顶上就是一段光字符串"那一档 ----------
-    // ★ 这一档**必须摆在那次 fromJson 前面**：`QJsonDocument` 只装得下对象和数组（它身上
-    //   根本没有 isString/toString），标量直接报 IllegalValue —— 摆后面的话早就在
-    //   "读不动"那一句上返回了。套一层方括号就能读出来：对合法 JSON 来说这只是语法层多
-    //   了一层，字符串里的 `]` 在引号里，不受影响。
+    // 这一档**必须摆在那次 fromJson 前面**：`QJsonDocument` 只装得下对象和数组（它身上
+    // 根本没有 isString/toString），标量直接报 IllegalValue —— 摆后面的话早就在
+    // "读不动"那一句上返回了。套一层方括号就能读出来：对合法 JSON 来说这只是语法层多
+    // 了一层，字符串里的 `]` 在引号里，不受影响。
     const QByteArray trimmed = jsonText.toUtf8().trimmed();
     if (!trimmed.isEmpty() && trimmed.at(0) == '"') {
         QJsonParseError inner{};
@@ -573,14 +571,14 @@ QString toMotd(const QList<Segment> &segments) {
         } else if (ch == QChar('\t')) {
             escaped.append(QStringLiteral("\\t"));
         } else if (ch == QChar(' ')) {
-            // ★ 开头那串空白会被 Java 的 properties 读法吃掉 —— 只有第一个要转义，
-            //   后面那些在值中间，照原样写就是空格。
+            // 开头那串空白会被 Java 的 properties 读法吃掉 —— 只有第一个要转义，
+            // 后面那些在值中间，照原样写就是空格。
             escaped.append(escaped.isEmpty() ? QStringLiteral("\\ ") : QStringLiteral(" "));
         } else if (ch.unicode() >= 0x20 && ch.unicode() < 0x7f) {
             escaped.append(ch);
         } else {
             // Java properties 用 ISO-8859-1 读：`§`、汉字都得写成 `\uXXXX` 才不坏。
-            // ★ 只把四位十六进制大写：前面那个 `u` 必须是**小写**（Java 只认 `\u`）。
+            // 只把四位十六进制大写：前面那个 `u` 必须是**小写**（Java 只认 `\u`）。
             escaped.append(QStringLiteral("\\u")
                            + QStringLiteral("%1")
                                  .arg(static_cast<uint>(ch.unicode()), 4, 16, QChar('0'))

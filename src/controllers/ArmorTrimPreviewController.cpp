@@ -71,8 +71,8 @@ ArmorTrimPreviewController::ArmorTrimPreviewController(ToolboxPage *page, Overla
     m_deadline=new QTimer(this); m_deadline->setSingleShot(true); m_deadline->setInterval(600000);
     connect(page,&ToolboxPage::trimResourcesRequested,this,[this](int action){request(action);});
     connect(m_deadline,&QTimer::timeout,this,[this] {
-        // ★ 先记下"是超时"，再置 m_cancelled：finished 那一发只看 m_cancelled 的话，
-        //   超时会被当成用户取消（屏幕上就看到"已取消"，看不到为什么停）。
+        // 先记下"是超时"，再置 m_cancelled：finished 那一发只看 m_cancelled 的话，
+        // 超时会被当成用户取消（屏幕上就看到"已取消"，看不到为什么停）。
         m_timedOut=true; m_cancelled=true; m_download->cancel();
         status(tr("预览资源下载超过 600 秒，已停止；可重新点击下载续传。"));
     });
@@ -97,12 +97,12 @@ ArmorTrimPreviewController::ArmorTrimPreviewController(ToolboxPage *page, Overla
 
 ArmorTrimPreviewController::~ArmorTrimPreviewController() {
     shutdown();
-    // ★ 2026-10-20：等多久必须跟工人自己的上限**对齐**。工人那段循环的判据是
-    //   `timer.elapsed() > kLoadBudgetMs`（90 秒），这里原来只等 40 秒 —— 关掉工具箱
-    //   时如果正好卡在最后一份归档的读取上，析构会在工人还在跑的时候返回，QThread
-    //   对象随后被 deleteLater 掉（或者进程退出时被丢掉），那句
-    //   "Destroyed while thread is still running" 就是这么来的。
-    //   多给 5 秒让 finished 信号和 deleteLater 走完。
+    // 等多久必须跟工人自己的上限**对齐**。工人那段循环的判据是
+    // `timer.elapsed() > kLoadBudgetMs`（90 秒），这里原来只等 40 秒 —— 关掉工具箱
+    // 时如果正好卡在最后一份归档的读取上，析构会在工人还在跑的时候返回，QThread
+    // 对象随后被 deleteLater 掉（或者进程退出时被丢掉），那句
+    // "Destroyed while thread is still running" 就是这么来的。
+    // 多给 5 秒让 finished 信号和 deleteLater 走完。
     if (m_worker) {
         m_worker->wait(kLoadBudgetMs + 5000);
     }
@@ -154,9 +154,9 @@ void ArmorTrimPreviewController::ensureLocal() {
     for(const auto &id:entries) {
         const QString jar=InstanceFiles::jarPath(id);
         if(!QFileInfo::exists(jar)) continue;
-        // ★ 按**这个 jar 所代表的那个游戏版本**的发布时间排，不按版本目录的 mtime。
-        //   目录 mtime 是"哪天装进来的"：几十个版本同一天解压，按它取前几个会拿到
-        //   1.21 以前的客户端，涡流/镶铆（1.21）和树脂质（1.21.4）就永远缺。
+        // 按**这个 jar 所代表的那个游戏版本**的发布时间排，不按版本目录的 mtime。
+        // 目录 mtime 是"哪天装进来的"：几十个版本同一天解压，按它取前几个会拿到
+        // 1.21 以前的客户端，涡流/镶铆（1.21）和树脂质（1.21.4）就永远缺。
         candidates.append({id, jar, releaseStamp(InstanceFiles::jarOwnerId(id))});
     }
     // 最多试 16 份：1.21.2+ 的客户端本来就能读（新的装备层路径会折回旧名），

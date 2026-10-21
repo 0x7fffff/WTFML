@@ -1,32 +1,23 @@
 /**
  * @file LoaderMeta.hpp
  * @brief 模组加载器元数据接口的**纯函数**部分：地址怎么拼、列表回复怎么挑版本。
- * @author 0x7fffff
- * @date 2026-09-21
  * @note 这里不联网、不发信号，只做"字符串进、字符串出"。真正发请求的是
- *       VersionManager::installLoaderVersion()（它才是 QObject），这样这几条规则能在
- *       验证工程里离线钉住 —— 联网的那半边没法在沙箱里跑（要真下几个 GB 的资源）。
- *
- * 四类加载器各有一套接口形状（全部实测）：
+ * VersionManager::installLoaderVersion()（它才是 QObject），这样这几条规则能在
+ * 验证工程里离线钉住 —— 联网的那半边没法在沙箱里跑（要真下几个 GB 的资源）。
  *
  * 【Forge / NeoForge】它们不走"拉一份 json 再下库"那条路，而是**跑它们自己的安装器 jar**
- *   （`java -jar xxx-installer.jar --installClient <游戏目录>`，见下面的注释）。这里只放
- *   "版本从哪来、挑哪一个、安装器 jar 在哪个地址、装出来的目录叫什么"这四件事。
+ * （`java -jar xxx-installer.jar --installClient <游戏目录>`，见下面的注释）。这里只放
+ * "版本从哪来、挑哪一个、安装器 jar 在哪个地址、装出来的目录叫什么"这四件事。
  *
- * 【OptiFine】同样是"跑别人的安装器"，但它的安装器**不认命令行给的那个目录**（参数整个
- *   丢掉，只从 APPDATA 算），而且本身是个 GUI 程序、出错时弹框等人点 —— 所以它那条路是
- *   "换一个无界面入口 + 给子进程换 APPDATA + 对着一个临时目录装、装完把产物搬出来"
- *   （实测记录见下面《OptiFine》那一节）。
- *
- * Fabric 的接口形状（2026-09-21 实测）：
- *   GET /v2/versions/loader/<游戏版本>
- *       -> 数组，每个元素 {loader:{version,stable,build,maven}, intermediary:{...},
- *                          launcherMeta:{version,libraries,mainClass,min_java_version}}
- *          **按新到旧排序**，而且只有**最新那个**的 stable 是 true（0.19.5 是 true，
- *          0.19.4 及更早全是 false）—— 实测 253 条里 stable 恰好一条。
- *          回复约 589 KB（253 条 × 每条自带一整份 launcherMeta.libraries，占 99%）。
- *   GET /v2/versions/loader/<游戏版本>/<加载器版本>/profile/json
- *       -> 就是那份"薄 json"，原样写进 versions/<id>/<id>.json 即可（约 2.8 KB）。
+ * Fabric 的接口形状（ 实测）：
+ * GET /v2/versions/loader/<游戏版本>
+ * -> 数组，每个元素 {loader:{version,stable,build,maven}, intermediary:{...},
+ * launcherMeta:{version,libraries,mainClass,min_java_version}}
+ * **按新到旧排序**，而且只有**最新那个**的 stable 是 true（0.19.5 是 true，
+ * 0.19.4 及更早全是 false）—— 实测 253 条里 stable 恰好一条。
+ * 回复约 589 KB（253 条 × 每条自带一整份 launcherMeta.libraries，占 99%）。
+ * GET /v2/versions/loader/<游戏版本>/<加载器版本>/profile/json
+ * -> 就是那份"薄 json"，原样写进 versions/<id>/<id>.json 即可（约 2.8 KB）。
  */
 #pragma once
 
@@ -94,8 +85,8 @@ inline bool isSafeVersionId(const QString &id) {
 /// profile 检查没过的**哪一种**。
 ///
 /// NOTE: 这里刻意只回一个枚举、不回已经拼好的话 —— 给用户看的那句话在
-///       VersionManager 里（那里才有 tr()），两边分开才不会出现"文案在纯函数里、
-///       翻译表却扫不到"这种事。验证工程也断言这个枚举（比断言一句话稳）。
+/// VersionManager 里（那里才有 tr()），两边分开才不会出现"文案在纯函数里、
+/// 翻译表却扫不到"这种事。验证工程也断言这个枚举（比断言一句话稳）。
 enum class ProfileProblem {
     None,
     BadId,        ///< profile 里的 id 空着或者不能当目录名（见 isSafeVersionId）
@@ -121,7 +112,7 @@ struct ProfileCheck {
  *
  * 1. `id` 必须是能当目录名的（见 isSafeVersionId）—— 不然是往数据目录外面写。
  * 2. `inheritsFrom` 必须就是 `gameVersion` —— 对不上就会装出一个"目录名叫 A、
- *    内容基于 B"的版本：启动时它去找 B，而用户以为自己装的是基于 A 的。
+ * 内容基于 B"的版本：启动时它去找 B，而用户以为自己装的是基于 A 的。
  */
 inline ProfileCheck checkFabricProfile(const QJsonObject &profile, const QString &gameVersion) {
     ProfileCheck result;
@@ -149,14 +140,14 @@ inline ProfileCheck checkFabricProfile(const QJsonObject &profile, const QString
  * 才是别的启动器和我们自己的启动路径要读的东西**。这里查两条：
  *
  * 1. json 里的 `id` 必须**等于我们算出来的那个目录名**。目录名是我们拼的（`forgeLoaderId`),
- *    而 json 是安装器写的；两者对不上意味着"Forge 换了命名约定"，我们接下来要么把
- *    wtfml.meta 写到一个不存在的 id 上、要么把一个名字对不上的版本记成"装好了"。
+ * 而 json 是安装器写的；两者对不上意味着"Forge 换了命名约定"，我们接下来要么把
+ * wtfml.meta 写到一个不存在的 id 上、要么把一个名字对不上的版本记成"装好了"。
  * 2. `inheritsFrom` 必须就是 `gameVersion`。对不上就是"装是装上了，但基于的是另一个原版"
- *    —— 启动时它去找那个原版，而用户以为自己装的是基于这个的。
+ * —— 启动时它去找那个原版，而用户以为自己装的是基于这个的。
  *
  * NOTE: 和 checkFabricProfile() 用同一个结构体（ProfileCheck）和同一套 problem 枚举是
- *       刻意的：两处的失败模式一模一样（ID 不可用 / 父版本不对），文案由调用方按
- *       problem 分派，多一套枚举只会多一处要同步的东西。
+ * 刻意的：两处的失败模式一模一样（ID 不可用 / 父版本不对），文案由调用方按
+ * problem 分派，多一套枚举只会多一处要同步的东西。
  */
 inline ProfileCheck checkInstallerResult(const QJsonObject &versionJson, const QString &gameVersion,
                                          const QString &expectedId) {
@@ -196,16 +187,16 @@ enum class LoaderChannel {
 struct LoaderVersionEntry {
     QString version;      ///< 加载器版本号（就是会写进 wtfml.meta 的 `loaderVersion`）
     bool stable = false;  ///< 是不是**稳定档**（正式版）。false = alpha/beta/快照/预览版 ——
-                          ///< "能不能用"是另一件事（2026-09-23 用户拍板："beta 版虽然不稳定，
-                          ///< 但是也能使用"，所以现在照列，只在界面上标出「测试版」）。
-                          ///< 判据按加载器不同：Fabric 用接口的 `stable` 字段；NeoForge 是"版本号
-                          ///< 里没有 `-`/`+` 后缀"；OptiFine 是"不是 `preview_` 预览版"；Forge 那份
-                          ///< maven 清单里**全**是正式版，所以一律 true（见 listForgeVersions）。
+                          /// < "能不能用"是另一件事（ 用户拍板："beta 版虽然不稳定，
+                          /// < 但是也能使用"，所以现在照列，只在界面上标出「测试版」）。
+                          /// < 判据按加载器不同：Fabric 用接口的 `stable` 字段；NeoForge 是"版本号
+                          /// < 里没有 `-`/`+` 后缀"；OptiFine 是"不是 `preview_` 预览版"；Forge 那份
+                          /// < maven 清单里**全**是正式版，所以一律 true（见 listForgeVersions）。
 };
 
 using LoaderVersionList = QList<LoaderVersionEntry>;
 
-/// 频道在界面上那一格数据里的键（2026-09-23 起：用户挑的可能是"具体版本号"，也可能是这两档）。
+/// 频道在界面上那一格数据里的键（ 起：用户挑的可能是"具体版本号"，也可能是这两档）。
 ///
 /// 写成 `@latest` / `@stable` 而不是空串或 `latest`：那一格（`Qt::UserRole`）平时放的是
 /// **具体版本号**，而真版本号得过 isSafeVersionId() 那个白名单（`[A-Za-z0-9._+-]`）——
@@ -268,9 +259,6 @@ inline QStringList loaderVersionStrings(const LoaderVersionList &entries) {
  *
  * **顺序原样保留**（接口本来就是新到旧），不排序：这份列表里 stable 只有最新那条是 true，
  * 而版本号里带 `+build.N` 那种后缀，自己排序只会更容易排错（理由和 pickFabricLoader 一样）。
- *
- * 实测 253 条 / 589 KB —— 也就是说这个列表本身就不小（每条都自带一整份 launcherMeta.libraries）。
- * 界面拿它填列表没问题，但别每点一下就重新拉一次。
  */
 inline LoaderVersionList listFabricLoaderVersions(const QJsonArray &list) {
     LoaderVersionList entries;
@@ -292,9 +280,9 @@ inline LoaderVersionList listFabricLoaderVersions(const QJsonArray &list) {
  * @return 挑中的版本；列表为空或没有 usable 条目时 `ok()` 为 false。
  *
  * 规则（@param channel 选哪一档，见 LoaderChannel）：
- *   稳定档 = **第一个 stable 的**（没有 stable 就退回第一个带版本号的）；
- *   最新档 = 接口给的**第一条**（这个接口保证按新到旧排，所以第一条就是最新的那个，
- *            它多半也是 stable 的那一条 —— 只有 Fabric 刚发了新加载器、还没标 stable 时不同）。
+ * 稳定档 = **第一个 stable 的**（没有 stable 就退回第一个带版本号的）；
+ * 最新档 = 接口给的**第一条**（这个接口保证按新到旧排，所以第一条就是最新的那个，
+ * 它多半也是 stable 的那一条 —— 只有 Fabric 刚发了新加载器、还没标 stable 时不同）。
  *
  * 为什么是"第一个"而不是"比大小"：接口保证按新到旧排序（实测 253 条严格递减），
  * 而 stable 只有最新那个是 true。自己写一个版本号比较器（Fabric 的版本号里有
@@ -302,7 +290,7 @@ inline LoaderVersionList listFabricLoaderVersions(const QJsonArray &list) {
  * 这个接口的语义，不是我们要判断的事情。
  *
  * NOTE: 挑法只有这一处 —— "默认选中哪个"（这里的挑法）和"能挑哪些"（listFabricLoaderVersions）
- *       共用同一个解析，少一处抄歪的机会。
+ * 共用同一个解析，少一处抄歪的机会。
  */
 inline LoaderPick pickFabricLoader(const QJsonArray &list,
                                    LoaderChannel channel = LoaderChannel::Stable) {
@@ -315,8 +303,6 @@ inline LoaderPick pickFabricLoader(const QJsonArray &list,
             return LoaderPick{entry.version, entry.stable};
         }
     }
-    // 走到这里只可能是"稳定档、但整份列表里没有一条 stable"（Fabric 实测 253 条里恰好
-    // 一条 stable，正常情况下上面那个循环就返回了）。
     return LoaderPick{entries.first().version, false};
 }
 
@@ -331,28 +317,26 @@ inline LoaderPick pickFabricLoader(const QJsonArray &list,
 // （拿 vanilla 的 client jar 打出一份 srg 名 jar，再打出一份 client jar），那不是靠下载
 // 能凑出来的。所以只能把它们的安装器请下来、**另起一个 Java 进程**跑。
 //
-// 【实测到的安装器行为】（2026-09-22，沙箱里真的跑过 Forge 47.4.10 和 NeoForge 21.1.215）
+// java -jar <安装器>.jar --installClient <游戏目录>
 //
-//   java -jar <安装器>.jar --installClient <游戏目录>
+// * 目录里**必须已经有 launcher_profiles.json**。没有的话它直接拒绝：
+// `There is no minecraft launcher profile in "...", you need to run the launcher first!`
+// + `There was an error during installation`，退出码 1 —— 一个字节的库都不会下。
+// 这是它唯一的前置条件（我们拿一个只有 launcher_profiles.json 的空目录试过，它照样装成）。
+// * 成功时最后两行是 `Successfully installed client into launcher.` /
+// `You can delete this installer file now if you wish`，退出码 0。
+// * **自动的安装器是拿不到的**：真实下载页在广告后面。见下面 URL 那段的说明。
 //
-//   * 目录里**必须已经有 launcher_profiles.json**。没有的话它直接拒绝：
-//     `There is no minecraft launcher profile in "...", you need to run the launcher first!`
-//     + `There was an error during installation`，退出码 1 —— 一个字节的库都不会下。
-//     这是它唯一的前置条件（我们拿一个只有 launcher_profiles.json 的空目录试过，它照样装成）。
-//   * 成功时最后两行是 `Successfully installed client into launcher.` /
-//     `You can delete this installer file now if you wish`，退出码 0。
-//   * **自动的安装器是拿不到的**：真实下载页在广告后面。见下面 URL 那段的说明。
-//
-//   Forge 47.4.10 → `versions/1.20.1-forge-47.4.10/1.20.1-forge-47.4.10.json`
-//                   （inheritsFrom = 1.20.1，mainClass = cpw.mods.bootstraplauncher
-//                   .BootstrapLauncher，29 个库，**没有 downloads 字段**）
-//                 外加 `versions/1.20.1/1.20.1.jar`（vanilla 的客户端 jar，sha1 与官方
-//                   逐字节相同）—— **但没有 1.20.1.json**。
-//   NeoForge 21.1.215 → `versions/neoforge-21.1.215/neoforge-21.1.215.json`
-//                 外加 `versions/1.21.1/` 的 json **和** jar。
-//   * 两个都**不下 assets**。所以"装完加载器"之后必须自己把原版那一套补全（resources
-//     索引 + 5000 个对象），否则用户拿到的是一个启动就崩的版本 —— 补全复用现有的
-//     downloadVersion()，不是另写一份。
+// Forge 47.4.10 → `versions/1.20.1-forge-47.4.10/1.20.1-forge-47.4.10.json`
+// （inheritsFrom = 1.20.1，mainClass = cpw.mods.bootstraplauncher
+// .BootstrapLauncher，29 个库，**没有 downloads 字段**）
+// 外加 `versions/1.20.1/1.20.1.jar`（vanilla 的客户端 jar，sha1 与官方
+// 逐字节相同）—— **但没有 1.20.1.json**。
+// NeoForge 21.1.215 → `versions/neoforge-21.1.215/neoforge-21.1.215.json`
+// 外加 `versions/1.21.1/` 的 json **和** jar。
+// * 两个都**不下 assets**。所以"装完加载器"之后必须自己把原版那一套补全（resources
+// 索引 + 5000 个对象），否则用户拿到的是一个启动就崩的版本 —— 补全复用现有的
+// downloadVersion()，不是另写一份。
 
 /// Forge 的"推广版本"表（`<游戏版本>-recommended` / `<游戏版本>-latest` 两两成对）。
 ///
@@ -375,9 +359,9 @@ inline QString forgePromotionsUrl() {
 /// 还**必须**兜底到 latest：真表里有一大批游戏版本只有 latest 一个键（实测 1.20 只有
 /// `46.0.14`、1.19.1 只有 `42.0.9`、1.21.6 只有 `56.0.9`），一个不兜底它们就都装不了。
 /// NOTE: 别拿 1.7.10 当"只有 latest"的例子 —— 我一开始就是这么写的，而真表里它**两个键
-///       都有**（`10.13.4.1614` 各写一遍）。看着像常识的版本号也得回真数据里核一遍。
+/// 都有**（`10.13.4.1614` 各写一遍）。看着像常识的版本号也得回真数据里核一遍。
 /// NOTE: 这里不自己比版本号大小 —— 键的语义是"Forge 推荐的"，不是"数字最大的"，
-///       latest 也可能比 recommended 小（真发生过，见上）。
+/// latest 也可能比 recommended 小（真发生过，见上）。
 inline LoaderPick pickForgeVersion(const QJsonObject &promotions, const QString &gameVersion,
                                    LoaderChannel channel = LoaderChannel::Stable) {
     const QJsonObject promos = promotions.value(QStringLiteral("promos")).toObject();
@@ -407,17 +391,11 @@ inline LoaderPick pickForgeVersion(const QJsonObject &promotions, const QString 
 /// Forge 安装器 jar 的地址（maven 上的坐标就是 `<游戏版本>-<Forge 版本>`）。
 ///
 /// NOTE: 这是 maven 直链，不是下载页那个地址。安装器 jar 自己开头写着一段
-///       `_comment_`：`Please do not automate the download and installation of Forge.
-///       Our efforts are supported by ads from the download page.` —— 也就是说
-///       **Forge 明确不希望别人自动装**。我们走 maven 直链是刻意的选择：下载页那条路
-///       要先过广告页拿 token，做成"替用户点广告"才是真的不礼貌；maven 上的 jar 是同一个
-///       文件、由 Forge 自己发布，走它至少没绕过任何东西。
-///
-/// NOTE: 这个 host 从 2026-09-22 起在 DownloadManager::mirrorUrl() 里**认得了**（镜像源模式
-///       下换成 bmclapi 的 /maven/...）。这一条以前写的是"镜像不代理 Forge 的 maven"，那是
-///       没量过就下的结论：那天实测 48 个库走安装器自己挑的 creeperhost 要 61 秒、走镜像
-///       30 秒，而且镜像上那份和官方**是同一个文件**（26.2-65.1.0 的安装器 jar 两边都是
-///       7855558 字节）。
+/// `_comment_`：`Please do not automate the download and installation of Forge.
+/// Our efforts are supported by ads from the download page.` —— 也就是说
+/// **Forge 明确不希望别人自动装**。我们走 maven 直链是刻意的选择：下载页那条路
+/// 要先过广告页拿 token，做成"替用户点广告"才是真的不礼貌；maven 上的 jar 是同一个
+/// 文件、由 Forge 自己发布，走它至少没绕过任何东西。
 inline QString forgeInstallerUrl(const QString &gameVersion, const QString &loaderVersion) {
     const QString full = gameVersion + QLatin1Char('-') + loaderVersion;
     return QStringLiteral("https://maven.minecraftforge.net/net/minecraftforge/forge/%1/forge-%1-installer.jar")
@@ -426,17 +404,17 @@ inline QString forgeInstallerUrl(const QString &gameVersion, const QString &load
 
 /// Forge 安装器 jar 的**另一种坐标**：`<游戏>-<加载器>-<游戏>`。
 ///
-/// NOTE: 2026-09-22 实测发现的坑（起因是用户那次 1.8.9 的安装失败）：老的游戏版本只发布了
-///       这一种坐标，常规那种（forgeInstallerUrl）**直接 404**。一个一个 curl 出来的表：
+/// NOTE: 实测发现的坑（起因是用户那次 1.8.9 的安装失败）：老的游戏版本只发布了
+/// 这一种坐标，常规那种（forgeInstallerUrl）**直接 404**。一个一个 curl 出来的表：
 ///
-///           坐标                               1.7.10        1.8.9          1.9.4   1.11.2  1.12.2
-///           <游戏>-<加载器>                    404           404            404     200     200
-///           <游戏>-<加载器>-<游戏>              200           200            200     404     404
+/// 坐标 1.7.10 1.8.9 1.9.4 1.11.2 1.12.2
+/// <游戏>-<加载器> 404 404 404 200 200
+/// <游戏>-<加载器>-<游戏> 200 200 200 404 404
 ///
-///       1.8.9 那两个都是官方推广表里会挑中的版本（11.15.1.1722 / 11.15.1.2318），所以这不是
-///       "某个野生版本"，是这条路的正常输入。判断"该用哪一种"没有便宜的离线判据（两种都有
-///       先例、也不按版本号单调），所以**不猜**：按常规坐标下一遍，404 了就换成这一种再下
-///       （见 VersionManager::startInstallerDownload / retryInstallerDownloadAlternate()）。
+/// 1.8.9 那两个都是官方推广表里会挑中的版本（11.15.1.1722 / 11.15.1.2318），所以这不是
+/// "某个野生版本"，是这条路的正常输入。判断"该用哪一种"没有便宜的离线判据（两种都有
+/// 先例、也不按版本号单调），所以**不猜**：按常规坐标下一遍，404 了就换成这一种再下
+/// （见 VersionManager::startInstallerDownload / retryInstallerDownloadAlternate()）。
 inline QString forgeInstallerUrlAlternate(const QString &gameVersion,
                                           const QString &loaderVersion) {
     const QString full = gameVersion + QLatin1Char('-') + loaderVersion;
@@ -446,24 +424,12 @@ inline QString forgeInstallerUrlAlternate(const QString &gameVersion,
 }
 
 /// 安装器自己那条 maven 下载路的**官方**根（喂给 `--mirror`）。
-///
-/// NOTE: 2026-10-17 的加载器矩阵：Forge 1.20.1 的安装器在不给 `--mirror` 时**不是**去官方
-///       maven，而是按它内置的第三方镜像列表挑（本机挑中 creeperhost），一旦那条连接出问题，
-///       它就把整次安装判死（`These libraries failed to download. Try again. org.ow2.asm:asm:9.6`）。
-///       这两条官方根都实测认 maven central 的坐标（`org/ow2/asm/...`、`trove/...` 都是 206），
-///       原版库（libraries.minecraft.net）照旧走它自己的路、不受这个参数影响。
-///       ★ 结尾的斜杠是行为的一部分：安装器直接拿它拼相对路径，少一个斜杠就变成 `...netorg/...`。
 inline QString forgeMavenRoot() { return QStringLiteral("https://maven.minecraftforge.net/"); }
 inline QString neoForgeMavenRoot() {
     return QStringLiteral("https://maven.neoforged.net/releases/");
 }
 
 /// Forge 装出来的版本目录名。
-///
-/// 和 Fabric 那边一个道理：这个名字**不是我们发明的**，是安装器自己写进 launcher_profiles
-/// 的 profile、也是版本 json 里 `id` 字段的值（实测 1.20.1 + 47.4.10 → `1.20.1-forge-47.4.10`）。
-/// 改一个字就等于"装好了但谁都不认识它"。装完会**核对这个目录真的存在**（见 VersionManager），
-/// 所以万一哪天 Forge 改了约定，报的是"装是装了、但没在预期的地方找到"，不是静默写错地方。
 inline QString forgeLoaderId(const QString &gameVersion, const QString &loaderVersion) {
     return QStringLiteral("%1-forge-%2").arg(gameVersion, loaderVersion);
 }
@@ -477,7 +443,7 @@ inline QString neoforgeMavenMetadataUrl() {
 /// 把一个点分版本号解析成数字列表。空列表 = 不是版本号。
 ///
 /// NOTE: 逐段走正则，不用 QString::toInt() —— 后者接受前导空白、正负号（`"+5"`、`" 5"`
-///       都能过），而这里进来的是 maven 上别人写的东西、出去的用途是拼 URL 和比大小。
+/// 都能过），而这里进来的是 maven 上别人写的东西、出去的用途是拼 URL 和比大小。
 inline QList<int> parseDottedVersion(const QString &text) {
     QList<int> parts;
     if (text.isEmpty()) {
@@ -489,7 +455,7 @@ inline QList<int> parseDottedVersion(const QString &text) {
         if (!digits.match(segment).hasMatch()) {
             return QList<int>();
         }
-        // 溢出**也得当"不是版本号"**（2026-09-25 修）：`^[0-9]+$` 过得了、toInt() 过不了的
+        // 溢出**也得当"不是版本号"**（ 修）：`^[0-9]+$` 过得了、toInt() 过不了的
         // 那一段（maven 上别人写的东西，`26.1.2.99999999999` 这种）原来是静默变成 **0**，
         // 于是这个版本比谁都小 —— "有新版本"永远消不掉、版本榜上排到最后，而且一声不响。
         // 这个函数的契约本来就是"空列表 = 认不出来"，认不出来有的是地方处理它。
@@ -521,8 +487,8 @@ inline int compareDottedVersions(const QList<int> &left, const QList<int> &right
 /// 但**不是** `[21,10,64]` 的前缀）。
 ///
 /// NOTE: 这里必须是逐段比，不能拿字符串前缀比 —— NeoForge 真有 `21.1.x` 和 `21.10.x`
-///       两族（分别对应 MC 1.21.1 和 1.21.10），按字符串 `"21.1"` 前缀匹配会把
-///       `21.10.64` 也算进来，然后在比大小时把 `21.10.64` 挑成 1.21.1 的加载器。
+/// 两族（分别对应 MC 1.21.1 和 1.21.10），按字符串 `"21.1"` 前缀匹配会把
+/// `21.10.64` 也算进来，然后在比大小时把 `21.10.64` 挑成 1.21.1 的加载器。
 inline bool isDottedPrefix(const QList<int> &prefix, const QList<int> &full) {
     if (prefix.isEmpty() || prefix.size() > full.size()) {
         return false;
@@ -538,10 +504,10 @@ inline bool isDottedPrefix(const QList<int> &prefix, const QList<int> &full) {
 /// NeoForge 版本号的"游戏版本前缀"。
 ///
 /// NeoForge 的版本号刻意跟着游戏版本走，但**不是**同一串数字：
-///   游戏 1.21.1  → NeoForge 21.1.x      （去掉开头的 `1.`）
-///   游戏 1.20.2  → NeoForge 20.2.x
-///   游戏 26.2    → NeoForge 26.2.x      （游戏版本自己就是 26.2，没有 `1.` 可去）
-///   游戏 26.1.2  → NeoForge 26.1.2.x
+/// 游戏 1.21.1 → NeoForge 21.1.x （去掉开头的 `1.`）
+/// 游戏 1.20.2 → NeoForge 20.2.x
+/// 游戏 26.2 → NeoForge 26.2.x （游戏版本自己就是 26.2，没有 `1.` 可去）
+/// 游戏 26.1.2 → NeoForge 26.1.2.x
 /// 所以规则是：去掉开头的 `1.`（如果有），再取前两段；只有一段时补一个 `.0`。
 /// 补 `.0` 那一手是给 `1.21` 这种两段式游戏版本用的 —— 它对应 NeoForge 的 `21.0.x`，
 /// 不补的话前缀会退化成 `[21]`，于是把 `21.1.x`、`21.11.x` 全都算进来。
@@ -583,15 +549,15 @@ inline QString dottedVersionKey(const QString &version) {
 /// 这个版本号是不是**稳定档**（正式版）。判据：**没有后缀**（既没有 `-` 也没有 `+`）。
 ///
 /// NOTE: 这是"上游标没标它稳定"的**近似**，不是"它一定好用"：NeoForge 的 `26.3.0.10-beta`
-///       和 `26.1.0.0-alpha.1+snapshot-1` 都算不稳定，而它们**照样能装**（用户 2026-09-23
-///       拍板要列出来）。
+/// 和 `26.1.0.0-alpha.1+snapshot-1` 都算不稳定，而它们**照样能装**（用户
+/// 拍板要列出来）。
 inline bool isStableLoaderVersion(const QString &version) {
     return !version.contains(QLatin1Char('-')) && !version.contains(QLatin1Char('+'));
 }
 
 /// 两个版本号字符串的**自然序**比较：数字段按数值比，其余字符按码点比。
 ///
-/// 为什么不能用 `a < b`（2026-09-24 改的）：下面的 sortLoaderVersionsNewestFirst 最后一级
+/// 为什么不能用 `a < b`（ 改的）：下面的 sortLoaderVersionsNewestFirst 最后一级
 /// tie-break 原来是字符串升序，而它接手的恰恰是"切掉后缀之后数字一模一样"的那些 ——
 /// NeoForge 的 `26.1.0.0-alpha.1+snapshot-1` 和 `26.1.0.0-alpha.2+snapshot-1` 过完
 /// dottedVersionKey() 都是 `26.1.0.0`，于是次序退化成按字符串比：`alpha.1` 排在
@@ -600,7 +566,7 @@ inline bool isStableLoaderVersion(const QString &version) {
 /// 不同，走不到这一级。）
 ///
 /// NOTE: 结果是个**全序**（数字段比数值、数值相同再比位数，字符比码点，前缀短的算小），
-///       所以顺带把"std::sort 不是稳定排序、次序要钉死"那件事一起办了。
+/// 所以顺带把"std::sort 不是稳定排序、次序要钉死"那件事一起办了。
 /// @return 小于 0 表示 left 更小（更旧）。
 inline int compareVersionStrings(const QString &left, const QString &right) {
     const auto digitRun = [](const QString &text, int from) {
@@ -668,15 +634,9 @@ inline int compareVersionStrings(const QString &left, const QString &right) {
 /// 一堆 26.x 中间），NeoForge 那份的末尾同理。
 ///
 /// NOTE: 比的是**点分数字**（compareDottedVersions），所以先过 dottedVersionKey() 把
-///       `-beta` 那类后缀切掉。比不了的那些（Forge 的 `10.13.3.1401-1710ls` 之类）在各自的
-///       分堆里就被挡掉了，所以这里不会拿到空 key。
+/// `-beta` 那类后缀切掉。比不了的那些（Forge 的 `10.13.3.1401-1710ls` 之类）在各自的
+/// 分堆里就被挡掉了，所以这里不会拿到空 key。
 inline void sortLoaderVersionsNewestFirst(LoaderVersionList &entries) {
-    // ★ 先把比较要用的那个键**预算一遍**再排（decorate-sort-undecorate，2026-10-10）。
-    //   Forge 那份清单能解出五千多条 ⇒ 约 6.2 万次比较，而每次比较都**现算两遍**
-    //   dottedVersionKey() + parseDottedVersion()（split 建 QStringList、逐段走正则、
-    //   建 QList<int>）—— 本机实测 5048 条：114.7 ms → 5.2 ms（22 倍），而这一下是**在
-    //   GUI 线程上**跑的（点开加载器那一栏要列一张版本表）。
-    //   次序一个字都没变：比较器那三段判据原样，只是它比的那份键提前算好了。
     struct Row {
         QList<int> parsed;          ///< parseDottedVersion(dottedVersionKey(version))
         LoaderVersionEntry entry;
@@ -711,15 +671,9 @@ inline void sortLoaderVersionsNewestFirst(LoaderVersionList &entries) {
 /// @param mavenMetadata XML 原文（原样，这里只扫 `<version>...</version>`）。
 /// @param gameVersion 原版版本号。
 ///
-/// 规则：挑出属于这个游戏版本的（`isDottedPrefix`，比的是切掉后缀那段数字），去重后按版本号
-/// 从新到旧排。**带后缀的照收**（`-beta`、`-alpha.N+snapshot-N`），只把"这一条稳不稳"记在
-/// LoaderVersionEntry::stable 上 —— 2026-09-23 用户拍板："beta 版虽然不稳定，但是也能使用，
-/// 所以…都要列出来"。实测 26.3 那一族**全是** `-beta`（11 个，`26.3.0.0-beta`…`26.3.0.10-beta`），
-/// 26.1 那一族还有 `26.1.0.0-alpha.N+snapshot-N` 这种快照；收之前那些游戏版本一个可装的都列不出来。
-///
 /// NOTE: 这一条改动之前这里是"带 `-` 的一律跳过"，理由是"宁可列少一点也不给用户一个半成品"。
-///       那个理由被用户否掉了（beta 能用），但没有被"全收"否掉的地方是：**稳定档的挑法一点没变**
-///       （见 pickNeoForgeVersion），只有"用户自己点一条"时才会碰到 beta。
+/// 那个理由被用户否掉了（beta 能用），但没有被"全收"否掉的地方是：**稳定档的挑法一点没变**
+/// （见 pickNeoForgeVersion），只有"用户自己点一条"时才会碰到 beta。
 inline LoaderVersionList listNeoForgeVersions(const QByteArray &mavenMetadata,
                                               const QString &gameVersion) {
     LoaderVersionList entries;
@@ -749,10 +703,10 @@ inline LoaderVersionList listNeoForgeVersions(const QByteArray &mavenMetadata,
 /// @param gameVersion 原版版本号。
 /// @param channel 挑稳定档还是最新档（见 LoaderChannel）。
 /// @return 挑中的版本；**稳定档**在这个游戏版本上只有 beta 时 `ok()` 为 false（那时只有
-///         「最新档」挑得出来 —— 界面上「下载稳定版」那一行也会是灰的）。
+/// 「最新档」挑得出来 —— 界面上「下载稳定版」那一行也会是灰的）。
 ///
 /// 规则：两个频道都取 listNeoForgeVersions 排完之后的**第一条符合条件的**：
-///       稳定档 = 第一条 stable 的；最新档 = 第一条（就是数字最大的，beta 也算）。
+/// 稳定档 = 第一条 stable 的；最新档 = 第一条（就是数字最大的，beta 也算）。
 /// 为什么是"比大小"而不是像 Fabric 那样"取第一条"：见 listNeoForgeVersions 上面那段
 /// （maven 清单是按发布时间排的）。
 ///
@@ -771,9 +725,6 @@ inline LoaderPick pickNeoForgeVersion(const QByteArray &mavenMetadata, const QSt
     return LoaderPick{};
 }
 
-/// NeoForge 安装器 jar 的地址。
-/// NOTE: 这条地址是实测通的（21.1.251 和 26.2.0.57 都 HTTP 200）。和 Forge 那条不一样，
-///       NeoForge 的 maven 就是它官方的发布处，没有广告页那一层。
 inline QString neoforgeInstallerUrl(const QString &loaderVersion) {
     return QStringLiteral("https://maven.neoforged.net/releases/net/neoforged/neoforge/%1/neoforge-%1-installer.jar")
         .arg(loaderVersion);
@@ -808,32 +759,28 @@ inline QByteArray minimalLauncherProfiles() {
 // OptiFine：跑它自己的安装器（无界面入口 + 换 APPDATA）
 // ---------------------------------------------------------------------------
 //
-// 【为什么它和上面 Forge / NeoForge 那段又不一样】（2026-09-22 实测 1.18.2 + HD U H9）
-//
 // 同样是"请下来别人的安装器、另起一个 Java 进程跑它"，但 OptiFine 的安装器有三处要命的
 // 不同：
 //
-//  1. **命令行参数它整个丢掉**：没有 `--installClient` 那种东西可给，游戏目录只从
-//     `%APPDATA%/.minecraft` 算（`Utils.getWorkingDirectory()`）。所以它往哪个目录装
-//     完全由子进程的 APPDATA 决定 —— 我们给它换一个，让它对着一个临时目录干活。
-//  2. **它是 GUI 程序**：jar 的 `Main-Class` 是 `optifine.InstallerFrame`（Swing 窗口，
-//     headless 下当场 HeadlessException）。真正的无界面入口是 **`optifine.Installer`**：
-//     `java -cp <安装器>.jar optifine.Installer`，**不需要任何参数** —— 版本号是它从自己
-//     那份 jar 里读的（把它改名成「随便什么名字.jar」，它照样报 OptiFine_1.18.2_HD_U_H9）。
-//  3. **出错时它弹一个 Swing 对话框等着人点**：不点就永不退出（实测跑满 120 秒被杀）。
-//     所以子进程必须带 `-Djava.awt.headless=true` —— 那些框当场变成异常，进程以退出码 1
-//     结束。**成功那条路一个框都不弹、退出码 0**（实测 headless 下 2 秒装完）。
+// 1. **命令行参数它整个丢掉**：没有 `--installClient` 那种东西可给，游戏目录只从
+// `%APPDATA%/.minecraft` 算（`Utils.getWorkingDirectory()`）。所以它往哪个目录装
+// 完全由子进程的 APPDATA 决定 —— 我们给它换一个，让它对着一个临时目录干活。
+// 2. **它是 GUI 程序**：jar 的 `Main-Class` 是 `optifine.InstallerFrame`（Swing 窗口，
+// headless 下当场 HeadlessException）。真正的无界面入口是 **`optifine.Installer`**：
+// `java -cp <安装器>.jar optifine.Installer`，**不需要任何参数** —— 版本号是它从自己
+// 那份 jar 里读的（把它改名成「随便什么名字.jar」，它照样报 OptiFine_1.18.2_HD_U_H9）。
+// 3. **出错时它弹一个 Swing 对话框等着人点**：不点就永不退出（实测跑满 120 秒被杀）。
+// 所以子进程必须带 `-Djava.awt.headless=true` —— 那些框当场变成异常，进程以退出码 1
+// 结束。**成功那条路一个框都不弹、退出码 0**（实测 headless 下 2 秒装完）。
 //
-// 【实测到的产物】（APPDATA=<临时目录>，那个目录里事先放好原版 1.18.2 的 json + jar）
-//
-//   versions/1.18.2-OptiFine_HD_U_H9/1.18.2-OptiFine_HD_U_H9.json   463 B，见下
-//   versions/1.18.2-OptiFine_HD_U_H9/1.18.2-OptiFine_HD_U_H9.jar    **和原版客户端 jar
-//       逐字节相同**（sha1 一样）。这一条反直觉但很关键：OptiFine **不往这份 jar 里写
-//       补丁**，它只是把原版那份原样放进新目录当"这个版本的客户端 jar"。它自己的代码在
-//       下面那个库里，靠 launchwrapper + `--tweakClass optifine.OptiFineTweaker` 挂进去。
-//   libraries/optifine/OptiFine/1.18.2_HD_U_H9/OptiFine-1.18.2_HD_U_H9.jar   6.2 MB
-//   libraries/optifine/launchwrapper-of/2.3/launchwrapper-of-2.3.jar
-//   外加它往 launcher_profiles.json 里加的一条档案（还顺手把 selectedProfile 改成了它）
+// versions/1.18.2-OptiFine_HD_U_H9/1.18.2-OptiFine_HD_U_H9.json 463 B，见下
+// versions/1.18.2-OptiFine_HD_U_H9/1.18.2-OptiFine_HD_U_H9.jar **和原版客户端 jar
+// 逐字节相同**（sha1 一样）。这一条反直觉但很关键：OptiFine **不往这份 jar 里写
+// 补丁**，它只是把原版那份原样放进新目录当"这个版本的客户端 jar"。它自己的代码在
+// 下面那个库里，靠 launchwrapper + `--tweakClass optifine.OptiFineTweaker` 挂进去。
+// libraries/optifine/OptiFine/1.18.2_HD_U_H9/OptiFine-1.18.2_HD_U_H9.jar 6.2 MB
+// libraries/optifine/launchwrapper-of/2.3/launchwrapper-of-2.3.jar
+// 外加它往 launcher_profiles.json 里加的一条档案（还顺手把 selectedProfile 改成了它）
 //
 // 那份 json 的 `libraries` 只有两个 `name`，**既没有 `url` 也没有 `downloads`** —— 只能
 // 从本机那份 `libraries/` 里满足，没有"靠下载补齐"这条路。所以搬产物时**必须连带
@@ -841,12 +788,12 @@ inline QByteArray minimalLauncherProfiles() {
 //
 // 【和 Forge 正好相反的两处顺序】
 //
-//  * Forge 是"下安装器 → 跑 → 装完再补原版"。OptiFine 的安装器**要拿原版的客户端 jar
-//    当输入**（上面第二样产物就是它），所以原版必须**先**在盘上。
-//  * Forge 缺 `launcher_profiles.json` 是第一件事就拒绝（一个字节的库都不下）。OptiFine
-//    把它排在**最后一步**：前面整套东西都装完了，它才去更新那个文件，缺了当场弹框报错
-//    —— headless 下就是退出码 1，而**产物其实已经躺在盘上了**。我们的临时目录里自己补
-//    一份最小的，所以走不到那一步。
+// * Forge 是"下安装器 → 跑 → 装完再补原版"。OptiFine 的安装器**要拿原版的客户端 jar
+// 当输入**（上面第二样产物就是它），所以原版必须**先**在盘上。
+// * Forge 缺 `launcher_profiles.json` 是第一件事就拒绝（一个字节的库都不下）。OptiFine
+// 把它排在**最后一步**：前面整套东西都装完了，它才去更新那个文件，缺了当场弹框报错
+// —— headless 下就是退出码 1，而**产物其实已经躺在盘上了**。我们的临时目录里自己补
+// 一份最小的，所以走不到那一步。
 //
 // 【版本目录名不是我们算得出来的】
 //
@@ -863,15 +810,13 @@ inline QString optifineDownloadsPageUrl() {
 /// 镜像源（BMCLAPI）上某个游戏版本的 OptiFine 列表（JSON 数组，一个游戏版本一页）。
 ///
 /// NOTE: 它和官方下载页**不是同一份数据**：这里每条只有文件名和 type/patch，
-///       页面上那套"哪一条是主推的"（`downloadLineMain`）在这里没有对应物。
+/// 页面上那套"哪一条是主推的"（`downloadLineMain`）在这里没有对应物。
 inline QString optifineMirrorListUrl(const QString &gameVersion) {
     return QStringLiteral("https://bmclapi2.bangbang93.com/optifine/") + gameVersion;
 }
 
-/// 镜像源上安装器文件的地址（302 到 `/maven/com/optifine/...`，实测通的）。
-///
 /// NOTE: 最后两段是 `type` / `patch` 两个**字段**，不是文件名 —— 官方页面上那条
-///       `OptiFine_1.18.2_HD_U_H9.jar` 到这里拆成了 `HD_U` 和 `H9`。
+/// `OptiFine_1.18.2_HD_U_H9.jar` 到这里拆成了 `HD_U` 和 `H9`。
 inline QString optifineMirrorFileUrl(const QString &gameVersion, const QString &type,
                                      const QString &patch) {
     return optifineMirrorListUrl(gameVersion) + QLatin1Char('/') + type + QLatin1Char('/') + patch;
@@ -912,8 +857,8 @@ struct OptiFinePick {
 /// 预览版 `preview_OptiFine_1.18.2_HD_U_H9_pre2.jar` → `HD_U_H9_pre2`。
 ///
 /// NOTE: **刻意不拿镜像那份 `type`/`patch` 拼**。那两个字段的切法和文件名不一样
-///       （预览版那几条的 type 是 `HD_U_H9`、patch 是 `pre2`），而"这个版本叫什么"在
-///       官方/镜像两条路上必须是**同一个值** —— 只有这一处切法才不会两边对不上。
+/// （预览版那几条的 type 是 `HD_U_H9`、patch 是 `pre2`），而"这个版本叫什么"在
+/// 官方/镜像两条路上必须是**同一个值** —— 只有这一处切法才不会两边对不上。
 inline QString optifineEditionFromFile(const QString &gameVersion, const QString &fileName) {
     QString text = fileName;
     const QString kPreview = QStringLiteral("preview_");
@@ -944,8 +889,8 @@ inline QString optifineEditionFromFile(const QString &gameVersion, const QString
 /// （见 VersionManager::adoptOptifineEdition）。
 ///
 /// NOTE: 预览版的判据写成正则 `_pre<数字>$` 而不是 `contains("_pre")` —— 正式版的版本号将来
-///       万一含 `_pre` 这三个字母（`HD_U_PRE...`），按 contains 判就会给一个正式版套上
-///       `preview_` 前缀，下回来一个不存在的文件。
+/// 万一含 `_pre` 这三个字母（`HD_U_PRE...`），按 contains 判就会给一个正式版套上
+/// `preview_` 前缀，下回来一个不存在的文件。
 inline QString optifineInstallerFileName(const QString &gameVersion, const QString &edition) {
     static const QRegularExpression previewSuffix(QStringLiteral("_pre[0-9]+$"));
     const QString base =
@@ -982,7 +927,7 @@ inline OptiFineMirrorPath optifineMirrorPathFromEdition(const QString &edition) 
 /// 游戏版本"和"这一节在、但里面一条都没有"。后者是见过的（只有预览、还没发正式版的那些）。
 ///
 /// NOTE: 那一节的边界靠**下一个 `<h2>`** 划。页面上 `<h2>` 只用来分游戏版本，所以这是稳的；
-///       也正因为如此，找不到小节时要如实返回空，而不是"从整页里随便挑一个"。
+/// 也正因为如此，找不到小节时要如实返回空，而不是"从整页里随便挑一个"。
 inline QString optifineDownloadsSection(const QString &html, const QString &gameVersion) {
     static const QRegularExpression heading(
         QStringLiteral("<h2>\\s*Minecraft\\s+([^<]+?)\\s*</h2>"),
@@ -1005,13 +950,9 @@ inline QString optifineDownloadsSection(const QString &html, const QString &game
  * @param section optifineDownloadsSection() 的产物。
  * @param classToken 认哪一类行（`downloadLineMain` / `downloadLineMore`，见调用方）。
  *
- * 三种行的 class 实测是 `downloadLine downloadLineMain` / `... downloadLineMore` /
- * `... downloadLinePreview` 连在一起写的，所以 `contains(classToken)` 就能分开它们
- * （`downloadLineMain` 和 `downloadLineMore` 彼此不是子串关系）。
- *
  * NOTE: 这里**不按引号形态挑** —— 页面上那个 class 用的是**单引号**
- *       （`class='downloadLine downloadLineMain'`），写正则时拿双引号去配会一条都匹配不上
- *       （我第一遍就是这么读那份夹具的，白读了一轮）。
+ * （`class='downloadLine downloadLineMain'`），写正则时拿双引号去配会一条都匹配不上
+ * （我第一遍就是这么读那份夹具的，白读了一轮）。
  */
 inline QStringList optifineRowFileNames(const QString &section, const QString &classToken) {
     static const QRegularExpression row(QStringLiteral("<tr\\b([^>]*)>(.*?)</tr>"),
@@ -1056,9 +997,6 @@ struct OptiFineRow {
 /// 判据是**两个函数互为反函数**：`optifineEditionFromFile()` 削掉版本号得到 edition，
 /// `optifineInstallerFileName()` 再反算回来还得是同一个名字。反算不回来就说明这个文件不属于
 /// 这个游戏版本（或者版本号的形状我们认不出来），拿它拼出来的下载地址一定 404。
-///
-/// NOTE: 实测官方那一页 **222 行**和镜像那份 11 条真数据全都过这一关，所以它不会"过滤掉
-///       好东西"；拦下的是上面那种认不出来的行 —— 列一个"点了必然装不上"的版本比不列更糟。
 inline bool isOptifineFileForVersion(const QString &fileName, const QString &gameVersion) {
     if (!isSafeJarFileName(fileName)) {
         return false;
@@ -1093,12 +1031,8 @@ inline qint64 optifineEntryTimestamp(const QJsonObject &entry) {
  * @param gameVersion 原版版本号。
  *
  * 取预览版行 + main 行 + More 行三类（`downloadLineMore` 是页面上折叠在「+ More」里的旧版本），
- * **预览版也列** —— 用户 2026-09-23 的决定：「beta 版虽然不稳定，但是也能使用，要列出来」。
+ * **预览版也列** —— 用户 的决定：「beta 版虽然不稳定，但是也能使用，要列出来」。
  * 一行标着 `downloadLineMain` 的是正式版，标着 `downloadLinePreview` 的不是。
- *
- * 次序就是**页面自己的次序**：实测那一节里 `downloadLinePreview` 排在 `downloadLineMain`
- * 前面（1.21.4 那节是 `J4_pre2, J4_pre1, J3`、1.17.1 那节是 `H2_pre1, H1`），main 又排在
- * More 前面 —— 所以这个次序天然就是「新到旧」，不用再排一遍。
  */
 inline QList<OptiFineRow> optifinePageRows(const QString &section, const QString &gameVersion) {
     QStringList names = optifineRowFileNames(section, QStringLiteral("downloadLinePreview"));
@@ -1128,8 +1062,8 @@ inline QList<OptiFineRow> optifinePageRows(const QString &section, const QString
  * @param gameVersion 原版版本号。
  *
  * NOTE: `type` / `patch` 是**镜像自己的字段原样留着** —— 拼下载地址要用它。虽然
- *       `optifineMirrorPathFromEdition()` 切出来的和它们逐条一致（有断言盯着），但拼地址这件事
- *       上宁可取原始数据。
+ * `optifineMirrorPathFromEdition()` 切出来的和它们逐条一致（有断言盯着），但拼地址这件事
+ * 上宁可取原始数据。
  */
 inline QList<OptiFineRow> optifineMirrorRows(const QJsonArray &list, const QString &gameVersion) {
     QList<OptiFineRow> rows;
@@ -1183,11 +1117,6 @@ inline OptiFinePick pickOptiFineFromRows(const QList<OptiFineRow> &rows, LoaderC
 
 /**
  * @brief 官方下载页 -> 这个游戏版本能挑的**全部** OptiFine 版本（新到旧）。
- *
- * 实测 1.18.2 那一节：main 是 H9、More 里是 H7 / H6，页面上没有这一版的预览版，所以列表就是
- * `H9, H7, H6`；1.21.4 那一节是 main `J3` + 预览版 `J4_pre2, J4_pre1`，列表就是
- * `J4_pre2, J4_pre1, J3` —— 后两条里第一条是预览版，所以那两行「最新版 / 稳定版」会挑出不同的
- * 版本（`J4_pre2` / `J3`）。
  */
 inline LoaderVersionList listOptifineVersionsFromDownloadsPage(const QString &html,
                                                               const QString &gameVersion) {
@@ -1201,12 +1130,6 @@ inline LoaderVersionList listOptifineVersionsFromDownloadsPage(const QString &ht
 /**
  * @brief 镜像源那份 JSON -> 这个游戏版本能挑的**全部** OptiFine 版本（新到旧）。
  * @param list 接口返回的数组（原样）。
- *
- * NOTE: 镜像比官方页面**多出一些预览版**：官方页面只挂当前还支持的几个版本的预览版，老版本的
- *       预览版会从页面上撤掉但留在镜像里（实测 1.18.2：页面上 3 条正式版、镜像里 3 条正式版
- *       + 8 条预览版）。所以两条路**不再是逐条一致**了 —— 一致的那部分是"正式版那一串"
- *       （正式版子序列两条路都是 `H9, H7, H6`，有断言盯着），用户换个下载源不会看到正式版
- *       那几条翻面。
  */
 inline LoaderVersionList listOptifineVersionsFromMirror(const QJsonArray &list,
                                                         const QString &gameVersion) {
@@ -1218,11 +1141,11 @@ inline LoaderVersionList listOptifineVersionsFromMirror(const QJsonArray &list,
  * @param html `https://optifine.net/downloads` 的原文。
  * @param gameVersion 原版版本号（页面上那一节 `<h2>Minecraft <版本></h2>`）。
  * @param channel 稳定档取 main 那条（OptiFine 自己标出来的"这个游戏版本就用这个"），
- *                最新档取那一节最上面那条（预览版排在 main 前面，所以就是最新的预览版）。
+ * 最新档取那一节最上面那条（预览版排在 main 前面，所以就是最新的预览版）。
  *
  * NOTE: 那一节的边界靠**下一个 `<h2>`** 划（见 optifineDownloadsSection）。页面上 `<h2>`
- *       只用来分游戏版本，所以这是稳的；但也正因为如此，找不到小节时要如实返回空，
- *       而不是"从整页里随便挑一个"。
+ * 只用来分游戏版本，所以这是稳的；但也正因为如此，找不到小节时要如实返回空，
+ * 而不是"从整页里随便挑一个"。
  */
 inline OptiFinePick pickOptifineFromDownloadsPage(const QString &html, const QString &gameVersion,
                                                   LoaderChannel channel = LoaderChannel::Stable) {
@@ -1236,7 +1159,7 @@ inline OptiFinePick pickOptifineFromDownloadsPage(const QString &html, const QSt
 /// 从镜像源 `/optifine/<原版版本>` 的回复里挑一个 OptiFine 版本（新到旧里的第一条 / 第一条正式版）。
 ///
 /// NOTE: 官方页面上那个"官方主推"的概念（`downloadLineMain`）镜像这边没有，所以这条路的
-///       **稳定档**只能取"最新的正式版"，两条路挑出不同版本是可能的（官方 lag 一次就会）。
+/// **稳定档**只能取"最新的正式版"，两条路挑出不同版本是可能的（官方 lag 一次就会）。
 ///
 /// @param list 那个接口返回的数组（原样）。
 /// @param gameVersion 原版版本号。
@@ -1290,10 +1213,8 @@ inline QString optifineJarUrlFromAdPage(const QString &html, const QString &file
 //
 // 【坐标的两种形态，以及为什么不能按字符串前缀切】
 //
-// 清单里**同一个游戏版本下的条目可能是两种形状**（实测）：
-//
-//     1.20.1-47.4.10              常规：<游戏>-<加载器>
-//     1.8.9-11.15.1.2318-1.8.9    老版本：<游戏>-<加载器>-<游戏>
+// 1.20.1-47.4.10 常规：<游戏>-<加载器>
+// 1.8.9-11.15.1.2318-1.8.9 老版本：<游戏>-<加载器>-<游戏>
 //
 // 后一种是 forgeInstallerUrlAlternate() 那个坐标（老游戏版本只发布了这一种）。所以"去掉
 // `<游戏>-` 前缀"之后还得把**尾巴上那个游戏版本**再剥掉，否则列表里会出现
@@ -1306,7 +1227,7 @@ inline QString optifineJarUrlFromAdPage(const QString &html, const QString &file
 /// Forge 的 maven 清单（**全部** 5048 个版本，211 KB）。
 ///
 /// NOTE: 和 promotions_slim.json 的分工是清楚的：那张表回答"默认装哪个"（推荐/最新），
-///       这一份回答"总共有哪些"。两个都要。
+/// 这一份回答"总共有哪些"。两个都要。
 inline QString forgeMavenMetadataUrl() {
     return QStringLiteral(
         "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml");
@@ -1334,13 +1255,6 @@ inline QString forgeLoaderVersionFromCoordinate(const QString &coordinate,
 }
 
 /// Forge 的 maven 清单 -> 这个游戏版本能用的**全部** Forge 版本（新到旧）。
-///
-/// 两条筛选，都是"宁可列少一点"：
-///  1. **只收点分数字的版本号**。清单里有 `10.13.3.1401-1710ls`（1.7.10 的 leakfix 构建）、
-///     `14.23.4.2720-4627`（1.12.2）这种带字母后缀的，它们的"谁更新"没有定义（那个后缀不是
-///     序号），混进"从新到旧"的列表里只会排出一个看着像随机的次序。实测 1.7.10 那 163 个坐标
-///     里有 13 个是这种，滤掉之后还有 150 个。
-///  2. 去重（两种坐标形态理论上可能指同一个加载器版本）。
 ///
 /// stable 一律 true：这份清单里**全**是正式版（Forge 的 maven 上没有 alpha/beta 那种后缀；
 /// 带字母尾巴那几个 `10.13.3.1401-1710ls` 已经被上面第一条筛掉了）。NOTE: 这里**不是**

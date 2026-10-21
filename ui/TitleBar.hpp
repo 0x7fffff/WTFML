@@ -1,35 +1,33 @@
 /**
  * @file TitleBar.hpp
  * @brief 顶上那条**自己画的**标题栏：左边一个草方块 + 启动器名字，右边最小化与关闭。
- * @author 0x7fffff
- * @date 2026-09-25
  *
- * 用户原话：「能把整个外边框设计成完全自定义的吗，就是不用默认的那个顶上一条白色的那个，
+ * 要求：「能把整个外边框设计成完全自定义的吗，就是不用默认的那个顶上一条白色的那个，
  * 而是用pcl的那种自己设计顶上」。
  *
  * 【它和 WindowChrome 是两件事】
- *   · `ui/WindowChrome`：把系统那条标题栏**去掉**（Win32 那一层，见它的文件头）；
- *   · 本文件：去掉之后顶上留出来的那块地方**摆什么**。
+ * · `ui/WindowChrome`：把系统那条标题栏**去掉**（Win32 那一层，见它的文件头）；
+ * · 本文件：去掉之后顶上留出来的那块地方**摆什么**。
  * 所以这里一个 Win32 调用都没有 —— 搬不走的东西在 WindowChrome 里，这一份是纯控件。
  *
  * 【条上有几样东西】
- *   1. 左边一颗草方块（`VersionIcons::grassBlock`，和版本树那几行同一张图）+ 启动器名字
- *      （默认是 `defaultBrandText()` 那五个字母，**可以在设置页「个性化」栏的「外观」里改成别的** ——
- *      用户原话「左上角五个字母默认是这五个，在设置里允许自定义」，见 `setBrandText()`）；
- *   2. **正中间是那四颗导航按钮**（主页 / 实例 / 下载 / 设置）—— 也就是把原来贴在内容区
- *      顶上那条选项卡栏搬到这儿来（用户原话：「把四个选项卡放到最顶上去，通过顶端按钮
- *      打开四个功能」），而且要**居中**（「上面的四个居中」；那个"正中"怎么算出来的，
- *      只有 `TitleBar.cpp` 里 `kNavGroupLeftMargin` 一处）。按钮只发 `navRequested(下标)`，
- *      谁去翻页是调用方的事；
- *   3. 右边两颗按钮：最小化（—）与关闭（×），字形同样出自 `VersionIcons`（自己画的，
- *      仓库里没有图片文件）；
- *   4. 条上除了那六颗按钮**没有别的子控件**：名字与导航之间、导航与窗口按钮之间那两片
- *      空白都是 `paintEvent` 画出来的底（草方块和名字也是画的）—— 拖窗靠的是
- *      `WindowChrome::handleNativeEvent()` 把这两片判成 HTCAPTION（系统拖窗 + 贴边吸附
- *      白拿），这里不需要任何代码。
+ * 1. 左边一颗草方块（`VersionIcons::grassBlock`，和版本树那几行同一张图）+ 启动器名字
+ * （默认是 `defaultBrandText()` 那五个字母，**可以在设置页「个性化」栏的「外观」里改成别的** ——
+ * 要求「左上角五个字母默认是这五个，在设置里允许自定义」，见 `setBrandText()`）；
+ * 2. **正中间是那四颗导航按钮**（主页 / 实例 / 下载 / 设置）—— 也就是把原来贴在内容区
+ * 顶上那条选项卡栏搬到这儿来（要求：「把四个选项卡放到最顶上去，通过顶端按钮
+ * 打开四个功能」），而且要**居中**（「上面的四个居中」；那个"正中"怎么算出来的，
+ * 只有 `TitleBar.cpp` 里 `kNavGroupLeftMargin` 一处）。按钮只发 `navRequested(下标)`，
+ * 谁去翻页是调用方的事；
+ * 3. 右边两颗按钮：最小化（—）与关闭（×），字形同样出自 `VersionIcons`（自己画的，
+ * 仓库里没有图片文件）；
+ * 4. 条上除了那六颗按钮**没有别的子控件**：名字与导航之间、导航与窗口按钮之间那两片
+ * 空白都是 `paintEvent` 画出来的底（草方块和名字也是画的）—— 拖窗靠的是
+ * `WindowChrome::handleNativeEvent()` 把这两片判成 HTCAPTION（系统拖窗 + 贴边吸附
+ * 白拿），这里不需要任何代码。
  *
  * NOTE: 名字可以在设置里改，**窗口标题不跟着动**：窗口标题还得在 Alt-Tab / 任务栏里读得
- *       出来（`MainWindowUI::setupUi` 里那句 `setWindowTitle`），那是**另一件事**。
+ * 出来（`MainWindowUI::setupUi` 里那句 `setWindowTitle`），那是**另一件事**。
  *
  * 【为什么导航按钮摆在这儿而不是把 QTabBar 搬出来】
  * `QTabWidget::setTabBar()` 换得掉那一份，但标签栏的**几何**仍然归 QTabWidget 管
@@ -39,12 +37,12 @@
  * `tabBarSize` 就归零、内容页于是铺满整个 QTabWidget —— 见那一处的 NOTE。
  *
  * NOTE: 不做最大化。主窗口本来就不许最大化（`MainWindowUI::setupUi` 里摘了
- *       `Qt::WindowMaximizeButtonHint`，`WindowChrome` 加回外框样式时也没给 WS_MAXIMIZEBOX），
- *       所以这里没有第三颗按钮 —— 有按钮有、点下去没反应是最差的一种。
+ * `Qt::WindowMaximizeButtonHint`，`WindowChrome` 加回外框样式时也没给 WS_MAXIMIZEBOX），
+ * 所以这里没有第三颗按钮 —— 有按钮有、点下去没反应是最差的一种。
  *
  * NOTE: 那两颗按钮**上面**留的空白（buttonInset()）不能小于系统那圈缩放边：条的上沿压着
- *       缩放边，按钮压进去就成了"按按钮最上面几个像素 = 缩放窗口"。这个数由
- *       `WindowChrome::resizeBorder()` 在验证工程里对着核（见 ui_check 那条断言）。
+ * 缩放边，按钮压进去就成了"按按钮最上面几个像素 = 缩放窗口"。这个数由
+ * `WindowChrome::resizeBorder()` 在验证工程里对着核（见 ui_check 那条断言）。
  */
 
 #pragma once
@@ -82,8 +80,8 @@ public:
     /// 每一颗导航按钮的宽（逻辑像素）。
     static int navItemWidth();
     /**
-     * @brief 四颗导航按钮上的字比正文大多少（pt）。★ 2026-09-30 用户原话
-     *        「上面四个按钮的文本也做大点」。
+     * @brief 四颗导航按钮上的字比正文大多少（pt）。★ 要求
+     * 「上面四个按钮的文本也做大点」。
      *
      * 和名字那一档（`TitleBar.cpp` 里的 `kBrandPointDelta`）是**两个独立的旋钮**，值一样只是
      * 碰巧（名字那一颗是加粗的，同一号字看着本来就大一点）。用法见 `navFontPixelDelta()`。
@@ -96,15 +94,15 @@ public:
     /**
      * @brief 右边那两颗窗口按钮**离窗口右边缘**多远（逻辑像素）。
      *
-     * ★ 2026-09-29 用户原话「右上角的最小化和关闭稍稍往左边靠一点」加的（原来是 0）。
+     * 要求「右上角的最小化和关闭稍稍往左边靠一点」加的（原来是 0）。
      * NOTE: 它和"导航那一组居中"是同一个方程的两头 —— 改了这里，左边距
-     *       `kNavGroupLeftMargin` 必须跟着改同样的量（`L - R = B`）。验证工程拿这个
-     *       accessor 量"按钮没有顶到最右边"，**别在测试里写死 10**。
+     * `kNavGroupLeftMargin` 必须跟着改同样的量（`L - R = B`）。验证工程拿这个
+     * accessor 量"按钮没有顶到最右边"，**别在测试里写死 10**。
      */
     static int windowButtonsRightMargin();
     /// **默认**那五个字母。**唯一出处** —— 条上画的是它（除非 `setBrandText()` 换过）、
     /// 设置页那一格的占位文字也是它、断言比的还是它。
-    /// 用户原话：「左上角五个字母默认是这五个」。
+    /// 要求：「左上角五个字母默认是这五个」。
     static QString defaultBrandText();
 
     /// 右边那两颗按钮。验证工程靠它们点那两下。
@@ -129,7 +127,7 @@ public:
     /**
      * @brief 换掉条上那行字（设置页「个性化」栏的「外观」那一项接的就是它）。
      * @param text 新名字；**两头的空白会去掉**，去掉之后为空 = **回到默认那五个字母**
-     *        （所以"把输入框清空"是"恢复默认"，不是"条上什么都不写"）。
+     * （所以"把输入框清空"是"恢复默认"，不是"条上什么都不写"）。
      *
      * 只影响条自己。窗口标题（Alt-Tab / 任务栏里那一份）不跟着动 —— 那是两件事，
      * 见文件头那条 NOTE。
@@ -160,11 +158,11 @@ private:
     /// 条上所有颜色**现算一遍**：条底色、两颗窗口按钮的悬停色与墨色、四颗导航的悬停色与
     /// 墨色（当前那一颗加粗 + 底下一条横线，见 `TitleBarButton::paintEvent`）。
     ///
-    /// ★ 这是条上颜色的**唯一**出处。从前这几处散布在构造函数 / `setNavItems()` /
-    ///   `setCurrentNav()` 里各算各的 —— 那在"颜色只由调色板决定"的年代是对的，但用户
-    ///   单独改过标题栏底色之后，只有被改造到的那一处会跟着变。
+    /// 这是条上颜色的**唯一**出处。从前这几处散布在构造函数 / `setNavItems()` /
+    /// `setCurrentNav()` 里各算各的 —— 那在"颜色只由调色板决定"的年代是对的，但用户
+    /// 单独改过标题栏底色之后，只有被改造到的那一处会跟着变。
     /// NOTE: 基色调色板一律取 `QApplication::palette()`，**不能**取 `palette()`（条自己持有
-    ///       一份，里面那个 Window 已经是压暗过一档的了 —— 见 .cpp 里那段"第二次压暗"）。
+    /// 一份，里面那个 Window 已经是压暗过一档的了 —— 见 .cpp 里那段"第二次压暗"）。
     void applyColors();
 
     QHBoxLayout *m_layout = nullptr;
@@ -199,14 +197,14 @@ public:
     enum class Glyph { Minimize, Close, Text };
 
     /**
-     * @param glyph      画哪种字形。
+     * @param glyph 画哪种字形。
      * @param hoverColor 悬停时铺的底色（关闭那颗是红 —— 那个红来自
-     *                   `Theme::dangerColor()`，全仓只有一个出处）。
-     * @param hoverInk   悬停时字形的颜色（关闭那颗悬停时字形要转白，不然红底上看不清）。
-     * @param parent     父控件。
+     * `Theme::dangerColor()`，全仓只有一个出处）。
+     * @param hoverInk 悬停时字形的颜色（关闭那颗悬停时字形要转白，不然红底上看不清）。
+     * @param parent 父控件。
      *
      * NOTE: 这两个色**构造时给的一般是空色**：真正的值由 `TitleBar::applyColors()` 统一
-     *       设（含主题换了以后那一次），见那里的 NOTE。
+     * 设（含主题换了以后那一次），见那里的 NOTE。
      */
     TitleBarButton(Glyph glyph, const QColor &hoverColor, const QColor &hoverInk, QWidget *parent = nullptr);
 
@@ -227,9 +225,9 @@ public:
     void setBaseColor(const QColor &color);
     /// 不悬停时字形的颜色（默认取条上的正文色）。
     /// NOTE: 导航按钮那几颗**每次改当前页都重设一次**：当前那颗用正文色、其余几颗用
-    ///       `QPalette::PlaceholderText`（全仓"比正文浅一档的次要操作"就是它，
-    ///       `VersionTreeDelegate` 里那个取消小叉用的也是它）。所以这里存的是**静态**墨色，
-    ///       悬停时另外走 `m_hoverInk`。
+    /// `QPalette::PlaceholderText`（全仓"比正文浅一档的次要操作"就是它，
+    /// `VersionTreeDelegate` 里那个取消小叉用的也是它）。所以这里存的是**静态**墨色，
+    /// 悬停时另外走 `m_hoverInk`。
     void setInkColor(const QColor &color);
     /// 悬停时铺的底色 / 字形的颜色。**主题换了之后要重设**（这两个色是算出来的，
     /// 一存下来就不跟着调色板走了）——`TitleBar::applyColors()` 每次都调它。

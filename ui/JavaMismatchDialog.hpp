@@ -1,12 +1,10 @@
 /**
  * @file JavaMismatchDialog.hpp
  * @brief 「实例指定的 Java 与版本要求对不上」时的三岔口对话框。
- * @author 0x7fffff
- * @date 2026-09-21
  * @note 进参出参都是**值**，本文件不 include 任何 src/ 下的头 —— 和 GroupDialog /
- *       InstanceSettingsDialog 同一条约定（ui/ 不依赖业务层）。所以这里没有任何
- *       "去挑一个匹配的 Java"的动作：它只负责把用户的选择**问出来**，改配置和挑路径
- *       都在 MainWindow 里（那两步各要碰不同的作用域：实例 meta 与全局设置）。
+ * InstanceSettingsDialog 同一条约定（ui/ 不依赖业务层）。所以这里没有任何
+ * "去挑一个匹配的 Java"的动作：它只负责把用户的选择**问出来**，改配置和挑路径
+ * 都在 MainWindow 里（那两步各要碰不同的作用域：实例 meta 与全局设置）。
  *
  * 【为什么不是 QMessageBox】
  *
@@ -18,10 +16,10 @@
  *
  * 【三个选择的收场】
  *
- *   仍然用这个 Java 启动 —— 用实例钉的那条路径启动，一个字节的配置都不改；
- *   改用匹配的 Java 启动 —— 把该实例的 javaPath 覆盖换成一个匹配的路径，再启动；
- *   取消 / 关窗 / Esc —— 不启动。**不逼用户二选一**（他可能只是想先去把那个 Java
- *   装好再回来）。
+ * 仍然用这个 Java 启动 —— 用实例钉的那条路径启动，一个字节的配置都不改；
+ * 改用匹配的 Java 启动 —— 把该实例的 javaPath 覆盖换成一个匹配的路径，再启动；
+ * 取消 / 关窗 / Esc —— 不启动。**不逼用户二选一**（他可能只是想先去把那个 Java
+ * 装好再回来）。
  */
 #pragma once
 
@@ -48,11 +46,11 @@ public:
      * @param instanceName 显示在正文里的实例名（用户认得出说的是哪一个）。
      * @param expectedMajor 这个 Minecraft 版本**要求**的 Java 主版本。
      * @param actualMajor 实例指定的那个 Java **实际**的主版本（一定 > 0 —— 探不出
-     *        主版本的路径根本走不到这个框，那条路仍然是现有的硬错误）。
+     * 主版本的路径根本走不到这个框，那条路仍然是现有的硬错误）。
      * @param actualVersionText 实际那个 Java 的完整版本串（如 "1.8.0_301"）。**可能是空的**：
-     *        GlobalJavaSettings::probeJavaMajorVersion() 读 release 文件那条快路径
-     *        **不回填** versionOutput，所以正文得兜住"只有主版本号"这一种，
-     *        别拼出「Java （）」这种句子。
+     * GlobalJavaSettings::probeJavaMajorVersion() 读 release 文件那条快路径
+     * **不回填** versionOutput，所以正文得兜住"只有主版本号"这一种，
+     * 别拼出「Java 」这种句子。
      * @param javaPath 实例指定的那条路径。只在正文里露出来，让用户知道改的是哪一个文件。
      * @param parent 父窗口。
      */
@@ -66,7 +64,7 @@ public:
     /// 「以后不再提醒这个实例」。默认不勾 —— 一个回车不该顺手改掉一个长期偏好。
     ///
     /// NOTE: 它是一句**独立于选了哪条路**的表态（勾选框的字面意思就是这样），所以
-    ///       两条动作路都会把它交给调用方，落盘与否由调用方决定。
+    /// 两条动作路都会把它交给调用方，落盘与否由调用方决定。
     bool dontRemindAgain() const;
 
     /// 正文那段话。抽成静态函数是为了让**文案本身**能被验证工程按字面核对

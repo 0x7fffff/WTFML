@@ -1,8 +1,6 @@
 /**
  * @file ServerPortCheck.hpp
  * @brief 「这个端口现在有人占着吗」那一件小事（coding plan §6.3「启动前端口占用检查」/ M4-4）。
- * @author 0x7fffff
- * @date 2026-10-13
  *
  * 【为什么单独一个文件、为什么它不属于 `ServerCheck`】
  *

@@ -26,8 +26,8 @@ struct ArchiveCandidate {
  * @brief 把 1.21.2+/26.x 的新路径折回旧名字（下游 `ArmorTrimScene` 只认旧名）。
  *
  * 1.21.2 起游戏把盔甲层和纹饰挪进了"装备层"：
- *   旧 `textures/models/armor/<材质>_layer_1.png` → `textures/entity/equipment/humanoid/<材质>.png`
- *   旧 `textures/trims/models/armor/<图案>.png`    → `textures/trims/entity/humanoid/<图案>.png`
+ * 旧 `textures/models/armor/<材质>_layer_1.png` → `textures/entity/equipment/humanoid/<材质>.png`
+ * 旧 `textures/trims/models/armor/<图案>.png` → `textures/trims/entity/humanoid/<图案>.png`
  * 26.x 又把调色板挪到 `textures/palettes/trim/`、`textures/palettes/trim_base.png`。
  * **UV 和尺寸一个像素都没变**（逐字节比对过 1.21.1 ↔ 1.21.4 的机器纹理），所以只是换名字。
  *
@@ -66,12 +66,12 @@ inline QString legacyKey(const QString &path) {
 /**
  * @brief 候选排成"新 → 旧"，同一个 jar 只留一次。
  *
- * ★ 2026-10-20：**不能按版本目录的 mtime 排**。目录 mtime 记的是"哪天装进来的"，
- *   用户机上几十个版本全是同一天解压的，按它取前几个会挑到 1.21 以前的客户端
- *   （于是 1.21 的涡流/镶铆、1.21.4 的树脂质在预览里永远缺 —— 用户实测）。
- *   判据是版本发布的 `releaseTime`，由调用方读 json 填进 releasedAt。
+ * **不能按版本目录的 mtime 排**。目录 mtime 记的是"哪天装进来的"，
+ * 用户机上几十个版本全是同一天解压的，按它取前几个会挑到 1.21 以前的客户端
+ * （于是 1.21 的涡流/镶铆、1.21.4 的树脂质在预览里永远缺 —— 用户实测）。
+ * 判据是版本发布的 `releaseTime`，由调用方读 json 填进 releasedAt。
  *
- *   纯函数（不碰盘），测试直接喂数据。
+ * 纯函数（不碰盘），测试直接喂数据。
  */
 inline QList<ArchiveCandidate> newestFirst(QList<ArchiveCandidate> candidates) {
     std::stable_sort(candidates.begin(), candidates.end(),

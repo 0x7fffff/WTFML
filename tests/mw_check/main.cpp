@@ -1,7 +1,7 @@
 /**
  * @file main.cpp
  * @brief 一次性验证：offscreen 起真的 MainWindow，断言「启动游戏」按钮第二行 /
- *        「已安装版本」下拉框 / 占位文案 / 上次启动的版本 这几条不变式。
+ * 「已安装版本」下拉框 / 占位文案 / 上次启动的版本 这几条不变式。
  *
  * 为什么必须立真的 MainWindow：这条同步有一条路径靠信号接不到 ——
  * refreshInstalledVersions() 内部用 QSignalBlocker 挡住重灌时的信号，所以
@@ -17,16 +17,16 @@
  * 用法：mw_check
  *
  * 另有五条**要联外网**的一次性探针（都不进默认那一跑，默认那一跑必须离线、不碰用户配置）：
- *   mw_check.exe auth-live                    真注册表 + 真网络：盘上那份令牌还能不能换出会话
- *   mw_check.exe resource-live [类] [搜索词] [来源]
- *                                             从资源表里真装一个模组/资源包/光影到沙盒实例
- *                                             （来源 = modrinth（默认）/ curseforge）
- *   mw_check.exe icon-live [数量]              真网络量一次"一页图标多久回来、几张空手"
- *   mw_check.exe icon-lookup-live <目录>      真网络 + **用户自己的盘**：一个目录里的模组
- *                                             各认出了什么、拿到几条真图标地址（**只读**）
- *   mw_check.exe random-skin-live             真网络要一页随机皮肤、挑一条、真下一张
- *   mw_check.exe modpack-import-live <包.zip> <实例名> <游戏根目录> [java]
- *                                            真跑一次整合包导入（几个 GB，几个钟头）
+ * mw_check.exe auth-live 真注册表 + 真网络：盘上那份令牌还能不能换出会话
+ * mw_check.exe resource-live [类] [搜索词] [来源]
+ * 从资源表里真装一个模组/资源包/光影到沙盒实例
+ * （来源 = modrinth（默认）/ curseforge）
+ * mw_check.exe icon-live [数量] 真网络量一次"一页图标多久回来、几张空手"
+ * mw_check.exe icon-lookup-live <目录> 真网络 + **用户自己的盘**：一个目录里的模组
+ * 各认出了什么、拿到几条真图标地址（**只读**）
+ * mw_check.exe random-skin-live 真网络要一页随机皮肤、挑一条、真下一张
+ * mw_check.exe modpack-import-live <包.zip> <实例名> <游戏根目录> [java]
+ * 真跑一次整合包导入（几个 GB，几个钟头）
  */
 
 #include <QApplication>
@@ -254,7 +254,6 @@
 #include "util/NbtTree.hpp"
 // T20.6 那台假服务器要按协议拼响应包（产品的 MainWindow::pingServers 直接调它）。
 #include "util/ServerPing.hpp"
-// L 节：那条"上限收到了本机物理内存上"要拿**另一个读者**读一次物理内存当对照。
 #include "util/SystemMemory.hpp"
 #include "util/ZipUtil.hpp"
 // 造"假 JAR"的那两个小工具（和 verify 的 ZF 段共用一份，见那个文件头）。
@@ -348,7 +347,7 @@ void makeVersionMeta(const QDir &versionsDir, const QString &id, const QByteArra
 
 /// 往任意路径写一段内容（目录不存在就建出来），**写完立刻关掉句柄**。
 /// NOTE: 关句柄不是讲究，是必需的：Windows 上文件被一个还开着的 QFile 攥着时，
-///       后面的删除会静默失败，于是沙盒里每跑一次多留一个目录，而断言照样全绿。
+/// 后面的删除会静默失败，于是沙盒里每跑一次多留一个目录，而断言照样全绿。
 void writeFileAt(const QString &path, const QByteArray &bytes) {
     QDir().mkpath(QFileInfo(path).absolutePath());
     QFile file(path);
@@ -362,8 +361,8 @@ void writeFileAt(const QString &path, const QByteArray &bytes) {
 /// TAG_List<TAG_Compound> → 每条一个 `name` + 一个 `ip`。
 ///
 /// NOTE: 只能自己拼字节 —— 产品的 NbtUtil **只读不写**（那是游戏自己的文件，启动器
-///       一个字都不许改，见那条产品约束）。拼错的话 T20.6 那几条会当场红（表格里一
-///       行都摆不出来），不会悄悄过去。
+/// 一个字都不许改，见那条产品约束）。拼错的话 T20.6 那几条会当场红（表格里一
+/// 行都摆不出来），不会悄悄过去。
 QByteArray buildServersDat(const QList<QPair<QString, QString>> &servers) {
     QByteArray bytes;
     const auto u16 = [&bytes](int value) {
@@ -435,9 +434,9 @@ QComboBox *comboByObjectName(QWidget *parent, const QString &name) {
 /// 只看色相和饱和度（分类的边界与 ui_check 的 J2 段同一套），不看具体色值 ——
 /// 这样它验的是"选了哪个状态"，而"深底/浅底各取哪个值"是另一件事。
 ///
-/// NOTE: ★ 2026-10-15 起"没实例在跑"那一档是**灰**的，而灰**没有色相** ⇒ 它在这儿
-///       回 -1，和"认不出"撞在一起。要量那一档请用下面的 `runStateIsGrey()`；
-///       `-1` 不能再被当成"那档灰"来用（这一条正是那次改动最容易漏的地方）。
+/// NOTE: ★ 起"没实例在跑"那一档是**灰**的，而灰**没有色相** ⇒ 它在这儿
+/// 回 -1，和"认不出"撞在一起。要量那一档请用下面的 `runStateIsGrey()`；
+/// `-1` 不能再被当成"那档灰"来用（这一条正是那次改动最容易漏的地方）。
 int runStateHueBand(const QColor &color) {
     if (color.saturation() < 60) {
         return -1;
@@ -464,7 +463,7 @@ bool runStateIsGrey(const QColor &color) { return color.saturation() <= 40; }
 /// 左下角那三档色值是**照哪个调色板**算出来的。产品取的是**底栏**的（方块画在底栏
 /// 那块底上）；测试必须取同一处，不然量到的永远是"另一档主题"的颜色。
 /// NOTE: 千万别拿方块那个 QLabel 自己的 palette() 或者那颗**按钮**的：按钮上挂着 QSS，
-///       它解析出来的 QPalette 里 Window 是黑的（亮度 0），谁拿它算谁就掉进深色那一档。
+/// 它解析出来的 QPalette 里 Window 是黑的（亮度 0），谁拿它算谁就掉进深色那一档。
 QPalette runStateMarkPalette(QWidget *window) {
     QWidget *bar = byObjectName<QWidget>(window, MainWindowUI::bottomBarName());
     return bar != nullptr ? bar->palette() : window->palette();
@@ -510,8 +509,8 @@ QStringList groupHeadersOf(QTreeWidget *tree) {
 /// @param headerText 组头那一行的文字（就是 groupHeadersOf() 里那种，带着 (N)）。
 ///
 /// NOTE: 返回值**排过序**。底下的顺序跟着扫描顺序走（installedVersions() 给的那一串），
-///       那是"目录的列举顺序"，不是产品语义 —— 断言跟着它漂的话，换一台机器跑出来的
-///       红是一个和被测行为无关的差异。
+/// 那是"目录的列举顺序"，不是产品语义 —— 断言跟着它漂的话，换一台机器跑出来的
+/// 红是一个和被测行为无关的差异。
 QStringList groupChildrenOf(QTreeWidget *tree, const QString &headerText) {
     QStringList ids;
     if (tree == nullptr) {
@@ -589,11 +588,11 @@ bool g_modalWasWarning = false;
 /// 定时器到点自己退出去。
 ///
 /// NOTE: 为什么必须有它 —— 兜底那条等的是**事件循环**里的 300 毫秒。前面某一段要是卡了
-///       一下（起游戏进程、同步等），那条定时器会晚到很久，落在**后面某一段**弹出来的
-///       东西上；它认不出那已经不是自己等的那个，照旧把它点掉。实测见过：U1 的兜底跑到
-///       U5 的「Java 版本对不上」那一块上，把它按"取消"关了 —— 用户视角就是"这次启动被
-///       莫名取消了"，而测试红的是 U5 那两条。这不是产品的问题（关掉那个框本来就该取消
-///       启动），是测试自己两只手打架。
+/// 一下（起游戏进程、同步等），那条定时器会晚到很久，落在**后面某一段**弹出来的
+/// 东西上；它认不出那已经不是自己等的那个，照旧把它点掉。实测见过：U1 的兜底跑到
+/// U5 的「Java 版本对不上」那一块上，把它按"取消"关了 —— 用户视角就是"这次启动被
+/// 莫名取消了"，而测试红的是 U5 那两条。这不是产品的问题（关掉那个框本来就该取消
+/// 启动），是测试自己两只手打架。
 int g_modalHandlerGeneration = 0;
 
 /// 现在**真的摆在屏幕上**的顶层窗有几个。
@@ -602,8 +601,8 @@ int g_modalHandlerGeneration = 0;
 /// 数一遍、摆出来之后再数一遍，两个数必须一样。
 ///
 /// NOTE: 判据是 `isWindow() && isVisible()` 而不是只数 `topLevelWidgets().size()` ——
-///       Qt 里"没有父控件的 QWidget 就是窗口"，覆盖层自己那个 `m_parking`（寄存还回去的
-///       内容用的空控件，见 OverlayHost.hpp）也算一个，可它从来没显示过，不该算"多了一个窗"。
+/// Qt 里"没有父控件的 QWidget 就是窗口"，覆盖层自己那个 `m_parking`（寄存还回去的
+/// 内容用的空控件，见 OverlayHost.hpp）也算一个，可它从来没显示过，不该算"多了一个窗"。
 int topLevelWindowCount() {
     int n = 0;
     for (QWidget *w : QApplication::topLevelWidgets()) {
@@ -615,12 +614,6 @@ int topLevelWindowCount() {
 }
 
 /// 现在开着的那一层覆盖层（设置页和各种提示都开在它里面）。找不到返回 nullptr。
-///
-/// ★ 2026-09-25：这几个助手原来是靠 `QApplication::activeModalWidget()` 认窗的 ——
-///   那会儿每个提示都是一个独立的**模态窗**。现在提示开在**主窗口内容区中间**
-///   （见 OverlayHost / InlineMessage），它**从来不是窗口**（`execEmbedded` 先把
-///   `Qt::Dialog` 摘掉再摆上去），`activeModalWidget()` 恒空 —— 继续用老写法的话，
-///   助手会一声不响地什么都不做，测试挂死在嵌套事件循环里（实测就是这样挂住的）。
 OverlayHost *currentOverlay() {
     for (QWidget *w : QApplication::allWidgets()) {
         if (auto *host = qobject_cast<OverlayHost *>(w)) {
@@ -669,15 +662,15 @@ void recordPrompt(InlineMessageBox *box) {
 /// 点这一条提示上的第 index 颗按钮。点不着就把它整块收掉（等于"没选"，见 InlineMessage）。
 void clickPromptButton(int index) {
     InlineMessageBox *box = currentPrompt();
-    // ★ 框不在了就**什么都不做** —— 包括不把上一次记下来的话抹掉。
-    //   `recordPrompt(nullptr)` 会先把 `g_modal*` 清空（它要给"真的没弹东西"一个空记录），
-    //   所以**落空的**那一发不能顺手调它：`answerNextPrompt()` 那一族除了排 0 毫秒那一发，
-    //   还会排一发 300 毫秒的兜底（防"框还没摆上来"），而兜底那一发是在**答案已经点完、
-    //   框已经收掉之后**才醒的（它只按 `g_modalHandlerGeneration` 认过期，而那一格要到
-    //   `withPage` 的收尾才 ++，正好晚于 act() 里那一发 `processEvents()`）。于是
-    //   "答得够快 + 后面那一节干得够慢（>300 毫秒）"时，真正记下来的那一句话会被这一发
-    //   抹成空 —— 断言读到的就是"什么都没弹"，而盘上文件明明装进去了（2026-10-12 实测：
-    //   T30.7 三次里红一次，红的正是这一句）。
+    // 框不在了就**什么都不做** —— 包括不把上一次记下来的话抹掉。
+    // `recordPrompt(nullptr)` 会先把 `g_modal*` 清空（它要给"真的没弹东西"一个空记录），
+    // 所以**落空的**那一发不能顺手调它：`answerNextPrompt()` 那一族除了排 0 毫秒那一发，
+    // 还会排一发 300 毫秒的兜底（防"框还没摆上来"），而兜底那一发是在**答案已经点完、
+    // 框已经收掉之后**才醒的（它只按 `g_modalHandlerGeneration` 认过期，而那一格要到
+    // `withPage` 的收尾才 ++，正好晚于 act() 里那一发 `processEvents()`）。于是
+    // "答得够快 + 后面那一节干得够慢（>300 毫秒）"时，真正记下来的那一句话会被这一发
+    // 抹成空 —— 断言读到的就是"什么都没弹"，而盘上文件明明装进去了（ 实测：
+    // T30.7 三次里红一次，红的正是这一句）。
     if (box == nullptr) {
         return;
     }
@@ -745,7 +738,7 @@ void answerNextPrompt(int index) {
 ///
 /// 那一问的按钮表是 `{停止游戏, 取消}`（见 MainWindow::confirmStopGame），停止是**第一颗**。
 /// 老写法是按 `QMessageBox::DestructiveRole` 找的 —— 现在这一层里没有角色这一说（那个
-/// "哪一颗是危险动作"是按**下标**给的：`destructiveIndex`，2026-09-28 起它还顺带决定那颗
+/// "哪一颗是危险动作"是按**下标**给的：`destructiveIndex`， 起它还顺带决定那颗
 /// 按钮染不染红，见 InlineMessageBox 的 ctor），所以只能按下标认。
 /// **两颗的字都断言一遍**：光按下标点，将来按钮顺序换了也照样绿。
 void answerStopGamePrompt() {
@@ -776,20 +769,12 @@ void answerStopGamePrompt() {
     QTimer::singleShot(300, answer);
 }
 
-/// 面板里那颗齿轮开的那个「实例设置」接下来：读一眼页眉上写的是哪个实例，然后按
-/// **返回箭头**离开（= reject，一个字节都不许落盘 —— 那一条在 ui_check 的 U 节量）。
-///
 /// @param instanceOut 页眉那句话（调用方在 processEvents() 之后读它 —— 这个助手只是把
-///        定时器排上去，**不**在这里等）。
-///
-/// ★ 2026-09-25：它原来是一个独立的模态窗（按 `InstanceSettingsDialog::titleLabelName()`
-///   认标题标签、`close()` 关掉）。现在它是**整页**盖在内容区上（`execPage`），标题挪到
-///   了覆盖层自己的页眉上（`OverlayHost::overlayTitleLabelName()`），"关掉"改成点返回
-///   箭头。见 OverlayHost.hpp 文件头那两句。
+/// 定时器排上去，**不**在这里等）。
 ///
 /// NOTE: 判据还是"页眉上那句话"，不是"有没有这一页" —— 那样的话"开错了实例"这条断言
-///       就永远绿。弹出的是别的东西时，这里会像老的 dismissNextPrompt() 那样把它记进
-///       g_modalTitle/g_modalText 再收掉，于是断言看到的是"多弹了一个"。
+/// 就永远绿。弹出的是别的东西时，这里会像老的 dismissNextPrompt() 那样把它记进
+/// g_modalTitle/g_modalText 再收掉，于是断言看到的是"多弹了一个"。
 void closeInstanceSettingsPage(QString *instanceOut) {
     // 三样**先清掉**（和上面那几个助手一样）：它们记的是"这一发弹了什么"，不清的话
     // 断言读到的是上一次调用留下的旧值 —— 那正是"多弹了一个"这条断言恒真的来路。
@@ -823,12 +808,6 @@ void closeInstanceSettingsPage(QString *instanceOut) {
 
 /// 那个「Java 版本对不上」的三岔口上**点具体的按钮**：不同的按钮通向三条不同的路，
 /// 而光把它收掉只能得到"不启动"那一条。
-///
-/// ★ 2026-09-25：它原来也是一个独立的模态窗，现在开在**内容区中间那一块**里
-///   （`OverlayHost::execPrompt`）—— 认窗还是**按控件认**（找得到那个正文标签就是它），
-///   只是从"那一层"底下找而不是从 `activeModalWidget()` 找。万一弹出的是别的东西
-///   （比如本该不弹的「Java 运行时缺失」），这里会像 dismissNextPrompt() 那样把它记下来
-///   再收掉，于是断言看到的是"多弹了一个"，而不是一个永远等不到人点的测试。
 QString g_mismatchLabel;
 
 void answerJavaMismatchDialog(const QString &buttonName, bool checkDontRemind) {
@@ -873,11 +852,11 @@ void answerJavaMismatchDialog(const QString &buttonName, bool checkDontRemind) {
     QTimer::singleShot(0, handle);
     // 兜底那一条的理由和 dismissNextPrompt() 一样。
     //
-    // ★ 2026-10-20：它原来是一发 300 毫秒的**单次**定时器。现在点启动那一下的失败
-    //   （进程起不来）也会弹一条提示，而那条提示排在**三岔口之后** —— 单发很容易在
-    //   "三岔口已经收了、提示还没摆上来"的那段空档里醒过来，什么都不做就走了，于是
-    //   那条提示没人收、测试挂死在嵌套事件循环里。所以改成**盯着看**：每 50 毫秒看
-    //   一眼，直到后面某个助手换掉这一发（gen 变了）或者 15 秒到头。
+    // 它原来是一发 300 毫秒的**单次**定时器。现在点启动那一下的失败
+    // （进程起不来）也会弹一条提示，而那条提示排在**三岔口之后** —— 单发很容易在
+    // "三岔口已经收了、提示还没摆上来"的那段空档里醒过来，什么都不做就走了，于是
+    // 那条提示没人收、测试挂死在嵌套事件循环里。所以改成**盯着看**：每 50 毫秒看
+    // 一眼，直到后面某个助手换掉这一发（gen 变了）或者 15 秒到头。
     auto *watcher = new QTimer;
     watcher->setInterval(50);
     QObject::connect(watcher, &QTimer::timeout, watcher,
@@ -912,13 +891,13 @@ public:
         QObject::connect(&m_timer, &QTimer::timeout, [this] { tick(); });
     }
     void start() {
-        // ★ 排发那套（`dismissNextPrompt()` / `answerNextPrompt()`）留下的**那一条 300 毫秒
-        //   兜底可能还挂在事件循环里**（就是 `g_modalHandlerGeneration` 那段 NOTE 说的
-        //   "测试自己两只手打架"）。前面那一段要是跑了很久（这一节前面在写盘、压 gzip，
-        //   一次 PowerShell 就是小一秒），那条定时器**一进事件循环就立刻到期**，落在
-        //   **我们**等来的第一问上，照旧把它点掉 —— 症状是"脚本一条都没记着、框像是压根
-        //   没弹过"，而下面那些断言会红在"页没打开"上，方向正好反了。
-        //   这一加等于说：从这一刻起，排发那套一律作废（它们自己认代数）。
+        // 排发那套（`dismissNextPrompt()` / `answerNextPrompt()`）留下的**那一条 300 毫秒
+        // 兜底可能还挂在事件循环里**（就是 `g_modalHandlerGeneration` 那段 NOTE 说的
+        // "测试自己两只手打架"）。前面那一段要是跑了很久（这一节前面在写盘、压 gzip，
+        // 一次 PowerShell 就是小一秒），那条定时器**一进事件循环就立刻到期**，落在
+        // **我们**等来的第一问上，照旧把它点掉 —— 症状是"脚本一条都没记着、框像是压根
+        // 没弹过"，而下面那些断言会红在"页没打开"上，方向正好反了。
+        // 这一加等于说：从这一刻起，排发那套一律作废（它们自己认代数）。
         ++g_modalHandlerGeneration;
         m_clock.start();
         m_timer.start();
@@ -990,18 +969,14 @@ public:
     void stop() { m_timer.stop(); }
 
     /// 只认**这个标题**的那一页（留空 = 每一页都算，默认如此）。
-    ///
-    /// ★ 2026-10-13（§7.1）：T32 那一节是**先把实例设置页开着**、再从那一页里点出更新中心的
-    /// —— 不加这一道的话，计时器 10 毫秒后先把**实例设置**那页记一条、顺手点掉，用户真正
-    /// 要看的那一页就再也不会来了（它是在"让位"之后才开的）。
     void setOnlyTitle(const QString &title) { m_onlyTitle = title; }
 
     /// 开过又收掉的每一页说了什么（按先后顺序）。
     struct Seen {
         QString title;    ///< 覆盖层页眉上那句话
         QString summary;  ///< 体检报告页顶部那句总述（别的页上没有这一格，留空）
-        /// ★ 更新中心（§7.1，2026-10-13）那一页上的东西：总述那一句、两组的标题、
-        ///   每一行的名字（左栏）和状态（右边那一格）。**收页之前**读下来。
+        /// 更新中心（§7.1，）那一页上的东西：总述那一句、两组的标题、
+        /// 每一行的名字（左栏）和状态（右边那一格）。**收页之前**读下来。
         ///
         /// 为什么读的是**控件上的字**而不是哪一份数据：这一页是 MainWindow 那一层
         /// 翻好的（`updateCenterReportForPage()`），"翻得对不对"只有看屏幕上的字才算数
@@ -1089,7 +1064,7 @@ private:
 /// 那份里捞回来的"，扳机自己要是先把数写一遍（比如重灌一次 onVersionDownloadStats），
 /// 那就成了自证。
 ///
-/// 为什么不用主页那个「离线模式」勾选框（2026-09-24 之前就是这么干的）：用户让把它去掉
+/// 为什么不用主页那个「离线模式」勾选框（ 之前就是这么干的）：用户让把它去掉
 /// 了（「不要启动界面那个离线登录勾选框了，在添加账户那里选择添加离线账号」）。为什么
 /// 不用 setDownloadUiBusy()：那是全项目唯一的 Q_INVOKABLE，但它会把下载那几个数清零，
 /// 正好把要量的现场毁掉。真正在生产里触发这次重画的是「游戏吐出第一行输出」
@@ -1125,7 +1100,7 @@ Q_DECLARE_METATYPE(QTreeWidgetItem *)
 /// 于是"点了「打开」，启动器请求打开的到底是哪个目录"变成了一条可断言的事。
 ///
 /// NOTE: 必须是**插槽**（moc 那一套按名字找它）。这也是这个文件里唯一的 Q_OBJECT ——
-///       所以文件末尾有一句 `#include "main.moc"`（AUTOMOC 只为它生成）。
+/// 所以文件末尾有一句 `#include "main.moc"`（AUTOMOC 只为它生成）。
 class UrlSpy : public QObject {
     Q_OBJECT
 public:
@@ -1138,12 +1113,12 @@ public slots:
 // =========================================================================
 // ZB8：「核对那一发」的**三种出路**，端到端跑一遍（本地假服务器，不碰外网）。
 //
-// 这是用户 2026-09-23 那条「缓存默认不过期，每次打开用网络刷新，比较两个文件是否有
+// 这是用户 那条「缓存默认不过期，每次打开用网络刷新，比较两个文件是否有
 // 区别（如果这个会严重占用网络的话就不做了）」在**代码**上的正脸：同一个图标，
 // 这一趟第一次被要的时候会带条件头发一发，然后三条路各走各的 ——
-//   * **304**（没变）→ 不写盘、不发信号、界面上一格都不动；
-//   * **200 且字节一模一样**（主机不认条件头时就是这样）→ 同上；
-//   * **200 且字节不一样**（作者换了图标）→ 写盘、存新凭据、再发一次 iconReady。
+// * **304**（没变）→ 不写盘、不发信号、界面上一格都不动；
+// * **200 且字节一模一样**（主机不认条件头时就是这样）→ 同上；
+// * **200 且字节不一样**（作者换了图标）→ 写盘、存新凭据、再发一次 iconReady。
 // 第一条错了（比如把 304 当成失败）就会用一个空 QPixmap 把已经画上去的那一格**擦掉**；
 // 第三条错了就是"作者换了图标，用户永远看不到新的"。两条都**不报任何错**，
 // 所以只能在本地假服务器上钉住 —— 真网络那条探针（下面 icon-live）只报数、不断言。
@@ -1179,7 +1154,7 @@ static QByteArray solidPngBytes(const QColor &color, int side = 32) {
 /// 记着"来问过几次"和"那一发带了哪些条件头"—— ZB8 要验的东西全在这两件事上。用它就
 /// 不碰外网，在哪台机器上跑都是同一个结果；而"核对那一发"是这次改动最要紧的那条路，
 /// 光靠 icon-live 那条只报数的探针是钉不住的。
-/// 预置用的两个地址。哈希是**真的**（2026-09-24 从 `api.mineskin.org/v2/skins` 拿回来的
+/// 预置用的两个地址。哈希是**真的**（ 从 `api.mineskin.org/v2/skins` 拿回来的
 /// 那一页里抄的，见 verify 的 ZE 段），形态和产品里会落到盘上的一模一样。
 ///
 /// 两张是为了 AF 段能验"又挑中了一张"这件事：只给一张的话，"换上了"和"还是原来那张"
@@ -1194,12 +1169,12 @@ static const QString kSeededSkinUrl2 = QStringLiteral(
 /// 给某个离线账号**预置一张随机皮肤**：盘上记下"挑中的是这一张"，并把那张图本体按
 /// 内容寻址塞进贴图缓存（`<skinsDir>/<sha1(url)>.png`）。
 ///
-/// 为什么非预置不可：2026-09-24 起，**离线账号**的外观走的是 RandomSkinStore ——
+/// 为什么非预置不可： 起，**离线账号**的外观走的是 RandomSkinStore ——
 /// 盘上还没记过就真的去问 MineSkin 要一页列表。而这个工程里凡是"当前账号是离线账号"
 /// 的地方都会触发它：
-///   - 每一次 `MainWindow w;` —— 构造函数末尾那句 startPlayerSkinLoad()（见 MainWindow.cpp）；
-///   - 每一次切到离线账号（refreshAccountSkin → startPlayerSkinLoad）；
-///   - 打开「账号与外观…」窗（那个窗会刷新外观）。
+/// - 每一次 `MainWindow w;` —— 构造函数末尾那句 startPlayerSkinLoad()（见 MainWindow.cpp）；
+/// - 每一次切到离线账号（refreshAccountSkin → startPlayerSkinLoad）；
+/// - 打开「账号与外观…」窗（那个窗会刷新外观）。
 /// 不预置的话这一跑就会真发请求：有网时快、没网时要等满 10 秒超时，而**回来的那条信号
 /// 还会去写日志、还可能把屏幕上那张脸换掉** —— 等于给别的断言掺进一个看运气的因素
 /// （正是 U 段"每一步都要点启动、每一步都要看弹窗"最怕的那种）。
@@ -1208,8 +1183,8 @@ static const QString kSeededSkinUrl2 = QStringLiteral(
 /// → PlayerSkinStore 发现缓存里有 → 同步发 textureReady → 立刻画上。一个包都不发。
 ///
 /// NOTE: 用 `AccountStore::offlineUuidFor(name)` 算 uuid，所以**账号还没建出来就能先摆好**
-///       （这是它作为 public static 存在的理由之一）。三处都要提前调 —— 建账号那一下
-///       本身就会把它设成当前身份。
+/// （这是它作为 public static 存在的理由之一）。三处都要提前调 —— 建账号那一下
+/// 本身就会把它设成当前身份。
 static void seedOfflineRandomSkin(const QString &name, const QString &skinUrl,
                                   const QColor &tint) {
     QDir().mkpath(AppPaths::skinsDir());
@@ -1293,7 +1268,7 @@ struct FakeIconServer {
 /// 版本短得多 —— 那边要验的是"正文写成什么样"，这边要验的是"到底发没发出来"。
 ///
 /// NOTE: 得等到 `readyRead` 再答（不能 accept 了就写）：客户端那时才刚把请求送出来，
-///       早答是一场比赛，赢了也只是运气好。
+/// 早答是一场比赛，赢了也只是运气好。
 struct OneShotCfErrorApi {
     QTcpServer server;
     int hits = 0;
@@ -1491,12 +1466,12 @@ static void runIconRevalidateTests() {
     runCase(200, redPng, redPng, QStringLiteral("200 但一模一样"));
     runCase(200, greenPng, redPng, QStringLiteral("200 换了新图"));
 
-    // ★★ 2026-10-10（用户原话：「模组图标做本地缓存功能，不要每次都拉取」）：
-    //   `.meta` 第四行那个时间戳是**最近**的（就是 `saveIconValidators()` 刚盖的"现在"）
-    //   ⇒ 这一趟**一发都不许问**；盘上那张照旧要画出来（不问 ≠ 不显示）。
-    //   ⚠ 这一条和上面三个用例是一条规矩的两面：上面把时间戳拨到 1998 年 ⇒ 核；
-    //     这里不动它 ⇒ 不核。少了任何一面，那次改动都可能被改成"永远核"或"永远不核"
-    //     而全绿。
+    // （要求：「模组图标做本地缓存功能，不要每次都拉取」）：
+    // `.meta` 第四行那个时间戳是**最近**的（就是 `saveIconValidators()` 刚盖的"现在"）
+    // ⇒ 这一趟**一发都不许问**；盘上那张照旧要画出来（不问 ≠ 不显示）。
+    // ⚠ 这一条和上面三个用例是一条规矩的两面：上面把时间戳拨到 1998 年 ⇒ 核；
+    // 这里不动它 ⇒ 不核。少了任何一面，那次改动都可能被改成"永远核"或"永远不核"
+    // 而全绿。
     {
         FakeIconServer fake;
         fake.status = 200;
@@ -1554,24 +1529,24 @@ static void runIconRevalidateTests() {
 // ---------------------------------------------------------------------------
 // ZH. 下载页第二取数源：ResourceStore 按来源发请求（本地假服务器，不碰外网）
 //
-// 这是 2026-09-25 "搜索加上来源"那件事的**接线**那一半。地址怎么拼、正文怎么读是
+// 这是 "搜索加上来源"那件事的**接线**那一半。地址怎么拼、正文怎么读是
 // ResourceCatalog 的纯函数，那两条在 verify 的 Z7 一节逐字钉着；这一节钉的是**这一层
 // 到底把哪一发发出去了、带了什么头、回来交给了哪个解析器** —— 纯函数全绿而这里错了的话，
 // 症状正是用户看到的那种："选了 CurseForge，界面还是 Modrinth 的东西"、或者"CurseForge
 // 那一页永远说版本列表读不懂"。
 //
 // 四件事，每一件都有个"不查就永远不知道"的形状：
-//   ① `x-api-key` **只在有 key 时发**（默认走社区镜像、一个头都不带），而**两个来源里只有
-//      CurseForge 认这个头** —— 给 Modrinth 那发带上它是白发一个别人看不懂的头；
-//   ② 搜索回来的正文走**对的那个解析器**（CF 的根在 `data`，Modrinth 在 `hits`）；
-//   ③ 版本列表那道"200 但正文不成形"的闸**按来源分叉**：CF 要 `{"data":[…]}`、
-//      Modrinth 要数组。只看 isArray() 的话 CF 每一页都会说"版本列表读不懂"；
-//   ④ 那两条地址（key / override）是**这一次请求读的**，不是构造时读的（用户填完 key
-//      回到下载页再点一次搜索就该走新的那条）。
+// ① `x-api-key` **只在有 key 时发**（默认走社区镜像、一个头都不带），而**两个来源里只有
+// CurseForge 认这个头** —— 给 Modrinth 那发带上它是白发一个别人看不懂的头；
+// ② 搜索回来的正文走**对的那个解析器**（CF 的根在 `data`，Modrinth 在 `hits`）；
+// ③ 版本列表那道"200 但正文不成形"的闸**按来源分叉**：CF 要 `{"data":[…]}`、
+// Modrinth 要数组。只看 isArray() 的话 CF 每一页都会说"版本列表读不懂"；
+// ④ 那两条地址（key / override）是**这一次请求读的**，不是构造时读的（用户填完 key
+// 回到下载页再点一次搜索就该走新的那条）。
 //
 // 假服务器：GET 一发，按路径分发出两种答复，并把"请求行 + x-api-key"记下来。
 // NOTE: 这里的答复只用**最小**的合成正文（真夹具那两条在 verify 的 Z7f/Z7h 里）——
-//       这一节量的是"发到哪、带什么头、谁接的"，正文长得对不对不归它管。
+// 这一节量的是"发到哪、带什么头、谁接的"，正文长得对不对不归它管。
 struct FakeResourceApi {
     QTcpServer server;
     QByteArray searchBody;   ///< `/mods/search` 那一发的答复
@@ -1714,10 +1689,10 @@ static void runResourceSourceTests() {
                   api.lastRequest().contains(QStringLiteral("gameVersion=1.21.1")) &&
                   api.lastRequest().contains(QStringLiteral("searchFilter=jei")),
               "ZH1 五个筛子都在地址上（游戏版本/加载器/类目/搜索词/游戏号）", api.lastRequest());
-        // ★ 反面那一条：**不许**出现裸的 `search=`。这一家的文本筛选那一段叫 `searchFilter`，
-        //   发 `search=` 它一个字都不筛、也不报错（回的是"这一类最热门的"，界面上看着"搜出来了"）。
-        //   正面那条（上面）挡不住这个错：把参数名改回 `search=` 之后，`searchFilter=jei`
-        //   那一段就没有了，正面那条会当场红 —— 但要是有人**两个都发**，只有这条能看出来。
+        // 反面那一条：**不许**出现裸的 `search=`。这一家的文本筛选那一段叫 `searchFilter`，
+        // 发 `search=` 它一个字都不筛、也不报错（回的是"这一类最热门的"，界面上看着"搜出来了"）。
+        // 正面那条（上面）挡不住这个错：把参数名改回 `search=` 之后，`searchFilter=jei`
+        // 那一段就没有了，正面那条会当场红 —— 但要是有人**两个都发**，只有这条能看出来。
         check(!api.lastRequest().contains(QStringLiteral("&search=")) &&
                   !api.lastRequest().contains(QStringLiteral("?search=")),
               "ZH1 地址里**没有**裸的 `search=` 那一段（发它等于没搜，而且不报错）",
@@ -1774,9 +1749,9 @@ static void runResourceSourceTests() {
         // 而症状是"CurseForge 那一页把一份错位的东西当成版本清单画出来"。
         //
         // NOTE: 反面**只能这么测**（把 Modrinth 的正文喂给 CurseForge 那条路），不能反过来
-        //       把 CurseForge 的正文喂给 Modrinth 那条路 —— Modrinth 那条路没有"接口根地址"
-        //       这个口子（地址是写死的），喂不过去，会真打到 api.modrinth.com 上。
-        //       这一条量的是**同一个判据的两半**，分叉的方向在这半边看得一清二楚。
+        // 把 CurseForge 的正文喂给 Modrinth 那条路 —— Modrinth 那条路没有"接口根地址"
+        // 这个口子（地址是写死的），喂不过去，会真打到 api.modrinth.com 上。
+        // 这一条量的是**同一个判据的两半**，分叉的方向在这半边看得一清二楚。
         api.filesBody = QByteArrayLiteral("[{\"id\":\"aaa\",\"version_number\":\"1.0\"}]");
         versions.clear();
         problem.clear();
@@ -1846,19 +1821,13 @@ static void runResourceSourceTests() {
 // ---------------------------------------------------------------------------
 // ZI. 下载页那一行筛子的接线：控件 → 请求地址（本地假 CF 接口，不碰外网）
 //
-// 用户原话：「搜索，加入按版本 模组加载器 来源 类型 名称搜索，一个搜索键和一个清空条件键，
+// 要求：「搜索，加入按版本 模组加载器 来源 类型 名称搜索，一个搜索键和一个清空条件键，
 // 名字/版本可自行输入，这两个框选中时按回车等同于按搜索键…整合包那一页带一个导入功能」。
 //
 // 界面那一半（这几个控件长什么样、摆在哪、模组加载器只在模组页有）在 ui_check 那边量过；
 // 数据那一半（这几个参数拼出来的地址对不对）由 ZH 那一节量过。**中间这一段** —— 用户在框里
 // 挑的那一项有没有真的变成发出去的那一发请求上的参数 —— 以前没人管，而它错起来一个错都
 // 不报：搜索照发、结果照回，只是筛子根本没生效（用户看到的是"筛了跟没筛一样"）。
-//
-// 为什么拿 CurseForge 量：它的接口根地址有一个**验证工程口子**
-// （`Launcher/CurseForgeApiBase`，产品从不写这个键），能把这台机器指到本机的假接口上；
-// Modrinth 那条根地址写死在 ResourceCatalog 里，观测不到。两个来源在这一层只差"选中的是
-// 哪一项"，所以一条路走通就够。
-// ---------------------------------------------------------------------------
 static void runDownloadFilterTests() {
     FakeResourceApi api;
     check(api.start(), "ZI0 本地假接口起来了");
@@ -1920,7 +1889,7 @@ static void runDownloadFilterTests() {
         }
 
         // 「这一下搜了几发」**只有日志数得准**：`startResourceSearch()` 每发一次就写一行
-        //（「正在搜索「x」…」/「正在获取最热门的…」，见 MainWindow 里那两句 tr）。
+        // （「正在搜索「x」…」/「正在获取最热门的…」，见 MainWindow 里那两句 tr）。
         // 按**请求条数**数是不行的：同一页的第二发会把在飞的第一发 abort 掉
         // （ResourceStore::search 开头那句），假接口上那一发可能压根没记上 —— 于是"搜了两发"
         // 在请求表里看起来和"搜了一发"一模一样。这一段好几条要判的正是"只搜一发"。
@@ -1982,8 +1951,8 @@ static void runDownloadFilterTests() {
         check(loaderCombo->currentIndex() == 0 && typeCombo->currentIndex() == 0,
               "ZI2 两项都退回「全部」（拿 A 家的号去问 B 家会搜出个空的，而且不报错）");
         // NOTE: 这一下是**程序**改的（`setCurrentIndex`），不是用户在框里挑的。用户真挑一项时
-        //       Qt 还会再发一发 `activated`，而那一发**要搜**（2026-09-26 起，见 ZI10）——
-        //       所以这一条量的是"中间态不搜"，不是"换来源不搜"。
+        // Qt 还会再发一发 `activated`，而那一发**要搜**（ 起，见 ZI10）——
+        // 所以这一条量的是"中间态不搜"，不是"换来源不搜"。
         check(api.requests.isEmpty() && searchLogs() == searchesBeforeSource,
               "ZI2 程序改（setCurrentIndex）**不发请求** —— 换选项这类「改到一半」的中间态不搜",
               QStringLiteral("搜了 %1 发：%2")
@@ -2019,12 +1988,12 @@ static void runDownloadFilterTests() {
 
         // ---- ZI4. 结果真的摆上了这一页（整条路走完，不是只发了一发） ----
         // NOTE: 判据不能只看「树里有 1 行」—— 按下那一刻 MainWindow 会先 `tree->clear()`
-        //       再摆一行灰的「正在搜索「xx」…」（见 searchResourceKind 开头那段），而
-        //       **占位行也是一个顶层条目**（MainWindow 自己那句注释：「占位行（「正在搜索…」
-        //       那几行）没有这一位」）。结果还没回来时那一行就是树里的唯一一行，于是以前这条
-        //       判据会在"结果还没到"的时候立刻成立，紧接着那条读来源角色的断言就读到一个
-        //       空串 —— 假接口答复快就绿、慢就红（实测同一条命令跑 5 次红 1 次）。
-        //       真正要等的是**结果行**：它带着 source 角色，占位行不带。
+        // 再摆一行灰的「正在搜索「xx」…」（见 searchResourceKind 开头那段），而
+        // **占位行也是一个顶层条目**（MainWindow 自己那句注释：「占位行（「正在搜索…」
+        // 那几行）没有这一位」）。结果还没回来时那一行就是树里的唯一一行，于是以前这条
+        // 判据会在"结果还没到"的时候立刻成立，紧接着那条读来源角色的断言就读到一个
+        // 空串 —— 假接口答复快就绿、慢就红（实测同一条命令跑 5 次红 1 次）。
+        // 真正要等的是**结果行**：它带着 source 角色，占位行不带。
         const auto isResultRow = [tree] {
             if (tree->topLevelItemCount() != 1) {
                 return false;
@@ -2051,7 +2020,7 @@ static void runDownloadFilterTests() {
         }
 
         // ---- ZI5. 「清空条件」：框都回默认，**并且立刻重搜一发** ----
-        // 用户原话（2026-09-26）：「修改任何内容（不论是来源网站还是…）都刷新一下」。
+        // 要求：「修改任何内容（不论是来源网站还是…）都刷新一下」。
         // 从前这里是"清完不动"，于是清完的界面和列表对不上：六个框全空着，底下还摆着
         // 上一批按老条件筛出来的结果 —— 而那正是用户点这颗键要摆脱的东西。
         const int searchesBeforeReset = searchLogs();
@@ -2141,9 +2110,9 @@ static void runDownloadFilterTests() {
                                   Q_ARG(bool, false));
         check(packImport != nullptr && packImport->isEnabled(), "ZI8 忙完又亮回来");
 
-        // ---- ZI10. 「下拉即搜，文字回车才搜」（2026-09-26）----
+        // ---- ZI10. 「下拉即搜，文字回车才搜」----
         //
-        // 用户原话：「修改任何内容（不论是来源网站还是…）都刷新一下」+「下拉即搜，文字回车才搜」。
+        // 要求：「修改任何内容（不论是来源网站还是…）都刷新一下」+「下拉即搜，文字回车才搜」。
         // 于是分工是：**在筛子里挑一项 = 立刻搜**；**框里打的字 = 只有回车那一下搜**。
         //
         // 「用户在下拉里挑了一项」这件事只有 `activated` 说得清，而 Qt 发它的地方是
@@ -2152,8 +2121,8 @@ static void runDownloadFilterTests() {
         // （Qt 6.10 的 QComboBoxPrivate::itemSelected 就是这两句）。真实交互和它一一对应。
         //
         // NOTE: 每一条之间都要跑一次事件循环 —— 版本那一格有一道"同一回合只认第一发"的闸
-        //       （MainWindow 里 m_versionEnterSearches 那段），那笔账由 0 毫秒的单次定时器
-        //       抹掉，不跑事件循环它就一直挂着、把下一条的那一发吃掉。
+        // （MainWindow 里 m_versionEnterSearches 那段），那笔账由 0 毫秒的单次定时器
+        // 抹掉，不跑事件循环它就一直挂着、把下一条的那一发吃掉。
         const auto pickFromCombo = [](QComboBox *combo, int index) {
             combo->setCurrentIndex(index);
             combo->activated(index);
@@ -2168,7 +2137,7 @@ static void runDownloadFilterTests() {
         QApplication::processEvents();
 
         // ① 名称框里**打字**：一发都不搜（一个词一次请求，而这个接口按分钟限流 ——
-        //    边打边搜等于把额度花在"打到一半的那些词"上）。
+        // 边打边搜等于把额度花在"打到一半的那些词"上）。
         int searchesBefore = searchLogs();
         nameEdit->setText(QStringLiteral("jei"));
         nameEdit->textEdited(QStringLiteral("jei"));
@@ -2178,7 +2147,7 @@ static void runDownloadFilterTests() {
               QStringLiteral("搜了 %1 发").arg(searchLogs() - searchesBefore));
 
         // ② 版本框里也一样 —— 而且这里那串字**正好是清单里的一项**（最容易漏的一侧：
-        //    框里字一匹配，Qt 自己就会去动 currentIndex）。
+        // 框里字一匹配，Qt 自己就会去动 currentIndex）。
         searchesBefore = searchLogs();
         versionEdit->setText(QStringLiteral("1.20.1"));
         versionEdit->textEdited(QStringLiteral("1.20.1"));
@@ -2202,10 +2171,10 @@ static void runDownloadFilterTests() {
         QApplication::processEvents();
 
         // ④ 下面这一条是**这一节的重点**：框里的字正好是清单里某一项时按回车，Qt 会连发两发
-        //    —— `returnPressed`（我们接的那一发）之后紧跟 `editingFinished`，而 QComboBox
-        //    自己接了后者、并在 findText 命中时补一次 setCurrentIndex + activated。
-        //    没有那道闸的话，用户按一次回车会搜两次、烧两发限流额度（而界面上完全看不出来：
-        //    第二发只是把第一发的结果又冲掉一次）。这里走的就是 Qt 真实的那一对信号。
+        // —— `returnPressed`（我们接的那一发）之后紧跟 `editingFinished`，而 QComboBox
+        // 自己接了后者、并在 findText 命中时补一次 setCurrentIndex + activated。
+        // 没有那道闸的话，用户按一次回车会搜两次、烧两发限流额度（而界面上完全看不出来：
+        // 第二发只是把第一发的结果又冲掉一次）。这里走的就是 Qt 真实的那一对信号。
         searchesBefore = searchLogs();
         api.requests.clear();
         versionEdit->setText(QStringLiteral("1.21.1"));  // 清单里**有**这一项
@@ -2221,8 +2190,8 @@ static void runDownloadFilterTests() {
         QApplication::processEvents();
 
         // ⑤ 手打的版本号不在清单里时：照旧搜（这正是这一格可输入的理由），而且**不往清单里
-        //    追项**（Qt 默认的 InsertAtBottom 会在回车那一发把框里的字追加进去，追一次多一条，
-        //    而追进去的那一项永远也搜不出东西来）。
+        // 追项**（Qt 默认的 InsertAtBottom 会在回车那一发把框里的字追加进去，追一次多一条，
+        // 而追进去的那一项永远也搜不出东西来）。
         const int itemsBeforeEnter = versionCombo->count();
         searchesBefore = searchLogs();
         api.requests.clear();
@@ -2295,33 +2264,17 @@ static void runDownloadFilterTests() {
 // ---------------------------------------------------------------------------
 // ZJ. 资源详情页那一整条路：下载页点某一行 → 整页详情 → 中间那排 chip → 底下点某一版
 //
-// 用户原话：「下载页选择了模组以后进入一个独立界面，上方写模组图像 名字 来源，然后有转到
+// 要求：「下载页选择了模组以后进入一个独立界面，上方写模组图像 名字 来源，然后有转到
 // modrinth/curseforge/mcmod.cn 的选项，中间一排版本，下方排列版本，和pcl类似」。
 //
-// 界面那一半（这一页自己长什么样、点哪儿发哪个信号）在 ui_check 的 Z14 里量过；数据那一半
-// （两个来源的版本清单怎么读）在 verify 的 Z7/Z8 里量过。**中间这一段**以前没人管：
-// 用户点那一下，MainWindow 有没有把那一行认对、把哪一发请求发出去、回来的东西有没有摆到页上。
-// 它错起来**一个错都不报** —— 点第一行开的是第二行的页、开页发的是"按游戏版本筛过"的那一发、
-// chip 点了没反应（或者每点一次就多问一次接口），界面上全都只是"少几版"。
-//
 // 五件事：
-//   ① 箭头那一格点它**不开页**（那一格是展开/收起，判据和代理画箭头是同一个 arrowRect）；
-//   ② 点行体开的是**这一行**那一页，而且**不会顺手把这一行收起**（三发事件都被吃掉了）；
-//   ③ 开页只发一发，而且是"整份清单"那一发（地址里**不带** gameVersion = 不筛）；
-//   ④ 中间那排 chip 是**本地筛**：点一颗一个请求都不发，筛出来的组/条跟着变；
-//   ⑤ 点某一版 = 走到「装进哪个实例」那条路。这一节故意**不选实例**，该弹的就是那句提醒 ——
-//      这是"行上那把钥匙有没有认对"的唯一凭据：钥匙对不上（比如拿行号当 version id）时
-//      `downloadResourcePageVersion` 会**静静地什么都不做**，不弹框也不报错。
-//
-// 全离线：本机假 CF 接口 + 一个离线账号（和 ZI 同一套做法）。正文里**故意不给图标**
-// （给了就得去 media.forgecdn.net 要图，见 ZI 里那段）。头卡那一格图标怎么换的（`onIconReady`
-// 里按 iconKey 认页）这一节**没量到** —— 要量它就得有一条真图片地址，而那会把图标缓存写到
-// 盘上，第二次跑同一份测试就成了"盘上命中 + 一回核对"（请求条数跟着变）。那一格目前只被
-// ui_check Z14 量到"setIcon 摆上去了"，中间的接线还是空的。
-//
-// NOTE: 排在**最后**：它要造 MainWindow、要换当前身份、要把 `Launcher/CurseForgeApiBase`
-//       指到本机端口，而且会把「已安装版本」下拉框清空（第 ⑤ 条要的就是"没选实例"）。
-// ---------------------------------------------------------------------------
+// ① 箭头那一格点它**不开页**（那一格是展开/收起，判据和代理画箭头是同一个 arrowRect）；
+// ② 点行体开的是**这一行**那一页，而且**不会顺手把这一行收起**（三发事件都被吃掉了）；
+// ③ 开页只发一发，而且是"整份清单"那一发（地址里**不带** gameVersion = 不筛）；
+// ④ 中间那排 chip 是**本地筛**：点一颗一个请求都不发，筛出来的组/条跟着变；
+// ⑤ 点某一版 = 走到「装进哪个实例」那条路。这一节故意**不选实例**，该弹的就是那句提醒 ——
+// 这是"行上那把钥匙有没有认对"的唯一凭据：钥匙对不上（比如拿行号当 version id）时
+// `downloadResourcePageVersion` 会**静静地什么都不做**，不弹框也不报错。
 static void runResourceDetailPageTests() {
     FakeResourceApi api;
     check(api.start(), "ZJ0 本地假接口起来了");
@@ -2389,8 +2342,8 @@ static void runResourceDetailPageTests() {
 
     // 伪造鼠标事件（按下 + 松开，**不**顺手把事件泵干净）：行矩形是视口坐标系的。
     // NOTE: 这里刻意不 processEvents —— 点行体那一下产品要"排到下一轮事件循环"才开页，
-    //       而下面的检查员必须**排在它后面**。中间泵一次，顺序就反了（先跑检查员、
-    //       那时候页还没开）。泵的那一下交给调用方。
+    // 而下面的检查员必须**排在它后面**。中间泵一次，顺序就反了（先跑检查员、
+    // 那时候页还没开）。泵的那一下交给调用方。
     const auto clickRow = [](QTreeWidget *tree, const QPoint &pos) {
         QWidget *viewport = tree->viewport();
         const QPointF local(pos);
@@ -2426,10 +2379,10 @@ static void runResourceDetailPageTests() {
         }
 
         // 结果树在**哪一页**：下面要按坐标伪造鼠标事件，而藏在非当前页里的控件没有真实几何
-        //（行矩形会是空的）。不写死页号 —— 从控件往上找它在选项卡里的那一页。
+        // （行矩形会是空的）。不写死页号 —— 从控件往上找它在选项卡里的那一页。
         // NOTE: 不能"找到 parentWidget() == tabs 的那一层再 indexOf"：选项卡自己那一叠页面
-        //       外面还套着一个 QStackedWidget（addTab 装进去的），于是"直属于 tabWidget 的
-        //       那个控件"是那个 stack，它 IndexOf 出来是 -1。逐层问 indexOf 才对。
+        // 外面还套着一个 QStackedWidget（addTab 装进去的），于是"直属于 tabWidget 的
+        // 那个控件"是那个 stack，它 IndexOf 出来是 -1。逐层问 indexOf 才对。
         int tabIndex = -1;
         for (QWidget *walk = tree; walk != nullptr && tabIndex < 0; walk = walk->parentWidget()) {
             tabIndex = tabs->indexOf(walk);
@@ -2444,7 +2397,7 @@ static void runResourceDetailPageTests() {
         QApplication::processEvents();
 
         // 来源**先**切成 CurseForge：下面翻左栏那一列分类时，万一那一页顺手发一发
-        //「最热门的」，那一发也得落在假接口上（Modrinth 那条根地址是写死的，喂不过去，
+        // 「最热门的」，那一发也得落在假接口上（Modrinth 那条根地址是写死的，喂不过去，
         // 会真打到 api.modrinth.com）。
         const int cfIndex =
             sourceCombo->findData(ResourceCatalog::sourceKey(ResourceCatalog::Source::CurseForge));
@@ -2452,12 +2405,6 @@ static void runResourceDetailPageTests() {
         sourceCombo->setCurrentIndex(cfIndex);
         QApplication::processEvents();
 
-        // 再翻左栏那一列分类。**光把外层选项卡翻到「下载」不够**：左栏那一列自己还套着
-        // 一份 QStackedWidget（一页一张资源表），开局停在「游戏」那一页 —— 模组这张表压根
-        // 不在屏幕上（2026-09-26 实测：它的视口是 98x14、`isVisible()` 是 0，于是按坐标伪造
-        // 的鼠标事件没有一发落得到行上，而这一节后面每一条都是按坐标点的）。
-        // NOTE: 认行用**条目自己的 UserRole**（= downloadCategoryKeys() 里那个键），不是行号
-        //       也不是条目文字 —— 和那一列自己认身份的做法一致。
         QListWidget *categories = ui->getDownloadCategoryList();
         QStackedWidget *stack = ui->getDownloadStack();
         int kindRow = -1;
@@ -2531,12 +2478,12 @@ static void runResourceDetailPageTests() {
         // 看门狗：万一这一条路没把页面收掉，这一发在 12 秒后把它收掉。挂住比红更糟 ——
         // 挂住的话这一整跑一条结果都拿不到。
         // NOTE: 收的必须是**返回箭头**（= reject），不能是 `closeOverlay()`：页那一次的
-        //       `execEmbedded` 只认 `QDialog::finished`，光把覆盖层收掉它照旧卡在
-        //       `loop.exec()` 里（这一点 2026-09-26 实测过：挂住的那一跑就是它）。
+        // `execEmbedded` 只认 `QDialog::finished`，光把覆盖层收掉它照旧卡在
+        // `loop.exec()` 里（这一点 实测过：挂住的那一跑就是它）。
         // NOTE: 用**停得掉**的定时器，不是 `QTimer::singleShot`：这一节正常走完只要几十
-        //       毫秒，留一发 12 秒的定时器在队列里，它就会在**后面某一节**响 —— 那时候
-        //       开着的可能是别人的一层页或者一条提示，它照着"返回箭头"按下去，红的却是
-        //       那一节（测试自己两只手打架，见 `g_modalHandlerGeneration` 那段同一个道理）。
+        // 毫秒，留一发 12 秒的定时器在队列里，它就会在**后面某一节**响 —— 那时候
+        // 开着的可能是别人的一层页或者一条提示，它照着"返回箭头"按下去，红的却是
+        // 那一节（测试自己两只手打架，见 `g_modalHandlerGeneration` 那段同一个道理）。
         QTimer watchdog;
         watchdog.setSingleShot(true);
         watchdog.setInterval(12000);
@@ -2555,14 +2502,14 @@ static void runResourceDetailPageTests() {
         watchdog.start();
         // 检查员：**点完再排**，而且没开起来就**再排自己一轮**。
         // NOTE: 为什么不能排在点之前（第一版就是这么写的，ZJ4/ZJ7 全红）：产品那句
-        //       `QTimer::singleShot(0, this, …)` 和这一发是同一个东西 —— 带 context 的
-        //       零间隔在 Qt 里走的是 `QMetaObject::invokeMethod(Qt::QueuedConnection)`，
-        //       一条投递事件，**不建定时器**（见 qtimer.cpp 的 singleShotImpl：
-        //       `msec == 0 && receiver` 那一支直接投递）。同一个队列里先排的先跑，于是
-        //       点之前排的那一发必然跑在开页那一发**前面**，看到的是"还没开页"。
-        //       更坏的是那一页是**建一次留着**的（`m_resourceDetailPage`，见
-        //       setupResourceDetailPage），`findChild` 会把**上一次**的内容原样交出来 ——
-        //       于是"点第二行看到的是第一行的名字"这种真 bug 恰好被这一条盖住。
+        // `QTimer::singleShot(0, this, …)` 和这一发是同一个东西 —— 带 context 的
+        // 零间隔在 Qt 里走的是 `QMetaObject::invokeMethod(Qt::QueuedConnection)`，
+        // 一条投递事件，**不建定时器**（见 qtimer.cpp 的 singleShotImpl：
+        // `msec == 0 && receiver` 那一支直接投递）。同一个队列里先排的先跑，于是
+        // 点之前排的那一发必然跑在开页那一发**前面**，看到的是"还没开页"。
+        // 更坏的是那一页是**建一次留着**的（`m_resourceDetailPage`，见
+        // setupResourceDetailPage），`findChild` 会把**上一次**的内容原样交出来 ——
+        // 于是"点第二行看到的是第一行的名字"这种真 bug 恰好被这一条盖住。
         int openTries = 0;
         bool inspected = false;
         std::function<void()> inspect;
@@ -2700,7 +2647,7 @@ static void runResourceDetailPageTests() {
 
             // ---- ZJ6. 点某一版：走到「装进哪个实例」那条路 ----
             // 先把这个前提摆平：**没选实例**。这一条的凭据就是那句提醒 —— 钥匙认错了
-            //（比如拿行号当 id）时 installResourceVersion 根本不会被调用，一个框都不弹。
+            // （比如拿行号当 id）时 installResourceVersion 根本不会被调用，一个框都不弹。
             installed->setCurrentIndex(-1);
             QApplication::processEvents();
             check(installed->currentIndex() < 0,
@@ -2797,7 +2744,7 @@ static void runResourceDetailPageTests() {
 
             // ---- ZJ9. 这一页上方那颗「显示快照版」勾选框（端到端） ----
             //
-            // 用户原话：「上方栏加一个显示快照版勾选框，更改以后自动刷新版本列表」。这一节量的
+            // 要求：「上方栏加一个显示快照版勾选框，更改以后自动刷新版本列表」。这一节量的
             // 就是后面那半句"自动刷新"：拨一下之后 chip 那一排**整个换一份**（折 ↔ 不折是两份
             // 不一样的表），而用户正按着的那一颗要**换算到新表上**（还在就留着、只在那一档里
             // 就换成同一个大版本的说法）—— 换算错了的症状是"整排 chip 都不亮、列表却少了一半"。
@@ -2805,7 +2752,7 @@ static void runResourceDetailPageTests() {
             // 第二行这条线（1.21.1 + 1.21.2-pre1）是**唯一**一条带快照的：不勾 ⇒ 快照折进
             // 1.21.2 那一颗（两颗版本 chip），勾上 ⇒ 1.21.2-pre1 自己一颗（还是两颗）。
             // NOTE: 每一次拨动之后 chip 那些按钮**是新的**（setChips 把它们整个重建），所以
-            //       下面一律按 key 现找现点，不留下任何一颗旧的按钮指针。
+            // 下面一律按 key 现找现点，不留下任何一颗旧的按钮指针。
             if (page != nullptr && overlay->pageOpen()) {
                 const auto chipKeys = [page] {
                     QStringList keys;
@@ -2828,10 +2775,10 @@ static void runResourceDetailPageTests() {
                     page->findChild<QCheckBox *>(ResourceDetailPage::showSnapshotsCheckBoxName());
                 check(box != nullptr && !box->isChecked(),
                       "ZJ9 开页那一下那颗勾是**不勾**的（用户原话「默认不勾选」）");
-                // ★★ 2026-09-27：这一页是**从下载页**点一行开出来的（哪怕点的是一个模组）
-                //    ⇒ 右上角那一格照旧是「显示快照版」。用户原话「而且和下载页有点区别，
-                //    **不要不小心把下载页改了**」—— 这一条就是那句话的判据：同一个页面对象，
-                //    两条来路摆的东西不一样（见 MainWindow::DetailSource）。
+                // 这一页是**从下载页**点一行开出来的（哪怕点的是一个模组）
+                // ⇒ 右上角那一格照旧是「显示快照版」。要求「而且和下载页有点区别，
+                // **不要不小心把下载页改了**」—— 这一条就是那句话的判据：同一个页面对象，
+                // 两条来路摆的东西不一样（见 MainWindow::DetailSource）。
                 check(!page->modSettingsSlotShown() && box->isVisible() &&
                           page->modSettingsButton() != nullptr &&
                           !page->modSettingsButton()->isVisible(),
@@ -2901,7 +2848,7 @@ static void runResourceDetailPageTests() {
                       chipKeys().join(QStringLiteral("|")));
 
                 // ④ 站在**折出来的**那一颗上（1.21.2 —— 这一档下一条文件都没有）再勾上：
-                //    他该落到这条线里那颗快照上（1.21.2-pre1），而不是被甩回「全部」。
+                // 他该落到这条线里那颗快照上（1.21.2-pre1），而不是被甩回「全部」。
                 check(clickChip(QStringLiteral("1.21.2")), "ZJ9 找得到折出来的「1.21.2」那一颗");
                 QApplication::processEvents();
                 check(page->currentChip() == QStringLiteral("1.21.2") &&
@@ -2930,7 +2877,7 @@ static void runResourceDetailPageTests() {
 
             // ---- ZJ10. 顶上那四颗导航按钮：切走 = 这一页收着，切回来 = 原样摆出来 ----
             //
-            // 用户原话：「顶端四个按钮点击以后自动到达对应选项卡的首页（比如说我现在正点开
+            // 要求：「顶端四个按钮点击以后自动到达对应选项卡的首页（比如说我现在正点开
             // sodium 的下载页面，现在我点击启动选项卡，直接切到那个页面，下载这个"弹窗"自动
             // 收起）」+「保留原来那个子页的状态，比如说我正在看 sodium 的下载，现在点击 启动，
             // 切到启动页，再点击 下载，那就回到下载 sodium 界面，在下载页点击 下载（顶上那个，
@@ -2939,7 +2886,7 @@ static void runResourceDetailPageTests() {
             //
             // 这一节走**真按钮**（条上那四颗，`TitleBar::navButton()`），量的是那三下：
             // ① 切到别的选项卡 ⇒ 这一页**收着**（不是关掉：它正卡在 `execPage()` 的嵌套循环
-            //    里，关掉的话调用方会一直等下去，而用户再点回来就再也见不到它了）；
+            // 里，关掉的话调用方会一直等下去，而用户再点回来就再也见不到它了）；
             // ② 再点回「下载」⇒ 原来那一页连"按着哪颗 chip、列表几条"一起回来；
             // ③ 站在「下载」上再点一下「下载」⇒ 回到这个功能的首页（那一层收掉）。
             if (page != nullptr && overlay->pageOpen()) {
@@ -3009,13 +2956,13 @@ static void runResourceDetailPageTests() {
                               .arg(page->versionRowCount()));
 
                     // ③ 站在「下载」上再点一下「下载」= 回到这个功能的首页。★ 收的必须是
-                    //    **返回箭头那一发**（`dismiss()` 发的就是它）：`closeOverlay()` 结束不了
-                    //    页那一层的嵌套 `loop.exec()`（只认 `QDialog::finished`）—— 页收掉了而
-                    //    `execPage()` 的调用方还在那儿等，用户看到的是"点了一下导航，界面就
-                    //    再也点不动了"。（`backPressed` 只有返回箭头和这一发会发，而这一节里
-                    //    返回箭头一次都没点过 ⇒ 数到的就是这一发。）
+                    // **返回箭头那一发**（`dismiss()` 发的就是它）：`closeOverlay()` 结束不了
+                    // 页那一层的嵌套 `loop.exec()`（只认 `QDialog::finished`）—— 页收掉了而
+                    // `execPage()` 的调用方还在那儿等，用户看到的是"点了一下导航，界面就
+                    // 再也点不动了"。（`backPressed` 只有返回箭头和这一发会发，而这一节里
+                    // 返回箭头一次都没点过 ⇒ 数到的就是这一发。）
                     // NOTE: 这里只量"那一发发出来了没有"。整层收干净要等控制权回到外层事件
-                    //       循环，那一条在下面（`navDismissCount == 1 && !overlay->isOpen()`）。
+                    // 循环，那一条在下面（`navDismissCount == 1 && !overlay->isOpen()`）。
                     const QMetaObject::Connection navSpy = QObject::connect(
                         overlay, &OverlayHost::backPressed, overlay,
                         [&navDismissCount] { ++navDismissCount; });
@@ -3036,7 +2983,7 @@ static void runResourceDetailPageTests() {
             }
 
             // NOTE: ZJ10 走到第三下（导航收页）时这一发就免了 —— 那一页已经在收尾的路上，
-            //       再照它按一下返回箭头就是同一件事做第二遍。
+            // 再照它按一下返回箭头就是同一件事做第二遍。
             if (!navDismissTried) {
                 if (auto *back =
                         overlay->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
@@ -3072,10 +3019,10 @@ static void runResourceDetailPageTests() {
               secondTitle + QStringLiteral(" / chip ")
                   + QString::number(secondChips));
         check(!overlay->isOpen(), "ZJ7 收干净了");
-        // ★ ZJ10 的收尾：第三下导航发的那一发**真的把整层收干净了**。要在这里读 —— 那一层
-        //   的收尾（`closeOverlay()`）排在 `execPage()` 那个嵌套循环返回之后，而 ZJ10 自己是
-        //   卡在那个循环的回调里跑的（在里面读只能读到"还没收"）。这一条要是坏了，症状是
-        //   "点一下导航，界面就再也点不动了"（页没了、调用方还在等）。
+        // ZJ10 的收尾：第三下导航发的那一发**真的把整层收干净了**。要在这里读 —— 那一层
+        // 的收尾（`closeOverlay()`）排在 `execPage()` 那个嵌套循环返回之后，而 ZJ10 自己是
+        // 卡在那个循环的回调里跑的（在里面读只能读到"还没收"）。这一条要是坏了，症状是
+        // "点一下导航，界面就再也点不动了"（页没了、调用方还在等）。
         check(!navDismissTried || (navDismissCount == 1 && !overlay->isOpen()),
               "★★ ZJ10 那一下之后这一层真的收干净了（回到这个功能的首页）",
               QStringLiteral("发了 %1 次 / isOpen %2")
@@ -3088,23 +3035,19 @@ static void runResourceDetailPageTests() {
 }
 
 // ---------------------------------------------------------------------------
-// T19. 实例设置「启动」栏那两颗按钮：导出启动脚本 / 补全文件（2026-09-26 加的）
-//
-// 这两颗产品那一半都是**收字符串的私有槽**（一个收实例 id、一个收 id + 落点路径），
-// 所以验证工程能直接 invokeMethod 进来 —— 不用去驱动 Windows 那个保存框，也不用把
-// 实例设置页开起来（那是 ui_check 的事）。
+// T19. 实例设置「启动」栏那两颗按钮：导出启动脚本 / 补全文件（ 加的）
 //
 // 「补全文件」（repairInstanceFiles → VersionManager::repairVersionFiles）要钉住的是它
 // 和"装一个版本"那几条路的区别：
-//   ① 判据是 **sha1**，不是字节数：摆一份"大小一样、内容不对"的 jar，它必须被换回来；
-//   ② 本来就是好的文件**一个字节都不许动**（"只补缺的和坏的"，不是全量重写）；
-//   ③ 它**不写 version.json**（那是 downloadVersion 的事，数据层那边有断言，这里只认
-//      界面这一半）；
-//   ④ 期间这个实例从「能启动的实例」里滤掉，结束之后**回来并且被选中**；
-//   ⑤ 收尾那句话说的是**用户认得的实例名**，不是裸目录名 —— 这一条钉的是
-//      onVersionDownloadFinished() 里"先清 m_repairingInstanceId 再 setDownloadUiBusy(false)"
-//      那个顺序：反过来（或者顺序颠倒）时它还在过滤名单里，instanceDisplayName() 只能
-//      退回目录名，而两句日志/两个框都会跟着说错是谁。
+// ① 判据是 **sha1**，不是字节数：摆一份"大小一样、内容不对"的 jar，它必须被换回来；
+// ② 本来就是好的文件**一个字节都不许动**（"只补缺的和坏的"，不是全量重写）；
+// ③ 它**不写 version.json**（那是 downloadVersion 的事，数据层那边有断言，这里只认
+// 界面这一半）；
+// ④ 期间这个实例从「能启动的实例」里滤掉，结束之后**回来并且被选中**；
+// ⑤ 收尾那句话说的是**用户认得的实例名**，不是裸目录名 —— 这一条钉的是
+// onVersionDownloadFinished() 里"先清 m_repairingInstanceId 再 setDownloadUiBusy(false)"
+// 那个顺序：反过来（或者顺序颠倒）时它还在过滤名单里，instanceDisplayName() 只能
+// 退回目录名，而两句日志/两个框都会跟着说错是谁。
 //
 // 「导出启动脚本」要钉的是**那一份 .bat 的内容**：它必须和真正启动那一次同源（两边调的
 // 是同一个 launchArguments()），离线身份走 --accessToken 0 那一条，而"令牌拿不到"时
@@ -3326,7 +3269,7 @@ static void runInstanceStartActionsTests() {
                       "★ T19.15 那个坏 jar 判的是 **sha1 对不上**、不是字节数 —— 夹具里那两个"
                       "大小一模一样");
 
-                // ★ 这一条是「只报不装」的正身：体检走完之后盘上**一个字节都没变**。
+                // 这一条是「只报不装」的正身：体检走完之后盘上**一个字节都没变**。
                 const VersionIntegrity::Report reportB = vm->checkInstanceIntegrity(idB);
                 check(reportB.problems.size() == 2,
                       "T19.15 另一个夹具也一样是两个问题（下面拿它比「盘上没变」）",
@@ -3563,12 +3506,12 @@ static void runInstanceStartActionsTests() {
             }
 
             // ---------- ⑦ 老 meta 里的 autoMemory 不许劫持导出的 -Xmx ----------
-            // ★ 2026-10-18：「自动（按系统内存）」那一档从界面上撤掉了（用户原话「内存分配
-            //   和最大内存这玩意完全就是重复的，只保留那个拖动的」）⇒ 读侧一律手动档。
-            //   这一节钉的正是那件事：meta 里同时写着 autoMemory:true 和一对具体的
-            //   xmx/xms 时，导出的命令行必须用**那对数**，而不是按系统内存（还带模组加成）
-            //   现算一个 —— 老实例的 meta 里那个键到处都是，认它的结果就是"用户拖出来的数
-            //   每次导出都被换掉"。
+            // 「自动（按系统内存）」那一档从界面上撤掉了（要求「内存分配
+            // 和最大内存这玩意完全就是重复的，只保留那个拖动的」）⇒ 读侧一律手动档。
+            // 这一节钉的正是那件事：meta 里同时写着 autoMemory:true 和一对具体的
+            // xmx/xms 时，导出的命令行必须用**那对数**，而不是按系统内存（还带模组加成）
+            // 现算一个 —— 老实例的 meta 里那个键到处都是，认它的结果就是"用户拖出来的数
+            // 每次导出都被换掉"。
             {
                 const QString idC = QStringLiteral("1.99.3-modpack");
                 installFake(idC, QStringLiteral("T19模组包"));
@@ -3690,21 +3633,14 @@ static void runInstanceStartActionsTests() {
 // ---------------------------------------------------------------------------
 // T33. 完整性检查（coding plan §4.1）里"从私有槽点下去"的那一半
 //
-// §4.1 分三处验：
-//   ① **判据层**（清单从哪来、一条怎么算坏、报告怎么分组）在 verify 的 ZN 段（纯函数）；
-//   ② **这一节**：`submitIntegrityCheck()` 点下去 → 「正在体检这个实例」**同步**变真 →
-//      同一实例在这期间**不许改名 / 不许删**（§4.1「同一实例不允许同时扫描和删除/改名」）
-//      → 扫完自己开出报告页（页眉「完整性检查」）；
-//   ③ **报告页长什么样**（四组标题、逐条那两行、两颗按钮什么时候露）在 ui_check 的 U28 段。
+// 闸口那几条为什么是**确定性**的：判「正在体检」的唯一出处是
+// `MainWindow::integrityScanningVersion()`，那一位在 `submitIntegrityCheck()` 里
+// **同步**写下去；后台那一趟的收尾（清这一位）是 `invokeMethod(QueuedConnection)` 排回
+// 事件循环的。所以「点下去之后**不 pump 事件**就调闸口」这中间它一直是真的。
 //
-// ★ 闸口那几条为什么是**确定性**的：判「正在体检」的唯一出处是
-//   `MainWindow::integrityScanningVersion()`，那一位在 `submitIntegrityCheck()` 里
-//   **同步**写下去；后台那一趟的收尾（清这一位）是 `invokeMethod(QueuedConnection)` 排回
-//   事件循环的。所以「点下去之后**不 pump 事件**就调闸口」这中间它一直是真的。
-//
-// ★ 为什么每一发闸口都配一趟自己的体检：闸口函数会**弹提示**（挡住操作的必须让用户看见），
-//   而弹提示是**嵌套事件循环** —— 那一趟里后台那一趟正好跑完（夹具就两个文件），「正在体检」
-//   这位就清了。第二发闸口要是不重新点一次体检，它走的就不是闸口那一条、而是**真去删**了。
+// 为什么每一发闸口都配一趟自己的体检：闸口函数会**弹提示**（挡住操作的必须让用户看见），
+// 而弹提示是**嵌套事件循环** —— 那一趟里后台那一趟正好跑完（夹具就两个文件），「正在体检」
+// 这位就清了。第二发闸口要是不重新点一次体检，它走的就不是闸口那一条、而是**真去删**了。
 //
 // 全部离线：身份是这一节自己加的离线账号，远端是 `file://`（其实体检**一条请求都不发**，
 // 这里造远端只是让 version.json 里那两条 sha1/size 有个说得通的来路）。
@@ -3830,8 +3766,6 @@ static void runIntegrityScanTests() {
                 check(planError.isEmpty() && plan.size() == 2,
                       "T33.1 integrityPlan() 列出两个该在的文件（客户端 jar + 那一个库）",
                       planError.isEmpty() ? QString::number(plan.size()) : planError);
-                // 顺序 = 报告里那一组的顺序（jar → 库 → 索引 → 对象）：这里前两条正是
-                // 客户端 / 库两组，各自带着自己的组。
                 check(plan.size() == 2 && plan.at(0).group == VersionIntegrity::Group::ClientJar
                           && plan.at(1).group == VersionIntegrity::Group::Libraries,
                       "★ T33.1 两条各自带着自己的**组**（界面按组摊结果就靠它，"
@@ -3975,22 +3909,22 @@ static void runIntegrityScanTests() {
 // T34. 游戏异常退出（coding plan §4.3）里"从 onGameFinished 那一路补出来"的那一半
 //
 // §4.3 分三处验：
-//   ① **那几句话本身**（每一条提示从哪个字段推出来、退出码怎么写成人话）在 verify 的
-//      ZP 段（纯函数，逐格念一遍）；
-//   ② **这一节**：真的把 `onGameFinished` 那一槽打进去 → 账本上**多出一项** kind=crash 的
-//      失败、标题/目标/那句原因都对得上；而且**以 0 正常退出的那一档一项都不补**；
-//   ③ **那一项在界面上露什么**（「导出错误报告」「打开崩溃报告目录」两颗键只在它身上露、
-//      详情页那两块字）在 ui_check 的 U29 段。
+// ① **那几句话本身**（每一条提示从哪个字段推出来、退出码怎么写成人话）在 verify 的
+// ZP 段（纯函数，逐格念一遍）；
+// ② **这一节**：真的把 `onGameFinished` 那一槽打进去 → 账本上**多出一项** kind=crash 的
+// 失败、标题/目标/那句原因都对得上；而且**以 0 正常退出的那一档一项都不补**；
+// ③ **那一项在界面上露什么**（「导出错误报告」「打开崩溃报告目录」两颗键只在它身上露、
+// 详情页那两块字）在 ui_check 的 U29 段。
 //
-// ★ 为什么这一节**不换数据根目录**：账本落在**启动器自带**那一个固定位置
-//   （`TaskHistory::defaultHistoryPath()` 用的是 `defaultMinecraftDir()`，故意不跟当前
-//   游戏文件夹走 —— 见那边的说明）。所以这里只在跑之前数一遍"已经有几条 crash"，之后
-//   看**多了几条**：同一个可执行文件里别的节也会往这本账里写东西，绝对值靠不住。
+// 为什么这一节**不换数据根目录**：账本落在**启动器自带**那一个固定位置
+// （`TaskHistory::defaultHistoryPath()` 用的是 `defaultMinecraftDir()`，故意不跟当前
+// 游戏文件夹走 —— 见那边的说明）。所以这里只在跑之前数一遍"已经有几条 crash"，之后
+// 看**多了几条**：同一个可执行文件里别的节也会往这本账里写东西，绝对值靠不住。
 //
-// ★ 为什么那一格 Java 要**造一个假的**：`buildCrashRecord()` 报的"这一趟实际用的 Java"
-//   是**现读** `<javaPath>/release` 得到的（`probeJavaMajorVersion()` 先读那个文件，
-//   读不到才去真起一个 java -version）。造一个只有 `release` 的目录，那一句就是确定的
-//   —— 整个这一节因此一条外网请求、一个子进程都不发。
+// 为什么那一格 Java 要**造一个假的**：`buildCrashRecord()` 报的"这一趟实际用的 Java"
+// 是**现读** `<javaPath>/release` 得到的（`probeJavaMajorVersion()` 先读那个文件，
+// 读不到才去真起一个 java -version）。造一个只有 `release` 的目录，那一句就是确定的
+// —— 整个这一节因此一条外网请求、一个子进程都不发。
 // ---------------------------------------------------------------------------
 static void runGameCrashTests() {
     const QString ledgerPath =
@@ -4180,11 +4114,6 @@ static void runGameCrashTests() {
               QString::number(crashTasks().size()));
 
         // ---------- ⑥ 出过话的崩溃：没有日志窗也要带着那段日志 ----------
-        //
-        // 「显示游戏日志」**默认关**（LauncherSettings::m_showGameLog = false）⇒ "没有日志窗"
-        // 是常态，不是异常。这一条钉的是进程输出那份**底账**（GameSessionController 那边
-        // 与窗无关地留着每份会话最近 4000 行）：窗不在时崩溃报告从它那儿取日志，而不是
-        // 报"一行都没收到"。2026-10-20 修的就是这一条 —— 原来只从窗里读。
         const int talkativeSession = 4246;
         w.seedSessionFactsForTest(talkativeSession, QStringLiteral("1.199.4-T34出过话"),
                                   QStringLiteral("T34出过话"), 17, javaPath, 0, 0,
@@ -4219,24 +4148,21 @@ static void runGameCrashTests() {
 // T35. 世界与实例备份（coding plan §4.4）里"从那几个入口点下去"的那一半
 //
 // §4.4 分三处验：
-//   ① **引擎**（清单怎么读写、目录怎么走、还原之前那份安全快照、还原之后的对账）在 verify
-//      的 ZQ 段（真打 zip、真删目录、纯函数那一层，连目录都不换）；
-//   ② **这一节**：`snapshotInstance()` / `backupWorldNow()` / `startBackupRestore()` 打下去
-//      → 账本上那一项（`TaskKind::Backup`）的标题 / 目标 / 收尾都对得上 → 盘上真多出一个包
-//      → 拿产品的读侧把那个包**读回来**核对（该进的进了、能重新下回来的没进去）→ 还原
-//      回来内容一字不差、还原前那一份安全快照也真在；
-//   ③ **那几颗按钮和那个分岔框长什么样**在 ui_check 的 U30 段。
+// ① **引擎**（清单怎么读写、目录怎么走、还原之前那份安全快照、还原之后的对账）在 verify
+// 的 ZQ 段（真打 zip、真删目录、纯函数那一层，连目录都不换）；
+// ② **这一节**：`snapshotInstance()` / `backupWorldNow()` / `startBackupRestore()` 打下去
+// → 账本上那一项（`TaskKind::Backup`）的标题 / 目标 / 收尾都对得上 → 盘上真多出一个包
+// → 拿产品的读侧把那个包**读回来**核对（该进的进了、能重新下回来的没进去）→ 还原
+// 回来内容一字不差、还原前那一份安全快照也真在；
+// ③ **那几颗按钮和那个分岔框长什么样**在 ui_check 的 U30 段。
 //
-// ★ 这一节**换数据根目录**（和 T34 相反）：备份落在 `<当前游戏文件夹>/cache/backups` 底下，
-//   本来就是跟着当前游戏文件夹走的（见 AppPaths::backupDir() 那段）。账本那一份反过来挂在
-//   启动器自带的固定位置，所以"这一节新补出来的那几项"一律**按号认**，不按位置。
+// 这一节**换数据根目录**（和 T34 相反）：备份落在 `<当前游戏文件夹>/cache/backups` 底下，
+// 本来就是跟着当前游戏文件夹走的（见 AppPaths::backupDir() 那段）。账本那一份反过来挂在
+// 启动器自带的固定位置，所以"这一节新补出来的那几项"一律**按号认**，不按位置。
 //
-// ★ 那一发「创建快照」的分岔框（默认排除 / 完整 / 取消）用 `PromptAnswerer` 答：它按
-//   **条数**给按钮下标，第一问点第 0 颗 = 默认那一档 —— §4.4 要的正是"默认排除能重新
-//   下回来的那部分"，所以这一节量的就是默认那一档。
-//
-// 全部离线：身份是这一节自己加的离线账号，一个请求都不出网（打包 / 解包走本机 PowerShell）。
-// ---------------------------------------------------------------------------
+// 那一发「创建快照」的分岔框（默认排除 / 完整 / 取消）用 `PromptAnswerer` 答：它按
+// **条数**给按钮下标，第一问点第 0 颗 = 默认那一档 —— §4.4 要的正是"默认排除能重新
+// 下回来的那部分"，所以这一节量的就是默认那一档。
 static void runBackupTaskTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -4375,9 +4301,9 @@ static void runBackupTaskTests() {
         out.sort();
         return out;
     };
-    // ★ 「这一趟真打完了」那一问才算数：`现在做不了` 是 busy 守卫弹的（下面**故意**在同一
-    //   时刻再撞一发），它会先被答掉 —— 拿"答了几问"当"跑完了"，第一问一到手就早退，
-    //   后面每一节都跟着红（2026-10-13 撞出来的：账本上那一项当时还读成 "interrupted"）。
+    // 「这一趟真打完了」那一问才算数：`现在做不了` 是 busy 守卫弹的（下面**故意**在同一
+    // 时刻再撞一发），它会先被答掉 —— 拿"答了几问"当"跑完了"，第一问一到手就早退，
+    // 后面每一节都跟着红（ 撞出来的：账本上那一项当时还读成 "interrupted"）。
     const auto wroteBack = [](const PromptAnswerer &answerer) {
         for (const PromptAnswerer::Answered &one : answerer.answered) {
             // 开跑之前那两句不算：`创建快照` 是分岔那一问，`现在做不了` 是 busy 守卫弹的
@@ -4404,30 +4330,30 @@ static void runBackupTaskTests() {
             QMetaObject::invokeMethod(&w, "snapshotInstance", Qt::DirectConnection,
                                       Q_ARG(QString, id));
 
-            // ★ 点下去那一刻（**不 pump 事件**）：账本上已经多了一项，而且它就在跑 ——
-            //   `beginTask()` 是同步的，后台那一趟还没轮到。
+            // 点下去那一刻（**不 pump 事件**）：账本上已经多了一项，而且它就在跑 ——
+            // `beginTask()` 是同步的，后台那一趟还没轮到。
             const Tasks::TaskSnapshot started = newBackup(before);
             check(backupTasks().size() == baseline + 1 && started.targetId == id,
                   "★★ T35.1 点一下「创建快照…」⇒ 账本上立刻多一项，目标就是这个实例",
                   started.title);
-            // ★ 为什么这里判的是 `Interrupted` 而不是 `Running`：`Tasks::load()` 会把盘上
-            //   任何**非终态**的一项读成「已中断」（启动器上次崩了那一档就是这么认出来的，
-            //   见 TaskHistory::load），所以"读回来是 Interrupted"**恰恰**是"它这会儿还
-            //   没跑完"的证据 —— 等它真收尾了，同一个号读回来就是 Succeeded（下面那几条）。
+            // 为什么这里判的是 `Interrupted` 而不是 `Running`：`Tasks::load()` 会把盘上
+            // 任何**非终态**的一项读成「已中断」（启动器上次崩了那一档就是这么认出来的，
+            // 见 TaskHistory::load），所以"读回来是 Interrupted"**恰恰**是"它这会儿还
+            // 没跑完"的证据 —— 等它真收尾了，同一个号读回来就是 Succeeded（下面那几条）。
             check(started.state == Tasks::TaskState::Interrupted,
                   "★★ T35.1 不 pump 事件就去看 ⇒ 它还在跑（盘上那一项还没收尾）",
                   QString::number(int(started.state)));
-            // ★ 显示名是**下拉框里那一句** = 名字 + "-" + 目录名（`instanceDisplayName`
-            //   拿的就是它）—— 账本上写的是用户认得的那个名字，不是裸目录名。
+            // 显示名是**下拉框里那一句** = 名字 + "-" + 目录名（`instanceDisplayName`
+            // 拿的就是它）—— 账本上写的是用户认得的那个名字，不是裸目录名。
             check(started.title == QStringLiteral("创建「%1」的快照").arg(expectedTitleName),
                   "★ T35.1 标题里带着**用户认得的那个名字**（不是裸目录名）", started.title);
-            // ★ 2026-10-19：快照跑着的时候这一号必须挂在「忙」名单上（`installingVersionIds()`
-            //   的唯一出处）。它这十几秒一直在读整棵目录树；期间实例被删 / 改名 / 启动，
-            //   包里就会静默少掉正在变的那几个文件，收尾却照样报"快照创建完成"。
+            // 快照跑着的时候这一号必须挂在「忙」名单上（`installingVersionIds()`
+            // 的唯一出处）。它这十几秒一直在读整棵目录树；期间实例被删 / 改名 / 启动，
+            // 包里就会静默少掉正在变的那几个文件，收尾却照样报"快照创建完成"。
             check(w.instanceBusyForTest(id),
                   "★★ T35.1 快照在跑的时候这一号在「忙」名单上（改名 / 删除 / 启动都被挡）");
 
-            // ★ 同一时刻再来一发：不该冒出第二项（一次只跑一趟，见 MainWindow 里那段）。
+            // 同一时刻再来一发：不该冒出第二项（一次只跑一趟，见 MainWindow 里那段）。
             QMetaObject::invokeMethod(&w, "snapshotInstance", Qt::DirectConnection,
                                       Q_ARG(QString, id));
             check(backupTasks().size() == baseline + 1,
@@ -4446,7 +4372,7 @@ static void runBackupTaskTests() {
                   "★ T35.1 收尾是**成功**（账本上那一项说的是摘要这件事，详情不往盘上写）",
                   finished.errorSummary);
 
-            // ★ 一共三问，按顺序：①分岔那一问 ②撞车那一问（busy 守卫）③收尾那一问。
+            // 一共三问，按顺序：①分岔那一问 ②撞车那一问（busy 守卫）③收尾那一问。
             check(answerer.answered.size() == 3 &&
                       answerer.answered.at(0).title == QStringLiteral("创建快照") &&
                       answerer.answered.at(0).buttons ==
@@ -4516,9 +4442,6 @@ static void runBackupTaskTests() {
             const QSet<quint64> before = backupIds();
             QMetaObject::invokeMethod(&w, "backupWorldNow", Qt::DirectConnection,
                                       Q_ARG(QString, worldDir));
-            // ★ 2026-10-19：和实例快照同一个理由 —— 这一趟在**读整棵存档目录**（连同
-            //   它所在的实例），期间实例被删 / 改名 / 启动，包里会静默少掉正在写的那几个
-            //   文件，收尾照样报"备份完成"。
             check(w.instanceBusyForTest(id),
                   "★★ T35.2 世界备份在跑的时候这一号也在「忙」名单上");
             const bool done =
@@ -4562,7 +4485,7 @@ static void runBackupTaskTests() {
         // "备份完成" —— 一份看着成功、其实是残的备份比失败更糟。
         //
         // NOTE: 「删除世界」那道闸读的是同一个集合（`installingVersionIds()`），断言就
-        //       钉在「改名」这一条上 —— 两处必须用同一个判据，不然删得掉、改不了。
+        // 钉在「改名」这一条上 —— 两处必须用同一个判据，不然删得掉、改不了。
         {
             w.markFileOperationBusyForTest(id);
             dismissNextPrompt();
@@ -4637,7 +4560,7 @@ static void runBackupTaskTests() {
             }
         }
 
-        // ★ 那一句「这一步是能退回来的」要能兑现：把安全快照还原回去，被换掉的东西回来。
+        // 那一句「这一步是能退回来的」要能兑现：把安全快照还原回去，被换掉的东西回来。
         if (!safetyZip.isEmpty()) {
             PromptAnswerer answerer({0, 0});
             answerer.start();
@@ -4715,16 +4638,16 @@ static void runBackupTaskTests() {
 //
 // §5.1 要的是「一小块最近活动提示，不是一个仪表盘」，所以这一段分三处验：
 //
-//   ① **账怎么写**：`LaunchHistoryController::recordStart()` / `recordFinish()` 是产品唯一的
-//      写点（2026-10-15 之前这两条叫 `appendLaunchRecord()` / `finishLaunchRecord()`，长在
-//      MainWindow 里；主窗口现在只剩一个补"启动那一刻的显示名 / 当时是谁"的转手），
-//      摆账就摆这两条（`seedLaunchRecordForTest` 那一族全走它们），摆完看盘上那份
-//      `wtfml.history` 逐格对不对。判据层（格式 / 时间怎么说 / 目标没了怎么降级 / 上限）
-//      在 verify 的 ZR 段逐条念过，这里验的是**接线**：产品读的是同一本账。
-//   ② **卡片上写出什么**：三行字 + 那颗按钮写「继续游玩」还是「启动实例」。
-//   ③ **点下去走哪条路**：目标还在 ⇒ 快捷启动（完整入口）；目标没了 / 版本不认那两条
-//      参数 ⇒ 降级成「把这一份开起来」（= 用户自己在下拉框里选好实例再点「启动游戏」
-//      那条路）；那一份实例自己也已经没了 ⇒ **说一句、不启动**。
+// ① **账怎么写**：`LaunchHistoryController::recordStart()` / `recordFinish()` 是产品唯一的
+// 写点（ 之前这两条叫 `appendLaunchRecord()` / `finishLaunchRecord()`，长在
+// MainWindow 里；主窗口现在只剩一个补"启动那一刻的显示名 / 当时是谁"的转手），
+// 摆账就摆这两条（`seedLaunchRecordForTest` 那一族全走它们），摆完看盘上那份
+// `wtfml.history` 逐格对不对。判据层（格式 / 时间怎么说 / 目标没了怎么降级 / 上限）
+// 在 verify 的 ZR 段逐条念过，这里验的是**接线**：产品读的是同一本账。
+// ② **卡片上写出什么**：三行字 + 那颗按钮写「继续游玩」还是「启动实例」。
+// ③ **点下去走哪条路**：目标还在 ⇒ 快捷启动（完整入口）；目标没了 / 版本不认那两条
+// 参数 ⇒ 降级成「把这一份开起来」（= 用户自己在下拉框里选好实例再点「启动游戏」
+// 那条路）；那一份实例自己也已经没了 ⇒ **说一句、不启动**。
 //
 // 全程离线：身份是这一节自己加的离线账号；三个夹具实例的 `wtfml.meta` 都钉着一个
 // **不存在的** Java 路径 ⇒ 真点到启动那一步时它停在「这个实例的 Java 用不了」那一问上，
@@ -4766,7 +4689,7 @@ static void runHomeRecentCardTests() {
     const QString worldDir = instancePath + QStringLiteral("/saves/基地周目");
     const QString serverName = QStringLiteral("朋友的服");
     const QString serverAddress = QStringLiteral("play.t36.example:25566");
-    // ★ 每个夹具的 Java 都钉在一个不存在的路径上（理由见文件头那段）。
+    // 每个夹具的 Java 都钉在一个不存在的路径上（理由见文件头那段）。
     const QString deadJava = QStringLiteral("C:/T36没有这个目录/java.exe");
 
     // writeInstance：一个"看起来已安装"的实例（installedVersions() 只认 <id>/<id>.jar）。
@@ -4792,8 +4715,8 @@ static void runHomeRecentCardTests() {
                                     {QStringLiteral("libraries"), QJsonArray{}},
                                     {QStringLiteral("javaVersion"),
                                      QJsonObject{{QStringLiteral("majorVersion"), 17}}},
-                                    // ★ 判据是**json 里写没写这一条**，不是版本号（见
-                                    //   QuickPlay.hpp 文件头那一段）：这个夹具认它们。
+                                    // 判据是**json 里写没写这一条**，不是版本号（见
+                                    // QuickPlay.hpp 文件头那一段）：这个夹具认它们。
                                     {QStringLiteral("arguments"),
                                      QJsonObject{{QStringLiteral("game"),
                                                   QJsonArray{QStringLiteral("--quickPlaySingleplayer"),
@@ -4840,7 +4763,7 @@ static void runHomeRecentCardTests() {
     };
     // 点一颗按钮，并把这一发弹出来的每一条提示按脚本答掉（返回依次弹了哪几条）。
     // NOTE: 产品是在**嵌套事件循环**里弹框的（`execPrompt`），所以那个自走的答话器
-    //       正好在框摆出来的那一刻醒过来 —— 和 AJ 那一节同一套。
+    // 正好在框摆出来的那一刻醒过来 —— 和 AJ 那一节同一套。
     const auto clickAndAnswer = [](QPushButton *button, const QList<int> &script) {
         QList<PromptAnswerer::Answered> answered;
         if (button == nullptr) {
@@ -4851,17 +4774,17 @@ static void runHomeRecentCardTests() {
         button->click();
         QApplication::processEvents();
         answerer.stop();
-        // ★ 返回的是**答话器自己记下来的那一份**（它才是那个自走定时器里被 `append()` 的
-        //   表）。写成上面那个局部空表的话，这几条判据**全是假绿/假红**：点下去真弹了、真被
-        //   答掉了，这里读到的永远是 0 条 —— 2026-10-13 这一节就这么红了一轮（症状是"三处
-        //   都像产品压根没弹框"，而产品那边一个字都没错）。
+        // 返回的是**答话器自己记下来的那一份**（它才是那个自走定时器里被 `append()` 的
+        // 表）。写成上面那个局部空表的话，这几条判据**全是假绿/假红**：点下去真弹了、真被
+        // 答掉了，这里读到的永远是 0 条 —— 这一节就这么红了一轮（症状是"三处
+        // 都像产品压根没弹框"，而产品那边一个字都没错）。
         return answerer.answered;
     };
     const auto titlesOf = [](const QList<PromptAnswerer::Answered> &answered) {
         QStringList titles;
         for (const PromptAnswerer::Answered &one : answered) {
             // 正文一起带上：红的理由分两种（"该弹的没弹"和"弹的是另一条"），只看标题
-            // 分不出是哪一种 —— 2026-10-13 这一节红的那一条就只留了个「无法启动」，
+            // 分不出是哪一种 —— 这一节红的那一条就只留了个「无法启动」，
             // 正文里那句"启动前检查没通过：…"才是它到底在说什么。
             titles.append(one.title + QStringLiteral("：") +
                           one.text.split(QLatin1Char('\n')).value(0));
@@ -4960,11 +4883,11 @@ static void runHomeRecentCardTests() {
               labelText(&w, MainWindowUI::homeRecentDetailLabelName()));
 
         // 异常退出那一档：结局那句话**紧贴**着时长（中间不加分隔符）—— 它是那半句的注解。
-        // ★ 必须**另起一条「还在跑」的记录**再把它判成异常退出：上一段那一条已经落在「正常
-        //   退出」这个终态上了，而产品的 `LaunchHistoryController::recordFinish()` 有一条
-        //   「终态只落一次」的
-        //   规矩（见 LaunchHistory 那段实现）—— 它**故意**不把一条已经收尾的记录改写成另一个
-        //   结局。拿老那一条去喂，量到的是"产品没改"这个**正确的行为**。
+        // 必须**另起一条「还在跑」的记录**再把它判成异常退出：上一段那一条已经落在「正常
+        // 退出」这个终态上了，而产品的 `LaunchHistoryController::recordFinish()` 有一条
+        // 「终态只落一次」的
+        // 规矩（见 LaunchHistory 那段实现）—— 它**故意**不把一条已经收尾的记录改写成另一个
+        // 结局。拿老那一条去喂，量到的是"产品没改"这个**正确的行为**。
         const qint64 tCrash = t0 + 2 * 60 * 1000;  // 时长 = 8 分钟（秒数取整规则见 durationText）
         w.seedLaunchRecordForTest(id, tCrash);
         w.seedLaunchFinishForTest(tCrash, true, false);
@@ -5028,8 +4951,8 @@ static void runHomeRecentCardTests() {
         }
 
         // ---------- ⑦ 世界被删掉之后：文字留着，按钮降级成「启动实例」----------
-        // ★ 卡片是**上一趟重画**时算出来的 ⇒ 这一下正好验产品那句「现算一遍，不拿旧结论
-        //   办事」（见 onHomeRecentContinueClicked 那段 NOTE）。
+        // 卡片是**上一趟重画**时算出来的 ⇒ 这一下正好验产品那句「现算一遍，不拿旧结论
+        // 办事」（见 onHomeRecentContinueClicked 那段 NOTE）。
         QDir(worldDir).removeRecursively();
         if (combo != nullptr) {
             combo->setCurrentIndex(combo->findData(otherId));
@@ -5043,9 +4966,9 @@ static void runHomeRecentCardTests() {
               "T36.7 前提：世界删掉之后**卡片上那颗按钮还写着「继续游玩」**（没人重画过它）",
               continueButton != nullptr ? continueButton->text() : QString());
         {
-            // ★ 这一发会一路走到启动那条路（Java 那一步）—— 那一问就是"完整入口真的被
-            //   走到了"的证据（§5.1：「快捷启动仍走完整校验、登录、Java 和重复运行提醒，
-            //   不绕过现有启动入口」）。
+            // 这一发会一路走到启动那条路（Java 那一步）—— 那一问就是"完整入口真的被
+            // 走到了"的证据（§5.1：「快捷启动仍走完整校验、登录、Java 和重复运行提醒，
+            // 不绕过现有启动入口」）。
             const QList<PromptAnswerer::Answered> answered = clickAndAnswer(continueButton, {0});
             check(answered.size() == 1 && answered.first().text.contains(QStringLiteral("跟随全局")),
                   "★★ T36.7 世界没了还在按 ⇒ 它降级成「把这一份开起来」，走的就是用户自己"
@@ -5060,10 +4983,10 @@ static void runHomeRecentCardTests() {
         }
 
         // ---------- ⑧ 这个版本不认那两条参数：按钮也降级，而且**不许**直接发 ----------
-        // ★ 这一条是"卡片和启动器同一把尺子"的证据：`startQuickPlay()` 自己有一道兜底
-        //   （认不了就弹「这个版本用不了」，见 QuickPlay::unsupportedText）—— 那一句一露，
-        //   就说明卡片越过了自己的判据直接发了快捷启动。正确的行为是它**根本不发**：
-        //   降级成普通启动，于是弹的是 Java 那一问。
+        // 这一条是"卡片和启动器同一把尺子"的证据：`startQuickPlay()` 自己有一道兜底
+        // （认不了就弹「这个版本用不了」，见 QuickPlay::unsupportedText）—— 那一句一露，
+        // 就说明卡片越过了自己的判据直接发了快捷启动。正确的行为是它**根本不发**：
+        // 降级成普通启动，于是弹的是 Java 那一问。
         w.seedQuickPlayRecordForTest(noQuickId, QuickPlay::Kind::Singleplayer,
                                      QStringLiteral("老世界"),
                                      QDateTime::currentMSecsSinceEpoch());
@@ -5107,9 +5030,9 @@ static void runHomeRecentCardTests() {
     }
 
     // ---------- ⑩ 那一份实例自己也已经没了：说一句、不启动 ----------
-    // ★ 「目标已经被删除时保留历史文字，但继续游玩降级为启动实例」的另一半：连实例都
-    //   不在了，卡片上剩的是**历史文字**，点下去只能是一句话 —— 硬塞一个下拉框里找不到
-    //   的值，开起来的是现在选着的**另一个**实例（那比什么都不做更糟）。
+    // 「目标已经被删除时保留历史文字，但继续游玩降级为启动实例」的另一半：连实例都
+    // 不在了，卡片上剩的是**历史文字**，点下去只能是一句话 —— 硬塞一个下拉框里找不到
+    // 的值，开起来的是现在选着的**另一个**实例（那比什么都不做更糟）。
     QDir(AppPaths::versionDir(id)).removeRecursively();
     {
         MainWindow w3;
@@ -5173,19 +5096,19 @@ static void runHomeRecentCardTests() {
 #endif
 
 // ---------------------------------------------------------------------------
-// T20. 实例设置「文件管理」那八页：真正碰盘的这一半（2026-09-26 加的）
+// T20. 实例设置「文件管理」那八页：真正碰盘的这一半（ 加的）
 //
 // 那八页**长什么样**在 ui_check 的 U10 段里验（列得对不对、三条开关摆得对不对、
 // "用不上"那一页说的是哪句）。这里验的是另一半 —— 目录从哪儿来、改名和删除到底动了
 // 盘上的什么。三件事，每件都有一个"不报错但全错"的失败形状：
 //
-//   ① **目录从哪儿来**。四个能下载的类必须走 `ResourceCatalog::folderForKind()`（那是
-//      目录名的唯一出处），另外三个写在 `instanceFileDirs()` 里。把 `datapacks` 写成
-//      `datapack`、或者漏掉一个键，页面上不会报任何错 —— 它只是安静地看着一个**不存在
-//      的目录**，用户以为"我一个数据包都没装"。
-//   ② **「启用 / 禁用」= 改名**：`X.jar` ⇄ `X.jar.disabled`。这里唯一不可接受的失败是
-//      **撞车时静默盖掉一份**（目标名已经存在还照改，就等于用户手打的那一份没了）。
-//   ③ **「删除」得先问一句**，而问的时候按「取消」，盘上必须一个字节都没少。
+// ① **目录从哪儿来**。四个能下载的类必须走 `ResourceCatalog::folderForKind()`（那是
+// 目录名的唯一出处），另外三个写在 `instanceFileDirs()` 里。把 `datapacks` 写成
+// `datapack`、或者漏掉一个键，页面上不会报任何错 —— 它只是安静地看着一个**不存在
+// 的目录**，用户以为"我一个数据包都没装"。
+// ② **「启用 / 禁用」= 改名**：`X.jar` ⇄ `X.jar.disabled`。这里唯一不可接受的失败是
+// **撞车时静默盖掉一份**（目标名已经存在还照改，就等于用户手打的那一份没了）。
+// ③ **「删除」得先问一句**，而问的时候按「取消」，盘上必须一个字节都没少。
 //
 // 顺带把 `loadServerList()` 那条映射也验了（它只有三行，但"文件不在盘上"被当成
 // problem 递上去的话，用户看到的是「你的服务器列表读不动」而其实只是没有）。
@@ -5219,20 +5142,16 @@ static void runInstanceFilesPagesTests() {
     // ---------- 夹具：九个实例 ----------
     // idV 什么都不装、东西最全；idO 只在 wtfml.meta 里写着 loaderName=OptiFine；
     // idN 是个"名字里夹着 iris 的 jar"的靶子（mods/ 里**有**两个 jar）；idB 才是光板。
-    // ★ 2026-09-27 又加了三个，摆的是"装了东西、但写法不是 `iris-…`/`litematica-…`"的
-    //   三种真写法（它们原来一条都不认 ⇒ 那两页在装了东西的实例上照样说「用不上」）：
-    //   idR = jar 前面挂中文名（中文整合包 / PCL 的常态）、idX = 只有 Oculus（Forge 上那个
-    //   Iris 移植）、idF = OptiFine 当**普通模组**装进 mods/（1.12.2 及以前就是这么装的）。
+    // 又加了三个，摆的是"装了东西、但写法不是 `iris-…`/`litematica-…`"的
+    // 三种真写法（它们原来一条都不认 ⇒ 那两页在装了东西的实例上照样说「用不上」）：
+    // idR = jar 前面挂中文名（中文整合包 / PCL 的常态）、idX = 只有 Oculus（Forge 上那个
+    // Iris 移植）、idF = OptiFine 当**普通模组**装进 mods/（1.12.2 及以前就是这么装的）。
     const QString idV = QStringLiteral("1.98.1");
     const QString idO = QStringLiteral("1.98.2");
     const QString idN = QStringLiteral("1.98.3");
     const QString idR = QStringLiteral("1.98.4");
     const QString idX = QStringLiteral("1.98.5");
     const QString idF = QStringLiteral("1.98.6");
-    // ★ 2026-09-27：又加了 idB = **真的什么都没有**（没 meta、没 json、没 mods/）。
-    //   idN 看着也像"光板"，可它 mods/ 里躺着两个 jar（下面那两条"整段词不是子串"的夹具）
-    //   ⇒ 按现在这条判据（见 instanceModsUsable）「模组」那一页在它上面**是亮的**。
-    //   要钉"没有加载器就灰着"这件事，得有一个连 mods/ 都不存在的实例。
     const QString idB = QStringLiteral("1.98.7");
     makeInstalledVersion(versionsDir, idV);
     makeInstalledVersion(versionsDir, idO);
@@ -5271,7 +5190,6 @@ static void runInstanceFilesPagesTests() {
                 QByteArrayLiteral("png"));
     writeFileAt(dirV + QStringLiteral("/logs/latest.log"), QByteArrayLiteral("log"));
 
-    // ★ 2026-09-27：那三种"改过名 / 换了写法"的实例（名字都是**用户盘上真有的**）。
     writeFileAt(AppPaths::versionDir(idR) +
                     QStringLiteral("/mods/[虹膜] iris-fabric-1.11.4+mc26.2.jar"),
                 QByteArrayLiteral("iris"));
@@ -5289,13 +5207,13 @@ static void runInstanceFilesPagesTests() {
     writeFileAt(dirN + QStringLiteral("/mods/[钠] sodium-fabric-0.9.2+mc26.2.jar"),
                 QByteArrayLiteral("sodium"));
 
-    // ★ 2026-09-27：idP / idQ 摆的是**用户盘上真正报错的那一类** —— PCL 那种"整份 json
-    //   合进实例目录"的实例：目录名是用户起的（中文），json 里没有 inheritsFrom，
-    //   `wtfml.meta` 里**只有** instanceId（我们自己的安装器才会写 loaderName）。
-    //   两份都**没有 mods/ 目录**：这样"加载器认出来了"这件事只可能来自 json —— mods/
-    //   那条退路（instanceModsUsable 的第二半）在这两个实例上一步都走不出去。
-    //   idP = 用户 2026-09-27 点名的那一个（Fabric + 一堆模组，模组页却灰着）；
-    //   idQ = 只是装了 OptiFine 的那一类（json 里是 optifine:OptiFine，也没有 mods/）。
+    // idP / idQ 摆的是**用户盘上真正报错的那一类** —— PCL 那种"整份 json
+    // 合进实例目录"的实例：目录名是用户起的（中文），json 里没有 inheritsFrom，
+    // `wtfml.meta` 里**只有** instanceId（我们自己的安装器才会写 loaderName）。
+    // 两份都**没有 mods/ 目录**：这样"加载器认出来了"这件事只可能来自 json —— mods/
+    // 那条退路（instanceModsUsable 的第二半）在这两个实例上一步都走不出去。
+    // idP = 用户 点名的那一个（Fabric + 一堆模组，模组页却灰着）；
+    // idQ = 只是装了 OptiFine 的那一类（json 里是 optifine:OptiFine，也没有 mods/）。
     const QString idP = QStringLiteral("海波篮子");
     const QString idQ = QStringLiteral("1.20.1-OptiFine_I6");
     writeFileAt(AppPaths::versionDir(idP) + QLatin1Char('/') + idP + QStringLiteral(".json"),
@@ -5342,11 +5260,6 @@ static void runInstanceFilesPagesTests() {
             const bool got = QMetaObject::invokeMethod(
                 &w, "instanceFileDirs", Qt::DirectConnection,
                 Q_RETURN_ARG(DirMap, dirs), Q_ARG(QString, idV));
-            // 九条，不是六条：中间七页各一条（2026-09-27 加了「配置文件」），外加
-            // **截图 / 日志** —— 那两条读的是实例设置里「截图」「日志」那两页
-            // （instanceFileDirs() 那张表一直如此；它们从前也喂过概览那排快捷方式，
-            // 2026-10-18 去重之后那排只用 dir / logs / game / crash / config，
-            // 但这两条仍由那两页要，见 InstancePagesController::fileDirs()）。
             check(got && dirs.size() == 9,
                   "★ T20.1 instanceFileDirs() 给全了九条路径（少一条 = 对应的那一页/那颗按钮"
                   " 安静地看着一个空目录）",
@@ -5382,9 +5295,9 @@ static void runInstanceFilesPagesTests() {
                   QStringLiteral("%1 | %2")
                       .arg(dirs.value(QStringLiteral("schematic")),
                            dirs.value(QStringLiteral("save"))));
-            // ★ 2026-09-27：「配置文件」那一页（点开一个配置文件就能改，见
-            //   ConfigFileEditorPage）。**它必须是 `<实例>/config`** —— 那是模组自己建的
-            //   那一个，不是别处任何一个同名目录；指错了的话用户改的是别人的配置。
+            // 「配置文件」那一页（点开一个配置文件就能改，见
+            // ConfigFileEditorPage）。**它必须是 `<实例>/config`** —— 那是模组自己建的
+            // 那一个，不是别处任何一个同名目录；指错了的话用户改的是别人的配置。
             check(dirs.value(QStringLiteral("config")) == dirV + QStringLiteral("/config"),
                   "★★ T20.1 「配置文件」那一页看的是 `<实例>/config`（模组自己建的那一个）",
                   dirs.value(QStringLiteral("config")));
@@ -5454,9 +5367,9 @@ static void runInstanceFilesPagesTests() {
                   "OptiFine 就是这么装的，`OptiFine_1.12.2_HD_U_G5.jar`）—— 那以前只有"
                   "「加载器名 == OptiFine」一条路，这个写法的实例全被判成用不上");
 
-            // ---------- ②b 加载器从**版本 json 自己身上**认（2026-09-27 修的那个误判）----------
+            // ---------- ②b 加载器从**版本 json 自己身上**认（ 修的那个误判）----------
             //
-            // 用户原话：「模组存在误判的情况，像海波篮子连 litematica 都有了怎么会没有模组
+            // 要求：「模组存在误判的情况，像海波篮子连 litematica 都有了怎么会没有模组
             // 加载器呢」。根子是判据原来只看 `wtfml.meta` 里的 loaderName，而那一格**只有
             // 我们自己的安装器会写** —— PCL 那类实例（真机上 70 个里 67 个）读出来是空的。
             // 这一节钉的就是那第二条路：**合并过的 json** 里的 `libraries`（外加 OptiFine
@@ -5515,9 +5428,9 @@ static void runInstanceFilesPagesTests() {
                       "（用户盘上 `1.20.1-OptiFine_I6` / `1.20.2-OptiFine_I7_pre1` 两个就是这样）");
 
                 // ---- 同一件事的另外两个出口：自动归类（defaultGroupIdFor）与行首那个标志
-                //      （defaultInstanceMark）都走同一个 instanceLoaderName()。归类这一个在
-                //      实例树上看得见，所以在这儿钉一下：认出来了 ⇒ 进「可安装mod」，
-                //      而不是被扔进「原版」。
+                // （defaultInstanceMark）都走同一个 instanceLoaderName()。归类这一个在
+                // 实例树上看得见，所以在这儿钉一下：认出来了 ⇒ 进「可安装mod」，
+                // 而不是被扔进「原版」。
                 QTreeWidget *instanceTree =
                     byObjectName<QTreeWidget>(&w, MainWindowUI::instanceListName());
                 const auto groupHeaderFor = [](QTreeWidget *tree, const QString &id) {
@@ -5607,13 +5520,6 @@ static void runInstanceFilesPagesTests() {
             QFile::remove(bothA);
             QFile::remove(bothB);
 
-            // ★★ 2026-10-11：**目录一个都不许改名**（用户点名，旧规矩当场收回）。
-            //
-            // 用户原话：「游戏模组文件夹里套的文件夹也会被列出来，而禁用对其的作用只是改个
-            // 名」。从前这一条钉的恰好是**反过来**那一面（"目录也走同一条改名"）—— 而真机上
-            // `mods/.connector` 就是这么被改成 `.connector.disabled` 的，里面那一堆 jar 一起
-            // 从游戏眼里消失。现在这一格只说一句人话、**一个字节都不动盘**；「模组」那一页
-            // 也一个目录都不列（`Mode::FilesOnly`，ui_check 的 U10d 钉住）。
             const QString dirPath = dirV + QStringLiteral("/mods/mcef-libraries");
             const QString insideDir = dirPath + QStringLiteral("/在里面的.jar");
             writeFileAt(insideDir, QByteArrayLiteral("T20-DIR"));
@@ -5731,7 +5637,7 @@ static void runInstanceFilesPagesTests() {
             QFile::remove(datPath);
         }
 
-        // ---------- ⑥ pingServers：真的连上去问一遍（2026-09-27）----------
+        // ---------- ⑥ pingServers：真的连上去问一遍----------
         //
         // 这一条是**整条路**上唯一一处端到端：servers.dat（真 NBT 字节）→ NbtUtil →
         // MainWindow::serverListOf() → ServerPing（真 TCP）→ ServerRowStatus → 那一页
@@ -5834,7 +5740,6 @@ static void runInstanceFilesPagesTests() {
             live.ready.acquire();
             quiet.ready.acquire();
 
-            // 一个刚被放开的端口（listen 一下就关）：本机上连它一定没人应。
             quint16 freePort = 0;
             {
                 QTcpServer probe;
@@ -5880,19 +5785,14 @@ static void runInstanceFilesPagesTests() {
             const bool invoked = QMetaObject::invokeMethod(
                 &w, "pingServers", Qt::DirectConnection,
                 Q_ARG(InstanceSettingsDialog *, &dialog2), Q_ARG(QString, idV));
-            // ★ 2026-09-27 起 pingServers() **不再自己等**（整趟交给后台线程上的
-            //   `ServerPing::Pinger`，用户原话「现在如果没测完会锁住其他按钮，不能这样」）
-            //   —— 所以这一发回来时那一趟**还在跑**，「刷新中…」这一格现在就能直接读
-            //   ★ 2026-10-10：「测速」并进「刷新」之后，这一格挂的是**「刷新」那颗**。
-            //   （从前得排一个 0 毫秒定时器，钻它 processEvents 那一瞬间的空子）。
+            // 起 pingServers() **不再自己等**（整趟交给后台线程上的
+            // `ServerPing::Pinger`，要求「现在如果没测完会锁住其他按钮，不能这样」）
+            // —— 所以这一发回来时那一趟**还在跑**，「刷新中…」这一格现在就能直接读
+            // 「测速」并进「刷新」之后，这一格挂的是**「刷新」那颗**。
+            // （从前得排一个 0 毫秒定时器，钻它 processEvents 那一瞬间的空子）。
             const QString buttonWhilePinging =
                 dialog2.serverRefreshButton() != nullptr ? dialog2.serverRefreshButton()->text()
                                                       : QStringLiteral("<没这颗按钮>");
-            // ★ 2026-09-27：这一趟还在跑的时候**再喊一声**（「点进去就自动测速」那条路
-            //   每一趟都喊一次 —— 用户切走再切回来、或者手快点了两下）。这一声**不许**
-            //   重开一趟：重开的话每一台都要重新等一次超时，而且**已经问回来的那几台会被
-            //   打回"还没测"**（屏幕上那一张表看着像倒退了）。下面那两条"各收到一个连接"
-            //   的断言就是这一下的判据。
             QMetaObject::invokeMethod(&w, "pingServers", Qt::DirectConnection,
                                       Q_ARG(InstanceSettingsDialog *, &dialog2),
                                       Q_ARG(QString, idV));
@@ -5933,8 +5833,6 @@ static void runInstanceFilesPagesTests() {
             QTreeWidgetItem *quietItem = tree2 != nullptr ? tree2->topLevelItem(1) : nullptr;
             QTreeWidgetItem *deadItem = tree2 != nullptr ? tree2->topLevelItem(2) : nullptr;
 
-            // ★ 2026-09-27 傍晚起那一格**不带「在线」两个字**（用户原话：「把服务器那个
-            //   在线 文本删了，只保留延迟和人数」）：第一行就是「多少毫秒」。
             check(liveItem != nullptr &&
                       liveItem->text(2).endsWith(QStringLiteral(" ms\n3/8 人")) &&
                       !liveItem->text(2).contains(QStringLiteral("在线")),
@@ -5960,9 +5858,9 @@ static void runInstanceFilesPagesTests() {
                           .arg(shown.pixelColor(8, 8).name()));
             }
 
-            // ★★ 这一条是「超时的只写超时」的**端到端**那一半：假服务器真的收了连接、真的
-            //    没答话，屏幕上那一格就只剩两个字。理由那半句（「连上了，但服务器没有回答」）
-            //    仍在 ServerPing::Status::error 里 —— 它由 verify 那边的 ZH8 钉着。
+            // 这一条是「超时的只写超时」的**端到端**那一半：假服务器真的收了连接、真的
+            // 没答话，屏幕上那一格就只剩两个字。理由那半句（「连上了，但服务器没有回答」）
+            // 仍在 ServerPing::Status::error 里 —— 它由 verify 那边的 ZH8 钉着。
             check(quietItem != nullptr &&
                       quietItem->text(2) == InstanceSettingsDialog::serverTimeoutText(),
                   "★★ T20.6 连上但不答话的那一台：那一格**只写「超时」**"
@@ -5997,9 +5895,9 @@ static void runInstanceFilesPagesTests() {
             // 只有 timedOut 这一位由我们说了算。
             //
             // NOTE: 这一下会把上面那三行一起盖掉（setServerStatuses 是整份盖）—— 它们的断言
-            //       **全都跑在上面了**，所以这一段摆在这一节的最后。第 2 行那两条才是这一段
-            //       要看的：**同一句话**，只翻 timedOut 这一位，那一格从全话变成两个字 ——
-            //       这就是"界面照的是那一位、不是那句话本身"的直接证据。
+            // **全都跑在上面了**，所以这一段摆在这一节的最后。第 2 行那两条才是这一段
+            // 要看的：**同一句话**，只翻 timedOut 这一位，那一格从全话变成两个字 ——
+            // 这就是"界面照的是那一位、不是那句话本身"的直接证据。
             if (deadItem != nullptr) {
                 const QString fullError = QStringLiteral("没有回应（对面没开，或者端口不对）");
                 QList<InstanceSettingsDialog::ServerRowStatus> crafted;
@@ -6029,21 +5927,21 @@ static void runInstanceFilesPagesTests() {
             quiet.wait(8000);
         }
 
-        // ---------- ⑥b 「编辑」/「加入服务器」那一对（2026-10-10）----------
+        // ---------- ⑥b 「编辑」/「加入服务器」那一对----------
         //
-        // 用户 2026-10-10 原话：「在服务器列表那里做一个编辑地址和名称的功能，然后世界和
+        // 要求：「在服务器列表那里做一个编辑地址和名称的功能，然后世界和
         // 服务器都做一个临时占位（加入选中的世界（仅限有这个参数的版本）/服务器）先试试看
         // 能不能生效」。
         //
         // 「编辑」那一发**只发信号**（那一页够不着 InlineMessage / OverlayHost，见
         // `InstanceSettingsDialog` 的文件头；问两句和落盘都在 MainWindow 里）—— 所以这里
         // 钉的是**发出去的那一线带的是什么**：
-        //   - 名字取的是 `serverNameRole()` 那一格（原样），**不是**屏幕上那行字。没名字的
-        //     那一条屏幕上写着「（无名）」，而发出去的必须是**空串** —— 发成那三个字的话，
-        //     用户点一下「编辑」再点确定，`servers.dat` 里就真多出一台叫「（无名）」的服务器；
-        //   - 地址取的是 `serverAddressRole()` 那一格（**完整的那一串**），不是第 1 栏里
-        //     遮过的那串 `m-.h-.c-`；
-        //   - 没选中任何一行时那两颗是**灰的**，而且点了什么都不发（两道闸）。
+        // - 名字取的是 `serverNameRole()` 那一格（原样），**不是**屏幕上那行字。没名字的
+        // 那一条屏幕上写着「（无名）」，而发出去的必须是**空串** —— 发成那三个字的话，
+        // 用户点一下「编辑」再点确定，`servers.dat` 里就真多出一台叫「（无名）」的服务器；
+        // - 地址取的是 `serverAddressRole()` 那一格（**完整的那一串**），不是第 1 栏里
+        // 遮过的那串 `m-.h-.c-`；
+        // - 没选中任何一行时那两颗是**灰的**，而且点了什么都不发（两道闸）。
         {
             const QString datPath = dirV + QStringLiteral("/servers.dat");
             // 第二条的 name 是**空串**（盘上有那一格、值是空的）。真机上 1.12.2 那代更彻底
@@ -6166,19 +6064,19 @@ static void runInstanceFilesPagesTests() {
                 check(dialog3.serverJoinButton()->isHidden(),
                       "T20.8 递空串进来 ⇒ 「加入服务器」当场收起来");
 
-                // ---------- ⑥c 「添加」/「删除」那一对（2026-10-10 稍后）----------
+                // ---------- ⑥c 「添加」/「删除」那一对（ 稍后）----------
                 //
-                // 用户原话：「编辑要能改名字改地址以及删除，服务器那个页面里放一个添加
+                // 要求：「编辑要能改名字改地址以及删除，服务器那个页面里放一个添加
                 // 服务器的按钮，允许添加」。和「编辑」一样，这两颗**只发信号**（这一层
                 // 够不着 InlineMessage 和 src/，见 `InstanceSettingsDialog` 的文件头）。
                 //
-                // ★ 这一段钉的是**两颗的可点性不一样**：
-                //   - 「添加」不跟着选中走 —— 要加的那一台还没出现在表里，没有"先选中"
-                //     这一步，所以没选中时它**还是亮的**（连一条都没有的时候尤其要能按）；
-                //   - 「删除」动的是选中那一行，所以没选中时**灰着**，而且灰着时点下去
-                //     什么都不发（两道闸，和「编辑」同）。
-                // ★ 还有一条：上面「测速」并进「刷新」之后，那一颗上的字得是「刷新」——
-                //   屏幕上再找得着「测速」两个字就是合并没做干净。
+                // 这一段钉的是**两颗的可点性不一样**：
+                // - 「添加」不跟着选中走 —— 要加的那一台还没出现在表里，没有"先选中"
+                // 这一步，所以没选中时它**还是亮的**（连一条都没有的时候尤其要能按）；
+                // - 「删除」动的是选中那一行，所以没选中时**灰着**，而且灰着时点下去
+                // 什么都不发（两道闸，和「编辑」同）。
+                // 还有一条：上面「测速」并进「刷新」之后，那一颗上的字得是「刷新」——
+                // 屏幕上再找得着「测速」两个字就是合并没做干净。
                 check(dialog3.serverRefreshButton() != nullptr &&
                           dialog3.serverRefreshButton()->text() ==
                               InstanceSettingsDialog::serverRefreshText(),
@@ -6264,10 +6162,10 @@ static void runInstanceFilesPagesTests() {
         // 这一节是整条路上**唯一一处让那些字节真落到盘上**的地方：ui_check 的 U11 量的是
         // "哪一格画了什么、发了哪个信号"，它**一个字节都不写盘**（那一层连 AppPaths 都够不着）。
         // 这里钉两道接缝：
-        //   ① 编辑器里那份正文经 MainWindow 的手落到盘上之后，**行尾还是原来那样** ——
-        //      这一条错了的后果是用户改一个数字、整份配置被换成另一种行尾：模组照读，可
-        //      diff 从此全是假的，而界面上一个字都看不出来；
-        //   ② 「改过的东西不许悄悄没掉」那两个岔口（退回列表 / 收整页）**真的**先问了一句。
+        // ① 编辑器里那份正文经 MainWindow 的手落到盘上之后，**行尾还是原来那样** ——
+        // 这一条错了的后果是用户改一个数字、整份配置被换成另一种行尾：模组照读，可
+        // diff 从此全是假的，而界面上一个字都看不出来；
+        // ② 「改过的东西不许悄悄没掉」那两个岔口（退回列表 / 收整页）**真的**先问了一句。
         //
         // 驱动走**产品那条路**（和上面 S2 / T18 同一形状）：开实例设置 → 文件管理 →
         // 配置文件 → 双击那一行 → 编辑器那一格。`openInstanceSettings` 会卡在嵌套事件循环
@@ -6283,8 +6181,6 @@ static void runInstanceFilesPagesTests() {
             bool sawEditor = false;      // 双击那一行之后编辑器那一格真的露出来了
             bool editable = false;
             bool cleanOnOpen = false;    // 刚摆进去是干净的（不干净的话一进来点返回就被问）
-            // 左边那一格「条目」（2026-09-27）：**盘上那份字节**读进来之后认出了什么。
-            // ui_check 的 U11e 是拿手搓的 Loaded 摆进去的，验不到"真文件走真读盘那一趟"。
             int indexCount = -1;         // 认出来几条
             bool indexVisible = false;   // 那一格露着没有
             QString indexPicked;         // 点一条之后编辑框里选中了什么
@@ -6302,9 +6198,6 @@ static void runInstanceFilesPagesTests() {
             QString promptTitle;
             QStringList promptButtons;
 
-            // 双击一条行控件：发给"鼠标底下真正是谁"（行首那一格图标），让它自己冒上去 ——
-            // 和 ui_check U11c 同一手法（那边钉"冒得上去"，这边要的是"冒上去之后产品真的把
-            // 文件读出来摆进编辑器"）。
             const auto dbl = [](QWidget *rowWidget) {
                 const QPoint pos(10, rowWidget->height() / 2);
                 QWidget *target = rowWidget->childAt(pos);
@@ -6338,8 +6231,6 @@ static void runInstanceFilesPagesTests() {
                 if (editor == nullptr) {
                     return;
                 }
-                // 双击那一行。**先把那趟延后的条目布局走完**（理由和 ui_check U11c 那段
-                // 逐字一样：offscreen 不画，布局一直挂着，第一发合成双击的坐标就算歪了）。
                 const auto openByDoubleClick = [&] {
                     InstanceFilesPage *files = page->filesPage(QStringLiteral("config"));
                     if (files == nullptr || files->list() == nullptr) {
@@ -6368,9 +6259,6 @@ static void runInstanceFilesPagesTests() {
                 editable = editor->isEditable();
                 cleanOnOpen = !editor->isDirty();
 
-                // ---- 左边那一格「条目」：这条真文件认出了什么、点一条跳不跳得准 ----
-                // 这一节量的是"**盘上那份字节**经 MainWindow 的手摆进来之后"的结果：
-                // ui_check U11e 那几条是拿手搓的 `Loaded` 直接 setFile 的，走不到这一趟。
                 indexCount = editor->indexEntryCount();
                 indexVisible = editor->indexVisible();
                 if (QTreeWidget *tree = editor->indexTree()) {
@@ -6516,9 +6404,9 @@ static void runInstanceFilesPagesTests() {
                   indexTip);
         }
 
-        // ---------- ⑦.5 概览页那颗「检查更新」（2026-09-28）----------
+        // ---------- ⑦.5 概览页那颗「检查更新」----------
         //
-        // 用户原话：「实例设置那里做一个更新检测」。这一颗要钉的是**接线**：
+        // 要求：「实例设置那里做一个更新检测」。这一颗要钉的是**接线**：
         // ui_check 的 U0h3 只验到"点一下发了信号"，而"那个信号有没有人接、接了之后有没有
         // 出结果"只有把真的 MainWindow 立起来才验得到 —— 漏了 `MainWindow.cpp` 里那条
         // `connect(… checkUpdatesRequested …)` 的症状是"**按了没反应**"，屏幕上一点异常
@@ -6581,7 +6469,7 @@ static void runInstanceFilesPagesTests() {
                   noticeText);
         }
 
-        // ---------- ⑦.6 原理图那一页底下那条「这一份是什么」（2026-10-18，§9.5）----------
+        // ---------- ⑦.6 原理图那一页底下那条「这一份是什么」（，§9.5）----------
         //
         // 这一条**只有把真页立起来才验得到**：那一条连接在 `InstanceDialogController` 里
         // （选中一行 → 150 ms 合并 → `SchematicInfo::read()` → 摆回那一格），ui_check 够
@@ -6679,7 +6567,7 @@ static void runInstanceFilesPagesTests() {
                 }
                 infoText = info->text();
                 infoTip = info->toolTip();
-                // ★ 这一条要在**收页之前**量：收掉之后这一页就没了。
+                // 这一条要在**收页之前**量：收掉之后这一页就没了。
                 InstanceFilesPage *modsPage = page->filesPage(QStringLiteral("mod"));
                 otherPanelOff = modsPage != nullptr && !modsPage->infoPanelEnabled();
                 if (modsPage != nullptr) {
@@ -6719,11 +6607,7 @@ static void runInstanceFilesPagesTests() {
                   "★★ T20.11 别的页（模组）上那一格是关着的 —— 只有原理图那一页开");
         }
 
-        // ---------- ⑦.7 Replay 那一页底下那条「这一份是什么」（2026-10-18，§9.5）----------
-        //
-        // 和 T20.11 同一个来路：这条连接也在 `InstanceDialogController` 里，ui_check 够不
-        // 着。盘上放一份**真形状**的 `.mcpr`（zip 里一份 metaData.json），选它，看那一格
-        // 先写「正在读取…」、过一会儿换成时长 / 版本 / 多人 / 玩家数。
+        // ---------- ⑦.7 Replay 那一页底下那条「这一份是什么」（，§9.5）----------
         {
             const QString replayDir = AppPaths::replayRecordingsDir();
             QDir().mkpath(replayDir);
@@ -6829,8 +6713,6 @@ static void runInstanceFilesPagesTests() {
                   replayRowText);
         }
 
-        // ---------- ⑦.8 「诊断」那一页的报告（2026-10-18，§9.5）----------
-        //
         // `instanceDiagnosisReport` 里那份字是 `InstanceDialogController` 把实例 / Java /
         // 内存 / 模组 / 日志 / 崩溃报告拼起来交给 `StartupDiagnosis::analyze()` 算的——
         // ui_check 只量得到纯函数，**"这条线接没接上"在这里量**。另加一条：「重新检查」
@@ -6902,16 +6784,16 @@ static void runInstanceFilesPagesTests() {
                   "★ T20.13 按「重新检查」⇒ 真再算一遍（哨兵被换掉了）");
         }
 
-        // ---------- ⑦.9 「迁移」/「升级」那两页（2026-10-18，§9.9 第 15 项）----------
+        // ---------- ⑦.9 「迁移」/「升级」那两页（，§9.9 第 15 项）----------
         //
         // 判据层（`TransferPlanner` / `TransferApply`）由 verify.exe 的 TR 节逐条钉住；
         // 这里只量**这条线接没接上**：
-        //   ① 一进「迁移」页，目标下拉框里就摆着"这个游戏文件夹里别的版本"（且不含自己）；
-        //   ② 计划正文真的算出来了（`setTransferPlan` / `setTransferItems` 两个 setter 都被喂了）；
-        //   ③ 默认勾选真的摆到了框里（存档勾着、日志不勾 —— 记录类永不默认在 TR1 里钉过，
-        //      这里钉的是"那一条结论有没有落进界面"）；
-        //   ④ 动手那颗按钮听的是勾选：全不勾 ⇒ 灰、再勾一项 ⇒ 又亮；
-        //   ⑤ 「升级」页用的是同一个构建器，顶上是「升级副本计划：」而不是迁移。
+        // ① 一进「迁移」页，目标下拉框里就摆着"这个游戏文件夹里别的版本"（且不含自己）；
+        // ② 计划正文真的算出来了（`setTransferPlan` / `setTransferItems` 两个 setter 都被喂了）；
+        // ③ 默认勾选真的摆到了框里（存档勾着、日志不勾 —— 记录类永不默认在 TR1 里钉过，
+        // 这里钉的是"那一条结论有没有落进界面"）；
+        // ④ 动手那颗按钮听的是勾选：全不勾 ⇒ 灰、再勾一项 ⇒ 又亮；
+        // ⑤ 「升级」页用的是同一个构建器，顶上是「升级副本计划：」而不是迁移。
         {
             bool migrationFound = false;
             bool targetPicked = false;
@@ -7018,19 +6900,19 @@ static void runInstanceFilesPagesTests() {
                   upgradePlanText.left(160));
         }
 
-        // ---------- ⑧ 世代备份 + 写之前那几道闸（2026-09-27）----------
+        // ---------- ⑧ 世代备份 + 写之前那几道闸----------
         //
         // 用户那份设计评审里 S 级的三条（撤销/世代备份、游戏在跑时挡写、写之前比对盘上
         // 那一份）**只有真落盘才验得到**：ui_check 的 U11f/U11g 量的是纯函数和那一格长什么
         // 样，它一个字节都不写盘。这里钉五件事：
-        //   ① 存一次 ⇒ 盘上**原来**那一份躺进备份里（"改坏了能回去"这个承诺的兑现处）；
-        //   ② 「还原上一次」取回来的东西**只进框、不进盘**，再点保存才落回去；
-        //   ③ 盘上那份在中间被别人改过 ⇒ 保存**先问一句**；答"读盘上那一份"时框里换成盘上
-        //      那份、盘上不动，答"盖掉它"时**被盖掉的那一份也留进了备份**（连"盖掉"都
-        //      不是不可逆的 —— 这正是这一整套东西的用处）；
-        //   ④ 这个实例的游戏**在跑**时保存被挡住（游戏退出会整份写回，改了也白改），而且
-        //      挡住之后**框里的改动还在**（不许顺手丢掉），关掉游戏再存就下去了；
-        //   ⑤ 备份只留最近 20 份，多的自动清掉（那是全仓唯一一处会主动删东西的地方）。
+        // ① 存一次 ⇒ 盘上**原来**那一份躺进备份里（"改坏了能回去"这个承诺的兑现处）；
+        // ② 「还原上一次」取回来的东西**只进框、不进盘**，再点保存才落回去；
+        // ③ 盘上那份在中间被别人改过 ⇒ 保存**先问一句**；答"读盘上那一份"时框里换成盘上
+        // 那份、盘上不动，答"盖掉它"时**被盖掉的那一份也留进了备份**（连"盖掉"都
+        // 不是不可逆的 —— 这正是这一整套东西的用处）；
+        // ④ 这个实例的游戏**在跑**时保存被挡住（游戏退出会整份写回，改了也白改），而且
+        // 挡住之后**框里的改动还在**（不许顺手丢掉），关掉游戏再存就下去了；
+        // ⑤ 备份只留最近 20 份，多的自动清掉（那是全仓唯一一处会主动删东西的地方）。
         //
         // 会话是拿 `session-holder` 真起的（和 AH 段同一套：这个 exe 的一份替身，睡着不动）
         // —— 不用真 JVM，也不用碰启动那条路（那一趟要弹的框太多，和这一节没关系）。
@@ -7153,8 +7035,8 @@ static void runInstanceFilesPagesTests() {
                 // **该不该**弹出一句话来。
                 //
                 // NOTE: `expected` 不是装饰：不该弹却弹了就是产品的问题，得让它变成红的断言。
-                //       没有这一位的话，每一趟都挂一个"随便点一颗"的定时器，产品哪一次多问了
-                //       一句都会被它悄悄答掉，"没弹话"那几条断言就永远绿着。
+                // 没有这一位的话，每一趟都挂一个"随便点一颗"的定时器，产品哪一次多问了
+                // 一句都会被它悄悄答掉，"没弹话"那几条断言就永远绿着。
                 const auto save = [&](int answer, bool expected, int *promptCount,
                                       QString *promptTitle, QStringList *promptButtons,
                                       QString *promptNote) {
@@ -7513,15 +7395,10 @@ static void runInstanceFilesPagesTests() {
                       .arg(unexpectedTitle));
         }
 
-        // ---------- ⑪ 「显示哪些页」那份选择真落到 wtfml.meta 上（2026-09-27）----------
+        // ---------- ⑪ 「显示哪些页」那份选择真落到 wtfml.meta 上----------
         //
-        // 用户原话：「针对每个实例，在实例设置里个性化自定义，概览里面调整是否显示」。
-        // ui_check 的 U12 量的是那颗勾选框**当场**干了什么（左栏少一条、当前页被赶回去、
-        // pageChoices() 长什么样）—— 那一层连 AppPaths 都够不着，一个字节都不写盘。
-        // 这里钉的是另一半，也是「个性化」这三个字真正落地的那一段：
-        //
-        //   勾一下 → settingsEdited → MainWindow 把那一份选择写进**这个实例自己的**
-        //   wtfml.meta → 重开还在 → 再勾上 ⇒ 那个键**消失**（不是记一个 true）。
+        // 勾一下 → settingsEdited → MainWindow 把那一份选择写进**这个实例自己的**
+        // wtfml.meta → 重开还在 → 再勾上 ⇒ 那个键**消失**（不是记一个 true）。
         //
         // 中间任何一段断了，界面上都看不出来：勾一下照样「当场生效」（U12 那一半还是绿的），
         // 只是关掉窗再进来又回来了 —— 而这种「我明明记得改过」的错觉，用户的下一个动作
@@ -7538,9 +7415,9 @@ static void runInstanceFilesPagesTests() {
             // 开一次实例设置（`id`），在那个嵌套事件循环里跑 `act`，然后收页。
             //
             // NOTE: `openInstanceSettings()` 会**卡在嵌套事件循环里**，所以 `act` 必须写在
-            //       `QTimer::singleShot(0, …)` 里 —— 它就在那个循环里跑（和 T20.7 同一手法）。
-            //       收页用 `closeOverlay()`：产品那颗返回箭头会多问一句「改过没保存」，那一趟
-            //       在 T20.7 / T20.10 里。
+            // `QTimer::singleShot(0, …)` 里 —— 它就在那个循环里跑（和 T20.7 同一手法）。
+            // 收页用 `closeOverlay()`：产品那颗返回箭头会多问一句「改过没保存」，那一趟
+            // 在 T20.7 / T20.10 里。
             const auto withPage = [&w](const QString &id, auto &&act) {
                 QTimer::singleShot(0, [&] {
                     OverlayHost *host = currentPageOverlay();
@@ -7622,9 +7499,9 @@ static void runInstanceFilesPagesTests() {
                 auto *box = page->findChild<QCheckBox *>(
                     InstanceSettingsDialog::pageCheckName(QStringLiteral("save")));
                 if (box != nullptr) {
-                    // ★ 一条真实会出事的路：那颗勾选框**灰着**的时候 `click()` 是个空操作
-                    //   （QAbstractButton::click() 头一句就是 `if (!isEnabled()) return;`），
-                    //   于是"再勾回来"看起来什么都没发生、盘上那句 false 还在。
+                    // 一条真实会出事的路：那颗勾选框**灰着**的时候 `click()` 是个空操作
+                    // （QAbstractButton::click() 头一句就是 `if (!isEnabled()) return;`），
+                    // 于是"再勾回来"看起来什么都没发生、盘上那句 false 还在。
                     reenableEnabled = box->isEnabled();
                     box->click();
                     QApplication::processEvents();
@@ -7634,10 +7511,10 @@ static void runInstanceFilesPagesTests() {
                     QJsonDocument(page->pageChoices()).toJson(QJsonDocument::Compact));
             });
             const QJsonObject metaRestored = readMeta();
-            // ★ 拿**第一次写入之后**那一份当基准，不是开跑前那一份：这个实例原本一个
-            //   `wtfml.meta` 都没有，第一次写盘会顺手补一个稳定 id（`ensureInstanceId()`，
-            //   见 InstanceSettingsController::apply 开头），那是写盘顺带长的键、不是这一次
-            //   操作丢了什么。真正要钉的是"`settingsPages` 整格消失、别的键一个不少"。
+            // 拿**第一次写入之后**那一份当基准，不是开跑前那一份：这个实例原本一个
+            // `wtfml.meta` 都没有，第一次写盘会顺手补一个稳定 id（`ensureInstanceId()`，
+            // 见 InstanceSettingsController::apply 开头），那是写盘顺带长的键、不是这一次
+            // 操作丢了什么。真正要钉的是"`settingsPages` 整格消失、别的键一个不少"。
             QStringList keysWanted = metaAfter.keys();
             keysWanted.removeAll(VersionManager::settingsPagesField());
             QStringList keysAfter = metaRestored.keys();
@@ -7660,7 +7537,7 @@ static void runInstanceFilesPagesTests() {
 
             // 第三件：**「有没有对应的加载器」这件事是按实例现算的**（两个假实例对着看）。
             //
-            // 这一条是那一整张表的用处所在（用户原话：「如果没有对应的加载器，保持对应选项
+            // 这一条是那一整张表的用处所在（要求：「如果没有对应的加载器，保持对应选项
             // 不可勾选的状态，悬停文本解释」）：同一个对话框类，光板那个实例上「模组 / 光影包
             // / 原理图」三条是灰的、各自说各自的原因；挂着 OptiFine 的那个实例上「模组」与
             // 「光影包」是亮的 —— OptiFine 自己就是模组加载器（1.13 起它本来就装在 mods/ 里），
@@ -7691,11 +7568,11 @@ static void runInstanceFilesPagesTests() {
                   "「照着提示去装错东西」）",
                   vanillaTips.join(QStringLiteral(" | ")));
 
-            // ★ 2026-09-27：「模组」那一条的判据是 **有加载器 _或_ mods/ 里已经有 jar**
-            //   （instanceModsUsable，第二半是为了那两个连 json 都解析不出唯一一份、却装着
-            //   27 / 136 个模组的真实例）。所以 idN —— 它 mods/ 里躺着两个 jar —— 应该是
-            //   **亮的**：那一页在它上面点得开、看得到那两个 jar 并管得了（禁用/删除）。
-            //   光板那条（上面 idB）钉的是"什么都没有就灰着"，这一条钉的是另一半。
+            // 「模组」那一条的判据是 **有加载器 _或_ mods/ 里已经有 jar**
+            // （instanceModsUsable，第二半是为了那两个连 json 都解析不出唯一一份、却装着
+            // 27 / 136 个模组的真实例）。所以 idN —— 它 mods/ 里躺着两个 jar —— 应该是
+            // **亮的**：那一页在它上面点得开、看得到那两个 jar 并管得了（禁用/删除）。
+            // 光板那条（上面 idB）钉的是"什么都没有就灰着"，这一条钉的是另一半。
             bool modOnForJars = false;
             withPage(idN, [&](InstanceSettingsDialog *page) {
                 auto *box = page->findChild<QCheckBox *>(
@@ -7742,13 +7619,8 @@ static void runInstanceFilesPagesTests() {
 
         // ---------- T20.11b 实例设置那两行「窗口模式 / 窗口大小」真落到 wtfml.meta 上 ----------
         //
-        // 用户原话「游戏的启动参数 小窗/最大化/全屏 以及游戏分辨率 放到设置和实例设置里面」。
-        // 界面那一半在 ui_check 的 U9b（控件、单选钮、代号原样透传）、**纯值那一半**在 verify
-        // 的 ZD5（合成规则、钳位、代号往返）。这一节钉的是中间那一段 —— MainWindow 把那两行
-        // 的值真的写进**这一个实例自己的** wtfml.meta、再从 meta 读回来喂给下一次打开的那一页。
-        //
-        // ★ 两头各写一遍键名、各写一遍代号表，界面那边照样全绿（U9b 是喂进去的假代号）。
-        //   这一段断了的话，症状是"这一页上改完关掉，下次打开又回去了"，而屏幕上全程正常。
+        // 两头各写一遍键名、各写一遍代号表，界面那边照样全绿（U9b 是喂进去的假代号）。
+        // 这一段断了的话，症状是"这一页上改完关掉，下次打开又回去了"，而屏幕上全程正常。
         {
             const QString metaPath = AppPaths::versionMetaPath(idV);
             const auto readMeta = [&metaPath]() {
@@ -7784,15 +7656,15 @@ static void runInstanceFilesPagesTests() {
                                           Q_ARG(QString, id));
                 QApplication::processEvents();
             };
-            // ★ 2026-09-28：那一格上的**一对单选钮换成了一个下拉框**（用户原话「所有单选框
-            //   换成下拉的」），`customRadioName()` / `followRadioName()` 两个名字一起没了，
-            //   改按 `choiceComboName()` 找、按**下标**选 —— 那两个下标是产品给的唯一出处
-            //   （`choiceFollowIndex()` / `choiceCustomIndex()`），别在这儿再写 0 / 1。
+            // 那一格上的**一对单选钮换成了一个下拉框**（要求「所有单选框
+            // 换成下拉的」），`customRadioName()` / `followRadioName()` 两个名字一起没了，
+            // 改按 `choiceComboName()` 找、按**下标**选 —— 那两个下标是产品给的唯一出处
+            // （`choiceFollowIndex()` / `choiceCustomIndex()`），别在这儿再写 0 / 1。
             //
             // NOTE: 这里走的是**用户那条路**：直接 `setCurrentIndex()`，**不挡信号**。产品里
-            //       `setChoiceCustom()` 灌初值时挡信号是为了"打开这一页别当成一次编辑"，那是
-            //       另一回事；在这儿挡掉的话，"切档位这一下要写盘"那条线就等于没测（产品里
-            //       接的是 `QComboBox::currentIndexChanged`，程序化设置**就是**用户改一次档位）。
+            // `setChoiceCustom()` 灌初值时挡信号是为了"打开这一页别当成一次编辑"，那是
+            // 另一回事；在这儿挡掉的话，"切档位这一下要写盘"那条线就等于没测（产品里
+            // 接的是 `QComboBox::currentIndexChanged`，程序化设置**就是**用户改一次档位）。
             const auto setChoice = [](InstanceSettingsDialog *page, const QString &field,
                                       bool custom) {
                 auto *combo = page != nullptr ? page->findChild<QComboBox *>(
@@ -7831,10 +7703,10 @@ static void runInstanceFilesPagesTests() {
                     hSpin->setValue(900);
                 }
                 QApplication::processEvents();
-                // ★ 换档位必须是这一页上**最后**一个动作：上面那几发（点单选钮、改数字框）
-                //   各自都会触发一次写盘，而那一趟写的是**当时**的完整签名 —— 档位先换好的
-                //   话，后面任何一发都会替它把盘写掉，于是"下拉框没接那条线"这个洞被盖住。
-                //   实测过：档位放在前面时，把 connect 掐掉这套断言照样全绿。
+                // 换档位必须是这一页上**最后**一个动作：上面那几发（点单选钮、改数字框）
+                // 各自都会触发一次写盘，而那一趟写的是**当时**的完整签名 —— 档位先换好的
+                // 话，后面任何一发都会替它把盘写掉，于是"下拉框没接那条线"这个洞被盖住。
+                // 实测过：档位放在前面时，把 connect 掐掉这套断言照样全绿。
                 if (combo != nullptr) {
                     const int row =
                         combo->findData(gameWindowModeToken(GameWindowMode::Fullscreen));
@@ -7848,7 +7720,7 @@ static void runInstanceFilesPagesTests() {
             check(comboHasThree && comboPicked,
                   "T20.11b 前提：那一页上找得到那个三档下拉框，也选得到「全屏」那一档");
 
-            // ★ 这个实例自己的 meta —— 不是全局那份设置（全局那一份在 AE 段量，两者互不影响）。
+            // 这个实例自己的 meta —— 不是全局那份设置（全局那一份在 AE 段量，两者互不影响）。
             const QJsonObject winAfter = readMeta();
             check(winAfter.value(gameWindowModeMetaField()).toString() ==
                       gameWindowModeToken(GameWindowMode::Fullscreen),
@@ -7905,8 +7777,8 @@ static void runInstanceFilesPagesTests() {
             check(reopenSize, "★★ T20.11b 两个数字框里是存进去的那两个数");
 
             // ③ 两行都切回「跟随全局」⇒ 那三个键**整个消失**（不是写一个等于全局的值进去）。
-            //    留着一份"看起来跟全局一样"的副本，以后改全局这个实例就不跟着走了 ——
-            //    而用户明明选的是「跟随全局」。
+            // 留着一份"看起来跟全局一样"的副本，以后改全局这个实例就不跟着走了 ——
+            // 而用户明明选的是「跟随全局」。
             withPage(idV, [&](InstanceSettingsDialog *page) {
                 setChoice(page, modeField, false);
                 setChoice(page, sizeField, false);
@@ -7931,13 +7803,9 @@ static void runInstanceFilesPagesTests() {
 
         // ---------- T20.12 顶上那颗「下载新模组」：按一下，人真的到下载页那一栏了 ----------
         //
-        // 用户 2026-09-27 原话：「在实例设置里模组 资源包 数据包 光影包里添加下载新光影，
+        // 要求：「在实例设置里模组 资源包 数据包 光影包里添加下载新光影，
         // 按了以后导向下载页对应类别」。这一节走的就是那条路本身：开实例设置 → 在「模组」
         // 那一页顶上按那颗按钮 → 这一页关掉、选项卡翻到「下载」、左栏那一列站到「模组」上。
-        //
-        // NOTE: 界面那一半（哪几页有这颗按钮、上面的字、报出去的是哪个键）在 ui_check 的
-        //       U10M 里。这里验的是"按下去之后产品真的动了" —— 那一发要是和下载页左栏的键
-        //       对不上，U10M 那几条照样全绿，而用户看到的是"按了没反应"。
         {
             MainWindowUI *ui = w.ui();
             QTabWidget *tabs = ui != nullptr ? ui->getTabWidget() : nullptr;
@@ -7990,7 +7858,7 @@ static void runInstanceFilesPagesTests() {
             QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
                                       Q_ARG(QString, idV));
             // 切选项卡那一发是**排到下一轮事件循环**的（见 openDownloadCategory() 里那段
-            // ★：这一句还在 execPage 那个嵌套循环的调用栈里时不能翻页），所以这儿等它一下，
+            // 这一句还在 execPage 那个嵌套循环的调用栈里时不能翻页），所以这儿等它一下，
             // 而不是 `processEvents()` 完就立刻读。
             pumpUntil(
                 [&] {
@@ -8042,21 +7910,21 @@ static void runInstanceFilesPagesTests() {
 // V5 钉的是**数据层**：排除表、两张清单的正文、往返解析、zip 的条目名。那些全是纯函数，
 // 在那边一条一条钉得住。这一节钉的是**接上去之后才存在**的东西，三件：
 //
-//   ① 设置键 → 数据层那段**接线**。`Launcher/ModrinthApiBase` 在盘上，最后必须变成
-//      `POST http://127.0.0.1:<port>/v2/version_files`。中间隔着 LauncherSettings →
-//      syncCurseForgeSettings → VersionManager::m_modrinthApiBaseOverride 三段，任何一段
-//      没接上，发出去的就是 api.modrinth.com —— 而**那一发在离线的机器上只会静静超时
-//      15 秒**，症状是"导出一个包卡了半分钟、然后说没连上"，谁也不会往"设置没推下去"上想。
-//      所以断言里既有"假服务器收到了那一发"，也有请求行里的那个路径。
-//   ② 那条**继承链**。`gameVersion` 与加载器那一行都是从盘上真实的版本 json 走出来的
-//      （实例的 json 指着 fabric-loader-…，那一份又指着 1.20.1）。这两格写错了的后果是
-//      "包看着是好的、别人装不回来"，界面上一个字都看不出来。
-//      链末端那个版本号必须是一个**真版本号**：`instanceGameVersion()` 那一格在"在线清单
-//      已经拿到"时以清单为准（`isKnownGameVersion()`），编一个 `1.99.9` 出来的话，这一节
-//      的结果就取决于启动时那次清单请求到没到 —— 同一份夹具在两种模式下给出两种答案。
-//   ③ 门口那三个问句和它下面两条岔路：OptiFine（认得出、写不下去）、读不出原版、
-//      反查没成要不要继续。它们的形状都是"弹一句、然后**盘上什么都不许留**" ——
-//      留半个包比不导出更坏（用户会以为做出来了）。
+// ① 设置键 → 数据层那段**接线**。`Launcher/ModrinthApiBase` 在盘上，最后必须变成
+// `POST http://127.0.0.1:<port>/v2/version_files`。中间隔着 LauncherSettings →
+// syncCurseForgeSettings → VersionManager::m_modrinthApiBaseOverride 三段，任何一段
+// 没接上，发出去的就是 api.modrinth.com —— 而**那一发在离线的机器上只会静静超时
+// 15 秒**，症状是"导出一个包卡了半分钟、然后说没连上"，谁也不会往"设置没推下去"上想。
+// 所以断言里既有"假服务器收到了那一发"，也有请求行里的那个路径。
+// ② 那条**继承链**。`gameVersion` 与加载器那一行都是从盘上真实的版本 json 走出来的
+// （实例的 json 指着 fabric-loader-…，那一份又指着 1.20.1）。这两格写错了的后果是
+// "包看着是好的、别人装不回来"，界面上一个字都看不出来。
+// 链末端那个版本号必须是一个**真版本号**：`instanceGameVersion()` 那一格在"在线清单
+// 已经拿到"时以清单为准（`isKnownGameVersion()`），编一个 `1.99.9` 出来的话，这一节
+// 的结果就取决于启动时那次清单请求到没到 —— 同一份夹具在两种模式下给出两种答案。
+// ③ 门口那三个问句和它下面两条岔路：OptiFine（认得出、写不下去）、读不出原版、
+// 反查没成要不要继续。它们的形状都是"弹一句、然后**盘上什么都不许留**" ——
+// 留半个包比不导出更坏（用户会以为做出来了）。
 //
 // 假服务器一台罩两条路（`/v2/version_files` 与 `/v1/fingerprints`）：两个地址都是从
 // **产品的设置键**推下去的，所以"推没推、推对了没"本身就是被验的东西。
@@ -8065,17 +7933,12 @@ static void runInstanceFilesPagesTests() {
 /// 一个答"反查"那两发的假服务器（127.0.0.1、随机端口）。
 ///
 /// NOTE: 这一台是**POST**，正文可能来得比头晚（`FakeResourceApi` 那边是 GET、没有正文，
-///       所以那边读到第一包就答了）—— 这里必须攒够 `Content-Length` 再回，否则会对着
-///       一份半截的请求体答话，而产品那边读到的是一个"人已经走了"的连接。
+/// 所以那边读到第一包就答了）—— 这里必须攒够 `Content-Length` 再回，否则会对着
+/// 一份半截的请求体答话，而产品那边读到的是一个"人已经走了"的连接。
 struct FakeLookupApi {
     QTcpServer server;
     QByteArray modrinthReply;   ///< `POST /v2/version_files` 的答复正文
-    /// ★ 2026-10-11 加：`POST /v2/version_files/update` 的答复正文（**一个对象**：sha1 →
-    /// 那一版）。更新检测那一路从这一天起走它（见 `UpdateCheckRun::batchItems` 那段）；
-    /// 不给的话那一发就是 404 ⇒ 整批判成"说不清"，而那和"功能没做"在屏幕上是一个样子。
     QByteArray modrinthVersionFilesUpdateReply;
-    /// ★ 2026-10-11 加：`GET {base}/mods/<项目号>/files`（CurseForge 那一家的版本列表）
-    /// 的答复正文。`curseForgeVersionListByMod` 里没有的号走它。
     QByteArray curseForgeVersionListReply;
     /// 按项目号分叉的那一份（同一个手法、同一个理由，见 `modrinthVersionListByProject`）。
     QHash<QString, QByteArray> curseForgeVersionListByMod;
@@ -8083,10 +7946,10 @@ struct FakeLookupApi {
     /// 得出来（那条 `<id>/icon.png` 只是老项目的别名，见 ResourceCatalog 里那段实测）。
     QByteArray modrinthProjectsReply;
     /// `GET /v2/project/<id>/version` 的答复正文（**一个数组**）—— 详情页底下那一份版本列表
-    /// 只有这一发给得出来（2026-09-28 加：开页时"按实例的版本预选、把它的加载器排前面"这件事
+    /// 只有这一发给得出来（ 加：开页时"按实例的版本预选、把它的加载器排前面"这件事
     /// 要**有版本可排**才量得到，一列空表上什么都看不出来）。
     QByteArray modrinthVersionListReply;
-    /// ★ T31 补：**按项目号分叉**的那一份版本列表（项目号 → 答复正文）。
+    /// T31 补：**按项目号分叉**的那一份版本列表（项目号 → 答复正文）。
     ///
     /// 为什么非要它：T31 要在一个假服务器上同时给出"这个模组的版本"和"它那个前置的版本"
     /// —— 两份**不是同一份正文**（前置那一条自己不能又声明一遍前置，不然就递归了）。
@@ -8101,8 +7964,6 @@ struct FakeLookupApi {
     int modrinthProjectsStatus = 200;
     int modrinthVersionListStatus = 200;
     int modrinthVersionFilesUpdateStatus = 200;
-    /// ★ 2026-10-11 加：**把批量那一发的答复压后多少毫秒**（0 = 立刻答）。
-    ///
     /// 为什么需要它：产品那一边"批量那一发"和"一项目一发那一拨"是**并着跑**的，谁先回来
     /// 由网络定。而有一个真出现过的坏法**只在某个次序下才露**：CurseForge 那一拨先回来 ⇒
     /// 整趟被提前收尾 ⇒ 批量那一发回来时已经没人等它了（收尾判据漏了 `pendingBatchKeys`，
@@ -8179,12 +8040,12 @@ struct FakeLookupApi {
         bodies << body;
 
         const bool isModrinth = target.endsWith(QStringLiteral("/version_files"));
-        // ★ `POST /v2/version_files/update`（更新检测那一拨的批量那一发，见上面那段）。
-        //   它**不是** `/version_files` 的尾巴对得上就完事 —— 那个后缀判断对它正好是 false，
-        //   所以两件事分得开。
+        // `POST /v2/version_files/update`（更新检测那一拨的批量那一发，见上面那段）。
+        // 它**不是** `/version_files` 的尾巴对得上就完事 —— 那个后缀判断对它正好是 false，
+        // 所以两件事分得开。
         const bool isModrinthUpdate = target.endsWith(QStringLiteral("/version_files/update"));
         // `GET {base}/mods/<项目号>/files`（CurseForge 的版本列表）。和下面那条 `/mods`
-        //（POST，图标反查要的 `logo`）不是一回事。
+        // （POST，图标反查要的 `logo`）不是一回事。
         const bool isCurseForgeVersionList = target.contains(QStringLiteral("/mods/")) &&
                                              target.contains(QStringLiteral("/files"));
         // `GET /v2/projects?ids=…`（T22 的图标地址）。**带查询串**，所以按"含"认，
@@ -8267,7 +8128,6 @@ struct FakeLookupApi {
             QByteArrayLiteral("\r\nContent-Type: application/json\r\nContent-Length: ") +
             QByteArray::number(payload.size()) +
             QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + payload;
-        // ★ 2026-10-11：**故意把批量那一发压后**（见 `modrinthVersionFilesUpdateDelayMs`）。
         if (isModrinthUpdate && modrinthVersionFilesUpdateDelayMs > 0) {
             QPointer<QTcpSocket> guard(socket);
             QTimer::singleShot(modrinthVersionFilesUpdateDelayMs, &server, [guard, response]() {
@@ -8387,7 +8247,7 @@ static void runModpackExportTests() {
     writeFileAt(dirB + QStringLiteral("/mods/nobody.jar"), QByteArrayLiteral("nothing known"));
 
     // idP：**PCL 那种"整份 json 都合进实例目录"的实例** —— 真机上绝大多数实例都是这个形状，
-    // 2026-09-26 用户撞的那句「导出失败：读不出 海波篮子 基于哪个原版」就是它。它的目录名
+    // 用户撞的那句「导出失败：读不出 海波篮子 基于哪个原版」就是它。它的目录名
     // 不像版本号、那份 json 里也没有 inheritsFrom，所以"基于哪个原版"和"装的什么加载器"
     // **只有那份 json 自己说得出来**（clientVersion + libraries）。这条夹具的作用就是让
     // 这一点一路验到清单上。
@@ -8490,7 +8350,7 @@ static void runModpackExportTests() {
             answerer.start();
             QMetaObject::invokeMethod(&w, "exportModpack", Qt::DirectConnection,
                                       Q_ARG(QString, id), Q_ARG(QString, path));
-            // Export planning and archive writing run in worker threads.  Keep
+            // Export planning and archive writing run in worker threads. Keep
             // pumping the GUI loop until every scripted prompt (including the
             // terminal success/error message) has actually been handled.
             QElapsedTimer wait;
@@ -8551,11 +8411,6 @@ static void runModpackExportTests() {
                   "★ T21.1 报告里的那几个数是**照实报的**：问了 3 个、认出来 1 个、"
                   "其余 3 个（两个认不出的 + 一个配置）原样进包",
                   report.left(120));
-            // ★ 2026-09-27（第 5 轮审计那一条）：这个数从 **3 变成 5** —— 从前只数"被排除
-            //   表直接拦下来的文件"（wtfml.meta + 版本 jar + 版本 json = 3），被排掉的
-            //   **目录里面**的东西一个都不数（logs/latest.log 与 saves/world/level.dat
-            //   就是那 2 个）。于是那句话几乎永远是「共 0 个文件」，而这个数的全部意义
-            //   正是让用户知道"少了多少东西" —— 真实例里 saves/ 一个目录就是三百个文件。
             check(report.contains(QStringLiteral("没进包：logs、saves（共 5 个文件）")),
                   "★ T21.1 被排掉的目录照实说出来（存档和截图是用户自己的东西，"
                   "打进包里会盖掉收包那个人的），而且数的是**连目录里面一起**多少文件",
@@ -8675,10 +8530,10 @@ static void runModpackExportTests() {
                 QJsonDocument::fromJson(cfBody).object().value(QStringLiteral("fingerprints")).toArray();
             bool sentOk = sent.size() == 3;
             for (const QJsonValue &value : sent) {
-                // ★ 2026-09-27：**数字**，不是字符串。这一条从前写的是 `value.isString()`
-                //   —— 而字符串那一支实测回 400（`invalid type: string "…"，expected i64`），
-                //   于是 CurseForge 那边**一条都认不出来**、还不吭声（唯一会说话的是 400
-                //   的正文）。见 ModpackExport.cpp 里 curseForgeFingerprintsRequestBody()。
+                // **数字**，不是字符串。这一条从前写的是 `value.isString()`
+                // —— 而字符串那一支实测回 400（`invalid type: string "…"，expected i64`），
+                // 于是 CurseForge 那边**一条都认不出来**、还不吭声（唯一会说话的是 400
+                // 的正文）。见 ModpackExport.cpp 里 curseForgeFingerprintsRequestBody()。
                 sentOk = sentOk && value.isDouble();
             }
             check(sentOk && cfBody.contains(QByteArray::number(fingerprintKnown)),
@@ -8902,27 +8757,22 @@ static void runModpackExportTests() {
 // ---------------------------------------------------------------------------
 // T22. 「文件管理」那几页的图标：按文件哈希反查出"这是哪个资源"（离线，假接口）
 //
-// 用户 2026-09-27 原话：「模组和资源包等都有一个图标，把图标显示出来」。这一节钉的是
+// 要求：「模组和资源包等都有一个图标，把图标显示出来」。这一节钉的是
 // **反查那一半**：盘上那个文件名**不是身份**（用户改过名、各家起名不一样、同一个资源
 // 两版的名字可以完全不同），能把它和一个资源对上的只有**文件内容** —— sha1 问
 // Modrinth（`POST /v2/version_files`）、指纹问 CurseForge（`POST /v1/fingerprints`），
 // 再拿项目号去 `POST /v1/mods` 换 `logo` 那两条地址。
 //
-// ★ 这一节唯一值钱的地方是**发出去的正文是不是真算出来的**：哈希算错了（少读一趟、
-//   指纹初值不对、拿文件名去凑），症状是"图标永远是那张占位拼图"，不报任何错、屏幕上
-//   也看不出来。所以假服务器**按收到的正文答话**，而断言里对着的是 `ModpackExport::
-//   hashFile()` 独立算出来的那两份值（它是导出整合包那条路在用的同一份实现）。
+// 这一节唯一值钱的地方是**发出去的正文是不是真算出来的**：哈希算错了（少读一趟、
+// 指纹初值不对、拿文件名去凑），症状是"图标永远是那张占位拼图"，不报任何错、屏幕上
+// 也看不出来。所以假服务器**按收到的正文答话**，而断言里对着的是 `ModpackExport::
+// hashFile()` 独立算出来的那两份值（它是导出整合包那条路在用的同一份实现）。
 //
 // 【为什么量到"身份"为止，不量屏幕上那张图】
 //
-// 拿到身份之后 MainWindow 还要去 `cdn.modrinth.com` / `media.forgecdn.net` 取那张图
-// （那两个地址是写死的、没有口子）—— 离线的机器上必然取不到，于是"认出来了但没图"和
-// "根本没认出来"在屏幕上长得一模一样，什么都断言不出来。**屏幕那一半**（换上去、
-// 「刷新」之后还在、空图退回占位）在 ui_check 的 U10 段里用一张造出来的图量。
+// 【★ 补的那一发：图标地址】
 //
-// 【★ 2026-09-27 补的那一发：图标地址】
-//
-// 用户原话「模组的图标没有正确加载」—— 根子是"Modrinth 那两支反查都给不出图标地址，
+// 要求「模组的图标没有正确加载」—— 根子是"Modrinth 那两支反查都给不出图标地址，
 // 于是退回 `Hit::iconPngUrl()` 自己拼的 `<id>/icon.png`"，而那条只是**老项目的别名**
 // （实测 20 个模组里 11 个回 404）。真正的地址在带哈希的文件名底下，只有接口说得出来，
 // 所以现在认出来之后**多发一发** `GET /v2/projects?ids=…`（④b 量它的形状与正文，
@@ -9011,13 +8861,13 @@ static void runInstanceIconLookupTests() {
                           "238/222/256/256.jpeg\","
                           "\"url\":\"https://media.forgecdn.net/avatars/238/222/t.png\"}}]}");
     // Modrinth 那一支**还要多问一发**才拿得到图标地址（`GET /v2/projects?ids=…`，答复是
-    // 一个数组）。这一条正是 2026-09-27 修的那个 bug 的落点：`<id>/icon.png` 那条自己拼的
+    // 一个数组）。这一条正是 修的那个 bug 的落点：`<id>/icon.png` 那条自己拼的
     // 地址只是**老项目的别名**，回 404 的项目一个图标都画不出来。
     //
-    // ★ 同一天又补一半：这一份回复里**本来就有**名字 / slug / 简介 / 支持的游戏版本，
-    //   从前只读 `icon_url` 那一栏、其余全丢了。现在「点名字进它自己的那一页」要的就是
-    //   那几样（见 `Found::hit`），所以下面几条断言开始盯它们 —— 它们和图标走的是
-    //   **同一份字节**，少读一栏的症状不是"没反应"而是那一页顶着一个空标题。
+    // 同一天又补一半：这一份回复里**本来就有**名字 / slug / 简介 / 支持的游戏版本，
+    // 从前只读 `icon_url` 那一栏、其余全丢了。现在「点名字进它自己的那一页」要的就是
+    // 那几样（见 `Found::hit`），所以下面几条断言开始盯它们 —— 它们和图标走的是
+    // **同一份字节**，少读一栏的症状不是"没反应"而是那一页顶着一个空标题。
     api.modrinthProjectsReply =
         QByteArrayLiteral("[{\"id\":\"AANobbMI\",\"icon_url\":\"https://cdn.modrinth.com/data/"
                           "AANobbMI/295862f4724dc3f78df3447ad6072b2dcd3ef0c9_96.webp\","
@@ -9083,10 +8933,6 @@ static void runInstanceIconLookupTests() {
         } else if (line.contains(QStringLiteral("/fingerprints"))) {
             sawFingerprints = true;
             for (const QJsonValue &value : body.value(QStringLiteral("fingerprints")).toArray()) {
-                // ★ 2026-09-27：那一格是 **JSON 数字**（int64）。从前这里是 `value.toString()`
-                //   —— 而字符串那一支实测回 400（`invalid type: string "…"，expected i64`），
-                //   于是 CurseForge 那边一条都认不出来、而且**一声不响**。指纹是 32 位无符号，
-                //   塞进 double 一位都不丢，取回来照原样比。
                 seenFingerprintValue = true;
                 fingerprintsAllNumeric = fingerprintsAllNumeric && value.isDouble();
                 sentFingerprints.insert(QString::number(
@@ -9099,9 +8945,9 @@ static void runInstanceIconLookupTests() {
     check(sawModrinth && sawFingerprints && sawMods,
           "★ T22.2 三条路各问了一发（sha1 → Modrinth、指纹 → CurseForge、项目号 → logo）",
           QStringLiteral("requests=%1").arg(api.requests.join(QStringLiteral(" | "))));
-    // ★ 两个来源都收**全部三个**：这一层在算哈希之前并不知道哪个文件属于哪个来源
-    //   （`sodium.jar` 和 `材质.zip` 长得一样都是个压缩包），所以每个候选都两样都发一遍
-    //   —— 那边不认就不认，代价是一发里多带几个哈希，比"猜错了来源就永远认不出来"划算。
+    // 两个来源都收**全部三个**：这一层在算哈希之前并不知道哪个文件属于哪个来源
+    // （`sodium.jar` 和 `材质.zip` 长得一样都是个压缩包），所以每个候选都两样都发一遍
+    // —— 那边不认就不认，代价是一发里多带几个哈希，比"猜错了来源就永远认不出来"划算。
     check(sentSha1 == QSet<QString>({hMod.sha1, hOff.sha1, hRes.sha1}),
           "★★ T22.2 发给 Modrinth 的那三个 sha1 就是**这三个文件真算出来的那三个**"
           "（算错一个的症状是这一个文件永远只有占位图，而屏幕上一点异常都没有）",
@@ -9153,11 +8999,6 @@ static void runInstanceIconLookupTests() {
           "少了它们，那一条就只能画占位图（那边拼不出地址来，见 Hit::iconPngUrl）",
           fRes.hit.iconUrl);
 
-    // ★★ 2026-09-27 新增：反查回来的**不只是身份与图标**，还有那个项目的名字 / slug /
-    //    简介 / 支持的游戏版本 —— 也就是"点名字进它自己的那一页"要的那几样（用户原话：
-    //    「除了模组以外的几个都是点击模组名称自动进入下载界面（前提是匹配上了）」）。
-    //    它们和图标地址**在同一份字节里**（见 parseProjects），少读一栏的症状不是"没反应"
-    //    而是那一页顶着一个空标题 —— 所以这一条盯的就是"那几栏真的读进去了"。
     check(fMod.hit.title == QStringLiteral("Sodium") &&
               fMod.hit.slug == QStringLiteral("sodium") &&
               fMod.hit.description == QStringLiteral("渲染优化") &&
@@ -9182,15 +9023,15 @@ static void runInstanceIconLookupTests() {
           QStringLiteral("title=%1 slug=%2 gv=%3")
               .arg(fRes.hit.title, fRes.hit.slug,
                    fRes.hit.gameVersions.join(QStringLiteral(","))));
-    // ★★ 2026-09-27 更正：这里原来断言的是"Modrinth 那两条图标地址**故意留空**"（兜底由
-    //    `Hit::iconPngUrl()` 按项目号自己拼）。**那个假设是错的** —— 拼出来的
-    //    `cdn.modrinth.com/data/<id>/icon.png` 只是"图标当年就叫 icon.png"那批**老项目的
-    //    别名**：拿用户真实 `mods/` 里 20 个模组一个一个要过，11 个回 404（FerriteCore /
-    //    Fabric Language Kotlin / Carpet / Fabric Permissions API / ArmorQuickSwap …）。
-    //    症状就是用户报的那句「模组的图标没有正确加载」—— 一页模组里绝大多数只有占位拼图，
-    //    而且**屏幕上一点异常都没有**（那一发 404 被当成"这个项目没传过图标"，那本来是
-    //    完全正常的一件事）。真正那条地址在带哈希的文件名底下，除了接口没人说得出来，
-    //    所以现在多问一发 `GET /v2/projects?ids=…`（见 T22.4b）。
+    // 更正：这里原来断言的是"Modrinth 那两条图标地址**故意留空**"（兜底由
+    // `Hit::iconPngUrl()` 按项目号自己拼）。**那个假设是错的** —— 拼出来的
+    // `cdn.modrinth.com/data/<id>/icon.png` 只是"图标当年就叫 icon.png"那批**老项目的
+    // 别名**：拿用户真实 `mods/` 里 20 个模组一个一个要过，11 个回 404（FerriteCore /
+    // Fabric Language Kotlin / Carpet / Fabric Permissions API / ArmorQuickSwap …）。
+    // 症状就是用户报的那句「模组的图标没有正确加载」—— 一页模组里绝大多数只有占位拼图，
+    // 而且**屏幕上一点异常都没有**（那一发 404 被当成"这个项目没传过图标"，那本来是
+    // 完全正常的一件事）。真正那条地址在带哈希的文件名底下，除了接口没人说得出来，
+    // 所以现在多问一发 `GET /v2/projects?ids=…`（见 T22.4b）。
     //
     // 兜底那一条（`iconFallbackUrl`）**照旧空着** —— 它仍然是 `Hit::iconPngUrl()` 的事，
     // 在这里也填一份就是第二处出处。
@@ -9208,7 +9049,7 @@ static void runInstanceIconLookupTests() {
     //
     // 三样都要对：**发的是 GET**（发成 POST 的话接口回 405，而屏幕上只是"没图"）、
     // 地址上带的是**刚认出来的那几个项目号**（不多不少）、同一个号**只出现一次**
-    //（`pathsBySha1` 是"哈希 → 路径表"，见下面那一段）。
+    // （`pathsBySha1` 是"哈希 → 路径表"，见下面那一段）。
     QString projectsLine;
     for (int i = beforeMain; i < api.requests.size(); ++i) {
         const QString line = api.requests.at(i);
@@ -9227,10 +9068,10 @@ static void runInstanceIconLookupTests() {
         const QUrl projectsUrl(projectsLine.split(QLatin1Char(' ')).value(1));
         projectsAskedAsGet = projectsUrl.path() == QStringLiteral("/v2/projects");
         const QJsonArray ids =
-            // ★ 必须显式给 `FullyDecoded`：`QUrlQuery::queryItemValue` 默认是
-            //   `PrettyDecoded`，而 `[` `"` `,` 这几个**不属于"好看"的那一批**，会被原样
-            //   留着（实测拿到的是字面 `%5B%22AANobbMI%22…`）—— 拿去 `fromJson` 只会得到
-            //   一个空数组，于是"发出去的号"永远看着是空的。
+            // 必须显式给 `FullyDecoded`：`QUrlQuery::queryItemValue` 默认是
+            // `PrettyDecoded`，而 `[` `"` `,` 这几个**不属于"好看"的那一批**，会被原样
+            // 留着（实测拿到的是字面 `%5B%22AANobbMI%22…`）—— 拿去 `fromJson` 只会得到
+            // 一个空数组，于是"发出去的号"永远看着是空的。
             QJsonDocument::fromJson(QUrlQuery(projectsUrl)
                                         .queryItemValue(QStringLiteral("ids"),
                                                         QUrl::FullyDecoded)
@@ -9316,8 +9157,6 @@ static void runInstanceIconLookupTests() {
     check(broken.problem.contains(QStringLiteral("500")),
           "T22.5 那句话里带着状态码（写给日志的那一句）", broken.problem);
 
-    // ★ 2026-09-27 新增：**图标地址那一发**挂了（身份都认出来了，缺的只是图）。
-    //
     // 判据是"iconProblem 立起来、problem 照旧空"。两者混在一起的代价见
     // `Result::iconProblem`：写进 problem 会让接的人把**没认出来的那些**也留着不记负缓存，
     // 于是用户每开一次这一页就把几十兆 jar 从头重读重算一遍，换来的只是"图标可能来了"。
@@ -9335,9 +9174,9 @@ static void runInstanceIconLookupTests() {
           QStringLiteral("found=%1 iconUrl=%2")
               .arg(noIcon.found.size())
               .arg(noIcon.found.isEmpty() ? QString() : noIcon.found.first().hit.iconUrl));
-    // ★ 同一趟里**名字也一起没了**（那一发就是唯一给名字的地方）⇒ 那两个文件的名字点不动。
-    //   这是正确的界面（不是降级）：名字空着的时候那一行照旧只是一行字，点上去什么都不会
-    //   发生（见 InstanceFilesPage::setResourceForPath 的空 tip 那一支）。
+    // 同一趟里**名字也一起没了**（那一发就是唯一给名字的地方）⇒ 那两个文件的名字点不动。
+    // 这是正确的界面（不是降级）：名字空着的时候那一行照旧只是一行字，点上去什么都不会
+    // 发生（见 InstanceFilesPage::setResourceForPath 的空 tip 那一支）。
     check(noIcon.found.first().hit.title.isEmpty(),
           "★ T22.5 那一发没成时**名字也是空的** ⇒ 那一行的名字不该变成链接"
           "（点一下开一页空标题比点不动糟）",
@@ -9357,10 +9196,10 @@ static void runInstanceIconLookupTests() {
 
     // ---------- ⑥ 盘上留一份：同一批文件不查第二遍 ----------
     //
-    // ★★ 2026-10-10（用户原话：「模组图标做本地缓存功能，不要每次都拉取」）。
-    //   量的是**这一趟真的算出/问出多少个文件**（`hashed`）和**发出去的请求条数**：
-    //   第二趟该是 0 和 0 —— 全在盘上那份里，`lookupNetwork()` 那一趟**压根不该被调起来**
-    //   （不是"调了但它快"）。少了这一条，"每次都拉取"那个毛病可以原样回来而全绿。
+    // （要求：「模组图标做本地缓存功能，不要每次都拉取」）。
+    // 量的是**这一趟真的算出/问出多少个文件**（`hashed`）和**发出去的请求条数**：
+    // 第二趟该是 0 和 0 —— 全在盘上那份里，`lookupNetwork()` 那一趟**压根不该被调起来**
+    // （不是"调了但它快"）。少了这一条，"每次都拉取"那个毛病可以原样回来而全绿。
     {
         InstanceIconLookup::Options cached = options;
         cached.cacheDir = AppPaths::instanceIconCacheDir();
@@ -9473,16 +9312,12 @@ static void runInstanceIconLookupTests() {
 // ---------------------------------------------------------------------------
 // T23. 服务器那点东西落盘（`cache/servers/<地址 sha1>.json`）
 //
-// 用户 2026-09-27 原话：「测出来的 motd 和图案保留在缓存里」。这一节钉的是**那几个字节
+// 要求：「测出来的 motd 和图案保留在缓存里」。这一节钉的是**那几个字节
 // 来回一趟不走样** —— 一次测速要真的连上去（每台最多几秒超时），服务器列表又是"每次
 // 打开实例设置都会看见"的一页；缓存读歪了的症状是"那一页上一次明明问到过、这次又是
 // 一片空白"，不报任何错。
 //
 // 【最值钱的一条：`-1` 那个哨兵】
-//
-// "服务器没说人数"存的是 `-1`，而状态那一列按 `-1` 才决定**不写人数那一截**（见
-// ui_check U10L 那一组）。读写任何一头把它变成 `0` 的话，一台"没说人数"的服务器会在屏幕上
-// 显示成「0/0 人」—— 那是**一句假话**，而且看着完全正常。
 //
 // 【为什么在这里而不是 verify】
 //
@@ -9604,9 +9439,9 @@ static void runServerStatusCacheTests() {
               .arg(againBack.iconPng.size())
               .arg(againBack.latencyMs));
 
-    // ---------- ⑤b 「上次是超时」这一位（2026-09-27 补）----------
+    // ---------- ⑤b 「上次是超时」这一位（ 补）----------
     //
-    // 用户原话：「服务器那个会显示上次:没连上，也改成超时」，稍后又「‘上次’两个字也不要」。
+    // 要求：「服务器那个会显示上次:没连上，也改成超时」，稍后又「‘上次’两个字也不要」。
     // 界面上那一格里"超时"和"没连上"是**两件事**（同一台服务器换个端口就从前者变成后者），
     // 而且现在连前缀都没有了 ⇒ 这一位必须**落盘**：不存的话，下次开这一页只能写「没连上」。
     ServerStatusCache::Entry timedOutEntry;
@@ -9657,16 +9492,11 @@ static void runServerStatusCacheTests() {
 // （纯函数 + 真 JAR），这里验的是它有没有接到屏幕上：选中哪个版本、右栏画的是哪张、
 // 底栏那句话说的是哪一档、换版本时会不会跟着换。
 //
-// 真值表来自本机 JVM（和 ZF 段同一份小程序）：名字 DefSkin 的离线 uuid 是
-// 0390367a68eb3d78899dcaa9fecb06e9、hashCode 472762178 —— 新规矩 18 元表里第 8 个
-// （slim/zuri，**窄**模型），老规矩是 hash 偶数 → steve（**宽**模型）。两套规矩给出的
-// 模型正好相反，所以拿这一个账号就能验出"换版本连模型一起换"，不必摆两个账号。
-//
 // 四个假版本各管一条路（都在临时根目录里，跑完随根目录一起消失）：
-//   1.20.1-defskin  新规矩那条在 → 算得出来
-//   1.18.2-defskin  只有老规矩那条在 → 换一套规矩也算得出来
-//   1.19.9-noskin   两条都不在 → **常态**：退回随机那张
-//   1.7.10-broken   jar 根本不是 zip（第三方安装器的薄壳那种）→ 记一行日志再退回随机
+// 1.20.1-defskin 新规矩那条在 → 算得出来
+// 1.18.2-defskin 只有老规矩那条在 → 换一套规矩也算得出来
+// 1.19.9-noskin 两条都不在 → **常态**：退回随机那张
+// 1.7.10-broken jar 根本不是 zip（第三方安装器的薄壳那种）→ 记一行日志再退回随机
 // ---------------------------------------------------------------------------
 static void runOfflineDefaultSkinTests() {
     const QString originalDir = AppPaths::minecraftDir();
@@ -9909,14 +9739,14 @@ static void runOfflineDefaultSkinTests() {
 // ---------------------------------------------------------------------------
 // AH. 底栏那两块上拉面板：左「正在跑的实例」/ 右「最近登录的三个账户」
 // ---------------------------------------------------------------------------
-// 这一节的判据全部来自用户 2026-09-24 那两句话：
-//   「一行一个会话，有时长是好主意，做进去」—— 左面板**一份会话一行**（不是"一个实例
-//     一行"：同一个实例开两份就是两行），行首那个方块按这条实例的分类给，行尾两颗按钮
-//     （电源 = 关掉**这一份**、齿轮 = 进**这一行那个实例**的设置），第二行写它跑了多久；
-//   「最后登录的三个账户就拿缓存放（包含离线和正版，总共三个）」—— 右面板读的是账号列表
-//     那条缓存（AccountStore::accounts()），按 saved_at 倒序取三个，离线那颗写「选择」、
-//     正版写「登录」；而「登录」的意思比"切过去"多一步：**看一眼盘上那张令牌够不够用**
-//     （剩不到 6 小时就顺手换一张，见 AuthManager::tokenRefreshWindowSecs）。
+// 这一节的判据全部来自用户 那两句话：
+// 「一行一个会话，有时长是好主意，做进去」—— 左面板**一份会话一行**（不是"一个实例
+// 一行"：同一个实例开两份就是两行），行首那个方块按这条实例的分类给，行尾两颗按钮
+// （电源 = 关掉**这一份**、齿轮 = 进**这一行那个实例**的设置），第二行写它跑了多久；
+// 「最后登录的三个账户就拿缓存放（包含离线和正版，总共三个）」—— 右面板读的是账号列表
+// 那条缓存（AccountStore::accounts()），按 saved_at 倒序取三个，离线那颗写「选择」、
+// 正版写「登录」；而「登录」的意思比"切过去"多一步：**看一眼盘上那张令牌够不够用**
+// （剩不到 6 小时就顺手换一张，见 AuthManager::tokenRefreshWindowSecs）。
 //
 // 【这一节为什么要真起会话，以及"假 java"是什么】
 //
@@ -9927,8 +9757,8 @@ static void runOfflineDefaultSkinTests() {
 // 真起来、真 kill、handleProcessFinished 真收会话。
 //
 // NOTE: 正因为 holder 就是 mw_check.exe 自己，**这一节的每一份会话都必须停掉**：活着的
-//       holder 会把这个 exe 文件锁住，下一次构建直接写不进去（而且一锁四分钟）。所以
-//       下面每一段都成对（起了几份就停几份），收尾那一段还会再数一遍。
+// holder 会把这个 exe 文件锁住，下一次构建直接写不进去（而且一锁四分钟）。所以
+// 下面每一段都成对（起了几份就停几份），收尾那一段还会再数一遍。
 //
 // 全程**不联网**：三份会话是本地进程；右面板那三个账号里，两个的令牌够用（Bob 那张到
 // 2999 年）、一个的凭据根本换不出新令牌（Carol 那份微软 payload 里**没有 refresh_token**，
@@ -10051,7 +9881,7 @@ static void runBottomBarPanelTests() {
           "AH0 加一个离线账号 Alex 并切过去（当前身份 = 离线账号）", offlineError);
 
     // 再按上面那套时间把整份列表重写一遍。**顺序是刻意的**：saved_at 最新的是 Bob
-    // （手写的 2026-12-31，故意不用"现在"——这样"最近三个"这条判据跟测试机器上的时钟
+    // （手写的 ，故意不用"现在"——这样"最近三个"这条判据跟测试机器上的时钟
     // 一点关系都没有），然后是 Carol / Alex / Steve / Alice。于是右面板该出的是
     // Bob、Carol、Alex 这三行，Alice 和 Steve 不出现。
     {
@@ -10098,12 +9928,6 @@ static void runBottomBarPanelTests() {
     QApplication::processEvents();
     QPushButton *instancesButton =
         byObjectName<QPushButton>(&w, MainWindowUI::runStateButtonName());
-    // ★ 2026-10-16：账号那块的锚点**换成了主页右上那张账号卡片**（用户原话：「这个的
-    //   对应功能继承到右上角那个按钮去」）—— 底栏那颗账号按钮已经 `hide()`、不再进布局，
-    //   点它一下什么都不发生（它上面没有接线了）。所以下面所有 `openPanel(accountsButton)`
-    //   量到的都是"点卡片开的那一块"，而**不是**"点底栏那颗开的"。
-    //   NOTE: 用 objectName 找卡片（`accountSkinButtonName()`），不直接拿 `getAccountSkinButton()`
-    //         —— 和左右两颗一样都从窗口这棵树上找，找得到就说明它真在窗口里。
     QPushButton *accountsButton =
         byObjectName<QPushButton>(&w, MainWindowUI::accountSkinButtonName());
     LauncherManager *manager = w.findChild<LauncherManager *>();
@@ -10115,19 +9939,15 @@ static void runBottomBarPanelTests() {
     // 面板每次点开都是**新的一个**（关掉就 deleteLater），所以每开一次都重新捞一遍。
     //
     // NOTE: 开之前先把已经开着的那块收掉。那两颗按钮是**开关**（点同一颗 = 收回，见
-    //       MainWindowUI 里 togglePanel 那段），开着的时候再点一下是"只收不开" ——
-    //       不收掉就点，捞回来的是那块正在被删的旧面板（findChild 在本轮里还找得到它，
-    //       下一轮就是空的），断言会红在一个和产品无关的地方。
+    // MainWindowUI 里 togglePanel 那段），开着的时候再点一下是"只收不开" ——
+    // 不收掉就点，捞回来的是那块正在被删的旧面板（findChild 在本轮里还找得到它，
+    // 下一轮就是空的），断言会红在一个和产品无关的地方。
     const auto openPanel = [&](QPushButton *button) -> QWidget * {
         if (QWidget *open = w.findChild<QWidget *>(MainWindowUI::bottomBarPanelName())) {
             open->close();
             QApplication::processEvents();
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         }
-        // ★ 先让主窗口成为活动窗口：那块面板是 Qt::Popup，**应用不在前台时 Qt 会立刻
-        //   把它收掉**。真用户点之前鼠标已经激活了窗口，而这里的 `click()` 是程序化发的 ——
-        //   少了这一句，别的窗口一抢焦点，AH2 的「点出了左面板」就会偶发红（2026-10-19
-        //   实测跑出一遍）。
         w.raise();
         w.activateWindow();
         QApplication::processEvents();
@@ -10165,9 +9985,9 @@ static void runBottomBarPanelTests() {
     // 按行标题找那一行（找不到 -1）。
     //
     // NOTE: 从 AH11 起，"第 0 行是谁"就不再由 AH7 那套 fixture 决定了 —— AH11 刻意把账号
-    //       列表**整个换掉**（它要造一个"副本不完整"的项，那一项还得排在前面）。写死下标的
-    //       那条断言就是这么红的：点的是"第 0 行"，落到了 Dave 身上，报出来却像"登出没生效"。
-    //       凡是要点某一个具体账号的行，一律先按名字找行号。
+    // 列表**整个换掉**（它要造一个"副本不完整"的项，那一项还得排在前面）。写死下标的
+    // 那条断言就是这么红的：点的是"第 0 行"，落到了 Dave 身上，报出来却像"登出没生效"。
+    // 凡是要点某一个具体账号的行，一律先按名字找行号。
     const auto rowIndexOf = [&rowTitle](QWidget *panel, const QString &title) {
         for (int row = 0; row < 16; ++row) {
             if (rowTitle(panel, row) == title) {
@@ -10211,15 +10031,15 @@ static void runBottomBarPanelTests() {
         // 先让底栏**重画一次**再断言"点得开"。
         //
         // NOTE: 这一步是必须的：AH1 那三份会话是**直接调 manager->startGame() 起的**，
-        //       绕过了 MainWindow 这条启动路 —— MainWindow 只连了 LauncherManager 的
-        //       processOutput / processError / gameFinished 三条信号（见 setupConnections()），
-        //       **没有「会话开始了」这一条**。所以"有会话在跑"这件事本身不会让底栏重画，
-        //       左下那一格的点开状态还停在"上一回算出来的那一档"。AH6 那条要量的正是
-        //       "产品算出来了没有"，所以这里得先走一遍真路（扳机见 repaintBottomBar()，
-        //       它一行状态都不改）。
+        // 绕过了 MainWindow 这条启动路 —— MainWindow 只连了 LauncherManager 的
+        // processOutput / processError / gameFinished 三条信号（见 setupConnections()），
+        // **没有「会话开始了」这一条**。所以"有会话在跑"这件事本身不会让底栏重画，
+        // 左下那一格的点开状态还停在"上一回算出来的那一档"。AH6 那条要量的正是
+        // "产品算出来了没有"，所以这里得先走一遍真路（扳机见 repaintBottomBar()，
+        // 它一行状态都不改）。
         repaintBottomBar(&w);
 
-        // 再钉一句"有会话在跑时那一格是点得开的"（2026-09-25 加的那条判据的另一半）：
+        // 再钉一句"有会话在跑时那一格是点得开的"（ 加的那条判据的另一半）：
         // 会话是**直接调 manager->startGame() 起的**，所以这句同时是"产品真的在那条路上
         // 重画过底栏"的证人 —— 少了它，下面 AH6 那条"停光了点不开"改成"永远点不开"
         // 也能绿。
@@ -10254,8 +10074,6 @@ static void runBottomBarPanelTests() {
             check(panel->findChild<QLabel *>(MainWindowUI::bottomBarPanelRowTitleName(3)) ==
                       nullptr,
                   "AH2 不会有第四行（行数按 runningGames() 来，不是写死的）");
-            // 那句"跑了多久"：三份是同一分钟里起来的，所以三行该是同一句话，而且
-            // 一定是"不到 1 分钟"那一档（刚起来）。四档话术本身在 ui_check 的 I4 量。
             const QString fresh = MainWindowUI::runningDurationText(
                 QDateTime::currentMSecsSinceEpoch(), QDateTime::currentMSecsSinceEpoch());
             check(rowSubtitle(panel, 0) == rowSubtitle(panel, 1) &&
@@ -10285,7 +10103,7 @@ static void runBottomBarPanelTests() {
             check(missing == 0,
                   "AH2 每一行行尾都有那两颗图标按钮（电源/齿轮，各带一句 tooltip）",
                   QStringLiteral("不合格 %1 颗").arg(missing));
-            // 第三颗（2026-10-14 加的那颗「日志」）：**字的**、带 tooltip、三行都有。
+            // 第三颗（ 加的那颗「日志」）：**字的**、带 tooltip、三行都有。
             // 和上面那两颗的判据正好相反（那两颗不许有 text，这颗不许有 icon）——
             // 合起来钉的是"PanelAction 的两种形态各走各的那一支"。
             int textMissing = 0;
@@ -10329,11 +10147,11 @@ static void runBottomBarPanelTests() {
     }
 
     // ---- AH3b 第三颗「日志」：点一下就把**这一行那份会话**的日志窗开出来 ----
-    // 2026-10-14 加（coding plan §3.3「运行中实例弹层优先展示实例名、运行时长和
+    // 加（coding plan §3.3「运行中实例弹层优先展示实例名、运行时长和
     // 『打开日志/停止』等可用动作」）。这一颗走的是**另一条路**：`openGameLogForSession()`
     // —— "用户点名要看"，它必须能跨过两道闸：
-    //   · 「显示游戏日志」那个开关（默认是**关**的：它拦的是"自动冒出来的窗"）；
-    //   · `m_gameLogDismissedSessions`（用户关过这一扇就不再自动开）。
+    // · 「显示游戏日志」那个开关（默认是**关**的：它拦的是"自动冒出来的窗"）；
+    // · `m_gameLogDismissedSessions`（用户关过这一扇就不再自动开）。
     // 所以这一节四段：① 点一下开出一扇（而且那时候盘上这个开关确实是关的）；
     // ② 同一个会话再点一下还是那一扇（抬到前面，不重开）；③ 用户关掉它、再点 → **又开
     // 出来**（"关过就不再开"那条闸对点名要看的那一发不成立）；④ 收尾关掉。
@@ -10352,8 +10170,6 @@ static void runBottomBarPanelTests() {
                 left->close();
             }
             QApplication::processEvents();
-            // WA_DeleteOnClose 走的是 deleteLater，不推这一下"关了"和"没了"分不开
-            // （ui_check I4 收尾那两处同一个路数）。
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             QApplication::processEvents();
         };
@@ -10408,8 +10224,8 @@ static void runBottomBarPanelTests() {
             }
 
             // ③ 用户把它关了（= 走 finished，记进"关过就不再自动开"），再点「日志」——
-            //    必须**又开出来**。这一条是"点名要看"和"自动冒出来"两条路的**分界**：
-            //    少了它，把 openGameLogForSession 写成"照 showGameLogLine 那套闸走"也绿。
+            // 必须**又开出来**。这一条是"点名要看"和"自动冒出来"两条路的**分界**：
+            // 少了它，把 openGameLogForSession 写成"照 showGameLogLine 那套闸走"也绿。
             dropLogWindows();
             check(logWindowsNow().isEmpty(), "AH3b 用户把那一扇关掉了（关掉就销毁）");
             QWidget *panelThird = openPanel(instancesButton);
@@ -10487,17 +10303,12 @@ static void runBottomBarPanelTests() {
               QString::number(manager->runningGames().size()));
     }
 
-    // ---- AH6 一份都没在跑：左下那一格**点不开**（2026-09-25 用户原话：「没有运行中的
-    //      实例时让那个实例栏点不开，箭头隐藏」）----
+    // ---- AH6 一份都没在跑：左下那一格**点不开**（ 要求：「没有运行中的
+    // 实例时让那个实例栏点不开，箭头隐藏」）----
     //
     // 上面 AH2 量的是另一半（有会话时点得开、箭头在），两条合起来才是"它会**变**"的证人。
     // 这一步的触发走的是**真产品路径**：AH5 用面板上那颗电源停了最后一份 → LauncherManager
     // 发 gameFinished → MainWindow 重画底栏 → setRunPanelAvailable(false)。
-    //
-    // NOTE: 面板"一份都没有"时摆的那块说明（bottomBarPanelNoRunningTitle / Note）在这里
-    //       量不到了 —— 点不开就没人会把它摆出来（那两句现在是**看不到的**兜底）。那两句
-    //       的排版归 ui_check 量：那边直接喂一个空 provider 给 setBottomBarPanelContent()，
-    //       见 I4 那一段。
     {
         QLabel *ah6Chevron = instancesButton != nullptr
                                  ? instancesButton->findChild<QLabel *>(
@@ -10551,17 +10362,17 @@ static void runBottomBarPanelTests() {
                   "AH7 每一行第二句说的是「这是个什么账号」（离线那行写「离线账号」）",
                   QStringLiteral("[%1] [%2] [%3]")
                       .arg(rowSubtitle(panel, 0), rowSubtitle(panel, 1), rowSubtitle(panel, 2)));
-            // ---- AH7b 行首那张脸（2026-09-25 用户原话：「在右下角那个上拉框里名字左边
-            //      加一个头像（因为选择/登录过，所以肯定会有缓存，应该不会遇到丢失的情况）」）----
+            // ---- AH7b 行首那张脸（ 要求：「在右下角那个上拉框里名字左边
+            // 加一个头像（因为选择/登录过，所以肯定会有缓存，应该不会遇到丢失的情况）」）----
             //
             // 这一条**只认缓存**：点开面板不许联网、不许换令牌、也不许读客户端 JAR
             // （读 JAR 要起一次 PowerShell，几百毫秒挂在"点开"这一下上是不行的，见
             // accountFacePixmap() 那段）。所以三行都得当场有图，而且三张图分别是谁，
             // 下面这几条各钉一处：
-            //   · 当前账号（Alex）那一行必须**就是底栏那颗头像**缩下来的 —— 同一个窗口里
-            //     同一个人不可能有两张脸（这条是那个保证本身）；
-            //   · 另外两个正版账号这一节的 fixture **一个字节的档案缓存都没写过**，
-            //     所以走的是"自己画的首字母方块"那条兜底：逐像素等于 letterAvatar(名字)。
+            // · 当前账号（Alex）那一行必须**就是底栏那颗头像**缩下来的 —— 同一个窗口里
+            // 同一个人不可能有两张脸（这条是那个保证本身）；
+            // · 另外两个正版账号这一节的 fixture **一个字节的档案缓存都没写过**，
+            // 所以走的是"自己画的首字母方块"那条兜底：逐像素等于 letterAvatar(名字)。
             const int iconSize = MainWindowUI::bottomBarPanelIconSize();
             check(!rowIcon(panel, 0).isNull() && !rowIcon(panel, 1).isNull() &&
                       !rowIcon(panel, 2).isNull() &&
@@ -10605,8 +10416,8 @@ static void runBottomBarPanelTests() {
             // 写死一个常量也能绿。
             //
             // NOTE: 这里敢拿 `QColor::operator==` 直接比，是因为 avatarFallbackColor()
-            //       交出来的是**按 8 位量化过的**色（见那边那段：Qt 6 的色值是 16 位的，
-            //       fromHsv() 直接比会假不相等 —— 名字/rgba/redF 全一样，只有 == 说不一样）。
+            // 交出来的是**按 8 位量化过的**色（见那边那段：Qt 6 的色值是 16 位的，
+            // fromHsv() 直接比会假不相等 —— 名字/rgba/redF 全一样，只有 == 说不一样）。
             check(SkinModel::avatarFallbackColor(QStringLiteral("Bob")) !=
                       SkinModel::avatarFallbackColor(QStringLiteral("Carol")),
                   "AH7b 兜底那块的底色按名字算（Bob 和 Carol 不是同一个色）",
@@ -10745,9 +10556,9 @@ static void runBottomBarPanelTests() {
     // 的实现会接着拿 Bob 的令牌去换一张新的，还会把弹窗里的名字写成点的那一行（Dave）。
     //
     // NOTE: 这里**同时**把活动槽里微软那份的 refresh_token 拿掉，是刻意的：缺守卫的那一版
-    //       真会走到 refreshMinecraftToken()，而带着一个假的 refresh_token 去请求就是
-    //       **真联网**（这一套断言必须离线跑，见文件头）。没有它就停在第一道判据上，所以
-    //       那条路即使被走通了也一个包都不发。
+    // 真会走到 refreshMinecraftToken()，而带着一个假的 refresh_token 去请求就是
+    // **真联网**（这一套断言必须离线跑，见文件头）。没有它就停在第一道判据上，所以
+    // 那条路即使被走通了也一个包都不发。
     {
         QJsonObject shortMinecraft;
         shortMinecraft.insert(QStringLiteral("access_token"), QStringLiteral("at-Bob"));
@@ -10764,7 +10575,7 @@ static void runBottomBarPanelTests() {
         check(!auth->loadSavedToken(&reloadReason).isEmpty(),
               "AH11 这一份按产品那条路读回内存", reloadReason);
         // NOTE: 认人用 playerName() 而**不是** playerUuid()：后者是带连字符的那个形状
-        //       （dashedUuid()），和列表里那个 32 位十六进制不是一串字。
+        // （dashedUuid()），和列表里那个 32 位十六进制不是一串字。
         check(auth->playerName() == QStringLiteral("Bob") &&
                   auth->tokenSecondsLeft() < AuthManager::tokenRefreshWindowSecs &&
                   auth->tokenSecondsLeft() > 0,
@@ -10848,14 +10659,14 @@ static void runBottomBarPanelTests() {
 
     // ---- AH11b 点当前账号那一行的「登出」：清掉登录状态，账号留下来 ----
     //
-    // 用户 2026-09-24 原话：「把那个账户管理里的当前改成登出」—— 那一行原先写「当前」
+    // 要求：「把那个账户管理里的当前改成登出」—— 那一行原先写「当前」
     // 并且是**灰的**，于是这一行除了告诉用户"你就是你"之外没有别的用处。
     //
     // 这一节要钉的是三个**分开**的事实，少一条这个功能就不成立：
-    //   ① 盘上的登录状态真没了（活动槽那两份凭据被抹掉，不是只把界面换个字）；
-    //   ② **账号还留在列表里**（登出 ≠ 删除）—— 所以点那一行的「登录」还能回来；
-    //   ③ 内存里那一份也清了（不然底栏和启动参数拿到的还是上一个人的名字，
-    //      等于"看着登出了、手里还攥着他的状态"）。
+    // ① 盘上的登录状态真没了（活动槽那两份凭据被抹掉，不是只把界面换个字）；
+    // ② **账号还留在列表里**（登出 ≠ 删除）—— 所以点那一行的「登录」还能回来；
+    // ③ 内存里那一份也清了（不然底栏和启动参数拿到的还是上一个人的名字，
+    // 等于"看着登出了、手里还攥着他的状态"）。
     {
         // 先把状态摆回正常的"Bob 是当前、活动槽里是他那份好凭据"：AH11 是**故意**把活动槽
         // 写坏的（它要验"切不过去之后不许拿上一个人的令牌接着走"），别让这一节从那种状态
@@ -10954,7 +10765,7 @@ static void runBottomBarPanelTests() {
 
     // ---- AH12b 从「未登录」点那一行的「选择」切到离线账号：**主页那张脸得跟着换** ----
     //
-    // 用户 2026-09-24 报的 bug，原话：「现在从未登录切换到选择离线账号不会随机给皮肤了」。
+    // 用户 报的 bug，原话：「现在从未登录切换到选择离线账号不会随机给皮肤了」。
     //
     // 根因在 `refreshAccountSkin()` 最前面那句「窗还没建就直接 return」：主页那个小人、
     // 底栏头像、那个窗里的 3D 预览**都只在 `startPlayerSkinLoad()` → `applyPlayerSkin()`
@@ -11048,7 +10859,7 @@ static void runBottomBarPanelTests() {
           QString::number(manager->runningGames().size()));
 
     // NOTE: "会话全停之后那一格点不开"这条钉在 AH6（最后一份会话停下来的那一刻就量），
-    //       这里不再抄一遍 —— 同一个判据写两处，改一处忘一处就只剩一条是绿的。
+    // 这里不再抄一遍 —— 同一个判据写两处，改一处忘一处就只剩一条是绿的。
 
     TokenStore::clear(TokenStore::microsoftKey());
     TokenStore::clear(TokenStore::minecraftKey());
@@ -11066,18 +10877,18 @@ static void runBottomBarPanelTests() {
 
 /// AJ. 启动前那两条提醒（设置页「启动提醒」那一组）。
 ///
-/// 用户原话（2026-09-25）：「设置里加两条 在10s内用同一用户启动同一实例时弹出提示：已经有
-/// 一个相同的运行中游戏进程了！（小字写 可以在设置中关闭此提示）下方 取消/仍要启动  在启动
+/// 要求：「设置里加两条 在10s内用同一用户启动同一实例时弹出提示：已经有
+/// 一个相同的运行中游戏进程了！（小字写 可以在设置中关闭此提示）下方 取消/仍要启动 在启动
 /// 同一个实例时（在前面选择仍要启动的情况下/不同账户）弹出进入单人世界可能会丢失进度的
 /// 提示…也写明可以关掉，下方 取消/仍要启动」。
 ///
 /// 这一节量三层：
-///   · **接线**：点「启动游戏」那一下真的会走到这两问（`onStartButtonClicked()` 里那处调用）；
-///   · **拦得住 / 放得行**：选「取消」⇒ 一份新的游戏进程都没起来；选「仍要启动」⇒ 那条路
-///     照旧走到底（这里用**假 java** 真起一份进程来证，和 AG 那一节同一套办法 —— 只看
-///     "框收掉了没有"是分不出"放行"和"静静地把启动掐掉"的）；
-///   · **两条各自的判据**：十秒窗口的两侧、同不同一个身份、同不同一个实例，以及
-///     "① 之后接着问 ②"那个配对（用户原话要的就是"前后两个框"，不是二选一）。
+/// · **接线**：点「启动游戏」那一下真的会走到这两问（`onStartButtonClicked()` 里那处调用）；
+/// · **拦得住 / 放得行**：选「取消」⇒ 一份新的游戏进程都没起来；选「仍要启动」⇒ 那条路
+/// 照旧走到底（这里用**假 java** 真起一份进程来证，和 AG 那一节同一套办法 —— 只看
+/// "框收掉了没有"是分不出"放行"和"静静地把启动掐掉"的）；
+/// · **两条各自的判据**：十秒窗口的两侧、同不同一个身份、同不同一个实例，以及
+/// "① 之后接着问 ②"那个配对（要求要的就是"前后两个框"，不是二选一）。
 ///
 /// 全程离线：身份是一个**离线账号**（不碰令牌、一个请求都不发），实例指着沙盒里的假 java。
 static void runLaunchGuardTests() {
@@ -11175,8 +10986,8 @@ static void runLaunchGuardTests() {
               "AJ0 下拉框（选中的就是那一个实例）/ LauncherManager / AuthManager / "
               "设置页那两个勾选框都找得到",
               // NOTE: 这里的分档表是精心数过的：**最多用到 %9**。写成 %10 会让
-              //       `QString::arg` 报一句"Argument missing"（两位数那一档它按自己的规矩
-              //       找不着），而这句警告出现在输出里很像"某条断言挂了"。
+              // `QString::arg` 报一句"Argument missing"（两位数那一档它按自己的规矩
+              // 找不着），而这句警告出现在输出里很像"某条断言挂了"。
               QStringLiteral("combo=%1(%2 项, 选中 %3) manager=%4 auth=%5 dup=%6 "
                              "loss=%7 期望选中 %8（产品那条恢复路给的是 %9）")
                   .arg(combo != nullptr)
@@ -11228,7 +11039,7 @@ static void runLaunchGuardTests() {
                       .arg(holder)
                       .arg(manager->runningGames().size()));
             // NOTE: 这里**不**调 repaintBottomBar()：这一节量的是启动前那两问，底栏画成
-            //       什么样跟它们无关（真会话在跑那件事走的是 LauncherManager，不看界面）。
+            // 什么样跟它们无关（真会话在跑那件事走的是 LauncherManager，不看界面）。
         }
 
         // 点一下「启动游戏」，把这一发弹的每一条按脚本答掉；返回**依次**弹了哪几条。
@@ -11311,7 +11122,7 @@ static void runLaunchGuardTests() {
             }
 
             // ---- AJ5 ① 上选「仍要启动」之后**接着**问 ②（一次点击两个框）----
-            // 用户原话：「在启动同一个实例时（在前面选择仍要启动的情况下/不同账户）弹出
+            // 要求：「在启动同一个实例时（在前面选择仍要启动的情况下/不同账户）弹出
             // 进入单人世界可能会丢失进度的提示」——所以两条不是二选一，是前后两个框。
             {
                 const QList<PromptAnswerer::Answered> answered = startWith({1, 1});
@@ -11326,13 +11137,13 @@ static void runLaunchGuardTests() {
             // ---- AJ6 十秒那个窗口的两侧 + "时钟被往回拨"那一档 ----
             // 这三下都答「取消」⇒ 一份进程都不多，量的就是**弹出来的那一条是什么**。
             // NOTE: 真等十秒太贵，所以往 m_lastLaunchAttempts 里直接摆时刻（那格是判据的
-            //       全部输入，见 seedLastLaunchAttemptForTest()）。
+            // 全部输入，见 seedLastLaunchAttemptForTest()）。
             {
                 const qint64 window = 10000;  // 用户原话「在10s内」
                 const qint64 now = QDateTime::currentMSecsSinceEpoch();
                 // NOTE: 一回一算好了再断言（**别**把它写进 check 的实参里：`check()` 那个
-                //       detail 是**恒求值**的，写进去就是"边界那一下点两次启动"，
-                //       第二次读的是刚被改过的那一格，量的东西全乱）。
+                // detail 是**恒求值**的，写进去就是"边界那一下点两次启动"，
+                // 第二次读的是刚被改过的那一格，量的东西全乱）。
                 const auto atOffsetMs = [&](qint64 minusMs) {
                     w.seedLastLaunchAttemptForTest(auth->playerName(), id, now - minusMs);
                     return titlesOf(startWith({0}));
@@ -11406,35 +11217,31 @@ static void runLaunchGuardTests() {
 // ---------------------------------------------------------------------------
 // T24. 实例设置里**点一条行尾的「详情」** ⇒ 开那个资源自己的那一页（离线，假接口）
 //
-// 用户 2026-09-27 原话：「除了模组以外的几个都是点击模组名称自动进入下载界面（前提是
-// 匹配上了，模组的待会再说）」；2026-10-09 又把它挪了个地方：「把点击条目进入对应详情页的
+// 要求：「除了模组以外的几个都是点击模组名称自动进入下载界面（前提是
+// 匹配上了，模组的待会再说）」； 又把它挪了个地方：「把点击条目进入对应详情页的
 // 功能变成一个详情按钮，放到开关和删除中间，单击改为选中」。这一节走的就是那条路本身，
 // 而且**一整条都走**：
 //
-//   反查那一趟真跑（后台线程 + 假接口）→ 行尾那颗「详情」真的从灰的变亮 → 真的按它一下
-//   → 实例设置那一页收起来 → 资源详情页真的开出来、标题就是接口给的那个名字。
+// 反查那一趟真跑（后台线程 + 假接口）→ 行尾那颗「详情」真的从灰的变亮 → 真的按它一下
+// → 实例设置那一页收起来 → 资源详情页真的开出来、标题就是接口给的那个名字。
 //
-// NOTE: 2026-10-09 起**名字那一格不再是链接**（单击 = 选中这一行）；"这一条是哪个资源"
-//       整件事就落在那颗按钮上，所以这一节从前量的"名字是手型光标"那几条一并改到了它身上。
+// NOTE: 起**名字那一格不再是链接**（单击 = 选中这一行）；"这一条是哪个资源"
+// 整件事就落在那颗按钮上，所以这一节从前量的"名字是手型光标"那几条一并改到了它身上。
 //
 // 【为什么非要端到端，不满足于"两个部件各自对"】
 // 这一条路上有**三处**只有接起来才存在的判据，任何一处错了，界面上都是"点一下没反应"：
-//   ① 身份表（`m_instanceFileIdentities`）有没有被那一趟填上、钥匙（路径 + 大小 + 时间）
-//      对不对得上 —— 对不上就查不到那一条是哪个资源；
-//   ② 收页那一下**必须是 dismiss()**（那一页正卡在 `execPage()` 的嵌套事件循环里，
-//      `closeOverlay()` 一个信号都不发，那个循环永远不返回）；
-//   ③ 开新页那一下**必须排到下一轮事件循环**（这一刻还在那个嵌套循环的调用栈里，
-//      `openResourceDetailPage()` 开头那条 `overlay->isOpen()` 会把这次点击当场吃掉）。
+// ① 身份表（`m_instanceFileIdentities`）有没有被那一趟填上、钥匙（路径 + 大小 + 时间）
+// 对不对得上 —— 对不上就查不到那一条是哪个资源；
+// ② 收页那一下**必须是 dismiss()**（那一页正卡在 `execPage()` 的嵌套事件循环里，
+// `closeOverlay()` 一个信号都不发，那个循环永远不返回）；
+// ③ 开新页那一下**必须排到下一轮事件循环**（这一刻还在那个嵌套循环的调用栈里，
+// `openResourceDetailPage()` 开头那条 `overlay->isOpen()` 会把这次点击当场吃掉）。
 //
 // 【模组那一页是**故意**点不动的】
 // 用户那句里后半截是「模组的待会再说」⇒ 判据落在 `filesNameOpensResource()` 一处。这一节
 // 用一个**已经认出来了的**模组来量它：它的项目号确实被问回来了（下一发里带着它）、
 // 图标照旧会出来，可它的名字既没有链接的样子、点下去也什么都不发生。
 // 拿一个"本来就没认出来"的文件来量这件事是量不出来的（那种情况下名字点不动是应该的）。
-//
-// 全程离线：两个接口地址都指到本机那个假服务器上（`Launcher/ModrinthApiBase` /
-// `Launcher/CurseForgeApiBase`），而"这个文件是哪个项目"要问的那两发都在它那儿。
-// ---------------------------------------------------------------------------
 
 static void runInstanceFileResourceTests() {
     const QString originalDir = AppPaths::minecraftDir();
@@ -11478,20 +11285,20 @@ static void runInstanceFileResourceTests() {
 
     // ---------- 夹具：一个实例，里面三个文件 ----------
     //
-    // ★ 这个实例**报得出游戏版本号（1.20.1）和一个加载器（NeoForge）**（2026-09-28 加）：
-    //   "点开一个资源时按当前实例的版本预选、把它的加载器排前面"这件事（用户原话
-    //   「点开某个模组等的时候将版本自动选到当前实例对应的那个，对应的模组加载器的版本
-    //   放在前面」）走的就是这两份值，而**一个报不出东西的实例量不出来**（没有版本号 ⇒
-    //   预选为空 ⇒ 停在「全部」，和"接线断了"的样子一模一样）。
-    //   版本号出处：没有 `realVersion`、目录名就是个像样的版本号 ⇒ `instanceGameVersion()`
-    //   取链尾那个 id（见 VersionManager::instanceGameVersion）。
+    // 这个实例**报得出游戏版本号（1.20.1）和一个加载器（NeoForge）**（ 加）：
+    // "点开一个资源时按当前实例的版本预选、把它的加载器排前面"这件事（要求
+    // 「点开某个模组等的时候将版本自动选到当前实例对应的那个，对应的模组加载器的版本
+    // 放在前面」）走的就是这两份值，而**一个报不出东西的实例量不出来**（没有版本号 ⇒
+    // 预选为空 ⇒ 停在「全部」，和"接线断了"的样子一模一样）。
+    // 版本号出处：没有 `realVersion`、目录名就是个像样的版本号 ⇒ `instanceGameVersion()`
+    // 取链尾那个 id（见 VersionManager::instanceGameVersion）。
     //
-    // ★★ 2026-10-17：这个版本号**必须是清单里真有的**那一个。`instanceGameVersion()` 的
-    //   每一格都要过 `isKnownGameVersion()`：清单**已经拉到**时它只认清单里的 id，清单
-    //   **还没到**（离线第一趟）才退回"长得像版本号"的放宽判据。原来写的是凭空的
-    //   `1.97.1` —— 开发机（连不上 Mojang、清单是空的）一直绿，CI（网络好、清单在
-    //   T24 之前就到了）稳定红：chip 停在「全部」、底下也就不筛，两条断言一起红。
-    //   用清单里真有的 `1.20.1`（而**不是**反例要用的 `1.21.1`）两种情形都成立。
+    // 这个版本号**必须是清单里真有的**那一个。`instanceGameVersion()` 的
+    // 每一格都要过 `isKnownGameVersion()`：清单**已经拉到**时它只认清单里的 id，清单
+    // **还没到**（离线第一趟）才退回"长得像版本号"的放宽判据。原来写的是凭空的
+    // `1.97.1` —— 开发机（连不上 Mojang、清单是空的）一直绿，CI（网络好、清单在
+    // T24 之前就到了）稳定红：chip 停在「全部」、底下也就不筛，两条断言一起红。
+    // 用清单里真有的 `1.20.1`（而**不是**反例要用的 `1.21.1`）两种情形都成立。
     const QString idV = QStringLiteral("1.20.1");
     const QString instanceLoader = QStringLiteral("NeoForge");
     const QDir versionsDir(root.path() + QStringLiteral("/versions"));
@@ -11528,10 +11335,10 @@ static void runInstanceFileResourceTests() {
     // `POST /v2/version_files`：哈希 → 项目号。**只映射那两个认得出的**；第三个文件
     // 不出现在里面 —— 那正是"没匹配上"的那一档。
     //
-    // ★ `files[]` **不能是空的**：`parseModrinthVersionFiles()` 要在这个版本的文件里挑
-    //   「sha1 和键相同」的那一份，挑不到就不认这一条（见那个函数里 `fileSha1 != key`
-    //   那一段）。空数组 ⇒ 一条 hit 都没有 ⇒ 后面那一发 `/projects?ids=` 压根不发，
-    //   而屏幕上的样子是「名字点不动」—— 看着像产品没接线，其实是夹具没给全。
+    // `files[]` **不能是空的**：`parseModrinthVersionFiles()` 要在这个版本的文件里挑
+    // 「sha1 和键相同」的那一份，挑不到就不认这一条（见那个函数里 `fileSha1 != key`
+    // 那一段）。空数组 ⇒ 一条 hit 都没有 ⇒ 后面那一发 `/projects?ids=` 压根不发，
+    // 而屏幕上的样子是「名字点不动」—— 看着像产品没接线，其实是夹具没给全。
     api.modrinthReply = QByteArrayLiteral("{\"") + hPack.sha1.toUtf8() +
                         QByteArrayLiteral("\":{\"project_id\":\"") + packProject.toUtf8() +
                         QByteArrayLiteral("\",\"version_number\":\"1.0\",\"files\":[{\"hashes\":{"
@@ -11551,10 +11358,10 @@ static void runInstanceFileResourceTests() {
     // `GET /v2/projects?ids=…`：那一份**项目对象**。名字就在这儿 —— 页面顶上那行字、
     // 行上点得动那句话，两处要的都是这一份里的东西。
     //
-    // ★ 资源包那一条**声明里带上实例那个版本号**（`1.20.1`，2026-09-28）：chip 那一排是照着
-    //   这份声明表摆的，声明里没有它 ⇒ 预选换算不出来 ⇒ 停在「全部」上，而"接线断了"也是
-    //   这个形状。倒着摆（接口的规矩是旧的在前）不打紧，`gameVersionChoices()` 自己会翻。
-    //   模组那一条**故意只有 1.21.1** —— 它是下面"表里没有那个版本时停在「全部」"的反例。
+    // 资源包那一条**声明里带上实例那个版本号**（`1.20.1`，）：chip 那一排是照着
+    // 这份声明表摆的，声明里没有它 ⇒ 预选换算不出来 ⇒ 停在「全部」上，而"接线断了"也是
+    // 这个形状。倒着摆（接口的规矩是旧的在前）不打紧，`gameVersionChoices()` 自己会翻。
+    // 模组那一条**故意只有 1.21.1** —— 它是下面"表里没有那个版本时停在「全部」"的反例。
     api.modrinthProjectsReply =
         QByteArrayLiteral("[{\"id\":\"") + packProject.toUtf8() +
         QByteArrayLiteral("\",\"title\":\"") + packTitle.toUtf8() +
@@ -11630,10 +11437,6 @@ static void runInstanceFileResourceTests() {
 
             // 反查那一趟在**后台线程**里（读那两个文件算哈希 + 发三发请求），行尾那颗「详情」
             // 要等 `pushInstanceFileIcons()` 摆上去才会从灰的变亮。
-            //
-            // ★ 2026-10-09：判据换成**那颗「详情」点得动了没有**。用户原话：「把点击条目进入
-            //   对应详情页的功能变成一个详情按钮…单击改为选中」—— 名字那一格从此只是普通
-            //   文字（单击 = 选中这一行），"这一条是哪个资源"整件事挪到了那颗按钮上。
             const auto detailForPath = [](InstanceFilesPage *files,
                                           const QString &path) -> QToolButton * {
                 for (int row = 0; row < files->list()->count(); ++row) {
@@ -11645,8 +11448,8 @@ static void runInstanceFileResourceTests() {
                 }
                 return nullptr;
             };
-            // ★ 等的是**那一颗从灰的变成能按的** —— 一个用户看得见的终点，不是"某个内部标志位"。
-            //   （从前等的是名字的手型光标，那条路整条退场了。）
+            // 等的是**那一颗从灰的变成能按的** —— 一个用户看得见的终点，不是"某个内部标志位"。
+            // （从前等的是名字的手型光标，那条路整条退场了。）
             const bool arrived = pumpUntil(
                 [&] {
                     QToolButton *detail = detailForPath(packs, packZip);
@@ -11674,20 +11477,15 @@ static void runInstanceFileResourceTests() {
                   "★★ T24.3 前提：模组那一个文件**身份也认出来了**（项目号真的问回来了）"
                   "—— 拿一个压根没认出来的文件去量「名字点得动」是量不出规矩的",
                   modProject);
-            // ★ 2026-09-29：**模组那一页先摆到台前再量**。上面那一段把这一页切到了资源包，
-            //   而"看不见的那几页不建行"是 2026-09-29 起的新规矩（见
-            //   InstanceFilesPage::setDirectory()：开页时七个目录一次灌进来、用户看的却是
-            //   「概览」，白列七遍正是"点进设置卡一下"的那个卡）。行是这一页被摆到台前那
-            //   一刻才建的 ⇒ 量"行上的名字认出来没有"之前得先摆过来。**断言一条没动**。
             page->showPage(QStringLiteral("mod"));
             QToolButton *modDetail = detailForPath(mods, modJar);
             modRowFound = modDetail != nullptr;
             modTip = modDetail != nullptr ? modDetail->toolTip() : QString();
             modClickable = modDetail != nullptr && modDetail->isEnabled();
-            // ★★ 2026-09-27 用户后半句：「对于模组，点进去和资源包差不多…」。以前这一条钉的是
-            //    **反向**（模组故意不接，用户那句"待会再说"）；"待会"到了 ⇒ 现在和资源包三页
-            //    一样必须**点得动**，提示就是「打开…的下载页…」那一句。判据仍然只在
-            //    `filesNameOpensResource()` 一处。
+            // 用户后半句：「对于模组，点进去和资源包差不多…」。以前这一条钉的是
+            // **反向**（模组故意不接，用户那句"待会再说"）；"待会"到了 ⇒ 现在和资源包三页
+            // 一样必须**点得动**，提示就是「打开…的下载页…」那一句。判据仍然只在
+            // `filesNameOpensResource()` 一处。
             check(modRowFound && modClickable &&
                       modTip == InstanceSettingsDialog::filesResourceTip(modTitle),
                   "★★ T24.3 「模组甲」那一行尾巴上的「详情」**点得动**，提示就是「打开…的"
@@ -11732,30 +11530,30 @@ static void runInstanceFileResourceTests() {
 
             // ---------- ③ 按下去：这一页收起来、那一页开出来 ----------
             //
-            // ★ 这一发之后**一个 processEvents 都不许有**：收页那一发是同步的
-            //   （`dismiss()` 让那个嵌套循环退出），而"开新页"那一发是**排到下一轮**的
-            //   （见 openInstanceFileResource() 里那段 ★）—— 在这儿泵一下事件，
-            //   新页就会在那个嵌套循环还没退出的时候就开，被 `overlay->isOpen()` 吃掉。
-            //   （ZJ 那一段里同一条规矩的另一种写法。）
-            // ★ 2026-10-09：按的是**行尾那颗「详情」**（用户：「把点击条目进入对应详情页的
-            //   功能变成一个详情按钮…单击改为选中」）。`click()` 走的是 `QToolButton::clicked`
-            //   —— 这颗按钮接的就是 `emit detailRequested(path)`（和从前名字上那一发同一条路）。
+            // 这一发之后**一个 processEvents 都不许有**：收页那一发是同步的
+            // （`dismiss()` 让那个嵌套循环退出），而"开新页"那一发是**排到下一轮**的
+            // （见 openInstanceFileResource() 里那段 ★）—— 在这儿泵一下事件，
+            // 新页就会在那个嵌套循环还没退出的时候就开，被 `overlay->isOpen()` 吃掉。
+            // （ZJ 那一段里同一条规矩的另一种写法。）
+            // 按的是**行尾那颗「详情」**（用户：「把点击条目进入对应详情页的
+            // 功能变成一个详情按钮…单击改为选中」）。`click()` 走的是 `QToolButton::clicked`
+            // —— 这颗按钮接的就是 `emit detailRequested(path)`（和从前名字上那一发同一条路）。
             if (packDetail != nullptr) {
                 packDetail->click();
             }
 
-            // ★ 兜底（不是"顺手加的保险"，是**必须**有的）：上面这一下要是没能把这一页
-            //   收掉（身份没认出来 / 那一行没找到），`execPage()` 那个嵌套事件循环就永远
-            //   不返回 —— 下面那句 `invokeMethod` 会挂死在那儿，整份 mw_check 一行日志都
-            //   不出（ZJ 那一段里同一条坑的另一种写法）。这一发让"没做到"退化成一条红的
-            //   断言，而不是把测试卡住。
+            // 兜底（不是"顺手加的保险"，是**必须**有的）：上面这一下要是没能把这一页
+            // 收掉（身份没认出来 / 那一行没找到），`execPage()` 那个嵌套事件循环就永远
+            // 不返回 —— 下面那句 `invokeMethod` 会挂死在那儿，整份 mw_check 一行日志都
+            // 不出（ZJ 那一段里同一条坑的另一种写法）。这一发让"没做到"退化成一条红的
+            // 断言，而不是把测试卡住。
             //
-            // ★★ 判据必须是**"那一下本来就不会有反应"**，不能是"这一页还开着"：点中的
-            //    那一下是**同步**收页的（`dismiss()` 只发 signal，`m_mode` 要等嵌套循环
-            //    退完才归 None），所以刚点完这一页**照旧是开着的** —— 按"还开着"进这一支
-            //    的话，下面那句 `processEvents()` 会把产品排队的那一发"开新页"提前吃掉
-            //    （那一刻覆盖层还盖着，`openResourceDetailPage` 开头那条 `isOpen()` 顺手
-            //    把这次点击扔掉），于是红的变成"那一页没开出来"，而真凶在这一行。
+            // 判据必须是**"那一下本来就不会有反应"**，不能是"这一页还开着"：点中的
+            // 那一下是**同步**收页的（`dismiss()` 只发 signal，`m_mode` 要等嵌套循环
+            // 退完才归 None），所以刚点完这一页**照旧是开着的** —— 按"还开着"进这一支
+            // 的话，下面那句 `processEvents()` 会把产品排队的那一发"开新页"提前吃掉
+            // （那一刻覆盖层还盖着，`openResourceDetailPage` 开头那条 `isOpen()` 顺手
+            // 把这次点击扔掉），于是红的变成"那一页没开出来"，而真凶在这一行。
             if (packDetail == nullptr || !packClickable) {
                 if (auto *back = host->findChild<QPushButton *>(
                         OverlayHost::overlayBackButtonName())) {
@@ -11774,10 +11572,10 @@ static void runInstanceFileResourceTests() {
 
         // ---------- ④ 那一页真的收起来了 ----------
         //
-        // ★ 直接读，**不许泵事件**：那一页是同步收的（`invokeMethod` 已经返回 ⇒ 嵌套循环
-        //   退完了 ⇒ 覆盖层那一层已经拆了），而"再开一页"那一发还排在队列里没派 ——
-        //   这时候泵一下就等于把它派进下面那个嵌套循环里，卡死在那儿（pumpUntil 是先
-        //   processEvents 再看判据的，所以"看着只是读一下"的那一句也会踩上）。
+        // 直接读，**不许泵事件**：那一页是同步收的（`invokeMethod` 已经返回 ⇒ 嵌套循环
+        // 退完了 ⇒ 覆盖层那一层已经拆了），而"再开一页"那一发还排在队列里没派 ——
+        // 这时候泵一下就等于把它派进下面那个嵌套循环里，卡死在那儿（pumpUntil 是先
+        // processEvents 再看判据的，所以"看着只是读一下"的那一句也会踩上）。
         const bool closed = !overlay->isOpen();
         check(closed,
               "★★ T24.5 点完那颗「详情」**这一页自己关掉了** —— 用户要的是「换个地方」，不是就地"
@@ -11786,12 +11584,12 @@ static void runInstanceFileResourceTests() {
 
         // ---------- ⑤ 开出来的是**那个资源**的详情页 ----------
         //
-        // ★★ 这几样必须在**排到下一轮的那一发里面**量：外面泵事件那一句虽然会把产品那
-        //    一发"开新页"派下去，可新页是用 `execPage()` 开的 —— 它当场又开一层嵌套事件
-        //    循环，从外面泵事件的那一句**再也拿不回控制权**（整份 mw_check 挂在那儿，
-        //    一行日志都不出）。所以量这一页的动作自己排一个 0 毫秒定时器：它会在那一层
-        //    循环里面跑（产品的定时器排在前面，先进循环、再派到我们这一发），量完顺手点
-        //    返回把那一层收掉 —— 这才轮得回下面那几条断言。
+        // 这几样必须在**排到下一轮的那一发里面**量：外面泵事件那一句虽然会把产品那
+        // 一发"开新页"派下去，可新页是用 `execPage()` 开的 —— 它当场又开一层嵌套事件
+        // 循环，从外面泵事件的那一句**再也拿不回控制权**（整份 mw_check 挂在那儿，
+        // 一行日志都不出）。所以量这一页的动作自己排一个 0 毫秒定时器：它会在那一层
+        // 循环里面跑（产品的定时器排在前面，先进循环、再派到我们这一发），量完顺手点
+        // 返回把那一层收掉 —— 这才轮得回下面那几条断言。
         struct DetailProbe {
             bool ran = false;
             bool opened = false;
@@ -11799,39 +11597,34 @@ static void runInstanceFileResourceTests() {
             QString header;
             QString openLabel;
             QString title;
-            // ★ 右上角那一格（2026-09-27）：这一段是从**资源包**那一页点进来的 ⇒ 必须是
-            //   「显示快照版」那一档，那颗「模组设置」连画都不该画出来。
+            // 右上角那一格：这一段是从**资源包**那一页点进来的 ⇒ 必须是
+            // 「显示快照版」那一档，那颗「模组设置」连画都不该画出来。
             bool slotShown = true;              // modSettingsSlotShown()
             bool modButtonVisible = true;       // 那颗占位按钮真的画着吗
             bool checkboxVisible = false;       // 「显示快照版」那颗真的露着吗
-            // ★ 2026-09-28：「按当前实例的版本预选、把它的加载器排在前面」（用户原话
-            //   「点开某个模组等的时候将版本自动选到当前实例对应的那个，对应的模组加载器
-            //   的版本放在前面，资源包等同理，展示为对应版本适用的」）——
-            //   四样一起量：按着的是哪一颗、那一排有哪几颗、底下剩几行、第一组叫什么。
-            //   **等它**：版本列表是开页前发出去的那一发，答复在这个嵌套循环里才落地。
             QString chip;                       // currentChip()
             int chipCount = 0;
             int versionRows = -1;
             int groups = -1;
             QString firstGroupTitle;
         };
-        // ★★ 2026-09-27 补，用户原话：「上一步中，点击下载界面返回后应该退回到实例设置而
-        //    不是实例列表」。**按了返回之后落在哪儿**，只能在**再往下一层**里量 —— 返回
-        //    箭头一点，详情页那一层嵌套循环退出，`openFileResourcePage()` 紧接着把实例设置
-        //    又开起来（那也是一层嵌套循环），量它只能自己再排一发 0 毫秒定时器：它会在
-        //    **新那一层循环里**跑。不排这一发的话，外面那一句 `pumpUntil` 永远拿不回控制
-        //    权（新那一页没人收），整份 mw_check 卡死在这儿 —— 所以下面这一发里点返回
-        //    **不是"顺手收个尾"，是这一节能不能跑完的前提**。
+        // 补，要求：「上一步中，点击下载界面返回后应该退回到实例设置而
+        // 不是实例列表」。**按了返回之后落在哪儿**，只能在**再往下一层**里量 —— 返回
+        // 箭头一点，详情页那一层嵌套循环退出，`openFileResourcePage()` 紧接着把实例设置
+        // 又开起来（那也是一层嵌套循环），量它只能自己再排一发 0 毫秒定时器：它会在
+        // **新那一层循环里**跑。不排这一发的话，外面那一句 `pumpUntil` 永远拿不回控制
+        // 权（新那一页没人收），整份 mw_check 卡死在这儿 —— 所以下面这一发里点返回
+        // **不是"顺手收个尾"，是这一节能不能跑完的前提**。
         struct ReturnProbe {
             bool ran = false;
             bool opened = false;
             bool hasSettings = false;
             QString header;        // 覆盖层页眉上那行字
             QString instanceName;  // 那一页「实例名」那一格现在写着的（= 目录名）
-            // ★ **停在哪一页**（2026-09-28）。页眉上那行字是「实例设置：<实例名>」，**换页
-            //   不换字** —— 光比它只量得出"退回到同一个实例设置"，量不出用户 2026-09-28 那句
-            //   「从模组点进去，返回也在模组而非概览」。判据只能问这一页自己（唯一出处
-            //   InstanceSettingsDialog::currentPageKey()）。
+            // **停在哪一页**。页眉上那行字是「实例设置：<实例名>」，**换页
+            // 不换字** —— 光比它只量得出"退回到同一个实例设置"，量不出用户 那句
+            // 「从模组点进去，返回也在模组而非概览」。判据只能问这一页自己（唯一出处
+            // InstanceSettingsDialog::currentPageKey()）。
             QString pageKey;
         };
         ReturnProbe returned;
@@ -11907,9 +11700,6 @@ static void runInstanceFileResourceTests() {
         // ⓐ 走的是**下载页里点一行**那条路：头卡上的简介、芯片那一排都跟着这一份 Hit。
         check(probe.title == packTitle,
               "★ T24.5 头卡上的名字也是它（同一个 Hit，不是又查了一次）", probe.title);
-        // ★★ 2026-09-27：这一趟是**从实例的文件管理页点一个资源包**进来的 —— 右上角那一格
-        //    照旧是「显示快照版」那颗勾选框，那颗占位的「模组设置」连画都不该画出来
-        //    （判据两样都要：来路是实例文件页 **而且** 这一条是个模组）。
         check(!probe.slotShown && probe.checkboxVisible && !probe.modButtonVisible,
               "★★ T24.5 而这一趟点的是**资源包**：右上角照旧是「显示快照版」"
               "（那颗「模组设置」只有「从实例文件页点一个**模组**」才摆 —— 少一样都不摆）",
@@ -11918,21 +11708,21 @@ static void runInstanceFileResourceTests() {
                        probe.checkboxVisible ? QStringLiteral("是") : QStringLiteral("不是"),
                        probe.modButtonVisible ? QStringLiteral("是") : QStringLiteral("不是")));
 
-        // ---------- ⑤b 按当前实例的版本预选 + 把它的加载器排前面（2026-09-28）----------
+        // ---------- ⑤b 按当前实例的版本预选 + 把它的加载器排前面----------
         //
-        // 用户原话：「点开某个模组等的时候将版本自动选到当前实例对应的那个，对应的模组加载器
+        // 要求：「点开某个模组等的时候将版本自动选到当前实例对应的那个，对应的模组加载器
         // 的版本放在前面，资源包等同理，展示为对应版本适用的」。这一趟点的是**资源包**，实例
         // 报的是 1.20.1 / NeoForge；假接口给的版本清单里三条版本、两个游戏版本、两个加载器。
         //
         // 四条判据合起来才是用户那半句话，少一条都还差一截：
-        //   ① chip 那一排摆的是这个资源**声明过**的那几档（表在这一页上，不是凭空的）；
-        //   ② 按着的是**实例那个版本**（"自动选到当前实例对应的那个"）；
-        //   ③ 底下只剩**适用于它**的那些（"展示为对应版本适用的" —— 只支持 1.21.1 的那一条
-        //      必须不在了，不然"筛"这件事等于没发生）；
-        //   ④ 它的加载器那一组**排在最前**（"对应的模组加载器的版本放在前面"）。
+        // ① chip 那一排摆的是这个资源**声明过**的那几档（表在这一页上，不是凭空的）；
+        // ② 按着的是**实例那个版本**（"自动选到当前实例对应的那个"）；
+        // ③ 底下只剩**适用于它**的那些（"展示为对应版本适用的" —— 只支持 1.21.1 的那一条
+        // 必须不在了，不然"筛"这件事等于没发生）；
+        // ④ 它的加载器那一组**排在最前**（"对应的模组加载器的版本放在前面"）。
         //
-        // ★ 备注：`chipCount == 3` 就是【全部 + 1.20.1 + 1.21.1】。写死这个数是有意的 ——
-        //   它同时钉住了「声明表里两条版本号 ⇒ 两颗 chip」（不是三条、也不是一颗）。
+        // 备注：`chipCount == 3` 就是【全部 + 1.20.1 + 1.21.1】。写死这个数是有意的 ——
+        // 它同时钉住了「声明表里两条版本号 ⇒ 两颗 chip」（不是三条、也不是一颗）。
         check(probe.chipCount == 3, "★★ T24.5 前提：chip 那一排是**这个资源声明过的那几档**"
                                     "（全部 + 声明表里那两个版本号）",
               QStringLiteral("一共 %1 颗").arg(probe.chipCount));
@@ -11951,15 +11741,15 @@ static void runInstanceFileResourceTests() {
               "真红了就说明排序没生效，而屏幕上一点异常都没有",
               QStringLiteral("第一组：%1").arg(probe.firstGroupTitle));
 
-        // ---------- ⑥ 按返回之后**退回到实例设置**（用户 2026-09-27 那句）----------
+        // ---------- ⑥ 按返回之后**退回到实例设置**（用户 那句）----------
         //
         // 「上一步中，点击下载界面返回后应该退回到实例设置而不是实例列表」—— 上一节里
         // 用户点的是**实例设置里**一条文件的名字，返回就该回到他原来那一页上。不接这一下
         // 的话（或者接成"退回到实例列表"）他手上那一页整个没了。
         //
         // NOTE: 这一发是**上面 probe 里排的**（见那段 ★★）：返回箭头一点下去，详情页
-        //       那一层循环退出，`openFileResourcePage()` 紧接着又开一层 —— 量"退回到
-        //       哪儿"只能在那一层里面量。
+        // 那一层循环退出，`openFileResourcePage()` 紧接着又开一层 —— 量"退回到
+        // 哪儿"只能在那一层里面量。
         check(returned.ran && returned.opened && returned.hasSettings,
               "★★ T24.5 按返回之后**实例设置那一页又摆回来了**（不是落在实例列表上）"
               "—— 用户原话「上一步中，点击下载界面返回后应该退回到实例设置而不是实例列表」",
@@ -11979,26 +11769,26 @@ static void runInstanceFileResourceTests() {
               "★ T24.5 而且开的是**同一个实例**（那一页「实例名」那一格写着的目录名）"
               "—— 详情页回来时带的那个 id 就是发起这一下的实例",
               returned.instanceName);
-        // ★★ 这一条才是用户 2026-09-28 那句的**落点**：「从模组点进去，返回也在模组而非概览，
-        //    其余同理」。上面那条比的是页眉那行字，而它换页不换字（「实例设置：<实例名>」）
-        //    —— 落回「概览」也照样通过。停在哪一页只能问那一页自己。
+        // 这一条才是用户 那句的**落点**：「从模组点进去，返回也在模组而非概览，
+        // 其余同理」。上面那条比的是页眉那行字，而它换页不换字（「实例设置：<实例名>」）
+        // —— 落回「概览」也照样通过。停在哪一页只能问那一页自己。
         check(returned.pageKey == QStringLiteral("resourcepack"),
               "★★ T24.5 而且**还停在原来那一页上**（资源包那一页，不是落回「概览」）"
               "—— 用户原话「从模组点进去，返回也在模组而非概览，其余同理」",
               returned.pageKey.isEmpty() ? QStringLiteral("(认不出是哪一页)") : returned.pageKey);
 
-        // ---------- ⑦ 从实例的文件管理页点一个**模组**（用户 2026-09-27 后半句）----------
+        // ---------- ⑦ 从实例的文件管理页点一个**模组**（用户 后半句）----------
         //
-        // ★★ 用户原话：「对于模组，点进去和资源包差不多，但是右上角显示快照版那里替换为
-        //    模组设置（先占位），而且和下载页有点区别，不要不小心把下载页改了」。
+        // 要求：「对于模组，点进去和资源包差不多，但是右上角显示快照版那里替换为
+        // 模组设置（先占位），而且和下载页有点区别，不要不小心把下载页改了」。
         //
         // 走法和 ③⑤⑥ 那一段**逐字同一套**（点名字 → 这一页收起来 → 那一页开出来 →
         // 按返回退回实例设置），因为模组和资源包走的就是同一条路。多量的只有**右上角那一
         // 格** —— 那儿的判据是"来路 + 这一条是个模组"两样都要，非走这一趟量不出来。
         //
-        // ★ 版本列表那一发在这里**换成空表**（2026-09-28）：上面资源包那一趟的夹具是这个
-        //   项目号的版本，留在那儿会让模组那一页底下摆着"资源包的版本"—— 这一节不比那几行，
-        //   可一份摆错门的夹具迟早会骗到某一条断言。
+        // 版本列表那一发在这里**换成空表**：上面资源包那一趟的夹具是这个
+        // 项目号的版本，留在那儿会让模组那一页底下摆着"资源包的版本"—— 这一节不比那几行，
+        // 可一份摆错门的夹具迟早会骗到某一条断言。
         api.modrinthVersionListReply = QByteArrayLiteral("[]");
         bool modClickableAgain = false;
         {
@@ -12048,9 +11838,9 @@ static void runInstanceFileResourceTests() {
               "★★ T24.7 点完模组那一行的「详情」，实例设置那一页也**自己收起来了**"
               "（和点资源包那一趟走的是同一条路，见 T24.5）");
 
-        // ★ 这一层和 ⑤⑥ 那一段同构：详情页是 `execPage()` 开的，量它只能自己排一发 0 毫秒
-        //   定时器（那一发在它那层嵌套循环里跑），量完点返回把那一层收掉 —— 外面那句
-        //   `pumpUntil` 才拿得回控制权。
+        // 这一层和 ⑤⑥ 那一段同构：详情页是 `execPage()` 开的，量它只能自己排一发 0 毫秒
+        // 定时器（那一发在它那层嵌套循环里跑），量完点返回把那一层收掉 —— 外面那句
+        // `pumpUntil` 才拿得回控制权。
         struct ModDetailProbe {
             bool ran = false;
             bool opened = false;
@@ -12062,9 +11852,6 @@ static void runInstanceFileResourceTests() {
             QString modButtonText;
             bool checkboxVisible = true;   // 「显示快照版」那一颗露着吗（不该露）
             bool checkboxChecked = true;   // 按了裸 Alt 之后它被拨了吗（不该被拨）
-            // ★ 2026-09-28 的反例：模组这一条的声明表里**没有**实例那个版本号（1.20.1）
-            //   ⇒ 换算不出来 ⇒ 停在「全部」。同一个页面对象刚被资源包那一趟按到 1.20.1 上，
-            //   这一条量的就是"再开一次真的从「全部」重来"。
             QString chip;
         };
         struct ModReturnProbe {
@@ -12097,8 +11884,8 @@ static void runInstanceFileResourceTests() {
                         ResourceDetailPage::showSnapshotsCheckBoxName())) {
                     modProbe.checkboxVisible = box->isVisible();
                 }
-                // ★ 裸 Alt 那一下：那一格上**没有**「显示快照版」可拨，所以按了必须
-                //   **什么都不发生**（不挡的话用户按一下只会得出"这软件没反应"的结论）。
+                // 裸 Alt 那一下：那一格上**没有**「显示快照版」可拨，所以按了必须
+                // **什么都不发生**（不挡的话用户按一下只会得出"这软件没反应"的结论）。
                 QKeyEvent alt(QEvent::KeyPress, Qt::Key_Alt, Qt::NoModifier);
                 QApplication::sendEvent(detail, &alt);
                 if (QCheckBox *box = detail->findChild<QCheckBox *>(
@@ -12135,7 +11922,7 @@ static void runInstanceFileResourceTests() {
         check(modProbe.header == modTitle,
               "★ T24.7 页眉上写的就是接口给的那个资源名（是那个资源，不是那条文件名）",
               modProbe.header);
-        // ★★ 这一条就是用户那半句话的落点：**同一格换成了「模组设置」**。
+        // 这一条就是用户那半句话的落点：**同一格换成了「模组设置」**。
         check(modProbe.slotShown && modProbe.modButtonVisible,
               "★★ T24.7 从实例的文件管理页点一个**模组** ⇒ 右上角那一格摆的是「模组设置」"
               "（用户 2026-09-27：「右上角显示快照版那里替换为模组设置」）",
@@ -12196,9 +11983,9 @@ static void runInstanceFileResourceTests() {
 }
 
 // ---------------------------------------------------------------------------
-// T25. 「从实例设置里点『下载新模组』」那条路（2026-09-28）
+// T25. 「从实例设置里点『下载新模组』」那条路
 //
-// 用户原话：「点击下载新模组/资源包/...时左上角保留一个返回键，返回到实例设置里面，和
+// 要求：「点击下载新模组/资源包/...时左上角保留一个返回键，返回到实例设置里面，和
 // 资源包详情啥的一致」，以及「在设置里加一个选项 …… 勾选->下载新模组就自动放进当前实例
 // 文件夹 …… 不勾选->不论是在哪里进入的下载页都弹explorer选择保存位置」。
 //
@@ -12237,9 +12024,6 @@ static void runDownloadFromInstanceTests() {
         sandbox.sync();
         AppPaths::setMinecraftDir(originalDir);
     };
-    // 数据根目录**两头都改**（MainWindow 构造里会拿盘上那个「当前游戏文件夹」再把 AppPaths
-    // 改一次，见 T19/T20/T24）。两个接口地址都指到本机 —— 进下载页会顺手发一发"最热门的"，
-    // 不指的话那一发真打到 api.modrinth.com 上去了。
     sandbox.setValue(QStringLiteral("Launcher/Folders"), QStringList({root.path()}));
     sandbox.setValue(QStringLiteral("Launcher/CurrentFolder"), root.path());
     sandbox.setValue(QStringLiteral("Download/Source"),
@@ -12252,10 +12036,10 @@ static void runDownloadFromInstanceTests() {
     QDir().mkpath(root.path() + QStringLiteral("/libraries"));
     QDir().mkpath(root.path() + QStringLiteral("/assets"));
 
-    // ★ 这个实例**报得出游戏版本号和一个加载器**（2026-09-28 加）：④b 那两条（"筛子自动
-    //   填成对应版本和加载器"，用户原话「点击下载新模组/...后自动在搜索框里填入对应的版本
-    //   和加载器」）走的就是这两份值 —— 一个报不出东西的实例量不出来（填出来是空的，和
-    //   "接线断了"长得一模一样）。
+    // 这个实例**报得出游戏版本号和一个加载器**（ 加）：④b 那两条（"筛子自动
+    // 填成对应版本和加载器"，要求「点击下载新模组/...后自动在搜索框里填入对应的版本
+    // 和加载器」）走的就是这两份值 —— 一个报不出东西的实例量不出来（填出来是空的，和
+    // "接线断了"长得一模一样）。
     const QString idV = QStringLiteral("1.96.1");
     const QString instanceLoader = QStringLiteral("Fabric");
     const QDir versionsDir(root.path() + QStringLiteral("/versions"));
@@ -12339,9 +12123,9 @@ static void runDownloadFromInstanceTests() {
                 return;
             }
             clickedDownload = true;
-            // ★ 这一下**同步**就把那一页收掉了（`openDownloadCategory` 的第一件事就是
-            //   `overlay()->dismiss()`），所以点完这一行下面那句 `invokeMethod` 就返回了
-            //   —— 后面**不许**再补一次"收页"（会撞在已经收干净的那一层上）。
+            // 这一下**同步**就把那一页收掉了（`openDownloadCategory` 的第一件事就是
+            // `overlay()->dismiss()`），所以点完这一行下面那句 `invokeMethod` 就返回了
+            // —— 后面**不许**再补一次"收页"（会撞在已经收干净的那一层上）。
             mods->downloadButton()->click();
         });
         QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
@@ -12371,9 +12155,9 @@ static void runDownloadFromInstanceTests() {
               "T25.3 左上角那颗「← 返回实例设置」露出来了",
               back == nullptr ? QStringLiteral("<没有这颗键>") : QString());
         {
-            // 它**只有一颗**（2026-09-28 起整个下载页共用一颗、摆在左栏顶上）。
+            // 它**只有一颗**（ 起整个下载页共用一颗、摆在左栏顶上）。
             // NOTE: 早先这里是"只有这一栏那颗露着、其余四栏照旧收着"—— 那条断言随着
-            //       "一栏一颗"一起没了：现在别的栏压根没有第二颗可按。
+            // "一栏一颗"一起没了：现在别的栏压根没有第二颗可按。
             QWidget *downloadPage = tabs->widget(MainWindowUI::downloadTabIndex());
             const int backCount =
                 downloadPage == nullptr
@@ -12398,12 +12182,12 @@ static void runDownloadFromInstanceTests() {
 
         // ---------- ④b 筛子也替用户填成那个实例的版本和加载器 ----------
         //
-        // 用户 2026-09-28 原话：「点击下载新模组/...后自动在搜索框里填入对应的版本和加载器」。
+        // 要求：「点击下载新模组/...后自动在搜索框里填入对应的版本和加载器」。
         // 这一条和 ④ 是**两件事**：④ 管"下来的东西落在哪个实例"，这一条管"搜出来的是不是
         // 那个实例能用的东西"。
         //
-        // ★ 两格都**按文字**量（版本那一格是可输入的、加载器那一格两个来源的键不是一套 ——
-        //   见 fillDownloadFiltersFromInstance 那段 ★）：填的是不是用户眼睛里那个词。
+        // 两格都**按文字**量（版本那一格是可输入的、加载器那一格两个来源的键不是一套 ——
+        // 见 fillDownloadFiltersFromInstance 那段 ★）：填的是不是用户眼睛里那个词。
         QComboBox *filterVersion = ui->getDownloadFilterVersionCombo(modKey);
         QComboBox *filterLoader = ui->getDownloadFilterLoaderCombo(modKey);
         check(filterVersion != nullptr && filterVersion->currentText() == idV,
@@ -12423,9 +12207,9 @@ static void runDownloadFromInstanceTests() {
         // 0 毫秒定时器（那一发在它那层循环里跑），量完点顶上那颗返回箭头收页 —— 外面这一句
         // `click()` 才拿得回控制权。
         QString returnedHeader;
-        // ★ 页眉那行字（「实例设置：<实例名>」）**不随页走**，所以"退回的还是模组那一页、
-        //   不是落回「概览」"这件事页眉量不出来 —— 得问 `currentPageKey()`（唯一出处就是
-        //   它，见 InstanceSettingsDialog.hpp 那段 ★）。
+        // 页眉那行字（「实例设置：<实例名>」）**不随页走**，所以"退回的还是模组那一页、
+        // 不是落回「概览」"这件事页眉量不出来 —— 得问 `currentPageKey()`（唯一出处就是
+        // 它，见 InstanceSettingsDialog.hpp 那段 ★）。
         QString returnedPageKey;
         bool returnedPage = false;
         QTimer::singleShot(0, [&] {
@@ -12463,13 +12247,13 @@ static void runDownloadFromInstanceTests() {
 
         // ---------- ⑥ 再走一遍：这一次点**顶上那颗「下载」** ----------
         //
-        // 用户 2026-09-28 原话：「在这个情况下点击顶部下载按钮就刷新页面回到主页」——"这个
+        // 要求：「在这个情况下点击顶部下载按钮就刷新页面回到主页」——"这个
         // 情况"指的就是上一步那种（从实例设置里点「下载新模组」进来的），而"主页"是下载页
         // 的首页（「游戏」那一栏，见 downloadCategoryGameIndex）。
         //
-        // ★ 为什么非要**再走一遍**：上面 T25.5 那一颗返回键把"从实例进来"这件事整个消费掉了
-        //   （`returnToInstanceSettingsFromDownload` 把两位清了、键也收了，见那段 ★）——
-        //   状态已经不在，这时候点顶上那颗什么都不会发生，量出来的是个假绿。
+        // 为什么非要**再走一遍**：上面 T25.5 那一颗返回键把"从实例进来"这件事整个消费掉了
+        // （`returnToInstanceSettingsFromDownload` 把两位清了、键也收了，见那段 ★）——
+        // 状态已经不在，这时候点顶上那颗什么都不会发生，量出来的是个假绿。
         bool reopened = false;
         bool clickedAgain = false;
         QTimer::singleShot(0, [&] {
@@ -12500,22 +12284,22 @@ static void runDownloadFromInstanceTests() {
                   back != nullptr && !back->isHidden(),
               "T25.6 前提：又落到下载页的模组那一栏、返回键又露出来了");
 
-        // ★ 点的是**真的那一颗导航**（`TitleBar::navButton`），不是直接发信号：这一条要量的
-        //   就是"那颗按钮到底接上了没有"，绕开发射源去调槽函数等于把被验的那一段自己挖掉。
+        // 点的是**真的那一颗导航**（`TitleBar::navButton`），不是直接发信号：这一条要量的
+        // 就是"那颗按钮到底接上了没有"，绕开发射源去调槽函数等于把被验的那一段自己挖掉。
         QAbstractButton *navDownload =
             ui->titleBar() != nullptr ? ui->titleBar()->navButton(MainWindowUI::downloadTabIndex())
                                       : nullptr;
         check(navDownload != nullptr, "T25.6 顶上那颗「下载」找得到");
-        // ★ 顶上那颗「实例」（T25.7 用）：那一节量的是"从下载页按它 = 按了返回"。
+        // 顶上那颗「实例」（T25.7 用）：那一节量的是"从下载页按它 = 按了返回"。
         QAbstractButton *navInstance =
             ui->titleBar() != nullptr ? ui->titleBar()->navButton(MainWindowUI::instancesTabIndex())
                                       : nullptr;
         if (navDownload != nullptr) {
             navDownload->click();  // 同步：下面几条全部**不泵事件**直接读
         }
-        // ★ 这几条读的是"点完的那一刻"，**一个 processEvents 都不许有**：清了筛子那一发里
-        //   还会把那一页的搜索结果扔掉，泵一下就可能把下一发（下一次进那一页才发的搜索）
-        //   提前派下去，读到的就不是"刚点完"的样子了。
+        // 这几条读的是"点完的那一刻"，**一个 processEvents 都不许有**：清了筛子那一发里
+        // 还会把那一页的搜索结果扔掉，泵一下就可能把下一发（下一次进那一页才发的搜索）
+        // 提前派下去，读到的就不是"刚点完"的样子了。
         check(back != nullptr && back->isHidden(),
               "★★ T25.6 点完顶上那颗「下载」，那颗「← 返回实例设置」**收起来了**"
               "（这件事已经整个收场：再点它已经没有「来路」可回）");
@@ -12543,9 +12327,9 @@ static void runDownloadFromInstanceTests() {
               modTree == nullptr ? QStringLiteral("<没有这棵树>")
                                  : QStringLiteral("还剩 %1 行").arg(modTree->topLevelItemCount()));
 
-        // ★ 下面 ⑦ ⑧ 两节都要"再走一遍那个来路"（上一趟那两位已经被消费掉了，不复现就是拿
-        //   空状态量），所以这一段提成一个 lambda：开实例设置 → 点「下载新模组」→ 落到下载页。
-        //   判据 = 那一页真开出来过 **且** 那颗按钮真按下去了（不然下面量的是个空转）。
+        // 下面 ⑦ ⑧ 两节都要"再走一遍那个来路"（上一趟那两位已经被消费掉了，不复现就是拿
+        // 空状态量），所以这一段提成一个 lambda：开实例设置 → 点「下载新模组」→ 落到下载页。
+        // 判据 = 那一页真开出来过 **且** 那颗按钮真按下去了（不然下面量的是个空转）。
         const auto reopenInstanceToDownload = [&] {
             bool opened = false;
             bool clicked = false;
@@ -12575,21 +12359,21 @@ static void runDownloadFromInstanceTests() {
 
         // ---------- ⑦ 顶上那颗「实例」：第一下 = 返回，第二下 = 回实例主页 ----------
         //
-        // 用户 2026-09-28 原话：「如果点击了下载新模组按钮后再点击实例按钮，功能就和返回
+        // 要求：「如果点击了下载新模组按钮后再点击实例按钮，功能就和返回
         // 一样，如果点两下那就是先返回再回到实例主页」。
         bool reopenedAgain = reopenInstanceToDownload();
         check(reopenedAgain &&
                   tabs->currentIndex() == MainWindowUI::downloadTabIndex() && back != nullptr &&
                   !back->isHidden(),
               "T25.7 前提：再走一遍「进实例设置 → 点下载新模组」（落到下载页、返回键露着）");
-        // ★ 数一下**那一刻**当前是哪一颗选项卡：下面那条判据读的是"刚才那一颗"，它得先是
-        //   下载页（`m_previousMainTabIndex` 记的是上一位，见 MainWindow.hpp 那段）。
+        // 数一下**那一刻**当前是哪一颗选项卡：下面那条判据读的是"刚才那一颗"，它得先是
+        // 下载页（`m_previousMainTabIndex` 记的是上一位，见 MainWindow.hpp 那段）。
         check(tabs->currentIndex() == MainWindowUI::downloadTabIndex() && navInstance != nullptr,
               "T25.7 前提：此刻停在下载页上（那颗「实例」是从这儿按下去的）");
 
-        // ★ 两下都在**同一次信号里**做完：第一下进去（`execPage` 那层嵌套循环），那层循环
-        //   里的定时器记下"开出来的那一页长什么样"，**再按第二下**把这一页收掉 —— 收掉正是
-        //   让外面那次 `click()` 能返回的条件。两次读的都是真状态，中间没有假手。
+        // 两下都在**同一次信号里**做完：第一下进去（`execPage` 那层嵌套循环），那层循环
+        // 里的定时器记下"开出来的那一页长什么样"，**再按第二下**把这一页收掉 —— 收掉正是
+        // 让外面那次 `click()` 能返回的条件。两次读的都是真状态，中间没有假手。
         bool navOpened = false;
         bool navSecondClicked = false;
         QString navPageKey;
@@ -12634,12 +12418,6 @@ static void runDownloadFromInstanceTests() {
         // 这一段量的是 `onNavigationApplied()` 里那条判据 ② 的**原话**：「"从实例进来、切去主页
         // 逛了一圈、再点下载"……那一下用户要的是**切回来**（原来那一栏、连筛子带实例都在），
         // 顺手清掉就成了"我明明没点返回，回实例设置那颗键却没了"」。
-        //
-        // ★ 2026-09-28 它是**量的出来的**：这条判据原先写的是
-        //   `tabs->currentIndex() == index`，而 MainWindowUI 那条槽**先跑**、并且它自己就把
-        //   选项卡翻过来了（见 setupConnections 里那条连接的注释）⇒ 这一格永远为真 = 等于
-        //   没有这一条。现在真凭据由 `navigationApplied(source, target, reselected)`
-        //   一次送达，不再靠两个槽的执行先后顺序。
         check(reopenInstanceToDownload() && categories->currentRow() == modRow,
               "T25.8 前提：再走一遍来路（落到下载页的模组那一栏）",
               QStringLiteral("现在在第 %1 行").arg(categories->currentRow()));
@@ -12669,13 +12447,13 @@ static void runDownloadFromInstanceTests() {
         // ---------- ⑨ 这一层已经被别的页面占着时，「实例」那一颗**不许**把来路吃掉 ----------
         //
         // 场景：用户从实例进来 → 在下载页点开一个资源的详情页 → 又按顶上「实例」。
-        // ★ 2026-09-29 起 `openInstanceSettings()` 撞上"占着"时**不再拒绝**（静默收掉那一页、
-        //   排到下一轮再开，见 `runWhenOverlayFree()`）；从前那一档是弹一句"先关掉现在这一页"
-        //   然后什么都不开。这一条断言量的是**这一按算不算"回实例设置"**（占着的时候按「实例」
-        //   就照常翻页、来路留给上面那一发去用），所以它不受那个改动影响、也不该受影响。
+        // 起 `openInstanceSettings()` 撞上"占着"时**不再拒绝**（静默收掉那一页、
+        // 排到下一轮再开，见 `runWhenOverlayFree()`）；从前那一档是弹一句"先关掉现在这一页"
+        // 然后什么都不开。这一条断言量的是**这一按算不算"回实例设置"**（占着的时候按「实例」
+        // 就照常翻页、来路留给上面那一发去用），所以它不受那个改动影响、也不该受影响。
         //
-        // ★ 这里拿**一张提示**当"这一层被占着"的最小样本（真详情页要一整套假资源清单，
-        //   那是 ZJ 那一节的活）；判据是同一句 `overlay->isOpen()`。
+        // 这里拿**一张提示**当"这一层被占着"的最小样本（真详情页要一整套假资源清单，
+        // 那是 ZJ 那一节的活）；判据是同一句 `overlay->isOpen()`。
         check(back != nullptr && !back->isHidden() && categories->currentRow() == modRow,
               "T25.9 前提：还在「从实例进来」那一趟上（返回键露着、停在模组那一栏）");
         if (overlay != nullptr) {
@@ -12722,14 +12500,14 @@ static void runDownloadFromInstanceTests() {
 
 /// T26. 「Java 管理」那一页：四行 + 两颗动作键 + 那颗「选用」（离线）
 ///
-/// 用户 2026-09-28 原话：「把设置里 java 版本换成一个单独的按钮 java 管理…然后里面就直接是
-/// Java25：C:\...  重新下载（按钮）/ Java21: ... / Java17：缺失  下载 / Java 8：C:\  重新下载
-/// / 下载所有缺少的Java（按钮）  检测已有java（按钮）  左上角放一个返回键」。
+/// 要求：「把设置里 java 版本换成一个单独的按钮 java 管理…然后里面就直接是
+/// Java25：C:\... 重新下载（按钮）/ Java21: ... / Java17：缺失 下载 / Java 8：C:\ 重新下载
+/// / 下载所有缺少的Java（按钮） 检测已有java（按钮） 左上角放一个返回键」。
 ///
-/// ★ 这一节**一颗「下载 / 重新下载」都不按**：那四颗按下去是真的往 Adoptium 发请求、几百 MB
-///   同步下完才返回（`GlobalJavaSettings::downloadJavaFromMojang`）。这一节量的是"这一页长
-///   什么样、按哪一颗会走到哪儿"—— 下载那一趟是它自己的事，在这儿按下去这一跑就既不离线、
-///   也不再是几十秒。「检测已有 Java」和「选用」两颗**可以**按：前者只扫盘，后者只写设置。
+/// 这一节**一颗「下载 / 重新下载」都不按**：那四颗按下去是真的往 Adoptium 发请求、几百 MB
+/// 同步下完才返回（`GlobalJavaSettings::downloadJavaFromMojang`）。这一节量的是"这一页长
+/// 什么样、按哪一颗会走到哪儿"—— 下载那一趟是它自己的事，在这儿按下去这一跑就既不离线、
+/// 也不再是几十秒。「检测已有 Java」和「选用」两颗**可以**按：前者只扫盘，后者只写设置。
 static void runJavaManageTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -12762,9 +12540,9 @@ static void runJavaManageTests() {
 
     // 造一份"装在游戏文件夹里"的运行时。
     //
-    // ★ **不摆 java.exe 的真身**：认主版本走的是它旁边那个 release 文件
-    //   （`JAVA_VERSION="17.0.12"`，见 GlobalJavaSettings::probeJavaMajorVersion），
-    //   一个字节都不会去跑它 —— 所以这一步既不需要这台机器上真装着 Java，也不会冷启 JVM。
+    // **不摆 java.exe 的真身**：认主版本走的是它旁边那个 release 文件
+    // （`JAVA_VERSION="17.0.12"`，见 GlobalJavaSettings::probeJavaMajorVersion），
+    // 一个字节都不会去跑它 —— 所以这一步既不需要这台机器上真装着 Java，也不会冷启 JVM。
     const auto plantRuntime = [&](int major) {
         const QString dir = root.path() + QStringLiteral("/java/") + QString::number(major);
         QDir().mkpath(dir + QStringLiteral("/bin"));
@@ -12808,9 +12586,9 @@ static void runJavaManageTests() {
             restoreSettings();
             return;
         }
-        // ★ 那句「Java 管理…」是**设置页那一层**的字面量（ui/MainWindowUI.cpp），ui/ 那边
-        //   没有把它抽成函数，所以这儿照写一遍 —— 它断了就是"用户点名的那句话被人改了"，
-        //   正是这一条要拦住的。
+        // 那句「Java 管理…」是**设置页那一层**的字面量（ui/MainWindowUI.cpp），ui/ 那边
+        // 没有把它抽成函数，所以这儿照写一遍 —— 它断了就是"用户点名的那句话被人改了"，
+        // 正是这一条要拦住的。
         check(javaManage->text() == QStringLiteral("Java 管理…"),
               "T26.1 那颗按钮上写的就是用户点名的那五个字", javaManage->text());
         // 原来那个「Java 版本」下拉框**撤干净了**：留着它就有两处各自声称"这台机器用哪份
@@ -12818,15 +12596,15 @@ static void runJavaManageTests() {
         check(w.findChild<QComboBox *>(QStringLiteral("javaVersionCombo")) == nullptr,
               "T26.1 老的那个下拉框一个都不剩（按它原来的 objectName 找）");
 
-        // ★ 这一页是**整页**（`execPage`），而 `openJavaManage()` 进去之后就卡在那层嵌套
-        //   事件循环里 —— 所以量它只能自己排一发定时器（那一发在那层循环里跑），量完点页眉
-        //   上那颗返回箭头收页，外面这句 `click()` 才拿得回控制权。
+        // 这一页是**整页**（`execPage`），而 `openJavaManage()` 进去之后就卡在那层嵌套
+        // 事件循环里 —— 所以量它只能自己排一发定时器（那一发在那层循环里跑），量完点页眉
+        // 上那颗返回箭头收页，外面这句 `click()` 才拿得回控制权。
         //
-        //   NOTE: **不能**用 `QTimer::singleShot(0, …)`：`openJavaManage()` 在切选项卡和
-        //         `execPage` 之前还有一句 `enterSyncWait()`，那一句自己会
-        //         `processEvents(ExcludeUserInputEvents)` —— 排出去的那一发会**在页面摆上
-        //         去之前**就跑掉（那时候量到的是"没有这一页"）。所以这里排的是一发
-        //         **反复重排**的定时器：哪一轮真看到那一页了再量。
+        // NOTE: **不能**用 `QTimer::singleShot(0, …)`：`openJavaManage()` 在切选项卡和
+        // `execPage` 之前还有一句 `enterSyncWait()`，那一句自己会
+        // `processEvents(ExcludeUserInputEvents)` —— 排出去的那一发会**在页面摆上
+        // 去之前**就跑掉（那时候量到的是"没有这一页"）。所以这里排的是一发
+        // **反复重排**的定时器：哪一轮真看到那一页了再量。
         bool probed = false;
         int ticks = 0;
         QTimer probe;
@@ -12932,9 +12710,9 @@ static void runJavaManageTests() {
                 if (label == nullptr || button == nullptr || use == nullptr) {
                     continue;
                 }
-                // ★ 装了没有**不能只看按钮文字**（那一格正是我们要验的东西）。所以反过来：
-                //   先拿"这一行写的是不是「缺失」"判它装没装，再拿按钮文字 + 「选用」露不露
-                //   去核对同一个判断 —— 三个来源对上了，这一行才是自洽的。
+                // 装了没有**不能只看按钮文字**（那一格正是我们要验的东西）。所以反过来：
+                // 先拿"这一行写的是不是「缺失」"判它装没装，再拿按钮文字 + 「选用」露不露
+                // 去核对同一个判断 —— 三个来源对上了，这一行才是自洽的。
                 const int major = majors.at(i);
                 const bool missing =
                     label->text() == JavaManageDialog::rowText(major, QString());
@@ -12950,9 +12728,9 @@ static void runJavaManageTests() {
                       label->text() + QStringLiteral(" / ") + button->text());
             }
 
-            // ★ 下面几条只看 Java 17 那一行：那一份是**这一节自己摆进沙盒的**
-            //   （`plantRuntime(17)`），扫盘一定认得出它 —— 另外三行装没装看这台机器，
-            //   这一行不看这台机器上的任何东西。
+            // 下面几条只看 Java 17 那一行：那一份是**这一节自己摆进沙盒的**
+            // （`plantRuntime(17)`），扫盘一定认得出它 —— 另外三行装没装看这台机器，
+            // 这一行不看这台机器上的任何东西。
             const int i17 = majors.indexOf(17);
             check(i17 >= 0 && rowLabel.at(i17) != nullptr &&
                       rowLabel.at(i17)->text() == JavaManageDialog::rowText(17, java17),
@@ -12990,8 +12768,8 @@ static void runJavaManageTests() {
                   "T26.5 「检测已有 Java」那颗键在，文字就是用户点名的那句",
                   detect == nullptr ? QStringLiteral("<没有这颗键>") : detect->text());
 
-            // ★ 判据只能是**先把盘上改掉、再按这颗键**。只按一下再看"和按之前一样"是假绿 ——
-            //   一个什么都不做的实现也长那样。这一按只扫盘：不发请求、不弹窗、不写盘。
+            // 判据只能是**先把盘上改掉、再按这颗键**。只按一下再看"和按之前一样"是假绿 ——
+            // 一个什么都不做的实现也长那样。这一按只扫盘：不发请求、不弹窗、不写盘。
             for (int major : majors) {
                 if (major != 17) plantRuntime(major);
             }
@@ -13111,7 +12889,7 @@ static void runJavaManageTests() {
         probe.start();
         javaManage->click();  // 同步：卡在嵌套循环里，上面那发定时器在里面跑完才返回
         probe.stop();
-        // ★ 这一条是上面一整段的**前提**：没开出来的话里面一条都没跑 —— 那种"全绿"是假的。
+        // 这一条是上面一整段的**前提**：没开出来的话里面一条都没跑 —— 那种"全绿"是假的。
         check(probed, "T26.2 那颗按钮真的把「Java 管理」那一页开出来了"
                       "（★ 这条要是红了，上面里面所有东西一条都没量到）");
         check(!overlay->isOpen(), "T26.9 点完那颗返回箭头，这一页收干净了");
@@ -13122,9 +12900,9 @@ static void runJavaManageTests() {
 }
 
 // =========================================================================
-// T27. 「复制实例」和「存档」那一页那三条线（2026-09-28）
+// T27. 「复制实例」和「存档」那一页那三条线
 //
-// 用户原话：「实例设置的概览里面加一条复制实例，点击以后让用户选择复制到的文件夹，然后
+// 要求：「实例设置的概览里面加一条复制实例，点击以后让用户选择复制到的文件夹，然后
 // 给定复制后的实例名称 / 在实例设置里面存档那一栏每个世界都显示存档大小和最后游玩时间，
 // 右边画一支笔意为编辑，和基岩版一样，顶端加个导入世界按钮和批量编辑按钮（这个先做占位）」。
 //
@@ -13133,10 +12911,10 @@ static void runJavaManageTests() {
 // 挡法、名字的校验）在 verify 的 ZJ 节里，那一节是纯值的。
 //
 // NOTE: 两颗原生选择框（"复制到哪个游戏文件夹"、"要导入哪个世界"）在测试里**驱动不了**
-//       —— 那一步在选中之前根本进不去（一个模态的原生窗口），所以：
-//         · 「复制实例」走**动手的那一半** `copyInstanceTo()`（收三个字符串，见 .hpp）；
-//         · 「导入世界」只验它动手的那一半 `importWorldInto()`，**那一颗按钮本身不点**
-//           （点了就卡在原生框上）。这一点和产品里另外四处 QFileDialog 是同一个待遇。
+// —— 那一步在选中之前根本进不去（一个模态的原生窗口），所以：
+// · 「复制实例」走**动手的那一半** `copyInstanceTo()`（收三个字符串，见 .hpp）；
+// · 「导入世界」只验它动手的那一半 `importWorldInto()`，**那一颗按钮本身不点**
+// （点了就卡在原生框上）。这一点和产品里另外四处 QFileDialog 是同一个待遇。
 // =========================================================================
 static void runCopyAndSavePageTests() {
     const QString originalDir = AppPaths::minecraftDir();
@@ -13195,19 +12973,16 @@ static void runCopyAndSavePageTests() {
     QApplication::processEvents();
 
     // NOTE: 这一节里所有"回答一个问句"的动作都只排**一发 0 毫秒**、**不补 300 毫秒兜底**
-    //       （和 dismissNextPrompt() 那两发的差别就在这儿）：下面每一处 emit / invoke 都是
-    //       **同步**把框摆出来的（`ask()` / `getText()` 先建框、后进循环），所以那一发一定
-    //       找得到它。补一发 300 毫秒的反而危险 —— 它会在**后面某一问**上才醒过来，把那一问
-    //       随手点掉，而症状是"后面那条断言莫名其妙地没弹框"（见 g_modalHandlerGeneration
-    //       那条 NOTE 记的那个真实案例）。每一发都先 ++代数，让更早排下的兜底作废。
+    // （和 dismissNextPrompt() 那两发的差别就在这儿）：下面每一处 emit / invoke 都是
+    // **同步**把框摆出来的（`ask()` / `getText()` 先建框、后进循环），所以那一发一定
+    // 找得到它。补一发 300 毫秒的反而危险 —— 它会在**后面某一问**上才醒过来，把那一问
+    // 随手点掉，而症状是"后面那条断言莫名其妙地没弹框"（见 g_modalHandlerGeneration
+    // 那条 NOTE 记的那个真实案例）。每一发都先 ++代数，让更早排下的兜底作废。
 
-    // ---------------------------------------------------------------------
     header("T27.1 复制与删除归入实例操作，不在概览重复展示");
-    // ---------------------------------------------------------------------
-    //
     // NOTE: 这一小节**自己建一个对话框**、不走 openInstanceSettings()：那一条会卡在嵌套
-    //       事件循环里（见 T25 那条 NOTE），而这里要量的全是「那一页上摆了什么东西」，
-    //       和主窗口那一半没有关系 —— 真正接线的那一半在 T27.6。
+    // 事件循环里（见 T25 那条 NOTE），而这里要量的全是「那一页上摆了什么东西」，
+    // 和主窗口那一半没有关系 —— 真正接线的那一半在 T27.6。
     {
         InstanceSettingsDialog dialog(id, id, InstanceSettingsDialog::Override(),
                                       InstanceSettingsDialog::GlobalValues(), QStringList(),
@@ -13227,9 +13002,9 @@ static void runCopyAndSavePageTests() {
             check(button->text() == InstanceSettingsDialog::copyText(),
                   "T27.1 按钮上那几个字来自唯一出处", button->text());
             check(button->isVisible(), "T27.1 实例操作页开着时复制入口可见");
-            // ★ tooltip 里必须说清**落到哪儿**：那一颗问的是「复制到哪个游戏文件夹」，
-            //   而副本落在**那个文件夹**的 versions/ 底下 —— 不说的话用户会在自己挑的
-            //   那一层里找它，找不到就以为复制没成。
+            // tooltip 里必须说清**落到哪儿**：那一颗问的是「复制到哪个游戏文件夹」，
+            // 而副本落在**那个文件夹**的 versions/ 底下 —— 不说的话用户会在自己挑的
+            // 那一层里找它，找不到就以为复制没成。
             check(button->toolTip().contains(QStringLiteral("versions")),
                   "★★ T27.1 tooltip 说清了副本落在「<那个文件夹>\\versions\\<新名字>」"
                   "（问的是游戏文件夹，不是「就拷到你挑的这一层」）",
@@ -13240,9 +13015,9 @@ static void runCopyAndSavePageTests() {
                   button->toolTip());
         }
 
-        // ---- 同一页上那颗「删除实例」（2026-09-28）----
+        // ---- 同一页上那颗「删除实例」----
         //
-        // 用户原话：「顺便把删除实例功能做了，按钮放在概览里」。这一颗**不是新功能**：真去删
+        // 要求：「顺便把删除实例功能做了，按钮放在概览里」。这一颗**不是新功能**：真去删
         // 的那条路（`confirmDeleteInstance()`）就是实例行行尾那颗垃圾桶走的同一条 —— 这一页
         // 上多出来的只是**第二个入口**。接线那一半在 T27.8。
         check(remove != nullptr, "★ T27.1 实例操作页找得到「删除实例」（保留原 objectName）");
@@ -13250,14 +13025,14 @@ static void runCopyAndSavePageTests() {
             check(remove->text() == InstanceSettingsDialog::deleteText(),
                   "T27.1 按钮上那几个字来自唯一出处", remove->text());
             check(remove->isVisible(), "T27.1 实例操作页开着时删除入口可见");
-            // ★ 它是**红的**（`ButtonKind::Danger`）：用户给的规矩是「不可撤销（如修改存档，
-            //   删除实例）做成红色」，而这一页上它是唯一一颗真会丢东西的按钮。
+            // 它是**红的**（`ButtonKind::Danger`）：用户给的规矩是「不可撤销（如修改存档，
+            // 删除实例）做成红色」，而这一页上它是唯一一颗真会丢东西的按钮。
             check(remove->property("wtfmlButtonKind").toString() ==
                       Theme::buttonKindKey(Theme::ButtonKind::Danger),
                   "★★ T27.1 那一颗是「不可撤销」那一档（红的）—— 同一页上紧挨着的「复制实例」"
                   "是绿的",
                   remove->property("wtfmlButtonKind").toString());
-            // ★ 字里必须有"删了找不回来"：颜色只是提醒，真正让人停下来的是字。
+            // 字里必须有"删了找不回来"：颜色只是提醒，真正让人停下来的是字。
             check(InstanceSettingsDialog::deleteHint().contains(QStringLiteral("找不回来")),
                   "★★ T27.1 解释里写着「删掉之后找不回来」（用户点名这一档是「不可撤销」）",
                   InstanceSettingsDialog::deleteHint());
@@ -13267,9 +13042,7 @@ static void runCopyAndSavePageTests() {
         dialog.hide();
     }
 
-    // ---------------------------------------------------------------------
     header("T27.2 复制实例：动手的那一半（真拷一份到另一个游戏文件夹）");
-    // ---------------------------------------------------------------------
     {
         const QString destFolder = elsewhere.path();
         bool done = false;
@@ -13294,15 +13067,13 @@ static void runCopyAndSavePageTests() {
               "★ T27.2 源那一份一个字节都没动");
         check(g_modalTitle == QStringLiteral("复制实例"),
               "T27.2 收尾报了一句「复制实例」", g_modalTitle);
-        // ★ 那一份落在**别的**游戏文件夹里 ⇒ 它不在当前列表上，话里必须说清落在哪儿。
+        // 那一份落在**别的**游戏文件夹里 ⇒ 它不在当前列表上，话里必须说清落在哪儿。
         check(g_modalText.contains(QStringLiteral("另一个游戏文件夹")),
               "★★ T27.2 而且话里说明了它在另一个游戏文件夹里、不在当前列表上", g_modalText);
         check(!g_modalWasWarning, "T27.2 这是报信不是报错（标题不该是警告色）");
     }
 
-    // ---------------------------------------------------------------------
     header("T27.3 复制实例：被挡住的那几条（一个字节都不许动）");
-    // ---------------------------------------------------------------------
     {
         bool ok = true;
         dismissNextPrompt();
@@ -13346,7 +13117,7 @@ static void runCopyAndSavePageTests() {
         check(g_modalText.contains(QStringLiteral("得有个名字")), "T27.3 空名字那句话直接明了",
               g_modalText);
 
-        // ---- ★ 目标落在**源实例目录自己里面** → 拒绝（2026-09-29 补的第四道闸）----
+        // ---- ★ 目标落在**源实例目录自己里面** → 拒绝（ 补的第四道闸）----
         //
         // 这一条量的是**一次能把盘写爆**的路：挑游戏文件夹那一步是个普通目录选择框，用户
         // 一路点进 `versions/<这一份自己>` 再按确定就是这种输入。原来三道闸（名字 / 正在跑 /
@@ -13391,12 +13162,12 @@ static void runCopyAndSavePageTests() {
         // 挑文件夹那一步带的是 `QDir::DontResolveSymlinks`，拿回来的路径不规范化，
         // **只比字面量挡不住别名** —— 这一条就是为那个写的。
         //
-        // ★★ 2026-09-29 实测的坑：`canonicalFilePath()` **不解 junction**（Windows 上它走
-        //    `slowCanonicalized()`，逐段判的是 `isSymLink()`，而 junction 是 `JunctionType`）
-        //    ⇒ 光靠它这一条照样绕得过去。更阴的是：那一版跑起来"`!ok` 是绿的" —— 因为复制
-        //    真的跑下去了、一路自己抄自己、最后撞上路径长度上限才失败，而盘上已经多出一层
-        //    `versions/`（下面那条断言就是把它逮住的那一条）。所以这里**同时**钉住"报的是
-        //    哪一句"：真正的拒绝走的是界面上那句 warning，不是数据层的「复制实例失败」。
+        // 实测的坑：`canonicalFilePath()` **不解 junction**（Windows 上它走
+        // `slowCanonicalized()`，逐段判的是 `isSymLink()`，而 junction 是 `JunctionType`）
+        // ⇒ 光靠它这一条照样绕得过去。更阴的是：那一版跑起来"`!ok` 是绿的" —— 因为复制
+        // 真的跑下去了、一路自己抄自己、最后撞上路径长度上限才失败，而盘上已经多出一层
+        // `versions/`（下面那条断言就是把它逮住的那一条）。所以这里**同时**钉住"报的是
+        // 哪一句"：真正的拒绝走的是界面上那句 warning，不是数据层的「复制实例失败」。
         const QString aliasDir = aliasHome.path() + QStringLiteral("/指到源实例的链接");
         const bool madeAlias =
             QProcess::execute(QStringLiteral("cmd"),
@@ -13414,8 +13185,8 @@ static void runCopyAndSavePageTests() {
             check(!ok, "★★ T27.3 目标是一个**指着源实例目录的 junction** 也拒 —— "
                        "判据比的是规范化之后的真路径，不是字面量",
                   g_modalText);
-            // ★★ 光看 !ok 会是个**假绿**：复制跑下去撞路径上限也是 !ok。必须是界面上那句
-            //    warning（标题「复制实例」+ 那句话），不是数据层那句「复制实例失败」。
+            // 光看 !ok 会是个**假绿**：复制跑下去撞路径上限也是 !ok。必须是界面上那句
+            // warning（标题「复制实例」+ 那句话），不是数据层那句「复制实例失败」。
             check(g_modalTitle == QStringLiteral("复制实例")
                       && g_modalText.contains(QStringLiteral("不能复制到它自己里面去")),
                   "★★ T27.3 而且拒的是**那一道闸**（warning 那句话说出来了），不是"
@@ -13430,16 +13201,13 @@ static void runCopyAndSavePageTests() {
         }
     }
 
-    // ---------------------------------------------------------------------
     header("T27.3a 后台复制期间源实例算「正在搬文件」（设置页拒绝打开）");
-    // ---------------------------------------------------------------------
-    //
-    // ★ 2026-10-19：`copyInstanceInBackground()` 是界面上那颗「复制实例」真正走的路 ——
-    //   拷树落在后台线程。它开头**同步**把源实例记进 `m_fileOperationInstanceIds`，
-    //   收尾（成功或失败）第一件事就是摘掉。不记的话，拷树跑到一半用户照样能启动这一份
-    //   （游戏一边写存档、拷树一边读 ⇒ 副本里是半截世界），也能开设置页去改同一个目录。
-    //   判据看得见的是 `InstanceDialogController::open()` 那道闸 —— 它会回一句
-    //   「正在搬文件」，而不是把那一页开出来。
+    // `copyInstanceInBackground()` 是界面上那颗「复制实例」真正走的路 ——
+    // 拷树落在后台线程。它开头**同步**把源实例记进 `m_fileOperationInstanceIds`，
+    // 收尾（成功或失败）第一件事就是摘掉。不记的话，拷树跑到一半用户照样能启动这一份
+    // （游戏一边写存档、拷树一边读 ⇒ 副本里是半截世界），也能开设置页去改同一个目录。
+    // 判据看得见的是 `InstanceDialogController::open()` 那道闸 —— 它会回一句
+    // 「正在搬文件」，而不是把那一页开出来。
     {
         pumpUntil([] { return currentOverlay() == nullptr; }, 3000);
         const QString destFolder = elsewhere.path();
@@ -13475,9 +13243,9 @@ static void runCopyAndSavePageTests() {
         // 判"这一趟真的收尾了"看两件事：副本落在盘上、忙标记摘掉了。
         //
         // NOTE: **不能**拿"收尾那一句报出来了"当完成判据：复制很快时它会和上面那条
-        //       「正在搬文件」撞在一起，而 OverlayHost 不叠提示（第二条只留一行日志）。
-        //       那是一条真实的（罕见）产品路径，但拿它当测试的完成信号就是一条会随机
-        //       红/绿的判据 —— 这里改成直接读忙名单。
+        // 「正在搬文件」撞在一起，而 OverlayHost 不叠提示（第二条只留一行日志）。
+        // 那是一条真实的（罕见）产品路径，但拿它当测试的完成信号就是一条会随机
+        // 红/绿的判据 —— 这里改成直接读忙名单。
         const bool copied = pumpUntil(
             [&] {
                 return !window.instanceBusyForTest(id)
@@ -13513,16 +13281,7 @@ static void runCopyAndSavePageTests() {
               "一直红 = finished 里漏了 remove）");
     }
 
-    // ---------------------------------------------------------------------
     header("T27.3d 目标文件夹是当前游戏文件夹的 junction 别名 ⇒ 目标名字照样算「文件操作中」");
-    // ---------------------------------------------------------------------
-    //
-    // ★ 2026-10-19：那两个"目标在不在当前游戏文件夹"的判据原来拿 `QDir::cleanPath`
-    //   比字面量。用户把游戏文件夹用另一条路指过来（junction）时两串字面量不同、
-    //   而 `versions/<名字>/` 落的是同一个目录 —— 漏判的后果是后台复制期间**目标名字
-    //   没被记进 `m_fileOperationInstanceIds`**，拷到一半的实例下一次刷新就能被启动 / 删除
-    //   （那两条闸只查 `installingVersionIds()`，见 `copyInstanceInBackground()` 那段）。
-    //   现在判据走 `InstanceFiles::pathIsSameOrInside()` 两头各问一次（它解 junction）。
     {
         const QString link = aliasHome.path() + QStringLiteral("/game-link");
         QProcess::execute(QStringLiteral("cmd"),
@@ -13569,14 +13328,11 @@ static void runCopyAndSavePageTests() {
         }
     }
 
-    // ---------------------------------------------------------------------
     header("T27.3b 升级副本：拿「用户挑的目标版本」当底，不是当前实例的克隆");
-    // ---------------------------------------------------------------------
-    //
-    // ★ 2026-10-19：升级副本后台化那一版一开始把 `copyInstance()` 的源写成了 `sourceId`
-    //   （当前实例），于是"升级"造出来的是一份**当前实例的克隆** —— 版本号根本没变，
-    //   用户以为升了级、其实没升，而且没有任何报错。这一条钉的就是"底"是哪一个：
-    //   目标版本的主 jar 带一段认得出的内容，副本里必须是那一段。
+    // 升级副本后台化那一版一开始把 `copyInstance()` 的源写成了 `sourceId`
+    // （当前实例），于是"升级"造出来的是一份**当前实例的克隆** —— 版本号根本没变，
+    // 用户以为升了级、其实没升，而且没有任何报错。这一条钉的就是"底"是哪一个：
+    // 目标版本的主 jar 带一段认得出的内容，副本里必须是那一段。
     {
         pumpUntil([] { return currentOverlay() == nullptr; }, 3000);
         const QString targetId = QStringLiteral("T27-新版本");
@@ -13694,14 +13450,7 @@ static void runCopyAndSavePageTests() {
         check(srcBytes == QByteArray("jar-bytes"), "★ T27.3b 源实例一个字节都没动");
     }
 
-    // ---------------------------------------------------------------------
     header("T27.3c 「正在搬文件」是引用计数：叠两趟、收掉一趟，标记还在");
-    // ---------------------------------------------------------------------
-    //
-    // ★ 2026-10-19：这一笔原来是 `QSet<QString>` —— 同一份实例上叠两趟作业时（复制
-    //   实例还在拷树，模组预设已经在往 `mods/` 里写），先收尾的那一趟会把 id 整个
-    //   摘掉，另一趟就裸奔了：实例能启动、能删、能再开一趟搬文件。现在记的是计数，
-    //   归零才真摘。**集合写法在这一格会变红**（收掉一趟之后标记就没了）。
     {
         // 用一个不存在的 id：它只进这一份名单，不和别的判据互相干扰。
         const QString busyId = QStringLiteral("T27-计数夹具");
@@ -13727,9 +13476,7 @@ static void runCopyAndSavePageTests() {
               "T27.3c 多摘一次是空操作（计数不会变成负数、也不会留在名单上）");
     }
 
-    // ---------------------------------------------------------------------
     header("T27.4 导入世界：动手的那一半（真拷进 saves/）");
-    // ---------------------------------------------------------------------
     {
         QDir().mkpath(worldSource.path() + QStringLiteral("/region"));
         writeAt(worldSource.path() + QStringLiteral("/level.dat"), "nbt");
@@ -13769,9 +13516,7 @@ static void runCopyAndSavePageTests() {
               "T27.4 而且没在 saves 里留下一个空壳");
     }
 
-    // ---------------------------------------------------------------------
     header("T27.5 世界改名：动手的那一半");
-    // ---------------------------------------------------------------------
     {
         bool ok = false;
         const bool invoked = QMetaObject::invokeMethod(
@@ -13797,16 +13542,13 @@ static void runCopyAndSavePageTests() {
               "★ T27.5 被挡住时那一个原样还在");
     }
 
-    // ---------------------------------------------------------------------
     header("T27.6 存档那一页发出来的三发信号真的接到 MainWindow 上了");
-    // ---------------------------------------------------------------------
-    //
     // 量法：开实例设置 → 拿到那一页 → **自己发那一发信号** → 看屏幕上真的出现了什么。
     // 三发里只有两发能这么量（见文件头那条 NOTE：「导入世界」点了会卡在原生选择框上）。
     {
         bool probed = false;
         QString pageTitle;
-        // 点那支笔那一发里**不该**有任何提示框（2026-09-29 把"打开之前那一问"删掉了）。
+        // 点那支笔那一发里**不该**有任何提示框（ 把"打开之前那一问"删掉了）。
         QList<PromptAnswerer::Answered> penAsks;
         QString batchText;
         QString batchTitle;
@@ -13825,9 +13567,6 @@ static void runCopyAndSavePageTests() {
                 return;
             }
             probed = true;
-            // ★ 2026-09-29：**先摆到台前再量行上的东西**（理由逐字同 T24 那一段）——
-            //   看不见的那几页现在不建行。`showPage()` 走的是 `applyPageKey()`（左栏点和
-            //   外面调共用那一个出口），摆过来的同时会 `refresh()` 一遍。
             page->showPage(QStringLiteral("save"));
             QToolButton *pen = saves->editButtonAt(0);
             penFound = pen != nullptr;
@@ -13836,22 +13575,22 @@ static void runCopyAndSavePageTests() {
                     saves->list()->item(0)->data(InstanceFilesPage::pathRole()).toString();
             }
 
-            // ---- ① 那支笔：**直接进「世界设置」那一页**，中间一句话都不问（2026-09-29）----
+            // ---- ① 那支笔：**直接进「世界设置」那一页**，中间一句话都不问----
             //
-            // ★ 用户原话：「世界设置换成点开是一个额外的页面」+「点击笔的时候不要弹备份
-            //   提示了」。所以这一下量的是**反过来的那件事**：点下去屏幕上**不许有**任何提示
-            //   框（原来这里会垫一问「打开（只读）/ 先备份一份 / 取消」），人直接站到那一页上。
+            // 要求：「世界设置换成点开是一个额外的页面」+「点击笔的时候不要弹备份
+            // 提示了」。所以这一下量的是**反过来的那件事**：点下去屏幕上**不许有**任何提示
+            // 框（原来这里会垫一问「打开（只读）/ 先备份一份 / 取消」），人直接站到那一页上。
             //
             // 点的是**那支真的笔**（不是直接 emit editRequested）：这样"那一页自己把
             // clicked 接成 editRequested"这一段也顺带量到了。
             //
             // NOTE: 这一行的 `level.dat` 是 T27.4 导进来的那 3 个字节（`nbt`），解不出来 ⇒
-            //       开的是**"读不出来"**那一档（标题「这个世界可能坏了：<目录>」、正文整块
-            //       收着、只留 重命名 / 打开文件夹 / 删除世界 / 备份一份）。
+            // 开的是**"读不出来"**那一档（标题「这个世界可能坏了：<目录>」、正文整块
+            // 收着、只留 重命名 / 打开文件夹 / 删除世界 / 备份一份）。
             //
             // NOTE: 那一发点击还是**包在 PromptAnswerer 里**的：万一哪天那一问又回来了，
-            //       框会当场被点掉（不会让这一节挂在"等一个没人答的框"上），而 `penAsks`
-            //       会非空 —— 下面那条断言红在"点笔不该弹任何东西"上，方向是对的。
+            // 框会当场被点掉（不会让这一节挂在"等一个没人答的框"上），而 `penAsks`
+            // 会非空 —— 下面那条断言红在"点笔不该弹任何东西"上，方向是对的。
             QList<PromptAnswerer::Answered> penAsks;
             if (pen != nullptr) {
                 PromptAnswerer answerer({0});
@@ -13864,10 +13603,10 @@ static void runCopyAndSavePageTests() {
 
             // ---- ② 页面上那颗「重命名…」：整条路（输入框预填 → 真改盘上的目录名）----
             //
-            // ★ 这一颗原来在菜单里，现在在页面上（用户原话「改文件的设置上方是重命名
-            //   打开文件夹 删除世界」）。两问仍然是**串**在一条线上的：`getText()` 那一问
-            //   要等它自己那层嵌套循环 —— 所以答它那一发**只能在点那颗按钮之前排**，
-            //   点下去之后同步就进了那一层。
+            // 这一颗原来在菜单里，现在在页面上（要求「改文件的设置上方是重命名
+            // 打开文件夹 删除世界」）。两问仍然是**串**在一条线上的：`getText()` 那一问
+            // 要等它自己那层嵌套循环 —— 所以答它那一发**只能在点那颗按钮之前排**，
+            // 点下去之后同步就进了那一层。
             {
                 OverlayHost *openedHost = currentPageOverlay();
                 auto *opened = openedHost != nullptr
@@ -13917,11 +13656,11 @@ static void runCopyAndSavePageTests() {
             // 真的 gzip `level.dat` → 点那支笔 → 页面上的值就是盘上那些 → 改三格 →
             // 「保存」→ 再读回盘上那一份核对（顺带看备份留没留、没碰过的地方动没动）。
             //
-            // ★ 2026-09-29：「打开之前弹出坏档警告并提供备份按钮」那半句**改了** —— 用户
-            //   原话「点击笔的时候不要弹备份提示了」。坏档**照样判**（读不动 ⇒ 直接开
-            //   「读不出来」那一档，原因写在页里），备份**照样有**（页里那颗「备份一份」），
-            //   只是**打开之前不再垫一问**。A 那半量"好档直接进页"，B 那半量"坏档也直接进页
-            //   + 在页里点备份那一颗"。
+            // 「打开之前弹出坏档警告并提供备份按钮」那半句**改了** —— 用户
+            // 原话「点击笔的时候不要弹备份提示了」。坏档**照样判**（读不动 ⇒ 直接开
+            // 「读不出来」那一档，原因写在页里），备份**照样有**（页里那颗「备份一份」），
+            // 只是**打开之前不再垫一问**。A 那半量"好档直接进页"，B 那半量"坏档也直接进页
+            // + 在页里点备份那一颗"。
             //
             // 为什么非要在这儿量：`build/verify` 的 ZL 那一节量的是**纯函数 + 真文件**
             // （读得对不对 / 写得对不对），ui_check 的 Z16 量的是**页面上摆得对不对**
@@ -13930,13 +13669,13 @@ static void runCopyAndSavePageTests() {
             // 保存那几道闸 —— **只有这里量得到**。
             //
             // NOTE: 这一段里"接住问句"用的是 `PromptAnswerer`（自走的定时器 + 脚本），不是
-            //       T27.6 那种"在 handler 里再排一发"的写法：这里的问句是**一串**
-            //       （保存之前那几道闸、备份那一颗的回话…），而两条之间那条路是同步跑完的
-            //       —— 排发那套要么套三层，要么被代数顶掉（见 g_modalHandlerGeneration 那条
-            //       NOTE）。脚本最后一位顶着"多出来的问句"，所以**真多弹一个也不会卡死**，
-            //       那一位会被下面的断言抓住（而不是让测试挂在一个没人答的框上）。
-            //       ★ 点笔那一发也包在里面：按用户点名的要求，它**一个框都不该弹** ——
-            //       真弹了的话框会被当场点掉，断言红在"不该弹东西"上。
+            // T27.6 那种"在 handler 里再排一发"的写法：这里的问句是**一串**
+            // （保存之前那几道闸、备份那一颗的回话…），而两条之间那条路是同步跑完的
+            // —— 排发那套要么套三层，要么被代数顶掉（见 g_modalHandlerGeneration 那条
+            // NOTE）。脚本最后一位顶着"多出来的问句"，所以**真多弹一个也不会卡死**，
+            // 那一位会被下面的断言抓住（而不是让测试挂在一个没人答的框上）。
+            // 点笔那一发也包在里面：按用户点名的要求，它**一个框都不该弹** ——
+            // 真弹了的话框会被当场点掉，断言红在"不该弹东西"上。
             {
                 const QString worldDir = versionDir + QStringLiteral("/saves/笔改的");
                 const QString brokenDir = versionDir + QStringLiteral("/saves/坏掉的");
@@ -14037,8 +13776,8 @@ static void runCopyAndSavePageTests() {
                                             string(QStringLiteral("3"))),
                                       field(QStringLiteral("moddedRule"),
                                             string(QStringLiteral("whatever")))})),
-                            // ★ 我们没碰过的那一格：存完之后它必须**原样还在** ——
-                            //   "只改用户点名的那几格"这条保证就靠它量。
+                            // 我们没碰过的那一格：存完之后它必须**原样还在** ——
+                            // "只改用户点名的那几格"这条保证就靠它量。
                             field(QStringLiteral("某个模组写的"), string(QStringLiteral("别动我"))),
                         }))};
 
@@ -14051,13 +13790,13 @@ static void runCopyAndSavePageTests() {
                     check(gzipped, "★ T27.7 盘上摆出来的那份 level.dat 是真的（gzip 过的 NBT）",
                           gzWhy);
                 }
-                // ★ 这一份字节读完**必须把句柄关掉**（所以套一层花括号）：下面保存那一下是
-                //   `QSaveFile::commit()` → `MoveFileEx(REPLACE_EXISTING)` 换掉 level.dat，
-                //   而那一步要求目标**没有别人开着**。测试自己攥着一个读句柄的话，换名会
-                //   以"拒绝访问"失败 —— 症状是产品弹「保存失败」、盘上一个字没变，而这一节
-                //   每一条断言都红得像是"翻译错了 / 没写盘"（2026-09-28 实测踩到：第一版
-                //   这一行就是一个活到本节末尾的 `QFile`，整段保存全红）。产品里没有这一档
-                //   （没人攥着 level.dat），是测试自己的手。
+                // 这一份字节读完**必须把句柄关掉**（所以套一层花括号）：下面保存那一下是
+                // `QSaveFile::commit()` → `MoveFileEx(REPLACE_EXISTING)` 换掉 level.dat，
+                // 而那一步要求目标**没有别人开着**。测试自己攥着一个读句柄的话，换名会
+                // 以"拒绝访问"失败 —— 症状是产品弹「保存失败」、盘上一个字没变，而这一节
+                // 每一条断言都红得像是"翻译错了 / 没写盘"（ 实测踩到：第一版
+                // 这一行就是一个活到本节末尾的 `QFile`，整段保存全红）。产品里没有这一档
+                // （没人攥着 level.dat），是测试自己的手。
                 QByteArray beforeBytes;
                 {
                     QFile freshFile(WorldFiles::levelDataPath(worldDir));
@@ -14092,11 +13831,11 @@ static void runCopyAndSavePageTests() {
                 check(rowHealthy >= 0, "★★ T27.7 存档那一页里找得到「笔改的」这一行");
                 QList<PromptAnswerer::Answered> openAsks;
                 {
-                    // ★ 2026-09-29：那支笔点下去**一句话都不问**（用户原话「点击笔的时候不要
-                    //   弹备份提示了」）。原来这里垫着一问「打开 / 先备份一份 / 取消」，现在
-                    //   它整个删掉了 —— 点笔 = 直接进页。
-                    //   （外面还是包着 PromptAnswerer：万一那一问又回来了，框当场被点掉、
-                    //   下面那条断言红在"不该弹东西"上，而不是让这一节挂住。）
+                    // 那支笔点下去**一句话都不问**（要求「点击笔的时候不要
+                    // 弹备份提示了」）。原来这里垫着一问「打开 / 先备份一份 / 取消」，现在
+                    // 它整个删掉了 —— 点笔 = 直接进页。
+                    // （外面还是包着 PromptAnswerer：万一那一问又回来了，框当场被点掉、
+                    // 下面那条断言红在"不该弹东西"上，而不是让这一节挂住。）
                     PromptAnswerer answerer({0});
                     answerer.start();
                     if (QToolButton *pen =
@@ -14111,11 +13850,6 @@ static void runCopyAndSavePageTests() {
                       openAsks.isEmpty() ? QString() : openAsks.first().title);
 
                 WorldSettingsPage *world = page->worldSettingsPage();
-                // ★ 判据是 `isHidden()`（"有没有被**显式**收起来"）而不是 `isVisible()`：
-                //   offscreen 平台上这一层整个有可能是藏着的（ui_check 文件头那条 NOTE 说的
-                //   同一件事），子控件的 `isVisible()` 那时恒假 —— 拿它当判据量到的是"这台
-                //   机器上覆盖层露没露"，不是"这一格在不在台上"。`QStackedWidget` 切格子用的
-                //   是 show()/hide()，所以"在台上 ⇒ isHidden() 假"在这两种平台上都成立。
                 check(world != nullptr && !world->isHidden(),
                       "★★ T27.7 那一格世界设置真的切出来了（不是还停在世界列表上）");
                 const auto ruleRowOf = [world](const QString &name) {
@@ -14146,23 +13880,23 @@ static void runCopyAndSavePageTests() {
                         names << name;
                         rowOfName.insert(name, i);
                     }
-                    // ★★ 2026-09-29：这一列现在是**并过全集的**（用户原话「下面的世界设置不要
-                    //    要求进了世界才显示而是把所有的都列出来」）—— 盘上只有三条，而屏幕上
-                    //    是"启动器认识的那几十条 + 盘上多出来的 `moddedRule`"，按名字排序。
+                    // 这一列现在是**并过全集的**（要求「下面的世界设置不要
+                    // 要求进了世界才显示而是把所有的都列出来」）—— 盘上只有三条，而屏幕上
+                    // 是"启动器认识的那几十条 + 盘上多出来的 `moddedRule`"，按名字排序。
                     //
-                    //    这一条量的正是 MainWindow 那一段翻译（`worldViewOf()` 有没有真去问
-                    //    `WorldFiles::allGameRules()`）：只摆盘上那三条的话它就是红的。
+                    // 这一条量的正是 MainWindow 那一段翻译（`worldViewOf()` 有没有真去问
+                    // `WorldFiles::allGameRules()`）：只摆盘上那三条的话它就是红的。
                     check(names.size() >= 40 && rowOfName.contains(QStringLiteral("keepInventory")) &&
                               rowOfName.contains(QStringLiteral("randomTickSpeed")) &&
                               rowOfName.contains(QStringLiteral("moddedRule")),
                           "★★ T27.7 那一列是**全集**（盘上那三条 + 启动器认识的那几十条），"
                           "不是「盘上有几条就摆几条」",
                           QStringLiteral("%1 条").arg(names.size()));
-                    // ★ 排序是**大小写不敏感**的（`allGameRules()` 那一头排的），所以
-                    //   `moddedRule`（m）落在 `keepInventory`（k）和 `randomTickSpeed`（r）
-                    //   中间 —— 它是**盘上有、全集里没有**的那一条（从盘上捡回来的）。
-                    //   不排序的实现会把它甩到所有小写名字后面（大写在 ASCII 里排在小写
-                    //   前面），那正是这一条要钉的。
+                    // 排序是**大小写不敏感**的（`allGameRules()` 那一头排的），所以
+                    // `moddedRule`（m）落在 `keepInventory`（k）和 `randomTickSpeed`（r）
+                    // 中间 —— 它是**盘上有、全集里没有**的那一条（从盘上捡回来的）。
+                    // 不排序的实现会把它甩到所有小写名字后面（大写在 ASCII 里排在小写
+                    // 前面），那正是这一条要钉的。
                     check(rowOfName.value(QStringLiteral("keepInventory")) <
                               rowOfName.value(QStringLiteral("moddedRule")) &&
                               rowOfName.value(QStringLiteral("moddedRule")) <
@@ -14187,10 +13921,10 @@ static void runCopyAndSavePageTests() {
                           "★ T27.7 盘上**没有**的那一条也在（`doDaylightCycle` —— 一个刚建好、"
                           "还没被游戏写过档的世界就是这样，原来那一页遇到这种档只写一句"
                           "「进游戏玩一次就会写进去」）");
-                    // ★ 刚摆好的时候**必须是干净的**：这一条量的是 MainWindow 那一段翻译
-                    //   （`worldViewOf()` 摆进去的那一份）和页自己那本台账对得上 ——
-                    //   对不上的话，用户一进来什么都没改、按一下返回就被问"改过还没存"。
-                    //   ui_check 的 Z16a 拿手搓的 WorldView 量过同一件事，量不到这一段翻译。
+                    // 刚摆好的时候**必须是干净的**：这一条量的是 MainWindow 那一段翻译
+                    // （`worldViewOf()` 摆进去的那一份）和页自己那本台账对得上 ——
+                    // 对不上的话，用户一进来什么都没改、按一下返回就被问"改过还没存"。
+                    // ui_check 的 Z16a 拿手搓的 WorldView 量过同一件事，量不到这一段翻译。
                     check(!world->isDirty(),
                           "★★ T27.7 刚打开的时候这一页是干净的（什么都没改不该被问一句）");
                 }
@@ -14214,9 +13948,6 @@ static void runCopyAndSavePageTests() {
                       "★ T27.7 认不出形状的那一条摆的是随便填的框（值原样端出来）",
                       textEditor != nullptr ? textEditor->text() : QString());
 
-                // ★ 2026-09-29：「盘上真有的」和「拿默认值顶着的」两行要分得开 —— 那枚
-                //   「默认」小标记就是 `Rule::inFile` 在界面上的样子（量的是 MainWindow 那
-                //   一段翻译有没有把 `allGameRules()` 并进来的那几十条标对）。
                 const auto hasDefaultMark = [world, &ruleRowOf](const QString &name) {
                     const int row = ruleRowOf(name);
                     QWidget *host =
@@ -14232,12 +13963,7 @@ static void runCopyAndSavePageTests() {
                       "★★ T27.7 盘上有的那几条**不挂**「默认」，盘上没有的那条挂上 —— 混在"
                       "一列里不标出来，用户会以为「屏幕上摆的就是这个世界本来的样子」");
 
-                // ---------- 2026-09-29：「修改存档文件」那个折叠框 ----------
-                //
-                // 用户原话「修改文件的设置放在一个类似版本下载那里的收起来的框里，默认收起，
-                // **展开是弹出备份警告**」。这一条量的是 **MainWindow 那一层**（页面只发
-                // `fileEditingRequested()`，那一句警告是这一层弹的）—— 页自己的那半边在
-                // ui_check 的 Z16a 里量过。
+                // ---------- ：「修改存档文件」那个折叠框 ----------
                 check(world != nullptr && !world->fileEditingOpen() &&
                           world->fileBody()->isHidden(),
                       "★★ T27.7 「修改存档文件」那个折叠框**默认收起**（世界名 / 允许作弊 / "
@@ -14301,9 +14027,9 @@ static void runCopyAndSavePageTests() {
                 // **盘上根本没有的那一条**（`doDaylightCycle`：true → false）。
                 // `moddedRule` 故意**一个字都不动** —— 它是下面"没动的那条不许变"的对照。
                 //
-                // ★ 最后那一格是 2026-09-29 加的，盯的是 `MissingField::Create` 那一路：
-                //   盘上没有这一条的时候不能以"改不了"收场（用户刚在屏幕上拨了一下、界面
-                //   也答应了，然后告诉他存不下去，那是最坏的一种界面）。
+                // 最后那一格是 加的，盯的是 `MissingField::Create` 那一路：
+                // 盘上没有这一条的时候不能以"改不了"收场（用户刚在屏幕上拨了一下、界面
+                // 也答应了，然后告诉他存不下去，那是最坏的一种界面）。
                 QAbstractButton *defaultToggle = nullptr;
                 if (world != nullptr) {
                     const int rowDefault = ruleRowOf(QStringLiteral("doDaylightCycle"));
@@ -14322,10 +14048,10 @@ static void runCopyAndSavePageTests() {
                     }
                 }
 
-                // ★ 改过还没存的时候按「返回」**必须先问一句**（和「配置文件」那一页同一条
-                //   规矩）。判据是页自己那本台账（`WorldSettingsPage::isDirty()`）——
-                //   那条路的另一半（"存过之后**不**该再问"）就在下面几步之后。
-                //   这一点**先量、后存**：反过来的话，页面上已经没有"改过还没存"这一档了。
+                // 改过还没存的时候按「返回」**必须先问一句**（和「配置文件」那一页同一条
+                // 规矩）。判据是页自己那本台账（`WorldSettingsPage::isDirty()`）——
+                // 那条路的另一半（"存过之后**不**该再问"）就在下面几步之后。
+                // 这一点**先量、后存**：反过来的话，页面上已经没有"改过还没存"这一档了。
                 QList<PromptAnswerer::Answered> dirtyAsks;
                 {
                     // 脚本点第 2 颗「留下来继续改」—— 问完人还得留在这一页上（下面那几格
@@ -14403,10 +14129,6 @@ static void runCopyAndSavePageTests() {
                           "★★ T27.7 填进去的那个数字写进盘了（Int 那一档）", tick);
                     check(modded == QStringLiteral("whatever"),
                           "★★ T27.7 页面上没动的那一条一个字都没变（Text 那一档）", modded);
-                    // ★★ 2026-09-29：**盘上本来没有的那一条被建出来了**（`MissingField::Create`）。
-                    //    这一条同时钉住两件事：规则那一路走的是 `applyChangedGameRules()`，
-                    //    以及"用户真拨了的那一格才写"（屏幕上另外几十条默认值一条都没进去 ——
-                    //    下面那条"条数"的断言就是这件事）。
                     QString daylight;
                     bool daylightFound = false;
                     for (const NbtTree::GameRule &rule : after.info.rules) {
@@ -14494,13 +14216,13 @@ static void runCopyAndSavePageTests() {
                 //
                 // 读不动的那一份**也走同一个入口**（点笔 → 直接开页），只是开出来的是"读
                 // 不出来"那一档 —— 所以这一段分两步量：
-                //   ① 点笔：**一句话都不问**（2026-09-29 用户原话「点击笔的时候不要弹备份
-                //      提示了」—— 原来这里弹的是「打开（只读）/ 先备份一份 / 取消」那一问）；
-                //      人直接站在那一页上，而那一页是"读不出来"那一档。
-                //   ② 在这一档上点页里那颗「备份一份」⇒ 报「备份好了」。
+                // ① 点笔：**一句话都不问**（ 要求「点击笔的时候不要弹备份
+                // 提示了」—— 原来这里弹的是「打开（只读）/ 先备份一份 / 取消」那一问）；
+                // 人直接站在那一页上，而那一页是"读不出来"那一档。
+                // ② 在这一档上点页里那颗「备份一份」⇒ 报「备份好了」。
                 //
-                // ★ 备份这件能力**一件都没少**：它从"打开之前那一问里的第 2 颗"换成了页里
-                //   那一颗（原来那一问的那颗按钮本来就是调同一个 `backupRequested()`）。
+                // 备份这件能力**一件都没少**：它从"打开之前那一问里的第 2 颗"换成了页里
+                // 那一颗（原来那一问的那颗按钮本来就是调同一个 `backupRequested()`）。
                 const int rowBroken = rowOfWorld(brokenDir);
                 check(rowBroken >= 0, "★ T27.7 坏掉的那个世界在列表里有一行");
                 QList<PromptAnswerer::Answered> brokenAsks;
@@ -14528,15 +14250,15 @@ static void runCopyAndSavePageTests() {
                               QStringLiteral("这个世界可能坏了：坏掉的"),
                           "★★ T27.7 标题上写着「这个世界可能坏了」、还带着是哪一个世界",
                           world->titleLabel()->text());
-                    // ★ 那一句小字 = **原因原文** + "只能看和备份"（`refreshNote()` 那一档）。
-                    //   量的是"原因真的搬到页里来了"（原来它在打开之前那一问的正文里）。
+                    // 那一句小字 = **原因原文** + "只能看和备份"（`refreshNote()` 那一档）。
+                    // 量的是"原因真的搬到页里来了"（原来它在打开之前那一问的正文里）。
                     check(world->noteLabel()->text().contains(QStringLiteral("不认识的标签类型")) &&
                               world->noteLabel()->text().contains(QStringLiteral("备份")),
                           "★ T27.7 读不动的原因摆在页里（用户拿去搜、拿去问人都要它），"
                           "而且说明了这一档只能看和备份",
                           world->noteLabel()->text());
-                    // ★ 判据是 `isHidden()` 而不是 `isVisible()`（offscreen 上后者恒假，
-                    //   见上面 A 那一段那条 NOTE）。
+                    // 判据是 `isHidden()` 而不是 `isVisible()`（offscreen 上后者恒假，
+                    // 见上面 A 那一段那条 NOTE）。
                     check(world->body()->isHidden(),
                           "★★ T27.7 这一档整块正文收着（那一堆值一个都不作数）");
                     check(world->fileBody()->isHidden(),
@@ -14547,7 +14269,7 @@ static void runCopyAndSavePageTests() {
                           "★★ T27.7 但「备份一份」还在 —— 读不动的那一份尤其该留");
                 }
                 // ② 页里那颗「备份一份」：报一句「备份一份」+ 备份落在哪儿，而且**页不关**
-                //    （用户接下来还能改名、还能删）。
+                // （用户接下来还能改名、还能删）。
                 QList<PromptAnswerer::Answered> backupAsks;
                 {
                     PromptAnswerer answerer({0});
@@ -14600,11 +14322,11 @@ static void runCopyAndSavePageTests() {
 
             // ---------- 收尾：关掉整个「实例设置」 ----------
             //
-            // ★ 这一关**也得接住**：`InstanceSettingsDialog::reject()` 上挂着那两道闸
-            //   （「配置文件」/「世界设置」改过还没存），存过之后它们**都不该响** —— 响了就是
-            //   用户按了一下返回箭头被问一句"要丢掉吗"。第一版这一发没接，一次保存失败就让
-            //   它挂在「改过还没保存」那个框上（屏幕上什么都没发生、测试整个卡死）——
-            //   脚本那一位顶着"真多问了一句"，下面那条断言会红，而不会让测试挂住。
+            // 这一关**也得接住**：`InstanceSettingsDialog::reject()` 上挂着那两道闸
+            // （「配置文件」/「世界设置」改过还没存），存过之后它们**都不该响** —— 响了就是
+            // 用户按了一下返回箭头被问一句"要丢掉吗"。第一版这一发没接，一次保存失败就让
+            // 它挂在「改过还没保存」那个框上（屏幕上什么都没发生、测试整个卡死）——
+            // 脚本那一位顶着"真多问了一句"，下面那条断言会红，而不会让测试挂住。
             QList<PromptAnswerer::Answered> closeAsks;
             {
                 PromptAnswerer answerer({0});  // 0 = 「丢掉改动」（真问了就认下这一句）
@@ -14629,9 +14351,9 @@ static void runCopyAndSavePageTests() {
         check(probed, "★★ T27.6 那一页开出来了（这条红了下面全是假绿）");
         check(penFound, "★ T27.6 存档页第一行行尾那支笔真的拿到手了");
         const QString rowName = QFileInfo(rowPath).fileName();
-        // ★ 2026-09-29：那支笔点下去**一句话都不问**（用户原话「点击笔的时候不要弹备份
-        //   提示了」）。原来这里垫着一问「打开（只读）/ 先备份一份 / 取消」，现在它整个没了
-        //   —— 所以这一条量的是"没弹东西"，而不是"弹的那一问长什么样"。
+        // 那支笔点下去**一句话都不问**（要求「点击笔的时候不要弹备份
+        // 提示了」）。原来这里垫着一问「打开（只读）/ 先备份一份 / 取消」，现在它整个没了
+        // —— 所以这一条量的是"没弹东西"，而不是"弹的那一问长什么样"。
         check(penAsks.isEmpty(),
               "★★ T27.6 点那支笔**不弹任何提示框**（那一问被用户点名删掉了）",
               penAsks.isEmpty() ? QString() : penAsks.first().title);
@@ -14656,26 +14378,16 @@ static void runCopyAndSavePageTests() {
               "★ T27.6 顶上「批量编辑」那一颗接上了（弹的是「批量编辑」）", batchTitle);
         check(batchText.contains(QStringLiteral("还没做")),
               "★★ T27.6 而且明说「还没做」—— 占位不许装成能用", batchText);
-        // NOTE: 第三发信号（「导入世界」）**这一节没有量到接线**，而且是故意不量的：
-        //       它那个 lambda 的第一步就是原生 `QFileDialog::getExistingDirectory`，
-        //       测试里点下去会卡在那个模态框上直到超时。所以那一颗只量"页面这一半"
-        //       （按钮在不在、tooltip 说了什么，见 ui_check 的 U10O），动手的那一半
-        //       （`importWorldInto`）在 T27.4 里整条路走过一遍 —— 中间那一小段
-        //       "选框 → getText → importWorldInto" 和产品里另外三处 QFileDialog
-        //       是同一个待遇，**欠着**。
     }
 
-    // ---------------------------------------------------------------------
     header("T27.8 概览页那颗「删除实例」：接到 MainWindow，删完把页收掉");
-    // ---------------------------------------------------------------------
-    //
-    // 用户原话：「顺便把删除实例功能做了，按钮放在概览里」。这一节量的是**接线**：那一页发
+    // 要求：「顺便把删除实例功能做了，按钮放在概览里」。这一节量的是**接线**：那一页发
     // 出来的 `deleteInstanceRequested` 真的走到了 `confirmDeleteInstance()`（两道闸 + 问一句
     // + 真删目录），以及**删完之后那一页自己收掉了没有**。
     //
-    // ★ 为什么"收页"值得单量：不收的话用户会停在一页对着已经被删掉的目录的设置上，随便动
-    //   一格都会把 wtfml.meta 写回那个目录（`QDir().mkpath()` 会把它重新建出来）—— 盘上就
-    //   多出一个只有 meta、没有 json 的空壳实例。判据是 `pageOpen()`（T27 这一段用的都是它）。
+    // 为什么"收页"值得单量：不收的话用户会停在一页对着已经被删掉的目录的设置上，随便动
+    // 一格都会把 wtfml.meta 写回那个目录（`QDir().mkpath()` 会把它重新建出来）—— 盘上就
+    // 多出一个只有 meta、没有 json 的空壳实例。判据是 `pageOpen()`（T27 这一段用的都是它）。
     //
     // NOTE: 这一节**排在最后**：它真把 `id` 那个目录删掉，后面的 T27.7 还要用它。
     {
@@ -14688,11 +14400,6 @@ static void runCopyAndSavePageTests() {
         QString askedText;
         QString secondTitle;
 
-        // ★ 两趟**开在同一页里**（点取消 → 那一页留着 → 再点一次删）。为什么不再开一次页：
-        //   "没删成"那一趟收页是我们自己在下面补的，两件事之间隔着一次覆盖层的收放 ——
-        //   收页那一发是**异步**的（`execPage()` 从嵌套循环里醒过来才算收干净），紧接着再
-        //   开一次实测**开不出页**（`page == nullptr`，于是这一整段静默地什么都不做，
-        //   报出来的是"目录还在"，看着像产品没删）。开在同一页里就没有这个时间差。
         QTimer::singleShot(0, [&] {
             OverlayHost *host = currentPageOverlay();
             auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
@@ -14727,18 +14434,18 @@ static void runCopyAndSavePageTests() {
                 // 回到这儿说明那一问已经有结果了（`ask()` 是同步的）。
                 keptOnCancel = host->pageOpen() &&
                                host->findChild<InstanceSettingsDialog *>() != nullptr;
-                // ★ "盘上一个字节都没动"**只能量在这儿**：下面第 ② 趟是**真要删**的，
-                //   等整段跑完再问就已经晚了（第一版就是这么写红的 —— 那条断言量到的是
-                //   删完之后的盘）。
+                // "盘上一个字节都没动"**只能量在这儿**：下面第 ② 趟是**真要删**的，
+                // 等整段跑完再问就已经晚了（第一版就是这么写红的 —— 那条断言量到的是
+                // 删完之后的盘）。
                 dirUntouchedAfterCancel = QFileInfo::exists(versionDir);
             }
 
             // ② 同一页上再来一次，这回点「删除」（第一颗）⇒ 页面收掉 + 目录真的没了。
             //
-            // ★ 「产品自己收页了没有」**只能这么量**：`dismiss()` 发的是 `backPressed()`，
-            //   而 `m_mode` 要到 `execPage()` 那层嵌套循环**转回来**才被放成 None —— 在我们
-            //   这个 handler 里 `pageOpen()` 恒为 true（第一版就是这么红了一条假阳性）。
-            //   所以直接接那一发信号：它响了 = 产品真的喊了"收页"。
+            // 「产品自己收页了没有」**只能这么量**：`dismiss()` 发的是 `backPressed()`，
+            // 而 `m_mode` 要到 `execPage()` 那层嵌套循环**转回来**才被放成 None —— 在我们
+            // 这个 handler 里 `pageOpen()` 恒为 true（第一版就是这么红了一条假阳性）。
+            // 所以直接接那一发信号：它响了 = 产品真的喊了"收页"。
             auto dismissConnection = QObject::connect(
                 host, &OverlayHost::backPressed, host,
                 [&productDismissed]() { productDismissed = true; });
@@ -14754,10 +14461,10 @@ static void runCopyAndSavePageTests() {
                 });
                 button->click();
                 // NOTE: **这里读不出"收页了没有"**。`dismiss()` 发的是 `backPressed()`，
-                //       而它要到 `execPage()` 那层嵌套循环真的转回来才会把 `m_mode` 放成
-                //       None —— 也就是说"这一页收掉了"这件事**只有在 `invokeMethod` 返回
-                //       之后才量得到**（下面那条就是这么量的）。第一版在这儿读，量到的是
-                //       "还没收到"，红了一条假阳性。
+                // 而它要到 `execPage()` 那层嵌套循环真的转回来才会把 `m_mode` 放成
+                // None —— 也就是说"这一页收掉了"这件事**只有在 `invokeMethod` 返回
+                // 之后才量得到**（下面那条就是这么量的）。第一版在这儿读，量到的是
+                // "还没收到"，红了一条假阳性。
             }
 
             QObject::disconnect(dismissConnection);
@@ -14797,22 +14504,19 @@ static void runCopyAndSavePageTests() {
 }
 
 // =========================================================================
-// T28. 文件管理那几页顶上那条搜索 + 按钮下面那栏状态里的「可更新」（2026-09-28）
+// T28. 文件管理那几页顶上那条搜索 + 按钮下面那栏状态里的「可更新」
 //
-// 用户原话：「模组等的下载新/刷新/打开文件夹的**上方**加一个搜索，三个按钮的**下方**一个
+// 要求：「模组等的下载新/刷新/打开文件夹的**上方**加一个搜索，三个按钮的**下方**一个
 // 选择 全部/启用/禁用/可更新」。
 //
 // 【和 ui_check 的 U10P 怎么分工】
 // U10P 量的是**屏幕上那一半**：两排控件在不在、摆在按钮的哪一边（按 y 坐标量）、筛得对不对、
 // 「筛完一条不剩」和「目录本来就是空的」是不是两个状态。这一节量的是**那一格「可更新」的
 // 数据从哪来** —— MainWindow 那趟检测查出来的结果，除了弹一份报告，还得**留下来**并喂给那几页：
-//   * 不留：关掉设置页再进来，那一格永远挂着"还没有查过更新"，而那一趟刚刚才跑完；
-//   * 不喂：筛出来是空的，用户以为"这个实例干净得很"。
+// * 不留：关掉设置页再进来，那一格永远挂着"还没有查过更新"，而那一趟刚刚才跑完；
+// * 不喂：筛出来是空的，用户以为"这个实例干净得很"。
 // 两样在屏幕上的样子都**不像坏**（不崩、不报错、连日志都正常），所以只有把真的 MainWindow
 // 立起来才量得到 —— 而这也正是"检测结果只活在那一个框里"这件事唯一露馅的地方。
-//
-// 离线：整趟走本机那台假接口（`version_files` → `projects?ids=` → `project/<id>/version`）。
-// =========================================================================
 static void runInstanceUpdateFilterTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -14843,9 +14547,6 @@ static void runInstanceUpdateFilterTests() {
         LauncherSettings().setLastLaunchedVersion(lastVersionBefore);
         AppPaths::setMinecraftDir(originalDir);
     };
-    // 数据根目录**两头都改**（MainWindow 构造里会拿盘上那个「当前游戏文件夹」再把 AppPaths
-    // 改一次，见 T19/T20/T24/T25）。两个接口地址都指到本机 —— 这两个键正是那一趟反查和
-    // 版本列表读的（见 InstanceIconLookup::Options / ResourceStore）。
     sandbox.setValue(QStringLiteral("Launcher/Folders"), QStringList({root.path()}));
     sandbox.setValue(QStringLiteral("Launcher/CurrentFolder"), root.path());
     sandbox.setValue(QStringLiteral("Download/Source"),
@@ -14873,11 +14574,11 @@ static void runInstanceUpdateFilterTests() {
     const QString unknownJar = dirV + QStringLiteral("/mods/没认出来的.jar");
     writeFileAt(modJar, QByteArrayLiteral("T28-MOD-B"));
     writeFileAt(unknownJar, QByteArrayLiteral("T28-NOBODY"));
-    // ③ 一条**禁用着**的（★★ 2026-10-11）：内容和第①条**逐字节一样** ⇒ 同一个 sha1 ⇒
-    //    同一个项目 ⇒ 真去查的话它照样判得出"可更新"。它的用处只有一个：量"这一趟**整个
-    //    跳过**了它"（用户原话「检查更新时跳过它」）。
-    //    ★ 拿**一样的字节**是有意的：这样"没查它"和"查了、没认出来"才分得开 —— 认不出来的
-    //      那一条（第②个文件）即便查了也不会进名单，拿它当判据是**假绿**。
+    // ③ 一条**禁用着**的（★★ ）：内容和第①条**逐字节一样** ⇒ 同一个 sha1 ⇒
+    // 同一个项目 ⇒ 真去查的话它照样判得出"可更新"。它的用处只有一个：量"这一趟**整个
+    // 跳过**了它"（要求「检查更新时跳过它」）。
+    // 拿**一样的字节**是有意的：这样"没查它"和"查了、没认出来"才分得开 —— 认不出来的
+    // 那一条（第②个文件）即便查了也不会进名单，拿它当判据是**假绿**。
     const QString disabledJar = dirV + QStringLiteral("/mods/模组丁.jar.disabled");
     writeFileAt(disabledJar, QByteArrayLiteral("T28-MOD-B"));
 
@@ -14903,24 +14604,19 @@ static void runInstanceUpdateFilterTests() {
                         QByteArrayLiteral("\",\"sha512\":\"cafebabe\"},\"url\":\"https://cdn."
                                           "modrinth.com/data/mod-b.jar\",\"filename\":"
                                           "\"模组乙.jar\",\"size\":10}]}}");
-    // `GET /v2/projects?ids=…`：名字那一栏（报告里和那一行上写的都是它）。
     api.modrinthProjectsReply =
         QByteArrayLiteral("[{\"id\":\"") + project.toUtf8() +
         QByteArrayLiteral("\",\"title\":\"") + modTitle.toUtf8() +
         QByteArrayLiteral("\",\"slug\":\"mod-b\",\"description\":\"一个模组\","
                           "\"game_versions\":[\"1.96.3\"],\"loaders\":[\"fabric\"]}]");
-    // ★★ `GET /v2/project/<项目号>/version`：**两条**版本，缺一条都判不出"可更新"。
+    // `GET /v2/project/<项目号>/version`：**两条**版本，缺一条都判不出"可更新"。
     //
-    //   `judgeUpdate()` 的判法是"盘上这一份的 sha1 在列表里排第几"：**排在 0 才是最新的**，
-    //   排在后面 = 有更新。所以这里必须：
-    //     · 第一条（最新那条）的文件 sha1 和盘上那个**不一样**（它才是"新的那一版"）；
-    //     · 第二条的 sha1 **正好是盘上那个**（= judgeUpdate 认得出盘上这份是 1.0）。
-    //   只有第一条 ⇒ 判出来是"说不清"（这一版不在列表里）；只有第二条 ⇒ 判出来是"已是最新"。
-    //   两种都**不会有**"可更新"，而屏幕上的样子和"功能没做"一模一样。
-    //
-    //   ★ 2026-10-11：这一份在这一节里**已经不该被问到了**（Modrinth 那一拨改走下面那份
-    //     批量那一发）。留着它是为了"照旧答得上话" —— 万一哪天真退回一项目一发，结果照样
-    //     是对的，而"请求发成了什么样"由 T28.3 那两条钉着（那才是这次改的东西）。
+    // `judgeUpdate()` 的判法是"盘上这一份的 sha1 在列表里排第几"：**排在 0 才是最新的**，
+    // 排在后面 = 有更新。所以这里必须：
+    // · 第一条（最新那条）的文件 sha1 和盘上那个**不一样**（它才是"新的那一版"）；
+    // · 第二条的 sha1 **正好是盘上那个**（= judgeUpdate 认得出盘上这份是 1.0）。
+    // 只有第一条 ⇒ 判出来是"说不清"（这一版不在列表里）；只有第二条 ⇒ 判出来是"已是最新"。
+    // 两种都**不会有**"可更新"，而屏幕上的样子和"功能没做"一模一样。
     api.modrinthVersionListReply = QByteArrayLiteral(
         "[{\"id\":\"VNEW\",\"version_number\":\"2.0\",\"date_published\":\"2026-09-01T00:00:00Z\","
         "\"game_versions\":[\"1.96.3\"],\"loaders\":[\"fabric\"],\"files\":[{\"hashes\":{"
@@ -14933,10 +14629,6 @@ static void runInstanceUpdateFilterTests() {
         hMod.sha1.toUtf8() +
         QByteArrayLiteral("\",\"sha512\":\"bb\"},\"url\":\"https://cdn.modrinth.com/data/"
                           "mod-b.jar\",\"filename\":\"模组乙.jar\",\"size\":10}]}]");
-    // ★★ 2026-10-11：那一拨**走的是批量那一发**（`POST /v2/version_files/update`，
-    //   见 `UpdateCheckRun::batchItems` 那段）—— 一个对象、键是 sha1、值是那一版。
-    //   形状和上面 `/project/<id>/version` 里那条"最新的那一版"**逐字一样**（同一个读取器）。
-    //   判据和上面那一段同一个道理：这一条的文件 sha1 和盘上那个**不一样** ⇒ 判得出"可更新"。
     api.modrinthVersionFilesUpdateReply =
         QByteArrayLiteral("{\"") + hMod.sha1.toUtf8() +
         QByteArrayLiteral("\":{\"id\":\"VNEW\",\"version_number\":\"2.0\","
@@ -14972,10 +14664,10 @@ static void runInstanceUpdateFilterTests() {
             return;
         }
 
-        // ★ 2026-10-13（§7.1）：这一趟的结论**不再弹一段文本**，而是开成一整页（「更新
-        //   中心」）—— 和 T32 那一节同一个改动。那一页开出来的时候，**实例设置那一页会让位**
-        //   （`runWhenOverlayFree()` 静默收掉它，见 MainWindow 那段），所以"查完之后这一页
-        //   长什么样"必须在**重新开一次**实例设置里量（下面第二趟）。
+        // （§7.1）：这一趟的结论**不再弹一段文本**，而是开成一整页（「更新
+        // 中心」）—— 和 T32 那一节同一个改动。那一页开出来的时候，**实例设置那一页会让位**
+        // （`runWhenOverlayFree()` 静默收掉它，见 MainWindow 那段），所以"查完之后这一页
+        // 长什么样"必须在**重新开一次**实例设置里量（下面第二趟）。
         bool checkedFound = false;
         int comboCount = -1;
         int updateRows = -1;
@@ -14984,7 +14676,7 @@ static void runInstanceUpdateFilterTests() {
         bool updateChipHiddenBefore = false;
         QString updateChipTextBefore;
         bool updateChipHiddenAfter = true;
-        // 「这一条有新版本」那颗 ↑ 的账（★★ 2026-10-11）：按路径记"名字那一格的尾巴上有没有
+        // 「这一条有新版本」那颗 ↑ 的账（★★ ）：按路径记"名字那一格的尾巴上有没有
         // 它"、那一格的**字号**，以及名字划没划掉。**它就是名字那一格字符串的尾巴**
         // （见 InstanceFilesPage::nameTextWithUpdateMark()），所以"和名字一个字号"、
         // "紧挨着名字"这两条在这一层是结构保证的 —— 这里量的是"有没有"。
@@ -14995,15 +14687,15 @@ static void runInstanceUpdateFilterTests() {
         // 第一趟：开实例设置 → 量"还没查过"那一档 → 点「检查更新」→ **立刻收掉实例设置**
         // → 回到底下那一层 pump 到更新中心那一页开出来。
         //
-        // ★ 顺序是这一节的形状，不是随手的：那一趟结果回来时要开的新页**只能在覆盖层空着
-        //   的时候开**（`runWhenOverlayFree()`），而"让位"要等实例设置那一页**自己的嵌套
-        //   循环退出去**才真的生效（`evict()` 只是发一发 `backPressed()`，`m_mode` 要等
-        //   `execPage()` 醒过来才归 None）。所以**不能在实例设置那一页的嵌套循环里等新页**
-        //   —— 那一等就是个死结（`runWhenOverlayFree()` 轮数用完之后弹「先关掉现在这一页」，
-        //   而那一发也没人答）。点完按钮马上按返回箭头，让这一层先退出去，再在**外面**这一层
-        //   等着它。
-        // ★ 只认「更新中心」那一页（见 `PageCloser::setOnlyTitle()`）：不拦着的话计时器会先
-        //   把**实例设置**记一条、顺手点掉（它比新页先开出来）。
+        // 顺序是这一节的形状，不是随手的：那一趟结果回来时要开的新页**只能在覆盖层空着
+        // 的时候开**（`runWhenOverlayFree()`），而"让位"要等实例设置那一页**自己的嵌套
+        // 循环退出去**才真的生效（`evict()` 只是发一发 `backPressed()`，`m_mode` 要等
+        // `execPage()` 醒过来才归 None）。所以**不能在实例设置那一页的嵌套循环里等新页**
+        // —— 那一等就是个死结（`runWhenOverlayFree()` 轮数用完之后弹「先关掉现在这一页」，
+        // 而那一发也没人答）。点完按钮马上按返回箭头，让这一层先退出去，再在**外面**这一层
+        // 等着它。
+        // 只认「更新中心」那一页（见 `PageCloser::setOnlyTitle()`）：不拦着的话计时器会先
+        // 把**实例设置**记一条、顺手点掉（它比新页先开出来）。
         int centerPageCount = -1;
         QString centerPageTitle;
         PageCloser closer;
@@ -15016,17 +14708,12 @@ static void runInstanceUpdateFilterTests() {
                 return;
             }
             // ① 先量"还没查过"那一档。
-            //    ★★ 2026-10-11 收尾（用户原话：**「没有检查的时候先隐藏可更新按钮」**）：
-            //    还没查过 ⇒ 那一颗**整颗收着**。同一天上午这里曾经反过来做过一版（露着、
-            //    不写条数，点它顺手查一趟），被他这一句否掉了 —— "哪一条有更新"现在改由
-            //    **那一行自己的 ↑** 说（见下面 ③ 里那几条）。
+            // 收尾（要求：**「没有检查的时候先隐藏可更新按钮」**）：
+            // 还没查过 ⇒ 那一颗**整颗收着**。同一天上午这里曾经反过来做过一版（露着、
+            // 不写条数，点它顺手查一趟），被他这一句否掉了 —— "哪一条有更新"现在改由
+            // **那一行自己的 ↑** 说（见下面 ③ 里那几条）。
             InstanceFilesPage *mods = page->filesPage(QStringLiteral("mod"));
-            // ★ 2026-09-29：**先摆到台前再动它**（理由逐字同 T24 那一段）——看不见的那几页
-            //   现在不建行，而行/提示都是这一页被摆到台前那一刻才算出来的。
             page->showPage(QStringLiteral("mod"));
-            // ★ 2026-10-09：模组这一页是开了批量的那四页之一 ⇒ 顶上摆的是**四颗横向按钮**
-            //   （用户原话「那个下拉框变成横向四个按钮」），按下标/objectName 找「可更新」
-            //   那一颗，不再按文字找下拉框里那一格。
             QPushButton *state = mods != nullptr
                                      ? mods->stateButtonAt(InstanceFilesPage::StateFilter::Update)
                                      : nullptr;
@@ -15035,7 +14722,7 @@ static void runInstanceUpdateFilterTests() {
                 updateChipTextBefore = state->text();
             }
             // ② 点那颗按钮。**它自己不会阻塞** —— 反查在后台线程上、版本列表那几发是异步的，
-            //    结果要等下面那个 pumpUntil 转着事件循环才回来。
+            // 结果要等下面那个 pumpUntil 转着事件循环才回来。
             if (auto *button = page->findChild<QPushButton *>(
                     InstanceSettingsDialog::checkUpdatesButtonName())) {
                 checkedFound = true;
@@ -15063,8 +14750,8 @@ static void runInstanceUpdateFilterTests() {
 
         // 第二趟：重新开一次实例设置，量"查完之后这一页长什么样"。
         //
-        // ★ 这一趟之所以量得到，是因为那一趟的结论**留在数据里**（不是活在那一个框里）——
-        //   这本来就是本节 T28.4 那条判据的立足点，现在只是**多关了一次**。
+        // 这一趟之所以量得到，是因为那一趟的结论**留在数据里**（不是活在那一个框里）——
+        // 这本来就是本节 T28.4 那条判据的立足点，现在只是**多关了一次**。
         QTimer::singleShot(0, [&] {
             OverlayHost *host = currentPageOverlay();
             auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
@@ -15077,14 +14764,10 @@ static void runInstanceUpdateFilterTests() {
                                      ? mods->stateButtonAt(InstanceFilesPage::StateFilter::Update)
                                      : nullptr;
             if (mods != nullptr && state != nullptr) {
-                // ★★ 2026-10-10：数"那四颗里露着几颗"没意义了 —— **一条都没有的档也会
-                //   收起来**，于是那个数取决于"这个实例里有没有禁用着的模组"这类别的事。
-                //   这一条问的是"这一页**有没有**「可更新」这一档"，走 `canFilterUpdates()`
-                //   这个和显隐无关的读数；"露没露"由 ① 和下面那一发点它钉着。
                 comboCount = mods->canFilterUpdates() ? 4 : 3;
                 updateChipHiddenAfter = state->isHidden();
                 // ③-a 先按「全部」把这一页三行都量一遍（那一颗筛子还没点下去，列表是整份的）：
-                //      哪一行有 ↑、它的字号和名字比怎么样、哪一行的名字被划掉了。
+                // 哪一行有 ↑、它的字号和名字比怎么样、哪一行的名字被划掉了。
                 if (mods->list()->count() == 3) {
                     for (int row = 0; row < mods->list()->count(); ++row) {
                         const QString rowPath =
@@ -15105,7 +14788,7 @@ static void runInstanceUpdateFilterTests() {
                     }
                 }
                 // ③-b 点它那一发留在这儿：查完之后那一颗**带上条数**（见上面 ① 那段），点下去
-                //     列表**只剩有新版本的那几条** —— 下面 T28.2 量的正是这个。
+                // 列表**只剩有新版本的那几条** —— 下面 T28.2 量的正是这个。
                 if (!state->isHidden()) {
                     state->click();
                 }
@@ -15134,18 +14817,15 @@ static void runInstanceUpdateFilterTests() {
         QApplication::processEvents();
 
         check(checkedFound, "T28.1 概览那一栏那颗「检查更新」找得到（下面就靠它跑一趟）");
-        // ★★ 2026-10-11：**还没查过 ⇒ 那一颗整颗收着**（用户原话：「没有检查的时候先隐藏
-        //    可更新按钮」）。同一天上午这里曾经反过来做过一版（露着、不写条数、点它顺手查
-        //    一趟），用户这一句把它否掉了 —— 于是这一条量的是"藏没藏"，而不是"写的什么字"。
         check(updateChipHiddenBefore,
               "★★ T28.2 还没查过的时候，「可更新」那一颗**整颗收着**（用户 2026-10-11 原话："
               "「没有检查的时候先隐藏可更新按钮」—— 同一天上午这里曾反过来做过一版，被他"
               "这一句否掉了）",
               QStringLiteral("那一颗藏没藏：%1").arg(int(updateChipHiddenBefore)));
         // ⚠ 藏起来的那一颗**照样写着条数**（`stateFilterButtonText()` = 那三个字 + `(0)`）：
-        //   条数在 fillStateButtons() 里是**一句话一种写法**，有没有依据这一层归显隐那条
-        //   判据管（没依据的时候整颗不摆，屏幕上也就读不到这个 0）。这一条钉的是"别在这儿
-        //   再开第二种写法"—— 2026-10-11 上午那一版就是在这儿多写了一个分支。
+        // 条数在 fillStateButtons() 里是**一句话一种写法**，有没有依据这一层归显隐那条
+        // 判据管（没依据的时候整颗不摆，屏幕上也就读不到这个 0）。这一条钉的是"别在这儿
+        // 再开第二种写法"—— 上午那一版就是在这儿多写了一个分支。
         check(updateChipTextBefore ==
                   InstanceFilesPage::stateFilterButtonText(
                       InstanceFilesPage::StateFilter::Update, 0),
@@ -15156,8 +14836,6 @@ static void runInstanceUpdateFilterTests() {
                   .arg(updateChipTextBefore,
                        InstanceFilesPage::stateFilterButtonText(
                            InstanceFilesPage::StateFilter::Update, 0)));
-        // ★ 2026-10-13（§7.1）：结论现在是**开成一整页**（「更新中心」），不再是弹一段文本
-        //   —— 判据跟着换成"那一页正好开了一次、而且开的是它"。
         check(centerPageCount == 1 && centerPageTitle == UpdateCenterPage::windowTitle(),
               "★★ T28.2 那一趟真的跑完了（反查 + **批量那一发** + judgeUpdate 全接上了 ⇒ "
               "正好开出一页「更新中心」）",
@@ -15166,16 +14844,13 @@ static void runInstanceUpdateFilterTests() {
               "★ T28.2 模组那一页有「可更新」这一档（下载页里真有那一栏的四页之一）—— "
               "★ 2026-10-10 起量的是 `canFilterUpdates()`（那一档在不在），不是「露着几颗」",
               QStringLiteral("%1 档").arg(comboCount));
-        // ★★ 这一条就是这一节的正题：那一趟查出来"有新版本"的那一条**必须已经递到这一页上**。
-        //    只弹报告、不递结果的话，这里筛出来是空的（而屏幕上就是"这个实例干净得很"）。
+        // 这一条就是这一节的正题：那一趟查出来"有新版本"的那一条**必须已经递到这一页上**。
+        // 只弹报告、不递结果的话，这里筛出来是空的（而屏幕上就是"这个实例干净得很"）。
         check(updateRows == 1 && QDir::toNativeSeparators(updateRowPath) ==
                                      QDir::toNativeSeparators(modJar),
               "★★ T28.2 那一趟查出来「有新版本」的那一条**递到这一页上了**：选「可更新」"
               "正好剩下那个模组（认不出来的那一个不在里面 —— 「说不清」不是「可更新」）",
               QStringLiteral("%1 条：%2").arg(updateRows).arg(updateRowPath));
-        // ★★ 2026-10-11（用户原话：「可更新的模组在名称后面显示一个上箭头（和名字一个字号）」）：
-        //    那一行名字后面**长出一个 ↑**，别的两行**没有这一格**（不是摆着看不见 —— 压根没摆，
-        //    判据就是 findChild 回不回 nullptr）。
         {
             // 那一行写的整串 —— 唯一出处 `nameTextWithUpdateMark()`（盘上那个名字就叫
             // 「模组乙.jar」，禁用/启用没动过它）。
@@ -15201,16 +14876,13 @@ static void runInstanceUpdateFilterTests() {
               "**尾巴**（同一个控件、同一个字体），所以「一样」是结构保证的；没有新版本的行"
               "原样就是那个名字、一个字都不多",
               QStringLiteral("那一格 %1 pt").arg(namePointSize.value(modJar, -1)));
-        // ★★ 2026-10-11（用户原话：「禁用的模组名字标灰，删除线覆盖」）：名字那一格的字体
-        //    带着删除线，而且**只有禁用着的那一条**带着（别的两条不许被划）。
+        // （要求：「禁用的模组名字标灰，删除线覆盖」）：名字那一格的字体
+        // 带着删除线，而且**只有禁用着的那一条**带着（别的两条不许被划）。
         check(struckPaths.contains(disabledJar) && !struckPaths.contains(modJar) &&
                   !struckPaths.contains(unknownJar),
               "★★ T28.2 被禁用那一条的名字**划了一道删除线**，另外两条没有（灰 + 删除线是"
               "用户点名要的那一层；「（已禁用）」那四个字照旧挂在那儿）",
               QStringLiteral("划掉的有 %1 条").arg(struckPaths.size()));
-        // ★★ 2026-10-11（用户原话：「检查更新时跳过它」）：那一条禁用着的模组**和模组乙
-        //    逐字节一样**（同一个 sha1、同一个项目），真去查的话它照样判得出「可更新」——
-        //    它没出现在名单里，只可能是这一趟**整个没查它**。
         check(!arrowOnPath.value(disabledJar, false) &&
                   QDir::toNativeSeparators(updateRowPath) !=
                       QDir::toNativeSeparators(disabledJar),
@@ -15219,14 +14891,7 @@ static void runInstanceUpdateFilterTests() {
               "混成一件事",
               QDir::toNativeSeparators(disabledJar));
 
-        // ---------- ②' 走的是**批量那一发**，不是一个项目一发（2026-10-11）----------
-        //
-        // 用户 2026-10-11：「还有个无法正常获取更新的问题」（他自己点名的是**模组更新**）。
-        // 真机上量出来的样子：一个 352 个模组的实例，一项目一发 = **623 发请求**，实测整批
-        // 429（Cloudflare 的 `error code: 1015`）/ CF 那边 151 发 `GOAWAY`，报告里于是每条
-        // 都是"说不清"。改法是把 Modrinth 那一拨换成 `POST /v2/version_files/update`
-        // （352 个模组 = 3 发）。这一段钉的就是**那一发真的发出去了、而且单发那一发没了**
-        // —— 只改判据不改请求的话，这一页上的结果看着一模一样（而用户下次还是撞 429）。
+        // ---------- ②' 走的是**批量那一发**，不是一个项目一发----------
         {
             const auto countMatching = [&api](const QString &needle) {
                 int n = 0;
@@ -15241,14 +14906,12 @@ static void runInstanceUpdateFilterTests() {
                   "★★ T28.3 Modrinth 那一拨走的是**批量那一发**（`POST /version_files/update`，"
                   "一次一串 sha1）—— 一项目一发是 623 发请求、实测整批 429 的那条路",
                   QStringLiteral("%1 发").arg(countMatching(QStringLiteral("/version_files/update"))));
-            // ★ 这一条和上一条是**两件事的两面**：只加上批量那一发、单发那条路照样跑，
-            //   请求数一发都不少（用户下次还是撞限流）。
+            // 这一条和上一条是**两件事的两面**：只加上批量那一发、单发那条路照样跑，
+            // 请求数一发都不少（用户下次还是撞限流）。
             check(countMatching(QStringLiteral("/project/UPDPROJ/version")) == 0,
                   "★★ T28.3 那个项目**一个单发都没发**（`/v2/project/<项目号>/version`）"
                   "—— 走批量那一发之后，同一个文件不该再单独问一遍",
                   QStringLiteral("%1 发").arg(countMatching(QStringLiteral("/project/UPDPROJ/version"))));
-            // 请求体里带的就是盘上那个文件的 sha1（带错了 = 那一发白问，回来的表里没有它，
-            // 报告里那一条就成了"说不清"）。
             QString batchBody;
             for (int i = 0; i < api.requests.size(); ++i) {
                 if (api.requests.at(i).contains(QStringLiteral("/version_files/update"))) {
@@ -15275,10 +14938,7 @@ static void runInstanceUpdateFilterTests() {
                 return;
             }
             InstanceFilesPage *mods = page->filesPage(QStringLiteral("mod"));
-            // ★ 2026-09-29：**先摆到台前再量**（理由逐字同上面 ① 那一段）：这一趟正是
-            //   "关掉再进来"，而这一页重新进来时又停在「概览」上 —— 行要摆到台前才建。
             page->showPage(QStringLiteral("mod"));
-            // ★ 2026-10-09：同上 —— 按那一颗按钮（`stateButtonAt(Update)`），不找下拉框。
             QPushButton *state = mods != nullptr
                                      ? mods->stateButtonAt(InstanceFilesPage::StateFilter::Update)
                                      : nullptr;
@@ -15312,21 +14972,7 @@ static void runInstanceUpdateFilterTests() {
 }
 
 // =========================================================================
-// T32. 更新检测：**一个文件只查一家** + 两家都认出来时退回问 CurseForge（2026-10-11）
-//
-// 用户 2026-10-11：「还有个无法正常获取更新的问题」。T28 钉的是"Modrinth 那一拨改成
-// 批量那一发"（真机上请求数 623 → 90，见 `UpdateCheckRun::batchItems` 那段）。这一节钉
-// 的是同一趟里**另一个坏掉的角落**：反查那一趟对**同一个文件**会给出**两条**记录
-// （Modrinth 一条、CurseForge 一条，`path` 逐字同一个），改之前两条都往下问、都在报告里
-// 各出一行 —— 真机上那个 352 个模组的实例于是报「检查了 623 个资源」，同一个模组在名单里
-// 出现两次，而那两行的结论还可能是两样的（一家说"已是最新"、一家说"说不清"）。
-//
-// 改法两条：
-//   · **一个文件只查一家** —— Modrinth 认出来的那一拨进批量那一发，它在 CurseForge 那边
-//     的那条记录**押着**（`UpdateCheckRun::fallbackItems`）；
-//   · 批量那一发**没给出这个 sha1 的答案**（这个哈希不在那一家的表里 / 它在这个游戏版本
-//     +加载器下没有版本）⇒ **退回问 CurseForge**。底线是"一个文件至少被问过一次、而且
-//     在报告里只占一行"。
+// T32. 更新检测：**一个文件只查一家** + 两家都认出来时退回问 CurseForge
 //
 // 两条都坏的时候屏幕上**不像坏**：弹一份报告、里头几条「说不清」，和"网络不好"一个样子 ——
 // 而 429 那条真因（"一次问得太多"）更是一个字都露不出来。所以只有把真的 MainWindow 立起来、
@@ -15407,7 +15053,7 @@ static void runUpdateCheckSourceFallbackTests() {
     const int cfOnlyModId = 9002;
 
     // ① Modrinth 反查：**只映射两家都认得出的那一个**（第二个压根不在这一家的表里 ——
-    //    那正是"只有 CurseForge 认得出"的样子）。
+    // 那正是"只有 CurseForge 认得出"的样子）。
     api.modrinthReply = QByteArrayLiteral("{\"") + hDual.sha1.toUtf8() +
                         QByteArrayLiteral("\":{\"project_id\":\"") + dualProject.toUtf8() +
                         QByteArrayLiteral("\",\"version_number\":\"1.0\",\"files\":[{\"hashes\":{"
@@ -15421,13 +15067,13 @@ static void runUpdateCheckSourceFallbackTests() {
         QByteArrayLiteral("\",\"title\":\"") + dualTitle.toUtf8() +
         QByteArrayLiteral("\",\"slug\":\"dual\",\"description\":\"两家都有的模组\","
                           "\"game_versions\":[\"1.96.3\"],\"loaders\":[\"fabric\"]}]");
-    // ★★ 批量那一发**什么都不答**（一个空对象）—— 这就是"这个哈希在 Modrinth 的表里没有"
-    //    （或者它在这个游戏版本+加载器下没有版本）。这一条正是 T32 的正题：这一拨必须
-    //    **退回问 CurseForge**，而不是把这一条判成"说不清"了事。
+    // 批量那一发**什么都不答**（一个空对象）—— 这就是"这个哈希在 Modrinth 的表里没有"
+    // （或者它在这个游戏版本+加载器下没有版本）。这一条正是 T32 的正题：这一拨必须
+    // **退回问 CurseForge**，而不是把这一条判成"说不清"了事。
     api.modrinthVersionFilesUpdateReply = QByteArrayLiteral("{}");
-    // ★★ 把批量那一发压后 400 毫秒 ⇒ 只有 CurseForge 认得的那一个**先答**，于是这一趟
-    //    走到过"单发那一拨先回来、而批量还押着"那一态（见 `modrinthVersionFilesUpdateDelayMs`
-    //    那段）。收尾判据漏了 `pendingBatchKeys` 的话，报告里就只剩那一条。
+    // 把批量那一发压后 400 毫秒 ⇒ 只有 CurseForge 认得的那一个**先答**，于是这一趟
+    // 走到过"单发那一拨先回来、而批量还押着"那一态（见 `modrinthVersionFilesUpdateDelayMs`
+    // 那段）。收尾判据漏了 `pendingBatchKeys` 的话，报告里就只剩那一条。
     api.modrinthVersionFilesUpdateDelayMs = 400;
     // ② CurseForge 指纹：**两个文件都在**（第一个是那个"两家都认得出"的）。
     api.curseForgeReply =
@@ -15447,7 +15093,6 @@ static void runUpdateCheckSourceFallbackTests() {
         QByteArrayLiteral(",\"fileLength\":10,\"isAvailable\":true,\"downloadUrl\":null,"
                           "\"hashes\":[]}}],"
                           "\"unmatchedFingerprints\":[]}}");
-    // 那两家的项目对象（名字那一栏：报告里写的就是它）。
     api.curseForgeModsReply =
         QByteArrayLiteral("{\"data\":[{\"id\":") + QByteArray::number(dualModId) +
         QByteArrayLiteral(",\"name\":\"") + dualTitle.toUtf8() +
@@ -15461,9 +15106,9 @@ static void runUpdateCheckSourceFallbackTests() {
                           "\"logo\":{\"thumbnailUrl\":\"https://media.forgecdn.net/t2.png\","
                           "\"url\":\"https://media.forgecdn.net/u2.png\"}}]}");
     // ③ 两家各自的版本列表（退回那一发问的就是它）。
-    //    · 9001（那个双认的）：**两条** —— 最新那条的文件不是盘上这一份，第二条才正好是
-    //      ⇒ 判得出"有新版本"（只有一条的话判出来是"说不清"，而屏幕上和坏了一个样）。
-    //    · 9002（只有 CF 认得的）：**一条，就是盘上这一份** ⇒ "已是最新"。
+    // · 9001（那个双认的）：**两条** —— 最新那条的文件不是盘上这一份，第二条才正好是
+    // ⇒ 判得出"有新版本"（只有一条的话判出来是"说不清"，而屏幕上和坏了一个样）。
+    // · 9002（只有 CF 认得的）：**一条，就是盘上这一份** ⇒ "已是最新"。
     api.curseForgeVersionListByMod.insert(
         QString::number(dualModId),
         QByteArrayLiteral("{\"data\":[{\"id\":90011,\"displayName\":\"2.0 for Fabric 1.96.3\","
@@ -15513,12 +15158,8 @@ static void runUpdateCheckSourceFallbackTests() {
             return;
         }
 
-        // ★ 2026-10-13（§7.1）：这一趟的结论**不再弹一段文本**，而是开成**一整页**
-        //   （「更新中心」）。所以这里换成 `PageCloser`（它每一拍看一眼有没有整页开着、
-        //   把上面那几格读下来再点返回）—— 和体检报告页那几节用的是同一件东西。
-        //
-        // ★ 点完按钮**马上收掉实例设置那一页**：新页只能在覆盖层空着的时候开，而"让位"
-        //   要等这一页自己的嵌套循环退出去才生效（理由逐字写在 T28 那一节里）。
+        // 点完按钮**马上收掉实例设置那一页**：新页只能在覆盖层空着的时候开，而"让位"
+        // 要等这一页自己的嵌套循环退出去才生效（理由逐字写在 T28 那一节里）。
         PageCloser closer;
         closer.setOnlyTitle(UpdateCenterPage::windowTitle());
         closer.start();
@@ -15569,8 +15210,8 @@ static void runUpdateCheckSourceFallbackTests() {
               "★★ T32.2 顶上那句说的是「检查了 **2** 个资源，1 个有新版本」—— 盘上就是两个文件"
               "（那个双认的在两家各留了一条记录，从前这里会写成 3、而名单里同一行出现两次）",
               seen.updateCenterSummary);
-        // ★★ 这一条是这一节的正题：**一条都不能是「说不清」**。退回问 CurseForge 那一发
-        //    要是没发出去（或者发出去没接上），那个双认的文件那一行就只剩"说不清"。
+        // 这一条是这一节的正题：**一条都不能是「说不清」**。退回问 CurseForge 那一发
+        // 要是没发出去（或者发出去没接上），那个双认的文件那一行就只剩"说不清"。
         const QString unknownText = MainWindowUI::updateCenterRowStateText(2, 0, QString());
         check(!seen.updateCenterRowStates.contains(unknownText),
               "★★ T32.2 名单里**一条「说不清」都没有** —— 那一条已经在 CurseForge 那边"
@@ -15641,12 +15282,7 @@ static void runUpdateCheckSourceFallbackTests() {
 }
 
 // =========================================================================
-// T32b. 同一个项目底下的**两个文件**，批量那一发只答得出其中一个（2026-10-19）
-//
-// 退回问 CurseForge 那一拨原来按**钥匙**（= 一个项目）整组判"答没答过"：只要底下的
-// 某一条 sha1 被 Modrinth 答过，整组就 `continue` —— 同一项目里**另一条没被答过**的
-// 文件于是既不会被问、也不会被判、更不会进 `verdicts`。症状是报告里凭空少一行、
-// "检查了 N 个资源"比盘上的文件少，而其余几条全正常，屏幕上完全看不出来。
+// T32b. 同一个项目底下的**两个文件**，批量那一发只答得出其中一个
 //
 // 夹具：两个**不同内容**的文件（sha1 / 指纹都不同），反查后都指向**同一个 CurseForge
 // 项目**；批量那一发只给 A 那个 sha1 答案（B 那个哈希"这一家没有"），CurseForge 的
@@ -15741,8 +15377,8 @@ static void runUpdateCheckSameProjectFallbackTests() {
         QByteArrayLiteral("\",\"title\":\"") + modTitle.toUtf8() +
         QByteArrayLiteral("\",\"slug\":\"same\",\"description\":\"同项目两个文件\","
                           "\"game_versions\":[\"1.98.1\"],\"loaders\":[\"fabric\"]}]");
-    // ★ 批量那一发**只答 A 那个 sha1**：B 那个哈希在 Modrinth 这边"没有版本"——
-    //   它必须退回问 CurseForge，否则这一条就从报告里消失了。
+    // 批量那一发**只答 A 那个 sha1**：B 那个哈希在 Modrinth 这边"没有版本"——
+    // 它必须退回问 CurseForge，否则这一条就从报告里消失了。
     api.modrinthVersionFilesUpdateReply =
         QByteArrayLiteral("{\"") + hA.sha1.toUtf8() +
         QByteArrayLiteral("\":{\"id\":\"VNA\",\"version_number\":\"1.0\","
@@ -15887,29 +15523,26 @@ template <typename T> T *newestByObjectName(QObject *parent, const QString &name
 }
 
 // =========================================================================
-// T38. 「更新中心」上那几颗动作（coding plan §7.1，2026-10-13）
+// T38. 「更新中心」上那几颗动作（coding plan §7.1，）
 //
-// 那一页**长什么样**（两组、三颗 chip、勾选框）在 ui_check 的 U33 那一节里量；这一节量的
-// 是**按下去之后产品真的做了什么**：
-//
-//   · 「忽略这一版」→ 账本（`<数据目录>/wtfml.updates`）里记下"要换上的**那一版**的 id"，
-//     那一行当场写成「已忽略这一版（2.0）」、那一颗翻成「不再忽略」；
-//   · 「不再忽略」/「不再固定」→ 那一笔记录清掉、那一行回到「可更新到 2.0」；
-//   · 「固定这一版」→ 记的是**盘上那一份的内容 sha1**（不是版本号），那一行写「已固定」；
-//   · 那一行自己的「更新」→ **先摆回滚点**再动手。这一批我们**故意让它失败**（那一版给的
-//     地址指向假服务器上一个不存在的路径）⇒ 正好量到"失败了能退回去"这条承诺：失败框里
-//     **逐条**说着每个资源的结果、更新中心自己又开回来了、底下那颗「撤销上一次更新」露着；
-//   · 「撤销上一次更新」→ 问一句 → 把文件退回更新前那一份 → **用掉**那份回滚点。
+// · 「忽略这一版」→ 账本（`<数据目录>/wtfml.updates`）里记下"要换上的**那一版**的 id"，
+// 那一行当场写成「已忽略这一版（2.0）」、那一颗翻成「不再忽略」；
+// · 「不再忽略」/「不再固定」→ 那一笔记录清掉、那一行回到「可更新到 2.0」；
+// · 「固定这一版」→ 记的是**盘上那一份的内容 sha1**（不是版本号），那一行写「已固定」；
+// · 那一行自己的「更新」→ **先摆回滚点**再动手。这一批我们**故意让它失败**（那一版给的
+// 地址指向假服务器上一个不存在的路径）⇒ 正好量到"失败了能退回去"这条承诺：失败框里
+// **逐条**说着每个资源的结果、更新中心自己又开回来了、底下那颗「撤销上一次更新」露着；
+// · 「撤销上一次更新」→ 问一句 → 把文件退回更新前那一份 → **用掉**那份回滚点。
 //
 // 这几段任何一处断了，屏幕上的样子都是"按了没反应"或者"那句话没变" —— 既不像崩溃也不像
 // 报错。只有把真的 MainWindow 立起来、真按那几颗 chip、真读盘才量得到。
 //
-// ★ 走法上有一处**不是随手写的**：这一页从开到关一直卡在 `OverlayHost::execPage()` 那一层
-//   嵌套事件循环里，而上面那些动作全在**这一层里面**发生（"收页"是 reject、下一件事由
-//   MainWindow 排到下一轮）。所以这里用一台 10 毫秒的自走定时器按阶段往下推，每一阶段**先
-//   等到该看到的样子再动手** —— 谁先谁后由产品那边决定，不由测试决定（"点完就往下走"的
-//   量法会读到上一代控件，见 `newestByObjectName()` 那段）。外面那一层只 `pumpUntil` 到
-//   最后一阶段为止（和 T28/T32 是同一个形状）。
+// 走法上有一处**不是随手写的**：这一页从开到关一直卡在 `OverlayHost::execPage()` 那一层
+// 嵌套事件循环里，而上面那些动作全在**这一层里面**发生（"收页"是 reject、下一件事由
+// MainWindow 排到下一轮）。所以这里用一台 10 毫秒的自走定时器按阶段往下推，每一阶段**先
+// 等到该看到的样子再动手** —— 谁先谁后由产品那边决定，不由测试决定（"点完就往下走"的
+// 量法会读到上一代控件，见 `newestByObjectName()` 那段）。外面那一层只 `pumpUntil` 到
+// 最后一阶段为止（和 T28/T32 是同一个形状）。
 // =========================================================================
 static void runUpdateCenterActionTests() {
     const QString originalDir = AppPaths::minecraftDir();
@@ -15962,8 +15595,8 @@ static void runUpdateCenterActionTests() {
     const QString modJar = dirV + QStringLiteral("/mods/更新中心模组.jar");
     writeFileAt(modJar, originalBytes);
     // ② 一条**禁用着**的、内容和上面那一份**逐字节一样**（⇒ 同一个 sha1 ⇒ 真查的话它照样
-    //    判得出"可更新"）。它的用处只有一个：量这一趟**整个跳过**了它，而且"更新"那一批
-    //    也**没有**把它启用回来（§7.1 最后那半句「禁用资源保持跳过，不擅自启用或更新」）。
+    // 判得出"可更新"）。它的用处只有一个：量这一趟**整个跳过**了它，而且"更新"那一批
+    // 也**没有**把它启用回来（§7.1 最后那半句「禁用资源保持跳过，不擅自启用或更新」）。
     const QString disabledJar = dirV + QStringLiteral("/mods/禁用模组.jar.disabled");
     writeFileAt(disabledJar, originalBytes);
 
@@ -15981,10 +15614,10 @@ static void runUpdateCenterActionTests() {
     const QString targetVersionId = QStringLiteral("VN38");
     const QString targetVersionNumber = QStringLiteral("2.0");
     const QString targetFileName = QStringLiteral("更新中心模组-2.0.jar");
-    // ★★ 这一版给的地址指向**假服务器上一个不存在的路径**（那台机器只认得那几条反查路由，
-    //    别的一律 404）—— 于是这一批**必定失败**，而且**一个字节的外网都不碰**。选 404 而不
-    //    选别的：回滚点是**动手之前**摆的，所以"失败了"和"留了回滚点"这两件事同时成立，
-    //    正好把「更新前创建轻量回滚点，失败时可恢复原文件」那半句量完整。
+    // 这一版给的地址指向**假服务器上一个不存在的路径**（那台机器只认得那几条反查路由，
+    // 别的一律 404）—— 于是这一批**必定失败**，而且**一个字节的外网都不碰**。选 404 而不
+    // 选别的：回滚点是**动手之前**摆的，所以"失败了"和"留了回滚点"这两件事同时成立，
+    // 正好把「更新前创建轻量回滚点，失败时可恢复原文件」那半句量完整。
     const QString deadUrl = api.modrinthBase() + QStringLiteral("/nope-38.jar");
 
     // `POST /v2/version_files`：哈希 → 项目号。
@@ -16511,8 +16144,8 @@ static void runThemeImageRowTests() {
         check(QMetaObject::invokeMethod(&w, "refreshThemeImageRows", Qt::DirectConnection),
               "T29.4 那两行重画得动（这一条槽就是产品里灌值和改完调的那一个）");
 
-        // ★ 写的是**用户挑的那张的名字**（"素材.png"），不是盘上那份的（`homeLeft.jpg` ——
-        //   槽位名）。这两者在这一节里故意不一样，就是为了让"写错了哪一个"当场露出来。
+        // 写的是**用户挑的那张的名字**（"素材.png"），不是盘上那份的（`homeLeft.jpg` ——
+        // 槽位名）。这两者在这一节里故意不一样，就是为了让"写错了哪一个"当场露出来。
         check(row0.state->text().contains(QFileInfo(sourcePng).fileName()) &&
                   !row0.state->text().contains(QFileInfo(stored).fileName()) &&
                   row0.state->text() != MainWindowUI::themeImageNoneText(),
@@ -16606,18 +16239,13 @@ static void runThemeImageRowTests() {
     }
 }
 
-/// T39. 设置页「主题」那一节：控件 → 主题规格 → 盘（coding plan §8.3，2026-10-13）。
+/// T39. 设置页「主题」那一节：控件 → 主题规格 → 盘（coding plan §8.3，）。
 ///
-/// 这一节和 T29（背景图那两行）是**同一份规格**上的两半，形状也一样：界面那一侧摆出来
-/// 的是什么在 ui_check 的 W14 量，这里量的是**接上了没有** —— 拨一下那个下拉框、拖一下
-/// 那根条、按一下那两颗「恢复默认」，规格和盘上是不是跟着变，以及**重画**那一发
-/// （`refreshThemeControls()`）画出来的是不是规格里那一份。
-///
-/// ★ 两处**故意不点**（底下是覆盖层 / 原生框，测试里点下去就是卡住）：
-///   · 那三块色板（主题色 + 四个语义色）—— 底下是 `InlineMessage::pickColor()`；
-///   · 「导出 / 导入」—— 底下是 `QFileDialog`。
-///   「挑完一个色之后」那一态照产品那两步搭出来：直接改规格 + 按名字调那一发重画
-///   （产品里"挑完色"走的正是 `applyThemeSpec()` 那条路）。
+/// 两处**故意不点**（底下是覆盖层 / 原生框，测试里点下去就是卡住）：
+/// · 那三块色板（主题色 + 四个语义色）—— 底下是 `InlineMessage::pickColor()`；
+/// · 「导出 / 导入」—— 底下是 `QFileDialog`。
+/// 「挑完一个色之后」那一态照产品那两步搭出来：直接改规格 + 按名字调那一发重画
+/// （产品里"挑完色"走的正是 `applyThemeSpec()` 那条路）。
 static void runThemeControlsTests() {
     const QString originalDir = AppPaths::minecraftDir();
     const Theme::Spec themeBefore = Theme::current();
@@ -16645,8 +16273,8 @@ static void runThemeControlsTests() {
         }
         sandbox.remove(QStringLiteral("Theme"));
         sandbox.sync();
-        // ★ 主题要**连调色板一起**铺回去：这一节把预设拨到过深色，光 `setSpec()` 是收不回
-        //   来的（深色那一份还挂在应用上，后面每一节量的都会是深底）。
+        // 主题要**连调色板一起**铺回去：这一节把预设拨到过深色，光 `setSpec()` 是收不回
+        // 来的（深色那一份还挂在应用上，后面每一节量的都会是深底）。
         Theme::setSpec(themeBefore);
         Theme::apply(*qApp);
         Anim::setPlatformReducedMotion(false);
@@ -16706,10 +16334,10 @@ static void runThemeControlsTests() {
         // 这一条量的正是 `refreshThemeControls()` 那一发的产物 —— 出厂那一份下主题色是
         // 出厂那支绿、四个语义色是**按当前深浅现推**的那四个，预设那一格停在 "system"。
         //
-        // ★ 四块语义色**必须真的被涂过**（`wtfmlSwatchColor` 那条动态属性是
-        //   `Theme::markColorSwatch()` 挂的）：不涂的话它们是四颗空白按钮，而屏幕上只是
-        //   "四块白方块"，不报错也不崩（ui_check 那边量得到形状，涂色这一步只有这里有
-        //   `MainWindow` 才看得见）。
+        // 四块语义色**必须真的被涂过**（`wtfmlSwatchColor` 那条动态属性是
+        // `Theme::markColorSwatch()` 挂的）：不涂的话它们是四颗空白按钮，而屏幕上只是
+        // "四块白方块"，不报错也不崩（ui_check 那边量得到形状，涂色这一步只有这里有
+        // `MainWindow` 才看得见）。
         const auto swatchColor = [](QPushButton *swatch) {
             return swatch == nullptr ? QColor()
                                      : swatch->property("wtfmlSwatchColor").value<QColor>();
@@ -16751,10 +16379,10 @@ static void runThemeControlsTests() {
         // 这是这一节最要紧的一条：`MainWindow` 那一侧要是漏了"落盘"或者"铺开"，症状都是
         // "改了没生效 / 下次启动又变回去"，而屏幕上看着一切正常。
         //
-        // ★ 这一条里"调色板深吗"那半**必须真机跑**（这个工程平时就是真机跑的，别加
-        //   `QT_QPA_PLATFORM=offscreen`）：深浅那一档是 `styleHints()->setColorScheme()`
-        //   往下传的，而 **offscreen 插件不认这一档**（实测：`standardPalette()` 照旧是浅的）
-        //   —— 在 offscreen 底下跑会得到一条看起来像产品坏了的**假红**。
+        // 这一条里"调色板深吗"那半**必须真机跑**（这个工程平时就是真机跑的，别加
+        // `QT_QPA_PLATFORM=offscreen`）：深浅那一档是 `styleHints()->setColorScheme()`
+        // 往下传的，而 **offscreen 插件不认这一档**（实测：`standardPalette()` 照旧是浅的）
+        // —— 在 offscreen 底下跑会得到一条看起来像产品坏了的**假红**。
         const int darkIndex = presetCombo->findData(QStringLiteral("dark"));
         check(darkIndex >= 0, "T39.3 配色那格里找得到「深色」那一档");
         if (darkIndex >= 0) {
@@ -16787,7 +16415,7 @@ static void runThemeControlsTests() {
                   "—— 色块是画上去的，不跟着调色板走）",
                   QStringLiteral("块上是 %1 / 深底那一档是 %2")
                       .arg(swatchColor(semanticSwatches.value(0)).name(), darkDanger.name()));
-            // ★ 覆盖项叠加在预设上面：拨预设**不许**把用户自己改的那几项抹掉。
+            // 覆盖项叠加在预设上面：拨预设**不许**把用户自己改的那几项抹掉。
             QMetaObject::invokeMethod(&w, "onThemeAccentResetClicked", Qt::DirectConnection);
             QApplication::processEvents();
             check(presetCombo->currentData().toString() == QStringLiteral("dark") &&
@@ -16818,11 +16446,6 @@ static void runThemeControlsTests() {
         // 需要用户输入的东西，所以这一发就是用户点下去同一发）。
         QMetaObject::invokeMethod(&w, "onThemeAccentResetClicked", Qt::DirectConnection);
         QApplication::processEvents();
-        // ★★ 2026-10-16：判据从「出厂那一支」改成「**当前这个预设自己的**那一支」。
-        //   三套预设各自的品牌色不一样（翡翠 #087A68 / 海洋蓝 #196DAA / 炭灰 #536F80），
-        //   而这一条跑在**深色**预设上（上面 T39.3 刚把预设拨到 dark）—— 拿
-        //   `defaultAccentColor()`（= 翡翠那一支）来量，量的是"恢复默认把预设也换回出厂"，
-        //   那是另一件事。产品里 `resetAccent()` 现在就是把主题色还给当前预设。
         const QColor presetBrand = Theme::tokens(Theme::current().presetId).primary;
         check(sameColor(Theme::current().accent, presetBrand) &&
                   sameColor(swatchColor(accentSwatch), presetBrand),
@@ -16868,13 +16491,6 @@ static void runThemeControlsTests() {
         }
 
         // ---------- ⑤ 动效那个总开关（§8.3 明说要继续保留） ----------
-        //
-        // 走的是那个勾自己的 `toggled`（= 用户点它那一发），量的是"规格层那一位 + 盘上"。
-        // 「系统那一档」的判据在 ui_check 的 W14（那边不去碰真系统设置）。
-        // ★ 拨之前先看它现在是哪一档：这个验证工程（和 ui_check 一样）在 main() 开头就把
-        //   动效关掉了，所以那个勾**本来就是没勾的** —— 直接 `setChecked(false)` 是"没变"，
-        //   连 `toggled` 都不会发，量出来就是"按了没反应"（那是**假红**）。所以下面量的是
-        //   "从当前这一档拨到另一档、再拨回来"。
         const bool wasChecked = animationsCheck->isChecked();
         const bool wasUserEnabled = Anim::userEnabled();
         check(wasChecked == wasUserEnabled,
@@ -16914,24 +16530,24 @@ static void runThemeControlsTests() {
 
 /// 把一个本地文件"拖"到某个控件上（真发那一串事件：`DragEnter` 然后 `Drop`）。
 ///
-/// ★ 走的是**真的那几发事件**（`QApplication::sendEvent`），不是直接调那个槽：这条路上要
-///   验的恰恰有"这一页/这个窗到底收不收拖放"（`acceptDrops()` 那一格），绕过事件派发就
-///   等于把准入判据一起绕过去了。
+/// 走的是**真的那几发事件**（`QApplication::sendEvent`），不是直接调那个槽：这条路上要
+/// 验的恰恰有"这一页/这个窗到底收不收拖放"（`acceptDrops()` 那一格），绕过事件派发就
+/// 等于把准入判据一起绕过去了。
 ///
-/// ★★ 两发**必须成对**发，这是 Qt 自己的规矩，不是这里的规定：`QApplication::notify()` 里
-///   `Drop`/`DragMove`/`DragLeave` 那一段**根本不看接收者是谁** —— 它把事件交给
-///   `QDragManager::self()->currentTarget()`，而那个 `currentTarget` **只有**被接受的那一发
-///   `DragEnter` 才会设上（见 `case QEvent::DragEnter` 里那句 `setCurrentTarget(w)`）；一个
-///   没有 currentTarget 的 `Drop` 会被**直接扔掉**（那一段开头的 `else break;`）。
-///   于是"只发 Drop"这件事看起来像发了，其实什么都没发生 —— 更坏的情况是**跑去别人身上**：
-///   上一发被接受的 `DragEnter` 还记着它，这一发 Drop 就落到**上一个控件**头上了。
-///   2026-09-29 实测踩到过：T30.3 的 Drop 被 T30.1 留下的 currentTarget 收走，落进
-///   `MainWindow::dropEvent`（症状是"这一页一个字都没收到，主窗那张「装到哪个实例」的
-///   列表倒弹出来了"）。
+/// 两发**必须成对**发，这是 Qt 自己的规矩，不是这里的规定：`QApplication::notify()` 里
+/// `Drop`/`DragMove`/`DragLeave` 那一段**根本不看接收者是谁** —— 它把事件交给
+/// `QDragManager::self()->currentTarget()`，而那个 `currentTarget` **只有**被接受的那一发
+/// `DragEnter` 才会设上（见 `case QEvent::DragEnter` 里那句 `setCurrentTarget(w)`）；一个
+/// 没有 currentTarget 的 `Drop` 会被**直接扔掉**（那一段开头的 `else break;`）。
+/// 于是"只发 Drop"这件事看起来像发了，其实什么都没发生 —— 更坏的情况是**跑去别人身上**：
+/// 上一发被接受的 `DragEnter` 还记着它，这一发 Drop 就落到**上一个控件**头上了。
+/// 实测踩到过：T30.3 的 Drop 被 T30.1 留下的 currentTarget 收走，落进
+/// `MainWindow::dropEvent`（症状是"这一页一个字都没收到，主窗那张「装到哪个实例」的
+/// 列表倒弹出来了"）。
 ///
 /// NOTE: 返回值是 `isAccepted()` —— 收没收，由控件自己说（`dragEnterEvent`/`dropEvent`
-///       里那一句 `acceptProposedAction()`），不是我们猜的。准入那一发就没过的话，真机上
-///       也不会有 Drop 这一发，所以直接返回 false（不硬塞一发进去）。
+/// 里那一句 `acceptProposedAction()`），不是我们猜的。准入那一发就没过的话，真机上
+/// 也不会有 Drop 这一发，所以直接返回 false（不硬塞一发进去）。
 static bool dropFilesOn(QWidget *target, const QStringList &paths, bool enterOnly = false) {
     if (target == nullptr) {
         return false;
@@ -16954,24 +16570,24 @@ static bool dropFilesOn(QWidget *target, const QStringList &paths, bool enterOnl
     return event.isAccepted();
 }
 
-/// T30. 拖进来的文件（2026-09-29）：认类型 → 问不问 → 落到哪个目录 → 哪个实例。
+/// T30. 拖进来的文件：认类型 → 问不问 → 落到哪个目录 → 哪个实例。
 ///
-/// 用户原话：「打开某个实例设置的时候如果拖入.jar/.zip之类的文件，检测是整合包还是资源包
+/// 要求：「打开某个实例设置的时候如果拖入.jar/.zip之类的文件，检测是整合包还是资源包
 /// 等，如果是模组且正好在模组设置那一页，那就直接塞进去，不是对应页面就弹窗提示：将在此
 /// 实例中安装 资源包/...（判断出的文件类型），是否继续；…在一些其它的地方拖入模组等时
 /// 选择要安装在的目标实例」。
 ///
 /// 这一节量的是**接线与落地**（认类型那半在 verify 的 V5z 里，喂的是真压缩包）：
-///   · 主窗自己收不收拖放；
-///   · 「正好在那一页」⇒ 一句话不问、文件真的进了 `mods/`；
-///   · 不在那一页 ⇒ 弹的是**那一句原话**，答"不装"⇒ 盘上什么都不多；
-///   · 认不出来的东西 ⇒ 一句人话，别静默；
-///   · 同名文件 ⇒ 问一句，答"不盖"⇒ 旧那份一个字节没动；
-///   · 没开实例设置时 ⇒ 问"装到哪个实例"，而"一行都没选中"**不算**选了第一个。
+/// · 主窗自己收不收拖放；
+/// · 「正好在那一页」⇒ 一句话不问、文件真的进了 `mods/`；
+/// · 不在那一页 ⇒ 弹的是**那一句原话**，答"不装"⇒ 盘上什么都不多；
+/// · 认不出来的东西 ⇒ 一句人话，别静默；
+/// · 同名文件 ⇒ 问一句，答"不盖"⇒ 旧那份一个字节没动；
+/// · 没开实例设置时 ⇒ 问"装到哪个实例"，而"一行都没选中"**不算**选了第一个。
 ///
-/// ★ **一个原生框都不点**：整合包那一路第一步是 `QFileDialog::getExistingDirectory`
-///   （选游戏文件夹），测试里点下去就是卡死 —— 所以这一节不拖整合包（那两条路
-///   ——"离开实例设置"和"选文件夹"—— 在别的节里量过它们的零件）。
+/// **一个原生框都不点**：整合包那一路第一步是 `QFileDialog::getExistingDirectory`
+/// （选游戏文件夹），测试里点下去就是卡死 —— 所以这一节不拖整合包（那两条路
+/// ——"离开实例设置"和"选文件夹"—— 在别的节里量过它们的零件）。
 static void runDroppedFileTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -17018,12 +16634,12 @@ static void runDroppedFileTests() {
     const QString notRes = work + QStringLiteral("/说明.txt");
     writeFileAt(modA, "A");
     writeFileAt(modB, "B");
-    // ★ 资源包那一份必须是**真的** zip：认类型要读压缩包的条目表（`pack.mcmeta` + `assets/`，
-    //   判据在 `DroppedResource::classify()` 里）。第一版这里写的是一个"改名叫 .zip 的
-    //   文本文件"，症状是那一句话里写的是「下面这几个不是能装进实例的东西」—— 红的理由
-    //   看着像"产品认不出资源包"，其实是**喂进去的东西本来就不是资源包**。
+    // 资源包那一份必须是**真的** zip：认类型要读压缩包的条目表（`pack.mcmeta` + `assets/`，
+    // 判据在 `DroppedResource::classify()` 里）。第一版这里写的是一个"改名叫 .zip 的
+    // 文本文件"，症状是那一句话里写的是「下面这几个不是能装进实例的东西」—— 红的理由
+    // 看着像"产品认不出资源包"，其实是**喂进去的东西本来就不是资源包**。
     // NOTE: `.jar` 那几份不受这条影响：模组是**看后缀**认的（一个 jar 也可能是别的什么，
-    //       但凡是 jar 就按模组装，永远不去读它的条目表 —— 见 classify() 里那段）。
+    // 但凡是 jar 就按模组装，永远不去读它的条目表 —— 见 classify() 里那段）。
     writeFileAt(work + QStringLiteral("/包源/pack.mcmeta"), QByteArrayLiteral("{}"));
     writeFileAt(work + QStringLiteral("/包源/assets/minecraft/lang/zh_cn.json"),
                 QByteArrayLiteral("{}"));
@@ -17138,9 +16754,9 @@ static void runDroppedFileTests() {
             // 一发 —— 这个数是"拖到这一页"这件事本身有没有发生，和落盘成不成无关。
             QObject::connect(page, &InstanceSettingsDialog::filesDropped, page,
                              [&pageDropCount](const QStringList &) { ++pageDropCount; });
-            // ★ 先备一发"如果弹了框就点最后一颗（否）并记下来" —— 这一档**不该**弹任何框，
-            //   真弹了的话这一发会把它收掉，测试不会挂在嵌套事件循环里；下面照 `g_modalText`
-            //   一量就知道弹没弹。
+            // 先备一发"如果弹了框就点最后一颗（否）并记下来" —— 这一档**不该**弹任何框，
+            // 真弹了的话这一发会把它收掉，测试不会挂在嵌套事件循环里；下面照 `g_modalText`
+            // 一量就知道弹没弹。
             dismissNextPrompt();
             acceptedA = dropFilesOn(page, {modA});
             droppedA = true;
@@ -17244,13 +16860,6 @@ static void runDroppedFileTests() {
               readText(oldFile));
 
         // ---- (g2) 拖进来的正好是**这个实例里本来就有的那一份**（自己拖自己）----
-        //
-        // ★ 2026-10-10 补这一条。原来这一路先问「已经有一个同名的…盖掉吗」，答「盖掉」
-        //   之后走的是 `QFile::remove(target)` → `QFile::copy(path, target)`，而这一档里
-        //   `path` 和 `target` **是同一个文件**：先把源删掉，再拷一个已经不存在的源 ⇒
-        //   文件就这么没了，屏幕上只说一句"复制不过去"。（拖放那条路更糟：一份文件拖进
-        //   它本来就该待的那个目录，是很容易顺手做出来的动作。）
-        //   现在自己拖自己**一句话都不问、一个字节都不动**。
         withPage(QStringLiteral("mod"), [&](InstanceSettingsDialog *page) {
             dismissNextPrompt();
             dropFilesOn(page, {oldFile});
@@ -17289,18 +16898,18 @@ static void runDroppedFileTests() {
             if (auto *list = box->listWidget()) {
                 listCount = list->count();
                 listRow = box->listRow();
-                // ★ 把选中**清掉**，这一档要量的才是"用户没选"（比如 Ctrl+点一下把那一行
-                //   取消掉）。**必须 `setCurrentItem(nullptr)`**：它连当前项一起清；只调
-                //   `clearSelection()` 不够 —— 当前项还在，`currentRow()` 照样回 0，于是
-                //   "没选就点确定"变成了"选了第 0 行再点确定"，产品**真的会装进去**，接着
-                //   它还要弹一条「装好了」—— 那条没有人在旁边答，测试**挂在**它上面
-                //   （2026-09-29 实测挂过一次）。
+                // 把选中**清掉**，这一档要量的才是"用户没选"（比如 Ctrl+点一下把那一行
+                // 取消掉）。**必须 `setCurrentItem(nullptr)`**：它连当前项一起清；只调
+                // `clearSelection()` 不够 —— 当前项还在，`currentRow()` 照样回 0，于是
+                // "没选就点确定"变成了"选了第 0 行再点确定"，产品**真的会装进去**，接着
+                // 它还要弹一条「装好了」—— 那条没有人在旁边答，测试**挂在**它上面
+                // （ 实测挂过一次）。
                 list->setCurrentItem(nullptr);
             }
             if (QComboBox *combo = w.ui() != nullptr ? w.ui()->getInstalledVersionCombo() : nullptr) {
                 comboSelection = combo->currentData().toString();
             }
-            // ★ 一行都没选中就点「确定」——「没选」必须是「没选」，不许替用户挑第 0 行。
+            // 一行都没选中就点「确定」——「没选」必须是「没选」，不许替用户挑第 0 行。
             clickPromptButton(0);
             ++g_modalHandlerGeneration;
         });
@@ -17320,14 +16929,6 @@ static void runDroppedFileTests() {
               "★★ T30.11 一行都没选中就点「确定」⇒ **什么都没装**（不替用户挑第 0 行）");
 
         // ② 选中一行再点「确定」⇒ 装进那一个。
-        //
-        // ★ 这一档有**两条**提示要答，而且第二条（「装好了」那句报信）是在第一条答完之后
-        //   才弹出来的 —— 两条都在同一个嵌套事件循环里（`execPrompt`）。排一发
-        //   `singleShot(0)` 只够答第一条：第二条弹出来时没有人在旁边，测试就**挂在**那儿
-        //   （2026-09-29 实测挂过一次，gdb 附上去看到的栈是
-        //   `MainWindow::handleWindowDrop → InlineMessage::information → execPrompt`）。
-        //   所以这里用一个**自走的定时器**（和 `PromptAnswerer` 同一个道理）：每一拍看一眼，
-        //   有框就答，答到第二条答完为止。
         int answered = 0;
         QTimer answerer;
         answerer.setInterval(10);
@@ -17381,21 +16982,21 @@ static void runDroppedFileTests() {
 
 // ---------------------------------------------------------------------------
 // T31. 前置依赖弹窗 + 从实例点进详情页再下载（落进**那一个**实例）
-//      + 批量启用 / 禁用 / 删除真改盘（2026-10-09）
+// + 批量启用 / 禁用 / 删除真改盘
 //
-// 用户原话（这一节两件事的出处）：
-//   · 「点击下载模组时检测当前实例里面是否存在所有的前置，如果有缺失的前置，弹出此模组
-//      缺失必要的前置：（模组名称，一行一个…）」+「弹窗里灰字写可以在设置里面关掉弹窗」；
-//   · 「在模组/资源包等的设置里面把点击条目进入对应详情页的功能变成一个详情按钮…在选中
-//      任意数量模组时在列表下方的位置显示几个按钮：更新 禁用 启用 全选 反选 取消 删除」。
+// 要求（这一节两件事的出处）：
+// · 「点击下载模组时检测当前实例里面是否存在所有的前置，如果有缺失的前置，弹出此模组
+// 缺失必要的前置：（模组名称，一行一个…）」+「弹窗里灰字写可以在设置里面关掉弹窗」；
+// · 「在模组/资源包等的设置里面把点击条目进入对应详情页的功能变成一个详情按钮…在选中
+// 任意数量模组时在列表下方的位置显示几个按钮：更新 禁用 启用 全选 反选 取消 删除」。
 //
 // 这一节量的是**屏幕上的字和盘上的字节**，不是"接线接上了没有"：
-//   · 弹窗那三样（标题 / 正文 / 灰字）一律取判据层 `ModDependencies::*Text()` 逐字比，
-//     测试里不另写一句 —— 写一句就等于把"唯一出处"这条规矩在测试里破一个口子；
-//   · 「关掉之后什么都不装」的判据是**那条前置查询压根没发**（`/v2/projects?ids=DEPPROJB`）
-//     + **前置那份文件没被要求下**（`/dep-b.jar`）—— 那是"要不要一起下"那条路上
-//     唯一一次、也是第一次问出这个问题的地方，它没发出去就说明整段被跳过了；
-//   · 「落进那一个实例」的判据是产品自己写的那行日志里带着**这个实例的 mods 目录**。
+// · 弹窗那三样（标题 / 正文 / 灰字）一律取判据层 `ModDependencies::*Text()` 逐字比，
+// 测试里不另写一句 —— 写一句就等于把"唯一出处"这条规矩在测试里破一个口子；
+// · 「关掉之后什么都不装」的判据是**那条前置查询压根没发**（`/v2/projects?ids=DEPPROJB`）
+// + **前置那份文件没被要求下**（`/dep-b.jar`）—— 那是"要不要一起下"那条路上
+// 唯一一次、也是第一次问出这个问题的地方，它没发出去就说明整段被跳过了；
+// · 「落进那一个实例」的判据是产品自己写的那行日志里带着**这个实例的 mods 目录**。
 //
 // 【为什么整条路要点两次「详情」】
 //
@@ -17455,8 +17056,6 @@ static void runDependencyAndBatchTests() {
         sandbox.sync();
         AppPaths::setMinecraftDir(originalDir);
     };
-    // 数据根目录**两头都改**（理由见 T19/T20/T24：MainWindow 构造里会拿盘上那个
-    // 「当前游戏文件夹」再把 AppPaths 改一次）。两个接口地址都指到本机端口。
     sandbox.setValue(QStringLiteral("Launcher/Folders"), QStringList({root.path()}));
     sandbox.setValue(QStringLiteral("Launcher/CurrentFolder"), root.path());
     sandbox.setValue(QStringLiteral("Download/Source"),
@@ -17484,10 +17083,6 @@ static void runDependencyAndBatchTests() {
     const QString plainJar = dirV + QStringLiteral("/mods/无关甲.jar");
     writeFileAt(modJar, QByteArrayLiteral("T31-MOD-C"));
     writeFileAt(plainJar, QByteArrayLiteral("T31-PLAIN-A"));
-    // ★★ 2026-10-11（用户点名）：模组目录里**套着的文件夹**。真机上 `mods/.connector`
-    //    就是这么被"禁用"掉的 —— 整个目录被改名成 `.connector.disabled`，里面那一堆 jar
-    //    一起从游戏眼里消失。两道闸都要量：①「模组」那一页不列它（ui_check 的 U10d）；
-    //    ②就算有人喂一个目录进来，也不许动盘（下面第三趟里那一条）。
     const QString nestedModDir = dirV + QStringLiteral("/mods/内嵌的文件夹");
     QDir().mkpath(nestedModDir + QStringLiteral("/内层"));
     writeFileAt(nestedModDir + QStringLiteral("/内层/里面的.jar"), QByteArrayLiteral("T31-NESTED"));
@@ -17581,7 +17176,7 @@ static void runDependencyAndBatchTests() {
         OverlayHost *overlay = w.ui() != nullptr ? w.ui()->overlay() : nullptr;
         check(overlay != nullptr, "T31.1 覆盖层拿得到（下面每一步都挂在它身上）");
 
-        // 设置 → 下载 里**真的有那一项**（用户原话「并在设置里面可以关闭这个弹窗」）。
+        // 设置 → 下载 里**真的有那一项**（要求「并在设置里面可以关闭这个弹窗」）。
         // 两趟量的都是"这一格管不管事"，所以先钉住它自己：在、默认勾着、文字就是产品那句。
         {
             QCheckBox *box =
@@ -17633,9 +17228,9 @@ static void runDependencyAndBatchTests() {
         int logCursor = g_messages.size();
         // 跑一趟：实例设置 → 模组 → 详情 → 点某一版 → 等提示 → 收页。
         //
-        // @param tag               这一趟的标签（断言里那句人话的前缀）。
-        // @param expectDepPrompt   这一趟期不期待那个前置弹窗（决定脚本点哪一颗按钮）。
-        // @param expectedPrompts   这一趟一共该弹几条（等不到就超时，断言自己会红）。
+        // @param tag 这一趟的标签（断言里那句人话的前缀）。
+        // @param expectDepPrompt 这一趟期不期待那个前置弹窗（决定脚本点哪一颗按钮）。
+        // @param expectedPrompts 这一趟一共该弹几条（等不到就超时，断言自己会红）。
         const auto runPass = [&](const QString &tag, bool expectDepPrompt, int expectedPrompts) {
             PassResult r;
             const QStringList requestsBefore = api.requests;
@@ -17670,11 +17265,11 @@ static void runDependencyAndBatchTests() {
             check(r.settingsOpened, tag + QStringLiteral("：实例设置那一页开起来了"));
 
             // ② 详情页那一层。产品开这一页走的是 `execPage()`（一层嵌套事件循环），
-            //    所以量它的动作只能自己排一发 0 毫秒定时器 —— 那一发在**它那层循环**里跑。
+            // 所以量它的动作只能自己排一发 0 毫秒定时器 —— 那一发在**它那层循环**里跑。
             //
-            //    ★ 「一起下载」那一趟的按钮脚本是 `{1, 0}`：第 1 条提示（前置）点右边那颗
-            //      「一起下载」，第 2 条（下载失败 —— 这一节那两份文件都指向假服务器，
-            //      404 是必然的）点「确定」。第二趟（开关关掉）只会弹后者。
+            // 「一起下载」那一趟的按钮脚本是 `{1, 0}`：第 1 条提示（前置）点右边那颗
+            // 「一起下载」，第 2 条（下载失败 —— 这一节那两份文件都指向假服务器，
+            // 404 是必然的）点「确定」。第二趟（开关关掉）只会弹后者。
             PromptAnswerer answerer(expectDepPrompt ? QList<int>{1, 0} : QList<int>{0});
             QTimer::singleShot(0, [&, overlay] {
                 auto *detail = w.findChild<ResourceDetailPage *>();
@@ -17705,9 +17300,9 @@ static void runDependencyAndBatchTests() {
                     while (quiet.elapsed() < 1200) {
                         QApplication::processEvents(QEventLoop::AllEvents, 50);
                     }
-                    // ★ 收页的动作**排在下一发里**：返回箭头一点，产品紧接着就把实例设置
-                    //   又开起来（一层新循环，见 T24.5），那一层得有人收 —— 不排的话整份
-                    //   mw_check 就停在那层循环里了（一行日志都不出）。
+                    // 收页的动作**排在下一发里**：返回箭头一点，产品紧接着就把实例设置
+                    // 又开起来（一层新循环，见 T24.5），那一层得有人收 —— 不排的话整份
+                    // mw_check 就停在那层循环里了（一行日志都不出）。
                     QTimer::singleShot(0, [&, overlay] {
                         if (auto *back = overlay->findChild<QPushButton *>(
                                 OverlayHost::overlayBackButtonName())) {
@@ -17756,7 +17351,7 @@ static void runDependencyAndBatchTests() {
                        on.detailOpened ? QStringLiteral("开") : QStringLiteral("没开"))
                   .arg(on.versionRows)
                   .arg(on.rowClicked ? QStringLiteral("是") : QStringLiteral("不是")));
-        // ★★ 这一条是用户那句话的落点：正文 = 判据层那一段（句头 + 一条一行的名单 + 问句）。
+        // 这一条是用户那句话的落点：正文 = 判据层那一段（句头 + 一条一行的名单 + 问句）。
         check(on.promptCount >= 1 &&
                   on.depPromptTitle == ModDependencies::dependencyPromptTitle() &&
                   on.depPromptText ==
@@ -17766,7 +17361,7 @@ static void runDependencyAndBatchTests() {
               "名字 + 「要一起下载吗？」）—— 用户原话「弹出 此模组缺失必要的前置：（模组名称，"
               "一行一个」",
               QStringLiteral("标题=%1 正文=%2").arg(on.depPromptTitle, on.depPromptText));
-        // ★★ 灰字：用户原话「弹窗里灰字写可以在设置里面关掉弹窗」。**逐字**比，不 contains。
+        // 灰字：要求「弹窗里灰字写可以在设置里面关掉弹窗」。**逐字**比，不 contains。
         check(on.depPromptNote == ModDependencies::dependencyPromptNoteText() &&
                   !on.depPromptNote.isEmpty(),
               "★★ T31.1 弹窗里那行**灰字**就是「可以在设置里关掉」那句（唯一出处 "
@@ -17805,7 +17400,7 @@ static void runDependencyAndBatchTests() {
               QStringLiteral("模组那份=%1 前置那份=%2")
                   .arg(gotModFile ? QStringLiteral("在") : QStringLiteral("不在"),
                        gotDepFile ? QStringLiteral("在") : QStringLiteral("不在")));
-        // ★★ 「落进**那一个**实例」：产品自己写的那行日志里带着这个实例的 mods 目录。
+        // 「落进**那一个**实例」：产品自己写的那行日志里带着这个实例的 mods 目录。
         const QString destNative = QDir::toNativeSeparators(AppPaths::versionDir(idV) +
                                                             QStringLiteral("/mods"));
         bool landedInInstance = false;
@@ -17821,9 +17416,9 @@ static void runDependencyAndBatchTests() {
 
         // ================= 第二趟：设置里关掉之后 =================
         //
-        // ★ 关的方式走**用户那条路**（那颗勾选框），不是直接往 QSettings 里写：产品那一份
-        //   `m_settings` 是构造时读进内存的，外面改盘它一个字都不知道 —— 直接写键的话，
-        //   这一趟量到的还是"开着"的那一套，而红的是别处（最难查的那种）。
+        // 关的方式走**用户那条路**（那颗勾选框），不是直接往 QSettings 里写：产品那一份
+        // `m_settings` 是构造时读进内存的，外面改盘它一个字都不知道 —— 直接写键的话，
+        // 这一趟量到的还是"开着"的那一套，而红的是别处（最难查的那种）。
         QCheckBox *warnBox =
             w.ui() != nullptr ? w.ui()->getWarnMissingDependenciesCheck() : nullptr;
         if (warnBox != nullptr) {
@@ -17844,8 +17439,8 @@ static void runDependencyAndBatchTests() {
                                                     : QStringLiteral("关着")));
         }
         PassResult off = runPass(QStringLiteral("T31.2"), false, 1);
-        // ★★ 「关掉 = 什么都不装」：那一发问名字的请求**压根没发**。这是这条路上唯一一次
-        //    "要不要一起下"的问句，它没发出去就说明整段被跳过了（不是"问了但没下"）。
+        // 「关掉 = 什么都不装」：那一发问名字的请求**压根没发**。这是这条路上唯一一次
+        // "要不要一起下"的问句，它没发出去就说明整段被跳过了（不是"问了但没下"）。
         bool askedDepProjectOff = false;
         bool gotDepFileOff = false;
         for (const QString &line : off.newRequests) {
@@ -17875,10 +17470,10 @@ static void runDependencyAndBatchTests() {
             bool rowsFound = false;
             bool barShown = false;
             bool afterDisableRelisted = false;
-            // ★★ 盘上的读数**必须在这一发里面记下来**：这三下是**前后串着**做的
-            //    （禁用 → 启用 → 删除），等整段跑完再到外面去读盘，读到的已经是
-            //    "启用回来之后 + 删掉一个"那个终态 —— 禁用那一条永远看不见自己的现场。
-            //    （第一版就是这么写的，红的正是"禁用"那一条，而它其实做对了。）
+            // 盘上的读数**必须在这一发里面记下来**：这三下是**前后串着**做的
+            // （禁用 → 启用 → 删除），等整段跑完再到外面去读盘，读到的已经是
+            // "启用回来之后 + 删掉一个"那个终态 —— 禁用那一条永远看不见自己的现场。
+            // （第一版就是这么写的，红的正是"禁用"那一条，而它其实做对了。）
             bool disabledBoth = false;   ///< 点完「禁用」：两条都挂上了后缀
             bool reenabledBoth = false;  ///< 点完「启用」：又都改回原名了
             bool plainGone = false;      ///< 点完「删除」：选中的那一份没了
@@ -17904,14 +17499,14 @@ static void runDependencyAndBatchTests() {
                 }
                 batch.rowsFound = pumpUntil([mods] { return mods->list()->count() >= 2; }, 8000);
                 // 按路径选中（"选中"这件事在屏幕上就是那一条的选中态，产品按路径记账）。
-                // ★★ 先把旧的选择**清干净**再选 —— 这个 helper 三个调用点的意思都是
-                //    「把选择设成这几条」，而 `setSelected(true)` 只会**加**不会减。
-                //    为什么这里以前不需要清：2026-10-10 第四批之前「拨开关」那一发会改名
-                //    ⇒ 按盘上真路径回还账时比不中 ⇒ 那两条**自己掉出了选择**，于是这一发
-                //    落在空选择上、结果恰好只有 plainJar 一条。第四批用户点名废掉了那条
-                //    旧规矩（「修复点击开关的时候会取消选中的问题」）⇒ 那两条**留在选中**
-                //    ⇒ 不清的话这一发等于"两条都选着"，删除会把 modJar 也带走，
-                //    而这条断言的**本意**是"只删选中的那一条"。
+                // 先把旧的选择**清干净**再选 —— 这个 helper 三个调用点的意思都是
+                // 「把选择设成这几条」，而 `setSelected(true)` 只会**加**不会减。
+                // 为什么这里以前不需要清： 第四批之前「拨开关」那一发会改名
+                // ⇒ 按盘上真路径回还账时比不中 ⇒ 那两条**自己掉出了选择**，于是这一发
+                // 落在空选择上、结果恰好只有 plainJar 一条。第四批用户点名废掉了那条
+                // 旧规矩（「修复点击开关的时候会取消选中的问题」）⇒ 那两条**留在选中**
+                // ⇒ 不清的话这一发等于"两条都选着"，删除会把 modJar 也带走，
+                // 而这条断言的**本意**是"只删选中的那一条"。
                 const auto selectByPaths = [&](const QStringList &paths) {
                     mods->list()->clearSelection();
                     for (int row = 0; row < mods->list()->count(); ++row) {
@@ -17932,7 +17527,7 @@ static void runDependencyAndBatchTests() {
                     b->click();
                 }
                 QApplication::processEvents();
-                // ★★ 现场在**这一句**上：三下是串着做的，等整段跑完再读盘读到的已经是终态。
+                // 现场在**这一句**上：三下是串着做的，等整段跑完再读盘读到的已经是终态。
                 batch.disabledBoth = QFile::exists(disabledJar) && QFile::exists(disabledPlain);
                 // 改完名产品会**重列**那一页（`refreshFilePages()`）⇒ 路径已经带上后缀了。
                 batch.afterDisableRelisted = mods->list()->count() >= 2;
@@ -17956,7 +17551,7 @@ static void runDependencyAndBatchTests() {
                 deleter.stop();
                 batch.plainGone = !QFile::exists(plainJar);
                 batch.modKept = QFile::exists(modJar);
-                // ---- ★★ 2026-10-11：**目录不许被"禁用"**（用户点名的那一幕）----
+                // ---- ★★ ：**目录不许被"禁用"**（用户点名的那一幕）----
                 //
                 // 走的是悬浮条上那颗「禁用」真正走的那条路（`batchToggleRequested` →
                 // 对话框转发 → `MainWindow::toggleInstanceFiles()` → 逐条
@@ -17966,10 +17561,10 @@ static void runDependencyAndBatchTests() {
                 // `toggleInstanceFiles()` 末尾那个「改动失败」框就是这一句话的出口。
                 const int saidBefore = deleter.answered.size();
                 if (InstanceFilesPage *dirPage = page->filesPage(QStringLiteral("mod"))) {
-                    // ★ 这一发**自己带一个 answerer** —— 上面那个 `deleter` 已经 `stop()`
-                    //   过了（它只管"删除"那一问），而整批都没改成的话产品会在末尾弹一个
-                    //   「改动失败」的框；没有 answerer 在跑的话那是个嵌套事件循环，测试就
-                    //   挂在那儿等一个永远没人点的框。
+                    // 这一发**自己带一个 answerer** —— 上面那个 `deleter` 已经 `stop()`
+                    // 过了（它只管"删除"那一问），而整批都没改成的话产品会在末尾弹一个
+                    // 「改动失败」的框；没有 answerer 在跑的话那是个嵌套事件循环，测试就
+                    // 挂在那儿等一个永远没人点的框。
                     PromptAnswerer nestedAnswerer({0});
                     nestedAnswerer.start();
                     dirPage->batchToggleRequested({nestedModDir}, true);
@@ -18018,9 +17613,7 @@ static void runDependencyAndBatchTests() {
               QStringLiteral("选中的那份没了=%1 没选中的那份还在=%2")
                   .arg(batch.plainGone ? QStringLiteral("是") : QStringLiteral("**不是**"),
                        batch.modKept ? QStringLiteral("是") : QStringLiteral("**不是（被连坐了）**")));
-        // ★★ 2026-10-11（用户点名）：「禁用」对**一个文件夹**不许有任何动作。
-        //
-        // 用户原话：「游戏模组文件夹里套的文件夹也会被列出来，而禁用对其的作用只是改个
+        // 要求：「游戏模组文件夹里套的文件夹也会被列出来，而禁用对其的作用只是改个
         // 名」。真机上 `mods/.connector` 就是这么被改成 `.connector.disabled` 的 ——
         // 里面的 jar 一起从游戏眼里消失。现在这一发只说话不动手。
         check(batch.nestedKept && batch.nestedSaid,
@@ -18050,15 +17643,15 @@ static void runDependencyAndBatchTests() {
 // 往它的 stdin 写、正常停、宽限到点强杀。这条路上任何一处断了，屏幕上的样子都是
 // 「点了没反应」或者「那行字一直是启动中」，既不像崩溃也不像报错。
 //
-// ★ 这一节把"服务端"换成了**这个 exe 自己**（`--fake-server`，见 `main()` 最前面那一支）：
-//   真服务端要几个 GB 的下载 + 联网，在这个工程里是个又贵又脆的依赖；而 `ServerProcess`
-//   本来就不认识 java —— 它只认识"一个会吐行、会读行的进程"。所以这里量得到的东西
-//   （状态怎么走、日志怎么切行、`stop` 写进去了没有、宽限到点强杀）和在真机上量到的
-//   是同一件事。
+// 这一节把"服务端"换成了**这个 exe 自己**（`--fake-server`，见 `main()` 最前面那一支）：
+// 真服务端要几个 GB 的下载 + 联网，在这个工程里是个又贵又脆的依赖；而 `ServerProcess`
+// 本来就不认识 java —— 它只认识"一个会吐行、会读行的进程"。所以这里量得到的东西
+// （状态怎么走、日志怎么切行、`stop` 写进去了没有、宽限到点强杀）和在真机上量到的
+// 是同一件事。
 //
-// ★ 这一节**不造 MainWindow、不碰数据根目录**：这一层只看它拿到的那几个入参（工作目录
-//   只是 `QProcess` 的 cwd），盘上什么都不写。所以它可以排在哪儿都行 —— 放在最后只是
-//   图个整齐。
+// 这一节**不造 MainWindow、不碰数据根目录**：这一层只看它拿到的那几个入参（工作目录
+// 只是 `QProcess` 的 cwd），盘上什么都不写。所以它可以排在哪儿都行 —— 放在最后只是
+// 图个整齐。
 //
 // 判据那一半（`-Xmx` 插到第几位、`Done (` 认哪一行、退出码算哪一档状态、宽限时间那张表）
 // 在 verify 的 ZZ 一节里钉死，这一节不重复量 —— 这里量的是**它们真的被用上了**。
@@ -18118,20 +17711,16 @@ static void runServerProcessTests() {
         // 假服务端会把每一行**原样回声**，所以"回声到了"就是"写下去了、而且补了换行"
         // （少了换行它会一直躺在缓冲区里等下一行 —— 那句话永远不来）。
         //
-        // ★ 2026-10-17：中文只在**本地代码页写得出来**的时候才用。`sendCommand()` 走的是
-        //   `toLocal8Bit()`（JVM 的 stdin 也是按系统代码页解），英文版 Windows 上它会把
-        //   "你好"变成 "??" —— 回声当然对不上，而这跟换行、分包一点关系都没有。
-        //   写得出来就用中文（顺带钉住多字节那一趟），写不出来退回 ASCII。
+        // 中文只在**本地代码页写得出来**的时候才用。`sendCommand()` 走的是
+        // `toLocal8Bit()`（JVM 的 stdin 也是按系统代码页解），英文版 Windows 上它会把
+        // "你好"变成 "??" —— 回声当然对不上，而这跟换行、分包一点关系都没有。
+        // 写得出来就用中文（顺带钉住多字节那一趟），写不出来退回 ASCII。
         const QString echoCommand =
             QString::fromLocal8Bit(QStringLiteral("say 你好").toLocal8Bit()) ==
                     QStringLiteral("say 你好")
                 ? QStringLiteral("say 你好")
                 : QStringLiteral("say hello");
         check(process.sendCommand(echoCommand), "T41.3 那一行写出去了");
-        // ★ 2026-10-17：假服务端那句回声标记用的是 **ASCII**（`[echo]`）。它原来写的是
-        //   `[回声]`，而 `--fake-server` 那一支是 `fprintf` 的窄字符串（按编译期执行字符集
-        //   写出去），`ServerProcess` 那一侧又按**系统代码页**解码 —— 英文版 Windows 上
-        //   两边一对不上，红的却是"换行补上了没有"这条完全无关的判据。
         const bool echoed = pumpUntil(
             [&process, &echoCommand] {
                 for (const QString &line : process.logLines()) {
@@ -18182,7 +17771,7 @@ static void runServerProcessTests() {
               "T41.5 那一档状态是「异常退出」", ServerModel::statusName(process.status()));
     }
 
-    // ---- T41.6 宽限时间到点 → 才允许强杀（用户 2026-10-13 定的那一条）----
+    // ---- T41.6 宽限时间到点 → 才允许强杀（用户 定的那一条）----
     {
         ServerRun::ServerProcess process;
         bool forceSignalled = false;
@@ -18278,8 +17867,8 @@ static void runServerProcessTests() {
     }
 
     // ---- T41.10 起不来的那一路（java 路径写错 / 权限不够）----
-    // ★ 真机上最容易撞到的收场：`QProcess` 在这种时候**不会**发 `finished`，只有
-    //   `errorOccurred(FailedToStart)` —— 只接前者的写法会让这一行永远停在「启动中」。
+    // 真机上最容易撞到的收场：`QProcess` 在这种时候**不会**发 `finished`，只有
+    // `errorOccurred(FailedToStart)` —— 只接前者的写法会让这一行永远停在「启动中」。
     {
         ServerRun::ServerProcess process;
         bool got = false;
@@ -18310,11 +17899,6 @@ static void runServerProcessTests() {
 // 只动了那一行（别的行一个字节都不碰）；切到「原始文本」时表单的补丁**已经合进那份文本**
 // （两页看到的不是两份东西）；文本框里改一行 → 保存 → 整份写回去；「立即备份」→ 盘上真
 // 多一个 zip；体检单里那些条目是 `ServerCheck` 现算的。
-//
-// 判据层（字段表 / `accepts()` / `applyEdits()` / `inspect()`）在 verify 的 ZV 段钉死，
-// 那一页自己的形状（四种控件 / 三档颜色 / 出路去重）在 ui_check 的 U37 里 —— 这一节**不
-// 重复量**它们，只量"接出去、落到盘上没有"。
-// =========================================================================
 static void runServerSettingsPageTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -18407,12 +17991,6 @@ static void runServerSettingsPageTests() {
             page->findChild<QTreeWidget *>(MainWindowUI::serverSettingsCheckListName());
         auto *rawEdit =
             page->findChild<QPlainTextEdit *>(MainWindowUI::serverSettingsRawEditName());
-        // ★ 表单那几格**每存一次就重造一批**：`setFields()` 里那一发是 `delete`（不是
-        //   `deleteLater()`，见那段 NOTE）—— 所以这一节**一律现查**，绝不把某一格编辑器的
-        //   指针留过一发保存。2026-10-13 实测：留住的那个指针在存完之后指向的是**另一格**
-        //   （T42.5 报出来的值是「20」，也就是「最多在线人数」那一格里的东西 —— 同一块
-        //   内存被后造的那一行复用了）。左栏 / 堆叠页 / 那几颗按钮 / 两份列表都是构造里
-        //   造一次就留着的东西，那些可以留。
         const auto textFieldOf = [page](const QString &key) {
             return page->findChild<QLineEdit *>(MainWindowUI::serverSettingsFieldName(key));
         };
@@ -18512,11 +18090,6 @@ static void runServerSettingsPageTests() {
             return QDir(backupDir).entryList(QStringList{QStringLiteral("*.zip")}, QDir::Files).size();
         };
         const int zipsBefore = zipCount();
-        // ★ 打完之后 `onBackupWriteFinished()` 会弹一张**阻塞**的「备份完成」卡片（那是产品的
-        //   规矩：这种事要当面说一声）。它是在后台那一趟跑完时**从 `pumpUntil` 那一堆
-        //   `processEvents()` 里面**弹出来的 —— 没人答的话这一节就永远挂在那层嵌套循环里
-        //   （2026-10-13 实测：整份 mw_check 卡在 T42.6 二十几分钟、栈停在
-        //   `InlineMessage::information` ← `onBackupWriteFinished`）。
         PromptAnswerer answerer({0});
         answerer.start();
         backupNow->click();
@@ -18708,19 +18281,19 @@ static void runServerSettingsPageTests() {
 // 那条问的是「关掉启动器的时候，后台那些活分别怎么收尾」。这一节之前**一条判据都没有**，
 // 而这几条路各自都能把"关个窗"变成"崩一下"，或者"把用户的东西弄丢"：
 //
-//   · **worker 线程**：`MainWindow` 手上那几趟后台活（体检 / 备份 / 图标反查 / 检查更新）
-//     都是 `QThread::create()` + `setParent(this)` 出来的。线程还在跑、窗口先散 ⇒ Qt 直接
-//     `qFatal("QThread: Destroyed while thread is still running")`，也就是 abort。
-//     体检和备份那两趟在析构里会被等（那两段写着 `~MainWindow()` 里），**图标反查和
-//     检查更新那两趟从前没人等** —— T43.3 就是给它们摆的钉子。
-//   · **子进程（游戏）**：关窗**不许杀**它（用户那句「关掉启动器游戏继续跑」）。窗口一关，
-//     `LauncherManager` 就跟着析构，而 `QProcess` 的析构里第一件事就是 `kill()` ——
-//     所以那一问走完必须先 `detachRunningGame()` 把进程**交出去**。T43.2 量到的是"窗口连
-//     对象都拆干净了，那个进程还活在系统里"。
-//   · **还在飞的下载**：那批 `QNetworkReply` 随窗口一起散，不许崩（T43.4）。
+// · **worker 线程**：`MainWindow` 手上那几趟后台活（体检 / 备份 / 图标反查 / 检查更新）
+// 都是 `QThread::create()` + `setParent(this)` 出来的。线程还在跑、窗口先散 ⇒ Qt 直接
+// `qFatal("QThread: Destroyed while thread is still running")`，也就是 abort。
+// 体检和备份那两趟在析构里会被等（那两段写着 `~MainWindow()` 里），**图标反查和
+// 检查更新那两趟从前没人等** —— T43.3 就是给它们摆的钉子。
+// · **子进程（游戏）**：关窗**不许杀**它（用户那句「关掉启动器游戏继续跑」）。窗口一关，
+// `LauncherManager` 就跟着析构，而 `QProcess` 的析构里第一件事就是 `kill()` ——
+// 所以那一问走完必须先 `detachRunningGame()` 把进程**交出去**。T43.2 量到的是"窗口连
+// 对象都拆干净了，那个进程还活在系统里"。
+// · **还在飞的下载**：那批 `QNetworkReply` 随窗口一起散，不许崩（T43.4）。
 //
-// ★ 全程离线：唯一的"网络"是本机两个**接了不答话**的假端口（下面 `StallingApi` 那个跑在
-//   自己的线程里）—— 不然那一趟一秒内就跑完，"关窗时它还在跑"这个现场根本摆不出来。
+// 全程离线：唯一的"网络"是本机两个**接了不答话**的假端口（下面 `StallingApi` 那个跑在
+// 自己的线程里）—— 不然那一趟一秒内就跑完，"关窗时它还在跑"这个现场根本摆不出来。
 // =========================================================================
 
 /// 一台「接上就不答话」的假接口，**跑在它自己的线程里**。
@@ -18730,10 +18303,10 @@ static void runServerSettingsPageTests() {
 /// 那一发几百毫秒就回来），那一趟一秒内就跑完，钉子成了空钉子；而本机一个**听着但不回话**
 /// 的端口，客户端连得上、然后就一直等响应，一直到 `HttpClient` 的 15 秒。
 ///
-/// ★ 必须**另起线程**：`HttpClient::send()` 是同步的（自己转自己的事件循环），而 T43.3 那
-///   一段**主线程正卡在 `~MainWindow()` 里等它**、根本转不动事件循环 —— 摆在主线程这边的
-///   `QTimer` 那一下**永远响不了**，"过一会儿把连接放掉"就没机会发生（同 ServerPing 那次
-///   "假服务器必须另起线程"的教训）。这一条线程用的是 `msleep`，不靠任何事件循环。
+/// 必须**另起线程**：`HttpClient::send()` 是同步的（自己转自己的事件循环），而 T43.3 那
+/// 一段**主线程正卡在 `~MainWindow()` 里等它**、根本转不动事件循环 —— 摆在主线程这边的
+/// `QTimer` 那一下**永远响不了**，"过一会儿把连接放掉"就没机会发生（同 ServerPing 那次
+/// "假服务器必须另起线程"的教训）。这一条线程用的是 `msleep`，不靠任何事件循环。
 class StallingApi : public QThread {
 public:
     /// @param holdMs 收到一发连接之后**吊多久**再把它放掉。
@@ -18935,18 +18508,18 @@ static void runShutdownTests() {
 
     // ---------- ③④ 拆窗口那一刻后台还有活：反查那一趟 / 还在飞的下载 ----------
     //
-    // ★ 这一段**没有"事后"能断言的**：那一趟被等掉这件事，唯一的证据就是"`delete w` 那句
-    //   回来了、后面那几行跑到了"。从前（析构里只等体检和备份那两趟）走到 `delete w` 就是
-    //   `qFatal`，整个 mw_check 进程当场 abort、后面所有的节连同总数一起没了。所以下面那句
-    //   check() 是拿"进程还活着、而且真的等了一段时间"当判据的。
+    // 这一段**没有"事后"能断言的**：那一趟被等掉这件事，唯一的证据就是"`delete w` 那句
+    // 回来了、后面那几行跑到了"。从前（析构里只等体检和备份那两趟）走到 `delete w` 就是
+    // `qFatal`，整个 mw_check 进程当场 abort、后面所有的节连同总数一起没了。所以下面那句
+    // check() 是拿"进程还活着、而且真的等了一段时间"当判据的。
     bool lookupRan = false;
     bool lookupStillRunning = false;
     qint64 closingMs = 0;
     {
-        // ★ 这一格**故意摆在堆上**（这一节别处的窗口都是栈上的 `MainWindow w;`）：这一节
-        //   要量的正是**析构**，而栈上那个窗口的析构发生在 `}` 上 —— 比"我要掐表的那一句"
-        //   晚，掐出来的数就永远是 `close()` 那一发（16 ms）。改成堆上之后 `delete w;`
-        //   就是拆窗口那一下，表掐在它两边。
+        // 这一格**故意摆在堆上**（这一节别处的窗口都是栈上的 `MainWindow w;`）：这一节
+        // 要量的正是**析构**，而栈上那个窗口的析构发生在 `}` 上 —— 比"我要掐表的那一句"
+        // 晚，掐出来的数就永远是 `close()` 那一发（16 ms）。改成堆上之后 `delete w;`
+        // 就是拆窗口那一下，表掐在它两边。
         auto *w = new MainWindow();
         w->show();
         QApplication::processEvents();
@@ -18996,10 +18569,10 @@ static void runShutdownTests() {
         check(vm != nullptr && vm->canCancelDownload(),
               "T43.4 前提：关窗那一刻真有一批下载挂在那儿");
 
-        // ★ 这一下是从前必红的地方：窗口里那几条线程**还活着**，而析构只等了体检和备份。
-        //   表掐在 `delete` 两边 —— **这一句就是拆窗口**（析构里那几条 `wait()` 全在里面）。
-        //   从前（析构里没等反查和检查更新那两趟）走到这一句就是 `qFatal`，整个 mw_check
-        //   进程当场 abort。
+        // 这一下是从前必红的地方：窗口里那几条线程**还活着**，而析构只等了体检和备份。
+        // 表掐在 `delete` 两边 —— **这一句就是拆窗口**（析构里那几条 `wait()` 全在里面）。
+        // 从前（析构里没等反查和检查更新那两趟）走到这一句就是 `qFatal`，整个 mw_check
+        // 进程当场 abort。
         QElapsedTimer clock;
         clock.start();
         delete w;
@@ -19020,7 +18593,7 @@ static void runShutdownTests() {
 
 int main(int argc, char *argv[]) {
     // ---------- session-holder：给"真的有一份会话在跑"当替身 ----------
-    //   mw_check.exe session-holder
+    // mw_check.exe session-holder
     //
     // AH 那一段要验"左面板一行一个会话"，那就非得真有几份会话在跑不可 —— 而真的 JVM
     // 在这儿是个又贵又脆的依赖（机器上未必装了、起来了还得等它吐日志）。于是启动路径的
@@ -19028,28 +18601,28 @@ int main(int argc, char *argv[]) {
     // 别的什么都不做。对 LauncherManager 来说它和 java 没有区别（一个真的、活着的进程）。
     //
     // NOTE: 必须排在**最前面**，连 QApplication 都不建：这个进程是被启动器起的"游戏"，
-    //       它不该去碰沙盒设置（那会在跑测试的这个进程脚下把沙盒重来一遍）、也不该
-    //       需要图形平台。
+    // 它不该去碰沙盒设置（那会在跑测试的这个进程脚下把沙盒重来一遍）、也不该
+    // 需要图形平台。
     // NOTE: 睡四分钟是给"子进程被忘了"留的兜底（AH11 会把每一份都停掉）。活着的 holder
-    //       会锁住 mw_check.exe 这个文件，下一次构建就写不进去 —— 所以宁可它自己也会醒。
+    // 会锁住 mw_check.exe 这个文件，下一次构建就写不进去 —— 所以宁可它自己也会醒。
     // ---------- 被当成 java 起的时候：老老实实当一回 java ----------
-    //   <这个 exe> -Xmx2048m -Djava.library.path=… -cp … net.minecraft.client.main.Main …
+    // <这个 exe> -Xmx2048m -Djava.library.path=… -cp … net.minecraft.client.main.Main …
     //
     // AG 那一段要让 **MainWindow 自己那条启动路径**真的起来一个"游戏进程"（验的是
     // 「启动中」那一态：黄方块 + 「<名字>启动中...」）。真 JVM 太贵，所以那一段把
     // 这个 exe **复制**一份当假 java（旁边摆一个 release 文件，见那里的说明），
     // 于是这一支认的就是"启动器发出来的那串参数"的形状：
-    //   · argv[1] 以 `-` 开头（-Xmx / -Xms / -D… / -cp，java 命令行一定是这样；
-    //     而这个工程自己的每一种模式名都不是——它们见下面那几段）；
-    //   · 里面有 `-version` → 那是探版本来问的，回一句就退（真 java 也这么干）；
-    //   · 否则**静静地睡着**：这正是"进程起来了、游戏还没出话"那个窗口，
-    //     也就是产品里黄方块亮着的那一段（睡四分钟，和 session-holder 同一个兜底）。
+    // · argv[1] 以 `-` 开头（-Xmx / -Xms / -D… / -cp，java 命令行一定是这样；
+    // 而这个工程自己的每一种模式名都不是——它们见下面那几段）；
+    // · 里面有 `-version` → 那是探版本来问的，回一句就退（真 java 也这么干）；
+    // · 否则**静静地睡着**：这正是"进程起来了、游戏还没出话"那个窗口，
+    // 也就是产品里黄方块亮着的那一段（睡四分钟，和 session-holder 同一个兜底）。
     //
     // NOTE: 一定要成对收尾 —— 这里的进程是**这个 exe 的副本**，活着的时候锁住的是沙盒里
-    //       那个副本文件（见 AG 段末尾"停掉之后才删假 java"）。
-    // ★ 这一支的形状判据是"argv[1] 以 `-` 开头" —— 而下面 `--fake-server` 那一支也长这样，
-    //   所以**必须把它摘出去**（不摘的话"服务端"会被当成"等着不起来的那份 java"睡上四分钟：
-    //   屏幕上的症状是"起得来、但没有一行输出、也永远不退"，T41 全红得像产品坏了）。
+    // 那个副本文件（见 AG 段末尾"停掉之后才删假 java"）。
+    // 这一支的形状判据是"argv[1] 以 `-` 开头" —— 而下面 `--fake-server` 那一支也长这样，
+    // 所以**必须把它摘出去**（不摘的话"服务端"会被当成"等着不起来的那份 java"睡上四分钟：
+    // 屏幕上的症状是"起得来、但没有一行输出、也永远不退"，T41 全红得像产品坏了）。
     if (argc >= 2 && argv[1][0] == '-' && std::strcmp(argv[1], "--fake-server") != 0) {
         for (int i = 1; i < argc; ++i) {
             if (std::strcmp(argv[i], "-version") == 0) {
@@ -19068,7 +18641,7 @@ int main(int argc, char *argv[]) {
     }
 
     // ---------- 被当成服务端起的时候：老老实实当一回 Minecraft 服务端 ----------
-    //   <这个 exe> --fake-server <mode>
+    // <这个 exe> --fake-server <mode>
     //
     // T41 要验的是 `ServerProcess` 那一整条路（起 → 读到 `Done (` → 写一句 → 停 / 强杀），
     // 而真 JVM + 真服务端是个又贵又脆的依赖（几个 GB 的下载，还得联网）。所以那一节把
@@ -19076,17 +18649,17 @@ int main(int argc, char *argv[]) {
     // 进程，会往 stdout 吐行、会从 stdin 读行）。
     //
     // 三种 mode：
-    //   · `normal` —— 吐几句开场白 + 那一行 `Done (…)!`（产品就靠这一行判"起来了"），
-    //                 然后**逐行读 stdin**：`stop` ⇒ 自己退 0，别的原样回声（T41 拿它验
-    //                 `sendCommand()` 真的送进去了）；
-    //   · `never`  —— 吐完开场白就**再也不理 stdin**（读到 `stop` 也不退）：留给"宽限时间
-    //                 到点 → 强制结束"那一段。它一定会被杀掉，所以给个四分钟兜底；
-    //   · `crash`  —— 吐完开场白立刻退 1：量"非 0 退出 = 异常退出"和那个预警框。
+    // · `normal` —— 吐几句开场白 + 那一行 `Done (…)!`（产品就靠这一行判"起来了"），
+    // 然后**逐行读 stdin**：`stop` ⇒ 自己退 0，别的原样回声（T41 拿它验
+    // `sendCommand()` 真的送进去了）；
+    // · `never` —— 吐完开场白就**再也不理 stdin**（读到 `stop` 也不退）：留给"宽限时间
+    // 到点 → 强制结束"那一段。它一定会被杀掉，所以给个四分钟兜底；
+    // · `crash` —— 吐完开场白立刻退 1：量"非 0 退出 = 异常退出"和那个预警框。
     //
     // NOTE: 必须排在**最前面**，连 QApplication 都不建（同上面那两支的理由：这个进程是被
-    //       我们的 QProcess 起的，它不该去碰沙盒设置，也不该需要图形平台）。
+    // 我们的 QProcess 起的，它不该去碰沙盒设置，也不该需要图形平台）。
     // NOTE: 输出必须**不缓冲** —— 缓冲住的话父进程的 `readyRead` 要等到进程退出才来，
-    //       而"起来了"那一行恰恰是要在它还活着的时候读到的。
+    // 而"起来了"那一行恰恰是要在它还活着的时候读到的。
     if (argc >= 3 && std::strcmp(argv[1], "--fake-server") == 0) {
         std::setvbuf(stdout, nullptr, _IONBF, 0);
         std::setvbuf(stderr, nullptr, _IONBF, 0);
@@ -19120,7 +18693,7 @@ int main(int argc, char *argv[]) {
 
     QApplication app(argc, argv);
 
-    // 动效全关（2026-09-29）。这个工程量的是界面本身长什么样，不是它在动的时候长什么样；
+    // 动效全关。这个工程量的是界面本身长什么样，不是它在动的时候长什么样；
     // 半路飞进来一段动画只会让判据时灵时不灵。规矩见 ui/Animations.hpp。
     Anim::setEnabled(false);
     // ---------- auth-live：**真注册表 + 真网络** 的一次性探针 ----------
@@ -19397,7 +18970,7 @@ int main(int argc, char *argv[]) {
                    DownloadRetryPolicy::delayMs(3, {}) == -1 && DownloadRetryPolicy::delayMs(0, "999999999") == 60000,
                "policy retries weak-network failures, caps Retry-After and excludes cancel/TLS errors");
         // 429 专用退避：服务器说"你太快了"时，通用那条 0.5/1/2 秒比限流窗口还快
-        // （2026-10-18 诊断日志：一条分段 3 秒内连吃 4 个 429）。没给 Retry-After 就
+        // （ 诊断日志：一条分段 3 秒内连吃 4 个 429）。没给 Retry-After 就
         // 2/4/8 秒；给了就听服务器的。`delayMs()` 那一档一个字都不许跟着变。
         expect(DownloadRetryPolicy::throttleDelayMs(0, {}) == 2000 &&
                    DownloadRetryPolicy::throttleDelayMs(1, {}) == 4000 &&
@@ -19407,7 +18980,7 @@ int main(int argc, char *argv[]) {
                    DownloadRetryPolicy::delayMs(0, {}) == 500,
                "429 backoff starts at two seconds, doubles, and honours Retry-After");
         // 握手**没做完**（明文回到 TLS 端口 / 连接被掐）换一条连接就可能好；证书判断失败
-        // 一万次也一样 —— 这两档必须分开（2026-10-17 一个 wrong version number 打断整段安装）。
+        // 一万次也一样 —— 这两档必须分开（ 一个 wrong version number 打断整段安装）。
         expect(DownloadRetryPolicy::sslHandshakeTransient(
                    QByteArrayLiteral("SSL handshake failed: error:0A00010B:SSL routines::wrong version number")) &&
                    DownloadRetryPolicy::sslHandshakeTransient(QByteArrayLiteral("unexpected eof while reading")) &&
@@ -19474,14 +19047,14 @@ int main(int argc, char *argv[]) {
                "acknowledged attention survives history reload");
         expect(restored.tasks()->snapshot(active).state == Tasks::TaskState::Interrupted &&
                    restored.markViewed(QString::number(active)), "interrupted tasks can be acknowledged on viewing");
-        // ★ C2（2026-10-20）：「清除已完成」把行删了，**没看过的失败**那一份必须跟着收窄 ——
-        //   否则 `markViewed()` 再也没有出口（它要求 `has(id)`），面板里一行不剩、底栏那颗
-        //   红点却挂到重启为止。触发它不需要特殊操作：面板停在「进行中」或搜索没命中那一行
-        //   时点「清除已完成」即可。顺带钉住"收窄之后要有人重画底栏"（clearFinished 里那一发
-        //   `activityChanged`）—— 少了它，红点要等账本下一次变动才灭。
+        // C2：「清除已完成」把行删了，**没看过的失败**那一份必须跟着收窄 ——
+        // 否则 `markViewed()` 再也没有出口（它要求 `has(id)`），面板里一行不剩、底栏那颗
+        // 红点却挂到重启为止。触发它不需要特殊操作：面板停在「进行中」或搜索没命中那一行
+        // 时点「清除已完成」即可。顺带钉住"收窄之后要有人重画底栏"（clearFinished 里那一发
+        // `activityChanged`）—— 少了它，红点要等账本下一次变动才灭。
         //
-        //   位置摆在最后：`clearFinished()` 会把前面那些终态行从账本里删掉，而上面
-        //   `restored` 那几条读的正是盘上那些行。
+        // 位置摆在最后：`clearFinished()` 会把前面那些终态行从账本里删掉，而上面
+        // `restored` 那几条读的正是盘上那些行。
         {
             const auto c2 = activity.begin(Tasks::TaskKind::Download, QStringLiteral("C2 error"));
             activity.finish(c2, false, QStringLiteral("boom"), false);
@@ -19592,8 +19165,6 @@ int main(int argc, char *argv[]) {
         app.processEvents();
         auto *toggle = panel.findChild<QPushButton *>(QStringLiteral("taskCenterRunningCollapse"));
         auto *pane = panel.findChild<QWidget *>(QStringLiteral("taskCenterRunningPane"));
-        // ★ 2026-10-17 用户原话：「左侧没有实例运行时默认不展开」—— 这一份的外壳运行中
-        //   实例是空的，所以开局就该收成 36 px 的一条（只剩那颗箭头）。
         check(toggle && pane && !toggle->isChecked() && pane->width() == 36,
               "running pane starts collapsed when nothing is running");
         if (toggle && pane) {
@@ -19639,7 +19210,7 @@ int main(int argc, char *argv[]) {
     // 就不会种默认那五组，实例页那一批判据跟着变脸。
     //
     // ⇒ 和上面那份 QSettings 沙盒同一个形状：跑之前清掉，这一趟才和"干净装一次"同构。
-    //    （清了之后这一趟自己还会把它们写回来，所以下一趟仍然从干净开始 —— 幂等。）
+    // （清了之后这一趟自己还会把它们写回来，所以下一趟仍然从干净开始 —— 幂等。）
     {
         const QString dataDir = AppPaths::defaultMinecraftDir();
         for (const QString &name : {QStringLiteral("wtfml.tasks"), QStringLiteral("wtfml.history"),
@@ -19649,7 +19220,7 @@ int main(int argc, char *argv[]) {
     }
 
     // ---------- modpack-import-live：**真网络**跑一次整合包导入 ----------
-    //   mw_check.exe modpack-import-live "<整合包.zip>" "<实例名>" "<游戏根目录>"
+    // mw_check.exe modpack-import-live "<整合包.zip>" "<实例名>" "<游戏根目录>"
     //
     // 存在的理由：四个工程验的都是离线那部分，唯一没验过的是"合法导入走完最后一步"
     // （要联机下加载器、再下清单里那几百个文件，几个 GB）。这一条用**产品自己的代码**
@@ -19691,7 +19262,7 @@ int main(int argc, char *argv[]) {
             std::printf("沙盒设置：%s\n", qPrintable(sandbox.fileName()));
         }
 
-        // 两种整合包各读各的清单（2026-09-25 起 CurseForge 那一份也能导）。这一发是**真导入**
+        // 两种整合包各读各的清单（ 起 CurseForge 那一份也能导）。这一发是**真导入**
         // 探针，所以格式必须自己认出来 —— 让调用的人还要记着加一个参数，迟早会记错。
         QByteArray indexJson;
         QString readError;
@@ -19842,9 +19413,9 @@ int main(int argc, char *argv[]) {
     }
 
     // ---------- instance-scan：**只读**扫一遍真实例，看导出那两格读出来是什么 ----------
-    //   mw_check.exe instance-scan <数据目录>
+    // mw_check.exe instance-scan <数据目录>
     //
-    // 存在的理由：2026-09-26 用户在真机上撞的那句「导出失败：读不出 海波篮子 基于哪个原版」，
+    // 存在的理由： 用户在真机上撞的那句「导出失败：读不出 海波篮子 基于哪个原版」，
     // 真因是"PCL 那种把整份 json 合进实例目录"的实例 —— 链上没有加载器目录名、json 里也没有
     // inheritsFrom，于是两格都读不出来。修完之后要能**照着他的盘**重跑一遍，看这一档现在是
     // 什么样子（而不是只信我们自己在沙箱里摆的夹具）。
@@ -19917,9 +19488,9 @@ int main(int argc, char *argv[]) {
     }
 
     // ---------- update-target：**只读**看「检查更新」那两个筛参数在真机上读出来是什么 -----
-    //   mw_check.exe update-target <数据目录> [实例目录名]
+    // mw_check.exe update-target <数据目录> [实例目录名]
     //
-    // 存在的理由：2026-10-11 用户报「hyperlands-new 里明明有不少模组要更新，界面上一个都
+    // 存在的理由： 用户报「hyperlands-new 里明明有不少模组要更新，界面上一个都
     // 没有」。那一趟要的两个**筛参数**（游戏版本 / 加载器）在产品里是
     // `MainWindow::dependencyTargetFor()` 算出来的，而它**原来**读的是
     // `VersionManager::displayParts().realVersion` —— 那一格**只有 `wtfml.meta` 里写着
@@ -19928,11 +19499,6 @@ int main(int argc, char *argv[]) {
     // 递上去的是一个**空串**，而"空 = 不筛"：问回来的版本列表是"这个项目最新的那一版"，
     // 和这个实例的游戏版本**没有任何关系**（实测：Hyperlands-new 空着报 40 条可更新，
     // 递上真版本 `1.21.11` 之后是 12 条）。
-    //
-    // ★★ 2026-10-11 修完之后：产品那一格换成 `instanceGameVersion()`（导出那一路用的就是
-    //    它，它解得开 PCL 那种合并实例的 `clientVersion`）。于是这一节现在打三列：
-    //    **今天递的**（= 产品现在真会发出去的那个值）、**旧判据**（`realVersion`，留着当
-    //    对照 —— 它变多还是变少，是"这件事确实被修了"的现场）、以及加载器。
     //
     // **一个字节都不写**：实例目录、wtfml.meta、版本 json 全走读路径。
     if (argc >= 3 && QString::fromLocal8Bit(argv[1]) == QLatin1String("update-target")) {
@@ -19994,8 +19560,8 @@ int main(int argc, char *argv[]) {
     }
 
     // ---------- cf-resolve-live：**真网络**跑一次"号 → 文件"（只问两发，不下任何文件）-----
-    //   mw_check.exe cf-resolve-live [项目号:文件号] …
-    //     不给就默认问 JEI（238222）那一对真号。
+    // mw_check.exe cf-resolve-live [项目号:文件号] …
+    // 不给就默认问 JEI（238222）那一对真号。
     //
     // 存在的理由：CurseForge 那条路的**其余部分**都验过了（清单解析 / 请求体 / 答复解析 /
     // 落点 / 界面接线，见 verify 的 ZG 节和 mw_check 的 AA9/AA10），那些用的都是我们自己
@@ -20019,7 +19585,6 @@ int main(int argc, char *argv[]) {
             refs.append({parts.at(0).toInt(), parts.at(1).toInt()});
         }
         if (refs.isEmpty()) {
-            // JEI（2026-09-25 实测在架上）。默认给一对真号，省得每次都要去页面上找。
             refs.append({238222, 8971390});
         }
 
@@ -20078,11 +19643,11 @@ int main(int argc, char *argv[]) {
     }
 
     // ---------- resource-live：**真网络**跑一次"从资源表里装一个资源" ----------
-    //   mw_check.exe resource-live [类] [搜索词] [来源]
-    //     类：mod（默认）/ datapack / resourcepack / shader —— 每类的落点目录各不相同
-    //     来源：modrinth（默认）/ curseforge —— **这一格是 2026-09-26 加的**，理由见下面
-    //           拨来源那一段：不给它这一节永远只走 Modrinth，CurseForge 那条路真网络上一次
-    //           都没跑过（两个验证工程里全是假接口）。
+    // mw_check.exe resource-live [类] [搜索词] [来源]
+    // 类：mod（默认）/ datapack / resourcepack / shader —— 每类的落点目录各不相同
+    // 来源：modrinth（默认）/ curseforge —— **这一格是 加的**，理由见下面
+    // 拨来源那一段：不给它这一节永远只走 Modrinth，CurseForge 那条路真网络上一次
+    // 都没跑过（两个验证工程里全是假接口）。
     //
     // 存在的理由：#45~#49 那几节验的都是"界面搭对了 / 取数接上了"，而**点第三层那一下
     // 最后在盘上落下什么**从没跑过一次 —— ResourceStore::fetchVersions → 挑 primaryFile
@@ -20177,19 +19742,19 @@ int main(int argc, char *argv[]) {
         makeInstalledVersion(QDir(liveRoot + QStringLiteral("/versions")), instanceId);
         // 模组以外的几类：给这个假实例**写一个模组加载器**进去。
         //
-        // 为什么（2026-09-25 加数据包时补的）：点第三层那一下前面有一道「加载器对不上」的闸，
+        // 为什么（ 加数据包时补的）：点第三层那一下前面有一道「加载器对不上」的闸，
         // 而它只有在"实例读得出加载器"时才会判 —— 裸实例永远放行，所以这一节**从来没走过
         // 那道闸**。写上一个之后，这几类才是真的在判：
-        //   · 数据包那一版清单里 `loaders` 是 `["datapack"]`、资源包是 `["minecraft"]` ——
-        //     它们跟"这个实例装的是哪个模组加载器"半点关系没有。那道闸原来照 `size()==1`
-        //     一律拦，于是给一个装了加载器的实例装数据包/资源包会**每次都弹一次**
-        //     「这个实例是 Fabric，而这一版是给 datapack 用的」——那句提示说不通，而且弹多了
-        //     用户就再也不看这类提醒了（真正该拦的那次也跟着被忽略）。这一节现在把它钉住：
-        //     修好之后这几类会一路走到「下载完成」，没修好就会停在一个「加载器对不上」的框上
-        //     （下面那条"弹的是「下载完成」"当场变红）。
-        //   · 模组那一类**不写**：它的落点（题中之意）正是那道闸该管的事，而默认那几个搜索词
-        //     是给"能一路下到底"挑的 —— 写个加载器进去反而可能因为撞上一个别的加载器的模组
-        //     而在这条探针上弹出框来（那是对的行为，但不是这一节要看的）。
+        // · 数据包那一版清单里 `loaders` 是 `["datapack"]`、资源包是 `["minecraft"]` ——
+        // 它们跟"这个实例装的是哪个模组加载器"半点关系没有。那道闸原来照 `size()==1`
+        // 一律拦，于是给一个装了加载器的实例装数据包/资源包会**每次都弹一次**
+        // 「这个实例是 Fabric，而这一版是给 datapack 用的」——那句提示说不通，而且弹多了
+        // 用户就再也不看这类提醒了（真正该拦的那次也跟着被忽略）。这一节现在把它钉住：
+        // 修好之后这几类会一路走到「下载完成」，没修好就会停在一个「加载器对不上」的框上
+        // （下面那条"弹的是「下载完成」"当场变红）。
+        // · 模组那一类**不写**：它的落点（题中之意）正是那道闸该管的事，而默认那几个搜索词
+        // 是给"能一路下到底"挑的 —— 写个加载器进去反而可能因为撞上一个别的加载器的模组
+        // 而在这条探针上弹出框来（那是对的行为，但不是这一节要看的）。
         if (kind != ResourceCatalog::Kind::Mod) {
             makeVersionMeta(QDir(liveRoot + QStringLiteral("/versions")), instanceId,
                             R"({"loaderName":"Fabric","loaderVersion":"0.15.11"})");
@@ -20224,13 +19789,13 @@ int main(int argc, char *argv[]) {
         };
         // 冒出来的模态框：记下它说了什么，然后点掉。
         //
-        // ★ **没有框的时候什么都不做**（千万不要顺手调一次 recordPrompt(nullptr)）：
-        //   `recordPrompt()` 第一件事就是把 g_modal* 那几个全局清空（见它的实现）——
-        //   而下面那个循环拿"g_modalTitle 非空"当**产品已经给结论了**的判据、最后那条断言
-        //   读的也是它。写成一进来就 record 的话：文件落地之后还要再转若干圈，框在这几圈里
-        //   被点掉、下一圈进来就把刚记下的「下载完成」抹成空串 ⇒ 断言红在"框标题=「」"上，
-        //   而 `[弹窗]` 那一行明明已经打出来了（2026-09-26 在 CurseForge 那一跑上正好踩到：
-        //   同一段代码走 Modrinth 时框落在那 20 圈的最后几圈，所以一直没露出来）。
+        // **没有框的时候什么都不做**（千万不要顺手调一次 recordPrompt(nullptr)）：
+        // `recordPrompt()` 第一件事就是把 g_modal* 那几个全局清空（见它的实现）——
+        // 而下面那个循环拿"g_modalTitle 非空"当**产品已经给结论了**的判据、最后那条断言
+        // 读的也是它。写成一进来就 record 的话：文件落地之后还要再转若干圈，框在这几圈里
+        // 被点掉、下一圈进来就把刚记下的「下载完成」抹成空串 ⇒ 断言红在"框标题=「」"上，
+        // 而 `[弹窗]` 那一行明明已经打出来了（ 在 CurseForge 那一跑上正好踩到：
+        // 同一段代码走 Modrinth 时框落在那 20 圈的最后几圈，所以一直没露出来）。
         const auto sweepModal = [] {
             InlineMessageBox *box = currentPrompt();
             if (box == nullptr) {
@@ -20438,9 +20003,9 @@ int main(int argc, char *argv[]) {
         // **定时器**：定时器在任何事件循环里都会响，包括那个嵌套的。
         //
         // NOTE: 也不能用现成的 dismissNextPrompt() —— 它排的是"0 毫秒 + 300 毫秒"两条
-        //       **一次性**定时器，那个设计是给"点完框立刻弹出"的动作的（登录、启动）。
-        //       这一节要等的是**真下载**（一秒到几分钟）：那两条早在提示出现之前就响完了
-        //       （响的那一刻那一层还是空的，直接返回），提示照样没人点。
+        // **一次性**定时器，那个设计是给"点完框立刻弹出"的动作的（登录、启动）。
+        // 这一节要等的是**真下载**（一秒到几分钟）：那两条早在提示出现之前就响完了
+        // （响的那一刻那一层还是空的，直接返回），提示照样没人点。
         QTimer modalSweeper;
         QObject::connect(&modalSweeper, &QTimer::timeout, [&flushLogs, &sweepModal] {
             flushLogs();  // 定时器在嵌套循环里也响，日志正好跟着一起流
@@ -20512,13 +20077,13 @@ int main(int argc, char *argv[]) {
     }
 
     // ---------- update-live：**真网络 + 用户自己的盘**原样跑一遍「检查更新」那条路 --
-    //   mw_check.exe update-live <实例目录> [游戏版本] [加载器] [最多几条] [模式] [缓存]
+    // mw_check.exe update-live <实例目录> [游戏版本] [加载器] [最多几条] [模式] [缓存]
     //
-    // 存在的理由：2026-10-11 用户报「无法正常获取更新」（他自己指定的是**模组更新**）。
+    // 存在的理由： 用户报「无法正常获取更新」（他自己指定的是**模组更新**）。
     // 这条路在产品里是 `MainWindow::checkInstanceUpdates()`，三步：
-    //   ① 反查（`InstanceIconLookup::lookup`：sha1 + 指纹 → 项目号 + `sha1`）；
-    //   ② **每个项目各问一发版本列表**（`ResourceStore::fetchVersions`）；
-    //   ③ `ModDependencies::judgeUpdate()` 逐条判"这一版是不是最新的"。
+    // ① 反查（`InstanceIconLookup::lookup`：sha1 + 指纹 → 项目号 + `sha1`）；
+    // ② **每个项目各问一发版本列表**（`ResourceStore::fetchVersions`）；
+    // ③ `ModDependencies::judgeUpdate()` 逐条判"这一版是不是最新的"。
     // 一页几百个模组就是**几百发请求** —— 这一节照着他的盘把这三步原样跑一遍，把"每条判成
     // 什么、总共花多久、撞没撞限流（429）"都打出来。它是**判据**：修之前跑、修之后再跑，
     // 两次的数字要说得上话。
@@ -20541,13 +20106,13 @@ int main(int argc, char *argv[]) {
         const QString loader = argc >= 5 ? QString::fromLocal8Bit(argv[4]) : QString();
         const int limit = argc >= 6 ? QString::fromLocal8Bit(argv[5]).toInt() : 0;
         const bool batchMode = argc >= 7 && QString::fromLocal8Bit(argv[6]) == QLatin1String("batch");
-        // ★ 2026-10-11：第 7 个参数 = `cache` —— 反查那一趟**挂上产品那份盘上缓存**
-        //   （`AppPaths::instanceIconCacheDir()` + 实例目录名当键，和
-        //   `checkInstanceUpdates()` 里那两句逐字同一个口径）。不给就是"不用缓存"。
-        //   为什么要这一档：产品那一趟**几乎从不真的去读盘算哈希** —— 用户先点开过模组页
-        //   （那一趟把身份 + sha1 写进了缓存），检查更新进来时**整批都是缓存命中**。
-        //   两者走的是同一份 `Found`，但"命中"那条路上任何一位没带出来，症状都只在
-        //   真机上看得见。
+        // 第 7 个参数 = `cache` —— 反查那一趟**挂上产品那份盘上缓存**
+        // （`AppPaths::instanceIconCacheDir()` + 实例目录名当键，和
+        // `checkInstanceUpdates()` 里那两句逐字同一个口径）。不给就是"不用缓存"。
+        // 为什么要这一档：产品那一趟**几乎从不真的去读盘算哈希** —— 用户先点开过模组页
+        // （那一趟把身份 + sha1 写进了缓存），检查更新进来时**整批都是缓存命中**。
+        // 两者走的是同一份 `Found`，但"命中"那条路上任何一位没带出来，症状都只在
+        // 真机上看得见。
         const bool useCache = argc >= 8 && QString::fromLocal8Bit(argv[7]) == QLatin1String("cache");
 
         QDir mods(dir);
@@ -20598,10 +20163,10 @@ int main(int argc, char *argv[]) {
 
         // ---------- ② 攒钥匙（照 `onUpdateCheckLookupFinished` 那一段逐字）----------
         //
-        // ★★ 2026-10-11：**这一批文件带不带加载器**。产品的规矩是"只有模组带"
-        //   （`ModDependencies::kindUsesLoader()`，那段注释里有实测）：资源包 / 光影包 /
-        //   数据包带上实例的加载器 **一条都问不到**。这一节按**目录名**认类别 —— 名字走
-        //   `ResourceCatalog::folderForKind()` 那张表（不在这儿另抄一份 `mods` / `resourcepacks`）。
+        // **这一批文件带不带加载器**。产品的规矩是"只有模组带"
+        // （`ModDependencies::kindUsesLoader()`，那段注释里有实测）：资源包 / 光影包 /
+        // 数据包带上实例的加载器 **一条都问不到**。这一节按**目录名**认类别 —— 名字走
+        // `ResourceCatalog::folderForKind()` 那张表（不在这儿另抄一份 `mods` / `resourcepacks`）。
         bool loaderApplies = true;
         {
             const QString leaf = QFileInfo(dir).fileName();
@@ -20635,9 +20200,9 @@ int main(int argc, char *argv[]) {
         }
         std::printf("要问的项目：%d 个\n", int(itemsByKey.size()));
 
-        // ★ 一个文件在**两家**都认出来时 `result.found` 里就是两条（一条 Modrinth、一条
-        //   CurseForge，路径逐字同一个）—— 这里把它数出来：产品那条路按这一条一条往下递，
-        //   于是"两条"会变成"两发请求 + 报告里两行"（这一节量"一趟要发多少发"时必须知道它）。
+        // 一个文件在**两家**都认出来时 `result.found` 里就是两条（一条 Modrinth、一条
+        // CurseForge，路径逐字同一个）—— 这里把它数出来：产品那条路按这一条一条往下递，
+        // 于是"两条"会变成"两发请求 + 报告里两行"（这一节量"一趟要发多少发"时必须知道它）。
         {
             QHash<QString, int> perPath;
             for (auto it = itemsByKey.constBegin(); it != itemsByKey.constEnd(); ++it) {
@@ -20684,14 +20249,14 @@ int main(int argc, char *argv[]) {
         timer.restart();
 
         if (batchMode) {
-            // ---------- ②' 新产品那条路（2026-10-11 改的）----------
+            // ---------- ②' 新产品那条路（ 改的）----------
             //
             // 和 `MainWindow::onUpdateCheckLookupFinished()` 逐条对齐：
-            //   ① 同一个文件两家都认出来时**只查一家**（走 Modrinth），CurseForge 那一条
-            //      **押着**等 Modrinth 先开口；
-            //   ② Modrinth 那一拨走**批量那一发**（一次一串 sha1）；
-            //   ③ 只有 CurseForge 认出来的那些照旧一项目一发；
-            //   ④ 批量那一发**没给出答案**的那些，退回问 CurseForge。
+            // ① 同一个文件两家都认出来时**只查一家**（走 Modrinth），CurseForge 那一条
+            // **押着**等 Modrinth 先开口；
+            // ② Modrinth 那一拨走**批量那一发**（一次一串 sha1）；
+            // ③ 只有 CurseForge 认出来的那些照旧一项目一发；
+            // ④ 批量那一发**没给出答案**的那些，退回问 CurseForge。
             QSet<QString> modrinthPaths;
             for (const InstanceIconLookup::Found &found : result.found) {
                 if (!found.hit.projectId.isEmpty() &&
@@ -20739,12 +20304,6 @@ int main(int argc, char *argv[]) {
                 std::printf("★ 批量那一发**没回来**（180 秒）。\n");
                 return 1;
             }
-            // ★★ 2026-10-11：这一份探针**先把批量那一发等完**，再去发单发那一拨 ——
-            //   而产品那一边两条线是**并着跑**的（谁先回来不一定）。所以这一份量得到
-            //   "发了几发、正文对不对"，**量不到**"谁先回来"这一类次序问题：产品上
-            //   出过的那个"CurseForge 那一拨先回来 ⇒ 整趟提前收尾、批量那 271 条一条
-            //   都不进报告"（收尾判据漏了 `pendingBatchKeys`）在这里**永远不会复现**。
-            //   那一条的红绿钉子在 mw_check 的 T32 里（那一节的假接口按夹具决定谁先答）。
             if (!problem.isEmpty()) {
                 std::printf("★ 批量那一发报错：%s\n", qPrintable(problem));
             }
@@ -20948,24 +20507,24 @@ int main(int argc, char *argv[]) {
     }
 
     // ---------- icon-lookup-live：**真网络 + 用户自己的盘**量一次"这一页到底有几张图" --
-    //   mw_check.exe icon-lookup-live <目录>
+    // mw_check.exe icon-lookup-live <目录>
     //
-    // 存在的理由：2026-09-27 用户报「模组的图标没有正确加载」。查下去的真因是
+    // 存在的理由： 用户报「模组的图标没有正确加载」。查下去的真因是
     // `InstanceIconLookup` 原来**不收图标地址**、指望 `Hit::iconPngUrl()` 自己拼的那条
     // `cdn.modrinth.com/data/<id>/icon.png` —— 而那条**只是老项目的别名**。当时是靠
     // "照着他自己的盘一个一个要过"才认定的（20 个模组 11 个回 404），所以修完得能**再照
     // 他的盘跑一遍**看现在是什么样，而不是只信假服务器上那几条断言。
     //
     // **一个字节都不写**：`InstanceIconLookup::lookup` 只读文件算哈希 + 发网络请求
-    //（图标缓存是 `ResourceStore` 那一层的事，这条路根本不碰它，`Options` 也不带任何落盘
+    // （图标缓存是 `ResourceStore` 那一层的事，这条路根本不碰它，`Options` 也不带任何落盘
     // 的东西）—— 所以可以直接对着 `E:/MC/.minecraft/mods` 跑，不必先摆沙盒。
     //
     // 打三样：
-    //   ① 每个文件认出来的来源 / 项目号 / 图标地址；
-    //   ② **老那条别名还灵不灵**：拿 `ResourceCatalog::iconUrlForProject()` 拼出来的地址
-    //      真发一发，看回 200 还是 404 —— 这一列就是那个 bug 本身（修之前，这张表上唯一
-    //      能拿到图的就是"这一列回 200"的那几个）；
-    //   ③ 小结：认出几个 / 拿到地址几个 / 老办法能用几个。
+    // ① 每个文件认出来的来源 / 项目号 / 图标地址；
+    // ② **老那条别名还灵不灵**：拿 `ResourceCatalog::iconUrlForProject()` 拼出来的地址
+    // 真发一发，看回 200 还是 404 —— 这一列就是那个 bug 本身（修之前，这张表上唯一
+    // 能拿到图的就是"这一列回 200"的那几个）；
+    // ③ 小结：认出几个 / 拿到地址几个 / 老办法能用几个。
     // 只报数、不断言（网络通和不通都是要看的结果），所以 0 = 量完了、2 = 目录里一个候选都没有。
     if (argc >= 3 && QString::fromLocal8Bit(argv[1]) == QLatin1String("icon-lookup-live")) {
         QString dir = QString::fromLocal8Bit(argv[2]);
@@ -21044,33 +20603,33 @@ int main(int argc, char *argv[]) {
     }
 
     // ---------- icon-live：**真网络**量一次"图标这一路现在到底是什么状况" ----------
-    //   mw_check.exe icon-live [数量]      数量默认 20（下载页一页就是 20 条）
+    // mw_check.exe icon-live [数量] 数量默认 20（下载页一页就是 20 条）
     //
-    // 存在的理由：2026-09-23 用户报"图标加载好慢"。查下去，**慢的原因在网络那边**：
+    // 存在的理由： 用户报"图标加载好慢"。查下去，**慢的原因在网络那边**：
     // `cdn.modrinth.com` 对每一张图只回一个 307，真正的字节在 `cdn-alt.modrinth.com` 上，
     // 而那个域名从国内连不上（连 TCP 都建不起来，一直等到超时）。启动器这一侧能做的是
     // "别一张张干等"（见 ResourceStore 里 m_iconGaveUp 那段），而这件事只能在真网络上量：
     // 这一节就量三件事 ——
-    //   ① 二十来张图标，从发出去到全部回来一共多久（那道闸起作用时是**一个超时的量级**，
-    //      不是"二十张各自超时再排队"的量级）；
-    //   ② 有几张是空手回来的（CDN 不通时应该差不多是全部）；
-    //   ③ 盘上缓存攒下来了几份（下一次跑这些就是一个请求都不发）。
-    // 2026-09-23 又加了第四件：**这一跑要的是哪条地址、回来的又是什么字节** —— 能解 webp 的
+    // ① 二十来张图标，从发出去到全部回来一共多久（那道闸起作用时是**一个超时的量级**，
+    // 不是"二十张各自超时再排队"的量级）；
+    // ② 有几张是空手回来的（CDN 不通时应该差不多是全部）；
+    // ③ 盘上缓存攒下来了几份（下一次跑这些就是一个请求都不发）。
+    // 又加了第四件：**这一跑要的是哪条地址、回来的又是什么字节** —— 能解 webp 的
     // 机器现在先要那条小 7 倍的 `_96.webp`，盘上落下来的是 png 还是 webp 一眼看得出来
-    //（见 ResourceStore::requestIcon）。两台机器（有/没有那个编解码器）跑出来的数会不一样，
+    // （见 ResourceStore::requestIcon）。两台机器（有/没有那个编解码器）跑出来的数会不一样，
     // 所以这里也是只报数。
-    // 2026-09-23（同一天第三批）再加两件，为的是用户那句"缓存不过期，每次打开用网络刷新、
+    // （同一天第三批）再加两件，为的是用户那句"缓存不过期，每次打开用网络刷新、
     // 比一比有没有变（**如果严重占用网络就不做了**）"：
-    //   ⑤ **同一趟运行里再要一次**（重搜 / 翻页那条路）：应该一条同步就回、一个请求都不发；
-    //   ⑥ **核对那一发到底多少字节**：拿盘上第一份有凭据的图标，用**产品自己那个
-    //      `ResourceStore::iconRequest()`** 真发一发（同一个函数、同一套头），把状态码和
-    //      正文大小打出来 —— "敢做的全部理由就是它便宜"这句话，得有个真数撑着。
-    //      理想结果是 304 加几十~几百字节，而盘上那份整图是几十 KB。
+    // ⑤ **同一趟运行里再要一次**（重搜 / 翻页那条路）：应该一条同步就回、一个请求都不发；
+    // ⑥ **核对那一发到底多少字节**：拿盘上第一份有凭据的图标，用**产品自己那个
+    // `ResourceStore::iconRequest()`** 真发一发（同一个函数、同一套头），把状态码和
+    // 正文大小打出来 —— "敢做的全部理由就是它便宜"这句话，得有个真数撑着。
+    // 理想结果是 304 加几十~几百字节，而盘上那份整图是几十 KB。
     // **不断言网络的好坏**（通和不通都是要看的结果），所以这一节只报数、不返回失败码：
     // 0 = 量完了；2 = 搜索那一步就没回来（那连"量"都量不了）。
     //
     // 沙盒：游戏根目录指到 `<exe 目录>/icon-live/.minecraft`，图标缓存也就落在那一份里
-    //（见 AppPaths::iconCacheDir）—— 不碰用户的真目录，也不碰默认那一跑那份沙盒（它没有
+    // （见 AppPaths::iconCacheDir）—— 不碰用户的真目录，也不碰默认那一跑那份沙盒（它没有
     // "cache/icons 里该有几份"这种断言，但多一份东西总是少一个变量）。
     // NOTE: 这份沙盒**不删**：连跑两次才看得出缓存那一档（第二次应该秒回）。
     if (argc >= 2 && QString::fromLocal8Bit(argv[1]) == QLatin1String("icon-live")) {
@@ -21296,18 +20855,18 @@ int main(int argc, char *argv[]) {
     }
 
     // ---------- random-skin-live：**真网络**跑一次"给离线账号挑一张随机皮肤" ----------
-    //   mw_check.exe random-skin-live
+    // mw_check.exe random-skin-live
     //
     // 存在的理由：离线账号那张随机皮肤是**从外面要来的**（`api.mineskin.org/v2/skins`），
     // 而"那个端点今天还在不在、回的还认不认得"没有任何一行能靠断言钉住 —— 归这条探针。
     // 它要量的四件事：
-    //   ① 那一页多大、多久回来（默认要满 128 条）；
-    //   ② 解出来几条**能用的**贴图哈希（列表里没有 texture 的、形态不对的都要被丢掉）；
-    //   ③ 挑出来的那个地址，官方那个白名单认不认（`textureRequestUrl()`）—— 这是整个
-    //      设计成立的前提：挑它的是别人、**装它的是我们**，所以地址必须落在我们认的那个
-    //      host 上（NameMC 那条路走不通的理由写在 RandomSkinStore.hpp）；
-    //   ④ **真的下下来一张**（走产品那条 PlayerSkinStore 路），报字节数和解出来的尺寸 ——
-    //      光"地址拼对了"证明不了那张图是张能用的皮肤。
+    // ① 那一页多大、多久回来（默认要满 128 条）；
+    // ② 解出来几条**能用的**贴图哈希（列表里没有 texture 的、形态不对的都要被丢掉）；
+    // ③ 挑出来的那个地址，官方那个白名单认不认（`textureRequestUrl()`）—— 这是整个
+    // 设计成立的前提：挑它的是别人、**装它的是我们**，所以地址必须落在我们认的那个
+    // host 上（NameMC 那条路走不通的理由写在 RandomSkinStore.hpp）；
+    // ④ **真的下下来一张**（走产品那条 PlayerSkinStore 路），报字节数和解出来的尺寸 ——
+    // 光"地址拼对了"证明不了那张图是张能用的皮肤。
     //
     // **不断言网络的好坏**（通和不通都是要看的结果），所以只报数：
     // 0 = 量完了；2 = 列表那一步就没回来（那连"量"都量不了）。
@@ -21325,8 +20884,8 @@ int main(int argc, char *argv[]) {
 
         // ---- ①② 列表本身：要满一页，量时长与条数 ----
         // NOTE: 这里**不**直接调 RandomSkinStore::fetchRandomSkin() —— 它只把挑中的那一条
-        //       发回来，看不到"一共几条、丢了几条"。所以列表这一发是按它的同一个地址、
-        //       同一个解析函数自己发的（同一个出处：listRequestUrl / parseTextureHashes）。
+        // 发回来，看不到"一共几条、丢了几条"。所以列表这一发是按它的同一个地址、
+        // 同一个解析函数自己发的（同一个出处：listRequestUrl / parseTextureHashes）。
         QNetworkAccessManager net;
         QStringList hashes;
         {
@@ -21455,9 +21014,9 @@ int main(int argc, char *argv[]) {
     // 那一个。这类目录**继续不算已安装版本**，但必须上报一次（J 节验的就是这个"一次"），
     // 所以它必须在 MainWindow 构造之前摆好，让冷启动那次扫描去发现它。
     //
-    // NOTE: 判据 2026-09-21 放松过，这个 fixture 跟着换了 —— 以前这里是「目录名和 jar 名
-    //       对不上」的目录，而那种目录现在**认得出**了（那正是放松要救的情形），再拿它当
-    //       "认不出"的例子就驴唇不对马嘴。真正还认不出的只剩"顶层多个 jar"这一类。
+    // NOTE: 判据 放松过，这个 fixture 跟着换了 —— 以前这里是「目录名和 jar 名
+    // 对不上」的目录，而那种目录现在**认得出**了（那正是放松要救的情形），再拿它当
+    // "认不出"的例子就驴唇不对马嘴。真正还认不出的只剩"顶层多个 jar"这一类。
     const QString kTwoJarsDir = QStringLiteral("两个jar的目录");
     const QString kTwoJarsA = QStringLiteral("aaa.jar");
     const QString kTwoJarsB = QStringLiteral("bbb.jar");
@@ -21485,12 +21044,12 @@ int main(int argc, char *argv[]) {
     // 而 QMetaObject::invokeMethod 是按**类型名**找这个参数的 —— 不注册就找不到。
     qRegisterMetaType<PlayerSkinProfile>("PlayerSkinProfile");
     // 同理：Y2c/Y2d 那几节要自己把"列表到了"那一发回复打进 onLoaderVersionsFetched，
-    // 参数从 QStringList 换成了带正式版标记的 LoaderVersionList（2026-09-23 两档那次）。
+    // 参数从 QStringList 换成了带正式版标记的 LoaderVersionList（ 两档那次）。
     // 产品那边在 VersionManager 的构造函数里注册（发信号的也是它），这里自己再注一次 ——
     // 这一节不经过 VersionManager 也能跑，不能指望它。
     qRegisterMetaType<LoaderMeta::LoaderVersionList>("LoaderMeta::LoaderVersionList");
     // 同理：AA 节要拿 Q_ARG(ModpackImport::Format, …) 去打 applyModpackImport() 的第四个
-    // 参数（2026-09-25 加的：这个函数原来只认 Modrinth 一种清单，现在要按格式分流）。
+    // 参数（ 加的：这个函数原来只认 Modrinth 一种清单，现在要按格式分流）。
     // **注册名必须和 Q_ARG 里写的一字不差**：`ModpackImport::Format` 带命名空间，而
     // Q_DECLARE_METATYPE 放在命名空间里的话注册出来的名字是裸的 `Format` ——
     // 对不上就等于没注册，而 invokeMethod 只会**静默返回 false**（看着像"那条路没被拦住"）。
@@ -21503,7 +21062,7 @@ int main(int argc, char *argv[]) {
     // ---------- 找控件（按 objectName） ----------
     QComboBox *installed = comboByObjectName(&window, MainWindowUI::installedVersionComboName());
     QPushButton *startBtn = startButton(&window);
-    // 下载页那一套（2026-09-22 起）：版本树 → 安装页。老的「可安装版本」下拉框没了。
+    // 下载页那一套（ 起）：版本树 → 安装页。老的「可安装版本」下拉框没了。
     QTreeWidget *versionTree =
         window.findChild<QTreeWidget *>(MainWindowUI::versionTreeName());
     QStackedWidget *gameStack =
@@ -21512,7 +21071,7 @@ int main(int argc, char *argv[]) {
         window.findChild<QLineEdit *>(MainWindowUI::installNameEditName());
     QLabel *installNameHint =
         window.findChild<QLabel *>(MainWindowUI::installNameHintName());
-    // 名字不能用时那句原因所在的那行**红字**（2026-09-23 起它不再顶掉上面那句说明）。
+    // 名字不能用时那句原因所在的那行**红字**（ 起它不再顶掉上面那句说明）。
     QLabel *installNameError =
         window.findChild<QLabel *>(MainWindowUI::installNameErrorName());
     QLabel *installTargetLabel =
@@ -21540,11 +21099,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // ------------------------------------------------------------------
     header("A. 冷启动（三个版本都在沙盒里，从没成功启动过任何版本）");
-    // ------------------------------------------------------------------
-    // 这一节钉的是一个真实的用户报告：「打开启动器时显示没有已安装版本」。
-    // 真因是那句占位文案以前写死成"暂无已安装版本"、灌完数据后没人改它。
     check(installed->placeholderText() == MainWindowUI::chooseVersionPlaceholder(),
           "有已安装版本时占位文案是『请选择一个版本』，不是『暂无已安装版本』",
           installed->placeholderText());
@@ -21574,9 +21129,7 @@ int main(int argc, char *argv[]) {
     check(startBtn->text().count(QLatin1Char('\n')) == 1, "按钮文字正好两行", startBtn->text());
     check(installed->toolTip().isEmpty(), "没选版本时下拉框没有 tooltip", installed->toolTip());
 
-    // ------------------------------------------------------------------
     header("B. id 和显示文本分家（这次重构最容易倒退的一条）");
-    // ------------------------------------------------------------------
     {
         const int decorated = installed->findData(QStringLiteral("1.20.1"));
         check(installed->itemText(decorated) == kDecorated &&
@@ -21590,9 +21143,7 @@ int main(int argc, char *argv[]) {
         check(installed->findData(QStringLiteral("1.20.1")) >= 0, "findData(裸 id) 找得到");
     }
 
-    // ------------------------------------------------------------------
     header("C. 用户手选 → 按钮第二行和 tooltip 跟着变");
-    // ------------------------------------------------------------------
     {
         installed->setCurrentIndex(installed->findData(QStringLiteral("26.3")));
         QApplication::processEvents();
@@ -21617,9 +21168,7 @@ int main(int argc, char *argv[]) {
               "改选 1.18.2 后第二行跟着变", buttonVersionLine(startBtn));
     }
 
-    // ------------------------------------------------------------------
     header("D. 刷新路径（信号被 QSignalBlocker 挡掉，靠手动收尾）");
-    // ------------------------------------------------------------------
     {
         // onVersionsFetched() 是 private slot，但走元对象能调到，且它不弹任何对话框
         // （里面只写日志）。它内部会调 refreshInstalledVersions()，正是要验的那条路。
@@ -21637,9 +21186,7 @@ int main(int argc, char *argv[]) {
               "刷新后 tooltip 也没变陈旧", installed->toolTip());
     }
 
-    // ------------------------------------------------------------------
     header("E. 选中的版本消失了 → 按钮不能留个启动不了的版本号");
-    // ------------------------------------------------------------------
     {
         QFile jar(versionsDir.filePath(QStringLiteral("1.18.2/1.18.2.jar")));
         check(jar.remove(), "把 1.18.2.jar 抽走（模拟版本被删/损坏）");
@@ -21669,9 +21216,7 @@ int main(int argc, char *argv[]) {
               QString("count=%1 idx=%2").arg(installed->count()).arg(installed->currentIndex()));
     }
 
-    // ------------------------------------------------------------------
     header("F. 真的一个版本都没装 → 占位文案退回「暂无已安装版本」");
-    // ------------------------------------------------------------------
     {
         // 单独造一个只有空目录的沙盒窗口是做不到的（沙盒是全局的），所以这里
         // 直接验另一半：把目录整个挪走，看占位文案会不会跟着变。
@@ -21695,9 +21240,7 @@ int main(int argc, char *argv[]) {
               QString::number(installed->count()));
     }
 
-    // ------------------------------------------------------------------
     header("G. 启动恢复：打开时自动选上上次启动过的版本");
-    // ------------------------------------------------------------------
     {
         rememberLastVersion(QStringLiteral("26.3"));
         {
@@ -21732,9 +21275,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // ------------------------------------------------------------------
     header("H. 记着的版本已经不在了 → 留空 + 占位，不替用户改选一个");
-    // ------------------------------------------------------------------
     {
         rememberLastVersion(QStringLiteral("26.3"));
         QFile jar(versionsDir.filePath(QStringLiteral("26.3/26.3.jar")));
@@ -21762,16 +21303,14 @@ int main(int argc, char *argv[]) {
         makeInstalledVersion(versionsDir, QStringLiteral("26.3"));
     }
 
-    // ------------------------------------------------------------------
     header("J. 实例判据：认得出的进来，认不出的说一次、不刷屏");
-    // ------------------------------------------------------------------
     {
         // 沙盒里的 `两个jar的目录/aaa.jar + bbb.jar` 在 MainWindow 构造之前就摆好了，
         // 所以冷启动那次扫描已经该报过一条。
         //
         // NOTE: 收的是 Qt 的日志消息（MainWindow::appendLog 现在写 qDebug），不再是
-        //       界面上的文本框 —— 那个面板 2026-09 分选项卡时去掉了。这条通道正是
-        //       "从命令行启动才看得到"的那条，所以它必须继续有内容。
+        // 界面上的文本框 —— 那个面板 分选项卡时去掉了。这条通道正是
+        // "从命令行启动才看得到"的那条，所以它必须继续有内容。
         check(!g_messages.isEmpty(), "整个会话写出来过日志");
         check(window.findChild<QTextEdit *>() == nullptr,
               "窗口里确实没有日志面板了（日志只在命令行里）");
@@ -21823,12 +21362,12 @@ int main(int argc, char *argv[]) {
                 file.close();
             }
         }
-        // ★ 2026-09-25：那份 json 必须写得**能解析**（原来和 jar 一样是一串 "stub"）。
-        //   实例行前面那个图标（用户要的"每个版本一个对的图标"）要读它的 `type` —— 走的
-        //   正是 `VersionManager::getVersionJson()`，而它遇到解析不了的文件会 qWarning
-        //   （"Failed to parse ..."）。真机上被外部改过名的实例手里当然是一份真 json；
-        //   这里图省事写一串假的，量出来的就是"认得出目录却每次刷新抱怨一句"，而这一节
-        //   验的恰恰是「认得出来的目录**一条告警都不写**」。
+        // 那份 json 必须写得**能解析**（原来和 jar 一样是一串 "stub"）。
+        // 实例行前面那个图标（用户要的"每个版本一个对的图标"）要读它的 `type` —— 走的
+        // 正是 `VersionManager::getVersionJson()`，而它遇到解析不了的文件会 qWarning
+        // （"Failed to parse ..."）。真机上被外部改过名的实例手里当然是一份真 json；
+        // 这里图省事写一串假的，量出来的就是"认得出目录却每次刷新抱怨一句"，而这一节
+        // 验的恰恰是「认得出来的目录**一条告警都不写**」。
         {
             QFile file(versionsDir.filePath(renamedDir + QLatin1Char('/') + QStringLiteral("旧名字.json")));
             if (file.open(QIODevice::WriteOnly)) {
@@ -21876,13 +21415,8 @@ int main(int argc, char *argv[]) {
               QString::number(installed->count()));
     }
 
-    // ------------------------------------------------------------------
     header("K. 底部状态条：三格都接上了真的东西");
-    // ------------------------------------------------------------------
     {
-        // ui_check 验的是"控件搭出来了、规则函数对"；这里验的是**接线**：
-        // 真的 MainWindow 有没有把 AuthManager 里的名字、LauncherManager 的运行状态、
-        // 下载进度接到那三格上。
         QFrame *bar = window.findChild<QFrame *>(MainWindowUI::bottomBarName());
         QLabel *avatar = window.findChild<QLabel *>(MainWindowUI::avatarLabelName());
         QLabel *account = window.findChild<QLabel *>(MainWindowUI::accountLabelName());
@@ -21924,8 +21458,8 @@ int main(int argc, char *argv[]) {
 
         if (progress != nullptr && status != nullptr) {
             // "中间的进度条如果正在下载"——现在没在下载也没在启动 ⇒ 那根条藏着。
-            // ★ 但那一**格**自己（和那句「暂无后台任务」）是亮的：2026-10-12 任务中心那一次
-            //   改的（原来整格藏起来）—— 它现在是"点一下展开任务中心"那颗按钮。
+            // 但那一**格**自己（和那句「暂无后台任务」）是亮的： 任务中心那一次
+            // 改的（原来整格藏起来）—— 它现在是"点一下展开任务中心"那颗按钮。
             check(!progress->isVisible() && status->isVisible() &&
                       status->text() == MainWindowUI::taskSummaryNoTaskText(),
                   "没有下载也没有启动时：那根条藏着、那一格写着占位话", status->text());
@@ -21942,8 +21476,8 @@ int main(int argc, char *argv[]) {
         QLabel *runMark = window.findChild<QLabel *>(MainWindowUI::runStateMarkName());
         if (runState != nullptr && runDetail != nullptr && runMark != nullptr) {
             // 这个进程里没起过游戏：左下角写「当前没有运行中的实例」。
-            // NOTE: 2026-09-23 之前这里是"整格藏着"，用户要的就是把那句话写出来 ——
-            //       那一格现在还兼着"点开看实例列表"那颗按钮，藏起来连按钮一起没了。
+            // NOTE: 之前这里是"整格藏着"，用户要的就是把那句话写出来 ——
+            // 那一格现在还兼着"点开看实例列表"那颗按钮，藏起来连按钮一起没了。
             check(runState->isVisible() &&
                       runState->text() == MainWindowUI::runStateNotRunningText(),
                   "没有实例在跑时左下角写「当前没有运行中的实例」", runState->text());
@@ -21953,7 +21487,7 @@ int main(int argc, char *argv[]) {
                       runState->text() != MainWindowUI::runStateErrorText(),
                   "（不会说成「实例运行中」、也不是「启动中」/「有实例异常退出」那两句）",
                   runState->text());
-            // 那颗方块这时候是**灰的**（★ 2026-10-15 用户改的：「黄和绿不变，红色改有实例
+            // 那颗方块这时候是**灰的**（★ 用户改的：「黄和绿不变，红色改有实例
             // 报错，没有实例用灰色」），而且不是藏着的（四档都有一颗亮的方块）。
             // 判据是"量到的那张图的像素" —— 不是再调一次 runStateMarkColor()：那个函数
             // 是取色的规则，这里要验的是"MainWindow 真的按那个规则摆了图"。
@@ -21987,7 +21521,7 @@ int main(int argc, char *argv[]) {
             // "和按规则算出来的一模一样"，这条证的是"那确实是一档灰"，两条一起才挡得住
             // "规则和用法一起走偏"（比如两边都用深色档的取色，等式照样成立）。
             // NOTE: 这条**不能**写成 `runStateHueBand(...) == 0`（那是它还是红的时候的写法）：
-            //       灰没有色相，hueBand 对它回 -1，跟"认不出"是同一个值。
+            // 灰没有色相，hueBand 对它回 -1，跟"认不出"是同一个值。
             check(runStateIsGrey(gotColor),
                   "而且那个像素确实是一档**灰**（饱和度低到说不上是哪个颜色）", gotColor.name());
             // 第二行这时候是空的（没有实例名可说）：藏起来 + 文字清空，两件事都要
@@ -21996,12 +21530,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // ------------------------------------------------------------------
     header("X. 主页右栏那个小人 + 底栏头像：接线");
-    // ------------------------------------------------------------------
-    // ui_check 验的是"这块贴图该取哪儿、那个角度下哪几个面看得见"；这里验的是**接线**：
-    // 真的 MainWindow 有没有把一份外观贴到右栏那个控件和底栏头像上。
-    //
     // 全程离线：贴图是测试自己写进沙盒的两张 PNG，走 applyPlayerSkin() 直接喂进去
     // （**不经过** PlayerSkinStore，所以既不联网也不依赖任何人的账号）。这一段是"界面
     // 接线"的断言，网络那一半在 verify 的 T 段（纯函数）和真机验证里。
@@ -22092,7 +21621,7 @@ int main(int argc, char *argv[]) {
             //
             // 要钉的那件事：披风那张小得多，经常**比皮肤先下完**。它先到的时候皮肤那一路
             // 还是空的，而"皮肤载不进来"那条路会把披风一起清掉 —— 清掉之后就再也没有哪一趟
-            // 会把披风补回来，表现是**皮肤有了、披风永远没有**（2026-09-21 真机上就是这个）。
+            // 会把披风补回来，表现是**皮肤有了、披风永远没有**（ 真机上就是这个）。
             //
             // 怎么把"皮肤还没到"这个状态**离线**摆出来：给皮肤那一路一个**取不到的**地址
             // （不是官方那个 host，textureRequestUrl 直接判死、同步发 failed，一个包都不发）。
@@ -22102,7 +21631,7 @@ int main(int argc, char *argv[]) {
             {
                 // 【前提：这个窗口得有一个**正版身份**】
                 // "档案到了"这条路是**正版账号**的（离线账号走的是"挑一张"那条，见 AF 节），
-                // 而 2026-09-25 起那一发带回自己的 uuid：落盘和画之前都要和"当下是谁"对一下
+                // 而 起那一发带回自己的 uuid：落盘和画之前都要和"当下是谁"对一下
                 // （见 onSkinProfileReady 开头那道闸）—— 对不上的整份丢掉。所以这一节先按
                 // 产品那套格式往沙盒的活动槽里放一个正版凭据：只放 minecraft 那一份（名字和
                 // uuid 都在里面），一个包都不发。
@@ -22218,23 +21747,18 @@ int main(int argc, char *argv[]) {
     }
 
     // ---------- 设置页的控件（按 objectName，L/M 两节共用） ----------
-    // ★ 2026-09-28：设置页「Java 版本」那一格从下拉框换成了「Java 管理…」这颗按钮
-    //   （用户点名的改法）。**选哪个 Java** 那件事搬进了那一页，所以这一层能读的东西
-    //   只剩"那颗按钮在不在"和"说明文字说的是哪一档"。那一页自己由 T26 那一节验。
+    // 设置页「Java 版本」那一格从下拉框换成了「Java 管理…」这颗按钮
+    // （用户点名的改法）。**选哪个 Java** 那件事搬进了那一页，所以这一层能读的东西
+    // 只剩"那颗按钮在不在"和"说明文字说的是哪一档"。那一页自己由 T26 那一节验。
     QPushButton *javaManageButton =
         byObjectName<QPushButton>(&window, MainWindowUI::javaManageButtonName());
     QLabel *javaLabel = window.findChild<QLabel *>(MainWindowUI::javaPathLabelName());
     QCheckBox *javaWarn =
         byObjectName<QCheckBox>(&window, MainWindowUI::javaWarnMismatchCheckName());
-    // ★ 2026-10-20：「内存分配」那一行现在有一根条 + 一个数字框 + 最右边那颗
-    //   「自动分配 / 手动分配」下拉框。说明文字归「最大内存」那一行，对象名是 memoryHint。
     QComboBox *memoryMode =
         byObjectName<QComboBox>(&window, MainWindowUI::memoryModeComboName());
     QLabel *memoryHint = window.findChild<QLabel *>(MainWindowUI::memoryHintName());
     QSpinBox *maxSpin = byObjectName<QSpinBox>(&window, MainWindowUI::memoryMaxSpinName());
-    // ★ 2026-09-26：「最大内存」那一行是一根条 + 一个数字框（用户要的 PCL 那种拖着改），
-    //   「最小内存」那一格整格撤掉了。替它把门的是 onMemoryChanged() 里那道 Xms ≤ Xmx 的
-    //   夹子 —— 下面 M 节量的就是那道夹子，而不是某一格上的字。
     auto *maxSlider = static_cast<MemorySlider *>(
         byObjectName<QSlider>(&window, MainWindowUI::memoryMaxSliderName()));
     QComboBox *behaviourCombo =
@@ -22253,7 +21777,7 @@ int main(int argc, char *argv[]) {
         byObjectName<QCheckBox>(&window, MainWindowUI::versionNameLoaderCheckName());
     QCheckBox *loaderVersionCheck =
         byObjectName<QCheckBox>(&window, MainWindowUI::versionNameLoaderVersionCheckName());
-    // 「启动选项」那一组（2026-09-24，AE 节用）
+    // 「启动选项」那一组（，AE 节用）
     QCheckBox *showLogCheck =
         byObjectName<QCheckBox>(&window, MainWindowUI::showGameLogCheckName());
     QComboBox *priorityCombo =
@@ -22262,15 +21786,12 @@ int main(int argc, char *argv[]) {
         byObjectName<QSpinBox>(&window, MainWindowUI::gameWindowWidthSpinName());
     QSpinBox *windowHeightSpin =
         byObjectName<QSpinBox>(&window, MainWindowUI::gameWindowHeightSpinName());
-    // ★ 2026-09-28：「窗口模式」那一格（小窗 / 最大化 / 全屏）。它和下面那两个数字框是一组
-    //   —— 「最大化」那一档的判据是**那两格灰掉**（最大化的大小是照屏幕算的，用户填的数
-    //   这时不生效），所以 AE 那一节量的是"这一格动了、那两格跟着动"。
     QComboBox *windowModeCombo =
         byObjectName<QComboBox>(&window, MainWindowUI::gameWindowModeComboName());
     // 两个数字框中间那个「×」。它也得跟着灰 —— 灰了两个框却留一个亮着的 × 是那种"看着
     // 像坏了"的界面。
     QLabel *windowSizeTimes = window.findChild<QLabel *>(MainWindowUI::gameWindowSizeTimesLabelName());
-    // 「外观」那一格（2026-09-25，AI 节用）
+    // 「外观」那一格（，AI 节用）
     QLineEdit *titleEdit = byObjectName<QLineEdit>(&window, MainWindowUI::titleTextEditName());
     const bool settingsWired = javaManageButton != nullptr && javaLabel != nullptr &&
                                javaWarn != nullptr &&
@@ -22285,14 +21806,6 @@ int main(int argc, char *argv[]) {
                                windowModeCombo != nullptr && windowSizeTimes != nullptr &&
                                titleEdit != nullptr;
 
-    // ★ 2026-09-28：设置页那个「Java 版本」下拉框换成了「Java 管理…」一颗按钮，而那一页
-    //   只能「选用」扫到的四个主版本里**已经装好的**那些 —— 也就是说，界面上再也造不出
-    //   "全局钉死一条**不存在**的路径"这个状态了。可它仍然是用户**可能处于**的状态（钉完
-    //   之后那份 Java 被删了、目录搬了家），下面 AA7/AA8 那几节要验的正是它。
-    //   所以这里直接从窗口自己那个 GlobalJavaSettings 下手（`new GlobalJavaSettings(this)`
-    //   —— 它就在窗口底下）：走的是**同一个对象**、同一对 setter、同一份盘，只是绕开了
-    //   那颗按钮。改用"造一个别的读者再写盘"是不行的：窗口手里那个对象是构造时就建好的，
-    //   不会跟着盘上的改动走。
     GlobalJavaSettings *windowJava = window.findChild<GlobalJavaSettings *>();
     const auto pinGlobalJava = [windowJava](const QString &path) {
         if (windowJava == nullptr) {
@@ -22312,13 +21825,7 @@ int main(int argc, char *argv[]) {
         windowJava->save();
     };
 
-    // ------------------------------------------------------------------
     header("L. 设置页：开窗时就把盘上的值灌进控件了");
-    // ------------------------------------------------------------------
-    // 这一节验的是**接线**。值存在 GlobalJavaSettings / LauncherSettings 里，控件在
-    // MainWindowUI 里，两边靠 MainWindow::applySettingsToUi() 接上 —— ui_check 只能验
-    // "控件搭出来了、取值范围对了"，接没接上它看不见（那时候还没有 MainWindow）。
-    //
     // 沙盒的 ini 在开窗前刚被删过、这个窗口也没改过任何设置，所以这里读到的应当全是
     // 默认值。断言因此拿**另一个读盘者**当对照（同一个 ini 里 new 一个
     // GlobalJavaSettings / LauncherSettings），而不是写死 4096 这类字面量：写死只能
@@ -22329,17 +21836,14 @@ int main(int argc, char *argv[]) {
         LauncherSettings settingsProbe;
 
         // ---- Java 版本 ----
-        // ★ 2026-09-28 起这一格是颗按钮。它**只是通往另一页的一扇门**：界面上一个条目
-        //   都不摆（四行在那一页上），所以这里能验的只有"门在不在、写着什么"。
+        // 起这一格是颗按钮。它**只是通往另一页的一扇门**：界面上一个条目
+        // 都不摆（四行在那一页上），所以这里能验的只有"门在不在、写着什么"。
         check(javaManageButton->text() == QStringLiteral("Java 管理…"),
               "设置页那一格是「Java 管理…」那颗按钮", javaManageButton->text());
         check(javaManageButton->isEnabled(),
               "它开窗时就是可点的（挡在后面的只有「已经有一页开着」那一条闸，不是默认禁用）");
         check(javaLabel->text().contains(QStringLiteral("自动")),
               "说明文字说的是「自动」这一档", javaLabel->text());
-        // 提醒总闸：盘上（全新的 ini）没有这个键 → 默认"提醒"，界面得照实画成勾上的。
-        // 这一条是 ui_check 那条的反面：界面层刻意**不**自己预勾，两边合起来才证明
-        // "勾选状态真的来自盘上那个值"，而不是界面层的硬编码默认值。
         check(javaProbe.warnVersionMismatch(), "盘上记的是「提醒」（默认值）");
         check(javaWarn->isChecked(), "开窗时「实例指定的 Java 版本不符时提醒」是勾上的");
         {
@@ -22369,14 +21873,10 @@ int main(int argc, char *argv[]) {
               "没存过时默认是手动分配（老用户的行为不变）");
         check(maxSpin->isEnabled() && maxSlider->isEnabled(),
               "手动档下条和数字框开窗就是能改的");
-        // ★ 2026-09-26：上限收到**这台机器真有那么多**上（用户原话「上限=本机物理内存」）。
-        //   界面层那个 65536 只是"单独搭出来时"的天花板，真跑起来由 MainWindow 按物理内存
-        //   再收一次口 —— 一台 16 GB 的机器上让它拖到 65536，用户拖到那儿只会在启动时拿到
-        //   一句 JVM 的内存分配错误。
         {
             // NOTE: 条里的 value() 是**第几格**（见 MemorySlider.hpp），不是 MB —— 要拿它
-            //       和数字框比，得先按同一张档位表换算回来。那张表是产品那个纯函数给的
-            //       （`valueSteps`），测试里不另写一份：另写一份只能证明"我抄对了"。
+            // 和数字框比，得先按同一张档位表换算回来。那张表是产品那个纯函数给的
+            // （`valueSteps`），测试里不另写一份：另写一份只能证明"我抄对了"。
             const QList<int> steps = MemorySlider::valueSteps(256, maxSpin->maximum());
             const auto sliderMb = [&steps](QSlider *slider) {
                 return steps.value(slider->value(), -1);
@@ -22413,11 +21913,11 @@ int main(int argc, char *argv[]) {
                   maxSpin->value() % 256 == 0,
               "最大内存在框自己的范围内，且是 256 的整数倍（条的档位就是这个步长）",
               QString::number(maxSpin->value()));
-        // ★ 2026-09-26：「最小内存」那一格从界面上撤掉了，但**它照样发给 JVM** ⇒ 两条
-        //   不变量得换个地方钉：① 盘上那对必须是自洽的（Xms 是 Xmx 四分之一那一档，
-        //   而且绝不超过 Xmx —— JVM 会拒绝相反的组合）；② 它现在多少**在界面上看得到**
-        //   （「分配方式」那一行那句说明的最后一句），否则"启动器到底给了多少 -Xms"
-        //   在整个界面上一个字都找不到。
+        // 「最小内存」那一格从界面上撤掉了，但**它照样发给 JVM** ⇒ 两条
+        // 不变量得换个地方钉：① 盘上那对必须是自洽的（Xms 是 Xmx 四分之一那一档，
+        // 而且绝不超过 Xmx —— JVM 会拒绝相反的组合）；② 它现在多少**在界面上看得到**
+        // （「分配方式」那一行那句说明的最后一句），否则"启动器到底给了多少 -Xms"
+        // 在整个界面上一个字都找不到。
         check(javaProbe.xms() == GlobalJavaSettings::suggestXmsMb(javaProbe.xmx()),
               "盘上那对是自洽的：最小内存就是最大内存四分之一那一档",
               QString("%1/%2").arg(javaProbe.xms()).arg(javaProbe.xmx()));
@@ -22492,7 +21992,7 @@ int main(int argc, char *argv[]) {
 
         // ---- 切到设置页那一下的懒加载 ----
         // 切过去会跑一次 scanLocalJavaVersions()（要逐份认主版本，所以带节流），结果进
-        // MainWindow 里那份 m_localJavaVersions。★ 2026-09-28 起它**不再往界面上摆任何
+        // MainWindow 里那份 m_localJavaVersions。★ 起它**不再往界面上摆任何
         // 东西**了（那个组合框没了），所以这一节能验的只剩"切过去这一下不出事、说明文字
         // 照旧"。真正读那份扫描结果的是「Java 管理」那一页（T26 那一节整套验过）。
         if (tabs != nullptr) {
@@ -22508,9 +22008,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // ------------------------------------------------------------------
     header("M. 在设置页改东西：立刻落盘、立刻生效");
-    // ------------------------------------------------------------------
     if (settingsWired) {
         // ---- 内存：改一个数就落盘 ----
         // 默认是手动档：条和数字框开窗就能改。这里量的第一件事是"它开窗时确实已经能改"，
@@ -22526,10 +22024,6 @@ int main(int argc, char *argv[]) {
                   "手动档说明文字里不提「自动分配」", memoryHint->text());
         }
 
-        // ★ 2026-10-17：上限是按**本机物理内存**收过口的（见 applyMemoryLimits）——
-        //   写死 8192 在 8 GB 的机器上（CI runner 就是）根本填不进去：setValue 会先被
-        //   maximum 钳到 7936，于是两条断言红得莫名其妙（产品一点问题都没有）。
-        //   填一个"这台机器真能填的最大那个数"才是这一段想量的东西。
         const int editTargetMb = qMin(8192, maxSpin->maximum());
         maxSpin->setValue(editTargetMb);
         {
@@ -22570,10 +22064,10 @@ int main(int argc, char *argv[]) {
             }
 
             // ② 拖动中：数字跟着走、盘上**先不动**
-            //    「拖动中」用 setSliderDown(true) 摆出来 —— 那正是产品读的那一位
-            //    （onMemorySliderMoved 里判的 isSliderDown()），不用合成鼠标事件：
-            //    合成一发 press 只会先被"点滑槽直接跳过去"那条路吃掉（Fusion 的
-            //    SH_Slider_AbsoluteSetButtons 就是 LeftButton），量到的落盘不是拖动那一路的。
+            // 「拖动中」用 setSliderDown(true) 摆出来 —— 那正是产品读的那一位
+            // （onMemorySliderMoved 里判的 isSliderDown()），不用合成鼠标事件：
+            // 合成一发 press 只会先被"点滑槽直接跳过去"那条路吃掉（Fusion 的
+            // SH_Slider_AbsoluteSetButtons 就是 LeftButton），量到的落盘不是拖动那一路的。
             {
                 GlobalJavaSettings before;
                 const int beforeXmx = before.xmx();
@@ -22603,11 +22097,11 @@ int main(int argc, char *argv[]) {
         QApplication::processEvents();
 
         // ---- 最大 < 最小：把最小拉下来，不去顶用户刚填的那个 ----
-        // ★ 2026-09-26：界面上**没有**最小内存那一格了，但 Xms 照样发给 JVM ⇒ 这道夹子
-        //   挪到了 onMemoryChanged()/refreshMemoryUi() 里（见 clampXmsToXmx）。判据只能
-        //   看盘上：把最大内存拖到下限（256）时，那个比它还大的最小内存必须跟着降下来
-        //   —— 不降的话下一次启动 JVM 直接报 "Initial heap size set to a larger value
-        //   than the maximum heap size" 然后退出，而用户在界面上什么都看不出来。
+        // 界面上**没有**最小内存那一格了，但 Xms 照样发给 JVM ⇒ 这道夹子
+        // 挪到了 onMemoryChanged()/refreshMemoryUi() 里（见 clampXmsToXmx）。判据只能
+        // 看盘上：把最大内存拖到下限（256）时，那个比它还大的最小内存必须跟着降下来
+        // —— 不降的话下一次启动 JVM 直接报 "Initial heap size set to a larger value
+        // than the maximum heap size" 然后退出，而用户在界面上什么都看不出来。
         {
             GlobalJavaSettings before;
             check(before.xms() > 256,
@@ -22629,9 +22123,9 @@ int main(int argc, char *argv[]) {
         }
 
         // ---- 自动分配：展示自动值、禁用输入、切回手动时回滚 ----
-        // ★ 2026-10-20：用户点名的那条路 —— 抓「自动分配 / 手动分配」那颗下拉框。
-        //   自动档下条和数字框禁用，但仍然展示自动算出来的内存；进度条（虚条）跟着
-        //   自动值走，圆圈停在自动之前的手动位置。切回手动时把那一对原样还回去。
+        // 用户点名的那条路 —— 抓「自动分配 / 手动分配」那颗下拉框。
+        // 自动档下条和数字框禁用，但仍然展示自动算出来的内存；进度条（虚条）跟着
+        // 自动值走，圆圈停在自动之前的手动位置。切回手动时把那一对原样还回去。
         const int manualTargetMb = qMin(5120, maxSpin->maximum());
         maxSpin->setValue(manualTargetMb);
         QApplication::processEvents();
@@ -22784,10 +22278,10 @@ int main(int argc, char *argv[]) {
                   raw.value(QStringLiteral("Download/Source")).toString());
         }
         // NOTE: 这条改动的最后一跳（VersionManager::setUseMirror → DownloadManager 真的
-        //       换掉 URL 主机）在这里**看不到**：VersionManager 不往回暴露这个开关。
-        //       而且这一跳**目前没有任何断言覆盖** —— 原先设想的那组
-        //       mirrorUrl()/mirrorVersionJsonUrl() 静态断言从来没写。这里只钉
-        //       "下拉框 → 盘"这一跳，以及下面 N 节"盘 → 新窗口的下拉框"那一跳。
+        // 换掉 URL 主机）在这里**看不到**：VersionManager 不往回暴露这个开关。
+        // 而且这一跳**目前没有任何断言覆盖** —— 原先设想的那组
+        // mirrorUrl()/mirrorVersionJsonUrl() 静态断言从来没写。这里只钉
+        // "下拉框 → 盘"这一跳，以及下面 N 节"盘 → 新窗口的下拉框"那一跳。
 
         // ---- 版本名格式：改一个开关，两张版本列表立刻重拼 ----
         {
@@ -22806,7 +22300,7 @@ int main(int argc, char *argv[]) {
             check(!loaderVersionCheck->isChecked(),
                   "从属的「加载器版本」被连带关掉，并且回灌回了勾选框");
             // 实例列表和下拉框是同一份数据的两种看法，显示名必须一起变（主页那张
-            // 「版本列表」2026-09 去掉之后，实例页右边这张就是唯一的列表看法了）。
+            // 「版本列表」 去掉之后，实例页右边这张就是唯一的列表看法了）。
             bool listMatches = false;
             QTreeWidget *instanceListView =
                 byObjectName<QTreeWidget>(&window, MainWindowUI::instanceListName());
@@ -22851,9 +22345,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // ------------------------------------------------------------------
     header("N. 冷启动读盘：手动指定的 Java 和镜像源都读得回来");
-    // ------------------------------------------------------------------
     {
         // 造一个"盘上钉着一个手动 Java"的局面再看新窗口认不认。用**钉死的路径**而不是
         // "本机扫到的某个 Java"：这台机器上扫不扫得到 Java 不该决定这条断言跑不跑 ——
@@ -22866,16 +22358,10 @@ int main(int argc, char *argv[]) {
             seed.setAutoSelectJava(false);
             seed.save();
         }
-        // 2026-10-13（§9.2）：顺手往盘上写一个**不是默认那一档**的并发数（6），下一节
-        // 看新窗口认不认 —— 和上面那个手动 Java 同一个做法（先造假局面、再看读盘）。
         {
             LauncherSettings seed;
             seed.setDownloadConcurrency(6);
-            // 2026-10-18（§9.2 限速）：同一个做法 —— 盘上钉一个非默认的上限（1 MiB/s），
-            // 下一节看新窗口认不认、**以及限值有没有真推到发请求的那一层**。
             seed.setDownloadSpeedLimit(1024 * 1024);
-            // 2026-10-18（§9.2 代理）：同一个做法 —— 盘上钉一个「手动 + 127.0.0.1:7890」，
-            // 下一节看新窗口认不认、**以及代理有没有真装到进程上**。
             seed.setProxyMode(DownloadProxy::Mode::Manual);
             seed.setProxyManualText(QStringLiteral("127.0.0.1:7890"));
         }
@@ -22889,11 +22375,6 @@ int main(int argc, char *argv[]) {
                 comboByObjectName(&w5, MainWindowUI::downloadConcurrencyComboName());
             check(label5 != nullptr && source5 != nullptr, "第五个窗口的设置页控件找得到");
             if (label5 != nullptr && source5 != nullptr) {
-                // ★ 2026-09-28：这一节原来还核"下拉框里正好两条、钉着的那条就是选中的"。
-                //   那个下拉框换成了「Java 管理…」一颗按钮，而那一页只能「选用」扫到的
-                //   四个主版本里**已经装好的**那些 —— 这条钉死的路径（java/pinned/bin，
-                //   故意造得在任何机器上都认不出主版本）在那一步就落空了，所以那一页上
-                //   根本不会出现它。能核的只剩这行说明文字。
                 check(label5->text().contains(QStringLiteral("手动指定")) &&
                           label5->text().contains(pinnedJava),
                       "说明文字照实说是「手动指定」+ 那条路径", label5->text());
@@ -22901,7 +22382,7 @@ int main(int argc, char *argv[]) {
                       "上一节存下的镜像源，冷启动就选上了（读盘那条路也走了 syncDownloadSource）",
                       QString::number(source5->currentData().toInt()));
 
-                // ---- 并发数（2026-10-13，§9.2）----
+                // ---- 并发数（，§9.2）----
                 // 这一节量的是**冷启动那条路**：盘上写着 6 ⇒ 下拉框里四档都在、选中的是 6、
                 // 而且**真正发请求的那一层也拿到 6 了**（少了最后那半句，界面显示 6、下载
                 // 还是按 24 条一起飞 —— 不报错、也看不出哪儿没接上）。
@@ -22939,7 +22420,7 @@ int main(int argc, char *argv[]) {
                     }
                 }
 
-                // ---- 速度上限（2026-10-18，§9.2 限速）----
+                // ---- 速度上限（，§9.2 限速）----
                 // 和并发数同一个形状：盘上写着 1 MiB/s ⇒ 框里那几档都在、选中的是它、
                 // 而且发请求那一层也拿到同一个数（漏了最后那半句的表现是「界面显示限了、
                 // 实际满速跑」，不报错、也看不出哪儿没接上）。
@@ -22981,7 +22462,7 @@ int main(int argc, char *argv[]) {
                     }
                 }
 
-                // ---- 代理（2026-10-18，§9.2）----
+                // ---- 代理（，§9.2）----
                 // 盘上写着「手动 + 127.0.0.1:7890」⇒ 框选中「手动」、地址那一格露着并回填，
                 // 而且 **`QNetworkProxy::applicationProxy()` 真的换成了那个 HTTP 代理**
                 // （少了最后那半句 = 界面显示手动、请求还是走系统那条路）。
@@ -23062,8 +22543,6 @@ int main(int argc, char *argv[]) {
             reset.setJavaPath(QString());
             reset.save();
         }
-        // 并发数**要**还回默认那一档（§9.2）：上面那个 12 是给这一节造的，留着的话后面
-        // 真下东西的那几节会一律按 12 路跑 —— 那不是错，只是白慢（默认那一档是实测选的）。
         {
             LauncherSettings reset;
             reset.setDownloadConcurrency(DownloadConcurrency::kDefault);
@@ -23079,7 +22558,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // ------------------------------------------------------------------
     header("P. 游戏文件夹：列表、切换与落盘");
     // ------------------------------------------------------------------
     // 这一节会改**进程级**的 AppPaths 覆盖（切文件夹就是改它），所以末尾必须把它和
@@ -23101,10 +22579,10 @@ int main(int argc, char *argv[]) {
             return !ca.isEmpty() && ca == cb;
         };
         // NOTE: 这里原来有个 buttonByText() 助手（按按钮上的字找控件）。它现在**没人用了**：
-        //       文件夹那一列挂出来的按钮都带 objectName，改按名字找（那一列现在只剩「添加
-        //       文件夹…」一个 —— 「移除文件夹…」2026-09-24 删了，只剩行尾齿轮里那一项）。
-        //       按文案认控件是这套验证里明确不要的做法 —— 文案会随产品改，改完的第一次跑
-        //       会变成"找不到控件、后面全不跑"，而挂出来的样子看不出是文案变了。
+        // 文件夹那一列挂出来的按钮都带 objectName，改按名字找（那一列现在只剩「添加
+        // 文件夹…」一个 —— 「移除文件夹…」 删了，只剩行尾齿轮里那一项）。
+        // 按文案认控件是这套验证里明确不要的做法 —— 文案会随产品改，改完的第一次跑
+        // 会变成"找不到控件、后面全不跑"，而挂出来的样子看不出是文案变了。
 
         // 按**上面那行字**找行号 —— 不许写死行号。那一列的行里写什么会变（用户给某一份
         // 起了 customname 之后就不是目录名了），写死行号的话改一处就静默量错一行；而且
@@ -23134,12 +22612,12 @@ int main(int argc, char *argv[]) {
         // 自带那份（移不掉）、"用户加的那份可以移除"、以及 P+ 真点一次「移除」。
         //
         // NOTE: 点之前先 close 掉可能还开着的那一块。**不这么做的话这一下点是"收回"而不是
-        //       "弹出"**：openFolderMenu 认 anchor，同一颗齿轮上的第二次点击一律当收回
-        //       （用户点一下开、再点一下关，这是要的行为）—— 于是这里拿到 nullptr，而
-        //       调用方那些断言全写成 `if (menu != nullptr)`，症状是"那一段静默地什么都不做、
-        //       一条 FAIL 都不出现"。
+        // "弹出"**：openFolderMenu 认 anchor，同一颗齿轮上的第二次点击一律当收回
+        // （用户点一下开、再点一下关，这是要的行为）—— 于是这里拿到 nullptr，而
+        // 调用方那些断言全写成 `if (menu != nullptr)`，症状是"那一段静默地什么都不做、
+        // 一条 FAIL 都不出现"。
         // NOTE: 关掉的那块是 WA_DeleteOnClose（close() 只排了个 deleteLater），这里催一下，
-        //       免得下一次 findChild 捞到那块**已经关掉的**。
+        // 免得下一次 findChild 捞到那块**已经关掉的**。
         const auto openGearMenuOfRow = [&folderRowIndexOf](QWidget *window,
                                                           const QString &title) -> QWidget * {
             QApplication::processEvents();
@@ -23163,9 +22641,9 @@ int main(int argc, char *argv[]) {
         // 点菜单里的某一项。**找不到、或者那一项是灰的就什么都不点**（返回 false）——
         // 让调用方照实断言，不在这里解空指针把整轮跑崩在别的地方。
         // NOTE: 点完那一下不一定就做完了：FolderMenu::dispatch() 是 close() 之后
-        //       `QTimer::singleShot(0, ...)` 把动作排到**下一轮事件循环**（它是个 Qt::Popup，
-        //       按着鼠标键盘的 grab，模态窗开在它底下点不动）。所以这里要 processEvents()
-        //       把这颗 0 毫秒的定时器放出来。
+        // `QTimer::singleShot(0, ...)` 把动作排到**下一轮事件循环**（它是个 Qt::Popup，
+        // 按着鼠标键盘的 grab，模态窗开在它底下点不动）。所以这里要 processEvents()
+        // 把这颗 0 毫秒的定时器放出来。
         const auto clickFolderMenuAction = [](QWidget *menu, int action) -> bool {
             if (menu == nullptr) {
                 return false;
@@ -23202,7 +22680,7 @@ int main(int argc, char *argv[]) {
                       "那一条就是启动器自带的那份 .minecraft",
                       shownPath + QStringLiteral(" / ") + AppPaths::defaultMinecraftDir());
                 // 那一条上面写的现在是「当前文件夹」——「（自带）」是单行列表时代的写法
-                //（2026-09-24 换成两行式之后没了）。字在**行里那个子控件**上，所以
+                // （ 换成两行式之后没了）。字在**行里那个子控件**上，所以
                 // item->text() 是空的（和上面那条按 UserRole 认人的断言不冲突）。
                 const int assistantRow =
                     folderRowIndexOf(&w6, MainWindowUI::folderAssistantTitle());
@@ -23217,7 +22695,7 @@ int main(int argc, char *argv[]) {
                               QDir::toNativeSeparators(AppPaths::defaultMinecraftDir()),
                       "下面那行是它完整的路径（系统分隔符，别把 QDir 的 `/` 露给用户）",
                       assistantSubtitle != nullptr ? assistantSubtitle->text() : QString());
-                // 「移除」现在只有行尾齿轮菜单里那一项（那个按钮 2026-09-24 删掉了，用户
+                // 「移除」现在只有行尾齿轮菜单里那一项（那个按钮 删掉了，用户
                 // 原话「下面那个移除文件夹也可以弃掉了」）—— 自带那份移不掉的判据跟着搬家。
                 {
                     QWidget *menu = openGearMenuOfRow(&w6, MainWindowUI::folderAssistantTitle());
@@ -23237,7 +22715,7 @@ int main(int argc, char *argv[]) {
                 }
                 // 数的是**实例条目**（instanceItemsOf 跳过组头）。沙盒里本来没有
                 // wtfml.folders，开这个窗的时候产品把那五个默认组种了进去
-                //（2026-09-24 用户要的那五个），于是树是**分组**的 —— 三个实例一条不少，
+                // （ 用户要的那五个），于是树是**分组**的 —— 三个实例一条不少，
                 // 只是各挂在「可安装mod」/「原版」底下。
                 const QList<QTreeWidgetItem *> unsorted = instanceItemsOf(instances);
                 check(unsorted.size() == 3,
@@ -23384,8 +22862,8 @@ int main(int argc, char *argv[]) {
                 QApplication::processEvents();
                 QListWidget *folderListView =
                     byObjectName<QListWidget>(&w8, MainWindowUI::folderListName());
-                // 「移除」的入口 2026-09-24 从下面那个按钮换成了行尾齿轮菜单里那一项
-                // （用户原话「下面那个移除文件夹也可以弃掉了」）—— 这一节要验的那件事
+                // 「移除」的入口 从下面那个按钮换成了行尾齿轮菜单里那一项
+                // （要求「下面那个移除文件夹也可以弃掉了」）—— 这一节要验的那件事
                 // （只动列表、盘上一个字节不动）一个字没变，只是点的地方换了。
                 QWidget *menu = openGearMenuOfRow(&w8, QDir(otherRoot).dirName());
                 auto *removeEntry = menu != nullptr
@@ -23404,12 +22882,12 @@ int main(int argc, char *argv[]) {
                     // 不点它这一步走不完（点掉窗 = 取消，什么都没发生）。
                     answerNextPrompt(0);
                     // NOTE: 这一下点完之后动作**不在当前调用栈里**：FolderMenu::dispatch()
-                    //       先 close() 再 `QTimer::singleShot(0, ...)` 把动作排到下一轮事件
-                    //       循环（它是个 Qt::Popup，按着鼠标键盘的 grab，模态窗开在它底下
-                    //       点不动）。answerNextModal 排的是 0ms + 300ms 两条一次性定时器，
-                    //       所以整条路是：这一下 processEvents() 先放出那颗 0ms 定时器 →
-                    //       它开确认框、exec() 把事件循环嵌进去 → 300ms 那一发在**里面**
-                    //       点掉它 → exec() 返回、processEvents() 才回来。
+                    // 先 close() 再 `QTimer::singleShot(0, ...)` 把动作排到下一轮事件
+                    // 循环（它是个 Qt::Popup，按着鼠标键盘的 grab，模态窗开在它底下
+                    // 点不动）。answerNextModal 排的是 0ms + 300ms 两条一次性定时器，
+                    // 所以整条路是：这一下 processEvents() 先放出那颗 0ms 定时器 →
+                    // 它开确认框、exec() 把事件循环嵌进去 → 300ms 那一发在**里面**
+                    // 点掉它 → exec() 返回、processEvents() 才回来。
                     removeEntry->click();
                     QApplication::processEvents();
                     check(g_modalTitle == QStringLiteral("从列表里移除文件夹"),
@@ -23426,7 +22904,7 @@ int main(int argc, char *argv[]) {
                           "P+ **盘上那两个文件都还在**（用户要的就是这一条）",
                           keepFile + QStringLiteral(" / ") + keepNested);
                     // NOTE: 假实例是 makeInstalledVersion() 造的，它写的是 jar（见那个
-                    //       函数）—— 别按 json 去查，那条路径压根不存在。
+                    // 函数）—— 别按 json 去查，那条路径压根不存在。
                     check(QFileInfo(otherRoot).isDir() &&
                               QFile::exists(otherRoot + QStringLiteral("/versions/1.7.10/"
                                                                      "1.7.10.jar")),
@@ -23453,23 +22931,17 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // ---- 删除文件夹**不追链接**（2026-09-25）----
+        // ---- 删除文件夹**不追链接**----
         // 这一节是数据层直驱（不经界面）：会碰盘的是 FolderManager::deleteFolder()。
         //
-        // 洞长这样：QDir::removeRecursively() 会**追进** junction / 符号链接。实测（探针见
-        // tmp/probe_symlink/）：①对一个**本身就是 junction** 的目录调用它，junction 指向的
-        // 那个真目录里的文件**没了**；②目录**里面**含一个 junction 时同样跟着进去删。
-        // 于是"删掉这一份游戏文件夹"会牵连到它**外面**的东西 —— 把 saves 挂到网盘同步目录、
-        // 把 mods 挂到另一块盘，都是很常见的做法，而用户点的是"删掉这一份"。
-        //
         // NOTE: 判据**不能**只写 isSymLink()。实测 mklink /J 造出来的 junction 在 Qt 里
-        //       isSymLink() 是 **false**、canonicalFilePath() 也**原样返回字面路径**（根本
-        //       不解链接），只有 isJunction() 认得出它。所以 ① / ② 必须用**真 junction** 来验
-        //       —— 拿符号链接验的话，防不住的那一半照样绿。
+        // isSymLink() 是 **false**、canonicalFilePath() 也**原样返回字面路径**（根本
+        // 不解链接），只有 isJunction() 认得出它。所以 ① / ② 必须用**真 junction** 来验
+        // —— 拿符号链接验的话，防不住的那一半照样绿。
         //
-        // ★ 2026-09-26：而"防不住的那一半"就是符号链接（canonicalFilePath() 对它**是解**
-        //   的），见下面 ③。上一版只有 ① / ②，结论"全绿"是**假的**：能造的那一类防住了，
-        //   防不住的那一类没进过测试。
+        // 而"防不住的那一半"就是符号链接（canonicalFilePath() 对它**是解**
+        // 的），见下面 ③。上一版只有 ① / ②，结论"全绿"是**假的**：能造的那一类防住了，
+        // 防不住的那一类没进过测试。
         {
             const QString realDir = root.filePath(QStringLiteral("junction-target"));
             const QString targetFile = realDir + QStringLiteral("/世界存档.txt");
@@ -23522,8 +22994,8 @@ int main(int argc, char *argv[]) {
             }
 
             // ② 链接在目录**里面**：删父目录时不能顺手把 inner-mods 那一头也清了。
-            //    这一种更接近真实现场 —— 用户正常加的是游戏文件夹本身，而它里面某一层
-            //    挂着一个 junction（saves / mods 挂到别处）。
+            // 这一种更接近真实现场 —— 用户正常加的是游戏文件夹本身，而它里面某一层
+            // 挂着一个 junction（saves / mods 挂到别处）。
             writeFileAt(holder + QStringLiteral("/本层自己的文件.txt"),
                         QByteArrayLiteral("这一层的东西该跟着删"));
             {
@@ -23545,18 +23017,13 @@ int main(int argc, char *argv[]) {
                       "★ ② 链接那一头的东西还是**一个字节都没动**");
             }
 
-            // ③ **真正的符号链接**（`mklink /D`）—— 2026-09-26 补的那一格。
+            // ③ **真正的符号链接**（`mklink /D`）—— 补的那一格。
             //
             // ① / ② 只拿 junction 验，可 junction 恰好是"canonicalFilePath() 不解"的那一类
-            // （见上面那条 NOTE，2026-09-26 用探针 linkprobe 又量了一遍，还是不解）。
+            // （见上面那条 NOTE， 用探针 linkprobe 又量了一遍，还是不解）。
             // 符号链接那一类**是解的** ⇒ 列表里存进去的就已经是链接那一头的路径，
             // "删除这一份"删的是那边 —— 上面那个 guard 一辈子看不到它。所以这一格验的是
             // `normalized()` 那条新分支：**加进来之后列表里还是用户加的那条路径**。
-            //
-            // NOTE: 造符号链接要管理员权限或者开发者模式，**本机造不出来**（实测回的是
-            //       "You do not have sufficient privilege to perform this operation"）。
-            //       造不出来时**明说没验**并把判据指出来，不装成绿 —— 这一节上一版的毛病
-            //       恰恰是"没验的那一半绿着"。
             const QString symLinkAsFolder = root.filePath(QStringLiteral("symlink-as-folder"));
             const bool madeSym = makeJunction(symLinkAsFolder, realDir, QStringLiteral("/D"));
             if (madeSym) {
@@ -23596,7 +23063,7 @@ int main(int argc, char *argv[]) {
         }
 
         // ---- 齿轮菜单：五项各点一遍 ----
-        // 用户原话：「每个版本右侧有个齿轮，点击以后会有个类似右键菜单的页面（框），里面是
+        // 要求：「每个版本右侧有个齿轮，点击以后会有个类似右键菜单的页面（框），里面是
         // 刷新 重命名 打开（explorer.exe） 移除 删除（红色字）……齿轮是按钮（以免你不理解）」。
         //
         // 这一节点的全是**真按钮**（行尾那颗齿轮、菜单里那五项都是 QPushButton，不是自绘
@@ -23605,14 +23072,14 @@ int main(int argc, char *argv[]) {
         // 一一捞回来真点。
         //
         // NOTE: 每做一次动作，上面捕下来的指针就全成野的了，必须重新找。删掉它们的有两处：
-        //       ①「刷新」重灌整个列表（setFolderRows 里那句 clear() 把行控件连同里面那两行字
-        //       和齿轮一起删了）；②菜单点完自己 close()，而它是 WA_DeleteOnClose。
+        // ①「刷新」重灌整个列表（setFolderRows 里那句 clear() 把行控件连同里面那两行字
+        // 和齿轮一起删了）；②菜单点完自己 close()，而它是 WA_DeleteOnClose。
         //
         // NOTE: **不点「重命名」那一项**。它弹的是 QInputDialog::getText，模态框在 offscreen
-        //       下驱动不了（一按测试就卡在没人点的窗上）—— 和 S 节实例改名那条路同一个理由，
-        //       产品代码也是同一个拆法：改名字这件事的**纯逻辑那一半**（FolderManager::
-        //       setDisplayName / validateDisplayName、以及 MainWindow::folderTitle 那个
-        //       优先级）在下面那一小段里直接驱动。
+        // 下驱动不了（一按测试就卡在没人点的窗上）—— 和 S 节实例改名那条路同一个理由，
+        // 产品代码也是同一个拆法：改名字这件事的**纯逻辑那一半**（FolderManager::
+        // setDisplayName / validateDisplayName、以及 MainWindow::folderTitle 那个
+        // 优先级）在下面那一小段里直接驱动。
         {
             const QString vanished = root.filePath(QStringLiteral("vanished-mc"));
             const QString doomedRoot = root.filePath(QStringLiteral("doomed-mc"));
@@ -23688,14 +23155,14 @@ int main(int argc, char *argv[]) {
                     QApplication::processEvents();
                     return true;
                 };
-                // 一张图标里有没有「红」（2026-09-24 用户原话「删除的垃圾桶也换成红色吧」）。
+                // 一张图标里有没有「红」（ 要求「删除的垃圾桶也换成红色吧」）。
                 // 判据要**连饱和度一起看**：灰色像素的色相也是 0，只看色相的话把图标画成灰的
                 // 这条照样绿。量的是**按钮上挂着的那张图**，不是再调一次 folderActionIcon()
                 // —— 后者颜色是调用方自己传的，跟菜单里真用的那张是两回事。
-                // ★ 取图要带上**按钮那一刻的 Mode**：图标现在走 QIconEngine，颜色是按
-                //   Normal / Disabled 现算的。灰按钮上画图时 QStyle 问的是 Disabled
-                //   （灰图标），不问 Normal —— 一律按 Normal 取，会把"灰按钮上的灰图标"
-                //   读成"红的"，把这条本来就对的规矩判红。
+                // 取图要带上**按钮那一刻的 Mode**：图标现在走 QIconEngine，颜色是按
+                // Normal / Disabled 现算的。灰按钮上画图时 QStyle 问的是 Disabled
+                // （灰图标），不问 Normal —— 一律按 Normal 取，会把"灰按钮上的灰图标"
+                // 读成"红的"，把这条本来就对的规矩判红。
                 const auto hasDangerRed = [](const QIcon &icon,
                                              QIcon::Mode mode = QIcon::Normal) {
                     const QImage image = icon.pixmap(MainWindowUI::folderMenuIconSize(),
@@ -23756,7 +23223,7 @@ int main(int argc, char *argv[]) {
                         // 设成居中 —— 设了就成了"一排居中按钮"，看着不像菜单。
                         check(entry->styleSheet().contains(QStringLiteral("text-align: left")),
                               QString("P2 第 %1 项是从左边起排的").arg(a));
-                        // 五项的字全是粗的（2026-09-24 用户原话「这个字能不能用加粗的」）。
+                        // 五项的字全是粗的（ 要求「这个字能不能用加粗的」）。
                         // 两条一起钉：一条看样式表里有没有写、一条看控件**身上**的字体是不是
                         // 真粗了 —— 只写样式表那句话在 QSS 没被应用时照样绿。
                         check(entry->styleSheet().contains(QStringLiteral("font-weight: bold")),
@@ -23786,7 +23253,7 @@ int main(int argc, char *argv[]) {
                                                                  Qt::black)
                                       .toImage(),
                           "P2 垃圾桶和刷新圈是两个不同的字形（画重了才会一样）");
-                    // 垃圾桶跟着字一起红（2026-09-24 用户原话「删除的垃圾桶也换成红色吧」）。
+                    // 垃圾桶跟着字一起红（ 要求「删除的垃圾桶也换成红色吧」）。
                     check(deleteEntry != nullptr && hasDangerRed(deleteEntry->icon()),
                           "P2 垃圾桶是红的（和那一项的字同一个色）");
                     check(refreshEntry != nullptr && !hasDangerRed(refreshEntry->icon()),
@@ -23812,7 +23279,7 @@ int main(int argc, char *argv[]) {
                 // 自检：这套拦法本身通不通。**先自检再断言产品** —— 不然下面那条失败读起来
                 // 像是"产品没调 openUrl"，而真因可能是拦法没生效（那样无论怎么点都是 0 发）。
                 // 拦法失效时这一发会落到系统手里：offscreen 平台连 services() 都没有
-                //（QDesktopServices 里那句 "The platform plugin does not support services."），
+                // （QDesktopServices 里那句 "The platform plugin does not support services."），
                 // 什么都不会发生，所以这个自检是安全的。
                 const bool control = QDesktopServices::openUrl(QUrl::fromLocalFile(otherRoot));
                 check(control && spy.urls.size() == 1, "P2 自检：setUrlHandler 拦得下来",
@@ -24078,7 +23545,6 @@ int main(int argc, char *argv[]) {
         QDir(otherRoot).removeRecursively();
     }
 
-    // ------------------------------------------------------------------
     header("Q. 登录：错误话术、拿不到令牌的原因、界面的三个状态");
     // ------------------------------------------------------------------
     // 对应一次真实的用户报告：「浏览器里显示登录成功，启动器一点反应都没有」。
@@ -24087,8 +23553,8 @@ int main(int argc, char *argv[]) {
     // 刷出来的还是那个占位名 "Player"，于是三处都是死的。
     //
     // NOTE: 真机上的**完整链路**要真的登一次账户才验得了（这一节不连网）。能在这儿钉住的
-    //       是：错误话术、失败原因的传递、以及信号到达界面之后那几下 —— 也就是"启动器
-    //       有没有反应"里除网络之外的全部。
+    // 是：错误话术、失败原因的传递、以及信号到达界面之后那几下 —— 也就是"启动器
+    // 有没有反应"里除网络之外的全部。
     {
         // ---- XErr 话术 ----
         // 这些码比 INT_MAX 还大（2148916233），收成 int 就是负数、一律走兜底 —— 这一条
@@ -24107,7 +23573,7 @@ int main(int argc, char *argv[]) {
               AuthManager::xstsErrorMessage(123456LL));
 
         // ---- login_with_xbox 的 403：应用没被 Mojang 批准 ----
-        // 2026-09-20 真机上真正卡住登录的就是这一步，正文原文见下面第一条（照抄的）。
+        // 真机上真正卡住登录的就是这一步，正文原文见下面第一条（照抄的）。
         // 通用那套说法只报得出"HTTP 403"，而这句话是用户唯一能照着做的东西。
         const QString appRegBody = QStringLiteral(
             "Invalid app registration, see https://aka.ms/AppRegInfo for more information");
@@ -24123,9 +23589,9 @@ int main(int argc, char *argv[]) {
               "别的错误正文不认（给空串，调用方走通用那套）",
               AuthManager::appRegistrationHint(QStringLiteral("some other failure")));
         // NOTE: 通用那套（httpFailureText 把正文里的 errorMessage / Message 接进话术）是
-        //       本文件的内部函数，验证工程看不见，这一条只能靠上面"认得出/认不出"间接盯住。
+        // 本文件的内部函数，验证工程看不见，这一条只能靠上面"认得出/认不出"间接盯住。
         // ---- 刷新令牌被微软拒绝：正文怎么翻成人话 ----
-        // 2026-09-22 实测原文（照抄，只删掉了具体的 id）—— 用户报"正版登录炸了"就是它：
+        // 实测原文（照抄，只删掉了具体的 id）—— 用户报"正版登录炸了"就是它：
         // 盘上那张 refresh_token 是**另一个 Azure 应用**签发的，而刷新带的是本应用的
         // client id，微软把 refresh token 绑在签发它的应用上，所以这张令牌换不出来。
         const QString aad70000 = QStringLiteral(
@@ -24235,8 +23701,8 @@ int main(int argc, char *argv[]) {
                 // loginStarted 之后它们**不该**变；要是变了，说明界面自己存了一份，
                 // 而那一份在"超时"那条路上会和真的失配。
                 // NOTE: 这里**不能**断言底栏会变成"正在登录"之类 —— 那种状态在界面上是
-                //       那个窗自己的忙态（MainWindow::onLoginStarted() → setBusy），
-                //       不在底栏；底栏只回答"这次用哪种身份"。
+                // 那个窗自己的忙态（MainWindow::onLoginStarted() → setBusy），
+                // 不在底栏；底栏只回答"这次用哪种身份"。
                 check(account->text() == auth->playerName() &&
                           accountType->text() == MainWindowUI::accountTypeNotLoggedInText(),
                       "手工发一个 loginStarted 改不了底栏那两行（它们的依据只有 AuthManager）");
@@ -24251,9 +23717,9 @@ int main(int argc, char *argv[]) {
                       g_modalTitle + QStringLiteral(" / ") + g_modalText);
                 check(!g_modalWasWarning, "成功那条用的是信息框，不是警告框");
                 // NOTE: 那条信号只带一个名字，改不了 AuthManager 自己的状态（loggedIn()、
-                //       playerName() 都是"这次会话真的换到过 Minecraft 令牌"这件事），
-                //       ——所以底栏**不该**跟着变。这一条钉的正是"名字只有一个来源"：
-                //       界面要是自己拿信号参数去改那一行，这里就会红。
+                // playerName() 都是"这次会话真的换到过 Minecraft 令牌"这件事），
+                // ——所以底栏**不该**跟着变。这一条钉的正是"名字只有一个来源"：
+                // 界面要是自己拿信号参数去改那一行，这里就会红。
                 check(account->text() == auth->playerName() &&
                           accountType->text() == MainWindowUI::accountTypeNotLoggedInText(),
                       "界面不拿信号参数去改底栏（那两行只认 AuthManager 自己的状态）",
@@ -24273,16 +23739,15 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // ------------------------------------------------------------------
     header("R. 令牌存盘往返：开窗时从盘上把上次登录读回来");
     // ------------------------------------------------------------------
-    // NOTE: 这一段补的是 2026-09-21 暴露出来的空白 —— 四个验证工程里 MinecraftTokenData /
-    //       MicrosoftTokenData 一次都没出现过，也就是说"盘上有令牌 → 重开启动器 → 底栏显示
-    //       上次那个名字"这条路上**一条断言都没有**。那天真机上底栏一直显示占位的 Player，
-    //       查了一整轮才发现是外部写入者多写了一个字节（Qt 靠 @ByteArray 结尾那个 ')' 认出
-    //       包装，多一个 NUL 就整段读不出来，还不报错）。
-    //       这里钉的是**读这一侧**，而且刻意按"外部写入者"的视角写：键名和 obfuscate() 那套
-    //       算法都照抄字面量 —— 那正是任何往这个存储里写值的东西必须对上的合同。
+    // NOTE: 这一段补的是 暴露出来的空白 —— 四个验证工程里 MinecraftTokenData /
+    // MicrosoftTokenData 一次都没出现过，也就是说"盘上有令牌 → 重开启动器 → 底栏显示
+    // 上次那个名字"这条路上**一条断言都没有**。那天真机上底栏一直显示占位的 Player，
+    // 查了一整轮才发现是外部写入者多写了一个字节（Qt 靠 @ByteArray 结尾那个 ')' 认出
+    // 包装，多一个 NUL 就整段读不出来，还不报错）。
+    // 这里钉的是**读这一侧**，而且刻意按"外部写入者"的视角写：键名和 obfuscate() 那套
+    // 算法都照抄字面量 —— 那正是任何往这个存储里写值的东西必须对上的合同。
     const QString kTokenKey = QStringLiteral("MinecraftTokenData");
     {
         const QByteArray json =
@@ -24348,11 +23813,10 @@ int main(int argc, char *argv[]) {
               "盘上没令牌时又回到占位的 Player（上面几条不是恒真）", cleared.playerName());
     }
 
-    // ------------------------------------------------------------------
     header("R2. 令牌存盘往返（新格式）：DPAPI 密文读得回来，坏值不会读成垃圾");
     // ------------------------------------------------------------------
     // R 节钉的是**旧**格式（XOR 混淆）还读得出来 —— 那是向后兼容，老用户盘上躺着的那份不能废。
-    // 这一节钉新格式：2026-09-21 起产品写的是 "WTFML-PROTECTED-1\n" + DPAPI(base64(JSON))，
+    // 这一节钉新格式： 起产品写的是 "WTFML-PROTECTED-1\n" + DPAPI(base64(JSON))，
     // 密文绑定当前 Windows 用户，令牌不再跟着那个 ini 一起被抄走。
     // 写法和 R 一致：以"外部写入者"的视角自己造字节，验产品的读。
     {
@@ -24415,12 +23879,11 @@ int main(int argc, char *argv[]) {
         raw.sync();
     }
 
-    // ------------------------------------------------------------------
     header("S. 实例重命名：真改目录名 + 那些「跟着走」的状态");
     // ------------------------------------------------------------------
     // 这一节验的是改名之后**要跟着动的那些状态**，那是这件事里最容易漏的地方：
-    //   - Version/LastLaunched 还记着老 id → 下次开窗选中项空着，用户以为实例丢了；
-    //   - 下拉框 / 实例列表还停在老 id → 刚改完名，界面上什么都没选中。
+    // - Version/LastLaunched 还记着老 id → 下次开窗选中项空着，用户以为实例丢了；
+    // - 下拉框 / 实例列表还停在老 id → 刚改完名，界面上什么都没选中。
     //
     // 走不了按钮：QInputDialog::getText 是模态的，offscreen 下驱动不了它，测试会一直等。
     // 所以直接驱动按钮背后那一半 applyRename()（产品代码故意把它和"问名字"拆开了，
@@ -24539,29 +24002,28 @@ int main(int argc, char *argv[]) {
               "S1 下拉框里恢复成老 id，新名字没了");
     }
 
-    // ------------------------------------------------------------------
     header("S2. 实例设置页：没有确定/取消，值一改就落盘，出口只有那颗返回箭头");
     // ------------------------------------------------------------------
-    // ★ 2026-09-25（第二轮）：用户原话「重命名进实例设置」。外面那颗「重命名…」按钮删掉
-    //   了，那一格搬进了实例设置页（`InstanceSettingsDialog::instanceNameEditName()`，
-    //   初值是**目录名**）。
+    // （第二轮）：要求「重命名进实例设置」。外面那颗「重命名…」按钮删掉
+    // 了，那一格搬进了实例设置页（`InstanceSettingsDialog::instanceNameEditName()`，
+    // 初值是**目录名**）。
     //
-    // ★ 2026-09-26（第三轮）：用户原话「实例设置里面的那个取消和确定删了，修改了的设置
-    //   实时写入」。于是这一节的形状又变了一次 —— 从前是"改那一格 → 点确定 → 改名"，
-    //   现在是**改名那一格自己带一发**（回车 / 失焦 ⇒ `editingFinished` ⇒
-    //   `renameRequested` ⇒ MainWindow 那边 applyRename()）。页面上已经**没有「确定」
-    //   可点**了，唯一的出口是左上角那颗返回箭头（= reject）。这一节验的就是这条新路：
-    //   改完字的那一下磁盘上**当场**就变了，而"关掉这一页"不等于"放弃"。
+    // （第三轮）：要求「实例设置里面的那个取消和确定删了，修改了的设置
+    // 实时写入」。于是这一节的形状又变了一次 —— 从前是"改那一格 → 点确定 → 改名"，
+    // 现在是**改名那一格自己带一发**（回车 / 失焦 ⇒ `editingFinished` ⇒
+    // `renameRequested` ⇒ MainWindow 那边 applyRename()）。页面上已经**没有「确定」
+    // 可点**了，唯一的出口是左上角那颗返回箭头（= reject）。这一节验的就是这条新路：
+    // 改完字的那一下磁盘上**当场**就变了，而"关掉这一页"不等于"放弃"。
     //
     // 这一节同时钉住用户给的那条方向 ——「最终不出现独立的窗口」：整件事里**顶窗一个都不
     // 许多**（那一页是盖在内容区上的一层，见 OverlayHost::execPage）。S 段验的是"改完名
     // 要跟着动的状态"，这里验的是"这一下发生在哪儿、用户看不看得见"。
     //
     // NOTE: 这一节和 S 段里那条 `applyRename()` 不是重复：这里走的是**产品那条路**，
-    //       而那条路里"改名之后把对话框手上那八条路径整份重算"是产品的一处讲究（写在
-    //       MainWindow::openInstanceSettings() 里 refreshInstanceDirs 那一段）—— 不重算的
-    //       话它们还指着那个已经不在了的老目录，用户接着点「打开文件夹」就会把老目录
-    //       重新建出来。这一节顺带把那个顺序也验了（改名之后写的必须是新目录）。
+    // 而那条路里"改名之后把对话框手上那八条路径整份重算"是产品的一处讲究（写在
+    // MainWindow::openInstanceSettings() 里 refreshInstanceDirs 那一段）—— 不重算的
+    // 话它们还指着那个已经不在了的老目录，用户接着点「打开文件夹」就会把老目录
+    // 重新建出来。这一节顺带把那个顺序也验了（改名之后写的必须是新目录）。
     {
         const QString btnOldId = QStringLiteral("26.3");
         const QString btnNewId = QStringLiteral("26.3-按钮改的");
@@ -24585,9 +24047,9 @@ int main(int argc, char *argv[]) {
         QString pageTitle = QStringLiteral("（没读到那一页）");
         QString prefilled;
         // 三样"这一下当场发生了什么"的证据，都在那一发之后**立刻**读（不等后面任何一句）：
-        //   - 目录改名了没有（`renamedOnTheSpot`）；
-        //   - 页眉上那行字跟着换了没有；
-        //   - 那个条上还有没有「确定 / 取消」。
+        // - 目录改名了没有（`renamedOnTheSpot`）；
+        // - 页眉上那行字跟着换了没有；
+        // - 那个条上还有没有「确定 / 取消」。
         bool renamedOnTheSpot = false;
         QString titleAfterRename;
         bool nameRevertedOnEmpty = false;
@@ -24616,13 +24078,8 @@ int main(int argc, char *argv[]) {
             if (pageScroll != nullptr && pageScroll->verticalScrollBar() != nullptr) {
                 outerScrollMax = pageScroll->verticalScrollBar()->maximum();
             }
-            // 用户原话要删掉的那两颗按钮：整页上**一颗都不该有**（文案扫，不按 objectName ——
+            // 要求要删掉的那两颗按钮：整页上**一颗都不该有**（文案扫，不按 objectName ——
             // 它们连名字常量都删了，扫文案才是"用户看得见的那两颗没了"）。
-            //
-            // ★ 2026-10-09：那四页文件管理页上多了一条**悬浮操作条**（用户点名的那一条），
-            //   它上面有一颗写着「取消」的（清空选择那一下）。它**不是**"这一页的确定/取消"
-            //   —— 是行内的一条操作条，和"删掉那两颗"那件事没关系。所以扫的时候要把它那一棵
-            //   整个跳过去（判据是那个 objectName，见 InstanceFilesPage::selectionBarName()）。
             for (QPushButton *button : host->findChildren<QPushButton *>()) {
                 bool insideSelectionBar = false;
                 for (QObject *o = button; o != nullptr; o = o->parent()) {
@@ -24693,7 +24150,7 @@ int main(int argc, char *argv[]) {
               "离开这一格，实例不该被改名）",
               prefilled);
 
-        // ★ 这一节的重点：磁盘上是**那一格提交的那一下**就变的，中间一个按钮都没点。
+        // 这一节的重点：磁盘上是**那一格提交的那一下**就变的，中间一个按钮都没点。
         check(renamedOnTheSpot,
               "★ S2 那一格一发 editingFinished（= 用户敲回车 / 点到别处），磁盘上**当场**就"
               "改名了 —— 没有任何「确定」参与这件事（实时写盘）");
@@ -24702,7 +24159,7 @@ int main(int argc, char *argv[]) {
                                                      QStringLiteral(".jar"))),
               "★ S2 而且老目录没了、新目录里那份 jar 还在（改的是那一半，不是复制一份）");
         // NOTE: 比的是"**以新名字结尾**"而不是"不含老名字"：老名字 `26.3` 是新名字
-        //       `26.3-按钮改的` 的前缀，那一条恒真 —— 恒真的断言等于没断言。
+        // `26.3-按钮改的` 的前缀，那一条恒真 —— 恒真的断言等于没断言。
         check(titleAfterRename.endsWith(btnNewId) && titleAfterRename != pageTitle,
               "★ S2 页眉上那行字跟着换成新名字了（不换的话最高处还写着老名字、底下那一格"
               "却是新的 —— OverlayHost::setPageTitle 就是为这一下加的）",
@@ -24816,13 +24273,7 @@ int main(int argc, char *argv[]) {
         check(back, "S2 还能再改回原来的名字（这一节也要把沙盒还原）");
     }
 
-    // ------------------------------------------------------------------
     header("T. 实例分组：树怎么画、组头、跟着游戏文件夹走");
-    // ------------------------------------------------------------------
-    // 产品里能**改**分组的地方是那个模态对话框，它自己那一半在 ui_check 的 N 段逐条
-    // 验过了（建/改名/删/归属、非法名与重名的弹窗）。这里验另一半：MainWindow 拿到一份
-    // 分组文件之后**怎么画、怎么用它**，以及那份文件跟着「游戏文件夹」换。
-    //
     // 直接往沙盒里写 wtfml.folders（产品里写它的是对话框的「确定」，那一步要过
     // exec() 这个模态循环，offscreen 下驱动不了）。
     {
@@ -24837,7 +24288,7 @@ int main(int argc, char *argv[]) {
         const QString modId = QStringLiteral("22222222-2222-2222-2222-222222222222");
 
         // ---- T1 第一次用这一份 .minecraft：五个默认组种下来，实例各归各位 ----
-        // 用户 2026-09-24 原话：「把实例分组做个默认（可安装mod，原版，快照版，远古版，
+        // 要求：「把实例分组做个默认（可安装mod，原版，快照版，远古版，
         // 置顶），默认可以删除，组被删掉后版本放到「未分组」这个组里」。
         // 沙盒里三个实例：1.20.1（meta 里写着 loaderName=Forge）、1.18.2、26.3（两个裸的）。
         {
@@ -24846,7 +24297,7 @@ int main(int argc, char *argv[]) {
             QApplication::processEvents();
             QTreeWidget *tree = byObjectName<QTreeWidget>(&w0, MainWindowUI::instanceListName());
             // 五个默认组都种下去了（下一段断言查文件），但**画出来的只有有人那两个**：
-            // 「置顶 / 快照版 / 远古版 / 未分组」里的实例数都是 0 —— 用户 2026-09-25 要的
+            // 「置顶 / 快照版 / 远古版 / 未分组」里的实例数都是 0 —— 用户 要的
             // 「空白的分组隐藏」。顺序仍然是默认那份的顺序。
             check(tree != nullptr &&
                       groupHeadersOf(tree) ==
@@ -24928,8 +24379,6 @@ int main(int argc, char *argv[]) {
                       ? idsUnder(tree->topLevelItem(0)).join(QLatin1Char('|'))
                       : QString());
 
-            // 组头**点不亮**（清掉了 ItemIsSelectable）。ui_check 的 M 段用真鼠标事件
-            // 验过那条 Qt 行为，这里只看产品有没有把那个 flag 清掉。
             bool headersUnselectable = tree != nullptr;
             for (int i = 0; i < (tree != nullptr ? tree->topLevelItemCount() : 0); ++i) {
                 headersUnselectable =
@@ -25060,9 +24509,9 @@ int main(int argc, char *argv[]) {
         // 它），它落到「未分组」。
         //
         // NOTE: 三个"分类不对"的实例是**临时造的**，不是改沙盒里那三个已装版本的 meta ——
-        //       26.3 在 S 段被改过名又改回来，它的 wtfml.meta 里躺着稳定 id，"改完再改回去"
-        //       是一段很容易写漏一行的还原逻辑（漏了就是把 instanceId 抹掉）。造三个目录、
-        //       用完删掉，才是没有回头账的写法。
+        // 26.3 在 S 段被改过名又改回来，它的 wtfml.meta 里躺着稳定 id，"改完再改回去"
+        // 是一段很容易写漏一行的还原逻辑（漏了就是把 instanceId 抹掉）。造三个目录、
+        // 用完删掉，才是没有回头账的写法。
         const QString kTfSnap = QStringLiteral("tf-快照");
         const QString kTfOld = QStringLiteral("tf-远古");
         const QString kApril = QStringLiteral("26w14a");  // 愚人节版的 id，来自那张写死的名单
@@ -25176,10 +24625,10 @@ int main(int argc, char *argv[]) {
         // ---- T8 表过态的归属压得住自动归类 ----
         //
         // 两条路，正是 isAssigned() 那个判据存在的全部理由：
-        //   - 「明确选了未分组」（文件里那个保留值）：1.20.1 装了加载器，按类型该进
-        //     「可安装mod」，但用户说"我就想让它待在未分组里" —— 它必须待着；
-        //   - 「明确选了某个组」：1.18.2 该进「原版」，但用户把它拖进了「远古版」——
-        //     它必须在远古版里。
+        // - 「明确选了未分组」（文件里那个保留值）：1.20.1 装了加载器，按类型该进
+        // 「可安装mod」，但用户说"我就想让它待在未分组里" —— 它必须待着；
+        // - 「明确选了某个组」：1.18.2 该进「原版」，但用户把它拖进了「远古版」——
+        // 它必须在远古版里。
         // 反过来说：没有这一条的话，用户点完「确定」下一次刷新就被拉回去了，表现是
         // "分组点了没用"。
         {
@@ -25213,7 +24662,7 @@ int main(int argc, char *argv[]) {
                       QStringList({QStringLiteral("1.18.2"), kTfOld}),
                   "T8 明确归到「远古版」的那个留在远古版（没被按类型拉回原版）",
                   groupChildrenOf(tree, QStringLiteral("远古版 (2)")).join(QLatin1Char('|')));
-            // 空组**不画**（用户 2026-09-25 原话：「空白的分组隐藏」）。判据用的是
+            // 空组**不画**（要求：「空白的分组隐藏」）。判据用的是
             // groupHeadersOf() 那份**行文字**：没有「可安装mod (0)」这么一行 ——
             // groupChildrenOf() 对不存在的组头也返回空表，拿它判这条会永远绿。
             check(!groupHeadersOf(tree).contains(QStringLiteral("可安装mod (0)")) &&
@@ -25248,16 +24697,12 @@ int main(int argc, char *argv[]) {
 
         // ---- T10 组行：点一下展开/收起，而且当场记下来（下次开窗照这样画） ----
         //
-        // 用户 2026-09-25 原话：「每一个组和版本下载几乎一致，点一下打开/关闭，右侧有个
+        // 要求：「每一个组和版本下载几乎一致，点一下打开/关闭，右侧有个
         // 箭头和齿轮」。这一节验前两条（点一下真的翻、翻完记住），齿轮那一套在 T11～T14。
         //
         // 「展开还是收着」是**组自己的一格**（InstanceGroupStore::Group::expanded，既是
         // 默认也是当前 —— 全文见那边的 NOTE），所以这里验的是"点完那一下盘上是什么"以及
         // "下次开窗照不照它画"。
-        //
-        // NOTE: 走的是 QTreeWidget::itemClicked（和这个文件别处驱动那几棵树同一个写法）。
-        //       "点得快的时候后面每一发到的是双击事件"在接线口那一层（ui/RowActivation.hpp），
-        //       由 ui_check 的 E3b 拿真事件钉着 —— 和这一节要验的"翻完记没记住"是两件事。
         writeFileAt(groupFile,
                     QByteArrayLiteral(
                         "{\"version\":1,\"groups\":["
@@ -25351,10 +24796,10 @@ int main(int argc, char *argv[]) {
                       !folded->child(0)->data(0, MainWindowUI::rowGroupGearRole()).toBool(),
                   "T10 组头挂着 rowGroupGearRole、它底下的实例不挂（点实例那一行不是开关）");
             if (opened != nullptr && opened->childCount() > 0) {
-                // ★ 2026-09-25：点实例那一行**现在开的是那一页「实例设置」**（用户原话
-                //   「直接点空白区域（和左边图标版本名）进入实例设置」）。它是整页覆盖层、
-                //   里面跑着一个嵌套事件循环，所以这里必须**先**排上"读一眼页眉、再按返回
-                //   箭头"那两发定时器 —— 否则这一下不是断言红，是整个测试**卡死在这儿**。
+                // 点实例那一行**现在开的是那一页「实例设置」**（要求
+                // 「直接点空白区域（和左边图标版本名）进入实例设置」）。它是整页覆盖层、
+                // 里面跑着一个嵌套事件循环，所以这里必须**先**排上"读一眼页眉、再按返回
+                // 箭头"那两发定时器 —— 否则这一下不是断言红，是整个测试**卡死在这儿**。
                 QString pageTitle;
                 closeInstanceSettingsPage(&pageTitle);
                 clickTreeRow(tree, opened->child(0));
@@ -25620,17 +25065,11 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   "（第 0 行就是那个在树上藏着的空组）");
         }
 
-        // ---- T16 那两颗「上移 / 下移」**不在这棵树里**（2026-09-25 傍晚搬走的） ----
+        // ---- T16 那两颗「上移 / 下移」**不在这棵树里**（ 傍晚搬走的） ----
         //
-        // 用户原话：「首先这个点击一下就同时展开和调整了，其次这个箭头不应该在这里，而应该在
+        // 要求：「首先这个点击一下就同时展开和调整了，其次这个箭头不应该在这里，而应该在
         // 分组设置 里面，这里的删了，去分组设置里面加上，设置那个框下方的上移下移的按钮就
         // 删了」。
-        //
-        // 这一节验**接线那一半**：这两颗三角在实例树上确实没了 —— 当年画它们的那一格现在归
-        // 这一行本身（点上去只办"展开/收起"这一件事，组序一个字节都不动）；以及「分组设置…」
-        // 里摆好的顺序真的能通过 applyGroupList() 落盘、再长到树上。
-        // （"那张表的行尾长什么样、点一下挪不挪得动"在 ui_check 的 N 段 —— 那半边是纯界面，
-        // 不依赖 src/，所以它在那儿验。）
         {
             // 第四个实例：三个真组 + 一个「未分组」同时在树上，才排得出"顺序变没变"这件事
             // —— 少了谁，"第 0 行是哪个组"就分不出是没动还是动了。
@@ -25670,7 +25109,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             };
             // 往 viewport 上真的发一次鼠标事件。@param type Press / Release。
             // NOTE: 修饰键必须**挂在这一发事件上**（产品是从 `mouse->modifiers()` 取 Shift
-            //       的）—— 走 QApplication::sendEvent 时合成事件里带的就是它。
+            // 的）—— 走 QApplication::sendEvent 时合成事件里带的就是它。
             const auto sendRowMouse = [](QTreeWidget *tree, QEvent::Type type, const QPoint &pos,
                                          Qt::KeyboardModifiers mods) {
                 QWidget *viewport = tree->viewport();
@@ -25711,11 +25150,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   "T16 前提：树上一共四行（藏起来的空组不占行）",
                   QString::number(tree != nullptr ? tree->topLevelItemCount() : -1));
 
-            // 量几何之前先把树**滚回最上面**：上面那几节把"当前项"挪到过别的行上（这一节
-            // 开始前它是那个实例 26.3），视图会跟着滚到让当前项看得见 —— 不滚回来的话
-            // 「第 0 行」的 y 是**负的**（实测量到 -46），发出去那一发鼠标落在视口外面，
-            // 什么都不会发生：顺序不动、行也不翻，而"顺序没动"那条断言会以假绿的样子
-            // 过去（现实中的用户是把行滚到眼前才点的）。
             if (tree != nullptr) {
                 tree->scrollToTop();
                 QApplication::processEvents();
@@ -25733,10 +25167,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             const auto noMoveRole = [](QTreeWidgetItem *item) {
                 return item != nullptr && !item->data(0, Qt::UserRole + 12).isValid();
             };
-            // ★ 2026-09-25：这个号码**被实例行拿去用了** —— MainWindowUI::rowPinRole() 也是
-            //   `Qt::UserRole + 12`，装的是"这一条还能不能置顶"（能不能画那颗上箭头，真假
-            //   由 T17 验）。号码复用是故意的：那个掩码搬走之后一个使用者都没有了。所以这条
-            //   断言现在分两半：**组行**那一格必须整个空着、**实例行**那一格必须有值。
+            // 这个号码**被实例行拿去用了** —— MainWindowUI::rowPinRole() 也是
+            // `Qt::UserRole + 12`，装的是"这一条还能不能置顶"（能不能画那颗上箭头，真假
+            // 由 T17 验）。号码复用是故意的：那个掩码搬走之后一个使用者都没有了。所以这条
+            // 断言现在分两半：**组行**那一格必须整个空着、**实例行**那一格必须有值。
             check(noMoveRole(rowA) && noMoveRole(rowB) && noMoveRole(rowC) && noMoveRole(rowRest) &&
                       rowA != nullptr && rowA->childCount() > 0 &&
                       rowA->child(0)->data(0, MainWindowUI::rowPinRole()).isValid(),
@@ -25754,10 +25188,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                                       : QStringLiteral("空"))
                                : QStringLiteral("没那一行")));
 
-            // 行高：组行和实例行都跟版本下载那棵树一样高（用户原话「每个版本啥的上下高一点，
+            // 行高：组行和实例行都跟版本下载那棵树一样高（要求「每个版本啥的上下高一点，
             // 像下载页那样」）—— 这一条是端到端的：真树、真布局，不是代理那个 sizeHint。
-            // ★ 2026-09-29 起这一页有自己的常数（instanceTreeRowHeight()，用户原话「实例列表里
-            //   每一个之间留一点空的距离，每一行高一点，图标大一点」），版本树那个 46 一个字没动。
+            // 起这一页有自己的常数（instanceTreeRowHeight()，要求「实例列表里
+            // 每一个之间留一点空的距离，每一行高一点，图标大一点」），版本树那个 46 一个字没动。
             check(rowA != nullptr && rowA->childCount() > 0 &&
                       tree->visualItemRect(rowA).height() ==
                           MainWindowUI::instanceTreeRowHeight() &&
@@ -25887,7 +25321,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
 
         // ---- T17 实例行行尾那三颗按钮：齿轮=实例设置 / 上箭头=置顶 / 垃圾桶=删除实例 ----
         //
-        // 用户 2026-09-25 原话：「实例页面，实例设置也是放在每一条的右侧，鼠标悬停时右侧
+        // 要求：「实例页面，实例设置也是放在每一条的右侧，鼠标悬停时右侧
         // 显示上箭头和垃圾桶，分别对应 置顶和删除实例，删除前需要弹窗提示，直接点空白区域
         // （和左边图标版本名）进入实例设置，为每个版本预设一个图标（默认下载时就带，原版
         // 草块，forge铁砧等，现有的没有就补上）」。
@@ -25896,11 +25330,11 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         // 认下那一下的是 MainWindow::eventFilter()，所以这里往视口上**真发鼠标事件**，不是去
         // 点某个按钮 —— 判定用的格子也是产品那一个出处（InstanceGroupDelegate::instanceXxxRect）。
         //
-        //   ① 每一条前面那个图标是"这个版本该有的那一个"，含"meta 里没写 type 时回实例自己的
-        //      json 读"那条路（在那之前它对每个实例都退化成草方块，而用户这一轮要的正是图标）；
-        //   ② 点行尾那颗**齿轮**、以及点这一行的**别的地方**，开的都是这个实例的设置页；
-        //   ③ 点**上箭头** = 把它挪进置顶组（哪一组当家见 InstanceGroupStore::pinnedGroupId）；
-        //   ④ 点**垃圾桶** = 先问一句，答「删除」才真的删，答「取消」一个字节都不动。
+        // ① 每一条前面那个图标是"这个版本该有的那一个"，含"meta 里没写 type 时回实例自己的
+        // json 读"那条路（在那之前它对每个实例都退化成草方块，而用户这一轮要的正是图标）；
+        // ② 点行尾那颗**齿轮**、以及点这一行的**别的地方**，开的都是这个实例的设置页；
+        // ③ 点**上箭头** = 把它挪进置顶组（哪一组当家见 InstanceGroupStore::pinnedGroupId）；
+        // ④ 点**垃圾桶** = 先问一句，答「删除」才真的删，答「取消」一个字节都不动。
         {
             const QString kPinGroup = QStringLiteral("g-置顶组");
             const QString kPlainGroup = QStringLiteral("g-普通组");
@@ -25944,7 +25378,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 }
                 return nullptr;
             };
-            // 同一个实例在树上**画了几行**。2026-09-26 用户把置顶改成「两边都显示」之后，
+            // 同一个实例在树上**画了几行**。 用户把置顶改成「两边都显示」之后，
             // 置顶着的那一条会画两行（老家一行 + 置顶组里一行**同名的**），于是"找得到
             // 一条"这件事本身不再够用：那两条"多出来的是同一条、不是两个不同的实例"
             // 的断言得靠这个数。**数的是行、不是组**：它在哪两组里由调用方自己看 parent。
@@ -26001,7 +25435,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 }
                 return count;
             };
-            // 盘上那份「置顶前的归属」（用户 2026-09-26 那句要的那一格）。读法同上：读的是
+            // 盘上那份「置顶前的归属」（用户 那句要的那一格）。读法同上：读的是
             // **文件** —— 这一节验的正是"落盘了没有"。
             const auto pinOriginInFile = [&groupFile]() -> QJsonObject {
                 return QJsonDocument::fromJson(readBytesAt(groupFile))
@@ -26050,10 +25484,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             // 两条路各验一个：**装了加载器的**给加载器标志（用户点名的「forge铁砧」），
             // **没装的**按版本分类给（原版草方块 / 快照版覆雪草块）。判据一律拿
             // VersionIcons 那两个函数现算出来比，不在断言里另画一张。
-            // ★ 边长取**实例列表自己那一档**（instanceTreeIconSize()，2026-09-29 起 26）。
-            //   拿版本树的 18 来量的话，`QIcon::pixmap()` 会把手里那张缩一遍，缩出来的像素和
-            //   `VersionIcons` 现画的那张**不相等**（草方块那块 16×16 贴图是最近邻放的）——
-            //   底下每一条都会红，而屏幕上什么都没错。
+            // 边长取**实例列表自己那一档**（instanceTreeIconSize()， 起 26）。
+            // 拿版本树的 18 来量的话，`QIcon::pixmap()` 会把手里那张缩一遍，缩出来的像素和
+            // `VersionIcons` 现画的那张**不相等**（草方块那块 16×16 贴图是最近邻放的）——
+            // 底下每一条都会红，而屏幕上什么都没错。
             const int markSize = MainWindowUI::instanceTreeIconSize();
             const auto rowIcon = [markSize](QTreeWidgetItem *item) -> QImage {
                 return item != nullptr ? item->icon(0).pixmap(markSize, markSize).toImage()
@@ -26091,10 +25525,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   "★ 没装加载器、也没有版本 json 的那一条：草方块（读不到 type 就当正式版，"
                   "不是「一个方块都不画」的那种空白）");
 
-            // ★ 这一条钉的是 versionChannelOf() 那条 json 回退：meta 里一个字都没写 type，
-            //   分类只能回实例自己的 json 里读。**两条一起看才作数** —— 光"等于快照版那个
-            //   图标"在"它其实一直是草方块、而快照版那个图标恰好是草方块"的时候也会绿，
-            //   所以同时要求它**不等于**草方块。
+            // 这一条钉的是 versionChannelOf() 那条 json 回退：meta 里一个字都没写 type，
+            // 分类只能回实例自己的 json 里读。**两条一起看才作数** —— 光"等于快照版那个
+            // 图标"在"它其实一直是草方块、而快照版那个图标恰好是草方块"的时候也会绿，
+            // 所以同时要求它**不等于**草方块。
             const int snapIndex = VersionCategory::channelIndex(
                 VersionCategory::channelFor(kSnapTemp, QStringLiteral("snapshot")));
             check(rowIcon(rowOfInstanceId(tree, kSnapTemp)) ==
@@ -26108,7 +25542,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             // ---- ② 点齿轮 / 点这一行别的地方 = 进这个实例的设置页 ----
             //
             // 两处都验：行尾那颗**齿轮**是"常显的那个入口"，行里别的地方（这里点的是版本名
-            // 左边那一截空白）是用户原话里那条"直接点空白区域（和左边图标版本名）"。
+            // 左边那一截空白）是要求里那条"直接点空白区域（和左边图标版本名）"。
             {
                 QTreeWidgetItem *target = rowOfInstanceId(tree, QStringLiteral("1.20.1"));
                 const QRect row = target != nullptr ? tree->visualItemRect(target) : QRect();
@@ -26244,7 +25678,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
 
                 // ---- ③b 同一格反过来那一颗：下箭头 = 取消置顶 ----
                 //
-                // 用户 2026-09-25 原话：「置顶组里的实例悬停时右侧显示下箭头，即取消置顶」。
+                // 要求：「置顶组里的实例悬停时右侧显示下箭头，即取消置顶」。
                 // 于是那一格是**一对反义词共用的一格**（见 MainWindowUI::rowUnpinRole()）：
                 // 不在里面 ⇒ ↑，已经在里面 ⇒ ↓。两个角色**互斥**，上面那条"不再摆上箭头"
                 // 现在守的是这前半句。
@@ -26295,7 +25729,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
 
             // ---- ③c 「置顶前的归属」：从某一个**组**里置顶的，取消置顶回到那个组 ----
             //
-            // 用户 2026-09-26 原话：「加一个记录置顶前这玩意属于哪一组的，用户直接塞的取消
+            // 要求：「加一个记录置顶前这玩意属于哪一组的，用户直接塞的取消
             // 置顶才归进未分类」—— 前半截（记下来、并且回到那里）就是这一段。上一段验的是
             // "置顶前没有归属"那一种（记 null、取消置顶时把那一条删掉），这一段验的是
             // "置顶前待在某个组里"那一种（记那个组 id、取消置顶写回去）。
@@ -26354,7 +25788,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
 
             // ---- ③d 用户**自己**塞进置顶组的 ⇒ 取消置顶落未分类 ----
             //
-            // 用户原话那一句的后半截：「用户直接塞的取消置顶才归进未分类」。这一档盘上
+            // 要求那一句的后半截：「用户直接塞的取消置顶才归进未分类」。这一档盘上
             // **没有记录**（「移入分组」不是置顶，它没有「置顶前」这么一回事；这一版之前
             // 就在置顶组里的老数据同理），所以只能落未分组 —— 猜不出它本来该在哪一组，
             // 而猜错的表现是"取消置顶之后它跳去了一个我没选过的组"。
@@ -26441,7 +25875,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
 
             // ---- ④ 垃圾桶 = 删除这个实例：先问一句 ----
             //
-            // 用户原话：「删除前需要弹窗提示」。两半都验：答「取消」一个字节都不动、
+            // 要求：「删除前需要弹窗提示」。两半都验：答「取消」一个字节都不动、
             // 答「删除」连目录一起没。
             {
                 QTreeWidgetItem *target = rowOfInstanceId(tree, kSnapTemp);
@@ -26511,7 +25945,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
 
     }
 
-    // ------------------------------------------------------------------
     header("T37. 实例页的搜索与筛选（§7.2）：搜什么 / 四颗 chip / 清空恢复原样");
     // ------------------------------------------------------------------
     // coding plan §7.2 原话：「搜索实例名、版本号、加载器；筛选原版/模组实例、可更新、
@@ -26522,9 +25955,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     // verify 的 ZS 段逐格念过了，不在这儿重复。
     //
     // 只有界面这一层说得准的两条钉在下面：
-    //   * 筛着的时候命中的那些组**摆成展开的**（不展开 = 命中条目躲在收着的组里，
-    //     用户看着像"搜不到"）；
-    //   * 清空之后各组回到**盘上记着的**那个样子 —— 因为"搜索"整件事一个字节都不许写盘。
+    // * 筛着的时候命中的那些组**摆成展开的**（不展开 = 命中条目躲在收着的组里，
+    // 用户看着像"搜不到"）；
+    // * 清空之后各组回到**盘上记着的**那个样子 —— 因为"搜索"整件事一个字节都不许写盘。
     {
         const QString groupFile = AppPaths::instanceGroupFilePath();
         QDir().remove(groupFile);
@@ -26537,8 +25970,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         //
         // 分组只写**两个自定义组**，名字故意不叫「原版」/「可安装mod」：默认那几档的名字里
         // 带着"模组"两个字，搜索词会撞上它们，而这一节要的是两格干净的组头。
-        // ★ 「甲组」**收着**（expanded=false）—— "清空搜索之后回到收着"那一条全靠它；
-        //   「乙组」开着，当对照（本来就展开的那组清空之后不该被翻成收着的）。
+        // 「甲组」**收着**（expanded=false）—— "清空搜索之后回到收着"那一条全靠它；
+        // 「乙组」开着，当对照（本来就展开的那组清空之后不该被翻成收着的）。
         const QString collapsedGroup = QStringLiteral("tf-甲组");
         const QString expandedGroup = QStringLiteral("tf-乙组");
         writeFileAt(groupFile,
@@ -26757,16 +26190,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
               "T37.9 这一节自己那份 wtfml.folders 和那条启动记录都删干净了");
     }
 
-    // ------------------------------------------------------------------
     header("T39. 服务端那一半：模式切换的接线 + 建服务端真的落了盘（coding plan §6 / M4-1）");
-    // ------------------------------------------------------------------
-    // §6.1 / §6.2 落到**接线**上的那几条 —— 这几条 ui_check 的 U34 验不到（那一节只搭
-    // MainWindowUI、拿不到真 MainWindow，也扫不了盘）：
-    //   * 点「服务端」那颗 chip ⇒ 界面切过去，**而且真的重扫了一遍 `<数据目录>/Servers`**；
-    //   * 盘上那一个服务端画成什么（显示名 / 状态 / 认的 id / 装好没装好）；
-    //   * 点「新建服务端…」开的那一页**收下之后真的建了目录 + 写了 `.wtfml-server`**，而且
-    //     建完自动切到「服务端」那一页让用户看见它。
-    //
     // 判据层（洗名字 / 认档 / 读写 meta）在 verify 的 ZW / ZX 段；这一节只验"这一按接出去
     // 是什么效果"。服务端根目录按用户的答复落在 `<数据目录>/Servers`（一个自己的文件夹，
     // 不碰 `versions/`、也不和客户端的 `servers.dat` 混）。
@@ -26808,11 +26232,11 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
               "空状态那句都找得到");
         if (wired) {
             // ---------- ① 起手：一个服务端都没有 ----------
-            // ★ 这里读的是 `isHidden()` 而**不是** `isVisible()`：起手界面停在客户端那一页，
-            //   服务端那一页整个是藏着的，于是它下面任何一个控件的 `isVisible()` 都是 false
-            //   —— 拿它判"空状态那句摆着没有"会假红。`isHidden()` 只问"这一个控件自己被
-            //   `setVisible(false)` 过没有"（`refreshServerList()` 用 `setVisible()` 摆它），
-            //   正是这里要问的那件事。
+            // 这里读的是 `isHidden()` 而**不是** `isVisible()`：起手界面停在客户端那一页，
+            // 服务端那一页整个是藏着的，于是它下面任何一个控件的 `isVisible()` 都是 false
+            // —— 拿它判"空状态那句摆着没有"会假红。`isHidden()` 只问"这一个控件自己被
+            // `setVisible(false)` 过没有"（`refreshServerList()` 用 `setVisible()` 摆它），
+            // 正是这里要问的那件事。
             check(!emptyLabel->isHidden() && serverTree->topLevelItemCount() == 0,
                   "★ T39.1 一个服务端都没有：空状态那句摆着、树里一行都没有",
                   QStringLiteral("空状态被藏=%1 行数=%2")
@@ -26932,7 +26356,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
 
             // ---------- ⑥ 下载页「服务端」那一栏那颗「新建服务端…」走同一条路 ----------
             //
-            // 2026-10-18（coding plan §1.4）：下载页左栏补了「服务端」一栏，那一页只有
+            // （coding plan §1.4）：下载页左栏补了「服务端」一栏，那一页只有
             // 一句说明 + 一颗「新建服务端…」。它和实例页那颗**必须**是同一个动作 ——
             // 另写一条实现的话，两边迟早会在"建什么、建到哪儿"上分家。
             {
@@ -26976,24 +26400,14 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         check(AppPaths::minecraftDir() == originalDir, "T39.9 数据根目录换回来了");
     }
 
-    // ------------------------------------------------------------------
     header("T40. 服务端安装那四段真的跑起来（coding plan §6.2 / M4-2）");
-    // ------------------------------------------------------------------
-    // M4-2 里那几条只能在这一层验（`ui_check` 的 U35 只搭 `NewServerPage` —— 那一页不联网、
-    // 不碰盘，验不到这里）：
-    //   * 按下「创建」之后账本上真的多出一项 `Install`（标题带 serverId、目标就是它），而且
-    //     **当趟就把东西下下来**：`Servers/<id>/server.jar` 落盘、字节一字不差；
-    //   * 装完那一行从「未安装」变成「可启动」（判据和任务中心那句「装好了」**同一个出处**）；
-    //   * Spigot 那一档：留它在下拉框里，但「创建」点不动、摘要逐字就是那句「暂时不支持」；
-    //   * 「取消」把那一项收成 **Cancelled**（不是 Failed），而且**不留半份 server.jar**。
+    // 全程一个外网请求都不发：原版那一档的地址取自**本地**那份版本 json，而那份 json 里
+    // 写的是指向 127.0.0.1 上一台假服务器的地址（下载器把 URL 原样用，见
+    // `DownloadManager::effectiveDownloadUrl` —— 只有「镜像降级且知道官方那条」才会改道）。
     //
-    // ★ 全程一个外网请求都不发：原版那一档的地址取自**本地**那份版本 json，而那份 json 里
-    //   写的是指向 127.0.0.1 上一台假服务器的地址（下载器把 URL 原样用，见
-    //   `DownloadManager::effectiveDownloadUrl` —— 只有「镜像降级且知道官方那条」才会改道）。
-    //
-    // ★ 账本落在**启动器自己**那个固定位置（`TaskHistory::defaultHistoryPath()` 用的是
-    //   `defaultMinecraftDir()`，故意不跟当前游戏文件夹走），所以这一节只按**任务号**认
-    //   自己那几条 —— 同一个 exe 里别的节也往这本账里写，位置和条数都靠不住。
+    // 账本落在**启动器自己**那个固定位置（`TaskHistory::defaultHistoryPath()` 用的是
+    // `defaultMinecraftDir()`，故意不跟当前游戏文件夹走），所以这一节只按**任务号**认
+    // 自己那几条 —— 同一个 exe 里别的节也往这本账里写，位置和条数都靠不住。
     {
         const QString originalDir = AppPaths::minecraftDir();
         QTemporaryDir root;
@@ -27063,12 +26477,12 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         // ---------- 本地那份版本 json ----------
         // 原版那一档的地址就在 `downloads.server` 里（`ServerInstallRun::needFor()` 说这一档
         // 要 `VersionJson`），而驱动层**先看本地**：盘上有这个版本就一个请求都不发。
-        // ★ 前四个字节必须是 zip 的本地文件头（`PK\x03\x04`）：`DownloadManager` 收尾那一段
-        //   有一条"jar 就得是 zip"的判据（`shouldBeZipArchive` + `looksLikeZipArchive`，
-        //   见 onDownloadReplyFinished 里那一支），**字节数对得上也一样会走它** —— 一段
-        //   `FAKE-SERVER-…` 开头的正文会被当场**从盘上删掉**，于是这一节看到的是"文件没了"
-        //   （2026-10-13 实测：#13 那次 T40.3 报的就是 `Not a zip archive`）。
-        //   我们造假的是"服务端的那份 jar"，所以它得像一份 jar。
+        // 前四个字节必须是 zip 的本地文件头（`PK\x03\x04`）：`DownloadManager` 收尾那一段
+        // 有一条"jar 就得是 zip"的判据（`shouldBeZipArchive` + `looksLikeZipArchive`，
+        // 见 onDownloadReplyFinished 里那一支），**字节数对得上也一样会走它** —— 一段
+        // `FAKE-SERVER-…` 开头的正文会被当场**从盘上删掉**，于是这一节看到的是"文件没了"
+        // （ 实测：#13 那次 T40.3 报的就是 `Not a zip archive`）。
+        // 我们造假的是"服务端的那份 jar"，所以它得像一份 jar。
         const QByteArray jarBody = QByteArrayLiteral("PK\x03\x04") +
                                    QByteArrayLiteral("FAKE-SERVER-JAR-") +
                                    QByteArray(2048, 'j');
@@ -27204,7 +26618,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         // ---------- ② 装满：盘上真有那一份、字节一字不差 ----------
         // 这一节把产品自己写的那几行日志流出来（`pumpUntil` 的 `printedOut`）：一个卡住的
         // 安装和一个还没跑完的安装长得一模一样，而这四段走到哪儿只有那几行 message 说得清
-        //（进度不进日志 —— 产品级硬约束）。游标从**这一节开始**算，别把前 39 节的日志倒一遍。
+        // （进度不进日志 —— 产品级硬约束）。游标从**这一节开始**算，别把前 39 节的日志倒一遍。
         int logCursor = g_messages.size();
         const bool installDone = pumpUntil(
             [&] {
@@ -27422,38 +26836,37 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         check(AppPaths::minecraftDir() == originalDir, "T40.9 数据根目录换回来了");
     }
 
-    // ------------------------------------------------------------------
     header("T18. 实例设置「概览」栏那四行：图标+名称 / 两颗按钮 / 置顶勾选 / 导出占位");
     // ------------------------------------------------------------------
-    // 用户 2026-09-26 原话：「第一行 图标 名称 / 第二行 更改图标 分组… / 第三行 显示在置顶组
+    // 要求：「第一行 图标 名称 / 第二行 更改图标 分组… / 第三行 显示在置顶组
     // 中 / 第四行 导出」（这一版之前是「概览（版本名、图标，分组，置顶/取消置顶）」）。
     //
     // 控件那一半（预览 + 八颗候选 + 两个浮层 + 勾选框的形状与初值）在 ui_check 的 U0h 里
     // 逐条验过；这里验**接线那一半**：页面上摆成什么样 → 磁盘上（wtfml.meta / wtfml.folders）
     // 变成什么样 → 那片实例树画成什么样。几行各有一处**只有这一层才可能错**的地方：
     //
-    //   · 分组：那一格的初值必须取**显示层**算出来的那一组（MainWindow::displayGroupIdOf），
-    //     不能取"文件里存的那一格"（InstanceGroupStore::groupIdOf）—— 一个从来没表过态的
-    //     实例，前者是它此刻显示在的那一组、后者是空的。取错的表现：用户点进设置页什么都
-    //     不动就收页，它就被写进「未分组」，从此再也不会被自动归类。
-    //   · 置顶：勾上 / 取消那两条（2026-09-26 起是**两边都显示**：老家那一条不动、置顶组里
-    //     多一条同名的），以及"这一份 .minecraft 里根本没有置顶组"那一档 —— 那一档里勾选
-    //     **什么也不该发生**，尤其不该把用户明确选的那个组一起吞掉。
-    //   · 图标：三种形态（默认 / 内置候选 / 本地那张）在树上画的是不是同一张。判据一律拿
-    //     VersionIcons 现算出来比，并**同时要求它不等于原来那个默认图** —— 只比"等于某某"
-    //     在两种形态恰好同图时会假绿。
+    // · 分组：那一格的初值必须取**显示层**算出来的那一组（MainWindow::displayGroupIdOf），
+    // 不能取"文件里存的那一格"（InstanceGroupStore::groupIdOf）—— 一个从来没表过态的
+    // 实例，前者是它此刻显示在的那一组、后者是空的。取错的表现：用户点进设置页什么都
+    // 不动就收页，它就被写进「未分组」，从此再也不会被自动归类。
+    // · 置顶：勾上 / 取消那两条（ 起是**两边都显示**：老家那一条不动、置顶组里
+    // 多一条同名的），以及"这一份 .minecraft 里根本没有置顶组"那一档 —— 那一档里勾选
+    // **什么也不该发生**，尤其不该把用户明确选的那个组一起吞掉。
+    // · 图标：三种形态（默认 / 内置候选 / 本地那张）在树上画的是不是同一张。判据一律拿
+    // VersionIcons 现算出来比，并**同时要求它不等于原来那个默认图** —— 只比"等于某某"
+    // 在两种形态恰好同图时会假绿。
     //
     // 驱动方式走**产品那条路**：openInstanceSettings → 在页面上摆控件（那一下就是写盘的
-    // 那一下，2026-09-26 起这一页没有「确定」了）→ 点返回箭头收页（和 S2 那一节同一个
+    // 那一下， 起这一页没有「确定」了）→ 点返回箭头收页（和 S2 那一节同一个
     // 形状）。每次都在**新开的窗**里读树：写盘之后数据层会发 groupsChanged 把
     // 树整个重灌（tree->clear()），同一扇窗里的旧指针是野的 —— 顺手也把"关掉再打开启动器"
     // 这条最接近用户真实动作的路一起验了。
     //
     // NOTE: 「选一张图片…」那一颗**故意不点**：它开的是 Windows 自己的文件选择框
-    //       （QFileDialog::getOpenFileName），模态、offscreen 下驱动不了 —— 和 ui_check 里
-    //       「上传皮肤…」那一条逐字同一个理由。所以本地那张图这里验的是**读**侧（盘上躺着
-    //       一张真的 PNG + meta 里写着 local ⇒ 树画的就是它；那张图坏了就退回默认），
-    //       写侧（挑一张 → 拷进实例目录 → meta 写 local）只有人工过一遍才算验过。
+    // （QFileDialog::getOpenFileName），模态、offscreen 下驱动不了 —— 和 ui_check 里
+    // 「上传皮肤…」那一条逐字同一个理由。所以本地那张图这里验的是**读**侧（盘上躺着
+    // 一张真的 PNG + meta 里写着 local ⇒ 树画的就是它；那张图坏了就退回默认），
+    // 写侧（挑一张 → 拷进实例目录 → meta 写 local）只有人工过一遍才算验过。
     {
         const QString kId = QStringLiteral("1.20.1");
         const QString kModdable = QStringLiteral("default-moddable");  // 「可安装mod」
@@ -27552,17 +26965,17 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         // 同一个形状。tweak 拿到的是那一层浮层 + **那一页本身**（读初值、点浮层里那几行
         // 都从它上面走）+ 置顶勾选框。没找到的会是 nullptr。
         //
-        // ★ 2026-09-26：这一页**没有「确定」了**（用户原话「那个取消和确定删了，修改了的
-        //   设置实时写入」）—— 所以 tweak 里那一下**本身就是写盘的那一下**，下面那一发
-        //   返回箭头只是把页面收掉。于是 tweak 必须用**真的会发信号**的动作：
-        //   `QCheckBox::setChecked()` 不是用户动作（只发 toggled、不发 clicked，接线接不到），
-        //   要点就写 `click()`。S2b 那一条（改一格 → 恰好一发 settingsEdited）钉的就是
-        //   这层因果。
+        // 这一页**没有「确定」了**（要求「那个取消和确定删了，修改了的
+        // 设置实时写入」）—— 所以 tweak 里那一下**本身就是写盘的那一下**，下面那一发
+        // 返回箭头只是把页面收掉。于是 tweak 必须用**真的会发信号**的动作：
+        // `QCheckBox::setChecked()` 不是用户动作（只发 toggled、不发 clicked，接线接不到），
+        // 要点就写 `click()`。S2b 那一条（改一格 → 恰好一发 settingsEdited）钉的就是
+        // 这层因果。
         //
-        // NOTE: 2026-09-26 之前这一格是一个 **QComboBox**，所以助手收的是 `QComboBox *`；
-        //       换成「一颗按钮 + 一个浮层」之后，读初值走 `chosenGroupId()`、改值走
-        //       **点浮层里那一行**（按名字找行，见 clickGroupRow）。收 QWidget* 是因为
-        //       那一页在 OverlayHost 里是 `QWidget *`，要往下转型才问得出这两件事。
+        // NOTE: 之前这一格是一个 **QComboBox**，所以助手收的是 `QComboBox *`；
+        // 换成「一颗按钮 + 一个浮层」之后，读初值走 `chosenGroupId()`、改值走
+        // **点浮层里那一行**（按名字找行，见 clickGroupRow）。收 QWidget* 是因为
+        // 那一页在 OverlayHost 里是 `QWidget *`，要往下转型才问得出这两件事。
         bool sawPage = false;
         QString comboValue;
         bool pinChecked = false;
@@ -27594,7 +27007,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                     pinChecked = pin->isChecked();
                 }
                 tweak(host, page, pin);
-                // 收页走**返回箭头**：2026-09-26 起这一页没有「确定」了（用户原话「那个
+                // 收页走**返回箭头**： 起这一页没有「确定」了（要求「那个
                 // 取消和确定删了，修改了的设置实时写入」）—— 该写的东西在 tweak 里那一
                 // 下就写完了，这一发只是把页面收掉（= reject，见 OverlayHost::execPage）。
                 if (auto *back =
@@ -27611,9 +27024,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         // 点「分组…」那个浮层里**组名是 name 的那一行**（= 用户在这一格上改了一次归属）。
         //
         // NOTE: 那几行是**常驻**的（浮层一次建好、以后每次点按钮只是再弹一遍），所以不用
-        //       先把浮层点开就能按名字找到它们；点了之后浮层自己会收起来。
+        // 先把浮层点开就能按名字找到它们；点了之后浮层自己会收起来。
         // NOTE: 当前那一行是**灰的**（点它等于什么都没做），`click()` 对禁用的按钮是空操作 ——
-        //       所以"点了没换组"和"这一行本来就灰着"在下面撞不出来，断言要按这一条写。
+        // 所以"点了没换组"和"这一行本来就灰着"在下面撞不出来，断言要按这一条写。
         const auto clickGroupRow = [](InstanceSettingsDialog *page, const QString &name) {
             for (int i = 0; page != nullptr; ++i) {
                 auto *row = page->findChild<QPushButton *>(
@@ -27662,11 +27075,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         }
 
         // ---- ③ 勾上「显示在置顶组中」：置顶组里多一条同名的，老家那一条**不动** ----
-        //
-        // ★ 2026-09-26 用户把置顶改成**两边都显示**（原话：「就是在被设为置顶组的那个组里
-        //   再放一个同名的」）。所以这一节的形状和之前不一样了：盘上 members 那一格仍然
-        //   指着置顶组（那是"在不在置顶组里"的判据），而**树上它同时出现在两个组里** ——
-        //   老家「原版」那一条从头到尾不动，置顶组里多出来一条同名的。
         {
             editAndSave(kId, [&](QWidget *, InstanceSettingsDialog *, QCheckBox *pin) {
                 if (pin != nullptr) {
@@ -27709,10 +27117,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         }
 
         // ---- ⑤ 这一份 .minecraft 里**没有置顶组**：勾选什么也不该发生，但用户选的组要算数 ----
-        //
-        // 摆"没有置顶组"这个状态走的是文件（删组那个动作在 GroupDialog 里、是模态的，ui_check
-        // 那一半验过形状），这一节要的只是那个**状态**。用户真会碰到的来路：他把「置顶」那一组
-        // 删了（默认组是可以删的，用户原话「默认可以删除」）。
         {
             QJsonObject root = QJsonDocument::fromJson(readBytesAt(groupFile)).object();
             QJsonArray kept;
@@ -27728,15 +27132,15 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   "T18 前提：「置顶」那一组从文件里删掉了（默认组本来就可以删）",
                   QStringLiteral("%1 -> %2").arg(groups.size()).arg(kept.size()));
 
-            // ★ 顺序是"先勾上、再自己挑一个组"。**这一格在产品里是灰的**（没有置顶组时
-            //   setPinned() 把它灰掉并说清为什么），所以用户实际上勾不动它 —— 这里先把它
-            //   解开（`setEnabled(true)`，产品不会这么做）再 `click()`，就是想"万一勾上了"
-            //   那条路走一遍：结果必须是**什么都不发生**，而用户自己挑的那个组照旧算数。
-            //   （两件事现在本来就各管各的。）
+            // 顺序是"先勾上、再自己挑一个组"。**这一格在产品里是灰的**（没有置顶组时
+            // setPinned() 把它灰掉并说清为什么），所以用户实际上勾不动它 —— 这里先把它
+            // 解开（`setEnabled(true)`，产品不会这么做）再 `click()`，就是想"万一勾上了"
+            // 那条路走一遍：结果必须是**什么都不发生**，而用户自己挑的那个组照旧算数。
+            // （两件事现在本来就各管各的。）
             //
             // NOTE: 这一发必须是 `click()`：`setChecked()` 只发 toggled、不发 clicked，
-            //       而"改了就写"那条线接的是 clicked —— 用 setChecked 的话这一格在**接线
-            //       那侧**等于没动过，这一节就走了个空（S2b 钉住的就是这层因果）。
+            // 而"改了就写"那条线接的是 clicked —— 用 setChecked 的话这一格在**接线
+            // 那侧**等于没动过，这一节就走了个空（S2b 钉住的就是这层因果）。
             editAndSave(kId, [&](QWidget *, InstanceSettingsDialog *page, QCheckBox *pin) {
                 if (pin != nullptr) {
                     pin->setEnabled(true);
@@ -27842,26 +27246,25 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
               "T18 收拾：1.20.1 的 meta 逐字节还原，icon.png 和这份 wtfml.folders 都删掉了");
     }
 
-    // ------------------------------------------------------------------
     header("U. 每实例设置：实例覆盖写在实例里，不渗到全局");
     // ------------------------------------------------------------------
     // 产品里能**改**覆盖的地方是那个模态对话框，它自己那一半在 ui_check 的 U 段逐条
     // 验过（控件 → Override 值、空路径归一、自动档下两行内存不落值）。这里验 MainWindow
     // 这一半，而这一半里真正会错的是**作用域**：
-    //   - 一个实例的覆盖写进了全局配置（用户手填的全局 Java 路径、全局内存被某个实例盖掉）；
-    //   - 失败路径上留下半截写入。
+    // - 一个实例的覆盖写进了全局配置（用户手填的全局 Java 路径、全局内存被某个实例盖掉）；
+    // - 失败路径上留下半截写入。
     //
     // NOTE: 覆盖生效之后"这次启动到底用哪套值"由 verify 的 R 段逐条钉住
-    //       （resolveJavaSettings 六项 × 跟随/覆盖 + 钳位）；这里验的是它**没有副作用**。
+    // （resolveJavaSettings 六项 × 跟随/覆盖 + 钳位）；这里验的是它**没有副作用**。
     //
     // NOTE: 以前这里写着"`resolveMemoryForLaunch()` 里那条「实例要的自动档 → 结果不写回
-    //       全局」证不到，因为让 Java 那一步成功要真的起一个 JVM"。现在证得到了 ——
-    //       U4～U7 用"空文件 + release 文件"造的假运行时把 Java 那一步走通，全程不起进程，
-    //       于是那条分支也跟着被跑到了（U6 那条"别的项一个都没丢"就是它）。
+    // 全局」证不到，因为让 Java 那一步成功要真的起一个 JVM"。现在证得到了 ——
+    // U4～U7 用"空文件 + release 文件"造的假运行时把 Java 那一步走通，全程不起进程，
+    // 于是那条分支也跟着被跑到了（U6 那条"别的项一个都没丢"就是它）。
     {
         // U 段每一步都要点启动，而启动那条路的第一道门是**凭据**（onStartButtonClicked
-        // 在拿不到令牌时弹窗返回，Java 那一步根本走不到）。2026-09-24 之前这里是在每个
-        // 窗口里勾一下主页那个「离线模式」勾选框；那个勾选框去掉了（用户原话：「不要启动
+        // 在拿不到令牌时弹窗返回，Java 那一步根本走不到）。 之前这里是在每个
+        // 窗口里勾一下主页那个「离线模式」勾选框；那个勾选框去掉了（要求：「不要启动
         // 界面那个离线登录勾选框了，在添加账户那里选择添加离线账号」），于是"这一趟走
         // 离线"只剩一个出处：**当前账号本身是不是离线账号**（MainWindow::offlineIdentity()）。
         //
@@ -27870,10 +27273,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         // 收拾的事不用管：Z 段一开头就把这几个键清干净了。
         //
         // NOTE: 从这一句起直到 Z 段把账号清掉，**每一个 `MainWindow w;` 都是在离线身份下
-        //       起来的**，构造函数末尾那句 startPlayerSkinLoad() 会走"离线账号要随机皮肤"
-        //       那条路。所以外观必须在建账号**之前**预置好（预置 = 盘上记一张 + 缓存里有
-        //       图本体 → 那一路变成同步命中，一个包都不发）。否则这里会真去问 MineSkin，
-        //       而且回来的东西会写日志、换掉屏幕上的脸 —— 见 seedOfflineRandomSkin 那段。
+        // 起来的**，构造函数末尾那句 startPlayerSkinLoad() 会走"离线账号要随机皮肤"
+        // 那条路。所以外观必须在建账号**之前**预置好（预置 = 盘上记一张 + 缓存里有
+        // 图本体 → 那一路变成同步命中，一个包都不发）。否则这里会真去问 MineSkin，
+        // 而且回来的东西会写日志、换掉屏幕上的脸 —— 见 seedOfflineRandomSkin 那段。
         seedOfflineRandomSkin(QStringLiteral("mwcheck"), kSeededSkinUrl,
                               QColor(0x30, 0x90, 0xD0));
         {
@@ -27995,11 +27398,11 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         // 机器上得真装着一个匹配的运行时，还得真的起一个 JVM。有"假运行时"这个办法之后
         // 就不用付那个代价了：
         //
-        //   一个**空文件**当 java.exe，旁边一个 release 文件写着 JAVA_VERSION。
-        //   GlobalJavaSettings::probeJavaMajorVersion() 走的是"先读 release、读到就 return"
-        //   那条快路径（这正是它在产品里快的原因），所以版本是从文件里读出来的、进程一次
-        //   都没起过 —— 而且那条路正是 scanLocalJavaVersions() 认版本用的同一条，
-        //   于是假运行时能被真的"扫到"。
+        // 一个**空文件**当 java.exe，旁边一个 release 文件写着 JAVA_VERSION。
+        // GlobalJavaSettings::probeJavaMajorVersion() 走的是"先读 release、读到就 return"
+        // 那条快路径（这正是它在产品里快的原因），所以版本是从文件里读出来的、进程一次
+        // 都没起过 —— 而且那条路正是 scanLocalJavaVersions() 认版本用的同一条，
+        // 于是假运行时能被真的"扫到"。
         //
         // fake17 一定会在 scanLocalJavaVersions() 里胜出：那个函数先扫 AppPaths::javaDir()
         // （就是这里），原版启动器那份运行时只在"这个主版本还没有"时才补位（first-wins）。
@@ -28019,7 +27422,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
               "U4 前提：两个假运行时都认得出主版本（读 release 就够了，一次进程都没起）");
 
         // 专用实例：version.json 要的是 Java 17，而实例钉的是 fake8 —— 正是"对不上"。
-        // meta 里还塞了一个无关的键（当年是 autoMemory，2026-10-18 起读侧已经不认它了，
+        // meta 里还塞了一个无关的键（当年是 autoMemory， 起读侧已经不认它了，
         // 见 EffectiveJavaSettings.cpp）：它现在的用处是钉住"合并写"——「改用匹配的 Java」
         // 往 meta 里只该改 javaPath 那一项，别的键一个都不许丢。
         const QString remindId = QStringLiteral("版本提醒测试");
@@ -28071,11 +27474,11 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             QMetaObject::invokeMethod(&w, "onStartButtonClicked", Qt::DirectConnection);
             QApplication::processEvents();
 
-            // ★ 2026-10-20：这里原来断言"一个框都没弹"，因为进程起不来那条路以前只写日志。
-            //   现在产品会**弹一条「无法启动」**（见 LaunchController 里那份 processError 的
-            //   接法）—— 假的 java.exe 是个**空文件**，CreateProcess 当然起不来，所以说的是
-            //   「不是有效的 Win32 应用程序」。这一节真正要钉住的是"**不该**落到
-            //   `Java 运行时缺失` 那条硬错误上"，不是"一个框都不许有"。
+            // 这里原来断言"一个框都没弹"，因为进程起不来那条路以前只写日志。
+            // 现在产品会**弹一条「无法启动」**（见 LaunchController 里那份 processError 的
+            // 接法）—— 假的 java.exe 是个**空文件**，CreateProcess 当然起不来，所以说的是
+            // 「不是有效的 Win32 应用程序」。这一节真正要钉住的是"**不该**落到
+            // `Java 运行时缺失` 那条硬错误上"，不是"一个框都不许有"。
             check(!g_modalText.contains(QStringLiteral("Java 运行时"))
                       && !g_modalText.contains(QStringLiteral("请手动指定 Java 路径")),
                   "U4 没有弹「Java 运行时缺失」（走了新那条路，不该再落到硬错误上）",
@@ -28217,10 +27620,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         }
     }
 
-    // ------------------------------------------------------------------
     header("AG. 左下角那颗状态方块：走产品那条启动路，黄的那一态真的亮起来");
     // ------------------------------------------------------------------
-    // 用户原话（2026-09-24）：「左下角没有实例的时候显示（红色的）■（默认的黑色）当前没有
+    // 要求：「左下角没有实例的时候显示（红色的）■（默认的黑色）当前没有
     // 运行中的实例，启动的时候那个符号（也可以画图代替）变成黄色，文本为版本名（没有就
     // 版本号-加载器名称，**不受名字显示设置影响**）启动中... 启动以后符号变成绿色，和原来
     // 一样」。
@@ -28248,7 +27650,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
 
         // 假 java：**这个 exe 的副本**，旁边摆一个 release 文件。
         // NOTE: release 文件非摆不可 —— 没有它，探主版本那一步会真的去跑一次
-        //       `java.exe -version`（见 GlobalJavaSettings::probeJavaMajorVersion）。
+        // `java.exe -version`（见 GlobalJavaSettings::probeJavaMajorVersion）。
         const QDir fakeJavaDir(root.filePath(QStringLiteral("java/state17")));
         fakeJavaDir.mkpath(QStringLiteral("bin"));
         const QString fakeJava = fakeJavaDir.filePath(QStringLiteral("bin/java.exe"));
@@ -28262,9 +27664,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             // 自定义名 —— 「启动中」那句里的名字就是它（不受显示设置影响的写法，
             // 规则本身在 verify 的 I7 段逐条钉过）。
             // NOTE: 盘上这个键叫 **"name"**，不叫 "customName"：VersionDisplayParts 里那个
-            //       成员叫 customName，而 VersionManager::displayParts() 读的是 meta 里的
-            //       "name"（见那边 readString("name") 那行）。写错了不报错 —— 名字静默地
-            //       退回目录名，断言那边看着就像"名字规则坏了"。
+            // 成员叫 customName，而 VersionManager::displayParts() 读的是 meta 里的
+            // "name"（见那边 readString("name") 那行）。写错了不报错 —— 名字静默地
+            // 退回目录名，断言那边看着就像"名字规则坏了"。
             meta.insert(QStringLiteral("name"), customName);
             writeFileAt(stateDir.filePath(QStringLiteral("wtfml.meta")),
                         QJsonDocument(meta).toJson(QJsonDocument::Compact));
@@ -28345,17 +27747,17 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       shot.pixelColor(shot.width() / 2, shot.height() / 2).name());
 
                 // ---- ③ 会话被**硬停**掉之后 → 红（「有实例异常退出」） ----
-                // ★ 2026-10-15 用户改了这一档：「黄和绿不变，红色改有实例报错，没有实例用灰
-                //   色」。所以"停掉之后"现在**不是**"没实例"那一档（那是灰），而是"账上还有
-                //   没处理的异常退出"那一档 —— 而这一步正好造出那种情形：
+                // 用户改了这一档：「黄和绿不变，红色改有实例报错，没有实例用灰
+                // 色」。所以"停掉之后"现在**不是**"没实例"那一档（那是灰），而是"账上还有
+                // 没处理的异常退出"那一档 —— 而这一步正好造出那种情形：
                 //
-                //   这里走的是 `LauncherManager::stopGame()` 这个**裸**接口（产品那条路是
-                //   `GameSessionController::stopGameSession()`，它会先把会话记成"用户主动
-                //   停止"，见 `m_userStoppedSessions`）。少了那一笔，这一趟在会话那一层就是
-                //   一次**异常退出**（`kill()` 是 TerminateProcess，Qt 报的是
-                //   CrashExit / 0xf291）⇒ 账本上补一项「游戏异常退出」，方块该是红的。
-                //   换句话说：这一节同时把"红是从哪来的"这条链路真跑了一遍（进程 → 会话 →
-                //   账本 → 底栏那一格），这正是红那一档唯一说得出话的判据。
+                // 这里走的是 `LauncherManager::stopGame()` 这个**裸**接口（产品那条路是
+                // `GameSessionController::stopGameSession()`，它会先把会话记成"用户主动
+                // 停止"，见 `m_userStoppedSessions`）。少了那一笔，这一趟在会话那一层就是
+                // 一次**异常退出**（`kill()` 是 TerminateProcess，Qt 报的是
+                // CrashExit / 0xf291）⇒ 账本上补一项「游戏异常退出」，方块该是红的。
+                // 换句话说：这一节同时把"红是从哪来的"这条链路真跑了一遍（进程 → 会话 →
+                // 账本 → 底栏那一格），这正是红那一档唯一说得出话的判据。
                 LauncherManager *manager = w.findChild<LauncherManager *>();
                 check(manager != nullptr, "AG3 拿得到那个 LauncherManager");
                 if (manager != nullptr) {
@@ -28406,9 +27808,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         }
     }
 
-    // ------------------------------------------------------------------
     header("Y. 下载页「模组加载器」那组钮的接线");
-    // ------------------------------------------------------------------
     {
         // 用别名而不是 `using VersionManager::LoaderKind`：后者在块作用域里
         // GCC 直接报「using-declaration for member at non-class scope」。
@@ -28419,8 +27819,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         const int installsBeforeY = countOccurrences(g_messages, QStringLiteral("开始安装"));
 
         // Y1. 界面上那张表和 VersionManager 认的加载器**同序同名**。这两张表一个摆控件、
-        //     一个把下标翻成枚举，对不上的症状是「勾了 Fabric 装出 Forge」：不报错、
-        //     不崩，只是装错东西 —— 所以哪怕这条看着像在验一张常量表，也得验。
+        // 一个把下标翻成枚举，对不上的症状是「勾了 Fabric 装出 Forge」：不报错、
+        // 不崩，只是装错东西 —— 所以哪怕这条看着像在验一张常量表，也得验。
         const QStringList names = MainWindowUI::modLoaderOptionNames();
         const QStringList texts = MainWindowUI::modLoaderOptionTexts();
         const int kindCount = VersionManager::loaderKindCount();
@@ -28478,20 +27878,17 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
               "四个加载器都接通了（2026-09-22 起 OptiFine 也能装）");
 
         // Y2. 真窗口上那棵加载器树：五条顶层条目、每条的身份就是下标、**点一下真的会
-        //     改掉"要装哪一个"**（用户原话："做成和上一页的版本选择相同的模式，点击以后
-        //     展开版本，选择版本以后收缩，显示版本"）。
+        // 改掉"要装哪一个"**（要求："做成和上一页的版本选择相同的模式，点击以后
+        // 展开版本，选择版本以后收缩，显示版本"）。
         //
-        // NOTE: 2026-09-23 之前这里戳的是五个 QRadioButton + 一个 QButtonGroup。
-        //       "选中哪一条"现在住在 MainWindow::m_selectedLoaderIndex 里（界面上**没有**
-        //       任何"勾"的状态），所以可观察的东西只剩两样：
-        //         · 名称框里的默认名（勾了 Forge 就是 `1.21.4-Forge`）；
-        //         · 那棵树每一行第二行的小字（选中的那条写自己钉的版本号，其余几条写
-        //           「与 X 不兼容」）。
-        //       这两样正是用户看得见的东西，比"组里的 checkedId"更接近用户实际拿到的那份。
+        // NOTE: 之前这里戳的是五个 QRadioButton + 一个 QButtonGroup。
+        // "选中哪一条"现在住在 MainWindow::m_selectedLoaderIndex 里（界面上**没有**
+        // 任何"勾"的状态），所以可观察的东西只剩两样：
+        // · 名称框里的默认名（勾了 Forge 就是 `1.21.4-Forge`）；
+        // · 那棵树每一行第二行的小字（选中的那条写自己钉的版本号，其余几条写
+        // 「与 X 不兼容」）。
+        // 这两样正是用户看得见的东西，比"组里的 checkedId"更接近用户实际拿到的那份。
         QTreeWidget *loaderTree = byObjectName<QTreeWidget>(&window, MainWindowUI::loaderTreeName());
-        // ★ 2026-10-18（P1）：树顶还多了一条「预设」行 —— 它不是加载器，身份是
-        //   `installPresetRowRole()`（负数）。这里按"身份 >= 0"把加载器那五条挑出来，
-        //   `rows.at(i)` 依旧等于第 i 个加载器；预设行单独在下面那一块里验。
         QVector<QTreeWidgetItem *> rows;
         for (int i = 0; loaderTree != nullptr && i < loaderTree->topLevelItemCount(); ++i) {
             QTreeWidgetItem *item = loaderTree->topLevelItem(i);
@@ -28540,8 +27937,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   .arg(names.size()));
 
         // NOTE: 下面这块整段是"按控件找得到才验"的 —— 找不到就只留下一条失败（上面那条），
-        //       不再往下戳 nullptr。找不到的典型原因是有人改了 objectName 或把控件挪了家，
-        //       那时候后面那十几条一起红只会淹没真正的原因。
+        // 不再往下戳 nullptr。找不到的典型原因是有人改了 objectName 或把控件挪了家，
+        // 那时候后面那十几条一起红只会淹没真正的原因。
         if (loaderTree != nullptr && rows.size() == names.size()) {
             int sameId = 0;
             int sameText = 0;
@@ -28563,20 +27960,13 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 subs << rowSubText(row);
             }
             // NOTE: 判据不能写成 `subs.join(...).isEmpty()` —— 五条空串 join 出来是
-            //       "||||"（非空），那样这条会永远红。得逐条判。
+            // "||||"（非空），那样这条会永远红。得逐条判。
             check(std::all_of(subs.cbegin(), subs.cend(),
                               [](const QString &s) { return s.isEmpty(); }),
                   "开局五条的第二行小字都是空的（还没选加载器，没什么可说的）",
                   subs.join(QLatin1Char('/')));
-            // 2026-09-23 起**点一条加载器不再选中它** —— 那一下只管展开/收起（用户原话：
-            // "点一下，展开，再点一下 关闭，现在是展开以后就自动选择"，最后半句正是要改掉
-            // 的旧样子）。选中改成"点它底下的版本号"那一下的事，而这一节在**进安装页之前**，
-            // 树底下还没有版本号（列表是进安装页才一次性问的），所以这里只验**反面**：
-            // 点一下之后五条的第二行小字**还是**空的（谁都没被选中）。
-            // 对着旧代码（点顶层 = 选中）这一条会当场变红。
-            //
             // NOTE: "点一下展开/再点一下关闭""选中之后其余几条变灰"这些都要有真条目才验得
-            //       出来，所以它们在 Y2c 里（那儿有产品自己填进去的那几条）。
+            // 出来，所以它们在 Y2c 里（那儿有产品自己填进去的那几条）。
             clickRow(loaderTree, rows.at(forgeIndex));
             QStringList subsAfterClick;
             for (QTreeWidgetItem *row : rows) {
@@ -28597,12 +27987,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
 
         // Y3. **删掉了**（原来是"勾一个没接通的加载器 -> 弹「还没做」"）。
         //
-        // 2026-09-22 OptiFine 接通之后四个加载器全通了，界面上再也没有"没接通"的钮可点，
-        // 这一段整体删掉 —— 留着它就得靠一个**不存在**的加载器去点，那是自欺。
-        //
         // NOTE: startLoaderInstall() 里那段守卫**故意留着**（见那边的 NOTE）：将来往枚举
-        //       里加第五个加载器时正是它接住"数据层还没接上"那种情况。OptiFine 真装一次的
-        //       端到端证明搬到了 `verify.exe loader-install 1.18.2 optifine`（联网那条）。
+        // 里加第五个加载器时正是它接住"数据层还没接上"那种情况。OptiFine 真装一次的
+        // 端到端证明搬到了 `verify.exe loader-install 1.18.2 optifine`（联网那条）。
 
         // Y3/Y4 两段都在**安装页**上戳：进安装页（点树里一个版本号那条路）→ 名称框里
         // 是默认名 → 点一条加载器 → 按「安装」。控件**全都得找回来**（找不到的典型原因
@@ -28640,11 +28027,11 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             // 的事 —— 跟那个版本号是清单里来的还是手写进来的无关。
             //
             // NOTE: 这一页要**真的翻到前面来**（下面 Y2b/Y2c 验的是"页面上看得见的行为"）。
-            //       藏在别的页后面的控件不排布局，而"灌列表顺手把那一行撑开"这件事只有在
-            //       控件可见时才会发生 —— 那条撑开的路是
-            //       QAbstractItemView::currentChanged → `if (d->autoScroll) scrollTo(...)`，
-            //       而它在 isVisible() 为假时只记一句"等显示出来再说"，什么都不做。
-            //       （验过：把 bug 放回去，翻页前这一节全绿、翻页后当场红。）
+            // 藏在别的页后面的控件不排布局，而"灌列表顺手把那一行撑开"这件事只有在
+            // 控件可见时才会发生 —— 那条撑开的路是
+            // QAbstractItemView::currentChanged → `if (d->autoScroll) scrollTo(...)`，
+            // 而它在 isVisible() 为假时只记一句"等显示出来再说"，什么都不做。
+            // （验过：把 bug 放回去，翻页前这一节全绿、翻页后当场红。）
             QTabWidget *downloadTabs = window.findChild<QTabWidget *>(MainWindowUI::tabWidgetName());
             const int tabBeforeInstall = downloadTabs != nullptr ? downloadTabs->currentIndex() : -1;
             if (downloadTabs != nullptr) {
@@ -28660,7 +28047,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             check(installNameEdit->text() == kPickedId,
                   "名称框里的默认名就是那个原版号（没勾加载器时就是它本身）",
                   installNameEdit->text());
-            // 重名提示是**实时**的（用户原话"如果文件夹里有重名则在下方小字提示"）：
+            // 重名提示是**实时**的（要求"如果文件夹里有重名则在下方小字提示"）：
             // 进安装页那一刻就该算出来了，不用等用户去点一下别的地方。
             check(installNameHint->text().contains(QStringLiteral("已经有叫「%1」的实例了")
                                                       .arg(kPickedId)),
@@ -28671,7 +28058,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   installNameHint->text());
             check(installBtn->isEnabled(), "默认名合法，「安装」是亮的");
 
-            // 实例预设那一行（2026-10-18，coding plan §10.1 P1「OptiFine 下预设行、
+            // 实例预设那一行（，coding plan §10.1 P1「OptiFine 下预设行、
             // 紧凑弹窗、四类切换及本次安装选择」）。它现在**是加载器树上的第六行**，
             // 不再是卡片里那三件控件（老的下拉框 / 查看 / 勾选框已经整块退场）。
             // 这一行的身份是负数（`installPresetRowRole()`），所以加载器那张下标表
@@ -28798,15 +28185,15 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       QString("%1 → %2").arg(pageBefore).arg(gameStack->currentIndex()));
             }
 
-            // Y2b. **列表是进这一页就全问出去的**，不是点开哪条才问哪条（用户原话：
-            //      "获取列表不能点开了再获取，得全获取完"）。所以此刻四条加载器底下都已经
-            //      摆好了一格东西（占位「正在获取…」，离线时很快会被换成
-            //      「自动（推荐）」+「列表没取到」）。两样都算数，判据是"底下不是空的"。
+            // Y2b. **列表是进这一页就全问出去的**，不是点开哪条才问哪条（要求：
+            // "获取列表不能点开了再获取，得全获取完"）。所以此刻四条加载器底下都已经
+            // 摆好了一格东西（占位「正在获取…」，离线时很快会被换成
+            // 「自动（推荐）」+「列表没取到」）。两样都算数，判据是"底下不是空的"。
             //
-            // NOTE: 这一条顺手守着另一个 bug（2026-09-23 同一个改动里修的）：灌列表那一下
-            //       如果顺手动了光标，`QTreeWidget::setCurrentItem()` 会把**收着的**父条目
-            //       撑开（QTreeView::scrollTo 头一句就是"展开所有收着的父条目"）—— 表现是
-            //       "刚进安装页，四条加载器自己弹开了"。所以下面还要逐条断言它们**都收着**。
+            // NOTE: 这一条顺手守着另一个 bug（ 同一个改动里修的）：灌列表那一下
+            // 如果顺手动了光标，`QTreeWidget::setCurrentItem()` 会把**收着的**父条目
+            // 撑开（QTreeView::scrollTo 头一句就是"展开所有收着的父条目"）—— 表现是
+            // "刚进安装页，四条加载器自己弹开了"。所以下面还要逐条断言它们**都收着**。
             {
                 int loaderRows = 0;
                 int collapsedRows = 0;
@@ -28828,14 +28215,14 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       QString("收着 %1/%2").arg(collapsedRows).arg(kindCount));
             }
 
-            // Y2c. 点开一条加载器 → 选一个版本 → 再点开：2026-09-23 用户报的那一串
-            //      （"fabric选了自动以后列表就点不开了"）。根因在**灌列表那一下动了光标**
-            //      （见 Y2b 那段 NOTE），所以这一节**故意走产品自己那条填列表的路**
-            //      （onLoaderVersionsFetched 那个槽，真窗口上由
-            //      VersionManager::loaderVersionsFetched 打过来），而不是手工往树上塞条目
-            //      —— 用户报的那个 bug 就藏在"灌列表那一下"里，手工塞条目正好绕开它、
-            //      那一节就成了一条永远绿的假断言。
-            //      版本号是假的（离线拿不到真清单），形状和产品填的那份一致。
+            // Y2c. 点开一条加载器 → 选一个版本 → 再点开： 用户报的那一串
+            // （"fabric选了自动以后列表就点不开了"）。根因在**灌列表那一下动了光标**
+            // （见 Y2b 那段 NOTE），所以这一节**故意走产品自己那条填列表的路**
+            // （onLoaderVersionsFetched 那个槽，真窗口上由
+            // VersionManager::loaderVersionsFetched 打过来），而不是手工往树上塞条目
+            // —— 用户报的那个 bug 就藏在"灌列表那一下"里，手工塞条目正好绕开它、
+            // 那一节就成了一条永远绿的假断言。
+            // 版本号是假的（离线拿不到真清单），形状和产品填的那份一致。
             if (loaderTree != nullptr && rows.size() == names.size()) {
                 // 先等预取那四发各自落地（离线 = 四条失败、联网 = 真清单）。理由：
                 // 每次进安装页只问一轮，等它们落地之后这一页就不会再有人来填了 ——
@@ -28877,8 +28264,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 clickRow(loaderTree, row);
                 check(row->isExpanded(),
                       "点一下加载器那一条，它展开了（底下就是能挑的那些版本号）");
-                // 2026-09-23 用户原话："点一下，展开，再点一下 关闭，现在是展开以后就自动
-                // 选择" —— 前两句是这一条（展开/收起），后一句是**要改掉**的旧样子。
                 check(rowSubText(row).isEmpty(),
                       "★ 展开**不等于**选中它（第二行小字还是空的 —— 旧代码在这里就写成「自动（推荐）」了）",
                       rowSubText(row));
@@ -28896,7 +28281,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 check(rowSubText(row) == MainWindowUI::loaderVersionChannelShortText(false),
                       "收起来之后挑的那一档写在那一行的第二行小字上（用户原话：选择版本以后收缩，显示版本）",
                       rowSubText(row));
-                // 其余几条加载器：用户原话"剩余的加载器（如果不兼容的话）显示为与【已选中的
+                // 其余几条加载器：要求"剩余的加载器（如果不兼容的话）显示为与【已选中的
                 // 加载器名称】不兼容"。这句话是**一处**算出来的（MainWindowUI::loaderConflictText），
                 // 这里逐条比对它，而不是自己拼一句 —— 自己拼的话，产品换一种说法这条就红了。
                 const QString wantConflict = MainWindowUI::loaderConflictText(
@@ -28917,10 +28302,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 check(rowSubText(rows.at(noneIndex)).isEmpty(),
                       "「不装（纯原版）」那条**没有**不兼容那句话（它不是加载器）",
                       rowSubText(rows.at(noneIndex)));
-                // ★ 用户原话："选择以后让其他选项变成不可用（不能点开）的模式"。
-                //   三条：其余几条变灰（不可用）、灰的那几条**点不开**、选中的那条和
-                //   「不装（纯原版）」仍然可用（前者要能回去改版本，后者是唯一的退路 ——
-                //   其余几条都灰着的时候总得有一条点得动，不然就选不回纯原版了）。
+                // 要求："选择以后让其他选项变成不可用（不能点开）的模式"。
+                // 三条：其余几条变灰（不可用）、灰的那几条**点不开**、选中的那条和
+                // 「不装（纯原版）」仍然可用（前者要能回去改版本，后者是唯一的退路 ——
+                // 其余几条都灰着的时候总得有一条点得动，不然就选不回纯原版了）。
                 int disabledOthers = 0;
                 for (int i = 0; i < rows.size(); ++i) {
                     if (!VersionManager::loaderKindFromIndex(i, nullptr)) {
@@ -28936,9 +28321,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       QString("%1/%2").arg(disabledOthers).arg(kindCount - 1));
                 check(!row->isDisabled() && !rows.at(noneIndex)->isDisabled(),
                       "★ 选中的那条和「不装（纯原版）」仍然可用（前者改版本、后者是退路）");
-                // ★ 用户原话："选中以后在那个 > 左侧加一个 x 来取消安装对应版本"。
-                //   那个标记挂在 rowClearRole() 上（代理按它画、MainWindow 按它判断点中了
-                //   没有），五条里**只有选中的那条**该带着它。
+                // 要求："选中以后在那个 > 左侧加一个 x 来取消安装对应版本"。
+                // 那个标记挂在 rowClearRole() 上（代理按它画、MainWindow 按它判断点中了
+                // 没有），五条里**只有选中的那条**该带着它。
                 const auto rowClearFlag = [loaderTree](QTreeWidgetItem *item) {
                     return item != nullptr &&
                            item->data(MainWindowUI::loaderTreeKeyColumn(),
@@ -29013,7 +28398,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       QString("展开=%1 小字=%2")
                           .arg(other->isExpanded() ? 1 : 0)
                           .arg(rowSubText(other)));
-                // ★ 这一条就是用户报的那个"点不开了"（选中之后仍然来回都能开）。
+                // 这一条就是用户报的那个"点不开了"（选中之后仍然来回都能开）。
                 clickRow(loaderTree, row);
                 check(row->isExpanded(),
                       "★ 选中的那一条再点还是能展开（2026-09-23 的「点不开了」正是这一条）",
@@ -29052,12 +28437,12 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       "Y2c 收尾：选回「不装」，那一条的第二行小字没了、也收着",
                       rowSubText(row));
 
-                // ★ 用户原话："如果对应版本不支持，就不要保留自动了，这个情况下的
-                //   列表没取到 换成无可用版本"。这是**另一件事**：问到了、清单里就是没有
-                //   （不是没问到）。数据层那边（VersionManager::parseLoaderVersions）把
-                //   这两种答案分开了 —— 空列表照 success 发出来，error 只留给"没问到"；
-                //   这里验的是界面按这个分别做对了什么。
-                //   拿 OptiFine 那一条来做：Forge 底下还有条目，Y3 要用。
+                // 要求："如果对应版本不支持，就不要保留自动了，这个情况下的
+                // 列表没取到 换成无可用版本"。这是**另一件事**：问到了、清单里就是没有
+                // （不是没问到）。数据层那边（VersionManager::parseLoaderVersions）把
+                // 这两种答案分开了 —— 空列表照 success 发出来，error 只留给"没问到"；
+                // 这里验的是界面按这个分别做对了什么。
+                // 拿 OptiFine 那一条来做：Forge 底下还有条目，Y3 要用。
                 QTreeWidgetItem *emptyRow = rows.at(optifineIndex);
                 // 先等四条预取都落地（谁落得晚，谁就会把下面填的这份冲掉 —— 那样这一节
                 // 就成了看运气）。上限 5 秒，等不到也照旧往下走。
@@ -29150,14 +28535,14 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       rowSubText(failedRow));
 
                 // Y2d. ★ 用户报的那一版（NeoForge 26.3）：上游**只发过 `-beta`**，
-                //      一条正式版都没有。三件事一起验：
-                //        · 「下载稳定版」那一行**灰掉**、第二行小字写「没有正式版」
-                //          —— 留着一条能点的它等于让用户挑一条必然装不出来的路；
-                //        · beta 那几条**照列、还能点**（用户原话："beta 版虽然不稳定，但是也能
-                //          使用"），只是每条第二行小字写着「测试版」——那是"它是什么"，不是
-                //          "它不行"；
-                //        · 用户什么都还没挑的时候，默认那一档得**挪到「最新版」**上，不然点安装
-                //          走的还是稳定档那条必然装不出来的路（光标该落在最新档那一条上）。
+                // 一条正式版都没有。三件事一起验：
+                // · 「下载稳定版」那一行**灰掉**、第二行小字写「没有正式版」
+                // —— 留着一条能点的它等于让用户挑一条必然装不出来的路；
+                // · beta 那几条**照列、还能点**（要求："beta 版虽然不稳定，但是也能
+                // 使用"），只是每条第二行小字写着「测试版」——那是"它是什么"，不是
+                // "它不行"；
+                // · 用户什么都还没挑的时候，默认那一档得**挪到「最新版」**上，不然点安装
+                // 走的还是稳定档那条必然装不出来的路（光标该落在最新档那一条上）。
                 QTreeWidgetItem *betaRow = rows.at(neoforgeIndex);
                 // 先等预取那一发落地（不然一条迟到的真回复会把下面这份冲掉，这一节就成了
                 // 看运气）。上限 5 秒，等不到也照旧往下走。
@@ -29264,9 +28649,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 QApplication::processEvents();
             }
 
-            // 选中 Forge：**点它底下「下载稳定版」那一条**（2026-09-23 起点顶层
+            // 选中 Forge：**点它底下「下载稳定版」那一条**（ 起点顶层
             // 只管展开/收起，选中是点它底下那一条那一下的事）。默认名跟着变成 `1.21.4-Forge`
-            //（真机上那些实例就是这个形状）。
+            // （真机上那些实例就是这个形状）。
             clickRow(loaderTree, rows.at(forgeIndex));  // 先展开（底下才有条目可点）
             clickRow(loaderTree, rows.at(forgeIndex)->child(1));
             check(installNameEdit->text() ==
@@ -29281,22 +28666,22 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   installNameHint->text());
 
             // Y3. 勾一个**接通了、但这一次装不了**的加载器：版本 json 要的 Java 本机给不出来，
-            //     就得在"还没开始装"那一刻停下 —— 弹「Java 版本不够」、界面不进忙态、一个
-            //     字节都不下，也不许拿着一份认不出来的 Java 硬上（那样用户等半天等来一句
-            //     "下载失败"，永远猜不到该去装个新 Java）。
+            // 就得在"还没开始装"那一刻停下 —— 弹「Java 版本不够」、界面不进忙态、一个
+            // 字节都不下，也不许拿着一份认不出来的 Java 硬上（那样用户等半天等来一句
+            // "下载失败"，永远猜不到该去装个新 Java）。
             //
-            //     这一条验的是 onInstallButtonClicked() → pickInstallerJava() 那段接线：
-            //     版本 json 的 javaVersion.majorVersion → GlobalJavaSettings::installerJavaFor()。
-            //     installerJavaFor() 自己的判据（"配的那份太老才换"、"够新的里面挑最小的
-            //     那个"）由 verify 的 M 段逐条钉住；这里**唯一**能错的就是没接上 ——
-            //     忘了读版本 json、读错了键、或者这段整个不在。
+            // 这一条验的是 onInstallButtonClicked() → pickInstallerJava() 那段接线：
+            // 版本 json 的 javaVersion.majorVersion → GlobalJavaSettings::installerJavaFor()。
+            // installerJavaFor() 自己的判据（"配的那份太老才换"、"够新的里面挑最小的
+            // 那个"）由 verify 的 M 段逐条钉住；这里**唯一**能错的就是没接上 ——
+            // 忘了读版本 json、读错了键、或者这段整个不在。
             //
-            //     为什么写 majorVersion = 99：这条得在**任何**机器上离线跑绿，不能依赖
-            //     "本机最高是 Java 多少"。99 是个没有机器能满足的要求，于是
-            //     installerJavaFor() 必然走到"挑不出够新的"那一支。
-            //     为什么先把配置指到一个不存在的路径上：空路径 = 走 PATH 上那份，那条路
-            //     （"压根没配过"就是这个状态）会原样往下装。这里走的是设置页那个组合框 ——
-            //     用户真会走的那条线，顺带验了它落盘。
+            // 为什么写 majorVersion = 99：这条得在**任何**机器上离线跑绿，不能依赖
+            // "本机最高是 Java 多少"。99 是个没有机器能满足的要求，于是
+            // installerJavaFor() 必然走到"挑不出够新的"那一支。
+            // 为什么先把配置指到一个不存在的路径上：空路径 = 走 PATH 上那份，那条路
+            // （"压根没配过"就是这个状态）会原样往下装。这里走的是设置页那个组合框 ——
+            // 用户真会走的那条线，顺带验了它落盘。
             writeFileAt(pickedJson,
                         QByteArrayLiteral("{\"id\":\"1.21.4\",\"javaVersion\":{\"majorVersion\":99}}"));
             const QString kBogusJava = QStringLiteral("C:/没有这个目录/java.exe");
@@ -29355,8 +28740,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             }
 
             // Y4. 点回「不装（纯原版）」再点「安装」：走回原来那条路（先问一句"要不要
-            //     校验并修复"），**不装任何加载器**。产品在"这个版本下过没有"那一问上判的
-            //     就是 <版本>.json 在不在，所以答「否」之后它会就地停下，不碰网络。
+            // 校验并修复"），**不装任何加载器**。产品在"这个版本下过没有"那一问上判的
+            // 就是 <版本>.json 在不在，所以答「否」之后它会就地停下，不碰网络。
             clickRow(loaderTree, rows.at(noneIndex));
             check(installNameEdit->text() == kPickedId,
                   "点回「不装」，默认名跟着回到原版号本身（用户没自己改过名字）",
@@ -29372,8 +28757,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   g_modalTitle + QStringLiteral(" / ") + g_modalText);
             check(g_modalText.contains(QStringLiteral("校验")), "问的是校验并补齐那件事", g_modalText);
             // NOTE: 这句话里**没有**「版本」两个字（"已取消对 1.21.4 的校验"）：安装页那
-            //       一问对"装原版"和"装一个带名字的实例"是同一句话，名字可能是
-            //       `1.21.4-Forge_47.4.10` 这种 —— 加个「版本」反而说不通。
+            // 一问对"装原版"和"装一个带名字的实例"是同一句话，名字可能是
+            // `1.21.4-Forge_47.4.10` 这种 —— 加个「版本」反而说不通。
             check(countOccurrences(g_messages,
                                    QStringLiteral("已取消对 1.21.4 的校验")) == 1,
                   "答「否」之后就地停下（没有开始任何下载）");
@@ -29383,20 +28768,20 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             check(installsAfterY == installsBeforeY, "这一段里一次加载器安装都没开始过",
                   QString("%1 → %2").arg(installsBeforeY).arg(installsAfterY));
 
-            // Y5. 名字不合法（用户 2026-09-23 原话："如果版本名字存在非法字符，不要替换掉
-            //     那个「装好后在实例...」，而是在下面添加一行红色字"）：原因写在名称框底下
-            //     **另起的那行红字**里，上面那句"装好之后在「实例」页里能看到它"**照旧
-            //     写着**；同时「安装」点不动。
-            //     走的是**用户真会走的那条线**（名称框里敲字 → textChanged），不是直接
-            //     调刷新函数 —— 少一根 connect 的症状正是"敲了没反应"，而那种毛病
-            //     从"函数本身对不对"上看不出来。
+            // Y5. 名字不合法（要求："如果版本名字存在非法字符，不要替换掉
+            // 那个「装好后在实例...」，而是在下面添加一行红色字"）：原因写在名称框底下
+            // **另起的那行红字**里，上面那句"装好之后在「实例」页里能看到它"**照旧
+            // 写着**；同时「安装」点不动。
+            // 走的是**用户真会走的那条线**（名称框里敲字 → textChanged），不是直接
+            // 调刷新函数 —— 少一根 connect 的症状正是"敲了没反应"，而那种毛病
+            // 从"函数本身对不对"上看不出来。
             // NOTE: 判"这行红字显没显形"用的是 **isHidden()**，不是 isVisible()。理由：
-            //       这一节开头那一下把下载页翻到前面来过，但 Y2d 收尾时又把选项卡翻回去了
-            //       （见上面那段"翻回原来那一页"），所以这一刻**那一页上每个控件的
-            //       isVisible() 都是 false** —— 拿它判"产品让不让这行字显形"会永远判红，
-            //       而且红得跟被测的改动毫无关系。isHidden() 说的是"产品自己按下去的那个
-            //       显/隐开关"（QWidget::setVisible），跟祖先链在不在前面无关，正是这里
-            //       要量的东西。
+            // 这一节开头那一下把下载页翻到前面来过，但 Y2d 收尾时又把选项卡翻回去了
+            // （见上面那段"翻回原来那一页"），所以这一刻**那一页上每个控件的
+            // isVisible() 都是 false** —— 拿它判"产品让不让这行字显形"会永远判红，
+            // 而且红得跟被测的改动毫无关系。isHidden() 说的是"产品自己按下去的那个
+            // 显/隐开关"（QWidget::setVisible），跟祖先链在不在前面无关，正是这里
+            // 要量的东西。
             const QString invalidName = QStringLiteral("a/b");
             installNameEdit->setText(invalidName);
             QApplication::processEvents();
@@ -29421,10 +28806,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             check(!installNameError->isHidden() && !installNameError->text().isEmpty(),
                   "名字清空时那行红字说的是「不能是空的」",
                   installNameError->text());
-            // ★ 名字清空那一刻上面那句"装好之后…"没话可说（没有名字就没有目录）—— 这时
-            //   它得**连那一行一起收掉**，不能只把字清空：那是 wordWrap 的标签，空着照样
-            //   占一整行，于是底下那行红字上面会凭空多出一个空行（用户 2026-09-23 报的
-            //   "把名字弄空了以后上面那行消失了但是下面那一行空提示会换行怪怪的"）。
+            // 名字清空那一刻上面那句"装好之后…"没话可说（没有名字就没有目录）—— 这时
+            // 它得**连那一行一起收掉**，不能只把字清空：那是 wordWrap 的标签，空着照样
+            // 占一整行，于是底下那行红字上面会凭空多出一个空行（用户 报的
+            // "把名字弄空了以后上面那行消失了但是下面那一行空提示会换行怪怪的"）。
             check(installNameHint->isHidden() && installNameHint->text().isEmpty(),
                   "★ 名字清空时上面那句灰字**整行收掉**（不是清空文字还占着一行，"
                   "那会让底下那行红字凭空多出一个空行）",
@@ -29456,8 +28841,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             // 把选择恢复成产品的默认值。后面 O 节还会刷一次下拉框，让它看到的是
             // "开局那个样子"，别把 Y 段的试验品留在窗口上。
             // NOTE: 这里**不比名称框** —— Y5 刚把名字清空过（"空名字"那条），而用户动过
-            //       名称框之后默认名就不再跟着加载器走了（onInstallNameEdited 那条规矩），
-            //       所以这会儿框里本来就是空的。要比的是树上那几句小字。
+            // 名称框之后默认名就不再跟着加载器走了（onInstallNameEdited 那条规矩），
+            // 所以这会儿框里本来就是空的。要比的是树上那几句小字。
             clickRow(loaderTree, rows.at(noneIndex));
             check(rowSubText(rows.at(forgeIndex)).isEmpty(),
                   "Y 段收尾：点回「不装」，那几句「不兼容」也一起没了",
@@ -29465,7 +28850,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         }
     }
 
-    // ------------------------------------------------------------------
     header("Y2. 下载页左栏那份分类：点哪个，右栏就翻到哪一页");
     // ------------------------------------------------------------------
     // 左栏从"挑加载器 + 挑版本"换成 PCL 那种一列分类（游戏 / 整合包 / 模组 / 资源包 /
@@ -29479,11 +28863,11 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     // 接线上还多了一件事：切到资源的四页**会自己去问一次"最热门的"**（那四页的第一眼
     // 就是结果，不是空树）。所以这一节要读的是"切过去当下"的状态 —— 见下面那段 NOTE。
     //
-    // NOTE: 从 2026-09-23 起，**mw_check 不再是离线的了**：这一节每跑一次会真的往
-    //       api.modrinth.com 发四次搜索（每页一次）。断网时也不会红 —— 那一行占位的
-    //       「正在获取…」跟回复到没到没关系，它就是"发出去那一刻"的东西；断网的结果
-    //       是过了一会儿它换成一行「搜索失败：…」（那句只在树上，不弹窗，见
-    //       onResourceSearchFinished 里那段 NOTE）。
+    // NOTE: 从 起，**mw_check 不再是离线的了**：这一节每跑一次会真的往
+    // api.modrinth.com 发四次搜索（每页一次）。断网时也不会红 —— 那一行占位的
+    // 「正在获取…」跟回复到没到没关系，它就是"发出去那一刻"的东西；断网的结果
+    // 是过了一会儿它换成一行「搜索失败：…」（那句只在树上，不弹窗，见
+    // onResourceSearchFinished 里那段 NOTE）。
     {
         auto *categoryList =
             byObjectName<QListWidget>(&window, MainWindowUI::downloadCategoryListName());
@@ -29503,8 +28887,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   .arg(stack != nullptr ? QStringLiteral("有") : QStringLiteral("没有")));
 
         // NOTE: 跟 Y 段同一个规矩 —— 控件找不齐就只留下上面那一条失败，不再往下戳
-        //       nullptr。找不齐的典型原因是有人改了 objectName 或把控件挪了家，
-        //       那时候后面十几条一起红只会淹没真正的原因。
+        // nullptr。找不齐的典型原因是有人改了 objectName 或把控件挪了家，
+        // 那时候后面十几条一起红只会淹没真正的原因。
         if (categoryList != nullptr && stack != nullptr && stack->count() == keys.size() &&
             categoryList->count() == keys.size()) {
             // 开局：停在「游戏」（打开下载页看到的就是原来那一摊）。
@@ -29531,7 +28915,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
 
             // 逐条点一遍：**第 i 个分类 = 第 i 页**这条走动起来也得成立。
             // NOTE: 用 setCurrentRow 而不是伪造鼠标事件 —— Qt 里鼠标点条目最后落到的
-            //       就是它（QListWidget 的按下处理走的是同一条路），信号路径完全一样。
+            // 就是它（QListWidget 的按下处理走的是同一条路），信号路径完全一样。
             int switched = 0;
             for (int i = 0; i < categoryList->count() && i < stack->count(); ++i) {
                 categoryList->setCurrentRow(i);
@@ -29541,9 +28925,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 // "最热门的" —— ensureResourcePageLoaded() 就接在切分类那条路上。
                 //
                 // NOTE: 这一段**必须在下面的 processEvents() 之前**读。setCurrentRow()
-                //       是同步一路走到 startResourceSearch() 的，这会儿树里只摆着那一行
-                //       灰的「正在获取…」；跑过一轮事件、回复（或者超时）落了地，那行就
-                //       换成结果了 —— 那时候再断言就等于在赌网络快不快。
+                // 是同步一路走到 startResourceSearch() 的，这会儿树里只摆着那一行
+                // 灰的「正在获取…」；跑过一轮事件、回复（或者超时）落了地，那行就
+                // 换成结果了 —— 那时候再断言就等于在赌网络快不快。
                 const QString categoryKey = keys.value(i);
                 ResourceCatalog::Kind kind{};
                 if (i != gameIndex && ResourceCatalog::kindFromCategoryKey(categoryKey, &kind)) {
@@ -29640,10 +29024,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       "转一圈回来，版本树里选中的那条还在",
                       QString("%1 → %2").arg(treeRowBefore).arg(treeRowAfter));
             }
-            // ---- Y2c. 左栏每一条右边那个**刷新按钮**（2026-09-23 加）----
-            //
-            // 用户原话："下载界面左边栏每一项做大点，每一项的右边放一个刷新按钮"（做大那部分
-            // 是外观，钉在 ui_check 的 C2b 里；这里钉"点下去真的重新问了一遍"）。
+            // ---- Y2c. 左栏每一条右边那个**刷新按钮**（ 加）----
             //
             // 这一下必须走**真的鼠标事件**：产品把它接在视口的事件过滤器上
             // （QEvent::MouseButtonPress/Release，见 MainWindow::eventFilter），伪造
@@ -29733,9 +29114,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                     QApplication::processEvents();
 
                     // ② 反证：点在**同一行里、但不在那一格**（格子左边一点点）——
-                    //    什么都不会重新问。没有这一条的话，"把整行都当成刷新"那种把
-                    //    过滤器范围写宽了的改法也能全绿（而那会让用户点条目就重搜一次，
-                    //    一页烧掉一发限流额度）。
+                    // 什么都不会重新问。没有这一条的话，"把整行都当成刷新"那种把
+                    // 过滤器范围写宽了的改法也能全绿（而那会让用户点条目就重搜一次，
+                    // 一页烧掉一发限流额度）。
                     addMarker(resTree);
                     clickListAt(categoryList,
                                 QPoint(refreshBox.left() - 6, refreshBox.center().y()));
@@ -29748,11 +29129,11 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                     QApplication::processEvents();
 
                     // ③ 点**别的**那一类的刷新 → 先翻到它那一页，再问一遍（不然请求飞出去了、
-                    //    用户看的还是原来那一页，等于"点了没反应"）。
+                    // 用户看的还是原来那一页，等于"点了没反应"）。
                     //
                     // NOTE: 这里得先把「资源包」那一页**填上东西**（切过去一趟，它会自己搜一次），
-                    //       否则"空页"上"只是切过去"和"切过去 + 重新问一遍"长得一模一样
-                    //       （两种都是树上只有一行「正在…」），这条断言就验不到"重问"那半截。
+                    // 否则"空页"上"只是切过去"和"切过去 + 重新问一遍"长得一模一样
+                    // （两种都是树上只有一行「正在…」），这条断言就验不到"重问"那半截。
                     const int packIndex = 3;  // 「资源包」
                     const QString packKey = keys.value(packIndex);
                     auto *packTree = byObjectName<QTreeWidget>(
@@ -29791,16 +29172,11 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 }
             }
 
-            // ---- Y2d. 刷新**不动**图标缓存（用户原话："图标留缓存"）----
+            // ---- Y2d. 刷新**不动**图标缓存（要求："图标留缓存"）----
             //
             // 这一条钉的是**别动**，不是"走了缓存"：刷新那条路从头到尾不许碰
             // `<数据目录>/cache/icons/` 里的东西（清了它，用户下次进这一页每张图都要
             // 重新下一遍，而他按这个按钮只是想让**列表**重新问一遍）。
-            //
-            // NOTE: 这是**防回归**的一条 —— 今天它必然是绿的（代码里根本没删缓存这条路）。
-            //       它的价值在于：哪天有人图省事在"刷新"里加一句清缓存，这里先红。
-            //       真正量"重搜回来的那批图标一个字节都没重新下"要 store 里的请求计数，
-            //       ResourceStore 没有那个口子，这里量不了（报告里说清楚了）。
             {
                 const QString probeId = QStringLiteral("wtfml-refresh-probe");
                 const QString cachePath = ResourceStore::iconCachePath(probeId);
@@ -29871,20 +29247,14 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         }
     }
 
-    // ------------------------------------------------------------------
     header("Y6. 版本树那四条分类：接线与守卫");
     // ------------------------------------------------------------------
-    // 用户原话：「四个分类（正式版 快照版 远古版 愚人节版），每一个占一条，点开后展开
+    // 要求：「四个分类（正式版 快照版 远古版 愚人节版），每一个占一条，点开后展开
     // 对应版本，再点击具体版本后进入一个新页面」。这一节钉的是**两件事之间的那条线**：
-    //   · 点**分类**（顶层条目）→ 只是展开/折叠，**不许**翻到安装页；
-    //   · 点**版本号**（子条目）→ 翻到安装页，而且那一份是"基于它装"。
+    // · 点**分类**（顶层条目）→ 只是展开/折叠，**不许**翻到安装页；
+    // · 点**版本号**（子条目）→ 翻到安装页，而且那一份是"基于它装"。
     // 前者错了用户会莫名其妙进到安装页、以为自己点错了；后者错了就是"点了没反应"
     // —— 两种都不会报错，只会让人以为启动器坏了。
-    //
-    // NOTE: 这一节**不假设树是空的**。本机清单在盘上缓存着，实测树上是满的
-    //       （四条 103 / 743 / 61 / 9）；换了台清单没拉到的机器，四条就都是空的。
-    //       于是凡是跟"有几个版本"有关的判据都写成**两种环境下都成立**的样子
-    //       （"箭头和'有没有东西可展开'一致"），而不是"清单是空的"这种一换机器就红的。
     {
         // 四个名字是用户点名的（正式版 / 快照版 / 远古版 / 愚人节版）。这里**写死**着比：
         // 产品自己那份分类表（VersionCategory）要数 915 条清单才分得出来，那份数据的正确性
@@ -29892,11 +29262,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         const QStringList expectedChannelTexts = {QStringLiteral("正式版"), QStringLiteral("快照版"),
                                                   QStringLiteral("远古版"),
                                                   QStringLiteral("愚人节版")};
-        // ★ 2026-09-25：树**最上面**多了一组「最新版本」（用户原话：「下载游戏那个界面最上方放
-        //    一个 最新版本 类，默认展开，里面放最新的正式版和快照」）。所以顶层是
-        //    **「最新版本」+ 那四条分类**，一共 5 条 —— 名字和身份都是产品给的
-        //    （VersionManager::latestGroupText()/latestGroupKey()），这里不写死一个字，
-        //    免得改了文案这条断言跟着假红。
         const QStringList expectedTexts =
             QStringList{VersionManager::latestGroupText()} + expectedChannelTexts;
         check(versionTree != nullptr && gameStack != nullptr,
@@ -29908,8 +29273,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         const int kForgeRow = 1;  // Y1 段钉过：第 1 条是 Forge
         const int kNoneRow = MainWindowUI::modLoaderNoneIndex();
         const auto loaderRow = [loaderTree](int index) {
-            // ★ 2026-10-18（P1）：树上多了「预设」那一行，插在「不装」前面 ——
-            //   none 之前一对一，none 及其后整体后移一位。
             const int row = index >= 0 && index < MainWindowUI::modLoaderNoneIndex() ? index
                                                                                       : index + 1;
             return loaderTree != nullptr && index >= 0 && row < loaderTree->topLevelItemCount()
@@ -29925,7 +29288,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         };
         check(loaderRow(kForgeRow) != nullptr && loaderRow(kNoneRow) != nullptr,
               "加载器那棵树拿得回来（下面借它验「进安装页会清掉选择」）");
-        // 选中一条加载器（走真信号路）。2026-09-23 起**点顶层那一条只管展开/收起**，
+        // 选中一条加载器（走真信号路）。 起**点顶层那一条只管展开/收起**，
         // 选中是"点它底下的版本号"那一下的事 —— 所以这里得先有一条版本号可点：
         // 那一条底下有能点的条目就用真的，没有（离线、或者列表还没回来）就临时插一条
         // 「自动（推荐）」进去，点完再摘掉。插进去那条走的是**和真版本号完全相同的
@@ -29997,13 +29360,13 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 // 展开箭头那一格：分类**有**版本时右边该有箭头（能点开）、**没有**时
                 // 一个都不许画（画了就骗人说点得开）—— 那是代理画的，由 ui_check 按像素管。
                 // 这里管的是"分类条目在模型层没有说谎"：
-                //   · 分类一律**不许**被设成 DontShowIndicator（左边那个三角的开关）。
-                //     2026-09-23 踩过这个坑：想去掉左边那个三角就写了它，而
-                //     QTreeModel::hasChildren() 是按 policy 直接 return false 的 ——
-                //     那个分类的版本号**一条都排不进布局**，界面上只剩四行空的分类，
-                //     点开也没东西，而所有断言（身份、条数、itemClicked）照样全绿。
-                //     去掉三角的正路是 versionTree->setRootIsDecorated(false)。
-                //   · 有没有孩子这件事，模型层说的必须和条目上实际的 childCount() 一致。
+                // · 分类一律**不许**被设成 DontShowIndicator（左边那个三角的开关）。
+                // 踩过这个坑：想去掉左边那个三角就写了它，而
+                // QTreeModel::hasChildren() 是按 policy 直接 return false 的 ——
+                // 那个分类的版本号**一条都排不进布局**，界面上只剩四行空的分类，
+                // 点开也没东西，而所有断言（身份、条数、itemClicked）照样全绿。
+                // 去掉三角的正路是 versionTree->setRootIsDecorated(false)。
+                // · 有没有孩子这件事，模型层说的必须和条目上实际的 childCount() 一致。
                 if (top->childIndicatorPolicy() == QTreeWidgetItem::DontShowIndicator) {
                     ++indicatorPoisoned;
                 }
@@ -30011,8 +29374,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 if (versionTree->model()->hasChildren(topIndex) == (top->childCount() > 0)) {
                     ++hasChildrenAgrees;
                 }
-                // NOTE: 这条判据**不假设树是空的** —— 本机清单在盘上缓存着，树是满的
-                //（实测四条 103 / 743 / 61 / 9）；别人机器上清单要是没拉到，四条就都是空的。
                 const bool hasVersions = top->childCount() > 0;
                 const bool isLatestRow = (i == 0);
                 if (hasVersions && isLatestRow) {
@@ -30053,14 +29414,14 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             // 身份在 userData 上、而且五条互不相同：拿条目文字当身份的话，改一个字的说法
             // 就会把"记住哪条是展开的"那件事打断（refreshAvailableVersions 就是按它记的）。
             // NOTE: 那五条住的是**同一个角色**，所以「最新版本」的键和四个 channelKey() 撞了
-            //       的话，这里就会少一格（而症状是"展开状态串到另一条上"，很难认）。
+            // 的话，这里就会少一格（而症状是"展开状态串到另一条上"，很难认）。
             check(distinctKeys == expectedTexts.size(),
                   "五条的身份（userData）都非空且互不相同",
                   QString::number(distinctKeys));
 
-            // ★ 2026-09-25：「最新版本」那一组（用户原话见上面 expectedTexts 那一段）。
-            //   这一节**不挑环境** —— 清单没拉回来时那一组照旧在，只是里面空的（和四条空分类
-            //   同一个规矩），所以下面凡是要有版本号才成立的那几条都只在"里面真有东西"时跑。
+            // 「最新版本」那一组（要求见上面 expectedTexts 那一段）。
+            // 这一节**不挑环境** —— 清单没拉回来时那一组照旧在，只是里面空的（和四条空分类
+            // 同一个规矩），所以下面凡是要有版本号才成立的那几条都只在"里面真有东西"时跑。
             const QString latestKey = VersionManager::latestGroupKey();
             {
                 const auto latestRow = [versionTree]() -> QTreeWidgetItem * {
@@ -30139,7 +29500,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 // 启动那一次、以及手动刷新拉回来那一次）**不该**又把它撑开。这条和上一条是一对
                 // —— 少了它，"每次刷新都强行展开"也能过上一条。
                 // NOTE: 刷新会把树整个重灌，所以下面每量一次都要**重新把条目捞回来**（老的
-                //       QTreeWidgetItem* 那一瞬间就全成野指针了）。
+                // QTreeWidgetItem* 那一瞬间就全成野指针了）。
                 if (latestTop != nullptr) {
                     versionTree->collapseItem(latestTop);
                     QApplication::processEvents();
@@ -30189,15 +29550,15 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             if (withVersions > 0) {
                 // 子条目也拿 userData（= 版本号）当身份：「点哪一条装哪一版」全看它，
                 // 所以既不许有空身份、也不许两条重名。清单拉不到时这一段整段跳过
-                //（那种环境下树上一个版本号都没有，这条断言没有可断言的对象）。
+                // （那种环境下树上一个版本号都没有，这条断言没有可断言的对象）。
                 // NOTE: 这一条**只算四条分类**（`versionRows`/`versionIds` 那一趟在收集时就把
-                //       「最新版本」那一组跳过了）：那两条本来就该和"自己那一栏里那一条"重名
-                //       —— 同一个版本号在树上确实有两份，那不是缺陷（用户要的就是把它顶到最上面）。
+                // 「最新版本」那一组跳过了）：那两条本来就该和"自己那一栏里那一条"重名
+                // —— 同一个版本号在树上确实有两份，那不是缺陷（用户要的就是把它顶到最上面）。
                 check(versionRows == versionIds.size(),
                       "四条分类里的版本号身份都非空、不重复（「最新版本」那一份是刻意重名的，不算）",
                       QString("%1 条，%2 个不同的身份").arg(versionRows).arg(versionIds.size()));
 
-                // 版本号前面那个小图标**按分类**给（2026-09-23：「快照版的草用白色，
+                // 版本号前面那个小图标**按分类**给（：「快照版的草用白色，
                 // 远古版就土块，愚人节版用幸运方块，原版不变」）。这里钉的是**接线**：
                 // 每条版本号身上的那个图，必须逐像素等于"它自己那一栏"该有的那张 ——
                 // 分类下标的顺序就是界面上那四条的顺序（上面那条 treeTexts 已经钉过）。
@@ -30206,7 +29567,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 int rowsWithRightMark = 0;
                 int wrongMark = 0;
                 // NOTE: 四条分类现在是 `topLevelItem(1..4)` —— 第 0 条让给「最新版本」那一组了。
-                //       这里的 `i` 同时是"分类下标"和"那一栏该长的图"，所以两条都得跟着挪一格。
+                // 这里的 `i` 同时是"分类下标"和"那一栏该长的图"，所以两条都得跟着挪一格。
                 for (int i = 0; i < 4; ++i) {
                     QTreeWidgetItem *top = versionTree->topLevelItem(i + 1);
                     if (top == nullptr) {
@@ -30236,13 +29597,13 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       QStringLiteral("%1 行对、%2 行不对").arg(rowsWithRightMark).arg(wrongMark));
 
                 // 上面那些都是**模型层**的事（数条目、看身份）—— 模型里有、界面上没有，
-                // 是完全可能发生的：2026-09-23 那次 DontShowIndicator 就是"四条分类都在、
+                // 是完全可能发生的： 那次 DontShowIndicator 就是"四条分类都在、
                 // 900 多个版本号一条都排不进布局"，而上面每一条断言照样全绿。
                 // 所以这里量一次**真的排进布局了没有**：翻开一条有版本的分类，
                 // 子条目必须有一个落在视口里的矩形（看得见才点得到）。
                 //
                 // NOTE: 要先把下载页翻到前面、并把 gameStack 停到树那一层 —— 隐藏的
-                //       控件不排布局，那种情况下量出来的空矩形说明不了任何事。
+                // 控件不排布局，那种情况下量出来的空矩形说明不了任何事。
                 QTabWidget *downloadTabs =
                     window.findChild<QTabWidget *>(MainWindowUI::tabWidgetName());
                 const int tabBefore = downloadTabs != nullptr ? downloadTabs->currentIndex() : -1;
@@ -30295,9 +29656,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
 
             // 点**顶层那几条**：只当展开/折叠，**不许**翻页。这条是那个守卫的全部意义 ——
             // 少了它，用户点一下"正式版"就进了一个写着"将基于原版 正式版 安装"的页面。
-            // NOTE: 2026-09-25 起顶层有五条（「最新版本」那一组 + 四条分类），两种各点一下
-            //       —— 那一组走的是**同一个** lambda（判据是"有没有爹"），它要是漏了，
-            //       规律是"点最新版本进安装页、装一个叫 latest 的版本"。
+            // NOTE: 起顶层有五条（「最新版本」那一组 + 四条分类），两种各点一下
+            // —— 那一组走的是**同一个** lambda（判据是"有没有爹"），它要是漏了，
+            // 规律是"点最新版本进安装页、装一个叫 latest 的版本"。
             gameStack->setCurrentIndex(MainWindowUI::downloadGameTreeIndex());
             QApplication::processEvents();
             for (int row = 0; row < 2 && row < versionTree->topLevelItemCount(); ++row) {
@@ -30320,11 +29681,11 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             }
 
             // 点**版本号**：翻到安装页，而且那一份是"基于它装"。优先点一条**真的**版本号
-            //（清单拉到了树上就有）；清单没拉到的机器上，自己插一条假的进去
+            // （清单拉到了树上就有）；清单没拉到的机器上，自己插一条假的进去
             // —— 插完走的是**和真的一条完全相同的信号路径**
-            //（itemClicked → 那个共用 lambda → openInstallPage()）。
-            // NOTE: 2026-09-25 起这里点的是**第 0 条**（=「最新版本」那一组）底下的第一条，
-            //       所以顺带也钉住了"那一组里那两条点得动"（在线的机器上跑的就是这一条）。
+            // （itemClicked → 那个共用 lambda → openInstallPage()）。
+            // NOTE: 起这里点的是**第 0 条**（=「最新版本」那一组）底下的第一条，
+            // 所以顺带也钉住了"那一组里那两条点得动"（在线的机器上跑的就是这一条）。
             if (versionTree->topLevelItemCount() > 0) {
                 QTreeWidgetItem *top = versionTree->topLevelItem(0);
                 QTreeWidgetItem *child = top->child(0);
@@ -30368,7 +29729,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                           : loaderSubText(loaderRow(kForgeRow)));
 
                 // 收拾：翻回树那一层、把那条（要是假的）版本号拿掉
-                //（后面几节拿窗口当开局那个样子用）。
+                // （后面几节拿窗口当开局那个样子用）。
                 if (installBackBtn != nullptr) {
                     installBackBtn->click();
                     QApplication::processEvents();
@@ -30383,11 +29744,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         }
     }
 
-    // ------------------------------------------------------------------
-    // ------------------------------------------------------------------
     header("Y7. 点得快的时候，开关行每一下都要算（版本树 / 加载器树）");
     // ------------------------------------------------------------------
-    // 用户 2026-09-25 原话：「还有下载版本那里如果一直点那个展开关闭会有几次点击失效」。
+    // 要求：「还有下载版本那里如果一直点那个展开关闭会有几次点击失效」。
     // 真因见 ui/RowActivation.hpp 文件头：Windows 上**点得快的第二发（以及后面每一发）到的
     // 是 MouseButtonDblClick**，而视图的 itemClicked 只在"按下 + 松开都到手"时才发（双击
     // 那一发的松开被 releaseFromDoubleClick 挡掉）⇒ 那几发点击**全丢**。修法是给接线口一个
@@ -30395,8 +29754,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     // 保持一次手势一发（双击不该把安装页开两遍 / 下载两遍）。
     //
     // NOTE: 这一节必须发**真的鼠标事件**（发到 viewport 上）。本文件里到处在用的那一招
-    //       —— 伪造 itemClicked 信号 —— 正好绕过要验的那一段：补发那一路走的是 viewport
-    //       上的事件过滤器，根本不经过信号。
+    // —— 伪造 itemClicked 信号 —— 正好绕过要验的那一段：补发那一路走的是 viewport
+    // 上的事件过滤器，根本不经过信号。
     {
         check(versionTree != nullptr && versionTree->topLevelItemCount() > 0,
               "版本树上真有分类条目（下面按它翻）",
@@ -30418,9 +29777,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         };
         // **点得快的那一发**：到的是 MouseButtonDblClick。视图自己的双击处理
         // （qtreeview.cpp:2007 → qabstractitemview.cpp:2012）在这一发上**不发** clicked
-        //（松开时 releaseFromDoubleClick 把它挡掉）—— 所以修之前这一发是白白丢掉的。
+        // （松开时 releaseFromDoubleClick 把它挡掉）—— 所以修之前这一发是白白丢掉的。
         // NOTE: 真机上"第二下以及后面点得够快的每一下"都是这个事件，所以下面凡是快点击
-        //       都紧跟在一次 clickRow 之后发（那样 pressedIndex 已经指着这一行，和真机一致）。
+        // 都紧跟在一次 clickRow 之后发（那样 pressedIndex 已经指着这一行，和真机一致）。
         const auto fastClickRow = [&](QTreeWidget *tree, QTreeWidgetItem *item) {
             const QPoint pos = tree->visualItemRect(item).center();
             sendMouseTo(tree, QEvent::MouseButtonDblClick, pos, Qt::LeftButton);
@@ -30444,7 +29803,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             const int stackBefore = gameStack != nullptr ? gameStack->currentIndex() : -1;
 
             // NOTE: 每一小段都**先自己把状态摆好**再点。上面的断言一旦红了，后面的起点就
-            //       不是它以为的那个了 —— 那种"因为上一条错了所以这条看起来是对的"最坑。
+            // 不是它以为的那个了 —— 那种"因为上一条错了所以这条看起来是对的"最坑。
             top->setExpanded(true);
             QApplication::processEvents();
             clickRow(versionTree, top);
@@ -30452,9 +29811,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             clickRow(versionTree, top);
             check(top->isExpanded(), "Y7 再点一下分类：又翻一次（展开）");
 
-            // ★ 这两条就是"一直点会有几次失效"：点得快的那一发到的是双击事件，
-            //   补发之前它是**完全丢掉**的（展开状态一下都不动）。两条各换一个起点，
-            //   这样"补发一下都没走"和"补发走反了"都跑不掉。
+            // 这两条就是"一直点会有几次失效"：点得快的那一发到的是双击事件，
+            // 补发之前它是**完全丢掉**的（展开状态一下都不动）。两条各换一个起点，
+            // 这样"补发一下都没走"和"补发走反了"都跑不掉。
             top->setExpanded(false);
             QApplication::processEvents();
             fastClickRow(versionTree, top);
@@ -30503,10 +29862,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
 
             // 动作行**不给补发**：紧接着的那一发（真·双击的第三下，到的是双击事件）不许
             // 再把安装页开一遍。看得见的代价是**名称框里刚改的名字会被那第二遍抹掉**
-            //（openInstallPage() 会把名字重置成版本号）—— 这里就拿它当证人。
+            // （openInstallPage() 会把名字重置成版本号）—— 这里就拿它当证人。
             // NOTE: 真机上那第二下确实会落到树上（Windows 在按下时就把鼠标捕获给了这个
-            //       控件，切页不会把它抢走 —— 老账里"openInstallPage 跑两遍"就是这么来的），
-            //       所以下面直接发给 viewport 是真机的样子，不是硬凑的场景。
+            // 控件，切页不会把它抢走 —— 老账里"openInstallPage 跑两遍"就是这么来的），
+            // 所以下面直接发给 viewport 是真机的样子，不是硬凑的场景。
             const QString sentinel = QStringLiteral("手改的名字");
             if (installNameEdit != nullptr) {
                 installNameEdit->setText(sentinel);
@@ -30584,23 +29943,21 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         }
     }
 
-    // ------------------------------------------------------------------
-    // ------------------------------------------------------------------
     header("Z. 底栏名字下面那一行（三种取值）+ 「账号与外观」那个入口");
     // ------------------------------------------------------------------
     // 三件事在这里钉：
-    //   1. 底栏名字下面那一行的**三种**取值。三种而不是两种是这次特意定的（见
-    //      MainWindowUI::accountTypeNotLoggedInText() 那条 NOTE）：没勾离线又没登录的时候
-    //      写「离线登录」是骗人 —— 那种状态点开始会被「请先登录」挡回来。
-    //   2. 入口按钮的**接线**：点一下才把那个窗建出来（懒建），再点一次是 show 回来；
-    //      它顶上那句话和底栏那一行说的是同一件事（都从 accountSkinStatusText() 来）。
-    //   3. applyPlayerSkin() 喂外观时，那个窗里的 3D 预览跟着走 —— 同一份贴图两个窗口，
-    //      不然会出现「主页换了、那个窗还是旧外观」。
+    // 1. 底栏名字下面那一行的**三种**取值。三种而不是两种是这次特意定的（见
+    // MainWindowUI::accountTypeNotLoggedInText() 那条 NOTE）：没勾离线又没登录的时候
+    // 写「离线登录」是骗人 —— 那种状态点开始会被「请先登录」挡回来。
+    // 2. 入口按钮的**接线**：点一下才把那个窗建出来（懒建），再点一次是 show 回来；
+    // 它顶上那句话和底栏那一行说的是同一件事（都从 accountSkinStatusText() 来）。
+    // 3. applyPlayerSkin() 喂外观时，那个窗里的 3D 预览跟着走 —— 同一份贴图两个窗口，
+    // 不然会出现「主页换了、那个窗还是旧外观」。
     //
     // NOTE: 这一节**全程不联网**，而且是刻意这么排的。对话框一旦开出来，
-    //       refreshAccountSkin() 就会去拉披风列表，而那是**同步**请求（HttpClient 默认
-    //       15 秒超时）—— 外网不通的机器上点一下就要等 15 秒。所以"切换账号"那两条
-    //       排在开窗**之前**（那个窗还没建时 refreshAccountSkin() 直接返回）。
+    // refreshAccountSkin() 就会去拉披风列表，而那是**同步**请求（HttpClient 默认
+    // 15 秒超时）—— 外网不通的机器上点一下就要等 15 秒。所以"切换账号"那两条
+    // 排在开窗**之前**（那个窗还没建时 refreshAccountSkin() 直接返回）。
     {
         const QString uuidA = QStringLiteral("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         const QString uuidB = QStringLiteral("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
@@ -30633,7 +29990,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         };
 
         // ---- Z1 第二行三种取值里那两种"不发凭据就说得出来"的：未登录 ↔ 离线登录 ----
-        // 这一节以前是"勾一下主页那个勾选框"，那个勾选框去掉了（2026-09-24，用户原话：
+        // 这一节以前是"勾一下主页那个勾选框"，那个勾选框去掉了（，要求：
         // 「不要启动界面那个离线登录勾选框了，在添加账户那里选择添加离线账号」）。现在
         // 这一行**只跟着当前账号走**（MainWindow::offlineIdentity()），所以这里走产品那条
         // 路来换它：加一个离线账号 → 变成「离线登录」；再把它删掉 → 回到「未登录」。
@@ -30674,19 +30031,19 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
 
         // ---- Z2 入口按钮：懒建 + 顶上那句话 + 预览跟着走 ----
         //
-        // ★ 2026-09-25：这个入口从**非模态 show()** 换成了 `overlay->execPage()`
-        //   （把内容区整块盖掉 + 内部一个嵌套事件循环，和「实例设置」那一页同形）。
-        //   于是"点开之后要断言的东西"就不能再线性地写在 `entry->click()` 后面 ——
-        //   那一句会一直卡在嵌套循环里，直到这一页被收掉（实测：整片挂死在这儿）。
+        // 这个入口从**非模态 show()** 换成了 `overlay->execPage()`
+        // （把内容区整块盖掉 + 内部一个嵌套事件循环，和「实例设置」那一页同形）。
+        // 于是"点开之后要断言的东西"就不能再线性地写在 `entry->click()` 后面 ——
+        // 那一句会一直卡在嵌套循环里，直到这一页被收掉（实测：整片挂死在这儿）。
         //
-        //   这里的形状是：把那一片**排成一发 0 毫秒定时器**，再点。execPage 一进它的
-        //   嵌套循环这一发就跑完了（包括最后按返回箭头离开），于是 click() 正常返回。
-        //   整个 mw_check 里只有这儿能看见"那一页正开着"的一瞬间。
+        // 这里的形状是：把那一片**排成一发 0 毫秒定时器**，再点。execPage 一进它的
+        // 嵌套循环这一发就跑完了（包括最后按返回箭头离开），于是 click() 正常返回。
+        // 整个 mw_check 里只有这儿能看见"那一页正开着"的一瞬间。
         //
-        //   NOTE: 那一发定时器**没有 context 对象**（`QTimer::singleShot(0, lambda)`）。
-        //         万一页面根本没开成（比如覆盖层已经被别的东西占着），它会在下面那句
-        //         processEvents() 里跑到，看到的 host 是"没开着"，于是那几条断言红掉、
-        //         而不是把测试挂死 —— 这正是想要的失败形状。
+        // NOTE: 那一发定时器**没有 context 对象**（`QTimer::singleShot(0, lambda)`）。
+        // 万一页面根本没开成（比如覆盖层已经被别的东西占着），它会在下面那句
+        // processEvents() 里跑到，看到的 host 是"没开着"，于是那几条断言红掉、
+        // 而不是把测试挂死 —— 这正是想要的失败形状。
         {
             MainWindow w10;
             w10.show();
@@ -30698,14 +30055,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 check(w10.findChild<AccountSkinDialog *>() == nullptr,
                       "Z2 没点之前那个窗**还没有**被建出来（懒建，不点不占内存）");
 
-                // ★ 2026-10-16：这一页的入口**不再是"点一下卡片就开"** —— 卡片那一下开的是
-                //   "最近用过的账号"那一块面板（用户定的：底栏账号格的功能继承到卡片上），
-                //   而这一页的门在**面板末行那颗「账号与外观…」**上（那一颗排的动作是
-                //   `QTimer::singleShot(0, …)` 排进下一轮的，见 BottomBarPanel::dispatch）。
-                //   所以这里要走两下：卡片 → 末行那颗。
-                //   NOTE: 断言那一发定时器**排在末行点击之后**，正好落在动作那一发后面 ——
-                //         动作那一下才进 execPage 的嵌套循环，断言跟着就在里面跑上了
-                //         （反过来的话断言先跑，那时这一页还没开）。
                 entry->click();
                 QApplication::processEvents();
                 QWidget *panel0 = w10.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
@@ -30817,12 +30166,12 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                     }
 
                     // 页面开着的时候再点一次入口：**不是**又建一个，也**不是**又盖一层
-                    //（`onAccountSkinButtonClicked()` 开头那道 `overlay->isOpen()` 的闸）。
+                    // （`onAccountSkinButtonClicked()` 开头那道 `overlay->isOpen()` 的闸）。
                     // 老写法验的是"再点一次是把它 show 回来"，窗口那会儿才成立。
                     //
                     // NOTE: 这一发**故意不 processEvents** —— 上面那一发
-                    //       refreshAccountSkin() 要是还没跑，这里放行一次它就会插进来。
-                    //       click() 本身是同步的，闸也是同步判的，所以不用等。
+                    // refreshAccountSkin() 要是还没跑，这里放行一次它就会插进来。
+                    // click() 本身是同步的，闸也是同步判的，所以不用等。
                     entry->click();
                     check(w10.findChild<AccountSkinDialog *>() == dialog,
                           "Z2 页面开着时再点入口：没有又建一个（还是原来那一个）");
@@ -30851,13 +30200,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
 
         // ---- Z2b 覆盖层被"收着的整页"占着时，按「账号与外观…」 ----
         //
-        // ★ 2026-10-18（coding plan §1.4 那两处）：从前 `onAccountSkinButtonClicked()`
-        //   开头那道 `overlay->isOpen()` 会**直接 return** —— 用户在别的选项卡上逛、
-        //   「账号与外观」这一页还**收着**占住那一位时，再按入口**屏幕上什么都不会发生**。
-        //   现在先让位（静默收掉那一层）再开，和实例设置那一颗齿轮同一个规矩。
-        //
-        //   这一条**不经过面板末行**（那一颗在底栏、不在这一节的判断范围里）：它直接把
-        //   设置页那颗入口按下去 —— 那条接线和面板末行那颗接的是**同一个槽**。
+        // 这一条**不经过面板末行**（那一颗在底栏、不在这一节的判断范围里）：它直接把
+        // 设置页那颗入口按下去 —— 那条接线和面板末行那颗接的是**同一个槽**。
         {
             MainWindow w10b;
             w10b.show();
@@ -30933,10 +30277,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 // ---- Z5 切账号：底栏整行跟着换人 ----
                 // 排在这里（而不是等那个窗开出来之后）：那个窗一开，refreshAccountSkin()
                 // 就会发同步的披风请求。见本节开头那段 NOTE。
-                // NOTE: 2026-09-24 之前这一条验的是「勾着离线切号，那句话不动」——
-                //       那句"离线"是勾选框给的，而勾选框去掉了。现在这一行**只跟着当前
-                //       账号走**，两个账号都是正版，所以切完还是「正版登录」；真正会变的
-                //       那一半在 Z7（切到离线账号）。
+                // NOTE: 之前这一条验的是「勾着离线切号，那句话不动」——
+                // 那句"离线"是勾选框给的，而勾选框去掉了。现在这一行**只跟着当前
+                // 账号走**，两个账号都是正版，所以切完还是「正版登录」；真正会变的
+                // 那一半在 Z7（切到离线账号）。
                 QMetaObject::invokeMethod(&w11, "onAccountSwitchRequested", Qt::DirectConnection,
                                           Q_ARG(QString, uuidA));
                 QApplication::processEvents();
@@ -31006,9 +30350,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                           "Z7 活动槽被清空了（离线身份没有凭据那一半）");
 
                     // ---- Z8 切回在线账号：名字回来，第二行**也得**跟着换回来 ----
-                    // NOTE: 2026-09-24 之前这里钉的是"切到在线账号**不动**勾选框（那是用户
-                    //       的选择）"。勾选框去掉了，那句话也就没有载体了 —— 现在这一行
-                    //       必须跟着账号走，钉的正好是反面。
+                    // NOTE: 之前这里钉的是"切到在线账号**不动**勾选框（那是用户
+                    // 的选择）"。勾选框去掉了，那句话也就没有载体了 —— 现在这一行
+                    // 必须跟着账号走，钉的正好是反面。
                     QMetaObject::invokeMethod(&w11, "onAccountSwitchRequested",
                                               Qt::DirectConnection, Q_ARG(QString, uuidA));
                     QApplication::processEvents();
@@ -31038,9 +30382,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                         byObjectName<QPushButton>(&w11, MainWindowUI::accountSkinButtonName());
                     check(entry != nullptr, "Z9 第十一个窗口里入口按钮也找得到");
                     if (entry != nullptr) {
-                        // ★ 2026-10-16：和 Z2 同一个走法 —— 卡片那一下开的是"最近用过的
-                        //   账号"那块面板，这一页的门在面板**末行**那颗「账号与外观…」上。
-                        //   两步都做完之后，断言那一发才排进队（排在动作那一发后面）。
                         entry->click();
                         QApplication::processEvents();
                         QWidget *panel0 =
@@ -31064,10 +30405,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                         if (manageButton != nullptr) {
                             manageButton->click();
                         }
-                        // ★ 2026-09-25：这个入口是 `execPage()`（整页盖住内容区 + 内部一个
-                        //   嵌套事件循环），"点开之后要干的那些事"必须排进这一发定时器，
-                        //   最后按返回箭头离开，`click()` 才会返回。见 Z2 开头那段（那里把
-                        //   理由写全了）。
+                        // 这个入口是 `execPage()`（整页盖住内容区 + 内部一个
+                        // 嵌套事件循环），"点开之后要干的那些事"必须排进这一发定时器，
+                        // 最后按返回箭头离开，`click()` 才会返回。见 Z2 开头那段（那里把
+                        // 理由写全了）。
                         QTimer::singleShot(0, [&w11, &auth, accountName, offlineUuid, entry] {
                             OverlayHost *host =
                                 w11.findChild<OverlayHost *>(OverlayHost::overlayHostName());
@@ -31077,7 +30418,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                                 return;  // 后面每一条都要靠它。
                             }
                             // 让排队的那一发 refreshAccountSkin() 先跑完 —— 状态行是它写的
-                            //（它比这一发定时器晚排，所以要手动放行一次）。
+                            // （它比这一发定时器晚排，所以要手动放行一次）。
                             QApplication::processEvents();
 
                             AccountSkinDialog *dialog = w11.findChild<AccountSkinDialog *>();
@@ -31101,8 +30442,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
 
                                 // ---- Z10 名字不合法：弹窗，而且底栏一个像素都不许变 ----
                                 // NOTE: 这一条现在验的是"提示盖在那一页上、底下的页还在"
-                                //       （真窗口那会儿是两个窗叠着）。弹在哪儿是覆盖层自己的
-                                //       事，"失败不许把界面改一半"那两条一个字没变。
+                                // （真窗口那会儿是两个窗叠着）。弹在哪儿是覆盖层自己的
+                                // 事，"失败不许把界面改一半"那两条一个字没变。
                                 dismissNextPrompt();
                                 QMetaObject::invokeMethod(&w11, "onOfflineAccountRequested",
                                                           Qt::DirectConnection,
@@ -31173,15 +30514,15 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         // ---- Z11b 登录失败那一趟：盘上清空了，内存和底栏都得跟着 ----
         // 复现的是"用着账号 A 去登另一个微软账号、登录没成"那一刻：登录那一趟开头的
         // exchangeAuthorizationCode() 已经把活动槽里那份 Minecraft 凭据清掉了（那是
-        // 2026-09-25 有意的一步，为的是不让"旧 uuid 配新刷新令牌"的错配留在盘上），而
+        // 有意的一步，为的是不让"旧 uuid 配新刷新令牌"的错配留在盘上），而
         // m_uuid / m_playerName 是**另一份**，原来谁都没去动它 —— 于是盘上写着"没登录"、
         // 内存和底栏还登着上一个人；接着点启动，loadSavedToken() 会拿 microsoft 槽里那份
         // **新账号**的刷新令牌换出新账号来，一次"失败"的登录悄悄成了另一个人。
         //
         // NOTE: AuthManager 那一半（失败分支里那句 reloadStoredAccount()）要**真发一次
-        //       失败的登录**才走得到，离线机器上驱动不了（没有假的 OAuth 端点）。这一段把
-        //       那一步手工补上，量的是"那一步做了之后界面是什么样" —— 也就是用户真正看得见
-        //       的那一半：底栏不许停在上一个人的名字上（不重画就一直是它）。
+        // 失败的登录**才走得到，离线机器上驱动不了（没有假的 OAuth 端点）。这一段把
+        // 那一步手工补上，量的是"那一步做了之后界面是什么样" —— 也就是用户真正看得见
+        // 的那一半：底栏不许停在上一个人的名字上（不重画就一直是它）。
         {
             check(AccountStore::activate(uuidA), "Z11b 前提：把当前账号切回正版 Alice");
             MainWindow w13;
@@ -31234,16 +30575,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     // 它被拆出来单独能调，正是为了这里：上面那一半（QFileDialog → QInputDialog →
     // 确认框）全是模态的，offscreen 上驱动不了，而真会错的判断都在这一半。
     //
-    // 只跑**被拦下来**的那几条路（清单坏 / 不是清单 / 空清单 / 不支持的加载器 /
-    // 名字不合法 / 重名 / 要的 Java 本机给不出来）。合法那条**故意不跑**：
-    // 它会真的去下加载器、下清单里那批模组（几百 MB），而"下完之后"的样子（列表里
-    // 多一个实例、忙态解除）在离线机器上永远等不到。那一段的判据在别处：
-    // 解析与路径判据、真解压在 verify 的 V 节（含那份 94 KB 的真清单），状态机每一步
-    // 的接续在 VersionManager 那三个 defer 点上。
-    //
     // NOTE: 这一节的每一条都要求"一个字节都没下"（日志里没有「开始导入整合包」、
-    //       沙盒里没多出目录）。挡不住的典型样子是"弹了窗、用户点掉了，然后它照样
-    //       开始下" —— 那种错从弹窗上完全看不出来。
+    // 沙盒里没多出目录）。挡不住的典型样子是"弹了窗、用户点掉了，然后它照样
+    // 开始下" —— 那种错从弹窗上完全看不出来。
     {
         QPushButton *importBtn =
             byObjectName<QPushButton>(&window, MainWindowUI::importModpackButtonName());
@@ -31275,8 +30609,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         // ---- AA 接线自检：这两条必须先绿，不然下面全是假绿 ----
         //
         // NOTE: 这两发也会弹框（`这不是 json` 进哪个解析器都是"读不懂"），所以每一发之前
-        //       都要 `dismissNextPrompt()` 排一个 0 毫秒的定时器 —— 不排的话没人去点它，
-        //       而那个提示开在嵌套事件循环里，整节会挂在那儿（不是红，是**不动了**）。
+        // 都要 `dismissNextPrompt()` 排一个 0 毫秒的定时器 —— 不排的话没人去点它，
+        // 而那个提示开在嵌套事件循环里，整节会挂在那儿（不是红，是**不动了**）。
         {
             bool modrinthWired = false;
             dismissNextPrompt();
@@ -31484,7 +30818,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   "AA8 盘上没有的名字照旧是普通导入", problem);
 
             // ① 有 wtfml.meta = 启动器把这一份做**完**过（导入最后一步写的、装加载器装完
-            //    写的、改名也补）→ 那是别人的实例，不许被接着下。
+            // 写的、改名也补）→ 那是别人的实例，不许被接着下。
             const QString kDone = QStringLiteral("半成品-做完了");
             makeHalf(kDone, halfJson(kDone));
             writeFileAt(versionsDir.filePath(kDone + QStringLiteral("/wtfml.meta")),
@@ -31498,7 +30832,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   "AA8 拒的理由还是那句话", problem);
 
             // ② 顶层有客户端 jar = 这不是整合包导入留下的目录（导入的实例目录里只有薄 json
-            //    + 下下来的那些文件，主 jar 在原版/加载器那一层）。
+            // + 下下来的那些文件，主 jar 在原版/加载器那一层）。
             const QString kJar = QStringLiteral("半成品-有jar");
             makeHalf(kJar, halfJson(kJar));
             writeFileAt(versionsDir.filePath(kJar + QLatin1Char('/') + kJar +
@@ -31510,22 +30844,22 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   "AA8 有 jar 的那一份也拒", problem);
 
             // ③ json 没声明父版本 = 不是导入写下的那份形状（可能是一份手工放进去的
-            //    老式实例：自己没有 jar、json 也不继承）。
+            // 老式实例：自己没有 jar、json 也不继承）。
             const QString kNoParent = QStringLiteral("半成品-没父版本");
             makeHalf(kNoParent, QByteArrayLiteral("{\"id\":\"x\",\"type\":\"release\"}"));
             check(!InstanceFiles::isUnfinishedImport(kNoParent),
                   "AA8 json 不声明父版本的不算半成品");
 
             // ④ 名字本身就不合法的那条路**不查盘**：`..` 这种名字拼出来的路径不可信，
-            //    拿它去盘上问"是不是半成品"没有意义。
+            // 拿它去盘上问"是不是半成品"没有意义。
             check(InstanceFiles::checkImportTargetName(QStringLiteral(".."), &problem) ==
                       InstanceFiles::ImportNameVerdict::Taken,
                   "AA8 名字不合法照旧拒（而且不因为盘上有个同名目录就放行）", problem);
 
             // ⑤ 执行那一半也认这条口子。用 AA7 那套"Java 99"的套路：Forge/NeoForge 的包
-            //    在**开始之前**要算安装器用的 Java，算不出来就停在那儿 —— 于是这一条能
-            //    在离线机器上验"名字这一关过了没有"，一个字节都不会下。
-            //    判据：弹的是「Java 版本不够」（名字过了）而不是「换个名字」（名字没过）。
+            // 在**开始之前**要算安装器用的 Java，算不出来就停在那儿 —— 于是这一条能
+            // 在离线机器上验"名字这一关过了没有"，一个字节都不会下。
+            // 判据：弹的是「Java 版本不够」（名字过了）而不是「换个名字」（名字没过）。
             const QString kJava99Id2 = QStringLiteral("1.21.4");
             writeFileAt(versionsDir.filePath(kJava99Id2 + QLatin1Char('/') + kJava99Id2 +
                                              QStringLiteral(".json")),
@@ -31568,14 +30902,14 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
 
         // ---- AA9 CurseForge 那一份清单（`manifest.json`）走的是同一个执行函数 ----
         //
-        // 2026-09-25 之前这个格式是**直接拒**的（"整合包里没有下载地址"），现在能装了。
+        // 之前这个格式是**直接拒**的（"整合包里没有下载地址"），现在能装了。
         // 这一组钉三件事：
-        //   ① 界面那一半真的按格式分流了（同一个字节串交给 CurseForge 的解析器，不是
-        //      Modrinth 那个 —— 两个解析器给的原因话说的是**不同的清单文件名**，一眼分得开）；
-        //   ② CurseForge 那个加载器写法（一个串里带版本）翻译到 Modrinth 那套键之后，
-        //      下游那几道闸照旧认（包括"认不出来的加载器"那条 —— 键不能是空串）；
-        //   ③ **一个字节都不花**：这些用例全停在"换地址"那一步之前，所以离线也能跑
-        //      （换地址那一发要真网络，验它在 verify 的 ZG7：本机假接口端到端）。
+        // ① 界面那一半真的按格式分流了（同一个字节串交给 CurseForge 的解析器，不是
+        // Modrinth 那个 —— 两个解析器给的原因话说的是**不同的清单文件名**，一眼分得开）；
+        // ② CurseForge 那个加载器写法（一个串里带版本）翻译到 Modrinth 那套键之后，
+        // 下游那几道闸照旧认（包括"认不出来的加载器"那条 —— 键不能是空串）；
+        // ③ **一个字节都不花**：这些用例全停在"换地址"那一步之前，所以离线也能跑
+        // （换地址那一发要真网络，验它在 verify 的 ZG7：本机假接口端到端）。
         {
             const auto cfManifest = [](const char *loader) {
                 return QByteArrayLiteral("{\"manifestVersion\":1,\"manifestType\":"
@@ -31589,8 +30923,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             };
 
             // ① 一句读不懂的字节：拦它的是 **CurseForge** 那个解析器 —— 它说的是
-            //    `manifest.json`（Modrinth 那个会说 `modrinth.index.json`）。这一条就是
-            //    "格式真的分流了"最直接的证据。
+            // `manifest.json`（Modrinth 那个会说 `modrinth.index.json`）。这一条就是
+            // "格式真的分流了"最直接的证据。
             dismissNextPrompt();
             check(!tryImport(QByteArrayLiteral(R"({"hello":"world"})"), QStringLiteral("新实例"),
                              ModpackImport::Format::CurseForge),
@@ -31612,7 +30946,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   "AA9 说清了是清单空的", g_modalText);
 
             // ③ 加载器那一关照旧认 CF 那个写法：`quilt-0.20.0` 翻译成 `quilt-loader` 之后，
-            //    下游那几句拦人的话一个字都不用改。
+            // 下游那几句拦人的话一个字都不用改。
             dismissNextPrompt();
             check(!tryImport(cfManifest("quilt-0.20.0"), QStringLiteral("新实例"),
                              ModpackImport::Format::CurseForge),
@@ -31626,8 +30960,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   "AA9 「这个整合包装不了」是一句报信（不是出错，颜色也跟着是那一档）");
 
             // ④ **认不出来的加载器**：`liteloader` 在 CF 那边是合法的写法。这里最要紧的是
-            //    它**不许**被当成"纯原版包"放行 —— 键给了空的 key 就会一路装出一个进得去但
-            //    全是原版的实例（模组躺在 mods/ 里没人管），而那一个错不报警。
+            // 它**不许**被当成"纯原版包"放行 —— 键给了空的 key 就会一路装出一个进得去但
+            // 全是原版的实例（模组躺在 mods/ 里没人管），而那一个错不报警。
             dismissNextPrompt();
             check(!tryImport(cfManifest("liteloader-1.12.2"), QStringLiteral("新实例"),
                              ModpackImport::Format::CurseForge),
@@ -31637,9 +30971,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   "AA9 拦它的话里带着那个加载器的名字", g_modalTitle + QStringLiteral(" / ") +
                                                           g_modalText);
 
-            // ⑤ 纯原版那条对照：一条 modLoaders 都没有 = 纯原版整合包，加载器那一关**放行**。
-            //    它的下游就是"换地址"（要网络），所以它归下面 AA10 管 —— 那里接口被指到了
-            //    本机的假服务器上，于是"放行了、走进了换地址那一发"看得见。
         }
 
         // ---- AA10 CF 的"换地址"那一发：界面那一半真的发出去了、失败时拦得住 ----
@@ -31647,13 +30978,13 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         // 上面 AA9 那几条全停在换地址**之前**（那一步要真网络）。这一条把接口指到本机的假
         // 服务器上（`Launcher/CurseForgeApiBase`：产品从不写这个键，验证工程拿它当口子），
         // 于是**同一段产品代码**在这台机器上就能整条跑完，一个外网包都不发。钉三件事：
-        //   ① 界面那一半确实调了"换地址"那一发（假服务器上数得到那一次连接）；
-        //   ② 它失败时**拦得住**：不开始导入、沙盒里不留东西；
-        //   ③ 弹的是「拿不到文件清单」这个标题 —— 这个标题只有 CF 那一支会弹。
+        // ① 界面那一半确实调了"换地址"那一发（假服务器上数得到那一次连接）；
+        // ② 它失败时**拦得住**：不开始导入、沙盒里不留东西；
+        // ③ 弹的是「拿不到文件清单」这个标题 —— 这个标题只有 CF 那一支会弹。
         //
         // NOTE: 地址是 MainWindow **构造那一刻**从 QSettings 读进去的（LauncherSettings 的
-        //       构造 + 构造里那句 syncCurseForgeSettings），所以必须"先写 ini、再造窗口"。
-        //       这也是为什么这里要另起一个窗口，而不是用上面那个 —— 它早就构造完了。
+        // 构造 + 构造里那句 syncCurseForgeSettings），所以必须"先写 ini、再造窗口"。
+        // 这也是为什么这里要另起一个窗口，而不是用上面那个 —— 它早就构造完了。
         {
             OneShotCfErrorApi api;
             check(api.start(), "AA10 本机假接口起来了（起不来这一条就没意义，直接算失败）");
@@ -31760,18 +31091,18 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     // 这一节原来量的是「底栏那格被启动借走之后要原样还回来」（用户报的原话：「启动后进度
     // 条没有恢复成下载的，而是留了个空条」）。
     //
-    // 2026-10-12 任务中心那一次把"借"这件事**从结构上拿掉了**：那一格不再归谁所有 ——
+    // 任务中心那一次把"借"这件事**从结构上拿掉了**：那一格不再归谁所有 ——
     // 每一件活（下载 / 安装 / 导入 / 启动）都是账本里的一行，那一格画的是
     // `Tasks::collapsedSummary()` 现算出来的那一行。于是"还回来"不再是需要写对的一段代码，
     // 「忘了还」这个 bug 也就不存在了（判据换成：那一格任何时候都等于账本投影）。
     //
     // 所以这一节改成量**新的那条链**：
-    //     setDownloadUiBusy / onVersionDownloadStats  →  账本  →  底栏那格 + 面板
+    // setDownloadUiBusy / onVersionDownloadStats → 账本 → 底栏那格 + 面板
     //
     // NOTE: 怎么把「在下载」摆出来 —— 这个态只由 setDownloadUiBusy(true) 置上，而那两处
-    //       真实调用点（装加载器 / 导入整合包）都要联网。所以那个函数带 Q_INVOKABLE
-    //       （见 MainWindow.hpp 里那段 NOTE），这里直接把它调起来：这就是真的那条路，
-    //       只是省掉了前面联网那几步。
+    // 真实调用点（装加载器 / 导入整合包）都要联网。所以那个函数带 Q_INVOKABLE
+    // （见 MainWindow.hpp 里那段 NOTE），这里直接把它调起来：这就是真的那条路，
+    // 只是省掉了前面联网那几步。
     {
         QPushButton *abCell = window.findChild<QPushButton *>(MainWindowUI::taskSummaryButtonName());
         QLabel *abStatus = window.findChild<QLabel *>(MainWindowUI::statusLabelName());
@@ -31803,8 +31134,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             // Q_INVOKABLE）**不会**让下载器忙起来，所以得真排一个作业：一个只 listen、
             // 既不 accept 也不回一个字节的本地端口 ⇒ 那个作业一直吊着 ⇒ `isBusy()` 保持 true。
             // NOTE: **必须排在 AB1 那两条之后**：作业一登记就泵一发进度
-            //       （`emitBatchProgress` → `versionDownloadStats` → 账本那位数被改成 0/1），
-            //       排在前头会把 AB1 那条"还没报过总数"顶成确定态。
+            // （`emitBatchProgress` → `versionDownloadStats` → 账本那位数被改成 0/1），
+            // 排在前头会把 AB1 那条"还没报过总数"顶成确定态。
             // NOTE: 收尾（AB5）里 `cancelBatch()` 放掉它，免得后面的节捡到一个"永远在下"的下载器。
             QTcpServer abStall;
             abStall.listen(QHostAddress::LocalHost, 0);
@@ -31823,11 +31154,11 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
 
             // ---- ② 报一次数：进度落进账本，底栏 + 面板都看得见 ----
             // NOTE: 等过那个 200 ms 的节流窗口再报数。onVersionDownloadStats() 是**前缘
-            //       节流**（src/MainWindow.cpp 里那句 m_progressThrottle.elapsed() < 200），
-            //       而节流的起点是"上一发真报数"—— 这一节之前有没有别人报过（别的节留下的
-            //       后台下载、真网络那几条探针），就决定了这一发会不会被**吞掉**。被吞掉时
-            //       报出来的是「0 / 0」，看着像产品坏了，其实是这条断言在跟节流器抢时间。
-            //       等一段（比窗口长）再发，这一条就与"上一发什么时候"无关了。
+            // 节流**（src/MainWindow.cpp 里那句 m_progressThrottle.elapsed() < 200），
+            // 而节流的起点是"上一发真报数"—— 这一节之前有没有别人报过（别的节留下的
+            // 后台下载、真网络那几条探针），就决定了这一发会不会被**吞掉**。被吞掉时
+            // 报出来的是「0 / 0」，看着像产品坏了，其实是这条断言在跟节流器抢时间。
+            // 等一段（比窗口长）再发，这一条就与"上一发什么时候"无关了。
             QThread::msleep(250);
             (void)QMetaObject::invokeMethod(&window, "onVersionDownloadStats",
                                             Qt::DirectConnection, Q_ARG(int, 400),
@@ -31838,9 +31169,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   "AB2 报过数之后底栏那根条换成**确定态**（0..100 的百分比条）",
                   QStringLiteral("%1..%2").arg(abBar->minimum()).arg(abBar->maximum()));
             // NOTE: 底栏那根条的 value 此刻**不一定**是 40 —— 百分比那一档走
-            //       `Anim::smoothProgress()` 是追值动画（一两拍 processEvents 推不到终点）。
-            //       真正该量的是"账本里记的那个数"，它在**面板那一行**上（面板不走动画、
-            //       直接 setValue）。点开面板读它。
+            // `Anim::smoothProgress()` 是追值动画（一两拍 processEvents 推不到终点）。
+            // 真正该量的是"账本里记的那个数"，它在**面板那一行**上（面板不走动画、
+            // 直接 setValue）。点开面板读它。
             abCell->click();
             QApplication::processEvents();
             QWidget *abPanel = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
@@ -31868,7 +31199,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 // `MainWindow::defaultTaskCapabilities()`：只有下载 / 安装 / 导入那三档给
                 // 它）。面板只照着那一位摆按钮，不自己按状态推一遍。
                 // NOTE: 按**标题**认这一行而不是"第 0 行" —— 这一节之前别的节可能往账本里
-                //       留过东西（它们都是终态），行号不是我说了算的。
+                // 留过东西（它们都是终态），行号不是我说了算的。
                 const auto findRowByTitle = [abPanel](const QString &title,
                                                       int *outIndex) -> QWidget * {
                     for (int i = 0; i < 20; ++i) {
@@ -32037,10 +31368,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                     clearBtn->click();
                     QApplication::processEvents();
                 }
-                // ★ 收页走产品的出口（`OverlayHost::evict()` → backPressed），不能只
-                //   `abPanel2->close()`：面板是**嵌在覆盖页里**的，close() 只把这一块藏
-                //   起来 —— 覆盖层那一位还占着、面板对象也还活着（等 deleteLater），
-                //   下面的 AB6 再点底栏那格时会被当成"同一块还开着"。
+                // 收页走产品的出口（`OverlayHost::evict()` → backPressed），不能只
+                // `abPanel2->close()`：面板是**嵌在覆盖页里**的，close() 只把这一块藏
+                // 起来 —— 覆盖层那一位还占着、面板对象也还活着（等 deleteLater），
+                // 下面的 AB6 再点底栏那格时会被当成"同一块还开着"。
                 if (OverlayHost *abOverlay2 =
                         window.ui() == nullptr ? nullptr : window.ui()->overlay()) {
                     abOverlay2->evict();
@@ -32052,7 +31383,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             }
             // 清完账本上没有已完成的了 ⇒ 那一格回到占位话。这一条同时是**给后面几节留一块
             // 干净的底栏**：不清的话，那件失败的任务会在接下来 8 秒里一直占着中间那格
-            //（`taskSummaryRecentWindowMs()`），后面哪一节读它都会读到这一句。
+            // （`taskSummaryRecentWindowMs()`），后面哪一节读它都会读到这一句。
             check(abStatus->text() == MainWindowUI::taskSummaryNoTaskText() && !abBar->isVisible(),
                   "AB4 清掉已完成之后那一格回到占位话（底栏留干净）", abStatus->text());
 
@@ -32248,7 +31579,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     // (panel->isVisible() || parked())`，可收回又只调 `dismiss()` —— 而 `dismiss()` 按设计
     // **不收收着的页**（OverlayHost::closeTopLayer 里 `!evenWhenParked && !onOwnersTab()`
     // 直接返回 false）。于是 `sameAnchor` 为真、`dismiss()` 空转、这一按被"同一颗 = 收回"
-    // 那条早退整个吞掉。`openTaskCenterPanel()` 里 2026-10-17 修的是同一个坑，只是入口不同。
+    // 那条早退整个吞掉。`openTaskCenterPanel()` 里 修的是同一个坑，只是入口不同。
     //
     // 修法：收着的页 + 点的就是它那一颗 ⇒ `evict()` 之后在当前这一页重新摊开。
     {
@@ -32359,11 +31690,11 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   QStringLiteral("min=%1 max=%2")
                       .arg(acAccountButton->minimumWidth())
                       .arg(acAccountButton->maximumWidth()));
-            // ★ 2026-09-26 改写：原来这里断言"两行封的是同一个数"，那是**当时的行为**，
-            //   不是该有的行为。两行真正的判据是"**留给字的**宽度一样"——
-            //   第一行那格是 136（方块在布局里另占一格，不吃这个上限），
-            //   第二行那格的上限要 136 + 方块段（它的缩进是 contentsMargins，从上限里扣）。
-            //   照原样封同一个数，第二行能写的只有 120 px，右边比第一行短 16 px。
+            // 改写：原来这里断言"两行封的是同一个数"，那是**当时的行为**，
+            // 不是该有的行为。两行真正的判据是"**留给字的**宽度一样"——
+            // 第一行那格是 136（方块在布局里另占一格，不吃这个上限），
+            // 第二行那格的上限要 136 + 方块段（它的缩进是 contentsMargins，从上限里扣）。
+            // 照原样封同一个数，第二行能写的只有 120 px，右边比第一行短 16 px。
             check(acRun->maximumWidth() == MainWindowUI::bottomBarRunStateTextWidth() &&
                       acRunDetail->maximumWidth() ==
                           MainWindowUI::bottomBarRunStateTextWidth() +
@@ -32384,10 +31715,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             // 行为这一层：把左边两行换成「多开」时才有的长文字，量中间那根条有没有动。
             //
             // NOTE: 没有实例在跑时 updateBottomBar() 会把这两行藏起来（文字是「实例未运行」
-            //       那一支不藏，但本节跑的时候这个进程里没起过游戏，状态是"藏着的"），
-            //       而**藏起来的东西不参与布局** —— 那样量出来的「条没动」是假的
-            //       （文字再长也影响不到）。所以这里手动把它们显示出来。量完不用收回去：
-            //       本节是全套最后一段。
+            // 那一支不藏，但本节跑的时候这个进程里没起过游戏，状态是"藏着的"），
+            // 而**藏起来的东西不参与布局** —— 那样量出来的「条没动」是假的
+            // （文字再长也影响不到）。所以这里手动把它们显示出来。量完不用收回去：
+            // 本节是全套最后一段。
             acRun->setVisible(true);
             acRunDetail->setVisible(true);
             QApplication::processEvents();
@@ -32410,10 +31741,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       .arg(MainWindowUI::bottomBarRunStateColumnWidth()));
 
             // AC3 文字换了、**宽度没换**（这是把宽度钉死的必然结果）—— 画出来的东西
-            //     必须跟着换。这一条盯的是 ElidedLabel 里那个"按宽度缓存省略结果"的坑：
-            //     宽度是钉死的、文字改了宽度也不改，resizeEvent 不触发，缓存就永不失效 ——
-            //     第一句话会一直挂在底栏上（三个实例跑着，写的还是「实例运行中」）。
-            //     所以量的是**像素**，不是宽高：宽高在这儿本来就不会动。
+            // 必须跟着换。这一条盯的是 ElidedLabel 里那个"按宽度缓存省略结果"的坑：
+            // 宽度是钉死的、文字改了宽度也不改，resizeEvent 不触发，缓存就永不失效 ——
+            // 第一句话会一直挂在底栏上（三个实例跑着，写的还是「实例运行中」）。
+            // 所以量的是**像素**，不是宽高：宽高在这儿本来就不会动。
             acRun->setText(MainWindowUI::runStateRunningText());
             QApplication::processEvents();
             const QImage acShotBefore = acRun->grab().toImage();
@@ -32427,24 +31758,14 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         }
     }
     header("AD. 左边那格「有字 / 没字」，中间那根条一步都不许动");
-    // ------------------------------------------------------------------
-    // 用户接着报的原话：「那个实例运行中的文本挤短进度条的问题仍然存在」。
-    // AC 那节量的是「文字变长」（已修），但左边那格真正的动作是**从无到有**：
-    // updateBottomBar() 在没有实例在跑时把那两行 hide() 掉，而 **Qt 的布局把藏起来的
-    // 格子当成宽度 0** —— 下载中点启动，正是「0 → 200」这一步。实测条 582 → 440，
-    // **142 px**（= 4/6 × (200 + 12 间距)），跟文字长短没关系：同一支探针里把状态文字
-    // 从两个字的「短」换成 72 个字符的长句，条的宽度一个像素都没变。
-    // 修法是把那一格换成一个**宽度钉死的盒子**永远占着（见 MainWindowUI.cpp 里
-    // runStateColumn 那段）：里面有没有字、字有多长，都不再是布局的事。
-    //
     // 这一节量三件事：① 手工把两行藏起来再显示出来，条不动；② 走**真路径**（切一下
     // 选项卡触发一次 updateBottomBar() 的「没有实例在跑」那一支），条还是不动；③ 那种
     // 时候左下角确实什么都不显示 —— 「没实例在跑就不写废话」这条产品行为不能被这次改动
     // 弄丢。
     //
-    // NOTE: ② 的扳机 2026-09-24 从主页那个「离线模式」勾选框换成了切选项卡（那个勾选框
-    //       去掉了）。挑它的理由和 AB 那节一样：公开、而且**一行状态都不改** —— 这里量的
-    //       就是"重画之后那两行该是什么样"，扳机自己不许先写一遍。
+    // NOTE: ② 的扳机 从主页那个「离线模式」勾选框换成了切选项卡（那个勾选框
+    // 去掉了）。挑它的理由和 AB 那节一样：公开、而且**一行状态都不改** —— 这里量的
+    // 就是"重画之后那两行该是什么样"，扳机自己不许先写一遍。
     {
         QProgressBar *adBar = window.findChild<QProgressBar *>(MainWindowUI::progressBarName());
         QLabel *adStatus = window.findChild<QLabel *>(MainWindowUI::statusLabelName());
@@ -32497,15 +31818,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       .arg(adRun->text()));
         }
     }
-    // ------------------------------------------------------------------
     header("AE. 设置页「启动选项」三项：接线 + 改一下立刻落盘 + 日志窗那条路");
-    // ------------------------------------------------------------------
-    // 2026-09-24 加的那一组。ui_check 验过控件本身（文案、取值范围、几何），这里验的是
-    // **接线**：控件 → LauncherSettings → （日志那一项）→ 真的建窗。
-    //
     // NOTE: 「实例名进窗口标题」那一半在这个工程里量不到（那要一个真会话，而离线跑不出
-    //       真会话）。这里量得到的是"开关关着一个窗都不建 / 开着就建、同一份只建一个、
-    //       用户关掉之后不再自动开"—— 那几条才是这条路上会坏的。
+    // 真会话）。这里量得到的是"开关关着一个窗都不建 / 开着就建、同一份只建一个、
+    // 用户关掉之后不再自动开"—— 那几条才是这条路上会坏的。
     if (settingsWired) {
         // ---- ① 开窗时灌的就是盘上那份（这一节开头沙盒刚被清过，所以是默认值）----
         {
@@ -32567,12 +31883,12 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             }
             check(blank.isEmpty(), "AE1 五档都有文案", blank.join(QStringLiteral(", ")));
 
-            // ---- 窗口模式下拉框（2026-09-28）：三档，itemData 就是枚举值 ----
+            // ---- 窗口模式下拉框：三档，itemData 就是枚举值 ----
             // NOTE: 这里存的是 `int(GameWindowMode::…)`，和上面「进程优先级」那个下拉框
-            //       同一个形状（**不是**存盘那个代号串 —— 代号只在落盘那一刻用一次，见
-            //       LauncherSettings::save() / gameWindowModeToken()）。所以这一条钉的是
-            //       "两条平行表的顺序"，**别**照着代号串去 findData（那会一条都找不到、
-            //       静默停在 -1，而界面上看起来一切正常）。
+            // 同一个形状（**不是**存盘那个代号串 —— 代号只在落盘那一刻用一次，见
+            // LauncherSettings::save() / gameWindowModeToken()）。所以这一条钉的是
+            // "两条平行表的顺序"，**别**照着代号串去 findData（那会一条都找不到、
+            // 静默停在 -1，而界面上看起来一切正常）。
             check(windowModeCombo->count() == 3, "AE1 窗口模式下拉框正好三档",
                   QString::number(windowModeCombo->count()));
             QStringList modeData;
@@ -32605,7 +31921,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   "AE1 小窗那一档：下面那两格是可用的");
         }
 
-        // ---- ①b 「窗口模式」动一下：落盘 + 那两格跟着灰/亮（2026-09-28）----
+        // ---- ①b 「窗口模式」动一下：落盘 + 那两格跟着灰/亮----
         {
             windowModeCombo->setCurrentIndex(
                 windowModeCombo->findData(int(GameWindowMode::Maximized)));
@@ -32620,8 +31936,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       (windowSizeTimes == nullptr || !windowSizeTimes->isEnabled()),
                   "AE2 「最大化」那一档下面那两格连着中间的 × 一起灰掉"
                   "（最大化的大小是照屏幕算的，用户填的数这时不生效）");
-            // ★ 灰掉 ≠ 清空：盘上那一对留在原地，切回来原样还在。要是灰的时候顺手把它
-            //   清成 0，用户切回小窗就会拿到一个 0×0 —— 而 0 在命令行上是一条坏参数。
+            // 灰掉 ≠ 清空：盘上那一对留在原地，切回来原样还在。要是灰的时候顺手把它
+            // 清成 0，用户切回小窗就会拿到一个 0×0 —— 而 0 在命令行上是一条坏参数。
             windowModeCombo->setCurrentIndex(
                 windowModeCombo->findData(int(GameWindowMode::Fullscreen)));
             QApplication::processEvents();
@@ -32634,8 +31950,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       "AE2 路过「最大化」那一下没把盘上那对数改掉/清掉",
                       QString("%1×%2").arg(probe.gameWindowWidth()).arg(probe.gameWindowHeight()));
             }
-            // ★ 「全屏」这一档那两格**不灰**：那两个数是「按 F11 退出全屏之后回到多大」，
-            //   全屏那一趟真的在用。三档都灰的话用户就再也改不了它了。
+            // 「全屏」这一档那两格**不灰**：那两个数是「按 F11 退出全屏之后回到多大」，
+            // 全屏那一趟真的在用。三档都灰的话用户就再也改不了它了。
             check(windowWidthSpin->isEnabled() && windowHeightSpin->isEnabled() &&
                       (windowSizeTimes == nullptr || windowSizeTimes->isEnabled()),
                   "AE2 「全屏」那一档下面那两格是**可用**的（F11 退出全屏后就用这一对）");
@@ -32687,7 +32003,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
 
         // ---- ④ 日志窗：开关关着时一个窗都不建 ----
         //
-        // 【为什么这一节不再用 findChildren 找窗（2026-09-24 改）】
+        // 【为什么这一节不再用 findChildren 找窗（ 改）】
         // 用户报「日志一定会显示在启动器前面，会遮挡」—— 病根是**有主的窗在 Windows 上永远
         // 压在主窗上面**，所以产品那边改成 `new GameLogWindow(name, nullptr)`（没有父窗口，
         // 见 GameLogWindow 头文件那段）。父窗口没了，这些窗就不是 window 的孩子了，
@@ -32711,7 +32027,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         // 来说正合适：它量的是"建不建窗"，不是"标题写什么"。
         //
         // NOTE: 上面 ② 把这个开关**打开过**（那是为了验落盘），所以这里必须先关回去 ——
-        //       不然这一条量的就成了"开着的时候建不建窗"，而它恰恰是开着才建的。
+        // 不然这一条量的就成了"开着的时候建不建窗"，而它恰恰是开着才建的。
         showLogCheck->setChecked(false);
         QApplication::processEvents();
         const int fakeSession = 424242;
@@ -32754,11 +32070,11 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             // —— 删掉的话窗停在默认位置（多半正好压着启动器），而"没有父窗口"那几条照样绿。
             //
             // NOTE: 这一条在沙盒里**信号很弱** —— offscreen 那块屏只有 800x800，而启动器
-            //       （1024x750）加上一个 820x520 的日志窗两边都塞不下，于是 placementFor 按
-            //       "躲不开就居中"回的是 (0,0)，跟"没调用过 move()"的默认位置**恰好一样**
-            //       （每次跑都会把那个值打出来）。所以在沙盒里它能钉住的只是"没走岔到别的
-            //       公式上"；真的几何（贴右 / 右边挤不下翻左 / 两边都挤不下居中 / 错开）在
-            //       ui_check 的 Z3b 里按假矩形一条条量过 —— 那边不受这台机器屏幕多大影响。
+            // （1024x750）加上一个 820x520 的日志窗两边都塞不下，于是 placementFor 按
+            // "躲不开就居中"回的是 (0,0)，跟"没调用过 move()"的默认位置**恰好一样**
+            // （每次跑都会把那个值打出来）。所以在沙盒里它能钉住的只是"没走岔到别的
+            // 公式上"；真的几何（贴右 / 右边挤不下翻左 / 两边都挤不下居中 / 错开）在
+            // ui_check 的 Z3b 里按假矩形一条条量过 —— 那边不受这台机器屏幕多大影响。
             {
                 const QRect launcherFrame = window.frameGeometry();
                 const QScreen *scr = QGuiApplication::screenAt(launcherFrame.center());
@@ -32865,7 +32181,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         check(levelWin != nullptr, "AE6 前提：换一份会话照样建窗（这一节全靠它）");
         if (levelWin != nullptr) {
             // ① 认级别：五档各一条；最后那行认不出级别，会沿用 FATAL 的颜色与筛选归属，
-            //    但它只是上一条日志的续行，不应把顶部的“日志记录数”再加一次。
+            // 但它只是上一条日志的续行，不应把顶部的“日志记录数”再加一次。
             const int expect[GameLogWindow::levelCount()] = {1, 1, 1, 1, 1};   // Debug/Info/Warn/Error/Fatal
             check(levelWin->lineCount() == 6, "AE6 六行一条不多一条不少",
                   QString::number(levelWin->lineCount()));
@@ -32903,7 +32219,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             check(missing.isEmpty(), "AE6 五档各有一颗筛选按钮（顶上那排五颗都在）", missing);
             check(mismatched.isEmpty(), "AE6 每颗按钮上的计数就是这一档的账（那份统计的出处）",
                   mismatched);
-            // 顶上那排右边那颗**行数上限**下拉框（2026-09-24 用户让把「显示全部」换成它：
+            // 顶上那排右边那颗**行数上限**下拉框（ 用户让把「显示全部」换成它：
             // 「显示500/1000/2000/25/10k/all（直接写数字，不要学我）条」—— 原话里那个
             // 「25」是他打错了，订正成 5000；这一节不钉档位（那是 ui_check Z10 的事），
             // 只钉"有这么个控件、默认停在全部那一档"）。
@@ -32917,8 +32233,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             }
 
             // ③ 点的是**真按钮**（不是直接调 setLevelVisible）—— 用户能碰到的就是这一颗。
-            //    NOTE: 量"关掉之后看不见"必须同时量"账没变小、按钮上的数也没变" —— 只量前者的话，
-            //          把计数做成"数当前显示着的行"也一样绿。
+            // NOTE: 量"关掉之后看不见"必须同时量"账没变小、按钮上的数也没变" —— 只量前者的话，
+            // 把计数做成"数当前显示着的行"也一样绿。
             QToolButton *errButton = levelWin->getFilterButton(GameLogWindow::LogLevel::Error);
             errButton->click();
             QApplication::processEvents();
@@ -32950,10 +32266,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   levelWin->getLogView()->placeholderText());
 
             // ⑤ 五档一颗一颗点回来（也是**真按钮**）。
-            //    NOTE: 2026-09-24 之前这里是点那颗「显示全部」一下全勾回来。用户让把那颗
-            //          换成行数下拉框了，于是"全部勾回来"这条路**只剩手点五颗按钮**这一
-            //          条 —— 这一节照这条路走，同时把"顶上的下拉框跟筛选是两件事"钉住：
-            //          五颗都点回来之后，正文该一字不差地回来（下拉框那档没动过）。
+            // NOTE: 之前这里是点那颗「显示全部」一下全勾回来。用户让把那颗
+            // 换成行数下拉框了，于是"全部勾回来"这条路**只剩手点五颗按钮**这一
+            // 条 —— 这一节照这条路走，同时把"顶上的下拉框跟筛选是两件事"钉住：
+            // 五颗都点回来之后，正文该一字不差地回来（下拉框那档没动过）。
             for (int i = 0; i < GameLogWindow::levelCount(); ++i) {
                 QToolButton *button = levelWin->getFilterButton(GameLogWindow::levelAt(i));
                 if (!button->isChecked()) {
@@ -32988,10 +32304,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
         }
 
         // ---- ⑦b 游戏退出之后这个窗怎么办（喂真槽 onGameFinished）----
-        //
-        // 用户原话：「如果游戏正常以0退出就自动关闭日志界面」。判据那个纯函数的真值表在
-        // ui_check 的 Z9 里逐格念过；**这一节量的是它接上了没有** —— 纯函数写得再对，
-        // onGameFinished 里没调它也白搭（这条正是"接线"和"判据"分得开的那个样子）。
         //
         // 走的是真槽（onGameFinished 是私有槽，靠 invokeMethod 打进去，和上面一个路子）。
         {
@@ -33069,8 +32381,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                   "AE7 而且说的是「已崩溃退出」不是「已退出」（两句不同的话）",
                   crashWin != nullptr ? crashWin->logText().right(60) : QString());
             // (d) 崩溃 + 码正好是 0（Windows 上杀进程拿到的就是 0）→ **不关**。
-            //     这一条是"只看码"那种写法的照妖镜：把 autoCloseOnExit 写成 `exitCode == 0`
-            //     的话，(a) 照样绿，这一条红。
+            // 这一条是"只看码"那种写法的照妖镜：把 autoCloseOnExit 写成 `exitCode == 0`
+            // 的话，(a) 照样绿，这一条红。
             const int killedSession = fakeSession + 24;
             feedLine(killedSession, QStringLiteral("被杀掉之前的最后一行\n"));
             exitGame(killedSession, 0, QProcess::CrashExit);
@@ -33248,9 +32560,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             // 记下去等于把 A 的脸记到 B 名下，而那份记录**永不失效**，再也没人来纠正它。
             //
             // NOTE: 判据只能看**屏幕**，不能看盘上那一行 —— 身份没了以后 activeUuid() 是空串，
-            //       chosenPathFor("") 也是空，记账那一步本来就会失败，于是"没被写进去"这件事
-            //       在两种实现下都成立（照妖镜不亮）。而屏幕会说话：真按下来了，这一句之后
-            //       那张脸就变成第二张。
+            // chosenPathFor("") 也是空，记账那一步本来就会失败，于是"没被写进去"这件事
+            // 在两种实现下都成立（照妖镜不亮）。而屏幕会说话：真按下来了，这一句之后
+            // 那张脸就变成第二张。
             check(AccountStore::remove(uuid), "AF7 把这个离线账号删掉（当前账号没了）");
             check(!AccountStore::isOffline(AccountStore::activeUuid()),
                   "AF7 当前身份确实不再是那个离线账号");
@@ -33275,7 +32587,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     }
 
     header("O. 恢复现场");
-    // ------------------------------------------------------------------
     {
         QMetaObject::invokeMethod(&window, "onVersionsFetched", Qt::DirectConnection,
                                   Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
@@ -33307,17 +32618,13 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     // ------------------------------------------------------------------
     // 这一节接的是用户那句话的后半截：「左上角五个字母默认是这五个，在设置里允许自定义」。
     //
-    // 条自己那一半在 ui_check 的 Z11 一带量过（条上没有独立窗口、居中是解的哪个方程、
-    // 空串回默认、占位文字就是那五个字母）；这里验的是**接线** —— 设置页那格和条上那行字
-    // 之间到底连没连起来，以及连过去的是"框里的原话"还是"要落盘的那份"。
-    //
     // 判据取两处，缺一不可：
-    //   · 条上那句 `titleText()` —— 量的是"屏幕上会画出来的那串"；
-    //   · 盘上那个键，由**另一个读盘者**（同一个沙盒 ini 里 new 一个 LauncherSettings）
-    //     念出来。写死字面量只能证明"我抄对了数字"，拿对照实例才能证明"用户敲的东西真的存下来了"。
+    // · 条上那句 `titleText()` —— 量的是"屏幕上会画出来的那串"；
+    // · 盘上那个键，由**另一个读盘者**（同一个沙盒 ini 里 new 一个 LauncherSettings）
+    // 念出来。写死字面量只能证明"我抄对了数字"，拿对照实例才能证明"用户敲的东西真的存下来了"。
     //
     // NOTE: 这一格是**边打边存**（接的是 `textChanged`，不是"点应用"那一路），所以下面
-    //       每一步之后 `processEvents()` 都不用等什么"应用"按钮 —— 那正是这一节的判据。
+    // 每一步之后 `processEvents()` 都不用等什么"应用"按钮 —— 那正是这一节的判据。
     {
         TitleBar *strip = window.ui() != nullptr ? window.ui()->titleBar() : nullptr;
         if (titleEdit != nullptr && strip != nullptr) {
@@ -33420,7 +32727,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     runLaunchGuardTests();
 
     // NOTE: 排在**最后**：这一节要造一个 MainWindow，而它会顺手改当前身份（见里面对
-    //       AccountStore::addOffline 那一句）—— 排在别的节前面就等于替它们换了身份。
+    // AccountStore::addOffline 那一句）—— 排在别的节前面就等于替它们换了身份。
     header("ZI. 下载页那一行筛子的接线：控件 → 请求地址（本地假 CF 接口，不碰外网）");
     runDownloadFilterTests();
 
@@ -33441,9 +32748,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     header("T34. 游戏异常退出（§4.3）：从 onGameFinished 那一路补出来的一项（离线）");
     runGameCrashTests();
 
-    // 同样排在**最后**：这一节也要造 MainWindow、也要换当前身份（离线账号），而且它要
-    // **换数据根目录**（备份落在 `<当前游戏文件夹>/cache/backups` 底下）—— 排在别的节
-    // 前面，别的节读到的就是它的盘。中间那几发真打 zip（本机 PowerShell），小一秒一发。
     header("T35. 世界与实例备份（§4.4）：创建快照 / 立即备份 / 还原（离线）");
     runBackupTaskTests();
 
@@ -33456,14 +32760,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     header("T20. 实例设置「文件管理」那八页：目录从哪儿来 / 启用·禁用 / 删除（离线）");
     runInstanceFilesPagesTests();
 
-    // 同样排在**最后**：这一节也要造 MainWindow，而且它会改**接口地址那两个设置键**
-    // （把它们指到本机那个假服务器上）—— 排在别的节前面，别的节就会对着假接口跑。
     header("T21. 导出整合包：从「导出…」那颗按钮到盘上那个包（离线，假接口）");
     runModpackExportTests();
 
-    // 这一节**不造 MainWindow**（它调的那一层是纯逻辑 + 真网络），但它会把
-    // `Launcher/ModrinthApiBase` / `CurseForgeApiBase` 那两个键指到本机假服务器上，
-    // 所以一样得排在"会读那两个键"的节后面 —— 就挨着 T21。
     header("T22. 「文件管理」那几页的图标：按文件哈希反查「这是哪个资源」（离线，假接口）");
     runInstanceIconLookupTests();
 
@@ -33471,19 +32770,12 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     header("T23. 服务器那点东西落盘：测速结果来回一趟不走样（离线）");
     runServerStatusCacheTests();
 
-    // 同样排在**最后**：这一节也要造 MainWindow、也要换当前身份（离线账号），还要把
-    // `Launcher/CurseForgeApiBase` 指到本机端口，而且会把「已安装版本」下拉框清空。
     header("ZJ. 资源详情页那条路：下载页点某一行 → 整页详情 → chip → 点某一版（离线，假 CF 接口）");
     runResourceDetailPageTests();
 
-    // 同样排在**最后**：这一节也要造 MainWindow、也要换当前身份（离线账号），还要把两个
-    // 接口地址（`Launcher/ModrinthApiBase` / `Launcher/CurseForgeApiBase`）指到本机端口。
     header("T24. 实例设置里点一条行尾的「详情」 ⇒ 开那个资源自己的那一页（离线，假接口）");
     runInstanceFileResourceTests();
 
-    // 同样排在**最后**：这一节也要造 MainWindow、也要换当前身份（离线账号），也要把两个
-    // 接口地址指到本机端口（进下载页会顺手发一发"最热门的"），还会改
-    // `Download/AutoIntoInstance` 那个设置键。
     header("T25. 从实例设置里点「下载新模组」⇒ 落到下载页那一栏 + 左上角那颗返回键（离线）");
     runDownloadFromInstanceTests();
 
@@ -33498,9 +32790,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
     header("T27. 概览页的「复制实例」+ 存档页那支笔 / 顶上两颗（离线）");
     runCopyAndSavePageTests();
 
-    // 同样排在**最后**：也要造 MainWindow、也要换数据根目录（节尾逐字还原）。这一节是
-    // T20.9（那一趟检测会弹一份报告）的另一半 —— 那一趟查出来的名单还得**留下来**并
-    // 喂给文件管理几页顶上那条状态栏（见 ui_check 的 U10P：屏幕那一半）。
     header("T28. 文件管理那几页顶上那条搜索 + 状态栏里的「可更新」（离线，假接口）");
     runInstanceUpdateFilterTests();
 

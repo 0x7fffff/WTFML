@@ -1,8 +1,6 @@
 /**
  * @file UpdatePolicy.cpp
  * @brief 实现「忽略 / 固定」那本账（格式与取舍见 .hpp）。
- * @author 0x7fffff
- * @date 2026-10-13
  */
 
 #include "manage/UpdatePolicy.hpp"
@@ -89,8 +87,8 @@ int dropStalePins(Store &store, const QString &instanceId,
     int dropped = 0;
     QHash<QString, Entry> &entries = it.value();
     for (auto e = entries.begin(); e != entries.end();) {
-        // ★ 这一趟**没有**这个键（文件被删了 / 挪到别的目录去了）时清掉：那条记录已经
-        //   指不到任何东西了，留着只是让文件越来越大。
+        // 这一趟**没有**这个键（文件被删了 / 挪到别的目录去了）时清掉：那条记录已经
+        // 指不到任何东西了，留着只是让文件越来越大。
         const QString sha1 = currentSha1ByKey.value(e.key());
         if (pinIsStale(e.value(), sha1) || (sha1.isEmpty() && !currentSha1ByKey.contains(e.key()))) {
             e.value().pinnedSha1.clear();
@@ -196,7 +194,7 @@ Store fromJson(const QByteArray &bytes, bool *ok) {
     Store store;
     if (bytes.trimmed().isEmpty()) {
         if (ok != nullptr) {
-            *ok = true;  // 空文件 = 空账（不是"读不懂"）
+            *ok = true; // 空文件 = 空账（不是"读不懂"）
         }
         return store;
     }
@@ -206,9 +204,9 @@ Store fromJson(const QByteArray &bytes, bool *ok) {
         return store;
     }
     const QJsonObject root = document.object();
-    // ★ 格式标记不认识（别人的文件、以后改过格式的文件）⇒ 当"读不懂"：一个记录都不往里
-    //   加。半信半疑地读进来，最坏的结果是**把用户手上那几十个文件按一份莫名其妙的名单
-    //   判成"已忽略"**，而他什么都看不出来。
+    // 格式标记不认识（别人的文件、以后改过格式的文件）⇒ 当"读不懂"：一个记录都不往里
+    // 加。半信半疑地读进来，最坏的结果是**把用户手上那几十个文件按一份莫名其妙的名单
+    // 判成"已忽略"**，而他什么都看不出来。
     if (root.value(QStringLiteral("format")).toString() != formatTag()) {
         return store;
     }

@@ -1,8 +1,4 @@
 /**
- * @file StartupDiagnosis.cpp
- * @brief StartupDiagnosis.hpp 的实现：只读盘、只算，给一份启动前体检报告。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "diagnose/StartupDiagnosis.hpp"
@@ -39,15 +35,13 @@ QString readTail(const QString &path, qint64 maxBytes) {
 
 QString firstMeaningfulLine(const QString &text);
 
-/// 找崩溃报告里那两行（`Description:` / `Time:`）。Minecraft 的 `crash-*.txt` 一直是
-/// 这个形状；找不到就把整份报告的第一句非空行拿来当证据。
 QString crashLine(const QString &text, const QString &prefix) {
     const QStringList lines = text.split(QLatin1Char('\n'));
     for (const QString &line : lines) {
         if (line.startsWith(prefix)) return line.trimmed();
     }
-    // ★ 兜底那一步（上面注释说的）：没有那两行的时候，第一句非空行就是这份报告在说什么。
-    //   少了它，一份形状不太一样的报告会落成一句空证据（"崩溃了，原因不详"）。
+    // 兜底那一步（上面注释说的）：没有那两行的时候，第一句非空行就是这份报告在说什么。
+    // 少了它，一份形状不太一样的报告会落成一句空证据（"崩溃了，原因不详"）。
     return firstMeaningfulLine(text);
 }
 
@@ -364,7 +358,6 @@ Report analyze(const Inputs &inputs) {
                       QStringLiteral("它们在盘上叫 `*.jar.disabled`，游戏不会加载。"));
     }
 
-    // ---------- 5. 最近的崩溃报告 ----------
     bool javaVersionProblemSeen = false;
     bool outOfMemorySeen = false;
     {

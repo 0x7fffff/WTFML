@@ -1,8 +1,6 @@
 /**
  * @file WorldMap.cpp
  * @brief `WorldMap.hpp` 的实现：头部表那 8 KiB 的解析、`level.dat` 那几格的读取、目录扫描。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "manage/WorldMap.hpp"

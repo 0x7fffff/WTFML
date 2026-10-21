@@ -1,20 +1,18 @@
 /**
  * @file TaskSnapshot.hpp
  * @brief 一项任务的**完整样子**，以及"底栏收起态该显示谁"那几条纯规则。
- * @author 0x7fffff
- * @date 2026-10-12
  *
  * coding plan §2.2：「主任务与步骤分开」。一项任务 = 一个用户意图（"安装 1.21.4 Fabric"、
  * "启动 生存整合包"），它内部**可以有几千个下载作业** —— 那些是步骤，不是任务。
  *
  * 【这一层是什么、不是什么】
  *
- *   * 是：任务的**形状**（种类 / 状态 / 进度 / 步骤 / 能力）和几条纯函数（谁优先、百分比
- *     怎么算、收起态显示谁）。
- *   * 不是：任务的账本。谁在跑、跑到哪儿、什么时候结束，全在 `TaskManager` 里。
+ * * 是：任务的**形状**（种类 / 状态 / 进度 / 步骤 / 能力）和几条纯函数（谁优先、百分比
+ * 怎么算、收起态显示谁）。
+ * * 不是：任务的账本。谁在跑、跑到哪儿、什么时候结束，全在 `TaskManager` 里。
  *
- * ★ 这个头文件**只有值**：一个 QObject 都没有、一个信号都没有，也不碰盘。所以 `verify`
- *   能直接喂一组快照进去钉那几条规则（见 `tests/main.cpp` 的 AL 节）。
+ * 这个头文件**只有值**：一个 QObject 都没有、一个信号都没有，也不碰盘。所以 `verify`
+ * 能直接喂一组快照进去钉那几条规则（见 `tests/main.cpp` 的 AL 节）。
  *
  * 【为什么状态是一个枚举，不是几个 bool】
  *
@@ -78,9 +76,9 @@ struct TaskStep {
 
 /// 这项任务**允许**什么操作。按钮不靠任务种类猜（coding plan §2.2 末段）。
 ///
-/// ★ 为什么要有这一层而不是"看 kind 出按钮"：同是 `Install`，Forge 安装器跑到"不可安全
-///   中断的那一段"时**不能取消**（§3.2），而普通下载任何时候都能。拿 kind 猜的话，界面
-///   就得把"什么时候不能取消"再推一遍，而那个知识只在下命令的那一层手上有。
+/// 为什么要有这一层而不是"看 kind 出按钮"：同是 `Install`，Forge 安装器跑到"不可安全
+/// 中断的那一段"时**不能取消**（§3.2），而普通下载任何时候都能。拿 kind 猜的话，界面
+/// 就得把"什么时候不能取消"再推一遍，而那个知识只在下命令的那一层手上有。
 struct TaskCapabilities {
     bool canCancel = false;
     bool canPause = false;   // 第一版恒 false
@@ -102,11 +100,8 @@ struct TaskSnapshot {
     QString title;       // 「安装 1.21.4 Fabric」
     QString detail;      // 「正在下载资源对象…」
     QString targetId;    // 实例 id / 服务端 id，可空
-    /// 这一项**属于哪一次运行**（§9.8 第三条：任务 / 日志 / 退出诊断 / 崩溃报告用同一个
-    /// sessionId 对上）。0 = 还没对上（还没起来的启动、和进程无关的下载）。
-    ///
-    /// ★ **只活在内存里，不落盘**：会话号是每次启动器运行从 1 开始的，重启之后同一个号
-    ///   指的是另一趟。读回来的历史一律是 0（`TaskHistory` 也不写它）。
+    /// **只活在内存里，不落盘**：会话号是每次启动器运行从 1 开始的，重启之后同一个号
+    /// 指的是另一趟。读回来的历史一律是 0（`TaskHistory` 也不写它）。
     int sessionId = 0;
     qint64 doneUnits = 0;
     qint64 totalUnits = 0;  // <= 0 表示不可测（**不许编造百分比**，§2.1 末段）
@@ -135,8 +130,8 @@ inline bool isTerminalState(TaskState state) {
 
 /// 这一项此刻该不该露那颗「重试」。
 ///
-/// ★ coding plan §3.1①「逐任务能力表」的重试那一半（取消那一半是
-///   `MainWindow::cancelWouldWork()`，两者是孪生兄弟）。
+/// coding plan §3.1①「逐任务能力表」的重试那一半（取消那一半是
+/// `MainWindow::cancelWouldWork()`，两者是孪生兄弟）。
 ///
 /// 三样**缺一不可**，每一道挡住的都是真出现过的那一种毛病：
 ///
@@ -163,8 +158,8 @@ inline bool retryOffered(const TaskSnapshot &task, TaskId failedBatchOwner, bool
 
 /// 这一项报得出百分比吗。`totalUnits <= 0` 就是**不可测** —— 返回 -1，调用方画不确定态。
 ///
-/// ★ 这条是 §3.4 验收里那句「无 Content-Length 的 Fabric 下载显示'已下载多少'，不显示假
-///   百分比」的唯一出处。四分五裂地各写一遍"总数小于等于 0 就别画百分号"迟早会漏一处。
+/// 这条是 §3.4 验收里那句「无 Content-Length 的 Fabric 下载显示'已下载多少'，不显示假
+/// 百分比」的唯一出处。四分五裂地各写一遍"总数小于等于 0 就别画百分号"迟早会漏一处。
 inline int percentOf(const TaskSnapshot &task) {
     if (task.totalUnits <= 0) {
         return -1;
@@ -177,12 +172,12 @@ inline int percentOf(const TaskSnapshot &task) {
 /// 收起态那格"显示谁"的优先级（**数值小的先显示**）；返回 -1 = 这一项不参与收起态。
 ///
 /// coding plan §3.1 给的那一串：`WaitingUser > Failed(未读) > Launch > Install/Repair >
-/// Download > Export`。**这只是"收起时展示谁"，不会隐藏列表里的其他任务**（原话）。
+/// Download > Export`。**这只是"收起时展示谁"，不会隐藏列表里的其他任务**（要求）。
 ///
 /// @param unreadFailure 这一项是"用户还没看过的失败"。未读的失败比"正在启动"还靠前 ——
-///        用户没看见的那件事最该先被他看见；看过了就退回它那一类自己的位置。
-///        成功/取消/中断那三档**只在 `recentWindowMs` 之内**才露面（§3.1「完成任务短暂
-///        显示后收进历史」），由 `collapsedSummary()` 那边判，这里不管时间。
+/// 用户没看见的那件事最该先被他看见；看过了就退回它那一类自己的位置。
+/// 成功/取消/中断那三档**只在 `recentWindowMs` 之内**才露面（§3.1「完成任务短暂
+/// 显示后收进历史」），由 `collapsedSummary()` 那边判，这里不管时间。
 inline int summaryPriority(const TaskSnapshot &task, bool unreadFailure) {
     if (isActiveState(task.state)) {
         if (task.state == TaskState::WaitingUser) {
@@ -239,14 +234,14 @@ struct TaskSummary {
  * @param unreadFailures 用户**还没看过**的那几件失败任务的号。
  * @param now 现在。**传进来是为了可测** —— 这一层不看时钟。
  * @param recentWindowMs 「刚完成」还能占着那一格多久（§3.1「完成任务短暂显示后收进历史」）。
- *        传 0 = 完全不显示已完成的任务。
+ * 传 0 = 完全不显示已完成的任务。
  *
  * 规则（§3.1 那三条，逐条对上）：
- *   · 一项都没有 ⇒ `id == 0`（调用方画低强调度的「暂无后台任务」，**不画空进度条**）；
- *   · 有活动的 ⇒ 取优先级最高的那一项；同一档取**后发起的**（同一档里后点的那件事才是
- *     用户刚做的）；剩下的活动任务数写进 `extraCount`；
- *   · 红点看的是**有没有未读的失败**，跟显示的是哪一项无关 —— 正在下载而上一件事失败了，
- *     两个信号都该看得见。
+ * · 一项都没有 ⇒ `id == 0`（调用方画低强调度的「暂无后台任务」，**不画空进度条**）；
+ * · 有活动的 ⇒ 取优先级最高的那一项；同一档取**后发起的**（同一档里后点的那件事才是
+ * 用户刚做的）；剩下的活动任务数写进 `extraCount`；
+ * · 红点看的是**有没有未读的失败**，跟显示的是哪一项无关 —— 正在下载而上一件事失败了，
+ * 两个信号都该看得见。
  */
 inline TaskSummary collapsedSummary(const QList<TaskSnapshot> &tasks,
                                     const QSet<TaskId> &unreadFailures,

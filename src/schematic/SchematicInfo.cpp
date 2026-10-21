@@ -1,8 +1,6 @@
 /**
  * @file SchematicInfo.cpp
  * @brief 三种结构 / 原理图格式的元数据与方块统计。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 逐格式的判据写在各自的 parseXxx() 头上。这一层里**没有任何界面代码**：进来的是一
  * 个路径，出去的是 `Info`；要变成屏幕上的那一行字，走 `summaryText()`。
@@ -26,8 +24,6 @@
 namespace SchematicInfo {
 namespace {
 
-/// 压缩文件本体的上限（Litematica 的大工程实测到过几十 MB；再大就不读了，
-/// 同步解析会把界面按在那儿）。
 constexpr qint64 kMaxCompressedBytes = 96ll * 1024 * 1024;
 /// 解压之后的上限。H↔B 压缩比在 NBT 上通常只有几倍，256 MB 已经非常宽。
 constexpr qint64 kMaxUncompressedBytes = 256ll * 1024 * 1024;

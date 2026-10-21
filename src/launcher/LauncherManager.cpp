@@ -1,8 +1,6 @@
 /**
  * @file LauncherManager.cpp
  * @brief 处理 Minecraft 游戏启动和 JVM 参数生成。
- * @author LoserKugua
- * @date 2026-04-10
  * @note 使用 version.json 依赖和平台规定以避免 classpath 冲突。
  *
  * 这个 class 用于使用正确的 JVM 参数、 classpath 构建、特定平台 library 处理、启动 Minecraft。
@@ -31,10 +29,10 @@
 
 #if defined(Q_OS_WIN)
 // NOTE: 放在所有 Qt 头之后 —— windows.h 定义的东西太多（min/max 宏、`interface`……），
-//       先于 Qt 包含容易撞名。NOMINMAX 是给 std::min/std::max 让路（windows.h 会定义
-//       min/max 宏），WIN32_LEAN_AND_MEAN 少拉一堆用不上的头（winsock、shellapi……）。
-//       和 TokenStore.cpp 里那一套同一个写法。
-//       用途只有一个：下面的 applyProcessPriority()（OpenProcess / SetPriorityClass）。
+// 先于 Qt 包含容易撞名。NOMINMAX 是给 std::min/std::max 让路（windows.h 会定义
+// min/max 宏），WIN32_LEAN_AND_MEAN 少拉一堆用不上的头（winsock、shellapi……）。
+// 和 TokenStore.cpp 里那一套同一个写法。
+// 用途只有一个：下面的 applyProcessPriority()（OpenProcess / SetPriorityClass）。
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -61,42 +59,42 @@ namespace {
  * @brief 调用方没给玩家名时用的兜底名字（例如测试、未登录）。
  *
  * NOTE: 值和 AuthManager 的默认玩家名一致，但那边的 playerName() 才是**唯一来源** ——
- *       真实启动路径（MainWindow）永远会把名字传进来，这里只是保证 --username 不会
- *       是空的（空名字会让游戏直接拒绝启动）。
+ * 真实启动路径（MainWindow）永远会把名字传进来，这里只是保证 --username 不会
+ * 是空的（空名字会让游戏直接拒绝启动）。
  */
 constexpr char kDefaultPlayerName[] = "Player";
 
 /// version.json 里没有 `mainClass` 时用的主类 —— 也就是**改动前硬编码的那一个**。
 ///
 /// NOTE: 别把它当成"原版主类的权威来源"。原版每个版本的 json 里都写着这个字段，
-///       这只是一个让"缺字段的老版本 / 手写的 json"保持原行为的退路。
+/// 这只是一个让"缺字段的老版本 / 手写的 json"保持原行为的退路。
 constexpr char kDefaultMainClass[] = "net.minecraft.client.main.Main";
 
 /// 带**访问令牌**的那个系统属性（钥匙部分）。
 ///
 /// NOTE: 单独拎出来是因为它有两处用途，而两处都必须认得同一条前缀：一处是拼参数
-///       （`-Dminecraft.accessToken=<JWT>`），一处在打日志时把它挡掉（见 startGame()
-///       里那个 -D 循环 —— 那条以前会把令牌前 50 个字符写进日志文件）。
+/// （`-Dminecraft.accessToken=<JWT>`），一处在打日志时把它挡掉（见 startGame()
+/// 里那个 -D 循环 —— 那条以前会把令牌前 50 个字符写进日志文件）。
 const QString kAccessTokenProperty = QStringLiteral("-Dminecraft.accessToken=");
 
 /**
  * @brief 把设置页那一格「全局额外参数」拆成一条条 argv。**这是唯一的拆法。**
  *
- * ★ 2026-09-27 修：原来这里写的是 `split(' ', Qt::SkipEmptyParts)` —— **只认空格**。
- *   而那一格是 QPlainTextEdit（三四行高，见 MainWindowUI.cpp 里那段），用户从论坛、
- *   记事本抄参数时几乎必然**一行一条**。带换行的一整段会被当成**一条** argv 传给 java，
- *   实测（同机 JDK）的报错是：
- *       Unrecognized VM option 'UseG1GC\n-XX:+UseZGC'
- *       Error: Could not create the Java Virtual Machine.
- *   退出码 1 —— 而那时 QProcess::waitForStarted(3000) **已经成功了**（java.exe 真的起来过），
- *   于是启动链照常写「已开始启动游戏」、实例树上标「（运行中）」，用户看到的是"启动了，
- *   然后什么都没发生"。所以这不是"参数不生效"的小事，是**一次静默失败**。
+ * 修：原来这里写的是 `split(' ', Qt::SkipEmptyParts)` —— **只认空格**。
+ * 而那一格是 QPlainTextEdit（三四行高，见 MainWindowUI.cpp 里那段），用户从论坛、
+ * 记事本抄参数时几乎必然**一行一条**。带换行的一整段会被当成**一条** argv 传给 java，
+ * 实测（同机 JDK）的报错是：
+ * Unrecognized VM option 'UseG1GC\n-XX:+UseZGC'
+ * Error: Could not create the Java Virtual Machine.
+ * 退出码 1 —— 而那时 QProcess::waitForStarted(3000) **已经成功了**（java.exe 真的起来过），
+ * 于是启动链照常写「已开始启动游戏」、实例树上标「（运行中）」，用户看到的是"启动了，
+ * 然后什么都没发生"。所以这不是"参数不生效"的小事，是**一次静默失败**。
  *
  * 按**任意空白**拆（空格、制表符、CR、LF 都算）：写成一行还是每行一条都能用，
  * 而"用空格分隔"那条原意在两种写法下都成立。
  *
  * NOTE: 不做引号解析 —— 参数里带空格的那种写法（`-Dfoo="a b"`）本来就不是这一格支持的
- *       东西，加一套引号规则只会让"用户以为能用"变成"看着像能用但结果不可预期"。
+ * 东西，加一套引号规则只会让"用户以为能用"变成"看着像能用但结果不可预期"。
  */
 QStringList splitExtraJvmArgs(const QString &text) {
     return text.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
@@ -122,12 +120,12 @@ bool hasNativeLibraries(const QString &dir) {
 
 /// "这一份 natives 是**整套**解出来的"那个标记文件（写在 natives 目录里）。
 ///
-/// ★ 2026-10-20：原来"解压过了"的判据只有 `hasNativeLibraries()` —— **任意一个** .dll 就算
-///   齐了。可 natives 是按排除项分组、一组一次 `extractArchives()` 解的，第一组成功、第二组
-///   失败（盘满、被杀毒锁住、用户中途关掉启动器）时目录里已经躺着第一组的 DLL：这一趟启动
-///   会如实报错，**下一趟**却在 `hasNativeLibraries()` 那一句直接复用这份残缺目录，于是
-///   症状从"解压失败"变成"进游戏崩在 UnsatisfiedLinkError"，而且再也修不好（每次都复用）。
-///   标记只在**全部**解完、且 DLL 确实在了之后才写；失败时连目录一起删掉。
+/// 原来"解压过了"的判据只有 `hasNativeLibraries()` —— **任意一个** .dll 就算
+/// 齐了。可 natives 是按排除项分组、一组一次 `extractArchives()` 解的，第一组成功、第二组
+/// 失败（盘满、被杀毒锁住、用户中途关掉启动器）时目录里已经躺着第一组的 DLL：这一趟启动
+/// 会如实报错，**下一趟**却在 `hasNativeLibraries()` 那一句直接复用这份残缺目录，于是
+/// 症状从"解压失败"变成"进游戏崩在 UnsatisfiedLinkError"，而且再也修不好（每次都复用）。
+/// 标记只在**全部**解完、且 DLL 确实在了之后才写；失败时连目录一起删掉。
 constexpr char kNativeReadyMarker[] = ".wtfml-natives-ok";
 
 bool nativesExtractionComplete(const QString &dir) {
@@ -196,17 +194,17 @@ DWORD priorityClassOf(ProcessPriority priority) {
  * @param priority 要设的档位。
  *
  * NOTE: 调用的时机只有一处 —— waitForStarted() 成功之后、紧跟着的那一行。两个理由：
- *       ① `processId()` 在进程起来之前是 0，那之前 OpenProcess 没东西可开；
- *       ② 越早设越接近"从第一行代码起就是这个优先级"，晚了的话刚开始那一段初始化
- *          （分配几个 GB 内存、解压 natives）已经按旧的档位跑过了。
+ * ① `processId()` 在进程起来之前是 0，那之前 OpenProcess 没东西可开；
+ * ② 越早设越接近"从第一行代码起就是这个优先级"，晚了的话刚开始那一段初始化
+ * （分配几个 GB 内存、解压 natives）已经按旧的档位跑过了。
  *
  * NOTE: 失败**只写日志、不拦启动**。设优先级是"锦上添花"，没设上不代表游戏不能玩；
- *       把它变成一条拦下启动的错误，就是拿一个次要功能去堵主流程。常见失败是
- *       进程刚好在这一瞬间退了（OpenProcess 拿到 ERROR_INVALID_PARAMETER），
- *       那不是异常。
+ * 把它变成一条拦下启动的错误，就是拿一个次要功能去堵主流程。常见失败是
+ * 进程刚好在这一瞬间退了（OpenProcess 拿到 ERROR_INVALID_PARAMETER），
+ * 那不是异常。
  *
  * NOTE: 非 Windows 平台是**空操作**，不是"用 setpriority 凑一个等价物"：两边的档位
- *       根本对不上（POSIX 是 nice 值，Windows 是调度类），凑出来的东西没人验证过。
+ * 根本对不上（POSIX 是 nice 值，Windows 是调度类），凑出来的东西没人验证过。
  */
 void applyProcessPriority(QProcess *process, ProcessPriority priority) {
 #ifdef Q_OS_WIN
@@ -270,9 +268,9 @@ bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *erro
     // 为特定版本检查所需的游戏文件
     //
     // NOTE: 这里以前硬拼 "%1/versions/%2/%2.jar"。改成走 InstanceFiles 的理由和
-    //       getVersionJson() 一样：目录名被外部改过之后里面的 jar 还叫老名字，硬拼会
-    //       报"缺少客户端 JAR"，而那个 jar 明明就在目录里躺着。认出来和还能启动是两件事，
-    //       判据放松了，路径解析就得跟着放松，否则只是把失败从"列表里看不见"挪到了"点了报缺 jar"。
+    // getVersionJson() 一样：目录名被外部改过之后里面的 jar 还叫老名字，硬拼会
+    // 报"缺少客户端 JAR"，而那个 jar 明明就在目录里躺着。认出来和还能启动是两件事，
+    // 判据放松了，路径解析就得跟着放松，否则只是把失败从"列表里看不见"挪到了"点了报缺 jar"。
     const QString versionJarPath = InstanceFiles::jarPath(versionId);
     const QFileInfo jarInfo(versionJarPath);
     if (!jarInfo.exists()) {
@@ -351,7 +349,7 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
 
     const QString nativesDir = nativesDirectory(versionId);
     // 守卫：上一次**整套**解压过就直接复用。除第一次启动外，这里几乎是零开销。
-    // ★ 判据是标记文件（见 `nativesExtractionComplete()`），不是"有一个 DLL 了"。
+    // 判据是标记文件（见 `nativesExtractionComplete()`），不是"有一个 DLL 了"。
     if (nativesExtractionComplete(nativesDir)) {
         return nativesDir;
     }
@@ -359,18 +357,11 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
     const QString librariesRoot = AppPaths::libraryDir();
 
     // 按"这一条自己的 extract.exclude"分组解压，**不是**把所有人的排除项并成一份再去解所有
-    // 人的 jar（2026-09-25 修）。
+    // 人的 jar（ 修）。
     //
-    // NOTE: 排除项是**每条库自己的**声明，不是这一组 natives 的公共属性 —— `extract.exclude`
-    //       说的就是"从我这一份里别解出这些路径"。并成一份等于把 A 的排除项也套到 B 上：
-    //       实测本机 66 份 version.json，有 2 份的 natives 库是"一部分带
-    //       `{"exclude":["META-INF/"]}`、一部分完全不写 extract"混着的"，那些不写 extract 的
-    //       jar 的 META-INF 会被无端剥掉（剥多了的表现是某个 DLL/清单文件没解出来，
-    //       而 hasNativeLibraries() 只要看到一个 DLL 就认为解压成功，于是崩在后面）。
-    //
-    //       分组的代价：排除项不同的那几组各起一次 PowerShell（实测那些版本最多两组），
-    //       而这条路**只在第一次启动时走**（上面 hasNativeLibraries 那条守卫会复用已解压的
-    //       目录），所以那点开销付一次就没了。
+    // 分组的代价：排除项不同的那几组各起一次 PowerShell（实测那些版本最多两组），
+    // 而这条路**只在第一次启动时走**（上面 hasNativeLibraries 那条守卫会复用已解压的
+    // 目录），所以那点开销付一次就没了。
     QHash<QString, QStringList> jarsByExcludes;
     QStringList missing;
     for (const LibraryRules::NativeClassifier &classifier : classifiers) {
@@ -426,7 +417,7 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
 
     // 全部解完、DLL 也确实在了 —— 这才写标记。
     // NOTE: 写不进去**不算失败**：那只会让下一趟重新解一遍（代价几秒），而"解压成功却报
-    //       失败"会把一次能起来的启动拦下来。
+    // 失败"会把一次能起来的启动拦下来。
     QFile marker(QDir(nativesDir).filePath(QLatin1String(kNativeReadyMarker)));
     if (!marker.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         qWarning() << "Cannot write natives marker, next launch will extract again:"
@@ -450,22 +441,13 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
  * token 的描述也和头文件里的对不上）。这里只留"为什么这么写"的部分。
  *
  * NOTE: 这里刻意**只加硬编码做不到的事**，凡是 version.json 的 arguments.jvm 声明了的
- *       就按它的规则过滤后原样传（见下面那段）。**没有**任何一份"我们自己的调优预设"
- *       在这一层硬编码 —— 内存、GC、JIT 这些随机器/堆大小/Java 版本而变的东西，硬编码
- *       等于替用户做主了，归 versionJvmArgs 和 GlobalJavaSettings::extraJvmArgs() 两个口子。
+ * 就按它的规则过滤后原样传（见下面那段）。**没有**任何一份"我们自己的调优预设"
+ * 在这一层硬编码 —— 内存、GC、JIT 这些随机器/堆大小/Java 版本而变的东西，硬编码
+ * 等于替用户做主了，归 versionJvmArgs 和 GlobalJavaSettings::extraJvmArgs() 两个口子。
  *
- *       容易看错的一点（2026-09-24 改的注释，只改字不改码）：下面这些常见取值
- *       -XX:G1NewSizePercent=20 / -XX:G1ReservePercent=20 / -XX:G1HeapRegionSize=32M /
- *       -XX:MaxGCPauseMillis=50 / -XX:+UseCompactObjectHeaders 是 **Mojang 自己的
- *       default-user-jvm**（见实测抓下来的 26.1.json：无规则那条给的就是
- *       -Xms2G -Xmx4G -XX:+UseCompactObjectHeaders -XX:+AlwaysPreTouch
- *       -XX:+UseStringDeduplication，G1 那组挂在 windows versionRange max 10.0.17134
- *       那条规则下），不是"PCL 那套调优值"。以前这段注释把它们记成 PCL 的，照着它去
- *       找"我们从哪抄来的"会找错方向。
- *
- *       真要往设置界面放这类预设，得注意版本门槛 —— 实测（21 与 25 两个运行时）：
- *       -XX:+PerfDisableSharedMem 全版本可用；-XX:+UseCompactObjectHeaders 只有新 JDK
- *       接受，旧版是 Unrecognized option 直接起不来。所以预设必须一并带上版本过滤。
+ * 真要往设置界面放这类预设，得注意版本门槛 —— 实测（21 与 25 两个运行时）：
+ * -XX:+PerfDisableSharedMem 全版本可用；-XX:+UseCompactObjectHeaders 只有新 JDK
+ * 接受，旧版是 Unrecognized option 直接起不来。所以预设必须一并带上版本过滤。
  */
 QStringList LauncherManager::generateJvmArguments(const QString &token, const QString &versionId,
                                                   const QString &assetIndexId,
@@ -483,8 +465,8 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     // 验证工程能直接把三档 + 屏幕尺寸喂进去看发出来什么。
     //
     // NOTE: 下面填 `${resolution_width}` 那两个占位符**还是**照 window 里那两个数来
-    //       （不是照"最大化算出来的那一个"）：占位符这条路今天根本走不到（见它自己那段），
-    //       真走到了，"用户设的那两格"也是更该填进去的那一份。
+    // （不是照"最大化算出来的那一个"）：占位符这条路今天根本走不到（见它自己那段），
+    // 真走到了，"用户设的那两格"也是更该填进去的那一份。
     const int windowWidth = window.width;
     const int windowHeight = window.height;
 
@@ -516,9 +498,6 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     }
 
     args << QStringLiteral("-Dlog4j2.formatMsgNoLookups=true");
-    // -XX:-OmitStackTraceInFastThrow：实测 Java 8/17/25 全部接受，所以无条件加。
-    // 不开这条时 JIT 的"快速抛异常"会优化掉重复抛出异常的堆栈，崩溃日志缩成一行
-    // 没有下文的 NullPointerException —— 崩溃报告分析（和它的导出功能）全靠堆栈。
     args << QStringLiteral("-XX:-OmitStackTraceInFastThrow");
     // --enable-native-access 是 JDK 17+ 才有的选项，用于启用对 Java 25+ 的原生兼容性。
     // Java 8（1.16.5 及以下需要）碰到它会直接 Unrecognized option 秒退，连主类都到不了，
@@ -548,14 +527,14 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     args << QStringLiteral("-Djava.net.preferIPv4Stack=true");
 
     // NOTE: 去重按**路径**比，大小写不敏感 —— Windows 的路径本来就是大小写不敏感的，
-    //       而 BootstrapLauncher（Forge/NeoForge）拿 `java.class.path` 里的字符串去和
-    //       JVM 模块路径里的**盘上路径**做 `Paths.get(a).equals(Paths.get(b))` 比较，
-    //       `WindowsPath.equals` 也是忽略大小写的。这里跟着它保持一致。
+    // 而 BootstrapLauncher（Forge/NeoForge）拿 `java.class.path` 里的字符串去和
+    // JVM 模块路径里的**盘上路径**做 `Paths.get(a).equals(Paths.get(b))` 比较，
+    // `WindowsPath.equals` 也是忽略大小写的。这里跟着它保持一致。
     //
-    // ★ 2026-10-11：判据改从一个跟着走的 `QSet`（键 = `toCaseFolded()`，和上面那句
-    //   `Qt::CaseInsensitive` 同一套折叠规则）里查，不再每来一个库就把不断变长的
-    //   `QStringList` 线性扫一遍 —— 一次启动约 200 个库，先前是约 200 次 O(n) 比较。
-    //   `classpathSeen` 与 `classpath` **必须同时维护**，唯一写入口就是下面这个 lambda。
+    // 判据改从一个跟着走的 `QSet`（键 = `toCaseFolded()`，和上面那句
+    // `Qt::CaseInsensitive` 同一套折叠规则）里查，不再每来一个库就把不断变长的
+    // `QStringList` 线性扫一遍 —— 一次启动约 200 个库，先前是约 200 次 O(n) 比较。
+    // `classpathSeen` 与 `classpath` **必须同时维护**，唯一写入口就是下面这个 lambda。
     QStringList classpath;
     QSet<QString> classpathSeen;
     const auto addClasspathPath = [&](const QString &path) {
@@ -573,23 +552,23 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     bool needsNativesDir = false;
     // 先添加主版本 JAR 文件。NOTE: jar 的**名字和目录**都走 InstanceFiles 解析，而不是
     // 直接写 versionId —— 两个坑：
-    //   1. 目录名被外部改过之后里面的 jar 还叫老名字，按 id 硬拼出来的 classpath 会指向一个
-    //      不存在的文件，表现是 JVM 一句 "Could not find or load main class" 就没了；
-    //   2. **带模组加载器的版本目录里根本没有 jar**（Fabric 装出来的只有一份 json），
-    //      客户端 jar 在原版那个目录里 —— jarRelativePath() 会顺着 inheritsFrom 链找到它。
+    // 1. 目录名被外部改过之后里面的 jar 还叫老名字，按 id 硬拼出来的 classpath 会指向一个
+    // 不存在的文件，表现是 JVM 一句 "Could not find or load main class" 就没了；
+    // 2. **带模组加载器的版本目录里根本没有 jar**（Fabric 装出来的只有一份 json），
+    // 客户端 jar 在原版那个目录里 —— jarRelativePath() 会顺着 inheritsFrom 链找到它。
     //
-    // ★ 必须发**绝对路径**（原先发的是相对 cwd 的 `versions/<id>/...`）。相对路径在这里
-    //   不是"风格问题"，是**实打实的启动失败**：
-    //   Forge/NeoForge 的 version json 用 `${library_directory}`（绝对）拼了 `-p` 模块路径，
-    //   而 classpath 上是相对串 —— BootstrapLauncher 逐个比"这个 jar 是不是已经在 JVM 的
-    //   模块路径上了"，相对的 `Paths.get("libraries/cpw/...")` 和绝对路径
-    //   cpw\\...")` 不相等，于是它认为同一个 jar 出现了两次并抛：
-    //     IllegalStateException: Module named cpw.mods.bootstraplauncher was already on the
-    //     JVMs module path loaded from D:\...\bootstraplauncher-2.0.2.jar but class-path
-    //     contains it at location libraries\cpw\mods\bootstraplauncher\2.0.2\bootstraplauncher-2.0.2.jar
-    //   （6 个 NeoForge 实例真机上全崩在这一句，2026-09-28 查到；把 classpath 换成绝对路径
-    //   之后同一条命令行原样跑进了 modlauncher —— 见 build/tmp-run/nf-probe2.py 的 M 组。）
-    //   原版启动器发的也是绝对路径，这里现在和它一致。
+    // 必须发**绝对路径**（原先发的是相对 cwd 的 `versions/<id>/...`）。相对路径在这里
+    // 不是"风格问题"，是**实打实的启动失败**：
+    // Forge/NeoForge 的 version json 用 `${library_directory}`（绝对）拼了 `-p` 模块路径，
+    // 而 classpath 上是相对串 —— BootstrapLauncher 逐个比"这个 jar 是不是已经在 JVM 的
+    // 模块路径上了"，相对的 `Paths.get("libraries/cpw/...")` 和绝对路径
+    // cpw\\...")` 不相等，于是它认为同一个 jar 出现了两次并抛：
+    // IllegalStateException: Module named cpw.mods.bootstraplauncher was already on the
+    // JVMs module path loaded from D:\...\bootstraplauncher-2.0.2.jar but class-path
+    // contains it at location libraries\cpw\mods\bootstraplauncher\2.0.2\bootstraplauncher-2.0.2.jar
+    // （6 个 NeoForge 实例真机上全崩在这一句， 查到；把 classpath 换成绝对路径
+    // 之后同一条命令行原样跑进了 modlauncher —— 见 build/tmp-run/nf-probe2.py 的 M 组。）
+    // 原版启动器发的也是绝对路径，这里现在和它一致。
     //
     // 绝对路径的基准是 AppPaths::minecraftDir()，和 startGame() 里那个 setWorkingDirectory
     // 无关了 —— cwd 换成版本目录（PCL 那种）不再需要同时改这里。
@@ -607,8 +586,8 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     // 这里**只读盘**：这一层仍然是"给我一份 version.json，我拼一条命令行"，副作用只有
     // 下面那个 natives 的空目录。
     // NOTE: 只判 gameDir 和 jar：natives 那一份是 ensure() 按"真实的 natives 目录存不存在"
-    //       建的（不存在就不建），跟着 needsNativesDir 走 —— 那边真缺了会在下面
-    //       hasNativeLibraries() 那一句里现原形（qWarning），不会静默发一条错路径出去。
+    // 建的（不存在就不建），跟着 needsNativesDir 走 —— 那边真缺了会在下面
+    // hasNativeLibraries() 那一句里现原形（qWarning），不会静默发一条错路径出去。
     const AsciiPathAlias::Paths asciiAlias = AsciiPathAlias::pathsFor(versionId);
     const QString realGameDir = AppPaths::versionDir(versionId);
     const QString realJarPath = InstanceFiles::jarPath(versionId);
@@ -618,19 +597,17 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     if (useAsciiAlias) {
         qDebug() << "Java 8 + 非 ASCII 路径：改用 ASCII 别名" << asciiAlias.root;
     }
-    // `--gameDir` 发出去的那一个（两条登录分支共用）。别名里那个是个联接，游戏往它里面
-    // 落的东西（存档、截图、logs）全都落在 `versions/<id>` 里，用户看不出区别。
     const QString gameDirForJava =
         useAsciiAlias ? QDir::toNativeSeparators(asciiAlias.gameDir)
                       : QDir::toNativeSeparators(AppPaths::versionDir(versionId));
     // 实例目录顶层某个 jar 在 classpath 上该用的路径（要不要走别名都在这里一处判）。
-    // ★ 2026-10-20：`ownerId` 是**必填**的。原来这个 lambda 自己调
-    //   `jarOwnerId(versionId)`，而下面"兄弟 jar"那一圈读的是 `versionDir(versionId)` 里的
-    //   文件 —— 两处对同一个 `versionId` 问出了**不同**的目录：PCL 那种合并实例里客户端
-    //   jar 在 `versions/<原版>`、兄弟 jar 在 `versions/<实例>`，于是兄弟 jar 的读取用实例
-    //   目录、拼出来的路径却指回原版目录。轻则那个 jar 不在 classpath 上（主类找不到，症状
-    //   和这个功能要修的 bug 一模一样），重则**同名不同物**：原版目录里恰好有个同名 jar 时
-    //   塞进 classpath 的是另一个文件。读取方和拼路径方必须是同一个目录。
+    // `ownerId` 是**必填**的。原来这个 lambda 自己调
+    // `jarOwnerId(versionId)`，而下面"兄弟 jar"那一圈读的是 `versionDir(versionId)` 里的
+    // 文件 —— 两处对同一个 `versionId` 问出了**不同**的目录：PCL 那种合并实例里客户端
+    // jar 在 `versions/<原版>`、兄弟 jar 在 `versions/<实例>`，于是兄弟 jar 的读取用实例
+    // 目录、拼出来的路径却指回原版目录。轻则那个 jar 不在 classpath 上（主类找不到，症状
+    // 和这个功能要修的 bug 一模一样），重则**同名不同物**：原版目录里恰好有个同名 jar 时
+    // 塞进 classpath 的是另一个文件。读取方和拼路径方必须是同一个目录。
     const auto classpathJarFor = [&](const QString &ownerId, const QString &fileName) {
         return useAsciiAlias ? QDir::toNativeSeparators(asciiAlias.jarFor(fileName))
                              : absoluteEntry(
@@ -691,7 +668,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     // NOTE: 必须是绝对路径。JVM 在启动早期就读取并缓存 java.library.path，
     // 相对路径的解析基准是那一刻的工作目录，不可依赖；原版启动器传的也是绝对路径。
     // NOTE: 走了 ASCII 别名时这里换成别名里那一份（它是个联接，指的还是同一个目录）——
-    //       -Djava.library.path 是**递给 Java 看**的路径，非 ASCII 一样会被它认岔。
+    // -Djava.library.path 是**递给 Java 看**的路径，非 ASCII 一样会被它认岔。
     if (needsNativesDir) {
         const QString nativesDir = useAsciiAlias ? asciiAlias.nativesDir : nativesDirectory(versionId);
         if (hasNativeLibraries(nativesDir)) {
@@ -711,10 +688,10 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     // 不看它就是把原版主类跑起来，加载器一行都没执行。
     //
     // NOTE: 取不到字段时退回原版主类。这不是兜底"猜一个"，而是**改动前的行为**：
-    //       没有这个字段的版本（老版本、手写的 json）本来就是跑原版主类。
+    // 没有这个字段的版本（老版本、手写的 json）本来就是跑原版主类。
     //
     // NOTE: 这里（拼 classpath 的时候）就把它读出来，是因为下面那段"主类是不是装在
-    //       实例目录里另一个 jar 里"要用它判；发到命令行上是后面的事（位置见那里的 NOTE）。
+    // 实例目录里另一个 jar 里"要用它判；发到命令行上是后面的事（位置见那里的 NOTE）。
     const QString mainClass = versionJson.value(QStringLiteral("mainClass")).toString();
     const QString mainClassEntry = mainClass.isEmpty()
                                        ? QString()
@@ -725,17 +702,17 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     // 把"真的装着主类"的那个 jar 加进 classpath。
     //
     // NOTE: 真机上就这么一例（`GTNH 2.8.4`）—— 它用 lwjgl3ify 重生启动，主类
-    //       `me.eigenraven.lwjgl3ify.relauncherstub.RelauncherStubMain` 装在版本目录里那个
-    //       和客户端 jar 并排的 `lwjgl3ify-forgePatches.jar` 里，而**那个 jar 不在
-    //       libraries 里**（json 那 51 个库一个都不提它，arguments.jvm 也是空的）。
-    //       PCL 的做法是把版本目录下**所有** jar 都塞进 classpath，那也能起来，但代价是
-    //       随便一个躺在版本目录里的 jar 都会进 classpath（可能带进同名类）。
-    //       这里只加"真的装着主类"的那一个：
-    //         - `GTNH 2.8.4` 的那个 jar 里有这个类 ⇒ 加上（这正是它起不来的原因）；
-    //         - `Hyperlands` 目录里也有第二个 jar（`hyperlands.jar`），那一个是模组、
-    //           里面没有主类 ⇒ 一个都不加，行为与改动前逐字节相同。
-    //       `魔改版ATT2-…` 那个重复的客户端 jar 同理（里面有主类，但它本来就在 classpath
-    //       上 —— 上面那句 contains 会把它挡掉）。
+    // `me.eigenraven.lwjgl3ify.relauncherstub.RelauncherStubMain` 装在版本目录里那个
+    // 和客户端 jar 并排的 `lwjgl3ify-forgePatches.jar` 里，而**那个 jar 不在
+    // libraries 里**（json 那 51 个库一个都不提它，arguments.jvm 也是空的）。
+    // PCL 的做法是把版本目录下**所有** jar 都塞进 classpath，那也能起来，但代价是
+    // 随便一个躺在版本目录里的 jar 都会进 classpath（可能带进同名类）。
+    // 这里只加"真的装着主类"的那一个：
+    // - `GTNH 2.8.4` 的那个 jar 里有这个类 ⇒ 加上（这正是它起不来的原因）；
+    // - `Hyperlands` 目录里也有第二个 jar（`hyperlands.jar`），那一个是模组、
+    // 里面没有主类 ⇒ 一个都不加，行为与改动前逐字节相同。
+    // `魔改版ATT2-…` 那个重复的客户端 jar 同理（里面有主类，但它本来就在 classpath
+    // 上 —— 上面那句 contains 会把它挡掉）。
     //
     // 判据是"jar 的原始字节里有没有这条 `xxx/yyy/Main.class` 这个字符串"。zip 的条目名是
     // **明文**存在文件里的（本地头 + 中央目录各一份），所以不需要解压、也不需要 zip 库
@@ -861,8 +838,8 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     // 主类（上面拼 classpath 时已经读过一次，见那里的 NOTE）。
     //
     // NOTE: 位置必须在 `-cp` **之后**、游戏参数之前 —— 它是 JVM 的第一个位置参数
-    //       （非选项参数），JVM 拿第一个当主类、其余当程序参数。放进 `-cp` 之前会在
-    //       某些版本上被 JVM 当成"类还没就绪"而报 Could not find or load main class。
+    // （非选项参数），JVM 拿第一个当主类、其余当程序参数。放进 `-cp` 之前会在
+    // 某些版本上被 JVM 当成"类还没就绪"而报 Could not find or load main class。
     args << (mainClass.isEmpty() ? QString::fromLatin1(kDefaultMainClass) : mainClass);
 
     // 游戏参数占位符（${auth_uuid} 那一套）要用的三样：下面那两条分支各自定下来，等到
@@ -874,31 +851,31 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     // --gameDir / --assetsDir 传**绝对路径**，而不是"靠 cwd 解析出来的相对路径"。
     //
     // NOTE: 这两条以前是 "versions/<id>" 和 "assets" 两个相对路径，由 startGame() 设的
-    //       cwd 解析 —— 而 startGame() 自己又同时算了一份绝对路径
-    //       isolatedPath = <mc>/versions/<id>，同一个目录在两处各算一遍、其中一处依赖
-    //       调用顺序。改成绝对路径后解析结果逐字节相同，但不再依赖 cwd，也为"切换
-    //       .minecraft 文件夹"准备了条件。
+    // cwd 解析 —— 而 startGame() 自己又同时算了一份绝对路径
+    // isolatedPath = <mc>/versions/<id>，同一个目录在两处各算一遍、其中一处依赖
+    // 调用顺序。改成绝对路径后解析结果逐字节相同，但不再依赖 cwd，也为"切换
+    // .minecraft 文件夹"准备了条件。
     //
     // NOTE: cwd **本身不动**，仍然是 .minecraft（见 startGame 里那条 NOTE：真机 61 个
-    //       实例里大量模组按 cwd 找相对路径）。classpath 从 2026-09-28 起是绝对路径，
-    //       所以"改 cwd"不再需要同时改 classpath —— 那条约束已经解开了，cwd 要不要换
-    //       是独立的另一件事。
+    // 实例里大量模组按 cwd 找相对路径）。classpath 从 起是绝对路径，
+    // 所以"改 cwd"不再需要同时改 classpath —— 那条约束已经解开了，cwd 要不要换
+    // 是独立的另一件事。
     if (offlineMode) {
         // 离线模式：使用虚假登录证书
         // NOTE: 玩家名现在就是调用方给的那个（底栏上显示的名字），以前是
-        //       "Player" 拼一个毫秒时间戳。改成同一个名字是**有意的**：名字就是账户的
-        //       身份，每次启动换一个的话，单机存档的主人公名字会跟着变，离线服务器的
-        //       离线 UUID（由名字推出来）也会每次都被当成新玩家。唯一真的需要"不撞名"
-        //       的场合是同一台机器上开两个离线实例，那种情况用户自己会改名字。
+        // "Player" 拼一个毫秒时间戳。改成同一个名字是**有意的**：名字就是账户的
+        // 身份，每次启动换一个的话，单机存档的主人公名字会跟着变，离线服务器的
+        // 离线 UUID（由名字推出来）也会每次都被当成新玩家。唯一真的需要"不撞名"
+        // 的场合是同一台机器上开两个离线实例，那种情况用户自己会改名字。
         //
         // NOTE: uuid 这一行以前是 `QUuid::createUuid()` —— 上面那段话说的正是"每次启动
-        //       换一个会被当成新玩家"，而它每次启动都在换。发出去的 `--uuid`、以及命令行
-        //       里 `${auth_uuid}` 那个占位符用的都是它，于是任何采用客户端 uuid 的消费方
-        //       （一部分单机存档、部分服务器和模组）每次都把同一个名字当成新玩家：
-        //       背包、权限、领地全丢。现在按游戏自己那套从名字推（md5("OfflinePlayer:"+名字)
-        //       摆成 RFC 4122 v3）—— 和 AccountStore 里离线账号那份身份**同一个值**，
-        //       启动器界面上显示的、和游戏里用的是同一个身份。
-        //       命令行上的形状不变：仍然是带横线的小写 uuid。
+        // 换一个会被当成新玩家"，而它每次启动都在换。发出去的 `--uuid`、以及命令行
+        // 里 `${auth_uuid}` 那个占位符用的都是它，于是任何采用客户端 uuid 的消费方
+        // （一部分单机存档、部分服务器和模组）每次都把同一个名字当成新玩家：
+        // 背包、权限、领地全丢。现在按游戏自己那套从名字推（md5("OfflinePlayer:"+名字)
+        // 摆成 RFC 4122 v3）—— 和 AccountStore 里离线账号那份身份**同一个值**，
+        // 启动器界面上显示的、和游戏里用的是同一个身份。
+        // 命令行上的形状不变：仍然是带横线的小写 uuid。
         // 形状是稳的：名字在上面归一过了（空值退回默认名），offlineUuidFor() 给的是
         // 32 位十六进制，dashedUuid() 补成 36 字符的标准写法。
         const QString fakeUuid = AuthManager::dashedUuid(AccountStore::offlineUuidFor(username));
@@ -918,9 +895,9 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     } else {
         // 正版登录：使用真实登录证书
         // NOTE: 令牌和 UUID 现在都是真的了（登录流程走完整条链，档案里的 name/uuid 都拿
-        //       到了）。没有档案时（没登录、或者测试没传）才退回全零 UUID —— 那是**老行为**：
-        //       以前登录只存微软令牌、不拉档案，全工程没有第二个 uuid 来源，于是正版分支一直
-        //       发全零，在正版服上等于一个"谁都不是"的身份。
+        // 到了）。没有档案时（没登录、或者测试没传）才退回全零 UUID —— 那是**老行为**：
+        // 以前登录只存微软令牌、不拉档案，全工程没有第二个 uuid 来源，于是正版分支一直
+        // 发全零，在正版服上等于一个"谁都不是"的身份。
         const QString uuid = playerUuid.isEmpty()
                                  ? QStringLiteral("00000000-0000-0000-0000-000000000000")
                                  : playerUuid;
@@ -940,9 +917,9 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     }
 
     // --userProperties：**1.8 那一代的主类把它标成 required**，不发就是启动即退：
-    //     Exception in thread "main" joptsimple.MissingRequiredOptionException:
-    //     Missing required option(s) ['userProperties']
-    //   真机上 `1.8` 这个实例每次都是这一句（2026-09-28 查到的，见 report.csv 下标 22）。
+    // Exception in thread "main" joptsimple.MissingRequiredOptionException:
+    // Missing required option(s) ['userProperties']
+    // 真机上 `1.8` 这个实例每次都是这一句（ 查到的，见 report.csv 下标 22）。
     //
     // 为什么以前是缺的：原版 json 自己声明了 `--userProperties ${user_properties}`，而
     // `user_properties` 这个占位符启动器不提供；上面那段"跳过原版那套参数名"的硬编码块
@@ -958,22 +935,22 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     // ------------------------------------------------------------------
     // version.json 自己声明的游戏参数（arguments.game / 老格式 minecraftArguments）
     // ------------------------------------------------------------------
-    // NOTE: 这一段是 2026-09-22 补的，而且是**真机上崩出来的**：NeoForge 26.2 的版本 json
-    //       在 arguments.game 里写着 `--fml.neoForgeVersion 26.2.0.88 --fml.mcVersion 26.2
-    //       --fml.neoFormVersion 2`，而这里以前**只展开 arguments.jvm**，于是 FML 报
-    //       "When launching in production, --fml.mcVersion must be present as a
-    //       command-line argument"、`VersionSupportMatrix.<init>` 拿着空版本号 NPE，游戏
-    //       在加载窗口那一步就没了。Forge 走同一条路（--launchTarget forgeclient）。
-    //       纯原版不受影响：那边 arguments.game 就是我们上面硬编码的这一串，一条都不会
-    //       重复（判据在 VersionArguments::extraGameArguments 的注释里）。
+    // NOTE: 这一段是 补的，而且是**真机上崩出来的**：NeoForge 26.2 的版本 json
+    // 在 arguments.game 里写着 `--fml.neoForgeVersion 26.2.0.88 --fml.mcVersion 26.2
+    // --fml.neoFormVersion 2`，而这里以前**只展开 arguments.jvm**，于是 FML 报
+    // "When launching in production, --fml.mcVersion must be present as a
+    // command-line argument"、`VersionSupportMatrix.<init>` 拿着空版本号 NPE，游戏
+    // 在加载窗口那一步就没了。Forge 走同一条路（--launchTarget forgeclient）。
+    // 纯原版不受影响：那边 arguments.game 就是我们上面硬编码的这一串，一条都不会
+    // 重复（判据在 VersionArguments::extraGameArguments 的注释里）。
     //
-    //       这里传进去的是**继承链合并过**的那份 json（调用点给的就是这个），merge 把
-    //       arguments.game 按"父在前、子在后"拼在一起、并且丢掉了 inheritsFrom —— 所以
-    //       extraGameArguments 里不能拿 inheritsFrom 当判据（踩过一次，见那边的 NOTE）。
+    // 这里传进去的是**继承链合并过**的那份 json（调用点给的就是这个），merge 把
+    // arguments.game 按"父在前、子在后"拼在一起、并且丢掉了 inheritsFrom —— 所以
+    // extraGameArguments 里不能拿 inheritsFrom 当判据（踩过一次，见那边的 NOTE）。
     //
     // NOTE: 位置在**最后**（主类和 --gameDir 那一段之后）。游戏参数对 JVM 来说只是"给主类
-    //       的字符串"，顺序上只有"谁盖住谁"的意义；这些加载器参数我们一条都没发过，
-    //       没有覆盖关系，放最后最不打扰上面那两段已经验过的形状。
+    // 的字符串"，顺序上只有"谁盖住谁"的意义；这些加载器参数我们一条都没发过，
+    // 没有覆盖关系，放最后最不打扰上面那两段已经验过的形状。
     QHash<QString, QString> gamePlaceholders;
     gamePlaceholders[QStringLiteral("auth_player_name")] = username;
     gamePlaceholders[QStringLiteral("version_name")] = versionId;
@@ -990,7 +967,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
         versionJson.value(QStringLiteral("type")).toString(QStringLiteral("release"));
     // 「游戏窗口大小」那两个占位符。原版 json 里那条
     // `{"rules":[{"allow","features":{"has_custom_resolution":true}}],
-    //   "value":["--width","${resolution_width}","--height","${resolution_height}"]}`
+    // "value":["--width","${resolution_width}","--height","${resolution_height}"]}`
     // 用的是这两个名字。注意：**不是**"让原版那条规则生效"的手段（理由见下面 --width
     // 那一段），而在今天的代码里它俩其实已经用不上了 —— 凡是带这两个占位符的条目，它前面
     // 那个开关一定是 `--width`/`--height`，而那两位在 isVanillaGameArgument() 表里，整条
@@ -1014,32 +991,28 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     // 游戏窗口（设置页「游戏」栏 →「窗口模式」+「窗口大小」）
     // ------------------------------------------------------------------
     // NOTE: 原版 json 里明明有一条现成的 `--width ${resolution_width} --height
-    //       ${resolution_height}` 规则，但这里**不能靠它**，两处都是死的：
-    //         ① 那条规则挂在 `has_custom_resolution` 这个 feature 上，而启动器一律传
-    //            空 feature 集合（见 VersionArguments::expand 的说明），规则根本不命中；
-    //         ② 就算把 feature 打开也没用 —— `--width`/`--height` 在
-    //            isVanillaGameArgument() 那张"原版参数"表里，extraGameArguments 会把它们
-    //            连同值一起跳掉（那张表的语义是"这一条由启动器自己发"）。
-    //       所以**打开 feature 是白做**，真正该做的事就是这一句：由启动器自己发，和上面
-    //       --username 那一段同源。顺带一提，1.12.2 那种老版本（minecraftArguments 里
-    //       压根没有 width/height）走的也是这一句 —— 游戏自己的 main 从 1.6 起就认
-    //       `--width/--height`（1.12.2 的 Main 里那对 defaultsTo(854, 480) 就是默认窗口
-    //       大小的出处），所以两条路发的是同一种参数。
+    // ${resolution_height}` 规则，但这里**不能靠它**，两处都是死的：
+    // ① 那条规则挂在 `has_custom_resolution` 这个 feature 上，而启动器一律传
+    // 空 feature 集合（见 VersionArguments::expand 的说明），规则根本不命中；
+    // ② 就算把 feature 打开也没用 —— `--width`/`--height` 在
+    // isVanillaGameArgument() 那张"原版参数"表里，extraGameArguments 会把它们
+    // 连同值一起跳掉（那张表的语义是"这一条由启动器自己发"）。
+    // 所以**打开 feature 是白做**，真正该做的事就是这一句：由启动器自己发，和上面
+    // --username 那一段同源。顺带一提，1.12.2 那种老版本（minecraftArguments 里
+    // 压根没有 width/height）走的也是这一句 —— 游戏自己的 main 从 1.6 起就认
+    // `--width/--height`（1.12.2 的 Main 里那对 defaultsTo(854, 480) 就是默认窗口
+    // 大小的出处），所以两条路发的是同一种参数。
     //
     // NOTE: 那个 `!args.contains("--width")` 是**兜底**，按现在这两条路它永远成立 ——
-    //       别拿"老版本 json 会自带一对 width/height"当它的理由：老格式 json 里那一条
-    //       `--width ${resolution_width}` 已经被上面 ② 整条丢掉了（连同它的值），根本走不到
-    //       这里。留着它的意义只是"这一对参数在列表里已经有人发过了，就别再发一遍"这个写法
-    //       本身：真出现第二条会发它的路时，重复的选项会让 joptsimple 直接报错退出。
-    //
-    // ★ 2026-09-28：三档（小窗 / 最大化 / 全屏）挪进了 gameWindowArguments() 那个纯函数。
-    //   这一层现在只做两件事：问它要那几个参数、拼上去。**判据一条都不留在这儿** ——
-    //   "全屏那一档发不发 --width"这种问题在该发的那一处回答（那儿有断言盯着）。
+    // 别拿"老版本 json 会自带一对 width/height"当它的理由：老格式 json 里那一条
+    // `--width ${resolution_width}` 已经被上面 ② 整条丢掉了（连同它的值），根本走不到
+    // 这里。留着它的意义只是"这一对参数在列表里已经有人发过了，就别再发一遍"这个写法
+    // 本身：真出现第二条会发它的路时，重复的选项会让 joptsimple 直接报错退出。
     //
     // NOTE: 上面那个兜底现在罩的是**整组**（连 `--fullscreen` 一起）。按分析它永远不成立，
-    //       所以"罩整组"和"只罩 --width"在今天的代码里是同一件事；真要有一天 json 自己
-    //       发了一对 --width，"全屏那一趟少一个 --fullscreen"这个后果是**可以接受的** ——
-    //       整组参数本来就写着"这一条由启动器自己发"。
+    // 所以"罩整组"和"只罩 --width"在今天的代码里是同一件事；真要有一天 json 自己
+    // 发了一对 --width，"全屏那一趟少一个 --fullscreen"这个后果是**可以接受的** ——
+    // 整组参数本来就写着"这一条由启动器自己发"。
     if (!args.contains(QStringLiteral("--width"))) {
         const QStringList windowArgs = gameWindowArguments(window, screen);
         if (!windowArgs.isEmpty()) {
@@ -1049,19 +1022,19 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     }
 
     // ------------------------------------------------------------------
-    // 「开游戏直接进这个存档 / 直接连这台服务器」（2026-10-10）
+    // 「开游戏直接进这个存档 / 直接连这台服务器」
     // ------------------------------------------------------------------
     // NOTE: 和上面那一段同源 —— 版本 json 自己声明了 `--quickPlaySingleplayer` /
-    //       `--quickPlayMultiplayer`（1.20 起），而那两位在
-    //       `isVanillaGameArgument()` 的名单上，所以上面 `extraGameArguments()` 把 json
-    //       那一条连同它的 `${quickPlaySingleplayer}` 整条丢掉了。**该由谁发**这件事只有
-    //       这一个答案：和 `--username` / `--width` 一样，启动器自己发。
+    // `--quickPlayMultiplayer`（1.20 起），而那两位在
+    // `isVanillaGameArgument()` 的名单上，所以上面 `extraGameArguments()` 把 json
+    // 那一条连同它的 `${quickPlaySingleplayer}` 整条丢掉了。**该由谁发**这件事只有
+    // 这一个答案：和 `--username` / `--width` 一样，启动器自己发。
     //
-    // ★ 判据（这个版本认不认这条参数）**不在这里** —— 它在界面那一层就拦住了
-    //   （`QuickPlay::supports()`，按钮在支持的版本上才露）。发一条不认它的版本不是
-    //   "忽略"，是游戏当场抛 UnrecognizedOptionException 退出，所以那道闸必须有；
-    //   而"命令行的拼装"和"这一档该不该出现"是两件事，各归各的地方（同 GameWindowSettings
-    //   那条规矩：LauncherManager 只问纯函数要参数、拼上去）。
+    // 判据（这个版本认不认这条参数）**不在这里** —— 它在界面那一层就拦住了
+    // （`QuickPlay::supports()`，按钮在支持的版本上才露）。发一条不认它的版本不是
+    // "忽略"，是游戏当场抛 UnrecognizedOptionException 退出，所以那道闸必须有；
+    // 而"命令行的拼装"和"这一档该不该出现"是两件事，各归各的地方（同 GameWindowSettings
+    // 那条规矩：LauncherManager 只问纯函数要参数、拼上去）。
     if (!quickPlay.isEmpty()) {
         const QStringList quickPlayArgs = QuickPlay::arguments(quickPlay);
         qDebug() << "Quick play args:" << quickPlayArgs;
@@ -1081,8 +1054,8 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     // 都会把失败当成功记下来。这个函数里**每一条 return 都要想一遍返回值**。
     //
     // NOTE: 以前这里第一条就是"已经在跑了就拒绝"，返回值是 bool。那条拒绝**去掉了** ——
-    //       多开是这个启动器明确要支持的事（见类头的说明），拦在这儿等于把"同一个实例
-    //       开两份""一个账号开两个实例"全堵死。
+    // 多开是这个启动器明确要支持的事（见类头的说明），拦在这儿等于把"同一个实例
+    // 开两份""一个账号开两个实例"全堵死。
     if (m_nextSessionId <= 0) {
         // 跑满 21 亿次之后才会到这里，而那一下 0 是"失败"的哨兵值 —— 绕开它。
         m_nextSessionId = 1;
@@ -1113,12 +1086,12 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     // Java 8-18 会忽略那两个属性、仍按本地代码页写字节，于是正确地回落到 fromLocal8Bit。
     //
     // NOTE: 判据是命令行本身，它看不见"这条是谁加的"。用户在全局/按版本的自定义参数里
-    //       手写 -Dstdout.encoding=utf-8 时，Java 8-18 照样忽略它，而这里会判成 UTF-8，
-    //       于是中文变乱码。这是**刻意接受**的：宁可跟着实际命令行走，也不要两处各记一份
-    //       状态（那种失配更难查）。
+    // 手写 -Dstdout.encoding=utf-8 时，Java 8-18 照样忽略它，而这里会判成 UTF-8，
+    // 于是中文变乱码。这是**刻意接受**的：宁可跟着实际命令行走，也不要两处各记一份
+    // 状态（那种失配更难查）。
     //
     // NOTE: 这一笔记在**会话自己**身上（entry.outputIsUtf8），不再是本类的一个成员 ——
-    //       同时开着两份时它们可能用着不同的 Java 主版本，共用一份会导致其中一份乱码。
+    // 同时开着两份时它们可能用着不同的 Java 主版本，共用一份会导致其中一份乱码。
     const bool outputIsUtf8 = commandDeclaresUtf8Output(arguments);
     m_sessions[sessionId].outputIsUtf8 = outputIsUtf8;
     qDebug() << "Game output is UTF-8:" << outputIsUtf8 << "session" << sessionId;
@@ -1129,9 +1102,9 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     // 支**永远**报「Java可执行文件未找到：java」：兜底路径一次都没成功过。
     //
     // NOTE: 判据要跟着"谁负责去找这个文件"走。裸名字的找法只有一个出处：
-    //       QStandardPaths::findExecutable()，和 GlobalJavaSettings 挑 java 时用的是同
-    //       一个函数（那边 :264）。这里把解析结果直接写回 program，下面那道预检和
-    //       QProcess 拿到的就是同一个绝对路径。
+    // QStandardPaths::findExecutable()，和 GlobalJavaSettings 挑 java 时用的是同
+    // 一个函数（那边 :264）。这里把解析结果直接写回 program，下面那道预检和
+    // QProcess 拿到的就是同一个绝对路径。
     QString program = settings.javaPath;
     if (program.isEmpty()) {
         program = QStandardPaths::findExecutable(QStringLiteral("java"));
@@ -1165,7 +1138,7 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     for (int i = 0; i < arguments.length(); ++i) {
         const QString &arg = arguments.at(i);
         if (arg.startsWith("-D")) {
-            // **带令牌的那一条只打钥匙和长度**（2026-09-24 加的）。上面那段原本一律
+            // **带令牌的那一条只打钥匙和长度**（ 加的）。上面那段原本一律
             // `arg.left(50)`，于是 `-Dminecraft.accessToken=<JWT>` 的前 50 个字符会跟着这
             // 一行写进 <数据目录>/logs/wtfml.log（这个进程把它整份都重定向到那个文件，
             // 见 main.cpp 的 installFileLog）。50 个字符不足以直接拿来用，但那是**凭据的
@@ -1194,13 +1167,13 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
 
     // 将工作目录设为 .minecraft 文件夹以确保文件能够正确解析
     //
-    // NOTE: 2026-09-24 那次崩溃取证查到这里过 —— MCEF 是按**相对路径** `mods/mcef-libraries`
-    //       找它那份本地库的（反编译 mcef-forge-2.1.6 确认），所以 cwd 指到根 .minecraft
-    //       时它去的是根 mods/ 底下，而 PCL 启动同一个实例时 cwd 是版本目录、它去的是
-    //       versions/<id>/mods/ 底下那份完好的副本。**仍然没改**：classpath 现在是绝对路径
-    //       了（那条"两处一起动"的约束已经解开），但换 cwd 会同时改变**所有**按相对路径
-    //       找文件的模组/加载器的行为，那是另一个题目 —— 要动就单独一批动，并且拿真机日志
-    //       一句一句对。
+    // NOTE: 那次崩溃取证查到这里过 —— MCEF 是按**相对路径** `mods/mcef-libraries`
+    // 找它那份本地库的（反编译 mcef-forge-2.1.6 确认），所以 cwd 指到根 .minecraft
+    // 时它去的是根 mods/ 底下，而 PCL 启动同一个实例时 cwd 是版本目录、它去的是
+    // versions/<id>/mods/ 底下那份完好的副本。**仍然没改**：classpath 现在是绝对路径
+    // 了（那条"两处一起动"的约束已经解开），但换 cwd 会同时改变**所有**按相对路径
+    // 找文件的模组/加载器的行为，那是另一个题目 —— 要动就单独一批动，并且拿真机日志
+    // 一句一句对。
     QString minecraftDir = AppPaths::minecraftDir();
     QDir().mkpath(minecraftDir);
     process->setWorkingDirectory(minecraftDir);
@@ -1231,13 +1204,13 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     if (!process->waitForStarted(3000)) {
         qWarning() << "Failed to start game process";
         qWarning() << "Error:" << process->errorString();
-        // ★ 2026-10-20：这一句现在会**弹给用户看**（`LaunchController` 在 `startGame()`
-        //   那一小段里接了一份 `processError`，见那边的说明），所以不能把 %1 原样递出去。
-        //   Windows 系统自己那几句消息是**格式串**（`FormatMessage` 给的是
-        //   「%1 不是有效的 Win32 应用程序。」），Qt 的 errorString() 把它留在
-        //   「Process failed to start: %1 …」里 —— 用户看到的会是一个像程序坏了才有的 %1。
-        //   把 %1 换成那个可执行文件（系统那句话里的"主体"就是它），再去掉 Qt 那句英文
-        //   前缀，剩下的就是系统自己一句完整的话。
+        // 这一句现在会**弹给用户看**（`LaunchController` 在 `startGame()`
+        // 那一小段里接了一份 `processError`，见那边的说明），所以不能把 %1 原样递出去。
+        // Windows 系统自己那几句消息是**格式串**（`FormatMessage` 给的是
+        // 「%1 不是有效的 Win32 应用程序。」），Qt 的 errorString() 把它留在
+        // 「Process failed to start: %1 …」里 —— 用户看到的会是一个像程序坏了才有的 %1。
+        // 把 %1 换成那个可执行文件（系统那句话里的"主体"就是它），再去掉 Qt 那句英文
+        // 前缀，剩下的就是系统自己一句完整的话。
         QString startReason = process->errorString();
         startReason.replace(QLatin1String("%1"), QDir::toNativeSeparators(program));
         const QString englishPrefix = QStringLiteral("Process failed to start: ");
@@ -1337,9 +1310,9 @@ void LauncherManager::detachRunningGame() {
         // kill()+waitForFinished()"的析构逻辑**跑不到**，java.exe 自己继续活在系统里。
         it->process->setParent(nullptr);
         // NOTE: 这些对象是**故意不释放**的（它们已经没人管了，泄漏的就是几个 QProcess 壳子，
-        //       进程退出时由系统回收）。释放它们就等于执行析构、等于把游戏强杀 —— 那正是这
-        //       一步要避免的事。指针也不置空：留着活着的对象比留一个会空指针解引用的洞安全
-        //       （这条路只在退出前走一次）。清表只是本类不再认它们。
+        // 进程退出时由系统回收）。释放它们就等于执行析构、等于把游戏强杀 —— 那正是这
+        // 一步要避免的事。指针也不置空：留着活着的对象比留一个会空指针解引用的洞安全
+        // （这条路只在退出前走一次）。清表只是本类不再认它们。
     }
     m_sessions.clear();
 }
@@ -1360,16 +1333,16 @@ QString LauncherManager::decodeGameOutput(bool utf8, std::shared_ptr<QStringDeco
                                           const QByteArray &bytes) {
     // 判据来自 startGame() 从命令行反推出来、记在**那份会话自己**身上的 outputIsUtf8。
     //
-    // ★ 2026-09-27：**一块一块地解**，不是一个字节串换一次。原来这里是无状态的
-    //   `fromUtf8 / fromLocal8Bit`，而调用方拿到的是 `readyRead` 给的一段段字节 ——
-    //   读边界正好落在一个汉字的两个字节中间时（Java ≤18 走本地代码页 = 中国区 GBK，
-    //   两字节一个汉字，管道一满就切），前半截和后半截各自解成一个替换字符，日志窗里
-    //   零星多出乱码字。QStringDecoder 把末尾那半个字符留在自己的状态里，下一段接着拼。
+    // **一块一块地解**，不是一个字节串换一次。原来这里是无状态的
+    // `fromUtf8 / fromLocal8Bit`，而调用方拿到的是 `readyRead` 给的一段段字节 ——
+    // 读边界正好落在一个汉字的两个字节中间时（Java ≤18 走本地代码页 = 中国区 GBK，
+    // 两字节一个汉字，管道一满就切），前半截和后半截各自解成一个替换字符，日志窗里
+    // 零星多出乱码字。QStringDecoder 把末尾那半个字符留在自己的状态里，下一段接着拼。
     //
     // NOTE: 只给游戏进程用这一份。GlobalJavaSettings::runProcess 和 ZipUtil 里的
-    //       fromLocal8Bit 不能跟着改 —— 它们解的是 PowerShell / java -version 的输出，
-    //       前者根本不是 JVM、不认 -Dstdout.encoding（那是**整段读完再解**，不存在切在
-    //       半个字中间的问题），改了才是引入乱码。
+    // fromLocal8Bit 不能跟着改 —— 它们解的是 PowerShell / java -version 的输出，
+    // 前者根本不是 JVM、不认 -Dstdout.encoding（那是**整段读完再解**，不存在切在
+    // 半个字中间的问题），改了才是引入乱码。
     if (!slot) {
         // 第一次用到这一条流：按这一份的命令行判出来的编码建一个。
         slot = std::make_shared<QStringDecoder>(
@@ -1397,21 +1370,16 @@ void LauncherManager::discardSession(int sessionId, bool abandoned) {
         process->deleteLater();
     }
     if (!abandoned) {
-        // **不是**"从没起来过"的那一路（正常走完的 handleProcessFinished）：什么都不发。
-        // 界面自己有一条完整的收尾（gameFinished 那一路：日记窗按 autoCloseOnExit 决定
-        // 关不关、崩溃时留着让用户看、底账留给「导出错误报告」）。在这里再发一条
-        // sessionDiscarded 会抢在 gameFinished **之前**把那些东西全清掉 —— 崩溃后窗没了、
-        // 报告也导不出来了。这个参数就是那两者的分界线。
         return;
     }
-    // ★ 2026-10-20：`startGame()` 的三条早退路径（找不到 Java / 路径不对 / 进程起不来）
-    //   会先带号发一句 `processError`，再把这一号会话收回。那一句本身是对的（用户要看到
-    //   原因），但它走的是**和游戏 stderr 同一条槽** —— 界面可能已经替它建了一扇游戏
-    //   日志窗、记了一笔按号归档的底账 —— 而从此以后再没有任何一条信号会提到这个号：
-    //   那扇窗不会自己关（自动关窗只发生在"正常以 0 退出"那条路上），底账也不会被删。
-    //   发这一条，让界面把那一份收干净。
+    // `startGame()` 的三条早退路径（找不到 Java / 路径不对 / 进程起不来）
+    // 会先带号发一句 `processError`，再把这一号会话收回。那一句本身是对的（用户要看到
+    // 原因），但它走的是**和游戏 stderr 同一条槽** —— 界面可能已经替它建了一扇游戏
+    // 日志窗、记了一笔按号归档的底账 —— 而从此以后再没有任何一条信号会提到这个号：
+    // 那扇窗不会自己关（自动关窗只发生在"正常以 0 退出"那条路上），底账也不会被删。
+    // 发这一条，让界面把那一份收干净。
     // NOTE: 摆在 erase **之后**：收信号的槽里不许再查到一份已经不存在的会话（和
-    //       gameFinished 同一条规矩），要用的东西自己在收到报错那一刻就取走。
+    // gameFinished 同一条规矩），要用的东西自己在收到报错那一刻就取走。
     emit sessionDiscarded(sessionId);
 }
 
@@ -1421,11 +1389,11 @@ void LauncherManager::handleReadyReadStandardOutput(int sessionId) {
     if (it == m_sessions.end() || it->process == nullptr) {
         return;
     }
-    // ★ 这一份**不许** `.trimmed()`（2026-10-10 修）。往下传的文本是**按行切**的：接的那一位
-    //   （GameLogWindow::appendText）把"还没等到 `\n` 的那半行"留在 m_pending 里等下一块来拼，
-    //   而 `.trimmed()` 削掉的**正是每一块结尾那个 `\n`** —— 于是"已经写完的最后一行"被当成
-    //   半行挂住，和下一块的头一行粘成 `CD` 这种**伪行**（级别颜色跟着认错，导出的日志也一样
-    //   是错的），每个分块边界中一次。空块本来就由下面那句 isEmpty() 拦住。
+    // 这一份**不许** `.trimmed()`（ 修）。往下传的文本是**按行切**的：接的那一位
+    // （GameLogWindow::appendText）把"还没等到 `\n` 的那半行"留在 m_pending 里等下一块来拼，
+    // 而 `.trimmed()` 削掉的**正是每一块结尾那个 `\n`** —— 于是"已经写完的最后一行"被当成
+    // 半行挂住，和下一块的头一行粘成 `CD` 这种**伪行**（级别颜色跟着认错，导出的日志也一样
+    // 是错的），每个分块边界中一次。空块本来就由下面那句 isEmpty() 拦住。
     const QString output = decodeGameOutput(it->outputIsUtf8, it->stdoutDecoder,
                                             it->process->readAllStandardOutput());
     if (!output.isEmpty()) {
@@ -1469,7 +1437,7 @@ void LauncherManager::handleProcessFinished(int sessionId, int exitCode,
 
     if (!remainingOutput.isEmpty()) {
         // NOTE: 走**同一个解码器**（不是新起一个）：这是同一条流的最后一段，前面那一块
-        //       可能正停在半个汉字上 —— 新起一个的话那半个字永远补不回来。
+        // 可能正停在半个汉字上 —— 新起一个的话那半个字永远补不回来。
         // 同样**不 trim**（见 handleReadyReadStandardOutput 里那段 ★）：这一份是整条流的
         // 最后一段，它结尾那个 `\n` 就是最后一行"写完了"的凭据。
         const QString output =
@@ -1488,8 +1456,8 @@ void LauncherManager::handleProcessFinished(int sessionId, int exitCode,
     // 摘在 emit 之前：接 gameFinished 的槽会去读 runningGames() 刷新底栏，反过来的话
     // 它会读到"刚退出的那一份还在跑"。
     // NOTE: **不**带 abandoned —— 这一份是真跑完了，收尾归 gameFinished 那一路（界面靠它
-    //       决定日志窗关不关、崩溃那几行留不留），绝不能在这里再发 sessionDiscarded 抢先把
-    //       那一份底账清掉。
+    // 决定日志窗关不关、崩溃那几行留不留），绝不能在这里再发 sessionDiscarded 抢先把
+    // 那一份底账清掉。
     discardSession(sessionId);
     emit gameFinished(sessionId, exitCode, exitStatus);
 }

@@ -1,8 +1,6 @@
 /**
  * @file PresetCapture.hpp
  * @brief 从实例里**收**一份预设（coding plan §6 P1「从实例提取」、§4 那份清单的前半截）。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 【这一层为什么单独存在】
  *
@@ -23,13 +21,9 @@
  *
  * 【什么收不进来】
  *
- * §4 第三条那张"默认排除"的单子（账号令牌、世界、截图、Replay、日志、崩溃报告、实例
- * UUID、启动器身份文件）**不在任何一组里**：这一层只认那四个目录和那两个文件，别的东西
- * 连扫都不扫。这是"排除"最可靠的做法 —— 不靠一张永远会漏的黑名单。
- *
- * ★ 这一层**不读也不写 `manifest.json`**：收出来的是几段值，怎么并进一份预设、名字叫什么、
- *   落盘失败怎么办，全在 `PresetController` 那边。理由和 `PresetTypes` 文件头那段一样：
- *   值层和盘层各活各的。
+ * 这一层**不读也不写 `manifest.json`**：收出来的是几段值，怎么并进一份预设、名字叫什么、
+ * 落盘失败怎么办，全在 `PresetController` 那边。理由和 `PresetTypes` 文件头那段一样：
+ * 值层和盘层各活各的。
  */
 
 #pragma once
@@ -49,10 +43,10 @@ namespace Presets {
 /**
  * @brief 提取那一趟勾了哪几样。
  *
- * ★ 默认值是**产品上那个默认**（§6 P2「基础设置与 `key_` 按键分组选择」、P3「通用文件组」
- *   与 P4「默认仅合并热键」）：游戏设置 + 按键 + 服务器 + `config/` + MaLiLib 热键；
- *   `defaultconfigs/`、资源包、光影包、MaLiLib 的"值"那几档**默认不勾** —— 它们要么很大
- *   （资源包/光影包动辄几百 MB），要么会把用户按机器调好的东西搬走（MaLiLib 的值）。
+ * 默认值是**产品上那个默认**（§6 P2「基础设置与 `key_` 按键分组选择」、P3「通用文件组」
+ * 与 P4「默认仅合并热键」）：游戏设置 + 按键 + 服务器 + `config/` + MaLiLib 热键；
+ * `defaultconfigs/`、资源包、光影包、MaLiLib 的"值"那几档**默认不勾** —— 它们要么很大
+ * （资源包/光影包动辄几百 MB），要么会把用户按机器调好的东西搬走（MaLiLib 的值）。
  */
 struct CaptureSelection {
     /// `options.txt` 里非 `key_` 的那些（基础设置 + 硬件那两档里默认选中的）。
@@ -100,12 +94,9 @@ struct CaptureRequest {
 /**
  * @brief 这一趟收的结果。
  *
- * ★ `sections` 是**值**，不是盘上的东西：`config/` 那几段对应的文件已经被
- *   `extractFileGroup()` 拷进 `presetFilesRoot` 了（这是提取唯一会写的盘），而
- *   `manifest.json` 一个字都没动 —— 那一步归调用方。
- *
- * ★ 计数是给界面那一行"收成什么了"看的，**不是另算一遍**：它们都来自适配器自己的报告
- *   （`sectionsFromOptions()` 摆出来的项数 / `extractMalilibSections()` 的三格数）。
+ * `sections` 是**值**，不是盘上的东西：`config/` 那几段对应的文件已经被
+ * `extractFileGroup()` 拷进 `presetFilesRoot` 了（这是提取唯一会写的盘），而
+ * `manifest.json` 一个字都没动 —— 那一步归调用方。
  */
 struct CaptureReport {
     /**
@@ -160,13 +151,13 @@ CaptureReport captureFromInstance(const CaptureRequest &request);
  * @brief 把刚收到的几段并进一份已有的段表。
  *
  * 规矩（**按段的 id 替，不按种类**）：
- *   · 新段和旧段 id 相同（= 同一段，见 `sectionIdFor()`）⇒ **就地替换**，位置照旧；
- *   · 新段在旧段里找不到 ⇒ 追加在末尾（次序 = `captureFromInstance()` 产出的次序）；
- *   · 旧段没有再被收到的那几样 ⇒ **留着不动**。
+ * · 新段和旧段 id 相同（= 同一段，见 `sectionIdFor()`）⇒ **就地替换**，位置照旧；
+ * · 新段在旧段里找不到 ⇒ 追加在末尾（次序 = `captureFromInstance()` 产出的次序）；
+ * · 旧段没有再被收到的那几样 ⇒ **留着不动**。
  *
- * ★ 最后一条是有意的：用户这次只勾了"按键"，不代表他想把上次收的服务器列表从预设里删掉
- *   —— 提取是"把这一份现在的样子收下来"，不是"把预设整个重写一遍"。要清掉某一段，得由
- *   用户明确删（管理页那一侧的事），不能靠"这次没勾"来暗地里办。
+ * 最后一条是有意的：用户这次只勾了"按键"，不代表他想把上次收的服务器列表从预设里删掉
+ * —— 提取是"把这一份现在的样子收下来"，不是"把预设整个重写一遍"。要清掉某一段，得由
+ * 用户明确删（管理页那一侧的事），不能靠"这次没勾"来暗地里办。
  */
 QList<PresetSection> mergeCapturedSections(const QList<PresetSection> &existing,
                                            const QList<PresetSection> &captured);

@@ -1,8 +1,6 @@
 /**
  * @file CoordConvert.cpp
  * @brief CoordConvert 的实现（那些规矩在 .hpp 开头那一段）。
- * @author 0x7fffff
- * @date 2026-10-16
  */
 #include "CoordConvert.hpp"
 
@@ -20,7 +18,7 @@ constexpr int kChunksPerRegion = 32;
 
 /// 一个数看起来是不是坐标（`-3.5` / `1` / `0.0` / `~5` / `~-3.5` / `^1`）。
 ///
-/// ★ `~` 和 `^` 单独出现也是合法的写法（`~` = 当前位置）—— 所以这里连"光一个波浪号"都算。
+/// `~` 和 `^` 单独出现也是合法的写法（`~` = 当前位置）—— 所以这里连"光一个波浪号"都算。
 bool looksLikeNumber(const QString &token) {
     static const QRegularExpression pattern(
         QStringLiteral("^[~^]?-?\\d*(\\.\\d+)?$"));

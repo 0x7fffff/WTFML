@@ -1,8 +1,6 @@
 /**
  * @file MainWindowUI.cpp
  * @brief 实现 UI 构建器类，实际创建主窗口的控件、布局并设置窗口属性。
- * @author 0x7fffff
- * @date 2026-04-11
  * @note 完成主窗口所有 UI 元素的初始化与排列，供 MainWindow 构造函数调用。
  */
 
@@ -127,10 +125,6 @@ void styleSidebarList(QListWidget *list) {
 const int kPageMargin = MainWindowUI::pageMargin();
 
 /// 左右两栏之间的间距（= 令牌里的"区块间距"那一档）。
-///
-/// ★ 2026-10-12（coding plan §9.1）从 12 到 **16**：令牌只留三档（页面 20 / 区块 16 /
-///   控件 8），栏间距属于中间那一档。同一天 `InstanceSettingsDialog` 里那一份同名的
-///   局部常量也跟着改成 16（两处说的是同一件事：两栏之间留多少）。
 constexpr int kColumnSpacing = 16;
 
 /// 宽屏下“选择/导航”侧栏不再按比例无限长大。默认 900 px 窗口里各栏还没碰到这些上限，
@@ -145,7 +139,7 @@ constexpr int kRichSideMaxWidth = 420;
 // 全文件搜一遍。
 //
 // NOTE: 设置页那个数字框的宽度（kMemorySpinWidth）不在这里 —— 它只服务
-//       addInlineControl() 一个调用点，留在它旁边更好找。
+// addInlineControl() 一个调用点，留在它旁边更好找。
 
 /// 底栏整条的高度。给固定值：栏里三格的内容高度都是自己定的，跟着窗口高变没有意义。
 constexpr int kBottomBarHeight = 62;
@@ -174,10 +168,10 @@ constexpr int kHomeSkinViewerWidth =
 
 /// 主页左栏两张卡之间的竖直留白（「开始游戏」和「上次游玩」）。
 ///
-/// ★ 不走 `layout->setSpacing()`：那只管"相邻两项之间"，而这一栏里还有两段 `addStretch`，
-///   它们和卡片之间也会按 spacing 拉开 —— 那两段留白是这一栏"居中"的算法本身，动不得。
-// 主页快速区是一组连续操作，不应像两张互不相干的大卡片那样隔开。
-// 外层布局本身已有 spacing，不再额外塞空白，让「收藏 / 上次游玩」视觉上连成一组。
+/// 不走 `layout->setSpacing()`：那只管"相邻两项之间"，而这一栏里还有两段 `addStretch`，
+/// 它们和卡片之间也会按 spacing 拉开 —— 那两段留白是这一栏"居中"的算法本身，动不得。
+/// 主页快速区是一组连续操作，不应像两张互不相干的大卡片那样隔开。
+/// 外层布局本身已有 spacing，不再额外塞空白，让「收藏 / 上次游玩」视觉上连成一组。
 constexpr int kHomeCardGap = 0;
 
 /// 「额外 JVM 参数」多行输入框的高度，约三四行的样子；再高会把下面那几项挤出可视区。
@@ -195,13 +189,13 @@ constexpr int kApplyJvmArgsButtonMinWidth = 72;
 /// 比 kColumnSpacing（16）小一档：这一行里的东西是一组，挨着摆才像一组。
 constexpr int kFilterRowSpacing = 8;
 
-/// 侧栏那一列的宽度。**唯一出处**（`MainWindowUI::sidebarWidth()`）—— 用户 2026-10-12
+/// 侧栏那一列的宽度。**唯一出处**（`MainWindowUI::sidebarWidth()`）—— 用户
 /// 那份文档里点名的是 208~220 px，取中间那个整数。
 ///
 /// NOTE: 它取代了"按份数分宽"（下载 2:8 / 实例 3:7）：导航那一列本来就不是"和正文抢宽度"
-///       的东西，按比例分的话窗口一拉宽它也跟着长，多出来的全成了空白（这正是那份文档
-///       里"左侧导航 / 右侧正文缺少主次关系"那条）。主页**不**走这一档 —— 它左边是"选版本
-///       + 启动"，那是正文，仍然是 7:3 的份数。
+/// 的东西，按比例分的话窗口一拉宽它也跟着长，多出来的全成了空白（这正是那份文档
+/// 里"左侧导航 / 右侧正文缺少主次关系"那条）。主页**不**走这一档 —— 它左边是"选版本
+/// + 启动"，那是正文，仍然是 7:3 的份数。
 const int kSidebarWidth = MainWindowUI::sidebarWidth();
 
 /// 正文面（`wtfmlSurface="workspace"`）里那一圈内边距 = 令牌里的"区块间距"那一档。
@@ -213,13 +207,6 @@ constexpr int kSurfacePadding = 18;
 constexpr int kHeaderSpacing = 3;
 
 /// 一栏：控件本身 + 它自己的竖排布局 + 这一栏那个"面"，右栏还多一个页头。
-///
-/// ★ 2026-10-12 起 `layout` 不再**必然**是 `widget` 自己的布局：正文那一栏是
-///   `widget`（透明外框）→ 页头 → `surface`（"正文面"）→ `layout`。调用方照旧
-///   `column.layout->addWidget(...)` 往里塞东西，塞进去的自然落在正文面里，
-///   页头那一行永远在它上面 —— **这正是"页面标题 + 操作"该在的位置**（用户
-///   2026-10-12 那份文档：`页面标题 / 页面说明 / 主内容区 / 底部操作`）。
-///   侧栏那一栏没有页头：`surface == widget`、`layout` 就是它自己的布局。
 struct Column {
     QWidget *widget = nullptr;
     QVBoxLayout *layout = nullptr;
@@ -234,7 +221,7 @@ struct Column {
     QHBoxLayout *actions = nullptr;
 };
 
-/// 一个页面的左右两栏（= 用户 2026-10-12 那份文档里的统一页面骨架 `PageScaffold`）。
+/// 一个页面的左右两栏（= 用户 那份文档里的统一页面骨架 `PageScaffold`）。
 struct TwoColumns {
     Column left;
     Column right;
@@ -340,31 +327,31 @@ QLabel *makeHomeHint(const QString &text, QWidget *parent) {
 }
 
 /**
- * @brief 把页面搭成那套统一骨架（用户 2026-10-12 那份改版文档里的 `PageScaffold`）。
+ * @brief 把页面搭成那套统一骨架（用户 那份改版文档里的 `PageScaffold`）。
  * @param page 选项卡页面。
  * @param tab 页面代号（"home" / "instance" / "download" / "settings"），进 objectName，
- *            **也决定份数**。
+ * **也决定份数**。
  * @return 两栏的控件与布局；调用方往 `layout` 里塞东西即可。
  *
  * 【这套骨架长什么样】（用户文档里那张 ASCII）
  *
- *     ┌──────────────────────────────────────────────────┐
- *     │ 侧栏 216px │ 页面标题                    操作 │
- *     │            │ 页面说明 / 路径 / 当前状态        │
- *     │ 导航或列表 ├───────────────────────────────────┤
- *     │            │ 主内容区（一个"正文面"）           │
- *     └──────────────────────────────────────────────────┘
+ * ┌──────────────────────────────────────────────────┐
+ * │ 侧栏 216px │ 页面标题 操作 │
+ * │ │ 页面说明 / 路径 / 当前状态 │
+ * │ 导航或列表 ├───────────────────────────────────┤
+ * │ │ 主内容区（一个"正文面"） │
+ * └──────────────────────────────────────────────────┘
  *
  * 四条规则落在代码里就是：
- *   ① **页面本身不画边框**：整页只有两个面（侧栏 + 正文），别的层一律透明；
- *   ② **侧栏只用一个轻微底色**（`wtfmlSurface="sidebar"`）区分，不画矩形边框；
- *   ③ **正文只有一个面**（`wtfmlSurface="workspace"`）—— 原来那些 `QGroupBox` 全部
- *      让位于它，小节改走"标题 + 小节卡片"（`wtfmlSurface="section"`）；
- *   ④ **页面级操作永远在右上角**：塞进 `columns.right.actions`（页头那一行的最右），
- *      确认操作由调用方摆在自己的"底栏"上（`wtfmlSurface="footer"`）。
+ * ① **页面本身不画边框**：整页只有两个面（侧栏 + 正文），别的层一律透明；
+ * ② **侧栏只用一个轻微底色**（`wtfmlSurface="sidebar"`）区分，不画矩形边框；
+ * ③ **正文只有一个面**（`wtfmlSurface="workspace"`）—— 原来那些 `QGroupBox` 全部
+ * 让位于它，小节改走"标题 + 小节卡片"（`wtfmlSurface="section"`）；
+ * ④ **页面级操作永远在右上角**：塞进 `columns.right.actions`（页头那一行的最右），
+ * 确认操作由调用方摆在自己的"底栏"上（`wtfmlSurface="footer"`）。
  *
  * 【哪些页走哪一档】主页那一栏是"选实例 + 启动"、那是**正文**，所以它不套侧栏面；
- * ★ 2026-10-16 起它的右栏（「我的角色」）是**定宽**的一栏（`homeRightColumnWidth()`），
+ * 起它的右栏（「我的角色」）是**定宽**的一栏（`homeRightColumnWidth()`），
  * 左栏吃剩下的全部 —— 那个"仍然按 7:3 的份数分宽"的说法已经不成立了（见头文件里
  * `homeLeftColumnStretch()` 那段）。另外三页的左栏是**导航**（一列分类 / 一列文件夹），
  * 走固定宽度的侧栏面。
@@ -389,8 +376,8 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
     // 「主页左侧自定义图像」就是这一格（`Theme::Part::HomeLeft`，见 Theme.hpp）。
     //
     // NOTE: 栏本身在"没设图"时**什么都不画**（`ThemeBackground::paintEvent` 直接 return，
-    //       见那个文件头），所以这一栏原来那个裸 `QWidget` 换成它**一个像素都不差** ——
-    //       两者看到的都是底下那一层（页面 / 选项卡自己画的底）。
+    // 见那个文件头），所以这一栏原来那个裸 `QWidget` 换成它**一个像素都不差** ——
+    // 两者看到的都是底下那一层（页面 / 选项卡自己画的底）。
     const auto makeColumn = [page](const QString &name, bool themed) {
         Column column;
         column.widget = themed ? static_cast<QWidget *>(
@@ -408,20 +395,16 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
     columns.left = makeColumn(MainWindowUI::leftColumnName(tab), home);
     columns.right = makeColumn(MainWindowUI::rightColumnName(tab), false);
     if (home) {
-        // ★ 2026-10-16：右栏**钉死**在人物预览那一栏的宽度上（唯一出处见头文件
-        //   `homeRightColumnWidth()`）—— 主页不再按份数分宽，左栏吃剩下的全部。
+        // 右栏**钉死**在人物预览那一栏的宽度上（唯一出处见头文件
+        // `homeRightColumnWidth()`）—— 主页不再按份数分宽，左栏吃剩下的全部。
         columns.right.widget->setFixedWidth(MainWindowUI::homeRightColumnWidth());
-        // 尺寸策略也要一起钉，理由和下面侧栏那一段**逐字相同**（`setFixedWidth()` 只写死
-        // min/max，策略留在 Preferred —— 屏幕上看着一样，但"跟不跟窗口长"这件事的判据
-        // 是策略）。ui_check 那条就是量这一句；少它的话，将来谁把 setFixedWidth 换成
-        // setMinimumWidth，屏幕上要到某个窗口宽度才看得出走样。
         columns.right.widget->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     } else {
         // ---- 侧栏那一栏：固定宽度 + 一个轻微底色 ----
         //
-        // ★ 固定宽度取代了"按份数分宽"（见 kSidebarWidth 那段）。
-        // ★ 面是 QFrame 而不是裸 QWidget：样式表给的底色只对 QFrame 这一族生效
-        //   （裸 QWidget 得自己画）。
+        // 固定宽度取代了"按份数分宽"（见 kSidebarWidth 那段）。
+        // 面是 QFrame 而不是裸 QWidget：样式表给的底色只对 QFrame 这一族生效
+        // （裸 QWidget 得自己画）。
         auto *sidebar = new QFrame(columns.left.widget);
         const bool rail = tab == QLatin1String("instance") || tab == QLatin1String("download")
                           || tab == QLatin1String("settings");
@@ -440,9 +423,9 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
 
         // ---- 正文那一栏：页头 + 一个"正文面" ----
         //
-        // ★ 页头**在面外面**（面里只有内容）：标题和说明是"这一页是什么"，内容面是
-        //   "这一页有什么" —— 把标题装进面里的话，那一圈边就同时框住了标题和内容，
-        //   又回到了"框套框"的观感（用户文档第一条要减掉的就是它）。
+        // 页头**在面外面**（面里只有内容）：标题和说明是"这一页是什么"，内容面是
+        // "这一页有什么" —— 把标题装进面里的话，那一圈边就同时框住了标题和内容，
+        // 又回到了"框套框"的观感（用户文档第一条要减掉的就是它）。
         auto *header = new QWidget(columns.right.widget);
         header->setObjectName(MainWindowUI::pageHeaderName(tab));
         auto *headerLayout = new QVBoxLayout(header);
@@ -495,17 +478,17 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
     // 主页那一栏左宽右窄，靠份数（见上面那段）；另几页的侧栏是**固定宽度**，
     // 份数给它 0（它自己那一位由 `setFixedWidth()` 定死），多出来的宽度全归正文那一栏。
     // NOTE: 这两句直接读 `leftColumnStretch(tab)`/`rightColumnStretch(tab)` —— 那一对
-    //       函数**自己**就编码了"只有主页按份数、另三页是 0:1"（见头文件里那段），
-    //       所以这里没有三元表达式，改份数还是只有那一处。
+    // 函数**自己**就编码了"只有主页按份数、另三页是 0:1"（见头文件里那段），
+    // 所以这里没有三元表达式，改份数还是只有那一处。
     row->addWidget(columns.left.widget, MainWindowUI::leftColumnStretch(tab));
     row->addWidget(columns.right.widget, MainWindowUI::rightColumnStretch(tab));
     if (!home) {
         columns.left.widget->setFixedWidth(kSidebarWidth);
-        // ★ 尺寸策略也要一起钉（2026-10-12）：`setFixedWidth()` 只写死了 min/max，策略留在
-        //   Preferred —— 屏幕上看着一样，但"这一栏跟不跟窗口长"这件事的判据是策略
-        //   （按份数分宽那一版是 Preferred/Expanding，两者只在策略上分得开）。ui_check 那条
-        //   "左栏的横向尺寸策略是 Fixed"量的是这一句；少它的话，将来谁把 setFixedWidth 挪走
-        //   换成 setMinimumWidth，屏幕上要到某个窗口宽度才看得出走样。
+        // 尺寸策略也要一起钉：`setFixedWidth()` 只写死了 min/max，策略留在
+        // Preferred —— 屏幕上看着一样，但"这一栏跟不跟窗口长"这件事的判据是策略
+        // （按份数分宽那一版是 Preferred/Expanding，两者只在策略上分得开）。ui_check 那条
+        // "左栏的横向尺寸策略是 Fixed"量的是这一句；少它的话，将来谁把 setFixedWidth 挪走
+        // 换成 setMinimumWidth，屏幕上要到某个窗口宽度才看得出走样。
         columns.left.widget->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     }
     return columns;
@@ -524,21 +507,16 @@ void fillPageHeader(Column &column, const QString &title, const QString &subtitl
 
 /// 设置页里一个小节：**一个标题 + 一张内容卡片**。
 ///
-/// ★ 2026-10-12：用户那份改版文档点名了这一条 —— 「小节使用"标题 + 内容卡片"，避免传统
-///   `QGroupBox` 的缺口式标题」。于是设置页里原来那种「一行粗体标题横跨两列、下面接着
-///   几行设置项」的排法换成了它：一节 = 一张 `wtfmlSurface="section"` 的卡片
-///   （浅一档的底 + 10 px 圆角，**不画边**），标题和这一节所有的项**都在卡片里面**。
+/// 用户那份改版文档点名了这一条 —— 「小节使用"标题 + 内容卡片"，避免传统
+/// `QGroupBox` 的缺口式标题」。于是设置页里原来那种「一行粗体标题横跨两列、下面接着
+/// 几行设置项」的排法换成了它：一节 = 一张 `wtfmlSurface="section"` 的卡片
+/// （浅一档的底 + 10 px 圆角，**不画边**），标题和这一节所有的项**都在卡片里面**。
 ///
-///   为什么原来那种排法要换掉：标题横跨整幅、项也横跨整幅，两者之间只有"挨着"这一层
-///   关系 —— 一项到底是哪一节的，得靠"往上找最近那个粗体行"去猜；换成一节一张卡之后
-///   那是**装在里面**的关系，一眼就是。顺带卡片自己还会把内容收进一圈内边距里
-///   （18/17/18/18），"说明文字一行跨得太长"那件事也跟着好一档（另有 820 的宽度上限，
-///   见 `settingsFormMaxWidth()`）。
-///
-/// 【为什么卡片进 grid 而不是各节自己竖着排】每一栏那一页仍然是一张两列的 `QGridLayout`
-/// （`addSettingsPanel()` 里那对 3:7 的 `setColumnStretch` 还留着，ui_check 仍在核它），
-/// 卡片按行跨两列塞进去。这样滚动区那一套（`scroll->widget() == form`）、栏与栏之间"页
-/// 数 = 分类数"那条对应关系、每一页的名字一个都不用动。
+/// 为什么原来那种排法要换掉：标题横跨整幅、项也横跨整幅，两者之间只有"挨着"这一层
+/// 关系 —— 一项到底是哪一节的，得靠"往上找最近那个粗体行"去猜；换成一节一张卡之后
+/// 那是**装在里面**的关系，一眼就是。顺带卡片自己还会把内容收进一圈内边距里
+/// （18/17/18/18），"说明文字一行跨得太长"那件事也跟着好一档（另有 820 的宽度上限，
+/// 见 `settingsFormMaxWidth()`）。
 struct SettingsSection {
     QString title;
     /// 这一节的卡片（`wtfmlSurface="section"`）。**它就是项们的父窗**。
@@ -549,22 +527,22 @@ struct SettingsSection {
 
 /// 起一节（标题 + 一张空的内容卡片），并在 @p row 那一行把它摆进 @p grid。
 /// @param row 按引用收：卡片占掉一行，函数自己推进（和原来 `addSectionTitle()` 里
-///            `row++` 是一个规矩，只是现在忘不掉了）。
+/// `row++` 是一个规矩，只是现在忘不掉了）。
 SettingsSection addSettingsSection(QGridLayout *grid, int &row, const QString &title,
                                    QWidget *parent) {
     SettingsSection section;
     section.title = title;
     section.card = new QFrame(parent);
     // 面挂在**属性**上（不是 objectName）：一页里这样的卡片有好几张，名字只能靠它认
-    //（产品、样式表、验证工程三方共用这一对字符串，见 Theme::surfacePropertyName()）。
+    // （产品、样式表、验证工程三方共用这一对字符串，见 Theme::surfacePropertyName()）。
     markSurface(section.card, Theme::sectionSurfaceValue());
     section.card->setProperty("settingsSectionTitle", title);
     auto *layout = new QVBoxLayout(section.card);
-    // ★ 2026-10-12（coding plan §9.1）：内边距 18,17,18,18 → **16 四面**、行距 13 → **10**。
-    //   两个数都落进令牌那三档（区块间距 16 / 控件间距 10）：卡片自己那一圈属于"区块"，
-    //   卡里"行名 → 控件"那种成对的间距属于"控件"。改版那份文档给的 18/16/18/18 + 12
-    //   被 plan 这份的三档节奏取代（两处都是"松紧"，只有断言能钉住 —— ui_check 的 K2 里
-    //   那一条量的一直是这两个数）。
+    // （coding plan §9.1）：内边距 18,17,18,18 → **16 四面**、行距 13 → **10**。
+    // 两个数都落进令牌那三档（区块间距 16 / 控件间距 10）：卡片自己那一圈属于"区块"，
+    // 卡里"行名 → 控件"那种成对的间距属于"控件"。改版那份文档给的 18/16/18/18 + 12
+    // 被 plan 这份的三档节奏取代（两处都是"松紧"，只有断言能钉住 —— ui_check 的 K2 里
+    // 那一条量的一直是这两个数）。
     layout->setContentsMargins(16, 16, 16, 16);
     layout->setSpacing(10);
     auto *titleLabel = new QLabel(title, section.card);
@@ -582,14 +560,9 @@ SettingsSection addSettingsSection(QGridLayout *grid, int &row, const QString &t
     return section;
 }
 
-/// 往一节里加一项：**行名独占一行、内容在下一行**（2026-09-26 用户原话「设置界面的项目和
-/// 设置条目变成和实例设置一样的上下结构」—— 实例设置那边 2026-09-26 傍晚先改成了这样，
+/// 往一节里加一项：**行名独占一行、内容在下一行**（ 要求「设置界面的项目和
+/// 设置条目变成和实例设置一样的上下结构」—— 实例设置那边 傍晚先改成了这样，
 /// 见 InstanceSettingsDialog.cpp 里的 addTitledRow()）。
-///
-/// NOTE: 从前这里是「名字在左（右对齐）、控件在右」的两列行，名字那一列占 3 份宽。换成
-///       上下结构之后**没有任何一行再用单独一列**了，所以 addSettingsPanel() 里那对
-///       `setColumnStretch`（3:7）从此只剩下"表格的形状"这一层意思 —— 卡片跨两列，它里面
-///       的宽度和列怎么分无关，留着它是为了两边的表格长得一样（ui_check 仍在核它）。
 void addSettingItem(const SettingsSection &section, const QString &labelText, QWidget *control,
                     QWidget *parent) {
     if (labelText != section.title) {
@@ -624,13 +597,38 @@ constexpr int kTitleTextEditWidth = 220;
 
 /// 给设置页里的一行控件套一层"控件 + 说明文字"的容器（说明统一小一号、灰色）。
 /// @return 容器；调用方再往它的 layout 里塞真控件 —— 说明文字在**最后**加，
-///         所以这里只把空布局还回去。
+/// 所以这里只把空布局还回去。
 QWidget *makeHintedControl(QWidget *parent) {
     QWidget *box = new QWidget(parent);
     QVBoxLayout *layout = new QVBoxLayout(box);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(4);
     return box;
+}
+
+/// `makeHintedControl()` 的"控件 + 它那层竖排布局"一起拿：设置页里 29 处都是这两样
+/// 一起用，分开写就要在每一处再 qobject_cast 一次。
+struct HintedControlWithLayout {
+    QWidget *widget = nullptr;
+    QVBoxLayout *layout = nullptr;
+};
+
+HintedControlWithLayout makeHintedControlWithLayout(QWidget *parent) {
+    QWidget *widget = makeHintedControl(parent);
+    return {widget, qobject_cast<QVBoxLayout *>(widget->layout())};
+}
+
+/// 一行"无外边距的横排"：设置页里那些「条 + 数字框 + 下拉框」和主题色块行共用。
+struct InlineRow {
+    QWidget *widget = nullptr;
+    QHBoxLayout *layout = nullptr;
+};
+
+InlineRow makeInlineRow(QWidget *parent) {
+    auto *widget = new QWidget(parent);
+    auto *layout = new QHBoxLayout(widget);
+    layout->setContentsMargins(0, 0, 0, 0);
+    return {widget, layout};
 }
 
 /// 往 makeHintedControl() 造出来的容器里加一句说明，并把标签还回去。
@@ -668,14 +666,14 @@ void addHint(QWidget *box, const QString &text, QWidget *parent) {
 
 /// 下载页页头该不该露着 —— **唯一出处**。
 ///
-/// ★ 2026-10-18：用户原话「那个页面顶上的大标题和刷新键不要（点进去就隐藏，外面还
-///   保留）」。「那页」是「下载 → 游戏」里面第二层那页**安装页**（挑加载器、填名字、
-///   按安装）；外面（版本树那一层、以及别的分类）页头照旧露着。
+/// 要求「那个页面顶上的大标题和刷新键不要（点进去就隐藏，外面还
+/// 保留）」。「那页」是「下载 → 游戏」里面第二层那页**安装页**（挑加载器、填名字、
+/// 按安装）；外面（版本树那一层、以及别的分类）页头照旧露着。
 ///
 /// NOTE: 只接收传进来的指针、**不捕获 MainWindowUI 自己** —— 它不是一个 QObject
-///       （见类声明），而这两发 `currentChanged` 的 context 是那两个堆叠页本身。
-///       判据读的是两个堆叠页**此刻**的下标，所以"先翻分类、后翻内层"哪一发先到、
-///       或者中间多来一发，结果都一样。
+/// （见类声明），而这两发 `currentChanged` 的 context 是那两个堆叠页本身。
+/// 判据读的是两个堆叠页**此刻**的下标，所以"先翻分类、后翻内层"哪一发先到、
+/// 或者中间多来一发，结果都一样。
 void syncDownloadHeaderVisibility(QWidget *header, QStackedWidget *downloadStack,
                                   QStackedWidget *gameStack) {
     if (header == nullptr || downloadStack == nullptr || gameStack == nullptr) {
@@ -711,9 +709,9 @@ QPushButton *MainWindowUI::getThemeSemanticButton(int index) const {
 }
 
 QString MainWindowUI::themeSemanticKey(int index) {
-    // ★ 这四串是 `Theme::Spec` 里那四位（以及盘上 `Theme/Accents/<Key>` 那四个后缀）。
-    //   认的是**名字**不是下标：以后加一个语义色、或者把顺序动了，这边改一处就够
-    //   （`specToJson()` / `accentSettingKey()` 那两边照旧）。
+    // 这四串是 `Theme::Spec` 里那四位（以及盘上 `Theme/Accents/<Key>` 那四个后缀）。
+    // 认的是**名字**不是下标：以后加一个语义色、或者把顺序动了，这边改一处就够
+    // （`specToJson()` / `accentSettingKey()` 那两边照旧）。
     switch (index) {
     case 0:
         return QStringLiteral("danger");
@@ -791,7 +789,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     parent->setCentralWidget(centralWidget);
 
     // NOTE: 边距和间距都是 0 —— 选项卡栏和底部状态条要**通栏**贴到窗口边缘
-    //       （Steam 那条底栏就是通栏的）。页面内部自己留边距，见 kPageMargin。
+    // （Steam 那条底栏就是通栏的）。页面内部自己留边距，见 kPageMargin。
     QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
@@ -804,8 +802,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 右边最小化与关闭。第一行就是它、第二行才是标签页 —— 顺序由 addWidget 的先后决定。
     //
     // NOTE: 覆盖层（OverlayHost）挂在 tabWidget 上、条在 tabWidget 上面那一行，所以开设置页
-    //       时这条**不会被盖住** —— 和"底下那一条不用覆盖"是同一条规矩；用户原话里那句
-    //       「顶上四个选项卡也不覆盖」现在由"四个功能在条上、条不被覆盖"接手。
+    // 时这条**不会被盖住** —— 和"底下那一条不用覆盖"是同一条规矩；要求里那句
+    // 「顶上四个选项卡也不覆盖」现在由"四个功能在条上、条不被覆盖"接手。
     bar = new TitleBar(centralWidget);
     mainLayout->addWidget(bar);
     // 条只发信号、不自己动手（见 TitleBar.hpp）：谁接这两下是这一层的事。
@@ -830,7 +828,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
     // ---------- 主页：左 = 挑一个已装好的版本，启动；右 = 我的角色（皮肤预览） ----------
     //
-    // 四个页面（这一处和下面三处）都是 `ThemeBackground`：用户 2026-09-28 要的「其他页面的
+    // 四个页面（这一处和下面三处）都是 `ThemeBackground`：用户 要的「其他页面的
     // 背景能换图吗」说的就是这一块（`Theme::Part::PageBackground`）。没设图时它画的就是
     // 这一页原来那个底色，一个像素都不差（见 ui/ThemeBackground.hpp 的文件头）。
     QWidget *homeTab = new ThemeBackground(Theme::Part::PageBackground, tabWidget);
@@ -868,7 +866,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 不再往列表里塞 "自定义版本" 那种假条目：控件自己会把占位文案画成灰字。
         // NOTE: 只要占位文案非空，往空下拉框里 addItems() 就不会自动选中第 0 项
         // （QComboBoxPrivate::rowsInserted 里那条 setCurrentIndex(0) 带了
-        //  !placeholderText.isEmpty() 的条件）。所以"空着"能一直保持到用户真的挑一项，
+        // !placeholderText.isEmpty() 的条件）。所以"空着"能一直保持到用户真的挑一项，
         // 代价是刷新之后必须自己把选中项捡回来，见 MainWindow.cpp 里的 fillVersionCombo()
         // （它是那个文件匿名命名空间里的自由函数，不是 MainWindow 的成员）。
         // 这里只是初始值；灌完数据后由 MainWindow 在两个串之间切换。
@@ -879,13 +877,13 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 把窗口顶宽。改成按"最短内容长度"算，宽度确定，灌数据时也不会跳。
         //
         // NOTE: "宽度确定"有个前提，很容易踩：**占位文案一旦超过 minimumContentsLength
-        //       就会被算进 sizeHint**。实测（Qt 6.10.1，Fusion）13 字的占位会把框顶宽
-        //       12px，而**条目文本和当前选中文本不影响**（空 / 加了一行超长条目 / 选中
-        //       那行超长条目，量出来都是同一个宽度）。
-        //       所以：给这两个下拉框设的每一条占位文案都必须 ≤12 字。现在共四处 ——
-        //       本文件两处 + MainWindow.cpp 两处（那句取数失败的文案原来是 16 字，会让
-        //       框在失败时突然变宽，2026-09-21 缩成 10 字）。要放长句就写到旁边的 hint
-        //       标签上去，QLabel 没有这个约束。
+        // 就会被算进 sizeHint**。实测（Qt 6.10.1，Fusion）13 字的占位会把框顶宽
+        // 12px，而**条目文本和当前选中文本不影响**（空 / 加了一行超长条目 / 选中
+        // 那行超长条目，量出来都是同一个宽度）。
+        // 所以：给这两个下拉框设的每一条占位文案都必须 ≤12 字。现在共四处 ——
+        // 本文件两处 + MainWindow.cpp 两处（那句取数失败的文案原来是 16 字，会让
+        // 框在失败时突然变宽， 缩成 10 字）。要放长句就写到旁边的 hint
+        // 标签上去，QLabel 没有这个约束。
         installedVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         installedVersionCombo->setMinimumContentsLength(12);
         // 滚轮防护：见 MainWindowUI.hpp 里的 WheelGuard
@@ -907,7 +905,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 参与主页布局，否则会和卡片里的「启动」形成两颗功能完全相同的按钮。
         startButton->hide();
 
-        // 这里原来有一个「离线模式」勾选框（2026-09-24 去掉的，用户原话：「现在不要启动
+        // 这里原来有一个「离线模式」勾选框（ 去掉的，要求：「现在不要启动
         // 界面那个离线登录勾选框了，在添加账户那里选择添加离线账号」）。它管的是"这次启动
         // 用哪种身份"，而现在那件事**只由当前账号是什么**决定 —— 离线就去账号窗里加一个
         // 离线账号、切过去，没有第二个开关。判据的唯一出处是 MainWindow::offlineIdentity()。
@@ -997,7 +995,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     }
     // ---------- 主页右栏：我的角色（3D 皮肤预览） ----------
     // 这里原来是空的：早先放着一张「版本列表」，和左边那个下拉框是同一份数据的两种看法，
-    // 而实例页右边现在也有一张同样数据的列表了，留着就是把同一件事说三遍（2026-09 去掉的）。
+    // 而实例页右边现在也有一张同样数据的列表了，留着就是把同一件事说三遍（ 去掉的）。
     // 空着的那阵子这一栏的作用只剩"按份数把左边那套操作顶到 7 成宽"，现在拿它装皮肤预览 ——
     // 三成宽正好够放一个小人（见 SkinModel 里"缩放按控件尺寸自适应"那条，控件多大它多大）。
     {
@@ -1063,11 +1061,6 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         accountArrow->setAttribute(Qt::WA_TransparentForMouseEvents);
         accountHeader->addWidget(accountArrow);
         profileLayout->addWidget(accountSkinButton);
-        // ★ 2026-10-16（用户原话：「这个的对应功能继承到右上角那个按钮去」）：底栏那颗账号
-        //   按钮 `hide()` 之后，"最近用过的账号"那一块面板就**换到这张卡片上**了 ——
-        //   点一下在卡片下面展开（卡片贴着头顶，只能往下弹，见 BottomBarPanel 那两个方向）。
-        //   面板里的内容一个字没改：最近三个账号 + 每行那颗「登录 / 登出」+ 末行
-        //   「账号与外观…」（进那个大窗的那条路就在末行里，所以这一颗**不再**直接开窗）。
         QObject::connect(accountSkinButton, &QPushButton::clicked, accountSkinButton, [this]() {
             toggleAccountsPanel();
         });
@@ -1114,22 +1107,22 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         home.right.layout->addStretch(1);
     }
     // NOTE: 控件一个都不放也得把这栏建出来 —— 验证工程靠 leftColumnName()/rightColumnName()
-    //       找这两栏量几何，主页右栏没了就等于主页的比例没地方量。
+    // 找这两栏量几何，主页右栏没了就等于主页的比例没地方量。
 
     // ---------- 实例：左 = 游戏文件夹列表；右 = 那个文件夹里的实例 ----------
     QWidget *instanceTab = new ThemeBackground(Theme::Part::PageBackground, tabWidget);
     instanceTab->setObjectName(instanceTabName());
     // NOTE: 这一份**不是 const**（另几页那三份是）：页头那两行字和右上角那条操作是
-    //       `buildTwoColumnPage()` 搭完之后才由这一页填的（`fillPageHeader()` 收的是
-    //       `Column&`）。
+    // `buildTwoColumnPage()` 搭完之后才由这一页填的（`fillPageHeader()` 收的是
+    // `Column&`）。
     TwoColumns instance = buildTwoColumnPage(instanceTab, QStringLiteral("instance"));
     // ---- 页头：标题「实例」+ 副标题（路径 + 实例数量，就是原来那句「当前文件夹：…」）----
     //
-    // ★ 那句副标题**就是** `instanceFolderLabel`：它一直说的是"这一页的实例是从哪一份
-    //   .minecraft 里扫出来的、一共有几个"，用户 2026-10-12 那份文档里"页面说明 / 路径 /
-    //   当前状态"要的正是它。所以这里把页头那个说明标签**接过来用**（objectName 换成它
-    //   原来那个名字）—— 文案、灌数据那条路（MainWindow::refreshInstanceList）、
-    //   验证工程找它用的名字一处都不用动，只是从"框里的一行"变成了"标题下面那行说明"。
+    // 那句副标题**就是** `instanceFolderLabel`：它一直说的是"这一页的实例是从哪一份
+    // .minecraft 里扫出来的、一共有几个"，用户 那份文档里"页面说明 / 路径 /
+    // 当前状态"要的正是它。所以这里把页头那个说明标签**接过来用**（objectName 换成它
+    // 原来那个名字）—— 文案、灌数据那条路（MainWindow::refreshInstanceList）、
+    // 验证工程找它用的名字一处都不用动，只是从"框里的一行"变成了"标题下面那行说明"。
     fillPageHeader(instance.right, instancePageTitle(), QString());
     instanceFolderLabel = instance.right.subtitle;
     instanceFolderLabel->setObjectName(MainWindowUI::instanceFolderLabelName());
@@ -1137,7 +1130,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 界面这边不知道盘上有几份）。
     instanceFolderLabel->setVisible(true);
     // 右上角那颗页面级操作：「分组设置…」（它管的是**分组清单本身**，不是选中的那一个
-    // 实例 —— 见下面那段，那是 2026-09-25 就定下的语义）。
+    // 实例 —— 见下面那段，那是 就定下的语义）。
     groupInstanceButton = new QPushButton(groupInstanceText(), instance.right.header);
     groupInstanceButton->setObjectName(groupInstanceButtonName());
     // 「分组设置…」= 打开另一个窗（一般性），不是"干这件事"。
@@ -1146,11 +1139,6 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
     {
         // ---- 侧栏：一个页面小标题「游戏目录」+ 文件夹列表 + 两颗按钮（都在侧栏底部）----
-        //
-        // ★ 2026-10-12：这一栏原来是一个 `QGroupBox("游戏文件夹")`（缺口式标题 + 一圈边）。
-        //   用户那份文档的第一条就是「减少框」：**页面本身不画边框**、侧栏只用一个轻微
-        //   底色区分，小节标题改成**一行普通的粗体字**。于是那圈边整块没了，标题变成下面
-        //   这一行，列表和按钮直接落在侧栏面上。
         QLabel *folderTitle = new QLabel(folderSectionTitleText(), instance.left.surface);
         folderTitle->setObjectName(folderSectionTitleName());
         markTextRole(folderTitle, Theme::sectionTitleTextRoleValue());
@@ -1166,43 +1154,43 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 自带的那一份永远排第一（见 FolderManager），所以列表不会是空的。
         //
         // NOTE: 每一行的内容**不是**条目自己画的（条目上没有文字），而是 setItemWidget()
-        //       塞进去的一个 FolderRowWidget（见 setFolderRows()）——两行字 + 行尾一颗
-        //       齿轮需要一个真控件才摆得下。省略因此完全由那一行里的 ElidedLabel 自己做。
+        // 塞进去的一个 FolderRowWidget（见 setFolderRows()）——两行字 + 行尾一颗
+        // 齿轮需要一个真控件才摆得下。省略因此完全由那一行里的 ElidedLabel 自己做。
         //
-        // NOTE: 2026-09-25 删掉了这里原来的 `setTextElideMode(Qt::ElideMiddle)`。它是个
-        //       **死设置**：条目上一个字都没有，列表没有任何东西可省略，这一句从来没起过
-        //       作用（真正拦住横向滚动条的是下面那条 ScrollBarAlwaysOff）。留着更糟 ——
-        //       它让人以为"路径从中间省略"这件事已经配好了，而实际干活的那个标签当时一律
-        //       从**尾巴**省略（路径最后一级目录名正是唯一认得出是哪一份的那截）。
-        //       现在这件事放在真正画字的那个标签上：见 FolderRowWidget 里的
-        //       `subtitle->setElideMode(...)`。
+        // NOTE: 删掉了这里原来的 `setTextElideMode(Qt::ElideMiddle)`。它是个
+        // **死设置**：条目上一个字都没有，列表没有任何东西可省略，这一句从来没起过
+        // 作用（真正拦住横向滚动条的是下面那条 ScrollBarAlwaysOff）。留着更糟 ——
+        // 它让人以为"路径从中间省略"这件事已经配好了，而实际干活的那个标签当时一律
+        // 从**尾巴**省略（路径最后一级目录名正是唯一认得出是哪一份的那截）。
+        // 现在这件事放在真正画字的那个标签上：见 FolderRowWidget 里的
+        // `subtitle->setElideMode(...)`。
         folderList = new QListWidget(instance.left.surface);
         folderList->setObjectName(folderListName());
         folderList->setUniformItemSizes(true);
         folderList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         folderList->setSelectionMode(QAbstractItemView::SingleSelection);
-        // ★ 列表**不画自己那圈边**：侧栏面已经是一层底了，再套一圈就是"框套框"
-        //   （用户文档第一条要减掉的正是它）。这条列表的行本来就是自绘的两行式行
-        //   （见 FolderRowWidget），有没有外框在观感上是"一块面板"和"一串行"的区别。
+        // 列表**不画自己那圈边**：侧栏面已经是一层底了，再套一圈就是"框套框"
+        // （用户文档第一条要减掉的正是它）。这条列表的行本来就是自绘的两行式行
+        // （见 FolderRowWidget），有没有外框在观感上是"一块面板"和"一串行"的区别。
         folderList->setFrameShape(QFrame::NoFrame);
         styleSidebarList(folderList);
         instance.left.layout->addWidget(folderList, 1);
 
         // 下面两颗按钮**贴着侧栏底部**（列表那一格吃掉剩下的高度）。
-        // 这一行**只有「添加文件夹…」一个按钮**了：2026-09-24 用户说「下面那个移除文件夹
+        // 这一行**只有「添加文件夹…」一个按钮**了： 用户说「下面那个移除文件夹
         // 也可以弃掉了」—— 「移除」现在只有行尾齿轮菜单里那一项（同一个
         // MainWindow::removeFolderFromList()，同一个确认框）。
         //
-        // ★ 两颗的身份是**有意分开**的（用户文档里那两颗就是两种样子）：「添加文件夹…」
-        //   是"加东西进来"那一档（主题色描边，`ButtonKind::Accent` = 默认那一份样式）；
-        //   「导入整合包…」是**另一条**路（一般性），走中性那档白底黑字。两颗都顶满侧栏。
+        // 两颗的身份是**有意分开**的（用户文档里那两颗就是两种样子）：「添加文件夹…」
+        // 是"加东西进来"那一档（主题色描边，`ButtonKind::Accent` = 默认那一份样式）；
+        // 「导入整合包…」是**另一条**路（一般性），走中性那档白底黑字。两颗都顶满侧栏。
         addFolderButton = new QPushButton(addFolderText(), instance.left.surface);
         addFolderButton->setObjectName(addFolderButtonName());
         addFolderButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         instance.left.layout->addWidget(addFolderButton);
 
         // 「导入整合包…」：从 Modrinth 格式的整合包（.zip / .mrpack）里**造一个新实例**。
-        // 2026-09-25 从右栏挪到这儿（用户原话：「导入整合包放在左边添加文件夹下面」）：
+        // 从右栏挪到这儿（要求：「导入整合包放在左边添加文件夹下面」）：
         // 它和「添加文件夹…」是同一类动作（往这一列里添东西）—— 而右栏那三个都是
         // "对选中的实例做什么"，混在一排里用户得先猜它作用于选中项还是新建。
         importModpackButton = new QPushButton(importModpackText(), instance.left.surface);
@@ -1214,15 +1202,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
         // 那颗按钮的说明，**从右栏那段提示里拆出来的头一段**（剩下的几句说的都是重命名 /
         // 分组 / 实例设置，跟这一组无关）。摆在这儿是因为它讲的就是上面那颗按钮 ——
-        // 2026-09-25 之前它俩隔着两栏，读的人得自己把句子和按钮对起来。
-        //
-        // ★ 这一句**只能这么短**（2026-09-25 实测）：折行 QLabel 的 sizeHint 宽度是横向
-        //   advance 的**分档**，而左栏从前是按各控件的 sizeHint 分宽度的 —— 第一版写的是
-        //   「收的是 Modrinth 格式的整合包（压缩包根目录里有一份 modrinth.index.json）。它
-        //   会把加载器、模组、config 和资源包一次装成一个新实例。」（约 70 个汉字），当场
-        //   两条红：整窗 sizeHint 818 → **1042**（ui_check E5 的上限是 900）。
-        //   NOTE: 2026-10-12 起侧栏是**固定宽度**（`sidebarWidth()`），折行标签再也顶不宽
-        //   它了 —— 但这条规矩照旧：真有话要说就走那颗按钮的 tooltip（完全不吃布局）。
+        // 之前它俩隔着两栏，读的人得自己把句子和按钮对起来。
         QLabel *importHint = new QLabel(
             QStringLiteral("收 Modrinth 格式的整合包（.zip / .mrpack），"
                            "加载器、模组、config 一次装好。"),
@@ -1236,16 +1216,16 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         instance.left.layout->addWidget(importHint);
 
         // 原来这里还有一段提示（"选中的就是启动器当前使用的 .minecraft…自带的那一份
-        // 移不掉…"），2026-09-24 用户说「下面那个文本也删了」，一起拿掉了。
+        // 移不掉…"）， 用户说「下面那个文本也删了」，一起拿掉了。
         // 它那两句话现在各有各的出处，一件都没丢：
-        //   ① 「这一份就是当前在用的」—— 页头那行说明（`instanceFolderLabel`）就写着
-        //      当前是哪一份；
-        //   ② 「移除只动列表、删除才动盘」—— 齿轮菜单那两项各自的 tooltip
-        //       （folderActionTooltip）以及它们弹的那个确认框里各写了一遍。
+        // ① 「这一份就是当前在用的」—— 页头那行说明（`instanceFolderLabel`）就写着
+        // 当前是哪一份；
+        // ② 「移除只动列表、删除才动盘」—— 齿轮菜单那两项各自的 tooltip
+        // （folderActionTooltip）以及它们弹的那个确认框里各写了一遍。
     }
     {
         // 「分组设置…」这一颗**现在是页头右上角那颗页面级操作**（见上面 `instance.right.actions`
-        // 那一段）：2026-09-25 用户原话「分组设置先放右上角框外不删了」。当天右栏那一排三颗
+        // 那一段）： 要求「分组设置先放右上角框外不删了」。当天右栏那一排三颗
         // （重命名… / 分组设置… / 实例设置…）一起删了，另外两颗各有各的新家（「重命名…」进了
         // 「实例设置」那一页；「实例设置」= **点这一条实例行**，行尾还常显一颗齿轮），只有它
         // 留下来，从框**里面**挪到框**外面**的右上角。
@@ -1254,14 +1234,14 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // **分组清单本身**（有哪些组、叫什么名字、什么顺序、默认展开还是收着、哪一个是
         // 置顶组 —— 见 ui/GroupDialog）。"选中的实例"对它没有意义，混在一排里用户得先猜
         // 它是"对这条做什么"还是"对这一列做什么"。摆在页头、正文之上，说的是"下面这一整块
-        // 怎么组织" —— 2026-10-12 那次改版把"框外右上角"落实成了**页头的操作位**。
+        // 怎么组织" —— 那次改版把"框外右上角"落实成了**页头的操作位**。
         //
         // ---- 正文：就只有这一棵树（原来那个 `QGroupBox("实例列表")` 整块没了）----
         //
-        // ★ 2026-10-12：用户那份文档第一条就是「减少框」—— 页面不画边框、正文只有一个面。
-        //   于是这一组那个缺口式标题 + 一圈边整块撤掉：树的四周本来就是正文面（`workspace`），
-        //   再套一圈就是"框套框"。原来那句「当前文件夹：…」也没丢，它现在是**页头那行说明**
-        //   （见上面），而且和标题同级、比框里那行更像"这一页的状态"。
+        // 用户那份文档第一条就是「减少框」—— 页面不画边框、正文只有一个面。
+        // 于是这一组那个缺口式标题 + 一圈边整块撤掉：树的四周本来就是正文面（`workspace`），
+        // 再套一圈就是"框套框"。原来那句「当前文件夹：…」也没丢，它现在是**页头那行说明**
+        // （见上面），而且和标题同级、比框里那行更像"这一页的状态"。
         //
         // 主页那个「已安装版本」下拉框的同一份数据，只是摆在这儿配左边的文件夹看。
         // 点击 = 在主页把它选中（两边按 id 双向同步，见 MainWindow::setupConnections）。
@@ -1278,9 +1258,9 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //
         // 摆进**正文面里**、树的上方（不是页头右上角那个"页面级操作"位）：搜索和筛选是
         // "下面这棵树怎么摆"，和那颗「分组设置…」不是一类东西 —— 后者管的是分组清单本身。
-        // ★ 2026-10-13（coding plan §6.1）：这一整套（筛选行 + 空态 + 树）**挪进一个页面**
-        //   里，好和"服务端那一页"一起塞进 `instanceModeStack`。控件本身、objectName、
-        //   灌数据那条路一处都没动 —— 只是多套了一层容器。
+        // （coding plan §6.1）：这一整套（筛选行 + 空态 + 树）**挪进一个页面**
+        // 里，好和"服务端那一页"一起塞进 `instanceModeStack`。控件本身、objectName、
+        // 灌数据那条路一处都没动 —— 只是多套了一层容器。
         QWidget *clientPage = new QWidget(instance.right.surface);
         clientPage->setObjectName(QStringLiteral("instanceClientPage"));
         auto *clientLayout = new QVBoxLayout(clientPage);
@@ -1300,12 +1280,6 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             // "清空搜索恢复原展开状态"，而那一格自己就带着这个动作，再摆一颗是同一件事
             // 说两遍。
             instanceSearchEdit->setClearButtonEnabled(true);
-            // 高度**钉成 chip 那一档**（§9.1：一行里并排的控件一样高）。`QLineEdit` 的自然
-            // 高度是"字号 + padding + 边框"算出来的，和旁边那四颗 `setFixedHeight(24)` 的
-            // chip 差 1px（2026-10-13 在真屏上量到 23 对 24 —— ui_shot 的 9d 量出来的；
-            // 那句"并排摆着差 1px 一眼就看出来"写在 ui/Theme.cpp 里 QLineEdit 那一段）。
-            // 这里**不**走 QSS（`min-height` 只会把它顶上去，钉不住），也不动全局那一档 ——
-            // 那是"输入框该多高"的出处，这一句管的是"这一行里它得和旁边一样高"。
             instanceSearchEdit->setFixedHeight(Theme::chipHeight());
             row->addWidget(instanceSearchEdit, 1);
 
@@ -1346,15 +1320,15 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         instanceList = new QTreeWidget(clientPage);
         instanceList->setObjectName(instanceListName());
         instanceList->setHeaderHidden(true);
-        // ★ 这一棵树**自己那圈边不画**（2026-10-12）：它四周已经是正文那个面（`workspace`），
-        //   再套一圈就是用户那份文档第一条要减掉的"框套框"。行本身（组行 / 实例行）都是自绘的，
-        //   有没有外框在观感上差的是"一块面板"还是"一串行"。
+        // 这一棵树**自己那圈边不画**：它四周已经是正文那个面（`workspace`），
+        // 再套一圈就是用户那份文档第一条要减掉的"框套框"。行本身（组行 / 实例行）都是自绘的，
+        // 有没有外框在观感上差的是"一块面板"还是"一串行"。
         instanceList->setFrameShape(QFrame::NoFrame);
         // 左边**不画** Qt 自带那个展开三角：展开/收起这件事画在行的**右**端（一个箭头，
-        // 见 InstanceGroupDelegate），和版本树那几条分类长得一样（用户原话：「每一个组和
+        // 见 InstanceGroupDelegate），和版本树那几条分类长得一样（要求：「每一个组和
         // 版本下载几乎一致」）。开着的话一行上会有两个箭头，而且左边那个还会把组名往里推。
         // NOTE: 正路就是 setRootIsDecorated(false) —— 拿 `DontShowIndicator` 那条 item flag
-        //       顶替会让整条分类的子条目一起消失（版本树那边踩过）。
+        // 顶替会让整条分类的子条目一起消失（版本树那边踩过）。
         instanceList->setRootIsDecorated(false);
         // 每一行高度一样（没有多行文本），打开这个能让 QTreeWidget 不用去问每一行的
         // sizeHint —— 实例多的时候（真机上有 61 个）滚动明显更顺。
@@ -1370,19 +1344,19 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // iconSize**，用的是样式给的默认值 —— 而图标是按 instanceTreeIconSize() 画的，
         // 不设的话它会被缩到默认那一档、和实例名那行字挤在一起。
         //
-        // ★ 这个边长是**实例列表自己**那一档（2026-09-29 起 26，之前借的是版本树的 18，
-        //   用户原话「图标大一点」）。它和 MainWindow::refreshInstanceList() 里现算那些
-        //   QPixmap 时递进去的边长**必须同一个数** —— 两处对不上的症状是图标被 QIcon
-        //   重新采样一遍（屏幕上只是略糊，验证工程里那条"行首那张图 == 现画的那张"会红）。
+        // 这个边长是**实例列表自己**那一档（ 起 26，之前借的是版本树的 18，
+        // 要求「图标大一点」）。它和 MainWindow::refreshInstanceList() 里现算那些
+        // QPixmap 时递进去的边长**必须同一个数** —— 两处对不上的症状是图标被 QIcon
+        // 重新采样一遍（屏幕上只是略糊，验证工程里那条"行首那张图 == 现画的那张"会红）。
         instanceList->setIconSize(QSize(instanceTreeIconSize(), instanceTreeIconSize()));
-        // ★ 悬停那两颗按钮（上箭头 / 垃圾桶）**必须**有这一句，而且它是缺一不可的两半里的
-        //   一半（另一半是代理里那个 `&& hovered`，见 InstanceGroupDelegate::paint()）：
-        //   干净的视图 `WA_Hover=0` / `mouseTracking=0`，**真鼠标移动一个字都不改**
-        //   `QStyle::State_MouseOver`（2026-09-25 下载页左栏那六个刷新圈实测过，windows 与
-        //   offscreen 两个平台结论一样）。少这一句的表现是"那两颗按钮再也不出现"，而两边
-        //   各自的断言还都是绿的。
+        // 悬停那两颗按钮（上箭头 / 垃圾桶）**必须**有这一句，而且它是缺一不可的两半里的
+        // 一半（另一半是代理里那个 `&& hovered`，见 InstanceGroupDelegate::paint()）：
+        // 干净的视图 `WA_Hover=0` / `mouseTracking=0`，**真鼠标移动一个字都不改**
+        // `QStyle::State_MouseOver`（ 下载页左栏那六个刷新圈实测过，windows 与
+        // offscreen 两个平台结论一样）。少这一句的表现是"那两颗按钮再也不出现"，而两边
+        // 各自的断言还都是绿的。
         instanceList->setMouseTracking(true);
-        // 展开/折叠动画（2026-09-29）：组行那一按，子条目是**滑**出来的。交给 Qt 自己
+        // 展开/折叠动画：组行那一按，子条目是**滑**出来的。交给 Qt 自己
         // （`QTreeView::setAnimated`），规矩见 ui/Animations.hpp。
         Anim::animateExpansion(instanceList);
         clientLayout->addWidget(instanceList, 1);
@@ -1415,11 +1389,11 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             modeLayout->addStretch(1);
             instance.right.layout->addWidget(modeRow);
         }
-        // ★ 焦点链：左栏底下那两颗按钮 → 这一排模式 → 搜索框（2026-10-14，§3.3）。
-        //   这一排是这一页**最上面**那一行，可它是**最后**建的（筛选行 / 树那一整套先建，
-        //   这一排后来才补上去），于是按 Tab 的顺序是"搜索框 → 四颗筛子 → 树 → 模式按钮"
-        //   ——焦点从下面那棵树又窜回到最上面这一行。串成"左栏 → 模式 → 搜索"，一路往下。
-        //   （左栏那两颗是建在这一排之前的，所以这里从它们接出去。）
+        // 焦点链：左栏底下那两颗按钮 → 这一排模式 → 搜索框（，§3.3）。
+        // 这一排是这一页**最上面**那一行，可它是**最后**建的（筛选行 / 树那一整套先建，
+        // 这一排后来才补上去），于是按 Tab 的顺序是"搜索框 → 四颗筛子 → 树 → 模式按钮"
+        // ——焦点从下面那棵树又窜回到最上面这一行。串成"左栏 → 模式 → 搜索"，一路往下。
+        // （左栏那两颗是建在这一排之前的，所以这里从它们接出去。）
         if (importModpackButton != nullptr && instanceModeButtons.size() == 3) {
             QWidget::setTabOrder(importModpackButton, instanceModeButtons.at(0));
             QWidget::setTabOrder(instanceModeButtons.at(0), instanceModeButtons.at(1));
@@ -1459,11 +1433,6 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         serverList->setRootIsDecorated(false);
         serverList->setUniformRowHeights(true);
         serverList->setSelectionMode(QAbstractItemView::SingleSelection);
-        // ★ 2026-10-13（§6.2 的操作 / M4-3）：**两列** —— 第 0 列是名字/状态那串字（吃满
-        //   剩下的宽度），第 1 列定宽，摆行尾那颗主操作按钮（`setItemWidget()` 挂上去）。
-        //   之所以是"加一列"而不是"把整行做成一个自绘控件"（实例文件页那种做法）：这一页的
-        //   行长什么样本来就已经有（一行两截的文字 + tooltip），只是**多了一颗按钮**，
-        //   为它把整行重做成控件不值当。
         serverList->setColumnCount(2);
         if (QHeaderView *header = serverList->header()) {
             header->setStretchLastSection(false);
@@ -1471,7 +1440,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             header->setSectionResizeMode(1, QHeaderView::Fixed);
             header->resizeSection(1, serverRowActionWidth());
         }
-        // 行尾那颗按钮要能从行上右键弹出来（"其余几项进右键菜单"，用户 2026-10-13 定的）。
+        // 行尾那颗按钮要能从行上右键弹出来（"其余几项进右键菜单"，用户 定的）。
         serverList->setContextMenuPolicy(Qt::CustomContextMenu);
         // 行首那个图标（按档画的那张 64×64 瓦片，见 assets/loader/*.png 与
         // MainWindow::refreshServerList()）—— 边长和实例行同一个数，两处对不上 QIcon 会重采样。
@@ -1487,7 +1456,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
         instanceModeStack->addWidget(serverPage);  // 第 1 页 = 服务端
 
-        // ---- 第 2 页：预设（2026-10-18）----
+        // ---- 第 2 页：预设----
         //
         // 只是一个**宿主**：整页的内容（列表 / 提取 / 计划）由 `PresetController` 建好塞进来。
         // 这一层不 include 预设那一层，也不该知道它长什么样。
@@ -1504,61 +1473,53 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         setInstanceMode(InstanceMode::Client);
 
         // NOTE: 这里原来是三颗按钮的一排（重命名… / 分组设置… / 实例设置…）加下面一段
-        //       折行提示。**2026-09-25 全部拿掉了**，用户原话：「删掉实例页面右侧三个按钮
-        //       （因为都已经分别有入口了），顺便把下面的文本干掉」。
-        //       三颗各自的去处（一个都没丢）：
-        //         - 「实例设置…」= **点这一条实例行**（空白、左边那个图标、版本名都算），
-        //           行尾还会常显一颗齿轮 —— 两颗做的是同一件事（用户原话：「直接点空白区域
-        //           （和左边图标版本名）进入实例设置」+ 追加答复「要，一颗齿轮常显」）；
-        //         - 「重命名…」搬进了「实例设置」那一页（改实例名就在那一页里改）；
-        //         - 「分组设置…」挪到了框**外面**的右上角（现在是页头那颗页面级操作，
-        //           见那一段 NOTE）。
+        // 折行提示。** 全部拿掉了**，要求：「删掉实例页面右侧三个按钮
+        // （因为都已经分别有入口了），顺便把下面的文本干掉」。
+        // 三颗各自的去处（一个都没丢）：
+        // - 「实例设置…」= **点这一条实例行**（空白、左边那个图标、版本名都算），
+        // 行尾还会常显一颗齿轮 —— 两颗做的是同一件事（要求：「直接点空白区域
+        // （和左边图标版本名）进入实例设置」+ 追加答复「要，一颗齿轮常显」）；
+        // - 「重命名…」搬进了「实例设置」那一页（改实例名就在那一页里改）；
+        // - 「分组设置…」挪到了框**外面**的右上角（现在是页头那颗页面级操作，
+        // 见那一段 NOTE）。
         //
-        //       那段提示一起删了：它当初讲的是"重命名会改目录名、分组只记在启动器自己的
-        //       文件里、实例设置每一项都能跟随全局或自己填"—— 前两句现在各有各的出处
-        //       （重命名那一页、分组那一页自己会讲），第三句在「实例设置」页里一眼就能
-        //       看出来（每一行左边都摆着那对「跟随全局 / 自定义」）。
+        // 那段提示一起删了：它当初讲的是"重命名会改目录名、分组只记在启动器自己的
+        // 文件里、实例设置每一项都能跟随全局或自己填"—— 前两句现在各有各的出处
+        // （重命名那一页、分组那一页自己会讲），第三句在「实例设置」页里一眼就能
+        // 看出来（每一行左边都摆着那对「跟随全局 / 自定义」）。
         //
-        // NOTE: 2026-09-25 之前这里就没有「停止游戏…」了（用户原话「实例里停止游戏按钮
-        //       删了」）。停在哪儿这件事归底栏左面板里那一行的电源（见
-        //       MainWindow::stopGameSession()）：那一格写着"哪一个会话在跑"，停哪一份比在
-        //       "对选中实例做什么"的排里更说得清。代价（如实记一笔）：原来那颗按钮走的是
-        //       applyStopGame(versionId)，能一次停掉**同一个实例的多份会话**；底栏那一行的
-        //       电源只停**这一份**（会话号）—— 多开的那几份要逐个停。
-        //       「导入整合包…」2026-09-25 从这一排挪去了左栏「游戏文件夹」那一组（在
-        //       「添加文件夹…」下面），2026-10-12 起那一组不再是一个框，它就是侧栏本身。
+        // NOTE: 之前这里就没有「停止游戏…」了（要求「实例里停止游戏按钮
+        // 删了」）。停在哪儿这件事归底栏左面板里那一行的电源（见
+        // MainWindow::stopGameSession()）：那一格写着"哪一个会话在跑"，停哪一份比在
+        // "对选中实例做什么"的排里更说得清。代价（如实记一笔）：原来那颗按钮走的是
+        // applyStopGame(versionId)，能一次停掉**同一个实例的多份会话**；底栏那一行的
+        // 电源只停**这一份**（会话号）—— 多开的那几份要逐个停。
+        // 「导入整合包…」 从这一排挪去了左栏「游戏文件夹」那一组（在
+        // 「添加文件夹…」下面）， 起那一组不再是一个框，它就是侧栏本身。
         // 正文那一格由上面那棵树吃满 —— 它上面再没有别的东西了（页头在面外面）。
     }
 
     // ---------- 下载：左 = 分类入口（仿 PCL）；右 = 那个分类的内容 ----------
     //
-    // 左栏 2026-09-22 从"挑加载器 + 挑版本"换成了 PCL 那种**一列分类**：游戏 / 整合包 /
-    // 模组 / 数据包 / 资源包 / 光影（2026-10-18 又补了「服务端」，见头文件那张表）。点哪个，
+    // 左栏 从"挑加载器 + 挑版本"换成了 PCL 那种**一列分类**：游戏 / 整合包 /
+    // 模组 / 数据包 / 资源包 / 光影（ 又补了「服务端」，见头文件那张表）。点哪个，
     // 右栏那份 QStackedWidget 就换到哪一页。
     //
-    // NOTE: 2026-09-23 起**后面几页全是真的**了。「游戏」那一页就是原来那一摊（挑加载器、
-    //       挑版本、下载），一个控件都没少；其余几页是"一个搜索框 + 一棵三层树"（资源 →
-    //       游戏版本 → 版本号），在这里一段循环里搭出来（见下面那段）。原来那几句"还没做"
-    //       的话连同 downloadPlaceholderText() 一起删掉了 —— 留着就是那几页在说假话。
-    //       （「数据包」是 2026-09-25 加的，见头文件那张表那段。）
+    // NOTE: 起**后面几页全是真的**了。「游戏」那一页就是原来那一摊（挑加载器、
+    // 挑版本、下载），一个控件都没少；其余几页是"一个搜索框 + 一棵三层树"（资源 →
+    // 游戏版本 → 版本号），在这里一段循环里搭出来（见下面那段）。原来那几句"还没做"
+    // 的话连同 downloadPlaceholderText() 一起删掉了 —— 留着就是那几页在说假话。
+    // （「数据包」是 加的，见头文件那张表那段。）
     QWidget *downloadTab = new ThemeBackground(Theme::Part::PageBackground, tabWidget);
     downloadTab->setObjectName(downloadTabName());
     // NOTE: 这一份**不是 const**（另两页那两份是）：页头那两处是搭完之后才由这一页填的
-    //       （`fillPageHeader()` 收的是 `Column&`）。
+    // （`fillPageHeader()` 收的是 `Column&`）。
     TwoColumns download = buildTwoColumnPage(downloadTab, QStringLiteral("download"));
     {
         const QStringList categoryKeys = downloadCategoryKeys();
         const QStringList categoryTexts = downloadCategoryTexts();
 
         // ---- 页头：标题「下载」+ 说明（当前停在哪一类、那一类能干什么）+ 右上角那颗刷新 ----
-        //
-        // ★ 2026-10-12：用户那份改版文档给下载页点名的两件事就是这一块 —— 页面要有**稳定的
-        //   头部**（返回、标题、表单、安装键原来"看起来是散落的"），以及"刷新按钮属于
-        //   **当前分类自己的页面头部**"。于是：
-        //     · 标题恒为「下载」（翻哪一类都不变，这才叫稳定）；
-        //     · 说明跟着当前那一类走（`setDownloadHeaderRow()`，由 MainWindow 在
-        //       `currentRowChanged` 上刷）；
-        //     · 刷新那一颗放在**动作位**上（右上角），作用于当前这一类。
         fillPageHeader(download.right, downloadPageTitle(),
                        downloadHeaderSubtitle(downloadCategoryGameIndex()));
         downloadHeaderSubtitleLabel = download.right.subtitle;
@@ -1574,37 +1535,21 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         downloadCategoryList = new QListWidget(download.left.surface);
         downloadCategoryList->setObjectName(downloadCategoryListName());
         downloadCategoryList->setUniformItemSizes(true);
-        // ★ 2026-10-12：这一列**不画自己那圈边** —— 它整列就长在侧栏那个面上（见
-        //   `buildTwoColumnPage()`），再套一圈就是用户那份文档第一条要减掉的"框套框"。
         downloadCategoryList->setFrameShape(QFrame::NoFrame);
         styleSidebarList(downloadCategoryList);
-        // 2026-09-23：这一列换成**和上面两棵树同一个代理**（用户原话："下载界面左边栏
-        // 每一项做大点，每一项的右边放一个刷新按钮"）。换代理同时办成两件事：
-        //   ① 行高从样式那个"一行文字"（实测 ~24 px）变成 versionTreeRowHeight()（46），
-        //      字号也跟着下面那次 +versionTreeFontStep() 放大 —— "做大点"就是这两条；
-        //   ② 行尾那一格本来就是这个代理画箭头的活，加个刷新字形（rowRefreshRole()）
-        //      不用另起一套控件：QListWidget 的 itemWidget 会盖住选中高亮那层背景，
-        //      那样"现在停在哪一类"就看不出来了。
-        // NOTE: 条目文字是**粗体**（代理对顶层行一律加粗，见 VersionTreeDelegate::paint）——
-        //       和版本树那四条分类一个长相，这一列本来也就是"分类"。
-        // ★ 末一个参数 true = **导航那一档**（2026-10-12）：这一列选中时走的是"浅主题色底 +
-        //   左边 3 px 主题色指示条 + 主题色深色文字"，不是那块浅灰 —— 用户那份改版文档
-        //   原话：「选中项：浅主题色背景 + 左侧 3px 主题色指示条 + 主题色深色文字，而不是
-        //   一整块深灰」。灰那一档是给"选中的数据行"用的（版本树、资源表、实例列表），
-        //   而这一列是**导航**：它说的是"现在停在哪一类"，和"选中了哪一条数据"是两件事。
         downloadCategoryList->setItemDelegate(
             new VersionTreeDelegate(downloadCategoryList, /*leafArrow=*/true,
                                     /*iconSize=*/0, /*navRow=*/true));
-        // ★ 2026-09-25：这一列那五个刷新按钮**只在鼠标悬停到那一行时才显示**（用户原话：
-        //    「下载界面只有鼠标悬停在按钮上时才显示对应的刷新按钮」）。代理读的是视图填的
-        //    QStyle::State_MouseOver，而**视图默认不填** —— 量过（探针在 tmp/probe_hover）：
-        //    干净的 QListWidget 视口 WA_Hover=0 / mouseTracking=0，真鼠标移动一个字都不改；
-        //    开了下面这一句之后，鼠标真挪过去才会把"光标底下是哪一行"交给代理（windows 与
-        //    offscreen 两个平台各量一遍，同一个结果）。
+        // 这一列那五个刷新按钮**只在鼠标悬停到那一行时才显示**（要求：
+        // 「下载界面只有鼠标悬停在按钮上时才显示对应的刷新按钮」）。代理读的是视图填的
+        // QStyle::State_MouseOver，而**视图默认不填** —— 量过（探针在 tmp/probe_hover）：
+        // 干净的 QListWidget 视口 WA_Hover=0 / mouseTracking=0，真鼠标移动一个字都不改；
+        // 开了下面这一句之后，鼠标真挪过去才会把"光标底下是哪一行"交给代理（windows 与
+        // offscreen 两个平台各量一遍，同一个结果）。
         // NOTE: 只开给这一份列表：那一格（rowRefreshRole()）全仓只有这里有，版本树、加载器树、
-        //       资源表上都没有，开了只是让它们多收几条鼠标移动事件。
-        //       这一句和 VersionTreeDelegate::paint() 里那段 showRefresh 是一对 —— 少哪一句
-        //       都是"刷新按钮再也不出现"，两边各自的断言都还是绿的。
+        // 资源表上都没有，开了只是让它们多收几条鼠标移动事件。
+        // 这一句和 VersionTreeDelegate::paint() 里那段 showRefresh 是一对 —— 少哪一句
+        // 都是"刷新按钮再也不出现"，两边各自的断言都还是绿的。
         downloadCategoryList->setMouseTracking(true);
         QFont categoryFont = downloadCategoryList->font();
         categoryFont.setPointSize(categoryFont.pointSize() + versionTreeFontStep());
@@ -1616,10 +1561,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             // 每个条目右边都有那个刷新按钮（一条不落）。点它的那一下由
             // MainWindow::eventFilter 接 —— 判据是 VersionTreeDelegate::refreshRect()。
             // NOTE: 这里是**两参数**那个 setData（QListWidgetItem 认的是 role，没有列）——
-            //       三参数那一个是 QTreeWidgetItem 的，写在这儿编不过。
-            //
-            // ★ 2026-10-18：「服务端」那一栏**没有**这一格 —— 它不向任何资源站问东西，
-            //   「刷新」在那儿没有可做的事。画上去而不做事，比不画更糟（用户会一直按）。
+            // 三参数那一个是 QTreeWidgetItem 的，写在这儿编不过。
             if (i != downloadCategoryServerIndex()) {
                 item->setData(rowRefreshRole(), true);
             }
@@ -1632,13 +1574,13 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         }
         downloadCategoryList->setFixedHeight(rowsHeight +
                                              2 * downloadCategoryList->frameWidth() + 2);
-        // 「← 返回实例设置」那一颗（2026-09-28 从右栏挪到这儿）。
+        // 「← 返回实例设置」那一颗（ 从右栏挪到这儿）。
         //
-        // ★ 用户原话：「返回按钮也是放在左上角（就是左边栏的顶上）」。挪过来之后它由
-        //   **六栏共用一颗**（原来是五栏各一颗，摆在右栏那行筛子的最前头）—— 两件事
-        //   一起变对了：
-        //   ① 「回到刚才那个实例」与用户此刻翻到哪一栏**无关**，本来就不该一栏一颗；
-        //   ② 它在左栏顶上，翻栏时**不动**，不会跟着右栏一起刷没了。
+        // 要求：「返回按钮也是放在左上角（就是左边栏的顶上）」。挪过来之后它由
+        // **六栏共用一颗**（原来是五栏各一颗，摆在右栏那行筛子的最前头）—— 两件事
+        // 一起变对了：
+        // ① 「回到刚才那个实例」与用户此刻翻到哪一栏**无关**，本来就不该一栏一颗；
+        // ② 它在左栏顶上，翻栏时**不动**，不会跟着右栏一起刷没了。
         // **默认收着**（连位置都不占）：只有这一次是从某个实例的设置页点进来的才露面。
         downloadBackButton = new QPushButton(downloadBackButtonText(), download.left.surface);
         downloadBackButton->setObjectName(downloadBackButtonName());
@@ -1658,7 +1600,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
         // ---- 第 0 页「游戏」：里面再分两层（版本树 / 安装页） ----
         //
-        // 用户原话见头文件里 downloadGameStackName() 上面那段：四个分类各占一条 →
+        // 要求见头文件里 downloadGameStackName() 上面那段：四个分类各占一条 →
         // 点开是那条底下的版本号 → 点一个版本号进安装页；安装页顶上是名称框（带重名
         // 小字提示）、底下是四个加载器各一条（每条右边选它自己的版本）、最下面「安装」。
         // 左栏那列分类、右栏这份堆叠、底下状态栏都不动。
@@ -1681,17 +1623,17 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         auto *treeLayout = new QVBoxLayout(treePage);
         treeLayout->setContentsMargins(0, 0, 0, 0);
         treeLayout->setSpacing(10);
-        // ---- 版本号筛选（2026-10-18，coding plan §9「版本树没有过滤/搜索」）----
+        // ---- 版本号筛选（，coding plan §9「版本树没有过滤/搜索」）----
         //
         // 742 条快照平铺在一棵树里，找一个版本号只能靠滚。这里给它一个和实例列表、
         // 文件页同一个规矩的框：空格分词、每个词都得出现在版本号里、不区分大小写。
         //
         // NOTE: 过滤**只动条目**（`QTreeWidgetItem::setHidden`），不动数据 ——
-        //       `MainWindow::refreshAvailableVersions` 重灌时照旧从头摆一遍，摆完再叫
-        //       `applyVersionFilter()` 按框里现在的字筛一回。两边各管一半，别把过滤塞进
-        //       MainWindow 那一趟（那样刷新一次就得把"刚才筛的是什么"也搬过去）。
+        // `MainWindow::refreshAvailableVersions` 重灌时照旧从头摆一遍，摆完再叫
+        // `applyVersionFilter()` 按框里现在的字筛一回。两边各管一半，别把过滤塞进
+        // MainWindow 那一趟（那样刷新一次就得把"刚才筛的是什么"也搬过去）。
         // NOTE: 结果那句话单独一个标签，**不塞进框里**：框里的字是用户打的，改它等于
-        //       改用户的输入；而"找到 0 个"必须有个地方说，不然筛出来一片空白像坏了。
+        // 改用户的输入；而"找到 0 个"必须有个地方说，不然筛出来一片空白像坏了。
         QWidget *versionFilterBar = new QWidget(treePage);
         auto *versionFilterLayout = new QHBoxLayout(versionFilterBar);
         versionFilterLayout->setContentsMargins(0, 0, 0, 0);
@@ -1720,24 +1662,24 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         versionTree->setFrameShape(QFrame::NoFrame);
         // 742 条快照全是同一个行高，让它按第一行算一次就够（省的是滚动时的重算）。
         // NOTE: 行高现在是**常数**（versionTreeRowHeight()）—— 见代理的 sizeHint()：
-        //       分类那一行是一行字、版本号那两行字，按内容算会两边不一样高，两行那种会被裁。
+        // 分类那一行是一行字、版本号那两行字，按内容算会两边不一样高，两行那种会被裁。
         versionTree->setUniformRowHeights(true);
         // 左边那个"小三角"不画（展开/收起的箭头我们画在**行最右边**，见下面的代理）。
         // NOTE: 走 rootIsDecorated(false) 而**不是**条目上的 setChildIndicatorPolicy ——
-        //       QTreeModel::hasChildren() 是按那个 policy 直接 return false 的，那样
-        //       整个分类的版本号一条都排不进布局（树上只剩四行空的分类）。
-        //       这里关掉的只是装饰格：分类从 x=0 起画，子条目照样缩进 indent 那么多。
+        // QTreeModel::hasChildren() 是按那个 policy 直接 return false 的，那样
+        // 整个分类的版本号一条都排不进布局（树上只剩四行空的分类）。
+        // 这里关掉的只是装饰格：分类从 x=0 起画，子条目照样缩进 indent 那么多。
         versionTree->setRootIsDecorated(false);
         versionTree->setColumnCount(1);
         stabilizeDownloadTree(versionTree);
         // 每一行长什么样（草方块 + 版本号 + 下面那行发布时间 + 最右边的 >/V）全在这个代理里。
         // 条目还是普通 QTreeWidgetItem（身份、展开状态、点击那条路一个都没变）。
         versionTree->setItemDelegate(new VersionTreeDelegate(versionTree));
-        // ★ 悬停那一行的加深底色（代理里那段 Theme::rowHoverFill()）**要的就是这一句**：
-        //   代理画不画看 `QStyle::State_MouseOver`，而那一位是**视图**填进 option 里的，
-        //   干净的视图默认不填（`WA_Hover=0` / `mouseTracking=0`）—— 少了它悬停底色一次
-        //   都不会出现，而且**不报错、断言也不一定先红**，屏幕上就是"悬停没反应"。
-        //   真平台 windows 与 offscreen 两个平台都量过：这一位不填，代理那段一个字都不生效。
+        // 悬停那一行的加深底色（代理里那段 Theme::rowHoverFill()）**要的就是这一句**：
+        // 代理画不画看 `QStyle::State_MouseOver`，而那一位是**视图**填进 option 里的，
+        // 干净的视图默认不填（`WA_Hover=0` / `mouseTracking=0`）—— 少了它悬停底色一次
+        // 都不会出现，而且**不报错、断言也不一定先红**，屏幕上就是"悬停没反应"。
+        // 真平台 windows 与 offscreen 两个平台都量过：这一位不填，代理那段一个字都不生效。
         versionTree->setMouseTracking(true);
         // 字号放大一点（用户要的）。代理里那行小字是从这个字号往下推的，别在这儿单独设它。
         QFont treeFont = versionTree->font();
@@ -1750,7 +1692,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 单击分类就展开/折叠（用户点的是最右边那个 >，那个箭头就画在那一行上）。
         // 双击**不再**自己展开一次 —— 那会和上面那次单击叠起来，双击等于"展开又收起"。
         versionTree->setExpandsOnDoubleClick(false);
-        // 展开/折叠动画（2026-09-29）：分类那一层展开的时候，底下的版本号是**滑**出来的。
+        // 展开/折叠动画：分类那一层展开的时候，底下的版本号是**滑**出来的。
         // 五张资源表（下面那个循环里）走同一句，见 ui/Animations.hpp。
         Anim::animateExpansion(versionTree);
         treeLayout->addWidget(versionTree, 1);
@@ -1781,16 +1723,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
         // ---- 中间那一层：名称框 + 加载器卡片，**可滚动** ----
         //
-        // ★ 2026-10-18（用户报「下载页（选择模组加载器的页）那个遮挡」）：这一页原来
-        //   一个能滚的地方都没有。名称框 + 卡片（标题 + 五条加载器）+ 固定底栏加起来
-        //   比正文面高 —— 默认 900×620 的窗口里底下那几条加载器正好长在卡片下沿之外，
-        //   被裁得只剩 Fabric/Forge 两行多一点（截图 `07c-install-page.png` 就是这么
-        //   拍的）；展开一条版本号之后更甚。现在把「名称框 + 卡片」整块塞进这层滚动区，
-        //   顶上那行「← 返回 + 基于哪个原版」和底下那条固定底栏留在外面不动：
-        //   窗口再矮也只是出滚动条，不会再出现画了一半的行。
-        //
         // NOTE: 这层用的是设置页那几页同一个配方（无边框 + widgetResizable + 横向不滚）
-        //       —— 滚动条仍然贴着正文面右边那条线，和别的页一个规矩。
+        // —— 滚动条仍然贴着正文面右边那条线，和别的页一个规矩。
         installScroll = new Theme::GutterScrollArea(installPage);
         installScroll->setObjectName(installScrollName());
         installScroll->setWidgetResizable(true);
@@ -1823,7 +1757,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         installNameHint = addDynamicHint(nameBox, QString(), nameBox);
         installNameHint->setObjectName(installNameHintName());
         // 名字不能用（有非法字符、空着）时的**原因**另起一行红字，不去顶掉上面那句
-        // 说明（用户 2026-09-23 原话："如果版本名字存在非法字符，不要替换掉那个「装好后
+        // 说明（要求："如果版本名字存在非法字符，不要替换掉那个「装好后
         // 在实例...」，而是在下面添加一行红色字"）。平时它空着、也藏起来 —— 藏起来而不是
         // "留一个空行"，是为了正常情况下名字框底下那几行的位置和以前一模一样。
         // 显隐和文字都由 MainWindow::updateInstallNameHint() 一处刷（界面这边不知道盘上
@@ -1837,26 +1771,26 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         //
         // 用户要的形状是加载器列表里的**一行**（就放在 OptiFine 下面），点开是一张紧凑
         // 弹窗 —— 四类各挑一份、看一眼它要动什么，**不跳页**。原来那一张「实例预设」
-        // 卡片（下拉框 + 查看内容 + 安装完成后应用）在 2026-10-18 撤掉了：
-        //   · 一份下拉框只能装一份预设，而 P1 要的是四类各选一份；
-        //   · 「查看内容」和「安装完成后应用」两件本来就能并进那张弹窗（选择 + 计划）。
+        // 卡片（下拉框 + 查看内容 + 安装完成后应用）在 撤掉了：
+        // · 一份下拉框只能装一份预设，而 P1 要的是四类各选一份；
+        // · 「查看内容」和「安装完成后应用」两件本来就能并进那张弹窗（选择 + 计划）。
         // 那一行本身在下面「顶层五条」之后插（见 `installPresetRowRole()`）。
 
-        // 加载器：**一棵树**，和上一页的版本树同一个模式（用户原话见头文件里那段）：
+        // 加载器：**一棵树**，和上一页的版本树同一个模式（要求见头文件里那段）：
         // 界面上是四条加载器（+ 一条预设行）；「不装（纯原版）」只留内部那条（默认值、
         // 取消加载器后的落点），不再摆成一个重复选项 —— 点一条展开它底下的版本号，
         // 点一个版本号就收起来、把选中的版本号写在那一行的第二行小字上。
         //
         // NOTE: 这一组就是原来左栏那五个钮 —— 表、下标、文案一个字没改（见
-        //       modLoaderOptionNames()），换掉的是"单选钮 + 右边一个组合框"那个形状。
+        // modLoaderOptionNames()），换掉的是"单选钮 + 右边一个组合框"那个形状。
         //
-        // ★ 2026-10-12：原来这里是一个 `QGroupBox("模组加载器")`，现在换成设置页那种
-        //   「标题 + 小节卡片」（见 `addSettingsSection()`）。理由就是用户那份改版文档
-        //   第三条 —— 「右侧只有一个主要内容表面（不再用 `QGroupBox` 套起来）」：这一页
-        //   整块已经长在正文那个面上（`wtfmlSurface="workspace"`），再套一个带边的
-        //   `QGroupBox` 就是"框套框"，而那圈边和正文面那圈边挨得只有 10 px，屏幕上就是
-        //   两条平行的框。换成卡片之后这一节和设置页那些小节长得一模一样，缺口式标题也
-        //   没有了。**这是产品界面上最后一个 QGroupBox**。
+        // 原来这里是一个 `QGroupBox("模组加载器")`，现在换成设置页那种
+        // 「标题 + 小节卡片」（见 `addSettingsSection()`）。理由就是用户那份改版文档
+        // 第三条 —— 「右侧只有一个主要内容表面（不再用 `QGroupBox` 套起来）」：这一页
+        // 整块已经长在正文那个面上（`wtfmlSurface="workspace"`），再套一个带边的
+        // `QGroupBox` 就是"框套框"，而那圈边和正文面那圈边挨得只有 10 px，屏幕上就是
+        // 两条平行的框。换成卡片之后这一节和设置页那些小节长得一模一样，缺口式标题也
+        // 没有了。**这是产品界面上最后一个 QGroupBox**。
         auto *loaderCard = new QFrame(installPage);
         markSurface(loaderCard, Theme::sectionSurfaceValue());
         auto *loaderLayout = new QVBoxLayout(loaderCard);
@@ -1879,8 +1813,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 不画、同一个代理、同一个字号偏移）—— 用户要的就是"和上一页相同的模式"，
         // 两边长得不一样的话那句话就只兑现了一半。
         loaderTree->setHeaderHidden(true);
-        // ★ 树**自己不画那圈边**（2026-10-12，和实例列表、文件夹列表、下载页左栏那三张
-        //   同一条规矩）：它四周已经是上面那张小节卡片，再套一圈又是"框套框"。
+        // 树**自己不画那圈边**（，和实例列表、文件夹列表、下载页左栏那三张
+        // 同一条规矩）：它四周已经是上面那张小节卡片，再套一圈又是"框套框"。
         loaderTree->setFrameShape(QFrame::NoFrame);
         loaderTree->setUniformRowHeights(true);
         loaderTree->setRootIsDecorated(false);
@@ -1890,10 +1824,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 那一层是"选中它"，底下没有下一页（见 VersionTreeDelegate 的构造函数）。
         // 顶层那五条照画（它们是真的能展开）。
         loaderTree->setItemDelegate(new VersionTreeDelegate(loaderTree, /*leafArrow=*/false));
-        // ★ 悬停底色要它，理由见上面版本树那第一处：视图不填 State_MouseOver 就不出底色，也不报错。
+        // 悬停底色要它，理由见上面版本树那第一处：视图不填 State_MouseOver 就不出底色，也不报错。
         loaderTree->setMouseTracking(true);
         loaderTree->setExpandsOnDoubleClick(false);
-        // 展开/折叠动画（2026-09-29）。NOTE: 这棵树的高度是**跟着展开了几条**现算的
+        // 展开/折叠动画。NOTE: 这棵树的高度是**跟着展开了几条**现算的
         // （下面那个 fitLoaderTreeHeight，挂在 expanded/collapsed 上），所以高度是"啪"地
         // 让出地方、版本号再滑进来 —— 两段不是同一拍，但是看着是对的（先空出来、再填上）。
         Anim::animateExpansion(loaderTree);
@@ -1931,10 +1865,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             }
         }
         // 「预设」那一行（§7.1：OptiFine 下面）—— **不是加载器**，是一条开弹窗的行。
-        // ★ UserRole 是哨兵（`installPresetRowRole()`）：`loaderItem()` 按加载器下标找条目，
-        //   看见这个值就不能把它当成第几条加载器；点它开的是那张四类弹窗。
-        // ★ 插在「不装（纯原版）」**前面**（`modLoaderNoneIndex()` 那个位置）：加载器那五条
-        //   的 UserRole 一个都不动 —— 界面上多一行，数据层的身份不受影响。
+        // UserRole 是哨兵（`installPresetRowRole()`）：`loaderItem()` 按加载器下标找条目，
+        // 看见这个值就不能把它当成第几条加载器；点它开的是那张四类弹窗。
+        // 插在「不装（纯原版）」**前面**（`modLoaderNoneIndex()` 那个位置）：加载器那五条
+        // 的 UserRole 一个都不动 —— 界面上多一行，数据层的身份不受影响。
         {
             auto *presetItem = new QTreeWidgetItem();
             presetItem->setData(loaderTreeKeyColumn(), Qt::UserRole, installPresetRowRole());
@@ -1957,8 +1891,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 挂在 expanded/collapsed 上（而不是让 MainWindow 每次灌完数据记得调一下）：
         // 展开这件事本来就发生在这棵树自己身上。
         // NOTE: 这个 lambda 只捕获树的指针、**不捕获 this** —— 它挂在树上（context 也是树），
-        //       而 MainWindowUI 本身不是 QObject（它只是搭界面的那个类，连着两句都用
-        //       树自己当 context）。
+        // 而 MainWindowUI 本身不是 QObject（它只是搭界面的那个类，连着两句都用
+        // 树自己当 context）。
         const auto fitLoaderTreeHeight = [tree = loaderTree]() {
             if (tree == nullptr) {
                 return;
@@ -1974,15 +1908,15 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             tree->setFixedHeight(rows * versionTreeRowHeight() + frame);
         };
         // NOTE: 写 QObject::connect 而不是 connect —— MainWindowUI **不是** QObject
-        //       （见类声明），成员那版 connect 在这儿不存在；直接写 connect 编译器会
-        //       去找一个叫 connect 的普通函数。这两句用树自己当 context。
+        // （见类声明），成员那版 connect 在这儿不存在；直接写 connect 编译器会
+        // 去找一个叫 connect 的普通函数。这两句用树自己当 context。
         QObject::connect(loaderTree, &QTreeWidget::itemExpanded, loaderTree,
                          [fitLoaderTreeHeight]() { fitLoaderTreeHeight(); });
         QObject::connect(loaderTree, &QTreeWidget::itemCollapsed, loaderTree,
                          [fitLoaderTreeHeight]() { fitLoaderTreeHeight(); });
         // NOTE: 「这一棵树现在该显示成什么样」（哪条写着"与 X 不兼容"、哪条写着选中的
-        //       版本号）一件都不在这里做 —— 那是 MainWindow::updateLoaderRows() 的活，
-        //       它按"选中了哪个加载器"一处重算。这里只把五条搭出来。
+        // 版本号）一件都不在这里做 —— 那是 MainWindow::updateLoaderRows() 的活，
+        // 它按"选中了哪个加载器"一处重算。这里只把五条搭出来。
         fitLoaderTreeHeight();
         // 中间那层滚动区收尾：名称框和卡片都铺完了，内容容器交给它；
         // 底下那条 stretch 让内容**上对齐**（内容装不满时不会在滚动区里竖直居中）。
@@ -2017,12 +1951,12 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         downloadStack->addWidget(gamePage);
 
         // 页头的显隐跟着这两层走（判据见 `syncDownloadHeaderVisibility()` 那段）：
-        //   · 外层翻分类（游戏 / 整合包 / 模组 …）；
-        //   · 内层在「游戏」里翻版本树 / 安装页。
+        // · 外层翻分类（游戏 / 整合包 / 模组 …）；
+        // · 内层在「游戏」里翻版本树 / 安装页。
         // 两条入口都接上，是因为「退回版本树」（`MainWindow::backToVersionTree()`）
         // 只动内层、不碰外层；从别的分类回到「游戏」又只动外层。只接一条就会漏掉另一半。
         // NOTE: 两发都只传 `int`，判据自己读两个堆叠页的 currentIndex()，不依赖信号里
-        //       的下标（外面那一发给的是分类下标，里面那一发是层下标，含义不一样）。
+        // 的下标（外面那一发给的是分类下标，里面那一发是层下标，含义不一样）。
         QObject::connect(downloadStack, &QStackedWidget::currentChanged, downloadStack,
                          [header = download.right.header, downloadStack = downloadStack,
                           gameStack = gameStack](int) {
@@ -2039,18 +1973,18 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // 这几页的控件**一模一样**，只有搜索框里那句提示文字不同，所以这里是循环几遍，
         // 不是抄几份。三层的那条路就是用户描述的那条（见头文件里 downloadResourceTreeName()
         // 上面那段）：
-        //   第一层 资源 → 点开是游戏版本 → 点开某个游戏版本**这时才去问接口** → 第三层版本号
+        // 第一层 资源 → 点开是游戏版本 → 点开某个游戏版本**这时才去问接口** → 第三层版本号
         // 关键是"什么在哪儿灌"：这一层只**搭**（空树、空框），几条路的数据都由 MainWindow 灌
-        //（和版本树/加载器树那两棵一样，界面这边一条业务判据都不写）。
+        // （和版本树/加载器树那两棵一样，界面这边一条业务判据都不写）。
         for (int i = 0; i < categoryKeys.size(); ++i) {
             if (i == downloadCategoryGameIndex()) {
                 continue;
             }
-            // ★ 2026-10-18：「服务端」那一栏**不是资源搜索页**（coding plan §1.4 那条
-            //   「下载页里没有『服务端』入口栏」）。它只有一句说明 + 一颗「新建服务端…」，
-            //   按下去和实例页那颗走同一条路（见 ConnectionsController 里那条接线）。
-            //   和「游戏」一样要**先跳过这里那个资源页模板** —— 不然这一页会多出一整行
-            //   筛子和一棵永远搜不出东西的三层树（那个键在 ResourceCatalog 里根本不存在）。
+            // 「服务端」那一栏**不是资源搜索页**（coding plan §1.4 那条
+            // 「下载页里没有『服务端』入口栏」）。它只有一句说明 + 一颗「新建服务端…」，
+            // 按下去和实例页那颗走同一条路（见 ConnectionsController 里那条接线）。
+            // 和「游戏」一样要**先跳过这里那个资源页模板** —— 不然这一页会多出一整行
+            // 筛子和一棵永远搜不出东西的三层树（那个键在 ResourceCatalog 里根本不存在）。
             if (i == downloadCategoryServerIndex()) {
                 QWidget *serverPage = new QWidget(downloadStack);
                 serverPage->setObjectName(downloadServerPageName());
@@ -2077,15 +2011,15 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             pageLayout->setContentsMargins(0, 0, 0, 0);
             pageLayout->setSpacing(10);
 
-            // ---- 顶上那一行筛子（2026-09-25）----
+            // ---- 顶上那一行筛子----
             //
-            // 用户原话见头文件里 downloadFilterVersionComboName() 上面那段。摆法是**两行**：
-            //   第一行：名称（就是原来那个搜索框，占满剩下的宽度）+「搜索」+「清空条件」
-            //           （**整合包那一页**还多一颗「导入整合包…」）
-            //   第二行：版本 / 模组加载器 / 来源 / 类型 四个下拉框，每个前面带一个小标签
+            // 要求见头文件里 downloadFilterVersionComboName() 上面那段。摆法是**两行**：
+            // 第一行：名称（就是原来那个搜索框，占满剩下的宽度）+「搜索」+「清空条件」
+            // （**整合包那一页**还多一颗「导入整合包…」）
+            // 第二行：版本 / 模组加载器 / 来源 / 类型 四个下拉框，每个前面带一个小标签
             // 为什么不摆成一行：七样东西摆不下 —— 900 px 宽的窗口里右栏只剩 600 px 上下，
             // 七个控件挤进去每个 80 px，下拉框会被压到只剩一个箭头，那还不如不给。
-            // 为什么名称单独占第一行的左边：它是**自由输入**的（用户原话「名字/版本可自行
+            // 为什么名称单独占第一行的左边：它是**自由输入**的（要求「名字/版本可自行
             // 输入」），要占满剩下的宽度才好打字。
             QWidget *filterRow = new QWidget(page);
             auto *filterLayout = new QVBoxLayout(filterRow);
@@ -2096,17 +2030,17 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             auto *filterBottom = new QHBoxLayout;
             filterBottom->setSpacing(kFilterRowSpacing);
 
-            // 名称那一格。**回车就搜** —— 用户原话是"上方预留搜索功能（如果简单就直接做了）"
-            // 加 2026-09-25 那句"这两个框选中时按回车等同于按搜索键"，那就做成能用的。
+            // 名称那一格。**回车就搜** —— 要求是"上方预留搜索功能（如果简单就直接做了）"
+            // 加 那句"这两个框选中时按回车等同于按搜索键"，那就做成能用的。
             // NOTE: 不加"清除"那个小叉（setClearButtonEnabled）：它在输入框里塞一个真的
-            //       子按钮，而这个页面上的控件形状是被验证工程一条一条数着的；
-            //       要清空有旁边那颗「清空条件」。
-            //       提示文字是那页"能干什么"的一句话（downloadSearchHint，唯一出处）——
-            //       空框里那句话正好在最该看见它的地方。
-            // ★ 2026-09-28：那颗「← 返回实例设置」**不在这一行里了** —— 用户原话
-            //   「返回按钮也是放在左上角（就是左边栏的顶上）」。它现在是整个下载页
-            //   **共用的一颗**、摆在左栏顶上，见 setupUi 里那一句（那一颗有两件事
-            //   只有那一层知道：左栏是共用的，而"从实例进来的"这件事本来就与哪一栏无关）。
+            // 子按钮，而这个页面上的控件形状是被验证工程一条一条数着的；
+            // 要清空有旁边那颗「清空条件」。
+            // 提示文字是那页"能干什么"的一句话（downloadSearchHint，唯一出处）——
+            // 空框里那句话正好在最该看见它的地方。
+            // 那颗「← 返回实例设置」**不在这一行里了** —— 要求
+            // 「返回按钮也是放在左上角（就是左边栏的顶上）」。它现在是整个下载页
+            // **共用的一颗**、摆在左栏顶上，见 setupUi 里那一句（那一颗有两件事
+            // 只有那一层知道：左栏是共用的，而"从实例进来的"这件事本来就与哪一栏无关）。
 
             auto *search = new QLineEdit(filterRow);
             search->setObjectName(downloadSearchEditName(categoryKey));
@@ -2116,7 +2050,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             // 四个下拉框共用一套竖设置：宽度按"最短内容长度"算（不按内容算，理由见
             // installedVersionCombo 那一段 —— 这一层搭出来的这一刻框还是空的，按内容算就会
             // 定在"空框"那个宽度上，之后灌进长版本号也再也跟不上）、宽度再来一个上限
-            //（四个框加起来顶不破整窗那个 900 —— 那个 934 就是这么来的，见头文件里
+            // （四个框加起来顶不破整窗那个 900 —— 那个 934 就是这么来的，见头文件里
             // downloadFilterComboMaxWidth() 那段）、装滚轮防护。
             const auto makeFilterCombo = [&](const QString &objectName) {
                 auto *combo = new QComboBox(filterRow);
@@ -2135,7 +2069,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
                 row->addWidget(label);
             };
 
-            // 版本：**可编辑的下拉框** —— 上面那张清单里挑一个，也能自己打一个（用户原话
+            // 版本：**可编辑的下拉框** —— 上面那张清单里挑一个，也能自己打一个（要求
             // 「版本可自行输入」）。清单由 MainWindow 灌（它才知道有哪些游戏版本），
             // 灌之前它就是空的一个框。回车这一条也由 MainWindow 接（可编辑下拉框内部那个
             // QLineEdit 是 `combo->lineEdit()`，这一层不接信号）。
@@ -2143,15 +2077,15 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             QComboBox *versionCombo = makeFilterCombo(downloadFilterVersionComboName(categoryKey));
             versionCombo->setEditable(true);
             // NOTE: 可输入的框上**必须**把"回车就把框里的字追进清单"这条关掉（Qt 的默认是
-            //       `InsertAtBottom`，而且 duplicatesEnabled 默认开着 ⇒ 连重复项都照追）。
-            //       这一格存在的理由正是"手打一个清单里没有的版本号"（用户原话「版本可自行
-            //       输入」），于是每按一次回车就多一项：清单越用越脏，而追进去的那一项永远
-            //       也搜不出东西来（它不在任何一家接口的版本表里）。
+            // `InsertAtBottom`，而且 duplicatesEnabled 默认开着 ⇒ 连重复项都照追）。
+            // 这一格存在的理由正是"手打一个清单里没有的版本号"（要求「版本可自行
+            // 输入」），于是每按一次回车就多一项：清单越用越脏，而追进去的那一项永远
+            // 也搜不出东西来（它不在任何一家接口的版本表里）。
             versionCombo->setInsertPolicy(QComboBox::NoInsert);
             versionCombo->setPlaceholderText(downloadFilterVersionPlaceholder());
             filterBottom->addWidget(versionCombo);
 
-            // 模组加载器：**只有模组那一页有**（用户原话「模组加载器只在模组那栏存在」）。
+            // 模组加载器：**只有模组那一页有**（要求「模组加载器只在模组那栏存在」）。
             // 别的几页连控件都不建 —— 建了再藏起来不叫"只在模组那栏存在"（验证工程按名字
             // 能把它找出来）。判据是**那一页的下标**（downloadCategoryModIndex()，和
             // 「游戏」那条一个规矩）：这张表要再插一条，「模组」那个号跟着挪，别在调用点
@@ -2183,15 +2117,15 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
             filterBottom->addStretch(1);
 
-            // 「搜索」和「清空条件」两颗键（用户原话「一个搜索键和一个清空条件键」）。
+            // 「搜索」和「清空条件」两颗键（要求「一个搜索键和一个清空条件键」）。
             // 这一层只把它们摆上；点下去干什么、以及"名字/版本那两个框里按回车"这条，
             // 都接在 MainWindow 那一侧（同一个槽）。
             auto *searchButton = new QPushButton(downloadFilterSearchText(), filterRow);
             searchButton->setObjectName(downloadFilterSearchButtonName(categoryKey));
             // NOTE: 这里**不设** setAutoDefault —— 那个开关只在 QDialog 里有意义（它管的是
-            //       "对话框里按回车走哪颗键"），而这一页住在 QMainWindow 里，设了也是张白纸。
-            //       用户要的那条"名字/版本框里按回车 = 按搜索键"是 MainWindow 显式接的
-            //      （两个框各自的 returnPressed → 同一个槽），不靠默认按钮。
+            // "对话框里按回车走哪颗键"），而这一页住在 QMainWindow 里，设了也是张白纸。
+            // 用户要的那条"名字/版本框里按回车 = 按搜索键"是 MainWindow 显式接的
+            // （两个框各自的 returnPressed → 同一个槽），不靠默认按钮。
             filterTop->addWidget(searchButton);
             auto *resetButton = new QPushButton(downloadFilterResetText(), filterRow);
             resetButton->setObjectName(downloadFilterResetButtonName(categoryKey));
@@ -2199,7 +2133,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             Theme::markButton(resetButton, Theme::ButtonKind::Neutral);
             filterTop->addWidget(resetButton);
 
-            // 整合包那一页那颗「导入整合包…」（用户原话「整合包那一页带一个导入功能」）。
+            // 整合包那一页那颗「导入整合包…」（要求「整合包那一页带一个导入功能」）。
             // 字和实例页那颗共用（importModpackText()），走的路也是同一条。
             if (i == downloadCategoryModpackIndex()) {
                 downloadImportModpackButton = new QPushButton(importModpackText(), filterRow);
@@ -2214,9 +2148,9 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             // 下面那棵树：三层，和上一页那两棵用**同一个代理、同一套竖设置**（表头藏起来、
             // 行高常数、左边那个小三角不画、同一个字号偏移），所以长得一样。
             // 只有两处不一样：
-            //   ① 图标大一点（resourceTreeIconSize()）—— 要看清缩略图，18 px 那个不行；
-            //   ② 叶子那一层**画**箭头（leafArrow=true）—— 第三层"点一个版本号"是**下它**，
-            //      是个真动作（"点进去"那层意思），和加载器树上"选中它"不是一回事。
+            // ① 图标大一点（resourceTreeIconSize()）—— 要看清缩略图，18 px 那个不行；
+            // ② 叶子那一层**画**箭头（leafArrow=true）—— 第三层"点一个版本号"是**下它**，
+            // 是个真动作（"点进去"那层意思），和加载器树上"选中它"不是一回事。
             QTreeWidget *tree = new QTreeWidget(page);
             tree->setObjectName(downloadResourceTreeName(categoryKey));
             tree->setHeaderHidden(true);
@@ -2226,14 +2160,14 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             stabilizeDownloadTree(tree);
             tree->setItemDelegate(
                 new VersionTreeDelegate(tree, /*leafArrow=*/true, resourceTreeIconSize()));
-            // ★ 悬停底色要它，理由见版本树那第一处：视图不填 State_MouseOver 就不出底色，也不报错。
+            // 悬停底色要它，理由见版本树那第一处：视图不填 State_MouseOver 就不出底色，也不报错。
             tree->setMouseTracking(true);
             tree->setExpandsOnDoubleClick(false);
             QFont resourceFont = tree->font();
             resourceFont.setPointSize(resourceFont.pointSize() + versionTreeFontStep());
             tree->setFont(resourceFont);
             tree->setIconSize(QSize(resourceTreeIconSize(), resourceTreeIconSize()));
-            // 展开/折叠动画（2026-09-29）：和版本树那两棵同一句（三个层次都共用同一个代理，
+            // 展开/折叠动画：和版本树那两棵同一句（三个层次都共用同一个代理，
             // 动画也共用同一个开关），见 ui/Animations.hpp。
             Anim::animateExpansion(tree);
             pageLayout->addWidget(tree, 1);
@@ -2270,7 +2204,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     mainLayout->addWidget(tabWidget, 1);
 
     // ================= 那四个选项卡搬到顶上那一条上 =================
-    // 用户原话：「把四个选项卡放到最顶上去，通过顶端按钮打开四个功能」。
+    // 要求：「把四个选项卡放到最顶上去，通过顶端按钮打开四个功能」。
     //
     // 做法是"条上一排按钮 + 把 QTabWidget 自己那条标签栏藏起来"，而不是把 QTabBar 搬出来：
     // 标签栏的几何归 QTabWidget 管（和内容区那条接缝、圆角都是它画的），搬出来只会得到一个
@@ -2290,29 +2224,29 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     QObject::connect(bar, &TitleBar::navRequested, tabWidget, [this](int index) {
         const int sourceIndex = tabWidget->currentIndex();
         const bool reselected = index == sourceIndex;
-        // ★ 2026-10-17 用户原话：「点击上方四大钮的时候收起任务中心，现在的表现是在除了
-        //   展开它的那一页以外点击都没反应（也就是卡页面了）」。
-        //   任务中心是**整页覆盖**那一档：它在自己的选项卡上是摊开的，切到别的选项卡上
-        //   只是"收着"（OverlayHost::parked()），而那一位**还占着覆盖层**。于是：
-        //     · 在别的选项卡上点导航 —— `dismiss()` 对"收着"的页什么都不做（它按设计不
-        //       替用户收看不见的页），任务中心原样占着那一位；
-        //     · 再回到原来那一页 —— 它又摊开，看着像"哪颗都没反应、页面卡住了"。
-        //   所以点导航这一下先把它**收掉**（evict 连"收着"那一档一起收），再照常翻页 /
-        //   dismiss。只认任务中心：别的覆盖页（资源详情之类）仍旧按老规矩停放、切回来还在。
-        //   NOTE: `pageOpen()` 那一条是"**最上面**那一层是页"的意思 —— 页上面压着一句提示
-        //         的时候不在这儿收（那句话是要人回答的，不能因为切个页就替他答"取消"）。
+        // 要求：「点击上方四大钮的时候收起任务中心，现在的表现是在除了
+        // 展开它的那一页以外点击都没反应（也就是卡页面了）」。
+        // 任务中心是**整页覆盖**那一档：它在自己的选项卡上是摊开的，切到别的选项卡上
+        // 只是"收着"（OverlayHost::parked()），而那一位**还占着覆盖层**。于是：
+        // · 在别的选项卡上点导航 —— `dismiss()` 对"收着"的页什么都不做（它按设计不
+        // 替用户收看不见的页），任务中心原样占着那一位；
+        // · 再回到原来那一页 —— 它又摊开，看着像"哪颗都没反应、页面卡住了"。
+        // 所以点导航这一下先把它**收掉**（evict 连"收着"那一档一起收），再照常翻页 /
+        // dismiss。只认任务中心：别的覆盖页（资源详情之类）仍旧按老规矩停放、切回来还在。
+        // NOTE: `pageOpen()` 那一条是"**最上面**那一层是页"的意思 —— 页上面压着一句提示
+        // 的时候不在这儿收（那句话是要人回答的，不能因为切个页就替他答"取消"）。
         if (taskCenterPanel() != nullptr && overlayHost != nullptr && overlayHost->pageOpen()) {
             overlayHost->evict();
         }
-        // 用户原话：「顶端四个按钮点击以后自动到达对应选项卡的首页（比如说我现在正点开
+        // 要求：「顶端四个按钮点击以后自动到达对应选项卡的首页（比如说我现在正点开
         // sodium 的下载页面，现在我点击启动选项卡，直接切到那个页面，下载这个"弹窗"自动
         // 收起）」+「在下载页点击 下载（顶上那个，不是下载确认键），那就回到下载页的首页
         // （四个都适用）」。于是这一颗有两种意思：
         //
         // ① 点的**不是**现在这一颗 ⇒ 翻页。切走之后那页不会丢，只是"收着"（见
-        //    OverlayHost.hpp 那段），切回来还是原来那个界面、连滚到哪儿都在；
+        // OverlayHost.hpp 那段），切回来还是原来那个界面、连滚到哪儿都在；
         // ② 点的**就是**现在这一颗 ⇒ "回到这个功能的首页"：把上面那一层收掉 —— 页面那一档
-        //    走"返回箭头"那一发（`execPage()` 的那一次才醒得过来，理由见 dismiss()）。
+        // 走"返回箭头"那一发（`execPage()` 的那一次才醒得过来，理由见 dismiss()）。
         if (reselected) {
             if (overlayHost != nullptr) {
                 overlayHost->dismiss();
@@ -2339,32 +2273,32 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
                      [this] { closeHomeInstancePicker(); });
 
     // ================= 换页那一下 =================
-    // 2026-09-29 用户点名要的第二个动效（「切换页面」）：新那一块**先等一拍、再淡进来**，
+    // 用户点名要的第二个动效（「切换页面」）：新那一块**先等一拍、再淡进来**，
     // 顺带从下面抬 `Anim::pageRiseDistance()` 那么一小段。规矩（尤其是"一个像素的几何都
     // 不动"）见 ui/Animations.hpp。
     //
-    // ★ 这里动的**是内容区整个控件**（`tabWidget` 自己），**不是** `currentWidget()` 那一页。
-    //   用户 2026-09-29 原话：「这个框架啥的都是瞬间出现，能不能给它设定一定延迟」（他指名
-    //   的是「换页时整页的卡片」）。原因在这一层底下：那张卡片和它的外框**是 `QTabWidget`
-    //   自己画的** —— 四个页面都是 `ThemeBackground(Part::PageBackground)`，而它在"没设图"
-    //   时 `paintEvent()` 直接 return（见那个文件头上那一大段）。所以只给页面装效果的话，
-    //   卡片和外框不在这张图里，淡的是"卡片上浮着的一层内容"，虚的那几帧能看见卡片那层底
-    //   从中间透出来。
+    // 这里动的**是内容区整个控件**（`tabWidget` 自己），**不是** `currentWidget()` 那一页。
+    // 要求：「这个框架啥的都是瞬间出现，能不能给它设定一定延迟」（他指名
+    // 的是「换页时整页的卡片」）。原因在这一层底下：那张卡片和它的外框**是 `QTabWidget`
+    // 自己画的** —— 四个页面都是 `ThemeBackground(Part::PageBackground)`，而它在"没设图"
+    // 时 `paintEvent()` 直接 return（见那个文件头上那一大段）。所以只给页面装效果的话，
+    // 卡片和外框不在这张图里，淡的是"卡片上浮着的一层内容"，虚的那几帧能看见卡片那层底
+    // 从中间透出来。
     //
-    // ★★ 2026-10-11 改的是**抬**那一半：淡的仍然是整块（卡片一起淡），但**往下挪着画的只有
-    //   它里面的页面**（`ui/Animations.cpp` 里那个文件内的 `liftTarget()` 把它认出来）。用户原话：「这个动画，在有框的
-    //   时候框会瞬移，能不能考虑一下用其它组件之类的解决」—— 卡片那圈外框换页前后都在同一
-    //   个地方，整块一起挪就是**框自己跳了一下再滑回来**；内容是新上来的，没有参照物，反倒
-    //   像正常的滑入。整段理由与做法见 `Animations.hpp` 里 `pageAppear()` 那段。
+    // 改的是**抬**那一半：淡的仍然是整块（卡片一起淡），但**往下挪着画的只有
+    // 它里面的页面**（`ui/Animations.cpp` 里那个文件内的 `liftTarget()` 把它认出来）。要求：「这个动画，在有框的
+    // 时候框会瞬移，能不能考虑一下用其它组件之类的解决」—— 卡片那圈外框换页前后都在同一
+    // 个地方，整块一起挪就是**框自己跳了一下再滑回来**；内容是新上来的，没有参照物，反倒
+    // 像正常的滑入。整段理由与做法见 `Animations.hpp` 里 `pageAppear()` 那段。
     //
     // NOTE: 垫的底色是**卡片那一层**（`QPalette::Base`）：内容抬起来让出来的那一条露的就是
-    //       它。垫成窗口底色（`#f0f0f0`）的话，卡片上会横着一条偏灰的带子（卡片自己是
-    //       `#fcfcfc`，Fusion 画这一层用的就是 `Base`）。
+    // 它。垫成窗口底色（`#f0f0f0`）的话，卡片上会横着一条偏灰的带子（卡片自己是
+    // `#fcfcfc`，Fusion 画这一层用的就是 `Base`）。
     // NOTE: 挂的是 `currentChanged`，不是某一次点击 —— 四颗导航、底栏、主页那几个入口
-    //       都会翻页，只有挂在这儿才一处管住全部（"唯一出处"那条老规矩）。
+    // 都会翻页，只有挂在这儿才一处管住全部（"唯一出处"那条老规矩）。
     // NOTE: 只在**已经露着头**的时候动。搭界面这一路会挨个 `addTab()`，`currentChanged`
-    //       在那时候就会响，而那些页还没上屏、几何也没定下来，给它们装效果纯属白干
-    //       （`tabWidget` 是 `centralWidget` 里生出来的，这条判据在它身上同样说得通）。
+    // 在那时候就会响，而那些页还没上屏、几何也没定下来，给它们装效果纯属白干
+    // （`tabWidget` 是 `centralWidget` 里生出来的，这条判据在它身上同样说得通）。
     QObject::connect(tabWidget, &QTabWidget::currentChanged, tabWidget, [this](int) {
         Anim::cancelLayoutTransition(tabWidget->parentWidget());
         // 覆盖层页面在别的主选项卡上“停放”时，切回所属页会由 OverlayHost 立即恢复。
@@ -2377,16 +2311,16 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     });
 
     // 内层那三层"换页"走同一条路（用户说的"切换页面"不只顶上那四颗）：
-    //   * 下载页右栏：游戏 / 模组 / 资源包 / 数据包 / 光影 / 整合包 之间横着换；
-    //   * 下载页里"游戏"那一栏自己还有一层（版本树 ↔ 安装页）；
-    //   * 设置页右栏：启动 / 游戏 / 提示 / 个性化 / 下载。
+    // * 下载页右栏：游戏 / 模组 / 资源包 / 数据包 / 光影 / 整合包 之间横着换；
+    // * 下载页里"游戏"那一栏自己还有一层（版本树 ↔ 安装页）；
+    // * 设置页右栏：启动 / 游戏 / 提示 / 个性化 / 下载。
     // 都是 `QStackedWidget`，所以一条 `currentChanged` 就够了（谁换的都算）。
     //
-    // ★ 垫的底色是 `QPalette::Base`（**不是**顶上那一档的窗口底色）：这三层右栏每一页都
-    //   活在一层滚动区里，视口铺的是 `Base` —— 垫窗口那份的话，起手那一帧会看见一整块
-    //   偏灰的方块贴在页面正中（见 `Anim::pageAppear(widget, backdrop)` 那段）。
-    // ★ 这几页是滚动区：抬的会是它们的**视口**（`liftTarget()`，`ui/Animations.cpp` 里那个），滚动区自己那圈框
-    //   留在原地 —— 和顶上那一档同一条规矩（见 `Animations.hpp` 里 `pageAppear()` 那段）。
+    // 垫的底色是 `QPalette::Base`（**不是**顶上那一档的窗口底色）：这三层右栏每一页都
+    // 活在一层滚动区里，视口铺的是 `Base` —— 垫窗口那份的话，起手那一帧会看见一整块
+    // 偏灰的方块贴在页面正中（见 `Anim::pageAppear(widget, backdrop)` 那段）。
+    // 这几页是滚动区：抬的会是它们的**视口**（`liftTarget()`，`ui/Animations.cpp` 里那个），滚动区自己那圈框
+    // 留在原地 —— 和顶上那一档同一条规矩（见 `Animations.hpp` 里 `pageAppear()` 那段）。
     const auto appearOnSwitch = [](QStackedWidget *stack) {
         if (stack == nullptr) {
             return;
@@ -2409,13 +2343,13 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // ---------- 内容区上面那一层 ----------
     // 设置界面和各种提示都开在这儿，不再另开窗口（见 OverlayHost.hpp 开头那段）。
     // NOTE: 建在**最后**：它不吃布局，几何靠盯住 tabWidget 的 Resize/Move 现算，所以
-    //       搭它的时候上面那四个 addTab 必须已经跑完了。
+    // 搭它的时候上面那四个 addTab 必须已经跑完了。
     overlayHost = new OverlayHost(tabWidget, centralWidget);
-    // ★ 2026-09-27：**提示开着时把底栏一起按住**。这一句必须在底栏建好之后（上面的
-    //   setupBottomBar 已经跑完），理由见 OverlayHost::setPromptBlockedWidget()：
-    //   底栏不在覆盖层底下（这一层挂在 tabWidget 上），"被盖住 = 点不着"那条判据管不到它，
-    //   于是提示开着时底栏照样能点开上拉面板 → 面板里点「改设置」被挡住 → 而那句解释
-    //   为什么的话又要被"提示叠提示不做"吞掉 ⇒ 用户点了一下，屏幕上什么都没有。
+    // **提示开着时把底栏一起按住**。这一句必须在底栏建好之后（上面的
+    // setupBottomBar 已经跑完），理由见 OverlayHost::setPromptBlockedWidget()：
+    // 底栏不在覆盖层底下（这一层挂在 tabWidget 上），"被盖住 = 点不着"那条判据管不到它，
+    // 于是提示开着时底栏照样能点开上拉面板 → 面板里点「改设置」被挡住 → 而那句解释
+    // 为什么的话又要被"提示叠提示不做"吞掉 ⇒ 用户点了一下，屏幕上什么都没有。
     overlayHost->setPromptBlockedWidget(bottomBar);
 
     // ---------- 外框 ----------
@@ -2424,13 +2358,6 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 等上面那些控件都挂完了再动标志，少一层"改到一半"的心。
     windowChrome = new WindowChrome(parent, bar, parent);
 
-    // ★ 2026-10-18：这里原来挂着一个**空的** `QMenuBar`（`parent->setMenuBar(new
-    //   QMenuBar(parent))`）。量过：空菜单栏在 QMainWindow 里 `sizeHint()` 是 `0x0`、
-    //   实际高度 0 —— 它不只是"没用"，而是从来就没露过脸；而这一版的外框是自己画的
-    //   （见 WindowChrome），顶上那条已经归 TitleBar 管，没有给菜单栏留位置。
-    //   设置项全在「设置」选项卡里，那两件原本想挂上来的事（打开游戏目录 / 关于）
-    //   在设置页和「工具箱」里都各有入口。摆一个永远不会显示的空条子只会让下一个人
-    //   以为这里有个菜单要维护 ⇒ 直接不建。（coding plan §9 那条"要么用起来、要么别摆着"。）
 }
 
 namespace {
@@ -2446,7 +2373,7 @@ struct SettingsPanel {
  * @param stack 右栏那份堆叠页。**加进去的顺序就是左栏分类列表的下标顺序**。
  * @param key 分栏的键（settingsCategoryKeys() 里那一个），进两个 objectName。
  * @return 那一页的表单与表格。调用方从第 0 行开始铺，**收尾自己做**
- *         （`grid->setRowStretch(row, 1)`：剩下的竖直空间留底部，设置项不跟着窗高被拉长）。
+ * （`grid->setRowStretch(row, 1)`：剩下的竖直空间留底部，设置项不跟着窗高被拉长）。
  *
  * 每一栏**各自**套一层滚动区，不是整页套一层 —— 整页套一层的话，左栏那五条分类会跟着
  * 右栏的内容一起滚走，而那五条是导航。这条和下载页左栏那一列是同一条理由。
@@ -2456,15 +2383,11 @@ SettingsPanel addSettingsPanel(QStackedWidget *stack, const QString &key) {
     scroll->setObjectName(MainWindowUI::settingsPanelName(key));
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
-    // ★ 2026-10-12：设置页那条"内容横向无限伸展、说明文字一行跨得太长"（用户原文）的
-    //   正解就是这两句 —— 表单**限量宽**（`settingsFormMaxWidth()`），窗口再宽它也不再
-    //   拉长；多出来的地方让滚动区把表单**居中**摆（上对齐：这一页是从上往下读的表）。
-    //
     // NOTE: 宽度是给**表单**限的，不是给滚动区限的：滚动条仍然贴着正文面最右边那条线
-    //       （和别的页一个规矩），只有表单本身收窄。
+    // （和别的页一个规矩），只有表单本身收窄。
     // NOTE: 窗口默认 900 逻辑像素时，正文那一栏只有 620 上下 ⇒ 这个上限还够不着，
-    //       拉宽窗口才生效。所以量它的判据（ui_check）量的是 `maximumWidth()` 本身，
-    //       不是"这一趟实际多宽"。
+    // 拉宽窗口才生效。所以量它的判据（ui_check）量的是 `maximumWidth()` 本身，
+    // 不是"这一趟实际多宽"。
     scroll->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
 
     SettingsPanel panel;
@@ -2489,19 +2412,16 @@ SettingsPanel addSettingsPanel(QStackedWidget *stack, const QString &key) {
 } // namespace
 
 void MainWindowUI::setupSettingsPage(QWidget *page) {
-    // 2026-09-26：设置页**拆成了几条分类**（用户原话：「将设置分栏，分为启动/提示/个性化/…
-    // 然后分门别类放进去」）。形状照下载页来：左栏一列分类、右栏一份堆叠页，点哪条换哪页。
-    //
     // 从前它是**一张通到底的两列表格**（外观 / 账户 / Java 版本 / 内存分配 / 启动后 /
     // 启动选项 / 启动提醒 / JVM 参数 / 下载源 / 版本名格式，十节一路往下排）。十节连成
     // 一竖条之后"找一个开关"只能靠滚，而且"哪几项是一回事"只能靠相邻关系去猜 —— 分栏把
     // 这件事说明白了：每一栏各自成一页、各滚各的。
     //
     // NOTE: 从前整页靠一层 QScrollArea 才放得下（窗口初始高度只有 620，只 resize 过、
-    //       没有 setFixedSize），不给滚动就等于把最后那几项一直藏在可视区外。现在滚动
-    //       归**栏**管（addSettingsPanel 里那段），理由见它上面。
+    // 没有 setFixedSize），不给滚动就等于把最后那几项一直藏在可视区外。现在滚动
+    // 归**栏**管（addSettingsPanel 里那段），理由见它上面。
     // NOTE: 这一份**不是 const**（另几页那三份是）：页头那行标题是搭完之后才由这一页填的
-    //       （`fillPageHeader()` 收的是 `Column&`）。
+    // （`fillPageHeader()` 收的是 `Column&`）。
     TwoColumns columns = buildTwoColumnPage(page, QStringLiteral("settings"));
     // 页头：标题「设置」。**没有说明那一行**（`fillPageHeader()` 收到空串就把它整行收起来
     // 连位置都不占）—— 这一页"是什么"不需要解释，左栏那五条分类已经说完了。
@@ -2517,13 +2437,13 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     settingsCategoryList->setUniformItemSizes(true);
     // 同一个代理 = 一样高的行、大一号的字、"分类"那种粗体 —— 两栏里是同一种东西。
     // NOTE: **不设** rowRefreshRole()。那一格里画的刷新圈是下载页专有的（这一列没有
-    //       "重新拉一遍"这回事），代理见到没设就不画。
+    // "重新拉一遍"这回事），代理见到没设就不画。
     // 末一个参数 true = 和下载页左栏那一列**同一档**（侧栏导航）。两处的形状一样，
     // 判据也一样（见 VersionTreeDelegate 构造函数那段）。
     settingsCategoryList->setItemDelegate(
         new VersionTreeDelegate(settingsCategoryList, /*leafArrow=*/true, /*iconSize=*/0,
                                 /*navRow=*/true));
-    // ★ 悬停底色要它，理由见版本树那第一处：视图不填 State_MouseOver 就不出底色，也不报错。
+    // 悬停底色要它，理由见版本树那第一处：视图不填 State_MouseOver 就不出底色，也不报错。
     settingsCategoryList->setMouseTracking(true);
     QFont categoryFont = settingsCategoryList->font();
     categoryFont.setPointSize(categoryFont.pointSize() + versionTreeFontStep());
@@ -2604,9 +2524,6 @@ void MainWindowUI::setDownloadHeaderRow(int row) {
     // 说明是**这一页的状态**，永远露着（`fillPageHeader()` 那套"空串就收起来"在这儿
     // 用不上：它管的是"这一页有没有说明"，而这里每一类都有一句）。
     downloadHeaderSubtitleLabel->setVisible(true);
-    // ★ 2026-10-18：「服务端」那一栏没有"重新问一遍"这回事（它不向任何资源站问东西）
-    //   ⇒ 页头那颗刷新在这一栏**整颗收起来**（连位置都不占），翻回别的栏再露出来。
-    //   留着一颗按下去什么都不做的键，用户只会一直按。
     if (downloadHeaderRefreshButton != nullptr) {
         downloadHeaderRefreshButton->setVisible(row != downloadCategoryServerIndex());
     }
@@ -2638,7 +2555,7 @@ void MainWindowUI::applyVersionFilter() {
 
     // 第一次真正开筛之前，把"用户自己摆成什么样"记下来。之后清空筛选按它还原。
     // NOTE: 已经在筛的时候**不重记**：那一趟的展开状态是筛选自己撑开的，记下来等于
-    //       把"筛完还原"变成"筛完全展开"。
+    // 把"筛完还原"变成"筛完全展开"。
     if (active && !versionFilterActive) {
         versionFilterExpandedBefore.clear();
         for (int i = 0; i < versionTree->topLevelItemCount(); ++i) {
@@ -2683,7 +2600,7 @@ void MainWindowUI::applyVersionFilter() {
         } else {
             top->setHidden(false);
             // NOTE: 清单刷新是"清空再重灌"，重灌出来的分类默认是收着的。这时候按筛选前
-            //       记下的状态摆回去；记不着的（筛选期间才出现的分类）保持它自己的样子。
+            // 记下的状态摆回去；记不着的（筛选期间才出现的分类）保持它自己的样子。
             top->setExpanded(versionFilterExpandedBefore.value(key, top->isExpanded()));
         }
     }
@@ -2713,17 +2630,12 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
     int row = 0;
 
     // ---------- Java 版本 ----------
-    // 2026-09-26 分栏时这一节拆成两半：**这一行**（运行时）留在这儿，那行"实例的 Java
+    // 分栏时这一节拆成两半：**这一行**（运行时）留在这儿，那行"实例的 Java
     // 对不上时要不要问一句"搬去了「提示」栏 —— 它挡的是启动那一下，和那两条提醒是一回事。
     // ---- 第 1 节：标题 + 一张小节卡片（见 addSettingsSection()）----
     const SettingsSection section1 = addSettingsSection(grid, row, QStringLiteral("Java 版本"), form);
     {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-        // 2026-09-28：这一格原来是"自动 / 手动 + 本机扫到的那些运行时"的下拉框。用户
-        // 点名的改法是把它**换成一个按钮**：挑哪个 Java、哪个缺了，全都归「Java 管理」
-        // 那一页管（见 ui/JavaManageDialog）。按钮靠左摆，不跟着列宽抻成一条横杠 ——
-        // 它不是这一页的主角，是通往另一页的一扇门。
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         javaManageButton = new QPushButton(QStringLiteral("Java 管理…"), box);
         javaManageButton->setObjectName(javaManageButtonName());
         // 「Java 管理…」= 通往另一页的一扇门（一般性）—— 和上面那句注释说的"它不是这一页的
@@ -2736,11 +2648,11 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         javaPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
         boxLayout->addWidget(javaPathLabel);
         // NOTE: 这段说的是**全局**这一层，它和实例覆盖层的行为**不一样**，别把两边写成
-        //       一回事：全局档挑中的 Java 对不上就是直接报错（不替你换、也不问）；
-        //       而「实例设置…」里给某个实例单独钉的 Java 对不上时，会弹一个框问要不要
-        //       改用匹配的那个（那个开关在「提示」栏里）。全局档不问，是因为它不匹配时
-        //       自动档本来就会挑一个替换掉，钉死的那档是用户对**整台机器**的选择 ——
-        //       那种一眼就该是自己配错的，不值得每次启动都问一遍。
+        // 一回事：全局档挑中的 Java 对不上就是直接报错（不替你换、也不问）；
+        // 而「实例设置…」里给某个实例单独钉的 Java 对不上时，会弹一个框问要不要
+        // 改用匹配的那个（那个开关在「提示」栏里）。全局档不问，是因为它不匹配时
+        // 自动档本来就会挑一个替换掉，钉死的那档是用户对**整台机器**的选择 ——
+        // 那种一眼就该是自己配错的，不值得每次启动都问一遍。
         addHint(box, QStringLiteral("按版本要求自动挑：1.16.5 及以下要 Java 8、"
                                     "1.18~1.20.4 要 Java 17、1.20.5~1.21.11 要 Java 21、"
                                     "26.x 要 Java 25（同一个启动器里得能共存）。"
@@ -2753,22 +2665,14 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
 
     // ---------- 内存分配 ----------
     // ---- 第 2 节：标题 + 一张小节卡片（见 addSettingsSection()）----
-    //
-    // ★ 2026-10-20：自动分配重新有入口了，但不再是 2026-10-18 撤掉的那颗独立勾选框 ——
-    //   它就是「最大内存」这一行**最右边**那颗下拉框（自动分配 / 手动分配）。自动档下
-    //   条和数字框禁用，但仍然显示自动算出来的值；切回手动会恢复开启自动之前那一对。
-    //   那句"这台机器有多少内存"的说明由 `JavaSettingsController::refreshMemory()` 写。
     const SettingsSection section2 = addSettingsSection(grid, row, QStringLiteral("内存分配"), form);
     {
         // 「最大内存」这一行是**一根条 + 一个数字框**（两件东西说的是同一件事）。
-        // 条是主要入口（用户原话：「像 pcl 那样子的灵活变通的拖动条」），数字框留着是为了
+        // 条是主要入口（要求：「像 pcl 那样子的灵活变通的拖动条」），数字框留着是为了
         // "我就要 6144 这个数"的时候能直接打进去 —— 少了它，拖是拖不到精确值的。
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
 
-        QWidget *line = new QWidget(box);
-        auto *lineLayout = new QHBoxLayout(line);
-        lineLayout->setContentsMargins(0, 0, 0, 0);
+        auto [line, lineLayout] = makeInlineRow(box);
         lineLayout->setSpacing(8);
 
         memoryMaxSlider = new MemorySlider(line);
@@ -2816,24 +2720,23 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         memoryHint->setObjectName(memoryHintName());
         addSettingItem(section2, QStringLiteral("最大内存"), box, form);
     }
-    // NOTE: 「最小内存」（-Xms）**这一行没有了**（2026-09-26）。用户原话：「不要 xms 了
-    //       （或者隐藏起来），按照默认值」—— 界面上不再让他管这一项，值照旧存在设置里
-    //       （默认 1024 MB，命令行照发 -Xms），所以"这一项现在是多少"改由「最大内存」
-    //       那一行的说明文字说全（见 MainWindow::refreshMemoryUi 里那三支 setText）。
+    // NOTE: 「最小内存」（-Xms）**这一行没有了**。要求：「不要 xms 了
+    // （或者隐藏起来），按照默认值」—— 界面上不再让他管这一项，值照旧存在设置里
+    // （默认 1024 MB，命令行照发 -Xms），所以"这一项现在是多少"改由「最大内存」
+    // 那一行的说明文字说全（见 MainWindow::refreshMemoryUi 里那三支 setText）。
 
     // ---------- 启动后 ----------
     // ---- 第 3 节：标题 + 一张小节卡片（见 addSettingsSection()）----
     const SettingsSection section3 = addSettingsSection(grid, row, QStringLiteral("运行与日志"), form);
     {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         launcherBehaviourCombo = new QComboBox(box);
         launcherBehaviourCombo->setObjectName(launcherBehaviourComboName());
         WheelGuard::install(launcherBehaviourCombo);
-        // ★ 2026-10-11：**每颗下拉框都按 `sizeHint` 靠左摆**（`AlignLeft`）。同一页上原来
-        //   只有「窗口模式」那一颗带了它，另几颗吃到拉伸 ⇒ 「进程优先级」那一条（项就
-        //   「正常（默认）」几个字）被拉成整行那么宽，右边一大片空白。这几颗是同一件事的
-        //   同一个控件（选一项），落到的宽度就该是同一条规矩。见 08a 那张截图。
+        // **每颗下拉框都按 `sizeHint` 靠左摆**（`AlignLeft`）。同一页上原来
+        // 只有「窗口模式」那一颗带了它，另几颗吃到拉伸 ⇒ 「进程优先级」那一条（项就
+        // 「正常（默认）」几个字）被拉成整行那么宽，右边一大片空白。这几颗是同一件事的
+        // 同一个控件（选一项），落到的宽度就该是同一条规矩。见 08a 那张截图。
         boxLayout->addWidget(launcherBehaviourCombo, 0, Qt::AlignLeft);
         addHint(box, QStringLiteral("游戏起来之后启动器自己怎么办。「收起」是把窗口藏起来、"
                                     "进程还在（关掉进程会连带杀掉游戏）。"),
@@ -2845,8 +2748,7 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
     // ---- 第 4 节：标题 + 一张小节卡片（见 addSettingsSection()）----
     const SettingsSection section4 = addSettingsSection(grid, row, QStringLiteral("JVM 参数"), form);
     {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         extraJvmArgsEdit = new QPlainTextEdit(box);
         extraJvmArgsEdit->setObjectName(extraJvmArgsEditName());
         extraJvmArgsEdit->setPlaceholderText(QStringLiteral("-XX:+UseG1GC -XX:MaxGCPauseMillis=50"));
@@ -2873,9 +2775,9 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         addSettingItem(section4, QStringLiteral("全局额外参数"), box, form);
     }
 
-    // NOTE: 「实例预设」那一节 2026-10-18 从设置页**整个撤掉了**：预设管理页搬进了
-    //       实例页顶部的模式行（客户端实例 | 服务端 | 预设），设置里再留一颗门就是同一个
-    //       东西两处入口（§10.1 P0「移除全局设置中的重复入口」）。
+    // NOTE: 「实例预设」那一节 从设置页**整个撤掉了**：预设管理页搬进了
+    // 实例页顶部的模式行（客户端实例 | 服务端 | 预设），设置里再留一颗门就是同一个
+    // 东西两处入口（§10.1 P0「移除全局设置中的重复入口」）。
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
     grid->setRowStretch(row, 1);
@@ -2889,14 +2791,13 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
 
     // ---------- 启动选项 ----------
     // 这三件事都是"这一份游戏进程怎么起来"：看不看它的输出、它占多少 CPU、窗口开多大。
-    // NOTE: 2026-09-26 分栏时这三项单独成了一栏（这一栏的**全部**内容就是它们）—— 从前的
-    //       相邻关系里，它们一边挨着「启动后」（那是启动器自己）、一边挨着「启动提醒」
-    //       （那是要不要问一句），三件事各自的性质都还没这么清楚。
+    // NOTE: 分栏时这三项单独成了一栏（这一栏的**全部**内容就是它们）—— 从前的
+    // 相邻关系里，它们一边挨着「启动后」（那是启动器自己）、一边挨着「启动提醒」
+    // （那是要不要问一句），三件事各自的性质都还没这么清楚。
     // ---- 第 1 节：标题 + 一张小节卡片（见 addSettingsSection()）----
     const SettingsSection section1 = addSettingsSection(grid, row, QStringLiteral("游戏窗口"), form);
     {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         showGameLogCheck = new QCheckBox(showGameLogCheckText(), box);
         showGameLogCheck->setObjectName(showGameLogCheckName());
         // 勾选状态由 MainWindow 灌（它才知道这个开关存在哪），这里只搭控件。
@@ -2911,12 +2812,10 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
         addSettingItem(section1, showGameLogRowText(), box, form);
     }
     {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         processPriorityCombo = new QComboBox(box);
         processPriorityCombo->setObjectName(processPriorityComboName());
         WheelGuard::install(processPriorityCombo);
-        // ★ 2026-10-11：靠左按 `sizeHint` 摆 —— 理由见「启动器行为」那一颗上面那段。
         boxLayout->addWidget(processPriorityCombo, 0, Qt::AlignLeft);
         addHint(box, QStringLiteral("游戏进程占 CPU 的优先级。这和任务管理器里「设置优先级」"
                                     "是同一件事，只是在这里设一次就一直生效。"
@@ -2927,8 +2826,7 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
         addSettingItem(section1, QStringLiteral("进程优先级"), box, form);
     }
     {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         gameWindowModeCombo = new QComboBox(box);
         gameWindowModeCombo->setObjectName(gameWindowModeComboName());
         WheelGuard::install(gameWindowModeCombo);
@@ -2947,8 +2845,7 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
         addSettingItem(section1, QStringLiteral("窗口模式"), box, form);
     }
     {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         QWidget *sizeRow = new QWidget(box);
         QHBoxLayout *sizeLayout = new QHBoxLayout(sizeRow);
         sizeLayout->setContentsMargins(0, 0, 0, 0);
@@ -2999,15 +2896,14 @@ void MainWindowUI::setupSettingsWarnPanel(QStackedWidget *stack) {
     // 进程同时打开"这件事，而这件事**事后没有任何办法补救**（后写的那一份覆盖先写的）。
     // 所以三条默认都开着；嫌烦的可以在这里各关各的（提示框上那句小字就是告诉他来这儿关）。
     //
-    // NOTE: 2026-09-26 分栏时三条并到一栏。前两条（重复启动 / 进度提醒）原来和「启动选项」
-    //       挤在同一张表里，第三条（Java 版本）原来挂在「启动」栏的 Java 那一节底下 ——
-    //       它们管的是同一件事："现在这一下要不要再问一句"。**勾选框上那句话一个字都没动**，
-    //       动的是"它摆在哪儿"和第三条那一行的行标题（原来叫「版本提醒」，说不清是提醒什么）。
+    // NOTE: 分栏时三条并到一栏。前两条（重复启动 / 进度提醒）原来和「启动选项」
+    // 挤在同一张表里，第三条（Java 版本）原来挂在「启动」栏的 Java 那一节底下 ——
+    // 它们管的是同一件事："现在这一下要不要再问一句"。**勾选框上那句话一个字都没动**，
+    // 动的是"它摆在哪儿"和第三条那一行的行标题（原来叫「版本提醒」，说不清是提醒什么）。
     // ---- 第 1 节：标题 + 一张小节卡片（见 addSettingsSection()）----
     const SettingsSection section1 = addSettingsSection(grid, row, QStringLiteral("安全提醒"), form);
     {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         // 勾选状态由 MainWindow 灌（它才知道这个开关存在哪），这里只搭控件 ——
         // 和内存那一行的说明文字同一条约定。
         javaWarnMismatchCheck =
@@ -3022,8 +2918,7 @@ void MainWindowUI::setupSettingsWarnPanel(QStackedWidget *stack) {
         addSettingItem(section1, javaWarnMismatchRowText(), box, form);
     }
     {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         warnDuplicateLaunchCheck = new QCheckBox(warnDuplicateLaunchCheckText(), box);
         warnDuplicateLaunchCheck->setObjectName(warnDuplicateLaunchCheckName());
         // 勾选状态由 MainWindow 灌（它才知道这个开关存在哪），这里只搭控件。
@@ -3035,8 +2930,7 @@ void MainWindowUI::setupSettingsWarnPanel(QStackedWidget *stack) {
         addSettingItem(section1, warnDuplicateLaunchRowText(), box, form);
     }
     {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         warnWorldLossCheck = new QCheckBox(warnWorldLossCheckText(), box);
         warnWorldLossCheck->setObjectName(warnWorldLossCheckName());
         boxLayout->addWidget(warnWorldLossCheck, 0, Qt::AlignLeft);
@@ -3058,16 +2952,15 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
     int row = 0;
 
     // ---------- 外观 ----------
-    // 2026-09-25 加的。用户原话：「上面的四个居中，左上角五个字母默认是这五个，在设置里
+    // 加的。要求：「上面的四个居中，左上角五个字母默认是这五个，在设置里
     // 允许自定义」—— 后半句就是这一行：条上那行字（`TitleBar::defaultBrandText()` 那五个
     // 字母）能在这儿改成别的，**留空就是默认那五个**。
-    // 2026-09-26 分栏时它连同「账户」「版本名格式」一起并进「个性化」：这三节管的都不是
+    // 分栏时它连同「账户」「版本名格式」一起并进「个性化」：这三节管的都不是
     // "游戏怎么起来"，而是"这东西看起来是什么样 / 我叫什么名字"。
     // ---- 第 1 节：标题 + 一张小节卡片（见 addSettingsSection()）----
     const SettingsSection section1 = addSettingsSection(grid, row, QStringLiteral("外观"), form);
     {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         titleTextEdit = new QLineEdit(box);
         titleTextEdit->setObjectName(titleTextEditName());
         // 长度上限在**两个地方**各写一遍（ui/ 不许 include src/，见 titleTextMaxLength()）。
@@ -3086,22 +2979,21 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
     }
 
     // ---------- 主题 ----------
-    // 2026-10-13 加的（coding plan §8.3）。用户 2026-09-28 立的底是「各个地方的背景等允许
+    // 加的（coding plan §8.3）。用户 立的底是「各个地方的背景等允许
     // 切换……先不急着做入口」—— 铺了半个多月的框架（`ui/Theme` 的 Spec / Role / Part）
     // 在这一节有了入口：**配色 + 主题色 + 文字不透明度 + 四个语义色**，外加恢复默认与
     // 导入/导出。
     //
-    // ★ 这一节只搭控件。**改完立刻生效也立刻落盘**那三步（改内存里那份规格 → 落盘 →
-    //   `Theme::apply()`）在 `MainWindow::applyThemeSpec()` —— `ui/` 不许 include `src/`。
-    // ★ 「配色」那三项要从 `Theme::presetIds()` 来（它是唯一出处），所以项**在这里灌**，
-    //   不在 MainWindow —— 和下面「摆法」那个下拉框是同一个写法（那一档的枚举也在 ui/）。
+    // 这一节只搭控件。**改完立刻生效也立刻落盘**那三步（改内存里那份规格 → 落盘 →
+    // `Theme::apply()`）在 `MainWindow::applyThemeSpec()` —— `ui/` 不许 include `src/`。
+    // 「配色」那三项要从 `Theme::presetIds()` 来（它是唯一出处），所以项**在这里灌**，
+    // 不在 MainWindow —— 和下面「摆法」那个下拉框是同一个写法（那一档的枚举也在 ui/）。
     // ---- 第 2 节：标题 + 一张小节卡片（见 addSettingsSection()）----
     const SettingsSection section2 = addSettingsSection(grid, row, QStringLiteral("主题"), form);
     {
         // ---- 配色（跟随系统 / 浅色 / 深色）----
         {
-            QWidget *box = makeHintedControl(form);
-            auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+            auto [box, boxLayout] = makeHintedControlWithLayout(form);
             themePresetCombo = new QComboBox(box);
             themePresetCombo->setObjectName(themePresetComboName());
             const QStringList presets = Theme::presetIds();
@@ -3131,11 +3023,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
 
         // ---- 主题色（顶栏那一块、当前那一颗导航底下那条线、确认性按钮的字和边）----
         {
-            QWidget *box = makeHintedControl(form);
-            auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-            QWidget *line = new QWidget(box);
-            auto *lineLayout = new QHBoxLayout(line);
-            lineLayout->setContentsMargins(0, 0, 0, 0);
+            auto [box, boxLayout] = makeHintedControlWithLayout(form);
+            auto [line, lineLayout] = makeInlineRow(box);
             lineLayout->setSpacing(themeSwatchRowSpacing());
 
             themeAccentButton = new QPushButton(line);
@@ -3164,11 +3053,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
 
         // ---- 文字不透明度 ----
         {
-            QWidget *box = makeHintedControl(form);
-            auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-            QWidget *line = new QWidget(box);
-            auto *lineLayout = new QHBoxLayout(line);
-            lineLayout->setContentsMargins(0, 0, 0, 0);
+            auto [box, boxLayout] = makeHintedControlWithLayout(form);
+            auto [line, lineLayout] = makeInlineRow(box);
             lineLayout->setSpacing(themeSwatchRowSpacing());
 
             themeTextOpacitySlider = new QSlider(Qt::Horizontal, line);
@@ -3197,11 +3083,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         // 断开**的那种（第二对掉下去、第一对还撑着），看着像排版坏了。两行两列在宽窄两种
         // 窗口下都是同一个形状。
         {
-            QWidget *box = makeHintedControl(form);
-            auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-            QWidget *line = new QWidget(box);
-            auto *lineLayout = new QHBoxLayout(line);
-            lineLayout->setContentsMargins(0, 0, 0, 0);
+            auto [box, boxLayout] = makeHintedControlWithLayout(form);
+            auto [line, lineLayout] = makeInlineRow(box);
             lineLayout->setSpacing(themeSwatchGroupSpacing());
 
             QWidget *grid = new QWidget(line);
@@ -3214,11 +3097,11 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
                 auto *swatch = new QPushButton(grid);
                 swatch->setObjectName(themeSemanticButtonName(i));
                 swatch->setFixedSize(themeSwatchWidth(), themeSwatchHeight());
-                // ★ 尺寸那一档得**自己挂**：应用级样式表里 `QPushButton { min-height: 32px }`
-                //   会把 `setFixedSize()` 那一句按回去（实测：四块色量出来是 64×**32**）——
-                //   只有 `markIconButton()` 挂的这个属性配得上那条复位规则。
-                //   **颜色**这一层故意不管（那要按当前深浅现推，只有 `MainWindow` 知道，
-                //   见 `refreshThemeControls()`）—— 这里只说"这是一颗图标尺寸的按钮"。
+                // 尺寸那一档得**自己挂**：应用级样式表里 `QPushButton { min-height: 32px }`
+                // 会把 `setFixedSize()` 那一句按回去（实测：四块色量出来是 64×**32**）——
+                // 只有 `markIconButton()` 挂的这个属性配得上那条复位规则。
+                // **颜色**这一层故意不管（那要按当前深浅现推，只有 `MainWindow` 知道，
+                // 见 `refreshThemeControls()`）—— 这里只说"这是一颗图标尺寸的按钮"。
                 Theme::markIconButton(swatch);
                 m_themeSemanticButtons.append(swatch);
 
@@ -3251,16 +3134,13 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
 
         // ---- 整份主题：恢复全部默认 + 导出 / 导入 ----
         {
-            QWidget *box = makeHintedControl(form);
-            auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
-            QWidget *line = new QWidget(box);
-            auto *lineLayout = new QHBoxLayout(line);
-            lineLayout->setContentsMargins(0, 0, 0, 0);
+            auto [box, boxLayout] = makeHintedControlWithLayout(form);
+            auto [line, lineLayout] = makeInlineRow(box);
             lineLayout->setSpacing(themeSwatchRowSpacing());
 
             themeResetAllButton = new QPushButton(themeResetAllText(), line);
             themeResetAllButton->setObjectName(themeResetAllButtonName());
-            // 危险那一档（用户 2026-09-28 那句"不可撤销"）：它把这一节**所有**改动一起抹掉
+            // 危险那一档（用户 那句"不可撤销"）：它把这一节**所有**改动一起抹掉
             // ——包括下面「背景图」那一节那两块（都是同一份规格）。
             Theme::markButton(themeResetAllButton, Theme::ButtonKind::Danger);
 
@@ -3294,9 +3174,6 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         // 控件建出来的先后，而这一节正是从上往下建的）—— 写下来是为了把它**钉住**：以后谁
         // 在这一节中间插一颗控件，默认顺序会跟着变（屏幕上一点异常都没有，只是按 Tab 的顺序
         // 变得莫名其妙），而这一串不会。
-        //
-        // ★ 链上那几颗**彼此都不是兄弟**（各在各自那一行的盒子里），所以只能靠
-        //   `setTabOrder()` 跨层接 —— 它是全窗通用的；ui_check 的 W14 顺着这条链走一遍。
         {
             QVector<QWidget *> chain;
             chain << themePresetCombo << themeAccentButton << themeAccentResetButton
@@ -3315,22 +3192,19 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
     }
 
     // ---------- 背景图 ----------
-    // 2026-09-28 加的：用户原话「能给主页左侧自定义图像吗？其他页面的背景能换图吗」。
+    // 加的：要求「能给主页左侧自定义图像吗？其他页面的背景能换图吗」。
     // 两块底各一行 —— 主页左栏、四个页面的内容区（见 ui/Theme.hpp 里 Part 那两项）。
     //
     // NOTE: 挑图那一下**不是**把用户那个路径记下来：文件会被拷进数据目录
-    //       （`src/util/ThemeImage.hpp`）。这一节只摆控件，收图和落盘都在 MainWindow。
+    // （`src/util/ThemeImage.hpp`）。这一节只摆控件，收图和落盘都在 MainWindow。
     // ---- 第 3 节：标题 + 一张小节卡片（见 addSettingsSection()）----
     const SettingsSection section3 = addSettingsSection(grid, row, QStringLiteral("背景图"), form);
     {
         const auto addImageRow = [&](Theme::Part part, const QString &what) {
             const QString key = Theme::partKey(part);
-            QWidget *box = makeHintedControl(form);
-            auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+            auto [box, boxLayout] = makeHintedControlWithLayout(form);
 
-            QWidget *line = new QWidget(box);
-            auto *lineLayout = new QHBoxLayout(line);
-            lineLayout->setContentsMargins(0, 0, 0, 0);
+            auto [line, lineLayout] = makeInlineRow(box);
             lineLayout->setSpacing(MainWindowUI::themeImageRowSpacing());
 
             ThemeImageRow widgets;
@@ -3413,8 +3287,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
     const SettingsSection section4 = addSettingsSection(grid, row, QStringLiteral("账户"), form);
     section4.card->hide(); // 账号管理已集中在主页；不再显示空入口和过时说明。
     {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         accountSkinSettingsButton = new QPushButton(accountSkinButtonText(), box);
         // 文案和主页那个入口**共用一份**（accountSkinButtonText()，见上面那段说明）。
         accountSkinSettingsButton->setObjectName(accountSkinSettingsButtonName());
@@ -3436,8 +3309,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
     // ---- 第 5 节：标题 + 一张小节卡片（见 addSettingsSection()）----
     const SettingsSection section5 = addSettingsSection(grid, row, QStringLiteral("版本名格式"), form);
     {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
 
         QWidget *checks = new QWidget(box);
         QGridLayout *checkLayout = new QGridLayout(checks);
@@ -3467,18 +3339,17 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
     }
 
     // ---------- 动效 ----------
-    // 2026-10-13 加的（coding plan §8.3 后半句：「动画总开关继续保留，并尊重系统"减少动态
+    // 加的（coding plan §8.3 后半句：「动画总开关继续保留，并尊重系统"减少动态
     // 效果"」）。动效那一层（`ui/Animations`）本来就有个总开关，但**一直没有任何界面入口**
     // —— 用户只能手改注册表。这一节就是那个入口。
     //
-    // ★ 另外还多了一档"系统说别动"（`Animations::platformReducedMotion()`）：Windows 的
-    //   「辅助功能 → 视觉效果 → 动画效果」关掉时，这一档为真，**这个勾勾着也不动**。
-    //   所以下面那行说明必须说清"它可能被系统按住" —— 否则用户勾了没反应，只会以为坏了。
+    // 另外还多了一档"系统说别动"（`Animations::platformReducedMotion()`）：Windows 的
+    // 「辅助功能 → 视觉效果 → 动画效果」关掉时，这一档为真，**这个勾勾着也不动**。
+    // 所以下面那行说明必须说清"它可能被系统按住" —— 否则用户勾了没反应，只会以为坏了。
     // ---- 第 6 节：标题 + 一张小节卡片（见 addSettingsSection()）----
     const SettingsSection section6 = addSettingsSection(grid, row, QStringLiteral("动效"), form);
     {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         animationsCheck = new QCheckBox(animationsCheckText(), box);
         animationsCheck->setObjectName(animationsCheckName());
         boxLayout->addWidget(animationsCheck, 0, Qt::AlignLeft);
@@ -3494,8 +3365,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
     const SettingsSection section7 =
         addSettingsSection(grid, row, QStringLiteral("主页快速启动"), form);
     const auto addCount = [&](const QString &label, const QString &name, QSpinBox **out) {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         auto *spin = new QSpinBox(box);
         spin->setObjectName(name);
         spin->setRange(0, 5);
@@ -3523,12 +3393,10 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
     // ---- 第 1 节：标题 + 一张小节卡片（见 addSettingsSection()）----
     const SettingsSection section1 = addSettingsSection(grid, row, QStringLiteral("下载源"), form);
     {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         downloadSourceCombo = new QComboBox(box);
         downloadSourceCombo->setObjectName(downloadSourceComboName());
         WheelGuard::install(downloadSourceCombo);
-        // ★ 2026-10-11：靠左按 `sizeHint` 摆 —— 理由见「启动器行为」那一颗上面那段。
         boxLayout->addWidget(downloadSourceCombo, 0, Qt::AlignLeft);
         addHint(box, QStringLiteral("镜像源是第三方服务（BMCLAPI），国内通常快很多。"
                                     "下回来的文件不对时可以换回官方源重下。"),
@@ -3536,11 +3404,10 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
         addSettingItem(section1, QStringLiteral("来源"), box, form);
     }
     {
-        // 「同时最多下几个」（2026-10-13，§9.2）。放在「下载源」这一组里：和上面那两格是
+        // 「同时最多下几个」（，§9.2）。放在「下载源」这一组里：和上面那两格是
         // 同一件事 —— 这一批文件**怎么走**。四档那个表在 src/ 的 DownloadConcurrency.hpp
         // 里（唯一出处），这里是**只有框没有项**，项和选中的那一档都由 MainWindow 灌。
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         downloadConcurrencyCombo = new QComboBox(box);
         downloadConcurrencyCombo->setObjectName(downloadConcurrencyComboName());
         WheelGuard::install(downloadConcurrencyCombo);
@@ -3553,11 +3420,10 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
         addSettingItem(section1, downloadConcurrencyRowText(), box, form);
     }
     {
-        // 「下载速度上限」（2026-10-18，§9.2）。和上面那格同一个位置、同一个形状：它也是
+        // 「下载速度上限」（，§9.2）。和上面那格同一个位置、同一个形状：它也是
         // "这一批文件怎么走"的一部分。档位表在 src/ 的 DownloadSpeedLimit.hpp（唯一出处），
         // 这里是**只有框没有项**，项和选中的那一档都由 MainWindow 灌。
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         downloadSpeedLimitCombo = new QComboBox(box);
         downloadSpeedLimitCombo->setObjectName(downloadSpeedLimitComboName());
         WheelGuard::install(downloadSpeedLimitCombo);
@@ -3570,11 +3436,10 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
         addSettingItem(section1, downloadSpeedLimitRowText(), box, form);
     }
     {
-        // 「代理」（2026-10-18，§9.2）。和上面几格同一个位置：它也是"请求怎么走"。
+        // 「代理」（，§9.2）。和上面几格同一个位置：它也是"请求怎么走"。
         // 三档的含义与地址解析在 src/ 的 DownloadProxy.hpp（唯一出处），这里是**只有框
         // 没有项**；手动那一格只在「手动」档露出来（开/关与回填都由 MainWindow 管）。
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         downloadProxyCombo = new QComboBox(box);
         downloadProxyCombo->setObjectName(downloadProxyComboName());
         WheelGuard::install(downloadProxyCombo);
@@ -3595,17 +3460,16 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
         addSettingItem(section1, downloadProxyRowText(), box, form);
     }
     {
-        // CurseForge 的 API key（2026-09-25 加）。放在「下载源」这一组里是因为它和上面那格
+        // CurseForge 的 API key（ 加）。放在「下载源」这一组里是因为它和上面那格
         // 是同一件事：**下载走哪条路**。那一格管 Minecraft 自己的文件，这一格管整合包
         // 清单里那批文件的"换地址"那一发。
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         curseForgeApiKeyEdit = new QLineEdit(box);
         curseForgeApiKeyEdit->setObjectName(curseForgeApiKeyEditName());
         curseForgeApiKeyEdit->setPlaceholderText(curseForgeApiKeyPlaceholder());
         // NOTE: 明文显示（不是 Password 那种圆点）。理由：① 这一格是"用户自己去申请来的一串"，
-        //       贴错了得能看一眼；② 它本来就明文躺在配置里，圆点给的是**假的**安全感。
-        //       它是这一项而不是"账号密码"那一类：泄露的代价是那个用户自己的额度被用掉。
+        // 贴错了得能看一眼；② 它本来就明文躺在配置里，圆点给的是**假的**安全感。
+        // 它是这一项而不是"账号密码"那一类：泄露的代价是那个用户自己的额度被用掉。
         boxLayout->addWidget(curseForgeApiKeyEdit);
         addHint(box, QStringLiteral("CurseForge 那一条路要用它：下载页把来源选成 CurseForge 时"
                                     "搜项目靠接口，CurseForge 格式的整合包导入也要靠接口把"
@@ -3617,14 +3481,13 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
         addSettingItem(section1, curseForgeApiKeyRowText(), box, form);
     }
 
-    // ---------- 下下来的东西放在哪儿（2026-09-28） ----------
-    // 用户原话见 LauncherSettings 里那一节（那是**唯一**的语义出处）。这里只搭控件：
+    // ---------- 下下来的东西放在哪儿 ----------
+    // 要求见 LauncherSettings 里那一节（那是**唯一**的语义出处）。这里只搭控件：
     // 勾选状态由 MainWindow 灌（它才知道这项设置存在哪）。
     // ---- 第 2 节：标题 + 一张小节卡片（见 addSettingsSection()）----
     const SettingsSection section2 = addSettingsSection(grid, row, QStringLiteral("下载的文件"), form);
     {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         downloadAutoIntoInstanceCheck =
             new QCheckBox(downloadAutoIntoInstanceCheckText(), box);
         downloadAutoIntoInstanceCheck->setObjectName(downloadAutoIntoInstanceCheckName());
@@ -3637,12 +3500,11 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
         addSettingItem(section2, downloadAutoIntoInstanceRowText(), box, form);
     }
 
-    // ---------- 「下载缺前置时提醒」（2026-10-09） ----------
+    // ---------- 「下载缺前置时提醒」 ----------
     // 和上面那一项同一个栏、同一种形状：一个勾选框 + 一句话说清勾上/不勾分别是什么。
-    // 用户原话见 LauncherSettings 里那一节（那是**唯一**的语义出处）。
+    // 要求见 LauncherSettings 里那一节（那是**唯一**的语义出处）。
     {
-        QWidget *box = makeHintedControl(form);
-        auto *boxLayout = qobject_cast<QVBoxLayout *>(box->layout());
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
         warnMissingDependenciesCheck = new QCheckBox(warnMissingDependenciesCheckText(), box);
         warnMissingDependenciesCheck->setObjectName(warnMissingDependenciesCheckName());
         boxLayout->addWidget(warnMissingDependenciesCheck, 0, Qt::AlignLeft);
@@ -3687,12 +3549,12 @@ constexpr const char kPanelEmptyText[] = "（没有可显示的内容）";
  * 淡淡蒙一层，颜色一律从调色板取（**不写死**），浅色深色主题下都成立。
  *
  * NOTE: hover / pressed 那两条都带 `:enabled` —— 万一有哪一颗是灰掉的，它划过时**不许**
- *       亮：亮一下就说明"能点"，点下去却什么都不发生。（右面板里当前账号那一行 2026-09-24
- *       之前就是灰的 —— 用户说完「把那个账户管理里的当前改成登出」之后那一颗能点了，
- *       所以现在没有哪一颗是灰的；`:enabled` 留着是护这条规矩本身。）
+ * 亮：亮一下就说明"能点"，点下去却什么都不发生。（右面板里当前账号那一行
+ * 之前就是灰的 —— 用户说完「把那个账户管理里的当前改成登出」之后那一颗能点了，
+ * 所以现在没有哪一颗是灰的；`:enabled` 留着是护这条规矩本身。）
  *
  * NOTE: 文字按钮要留左右各 6 px 内边距（两三个字贴着边看着像被裁过）；图标按钮不留
- *       （它的大小已经由 kPanelActionSize 定死了，留了反而把图形挤小）。
+ * （它的大小已经由 kPanelActionSize 定死了，留了反而把图形挤小）。
  */
 void applyPanelActionStyle(QPushButton *button, const QPalette &panelPalette, bool hasText) {
     QColor hover = panelPalette.color(QPalette::Highlight);
@@ -3712,9 +3574,9 @@ void applyPanelActionStyle(QPushButton *button, const QPalette &panelPalette, bo
  * @brief 面板里那一行：行首图标 + 一列字（主行/次行）+ 行尾几个动作按钮。
  *
  * NOTE: 行尾那几颗用的是**真按钮**（QPushButton），不是自绘 + 事件过滤器 —— 和实例树里
- *       那个"取消小叉"正好相反（那里只能自绘，因为那是 item view 的一行，`editorEvent`
- *       压不住 `itemClicked`）。面板不是列表控件，这里放真控件白得 hover / 按下 /
- *       disabled 三态，验证工程也能按 objectName 把每一颗找回来点它。
+ * 那个"取消小叉"正好相反（那里只能自绘，因为那是 item view 的一行，`editorEvent`
+ * 压不住 `itemClicked`）。面板不是列表控件，这里放真控件白得 hover / 按下 /
+ * disabled 三态，验证工程也能按 objectName 把每一颗找回来点它。
  */
 class BottomBarPanelRowWidget : public QWidget {
 public:
@@ -3824,7 +3686,7 @@ public:
  * 白给：点面板外面自动关、Esc 关、不抢主窗口的焦点。
  *
  * NOTE: 它是个**窗口**（Qt::Popup 一定是顶层窗口），但 parent 照旧挂着 —— 这样
- *       findChild 找得到它（验证工程靠这个量几何），生命周期也不用单独管。
+ * findChild 找得到它（验证工程靠这个量几何），生命周期也不用单独管。
  */
 class BottomBarPanel : public QWidget {
 public:
@@ -3833,9 +3695,9 @@ public:
     /// "点在面板外面"那一下要问外面两件事（两个都按**全局坐标**说话 —— 面板自己认不出
     /// "外面是哪儿"，它只知道用户在框外点了一下）。两问的顺序不能换，理由见
     /// handleOutsidePress() 的第二段 NOTE：
-    ///   · claimed —— 收回去**之前**问：这一下落在底栏那两颗按钮上吗？（是 ⇒ 把 Qt 那记
-    ///     重放压掉）
-    ///   · dismissed —— 收回去**之后**叫：去开该开的那一块（点的要是同一颗就什么都不开）。
+    /// · claimed —— 收回去**之前**问：这一下落在底栏那两颗按钮上吗？（是 ⇒ 把 Qt 那记
+    /// 重放压掉）
+    /// · dismissed —— 收回去**之后**叫：去开该开的那一块（点的要是同一颗就什么都不开）。
     struct OutsidePressHandler {
         std::function<bool(const QPoint &globalPos)> claimed;
         std::function<void(const QPoint &globalPos)> dismissed;
@@ -3843,10 +3705,10 @@ public:
 
     /// @param anchor 贴着哪颗按钮弹（也决定"至少和按钮一样宽"）。
     /// @param alignRight true = 右边缘和按钮右边缘对齐（右端那颗按钮用），
-    ///                   false = 左边缘对齐（左端那颗用）。
+    /// false = 左边缘对齐（左端那颗用）。
     /// @param dropDown true = 面板挂在锚点**下面**（主页右上那张账号卡片用），
-    ///                 false = 挂在锚点**上面**（底栏那几颗按钮用 —— 底下就是窗沿，
-    ///                 往上弹才不会压住内容区）。
+    /// false = 挂在锚点**上面**（底栏那几颗按钮用 —— 底下就是窗沿，
+    /// 往上弹才不会压住内容区）。
     /// @param rows 面板里的几行（数据由 MainWindow 翻好，见 setBottomBarPanelContent()）。
     /// @param onAction 行尾的按钮被点了该告诉谁（可以给空的 = 这些按钮点了没反应）。
     /// @param onOutsidePress 点在外面那一下该告诉谁（两个回调都可以给空的 = 只知道"要收回去"）。
@@ -3858,10 +3720,10 @@ public:
         setObjectName(MainWindowUI::bottomBarPanelName());
         // 底色比底栏再深一档：它是压在内容区上面的一块，得从底下那堆东西里分出来。
         // **不写死颜色**：从当前调色板推出来，浅色/深色主题下都成立（和底栏同一个路数）。
-        // 那一档从 2026-09-28 起由 `Theme::partBackground(Part::Panel)` 说了算（用户可以把
+        // 那一档从 起由 `Theme::partBackground(Part::Panel)` 说了算（用户可以把
         // 这一族的浮层单独换一个色），算出来和从前那个 `darker(112)` 一模一样。
         // NOTE: 这一块**每次现建**（Qt::Popup + WA_DeleteOnClose）⇒ 不用挂 follow()：
-        //       主题换了之后下一次打开自然就是新的（`Theme::follow()` 的 NOTE 那一段）。
+        // 主题换了之后下一次打开自然就是新的（`Theme::follow()` 的 NOTE 那一段）。
         setAutoFillBackground(true);
         QPalette panelPalette = QApplication::palette();
         panelPalette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Panel));
@@ -3915,22 +3777,22 @@ public:
             const QPoint anchorTopLeft = m_anchor->mapToGlobal(QPoint(0, 0));
             int x = m_alignRight ? anchorTopLeft.x() + m_anchor->width() - width()
                                  : anchorTopLeft.x();
-            // ★ 两个方向各有一处讲究：
-            //   · 底栏那几颗（`dropDown = false`）往上弹 —— 它们底下就是窗沿；
-            //   · 主页右上那张账号卡片（`dropDown = true`）往下弹 —— 它贴着头顶，往上弹
-            //     连"从哪儿滑上来"都没有地方（会被下面那段夹回屏幕里、压在卡片上）。
+            // 两个方向各有一处讲究：
+            // · 底栏那几颗（`dropDown = false`）往上弹 —— 它们底下就是窗沿；
+            // · 主页右上那张账号卡片（`dropDown = true`）往下弹 —— 它贴着头顶，往上弹
+            // 连"从哪儿滑上来"都没有地方（会被下面那段夹回屏幕里、压在卡片上）。
             int y = m_dropDown ? anchorTopLeft.y() + m_anchor->height() + kPanelGap
                                : anchorTopLeft.y() - height() - kPanelGap;
-            // ★ 2026-10-14（coding plan §3.3「窄窗口避让……只实现一次」）：把它**夹进那一块
-            //   屏的可用区域**。面板是个顶层窗口，按锚点算出来的落点会**跑到屏幕外面**去 ——
-            //   窗口贴着屏幕右边那一块（或者面板比窗口还宽）时，右端那块面板有半截在屏外，
-            //   屏幕上就是"点了没反应"。夹的是**屏幕**（不是启动器窗口）那一块：面板可以
-            //   压在启动器外面，只要人还看得见它。
-            //   NOTE: 只夹到边界、**不留边距** —— 现有那两条几何判据钉的是"左边缘贴按钮
-            //         左边缘"/"右边缘贴按钮右边缘"（ui_check I4），多留一格边距就是在正常
-            //         情形下也把那两条判据顶红。零边距的夹法在正常情形下**一个像素都不动**。
-            //   NOTE: 面板比可用区域还宽/还高时（极端窄的屏）夹不动，那就不夹（`qBound`
-            //         要求下界 ≤ 上界，反过来的话它在 debug 里会直接断言）。
+            // （coding plan §3.3「窄窗口避让……只实现一次」）：把它**夹进那一块
+            // 屏的可用区域**。面板是个顶层窗口，按锚点算出来的落点会**跑到屏幕外面**去 ——
+            // 窗口贴着屏幕右边那一块（或者面板比窗口还宽）时，右端那块面板有半截在屏外，
+            // 屏幕上就是"点了没反应"。夹的是**屏幕**（不是启动器窗口）那一块：面板可以
+            // 压在启动器外面，只要人还看得见它。
+            // NOTE: 只夹到边界、**不留边距** —— 现有那两条几何判据钉的是"左边缘贴按钮
+            // 左边缘"/"右边缘贴按钮右边缘"（ui_check I4），多留一格边距就是在正常
+            // 情形下也把那两条判据顶红。零边距的夹法在正常情形下**一个像素都不动**。
+            // NOTE: 面板比可用区域还宽/还高时（极端窄的屏）夹不动，那就不夹（`qBound`
+            // 要求下界 ≤ 上界，反过来的话它在 debug 里会直接断言）。
             const QScreen *screen = m_anchor->screen() != nullptr ? m_anchor->screen()
                                                                  : QGuiApplication::primaryScreen();
             if (screen != nullptr) {
@@ -3944,12 +3806,6 @@ public:
                     y = qBound(avail.top(), y, yMax);
                 }
             }
-            // 2026-09-29：上拉面板**从下面滑上来**。它是顶层窗口（Qt::Popup），所以"滑"
-            // 就是它自己的 pos() 在动 —— 落到哪儿还是一样算，只是先把起手位摆在落点下面
-            // `panelSlideDistance()` 那一格上。关掉动效时 `slideUp()` 直接 move 到落点，
-            // 和从前那一句 move(x, …) 一模一样（见 ui/Animations.hpp）。
-            // ★ 2026-10-16：往下弹那一档（主页账号卡片）方向反过来 —— 那一块是"从上面
-            //   掉下来"的，用 `slideDown()`（同距离、同一条动效开关，只是起手位在落点上面）。
             if (m_dropDown) {
                 Anim::slideDown(this, QPoint(x, y));
             } else {
@@ -3976,19 +3832,19 @@ protected:
     /// 返回 true = 这一下已经办完了（不要再去走基类那套）。
     ///
     /// NOTE: 【为什么要在这里把坐标交出去】外面那一下是"面板该收了"，而"换到另一块面板"
-    ///       只有在这里才办得到（那颗按钮收不到任何事件）。所以认"外面是哪儿"这件事由
-    ///       回调办（它才知道那两颗按钮在哪），面板只管收自己。
+    /// 只有在这里才办得到（那颗按钮收不到任何事件）。所以认"外面是哪儿"这件事由
+    /// 回调办（它才知道那两颗按钮在哪），面板只管收自己。
     /// NOTE: 【为什么要压 Qt 的重放】Qt 在关一块 Qt::Popup 的时候，如果光标不在它几何里，
-    ///       会把这同一个 press **重放**给光标底下那个控件（`QApplicationPrivate::closePopup`
-    ///       → `replayMousePress` → `QWidgetWindow::handleMouseEvent` 尾巴上那段；
-    ///       Windows 上那个 style hint 是 true）。那一下落在底栏那颗按钮上就是**又一次点击**：
-    ///         · 点的是**另一颗** → 我们刚替用户把那一块开出来，重放这一下又把它收回去
-    ///           （看上去就是"点了没反应，得点两下"）；
-    ///         · 点的是**同一颗** → 我们刚收回去，重放这一下又开出来（看上去就是"收不回去"）。
-    ///       `Qt::WA_NoMouseReplay` 就是干这个的（QMenu 对它自己那颗按钮也是这么办的，
-    ///       见 `QMenuPrivate::noReplayFor`）。**必须在 close() 之前钉上** —— Qt 是关窗
-    ///       （`hide_helper`）那一刻读这个属性。属性会被 Qt 在"这个控件又收到鼠标事件"时
-    ///       清掉，所以挂在构造里没用，只能在这儿按需要钉。
+    /// 会把这同一个 press **重放**给光标底下那个控件（`QApplicationPrivate::closePopup`
+    /// → `replayMousePress` → `QWidgetWindow::handleMouseEvent` 尾巴上那段；
+    /// Windows 上那个 style hint 是 true）。那一下落在底栏那颗按钮上就是**又一次点击**：
+    /// · 点的是**另一颗** → 我们刚替用户把那一块开出来，重放这一下又把它收回去
+    /// （看上去就是"点了没反应，得点两下"）；
+    /// · 点的是**同一颗** → 我们刚收回去，重放这一下又开出来（看上去就是"收不回去"）。
+    /// `Qt::WA_NoMouseReplay` 就是干这个的（QMenu 对它自己那颗按钮也是这么办的，
+    /// 见 `QMenuPrivate::noReplayFor`）。**必须在 close() 之前钉上** —— Qt 是关窗
+    /// （`hide_helper`）那一刻读这个属性。属性会被 Qt 在"这个控件又收到鼠标事件"时
+    /// 清掉，所以挂在构造里没用，只能在这儿按需要钉。
     bool handleOutsidePress(QMouseEvent *event) {
         const QPoint local = event->position().toPoint();
         if (rect().contains(local)) {
@@ -4012,7 +3868,7 @@ protected:
 
     /**
      * @brief 点在面板外面的那一下 = "面板该收回了"。落点是不是底栏那两颗按钮、要不要换一块，
-     *        由回调说了算（见 handleOutsidePress()）。
+     * 由回调说了算（见 handleOutsidePress()）。
      */
     void mousePressEvent(QMouseEvent *event) override {
         if (handleOutsidePress(event)) {
@@ -4047,9 +3903,9 @@ private:
 
 /// 底栏整条那一块布的调色板：底比窗口底色深一档（用户单独改过就是那个）。
 ///
-/// ★ 基色调色板一律取 `QApplication::palette()`，**不能**取底栏自己的 —— 底栏身上就写着
-///   算好的那一份，第二次进来取到的 Window 已经是压暗过一档的，再压一次就深两档
-///   （`TitleBar::applyColors()` 那边同一个坑，2026-09-25 在那儿踩过一次）。
+/// 基色调色板一律取 `QApplication::palette()`，**不能**取底栏自己的 —— 底栏身上就写着
+/// 算好的那一份，第二次进来取到的 Window 已经是压暗过一档的，再压一次就深两档
+/// （`TitleBar::applyColors()` 那边同一个坑， 在那儿踩过一次）。
 QPalette bottomBarChromePalette() {
     QPalette palette = QApplication::palette();
     palette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::BottomBar));
@@ -4073,12 +3929,12 @@ void applyBottomBarButtonStyle(QPushButton *button, const QPalette &barPalette) 
                        "QPushButton:hover { background-color: %1; }"
                        "QPushButton:pressed { background-color: %2; }")
             .arg(hover.name(QColor::HexArgb), pressed.name(QColor::HexArgb)));
-    // ★ 登记**只能登记一次**，所以这里用属性当闸门 —— 这个函数本身就在"主题变了"的回调
-    //   那一支上（下面那条 lambda），里面那句 `setStyleSheet()` 又发一次 `StyleChange`。
-    //   原来把 `Theme::follow()` 直接摆在这个函数里 ⇒ 每一趟都**再生一个**跟随者，新跟随者
-    //   又同步回调进这个函数、又生一个…… 挂上主题之后进程起来直接栈溢出（`0xC00000FD`，
-    //   一行输出都没有）。`PaletteFollower` 里那个 `m_running` 只拦得住**同一个**跟随者自咬，
-    //   拦不住"生新的"。闸门放在这里，是因为两个调用点之外谁也够不到这一支。
+    // 登记**只能登记一次**，所以这里用属性当闸门 —— 这个函数本身就在"主题变了"的回调
+    // 那一支上（下面那条 lambda），里面那句 `setStyleSheet()` 又发一次 `StyleChange`。
+    // 原来把 `Theme::follow()` 直接摆在这个函数里 ⇒ 每一趟都**再生一个**跟随者，新跟随者
+    // 又同步回调进这个函数、又生一个…… 挂上主题之后进程起来直接栈溢出（`0xC00000FD`，
+    // 一行输出都没有）。`PaletteFollower` 里那个 `m_running` 只拦得住**同一个**跟随者自咬，
+    // 拦不住"生新的"。闸门放在这里，是因为两个调用点之外谁也够不到这一支。
     if (button->property(kBottomBarButtonFollowedProperty).toBool()) {
         return;
     }
@@ -4120,7 +3976,7 @@ constexpr int kFolderRowGearSpacing = 6;
 /// 上拉面板的，菜单比它们紧一档（菜单是压在内容上的一小块，四周留白跟面板一样多就显得
 /// 糊在底下那行上了）。
 ///
-/// 2026-09-24 用户原话：「点开的那个框在文本左右都有点留白，上下也是，能不能缩小一点点
+/// 要求：「点开的那个框在文本左右都有点留白，上下也是，能不能缩小一点点
 /// （减少到 80% 的样子）」+ 紧接着一句「上下不用减那么多，匹配即可」。取值就是照着这两句
 /// 算的 —— 文字左边原来 10 + 8 = 18 px（框内边距 + 按钮内边距），现在 8 + 6 = 14 px
 /// （≈78%）；上边原来 10 + 6 = 16 px，现在 8 + **6** = 14 px（≈88%，就是"不用减那么多"
@@ -4133,13 +3989,13 @@ constexpr int kFolderMenuRowSpacing = 4;
  * @brief 「游戏文件夹」列表里的一行。
  *
  * NOTE: 这两行字和行尾那颗齿轮全是**真控件**，没有一行是自绘的 —— 和底栏面板那几行
- *       同一个取法（理由也一样：真按钮白得 hover / 按下 / disabled 三态，验证工程还
- *       能按 objectName 把每一颗找回来点它）。
+ * 同一个取法（理由也一样：真按钮白得 hover / 按下 / disabled 三态，验证工程还
+ * 能按 objectName 把每一颗找回来点它）。
  *
  * NOTE: 这一行里**只有齿轮吃鼠标那一下**。那两行字是普通 QLabel（不吃鼠标事件），
- *       事件会一路冒泡到列表的 viewport，于是"点行 = 选中这一份文件夹"照旧生效 ——
- *       这和"取消小叉"那个自绘的格子正好相反（那里非拦不可，因为拦晚了会变成"点进了
- *       安装页"）。这里不拦是有意的：选中那一份文件夹是这个列表最主要的用途。
+ * 事件会一路冒泡到列表的 viewport，于是"点行 = 选中这一份文件夹"照旧生效 ——
+ * 这和"取消小叉"那个自绘的格子正好相反（那里非拦不可，因为拦晚了会变成"点进了
+ * 安装页"）。这里不拦是有意的：选中那一份文件夹是这个列表最主要的用途。
  */
 class FolderRowWidget : public QWidget {
 public:
@@ -4235,7 +4091,7 @@ private:
  * 白给：点框外面自动关、Esc 关、不抢主窗口的焦点，而且**不阻塞**。
  *
  * NOTE: 它是个窗口（Qt::Popup 一定是顶层窗口），但 parent 照旧挂着 —— 这样 findChild
- *       找得到它（验证工程靠这个把它捞回来逐项点），生命周期也不用单独管。
+ * 找得到它（验证工程靠这个把它捞回来逐项点），生命周期也不用单独管。
  */
 class FolderMenu : public QWidget {
 public:
@@ -4251,7 +4107,7 @@ public:
         setObjectName(MainWindowUI::folderMenuName());
         // 底色比内容区深一档：它是压在列表上面的一块，得从底下那堆东西里分出来。
         // **不写死颜色**：从当前调色板推出来，浅色/深色主题下都成立（和底栏、面板同一个路数）。
-        // 这一族（浮层）那一档从 2026-09-28 起由 `Theme::partBackground(Part::Panel)` 说了算。
+        // 这一族（浮层）那一档从 起由 `Theme::partBackground(Part::Panel)` 说了算。
         // NOTE: 每次现建 ⇒ 不用挂 follow()（和底栏面板同一条）。
         setAutoFillBackground(true);
         QPalette menuPalette = QApplication::palette();
@@ -4263,7 +4119,7 @@ public:
         // grab。模态窗开在一块抓着手柄的东西底下，Windows 上就是"窗出来了但点不动"。
         //
         // NOTE: context 用 parent（列表那一头）而**不是** this：这个框是 WA_DeleteOnClose，
-        //       close() 之后它随时会被删掉，捕它等于捕一个随时没了的对象。
+        // close() 之后它随时会被删掉，捕它等于捕一个随时没了的对象。
         QWidget *const deferContext = parent;
         const auto dispatch = [this, deferContext, onAction](int action) {
             const QString path = m_path;
@@ -4295,7 +4151,7 @@ public:
             QPushButton *button = new QPushButton(this);
             button->setObjectName(MainWindowUI::folderMenuActionName(a));
             button->setText(MainWindowUI::folderActionText(a));
-            // 字形颜色：「删除」那一项的垃圾桶跟着它的字一起红（2026-09-24 用户要的）。
+            // 字形颜色：「删除」那一项的垃圾桶跟着它的字一起红（ 用户要的）。
             // 灰掉的那一档仍走正文色 —— 和字那边是同一条规矩（见 folderActionStyle 里
             // 的 `:enabled`）：红图标落在灰按钮上会被读成"这一项现在能点"。
             button->setIcon(QIcon(MainWindowUI::folderActionIcon(
@@ -4382,7 +4238,7 @@ protected:
 
 private:
     /// 菜单里一项的外观：不画自己的底、只在鼠标划过时淡淡蒙一层（颜色从调色板取，
-    /// **不写死**），文字一律左对齐，**字一律加粗**（2026-09-24 用户要的：一块压在上面的
+    /// **不写死**），文字一律左对齐，**字一律加粗**（ 用户要的：一块压在上面的
     /// 浮层，字不沉一点读起来像被底下的内容冲淡了）。「删除」那一项的字色是全仓唯一
     /// 一处红字。
     static QString folderActionStyle(int action, const QPalette &menuPalette) {
@@ -4391,10 +4247,10 @@ private:
         QColor pressed = menuPalette.color(QPalette::Highlight);
         pressed.setAlpha(96);
         // 左右各留 6 px：图标贴着框边看着像被裁过，但再多就显得这块框糊在底下的行上了
-        // （原来是 8，2026-09-24 跟着 kFolderMenuPadding 一起收紧 —— 两个数怎么来的、
+        // （原来是 8， 跟着 kFolderMenuPadding 一起收紧 —— 两个数怎么来的、
         // 用户那两句话怎么读，都写在 kFolderMenuPadding 上面那段）。
         // NOTE: 加粗走 QSS 的 `font-weight`（别去 setFont() 改控件的字体）—— 这条样式
-        //       表的**每一档状态**都是这里出的，字重跟别的属性待在同一个地方才不会漏。
+        // 表的**每一档状态**都是这里出的，字重跟别的属性待在同一个地方才不会漏。
         QString sheet = QStringLiteral("QPushButton { border: none; background: transparent;"
                                        " font-weight: bold;"
                                        " text-align: left; padding: 6px 6px; }"
@@ -4418,19 +4274,19 @@ private:
  * @brief 实例页右栏那张树里**组行行尾那颗齿轮**点出来的框。
  *
  * 两套构造，同一个类：
- *   * **动作菜单**（默认）：这一组能做什么（移入分组… / 都移出分组 / 重命名 / 默认展开 /
- *     删除）；
- *   * **挑目标**：把**选中的那个实例**移进哪一组（列出全部组，含一个实例都没有的
- *     那些 —— 空组在树里是藏着的，这是唯一能把第一个实例放进去的入口）。
+ * * **动作菜单**（默认）：这一组能做什么（移入分组… / 都移出分组 / 重命名 / 默认展开 /
+ * 删除）；
+ * * **挑目标**：把**选中的那个实例**移进哪一组（列出全部组，含一个实例都没有的
+ * 那些 —— 空组在树里是藏着的，这是唯一能把第一个实例放进去的入口）。
  *
  * NOTE: 骨架是从 FolderMenu 抄的（Qt::Popup + 点框外/Esc 自己关 + "再点同一颗齿轮
- *       收回" + 按屏幕收边 + 点某项先关窗、排到下一轮事件循环再交出去；那边每一条的
- *       **理由**都写在它的注释里，这里不重复）。两块真正的差别只有两点：
- *         · 认"点的是不是同一颗齿轮"用的是一个**锚点矩形**（行是代理画的，压根没有
- *           控件可指）；于是"收回"那一下还得压 Qt 的重放 —— 见 handleAnchorPress()；
- *         · 动作菜单里有一项（移入分组…）要**再弹第二个框**，所以这一块的父窗口
- *           底下可能同时存在两"代"。
- *       **要改这套骨架时两块一起改**（文件夹那一块叫 FolderMenu，就在上面）。
+ * 收回" + 按屏幕收边 + 点某项先关窗、排到下一轮事件循环再交出去；那边每一条的
+ * **理由**都写在它的注释里，这里不重复）。两块真正的差别只有两点：
+ * · 认"点的是不是同一颗齿轮"用的是一个**锚点矩形**（行是代理画的，压根没有
+ * 控件可指）；于是"收回"那一下还得压 Qt 的重放 —— 见 handleAnchorPress()；
+ * · 动作菜单里有一项（移入分组…）要**再弹第二个框**，所以这一块的父窗口
+ * 底下可能同时存在两"代"。
+ * **要改这套骨架时两块一起改**（文件夹那一块叫 FolderMenu，就在上面）。
  */
 class GroupMenu : public QWidget {
 public:
@@ -4636,13 +4492,13 @@ private:
     /// 落在**自己那颗齿轮**上 = "再点一次收回"。
     ///
     /// NOTE: 【为什么要压 Qt 的重放】和底栏那两块面板同一条：Qt 关一块 Qt::Popup 的时候，
-    ///       如果光标不在它几何里，会把这同一个 press **重放**给光标底下那个控件。那颗
-    ///       齿轮在**树的行里**，重放那一下落到 viewport 上 —— 而那一格正是"点齿轮"的
-    ///       命中格（见 MainWindow::eventFilter），于是菜单刚收回去又会被自己弹开，看着
-    ///       就是"收不回去"。`WA_NoMouseReplay` 干的就是这个，**必须在 close() 之前钉**
-    ///       （Qt 是关窗那一刻读它；属性会被 Qt 在"这个控件又收到鼠标事件"时清掉，所以
-    ///       挂在构造里没用）。popup 这一侧和**接重放那一侧**都钉：文档说这个属性是给
-    ///       popup 用的，但重放是"投递给下面那个控件"的，两处都钉才两种路径都盖住。
+    /// 如果光标不在它几何里，会把这同一个 press **重放**给光标底下那个控件。那颗
+    /// 齿轮在**树的行里**，重放那一下落到 viewport 上 —— 而那一格正是"点齿轮"的
+    /// 命中格（见 MainWindow::eventFilter），于是菜单刚收回去又会被自己弹开，看着
+    /// 就是"收不回去"。`WA_NoMouseReplay` 干的就是这个，**必须在 close() 之前钉**
+    /// （Qt 是关窗那一刻读它；属性会被 Qt 在"这个控件又收到鼠标事件"时清掉，所以
+    /// 挂在构造里没用）。popup 这一侧和**接重放那一侧**都钉：文档说这个属性是给
+    /// popup 用的，但重放是"投递给下面那个控件"的，两处都钉才两种路径都盖住。
     /// @return true = 这一下已经办完了（不要再去走基类那套）。
     bool handleAnchorPress(QMouseEvent *event) {
         if (!m_anchorGlobal.contains(event->globalPosition().toPoint())) {
@@ -4673,16 +4529,16 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     // 这里只**搭**它：显示什么由 MainWindow::updateBottomBar() 决定，
     // 界面这边不持有任何业务状态。
     //
-    // NOTE: 头像那格和实例状态那格在 2026-09 **对调过**（原来头像在左、实例状态在右）。
-    //       底下那几个 stretch 是围绕中间那格配的，对调两头时中间那格的份数原样不动，
-    //       进度条仍然居中。
+    // NOTE: 头像那格和实例状态那格在 **对调过**（原来头像在左、实例状态在右）。
+    // 底下那几个 stretch 是围绕中间那格配的，对调两头时中间那格的份数原样不动，
+    // 进度条仍然居中。
     bottomBar = new QFrame(parent);
     bottomBar->setObjectName(bottomBarName());
     bottomBar->setFrameShape(QFrame::NoFrame);
     bottomBar->setFixedHeight(kBottomBarHeight);
     // 底色比窗口底色深一档把它从内容区里分出来。**不写死颜色**：从当前调色板推出来，
     // 浅色主题和深色主题下都成立（darker() 在两种主题上的效果都是"更沉一点"）。
-    // 那一档从 2026-09-28 起由 `Theme::partBackground(Part::BottomBar)` 说了算（用户可以把
+    // 那一档从 起由 `Theme::partBackground(Part::BottomBar)` 说了算（用户可以把
     // 这一条单独换成别的色），算出来和从前那个 `darker(105)` 一模一样。
     bottomBar->setAutoFillBackground(true);
     bottomBar->setPalette(bottomBarChromePalette());
@@ -4696,14 +4552,14 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     // ---------- 左：当前实例运行状态 ----------
     // 第一行是状态正文，第二行是实例名。**在主页且选中的就是正在跑的那个实例**时
     // 只显示第一行 —— 那种情况下用户眼前就是那个实例，再说一遍名字是废话。
-    // 最左边那颗**状态方块**（红/黄/绿，2026-09-24 加的）。它是**第一行的一部分**，
+    // 最左边那颗**状态方块**（红/黄/绿， 加的）。它是**第一行的一部分**，
     // 所以下面把第一行做成"方块 + 文字"的一个横排，而不是把方块摆在整格的最左边 ——
     // 摆整格最左边的话，显示第二行时方块会停在两行的中间（VB 居中那一档），
     // 看着不属于任何一行。
     //
     // NOTE: 这里**只是把图摆出来**，颜色由 MainWindow 按状态来要（runStateMarkPixmap()）。
-    //       方块自己不知道现在是哪个状态 —— 那件事的判据在 MainWindow::updateBottomBar()
-    //       里（"有没有正在启动的会话、有没有正在跑的进程"），这儿是 ui/ 层，看不到那些。
+    // 方块自己不知道现在是哪个状态 —— 那件事的判据在 MainWindow::updateBottomBar()
+    // 里（"有没有正在启动的会话、有没有正在跑的进程"），这儿是 ui/ 层，看不到那些。
     runStateMarkLabel = new QLabel(bottomBar);
     runStateMarkLabel->setObjectName(runStateMarkName());
     runStateMarkLabel->setFixedSize(MainWindowUI::runStateMarkSize(),
@@ -4720,13 +4576,13 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     runStateDetailLabel = new ElidedLabel(bottomBar);
     runStateDetailLabel->setObjectName(runStateDetailLabelName());
     runStateDetailLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    // ★ 这一格的宽度上限 = **第一行那个数 + 方块那一段**（2026-09-26 修）。
-    //   原来两行封的是同一个数（bottomBarRunStateTextWidth() = 136），可两行的"少掉 16 px"
-    //   不是一回事：第一行那个方块是布局里**单独的控件**（它占的是上限**之外**的位置，
-    //   所以那 136 全是给字的），第二行的缩进走的是 contentsMargins —— 那 16 px 是**从上限
-    //   里面**扣的。于是第二行真正能写的只有 120 px，右边比第一行短一截，而下面那句注释
-    //   一直写着"剩下的可用宽度正好也一样"（承诺和代码相反，见 2026-09-25 那条教训）。
-    //   加回一段之后：两行留给字的宽度都是 136，整格的总宽也都还是 152。
+    // 这一格的宽度上限 = **第一行那个数 + 方块那一段**（ 修）。
+    // 原来两行封的是同一个数（bottomBarRunStateTextWidth() = 136），可两行的"少掉 16 px"
+    // 不是一回事：第一行那个方块是布局里**单独的控件**（它占的是上限**之外**的位置，
+    // 所以那 136 全是给字的），第二行的缩进走的是 contentsMargins —— 那 16 px 是**从上限
+    // 里面**扣的。于是第二行真正能写的只有 120 px，右边比第一行短一截，而下面那句注释
+    // 一直写着"剩下的可用宽度正好也一样"（承诺和代码相反，见 那条教训）。
+    // 加回一段之后：两行留给字的宽度都是 136，整格的总宽也都还是 152。
     runStateDetailLabel->setMaximumWidth(MainWindowUI::bottomBarRunStateTextWidth() +
                                          MainWindowUI::bottomBarRunStateMarkWidth());
     // 第二行**缩进方块那一段**，两行文字的左边才对得齐。不缩进的话第一行比第二行多出
@@ -4756,24 +4612,24 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     runStateLayout->addWidget(runStateDetailLabel);
     runStateLayout->setContentsMargins(0, 0, 0, 0);
 
-    // 这一整格是一颗**按钮**：点它向上弹出实例那块面板（用户 2026-09-23 要的）。
+    // 这一整格是一颗**按钮**：点它向上弹出实例那块面板（用户 要的）。
     // 按钮的宽度是**钉死**的，所以这一格的宽度跟"里面有没有字、字有多长"彻底没关系。
     //
     // NOTE: 宽度钉在**按钮**上、不钉在里面那两行字上，是量出来的结论：那两行在没有实例
-    //       在跑时是藏起来的，而 **Qt 的布局把藏起来的格子当成宽度 0** —— 钉在字上的话，
-    //       「下载中」到「启动起来」这一步就是 0 → 200，中间那根条当场从 582 缩到 440
-    //       （**142 px**），用户报的「实例运行中一出来条就变长变短」量到的就是这个数。
-    //       钉在按钮上，这一格就一直在。
-    //       按钮里那个 layout 的边距要显式清成 0：**套在控件里的 layout 默认会拿样式给的
-    //       边距**（套在 layout 里的不会），不清的话这格是 200 加左右两条边距。
+    // 在跑时是藏起来的，而 **Qt 的布局把藏起来的格子当成宽度 0** —— 钉在字上的话，
+    // 「下载中」到「启动起来」这一步就是 0 → 200，中间那根条当场从 582 缩到 440
+    // （**142 px**），用户报的「实例运行中一出来条就变长变短」量到的就是这个数。
+    // 钉在按钮上，这一格就一直在。
+    // 按钮里那个 layout 的边距要显式清成 0：**套在控件里的 layout 默认会拿样式给的
+    // 边距**（套在 layout 里的不会），不清的话这格是 200 加左右两条边距。
     runStateButton = new QPushButton(bottomBar);
     runStateButton->setObjectName(runStateButtonName());
     runStateButton->setFixedWidth(MainWindowUI::bottomBarRunStateColumnWidth());
     // NOTE: **竖直方向必须自己说要铺满**。QPushButton 的竖直 sizePolicy 默认是 Fixed，
-    //       而它这会儿的高度提示只有一行字那么点（QSS 把 padding 和 border 都清零了，
-    //       实测 sizeHint 高 12 px）—— 结果这一格只有 12 px 高，里面那两行字被压成各 6 px
-    //       （"文字和箭头挤在一起、显示不全"，用户 2026-09-23 报的），鼠标划过时那块
-    //       高亮框也成了一长条。宽度钉死 + 高度铺满，这一格才真的是"占住底栏那一块"。
+    // 而它这会儿的高度提示只有一行字那么点（QSS 把 padding 和 border 都清零了，
+    // 实测 sizeHint 高 12 px）—— 结果这一格只有 12 px 高，里面那两行字被压成各 6 px
+    // （"文字和箭头挤在一起、显示不全"，用户 报的），鼠标划过时那块
+    // 高亮框也成了一长条。宽度钉死 + 高度铺满，这一格才真的是"占住底栏那一块"。
     runStateButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     runStateButton->setCursor(Qt::PointingHandCursor);
     runStateButton->setToolTip(MainWindowUI::bottomBarRunPanelTip());
@@ -4791,7 +4647,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     // **藏的是字和那颗方块，不是格子** —— 格子（上面那颗按钮）永远占着那 170 px（宽度是
     // bottomBarRunStateColumnWidth()，从 200 缩到 170 那次改的，别照旧数字找）。
     // NOTE: 方块和那两行一起 hide() 是初值：产品里 MainWindow 每次重画底栏都会摆一个状态
-    //       （三个状态各有一句话，见 updateBottomBar()），所以这之后它一直是亮的。
+    // （三个状态各有一句话，见 updateBottomBar()），所以这之后它一直是亮的。
     runStateMarkLabel->hide();
     runStateLabel->hide();
     runStateDetailLabel->hide();
@@ -4830,14 +4686,14 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     statusLabel->setObjectName(statusLabelName());
     // 固定一个最小宽度：这一格的字长长短短时，右边那几样不会再跳来跳去
     statusLabel->setMinimumWidth(kStatusLabelMinWidth);
-    // **上限也得有**（2026-09-24 补的）。ElidedLabel 的 sizeHint() 是把宽度封在上限上，
+    // **上限也得有**（ 补的）。ElidedLabel 的 sizeHint() 是把宽度封在上限上，
     // 而上限的来源就是 maximumWidth() —— 不设上限时，一句长文件名会把这一格的 sizeHint
     // 顶到 3912、把底栏顶到 4338、把**主窗口**顶到 4338（默认窗口只有 900 宽，实测见
     // ui_check 的 E5 段）。理由全文（含"最小宽度那一半其实不受影响"）见头文件那段。
     statusLabel->setMaximumWidth(MainWindowUI::bottomBarStatusTextWidth());
     // NOTE: 它是 ElidedLabel（**不是**普通 QLabel）：中间那格比这句长的时候（任务标题长、
-    //       窗口窄）普通 QLabel 是**硬裁**的 —— 最后一个字被切掉一半就杵在那儿。
-    //       超出去的部分由它自己截成省略号。上下两个宽度一夹，布局就钉死了。
+    // 窗口窄）普通 QLabel 是**硬裁**的 —— 最后一个字被切掉一半就杵在那儿。
+    // 超出去的部分由它自己截成省略号。上下两个宽度一夹，布局就钉死了。
     taskTextRow->addWidget(statusLabel, 0, Qt::AlignVCenter);
 
     // 弹簧摆在**标题和小字之间**（不是小字右边）：§3.1 要的是「在**右侧**写'另有 2 项'」，
@@ -4897,14 +4753,14 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     // 真正的手绘皮肤头像要等 Minecraft profile API（登录流程现在只存了令牌，没取
     // 玩家档案），这里先画一块"首字母方块"。颜色同样取自调色板，不写死。
     // NOTE: 刻意**不加 border-radius** —— 这块是方的。真皮肤头像是 8x8 的方块贴图，
-    //       方形底比圆形底更接近它以后的样子。
+    // 方形底比圆形底更接近它以后的样子。
     avatarLabel = new QLabel(QStringLiteral("?"), bottomBar);
     avatarLabel->setObjectName(avatarLabelName());
     avatarLabel->setFixedSize(kAvatarSize, kAvatarSize);
     avatarLabel->setAlignment(Qt::AlignCenter);
     // 底和字都取自调色板的两个角色（选中那一块 / 它上面的字）——**不写死颜色**。
     // NOTE: QSS 里嵌的是**色名** ⇒ 主题一换它不会自己变，所以这两句包成一个动作、
-    //       除了现在跑一遍，还挂在 `Theme::follow()` 上（下面那一条）。
+    // 除了现在跑一遍，还挂在 `Theme::follow()` 上（下面那一条）。
     const auto paintAvatar = [this]() {
         const QPalette appPalette = QApplication::palette();
         avatarLabel->setStyleSheet(
@@ -4959,7 +4815,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     accountRow->setContentsMargins(0, 0, 0, 0);
     accountRow->setSpacing(MainWindowUI::bottomBarAccountRowSpacing());
     // 头像**贴着按钮左边缘**摆（不是靠右摆）：这一格宽 208，而头像 + 名字常态只有
-    // 九十来 px，靠右摆就会在头像左边留出一大段空白 —— 用户 2026-09-23 报的
+    // 九十来 px，靠右摆就会在头像左边留出一大段空白 —— 用户 报的
     // 「头像那里的左侧有一段空白」就是它（实测空 115 px：头像 x=115、按钮宽 208）。
     // 弹簧因此摆在**名字和箭头之间**：剩下的那一截落在名字右边的姓名格里
     // （姓名格自己就是这么宽的），箭头照旧钉在窗口右边，中间那根条的位置一点都不动。
@@ -4973,13 +4829,6 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     // 但不再把它放进可见布局。右下角改为跨页面的轻量工具箱入口。
     accountButton->hide();
 
-    // ★ 2026-10-18（用户）：「右下角工具箱右侧有一小片空白，处理掉（把箭头和文本方向
-    //   调换一下）」——
-    //   · 空白来自**钉死的 112 px**：按钮里的字是左对齐的（`applyBottomBarButtonStyle()`
-    //     那条 `text-align: left`），字后面到按钮右边缘那一截就一直是空的。宽度改成
-    //     跟着内容走（`QSizePolicy::Fixed` 已经能钉住它：这句话是常量，宽度不会随状态跳）；
-    //   · 箭头挪到**文字前面**（原来在字后面，和左边那两颗"整格 + 右端箭头"的排法不同 ——
-    //     这一颗是窄按钮，箭头贴在最前面才不会又带出一截右留白）。
     toolboxButton = new QPushButton(QStringLiteral("︿  工具箱"), bottomBar);
     toolboxButton->setObjectName(toolboxButtonName());
     toolboxButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
@@ -4992,37 +4841,37 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     // 点了哪一行该告诉谁"。左边那块（account = false）列**正在跑的实例**，右边那块
     // （account = true，也就是右对齐的那块）列**最近用过的账号**。
     // 开关的三种情形都归 toggleBottomBarPanel() 一处：点同一颗 = 收回、点另一颗 = 收旧开新、
-    // 都没开着 = 开。**每一次点击都算数**（用户 2026-09-25 原话：「下面两个上拉槽改成和下载
+    // 都没开着 = 开。**每一次点击都算数**（要求：「下面两个上拉槽改成和下载
     // 版本选择一样的，点击一下展开，再点击就关闭」，以及"点另一颗要一条路走到位"，见
     // BottomBarPanel::handleOutsidePress() 那两段 NOTE）。
     //
     // NOTE: 行里的按钮点下去不是"立刻做事"，而是"面板先收、动作排到下一轮"（见
-    //       BottomBarPanel 里 dispatch 那段）—— 那两个动作都要弹模态窗，压在 Qt::Popup
-    //       底下会点不动。所以**别**在这里顺手补一句"点完也 close 一下"：那是同一件事
-    //       做两遍，而且顺序反了就白做。
+    // BottomBarPanel 里 dispatch 那段）—— 那两个动作都要弹模态窗，压在 Qt::Popup
+    // 底下会点不动。所以**别**在这里顺手补一句"点完也 close 一下"：那是同一件事
+    // 做两遍，而且顺序反了就白做。
     QObject::connect(runStateButton, &QPushButton::clicked, runStateButton, [this]() {
         toggleBottomBarPanel({runStateButton, BottomBarAnchorKind::Instances});
     });
     QObject::connect(toolboxButton, &QPushButton::clicked, toolboxButton, [this]() {
         toggleBottomBarPanel({toolboxButton, BottomBarAnchorKind::Tools});
     });
-    // 中间那格也是**一颗按钮**（2026-10-12）：点它向上展开任务中心。三格挂了同一个
+    // 中间那格也是**一颗按钮**：点它向上展开任务中心。三格挂了同一个
     // toggle，所以"点另一颗 = 收旧开新"在三个方向上都成立（那一件事全靠 toggle）。
     QObject::connect(taskSummaryButton, &QPushButton::clicked, taskSummaryButton, [this]() {
         toggleBottomBarPanel({taskSummaryButton, BottomBarAnchorKind::Tasks});
     });
-    // ★ 右头那一格（头像 + 用户名）**不再有接线**：它 `hide()` 之后那一格点不到，
-    //   而它的对应功能 2026-10-16 已经按用户要求**继承到主页右上那张账号卡片**上
-    //   （见 setupUi() 里 `accountSkinButton` 那一条 connect、以及 toggleAccountsPanel()）。
+    // 右头那一格（头像 + 用户名）**不再有接线**：它 `hide()` 之后那一格点不到，
+    // 而它的对应功能 已经按用户要求**继承到主页右上那张账号卡片**上
+    // （见 setupUi() 里 `accountSkinButton` 那一条 connect、以及 toggleAccountsPanel()）。
 
     // 三格从左到右摆：实例状态（0）· 空档（1）· 任务摘要（6）· 空档（1）· 账户（0）。
     // 两头那两颗按钮的宽度都是钉死的，份数写 0；富余宽度全在中间三份里分。
-    // NOTE: 中间那份**从 4 提到 6**（2026-09-23）：两头那两格原来吃掉 458 px，900 px 的
-    //       窗口里富余只有 370 px，中间拿 4/6 就只有 247 px（实测条 262 px）—— 用户报
-    //       「中间进度条奇小无比」。缩了两头（200+258 → 170+208）之后再让中间拿 6/8，
-    //       实测条 356 px（900 的窗口，从 262 涨上来的），两边各留一份空档所以还居中。
-    // NOTE: 中间那一份 2026-10-12 从"一个裸布局"变成"一颗按钮"（任务摘要），份数照旧是 6
-    //       —— 按钮里面那个 layout 的边距显式清成了 0，所以宽度还是原来那 356 px。
+    // NOTE: 中间那份**从 4 提到 6**：两头那两格原来吃掉 458 px，900 px 的
+    // 窗口里富余只有 370 px，中间拿 4/6 就只有 247 px（实测条 262 px）—— 用户报
+    // 「中间进度条奇小无比」。缩了两头（200+258 → 170+208）之后再让中间拿 6/8，
+    // 实测条 356 px（900 的窗口，从 262 涨上来的），两边各留一份空档所以还居中。
+    // NOTE: 中间那一份 从"一个裸布局"变成"一颗按钮"（任务摘要），份数照旧是 6
+    // —— 按钮里面那个 layout 的边距显式清成了 0，所以宽度还是原来那 356 px。
     barLayout->addWidget(runStateButton, 0);
     barLayout->addStretch(1);
     barLayout->addWidget(taskSummaryButton, 6);
@@ -5095,8 +4944,8 @@ QPixmap MainWindowUI::folderActionIcon(int action, int size, const QColor &color
 }
 
 bool MainWindowUI::paletteIsDark(const QPalette &palette) {
-    // ★ 2026-09-28 起判据只有一处（`Theme::isDarkPalette()`）—— 主题那一层要知道同一件事
-    //   （语义色按深浅挑），而"两处各写一遍 lightness() < 128"正是这个改动要收掉的东西。
+    // 起判据只有一处（`Theme::isDarkPalette()`）—— 主题那一层要知道同一件事
+    // （语义色按深浅挑），而"两处各写一遍 lightness() < 128"正是这个改动要收掉的东西。
     return Theme::isDarkPalette(palette);
 }
 
@@ -5107,9 +4956,9 @@ QColor MainWindowUI::folderDangerColor(const QPalette &palette) {
 
 QColor MainWindowUI::installNameErrorColor(const QPalette &palette) {
     // NOTE: 这一处红和上面那个**故意不是同一个色**：浅底 #c0392b 对窗口底色 #f0f0f0
-    //       实测 4.77:1（够 WCAG 正文那条 4.5:1），#c02828 是另一条来历。深底那一档没法
-    //       照搬同一个 #c0392b（只有 2.26:1），所以借了同一个浅红。理由整段挪进了
-    //       `Theme::errorTextColor()`。
+    // 实测 4.77:1（够 WCAG 正文那条 4.5:1），#c02828 是另一条来历。深底那一档没法
+    // 照搬同一个 #c0392b（只有 2.26:1），所以借了同一个浅红。理由整段挪进了
+    // `Theme::errorTextColor()`。
     return Theme::errorTextColor(palette);
 }
 
@@ -5214,11 +5063,11 @@ QColor MainWindowUI::runStateMarkColor(RunStateMark state, const QPalette &palet
     case RunStateMark::Idle:
         // 灰：**调色板 Disabled 档的正文色**。选它而不是 disabledInkColor() 那两个自己挑的
         // 数，理由有两条：
-        //   · 这一格画在底栏那块布上，而底栏的调色板是**传进来的这一份**（见
-        //     MainWindow::updateBottomBar() 里为什么取底栏的 palette）—— 调色板自己那一档
-        //     灰就是"同一块布上灰掉的东西"，不会撞色；
-        //   · 深浅两套各有一位现成的灰（浅底给中灰、深底给另一档），主题换过去它跟着走，
-        //     不用我们再维护一对数。
+        // · 这一格画在底栏那块布上，而底栏的调色板是**传进来的这一份**（见
+        // MainWindow::updateBottomBar() 里为什么取底栏的 palette）—— 调色板自己那一档
+        // 灰就是"同一块布上灰掉的东西"，不会撞色；
+        // · 深浅两套各有一位现成的灰（浅底给中灰、深底给另一档），主题换过去它跟着走，
+        // 不用我们再维护一对数。
         return palette.color(QPalette::Disabled, QPalette::WindowText);
     }
     return palette.color(QPalette::WindowText);
@@ -5256,12 +5105,12 @@ void MainWindowUI::setFolderRows(const QList<FolderRow> &rows) {
             list->setCurrentItem(item);
         }
     }
-    // ★ 焦点链：列表本身 → 各行那颗齿轮 → 左栏底下那两颗按钮（2026-10-14，§3.3）。
-    //   这几颗齿轮是**这一趟才建的**（每次重灌都重建），而 Qt 的默认顺序是"建的时候谁早
-    //   谁在前" ⇒ 它们会落在整条焦点链的最末尾，也就是**底栏之后**：按 Tab 走到最右下
-    //   那一颗，下一格"唰"地跳回左栏最上面那一行，眼睛看到的就是一个往上窜的乱序。
-    //   这里当场串一遍。`setTabOrder` 干的是"把第二格挪到第一格后面"，重灌时重串一遍
-    //   是安全的（`clear()` 已经把上一代的行连控件一起删了，不会有残骸留在链上）。
+    // 焦点链：列表本身 → 各行那颗齿轮 → 左栏底下那两颗按钮（，§3.3）。
+    // 这几颗齿轮是**这一趟才建的**（每次重灌都重建），而 Qt 的默认顺序是"建的时候谁早
+    // 谁在前" ⇒ 它们会落在整条焦点链的最末尾，也就是**底栏之后**：按 Tab 走到最右下
+    // 那一颗，下一格"唰"地跳回左栏最上面那一行，眼睛看到的就是一个往上窜的乱序。
+    // 这里当场串一遍。`setTabOrder` 干的是"把第二格挪到第一格后面"，重灌时重串一遍
+    // 是安全的（`clear()` 已经把上一代的行连控件一起删了，不会有残骸留在链上）。
     QWidget *previous = list;
     for (int i = 0; i < list->count(); ++i) {
         auto *row = dynamic_cast<FolderRowWidget *>(list->itemWidget(list->item(i)));
@@ -5287,8 +5136,8 @@ void MainWindowUI::openFolderMenu(const FolderRow &row, QWidget *gear) {
     }
     // "现在有没有开着一块"靠 findChild 认（和底栏那两块面板同一个路数）：
     // NOTE: **挂在这个列表底下**，不是挂 MainWindowUI 上面 —— 这个类根本不是 QObject
-    //       （它没有 tr()），没有 findChild()。列表是这一行那个齿轮的宿主，也是全窗口
-    //       寿命的东西，拿它当 popup 的 parent 既找得回来又不会被谁提前删掉。
+    // （它没有 tr()），没有 findChild()。列表是这一行那个齿轮的宿主，也是全窗口
+    // 寿命的东西，拿它当 popup 的 parent 既找得回来又不会被谁提前删掉。
     if (auto *open = dynamic_cast<FolderMenu *>(list->findChild<QWidget *>(folderMenuName()))) {
         const bool sameAnchor = open->anchor() == gear;
         open->close();
@@ -5322,9 +5171,9 @@ void MainWindowUI::openGroupMenu(const GroupRow &row, const QRect &anchorGlobal)
     // 没有 findChild；树是那颗齿轮的宿主，也是全窗口寿命的东西）。
     //
     // NOTE: 两块框（动作菜单 / 挑目标）**共用一个 objectName** —— 同一颗齿轮下只可能
-    //       开着其中一个，按名字捞回来的就该是当下那一个。捞回来的是"挑目标"那块时
-    //       groupId() 是空串，于是它永远不认"再点同一颗齿轮"，直接收掉重开动作菜单
-    //       （那正是"想换个操作"时该发生的事）。
+    // 开着其中一个，按名字捞回来的就该是当下那一个。捞回来的是"挑目标"那块时
+    // groupId() 是空串，于是它永远不认"再点同一颗齿轮"，直接收掉重开动作菜单
+    // （那正是"想换个操作"时该发生的事）。
     if (auto *open = dynamic_cast<GroupMenu *>(tree->findChild<QWidget *>(groupMenuName()))) {
         const bool sameAnchor = !open->pickMode() && open->groupId() == row.groupId;
         open->close();
@@ -5370,17 +5219,17 @@ void MainWindowUI::openGroupPicker(const QList<GroupRow> &rows, const QRect &anc
 
 MainWindowUI::BottomBarAnchor MainWindowUI::bottomBarAnchorAt(const QPoint &globalPos) const {
     // 三颗按钮摆在哪由底栏的布局说了算，所以判据只能是"这个全局坐标落在它自己的矩形里吗"
-    //（mapFromGlobal 之后按 rect() 判 —— 和所有"点在不在这个控件上"的写法一致）。
+    // （mapFromGlobal 之后按 rect() 判 —— 和所有"点在不在这个控件上"的写法一致）。
     const auto hits = [&globalPos](QPushButton *button) {
         return button != nullptr && button->isVisible()
                && button->rect().contains(button->mapFromGlobal(globalPos));
     };
-    // ★ 2026-10-16：主页右上那张账号卡片也在这一串里 —— 账号面板现在挂在它身上
-    //   （用户原话：「这个的对应功能继承到右上角那个按钮去」），所以"点在面板外面那一下
-    //   是不是点了同一颗/另一颗开关"也得认得出它。漏了这一句的症状：面板开着的时候点
-    //   卡片本身收不回去（那一下既没落在底栏任何一颗上，也就没人接着办事）。
-    //   NOTE: `isVisible()` 那道闸是必须的 —— 底栏那颗账号按钮是 `hide()` 着的，
-    //         它按 rect() 仍然"命中"（隐藏控件的位置是上一个布局留下的），会抢在别人前面。
+    // 主页右上那张账号卡片也在这一串里 —— 账号面板现在挂在它身上
+    // （要求：「这个的对应功能继承到右上角那个按钮去」），所以"点在面板外面那一下
+    // 是不是点了同一颗/另一颗开关"也得认得出它。漏了这一句的症状：面板开着的时候点
+    // 卡片本身收不回去（那一下既没落在底栏任何一颗上，也就没人接着办事）。
+    // NOTE: `isVisible()` 那道闸是必须的 —— 底栏那颗账号按钮是 `hide()` 着的，
+    // 它按 rect() 仍然"命中"（隐藏控件的位置是上一个布局留下的），会抢在别人前面。
     if (hits(accountSkinButton)) {
         return {accountSkinButton, BottomBarAnchorKind::Accounts, /*dropDown=*/true};
     }
@@ -5426,21 +5275,17 @@ void MainWindowUI::openTaskCenterPanel() {
                 overlayHost->dismiss();
                 return;
             }
-            // ★ 2026-10-17：任务中心开在**别的**选项卡上（收着，看不见）时，底栏这一按原来
-            //   调 `dismiss()` —— 而它按设计不收"收着的页"（见 OverlayHost::closeTopLayer），
-            //   于是这一按看着像"点了没反应"，那一页还占着覆盖层这一位。改成收掉、再在当前
-            //   这一页重新摊开（用户在这一页点任务中心，要的就是这一页的任务中心）。
             if (overlayHost->evict()) {
                 QTimer::singleShot(0, taskSummaryButton, [this]() { openTaskCenterPanel(); });
             }
             return;
         }
         // 残影（覆盖层已经关了 / 页面上这块被 close() 藏起来了，对象还没删）。
-        // ★ 早先这里对 `!overlayHost->isOpen()` 也调 `dismiss()` 然后 return ——
-        //   `dismiss()` 在 Mode::None 上什么都不做，于是这一按**被整个吞掉**：
-        //   用户点底栏中间那格，什么都没发生（mw_check AB6 那 5 条红就是这么来的）。
-        //   残影不能再挡路：直接排进删除队列，下面照常开一页新的。
-        //   NOTE: 只 `deleteLater()` 不 `delete` —— 它可能正处在自己的信号处理里。
+        // 早先这里对 `!overlayHost->isOpen()` 也调 `dismiss()` 然后 return ——
+        // `dismiss()` 在 Mode::None 上什么都不做，于是这一按**被整个吞掉**：
+        // 用户点底栏中间那格，什么都没发生（mw_check AB6 那 5 条红就是这么来的）。
+        // 残影不能再挡路：直接排进删除队列，下面照常开一页新的。
+        // NOTE: 只 `deleteLater()` 不 `delete` —— 它可能正处在自己的信号处理里。
         panel->deleteLater();
     }
     if (overlayHost->isOpen()) {
@@ -5509,8 +5354,8 @@ void MainWindowUI::openTaskCenterPanel() {
                                       m_taskCenterClearHandler, runningProvider, runningAction,
                                       onOutsidePress, page, /*embedded=*/true);
     // 点一行进详情页。★ **要在 popUp() 之前挂**：`rebuild()`（popUp() 里第一件事）就是按
-    //   这个处理器决定那几行"可不可点"的 —— 挂晚了的话这一面板里的行没手型光标、点了也没
-    //   反应，得关掉重开一次才行。
+    // 这个处理器决定那几行"可不可点"的 —— 挂晚了的话这一面板里的行没手型光标、点了也没
+    // 反应，得关掉重开一次才行。
     panel->setRowActivatedHandler(m_taskCenterRowActivated);
     panel->setRowActionHandler(m_taskCenterRowAction);
     panel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -5545,7 +5390,7 @@ void MainWindowUI::openBottomBarPanel(const BottomBarAnchor &anchor) {
     // 点在面板外面的那一下：面板自己认不出"外面是哪儿"，所以这里按全局坐标认那一颗按钮。
     // 认出来了就压掉 Qt 的重放（claimed），收掉之后走**同一个** toggle 换过去（dismissed）——
     // 点另一颗那条路全靠它：那一下面板底下的按钮**一个事件都收不到**，只有面板收到了
-    //（见 BottomBarPanel::handleOutsidePress() 的第一段 NOTE）。
+    // （见 BottomBarPanel::handleOutsidePress() 的第一段 NOTE）。
     BottomBarPanel::OutsidePressHandler onOutsidePress;
     onOutsidePress.claimed = [this](const QPoint &globalPos) {
         return bottomBarAnchorAt(globalPos).button != nullptr;
@@ -5554,8 +5399,8 @@ void MainWindowUI::openBottomBarPanel(const BottomBarAnchor &anchor) {
         const BottomBarAnchor hit = bottomBarAnchorAt(globalPos);
         if (hit.button != nullptr) {
             // NOTE: 这里让 toggle 自己去 findChild 认"现在开着哪一块"：刚刚被收掉的那一块
-            //       还在（close 之后要等 deleteLater 才真删），所以"点的是同一颗"那一路它
-            //       认得出来（认出来就什么都不开）；点另一颗则收旧开新。
+            // 还在（close 之后要等 deleteLater 才真删），所以"点的是同一颗"那一路它
+            // 认得出来（认出来就什么都不开）；点另一颗则收旧开新。
             toggleBottomBarPanel(hit);
         }
     };
@@ -5574,18 +5419,18 @@ void MainWindowUI::toggleBottomBarPanel(const BottomBarAnchor &anchor) {
     // 这一下只当"收"用。
     //
     // NOTE: 之所以不只靠那颗按钮收不到鼠标（WA_TransparentForMouseEvents）：面板开着的
-    //       时候，外面那一下是**投递给面板自己的**，它按坐标认出点在哪一颗按钮上再转给
-    //       这里（见 BottomBarPanel::handleOutsidePress()）—— 那条路根本不经过按钮。
-    //       而下面 open->close() 那一步照走，所以点在这颗点不动的格子上时，**已经开着的
-    //       那一块会被收掉**（点外面本来就该收），只是不再开新的 —— 不然那一下看着像
-    //       "点了没反应"，而那一块还杵在那儿。
+    // 时候，外面那一下是**投递给面板自己的**，它按坐标认出点在哪一颗按钮上再转给
+    // 这里（见 BottomBarPanel::handleOutsidePress()）—— 那条路根本不经过按钮。
+    // 而下面 open->close() 那一步照走，所以点在这颗点不动的格子上时，**已经开着的
+    // 那一块会被收掉**（点外面本来就该收），只是不再开新的 —— 不然那一下看着像
+    // "点了没反应"，而那一块还杵在那儿。
     const bool blocked = anchor.kind == BottomBarAnchorKind::Instances && !m_runPanelAvailable;
     // "现在有没有开着一块"靠 findChild 认（和行尾齿轮菜单一个路数）：面板挂在 bottomBar
     // 底下，close 之后要等 deleteLater 才真删（同一轮事件处理里还找得到），不用自己记指针。
     //
     // NOTE: 中间那格那块是**另一个类、另一个名字**（`TaskCenterPanel`），所以这里要问两次
-    //       —— 一次问"那两块短行面板开着吗"、一次问"任务中心开着吗"。只问一次的话，
-    //       "任务中心开着时点左下那格"就会变成两块面板同时在屏幕上。
+    // —— 一次问"那两块短行面板开着吗"、一次问"任务中心开着吗"。只问一次的话，
+    // "任务中心开着时点左下那格"就会变成两块面板同时在屏幕上。
     bool sameAnchor = false;
     bool anyOpen = false;
     bool reopenTaskCenter = false;
@@ -5608,12 +5453,6 @@ void MainWindowUI::toggleBottomBarPanel(const BottomBarAnchor &anchor) {
             sameAnchor = sameAnchor || same;
             anyOpen = true;
             if (same && !panel->isVisible()) {
-                // ★ 2026-10-19：这一页收在**别的**选项卡上时，底栏这一按原先走
-                //   `dismiss()` —— 它按设计不收"收着的页"（见 OverlayHost::closeTopLayer），
-                //   而 `sameAnchor` 又是 true，于是下面那条早退把这一下**整个吞掉**：
-                //   用户在当前这一页点任务中心，什么都没发生（和 openTaskCenterPanel()
-                //   里 2026-10-17 修的是同一个坑，只是入口不一样）。
-                //   收掉那一页，排在下一轮在当前这一页重新摊开；别的面板照常先收。
                 reopenTaskCenter = true;
             } else {
                 overlayHost->dismiss();
@@ -5676,9 +5515,6 @@ void MainWindowUI::toggleToolboxPanel() {
     layout->setSpacing(8);
 
     // ---------- 标题那一行：扳手 + 「工具箱」 + 右边的 × ----------
-    //
-    // 2026-10-18 用户拿图点名的那一块：**没有搜索框**，标题左边一枚主题色的扳手，
-    // 右边一颗 × 收回去。图标全是现画的（`ToolboxPage::panelTitleIcon()`），不引位图。
     const QColor iconInk = Theme::isDark() ? Theme::accentShade(Theme::AccentShade::Pure)
                                            : Theme::accentShade(Theme::AccentShade::Ink);
     const QColor rowHover = Theme::rowHoverFill(QApplication::palette().color(QPalette::Base));
@@ -5714,19 +5550,8 @@ void MainWindowUI::toggleToolboxPanel() {
     grid->setContentsMargins(0, 2, 0, 0);
     grid->setHorizontalSpacing(6);
     grid->setVerticalSpacing(2);
-    // ★ 2026-10-16：这一排从前是"四颗写着工具名、点了没反应的空按钮"（tooltip 老实写着
-    //   「该工具将在后续功能阶段接入」）。现在它们真接上了：键与名字都从
-    //   `ToolboxPage` 那**一张表**来（页面上那排 chip 只取其中几件、这个面板上十件全摆、
-    //   `ToolboxController::open()` 认的键也来自它），点一下把这件工具的键交给 handler
-    //   （`MainWindow` 那头转给 `ToolboxController::open()`）。
-    //
-    // ★ 2026-10-18：改成一幅"两列五排、没有搜索框"的面板（用户拿图点名）：每一格是
-    //   主题色线稿图标 + 短名，平铺在面板底色上、**没有框**，鼠标停上去只铺一层浅绿
-    //   （`Theme::rowHoverFill()` —— 和列表行悬停同一个出处，别在这里另调一个绿）。
-    //   次序归 `ToolboxPage::panelTools()`，短名归 `toolShortName()`。
-    //
     // NOTE: 面板本身是 `Qt::Popup`，点它里面一颗按钮之后 Qt 会把它收掉 —— 但"收掉"这件
-    //       事不该由"Qt 的行为"顺手办，所以这里显式 `closeToolboxPanel()` 一次。
+    // 事不该由"Qt 的行为"顺手办，所以这里显式 `closeToolboxPanel()` 一次。
     const QColor labelInk = QApplication::palette().color(QPalette::WindowText);
     const QString buttonSheet =
         QStringLiteral("QPushButton { background: transparent; border: none;"
@@ -5743,17 +5568,17 @@ void MainWindowUI::toggleToolboxPanel() {
         button->setIcon(ToolboxPage::toolIcon(tool, iconInk));
         button->setIconSize(QSize(22, 22));
         button->setCursor(Qt::PointingHandCursor);
-        // ★ 先挂样式表、再钉尺寸：`setStyleSheet()` 会按 QSS 里写着的 `min-height`
-        //   重写最小高度（见 `wtfml-theme-accent-and-buttons` 那条），这里两样都在
-        //   样式表之后再钉一次，免得行高被样式表改掉。
+        // 先挂样式表、再钉尺寸：`setStyleSheet()` 会按 QSS 里写着的 `min-height`
+        // 重写最小高度（见 `wtfml-theme-accent-and-buttons` 那条），这里两样都在
+        // 样式表之后再钉一次，免得行高被样式表改掉。
         button->setStyleSheet(buttonSheet);
         button->setFixedSize(146, 40);
         button->setToolTip(ToolboxPage::toolSummary(tool));
         const QString key = ToolboxPage::toolKey(tool);
         // NOTE: 上下文对象给的是 `button` 自己而不是 `this` —— `MainWindowUI` **不是**
-        //       QObject（这一整层都没有对象身份），所以这里只有 `QObject::connect` 这一种
-        //       写法，而上下文得挑一个"随面板一起走"的控件（这个面板是 WA_DeleteOnClose，
-        //       按钮跟着面板一起没，连接也就跟着断了）。
+        // QObject（这一整层都没有对象身份），所以这里只有 `QObject::connect` 这一种
+        // 写法，而上下文得挑一个"随面板一起走"的控件（这个面板是 WA_DeleteOnClose，
+        // 按钮跟着面板一起没，连接也就跟着断了）。
         QObject::connect(button, &QPushButton::clicked, button, [this, key]() {
             closeToolboxPanel();
             if (m_toolboxToolHandler) {
@@ -5790,10 +5615,10 @@ void MainWindowUI::setBottomBarTaskSummary(const BottomBarTaskSummary &summary) 
     // 的一句"暂无后台任务"，和"真有一件事在跑"的标题不能长成一个样子。
     //
     // NOTE: 色的底取 `QApplication::palette()`，不取这个标签自己的 —— 它装在一颗挂了
-    //       QSS 的按钮里（applyBottomBarButtonStyle()），带样式表那句 `border: none;
-    //       background: transparent` 不影响文字色，但按钮上那份 palette 是从调色板推出来的
-    //       一份**副本**，主题换了之后哪个先更新不好说（和 runStateMarkPixmap 那条取
-    //       "底栏的调色板"是同一个顾虑）。取应用那一份就不必操心谁先收到事件。
+    // QSS 的按钮里（applyBottomBarButtonStyle()），带样式表那句 `border: none;
+    // background: transparent` 不影响文字色，但按钮上那份 palette 是从调色板推出来的
+    // 一份**副本**，主题换了之后哪个先更新不好说（和 runStateMarkPixmap 那条取
+    // "底栏的调色板"是同一个顾虑）。取应用那一份就不必操心谁先收到事件。
     QPalette textPalette = QApplication::palette();
     textPalette.setColor(QPalette::WindowText,
                          textPalette.color(summary.hasTask ? QPalette::WindowText
@@ -5887,8 +5712,6 @@ void MainWindowUI::setRunPanelAvailable(bool available) {
         return;
     }
     m_runPanelAvailable = available;
-    // 箭头：没有东西可展开就收起来（用户 2026-09-25：「箭头隐藏」）。**只是藏起来、不删**
-    // —— "底栏那两颗按钮各带一个箭头"有断言钉着（见 ui_check I4 那节），删了那条当场红。
     if (runStateChevron != nullptr) {
         runStateChevron->setVisible(available);
     }

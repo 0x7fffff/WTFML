@@ -70,7 +70,7 @@ int runInstanceUpgradeChecks() {
               "background world import publishes complete copy without altering source");
     }
     {
-        // 后台导入世界的「取消」（2026-10-20）：任务中心那颗按钮的判据 + 协作式停机。
+        // 后台导入世界的「取消」：任务中心那颗按钮的判据 + 协作式停机。
         // 源世界故意做一个 32 MiB 的 region —— 拷贝器每 1 MiB 看一次取消位，
         // 主线程发完请求立刻按下取消，不会出现"还没按就已经拷完"的竞态。
         const QString source = scratch.filePath("world-cancel-source");
@@ -113,7 +113,7 @@ int runInstanceUpgradeChecks() {
         check(read(source + "/level.dat") == "world", "cancelled world import leaves source intact");
     }
     {
-        // 后台删除世界（2026-10-20）：确认之后整棵树在工作线程里删，删完才回调。
+        // 后台删除世界：确认之后整棵树在工作线程里删，删完才回调。
         const QString world = scratch.filePath("world-delete");
         check(write(world + "/level.dat", "world")
                   && write(world + "/region/r.0.0.mca", QByteArray(2 * 1024 * 1024, 'y')),

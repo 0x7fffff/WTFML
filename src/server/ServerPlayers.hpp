@@ -1,23 +1,21 @@
 /**
  * @file ServerPlayers.hpp
  * @brief 服务端那四份玩家名单的**判据层**（coding plan §9.7「玩家管理」）。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 四份文件（都由服务端自己写，格式是 Gson 的漂亮 JSON）：
- *   * `whitelist.json`      —— `[{uuid, name}]`（白名单开关在 `server.properties` 的
- *                              `white-list`，不在这份文件里）；
- *   * `ops.json`            —— `[{uuid, name, level, bypassesPlayerLimit}]`；
- *   * `banned-players.json` —— `[{uuid, name, created, source, expires, reason}]`；
- *   * `banned-ips.json`     —— `[{ip, created, source, expires, reason}]`。
+ * * `whitelist.json` —— `[{uuid, name}]`（白名单开关在 `server.properties` 的
+ * `white-list`，不在这份文件里）；
+ * * `ops.json` —— `[{uuid, name, level, bypassesPlayerLimit}]`；
+ * * `banned-players.json` —— `[{uuid, name, created, source, expires, reason}]`；
+ * * `banned-ips.json` —— `[{ip, created, source, expires, reason}]`。
  *
  * 这一层**不碰盘**（读文件、写文件在 `ServerSettingsController` 那一边），全是值 + 纯函数，
  * 所以 `verify` 能直接钉。格式上的规矩只有三条：
  *
- *   ① **读要宽容**：文件不在 = 空名单（不是错误）；读不懂 = `ok = false` + 一句毛病，
- *      **绝不拿空名单去覆盖它**（用户手改坏的 JSON 里可能还留着他自己的记录）；
- *   ② **写按游戏那一份的字段形状**：别加自定义键 —— 服务端下次启动读不懂就整份丢掉；
- *   ③ 认人：白名单 / op / 封禁玩家认 `uuid`（空的话退回名字），封禁 IP 认 `ip`。
+ * ① **读要宽容**：文件不在 = 空名单（不是错误）；读不懂 = `ok = false` + 一句毛病，
+ * **绝不拿空名单去覆盖它**（用户手改坏的 JSON 里可能还留着他自己的记录）；
+ * ② **写按游戏那一份的字段形状**：别加自定义键 —— 服务端下次启动读不懂就整份丢掉；
+ * ③ 认人：白名单 / op / 封禁玩家认 `uuid`（空的话退回名字），封禁 IP 认 `ip`。
  *
  * 【离线 UUID】
  *

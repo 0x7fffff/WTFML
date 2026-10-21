@@ -1,10 +1,8 @@
 /**
  * @file LocalFileReuse.cpp
  * @brief 「从别的游戏文件夹里借一个一模一样的文件」：路径映射、判据、硬链接 / 复制。
- * @author 0x7fffff
- * @date 2026-10-20
  * @note 来龙去脉与"只许看哪几个文件夹"那道闸写在 .hpp 的块注释里。这里只有实现，以及
- *       几处"为什么不能照直觉改"的 NOTE。
+ * 几处"为什么不能照直觉改"的 NOTE。
  */
 
 #include "LocalFileReuse.hpp"
@@ -20,7 +18,7 @@
 
 #if defined(Q_OS_WIN)
 // NOTE: 放在所有 Qt 头之后 —— windows.h 定义的东西太多（min/max 宏……），先于 Qt 包含
-//       容易撞名。和 AsciiPathAlias.cpp / TokenStore.cpp 里那一套同一个写法。
+// 容易撞名。和 AsciiPathAlias.cpp / TokenStore.cpp 里那一套同一个写法。
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -273,9 +271,9 @@ Method materialize(const QString &source, const QString &destination,
             return Method::HardLink;
         }
         // 失败有两种常见形状，都不用在这里报错：
-        //   · ERROR_NOT_SAME_DEVICE —— 跨卷，复制那条路接住；
-        //   · ERROR_ALREADY_EXISTS —— 目标已经在了（另一个作业刚写完，或者上一个是
-        //     0 字节的残骸），QSaveFile 会原子改名覆盖它。
+        // · ERROR_NOT_SAME_DEVICE —— 跨卷，复制那条路接住；
+        // · ERROR_ALREADY_EXISTS —— 目标已经在了（另一个作业刚写完，或者上一个是
+        // 0 字节的残骸），QSaveFile 会原子改名覆盖它。
         // 真正两种都不行时，下面那条路会把原因写进 errorOut。
     }
 #endif

@@ -1,8 +1,6 @@
 /**
  * @file MemorySlider.cpp
  * @brief 内存那根拖着改的条：档位表、就近吸附、两头那几个访问器。
- * @author 0x7fffff
- * @date 2026-09-26
  * @note 为什么位置是"第几格"而不是"多少 MB"，见 .hpp 开头那段 —— 那儿是这一份的说明书。
  */
 
@@ -72,8 +70,6 @@ int MemorySlider::nearestIndex(const QList<int> &steps, int mb) {
 }
 
 void MemorySlider::setRangeMb(int minMb, int maxMb) {
-    // 换范围前先记住现在停在哪 —— 换范围（设置页那边是"按本机物理内存收一次口"）不该把
-    // 用户刚拖到的位置冲掉。
     const bool hadRange = !m_steps.isEmpty();
     const int keep = hadRange ? valueMb() : minMb;
     m_steps = valueSteps(minMb, maxMb);
@@ -139,7 +135,7 @@ void MemorySlider::paintEvent(QPaintEvent *) {
     const QRect handle =
         style()->subControlRect(QStyle::CC_Slider, &opt, QStyle::SC_SliderHandle, this);
 
-    // ★ 色取**应用那一份**调色板（和 TaskProgressBar 同一条理由：不认某一格自己那份）。
+    // 色取**应用那一份**调色板（和 TaskProgressBar 同一条理由：不认某一格自己那份）。
     const QPalette palette = QApplication::palette();
     QColor track = Theme::progressTrackColor(palette);
     QColor fill = Theme::progressFillColor(palette);
@@ -164,9 +160,9 @@ void MemorySlider::paintEvent(QPaintEvent *) {
 
     // 填充到"该到的那一格"：手动档 = 把手中心；自动档 = 自动算出来那一格。
     //
-    // ★ 自动档的**把手留在原地**（= 上次手动档停的位置），只有进度条跟着自动值走：
-    //   用户一眼能看出"自动现在给这么多、我原来手动设的是那么多"。条本身画成半透明的
-    //   虚条，和可拖的手动档区分开（用户 2026-10-20 点名要的"虚条，圆圈不跟着走"）。
+    // 自动档的**把手留在原地**（= 上次手动档停的位置），只有进度条跟着自动值走：
+    // 用户一眼能看出"自动现在给这么多、我原来手动设的是那么多"。条本身画成半透明的
+    // 虚条，和可拖的手动档区分开（用户 点名要的"虚条，圆圈不跟着走"）。
     const qreal centerX = qBound(rail.left(), qreal(handle.center().x()), rail.right());
     const bool autoMode = m_autoValueMb >= 0;
     const int autoIndex = autoMode ? nearestIndex(m_steps, m_autoValueMb) : -1;
@@ -213,9 +209,9 @@ void MemorySlider::paintEvent(QPaintEvent *) {
         // disabled（上面 fill/track 各降过一档 alpha），这里不再额外压淡 —— 再淡一档
         // 就只剩一个看不清的点，反而不知道圆圈停在哪儿。
         //
-        // ★ 自动档把外圈**再压深一档**：它正好压在那条半透明的自动虚条上时，原来的
-        //   外圈和虚条是同一个色，圆就"看不见"了 —— 用户会以为把手跟着自动值走了。
-        //   深一档的环压在虚条 / 轨道上都看得见，中间还是原来那枚轨道色的芯。
+        // 自动档把外圈**再压深一档**：它正好压在那条半透明的自动虚条上时，原来的
+        // 外圈和虚条是同一个色，圆就"看不见"了 —— 用户会以为把手跟着自动值走了。
+        // 深一档的环压在虚条 / 轨道上都看得见，中间还是原来那枚轨道色的芯。
         QColor knobOuter = fill;
         if (autoMode) {
             knobOuter = fill.darker(135);

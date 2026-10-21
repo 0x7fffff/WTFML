@@ -1,8 +1,6 @@
 /**
  * @file ServerPropertiesForm.cpp
  * @brief 常用字段表 + 值域 + 合回文件（形状与取舍见头文件）。
- * @author 0x7fffff
- * @date 2026-10-13
  */
 
 #include "server/ServerPropertiesForm.hpp"
@@ -100,12 +98,12 @@ bool switchValue(const QString &raw, bool *out) {
 }  // namespace
 
 const QList<Field> &commonFields() {
-    // ★ 顺序就是界面上从上到下的顺序：**先日常**（简介 / 端口 / 人数 / 难度…）、再**规则**
-    //   （正版验证 / 白名单 / PVP…）、最后**性能**（视距那几项）。前两组是用户建完服就想去
-    //   调的，最后那几项是"卡了才来调"的。
+    // 顺序就是界面上从上到下的顺序：**先日常**（简介 / 端口 / 人数 / 难度…）、再**规则**
+    // （正版验证 / 白名单 / PVP…）、最后**性能**（视距那几项）。前两组是用户建完服就想去
+    // 调的，最后那几项是"卡了才来调"的。
     static const QList<Field> fields = {
         // ---------- 日常 ----------
-        // ★ `preview = true`：这一格下面挂一条"照游戏里画出来"的样子（`§` 码、两行）。
+        // `preview = true`：这一格下面挂一条"照游戏里画出来"的样子（`§` 码、两行）。
         Field{QStringLiteral("motd"), QStringLiteral("服务器简介"),
               QStringLiteral("服务器列表里显示的那一行字"),
               Kind::Text, QStringLiteral("A Minecraft Server"), 0, 0, {}, false, true},
@@ -141,13 +139,10 @@ const QList<Field> &commonFields() {
               QStringLiteral("世界第一次生成时用；已经生成好的世界改它没有用"),
               Kind::Text, QString(), 0, 0, {}, false},
         // ---------- 资源包（§9.7：选本地 zip、算 SHA-1；地址得用户自己托管）----------
-        //
-        // ★ 「地址」那一格**不收本机路径**：别人连不到你的 `C:\…`。界面明说这一句，
-        //   启动器不替用户把本地路径填进去（`ServerResourcePack.hpp` 文件头那段）。
         Field{QStringLiteral("resource-pack"), QStringLiteral("资源包地址"),
               QStringLiteral("别人连得到的一个 http(s) 链接；本机文件路径别人打不开"),
               Kind::Text, QString(), 0, 0, {}, false},
-        // ★ `zipPick = true`：这一格旁边摆一颗「选择本地 zip…」，按 SHA-1 填进来。
+        // `zipPick = true`：这一格旁边摆一颗「选择本地 zip…」，按 SHA-1 填进来。
         Field{QStringLiteral("resource-pack-sha1"), QStringLiteral("资源包 SHA-1"),
               QStringLiteral("这个 zip 的 SHA-1；可以用右边那颗按钮从本地 zip 算出来"),
               Kind::Text, QString(), 0, 0, {}, false, false, true},
@@ -323,8 +318,8 @@ int applyEdits(ServerModel::Properties &properties, const Values &edits) {
         QString normalized;
         QString problem;
         if (!accepts(*field, edit.second, &normalized, &problem)) {
-            // ★ 值不合法就**跳过**、绝不写进去：这一条是给"调用方忘了先过 `accepts()`"准备的
-            //   兜底（界面上要在保存之前就把话说出来，而不是等到写盘那一步）。
+            // 值不合法就**跳过**、绝不写进去：这一条是给"调用方忘了先过 `accepts()`"准备的
+            // 兜底（界面上要在保存之前就把话说出来，而不是等到写盘那一步）。
             continue;
         }
         if (properties.setValue(field->key, normalized)) {
@@ -414,8 +409,8 @@ QString worldDirName(const ServerModel::Properties &properties) {
     }
     QString normalized;
     QString problem;
-    // ★ 值不合法时回**空串**而不是硬拼一个 `world`：调用方要靠"空"这件事去拒绝备份 / 恢复
-    //   （拿一个看不懂的值去拼路径，等着的就是"备份到了别的目录里"这种事故）。
+    // 值不合法时回**空串**而不是硬拼一个 `world`：调用方要靠"空"这件事去拒绝备份 / 恢复
+    // （拿一个看不懂的值去拼路径，等着的就是"备份到了别的目录里"这种事故）。
     if (!accepts(*field, valueOf(properties, *field), &normalized, &problem)) {
         return QString();
     }

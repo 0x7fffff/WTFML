@@ -1,10 +1,8 @@
 /**
  * @file InstanceFiles.hpp
  * @brief 判定 versions/ 下的一个目录算不算实例，并解析它真正该用的 jar / json 文件名。
- * @author 0x7fffff
- * @date 2026-09-21
  * @note header-only 的那两个（AppPaths / LibraryRules）分别只管"路径长什么样"和
- *       "版本 JSON 里的平台规则"，本文件是第一个既要纯规则又要扫盘的，所以带 .cpp。
+ * "版本 JSON 里的平台规则"，本文件是第一个既要纯规则又要扫盘的，所以带 .cpp。
  *
  * 【这个文件存在的理由】
  *
@@ -29,8 +27,8 @@
  * "顺着链找主人"（jarOwnerId()）。这两条是配套的，缺一个就会回到"看得见、点不了"。
  *
  * NOTE: 判据本身**不看 wtfml.meta**，这是刻意的 —— 元数据文件只有启动器写过才有，
- *       而"被外部改过名"的那些目录恰恰一份都没有，拿它当判据等于救不了它们。
- *       wtfml.meta 负责的是别的事：真名（显示名）与稳定 id（抗改名的分组归属）。
+ * 而"被外部改过名"的那些目录恰恰一份都没有，拿它当判据等于救不了它们。
+ * wtfml.meta 负责的是别的事：真名（显示名）与稳定 id（抗改名的分组归属）。
  */
 #pragma once
 
@@ -43,8 +41,8 @@ namespace InstanceFiles {
 /// 实例目录名的长度上限（`validateDirName()` 用的就是它）。
 ///
 /// NOTE: 放在头文件里是为了让**别的地方也要收长度**时用的是同一个数 —— 整合包那边从
-///       包名推实例名（ModpackImport::suggestInstanceName）也要收到 64，各写一个 64
-///       的话，改一处漏一处的症状是"候选名字自己就过不了校验"。
+/// 包名推实例名（ModpackImport::suggestInstanceName）也要收到 64，各写一个 64
+/// 的话，改一处漏一处的症状是"候选名字自己就过不了校验"。
 constexpr int kMaxDirNameLength = 64;
 
 /// 扫一个实例目录得到的原始材料。纯数据 —— 判据本体 resolve() 只吃它、不碰磁盘，
@@ -59,8 +57,8 @@ struct DirListing {
     /// 顶层那份版本 JSON 声明的父版本（`inheritsFrom`）；没有就是空串。
     ///
     /// NOTE: 这个字段**不由 scanDir() 填**（那会让热路径上每个实例多读一次 json），
-    ///       而是 resolveInstance() 在"一个 jar 都认不出来"时才去读出来填上 ——
-    ///       见那里的说明。手工构造 DirListing 的断言可以随便填。
+    /// 而是 resolveInstance() 在"一个 jar 都认不出来"时才去读出来填上 ——
+    /// 见那里的说明。手工构造 DirListing 的断言可以随便填。
     QString inheritsFrom;
 };
 
@@ -91,10 +89,10 @@ struct Resolved {
  * @return 解析结果；jarName 为空表示这个目录不算实例。
  *
  * 三条规则，按顺序：
- *   ① `<目录名>.jar` 在清单里 → 用它。精确匹配优先，绝大多数实例走这条。
- *   ② 否则顶层**恰好一个** .jar → 用它。这是"用户自己在资源管理器里改了目录名"
- *      那种实例，以前会被整个忽略掉。
- *   ③ 其余（一个都没有 / 有两个以上且没有精确匹配）→ 不算实例。
+ * ① `<目录名>.jar` 在清单里 → 用它。精确匹配优先，绝大多数实例走这条。
+ * ② 否则顶层**恰好一个** .jar → 用它。这是"用户自己在资源管理器里改了目录名"
+ * 那种实例，以前会被整个忽略掉。
+ * ③ 其余（一个都没有 / 有两个以上且没有精确匹配）→ 不算实例。
  * json 单独按 ①/② 解析（再加一条 ②'：顶层 json 多于一个时挑"名字对得上某个 jar"的
  * 那一个 —— 杂物的 json 对不上，见 InstanceFiles.cpp 的 pickJsonByJarStem()），
  * 但**解析不到不算认不出来**。②' 还挑不出来时，resolveInstance() 会读几个 json 的
@@ -119,8 +117,8 @@ Resolved resolveInstance(const QString &versionId);
  * @brief 这个实例的**客户端 jar 归哪个版本目录所有**。
  * @param versionId 实例 id（= 目录名）。
  * @return 自己目录里就有客户端 jar 时返回它自己；自己没有就顺着 `inheritsFrom` 链往上找，
- *         返回链上第一个"自己有 jar"的那一层的 id；整条链都没有就返回链上最后一个
- *         （这样报错信息会指着那个真正该有 jar 的目录，而不是加载器目录）。
+ * 返回链上第一个"自己有 jar"的那一层的 id；整条链都没有就返回链上最后一个
+ * （这样报错信息会指着那个真正该有 jar 的目录，而不是加载器目录）。
  *
  * 为什么不能假设"jar 就在自己目录里"：Fabric 装出来的版本目录里**只有一份 json**，
  * 一个 jar 都没有 —— 客户端 jar 是原版那份（`versions/1.20.1/1.20.1.jar`）。拼 classpath
@@ -128,8 +126,8 @@ Resolved resolveInstance(const QString &versionId);
  * （JVM 一句 "Could not find or load main class" 就没了），要么直接报"缺少客户端 JAR"。
  *
  * NOTE: 环（手写的 json 首尾相接）和超长链都要挡住 —— 挡法是深度上限 + 访问过的 id 集合，
- *       见实现。这里**不报错**，只是退化成一个"指回自己/最后一个"的答案：真正的报错
- *       由调用方（启动前检查说"缺 jar"、或 VersionManager 说"父版本没装"）去说。
+ * 见实现。这里**不报错**，只是退化成一个"指回自己/最后一个"的答案：真正的报错
+ * 由调用方（启动前检查说"缺 jar"、或 VersionManager 说"父版本没装"）去说。
  */
 QString jarOwnerId(const QString &versionId);
 
@@ -138,10 +136,10 @@ QString jarOwnerId(const QString &versionId);
  * @param versionId 实例 id（= 目录名）。
  *
  * NOTE: 名字取自 jarOwnerId() 那个目录 —— 对继承型实例（没有自己的 jar）返回的是
- *       **父版本那个 jar 的名字**，不是 `<id>.jar`。
+ * **父版本那个 jar 的名字**，不是 `<id>.jar`。
  * NOTE: 解析不出来时**退回** `<id>.jar`（老名字），而不是返回空串。想要名字的调用方
- *       （checkPreLaunch、拼 classpath）要的是"一个能拿去看在不在的东西"；在正常目录上这个
- *       退回值就是解析结果本身，所以它们的行为逐字节不变，真解析不出来时报的也还是原来那句错。
+ * （checkPreLaunch、拼 classpath）要的是"一个能拿去看在不在的东西"；在正常目录上这个
+ * 退回值就是解析结果本身，所以它们的行为逐字节不变，真解析不出来时报的也还是原来那句错。
  */
 QString jarName(const QString &versionId);
 
@@ -154,7 +152,7 @@ QString jsonName(const QString &versionId);
 
 /**
  * @brief 客户端 jar 在磁盘上的实际路径
- *        （<数据目录>/versions/<jarOwnerId()>/<jarName()>）。
+ * （<数据目录>/versions/<jarOwnerId()>/<jarName()>）。
  * @param versionId 实例 id（= 目录名）。
  */
 QString jarPath(const QString &versionId);
@@ -182,20 +180,20 @@ QString jsonPath(const QString &versionId);
  * @return 需要的大版本（8 / 17 / 21 …）；读不到、认不出、没有这个类时返回 **0**。
  *
  * 【为什么不能只信 version.json 里那个 javaVersion.majorVersion】
- *   它是**包作者写上去的**，而"换过主类"的整合包经常写错。真机上 `GTNH 2.8.4` 就是：
- *   json 写 `javaVersion.majorVersion = 8`，主类
- *   `me.eigenraven.lwjgl3ify.relauncherstub.RelauncherStubMain` 却是 **Java 17 编的**
- *   （class 文件版本 61），于是 Java 8 一起来就是一句
- *       java.lang.UnsupportedClassVersionError: … class file version 61.0,
- *       this version of the Java Runtime only recognizes class file versions up to 52.0
- *   主类的 class 文件版本是**唯一**说得准这件事的东西（同一个道理，工程里另有一处：
- *   离线账号的默认皮肤是"看 JAR 里有没有那条定规矩"而不是看版本号）。
+ * 它是**包作者写上去的**，而"换过主类"的整合包经常写错。真机上 `GTNH 2.8.4` 就是：
+ * json 写 `javaVersion.majorVersion = 8`，主类
+ * `me.eigenraven.lwjgl3ify.relauncherstub.RelauncherStubMain` 却是 **Java 17 编的**
+ * （class 文件版本 61），于是 Java 8 一起来就是一句
+ * java.lang.UnsupportedClassVersionError: … class file version 61.0,
+ * this version of the Java Runtime only recognizes class file versions up to 52.0
+ * 主类的 class 文件版本是**唯一**说得准这件事的东西（同一个道理，工程里另有一处：
+ * 离线账号的默认皮肤是"看 JAR 里有没有那条定规矩"而不是看版本号）。
  *
  * 【取值】class 文件的第 6、7 字节（大端）是 major version：**大版本 = 它 - 44**
- *   （52 → 8、61 → 17、65 → 21）。这个换算从 Java 1.1（45）起就没变过。
+ * （52 → 8、61 → 17、65 → 21）。这个换算从 Java 1.1（45）起就没变过。
  *
  * NOTE: 读的是 zip 条目（借 ZipUtil，一次 PowerShell），而且**只在该版本声明的 Java ≤ 8
- *       时才被调用**（见 MainWindow 那一处）—— 热路径上不多这一趟。
+ * 时才被调用**（见 MainWindow 那一处）—— 热路径上不多这一趟。
  * NOTE: 找不到就是 0，**不猜**。调用方按"0 = 没意见"处理（保持 json 里那个值）。
  */
 int mainClassJavaMajor(const QString &versionId, const QString &mainClass);
@@ -206,11 +204,11 @@ int mainClassJavaMajor(const QString &versionId, const QString &mainClass);
  * @return 合法返回空串；否则返回给用户看的一句原因。
  *
  * 挡掉的东西分两类，理由不同：
- *   - **真会造成事故的**：`/` `\`（同时是路径分隔符，放过去就是路径穿越）、
- *     空名字、`.` / `..`。这一类漏掉的后果不是"名字难看"，是文件跑到 versions 外面去。
- *   - **Windows 会阴人的**：结尾的点（系统**静默**删掉）、保留设备名（`CON`、
- *     `COM1`……根本建不出来）。这一类漏掉的后果是"用户输 A、盘上出现 B"，而且报错
- *     发生在 rename 那一刻，信息通常只有一句"拒绝访问"。
+ * - **真会造成事故的**：`/` `\`（同时是路径分隔符，放过去就是路径穿越）、
+ * 空名字、`.` / `..`。这一类漏掉的后果不是"名字难看"，是文件跑到 versions 外面去。
+ * - **Windows 会阴人的**：结尾的点（系统**静默**删掉）、保留设备名（`CON`、
+ * `COM1`……根本建不出来）。这一类漏掉的后果是"用户输 A、盘上出现 B"，而且报错
+ * 发生在 rename 那一刻，信息通常只有一句"拒绝访问"。
  *
  * 尾随**空格**不在上面那一类里：输入先 trim，所以它根本到不了 Windows 那一步。
  * 用户多敲一个空格不是错误，替他去掉正是他想要的；而尾随的点 trim 管不着，真交给
@@ -221,7 +219,7 @@ int mainClassJavaMajor(const QString &versionId, const QString &mainClass);
  * 出现两次，再加上数据目录本身 —— 64 留的余量足够，同时挡掉"把一整句话当名字用"。
  *
  * NOTE: **中文名、全角括号、名字里带空格都是合法的**，真机上就长这样，别顺手加
- *       一条"只许 ASCII"的规则。
+ * 一条"只许 ASCII"的规则。
  */
 QString validateDirName(const QString &rawName);
 
@@ -234,8 +232,8 @@ QString validateDirName(const QString &rawName);
  * 判据只写一份，不然"哪些名字建不出来"这件事会在两个地方慢慢漂开。
  *
  * NOTE: 长度不在这一层判。名字的长度上限（kMaxDirNameLength）是**实例目录名**的规矩，
- *       而路径段的长度上限是另一回事（真实的 mod 文件名可以到 60+ 个字符，按 64 判会
- *       把一个正常的整合包挡在外面）。
+ * 而路径段的长度上限是另一回事（真实的 mod 文件名可以到 60+ 个字符，按 64 判会
+ * 把一个正常的整合包挡在外面）。
  */
 QString validatePathSegment(const QString &segment);
 
@@ -243,29 +241,29 @@ QString validatePathSegment(const QString &segment);
  * @brief @p candidate 是不是 @p parent 自己、或者它**底下**的某一层。
  * @return 是（含"就是它自己"）返回 true。
  *
- * ★ 2026-09-29 加，起因是一次真会把盘写爆的事故：「复制实例」的目标目录可以和源实例目录
- *   **撞上**。那一步挑目标用的是个普通的目录选择框，用户能一路点进
- *   `versions/我的整合包` 再按确定 —— 于是 `versions/我的整合包/versions/我的整合包 副本`
- *   落在源目录**里面**，而那两步复制（先 `mkpath` 目标、再列源目录）会把自己刚造出来的
- *   那个 `versions/` 也列进去 ⇒ 每层再往深一层，每层重抄整个实例，直到路径撑爆为止。
- *   判断这一件事只需要一个判据，所以它在这儿（两个调用方共用一份：界面那一层管话术、
- *   数据层那一层管兜底）。
+ * 加，起因是一次真会把盘写爆的事故：「复制实例」的目标目录可以和源实例目录
+ * **撞上**。那一步挑目标用的是个普通的目录选择框，用户能一路点进
+ * `versions/我的整合包` 再按确定 —— 于是 `versions/我的整合包/versions/我的整合包 副本`
+ * 落在源目录**里面**，而那两步复制（先 `mkpath` 目标、再列源目录）会把自己刚造出来的
+ * 那个 `versions/` 也列进去 ⇒ 每层再往深一层，每层重抄整个实例，直到路径撑爆为止。
+ * 判断这一件事只需要一个判据，所以它在这儿（两个调用方共用一份：界面那一层管话术、
+ * 数据层那一层管兜底）。
  *
  * **比的是规范化之后的真路径**：两边都必须已经在盘上。挑文件夹那一步带的是
  * `QDir::DontResolveSymlinks`，拿回来的路径不做规范化，只比字面量挡不住符号链接 / 8.3
  * 短名 / 大小写这些**别名** —— `canonicalFilePath()` 解的正是这些。
  *
- * ★ 但 canonicalFilePath() **不解 junction**（Windows 上它走 `slowCanonicalized()`，
- *   逐段判的是 `isSymLink()`，而 junction 在 Qt 里是 `JunctionType`、`isSymLink()` 是
- *   false），所以这一条自己再接一轮 `QFileInfo::junctionTarget()` 逐段把 junction 换成
- *   真目录（.cpp 里 `resolveJunctions()`，带 32 层防环）。**这条不是补丁，是必需的一半**：
- *   只靠 canonicalFilePath 的话，一个指着实例目录的 junction 能整条绕过去。
+ * 但 canonicalFilePath() **不解 junction**（Windows 上它走 `slowCanonicalized()`，
+ * 逐段判的是 `isSymLink()`，而 junction 在 Qt 里是 `JunctionType`、`isSymLink()` 是
+ * false），所以这一条自己再接一轮 `QFileInfo::junctionTarget()` 逐段把 junction 换成
+ * 真目录（.cpp 里 `resolveJunctions()`，带 32 层防环）。**这条不是补丁，是必需的一半**：
+ * 只靠 canonicalFilePath 的话，一个指着实例目录的 junction 能整条绕过去。
  *
  * canonical 解不掉的时候（路径不存在、权限不够）退回 `cleanPath(absolutePath())` ——
  * 别名那一档就漏了，但**判据不消失**（宁可漏一种写法，也不要"这一位读不出来就整条放行"）。
  *
  * NOTE: 尾随分隔符先削掉再比前缀 —— 不然 `D:/a` 和 `D:/ab` 会被认成包含关系
- *       （`"D:/ab".startsWith("D:/a")` 是 true 的那种经典错法）。
+ * （`"D:/ab".startsWith("D:/a")` 是 true 的那种经典错法）。
  */
 bool pathIsSameOrInside(const QString &parent, const QString &candidate);
 /// 解析符号链接、junction 与路径别名；不存在的路径保留绝对形式。
@@ -273,17 +271,17 @@ QString canonicalPath(const QString &path);
 
 /**
  * @brief @p relativePath 这一条（相对 @p root 的）路径上，**有没有任何一层是链接**
- *        （符号链接 / junction）。
+ * （符号链接 / junction）。
  *
  * 判的是**逐段**，不是整条：`config/共享/热键.json` 里真正危险的往往是中间那层
  * `config/共享` 是一根指着别处的 junction —— 只看最后的文件判不出来（它自己不是链接）。
  *
- * ★ 与 `pathIsSameOrInside()` 分工不同：那一条判"**最终落到哪儿**"，这一条判"**经过哪儿**"。
- *   两者都不是对方的替代 —— 目标目录本身是一根链接时，"在不在里面"两边解出来是一致的
- *   （所以那条闸放行），能挡住它的只有这一条。
+ * 与 `pathIsSameOrInside()` 分工不同：那一条判"**最终落到哪儿**"，这一条判"**经过哪儿**"。
+ * 两者都不是对方的替代 —— 目标目录本身是一根链接时，"在不在里面"两边解出来是一致的
+ * （所以那条闸放行），能挡住它的只有这一条。
  *
  * NOTE: 不存在的段一律当成"不是链接"（路径还不存在是最正常的事）；`isJunction()` /
- *       `isSymLink()` 对不存在的路径都回 false。
+ * `isSymLink()` 对不存在的路径都回 false。
  */
 bool pathHasLinkComponent(const QString &root, const QString &relativePath);
 
@@ -297,8 +295,8 @@ bool pathHasLinkComponent(const QString &root, const QString &relativePath);
  * `versions/foo` 是同一个目录，按区分大小写放过去，用户在资源管理器里就会看到
  * 两个"同名"的实例。
  * NOTE: 但只差大小写的那种改名（`Foo` → `foo`）是**合法**的，它改的是磁盘上那个
- *       名字的显示大小写。所以恰好等于 currentId 的那一项不参与比较，也不能因为
- *       "目标已存在"就直接拒 —— 那个"已存在"的目标就是它自己。
+ * 名字的显示大小写。所以恰好等于 currentId 的那一项不参与比较，也不能因为
+ * "目标已存在"就直接拒 —— 那个"已存在"的目标就是它自己。
  */
 QString validateRenameTarget(const QString &rawName, const QString &currentId);
 
@@ -314,14 +312,14 @@ enum class ImportNameVerdict {
  * @param rawName 用户输入的名字。
  * @param problemOut 非空时，Taken 那条路会把给用户看的那句话写进来（另两种清空）。
  * @param manifestFingerprint 这一趟要导入的包那份清单的指纹（`importManifestFingerprint()`
- *        的产物；空 = 调用方不知道，不查这一条）。
+ * 的产物；空 = 调用方不知道，不查这一条）。
  *
- * ★ 2026-10-20：同名**不等于**同一个包。盘上那次没导完的导入记着上一次那份清单的指纹，
- *   这一趟的指纹和它对不上时回 `Taken`（措辞说清是"另一个整合包"）：否则把两个不同的
- *   包往同一个目录里接着导，前一包的半份文件会和新包混在一起 —— 清单里 sha1 对不上的
- *   那几条还会被当成"已经有文件"跳过，装出来是个谁都没见过的组合。
- *   老版本留下的标记里没有指纹（那时只记了开始时间），认不出来就仍然按 `OkResume`
- *   放行 —— 那是升级前就有的行为，不能因为升级反而把用户已经下到一半的那一份锁死。
+ * 同名**不等于**同一个包。盘上那次没导完的导入记着上一次那份清单的指纹，
+ * 这一趟的指纹和它对不上时回 `Taken`（措辞说清是"另一个整合包"）：否则把两个不同的
+ * 包往同一个目录里接着导，前一包的半份文件会和新包混在一起 —— 清单里 sha1 对不上的
+ * 那几条还会被当成"已经有文件"跳过，装出来是个谁都没见过的组合。
+ * 老版本留下的标记里没有指纹（那时只记了开始时间），认不出来就仍然按 `OkResume`
+ * 放行 —— 那是升级前就有的行为，不能因为升级反而把用户已经下到一半的那一份锁死。
  *
  * 和「重命名」判据的差别**只有这一条**：撞上的是"上次没下完的导入"时不算被占 ——
  * 整合包是几百个文件分着下的，网一断就留下半份（真机上那次是 600+ MB / 300 多个文件），
@@ -329,7 +327,7 @@ enum class ImportNameVerdict {
  * 下好的那几百 MB 再下一遍 —— 这跟本启动器「重下=校验跳过」那条规矩是相反的。
  *
  * NOTE: OkResume **不是**"静默覆盖"：调用方必须问一句再往下走（见 MainWindow 里那个
- *       确认框）—— 接着下会重新解开包里的 config/资源包，压在用户改过的文件上。
+ * 确认框）—— 接着下会重新解开包里的 config/资源包，压在用户改过的文件上。
  */
 ImportNameVerdict checkImportTargetName(const QString &rawName,
                                         QString *problemOut = nullptr,
@@ -340,22 +338,22 @@ ImportNameVerdict checkImportTargetName(const QString &rawName,
  * @param id 目录名（= 实例 id）。
  *
  * 判据（都只看盘，不联网），缺一不可：
- *   ① **没有** `wtfml.meta`：启动器把一份实例做成功过就会留下它（导入是在最后一步写的、
- *      装加载器是装完写的、改名时也会补）。没有它 = 启动器从没把这一份做完。
- *   ② **没有**客户端 jar：整合包装出来的实例目录里只有一份薄 json + 下下来的那些文件，
- *      主 jar 在原版/加载器那一层。顶层出现 jar 说明这一份不是导入留下的（用户自己放的，
- *      或者手工做的），那种目录不该被导入盖上去。
- *   ③ 自己的版本 json 声明了父版本（`inheritsFrom`）—— 那正是导入写下的那份 json 的形状。
- *   ④ **而且**能认出它是"导入留下的"：有导入开始时落下的那枚标记
- *      （`importMarkerPath()`），或者 json 恰好只有导入第一步写的那三格
- *      （`id` / `inheritsFrom` / `type`）。
+ * ① **没有** `wtfml.meta`：启动器把一份实例做成功过就会留下它（导入是在最后一步写的、
+ * 装加载器是装完写的、改名时也会补）。没有它 = 启动器从没把这一份做完。
+ * ② **没有**客户端 jar：整合包装出来的实例目录里只有一份薄 json + 下下来的那些文件，
+ * 主 jar 在原版/加载器那一层。顶层出现 jar 说明这一份不是导入留下的（用户自己放的，
+ * 或者手工做的），那种目录不该被导入盖上去。
+ * ③ 自己的版本 json 声明了父版本（`inheritsFrom`）—— 那正是导入写下的那份 json 的形状。
+ * ④ **而且**能认出它是"导入留下的"：有导入开始时落下的那枚标记
+ * （`importMarkerPath()`），或者 json 恰好只有导入第一步写的那三格
+ * （`id` / `inheritsFrom` / `type`）。
  *
- * ★ 2026-10-20 补的 ④：③ 单独一条**太宽** —— 别的启动器装出来的加载器版本（Fabric /
- *   Forge / NeoForge 的 profile）、用户从别处整个拷来的加载器实例，同样是"没有 meta、
- *   没有顶层 jar、json 里有 inheritsFrom"。只按 ①–③ 判的话，那些**完全正常**的实例会
- *   从启动列表里消失、点启动还会被拦一句"还没装完"。真正能区分的只有两点：我们在导入
- *   开始时亲手落的标记，以及导入写的那份 json 薄到只有三格（第三方 profile 都带
- *   `mainClass` / `libraries`，长得不这么薄）。
+ * 补的 ④：③ 单独一条**太宽** —— 别的启动器装出来的加载器版本（Fabric /
+ * Forge / NeoForge 的 profile）、用户从别处整个拷来的加载器实例，同样是"没有 meta、
+ * 没有顶层 jar、json 里有 inheritsFrom"。只按 ①–③ 判的话，那些**完全正常**的实例会
+ * 从启动列表里消失、点启动还会被拦一句"还没装完"。真正能区分的只有两点：我们在导入
+ * 开始时亲手落的标记，以及导入写的那份 json 薄到只有三格（第三方 profile 都带
+ * `mainClass` / `libraries`，长得不这么薄）。
  *
  * 三条都满足时它**仍然可能是**一台机器上手工拼出来的实例（那种目录也没有 meta、也没有
  * jar），所以调用方要问一句。判据宁可偏保守：认错了的代价是"少一条能接着下的路"，
@@ -368,8 +366,8 @@ bool isUnfinishedImport(const QString &id);
 /// 它和 `wtfml.meta` 是相反的两件事：meta 是"做完了"，这个是"正在做、还没做完"。
 /// 单独一个文件、不进版本 json，是因为 json 的字段第三方工具也会读写，多一个私有字段
 /// 既容易被清掉，也会让"那份 json 是不是我们写的"更难看出来。成功收尾时删掉。
-/// ★ 2026-10-20 起内容是 JSON：`{"startedAt": "...", "manifestSha256": "..."}`。
-///   老版本写的是一行 ISO 时间 —— 读侧把它当"没有指纹"，不影响升级前留下的半成品。
+/// 起内容是 JSON：`{"startedAt": "...", "manifestSha256": "..."}`。
+/// 老版本写的是一行 ISO 时间 —— 读侧把它当"没有指纹"，不影响升级前留下的半成品。
 QString importMarkerPath(const QString &id);
 
 /// 整合包清单的指纹：对**清单文件的原始字节**算 sha256（小写十六进制，64 个字符）。
@@ -387,7 +385,7 @@ QString importMarkerFingerprint(const QString &id);
 /// 实例改名之后，把"按目录名认人"的缓存格子搬到新名字底下
 /// （`<每个根>/<oldId>` → `<每个根>/<newId>`）。
 ///
-/// 为什么要有（2026-10-20）：配置备份（`cache/config-backups/<id>/…`）、资源包备份
+/// 为什么要有：配置备份（`cache/config-backups/<id>/…`）、资源包备份
 /// （`cache/resource-pack-backups/<id>`）这些格子的名字都由实例目录名派生。不改名之前
 /// 一切正常，改名之后**新名字查不到那些备份、清理也够不着它们** —— 用户看到的是
 /// "改了个名，我的配置回退记录全没了"，而磁盘上其实还在，只是没人再按那个名字去找。

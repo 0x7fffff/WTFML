@@ -150,8 +150,8 @@ void ModpackExportController::exportPack(const QString &versionId,
                  format == ModpackExport::Format::CurseForge ? tr("CurseForge 规范")
                                                              : tr("Modrinth 规范")));
     m_busy = true;
-    // ★ 任务中心（coding plan §9.9）：先记一项，再由它推着这四步走。验证工程不接这几个
-    //   回调也照样能导出 —— 任务中心只是同一段流程的镜子，不是新的执行路径。
+    // 任务中心（coding plan §9.9）：先记一项，再由它推着这四步走。验证工程不接这几个
+    // 回调也照样能导出 —— 任务中心只是同一段流程的镜子，不是新的执行路径。
     if (m_host.beginTask) {
         m_taskId = m_host.beginTask(Tasks::TaskKind::Export,
                                     tr("导出整合包 %1").arg(displayName(versionId)),

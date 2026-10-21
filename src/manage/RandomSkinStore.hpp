@@ -1,34 +1,21 @@
 /**
- * @file RandomSkinStore.hpp
- * @brief 给**离线账号**挑一张随机皮肤（挑地址 + 记盘），图本身还是走 PlayerSkinStore 去下。
- * @author 0x7fffff
- * @date 2026-09-24
- * @note 只用 QtCore + QtNetwork，一个 QtGui 类都不碰 —— 同 PlayerSkinStore（它发出去的
- *       也是"一个地址"，不是 QImage）。挑哪一张、地址合不合法、盘上那份还算不算数，
- *       这几件事**没有一行能靠肉眼看截图验准**，所以全做成纯函数留在主 verify 工程里钉住。
- *
- * 【为什么不从 NameMC 挑（2026-09-24 实测）】
- *
- * 用户问的原话是「默认皮肤能自动在 namemc 去随机下一个吗」。NameMC **走不通**，而且是
- * 三重走不通，三条都实测过：
- *
- *   1. **它每一页都在 Cloudflare 的 JS 挑战后面**。裸 curl 拿到 403，换上真浏览器的 UA
- *      还是 403，正文是 `Just a moment...`。`/`、`/skins`、`/api`、`/api/v2/skins`、
- *      `/profile/<uuid>` 全是 403 —— 只有 `/favicon.ico`、`/robots.txt` 这种静态文件放行。
- *      要过挑战得有 JS 引擎解 Turnstile，而这里只有 QNetworkAccessManager。
- *   2. **它没有公开 API**。`api.namemc.com` 这个 host 存在（根路径 404 而不是连接失败），
- *      但公开文档里没有任何"随机皮肤"端点，站上那个随机也是页面自己的功能。
- *   3. 顺带一提，它的 robots.txt 只对 GPTBot 全禁、对其他人只禁 `/minecraft-names?` 和
- *      `/i/emoji/` —— 所以**挡住的不是规矩，是那道挑战**。这话要说准，别把技术障碍
- *      说成人家不让你抓。
+ * 1. **它每一页都在 Cloudflare 的 JS 挑战后面**。裸 curl 拿到 403，换上真浏览器的 UA
+ * 还是 403，正文是 `Just a moment...`。`/`、`/skins`、`/api`、`/api/v2/skins`、
+ * `/profile/<uuid>` 全是 403 —— 只有 `/favicon.ico`、`/robots.txt` 这种静态文件放行。
+ * 要过挑战得有 JS 引擎解 Turnstile，而这里只有 QNetworkAccessManager。
+ * 2. **它没有公开 API**。`api.namemc.com` 这个 host 存在（根路径 404 而不是连接失败），
+ * 但公开文档里没有任何"随机皮肤"端点，站上那个随机也是页面自己的功能。
+ * 3. 顺带一提，它的 robots.txt 只对 GPTBot 全禁、对其他人只禁 `/minecraft-names?` 和
+ * `/i/emoji/` —— 所以**挡住的不是规矩，是那道挑战**。这话要说准，别把技术障碍
+ * 说成人家不让你抓。
  *
  * 【那用什么：MineSkin 的公开皮肤库】
  *
  * `https://api.mineskin.org/v2/skins?size=N`（免 key，N 上限 128，超过 400）返回**最近被
  * 生成的一批皮肤**，每项长这样：
  *
- *     { "uuid": …, "shortId": …, "name": null, "texture": "<64 位十六进制>",
- *       "timestamp": 1790216929364 }
+ * { "uuid": …, "shortId": …, "name": null, "texture": "<64 位十六进制>",
+ * "timestamp": 1790216929364 }
  *
  * 关键在于那个 `texture` 就是官方 CDN 上那张图的**内容哈希** —— 图本身躺在
  * `https://textures.minecraft.net/texture/<hash>`，也就是 `PlayerSkinStore` 已经在认的那个
@@ -36,7 +23,7 @@
  * （PlayerSkinStore::fetchTexture / cachePathForUrl / MainWindow::requestSkinTexture）。
  *
  * NOTE: 这个库是**别人生成上传的，没有审核**。看到一张奇怪的图是可能的（都是 64×64 的
- *       像素画），要换成别的源就换 listRequestUrl() 和 parseTextureHashes() 这两处。
+ * 像素画），要换成别的源就换 listRequestUrl() 和 parseTextureHashes() 这两处。
  *
  * 【只给离线账号挑】
  *
@@ -81,11 +68,9 @@ public:
 
     /// 要那一批皮肤用的地址。**唯一出处**（想换源就改这里和 parseTextureHashes()）。
     /// @param size 一次要几条；> maxListSize() 时按上限算（官方对超限回的是 400，
-    ///       不是一个截短了的列表 —— 与其拿一个 400 去猜，不如自己先钳住）。
+    /// 不是一个截短了的列表 —— 与其拿一个 400 去猜，不如自己先钳住）。
     static QUrl listRequestUrl(int size);
 
-    /// 一次最多能要几条。**128 是实测出来的**：100、128 回 200，200、256、500 回 400。
-    /// 一次要满：列表是按时间倒序的，一页 128 条大约覆盖最近十分钟生成的东西。
     static int maxListSize() { return 128; }
 
     /// 默认要几条。取满 —— 这个列表**不是**翻页取的（只有 next 游标、没有"跳到第 N 页"），
@@ -104,8 +89,8 @@ public:
     /// 从 @p hashes 里挑第 @p roll 张（@p roll 必须落在 [0, size)，越界返回空串）。
     ///
     /// NOTE: 单独一个函数是为了**能验**：真跑那条路用的是 QRandomGenerator，而"随机"这件事
-    ///       本身没法断言（断言"两次不一样"是在赌运气）。把掷骰子和取值拆开之后，
-    ///       取值那一半每一条边界都能钉死。
+    /// 本身没法断言（断言"两次不一样"是在赌运气）。把掷骰子和取值拆开之后，
+    /// 取值那一半每一条边界都能钉死。
     static QString pickIndex(const QStringList &hashes, int roll);
 
     /// 这个人挑中的那张在盘上记在哪：`<skinsDir>/random-<uuidKey>.txt`。
@@ -131,15 +116,15 @@ public:
      * skinUrl 用即可。失败发 failed()（静默降级，见文件头）。
      *
      * @return 真的发出去了返回 true；已经有一次在飞、这一趟被挡掉时返回 **false**。
-     *         ★ 2026-09-27 起返回值有意义：调用方（MainWindow）要拿它决定"这一趟算谁挑的"
-     *         —— 被挡掉的那一趟**什么都没开始**，不能把"发请求时那位是谁"改掉，否则上一趟
-     *         的结果会被记到这一位名下（见 MainWindow::onRandomSkinReady() 那段）。
+     * 起返回值有意义：调用方（MainWindow）要拿它决定"这一趟算谁挑的"
+     * —— 被挡掉的那一趟**什么都没开始**，不能把"发请求时那位是谁"改掉，否则上一趟
+     * 的结果会被记到这一位名下（见 MainWindow::onRandomSkinReady() 那段）。
      */
     bool fetchRandomSkin();
 
 signals:
     /// 挑好了。@param skinUrl `https://textures.minecraft.net/texture/<hash>`，可以直接喂给
-    ///        PlayerSkinStore::fetchTexture()。
+    /// PlayerSkinStore::fetchTexture()。
     void skinReady(const QString &skinUrl);
     /// 出错了。**调用方只记日志**（见文件头）。
     void failed(const QString &message);

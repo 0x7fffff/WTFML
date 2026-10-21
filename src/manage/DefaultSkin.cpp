@@ -1,8 +1,6 @@
 /**
  * @file DefaultSkin.cpp
  * @brief DefaultSkin 的实现。
- * @author 0x7fffff
- * @date 2026-09-24
  * @note 两套规矩、18 条路径、Java 那个哈希的来历，全在 .hpp 文件头。这里只写"怎么落盘"。
  */
 #include "DefaultSkin.hpp"
@@ -77,11 +75,6 @@ QString entrySlug(const QString &entryPath) {
 }
 
 /// 版本 id → 缓存文件名里那一段（md5 前 12 位十六进制）。
-///
-/// **为什么用哈希而不是把版本 id 直接拼进去**：版本 id 是**外面来的目录名**，实测里有空格、
-/// 全角括号、中文（`26.2-Fabric 0.19.5`、`原版ATT2地图（无模组）`），而且是用户能在资源
-/// 管理器里随手改的。拿它拼文件名就是在赌 Windows 收不收 —— 收下了也可能超出路径长度。
-/// 12 位十六进制 = 48 位，几十个版本之间撞不上。
 QString versionKey(const QString &versionId) {
     if (versionId.isEmpty()) {
         return QString();
@@ -226,8 +219,8 @@ DefaultSkin::Result DefaultSkin::resolve(const QString &playerName, const QStrin
     }
 
     // ① 缓存命中：这个 (账号, 版本) 算过了吗？两条规矩各一个文件名（版本键在里面，
-    //    所以换到低版本不会拿现代那张顶上去），**先新后老**。
-    //    命中时一个进程都不起 —— "平时开启动器零代价"就是这一句。
+    // 所以换到低版本不会拿现代那张顶上去），**先新后老**。
+    // 命中时一个进程都不起 —— "平时开启动器零代价"就是这一句。
     for (const Rule rule : {Rule::Eighteen, Rule::Two}) {
         const Prediction p = predict(uuid, rule);
         if (!p.valid) {
@@ -297,9 +290,9 @@ DefaultSkin::Result DefaultSkin::resolve(const QString &playerName, const QStrin
             // 两件事分开：前者值得记一行日志，后者是常态（换个规矩再问一次就行）。
             //
             // NOTE: NotAnArchive 时 ZipUtil **不给** error（它自己那一层没有话可说：退出码 4
-            //       就是终点，连异常文字都没有），照抄过来就是一句「算离线默认皮肤失败：」
-            //       后面什么都没有 —— 那句日志的全部意义就是"怎么老是随机那张"有个交代，
-            //       空着等于没写。这里补上，并且两种都带上路径（到底哪个版本的 JAR 坏了）。
+            // 就是终点，连异常文字都没有），照抄过来就是一句「算离线默认皮肤失败：」
+            // 后面什么都没有 —— 那句日志的全部意义就是"怎么老是随机那张"有个交代，
+            // 空着等于没写。这里补上，并且两种都带上路径（到底哪个版本的 JAR 坏了）。
             if (reasonOut != nullptr) {
                 if (status == ZipUtil::EntryStatus::NotAnArchive) {
                     *reasonOut = QStringLiteral("这个版本的客户端 JAR 打不开（不是 zip、或者坏了）：%1。")

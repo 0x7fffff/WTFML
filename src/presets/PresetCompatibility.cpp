@@ -1,8 +1,6 @@
 /**
  * @file PresetCompatibility.cpp
  * @brief `PresetCompatibility.hpp` 的实现（本地筛选 → 缓存 → 有限并发查询）。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "PresetCompatibility.hpp"
@@ -31,7 +29,7 @@ QString normalizeCompatibilityLoader(const QString &raw) {
 }
 
 QString CompatibilityContext::cacheKey() const {
-    // ★ 次序和分隔符都是格式的一部分（缓存键只在本进程里用，但验证工程会读它）。
+    // 次序和分隔符都是格式的一部分（缓存键只在本进程里用，但验证工程会读它）。
     return QStringLiteral("%1|%2|%3")
         .arg(gameVersion.trimmed().toLower(),
              normalizeCompatibilityLoader(loader),
@@ -76,7 +74,7 @@ QString CompatibilitySummary::text() const {
     } else if (missing == 0 && unknown == 0 && invalid == 0) {
         parts.append(QStringLiteral("全部匹配（%1）").arg(matched));
     } else {
-        // ★「缺失」与「暂无法确认」**分开说**（§7.2 那条验收：API 失败不算缺失）。
+        // 「缺失」与「暂无法确认」**分开说**（§7.2 那条验收：API 失败不算缺失）。
         if (missing > 0) {
             parts.append(QStringLiteral("缺失 %1").arg(missing));
         }
@@ -159,7 +157,7 @@ bool CompatibilityCache::lookup(const QString &key, Entry *entry, bool *stale) c
 
 void CompatibilityCache::insert(const QString &key, CompatibilityState state,
                                 const QString &detail, qint64 nowMs) {
-    // ★ 只缓存"平台给了准话"的那两档。`Unknown` 缓存起来会把一次断网变成十分钟的假结论。
+    // 只缓存"平台给了准话"的那两档。`Unknown` 缓存起来会把一次断网变成十分钟的假结论。
     if (key.isEmpty() || m_ttlMs <= 0 ||
         (state != CompatibilityState::Matched && state != CompatibilityState::Missing)) {
         return;
@@ -204,7 +202,7 @@ void CompatibilityChecker::dropLiveQueries() {
 
 void CompatibilityChecker::start(const QList<ModReference> &references,
                                  const CompatibilityContext &context) {
-    // ★ 新一代：旧的在途回调全部作废（generation 对不上就丢，见 beginQuery 里那个 lambda）。
+    // 新一代：旧的在途回调全部作废（generation 对不上就丢，见 beginQuery 里那个 lambda）。
     ++m_generation;
     dropLiveQueries();
     m_items.clear();
@@ -330,10 +328,10 @@ void CompatibilityChecker::beginQuery(int index) {
     });
 
     const ModReference reference = item.reference;
-    // ★ 检查器可能比提供方先没（关闭那一页 / 换一份预设时整个弹窗拆掉）。提供方手里
-    //   那发 `Reply` 之后还可能被调用 —— 直接 `invokeMethod(this, …)` 就是对已析构对象的
-    //   一次跳转（P6「关闭弹窗」那一格）。`QPointer` 在对象析构时自动置空，晚到的那一发
-    //   到这里就只是一次空判断。
+    // 检查器可能比提供方先没（关闭那一页 / 换一份预设时整个弹窗拆掉）。提供方手里
+    // 那发 `Reply` 之后还可能被调用 —— 直接 `invokeMethod(this, …)` 就是对已析构对象的
+    // 一次跳转（P6「关闭弹窗」那一格）。`QPointer` 在对象析构时自动置空，晚到的那一发
+    // 到这里就只是一次空判断。
     const QPointer<CompatibilityChecker> guard(this);
     m_provider->query(reference, m_context,
                       [this, guard, generation, queryId, index](CompatibilityState state,
@@ -341,7 +339,7 @@ void CompatibilityChecker::beginQuery(int index) {
                           if (guard.isNull()) {
                               return;
                           }
-                          // ★ 一律转成队列调用：提供方同步回调也不会在 pump 的循环里重入。
+                          // 一律转成队列调用：提供方同步回调也不会在 pump 的循环里重入。
                           QMetaObject::invokeMethod(
                               this,
                               [this, guard, generation, queryId, index, state, detail]() {

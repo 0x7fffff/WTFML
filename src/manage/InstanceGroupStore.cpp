@@ -1,9 +1,7 @@
 /**
  * @file InstanceGroupStore.cpp
- * @brief Implements instance grouping (read/write <数据目录>/wtfml.folders).
- * @author 0x7fffff
- * @date 2026-09-21
- * @note 文件格式、键名与容错规则都写在 .hpp 里，这里只实现。
+ * @brief 实现实例分组读写（数据目录/wtfml.folders）。
+ * @note 文件格式、键名和容错规则见 .hpp。
  */
 
 #include "InstanceGroupStore.hpp"
@@ -33,14 +31,14 @@ const QString kGroupsField = QStringLiteral("groups");
 const QString kMembersField = QStringLiteral("members");
 const QString kIdField = QStringLiteral("id");
 const QString kNameField = QStringLiteral("name");
-/// 组在实例树里展开/收着（用户 2026-09-25 要的「默认展开/关闭」）。
+/// 组在实例树里展开/收着（用户 要的「默认展开/关闭」）。
 /// **文件里没有这一条 = 展开**（老文件、手写的文件都算展开）—— 见 groups() 里那一行。
 const QString kExpandedField = QStringLiteral("expanded");
-/// 这一组是不是**置顶组**（用户 2026-09-25 要的「设为置顶组」）。
+/// 这一组是不是**置顶组**（用户 要的「设为置顶组」）。
 /// **文件里没有这一条 = 不是置顶组**（老文件、手写的文件都不认领这个身份）—— 只有一条
 /// 例外在读取口上：一个都没有时退回那个叫「置顶」的默认组，见 pinnedGroupId()。
 const QString kPinnedField = QStringLiteral("pinned");
-/// **置顶前的归属**：那颗上箭头点下去之前，这个实例待在哪儿（用户 2026-09-26 原话：
+/// **置顶前的归属**：那颗上箭头点下去之前，这个实例待在哪儿（要求：
 /// 「加一个记录置顶前这玩意属于哪一组的，用户直接塞的取消置顶才归进未分类」）。
 /// 与 members 平级的一个对象，键和 members 同一套（实例归属键），值有三种形态 ——
 /// 完整规矩与"为什么第三种必须是 null"见 .hpp 文件头那一段。
@@ -111,7 +109,7 @@ QList<InstanceGroupStore::Group> InstanceGroupStore::defaultGroups() {
         // 的关系是：展开那半是缺省（true），和以前那行花括号写法一模一样。
         //
         // NOTE: 种默认（seedDefaultGroups）和恢复默认（restoreDefaultGroups）**共用这一个
-        //       函数**，所以"两处的置顶组必须是同一个"是结构上成立的，不是两处各写一遍。
+        // 函数**，所以"两处的置顶组必须是同一个"是结构上成立的，不是两处各写一遍。
         group.pinned = kind == DefaultKind::Pinned;
         groups.append(group);
     }
@@ -232,23 +230,23 @@ QList<InstanceGroupStore::Group> InstanceGroupStore::groups() const {
         if (id == kDefaultIdPinned && group.name == QStringLiteral("置顶")) {
             group.name = QStringLiteral("收藏");
         }
-        // **缺省是展开**（toBool 的缺省值）：这一条是 2026-09-25 才有的，之前写的文件
+        // **缺省是展开**（toBool 的缺省值）：这一条是 才有的，之前写的文件
         // 里一个都没有，而那时界面上组一律是展开的 —— 缺省值就把老文件读成了老样子。
         group.expanded = object.value(kExpandedField).toBool(true);
         // **缺省是不置顶**（toBool 的缺省值）：和上面那一格同一个写法，来路也一样 ——
-        // 这一条是 2026-09-25 才有的，之前写的文件里一个都没有。**类型不对也当 false**
+        // 这一条是 才有的，之前写的文件里一个都没有。**类型不对也当 false**
         // （toBool 对"字符串 true"这种返回的也是缺省值），理由和 expanded 那行一样：
         // 认不出来的东西就按"没这一位"处理，绝不猜。
         group.pinned = object.value(kPinnedField).toBool(false);
         result.append(group);
     }
 
-    // ★ 归一化：**置顶组最多一个**。这份文件是可以被手改的（记事本里多写一行
-    //   `"pinned": true` 就行），多出来那些必须在这儿清掉 —— 不归一化的话，"进哪一个"
-    //   就变成了"文件里谁排在前面"决定，用户改一下组的顺序（或者我们自己某次写盘的顺序
-    //   变了），那颗上箭头就把实例送进另一个组去了，而界面上什么都没变。
-    //   留第一个，和上面"id 重复只留第一个"同一条规矩：读侧是唯一一道能收口的地方，
-    //   写侧（setGroupPinned）设的时候也会清，但那只管我们自己写的那条路。
+    // 归一化：**置顶组最多一个**。这份文件是可以被手改的（记事本里多写一行
+    // `"pinned": true` 就行），多出来那些必须在这儿清掉 —— 不归一化的话，"进哪一个"
+    // 就变成了"文件里谁排在前面"决定，用户改一下组的顺序（或者我们自己某次写盘的顺序
+    // 变了），那颗上箭头就把实例送进另一个组去了，而界面上什么都没变。
+    // 留第一个，和上面"id 重复只留第一个"同一条规矩：读侧是唯一一道能收口的地方，
+    // 写侧（setGroupPinned）设的时候也会清，但那只管我们自己写的那条路。
     bool seenPinned = false;
     for (Group &group : result) {
         if (!group.pinned) {
@@ -289,13 +287,13 @@ QString InstanceGroupStore::pinnedGroupIdOf(const QList<Group> &groups) {
         }
     }
     // 第二条出口（迁移路）：一个都没有 ⇒ 退回那个叫「置顶」的默认组 —— 只要它还在清单里。
-    // 老用户的文件里没有 pinned 这一格（2026-09-25 才有的），而他手上那个「置顶」组从
+    // 老用户的文件里没有 pinned 这一格（ 才有的），而他手上那个「置顶」组从
     // 第一天起就摆在那儿；不退回的话，升级上来的人得自己去「分组设置」里勾一下，那颗
     // 上箭头才有着落 —— 而"置顶"这个名字本身就说明了它该是哪一个。
     //
     // NOTE: 这里**一个字节都不写盘**（完整理由见 .hpp 里那段 NOTE）：迁移是"读的时候
-    //       算出来"的，不是"顺手把用户的文件改写一遍"。所以退回这件事是可重复的 ——
-    //       用户下次打开还是同一个答案，文件也还是他自己写的那样。
+    // 算出来"的，不是"顺手把用户的文件改写一遍"。所以退回这件事是可重复的 ——
+    // 用户下次打开还是同一个答案，文件也还是他自己写的那样。
     const QString fallback = defaultGroupId(DefaultKind::Pinned);
     const auto found =
         std::find_if(groups.constBegin(), groups.constEnd(),
@@ -423,10 +421,10 @@ bool InstanceGroupStore::setGroupPinned(const QString &groupId, bool pinned, QSt
         // 已经就是这个状态了：不写盘（和 setGroupExpanded() 那条空操作同一条规矩）。
         return true;
     }
-    // ★ 置顶组**只能有一个**：一句把"目标那一组"和"别的所有组"一起摆好 ——
-    //   pinned == true 时只有目标那一组留下 true；pinned == false 时全清（含目标自己）。
-    //   写出去的那一份**本来就干净**，不靠读侧那套归一化兜底：归一化只在读盘时清内存里
-    //   那一份，写盘用的正是这里这份 list，靠它的话文件里会留着"两个都是 true"。
+    // 置顶组**只能有一个**：一句把"目标那一组"和"别的所有组"一起摆好 ——
+    // pinned == true 时只有目标那一组留下 true；pinned == false 时全清（含目标自己）。
+    // 写出去的那一份**本来就干净**，不靠读侧那套归一化兜底：归一化只在读盘时清内存里
+    // 那一份，写盘用的正是这里这份 list，靠它的话文件里会留着"两个都是 true"。
     for (Group &group : list) {
         group.pinned = pinned && group.id == groupId;
     }
@@ -452,7 +450,7 @@ bool InstanceGroupStore::assign(const QString &instanceKey, const QString &group
 
     ensureLoaded();
 
-    // 文件读不懂这条**先判**（2026-09-24 挪上来的）。它排在"找不到那个分组"后面时，
+    // 文件读不懂这条**先判**（ 挪上来的）。它排在"找不到那个分组"后面时，
     // 真正的因由（文件坏了 / 是更新版本写的，这一版拒绝动它）会被挡在后面说不出口：
     // 那份读不懂的文件让 groups() 返回空表，于是用户一路都被告知"找不到那个分组，
     // 可能刚刚被删掉了"—— 而分组一个都没删，是这一版压根没读进来。
@@ -512,15 +510,15 @@ bool InstanceGroupStore::pinInstance(const QString &instanceKey, QString *errorO
         return true;
     }
 
-    // ★ 记下"置顶之前它属于哪一组"（用户 2026-09-26 要的那一句）。三种来路三种记法：
-    //   - 有归属、指向一个活着的组 ⇒ 记那个组 id（取消置顶时原样写回去）；
-    //   - 明确选了「未分组」⇒ 记那个**保留值**（原样写回去，见 ungroupedMarker()那段）；
-    //   - **压根没有这一条**（用户从没表过态，显示层按版本类型把它归在某一组里）⇒ 记 null。
-    //     取消置顶时把 members 里那一条**删掉**（不是写 marker）⇒ 显示层按同一套规则再算
-    //     一遍，落回它置顶前**显示**的那一组；而写 marker 会把"我就想待在未分组"这句
-    //     用户没说过的态替他说了，从此它再也不会被自动归类。
+    // 记下"置顶之前它属于哪一组"（用户 要的那一句）。三种来路三种记法：
+    // - 有归属、指向一个活着的组 ⇒ 记那个组 id（取消置顶时原样写回去）；
+    // - 明确选了「未分组」⇒ 记那个**保留值**（原样写回去，见 ungroupedMarker()那段）；
+    // - **压根没有这一条**（用户从没表过态，显示层按版本类型把它归在某一组里）⇒ 记 null。
+    // 取消置顶时把 members 里那一条**删掉**（不是写 marker）⇒ 显示层按同一套规则再算
+    // 一遍，落回它置顶前**显示**的那一组；而写 marker 会把"我就想待在未分组"这句
+    // 用户没说过的态替他说了，从此它再也不会被自动归类。
     // NOTE: 记的值**不在这里校验**（指向一个已经删掉的组也是原样记下来）—— 写侧那道自清理
-    //       会把它当"认不出来的值"丢掉，那时取消置顶就按"没记录"处理（落未分组）。
+    // 会把它当"认不出来的值"丢掉，那时取消置顶就按"没记录"处理（落未分组）。
     QJsonObject origins = m_root.value(kPinOriginField).toObject();
     const QString before = members.value(instanceKey).toString().trimmed();
     origins.insert(instanceKey, before.isEmpty() ? QJsonValue(QJsonValue::Null)
@@ -558,7 +556,7 @@ bool InstanceGroupStore::unpinInstance(const QString &instanceKey, QString *erro
     } else {
         // 有记录 ⇒ 回记录里的那一组（组 id / ungroupedMarker() 那个保留值）。
         // 没记录 ⇒ 未分组：这一条是"用户自己塞进置顶组的"（「移入分组」挑的、或者这一版
-        //   之前就在里面的老数据）—— 用户要的就是这一档归未分类。
+        // 之前就在里面的老数据）—— 用户要的就是这一档归未分类。
         QString target = recorded ? origins.value(instanceKey).toString().trimmed() : QString();
         if (!target.isEmpty() && target != ungroupedMarker()) {
             // 记录里那个组可能已经被删了（删组不清这一格 —— 它只在**写盘时**自清理，
@@ -711,7 +709,7 @@ bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObj
     QJsonObject members;
     for (auto it = rawMembers.constBegin(); it != rawMembers.constEnd(); ++it) {
         const QString key = it.key();
-        // 值**先 trim**（2026-09-25 修）。读侧（groupIdOf）读出来的是 trim 过的值，而下面
+        // 值**先 trim**（ 修）。读侧（groupIdOf）读出来的是 trim 过的值，而下面
         // 那句 keptIds.contains(groupId) 比的是**清洗过的**组 id —— 两边不一致时，手改过的
         // `"1.20.1": " default-mod "`（记事本里多打两个空格就会这样）在界面上是一条正常
         // 归属，而**任何一次写盘**（改别的实例的分组就会重写整个文件）都会把它当成"指向
@@ -722,8 +720,8 @@ bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObj
         // "删组只删组本身 + 指向它的成员条目，实例一个不动"那半句的实现。
         //
         // NOTE: ungroupedMarker() 那个保留值不在 keptIds 里，但它是一条**正常**的归属
-        //       （用户明确选了未分组），必须原样留着 —— 漏掉这一句的话，用户一按「确定」
-        //       它就被清掉，然后按版本类型归类回去。
+        // （用户明确选了未分组），必须原样留着 —— 漏掉这一句的话，用户一按「确定」
+        // 它就被清掉，然后按版本类型归类回去。
         if (key.isEmpty() || groupId.isEmpty()) {
             continue;
         }
@@ -733,15 +731,15 @@ bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObj
         members.insert(key, groupId);
     }
 
-    // ★ 「置顶前的归属」那一格的自清理：**只留"这一条此刻确实待在置顶组里"的记录**。
-    //   一条记录的全部意义是"取消置顶时把它写回去"，而只有正在置顶组里的实例才有"取消
-    //   置顶"这个动作 —— 别的任何一次移动（移入分组、移出分组、组被删掉、换一个置顶组、
-    //   恢复默认）都让那条记录变成旧账：它记的是那个实例**上一次**去置顶组之前在哪，
-    //   而此时要"回"的地方是这一轮点上去之前待的地方。
-    //   把它做成写侧的不变量（而不是几个动作各自记得去删）的理由：删记录这件事一旦要
-    //   五个地方各写一遍，漏一个的表现就是"某条路径走完之后取消置顶跳去了一个奇怪的
-    //   组"—— 而那种错误没有声音、也没有界面能看出来。收在这一处，任何一次写盘之后
-    //   盘上那些记录必然都是有效的。
+    // 「置顶前的归属」那一格的自清理：**只留"这一条此刻确实待在置顶组里"的记录**。
+    // 一条记录的全部意义是"取消置顶时把它写回去"，而只有正在置顶组里的实例才有"取消
+    // 置顶"这个动作 —— 别的任何一次移动（移入分组、移出分组、组被删掉、换一个置顶组、
+    // 恢复默认）都让那条记录变成旧账：它记的是那个实例**上一次**去置顶组之前在哪，
+    // 而此时要"回"的地方是这一轮点上去之前待的地方。
+    // 把它做成写侧的不变量（而不是几个动作各自记得去删）的理由：删记录这件事一旦要
+    // 五个地方各写一遍，漏一个的表现就是"某条路径走完之后取消置顶跳去了一个奇怪的
+    // 组"—— 而那种错误没有声音、也没有界面能看出来。收在这一处，任何一次写盘之后
+    // 盘上那些记录必然都是有效的。
     QJsonObject pinOrigin;
     const QString pinnedGroup = pinnedGroupIdOf(groups).trimmed();
     if (!pinnedGroup.isEmpty()) {
@@ -771,7 +769,7 @@ bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObj
             }
             // 记的那个组已经没了 ⇒ 这条记录"回不去了"，按没有记录处理（取消置顶落未分组）。
             // NOTE: ungroupedMarker() 那个保留值不在 keptIds 里，但它是一条**正常**的
-            //       记录（置顶前它明确待在未分组），和成员表那一段的处理逐字同款。
+            // 记录（置顶前它明确待在未分组），和成员表那一段的处理逐字同款。
             if (originGroup != ungroupedMarker() && !keptIds.contains(originGroup)) {
                 continue;
             }
@@ -781,11 +779,11 @@ bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObj
 
     // 以原来那个对象为底，只盖我们认识的四个键 —— 更新版本写的别的字段原样留着。
     //
-    // NOTE: 盖的是**副本 candidate**，不是 m_root（2026-09-24 改的）。这三句原来排在
-    //       mkpath / open / commit 之前，而下面三条失败路径都不回滚 —— 于是"写盘失败"
-    //       这件事会先在内存里生效（groups() / groupIdOf() 读的正是 m_root），接着**另一次
-    //       成功的写盘**会把这份幽灵状态一起提交：「告知失败的操作在稍后静默生效」。
-    //       内存状态只在确实落盘成功之后才认账。
+    // NOTE: 盖的是**副本 candidate**，不是 m_root（ 改的）。这三句原来排在
+    // mkpath / open / commit 之前，而下面三条失败路径都不回滚 —— 于是"写盘失败"
+    // 这件事会先在内存里生效（groups() / groupIdOf() 读的正是 m_root），接着**另一次
+    // 成功的写盘**会把这份幽灵状态一起提交：「告知失败的操作在稍后静默生效」。
+    // 内存状态只在确实落盘成功之后才认账。
     QJsonObject candidate = m_root;
     candidate.insert(kVersionField, kVersion);
     candidate.insert(kGroupsField, array);

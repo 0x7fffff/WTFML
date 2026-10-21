@@ -1,8 +1,6 @@
 /**
  * @file Banner.cpp
  * @brief Banner 的实现：图案表、十六色表、一条叠层计划（见头文件那一段）。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "tools/Banner.hpp"

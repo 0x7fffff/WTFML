@@ -1,8 +1,6 @@
 /**
  * @file ResourcePackPreset.cpp
  * @brief 实现 ResourcePackPreset.hpp（只碰 options.txt 里 `resourcePacks` 那一行）。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "ResourcePackPreset.hpp"

@@ -1,11 +1,9 @@
 /**
  * @file VersionIntegrity.hpp
  * @brief 「体检」：把一个已经装好的实例该有的文件逐条比一遍，**只报不装**。
- * @author 0x7fffff
- * @date 2026-10-11
  * @note 待办里那条「独立的完整性校验入口」的判据层。重复点「安装」那条路早就在了
- *       （VersionManager::repairVersionFiles —— 它缺什么补什么），缺的是**不装新的、
- *       只体检**：跑一趟，然后告诉用户"你这 3120 个文件里有 2 个要修"。
+ * （VersionManager::repairVersionFiles —— 它缺什么补什么），缺的是**不装新的、
+ * 只体检**：跑一趟，然后告诉用户"你这 3120 个文件里有 2 个要修"。
  *
  * 【它只算：不联网、不改盘】
  *
@@ -15,7 +13,7 @@
  * "扫描"和"界面"焊进同一个函数里。
  *
  * 【哪些文件算数：唯一出处是装配侧】
-
+ *
  * 和 VersionManager::registerVersionFiles() **同一个来源**：客户端 jar 看
  * `downloads.client`、库走 DownloadManager::extractLibraries()、资源索引走
  * extractAssetIndex()、资源对象照索引 json 里那份 objects 表（DownloadManager 的
@@ -23,17 +21,17 @@
  * 这边就会漏检一类（反过来也一样 —— 这边多算一类，体检会报一堆并不存在的问题）。
  *
  * 【深浅两档，各自照抄装配侧的同一条判据】
-
+ *
  * - 客户端 jar / 库：先比字节数，对得上再比 SHA1（= 装配侧的 VerifyMode::SizeAndSha1）。
- *   jar 40 MB 上下、库几百 KB，这一档全量哈希是划得来的。
+ * jar 40 MB 上下、库几百 KB，这一档全量哈希是划得来的。
  * - 资源对象：只看在不在、字节数对不对（= 装配侧的 ExistsOnly）。那 3000 个对象**不做
- *   哈希**：assets 目录 3 GB 出头，全量哈希是几十秒的事，而"0 字节"和"字节数对不上"
- *   已经能逮住"写盘写到一半被中断"那一种（"0 字节永远不算数"这条规矩的出处是
- *   DownloadManager::fileAlreadyValid()）。
- *   NOTE: 这里比装配侧多比了一样 —— 字节数。索引 json 里本来就有 size，不额外花代价。
+ * 哈希**：assets 目录 3 GB 出头，全量哈希是几十秒的事，而"0 字节"和"字节数对不上"
+ * 已经能逮住"写盘写到一半被中断"那一种（"0 字节永远不算数"这条规矩的出处是
+ * DownloadManager::fileAlreadyValid()）。
+ * NOTE: 这里比装配侧多比了一样 —— 字节数。索引 json 里本来就有 size，不额外花代价。
  *
  * 【哪几种情况叫"要修"】
-
+ *
  * 见 Verdict::Status。**Missing / Empty 算"缺"，其余算"坏"** —— 界面那句提示照这个分，
  * summary() 已经分好了，别再在别处按 status 重新数一遍。
  */
@@ -49,13 +47,10 @@
 
 namespace VersionIntegrity {
 
-/// 这一条属于报告里的哪一组（coding plan §4.1：「结果按**客户端 / 库 / 资源索引 / 资源对象**
-/// 分组」）。
-///
-/// ★ 分组是 `plan()` **在列清单那一刻就知道**的事（它一段一段地列：先 jar、再库、再索引、
-///   最后那几千个资源对象），所以它由这一层记下来、一路带到 `Verdict` 上去 —— 而不是让界面
-///   回头去认 `label` 字符串的前缀（"资源索引 5" 这种名字是给人看的，拿它当判据的话，
-///   哪天把那个字改一下，分组就静悄悄地错了）。
+/// 分组是 `plan()` **在列清单那一刻就知道**的事（它一段一段地列：先 jar、再库、再索引、
+/// 最后那几千个资源对象），所以它由这一层记下来、一路带到 `Verdict` 上去 —— 而不是让界面
+/// 回头去认 `label` 字符串的前缀（"资源索引 5" 这种名字是给人看的，拿它当判据的话，
+/// 哪天把那个字改一下，分组就静悄悄地错了）。
 enum class Group {
     ClientJar,     ///< 客户端 jar（`downloads.client`）—— 一个实例最多一条
     Libraries,     ///< 库（实例之间共用 `<数据目录>/libraries` 那一份）
@@ -96,7 +91,7 @@ enum class Status {
 };
 
 /// @brief 比一条的结果。**每个文件都有一条**（好的那条 status == Ok），
-///        Report 里只收不好的那些。
+/// Report 里只收不好的那些。
 struct Verdict {
     Status status = Status::Ok;
     QString label;
@@ -130,7 +125,7 @@ struct Report {
 
     // ---------- 按组数（coding plan §4.1 的"结果分组"）----------
     // NOTE: 这三条只数 `problems`（好的那些压根不在 Report 里）—— 所以"库里缺 0 个"说的是
-    //       "库里没有要修的东西"，不是"这个实例没有库"。界面上的分组行照这个意思写。
+    // "库里没有要修的东西"，不是"这个实例没有库"。界面上的分组行照这个意思写。
 
     /// @p group 这一组里缺的条数（Missing + Empty）。
     int missingIn(Group group) const;
@@ -142,10 +137,10 @@ struct Report {
     /// 要修的那几条的**绝对路径**（按 problems 原来的顺序，可能带重复 —— 同一个文件不会
     /// 出现两次，但别处别指望它去重）。
     ///
-    /// ★ 唯一读者是**补全**那一侧：MainWindow 把这一份交给
-    ///   VersionManager::repairVersionFiles()，那一批就不再问"盘上这份在不在、对不对"
-    ///   （见 DownloadManager::setFlaggedPaths）。没有它的时候，体检按字节数判"坏"的资源对象
-    ///   会被补全当成"已经好了"跳过 —— 两份界面互相打脸。
+    /// 唯一读者是**补全**那一侧：MainWindow 把这一份交给
+    /// VersionManager::repairVersionFiles()，那一批就不再问"盘上这份在不在、对不对"
+    /// （见 DownloadManager::setFlaggedPaths）。没有它的时候，体检按字节数判"坏"的资源对象
+    /// 会被补全当成"已经好了"跳过 —— 两份界面互相打脸。
     /// NOTE: 报告压根没跑起来（`error` 非空）时 problems 是空的，回的就是空表。
     QStringList problemPaths() const;
 
@@ -155,27 +150,22 @@ struct Report {
 
 /// @brief 算出这一份版本"该有哪些文件"。
 /// @param mergedJson getVersionJson() 那份**合并过**的（父版本的东西要能看见）。
-/// @param versionId  版本目录名（jar 的路径按它算 —— 主人可能是父版本）。
-/// @param libraries  调用方解好的（`DownloadManager::extractLibraries(mergedJson)`）。
+/// @param versionId 版本目录名（jar 的路径按它算 —— 主人可能是父版本）。
+/// @param libraries 调用方解好的（`DownloadManager::extractLibraries(mergedJson)`）。
 /// @param assetIndex 调用方解好的（`DownloadManager::extractAssetIndex(mergedJson)`）。
 /// @return 清单，顺序是 jar → 库 → 资源索引 → 资源对象。
 ///
 /// NOTE: 唯一的读盘是**资源索引那个 json**（要拿里面那份 objects 表）。索引本身不在盘上
-///       时 objects 一条都列不出来 —— 那一趟的结论里会有"索引文件缺了"这一条，够用户
-///       修了，不另外报错。
+/// 时 objects 一条都列不出来 —— 那一趟的结论里会有"索引文件缺了"这一条，够用户
+/// 修了，不另外报错。
 QList<ExpectedFile> plan(const QJsonObject &mergedJson, const QString &versionId,
                          const QList<Library> &libraries, const AssetIndex &assetIndex);
 
 /// @brief 比一条。要读盘的只有 WrongSha1 那一档（字节数对得上才会去算哈希）。
 /// @note 哈希走 DownloadManager::calculateFileSha1()，和装配侧是**同一个**算法 ——
-///       这里不另写一份读文件的循环。
+/// 这里不另写一份读文件的循环。
 Verdict check(const ExpectedFile &file);
 
-/// @brief 「复制报告」那一份纯文本（coding plan §4.1）。按组排（顺序见 allGroups()），
-///        每组先一句"几个要修"，再逐条列「名字：那句话」+ 换行缩进的那个路径。
-/// @param instanceName 实例名，写进第一行（报告本身不记名字，由调用方给）。
-/// @note 和 summary() 一样，**这是给人看的纯文本**，不是结构化数据；界面把这一份塞进剪贴板，
-///       验证工程也照它断言。error 非空时只出两行（标题 + 那句 error）。
 QString plainReport(const Report &report, const QString &instanceName);
 
 }  // namespace VersionIntegrity

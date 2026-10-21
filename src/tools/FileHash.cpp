@@ -1,8 +1,6 @@
 /**
  * @file FileHash.cpp
  * @brief FileHash 的实现（那几条规矩在 .hpp 开头那一段）。
- * @author 0x7fffff
- * @date 2026-10-16
  */
 #include "FileHash.hpp"
 
@@ -26,9 +24,9 @@ QCryptographicHash::Algorithm toQt(FileHash::Algorithm algorithm) {
 
 /// 归一化：只留下十六进制字符、全部小写。
 ///
-/// ★ 空白和 `-` `:` 一律丢掉 —— 它们只是**分隔符**，各家写法不一样（`3f79 bb7b`、`3f-79`、
-///   `sha256:3f79`），而它们指的都是同一串十六进制。不归一化的话，用户拿着一个其实正确的
-///   文件会看到"不一致"，然后去重新下载一遍。
+/// 空白和 `-` `:` 一律丢掉 —— 它们只是**分隔符**，各家写法不一样（`3f79 bb7b`、`3f-79`、
+/// `sha256:3f79`），而它们指的都是同一串十六进制。不归一化的话，用户拿着一个其实正确的
+/// 文件会看到"不一致"，然后去重新下载一遍。
 QString normalizeHex(const QString &text) {
     QString out;
     out.reserve(text.size());
@@ -72,7 +70,7 @@ bool readAlgorithmPrefix(const QString &text, FileHash::Algorithm *algorithm, QS
             return false;
         }
         *algorithm = entry.algorithm;
-        *rest = tail.mid(1).trimmed();  // 去掉分隔符那一个字符
+        *rest = tail.mid(1).trimmed(); // 去掉分隔符那一个字符
         return true;
     }
     return false;

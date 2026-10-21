@@ -1,8 +1,6 @@
 /**
  * @file BackupFiles.cpp
  * @brief 世界与实例备份的实现（coding plan §4.4）。设计与为什么这么设计见头文件。
- * @author 0x7fffff
- * @date 2026-10-13
  */
 
 #include "manage/BackupFiles.hpp"
@@ -39,18 +37,14 @@ const char *kKindWorld = "world";
 const char *kKindInstance = "instance";
 
 /// 还原之前对着空闲空间判"放不放得下"时，在清单里那些字节之外再留的**固定**余量。
-/// ★ 宁可留大一点：留多了什么也没浪费（还原完就还回去了），留少了就是"判够了、解到一半
-///   盘满"——那正是加这一眼要避免的那件事（文件的元数据、簇对齐、临时文件都吃空间）。
+/// 宁可留大一点：留多了什么也没浪费（还原完就还回去了），留少了就是"判够了、解到一半
+/// 盘满"——那正是加这一眼要避免的那件事（文件的元数据、簇对齐、临时文件都吃空间）。
 constexpr qint64 kSpaceHeadroomBytes = 16LL * 1024 * 1024;
 
 /// 除了上面那点固定余量，再按总量多留这么一份（百分比）。大存档按比例留才够用，
 /// 小存档靠那 16 MB 兜着。
 constexpr qint64 kSpaceHeadroomPercent = 5;
 
-/// 链接目录**一个都不进去**。和 `ModpackExport` 那份是同一件事、同一个理由：
-/// `QDir::NoSymLinks` 挡不住 junction（本仓实测过），而这里恰是被别人的链接牵着走的
-/// 那种地方 —— 一个指回祖先的 junction 能让枚举转不完，一个指向实例外面的 junction 会把
-/// 别人的东西打进包（还原时再写回去）。
 bool isLinkToElsewhere(const QFileInfo &info) {
     return info.isJunction() || info.isSymLink();
 }
@@ -98,8 +92,8 @@ QString firstLinkInside(const QString &rootDir) {
 /// 不能当成"这个文件的哈希是空的"（那样这一份备份就永远对得了账了）。
 ///
 /// NOTE: 走 `addData(QIODevice*)` 是**流式**的，不是 `readAll()`。一个存档的 region 文件
-///       几十 MB、一个实例快照里有几百 MB 的 jar —— 整份读到内存里只是为了让哈希函数看
-///       一遍，是不必要的峰值。
+/// 几十 MB、一个实例快照里有几百 MB 的 jar —— 整份读到内存里只是为了让哈希函数看
+/// 一遍，是不必要的峰值。
 QString sha1OfFile(const QString &path, const std::function<bool()> &cancelled = {}) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
@@ -162,11 +156,11 @@ QStringList stringListOf(const QJsonValue &value) {
 
 /// 这一串能不能原样当一个**目录名**用（还原的落点是 `targetParentDir + "/" + root` 拼出来的）。
 ///
-/// ★ 只挡 `/`、`\`、`.`、`..` 是不够的（2026-10-20 补）：Windows 在打开路径时会把每一段
-///   **末尾的空格和点折掉** —— `".. "`、`". "`、`"..."`、`"a. "` 全都解析回上一层 / 本层
-///   目录。于是 `target = 父目录/".. "` 指向的就是父目录本身：安全快照照做（把父目录整个
-///   收进去）、`isDir()` 为真、整棵父目录被删掉，再把包里那一份解回来，最后报「还原完成」。
-///   所以末尾的空格 / 点一律不认；保留设备名（CON / NUL / COM1 …）同样不认。
+/// 只挡 `/`、`\`、`.`、`..` 是不够的（ 补）：Windows 在打开路径时会把每一段
+/// **末尾的空格和点折掉** —— `".. "`、`". "`、`"..."`、`"a. "` 全都解析回上一层 / 本层
+/// 目录。于是 `target = 父目录/".. "` 指向的就是父目录本身：安全快照照做（把父目录整个
+/// 收进去）、`isDir()` 为真、整棵父目录被删掉，再把包里那一份解回来，最后报「还原完成」。
+/// 所以末尾的空格 / 点一律不认；保留设备名（CON / NUL / COM1 …）同样不认。
 bool isSafeComponent(const QString &name) {
     if (name.isEmpty() || name == QLatin1String(".") || name == QLatin1String("..")) {
         return false;
@@ -207,8 +201,8 @@ bool Manifest::isValid() const {
     // 前缀只能是**一个目录名**。还原时落点是 `targetParentDir + "/" + root` 拼出来的，
     // 里面带上 `/`、`..` 或者盘符就能把文件写到别的地方去 —— 我们自己写的包不会这样，
     // 但"拿一个别人的包来还原"是用户能做的事，所以读回来的那一刻就得挡住。
-    // ★ 2026-10-20：判据收在 `isSafeComponent()` 一处（末尾空格/点、保留设备名那几类
-    //   Windows 会自己折掉 / 换掉的写法也在那儿挡）。
+    // 判据收在 `isSafeComponent()` 一处（末尾空格/点、保留设备名那几类
+    // Windows 会自己折掉 / 换掉的写法也在那儿挡）。
     return isSafeComponent(root);
 }
 
@@ -270,8 +264,8 @@ Manifest manifestFromJson(const QByteArray &bytes, bool *ok) {
         return Manifest();
     }
     const QJsonObject root = doc.object();
-    // ★ 第一道判据是那个**写死的**格式标记，而不是"有没有哪个字段"。以后改格式时，
-    //   旧包会在这里被挡住（"不是我们这一版做的"），而不是半信半疑地往里解。
+    // 第一道判据是那个**写死的**格式标记，而不是"有没有哪个字段"。以后改格式时，
+    // 旧包会在这里被挡住（"不是我们这一版做的"），而不是半信半疑地往里解。
     if (root.value(QStringLiteral("format")).toString() != formatTag()) {
         return Manifest();
     }
@@ -511,16 +505,16 @@ WriteResult writeBackup(const Manifest &manifest, const QString &sourceDir,
 
     // 清单先落一份**临时文件**：`ZipUtil::createZip` 的条目表只能指向盘上真实的文件
     // （整张表走临时文件递进 PowerShell，理由见 ZipUtil.hpp 里 createZip 那段 ——
-    //  Windows 一条命令行只有 32767 个字符）。
+    // Windows 一条命令行只有 32767 个字符）。
     //
-    // ★★ 这里**不能用 `QTemporaryFile`**（2026-10-13 verify ZQ3 撞出来的，产品级的错）：
-    //    它建出来的文件在**那个对象还活着的时候别的进程读不了** —— 连 `close()` 过之后
-    //    也一样，.NET 那边拿到的是「The process cannot access the file ... because it is
-    //    being used by another process」。而打包这件事**正是**"另一个进程（PowerShell）
-    //    去读这个文件"，所以只要走 QTemporaryFile，这一趟必然整份失败：清单加不进去 ⇒
-    //    zip 一个条目都没有 ⇒ 用户在「立即备份」上看到的是一句和自己的盘毫无关系的话。
-    //    改成普通 QFile + 一个不会撞的名字（和 `ZipUtil::createZip` 递条目表那张临时文件
-    //    同一个写法），写进一个作用域里让它在打包之前就关掉，成功失败都删掉那一份。
+    // 这里**不能用 `QTemporaryFile`**（ verify ZQ3 撞出来的，产品级的错）：
+    // 它建出来的文件在**那个对象还活着的时候别的进程读不了** —— 连 `close()` 过之后
+    // 也一样，.NET 那边拿到的是「The process cannot access the file ... because it is
+    // being used by another process」。而打包这件事**正是**"另一个进程（PowerShell）
+    // 去读这个文件"，所以只要走 QTemporaryFile，这一趟必然整份失败：清单加不进去 ⇒
+    // zip 一个条目都没有 ⇒ 用户在「立即备份」上看到的是一句和自己的盘毫无关系的话。
+    // 改成普通 QFile + 一个不会撞的名字（和 `ZipUtil::createZip` 递条目表那张临时文件
+    // 同一个写法），写进一个作用域里让它在打包之前就关掉，成功失败都删掉那一份。
     const QString manifestPath = QDir::tempPath() + QStringLiteral("/wtfml-backup-")
                                  + QUuid::createUuid().toString(QUuid::WithoutBraces)
                                  + QStringLiteral(".json");
@@ -558,12 +552,12 @@ WriteResult writeBackup(const Manifest &manifest, const QString &sourceDir,
     }
 
     QString error;
-    // ★ 2026-10-20：**同一秒里打两份的时候名字是一样的**（`backupFileName()` 只精确到秒），
-    //   而 .NET 那边是 `ZipFile::Open($target,'Create')` —— 同名文件会被**截断重写**。
-    //   连着点两下「立即备份」，或者"还原前的安全快照"正好和用户点的那一份同秒，前一份就
-    //   这样被静默丢掉了（更糟：打包半路失败时 `ZipUtil::createZip()` 还会把目标删掉 ——
-    //   连"上一次那份好的"一起没）。所以落盘之前先找一个**没人占**的名字，并把实际路径
-    //   写回 `result.zipPath`（调用方弹窗和日志读的都是它，不是原来那个）。
+    // **同一秒里打两份的时候名字是一样的**（`backupFileName()` 只精确到秒），
+    // 而 .NET 那边是 `ZipFile::Open($target,'Create')` —— 同名文件会被**截断重写**。
+    // 连着点两下「立即备份」，或者"还原前的安全快照"正好和用户点的那一份同秒，前一份就
+    // 这样被静默丢掉了（更糟：打包半路失败时 `ZipUtil::createZip()` 还会把目标删掉 ——
+    // 连"上一次那份好的"一起没）。所以落盘之前先找一个**没人占**的名字，并把实际路径
+    // 写回 `result.zipPath`（调用方弹窗和日志读的都是它，不是原来那个）。
     QString target = targetZip;
     if (QFileInfo::exists(target)) {
         const QFileInfo info(target);
@@ -607,9 +601,9 @@ Manifest readManifest(const QString &zipPath, bool *ok, QString *problemOut) {
     const ZipUtil::EntryStatus status =
         ZipUtil::readEntry(zipPath, manifestEntryName(), &bytes, &error,
                            QObject::tr("读这份备份的清单"));
-    // ★ 「不是我们做的包」和「读不动」在这个 switch 里是**两句不同的话**：
-    //   前者是用户拿错了文件（或者那个包是别的启动器做的），后者是这个文件本身坏了。
-    //   合成一句的话，用户会去怀疑一个其实好好的文件。
+    // 「不是我们做的包」和「读不动」在这个 switch 里是**两句不同的话**：
+    // 前者是用户拿错了文件（或者那个包是别的启动器做的），后者是这个文件本身坏了。
+    // 合成一句的话，用户会去怀疑一个其实好好的文件。
     switch (status) {
     case ZipUtil::EntryStatus::NotFound:
         if (problemOut != nullptr) {
@@ -670,9 +664,6 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
     const QString stoppedText =
         QObject::tr("还原已取消或超时；盘上原有的东西没有动。");
 
-    // ★ 2026-10-20：关窗 / 整项超时在**动盘之前**就能停下。下面每一个检查点都摆在
-    //   "再走一步就要改盘"的那条线之前；一旦开始挪走「现在这一份」，就不再听取消 ——
-    //   停在那儿会让用户手里既没有旧的那一份、也没有新的这一份。
     if (stopped()) {
         result.stage = RestoreResult::Stage::ReadManifest;
         result.problem = stoppedText;
@@ -689,9 +680,9 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
     }
 
     const QString target = QDir(targetParentDir).filePath(manifest.root);
-    // ★ 双保险：落点必须正好是父目录底下的**那一层**。`Manifest::isValid()` 那一头已经
-    //   把奇怪的名字挡住了，这里再问一遍拼出来的路径最后一段还是不是 `root` —— 下面几步
-    //   会**整个删掉**这个路径，拼错一层就是删掉别人的东西。
+    // 双保险：落点必须正好是父目录底下的**那一层**。`Manifest::isValid()` 那一头已经
+    // 把奇怪的名字挡住了，这里再问一遍拼出来的路径最后一段还是不是 `root` —— 下面几步
+    // 会**整个删掉**这个路径，拼错一层就是删掉别人的东西。
     if (QFileInfo(target).fileName().compare(manifest.root, Qt::CaseInsensitive) != 0) {
         result.stage = RestoreResult::Stage::ReadManifest;
         result.problem = QObject::tr("这份备份里记的落点（%1）不是一个能找到的目录名，"
@@ -703,13 +694,13 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
 
     // ② 动盘之前先看一眼这块盘放不放得下 —— **只在落点是一块空地时**看。
     //
-    //    NOTE: 原地替换（落点上已经有一份）**不看这一眼**：把旧的挪走会把这部分空间还
-    //          回来，而我们手上没有"旧那份多大"这个数（算它得再走一遍目录），照剩下的
-    //          空间算会假报"放不下"。那一路交给解压 / 对账那两步如实报（安全快照在，
-    //          用户不会丢东西）。
+    // NOTE: 原地替换（落点上已经有一份）**不看这一眼**：把旧的挪走会把这部分空间还
+    // 回来，而我们手上没有"旧那份多大"这个数（算它得再走一遍目录），照剩下的
+    // 空间算会假报"放不下"。那一路交给解压 / 对账那两步如实报（安全快照在，
+    // 用户不会丢东西）。
     //
-    //    ★ 这一眼**在安全快照之前**：判出放不下时盘上一共就动过零个字节 —— 和"读清单"
-    //      那一档一样干净。
+    // 这一眼**在安全快照之前**：判出放不下时盘上一共就动过零个字节 —— 和"读清单"
+    // 那一档一样干净。
     // 读清单 / 拼路径都没动过盘 —— 这里停下照样是"一个字节都没动"。
     if (stopped()) {
         result.stage = RestoreResult::Stage::Space;
@@ -731,15 +722,15 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
         }
     }
 
-    // ★ 2026-10-20：落点树里**有链接**（junction / 符号链接）时拒绝还原。
+    // 落点树里**有链接**（junction / 符号链接）时拒绝还原。
     //
-    //   `collectFiles()` 不跟链接 —— 备份包里因此**从来没有**链接这一条，还原前的安全
-    //   快照同样不含它。而下面 `removeTreeWithoutFollowingLinks()` 会把链接**本身**摘掉，
-    //   再按包里那份普通目录解出来：链接指向的内容不会丢（它不在这个树里），但
-    //   "这个目录是个链接"这件事就再也回不去了，安全快照也退不回来。
+    // `collectFiles()` 不跟链接 —— 备份包里因此**从来没有**链接这一条，还原前的安全
+    // 快照同样不含它。而下面 `removeTreeWithoutFollowingLinks()` 会把链接**本身**摘掉，
+    // 再按包里那份普通目录解出来：链接指向的内容不会丢（它不在这个树里），但
+    // "这个目录是个链接"这件事就再也回不去了，安全快照也退不回来。
     //
-    //   两条改法里选了"拒绝并说清"（另一条要在清单里多记一类链接条目，还得定义链接目标
-    //   谁来保证存在、跨盘链接怎么处理）。这里停在**动盘之前**：一个字节都没动。
+    // 两条改法里选了"拒绝并说清"（另一条要在清单里多记一类链接条目，还得定义链接目标
+    // 谁来保证存在、跨盘链接怎么处理）。这里停在**动盘之前**：一个字节都没动。
     if (existing.isDir()) {
         const QString link = firstLinkInside(target);
         if (!link.isEmpty()) {
@@ -758,8 +749,8 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
 
     // ③ 现在那儿已经有一份 → **先给它做一份安全快照**，再整个挪走。
     //
-    //    ★ 顺序不能反，而且安全快照**做不成就不往下走**：先删掉旧的、再回来告诉用户
-    //      "刚才想给你留一份但是没留成"，是这一整套里唯一不可接受的结果。
+    // 顺序不能反，而且安全快照**做不成就不往下走**：先删掉旧的、再回来告诉用户
+    // "刚才想给你留一份但是没留成"，是这一整套里唯一不可接受的结果。
     if (existing.exists()) {
         if (existing.isDir()) {
             Manifest safety;
@@ -770,11 +761,11 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
             safety.sourceInstanceName = manifest.sourceInstanceName;
             safety.gameVersion = manifest.gameVersion;
             safety.worldName = manifest.worldName;
-            // ★ 2026-10-20：安全快照**必须完整**，不能把被还原那一份的 `excluded` /
-            //   `complete` 原样抄过来。下面几步是把 `target` **整个**删掉再解开新的一份 ——
-            //   删的时候不分什么 assets / libraries。照抄的话，用户还原一份普通快照
-            //   （excluded = assets、libraries）时，那两棵目录被删了、安全快照里也没有，
-            //   而我们上一条还在跟用户说"这一步是能退回来的"。
+            // 安全快照**必须完整**，不能把被还原那一份的 `excluded` /
+            // `complete` 原样抄过来。下面几步是把 `target` **整个**删掉再解开新的一份 ——
+            // 删的时候不分什么 assets / libraries。照抄的话，用户还原一份普通快照
+            // （excluded = assets、libraries）时，那两棵目录被删了、安全快照里也没有，
+            // 而我们上一条还在跟用户说"这一步是能退回来的"。
             safety.complete = true;
             safety.excluded.clear();
             safety.safety = true;
@@ -790,12 +781,12 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
             // 取消传进安全快照那一趟：它本身支持协作式停止（扫描 / 分块读取 / 打包）。
             const WriteResult snapshot = writeBackup(safety, target, safetyZip, cancelled);
             if (!snapshot.ok) {
-                // ★ 2026-10-20：落点是个**空目录**（上一次解压被杀在第一份文件之前、或者
-                //   游戏 / 用户自己建了一个空存档目录）时没有"现在这一份"可留 ——
-                //   `writeBackup()` 会以「这个目录是空的，没什么可备份的」失败，而这里
-                //   又要求"快照不成就不往下走" ⇒ 之后**每一次**还原都卡死在这一档，
-                //   界面上只说"目录没被改动"，用户没有任何出口。
-                //   空目录删掉本来就没有损失，所以这一种失败放行（别种失败照旧拦）。
+                // 落点是个**空目录**（上一次解压被杀在第一份文件之前、或者
+                // 游戏 / 用户自己建了一个空存档目录）时没有"现在这一份"可留 ——
+                // `writeBackup()` 会以「这个目录是空的，没什么可备份的」失败，而这里
+                // 又要求"快照不成就不往下走" ⇒ 之后**每一次**还原都卡死在这一档，
+                // 界面上只说"目录没被改动"，用户没有任何出口。
+                // 空目录删掉本来就没有损失，所以这一种失败放行（别种失败照旧拦）。
                 QString probeProblem;
                 const QList<FileRecord> present = collectFiles(target, QStringList(), &probeProblem);
                 if (!probeProblem.isEmpty() || !present.isEmpty()) {
@@ -811,9 +802,9 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
                 // 名字，见那里），不是我们上面按时间戳拼出来的候选名。
                 result.safetyZip = snapshot.zipPath;
             }
-            // ★ 安全快照做完了、旧目录**还没**动：这里仍然可以安全地停下。刚做出来的
-            //   那份快照是这一趟自己的产物、还原并没有发生 —— 删掉它，别在备份列表里
-            //   留下一份用户没要过的东西。盘上原有的东西一个字节都没动。
+            // 安全快照做完了、旧目录**还没**动：这里仍然可以安全地停下。刚做出来的
+            // 那份快照是这一趟自己的产物、还原并没有发生 —— 删掉它，别在备份列表里
+            // 留下一份用户没要过的东西。盘上原有的东西一个字节都没动。
             if (stopped()) {
                 if (!result.safetyZip.isEmpty()) {
                     QFile::remove(result.safetyZip);
@@ -845,8 +836,8 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
         }
     }
 
-    // ★ 落点本来是一块空地（没有旧数据可留、也没什么可删）：解压开始之前停下同样什么
-    //   都不会丢。旧的那一份**已经挪走**的这条路上不能停（上面那一段说得清楚）。
+    // 落点本来是一块空地（没有旧数据可留、也没什么可删）：解压开始之前停下同样什么
+    // 都不会丢。旧的那一份**已经挪走**的这条路上不能停（上面那一段说得清楚）。
     if (!existing.exists() && stopped()) {
         result.stage = RestoreResult::Stage::Extract;
         result.problem = stoppedText;
@@ -854,12 +845,12 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
     }
 
     // ④ 解压。走 `extractSubtrees()` 是**故意的**：它把前缀剥掉，而且**不属于那个前缀的
-    //    条目一个都不碰** —— zip 根上躺着的那份清单因此不会落到用户的世界目录里。
+    // 条目一个都不碰** —— zip 根上躺着的那份清单因此不会落到用户的世界目录里。
     //
-    //    ★ 落点必须是**那一层前缀那一份**（`target`），不是 `targetParentDir`：前缀是剥掉的，
-    //      所以它得由我们这边补回来。传 `targetParentDir` 的话（2026-10-13 verify ZQ4 撞到
-    //      的，产品级的错）`基地周目/region/x` 会被解成 `<父目录>/region/x` —— 也就是
-    //      **把存档的文件倒在 saves/ 这一层**，而上面那一步刚把 `saves/基地周目` 删掉。
+    // 落点必须是**那一层前缀那一份**（`target`），不是 `targetParentDir`：前缀是剥掉的，
+    // 所以它得由我们这边补回来。传 `targetParentDir` 的话（ verify ZQ4 撞到
+    // 的，产品级的错）`基地周目/region/x` 会被解成 `<父目录>/region/x` —— 也就是
+    // **把存档的文件倒在 saves/ 这一层**，而上面那一步刚把 `saves/基地周目` 删掉。
     QString error;
     if (!ZipUtil::extractSubtrees(QStringList{zipPath}, target,
                                   QStringList{manifest.root + QLatin1Char('/')}, nullptr, &error)) {
@@ -874,7 +865,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
     }
 
     // ⑤ 逐文件对账。**"文件在那儿"和"文件是对的"是两件事** —— 解压到一半被打断、盘写满，
-    //    留下的都是"在，但不对"的文件，只有这一趟认得出。
+    // 留下的都是"在，但不对"的文件，只有这一趟认得出。
     result.checked = manifest.fileCount();
     result.mismatched = verifyTree(target, manifest.files);
     result.ok = result.mismatched == 0;

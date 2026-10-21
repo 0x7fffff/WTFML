@@ -1,8 +1,6 @@
 /**
  * @file TaskHistory.cpp
  * @brief 任务历史落盘的实现（形状与取舍见头文件）。
- * @author 0x7fffff
- * @date 2026-10-12
  */
 
 #include "TaskHistory.hpp"
@@ -220,17 +218,17 @@ void markInterrupted(QList<TaskSnapshot> &tasks) {
     for (TaskSnapshot &task : tasks) {
         if (!isTerminalState(task.state)) {
             task.state = TaskState::Interrupted;
-            // ★ 结束时间**故意不补**（原来是补 `now`，2026-10-12 撤掉）。
+            // 结束时间**故意不补**（原来是补 `now`， 撤掉）。
             //
-            //   那不是"读回来时顺手填一个"，那是**编一个时间**：盘上那条是上一回过活的，
-            //   它到底什么时候停的一概不知。补上 `now` 有两个看得见的坏处：
-            //     · 收起态那一格判定"刚完成"看的就是 `finishedAt`（见
-            //       `Tasks::collapsedSummary()` 的 `recentWindowMs`），补出来的时间让它
-            //       在**每一次开启动器**的时候冒充"刚刚完成的"，底栏会顶着一条上次没跑完
-            //       的任务说「（已完成）」—— 它明明是失败的形状；
-            //     · 任务中心"已完成"那一栏的时分也跟着一起说谎。
-            //   留着无效时间戳，两处都退回"不知道什么时候完的"（那一行不写时间），
-            //   而"没跑完"这件事本身由 `Interrupted` 这个状态说，不靠时间戳说。
+            // 那不是"读回来时顺手填一个"，那是**编一个时间**：盘上那条是上一回过活的，
+            // 它到底什么时候停的一概不知。补上 `now` 有两个看得见的坏处：
+            // · 收起态那一格判定"刚完成"看的就是 `finishedAt`（见
+            // `Tasks::collapsedSummary()` 的 `recentWindowMs`），补出来的时间让它
+            // 在**每一次开启动器**的时候冒充"刚刚完成的"，底栏会顶着一条上次没跑完
+            // 的任务说「（已完成）」—— 它明明是失败的形状；
+            // · 任务中心"已完成"那一栏的时分也跟着一起说谎。
+            // 留着无效时间戳，两处都退回"不知道什么时候完的"（那一行不写时间），
+            // 而"没跑完"这件事本身由 `Interrupted` 这个状态说，不靠时间戳说。
             task.finishedAt = QDateTime();
         }
     }
@@ -245,11 +243,11 @@ QList<TaskSnapshot> load(const QString &path) {
     file.close();
     bool parsed = false;
     QList<TaskSnapshot> tasks = fromJson(bytes, &parsed);
-    // ★ 2026-10-20：账本读不动（不是 JSON / 不是数组）**不许当成"没有历史"就这么吞掉**。
-    //   这条路后面紧跟着的那次 `saveHistory()` 会把文件整个覆写，用户看到的是"任务中心
-    //   突然空了"，而盘上那份坏账本（里面也许还留着一半能读的行）连证据都不剩。
-    //   原文件**一个字节都不动**，只在旁边留一份 `<账本>.corrupt`（已经有了就不覆盖，
-    //   留最早那一份）；正常流程照走 —— 读出来是空的，和以前一样开得起来。
+    // 账本读不动（不是 JSON / 不是数组）**不许当成"没有历史"就这么吞掉**。
+    // 这条路后面紧跟着的那次 `saveHistory()` 会把文件整个覆写，用户看到的是"任务中心
+    // 突然空了"，而盘上那份坏账本（里面也许还留着一半能读的行）连证据都不剩。
+    // 原文件**一个字节都不动**，只在旁边留一份 `<账本>.corrupt`（已经有了就不覆盖，
+    // 留最早那一份）；正常流程照走 —— 读出来是空的，和以前一样开得起来。
     if (!parsed && !bytes.trimmed().isEmpty()) {
         const QString evidencePath = path + QStringLiteral(".corrupt");
         if (!QFile::exists(evidencePath) && QFile::copy(path, evidencePath)) {

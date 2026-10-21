@@ -1,20 +1,18 @@
 /**
  * @file PresetController.hpp
  * @brief 「实例预设」那一页的控制器：管理页的增删改、从实例提取、以及登录安装前的应用。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 【这一层在干什么】
  *
  * `ui/PresetManagePage` 只画外面喂进去的值、把用户按了哪一颗发出去（页面那一层的文件头
  * 写了这条约定）。「读 `manifest.json`、建目录、算计划、备份、真正落盘」全在这儿：
  *
- *   · `Presets::` 那一层（`PresetStore` / `PresetCapture` / `PresetApply`）提供判据和盘；
- *   · 这一层只负责把它们串成一条用户按得动的流程，以及在页面能念的形状之间来回翻
- *     （`SectionKind` 的中文名、`ApplyPlanRow` 的行文本、`PresetApplyRow` 的结果行）。
+ * · `Presets::` 那一层（`PresetStore` / `PresetCapture` / `PresetApply`）提供判据和盘；
+ * · 这一层只负责把它们串成一条用户按得动的流程，以及在页面能念的形状之间来回翻
+ * （`SectionKind` 的中文名、`ApplyPlanRow` 的行文本、`PresetApplyRow` 的结果行）。
  *
- * ★ **`ui/` 不 include `src/`**：页面收的是 `PresetManagePage::SectionItem` 这样的 POD，
- *   种类 / 模式的中文全是这一层翻好的。这个方向不许反过来。
+ * **`ui/` 不 include `src/`**：页面收的是 `PresetManagePage::SectionItem` 这样的 POD，
+ * 种类 / 模式的中文全是这一层翻好的。这个方向不许反过来。
  *
  * 【页面只建一次、留着复用】
  *
@@ -22,11 +20,7 @@
  * 用户的上下文，关掉再开不该丢。页面对象归 controller 所有，构造一次之后 `open()` 只刷新。
  *
  * 【页面落在实例页的第三个模式页里】
- *
- * 2026-10-18 起「实例预设」不再是设置页里那颗按钮弹出的覆盖页：它是实例页顶部模式行
- * （客户端实例 | 服务端 | 预设）的第三页。页面由这一层塞进外面给的那个**宿主 QWidget**
- * （`MainWindowUI::getInstancePresetPage()`）里，切模式就是切 `QStackedWidget`，
- * 不再经过 `OverlayHost`。
+ * 它不单独占主选项卡，由实例页的模式切换控制。
  */
 
 #pragma once
@@ -70,20 +64,20 @@ public:
         std::function<void(const QString &, bool)> setFileOperationBusy;
         /// 这一份实例**此刻**是不是已经在别的写目录作业手里（复制实例 / 还原 / 迁移 /
         /// 导入整合包）。
-        /// ★ 2026-10-19：应用预设同样往实例目录里写（模组预设写 `mods/`，普通预设改
-        ///   `options.txt` / 服务器清单等），和后台拷树撞在一起时两边都不知道对方在写
-        ///   什么。所以开跑之前先问一句；别处那几条路都能查到这个名单，只有预设这一页
-        ///   原来漏了。
-        /// ★ 问的必须**只是搬文件那一份**，不是"不能启动"那个合集：安装向导收尾那一步
-        ///   是带着 `m_installingInstanceId` 调进来的（那是它自己的标记）。
+        /// 应用预设同样往实例目录里写（模组预设写 `mods/`，普通预设改
+        /// `options.txt` / 服务器清单等），和后台拷树撞在一起时两边都不知道对方在写
+        /// 什么。所以开跑之前先问一句；别处那几条路都能查到这个名单，只有预设这一页
+        /// 原来漏了。
+        /// 问的必须**只是搬文件那一份**，不是"不能启动"那个合集：安装向导收尾那一步
+        /// 是带着 `m_installingInstanceId` 调进来的（那是它自己的标记）。
         std::function<bool(const QString &)> isFileOperationBusy;
         /// 这一份实例此刻**任何一样**写作业占着它没有（= 不能启动的那个合集：
         /// 后台搬文件 + 正在装 + 正在补全/修复）。只给 `applyPlan()` 用。
-        /// ★ 2026-10-19：预设页那颗「应用」是用户直接发起的，不会出现"安装向导自己挡
-        ///   自己"；而它要防的不只是复制 / 还原 / 导入 —— 正被安装、正被补全文件的
-        ///   实例同样不能在这时候往目录里落预设。`installModsAfterInstall()` 继续问窄的
-        ///   `isFileOperationBusy`：安装向导收尾那一步带着自己的标记进来，宽的会把这一趟
-        ///   自己拦掉。
+        /// 预设页那颗「应用」是用户直接发起的，不会出现"安装向导自己挡
+        /// 自己"；而它要防的不只是复制 / 还原 / 导入 —— 正被安装、正被补全文件的
+        /// 实例同样不能在这时候往目录里落预设。`installModsAfterInstall()` 继续问窄的
+        /// `isFileOperationBusy`：安装向导收尾那一步带着自己的标记进来，宽的会把这一趟
+        /// 自己拦掉。
         std::function<bool(const QString &)> isInstanceBusy;
         /// 重灌实例清单（`MainWindow::refreshInstalledVersions()`）。模组预设收尾之后要叫
         /// 一次：这一趟记着"搬文件忙"，而刷新那条路会按 `installingVersionIds()` 把忙的
@@ -112,7 +106,7 @@ public:
     void refreshList(const QString &selectId = QString());
     void selectPreset(const QString &id);
     /// @param categoryKey 页面「新建为」下拉框里那一项（`presetCategoryKey()` 的串）；
-    ///        空串 / 认不出 ⇒ 按「游戏设置」建（界面上第一项就是它）。
+    /// 空串 / 认不出 ⇒ 按「游戏设置」建（界面上第一项就是它）。
     void createPreset(const QString &categoryKey);
     void duplicatePreset(const QString &id);
     void saveDetails(const QString &id, const QString &name, const QString &description);
@@ -130,7 +124,7 @@ public:
     void applyPlan(const QString &presetId, const QString &instanceId, bool replaceConfirmed);
 
     // ---------- 给安装流程的只读入口（§7 / §8.3） ----------
-    /// 可用的预设（读得回来的那些，按下标次序）。
+    // / 可用的预设（读得回来的那些，按下标次序）。
     QList<Presets::PresetSummary> availablePresets() const;
     /// 那个唯一的默认项（可能为空 / 可能已经不在盘上，调用方按 `availablePresets()` 核）。
     QString defaultPresetId() const;
@@ -146,8 +140,8 @@ public:
      * 默认那一份的名字尾巴上带「（默认）」，且**默认就选中它**。
      *
      * @param preferredId 用户上一次手动选的那一份（空 = 用户没选过）。它在盘上还在 ⇒
-     *        选它；不在了 ⇒ 退回默认那一份。★ 这条规则就是 §7 那句「用户手动选择后，
-     *        不因后台默认项变化而偷偷切换」的落点 —— 默认项只在"用户没选过"时说话。
+     * 选它；不在了 ⇒ 退回默认那一份。★ 这条规则就是 §7 那句「用户手动选择后，
+     * 不因后台默认项变化而偷偷切换」的落点 —— 默认项只在"用户没选过"时说话。
      */
     void fillInstallSelector(QComboBox *combo, const QString &preferredId = QString(),
                              bool preferredKnown = false) const;
@@ -209,7 +203,7 @@ public:
      * @brief 把一份预设落到**刚装好的**实例上（安装流程的最后一步）。
      *
      * @param replaceConfirmed 安装前那次预览里用户已经看过「覆盖」那几行并点了同意 ⇒ true。
-     *        盘上一个字节都不会动之前仍然过一遍 `PresetPlanner` 的那道闸（见 PresetApply）。
+     * 盘上一个字节都不会动之前仍然过一遍 `PresetPlanner` 的那道闸（见 PresetApply）。
      */
     InstallApply applyAfterInstall(const QString &presetId, const QString &instanceName,
                                    bool replaceConfirmed);

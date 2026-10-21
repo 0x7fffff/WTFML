@@ -1,8 +1,6 @@
 /**
  * @file EffectiveJavaSettings.cpp
  * @brief 实现覆盖层的合成与 wtfml.meta 之间的序列化。
- * @author 0x7fffff
- * @date 2026-09-21
  * @note 全是纯函数：没有 QObject、不读盘、不落盘。
  */
 #include "EffectiveJavaSettings.hpp"
@@ -40,12 +38,12 @@ std::optional<QString> readString(const QJsonObject &meta, const QString &key) {
 /// 读一个整数项：类型不对当没有。JSON 没有整数类型，只认"塞得进 int"的数
 /// （4096.0 收下、4096.5 收下并按截断算 4096；写坏成字符串的当没写）。
 ///
-/// NOTE: 那句"toInt() 截断"原来是**错的**（2026-09-25 实测，探针见 tmp/probe_toint）：
-///       QJsonValue::toInt() 遇到非整数的 double 返回的是**默认值**（不给就 0），它不截断 ——
-///       4096.5 → 0、-1024.7 → 0、1e30 → 0，而 4096.0 → 4096。这个 0 **不是**一个显眼的
-///       错值：它一路走到下面夹取那一段，最后变成"用户设了 4096 MB、起步内存 256 MB"这种
-///       没人报错的错值（Xmx 被钳成下限）。所以截断自己来，越界（和 NaN，比较对它恒假）
-///       当**没写** —— "没写"是这里唯一说得清、下游也认得的意思。
+/// NOTE: 那句"toInt() 截断"原来是**错的**（ 实测，探针见 tmp/probe_toint）：
+/// QJsonValue::toInt() 遇到非整数的 double 返回的是**默认值**（不给就 0），它不截断 ——
+/// 4096.5 → 0、-1024.7 → 0、1e30 → 0，而 4096.0 → 4096。这个 0 **不是**一个显眼的
+/// 错值：它一路走到下面夹取那一段，最后变成"用户设了 4096 MB、起步内存 256 MB"这种
+/// 没人报错的错值（Xmx 被钳成下限）。所以截断自己来，越界（和 NaN，比较对它恒假）
+/// 当**没写** —— "没写"是这里唯一说得清、下游也认得的意思。
 std::optional<int> readInt(const QJsonObject &meta, const QString &key) {
     const QJsonValue value = meta.value(key);
     if (!value.isDouble()) {
@@ -72,11 +70,6 @@ EffectiveJavaSettings resolveJavaSettings(const EffectiveJavaSettings &global,
     if (override.extraJvmArgs.has_value()) {
         result.extraJvmArgs = *override.extraJvmArgs;
     }
-    // ★ 2026-10-18：`override.autoMemory` **不再参与合成**。界面上那个「内存分配」入口
-    //   撤掉了（只剩一根拖动的条），老实例的 meta 里可能还留着 "autoMemory": true ——
-    //   要是还认它，用户拖完条、盘上那个数却每次启动被重算掉，界面上又没有任何地方能
-    //   关掉它。所以读侧也当它不存在：一律手动档。键本身不删（applyJavaOverrideToJson
-    //   只写调用方给的那几项，老值会原样留着，退回旧版本仍然读得懂）。
 
     // 内存这两个数要**一起**处理：先定 Xmx（它是 Xms 的上界），再夹 Xms。
     // 分开写（各自 qMax 一下就完事）会漏掉"只覆盖了 Xms、而它比有效 Xmx 还大"这种

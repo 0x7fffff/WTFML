@@ -1,10 +1,7 @@
 /**
  * @file InstanceFiles.cpp
- * @brief Implements the instance-directory criterion and jar/json name resolution.
- * @author 0x7fffff
- * @date 2026-09-21
- * @note 判据的来龙去脉写在 .hpp 的块注释里；这里只有实现，几处 NOTE 说的是"为什么不能
- *       照直觉改"。
+ * @brief 实现实例目录判据与 jar/json 名称解析。
+ * @note 判据见 .hpp；这里只保留实现。
  */
 
 #include "InstanceFiles.hpp"
@@ -44,12 +41,12 @@ QString findNamed(const QStringList &names, const QString &wanted) {
 ///
 /// 判据是"版本 json 和自己的 jar 摆在一起、名字也对得上"：`<X>.json` 旁边有 `<X>.jar`
 /// 就算候选。这一条救的是真机上这个目录：
-///     versions/魔改版ATT2-BC&A&IS(多周目)/
-///         魔改版ATT2-BC&A&IS(多周目).jar        ← 目录名改过，jar 也跟着叫这个
-///         魔改版ATT2-[V1.8]BC&A&IS(多周目).jar  ← 老名字那一份，json 还叫这个
-///         魔改版ATT2-[V1.8]BC&A&IS(多周目).json
-///         patchouli_data.json                  ← **模组留下的杂物**（这个实例目录同时是
-///                                                 游戏目录，saves/config/options.txt 都在里面）
+/// versions/魔改版ATT2-BC&A&IS(多周目)/
+/// 魔改版ATT2-BC&A&IS(多周目).jar ← 目录名改过，jar 也跟着叫这个
+/// 魔改版ATT2-[V1.8]BC&A&IS(多周目).jar ← 老名字那一份，json 还叫这个
+/// 魔改版ATT2-[V1.8]BC&A&IS(多周目).json
+/// patchouli_data.json ← **模组留下的杂物**（这个实例目录同时是
+/// 游戏目录，saves/config/options.txt 都在里面）
 /// 精确匹配 `<目录名>.json` 落空、"恰好一个 json"也被 `patchouli_data.json` 顶掉，
 /// 于是 jsonName 退成 `<目录名>.json`（不存在）⇒ 启动前弹"版本信息缺失"。
 /// 按"名字对得上 jar"挑，候选只剩一个，正是那份真 json。
@@ -104,15 +101,6 @@ QString readInheritsFrom(const QString &versionId, const QString &jsonName) {
 
 /// Windows 保留设备名（CON / PRN / AUX / NUL / CONIN$ / CONOUT$ / COM1-9 / LPT1-9）。
 /// 判的是**主名**：`CON` 建不出来，`CON.txt` 一样建不出来。大小写不敏感。
-///
-/// NOTE: 上标那一档是 2026-09-25 按实测补的：`COM¹` / `COM²` / `COM³` 和
-///       `LPT¹`/`LPT²`/`LPT³` 是**同一批设备**（Windows 认 U+00B9/U+00B2/U+00B3 这三个
-///       字符；长得像的 `COM´`（U+00B4）不是）。原来这一档漏了，于是"COM¹"这种名字一路
-///       过判据，而到建目录那一步会**悄悄**被解析成设备（不是报错 —— 是"看着建了、
-///       盘上什么也没有"），用户拿到的就是"导入完了但实例不见了"。
-///       同一轮实测还核了另外两种写法，一起写进上面那张表：`COM0`/`LPT0` **不是**设备
-///       （老文档里那句"COM0-9"在这台机器上不成立，所以别照着文档把它补进来），
-///       而 `CONIN$`/`CONOUT$` 是。
 bool isReservedDeviceName(const QString &stem) {
     const QString upper = stem.toUpper();
     if (upper == QLatin1String("CON") || upper == QLatin1String("PRN") ||
@@ -156,12 +144,12 @@ QString validatePathSegment(const QString &segment) {
     // Windows 会**静默**删掉结尾的空格和点：输入 `abc ` 建出来就是 `abc`。静默是关键 ——
     // 用户看到的目录名和他刚输的不一样，然后就在列表里找不到自己的实例了。
     //
-    // NOTE: 空格和点**这里都判**（2026-09-24 加的空格那一条）。以前只有点，理由写的是
-    //       "尾随空格已经被调用方 trim 吃掉了" —— 那句话只对"实例名"那条路成立
-    //       （validateDirName() 开头就 trim），对**整合包清单里那一条**不成立：
-    //       ModpackImport::isSafeRelativePath() 是逐段原样喂进来的，中间不经过任何 trim，
-    //       于是 `mods/x.jar ` 这一条能过判据、Windows 建出来却是 `mods/x.jar` ——
-    //       名字和清单里写的对不上。两种字符被吃掉的后果一模一样，判据也就该一样。
+    // NOTE: 空格和点**这里都判**（ 加的空格那一条）。以前只有点，理由写的是
+    // "尾随空格已经被调用方 trim 吃掉了" —— 那句话只对"实例名"那条路成立
+    // （validateDirName() 开头就 trim），对**整合包清单里那一条**不成立：
+    // ModpackImport::isSafeRelativePath() 是逐段原样喂进来的，中间不经过任何 trim，
+    // 于是 `mods/x.jar ` 这一条能过判据、Windows 建出来却是 `mods/x.jar` ——
+    // 名字和清单里写的对不上。两种字符被吃掉的后果一模一样，判据也就该一样。
     if (segment.endsWith(QLatin1Char('.')) || segment.endsWith(QLatin1Char(' '))) {
         return QStringLiteral("名字不能以点或空格结尾（Windows 会把它悄悄去掉）。");
     }
@@ -206,7 +194,7 @@ bool isUnfinishedImport(const QString &id) {
         return false;
     }
     // ②③ 交给既有的判据：resolveInstance() 在没有 jar 的时候会去读那份 json 的
-    //     inheritsFrom（见 DirListing::inheritsFrom 的 NOTE），正是这两条要问的东西。
+    // inheritsFrom（见 DirListing::inheritsFrom 的 NOTE），正是这两条要问的东西。
     const Resolved resolved = resolveInstance(id);
     if (!resolved.jarName.isEmpty()) {
         return false;
@@ -215,14 +203,14 @@ bool isUnfinishedImport(const QString &id) {
         return false;
     }
     // ④ 光有 inheritsFrom 不够：别的启动器装出来的加载器版本也长这样（见 .hpp 那段）。
-    //    先看导入开始时亲手落的那枚标记 —— 那是最硬的证据。
+    // 先看导入开始时亲手落的那枚标记 —— 那是最硬的证据。
     if (QFileInfo::exists(importMarkerPath(id))) {
         return true;
     }
-    //    没有标记的（老版本启动器留下的半成品）只能看那份 json 的形状：导入第一步写的
-    //    只有 `id` / `inheritsFrom` / `type` 三格。第三方 profile 一律带 `mainClass` /
-    //    `libraries` 之类，不会这么薄 —— 那些是**正常实例**，认成半成品会让它们从列表里
-    //    消失、点启动还被拦一句"还没装完"。
+    // 没有标记的（老版本启动器留下的半成品）只能看那份 json 的形状：导入第一步写的
+    // 只有 `id` / `inheritsFrom` / `type` 三格。第三方 profile 一律带 `mainClass` /
+    // `libraries` 之类，不会这么薄 —— 那些是**正常实例**，认成半成品会让它们从列表里
+    // 消失、点启动还被拦一句"还没装完"。
     const QString jsonName =
         resolved.jsonName.isEmpty() ? id + QStringLiteral(".json") : resolved.jsonName;
     QFile file(AppPaths::versionDir(id) + QLatin1Char('/') + jsonName);
@@ -288,10 +276,10 @@ ImportNameVerdict checkImportTargetName(const QString &rawName, QString *problem
     }
     const QString name = rawName.trimmed();
     if (isUnfinishedImport(name)) {
-        // ★ 2026-10-20：同名还不够，得是**同一个包**。上一次那趟把清单指纹写在了标记里；
-        //   这一趟的指纹和它对不上时不能接着下 —— 两个包的文件会混进一个目录（见 .hpp）。
-        //   任何一侧认不出指纹（老标记 / 调用方没给）就照旧放行，宁可少拦一次也不锁死
-        //   用户已经下到一半的那一份。
+        // 同名还不够，得是**同一个包**。上一次那趟把清单指纹写在了标记里；
+        // 这一趟的指纹和它对不上时不能接着下 —— 两个包的文件会混进一个目录（见 .hpp）。
+        // 任何一侧认不出指纹（老标记 / 调用方没给）就照旧放行，宁可少拦一次也不锁死
+        // 用户已经下到一半的那一份。
         const QString recorded = importMarkerFingerprint(name);
         if (!recorded.isEmpty() && !manifestFingerprint.isEmpty()
             && recorded.compare(manifestFingerprint, Qt::CaseInsensitive) != 0) {
@@ -328,7 +316,7 @@ QString validateRenameTarget(const QString &rawName, const QString &currentId) {
 
     // 重名比较不区分大小写，理由见 .hpp。`entry` 用磁盘上的真实拼写，
     // 那句提示要指得出到底撞上了哪一个。
-    // 带上 QDir::Hidden（2026-09-25 修）：不带的话，盘上有个 `.foo`（用户自己建的、
+    // 带上 QDir::Hidden（ 修）：不带的话，盘上有个 `.foo`（用户自己建的、
     // 或者别的工具留下的）时这里**看不见它**，于是"重命名成 .foo"和"整合包叫 .foo"
     // 都判成"不重名"—— 而下一步是往那个目录里搬东西（整合包那条路是解压合并、不是
     // 建新目录），几秒钟后用户的账上就多了一个半新半旧、而且在实例列表里根本看不见的
@@ -351,7 +339,7 @@ Resolved resolve(const DirListing &listing) {
 
     // ① 精确匹配（<目录名>.jar）优先。绝大多数实例走这条，而且它不依赖扫描顺序。
     // ② 否则顶层恰好一个 jar 就是它 —— 这一条正是本轮放松判据要救的那类实例：
-    //    用户自己在资源管理器里改了目录名，没改里面的 jar 名。
+    // 用户自己在资源管理器里改了目录名，没改里面的 jar 名。
     // ③ 其余（一个都没有 / 两个以上且没有精确匹配）都不算实例。
     out.jarName = findNamed(listing.jarNames, listing.dirName + QStringLiteral(".jar"));
     if (out.jarName.isEmpty() && listing.jarNames.size() == 1) {
@@ -359,28 +347,28 @@ Resolved resolve(const DirListing &listing) {
     }
 
     // json 按同样的 ①/② 解析，再加一条 ②'，但**解析不到不算认不出来**：
-    //   1. installedVersions() 的语义始终是"客户端 jar 在不在"（半个版本、只有 json 的下载
-    //      残骸都不是实例），把 json 纳入判据会把"下到一半"的目录从"看得见、点了会告诉你
-    //      为什么"变成"看不见" —— 正是本轮要消灭的那种静默。
-    //   2. json 缺席有它自己现成的错误路径：启动时会弹"版本信息缺失，请先重新下载"。
+    // 1. installedVersions() 的语义始终是"客户端 jar 在不在"（半个版本、只有 json 的下载
+    // 残骸都不是实例），把 json 纳入判据会把"下到一半"的目录从"看得见、点了会告诉你
+    // 为什么"变成"看不见" —— 正是本轮要消灭的那种静默。
+    // 2. json 缺席有它自己现成的错误路径：启动时会弹"版本信息缺失，请先重新下载"。
     out.jsonName = findNamed(listing.jsonNames, listing.dirName + QStringLiteral(".json"));
     if (out.jsonName.isEmpty() && listing.jsonNames.size() == 1) {
         out.jsonName = listing.jsonNames.first();
     }
     // ②' 顶层 json 多于一个：挑名字对得上这份目录里某个 jar 的那一个。理由和那个真机
-    //    目录见 pickJsonByJarStem()。挑不出来就留着空 —— resolveInstance() 会读内容再挑
-    //    一次（那一层碰磁盘，纯函数不碰）。
+    // 目录见 pickJsonByJarStem()。挑不出来就留着空 —— resolveInstance() 会读内容再挑
+    // 一次（那一层碰磁盘，纯函数不碰）。
     if (out.jsonName.isEmpty()) {
         out.jsonName = pickJsonByJarStem(listing);
     }
 
     // ④ 一个 jar 都没有、但 json 声明了父版本 → 认得出。带模组加载器的版本就长这样
-    //    （Fabric 的目录里只有一份 json，主 jar 在原版那边）。
+    // （Fabric 的目录里只有一份 json，主 jar 在原版那边）。
     //
     // NOTE: 这条**不吃上面那两条的失败**：顶层有两个 jar、又没同名的那一个时，
-    //       jarNames 非空、认不出 jar，但 json 声明了父版本的话也算数 —— 那两个 jar
-    //       是垃圾（用户丢进来的、装别的加载器剩下的），客户端 jar 反正在父版本那边，
-    //       按 ①/② 挑只会挑错。判据是"声明了父版本"，不是"有没有多余的 jar"。
+    // jarNames 非空、认不出 jar，但 json 声明了父版本的话也算数 —— 那两个 jar
+    // 是垃圾（用户丢进来的、装别的加载器剩下的），客户端 jar 反正在父版本那边，
+    // 按 ①/② 挑只会挑错。判据是"声明了父版本"，不是"有没有多余的 jar"。
     out.inheritsFrom = listing.inheritsFrom;
 
     return out;
@@ -396,10 +384,10 @@ DirListing scanDir(const QString &versionId) {
     }
 
     // NOTE: 必须**非递归** —— QDir::Files 不能配上 QDir::Subdirectories。
-    //       实例目录底下还有 libraries/：下载时把整个版本目录当目的地，库 jar 全写在
-    //       versions/<id>/libraries/ 里，真机上一个整合包随手就是几百个。递归扫会把它们
-    //       统统当成客户端 jar 的候选，于是"顶层恰好一个 jar"这条判据立刻失效、
-    //       所有实例反而认不出来了。别顺手加上 Subdirectories。
+    // 实例目录底下还有 libraries/：下载时把整个版本目录当目的地，库 jar 全写在
+    // versions/<id>/libraries/ 里，真机上一个整合包随手就是几百个。递归扫会把它们
+    // 统统当成客户端 jar 的候选，于是"顶层恰好一个 jar"这条判据立刻失效、
+    // 所有实例反而认不出来了。别顺手加上 Subdirectories。
     out.jarNames = dir.entryList(QStringList() << QStringLiteral("*.jar"), QDir::Files);
     out.jsonNames = dir.entryList(QStringList() << QStringLiteral("*.json"), QDir::Files);
     return out;
@@ -557,22 +545,20 @@ int mainClassJavaMajor(const QString &versionId, const QString &mainClass) {
     return 0;
 }
 
-// ★ 2026-09-29：把路径上的 junction **一层一层换成它指的那个真目录**。
+// 为什么不能只靠 QFileInfo::canonicalFilePath()：它在 Windows 上是
+// `slowCanonicalized()`（qfilesystemengine.cpp:38），逐段走的时候判据是
+// `fi.isSymLink()` —— 而 `isSymLink()` 只认 `LinkType`，junction 在 Qt 里走的是
+// **`JunctionType`**（qfilesystemmetadata_p.h:365-370：`IO_REPARSE_TAG_SYMLINK` → LinkType，
+// `IO_REPARSE_TAG_MOUNT_POINT` → JunctionType）。所以**canonicalFilePath 不解 junction**：
+// 拿一个指着实例目录的 junction 当"游戏文件夹"喂进来，它就原样把那串字面量还给你。
+// （实测就是这么翻的车：mw_check 的 T27.3 那条 junction 断言原来"绿"是因为复制跑起来之后
+// 撞了路径长度上限才失败 —— 一个假绿，而盘上已经多出一层 `versions/`。）
 //
-//   为什么不能只靠 QFileInfo::canonicalFilePath()：它在 Windows 上是
-//   `slowCanonicalized()`（qfilesystemengine.cpp:38），逐段走的时候判据是
-//   `fi.isSymLink()` —— 而 `isSymLink()` 只认 `LinkType`，junction 在 Qt 里走的是
-//   **`JunctionType`**（qfilesystemmetadata_p.h:365-370：`IO_REPARSE_TAG_SYMLINK` → LinkType，
-//   `IO_REPARSE_TAG_MOUNT_POINT` → JunctionType）。所以**canonicalFilePath 不解 junction**：
-//   拿一个指着实例目录的 junction 当"游戏文件夹"喂进来，它就原样把那串字面量还给你。
-//   （实测就是这么翻的车：mw_check 的 T27.3 那条 junction 断言原来"绿"是因为复制跑起来之后
-//   撞了路径长度上限才失败 —— 一个假绿，而盘上已经多出一层 `versions/`。）
-//
-//   NOTE: 用的是**公开 API**（`QFileInfo::isJunction()` / `junctionTarget()`，Qt 6.2+），
-//         所以这里不需要 windows.h，非 Windows 上这两个函数一个永远 false、一个回空串。
-//   NOTE: 解出来之后再递归一次 —— 目标那一头可能还压着别的 junction。`guard` 就是防
-//         互相指的环（A 指着 B、B 指着 A）：撞上限就返回当时那串，判据**退化成字面量比较**，
-//         不会死循环（这一层宁可漏判也不能挂住界面）。
+// NOTE: 用的是**公开 API**（`QFileInfo::isJunction()` / `junctionTarget()`，Qt 6.2+），
+// 所以这里不需要 windows.h，非 Windows 上这两个函数一个永远 false、一个回空串。
+// NOTE: 解出来之后再递归一次 —— 目标那一头可能还压着别的 junction。`guard` 就是防
+// 互相指的环（A 指着 B、B 指着 A）：撞上限就返回当时那串，判据**退化成字面量比较**，
+// 不会死循环（这一层宁可漏判也不能挂住界面）。
 // NOTE: `static` 是有意的 —— 它只是这一条判据的实现细节，不进 .hpp、不给外面用。
 static QString resolveJunctions(const QString &absPath, int guard) {
     if (guard <= 0 || absPath.isEmpty()) {
@@ -617,14 +603,14 @@ QString canonicalPath(const QString &p) {
             canonical = QDir::cleanPath(QDir(p).absolutePath());
         }
         const QString resolved = resolveJunctions(canonical, 32);
-        // ★ 2026-10-20：**解完 junction 还要再规范一遍**。`resolveJunctions()` 给回的
-        //   是重解析点里**存着的那个写法**（盘符/目录大小写、8.3 短名都可能和盘上真实的
-        //   写法不同），而下面那句比较是**大小写敏感**的 —— 不补这一轮，
-        //   `versions/<id>` 的真实路径和"经 junction 走回来的同一条路径"会被判成不包含，
-        //   `InstanceTransferController` 拿它挡的"目标不能在自己里面"就在 junction 存在时
-        //   漏判（复制/移动可以把实例塞进它自己）。canonicalFilePath() 不解 junction，
-        //   所以顺序必须是"先解 junction、再规范化"：这时路径里已经没有 junction 成分了，
-        //   它只剩下把剩下的别名收干净这一件事。
+        // **解完 junction 还要再规范一遍**。`resolveJunctions()` 给回的
+        // 是重解析点里**存着的那个写法**（盘符/目录大小写、8.3 短名都可能和盘上真实的
+        // 写法不同），而下面那句比较是**大小写敏感**的 —— 不补这一轮，
+        // `versions/<id>` 的真实路径和"经 junction 走回来的同一条路径"会被判成不包含，
+        // `InstanceTransferController` 拿它挡的"目标不能在自己里面"就在 junction 存在时
+        // 漏判（复制/移动可以把实例塞进它自己）。canonicalFilePath() 不解 junction，
+        // 所以顺序必须是"先解 junction、再规范化"：这时路径里已经没有 junction 成分了，
+        // 它只剩下把剩下的别名收干净这一件事。
         const QString normalized = QFileInfo(resolved).canonicalFilePath();
         return normalized.isEmpty() ? resolved : normalized;
 }
@@ -650,9 +636,9 @@ bool pathIsSameOrInside(const QString &parent, const QString &candidate) {
     // `a + '/'` 这一截是必须的：不然 `D:/ab` 会被判成在 `D:/a` 里面。
     //
     // NOTE: 大小写**不**放宽。canonicalFilePath() 给回来的就是盘上真实的那个写法，两边
-    //       都经过它，正常情况下写法一定一致；放宽反而会在"盘上真有两个只差大小写的目录"
-    //       那种情况下把不相干的路径判成包含（Windows 上那种目录同源目录里是建不出来的，
-    //       但网络盘/挂载点上未必）。
+    // 都经过它，正常情况下写法一定一致；放宽反而会在"盘上真有两个只差大小写的目录"
+    // 那种情况下把不相干的路径判成包含（Windows 上那种目录同源目录里是建不出来的，
+    // 但网络盘/挂载点上未必）。
     return b.startsWith(a + QLatin1Char('/'));
 }
 

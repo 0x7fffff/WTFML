@@ -1,8 +1,6 @@
 /**
  * @file SkinViewer.cpp
  * @brief 实现 SkinViewer：鼠标事件 → 视角，视角 + 贴图 → SkinModel::render()。
- * @author 0x7fffff
- * @date 2026-09-21
  */
 
 #include "SkinViewer.hpp"
@@ -234,11 +232,11 @@ void SkinViewer::mouseMoveEvent(QMouseEvent *event) {
     // 小人的正面往下扳 = 头顶倒向自己（相机升高，从上面看）。
     //
     // NOTE: 水平是**减**、垂直是**加** —— 看着不对称，但这是算出来的，不是挑的。
-    //       yaw 正数 = 相机绕到玩家的左侧（见 makeCamera）。相机往左挪，小人的正面在
-    //       画面上就是往**左**滑（正面那一点在 yaw=+30° 时的屏幕横坐标是负的），
-    //       所以"正面跟着鼠标往右走"要的是 yaw **减小**。俯仰那边正好相反：pitch 正数
-    //       = 相机升高、从上往下看，正面对着的那一块因此往**下**走，跟"往下拖"同向，
-    //       于是那里是加。2026-09-21 之前这里是加号 —— 拖起来是反的（往左拖、小人往右转）。
+    // yaw 正数 = 相机绕到玩家的左侧（见 makeCamera）。相机往左挪，小人的正面在
+    // 画面上就是往**左**滑（正面那一点在 yaw=+30° 时的屏幕横坐标是负的），
+    // 所以"正面跟着鼠标往右走"要的是 yaw **减小**。俯仰那边正好相反：pitch 正数
+    // = 相机升高、从上往下看，正面对着的那一块因此往**下**走，跟"往下拖"同向，
+    // 于是那里是加。 之前这里是加号 —— 拖起来是反的（往左拖、小人往右转）。
     setView(m_yaw - delta.x() * kDegreesPerPixel, m_pitch + delta.y() * kDegreesPerPixel, m_zoom);
     event->accept();
 }

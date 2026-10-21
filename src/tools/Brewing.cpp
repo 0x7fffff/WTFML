@@ -1,8 +1,6 @@
 /**
  * @file Brewing.cpp
  * @brief Brewing.hpp 的实现（那张表与路线拼装，见头文件）。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "tools/Brewing.hpp"
@@ -16,7 +14,7 @@ namespace {
 /// 药的配方表。**次序就是界面上下拉框的次序**（把常做的几种摆前面）。
 ///
 /// NOTE: `parent` 只指向**表里更靠前**的那一种 —— 这样"从上往下补全路线"永远不会绕
-///       出一只环，也就不需要额外做环检测。
+/// 出一只环，也就不需要额外做环检测。
 struct Recipe {
     const char *name;
     const char *ingredient;
@@ -34,13 +32,13 @@ const Recipe kRecipes[] = {
     {"伤害", "发酵蜘蛛眼", 2, false, false, true},
     {"中毒", "蜘蛛眼", -1, false, true, true},
     {"力量", "烈焰粉", -1, false, true, true},
-    // ★ 再生能加红石延长（1:30 → 3:00），荧石粉升 II —— 之前那张表把它标成了「不能延长」。
+    // 再生能加红石延长（1:30 → 3:00），荧石粉升 II —— 之前那张表把它标成了「不能延长」。
     {"再生", "恶魂之泪", -1, false, true, true},
     {"抗火", "岩浆膏", -1, false, true, false},
     {"水肺", "河豚", -1, false, true, false},
     {"夜视", "金胡萝卜", -1, false, true, false},
     {"隐身", "发酵蜘蛛眼", 9, false, true, false},
-    // ★ 荧石粉给的是**迟缓 IV**（不是 II）—— 这是唯一一种升级跳两级的药水。
+    // 荧石粉给的是**迟缓 IV**（不是 II）—— 这是唯一一种升级跳两级的药水。
     {"迟缓", "发酵蜘蛛眼", 0, false, true, true, 4},
     {"缓降", "幻翼膜", -1, true, true, false},
     {"虚弱", "发酵蜘蛛眼", -1, true, true, false},

@@ -1,8 +1,6 @@
 /**
  * @file PresetInstallPicker.hpp
  * @brief 安装页那张「预设」行点开的**紧凑弹窗**：四类各挑一份，看一眼它会动什么。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 【它是什么、不是什么】
  *
@@ -55,9 +53,9 @@ public:
         QString id;
         QString name;
         /// 这一份现在还在不在盘上（被删掉 / 读不出来时 false）。
-        /// ★ 那种项**仍然要留在下拉框里**：§7.1 那句「已删除/损坏的所选项明确提示，
-        ///   不静默换为另一项」—— 悄悄换成"不使用"或别的一份，用户下一次看到的是
-        ///   "我明明选过"。
+        /// 那种项**仍然要留在下拉框里**：§7.1 那句「已删除/损坏的所选项明确提示，
+        /// 不静默换为另一项」—— 悄悄换成"不使用"或别的一份，用户下一次看到的是
+        /// "我明明选过"。
         bool available = true;
     };
 
@@ -139,8 +137,8 @@ public:
 
 signals:
     /// 用户在下拉框里换了某一类（`presetId` 空串 = 改回「不使用」）。
-    /// ★ 由**用户**改出来的才发；`setCategories()` 灌数据那一趟不发（见 .cpp 里的
-    ///   `QSignalBlocker`，和 `PresetController::fillInstallSelector()` 同一个理由）。
+    /// 由**用户**改出来的才发；`setCategories()` 灌数据那一趟不发（见 .cpp 里的
+    /// `QSignalBlocker`，和 `PresetController::fillInstallSelector()` 同一个理由）。
     void selectionChanged(const QString &categoryKey, const QString &presetId);
 
     /// 空状态那颗「前往预设管理」被点了。去哪由调用方决定。

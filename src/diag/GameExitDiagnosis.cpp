@@ -1,12 +1,10 @@
 /**
  * @file GameExitDiagnosis.cpp
  * @brief `GameExitDiagnosis` 的实现（见 .hpp 的文件头：为什么这些规则单独放一层）。
- * @author 0x7fffff
- * @date 2026-10-12
  *
  * NOTE: 这里回出去的全是普通字符串字面量（和 `util/ErrorReport` 一个路数）。整个仓库没有
- *       翻译那一层（没有 .ts、没有 `installTranslator`），所以那些 `QObject::tr(...)` 只是
- *       原样把字面量还回来 —— 在这一层里写它只会让每一行多一段噪音。
+ * 翻译那一层（没有 .ts、没有 `installTranslator`），所以那些 `QObject::tr(...)` 只是
+ * 原样把字面量还回来 —— 在这一层里写它只会让每一行多一段噪音。
  */
 
 #include "GameExitDiagnosis.hpp"
@@ -16,8 +14,8 @@ namespace {
 /// 一条"这个退出码是什么意思"。
 ///
 /// NOTE: 表里只放**能指名道姓**的那几个 —— Windows 上 `QProcess` 报的崩溃码是 NTSTATUS，
-///       高位 0xC0 的那一档是"内核已经知道出了什么事"的，说得出人话；剩下的一律按十进制
-///       原样写（编一个像样的名字比不写更糟：用户会拿着一个错的名字去搜）。
+/// 高位 0xC0 的那一档是"内核已经知道出了什么事"的，说得出人话；剩下的一律按十进制
+/// 原样写（编一个像样的名字比不写更糟：用户会拿着一个错的名字去搜）。
 struct ExitCodeName {
     int code;
     const char *name;
@@ -73,9 +71,9 @@ bool logShowsMissingDependency(const QString &logText) {
         return false;
     }
     // 三句**加载器自己打的**原文（大小写不敏感，因为有的加载器把整行大写）：
-    //   Forge / NeoForge：`Missing or unsupported mandatory dependencies:`
-    //   Fabric：`requires ... which is missing!`
-    //   Fabric（另一种收尾）：`requires any version of ...`
+    // Forge / NeoForge：`Missing or unsupported mandatory dependencies:`
+    // Fabric：`requires ... which is missing!`
+    // Fabric（另一种收尾）：`requires any version of ...`
     // 认的是"它说了"，不是"我们按清单猜"—— 猜错了用户会去删一个没问题的模组。
     static const char *const kNeedles[] = {
         "missing or unsupported mandatory dependencies",
@@ -102,10 +100,6 @@ QString exitDescription(int exitCode) {
     }
     // 十六进制那一截**由已知的码算出来**（不另抄一张表）：同一件事写两遍迟早会有一遍写错，
     // 而"名字对、码不对"这种错最误导人 —— 用户拿着 0xC0000006 去搜"栈溢出"。
-    //
-    // ★ 大写字母：NTSTATUS 在微软自己的文档和几乎每一篇讲它的文章里都是 `0xC0000005` 这个
-    //   写法，而用户拿到这句话之后做的下一件事就是把它**贴进搜索框**。`QString::number()`
-    //   出来的是小写，这里补一次 `toUpper()` 让报告上写的就是他该搜的那个样子。
     const QString hex = QString::number(static_cast<quint32>(exitCode), 16)
                             .rightJustified(8, QLatin1Char('0'))
                             .toUpper();
@@ -113,8 +107,6 @@ QString exitDescription(int exitCode) {
 }
 
 QString summary(const Facts &facts) {
-    // 名字两边都有（显示名和 id）时只报显示名：报告是给人看的，id 那种
-    // `1.18.2-Forge_40.3.12` 用户自己认得出，但那不是他给这个实例起的名字。
     const QString where = facts.instanceName.isEmpty() ? facts.instanceId : facts.instanceName;
     if (facts.crashed) {
         // 「崩溃」这一档不问退出码的正负：`QProcess` 报的 CrashExit 已经是"不是它自己走的"，
@@ -139,7 +131,7 @@ QStringList hints(const Facts &facts) {
     const QString where = facts.instanceName.isEmpty() ? facts.instanceId : facts.instanceName;
 
     // ① Java 版本对不上。**两个数都非 0 才说话** —— 只拿到一个的时候分不出"对得上"和
-    //    "没测出来"，那时候说"版本不匹配"就是猜。
+    // "没测出来"，那时候说"版本不匹配"就是猜。
     if (facts.requiredJavaMajor > 0 && facts.usedJavaMajor > 0
         && facts.requiredJavaMajor != facts.usedJavaMajor) {
         QString text = QStringLiteral("「%1」要求 Java %2，这一趟实际用的是 Java %3。")
@@ -169,21 +161,21 @@ QStringList hints(const Facts &facts) {
     }
 
     // ③ 日志里那句 OutOfMemoryError。**比上面那条更硬**：上面是"看着悬"，这一条是
-    //    "JVM 自己说了"。两条会一起出现，用两句话分别说清"为什么"和"依据"。
+    // "JVM 自己说了"。两条会一起出现，用两句话分别说清"为什么"和"依据"。
     if (facts.sawOutOfMemory) {
         say(QStringLiteral("日志里有 OutOfMemoryError —— 这一次是真的把分给它的内存用完了。"));
     }
 
     // ④ 缺前置的模组。依据是**加载器自己打的那句话**（`logShowsMissingDependency()`），
-    //    不是我们按清单猜的 —— 退出这一刻去联网问一遍每个模组的前置，用户只会看到启动器
-    //    卡在那里。所以这里**不报个数**：我们手上确实没有那个数。
+    // 不是我们按清单猜的 —— 退出这一刻去联网问一遍每个模组的前置，用户只会看到启动器
+    // 卡在那里。所以这里**不报个数**：我们手上确实没有那个数。
     if (facts.sawMissingDependency) {
         say(QStringLiteral("日志里写着有模组的前置没装 —— 在「文件」那一页点「检查更新」"
                            "能看到缺的是哪一个。"));
     }
 
     // ⑤ 崩的方式。坏内存 / 坏栈 / 坏指令这一档，在**装了模组加载器**时才指向模组；原版也崩
-    //    的话更可能是驱动 / 杀软那一类，口风就不一样。
+    // 的话更可能是驱动 / 杀软那一类，口风就不一样。
     if (facts.crashed && isMemoryFault(facts.exitCode)) {
         if (facts.loaderName.isEmpty()) {
             say(QStringLiteral("崩在「坏内存」那一类上（%1）—— 原版环境里这多半是本机的驱动"
@@ -204,26 +196,26 @@ QStringList hints(const Facts &facts) {
     }
 
     // ⑦ 非崩溃、也没抓到任何错误行：这时候最像"它就是自己退出的"，与其让用户去翻一份空日志，
-    //    不如直说。**只在确实拿到了日志的情况下说** —— 没开日志开关时"没有错误行"什么都不代表。
+    // 不如直说。**只在确实拿到了日志的情况下说** —— 没开日志开关时"没有错误行"什么都不代表。
     //
-    // ★ 加载期就死了那一档（⑥）**排除在外**：那两种情况都会被判成"没有错误行"（进程压根
-    //   没跑到打日志那一步），可它们的原因差得远 —— 一个缺 DLL、一个可能是用户自己关的。
-    //   两句一起说等于让用户二选一，那比只说一句糟。
+    // 加载期就死了那一档（⑥）**排除在外**：那两种情况都会被判成"没有错误行"（进程压根
+    // 没跑到打日志那一步），可它们的原因差得远 —— 一个缺 DLL、一个可能是用户自己关的。
+    // 两句一起说等于让用户二选一，那比只说一句糟。
     if (!facts.crashed && facts.exitCode != 0 && facts.logCaptured && facts.errorLineCount == 0
         && !isLoadFailure(facts.exitCode)) {
-        // ★ 2026-10-20：这句话原来写「ERROR/WARN 都没有」，可 `errorLineCount` 数的是
-        //   **ERROR 及以上**（Error / Fatal，出处 `GameLogWindow::logTextFrom(Error)` 和
-        //   `sessionLogTailErrors()`）—— 日志里只有 WARN 时它也会照说不误，玩家照着
-        //   "WARN 也没有"去排除，把真正的线索漏掉。文案跟着判据写。
+        // 这句话原来写「ERROR/WARN 都没有」，可 `errorLineCount` 数的是
+        // **ERROR 及以上**（Error / Fatal，出处 `GameLogWindow::logTextFrom(Error)` 和
+        // `sessionLogTailErrors()`）—— 日志里只有 WARN 时它也会照说不误，玩家照着
+        // "WARN 也没有"去排除，把真正的线索漏掉。文案跟着判据写。
         say(QStringLiteral("日志里一条 ERROR/Fatal 都没有 —— 这多半不是崩溃，是游戏自己退出的"
                            "（比如点了退出，或者这个存档已经在别的地方开着）。"));
     }
 
     // ⑧ 压根没拿到输出。放在最后：它是"上面那些结论的依据缺一块"的说明，不是原因本身。
     if (!facts.logCaptured) {
-        // ★ 2026-10-20：这句原来把原因归到「显示游戏日志」那个开关上。现在不是了 ——
-        //   进程输出另有一份和窗无关的底账（`GameSessionController::sessionLogTail`），
-        //   开关关着也照样收得到。真的一行都没有，那是游戏自己没打到能收的地方。
+        // 这句原来把原因归到「显示游戏日志」那个开关上。现在不是了 ——
+        // 进程输出另有一份和窗无关的底账（`GameSessionController::sessionLogTail`），
+        // 开关关着也照样收得到。真的一行都没有，那是游戏自己没打到能收的地方。
         say(QStringLiteral("这一趟没有收到游戏的输出 —— 进程起来之后一行都没打出来。"
                            "多半是 JVM 还没初始化就退出了：先看「设置 → 启动选项」里的 "
                            "Java 选得对不对、内存是不是塞得太满。"));

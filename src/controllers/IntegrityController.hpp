@@ -47,9 +47,9 @@ public:
     /// 最近这一趟体检给 @p versionId 点名的那些文件（要修的，绝对路径）。**没体检过、
     /// 或者最近一趟体检的不是它 ⇒ 空表**。
     ///
-    /// ★ 唯一读者是补全（MainWindow::repairInstanceFiles → VersionManager::repairVersionFiles）：
-    ///   体检说谁坏了，这一批就把它当"要下"，两边不再互相打脸（见 setFlaggedPaths 那段）。
-    ///   别的实例体检出来的清单**不会**串到这里来 —— 补全一个实例时它是干净的。
+    /// 唯一读者是补全（MainWindow::repairInstanceFiles → VersionManager::repairVersionFiles）：
+    /// 体检说谁坏了，这一批就把它当"要下"，两边不再互相打脸（见 setFlaggedPaths 那段）。
+    /// 别的实例体检出来的清单**不会**串到这里来 —— 补全一个实例时它是干净的。
     QStringList flaggedPaths(const QString &versionId) const;
 
 private:

@@ -1,10 +1,4 @@
 /**
- * @file StartupDiagnosis.hpp
- * @brief 实例设置的「启动诊断」那一页：把几处现成的事实放在一起，给一份**可解释的**
- *        启动前体检报告。
- * @author 0x7fffff
- * @date 2026-10-18
- *
  * 【为什么要有这一层】
  *
  * coding plan §9.5「综合启动诊断报告」：实例设置里已有日志、崩溃报告、完整性检查三处
@@ -24,10 +18,10 @@
  *
  * 【读哪些盘】
  *
- *   · `mods/`：数 `.jar` 与 `.jar.disabled`（**只看名字，不解 jar**）；
- *   · `<数据目录>/logs/wtfml.log`：只读**末尾 512 KB** —— 这份每次启动重写，但一次
- *     几百个模组的启动也能写出几十 MB，从头读到尾是拿一次翻页换几秒白等；
- *   · `<数据目录>/crash-reports/`：只有 `crash-*.txt`，取**最新一份**，只读开头 64 KB。
+ * · `mods/`：数 `.jar` 与 `.jar.disabled`（**只看名字，不解 jar**）；
+ * · `<数据目录>/logs/wtfml.log`：只读**末尾 512 KB** —— 这份每次启动重写，但一次
+ * 几百个模组的启动也能写出几十 MB，从头读到尾是拿一次翻页换几秒白等；
+ * · `<数据目录>/crash-reports/`：只有 `crash-*.txt`，取**最新一份**，只读开头 64 KB。
  *
  * 【自动内存那一档】
  *
@@ -51,7 +45,6 @@ enum class Severity {
     Ok,       ///< 查过，正常
 };
 
-/// 报告里那一条的小标题（`问题` / `提醒` / `信息` / `正常`）。
 QString severityName(Severity severity);
 
 struct Finding {
@@ -94,7 +87,6 @@ struct Report {
 
     /// 顶上那一句：`启动诊断：发现 1 个问题、2 条提醒` / `启动诊断：没有发现明显问题`。
     QString headline() const;
-    /// 整份报告（给那一页直接摆的纯文本）。
     QString toText() const;
 };
 

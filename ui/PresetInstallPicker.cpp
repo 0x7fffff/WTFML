@@ -1,8 +1,6 @@
 /**
  * @file PresetInstallPicker.cpp
  * @brief 安装页那张「预设」弹窗的正文（头文件里写了它为什么长这样）。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "PresetInstallPicker.hpp"

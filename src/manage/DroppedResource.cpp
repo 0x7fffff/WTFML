@@ -1,8 +1,6 @@
 /**
  * @file DroppedResource.cpp
  * @brief DroppedResource 的实现（见 .hpp 里那几条判据）。
- * @author 0x7fffff
- * @date 2026-09-29
  */
 
 #include "DroppedResource.hpp"
@@ -16,11 +14,11 @@ namespace {
 
 /// 条目名归一到"能拿来比"的形状：`\` 当 `/`，整体小写。
 ///
-/// ★ 为什么要转小写：zip 的**条目名是区分大小写的**，而"这个包里有没有 pack.mcmeta"
-///   这件事不该因为作者把文件写成了 `Pack.MCMeta` 就答错 —— 那个包在游戏里照样是资源包。
-/// ★ 为什么要管 `\`：zip 规范里条目名只用 `/`，但真实世界里有一批工具（尤其是国内那些
-///   "一键压缩"）会写进反斜杠。不去管它的话，一个用反斜杠写的资源包在我们眼里就是
-///   "里面什么都没有"。
+/// 为什么要转小写：zip 的**条目名是区分大小写的**，而"这个包里有没有 pack.mcmeta"
+/// 这件事不该因为作者把文件写成了 `Pack.MCMeta` 就答错 —— 那个包在游戏里照样是资源包。
+/// 为什么要管 `\`：zip 规范里条目名只用 `/`，但真实世界里有一批工具（尤其是国内那些
+/// "一键压缩"）会写进反斜杠。不去管它的话，一个用反斜杠写的资源包在我们眼里就是
+/// "里面什么都没有"。
 QString normalized(const QString &entryName) {
     QString name = entryName;
     name.replace(QLatin1Char('\\'), QLatin1Char('/'));
@@ -147,7 +145,7 @@ DroppedResource::Result DroppedResource::classify(const QString &path) {
     }
 
     // ③ 光影：**没有 pack.mcmeta**，只有 shaders/ —— 所以它必须排在资源包那一条之后，
-    //    否则资源包里那份 `assets/.../shaders/` 会把资源包认成光影（见 .hpp 那句 ★）。
+    // 否则资源包里那份 `assets/.../shaders/` 会把资源包认成光影（见 .hpp 那句 ★）。
     if (hasSegment(folded, QStringLiteral("shaders"))) {
         result.known = true;
         result.kind = ResourceCatalog::Kind::Shader;

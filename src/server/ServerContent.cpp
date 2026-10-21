@@ -38,8 +38,8 @@ QString enabledName(const QString &name) {
 
 bool isContentFileName(Kind kind, const QString &name) {
     const QString base = enabledName(name);
-    // ★ 只看"摘掉尾巴之后"的扩展名：`X.jar.disabled` 是禁用的模组，`X.jar.bak` 不是模组
-    //   （`.bak` 那个尾巴没摘，扩展名对不上就落选）。
+    // 只看"摘掉尾巴之后"的扩展名：`X.jar.disabled` 是禁用的模组，`X.jar.bak` 不是模组
+    // （`.bak` 那个尾巴没摘，扩展名对不上就落选）。
     return base.endsWith(fileSuffix(kind), Qt::CaseInsensitive)
            && base.size() > fileSuffix(kind).size();
 }

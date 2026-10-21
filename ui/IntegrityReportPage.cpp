@@ -1,8 +1,4 @@
 /**
- * @file IntegrityReportPage.cpp
- * @brief 完整性检查报告页的实现（形状与取舍见头文件）。
- * @author 0x7fffff
- * @date 2026-10-12
  */
 
 #include "IntegrityReportPage.hpp"
@@ -188,8 +184,6 @@ void IntegrityReportPage::rebuild() {
         }
     }
 
-    // ---------- 按钮 ----------
-    // 「复制报告」永远在（报告就是这一页上那些字，任何时候都抄得走）。
     m_copyButton->setVisible(true);
     // 「补齐缺失或损坏文件」只在**真有要修的文件**时露：没得修的时候给一颗点了什么都不做的
     // 按钮，比不给还糟（和任务详情页那句"按钮不靠状态猜"是同一条）。

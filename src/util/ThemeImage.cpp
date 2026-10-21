@@ -1,8 +1,6 @@
 /**
  * @file ThemeImage.cpp
  * @brief ThemeImage 的实现：读一张图、缩到长边 2560 以内、写进 cache/theme。
- * @author 0x7fffff
- * @date 2026-09-28
  */
 
 #include "ThemeImage.hpp"
@@ -79,16 +77,16 @@ QString store(const QString &slot, const QString &sourcePath, QString *errorOut)
     }
     QImage image = reader.read();
     if (image.isNull()) {
-        // ★ Qt 认不得这一份字节时还有第二条路：WIC（`ImageDecode`）。**这条必须有**：
-        //   这份 Qt 里没有 webp 解码器（`plugins/imageformats/` 只有 gif / ico / jpeg /
-        //   svg，见 ImageDecode.hpp 那段），而用户从浏览器存下来的图十有八九是 webp ——
-        //   挑图那个对话框的筛选里就写着 `*.webp`，那一格点下去要是回一句"这不是一张
-        //   能打开的图片"，那是我们自己的筛子撒的谎。
+        // Qt 认不得这一份字节时还有第二条路：WIC（`ImageDecode`）。**这条必须有**：
+        // 这份 Qt 里没有 webp 解码器（`plugins/imageformats/` 只有 gif / ico / jpeg /
+        // svg，见 ImageDecode.hpp 那段），而用户从浏览器存下来的图十有八九是 webp ——
+        // 挑图那个对话框的筛选里就写着 `*.webp`，那一格点下去要是回一句"这不是一张
+        // 能打开的图片"，那是我们自己的筛子撒的谎。
         //
         // NOTE: 这条路只能**先整串读进来、解出全图、再缩**（WIC 那条口吃的是字节串），
-        //       所以它比上面那条多占一张全尺寸位图的内存。上面那条（Qt 自己认得的那一大
-        //       半）走的才是"在解码里顺手缩"。这一发是用户点名的操作，这点内存换"打得开"
-        //       值得；尺寸上限那一刀照样在（下面是同一个 kMaxSide）。
+        // 所以它比上面那条多占一张全尺寸位图的内存。上面那条（Qt 自己认得的那一大
+        // 半）走的才是"在解码里顺手缩"。这一发是用户点名的操作，这点内存换"打得开"
+        // 值得；尺寸上限那一刀照样在（下面是同一个 kMaxSide）。
         QFile bytes(sourcePath);
         if (bytes.open(QIODevice::ReadOnly)) {
             image = ImageDecode::decode(bytes.readAll());
@@ -109,11 +107,11 @@ QString store(const QString &slot, const QString &sourcePath, QString *errorOut)
     const QString suffix = keepAlpha ? QStringLiteral(".png") : QStringLiteral(".jpg");
     const QString target = AppPaths::themeImageDir() + QLatin1Char('/') + slot + suffix;
 
-    // ★ 先写新的、提交成功之后才删旧的那一份（2026-10-19）。原来的次序是"先删旧的再写"，
-    //   而 `QImage::save(QString)` 内部走的是普通 QFile：写不进去（盘满 / 没权限 / 进程正好
-    //   在这一刻被杀）时旧的**已经被删掉了** —— 与头文件那句"失败时不动盘上原来那一份"
-    //   正好相反。同后缀那一路也一样：原来的写法会先把旧文件截断再写。
-    //   现在写侧走 `QSaveFile`（同目录临时文件 + 原子改名），旧的一份留到提交之后才清。
+    // 先写新的、提交成功之后才删旧的那一份。原来的次序是"先删旧的再写"，
+    // 而 `QImage::save(QString)` 内部走的是普通 QFile：写不进去（盘满 / 没权限 / 进程正好
+    // 在这一刻被杀）时旧的**已经被删掉了** —— 与头文件那句"失败时不动盘上原来那一份"
+    // 正好相反。同后缀那一路也一样：原来的写法会先把旧文件截断再写。
+    // 现在写侧走 `QSaveFile`（同目录临时文件 + 原子改名），旧的一份留到提交之后才清。
     const QString stale = existingFile(slot);
     QSaveFile file(target);
     bool ok = file.open(QIODevice::WriteOnly);

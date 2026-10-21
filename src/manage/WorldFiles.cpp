@@ -1,8 +1,6 @@
 /**
  * @file WorldFiles.cpp
  * @brief 实现 WorldFiles.hpp 里那四个函数。
- * @author 0x7fffff
- * @date 2026-09-28
  * @note 见 WorldFiles.hpp 的说明。这里只留实现上的坑。
  */
 
@@ -33,7 +31,7 @@ constexpr char kLevelDatName[] = "level.dat";
 constexpr quint8 kGzipMagic0 = 0x1F;
 constexpr quint8 kGzipMagic1 = 0x8B;
 
-/// 临时文件的落点：**系统临时目录**（读和写都是，写那一路 2026-09-28 改的 —— 落盘现在
+/// 临时文件的落点：**系统临时目录**（读和写都是，写那一路 改的 —— 落盘现在
 /// 走 QSaveFile，它自己在 level.dat 那个目录里开临时文件，见 writeLevelData 里的 ★★）。
 /// 名字带随机串，同一个世界里两份同时跑也不会撞（正常路径上不会有，但撞上一次的代价是
 /// "覆盖了别人的中间产物" —— 随机串比一个计数器便宜）。
@@ -69,22 +67,16 @@ bool readStringField(const NbtTree::Node &root, const QString &path, bool *prese
 /**
  * @brief 改一格的值；那一格在盘上根本没有时，按 @p whenMissing 决定拒绝还是**建一格**。
  *
- * ★ 2026-09-29（见头文件里 `MissingField` 那一段）：老存档可能没有 `Data/allowCommands`
- *   （1.8 才加的）或者 `Data/hardcore`。界面上那几格原来遇到这种档是灰的，现在一律可动，
- *   所以"盘上没有"这件事必须有个着落。`Create` 那一档就是它。
+ * （见头文件里 `MissingField` 那一段）：老存档可能没有 `Data/allowCommands`
+ * （1.8 才加的）或者 `Data/hardcore`。界面上那几格原来遇到这种档是灰的，现在一律可动，
+ * 所以"盘上没有"这件事必须有个着落。`Create` 那一档就是它。
  *
  * @param type 建的时候用什么类型 —— 世界名是 `String`，允许作弊 / 极限模式 / 难度是 `Byte`
- *             （和 `readWorldInfo()` 读它们时用的 `readStringField` / `readByteField` 对得上）。
+ * （和 `readWorldInfo()` 读它们时用的 `readStringField` / `readByteField` 对得上）。
  */
 bool writeFieldOrCreate(NbtTree::Node *root, const QString &path, const QString &text,
                         NbtTree::Type type, WorldFiles::MissingField whenMissing) {
     if (NbtTree::Node *node = NbtTree::descend(root, path)) {
-        // ★ 2026-10-20：盘上那一格在、但类型和这一项**该有的**不一样（典型：`allowCommands`
-        //   是个 Int）—— 原来照写不误：值改成了 1，类型还是 Int，而游戏读它是按 Byte 读的，
-        //   类型对不上就当**没有这一项**。结果是界面上"开了"、进游戏却没开、收尾还报成功。
-        //   数值那几格（声明的类型是整数）就地换成声明的类型再写：用户要的是这个值，类型
-        //   是游戏要的；文字那一格（世界名）不做这种转换 —— 类型不对就**明说写不进去**。
-        //   和上面"建出来一个类型错的字段"是同一条理由（见 ZL5 那条断言）。
         if (node->type != type) {
             if (NbtTree::integerBits(type) == 0 || NbtTree::integerBits(node->type) == 0) {
                 return false;
@@ -113,7 +105,7 @@ bool writeFieldOrCreate(NbtTree::Node *root, const QString &path, const QString 
     fresh.first = fieldName;
     fresh.second.type = type;
     parent->fields.append(fresh);
-    // ★ `append()` 之后必须**重新取一次**（`QList` 可能把那一块内存搬走）。
+    // `append()` 之后必须**重新取一次**（`QList` 可能把那一块内存搬走）。
     return NbtTree::setValueText(&parent->fields.last().second, text);
 }
 
@@ -151,7 +143,7 @@ bool copyWorldInto(const QString &worldDir, const QString &savesDir, const QStri
     }
 
     // ① 名字。**先判名字再查盘**：名字本身就不合法时拼出来的路径不可信，拿它去盘上问
-    //    "有没有重名"没有意义（和 InstanceFiles::checkImportTargetName 那一路同一顺序）。
+    // "有没有重名"没有意义（和 InstanceFiles::checkImportTargetName 那一路同一顺序）。
     const QString nameProblemText = nameProblem(name);
     if (!nameProblemText.isEmpty()) {
         return fail(nameProblemText);
@@ -159,7 +151,7 @@ bool copyWorldInto(const QString &worldDir, const QString &savesDir, const QStri
     const QString dirName = name.trimmed();
 
     // ② 源。`QDir(...).exists()` 对**文件**也说 true，所以再走一遍 looksLikeWorld() ——
-    //    用户把 `saves/xxx/level.dat`（单个文件）选进来的话，只判 isDir 是拦不住的。
+    // 用户把 `saves/xxx/level.dat`（单个文件）选进来的话，只判 isDir 是拦不住的。
     if (!QFileInfo(source).isDir()) {
         return fail(QStringLiteral("「%1」不是一个目录。").arg(source));
     }
@@ -170,9 +162,9 @@ bool copyWorldInto(const QString &worldDir, const QString &savesDir, const QStri
     }
 
     // ③ 目的地。saves 目录**必须已经存在**：mkpath 出来一个空的 saves/ 也能用，但那说明
-    //    这一份实例根本没被游戏跑过，这时候"导入世界"多半是用户点错了实例 —— 宁可让他
-    //    自己先跑一次游戏，也不要在这里替他造一个目录出来（造出来的那个目录在游戏那边
-    //    和在文件管理页那边都是"凭空多出来的一格"，用户没法解释它哪来的）。
+    // 这一份实例根本没被游戏跑过，这时候"导入世界"多半是用户点错了实例 —— 宁可让他
+    // 自己先跑一次游戏，也不要在这里替他造一个目录出来（造出来的那个目录在游戏那边
+    // 和在文件管理页那边都是"凭空多出来的一格"，用户没法解释它哪来的）。
     if (!QFileInfo(target).isDir()) {
         return fail(QStringLiteral("这个实例里还没有 saves 文件夹（先启动一次游戏，"
                                    "或者手动建一个）。"));
@@ -277,23 +269,23 @@ QString difficultyName(int difficulty) {
     case 3:
         return QStringLiteral("困难");
     default:
-        // ★ 越界**不给默认名**：盘上写着一个 7 的时候，界面上打「普通」就是在撒谎
-        //   （用户会以为它是好的，然后被我们改成一个真的普通）。空串让调用方自己说
-        //   "这个值我们不认识"。
+        // 越界**不给默认名**：盘上写着一个 7 的时候，界面上打「普通」就是在撒谎
+        // （用户会以为它是好的，然后被我们改成一个真的普通）。空串让调用方自己说
+        // "这个值我们不认识"。
         return QString();
     }
 }
 
 // ---------------------------------------------------------------------------
-// 规则全集（2026-09-29）
+// 规则全集
 // ---------------------------------------------------------------------------
 //
 // 来龙去脉、以及"为什么这一张表不分游戏版本"写在头文件那一段里。这里只留实现上的两条：
 //
-//   * 表里的名字**不分大小写地排好序**（界面上那一列就是照这个顺序摆的，`allGameRules()`
-//     还会再排一遍兜底）；
-//   * 默认值**逐字**写在这儿（`"true"` / `"false"` / `"65536"`）—— 形状是从这串字推出来的
-//     （`NbtTree::ruleKind()`），所以多一个类型列只会有两个说法打架的机会。
+// * 表里的名字**不分大小写地排好序**（界面上那一列就是照这个顺序摆的，`allGameRules()`
+// 还会再排一遍兜底）；
+// * 默认值**逐字**写在这儿（`"true"` / `"false"` / `"65536"`）—— 形状是从这串字推出来的
+// （`NbtTree::ruleKind()`），所以多一个类型列只会有两个说法打架的机会。
 
 namespace {
 
@@ -430,9 +422,9 @@ void readWorldInfo(const NbtTree::Document &document, bool gzipped, WorldInfo *o
     qint64 number = 0;
     if (readByteField(document.root, QStringLiteral("Data/allowCommands"), &out->hasAllowCommands,
                       &number)) {
-        // ★ **只认 0 和非 0 两种**，不把 2 也画成"开"：这个字段游戏自己只写 0/1，
-        //   别的值说明盘上那份不是游戏写的，界面上当"没有这一项"处理（灰色的），
-        //   总好过一个看不出来的"我点了一下它从 1 变成了 0"。
+        // **只认 0 和非 0 两种**，不把 2 也画成"开"：这个字段游戏自己只写 0/1，
+        // 别的值说明盘上那份不是游戏写的，界面上当"没有这一项"处理（灰色的），
+        // 总好过一个看不出来的"我点了一下它从 1 变成了 0"。
         if (number == 0 || number == 1) {
             out->allowCommands = (number != 0);
         } else {
@@ -455,12 +447,6 @@ void readWorldInfo(const NbtTree::Document &document, bool gzipped, WorldInfo *o
         }
     }
 
-    // ★ 2026-09-28 修：这一位以前只问"那一格在不在"，不看形状 —— 上面那几位都不是这个规矩：
-    //   `allowCommands = 2`、`hardcore = -1`、难度 7、世界名不是文字，一律算**没有这一项**。
-    //   `GameRules` 也照这个来：**不是一张表就算没有**。
-    //   理由和那几位一样 —— 这一位是说给界面听的（"这个世界有规则表，可以给你一张表"），
-    //   而底下 `gameRulesOf()` 对一张不是表的 GameRules 是取不出东西的。要是这里说"有"、
-    //   界面摆出一张空表，那就是在一个坏存档上撒谎（用户会以为这世界的规则本来就是空的）。
     const NbtTree::Node *rulesNode =
         NbtTree::descend(document.root, QStringLiteral("Data/GameRules"));
     out->hasRules = (rulesNode != nullptr && rulesNode->type == NbtTree::Type::Compound);
@@ -490,9 +476,6 @@ bool applyWorldInfo(NbtTree::Document *document, const WorldInfo &info, QString 
     // 每一项都**先看 `hasXxx`**：界面上那一格没显示（盘上本来就没有、用户也没碰），这里
     // 就不写。三行一个模样，故意不抽成一个循环 —— 每一项的判据不一样（文字 / 开关 / 数值），
     // 抽出来的那个"通用项"会把这三种差别藏进参数里。
-    //
-    // ★ 2026-09-29：改走 `writeFieldOrCreate()`（多了一个"那一格不在就按 `whenMissing` 建
-    //   一格"的口子），类型那一栏是这一项**本来该是**什么。
     if (info.hasLevelName &&
         !writeFieldOrCreate(root, QStringLiteral("Data/LevelName"), info.levelName,
                             NbtTree::Type::String, whenMissing)) {
@@ -519,10 +502,10 @@ bool applyWorldInfo(NbtTree::Document *document, const WorldInfo &info, QString 
     // 游戏规则：逐条走 `setGameRule()`。它**只改已有的**（不发明），名字对不上就是"没写
     // 进去"，报出来。
     //
-    // ★ 2026-09-29：这一条**不跟着 `whenMissing` 走**，要新增规则请走 `applyChangedGameRules()`
-    //   —— 那一档（`MissingRule::Create`）要求调用方保证"写进去的名字是游戏真有的那一条"，
-    //   而 `WorldInfo::rules` 是"盘上读出来那几条"，这里保证不了。两件事分开之后，
-    //   这一句仍然是"只把我们读到的那些写回去"。
+    // 这一条**不跟着 `whenMissing` 走**，要新增规则请走 `applyChangedGameRules()`
+    // —— 那一档（`MissingRule::Create`）要求调用方保证"写进去的名字是游戏真有的那一条"，
+    // 而 `WorldInfo::rules` 是"盘上读出来那几条"，这里保证不了。两件事分开之后，
+    // 这一句仍然是"只把我们读到的那些写回去"。
     for (const NbtTree::GameRule &rule : info.rules) {
         QString why;
         if (!NbtTree::setGameRule(root, rule.name, rule.value, &why)) {
@@ -563,10 +546,10 @@ bool readLevelData(const QString &worldDir, LevelData *out, QString *problemOut)
     const QByteArray raw = file.readAll();
     file.close();
 
-    // ★ 先闻一下头两字节，**不是**一律当 gzip 解：`level.dat` 里那份 NBT 通常是 gzip
-    //   包着的，但**被工具改过的、或者某些模组导出的**那份是裸的。一律丢给 gunzip 的话
-    //   后者会得到一句"这不是 gzip"，而它对游戏来说是能读的（游戏两种都认）——
-    //   我们就会把一个好存档报成坏档，还劝用户去备份。闻到 `1f 8b` 才当 gzip。
+    // 先闻一下头两字节，**不是**一律当 gzip 解：`level.dat` 里那份 NBT 通常是 gzip
+    // 包着的，但**被工具改过的、或者某些模组导出的**那份是裸的。一律丢给 gunzip 的话
+    // 后者会得到一句"这不是 gzip"，而它对游戏来说是能读的（游戏两种都认）——
+    // 我们就会把一个好存档报成坏档，还劝用户去备份。闻到 `1f 8b` 才当 gzip。
     const bool gzipped = raw.size() >= 2 && static_cast<quint8>(raw.at(0)) == kGzipMagic0 &&
                          static_cast<quint8>(raw.at(1)) == kGzipMagic1;
 
@@ -661,25 +644,25 @@ bool writeLevelData(const QString &worldDir, const LevelData &data, QString *pro
         }
     }
 
-    // ★★ 2026-09-28 修：落盘这一步**不能用 `QFile::rename()`**。
+    // 修：落盘这一步**不能用 `QFile::rename()`**。
     //
-    //   上一版这里写的是「`QFile::rename()` 在 Windows 上走
-    //   MoveFileEx(MOVEFILE_REPLACE_EXISTING)，目标存在也照样盖掉，而且是原子的」。
-    //   **那句话是错的**，而且同一个坑 2026-09-27 已经在 `VersionManager::writePackArchive()`
-    //   上踩过一次（见那边 `renameOnto()` 上面那段 ★★）：Qt 6.10 的 `QFile::rename` 走的是
-    //   `QFileSystemEngine::renameFile()` → `::MoveFile`，**不带** REPLACE_EXISTING
-    //   （qfilesystemengine_win.cpp:1761-1770），目标已存在时就是**失败**。
-    //   带 REPLACE_EXISTING 的是隔壁那个私有函数 `renameOverwriteFile()`（1778-1790），
-    //   而它只有一条路走得出去：`QSaveFile::commit()`。
+    // 上一版这里写的是「`QFile::rename()` 在 Windows 上走
+    // MoveFileEx(MOVEFILE_REPLACE_EXISTING)，目标存在也照样盖掉，而且是原子的」。
+    // **那句话是错的**，而且同一个坑 已经在 `VersionManager::writePackArchive()`
+    // 上踩过一次（见那边 `renameOnto()` 上面那段 ★★）：Qt 6.10 的 `QFile::rename` 走的是
+    // `QFileSystemEngine::renameFile()` → `::MoveFile`，**不带** REPLACE_EXISTING
+    // （qfilesystemengine_win.cpp:1761-1770），目标已存在时就是**失败**。
+    // 带 REPLACE_EXISTING 的是隔壁那个私有函数 `renameOverwriteFile()`（1778-1790），
+    // 而它只有一条路走得出去：`QSaveFile::commit()`。
     //
-    //   症状有多难猜：`level.dat` 到这一步**永远**已经存在（这整件事就是"改一个已有世界的
-    //   设置"），所以这条路是**每次必失败**，而界面上只看到一句"换掉 level.dat 失败了" +
-    //   一个问号 —— 看着像"游戏正开着这个世界"的占用问题，其实是改名盖不住。
+    // 症状有多难猜：`level.dat` 到这一步**永远**已经存在（这整件事就是"改一个已有世界的
+    // 设置"），所以这条路是**每次必失败**，而界面上只看到一句"换掉 level.dat 失败了" +
+    // 一个问号 —— 看着像"游戏正开着这个世界"的占用问题，其实是改名盖不住。
     //
-    //   所以改成 QSaveFile：它在**目标所在的目录**里开自己的临时文件，`commit()` 用
-    //   `renameOverwriteFile()` 一步换掉 —— 真·原子替换（中途断电，盘上要么还是原来那份、
-    //   要么已经是新的那份，不会留半截）。代价是压好的字节要多抄一遍：level.dat 量级是
-    //   几 MB，值。
+    // 所以改成 QSaveFile：它在**目标所在的目录**里开自己的临时文件，`commit()` 用
+    // `renameOverwriteFile()` 一步换掉 —— 真·原子替换（中途断电，盘上要么还是原来那份、
+    // 要么已经是新的那份，不会留半截）。代价是压好的字节要多抄一遍：level.dat 量级是
+    // 几 MB，值。
     QSaveFile out(target);
     if (!out.open(QIODevice::WriteOnly)) {
         QFile::remove(tempGz);
@@ -694,19 +677,19 @@ bool writeLevelData(const QString &worldDir, const LevelData &data, QString *pro
             char buffer[64 * 1024];
             while (true) {
                 const qint64 got = gz.read(buffer, static_cast<qint64>(sizeof(buffer)));
-                // ★ 2026-09-29 补：**读到尾（0）和读出错（-1）不是一回事**，原来写成
-                //   `got <= 0` 一 break，两者被并成了同一个出口 —— 于是"读到一半失败"
-                //   会被当成"抄完了"，wroteOk 还是 true，底下 commit() 就把一份**截断的**
-                //   gzip 原子地盖到 level.dat 上，界面还报成功。
+                // 补：**读到尾（0）和读出错（-1）不是一回事**，原来写成
+                // `got <= 0` 一 break，两者被并成了同一个出口 —— 于是"读到一半失败"
+                // 会被当成"抄完了"，wroteOk 还是 true，底下 commit() 就把一份**截断的**
+                // gzip 原子地盖到 level.dat 上，界面还报成功。
                 //
-                //   这一位查到过底：QIODevice::read() 出错回 **-1**（qfiledevice.cpp:463-486
-                //   的 readData() 在 `!isOpen()` 等情况下 `return -1`），只有真到尾才回 0。
-                //   这一趟是**逐字节抄**（不经过解压），所以除这两种没有第三种结局 ——
-                //   写侧那两处已经由底下 `out.write(...) != got` 管着。
+                // 这一位查到过底：QIODevice::read() 出错回 **-1**（qfiledevice.cpp:463-486
+                // 的 readData() 在 `!isOpen()` 等情况下 `return -1`），只有真到尾才回 0。
+                // 这一趟是**逐字节抄**（不经过解压），所以除这两种没有第三种结局 ——
+                // 写侧那两处已经由底下 `out.write(...) != got` 管着。
                 //
-                //   NOTE: 到这一步用户的盘上已经有闸 ④ 留的那份备份（见上面那段），所以
-                //         这不是"会丢数据"的洞，是"会拿一份半截 level.dat 换掉好文件、而且
-                //         不说"的洞。
+                // NOTE: 到这一步用户的盘上已经有闸 ④ 留的那份备份（见上面那段），所以
+                // 这不是"会丢数据"的洞，是"会拿一份半截 level.dat 换掉好文件、而且
+                // 不说"的洞。
                 if (got < 0) {
                     wroteOk = false;
                     break;

@@ -5,36 +5,34 @@
  * 主验证工程（tests/）只链 Qt6::Core/Network、不编译任何 UI 代码，所以
  * "两个下拉框"这次改动的界面部分在这里验。用 offscreen 平台插件跑，不需要真屏幕。
  *
- * 用法：`QT_QPA_PLATFORM=offscreen ./ui_check.exe`（在 `bin/` 底下跑）。
+ * 那个环境变量**不许省**。省了跑的就是**真的 windows 平台插件**（会开真窗口），
+ * 那几档"只在真窗口下才量得出错值"的断言会跟着变红（`ColorScheme`、三个框的高度…）。
+ * 实测：不带它 = 2276 PASS / 7 FAIL；带上它 = 全绿。
  *
- * ★★ 那个环境变量**不许省**。省了跑的就是**真的 windows 平台插件**（会开真窗口），
- *    那几档"只在真窗口下才量得出错值"的断言会跟着变红（`ColorScheme`、三个框的高度…）。
- *    2026-09-29 实测：不带它 = 2276 PASS / 7 FAIL；带上它 = 全绿。
+ * 这个工程有一份**偶发**段错误（ 又查了一轮）：**是布局 / 时序敏感的潜伏问题，
+ * 不是产品逻辑，也不是本次那三条改动**。当天在同一台机器上量到的全部事实：
+ * * 同一份 exe 连着 42 趟**全部**崩在 986 PASS；也连着 8 趟 2281/2281 全绿。崩起来是
+ * 连成一片的（不是五五开）—— 换一次链接、或者干脆什么都不做过一会儿再跑，都可能翻面；
+ * * 崩点上那一串栈**只有 Qt 自己**：`QAccessibleEvent::accessibleInterface()` ←
+ * `QAccessible::updateAccessibility` ← `QWidgetPrivate::hideChildren` ←
+ * `QDialog::~QDialog` ← `InstanceSettingsDialog::~InstanceSettingsDialog()` ← `main()`，
+ * **一行我们的代码都没有**（崩的是 `main()` 里某个栈上的对话框）；
+ * * 把产品改动全 stash 回 pristine（只留一个 `constexpr` 桩子）照样 8/8 崩在同一个计数；
+ * * 塞进 gdb（慢很多）跑得完：2280/2281，唯一那条 FAIL 是一条**性能**断言（Z8「两万行点一下
+ * ≤250 ms」，gdb 下量出来 752 ms）—— 它只是踩不到那个时序；
+ * * 调试堆报过 `Free Heap block … modified … after it was freed`：gdb 断在 `RtlFreeHeap`
+ * 上等到那一块再下硬件观察点，写它的栈一路到 `InstanceSettingsDialog` 的析构，中间仍然
+ * 只有 Qt6Widgets / Qt6Gui。
+ * ⇒ 崩了**先重跑**；还崩就把 gdb 挂上去看它是不是又在这条路上（是的话直接再跑），
+ * **别去改产品**。
  *
- * ★★ 这个工程有一份**偶发**段错误（2026-09-29 又查了一轮）：**是布局 / 时序敏感的潜伏问题，
- *    不是产品逻辑，也不是本次那三条改动**。当天在同一台机器上量到的全部事实：
- *      * 同一份 exe 连着 42 趟**全部**崩在 986 PASS；也连着 8 趟 2281/2281 全绿。崩起来是
- *        连成一片的（不是五五开）—— 换一次链接、或者干脆什么都不做过一会儿再跑，都可能翻面；
- *      * 崩点上那一串栈**只有 Qt 自己**：`QAccessibleEvent::accessibleInterface()` ←
- *        `QAccessible::updateAccessibility` ← `QWidgetPrivate::hideChildren` ←
- *        `QDialog::~QDialog` ← `InstanceSettingsDialog::~InstanceSettingsDialog()` ← `main()`，
- *        **一行我们的代码都没有**（崩的是 `main()` 里某个栈上的对话框）；
- *      * 把产品改动全 stash 回 pristine（只留一个 `constexpr` 桩子）照样 8/8 崩在同一个计数；
- *      * 塞进 gdb（慢很多）跑得完：2280/2281，唯一那条 FAIL 是一条**性能**断言（Z8「两万行点一下
- *        ≤250 ms」，gdb 下量出来 752 ms）—— 它只是踩不到那个时序；
- *      * 调试堆报过 `Free Heap block … modified … after it was freed`：gdb 断在 `RtlFreeHeap`
- *        上等到那一块再下硬件观察点，写它的栈一路到 `InstanceSettingsDialog` 的析构，中间仍然
- *        只有 Qt6Widgets / Qt6Gui。
- *    ⇒ 崩了**先重跑**；还崩就把 gdb 挂上去看它是不是又在这条路上（是的话直接再跑），
- *      **别去改产品**。
+ * `main()` 里 `QAccessible::setActive(false)` 那一行留着，但它**不是"解药"**（没有证据能
+ * 证明它治得了上面那条）：理由只是"这个环境里的 A11y 和产品真实情形不一样"—— offscreen
+ * 插件下 A11y 恒开，而产品跑 windows 插件时只有读屏软件连着才开。这个工程量的是布局 /
+ * 几何 / 颜色 / 话术，**没有一条和无障碍有关**（全仓 `QAccessible` 只有那一处）。
  *
- *    `main()` 里 `QAccessible::setActive(false)` 那一行留着，但它**不是"解药"**（没有证据能
- *    证明它治得了上面那条）：理由只是"这个环境里的 A11y 和产品真实情形不一样"—— offscreen
- *    插件下 A11y 恒开，而产品跑 windows 插件时只有读屏软件连着才开。这个工程量的是布局 /
- *    几何 / 颜色 / 话术，**没有一条和无障碍有关**（全仓 `QAccessible` 只有那一处）。
- *
- *    `WTFML_SKIP_JUNCTION=1` 那个逃生口**也治不了它**（崩点在逃生口**之前**那一发
- *    `processEvents()`）—— 别再拿它当解药。
+ * `WTFML_SKIP_JUNCTION=1` 那个逃生口**也治不了它**（崩点在逃生口**之前**那一发
+ * `processEvents()`）—— 别再拿它当解药。
  */
 
 #include <QApplication>
@@ -116,7 +114,7 @@
 #include <cstdio>
 
 #include "AccountSkinDialog.hpp"
-// U10a / U11 那一段：「配置文件」那一页里嵌着的那个编辑器（2026-09-27）。
+// U10a / U11 那一段：「配置文件」那一页里嵌着的那个编辑器。
 // ConfigEntries 是左边那一格「条目」的取数（一条 `键 = 值` 是怎么认出来的）——
 // 它是纯函数，这一层正是它该被量的地方。
 #include "ConfigEntries.hpp"
@@ -132,7 +130,6 @@
 #include "ResourcePackPage.hpp"
 #include "ToolboxPage.hpp"  // U39：信标计算 / 酿造助手那两片
 #include "manage/ResourcePackOptions.hpp"
-// U28：完整性检查报告页（体检跑完摊在内容区上的那一整页）。
 #include "IntegrityReportPage.hpp"
 #include "UpdateCenterPage.hpp"  // U33：更新中心（「检查更新」查出来的结论摊成能动手的一页）
 #include "JavaMismatchDialog.hpp"
@@ -153,7 +150,7 @@
 #include "OverlayHost.hpp"  // O 段：内容区覆盖层（设置界面 / 提示都开在这儿）
 #include "ResourceDetailPage.hpp"  // Z14：下载页点开一个资源之后那一整页
 #include "TaskDetailPage.hpp"      // I5：任务详情页（点任务中心里的一行开出来的那一页）
-// 自绘的进度条（2026-10-13，coding plan §3.3）：三处（底栏 / 面板行 / 详情页）共用的那一条。
+// 自绘的进度条（，coding plan §3.3）：三处（底栏 / 面板行 / 详情页）共用的那一条。
 // 这一层要量的是"那三处**真的**换成了它"：按 objectName 找得到 `QProgressBar`、但
 // `qobject_cast<TaskProgressBar*>` 是空指针，就是漏换了一处（画出来还是原生那个样子）。
 #include "TaskProgressBar.hpp"
@@ -178,10 +175,8 @@
 // Z16：规则行上盖的那层官方中文名（表和"认不出来原样回自己"那一条都在这儿量）。
 #include "GameRuleNames.hpp"
 #include "VersionTreeDelegate.hpp"
-// 下载页那四页的分类键要和这一层对起来（见下面「点哪一类就问哪一类」那条断言）。
-// 这是 ui_check 里 src/ 的头文件之一 —— 编的是纯函数那个文件，不是整个 src/。
 #include "download/ResourceCatalog.hpp"
-// 更新检测那三档话术的唯一出处（2026-09-28）。概览页那颗「检查更新」的 tooltip 里写死的
+// 更新检测那三档话术的唯一出处。概览页那颗「检查更新」的 tooltip 里写死的
 // 「说不清」必须和它**是同一个字** —— 两边都在同一个 TU 里，这条等号才钉得住。
 #include "download/ModDependencies.hpp"
 // 「游戏窗口大小」那几个上下限在两侧各写了一遍（ui/ 不许 include src/，见
@@ -207,8 +202,8 @@ bool isDescendantOf(QWidget *child, QWidget *ancestor) {
 /// 「某一项那一整格」是不是被藏起来了。判据落在**这一项自己那一格**上（addOverrideRow
 /// 建的 cell：选项行 choiceRow 的父控件），**不是**往上一直走到对话框 ——
 /// NOTE: 往上走到对话框那条判据是假的：这一页在 QStackedWidget 里，不是当前那一页时
-///       整页都是 hidden，于是"隔壁那一项也藏着"。而 `hide()` 又不往下传染（父控件藏了，
-///       子控件自己的 isHidden() 仍是假），所以只能问**那一格本身**。
+/// 整页都是 hidden，于是"隔壁那一项也藏着"。而 `hide()` 又不往下传染（父控件藏了，
+/// 子控件自己的 isHidden() 仍是假），所以只能问**那一格本身**。
 bool rowCellHidden(QWidget *dialog, const QString &field) {
     auto *choiceRow = dialog != nullptr
                           ? dialog->findChild<QWidget *>(InstanceSettingsDialog::choiceRowName(field))
@@ -235,19 +230,14 @@ QString g_modalText;
 
 /// 让下一条**内嵌提示**自己点掉，并把它说了什么记下来。
 ///
-/// 2026-09-25 之前这里有另一个版本，抓的是 `QApplication::activeModalWidget()` 那个
-/// `QMessageBox` —— 现在全仓的 QMessageBox 都换成了开在**内容区中间**的那一块
-/// （`InlineMessage` / `OverlayHost::execPrompt`），它**从来不是窗口**，所以
-/// `activeModalWidget()` 恒空，只能从覆盖层里找。
-///
 /// NOTE: 两条 timer 的必要性和以前一样：0 毫秒那条在嵌套事件循环一进去就触发；
-///       300 毫秒那条是兜底（提示是先摆好再进循环的，个别平台上第一条可能跑在
-///       它真正露出来之前）。两条都响时后一条找不到东西，直接返回。
+/// 300 毫秒那条是兜底（提示是先摆好再进循环的，个别平台上第一条可能跑在
+/// 它真正露出来之前）。两条都响时后一条找不到东西，直接返回。
 ///
 /// NOTE: 关它走的是**点第一颗按钮**，不是 `close()`。`QDialog::closeEvent` 只在
-///       `isVisible()` 为真时才 `reject()` —— 而在 offscreen 里这一层有可能整个是
-///       藏着的，那样 close() 会变成"什么都没发生"，测试就挂死在嵌套循环里。
-///       点按钮走的是 `clicked → accept() → finished`，看不看得见都作数。
+/// `isVisible()` 为真时才 `reject()` —— 而在 offscreen 里这一层有可能整个是
+/// 藏着的，那样 close() 会变成"什么都没发生"，测试就挂死在嵌套循环里。
+/// 点按钮走的是 `clicked → accept() → finished`，看不看得见都作数。
 void dismissNextInline(OverlayHost *host, int buttonIndex = 0) {
     g_modalTitle.clear();
     g_modalText.clear();
@@ -276,14 +266,6 @@ void dismissNextInline(OverlayHost *host, int buttonIndex = 0) {
 }
 
 /// 把控件"现在长什么样"抓成一张图 —— 抓出来的是**逻辑像素**，跟控件的坐标同一个尺度。
-///
-/// NOTE: 这里**不用** `grab()`（2026-09-23 改）。本机是 150% 缩放，`grab()` 出来的是
-///       **物理像素**（一张 627x294 的图配一个 418x196 的视口），而下面那些断言全都按
-///       控件自己的逻辑坐标去索引像素 —— 一错位就是一片红，而且红得看不出是环境问题。
-///       顺带还有一个：`grab()` 走窗口的后备存储，文字带 ClearType 亚像素抗锯齿，字形
-///       边上会有**彩色的**过渡像素（#660000 / #95c1eb 之类），会被"按颜色找草方块"那几条
-///       判据当成图标认下来（于是图标方块的框被撑到 100 多像素宽）。
-///       往 QImage 上 `render()` 两个问题一起没有：尺寸跟控件一致，文字是灰度抗锯齿。
 QImage captureWidget(QWidget *widget) {
     QImage image(widget->size(), QImage::Format_ARGB32);
     image.fill(Qt::transparent);
@@ -294,7 +276,7 @@ QImage captureWidget(QWidget *widget) {
 
 /// 一块图里**出现次数最多的那个颜色**（按整块数票）。
 ///
-/// 为什么这么量（2026-09-24，日志窗那几条底色断言）：一行里既有底色又有字，而字是另一种
+/// 为什么这么量（，日志窗那几条底色断言）：一行里既有底色又有字，而字是另一种
 /// 颜色 —— 直接取某一个像素太看运气（那一个点可能正好落在字形上、也可能落在行间空白上）。
 /// 底色是**铺满那一行**的，所以按整块数票，多数那一票一定是它。
 /// 顺带把"行高里到底铺了多少"这种样式细节也一起甩掉了：铺满也好、只铺字形那一圈也好，
@@ -327,7 +309,7 @@ int colorDistance(const QColor &a, const QColor &b) {
 
 /// 这个控件装上了滚轮防护吗 —— 判据是**焦点策略**，不是"滚轮事件被吃掉了吗"。
 ///
-/// 为什么要单独验这一条（2026-09-24）：防护本身的判据是 `!hasFocus()`，而 Qt 对**真滚轮
+/// 为什么要单独验这一条：防护本身的判据是 `!hasFocus()`，而 Qt 对**真滚轮
 /// 事件**（spontaneous）是"先按焦点策略给焦点、再派发"（qapplication.cpp:2887 →
 /// giveFocusAccordingToFocusPolicy() → :3694/:3732），偏偏 QComboBox 和 QAbstractSpinBox
 /// 的默认焦点策略就是 Qt::WheelFocus（qcombobox.cpp:1066 / qabstractspinbox.cpp:1625）——
@@ -989,7 +971,7 @@ int main(int argc, char *argv[]) {
         expect(!ui.homeInstancePickerOpen(), "escape closes home picker");
         ui.closeHomeInstancePicker();
         auto *button = ui.getToolboxButton();
-        // 2026-10-18 已改为内容自适应，不能再要求旧的固定 112 px。
+        // 已改为内容自适应，不能再要求旧的固定 112 px。
         expect(button->sizePolicy().horizontalPolicy() == QSizePolicy::Fixed &&
                    button->minimumWidth() != button->maximumWidth() &&
                    button->width() == button->sizeHint().width(),
@@ -1013,10 +995,10 @@ int main(int argc, char *argv[]) {
         account.setStatusText(QStringLiteral("当前账号：Player（离线登录）"));
         account.setAccounts({{QStringLiteral("offline-player"), QStringLiteral("Player"), {}, true, true},
                              {QStringLiteral("other-player"), QStringLiteral("Adventure"), {}, false, true}});
-        // ★ 2026-10-16（用户原话「那个账号页的宽度恢复一下，高度窄一点」）：这一页是**内嵌页**，
-        //   摆进内容区之后宽高都由内容区说了算 ⇒ 这里量的是**它自己那两道约束**：
-        //   宽**一道都不许有**（这一页铺满内容区 ⇒ 谁给它加一句 `setMaximumWidth` 这一条
-        //   当场红）、高要有盖（否则它一路长到窗口底）。
+        // （要求「那个账号页的宽度恢复一下，高度窄一点」）：这一页是**内嵌页**，
+        // 摆进内容区之后宽高都由内容区说了算 ⇒ 这里量的是**它自己那两道约束**：
+        // 宽**一道都不许有**（这一页铺满内容区 ⇒ 谁给它加一句 `setMaximumWidth` 这一条
+        // 当场红）、高要有盖（否则它一路长到窗口底）。
         account.resize(900, 900);
         account.show();
         app.processEvents();
@@ -1072,11 +1054,9 @@ int main(int argc, char *argv[]) {
         running.showEmbedded();
         app.processEvents();
         auto *detailPane = running.findChild<QWidget *>(QStringLiteral("taskCenterDetailPane"));
-        // ★ 2026-10-17 用户要的「右侧栏随窗口大小变化」：宽度 = 工作区宽度的 27%
-        //   （下限 260、上限 520），不再是定死的 260。
         expect(detailPane && detailPane->width() == 270,
                "task center detail pane scales with the workspace (27% of 1000)");
-        // 没有实例在跑 ⇒ 左边那一栏默认收起（用户原话：「左侧没有实例运行时默认不展开」）。
+        // 没有实例在跑 ⇒ 左边那一栏默认收起（要求：「左侧没有实例运行时默认不展开」）。
         auto *runningToggle = running.findChild<QPushButton *>(
             QStringLiteral("taskCenterRunningCollapse"));
         auto *runningPane = running.findChild<QWidget *>(QStringLiteral("taskCenterRunningPane"));
@@ -1120,10 +1100,6 @@ int main(int argc, char *argv[]) {
         expect(running.findChildren<QWidget *>(QStringLiteral("taskCenterRunningRow")).size() == 1,
                "parked task center resyncs when shown");
         {
-            // ★ 2026-10-17 用户原话：「下载的文件名长度会导致取消按钮位置发生偏移（有的时候会被
-            //   右侧栏挡住）」。真因：`ElidedLabel` 的 `minimumSizeHint()` 是**整行文字的宽**，
-            //   一行长名字会把那一行顶得比滚动区还宽，右边的「取消」就被裁到视口外面去了。
-            //   判据：① 那一行不比滚动区视口宽；② 行尾那颗「取消」右下角落在面板里面。
             QList<TaskCenter::Item> longTasks;
             TaskCenter::Item longItem;
             longItem.key = QStringLiteral("long");
@@ -1234,10 +1210,10 @@ int main(int argc, char *argv[]) {
             expect(attention(0), "removing the selected task restores the unselected overview");
         }
         {
-            // ★ 2026-10-20：失败行落在滚动区**下面**（用户没滚到）时，不许被标成"看过了"。
-            //   旧实现只看 `m_scroll` 整体可不可见，一开面板就把所有失败行整批标掉 ——
-            //   底栏那颗"没看过的失败"红点当场熄灭，用户却一行都没看见（而且是落盘的）。
-            //   新判据是**逐行和视口相交**：滚下去露脸了才算看过。
+            // 失败行落在滚动区**下面**（用户没滚到）时，不许被标成"看过了"。
+            // 旧实现只看 `m_scroll` 整体可不可见，一开面板就把所有失败行整批标掉 ——
+            // 底栏那颗"没看过的失败"红点当场熄灭，用户却一行都没看见（而且是落盘的）。
+            // 新判据是**逐行和视口相交**：滚下去露脸了才算看过。
             QList<TaskCenter::Item> tasks;
             for (int i = 0; i < 14; ++i) {
                 TaskCenter::Item done;
@@ -1404,7 +1380,7 @@ int main(int argc, char *argv[]) {
             printf("%s %s\n", ok ? "PASS" : "FAIL", name);
             if (!ok) ++failures;
         };
-        // 2026-10-20：换配色不再重挂整份应用样式表 —— 样式表字符串必须与主题无关。
+        // 换配色不再重挂整份应用样式表 —— 样式表字符串必须与主题无关。
         // 这一条直接钉住那个代价（6800 个控件重挂一次要 1.9 秒）：三套预设铺完，
         // 应用身上挂的那一份必须还是同一串。
         const QString themeIndependentSheet = Theme::widgetStyleSheet();
@@ -1424,9 +1400,6 @@ int main(int argc, char *argv[]) {
             expect(Theme::partBackground(Theme::Part::TitleBar) == t.deep, "title uses deep brand");
             expect(Theme::partBackground(Theme::Part::BottomBar) == t.subtle, "bottom bar uses subtle surface");
             expect(Theme::selectionFill(t.card) == t.selected, "selection uses specified color");
-            // 2026-10-20：样式表里的颜色改成 `palette(...)` 引用了，输入框的底色仍由
-            // 调色板的 `Base` 那一档决定 —— 判据从"字符串里有没有那个色名"换成
-            // "样式表念的是不是 `palette(base)`，且那一档真的等于预设的 input"。
             expect(Theme::widgetStyleSheet().contains(QStringLiteral("palette(base)")) &&
                        app.palette().color(QPalette::Base).name() == t.input.name(),
                    "inputs use theme colors");
@@ -1440,10 +1413,10 @@ int main(int argc, char *argv[]) {
                 focusHost.activateWindow();
                 app.processEvents();
                 button.setFocus(Qt::TabFocusReason);
-                // ★ 2026-10-18：「键盘在用」这一档现在只认**真的按键**（见 Theme.cpp 里
-                //   `ButtonFocusVisibility` 那段 —— 藏起焦点控件时 Qt 也报 TabFocusReason，
-                //   不能拿它当"用户按了 Tab"）。这里先送一发普通按键把这一档摆上；
-                //   不送 Tab 键：那一发会真的触发焦点链移动，把被测按钮换掉。
+                // 「键盘在用」这一档现在只认**真的按键**（见 Theme.cpp 里
+                // `ButtonFocusVisibility` 那段 —— 藏起焦点控件时 Qt 也报 TabFocusReason，
+                // 不能拿它当"用户按了 Tab"）。这里先送一发普通按键把这一档摆上；
+                // 不送 Tab 键：那一发会真的触发焦点链移动，把被测按钮换掉。
                 QKeyEvent keyboardInput(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier);
                 QApplication::sendEvent(&button, &keyboardInput);
                 QFocusEvent keyboardFocus(QEvent::FocusIn, Qt::TabFocusReason);
@@ -1578,21 +1551,21 @@ int main(int argc, char *argv[]) {
         return failures == 0 ? 0 : 1;
     }
 
-    // ★★ 把 Qt 的无障碍那一层**关掉**：offscreen 插件下它是恒开的，于是每个控件被藏起来 /
-    //    析构时都要走一趟 `QAccessible::updateAccessibility`，而这个工程建/销的控件比产品
-    //    一整个会话还多。产品跑的是 windows 平台插件、A11y 只有读屏软件连着才开，所以这是
-    //    **验证环境专属**的一段路。
-    //    NOTE: 这一句**不影响任何一条断言**（这个工程量的是布局 / 几何 / 颜色 / 话术，全仓
-    //          `QAccessible` 只有这一处），也**不声称**治得了文件头写的那条段错误 ——
-    //          那条是布局敏感的，靠重链接翻身。
+    // 把 Qt 的无障碍那一层**关掉**：offscreen 插件下它是恒开的，于是每个控件被藏起来 /
+    // 析构时都要走一趟 `QAccessible::updateAccessibility`，而这个工程建/销的控件比产品
+    // 一整个会话还多。产品跑的是 windows 平台插件、A11y 只有读屏软件连着才开，所以这是
+    // **验证环境专属**的一段路。
+    // NOTE: 这一句**不影响任何一条断言**（这个工程量的是布局 / 几何 / 颜色 / 话术，全仓
+    // `QAccessible` 只有这一处），也**不声称**治得了文件头写的那条段错误 ——
+    // 那条是布局敏感的，靠重链接翻身。
     QAccessible::setActive(false);
 
-    // 动效（2026-09-29）：**先开着把界面搭出来**。理由是有一条判据只有这么量得到 ——
+    // 动效：**先开着把界面搭出来**。理由是有一条判据只有这么量得到 ——
     // "产品有没有把该接的地方接上"（展开折叠那几棵树），而漏了那一处的症状是"不报错、
     // 不崩、界面上看着也正常，只是那一棵树展开时没有动画"。搭完立刻关掉：下面整段量的
     // 都是界面本身长什么样，不是它动的时候长什么样（规矩见 ui/Animations.hpp）。
     // NOTE: 搭界面的这一路**不会**因此冒出动画来：`pageAppear()` 只在"那一页已经露着头"
-    //       的时候才动，而这一行到 `window.show()` 之间那些页都还没上屏。
+    // 的时候才动，而这一行到 `window.show()` 之间那些页都还没上屏。
     Anim::setEnabled(true);
 
     // 必须和 src/main.cpp 钉同一个样式。下面几条断言比的是 sizeHint()——那是**样式度量**
@@ -1603,7 +1576,7 @@ int main(int argc, char *argv[]) {
     QMainWindow window;
     MainWindowUI ui(&window);
 
-    // ---------- ⑬ 动效那一层：产品有没有真的接上（2026-09-29） ----------
+    // ---------- ⑬ 动效那一层：产品有没有真的接上 ----------
     // 这一条**只能在这儿量**（搭完、`show()` 之前）。症状很轻：漏掉一处不报错、不崩、
     // 界面上一个像素都不差，只有"那一棵树展开的时候没有动画"。量的就是展开折叠那一个
     // 开关 —— 它是 `Anim::animateExpansion()` 唯一动的那一位。
@@ -1638,19 +1611,19 @@ int main(int argc, char *argv[]) {
     QApplication::processEvents();
     QComboBox *installed = ui.getInstalledVersionCombo();
     QPushButton *startBtn = ui.getStartButton();
-    // 下载页那两层（2026-09-22）：[0] 版本树（四个分类 + 底下的版本号）→ [1] 安装页。
+    // 下载页那两层：[0] 版本树（四个分类 + 底下的版本号）→ [1] 安装页。
     // 原来那对「可安装版本」下拉框 + 「版本下载」列表 + 「下载版本」按钮整组去掉了 ——
-    // 用户原话是"点开后展开对应版本，再点击具体版本后进入一个新页面"。
+    // 要求是"点开后展开对应版本，再点击具体版本后进入一个新页面"。
     QStackedWidget *gameStack = ui.getGameStack();
     QTreeWidget *versionTree = ui.getVersionTree();
     QLineEdit *installNameEdit = ui.getInstallNameEdit();
     QLabel *installNameHint = ui.getInstallNameHint();
-    // 名字不能用时那行**红字**（2026-09-23 加）：它紧接着灰字那一句，说原因。
+    // 名字不能用时那行**红字**（ 加）：它紧接着灰字那一句，说原因。
     QLabel *installNameError = ui.getInstallNameError();
     QLabel *installTargetLabel = ui.getInstallTargetLabel();
     QPushButton *installBtn = ui.getInstallButton();
     QPushButton *installBackBtn = ui.getInstallBackButton();
-    // 安装页左栏那棵加载器树（2026-09-23 起是树，不再是五个单选钮 + 四个组合框）。
+    // 安装页左栏那棵加载器树（ 起是树，不再是五个单选钮 + 四个组合框）。
     QTreeWidget *loaderTree = ui.getLoaderTree();
     QListWidget *folderList = ui.getFolderList();
     // 实例列表是**树**（分组要求两层）；可下载版本列表仍是列表。两个类型不一样是
@@ -1710,11 +1683,11 @@ int main(int argc, char *argv[]) {
               "打开就停在主页（即『启动界面』）", QString::number(tabs->currentIndex()));
         check(ui.isHomeTabCurrent(), "isHomeTabCurrent() 与停在主页一致");
 
-        // ★ 那四个下标常量**逐个对着标签文字核一遍**（2026-09-28 补 instances 那一个）：
-        //   它们是"界面第几页"这件事在代码里的唯一说法（`openInstanceSettings` 就靠
-        //   `instancesTabIndex()` 钉住"实例设置这一页归谁"，钉错了的症状是"点来点去点多了
-        //   进不去实例设置、还会被拽到下载页" —— 用户 2026-09-28 报的那个）。
-        //   写死成 0/1/2/3 是不行的：那样改一次标签顺序两边一起错，等于没钉。
+        // 那四个下标常量**逐个对着标签文字核一遍**（ 补 instances 那一个）：
+        // 它们是"界面第几页"这件事在代码里的唯一说法（`openInstanceSettings` 就靠
+        // `instancesTabIndex()` 钉住"实例设置这一页归谁"，钉错了的症状是"点来点去点多了
+        // 进不去实例设置、还会被拽到下载页" —— 用户 报的那个）。
+        // 写死成 0/1/2/3 是不行的：那样改一次标签顺序两边一起错，等于没钉。
         const auto tabIndexNamed = [tabs](const QString &text) {
             for (int i = 0; i < tabs->count(); ++i) {
                 if (tabs->tabText(i) == text) {
@@ -1767,7 +1740,7 @@ int main(int argc, char *argv[]) {
                   isAncestor(downloadPage, versionTree) && isAncestor(downloadPage, installNameEdit) &&
                   isAncestor(downloadPage, installBtn),
               "版本树和安装页那一套控件都在下载页");
-        // 下载页左栏那棵「模组加载器」树（2026-09-23 起是**树**：五个顶层条目 +
+        // 下载页左栏那棵「模组加载器」树（ 起是**树**：五个顶层条目 +
         // 点开某一条才出现的版本号，用户要的"和上一页的版本选择相同的模式"）。
         {
             const QStringList texts = MainWindowUI::modLoaderOptionTexts();
@@ -1789,10 +1762,10 @@ int main(int argc, char *argv[]) {
             // 下标就是 VersionManager::LoaderKind 的顺序 + 末尾那条「不装」——
             // 下标和枚举之间只有一处翻译（loaderKindFromIndex），这里把它排整齐就少一个
             // "点了 A 装成 B"的机会。
-            // ★ 2026-10-18（P1）：树顶多了第六行「预设」—— 它不是加载器，身份是负数的
-            //   `installPresetRowRole()`，**插在「不装」前面**（于是「不装」的树上是 5、
-            //   表里的下标仍旧是 4）。下面按"表里的下标 → 树上第几行"翻：
-            //   none 之前一对一，none 及其后整体后移一位。
+            // （P1）：树顶多了第六行「预设」—— 它不是加载器，身份是负数的
+            // `installPresetRowRole()`，**插在「不装」前面**（于是「不装」的树上是 5、
+            // 表里的下标仍旧是 4）。下面按"表里的下标 → 树上第几行"翻：
+            // none 之前一对一，none 及其后整体后移一位。
             const auto treeRowForLoader = [](int loaderIndex) {
                 return loaderIndex < MainWindowUI::modLoaderNoneIndex() ? loaderIndex
                                                                         : loaderIndex + 1;
@@ -1855,7 +1828,7 @@ int main(int argc, char *argv[]) {
                                     .toString()
                           : QStringLiteral("<缺>"));
             }
-            // 搭出来的这一刻五条全收着：底下那条版本号是点开才出现的（用户原话
+            // 搭出来的这一刻五条全收着：底下那条版本号是点开才出现的（要求
             // "点击以后展开版本"），一上来就摊开会把安装按钮挤下去。
             bool anyExpanded = false;
             for (int i = 0; loaderTree != nullptr && i < loaderTree->topLevelItemCount(); ++i) {
@@ -1872,14 +1845,14 @@ int main(int argc, char *argv[]) {
                   "这棵树和版本树同一套竖的：藏表头/行高常数/不画左边小三角/双击不展开/一列");
             check(loaderTree != nullptr && loaderTree->itemDelegate() != nullptr,
                   "这棵树上挂着代理（图标 + 第二行小字 + 右边那个箭头都靠它画）");
-            // ★ 两棵树共用同一个代理，只有**一处**不一样：叶子那一层右边画不画那个 `>`。
-            //   版本树上那个 `>` 的意思是"点进去"（点一个版本号进安装页）；这一棵树的
-            //   叶子（两档 + 具体版本号）点一下是**选中它**、底下没有下一页，所以不画
-            //   （用户 2026-09-23 原话："模组加载器的具体版本右侧就不用 > 了（毕竟这个层次
-            //   没有下拉框了）"）。**这一位是构造参数，产品那边传错了不报错、也不变灰、
-            //   点了也照常工作** —— 只有在屏幕上看出来，"传没传对"就得在这儿钉住。
-            //   光验"传 false 就不画"是不够的（探针自己也能过），所以分成两条：这条钉
-            //   产品那根线，下面 C 段那条钉"不画"这件事本身。
+            // 两棵树共用同一个代理，只有**一处**不一样：叶子那一层右边画不画那个 `>`。
+            // 版本树上那个 `>` 的意思是"点进去"（点一个版本号进安装页）；这一棵树的
+            // 叶子（两档 + 具体版本号）点一下是**选中它**、底下没有下一页，所以不画
+            // （要求："模组加载器的具体版本右侧就不用 > 了（毕竟这个层次
+            // 没有下拉框了）"）。**这一位是构造参数，产品那边传错了不报错、也不变灰、
+            // 点了也照常工作** —— 只有在屏幕上看出来，"传没传对"就得在这儿钉住。
+            // 光验"传 false 就不画"是不够的（探针自己也能过），所以分成两条：这条钉
+            // 产品那根线，下面 C 段那条钉"不画"这件事本身。
             {
                 const auto *loaderDelegate =
                     loaderTree != nullptr
@@ -1933,23 +1906,23 @@ int main(int argc, char *argv[]) {
                   instancePage->findChildren<QPushButton *>().size() == 11,
               // 十一个 = 下面那三颗 + 搜索行那四颗筛选 chip（§7.2）+ 模式行那三颗
               // （客户端实例 / 服务端 / 预设）+ 右下那颗「新建服务端…」（§6.1 / M4）。
-              // 模式行 2026-10-18 从两颗变三颗：预设管理从「设置」里搬了过来（coding
+              // 模式行 从两颗变三颗：预设管理从「设置」里搬了过来（coding
               // plan §10.1 presets P0），这一颗是三颗里的第三颗。
               // 三个 = 左栏「游戏文件夹」那一组的两个（「添加文件夹…」+「导入整合包…」）
               // + 「分组设置…」那一颗（它在「实例列表」那个框外面的右上角）。
               // 这个数字是**故意**钉死的：往这一页加控件时，要么它是这里数得着的一个，
               // 要么就该想清楚为什么加（多一个少一个都要在这里说一声）。
-              // 2026-09-25 从 6 变 5：「停止游戏…」删了（用户原话「实例里停止游戏按钮删了」）。
+              // 从 6 变 5：「停止游戏…」删了（要求「实例里停止游戏按钮删了」）。
               // 同一天傍晚 5 变 3：右栏那排「重命名… / 实例设置…」两颗跟着整排删了，各自
-              // 搬进了「实例设置」页和"点这一条实例行"（用户原话「删掉实例页面右侧三个
+              // 搬进了「实例设置」页和"点这一条实例行"（要求「删掉实例页面右侧三个
               // 按钮（因为都已经分别有入口了），顺便把下面的文本干掉」）—— 「分组设置…」
               // 留下来挪到框外右上角（追加答复「分组设置先放右上角框外不删了」）。
-              // 2026-10-13 从 3 变 7：正文面上方那一行**搜索与筛选**（coding plan §7.2）——
+              // 从 3 变 7：正文面上方那一行**搜索与筛选**（coding plan §7.2）——
               // 一个搜索框（QLineEdit，不是按钮）+ 四颗筛选 chip（是按钮）。四颗为什么是
               // 按钮：它们要"亮着/不亮"这个状态（和资源详情页那排游戏版本、文件页那四颗
               // 筛子同一档控件），拿 QCheckBox 来摆是另一套观感。四颗的名字 / 文字 / 互斥
               // 在下面 U32 那一段，这一条数的就是"这一页上到底有几颗 QPushButton"。
-              // 2026-10-13 从 7 又到 10：实例页顶部多了**模式切换**（客户端实例 | 服务端）
+              // 从 7 又到 10：实例页顶部多了**模式切换**（客户端实例 | 服务端）
               // 与服务端那半页（coding plan §6.1 / M4）。三颗新的：模式行那两颗 chip
               // （要"亮着/不亮"这个状态，理由同上面那四颗筛选 chip）+「新建服务端…」
               // （用户答"服务端根目录 = 一个自己的 Servers/ 文件夹"之后，服务端那半页的
@@ -1960,23 +1933,23 @@ int main(int argc, char *argv[]) {
               QString::number(instancePage != nullptr
                                   ? instancePage->findChildren<QPushButton *>().size()
                                   : -1));
-        // ★ 「停止游戏…」删干净了没有 —— 按 objectName **反着找**（照上面「移除文件夹…」
-        //   那两条的写法）。产品那头 stopGameButtonName() 已经删掉了，所以判据里只能写
-        //   字面量，而这条要钉的正是"它找不回来了"。
+        // 「停止游戏…」删干净了没有 —— 按 objectName **反着找**（照上面「移除文件夹…」
+        // 那两条的写法）。产品那头 stopGameButtonName() 已经删掉了，所以判据里只能写
+        // 字面量，而这条要钉的正是"它找不回来了"。
         //
         // NOTE: 停游戏这件事**没有**跟着没掉，只是入口只剩底栏左面板里那一行的电源
-        //       （那一行的行为在 mw_check 里量）。这条只钉界面：这一页上不再有那一颗。
+        // （那一行的行为在 mw_check 里量）。这条只钉界面：这一页上不再有那一颗。
         check(instancePage != nullptr &&
                   instancePage->findChild<QPushButton *>(
                       QStringLiteral("stopGameButton")) == nullptr,
               "「停止游戏…」那个按钮真的不在了（按 objectName 找不到）");
-        // 右栏那一排按钮 2026-09-25 傍晚剩下**一颗**（「分组设置…」），另外两颗各自的
+        // 右栏那一排按钮 傍晚剩下**一颗**（「分组设置…」），另外两颗各自的
         // 新家见下面两条"反着找"。
         //
         // NOTE: 从前那一排三颗一律可点（没选中实例时由 MainWindow 的槽弹一句话说清原因，
-        //       而不是让按钮变灰）—— 这条口径对留下来的那一颗照旧：它**不读**选中的实例，
-        //       所以没有"没选中"这回事。
-        //       原来是四个（多一个「停止游戏…」），2026-09-25 删成三个，傍晚只剩一个。
+        // 而不是让按钮变灰）—— 这条口径对留下来的那一颗照旧：它**不读**选中的实例，
+        // 所以没有"没选中"这回事。
+        // 原来是四个（多一个「停止游戏…」）， 删成三个，傍晚只剩一个。
         {
             const auto *groupBtn = instancePage->findChild<QPushButton *>(
                 MainWindowUI::groupInstanceButtonName());
@@ -1989,19 +1962,19 @@ int main(int argc, char *argv[]) {
                       groupBtn->text() == MainWindowUI::groupInstanceText(),
                   "按钮上写的是约定的那句话",
                   groupBtn != nullptr ? groupBtn->text() : QString());
-            // ★ 它在「实例列表」那个**框外面**（用户原话「分组设置先放右上角框外不删了」）。
-            //   这里只钉"它的父控件不是那个框"这一半（框外）；"在右上角、在框上面"那一半
-            //   是几何，在 Z 节里量。
+            // 它在「实例列表」那个**框外面**（要求「分组设置先放右上角框外不删了」）。
+            // 这里只钉"它的父控件不是那个框"这一半（框外）；"在右上角、在框上面"那一半
+            // 是几何，在 Z 节里量。
             check(groupBtn != nullptr && groupBtn->parentWidget() != nullptr &&
                       qobject_cast<QGroupBox *>(groupBtn->parentWidget()) == nullptr,
                   "「分组设置…」不在任何一个 group box 里面（框外右上角那一颗）",
                   groupBtn != nullptr && groupBtn->parentWidget() != nullptr
                       ? groupBtn->parentWidget()->objectName()
                       : QStringLiteral("<null>"));
-            // ★ 两颗**删干净了没有** —— 按 objectName **反着找**（照「停止游戏…」那条的
-            //   写法）。产品那头这两个名字常量已经删掉了，所以判据里只能写字面量，而这条
-            //   要钉的正是"它们找不回来了"：这两个功能**没有**跟着没掉，各自搬去了别处
-            //   （「实例设置」= 点这一条实例行 / 行尾那颗齿轮；「重命名…」= 实例设置页里）。
+            // 两颗**删干净了没有** —— 按 objectName **反着找**（照「停止游戏…」那条的
+            // 写法）。产品那头这两个名字常量已经删掉了，所以判据里只能写字面量，而这条
+            // 要钉的正是"它们找不回来了"：这两个功能**没有**跟着没掉，各自搬去了别处
+            // （「实例设置」= 点这一条实例行 / 行尾那颗齿轮；「重命名…」= 实例设置页里）。
             check(instancePage->findChild<QPushButton *>(
                       QStringLiteral("renameInstanceButton")) == nullptr,
                   "「重命名…」那颗按钮真的不在了（按 objectName 找不到）");
@@ -2009,14 +1982,14 @@ int main(int argc, char *argv[]) {
                       QStringLiteral("instanceSettingsButton")) == nullptr,
                   "「实例设置…」那颗按钮真的不在了（按 objectName 找不到）");
 
-            // ★ 「导入整合包…」2026-09-25 从右栏挪到左栏「游戏文件夹」那一组、紧挨在
-            //   「添加文件夹…」**下面**（用户原话：「导入整合包放在左边添加文件夹下面」）。
-            //   几何（"在它下面、同一栏、一边宽"）在 Z 节量，这里只量身份 / 文案 / 可点 /
-            //   宽度策略。
+            // 「导入整合包…」 从右栏挪到左栏「游戏文件夹」那一组、紧挨在
+            // 「添加文件夹…」**下面**（要求：「导入整合包放在左边添加文件夹下面」）。
+            // 几何（"在它下面、同一栏、一边宽"）在 Z 节量，这里只量身份 / 文案 / 可点 /
+            // 宽度策略。
             //
             // NOTE: 它和右栏那三个不是一回事：那三个是"对选中的实例做什么"（没选中会弹一句
-            //       "先选中一个实例"），这个是**造**一个新实例 —— 所以它归左栏那一组，
-            //       也不跟着右栏那一排的忙态规则走。
+            // "先选中一个实例"），这个是**造**一个新实例 —— 所以它归左栏那一组，
+            // 也不跟着右栏那一排的忙态规则走。
             QPushButton *importBtn =
                 instancePage->findChild<QPushButton *>(MainWindowUI::importModpackButtonName());
             check(importBtn != nullptr, "实例页能按 objectName 找回「导入整合包…」");
@@ -2072,7 +2045,7 @@ int main(int argc, char *argv[]) {
         check(window.findChild<QWidget *>(QStringLiteral("loginButton")) == nullptr,
               "设置页那格原来的「微软登录」按钮已经拿掉了（它做不了账号管理那几件事）");
 
-        // 原来那对「可安装版本 下拉框 + 版本下载 列表」2026-09-22 整组去掉了（用户原话
+        // 原来那对「可安装版本 下拉框 + 版本下载 列表」 整组去掉了（要求
         // "点击具体版本后进入一个新页面"）。反过来钉一句：下载页里**只剩**那四个加载器
         // 版本组合框（它们现在排在安装页每条加载器右边），一个多余的都别再摆回来。
         // 那几个常量本身也已经删了，所以这里只能按名字找 —— 名字就是当年的契约。
@@ -2084,13 +2057,6 @@ int main(int argc, char *argv[]) {
 
     std::printf("===== B. 分组归属 =====\n");
     // 往上找最近的那个 QGroupBox：下拉框和按钮是不是同一组，看的就得是这个。
-    //
-    // ★ 2026-10-12（那次改版）之后**产品界面上一个 QGroupBox 都没有了** —— 页面改成
-    //   "侧栏 + 正文面"那套骨架，小节一律走 `wtfmlSurface="section"` 的卡片（见下）。
-    //   这个 lambda 留着是为了把它钉在**反面**：凡是从前"在某一组里"的那些断言，现在
-    //   都要同时说明"它现在长在哪个面上"，而不是悄悄留一个恒等于 nullptr 的空壳
-    //   （那种断言看着还是绿的，其实什么都没量）。
-    //   ★ 真要说"组"的地方只剩 `GroupDialog` 那个窗（它不在这几个页面里）。
     const auto nearestGroupBox = [](QWidget *w) -> QGroupBox * {
         for (QWidget *p = w != nullptr ? w->parentWidget() : nullptr; p != nullptr;
              p = p->parentWidget()) {
@@ -2100,7 +2066,7 @@ int main(int argc, char *argv[]) {
         }
         return nullptr;
     };
-    // ---- 页面骨架那两个"面"（2026-10-12 改版）----
+    // ---- 页面骨架那两个"面"（ 改版）----
     //
     // 骨架是 `buildTwoColumnPage()` 搭的：侧栏一个面（`wtfmlSurface="sidebar"`）、正文一个面
     // （`"workspace"`），小节卡片是第三个值（`"section"`），安装页底下那条固定页脚是
@@ -2137,11 +2103,6 @@ int main(int argc, char *argv[]) {
     check(downloadGroup == nullptr, "「安装」按钮不在任何组里（它作用于整页，不属于某一组）");
     check(nearestGroupBox(installed) == nullptr, "已安装下拉框也不在组里");
     {
-        // ★ 2026-10-12：这里原来是一个 `QGroupBox("模组加载器")`，现在换成设置页那种
-        //   「标题 + 小节卡片」。所以判据从"最近的那个组是不是它"改成"最近的那个面
-        //   是不是 `section` 那一档、那张卡片顶上的标题是不是这句话"。
-        //   连带的**反面**也一条不落：产品界面上不该再有任何 `QGroupBox`（下面 W 节
-        //   那种"一个都没有"的断言另有一条，这里先钉这一棵树的四周）。
         check(nearestGroupBox(loaderTree) == nullptr,
               "加载器那棵树**不再**长在任何 QGroupBox 里（那一组整块换成小节卡片了）");
         check(inSurface(loaderTree, Theme::sectionSurfaceValue()),
@@ -2205,13 +2166,13 @@ int main(int argc, char *argv[]) {
               "「不装（纯原版）」那条画的是草方块（它装出来的就是原版，和版本号前面那个一样）");
     }
     QGroupBox *folderGroup = nearestGroupBox(folderList);
-    // ---- 实例页：侧栏（2026-10-12 起这一栏不再有 QGroupBox）----
+    // ---- 实例页：侧栏（ 起这一栏不再有 QGroupBox）----
     //
     // 用户那份改版文档第一条就是「减少框」：「页面本身不画边框」「左侧栏只使用轻微底色
     // 区分（不画完整矩形边框）」。于是「游戏文件夹」那个组整块撤掉：
-    //   · 标题变成侧栏顶上**一行普通的粗体字**（`folderSectionTitleName()`，sectionTitle
-    //     那一档角色）—— 不再有缺口式标题、不再有那圈边；
-    //   · 列表和两颗按钮直接落在侧栏那个"面"（`wtfmlSurface="sidebar"`）上。
+    // · 标题变成侧栏顶上**一行普通的粗体字**（`folderSectionTitleName()`，sectionTitle
+    // 那一档角色）—— 不再有缺口式标题、不再有那圈边；
+    // · 列表和两颗按钮直接落在侧栏那个"面"（`wtfmlSurface="sidebar"`）上。
     // 下面这几条钉的就是这个形状：**一整个面上有什么**，而不是"某一组里有什么"。
     QWidget *instancePageForSidebar = tabs->widget(MainWindowUI::instancesTabIndex());
     QFrame *instanceSidebar = surfaceOf(instancePageForSidebar, Theme::sidebarSurfaceValue());
@@ -2240,7 +2201,7 @@ int main(int argc, char *argv[]) {
                   leftLayout->indexOf(title) < leftLayout->indexOf(folderList),
               "那行小标题在列表**上面**");
     }
-    // 「移除文件夹…」那个按钮与列表下面那段提示 2026-09-24 一起删掉了（用户原话：
+    // 「移除文件夹…」那个按钮与列表下面那段提示 一起删掉了（要求：
     // 「下面那个移除文件夹也可以弃掉了，下面那个文本也删了」）—— 「移除」现在只剩行尾
     // 齿轮菜单里那一项，它自己那几条断言在下面 V 节。
     check(instanceSidebar != nullptr &&
@@ -2266,8 +2227,8 @@ int main(int argc, char *argv[]) {
     check(instanceSidebar != nullptr &&
               instanceSidebar->findChild<QLabel *>(QStringLiteral("folderHintLabel")) == nullptr,
           "列表下面那段提示也真的不在了（按 objectName 找不到）");
-    // ★ 但这一栏**又有了**一段说明（2026-09-25）：「导入整合包…」下面那句。它和上面那句
-    //   被删掉的话是两回事（那句讲的是"列表里这份文件夹"，这句讲的是那颗按钮收什么）。
+    // 但这一栏**又有了**一段说明：「导入整合包…」下面那句。它和上面那句
+    // 被删掉的话是两回事（那句讲的是"列表里这份文件夹"，这句讲的是那颗按钮收什么）。
     {
         const auto *hint = instanceSidebar != nullptr
                                ? instanceSidebar->findChild<QLabel *>(
@@ -2298,7 +2259,7 @@ int main(int argc, char *argv[]) {
         check(!rightStillTalksAboutImport,
               "正文面里不再讲「导入整合包」（那段话跟着按钮留在左栏里）");
     }
-    // 「当前文件夹：…」那句话**升级成了页头那行说明**（2026-10-12）：它原来在「实例列表」
+    // 「当前文件夹：…」那句话**升级成了页头那行说明**：它原来在「实例列表」
     // 那一组里当第一行，现在挂在页头标题「实例」下面（用户文档：`页面说明 / 路径 / 当前
     // 状态`）。objectName 没换（`instanceFolderLabelName()`）—— MainWindow 灌数据那条路
     // 一个字符都没动，只是它现在长在页头里、不在正文面里。
@@ -2307,17 +2268,17 @@ int main(int argc, char *argv[]) {
               instanceFolderLabel->parentWidget() != nullptr &&
               !isDescendantOf(instanceFolderLabel, instanceList),
           "「当前文件夹」那句话不再挂在实例列表底下（它现在是页头那行说明）");
-    // 「导入整合包…」**不在**右栏（2026-09-25 之前它在）：用户原话「导入整合包放在
+    // 「导入整合包…」**不在**右栏（ 之前它在）：要求「导入整合包放在
     // 左边添加文件夹下面」，所以它在左栏、紧挨着「添加文件夹…」。
     // 这里把那条老断言翻过来钉住 —— 挪回去了（或者被谁顺手加回右栏）要在这里红。
     check(!inSurface(ui.getImportModpackButton(), Theme::workspaceSurfaceValue()) &&
               inSurface(ui.getImportModpackButton(), Theme::sidebarSurfaceValue()),
           "「导入整合包…」在左栏侧栏面上（不在正文面那一支里）",
           surfaceValueOf(ui.getImportModpackButton()));
-    // NOTE: 这条以前顺带钉了「离线模式」那个勾选框 —— 它 2026-09-24 去掉了（用户原话：
-    //       「现在不要启动界面那个离线登录勾选框了，在添加账户那里选择添加离线账号」），
-    //       离线身份现在由"当前账号是什么"决定（MainWindow::offlineIdentity()）。
-    //       所以这里改成钉主页左栏剩下的那两件。
+    // NOTE: 这条以前顺带钉了「离线模式」那个勾选框 —— 它 去掉了（要求：
+    // 「现在不要启动界面那个离线登录勾选框了，在添加账户那里选择添加离线账号」），
+    // 离线身份现在由"当前账号是什么"决定（MainWindow::offlineIdentity()）。
+    // 所以这里改成钉主页左栏剩下的那两件。
     check(nearestGroupBox(startBtn) == nullptr &&
               nearestGroupBox(ui.getInstalledVersionCombo()) == nullptr,
           "启动按钮和版本下拉框都不在组里（主页是裸的）");
@@ -2328,24 +2289,24 @@ int main(int argc, char *argv[]) {
     tabs->setCurrentIndex(MainWindowUI::downloadTabIndex());
     QApplication::processEvents();
     // NOTE: 这些控件分属不同父控件（左栏、树的页、安装页、组里的布局），拿各自的
-    //       geometry() 直接比等于在比几套坐标系。一律换算到页面坐标上再比。
+    // geometry() 直接比等于在比几套坐标系。一律换算到页面坐标上再比。
     QWidget *downloadPage = tabs->widget(MainWindowUI::downloadTabIndex());
     const auto rectInPage = [downloadPage](QWidget *w) {
         return w != nullptr ? QRect(w->mapTo(downloadPage, QPoint(0, 0)), w->size()) : QRect();
     };
 
-    // ---- 左栏顶上那颗「← 返回实例设置」（2026-09-28） ----
+    // ---- 左栏顶上那颗「← 返回实例设置」 ----
     //
-    // 用户原话（先）：「点击下载新模组/资源包/...时左上角保留一个返回键，返回到实例设置
+    // 要求（先）：「点击下载新模组/资源包/...时左上角保留一个返回键，返回到实例设置
     // 里面，和资源包详情啥的一致」；（后改口）「返回按钮也是放在左上角（就是左边栏的顶上）」。
     // 于是它从"五栏各一颗、摆在右栏那行筛子里"变成**整个下载页一颗、摆在左栏顶上**。
     // 这一节钉三条：**只有一颗** / **在左栏顶上** / **默认收着**。
     {
         // NOTE: 这里量的是 `isHidden()`（"有没有被显式收起来"）**不是** `isVisible()`。
-        //       下载页是一个堆叠页，此刻台上站着的是「游戏」那一栏 —— 别栏的**每一个**
-        //       子控件 `isVisible()` 都是假，拿它当判据等于在量"这一栏是不是当前页"，
-        //       而不是量"那颗键收没收"。`isHidden()` 只说这一颗自己的显隐状态，
-        //       正是"默认收着 / 从实例进来的那一次才露面"这件事的判据。
+        // 下载页是一个堆叠页，此刻台上站着的是「游戏」那一栏 —— 别栏的**每一个**
+        // 子控件 `isVisible()` 都是假，拿它当判据等于在量"这一栏是不是当前页"，
+        // 而不是量"那颗键收没收"。`isHidden()` 只说这一颗自己的显隐状态，
+        // 正是"默认收着 / 从实例进来的那一次才露面"这件事的判据。
         QPushButton *back = ui.getDownloadBackButton();
         check(back != nullptr, "下载页有一颗「← 返回实例设置」");
         if (back != nullptr) {
@@ -2376,9 +2337,6 @@ int main(int argc, char *argv[]) {
                 : downloadPage->findChild<QWidget *>(
                       MainWindowUI::leftColumnName(QStringLiteral("download")));
         QListWidget *categories = ui.getDownloadCategoryList();
-        // ★ 2026-10-12：左栏那一格现在是**固定宽度的侧栏**，里面套着那个"侧栏面"
-        //   （`wtfmlSurface="sidebar"`）；分类那一列和这颗返回键都长在**那个面**上，
-        //   不再直接挂在栏控件下面。所以这两条从"父控件就是左栏"改成"就在左栏那个面上"。
         QFrame *leftSurface =
             downloadPage == nullptr ? nullptr : surfaceOf(downloadPage, Theme::sidebarSurfaceValue());
         check(leftColumn != nullptr && back != nullptr && leftColumn->isAncestorOf(back),
@@ -2394,8 +2352,8 @@ int main(int argc, char *argv[]) {
         // 在分类那一列**上面**。量的是布局里的**次序**，不是 y 坐标 —— 这一颗此刻收着，
         // 收着的控件布局不给它分配几何，拿 y 去比得到的是"两个都没摆过"的假数据。
         // NOTE: 那一对里的布局是**侧栏面自己**那条布局（`buildTwoColumnPage()` 把
-        //       `columns.left.layout` 指过去的就是它），不是栏控件那条 —— 栏控件那条
-        //       里此刻只有侧栏面一个东西。
+        // `columns.left.layout` 指过去的就是它），不是栏控件那条 —— 栏控件那条
+        // 里此刻只有侧栏面一个东西。
         QLayout *leftLayout = leftSurface == nullptr ? nullptr : leftSurface->layout();
         check(leftLayout != nullptr && back != nullptr && categories != nullptr &&
                   leftLayout->indexOf(back) >= 0 && leftLayout->indexOf(categories) >= 0 &&
@@ -2446,7 +2404,7 @@ int main(int argc, char *argv[]) {
     check(versionTree != nullptr && versionTree->uniformRowHeights(),
           "版本树按统一行高算（742 条快照省的是滚动时的重算）");
 
-    // ---- 版本树长什么样（用户 2026-09-22 点名要的那几样） ----
+    // ---- 版本树长什么样（用户 点名要的那几样） ----
     // 文本放大一点 / 上下间距放大一点 / 版本号下面一行小字写发布日期 /
     // 版本名字前面一个草方块 / 四个加载器各带自己的标志 / 行最右那个能转的箭头。
     //
@@ -2462,7 +2420,7 @@ int main(int argc, char *argv[]) {
           "双击不再自己展开一遍（单击分类就切换展开，两次叠起来等于没动）");
     check(versionTree != nullptr && !versionTree->rootIsDecorated(),
           "树上左边那个系统三角不画（展开/收起的提示只在右边那个箭头上）");
-    // 这条是**踩过的坑**（2026-09-23）：想去掉左边那个三角，一股脑写成
+    // 这条是**踩过的坑**：想去掉左边那个三角，一股脑写成
     // setChildIndicatorPolicy(DontShowIndicator) 的话，QTreeModel::hasChildren()
     // 会对那个分类直接 return false —— 它的版本号一条都排不进布局，树上只剩四行空的
     // 分类、点开也是空的，而"有没有孩子"这件事在模型层就已经是假的了。
@@ -2511,9 +2469,9 @@ int main(int argc, char *argv[]) {
         // 左边那个系统三角不画 —— 和产品那边摆成同一个形状，不然量出来的行不是产品那个行。
         //
         // NOTE: 这里**不能**用 setChildIndicatorPolicy(DontShowIndicator)：QTreeModel::
-        //       hasChildren() 是按那个 policy 直接 return false 的，子条目**一条都排不进
-        //       布局**（2026-09-23 踩过：产品那边原来就是这么写的，树上只剩四行空的分类）。
-        //       要去掉那个三角就走 rootIsDecorated(false) —— 它只影响装饰格的绘制。
+        // hasChildren() 是按那个 policy 直接 return false 的，子条目**一条都排不进
+        // 布局**（ 踩过：产品那边原来就是这么写的，树上只剩四行空的分类）。
+        // 要去掉那个三角就走 rootIsDecorated(false) —— 它只影响装饰格的绘制。
         probe.setRootIsDecorated(false);
         // 窗口开得比三行高一截：不留竖滚动条，行宽就等于视口宽，下面算右端那格才对得上。
         probe.resize(420, rowHeight * 3 + 60);
@@ -2564,9 +2522,9 @@ int main(int argc, char *argv[]) {
               QStringLiteral("%1x%2").arg(shot.width()).arg(shot.height()));
 
         // ① 版本号前面那个草方块。
-        //    NOTE: 不写死 x —— 子条目左边缩进多少是样式说了算（缩进的宽窄和笔者的
-        //          猜测无关），写死就会量到空白上、然后报"没画"。改成**按颜色找**：
-        //          草是绿的、土是棕的，找得到而且"绿在上、棕在下"才算画对了。
+        // NOTE: 不写死 x —— 子条目左边缩进多少是样式说了算（缩进的宽窄和笔者的
+        // 猜测无关），写死就会量到空白上、然后报"没画"。改成**按颜色找**：
+        // 草是绿的、土是棕的，找得到而且"绿在上、棕在下"才算画对了。
         const QRect leafRow = rowRect(1);
         int greenCount = 0;
         int brownCount = 0;
@@ -2612,8 +2570,8 @@ int main(int argc, char *argv[]) {
               QStringLiteral("%1 px 宽，图标 %2").arg(iconBox.width()).arg(iconSize));
 
         // ② 版本号一行、发布时间一行 —— 分界线就是行的中线：上半截那行是版本号、
-        //    下半截那行是日期。用户要的是"在版本号下面小字写发布时间"。
-        //    从图标右边一点开始量，免得把草方块自己的像素算成"字"。
+        // 下半截那行是日期。用户要的是"在版本号下面小字写发布时间"。
+        // 从图标右边一点开始量，免得把草方块自己的像素算成"字"。
         // 找不到那个方块时（扫不到绿/棕）退回"行左端 + 一个图标位"起的文字区 ——
         // 不然下面那几个框会算到图外面去（box.left() 是个越界的数，循环直接跑飞）。
         const int textLeft =
@@ -2663,7 +2621,7 @@ int main(int argc, char *argv[]) {
               QStringLiteral("%1 vs %2").arg(dateLeft).arg(leftmostInk(stripAbove)));
 
         // ③ 行最右边那个箭头：收起时是朝右的 >（一小竖条，高比宽大），
-        //    展开之后变成朝下的 V（横过来，宽比高大）。两张图分别在两种状态下抓。
+        // 展开之后变成朝下的 V（横过来，宽比高大）。两张图分别在两种状态下抓。
         check(inkCount(shot, leafRow) > 0, "版本号那种叶子行整行有内容");
         const QRect bbLeafArrow = inkBBox(shot, arrowBox(1));
         check(!bbLeafArrow.isNull() && bbLeafArrow.height() >= bbLeafArrow.width(),
@@ -2697,9 +2655,9 @@ int main(int argc, char *argv[]) {
               QString::number(inkCount(shot, arrowBox(2))));
 
         // ④b 换成**叶子不画箭头**那个代理（安装页那棵加载器树用的就是它）再抓一张。
-        //     同一棵树、同一份条目、同一个几何，只换这一个开关 —— 于是这一格里有墨没墨
-        //     就只可能是那个开关干的。两条一起看才说明问题：叶子那格**空**（用户要的），
-        //     顶层那行那格**照旧有墨**（那个开关没管到它，加载器那一条还得能展开）。
+        // 同一棵树、同一份条目、同一个几何，只换这一个开关 —— 于是这一格里有墨没墨
+        // 就只可能是那个开关干的。两条一起看才说明问题：叶子那格**空**（用户要的），
+        // 顶层那行那格**照旧有墨**（那个开关没管到它，加载器那一条还得能展开）。
         probe.setItemDelegate(new VersionTreeDelegate(&probe, /*leafArrow=*/false));
         QApplication::processEvents();
         const QImage noLeafArrowShot = captureWidget(probe.viewport());
@@ -2717,20 +2675,20 @@ int main(int argc, char *argv[]) {
         probe.setItemDelegate(new VersionTreeDelegate(&probe, /*leafArrow=*/true));
         QApplication::processEvents();
 
-        // ⑤ 不可用的那一条**整行淡下去**：2026-09-23 起"选中一个加载器之后其余几条加载器
-        //    变灰、也点不开"。淡那一下是**代理**画的（按条目的 enabled 位切透明度），跟
-        //    "点不动"是两件事 —— 不淡的话用户看不出来那条点不得，只会觉得"点一下没反应"
-        //    （2026-09-23 用户报的"点不开了"正是这个形状）。
-        //    判据："同一条内容，禁用之后那格里的墨**轻**了一截" —— 颜色朝背景淡过去，
-        //    每个像素离背景的距离都变小，加起来（总墨量）就变小。量"离背景多远"而不是
-        //    "有多黑"，是为了不假设背景一定是白的。
+        // ⑤ 不可用的那一条**整行淡下去**： 起"选中一个加载器之后其余几条加载器
+        // 变灰、也点不开"。淡那一下是**代理**画的（按条目的 enabled 位切透明度），跟
+        // "点不动"是两件事 —— 不淡的话用户看不出来那条点不得，只会觉得"点一下没反应"
+        // （ 用户报的"点不开了"正是这个形状）。
+        // 判据："同一条内容，禁用之后那格里的墨**轻**了一截" —— 颜色朝背景淡过去，
+        // 每个像素离背景的距离都变小，加起来（总墨量）就变小。量"离背景多远"而不是
+        // "有多黑"，是为了不假设背景一定是白的。
         //
-        //    **量的是图标那一格**（iconBox 里是草方块）：草方块的颜色是 VersionIcons
-        //    里写死的，跟调色板无关，它变浅只可能是我们在代理里调了透明度。
-        //    NOTE: 2026-09-23 的灵敏度实验：把代理里那两处 setOpacity 摘掉，**整行**的墨量
-        //          照样从 141024 掉到 95424 —— 因为禁用之后 Qt 自己会把文字换成"禁用档"
-        //          的调色板颜色，那一层不管我们画不画都会变浅。整行那一把量不出我们的
-        //          透明度（假绿），所以这里只把整行的数字写进明细里看，不当判据。
+        // **量的是图标那一格**（iconBox 里是草方块）：草方块的颜色是 VersionIcons
+        // 里写死的，跟调色板无关，它变浅只可能是我们在代理里调了透明度。
+        // NOTE: 的灵敏度实验：把代理里那两处 setOpacity 摘掉，**整行**的墨量
+        // 照样从 141024 掉到 95424 —— 因为禁用之后 Qt 自己会把文字换成"禁用档"
+        // 的调色板颜色，那一层不管我们画不画都会变浅。整行那一把量不出我们的
+        // 透明度（假绿），所以这里只把整行的数字写进明细里看，不当判据。
         const auto inkWeight = [&bg](const QImage &img, const QRect &box) {
             int total = 0;
             for (int y = qMax(0, box.top()); y <= qMin(img.height() - 1, box.bottom()); ++y) {
@@ -2761,12 +2719,12 @@ int main(int argc, char *argv[]) {
                   .arg(rowInkEnabled)
                   .arg(rowInkDisabled));
 
-        // ⑥ 行尾那个「取消」小叉（选中那条加载器右边、> 的左边）。用户原话："选中以后
-        //    在那个 > 左侧加一个 x 来取消安装对应版本"。
-        //    这一格是**代理自己画的**（VersionIcons::cross，代码画的，仓库里没有图片），
-        //    位置由 VersionTreeDelegate::clearRect() 唯一给出 —— 产品那边"这一下点中了
-        //    没有"也是按同一份几何判的（MainWindow::eventFilter），两边错开就成了"看着
-        //    点中了叉、其实点的是那一行"。所以这里**用产品那一份**算，不自己再推一遍。
+        // ⑥ 行尾那个「取消」小叉（选中那条加载器右边、> 的左边）。要求："选中以后
+        // 在那个 > 左侧加一个 x 来取消安装对应版本"。
+        // 这一格是**代理自己画的**（VersionIcons::cross，代码画的，仓库里没有图片），
+        // 位置由 VersionTreeDelegate::clearRect() 唯一给出 —— 产品那边"这一下点中了
+        // 没有"也是按同一份几何判的（MainWindow::eventFilter），两边错开就成了"看着
+        // 点中了叉、其实点的是那一行"。所以这里**用产品那一份**算，不自己再推一遍。
         const QRect clearBox = VersionTreeDelegate::clearRect(leafRow);
         check(!clearBox.isNull() && clearBox.right() < arrowBox(1).left() &&
                   clearBox.width() >= arrowSize,
@@ -2803,7 +2761,7 @@ int main(int argc, char *argv[]) {
         // 悬停在那**一格**上弹「取消」（和左栏那个刷新圈走的是同一条路：几何都由
         // VersionTreeDelegate 给，文案在 MainWindowUI 里 —— 见 rowActionTip()）。
         // NOTE: 下标要从分类往下点一层（`model()->index(0,0)` 是**顶层第 1 条**，
-        //       不是屏幕上第 1 行那个版本号，见下面那条断言里的同一段 NOTE）。
+        // 不是屏幕上第 1 行那个版本号，见下面那条断言里的同一段 NOTE）。
         {
             const QModelIndex leafIndex =
                 probe.model()->index(0, 0, probe.model()->index(0, 0));
@@ -2816,7 +2774,7 @@ int main(int argc, char *argv[]) {
             // 端到端：真发一个 ToolTip 事件给这棵树的视口（**树**和左栏那份**列表**是两个
             // 不同的宿主控件，代理在两边都得被叫到，所以两边各量一次）。
             // NOTE: 判据是**哨兵换没换**，不是"看不看得见" —— `QToolTip::hideText()`
-            //       在这个平台上不生效（见左栏那一块里那段 NOTE），看 isVisible 会拿到上一条。
+            // 在这个平台上不生效（见左栏那一块里那段 NOTE），看 isVisible 会拿到上一条。
             const QString sentinel = QStringLiteral("哨兵");
             const auto tipAtTree = [&probe, &sentinel](const QPoint &pos) {
                 QToolTip::showText(pos, sentinel, probe.viewport());
@@ -2851,7 +2809,7 @@ int main(int argc, char *argv[]) {
             opt.font = probe.font();
             // NOTE: 别写成 model()->index(1, 0) —— 那说的是**顶层第 1 条**
             // （=「愚人节」那个空分类），不是屏幕上第 1 行那个版本号。版本号是分类底下的
-            // 子条目，得从它爹那儿往下点一层才对得上（2026-09-23 踩过：拿错条目之后
+            // 子条目，得从它爹那儿往下点一层才对得上（ 踩过：拿错条目之后
             // 这条断言量的是另一条的行宽，怎么改都看不出差别）。
             const QModelIndex channelIndex = probe.model()->index(0, 0);
             const QModelIndex leafIndex = probe.model()->index(0, 0, channelIndex);
@@ -2878,7 +2836,7 @@ int main(int argc, char *argv[]) {
     }
 
     // ---- 四个加载器的标志 ----
-    // 用户原话："对应的 forge neo... 也加上其标志"。四张图要**互不相同** ——
+    // 要求："对应的 forge neo... 也加上其标志"。四张图要**互不相同** ——
     // 全画成同一张（或者第二个开始全是草方块）在界面上就是"四个钮长得一样"，
     // 而那正是这功能要解决的问题。
     {
@@ -2908,24 +2866,24 @@ int main(int argc, char *argv[]) {
                   VersionIcons::chevron(true, 0, Qt::black).isNull(),
               "尺寸给 0 时返回空图、不崩（尺寸算错时至少不会画出一张乱七八糟的）");
 
-        // ---- 哪几张是**透明底**、哪几张自带底色（2026-09-29） ----
+        // ---- 哪几张是**透明底**、哪几张自带底色 ----
         //
         // 四张里现在**两张是透明底、两张自带底色**：
         //
-        //   fabric    透明（用户 2026-09-29 换成一张自带透明底的像素画叶子）
-        //   forge     透明（同一批：那张白底铁砧把白抠了）
-        //   neoforge  自带一块灰底 + 圆角透明（官方那张 `neoforged_background_128x128.png`）
-        //   optifine  自带一块圆角底
+        // fabric 透明（用户 换成一张自带透明底的像素画叶子）
+        // forge 透明（同一批：那张白底铁砧把白抠了）
+        // neoforge 自带一块灰底 + 圆角透明（官方那张 `neoforged_background_128x128.png`）
+        // optifine 自带一块圆角底
         //
         // 底色全是**烤进 PNG** 的 ⇒ 这一节量的是**资源文件本身**，不是画的代码 —— 谁哪天
         // 把带底的图换回来（或者反过来把带底的抠了），这里当场红。
         //
-        // ★ 判据挑的四个点是**四张共用**的：(10,10) 左上里侧 / (10,55) 左下 / (55,50) 右下
-        //   三处都在"透明的那两张"里一定空着、在"有底的那两张"里一定是底；(32,32) 是正中，
-        //   四张都该有东西。**"有底"那两张必须留一条对照** —— 不然"透明"那几条在
-        //   "四张全透明"（等于四张全废）时也绿。
+        // 判据挑的四个点是**四张共用**的：(10,10) 左上里侧 / (10,55) 左下 / (55,50) 右下
+        // 三处都在"透明的那两张"里一定空着、在"有底的那两张"里一定是底；(32,32) 是正中，
+        // 四张都该有东西。**"有底"那两张必须留一条对照** —— 不然"透明"那几条在
+        // "四张全透明"（等于四张全废）时也绿。
         // NOTE: 四个角 (0,0)/(63,0)/(0,63)/(63,63) 全透明是**四张共有**的（圆角底，
-        //       半径 3/16），拿它当"底没了"的判据会四张都绿 —— 别用。
+        // 半径 3/16），拿它当"底没了"的判据会四张都绿 —— 别用。
         {
             const int side = 128;  // 64 那张的 2 倍：走最近邻放大，采样点乘 2 就是原图那个像素
             const QImage fabric = VersionIcons::loaderMark(0, side).toImage();
@@ -2973,8 +2931,8 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // ---- 版本树上那四栏各自的小图标（用户 2026-09-23 定：「快照版的草用白色（覆雪草块），
-    //      远古版就土块，愚人节版用幸运方块，原版不变」）----
+    // ---- 版本树上那四栏各自的小图标（用户 定：「快照版的草用白色（覆雪草块），
+    // 远古版就土块，愚人节版用幸运方块，原版不变」）----
     //
     // 这一段量的是**颜色**，而颜色是我们自己写死在 VersionIcons.cpp 里的常数 —— 正是
     // "颜色由我们自己的代码决定"那种该拿像素当证据的格子（拿整行/样式调色板量会验错东西，
@@ -3038,11 +2996,11 @@ int main(int argc, char *argv[]) {
               QStringLiteral("%1 格偏绿").arg(greenish));
 
         // 愚人节版：金底 + 中间那簇奶油色的问号。两条都不抄色值：
-        //   · 底色得"偏黄"（红的比蓝的高出一大截）；
-        //   · 问号认**蓝通道高的那一簇**。金的那几档蓝都很低（0x4c / 0x2a / 0x16），
-        //     整个底图上没有第二个地方会是高蓝 —— 所以这条就把"问号画上去了没有"
-        //     和"底色画对没画对"两件事分开了。（顺带：我第一版写的是"三个通道都
-        //     >= 0xf0"，而那个奶油色是 0xf8f2d2、蓝只有 0xd2 —— 一条永远红的断言。）
+        // · 底色得"偏黄"（红的比蓝的高出一大截）；
+        // · 问号认**蓝通道高的那一簇**。金的那几档蓝都很低（0x4c / 0x2a / 0x16），
+        // 整个底图上没有第二个地方会是高蓝 —— 所以这条就把"问号画上去了没有"
+        // 和"底色画对没画对"两件事分开了。（顺带：我第一版写的是"三个通道都
+        // >= 0xf0"，而那个奶油色是 0xf8f2d2、蓝只有 0xd2 —— 一条永远红的断言。）
         long sumR = 0;
         long sumB = 0;
         int inkCells = 0;
@@ -3131,13 +3089,13 @@ int main(int argc, char *argv[]) {
 
         // 四种颜色各自的判据。**互相不许重叠**是这里的关键（不然"别人的颜色"会被算进来，
         // 那几个"必须为 0"的半边就永远绿）：
-        //   · 草：绿是主色，而且要**高出红一截** —— 覆雪草块那层雪是 0xf4f9fc，绿 249 确实
-        //     比红 244 大，只判 `g > r` 的话雪会被算成草，那条"快照版一格绿都没有"就废了；
-        //   · 雪：三个通道都很高；
-        //   · 土：红 > 绿 > 蓝，而且**红不能高出蓝太多**（r <= b*3）。土是 0x9c704a 这种
-        //     红/蓝 ≈ 2.1，而幸运方块那圈边 0xa57a16 的红/蓝是 7.5 —— 不这么分的话
-        //     愚人节版那一行会被数出"土"来；
-        //   · 金：红很高同时蓝很低。
+        // · 草：绿是主色，而且要**高出红一截** —— 覆雪草块那层雪是 0xf4f9fc，绿 249 确实
+        // 比红 244 大，只判 `g > r` 的话雪会被算成草，那条"快照版一格绿都没有"就废了；
+        // · 雪：三个通道都很高；
+        // · 土：红 > 绿 > 蓝，而且**红不能高出蓝太多**（r <= b*3）。土是 0x9c704a 这种
+        // 红/蓝 ≈ 2.1，而幸运方块那圈边 0xa57a16 的红/蓝是 7.5 —— 不这么分的话
+        // 愚人节版那一行会被数出"土"来；
+        // · 金：红很高同时蓝很低。
         const auto isGreen = [](const QColor &c) {
             return c.green() > c.red() + 15 && c.green() > c.blue();
         };
@@ -3218,9 +3176,9 @@ int main(int argc, char *argv[]) {
           "能翻到安装页那一层",
           gameStack != nullptr ? QString::number(gameStack->currentIndex()) : QString());
 
-    // ★ 2026-10-18（用户原话：「那个页面顶上的大标题和刷新键不要（点进去就隐藏，外面
-    //   还保留）」）：进安装页那一层，下载页页头**整块**收起来 —— 不是只收标题、
-    //   留一颗刷新孤零零在外面，也不是只藏文字、那一行的高度还占着。
+    // （要求：「那个页面顶上的大标题和刷新键不要（点进去就隐藏，外面
+    // 还保留）」）：进安装页那一层，下载页页头**整块**收起来 —— 不是只收标题、
+    // 留一颗刷新孤零零在外面，也不是只藏文字、那一行的高度还占着。
     {
         QWidget *header = ui.getDownloadHeader();
         QPushButton *refresh = ui.getDownloadHeaderRefreshButton();
@@ -3299,10 +3257,10 @@ int main(int argc, char *argv[]) {
     const QByteArray surfaceKey = Theme::surfacePropertyName().toUtf8();
     {
         const QRect rTree = rectInPage(loaderTree);
-        // ★ 2026-10-12：这一节原来是一个 `QGroupBox("模组加载器")`，现在换成了设置页那种
-        //   「标题 + 小节卡片」（用户那份改版文档：「右侧只有一个主要内容表面，不再用多个
-        //   QGroupBox 套起来」）。**这是产品界面上最后一个 QGroupBox**，所以第一条钉的
-        //   就是"这里再也没有组了" —— 判据从"组在名称框下面"改成"那张卡片在名称框下面"。
+        // 这一节原来是一个 `QGroupBox("模组加载器")`，现在换成了设置页那种
+        // 「标题 + 小节卡片」（用户那份改版文档：「右侧只有一个主要内容表面，不再用多个
+        // QGroupBox 套起来」）。**这是产品界面上最后一个 QGroupBox**，所以第一条钉的
+        // 就是"这里再也没有组了" —— 判据从"组在名称框下面"改成"那张卡片在名称框下面"。
         loaderCard = loaderTree != nullptr ? qobject_cast<QFrame *>(loaderTree->parentWidget())
                                           : nullptr;
         const QString cardSurface =
@@ -3361,9 +3319,9 @@ int main(int argc, char *argv[]) {
                        2 * loaderTree->frameWidth()));
         // 底栏：`wtfmlSurface="footer"` 那一块（一条分隔线 + 里面右对齐的操作）。
         // NOTE: 用户那份文档里写的是 `[取消] [安装]` 两颗；产品上**没有**「取消」—— 这一页
-        //       往回走的那颗是顶上左角那颗「← 返回版本列表」（"页面级操作永远放右上角"那条
-        //       在这儿落成了它的对偶：返回在最左、确认在最右）。所以这里钉的是"底栏在、
-        //       安装键在底栏里、且靠右下角"，不是"两颗键并排"。
+        // 往回走的那颗是顶上左角那颗「← 返回版本列表」（"页面级操作永远放右上角"那条
+        // 在这儿落成了它的对偶：返回在最左、确认在最右）。所以这里钉的是"底栏在、
+        // 安装键在底栏里、且靠右下角"，不是"两颗键并排"。
         installFooter = downloadPage->findChild<QFrame *>(MainWindowUI::installFooterName());
         const QRect rFooter = rectInPage(installFooter);
         const QString footerSurface =
@@ -3376,14 +3334,14 @@ int main(int argc, char *argv[]) {
         check(installFooter != nullptr && installBtn != nullptr &&
                   installFooter->isAncestorOf(installBtn) && !installFooter->isAncestorOf(installNameEdit),
               "「安装」长在这条底栏里（名称框不在里面 —— 底栏只管确认那一颗）");
-        // ★ 2026-10-18：中间那一层现在是**滚动区**（用户报「下载页（选择模组加载器的页）
-        //   那个遮挡」—— 这一页原来一个能滚的地方都没有，内容比正文面高的时候底下几条
-        //   加载器被卡片的下沿裁掉了）。于是"底栏在卡片下面"这条从 `footer.y >=
-        //   card.bottom` 改成 **"底栏在滚动区下面"**：
-        //     · 名称框和卡片住在滚动区**里面**（内容再长也只是在里面滚）；
-        //     · 底栏钉在**页面最底下**（滚动区吃掉全部剩余高度），不会再被内容顶走。
-        //   NOTE: 卡片未裁剪的几何在内容溢出时会伸到底栏下面去 —— 那不是回归，正是这一
-        //         版要有的样子（`rectInPage()` 不会裁剪，所以不能再拿 card.bottom 当界线）。
+        // 中间那一层现在是**滚动区**（用户报「下载页（选择模组加载器的页）
+        // 那个遮挡」—— 这一页原来一个能滚的地方都没有，内容比正文面高的时候底下几条
+        // 加载器被卡片的下沿裁掉了）。于是"底栏在卡片下面"这条从 `footer.y >=
+        // card.bottom` 改成 **"底栏在滚动区下面"**：
+        // · 名称框和卡片住在滚动区**里面**（内容再长也只是在里面滚）；
+        // · 底栏钉在**页面最底下**（滚动区吃掉全部剩余高度），不会再被内容顶走。
+        // NOTE: 卡片未裁剪的几何在内容溢出时会伸到底栏下面去 —— 那不是回归，正是这一
+        // 版要有的样子（`rectInPage()` 不会裁剪，所以不能再拿 card.bottom 当界线）。
         QScrollArea *installScroll = ui.getInstallScroll();
         const QRect rScroll = rectInPage(installScroll);
         check(installScroll != nullptr &&
@@ -3417,7 +3375,7 @@ int main(int argc, char *argv[]) {
         check(!rInstall.isNull() && rInstall.width() < downloadPage->width() / 2,
               "「安装」只吃自己那点宽度（没被拉满一整行）",
               QString("btn=%1 page=%2").arg(rInstall.width()).arg(downloadPage->width()));
-        // 用户原话"安装键做大点在右侧居中" → 2026-10-12 改版文档「确认操作放右下角或固定
+        // 要求"安装键做大点在右侧居中" → 改版文档「确认操作放右下角或固定
         // 底栏，不悬浮在页面中间」：**居中改成了靠右**。居中那一版正是"悬浮"——上面是表单、
         // 下面是深浅不定的一截空白，这颗键落在哪儿全看那一栏当时多高。
         // 大 —— 字比同页那些控件大（字号加了两档）而且给了最小高度。
@@ -3466,7 +3424,7 @@ int main(int argc, char *argv[]) {
         // 名称框被压扁，光看代码看不出来 —— 得让树真长到最高再量一次。
         //
         // NOTE: 底下那些是**临时**条目（用完就删回去）：这一节后面 E 段要验"开局五条
-        //       底下都是空的"，留在这儿会让那条红。
+        // 底下都是空的"，留在这儿会让那条红。
         if (loaderTree != nullptr && loaderTree->topLevelItemCount() > 0) {
             QTreeWidgetItem *row = loaderTree->topLevelItem(0);
             const bool wasExpanded = row->isExpanded();
@@ -3488,10 +3446,10 @@ int main(int argc, char *argv[]) {
                       .arg(rTreeFull.height())
                       .arg(MainWindowUI::loaderTreeMaxRows() *
                                MainWindowUI::versionTreeRowHeight()));
-            // ★ 2026-10-18（"遮挡"那条的**回归钉子**）：内容长到超过可视区之后，滚动区
-            //   必须真有行程 —— 没有的话底下那几行还是"画不出来、也够不着"，正是用户
-            //   报的那个症状。行程由内容最小高度算出来（不依赖窗口实际显示），offscreen
-            //   上也量得准，不是布局几何那种假绿。
+            // （"遮挡"那条的**回归钉子**）：内容长到超过可视区之后，滚动区
+            // 必须真有行程 —— 没有的话底下那几行还是"画不出来、也够不着"，正是用户
+            // 报的那个症状。行程由内容最小高度算出来（不依赖窗口实际显示），offscreen
+            // 上也量得准，不是布局几何那种假绿。
             QScrollArea *installScrollNow = ui.getInstallScroll();
             const int scrollRange =
                 installScrollNow != nullptr ? installScrollNow->verticalScrollBar()->maximum()
@@ -3522,18 +3480,18 @@ int main(int argc, char *argv[]) {
         }
 
         // NOTE: 这一段**放在这一节的最末**：它会临时多显出来一行，把名称框底下那些控件
-        //       整体往下推，插在中间量出来的几何就不是"平时那个样子"了（试过：放在名称框
-        //       那一段后面，「安装」在加载器那一组下面那条当场红）。
-    // 名字里有非法字符时底下新起的那一行**红字**（2026-09-23，用户原话："如果版本名字存在
-    // 非法字符，不要替换掉那个「装好后在实例...」，而是在下面添加一行红色字"）。
-    //
-    // 钉四件事：①它自己是谁（objectName，别处 findChild 靠它）；②位置 —— 在**灰字那句
-    // 下面**、跟灰字**左对齐同一列**；③配色 —— 色值只有
-    // MainWindowUI::installNameErrorColor() 这一个出处，这里比的就是它（这个红跟着调色板
-    // 分深浅两档，两档都在下面钉）；④字号 —— 跟旁边
-    // 那句灰字**同一档**（它俩是一对"说明 + 原因"，一个大一个小看着像两家人）。
-    // 最后再拿**像素**验一遍"那一行上真有一片红墨"：配色/字号/位置全对、但根本没画出来
-    // （setVisible 那根线断了、或者被别的东西盖住）的话，前面几条照样绿，只有像素这条会红。
+        // 整体往下推，插在中间量出来的几何就不是"平时那个样子"了（试过：放在名称框
+        // 那一段后面，「安装」在加载器那一组下面那条当场红）。
+        // 名字里有非法字符时底下新起的那一行**红字**（，要求："如果版本名字存在
+        // 非法字符，不要替换掉那个「装好后在实例...」，而是在下面添加一行红色字"）。
+        //
+        // 钉四件事：①它自己是谁（objectName，别处 findChild 靠它）；②位置 —— 在**灰字那句
+        // 下面**、跟灰字**左对齐同一列**；③配色 —— 色值只有
+        // MainWindowUI::installNameErrorColor() 这一个出处，这里比的就是它（这个红跟着调色板
+        // 分深浅两档，两档都在下面钉）；④字号 —— 跟旁边
+        // 那句灰字**同一档**（它俩是一对"说明 + 原因"，一个大一个小看着像两家人）。
+        // 最后再拿**像素**验一遍"那一行上真有一片红墨"：配色/字号/位置全对、但根本没画出来
+        // （setVisible 那根线断了、或者被别的东西盖住）的话，前面几条照样绿，只有像素这条会红。
     check(installNameError != nullptr, "找得到名字框底下那行红字（按 objectName）");
     if (installNameError != nullptr && installNameEdit != nullptr && installNameHint != nullptr) {
         // 这一段会临时动那句灰字的显隐，收尾要还原成进来时的样子。
@@ -3546,10 +3504,10 @@ int main(int argc, char *argv[]) {
                   .arg(installNameError->text()));
 
         // NOTE: 下面这一段**手工**把那两行字摆成"名字里有非法字符"那一刻的样子。
-        //       这一节刻意只链 ui/（纯界面工程，见 CMakeLists 顶上那段），没有 MainWindow
-        //       里那根"名称框一变 → 刷新这两行"的线；产品那条线（谁在什么条件下把哪一行
-        //       显出来、写什么字）在 mw_check 里验。这里量的是**摆成这样之后它长什么样**：
-        //       配色、位置、字号，以及"那一行上真的画出了红墨"。
+        // 这一节刻意只链 ui/（纯界面工程，见 CMakeLists 顶上那段），没有 MainWindow
+        // 里那根"名称框一变 → 刷新这两行"的线；产品那条线（谁在什么条件下把哪一行
+        // 显出来、写什么字）在 mw_check 里验。这里量的是**摆成这样之后它长什么样**：
+        // 配色、位置、字号，以及"那一行上真的画出了红墨"。
         installNameHint->setText(QStringLiteral("装好之后在「实例」页里能看到它，目录是 "
                                                "versions/a/b。"));
         installNameError->setText(QStringLiteral("名字里不能有这些字符。"));
@@ -3562,9 +3520,9 @@ int main(int argc, char *argv[]) {
         const int errorSize = installNameError->font().pointSize();
 
         // NOTE: 这里**不**比那句原因的原文 —— 这一节刻意只链 ui/（纯界面工程，见
-        //       CMakeLists 顶上那段），而原话是数据层 InstanceFiles::validateDirName()
-        //       给的。钉"红字写的就是数据层那句"这件事在 mw_check 里（那边链 src/，
-        //       比的是同一个函数）。这边管的是"它长什么样、显没显出来"。
+        // CMakeLists 顶上那段），而原话是数据层 InstanceFiles::validateDirName()
+        // 给的。钉"红字写的就是数据层那句"这件事在 mw_check 里（那边链 src/，
+        // 比的是同一个函数）。这边管的是"它长什么样、显没显出来"。
         check(!installNameError->isHidden() && !installNameError->text().isEmpty() &&
                   !installNameError->text().contains(QStringLiteral("装好之后")) &&
                   installNameError->text() != installNameHint->text(),
@@ -3580,7 +3538,7 @@ int main(int argc, char *argv[]) {
                   .arg(installNameError->palette()
                            .color(QPalette::WindowText)
                            .rgb() & 0xffffff, 6, 16, QLatin1Char('0')));
-        // 这个红**跟着调色板分两档**（2026-09-25）。原来它是个写死的 #c0392b —— 给人眼
+        // 这个红**跟着调色板分两档**。原来它是个写死的 #c0392b —— 给人眼
         // 在浅底上配的值，落到深色主题的底上只剩 2.26:1（WCAG 正文那条是 4.5:1），"名字
         // 写错了"那行原因就成了一团糊在底色里的暗影，用户只会以为界面坏了。
         // 判据和「删除」那一项、底栏那颗方块同出一处（MainWindowUI::paletteIsDark()），
@@ -3621,7 +3579,7 @@ int main(int argc, char *argv[]) {
                   .arg(installNameEdit->font().pointSize()));
 
         // 像素这一关：那一行上得有**红**的墨，而上面那句灰字那一行一点红都没有
-        //（红的只该出现在新加的那一行上，说明那句照旧是灰的）。
+        // （红的只该出现在新加的那一行上，说明那句照旧是灰的）。
         {
             const QImage shot = captureWidget(downloadPage);
             const auto redInk = [&shot](const QRect &box) {
@@ -3647,14 +3605,14 @@ int main(int argc, char *argv[]) {
                   QStringLiteral("红点 %1").arg(redOnHintRow));
         }
 
-        // ★ 「没话可说的时候那一行要**连行一起收掉**」在布局这一层的落点：上面那句灰字
-        //   藏起来之后（产品在名字空着的时候就是这么做的），底下的红字要**顶上那一行**，
-        //   正好落在灰字原来的 y 上。不收的话红字上面会凭空多出一个空行 —— 用户
-        //   2026-09-23 报的就是这个（"把名字弄空了以后上面那行消失了但是下面那一行空提示
-        //   会换行怪怪的"）。这条量的是**布局**这一层；"产品什么时候收、收到什么程度"在
-        //   mw_check 那两条里。
-        //   量的是**输入框跟红字之间的距离**（两个标签同在一个容器里，盒子整体挪不挪
-        //   都不影响这个量 —— 一开始拿绝对 y 比过，盒子会跟着缩，差出来 8 px 的假红）。
+        // 「没话可说的时候那一行要**连行一起收掉**」在布局这一层的落点：上面那句灰字
+        // 藏起来之后（产品在名字空着的时候就是这么做的），底下的红字要**顶上那一行**，
+        // 正好落在灰字原来的 y 上。不收的话红字上面会凭空多出一个空行 —— 用户
+        // 报的就是这个（"把名字弄空了以后上面那行消失了但是下面那一行空提示
+        // 会换行怪怪的"）。这条量的是**布局**这一层；"产品什么时候收、收到什么程度"在
+        // mw_check 那两条里。
+        // 量的是**输入框跟红字之间的距离**（两个标签同在一个容器里，盒子整体挪不挪
+        // 都不影响这个量 —— 一开始拿绝对 y 比过，盒子会跟着缩，差出来 8 px 的假红）。
         const int gapWithGray = rError.y() - (rEdit.y() + rEdit.height());
         installNameHint->setVisible(false);
         QApplication::processEvents();
@@ -3686,9 +3644,6 @@ int main(int argc, char *argv[]) {
     }
 
     // ---- 页头从安装页退出来之后要**回来**（"点进去就隐藏，外面还保留"的后半句）----
-    //
-    // ★ 2026-10-18：两条入口各走一遍 —— 内层「退回版本树」只动 gameStack，外层「翻到
-    //   别的分类」只动 downloadStack。只接一条的话另一条上页头会一直是收着的。
     {
         QWidget *header = ui.getDownloadHeader();
         QStackedWidget *stack = ui.getDownloadStack();
@@ -3726,9 +3681,9 @@ int main(int argc, char *argv[]) {
     // 数据包 / 资源包 / 光影。点哪个、右栏那份 QStackedWidget 就翻到哪一页。
     //
     // NOTE: 这一节钉的是**结构本身**（条数、对应关系、只有哪一页有内容）；
-    //       "点一下真的会翻页"是接线的活，钉在 mw_check 那边（那边才搭 MainWindow）。
-    //       这里钉住"第 i 个分类 = 第 i 页"这条不变量的前提（两边条数一样、第 0 页就是
-    //       「游戏」那页），接线那条断言才有意义。
+    // "点一下真的会翻页"是接线的活，钉在 mw_check 那边（那边才搭 MainWindow）。
+    // 这里钉住"第 i 个分类 = 第 i 页"这条不变量的前提（两边条数一样、第 0 页就是
+    // 「游戏」那页），接线那条断言才有意义。
     {
         QListWidget *categoryList = ui.getDownloadCategoryList();
         QStackedWidget *stack = ui.getDownloadStack();
@@ -3755,9 +3710,9 @@ int main(int argc, char *argv[]) {
               "第 0 个是「游戏」（唯一现在就有内容的那个分类）",
               QStringLiteral("%1 / %2").arg(keys.value(0), texts.value(0)));
 
-        // 「数据包」那一条的**位置**是用户点名的（2026-09-25 原话：「下载那一栏少了个数据包
+        // 「数据包」那一条的**位置**是用户点名的（要求：「下载那一栏少了个数据包
         // 类型，把它放在模组和资源包中间加上」）—— 所以钉的不是"表里有 datapack 这个键"
-        //（那件事 kindFromCategoryKey 那条已经管了），而是它**夹在模组和资源包之间**。
+        // （那件事 kindFromCategoryKey 那条已经管了），而是它**夹在模组和资源包之间**。
         // 少了这一条，哪天有人顺手把新的一条追加到表尾、或者按字母重排一下，谁也不会发现。
         const int dataPackIndex = keys.indexOf(QStringLiteral("datapack"));
         check(dataPackIndex >= 0 && dataPackIndex == keys.indexOf(QStringLiteral("mod")) + 1 &&
@@ -3796,7 +3751,7 @@ int main(int argc, char *argv[]) {
                       MainWindowUI::downloadGamePageName(),
               "第 0 页是「游戏」那一页（就是原来那一摊）");
         // 「游戏」那一页里装的是那两层（版本树 / 安装页）。老的那三件（下拉框、列表、
-        // 「下载版本」按钮）2026-09-22 全撤了，换成树 + 安装页 —— 这里钉新东西在，
+        // 「下载版本」按钮） 全撤了，换成树 + 安装页 —— 这里钉新东西在，
         // 老东西**不在**（免得哪天又被摆回来，两套并存比哪一套都糟）。
         check(stack != nullptr && stack->count() > 0 &&
                   stack->widget(MainWindowUI::downloadCategoryGameIndex())
@@ -3817,14 +3772,14 @@ int main(int argc, char *argv[]) {
               "那两层堆叠也在「游戏」那一页里");
 
         // 其余几页：**一行筛子 + 一棵三层树**（资源 → 游戏版本 → 版本号）。
-        //   ① 名称框（就是原来那个搜索框，2026-09-25 起它同时是筛子里的「名称」那一格）：
-        //      按 objectName 找得回来，提示文字非空、而且是这一页那一句；
-        //   ② 一棵树（按 objectName 找得回来），形状和上一页那两棵一样（表头藏着、根不装饰、
-        //      一列、代理是 VersionTreeDelegate）；
-        //   ③ 筛子那一行上的东西**一个不多一个不少**：名称框、版本/来源/类型三个下拉框、
-        //      「搜索」「清空条件」两颗键（模组页多一个模组加载器下拉框、整合包页多一颗
-        //      「导入整合包…」）—— 按名字把这一页上该有的一件件数出来比对，少一件多一件都红。
-        //      「入口先留着、别放东西」那条精神还在：这几页的形状是**唯一**的。
+        // ① 名称框（就是原来那个搜索框， 起它同时是筛子里的「名称」那一格）：
+        // 按 objectName 找得回来，提示文字非空、而且是这一页那一句；
+        // ② 一棵树（按 objectName 找得回来），形状和上一页那两棵一样（表头藏着、根不装饰、
+        // 一列、代理是 VersionTreeDelegate）；
+        // ③ 筛子那一行上的东西**一个不多一个不少**：名称框、版本/来源/类型三个下拉框、
+        // 「搜索」「清空条件」两颗键（模组页多一个模组加载器下拉框、整合包页多一颗
+        // 「导入整合包…」）—— 按名字把这一页上该有的一件件数出来比对，少一件多一件都红。
+        // 「入口先留着、别放东西」那条精神还在：这几页的形状是**唯一**的。
         bool pagesOk = stack != nullptr;
         bool searchEditsOk = stack != nullptr;
         bool treesOk = stack != nullptr;
@@ -3853,7 +3808,7 @@ int main(int argc, char *argv[]) {
                 MainWindowUI::downloadFilterVersionComboName(key));
             const QString hint = MainWindowUI::downloadSearchHint(i);
             // 页上的 QLineEdit **正好两个**：名称框，和版本那个可编辑下拉框内部的文本框
-            //（`QComboBox::lineEdit()`）。原来那条"页上只有这一个输入框"的断言到这里必须换
+            // （`QComboBox::lineEdit()`）。原来那条"页上只有这一个输入框"的断言到这里必须换
             // —— 它是**名不副实**的那种红：多出来的那个不是谁漏删的，正是"版本可自行输入"
             // 这条要求本身。判据写成"这两个、而且就是这两个"，多一个少一个都还是要红。
             const QList<QLineEdit *> edits = page->findChildren<QLineEdit *>();
@@ -3863,7 +3818,7 @@ int main(int argc, char *argv[]) {
                             versionCombo->placeholderText() ==
                                 MainWindowUI::downloadFilterVersionPlaceholder() &&
                             // 可输入的框上"回车就把框里的字追进清单"这条**必须**关掉
-                            //（Qt 的默认 InsertAtBottom：手打一个版本号按一次回车就多一条，
+                            // （Qt 的默认 InsertAtBottom：手打一个版本号按一次回车就多一条，
                             // 而追进去的那一项永远也搜不出东西来）。行为那一半在
                             // mw_check 的 ZI10 里量过（按回车前后项数不变）。
                             versionCombo->insertPolicy() == QComboBox::NoInsert &&
@@ -3893,10 +3848,10 @@ int main(int argc, char *argv[]) {
                      << MainWindowUI::downloadFilterTypeComboName(key)
                      << MainWindowUI::downloadFilterSearchButtonName(key)
                      << MainWindowUI::downloadFilterResetButtonName(key);
-            // NOTE: 「← 返回实例设置」那颗**不在这份名单里**（2026-09-28 起）：它从右栏那行
-            //       筛子里挪到了左栏顶上，成了整个下载页**共用的一颗**，不属于任何一页。
-            //       （它现在长在左栏那个盒子里 —— 上面那一节钉的就是这一条。）
-            // 「模组加载器」那一栏**只有模组页有**（用户原话）。判据是下标表里那一条，
+            // NOTE: 「← 返回实例设置」那颗**不在这份名单里**（ 起）：它从右栏那行
+            // 筛子里挪到了左栏顶上，成了整个下载页**共用的一颗**，不属于任何一页。
+            // （它现在长在左栏那个盒子里 —— 上面那一节钉的就是这一条。）
+            // 「模组加载器」那一栏**只有模组页有**（要求）。判据是下标表里那一条，
             // 不是"这个键里有没有 mod 三个字母"那种猜法。
             const bool isModPage = i == MainWindowUI::downloadCategoryModIndex();
             const bool isModpackPage = i == MainWindowUI::downloadCategoryModpackIndex();
@@ -3930,7 +3885,7 @@ int main(int argc, char *argv[]) {
             }
             filterRowsOk = filterRowsOk && actual == expected;
 
-            // 两颗键上的字（用户原话「一个搜索键和一个清空条件键」）
+            // 两颗键上的字（要求「一个搜索键和一个清空条件键」）
             auto *searchButton = page->findChild<QPushButton *>(
                 MainWindowUI::downloadFilterSearchButtonName(key));
             auto *resetButton = page->findChild<QPushButton *>(
@@ -4036,7 +3991,7 @@ int main(int argc, char *argv[]) {
                   importButton == nullptr ? QStringLiteral("没找到") : importButton->objectName());
         }
 
-        // ---- 「服务端」那一栏（2026-10-18，coding plan §1.4）----
+        // ---- 「服务端」那一栏（，coding plan §1.4）----
         //
         // 它和「游戏」一样**不是资源搜索页**：没有搜索框、没有三层树、没有筛子，
         // 也没有行尾/页头那颗「刷新」（它不向任何资源站问东西）。那一页只有一句说明
@@ -4099,7 +4054,7 @@ int main(int argc, char *argv[]) {
         // 「游戏」那页**不在**那几页里：它的形状是另外一套（版本树 + 安装页），
         // 所以按它的键去找搜索框/资源树必须都找不到。
         // NOTE: 不能断言"那一页上没有 QLineEdit" —— 它上面**有**一个（安装页那个实例名
-        //       输入框），那是有意为之的，不是残留。
+        // 输入框），那是有意为之的，不是残留。
         check(MainWindowUI::downloadSearchHint(MainWindowUI::downloadCategoryGameIndex()).isEmpty(),
               "「游戏」那一页没有搜索提示（它那页的搜索框本来就不存在）",
               MainWindowUI::downloadSearchHint(MainWindowUI::downloadCategoryGameIndex()));
@@ -4110,7 +4065,7 @@ int main(int argc, char *argv[]) {
               "按「游戏」那个键找不到搜索框、也找不到资源树（那两样只在后面几页上）");
 
         // **最有价值的一条**：界面上"点的是哪一类"和"去问哪一类"是靠一个字符串对起来的
-        //（分类键 == ResourceCatalog::kindKey）。两边各自都能通过自己的断言，却对不上 ——
+        // （分类键 == ResourceCatalog::kindKey）。两边各自都能通过自己的断言，却对不上 ——
         // 那种错法是静默的：点「光影」搜出来的是一堆模组。
         {
             const QList<ResourceCatalog::Kind> kinds = ResourceCatalog::allKinds();
@@ -4163,62 +4118,57 @@ int main(int argc, char *argv[]) {
     }
 
     std::printf("===== C2b. 左栏那五条「做大点 + 行尾一个刷新按钮」（2026-09-23） =====\n");
-    // 用户原话："下载界面左边栏每一项做大点，每一项的右边放一个刷新按钮"。
+    // 要求："下载界面左边栏每一项做大点，每一项的右边放一个刷新按钮"。
     // 这一节钉三件事：
-    //   ① **做大**真的发生了 —— 行高和字号都比"没动过的列表"大一档，量的是数值不是代码；
-    //   ② 每一条都挂着 rowRefreshRole()，而且那一格**真的画出了东西**（量像素，不看代码）；
-    //   ③ 那一格的位置**就是** VersionTreeDelegate::refreshRect() 说的那一格 ——
-    //      MainWindow::eventFilter 按它判断"这一下点中的是不是那个按钮"，两边必须同出一处
-    //      （分开算的话，按钮会画在 A、点的却是 B，而两边各自的断言都是绿的）。
+    // ① **做大**真的发生了 —— 行高和字号都比"没动过的列表"大一档，量的是数值不是代码；
+    // ② 每一条都挂着 rowRefreshRole()，而且那一格**真的画出了东西**（量像素，不看代码）；
+    // ③ 那一格的位置**就是** VersionTreeDelegate::refreshRect() 说的那一格 ——
+    // MainWindow::eventFilter 按它判断"这一下点中的是不是那个按钮"，两边必须同出一处
+    // （分开算的话，按钮会画在 A、点的却是 B，而两边各自的断言都是绿的）。
     //
     // NOTE: "点一下真的会重搜 / 重拉清单"是接线的活，钉在 mw_check 那边（那边才搭 MainWindow）。
-    //       这里只管"这一栏长什么样、按钮在哪儿"。图标缓存那条也在 mw_check（那里有真 store）。
+    // 这里只管"这一栏长什么样、按钮在哪儿"。图标缓存那条也在 mw_check（那里有真 store）。
     //
-    // ①′ **号码不能撞** —— 这一节的另一半，而且它才是这一节存在的理由：2026-09-23
-    //     用户报的是"这个刷新图标会在模组/…的右侧那个 > 的地方重叠一份"。查下来不是左栏
-    //     的问题，是 `rowRefreshRole()` 和 `resourceKindRole()` 都是 `Qt::UserRole + 3`，
-    //     而**资源表每一行都写着 resourceKindRole()** —— 于是模组/资源包/光影/整合包那三张
-    //     表的每一行右端都冒出一个刷新圈压住 `>`。两边各自编得过、跑得动，谁也不报错，
-    //     症状只在屏幕上。号码是纯 int，编译器帮不上忙，所以这条只能靠断言守着。
+    // ①′ **号码不能撞** —— 这一节的另一半，而且它才是这一节存在的理由：
+    // 用户报的是"这个刷新图标会在模组/…的右侧那个 > 的地方重叠一份"。查下来不是左栏
+    // 的问题，是 `rowRefreshRole()` 和 `resourceKindRole()` 都是 `Qt::UserRole + 3`，
+    // 而**资源表每一行都写着 resourceKindRole()** —— 于是模组/资源包/光影/整合包那三张
+    // 表的每一行右端都冒出一个刷新圈压住 `>`。两边各自编得过、跑得动，谁也不报错，
+    // 症状只在屏幕上。号码是纯 int，编译器帮不上忙，所以这条只能靠断言守着。
     {
         const QList<QPair<QString, int>> roles = {
             {QStringLiteral("rowSubTextRole"), MainWindowUI::rowSubTextRole()},
             {QStringLiteral("rowClearRole"), MainWindowUI::rowClearRole()},
             {QStringLiteral("rowRefreshRole"), MainWindowUI::rowRefreshRole()},
-            // 实例页组行行尾那颗齿轮（2026-09-25 加的）。它和上面那三个是**同一档**的
+            // 实例页组行行尾那颗齿轮（ 加的）。它和上面那三个是**同一档**的
             // "行装饰"，撞号的症状也一样（整张表多画一笔/多认一下），所以必须一起数 ——
             // 新加一个角色就往这张表里补一笔，这是它存在的理由。
             //
-            // NOTE: 这一档现在**只剩四个**了（2026-09-25 傍晚）：原来还有第 5 个
-            //       `rowGroupMoveRole`（UserRole + 12，存的是"这一行挪得动哪一边"那两个位），
-            //       它跟着行尾那两颗上下移三角一起搬进了「分组设置」那张组清单 —— 那张表
-            //       里"挪不挪得动"是算出来的、不需要角色（见 GroupListDelegate::canMoveUp()）。
-            //       ★ 那个号码（+12）当天晚上就被**实例行**拿去用了（rowPinRole()，见下面
-            //         那一对）：号码复用是故意的，搬走之后一个使用者都没有了。
+            // NOTE: 这一档现在**只剩四个**了（ 傍晚）：原来还有第 5 个
+            // `rowGroupMoveRole`（UserRole + 12，存的是"这一行挪得动哪一边"那两个位），
+            // 它跟着行尾那两颗上下移三角一起搬进了「分组设置」那张组清单 —— 那张表
+            // 里"挪不挪得动"是算出来的、不需要角色（见 GroupListDelegate::canMoveUp()）。
+            // 那个号码（+12）当天晚上就被**实例行**拿去用了（rowPinRole()，见下面
+            // 那一对）：号码复用是故意的，搬走之后一个使用者都没有了。
             {QStringLiteral("rowGroupGearRole"), MainWindowUI::rowGroupGearRole()},
             // 这一批是"条目身份"那边，各张表各用各的。resourceKindRole() 就是当年被撞上的
             // 那一个（资源表每一行都写它），所以它必须在场。
             //
-            // NOTE: 2026-09-25 起资源表那一行的身份**是三个号码**（+3 / +4 / +5）：kind 管
-            //       "点进去问哪一类"、source 管"去哪一侧问"、iconId 管"图标回来认哪一行"。
-            //       这三个是同一批东西（都写着这一行的身份），所以一起进这张表 —— 少写一个
-            //       就等于"那个号码随便谁拿去用都不报错"。
+            // NOTE: 起资源表那一行的身份**是三个号码**（+3 / +4 / +5）：kind 管
+            // "点进去问哪一类"、source 管"去哪一侧问"、iconId 管"图标回来认哪一行"。
+            // 这三个是同一批东西（都写着这一行的身份），所以一起进这张表 —— 少写一个
+            // 就等于"那个号码随便谁拿去用都不报错"。
             {QStringLiteral("resourceKindRole"), MainWindowUI::resourceKindRole()},
             {QStringLiteral("resourceSourceRole"), MainWindowUI::resourceSourceRole()},
             {QStringLiteral("resourceIconIdRole"), MainWindowUI::resourceIconIdRole()},
             {QStringLiteral("instanceIdRole"), MainWindowUI::instanceIdRole()},
             {QStringLiteral("groupIdRole"), MainWindowUI::groupIdRole()},
-            // ★ 实例行行尾那一格的两个角色（2026-09-25 晚）：`rowPinRole()` = 还能置顶
-            //   （+12）、`rowUnpinRole()` = 已经在置顶组里（+13）。它们**不是**上面那一档
-            //   （8/9/10/11 那四个是"画在哪一格"的行装饰，这两个是"这一行挂哪一颗箭头"），
-            //   但一样是"号码撞了只会让屏幕上多出一笔"的那类东西，所以一起进这张表。
+            // 实例行行尾那一格的两个角色（ 晚）：`rowPinRole()` = 还能置顶
+            // （+12）、`rowUnpinRole()` = 已经在置顶组里（+13）。它们**不是**上面那一档
+            // （8/9/10/11 那四个是"画在哪一格"的行装饰，这两个是"这一行挂哪一颗箭头"），
+            // 但一样是"号码撞了只会让屏幕上多出一笔"的那类东西，所以一起进这张表。
             {QStringLiteral("rowPinRole"), MainWindowUI::rowPinRole()},
             {QStringLiteral("rowUnpinRole"), MainWindowUI::rowUnpinRole()},
-            // 2026-09-27 补进来两个**本来就该在**的（写这条表的时候就漏了）：服务器那一页的
-            // MOTD 原串（+14）和完整地址（+15）。它们和上面那些是同一类东西 ——
-            // rowMotdRawRole() 代理每行都读（撞了就是整张表画错颜色），serverAddressRole()
-            // 是右键复制读的那一格（撞了会复制出别人的地址）。号码是纯 int，漏登记就等于
-            // "这个号码随便谁拿去用都不报错"。
             {QStringLiteral("rowMotdRawRole"), MainWindowUI::rowMotdRawRole()},
             {QStringLiteral("serverAddressRole"), MainWindowUI::serverAddressRole()},
         };
@@ -4241,10 +4191,10 @@ int main(int argc, char *argv[]) {
         // 去挨着了。行装饰那几个**整档**待在 8 / 9 / 10 / 11（见 MainWindowUI.hpp 那段
         // 说明），中间空着不占 —— 这一条管"以后有人顺手改小一个数"。
         //
-        // NOTE: 原来那一档的尾巴是 +12（上下移那两个位的掩码），2026-09-25 傍晚跟着那两颗
-        //       三角一起删了。这一条**不**去管 +12 —— 它今天是空的，"空的"这件事由下面那条
-        //       注释和 MainWindowUI.hpp 那段说，而"它不许被别的东西占了"没有可断言的形状
-        //       （任何号码都可能被将来某个角色用上，真正的判据是上面那张表要一起补一笔）。
+        // NOTE: 原来那一档的尾巴是 +12（上下移那两个位的掩码）， 傍晚跟着那两颗
+        // 三角一起删了。这一条**不**去管 +12 —— 它今天是空的，"空的"这件事由下面那条
+        // 注释和 MainWindowUI.hpp 那段说，而"它不许被别的东西占了"没有可断言的形状
+        // （任何号码都可能被将来某个角色用上，真正的判据是上面那张表要一起补一笔）。
         check(MainWindowUI::rowSubTextRole() == Qt::UserRole + 8 &&
                   MainWindowUI::rowClearRole() == Qt::UserRole + 9 &&
                   MainWindowUI::rowRefreshRole() == Qt::UserRole + 10 &&
@@ -4303,8 +4253,8 @@ int main(int argc, char *argv[]) {
                                  : versionTreeForFont->font().pointSize()));
 
         // ② 每一条都挂着那个标记（少一条就是"这一类没有刷新"）
-        // ★ 2026-10-18：「服务端」那一栏**故意没有**这一格 —— 它不向任何资源站问东西，
-        //   「刷新」在那儿没有可做的事。所以判据是"除它以外一条不落"。
+        // 「服务端」那一栏**故意没有**这一格 —— 它不向任何资源站问东西，
+        // 「刷新」在那儿没有可做的事。所以判据是"除它以外一条不落"。
         const int serverRefreshIndex = MainWindowUI::downloadCategoryServerIndex();
         int marked = 0;
         for (int i = 0; categoryList != nullptr && i < categoryList->count(); ++i) {
@@ -4338,14 +4288,14 @@ int main(int argc, char *argv[]) {
                       .arg(box.height()));
             // 竖向居中：比的是**上下两条空隙**，不是 box.center() == row.center()。
             // NOTE: 允许差 1 px，因为 refreshRect 是按 `row.center().y() - box/2` 摆的，
-            //       而 QRect::center() 是整数除法（46 高的行给回 22，不是 23），24 高的格子
-            //       跟上去就上下各差 1 px。clearRect()（那个小叉）用的是同一个写法、同样差 1 px
-            //       —— 一行 46 px 里的 1 px，看不出来。这条断言盯的是"别摆歪"（比如贴到行顶），
-            //       不是"必须像素级对称"。
+            // 而 QRect::center() 是整数除法（46 高的行给回 22，不是 23），24 高的格子
+            // 跟上去就上下各差 1 px。clearRect()（那个小叉）用的是同一个写法、同样差 1 px
+            // —— 一行 46 px 里的 1 px，看不出来。这条断言盯的是"别摆歪"（比如贴到行顶），
+            // 不是"必须像素级对称"。
             const int topGap = box.top() - row.top();
             const int bottomGap = row.bottom() - box.bottom();
             // 比的是"格子的中心"离"行的中心"有多远 —— 两个 center() 用的是同一套整数除法
-            //（QRect::center() 对奇数边长取 (n-1)/2），所以这一比里那点奇偶差自己抵消掉了，
+            // （QRect::center() 对奇数边长取 (n-1)/2），所以这一比里那点奇偶差自己抵消掉了，
             // 剩下的 1 px 才是真摆歪。
             check(box.right() == row.right() - MainWindowUI::versionTreeRowPadding() &&
                       qAbs(box.center().y() - row.center().y()) <= 1,
@@ -4356,10 +4306,10 @@ int main(int argc, char *argv[]) {
                       .arg(topGap)
                       .arg(bottomGap));
             // NOTE: 这一格和 clearRect()（那个「取消」小叉）**占的是行尾同一块地方** ——
-            //       分类条目没有孩子、代理本来就不给它画箭头，而 clearRect 是挂在箭头左边的，
-            //       算出来两者会差几像素地叠在一起。所以**一行不能同时挂这两件事**。
-            //       今天界面上没有任何一行同时挂着，下面单有一条断言钉住它（真要是哪天多出来
-            //       一行同时挂的，那里先红，而不是等用户看到两个字形叠成一团）。
+            // 分类条目没有孩子、代理本来就不给它画箭头，而 clearRect 是挂在箭头左边的，
+            // 算出来两者会差几像素地叠在一起。所以**一行不能同时挂这两件事**。
+            // 今天界面上没有任何一行同时挂着，下面单有一条断言钉住它（真要是哪天多出来
+            // 一行同时挂的，那里先红，而不是等用户看到两个字形叠成一团）。
             const QRect cross = VersionTreeDelegate::clearRect(row);
             check(box.intersects(cross),
                   "它和「取消」小叉占的确实是行尾同一块地方（所以那一条互斥断言是必要的）",
@@ -4394,20 +4344,14 @@ int main(int argc, char *argv[]) {
         }
 
         // ②′ 那一格**真的画出来了**：不靠"代码里有 drawPixmap"，靠量像素。
-        //     对照组成对摆着 —— 同一个代理、同一个字号、同样四字文本，一条挂标记一条不挂：
-        //       · 挂的那条，格子里必须有墨；
-        //       · 不挂的那条，格子里必须一个异色像素都没有。
-        //     后半条是这条断言的**灵敏度实验**：哪天画刷新那段被删掉，前半条跟着红。
-        //     NOTE: 对照组那一条（不挂标记的）身上还挂着 resourceKindRole() —— 也就是
-        //           资源表每一行的身份。所以它量的是**真的那一格**：号码再撞回去的话，
-        //           这一格会立刻有墨，这条断言当场红 —— "两边都对、屏幕上多一笔"这种错，
-        //           只有量像素拦得住。
-        //
-        // NOTE: 第 0 条是个**诱饵行**（不挂标记、也不量它）。offscreen 上鼠标停在 (0,0)，
-        //       正好落在第 0 行上 —— 那一行会带上 Fusion 的**悬停底色**，而那是条渐变，
-        //       于是"同一行、格子左边 12 px"取到的那个背景色和格子里的像素对不上，
-        //       整格都被当成"有墨"（实测：画刷新那段删掉之后这条断言还是绿的，就是这么来的）。
-        //       要量的是"我们画的那个字形"，就得躲开样式自己铺的那一层。
+        // 对照组成对摆着 —— 同一个代理、同一个字号、同样四字文本，一条挂标记一条不挂：
+        // · 挂的那条，格子里必须有墨；
+        // · 不挂的那条，格子里必须一个异色像素都没有。
+        // 后半条是这条断言的**灵敏度实验**：哪天画刷新那段被删掉，前半条跟着红。
+        // NOTE: 对照组那一条（不挂标记的）身上还挂着 resourceKindRole() —— 也就是
+        // 资源表每一行的身份。所以它量的是**真的那一格**：号码再撞回去的话，
+        // 这一格会立刻有墨，这条断言当场红 —— "两边都对、屏幕上多一笔"这种错，
+        // 只有量像素拦得住。
         {
             QListWidget probe;
             probe.setUniformItemSizes(true);
@@ -4451,8 +4395,8 @@ int main(int argc, char *argv[]) {
                 }
                 return n;
             };
-            // ---- ★ 2026-09-25：那一格**只在鼠标悬停到这一行时才画**（用户原话：
-            //      「下载界面只有鼠标悬停在按钮上时才显示对应的刷新按钮」）----
+            // ---- ★ ：那一格**只在鼠标悬停到这一行时才画**（要求：
+            // 「下载界面只有鼠标悬停在按钮上时才显示对应的刷新按钮」）----
             //
             // 每一"格"都拿一次真绘制来量：先发一发**真的鼠标移动事件**给视口（就是产品里
             // 用户挪鼠标时 Qt 发给它的那一种），再 render() 一次。量的是"哪一行画了"，
@@ -4467,39 +4411,39 @@ int main(int argc, char *argv[]) {
             };
             const QRect refreshRow = probe.visualItemRect(probe.item(1));
             // NOTE: 名字里带 Rect —— 下面"悬停提示"那一段自己有一个 `plainRow`（那是行矩形，
-            //       这里是同一个东西，但两个块各写各的）。（2026-09-25 加这一段时撞过一次。）
+            // 这里是同一个东西，但两个块各写各的）。（ 加这一段时撞过一次。）
             const QRect plainRowRect = probe.visualItemRect(probe.item(2));
             // ① 光标在挂着标记的那一行上：格子里的字画出来了。格子比字形大一圈（四周各 3 px），
-            //    所以"有墨"的像素数远小于格子面积。
+            // 所以"有墨"的像素数远小于格子面积。
             const int withMark = inkIn(shotWithCursorAt(refreshRow.center()),
                                        VersionTreeDelegate::refreshRect(refreshRow));
             check(withMark >= 20, "鼠标悬停到挂着标记的那一行，刷新那一格真的画了东西（像素量的）",
                   QString("这一格里的异色像素 = %1").arg(withMark));
             // ② 光标挪到**别的行**上：刚才那一行的按钮必须跟着没了。这一条就是用户要的那件事
-            //    本身（"只有悬停时才显示"），也是"五个圈一直挂在那儿"那种老做法的守卫。
+            // 本身（"只有悬停时才显示"），也是"五个圈一直挂在那儿"那种老做法的守卫。
             const QImage hoverElsewhere = shotWithCursorAt(plainRowRect.center());
             const int markGone = inkIn(hoverElsewhere, VersionTreeDelegate::refreshRect(refreshRow));
             check(markGone == 0,
                   "光标一挪到别的行，刚才那一行的刷新按钮就没了（「悬停才显示」就是这一条）",
                   QString("这一格里的异色像素 = %1").arg(markGone));
             // ③ 光标底下这一行自己：它挂着 resourceKindRole()（资源表每一行的身份）、**没挂**
-            //    刷新角色 ⇒ 哪怕正悬停着，这一格也必须一个异色像素都没有。这就是当年那个
-            //    "号码撞了"回归的守卫 —— 而且现在它比从前更严：这一行是**悬停**着的，底下
-            //    那层悬停底色被代理抹掉了（见 VersionTreeDelegate::paint 开头那段），
-            //    所以量到的墨只可能是"我们自己画上去的那个字形"。
+            // 刷新角色 ⇒ 哪怕正悬停着，这一格也必须一个异色像素都没有。这就是当年那个
+            // "号码撞了"回归的守卫 —— 而且现在它比从前更严：这一行是**悬停**着的，底下
+            // 那层悬停底色被代理抹掉了（见 VersionTreeDelegate::paint 开头那段），
+            // 所以量到的墨只可能是"我们自己画上去的那个字形"。
             const int withoutMark =
                 inkIn(hoverElsewhere, VersionTreeDelegate::refreshRect(plainRowRect));
             check(withoutMark == 0,
                   "没挂标记的那一行，哪怕正悬停着也**一个异色像素都没有**（号码撞回去的话这里立刻有墨）",
                   QString("这一格里的异色像素 = %1").arg(withoutMark));
             // ④ 光标整条挪出这个列表：一行都不悬停 ⇒ 那一格也不该有墨。这一条挡的是"离开时
-            //    忘了擦"（比如把悬停记在成员里、只在 MouseMove 里更新，离开那一下漏掉了）。
+            // 忘了擦"（比如把悬停记在成员里、只在 MouseMove 里更新，离开那一下漏掉了）。
             const int afterLeave =
                 inkIn(shotWithCursorAt(QPoint(2, -6)), VersionTreeDelegate::refreshRect(refreshRow));
             check(afterLeave == 0, "光标离开这个列表（视口外那一发），那一行的刷新按钮同样不在",
                   QString("这一格里的异色像素 = %1").arg(afterLeave));
-            // ---- 悬停：光标停在**那一格**上才说话（用户 2026-09-24 原话：「鼠标悬停在
-            //      箭头上出现刷新二字，之后不少功能要做悬停」）----
+            // ---- 悬停：光标停在**那一格**上才说话（要求：「鼠标悬停在
+            // 箭头上出现刷新二字，之后不少功能要做悬停」）----
             //
             // 分两层验：下面三条量的是"该说哪句话"（纯函数 rowActionTip()，几何走的还是
             // refreshRect() 那一份），最后一条量的是"真的弹得出来"。
@@ -4532,11 +4476,11 @@ int main(int argc, char *argv[]) {
             // 上面三量全绿而用户什么都看不见。
             {
                 // NOTE: 判据不能是"弹出来之后看不看得见" —— `QToolTip::hideText()` 在这个
-                //       平台上是**不生效**的（实测：刚 showText 完就 hideText，isVisible()
-                //       照样是 true，于是上一条提示会一路赖着不走，下一条怎么量都拿到旧的
-                //       那句）。所以先把提示换成一句**哨兵**，再看这一下有没有把话**换掉**：
-                //       还是哨兵 = 没人说话。这样量的是"这一下有没有弹"，
-                //       而不是"弹完之后那个标签还在不在"。
+                // 平台上是**不生效**的（实测：刚 showText 完就 hideText，isVisible()
+                // 照样是 true，于是上一条提示会一路赖着不走，下一条怎么量都拿到旧的
+                // 那句）。所以先把提示换成一句**哨兵**，再看这一下有没有把话**换掉**：
+                // 还是哨兵 = 没人说话。这样量的是"这一下有没有弹"，
+                // 而不是"弹完之后那个标签还在不在"。
                 const QString sentinel = QStringLiteral("哨兵");
                 const auto tipAt = [&probe, &sentinel](const QPoint &pos) {
                     // 哨兵就挂在这一格上（弹的位置无关紧要，量的是文字换没换）。
@@ -4557,10 +4501,10 @@ int main(int argc, char *argv[]) {
             }
             // 扣出来的可用宽度：挂了刷新的那一行必须给这一格多留出位置，不然长条目会从它底下穿过去。
             // NOTE: 宽度只能**直接问代理的 sizeHint()**（和上面"带叉那一行"那条同一个写法）。
-            //       QListWidget 那两个公开的度量都不是按行给的：sizeHintForRow(i) 给的是**行高**
-            //       （两行都是 46，相减恒为 0），sizeHintForColumn(0) 给的是**整列的最大值**
-            //       （两行传同一个 column，取到的还是同一个数，相减也是 0）—— 两条都是
-            //       "永远绿、什么都没验"，别写。
+            // QListWidget 那两个公开的度量都不是按行给的：sizeHintForRow(i) 给的是**行高**
+            // （两行都是 46，相减恒为 0），sizeHintForColumn(0) 给的是**整列的最大值**
+            // （两行传同一个 column，取到的还是同一个数，相减也是 0）—— 两条都是
+            // "永远绿、什么都没验"，别写。
             QStyleOptionViewItem opt;
             opt.font = probe.font();
             opt.widget = probe.viewport();
@@ -4579,8 +4523,8 @@ int main(int argc, char *argv[]) {
         QApplication::processEvents();
 
         // ②″ 真实那份列表上也量一次：**悬停到第 4 行**（「资源包」，不是当前那一行）那一格
-        //     就有东西；再把光标挪到第 0 行，那一格又空了。前面那四条量的是自搭的探针，
-        //     这一条钉的是"产品那份列表真的开着 mouseTracking、真的走上了同一条路"。
+        // 就有东西；再把光标挪到第 0 行，那一格又空了。前面那四条量的是自搭的探针，
+        // 这一条钉的是"产品那份列表真的开着 mouseTracking、真的走上了同一条路"。
         if (categoryList != nullptr && categoryList->count() > 4) {
             check(categoryList->viewport()->hasMouseTracking(),
                   "左栏那份列表开着 mouseTracking（代理读的 State_MouseOver 只有它会填）");
@@ -4648,22 +4592,18 @@ int main(int argc, char *argv[]) {
                       ringImage != VersionIcons::cross(side, color).toImage(),
                   "刷新字形和 chevron / cross 不是同一张图（不是抄来的）");
 
-            // 箭头**看得见地有多大**（2026-09-24 用户原话：「刷新键的"箭头"太小，调大点」）
+            // 箭头**看得见地有多大**（ 要求：「刷新键的"箭头"太小，调大点」）
             // —— 上面那几条量的是"有没有画"，量不到大小：谁把 length / halfBase 改回
             // 0.22 / 0.13，它们照样全绿。
             //
-            // 量的是**环身外缘（半径 0.29 + 半个笔宽 = 0.355）之外那一截墨**。实心三角的
-            // 面积 = 半底 × 长，探出环外的那部分跟着它走：实测 **78**（0.32/0.165）对
-            // **40**（0.22/0.13），阈值卡在中间。
-            //
-            // NOTE: 2026-09-24 把三角**转了 60°** 之后，原来那把尺子（"离圆心 0.45×边长以外
-            //       有多少像素"）就废了：转完它的远角不再顺着切向往外顶，最远只到 0.480
-            //       （转之前 0.528），0.45 以外只剩 6 个像素 —— 那是**朝向变了**，不是
-            //       "箭头变小了"，量法得跟着换。换之前试过两种，都卡不住：「总墨迹」
-            //       1087 对 962（差 13%，大头是环身那 970）、「最远那一点」0.480 对 0.425
-            //       （同样 13%）。**跟着面积走的量才分得开**（78 对 40 差不多是两倍）。
+            // NOTE: 把三角**转了 60°** 之后，原来那把尺子（"离圆心 0.45×边长以外
+            // 有多少像素"）就废了：转完它的远角不再顺着切向往外顶，最远只到 0.480
+            // （转之前 0.528），0.45 以外只剩 6 个像素 —— 那是**朝向变了**，不是
+            // "箭头变小了"，量法得跟着换。换之前试过两种，都卡不住：「总墨迹」
+            // 1087 对 962（差 13%，大头是环身那 970）、「最远那一点」0.480 对 0.425
+            // （同样 13%）。**跟着面积走的量才分得开**（78 对 40 差不多是两倍）。
             // NOTE: 拿 64 px 那一档量，不拿界面上那个 20 px —— 小尺寸下差的像素太少，
-            //       抗不住抗锯齿的抖动。形状的比例和字号无关。
+            // 抗不住抗锯齿的抖动。形状的比例和字号无关。
             const int measureSide = 64;
             const QImage measureImage = VersionIcons::refresh(measureSide, color).toImage();
             qreal reach = 0.0;
@@ -4695,7 +4635,7 @@ int main(int argc, char *argv[]) {
                   "顺带：圆心那一格是空的（伸出去的是箭头，不是一大坨实心）");
 
             // 放大之后**不许被画布裁掉**：箭头是顺切向画的，它的远角是整张图里最靠边
-            // 的那一点，调剂得稍微歪一点就会顶出格子上沿（2026-09-24 起笔从 55° 挪到
+            // 的那一点，调剂得稍微歪一点就会顶出格子上沿（ 起笔从 55° 挪到
             // 30° 就是为了让开这个地方，见 VersionIcons.cpp 里那段算账）。裁掉的那一角
             // 在界面上就是"箭头缺个口"，而上面那几条全绿 —— 它们只管笔画在不在。
             int borderInk = 0;
@@ -4711,15 +4651,15 @@ int main(int argc, char *argv[]) {
             check(borderInk == 0, "箭头和环都在画布里面，一个像素都没被裁掉",
                   QString("最外一圈上有 %1 个有色像素").arg(borderInk));
 
-            // 箭头**得和环连在一起**（2026-09-24 用户原话：「三角形由于带一点点白边会使得圆圈
+            // 箭头**得和环连在一起**（ 要求：「三角形由于带一点点白边会使得圆圈
             // 和三角形连接处有点白色像断开了」）。这一条抓的是**真的断开**：把"实心"那一档
             // （alpha ≥ 128）取出来做四连通，从环上取一个籽、看走不走得到三角里面。
             // 断口那 1~2 px 全是半透明甚至空的，所以在这一档上会走不过去。
             //
             // NOTE: 为什么用 alpha ≥ 128 而不是 > 0：缝里往往还留着几个 alpha 三四十的像素，
-            //       只看"有没有墨"的话**断着也是连通的**，这条断言就白写了。
+            // 只看"有没有墨"的话**断着也是连通的**，这条断言就白写了。
             // NOTE: 籽和靶都靠几何算，不写死坐标：籽取"正下方那一格"（那儿一定是环身，
-            //       缺口开在右上，见 VersionIcons.cpp），靶取"最靠边那个墨点的内侧"。
+            // 缺口开在右上，见 VersionIcons.cpp），靶取"最靠边那个墨点的内侧"。
             auto solidAt = [&](const QImage &img, int x, int y, int floorAlpha) {
                 return img.rect().contains(x, y) && qAlpha(img.pixel(x, y)) >= floorAlpha;
             };
@@ -4758,7 +4698,7 @@ int main(int argc, char *argv[]) {
             const QPoint seed(measureSide / 2, qRound(measureSide * 0.79));
             // 靶：**用同一个门槛**挑"离圆心最远的那个实心像素" —— 那一撮只可能是箭头。
             // NOTE: 靶必须和门槛配套：拿 128 那一档挑出来的最远像素是个尖上的抗锯齿薄片，
-            //       它连自己的邻居都够不着 240，用 240 去走它必然"走不到"（跟有没有缝无关）。
+            // 它连自己的邻居都够不着 240，用 240 去走它必然"走不到"（跟有没有缝无关）。
             auto farthestSolid = [&](int floorAlpha, qreal *radius) {
                 QPoint found(-1, -1);
                 qreal best = -1.0;
@@ -4786,10 +4726,10 @@ int main(int argc, char *argv[]) {
                       .arg(seed.y())
                       .arg(qAlpha(measureImage.pixel(seed.x(), seed.y()))));
             // 两档门槛各走一遍，各抓一种"断开"：
-            //   alpha ≥ 128 —— 抓**真空的白缝**（转完没挪回去时，弧的端头和三角之间就是空的，
-            //                  那一带连 alpha > 0 的像素都没有几个）；
-            //   alpha ≥ 240 —— 抓**发虚的白线**（两个形状半透明地叠在一起，缝里留着 alpha
-            //                  一两百的像素：128 那一档还能过去，240 就走不过去了）。
+            // alpha ≥ 128 —— 抓**真空的白缝**（转完没挪回去时，弧的端头和三角之间就是空的，
+            // 那一带连 alpha > 0 的像素都没有几个）；
+            // alpha ≥ 240 —— 抓**发虚的白线**（两个形状半透明地叠在一起，缝里留着 alpha
+            // 一两百的像素：128 那一档还能过去，240 就走不过去了）。
             for (const int floorAlpha : {128, 240}) {
                 qreal best = 0.0;
                 const QPoint target = farthestSolid(floorAlpha, &best);
@@ -4823,11 +4763,11 @@ int main(int argc, char *argv[]) {
         // 边距和间距全是 0，页面内部的边距由各页自己的布局给。
         check(vbox->contentsMargins().isNull(), "主布局四边不留边距");
         check(vbox->spacing() == 0, "主布局控件间距为 0", QString::number(vbox->spacing()));
-        // 三块：顶上那条自己画的标题栏（2026-09-25 加的自定义外框）+ 选项卡 + 底栏。
+        // 三块：顶上那条自己画的标题栏（ 加的自定义外框）+ 选项卡 + 底栏。
         check(vbox->count() == 3, "主布局三块：顶上那条 + 选项卡 + 底栏",
               QString::number(vbox->count()));
         // NOTE: 行号**不写死**（和面板那几行同一条规矩）：以后谁再往主布局里加一行，
-        //       这几条断言按控件本身认位置，不该被"第 0 块是啥"这种改动带偏。
+        // 这几条断言按控件本身认位置，不该被"第 0 块是啥"这种改动带偏。
         TitleBar *layoutStrip = ui.titleBar();
         const int stripRow = layoutStrip != nullptr ? vbox->indexOf(layoutStrip) : -1;
         const int tabsRow = vbox->indexOf(tabs);
@@ -4850,8 +4790,6 @@ int main(int argc, char *argv[]) {
         check(vbox->count() > 0 && vbox->itemAt(vbox->count() - 1) != nullptr &&
                   vbox->itemAt(vbox->count() - 1)->widget() == bar,
               "底栏是主布局最后一块（贴在窗口最底下）");
-        // ★ 2026-10-13：56 → **62**（用户自己调的那一档，`kBottomBarHeight`）。M1 起底栏
-        //   中间那一格画的是任务账本（一行标题 + 一行状态），56 那一档挤得下不来。
         check(bar->height() == 62, "底栏是固定高度 62", QString::number(bar->height()));
         const QRect br = bar->geometry();
         const QRect cr = window.centralWidget()->rect();
@@ -4894,10 +4832,10 @@ int main(int argc, char *argv[]) {
     // 那边才搭得出 MainWindow）。
     //
     // NOTE: 原来这里钉的是"初始勾的是「不装（纯原版）」"。换成树之后这条**更强了**：
-    //       树上的条目本来就没有"勾"这个状态，产品里"现在要装哪一个"只有
-    //       m_selectedLoaderIndex 一处（MainWindow 的构造函数把它置成
-    //       modLoaderNoneIndex()）。这里改钉"树上不带任何勾选状态"——它就是
-    //       "选中只住在一个地方"这件事在界面上的凭据。
+    // 树上的条目本来就没有"勾"这个状态，产品里"现在要装哪一个"只有
+    // m_selectedLoaderIndex 一处（MainWindow 的构造函数把它置成
+    // modLoaderNoneIndex()）。这里改钉"树上不带任何勾选状态"——它就是
+    // "选中只住在一个地方"这件事在界面上的凭据。
     {
         check(loaderTree != nullptr && loaderTree->selectedItems().isEmpty() &&
                   loaderTree->currentItem() == nullptr,
@@ -4965,15 +4903,8 @@ int main(int argc, char *argv[]) {
         };
         const Guarded guarded[] = {
             {installed, "主页那个「已安装版本」下拉框"},
-            // ★ 2026-09-28：设置页那个「Java 运行时」下拉框换成了「Java 管理…」那颗
-            //   **按钮**（用户点名的改法），所以这一条从名单里去掉了 —— 滚轮落在按钮上
-            //   什么都不会发生，不用防护。2026-10-20 又加回了「内存分配」下拉框，名单
-            //   现在是 10 个。
             {window.findChild<QSpinBox *>(MainWindowUI::memoryMaxSpinName()),
              "设置页「最大内存」数字框"},
-            // ★ 2026-09-26：「最小内存」那个数字框从这一页撤掉了，换上了新出现的这根条
-            //   （用户要的 PCL 那种拖着改）。条也得装防护：滚一格就是一档，而没焦点时
-            //   界面上一样看不出来（数字跟着走，但用户没在看的时候不会知道）。
             {window.findChild<QSlider *>(MainWindowUI::memoryMaxSliderName()),
              "设置页「最大内存」那根条"},
             {window.findChild<QComboBox *>(MainWindowUI::memoryModeComboName()),
@@ -4982,7 +4913,7 @@ int main(int argc, char *argv[]) {
              "设置页「启动后」下拉框"},
             {window.findChild<QComboBox *>(MainWindowUI::downloadSourceComboName()),
              "设置页「下载源」下拉框"},
-            // 下面三个是 2026-09-24「启动选项」那一组加的。数字框尤其要装：滚轮在
+            // 下面三个是 「启动选项」那一组加的。数字框尤其要装：滚轮在
             // QSpinBox 上是**改值**（加一步），而它和下拉框一样在没焦点时看不出变化 ——
             // 用户滚过去扫一眼，窗口大小就从 854 变成 870 了。
             {window.findChild<QComboBox *>(MainWindowUI::processPriorityComboName()),
@@ -4991,8 +4922,6 @@ int main(int argc, char *argv[]) {
              "设置页「游戏窗口大小」的宽度数字框"},
             {window.findChild<QSpinBox *>(MainWindowUI::gameWindowHeightSpinName()),
              "设置页「游戏窗口大小」的高度数字框"},
-            // 2026-09-28「窗口模式」那一格。下拉框滚一格就换一档，而"小窗 / 最大化 / 全屏"
-            // 这一档换掉是**看不见的**（三句话都差不多长），比别处更该护。
             {window.findChild<QComboBox *>(MainWindowUI::gameWindowModeComboName()),
              "设置页「窗口模式」下拉框"},
         };
@@ -5114,7 +5043,7 @@ int main(int argc, char *argv[]) {
 
     std::printf("===== E3b. 开关行：点得快也要每一下都算（isToggleRow） =====\n");
     {
-        // 用户 2026-09-25 原话：「还有下载版本那里如果一直点那个展开关闭会有几次点击失效」。
+        // 要求：「还有下载版本那里如果一直点那个展开关闭会有几次点击失效」。
         // 真因：Windows 上**点得快的时候第二下（以及后面每一发）到的是 MouseButtonDblClick**，
         // 而视图的 itemClicked 只在"按下+松开都到手"时才发（双击那一发的松开被
         // releaseFromDoubleClick 挡掉）→ 那几发点击**全丢**。
@@ -5202,7 +5131,7 @@ int main(int argc, char *argv[]) {
     std::printf("===== E4. 底栏中间那格：任务摘要（2026-10-12 任务中心那一版） =====\n");
     {
         // 这一节原来量的是 `bottomBarProgressOwner` 那张七行的表（"启动 > 下载 > 同步等待"）。
-        // 2026-10-12 那次把"谁借这一格"整套优先级**拆掉**了：现在这一格只说**一句话**，
+        // 那次把"谁借这一格"整套优先级**拆掉**了：现在这一格只说**一句话**，
         // 说哪一句由账本那边的 `Tasks::collapsedSummary()` 定 —— 那是 src/ 里的纯规则，
         // 归 verify 的 AL/AM 两节；界面这一头只剩两件事可量：**把给它的那份摘要摆出来**、
         // **没有任务时摆那句占位话**，外加"那句话怎么拼"的真值表。
@@ -5220,8 +5149,8 @@ int main(int argc, char *argv[]) {
         check(percent != nullptr,
               "E4 底下那一行右边那一格百分比在（那根条自己不再画数了 —— 画上去的话它会顶着"
               "「另有 N 项」的位置，而且缩起来的时候比条还长）");
-        // ★ 这一处必须是**自绘的那一支**（§3.3）：按 objectName 找得到基类不代表换过 ——
-        //   原生的 `QProgressBar` 也找得到，画出来是 Fusion 那个方块头 + 默认那圈描边。
+        // 这一处必须是**自绘的那一支**（§3.3）：按 objectName 找得到基类不代表换过 ——
+        // 原生的 `QProgressBar` 也找得到，画出来是 Fusion 那个方块头 + 默认那圈描边。
         check(progressSelfDrawn != nullptr,
               "★★ E4 底栏那一格用的是**自绘的进度条**（TaskProgressBar），不是原生 QProgressBar");
         if (progressSelfDrawn != nullptr) {
@@ -5278,8 +5207,8 @@ int main(int argc, char *argv[]) {
                   "E4 一项任务都没有：摆那句低强调度的占位话", status->text());
             check(!progress->isVisible(), "E4 一项任务都没有：那根进度条**不出现**（不留一根空的）");
             check(!extra->isVisible(), "E4 一项任务都没有：右边那句「另有 N 项」也不占地方");
-            // ★ §3.1 说的是"不显示空进度条" —— 那一行右边那个数**跟着一起收**，不是把它
-            //   清成空串还占着地方（占着地方 = 那一行的高度还在，底下那根条却没了）。
+            // §3.1 说的是"不显示空进度条" —— 那一行右边那个数**跟着一起收**，不是把它
+            // 清成空串还占着地方（占着地方 = 那一行的高度还在，底下那根条却没了）。
             check(percent != nullptr && !percent->isVisible() && percent->text().isEmpty(),
                   "★ E4 一项任务都没有：右边那格百分比也收起来（整行都不留）",
                   percent != nullptr ? percent->text() : QStringLiteral("<没有那一格>"));
@@ -5293,8 +5222,6 @@ int main(int argc, char *argv[]) {
             QApplication::processEvents();
             check(status->text() == QStringLiteral("正在下载 26.2") && progress->isVisible(),
                   "E4 有任务在跑：标题原样摆出来，进度条也出现", status->text());
-            // NOTE: 指针停在哪**不在这里量** —— 百分比那一档是 `Anim::smoothProgress` 落上去的，
-            //       一两拍 processEvents 推不到 42；"条画在什么位置"是 ui_shot 的事（红绿钉子）。
             check(progress->minimum() == 0 && progress->maximum() == 100,
                   "E4 有百分比时进度条是**确定态**（0..100）",
                   QStringLiteral("%1..%2").arg(progress->minimum()).arg(progress->maximum()));
@@ -5346,32 +5273,30 @@ int main(int argc, char *argv[]) {
                                       .arg(MainWindowUI::bottomBarStatusTextWidth())
                                 : QStringLiteral("控件没找到"));
 
-        // 【量什么】（2026-09-24 实测过一遍之后才写死的）
-        //
         // 顶宽这件事分两半，**只有一半是真的**：
-        //   ① sizeHint —— **会被顶大**。ElidedLabel::sizeHint() 本来就是拿
-        //      maximumWidth() 当上限的（见 MainWindowUI.cpp 里那个类）。
-        //      不设上限时，300 个字符的文件名把这一格顶到 3912、把底栏顶到 4338、
-        //      把**主窗口**顶到 4338 —— 而默认窗口只有 900 宽。任何走 sizeHint 的路径
-        //      （adjustSize()、平台给初次尺寸、以后哪天加的"记住窗口大小"）都会拿到一个
-        //      四倍宽的窗口。所以这个上限该有。
-        //   ② **最小宽度** —— **不会**被顶大，这条与上限无关：那格还有
-        //      setMinimumWidth(kStatusLabelMinWidth)，而 qSmartMinSize() 在
-        //      `minSize.width() > 0` 时直接把最小尺寸**钉成** minSize.width()
-        //      （qlayoutengine.cpp:331）—— 所以文字再长，这一格的最小贡献就是 260，
-        //      整窗最小宽度实测两态都是 686。
-        //      原报告里"整窗最小宽度被顶到 900+、窗口缩不回去"那半句因此**不成立**，
-        //      下面的断言照这个事实写，别照着那句话改。
+        // ① sizeHint —— **会被顶大**。ElidedLabel::sizeHint() 本来就是拿
+        // maximumWidth() 当上限的（见 MainWindowUI.cpp 里那个类）。
+        // 不设上限时，300 个字符的文件名把这一格顶到 3912、把底栏顶到 4338、
+        // 把**主窗口**顶到 4338 —— 而默认窗口只有 900 宽。任何走 sizeHint 的路径
+        // （adjustSize()、平台给初次尺寸、以后哪天加的"记住窗口大小"）都会拿到一个
+        // 四倍宽的窗口。所以这个上限该有。
+        // ② **最小宽度** —— **不会**被顶大，这条与上限无关：那格还有
+        // setMinimumWidth(kStatusLabelMinWidth)，而 qSmartMinSize() 在
+        // `minSize.width() > 0` 时直接把最小尺寸**钉成** minSize.width()
+        // （qlayoutengine.cpp:331）—— 所以文字再长，这一格的最小贡献就是 260，
+        // 整窗最小宽度实测两态都是 686。
+        // 原报告里"整窗最小宽度被顶到 900+、窗口缩不回去"那半句因此**不成立**，
+        // 下面的断言照这个事实写，别照着那句话改。
         //
         // NOTE: 底下那条"敲一下嵌套布局"是必须的 —— setText() 之后的 updateGeometry()
-        //       只会把**控件所在的**那层布局标脏，而这一格在底栏里那个竖着排的嵌套布局
-        //       里，它那份缓存不会跟着失效（不敲的话量到的还是改文字之前那个数）。
+        // 只会把**控件所在的**那层布局标脏，而这一格在底栏里那个竖着排的嵌套布局
+        // 里，它那份缓存不会跟着失效（不敲的话量到的还是改文字之前那个数）。
         //
-        // NOTE: 2026-10-12 起这一格**开局就是亮的**（任务中心那一次改的：中间那格平时
-        //       也写一句「暂无后台任务」，不再是"没在下载就整格藏起来"）。所以不再需要
-        //       "量之前 show()、量完 hide() 还回去"那一套 —— 藏着的控件在布局里算 0，
-        //       而它现在不藏了。`bar` 取**底栏本体**：它的爹经过这次改动已经是中间那颗
-        //       按钮了（`taskSummaryButton`），拿它当"底下那层布局"会敲不到底栏的 layout。
+        // NOTE: 起这一格**开局就是亮的**（任务中心那一次改的：中间那格平时
+        // 也写一句「暂无后台任务」，不再是"没在下载就整格藏起来"）。所以不再需要
+        // "量之前 show()、量完 hide() 还回去"那一套 —— 藏着的控件在布局里算 0，
+        // 而它现在不藏了。`bar` 取**底栏本体**：它的爹经过这次改动已经是中间那颗
+        // 按钮了（`taskSummaryButton`），拿它当"底下那层布局"会敲不到底栏的 layout。
         QWidget *bar = ui.getBottomBar();
         const QString shortText = status->text();
         const int shortWindowHint = window.sizeHint().width();
@@ -5394,16 +5319,16 @@ int main(int argc, char *argv[]) {
                   .arg(status->sizeHint().width())
                   .arg(MainWindowUI::bottomBarStatusTextWidth()));
         // NOTE: 这一条量的**不只是**底栏那一格 —— 整窗的 sizeHint 是各页里所有控件一起
-        //       顶出来的。2026-09-24 实测（做齿轮菜单那一轮）：当时左栏「游戏文件夹」下面
-        //       还有一段折行的提示文字，把它加长到 1260 px 宽之后，它自己的 sizeHint 从
-        //       240 跳到 480、**整窗**就从 818 顶到 1042 —— 于是这条红，而底下的文件名
-        //       一个字都没动。那段提示当天晚些时候被删掉了（用户原话「下面那个文本也删了」），
-        //       所以现在这一条比那次宽裕得多。
-        //       要留下的是**这件事本身**：**折行 QLabel 的 sizeHint 宽度是横向 advance
-        //       的分档（1/4），不是线性的** —— 随便写长一句话就可能把整窗顶过 900。红了
-        //       先去看实例页有没有新加的折行文字，别去查下载那条路。
-        //       （为什么 900 这个上限仍然成立：窗口宽度是 setupUi() 里写死的
-        //       resize(900, 620)，sizeHint 只在"有人 adjustSize()"时才生效。）
+        // 顶出来的。 实测（做齿轮菜单那一轮）：当时左栏「游戏文件夹」下面
+        // 还有一段折行的提示文字，把它加长到 1260 px 宽之后，它自己的 sizeHint 从
+        // 240 跳到 480、**整窗**就从 818 顶到 1042 —— 于是这条红，而底下的文件名
+        // 一个字都没动。那段提示当天晚些时候被删掉了（要求「下面那个文本也删了」），
+        // 所以现在这一条比那次宽裕得多。
+        // 要留下的是**这件事本身**：**折行 QLabel 的 sizeHint 宽度是横向 advance
+        // 的分档（1/4），不是线性的** —— 随便写长一句话就可能把整窗顶过 900。红了
+        // 先去看实例页有没有新加的折行文字，别去查下载那条路。
+        // （为什么 900 这个上限仍然成立：窗口宽度是 setupUi() 里写死的
+        // resize(900, 620)，sizeHint 只在"有人 adjustSize()"时才生效。）
         check(window.sizeHint().width() <= 900,
               "★ E5 长文件名不会把主窗口的 sizeHint 顶过 900（默认窗口就这么宽）",
               QStringLiteral("窗口 sizeHint %1 → %2")
@@ -5532,9 +5457,6 @@ int main(int argc, char *argv[]) {
 
     std::printf("===== G. 「启动游戏」两行文字（本次新增） =====\n");
     {
-        // MainWindow 会把按钮文字设成"启动游戏\n<版本号>"。这里不测那条同步逻辑
-        // （ui_check 只搭 MainWindowUI，不建 MainWindow），只验它落地的先决条件：
-        // 两行文字在 900x620 下不会被挤掉，按钮给得出两行的高度。
         const int oneLine = startBtn->sizeHint().height();
         startBtn->setText(QStringLiteral("启动游戏\n26.2-snapshot-1"));
         startBtn->updateGeometry();
@@ -5589,13 +5511,13 @@ int main(int argc, char *argv[]) {
               "两个占位文案之间来回切换，宽度不变",
               QString("%1 / %2 / %3").arg(base.width()).arg(swapped.width()).arg(back.width()));
 
-        // 加载器那棵树：会被写进**条目**的那些字必须都非空**而且互不相同**。2026-09-23 起
+        // 加载器那棵树：会被写进**条目**的那些字必须都非空**而且互不相同**。 起
         // 那一格从一条「自动（推荐）」变成两条（最新版 / 稳定版）+ 两种第二行小字
         // （「没有正式版」「测试版」），再加上原来的「正在获取…」「列表没取到」——
         // 空的那句是一个看不见的空行（用户以为那底下什么都没有）；两句一样的则分不出
         // "还在拉"和"拉失败了"，也分不出用户点的是哪一档。
         // NOTE: 判据是**逐对**比，不是 join 出来比 —— 全部非空时 join 必然非空，
-        //       那样写这条会永远绿（loaderViewer 那段就是这么被坑过一次的）。
+        // 那样写这条会永远绿（loaderViewer 那段就是这么被坑过一次的）。
         const QString latestText = MainWindowUI::loaderVersionLatestText();
         const QString stableText = MainWindowUI::loaderVersionStableText();
         const QString noStableText = MainWindowUI::loaderVersionStableMissingText();
@@ -5614,7 +5536,7 @@ int main(int argc, char *argv[]) {
                 samePairs += rowTexts.at(i) == rowTexts.at(j) ? 1 : 0;
             }
         }
-        // 那两行**不带括号**：用户 2026-09-23 原话"那个稳定版（release）那个括号啥的是给你看的，
+        // 那两行**不带括号**：要求"那个稳定版（release）那个括号啥的是给你看的，
         // 不用实际放在界面里面" —— 括号里那些是解释"最新版连 alpha/beta 一起算""稳定版就是
         // release"，写给读代码的人看，界面上就四个字 / 五个字。这一条钉的是"别哪天又顺手加回来"。
         const QStringList bracketShapes{QStringLiteral("（"), QStringLiteral("(")};
@@ -5683,7 +5605,7 @@ int main(int argc, char *argv[]) {
         if (avatar != nullptr && account != nullptr && status != nullptr && progress != nullptr &&
             runState != nullptr && runDetail != nullptr && mark != nullptr) {
             // 中间那格：**没有任务时那根进度条不出现**（"如果正在下载"那条要求），但那一格
-            // 自己（连同那句占位话）是**亮着的** —— 2026-10-12 任务中心那一次改的：原来
+            // 自己（连同那句占位话）是**亮着的** —— 任务中心那一次改的：原来
             // 整格藏起来，现在它是"平时也写一句「暂无后台任务」、点一下展开任务中心"的按钮。
             check(!progress->isVisible() && status->isVisible(),
                   "一开始没有任务：进度条藏着，但那格（和占位话）是亮着的",
@@ -5697,14 +5619,14 @@ int main(int argc, char *argv[]) {
             // 所以初值跟那两行一起藏着 —— 不然会先亮一个"没有含义的颜色"再被改掉。
             check(!mark->isVisible(), "一开始那颗状态方块也是藏着的");
 
-            // 两格（2026-10-16 起）的左右顺序：运行状态 → 任务摘要（进度）→ 工具箱。
-            // ★★ 底栏**从三格变回两格**：右边那一格（头像 + 用户名）整个收进了主页右上
-            //    那张账号卡片 —— `accountButton` 还在、业务层照旧往里写数据，但它**不再进
-            //    布局**（`hide()`），所以它里面那几样（头像/用户名/第二行）的几何是"没人
-            //    给它分位置"的旧值，**不能**再拿它们当"右边那一格"来量。右下角换成了跨页面的
-            //    「工具箱」入口（`toolboxButton`，宽度和左边那格一样、也是 170）。
+            // 两格（ 起）的左右顺序：运行状态 → 任务摘要（进度）→ 工具箱。
+            // 底栏**从三格变回两格**：右边那一格（头像 + 用户名）整个收进了主页右上
+            // 那张账号卡片 —— `accountButton` 还在、业务层照旧往里写数据，但它**不再进
+            // 布局**（`hide()`），所以它里面那几样（头像/用户名/第二行）的几何是"没人
+            // 给它分位置"的旧值，**不能**再拿它们当"右边那一格"来量。右下角换成了跨页面的
+            // 「工具箱」入口（`toolboxButton`，宽度和左边那格一样、也是 170）。
             // NOTE: 量之前必须先把要量的控件显示出来 —— 布局不给隐藏的控件分位置，
-            //       藏着的控件几何停在旧值（通常是 0），拿它比大小等于没比。
+            // 藏着的控件几何停在旧值（通常是 0），拿它比大小等于没比。
             progress->show();
             status->show();
             runState->show();
@@ -5736,8 +5658,8 @@ int main(int argc, char *argv[]) {
 
             // 中间那格**不吃掉全部富余宽度**：左右各留空档，两头都留白所以它还居中。
             // 以前富余宽度全给中间那格，900 px 下进度条横跨大半个底栏（用户嫌太长）。
-            // ★ 2026-10-16：右边那头拿**工具箱**那格的左边缘当参照（原来拿的是隐藏的
-            //   账号格里那颗头像 —— 它不在布局里，量出来的空档是负的，等于没量）。
+            // 右边那头拿**工具箱**那格的左边缘当参照（原来拿的是隐藏的
+            // 账号格里那颗头像 —— 它不在布局里，量出来的空档是负的，等于没量）。
             const int runStateRight = runState->mapTo(bar, QPoint(runState->width(), 0)).x();
             const int progressLeft = progress->mapTo(bar, QPoint(0, 0)).x();
             const int progressRight = progress->mapTo(bar, QPoint(progress->width(), 0)).x();
@@ -5767,7 +5689,7 @@ int main(int argc, char *argv[]) {
             check(runDetail->mapTo(bar, QPoint(0, 0)).y() > runState->mapTo(bar, QPoint(0, 0)).y(),
                   "实例名那行在状态正文下面");
 
-            // ---- 那颗状态方块摆在哪（2026-09-24 加的）----
+            // ---- 那颗状态方块摆在哪（ 加的）----
             // 它是**第一行的一部分**（方块 + 文字的一个横排），不是"整格最左边的一个点"：
             // 后者在显示第二行时会停在两行的中间，看着不属于任何一行。
             check(mark->width() == mark->height() &&
@@ -5816,12 +5738,12 @@ int main(int argc, char *argv[]) {
                       .arg(MainWindowUI::bottomBarChevronSpacing())
                       .arg(MainWindowUI::bottomBarChevronSize())
                       .arg(MainWindowUI::bottomBarRunStateColumnWidth()));
-            // ★ 两行**留给字**的宽度必须一样（2026-09-26 修）。第一行那颗方块是布局里
-            //   单独的控件（占的是上限**之外**的位置），第二行的缩进走 contentsMargins
-            //   （从上限**里面**扣）⇒ 两个 QLabel 自己的上限本来就该差一段，扣掉各自
-            //   "不属于字"的那一段之后才是同一个数。原来两行封同一个数，第二行实际只有
-            //   120 px，右边比第一行短一截 —— 那条断言量的是"方块那一段到底多宽"，
-            //   量不出"第二行少写了 16 px"，所以它一直是绿的。
+            // 两行**留给字**的宽度必须一样（ 修）。第一行那颗方块是布局里
+            // 单独的控件（占的是上限**之外**的位置），第二行的缩进走 contentsMargins
+            // （从上限**里面**扣）⇒ 两个 QLabel 自己的上限本来就该差一段，扣掉各自
+            // "不属于字"的那一段之后才是同一个数。原来两行封同一个数，第二行实际只有
+            // 120 px，右边比第一行短一截 —— 那条断言量的是"方块那一段到底多宽"，
+            // 量不出"第二行少写了 16 px"，所以它一直是绿的。
             const int row1TextBand = runState->maximumWidth() - runState->contentsMargins().left();
             const int row2TextBand = runDetail->maximumWidth() - runDetail->contentsMargins().left();
             check(row1TextBand == row2TextBand &&
@@ -5846,7 +5768,7 @@ int main(int argc, char *argv[]) {
     std::printf("===== I2. 底栏中间那颗按钮 = 任务中心的入口（2026-10-12） =====\n");
     {
         // 这一节原来是 `bottomBarShowsProgress()` 那五条（"在启动 / 在下载 / 在同步阻塞"）。
-        // 那套布尔量 2026-10-12 随任务中心一起拆掉了：现在中间那格写哪句话由**任务账本**
+        // 那套布尔量 随任务中心一起拆掉了：现在中间那格写哪句话由**任务账本**
         // 决定（`Tasks::collapsedSummary()`，纯规则在 verify 的 AL/AM 两节量；"同步等待
         // 压在上面"那条在 mw_check 量）。界面这一头留下的是这颗按钮**本身**：它是任务中心
         // 的入口，点一下往上弹那块面板。
@@ -5996,10 +5918,10 @@ int main(int argc, char *argv[]) {
                                 .toString()
                           : QStringLiteral("<没找到>"));
                 // 百分比测不出时**不摆那根条**（coding plan §3.4：不编一个假百分比出来）。
-                //   这一行里那点信息由下面那句小字说（"已下载 3 / 9 个文件"）。
-                //   NOTE: 不确定态（range 0..0）是**底栏那一整格**的写法（"有东西在跑但说不清
-                //         到哪了"），不是面板里每一行的 —— 一行一行都摆一根空转的条，面板
-                //         一去几条就是几根在那儿空转。
+                // 这一行里那点信息由下面那句小字说（"已下载 3 / 9 个文件"）。
+                // NOTE: 不确定态（range 0..0）是**底栏那一整格**的写法（"有东西在跑但说不清
+                // 到哪了"），不是面板里每一行的 —— 一行一行都摆一根空转的条，面板
+                // 一去几条就是几根在那儿空转。
                 auto *bar0 =
                     panel->findChild<QProgressBar *>(MainWindowUI::taskCenterPanelRowBarName(0));
                 auto *detail0 =
@@ -6013,8 +5935,8 @@ int main(int argc, char *argv[]) {
                       "I2 那一行的进度改由小字那句说（「已下载 3 / 9 个文件」）",
                       detail0 != nullptr ? detail0->text() : QStringLiteral("<没找到>"));
                 // 「清除已完成」那颗按钮：有处理器才出现，点了要回一声。
-                // ★ 它挂在**页标题行**（面板把 `headerActions()` 交给
-                //   `OverlayHost::setPageHeaderWidget()`），打开这一页时已不在面板子树里。
+                // 它挂在**页标题行**（面板把 `headerActions()` 交给
+                // `OverlayHost::setPageHeaderWidget()`），打开这一页时已不在面板子树里。
                 auto *clear = window.findChild<QPushButton *>(
                     MainWindowUI::taskCenterPanelClearButtonName());
                 check(clear != nullptr,
@@ -6025,19 +5947,14 @@ int main(int argc, char *argv[]) {
                     check(clearCalls == 1, "I2 点「清除已完成」把话带回了调用方（一次）",
                           QStringLiteral("回来 %1 次").arg(clearCalls));
                 }
-                // ★ 行尾那颗「取消」（2026-10-12，coding plan §3.2 的行内快捷动作）：
-                //   只有**能力位说可以**、而且外面挂了处理器时才长。上面那件在跑的那一行
-                //   没设 `capabilities.cancel` ⇒ 那一行行尾什么都不长；挂上处理器也不长。
+                // 行尾那颗「取消」（，coding plan §3.2 的行内快捷动作）：
+                // 只有**能力位说可以**、而且外面挂了处理器时才长。上面那件在跑的那一行
+                // 没设 `capabilities.cancel` ⇒ 那一行行尾什么都不长；挂上处理器也不长。
                 auto *cancel0 = panel->findChild<QPushButton *>(
                     MainWindowUI::taskCenterPanelRowCancelName(0));
                 check(cancel0 == nullptr,
                       "I2 能力位说不能取消的行，行尾**不长**那颗「取消」",
                       cancel0 != nullptr ? cancel0->text() : QStringLiteral("<没找到>"));
-                // ★ 2026-10-17 用户原话：「点击上方四大钮的时候收起任务中心，现在的表现是
-                //   在除了展开它的那一页以外点击都没反应（也就是卡页面了）」。
-                //   走**顶上那四颗真按钮**（`TitleBar::navButton`）量两件事：切走那一下
-                //   任务中心被**收掉**（不是"停放"着继续占覆盖层那一位）；再点回原来那一页
-                //   它不会自己又摊开。
                 if (tabs != nullptr && otherTab >= 0 && ui.titleBar() != nullptr) {
                     auto *otherNav = ui.titleBar()->navButton(otherTab);
                     auto *ownerNav = ui.titleBar()->navButton(ownerTab);
@@ -6073,10 +5990,10 @@ int main(int argc, char *argv[]) {
     std::printf("===== I5. 取消 / 重试那两个入口 + 任务详情页（2026-10-12，coding plan §3.4） =====\n");
     {
         // 这一节管两件事：
-        //   ① 面板里那一行**行尾那颗「取消」**（§3.2 的行内快捷动作）—— 只在能力位说可以、
-        //      而且外面真挂了处理器的时候才长；
-        //   ② **任务详情页**上那一排按钮（§3.4「失败能看到失败阶段、简短原因和
-        //      『查看日志/重试』」）—— 露与不露**只读能力位**，界面这边一步都不推。
+        // ① 面板里那一行**行尾那颗「取消」**（§3.2 的行内快捷动作）—— 只在能力位说可以、
+        // 而且外面真挂了处理器的时候才长；
+        // ② **任务详情页**上那一排按钮（§3.4「失败能看到失败阶段、简短原因和
+        // 『查看日志/重试』」）—— 露与不露**只读能力位**，界面这边一步都不推。
         QPushButton *cell = ui.getTaskSummaryButton();
         if (cell != nullptr) {
             int cancelCalls = 0;
@@ -6107,8 +6024,8 @@ int main(int argc, char *argv[]) {
             QWidget *panel = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
             check(panel != nullptr && panel->isVisible(), "I6 任务中心页面再次打开（喂了一件在跑的）");
             if (panel != nullptr) {
-                // ★ 面板里那一行那根条也是**自绘的那一支**（§3.3 三处之一）。测得出百分比
-                //   的行才有它（上面 I2 量的是"测不出就不摆"那一侧）。
+                // 面板里那一行那根条也是**自绘的那一支**（§3.3 三处之一）。测得出百分比
+                // 的行才有它（上面 I2 量的是"测不出就不摆"那一侧）。
                 auto *rowBar = panel->findChild<QProgressBar *>(
                     MainWindowUI::taskCenterPanelRowBarName(0));
                 check(qobject_cast<TaskProgressBar *>(rowBar) != nullptr,
@@ -6205,8 +6122,8 @@ int main(int argc, char *argv[]) {
         check(detailBar != nullptr && detailBar->isVisible() && detailBar->value() == 62,
               "I6 测得出百分比 ⇒ 那根条在，而且摆的是**确定态**的那个值",
               detailBar != nullptr ? QString::number(detailBar->value()) : QStringLiteral("<没找到>"));
-        // ★ 详情页那根条同样是**自绘的那一支**（§3.3 三处里的最后一处），而且高度和
-        //   另外两处**同一个出处** —— 三处各写一个数的话，同一根条在这三页上会长短不一。
+        // 详情页那根条同样是**自绘的那一支**（§3.3 三处里的最后一处），而且高度和
+        // 另外两处**同一个出处** —— 三处各写一个数的话，同一根条在这三页上会长短不一。
         check(qobject_cast<TaskProgressBar *>(detailBar) != nullptr,
               "★★ I6 详情页那根条也是**自绘的**（TaskProgressBar），不是原生 QProgressBar",
               detailBar == nullptr ? QStringLiteral("<没找到>")
@@ -6318,7 +6235,7 @@ int main(int argc, char *argv[]) {
         check(MainWindowUI::runStateRunningCountText(3) != MainWindowUI::runStateRunningText(),
               "和「一份」那句是两句不同的话（不然多开就看不出来）");
 
-        // 另外两句（2026-09-24 加的）：没有实例在跑 / 正在启动；再加上 2026-10-15 那
+        // 另外两句（ 加的）：没有实例在跑 / 正在启动；再加上 那
         // 一句「有实例异常退出」。
         // 四句话**两两不同**是这一节的要点 —— 那句话本来就是为了让人一眼看出是哪个状态。
         check(MainWindowUI::runStateNotRunningText() == QStringLiteral("当前没有运行中的实例"),
@@ -6332,9 +6249,9 @@ int main(int argc, char *argv[]) {
               "（2026-09-24 改过的那句：不再是「实例未运行」）",
               MainWindowUI::runStateNotRunningText());
 
-        // 第四句（2026-10-15 用户加的）：「有实例异常退出」。用户原话就是这五个字。
+        // 第四句（ 用户加的）：「有实例异常退出」。要求就是这五个字。
         // NOTE: 这一句和「当前没有运行中的实例」**必须**是两句 —— 红那一档说的是"出过事"，
-        //       灰那一档说的是"没在跑"，两句混成一句的话用户根本分不出"要不要去看一眼"。
+        // 灰那一档说的是"没在跑"，两句混成一句的话用户根本分不出"要不要去看一眼"。
         check(MainWindowUI::runStateErrorText() == QStringLiteral("有实例异常退出"),
               "有实例异常退出时那句是「有实例异常退出」", MainWindowUI::runStateErrorText());
         check(MainWindowUI::runStateErrorText() != MainWindowUI::runStateNotRunningText() &&
@@ -6384,8 +6301,8 @@ int main(int argc, char *argv[]) {
     std::printf("===== I4. 底栏两头那两颗按钮：点一下**向上**弹一块面板（2026-09-23 补，"
                 "2026-09-24 换成真行） =====\n");
     {
-        // 用户原话：「这个文本这里和另一边头像那里都做成个按钮，点击以后能向上展开更多信息
-        // 的那种（像官启那样的）」；2026-09-24 又定下两块面板装什么：「左边那个列出进行中
+        // 要求：「这个文本这里和另一边头像那里都做成个按钮，点击以后能向上展开更多信息
+        // 的那种（像官启那样的）」； 又定下两块面板装什么：「左边那个列出进行中
         // 的实例…右边一个电源图标一个齿轮图标，分别是关闭实例和进入实例设置，右边是快速
         // 切换账号，列出最后登录的三个账户，离线的右侧按钮写 选择，正版的右侧写 登录」。
         // 这一节量的是**面板机制**（谁装在谁里面、弹在哪、怎么关、点了行尾按钮回来什么）
@@ -6394,12 +6311,12 @@ int main(int argc, char *argv[]) {
         // 那几条在 mw_check 里量。
         QPushButton *runBtn = ui.getRunStateButton();
         QPushButton *accBtn = ui.getAccountButton();
-        // ★ 2026-10-16：账号那一块面板的锚点**换成了主页右上那张账号卡片** —— 底栏那颗
-        //   账号按钮 `hide()` 之后点不到它了（用户原话：「这个的对应功能继承到右上角那个
-        //   按钮去」）。`accBtn` 继续留着量"底栏那组兼容控件还在、宽度还钉着"，
-        //   而凡是"点开/收起那一块"的地方、以及量面板几何时的锚点，都走 `accCard`。
-        //   NOTE: 卡片在主页那一页上，几何是**那一页当前摆着的时候**才算得准（量之前那一节
-        //         会把主页切到最前面）。
+        // 账号那一块面板的锚点**换成了主页右上那张账号卡片** —— 底栏那颗
+        // 账号按钮 `hide()` 之后点不到它了（要求：「这个的对应功能继承到右上角那个
+        // 按钮去」）。`accBtn` 继续留着量"底栏那组兼容控件还在、宽度还钉着"，
+        // 而凡是"点开/收起那一块"的地方、以及量面板几何时的锚点，都走 `accCard`。
+        // NOTE: 卡片在主页那一页上，几何是**那一页当前摆着的时候**才算得准（量之前那一节
+        // 会把主页切到最前面）。
         QPushButton *accCard = ui.getAccountSkinButton();
         QLabel *runState = ui.getRunStateLabel();
         QLabel *runDetail = ui.getRunStateDetailLabel();
@@ -6410,8 +6327,8 @@ int main(int argc, char *argv[]) {
         if (runBtn != nullptr && accBtn != nullptr && runState != nullptr &&
             runDetail != nullptr && avatar != nullptr && progress != nullptr) {
             // ① 整格是**一颗按钮**：原来那两行字（右边是头像那组）现在装在按钮里面。
-            //    这条同时是"挤短进度条"那个 bug 的护栏 —— 宽度钉在**按钮**上，
-            //    里面有没有字都一样宽（隐藏的控件在布局里宽度是 0）。
+            // 这条同时是"挤短进度条"那个 bug 的护栏 —— 宽度钉在**按钮**上，
+            // 里面有没有字都一样宽（隐藏的控件在布局里宽度是 0）。
             check(runState->parentWidget() == runBtn && runDetail->parentWidget() == runBtn,
                   "I4 左边那两行字装在那颗按钮里",
                   runState->parentWidget() != nullptr ? runState->parentWidget()->objectName()
@@ -6420,7 +6337,7 @@ int main(int argc, char *argv[]) {
                   avatar->parentWidget() != nullptr ? avatar->parentWidget()->objectName()
                                                     : QStringLiteral("<null>"));
             // 是**贴着按钮左边缘**摆的：靠右摆会在头像左边空出一大段（实测 115 px ——
-            // 那一格宽 208、内容只有九十来 px），用户 2026-09-23 报的
+            // 那一格宽 208、内容只有九十来 px），用户 报的
             // 「头像那里的左侧有一段空白」就是它。箭头照旧钉在按钮右边缘。
             check(avatar->x() == 0, "I4 头像贴着按钮左边缘（左边不留空）",
                   QStringLiteral("头像 x=%1 / 按钮宽 %2").arg(avatar->x()).arg(accBtn->width()));
@@ -6434,7 +6351,7 @@ int main(int argc, char *argv[]) {
                       : QStringLiteral("<没找到箭头>"));
 
             // ② 两颗按钮各带一个**朝上**的箭头。朝向不看"像不像"，量画出来的像素：
-            //    朝上那个顶行是**尖的**（一小撮、居中），朝下那个顶行是张开的两个点。
+            // 朝上那个顶行是**尖的**（一小撮、居中），朝下那个顶行是张开的两个点。
             const QColor ink(0x12, 0x34, 0x56);
             const int chevSize = MainWindowUI::bottomBarChevronSize();
             const auto paintedSpan = [](const QImage &img, bool top) {
@@ -6471,10 +6388,10 @@ int main(int argc, char *argv[]) {
                   QStringLiteral("朝上顶行宽 %1 / 朝下顶行宽 %2").arg(upTop).arg(downTop));
             check(upTop > 0 && upTop < upBottom, "I4 上窄下宽 = 尖朝上",
                   QStringLiteral("顶 %1 / 底 %2").arg(upTop).arg(upBottom));
-            // ★ 三格各带一个箭头（2026-10-12 任务中心那次从两颗变三颗）：左边"几份在跑"、
-            //   中间"任务摘要"、右边"账号"，三块都是往上弹的面板，所以箭头长得一样、名字也
-            //   共用（`makeChevronLabel()` 是唯一出处）。数的时候按**整窗**数 —— 这也就顺手
-            //   钉住了"三颗都得挂上"。
+            // 三格各带一个箭头（ 任务中心那次从两颗变三颗）：左边"几份在跑"、
+            // 中间"任务摘要"、右边"账号"，三块都是往上弹的面板，所以箭头长得一样、名字也
+            // 共用（`makeChevronLabel()` 是唯一出处）。数的时候按**整窗**数 —— 这也就顺手
+            // 钉住了"三颗都得挂上"。
             check(window.findChildren<QLabel *>(MainWindowUI::bottomBarChevronName()).size() == 3,
                   "I4 三格（左「在跑的实例」/ 中「任务摘要」/ 右「账号」）各带一个箭头",
                   QStringLiteral("找到 %1 个")
@@ -6495,7 +6412,7 @@ int main(int argc, char *argv[]) {
                 [](bool account) -> QList<MainWindowUI::PanelRow> {
                     if (account) {
                         // 右边那块（账号）：当前账号那颗按钮写「登出」、**能点**（用户
-                        // 2026-09-24 改的，原先写「当前」并灰掉），另一个账号那颗写
+                        // 改的，原先写「当前」并灰掉），另一个账号那颗写
                         // 「选择」/「登录」。
                         QList<MainWindowUI::PanelRow> accounts;
                         MainWindowUI::PanelRow mine;
@@ -6535,7 +6452,7 @@ int main(int argc, char *argv[]) {
                                                    ink);
                     gear.tooltip = QStringLiteral("实例设置");
                     gear.enabled = false;  // 灰掉一颗，"灰的那颗点不动"才有得量
-                    // 第三颗是**字的**（2026-10-14 加：运行中实例弹层"打开日志/停止"那一套，
+                    // 第三颗是**字的**（ 加：运行中实例弹层"打开日志/停止"那一套，
                     // 见 MainWindowUI::bottomBarPanelLogText()）。摆成和产品里一样的
                     // 「图标 / 图标 / 字」三颗，那条"文字那颗按字撑宽、图标那两颗是正方形"
                     // 才有得量。
@@ -6590,7 +6507,7 @@ int main(int argc, char *argv[]) {
                           .arg(rowWidget0 != nullptr ? QStringLiteral("在") : QStringLiteral("没找到"),
                                rowWidget1 != nullptr ? QStringLiteral("在") : QStringLiteral("没找到")));
                 // 「一行一个会话」：主行字是实例名，次行字是**这一份跑了多久**（用户
-                // 2026-09-24 原话：「一行一个会话，有时长是好主意，做进去」）。
+                // 原话：「一行一个会话，有时长是好主意，做进去」）。
                 check(title0 != nullptr &&
                           title0->text() == QStringLiteral("我的整合包-1.20.1-NeoForge"),
                       "I4 第一行的主行字就是喂进去的实例名",
@@ -6658,7 +6575,7 @@ int main(int argc, char *argv[]) {
                 check(gearBtn != nullptr && !gearBtn->isEnabled(),
                       "I4 灰掉的那一颗真的点不动（照 PanelAction::enabled 走，右面板"
                       "「当前」那颗也靠它）");
-                // 「打开日志」那颗（2026-10-14 加）：**没给图标就给字**，而且按字撑宽 ——
+                // 「打开日志」那颗（ 加）：**没给图标就给字**，而且按字撑宽 ——
                 // 图标那两颗是钉死的正方形（22），文字这颗要是也被压成 22 宽，「日志」两个字
                 // 就只剩半个。两条合起来钉住 "PanelAction 的两种形态各走各的那一支"。
                 check(logBtn != nullptr && logBtn->icon().isNull() && !logBtn->text().isEmpty(),
@@ -6713,7 +6630,7 @@ int main(int argc, char *argv[]) {
                       "I4 没给图标的那一行连图标控件都没有（那一格不是「留白」）");
                 // 那句"跑了多久"的四档话术。**纯函数**（MainWindowUI::runningDurationText），
                 // 所以四档都能在这儿钉住 —— "已经跑了 3 天"那一档在真界面上等不出来。
-                // 用户 2026-09-24 原话：「一行一个会话，有时长是好主意，做进去」。
+                // 要求：「一行一个会话，有时长是好主意，做进去」。
                 const qint64 base = QDateTime::currentMSecsSinceEpoch();
                 check(MainWindowUI::runningDurationText(base, base + 59 * 1000) ==
                           QStringLiteral("已运行不到 1 分钟") &&
@@ -6762,14 +6679,14 @@ int main(int argc, char *argv[]) {
             }
             // ④ 行尾那颗按钮：点一下要**先把面板收回去**，再把「哪一行是谁 + 第几颗」交回来。
             //
-            //    NOTE: 先收回去是硬要求 —— 这两个动作里有一个要弹模态窗（实例设置那个对话框），
-            //          而面板是个 Qt::Popup，它按着鼠标键盘的 grab；模态窗开在一层抓着 grab
-            //          的东西底下，在 Windows 上就是"窗出来了但点不动"。所以回调是**排到
-            //          下一轮事件循环**去的（close() 只发了个关闭事件，面板要等这一轮走完
-            //          才真的没了，当轮就弹模态窗等于没关）。
-            //    NOTE: 回来的身份是 PanelRow::key（左面板 = 会话号），**不是行号** ——
-            //          面板弹出来到按钮被点之间隔着用户看那两眼，这中间列表是会变的，
-            //          认行号就会"关掉另一份游戏"。
+            // NOTE: 先收回去是硬要求 —— 这两个动作里有一个要弹模态窗（实例设置那个对话框），
+            // 而面板是个 Qt::Popup，它按着鼠标键盘的 grab；模态窗开在一层抓着 grab
+            // 的东西底下，在 Windows 上就是"窗出来了但点不动"。所以回调是**排到
+            // 下一轮事件循环**去的（close() 只发了个关闭事件，面板要等这一轮走完
+            // 才真的没了，当轮就弹模态窗等于没关）。
+            // NOTE: 回来的身份是 PanelRow::key（左面板 = 会话号），**不是行号** ——
+            // 面板弹出来到按钮被点之间隔着用户看那两眼，这中间列表是会变的，
+            // 认行号就会"关掉另一份游戏"。
             firedPanels.clear();
             firedKeys.clear();
             firedActions.clear();
@@ -6802,8 +6719,8 @@ int main(int argc, char *argv[]) {
                       "I4 点完行尾按钮，面板已经收回去了");
             }
             // ④b **第三颗**（那颗文字按钮「日志」）点下去报的是编号 2，不是 0 —— "第几颗"
-            //     是面板唯一认得出的身份（按钮上是图标还是字、写着什么，都不参与判断）。
-            //     这条和上面那条第 0 颗的合起来说明"编号 = 位置"这件事两头都成立。
+            // 是面板唯一认得出的身份（按钮上是图标还是字、写着什么，都不参与判断）。
+            // 这条和上面那条第 0 颗的合起来说明"编号 = 位置"这件事两头都成立。
             firedPanels.clear();
             firedKeys.clear();
             firedActions.clear();
@@ -6829,11 +6746,11 @@ int main(int argc, char *argv[]) {
                           .arg(firedActions.value(0)));
                 QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             }
-            // ⑤ 开关：开着的时候再点**同一颗**按钮要**收回**（用户 2026-09-23 原话：
-            //    「那个按钮，点开以后处于展开状态时再次点击按钮收回」）。
-            //    NOTE: 这一下 Qt 会把它重放给按钮（Qt::Popup 点外面自动关的时候专门补的，
-            //          不然"菜单关掉之后再点不开"），所以按钮照旧收到 clicked —— 收回去
-            //          靠的是接线那道"已经开着就不许再开"，不是靠 Qt 帮忙。
+            // ⑤ 开关：开着的时候再点**同一颗**按钮要**收回**（要求：
+            // 「那个按钮，点开以后处于展开状态时再次点击按钮收回」）。
+            // NOTE: 这一下 Qt 会把它重放给按钮（Qt::Popup 点外面自动关的时候专门补的，
+            // 不然"菜单关掉之后再点不开"），所以按钮照旧收到 clicked —— 收回去
+            // 靠的是接线那道"已经开着就不许再开"，不是靠 Qt 帮忙。
             runBtn->click();
             QApplication::processEvents();
             check(window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()) != nullptr,
@@ -6854,20 +6771,16 @@ int main(int argc, char *argv[]) {
             QApplication::processEvents();
             check(window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()) != nullptr,
                   "I4 收回之后再点一下还能打开（开关是双向的）");
-            // 右边那一块（2026-10-16 起锚点是**主页右上那张账号卡片**）：贴卡片**右**边缘
-            //（面板比卡片宽的时候往左长，不出窗口），而且往下弹 —— 卡片贴着头顶，往上弹没地方。
+            // 右边那一块（ 起锚点是**主页右上那张账号卡片**）：贴卡片**右**边缘
+            // （面板比卡片宽的时候往左长，不出窗口），而且往下弹 —— 卡片贴着头顶，往上弹没地方。
             // 这会儿左边那块是开着的：点卡片要**这块收、那块开**，不能两块一起挂着。
             // NOTE: 真鼠标下这一下多半先被左那块（Qt::Popup）吃掉、只收不开（Qt 的规矩：
-            //       点面板外面 = 关掉，这一下不往下传 —— 探针 popup_probe 实测如此），
-            //       要再点一下才开；这里量的是"clicked 真落到按钮上时不许叠两块"。
+            // 点面板外面 = 关掉，这一下不往下传 —— 探针 popup_probe 实测如此），
+            // 要再点一下才开；这里量的是"clicked 真落到按钮上时不许叠两块"。
             QWidget *leftOpen = window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
             check(leftOpen != nullptr && leftOpen->isVisible() &&
                       leftOpen->x() == runBtn->mapToGlobal(QPoint(0, 0)).x(),
                   "I4 换面之前左边那块开着（量下面那条的前提）");
-            // ★ 2026-10-16：这一下点是**主页那张账号卡片**（底栏那颗已经 `hide()` 了）。
-            //   换成真鼠标的话也一样：卡片在主页那一页，`hits()` 里那句 `isVisible()` 就是
-            //   为它加的门（隐藏的控件按矩形照旧"命中"）。这里是直接 `click()`，
-            //   所以不依赖卡片是不是当前摆着 —— 但几何那两条要准，先得把主页切到前面。
             if (QTabWidget *tabs = ui.getTabWidget()) {
                 tabs->setCurrentIndex(MainWindowUI::homeTabIndex());
                 QApplication::processEvents();
@@ -6884,16 +6797,16 @@ int main(int argc, char *argv[]) {
                       .arg(window.findChildren<QWidget *>(MainWindowUI::bottomBarPanelName()).size()));
             if (rightPanel != nullptr) {
                 const QPoint accAnchor = accCard->mapToGlobal(QPoint(accCard->width(), 0));
-                // ★★ 这一条量的是**整条规矩**（2026-10-14，§3.3「窄窗口避让」）：
-                //    「右边缘贴锚点右边缘」**且**「整块不许越过屏幕右边缘」。这两句会打架
-                //    —— 而它们在 **offscreen 那一趟真的打架**：那块虚拟屏只有 800x600，
-                //    而主窗是按 900 摆的，右边那个锚点的全局 x 落在屏幕**外面**（888），
-                //    于是面板被避让逻辑夹回屏幕里（右边缘 = 800），"贴着锚点"这句当场不成立。
-                //    NOTE: 所以期望值要按"锚点在不在屏幕里"分两支 —— 只钉前一句的话，
-                //          离屏那一趟必红；只钉后一句的话，正常那一趟就量不出"贴着"了
-                //          （而"贴着锚点"正是用户 2026-09-23 点名的那句）。
-                //    ★ 2026-10-16：锚点从**底栏那颗账号按钮**换成**主页右上那张账号卡片**
-                //      （见本节开头的 NOTE），两支判据本身一个字都没改。
+                // 这一条量的是**整条规矩**（，§3.3「窄窗口避让」）：
+                // 「右边缘贴锚点右边缘」**且**「整块不许越过屏幕右边缘」。这两句会打架
+                // —— 而它们在 **offscreen 那一趟真的打架**：那块虚拟屏只有 800x600，
+                // 而主窗是按 900 摆的，右边那个锚点的全局 x 落在屏幕**外面**（888），
+                // 于是面板被避让逻辑夹回屏幕里（右边缘 = 800），"贴着锚点"这句当场不成立。
+                // NOTE: 所以期望值要按"锚点在不在屏幕里"分两支 —— 只钉前一句的话，
+                // 离屏那一趟必红；只钉后一句的话，正常那一趟就量不出"贴着"了
+                // （而"贴着锚点"正是用户 点名的那句）。
+                // 锚点从**底栏那颗账号按钮**换成**主页右上那张账号卡片**
+                // （见本节开头的 NOTE），两支判据本身一个字都没改。
                 const QRect accScreen =
                     accCard->screen() != nullptr ? accCard->screen()->availableGeometry() : QRect();
                 const bool anchorOnScreen =
@@ -6910,9 +6823,6 @@ int main(int argc, char *argv[]) {
                           .arg(accAnchor.x())
                           .arg(accScreen.left())
                           .arg(accScreen.right()));
-                // ★ 2026-10-16：方向反过来 —— 卡片贴着头顶，那块是**从卡片下面掉下来**的
-                //   （`dropDown = true` ⇒ popUp() 走 slideDown()）。锚点换成卡片之后，
-                //   "面板在上方"这句不再是这一块的真话。
                 check(rightPanel->y() >=
                           accCard->mapToGlobal(QPoint(0, accCard->height())).y(),
                       "I4 账号那一块是在卡片**下方**（卡片贴着头顶，往上弹没地方）",
@@ -6977,11 +6887,11 @@ int main(int argc, char *argv[]) {
                           "I4 点了「登出」之后面板也收回去（和「选择」一样）");
                 }
                 // NOTE: 这儿原来有一条"点**灰掉**那一颗什么都不发生"。**那一颗没有了** ——
-                //       右面板里当前账号那颗现在写着「登出」且能点，产品里已经没有任何一颗走
-                //       `PanelAction::enabled = false` 了（那个开关留着，给将来"这一下现在
-                //       做不了"的按钮）。为它硬摆一个合成的假灰按钮就变成在量 Qt 自己
-                //       （disabled 的 QPushButton 不发 clicked 是 Qt 的规矩）。替它的是上面
-                //       那条"真能点、回调带对了 key"。
+                // 右面板里当前账号那颗现在写着「登出」且能点，产品里已经没有任何一颗走
+                // `PanelAction::enabled = false` 了（那个开关留着，给将来"这一下现在
+                // 做不了"的按钮）。为它硬摆一个合成的假灰按钮就变成在量 Qt 自己
+                // （disabled 的 QPushButton 不发 clicked 是 Qt 的规矩）。替它的是上面
+                // 那条"真能点、回调带对了 key"。
                 //
                 // 点「选择」那颗：面板收回去，回调带 account = true + 那个账号的 uuid。
                 // 先把它重新打开（上面那一下已经收掉了），**并把上一下那几条回调记录清掉**
@@ -7018,12 +6928,12 @@ int main(int argc, char *argv[]) {
                     QApplication::processEvents();
                 }
             }
-            // ⑥b 账户那一块**只有一行高的时候就一行高**（2026-10-14，coding plan §3.3
-            //     「账户弹层保持紧凑，单账户不浪费成大列表，多账户时再展开切换列表」）。
-            //     面板的高度跟着**行数**走（popUp() 里 adjustSize()）：一个账号时那块就是
-            //     "一行 + 上下内边距"，**不许**留出三行那种大盒子的空位；账号多起来（这里是
-            //     三行）那块自然就长高了。判据刻意不写死字号/内边距那几个数字（它们是
-            //     MainWindowUI.cpp 里的文件级常量），只钉"**不到两行**"和"三行那块更高"。
+            // ⑥b 账户那一块**只有一行高的时候就一行高**（，coding plan §3.3
+            // 「账户弹层保持紧凑，单账户不浪费成大列表，多账户时再展开切换列表」）。
+            // 面板的高度跟着**行数**走（popUp() 里 adjustSize()）：一个账号时那块就是
+            // "一行 + 上下内边距"，**不许**留出三行那种大盒子的空位；账号多起来（这里是
+            // 三行）那块自然就长高了。判据刻意不写死字号/内边距那几个数字（它们是
+            // MainWindowUI.cpp 里的文件级常量），只钉"**不到两行**"和"三行那块更高"。
             {
                 int wantedRows = 1;
                 ui.setBottomBarPanelContent(
@@ -7048,7 +6958,6 @@ int main(int argc, char *argv[]) {
                         return rows;
                     },
                     nullptr);
-                // ★ 2026-10-16：开/收那一块的点法跟着锚点走（点的是主页那张账号卡片）。
                 const auto measureAccountPanel = [&window, accCard](int *rowHeightOut) {
                     accCard->click();
                     QApplication::processEvents();
@@ -7096,7 +7005,7 @@ int main(int argc, char *argv[]) {
                 ui.setBottomBarPanelContent(nullptr, nullptr);
             }
             // ⑦ 兜底：没装 provider（或它给了个空列表）时，面板里留**一句话**而不是一块
-            //    空白 —— 空白一块比一句话更难查（用户分不清"没弹出来"和"弹出来是空的"）。
+            // 空白 —— 空白一块比一句话更难查（用户分不清"没弹出来"和"弹出来是空的"）。
             ui.setBottomBarPanelContent(nullptr, nullptr);
             runBtn->click();
             QApplication::processEvents();
@@ -7120,20 +7029,20 @@ int main(int argc, char *argv[]) {
             ui.setBottomBarPanelContent(nullptr, nullptr);
             progress->hide();
             // 那一格还成开局那一份 —— 不能再 `status->hide()`：它开局就是亮的
-            //（2026-10-12 任务中心那次改的，理由见 E4/I 那两节）。
+            // （ 任务中心那次改的，理由见 E4/I 那两节）。
             ui.setBottomBarTaskSummary(MainWindowUI::BottomBarTaskSummary());
             QApplication::processEvents();
 
-            // ⑧ 左下那一格**点不点得开**（2026-09-25 加）。判据在 MainWindow 手里
-            //    （`runningGames()` 空不空），界面这一头只管把"点得开 / 点不开"画出来
-            //    （见 setRunPanelAvailable()）—— 所以这里量两件事：**初值**必须是点得开
-            //    （谁都没摆过的时候不该一上来就点不动，独立构造 MainWindowUI 的地方吃这个
-            //    初值），以及摆下去之后**真的**点不开（不是只把箭头藏起来做样子）。
+            // ⑧ 左下那一格**点不点得开**（ 加）。判据在 MainWindow 手里
+            // （`runningGames()` 空不空），界面这一头只管把"点得开 / 点不开"画出来
+            // （见 setRunPanelAvailable()）—— 所以这里量两件事：**初值**必须是点得开
+            // （谁都没摆过的时候不该一上来就点不动，独立构造 MainWindowUI 的地方吃这个
+            // 初值），以及摆下去之后**真的**点不开（不是只把箭头藏起来做样子）。
             //
-            //    NOTE: 这一节用 `click()` 点，不用真鼠标事件：`QAbstractButton::click()`
-            //          在 disabled 的时候会**直接返回**（那样断言就白绿了），而这一格用的
-            //          是 WA_TransparentForMouseEvents、按钮本身是 enabled 的 —— 所以
-            //          `click()` 照样发 clicked()，能不能弹出来全看 toggle 里那道闸。
+            // NOTE: 这一节用 `click()` 点，不用真鼠标事件：`QAbstractButton::click()`
+            // 在 disabled 的时候会**直接返回**（那样断言就白绿了），而这一格用的
+            // 是 WA_TransparentForMouseEvents、按钮本身是 enabled 的 —— 所以
+            // `click()` 照样发 clicked()，能不能弹出来全看 toggle 里那道闸。
             {
                 QLabel *chevron =
                     runBtn->findChild<QLabel *>(MainWindowUI::bottomBarChevronName());
@@ -7197,19 +7106,14 @@ int main(int argc, char *argv[]) {
 
     std::printf("===== I5. 两颗按钮的高度、中间那根条的宽度（2026-09-23 用户第二次报的） =====\n");
     {
-        // 用户原话：「左右那个…只有一行的高度 文字和图像只能挤着（显示不全）」
-        //           「中间进度条现在奇小无比」，还猜了一句「估计是控件类型的问题」——
-        //           猜对了：QPushButton 竖直方向的 sizePolicy 默认是 Fixed，而它这会儿的
-        //           高度提示只有一行字（QSS 把 padding/border 清零了），于是那一格只有
-        //           12 px 高，两行字被压成各 6 px。
+        // 要求：「左右那个…只有一行的高度 文字和图像只能挤着（显示不全）」
+        // 「中间进度条现在奇小无比」，还猜了一句「估计是控件类型的问题」——
+        // 猜对了：QPushButton 竖直方向的 sizePolicy 默认是 Fixed，而它这会儿的
+        // 高度提示只有一行字（QSS 把 padding/border 清零了），于是那一格只有
+        // 12 px 高，两行字被压成各 6 px。
         // 这两条都是**量出来的**结论，所以钉进测试：再有人把按钮的高度提示当回事、
         // 或者把两头那两格加宽回去，这里当场红。
         QPushButton *runBtn = ui.getRunStateButton();
-        // ★ 2026-10-16：右边那一格不再是隐藏的账号格，而是**工具箱**入口 ——
-        //   底栏现在两头各一格、都是 170 宽（`bottomBarRunStateColumnWidth()`），
-        //   所以"两头那两格一样高、进度条比它们都宽、并且居中"这几条照旧成立，
-        //   只是右边那个参照物换成了真在布局里的那颗。隐藏的账号格**不参与布局**
-        //   （它的高度停在 sizeHint 上，拿它量"铺满底栏"必红）。
         QPushButton *accBtn = ui.getToolboxButton();
         QLabel *runState = ui.getRunStateLabel();
         QLabel *runDetail = ui.getRunStateDetailLabel();
@@ -7236,7 +7140,7 @@ int main(int argc, char *argv[]) {
             QApplication::processEvents();
 
             // ① 那两行字**没被压扁**：每一行的高度都不小于它自己要的高度。
-            //    （12 px 的格子里这两行只有 6 px 高 —— 就是用户看到的"挤着、显示不全"。）
+            // （12 px 的格子里这两行只有 6 px 高 —— 就是用户看到的"挤着、显示不全"。）
             check(runState->height() >= runState->sizeHint().height() &&
                       runDetail->height() >= runDetail->sizeHint().height(),
                   "左边那两行字没被压扁（各行的高 ≥ 它自己的高）",
@@ -7265,7 +7169,7 @@ int main(int argc, char *argv[]) {
                       .arg(runDetail->sizeHint().height()));
 
             // ③ 中间那根条**不许太小**：至少占底栏的三分之一，且比两头那两颗都宽。
-            //    （用户报「奇小无比」那会儿是 262/900 = 29%，还没左边那颗宽多少。）
+            // （用户报「奇小无比」那会儿是 262/900 = 29%，还没左边那颗宽多少。）
             const int share = bar->width() > 0 ? progress->width() * 100 / bar->width() : 0;
             check(share >= 35, "中间那根条至少占底栏三分之一",
                   QStringLiteral("条 %1 px / 底栏 %2 px = %3%")
@@ -7331,20 +7235,16 @@ int main(int argc, char *argv[]) {
 
     std::printf("===== J2. 底栏那颗状态方块的四档（2026-09-24 补，2026-10-15 改成四档） =====\n");
     {
-        // 用户原话（2026-09-24）：「左下角没有实例的时候显示（红色的）■…启动的时候那个符号
+        // 要求：「左下角没有实例的时候显示（红色的）■…启动的时候那个符号
         // （也可以画图代替）变成黄色…启动以后符号变成绿色，和原来一样」。
-        //
-        // ★ 2026-10-15 用户改了其中一档：「黄和绿不变，红色改有实例报错，没有实例用灰色」。
-        //   所以现在四档是 灰（没实例）/ 黄（启动中）/ 绿（在跑）/ 红（有实例异常退出），
-        //   这一节钉的是**颜色**那一半（文字和判据在别处：J 节那片真值表、I3 那几句文案）。
         //
         // 颜色的判据只看**色相落在哪一段**（外加饱和度要够）—— 不写死 #c02828 那种十六进制：
         // 那等于把色值抄了一遍（改色时两处一起改才绿，测试就成了"复读机"）。色相是
         // "这是红/黄/绿哪一种"的本体，深浅两套各自微调色值时它都不变。
         //
-        // ★ 灰那一档**不能用色相量**（灰没有色相：QColor::hue() 对它是 -1，本节的 hueOf()
-        //   又把它归成 0，正好和红撞上）。它量的换成"**说不上是什么颜色**"：饱和度低到
-        //   一定程度。红/黄/绿那三档仍然按色相分段量。
+        // 灰那一档**不能用色相量**（灰没有色相：QColor::hue() 对它是 -1，本节的 hueOf()
+        // 又把它归成 0，正好和红撞上）。它量的换成"**说不上是什么颜色**"：饱和度低到
+        // 一定程度。红/黄/绿那三档仍然按色相分段量。
         const auto hueOf = [](const QColor &c) {
             // QColor::hue() 对灰色返回 -1，这里统一成 0..359
             const int h = c.hue();
@@ -7402,10 +7302,6 @@ int main(int argc, char *argv[]) {
                       .arg(green.name())
                       .arg(hueOf(green))
                       .arg(green.saturation()));
-            // 红/黄/绿三个色**两两分得开**：只各自落在自己那一段还不够，红画成橙色那种
-            // "两段都挨着"的错也要挡住（色相彼此至少差 40，黄绿红三档实测差 60+）。
-            // NOTE: 灰不掺和这一条（它没有色相），它由上面的饱和度那一条和下面那条
-            //       "四张图两两不同"管着。
             const int hRed = hueOf(red);
             const int hYellow = hueOf(yellow);
             const int hGreen = hueOf(green);
@@ -7489,7 +7385,7 @@ int main(int argc, char *argv[]) {
               "栏**内**那张表格的默认份数是 3:7（设置页每一栏、实例设置里那几张表格）",
               QString("%1:%2").arg(defaultLeftStretch).arg(defaultRightStretch));
         check(MainWindowUI::rightColumnIsWider(), "栏内那张表格里右列更宽");
-        // 主页反着来（左宽右窄）。★ 2026-10-16：这一对份数现在只是**入参**了 ——
+        // 主页反着来（左宽右窄）。★ ：这一对份数现在只是**入参**了 ——
         // 主页右栏是定宽的（`homeRightColumnWidth()`，见下面那一段量的），
         // 这里只钉"左栏那边仍然标着更宽"这件事，别拿这两个数去算栏宽。
         check(MainWindowUI::leftColumnIsWider(QStringLiteral("home")) &&
@@ -7499,12 +7395,12 @@ int main(int argc, char *argv[]) {
               QString("%1:%2")
                   .arg(MainWindowUI::leftColumnStretch(QStringLiteral("home")))
                   .arg(MainWindowUI::rightColumnStretch(QStringLiteral("home"))));
-        // ★ 另三页**不再是按比例分宽**（2026-10-12 那次改版）：左栏换成**固定宽度的
-        //   侧栏**（`sidebarWidth()`，用户那份文档："侧栏 208 px"），份数给 0 ——
-        //   宽度全归正文那一栏。从前那两套 2:8（下载页 / 设置页）连函数一起删了，
-        //   所以这里量的是**真实的栏宽**，不是份数：
-        //     · 左栏 == sidebarWidth()（一个像素都不多不少）；
-        //     · 右栏 == 页面宽 - 左栏 - 两条页边距 - 中间那条间距（也就是"剩下的全给它"）。
+        // 另三页**不再是按比例分宽**（ 那次改版）：左栏换成**固定宽度的
+        // 侧栏**（`sidebarWidth()`，用户那份文档："侧栏 208 px"），份数给 0 ——
+        // 宽度全归正文那一栏。从前那两套 2:8（下载页 / 设置页）连函数一起删了，
+        // 所以这里量的是**真实的栏宽**，不是份数：
+        // · 左栏 == sidebarWidth()（一个像素都不多不少）；
+        // · 右栏 == 页面宽 - 左栏 - 两条页边距 - 中间那条间距（也就是"剩下的全给它"）。
         check(!MainWindowUI::leftColumnIsWider(QStringLiteral("instance")) &&
                   !MainWindowUI::leftColumnIsWider(QStringLiteral("download")) &&
                   !MainWindowUI::leftColumnIsWider(QStringLiteral("settings")),
@@ -7532,12 +7428,6 @@ int main(int argc, char *argv[]) {
                       .arg(left->x() + left->width())
                       .arg(right->x()));
             if (home) {
-                // ★★ 2026-10-16：主页右栏**不再按份数分宽** —— 它钉死在一个常量上
-                //    （`homeRightColumnWidth()`，人物预览那一栏的宽度：160 的画布 +
-                //    左右各 8 的内边距），左栏吃剩下的全部。
-                //    NOTE: 断言只钉**右栏**那个数（它是与窗口宽度无关的常量，offscreen
-                //          那一趟也照样量得准）；左栏是"剩下的"，窗口多宽它就多宽，
-                //          钉它的绝对值就是在量窗口尺寸、不是量这条规矩。
                 check(left->width() > right->width() &&
                           right->width() == MainWindowUI::homeRightColumnWidth(),
                       QStringLiteral("home 页：右栏钉在人物预览那一栏的宽度上（%1 px），"
@@ -7569,7 +7459,7 @@ int main(int argc, char *argv[]) {
             // 三页（非主页）的左栏那个面就是侧栏那一档（`wtfmlSurface="sidebar"`），
             // 而且那个面**自己不画边框**（用户文档："不画完整矩形边框"）。
             // NOTE: 面是左栏**里面**那张 `QFrame`（见 buildTwoColumnPage() 里 `makeColumn()`
-            //       那一段）—— 所以这里问的是"左栏里有没有这么一张面"，不是"左栏自己是不是"。
+            // 那一段）—— 所以这里问的是"左栏里有没有这么一张面"，不是"左栏自己是不是"。
             if (!home) {
                 check(surfaceOf(page, Theme::sidebarSurfaceValue()) != nullptr &&
                           surfaceOf(left, Theme::sidebarSurfaceValue()) != nullptr,
@@ -7583,7 +7473,7 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // 左栏放什么：★ 2026-10-16 起主页**不再摆**那颗版本下拉框和那颗大启动按钮 ——
+        // 左栏放什么：★ 起主页**不再摆**那颗版本下拉框和那颗大启动按钮 ——
         // 两者都还在（业务层照旧往里灌数据、接信号）但 `hide()` 了。可见的入口换成：
         // 左栏底下那张「当前实例」卡片里的「启动」，以及底部快捷区那颗「列表」。
         tabs->setCurrentIndex(MainWindowUI::homeTabIndex());
@@ -7606,8 +7496,8 @@ int main(int argc, char *argv[]) {
               QStringLiteral("combo visible=%1 / 启动按钮 visible=%2")
                   .arg(installed != nullptr ? int(installed->isVisible()) : -1)
                   .arg(startBtn != nullptr ? int(startBtn->isVisible()) : -1));
-        // 主页右栏 2026-09 曾经是空的（那张「版本列表」去掉了），现在装的是「我的角色」：
-        // 顶上一张账号卡片 + 3D 小人 +（默认收起来的那行说明）。★ 2026-10-16：这一栏的
+        // 主页右栏 曾经是空的（那张「版本列表」去掉了），现在装的是「我的角色」：
+        // 顶上一张账号卡片 + 3D 小人 +（默认收起来的那行说明）。★ ：这一栏的
         // 宽度**不再由份数决定** —— 它被 `setFixedWidth()` 钉死（见上面那一段量的
         // `homeRightColumnWidth()`），里面那行说明把自己从横向度量里摘出去只是"顺手"，
         // 不再是"这一栏宽度成立的前提"。
@@ -7643,14 +7533,14 @@ int main(int argc, char *argv[]) {
 
     std::printf("\n===== K2. 页面骨架：页头 / 正文面 / 侧栏面（四页一颗 QGroupBox 都不许有） =====\n");
     {
-        // 用户 2026-10-12 那份改版文档给的是**同一个骨架**（原图那两块）：
-        //     侧栏 | 页面标题 + 操作
-        //          | 页面说明 / 路径 / 当前状态
-        //          |------------------------------  ← 这一条之下才是正文
-        //          | 主内容
+        // 用户 那份改版文档给的是**同一个骨架**（原图那两块）：
+        // 侧栏 | 页面标题 + 操作
+        // | 页面说明 / 路径 / 当前状态
+        // |------------------------------ ← 这一条之下才是正文
+        // | 主内容
         // 这一节量的就是这几层**在树上的位置关系**（页头在外面、正文面在页头下面、
         // 标题/说明挂的是哪一档文字角色），以及那条"减框"规矩的最后一道闸：**产品那四页
-        // 里一颗 `QGroupBox` 都不许有**（用户原话：「右侧只有一个主要内容表面（不再用多个
+        // 里一颗 `QGroupBox` 都不许有**（要求：「右侧只有一个主要内容表面（不再用多个
         // QGroupBox 套起来）」）。几何类的那几条（谁在上面、谁多宽）在上面 K 节。
         struct SkeletonCase {
             const char *key;
@@ -7709,8 +7599,8 @@ int main(int argc, char *argv[]) {
                   subtitle != nullptr
                       ? subtitle->property(textRoleKey.constData()).toString()
                       : QStringLiteral("<null>"));
-            // ★ 页头**在正文面外面**（面里只有内容）。装进面里的话，那一圈底就把标题和
-            //   内容一起框住了 —— 用户文档第一条要减掉的正是它。
+            // 页头**在正文面外面**（面里只有内容）。装进面里的话，那一圈底就把标题和
+            // 内容一起框住了 —— 用户文档第一条要减掉的正是它。
             check(header != nullptr && workspace != nullptr && !workspace->isAncestorOf(header),
                   QStringLiteral("%1 页：页头长在正文面**外面**（那一圈底不框标题）").arg(key));
             // 页头在正文面**上面**：两个都换算到页面坐标上比下边缘/上边缘。
@@ -7770,16 +7660,12 @@ int main(int argc, char *argv[]) {
               "最后一页就是设置页", settingsPage != nullptr ? settingsPage->objectName()
                                                              : QString());
 
-        // 2026-09-26：设置页**分栏**了（用户原话：「将设置分栏，分为启动/提示/个性化/…
-        // 然后分门别类放进去」）。形状照下载页来：左栏一列分类（QListWidget）、右栏一份
-        // QStackedWidget，**两边下标一一对应**（点第 N 条 = 第 N 页）。
-        //
         // 下面这一段钉的就是那条对应关系，以及"每一栏**各自**套一层滚动区"这件事 ——
         // 从前整页只有一层滚动区，现在滚动归栏管（整页一层的话，左栏那五条分类会跟着
         // 右栏的内容一起滚走，而那五条是导航）。
         //
         // NOTE: 从前这里量的是"整页一个 scroll + 一个 form + 一张 3:7 的 grid"。
-        //       那张 3:7 的表**还在**，只是每栏各有一张了（管的是栏内那一层）。
+        // 那张 3:7 的表**还在**，只是每栏各有一张了（管的是栏内那一层）。
         auto *categoryList =
             settingsPage->findChild<QListWidget *>(MainWindowUI::settingsCategoryListName());
         auto *categoryStack =
@@ -7812,10 +7698,6 @@ int main(int argc, char *argv[]) {
             // 里面那块 form 的 objectName == settingsFormName(key)、表格是 3:7 两列。
             int pagesOk = 0;
             int emptyPages = 0;
-            // ★ 2026-10-12 改版文档第三条：设置页的内容要**限宽**（`settingsFormMaxWidth()`），
-            //   而且滚动区把那张表**居上居中** —— 窗口拉宽时表单不许跟着无限伸展（用户说的
-            //   "说明文字一行跨得太长"就是这么来的）。两件事都属于"看着只是松紧"的那种，
-            //   屏幕上要到很宽的窗口才看得出走样，所以在这儿数一遍。
             int formWidthOk = 0;
             int scrollAlignOk = 0;
             for (int i = 0; i < categoryStack->count() && i < categoryKeys.size(); ++i) {
@@ -7864,12 +7746,12 @@ int main(int argc, char *argv[]) {
                   "自己站中间，不然宽窗口下表格整块贴着左边、右边空一大片",
                   QStringLiteral("%1/%2").arg(scrollAlignOk).arg(categoryKeys.size()));
 
-            // 每一栏里的排法（★ 2026-10-12 起）：一栏 = 一串**小节卡片** ——
+            // 每一栏里的排法（★ 起）：一栏 = 一串**小节卡片** ——
             // 用户那份改版文档原话：「小节使用"标题 + 内容卡片"，避免传统 `QGroupBox` 的
             // 缺口式标题」。于是"上下结构"这件事从"表格里相邻两行"变成了**卡片内部**的形状：
-            //   · 表格那一层：每一格都从列 0 起、跨两列（卡片整幅宽），没有一格只占一列；
-            //   · 卡片那一层：顶上第一行是**小节标题**（粗体 + sectionTitle 那一档角色），
-            //     之后每一项是「行名标签 → 控件」上下相邻、左边缘对齐的一对。
+            // · 表格那一层：每一格都从列 0 起、跨两列（卡片整幅宽），没有一格只占一列；
+            // · 卡片那一层：顶上第一行是**小节标题**（粗体 + sectionTitle 那一档角色），
+            // 之后每一项是「行名标签 → 控件」上下相邻、左边缘对齐的一对。
             //
             // 判据一（形状）：**没有任何一格只占一列**（`getItemPosition` 拿到的是布局真正的
             // 位置与跨度，不是"谁挨着谁"推出来的）。一条这样的格都不许有 —— 有一格在列 1 上，
@@ -7918,8 +7800,8 @@ int main(int argc, char *argv[]) {
                     auto *cardLayout = qobject_cast<QVBoxLayout *>(card->layout());
                     // 卡片自己那一圈内边距 / 行距是视觉规格（16,16,16,16 / 10）——
                     // 它决定"这一节里的项离卡片边多远"，改了看起来只是松紧，只有断言能钉。
-                    // ★ 2026-10-12（coding plan §9.1）：原来是（18,17,18,18 / 13），
-                    //   随"页面外边距 9→20、区块间距 12→16"那一次整批收进 16 / 10 这一档。
+                    // （coding plan §9.1）：原来是（18,17,18,18 / 13），
+                    // 随"页面外边距 9→20、区块间距 12→16"那一次整批收进 16 / 10 这一档。
                     const QMargins want(16, 16, 16, 16);
                     if (!isSection || cardLayout == nullptr ||
                         cardLayout->contentsMargins() != want || cardLayout->spacing() != 10) {
@@ -8004,11 +7886,11 @@ int main(int argc, char *argv[]) {
 
         // 二十四个设置控件都得能按 objectName 找回来（MainWindow 靠名字取它们，
         // 名字掉了就是"设置项点了没反应"）。
-        // NOTE: 这一条是**递归**找的，所以设置页分栏（2026-09-26）对它没有影响 —— 控件
-        //       换了哪一栏、套了几层容器都不管，只要还在设置页底下、名字没丢。真正受分栏
-        //       影响的是上面那组"落在第 1 列"的断言（它们要认出所在那一栏）。
+        // NOTE: 这一条是**递归**找的，所以设置页分栏对它没有影响 —— 控件
+        // 换了哪一栏、套了几层容器都不管，只要还在设置页底下、名字没丢。真正受分栏
+        // 影响的是上面那组"落在第 1 列"的断言（它们要认出所在那一栏）。
         const QStringList settingNames = {
-            // 「外观」那一格（2026-09-25）。
+            // 「外观」那一格。
             MainWindowUI::titleTextEditName(),
             MainWindowUI::accountSkinSettingsButtonName(),
             MainWindowUI::javaManageButtonName(),      MainWindowUI::javaPathLabelName(),
@@ -8019,22 +7901,22 @@ int main(int argc, char *argv[]) {
             MainWindowUI::launcherBehaviourComboName(), MainWindowUI::extraJvmArgsEditName(),
             MainWindowUI::applyExtraJvmArgsButtonName(),
             MainWindowUI::downloadSourceComboName(),
-            // 「同时最多下几个」（2026-10-13，§9.2）：和「下载源」同一组（这一批文件怎么走）。
+            // 「同时最多下几个」（，§9.2）：和「下载源」同一组（这一批文件怎么走）。
             MainWindowUI::downloadConcurrencyComboName(),
-            // CurseForge 的 API key（2026-09-25）：和「下载源」同一组，可留空。
+            // CurseForge 的 API key：和「下载源」同一组，可留空。
             MainWindowUI::curseForgeApiKeyEditName(),
             MainWindowUI::versionNameCustomCheckName(),
             MainWindowUI::versionNameRealCheckName(),
             MainWindowUI::versionNameLoaderCheckName(),
             MainWindowUI::versionNameLoaderVersionCheckName(),
-            // 「启动选项」那一组（2026-09-24）。
+            // 「启动选项」那一组。
             MainWindowUI::showGameLogCheckName(),      MainWindowUI::processPriorityComboName(),
             MainWindowUI::gameWindowWidthSpinName(),   MainWindowUI::gameWindowHeightSpinName(),
-            // 「窗口模式」那一格（2026-09-28）：和上面那两格是一组。
+            // 「窗口模式」那一格：和上面那两格是一组。
             MainWindowUI::gameWindowModeComboName(),
-            // 「启动提醒」那一组（2026-09-25）：启动前那两条确认各配一个开关。
+            // 「启动提醒」那一组：启动前那两条确认各配一个开关。
             MainWindowUI::warnDuplicateLaunchCheckName(), MainWindowUI::warnWorldLossCheckName(),
-            // 「下载的文件」那一组（2026-09-28）：从实例设置里点「下载新模组」时要不要问存哪儿。
+            // 「下载的文件」那一组：从实例设置里点「下载新模组」时要不要问存哪儿。
             MainWindowUI::downloadAutoIntoInstanceCheckName()};
         QStringList missing;
         for (const QString &name : settingNames) {
@@ -8044,13 +7926,13 @@ int main(int argc, char *argv[]) {
         }
         check(missing.isEmpty(), "二十六个设置控件都能按 objectName 找回来", missing.join(", "));
 
-        // 「CurseForge API key」那一格（2026-09-25 加的，摆在下拉框那一组里）。它和别处
+        // 「CurseForge API key」那一格（ 加的，摆在下拉框那一组里）。它和别处
         // 不同的地方有两条，都值得单独钉住：
-        //   - 它是**明文**（不是 QLineEdit::Password）。理由是贴错了要能一眼看见：它本来
-        //     就明文躺在配置文件里，用户看不见的输入框只会让他把 key 贴错两次，
-        //     而查的人（他自己）连"贴进去的是什么"都看不到；
-        //   - 它**可以留空**（空 = 走社区镜像），所以占位文字说的必须是"留空会怎样"，
-        //     不是必填项那种"请输入…"。
+        // - 它是**明文**（不是 QLineEdit::Password）。理由是贴错了要能一眼看见：它本来
+        // 就明文躺在配置文件里，用户看不见的输入框只会让他把 key 贴错两次，
+        // 而查的人（他自己）连"贴进去的是什么"都看不到；
+        // - 它**可以留空**（空 = 走社区镜像），所以占位文字说的必须是"留空会怎样"，
+        // 不是必填项那种"请输入…"。
         if (auto *cfKey =
                 settingsPage->findChild<QLineEdit *>(MainWindowUI::curseForgeApiKeyEditName())) {
             check(cfKey->echoMode() == QLineEdit::Normal,
@@ -8064,7 +7946,7 @@ int main(int argc, char *argv[]) {
                   "刚搭好时框里是空的（值由 MainWindow 从盘上灌，界面层不自己猜）",
                   cfKey->text());
         }
-        // 「下载新模组」那颗勾选框（2026-09-28）。用户原话：「在设置里加一个选项 …… 勾选->
+        // 「下载新模组」那颗勾选框。要求：「在设置里加一个选项 …… 勾选->
         // 下载新模组就自动放进当前实例文件夹，直接在下载界面下的照样弹explorer选择保存位置，
         // 不勾选->不论是在哪里进入的下载页都弹explorer选择保存位置」。
         //
@@ -8103,7 +7985,7 @@ int main(int argc, char *argv[]) {
             check(false, "找得到「下载新模组」那颗勾选框");
         }
 
-        // 「同时最多下几个」那颗下拉框（2026-10-13，§9.2）。界面层这里只钉一件**界面层管得着**
+        // 「同时最多下几个」那颗下拉框（，§9.2）。界面层这里只钉一件**界面层管得着**
         // 的事：**刚搭好时是一个空框**。四档那个表在 src/ 的 `DownloadConcurrency.hpp` 里
         // （唯一出处），界面层不许 include src/ ⇒ 项只能由 MainWindow 灌（和「下载源」
         // 「窗口模式」同一个形状）。在这一层断言"四档都在"等于要求界面层自己抄一份表出来。
@@ -8133,7 +8015,7 @@ int main(int argc, char *argv[]) {
                   MainWindowUI::curseForgeApiKeyRowText());
         }
 
-        // 「外观」那一格那个文本框（2026-09-25 加的）。**长度上限那两边各写一遍**
+        // 「外观」那一格那个文本框（ 加的）。**长度上限那两边各写一遍**
         // （ui/ 不许 include src/），所以这条等号是唯一盯着它们的地方 —— 和上面那对窗口
         // 大小的范围同一个约定。不一致的症状是"打上去的字自己少了几个"。
         if (auto *titleEdit =
@@ -8151,7 +8033,7 @@ int main(int argc, char *argv[]) {
                   titleEdit->text());
         }
 
-        // 「提示」栏里那两条启动前的确认（2026-09-25 加的，2026-09-26 分栏时并到一栏）。
+        // 「提示」栏里那两条启动前的确认（ 加的， 分栏时并到一栏）。
         // 这里钉的是**这一组特有的东西** —— 两句文案各自只此一处、行标题是用户点名的
         // 那两个词（「重复启动」/「进度提醒」，提示框上那句小字就是照着它们指路的，
         // 所以这两个词一改，小字就指错地方了）。控件本身能不能找回来在上面那条
@@ -8179,10 +8061,10 @@ int main(int argc, char *argv[]) {
         // 那三个词得真在表单上画着：行标题由 `addSettingRow()` 落成一个 QLabel，
         // 这里按文字去找 —— 改行标题的人会当场看到这条红。
         //
-        // NOTE: 2026-09-26 分栏之后这三条并进了「提示」栏（原来前两条挤在「启动选项」那一组
-        //       里、第三条挂在 Java 那一节底下），组标题也从「启动提醒」改成「启动前提醒」
-        //       —— 三条管的是同一件事（"启动那一下要不要再问一句"），"启动提醒"这个名字
-        //       反倒说不清它和「启动选项」有什么分别。
+        // NOTE: 分栏之后这三条并进了「提示」栏（原来前两条挤在「启动选项」那一组
+        // 里、第三条挂在 Java 那一节底下），组标题也从「启动提醒」改成「启动前提醒」
+        // —— 三条管的是同一件事（"启动那一下要不要再问一句"），"启动提醒"这个名字
+        // 反倒说不清它和「启动选项」有什么分别。
         auto *warnForm = settingsPage->findChild<QWidget *>(
             MainWindowUI::settingsFormName(QStringLiteral("warn")));
         check(warnForm != nullptr, "「提示」栏那张表单找得到",
@@ -8213,7 +8095,7 @@ int main(int argc, char *argv[]) {
         // 设置项外面套了两层（"控件 + 说明文字"的容器、再外面一层小节卡片），所以要把控件
         // 往上提到**它所在那一栏**直接挂在表单上的那一层，才问得到它在第几列。
         // NOTE: 分栏之后"表单"不止一张（每栏一张，objectName = settingsForm-<键>），所以
-        //       这几个 helper 都改成"先认出控件落在哪一栏，再问那一栏的表格"。
+        // 这几个 helper 都改成"先认出控件落在哪一栏，再问那一栏的表格"。
         const auto formOf = [](QWidget *w) -> QWidget * {
             const QString prefix = QStringLiteral("settingsForm-");
             for (QWidget *p = w; p != nullptr; p = p->parentWidget()) {
@@ -8318,8 +8200,6 @@ int main(int argc, char *argv[]) {
             check(orphaned == 0,
                   "每个设置控件都落在某一栏那张按名字取的表格里（没有谁挂在没名字的格子里）",
                   QString("%1/%2").arg(orphaned).arg(controls.size()));
-            // 2026-10-12 起设置项外面是**小节卡片**（用户那份改版文档：「小节使用"标题 +
-            // 内容卡片"」）—— 控件不再直接摆在表格的格子里，表格里摆的是卡片。
             check(inCard == controls.size(),
                   "每个设置控件都长在某一张小节卡片里（wtfmlSurface=\"section\"）",
                   QString("%1/%2").arg(inCard).arg(controls.size()));
@@ -8328,7 +8208,7 @@ int main(int argc, char *argv[]) {
                   QString("cards=%1 bad=%2").arg(seenCards.size()).arg(cardSpanBad));
 
             // 「最大内存」那一行：条 / 数字框和它们下面那句说明装在**同一个容器**里
-            // （说明在容器最后）。★ 2026-10-18：「分配方式」那一行撤掉之后，这句说明并到了
+            // （说明在容器最后）。★ ：「分配方式」那一行撤掉之后，这句说明并到了
             // 这里 —— 它现在说的就是这根条（系统内存 + 当前给到多少）。
             check(ui.getMemoryHint() != nullptr && ui.getMemoryMaxSlider() != nullptr &&
                       ui.getMemoryHint()->parentWidget() ==
@@ -8379,10 +8259,10 @@ int main(int argc, char *argv[]) {
                       : QString());
         }
 
-        // 「最大内存」那一行现在是**一根条 + 一个数字框**（2026-09-26）：两件东西说的是
+        // 「最大内存」那一行现在是**一根条 + 一个数字框**：两件东西说的是
         // 同一个数，范围就必须是同一个，而且和 GlobalJavaSettings 的钳位对得上 ——
         // "填了不生效"和"拖到头和打得进去的不是一个数"都是同一件事两个答案。
-        // ★ 「最小内存」那一格从这一页撤掉了（用户要求），下限 128 那条跟着撤走的断言。
+        // 「最小内存」那一格从这一页撤掉了（用户要求），下限 128 那条跟着撤走的断言。
         check(ui.getMemoryMaxSpin()->minimum() == 256 &&
                   ui.getMemoryMaxSlider()->minimumMb() == 256,
               "最大内存的下限 256（数字框和条说的是同一个数）",
@@ -8484,8 +8364,8 @@ int main(int argc, char *argv[]) {
                                   ? ui.getExtraJvmArgsEdit()->height()
                                   : -1));
         // 界面只搭壳：下拉框的条目和值由 MainWindow 灌（见 mw_check）
-        // NOTE: 2026-09-28 起「Java 版本」那一格是颗按钮（`javaManageButton`）而不是
-        //       下拉框了，所以它不再出现在这一串"刚搭好时是空的"里。
+        // NOTE: 起「Java 版本」那一格是颗按钮（`javaManageButton`）而不是
+        // 下拉框了，所以它不再出现在这一串"刚搭好时是空的"里。
         check(ui.getLauncherBehaviourCombo()->count() == 0 &&
                   ui.getDownloadSourceCombo()->count() == 0 &&
                   // 「进程优先级」尤其要在这儿：它是**界面里唯一一个条目由 MainWindow 灌的
@@ -8498,8 +8378,6 @@ int main(int argc, char *argv[]) {
                   .arg(ui.getLauncherBehaviourCombo()->count())
                   .arg(ui.getDownloadSourceCombo()->count())
                   .arg(ui.getProcessPriorityCombo()->count()));
-        // 2026-10-20：自动分配重新有入口了，但它是**最右边那颗下拉框**（自动分配 /
-        // 手动分配），不是 2026-10-18 撤掉的那个旧勾选框 —— 旧对象名不该再出现。
         check(settingsPage->findChild<QCheckBox *>(QStringLiteral("memoryAutoCheck")) == nullptr &&
                   ui.getMemoryModeCombo() != nullptr &&
                   ui.getMemoryModeCombo()->count() == 2,
@@ -8509,7 +8387,7 @@ int main(int argc, char *argv[]) {
                   : QStringLiteral("<没有下拉框>"));
         // 同一个形状，另一项：「实例指定的 Java 版本不符时提醒」这个总闸同样只搭壳。
         // NOTE: 产品里的默认值是"提醒"（true），但那条是**产品逻辑**、不是界面的事 ——
-        //       界面层自己默认打开的话，MainWindow 万一忘了灌值就会显示一个假的"开"。
+        // 界面层自己默认打开的话，MainWindow 万一忘了灌值就会显示一个假的"开"。
         check(ui.getJavaWarnMismatchCheck() != nullptr &&
                   !ui.getJavaWarnMismatchCheck()->isChecked(),
               "「实例指定的 Java 版本不符时提醒」刚搭好时也是未勾选的（值由 MainWindow 灌）");
@@ -8534,12 +8412,12 @@ int main(int argc, char *argv[]) {
             check(instanceList->topLevelItemCount() == 0 && instanceList->currentItem() == nullptr,
                   "界面刚搭好时是空的（数据由 MainWindow 灌）");
             check(instanceList->isHeaderHidden(), "没有表头（这里只有一列：名字）");
-            // 2026-09-25：那个展开/折叠的小三角**是我们自己画的**（组行行尾那颗箭头，
-            // 见 InstanceGroupDelegate），所以原生的那个必须关掉 —— 用户原话「每一个组和
+            // 那个展开/折叠的小三角**是我们自己画的**（组行行尾那颗箭头，
+            // 见 InstanceGroupDelegate），所以原生的那个必须关掉 —— 要求「每一个组和
             // 版本下载几乎一致，点一下打开/关闭，右侧有个箭头和齿轮」，版本树那边也是
             // setRootIsDecorated(false)（两棵树同一个做法）。
             // NOTE: 关它要走 setRootIsDecorated(false)，**不能**用 DontShowIndicator ——
-            //       后者会让整条分类的子条目静默消失（见版本树那几条注释）。
+            // 后者会让整条分类的子条目静默消失（见版本树那几条注释）。
             check(!instanceList->rootIsDecorated(),
                   "不画原生那个小三角（展开/折叠的箭头是组行里自己画的，和版本树一个做法）");
             check(instanceList->uniformRowHeights(),
@@ -8566,11 +8444,11 @@ int main(int argc, char *argv[]) {
         // selectionCommand() —— 后者只答"选择命令是什么"，答不了"点完屏幕上什么样"。
         //
         // NOTE: 这里量出来的是**两条不同的事实**，它们决定了整套守卫的形状：
-        //       ① 组头**不会进"被选中"的集合** → 点它不会亮（清 flag 有用）；
-        //       ② 但它**仍然会变成 currentItem()** → 光靠清 flag 兜不住"当前选中的
-        //          是哪个实例"，每个读 currentItem() 的地方都必须自己过一遍
-        //          instanceIdOf()。②这条要是没了（换了 Qt、或者谁把 flag 加回去），
-        //          下面那条断言会红，而红的地方正是"为什么需要 instanceIdOf()"。
+        // ① 组头**不会进"被选中"的集合** → 点它不会亮（清 flag 有用）；
+        // ② 但它**仍然会变成 currentItem()** → 光靠清 flag 兜不住"当前选中的
+        // 是哪个实例"，每个读 currentItem() 的地方都必须自己过一遍
+        // instanceIdOf()。②这条要是没了（换了 Qt、或者谁把 flag 加回去），
+        // 下面那条断言会红，而红的地方正是"为什么需要 instanceIdOf()"。
         probe.setCurrentItem(child);
         probe.resize(240, 120);
         probe.show();
@@ -8615,11 +8493,11 @@ int main(int argc, char *argv[]) {
                       QStringLiteral("1.20.1"),
               "实例条目没有组 id 那个 role，实例 id 在 instanceIdRole 里");
 
-        // ---- 组行行尾那两格的几何（2026-09-25 加的：用户「右侧有个箭头和齿轮」） ----
+        // ---- 组行行尾那两格的几何（ 加的：用户「右侧有个箭头和齿轮」） ----
         //
         // NOTE: 拿**合成出来的行**量，不靠树上那一行 —— 这台机器上 offscreen 的字体库是空的
-        //       （行高只有十几像素），"行够高时齿轮不缩"那一档在这儿永远走不到，而那一档
-        //       正是真机上的样子（行高 ≈ 一行字 + 上下留白）。合成一个高行就能两档都钉住。
+        // （行高只有十几像素），"行够高时齿轮不缩"那一档在这儿永远走不到，而那一档
+        // 正是真机上的样子（行高 ≈ 一行字 + 上下留白）。合成一个高行就能两档都钉住。
         {
             const int tallH = MainWindowUI::instanceTreeRowHeight();
             const int shortH = MainWindowUI::instanceGroupGearSize() - 4;  // 12：比齿轮还矮
@@ -8627,13 +8505,13 @@ int main(int argc, char *argv[]) {
             const QRect shortRow(0, 0, 400, shortH);
 
             // ① 行够高：画出来的那一圈就是 instanceGroupGearSize()（16），位置正好是命中格
-            //    往里收 3 px —— 和 VersionTreeDelegate 那几个行内按钮同一个做法。
+            // 往里收 3 px —— 和 VersionTreeDelegate 那几个行内按钮同一个做法。
             check(InstanceGroupDelegate::gearGlyphRect(tallRow) ==
                       InstanceGroupDelegate::gearRect(tallRow).adjusted(3, 3, -3, -3),
                   "行够高时齿轮画的就是那 16 px（命中格四周那 3 px 是手感余量，不画）",
                   QString::number(InstanceGroupDelegate::gearGlyphRect(tallRow).width()));
             // ② 行矮：画出来的那一圈缩到行高。不缩的话它上下各冒出去一半 —— 屏幕上就是
-            //    "齿轮被上下各切掉一条"（整屏重绘压到隔壁那两条行上，局部重绘被切掉）。
+            // "齿轮被上下各切掉一条"（整屏重绘压到隔壁那两条行上，局部重绘被切掉）。
             check(InstanceGroupDelegate::gearGlyphRect(shortRow).height() == shortH &&
                       tallRow.contains(InstanceGroupDelegate::gearGlyphRect(tallRow)) &&
                       shortRow.contains(InstanceGroupDelegate::gearGlyphRect(shortRow)),
@@ -8651,28 +8529,28 @@ int main(int argc, char *argv[]) {
                   "两档里齿轮都排在箭头左边（行尾那两格，和版本树那几个行内按钮一样靠右）");
         }
 
-        // ---- 组行行尾**只剩那颗齿轮**了（2026-09-25 傍晚） ----
+        // ---- 组行行尾**只剩那颗齿轮**了（ 傍晚） ----
         //
-        // 用户原话：「这个点击一下就同时展开和调整了，其次这个箭头不应该在这里，而应该在
+        // 要求：「这个点击一下就同时展开和调整了，其次这个箭头不应该在这里，而应该在
         // 分组设置里面，这里的删了，去分组设置里面加上，设置那个框下方的上移下移的按钮就
         // 删了」。上下移那两颗三角连同 `rowGroupMoveRole()` / 那两个掩码位一起从这棵树上
         // 删掉了，整个搬进「分组设置」那张组清单 —— 它长什么样、点一下管不管用钉在下面 N
         // 节（那边有真的 GroupDialog、真的行矩形）。
         //
         // NOTE: "那两个几何函数没了"编译器替我们钉住了（谁把 InstanceGroupDelegate::moveUpRect()
-        //       加回来，这个工程当场编不过）。这里补的是**屏幕上那一格真的空着** —— "把画
-        //       它们的那几行删了、几何留着"照样编得过，可用户看见的还是那两颗箭头。量的是
-        //       **墨**（和行底色不一样的像素），不是"整行有没有变"，理由见上面那几条。
+        // 加回来，这个工程当场编不过）。这里补的是**屏幕上那一格真的空着** —— "把画
+        // 它们的那几行删了、几何留着"照样编得过，可用户看见的还是那两颗箭头。量的是
+        // **墨**（和行底色不一样的像素），不是"整行有没有变"，理由见上面那几条。
         {
             const int tallH = MainWindowUI::instanceTreeRowHeight();
             QTreeWidget paintProbe;
             paintProbe.setRootIsDecorated(false);
             paintProbe.setUniformRowHeights(true);
             paintProbe.setItemDelegate(new InstanceGroupDelegate(&paintProbe));
-            // ★ 2026-10-12：行尾那颗齿轮现在**只在鼠标停在那一行时才画**（用户那份改版文档：
-            //   实例页"分组齿轮只在悬停时出现"）⇒ 量它之前得先把悬停那一位填上，而
-            //   `State_MouseOver` 是**视图**填的：不开 mouseTracking，Qt 一个字都不改它，
-            //   下面那发合成的鼠标移动就推不动（这个坑上面 R 节那个刷新圈探针踩过，同一句话）。
+            // 行尾那颗齿轮现在**只在鼠标停在那一行时才画**（用户那份改版文档：
+            // 实例页"分组齿轮只在悬停时出现"）⇒ 量它之前得先把悬停那一位填上，而
+            // `State_MouseOver` 是**视图**填的：不开 mouseTracking，Qt 一个字都不改它，
+            // 下面那发合成的鼠标移动就推不动（这个坑上面 R 节那个刷新圈探针踩过，同一句话）。
             paintProbe.setMouseTracking(true);
             auto *paintItem = new QTreeWidgetItem(&paintProbe);
             paintItem->setText(0, MainWindowUI::groupItemText(QStringLiteral("整合包"), 3));
@@ -8681,25 +8559,19 @@ int main(int argc, char *argv[]) {
             paintProbe.resize(400, tallH);
             paintProbe.show();
             QApplication::processEvents();
-            // ★ 量下面那些"墨"之前，必须先把**当前项摘掉**（2026-09-25 深夜，这一条红过）。
-            //
-            // 根因：`show()` 之后 offscreen 会把这棵探针树**激活**（`isActiveWindow()` 实测为真），
-            // 视图一拿到焦点就把第 0 行设成**当前项**，而 Fusion 的当前项底色是**一行一个色**
-            // 的竖直渐变（实测 `#f2f9ff` → `#fafdff`，六种色各占两三行）。于是
-            // "取一个像素当行底色"这个基线整个失效 —— 整片渐变都被算成墨，量到 **1056 px**
-            // （正好是那一格的面积），可它跟"有没有画箭头"一点关系都没有。
+            // 量下面那些"墨"之前，必须先把**当前项摘掉**（ 深夜，这一条红过）。
             //
             // **这不是产品回归**：把产品那一侧退回上一版（`a60a1ba`）重编，这一条照样红、
             // 数字一模一样（同一份探针、同一份代理，产品改了什么它看不见）。所以修的是
-            // 判据的前提，不是产品那几行。（同一个坑 2026-09-25 早些时候在 N 节那条
+            // 判据的前提，不是产品那几行。（同一个坑 早些时候在 N 节那条
             // "量像素的基线要按画出来的那一块取"里已经踩过一次了：Fusion 的当前项是渐变，
             // 单点取样必然错。）
             paintProbe.clearSelection();
             paintProbe.setCurrentItem(nullptr);
             QApplication::processEvents();
             const QRect paintRow = paintProbe.visualItemRect(paintItem);
-            // ★ 悬停：那颗齿轮只在悬停时才画（见上面 setMouseTracking 那条），所以先把
-            //   光标挪进这一行正中，再截图（合成一发 MouseMove，和 R 节那个悬停探针同一个做法）。
+            // 悬停：那颗齿轮只在悬停时才画（见上面 setMouseTracking 那条），所以先把
+            // 光标挪进这一行正中，再截图（合成一发 MouseMove，和 R 节那个悬停探针同一个做法）。
             {
                 const QPoint cursor = paintRow.center();
                 QMouseEvent move(QEvent::MouseMove, QPointF(cursor),
@@ -8710,9 +8582,9 @@ int main(int argc, char *argv[]) {
             }
             const QImage shot = captureWidget(paintProbe.viewport());
             // 行底色：最右边那一列一定是留白（齿轮和展开箭头都在它左边，各留了一圈版面）。
-            // ★ 悬停之后这一行的底色是**悬停那一档**，它只铺在 `cardRect()` 里（上下各收掉
-            //   半道空），所以这两个采样点的 y 都收进卡片里取 —— 有一个落在卡片外的话，
-            //   取到的是行的原底色，下面"底色是个定值"那条哨兵会当场红（而且红得像是产品坏了）。
+            // 悬停之后这一行的底色是**悬停那一档**，它只铺在 `cardRect()` 里（上下各收掉
+            // 半道空），所以这两个采样点的 y 都收进卡片里取 —— 有一个落在卡片外的话，
+            // 取到的是行的原底色，下面"底色是个定值"那条哨兵会当场红（而且红得像是产品坏了）。
             const QRect hoverCardRect = InstanceGroupDelegate::cardRect(paintRow);
             const QRgb bg = shot.pixel(paintRow.right() - 1, hoverCardRect.center().y());
             const auto inkIn = [&shot, bg](const QRect &cell) {
@@ -8729,7 +8601,7 @@ int main(int argc, char *argv[]) {
             };
             const QRect gearCell = InstanceGroupDelegate::gearGlyphRect(paintRow);
             // 旧那两颗三角占的正是齿轮左边那一带：两个 18 px 宽的命中格、紧挨着齿轮
-            // （见 2026-09-25 之前那一版的 moveDownRect() —— `box = 箭头边长 + 6`）。
+            // （见 之前那一版的 moveDownRect() —— `box = 箭头边长 + 6`）。
             // 取齿轮命中格左边 54 px 起、48 px 宽的一段，刚好把那一带整个盖住。
             const QRect oldArrowBand(InstanceGroupDelegate::gearRect(paintRow).left() - 54,
                                      paintRow.top(), 48, paintRow.height());
@@ -8756,10 +8628,10 @@ int main(int argc, char *argv[]) {
             check(inkIn(gearCell) > 0,
                   "哨兵：齿轮那一格里真的画了东西（下面那个「这一带没墨」的量法本身有效）",
                   QStringLiteral("齿轮格 %1 px 墨").arg(inkIn(gearCell)));
-            // ★ 反面：光标**不在**这一行上时，齿轮那一格一个像素的墨都没有 —— 这就是用户那份
-            //   改版文档点名的"分组齿轮只在悬停时出现"。少了这一条，上面那条哨兵在"齿轮常显"
-            //   的那一版上也照样绿：它只证明"量法有效"，不证明"只在悬停时才画"。
-            //   挪出去用的是把光标发到**视口外面**那一发（和上面 R 节那个刷新圈探针逐字一样）。
+            // 反面：光标**不在**这一行上时，齿轮那一格一个像素的墨都没有 —— 这就是用户那份
+            // 改版文档点名的"分组齿轮只在悬停时出现"。少了这一条，上面那条哨兵在"齿轮常显"
+            // 的那一版上也照样绿：它只证明"量法有效"，不证明"只在悬停时才画"。
+            // 挪出去用的是把光标发到**视口外面**那一发（和上面 R 节那个刷新圈探针逐字一样）。
             {
                 QMouseEvent leave(QEvent::MouseMove, QPointF(QPoint(2, -6)),
                                   QPointF(paintProbe.viewport()->mapToGlobal(QPoint(2, -6))),
@@ -8793,10 +8665,10 @@ int main(int argc, char *argv[]) {
                       QStringLiteral("悬停 %1 / 挪出去 %2")
                           .arg(QColor::fromRgb(bg).name(), QColor::fromRgb(plainBg).name()));
             }
-            // ★ 量的是那一带**落在卡片里**的那一块：悬停之后行的底色只在 `cardRect()` 里
-            //   （上下各收掉半道空），拿整条 58 px 去比的话，上下那两道空自己就是"不是悬停色"
-            //   —— 量出来 144 px 全是那两条缝，和"箭头回没回来"一点关系都没有（2026-10-12 改版
-            //   加悬停那一层之后当场踩到）。两道空里本来也没人画箭头。
+            // 量的是那一带**落在卡片里**的那一块：悬停之后行的底色只在 `cardRect()` 里
+            // （上下各收掉半道空），拿整条 58 px 去比的话，上下那两道空自己就是"不是悬停色"
+            // —— 量出来 144 px 全是那两条缝，和"箭头回没回来"一点关系都没有（ 改版
+            // 加悬停那一层之后当场踩到）。两道空里本来也没人画箭头。
             const QRect arrowBandInCard = oldArrowBand.intersected(hoverCardRect);
             check(inkIn(arrowBandInCard) == 0,
                   "★ 组行行尾那两颗上下移箭头搬走之后，齿轮**左边**那一带一个像素的墨都没有"
@@ -8806,10 +8678,10 @@ int main(int argc, char *argv[]) {
                       .arg(arrowBandInCard.width())
                       .arg(arrowBandInCard.height()));
 
-            // ⑧ 行高：**每一行**都是版本树那个常数（用户原话「每个版本啥的上下高一点，像
-            //    下载页那样」）—— 组行和实例行都要。只管组行的话，平铺那一档（没分过组、
-            //    第一行就是实例）会矮回去，而 uniformRowHeights 是拿第一行当整棵树的行高的
-            //    ⇒ "有没有分组"会让同一张树换个高矮。
+            // ⑧ 行高：**每一行**都是版本树那个常数（要求「每个版本啥的上下高一点，像
+            // 下载页那样」）—— 组行和实例行都要。只管组行的话，平铺那一档（没分过组、
+            // 第一行就是实例）会矮回去，而 uniformRowHeights 是拿第一行当整棵树的行高的
+            // ⇒ "有没有分组"会让同一张树换个高矮。
             auto *plainItem = new QTreeWidgetItem(&paintProbe);
             plainItem->setText(0, QStringLiteral("1.20.1"));
             plainItem->setData(0, MainWindowUI::instanceIdRole(), QStringLiteral("1.20.1"));
@@ -8830,17 +8702,17 @@ int main(int argc, char *argv[]) {
                   QStringLiteral("visualItemRect 高 %1").arg(paintRow.height()));
         }
 
-        // ---- ⑨ 行与行之间那道空（2026-09-29） ----
+        // ---- ⑨ 行与行之间那道空 ----
         //
-        // 用户原话「实例列表里每一个之间留一点空的距离」。做法是**画的那一圈上下各收掉半个
+        // 要求「实例列表里每一个之间留一点空的距离」。做法是**画的那一圈上下各收掉半个
         // instanceTreeRowGap()**（`InstanceGroupDelegate::cardRect()`），收掉的那一带谁也不画，
         // 露出来的是树自己的底色。两件事分开钉：
-        //   ① 算术：卡片矩形 = 整条行减掉那道空、和整条行**同中心**，而且画出来的东西
-        //      （行尾那三颗按钮、组行那颗齿轮和箭头）一个不落全装在它里面；
-        //   ② 屏幕上真的收了：真树、真渲染，量**选中那一行**的底色带两头缩进去了多少。
-        //      ★ ② 是这条改动的**唯一**判据：只留①的话，谁把那句 `opt.rect = cardRect(...)`
-        //      删掉照样全绿（画还是按整条行画的），而屏幕上那道空又没了 —— 正是这个仓库
-        //      栽过好几次的"假绿"形状。
+        // ① 算术：卡片矩形 = 整条行减掉那道空、和整条行**同中心**，而且画出来的东西
+        // （行尾那三颗按钮、组行那颗齿轮和箭头）一个不落全装在它里面；
+        // ② 屏幕上真的收了：真树、真渲染，量**选中那一行**的底色带两头缩进去了多少。
+        // ② 是这条改动的**唯一**判据：只留①的话，谁把那句 `opt.rect = cardRect(...)`
+        // 删掉照样全绿（画还是按整条行画的），而屏幕上那道空又没了 —— 正是这个仓库
+        // 栽过好几次的"假绿"形状。
         {
             const int h = MainWindowUI::instanceTreeRowHeight();
             const int gap = MainWindowUI::instanceTreeRowGap();
@@ -8868,7 +8740,7 @@ int main(int argc, char *argv[]) {
                   QStringLiteral("卡片 %1 高 / 行 %2 高").arg(card.height()).arg(h));
 
             // ② 真渲染：一棵只有实例行的树，选中它，量那一列"空白处"（文字右边、行尾三颗
-            //    按钮左边）上下各有多少像素还是底色。带子两头各缩 pad / padBottom 才对。
+            // 按钮左边）上下各有多少像素还是底色。带子两头各缩 pad / padBottom 才对。
             QTreeWidget gapProbe;
             gapProbe.setObjectName(QStringLiteral("wtfml_gap_probe"));
             gapProbe.setHeaderHidden(true);
@@ -8881,13 +8753,7 @@ int main(int argc, char *argv[]) {
             gapProbe.resize(400, h * 3);
             gapProbe.show();
             QApplication::processEvents();
-            // ★ 顺序不能换：**先摘当前项，再选**。
-            //
-            // 当前项那层底色是**竖渐变**（见上面那个 2026-09-25 深夜的 NOTE）：留着它，
-            // "底色是个定值"这个前提就没了，量出来的会是渐变的行数。而 `setCurrentItem(nullptr)`
-            // **会把选中一起清掉**（实测 `isSelected()` 从真变假，这一条就是这么红的）——
-            // 所以反着写（先选、再摘当前项）等于什么都没选，下面量到的是"整条行没有一个
-            // 有色像素"，而它跟"卡片收没收"一点关系都没有。
+            // 顺序不能换：**先摘当前项，再选**。
             gapProbe.setCurrentItem(nullptr);
             gapItem->setSelected(true);
             QApplication::processEvents();
@@ -8922,19 +8788,19 @@ int main(int argc, char *argv[]) {
             gapProbe.hide();
         }
 
-        // ---- ⑩ 左边那截"分支区"（2026-09-29） ----
+        // ---- ⑩ 左边那截"分支区" ----
         //
-        // 用户原话：「注意蓝色部分，左边那里长了，改一下」—— 实例是组的**子条目**，
+        // 要求：「注意蓝色部分，左边那里长了，改一下」—— 实例是组的**子条目**，
         // 视图按 setIndentation(14) 在这一行的左边留出一截"分支区"，而
         // `QTreeView::drawRow()` 会**先**用选中的底色把这整截涂满（`PE_PanelItemViewRow`，
         // 矩形 `QRect(position, y, indentation, height)` —— **整条行高**），**然后**才轮到
         // 代理画卡片（卡片上下各收掉半个缺口）。于是选中一行时左边多出一根 14 px 宽、
         // 比卡片上下各冒出去半个缺口的竖条。
         //
-        // ★ 上面那段 ⑨ 为什么是绿的：它那棵树是**平铺**的（只有顶层条目、还没设
-        //   setIndentation），顶层条目的 indentation 是 `(0 + (rootDecoration ? 1 : 0)) * 14`
-        //   而产品里 setRootIsDecorated(false) ⇒ 0 ⇒ 那一截宽度是 0、视图根本不涂。
-        //   所以这条断言必须**自己搭一棵有父子的树**，不能复用 ⑨ 那棵。
+        // 上面那段 ⑨ 为什么是绿的：它那棵树是**平铺**的（只有顶层条目、还没设
+        // setIndentation），顶层条目的 indentation 是 `(0 + (rootDecoration ? 1 : 0)) * 14`
+        // 而产品里 setRootIsDecorated(false) ⇒ 0 ⇒ 那一截宽度是 0、视图根本不涂。
+        // 所以这条断言必须**自己搭一棵有父子的树**，不能复用 ⑨ 那棵。
         {
             const int h = MainWindowUI::instanceTreeRowHeight();
             QTreeWidget stripProbe;
@@ -9010,17 +8876,9 @@ int main(int argc, char *argv[]) {
             stripProbe.hide();
         }
 
-        // ---- ⑪ 悬停那一层的加深底色（2026-09-29） ----
+        // ---- ⑪ 悬停那一层的加深底色 ----
         //
-        // 用户原话：「把所有悬停在版本/按钮上都加一个颜色加深的效果」。
-        //
-        // 分两层量：**色本身**（纯函数 `Theme::rowHoverFill()`）和**它真的上了屏**（真发
-        // 一发鼠标移动事件给视口，再截图数像素）。第二层才是重点 —— 这条路上有三处会
-        // **静默**失效，不报错、不崩，只体现在像素上：
-        //   ① 视图没开 mouseTracking ⇒ 真鼠标划过时 `State_MouseOver` 没人填；
-        //   ② 代理把那层画在 `CE_ItemViewItem` **之后** ⇒ 被选中色盖掉（该画在之前：
-        //      要的是"选中"压得住"悬停"，反过来才是错的）；
-        //   ③ 画到"整条行"而不是"卡片" ⇒ 悬停带比选中带宽出一截（左边那一截分支区）。
+        // 要求：「把所有悬停在版本/按钮上都加一个颜色加深的效果」。
         {
             // ---- ⑪a 色本身：一档只有一个出处 ----
             const QColor white(0xff, 0xff, 0xff);
@@ -9062,8 +8920,8 @@ int main(int argc, char *argv[]) {
             instanceProbe.setUniformRowHeights(true);
             instanceProbe.setIndentation(14);
             instanceProbe.setItemDelegate(new InstanceGroupDelegate(&instanceProbe));
-            // ★ 这一句是那个前提 —— 下面那些是**手动**发事件，开不开都推得动它；真鼠标那一档
-            //   只有这一句能救（⑪d 才量产品里那几棵树开没开）。
+            // 这一句是那个前提 —— 下面那些是**手动**发事件，开不开都推得动它；真鼠标那一档
+            // 只有这一句能救（⑪d 才量产品里那几棵树开没开）。
             instanceProbe.setMouseTracking(true);
             auto *hoverGroupRow = new QTreeWidgetItem(&instanceProbe);
             hoverGroupRow->setText(0, QStringLiteral("原版"));
@@ -9130,17 +8988,17 @@ int main(int argc, char *argv[]) {
                   "★ 而组行悬停时实例那一行没被染（对照组）",
                   shotOnGroup.pixelColor(childSpot).name());
 
-            // ★ 选中压得住悬停：又选中又悬停的那一行，屏幕上必须是**选中色**。
-            //   代理把悬停那层画在 `CE_ItemViewItem` 之前，所以这里本来就该是选中色。
+            // 选中压得住悬停：又选中又悬停的那一行，屏幕上必须是**选中色**。
+            // 代理把悬停那层画在 `CE_ItemViewItem` 之前，所以这里本来就该是选中色。
             instanceProbe.setCurrentItem(hoverChildRow);
             QApplication::processEvents();
             const QImage shotOnSelected = hoverShotAt(childRowRect.center());
             const QColor selectedPixel = shotOnSelected.pixelColor(childSpot);
-            // ★ 2026-09-29：选中那一档从 Fusion 那个蓝**换成了我们自己画的一块灰**（用户原话
-            //   「选中的时候那个蓝色的换成深灰色」，随后「再浅一点，#cccccc」）⇒ 这里的
-            //   "选中色"不再是 `palette().color(Highlight)`，而是 `Theme::selectionFill()`
-            //   （唯一出处见 ui/Theme.hpp）。原来那条"Fusion 画当前项是**竖渐变**、所以不能写
-            //   `== highlight`"的经验**还在**，所以仍然判"离选中色近得多、且绝不是悬停色"。
+            // 选中那一档从 Fusion 那个蓝**换成了我们自己画的一块灰**（要求
+            // 「选中的时候那个蓝色的换成深灰色」，随后「再浅一点，#cccccc」）⇒ 这里的
+            // "选中色"不再是 `palette().color(Highlight)`，而是 `Theme::selectionFill()`
+            // （唯一出处见 ui/Theme.hpp）。原来那条"Fusion 画当前项是**竖渐变**、所以不能写
+            // `== highlight`"的经验**还在**，所以仍然判"离选中色近得多、且绝不是悬停色"。
             const QColor selectionGray = Theme::selectionFill();
             const QColor highlight = instanceProbe.palette().color(QPalette::Highlight);
             const int distToSelection = rgbDist(selectedPixel, selectionGray);
@@ -9160,9 +9018,9 @@ int main(int argc, char *argv[]) {
                       .arg(rgbDist(selectedPixel, highlight))
                       .arg(distToSelection)
                       .arg(highlight.name()));
-            // ★ 左边那一截分支区**还是白的**（196b5cf 专门补的）：实例行选中时的带子只有
-            //   卡片那一圈，不跟着那根竖条走 —— 顺手把它涂灰就不再是"卡片"了。
-            //   这一条钉在**又选中又悬停**那一刻：两种底色都铺上的时候才量得出"谁没被涂"。
+            // 左边那一截分支区**还是白的**（196b5cf 专门补的）：实例行选中时的带子只有
+            // 卡片那一圈，不跟着那根竖条走 —— 顺手把它涂灰就不再是"卡片"了。
+            // 这一条钉在**又选中又悬停**那一刻：两种底色都铺上的时候才量得出"谁没被涂"。
             const QPoint instanceStripSpot(2, childRowRect.top() + childRowRect.height() / 2);
             const QColor instanceBase = instanceProbe.palette().color(QPalette::Base);
             check(childRowRect.left() > 2 &&
@@ -9178,10 +9036,10 @@ int main(int argc, char *argv[]) {
             // ---- ⑪c 真上屏：版本树那一类（"分类 → 版本号"）----
             //
             // 这一支和实例树有两处**故意不一样**（两边都按自己的"选中带"取形状）：
-            //   · 版本树的行是**挨着**的（没有那道空）⇒ 它的"行矩形"就是"卡片"；
-            //   · 它左边那一截分支区，**选中**时是被 `drawRow()` 连着一块涂的 ⇒ 悬停也得
-            //     涂上去。不涂的话同一行上"选中带"和"悬停带"的左边会差一个缩进 —— 看着
-            //     像是悬停没铺到头。
+            // · 版本树的行是**挨着**的（没有那道空）⇒ 它的"行矩形"就是"卡片"；
+            // · 它左边那一截分支区，**选中**时是被 `drawRow()` 连着一块涂的 ⇒ 悬停也得
+            // 涂上去。不涂的话同一行上"选中带"和"悬停带"的左边会差一个缩进 —— 看着
+            // 像是悬停没铺到头。
             const int versionRowH = MainWindowUI::versionTreeRowHeight();
             QTreeWidget versionProbe;
             versionProbe.setObjectName(QStringLiteral("wtfml_hover_version_probe"));
@@ -9236,8 +9094,8 @@ int main(int argc, char *argv[]) {
                   QStringLiteral("量到 %1 / 该是 %2")
                       .arg(shotOnVersion.pixelColor(versionSpot).name(),
                            versionHoverFill.name()));
-            // ★ 左边那一截**也要染**：选中时它是连着一块涂的，悬停不补这一截的话
-            //   "悬停带"和"选中带"的左边就差一个缩进。
+            // 左边那一截**也要染**：选中时它是连着一块涂的，悬停不补这一截的话
+            // "悬停带"和"选中带"的左边就差一个缩进。
             const QPoint versionStripSpot(2, versionRowRect.top() + 1);
             check(shotOnVersion.pixelColor(versionStripSpot) == versionHoverFill,
                   "★ 而且左边那一截分支区**也**染上了 —— 版本树这一支要和它自己的选中带同形状",
@@ -9257,10 +9115,10 @@ int main(int argc, char *argv[]) {
 
             // ---- ⑪d 产品里挂着这两个代理的表，真的都开着 mouseTracking ----
             //
-            // ★ 这是**真鼠标**那一档唯一的守卫：上面所有断言都是手动发事件的，开不开
-            //   mouseTracking 都量得动。而用户用真鼠标 —— 少一句 setMouseTracking(true)，
-            //   屏幕上的症状是"悬停没反应"，不报错、上面每条断言还照样绿的。
-            //   （2026-09-29 之前全仓只有实例列表和下载页左栏那份列表开了。）
+            // 这是**真鼠标**那一档唯一的守卫：上面所有断言都是手动发事件的，开不开
+            // mouseTracking 都量得动。而用户用真鼠标 —— 少一句 setMouseTracking(true)，
+            // 屏幕上的症状是"悬停没反应"，不报错、上面每条断言还照样绿的。
+            // （ 之前全仓只有实例列表和下载页左栏那份列表开了。）
             const auto viewTracksMouse = [](QAbstractScrollArea *view) {
                 return view != nullptr && view->viewport()->hasMouseTracking();
             };
@@ -9274,8 +9132,8 @@ int main(int argc, char *argv[]) {
                   "★ 产品·加载器那棵树开着 mouseTracking（2026-09-29 补的）");
             check(viewTracksMouse(ui.getSettingsCategoryList()),
                   "★ 产品·设置页左栏那份分类列表开着 mouseTracking（2026-09-29 补的）");
-            // ★ 第 0 个「游戏」那一页**没有资源表**（`getDownloadResourceTree("game")`
-            //   回 nullptr —— 它有它自己那棵树），所以这里按"四个资源页"来数，跳过它。
+            // 第 0 个「游戏」那一页**没有资源表**（`getDownloadResourceTree("game")`
+            // 回 nullptr —— 它有它自己那棵树），所以这里按"四个资源页"来数，跳过它。
             const QStringList allCategoryKeys = MainWindowUI::downloadCategoryKeys();
             const int gameIndex = MainWindowUI::downloadCategoryGameIndex();
             int resourceTreesTracked = 0;
@@ -9313,26 +9171,20 @@ int main(int argc, char *argv[]) {
 
             // ===== ⑫ 选中那一档：Fusion 那个蓝 → 我们自己画的一块灰 =====
             //
-            // 用户 2026-09-29 原话：「选中的时候那个蓝色的换成深灰色」，紧接着
+            // 要求：「选中的时候那个蓝色的换成深灰色」，紧接着
             // 「再浅一点，#cccccc」。
             //
-            // ★ 为什么不是改调色板：`QPalette::Highlight` 只要被 `setPalette()` 动一下，
-            //   `Theme::apply()` 里那个 `touchesPalette` 就置位 ⇒ 默认那份「跟着系统」的预设
-            //   会**钉死**调色板，系统深浅主题从此不跟了（W1 那条断言钉的就是这个）。
-            //   ⇒ 这块灰是**我们画**的：唯一出处 `ui/Theme.cpp` 的 `selectionFill()` /
-            //   `selectionInk()` / `selectionSubInk()` / `selectionPalette()`，落点是
-            //   `WtfmlProxyStyle`（= `Theme::createStyle()`）里那三处原语覆写：
-            //   `PE_PanelItemViewItem` / `PE_PanelItemViewRow` / `CE_ItemViewItem`。
-            //   手画正文的三个代理（VersionTreeDelegate / InstanceGroupDelegate /
-            //   GroupListDelegate）读的是 `selectionPalette()` —— 它们抄不到样式那一半。
+            // 为什么不是改调色板：`QPalette::Highlight` 只要被 `setPalette()` 动一下，
+            // `Theme::apply()` 里那个 `touchesPalette` 就置位 ⇒ 默认那份「跟着系统」的预设
+            // 会**钉死**调色板，系统深浅主题从此不跟了（W1 那条断言钉的就是这个）。
+            // ⇒ 这块灰是**我们画**的：唯一出处 `ui/Theme.cpp` 的 `selectionFill()` /
+            // `selectionInk()` / `selectionSubInk()` / `selectionPalette()`，落点是
+            // `WtfmlProxyStyle`（= `Theme::createStyle()`）里那三处原语覆写：
+            // `PE_PanelItemViewItem` / `PE_PanelItemViewRow` / `CE_ItemViewItem`。
+            // 手画正文的三个代理（VersionTreeDelegate / InstanceGroupDelegate /
+            // GroupListDelegate）读的是 `selectionPalette()` —— 它们抄不到样式那一半。
 
             // ---- ⑫a 那一档底：由**这一行自己的底色**混一档主题色，不是写死的色号 ----
-            //
-            // ★ 2026-10-12 起这一档换过一次（用户对这一条的答复：「完全照 §9.3（和侧栏导航
-            //   同款）」）：原来是写死的一块浅灰 `#cccccc`（用户 2026-09-29 点名的），
-            //   现在是"这一行的底色混 20% 主题色 + 左边一根 3 px 主题色指示条"。
-            //   ⇒ 这一节钉的东西跟着换了：**跟不跟底色走**、**是不是低饱和的浅主题色**，
-            //   而不是某一个色号（色号随主题色走，钉死了反而要跟着改两处）。
             const QColor selectionFill = Theme::selectionFill();
             check(selectionFill == Theme::selectionFill(QColor(Qt::white)),
                   "★ 不传底色 = 白底（默认那身浅色主题上每一张表的底都是白，判据拿到的就是它）",
@@ -9365,11 +9217,11 @@ int main(int argc, char *argv[]) {
 
             // ---- ⑫b 墨：浅底上必须是**暗**字，深底上必须是**亮**字 ----
             //
-            // ★ 方向是这一节的要害：第一版那块底是**暗**的（`#4a4a4a`）、墨得是亮的；用户
-            //   把底色改浅之后，墨必须**跟着翻过去** —— 亮墨压浅底 = 等于没字。所以这里不只
-            //   量"差得够远"，还钉住"底是亮的、墨是暗的"这两条方向。
-            //   ★ 2026-10-12 底改成"跟这一行自己的底色走"之后，方向**还得会翻回来**：
-            //     深色预设下那一片底是暗的，墨必须换回亮的那一支（见 .cpp 里那两档）。
+            // 方向是这一节的要害：第一版那块底是**暗**的（`#4a4a4a`）、墨得是亮的；用户
+            // 把底色改浅之后，墨必须**跟着翻过去** —— 亮墨压浅底 = 等于没字。所以这里不只
+            // 量"差得够远"，还钉住"底是亮的、墨是暗的"这两条方向。
+            // 底改成"跟这一行自己的底色走"之后，方向**还得会翻回来**：
+            // 深色预设下那一片底是暗的，墨必须换回亮的那一支（见 .cpp 里那两档）。
             const QColor selectionInk = Theme::selectionInk();
             const QColor selectionSubInk = Theme::selectionSubInk();
             check(Theme::selectionFill().lightness() > 128 && selectionInk.lightness() < 128,
@@ -9440,22 +9292,22 @@ int main(int argc, char *argv[]) {
             const QColor probeBase = selectProbe.palette().color(QPalette::Base);
             const QColor probeSelection = Theme::selectionFill();
             const QColor probeHighlight = selectProbe.palette().color(QPalette::Highlight);
-            // ★ **判据扫一片取多数，别拿单点逐字节比**：这一行是"当前项"，样式会在条目边界上
-            //   描焦点框、边上还有几个抗锯齿的像素 —— 贴着边界取样量到的是混色。2026-09-29 这
-            //   一条连着栽了两次：取 `top()+1` 量到 `#4c4c4c`（该有 `#4a4a4a`）、改成竖直正中
-            //   又量到 `#cdcdcd`（该有 `#cccccc`）—— 每次都只差一两个数位，判"接近"就混过去了，
-            //   判"相等"当场红。所以扫**一整片**（左边那圈留白里、够不着正文和图标），数
-            //   "有多少个像素就是我们这一档、有几个还是那个蓝"。
+            // **判据扫一片取多数，别拿单点逐字节比**：这一行是"当前项"，样式会在条目边界上
+            // 描焦点框、边上还有几个抗锯齿的像素 —— 贴着边界取样量到的是混色。 这
+            // 一条连着栽了两次：取 `top()+1` 量到 `#4c4c4c`（该有 `#4a4a4a`）、改成竖直正中
+            // 又量到 `#cdcdcd`（该有 `#cccccc`）—— 每次都只差一两个数位，判"接近"就混过去了，
+            // 判"相等"当场红。所以扫**一整片**（左边那圈留白里、够不着正文和图标），数
+            // "有多少个像素就是我们这一档、有几个还是那个蓝"。
             check(selectRowRect.left() > 2, "哨兵：这一行真的被缩进了（不缩进就谈不上「左边那一截」）",
                   QStringLiteral("左边 = %1").arg(selectRowRect.left()));
-            // ★ 为什么不是"某一点逐字节等于我们那一档"：**当前项**那一行的底是 Fusion 自己
-            //   画的**竖渐变**（2026-09-29 把这一列逐行打印出来看过：上沿一条 `#b8b8b8`、
-            //   紧跟着 `#d2d2d2`、往下平滑收到下沿那条 `#b4b4b4`），我们换掉的只是它用的那份
-            //   调色板 —— 整条渐变**就是**我们这一档底调制出来的，但只有中间几行逐字节等于
-            //   它。所以判据是"这一列**平均**下来就是这一档、最偏的一个像素也在同一族里" +
-            //   "那个蓝一个像素都不剩"。**平**的地方有：分支区那一截（下面那条逐字节判据量
-            //   得到）、以及不在焦点上的那些选中行（走 `PE_PanelItemViewItem`，是我们自己
-            //   `fillRect` 的）。
+            // 为什么不是"某一点逐字节等于我们那一档"：**当前项**那一行的底是 Fusion 自己
+            // 画的**竖渐变**（ 把这一列逐行打印出来看过：上沿一条 `#b8b8b8`、
+            // 紧跟着 `#d2d2d2`、往下平滑收到下沿那条 `#b4b4b4`），我们换掉的只是它用的那份
+            // 调色板 —— 整条渐变**就是**我们这一档底调制出来的，但只有中间几行逐字节等于
+            // 它。所以判据是"这一列**平均**下来就是这一档、最偏的一个像素也在同一族里" +
+            // "那个蓝一个像素都不剩"。**平**的地方有：分支区那一截（下面那条逐字节判据量
+            // 得到）、以及不在焦点上的那些选中行（走 `PE_PanelItemViewItem`，是我们自己
+            // `fillRect` 的）。
             int bodyPixels = 0;
             int bodyBlue = 0;
             int bodyWorst = 0;
@@ -9473,10 +9325,10 @@ int main(int argc, char *argv[]) {
                 if (px.rgb() == probeHighlight.rgb()) {
                     ++bodyBlue;
                 }
-                // ★ 这一档底是**带方向**的（这一支主题色是绿的）：渐变再怎么调，绿的通道
-                //   都得最高。写死"逐字节等于某一档"是不行的（当前项那层渐变），而"
-                //   整列平均下来对得上"又太松（从绿退回灰也能凑出同一个平均）—— 这两条
-                //   合起来才是"屏幕上真的铺的是我们这一档"。允许差一个数位（四舍五入）。
+                // 这一档底是**带方向**的（这一支主题色是绿的）：渐变再怎么调，绿的通道
+                // 都得最高。写死"逐字节等于某一档"是不行的（当前项那层渐变），而"
+                // 整列平均下来对得上"又太松（从绿退回灰也能凑出同一个平均）—— 这两条
+                // 合起来才是"屏幕上真的铺的是我们这一档"。允许差一个数位（四舍五入）。
                 if (px.green() + 1 < px.red() || px.green() + 1 < px.blue()) {
                     ++bodyTint;
                 }
@@ -9486,9 +9338,9 @@ int main(int argc, char *argv[]) {
                     bodyWorstPixel = px;
                 }
             }
-            // ★ 平均色要**逐通道**算，不能拿"每像素的通道平均值"再合成一个灰 —— 那一手在
-            //   底色是灰的时候看不出区别，换成带方向的这一档就成了"拿灰去比绿"（离目标
-            //   22 全是这么来的，屏幕上其实只有 11）。
+            // 平均色要**逐通道**算，不能拿"每像素的通道平均值"再合成一个灰 —— 那一手在
+            // 底色是灰的时候看不出区别，换成带方向的这一档就成了"拿灰去比绿"（离目标
+            // 22 全是这么来的，屏幕上其实只有 11）。
             const QColor bodyAverage(bodyPixels > 0 ? sumR / bodyPixels : 0,
                                      bodyPixels > 0 ? sumG / bodyPixels : 0,
                                      bodyPixels > 0 ? sumB / bodyPixels : 0);
@@ -9507,10 +9359,10 @@ int main(int argc, char *argv[]) {
                       .arg(bodyTint)
                       .arg(bodyBlue)
                       .arg(probeHighlight.name(), probeBase.name()));
-            // ★ 最左边那一列（x = 0..2）现在是**那根 3 px 的主题色指示条**（§9.3 点名要的
-            //   那一根）：样式早在画选中底的时候就把它铺上了，而代理紧接着又把左边那一截
-            //   分支区**整段**补了一遍底色（上面那段代码）—— 补的时候正好把它盖掉，所以
-            //   代理在那之后还得**再补一次指示条**。这条判据量到的是后者。
+            // 最左边那一列（x = 0..2）现在是**那根 3 px 的主题色指示条**（§9.3 点名要的
+            // 那一根）：样式早在画选中底的时候就把它铺上了，而代理紧接着又把左边那一截
+            // 分支区**整段**补了一遍底色（上面那段代码）—— 补的时候正好把它盖掉，所以
+            // 代理在那之后还得**再补一次指示条**。这条判据量到的是后者。
             const QPoint railSpot(2, selectRowRect.top() + 1);
             const QColor railPixel = selectShot.pixelColor(railSpot);
             check(railPixel.rgb() == Theme::selectionBar().rgb(),
@@ -9528,11 +9380,6 @@ int main(int argc, char *argv[]) {
             selectProbe.hide();
 
             // ---- ⑫d 一张**裸**表（没挂我们那三个代理）：只看"不再是那个蓝" ----
-            //
-            // 这一张走的是纯样式那条路（同一支 `CE_ItemViewItem` 也就这点差别）。判据刻意
-            // 只钉"不是那个蓝"：量到的是那块灰还是底色，取决于这张表 `showDecorationSelected`
-            // 这一位（那一位归视图自己填）—— 两种都不算错，所以"逐字节=那一档"那条严格判据
-            // 摆在上面树那一边（那一支的整行铺色是实测过的）。
             QListWidget plainProbe;
             plainProbe.setObjectName(QStringLiteral("wtfml_selection_plain_probe"));
             plainProbe.addItem(QStringLiteral("常规"));
@@ -9554,7 +9401,7 @@ int main(int argc, char *argv[]) {
 
             // ---- ⑫e 那条闸：`Highlight` 被换过的表**不许**被接管 ----
             //
-            // 下拉框弹出层里的选中色是**主题色**（2026-09-28 用户点名，走 QSS
+            // 下拉框弹出层里的选中色是**主题色**（ 用户点名，走 QSS
             // `QComboBox QAbstractItemView { selection-background-color: … }`）。那条 QSS 是
             // 逐控件的，我们这份样式看不到是哪张表在画，只能看 `option.palette`：这一份的
             // `Highlight` 跟应用调色板里那个不一样 ⇒ 不是"我们自己的选中带" ⇒ 原样交回去。
@@ -9595,10 +9442,6 @@ int main(int argc, char *argv[]) {
     }
 
     std::printf("===== N. 分组设置对话框（管的是分组本身，只改手里那份清单） =====\n");
-    // 2026-09-25 用户原话：「下方的分组设置不再是针对单个实例的设置，而是对现有分组数目/
-    // 名称等的设置（恢复默认分组设置，给组重命名，给组排列展示顺序，默认展开/关闭等）」。
-    // 所以这一节里**一条关于"这个实例归哪个组"的断言都没有到**（那半整个搬去了组行的
-    // 齿轮菜单，它在 MainWindow 那一侧，mw_check 的 T 段验）。
     {
         using Group = GroupDialog::Group;
         const QString packId = QStringLiteral("g-整合包");
@@ -9624,16 +9467,16 @@ int main(int argc, char *argv[]) {
         defaultCounts.insert(QStringLiteral("default-vanilla"), 2);
 
         // 「名字不合法」「重名」「恢复默认」那几条路都会**说一句为什么**，而那句话从
-        // 2026-09-25 起开在**内容区中间那一块**（`InlineMessage`），不再是一个独立的
+        // 起开在**内容区中间那一块**（`InlineMessage`），不再是一个独立的
         // QMessageBox 窗。要让这一句弹得出来，这个对话框自己得先"在覆盖层里" ——
         // 产品那边它就是被 MainWindow 当一页塞进覆盖层的（见 OverlayHost::execPage），
         // 所以这里也照那条路摆一个**只服务于这一节的**覆盖层（不动上面那个 ui 的状态，
         // 那边 O 段还要断言"刚搭好的时候它是关着的"）。
         //
         // NOTE: 这里**不给布局**，只 `setParent`。这一节里那些断言量的是对话框**自己**
-        //       内部的东西（组清单的行高、行尾那两颗三角的像素、尺寸提示），让它被外面
-        //       拉大只会把它们搅了；这一节要验的是"那句话开在哪一层"，而那一件事由
-        //       `OverlayHost::forWidget()` 沿父链找得到父控件就够了。
+        // 内部的东西（组清单的行高、行尾那两颗三角的像素、尺寸提示），让它被外面
+        // 拉大只会把它们搅了；这一节要验的是"那句话开在哪一层"，而那一件事由
+        // `OverlayHost::forWidget()` 沿父链找得到父控件就够了。
         QWidget overlayHome;
         overlayHome.resize(900, 620);
         QWidget overlayAnchor(&overlayHome);
@@ -9671,9 +9514,6 @@ int main(int argc, char *argv[]) {
                   dialog.findChild<QPushButton *>(GroupDialog::confirmButtonName()) != nullptr &&
                   dialog.findChild<QPushButton *>(GroupDialog::cancelButtonName()) != nullptr,
               "组列表、四个动作按钮、「默认展开」勾选框、确定/取消，全都按 objectName 找得回来");
-        // ★ 2026-09-25 傍晚：下方那两颗「上移」「下移」**删了**（用户原话「设置那个框下方的
-        //   上移下移的按钮就删了」）—— 挪动改成点组清单**行尾那两颗三角**。这里钉"它们真的
-        //   走了"：名字还在的话用户会看见两颗什么都不管的按钮（几何坏了也一样）。
         check(dialog.findChild<QPushButton *>(QStringLiteral("moveGroupUpButton")) == nullptr &&
                   dialog.findChild<QPushButton *>(QStringLiteral("moveGroupDownButton")) == nullptr,
               "「上移」「下移」那两颗按钮已经不在了（挪动改成点行尾那两颗三角）");
@@ -9820,9 +9660,9 @@ int main(int argc, char *argv[]) {
         check(dialog.groups().size() == 3, "上面那两下没有凭空多出/少掉组",
               QString::number(dialog.groups().size()));
 
-        // ---- 置顶 / 置底（按住 Shift 点那两颗按钮的那一档，2026-09-25 加的） ----
+        // ---- 置顶 / 置底（按住 Shift 点那两颗按钮的那一档， 加的） ----
         //
-        // 用户原话：「按住 shift 时点击就直接放最顶上/底下」。界面那条路是 clicked 里读
+        // 要求：「按住 shift 时点击就直接放最顶上/底下」。界面那条路是 clicked 里读
         // QApplication::keyboardModifiers()，而 offscreen 下摆不出"按着 Shift"—— 所以真正
         // 办事的是那两个槽，这里直接驱动它们（和"重命名拆成问/做两半"同一个理由）。
         check(dialog.groups().at(0).id == packId && dialog.groups().at(1).id == newId &&
@@ -9872,17 +9712,17 @@ int main(int argc, char *argv[]) {
                   upTip + QStringLiteral(" / ") + downTip);
         }
 
-        // ---- 行尾那两颗上下移三角（2026-09-25 傍晚从实例树搬进来的） ----
+        // ---- 行尾那两颗上下移三角（ 傍晚从实例树搬进来的） ----
         //
-        // 用户原话：「...这个箭头不应该在这里，而应该在 分组设置 里面，这里的删了，去分组
+        // 要求：「...这个箭头不应该在这里，而应该在 分组设置 里面，这里的删了，去分组
         // 设置里面加上，设置那个框下方的上移下移的按钮就删了」。上面那一节（组行那棵树）
         // 钉的是"这里没有了"；这一节钉另一半：它们**真在这张表里**，长什么样、点一下挪不挪
         // 得动、以及那一下**不会**顺手把这一行选中（用户报的「点击一下就同时展开和调整了」
         // 正是这个形状）。
         //
         // NOTE: 这一段**另开一个** GroupDialog —— 上面那半个的组序后面还要按
-        //       「[整合包][新建的那个][模组]」接着往下验。组数用三个：两条的时候就凑不齐
-        //       "第一格只有下移、中间两格都有、最后一格只有上移"这三档。
+        // 「[整合包][新建的那个][模组]」接着往下验。组数用三个：两条的时候就凑不齐
+        // "第一格只有下移、中间两格都有、最后一格只有上移"这三档。
         {
             using Group = GroupDialog::Group;
             const QString shaderId = QStringLiteral("g-光影");
@@ -9922,10 +9762,10 @@ int main(int argc, char *argv[]) {
                 };
 
                 // ① 条目矩形 = 画出来的那一块（`versionTreeRowHeight()`）+ 底下一条缝；
-                //    行尾那个方框里上箭头在上、下箭头在下，整个框贴着行右边。
+                // 行尾那个方框里上箭头在上、下箭头在下，整个框贴着行右边。
                 //
-                //    （用户 2026-09-25 原话：「能不能把箭头都放到最右边，上面是上箭头，下面是
-                //    下箭头，拿方框框起来，同时给组和组之间留一点距离，不然粘在一起分辨不开」）
+                // （要求：「能不能把箭头都放到最右边，上面是上箭头，下面是
+                // 下箭头，拿方框框起来，同时给组和组之间留一点距离，不然粘在一起分辨不开」）
                 const QRect rFirst = rowRect(0);
                 const QRect cFirst = GroupListDelegate::contentRect(rFirst);
                 check(rFirst.width() > 0 &&
@@ -9971,7 +9811,7 @@ int main(int argc, char *argv[]) {
                           .arg(boxFirst.top()).arg(boxFirst.bottom())
                           .arg(cFirst.right()));
                 // ② 画出来的那一圈装在**自己的那一格**里（上下两格、互不重叠），行矮就跟着
-                //    缩那条在实例树上早就有了，这里补的是"换了个宿主之后仍然是这个式子"。
+                // 缩那条在实例树上早就有了，这里补的是"换了个宿主之后仍然是这个式子"。
                 const QRect shortRow(0, 0, 400, MainWindowUI::versionTreeArrowSize());
                 check(cFirst.contains(GroupListDelegate::moveUpGlyphRect(rFirst)) &&
                           cFirst.contains(GroupListDelegate::moveDownGlyphRect(rFirst)) &&
@@ -10006,8 +9846,8 @@ int main(int argc, char *argv[]) {
                           !GroupListDelegate::showsMoveBox(QModelIndex()),
                       "三条都画那个方框 —— 第一条只有下移、最后一条只有上移，但框照画"
                       "（画的是「这两格在哪儿」，不是「两颗都在」）");
-                // ★ 表里只剩一条分组时：整块**不画**（一个空框看着像坏了），而且那一带也
-                //   不认、不弹（判据是同一个 showsMoveBox()，画和点不会错开）。
+                // 表里只剩一条分组时：整块**不画**（一个空框看着像坏了），而且那一带也
+                // 不认、不弹（判据是同一个 showsMoveBox()，画和点不会错开）。
                 {
                     QListWidget lone;
                     new QListWidgetItem(QStringLiteral("唯一的一条"), &lone);
@@ -10022,12 +9862,12 @@ int main(int argc, char *argv[]) {
                 }
 
                 // ④ 画哪一颗就是那一对函数说了算（量像素，不看代码）：第一条只有下移那一格
-                //    有墨、上移那一格一个像素都没有 —— 挪不动的一侧是**不画**，不是画成灰的。
+                // 有墨、上移那一格一个像素都没有 —— 挪不动的一侧是**不画**，不是画成灰的。
                 const QImage listShot = captureWidget(glist->viewport());
                 // 底色按**整行数票**取多数色（dominantColor()），不取某一个像素：
                 // 这张表上还有别的东西会改那一片的颜色 —— 第 0 行挂着"当前项"那一圈
                 // （这张表一建出来 currentRow() 就是 0）、行里还有组名和那两颗三角。
-                // 取一个点的话，点落在哪一样上量出来的结论就跟着翻（2026-09-24 日志窗
+                // 取一个点的话，点落在哪一样上量出来的结论就跟着翻（ 日志窗
                 // 那几条底色断言踩过同一个坑）。
                 const auto inkIn = [&listShot](const QRect &drawn, const QRect &cell) {
                     // 基准是**画出来的那一块**的多数色，不是整条条目矩形：条目底下那条缝是
@@ -10057,8 +9897,8 @@ int main(int argc, char *argv[]) {
                       QStringLiteral("上格 %1 px / 下格 %2 px")
                           .arg(inkIn(cFirst, GroupListDelegate::moveUpGlyphRect(rFirst)))
                           .arg(inkIn(cFirst, GroupListDelegate::moveDownGlyphRect(rFirst))));
-                // ★ 那个方框**真的画出来了**：框左沿那一列有墨，往左 4 px 那一列一个像素
-                //    都没有（只量「有墨」的话，一个笔画歪到那儿去的三角也能让它绿）。
+                // 那个方框**真的画出来了**：框左沿那一列有墨，往左 4 px 那一列一个像素
+                // 都没有（只量「有墨」的话，一个笔画歪到那儿去的三角也能让它绿）。
                 {
                     const QRect frameProbe(boxFirst.left(), boxFirst.top(), 1,
                                            boxFirst.height());
@@ -10105,7 +9945,7 @@ int main(int argc, char *argv[]) {
                       "一行字那一带上也不弹");
 
                 // ⑥ 手势：一次一格、按住 Shift 直接到最上/最下、连点每一发都算，而且那一下
-                //    **不会**顺手把这一行选中。
+                // **不会**顺手把这一行选中。
                 const auto sendMouse = [glist](const QPoint &pos, QEvent::Type type,
                                                Qt::KeyboardModifiers mods) {
                     QMouseEvent event(type, QPointF(pos),
@@ -10154,7 +9994,7 @@ int main(int argc, char *argv[]) {
                 }
 
                 // ⑥b 第一条那一侧的三角**画都没画**：点上去什么都不做，而且这一下**被整个
-                //     吃掉**（不吃的话会顺手把第一行选中）。
+                // 吃掉**（不吃的话会顺手把第一行选中）。
                 glist->setCurrentRow(2);
                 sendMouse(GroupListDelegate::moveUpRect(rowRect(0)).center(),
                           QEvent::MouseButtonPress, Qt::NoModifier);
@@ -10195,9 +10035,9 @@ int main(int argc, char *argv[]) {
                       orderNow());
 
                 // ⑥f 点得快的时候第二发到的是**双击**事件：两发都要算，而且那两发**一发都没
-                //     有漏到这一行上**（漏了的话这一行会被选中、双击还会弹重命名框）。
-                //     同一格上连点两下：第一发把这一行那一组挪下去，第二发落在换上来那一组
-                //     的同一格上，两下正好换回来 —— 少算一发就会停在「模组 / 光影 / 整合包」。
+                // 有漏到这一行上**（漏了的话这一行会被选中、双击还会弹重命名框）。
+                // 同一格上连点两下：第一发把这一行那一组挪下去，第二发落在换上来那一组
+                // 的同一格上，两下正好换回来 —— 少算一发就会停在「模组 / 光影 / 整合包」。
                 const QPoint fastPos = GroupListDelegate::moveDownRect(rowRect(1)).center();
                 dblEmitted = 0;
                 sendMouse(fastPos, QEvent::MouseButtonPress, Qt::NoModifier);
@@ -10222,8 +10062,8 @@ int main(int argc, char *argv[]) {
                       QString::number(glist->currentRow()));
 
                 // ⑦ 表里**只剩一条分组**那一档：整块既不画、也不认。上面那几条都在三条的
-                //    表上量的，而三条的表里 showsMoveBox() 恒为真 —— 代理里那一句、
-                //    eventFilter() 里那一句，谁都验不到。这一节另开一张一条的窗，两边都量。
+                // 表上量的，而三条的表里 showsMoveBox() 恒为真 —— 代理里那一句、
+                // eventFilter() 里那一句，谁都验不到。这一节另开一张一条的窗，两边都量。
                 {
                     using LGroup = GroupDialog::Group;
                     QList<LGroup> lone;
@@ -10278,7 +10118,7 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // ---- 行高：和版本下载那棵树一样（用户原话「分组设置界面也是」），再加一条缝 ----
+        // ---- 行高：和版本下载那棵树一样（要求「分组设置界面也是」），再加一条缝 ----
         //
         // 条目矩形 = versionTreeRowHeight() + rowGap()；**画出来的那一块**仍然是那个常数
         // （代理按 contentRect() 收掉底下那一条）。两条一起量：只量前者的话，代理把整条
@@ -10404,7 +10244,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // ------------------------------------------------------------------
     std::printf("===== U. 实例设置对话框（控件 → 值，且不碰磁盘） =====\n");
     // ------------------------------------------------------------------
     // 这个对话框自己那一半：把控件读成一份 Override / QStringList。产品的另一半
@@ -10432,12 +10271,12 @@ int main(int argc, char *argv[]) {
         }();
         // 全局是**手动档**（autoMemory=false）：下面"自动档下两行禁用"那几条要自己
         // 把那一行切成自定义才看得到，否则验的是"跟随全局跟着全局禁用"，两件事混一起。
-        // ★ 2026-09-28：「跟随全局 / 自定义」那一格**从前是一对单选钮**（`followRadioName()`
-        //   / `customRadioName()` 两个 objectName 一起没了），用户原话「所有单选框换成下拉的」
-        //   之后成了**一个** QComboBox，下标 0 / 1。
+        // 「跟随全局 / 自定义」那一格**从前是一对单选钮**（`followRadioName()`
+        // / `customRadioName()` 两个 objectName 一起没了），要求「所有单选框换成下拉的」
+        // 之后成了**一个** QComboBox，下标 0 / 1。
         //
-        //   下面这三个辅助就是那一格的读 / 写两半 —— 档位只有一个出处
-        //   （`choiceFollowIndex()` / `choiceCustomIndex()`），这里一个 `0` / `1` 都不写。
+        // 下面这三个辅助就是那一格的读 / 写两半 —— 档位只有一个出处
+        // （`choiceFollowIndex()` / `choiceCustomIndex()`），这里一个 `0` / `1` 都不写。
         const auto choiceCombo = [](const Dlg &d, const QString &field) {
             return d.findChild<QComboBox *>(Dlg::choiceComboName(field));
         };
@@ -10471,16 +10310,16 @@ int main(int argc, char *argv[]) {
         const auto lineEditOf = [](const Dlg &d, const QString &name) {
             return d.findChild<QLineEdit *>(name);
         };
-        // ---- U0 左栏（2026-09-27 起只有一列：按实例现算出来的页表）----
+        // ---- U0 左栏（ 起只有一列：按实例现算出来的页表）----
         //
-        // 用户原话：「针对每个实例，在实例设置里个性化自定义，概览里面调整是否显示，把整个
+        // 要求：「针对每个实例，在实例设置里个性化自定义，概览里面调整是否显示，把整个
         // 文件管理换了」。这一段钉的是**骨架**：一列页表 + 右边一层堆叠页、两张键表按下标
         // 严丝合缝、点第 N 条换第 N 页、没有入口的那一页（配置文件）照样摆得出来而左栏不亮、
         // 行号越界不清空右栏、以及"哪些控件落在哪一页里"。
         //
-        // ★ 2026-09-26 那版的**三栏**（大类 | 中栏小类 | 内容）已经拆掉了：中栏那个控件在
-        //   这一整页上一个都找不到（见下面那句硬编码的旧 objectName）。左栏从此是唯一的
-        //   一列，而它的内容是按实例**算**出来的 —— 所以这里的键表也不再是写死的那三档。
+        // 那版的**三栏**（大类 | 中栏小类 | 内容）已经拆掉了：中栏那个控件在
+        // 这一整页上一个都找不到（见下面那句硬编码的旧 objectName）。左栏从此是唯一的
+        // 一列，而它的内容是按实例**算**出来的 —— 所以这里的键表也不再是写死的那三档。
         {
             const auto pageListOf = [](const Dlg &d) {
                 return d.findChild<QListWidget *>(Dlg::pageListName());
@@ -10488,14 +10327,8 @@ int main(int argc, char *argv[]) {
             const auto stackOf = [](const Dlg &d) {
                 return d.findChild<QStackedWidget *>(Dlg::stackName());
             };
-            // ★ 2026-09-26：堆叠页里加进去的不是"那一页"而是**包着它的那层滚动区**
-            //   （用户报的 bug：「滚动的时候左边也跟着滚了」—— 修法就是**一页一层滚动区**，
-            //   见 InstanceSettingsDialog::addPage() 那段）。所以下面这几处量 objectName
-            //   的地方都要先把这层壳剥掉：壳认得出（scrollName(key)）、里面那一格才是
-            //   原来那个 `panelName(key)`。
-            //
             // NOTE: 剥法是**结构性的**（`qobject_cast<QScrollArea*>` + `widget()`），
-            //       不是"按名字猜" —— 断言要能盯住"这一层真的在、而且里面装的真是那一页"。
+            // 不是"按名字猜" —— 断言要能盯住"这一层真的在、而且里面装的真是那一页"。
             const auto panelAt = [](QStackedWidget *stack, int index) -> QWidget * {
                 QWidget *page = stack != nullptr ? stack->widget(index) : nullptr;
                 if (auto *scroll = qobject_cast<QScrollArea *>(page)) {
@@ -10513,15 +10346,15 @@ int main(int argc, char *argv[]) {
             // 树里认人靠 `UserRole` 上那个键（`navItemOf()`），没有行号这一层 —— 也就没有
             // "差一格点错页"这种错法了（这一节里原来那条 `setCurrentRow(i)` 就是这么量的）。
 
-            // ★★ 2026-10-16：左栏那条导航**变成了一棵树**（`navigationTreeName()` —— 界面
-            //   导航的唯一出处）。上面那个 `pageListOf` 现在只指得到一列**旧的、`hide()` 着
-            //   的** `QListWidget`：它的内容还是老的四组十三行、`shownEntryKeys()` 改了它
-            //   也不动。所以凡是"量左栏"的判据一律改认下面这几个。
+            // 左栏那条导航**变成了一棵树**（`navigationTreeName()` —— 界面
+            // 导航的唯一出处）。上面那个 `pageListOf` 现在只指得到一列**旧的、`hide()` 着
+            // 的** `QListWidget`：它的内容还是老的四组十三行、`shownEntryKeys()` 改了它
+            // 也不动。所以凡是"量左栏"的判据一律改认下面这几个。
             //
-            //   树的形状（`rebuildNavigationTree()`）：顶上两条光叶子（概览 / 启动），底下
-            //   四组（内容管理 / 世界与联机 / 创作工具 / 维护），组里的叶子才是页。组的
-            //   `UserRole` 是**空的**、`UserRole + 1` 才是组号 —— 判据一并分开认这两格，
-            //   "组也被当成一页"这种错法（点一下组名右栏空掉）就当场红。
+            // 树的形状（`rebuildNavigationTree()`）：顶上两条光叶子（概览 / 启动），底下
+            // 四组（内容管理 / 世界与联机 / 创作工具 / 维护），组里的叶子才是页。组的
+            // `UserRole` 是**空的**、`UserRole + 1` 才是组号 —— 判据一并分开认这两格，
+            // "组也被当成一页"这种错法（点一下组名右栏空掉）就当场红。
             const auto navTreeOf = [](const Dlg &d) {
                 return d.findChild<QTreeWidget *>(Dlg::navigationTreeName());
             };
@@ -10586,10 +10419,10 @@ int main(int argc, char *argv[]) {
                   "★★ U0a 左栏底部有固定的主动作“启动实例”，任意页都走同一条启动请求",
                   fixedLaunch != nullptr ? fixedLaunch->text() : QStringLiteral("<没有按钮>"));
 
-            // ★ 「中栏」那个控件**没了**。名字是**硬编码**的：`subCategoryListName()` /
-            //   `categoryListName()` 那两个常量已经连声明一起删了 —— 而这一条要的正是
-            //   "拿旧名字也找不回来"（留着常量就写得出这一句，但那样测的是常量还在不在，
-            //   不是控件还在不在）。
+            // 「中栏」那个控件**没了**。名字是**硬编码**的：`subCategoryListName()` /
+            // `categoryListName()` 那两个常量已经连声明一起删了 —— 而这一条要的正是
+            // "拿旧名字也找不回来"（留着常量就写得出这一句，但那样测的是常量还在不在，
+            // 不是控件还在不在）。
             check(dialog.findChild<QListWidget *>(QStringLiteral("instanceSettingsSubCategoryList")) ==
                           nullptr &&
                       dialog.findChild<QListWidget *>(QStringLiteral("instanceSettingsCategoryList")) ==
@@ -10599,8 +10432,8 @@ int main(int argc, char *argv[]) {
 
             // 左栏此刻有哪几条 = pinnedPageKeys() + optionalPageKeys()：这是"七条全可用、
             // 一条都没被勾掉"那个默认样子（这一份 Dlg 没被 MainWindow 收窄过）。
-            // ★ 列出来的那几条必须和 shownEntryKeys() **一模一样** —— 那是左栏的唯一出处，
-            //   差一条就是"右栏能换到一页、左栏里却没这一条"。
+            // 列出来的那几条必须和 shownEntryKeys() **一模一样** —— 那是左栏的唯一出处，
+            // 差一条就是"右栏能换到一页、左栏里却没这一条"。
             QStringList defaultKeys = Dlg::pinnedPageKeys();
             defaultKeys.append(Dlg::optionalPageKeys());
             check(Dlg::pinnedPageKeys().size() == Dlg::pinnedPageTexts().size() &&
@@ -10611,9 +10444,9 @@ int main(int argc, char *argv[]) {
                   "★ U0a 左栏默认那一列 = 概览 / 启动 + 七条可选页（顺序就是 optionalPageKeys()）",
                   dialog.shownEntryKeys().join(QLatin1Char('|')));
 
-            // ★ U0a 左栏那棵树：**顶上两条光叶子 + 四组**。组的 `UserRole` 必须**空着**
-            //   （它自己不是一页），`UserRole + 1` 才是组号 —— 这两格混了的话"点一下组名
-            //   右栏就空掉"这种错法量不出来。
+            // U0a 左栏那棵树：**顶上两条光叶子 + 四组**。组的 `UserRole` 必须**空着**
+            // （它自己不是一页），`UserRole + 1` 才是组号 —— 这两格混了的话"点一下组名
+            // 右栏就空掉"这种错法量不出来。
             QTreeWidget *nav = navTreeOf(dialog);
             const QStringList navKeys = navLeafKeys(nav);
             const QStringList groupIds = {QStringLiteral("content"), QStringLiteral("worlds"),
@@ -10705,9 +10538,9 @@ int main(int argc, char *argv[]) {
 
             // 两张键表的**关系**：七条可选页 = 文件那八页 - 配置文件。
             //
-            // ★ 这一条是这次改动的"形状"本身：「配置文件」是一个**没有入口**的页（它不在
-            //   勾选表里、不在左栏里，只有 showPage("config") 够得着，见下面 U0d）。所以
-            //   "整张文件页表"比"可选页表"多出来的那一条，只能是它。
+            // 这一条是这次改动的"形状"本身：「配置文件」是一个**没有入口**的页（它不在
+            // 勾选表里、不在左栏里，只有 showPage("config") 够得着，见下面 U0d）。所以
+            // "整张文件页表"比"可选页表"多出来的那一条，只能是它。
             QStringList filesMinusConfig = Dlg::filePageKeys();
             filesMinusConfig.removeAll(Dlg::configPageKey());
             QStringList optionalSorted = Dlg::optionalPageKeys();
@@ -10718,8 +10551,8 @@ int main(int argc, char *argv[]) {
                   QStringLiteral("可选 %1 条 / 文件页 %2 条")
                       .arg(Dlg::optionalPageKeys().size())
                       .arg(Dlg::filePageKeys().size()));
-            // 「快捷方式」不再是一页（2026-09-27 那九颗按钮搬进了概览）。键表少一条 ⇒
-            // 少一页；2026-10-16 起又补上了那一整批**生命周期页**（worldbackup … operationsmenu
+            // 「快捷方式」不再是一页（ 那九颗按钮搬进了概览）。键表少一条 ⇒
+            // 少一页； 起又补上了那一整批**生命周期页**（worldbackup … operationsmenu
             // 那 16 条），所以 pageCount() 现在是 26 = 钉死 2 + 文件 8 + 生命周期 16。
             // 下面这一条把三张表的**关系**钉死，"加一页忘了动表"当场红。
             check(Dlg::pageCount() == 26 && Dlg::filePageKeys().size() == 8 &&
@@ -10774,11 +10607,11 @@ int main(int argc, char *argv[]) {
                   "★ U0a stackPageIndexOf() 与堆叠页的实际下标逐条一致",
                   QStringLiteral("对上 %1/%2").arg(indexHit).arg(expectedPanels.size()));
 
-            // ★ 每一页外面套着**它自己那一层**滚动区，名字一一对上。
-            //   这一条钉的就是用户 2026-09-26 报的那个 bug 的**修法本身**：从前是
-            //   「整页套一层」（那一层在 OverlayHost 上，把左栏那条导航列一起包进去了
-            //   ⇒ 滚右栏的内容时左栏跟着滚走了 —— 用户原话「滚动的时候左边也跟着滚了」）。
-            //   现在滚动区落在**每一页自己**身上，左栏不在任何一层里。
+            // 每一页外面套着**它自己那一层**滚动区，名字一一对上。
+            // 这一条钉的就是用户 报的那个 bug 的**修法本身**：从前是
+            // 「整页套一层」（那一层在 OverlayHost 上，把左栏那条导航列一起包进去了
+            // ⇒ 滚右栏的内容时左栏跟着滚走了 —— 要求「滚动的时候左边也跟着滚了」）。
+            // 现在滚动区落在**每一页自己**身上，左栏不在任何一层里。
             int scrollHit = 0;
             for (int i = 0; i < stack->count(); ++i) {
                 auto *scroll = qobject_cast<QScrollArea *>(stack->widget(i));
@@ -10809,15 +10642,11 @@ int main(int argc, char *argv[]) {
                   "★ U0a 左栏那棵树**不在任何滚动区里**（它要钉在原地 —— 装进去就是"
                   "「滚内容连导航一起滚」那一版）");
 
-            // ★ 用户原话「实例设置里面的那个取消和确定删了」：整页上一颗都不该有。
-            //   扫的是**文案**不是 objectName —— 那两个名字常量连声明一起删了，而这句话
-            //   说的是"用户看得见的那两颗没了"。
+            // 要求「实例设置里面的那个取消和确定删了」：整页上一颗都不该有。
+            // 扫的是**文案**不是 objectName —— 那两个名字常量连声明一起删了，而这句话
+            // 说的是"用户看得见的那两颗没了"。
             QStringList strayButtons;
             for (QPushButton *button : dialog.findChildren<QPushButton *>()) {
-                // ★ 2026-10-09 排掉一处：文件管理那几页的**悬浮操作条**上也有一颗「取消」
-                //   （用户 2026-10-09 点名的那七颗里的第四颗 —— 更新/禁用/启用/全选/反选/
-                //   **取消**/删除，那儿的意思是"把选中取消掉"）。它和"实例设置那一对
-                //   确定/取消"不是一回事，所以这一条要把它整个子树跳过去。
                 bool inSelectionBar = false;
                 for (const QWidget *w = button; w != nullptr; w = w->parentWidget()) {
                     if (w->objectName() == InstanceFilesPage::selectionBarName()) {
@@ -10890,13 +10719,13 @@ int main(int argc, char *argv[]) {
                           .arg(currentPanel(dialog)));
             }
 
-            // ★ 没有入口的那一页（「配置文件」）**照样摆得出来**：showPage() 认得它，
-            //   而左栏里**没有它** ⇒ 选中被清空。这一条同时钉住两件事：
-            //   页面本身还在（不然 showPage 直接 return、右栏原地不动），以及
-            //   "左栏不许亮着一个用户没点过的东西"。
+            // 没有入口的那一页（「配置文件」）**照样摆得出来**：showPage() 认得它，
+            // 而左栏里**没有它** ⇒ 选中被清空。这一条同时钉住两件事：
+            // 页面本身还在（不然 showPage 直接 return、右栏原地不动），以及
+            // "左栏不许亮着一个用户没点过的东西"。
             //
             // NOTE: 判据是"左栏什么都没亮"（`currentItem() == nullptr`）**不是**"亮着别的
-            //       某一条" —— 后者会让用户以为"配置文件就是那一条"。
+            // 某一条" —— 后者会让用户以为"配置文件就是那一条"。
             dialog.showPage(Dlg::configPageKey());
             check(currentPanel(dialog) == Dlg::panelName(Dlg::configPageKey()) &&
                       navTreeOf(dialog)->currentItem() == nullptr,
@@ -10952,14 +10781,14 @@ int main(int argc, char *argv[]) {
                           Dlg::panelName(Dlg::launchCategoryKey()),
                   "U0h 两页各自的表单也在自己那一页里（formName 与 panelName 一一对上）");
 
-            // ★ 那一排常用目录按钮和那七格勾选框都在**概览**里（2026-09-27）。
-            //   前者是从「快捷方式」那一整页搬来的、勾选表是新写的，两样都换过父容器 ——
-            //   而"换父容器"这件事一旦漏了一个，症状是"那一颗按钮在哪儿都找不着"
-            //   （它还在，只是挂在一页根本没露出来的控件底下）。
+            // 那一排常用目录按钮和那七格勾选框都在**概览**里。
+            // 前者是从「快捷方式」那一整页搬来的、勾选表是新写的，两样都换过父容器 ——
+            // 而"换父容器"这件事一旦漏了一个，症状是"那一颗按钮在哪儿都找不着"
+            // （它还在，只是挂在一页根本没露出来的控件底下）。
             //
-            //   NOTE: 2026-10-13（§5.3）那一排一度是十三条、而且可能收着几颗；2026-10-18
-            //         去重后是**五条** —— 这一条数的仍然是"每一颗都在概览页里"（`belongsTo`
-            //         看的是父链，和露不露无关），条数跟着捷径表走。
+            // NOTE: （§5.3）那一排一度是十三条、而且可能收着几颗；
+            // 去重后是**五条** —— 这一条数的仍然是"每一颗都在概览页里"（`belongsTo`
+            // 看的是父链，和露不露无关），条数跟着捷径表走。
             int shortcutInOverview = 0;
             int checkboxesInOverview = 0;
             for (int i = 0; i < Dlg::shortcutTexts().size(); ++i) {
@@ -10994,12 +10823,9 @@ int main(int argc, char *argv[]) {
             QApplication::processEvents();
             QTreeWidget *navShown = navTreeOf(dialog);
             // NOTE: 左栏外面套了一层竖排容器（贴顶那个写法），所以它的 x() 是**相对那一层**
-            //       的（永远是 0）。要比左右就得换算到整窗上，见 mapTo。
+            // 的（永远是 0）。要比左右就得换算到整窗上，见 mapTo。
             const int listX = navShown->mapTo(&dialog, QPoint(0, 0)).x();
             const int stackX = stack->mapTo(&dialog, QPoint(0, 0)).x();
-            // ★ 2026-10-16：左栏的宽度**是钉死的**（`navigationTreeWidth()`），不再"按最长的
-            //   那一条条目算出来"。判据跟着改成"就是那个数" —— 比原来那对上下界更紧，
-            //   而且"哪天有人把定宽改成算出来的"会当场红。
             check(listX < stackX && navShown->width() == Dlg::navigationTreeWidth(),
                   "U0g 左栏在内容区左边，宽度就是 navigationTreeWidth()",
                   QStringLiteral("x %1/%2，宽 %3（期望 %4）")
@@ -11011,7 +10837,7 @@ int main(int argc, char *argv[]) {
                   "U0g 左栏比内容区窄（导航列不该跟内容抢地方）",
                   QStringLiteral("%1 vs %2").arg(navShown->width()).arg(stack->width()));
 
-            // ★★ U0g-2 左栏的宽度**不随"现在显示着哪几页"变**（2026-10-11 修，2026-10-16
+            // U0g-2 左栏的宽度**不随"现在显示着哪几页"变**（ 修，
             // 换成树之后这条**更硬**了：树本来就是定宽）。
             //
             // 原来那个算法只看表里**这一刻**有的那几条 ⇒ 用户在「高级选项」里勾掉「结构/原理图」
@@ -11021,8 +10847,8 @@ int main(int argc, char *argv[]) {
             // 性质的规矩。
             //
             // NOTE: 拿"把七条可选页**全勾掉**"来量是最狠也最省事的一发：树上那七条叶子当场
-            //       消失（"内容管理"那一组会剩个空组），要是有哪一条比钉死那几条宽，原来的
-            //       算法一定当场窄下来。
+            // 消失（"内容管理"那一组会剩个空组），要是有哪一条比钉死那几条宽，原来的
+            // 算法一定当场窄下来。
             {
                 const int countBefore = navLeafKeys(navShown).size();
                 const int widthBefore = navShown->width();
@@ -11042,26 +10868,26 @@ int main(int argc, char *argv[]) {
                       QStringLiteral("%1 → %2").arg(widthBefore).arg(navShown->width()));
             }
 
-            // ---- U0j ★★ 页面按钮那一套的规格（2026-09-28）----
+            // ---- U0j ★★ 页面按钮那一套的规格----
             //
-            // 用户原话：「实例设置里面的所有按钮做成恒定宽度和高度的，每一行三个，间距适中
+            // 要求：「实例设置里面的所有按钮做成恒定宽度和高度的，每一行三个，间距适中
             // 且左右能充分利用」。这一段拿**概览页上那一排常用目录按钮**把这句话量出来：
-            //   ① 每一颗高度**一律** actionButtonHeight()；
-            //   ② 同一行那三颗**一样宽**（"恒定宽度"）；
-            //   ③ 同一行相邻两颗之间的空档正好是 actionButtonSpacing()（"间距适中"）；
-            //   ④ 第一行那一排的跨度**明显宽于**三颗最窄加起来（"左右能充分利用" —— 它们
-            //      真的被摊满整幅，而不是挤成一小团靠左）。
+            // ① 每一颗高度**一律** actionButtonHeight()；
+            // ② 同一行那三颗**一样宽**（"恒定宽度"）；
+            // ③ 同一行相邻两颗之间的空档正好是 actionButtonSpacing()（"间距适中"）；
+            // ④ 第一行那一排的跨度**明显宽于**三颗最窄加起来（"左右能充分利用" —— 它们
+            // 真的被摊满整幅，而不是挤成一小团靠左）。
             //
             // NOTE: 量之前必须两件事一起做 —— 先 `showPage()` 切到概览（`QStackedLayout`
-            //       的 `minimumSize()` 与非当前页无关，非当前页**根本不参与布局**，量到的
-            //       会是一堆 0），再把窗放大（窗一窄，第 ④ 条就退化成"挤满 = 各自顶着最窄
-            //       那个数"，两边看不出差别）。
+            // 的 `minimumSize()` 与非当前页无关，非当前页**根本不参与布局**，量到的
+            // 会是一堆 0），再把窗放大（窗一窄，第 ④ 条就退化成"挤满 = 各自顶着最窄
+            // 那个数"，两边看不出差别）。
             //
             // NOTE: 这里量的 x()/width() 都是**相对那个装按钮的格子**的 —— 它们同父，
-            //       比宽度和间距不需要换算坐标。
-            // NOTE: 2026-10-13（§5.3）那一排一度是十三条；2026-10-18 去重后回到**五条**
-            //       （默认"全都在"⇒ 五颗全在外面、也没有「更多目录…」）。下面这些是按
-            //       `shortcutTexts().size()` 现算的，一条都不写死条数。
+            // 比宽度和间距不需要换算坐标。
+            // NOTE: （§5.3）那一排一度是十三条； 去重后回到**五条**
+            // （默认"全都在"⇒ 五颗全在外面、也没有「更多目录…」）。下面这些是按
+            // `shortcutTexts().size()` 现算的，一条都不写死条数。
             {
                 dialog.resize(1000, 720);
                 dialog.showPage(Dlg::overviewCategoryKey());
@@ -11117,9 +10943,6 @@ int main(int argc, char *argv[]) {
                                      .arg(c->width())
                                      .arg(gap1)
                                      .arg(gap2);
-                    // 「一样宽」的那一条**留 1 像素**：整幅宽按三列分是整数除法，除不尽的
-                    // 那一两像素 Qt 会落在某一列上（实测 270/271/270），那不是"宽度不恒定"，
-                    // 是像素栅格除不尽。再多一像素就是真的不一样宽了。
                     const int wMin = qMin(a->width(), qMin(b->width(), c->width()));
                     const int wMax = qMax(a->width(), qMax(b->width(), c->width()));
                     if (wMax - wMin > 1) {
@@ -11155,9 +10978,9 @@ int main(int argc, char *argv[]) {
             dialog.hide();
         }
 
-        // ---- U0h 概览栏那四行（图标+名称 / 两颗按钮 / 置顶 / 导出占位，2026-09-26）----
+        // ---- U0h 概览栏那四行（图标+名称 / 两颗按钮 / 置顶 / 导出占位，）----
         //
-        // 用户原话：「第一行 图标 名称 / 第二行 更改图标 分组… / 第三行 显示在置顶组中 /
+        // 要求：「第一行 图标 名称 / 第二行 更改图标 分组… / 第三行 显示在置顶组中 /
         // 第四行 导出」（原来那一版是「概览（版本名、图标，分组，置顶/取消置顶）」那样三行，
         // 每行一个行名）。那几行都**不改启动参数**，改的是"这个实例是谁"：长什么样、摆在哪儿。
         //
@@ -11296,11 +11119,6 @@ int main(int argc, char *argv[]) {
                   "★ U0h 「本地那张」/ 空串 / 光秃秃一个键名都不是内置那一档（认不出来给空串）");
 
             // ---- 分组那一行（「分组…」按钮 + 它底下那个浮层）----
-            //
-            // 2026-09-26 从「一个下拉框」换成「一颗按钮 + 一个浮层」（用户原话：「换成按钮，
-            // 点了弹浮层列出各组选一个」）。**这一版和下拉框那版有两条本质差别**，两条都在
-            // 下面钉住：①浮层里那几行是**每次 setGroupChoices() 重建**的（行数会变）；
-            // ②「当前是哪一组」靠那一行**灰着**表示（点它等于什么都没做），不再靠选中项。
             const QList<QPair<QString, QString>> groups = {
                 {QStringLiteral("原版"), QStringLiteral("default-vanilla")},
                 {QStringLiteral("可安装mod"), QStringLiteral("default-moddable")},
@@ -11356,10 +11174,10 @@ int main(int argc, char *argv[]) {
 
             // ---- 置顶那一行 ----
             //
-            // ★ 2026-09-26 用户把置顶改成**两边都显示**（「就是在被设为置顶组的那个组里再放
-            //   一个同名的」）之后，这一格和「分组…」那一格**不再互相影响**：一个管"要不要在
-            //   置顶组里多摆一条"，一个管"老家在哪"。旧断言（勾上置顶会把这颗按钮底下那一格
-            //   挪到置顶组上并禁用）钉的是老语义，已经删了 —— 现在钉的是反过来那句。
+            // 用户把置顶改成**两边都显示**（「就是在被设为置顶组的那个组里再放
+            // 一个同名的」）之后，这一格和「分组…」那一格**不再互相影响**：一个管"要不要在
+            // 置顶组里多摆一条"，一个管"老家在哪"。旧断言（勾上置顶会把这颗按钮底下那一格
+            // 挪到置顶组上并禁用）钉的是老语义，已经删了 —— 现在钉的是反过来那句。
             dialog.setGroupChoices(groups, QStringLiteral("default-vanilla"));
             dialog.setPinned(true, QStringLiteral("default-moddable"));
             check(pinOf(dialog)->isChecked() && dialog.pinned(),
@@ -11393,10 +11211,10 @@ int main(int argc, char *argv[]) {
             check(pinOf(dialog)->isEnabled() && pinOf(dialog)->toolTip().isEmpty(),
                   "U0h 有置顶组时勾选框可用、那句「没有置顶组」的解释摘掉");
 
-            // ---- 那四行上的字（2026-09-26）----
+            // ---- 那四行上的字----
             //
             // 概览这一栏**没有"标题在左、内容在右"的行名了**：那几句话变成了控件自己的文字
-            // （用户原话「第一行 图标 名称 / 第二行 更改图标 分组… / 第三行 显示在置顶组中 /
+            // （要求「第一行 图标 名称 / 第二行 更改图标 分组… / 第三行 显示在置顶组中 /
             // 第四行 导出」）。于是"这一行是什么"和"这行上的字对不对"是同一件事 —— 字错了
             // 就等于这一行没名字，而下面 U1c 那条"实例名那行标签一处都没有"钉的是这一改动
             // 的另一半。**读的是产品的那个访问器**，不是这儿另抄一遍字（抄一遍的话改名字
@@ -11412,7 +11230,7 @@ int main(int argc, char *argv[]) {
                       .arg(changeIconOf(dialog)->text())
                       .arg(groupButtonOf(dialog)->text())
                       .arg(pinOf(dialog)->text()));
-            // 第四行那颗「导出…」**2026-09-26 起是真的**（原来是灰占位）：点得动、字和
+            // 第四行那颗「导出…」** 起是真的**（原来是灰占位）：点得动、字和
             // tooltip 都换成产品那一份，而且**和「导出启动脚本」不是同一个 objectName**
             // —— 那两颗认错控件过一次（一个是整合包、一个是 .bat）。
             auto *exportPack = dialog.findChild<QPushButton *>(Dlg::exportButtonName());
@@ -11431,9 +11249,9 @@ int main(int argc, char *argv[]) {
                   "（名字长得像，认错的那一次是这儿）");
         }
 
-        // ---- U0h2 「启动」栏那两颗动作按钮（2026-09-26）----
+        // ---- U0h2 「启动」栏那两颗动作按钮----
         //
-        // 用户原话：「按钮文本直接做成设置名称」，举的两个例子就是「导出启动脚本」「补全版本
+        // 要求：「按钮文本直接做成设置名称」，举的两个例子就是「导出启动脚本」「补全版本
         // 文件」。于是这两项**没有行名**：按钮上那几个字就是它们的名字（两条 tooltip 和
         // 下面那句合起来的说明才是解释）。所以这里钉的是"字 == 产品的那个访问器"，而不是
         // 在断言里另抄一遍 —— 抄一遍的话改名字时两边一起错、断言等于没有。
@@ -11474,22 +11292,22 @@ int main(int argc, char *argv[]) {
                   "（只躺在 tooltip 里会有人一辈子看不到）");
         }
 
-        // ---- U0h3 概览页那颗「检查更新」（2026-09-28）----
+        // ---- U0h3 概览页那颗「检查更新」----
         //
-        // 用户原话：「实例设置那里做一个更新检测」。这一颗和上面那颗「导出…」是同一个形状
+        // 要求：「实例设置那里做一个更新检测」。这一颗和上面那颗「导出…」是同一个形状
         // （一颗按钮 + 底下那句解释，点了之后**会出现一个结果**，而不是改一格设置就写盘），
         // 而且**只发信号**：反查盘上那几十个 jar 是谁、每个再去问一趟版本列表，全在
         // MainWindow 那边（`checkInstanceUpdates()`）—— 这一层连一个请求都不发，所以这里
         // 能单独构造它、单独点它。
         //
         // 钉三样，缺一不可：
-        //   · 那颗按钮按 objectName 找得回来、点得动、字是产品那个访问器给的（字错了等于
-        //     这一项没名字）；
-        //   · 点一下**正好发一条** checkUpdatesRequested（点不动、发两条都不是这一档）；
-        //   · tooltip 那句里**必须有「说不清」这三个字** —— 判据是"盘上那个文件的 sha1 落
-        //     在版本列表的第几条上"（`ModDependencies::judgeUpdate`），认不出来的那几条在
-        //     界面上写的就是「说不清」。谁把它改成"已经全部检查过了"这一条必须红：用户会
-        //     以为认不出来的那几条也是"没问题"。
+        // · 那颗按钮按 objectName 找得回来、点得动、字是产品那个访问器给的（字错了等于
+        // 这一项没名字）；
+        // · 点一下**正好发一条** checkUpdatesRequested（点不动、发两条都不是这一档）；
+        // · tooltip 那句里**必须有「说不清」这三个字** —— 判据是"盘上那个文件的 sha1 落
+        // 在版本列表的第几条上"（`ModDependencies::judgeUpdate`），认不出来的那几条在
+        // 界面上写的就是「说不清」。谁把它改成"已经全部检查过了"这一条必须红：用户会
+        // 以为认不出来的那几条也是"没问题"。
         {
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global, QStringList(),
                        true);
@@ -11547,7 +11365,7 @@ int main(int argc, char *argv[]) {
 
         // ---- U0i 实例图标那几张图本身（VersionIcons 那一侧）----
         //
-        // 用户原话：「使用实际的那几个 mc 草块 / fabric 布料等的图片文件，…同时允许用户
+        // 要求：「使用实际的那几个 mc 草块 / fabric 布料等的图片文件，…同时允许用户
         // 自主上传」。「用户自己上传」那一半落在 VersionIcons::fileMark()（读盘上任意一张图、
         // 缩成正方）。它是**唯一一处读用户文件的图标代码**，所以"读不动"和"读得动"两条
         // 路都要钉住 —— 前者决定用户挑了个 .txt 时屏幕上是什么，后者决定扁的图会不会被拉变形。
@@ -11601,15 +11419,8 @@ int main(int argc, char *argv[]) {
 
         // ---- U1 六项各一个档位下拉框 + 各一个控件，都按 objectName 找得回来 ----
         //
-        // ★ 2026-09-28：「跟随全局 / 自定义」从前是**一对单选钮**，用户原话「所有单选框
-        //   换成下拉的」之后成了**一个两项的下拉框**（`choiceComboName()`）。所以这一节
-        //   现在两件事一起验：① 六项那一个格子都是一个两项的下拉框，两项的文字还是那两句
-        //   产品文案；② **这一整页里一个 QRadioButton 都不剩** —— 第二条就是用户那句原话
-        //   本身，留着任何一颗没换完的单选钮它就红。那一格的 objectName（`choiceRowName()`）
-        //   没变，一并钉住。
-        //
         // NOTE: 这里喂了窗口模式表。不喂的话「窗口模式」那一行**根本不建**（见构造函数
-        //       windowModes 那段），六项就只剩五项能够着 —— 那正是这一条要覆盖的第六项。
+        // windowModes 那段），六项就只剩五项能够着 —— 那正是这一条要覆盖的第六项。
         {
             const QList<Dlg::WindowModeChoice> modes = {
                 {QStringLiteral("小窗"), QStringLiteral("windowed")},
@@ -11670,16 +11481,15 @@ int main(int argc, char *argv[]) {
                 QComboBox plainCombo;
                 check(!wheelGuardProblem(&plainCombo).isEmpty(),
                       "U1b 反面：没装的控件照样会被判出来（判据不是恒真）");
-                // 2026-09-26 给「最大内存」加了那根条，它也要装（滚一格就是一档）。
                 const QString sliderProblem =
                     wheelGuardProblem(dialog.findChild<QSlider *>(Dlg::memoryMaxSliderName()));
                 check(sliderProblem.isEmpty(), "U1b 这个窗的「最大内存」那根条也装了滚轮防护",
                       sliderProblem);
             }
-            // ★ 2026-09-26：「最小内存」那一整行**不显示了**（用户原话「不要 xms 了（或者
-            //   隐藏起来），按照默认值」）。判据是"那一行自己被藏起来了"，不是"控件不在"
-            //   —— 对象还在、还跟着盘上的值走、override() 还照原样透传（见 .cpp 里那段）。
-            //   反面对照取的是「最大内存」那一行（同样拿父控件问，它必须是露着的）。
+            // 「最小内存」那一整行**不显示了**（要求「不要 xms 了（或者
+            // 隐藏起来），按照默认值」）。判据是"那一行自己被藏起来了"，不是"控件不在"
+            // —— 对象还在、还跟着盘上的值走、override() 还照原样透传（见 .cpp 里那段）。
+            // 反面对照取的是「最大内存」那一行（同样拿父控件问，它必须是露着的）。
             {
                 auto *minSpin = dialog.findChild<QSpinBox *>(Dlg::memoryMinSpinName());
                 auto *maxSpin = dialog.findChild<QSpinBox *>(Dlg::memoryMaxSpinName());
@@ -11692,7 +11502,7 @@ int main(int argc, char *argv[]) {
                       "U1d 反面：「最大内存」那一行照样露着（判据不是「这个窗什么都藏着」）");
             }
 
-            // ---- U1c 「实例名」那一格（2026-09-25 从实例页右栏搬进来的「重命名…」） ----
+            // ---- U1c 「实例名」那一格（ 从实例页右栏搬进来的「重命名…」） ----
             // 它改的是这个实例的**身份**（磁盘上那个目录名），不是一项启动参数，所以单独一行、
             // 摆在这张表的最上面（先看清改的是哪一个，再谈别的）。这一格存在的理由就是下面
             // 那第二条断言：**初值取的是目录名、不是显示名** —— 拿显示名当初值的话，用户进
@@ -11709,11 +11519,11 @@ int main(int argc, char *argv[]) {
                 // 那一句解释在界面上真的出现了 —— 从 Dlg:: 那几个 static 拿，断言里
                 // 一个「实例名」的字面量都不抄（文案改了这里跟着改）。
                 //
-                // ★ 2026-09-26：「实例名」那**行名**没了（用户把概览排成
-                //   「第一行 图标 名称（可编辑文本）」—— 那一行没有一个独占一行的标题，
-                //   名字就在输入框的占位文字里）。所以这里钉的是**反过来**那一条：不能再有
-                //   一个写着 instanceNameText() 的标签（留着的话界面上就是"标题 + 占位文字"
-                //   把同一句话说两遍），而那句话确实由占位文字带着。
+                // 「实例名」那**行名**没了（用户把概览排成
+                // 「第一行 图标 名称（可编辑文本）」—— 那一行没有一个独占一行的标题，
+                // 名字就在输入框的占位文字里）。所以这里钉的是**反过来**那一条：不能再有
+                // 一个写着 instanceNameText() 的标签（留着的话界面上就是"标题 + 占位文字"
+                // 把同一句话说两遍），而那句话确实由占位文字带着。
                 int labelHits = 0;
                 int hintHits = 0;
                 const QList<QLabel *> labels = dialog.findChildren<QLabel *>();
@@ -11811,11 +11621,11 @@ int main(int argc, char *argv[]) {
 
         // ---- U5 内存只剩一根拖动的条，自动档那一行撤掉了 ----
         //
-        // ★ 2026-10-18（用户原话「内存分配和最大内存这玩意完全就是重复的，只保留那个
-        //   拖动的」）：这一页**不再有**「内存分配」（自动（按系统内存））那一行。两条路
-        //   仍然要钉住：
-        //     ① 这一页里找不到那个勾选框 / 那一格（防止哪天又被搭回来）；
-        //     ② 「跟随全局」时条和数字框仍然禁用（拖了也落不了值），切「自定义」才活。
+        // （要求「内存分配和最大内存这玩意完全就是重复的，只保留那个
+        // 拖动的」）：这一页**不再有**「内存分配」（自动（按系统内存））那一行。两条路
+        // 仍然要钉住：
+        // ① 这一页里找不到那个勾选框 / 那一格（防止哪天又被搭回来）；
+        // ② 「跟随全局」时条和数字框仍然禁用（拖了也落不了值），切「自定义」才活。
         {
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global,
                        QStringList(), true);
@@ -11857,10 +11667,10 @@ int main(int argc, char *argv[]) {
         }
 
         // ---- U5b 藏起来的那一行：存过的值照样透传，只有"比最大内存还大"的不透传 ----
-        // ★ 2026-09-26：Xms 那一行从界面上撤掉了，但**撤掉界面不等于替用户删掉他的设置**
-        //   —— 盘上存过的那份覆盖照样由 override() 透传回去。唯一必须拦的是 Xms > Xmx
-        //   那一种：它是 JVM 直接拒绝启动的组合（Initial heap size set to a larger value
-        //   than the maximum heap size），而用户现在在界面上根本看不到自己存过这么一对。
+        // Xms 那一行从界面上撤掉了，但**撤掉界面不等于替用户删掉他的设置**
+        // —— 盘上存过的那份覆盖照样由 override() 透传回去。唯一必须拦的是 Xms > Xmx
+        // 那一种：它是 JVM 直接拒绝启动的组合（Initial heap size set to a larger value
+        // than the maximum heap size），而用户现在在界面上根本看不到自己存过这么一对。
         {
             Dlg::Override current;
             current.xmx = 2048;   // 这个实例自己钉了最大内存
@@ -11905,13 +11715,13 @@ int main(int argc, char *argv[]) {
 
         // ---- U7 高级选项：默认折叠 ----
         //
-        // NOTE: 2026-09-26 分栏之后必须先**切到「启动」那一栏**再问。高级选项长在「启动」
-        //       页里，而 QStackedLayout 会把非当前页 `hide()` 掉 —— 那一页的控件于是
-        //       "不visible"，`isHidden()` 虽然还只反映它自己的标志位（所以下面那几条碰巧
-        //       还是过的），但这一段的**意思**是"在「启动」栏里它默认折叠"。不切栏的话
-        //       量的是一个没露出来的页面，量对了也不说明产品对。
-        //       U7b 就不是"碰巧"了：那一整段的判据是窗口高度，而 QStackedLayout 的
-        //       minimumSize() **跳过所有 isHidden() 的页**（`QWidgetItem::isEmpty()`）。
+        // NOTE: 分栏之后必须先**切到「启动」那一栏**再问。高级选项长在「启动」
+        // 页里，而 QStackedLayout 会把非当前页 `hide()` 掉 —— 那一页的控件于是
+        // "不visible"，`isHidden()` 虽然还只反映它自己的标志位（所以下面那几条碰巧
+        // 还是过的），但这一段的**意思**是"在「启动」栏里它默认折叠"。不切栏的话
+        // 量的是一个没露出来的页面，量对了也不说明产品对。
+        // U7b 就不是"碰巧"了：那一整段的判据是窗口高度，而 QStackedLayout 的
+        // minimumSize() **跳过所有 isHidden() 的页**（`QWidgetItem::isEmpty()`）。
         {
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global,
                        QStringList(), true);
@@ -11931,24 +11741,18 @@ int main(int argc, char *argv[]) {
 
         // ---- U7b 展开高级选项：窗口**一个字都不动**，多出来的内容让那一页自己滚 ----
         //
-        // 用户 2026-09-24 报的：「实例设置在点开高级选项后再关闭，窗口大小会有问题」。
+        // 用户 报的：「实例设置在点开高级选项后再关闭，窗口大小会有问题」。
         // 那时的形状是：Qt 只在"窗口比内容还小"时把窗口**撑大**，内容变少时一动不动 ——
         // 于是 600x480 → 展开 600x503 → 折回**还是** 600x503（布局只要 310，多出来那一截
         // 全是空白）。当天产品里补的是一条"展开前记下高度、折回时按它还原"的还原逻辑。
         //
-        // ★ 2026-09-26（每页一层滚动区之后）**这一整类毛病从根上没有了**：那一页的内容
-        //   再高也不参与"这个窗至少要多大"（QScrollArea 的最小尺寸与它装的东西无关，
-        //   `widgetResizable` 那一档也一样），所以窗口既不会被撑高、也就没有"留一截空白"
-        //   可言。上面那条还原逻辑还在（无害，缩回时是把它缩到同一个数），但**这一节现在
-        //   量的是新的那条规矩**：窗不动、内容自己滚。
-        //
         // NOTE: 这一段必须**真的 show()**（U7 那一段没 show：布局在隐藏的窗上根本不重算）。
-        //       开量之前先把窗缩到"折叠时最矮"那一档 —— 这样"多出来的内容一定超出一屏"
-        //       是这个夹具保证的，跨机器都成立（不然这一条在"480 本来就够放"的机器上就是
-        //       空转的）。
+        // 开量之前先把窗缩到"折叠时最矮"那一档 —— 这样"多出来的内容一定超出一屏"
+        // 是这个夹具保证的，跨机器都成立（不然这一条在"480 本来就够放"的机器上就是
+        // 空转的）。
         //
         // NOTE: 还得先切到「启动」那一栏：高级选项在那一页里，而
-        //       `QStackedLayout::minimumSize()` 是**跳过非当前页**的。
+        // `QStackedLayout::minimumSize()` 是**跳过非当前页**的。
         {
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global,
                        QStringList({QStringLiteral("-Xss1M")}), true);
@@ -12024,9 +11828,9 @@ int main(int argc, char *argv[]) {
                   "U8 而且它的起点是**全局的有效值**（用户是想微调，不是想从头填）",
                   QString::number(dialog.findChild<QSpinBox *>(Dlg::memoryMaxSpinName())->value()));
 
-            // ★ 2026-10-18：`current.autoMemory = false` 这份**老 meta 覆盖不再生效** ——
-            //   这一页没有能改它的入口了，有效值只看全局（见 effectiveAutoMemory()）。
-            //   于是全局自动档下，切「自定义」也不能填 Xmx（自动档会把它重算掉）。
+            // `current.autoMemory = false` 这份**老 meta 覆盖不再生效** ——
+            // 这一页没有能改它的入口了，有效值只看全局（见 effectiveAutoMemory()）。
+            // 于是全局自动档下，切「自定义」也不能填 Xmx（自动档会把它重算掉）。
             check(dialog.effectiveAutoMemory() == true,
                   "U8 老 meta 里的 autoMemory=false 不再生效（这一页只听全局）");
             check(!dialog.findChild<QSpinBox *>(Dlg::memoryMaxSpinName())->isEnabled() &&
@@ -12048,10 +11852,10 @@ int main(int argc, char *argv[]) {
         }
 
         // ---- U8b 内存上限：由**调用方递进来**（设置页那一格算出来的那个数） ----
-        // ★ 2026-09-27（第 5 轮审计）：上限从前是这一页自己算的（再读一次系统内存），
-        //   于是"设置页能填 4096、实例页能填 16384"这种两边对不上的事做得到。
-        //   现在只有一处算（MainWindowUI::memoryCapForTotalMb），由 MainWindow 从
-        //   设置页那一格上取下来递进来（GlobalValues::memoryCapMb）。
+        // （第 5 轮审计）：上限从前是这一页自己算的（再读一次系统内存），
+        // 于是"设置页能填 4096、实例页能填 16384"这种两边对不上的事做得到。
+        // 现在只有一处算（MainWindowUI::memoryCapForTotalMb），由 MainWindow 从
+        // 设置页那一格上取下来递进来（GlobalValues::memoryCapMb）。
         {
             const auto maxOf = [&](int capMb) {
                 Dlg::GlobalValues g = global;
@@ -12106,7 +11910,7 @@ int main(int argc, char *argv[]) {
             check(!dialog2.warnJavaMismatch(), "U9 访问器跟着是 false");
         }
 
-        // ---- U9b 窗口那两行（2026-09-28）----
+        // ---- U9b 窗口那两行----
         //
         // 这两行比别处多一层绕：`Override` 里存的是**代号字符串**，代号表还是调用方**喂**
         // 进来的（ui/ 不许 include src/ —— 界面层不认识 GameWindowMode 这个枚举，也不认识
@@ -12151,8 +11955,8 @@ int main(int argc, char *argv[]) {
                 check(choiceCombo(dialog, Dlg::windowModeField()) != nullptr &&
                           choiceCombo(dialog, Dlg::windowWidthField()) != nullptr,
                       "U9b 那两行各有一个「跟随全局 / 自定义」档位下拉框");
-                // ★ 两个档位下拉框**不是**同一格：模式那一行和分辨率那一行各管各的（模式跟随
-                //   全局、大小自定义是完全正常的一种配法）。共用一格的话，改一处会连带另一处。
+                // 两个档位下拉框**不是**同一格：模式那一行和分辨率那一行各管各的（模式跟随
+                // 全局、大小自定义是完全正常的一种配法）。共用一格的话，改一处会连带另一处。
                 {
                     auto *modeRow =
                         dialog.findChild<QWidget *>(Dlg::choiceRowName(Dlg::windowModeField()));
@@ -12197,24 +12001,24 @@ int main(int argc, char *argv[]) {
                 }
             }
 
-            // (1b) 那一行的几何：`宽 × 高` 三样**挨在一起**、整行靠左（2026-10-11 修）
+            // (1b) 那一行的几何：`宽 × 高` 三样**挨在一起**、整行靠左（ 修）
             //
-            // ★★ 唯一的洞是「×」那一颗 —— 四颗里只有它**没带对齐**。盒子布局里"没有对齐、
-            //    又能长"的那一颗会把多出来的空间**全吃掉**（QLabel 的默认策略就是能长），
-            //    于是屏幕上成了 `[跟随全局▾][1280▾]      ×           [720▾]`：一行两个数
-            //    被拉开半个屏。上面那段注释写着"整行按 sizeHint 靠左摆"，可代码里没有一处
-            //    这么要求（文件里那条「注释与代码相反」的教训）。真正的钉子是末尾那个弹簧。
+            // 唯一的洞是「×」那一颗 —— 四颗里只有它**没带对齐**。盒子布局里"没有对齐、
+            // 又能长"的那一颗会把多出来的空间**全吃掉**（QLabel 的默认策略就是能长），
+            // 于是屏幕上成了 `[跟随全局▾][1280▾] × [720▾]`：一行两个数
+            // 被拉开半个屏。上面那段注释写着"整行按 sizeHint 靠左摆"，可代码里没有一处
+            // 这么要求（文件里那条「注释与代码相反」的教训）。真正的钉子是末尾那个弹簧。
             //
             // NOTE: 判据用"相邻两颗的空档"而不是"右边还剩多少" —— 空档正是那个弹簧管的东西，
-            //       而右边剩多少还跟着这一格有多宽走（窗一大就变，不该拿来做断言）。
+            // 而右边剩多少还跟着这一格有多宽走（窗一大就变，不该拿来做断言）。
             {
                 Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), winGlobal,
                            QStringList(), true, modes);
                 // 几何断言的前提：**得先把这一页摆出来**。两件事缺一不可 ——
-                //   · 没 `show()` 过的控件，x()/width() 全是那个 100×30 的默认值；
-                //   · 「窗口大小」在「启动」那一页上，而堆叠里**不是当前页的那些页根本不参与
-                //     布局**（见 U0j 那段 NOTE）⇒ 光 show() 还是量不到，得先 `showPage()`
-                //     切过去。量出来 -100 那种看着像界面坏了的数，就是这个原因。
+                // · 没 `show()` 过的控件，x()/width() 全是那个 100×30 的默认值；
+                // · 「窗口大小」在「启动」那一页上，而堆叠里**不是当前页的那些页根本不参与
+                // 布局**（见 U0j 那段 NOTE）⇒ 光 show() 还是量不到，得先 `showPage()`
+                // 切过去。量出来 -100 那种看着像界面坏了的数，就是这个原因。
                 dialog.show();
                 dialog.showPage(Dlg::launchCategoryKey());
                 QApplication::processEvents();
@@ -12282,7 +12086,7 @@ int main(int argc, char *argv[]) {
             }
 
             // (3) 盘上有覆盖时重开：停在「自定义」上、控件里是覆盖值。
-            //     停在「跟随全局」的话用户会以为设置丢了，而点确定还会把它删掉。
+            // 停在「跟随全局」的话用户会以为设置丢了，而点确定还会把它删掉。
             {
                 Dlg::Override current;
                 current.windowMode = QStringLiteral("maximized");
@@ -12310,8 +12114,8 @@ int main(int argc, char *argv[]) {
             }
 
             // (4) 盘上那个代号这一版认不出来（换过名、或者手写过）：停在第一档，不崩、不留空。
-            //     真实后果是用户看见「小窗」而盘上写着别的 —— 但那一份本来就谁也读不懂，
-            //     **可断言的是"界面不空、也不越界"**（真正的兜底在合成那一侧，见 verify ZD5）。
+            // 真实后果是用户看见「小窗」而盘上写着别的 —— 但那一份本来就谁也读不懂，
+            // **可断言的是"界面不空、也不越界"**（真正的兜底在合成那一侧，见 verify ZD5）。
             {
                 Dlg::Override current;
                 current.windowMode = QStringLiteral("最大窗口");
@@ -12326,8 +12130,8 @@ int main(int argc, char *argv[]) {
             }
 
             // (5) 调用方没喂档位表（老调用点 / 别的验证工程那样构造）：模式那一行**根本不
-            //     出现**，而分辨率那一行照旧 —— 这样加了这一档之后，没跟上的调用点也不会
-            //     冒出一个空下拉框。
+            // 出现**，而分辨率那一行照旧 —— 这样加了这一档之后，没跟上的调用点也不会
+            // 冒出一个空下拉框。
             {
                 Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), winGlobal,
                            QStringList(), true);
@@ -12356,7 +12160,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // ---- U10 「文件管理」那八页真正的内容（2026-09-26）----
+    // ---- U10 「文件管理」那八页真正的内容----
     {
         // 自己起一份，不蹭上面 U 段那块作用域里的同名量（那一段已经收了）。
         using Dlg = InstanceSettingsDialog;
@@ -12371,12 +12175,6 @@ int main(int argc, char *argv[]) {
             g.extraJvmArgs = QStringLiteral("-XX:+UseG1GC");
             return g;
         }();
-    //
-    // 用户原话：「文件管理（再做一个类似的左侧菜单叠在已有的左边栏上（没听懂就画图问），
-    // 分别是快捷方式（打开版本/存档/截图/资源包文件夹等），资源包/模组（能装模组的版本）
-    // 数据包，光影包（装了能加载光影的模组/of），原理图（装了litematica），存档，服务器
-    // 列表（前面这些按照合理顺序排，我这个不合理）」。
-    //
     // 这一段验的是**显示**：目录列得对不对、三条开关（能不能启停 / 能不能删 / 只列文件夹）
     // 摆得对不对、"用不上"那一页说的是不是那句解释。**真正的删除与改名不在这儿验** ——
     // 那一层刻意不碰盘（见 InstanceFilesPage 的文件头），那两条端到端在 mw_check 里走。
@@ -12397,10 +12195,6 @@ int main(int argc, char *argv[]) {
         mkfile(modsDir + QStringLiteral("/iris-1.6.5.jar"));
         // 被禁用的那一条：盘上叫 `.jar.disabled`，界面上要显示成原名 + 一个记号。
         mkfile(modsDir + QStringLiteral("/禁用掉的.jar.disabled"));
-        // ★★ 2026-10-11（用户点名）：模组目录里**套着的文件夹**。用户盘上就有这么一幕
-        //    （`E:\MC\.minecraft\versions\Better MC [FORGE] BMC4\mods\.connector\`），
-        //    从前它照常占一行，而给它「禁用」只是把这个**文件夹**改个名（里面的东西一起
-        //    从游戏眼里消失）。现在「模组」那一页一个目录都不列（`Mode::FilesOnly`）。
         mkfile(modsDir + QStringLiteral("/.connector/config.json"));
         // 再放一个**不带点**的（`run/` 底下那个 mcef 目录就是这一种），这样这一条断言
         // 不靠"点开头的算不算隐藏"这档子平台差异 —— 无论 Qt 在 Windows 上认不认点开头，
@@ -12414,16 +12208,16 @@ int main(int argc, char *argv[]) {
         mkfile(root + QStringLiteral("/schematics/房子.litematic"));
         mkfile(savesDir + QStringLiteral("/我的世界/level.dat"));
 
-        // 跳到某一页一律走 showPage(key)：左栏从此是**按实例算出来的一列**（2026-09-27），
+        // 跳到某一页一律走 showPage(key)：左栏从此是**按实例算出来的一列**，
         // 行号**不等于**键表的下标 —— 照旧写 `setCurrentRow(filePageKeys().indexOf(key))`
         // 会静默跳到**别的**那一页上，而"跳错了页"在这一层是看不出来的（下面每一条断言
         // 读的都是页里的控件）。另外「配置文件」那一页在左栏里**根本没有条目**
         // （它没有任何入口，见 .hpp 里 optionalPageKeys() 那段）。
         const auto showPage = [](Dlg &d, const QString &key) { d.showPage(key); };
-        // ★ 2026-09-27：「这一条叫什么」**不在 `item->text()` 上**了 —— 条目故意不带文字
-        //   （带了的话视图代理会在透明的行控件底下再画一遍同一个名字，屏幕上是重影；
-        //   用户截图报的「模组名称出现了两次」就是它，见 InstanceFilesPage::refresh()）。
-        //   名字的唯一出处是行里那一格标签，所以这里照着**界面上真正显示的东西**读。
+        // 「这一条叫什么」**不在 `item->text()` 上**了 —— 条目故意不带文字
+        // （带了的话视图代理会在透明的行控件底下再画一遍同一个名字，屏幕上是重影；
+        // 用户截图报的「模组名称出现了两次」就是它，见 InstanceFilesPage::refresh()）。
+        // 名字的唯一出处是行里那一格标签，所以这里照着**界面上真正显示的东西**读。
         const auto itemText = [](InstanceFilesPage *page, int row) {
             QListWidgetItem *item = page != nullptr ? page->list()->item(row) : nullptr;
             QWidget *rowWidget =
@@ -12477,18 +12271,18 @@ int main(int argc, char *argv[]) {
                              page->objectName() == Dlg::filesPageName(key) &&
                              dialog.findChild<QWidget *>(Dlg::panelName(key)) != nullptr;
             }
-            // ★ 数量**从键表里算**，不写死（2026-09-27 加了「配置文件」那一页时，写死的
-            //   `== 6` 正是这一条红的唯一原因）。"页数对不对"由 U0a 那两条接着管 ——
-            //   它们量的是 pageCount()，而那个是从同一张键表算出来的。
+            // 数量**从键表里算**，不写死（ 加了「配置文件」那一页时，写死的
+            // `== 6` 正是这一条红的唯一原因）。"页数对不对"由 U0a 那两条接着管 ——
+            // 它们量的是 pageCount()，而那个是从同一张键表算出来的。
             const int expected = keys.size() - 1;  // 减去 `server`
             check(pagesFound && count == expected,
                   "★ U10a 中间那几页目录列表都搭起来了、都在自己那一格里（filesPageName 与 "
                   "panelName 对得上）",
                   QStringLiteral("%1 页").arg(count));
-            // ★ 而且**「配置文件」那一页和别的几页不是一个形状**（2026-09-27）：它是一页
-            //   两格子（列表 / 编辑器，见 InstanceSettingsDialog::configFilePage() 那段）
-            //   —— 那张列表不直接是 panel 的孩子，中间还隔着那层堆叠。上面那条用的是
-            //   findChild（递归），所以它照样找得到；这一条把"隔着的是谁"也钉住。
+            // 而且**「配置文件」那一页和别的几页不是一个形状**：它是一页
+            // 两格子（列表 / 编辑器，见 InstanceSettingsDialog::configFilePage() 那段）
+            // —— 那张列表不直接是 panel 的孩子，中间还隔着那层堆叠。上面那条用的是
+            // findChild（递归），所以它照样找得到；这一条把"隔着的是谁"也钉住。
             QWidget *configPanel = dialog.findChild<QWidget *>(Dlg::panelName(
                 QStringLiteral("config")));
             InstanceFilesPage *configFiles = dialog.filesPage(QStringLiteral("config"));
@@ -12512,8 +12306,8 @@ int main(int argc, char *argv[]) {
             // 编辑器那一格：**和列表同在那个堆叠里**，而且刚切过来时没露脸。
             //
             // NOTE: 得先把这一页摆到台面上再问 isVisible()（收着的堆叠页一律是 false，
-            //       不摆的话这一条永远绿、什么都没量到 —— 和这一节别处量几何前先 showPage
-            //       是同一条规矩）。
+            // 不摆的话这一条永远绿、什么都没量到 —— 和这一节别处量几何前先 showPage
+            // 是同一条规矩）。
             showPage(dialog, QStringLiteral("config"));
             ConfigFileEditorPage *editor = dialog.configFilePage();
             check(editor != nullptr && editor->objectName() == ConfigFileEditorPage::pageName(),
@@ -12536,19 +12330,11 @@ int main(int argc, char *argv[]) {
                   "是一片空白）");
         }
 
-        // ---- U10b 常用目录那一排按钮（2026-09-27 起住在**概览**页里）----
+        // ---- U10b 常用目录那一排按钮（ 起住在**概览**页里）----
         //
-        // ★ 它们从前是单独一页（「快捷方式」，夹在概览和启动之间），用户 2026-09-27 原话
-        //   「"快捷方式"放到概览的下方」⇒ 那一页没了、这一排按钮整块搬进概览（键、objectName、
-        //   底下那句话一个字都没改，只是换了个父）。U0h 那两条钉的就是"它们真的落在概览里"。
-        //
-        // ★ 2026-10-13（coding plan §5.3）：九条 → **十三条**（后补的四条接在表尾，一个已有
-        //   的下标都没挪），并且分成两段 —— 详见下面的 U10b2。
-        //
-        // ★★ 2026-10-18：十三条 → **五条**。用户原话「实例设置 概览里面 快捷入口重复了」：
-        //   那八条在左栏 / 勾选表里有同名的一页，摆在这一排里就是同一串名字出现两遍。
-        //   留下来的正好是"左栏没有入口"的那五路（版本目录 / 日志 / 游戏目录 / 崩溃报告 /
-        //   配置），见 shortcutTexts() 那段。
+        // 它们从前是单独一页（「快捷方式」，夹在概览和启动之间），要求
+        // 「"快捷方式"放到概览的下方」⇒ 那一页没了、这一排按钮整块搬进概览（键、objectName、
+        // 底下那句话一个字都没改，只是换了个父）。U0h 那两条钉的就是"它们真的落在概览里"。
         {
             const QList<QWidget *> buttons = dialog.shortcutButtons();
             const QStringList texts = Dlg::shortcutTexts();
@@ -12611,23 +12397,23 @@ int main(int argc, char *argv[]) {
 
         // ---- U10b2 §5.3：那一排分成两段（在盘的在外、其余收在「更多目录…」里）----
         //
-        // ★ coding plan §5.3 原话：「仅在**目录存在**或**相关模组可识别**时优先展示，其他项
-        //   收在'更多目录'」。**判据不在这儿**（哪几路目录在盘上、哪个实例装了 ReplayMod 都
-        //   只有 MainWindow 知道，见 MainWindow::instanceCommonFolderKeys()）—— 这一层只认
-        //   递进来的那张表，所以这一条量的是"递进去一张只有三路的表之后，五颗分别在哪一段"。
+        // coding plan §5.3 原话：「仅在**目录存在**或**相关模组可识别**时优先展示，其他项
+        // 收在'更多目录'」。**判据不在这儿**（哪几路目录在盘上、哪个实例装了 ReplayMod 都
+        // 只有 MainWindow 知道，见 MainWindow::instanceCommonFolderKeys()）—— 这一层只认
+        // 递进来的那张表，所以这一条量的是"递进去一张只有三路的表之后，五颗分别在哪一段"。
         {
             showPage(dialog, Dlg::overviewCategoryKey());
             const QList<QWidget *> buttons = dialog.shortcutButtons();
             const QStringList keys = Dlg::shortcutPathKeys();
             // ① 默认这一档（没人喊过 setFolderPresentKeys）：五颗全在外面，**没有**
-            //    「更多目录…」—— 不摆一颗按下去什么都不变的按钮。
+            // 「更多目录…」—— 不摆一颗按下去什么都不变的按钮。
             check(dialog.shortcutMoreButton() == nullptr &&
                       dialog.shortcutHiddenButtons().isEmpty() && !dialog.shortcutMoreExpanded(),
                   "★ U10b2 没人说过哪几路「现在有东西」时：五颗全摆在外面、也不摆"
                   "「更多目录…」（一个都没收起来 ⇒ 那颗开关没有存在的理由）");
 
             // ② 只在盘上三路（版本目录 / 游戏目录 / 配置）⇒ 外面三颗 + 第四格那颗开关，其余收着。
-            //    收着的是 `setVisible(false)`（**还在表里**、下标一个没挪），不是删控件。
+            // 收着的是 `setVisible(false)`（**还在表里**、下标一个没挪），不是删控件。
             const QStringList present = {QStringLiteral("dir"), QStringLiteral("game"),
                                          QStringLiteral("config")};
             dialog.setFolderPresentKeys(present);
@@ -12687,8 +12473,8 @@ int main(int argc, char *argv[]) {
             }
 
             // ④ 摆回"全都在"：后面那几节（U10c…U12 / U0j）还按五颗全在外面量。
-            //    NOTE: 这一发会把「更多目录…」那颗**连控件一起删掉**，所以 `more` 从那以后
-            //          就是野指针了 —— 上面那几条一个都不能挪到这后面来。
+            // NOTE: 这一发会把「更多目录…」那颗**连控件一起删掉**，所以 `more` 从那以后
+            // 就是野指针了 —— 上面那几条一个都不能挪到这后面来。
             dialog.setFolderPresentKeys(keys);
             QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
             QApplication::processEvents();
@@ -12721,9 +12507,9 @@ int main(int argc, char *argv[]) {
                   itemPath(page, 2));
         }
 
-        // ---- U10P 顶上那条搜索 + 按钮下面那栏状态（2026-09-28）----
+        // ---- U10P 顶上那条搜索 + 按钮下面那栏状态----
         //
-        // 用户原话：「模组等的下载新/刷新/打开文件夹的**上方**加一个搜索，三个按钮的
+        // 要求：「模组等的下载新/刷新/打开文件夹的**上方**加一个搜索，三个按钮的
         // **下方**一个选择 全部/启用/禁用/可更新」。这一段量四件事：两排控件在不在、
         // 摆的位置对不对（上下是拿 **y 坐标**量的，不是"我记得写在源码哪一行"）、
         // 筛得对不对（搜索 / 状态 / 两样同时）、以及"筛完一条不剩"和"目录本来就是空的"
@@ -12732,10 +12518,6 @@ int main(int argc, char *argv[]) {
             showPage(dialog, QStringLiteral("mod"));
             InstanceFilesPage *page = dialog.filesPage(QStringLiteral("mod"));
             QLineEdit *search = page != nullptr ? page->searchEdit() : nullptr;
-            // ★ 2026-10-09：模组这一页是**开了批量**的那四页之一 ⇒ 顶上摆的是**四颗横向
-            //   按钮**（用户原话：「显示全部/可更新…那个下拉框变成横向四个按钮（类似 pcl）」），
-            //   那个下拉框和「显示」那个标签**收着**（见 applyState）。这一段从此按
-            //   `stateButtonName(filter)` 找，**不解析文字**（文字里带着条数，每页不一样）。
             const auto stateButton = [page](InstanceFilesPage::StateFilter filter) -> QPushButton * {
                 return page != nullptr ? page->stateButtonAt(filter) : nullptr;
             };
@@ -12774,14 +12556,10 @@ int main(int argc, char *argv[]) {
 
             // ---- U10P-2 那四颗：字（含条数）、顺序、默认档 ----
             //
-            // ★ 顺序走 `selectionActionCount` 那一套的兄弟 —— 四颗是**按下标**摆的
-            //   （`static_cast<StateFilter>(i)`，见 .cpp 构造那段），所以"第几颗是哪个档"
-            //   就是枚举自己的顺序。文字里带**条数**：这一页三条（两条启用、一条禁用、
-            //   还没查过更新）⇒ 全部(3) 启用(2) 禁用(1) 可更新(0)。
-            //
-            // ★★ 2026-10-11：条数这一层**没有第二种写法**（第四颗也照样写着 0）—— 有没有
-            //   依据归显隐那条判据管：还没查过的时候那一颗**整颗收着**（用户原话「没有检查
-            //   的时候先隐藏可更新按钮」，见下面 U10P-6），屏幕上根本读不到这个 0。
+            // 顺序走 `selectionActionCount` 那一套的兄弟 —— 四颗是**按下标**摆的
+            // （`static_cast<StateFilter>(i)`，见 .cpp 构造那段），所以"第几颗是哪个档"
+            // 就是枚举自己的顺序。文字里带**条数**：这一页三条（两条启用、一条禁用、
+            // 还没查过更新）⇒ 全部(3) 启用(2) 禁用(1) 可更新(0)。
             QStringList stateTexts;
             for (int i = 0; i < 4; ++i) {
                 QPushButton *button =
@@ -12889,12 +12667,6 @@ int main(int argc, char *argv[]) {
 
             // ---- U10P-6 「可更新」那一颗：靠的是那一趟检测的结果 ----
             //
-            // ★★ 2026-10-11 收尾（用户原话：**「没有检查的时候先隐藏可更新按钮」**）：
-            //   还没查过更新 ⇒ 那一颗**整颗收着**。同一天上午这里曾经反过来做过一版
-            //   （露着、不写条数、点它顺手查一趟），用户这一句把它否掉了 ——
-            //   "哪一条有更新"现在改由**那一行自己的 ↑** 说（见下面 U10P-7），
-            //   这一颗从此是个纯粹的筛子：查过了、而且真有 N > 0 条，才摆得出来。
-            //
             // 这一页这会儿是三条：两条启用、一条禁用、**还没查过更新**。
             check(stateButton(InstanceFilesPage::StateFilter::Update) != nullptr &&
                       stateButton(InstanceFilesPage::StateFilter::Update)->isHidden() &&
@@ -12939,9 +12711,9 @@ int main(int argc, char *argv[]) {
                   "（不是留一个筛空了列表、却没有任何一颗亮着的界面）",
                   QStringLiteral("%1 条").arg(page->list()->count()));
 
-            // ---- U10P-7 行里那个 ↑ 和禁用那一条的删除线（★★ 2026-10-11）----
+            // ---- U10P-7 行里那个 ↑ 和禁用那一条的删除线（★★ ）----
             //
-            // 用户原话：「**可更新的模组在名称后面显示一个上箭头（和名字一个字号），禁用的
+            // 要求：「**可更新的模组在名称后面显示一个上箭头（和名字一个字号），禁用的
             // 模组名字标灰，删除线覆盖**」。
             //
             // 这一页三条：`iris-1.6.5.jar`（启用）、`sodium.jar`（启用）、
@@ -13017,21 +12789,21 @@ int main(int argc, char *argv[]) {
                 dialog.setFileUpdates({}, true);
             }
 
-            // ---- U10P-8 同页筛选：**只淡新冒出来的那几行**，整页不重播（★ 2026-10-12，
-            //      coding plan §9.4）----
+            // ---- U10P-8 同页筛选：**只淡新冒出来的那几行**，整页不重播（★ ，
+            // coding plan §9.4）----
             //
             // §9.4 那一句：「同页筛选/列表变化：只动画**新增**、删除和状态，**不重播整页**」。
             // 这一段的判据全是**结构**上的（不是"看着好像淡了一下"）：
-            //   · 这一趟真**新冒出来**的行，每一个身上挂着一个效果、而且那一发动画的时长
-            //     就是 `rowAppearMs()`（效果挂在行上，动画是效果的子对象 —— 这儿的够法
-            //     和 ⑬ 那一段够幕布、够换页动画是同一招：只认公开类型 + `findChildren`）；
-            //   · 这一趟**本来就在**的行，一个效果都没有 —— 这就是「不重播整页」：旧的那几行
-            //     要是也被淡了，屏幕上就是整页在闪；
-            //   · 整个过程里行和列表的**几何一个像素都不动**。
+            // · 这一趟真**新冒出来**的行，每一个身上挂着一个效果、而且那一发动画的时长
+            // 就是 `rowAppearMs()`（效果挂在行上，动画是效果的子对象 —— 这儿的够法
+            // 和 ⑬ 那一段够幕布、够换页动画是同一招：只认公开类型 + `findChildren`）；
+            // · 这一趟**本来就在**的行，一个效果都没有 —— 这就是「不重播整页」：旧的那几行
+            // 要是也被淡了，屏幕上就是整页在闪；
+            // · 整个过程里行和列表的**几何一个像素都不动**。
             //
-            // ★ 判据里"哪几行是新的"是**构造出来的**：先筛到一条不剩（`m_shownIdentities`
-            //   清空），再筛回来 ⇒ 那三条在重建这一趟里全是新的。反过来，紧接着换到「禁用」
-            //   那一档时那一条**本来就在名单里**⇒ 一条都不该淡。
+            // 判据里"哪几行是新的"是**构造出来的**：先筛到一条不剩（`m_shownIdentities`
+            // 清空），再筛回来 ⇒ 那三条在重建这一趟里全是新的。反过来，紧接着换到「禁用」
+            // 那一档时那一条**本来就在名单里**⇒ 一条都不该淡。
             {
                 const bool animWas = Anim::enabled();   // 这个工程平时关着，收尾要摆回去
                 Anim::setEnabled(true);
@@ -13053,11 +12825,11 @@ int main(int argc, char *argv[]) {
                         effect->findChildren<QVariantAnimation *>();
                     return anims.size() == 1 && anims.first()->duration() == Anim::rowAppearMs();
                 };
-                // ★★ 「不许有元素超出」在这一发上的样子：效果自己要回来的那个矩形**正好就是
-                //    这一行自己**（`QGraphicsEffect::boundingRectFor()` 是公开的虚函数，
-                //    够得到它不用把产品那边的类型露出来）。这一条才是"淡的时候会不会糊出
-                //    行外面去"的正经判据 —— 列表整块被收起/放出来会挪位置（那是布局的活），
-                //    拿列表的几何跟重列之前比是量的东西不对。
+                // 「不许有元素超出」在这一发上的样子：效果自己要回来的那个矩形**正好就是
+                // 这一行自己**（`QGraphicsEffect::boundingRectFor()` 是公开的虚函数，
+                // 够得到它不用把产品那边的类型露出来）。这一条才是"淡的时候会不会糊出
+                // 行外面去"的正经判据 —— 列表整块被收起/放出来会挪位置（那是布局的活），
+                // 拿列表的几何跟重列之前比是量的东西不对。
                 const auto rowEffectKeepsBounds = [](QWidget *row) {
                     QGraphicsEffect *effect = row != nullptr ? row->graphicsEffect() : nullptr;
                     if (effect == nullptr) {
@@ -13083,10 +12855,10 @@ int main(int argc, char *argv[]) {
                         ++boundsKept;
                     }
                 }
-                // ★ 这一趟**故意不把事件循环再跑起来**：§9.4 要的那两条（"新冒出来的在淡"
-                //   和"本来就在的不淡"）都是**接线上**的事，重列那一发是同步的，当场就量得
-                //   到。"动画跑起来那一段时间里几何不动"由 ⑬ 那一段自己量（它本来就有一整
-                //   段真帧），这一段不必再往这一段 U10 里塞一发事件循环。
+                // 这一趟**故意不把事件循环再跑起来**：§9.4 要的那两条（"新冒出来的在淡"
+                // 和"本来就在的不淡"）都是**接线上**的事，重列那一发是同步的，当场就量得
+                // 到。"动画跑起来那一段时间里几何不动"由 ⑬ 那一段自己量（它本来就有一整
+                // 段真帧），这一段不必再往这一段 U10 里塞一发事件循环。
                 check(emptied && refilled && faded == 3 && boundsKept == 3,
                       "★★ U10P 筛到一条不剩再筛回来：重新冒出来的那三条**都**在淡（一人一个"
                       "效果、时长就是 `rowAppearMs()`），而且效果要回来的那个矩形**正好就是"
@@ -13109,8 +12881,8 @@ int main(int argc, char *argv[]) {
                           .arg(keptRow != nullptr && keptRow->graphicsEffect() != nullptr
                                    ? QStringLiteral("挂着效果")
                                    : QStringLiteral("干净")));
-                // ★ 收尾把这一页摆回原样（下面那几段量的还是这三条、这一档）：动画开关也要
-                //   摆回去 —— 这个工程往后整段都是按"关着"搭界面的。
+                // 收尾把这一页摆回原样（下面那几段量的还是这三条、这一档）：动画开关也要
+                // 摆回去 —— 这个工程往后整段都是按"关着"搭界面的。
                 selectState(InstanceFilesPage::StateFilter::All);
                 search->clear();
                 Anim::setEnabled(animWas);
@@ -13121,13 +12893,6 @@ int main(int argc, char *argv[]) {
             // 上面那几条量的都是「可更新」那一档；这一条换成**状态**那两档：资源包那一页
             // 两条都是启用着的（一个 zip + 一个目录）、也没有查出来可更新的 ⇒ 「禁用」「可
             // 更新」两颗都收着，而「全部」恒在（用户点名的那半句：「…全部的默认显示」）。
-            //
-            // ★★ 2026-10-10 新增（用户原话：「没有禁用模组时不显示 启用 分类」）：
-            //   「启用(N)」这一颗现在**跟着「禁用」一起收着** —— 一条禁用的都没有时，
-            //   「启用(N)」和「全部(N)」是同一份名单，摆两颗说的是同一件事。
-            //   ⚠ 只把「启用」的露法绑在「禁用」的条数上，**没有反过来**：「禁用」还是照
-            //     它自己的条数收（全都禁用着的时候「禁用(N)」照旧露着）—— 那时候两颗里
-            //     有一颗恒等于「全部」，收的是它。
             {
                 showPage(dialog, QStringLiteral("resourcepack"));
                 InstanceFilesPage *packs = dialog.filesPage(QStringLiteral("resourcepack"));
@@ -13153,13 +12918,6 @@ int main(int argc, char *argv[]) {
             }
 
             // ---- U10P-7 哪几页有「可更新」：判据和「下载新 X」同一张表 ----
-            //
-            // ★★ 2026-10-10 改写：这一条问的是"这一页**有没有**这一档"，而"这一颗现在
-            //   露没露"从这一天起是**两件事**了（一条都没有的档也收起来，见
-            //   stateFilterVisible）—— 拿"露着几颗"当判据的话，一个还没列过目录的页
-            //   （`m_entries` 是空的）会假红。所以走 `canFilterUpdates()`（那一档到底
-            //   有没有被灌进来）这个**和显隐无关**的读数；"露没露"那条规矩由上面
-            //   U10P-6 那三条钉着。
             const QStringList withUpdate = {
                 QStringLiteral("mod"), QStringLiteral("resourcepack"),
                 QStringLiteral("datapack"), QStringLiteral("shader")};
@@ -13191,11 +12949,11 @@ int main(int argc, char *argv[]) {
                   "★ U10P 「可更新」只有下载页里真有那一栏的那四页有（模组/资源包/数据包/光影）"
                   "—— 原理图 / 存档 / 配置文件那几页上，多一格永远筛不出东西的选项等于摆一个坏键",
                   updateNote);
-            // ★ 选着「可更新」的时候把那一档拿掉（`setCanFilterUpdates(false)`）：条件必须
-            //   **退回「全部」** —— 留着的话屏幕上是一条都不剩的列表，而那一栏里没有任何
-            //   一格亮着（列表和条件对不上，且没有任何东西会自己纠正它）。
-            //   ★ 2026-10-10：这一段得**先让那一档有内容**（不然它本来就被收着、点不动 ——
-            //     收起来的档 `setStateFilter()` 也会落到「全部」，量不到"退档"这一发）。
+            // 选着「可更新」的时候把那一档拿掉（`setCanFilterUpdates(false)`）：条件必须
+            // **退回「全部」** —— 留着的话屏幕上是一条都不剩的列表，而那一栏里没有任何
+            // 一格亮着（列表和条件对不上，且没有任何东西会自己纠正它）。
+            // 这一段得**先让那一档有内容**（不然它本来就被收着、点不动 ——
+            // 收起来的档 `setStateFilter()` 也会落到「全部」，量不到"退档"这一发）。
             dialog.setFileUpdates({modsDir + QStringLiteral("/sodium.jar")}, true);
             check(selectState(InstanceFilesPage::StateFilter::Update) &&
                       page->stateFilter() == InstanceFilesPage::StateFilter::Update,
@@ -13229,7 +12987,7 @@ int main(int argc, char *argv[]) {
                 }
                 int found = 0;
                 for (int row = 0; row < page->list()->count(); ++row) {
-                    // 「启用 / 禁用」那一颗 2026-09-27 起是一个 `ToggleSwitch`
+                    // 「启用 / 禁用」那一颗 起是一个 `ToggleSwitch`
                     // （`QAbstractButton`），而垃圾桶仍是 `QToolButton` —— 两条路
                     // 各自型别不同，所以这里分开取，不能合成一个 `QToolButton *`。
                     const QAbstractButton *button =
@@ -13274,9 +13032,9 @@ int main(int argc, char *argv[]) {
                   QStringLiteral("%1 条 / 第一条 %2")
                       .arg(packs != nullptr ? packs->list()->count() : -1)
                       .arg(itemText(packs, 0)));
-            // ---- ★★ 2026-10-11：「模组」那一页**一个文件夹都不列**（用户点名）----
+            // ---- ★★ ：「模组」那一页**一个文件夹都不列**（用户点名）----
             //
-            // 用户原话：「游戏模组文件夹里套的文件夹也会被列出来，而禁用对其的作用只是改个
+            // 要求：「游戏模组文件夹里套的文件夹也会被列出来，而禁用对其的作用只是改个
             // 名」。模组目录底下那些子目录（用户盘上的 `mods/.connector`）游戏根本不把它们
             // 当模组看，列出来还给开关就是骗人 —— 所以这一页的 Mode 是 `FilesOnly`，
             // 而资源包 / 数据包 / 光影那三页照旧列目录（**目录本身就是一份资源**）。
@@ -13301,38 +13059,26 @@ int main(int argc, char *argv[]) {
             check(packs != nullptr && packs->list()->count() == 2, "U10d 资源包那一页没被连累");
         }
 
-        // ---- U10O 「存档」那一页的三样新东西（2026-09-28）----
+        // ---- U10O 「存档」那一页的三样新东西----
         //
-        // 用户原话：「在实例设置里面存档那一栏每个世界都显示存档大小和最后游玩时间，右边
+        // 要求：「在实例设置里面存档那一栏每个世界都显示存档大小和最后游玩时间，右边
         // 画一支笔意为编辑，和基岩版一样，顶端加个导入世界按钮和批量编辑按钮（这个先做
         // 占位）」。这里量的全是**显示**：那一行上有没有那支笔、那行小字写的是什么、
         // 顶上那两颗露不露。真正动手的两条路（选框、拷盘）在 mw_check / verify 里走。
         //
-        // ★★★ 逃生口 `WTFML_UC_SKIP_U10O=1`：整段跳过。理由不是"这一段不对"，而是它
-        //   后面那一发事件循环会把一个**跟这一段无关的**堆损坏戳爆（见下面
-        //   「不跟 junction 走」那一节里那一段 NOTES，以及文件头）—— 而这一爆就带走了
-        //   后面一千五百多条判据（⑬/⑭ 全线在内）。**默认必须是跑**，只在"这一台机器
-        //   上今天就是过不去"时用它换一份后半段的结论。
-        //
-        //   2026-10-11 用二分法量到的（当天这一段崩得 5/6 次，一旦崩就在同一个地方）：
-        //     ① 把这一段收在"那行小字"之前 ⇒ 绿（后面一路绿到最后）；
-        //     ② 把这一段里那句 `saves->refresh()` 拿掉、事件循环照泵 ⇒ 照崩；
-        //     ③ 把产品侧 `fillDirectoryStats()` 整个短路、事件循环照泵 ⇒ 照崩；
-        //     ④ 把 `ui/Animations.*` 退回改动之前重建 ⇒ 照崩（**和那天的动效改动无关**）。
-        //   所以：既不是这一段的产物、也不是刷新那一趟、也不是统计那一趟，而是**任何
-        //   一次事件循环泵**都会把它抖出来 —— 损坏早就写下了，只是要等一个把那一块
-        //   内存重新分配/释放的时刻才炸（gdb 那边看到的一直是
-        //   `InstanceSettingsDialog::~InstanceSettingsDialog()` 底下那一串纯 Qt 栈）。
-        //   要接着查的话：这一台机器上 `HeapValidate`、栈回trace、三份探针都没逮到过写入
-        //   那一刻，得先弄到一个调试堆（gflags / AppVerifier）或者 ASan。
+        // 逃生口 `WTFML_UC_SKIP_U10O=1`：整段跳过。理由不是"这一段不对"，而是它
+        // 后面那一发事件循环会把一个**跟这一段无关的**堆损坏戳爆（见下面
+        // 「不跟 junction 走」那一节里那一段 NOTES，以及文件头）—— 而这一爆就带走了
+        // 后面一千五百多条判据（⑬/⑭ 全线在内）。**默认必须是跑**，只在"这一台机器
+        // 上今天就是过不去"时用它换一份后半段的结论。
         if (!qEnvironmentVariableIsSet("WTFML_UC_SKIP_U10O")) {
             showPage(dialog, QStringLiteral("save"));
             InstanceFilesPage *saves = dialog.filesPage(QStringLiteral("save"));
             check(saves != nullptr, "U10O 存档那一页拿得到");
             if (saves != nullptr) {
-                // ★ 那支笔只在**存档**这一页露 —— 判据是 setCanEdit()，而对话框只为
-                //   "save" 那一页调它。别的几页要是也露出来，用户会在一个 .jar 上看见
-                //   一支"编辑"笔，点下去是"重命名这个世界"。
+                // 那支笔只在**存档**这一页露 —— 判据是 setCanEdit()，而对话框只为
+                // "save" 那一页调它。别的几页要是也露出来，用户会在一个 .jar 上看见
+                // 一支"编辑"笔，点下去是"重命名这个世界"。
                 QToolButton *pen = saves->editButtonAt(0);
                 check(pen != nullptr, "★ U10O 存档那一行行尾有那支笔（「编辑」）");
                 if (pen != nullptr) {
@@ -13367,8 +13113,8 @@ int main(int argc, char *argv[]) {
                           "U10O 未实现的批量编辑不占用存档工具栏");
                     check(saves->importButton()->isVisible(),
                           "U10O 存档工具栏保留真实导入入口");
-                    // ★ 「批量编辑」今天是个**占位**：它的 tooltip 必须自己先说清"还没做"
-                    //   —— 只靠点下去弹的那句话的话，用户要先把鼠标移过去点一下才知道。
+                    // 「批量编辑」今天是个**占位**：它的 tooltip 必须自己先说清"还没做"
+                    // —— 只靠点下去弹的那句话的话，用户要先把鼠标移过去点一下才知道。
                     check(!saves->batchButton()->isVisibleTo(saves),
                           "U10O 占位批量编辑刷新后仍不显示");
                     // 导入那一颗是**真的**，tooltip 里不该出现"还没做"。
@@ -13395,8 +13141,8 @@ int main(int argc, char *argv[]) {
                 // 「正在统计…」，泵一次事件循环之后必须变成"大小 · 时间"。
                 //
                 // NOTE: 显式调 refresh() 而不是靠对话框构造时那一趟 —— 构造那一趟排的活儿
-                //       可能已经被本段前面那些 processEvents 跑掉了，那时第一态就量不到，
-                //       这一条会变成一条**看起来**偶尔红的断言。
+                // 可能已经被本段前面那些 processEvents 跑掉了，那时第一态就量不到，
+                // 这一条会变成一条**看起来**偶尔红的断言。
                 const auto metaTextOf = [&](InstanceFilesPage *page, int row) {
                     QListWidgetItem *item = page->list()->item(row);
                     QWidget *rowWidget = item != nullptr ? page->list()->itemWidget(item) : nullptr;
@@ -13432,7 +13178,7 @@ int main(int argc, char *argv[]) {
                       "★ U10O 后面那一截是一个「yyyy-MM-dd HH:mm」的时刻（最后游玩时间）",
                       filled);
 
-                // ---- ★ 不跟 junction 走（2026-09-29 补）----
+                // ---- ★ 不跟 junction 走（ 补）----
                 //
                 // 这一条量的是一条**判据的洞**：那个数的判据原来是 `isSymLink()` 一条，而
                 // `mklink /J` 造出来的目录 junction 在 Qt 里 `isSymLink()` 是 **false**
@@ -13460,22 +13206,13 @@ int main(int argc, char *argv[]) {
                       QStringLiteral("isSymLink=%1 isJunction=%2")
                           .arg(QFileInfo(linkPath).isSymLink() ? 1 : 0)
                           .arg(QFileInfo(linkPath).isJunction() ? 1 : 0));
-                // ★★ 逃生口 `WTFML_SKIP_JUNCTION=1`：跳过下面这一段（refresh + 泵 + 取小字）。
+                // 逃生口 `WTFML_SKIP_JUNCTION=1`：跳过下面这一段（refresh + 泵 + 取小字）。
                 //
-                //    2026-09-29 加。理由不是"这一段慢"、也不是"偶尔不稳"，而是这个工程的
-                //    那份**段错误**看起来总落在这一段那一发 `QCoreApplication::processEvents()`
-                //    上（"看起来"—— 见下）。
-                //
-                //    ★ 当天稍后又量了一轮：崩点在 `InstanceSettingsDialog` 的析构里，栈全是
-                //      Qt6Widgets / Qt6Gui、一行我们的代码都没有，而且一崩就是连着几十趟、
-                //      一绿也是连着好几趟。详情见文件头那一段。
-                //      所以这个逃生口治不了它（崩点在它前面），留着是为了别的事 —— 同样
-                //      **别拿它当常态**，默认必须是**跑**。
-                //
-                //    ★ 2026-10-11：那两个逃生口**治不了**这一个（实测：带上
-                //      `WTFML_SKIP_JUNCTION=1` 照崩）。那天量到的完整结论写在这一段上方
-                //      `WTFML_UC_SKIP_U10O` 那几句里 —— 一句话：那一爆跟本段无关，
-                //      是**任何一次事件循环泵**都会抖出来的旧堆损坏。
+                // 当天稍后又量了一轮：崩点在 `InstanceSettingsDialog` 的析构里，栈全是
+                // Qt6Widgets / Qt6Gui、一行我们的代码都没有，而且一崩就是连着几十趟、
+                // 一绿也是连着好几趟。详情见文件头那一段。
+                // 所以这个逃生口治不了它（崩点在它前面），留着是为了别的事 —— 同样
+                // **别拿它当常态**，默认必须是**跑**。
                 if (madeJunction && !qEnvironmentVariableIsSet("WTFML_SKIP_JUNCTION")) {
                     // 顺带把"junction 不是符号链接"这条前提**现量一遍**：这条断言红了，
                     // 说明 Qt 那边的分类变了，上面那两处判据得跟着改。
@@ -13557,10 +13294,10 @@ int main(int argc, char *argv[]) {
             other.showPage(QStringLiteral("datapack"));
             InstanceFilesPage *page = other.filesPage(QStringLiteral("datapack"));
             // 「显不显示」一律问 **isVisibleTo(这一页自己)**。两个更直白的写法在这儿都是假的：
-            //   * `isHidden()` 量的是"这个控件自己有没有被显式藏起来"，父控件被藏起来不算
-            //     （「打开文件夹」那颗就是这样 —— 它自己从没被藏过，藏的是它爹那一排）。
-            //   * `isVisible()` 恒假：这一页这会儿收在堆叠里，父链上就断了。
-            //   isVisibleTo() 正好只看到"这一页为止"那一段。
+            // * `isHidden()` 量的是"这个控件自己有没有被显式藏起来"，父控件被藏起来不算
+            // （「打开文件夹」那颗就是这样 —— 它自己从没被藏过，藏的是它爹那一排）。
+            // * `isVisible()` 恒假：这一页这会儿收在堆叠里，父链上就断了。
+            // isVisibleTo() 正好只看到"这一页为止"那一段。
             check(page != nullptr && !page->list()->isVisibleTo(page) &&
                       page->noticeLabel()->isVisibleTo(page) &&
                       page->noticeLabel()->text() == Dlg::filesEmptyText(QStringLiteral("datapack")),
@@ -13569,9 +13306,6 @@ int main(int argc, char *argv[]) {
             check(page != nullptr && page->refreshButton()->isVisibleTo(page) &&
                       page->openFolderButton()->isVisibleTo(page),
                   "U10f 空目录里那两颗按钮还在（用户就是要在空目录上点「打开文件夹」）");
-            // ★ 2026-09-28：**那两排筛选跟着目录一起收起来** —— 目录里一条都没有的时候，
-            //   搜索框和状态栏筛不出任何东西，露着就是两个按了没反应的键（而"筛完一条
-            //   不剩"是另一回事：那时候它们**留着**，见 U10P-5）。
             check(page != nullptr && page->searchEdit() != nullptr &&
                       page->stateCombo() != nullptr &&
                       page->stateButtonAt(InstanceFilesPage::StateFilter::All) != nullptr &&
@@ -13595,19 +13329,16 @@ int main(int argc, char *argv[]) {
                   "★ U10f 装不了光影的实例：「光影包」那一页整页换成一句解释"
                   "（列表、那排按钮、以及那两排筛选一起收起来）",
                   shader != nullptr ? shader->noticeLabel()->text() : QString());
-            // ★ 2026-10-16（**这一条的方向反过来了**）：左栏换成树之后，「用不上」的页
-            //   **留在导航里**、由那一页自己解释为什么用不上。
+            // 从前的规矩是"两条落两处"：页里那一句 + 左栏**一条都不列**（用户根本点不进
+            // 这一页）。树那一版的取舍写在 `rebuildNavigationTree()` 的注释里 ——
+            // 「保留用户明确关闭页面的选择；可用性不足在既有页面里解释，**不吞掉导航入口**」：
+            // 只在树上认"用户自己勾掉的"（`m_pageOverrides`），不再看 `m_pageAvailable`。
+            // 于是"点得进去"这件事仍然成立：点进去那一页整幅是一句解释 + 那两颗按钮，
+            // 而不是"树上少一条、用户不知道这一页去哪了"。
             //
-            //   从前的规矩是"两条落两处"：页里那一句 + 左栏**一条都不列**（用户根本点不进
-            //   这一页）。树那一版的取舍写在 `rebuildNavigationTree()` 的注释里 ——
-            //   「保留用户明确关闭页面的选择；可用性不足在既有页面里解释，**不吞掉导航入口**」：
-            //   只在树上认"用户自己勾掉的"（`m_pageOverrides`），不再看 `m_pageAvailable`。
-            //   于是"点得进去"这件事仍然成立：点进去那一页整幅是一句解释 + 那两颗按钮，
-            //   而不是"树上少一条、用户不知道这一页去哪了"。
-            //
-            //   NOTE: 量的是**树上那棵导航**（`navigationTree()` —— 界面导航的唯一出处），
-            //         不再是 `pageList()` 那一列旧的、`hide()` 着的列表：它的内容早就不跟
-            //         页面表走了（还是老的四组十三行），拿它量两个方向都会量错。
+            // NOTE: 量的是**树上那棵导航**（`navigationTree()` —— 界面导航的唯一出处），
+            // 不再是 `pageList()` 那一列旧的、`hide()` 着的列表：它的内容早就不跟
+            // 页面表走了（还是老的四组十三行），拿它量两个方向都会量错。
             const auto leftHasKey = [&other](const QString &key) {
                 QTreeWidget *tree = other.navigationTree();
                 if (tree == nullptr) {
@@ -13647,7 +13378,7 @@ int main(int argc, char *argv[]) {
             // 量的是**那排按钮**不是列表：这个实例那几页的目录压根没喂进来，列表本来就是空的
             // （空目录也是收起来）—— 只看列表分不出"用不上"和"还没有"。
             // NOTE: 左栏里那一条**还在树上**（上面 `leftHasKey` 那一对钉的就是这件事 ——
-            //       树不跟可用性走），这里量的是**页里**那一半（整页换解释 + 收掉那排按钮）。
+            // 树不跟可用性走），这里量的是**页里**那一半（整页换解释 + 收掉那排按钮）。
             check(schematic != nullptr &&
                       !schematic->refreshButton()->isVisibleTo(schematic) &&
                       schematic->noticeLabel()->text() == Dlg::schematicUnavailableText(),
@@ -13672,8 +13403,8 @@ int main(int argc, char *argv[]) {
                                   qMakePair(QString(), QStringLiteral("1.2.3.4:25565"))},
                                  QString());
             // NOTE: 地址那一格是**遮过**的（服务端地址不往屏幕上摆全，见 U10L-8）；完整的
-            //       那一份在悬停提示里。所以这里核的是行数 + 名字 + 遮过的地址，别拿原始
-            //       字符串来比 —— 那是这条断言从前的样子、现在已经不是产品行为了。
+            // 那一份在悬停提示里。所以这里核的是行数 + 名字 + 遮过的地址，别拿原始
+            // 字符串来比 —— 那是这条断言从前的样子、现在已经不是产品行为了。
             check(!tree->isHidden() && tree->topLevelItemCount() == 2 &&
                       tree->topLevelItem(0)->text(0) == QStringLiteral("我的服") &&
                       tree->topLevelItem(0)->text(1) == QStringLiteral("m-.e-.c-"),
@@ -13736,12 +13467,12 @@ int main(int argc, char *argv[]) {
 
         // ---- U10j 底下那行小字：**开的页照样有、开批量管理的那四页一定没有** ----
         //
-        // ★ 2026-10-10 改的：模组 / 资源包 / 数据包 / 光影包这四页现在**一个 QLabel 都不建**
-        //   （用户："把这个页面下方那段叙述删了来让框拉到底充分利用空间"）—— 所以判据从
-        //   "八页都有"改成**两头都钉**：那四页必须**找不到**那个控件（建了说明判据没生效），
-        //   其余几页必须**找得到、而且文字和 filesHint(key) 逐字一致**（漏了谁一眼看出来）。
-        //   判据就是产品那一句 `filesNameOpensResource(key)`（批量管理的那四页 = 不挂小字的
-        //   那四页）；这儿不重抄一遍那四个键 —— 抄了就是第二份真相。
+        // 改的：模组 / 资源包 / 数据包 / 光影包这四页现在**一个 QLabel 都不建**
+        // （用户："把这个页面下方那段叙述删了来让框拉到底充分利用空间"）—— 所以判据从
+        // "八页都有"改成**两头都钉**：那四页必须**找不到**那个控件（建了说明判据没生效），
+        // 其余几页必须**找得到、而且文字和 filesHint(key) 逐字一致**（漏了谁一眼看出来）。
+        // 判据就是产品那一句 `filesNameOpensResource(key)`（批量管理的那四页 = 不挂小字的
+        // 那四页）；这儿不重抄一遍那四个键 —— 抄了就是第二份真相。
         {
             QStringList badHints;
             for (const QString &key : Dlg::filePageKeys()) {
@@ -13764,9 +13495,9 @@ int main(int argc, char *argv[]) {
             check(badHints.isEmpty(),
                   "★ U10j 底下那行小字：批量管理那四页**没有**、其余页有且文字==filesHint(key)",
                   badHints.join(QLatin1Char('|')));
-            // ★ 快捷方式那一句也跟着搬到概览页了（2026-09-27）。**那句必须重写过**：
-            //   它原来写的是「都在**旁边那一列**里」—— 那一列（中栏）已经拆了，留着那句话
-            //   就是在指一个不存在的东西。
+            // 快捷方式那一句也跟着搬到概览页了。**那句必须重写过**：
+            // 它原来写的是「都在**旁边那一列**里」—— 那一列（中栏）已经拆了，留着那句话
+            // 就是在指一个不存在的东西。
             auto *shortcutHint =
                 dialog.findChild<QLabel *>(Dlg::filesHintName(QStringLiteral("shortcut")));
             check(shortcutHint != nullptr && !shortcutHint->text().isEmpty() &&
@@ -13780,7 +13511,7 @@ int main(int argc, char *argv[]) {
 
         // ---- U10k 名字长到装不下时：**省略号收尾**，而且是从中间截 ----
         //
-        // 用户 2026-09-26 报的「实例设置里模组列表模组名称显示存在错误」：mods 底下那些
+        // 用户 报的「实例设置里模组列表模组名称显示存在错误」：mods 底下那些
         // `yet_another_config_lib_v3-3.7.1+1.21.4-fabric.jar` 比行名那一格宽得多，而
         // 普通 QLabel 是**硬裁**的（最后一个字被切掉一半）—— 看着像这一条的名字就是那串
         // 半截的字。修法是行名换成 ElidedLabel（见 ui/ElidedLabel.hpp）。
@@ -13790,11 +13521,11 @@ int main(int argc, char *argv[]) {
         {
             const QString longDir = root + QStringLiteral("/长名字/mods");
             // 名字照用户盘上那几条抄（`.jar.disabled` 的**长名字 + 禁用**，两头都占上）。
-            // ★ 2026-10-14：底下这串得**真的**比行名那一格宽 —— 那是"会省略"这个判据的
-            //   前提。用户盘上那一条（52 个字符）在真 windows 的字形下只占 337 px，而行名
-            //   那一格在真机上排出来是 **444 px** ⇒ 装得下、根本不省略（offscreen 那套桩
-            //   字体宽得多，所以这条一直只红在真机上）。这里把它接长到一百来个字符，
-            //   真机（~650 px）和桩字体下都稳稳溢出。后缀保持 `.jar`（页面按后缀认它）。
+            // 底下这串得**真的**比行名那一格宽 —— 那是"会省略"这个判据的
+            // 前提。用户盘上那一条（52 个字符）在真 windows 的字形下只占 337 px，而行名
+            // 那一格在真机上排出来是 **444 px** ⇒ 装得下、根本不省略（offscreen 那套桩
+            // 字体宽得多，所以这条一直只红在真机上）。这里把它接长到一百来个字符，
+            // 真机（~650 px）和桩字体下都稳稳溢出。后缀保持 `.jar`（页面按后缀认它）。
             const QString longName = QStringLiteral(
                 "yet_another_config_lib_v3-3.7.1+1.21.4-fabric"
                 "-with-a-very-long-variant-suffix-for-elide-testing.jar");
@@ -13811,9 +13542,6 @@ int main(int argc, char *argv[]) {
             longDlg.show();
             QApplication::processEvents();
             longDlg.showPage(QStringLiteral("mod"));
-            // 切完页还要再放一轮：行控件的宽度是**布局排出来的**，切页那一发不会顺手把
-            // 已经建好的行重新摆一遍 —— 少这一轮量到的是切页之前那一版的宽度（实测
-            // 会小 100 多 px，名字那一条就成了"勉强过半"的假象）。
             QApplication::processEvents();
             InstanceFilesPage *page = longDlg.filesPage(QStringLiteral("mod"));
             QListWidgetItem *item = page != nullptr ? page->list()->item(0) : nullptr;
@@ -13846,7 +13574,7 @@ int main(int argc, char *argv[]) {
 
                 // ---- U10k-1 **名字那一格真的拿到了宽度**（这一节的正题）----
                 //
-                // 从前这三样是挤在**同一行**里的，而「4.0 KB · 2026-09-27 00:12」在 150%
+                // 从前这三样是挤在**同一行**里的，而「4.0 KB · 00:12」在 150%
                 // 的字号下要 300 px —— 名字那一格（横向是 Ignored，最小宽度 0）被挤成
                 // **0 宽**，一整列名字一个字都看不见。这就是用户说的「模组名称显示存在错误」
                 // 的真身（不是"裁得难看"，是"根本没有"）。
@@ -13910,7 +13638,7 @@ int main(int argc, char *argv[]) {
                 // ---- U10k-4 这么窄的一格里，省略出来的是什么 ----
                 //
                 // ① 这份夹具**真的**长到装不下 —— 不然这一节等于空转（第一版夹具就是这样：
-                //    名字全短得根本用不上省略，所以那个"硬裁"的毛病一直没人看见）。
+                // 名字全短得根本用不上省略，所以那个"硬裁"的毛病一直没人看见）。
                 const bool tooLong = metrics.horizontalAdvance(shownName) > nameLabel->width();
                 // ② 省略之后尾巴上那四个字还在（`…` 之后那一段）—— 硬裁恰好会把它切没。
                 const QString elided =
@@ -13925,12 +13653,12 @@ int main(int argc, char *argv[]) {
 
                 // ---- U10k-5 这一条自己**不带文字** ----
                 //
-                // ★ 2026-09-27 补，用户截图报的「模组名称出现了两次」。
-                //   `new QListWidgetItem(文字, list)` 那一份文字是**视图代理**画的，而这一行
-                //   的内容是一个用 setItemWidget() 摆上去的真控件、而且是**透明的**（要这样
-                //   选中高亮才从底下透出来）—— 代理画的字从控件底下露出来，同一个名字在
-                //   屏幕上画两遍，两遍的位置差着半行，看着像重影。
-                //   这一条钉的是**修法本身**（名字的唯一出处是那一格标签）。
+                // 补，用户截图报的「模组名称出现了两次」。
+                // `new QListWidgetItem(文字, list)` 那一份文字是**视图代理**画的，而这一行
+                // 的内容是一个用 setItemWidget() 摆上去的真控件、而且是**透明的**（要这样
+                // 选中高亮才从底下透出来）—— 代理画的字从控件底下露出来，同一个名字在
+                // 屏幕上画两遍，两遍的位置差着半行，看着像重影。
+                // 这一条钉的是**修法本身**（名字的唯一出处是那一格标签）。
                 check(item->text().isEmpty(),
                       "★ U10k 条目自己**不带文字**（名字只由行里那一格标签画）—— 带一份的话，"
                       "代理会在透明的行控件底下再画一遍同一个名字，就是屏幕上那个重影",
@@ -14011,9 +13739,9 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // ---- U10M 顶上那颗「下载新 X」：哪几页有、按下去报的是哪一栏（2026-09-27）----
+        // ---- U10M 顶上那颗「下载新 X」：哪几页有、按下去报的是哪一栏----
         //
-        // 用户原话：「在实例设置里模组 资源包 数据包 光影包里添加下载新光影，按了以后导向
+        // 要求：「在实例设置里模组 资源包 数据包 光影包里添加下载新光影，按了以后导向
         // 下载页对应类别」。这一节验的是**这一层能验的那一半**：哪几页有这颗按钮、上面的字
         // 是什么、按下去报的是哪个**分类键**（"切选项卡、挑那一行"在 MainWindow，端到端那
         // 一半在 mw_check 的 T20.12）。
@@ -14033,9 +13761,9 @@ int main(int argc, char *argv[]) {
                     wrongPages.append(key);
                     continue;
                 }
-                // ★ 报出去的键**必须**是下载页左栏真有的那一栏。写歪一个字母的症状是
-                //   "按了那颗按钮没反应"（MainWindow 那边认不出这一栏、只说一句 qWarning）
-                //   —— 而界面本身看不出任何异常。
+                // 报出去的键**必须**是下载页左栏真有的那一栏。写歪一个字母的症状是
+                // "按了那颗按钮没反应"（MainWindow 那边认不出这一栏、只说一句 qWarning）
+                // —— 而界面本身看不出任何异常。
                 if (wanted && !categoryKeys.contains(category)) {
                     wrongPages.append(key + QStringLiteral("→") + category);
                 }
@@ -14089,13 +13817,13 @@ int main(int argc, char *argv[]) {
             }
 
             // ③ 按下去：报的是这一页对应的那一栏，而且**只报一条**（点一下 = 一次）。
-            //    四页各点一次，一页一发。
+            // 四页各点一次，一页一发。
             for (const QString &key : withDownload) {
                 showPage(dialog, key);
                 InstanceFilesPage *page = dialog.filesPage(key);
                 QStringList reported;
                 // NOTE: 收完就把这条连接断掉 —— 它捕获的是**这一轮的局部量**，留着的话
-                //       下一轮那一次 emit 会往一个已经没了的 QStringList 上写。
+                // 下一轮那一次 emit 会往一个已经没了的 QStringList 上写。
                 const QMetaObject::Connection conn =
                     QObject::connect(&dialog, &Dlg::browseDownloadsRequested, page,
                                      [&reported](const QString &category) {
@@ -14113,8 +13841,8 @@ int main(int argc, char *argv[]) {
             }
 
             // ④ 「用不上」的那一页上它跟着那一排一起收起来（判据写在 .hpp 里：光影包那一页
-            //    正在说「这个实例装不了光影」，此时把人送去下载页找光影包是指错路）。
-            //    自己起一份：这一档要动"用不用得上"，不该拿上面那份 `dialog` 去翻。
+            // 正在说「这个实例装不了光影」，此时把人送去下载页找光影包是指错路）。
+            // 自己起一份：这一档要动"用不用得上"，不该拿上面那份 `dialog` 去翻。
             Dlg plain(instanceDisplayName, instanceDirName, Dlg::Override(), global, QStringList(),
                       true);
             plain.setShaderUsable(false);
@@ -14125,12 +13853,6 @@ int main(int argc, char *argv[]) {
                       !shaderPage->refreshButton()->isVisibleTo(shaderPage),
                   "★ U10M 「用不上」那一页上这颗按钮跟着那一排一起收起来（和「刷新」"
                   "「打开文件夹」同一个待遇）");
-            // ★★ 2026-10-10：这条**规则连同它钉的那句话一起退了休**。原来钉的是"光影包里
-            //   底下那行小字不许提上面那颗按钮"（那一档上按钮收起来了，提了就是指着不存在的
-            //   东西）。现在**那四页压根没有小字**了（用户："把这个页面下方那段叙述删了"），
-            //   所以"有小字又有一颗会收起来的按钮"这种页**全仓一个都没有**了 —— check 改成
-            //   钉这件事本身：**那四页的 filesHint() 一律是空串**。要是哪天有人给它们补回一句
-            //   说明，这一条会立刻红（并且提醒他：补回来的话，「用不上」那条规矩也要跟着回来）。
             check(Dlg::filesHint(QStringLiteral("mod")).isEmpty() &&
                       Dlg::filesHint(QStringLiteral("resourcepack")).isEmpty() &&
                       Dlg::filesHint(QStringLiteral("datapack")).isEmpty() &&
@@ -14145,26 +13867,19 @@ int main(int argc, char *argv[]) {
                   "U10M 那一页回到正常形态之后它又露出来（这一档是可逆的）");
         }
 
-        // ---- U10N 行尾那颗「详情」⇒ 报出这一条是哪个文件（2026-09-27 / 2026-10-09）----
+        // ---- U10N 行尾那颗「详情」⇒ 报出这一条是哪个文件（ / ）----
         //
-        // 用户原话（2026-09-27 上半句）：「除了模组以外的几个都是点击模组名称自动进入下载界面
+        // 要求（ 上半句）：「除了模组以外的几个都是点击模组名称自动进入下载界面
         // （前提是匹配上了，**模组的待会再说**）」；（同一天的下半句）「对于模组，点进去和
         // 资源包差不多」⇒ **模组也接上了**。
-        //
-        // ★ 2026-10-09：用户把这**一整条路挪到了一颗看得见的按钮上** ——「把点击条目进入对应
-        //   详情页的功能变成一个详情按钮，放到开关和删除中间，单击改为选中」。所以从此：
-        //     · 名字那一格是**普通文字**（不是链接色、不是手型；单击 = 选中这一行）；
-        //     · 行尾多一颗「详情」（`detailButtonName()` / `detailButtonAt(row)`），
-        //       **认出来了才点得动**，点一下发 `detailRequested(path)`。
-        //   "哪几页有这一颗"的判据一个字没变，还是 `filesNameOpensResource()`。
         //
         // 这一层验的是**这一层能验的那一半**：哪几页有那一格、那一格在"认得出 / 认不出"
         // 两种行上分别什么样、点一下报的是什么。"收页 + 开那个资源自己的那一页"那一半在
         // MainWindow（端到端在 mw_check 的 T24）。
         {
-            // ① 纯函数：哪几页接这件事。★2026-09-27 起**模组也在表里** —— 那两张表（接哪几页 /
-            //    顶上那颗「下载新 X」）从这一天起是同一张脸，可它们仍然是**两件事**，
-            //    别合并（见 .hpp 里那条 NOTE）。
+            // ① 纯函数：哪几页接这件事。★ 起**模组也在表里** —— 那两张表（接哪几页 /
+            // 顶上那颗「下载新 X」）从这一天起是同一张脸，可它们仍然是**两件事**，
+            // 别合并（见 .hpp 里那条 NOTE）。
             check(Dlg::filesNameOpensResource(QStringLiteral("mod")) &&
                       Dlg::filesNameOpensResource(QStringLiteral("resourcepack")) &&
                       Dlg::filesNameOpensResource(QStringLiteral("datapack")) &&
@@ -14184,18 +13899,18 @@ int main(int argc, char *argv[]) {
                       !Dlg::filesResourceTip(QStringLiteral("材质包甲")).isEmpty(),
                   "★ U10N 没认出来（标题空）⇒ 一个字的提示都没有；认出来了才有那一句");
 
-            // ③ ★★ 2026-10-10：**原来这一格是钉 `filesDetailHint()` 那句话的**
-            //    （「行尾那颗 ⓘ 能进它自己的那一页，单击选中一条，按住 Ctrl 能多选，
-            //    Ctrl+A 全选」—— 它当年存在的意义是"说出去的话和代码是一件事"：
-            //    名字上那一发退了场，旧句子留着会让用户照着一个不存在的动线点）。
-            //    现在**那句话连同 `filesDetailHint()` 一起删了**（用户："把这个页面下方那段
-            //    叙述删了来让框拉到底充分利用空间"），那四页底下**一个 QLabel 都不建**。
-            //    ⇒ 这一格没有可钉的东西了，**它钉的两件事搬到了 U10j 和 U10M**：
-            //      · U10j：那四页**找不到** `filesHintName(key)` 那个控件、其余页找得到；
-            //      · U10M：那四页 `filesHint()` 一律回空串。
-            //    ★ 留在这一格的教训，别再犯一遍：删一个界面元素的时候，**先问一句"哪条断言
-            //      是钉它的"** —— 断言不比产品少写更值钱，钉着一个已删的东西的断言只会红，
-            //      然后被人顺手注释掉（`wtfml-comment-vs-code`：字面声称的那一侧就是洞）。
+            // ③ ★★ ：**原来这一格是钉 `filesDetailHint()` 那句话的**
+            // （「行尾那颗 ⓘ 能进它自己的那一页，单击选中一条，按住 Ctrl 能多选，
+            // Ctrl+A 全选」—— 它当年存在的意义是"说出去的话和代码是一件事"：
+            // 名字上那一发退了场，旧句子留着会让用户照着一个不存在的动线点）。
+            // 现在**那句话连同 `filesDetailHint()` 一起删了**（用户："把这个页面下方那段
+            // 叙述删了来让框拉到底充分利用空间"），那四页底下**一个 QLabel 都不建**。
+            // ⇒ 这一格没有可钉的东西了，**它钉的两件事搬到了 U10j 和 U10M**：
+            // · U10j：那四页**找不到** `filesHintName(key)` 那个控件、其余页找得到；
+            // · U10M：那四页 `filesHint()` 一律回空串。
+            // 留在这一格的教训，别再犯一遍：删一个界面元素的时候，**先问一句"哪条断言
+            // 是钉它的"** —— 断言不比产品少写更值钱，钉着一个已删的东西的断言只会红，
+            // 然后被人顺手注释掉（`wtfml-comment-vs-code`：字面声称的那一侧就是洞）。
 
             // ② 界面上：认出来的那一条是链接的样子，没认出来的那一条不是。
             QTemporaryDir scratch2;
@@ -14262,9 +13977,9 @@ int main(int argc, char *argv[]) {
             check(packLabel != nullptr && unknownLabel != nullptr,
                   "U10N 前提：资源包那一页上那两个文件都列出来了");
 
-            // ★ 名字那一格**两种行都不再是链接**（用户 2026-10-09 点名把这一件事挪到那颗
-            //   按钮上，单击改成选中）。剩下的只是那张老底：普通文字色 + 箭头光标 + 完整
-            //   路径那个提示（名字是省略过的，`ElidedLabel` 一直挂着那条路径）。
+            // 名字那一格**两种行都不再是链接**（用户 点名把这一件事挪到那颗
+            // 按钮上，单击改成选中）。剩下的只是那张老底：普通文字色 + 箭头光标 + 完整
+            // 路径那个提示（名字是省略过的，`ElidedLabel` 一直挂着那条路径）。
             const QString plainTip = QDir::toNativeSeparators(unknownPath);
             check(packLabel != nullptr && unknownLabel != nullptr &&
                       packLabel->cursor().shape() != Qt::PointingHandCursor &&
@@ -14302,21 +14017,14 @@ int main(int argc, char *argv[]) {
                   "「这一行没有这一格」不一样，一列下来三格要对得齐）",
                   unknownDetail != nullptr ? unknownDetail->toolTip() : QString());
 
-            // 行尾那几格的**次序**。★ 2026-10-10：用户原话「详情和启用/禁用换个顺序」—— 行尾
+            // 行尾那几格的**次序**。★ ：要求「详情和启用/禁用换个顺序」—— 行尾
             // 从此是 **`[详情][开关][删除]`**（从前是 `[开关][详情][删除]`）。
-            // ★★ 2026-10-16：资源包这一页的那颗「启用 / 禁用」**整个退场**了 —— 改名当启停
+            // 资源包这一页的那颗「启用 / 禁用」**整个退场**了 —— 改名当启停
             // 对资源包已经不成立（`fileKeyCanToggle()` 只留给模组和光影，资源包改走
             // `options.txt` 的启用顺序页，见 U10d），所以这一页的行尾只剩
             // **`[详情][删除]`**。这条断言问的次序还在（详情最左、删除最右），多钉一个
             // "开关这一格**压根没有**"（`toggleButtonAt()` 回 nullptr）—— 只钉前两格的话，
             // 开关哪天被顺手加回来照样绿。
-            //
-            // ★ 判据取**布局里的下标**（`QLayout::indexOf`），不取 x 坐标，两条理由：
-            //   ① 详情那一格**现在默认是藏着的**（悬停才露，见 U10R ②），而"一个藏着的控件
-            //      有没有拿到几何"不该是这条断言要问的问题（它问的是次序）；
-            //   ② 仓库自己的规矩：**布局类的话不摆在 offscreen 上**（假绿），视觉上那一版
-            //      的红绿钉子摆 ui_shot。而"QHBoxLayout 里下标顺序 = 从左到右"是结构上的事，
-            //      和这一趟排版跑没跑过无关。
             InstanceFilesPage *packPage = linked.filesPage(QStringLiteral("resourcepack"));
             const int packRow = rowForPath(linked, QStringLiteral("resourcepack"), packPath);
             QWidget *packRowWidget =
@@ -14359,15 +14067,10 @@ int main(int argc, char *argv[]) {
                   "★★ U10N 点那颗灰的：什么都不报（正确界面就是「按下去没反应」）",
                   reported.join(QStringLiteral(" | ")));
 
-            // ④ 模组那一页：2026-09-27 下半句之后它也**接上了** —— 和资源包那一页逐字同一条
-            //    路（同一个 setFileResource()、同一个 filesResourceTip()）。判据仍然只有
-            //    filesNameOpensResource() 一处。
+            // ④ 模组那一页： 下半句之后它也**接上了** —— 和资源包那一页逐字同一条
+            // 路（同一个 setFileResource()、同一个 filesResourceTip()）。判据仍然只有
+            // filesNameOpensResource() 一处。
             const QString modTitle = QStringLiteral("模组甲");
-            // ★ 2026-09-29：**模组那一页先摆到台前**。开页那一刻这一页是「资源包」（上面
-            //   `showPage("resourcepack")`），而 2026-09-29 起**看不见的那几页不建行**
-            //   （见 InstanceFilesPage::setDirectory()：开页时七个目录一次灌进来，用户看的
-            //   却是「概览」—— 白列七遍正是"点进实例设置会卡一下"的那个卡）。行是这一页
-            //   被摆到台前那一刻才建的 ⇒ 量"行上的那颗按钮"之前得先摆过来。**断言一条没动**。
             linked.showPage(QStringLiteral("mod"));
             linked.setFileResource(modPath, modTitle);
             QToolButton *modDetail = detailButtonFor(linked, QStringLiteral("mod"), modPath);
@@ -14385,8 +14088,8 @@ int main(int argc, char *argv[]) {
                   reported.join(QStringLiteral(" | ")));
 
             // ⑤ 同一把路径换了内容（大小 / 时间变了 ⇒ 那一趟会拿一个**空标题**过来）：
-            //    上一趟记住的资源得作废 —— 那一格要从"点得动"**退回"点不动"**，不然点进去
-            //    是另一个资源。
+            // 上一趟记住的资源得作废 —— 那一格要从"点得动"**退回"点不动"**，不然点进去
+            // 是另一个资源。
             linked.setFileResource(packPath, QString());
             QToolButton *unlinked =
                 detailButtonFor(linked, QStringLiteral("resourcepack"), packPath);
@@ -14398,9 +14101,9 @@ int main(int argc, char *argv[]) {
             QObject::disconnect(conn);
         }
 
-        // ---- U10Q 批量管理：多选 / Ctrl+A / 悬浮操作条 / 灰化（2026-10-09）----
+        // ---- U10Q 批量管理：多选 / Ctrl+A / 悬浮操作条 / 灰化----
         //
-        // 用户 2026-10-09 原话：「单击改为选中，同时在该界面按 ctrl+a 有全选效果，在选中任意
+        // 要求：「单击改为选中，同时在该界面按 ctrl+a 有全选效果，在选中任意
         // 数量模组时在列表下方的位置（**不是表尾而是悬浮**）显示几个按钮：更新 禁用 启用 全选
         // 反选 取消 删除，如果选中的所有 mod 都没有更新 / 都已经启用 / 禁用，则对应的按钮变成
         // 灰色不可选状态」。
@@ -14462,29 +14165,19 @@ int main(int argc, char *argv[]) {
                       QString::number(list->count()));
 
                 // ---- ① 多选那一档：只有开了批量的页是 MultiSelection ----
-                //
-                // ★★ 2026-10-10 从 `ExtendedSelection` 换成 `MultiSelection`（用户原话：
-                //    「点击的时候处于选中，再点一次才是取消，在选中的状态下点击其它的就是
-                //    选中多个文件」）。两者的分别**全在"一发左键算什么"**上：
-                //      · ExtendedSelection：不按修饰键的左键 = ClearAndSelect（**清掉别的**、
-                //        只留这一条），要加选得按住 Ctrl；
-                //      · MultiSelection：每一发左键 = Toggle（**点一下选中、再点一下取消、
-                //        点别的就是把别的也加上**），一个修饰键都不用按。
-                //    判据在 `QAbstractItemViewPrivate::multiSelectionCommand()`
-                //    （qabstractitemview.cpp:4203 一带：无效行回 NoUpdate，有效行回 Toggle）。
                 check(list->selectionMode() == QAbstractItemView::MultiSelection,
                       "★★ U10Q 开了批量的页是**多选**（MultiSelection：「点一下切换」那一种，"
                       "不是「按住 Ctrl 那一种」）—— 单选的话「选中任意数量」这句话根本不成立",
                       QString::number(static_cast<int>(list->selectionMode())));
 
-                // ---- ①b 「点一下切换」那一套（用户原话「点击的时候处于选中，再点一次才是
-                //      取消，在选中的状态下点击其它的就是选中多个文件」）----
+                // ---- ①b 「点一下切换」那一套（要求「点击的时候处于选中，再点一次才是
+                // 取消，在选中的状态下点击其它的就是选中多个文件」）----
                 //
-                // ★ 这一发**合成真鼠标事件**（`QApplication::sendEvent` 直接发给 viewport：
-                //   行控件是 viewport 的孩子、盖在行上面，走真命中测试的话事件会落到那个
-                //   `QWidget` 上而不是视图）。这一发是**这一档的唯一可验之处** —— 把
-                //   MultiSelection 换回 ExtendedSelection，下面第一条就会红（那种模式下发
-                //   第一发是"清掉别的、只留这一条"：先点甲、再点甲**不会取消**，永远是选中的）。
+                // 这一发**合成真鼠标事件**（`QApplication::sendEvent` 直接发给 viewport：
+                // 行控件是 viewport 的孩子、盖在行上面，走真命中测试的话事件会落到那个
+                // `QWidget` 上而不是视图）。这一发是**这一档的唯一可验之处** —— 把
+                // MultiSelection 换回 ExtendedSelection，下面第一条就会红（那种模式下发
+                // 第一发是"清掉别的、只留这一条"：先点甲、再点甲**不会取消**，永远是选中的）。
                 const auto clickRow = [list, &rowOf](const QString &path) {
                     const int row = rowOf(path);
                     if (row < 0 || list->item(row) == nullptr) {
@@ -14535,7 +14228,7 @@ int main(int argc, char *argv[]) {
                 // ---- ③ Ctrl+A：合成一发（用户点名的那一条）----
                 //
                 // NOTE: 这一发走的是 `QAbstractItemView::keyPressEvent()` 里那条
-                //       `QKeySequence::SelectAll` —— 全仓没有哪一处自己写过 Ctrl+A。
+                // `QKeySequence::SelectAll` —— 全仓没有哪一处自己写过 Ctrl+A。
                 QKeyEvent selectAllPress(QEvent::KeyPress, Qt::Key_A, Qt::ControlModifier);
                 QApplication::sendEvent(list, &selectAllPress);
                 check(list->selectedItems().size() == list->count(),
@@ -14550,9 +14243,9 @@ int main(int argc, char *argv[]) {
                 // ---- ④ 灰化规则：拿一次只选一条来逐个量 ----
                 //
                 // 四条判据（见 .hpp 里 SelectionAction 那段 / .cpp 里 updateSelectionBar）：
-                //   更新 = 选中的里**至少一条**在 m_outdatedPaths 里；
-                //   禁用 = 至少一条是启用着的；启用 = 至少一条是禁用着的；
-                //   全选 / 反选 / 取消 / 删除 恒可用。
+                // 更新 = 选中的里**至少一条**在 m_outdatedPaths 里；
+                // 禁用 = 至少一条是启用着的；启用 = 至少一条是禁用着的；
+                // 全选 / 反选 / 取消 / 删除 恒可用。
                 const auto buttonOf = [mods](InstanceFilesPage::SelectionAction action) {
                     return mods->selectionButtonAt(static_cast<int>(action));
                 };
@@ -14691,7 +14384,7 @@ int main(int argc, char *argv[]) {
 
                 // ---- ⑦ 行尾那颗「详情」：认得出资源的那一条亮着，认不出的那一条灰着 ----
                 //
-                // 用户 2026-10-09 原话：「把点击条目进入对应详情页的功能变成一个详情按钮，
+                // 要求：「把点击条目进入对应详情页的功能变成一个详情按钮，
                 // 放到开关和删除中间」。「认不认得出」是这一格能不能点的**唯一**判据（见
                 // setResourceForPath 那段：在 m_resourceTips 里 = 认出来了）。这一节只喂
                 // 一条手工的账；真去问 Modrinth、真开那一页在 mw_check / 真机那两处。
@@ -14705,15 +14398,15 @@ int main(int argc, char *argv[]) {
                       "★★ U10Q 认出来的那一行那颗「详情」**亮起来**（setResourceForPath 的"
                       "返回值就是「认没认出来」这件事本身）");
 
-                // ---- ⑧ refresh() 之后选择**按路径保住**（2026-10-09 真机揪出来的缺陷） ----
+                // ---- ⑧ refresh() 之后选择**按路径保住**（ 真机揪出来的缺陷） ----
                 //
                 // 症状：在真机上点「启用」把一条改回来之后，那一行**没选上**、底下那条操作条
                 // 也一起消失。根子 = `refresh()` 里那句 `m_list->clear()` **没挡信号**，而
                 // 它接的是「按当前选中重算 m_selectedPaths」—— 此刻表已经空了，于是那份账在
                 // **自己的重列过程中**被抹平；紧接着 rebuildRows() 想按路径把选择还回去，
                 // 手里已经什么都没有了。
-                // ★ 这正是 `wtfml-comment-vs-code` 那一类：rebuildRows() 的注释声称"重列
-                //   这一步防住了"，漏的却是它外面那一发 clear()。两处都得挡。
+                // 这正是 `wtfml-comment-vs-code` 那一类：rebuildRows() 的注释声称"重列
+                // 这一步防住了"，漏的却是它外面那一发 clear()。两处都得挡。
                 mods->setUpdateResult(QStringList(), false);
                 selectOnly(secondMod);
                 check(list->selectedItems().size() == 1, "U10Q 前提：先选中一条");
@@ -14752,21 +14445,21 @@ int main(int argc, char *argv[]) {
                 }
             }
 
-            // ---- ⑩ 那条操作条**滚轮搬不动它**（2026-10-10 用户报的那个）----
+            // ---- ⑩ 那条操作条**滚轮搬不动它**（ 用户报的那个）----
             //
-            // 用户原话：「选中以后出现下方框，但是滚动滚轮以后框会跟着跑了」。
-            // ★ 根子在 Qt：`QAbstractItemViewPrivate::scrollContentsBy()` 滚的是
-            //   `viewport->scroll(dx, dy)`，而 `QWidget::scroll()` 是**连孩子一起挪**的
-            //   （`QWidgetPrivate::scroll_sys()` 第一句 `scrollChildren(dx, dy)`）。所以只要
-            //   这条浮层是 **viewport 的孩子**，它就会跟着滚。产品那边的修法是**换爹**：
-            //   挂到 `m_list` 底下（viewport 的**兄弟**），于是被滚的那一棵里没有它。
+            // 要求：「选中以后出现下方框，但是滚动滚轮以后框会跟着跑了」。
+            // 根子在 Qt：`QAbstractItemViewPrivate::scrollContentsBy()` 滚的是
+            // `viewport->scroll(dx, dy)`，而 `QWidget::scroll()` 是**连孩子一起挪**的
+            // （`QWidgetPrivate::scroll_sys()` 第一句 `scrollChildren(dx, dy)`）。所以只要
+            // 这条浮层是 **viewport 的孩子**，它就会跟着滚。产品那边的修法是**换爹**：
+            // 挂到 `m_list` 底下（viewport 的**兄弟**），于是被滚的那一棵里没有它。
             //
-            // ★ 这一节量两件事，**顺序不能反**：
-            //   ① 结构：`parentWidget() == list`（**不是 viewport**）—— 这是根因那一句；
-            //   ② 行为：滚到底之后 `geometry()` 一个像素都没动 —— 这是用户看见的那一句。
-            //   两条都要，因为①可能被"再加一层中间容器"改对而②仍旧对，反过来②也可能因为
-            //   产品在 scroll 之后顺手 reposition 一次而假绿（那样"滚轮一挪它就跳回原位"
-            //   看不出区别，但下一帧还是会抖）。
+            // 这一节量两件事，**顺序不能反**：
+            // ① 结构：`parentWidget() == list`（**不是 viewport**）—— 这是根因那一句；
+            // ② 行为：滚到底之后 `geometry()` 一个像素都没动 —— 这是用户看见的那一句。
+            // 两条都要，因为①可能被"再加一层中间容器"改对而②仍旧对，反过来②也可能因为
+            // 产品在 scroll 之后顺手 reposition 一次而假绿（那样"滚轮一挪它就跳回原位"
+            // 看不出区别，但下一帧还是会抖）。
             {
                 QTemporaryDir scrollScratch;
                 const QString sRoot = scrollScratch.path();
@@ -14806,7 +14499,7 @@ int main(int argc, char *argv[]) {
                               .arg(slist->verticalScrollBar() != nullptr
                                        ? slist->verticalScrollBar()->maximum()
                                        : -1));
-                    // ★ ① 结构那一句：**爹是视图本身，不是 viewport**。
+                    // ① 结构那一句：**爹是视图本身，不是 viewport**。
                     check(sbar->parentWidget() == slist &&
                               sbar->parentWidget() != slist->viewport(),
                           "★★ U10Q 那条操作条挂在 **`list` 底下**（不是 viewport）—— "
@@ -14827,7 +14520,7 @@ int main(int argc, char *argv[]) {
                               .arg(before.y())
                               .arg(before.width())
                               .arg(before.height()));
-                    // ★ ② 滚到底。
+                    // ② 滚到底。
                     slist->verticalScrollBar()->setValue(slist->verticalScrollBar()->maximum());
                     const QRect after = sp->selectionBarGeometry();
                     check(after == before,
@@ -14863,21 +14556,12 @@ int main(int argc, char *argv[]) {
         }
 
         // ---- U10R 第四批：行尾次序 / 详情悬停才露 / 右键进详情 / 两颗开关的显隐 /
-        //      拨开关不掉出选择（2026-10-10）----
+        // 拨开关不掉出选择----
         //
-        // 用户原话：「详情和启用/禁用换个顺序，且详情只在悬停时显现，右键点击时也可以进入
+        // 要求：「详情和启用/禁用换个顺序，且详情只在悬停时显现，右键点击时也可以进入
         // 详情页，此时保留上一页的选择；修改禁用/启用状态时改成没有禁用的时候不显示启用，
         // 但是没有启用（全是禁用）的时候保持显示禁用，此外修复点击开关的时候会取消选中的
         // 问题」。
-        //
-        // ★★ 2026-10-11：那半句「没有禁用的时候不显示启用」（两颗**不对称**显隐）后来被
-        // 用户**当场收回**了——原话「同时下方那个框在禁用旁边增加启用」。现在两颗**一样
-        // 恒露**（只要这一页能开关），不适用的那一颗**灰着**，不再收起来。见
-        // `ui/InstanceFilesPage.cpp::updateSelectionBar()` 里那段 ★★ 注释。
-        //
-        // 每一段都只量**这一层能验的那一半**（这一层只发信号、只改控件显隐；"真改名 /
-        // 真开详情页"在 MainWindow，端到端在 mw_check）。**视觉**那一版（三格谁在左谁在右、
-        // 悬停露没露的像素）的红绿钉子在 ui_shot —— offscreen 上布局类的话是假绿的。
         {
             QTemporaryDir rScratch;
             const QString rRoot = rScratch.path();
@@ -15007,11 +14691,11 @@ int main(int argc, char *argv[]) {
                 const QPointF globalAt = rowWidget->mapToGlobal(QPoint(8, 8));
                 QMouseEvent rightPress(QEvent::MouseButtonPress, localAt, globalAt,
                                        Qt::RightButton, Qt::RightButton, Qt::NoModifier);
-                // ★ `ignore()` 那一句**不能省**：`QEvent` 生出来时 accepted 位**默认就是真**，
-                //   直接断言 `isAccepted()` 是假绿。先把它摆成"还没人接受"，才问得出"产品到底
-                //   accept 了没有"。而这一位正是真机上"要不要往上冒"的开关：`QApplication::notify`
-                //   那个循环判的是 `res && isAccepted()`，不 accept 的话这一发会继续冒到
-                //   viewport 上、视图顺手就把选中态改掉（见 .hpp 里 eventFilter 那段）。
+                // `ignore()` 那一句**不能省**：`QEvent` 生出来时 accepted 位**默认就是真**，
+                // 直接断言 `isAccepted()` 是假绿。先把它摆成"还没人接受"，才问得出"产品到底
+                // accept 了没有"。而这一位正是真机上"要不要往上冒"的开关：`QApplication::notify`
+                // 那个循环判的是 `res && isAccepted()`，不 accept 的话这一发会继续冒到
+                // viewport 上、视图顺手就把选中态改掉（见 .hpp 里 eventFilter 那段）。
                 rightPress.ignore();
                 QApplication::sendEvent(rowWidget, &rightPress);
                 check(rightClicked == QStringList{modA},
@@ -15042,9 +14726,9 @@ int main(int argc, char *argv[]) {
                       rightClicked.join(QStringLiteral(" | ")));
                 QObject::disconnect(rcConn);
 
-                // ---- ④ 两颗**一样恒露**，不适用的那一颗灰掉（2026-10-11 用户收回旧规矩）----
+                // ---- ④ 两颗**一样恒露**，不适用的那一颗灰掉（ 用户收回旧规矩）----
                 //
-                // 用户原话：「同时下方那个框在禁用旁边增加启用」。旧规矩（没有禁用就**收起**
+                // 要求：「同时下方那个框在禁用旁边增加启用」。旧规矩（没有禁用就**收起**
                 // 启用）已经退场 —— 现在只要这一页能开关，两颗都摆着，「按下去无事可做」只用
                 // **灰**来说，不再用**藏**来说。
                 const auto enableButton = [&barButton] {
@@ -15097,11 +14781,11 @@ int main(int argc, char *argv[]) {
                 // → MainWindow 把 `X.jar` 改成 `X.jar.disabled`，再回头喊一声
                 // refreshFilePages()（见 toggleInstanceFile）。
                 //
-                // ★ 2026-10-20：这一档从前是**绕开这一页**直接 `QFile::rename` +
-                //   `refresh()`。产品后来只把"这一页刚发出去的开关"解释成改名
-                //   （`m_pendingIdentityMigration`）—— 否则一条**被删掉**的文件也会把同名的
-                //   `.disabled` 那一行重新选上（见 ⑥ 那一档）。测试照着那条捷径走，这笔账
-                //   没人记，于是成了假红。现在按真那条路走。
+                // 这一档从前是**绕开这一页**直接 `QFile::rename` +
+                // `refresh()`。产品后来只把"这一页刚发出去的开关"解释成改名
+                // （`m_pendingIdentityMigration`）—— 否则一条**被删掉**的文件也会把同名的
+                // `.disabled` 那一行重新选上（见 ⑥ 那一档）。测试照着那条捷径走，这笔账
+                // 没人记，于是成了假红。现在按真那条路走。
                 const auto simulateDiskToggle = [](const QString &path) {
                     const QString suffix = InstanceFilesPage::disabledSuffix();
                     const QString target = path.endsWith(suffix)
@@ -15169,7 +14853,7 @@ int main(int argc, char *argv[]) {
                       "★★ U10R 改回来（启用）也一样：那一行照旧选着");
                 QObject::disconnect(simConn);
 
-                // ---- ⑥ 「同名的一对」不许被身份一起选中（2026-10-20）----
+                // ---- ⑥ 「同名的一对」不许被身份一起选中----
                 //
                 // `X.jar` 和 `X.jar.disabled` **同时在场**时两行的身份一样（`identityPath()`
                 // 把后缀抹掉算）。还选择那一趟要是只按身份比，用户只点了一条、重列之后两条
@@ -15200,16 +14884,12 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // ---- U10L 「服务器」那一页的"现在什么样"（2026-09-27：图标 / MOTD / 延迟）----
+        // ---- U10L 「服务器」那一页的"现在什么样"（：图标 / MOTD / 延迟）----
         //
-        // 用户 2026-09-26 问的「服务器列表能实际 ping 服务器并显示服务器图标和 motd 吗」。
+        // 用户 问的「服务器列表能实际 ping 服务器并显示服务器图标和 motd 吗」。
         // **连上去问**那一半（握手、超时、拆包、图标那串 data URL）在 build/verify 的 ZH
         // 节里真连一次验完了；这一节验的是另一半 —— 问回来的东西画在哪儿：图标进哪一格、
         // MOTD 进哪一行、状态那一列写什么、那几颗按钮按下去发不发信。
-        //
-        // ★ 2026-10-10：「测速」并进「刷新」；同一页另加「添加」「删除」两颗（用户原话
-        //   「服务器那一栏测速和刷新作用重复了，编辑要能改名字改地址以及删除，服务器那个
-        //   页面里放一个添加服务器的按钮，允许添加」）。
         {
             showPage(dialog, QStringLiteral("server"));
             auto *tree = dialog.serverTree();
@@ -15277,9 +14957,9 @@ int main(int argc, char *argv[]) {
                       "★ U10L 没通 ⇒ 直接把**它没通的那句话**摆出来（用户要的就是那个理由）",
                       Dlg::serverStatusText(dead));
 
-                // ★ 超时那一档**只写两个字**（用户 2026-09-27 原话：「超时的只写超时」）。
-                //   `error` 那两句仍是全的（两句都在这儿钉一遍）—— 判据是 timedOut 那一位，
-                //   不是这句话的前缀：界面上**不许**拿字符串去认。
+                // 超时那一档**只写两个字**（要求：「超时的只写超时」）。
+                // `error` 那两句仍是全的（两句都在这儿钉一遍）—— 判据是 timedOut 那一位，
+                // 不是这句话的前缀：界面上**不许**拿字符串去认。
                 Dlg::ServerRowStatus timedOut;
                 timedOut.tested = true;
                 timedOut.online = false;
@@ -15317,8 +14997,8 @@ int main(int argc, char *argv[]) {
                 live.latencyMs = 42;
                 live.playersOnline = 7;
                 live.playersMax = 20;
-                // ★ 「在线」那两个字 2026-09-27 傍晚删了（用户原话：「把服务器那个 在线
-                //   文本删了，只保留延迟和人数」）—— 通了的这一档第一行**就是数字**。
+                // 「在线」那两个字 傍晚删了（要求：「把服务器那个 在线
+                // 文本删了，只保留延迟和人数」）—— 通了的这一档第一行**就是数字**。
                 check(Dlg::serverStatusText(live) == QStringLiteral("42 ms · 7/20 人"),
                       "★ U10L 通了 ⇒「延迟 · 人数」（没有「在线」两个字）",
                       Dlg::serverStatusText(live));
@@ -15400,8 +15080,8 @@ int main(int argc, char *argv[]) {
             check(deadItem->data(0, MainWindowUI::rowSubTextRole()).toString().isEmpty() &&
                       deadItem->toolTip(0).isEmpty(),
                   "★ U10L 没通的那一台 MOTD 那一格和 tooltip 都是空的（不留别人的话）");
-            // ★ 状态那一格是**两行**（用户 2026-09-27：「在线延迟和人数换到两行来」），
-            //   而且通的那一档**不带「在线」两个字**（当天傍晚的用户原话）。
+            // 状态那一格是**两行**（用户 ：「在线延迟和人数换到两行来」），
+            // 而且通的那一档**不带「在线」两个字**（当天傍晚的要求）。
             check(liveItem->text(2) == QStringLiteral("42 ms\n7/20 人") &&
                       deadItem->text(2) == dead.error &&
                       untestedItem->text(2) == Dlg::serverUntestedText(),
@@ -15452,10 +15132,6 @@ int main(int argc, char *argv[]) {
                   "—— 旧的那几句配的是旧的那些行");
 
             // ---- U10L-7 「刷新」发它那一条信号；重测那期间点不动 ----
-            //
-            // ★ 2026-10-10：「测速」并进「刷新」了（用户原话「服务器那一栏测速和刷新作用
-            //   重复了」）—— 这一节从"两颗按钮各发各的"改成"一颗按钮发一条信号"。
-            //   那一条信号里装着**重读 + 重测**两件事（重读要碰 src/，归 MainWindow）。
             int refreshes = 0;
             int adds = 0;
             QObject::connect(&dialog, &Dlg::refreshServerListRequested, &dialog,
@@ -15470,8 +15146,8 @@ int main(int argc, char *argv[]) {
                   "★ U10L 点「刷新」发 refreshServerListRequested（那条路上重读 + 重测）",
                   QStringLiteral("refresh=%1").arg(refreshes));
 
-            // ★ 重读那一半是 MainWindow 的事、要等它回来；这一层手上还是**一行都没选中**
-            //   ⇒ 「删除」灰着，而「添加」照旧点得动（它不依赖选中行）。
+            // 重读那一半是 MainWindow 的事、要等它回来；这一层手上还是**一行都没选中**
+            // ⇒ 「删除」灰着，而「添加」照旧点得动（它不依赖选中行）。
             check(tree->currentItem() == nullptr && !remove->isEnabled() && add->isEnabled(),
                   "★ U10L 一行都没选中时：「删除」灰着、「添加」照旧点得动"
                   "（要加的那一台还没出现在表里，它没有「先选中」这一步）");
@@ -15495,7 +15171,7 @@ int main(int argc, char *argv[]) {
             refresh->click();
             check(refreshes == refreshesBefore + 1, "U10L 变回来之后点得动");
 
-            // ---- U10L-7b 那五颗各是哪一档（颜色就落在这儿，2026-10-10）----
+            // ---- U10L-7b 那五颗各是哪一档（颜色就落在这儿，）----
             //
             // 「这个画出来是什么色」在**别处**量（`widgetStyleSheet()` 那几条选择器 ⇒
             // W12 那一段、以及主题那一节）。这一层该钉的是**这一页的哪一颗挂了哪一档**：
@@ -15503,7 +15179,7 @@ int main(int argc, char *argv[]) {
             // 「删除」要是没红，用户就分不出它和「刷新」有什么不一样。
             //
             // NOTE: 没挂属性 = `Accent`（见 `Theme::ButtonKind` 那条 NOTE：界面上一百来颗
-            //       按钮绝大多数就是普通按钮，犯不着每建一颗都喊一遍）。
+            // 按钮绝大多数就是普通按钮，犯不着每建一颗都喊一遍）。
             {
                 const auto kindOf = [](QPushButton *button) {
                     const QVariant value = button->property("wtfmlButtonKind");
@@ -15534,7 +15210,7 @@ int main(int argc, char *argv[]) {
 
             // ---- U10L-8 地址那一栏遮起来（悬停才给全）----
             //
-            // 用户 2026-09-27 原话：「域名就显示首个字母+一条横杠（如 m-.h-.c- 来表示
+            // 要求：「域名就显示首个字母+一条横杠（如 m-.h-.c- 来表示
             // mc.hyperlands.cloud），悬停在上方时才显示完整的，ipv4 的显示为 123.45.*.*，
             // ipv6 显示为 [123:123:*:*:*:*:*:*]」。
             {
@@ -15579,7 +15255,7 @@ int main(int argc, char *argv[]) {
                       Dlg::maskedServerAddress(QStringLiteral("mc.hyperlands.cloud")));
 
                 // 表里那一格写的是遮过的、完整的那一串挂在悬停提示上（**而且那句提示还得
-                // 告诉用户"右键能复制"** —— 用户 2026-09-27：「这一点在悬停文本上也告知」）。
+                // 告诉用户"右键能复制"** —— 用户 ：「这一点在悬停文本上也告知」）。
                 const QString address = QStringLiteral("mc.hyperlands.cloud:25566");
                 dialog.setServerList(
                     {qMakePair(QStringLiteral("我的服"), address)}, QString());
@@ -15598,7 +15274,7 @@ int main(int argc, char *argv[]) {
                       "（右键复制的就是它，不许去拆 tooltip 那个字符串）",
                       item->data(1, MainWindowUI::serverAddressRole()).toString());
 
-                // ---- 右键 = 发一条"复制这一串"（**不弹菜单**，用户原话「ip地址右键可以复制」）----
+                // ---- 右键 = 发一条"复制这一串"（**不弹菜单**，要求「ip地址右键可以复制」）----
                 {
                     QString copied;
                     int fired = 0;
@@ -15670,8 +15346,8 @@ int main(int argc, char *argv[]) {
                       "★ U10L 没通那一档只有**一行**（那句话本来就长，拆两行更难读）",
                       Dlg::serverStatusLines(dead).join(QStringLiteral("︱")));
 
-                // ★★ 2026-09-27 用户原话：「‘上次’两个字也不要」——缓存那一份和当场测出来
-                //    那一份现在**逐字相同**，一个前缀都没有。
+                // 要求：「‘上次’两个字也不要」——缓存那一份和当场测出来
+                // 那一份现在**逐字相同**，一个前缀都没有。
                 Dlg::ServerRowStatus cached = live;
                 cached.fromCache = true;
                 check(Dlg::serverStatusLines(cached) == Dlg::serverStatusLines(live) &&
@@ -15681,10 +15357,10 @@ int main(int argc, char *argv[]) {
                       "（没有「上次：」那种过去时的前缀了）",
                       Dlg::serverStatusLines(cached).join(QStringLiteral("︱")));
 
-                // ★★ 2026-09-27 补，用户原话：「服务器那个会显示上次:没连上，也改成超时」，
-                //    接着又说「‘上次’两个字也不要」。盘上那份"上次问到"的没通也带着"是不是
-                //    超时"这一位（见 ServerStatusCache::Entry::timedOut），所以这一格和刚测完
-                //    那一格**同一个字**。
+                // 补，要求：「服务器那个会显示上次:没连上，也改成超时」，
+                // 接着又说「‘上次’两个字也不要」。盘上那份"上次问到"的没通也带着"是不是
+                // 超时"这一位（见 ServerStatusCache::Entry::timedOut），所以这一格和刚测完
+                // 那一格**同一个字**。
                 Dlg::ServerRowStatus cachedTimeout;
                 cachedTimeout.tested = true;
                 cachedTimeout.online = false;
@@ -15714,7 +15390,7 @@ int main(int argc, char *argv[]) {
 
             // ---- U10L-10 三栏的宽度是这么分的 ----
             //
-            // 用户原话「三栏，让最右边（在线）那个固定靠右，保证左侧的 motd 能显示全」。
+            // 要求「三栏，让最右边（在线）那个固定靠右，保证左侧的 motd 能显示全」。
             // 默认那套是"最后一列拉伸"，多出来的宽度全给了状态那一栏 —— 左边两行 MOTD
             // 会被挤掉一大截。所以这里逐条钉住三列各自的伸缩方式。
             {
@@ -15769,10 +15445,10 @@ int main(int argc, char *argv[]) {
                       "U10L 状态那一格量得出来",
                       QStringLiteral("%1x%2").arg(cell.width()).arg(cell.height()));
                 if (cell.isValid() && !cell.isEmpty()) {
-                    // ★ 量的是**控件自己画出来的样子**（`captureWidget` → `render()`），
-                    //   不是我们自己手搓一个 QStyleOptionViewItem 去调代理 —— 后者会把
-                    //   "控件到底给代理喂了哪些位"这件事跳过去，而这一节要验的恰恰是那个
-                    //   （wordWrap 有没有传下去、对齐有没有传下去）。
+                    // 量的是**控件自己画出来的样子**（`captureWidget` → `render()`），
+                    // 不是我们自己手搓一个 QStyleOptionViewItem 去调代理 —— 后者会把
+                    // "控件到底给代理喂了哪些位"这件事跳过去，而这一节要验的恰恰是那个
+                    // （wordWrap 有没有传下去、对齐有没有传下去）。
                     const QImage shot = captureWidget(tree);
                     const QRect inShot = cell.translated(tree->viewport()->mapTo(tree, QPoint(0, 0)));
 
@@ -15833,9 +15509,9 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
-        // ---- U10S 「编辑」/「加入服务器」/「加入选中的世界」那三颗（2026-10-10）----
+        // ---- U10S 「编辑」/「加入服务器」/「加入选中的世界」那三颗----
         //
-        // 用户 2026-10-10 原话：「在服务器列表那里做一个编辑地址和名称的功能，然后世界和
+        // 要求：「在服务器列表那里做一个编辑地址和名称的功能，然后世界和
         // 服务器都做一个临时占位（加入选中的世界（仅限有这个参数的版本）/服务器）先试试看
         // 能不能生效」。
         //
@@ -15848,9 +15524,6 @@ int main(int argc, char *argv[]) {
             // ---- ① 那一页现在叫「结构/原理图」----
             const QStringList shortcuts = Dlg::shortcutTexts();
             const QStringList optionalTexts = Dlg::optionalPageTexts();
-            // ★ 2026-10-18：概览那排快捷方式里**不再摆「结构/原理图」**（左栏里本来就有
-            //   那一页，用户原话「实例设置 概览里面 快捷入口重复了」）—— 这里钉的是"名字
-            //   从这一串里退场了"，改名那件事本身由下面两条（勾选表 / 键）继续钉。
             check(!shortcuts.contains(QStringLiteral("结构/原理图")),
                   "★ U10S 「结构/原理图」不再在快捷方式那一串里重复摆一遍（2026-10-18 去重）",
                   shortcuts.join(QStringLiteral(" / ")));
@@ -15859,7 +15532,7 @@ int main(int argc, char *argv[]) {
                   "★ U10S 勾选表里那条也是同一个名字（两处不许各叫一个）",
                   optionalTexts.size() > 6 ? optionalTexts.at(6) : QStringLiteral("<不够长>"));
             // 改的是**叫法**，不是身份：键没动 ⇒ 用户盘上那份 `settingsPages` 不会因此失效
-            //（认不出键的会被丢掉，"勾掉的页"就悄悄回来了）。
+            // （认不出键的会被丢掉，"勾掉的页"就悄悄回来了）。
             check(Dlg::optionalPageKeys().size() > 6 &&
                       Dlg::optionalPageKeys().at(6) == QStringLiteral("schematic"),
                   "★ U10S 键还是 `schematic`（改的只是叫什么）");
@@ -15929,8 +15602,8 @@ int main(int argc, char *argv[]) {
                       "★ U10S 灰着的时候点它们一发都不发",
                       QStringLiteral("编辑 %1 次、加入 %2 次").arg(editSent).arg(joinSent));
 
-                // ★★ 「加入服务器」接上那句文字之后：有名的那一条发的是**原名 + 完整地址**
-                //    （第 1 栏里写的是遮过的 `o-.e-.c-`，发出去的那一串不许是它）。
+                // 「加入服务器」接上那句文字之后：有名的那一条发的是**原名 + 完整地址**
+                // （第 1 栏里写的是遮过的 `o-.e-.c-`，发出去的那一串不许是它）。
                 dialog.setServerJoinText(Dlg::serverJoinText(), Dlg::serverJoinTip());
                 check(!joinServer->isHidden() &&
                           joinServer->text() == Dlg::serverJoinText(),
@@ -15954,7 +15627,7 @@ int main(int argc, char *argv[]) {
                       "服务器改成了一台不存在的机器）",
                       QStringLiteral("「%1」/「%2」").arg(sentName, sentAddress));
 
-                // ★★ 没名字的那一条：屏幕上「（无名）」，发出去的必须是**空串**。
+                // 没名字的那一条：屏幕上「（无名）」，发出去的必须是**空串**。
                 tree->setCurrentItem(tree->topLevelItem(1));
                 sentName = QStringLiteral("<没发>");
                 sentAddress = QStringLiteral("<没发>");
@@ -16074,9 +15747,9 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // ---------- U10M 拨一下启用/禁用之后，列表**不许跳回顶端**（2026-10-10）----------
+        // ---------- U10M 拨一下启用/禁用之后，列表**不许跳回顶端**----------
         //
-        // 用户原话：「选中了模组并修改了启用/禁用状态以后整个表会弹回顶端，修掉」。
+        // 要求：「选中了模组并修改了启用/禁用状态以后整个表会弹回顶端，修掉」。
         // 根子是那两个"重列"的地方都是 `m_list->clear()`（`refresh()` 一次、
         // `rebuildRows()` 再一次）—— 那一下把滚动条连人一起送回了 0，用户翻了半天的那
         // 一屏就没了。修法见 `InstanceFilesPage::rememberScrollAnchor()`（记"顶上那一条
@@ -16157,11 +15830,11 @@ int main(int argc, char *argv[]) {
                     // 然后回头喊 `refresh()` —— 产品那一路（见 InstanceSettingsDialog /
                     // MainWindow::toggleInstanceFile）一字不差地这么走。
                     //
-                    // ★ 2026-10-20：和 U10R ⑤ 同一个理由 —— 这一发必须**从这一页自己
-                    //   走出去**（行尾开关 → `requestToggle()` 先记一笔"刚发出去的开关"），
-                    //   不能绕开它手工改名。绕开的那一路产品里根本不存在，而"改名之后
-                    //   还选着"那一笔账正是 `requestToggle()` 记下的（删除不许被当成改名，
-                    //   见 `m_pendingIdentityMigration`）。
+                    // 和 U10R ⑤ 同一个理由 —— 这一发必须**从这一页自己
+                    // 走出去**（行尾开关 → `requestToggle()` 先记一笔"刚发出去的开关"），
+                    // 不能绕开它手工改名。绕开的那一路产品里根本不存在，而"改名之后
+                    // 还选着"那一笔账正是 `requestToggle()` 记下的（删除不许被当成改名，
+                    // 见 `m_pendingIdentityMigration`）。
                     const QString renamed = target + QStringLiteral(".disabled");
                     const QMetaObject::Connection simConn = QObject::connect(
                         many, &InstanceFilesPage::toggleRequested, many,
@@ -16224,9 +15897,9 @@ int main(int argc, char *argv[]) {
                     QObject::disconnect(simConn);
                 }
 
-                // ---- U10M-2 从详情页退回来：位置**跨过那一页本身**活下来（2026-10-11）----
+                // ---- U10M-2 从详情页退回来：位置**跨过那一页本身**活下来----
                 //
-                // 用户原话：「点进模组详情以后退出来保留刚才的滚动位置」。这一趟和上面那条
+                // 要求：「点进模组详情以后退出来保留刚才的滚动位置」。这一趟和上面那条
                 // 不是一回事：实例设置这个对话框是**每次现开的栈上对象**
                 // （`MainWindow::openInstanceSettingsNow()`），那一页整套是重建出来的 ——
                 // 页面自己记着的那一份位置跟着一起没了。修法是把那一对数字提到页面**外面**
@@ -16255,10 +15928,10 @@ int main(int argc, char *argv[]) {
                           "U10M-2 刚开出来那一页还没列过盘 ⇒ 它**自己**那份位置是空的"
                           "（所以下面塞进去的那一份才作数）");
                     if (reopened != nullptr) {
-                        // ★ 塞进去的时机必须是**列盘之前**（产品那一句就摆在 `showPage()`
-                        //   前面）—— 摆到后面会被 `rememberScrollAnchor()` 在第一次
-                        //   `refresh()` 里现量一份（空表上它是空操作，可位置已经被换成
-                        //   新量的那一份）盖掉。
+                        // 塞进去的时机必须是**列盘之前**（产品那一句就摆在 `showPage()`
+                        // 前面）—— 摆到后面会被 `rememberScrollAnchor()` 在第一次
+                        // `refresh()` 里现量一份（空表上它是空操作，可位置已经被换成
+                        // 新量的那一份）盖掉。
                         reopened->setScrollPosition(carried);
                         showPage(returnDialog, QStringLiteral("mod"));
                         QEventLoop settleBack;
@@ -16289,9 +15962,9 @@ int main(int argc, char *argv[]) {
             }
         }
     }
-        // ---- U10T 「结构/原理图」顶上那两排「来源」（2026-10-10）----
+        // ---- U10T 「结构/原理图」顶上那两排「来源」----
         //
-        // 用户原话：「那就像版本树一样根据存档来列，一个存档来一个下拉框，存档类来一个
+        // 要求：「那就像版本树一样根据存档来列，一个存档来一个下拉框，存档类来一个
         // 总下拉，原理图文件夹和存档类并列，没有结构的存档不显示在列表里面，没有装投影图
         // 则不显示投影图下拉」；摆法另有一句钉死：「横着并排，即**上面一排是存档的，下面
         // 一排是投影的**」。
@@ -16301,11 +15974,11 @@ int main(int argc, char *argv[]) {
         // 在这个实例自己的文件夹里（`schematics/`）。上面那几排说的是"这一页正在看哪几个
         // 目录"，下面那份列表是这几个目录**合起来**的东西（不是"选中谁就只列谁"）。
         //
-        // ★ 这一层只量「摆几排、排头写着什么、按选中的那些目录列出什么」。**哪些存档真
-        //   有结构 / 这个实例装没装投影模组，是 MainWindow 算好了递进来的**
-        //   （`structureSourcesFor()` —— 那两句判据在 ui/ 这一层说不出口）："没有结构的
-        //   存档根本不进名单"、"没装投影就不摆投影那一排"都在那里。这里量的最后一档是：
-        //   调用方递空名单 ⇒ 一个框都不摆，退回到别的七页那种样子。
+        // 这一层只量「摆几排、排头写着什么、按选中的那些目录列出什么」。**哪些存档真
+        // 有结构 / 这个实例装没装投影模组，是 MainWindow 算好了递进来的**
+        // （`structureSourcesFor()` —— 那两句判据在 ui/ 这一层说不出口）："没有结构的
+        // 存档根本不进名单"、"没装投影就不摆投影那一排"都在那里。这里量的最后一档是：
+        // 调用方递空名单 ⇒ 一个框都不摆，退回到别的七页那种样子。
         {
             QTemporaryDir structureScratch;
             const QString sRoot = structureScratch.path();
@@ -16479,19 +16152,19 @@ int main(int argc, char *argv[]) {
         }
     }  // U10
 
-    // ---- U11 「配置文件」那一页：点一个文件 → 就地改（2026-09-27）----
+    // ---- U11 「配置文件」那一页：点一个文件 → 就地改----
     //
-    // 用户原话：「能不能做到在启动器就直接编辑模组的 config.json（或类似的设置文件）？」
+    // 要求：「能不能做到在启动器就直接编辑模组的 config.json（或类似的设置文件）？」
     // 补的那一句才是关键：「这些文件不都是以文本形式存储的吗，不能直接以 txt 来解析吗」
     // —— 对。所以这一页**不解析格式**，就是一个纯文本编辑器。（"勾选框 / 滑条"那种界面
     // 是做不到的：ModMenu 的 `ConfigScreenFactory` 把界面转交给模组自己的 Java 代码，
     // 那份 schema 只活在游戏进程里 —— 见 ConfigFileEditorPage.hpp 那段。）
     //
     // 分三块验：
-    //   ① `ConfigFileText`（纯函数：认 BOM、认行尾、认是不是 UTF-8）—— 这一层是这个功能
-    //      **唯一一处安全关键**。"用户改两个字、别的字节一个都不许动"这条全靠它。
-    //   ② 编辑器那一格（行号、脏 / 干净、只读那几档、「返回」与 Esc）。
-    //   ③ 对话框那两格怎么切、以及"改过就不许悄悄关掉"那道闸。
+    // ① `ConfigFileText`（纯函数：认 BOM、认行尾、认是不是 UTF-8）—— 这一层是这个功能
+    // **唯一一处安全关键**。"用户改两个字、别的字节一个都不许动"这条全靠它。
+    // ② 编辑器那一格（行号、脏 / 干净、只读那几档、「返回」与 Esc）。
+    // ③ 对话框那两格怎么切、以及"改过就不许悄悄关掉"那道闸。
     {
         // ---------- U11a ConfigFileText：改一个值，别的字节一个都不许动 ----------
         {
@@ -16519,9 +16192,9 @@ int main(int argc, char *argv[]) {
                   "那些字节」那条早退，所以坏字节一个都不会被 U+FFFD 换掉");
         }
 
-        // ★ 这两条才是"改一个字"那条动线上真正发生的事：编辑器里的正文全是 `\n`
-        //   （QPlainTextEdit 的模型就是这样），写回去的时候得把 CRLF 还回来 ——
-        //   **包括用户新敲出来的那一行**。
+        // 这两条才是"改一个字"那条动线上真正发生的事：编辑器里的正文全是 `\n`
+        // （QPlainTextEdit 的模型就是这样），写回去的时候得把 CRLF 还回来 ——
+        // **包括用户新敲出来的那一行**。
         {
             const ConfigFileText::Loaded crlf =
                 ConfigFileText::decode(QByteArrayLiteral("a\r\nb\r\n"));
@@ -16579,7 +16252,7 @@ int main(int argc, char *argv[]) {
             check(!ConfigFileText::decode(QByteArray(limit, 'x')).tooBig,
                   "★ U11a 边界：**正好到上限**还是给改的（判的是「大于」不是「大于等于」）");
 
-            // ---- ★ 尾巴上被截断的那半个字（2026-09-29 补）----
+            // ---- ★ 尾巴上被截断的那半个字（ 补）----
             //
             // 这一位是 `hasError()` **一位不够**的地方：它只数"认出来的非法字节"
             // （`qstringconverter_base.h:157`），而**末尾那半截多字节序列不算非法** ——
@@ -16623,14 +16296,14 @@ int main(int argc, char *argv[]) {
             check(editor.gutterWidth() > 0,
                   "★ U11b 有行号那一格（宽度 > 0）", QStringLiteral("%1 px").arg(editor.gutterWidth()));
 
-            // 行号那一格会跟着行数变宽。★ 2026-10-14：行数从 120 提到 **2000**。
-            //   为什么：那一格有个"个位数行号也别贴着边"的**下限**（`kGutterMinWidth`），
-            //   宽度是 `rightPad + max(下限, 字宽 × (位数+1))`。真 windows 平台给编辑框的
-            //   等宽字体数字比 offscreen 那套桩字体**窄**，所以三位数（120 行）连同下限一起
-            //   算出来还是那个下限、量下来 `40 → 40`（看着像"不跟着变"）；桩字体下三位数已经
-            //   越过了下限，才量得出变宽。要量的是"位数多了会变宽"这条**不变的规矩**，
-            //   就得让位数多到两种字体都肯定越限：**4 位数（2000 行）**下 `5 × 字宽 > 下限`
-            //   在两套字体上都成立。
+            // 行号那一格会跟着行数变宽。★ ：行数从 120 提到 **2000**。
+            // 为什么：那一格有个"个位数行号也别贴着边"的**下限**（`kGutterMinWidth`），
+            // 宽度是 `rightPad + max(下限, 字宽 × (位数+1))`。真 windows 平台给编辑框的
+            // 等宽字体数字比 offscreen 那套桩字体**窄**，所以三位数（120 行）连同下限一起
+            // 算出来还是那个下限、量下来 `40 → 40`（看着像"不跟着变"）；桩字体下三位数已经
+            // 越过了下限，才量得出变宽。要量的是"位数多了会变宽"这条**不变的规矩**，
+            // 就得让位数多到两种字体都肯定越限：**4 位数（2000 行）**下 `5 × 字宽 > 下限`
+            // 在两套字体上都成立。
             const int widthAtTwo = editor.gutterWidth();
             QString manyLines;
             for (int i = 0; i < 2000; ++i) {
@@ -16685,20 +16358,13 @@ int main(int argc, char *argv[]) {
             editor.backButton()->click();
             check(backCount == 1, "★ U11b 「返回」发一发 backRequested()（这一格不自己切格子）");
 
-            // ★ Esc **必须在这一层被接住**：不然它会一路冒到「实例设置」那个 QDialog 上，
-            //   那一下关掉的是**整个实例设置页** —— 用户想的是"退回文件列表"。
+            // Esc **必须在这一层被接住**：不然它会一路冒到「实例设置」那个 QDialog 上，
+            // 那一下关掉的是**整个实例设置页** —— 用户想的是"退回文件列表"。
             //
             // NOTE: 事件发给**里面那个编辑框**（那是真正拿着焦点的控件），看它冒不冒上来。
-            //       直接发给这一格等于把要验的那一步跳过去了。
+            // 直接发给这一格等于把要验的那一步跳过去了。
             QKeyEvent esc(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
             QApplication::sendEvent(editor.editor(), &esc);
-            // NOTE: 这一发是**直接发给编辑框**的（那是真拿着焦点的控件），而 Esc 得自己冒
-            //       到这一层来（编辑框不认它 —— 它认的话这一路就断了，用户按 Esc 会在框里
-            //       插进一个转义字符或者什么都不发生）。**`sendEvent` 会替我们走这一趟**：
-            //       `QApplication::notify` 对键盘事件的父链传播就是它干的（2026-09-27 实测
-            //       —— 一开始以为"sendEvent 不做传播"，量出来 `backCount` 照样 +1、事件也
-            //       是 accepted 的）。所以这一条量到的就是那条完整的路：**按在编辑框上的
-            //       Esc 变成了「返回」，而且被吃掉了**。
             check(backCount == 2 && esc.isAccepted(),
                   "★★ U11b 在编辑框上按 Esc = 「返回」：编辑框自己不认它、它冒到这一层被接住"
                   "并吃掉 —— 不接的话它会一路冒到「实例设置」那个 QDialog 上，那一下关掉的"
@@ -16814,27 +16480,27 @@ int main(int argc, char *argv[]) {
             check(up != nullptr && up->text() == Dlg::configUpText(),
                   "U11c 那颗按钮上的字走 configUpText() 那一个出处");
 
-            // ★★ 先把列表**摆完那一趟布局**再合成双击。
+            // 先把列表**摆完那一趟布局**再合成双击。
             //
-            //   这一条是**驱动侧**的事，不是产品的毛病：`QAbstractItemView` 的条目布局是
-            //   **延后**的（`scheduleDelayedItemsLayout()` 只挂一个标记），而每行的行控件
-            //   摆在哪儿正是那一趟算出来的。真机上用户点不到一行"还没摆到位"的行 ——
-            //   没摆到位它就没画出来，鼠标底下根本没有它；而 offscreen 这一趟没有任何
-            //   绘制，于是那条延后的布局**一直挂着**，第一发合成双击的坐标就算歪了
-            //   （冒到视口上时落到了别的地方 / 落空），第二发才碰巧对 —— 2026-09-27 实测
-            //   就是"第一发静默无效、之后都正常"。
-            //   `doItemsLayout()` 是那个标记的正门（`indexAt()` / `visualItemRect()` 内部
-            //   也是叫它）。写出来是因为**不写的话这一条会间歇性地红**，而红的那个样子
-            //   看着像"双击没反应"—— 那正是这一整段要钉的那个洞，会把人带沟里去。
+            // 这一条是**驱动侧**的事，不是产品的毛病：`QAbstractItemView` 的条目布局是
+            // **延后**的（`scheduleDelayedItemsLayout()` 只挂一个标记），而每行的行控件
+            // 摆在哪儿正是那一趟算出来的。真机上用户点不到一行"还没摆到位"的行 ——
+            // 没摆到位它就没画出来，鼠标底下根本没有它；而 offscreen 这一趟没有任何
+            // 绘制，于是那条延后的布局**一直挂着**，第一发合成双击的坐标就算歪了
+            // （冒到视口上时落到了别的地方 / 落空），第二发才碰巧对 —— 实测
+            // 就是"第一发静默无效、之后都正常"。
+            // `doItemsLayout()` 是那个标记的正门（`indexAt()` / `visualItemRect()` 内部
+            // 也是叫它）。写出来是因为**不写的话这一条会间歇性地红**，而红的那个样子
+            // 看着像"双击没反应"—— 那正是这一整段要钉的那个洞，会把人带沟里去。
             if (files != nullptr && files->list() != nullptr) {
                 files->list()->doItemsLayout();
             }
 
             // ---- 点一条**文件**：发出去的是"打开这个文件" ----
             //
-            // ★ 发**双击**、而且发给**那一行的行控件**（真实的鼠标就在它上面）—— 不是在
-            //   视口上凭空双击。这一条钉的就是 InstanceFilesPage 里那句"行控件忽略鼠标事件、
-            //   所以双击会冒到视口上"：那一侧哪天有一个行控件开始吃鼠标事件，这一条当场红。
+            // 发**双击**、而且发给**那一行的行控件**（真实的鼠标就在它上面）—— 不是在
+            // 视口上凭空双击。这一条钉的就是 InstanceFilesPage 里那句"行控件忽略鼠标事件、
+            // 所以双击会冒到视口上"：那一侧哪天有一个行控件开始吃鼠标事件，这一条当场红。
             QString asked;
             int askCount = 0;
             QObject::connect(&dialog, &Dlg::openConfigFileRequested, &dialog,
@@ -16886,29 +16552,23 @@ int main(int argc, char *argv[]) {
                       QDir::cleanPath(files->directory()) ==
                           QDir::cleanPath(configDir + QStringLiteral("/ftbquests")),
                   "★★ U11c 而且它**真的进去**了（那一页换成了 config/ftbquests 再列一遍）");
-            // ★★ 左栏那条导航**不许因为"拿到焦点"就自己挑一条**（2026-09-27）。
+            // 左栏那条导航**不许因为"拿到焦点"就自己挑一条**。
             //
-            //   这一条钉的是一个 Qt 的兜底行为，不是我们写的：`QAbstractItemView::focusInEvent()`
-            //   在"视图拿到焦点、而当前条目无效"时会替你选中第一条（源码里那句
-            //   `if (model && !d->currentIndexSet && !currentIndexValid)`）—— 而这一列上的
-            //   每一次选中**都是翻页**（`currentItemChanged` → showPage()）。
-            //   「配置文件」正是一个没有左栏条目的页（左栏选中 = 空），于是用户按一下 Tab
-            //   进来、或者切出去再切回来（窗口重新激活走的是同一个原因），右栏摆着的配置
-            //   文件就被左栏顶掉、跳回概览 —— 一次没有用户意图的翻页。挡住它的是对话框
-            //   `eventFilter()` 里那一发。
+            // 这一条钉的是一个 Qt 的兜底行为，不是我们写的：`QAbstractItemView::focusInEvent()`
+            // 在"视图拿到焦点、而当前条目无效"时会替你选中第一条（源码里那句
+            // `if (model && !d->currentIndexSet && !currentIndexValid)`）—— 而这一列上的
+            // 每一次选中**都是翻页**（`currentItemChanged` → showPage()）。
+            // 「配置文件」正是一个没有左栏条目的页（左栏选中 = 空），于是用户按一下 Tab
+            // 进来、或者切出去再切回来（窗口重新激活走的是同一个原因），右栏摆着的配置
+            // 文件就被左栏顶掉、跳回概览 —— 一次没有用户意图的翻页。挡住它的是对话框
+            // `eventFilter()` 里那一发。
             //
-            //   ★ 2026-10-16：导航换成树之后，**这一发要打在树上** —— 那列旧的
-            //     `QListWidget` 已经 `hide()`（焦点根本轮不到它），只打它等于守着一扇没人
-            //     走的门；而树上同一个兜底一条不少（`QTreeWidget` 也是 `QAbstractItemView`）。
-            //     产品侧照着这个形状改的：`m_navigationTree->installEventFilter(this)`
-            //     + eventFilter 里 `watched == m_navigationTree` 那一路。两件都守。
+            // NOTE: 直接**合成一发 FocusIn 发给左栏**，而不是 `setFocus()` —— offscreen
+            // 底下那个窗口不是活动窗口，`setFocus()` 根本不会把 FocusIn 送到控件上，
+            // 拿它当驱动这一条会**永远绿**（看着像过了，其实什么都没测）。
             //
-            //   NOTE: 直接**合成一发 FocusIn 发给左栏**，而不是 `setFocus()` —— offscreen
-            //         底下那个窗口不是活动窗口，`setFocus()` 根本不会把 FocusIn 送到控件上，
-            //         拿它当驱动这一条会**永远绿**（看着像过了，其实什么都没测）。
-            //
-            //   NOTE: 拿**真 QTreeWidget**（`navigationTree()`）发，不拿 objectName 找 ——
-            //         这一条量的就是那棵树的实际行为。
+            // NOTE: 拿**真 QTreeWidget**（`navigationTree()`）发，不拿 objectName 找 ——
+            // 这一条量的就是那棵树的实际行为。
             {
                 const int before = dialog.stack()->currentIndex();
                 QTreeWidget *navFocus = dialog.navigationTree();
@@ -16985,10 +16645,10 @@ int main(int argc, char *argv[]) {
             check(editor->isVisible() && editor->isDirty(),
                   "★ U11c 那一格连内容都原封不动（没被顺手丢掉）");
 
-            // ★ Esc 按在**编辑框**上：那是「退回文件列表」，**不是**「关掉整个实例设置」。
-            //   这一条是上面那条的另一半：上面钉的是"顶上那颗返回箭头被那道闸挡住"，这一条
-            //   钉的是"Esc 根本走不到那道闸上"—— 走到的话，用户按一下 Esc 冒出来的是"改过
-            //   还没保存，丢不丢"，而他想的是"回去看另一个文件"。
+            // Esc 按在**编辑框**上：那是「退回文件列表」，**不是**「关掉整个实例设置」。
+            // 这一条是上面那条的另一半：上面钉的是"顶上那颗返回箭头被那道闸挡住"，这一条
+            // 钉的是"Esc 根本走不到那道闸上"—— 走到的话，用户按一下 Esc 冒出来的是"改过
+            // 还没保存，丢不丢"，而他想的是"回去看另一个文件"。
             {
                 int backs = 0;
                 QObject::connect(editor, &ConfigFileEditorPage::backRequested, editor,
@@ -17010,9 +16670,9 @@ int main(int argc, char *argv[]) {
                   QStringLiteral("挡住 %1 次").arg(blocked));
         }
 
-        // ---------- U12 「显示哪些页」那张勾选表（2026-09-27）----------
+        // ---------- U12 「显示哪些页」那张勾选表----------
         //
-        // 用户原话：「针对每个实例，在实例设置里个性化自定义，概览里面调整是否显示」。
+        // 要求：「针对每个实例，在实例设置里个性化自定义，概览里面调整是否显示」。
         // 这一节钉的就是那张表本身：**它在概览页里**、**七条与 optionalPageKeys() 逐位
         // 对齐**、**不可用的那一条不勾 + 灰着 + tooltip 说为什么**、**勾掉一条 = 左栏少
         // 一条 + 当前页被赶回概览**，以及"这一份选择记在实例自己身上"（写盘那条路在
@@ -17036,9 +16696,9 @@ int main(int argc, char *argv[]) {
             QWidget *overview = dialog.stack() != nullptr && dialog.stack()->count() > 0
                                     ? dialog.stack()->widget(0)
                                     : nullptr;
-            // ★ 堆叠页里那一格是**外面的滚动区**（`scrollName()`），真正的面板
-            //   （`panelName()`）在它肚子里 —— 搬东西/找归属按 `isAncestorOf()` 走，
-            //   所以拿外面这一层当根是对的。
+            // 堆叠页里那一格是**外面的滚动区**（`scrollName()`），真正的面板
+            // （`panelName()`）在它肚子里 —— 搬东西/找归属按 `isAncestorOf()` 走，
+            // 所以拿外面这一层当根是对的。
             check(overview != nullptr &&
                       overview->objectName() == Dlg::scrollName(QStringLiteral("overview")),
                   "U12 前提：第 0 格就是概览那一页（外层滚动区）",
@@ -17052,9 +16712,9 @@ int main(int argc, char *argv[]) {
 
             // ---- ① 七条：都在概览页里，而且与 optionalPageKeys() 逐位对齐 ----
             //
-            // ★ 对齐是**逐位**的（文字也是 optionalPageTexts() 那一串）：勾选表里的次序
-            //   就是用户点名的那一串（存档 服务器列表 资源包 数据包 模组 光影包 原理图），
-            //   谁把它按堆叠页的次序重排一遍，这一条当场红。
+            // 对齐是**逐位**的（文字也是 optionalPageTexts() 那一串）：勾选表里的次序
+            // 就是用户点名的那一串（存档 服务器列表 资源包 数据包 模组 光影包 原理图），
+            // 谁把它按堆叠页的次序重排一遍，这一条当场红。
             {
                 const QStringList keys = Dlg::optionalPageKeys();
                 const QStringList texts = Dlg::optionalPageTexts();
@@ -17101,7 +16761,7 @@ int main(int argc, char *argv[]) {
                 check(titled == 1,
                       "U12 表头上那句「显示哪些页」在概览页里正好一份（走 showPagesLabelText()）",
                       QStringLiteral("%1 份").arg(titled));
-                // 那一排常用目录按钮也在概览页里（用户原话：「快捷方式"放到概览的下方」）——
+                // 那一排常用目录按钮也在概览页里（要求：「快捷方式"放到概览的下方」）——
                 // 这一条与 U0h 是同一件事的两半：那边按 objectName 找、这边按归属找。
                 const QList<QWidget *> shortcuts = dialog.shortcutButtons();
                 int shortcutsHere = 0;
@@ -17150,10 +16810,10 @@ int main(int argc, char *argv[]) {
                       QString::fromUtf8(QJsonDocument(dialog.pageChoices()).toJson(QJsonDocument::Compact)));
             }
 
-            // ---- ③ 用不上的一条：**不勾 + 灰着 + tooltip 说为什么**（2026-10-16 起它
-            //      **仍然留在左栏的树上**，由那一页自己解释 —— 见 U10f 那一段的说明）----
+            // ---- ③ 用不上的一条：**不勾 + 灰着 + tooltip 说为什么**（ 起它
+            // **仍然留在左栏的树上**，由那一页自己解释 —— 见 U10f 那一段的说明）----
             //
-            // 用户原话：「如果没有对应的加载器，保持对应选项不可勾选的状态，悬停文本解释」，
+            // 要求：「如果没有对应的加载器，保持对应选项不可勾选的状态，悬停文本解释」，
             // 补的那句是「对于没有数据包的版本，数据包也默认隐藏且不可勾选」。
             {
                 dialog.setDatapackUsable(false);
@@ -17176,12 +16836,6 @@ int main(int argc, char *argv[]) {
                       QStringLiteral("%1 条").arg(dialog.shownEntryKeys().size()));
 
                 // 灰着的那一条**点不动**、而且**程序化那一趟一个字都不写盘**。
-                //
-                // ★ 这里**不**拿合成鼠标事件去打那颗勾选框。合成事件打在一个**禁用**控件
-                //   上，测的是 Qt 自己的分发（它会不会把事件吃掉），而 offscreen 底下这条
-                //   路**会让进程在退出时崩在析构里**（堆崩，2026-09-27 实测）。这一层
-                //   真正该钉的是**我们这条线**：不可用的那一条一个信号都不发 —— 写盘那条
-                //   线挂在 clicked 上，漏出去一次就是一次凭空写盘。
                 {
                     int edited = 0;
                     QObject::connect(&dialog, &Dlg::settingsEdited, &dialog,
@@ -17276,9 +16930,9 @@ int main(int argc, char *argv[]) {
                 check(!dialog.shownEntryKeys().contains(QStringLiteral("save")),
                       "★★ U12 勾掉「存档」⇒ 左栏那一列里当场少一条",
                       dialog.shownEntryKeys().join(QLatin1Char(' ')));
-                // ★ 2026-10-16：左栏那条导航已经从那一列（`pageList()`，构造里就 `hide()`
-                //   了、只剩"旧访问接口"这一个身份）搬到树上 ⇒ 这一句量的是**树上选中了
-                //   哪一条**。U0 那一节量过：树就是界面导航的唯一出处。
+                // 左栏那条导航已经从那一列（`pageList()`，构造里就 `hide()`
+                // 了、只剩"旧访问接口"这一个身份）搬到树上 ⇒ 这一句量的是**树上选中了
+                // 哪一条**。U0 那一节量过：树就是界面导航的唯一出处。
                 const auto navKeyNow = [&dialog]() {
                     QTreeWidget *tree =
                         dialog.findChild<QTreeWidget *>(Dlg::navigationTreeName());
@@ -17370,7 +17024,7 @@ int main(int argc, char *argv[]) {
                     check(first.kind == Kind::Number && first.value == QStringLiteral("20"),
                           "★ U11d 裸数字认成数字（值是原文 `20`，不带引号）",
                           first.value);
-                    // ★ 这条是**区间**这件事的根：切出来的必须正好是那串值。
+                    // 这条是**区间**这件事的根：切出来的必须正好是那串值。
                     check(text.mid(first.valueBegin, first.valueEnd - first.valueBegin) ==
                               QStringLiteral("20"),
                           "★★ U11d 那个区间切出来**正好是这串值**（差一个字符，点一条就会选"
@@ -17471,8 +17125,8 @@ int main(int argc, char *argv[]) {
                 check(list.size() == 3, "U11d CFG：三条",
                       QStringLiteral("%1 条").arg(list.size()));
                 if (list.size() == 3) {
-                    // ★ 前缀**不剥**：盘上那串字就是 `B:shouldShowDuplicateTrees`，
-                    //   而"和文件里一模一样"是这个功能的底线（用户拿它去 Ctrl+F 找得到）。
+                    // 前缀**不剥**：盘上那串字就是 `B:shouldShowDuplicateTrees`，
+                    // 而"和文件里一模一样"是这个功能的底线（用户拿它去 Ctrl+F 找得到）。
                     check(list.at(0).path == QStringLiteral("B:shouldShowDuplicateTrees"),
                           "★★ U11d CFG 那一行**整串都是键**（`B:` 这个类型前缀不剥）—— 剥了"
                           "的话，用户拿索引上那个键回文件里搜会一个都搜不到",
@@ -17547,7 +17201,7 @@ int main(int argc, char *argv[]) {
                       "出处）");
             }
 
-            // ---------- U11w 「值读到哪儿为止」（2026-09-29 补的三处）----------
+            // ---------- U11w 「值读到哪儿为止」（ 补的三处）----------
             //
             // 这三处都是**真的把设置项读丢/读残**的那一类，原文都在盘上（量法见 hpp 的
             // Dialect 那一段）：① `S:hexblack=#1e1b1b` 那种以 `#` 起头的值被当注释吞掉、
@@ -17717,8 +17371,8 @@ int main(int argc, char *argv[]) {
                           "那串字）—— 选多一个字符就会连着逗号一起删掉",
                           selected);
                     // NOTE: 问的是 `focusWidget()` 不是 `hasFocus()`：后者在**非活动窗口**
-                    //       上恒为假，而 offscreen 下这一格是不会被激活的（见下面 O 段里
-                    //       同一句 NOTE）—— 拿它量会跟着平台跑。
+                    // 上恒为假，而 offscreen 下这一格是不会被激活的（见下面 O 段里
+                    // 同一句 NOTE）—— 拿它量会跟着平台跑。
                     check(editor.focusWidget() == editor.editor(),
                           "★ U11e 焦点交给编辑框：点索引是为了接着改它，不是为了让索引亮着");
                     check(editor.indexTree() != nullptr &&
@@ -17824,7 +17478,7 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // ---------- U11f 世代备份那一套**纯函数**（2026-09-27）----------
+        // ---------- U11f 世代备份那一套**纯函数**----------
         // 位置 / 名字 / 清理都在这儿量：真正读写盘的那几下在 MainWindow（mw_check T20.10），
         // 而"落在哪个文件夹、挑哪一份删"是这一节的事 —— 这一节错了的话，用户看到的是
         // "还原上一次"取回了一份更老的、或者清理删错了东西（那是唯一一处会主动删东西的地方）。
@@ -17863,8 +17517,8 @@ int main(int argc, char *argv[]) {
             check(backupFolderName(when, {oneTaken.first(), second, QStringLiteral("20260927-143012-003")}) ==
                       QStringLiteral("20260927-143012-004"),
                   "★ U11f 序号一直往下排（撞了第二第三个也不会退回去覆盖）");
-            // ★ 序号**补零到三位**：名字排序 == 时间排序这条约定全靠定长，"…-2" 和 "…-10"
-            //   按字典序是 `-10` 在前 —— 清理那一趟就会把最新那份当成最老那份删掉。
+            // 序号**补零到三位**：名字排序 == 时间排序这条约定全靠定长，"…-2" 和 "…-10"
+            // 按字典序是 `-10` 在前 —— 清理那一趟就会把最新那份当成最老那份删掉。
             check(second > QStringLiteral("20260927-143012") &&
                       backupFolderName(when, {oneTaken.first(), second, QStringLiteral("20260927-143012-003")}) >
                           second,
@@ -17935,7 +17589,7 @@ int main(int argc, char *argv[]) {
                   escaped);
         }
 
-        // ---------- U11g 「还原上一次」那一颗 + 底下那行字（2026-09-27）----------
+        // ---------- U11g 「还原上一次」那一颗 + 底下那行字----------
         {
             ConfigFileEditorPage editor;
             editor.show();
@@ -18043,7 +17697,7 @@ int main(int argc, char *argv[]) {
               "V1 正文里露出那条路径（用户要去改的就是它）");
 
         // release 快路径读出版本号时**不回填 versionOutput**，所以版本串是空的这一种
-        // 必须单独拼一次：否则正文里会冒出「Java （）」。
+        // 必须单独拼一次：否则正文里会冒出「Java 」。
         Dlg2 noText(QStringLiteral("我的整合包"), 21, 8, QString(),
                     QStringLiteral("D:/Java/jdk8/bin/java.exe"));
         auto *noTextLabel = noText.findChild<QLabel *>(Dlg2::textLabelName());
@@ -18215,8 +17869,6 @@ int main(int argc, char *argv[]) {
               "W2 披风在 -z（背后那一侧）—— 玩家面朝 +z，挂到 +z 就成了胸前的围兜",
               QString("z %1..%2").arg(cape.lo.z()).arg(cape.hi.z()));
 
-        // 关节位置（走路时绕哪儿转）。错了的表现是"腿从腰上掉下来一小截"，
-        // 而静态截图上一点都不显眼，所以直接钉住。
         const SkinModel::Cuboid rLeg = boxNamed(parts, QStringLiteral("右腿"));
         const SkinModel::Cuboid lLeg = boxNamed(parts, QStringLiteral("左腿"));
         check(qAbs(rArm.pivot.y() - 24.0) < 0.001 && qAbs(rArm.pivot.x() + 6.0) < 0.001 &&
@@ -18247,7 +17899,7 @@ int main(int argc, char *argv[]) {
         // **法线指着 -z（背对身体的）那一面，取图必须是左边那块**。
         //
         // NOTE: 披风转过 180°，所以它**材质**上的"正面"（Face::Front）现在朝着 -z 那侧 ——
-        //       下面这两行读起来有点绕（Front 面法线朝外），但它就是这么回事。
+        // 下面这两行读起来有点绕（Front 面法线朝外），但它就是这么回事。
         {
             const SkinModel::FaceGeometry outward = SkinModel::faceGeometry(cape, Face::Front);
             const SkinModel::FaceGeometry inward = SkinModel::faceGeometry(cape, Face::Back);
@@ -18371,7 +18023,7 @@ int main(int argc, char *argv[]) {
 
         // ---- W4b 兜底那张占位皮肤：整身 #000000 + 脸上一枚 #ffffff 的问号 ----
         //
-        // 用户 2026-09-24 的原话就是这两个色号（「整个人都是 #000000，脸部一个 #ffffff 的
+        // 用户 的原话就是这两个色号（「整个人都是 #000000，脸部一个 #ffffff 的
         // 问号」），所以这儿量的是**逐格等于**，不是"深色/浅色"那种模糊判据 —— 配色一动
         // 就该红。定位那一格用的是 `SkinModel::faceRect()`（和渲染那边**同一个出处**），
         // 所以我写的是"脸上那一格长什么样"，不是"贴图 (8,8) 起那 8×8 长什么样"。
@@ -18433,7 +18085,7 @@ int main(int argc, char *argv[]) {
             check(faceBad == 0, "W4b 脸上那一格就是黑底 + 一枚白问号（逐格比）",
                   QString("%1 格不对 —— 拿到 %2 / 应该是 %3").arg(faceBad).arg(faceGot, faceWant));
 
-            // 用户 2026-09-24 又提了一句「那个问号能不能再居中一点点，就算小一点也没关系」——
+            // 用户 又提了一句「那个问号能不能再居中一点点，就算小一点也没关系」——
             // 于是**居中也得钉住**，不然下次谁把字形挪回去（或者挪过头半个格）就没人拦。
             // 判据不是"我记得偏移是 (2,1)"，而是**拿那一格上的白格子算出来的包围盒**：
             // 左右余量相等、上下余量相等。这比写死偏移硬 —— 换一个字形尺寸（只要是偶数宽）
@@ -18694,8 +18346,8 @@ int main(int argc, char *argv[]) {
         // 但要是有人反过来把整块披风挪到身体前面，这条正面的检查会先叫出来）。
         //
         // NOTE: 这张合成贴图**只涂了脑袋**，身体四肢全是透明的（那张图是用来验"看见的是
-        //       哪一面"的，不是用来验遮挡的），所以从正面能透过身体看见披风的**内侧**
-        //       那块 —— 正面的计数因此是"朝外 0、内侧不少"，而不是两个都 0。
+        // 哪一面"的，不是用来验遮挡的），所以从正面能透过身体看见披风的**内侧**
+        // 那块 —— 正面的计数因此是"朝外 0、内侧不少"，而不是两个都 0。
         check(countColor(shotFront, capeOuter) == 0 && countColor(shotFront, capeInner) > 200,
               "W7 正对着看：只看得到披风**内侧**那块 (12,1,10,16)，朝外的 (1,1,10,16) 一点都没有",
               QString("朝外 %1 / 内侧 %2")
@@ -18742,13 +18394,13 @@ int main(int argc, char *argv[]) {
         // "不是糊成一团"这一条**照着源图算**，不再写死"至少四块"。
         //
         // NOTE: 老的那张兜底皮肤是肤色 / 棕发 / 青上衣 / 蓝裤 / 灰鞋好几块颜色，所以当时写
-        //       "至少四块各占 2% 的纯色"够用。2026-09-24 用户把兜底图换成了整身 #000000、
-        //       脸上一枚 #ffffff 问号（见 W4b），源图**就只有两种颜色** —— 再按"至少四块"
-        //       量就是在量一个不存在的东西（那一条当时就是这么红的）。换成拿源图里那几种
-        //       不透明色当期望值之后，判据反而更硬，而且以后换配色不用动这儿。
+        // "至少四块各占 2% 的纯色"够用。 用户把兜底图换成了整身 #000000、
+        // 脸上一枚 #ffffff 问号（见 W4b），源图**就只有两种颜色** —— 再按"至少四块"
+        // 量就是在量一个不存在的东西（那一条当时就是这么红的）。换成拿源图里那几种
+        // 不透明色当期望值之后，判据反而更硬，而且以后换配色不用动这儿。
         //
         // ① 画面上不许出现源图里没有的颜色 —— **这一条才是"没糊"的真判据**：插值、抗锯齿、
-        //    逐面照明里任意一点半调子混色都会凭空造出第三种颜色，跑不掉。
+        // 逐面照明里任意一点半调子混色都会凭空造出第三种颜色，跑不掉。
         QHash<QRgb, int> sourceColors;
         for (int y = 0; y < defSkin.height(); ++y) {
             for (int x = 0; x < defSkin.width(); ++x) {
@@ -18773,8 +18425,8 @@ int main(int argc, char *argv[]) {
                   .arg(invented));
 
         // ② 画面上至少得有**两种**颜色，而且最大那块占一成以上 —— 一种就是"整个小人死色
-        //    一块"，也就等于脸上那枚问号**根本没画出来**（源图是黑体 + 白问号两色，所以
-        //    "看得见第二种颜色"和"问号露脸了"是同一件事，这儿不用去认那个色号）。
+        // 一块"，也就等于脸上那枚问号**根本没画出来**（源图是黑体 + 白问号两色，所以
+        // "看得见第二种颜色"和"问号露脸了"是同一件事，这儿不用去认那个色号）。
         int widest = 0;
         for (auto it = colorCounts.constBegin(); it != colorCounts.constEnd(); ++it) {
             widest = qMax(widest, it.value());
@@ -18790,10 +18442,10 @@ int main(int argc, char *argv[]) {
         // 相邻两个面之间**不许有缝**。
         //
         // NOTE: 这条是踩出来的。原先的写法是"画整张贴图 + 把裁剪框设成那个面的 uv 矩形"，
-        //       而裁剪是按每个目标像素的采样点判的：采样点落在矩形外的那个像素整个被丢掉，
-        //       于是每一面都比它该占的范围小半圈，模型上到处是一条像素宽的背景色细缝
-        //       （最明显的是脑袋左边那一条）。改成"先把那一块裁下来再画"才严丝合缝。
-        //       拿默认外观肉眼看截图是发现不了的（缝只有一像素，缩略图上像描边）。
+        // 而裁剪是按每个目标像素的采样点判的：采样点落在矩形外的那个像素整个被丢掉，
+        // 于是每一面都比它该占的范围小半圈，模型上到处是一条像素宽的背景色细缝
+        // （最明显的是脑袋左边那一条）。改成"先把那一块裁下来再画"才严丝合缝。
+        // 拿默认外观肉眼看截图是发现不了的（缝只有一像素，缩略图上像描边）。
         //
         // 判法：把**同一个方块上相邻的两个面**涂成不同颜色，再沿着它们共用的那条棱扫，
         // 两种颜色之间不许夹着背景色。不判"整行/整列连不连"是因为小人本身是凹的
@@ -19098,7 +18750,6 @@ int main(int argc, char *argv[]) {
             walker.resize(180, 240);
             walker.setSkin(defSkin, QImage(), false);
 
-            // 定格：动画开着的时候连像素都是不可复现的（截图工程和下面的断言都得先关掉它）。
             walker.setAnimated(false);
             walker.setWalkPhase(0.0);
             check(qAbs(walker.walkPhase()) < 1e-9, "W9 关掉动画 + 钉住相位 0 → 就停在 0",
@@ -19243,7 +18894,7 @@ int main(int argc, char *argv[]) {
                               resetOfflineBtn != nullptr;
         check(allThere, "十七块控件都按 objectName 找得到");
         // NOTE: 下面整段都挂在这个 if 里 —— 少一块控件时直接解引用会段错误，
-        //       那样后半套断言的结果就全看不到了。
+        // 那样后半套断言的结果就全看不到了。
         if (allThere) {
             // ---- X1 文案与初始状态 ----
             check(dialog.windowTitle() == AccountSkinDialog::windowTitle(),
@@ -19574,7 +19225,7 @@ int main(int argc, char *argv[]) {
 
                 // 在框里回车 = 点那个按钮（少一次"打完名字还要去够鼠标"）。
                 // NOTE: 这里直接把信号叫起来，模拟的是 QLineEdit 自己会做的事 —— 真按键盘
-                //       要 QtTest 那套事件注入，这个工程里没有。
+                // 要 QtTest 那套事件注入，这个工程里没有。
                 offlineEdit->setText(QStringLiteral("Alex"));
                 emit offlineEdit->returnPressed();
                 check(requested.size() == 2 && requested.at(1) == QStringLiteral("Alex"),
@@ -19638,8 +19289,8 @@ int main(int argc, char *argv[]) {
                 check(loginCount == 1, "点「登录新账号…」发 loginRequested");
                 check(refreshCount == 1, "点「刷新外观」发 refreshRequested");
                 // NOTE: 「上传皮肤…」**故意不点** —— 它会开一个模态的 QFileDialog，
-                //       在 offscreen 上会一直等下去（看着像死循环）。它那条路的两个半边
-                //       各有落点：选项怎么读是 X1/X7，尺寸那条规矩在 verify 的 X4。
+                // 在 offscreen 上会一直等下去（看着像死循环）。它那条路的两个半边
+                // 各有落点：选项怎么读是 X1/X7，尺寸那条规矩在 verify 的 X4。
                 dialog.close();
                 QApplication::processEvents();
                 check(!dialog.isVisible(), "点「关闭」之后窗口关掉了");
@@ -19653,9 +19304,9 @@ int main(int argc, char *argv[]) {
         tabs->setCurrentIndex(0);
         QApplication::processEvents();
 
-        // ---- Y1 账号入口**就在主页右上那张卡片上**（2026-10-16 用户定的）----
+        // ---- Y1 账号入口**就在主页右上那张卡片上**（ 用户定的）----
         // 底栏那颗账号按钮收起来之后，「最近用过的账号」那块面板改由这张卡片打开
-        // （用户原话：「这个的对应功能继承到右上角那个按钮去」）。卡片本身没有文字
+        // （要求：「这个的对应功能继承到右上角那个按钮去」）。卡片本身没有文字
         // —— 头像 + 名字 + 身份那两行是**卡片里**的控件画的，产品文案落在 tooltip
         // 和无障碍名上（老那个"账号与外观…"按钮的那套接线一个字都没改）。
         QPushButton *entry = ui.getAccountSkinButton();
@@ -19724,9 +19375,9 @@ int main(int argc, char *argv[]) {
         QPushButton *importBtn =
             ipage->findChild<QPushButton *>(MainWindowUI::importModpackButtonName());
         QTreeWidget *ilist = ipage->findChild<QTreeWidget *>(MainWindowUI::instanceListName());
-        // ★ 2026-10-12：实例页那两个 `QGroupBox` 拆掉了（用户那份改版文档第一条「减少框」：
-        //   "右侧只有一个主要内容表面"）。这两颗按钮现在长在**左栏那个侧栏面**上
-        //   （`wtfmlSurface="sidebar"`），所以"那个组"换成"那张面"。
+        // 实例页那两个 `QGroupBox` 拆掉了（用户那份改版文档第一条「减少框」：
+        // "右侧只有一个主要内容表面"）。这两颗按钮现在长在**左栏那个侧栏面**上
+        // （`wtfmlSurface="sidebar"`），所以"那个组"换成"那张面"。
         QFrame *iside = surfaceOf(ipage, Theme::sidebarSurfaceValue());
         check(importBtn != nullptr && addFolderBtn != nullptr && ilist != nullptr &&
                   iside != nullptr &&
@@ -19742,10 +19393,10 @@ int main(int argc, char *argv[]) {
             };
             const QRect importBox = boxIn(importBtn);
             const QRect addBox = boxIn(addFolderBtn);
-            // ★ 「导入整合包…」紧挨在「添加文件夹…」**下面**（用户原话）。
-            //   "整个在下面"不是"有一半在下面"：两颗按钮的各行高度一样，靠 bottom/top
-            //   比就够了 —— 布局里它们一个是 addLayout 的行、一个是 addWidget，顺序不对
-            //   的话 top 会跑到上面去。
+            // 「导入整合包…」紧挨在「添加文件夹…」**下面**（要求）。
+            // "整个在下面"不是"有一半在下面"：两颗按钮的各行高度一样，靠 bottom/top
+            // 比就够了 —— 布局里它们一个是 addLayout 的行、一个是 addWidget，顺序不对
+            // 的话 top 会跑到上面去。
             check(importBox.top() > addBox.bottom(),
                   "整个在「添加文件夹…」的**下面**（不是上面，也不是挤在同一行）",
                   QString("import.top=%1 add.bottom=%2")
@@ -19754,11 +19405,11 @@ int main(int argc, char *argv[]) {
             check(qAbs(importBox.left() - addBox.left()) <= 2,
                   "左边缘和「添加文件夹…」对齐（贴左边，不是居中也不是靠右）",
                   QString("%1 vs %2").arg(importBox.left()).arg(addBox.left()));
-            // ★ 一样宽 = 两颗都顶满这一栏。**这条是"别再改回 Fixed"的几何版**：
-            //   宽度策略那条（上面 B 节）钉的是"没被设成 Fixed"，这条钉的是"在这个
-            //   尺寸下真的长满了" —— 少了宽度策略、只要布局里给的是 AlignLeft，
-            //   宽度照样会缩成 sizeHint，而这条会红。
-            //   （差 2 像素的容差是给样式留的边框/内边距。）
+            // 一样宽 = 两颗都顶满这一栏。**这条是"别再改回 Fixed"的几何版**：
+            // 宽度策略那条（上面 B 节）钉的是"没被设成 Fixed"，这条钉的是"在这个
+            // 尺寸下真的长满了" —— 少了宽度策略、只要布局里给的是 AlignLeft，
+            // 宽度照样会缩成 sizeHint，而这条会红。
+            // （差 2 像素的容差是给样式留的边框/内边距。）
             check(qAbs(importBox.width() - addBox.width()) <= 2,
                   "宽度和「添加文件夹…」一样（两颗都顶满左栏）",
                   QString("%1 vs %2").arg(importBox.width()).arg(addBox.width()));
@@ -19793,7 +19444,7 @@ int main(int argc, char *argv[]) {
         QWidget *settingsPage = tabs->widget(MainWindowUI::settingsTabIndex());
         tabs->setCurrentIndex(MainWindowUI::settingsTabIndex());
         QApplication::processEvents();
-        // 2026-09-26：设置页分栏了，这一组三项全在「游戏」栏里 —— 先把左栏切到那一条
+        // 设置页分栏了，这一组三项全在「游戏」栏里 —— 先把左栏切到那一条
         // （几何断言要的是"这一页真的摆出来了"，切过去之前量到的是藏起来那一页的旧值），
         // 再按那一栏的键取表单。整页唯一的那张 settingsForm 已经没有了。
         if (auto *categoryList = settingsPage != nullptr
@@ -19814,7 +19465,7 @@ int main(int argc, char *argv[]) {
         QWidget *form = panelScroll != nullptr ? panelScroll->widget() : nullptr;
         check(form != nullptr, "Z2 前提：找得到「游戏」栏那张设置表单");
 
-        // ---- (a) 「显示游戏日志」：这句话是用户原话，别被改写 ----
+        // ---- (a) 「显示游戏日志」：这句话是要求，别被改写 ----
         {
             auto *checkBox = form != nullptr
                                  ? form->findChild<QCheckBox *>(MainWindowUI::showGameLogCheckName())
@@ -19826,10 +19477,6 @@ int main(int argc, char *argv[]) {
                 // 界面层不许自己默认打开：默认值是产品逻辑，由 MainWindow 从盘上灌。
                 check(!checkBox->isChecked(),
                       "Z2 刚搭好时未勾选（值由 MainWindow 灌，界面不自己猜）");
-                // ★ 2026-09-26：这一行的**行标题**和勾选框上的字原来是同一个串 —— 于是
-                // 同一句话在表单上并排出现两遍（左列一句、勾选框上一句）。这一组里另外
-                // 两条勾选框行都是"短标题 + 长句子"，这里照那个形状走。下面两条盯着：
-                // 行标题另外画了一份、且两句不是同一句。
                 if (form != nullptr) {
                     bool hasRowTitle = false;
                     const QList<QLabel *> labelsInForm = form->findChildren<QLabel *>();
@@ -19893,7 +19540,7 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // ---- (b2) 「窗口模式」那一格（2026-09-28）----
+        // ---- (b2) 「窗口模式」那一格----
         //
         // 三档的文案和代号都是**MainWindow**灌的（界面层不认识 GameWindowMode 这个枚举
         // —— ui/ 不许 include src/，见 InstanceSettingsDialog::WindowModeChoice 那条路），
@@ -19965,16 +19612,16 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // ---- (d) 设置页每一个下拉框都"按 sizeHint 靠左摆"（2026-10-11 修） ----
+        // ---- (d) 设置页每一个下拉框都"按 sizeHint 靠左摆"（ 修） ----
         //
-        // ★ 这一条是上面那两条的**另一面**。从前同一页上只有「窗口模式」那一颗带
-        //   `Qt::AlignLeft`，另外三颗吃到拉伸 ⇒ 「进程优先级」（项就"正常（默认）"几个字）
-        //   被拉成整行那么宽、右边一大片空白，而「窗口模式」只有它自己那么宽 —— 同一个控件
-        //   在同一页上两种宽度（08a 那张截图里一眼就看出来）。现在四颗同一个写法。
+        // 这一条是上面那两条的**另一面**。从前同一页上只有「窗口模式」那一颗带
+        // `Qt::AlignLeft`，另外三颗吃到拉伸 ⇒ 「进程优先级」（项就"正常（默认）"几个字）
+        // 被拉成整行那么宽、右边一大片空白，而「窗口模式」只有它自己那么宽 —— 同一个控件
+        // 在同一页上两种宽度（08a 那张截图里一眼就看出来）。现在四颗同一个写法。
         //
         // NOTE: 这四颗分在三个栏里，所以要**切栏**才量得到真几何（没摆出来的那一栏，
-        //       里面控件的宽度还是旧的）。量完切回「游戏」栏 —— 这一段后面的节假设
-        //       设置页停在 Z2 开头那一栏上。
+        // 里面控件的宽度还是旧的）。量完切回「游戏」栏 —— 这一段后面的节假设
+        // 设置页停在 Z2 开头那一栏上。
         if (settingsPage != nullptr) {
             // 切到某栏并取回那张表单（量完由最后那一次切回「游戏」栏）。
             const auto formOfCategory = [settingsPage](const QString &key) -> QWidget * {
@@ -20025,7 +19672,7 @@ int main(int argc, char *argv[]) {
         // 所以在这里验它最合适：给它几行字，看它写没写上去、跟不跟到底、两颗钮管不管用。
         //
         // NOTE: 建在**堆**上，因为它自己带 WA_DeleteOnClose —— 关一下就析构，栈上的对象
-        //       那么干就是 double free。
+        // 那么干就是 double free。
         auto *log = new GameLogWindow(QStringLiteral("我的整合包"));
         QPointer<GameLogWindow> guard(log);
         log->show();
@@ -20054,12 +19701,7 @@ int main(int argc, char *argv[]) {
                   log->getCloseButton()->objectName() == GameLogWindow::closeButtonName(),
               "Z3 清空/关闭两颗钮都在");
 
-        // ---- 底下右角那两颗「导出…」（2026-09-28） ----
-        //
-        // 用户原话：「把日志和错误报告导出功能加上，就在那个日志窗口下方，右下角放着」。
-        // 这一层只钉**界面层管得着**的东西：两颗钮在不在、认不认得出自己、字和提示是不是
-        // 两件不同的事、以及它们是不是真的排在那一行**最右**（挨着「关闭」的那一侧）。
-        // 「点了之后写到哪个文件、写什么内容」是 MainWindow 那边的（见 exportGameLog）。
+        // ---- 底下右角那两颗「导出…」 ----
         {
             QPushButton *exportLog = log->getExportLogButton();
             QPushButton *exportReport = log->getExportReportButton();
@@ -20116,11 +19758,11 @@ int main(int argc, char *argv[]) {
             // 等宽：日志里有缩进和对齐的表格，比例字体读起来是散的。
             //
             // NOTE: 这里量的是"字体是不是 Qt 认的那个系统等宽字体"，**不是**
-            //       QFontInfo::fixedPitch()。后者是在问"这台机器上那个字体真的是等宽的
-            //       吗"，而 offscreen 平台根本没有真字体库（Qt 只回一个叫 monospace 的
-            //       占位族名、量出来 fixedPitch() 是 false）—— 那是**环境**的属性，不是
-            //       我们的决定。按"颜色/字体由谁决定"来挑断言：挑字体这件事是我们干的，
-            //       挑得对不对是环境的事。
+            // QFontInfo::fixedPitch()。后者是在问"这台机器上那个字体真的是等宽的
+            // 吗"，而 offscreen 平台根本没有真字体库（Qt 只回一个叫 monospace 的
+            // 占位族名、量出来 fixedPitch() 是 false）—— 那是**环境**的属性，不是
+            // 我们的决定。按"颜色/字体由谁决定"来挑断言：挑字体这件事是我们干的，
+            // 挑得对不对是环境的事。
             const QString fixedFamily =
                 QFontDatabase::systemFont(QFontDatabase::FixedFont).family();
             check(view->font().family() == fixedFamily,
@@ -20129,11 +19771,11 @@ int main(int argc, char *argv[]) {
             check(view->font().family() != QApplication::font().family(),
                   "Z3 而且真的换掉了默认字体（不然上面那条是白验）",
                   QString("%1 vs %2").arg(view->font().family(), QApplication::font().family()));
-            // 字号**比系统那个等宽字体大一号**（2026-09-24 用户说的「字号稍微大一点」）。
+            // 字号**比系统那个等宽字体大一号**（ 用户说的「字号稍微大一点」）。
             //
             // NOTE: 比的是**系统那一份**，不是 `GameLogWindow::logFont()` 自己 —— 跟自己比
-            //       是空的（那个函数改回原样，这条跟着一起变）。另外点大小和像素大小二选一
-            //       （字体表给的可能是任一种，另一头是 -1），所以分两支量。
+            // 是空的（那个函数改回原样，这条跟着一起变）。另外点大小和像素大小二选一
+            // （字体表给的可能是任一种，另一头是 -1），所以分两支量。
             {
                 const QFont systemFixed = QFontDatabase::systemFont(QFontDatabase::FixedFont);
                 const QFont logFont = view->font();
@@ -20157,10 +19799,10 @@ int main(int argc, char *argv[]) {
             // 行数上限**必须有**：挂了一百个模组的实例能吐几十万行，不封顶的话开一晚上
             // 就把内存吃干净了。上限是"超了丢最老的"，所以只要它 > 0 就是个真的闸。
             //
-            // NOTE: 2026-09-24 起视图的上限允许**比 maxLogBlocks() 多一格**：多出来的那一格
-            //       是"还没等到换行的那半行"（它不在模型里）。两个上限必须对齐 —— 视图比模型
-            //       能多留，模型里最早那一行才会被它自己同步丢掉；视图比模型少留的话，跑满
-            //       两万行之后切一次筛选，最早那一行会从模型里又冒出来。
+            // NOTE: 起视图的上限允许**比 maxLogBlocks() 多一格**：多出来的那一格
+            // 是"还没等到换行的那半行"（它不在模型里）。两个上限必须对齐 —— 视图比模型
+            // 能多留，模型里最早那一行才会被它自己同步丢掉；视图比模型少留的话，跑满
+            // 两万行之后切一次筛选，最早那一行会从模型里又冒出来。
             check(GameLogWindow::maxLogBlocks() > 0 &&
                       view->maximumBlockCount() >= GameLogWindow::maxLogBlocks() &&
                       view->maximumBlockCount() <= GameLogWindow::maxLogBlocks() + 1,
@@ -20242,10 +19884,10 @@ int main(int argc, char *argv[]) {
 
     std::printf("\n===== Z3b. 新窗摆哪儿：不许遮住启动器（喂假矩形，纯几何） =====\n");
     {
-        // 用户原话：「日志一定会显示在启动器前面，会遮挡」。病根有两个，这里各验一头：
-        //   ① 平台规则 —— 有主的窗（owned window）永远压在主窗上面，所以日志窗**不能有父窗口**；
-        //   ② 摆的位置 —— 就算没遮住，一开窗正好盖在主窗中间也是白搭，所以按右 → 左 → 居中
-        //      挑一个不重叠的地方。
+        // 要求：「日志一定会显示在启动器前面，会遮挡」。病根有两个，这里各验一头：
+        // ① 平台规则 —— 有主的窗（owned window）永远压在主窗上面，所以日志窗**不能有父窗口**；
+        // ② 摆的位置 —— 就算没遮住，一开窗正好盖在主窗中间也是白搭，所以按右 → 左 → 居中
+        // 挑一个不重叠的地方。
         // placementFor 是纯几何（不读屏幕、不读全局状态），所以这里拿一组假矩形直接量它 ——
         // 不用真开窗、也不受这台机器屏幕多大影响。
         const QSize win(400, 300);
@@ -20313,9 +19955,9 @@ int main(int argc, char *argv[]) {
             const QRect firstRect(first, win);
             const QRect secondRect(second, win);
             // NOTE: 两扇窗**不会**互不重叠 —— 错开只有 28 像素，而窗有三百多像素高，这是
-            //       故意的：屏幕上一共摆不下两三扇那种宽度时，能做到的是"后开的不**完全**
-            //       盖住先开的"（先开的那扇还露出上面一条标题栏，点得到），而不是铺瓷砖。
-            //       所以下面量的是"错开够点得到标题栏"，不是"不重叠"。
+            // 故意的：屏幕上一共摆不下两三扇那种宽度时，能做到的是"后开的不**完全**
+            // 盖住先开的"（先开的那扇还露出上面一条标题栏，点得到），而不是铺瓷砖。
+            // 所以下面量的是"错开够点得到标题栏"，不是"不重叠"。
             check(second.y() > first.y() && second.y() - first.y() >= 20,
                   "Z3c 第二扇窗往下错开，而且错得够多（至少露出一条标题栏那么高）",
                   QString("%1,%2 -> %3,%4")
@@ -20352,7 +19994,7 @@ int main(int argc, char *argv[]) {
             // 另一半（MainWindow 那条路真的传了 nullptr）在 mw_check 里按源码路径验。
             check(log->isWindow() && !log->isModal(),
                   "Z3c 是个普通顶层窗（不是模态对话框：它不该把启动器冻住）");
-            // ---- 最大化/最小化两颗钮（2026-09-24 用户说的「允许这个窗口最大化最小化」）----
+            // ---- 最大化/最小化两颗钮（ 用户说的「允许这个窗口最大化最小化」）----
             //
             // QDialog 默认那一套 flags 里只有关闭钮，所以这两颗**必须是我们显式加的**。
             // 这里能钉的就是"那两位真的在" —— offscreen 上量不出真的标题栏长什么样，
@@ -20595,10 +20237,10 @@ int main(int argc, char *argv[]) {
             check(log->lineCount() == 6, "Z5 但六行都还在模型里（关掉显示不是丢掉）",
                   QString::number(log->lineCount()));
 
-            // NOTE: 这里原来是点那颗「显示全部」按钮 —— 它 2026-09-24 换成了行数下拉框
-            //       （用户点名要的，见 Z10），于是"一键把五档全勾回来"没有了。回退的路只剩
-            //       占位那句话指的那一条，所以先钉住**那句指引本身还在**（不然这一档就真成了
-            //       死胡同：五档全关之后界面上没有任何一句话说得出怎么办），再自己勾回来。
+            // NOTE: 这里原来是点那颗「显示全部」按钮 —— 它 换成了行数下拉框
+            // （用户点名要的，见 Z10），于是"一键把五档全勾回来"没有了。回退的路只剩
+            // 占位那句话指的那一条，所以先钉住**那句指引本身还在**（不然这一档就真成了
+            // 死胡同：五档全关之后界面上没有任何一句话说得出怎么办），再自己勾回来。
             check(GameLogWindow::filteredOutPlaceholderText().contains(QStringLiteral("勾")),
                   "Z5 五档全关之后那句占位得说清怎么回去（那颗「显示全部」已经没有了）",
                   GameLogWindow::filteredOutPlaceholderText());
@@ -20814,14 +20456,14 @@ int main(int argc, char *argv[]) {
                 }
             }
             // NOTE: 这一条**单独看是空的** —— 它比的是"量出来的"和 `levelBackground()`，
-            //       把那个函数改错（比如让 Warn 用 Debug 的色）它会跟着一起变、照样绿
-            //       （实测过：那样改只有下面那条"两两不同"会红）。它真正挡的是**渲染那条路
-            //       没照着格式画**（底色没设上、被窗口底色盖掉）；"颜色本身选对了"由下面
-            //       那条两两不同 + INFO 与那半行同色来钉。两条一起才成一个闭环。
+            // 把那个函数改错（比如让 Warn 用 Debug 的色）它会跟着一起变、照样绿
+            // （实测过：那样改只有下面那条"两两不同"会红）。它真正挡的是**渲染那条路
+            // 没照着格式画**（底色没设上、被窗口底色盖掉）；"颜色本身选对了"由下面
+            // 那条两两不同 + INFO 与那半行同色来钉。两条一起才成一个闭环。
             check(worst >= 0 && worst <= 6,
                   "Z6 四档染色的底色**就是**我们定的那个颜色（量的是行上真画出来的像素）",
                   QStringLiteral("%1 | 最远的一档差 %2").arg(gotText.join(QStringLiteral(" "))).arg(worst));
-            // 末尾那半行按**上一行那一档**染（2026-09-24 改，原来是"不染底"）。
+            // 末尾那半行按**上一行那一档**染（ 改，原来是"不染底"）。
             //
             // 这条规则要两个点才算钉住，少一个都能被写死骗过去：上面这个夹具里它上一行是
             // FATAL，断言"那半行的横带子就是 FATAL 那个深红"（写死"半行永远深红"也能过）；
@@ -20857,8 +20499,8 @@ int main(int argc, char *argv[]) {
             // 所以底色走上面那几条像素、墨色走这一条。
             //
             // NOTE: 期望"别的档的墨**不是白的**"而不是"没有设墨" —— QTextBlock::charFormat()
-            //       给的是**合并过默认值**的那份格式（没设过也是黑的），所以"没设过"这个
-            //       状态在文档里查不出来。这一条要挡的是"给所有档都换了墨"那种错。
+            // 给的是**合并过默认值**的那份格式（没设过也是黑的），所以"没设过"这个
+            // 状态在文档里查不出来。这一条要挡的是"给所有档都换了墨"那种错。
             const QTextCursor fatalCursor(view->document()->findBlockByNumber(int(L::Fatal)));
             const QTextCursor errorCursor(view->document()->findBlockByNumber(int(L::Error)));
             check(fatalCursor.charFormat().foreground().color() == QColor(0xff, 0xff, 0xff) &&
@@ -20880,7 +20522,7 @@ int main(int argc, char *argv[]) {
     {
         // 「开着的那颗染成这一档的颜色、关掉之后变回原来那个灰」——这是用户提的那件事。
         //
-        // 关态那个灰**是量出来的**：改成自己画之前（2026-09-24），原生 Fusion 给这一排五颗
+        // 关态那个灰**是量出来的**：改成自己画之前，原生 Fusion 给这一排五颗
         // 关着时画的就是 `#ababab`。钉成常量写在这里，是因为用户的原话就是「按下关闭以后
         // 变成现在的灰色」—— 哪天这个数字变了，先问一句"是不是又换了画法"，别顺手改断言。
         const QColor kOffGray(0xab, 0xab, 0xab);
@@ -20969,10 +20611,10 @@ int main(int argc, char *argv[]) {
             }
         }
         // NOTE: 和 Z6 那条一样，**这一条单独看也是空的** —— 它比的是"量出来的"和
-        //       `filterButtonBackground()`，把那个函数改错（比如让按钮用比正文深一点的色）
-        //       它会跟着一起变、照样绿（实测过：那样改只有下面那条"唯一出处"会红）。
-        //       它挡的是**渲染那条路没照着我们给的色画**（底色没铺上、被别的东西盖掉）；
-        //       "按钮的颜色就是正文那一行的颜色"由下面那条跨出处的比较来钉。
+        // `filterButtonBackground()`，把那个函数改错（比如让按钮用比正文深一点的色）
+        // 它会跟着一起变、照样绿（实测过：那样改只有下面那条"唯一出处"会红）。
+        // 它挡的是**渲染那条路没照着我们给的色画**（底色没铺上、被别的东西盖掉）；
+        // "按钮的颜色就是正文那一行的颜色"由下面那条跨出处的比较来钉。
         check(worstOn >= 0 && worstOn <= 6,
               "Z7 开着那颗填的就是这一档的颜色（和正文那一行同一个色）",
               QStringLiteral("%1 | 最远 %2").arg(onText.join(QStringLiteral(" ")), onDetail));
@@ -20986,8 +20628,8 @@ int main(int argc, char *argv[]) {
                        GameLogWindow::filterButtonBackground(L::Info, true).name()));
 
         // ②b Info 那颗**开着比关着亮** —— 这是用户那句话本身（「info 的按钮再亮一点」）。
-        //     别的档不适用这一条：Fatal 那个深红比关态那个灰还暗，而那是对的（它要的是"醒目"
-        //     不是"亮"）。所以这条只管 Info 那一档，判据用三通道之和（比"亮"这个词具体）。
+        // 别的档不适用这一条：Fatal 那个深红比关态那个灰还暗，而那是对的（它要的是"醒目"
+        // 不是"亮"）。所以这条只管 Info 那一档，判据用三通道之和（比"亮"这个词具体）。
         {
             const auto luminance = [](const QColor &c) { return c.red() + c.green() + c.blue(); };
             const int onLum = luminance(GameLogWindow::filterButtonBackground(L::Info, true));
@@ -21002,7 +20644,7 @@ int main(int argc, char *argv[]) {
         }
 
         // ③ 每一颗"开"和"关"都看得出来不一样 —— **Info 那颗也要**：它没有颜色可借，
-        //    要是做成开=关，那颗按钮就成了一颗按不动的按钮（用户点了没反应的那种）。
+        // 要是做成开=关，那颗按钮就成了一颗按不动的按钮（用户点了没反应的那种）。
         int closest = 999;
         QString closestName;
         for (int i = 0; i < GameLogWindow::levelCount(); ++i) {
@@ -21040,20 +20682,20 @@ int main(int argc, char *argv[]) {
               QStringLiteral("最远的一颗差 %1").arg(worstBack));
 
         // ⑤ 点一下按钮不能自己变大变小。**这一条盯的是"按钮上的字"**：数字数的是模型
-        //    （关掉一档数字不变小），所以开关那一行文字不随状态变、宽度也就不变；哪天有人
-        //    给关掉的按钮换个写法（"隐藏""+3"之类），宽度一跳整排就跟着挪。
-        //    NOTE: 量的是**控件自己的尺寸**（不是像素），两态下要一模一样。
+        // （关掉一档数字不变小），所以开关那一行文字不随状态变、宽度也就不变；哪天有人
+        // 给关掉的按钮换个写法（"隐藏""+3"之类），宽度一跳整排就跟着挪。
+        // NOTE: 量的是**控件自己的尺寸**（不是像素），两态下要一模一样。
         check(!sizeJumped,
               "Z7 点一下按钮自己不变大变小（开关上的字不随开关状态变，整排不会挪）",
               QStringLiteral("%1x%2").arg(onSize[0].width()).arg(onSize[0].height()));
 
         // ⑥ 字和底得**分得开**：FATAL 那颗是白字（深红底上黑字读不清），其余四颗是黑字
-        //    （它们的底都是浅的）。字形是抗锯齿画的，没有"确定的那一个像素"，所以数的是
-        //    **一块里有几个接近白 / 接近黑的点**。
+        // （它们的底都是浅的）。字形是抗锯齿画的，没有"确定的那一个像素"，所以数的是
+        // **一块里有几个接近白 / 接近黑的点**。
         //
-        //    NOTE: 原来是"数白点，除了 FATAL 一颗都不许有"。INFO 那颗的底改成纯白之后
-        //    那条就不成立了 —— 它的底**就是**白，白点分不出是字还是底（量出来 1677 个，
-        //    全是底）。改成反过来数黑点：黑字那四颗一定有，FATAL 那颗一个都不该有。
+        // NOTE: 原来是"数白点，除了 FATAL 一颗都不许有"。INFO 那颗的底改成纯白之后
+        // 那条就不成立了 —— 它的底**就是**白，白点分不出是字还是底（量出来 1677 个，
+        // 全是底）。改成反过来数黑点：黑字那四颗一定有，FATAL 那颗一个都不该有。
         const auto pixelsNear = [](const QImage &image, bool white) {
             int count = 0;
             for (int y = 0; y < image.height(); ++y) {
@@ -21165,18 +20807,18 @@ int main(int argc, char *argv[]) {
                                      .arg(base.name(), infoEnd.name(), errorEnd.name(), pendingEnd.name());
 
             // ① 短行最右边那 60 px 是这一档的底色（字早就不在那儿了）——**这一条就是
-            //    "最后一行没有颜色"那条抱怨的解药**：改之前这里量出来是窗口底色。
+            // "最后一行没有颜色"那条抱怨的解药**：改之前这里量出来是窗口底色。
             check(colorDistance(errorEnd, GameLogWindow::levelBackground(L::Error)) <= 6,
                   "Z6b 短行的底色也**铺满整行**（量的是行最右边那一格，那里没有字）", ends);
             // ② 末尾那半行跟着上一行那一档，而且同样铺满整行。
             check(colorDistance(pendingEnd, GameLogWindow::levelBackground(L::Error)) <= 6,
                   "Z6b 末尾那半行按上一行（ERROR）染，也铺满整行", ends);
             // ③ 反过来的那个点：INFO 那一行整行都**不染**（它右边那一格 == 底下那块空白）。
-            //    少了这一条的话，"所有行一律刷成深红"也能把上面两条混过去。
+            // 少了这一条的话，"所有行一律刷成深红"也能把上面两条混过去。
             check(colorDistance(infoEnd, base) <= 6,
                   "Z6b INFO 那一行整行都不染（它最右边那格 == 正文底下那块空白的颜色）", ends);
             // ④ 相邻两行的右边**不是同一个色**（差得开）：这才说明铺的是"一行一色"，
-            //    不是把整块视口刷了一遍。
+            // 不是把整块视口刷了一遍。
             check(colorDistance(infoEnd, errorEnd) >= 20,
                   "Z6b 上下两行的右边差得开（染的是这一行，不是整块视口）", ends);
 
@@ -21189,7 +20831,7 @@ int main(int argc, char *argv[]) {
 
     std::printf("\n===== Z6c. 行与行之间那条细线（量像素） =====\n");
     {
-        // 用户原话：「日志行与行之间加一条细线分隔一下」。
+        // 要求：「日志行与行之间加一条细线分隔一下」。
         //
         // 这一节量两件事：**线真的画在「两行之间」那一格**，以及它**只有一条**
         // （`separatorHeight()` —— 两条以上就不再是「细线」了）。
@@ -21315,7 +20957,7 @@ int main(int argc, char *argv[]) {
             // ③ 最后一格底下**没有**：那是整份文本的末尾，不是"两行之间"。
             check(under3 == 0, "Z6c 最后一格底下没有那条线（末尾不是「两行之间」）", detail);
             // ④ 线只占行最下面那一像素 —— 行中间一个线的像素都不许有（"刷整行"那种做法
-            //    这一条立刻红）。配合 ① 的「只有一条」，粗细两头就都钉住了。
+            // 这一条立刻红）。配合 ① 的「只有一条」，粗细两头就都钉住了。
             check(midRow == 0, "Z6c 线只在行最下面的那一像素上（不是把整行刷成灰的）", detail);
         }
         log->close();
@@ -21326,12 +20968,12 @@ int main(int argc, char *argv[]) {
 
     std::printf("\n===== Z9. 游戏退出之后这个窗怎么办（纯函数） =====\n");
     {
-        // 用户原话：「如果游戏正常以0退出就自动关闭日志界面」。判据抽成了一个纯函数，
+        // 要求：「如果游戏正常以0退出就自动关闭日志界面」。判据抽成了一个纯函数，
         // 所以这里直接喂真值表 —— 关键是**四个格的分工**：
-        //   正常 + 0        → 关（那一趟没有任何可看的东西）
-        //   正常 + 非 0     → 不关（那正是用户要逐行看的时候）
-        //   崩溃 + 任何码   → 不关
-        //   崩溃 + 码是 0   → **也不关**（Windows 上杀进程拿到的码就是 0；只看码会误判）
+        // 正常 + 0 → 关（那一趟没有任何可看的东西）
+        // 正常 + 非 0 → 不关（那正是用户要逐行看的时候）
+        // 崩溃 + 任何码 → 不关
+        // 崩溃 + 码是 0 → **也不关**（Windows 上杀进程拿到的码就是 0；只看码会误判）
         check(GameLogWindow::autoCloseOnExit(0, false),
               "Z9 正常退出、码是 0 → 自动关掉日志窗");
         check(!GameLogWindow::autoCloseOnExit(1, false),
@@ -21408,17 +21050,13 @@ int main(int argc, char *argv[]) {
         // ① 夹具得是「真改过东西」的（关掉 WARN 那一档确实动了一半的段）—— 次数至少要有几个。
         check(changesSmall > 0 && changesBig > 0,
               "Z8 前提：切这一下确实动了文档（不是「什么都没干所以很快」）", detail);
-        // ② **行数涨十倍，改动次数不变**：这一条就是「成片写」的定义。换成「一行一次」的话
-        //    这里立刻是 2000 对 20000（实测过：那样 20000 行是 559 ms）。
         check(changesSmall == changesBig,
               "Z8 行数涨十倍，文档改动次数**不变**（代价跟「档数变化了几次」走，不跟行数走）",
               detail);
         // ③ 次数和行数不是一个量级（差着一个数量级以上）—— 上一条可能被「两次都很小」蒙过去，
-        //    这一条盯的是「确实远小于行数」。十段夹具下量到的是三十几次。
+        // 这一条盯的是「确实远小于行数」。十段夹具下量到的是三十几次。
         check(changesBig * 20 < 20000,
               "Z8 那几次改动远少于行数（两万行是三十几次，不是两万次）", detail);
-        // ④ 墙上那口钟：这条松（不同机器差得开），但它挡的是**退回一行一次**那件事 ——
-        //    改之前这条路量到 559 ms，这里取 250 当闸（现在实测三十几毫秒，余量七八倍）。
         check(msBig < 250, "Z8 两万行点一下不超过 250 ms（改之前是 559 ms）", detail);
     }
 
@@ -21445,8 +21083,8 @@ int main(int argc, char *argv[]) {
                       uniqueChoices.size() == choices.size() && choices.contains(0),
                   "Z10 六档两两不同，而且有「全部」那一档（0）",
                   QString::number(combo->count()));
-            // NOTE: 第四档是 **5000**，不是用户原话里那个「25」（他打错了，随后订正过）。
-            //       这里写死 5000 而不是"随便有个中间值"：这一档正是那次订正本身。
+            // NOTE: 第四档是 **5000**，不是要求里那个「25」（他打错了，随后订正过）。
+            // 这里写死 5000 而不是"随便有个中间值"：这一档正是那次订正本身。
             check(choices.contains(500) && choices.contains(1000) && choices.contains(2000) &&
                       choices.contains(5000) && choices.contains(10000),
                   "Z10 500 / 1000 / 2000 / 5000 / 10000 那五档都在",
@@ -21457,7 +21095,7 @@ int main(int argc, char *argv[]) {
                       }
                       return all.join(QStringLiteral(","));
                   }());
-            // 用户原话：「直接写数字，不要学我」（他打的是 1k / 2k）。数字写全了才算数 ——
+            // 要求：「直接写数字，不要学我」（他打的是 1k / 2k）。数字写全了才算数 ——
             // 而且"1000"和"10000"必须看得出是两档（写成 1k / 10k 也行，但别写成同一个）。
             check(GameLogWindow::lineLimitText(500) == QStringLiteral("500 条") &&
                       GameLogWindow::lineLimitText(1000) == QStringLiteral("1000 条") &&
@@ -21559,10 +21197,9 @@ int main(int argc, char *argv[]) {
         check(guard.isNull(), "Z10 收尾：这一节那个窗关掉就销毁（WA_DeleteOnClose）", QString());
     }
 
-    // ------------------------------------------------------------------
     std::printf("===== V. 游戏文件夹那一列：两行式的行 + 行尾齿轮那五项 =====\n");
     // ------------------------------------------------------------------
-    // 用户原话：「实例管理里，文件夹允许重命名（一个 customname，不是直接改，毕竟
+    // 要求：「实例管理里，文件夹允许重命名（一个 customname，不是直接改，毕竟
     // .minecraft 改起来容易出事）……显示的时候和版本下载那里类似，上面写 customname，
     // 下面写路径，分栏做高一点不要像现在那么小，每个版本右侧有个齿轮，点击以后会有个
     // 类似右键菜单的页面（框），里面是刷新 重命名 打开 移除 删除（红色字）……齿轮是按钮」。
@@ -21621,7 +21258,7 @@ int main(int argc, char *argv[]) {
                               newOnes.at(i) != VersionIcons::cross(side, color).toImage();
             }
             check(allDistinct, "三个新字形两两不同、也不和已有的齿轮/刷新/叉撞脸（不是抄来的）");
-            // 笔是**斜着**的（用户原话「重命名画一只笔（斜着的）」）。竖着画的话它是一根
+            // 笔是**斜着**的（要求「重命名画一只笔（斜着的）」）。竖着画的话它是一根
             // 又高又窄的杆子 —— 量笔迹的外接矩形就分得开：转 45° 之后它是接近正方形的，
             // 没转的话宽度只剩三成边长。
             int minX = side;
@@ -21679,9 +21316,6 @@ int main(int argc, char *argv[]) {
             check(lightDanger.hue() <= 10 || lightDanger.hue() >= 350,
                   "浅底那一档是红（色相在红那一头）",
                   QString("%1 色相 %2").arg(lightDanger.name()).arg(lightDanger.hue()));
-            // 阈值取 120 不是随手写的：深色底那一档按"加白"提亮（0xff6b6b），HSV 饱和度
-            // 天然比浅底那档（0xc02828）低一截（实测 202 / 148），拿 150 卡会把它卡红。
-            // 要区分的是"红"与"灰"（灰的饱和度接近 0），120 离两头都远。
             check(lightDanger.saturation() > 120 && darkDanger.saturation() > 120,
                   "两档都是**饱和的红**（不是灰扑扑的一团）",
                   QString("饱和度 %1 / %2")
@@ -21757,7 +21391,7 @@ int main(int argc, char *argv[]) {
                 check(title->text() != subtitle->text() ||
                           rows.at(i).title == rows.at(i).subtitle,
                       QStringLiteral("第 %1 行那两行字不是同一句").arg(i));
-                // 路径那行**从中间省略**（2026-09-25）。在此之前它和别处的 ElidedLabel 一样
+                // 路径那行**从中间省略**。在此之前它和别处的 ElidedLabel 一样
                 // 从**尾巴**省略 —— 而这一列是路径，尾巴上那截（最后一级目录名）恰是唯一
                 // 认得出"这是哪一份"的信息：几个文件夹前缀一样时（D:/MC/a、D:/MC/b）两行
                 // 会长得一模一样。这里读的是**标签自己那个属性**（画字的 paintEvent 读的是
@@ -21799,7 +21433,7 @@ int main(int argc, char *argv[]) {
                           .arg(rowWidget->height())
                           .arg(title->height())
                           .arg(subtitle->height()));
-                // 齿轮是**真按钮**（用户原话「齿轮是按钮（以免你不理解）」）：不是画出来
+                // 齿轮是**真按钮**（要求「齿轮是按钮（以免你不理解）」）：不是画出来
                 // 再靠事件过滤器认位置 —— 那样就没有 hover / 按下 / disabled 三态。
                 check(gear->isEnabled() && !gear->icon().isNull() &&
                           gear->size() == QSize(MainWindowUI::folderRowGearSize(),
@@ -21825,8 +21459,8 @@ int main(int argc, char *argv[]) {
             };
             // 「这个字形里有没有**饱和的红**」。判据必须连饱和度一起看：**灰的色相也是 0**
             // （HSV 里无彩色一律落在红那一头），只看色相会把正文色的字形也判成红的。
-            // ★ 取图要带上**按钮那一刻的 Mode**：图标现在走 QIconEngine，颜色按
-            //   Normal / Disabled 现算；灰按钮上 QStyle 问的是 Disabled（灰图标）。
+            // 取图要带上**按钮那一刻的 Mode**：图标现在走 QIconEngine，颜色按
+            // Normal / Disabled 现算；灰按钮上 QStyle 问的是 Disabled（灰图标）。
             const auto hasDangerRed = [](const QIcon &icon,
                                         QIcon::Mode mode = QIcon::Normal) {
                 const QImage image =
@@ -21881,7 +21515,7 @@ int main(int argc, char *argv[]) {
                       QStringLiteral("第 %1 项前面带着图标").arg(a));
                 check(entry->styleSheet().contains(QStringLiteral("text-align: left")),
                       QStringLiteral("第 %1 项是从左边起排的（像菜单，不是一排居中按钮）").arg(a));
-                // 字要**粗**（2026-09-24 用户原话「这个字能不能用加粗的」，问的就是这五项）。
+                // 字要**粗**（ 要求「这个字能不能用加粗的」，问的就是这五项）。
                 // 两条一起钉：样式表里写着这条声明（和上面 text-align 那条同一个写法），
                 // **以及它真的落到了控件上** —— 只钉样式表字符串的话，哪年换一个不认
                 // font-weight 的样式就变成假绿了。
@@ -21890,7 +21524,7 @@ int main(int argc, char *argv[]) {
                 check(entry->font().bold(),
                       QStringLiteral("第 %1 项的字真的变粗了（不是只写在样式表里）").arg(a),
                       QStringLiteral("bold=%1").arg(entry->font().bold() ? 1 : 0));
-                // 垃圾桶图标也是红的，而且**只有**「删除」那一项是红的（2026-09-24 用户
+                // 垃圾桶图标也是红的，而且**只有**「删除」那一项是红的（ 用户
                 // 原话「删除的垃圾桶也换成红色吧」）。量的是字形里有没有饱和的红 —— 字形
                 // 的颜色是我们自己传进去的，不吃调色板，所以这一格真的是"颜色由我们决定"。
                 if (a == MainWindowUI::FolderActionDelete) {
@@ -21910,21 +21544,21 @@ int main(int argc, char *argv[]) {
             }
             check(menuNow() == nullptr, "点完一项那块框自己收回去了（不会越点越多）");
 
-            // ---- 那块框自己的留白（2026-09-24 用户要收紧的那一圈）----
+            // ---- 那块框自己的留白（ 用户要收紧的那一圈）----
             //
-            // 用户原话：「点开的那个框在文本左右都有点留白，上下也是，能不能缩小一点点
+            // 要求：「点开的那个框在文本左右都有点留白，上下也是，能不能缩小一点点
             // （减少到 80% 的样子）」，紧接着又划了一句「上下不用减那么多，匹配即可」。
             // 于是留白拆成两截，各减各的：
-            //   框自己的内边距（kFolderMenuPadding）  10 → 8
-            //   一项自己的内边距（folderActionStyle 里那句 QSS）  「6px 8px」→「6px 6px」
+            // 框自己的内边距（kFolderMenuPadding） 10 → 8
+            // 一项自己的内边距（folderActionStyle 里那句 QSS） 「6px 8px」→「6px 6px」
             // 左右合计 18 → 14（≈78%，就是"80% 的样子"），上下合计 16 → 14（≈88%，就是
             // "不用减那么多"）—— 两边**都落在 14**，这是"匹配"那两个字要的。
             //
             // NOTE: 两个数都写死在验证工程里（一个是 .cpp 匿名命名空间里的常量、一个在
-            //       QSS 字符串里，这里够不着），和"实例页那个按钮数钉死成六"同一个取法：
-            //       改留白的人必须来这儿说一声。断言同时钉**两个轴相等** —— 只钉"是 8"
-            //       的话，哪天有人把上下改成 6、左右留 8，数字变了这条会红，但"上下左右
-            //       不匹配"这件事本身没有一条断言在管。
+            // QSS 字符串里，这里够不着），和"实例页那个按钮数钉死成六"同一个取法：
+            // 改留白的人必须来这儿说一声。断言同时钉**两个轴相等** —— 只钉"是 8"
+            // 的话，哪天有人把上下改成 6、左右留 8，数字变了这条会红，但"上下左右
+            // 不匹配"这件事本身没有一条断言在管。
             {
                 constexpr int kExpectedBoxPadding = 8;
                 constexpr int kExpectedItemPadding = 6;
@@ -21949,12 +21583,6 @@ int main(int argc, char *argv[]) {
                 // "匹配即可"说的就是这个（原来左右 18 / 上下 16，两个轴差着 2 px；现在两边
                 // 都是 14）。两截分开量：框那 8 px 是上面第一条量的 geometry，这一项那 6 px
                 // 只有渲染出来才看得见。
-                //
-                // NOTE: 渲染的是**这一项按钮**、不是整块菜单 —— 菜单是个顶层窗，`render()`
-                //       会把最外圈 1 px 画成一条边（实测角上是 #a0a0a0、里面是 #d6d6d6），
-                //       拿"整块框的第一列有墨"当字形左边缘会当场量到 1。按钮这边没这毛病：
-                //       QSS 把它的底和边框都清了，图里除了字形以外全是透明的，所以
-                //       "第一列有墨"就是图标左边缘，就是它自己那圈 padding。
                 if (entry != nullptr) {
                     const QImage shot = captureWidget(entry);
                     const auto hasInk = [](QRgb p) { return QColor::fromRgba(p).alpha() > 128; };
@@ -21972,10 +21600,6 @@ int main(int argc, char *argv[]) {
                         }
                         return -1;
                     };
-                    // **要减掉图标自己那圈空白**：字形不比它那张 16x16 的画布铺满，
-                    // 实测左边缘差 2 px、上边缘差 3 px。不减的话量到的是"图标画得满不满"，
-                    // 跟这一项的内边距没关系 —— 那两个数一变，这条断言会红在一个
-                    // 跟留白无关的地方。
                     const QImage glyph =
                         entry->icon()
                             .pixmap(MainWindowUI::folderMenuIconSize(),
@@ -22049,14 +21673,14 @@ int main(int argc, char *argv[]) {
     }
 
     // =====================================================================
-    // O. 内容区覆盖层（2026-09-25）
+    // O. 内容区覆盖层
     // =====================================================================
     // 用户给的方向：最终**不出现独立窗口**（日志窗除外）—— 设置界面在内容区整块盖掉
     // （左上角一颗返回箭头），小提示在中间开一块、四周变暗，而且不许出现尺寸不一样的弹窗。
     // 这一节钉的就是"盖在哪儿、盖住谁、长什么样"。
     //
     // NOTE: 覆盖层和内容页是**兄弟**（它不吃布局，几何靠盯住 tabWidget 现算），所以
-    //       "盖住的正好是内容区"这句得在**窗口坐标系**里比 —— 两边坐标原点都不一样。
+    // "盖住的正好是内容区"这句得在**窗口坐标系**里比 —— 两边坐标原点都不一样。
     std::printf("\n===== O. 内容区覆盖层（不再开独立窗口）=====\n");
     {
         OverlayHost *overlay = ui.overlay();
@@ -22071,7 +21695,7 @@ int main(int argc, char *argv[]) {
         // 上吃过一次亏）。这里走 mapTo()，是另一条路。
         const QPoint pageTopLeft = tabs->currentWidget()->mapTo(&window, QPoint(0, 0));
         const QSize pageSize = tabs->currentWidget()->size();
-        // 顶上**不许被盖住的东西**：2026-09-25 起是那条自己画的标题栏（四个功能在它上面），
+        // 顶上**不许被盖住的东西**： 起是那条自己画的标题栏（四个功能在它上面），
         // **不是标签栏** —— 标签栏已经藏起来了（见 Z11 那一节）。所以这里量的是条。
         TitleBar *strip = ui.titleBar();
         const QRect stripInWindow(strip != nullptr ? strip->mapTo(&window, QPoint(0, 0)) : QPoint(),
@@ -22098,8 +21722,8 @@ int main(int argc, char *argv[]) {
                   .arg(pageTopLeft.y())
                   .arg(pageSize.width())
                   .arg(pageSize.height()));
-        // 顶上那一条和底栏必须露着（用户原话「底下那一条不用覆盖，**顶上四个选项卡也不覆盖**」
-        // —— 那四个选项卡 2026-09-25 起就在这条上，所以"露着"这一条现在由条来满足）。
+        // 顶上那一条和底栏必须露着（要求「底下那一条不用覆盖，**顶上四个选项卡也不覆盖**」
+        // —— 那四个选项卡 起就在这条上，所以"露着"这一条现在由条来满足）。
         check(stripInWindow.isValid() && stripInWindow.bottom() < overlayTopLeft.y(),
               "没盖住顶上那一条（四个功能在那上面）",
               QStringLiteral("条底 %1 ／ 覆盖层顶 %2")
@@ -22243,7 +21867,7 @@ int main(int argc, char *argv[]) {
         QApplication::processEvents();
 
         // ② 换成一句长的：**宽度一点不能变**（用户要的「不会让界面出现尺寸不一样的弹窗」），
-        //    高矮可以随字数走。
+        // 高矮可以随字数走。
         InlineMessageBox longBox(
             MessageKind::Warning, QStringLiteral("下载失败"),
             QStringLiteral("从 cdn.modrinth.com 拉 https://cdn.modrinth.com/data/abcdefgh/"
@@ -22268,8 +21892,8 @@ int main(int argc, char *argv[]) {
         QApplication::processEvents();
 
         // ③ `execPrompt` 是**同步**的（和 QMessageBox::exec() 一个形状）—— 九十来处调用点
-        //    就是照这个形状换过去的。等真框开出来时用 QTimer 点 —— 在自己的 processEvents
-        //    里点 = 死锁（这条坑 mw_check 里踩过）。
+        // 就是照这个形状换过去的。等真框开出来时用 QTimer 点 —— 在自己的 processEvents
+        // 里点 = 死锁（这条坑 mw_check 里踩过）。
         InlineMessageBox askBox(MessageKind::Question, QStringLiteral("删除账号"),
                                 QStringLiteral("删了就拿不回来了。"),
                                 QStringList{QStringLiteral("删除"), QStringLiteral("取消")}, 1, 0);
@@ -22305,12 +21929,12 @@ int main(int argc, char *argv[]) {
               "按 Esc = 拒绝，而且没选中任何一颗（-1）",
               QStringLiteral("code=%1 index=%2").arg(escCode).arg(escBox.clickedIndex()));
 
-        // ⑤ 「问一句名字」那一档（2026-09-25 加的输入框）：标题 + 正文 + **一行输入框** +
-        //    右边那一排按钮。这一档要钉两件事：
-        //      - 卡片宽度**照旧是那个唯一出处** —— 多插一行不许多出一个宽度。这一档是
-        //        最容易破的那一个（输入框天生想长），破了就正好撞上用户那句
-        //        「不会让界面出现尺寸不一样的弹窗」；
-        //      - 输入框和**正文同宽**（左边对齐），不是"比正文窄一点/宽出去一点"。
+        // ⑤ 「问一句名字」那一档（ 加的输入框）：标题 + 正文 + **一行输入框** +
+        // 右边那一排按钮。这一档要钉两件事：
+        // - 卡片宽度**照旧是那个唯一出处** —— 多插一行不许多出一个宽度。这一档是
+        // 最容易破的那一个（输入框天生想长），破了就正好撞上用户那句
+        // 「不会让界面出现尺寸不一样的弹窗」；
+        // - 输入框和**正文同宽**（左边对齐），不是"比正文窄一点/宽出去一点"。
         {
             InlineMessageBox inputBox(
                 MessageKind::Question, QStringLiteral("重命名实例"),
@@ -22324,11 +21948,6 @@ int main(int argc, char *argv[]) {
                   "预填的内容读得出来（调用点先看 ok、再看它）", inputBox.lineEditText());
 
             overlay->openPrompt(false)->layout()->addWidget(&inputBox);
-            // ★ 多转两圈事件循环再量。产品那条路（`execEmbedded`）在 `setVisible(true)`
-            //   之后**显式**又调了一次 `relayout()`，注释里写着理由（"openPrompt() 那一次
-            //   量的时候里面还是空的"）；这里走的是"自己 openPrompt + addWidget"那条近路，
-            //   少了那一句，所以得靠事件循环把 LayoutRequest 送到（它在**这一轮**里排上来，
-            //   下一轮才轮到）—— 少转一圈量到的就是**空卡片**的高度（实测 38）。
             for (int i = 0; i < 3; ++i) {
                 QApplication::processEvents();
             }
@@ -22372,10 +21991,10 @@ int main(int argc, char *argv[]) {
             });
             const int inputCode = overlay->execPrompt(&inputBox, false);
             // NOTE: 这里**不能**照 QMessageBox 的直觉写成 `Rejected` —— 这一层里每一颗
-            //       按钮都是 accept()，"选了什么"由**下标**说（见 InlineMessageBox 的 ctor）。
-            //       `getText()` 判的就是"是不是第 0 颗"，所以点取消拿到的 ok 是 false。
-            //       真"什么都没选"（Esc / 点外面 / 关掉）才是 Rejected + 下标 -1，那一条在
-            //       上面 ④ 里单独钉着。
+            // 按钮都是 accept()，"选了什么"由**下标**说（见 InlineMessageBox 的 ctor）。
+            // `getText()` 判的就是"是不是第 0 颗"，所以点取消拿到的 ok 是 false。
+            // 真"什么都没选"（Esc / 点外面 / 关掉）才是 Rejected + 下标 -1，那一条在
+            // 上面 ④ 里单独钉着。
             check(inputCode == QDialog::Accepted && inputBox.clickedIndex() == 1,
                   "点「取消」= 被点中的是第二颗（getText 拿它判 ok，于是 ok == false）",
                   QStringLiteral("code=%1 index=%2").arg(inputCode).arg(inputBox.clickedIndex()));
@@ -22384,9 +22003,9 @@ int main(int argc, char *argv[]) {
                   inputBox.lineEditText());
         }
 
-        // ---------- 「挑一个」那一档：卡片里多一张列表（2026-09-29 加） ----------
+        // ---------- 「挑一个」那一档：卡片里多一张列表（ 加） ----------
         //
-        // 用户原话：「在一些其它的地方拖入模组等时选择要安装在的目标实例」。这一档和上面那
+        // 要求：「在一些其它的地方拖入模组等时选择要安装在的目标实例」。这一档和上面那
         // 个输入框是**同一条规矩**：多插一行**不许多出一个宽度**（那句"不会让界面出现尺寸
         // 不一样的弹窗"），而且插在**按钮行前面**。
         //
@@ -22505,17 +22124,17 @@ int main(int argc, char *argv[]) {
                   "清单是空的时候一个框都不弹");
 
             // ③④⑤ 下面这三发都得**在那一发卡住的嵌套事件循环里**去点真框上那颗按钮：
-            //   `pickFromList()` 自己 new 一个 box 再 `execPrompt()`，外面拿不到它 ——
-            //   所以只能从覆盖层上按 objectName 找回来（和 mw_check 里 `currentPrompt()`
-            //   同一个手法）。`clearRow` 那一档还要先替用户把选中取消掉。
+            // `pickFromList()` 自己 new 一个 box 再 `execPrompt()`，外面拿不到它 ——
+            // 所以只能从覆盖层上按 objectName 找回来（和 mw_check 里 `currentPrompt()`
+            // 同一个手法）。`clearRow` 那一档还要先替用户把选中取消掉。
             const auto answerPick = [overlay](int buttonIndex, bool clearRowFirst) {
                 QTimer::singleShot(0, overlay, [overlay, buttonIndex, clearRowFirst] {
-                    // ★ 不能用光秃秃的 `findChild<InlineMessageBox *>()`：上面那几个量过尺寸
-                    //   的 box 收页之后**仍然挂在覆盖层底下**（`setParent()` 只把它挪回寄存处，
-                    //   父链没断），`findChild` 是"第一个"，找回来说不定是那一个 —— 于是一颗
-                    //   **看不见的**按钮被点了，真提示一动不动，测试挂在嵌套事件循环里
-                    //   （实测：整趟跑不完、一行日志都不多）。
-                    //   判据取"看得见 + 身上真有那张列表"：真提示是唯一一个同时满足的。
+                    // 不能用光秃秃的 `findChild<InlineMessageBox *>()`：上面那几个量过尺寸
+                    // 的 box 收页之后**仍然挂在覆盖层底下**（`setParent()` 只把它挪回寄存处，
+                    // 父链没断），`findChild` 是"第一个"，找回来说不定是那一个 —— 于是一颗
+                    // **看不见的**按钮被点了，真提示一动不动，测试挂在嵌套事件循环里
+                    // （实测：整趟跑不完、一行日志都不多）。
+                    // 判据取"看得见 + 身上真有那张列表"：真提示是唯一一个同时满足的。
                     InlineMessageBox *box = nullptr;
                     const QList<InlineMessageBox *> boxes =
                         overlay->findChildren<InlineMessageBox *>();
@@ -22564,7 +22183,7 @@ int main(int argc, char *argv[]) {
                   "点「取消」⇒ false + rowOut 归 -1", QString::number(cancelledRow));
 
             // ⑤ ★ 点了「确定」但一行都没选中（用户可以 Ctrl+点一下把选中取消掉）⇒ **不算**
-            //    选了第 0 行。替用户挑一个，比让他再选一次糟得多。
+            // 选了第 0 行。替用户挑一个，比让他再选一次糟得多。
             answerPick(0, /*clearRowFirst=*/true);
             int noneRow = 5;
             check(!InlineMessage::pickFromList(overlay, QStringLiteral("装到哪个实例里"),
@@ -22644,9 +22263,6 @@ int main(int argc, char *argv[]) {
         QApplication::processEvents();
         check(!overlay->isOpen(), "拒绝之后外面那条提示照旧收得掉");
 
-        // ★ 2026-10-20：已经有提示开着的时候，后台收尾那种**纯报信**提示（warning /
-        //   information / critical，一颗按钮都没给）排队，不再像以前那样只留一行 qWarning
-        //   就丢掉。要人回答的提示仍然不叠（语义见 OverlayHost::queueNotification()）。
         {
             InlineMessageBox holder(MessageKind::Information, QStringLiteral("先来的"),
                                     QStringLiteral("上一条还开着。"), QStringList(), 0, -1);
@@ -22678,7 +22294,7 @@ int main(int argc, char *argv[]) {
         }
 
         // ---------- ★ 提示叠在**产品那条路**上：点掉提示不能把底下那一页一起拒掉 ----------
-        // （2026-09-26 修的那条：`execEmbedded` 里 `promptDismissed` 原来**两层都接**。）
+        // （ 修的那条：`execEmbedded` 里 `promptDismissed` 原来**两层都接**。）
         //
         // 上面那一段走的是 `openPage` / `openPrompt` —— 这两个函数**不卡调用方**，所以
         // 它们量不到 `execEmbedded` 里那条连接；而「点一下提示框外面，底下那一页跟着没了」
@@ -22727,10 +22343,10 @@ int main(int argc, char *argv[]) {
                 QApplication::processEvents();
                 check(promptDismissals == 1, "★ 点框外面发出了一次 promptDismissed",
                       QStringLiteral("发了 %1 次").arg(promptDismissals));
-                // ★ 这一条就是那个 bug：修之前，这一发让**底下那一页**也 reject 了 ——
-                //   `pageDialog` 当场收掉、`finished(Rejected)` 立刻发出去、`execPage`
-                //   返回 Rejected。用户那边看到的就是"我只点关了一条提示，刚编辑的分组
-                //   设置全丢了"。
+                // 这一条就是那个 bug：修之前，这一发让**底下那一页**也 reject 了 ——
+                // `pageDialog` 当场收掉、`finished(Rejected)` 立刻发出去、`execPage`
+                // 返回 Rejected。用户那边看到的就是"我只点关了一条提示，刚编辑的分组
+                // 设置全丢了"。
                 check(pageFinishedCount == 0,
                       "★ 那一发没有连坐到底下的页（它一次 finished 都没发）",
                       QStringLiteral("finished %1 次，code=%2")
@@ -22757,9 +22373,9 @@ int main(int argc, char *argv[]) {
     }
 
     // =====================================================================
-    // O2. 切选项卡 = 这一页"收着"（顶上那四颗导航按钮，2026-09-26）
+    // O2. 切选项卡 = 这一页"收着"（顶上那四颗导航按钮，）
     // =====================================================================
-    // 用户原话：「顶端四个按钮点击以后自动到达对应选项卡的首页（比如说我现在正点开 sodium
+    // 要求：「顶端四个按钮点击以后自动到达对应选项卡的首页（比如说我现在正点开 sodium
     // 的下载页面，现在我点击启动选项卡，直接切到那个页面，下载这个"弹窗"自动收起）」+
     // 「保留原来那个子页的状态，比如说我正在看 sodium 的下载，现在点击 启动，切到启动页，
     // 再点击 下载，那就回到下载 sodium 界面，在下载页点击 下载（顶上那个，不是下载确认键），
@@ -22769,9 +22385,9 @@ int main(int argc, char *argv[]) {
     // 覆盖层）：翻页那两颗导航按钮长什么样、点了之后产品里走哪一条路，那是 MainWindowUI 的
     // 事（mw_check 的 ZJ10 走真按钮），这里只管"锚点换了一页，这一层该怎么办"。
     //
-    // ★ "收着"和"关掉"是两件事，这一节钉的就是这个区别：收着 = `pageOpen()` 还是真、页对象
-    //   和它的内容一个不少（那页正卡在 `execPage()` 的嵌套事件循环里，收掉了调用方会一直等
-    //   下去），只是不露面。判据走 `parked()` + `isVisible()`。
+    // "收着"和"关掉"是两件事，这一节钉的就是这个区别：收着 = `pageOpen()` 还是真、页对象
+    // 和它的内容一个不少（那页正卡在 `execPage()` 的嵌套事件循环里，收掉了调用方会一直等
+    // 下去），只是不露面。判据走 `parked()` + `isVisible()`。
     std::printf("\n===== O2. 切选项卡 = 这一页收着（不是关掉） =====\n");
     {
         QWidget home;
@@ -22784,8 +22400,8 @@ int main(int argc, char *argv[]) {
         navTabs->addTab(pageB, QStringLiteral("乙"));
         OverlayHost host(navTabs, &home);
         // NOTE: 必须 show()。`isVisible()` 是"这一层现在摆没摆在眼前"的唯一判据
-        //       （见 OverlayHost::retargetCoveredPage / applyVisibility），父控件藏着的
-        //       时候它恒假 —— 那几条断言会以"收着"的样子假绿。
+        // （见 OverlayHost::retargetCoveredPage / applyVisibility），父控件藏着的
+        // 时候它恒假 —— 那几条断言会以"收着"的样子假绿。
         home.show();
         QApplication::processEvents();
 
@@ -22839,7 +22455,7 @@ int main(int argc, char *argv[]) {
               QStringLiteral("滚到 %1（原 %2）")
                   .arg(pageScroll != nullptr ? pageScroll->verticalScrollBar()->value() : -1)
                   .arg(scrolled));
-        // ★ 收着的那一页**不许**被当成"没人占着这一层"：那一层的活儿还没干完。
+        // 收着的那一页**不许**被当成"没人占着这一层"：那一层的活儿还没干完。
         check(host.openPage(QStringLiteral("另一页")) == nullptr,
               "★ O2 收着的时候再要一页照样被拒（那一位没被释放，只是看不见）");
         int backCount = 0;
@@ -22868,8 +22484,8 @@ int main(int argc, char *argv[]) {
               QStringLiteral("发了 %1 次").arg(backCount));
         QObject::disconnect(backSpy);
         // NOTE: 这一节里**没人接那一发**（产品那边接的是 `execPage()` 里那个嵌套循环：收到
-        //       就 `reject()`，再由 `execEmbedded` 收尾）。那一整条链在 mw_check 的 ZJ10 里
-        //       按真按钮走过一遍；这里手动把这一层收掉，接着往下量别的。
+        // 就 `reject()`，再由 `execEmbedded` 收尾）。那一整条链在 mw_check 的 ZJ10 里
+        // 按真按钮走过一遍；这里手动把这一层收掉，接着往下量别的。
         host.closeOverlay();
         QApplication::processEvents();
         check(!host.isOpen() && !host.isVisible(), "O2 收尾：那一页也收干净了");
@@ -22940,9 +22556,9 @@ int main(int argc, char *argv[]) {
     }
 
     // =====================================================================
-    // Z12. 「可以在设置中关闭此提示」那行小字 + 首字母头像（2026-09-25）
+    // Z12. 「可以在设置中关闭此提示」那行小字 + 首字母头像
     // =====================================================================
-    // 用户原话里那两条确认各自带着一句「可以在设置中关闭此提示」——那行字比正文小一号、
+    // 要求里那两条确认各自带着一句「可以在设置中关闭此提示」——那行字比正文小一号、
     // 浅一档，**在正文下面、按钮行上面**。它是个新控件（`InlineMessageBox::setNote()`），
     // 这一节钉它的形状；"哪一句提示写了哪一行字、指的是哪一个开关"是产品那一侧的事
     // （mw_check 的 AJ 节按真会话量）。
@@ -23031,7 +22647,7 @@ int main(int argc, char *argv[]) {
             check(card2 != nullptr && card2->width() == OverlayHost::promptWidth(),
                   "撤掉那一行之后宽度照旧是那个唯一出处",
                   QString::number(card2 != nullptr ? card2->width() : -1));
-            // 按钮还是那两颗（用户原话写的就是「取消 / 仍要启动」）。
+            // 按钮还是那两颗（要求写的就是「取消 / 仍要启动」）。
             check(box.findChild<QPushButton *>(InlineMessageBox::buttonName(0)) != nullptr &&
                       box.findChild<QPushButton *>(InlineMessageBox::buttonName(1)) != nullptr &&
                       box.findChild<QPushButton *>(InlineMessageBox::buttonName(2)) == nullptr,
@@ -23050,10 +22666,10 @@ int main(int argc, char *argv[]) {
         // ---- (b) 首字母头像（什么都没有的时候那块兜底） ----
         {
             // NOTE: 这里用 `==` 比颜色是**对的**，别照着"看着不一样"去把它改成 `.name()`：
-            //       `avatarFallbackColor()` 是先算 HSV 再**按 8 位量化**回来的，
-            //       而图里存的、`pixelColor()` 取回来的也是 8 位精确值 —— 两边恒等。
-            //       （Qt 6 的 QColor 内部是 16 位的，少了那一步量化就会"名字、rgba() 全一样、
-            //       只有 == 说不相等"，这个坑 2026-09-25 在 mw_check 的 AH7b 上吃过一整轮。）
+            // `avatarFallbackColor()` 是先算 HSV 再**按 8 位量化**回来的，
+            // 而图里存的、`pixelColor()` 取回来的也是 8 位精确值 —— 两边恒等。
+            // （Qt 6 的 QColor 内部是 16 位的，少了那一步量化就会"名字、rgba() 全一样、
+            // 只有 == 说不相等"，这个坑 在 mw_check 的 AH7b 上吃过一整轮。）
             const auto hasWhitePixel = [](const QImage &image) {
                 for (int y = 0; y < image.height(); ++y) {
                     for (int x = 0; x < image.width(); ++x) {
@@ -23115,7 +22731,7 @@ int main(int argc, char *argv[]) {
 
     std::printf("\n===== Z11. 顶上那一条自己画的标题栏（外框那一份的「脸」） =====\n");
     {
-        // 用户原话：「能把整个外边框设计成完全自定义的吗，就是不用默认的那个顶上一条白色的
+        // 要求：「能把整个外边框设计成完全自定义的吗，就是不用默认的那个顶上一条白色的
         // 那个，而是用pcl的那种自己设计顶上」。
         //
         // 这一节管的是**顶上摆什么**（ui/TitleBar）。"系统那条白条到底去掉了没有"是 Win32
@@ -23156,7 +22772,7 @@ int main(int argc, char *argv[]) {
                       .arg(TitleBar::barHeight()));
 
             // ---------- 那五个字母 + 四个功能搬到条上 ----------
-            // 用户原话：「现在把顶上标题换成五个字母，然后把四个选项卡放到最顶上去，通过顶端
+            // 要求：「现在把顶上标题换成五个字母，然后把四个选项卡放到最顶上去，通过顶端
             // 按钮打开四个功能」。
             //
             // 做法是**"条上摆四颗按钮 + 把标签栏藏起来"**，不是 `QTabWidget::setTabBar()`
@@ -23188,11 +22804,6 @@ int main(int argc, char *argv[]) {
                       "★ Z11 四颗按钮的字就是四个选项卡的字（唯一出处 tabText()）",
                       navLabels.join(QStringLiteral(" / ")));
 
-                // ★ 2026-09-30 用户原话「上面四个按钮的文本也做大点」：字号落在**按钮自己的
-                //   font()** 上（不是画的时候临时算 —— 那样谁都读不回来），四颗一个样，
-                //   而且比正文大 `navFontPointDelta()`。★ 那个数从产品读，别写死 2。
-                //   NOTE: 面板字体按**像素**定义时（`pointSizeF() == -1`）走的是另一档，
-                //         本机不是那种情况 ⇒ 这里只钉点数这一档，和 `enlargedFont()` 一致。
                 {
                     const qreal basePoints = QApplication::font().pointSizeF();
                     bool allSame = strip->navCount() > 0;
@@ -23215,10 +22826,10 @@ int main(int argc, char *argv[]) {
                               .arg(TitleBar::navFontPointDelta()));
                 }
 
-                // ★ 字大了之后还得**放得下**：那一格是 `drawText(rect(), AlignCenter, …)`，
-                //   一行字宽过格子就会被两头切掉（不报错、也不提示）。所以这里量最宽的那一个
-                //   标签 —— 而且**加粗那一档也要量**（当前那一颗是 `setBold(true)` 画的，
-                //   同一行字会再宽一点）。留白多少写进注释里，往后谁调大了能一眼看出还剩多少。
+                // 字大了之后还得**放得下**：那一格是 `drawText(rect(), AlignCenter, …)`，
+                // 一行字宽过格子就会被两头切掉（不报错、也不提示）。所以这里量最宽的那一个
+                // 标签 —— 而且**加粗那一档也要量**（当前那一颗是 `setBold(true)` 画的，
+                // 同一行字会再宽一点）。留白多少写进注释里，往后谁调大了能一眼看出还剩多少。
                 {
                     int worst = 0;
                     int worstWide = 0;
@@ -23275,13 +22886,13 @@ int main(int argc, char *argv[]) {
                       geoText);
                 check(orderOk, "Z11 四颗从左到右一个挨一个（不叠、不漏缝）", geoText);
 
-                // ★ **那四颗的正中 == 整条的正中**（用户原话：「上面的四个居中」）。
-                //   这一条量的是**结果**、不是 TitleBar.cpp 里那个数（`kNavGroupLeftMargin`
-                //   的推导就在它旁边）：布局是 [左留白][stretchA][导航组][stretchB][两颗窗口
-                //   按钮]，两段 stretch 一样长 ⇒ "居中"这件事完全由左留白定，而左留白只跟
-                //   buttonSize() 有关、**和导航组自己多宽无关**。所以这条同时钉住了
-                //   "以后加一颗按钮（或者改 navItemWidth()）不许把居中弄丢"。
-                //   容差 1 px：条宽是奇数时两边不可能各占整数。
+                // **那四颗的正中 == 整条的正中**（要求：「上面的四个居中」）。
+                // 这一条量的是**结果**、不是 TitleBar.cpp 里那个数（`kNavGroupLeftMargin`
+                // 的推导就在它旁边）：布局是 [左留白][stretchA][导航组][stretchB][两颗窗口
+                // 按钮]，两段 stretch 一样长 ⇒ "居中"这件事完全由左留白定，而左留白只跟
+                // buttonSize() 有关、**和导航组自己多宽无关**。所以这条同时钉住了
+                // "以后加一颗按钮（或者改 navItemWidth()）不许把居中弄丢"。
+                // 容差 1 px：条宽是奇数时两边不可能各占整数。
                 const int rowLeft = strip->navButton(0)->x();
                 const int rowRight = strip->navButton(tabCount - 1)->geometry().right() + 1;
                 const int rowCenter = (rowLeft + rowRight) / 2;
@@ -23335,7 +22946,7 @@ int main(int argc, char *argv[]) {
                 // 那两种画法（加粗 + 底下一条横线）里，**横线**是能按像素断言的：它用的是
                 // 当前那一档的墨色（正文色），别的几颗那一行什么都不该有。
                 // NOTE: 量的必须是**"颜色由我们自己决定"的那一格** —— 这儿正是（`setInkColor()`
-                //       给的就是这两个色）。整行去比会被别的东西带偏。
+                // 给的就是这两个色）。整行去比会被别的东西带偏。
                 const QColor strongInk = strip->palette().color(QPalette::WindowText);
                 const int other = (target + 1) % tabCount;
                 auto bottomInkCount = [&strongInk](QWidget *button) {
@@ -23357,17 +22968,13 @@ int main(int argc, char *argv[]) {
                       QStringLiteral("当前 %1 个像素 / 别的 %2 个").arg(currentInk).arg(otherInk));
             }
 
-            // ★ 那条不变式：条的上沿压着系统那圈缩放边（客户区铺满整窗之后是**我们自己**回
-            //   HTTOP/HTLEFT…，见 WindowChrome::handleNativeEvent 那段实测），按钮要是压进去，
-            //   按按钮最上面那几个像素就变成"缩放窗口"。探针量到缩放边在本机是逻辑 8、
-            //   按钮上沿正好在 8；这一条断言就是"这两个数永远不许反过来"。
             check(TitleBar::buttonInset() >= WindowChrome::resizeBorder(),
                   "★ Z11 按钮上面留的空白 ≥ 系统那圈缩放边（否则按按钮上沿=缩放窗口）",
                   QStringLiteral("buttonInset=%1 缩放边=%2")
                       .arg(TitleBar::buttonInset())
                       .arg(WindowChrome::resizeBorder()));
             // NOTE: 那句说明里的三个数是**现算的**（从前写死成「44 = 8 + 28 + 8」）——
-            //       条高 2026-09-29 从 44 抬到 52 那一趟，断言本身是绿的、只有这句话在说谎。
+            // 条高 从 44 抬到 52 那一趟，断言本身是绿的、只有这句话在说谎。
             check(TitleBar::barHeight() == TitleBar::buttonInset() * 2 + TitleBar::buttonSize(),
                   QStringLiteral("Z11 条高 = 上留白 + 按钮 + 下留白（%1 = %2 + %3 + %2）")
                       .arg(TitleBar::barHeight()).arg(TitleBar::buttonInset())
@@ -23389,11 +22996,6 @@ int main(int argc, char *argv[]) {
                 check(minBtn->y() == TitleBar::buttonInset() && closeBtn->y() == TitleBar::buttonInset(),
                       "Z11 两颗按钮上下居中（上留 buttonInset()）",
                       QStringLiteral("y=%1,%2").arg(minBtn->y()).arg(closeBtn->y()));
-                // ★ 2026-09-29 用户原话「右上角的最小化和关闭稍稍往左边靠一点」：那两颗
-                //   原来顶到条的最右边（`right() == width() - 1`，和系统那两颗一样顶着角），
-                //   现在空出去 `windowButtonsRightMargin()` 那么一格。
-                //   ★ 同时量了它**没有挪过头**（右边距 > 0 且比一整颗按钮窄）—— 后者是
-                //     "那两颗还在右上角"，别哪天顺手改成把按钮挪到中间去。
                 check(closeBtn->geometry().right() == strip->width() - 1 - TitleBar::windowButtonsRightMargin()
                           && TitleBar::windowButtonsRightMargin() > 0
                           && TitleBar::windowButtonsRightMargin() < TitleBar::buttonSize(),
@@ -23406,15 +23008,15 @@ int main(int argc, char *argv[]) {
                 check(minBtn->focusPolicy() == Qt::NoFocus && closeBtn->focusPolicy() == Qt::NoFocus,
                       "Z11 两颗按钮不抢键盘焦点");
 
-                // ★ 条上那几片空白**必须是空的**：`WindowChrome` 判"这一手是不是拖窗"用的
-                //   就是 `strip->childAt()`。往后谁往条上加一个铺满的空白 label（比如"顺手用
-                //   QLabel 显示标题"），这几条会当场红。
-                //   NOTE: 2026-09-25 那四颗导航按钮**搬到正中间**之后（用户：「上面的四个
-                //   居中」），"正中"从此**不是**空的 —— 空的是它左右那两片。所以这里改成
-                //   量那两片，并且反过来把"正中归按钮"也钉住（居中的命中测试后果）。
+                // 条上那几片空白**必须是空的**：`WindowChrome` 判"这一手是不是拖窗"用的
+                // 就是 `strip->childAt()`。往后谁往条上加一个铺满的空白 label（比如"顺手用
+                // QLabel 显示标题"），这几条会当场红。
+                // NOTE: 那四颗导航按钮**搬到正中间**之后（用户：「上面的四个
+                // 居中」），"正中"从此**不是**空的 —— 空的是它左右那两片。所以这里改成
+                // 量那两片，并且反过来把"正中归按钮"也钉住（居中的命中测试后果）。
                 const QList<QWidget *> direct =
                     strip->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly);
-                // 2026-09-25 起条上多了那四颗导航按钮 ⇒ 是 **6 颗**（2 窗口 + 4 导航），
+                // 起条上多了那四颗导航按钮 ⇒ 是 **6 颗**（2 窗口 + 4 导航），
                 // 一颗都不许多。这里刻意写死这个数、不用 `2 + navCount()`：写死的意思是
                 // "加子控件这件事必须有人来改这一行"。
                 check(direct.size() == 6,
@@ -23458,9 +23060,9 @@ int main(int argc, char *argv[]) {
 
             // ---------- 点下去发哪一条信号 ----------
             // NOTE: 这一组用**单独摆出来的一条**（自己的父控件），不去点主窗口上那两颗 ——
-            //       主窗口那颗「×」在 `MainWindowUI` 里是接在 `parent->close()` 上的，点一下
-            //       窗口真会关，后面那些像素断言就没得量了。"只发信号、自己不动窗"这件事
-            //       要在一条**没接线**的条上验，而"接上了没有"在主窗口那条上验（这一节最后一条）。
+            // 主窗口那颗「×」在 `MainWindowUI` 里是接在 `parent->close()` 上的，点一下
+            // 窗口真会关，后面那些像素断言就没得量了。"只发信号、自己不动窗"这件事
+            // 要在一条**没接线**的条上验，而"接上了没有"在主窗口那条上验（这一节最后一条）。
             QWidget soloHost;
             soloHost.resize(600, 400);
             soloHost.show();
@@ -23487,12 +23089,12 @@ int main(int argc, char *argv[]) {
             check(soloHost.isVisible(), "★ Z11 条自己不动窗（点了「×」父控件照旧在）");
 
             // ---------- 颜色：量渲染出来的多数色 ----------
-            // ★★ 2026-09-28 改了设计：条底色**不再是"窗口底色压暗一档"**，而是**主题色那一支**
-            //    （用户原话：「使用 #56eb6c 作为默认主题颜色（顶栏用）」）。所以原来那条
-            //    "上下两条框同色"的断言**作废了** —— 底下那条留着中性色（它装的是启动/日志
-            //    那一排控件），现在量的是"各自都铺着它该铺的那一支"。
+            // 改了设计：条底色**不再是"窗口底色压暗一档"**，而是**主题色那一支**
+            // （要求：「使用 #56eb6c 作为默认主题颜色（顶栏用）」）。所以原来那条
+            // "上下两条框同色"的断言**作废了** —— 底下那条留着中性色（它装的是启动/日志
+            // 那一排控件），现在量的是"各自都铺着它该铺的那一支"。
             // NOTE: 比的是 `.rgb()`，不是 `QColor` 直接比 —— `darker()` 给的是 Hsv spec，
-            //       而量出来的是 Rgb（这条坑本文件里踩过一次，见下面最小化那颗的注释）。
+            // 而量出来的是 Rgb（这条坑本文件里踩过一次，见下面最小化那颗的注释）。
             QFrame *bottom = ui.getBottomBar();
             const QColor stripFill = dominantColor(captureWidget(strip), strip->rect());
             const QColor bottomFill =
@@ -23511,9 +23113,9 @@ int main(int argc, char *argv[]) {
 
             // 悬停：关闭那颗红底白叉、最小化那颗只是压暗一档。
             // NOTE: 悬停那一位**默认没人填**（Qt 不会自己产生 HoverEnter），所以
-            //       `WA_Hover` 与 `mouseTracking` 两条得一起在 —— 少哪条都是"悬停色再也
-            //       不出现"，而这件事从代码上看不出来。这里把"属性在位"与"收到事件之后
-            //       真的变色"两件都钉住，并且悬停是**自己发事件**触发的（offscreen 没有鼠标）。
+            // `WA_Hover` 与 `mouseTracking` 两条得一起在 —— 少哪条都是"悬停色再也
+            // 不出现"，而这件事从代码上看不出来。这里把"属性在位"与"收到事件之后
+            // 真的变色"两件都钉住，并且悬停是**自己发事件**触发的（offscreen 没有鼠标）。
             if (closeBtn != nullptr && minBtn != nullptr) {
                 auto *closeWidget = static_cast<TitleBarButton *>(closeBtn);
                 auto *minWidget = static_cast<TitleBarButton *>(minBtn);
@@ -23524,9 +23126,9 @@ int main(int argc, char *argv[]) {
 
                 const QColor danger = MainWindowUI::folderDangerColor(strip->palette());
                 // 不悬停：底是全透（条底色透上来），所以图里只有那几笔字形。
-                // ★★ 2026-09-28：条上那个墨色现在是**白的**（顶栏是主题色那一支绿，用户原话
-                //    「顺便那个最小化和 x 都换成白的」）—— 所以这里比的是"画出来的就是条上
-                //    那个墨色"，而"是不是白的"另有下面那一条明说，不再靠"白 0 个像素"。
+                // 条上那个墨色现在是**白的**（顶栏是主题色那一支绿，要求
+                // 「顺便那个最小化和 x 都换成白的」）—— 所以这里比的是"画出来的就是条上
+                // 那个墨色"，而"是不是白的"另有下面那一条明说，不再靠"白 0 个像素"。
                 const QImage plainShot = captureWidget(closeBtn);
                 int plainWhite = 0;
                 int plainInk = 0;
@@ -23584,9 +23186,9 @@ int main(int argc, char *argv[]) {
                 QApplication::processEvents();
                 const QColor minHoverFill = dominantColor(captureWidget(minBtn), minBtn->rect());
                 // NOTE: 这里比的是 `.rgb()`，**不是 QColor 直接比** —— `QColor::darker()` 返回的
-                //       颜色 spec 是 **Hsv**，而量出来的那个是 Rgb；`operator==` 连 spec 一起比，
-                //       于是两个 `name()` 打印出来一模一样、`==` 却是假（2026-09-25 踩过：
-                //       FAIL 那一行写成「量到 #c6c6c6 期望 #c6c6c6」，看着像见了鬼）。
+                // 颜色 spec 是 **Hsv**，而量出来的那个是 Rgb；`operator==` 连 spec 一起比，
+                // 于是两个 `name()` 打印出来一模一样、`==` 却是假（ 踩过：
+                // FAIL 那一行写成「量到 #c6c6c6 期望 #c6c6c6」，看着像见了鬼）。
                 const QColor expectMinHover = stripFill.darker(115);
                 check(minHoverFill.rgb() != danger.rgb() &&
                           minHoverFill.rgb() == expectMinHover.rgb(),
@@ -23600,9 +23202,9 @@ int main(int argc, char *argv[]) {
 
                 // 导航那四颗的悬停**和最小化那一颗同一档**（条底色再压暗一档、不是那个红）。
                 // NOTE: 这一条是照着一段真踩过的坑写的 —— `setNavItems()` 里原来写的是
-                //       `barColor(palette())...`，而调色板里的 Window **已经是条底色**
-                //       （构造函数把压暗过的那一档写进去了），于是那是**第二次压暗**、
-                //       量出来比方框里该有的深一档。和"两颗按钮的悬停色"是同一个坑的两种形状。
+                // `barColor(palette())...`，而调色板里的 Window **已经是条底色**
+                // （构造函数把压暗过的那一档写进去了），于是那是**第二次压暗**、
+                // 量出来比方框里该有的深一档。和"两颗按钮的悬停色"是同一个坑的两种形状。
                 if (strip->navCount() > 0) {
                     // 挑一颗**不是当前**的（当前那颗多了加粗和底下一条横线，底色不好当多数票）。
                     const int plainNav =
@@ -23649,8 +23251,8 @@ int main(int argc, char *argv[]) {
             window.setWindowTitle(QStringLiteral("WTF Minecraft Launcher"));
             QApplication::processEvents();
 
-            // ---------- 条上那行字可以在设置页里改（2026-09-25 加的） ----------
-            // 用户原话：「左上角五个字母默认是这五个，在设置里允许自定义」。
+            // ---------- 条上那行字可以在设置页里改（ 加的） ----------
+            // 要求：「左上角五个字母默认是这五个，在设置里允许自定义」。
             // 这里量的是**条这一侧**：换过之后画出来的**真的是新的那串**（不是"titleText()
             // 报了个新值、paintEvent 那支笔还在写旧值" —— 那个默认值原来是个静态函数直接
             // 调用的，改成能换之后这条是最容易漏的一处）。
@@ -23699,12 +23301,12 @@ int main(int argc, char *argv[]) {
                       "Z11 别的原生消息一个字都不碰（只认 WM_NCCALCSIZE 与 WM_NCHITTEST）");
 
                 // NOTE: WM_NCHITTEST 那条**故意不喂假的** —— 它要的是一个真 HWND 才能谈"点在
-                //       哪儿"（GetWindowRect 对空句柄直接失败），拿假 lParam 问出来的只会是
-                //       "没认领"，那是验了等于没验。
+                // 哪儿"（GetWindowRect 对空句柄直接失败），拿假 lParam 问出来的只会是
+                // "没认领"，那是验了等于没验。
             }
 
             // ---------- 例外那一扇：游戏日志窗照旧是系统的框 ----------
-            // 用户原话是「最终目标是不出现独立的窗口（**日志除外**）」—— 日志窗是唯一允许
+            // 要求是「最终目标是不出现独立的窗口（**日志除外**）」—— 日志窗是唯一允许
             // 独立的那一扇，`WindowChrome` 只挂在主窗口上，它不该被卷进来。
             {
                 GameLogWindow log(QStringLiteral("例外那一扇"));
@@ -23726,7 +23328,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // ==================================================================
     std::printf("\n===== Z13. 实例行行尾那三颗按钮（2026-09-25） =====\n");
     // ------------------------------------------------------------------
     // 用户当天原话：「实例页面，实例设置也是放在每一条的右侧，鼠标悬停时右侧显示上箭头和
@@ -23739,7 +23340,7 @@ int main(int argc, char *argv[]) {
     // `helpEvent()` 按它们弹话）。所以这一节量的是**那六个函数的输出**，不是"屏幕看着像"。
     //
     // NOTE: 真正画图的那一圈（`instanceActionGlyphRects()`）是 private，这一节够不着它；
-    //       三个 `...GlyphRect()` 就是它的薄壳（原样返回，见 .hpp），量它们等价于量那一处。
+    // 三个 `...GlyphRect()` 就是它的薄壳（原样返回，见 .hpp），量它们等价于量那一处。
     {
         const auto rt = [](const QRect &r) {
             return QStringLiteral("%1,%2 %3x%4").arg(r.x()).arg(r.y()).arg(r.width()).arg(r.height());
@@ -23882,9 +23483,9 @@ int main(int argc, char *argv[]) {
                   "★ Z13e 已经在置顶组里（rowPinRole() 为假）时，上箭头那一格不说「置顶」",
                   QStringLiteral("拿到「%1」").arg(noPinTip));
 
-            // ★ 同一格反过来那一颗：用户 2026-09-25 原话「置顶组里的实例悬停时右侧显示
-            //   下箭头，即取消置顶」。它和上面那一段是**同一格**（位置/命中格的算法一个字
-            //   都没改），换的只是"这一行挂的是哪个角色"和"因此说哪句话"。
+            // 同一格反过来那一颗：要求「置顶组里的实例悬停时右侧显示
+            // 下箭头，即取消置顶」。它和上面那一段是**同一格**（位置/命中格的算法一个字
+            // 都没改），换的只是"这一行挂的是哪个角色"和"因此说哪句话"。
             item->setData(true, MainWindowUI::rowUnpinRole());
             check(InstanceGroupDelegate::rowActionTip(index, row, pinHit.center()) ==
                       MainWindowUI::rowUnpinTipText(),
@@ -23961,7 +23562,7 @@ int main(int argc, char *argv[]) {
 
         // ---- g) VersionIcons::arrowDown() —— 同一格反过来那一颗 ----
         //
-        // 用户 2026-09-25 原话：「置顶组里的实例悬停时右侧显示下箭头，即取消置顶」。
+        // 要求：「置顶组里的实例悬停时右侧显示下箭头，即取消置顶」。
         // 这一支是 arrowUp() **整条竖直翻过来**（两个方向共用同一组比例，见 .cpp 里
         // arrowPixmap() 那段），所以这里量三件事：它自己成不成图、**朝向对不对**、
         // 以及它和另几支是不是同一张（复制粘贴把 arrowUp 抄过来是最可能的错法）。
@@ -23992,9 +23593,9 @@ int main(int argc, char *argv[]) {
             const int bottomUp = inkIn(up, half, side);
             check(topDown + bottomDown > 0, "Z13g arrowDown() 不是一张空白（真的画了笔画）",
                   QStringLiteral("有笔画的像素 = %1").arg(topDown + bottomDown));
-            // ★ 朝向：箭头那一头（宽的那个三角）在哪半边，就是它朝哪边。上箭头"上重下轻"、
-            //   下箭头正好反过来 —— 这一条挡的是"两颗画的是同一个方向"（那种错法尺寸对、
-            //   有笔画、也和最外一圈那两条不冲突，肉眼在一格 16 px 里未必看得出来）。
+            // 朝向：箭头那一头（宽的那个三角）在哪半边，就是它朝哪边。上箭头"上重下轻"、
+            // 下箭头正好反过来 —— 这一条挡的是"两颗画的是同一个方向"（那种错法尺寸对、
+            // 有笔画、也和最外一圈那两条不冲突，肉眼在一格 16 px 里未必看得出来）。
             check(topUp > bottomUp && bottomDown > topDown,
                   "★ Z13g arrowUp() 是上重下轻、arrowDown() 是下重上轻（两颗朝向真的相反）",
                   QStringLiteral("上箭头 上%1/下%2，下箭头 上%3/下%4")
@@ -24021,9 +23622,9 @@ int main(int argc, char *argv[]) {
                   "★ Z13g 它和 arrowUp() / chevronUp() / triangleDown() 都不是同一张图");
             check(down != VersionIcons::arrowDown(side, QColor(Qt::red)).toImage(),
                   "Z13g 换个颜色画出来的是另一张图（颜色由调用方给，不是写死的）");
-            // ★ "同一组比例翻过来"这件事本身：两颗的墨迹**上下边界必须互为镜像**
-            //   （上箭头的上沿 = 下箭头的下沿翻上去那一行）。它挡的是"哪天有人只改了一边
-            //   的比例"—— 那种错法上面几条全绿，屏幕上只是"两颗箭头长得不太一样"。
+            // "同一组比例翻过来"这件事本身：两颗的墨迹**上下边界必须互为镜像**
+            // （上箭头的上沿 = 下箭头的下沿翻上去那一行）。它挡的是"哪天有人只改了一边
+            // 的比例"—— 那种错法上面几条全绿，屏幕上只是"两颗箭头长得不太一样"。
             const auto inkBounds = [](const QImage &image) {
                 QRect box;
                 for (int y = 0; y < image.height(); ++y) {
@@ -24277,9 +23878,9 @@ int main(int argc, char *argv[]) {
         check(chipFired.size() == 2 && page.currentChip().isEmpty() &&
                   page.chips().at(0)->isChecked(),
               "Z14 点「全部」= 发一个**空 key**（那一路就是「不筛」）");
-        // ★ 调用方给了一个表里没有的 key（比如资源刚换、chip 还没重摆）：按「全部」那一颗，
-        //   而且 currentChip() 也得说「全部」—— 不然界面按着一颗、读到的却是另一颗，
-        //   下游会按一个屏幕上没按着的版本去筛（画面上就是"列表少了几版"）。
+        // 调用方给了一个表里没有的 key（比如资源刚换、chip 还没重摆）：按「全部」那一颗，
+        // 而且 currentChip() 也得说「全部」—— 不然界面按着一颗、读到的却是另一颗，
+        // 下游会按一个屏幕上没按着的版本去筛（画面上就是"列表少了几版"）。
         page.setChips(chips, QStringLiteral("1.20.1"));
         check(page.chips().at(0)->isChecked() && page.currentChip().isEmpty(),
               "★★ Z14 给了一个表里没有的 key：按「全部」，currentChip() 也说「全部」"
@@ -24288,7 +23889,7 @@ int main(int argc, char *argv[]) {
 
         // ---- c2) chip 那一排右边那颗「显示快照版」勾选框 ----
         //
-        // 用户原话：「就是点开具体的页面（上次的那张图的那个页面里，上方右侧放一个勾选框，
+        // 要求：「就是点开具体的页面（上次的那张图的那个页面里，上方右侧放一个勾选框，
         // 默认不勾选，按 alt 键可以切换其显示（鼠标悬停里提到这点，记得顺便刷新）」。
         //
         // 这一节钉的是**这一页自己做得了的那一半**：勾在哪、默认哪一档、提示里写着什么键、
@@ -24381,11 +23982,11 @@ int main(int argc, char *argv[]) {
                   "Z14 松手（KeyRelease）不拨第二下（一次手势 = 一次切换）");
         }
 
-        // ---- c3) 同一格上的「模组设置」（2026-09-27）----
+        // ---- c3) 同一格上的「模组设置」----
         //
-        // ★★ 用户原话：「对于模组，点进去和资源包差不多，但是右上角显示快照版那里替换为
-        //    模组设置（先占位），而且和下载页有点区别，不要不小心把下载页改了」；形态那一问
-        //    选的是「画成灰的、点不动」，替换范围选的是「只有实例设置那条路换」。
+        // 要求：「对于模组，点进去和资源包差不多，但是右上角显示快照版那里替换为
+        // 模组设置（先占位），而且和下载页有点区别，不要不小心把下载页改了」；形态那一问
+        // 选的是「画成灰的、点不动」，替换范围选的是「只有实例设置那条路换」。
         //
         // 这一节钉的是**这一页自己做得了的那一半**：那一格默认摆谁、换过去之后那颗勾选框
         // 收没收、那颗按钮灰不灰、以及"摆着它的时候裸 Alt 拨不动那一颗看不见的勾"。
@@ -24423,8 +24024,8 @@ int main(int argc, char *argv[]) {
             check(modButton != nullptr && modButton->isEnabled(),
                   "★★ Z14 模组设置入口可用，打开当前实例配置文件管理");
 
-            // ★ 这一档上裸 Alt **什么都不拨**：那一格上压根没有勾选框，拨了也是拨一个看不见的
-            //   勾 —— 屏幕上什么都不动，用户只能得出"这软件没反应"的结论。
+            // 这一档上裸 Alt **什么都不拨**：那一格上压根没有勾选框，拨了也是拨一个看不见的
+            // 勾 —— 屏幕上什么都不动，用户只能得出"这软件没反应"的结论。
             snapFired.clear();
             {
                 QKeyEvent altWhileMod(QEvent::KeyPress, Qt::Key_Alt, Qt::NoModifier);
@@ -24635,7 +24236,7 @@ int main(int argc, char *argv[]) {
               "Z14 再点一下又摆回去（这一行是个开关，两下都算）");
 
         // 空表那两种「空」：**一个版本都没发过**（真的没内容）和**正在读 / 没取到**
-        //（内容还在路上）。两条走的是同一条路（顶层条目 + 粗体），但说的话不一样。
+        // （内容还在路上）。两条走的是同一条路（顶层条目 + 粗体），但说的话不一样。
         page.setGroups({});
         check(page.groupCount() == 1 && page.versionRowCount() == 0 &&
                   page.placeholderText() == QStringLiteral("这个资源一个版本都没发过"),
@@ -24653,12 +24254,6 @@ int main(int argc, char *argv[]) {
               "Z14 传空串 = 把列表清空（什么都不摆）");
 
         // ---- e) 行尾那个箭头的命中格：画的和点的是同一处 ----
-        //
-        // Z14 这一层用到 arrowRect() 的地方是下载页那四张表（"点行身开详情页、点箭头展开"），
-        // 但那个判据（MainWindow::eventFilter）在 ui_check 里够不着 —— 够得着的是另一半：
-        // **画出来的那一枚**到底落在哪。两边各自算一遍的话迟早错开，错开的样子是"看着点中
-        // 了箭头、其实点的是行身"（那一行点一下是开详情页），所以这里把"画的"量出来对着
-        // "点的"比一次。
         {
             QTreeWidget arrowProbe;
             arrowProbe.setItemDelegate(new VersionTreeDelegate(&arrowProbe));
@@ -24750,15 +24345,12 @@ int main(int argc, char *argv[]) {
         page.hide();
     }
 
-    // ==================================================================
     std::printf("\n===== Z15. 「启用 / 禁用」那枚开关 + MOTD 照游戏的样子 + 行首那枚资源图标"
                 "（2026-09-27） =====\n");
-    // ==================================================================
-    //
-    // 这一节对着用户 2026-09-27 那三句话：
-    //   「模组和资源包等都有一个图标，把图标显示出来」→ Z15c
-    //   「启用和禁用使用开关的那种形式，删除还是垃圾桶」→ Z15a + Z15c
-    //   「motd按照游戏里显示的样式展现」→ Z15b + Z15d
+    // 这一节对着用户 那三句话：
+    // 「模组和资源包等都有一个图标，把图标显示出来」→ Z15c
+    // 「启用和禁用使用开关的那种形式，删除还是垃圾桶」→ Z15a + Z15c
+    // 「motd按照游戏里显示的样式展现」→ Z15b + Z15d
     //
     // 【为什么图标那一半只在这儿验"换上去、刷新之后还在"】
     //
@@ -24772,16 +24364,16 @@ int main(int argc, char *argv[]) {
 
         // ---- Z15a 开关本身 ----
         {
-            // ★ 2026-10-14：这个**空壳父控件**只为底下"量像素"那一段存在（让开关是子控件、
-            //   不是顶层窗口 —— 见那一段的注释）。它必须声明在 toggle **前面**：析构是反
-            //   着来的，这样 toggle 先析构、把自己从父的孩子表里摘掉，host 才轮到析构；
-            //   反过来写的话，host 析构时会 `delete` 一个**还在栈上**的孩子 —— 这一节
-            //   写过一版就是这么崩的（跑到 Z15a 最后一条之后悄没声地死掉，没有报错）。
+            // 这个**空壳父控件**只为底下"量像素"那一段存在（让开关是子控件、
+            // 不是顶层窗口 —— 见那一段的注释）。它必须声明在 toggle **前面**：析构是反
+            // 着来的，这样 toggle 先析构、把自己从父的孩子表里摘掉，host 才轮到析构；
+            // 反过来写的话，host 析构时会 `delete` 一个**还在栈上**的孩子 —— 这一节
+            // 写过一版就是这么崩的（跑到 Z15a 最后一条之后悄没声地死掉，没有报错）。
             QWidget host;
             ToggleSwitch toggle;
             // 尺寸的**唯一出处**：控件自己的那两个静态函数读的就是 MainWindowUI 里那三个
             // 常数。两处各写一份的话，"画出来的药丸"和"布局给它的地方"会各算各的
-            //（症状是圆钮被裁掉半个，而那种错没人会往尺寸上想）。
+            // （症状是圆钮被裁掉半个，而那种错没人会往尺寸上想）。
             check(ToggleSwitch::switchWidth() == MainWindowUI::toggleSwitchWidth() &&
                       ToggleSwitch::switchHeight() == MainWindowUI::toggleSwitchHeight(),
                   "Z15a 开关的宽高就是 MainWindowUI 里那一对常数（画的和占的是同一个数）",
@@ -24796,7 +24388,7 @@ int main(int argc, char *argv[]) {
             check(!toggle.isChecked(), "Z15a 刚造出来是**关**的（谁用谁 setChecked）");
 
             // 它是一个 QAbstractButton：`click()` / `toggled` / 禁用这些事都由基类管
-            //（见它的文件头）。这里量的是"点一下真的翻过来了"。
+            // （见它的文件头）。这里量的是"点一下真的翻过来了"。
             int toggledCount = 0;
             bool lastValue = false;
             QObject::connect(&toggle, &ToggleSwitch::toggled, &toggle,
@@ -24817,15 +24409,15 @@ int main(int argc, char *argv[]) {
             // 判据落在"圆钮在哪一头"上：这是"开关"这个形状的全部意义 —— 只看颜色的话，
             // 一个不画圆钮的实现照样能过（而它看着就是一个色块，不是开关）。
             //
-            // ★★ 2026-10-14：**必须挂在一个父控件上量**。下面这几行原来是把开关当**顶层
-            //   窗口** `show()` 的：原生 windows 平台会给顶层窗口一个最小宽度（Win32 给
-            //   标题栏那三颗按钮留的位置），`resize(34, 18)` 之后 `width()` 实际成了
-            //   **120**。而 `paintEvent` 是照 `width()` 摆圆钮的 —— 这是对的，控件就该按
-            //   自己拿到的格子画 —— 于是"开着"那半边的圆钮被摆到了 x≈106，而这里按
-            //   `switchWidth()` 算出来的取样点还在 x≈25、量到的是**轨道的高亮色**。
-            //   这是只红在真 windows、offscreen 上恒绿的假红（那套桩平台不设最小宽度）。
-            //   挂到父控件上，`resize()` 给多少就是多少，两套平台量到的是同一枚开关。
-            //（那个 `host` 在 Z15a 这个块的开头就声明好了 —— 声明次序就是析构次序。）
+            // **必须挂在一个父控件上量**。下面这几行原来是把开关当**顶层
+            // 窗口** `show()` 的：原生 windows 平台会给顶层窗口一个最小宽度（Win32 给
+            // 标题栏那三颗按钮留的位置），`resize(34, 18)` 之后 `width()` 实际成了
+            // **120**。而 `paintEvent` 是照 `width()` 摆圆钮的 —— 这是对的，控件就该按
+            // 自己拿到的格子画 —— 于是"开着"那半边的圆钮被摆到了 x≈106，而这里按
+            // `switchWidth()` 算出来的取样点还在 x≈25、量到的是**轨道的高亮色**。
+            // 这是只红在真 windows、offscreen 上恒绿的假红（那套桩平台不设最小宽度）。
+            // 挂到父控件上，`resize()` 给多少就是多少，两套平台量到的是同一枚开关。
+            // （那个 `host` 在 Z15a 这个块的开头就声明好了 —— 声明次序就是析构次序。）
             toggle.setParent(&host);
             toggle.resize(ToggleSwitch::switchWidth(), ToggleSwitch::switchHeight());
             toggle.show();
@@ -24849,11 +24441,11 @@ int main(int argc, char *argv[]) {
             const int onTrackX = knobMargin + 1;
 
             // NOTE: 比的是 **8 位的 `.rgb()`**，不是 `QColor::operator==`。Qt 6 里颜色内部
-            //       是 16 位一通道，而 Fusion 的 `Mid` / `Highlight` 是从基色上
-            //       `darker()` / `lighter()` 推出来的 —— 那一步算出来的 16 位值不是 257 的
-            //       整数倍，于是"画出来的像素"（8 位还原成 16 位）和"调色板里那个颜色"
-            //       在 `==` 下**不相等**，而 `.name()` 打印出来一模一样（这一条第一次跑
-            //       就是这么红的）。这对任何一个从调色板取色的像素断言都成立。
+            // 是 16 位一通道，而 Fusion 的 `Mid` / `Highlight` 是从基色上
+            // `darker()` / `lighter()` 推出来的 —— 那一步算出来的 16 位值不是 257 的
+            // 整数倍，于是"画出来的像素"（8 位还原成 16 位）和"调色板里那个颜色"
+            // 在 `==` 下**不相等**，而 `.name()` 打印出来一模一样（这一条第一次跑
+            // 就是这么红的）。这对任何一个从调色板取色的像素断言都成立。
             const auto paintRgb = [](const QColor &color) { return color.rgb(); };
             toggle.setChecked(false);
             toggle.repaint();
@@ -24893,7 +24485,7 @@ int main(int argc, char *argv[]) {
             using MotdText::pieceColor;
 
             // 颜色码 + 字形码：都是"从这里往后都算"，而且在**码的字面上**就该断成两段
-            //（一段一个颜色/字形，画的人才能一段一段量宽度）。
+            // （一段一个颜色/字形，画的人才能一段一段量宽度）。
             const QVector<MotdPiece> colored = parse(QStringLiteral("§a绿§l粗"));
             check(colored.size() == 2,
                   "★ Z15b `§a绿§l粗` 拆成两段（颜色码和字形码处各断一次）",
@@ -25044,11 +24636,6 @@ int main(int argc, char *argv[]) {
             dialog.setInstanceDir(root);
             dialog.setFileDirs(dirs);
             dialog.show();
-            // ★ 2026-09-29：**先把模组那一页摆到台前再量行**。同一条记录写在
-            //   InstanceFilesPage::setDirectory() 里：看不见的那几页现在**不建行**
-            //   （开页时七个目录一次列完，用户看的却常常是「概览」—— 白列七遍正是"点进
-            //   实例设置会卡一下"的那个卡）。下面这一节量的全是**行上的东西**（行首那格
-            //   图标 / 真图标换上去 / 开关 / 垃圾桶），所以每一页都得先摆过来、列一遍。
             dialog.showPage(QStringLiteral("mod"));
 
             const auto iconLabelAt = [](InstanceFilesPage *page, int row) -> QLabel * {
@@ -25085,10 +24672,6 @@ int main(int argc, char *argv[]) {
                         continue;
                     }
                     ++pagesChecked;
-                    // ★ 2026-09-29：这一条量的是「**每一页**每一行」，而看不见的那几页
-                    //   现在不建行 ⇒ 量之前先把这一页列一遍（`refresh()` 正是"这一页被
-                    //   摆到台前"那一刻调的那一个，见 setDirectory()）。这一节底下那几个
-                    //   块本来也都是显式 `refresh()` 之后再量的。
                     page->refresh();
                     for (int row = 0; row < page->list()->count(); ++row) {
                         ++rowsChecked;
@@ -25174,7 +24757,7 @@ int main(int argc, char *argv[]) {
                   "「清空 + 重建行」，图不记在页上的话，用户每刷新一次就退回占位图、"
                   "而图标是读盘+联网几秒才回来的（那几秒里看着像「图标没了」）");
 
-            // ---- ★★ 禁用之后**还是这张图**（2026-10-10，用户报的「模组禁用以后图标没了」）----
+            // ---- ★★ 禁用之后**还是这张图**（，用户报的「模组禁用以后图标没了」）----
             //
             // 这一段是那一条的红绿钉子：**真的在盘上改一次名**（`X.jar` → `X.jar.disabled`，
             // 就是行尾那颗开关干的那件事，见 disabledSuffix），再让这一页重列一遍 ——
@@ -25263,14 +24846,14 @@ int main(int argc, char *argv[]) {
 
             // ---- 真图标**比这一格大**的时候：缩进这一格，不许只露左上角 ----
             //
-            // ★ 2026-09-27 补，用户截图报的「图标虽然加载了，但是只显现了左上角的一小部分」。
-            //   真因是 `QLabel::setPixmap()` **不缩放** —— 它按 pixmap 本来的尺寸画，超出控件
-            //   的那一块直接裁掉。而接口给的那张图本来就不是这一格的大小：Modrinth 那条
-            //   `_96.webp` 是 96 px，`icon.png` 那条是**原图**（几百 px 的也有），而这一格只有
-            //   `instanceFileIconSize()`（32）。于是每一张真图标都只露出左上角那一小块。
+            // 补，用户截图报的「图标虽然加载了，但是只显现了左上角的一小部分」。
+            // 真因是 `QLabel::setPixmap()` **不缩放** —— 它按 pixmap 本来的尺寸画，超出控件
+            // 的那一块直接裁掉。而接口给的那张图本来就不是这一格的大小：Modrinth 那条
+            // `_96.webp` 是 96 px，`icon.png` 那条是**原图**（几百 px 的也有），而这一格只有
+            // `instanceFileIconSize()`（32）。于是每一张真图标都只露出左上角那一小块。
             //
             // NOTE: 这个毛病**只有真图标真的加载出来了**才看得见（占位图本来就是照这一格的
-            //       尺寸画的），所以它和上面那一轮「图标没有正确加载」是前后脚冒出来的。
+            // 尺寸画的），所以它和上面那一轮「图标没有正确加载」是前后脚冒出来的。
             {
                 const auto labelPixmapFor = [&](const QString &path) -> QPixmap {
                     const int row = rowOfPath(mods, path);
@@ -25300,7 +24883,7 @@ int main(int argc, char *argv[]) {
                       "★ Z15c 而且缩的是**这一条的那张图**（量中心那一个像素）");
 
                 // ② 长方的（资源包封面那种形状）：**不许拉变形**。
-                //    96x48 缩进 32x32 这一格 = 32x16（KeepAspectRatio）；拉满会是 32x32。
+                // 96x48 缩进 32x32 这一格 = 32x16（KeepAspectRatio）；拉满会是 32x32。
                 QPixmap wide(96, 48);
                 wide.fill(QColor(0x99, 0x33, 0x22));
                 check(mods->setIconForPath(jarPath, wide), "Z15c 前提：96x48 那张收下了");
@@ -25328,7 +24911,7 @@ int main(int argc, char *argv[]) {
                       QStringLiteral("画出来 %1x%2").arg(shownSmall.width()).arg(shownSmall.height()));
 
                 // ④ 缩过的图**不落进那一份存底**：刷新（=清空+重建行）之后拿到的还是同一张
-                //    缩过的图，而不是"缩过一次的 96 又缩一次"那种越缩越小的东西。
+                // 缩过的图，而不是"缩过一次的 96 又缩一次"那种越缩越小的东西。
                 mods->refresh();
                 const QPixmap shownAfterRefresh = labelPixmapFor(jarPath);
                 check(!shownAfterRefresh.isNull() && shownAfterRefresh.width() == 16 &&
@@ -25392,18 +24975,10 @@ int main(int argc, char *argv[]) {
 
             // ---- 存档那一页：那一行**没有**开关（游戏不会自己去扫 saves/）----
             //
-            // ★ 2026-09-27 补，用户报「存档文件的图像没获取到」。这一页列的全是**目录**
-            //   （`saves/<世界名>/`）：目录没有哈希、也不在任何平台的清单里，所以"按内容
-            //   反查身份"那条路对它们**永远**是空的（`MainWindow::instanceIconCandidatePaths()`
-            //   连 `saves/` 都不列，理由写在那边）。可是**世界自己带着缩略图** —— 游戏每次
-            //   存世界都会往存档目录里写一张 `icon.png`。见 InstanceFilesPage.cpp 里
-            //   `directoryThumbnail()` 那段。
-            //
             // NOTE: 这一条只能拿**盘上真写一张图**来量。屏幕上"有图"和"没图"的区别就是那
-            //       一格的两个像素，而占位图（文件夹字形）和真图在这一格上都是不透明的
-            //       —— 不真写一张进去，写坏的实现和写对的实现长得一模一样。
+            // 一格的两个像素，而占位图（文件夹字形）和真图在这一格上都是不透明的
+            // —— 不真写一张进去，写坏的实现和写对的实现长得一模一样。
             InstanceFilesPage *saves = dialog.filesPage(QStringLiteral("save"));
-            // ★ 2026-09-29：**存档那一页也先摆到台前**（理由逐字同这一节开头那一段）。
             dialog.showPage(QStringLiteral("save"));
             check(saves != nullptr && saves->list() != nullptr && saves->list()->count() == 3,
                   "Z15c 前提：存档那一页列出那三个世界（「目录里没图」那一条要有一个没图的"
@@ -25467,7 +25042,7 @@ int main(int argc, char *argv[]) {
             Dlg dialog(QStringLiteral("Z15 实例"), QStringLiteral("z15-instance"),
                        Dlg::Override(), Dlg::GlobalValues(), QStringList(), true);
             dialog.show();
-            // 按**键**跳页：这一页照旧有（2026-09-27 起它跟在七条可选页里，左栏里列得出来）。
+            // 按**键**跳页：这一页照旧有（ 起它跟在七条可选页里，左栏里列得出来）。
             dialog.showPage(Dlg::serverPageKey());
             QTreeWidget *tree = dialog.serverTree();
             check(tree != nullptr, "Z15d 服务器那一页的表在");
@@ -25519,9 +25094,9 @@ int main(int argc, char *argv[]) {
 
             // ---- 进页自动测速：切到那一页就发一次 serverPageEntered() ----
             //
-            // ★ 这一条盖的是**发出**那一半。收的那一半是 MainWindow 里的一行 connect
-            //   （`serverPageEntered → pingServers`）—— 那条是编译期就钉住的（信号名写错
-            //   根本编不过），所以真正可能悄悄坏掉的是"这一页到底发不发"。
+            // 这一条盖的是**发出**那一半。收的那一半是 MainWindow 里的一行 connect
+            // （`serverPageEntered → pingServers`）—— 那条是编译期就钉住的（信号名写错
+            // 根本编不过），所以真正可能悄悄坏掉的是"这一页到底发不发"。
             int entered = 0;
             QObject::connect(&dialog, &Dlg::serverPageEntered, &dialog, [&entered]() { ++entered; });
             dialog.showPage(QStringLiteral("mod"));
@@ -25541,10 +25116,6 @@ int main(int argc, char *argv[]) {
                   "★ Z15d 切走再切回来**再发一次**（「点进去」是一个动作，不是一次性开关）"
                   "—— 重复那几趟不会并发（MainWindow 那边有一道闸）",
                   QStringLiteral("%1 次").arg(entered));
-            // ★ 2026-09-27 补：**同一页重复摆不发第二发**。showPage() 里"选中左栏那一条"
-            //   那一发底下还会再摆一次（见 applyPageKey 里那条 alreadyHere），靠 stack 那一格
-            //   判"是不是真的换过去了"才没变成一发换页两次连接。多发一次的症状是**白连一轮**：
-            //   用户看到的是"每次翻页都要多等一次超时"。
             dialog.showPage(Dlg::serverPageKey());
             check(entered == 2,
                   "★ Z15d 已经在这一页上「再进一次」不重复发（重复发不会报错，只会白连一轮）",
@@ -25556,10 +25127,10 @@ int main(int argc, char *argv[]) {
             // 屏幕上还是一样的灰字 —— 所以这一条把那一行真画一遍（代理的 paint() 直接
             // 落到一张白底图上），量**墨的颜色**和**墨的高低**。
             //
-            // ★ 判据取的是"两段不同颜色的墨落在两个高度上"：
-            //   * 只有一段绿 ⇒ MOTD 整个没画（或者颜色丢了）；
-            //   * 两段同一高度 ⇒ 换行被吞了（第二行压在第一行上）；
-            //   * 绿在红**下面** ⇒ 行序反了。
+            // 判据取的是"两段不同颜色的墨落在两个高度上"：
+            // * 只有一段绿 ⇒ MOTD 整个没画（或者颜色丢了）；
+            // * 两段同一高度 ⇒ 换行被吞了（第二行压在第一行上）；
+            // * 绿在红**下面** ⇒ 行序反了。
             // 三种错在屏幕上的样子都只是"这行字有点怪"，没人会当成 bug 报上来。
             {
                 auto *delegate =
@@ -25592,22 +25163,6 @@ int main(int argc, char *argv[]) {
                     delegate->paint(&painter, opt, liveIndex);
                 }
 
-                // ★★ 2026-10-14：判据原来只问"绿通道比另两个大一大截"，在真 windows 上被
-                //   **ClearType 的彩边**骗了。真 windows 文字默认走次像素抗锯齿：抗锯齿是
-                //   按 R/G/B 三个子像素**分别**算覆盖率的，于是白底黑字（和灰字）的**边沿
-                //   像素**会带出一族三通道被拉得七零八落的颜色 —— 这一条第一次在真机上跑时
-                //   量到的是 `(255,182,102)`、`(102,0,0)`、`(143,57,0)`、`(255,213,169)`。
-                //   它们里有的是红主导的，于是被判成"红字"：量出来的红墨横跨 y=10..53
-                //   （整块文字区、连第一行那四个黑字都算进去了），绿墨才 y=19..39 ⇒
-                //   `红在上面`、这一条恒假。offscreen 那套桩平台给的是灰度抗锯齿、没有彩边，
-                //   所以它一直只红在真机上（假红）。
-                //   ⇒ 把判据收成**"这就是 MOTD 那两个纯色"**（收紧，不是放宽）：游戏里
-                //   `§a` 是 `#55ff55`、`§c` 是 `#ff5555`，代理照白底压过一档之后量到的
-                //   真身是 `(52,155,52)` 和 `(255,85,85)` —— 这两个色的**两个弱通道彼此
-                //   相等**（绿：R=B；红：G=B）、而且都不是 0；ClearType 的彩边恰恰是把这个
-                //   相等关系拉开的。三条一起判：主通道亮一大截 + 两个弱通道相等 + 弱通道
-                //   不是黑洞。
-                //   （试过在字体上关掉次像素抗锯齿 —— 真机上这圈彩边照旧，所以不走那条路。）
                 const auto isMotdGreen = [](const QColor &c) {
                     return c.green() > 150 && c.red() > 30 && c.blue() > 30 &&
                            c.green() > c.red() + 50 && c.green() > c.blue() + 50 &&
@@ -25687,10 +25242,9 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // ==================================================================
     std::printf("\n===== Z16. 「世界设置」那一页（点存档行尾那支笔之后，2026-09-28） =====\n");
     // ==================================================================
-    // 用户原话：「世界根据其存档文件在存档设置（那支笔）里面编辑游戏规则等，打开之前
+    // 要求：「世界根据其存档文件在存档设置（那支笔）里面编辑游戏规则等，打开之前
     // 弹出坏档警告并提供备份按钮」—— 这一页就是那句话里"在里面编辑"那一半。
     //
     // 这一层验的是**页面上摆的东西**：摆进去的那一份在不在格子里、改过之后收回来的是不是
@@ -25700,10 +25254,6 @@ int main(int argc, char *argv[]) {
         WorldSettingsPage page;
         page.show();
 
-        // ★ 2026-10-10：规则那格的搜索框**防抖 200 ms**（`WorldSettingsPage.cpp` 的
-        //   `kRuleFilterDelayMs`：每敲一个字都重摆整列几十条规则，实测 1.67 ms 一次，连着敲
-        //   就是连着摆）⇒ `setText()` 之后**要等手停下来**才摆，同步读列表读到的是上一发的
-        //   结果。这一小段把「等够」写在一处，别每个调用点摊一遍。
         const auto settleFilter = [] {
             QElapsedTimer span;
             span.start();
@@ -25713,16 +25263,16 @@ int main(int argc, char *argv[]) {
         };
         settleFilter();   // 让 `page.show()` 之后还悬着的那些事件先落地
 
-        // ★★ 2026-09-29：**还没摆过任何世界**的这一页必须是干净的。
+        // **还没摆过任何世界**的这一页必须是干净的。
         //
-        //    这一条是补一个真踩到的回归：那四格原来是"盘上没有这一项就 `setEnabled(false)`
-        //    灰掉、也不收它的值"，现在它们一律可动、`editedView()` 也就一律收 —— 于是"难度"
-        //    那一格收上来的是**下拉框的当前项**，而刚建出来的下拉框停在第一项（0 和平），
-        //    基线的 `WorldView()` 里写的却是 2（普通）。两个对不上 ⇒ 这一页凭空是脏的。
+        // 这一条是补一个真踩到的回归：那四格原来是"盘上没有这一项就 `setEnabled(false)`
+        // 灰掉、也不收它的值"，现在它们一律可动、`editedView()` 也就一律收 —— 于是"难度"
+        // 那一格收上来的是**下拉框的当前项**，而刚建出来的下拉框停在第一项（0 和平），
+        // 基线的 `WorldView()` 里写的却是 2（普通）。两个对不上 ⇒ 这一页凭空是脏的。
         //
-        //    后果不是"少问一句"，而是**反过来**：`InstanceSettingsDialog::reject()` 拿
-        //    `isDirty()` 挡顶上的返回箭头 ⇒ 用户开一下实例设置、什么都没改，按返回**关不掉**
-        //    （那一头接到的是"改过还没存，丢不丢"）。所以这一条钉的是"构造完就是干净的"。
+        // 后果不是"少问一句"，而是**反过来**：`InstanceSettingsDialog::reject()` 拿
+        // `isDirty()` 挡顶上的返回箭头 ⇒ 用户开一下实例设置、什么都没改，按返回**关不掉**
+        // （那一头接到的是"改过还没存，丢不丢"）。所以这一条钉的是"构造完就是干净的"。
         check(!page.isDirty(),
               "★★ Z16a 刚 new 出来、还没 setWorld 的那一页是**干净的**（脏的话，实例设置"
               "顶上那颗返回箭头会被一句没影的「改过还没存」挡下来 —— 界面上就是按了没反应）");
@@ -25737,7 +25287,7 @@ int main(int argc, char *argv[]) {
         view.formatText = QStringLiteral("3465");
         view.hasLastPlayed = true;
         view.lastPlayedMs = 1758960000000LL;
-        // §9.6 的只读概况（2026-10-18）：大小 / 种子 / 玩家位置 / 已生成区域。
+        // §9.6 的只读概况：大小 / 种子 / 玩家位置 / 已生成区域。
         view.hasSize = true;
         view.sizeText = QStringLiteral("123.4 MB");
         view.hasSeed = true;
@@ -25758,27 +25308,24 @@ int main(int argc, char *argv[]) {
         view.rules = {
             {QStringLiteral("keepInventory"), QStringLiteral("true"), WorldSettingsPage::Kind::Bool},
             {QStringLiteral("randomTickSpeed"), QStringLiteral("3"), WorldSettingsPage::Kind::Int},
-            // ★ 第三条 `inFile = false`：**盘上没有这一条**（主程序摆进来的是并过全集的
-            //   那一列），屏幕上摆的是游戏默认值 —— 界面上要挂一枚「默认」小标记。
+            // 第三条 `inFile = false`：**盘上没有这一条**（主程序摆进来的是并过全集的
+            // 那一列），屏幕上摆的是游戏默认值 —— 界面上要挂一枚「默认」小标记。
             {QStringLiteral("motdStyle"), QStringLiteral("花哨"), WorldSettingsPage::Kind::Text,
              /*inFile=*/false},
         };
         page.setWorld(view);
 
         {
-            // ★★ 行宽必须**跟着视口走**（2026-09-29 顺着用户那句"排版"一起修的）。
+            // 行宽必须**跟着视口走**（ 顺着用户那句"排版"一起修的）。
             //
-            //    真踩到的（ui_shot 的 10j2b 那张截图放大看出来的）：规则行的宽度比视口**宽了
-            //    一条竖滚动条**，行尾那颗开关的右半边被视口切掉、看着像被谁咬了一口。
+            // 根因是 Qt 布局那一趟的次序：这一列的行是**在折叠框还收着的时候**建的（那时
+            // 列表根本没有大小 —— 探针量到的是 100x0），摆开之后视图先按"还没有滚动条"的
+            // 宽度摆了一遍（行 635、视口 621，差 14 = 滚动条宽），等滚动条露出来、视口缩窄，
+            // **没有第二趟**回来改行的宽度。
             //
-            //    根因是 Qt 布局那一趟的次序：这一列的行是**在折叠框还收着的时候**建的（那时
-            //    列表根本没有大小 —— 探针量到的是 100x0），摆开之后视图先按"还没有滚动条"的
-            //    宽度摆了一遍（行 635、视口 621，差 14 = 滚动条宽），等滚动条露出来、视口缩窄，
-            //    **没有第二趟**回来改行的宽度。
-            //
-            //    所以这一条走的是**那条真路**：另起干干净净的一页 ⇒ 造行（框还收着）⇒ 第一次
-            //    摆开 ⇒ 马上量。用外面那一页量不出来 —— 它在这之前已经被摆开又收起过一次，
-            //    多的那几趟布局把宽度自己捯饬整齐了，量出来恒绿（这就是"假绿"）。
+            // 所以这一条走的是**那条真路**：另起干干净净的一页 ⇒ 造行（框还收着）⇒ 第一次
+            // 摆开 ⇒ 马上量。用外面那一页量不出来 —— 它在这之前已经被摆开又收起过一次，
+            // 多的那几趟布局把宽度自己捯饬整齐了，量出来恒绿（这就是"假绿"）。
             WorldSettingsPage probe;
             probe.show();
             probe.resize(900, 420);   // 挤到规则表非滚不可
@@ -25818,17 +25365,15 @@ int main(int argc, char *argv[]) {
                       : worst);
         }
 
-        // ★★ 2026-09-29：**规则表就在那个折叠框里**（和上面那四格同一个待遇）。
+        // 要求：「下面的 gamerules 不会改坏吗，如果可能会的话也放到那个框里去」。
+        // 游戏规则改的也是 `<存档目录>/level.dat`（`Data/GameRules` 那一格），和「世界名 /
+        // 允许作弊 / 极限模式 / 难度」是**同一份文件**、同一档风险、同一句备份警告 ——
+        // 所以它们现在一起收在「修改存档文件」那个框里（一起摊在屏幕上才是错的切法：
+        // 那个切法按的是"游戏里能不能用 /gamerule 改"，而安全该按**动的是哪份文件**分）。
         //
-        //    用户原话：「下面的 gamerules 不会改坏吗，如果可能会的话也放到那个框里去」。
-        //    游戏规则改的也是 `<存档目录>/level.dat`（`Data/GameRules` 那一格），和「世界名 /
-        //    允许作弊 / 极限模式 / 难度」是**同一份文件**、同一档风险、同一句备份警告 ——
-        //    所以它们现在一起收在「修改存档文件」那个框里（一起摊在屏幕上才是错的切法：
-        //    那个切法按的是"游戏里能不能用 /gamerule 改"，而安全该按**动的是哪份文件**分）。
-        //
-        //    判据用 `parentWidget()`（**结构**：它归不归那个框管）+ `isHidden()`（那句
-        //    `setVisible(false)` 摆没摆），**不用** `isVisible()` —— 后者在"整层都还没露面"
-        //    的场合恒假，量出来的是"这台机器上露没露"，不是"它在不在框里"。
+        // 判据用 `parentWidget()`（**结构**：它归不归那个框管）+ `isHidden()`（那句
+        // `setVisible(false)` 摆没摆），**不用** `isVisible()` —— 后者在"整层都还没露面"
+        // 的场合恒假，量出来的是"这台机器上露没露"，不是"它在不在框里"。
         check(page.ruleList()->parentWidget() == page.fileBody() &&
                   page.ruleFilter()->parentWidget() == page.fileBody(),
               "★★ Z16a 规则表（连它的搜索框）是**那个折叠框的子控件** —— 规则也写在 level.dat "
@@ -25848,7 +25393,7 @@ int main(int argc, char *argv[]) {
                   infoLabel->text().contains(QStringLiteral("游戏版本 1.20.1")),
               "Z16a 那行只读的事实里有游戏版本（缺的那几位不写，不拿 0 / 空串顶替）",
               infoLabel == nullptr ? QStringLiteral("找不到那行字") : infoLabel->text());
-        // §9.6（2026-10-18）：那行事实多了四件只读的 —— 大小 / 种子 / 玩家位置 / 已生成区域。
+        // §9.6：那行事实多了四件只读的 —— 大小 / 种子 / 玩家位置 / 已生成区域。
         check(infoLabel != nullptr && infoLabel->text().contains(QStringLiteral("大小 123.4 MB")),
               "★★ Z16a 那行事实里有这个世界的**大小**（§9.6 第一条要的只读摘要）",
               infoLabel == nullptr ? QStringLiteral("找不到那行字") : infoLabel->text());
@@ -25897,17 +25442,15 @@ int main(int argc, char *argv[]) {
         check(page.ruleList()->count() == 3, "Z16a 三条规则三条行",
               QString::number(page.ruleList()->count()));
         {
-            // ★★ 2026-09-29 用户原话：「没有展开的时候排版太诡异了修一下」。
+            // 症状（10j2 那张图）：那行只读的事实**悬在页面中间**、底下那颗「修改存档文件」
+            // 被甩到页底。根因不是这一页写了什么字，是 `QVBoxLayout` 的默认规矩：**场上没有
+            // 任何一项带 stretch 时，多余的高度平分给所有能长高的项** —— 框收着的时候那个
+            // 折叠框里一列规则是空的（藏着的项在布局里直接跳过），场上就只剩那行字和这颗钮。
+            // 修法见产品里 `m_bodyTail` 那一段（收尾挂一根弹簧，收着时 stretch = 1）。
             //
-            //    症状（10j2 那张图）：那行只读的事实**悬在页面中间**、底下那颗「修改存档文件」
-            //    被甩到页底。根因不是这一页写了什么字，是 `QVBoxLayout` 的默认规矩：**场上没有
-            //    任何一项带 stretch 时，多余的高度平分给所有能长高的项** —— 框收着的时候那个
-            //    折叠框里一列规则是空的（藏着的项在布局里直接跳过），场上就只剩那行字和这颗钮。
-            //    修法见产品里 `m_bodyTail` 那一段（收尾挂一根弹簧，收着时 stretch = 1）。
-            //
-            //    判据量两样、都量**几何**：那行字不比自己需要的高（`heightForWidth()` 那一份
-            //    —— 它开着 `setWordWrap(true)`，按 900 宽算出来的可能是两行，`sizeHint()`
-            //    只给一行），以及那颗钮紧贴在它下面（同父，y 可比）。
+            // 判据量两样、都量**几何**：那行字不比自己需要的高（`heightForWidth()` 那一份
+            // —— 它开着 `setWordWrap(true)`，按 900 宽算出来的可能是两行，`sizeHint()`
+            // 只给一行），以及那颗钮紧贴在它下面（同父，y 可比）。
             page.resize(900, 700);
             QApplication::processEvents();
             QLabel *info = page.infoLabel();
@@ -25933,20 +25476,13 @@ int main(int argc, char *argv[]) {
                             .arg(info->y() + info->height())
                             .arg(toggle->y()));
         }
-        // ★ 这一条是**看图看出来的**（10j2 那张截图第一行是蓝的）：这个列表不该有"当前项"
-        //   —— 有的话 Fusion 会把第 0 行整行染一遍，看着像"这一条被选中了"，而这一页的每
-        //   一行都是一个自己摆的控件、根本没有"选中"这回事。
         check(page.ruleList()->currentRow() < 0 && !page.ruleList()->hasFocus(),
               "★ Z16a 规则表里没有「当前项」（不然第 0 行会被整行染一遍，看着像被选中了）",
               QStringLiteral("currentRow = %1").arg(page.ruleList()->currentRow()));
         {
-            // ★★ 这一条也是**看图看出来的**（10j2 那张截图第 0 行是蓝的）：那一行的背景
-            //    和别的行**不一样**。这一页每一行都是一个自己摆的控件、没有"选中/当前"这
-            //    回事，所以各行的底色该是一模一样 —— 这里直接量那两个像素。
-            //
-            // ★ 2026-09-29：这张表现在收在折叠框里，**必须先把它摆开**才量得到像素 ——
-            //   藏着的控件没有过布局（视口大小是建出来那个默认值），`grab()` 出来的东西
-            //   不反映真实摆法。量完再收回去（下面那一段量的是"默认收起"）。
+            // 这张表现在收在折叠框里，**必须先把它摆开**才量得到像素 ——
+            // 藏着的控件没有过布局（视口大小是建出来那个默认值），`grab()` 出来的东西
+            // 不反映真实摆法。量完再收回去（下面那一段量的是"默认收起"）。
             page.setFileEditingOpen(true);
             page.resize(900, 700);
             QApplication::processEvents();
@@ -25955,12 +25491,12 @@ int main(int argc, char *argv[]) {
             const QColor first = shot.pixelColor(shot.width() / 2, qMax(1, h / 2));
             const QColor second = shot.pixelColor(shot.width() / 2, qMax(1, h + h / 2));
             // NOTE: 这一条一开始量出来是红的（第 0 行 `#e7f2f9`、第 1 行 `#ffffff`）。
-            //       根因：`addItem()` 之后、视图**第一次布局**那一下 Qt 会把第 0 行设成
-            //       **当前项**（`setWorld()` 那一刻 `currentRow()` 还是 -1，`resize()`
-            //       之后就变成 0），而 Fusion 画当前项用的是一道**竖渐变**；
-            //       `setSelectionMode(NoSelection)` 拦不住它（那一位管的是"选中"，管不着
-            //       "当前项"）。产品那边是在**画的这一侧**掐掉的（见 RuleItemDelegate
-            //       —— 试过"摆完内容清一下当前项"，没用：下一次布局它又回来）。
+            // 根因：`addItem()` 之后、视图**第一次布局**那一下 Qt 会把第 0 行设成
+            // **当前项**（`setWorld()` 那一刻 `currentRow()` 还是 -1，`resize()`
+            // 之后就变成 0），而 Fusion 画当前项用的是一道**竖渐变**；
+            // `setSelectionMode(NoSelection)` 拦不住它（那一位管的是"选中"，管不着
+            // "当前项"）。产品那边是在**画的这一侧**掐掉的（见 RuleItemDelegate
+            // —— 试过"摆完内容清一下当前项"，没用：下一次布局它又回来）。
             check(first == second,
                   "★★ Z16a 第 0 行的底色和第 1 行**一模一样**（不一样的底色看着像"
                   "「这一条被选中了」）",
@@ -25976,12 +25512,10 @@ int main(int argc, char *argv[]) {
               "Z16a 那一行是哪一条看的是 item 上那个角色（**不是**行上写着的那串字 —— "
               "从 2026-09-29 起行上盖的是官方中文名）");
         {
-            // ★★ 2026-09-29 用户原话：「游戏规则的英文拿一层对应的官方中文覆盖上去」。
-            //
-            //    盖的这一层是 `GameRuleNames`（官方 `zh_cn.json` 里 `gamerule.<名字>` 那一条，
-            //    出处见那个文件头）——**认不出来就原样回英文**，所以模组写的规则、比那张表还新
-            //    的规则最坏也只是回到改造之前的样子。英文名**没有丢**：它退到 tooltip 里了
-            //    （它才是写进 `level.dat` 的那个键，也是游戏里 `/gamerule` 要打的那个词）。
+            // 盖的这一层是 `GameRuleNames`（官方 `zh_cn.json` 里 `gamerule.<名字>` 那一条，
+            // 出处见那个文件头）——**认不出来就原样回英文**，所以模组写的规则、比那张表还新
+            // 的规则最坏也只是回到改造之前的样子。英文名**没有丢**：它退到 tooltip 里了
+            // （它才是写进 `level.dat` 的那个键，也是游戏里 `/gamerule` 要打的那个词）。
             QWidget *row0 = page.ruleList()->itemWidget(page.ruleList()->item(0));
             QLabel *name = row0 == nullptr
                                ? nullptr
@@ -26023,9 +25557,9 @@ int main(int argc, char *argv[]) {
                   page.ruleEditorAt(2)->validator() == nullptr,
               "Z16a 别的那种值是随便填的（不校验）");
 
-        // ---- 2026-09-29：那一列是**全集**，盘上没有的那几条要看得出来 ----
+        // ---- ：那一列是**全集**，盘上没有的那几条要看得出来 ----
         //
-        // 用户原话「下面的世界设置不要要求进了世界才显示而是把所有的都列出来」。主程序摆
+        // 要求「下面的世界设置不要要求进了世界才显示而是把所有的都列出来」。主程序摆
         // 进来的是并过全集的那一列（盘上那几条 + 启动器认识的那些，缺的用游戏默认值），
         // 所以屏幕上会混着两种行 —— 不标出来的话，用户会以为"这个世界本来就是这样"。
         {
@@ -26039,9 +25573,9 @@ int main(int argc, char *argv[]) {
                   "两种行混在一列里，不标出来用户会以为「屏幕上摆的就是这个世界本来的样子」");
             WorldSettingsPage raw;
             raw.setWorld(view);
-            // ★ 2026-09-29：那一列现在收在折叠框里，所以"这一列是怎么来的"这句小字**只在框
-            //   开着的时候说** —— 收着的时候屏幕上没有那个列表，说它等于让用户去找一样看不
-            //   见的东西。这两条一句盯半边。
+            // 那一列现在收在折叠框里，所以"这一列是怎么来的"这句小字**只在框
+            // 开着的时候说** —— 收着的时候屏幕上没有那个列表，说它等于让用户去找一样看不
+            // 见的东西。这两条一句盯半边。
             check(!raw.noteLabel()->text().contains(WorldSettingsPage::rulesSourceHint(true)),
                   "★ Z16a 框收着时底下不说「那一列」是怎么来的（屏幕上根本没有那一列）",
                   raw.noteLabel()->text());
@@ -26052,9 +25586,9 @@ int main(int argc, char *argv[]) {
                   raw.noteLabel()->text());
         }
 
-        // ---- 2026-09-29：「修改存档文件」那个折叠框，**默认收起** ----
+        // ---- ：「修改存档文件」那个折叠框，**默认收起** ----
         //
-        // 用户原话「修改文件的设置放在一个类似版本下载那里的收起来的框里，默认收起，展开是
+        // 要求「修改文件的设置放在一个类似版本下载那里的收起来的框里，默认收起，展开是
         // 弹出备份警告」。这一层量的是"收没收"和"点了发不发信号"；**那一句警告在
         // MainWindow 那一层弹**（见 mw_check 的 T27.7），这一页只负责发
         // `fileEditingRequested()`。
@@ -26063,7 +25597,6 @@ int main(int argc, char *argv[]) {
                       !page.fileBody()->isVisible(),
                   "★★ Z16a 那个折叠框**默认收起**（世界名 / 允许作弊 / 极限模式 / 难度这四格，"
                   "加上 2026-09-29 搬进来的那一整列游戏规则，一个都不该一进来就摊在屏幕上）");
-            // ★ 2026-09-29：那颗钮的 tooltip 也要把规则算进去 —— 它列的就是"这个框里有什么"。
             check(page.fileToggle()->toolTip().contains(QStringLiteral("游戏规则")),
                   "★ Z16a 那颗钮的 tooltip 里点到了游戏规则（框里现在装的是那两拨东西）",
                   page.fileToggle()->toolTip());
@@ -26085,9 +25618,9 @@ int main(int argc, char *argv[]) {
                   "★★ Z16a 点那颗钮发的是「用户想改文件了」（`fileEditingRequested(true)`）"
                   "—— 那一句备份警告在主程序那一层弹",
                   QStringLiteral("发了 %1 次").arg(editingCount));
-            // ★★ 这条盯的是 `setFileEditingOpen()` 里那句 `QSignalBlocker`：不挡的话，
-            //    主程序答完之后拿这个函数把框摆开，会**顺着 `toggled` 再发一次**信号 ——
-            //    用户点一下、警告弹两次，第二次是在他刚答应完之后弹的。
+            // 这条盯的是 `setFileEditingOpen()` 里那句 `QSignalBlocker`：不挡的话，
+            // 主程序答完之后拿这个函数把框摆开，会**顺着 `toggled` 再发一次**信号 ——
+            // 用户点一下、警告弹两次，第二次是在他刚答应完之后弹的。
             page.setFileEditingOpen(false);
             check(!page.fileToggle()->isChecked() && !page.fileBody()->isVisible(),
                   "★ Z16a `setFileEditingOpen(false)` 把框收回去（用户选了「取消」那一档）");
@@ -26125,9 +25658,9 @@ int main(int argc, char *argv[]) {
 
         // ---- 筛掉的那些**不许被顺手清空**（最容易写错的一格）----
         {
-            // ★ 2026-09-29：屏幕上那一格现在盖的是**官方中文名**，所以用户记着的那个词很
-            //   可能也是中文（「物品栏」）。筛的时候**两个名字都得认**：中文那一侧要能搜到，
-            //   英文那一侧（`/gamerule` 要打的那个词、也是存档里的键）也不能搜不到。
+            // 屏幕上那一格现在盖的是**官方中文名**，所以用户记着的那个词很
+            // 可能也是中文（「物品栏」）。筛的时候**两个名字都得认**：中文那一侧要能搜到，
+            // 英文那一侧（`/gamerule` 要打的那个词、也是存档里的键）也不能搜不到。
             page.ruleFilter()->setText(QStringLiteral("物品栏"));
             settleFilter();   // 防抖（见 setWorld 上头那一段 ★）
             check(page.ruleList()->count() == 1 && page.ruleToggleAt(0) != nullptr,
@@ -26178,9 +25711,6 @@ int main(int argc, char *argv[]) {
         page.ruleEditorAt(1)->setText(QStringLiteral("7"));
         check(page.saveButton()->isEnabled(), "Z16d 填回去就又点得动了");
 
-        // ★★ 2026-10-20：筛掉的那一条**照样算数**。原来这里只量屏幕上摆出来的那几行
-        //   （`m_ruleList->count()`）⇒ "清空一条 → 在搜索框里搜个别的词把它筛掉"之后
-        //   「保存」重新点得动了，写下去的是一条空值。
         page.ruleEditorAt(1)->setText(QString());
         page.ruleFilter()->setText(QStringLiteral("motd"));
         settleFilter();
@@ -26227,10 +25757,10 @@ int main(int argc, char *argv[]) {
                   "★ Z16e 一条规则都没有 ⇒ 摆一句实话那一行（**产品里走不到这一档** —— "
                   "主程序摆进来的是并过全集的那一列，好几十条；留着是给「只摆了个空 "
                   "WorldView」那种场面一句话，而不是一片看着像「还没读完」的空白）");
-            // ★ 2026-09-29：这一句换人了 —— 原来是「这个存档里还没有游戏规则，进游戏玩一次
-            //   就会写进去」（`noAddHintText()`），现在是"这一列是怎么来的"的说明书。
-            //   `unwrapped` 是 `view` 拷来的，`hasRules` 还是 true ⇒ 走"有那一格"那一档。
-            //   ★ 那句话只在那个折叠框**开着**的时候说（上面 Z16a 那两条盯的就是这件事）。
+            // 这一句换人了 —— 原来是「这个存档里还没有游戏规则，进游戏玩一次
+            // 就会写进去」（`noAddHintText()`），现在是"这一列是怎么来的"的说明书。
+            // `unwrapped` 是 `view` 拷来的，`hasRules` 还是 true ⇒ 走"有那一格"那一档。
+            // 那句话只在那个折叠框**开着**的时候说（上面 Z16a 那两条盯的就是这件事）。
             raw.setFileEditingOpen(true);
             check(raw.noteLabel()->text().contains(WorldSettingsPage::rulesSourceHint(true)),
                   "★ Z16e 底下那行小字说的是「这一列是启动器认识的全部规则 + 盘上的值，"
@@ -26255,8 +25785,6 @@ int main(int argc, char *argv[]) {
                       broken.openFolderButton()->isVisible(),
                   "★★ Z16f 但「返回」「备份一份」「打开文件夹」都还在 —— 这一档最该做的就是"
                   "这三件事，不能是个死胡同");
-            // ★ 2026-09-29：这三颗也留在这一档里（用户原话把"这个世界能做的三件事"摆在这一
-            //   页的顶上）—— 读不出内容≠这个世界没了，改名和删掉仍然是该能做的事。
             check(broken.renameButton()->isVisible() && broken.deleteButton()->isVisible(),
                   "★★ Z16f 「重命名…」「删除世界…」也还在 —— 读不出存档内容，但这个世界还在"
                   "盘上，该能改名、该能删");
@@ -26275,8 +25803,6 @@ int main(int argc, char *argv[]) {
         int backupCount = 0;
         int openCount = 0;
         int backCount = 0;
-        // ★ 2026-09-29 新加的两颗（「重命名…」「删除世界…」）：它们和别的四颗一样 ——
-        //   这一层只发信号，弹输入框 / 弹确认框 / 真改盘 / 真删都在 MainWindow 那一层。
         int renameCount = 0;
         int deleteCount = 0;
         QObject::connect(&page, &WorldSettingsPage::saveRequested, &page,
@@ -26320,12 +25846,12 @@ int main(int argc, char *argv[]) {
               "并吃掉（和「配置文件」那一页同一个坑）",
               QStringLiteral("收到 %1 次").arg(backCount));
 
-        // ---- 2026-09-29：`deltaFromOpened()` —— "用户到底动了哪几格" ----
+        // ---- ：`deltaFromOpened()` —— "用户到底动了哪几格" ----
         //
-        // ★★ 这一段盯的是**产品纪律**：那四格现在一律可动（盘上没有的项在屏幕上摆的是游戏
-        //    默认值），而"用户没碰的那几格一个字节都不许写进存档"这条纪律全靠这一份差集兜着。
-        //    漏出去一位的症状是：用户只想改难度，主程序顺手把世界名 / 作弊 / 极限模式也按
-        //    屏幕上的值写了一遍 —— 屏幕上一点异常都没有。
+        // 这一段盯的是**产品纪律**：那四格现在一律可动（盘上没有的项在屏幕上摆的是游戏
+        // 默认值），而"用户没碰的那几格一个字节都不许写进存档"这条纪律全靠这一份差集兜着。
+        // 漏出去一位的症状是：用户只想改难度，主程序顺手把世界名 / 作弊 / 极限模式也按
+        // 屏幕上的值写了一遍 —— 屏幕上一点异常都没有。
         {
             WorldSettingsPage fresh;
             fresh.setWorld(view);
@@ -26380,9 +25906,6 @@ int main(int argc, char *argv[]) {
                   "白吃掉一格备份代数）");
         }
 
-        // ★★ 2026-10-20：盘上那一格带个尾空格 ⇒ **一打开不许算改过**（原来 `valueAt()`
-        //   会 trim：屏幕上那个值和 `m_opened` 一不等，这一页就成了"改过还没保存" ——
-        //   按返回会被问一句，保存还会顺手把那个空格吃掉）。
         {
             WorldSettingsPage spaced;
             WorldSettingsPage::WorldView spacedView = view;
@@ -26399,31 +25922,24 @@ int main(int argc, char *argv[]) {
     }
 
     // =====================================================================
-    // W. 主题那一层（2026-09-28）：背景 / 文字不透明度 / 每一块骨架能不能整套也能单独换
+    // W. 主题那一层：背景 / 文字不透明度 / 每一块骨架能不能整套也能单独换
     // =====================================================================
     //
-    // 用户原话是「各个地方的背景等允许切换，允许各个框架结构进行一个主题的切换（比如文本
+    // 要求是「各个地方的背景等允许切换，允许各个框架结构进行一个主题的切换（比如文本
     // 透明度等），先不急着做入口，把 ui 框架改成能高度个性化定义的状态」。这一层没有入口，
     // 界面上**看不出**它做没做对 —— 于是只能在这儿量。它要同时成立两件互相顶的事：
     //
-    //   ① 出厂那一份 = 今天的样子，**一个字节都不许动**（不然"加了一层框架"就变成了
-    //      "顺手改了配色"，而且跟着系统深浅走这件事会被钉死）；
-    //   ② 改过的那些项**真的**落到界面上（角色覆盖落到应用调色板、骨架覆盖落到每一处）。
-    //
-    // ★ 为什么这段非有不可：这一层是从各处那几句 `darker()` 里收出来的，收的时候只要有一
-    //   处"算了第二遍"或者"登记重复了一遍"，用户看到的就不是"颜色深了一档"而是**进程起不
-    //   来**。本轮实测踩到的正是后者：`applyBottomBarButtonStyle()` 里那句 `Theme::follow()`
-    //   每跑一趟就再生一个跟随者（而它本身就跑在"主题变了"的回调上）⇒ 栈溢出
-    //   `0xC00000FD`，一行输出都没有、屏幕上一点异常都看不到。加了这段之后，"跟随者越登记
-    //   越多"这件事至少有 W6 那两条盯着。
+    // ① 出厂那一份 = 今天的样子，**一个字节都不许动**（不然"加了一层框架"就变成了
+    // "顺手改了配色"，而且跟着系统深浅走这件事会被钉死）；
+    // ② 改过的那些项**真的**落到界面上（角色覆盖落到应用调色板、骨架覆盖落到每一处）。
     //
     // NOTE: 这一段会**动全局那一份主题**（`qApp->palette()` 也跟着动），所以摆在最后 ——
-    //       前面每一条断言量的都是"出厂那一份"下的几何与像素。收尾处会铺回出厂那一份。
+    // 前面每一条断言量的都是"出厂那一份"下的几何与像素。收尾处会铺回出厂那一份。
     std::printf("===== W. 主题那一层（背景 / 文字不透明度 / 每一块骨架） =====\n");
     {
         // 比色一律拿 `name(HexArgb)` 比字符串，不用 `QColor::operator==` —— 后者在 Qt 6 里
         // 比的是内部那 16 位分量（同一个八位色名构造两次也可能因为路径不同而不相等），
-        // 这条坑 2026-09-26 在别处踩过（见「启动提醒」那一段）。
+        // 这条坑 在别处踩过（见「启动提醒」那一段）。
         const auto sameColor = [](const QColor &a, const QColor &b) {
             return a.isValid() && b.isValid() && a.name(QColor::HexArgb) == b.name(QColor::HexArgb);
         };
@@ -26447,30 +25963,24 @@ int main(int argc, char *argv[]) {
               Theme::current().presetId);
 
         // ---------- W2 深色 / 浅色两个预设 ----------
-        // ★ 判据故意分成两截，因为"深浅那一档从哪儿来"是**平台决定**的：
+        // 判据故意分成两截，因为"深浅那一档从哪儿来"是**平台决定**的：
         //
-        //   ① 「请平台把深色那一档给我」+「照着它算一份基色」—— `QStyleHints::setColorScheme()`
-        //      在 **offscreen 那个平台插件上是空操作**（2026-09-28 用探针实测：调完之后
-        //      `colorScheme()` 恒 Unknown、`standardPalette()` 一次都没变过），而本工程正是
-        //      offscreen 跑的。所以这儿的写法是"平台认这一档时窗口底色必须真的是深的；平台
-        //      不认时调色板必须**一个字节不动**" —— 两种情况都有话说，不会因为"这台机器上
-        //      测不了"就假装通过。**真机那一趟在 ui_shot 的 30) 里量**（那边是原生的）。
-        //    ★ 2026-10-14：「平台认不认」这一判据从 `colorScheme()` **换成了 `standardPalette()`**
-        //      —— 见下面那段实测（真机上那个 getter 不回报刚设进去的那一档）。
-        //   ② 「语义色按当前这一档现推」是**纯函数**（`isDarkPalette()` 只看窗口底色的明度），
-        //      所以拿两个自己捏的调色板量，在哪儿跑都成立。
+        // ① 「请平台把深色那一档给我」+「照着它算一份基色」—— `QStyleHints::setColorScheme()`
+        // 在 **offscreen 那个平台插件上是空操作**（ 用探针实测：调完之后
+        // `colorScheme()` 恒 Unknown、`standardPalette()` 一次都没变过），而本工程正是
+        // offscreen 跑的。所以这儿的写法是"平台认这一档时窗口底色必须真的是深的；平台
+        // 不认时调色板必须**一个字节不动**" —— 两种情况都有话说，不会因为"这台机器上
+        // 测不了"就假装通过。**真机那一趟在 ui_shot 的 30) 里量**（那边是原生的）。
+        // 「平台认不认」这一判据从 `colorScheme()` **换成了 `standardPalette()`**
+        // —— 见下面那段实测（真机上那个 getter 不回报刚设进去的那一档）。
+        // ② 「语义色按当前这一档现推」是**纯函数**（`isDarkPalette()` 只看窗口底色的明度），
+        // 所以拿两个自己捏的调色板量，在哪儿跑都成立。
         Theme::setSpec(Theme::presetSpec(QStringLiteral("dark")));
         Theme::apply(app);
         const QPalette darkPalette = app.palette();
         Theme::setSpec(Theme::presetSpec(QStringLiteral("light")));
         Theme::apply(app);
         const QPalette lightPalette = app.palette();
-        // ★★ 2026-10-14：判"平台认不认这一档"**别问 `styleHints()->colorScheme()`**，直接问平台
-        //   自己：把 ColorScheme 拨过去，看它给的**基色**（`style()->standardPalette()`）变没变。
-        //   真 windows 上那个 getter 不回报刚 set 进去的那一档（实测：真机上深浅两份预设铺出来
-        //   的调色板一深一浅、`colorScheme()` 却不是 Dark）—— 照 getter 分岔会一头栽进"平台不认"
-        //   那一支，把一台其实认的机器当成不认来判（那一条自己就永远红着）。
-        //   NOTE: 这一段会动一下全局的 ColorScheme，底下 `Theme::apply()` 反正要重设，不用还原。
         app.styleHints()->setColorScheme(Qt::ColorScheme::Dark);
         const QPalette platformDark = app.style()->standardPalette();
         app.styleHints()->setColorScheme(Qt::ColorScheme::Light);
@@ -26548,8 +26058,8 @@ int main(int argc, char *argv[]) {
         check(textFull.alpha() == 255 && textHalf.alpha() > 0 && textHalf.alpha() < textFull.alpha(),
               "★★ W4 「文字透明度 50」真的把正文压淡了（不是只写在规格里）",
               QStringLiteral("正文 alpha %1 → %2").arg(textFull.alpha()).arg(textHalf.alpha()));
-        // ★ 这一条是"乘"和"盖"的分界：`PlaceholderText` 出厂就带一点透明度，直接赋值等于把
-        //   它从"次要文字"变成"和正文一样清楚"。
+        // 这一条是"乘"和"盖"的分界：`PlaceholderText` 出厂就带一点透明度，直接赋值等于把
+        // 它从"次要文字"变成"和正文一样清楚"。
         check(placeholderFull.alpha() < 255 && placeholderHalf.alpha() < placeholderFull.alpha(),
               "★★ W4 不透明度是**乘**上去的：本来就半透明的次要文字跟着一起变淡"
               "（直接赋值会把它变得和正文一样清楚）",
@@ -26563,10 +26073,6 @@ int main(int argc, char *argv[]) {
         Theme::setSpec(Theme::defaultSpec());
         Theme::apply(app);
         const QPalette plain = app.palette();
-        // ★★ 2026-09-28：标题栏出厂值从"窗口底色压暗一档"改成了**主题色那一支**（用户原话
-        //    「使用 #56eb6c 作为默认主题颜色（顶栏用）」），底栏留着中性色 —— 上下两条
-        //    **故意不一样了**（原来那条"同一档才像嵌在里面"的设计作废，理由见 kPartInfos 里
-        //    标题栏那条注释）。
         check(sameColor(Theme::partBackground(Theme::Part::TitleBar),
                         Theme::accentShade(Theme::AccentShade::Pure)),
               "★★ W5 标题栏底色（没覆盖过）= **主题色那一支**（用户点名的那支绿）",
@@ -26603,9 +26109,9 @@ int main(int argc, char *argv[]) {
               "★★ W5 覆盖层问到的「四周变暗」和这一层是**同一个**色（不是两份各写一遍）");
 
         // ---------- W5b 一个**已经立着的**真控件会不会自己重算 ----------
-        // ★ 这一条才是这一层真正的难点：条自己持有一份算好的色（`setPalette()`），"应用调色板
-        //   变了"这件事不会自动改它 —— 得靠 `changeEvent()` 里那一挂。不挂就是"换了主题之后
-        //   顶上那一条还停在旧色上"，而那正是这个功能最容易被骂的地方。
+        // 这一条才是这一层真正的难点：条自己持有一份算好的色（`setPalette()`），"应用调色板
+        // 变了"这件事不会自动改它 —— 得靠 `changeEvent()` 里那一挂。不挂就是"换了主题之后
+        // 顶上那一条还停在旧色上"，而那正是这个功能最容易被骂的地方。
         TitleBar bar;
         bar.setFixedSize(600, TitleBar::buttonSize() + 2 * TitleBar::buttonInset());
         bar.show();
@@ -26614,9 +26120,9 @@ int main(int argc, char *argv[]) {
                         Theme::accentShade(Theme::AccentShade::Pure)),
               "★ W5b 标题栏立起来时底色就是**主题色那一支**",
               bar.palette().color(QPalette::Window).name());
-        // ★★ 这一条才是这一节的重点：换一个**主题色**（不是换预设）之后，已经立着的那条
-        //    得自己把底色重算一遍。它是新加的一位（2026-09-28），正好拿来把"重算"这件事
-        //    从"换个预设试试"升级成"换一个色也管用"。
+        // 这一条才是这一节的重点：换一个**主题色**（不是换预设）之后，已经立着的那条
+        // 得自己把底色重算一遍。它是新加的一位，正好拿来把"重算"这件事
+        // 从"换个预设试试"升级成"换一个色也管用"。
         Theme::Spec recolor = Theme::defaultSpec();
         recolor.accent = QColor(0x33, 0x66, 0x99);
         Theme::setSpec(recolor);
@@ -26659,10 +26165,10 @@ int main(int argc, char *argv[]) {
               "★ W6 `StyleChange` 也算数（QSS 里嵌死的颜色是跟着样式重新解析的）",
               QString::number(hits));
 
-        // ★ 防自咬那一位（`PaletteFollower::m_running`）：回调里那句 `setPalette()` 自己也会
-        //   发一次 `PaletteChange`，没有那一位就是"重算 → 又收到 → 再重算"。
-        //   NOTE: 兜底那一句（跑过 5 趟就不设了）是给"这一位失效"这种情况留的：真失效时这里
-        //         会是一条 FAIL，而不是把这个一万九千行的验证跑成栈溢出、什么都查不出来。
+        // 防自咬那一位（`PaletteFollower::m_running`）：回调里那句 `setPalette()` 自己也会
+        // 发一次 `PaletteChange`，没有那一位就是"重算 → 又收到 → 再重算"。
+        // NOTE: 兜底那一句（跑过 5 趟就不设了）是给"这一位失效"这种情况留的：真失效时这里
+        // 会是一条 FAIL，而不是把这个一万九千行的验证跑成栈溢出、什么都查不出来。
         QWidget biter;
         int bites = 0;
         QPalette altPalette = QApplication::palette();
@@ -26680,8 +26186,8 @@ int main(int argc, char *argv[]) {
 
         // ---------- W7 落盘往返 ----------
         // NOTE: 这一段**要写盘**，所以先把这个进程的 QSettings 窝换成一对专供验证的名字，
-        //       量完清干净再换回来 —— 绝不能碰产品那一份（`WTFML/WTFML` 底下是用户真在用的
-        //       设置，验证跑一趟把主题改了是绝对不能出的错）。
+        // 量完清干净再换回来 —— 绝不能碰产品那一份（`WTFML/WTFML` 底下是用户真在用的
+        // 设置，验证跑一趟把主题改了是绝对不能出的错）。
         const QString savedOrg = QCoreApplication::organizationName();
         const QString savedAppName = QCoreApplication::applicationName();
         QCoreApplication::setOrganizationName(QStringLiteral("WTFML-verify"));
@@ -26718,8 +26224,8 @@ int main(int argc, char *argv[]) {
                   .arg(readBack.roles.size())
                   .arg(readBack.parts.size()));
 
-        // ★ 第二次存的是一份**没有覆盖项**的：上一次那几项不许"复活"（`save()` 先把整组
-        //   `Theme` 清掉再写）。不这么做的话用户"把标题栏改回默认"重开一次又变回去。
+        // 第二次存的是一份**没有覆盖项**的：上一次那几项不许"复活"（`save()` 先把整组
+        // `Theme` 清掉再写）。不这么做的话用户"把标题栏改回默认"重开一次又变回去。
         Theme::save(Theme::presetSpec(QStringLiteral("light")));
         const Theme::Spec afterClear = Theme::load();
         check(afterClear.roles.isEmpty() && afterClear.parts.isEmpty() &&
@@ -26750,9 +26256,6 @@ int main(int argc, char *argv[]) {
                   .arg(salvaged.roles.size())
                   .arg(salvaged.parts.size()));
 
-        // ★ 2026-10-20：数字那几位**认不出来**时不许当成 0。`toInt()` 对 "abc" 回的是 0，
-        //   而 0% 的文字透明度 = 所有字都不画（界面一片空白）、0% 的图 = 一张看不见的背景。
-        //   认不出就退回出厂那一档（和上面"认不出的预设"同一条原则）。
         {
             QSettings().clear();
             QSettings junk;
@@ -26846,19 +26349,13 @@ int main(int argc, char *argv[]) {
               "（四周变暗的深浅是能单独调的）",
               Theme::partBackground(Theme::Part::Scrim).name(QColor::HexArgb));
 
-        // ---------- W11 背景图（2026-09-28 加的：主页左栏 / 页面背景能铺一张图） ----------
-        // 用户原话是「能给主页左侧自定义图像吗？其他页面的背景能换图吗」。这一节量五件事：
-        //   ① 四种摆法的键 / 名字 / 认回来；
-        //   ② `normalize()` 对"路径 / 摆法 / 不透明度"这三位怎么收拾；
-        //   ③ 存盘往返（含注册表里那串是 `\`、读回来是 `/` 这一层故意的来回）；
-        //   ④ `partHasBackground()` —— 这两块出厂时**一项都没设过**；
-        //   ⑤ ★ **没设图时那一块一个像素都不画**。
-        //
-        // ★ ⑤ 是实测踩出来的，不是想出来的：主页左栏和四个页面长在选项卡内容区上，那一层底
-        //   是 `QTabWidget` 自己画的（Fusion 下 #fcfcfc），而 `QPalette::Window` 是 #f0f0f0
-        //   —— 差着一档。第一版是"先拿 `partBackground()` 铺一层底、再铺图"，ui_shot 逐像素
-        //   比出来**整片内容区 64 万个像素都变了**。所以这一块的规矩是"没东西可画就一笔都
-        //   不画"（让它透明、把底下那一层原样透上来），判据就是 ④ 那一位。
+        // ---------- W11 背景图（ 加的：主页左栏 / 页面背景能铺一张图） ----------
+        // 要求是「能给主页左侧自定义图像吗？其他页面的背景能换图吗」。这一节量五件事：
+        // ① 四种摆法的键 / 名字 / 认回来；
+        // ② `normalize()` 对"路径 / 摆法 / 不透明度"这三位怎么收拾；
+        // ③ 存盘往返（含注册表里那串是 `\`、读回来是 `/` 这一层故意的来回）；
+        // ④ `partHasBackground()` —— 这两块出厂时**一项都没设过**；
+        // ⑤ ★ **没设图时那一块一个像素都不画**。
         QSet<QString> fitKeys;
         bool fitsRoundTrip = true;
         for (int i = 0; i < Theme::imageFitCount(); ++i) {
@@ -26976,13 +26473,13 @@ int main(int argc, char *argv[]) {
             check(host.grab().toImage().pixelColor(20, 20) == hostColor,
                   "★ W11 不透明度调到 0 ⇒ 图上不来，底下那一层原样透出来");
 
-            // ⑥ ★ 2026-10-20：换了一张图之后要**当场**重画。
-            //   修之前这是个真实症状：在设置页换图 / 清除 / 改摆法 / 改不透明度，屏幕上还是
-            //   旧图 —— 得切到别的选项卡再切回来、或者拖一下窗口改尺寸，才看得见新的。
-            //   根子：`ThemeBackground` 只靠 `Theme::follow()` 那条"调色板变了"重算，而
-            //   `apply()` 在调色板**没变**的时候（只换了图 / 摆法 / 不透明度 / 底色，
-            //   这几样都不在 `buildPalette()` 里）一个通知都不发。
-            //   这里用一份"碰调色板"的预设（emerald）走两趟：第一趟铺预设，第二趟只换摆法。
+            // ⑥ ★ ：换了一张图之后要**当场**重画。
+            // 修之前这是个真实症状：在设置页换图 / 清除 / 改摆法 / 改不透明度，屏幕上还是
+            // 旧图 —— 得切到别的选项卡再切回来、或者拖一下窗口改尺寸，才看得见新的。
+            // 根子：`ThemeBackground` 只靠 `Theme::follow()` 那条"调色板变了"重算，而
+            // `apply()` 在调色板**没变**的时候（只换了图 / 摆法 / 不透明度 / 底色，
+            // 这几样都不在 `buildPalette()` 里）一个通知都不发。
+            // 这里用一份"碰调色板"的预设（emerald）走两趟：第一趟铺预设，第二趟只换摆法。
             host.show();
             QApplication::processEvents();
 
@@ -27028,7 +26525,7 @@ int main(int argc, char *argv[]) {
         }
 
         // ③ 存盘往返。和 W7 一样的规矩：这一段要写盘，先把 QSettings 窝换成一对专供验证的
-        //    名字，量完清干净再换回来（绝不能碰产品那一份）。
+        // 名字，量完清干净再换回来（绝不能碰产品那一份）。
         {
             const QString imageOrg = QCoreApplication::organizationName();
             const QString imageAppName = QCoreApplication::applicationName();
@@ -27046,8 +26543,8 @@ int main(int argc, char *argv[]) {
             style.imageOpacity = 45;
             pictureSpec.parts.insert(int(Theme::Part::HomeLeft), style);
             Theme::save(pictureSpec);
-            // ★ 读回来那一步得**真的走一趟盘**：`save()` 只写盘，不碰内存里那一份
-            //   （产品里那一条路是 save 完再 apply）。拿内存里那份量就成了"自己问自己"。
+            // 读回来那一步得**真的走一趟盘**：`save()` 只写盘，不碰内存里那一份
+            // （产品里那一条路是 save 完再 apply）。拿内存里那份量就成了"自己问自己"。
             Theme::setSpec(Theme::load());
 
             const Theme::PartImage back = Theme::partImage(Theme::Part::HomeLeft);
@@ -27078,9 +26575,9 @@ int main(int argc, char *argv[]) {
                   "★★ W11 清了图再存 ⇒ 这一块整条没了（旧的那条不会自己复活）",
                   QStringLiteral("读回来还有 %1 块").arg(Theme::load().parts.size()));
 
-            // ★ 名字那一位**可以不在盘上**（手改注册表删掉了、或者以后降级回退留下的）：
-            //   读回来是空的，界面那一侧退回落盘那个文件的名字（见 refreshThemeImageRows()）
-            //   —— 不许因为少一位就读不出话。
+            // 名字那一位**可以不在盘上**（手改注册表删掉了、或者以后降级回退留下的）：
+            // 读回来是空的，界面那一侧退回落盘那个文件的名字（见 refreshThemeImageRows()）
+            // —— 不许因为少一位就读不出话。
             {
                 Theme::Spec nameless = Theme::defaultSpec();
                 Theme::PartStyle namelessStyle;
@@ -27109,14 +26606,14 @@ int main(int argc, char *argv[]) {
             QCoreApplication::setApplicationName(imageAppName);
         }
 
-        // ---------- W12 主题色那一支 + 按钮那一套外观（2026-09-28） ----------
-        // 用户原话：「使用 #56eb6c 作为默认主题颜色（顶栏用，顺便那个最小化和 x 都换成白的，
+        // ---------- W12 主题色那一支 + 按钮那一套外观 ----------
+        // 要求：「使用 #56eb6c 作为默认主题颜色（顶栏用，顺便那个最小化和 x 都换成白的，
         // 合适的地方可以放稍微深/浅一点，按钮中心白色，按钮文本和边框使用这个（或者深一点
         // 浅一点）的颜色/黑色/红色）」。这一节量的是：
         //
-        //   ① 那几个"深一点浅一点"的档**各自是什么**（它们是算出来的，不是各写一遍）；
-        //   ② 按钮那一套外观**真的铺到了**一颗真按钮上（不是只写在样式表字符串里）；
-        //   ③ 主题色是**一位**（换一个色，顶栏 + 按钮 + 那几档一起跟着走）。
+        // ① 那几个"深一点浅一点"的档**各自是什么**（它们是算出来的，不是各写一遍）；
+        // ② 按钮那一套外观**真的铺到了**一颗真按钮上（不是只写在样式表字符串里）；
+        // ③ 主题色是**一位**（换一个色，顶栏 + 按钮 + 那几档一起跟着走）。
         Theme::setSpec(Theme::defaultSpec());
         Theme::apply(app);
         {
@@ -27210,14 +26707,14 @@ int main(int argc, char *argv[]) {
             check(!keepButton.property("wtfmlButtonKind").isValid(),
                   "★ W12 把一颗按钮改回普通那一档 = 把那一位**抹掉**（不是写一个 'accent'）");
 
-            // ---------- §9.1 动作高度那一档（2026-10-12） ----------
-            // ★ 量的是**整颗控件**的高度，不是样式表里那个数：QSS 的 `min-height` 量的是
-            //   **内容**那一格 —— 这一套样式（6px 内边距 + 1px 边）配 `min-height: 32px`
-            //   整颗量出来是 **46**（2026-10-12 探针实测）。所以样式表里写的是
-            //   `actionHeight()` 减掉那一圈，而这一条盯的是最后那个数。
-            // ★ 三条一起量：普通 32 / 主动作 36 / **图标按钮按自己那一档**（写死 22 的那颗
-            //   在 `min-height: 18px` 下会量成 32 —— `setFixedSize()` 拦不住 QSS 的
-            //   `min-height`，只有 `markIconButton()` 那一句能把它按回去）。
+            // ---------- §9.1 动作高度那一档 ----------
+            // 量的是**整颗控件**的高度，不是样式表里那个数：QSS 的 `min-height` 量的是
+            // **内容**那一格 —— 这一套样式（6px 内边距 + 1px 边）配 `min-height: 32px`
+            // 整颗量出来是 **46**（ 探针实测）。所以样式表里写的是
+            // `actionHeight()` 减掉那一圈，而这一条盯的是最后那个数。
+            // 三条一起量：普通 32 / 主动作 36 / **图标按钮按自己那一档**（写死 22 的那颗
+            // 在 `min-height: 18px` 下会量成 32 —— `setFixedSize()` 拦不住 QSS 的
+            // `min-height`，只有 `markIconButton()` 那一句能把它按回去）。
             {
                 QWidget heightHost;
                 auto *heightLayout = new QVBoxLayout(&heightHost);
@@ -27250,18 +26747,13 @@ int main(int argc, char *argv[]) {
                       "**同一个**");
             }
 
-            // ★ 真按钮真渲染：中心是轻主题填充、四周是边那一档、字是字那一档。
-            //   这一条是"样式表写出来了"和"样式表生效了"的分界 —— 只比字符串的话，
-            //   选择器写错一个字母照样通过。
+            // 真按钮真渲染：中心是轻主题填充、四周是边那一档、字是字那一档。
+            // 这一条是"样式表写出来了"和"样式表生效了"的分界 —— 只比字符串的话，
+            // 选择器写错一个字母照样通过。
             QWidget buttonHost;
             buttonHost.resize(240, 80);
             auto *realButton = new QPushButton(QStringLiteral("启动游戏"), &buttonHost);
             realButton->setGeometry(20, 20, 160, 40);
-            // ★ 2026-10-13：**别让它拿着焦点**。这一块量的是"底色和字色是哪两档"，而焦点环
-            //   是 §8.3 新加的一圈**主题色**（`WtfmlProxyStyle` 那条 `PE_FrameFocusRect`）——
-            //   只装了这一颗控件的窗口一 show() 就把焦点给了它，于是四周多出一圈绿，正好
-            //   落在下面"危险那一档要**一个绿像素都不剩**"那条判据的色差范围内。
-            //   焦点环自己那两条判据在下面（`§8.3 焦点环`那一小段）。
             realButton->setFocusPolicy(Qt::NoFocus);
             buttonHost.show();
             QApplication::processEvents();
@@ -27315,16 +26807,16 @@ int main(int argc, char *argv[]) {
                   "★★ W12 挂上「危险」后：浅红底、红字红边（绿的一个像素都不剩）",
                   QStringLiteral("红 %1 个 / 绿边 %2 个").arg(dangerHits).arg(dangerInkHits));
 
-            // ---------- 按钮状态体系：Ghost 那一档 + 「灰掉」那一档（2026-10-14） ----------
+            // ---------- 按钮状态体系：Ghost 那一档 + 「灰掉」那一档 ----------
             //
             // coding plan §3.3「统一按钮视觉层级 / 单独设计 Disabled 状态」。前三档是用户
-            // 2026-09-28 点名的那三句（确认性 = 主题色 / 一般性 = 黑 / 不可撤销 = 红），
+            // 点名的那三句（确认性 = 主题色 / 一般性 = 黑 / 不可撤销 = 红），
             // 这一轮补的是第四档 `Ghost`（**低频辅助动作**）和「灰掉」那一档的收口。
             //
-            // ★ Ghost 和 `Neutral` 的分别**不在颜色，在形状**：它没底、没边，于是能贴在
-            //   卡片角上不抢眼（"复制到剪贴板"那种一年按不了几次的动作）。这一段量三样：
-            //   ① 它是不是真的一档（属性值不和别档撞）；② 它的**几何和普通那档一模一样**
-            //   （最容易写坏的地方）；③ 屏幕上真的**透出底下的东西**。
+            // Ghost 和 `Neutral` 的分别**不在颜色，在形状**：它没底、没边，于是能贴在
+            // 卡片角上不抢眼（"复制到剪贴板"那种一年按不了几次的动作）。这一段量三样：
+            // ① 它是不是真的一档（属性值不和别档撞）；② 它的**几何和普通那档一模一样**
+            // （最容易写坏的地方）；③ 屏幕上真的**透出底下的东西**。
             {
                 const QString ghostKey = Theme::buttonKindKey(Theme::ButtonKind::Ghost);
                 check(!ghostKey.isEmpty() &&
@@ -27336,9 +26828,9 @@ int main(int argc, char *argv[]) {
                       ghostKey);
 
                 // ① 几何：换一档 kind，**整颗按钮一寸都不动**。
-                //    ★ 这一条钉的是这一档最容易写坏的那一处：把 Ghost 写成 `border: none`
-                //      （看着"更干净"）会让控件**矮 2px、窄 2px** —— 于是同一个布局里换一档
-                //      kind，行里所有东西都跟着挪一格。边是**留成透明的**，不是删掉。
+                // 这一条钉的是这一档最容易写坏的那一处：把 Ghost 写成 `border: none`
+                // （看着"更干净"）会让控件**矮 2px、窄 2px** —— 于是同一个布局里换一档
+                // kind，行里所有东西都跟着挪一格。边是**留成透明的**，不是删掉。
                 QWidget kindHost;
                 auto *kindLayout = new QHBoxLayout(&kindHost);
                 kindLayout->setContentsMargins(0, 0, 0, 0);
@@ -27363,9 +26855,9 @@ int main(int argc, char *argv[]) {
                           .arg(Theme::actionHeight()));
 
                 // ② 真渲染：把一颗 Ghost 和一颗普通按钮摆在一块**底色明确不是白**的板上，
-                //    抓整块板。Ghost 那一格的中心跟**板子的底色是同一个色**（它就是"看不见
-                //    那块底"），普通那一格的中心是白的 —— 两条一起量才排得掉"整块板都白"
-                //    这种假绿（只量"Ghost 那儿不是白"，把按钮画成一个黑洞也照样过）。
+                // 抓整块板。Ghost 那一格的中心跟**板子的底色是同一个色**（它就是"看不见
+                // 那块底"），普通那一格的中心是白的 —— 两条一起量才排得掉"整块板都白"
+                // 这种假绿（只量"Ghost 那儿不是白"，把按钮画成一个黑洞也照样过）。
                 QWidget paintHost;
                 paintHost.resize(240, 104);
                 paintHost.setAutoFillBackground(true);
@@ -27411,9 +26903,9 @@ int main(int argc, char *argv[]) {
                       QStringLiteral("那一格上 %1 个深像素").arg(ghostInkHits));
 
                 // ③ 灰掉那一档**还得读得出来**。它是最容易被做成"淡淡的"的那一档：用户要
-                //    看出"这颗不能按"，但字的内容仍然要说出口（"启用"两个字灰到看不见，
-                //    用户就不知道这颗按钮是干什么的）。判据取 WCAG 那 3:1（次要信息那一档），
-                //    对的是**禁用时真正的底** `disabledFillColor()`。
+                // 看出"这颗不能按"，但字的内容仍然要说出口（"启用"两个字灰到看不见，
+                // 用户就不知道这颗按钮是干什么的）。判据取 WCAG 那 3:1（次要信息那一档），
+                // 对的是**禁用时真正的底** `disabledFillColor()`。
                 const double disabledContrast =
                     contrast(Theme::disabledInkColor(), Theme::disabledFillColor());
                 check(disabledContrast >= 3.0,
@@ -27432,7 +26924,7 @@ int main(int argc, char *argv[]) {
                 paintHost.hide();
             }
 
-            // ---------- §8.3 焦点环（2026-10-13） ----------
+            // ---------- §8.3 焦点环 ----------
             //
             // coding plan §8.3：「全部关键操作具备键盘焦点、**可见焦点环**和合理 Tab 顺序」。
             // 环是 `WtfmlProxyStyle` 在 `PE_FrameFocusRect` 上自己画的 —— 基样式（Fusion）
@@ -27448,19 +26940,10 @@ int main(int argc, char *argv[]) {
                 // 用 Tab 进来的焦点（真按 Tab 键也是这一档）——`setFocusPolicy` 没动过，
                 // 所以这一句同时也盯着"按钮默认可聚焦"这件事。
                 ringButton->setFocus(Qt::TabFocusReason);
-                // ★★ 2026-10-16：焦点环改成**只对键盘显示**了 —— `WtfmlProxyStyle` 画那圈环
-                //   之前先看 `wtfmlKeyboardFocus` 这个属性，而属性是应用级过滤器
-                //   （`Theme::apply()` 里挂的那一只 `ButtonFocusVisibility`）在"键盘来了"的
-                //   时候摆上的、鼠标一点就撤掉（那一层自己的语义在上面 U 那三条里钉）。
-                //   所以这里**照真路走一遍**：激活窗口 + 送一发 `FocusIn(TabFocusReason)`
-                //   —— 和上面那三条用的是同一个套路。★ 这里**不**手工 `setProperty()`：
-                //   属性归过滤器管，送事件才是它在真机上被摆上的方式。
-                //   这一条问的也就成了它该问的问题："键盘焦点进来之后那圈环有没有真上屏、
-                //   是不是那一档色"（环画在按钮自己的矩形里，所以下面量的是按钮那张图）。
                 ringHost.activateWindow();
-                // ★ 2026-10-18：这一档现在只认**真的按键**（藏起焦点控件时 Qt 交接焦点也报
-                //   TabFocusReason ⇒ 不能拿那个理由当"用户按了 Tab"，见 Theme.cpp 那段）。
-                //   所以照真路先送一发普通按键，再送 FocusIn。
+                // 这一档现在只认**真的按键**（藏起焦点控件时 Qt 交接焦点也报
+                // TabFocusReason ⇒ 不能拿那个理由当"用户按了 Tab"，见 Theme.cpp 那段）。
+                // 所以照真路先送一发普通按键，再送 FocusIn。
                 QKeyEvent keyboardInput(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier);
                 QApplication::sendEvent(ringButton, &keyboardInput);
                 QFocusEvent keyboardFocus(QEvent::FocusIn, Qt::TabFocusReason);
@@ -27502,10 +26985,6 @@ int main(int argc, char *argv[]) {
                       "★★ §8.3 焦点环深浅两档是**两支**（浅底用深的那一档、深底用浅的那一档）",
                       QStringLiteral("浅底 %1 / 深底 %2").arg(lightRing.name(), darkRing.name()));
 
-                // ★★ 2026-10-18（用户报的那一幕的钉子）：「在主页点用户那颗按钮之后切到
-                //   管理 / 下载，它们右上角那颗按钮也进入选中状态」—— 那一发是 Qt 在藏起
-                //   拿着焦点的控件时用 `focusNextPrevChild()` **交接**焦点，报的理由同样是
-                //   `TabFocusReason`。它不是键盘操作 ⇒ 不许把 `wtfmlKeyboardFocus` 摆上。
                 {
                     // ① 鼠标按下先到（真点击就是这一路）：键盘那一档收掉。
                     const QPoint center = ringButton->rect().center();
@@ -27532,7 +27011,7 @@ int main(int argc, char *argv[]) {
                 }
             }
 
-            // ---------- W12 灰掉那一档：**中性 / 危险那两种也得跟着灰**（2026-10-09 真机揪出来的） ----------
+            // ---------- W12 灰掉那一档：**中性 / 危险那两种也得跟着灰**（ 真机揪出来的） ----------
             //
             // 症状（真机像素实测）：一颗**禁用着**的中性按钮，底确实是 `#F7F7F7`（说明
             // disabled 那一档生效了），**字和边却还是 `#202020`** —— 屏幕上看着就是一颗
@@ -27578,10 +27057,10 @@ int main(int argc, char *argv[]) {
             realButton->style()->polish(realButton);
             const QImage neutralDisabledShot = disabledShot(realButton);
             // 两样都要为 0：
-            //   · **深像素** —— 带病那版中性按钮的字和边是 `#202020`，一数就是一大片；
-            //   · **那一档自己的色** —— 带病那版危险按钮的字和边还是红的（`#c02828`），
-            //     它单看**不深**（HSV 明度 192，比 0x80 亮），所以光数深像素量不到它。
-            //     这正是"危险那一档也得单独量一笔"的理由。
+            // · **深像素** —— 带病那版中性按钮的字和边是 `#202020`，一数就是一大片；
+            // · **那一档自己的色** —— 带病那版危险按钮的字和边还是红的（`#c02828`），
+            // 它单看**不深**（HSV 明度 192，比 0x80 亮），所以光数深像素量不到它。
+            // 这正是"危险那一档也得单独量一笔"的理由。
             const int neutraDisabeldDark = countPixelsIn(neutralDisabledShot, QColor(0, 0, 0), 0x80);
             const int dangerDisabledDark = countPixelsIn(dangerDisabledShot, QColor(0, 0, 0), 0x80);
             const int dangerDisabledRed = countPixelsIn(dangerDisabledShot, dangerInk, 30);
@@ -27595,12 +27074,12 @@ int main(int argc, char *argv[]) {
                       .arg(dangerDisabledDark)
                       .arg(dangerDisabledRed));
 
-            // ★ 灰掉那一档对 **Ghost** 一视同仁（2026-10-14，§3.3）：它是一档**四档共用**的
-            //   状态，不是"主题色那一颗才有"。容易漏掉的原因很实在 —— Ghost 平时没有底，
-            //   灰掉的时候那条 `:disabled` 才第一次给它铺上底，用同一把尺子量一遍。
-            //   NOTE: "勾着又灰掉"的 Ghost 是**淡底 + 灰字**（`[ghost]:checked` 那条的优先级
-            //         比 `QPushButton:disabled` 高一位，只吃底不吃字）：这是故意的 ——
-            //         一颗灰掉的开关也得说得出自己是开是关。字色归 `:disabled` 管。
+            // 灰掉那一档对 **Ghost** 一视同仁（，§3.3）：它是一档**四档共用**的
+            // 状态，不是"主题色那一颗才有"。容易漏掉的原因很实在 —— Ghost 平时没有底，
+            // 灰掉的时候那条 `:disabled` 才第一次给它铺上底，用同一把尺子量一遍。
+            // NOTE: "勾着又灰掉"的 Ghost 是**淡底 + 灰字**（`[ghost]:checked` 那条的优先级
+            // 比 `QPushButton:disabled` 高一位，只吃底不吃字）：这是故意的 ——
+            // 一颗灰掉的开关也得说得出自己是开是关。字色归 `:disabled` 管。
             {
                 QWidget ghostDisabledHost;
                 auto *ghostDisabledButton =
@@ -27628,27 +27107,21 @@ int main(int argc, char *argv[]) {
             Theme::setSpec(Theme::defaultSpec());
             Theme::apply(app);
 
-            // ---------- 换主题时**控件那一层**缓存也得跟着走（2026-09-28 揪出来的） ----------
-            // 它**只能量在 ui_shot 那一趟**（原生），这里是 offscreen —— 实测在这一趟上
-            // `palette().color(WindowText)` 铺深色前后都是 #000000（这部分控件调色板的重新
-            // 解析在 offscreen 上压根没发生），写在这儿就是一条**恒真**的空断言。所以那一头
-            // 的判据全在 `ui_shot` 的 30 那一段（连同"10 个勾选框 0 个残留"那句）。
-            // NOTE: 修法在 `Theme::installButtonSheet()` —— 换过调色板就把样式表重挂一遍。
             Theme::setSpec(Theme::defaultSpec());
             Theme::apply(app);
 
-            // ---------- W13 按钮分三档 / 输入框 + 勾选框那一套（2026-09-28） ----------
-            // 用户原话：「对于按钮，一些确认性的（如启动，下载，搜索）做成主题色，一些一般性的
+            // ---------- W13 按钮分三档 / 输入框 + 勾选框那一套 ----------
+            // 要求：「对于按钮，一些确认性的（如启动，下载，搜索）做成主题色，一些一般性的
             // （设置，清空搜索）做成黑色，一些不可撤销（如修改存档，删除实例）做成红色
             // …… 输入文本的搜索框的框框跟随主题色，文本保留黑色，勾选框未勾选的时候框和文本
             // 做成黑色，勾选了两者都变成主题色」。
             //
             // 这一节量的是"**屏幕上的样子**"，不是"样式表字符串里有那几个词"：
-            //   ① 「一般性」那一档的黑**不是纯黑**（理由和数在下面那条断言里）；
-            //   ② 三档底色/字色**两两看得出不一样**（不然"分了三档"是句空话）；
-            //   ③ 一颗真 QLineEdit：中心白、字黑、那一圈边 = 主题色的「边」那一档；
-            //   ④ 一颗真 QCheckBox：没勾时框和字都是那一档黑，勾上之后**两样都**变成主题色
-            //      （这一条最容易写成"只变了一样"，用户那句原话是"两者都"）。
+            // ① 「一般性」那一档的黑**不是纯黑**（理由和数在下面那条断言里）；
+            // ② 三档底色/字色**两两看得出不一样**（不然"分了三档"是句空话）；
+            // ③ 一颗真 QLineEdit：中心白、字黑、那一圈边 = 主题色的「边」那一档；
+            // ④ 一颗真 QCheckBox：没勾时框和字都是那一档黑，勾上之后**两样都**变成主题色
+            // （这一条最容易写成"只变了一样"，用户那句原话是"两者都"）。
             const QColor neutralInk = Theme::neutralInkColor();
             const QColor accentPure2 = Theme::accentShade(Theme::AccentShade::Pure);
             const QColor accentInk2 = Theme::accentShade(Theme::AccentShade::Ink);
@@ -27676,8 +27149,8 @@ int main(int argc, char *argv[]) {
             formHost.resize(320, 170);
             auto *searchEdit = new QLineEdit(QStringLiteral("搜索"), &formHost);
             searchEdit->setGeometry(12, 12, 200, 28);
-            // ★ 焦点策略钉成 NoFocus：`QLineEdit:focus` 那一档量到的边是**字**那一档（更深），
-            //   不钉的话这一条量到哪一档取决于"这一刻谁拿着焦点"，是一条看运气的断言。
+            // 焦点策略钉成 NoFocus：`QLineEdit:focus` 那一档量到的边是**字**那一档（更深），
+            // 不钉的话这一条量到哪一档取决于"这一刻谁拿着焦点"，是一条看运气的断言。
             searchEdit->setFocusPolicy(Qt::NoFocus);
             auto *uncheckedBox = new QCheckBox(QStringLiteral("启用"), &formHost);
             uncheckedBox->setGeometry(12, 52, 160, 24);
@@ -27686,10 +27159,10 @@ int main(int argc, char *argv[]) {
             checkedBox->setGeometry(12, 84, 160, 24);
             checkedBox->setFocusPolicy(Qt::NoFocus);
             checkedBox->setChecked(true);
-            // ★ 2026-09-28 加的下拉框（用户原话「所有单选框换成下拉的」带来的那一套样式）：
-            //   两项，量和上面那颗 QLineEdit **用同一把尺子**（"和输入框一样"这句话只有
-            //   同样量法才说得清）。焦点策略同样钉成 NoFocus，理由和那颗输入框一字不差
-            //   （`:focus` 那一档的边更深，不钉就看运气）。
+            // 加的下拉框（要求「所有单选框换成下拉的」带来的那一套样式）：
+            // 两项，量和上面那颗 QLineEdit **用同一把尺子**（"和输入框一样"这句话只有
+            // 同样量法才说得清）。焦点策略同样钉成 NoFocus，理由和那颗输入框一字不差
+            // （`:focus` 那一档的边更深，不钉就看运气）。
             auto *plainCombo = new QComboBox(&formHost);
             plainCombo->setGeometry(12, 120, 220, 30);
             plainCombo->addItem(QStringLiteral("跟随全局"));
@@ -27767,18 +27240,18 @@ int main(int argc, char *argv[]) {
                       .arg(plainCombo->width()));
             formHost.hide();
 
-            // ★ 数字框 / 下拉框里面**也**有一颗 QLineEdit（`QAbstractSpinBox` 的编辑区、
-            //   `QComboBox` 可编辑时那一格）。上面 `QLineEdit {...}` 那条不加限定就是通配，
-            //   会给它们**套上第二圈边**（外面已经有自己的框了）—— 这一条钉的就是那句复位
-            //   规则还在。为什么量字符串不量像素：那一圈边只有 1px，又压在同样的白底上，
-            //   "多了一圈"在像素上和一个正常的框分不开；选择器在不在是能直接读的。
+            // 数字框 / 下拉框里面**也**有一颗 QLineEdit（`QAbstractSpinBox` 的编辑区、
+            // `QComboBox` 可编辑时那一格）。上面 `QLineEdit {...}` 那条不加限定就是通配，
+            // 会给它们**套上第二圈边**（外面已经有自己的框了）—— 这一条钉的就是那句复位
+            // 规则还在。为什么量字符串不量像素：那一圈边只有 1px，又压在同样的白底上，
+            // "多了一圈"在像素上和一个正常的框分不开；选择器在不在是能直接读的。
             const QString sheet = Theme::widgetStyleSheet();
             check(sheet.contains(QLatin1String("QFrame[wtfmlSurface=\"workspace\"]")) &&
                       sheet.contains(QLatin1String("QFrame[wtfmlSurface=\"footer\"]")) &&
                       !sheet.contains(QLatin1String("border-top: 1px")),
                   "★★ 页面工作区和页脚不再画装饰性分隔线（层级只靠底色与留白）");
             {
-                // 2026-10-14 真机回归：去掉 workspace 的边框后，格式串跳过了 `%4`，
+                // 真机回归：去掉 workspace 的边框后，格式串跳过了 `%4`，
                 // 但参数表仍把 QPalette::Mid 塞在第 4 位。QString::arg() 会按“下一个现存
                 // 占位符”顺延，于是 Mid（Windows 浅色下恰好约 #a0a0a0）误填给 section，
                 // 设置页和下载安装页的卡片整块变成深灰。这里不只搜选择器，而是真画一张
@@ -27805,7 +27278,7 @@ int main(int argc, char *argv[]) {
                       sheet.contains(QLatin1String("border: none")),
                   "★★ W13 数字框/下拉框里那颗输入框被**复位**掉了（不给它们套第二圈边）");
 
-            // ---------- 按钮状态体系：四档 × 状态，一条条点名（2026-10-14，§3.3） ----------
+            // ---------- 按钮状态体系：四档 × 状态，一条条点名（，§3.3） ----------
             //
             // 上面那一段量的是**像素**（真按钮、真渲染），这一段量的是**表**：四档层级各自
             // 把状态写全了没有。两样都要 —— 像素那条钉的是"照这个样子画出来了"，这一条钉的
@@ -27826,8 +27299,8 @@ int main(int argc, char *argv[]) {
                     const QString selector =
                         QStringLiteral("QPushButton[wtfmlButtonKind=\"%1\"]")
                             .arg(QLatin1String(tier.key));
-                    // ★ 悬停 / 按下那两条**都带 `:enabled`**：不带的话，一颗**禁用着**的按钮
-                    //   鼠标划过去底色照样翻上来（`:hover` 是"鼠标在不在上面"，不问能不能按）。
+                    // 悬停 / 按下那两条**都带 `:enabled`**：不带的话，一颗**禁用着**的按钮
+                    // 鼠标划过去底色照样翻上来（`:hover` 是"鼠标在不在上面"，不问能不能按）。
                     if (!sheet.contains(selector + QStringLiteral(":hover:enabled")) ||
                         !sheet.contains(selector + QStringLiteral(":pressed:enabled"))) {
                         missingStates += QLatin1String(tier.key) + QLatin1Char(' ');
@@ -27840,9 +27313,9 @@ int main(int argc, char *argv[]) {
                       missingStates.isEmpty() ? QStringLiteral("四档齐全")
                                               : QStringLiteral("缺状态的是：%1").arg(missingStates));
 
-                // ★ 那一档的写法：底和边**都是透明的**，而边那 1px **还在**。
-                //   写 `border: none` 看着"更干净"，可它会让控件矮 2px、窄 2px —— 于是同一个
-                //   布局里换一档 kind，行里所有东西都跟着挪一格（上面那段量的就是它）。
+                // 那一档的写法：底和边**都是透明的**，而边那 1px **还在**。
+                // 写 `border: none` 看着"更干净"，可它会让控件矮 2px、窄 2px —— 于是同一个
+                // 布局里换一档 kind，行里所有东西都跟着挪一格（上面那段量的就是它）。
                 const QString ghostRule =
                     QStringLiteral("QPushButton[wtfmlButtonKind=\"ghost\"] {");
                 const int ghostAt = sheet.indexOf(ghostRule);
@@ -27861,11 +27334,11 @@ int main(int argc, char *argv[]) {
                       "★ §3.3 Ghost 多一条**勾上**那一档（否则一颗 checkable 的 Ghost 勾上之后"
                       "屏幕上什么都不变）");
 
-                // ★ 那条共用的 `QPushButton:disabled` 必须摆在**四档之后**（2026-10-09 真机
-                //   踩到的坑）：它和 `[wtfmlButtonKind="..."]` 优先级一样，平手时**后写的赢** ——
-                //   摆在前面的话，灰掉的按钮底灰了、字和边却还是原来那一档。
-                //   上面那几条像素断言量的是"中性 / 危险真的灰了"，这一条量的是**位置**：
-                //   后面新加一档（Ghost 就是新加的）时，这条规矩得跟着守住。
+                // 那条共用的 `QPushButton:disabled` 必须摆在**四档之后**（ 真机
+                // 踩到的坑）：它和 `[wtfmlButtonKind="..."]` 优先级一样，平手时**后写的赢** ——
+                // 摆在前面的话，灰掉的按钮底灰了、字和边却还是原来那一档。
+                // 上面那几条像素断言量的是"中性 / 危险真的灰了"，这一条量的是**位置**：
+                // 后面新加一档（Ghost 就是新加的）时，这条规矩得跟着守住。
                 const int disabledAt = sheet.indexOf(QLatin1String("QPushButton:disabled"));
                 check(disabledAt > ghostAt && ghostAt >= 0,
                       "★★ §3.3 那条共用的 `QPushButton:disabled` 摆在**四档之后**（Ghost 也在它"
@@ -27874,14 +27347,6 @@ int main(int argc, char *argv[]) {
                           .arg(disabledAt).arg(ghostAt));
             }
 
-            // ★ 2026-09-28：下拉框那一套样式（用户原话「所有单选框换成下拉的」带来的）。
-            //   四条选择器缺一条的症状都是**看得见**的：少了 `QComboBox {` 就退回 Fusion
-            //   原生的灰框（上面那两条像素断言会红）、少了 `:focus` 就"点进去看不见在哪"
-            //   （输入框那条也是这么分的）、少了 `::drop-down` 那颗箭头会带着原生的一块底色
-            //   （在白底上就是一块灰）、少了弹出来的那张表那一格，展开之后是**系统色**的
-            //   （深色模式下一整张黑表，和这一套纯白底完全不搭）。
-            //   NOTE: 这一条量字符串、上面两条量像素 —— 两边**都要**：像素那条钉的是"照这个
-            //         样子画出来了"，字符串这条钉的是"这一套是完整的一份，别只留一半"。
             check(sheet.contains(QLatin1String("QComboBox {")) &&
                       sheet.contains(QLatin1String("QComboBox:focus")) &&
                       sheet.contains(QLatin1String("QComboBox::drop-down")) &&
@@ -27894,20 +27359,17 @@ int main(int argc, char *argv[]) {
                       .arg(sheet.contains(QLatin1String("QComboBox::drop-down")) ? 1 : 0)
                       .arg(sheet.contains(QLatin1String("QComboBox QAbstractItemView")) ? 1 : 0));
 
-            // ---------- 「下拉框右边那个 V 箭头」那一对是不是原样对上的（2026-09-29） ----------
+            // ---------- 「下拉框右边那个 V 箭头」那一对是不是原样对上的 ----------
             //
-            // 用户原话：「下拉框和所有输入框的高度略微改高点，下拉框最右边放一个 V 箭头」。
+            // 要求：「下拉框和所有输入框的高度略微改高点，下拉框最右边放一个 V 箭头」。
             //
-            // ★ 这一条量的是**字符串**，钉的却是"那一对选择器还在不在"：箭头是
-            //   `Theme::createStyle()` 里那个 `QProxyStyle` 画的，而它**只有在样式表里那句
-            //   `QComboBox::drop-down` 不带 `border: none` 时才会被调到**（带着的话 Qt 走另一条
-            //   分支、一个箭头都不画，见 `Theme.cpp` 那段长注释）。所以"`::drop-down` 里那句
-            //   `border: none` 被谁顺手加回来"这件事，症状是**箭头整个消失**（屏幕上静悄悄少
-            //   一样东西），得在这儿拦住。
+            // 这一条量的是**字符串**，钉的却是"那一对选择器还在不在"：箭头是
+            // `Theme::createStyle()` 里那个 `QProxyStyle` 画的，而它**只有在样式表里那句
+            // `QComboBox::drop-down` 不带 `border: none` 时才会被调到**（带着的话 Qt 走另一条
+            // 分支、一个箭头都不画，见 `Theme.cpp` 那段长注释）。所以"`::drop-down` 里那句
+            // `border: none` 被谁顺手加回来"这件事，症状是**箭头整个消失**（屏幕上静悄悄少
+            // 一样东西），得在这儿拦住。
             const QString dropDownRule = QStringLiteral("QComboBox::drop-down { width: 20px; }");
-            // ★ 2026-10-14：数字框那条的高度从"只钉 min"改成了 **min + max 一起钉**（见
-            //   `Theme.cpp` 里高度那一段）—— 这儿认得字符串跟着改。判的还是同一件事：
-            //   "数字框那一档高度钉住了没有"。
             const QString spinHeightRule =
                 QStringLiteral("QAbstractSpinBox { min-height: 18px; }");
             check(sheet.contains(dropDownRule) &&
@@ -27920,12 +27382,12 @@ int main(int argc, char *argv[]) {
                       .arg(sheet.contains(QLatin1String("QComboBox::drop-down { border: none")) ? 1 : 0)
                       .arg(sheet.contains(spinHeightRule) ? 1 : 0));
 
-            // ★ 高度：改之前三样是 20 / 20 / 19（并排摆着差 1px 就看得出来），现在**一样高**。
+            // 高度：改之前三样是 20 / 20 / 19（并排摆着差 1px 就看得出来），现在**一样高**。
             //
-            //   ★ 量的是**摆进布局之后的高度**（`QWidget::height()`），**不是 `sizeHint()`**。
-            //     这一条第一版就是只量 `sizeHint()`，三个数都报 24 —— 可数字框实际占的是 27：
-            //     竖向 `Fixed` 的控件过布局时还要取一次"最小高度"（`min-height` 那位设的就是
-            //     它），而数字框偏偏只有这一个数能动。**屏幕上那个高度才是判据。**
+            // 量的是**摆进布局之后的高度**（`QWidget::height()`），**不是 `sizeHint()`**。
+            // 这一条第一版就是只量 `sizeHint()`，三个数都报 24 —— 可数字框实际占的是 27：
+            // 竖向 `Fixed` 的控件过布局时还要取一次"最小高度"（`min-height` 那位设的就是
+            // 它），而数字框偏偏只有这一个数能动。**屏幕上那个高度才是判据。**
             QWidget sizeHost;
             sizeHost.resize(320, 60);
             auto *sizeEdit = new QLineEdit(QStringLiteral("1280"), &sizeHost);
@@ -27984,9 +27446,9 @@ int main(int argc, char *argv[]) {
                       .arg(borderTop).arg(borderBottom).arg(borderBottom - borderTop + 1)
                       .arg(comboHeight));
 
-            // ★ 箭头那一格里的形状：用户要的是一个 `∨`（两笔），不是实心三角。判据落在
-            //   "最上面那一行的**正中间**是不是空的"上 —— 实心 `▼` 那一行是**连着**的，
-            //   `∧` 又是反过来的（中间有、两头没有），两头 + 中间这两条一起看才认得出 `∨`。
+            // 箭头那一格里的形状：用户要的是一个 `∨`（两笔），不是实心三角。判据落在
+            // "最上面那一行的**正中间**是不是空的"上 —— 实心 `▼` 那一行是**连着**的，
+            // `∧` 又是反过来的（中间有、两头没有），两头 + 中间这两条一起看才认得出 `∨`。
             const QRect comboInner = sizeCombo->rect().adjusted(1, 1, -1, -1);
             const QRect arrowCell(comboInner.right() - 19, comboInner.top(), 20,
                                   comboInner.height());
@@ -28011,9 +27473,9 @@ int main(int argc, char *argv[]) {
                       .arg(hasInk(comboSizeShot, inkCentre, inkBox.top()) ? 1 : 0)
                       .arg(hasInk(comboSizeShot, inkCentre, inkBox.bottom()) ? 1 : 0));
 
-            // ★ 基样式那圈 95 风格的立体边（`qDrawWinButton`）有没有漏出来：我们靠"先擦一格
-            //   再画 V"把它盖掉，擦歪一点点就是右边缘里头躺着一条 `#555555` 的竖线 —— 那一条
-            //   在屏幕上是"白框里一根灰线"，不特意找根本不会注意。
+            // 基样式那圈 95 风格的立体边（`qDrawWinButton`）有没有漏出来：我们靠"先擦一格
+            // 再画 V"把它盖掉，擦歪一点点就是右边缘里头躺着一条 `#555555` 的竖线 —— 那一条
+            // 在屏幕上是"白框里一根灰线"，不特意找根本不会注意。
             const auto bevelHits = [&comboSizeShot, sizeCombo, &comboInner]() {
                 int hits = 0;
                 for (int y = comboInner.top(); y <= comboInner.bottom(); ++y) {
@@ -28028,12 +27490,12 @@ int main(int argc, char *argv[]) {
                   "★★ W13 箭头那一格**擦干净了**（基样式那圈立体边一个像素都没漏在右边缘里）",
                   QStringLiteral("那一列上 %1 个 #555555").arg(bevelHits));
 
-            // ★ 禁用那一档：V 的墨色跟着 `color:` 走（禁用 = `Theme::disabledInkColor()`），
-            //   **不许还是黑的**。这一条钉的是"箭头跟着调色板走"（换深浅主题 / 换禁用态都
-            //   跟着变），而不是一张贴死的图 —— 贴图那种做法在这条断言下会红。
-            //   NOTE: 2026-10-14 起那个色**不问字面量、问 `disabledInkColor()`**：这一轮
-            //         它从 `#9a9a9a` 提到了 `#8a8a8a`（对比度那条判据要 ≥ 3:1），写死字面量
-            //         的话这种"改一档色"的收口会连着红两个文件，而红的那一处什么也没错。
+            // 禁用那一档：V 的墨色跟着 `color:` 走（禁用 = `Theme::disabledInkColor()`），
+            // **不许还是黑的**。这一条钉的是"箭头跟着调色板走"（换深浅主题 / 换禁用态都
+            // 跟着变），而不是一张贴死的图 —— 贴图那种做法在这条断言下会红。
+            // NOTE: 起那个色**不问字面量、问 `disabledInkColor()`**：这一轮
+            // 它从 `#9a9a9a` 提到了 `#8a8a8a`（对比度那条判据要 ≥ 3:1），写死字面量
+            // 的话这种"改一档色"的收口会连着红两个文件，而红的那一处什么也没错。
             sizeCombo->setEnabled(false);
             QApplication::processEvents();
             const QImage comboDisabledShot = captureWidget(sizeCombo);
@@ -28052,7 +27514,7 @@ int main(int argc, char *argv[]) {
             // 是主题色（**不挂属性**）、剩下的按黑。`InlineMessage::question(destructive:true)`
             // 走的就是同一条路（它只是把客户给的那一位转手递给 ctor）。
             // NOTE: 为什么按位置不按文字 —— 按钮表是调用方给的，同一张表里可能出现四颗都叫
-            //       "做什么"的（世界编辑菜单那张就是），认文字是认不住的。
+            // "做什么"的（世界编辑菜单那张就是），认文字是认不住的。
             InlineMessageBox triBox(
                 MessageKind::Question, QStringLiteral("删除实例"),
                 QStringLiteral("实例目录和里面的存档都会没。"),
@@ -28088,15 +27550,11 @@ int main(int argc, char *argv[]) {
                   QStringLiteral("0=%1 / 1=%2").arg(plainKindOf(0), plainKindOf(1)));
         }
 
-        // ---------- W14 §8.3 颜色入口 / 无障碍（2026-10-13） ----------
+        // ---------- W14 §8.3 颜色入口 / 无障碍 ----------
         //
         // §8.3 逐字：「浅色/深色/跟随系统、主题色、文字不透明度、语义色的**实时预览**、
         // **恢复默认**、**导入/导出**；……全部关键操作具备键盘焦点、**可见焦点环**和合理
         // Tab 顺序；动画总开关继续保留，并尊重系统'减少动态效果'」。
-        //
-        // 这一段只量**判据那一层**（纯函数 + 摆出来的控件是不是那一套）：真按下去之后
-        // 界面变没变（`MainWindow` 那十个槽）在 mw_check；红绿钉子（色块真的画成了那个色）
-        // 在 ui_shot。
         {
             // ① 导入/导出：一份主题进得去、出得来。
             //
@@ -28155,7 +27613,7 @@ int main(int argc, char *argv[]) {
                       .arg(back.parts.size()));
 
             // ② 认不出来的一份文件要**被拒**，而且不许把外面那一份改坏（"导入了别的
-            //    JSON"这件事必须在颜色铺上界面之前就挡下来）。
+            // JSON"这件事必须在颜色铺上界面之前就挡下来）。
             Theme::Spec rejected = Theme::defaultSpec();
             rejected.accent = QColor(0x99, 0x88, 0x77);
             const QColor beforeReject = rejected.accent;
@@ -28177,7 +27635,7 @@ int main(int argc, char *argv[]) {
                       .arg(rejected.accent.name()));
 
             // ③ 只写一样也得能用（手写一份 `{"accent": "…"}` 是这一层的设计用法），
-            //    缺的那几项是**出厂**而不是"没有"。
+            // 缺的那几项是**出厂**而不是"没有"。
             QJsonObject minimal;
             minimal.insert(QStringLiteral("accent"), QStringLiteral("#ff3d8068"));
             Theme::Spec fromMinimal;
@@ -28197,8 +27655,8 @@ int main(int argc, char *argv[]) {
                       .arg(fromMinimal.parts.size()));
 
             // ④ 色块那一圈边：深色块给白边、浅色块给黑边。判据取的是**这块色自己的明度**
-            //    （不跟主题走）—— 一块近黑的主题色搁在浅色页面上，跟着主题走照样是"一个没有
-            //    形状的洞"。
+            // （不跟主题走）—— 一块近黑的主题色搁在浅色页面上，跟着主题走照样是"一个没有
+            // 形状的洞"。
             const QColor darkEdge = Theme::swatchBorder(QColor(0x10, 0x10, 0x10));
             const QColor lightEdge = Theme::swatchBorder(QColor(0xf0, 0xf0, 0xf0));
             check(darkEdge.isValid() && lightEdge.isValid() && darkEdge.lightness() > 128 &&
@@ -28208,7 +27666,7 @@ int main(int argc, char *argv[]) {
                       .arg(darkEdge.name(QColor::HexArgb), lightEdge.name(QColor::HexArgb)));
 
             // ⑤ 取色卡片里那张色板：块数、名字唯一、而且和预览块 / 输入框**不是同一个名字**
-            //    （重名的话验证工程与将来的调用点都会认错人）。
+            // （重名的话验证工程与将来的调用点都会认错人）。
             QSet<QString> swatchNames;
             bool swatchNamesOk = InlineMessage::colorSwatchCount() > 0;
             for (int i = 0; i < InlineMessage::colorSwatchCount(); ++i) {
@@ -28229,16 +27687,16 @@ int main(int argc, char *argv[]) {
                       .arg(swatchNames.size()));
 
             // ⑥ 系统那一档「减少动态效果」：系统说不要动的时候**一个效果都不装**，而用户
-            //    自己那把开关**不许被悄悄改掉**（他换个系统设置回来会发现自己那一格被动过）。
+            // 自己那把开关**不许被悄悄改掉**（他换个系统设置回来会发现自己那一格被动过）。
             //
             // NOTE: 这一条**只**在验证工程里摆这一位（`setPlatformReducedMotion()`），产品
-            //       那边只有 `src/main.cpp` 去问真系统 —— 把"这台机器的辅助功能怎么设的"
-            //       变成判据的一部分，会让同一份代码在两台机器上跑出两种结果。
+            // 那边只有 `src/main.cpp` 去问真系统 —— 把"这台机器的辅助功能怎么设的"
+            // 变成判据的一部分，会让同一份代码在两台机器上跑出两种结果。
             const bool userWas = Anim::userEnabled();
-            // ★ 存盘那一趟要**换一个窝**（和 W7 落盘往返同一招）：这个进程平时那对
-            //   组织/应用名是空的，`QSettings` 写下去会静默失败 —— 那样量到的"读回来"
-            //   其实是"出厂那一份"，看着像 `load()` 坏了。绝不能碰产品那一份
-            //   （`WTFML/WTFML` 底下是用户真在用的设置）。
+            // 存盘那一趟要**换一个窝**（和 W7 落盘往返同一招）：这个进程平时那对
+            // 组织/应用名是空的，`QSettings` 写下去会静默失败 —— 那样量到的"读回来"
+            // 其实是"出厂那一份"，看着像 `load()` 坏了。绝不能碰产品那一份
+            // （`WTFML/WTFML` 底下是用户真在用的设置）。
             const QString animOrg = QCoreApplication::organizationName();
             const QString animAppName = QCoreApplication::applicationName();
             QCoreApplication::setOrganizationName(QStringLiteral("WTFML-verify"));
@@ -28324,8 +27782,8 @@ int main(int argc, char *argv[]) {
                     swatch->height() == MainWindowUI::themeSwatchHeight()) {
                     ++swatchesShaped;
                 }
-                // ★ §8.3 那一句「全部关键操作具备**键盘焦点**」落到色板上就是"Tab 够得着"：
-                //   色块是 QPushButton（不用自绘控件就是为了白拿焦点 / 回车 / Tab）。
+                // §8.3 那一句「全部关键操作具备**键盘焦点**」落到色板上就是"Tab 够得着"：
+                // 色块是 QPushButton（不用自绘控件就是为了白拿焦点 / 回车 / Tab）。
                 if (swatch->focusPolicy() & Qt::TabFocus) {
                     ++swatchesFocusable;
                 }
@@ -28365,7 +27823,7 @@ int main(int argc, char *argv[]) {
             // 它。只挑**能 Tab 到的**那些（链上还夹着每行那个说明标签，它们不参与 Tab）。
             //
             // NOTE: 这一条**不挑可见性**：链上有几颗在别的分类页上，屏幕上此刻是哪一页都不
-            //       该影响"顺序对不对"这件事（真正按 Tab 时 Qt 自己会跳掉不显示的那些）。
+            // 该影响"顺序对不对"这件事（真正按 Tab 时 Qt 自己会跳掉不显示的那些）。
             {
                 QWidget *cursor = presetCombo;
                 QVector<QWidget *> reached;
@@ -28412,11 +27870,6 @@ int main(int argc, char *argv[]) {
         // 这一段动过全局主题，收尾要铺回去：一是"跟着系统"那一档**得能原样收回来**（铺过
         // 深色预设之后光"什么都不做"是收不回的，深色那份还挂在应用上 —— 这条断言量的就是
         // 那个收回的岔路）；二是别让这个进程停在一个半路的状态上。
-        //
-        // ★ 比的是**铺之前那一份**（`platformBefore`），不是 `style()->standardPalette()`：
-        //   真机上这两份差着一档（平台 #f0f0f0 / Fusion 算出来 #efefef），比错了就会"看着
-        //   通过了、其实整个窗口差一档" —— ui_shot 30) 就是拿逐像素比把这个抓出来的
-        //   （修之前：还有 141 万个像素停在别的颜色上）。
         Theme::setSpec(Theme::defaultSpec());
         Theme::apply(app);
         check(app.palette() == platformBefore,
@@ -28427,23 +27880,20 @@ int main(int argc, char *argv[]) {
                        platformBefore.color(QPalette::Window).name()));
     }
 
-    // ---------- ⑬ 动效那一层（2026-09-29） ----------
-    // 用户原话：「接下来是制作动画，按下按钮，切换页面，展开/折叠的时候的动画，可以不那么
+    // ---------- ⑬ 动效那一层 ----------
+    // 要求：「接下来是制作动画，按下按钮，切换页面，展开/折叠的时候的动画，可以不那么
     // 严格的检查，只要不要有元素超出，我人工会校对哪里需要改」。
     //
     // 所以这一段的判据**只有两条是硬的**，其余都是"接线接上了没有"：
-    //   * ★★ **不许有元素超出** —— 落到代码上就是"动效从头到尾不许动几何"。唯一例外是底栏
-    //     那两块上拉面板：它们是独立窗口，滑上来就是它的 pos 在动（这一段不量它）。
-    //   * ★★ **不许把事件吃掉** —— 装上动效之后按钮照样能点（事件过滤器永远返回 false）。
+    // * ★★ **不许有元素超出** —— 落到代码上就是"动效从头到尾不许动几何"。唯一例外是底栏
+    // 那两块上拉面板：它们是独立窗口，滑上来就是它的 pos 在动（这一段不量它）。
+    // * ★★ **不许把事件吃掉** —— 装上动效之后按钮照样能点（事件过滤器永远返回 false）。
     // "看着好不好看"归用户的眼睛，这里一条都不判。
     {
         check(Anim::pressInMs() > 0 && Anim::pressOutMs() > 0 && Anim::appearMs() > 0 &&
                   Anim::overlayMs() > 0 && Anim::panelMs() > 0 &&
                   Anim::panelSlideDistance() > 0 && Anim::pageRiseDistance() > 0 &&
                   Anim::pressDepthPercent() > 0 && Anim::pressDepthPercent() < 100 &&
-                  // ★ 换页起手那一位**不许是 0**：从 0 淡的那一发第一帧照例是全透明的
-                  // （Qt 的动画时钟锚在第一次定时器到点上，实测 17 ms），内容区当场闪一下
-                  // 空白。见 `Anim::pageStartOpacity()` 上面那段。
                   Anim::pageStartOpacity() > 0.0 && Anim::pageStartOpacity() < 1.0,
               "⑬ 时长和档位全是正数、按下那一档不到 100%（没有哪一个是 0 毫秒那种假参数）"
               "，换页起手也不是全透明（0 < pageStartOpacity() < 1）",
@@ -28466,16 +27916,12 @@ int main(int argc, char *argv[]) {
         const bool off = Anim::enabled();
         check(on && !off, "⑬ 总开关能开能关（关掉之后几个函数全是空操作，一个效果都不装）");
 
-        // —— ★ 2026-10-12（coding plan §9.4）：那几个数落在那一条给的区间里 ——
+        // —— ★ （coding plan §9.4）：那几个数落在那一条给的区间里 ——
         //
         // §9.4 逐字：「页面首次进入：160–200 ms，透明度 + **8 px** 位移；…面板展开：
         // **160–180 ms**；按钮 hover：90–120 ms；下载进度使用**平滑追值**…；不动画窗口几何、
         // 表格列宽和文字缩放」。这一条量的是**这些数本身**（每一个数"为什么是这个值"写在
         // `Animations.hpp` 里它自己那一段）。
-        //
-        // ★ 「按钮 hover 90–120 ms」那一条**没有做**（探针实测：样式表的 `:hover` 造不出来、
-        //   也量不出来，要做只能把 `:hover` 底色从样式表里撤掉 —— 和「改视觉走 QSS」的基线
-        //   正面冲突），所以这里**没有**它那一条判据，见 `Animations.hpp` 顶上那段。
         check(Anim::appearMs() >= 160 && Anim::appearMs() <= 200 &&
                   Anim::pageRiseDistance() == 8 && Anim::panelMs() >= 160 &&
                   Anim::panelMs() <= 180 && Anim::rowAppearMs() > 0 &&
@@ -28493,7 +27939,7 @@ int main(int argc, char *argv[]) {
                   .arg(Anim::rowAppearLimit())
                   .arg(Anim::progressMs()));
 
-        // —— ★ 追值那四条「如实更新」的规矩（2026-10-12）——
+        // —— ★ 追值那四条「如实更新」的规矩——
         //
         // §9.4 那一句：「下载进度使用平滑追值，**但任务真实进度倒退或总量变化时必须如实
         // 更新**」。所以这一条判的不是"淡得好看不好看"，而是**那几条"必须"真的管住了**：
@@ -28543,7 +27989,7 @@ int main(int argc, char *argv[]) {
             Anim::smoothProgress(&bar, 380);
             const bool totalLanded = bar.value() == 380 && !chasingNow(&bar);
             // ④ 「还回来」那一趟：条子被借走时钳回过 0（`setRange(0, 0)`），而记下的总量
-            //    没变过 —— 这一趟**不许**从 0 慢慢爬到"其实早就下到那儿了"的那个数字。
+            // 没变过 —— 这一趟**不许**从 0 慢慢爬到"其实早就下到那儿了"的那个数字。
             bar.setRange(0, 0);
             bar.setRange(0, 400);
             Anim::smoothProgress(&bar, 380);
@@ -28566,7 +28012,7 @@ int main(int argc, char *argv[]) {
                   QStringLiteral("%1、在追的 %2").arg(bar.value()).arg(chasingNow(&bar)));
         }
 
-        // —— ★ 「新冒出来的那一行淡进来」那一发（2026-10-12）——
+        // —— ★ 「新冒出来的那一行淡进来」那一发——
         //
         // §9.4 那一条的另一半：「同页筛选/列表变化：只动画**新增**、删除和状态，**不重播
         // 整页**」。这一条量的是**那一发自己**的形状：开着的时候挂一个效果、动的是它的
@@ -28598,14 +28044,8 @@ int main(int argc, char *argv[]) {
 
         // —— 换页那一下：把事件循环真的跑起来，跑够一整段，从头到尾盯着几何 ——
         //
-        // ★★ 2026-10-11 下午：换页那一发**不再挂 `QGraphicsEffect`**了。真机上量出来
-        //    "挂在控件上的效果不会把它的子控件跟着一起重画"（子控件那一块整整一发定在
-        //    起手那一帧上、跑完才"啪"地对齐 —— 用户说的「瞬移」），所以改成**自己盖一块
-        //    普通控件**（`PageCurtain`，`Animations.cpp` 里那个类上写了完整来龙去脉）。
-        //    这一段的判据于是从"效果在不在"改成"幕布在不在、盖得对不对"。
-        //
-        //    够到它的办法照旧是**不暴露产品类型**：按名字找那一颗 `QWidget`
-        //    （`wtfmlPageCurtain` 那个名字只有 `Animations.cpp` 一处会写）。
+        // 够到它的办法照旧是**不暴露产品类型**：按名字找那一颗 `QWidget`
+        // （`wtfmlPageCurtain` 那个名字只有 `Animations.cpp` 一处会写）。
         const QString curtainName = QStringLiteral("wtfmlPageCurtain");
         const auto curtainOf = [&curtainName](QWidget *w) -> QWidget * {
             return w == nullptr ? nullptr : w->findChild<QWidget *>(curtainName);
@@ -28627,8 +28067,8 @@ int main(int argc, char *argv[]) {
         QWidget *curtain = curtainOf(&host);
         check(curtain != nullptr && curtain->isVisible(),
               "⑬ 开着的时候它会在那一块上盖一层幕布（淡 + 抬都是在这一层上做的）");
-        // ★ 「不许有元素超出」的第一条：幕布**正好就是那一块的矩形**，一个像素都不多
-        //   （所以那圈外框长在幕布外面，这一发从头到尾碰都没碰过它）。
+        // 「不许有元素超出」的第一条：幕布**正好就是那一块的矩形**，一个像素都不多
+        // （所以那圈外框长在幕布外面，这一发从头到尾碰都没碰过它）。
         const QRect curtainOnScreen(curtain != nullptr
                                         ? QRect(curtain->mapTo(&host, QPoint(0, 0)), curtain->size())
                                         : QRect());
@@ -28644,20 +28084,16 @@ int main(int argc, char *argv[]) {
                   .arg(page->width())
                   .arg(page->height()));
 
-        // —— 换页那一发**从头到尾只有一段淡入，没有"起手干等"**（2026-10-11 改的）——
-        //
-        // 原来起手先干等 70 ms（`pageDelayMs()`）再淡 160 ms；那 70 ms 里内容区是一整块
-        // 空白（`ui_shot` 当时专门拍过那一帧），于是每切一次选项卡都先闪一下白 —— 看着像
-        // "卡了一下"，不像转场。现在直接淡，总时长就是 `appearMs()`。
+        // —— 换页那一发**从头到尾只有一段淡入，没有"起手干等"**（ 改的）——
         //
         // 量的是**这一发自己的时间轴**：幕布上挂着的那一个 `QVariantAnimation`
         // （公开的 `findChildren<QVariantAnimation *>()` 就够得着，不用把产品那边的类型
         // 暴露出来）。两条：
-        //   ① 总时长 = `appearMs()`，**没有额外那一段**。
-        //   ② 起手一会儿之后进度**已经动了**（不是停在哪一头干等）。
+        // ① 总时长 = `appearMs()`，**没有额外那一段**。
+        // ② 起手一会儿之后进度**已经动了**（不是停在哪一头干等）。
         //
-        // ★ 时间那一条**不能卡着点量**：这一趟只等 `appearMs() / 4`（50 来毫秒），
-        //   机器一忙、事件循环慢一拍也不会红。
+        // 时间那一条**不能卡着点量**：这一趟只等 `appearMs() / 4`（50 来毫秒），
+        // 机器一忙、事件循环慢一拍也不会红。
         const int appearTotal = Anim::appearMs();
         {
             const QList<QVariantAnimation *> anims =
@@ -28671,16 +28107,10 @@ int main(int argc, char *argv[]) {
                       .arg(appearTotal));
         }
 
-        // —— 而那一发是**按帧走**的（2026-10-11：用户报「动画有严重的卡顿感」之后加的）——
+        // —— 而那一发是**按帧走**的（：用户报「动画有严重的卡顿感」之后加的）——
         //
-        // 真因不是掉帧：`QVariantAnimation` 的进度是按**墙上时钟**算的，而换页那一刻主线程
-        // 正忙着摆版、画新那一页，第一拍**晚 23~64 ms** 才到 ⇒ 那一发**先定住、再"啪"地跳掉
-        // 三分之一**（`ui_shot` 里临时插的追踪：`(0)画 (64)0.43 (1)画 (14)0.65 …`）。
-        // 修法是"每一拍推一档"：消息一到只推一档，**"第一拍什么时候来"不再影响这一发走到
-        // 哪儿**。判据就落在那个步进器真的在、周期就是 `stepMs()` 上（名字是死的，外面只认它）。
-        //
-        // ★ 只判"接线在"——"每一步推得多准、看着顺不顺"是观感，归人眼（用户说过
-        //   "可以不那么严格的检查"）。
+        // 只判"接线在"——"每一步推得多准、看着顺不顺"是观感，归人眼（用户说过
+        // "可以不那么严格的检查"）。
         {
             const QList<QTimer *> steppers =
                 curtain != nullptr ? curtain->findChildren<QTimer *>(QStringLiteral("wtfmlAnimStepper"))
@@ -28728,7 +28158,7 @@ int main(int argc, char *argv[]) {
               "⑬ 跑完把那层幕布收起来了（收起来之后它一个像素都不画 —— "
               "下一次换页接着用同一块，不再生灭一遍）");
 
-        // —— 透明页面的快照必须抓「屏幕上合成后的样子」（2026-10-12）——
+        // —— 透明页面的快照必须抓「屏幕上合成后的样子」——
         //
         // 页面自己常常不铺底，白色来自它后面的卡片。单独 `page->grab()` 时 Qt 会用页面的
         // `Window` 角色补底：如果那一档是灰色，动画幕布就会整块先灰、结束后才恢复成下面
@@ -28815,17 +28245,17 @@ int main(int argc, char *argv[]) {
                   .arg(probe->geometry().x())
                   .arg(probe->geometry().y()));
 
-        // —— 换页那一发淡的是**一张定住的图**（2026-09-29）——
+        // —— 换页那一发淡的是**一张定住的图**——
         //
-        // 用户原话：「服务器列表那栏动画卡卡的」。那一页进页就自动测速、结果一个一个回来，
+        // 要求：「服务器列表那栏动画卡卡的」。那一页进页就自动测速、结果一个一个回来，
         // 现照现淡的话**淡的每一帧都不是同一张画面**（行长高、favicon 补上）。规矩：
         // 起手照一次，往后每一帧都拿那一张。
         //
-        // 判据这么搭：一块**白**的页面 + 黑底，起手照完（2026-10-17 起 `pageAppear()` 里
+        // 判据这么搭：一块**白**的页面 + 黑底，起手照完（ 起 `pageAppear()` 里
         // 同步照，见 `Animations.cpp` 里 `PageCurtain::ensureSnapshot()`）之后把页面改成
         // **红的** ——
-        //   * 定住了 ⇒ 淡到一半取样是**灰的**（黑底 + 半透明白），三个分量相等；
-        //   * 没定住 ⇒ 那一帧照的是红的，取出来是**暗红**（R > G == B）。
+        // * 定住了 ⇒ 淡到一半取样是**灰的**（黑底 + 半透明白），三个分量相等；
+        // * 没定住 ⇒ 那一帧照的是红的，取出来是**暗红**（R > G == B）。
         // 再补一条"跑完之后确实是红的"：不然上面那条可能是因为"改颜色根本没生效"而假绿。
         {
             QWidget snapHost;
@@ -28841,26 +28271,26 @@ int main(int argc, char *argv[]) {
 
             Anim::pageAppear(snapPage, Qt::black);
             QWidget *snapCurtain = curtainOf(&snapHost);
-            // ★★ 2026-10-17：**不等那一帧了、当场就改颜色**。快照从这一版起是在
-            //   `pageAppear()` 里同步照的（`PageCurtain::ensureSnapshot()`，不在
-            //   `paintEvent()` 里 —— 在那里抓会抓到正在画的自己，见那个类头上那一段），
-            //   所以"起手照的那一张"必须早于这里这一改。反过来说：这一条现在也钉住了
-            //   "照快照不是拖到第一帧才做"—— 懒照那一版会照到下面这个红色，判据当场红。
+            // **不等那一帧了、当场就改颜色**。快照从这一版起是在
+            // `pageAppear()` 里同步照的（`PageCurtain::ensureSnapshot()`，不在
+            // `paintEvent()` 里 —— 在那里抓会抓到正在画的自己，见那个类头上那一段），
+            // 所以"起手照的那一张"必须早于这里这一改。反过来说：这一条现在也钉住了
+            // "照快照不是拖到第一帧才做"—— 懒照那一版会照到下面这个红色，判据当场红。
             snapPalette.setColor(QPalette::Window, Qt::red);
             snapPage->setPalette(snapPalette);
             snapPage->update();
 
-            // ★★ 取样那一点**问这一发自己走到哪儿了，不问时钟**（2026-10-11 改）。
+            // 取样那一点**问这一发自己走到哪儿了，不问时钟**（ 改）。
             //
-            //   原来这里是"再等 `appearMs() / 5`（26 ms）就取样"，理由是"取样要落在淡入那
-            //   一段的靠前处"。同一天起手那位从 0.5 抬到 0.8 之后这一条当场就红了（量到
-            //   245，判据是 < 245）：浓淡那一段整个被挤到"快满"那一头，两段固定等待加起来的
-            //   那 40 来毫秒正好落在它快走完的地方 —— 判据量的其实**是时钟，不是动画**。
+            // 原来这里是"再等 `appearMs() / 5`（26 ms）就取样"，理由是"取样要落在淡入那
+            // 一段的靠前处"。同一天起手那位从 0.5 抬到 0.8 之后这一条当场就红了（量到
+            // 245，判据是 < 245）：浓淡那一段整个被挤到"快满"那一头，两段固定等待加起来的
+            // 那 40 来毫秒正好落在它快走完的地方 —— 判据量的其实**是时钟，不是动画**。
             //
-            //   现在改成**等这一发的进度真的到 0.4 以上再去量**（`OutCubic` 下那是第二拍，
-            //   0.58）："取样在浓淡中段"这件事由取样条件本身保证，机器快慢、事件循环慢一两
-            //   拍都不影响它落在哪儿。顺带把"真的在淡"这一位也钉住了（见下面那条判据里的
-            //   `sampled`）。
+            // 现在改成**等这一发的进度真的到 0.4 以上再去量**（`OutCubic` 下那是第二拍，
+            // 0.58）："取样在浓淡中段"这件事由取样条件本身保证，机器快慢、事件循环慢一两
+            // 拍都不影响它落在哪儿。顺带把"真的在淡"这一位也钉住了（见下面那条判据里的
+            // `sampled`）。
             const QList<QVariantAnimation *> snapAnims =
                 snapCurtain != nullptr ? snapCurtain->findChildren<QVariantAnimation *>()
                                        : QList<QVariantAnimation *>();
@@ -28910,8 +28340,8 @@ int main(int argc, char *argv[]) {
         Anim::setEnabled(atStart);
     }
 
-    // ---------- ⑭ 滚动条：嵌在页面边上的一条（2026-09-29） ----------
-    // 用户原话：「每一次切页面的时候滚动条都是瞬间出现的，把滚顶条变成一个嵌在页面边上的条，
+    // ---------- ⑭ 滚动条：嵌在页面边上的一条 ----------
+    // 要求：「每一次切页面的时候滚动条都是瞬间出现的，把滚顶条变成一个嵌在页面边上的条，
     // 不要直接一个白色条」。
     //
     // 这一段量三件事：**它有多粗**（`Theme::scrollBarThickness()`）、**它自己画不画底**
@@ -29094,8 +28524,8 @@ int main(int argc, char *argv[]) {
         QApplication::processEvents();
 
         QScrollBar *bar2 = scroll2->verticalScrollBar();
-        // ★ 这两个基准点必须在**露头 / 布完局之后**取：`show()` 本身会挪动顶层窗口（窗口管理器
-        //   给的落点），那不是动效干的。这条量的是"淡入这一段里有没有东西动过"。
+        // 这两个基准点必须在**露头 / 布完局之后**取：`show()` 本身会挪动顶层窗口（窗口管理器
+        // 给的落点），那不是动效干的。这条量的是"淡入这一段里有没有东西动过"。
         const QRect host2Before = host2.geometry();
         check(bar2->graphicsEffect() != nullptr &&
                   bar2->graphicsEffect()->objectName() == QLatin1String("wtfmlAnimEffect"),
@@ -29158,9 +28588,9 @@ int main(int argc, char *argv[]) {
                        bar3->graphicsEffect() != nullptr ? bar3->graphicsEffect()->objectName()
                                                          : QStringLiteral("没有")));
 
-        // —— 用户 2026-10-18 点名的那一幕：**上下拖窗口**的时候条子来回出现／消失，
-        //    里面换行的说明文字跟着重排。`Theme::GutterScrollArea` 右边常留一格死区
-        //    （条子常驻、装得下时把手透明）⇒ 视口宽度不随条子变。
+        // —— 用户 点名的那一幕：**上下拖窗口**的时候条子来回出现／消失，
+        // 里面换行的说明文字跟着重排。`Theme::GutterScrollArea` 右边常留一格死区
+        // （条子常驻、装得下时把手透明）⇒ 视口宽度不随条子变。
         QWidget host4;
         host4.resize(240, 160);
         host4.setAutoFillBackground(true);
@@ -29176,8 +28606,6 @@ int main(int argc, char *argv[]) {
         gutterScroll->setWidget(gutterContent);
         host4.show();
         QApplication::processEvents();
-        // 条子露头时有一发淡入（`Anim::scrollBarAppear`）—— 它从 opacity 0 开始，
-        // 不等它跑完就截图会量到"什么都没有"。这里按它那一段长度等够（和上面探针二同一套）。
         if (Anim::enabled()) {
             QEventLoop fadeDone;
             QTimer::singleShot(Anim::scrollBarMs() + 120, &fadeDone, &QEventLoop::quit);
@@ -29222,10 +28650,10 @@ int main(int argc, char *argv[]) {
                   .arg(gutterScroll->width())
                   .arg(Theme::scrollBarThickness()));
 
-        // ★ 那条 `[wtfmlIdle="true"]` 的 QSS 到底有没有生效 —— 只看字符串会假绿
-        //   （这一仓有过 `::drop-down` 里多写一句 `border: none` 把整个箭头吃掉的先例）。
-        //   量法：装得下时**把手那一格和它旁边的页面底一个色**（透明），内容变长之后
-        //   同一格变成把手那一档色。
+        // 那条 `[wtfmlIdle="true"]` 的 QSS 到底有没有生效 —— 只看字符串会假绿
+        // （这一仓有过 `::drop-down` 里多写一句 `border: none` 把整个箭头吃掉的先例）。
+        // 量法：装得下时**把手那一格和它旁边的页面底一个色**（透明），内容变长之后
+        // 同一格变成把手那一档色。
         {
             const QImage busyImage = captureWidget(gutterScroll);
             const QColor busyPixel = gutterSliderCenter(busyImage);
@@ -29241,14 +28669,12 @@ int main(int argc, char *argv[]) {
         Anim::setEnabled(wasEnabled);
     }
 
-    // ------------------------------------------------------------------
     std::printf("\n===== U28. 完整性检查报告页（「检查并修复」跑完之后那整页）=====\n");
     // ------------------------------------------------------------------
     // §4.1 的界面那一半分三处验：判据层在 verify 的 ZN 段、开页那一半在 mw_check 的 T33、
     // **这一页长什么样**在这里。它是**整页**（顶上四颗导航和底栏不盖，见 OverlayHost），
     // 里面认的是自己那套 `Report`（`ui/` 不 include `src/`，见那一页的文件头）。
     {
-        // 一份"两组有问题、两组干净"的报告：客户端坏 1 个、库缺 1 个、索引 / 资源对象都干净。
         IntegrityReportPage::Report dirty;
         dirty.instanceName = QStringLiteral("1.20.1-我的整合包");
         dirty.summary = QStringLiteral("3120 个文件里 2 个要修：缺 1 个、坏 1 个");
@@ -29402,7 +28828,6 @@ int main(int argc, char *argv[]) {
               "★ U28.8 「只查看」= reject()（和顶上那颗「← 返回」是同一条路）",
               QString::number(page.result()));
 
-        // ---------- 全干净那一份：只剩「复制报告」，「补齐…」收起来 ----------
         {
             // 上一段点了「只查看」= reject() —— 那一下把这一页**藏起来**了（`isVisible()` 从
             // 那一刻起恒假）。这一段的断言全在可见性上，所以先把页摆回去。
@@ -29473,13 +28898,13 @@ int main(int argc, char *argv[]) {
     // 在这里。
     //
     // 这一节钉的是同一件事的两面：
-    //   ① 能力位里 `exportReport` / `openCrashDir` 为真 ⇒ 那两颗**在**，点一下带出去的
-    //      动作也对（干活的那一半在 MainWindow）；
-    //   ② 别的任务身上这两颗**不在** —— 它们手里没有那份会话事实，摆一颗点了只能弹
-    //      "没有可导出的东西"的键，比不给还糟。
+    // ① 能力位里 `exportReport` / `openCrashDir` 为真 ⇒ 那两颗**在**，点一下带出去的
+    // 动作也对（干活的那一半在 MainWindow）；
+    // ② 别的任务身上这两颗**不在** —— 它们手里没有那份会话事实，摆一颗点了只能弹
+    // "没有可导出的东西"的键，比不给还糟。
     //
-    // ★ 判据只读 `Item::capabilities`：这一页要是自己按状态再推一遍，推出来的和账本记的
-    //   迟早漂开（见那一页的文件头）。
+    // 判据只读 `Item::capabilities`：这一页要是自己按状态再推一遍，推出来的和账本记的
+    // 迟早漂开（见那一页的文件头）。
     {
         TaskDetailPage page;
         page.resize(560, 460);
@@ -29601,7 +29026,6 @@ int main(int argc, char *argv[]) {
         QApplication::processEvents();
     }
 
-    // ==================================================================
     std::printf("\n===== U30. 世界与实例备份那几颗按钮（§4.4）=====\n");
     // ==================================================================
     // §4.4 的**入口**分两处：世界设置页那一排（"对这个存档能做的几件事"）和实例概览那一排
@@ -29657,9 +29081,9 @@ int main(int argc, char *argv[]) {
                   "★★ U30.1 三句 tooltip 各说各的（打成一个包 / 挑一份还原 / 备份放在哪儿）"
                   "—— 同款按钮挤一排，说不清就会点错",
                   fullBackup->toolTip());
-            // ★★ 和底下那颗「备份一份」**必须分得开**：那一颗抄的是 level.dat 一个文件
-            //    （救命稻草），这一颗打的是**整个存档目录**。名字差一个字、说明差一句话，
-            //   用户就会以为是同一件事按两遍。
+            // 和底下那颗「备份一份」**必须分得开**：那一颗抄的是 level.dat 一个文件
+            // （救命稻草），这一颗打的是**整个存档目录**。名字差一个字、说明差一句话，
+            // 用户就会以为是同一件事按两遍。
             check(backupOne != nullptr && backupOne->text() != fullBackup->text() &&
                       backupOne->toolTip() != fullBackup->toolTip(),
                   "★★ U30.1 「立即备份」和底下那颗「备份一份」名字与说明都**不是同一句**"
@@ -29702,9 +29126,9 @@ int main(int argc, char *argv[]) {
             check(kindOf(fullBackup) == neutral && kindOf(backupFolder) == ghost,
                   "U30.1 「立即备份」保留一般性按钮，「打开备份目录」降为低频 Ghost",
                   kindOf(fullBackup) + QStringLiteral(" / ") + kindOf(backupFolder));
-            // ★★ 「恢复备份…」是红的：它把**这个存档现在这一份**整个换掉。`Danger` 那一档的
-            //    界定是"删了就拿不回来"，点名的几条里就有"还原"（见 Theme.hpp 里 ButtonKind
-            //    那段）；还原之前自动留的那一份是兜底，不等于这一步没风险。
+            // 「恢复备份…」是红的：它把**这个存档现在这一份**整个换掉。`Danger` 那一档的
+            // 界定是"删了就拿不回来"，点名的几条里就有"还原"（见 Theme.hpp 里 ButtonKind
+            // 那段）；还原之前自动留的那一份是兜底，不等于这一步没风险。
             check(kindOf(restore) == danger && kindOf(remove) == danger,
                   "★★ U30.1 「恢复备份…」和「删除世界」同一档（红）—— 它把现在这一份整个换掉",
                   kindOf(restore));
@@ -29746,8 +29170,8 @@ int main(int argc, char *argv[]) {
                       backupOneClicks == 0,
                   "U30.1 也**没顺手**把旁边那几颗（重命名 / 打开文件夹 / 备份一份 / 删除世界）"
                   "的信号带上");
-            // ★ 这三颗**都只发信号**：真打包 / 挑包 / 开目录全在 MainWindow（那几步要任务
-            //   账本、后台线程、覆盖层）。这一页自己要是动了盘，实例设置那边就没法统一管了。
+            // 这三颗**都只发信号**：真打包 / 挑包 / 开目录全在 MainWindow（那几步要任务
+            // 账本、后台线程、覆盖层）。这一页自己要是动了盘，实例设置那边就没法统一管了。
         }
 
         page.close();
@@ -29783,21 +29207,15 @@ int main(int argc, char *argv[]) {
                       restore->text() == QStringLiteral("从快照恢复…"),
                   "U30.2 那四个字（连省略号）就是唯一出处里写的",
                   create->text() + QStringLiteral(" / ") + restore->text());
-            // ★★ 2026-10-16：这两颗**不再摆在概览上**了 —— 概览只留「更新」那一格，快照那
-            //   两格搬进了专属的「快照」页（`InstanceSettingsDialog` 建页时的 `snapshots`
-            //   那一支调 `moveOverviewAction()`）。所以这条断言**拆成两句**：概览上不许露脸、
-            //   切到快照页才露脸 —— 只留后半句的话，哪天有人把它们又摆回概览也照样绿
-            //   （`findChild` 找得到控件 ≠ 它在这一页上）。
-            //   `mw_check` T27.1 钉的是复制 / 删除那一对的同一件事。
             check(!create->isVisible() && !restore->isVisible(),
                   "★★ U30.2 概览那一页上**不再**摆快照那两颗（动作都搬进各自那页）");
             dialog.showPage(QStringLiteral("snapshots"));
             QApplication::processEvents();
             check(create->isVisible() && restore->isVisible(),
                   "U30.2 切到「快照」那一页，两颗都看得见");
-            // ★ 省略号是**故意的**：按下去之后还会再问一句（创建那颗问"要不要连着能重新
-            //   下回来的那部分一起打包"）/ 还要挑一份（恢复那颗）。这套界面里省略号就是
-            //   "后面还有一步"的意思，两颗都得带着。
+            // 省略号是**故意的**：按下去之后还会再问一句（创建那颗问"要不要连着能重新
+            // 下回来的那部分一起打包"）/ 还要挑一份（恢复那颗）。这套界面里省略号就是
+            // "后面还有一步"的意思，两颗都得带着。
             check(create->text().endsWith(QChar(0x2026)) &&
                       restore->text().endsWith(QChar(0x2026)),
                   "★ U30.2 两颗都带省略号（按下去之后还会再问一句 / 还要挑一份）");
@@ -29851,7 +29269,7 @@ int main(int argc, char *argv[]) {
                       + QStringLiteral(" / ")
                       + (updates != nullptr ? kindOf(updates) : QStringLiteral("<没找到>")));
 
-            // ---- 2026-10-15：那一格「检查并修复」旁边的「更新中心」也得挂上档 ----
+            // ---- ：那一格「检查并修复」旁边的「更新中心」也得挂上档 ----
             //
             // 用户当时指着这几颗说「**检查功能不套用新的按钮格式，看着就像没有改过的老
             // 文件**」。底下的事实 = 概览里这三颗（检查更新 / 更新中心 / 检查并修复）
@@ -29867,7 +29285,7 @@ int main(int argc, char *argv[]) {
                   updateCenter != nullptr ? kindOf(updateCenter)
                                           : QStringLiteral("<没找到>"));
 
-            // ---- 2026-10-16：四颗一条线的旧次序**已经分家** ----
+            // ---- ：四颗一条线的旧次序**已经分家** ----
             //
             // 从前这四颗在概览上排成一条线：「复制实例 → 创建快照… → 从快照恢复… →
             // 删除实例」。现在复制 / 删除去了「实例操作」页、快照那两颗去了「快照」页 ——
@@ -29931,21 +29349,13 @@ int main(int argc, char *argv[]) {
     // 判据层（账怎么写 / 时间怎么说 / 目标没了怎么降级）在 verify 的 ZR 段；**接线**
     // （点下去走哪条路）在 mw_check 的 T36 —— 这里只管"看得见的那一份"，一件事只验一遍。
     //
-    // ★ 全程走 `MainWindowUI::setHomeRecent()` 这一个入口：那一份 `HomeRecent` 就是产品
-    //   （`MainWindow::updateHomeRecent()`）给界面的唯一一份值，手工 setText 摆出来的卡片
-    //   不是产品会画出来的那张 —— 那正是这一节要防的"看着对、产品却不是这么画的"。
-    //   （2026-10-13：这一节的兄弟 T36 抓到的就是这一类形状 —— 卡片压根没被存成成员，
-    //   界面上一片空白，而两颗按钮照旧写得进字。）
+    // 全程走 `MainWindowUI::setHomeRecent()` 这一个入口：那一份 `HomeRecent` 就是产品
+    // （`MainWindow::updateHomeRecent()`）给界面的唯一一份值，手工 setText 摆出来的卡片
+    // 不是产品会画出来的那张 —— 那正是这一节要防的"看着对、产品却不是这么画的"。
+    // （：这一节的兄弟 T36 抓到的就是这一类形状 —— 卡片压根没被存成成员，
+    // 界面上一片空白，而两颗按钮照旧写得进字。）
     {
-        // ★ 先把窗口摆出来、把主页切回前台，再看那两张卡的几何：这一节是**最后一段**，
-        //   前面十几节有的把选项卡停在别处、有的把窗口关掉了 —— 而**没摆上屏幕的东西不参加
-        //   布局**，那两张卡的几何会停在"建出来那个默认值"（QWidget 的 100x30）。
-        //   2026-10-13 实测就是这么红的：卡片 100x30、左栏 `isVisible()==0`，看着像"产品
-        //   压根没把它放进布局"，其实只是这一节没把界面摆出来。
         window.show();
-        // 还得**给左栏留出足够的高度**：卡片是按内容定高的那一档，窗口矮的时候它会被布局
-        // 压扁（900x620 下实测卡片 131px < 自己的 sizeHint 173px），而"那一行空了卡片会不会
-        // 跟着矮"这种事在压扁了的状态下根本量不出来。
         window.resize(900, 760);
         if (tabs != nullptr) {
             tabs->setCurrentIndex(MainWindowUI::homeTabIndex());
@@ -29997,7 +29407,7 @@ int main(int argc, char *argv[]) {
                   "U31.2 旁边那颗永远写「实例设置」", recentSettings->text());
 
             // ③ 摆在哪儿：**启动卡下面**，和它一样宽（同一栏里两张卡，7:3 那份宽度是共用
-            //    的）；名字在标题下面、详情在名字下面 —— 那一份次序是 §5.1 那张草图的。
+            // 的）；名字在标题下面、详情在名字下面 —— 那一份次序是 §5.1 那张草图的。
             check(recentCard->y() >= launchCard->y() + launchCard->height(),
                   "★★ U31.3 那张卡在**启动卡下面**（§9.5：主页左栏是「启动 + 最近活动」两"
                   "件事，次序就是它们的重要程度）",
@@ -30021,13 +29431,7 @@ int main(int argc, char *argv[]) {
                   QStringLiteral("x %1 / 卡片宽 %2").arg(recentWhen->x()).arg(recentCard->width()));
 
             // ④ 灰字那一行空着时**整行收起来**，卡片跟着矮一截：空 QLabel 照样占一行字高，
-            //    留着就是白留一块（§9.2 那条"不摆空壳"落到了行这一级）。
-            //
-            //   ★ 量的是 `sizeHint()`，**不是**屏幕上那一刻的高度：offscreen 那块窗口被夹在
-            //     虚拟屏那一圈里，左栏是**被压扁**的（实测卡片 131px < 它自己的
-            //     `sizeHint()` 173px）—— 挤扁那一档的高度由"布局从谁身上抠"决定，这一行收
-            //     没收掉看不出来。屏幕像素上"真的矮了一截"那条钉子摆在 **ui_shot**
-            //     （原生窗口、正常高度），见 memory 里那条「布局类断言在 offscreen 上会假绿」。
+            // 留着就是白留一块（§9.2 那条"不摆空壳"落到了行这一级）。
             const int withDetail = recentCard->sizeHint().height();
             // 还原那一发要用**同一句**：灰字那行是会折行的（这一句在卡片宽度下正好两行），
             // 换一句短的回来高度当然对不上 —— 那不是"收起来不可逆"。
@@ -30056,7 +29460,7 @@ int main(int argc, char *argv[]) {
             recent.whenLine = QStringLiteral("昨天 22:14");
 
             // ⑤ 降级那一档：目标 / 那一份实例没了 ⇒ 字变成「启动实例」，但**按钮不消失**
-            //    （§5.1：目标被删了不该让这张卡变成死路一条）。
+            // （§5.1：目标被删了不该让这张卡变成死路一条）。
             recent.canContinue = false;
             ui.setHomeRecent(recent);
             QApplication::processEvents();
@@ -30069,7 +29473,7 @@ int main(int argc, char *argv[]) {
             QApplication::processEvents();
 
             // ⑥ 一句很长的实例名**不许把卡片顶宽**（名字那一格横向是 Ignored，见
-            //    setHomeRecent 那一带的 NOTE）：宽度只由 7:3 那份份数决定。
+            // setHomeRecent 那一带的 NOTE）：宽度只由 7:3 那份份数决定。
             recent.instanceLine =
                 QStringLiteral("超长实例名超长实例名超长实例名超长实例名超长实例名"
                                "-1.20.1-neoforge-21.1.0-再长一点");
@@ -30084,9 +29488,9 @@ int main(int argc, char *argv[]) {
                       .arg(recentName->width()));
 
             // ⑦ 两颗按钮的**分档**：主动作那一颗是页面上唯一一颗**实心**的（底 = 主题色本色、
-            //    字 = 白），旁边那颗是白底黑字的「一般性」那一档。量的**渲染出来的像素**，不是
-            //    样式表字符串 —— 字符串那一条会跟着同一个错误一起写错（见 `Theme.cpp` 里
-            //    `primaryBlock` / `kindBlock` 那两段：这是"分了三档"唯一说得清的地方）。
+            // 字 = 白），旁边那颗是白底黑字的「一般性」那一档。量的**渲染出来的像素**，不是
+            // 样式表字符串 —— 字符串那一条会跟着同一个错误一起写错（见 `Theme.cpp` 里
+            // `primaryBlock` / `kindBlock` 那两段：这是"分了三档"唯一说得清的地方）。
             {
                 const QColor pure = Theme::accentShade(Theme::AccentShade::Pure);
                 const QColor neutralInk = Theme::neutralInkColor();
@@ -30115,7 +29519,7 @@ int main(int argc, char *argv[]) {
 
                 // 它上面那行字是**白**的：中间那一带里"离白比离本色更近"的像素得存在。
                 // （不数纯 `#ffffff`：`render()` 出来是灰度抗锯齿，字芯未必一格不差地打到
-                //   纯白；这条要钉的是"墨是白的"，不是"抗锯齿打了几格"。）
+                // 纯白；这条要钉的是"墨是白的"，不是"抗锯齿打了几格"。）
                 const QRect goBand(4, goShot.height() / 4, qMax(0, goShot.width() - 8),
                                    qMax(1, goShot.height() / 2));
                 int goLight = 0;
@@ -30226,12 +29630,8 @@ int main(int argc, char *argv[]) {
     // 在不在、摆在哪一栏、谁占宽度、chip 有多高、那句话平时收不收着。
     //
     // NOTE: 接线（打一个字剩下几行、chip 点一下剩什么、清空之后展开状态回不回得去）在
-    //       mw_check 的 T37；判据层（怎么分词、哪六个串参与比对、"与/或"）在 verify 的
-    //       ZS 段。这一节**不重验**那两半，只管"这一行长什么样"。
-    //
-    // ★ 这一节**故意不量**"搜索框最后划到多宽""四颗的右边缘和树下那条边对不对得齐"：
-    //   那几条是布局类断言，在 offscreen 这一套跑法下会**假绿**（量出来的宽度和真屏上
-    //   差着呢）。红绿钉子摆在 ui_shot 的 9d —— 那一份跑在真屏上，还带图。
+    // mw_check 的 T37；判据层（怎么分词、哪六个串参与比对、"与/或"）在 verify 的
+    // ZS 段。这一节**不重验**那两半，只管"这一行长什么样"。
     {
         window.show();
         window.resize(900, 760);
@@ -30325,9 +29725,9 @@ int main(int argc, char *argv[]) {
 
             // ---------- ④ chip 那一档：24px 高、共用同一份样式表 ----------
             //
-            // ★ 和资源详情页那排游戏版本**同一个出处**（`Theme::markChipButton()`）：这两处
-            //   各写一份的话，同一种控件在两张页面上会长成两个样子。这一条钉的就是"共用
-            //   那一份"，不是"高度等于某个数"。
+            // 和资源详情页那排游戏版本**同一个出处**（`Theme::markChipButton()`）：这两处
+            // 各写一份的话，同一种控件在两张页面上会长成两个样子。这一条钉的就是"共用
+            // 那一份"，不是"高度等于某个数"。
             int chipHeightOk = 0;
             int chipStyleOk = 0;
             for (QPushButton *button : chips) {
@@ -30405,7 +29805,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // ------------------------------------------------------------------
     std::printf("\n===== U33. 更新中心（「检查更新」查出来的结论摊成能动手的一页，§7.1）=====\n");
     // ------------------------------------------------------------------
     // §7.1 的界面那一半分三处验：判据层（忽略 / 固定那本账）在 verify 的 ZT / ZU 两节、
@@ -30413,10 +29812,10 @@ int main(int argc, char *argv[]) {
     // **这一页长什么样**在这里。
     //
     // 盯的是三件在纯数据上看不出来的事：
-    //   ① 两组的**标题带条数**、而且能动手的那一组在上面（用户点进来就是来看它的）；
-    //   ② "能不能勾"和"底下那颗按钮"是同一件事（勾了才点得动、勾了几条就写几条）；
-    //   ③ 已经"别再提示我"的那几条**勾不上**（用户刚说完别动它，紧接着被批量更新一起换掉，
-    //      是这一页最不该发生的事）—— 而它们自己那颗「更新」照旧在。
+    // ① 两组的**标题带条数**、而且能动手的那一组在上面（用户点进来就是来看它的）；
+    // ② "能不能勾"和"底下那颗按钮"是同一件事（勾了才点得动、勾了几条就写几条）；
+    // ③ 已经"别再提示我"的那几条**勾不上**（用户刚说完别动它，紧接着被批量更新一起换掉，
+    // 是这一页最不该发生的事）—— 而它们自己那颗「更新」照旧在。
     {
         const QString outDate = QStringLiteral("D:/mc/versions/1.20.1/mods/jei.jar");
         const QString pinnedPath = QStringLiteral("D:/mc/versions/1.20.1/mods/sodium.jar");
@@ -30477,15 +29876,7 @@ int main(int argc, char *argv[]) {
         QApplication::processEvents();
         page.setReport(report);
         QApplication::processEvents();
-        // ★★ 2026-10-13：**必须自己把延迟删除派发掉**（这一句不是多余的）。
-        //
-        //   `rebuild()` 拆旧的那一层走的是 `deleteLater()`，而**延迟删除事件要等"发它时所在
-        //   的那个事件循环"退出去才派发** —— 这里一个 `QEventLoop` 都没在跑（测试直接调
-        //   `processEvents()`），于是那一份事件**永远不会被投递**，构造函数里那次
-        //   `setReport(Report())` 摆出来的那一代控件会一直挂在 `page` 底下。
-        //   后果很具体：下面那些 `findChild()` 按名字找控件时会**先撞上上一代**（同一页里
-        //   两代控件的 objectName 一模一样）——「有新版本（**0** 条）」和"四行里只认前三行"
-        //   就是这么来的（当年这里红的三条，量的是上一代那份空报告，而屏幕上明明是对的）。
+        // **必须自己把延迟删除派发掉**（这一句不是多余的）。
         QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QApplication::processEvents();
 
@@ -30532,8 +29923,6 @@ int main(int argc, char *argv[]) {
               "★★ U33.3 两组**一个不少**、顺序是「有新版本」在上（用户点进来就是来看它的）、"
               "「已是最新或说不清」在下，两个标题都带条数",
               actualTitles.join(QStringLiteral(" / ")));
-        // ★ 行的下标是**全页连着**的：第 0 行是"有新版本"那一组的第一条。这一份报告是
-        //   四行（两条有新版本 + 一条已是最新 + 一条说不清）⇒ 下标 0..3 都在、4 就该没了。
         check(rowBy(0) != nullptr && rowBy(1) != nullptr && rowBy(2) != nullptr
                   && rowBy(3) != nullptr && rowBy(4) == nullptr,
               "★★ U33.3 四行按顺序摆在两组里（下标连着，不是每组从头数）");
@@ -30582,7 +29971,7 @@ int main(int argc, char *argv[]) {
               "换掉是这一页最不该发生的事）");
         check(check2 != nullptr && !check2->isEnabled(),
               "★★ U33.5 「已是最新」那条一样勾不上（勾了也没有下一件事可做）");
-        // ★ 勾不上的那几行**占着同一格宽度**：不保留尺寸的话两组左边参差不齐。
+        // 勾不上的那几行**占着同一格宽度**：不保留尺寸的话两组左边参差不齐。
         check(check1 != nullptr
                   && check1->sizePolicy().retainSizeWhenHidden(),
               "★ U33.5 勾不上 / 藏起来的那一格**保留尺寸**（不保留的话两组左边参差不齐）");
@@ -30748,8 +30137,8 @@ int main(int argc, char *argv[]) {
     // 的形状（下拉框里那几档、按档露/收那三行、说明与「创建」能不能点）。
     //
     // NOTE: 接线（切模式真的重扫了盘、创建真的落了盘、双击真的开了目录）在 mw_check 的 T38；
-    //       判据层（认档、洗名字、读写 `.wtfml-server`）在 verify 的 ZW / ZX 段。这一节
-    //       只量"这一行长什么样"，不重验那两半。
+    // 判据层（认档、洗名字、读写 `.wtfml-server`）在 verify 的 ZW / ZX 段。这一节
+    // 只量"这一行长什么样"，不重验那两半。
     {
         window.show();
         window.resize(980, 780);
@@ -30948,15 +30337,10 @@ int main(int argc, char *argv[]) {
 
         // ---------- U35 「新建服务端」那一页的「目录」那一行（coding plan §6.2 / M4-2）----------
         //
-        // 用户 2026-10-13 定的那一条：「创建」= 建目录 + 当趟把东西下下来。落盘那件事在
+        // 用户 定的那一条：「创建」= 建目录 + 当趟把东西下下来。落盘那件事在
         // mw_check 的 T40（真建、真下、真取消）；这一节只量**建之前用户看得见的那一格**：
         // 名字会变成盘上哪个目录。它是**算出来的**（服务端根只有一份，一个服务端 = 根下面
         // 一个以名字命名的目录），所以这一格**只读** —— 页面上不许有一个能改它的输入框。
-        //
-        // NOTE: 长路径那一趟（U35.3）量的是"**机制**"：那一格挂的是 `QSizePolicy::Ignored`
-        //       ⇒ 路径再长也不参与横向度量。`QLayout` 的 sizeHint 是纯算术，offscreen 上
-        //       这事测得准；但"屏幕上到底有没有被撑出去"那一半是布局类的，钉子摆在 ui_shot
-        //       的 §38（老规矩：布局类断言在 offscreen 上会假绿）。
         {
             NewServerPage page;
             page.resize(720, 520);
@@ -31028,19 +30412,16 @@ int main(int argc, char *argv[]) {
         //
         // M4-3 在界面上长出两样东西：
         //
-        //   ① **控制台那一页** —— 服务端跑起来之后唯一能看见"它现在在说什么"的地方。这一节
-        //      把它自己驱动一遍（离线、不需要任何进程）：灌日志 / 读回来 / 敲一行 / 看信号 /
-        //      看那三颗按钮亮不亮。它**一行判据都没有**（状态怎么说、能不能停是 `MainWindow`
-        //      翻好的，见它的文件头），所以量得到的正好是"这些 bool 摆到屏幕上了没有"。
+        // ① **控制台那一页** —— 服务端跑起来之后唯一能看见"它现在在说什么"的地方。这一节
+        // 把它自己驱动一遍（离线、不需要任何进程）：灌日志 / 读回来 / 敲一行 / 看信号 /
+        // 看那三颗按钮亮不亮。它**一行判据都没有**（状态怎么说、能不能停是 `MainWindow`
+        // 翻好的，见它的文件头），所以量得到的正好是"这些 bool 摆到屏幕上了没有"。
         //
-        //   ② **EULA 那道闸长什么样** —— 用户 2026-10-13 定的那一条：小提示 + 一个勾选框 +
-        //      一行**能点开原文**的链接。那一问的产品侧那一半（`MainWindow::ensureServerEula()`）
-        //      量得住的就这么两条："点了那一行链接要有人开浏览器"和"**没勾那个框就不许走到
-        //      下一步**"。前者在这一层是 `linkActivated` 那一发信号，后者是"「同意并启动」
-        //      在勾上之前点不动" —— 两条都是 `InlineMessageBox` 自己的行为，所以在这儿量。
-        //
-        // NOTE: 那一页**长什么样**（等宽日志区、底下那三颗摆得下不下）是布局类的，钉子摆在
-        //       ui_shot 的 §39；这一节只量接线与状态。
+        // ② **EULA 那道闸长什么样** —— 用户 定的那一条：小提示 + 一个勾选框 +
+        // 一行**能点开原文**的链接。那一问的产品侧那一半（`MainWindow::ensureServerEula()`）
+        // 量得住的就这么两条："点了那一行链接要有人开浏览器"和"**没勾那个框就不许走到
+        // 下一步**"。前者在这一层是 `linkActivated` 那一发信号，后者是"「同意并启动」
+        // 在勾上之前点不动" —— 两条都是 `InlineMessageBox` 自己的行为，所以在这儿量。
         {
             ServerConsolePage page;
             page.resize(880, 620);
@@ -31073,8 +30454,8 @@ int main(int argc, char *argv[]) {
                       page.objectName());
                 // 日志区：只读、不折行、等宽（服务端那些行是对着列的）。
                 // NOTE: 等宽这一条**比字体族**，不比 `QFont::fixedPitch()` —— 那一面旗是
-                //       字体后端自己报的，offscreen 那个桩字体库一律报 0（会假红）。产品那
-                //       一边问的就是 `QFontDatabase::systemFont(FixedFont)`，这里问同一个出处。
+                // 字体后端自己报的，offscreen 那个桩字体库一律报 0（会假红）。产品那
+                // 一边问的就是 `QFontDatabase::systemFont(FixedFont)`，这里问同一个出处。
                 const QString fixedFamily =
                     QFontDatabase::systemFont(QFontDatabase::FixedFont).family();
                 check(log->isReadOnly() &&
@@ -31288,13 +30669,10 @@ int main(int argc, char *argv[]) {
     // 这一页**一行判据都没有**（哪几个字段、哪些值合法、体检报哪几条，全是 `MainWindow`
     // 翻好喂进来的，见它的文件头），所以这一节量得到的正好是两件事：
     //
-    //   * 喂进来的东西**摆对地方了没有**（哪一格是什么控件、字重和颜色对不对、左栏四页、
-    //     出路按钮去重了没有）；
-    //   * 用户动过之后**报出去的到底是什么**（`changedOnly()` / `rawText()` / 那几条
-    //     `*Requested` 信号）—— 「保存真写盘」那一路在 mw_check 的 T42（真 `MainWindow`）。
-    //
-    // NOTE: 这一页的**布局**（左栏那一列多宽、表单行会不会被折行小字顶宽、保存带摆不摆得
-    //       下）是布局类的，钉子摆在 ui_shot 的 §40 —— 老规矩，offscreen 上那些会假绿。
+    // * 喂进来的东西**摆对地方了没有**（哪一格是什么控件、字重和颜色对不对、左栏四页、
+    // 出路按钮去重了没有）；
+    // * 用户动过之后**报出去的到底是什么**（`changedOnly()` / `rawText()` / 那几条
+    // `*Requested` 信号）—— 「保存真写盘」那一路在 mw_check 的 T42（真 `MainWindow`）。
     {
         ServerSettingsPage page;
         page.resize(880, 620);
@@ -31482,8 +30860,8 @@ int main(int argc, char *argv[]) {
                           .arg(preview != nullptr)
                           .arg(note != nullptr));
                 if (preview != nullptr && note != nullptr) {
-                    // ★ 只有 motd 那一行挂预览：别的行要是也挂上，这一页就会多出几块画着
-                    //   `§` 码的框（"哪一项是 MOTD"只有一个出处：字段表那一格）。
+                    // 只有 motd 那一行挂预览：别的行要是也挂上，这一页就会多出几块画着
+                    // `§` 码的框（"哪一项是 MOTD"只有一个出处：字段表那一格）。
                     const QList<QLabel *> allPreviews = page.findChildren<QLabel *>(
                         MainWindowUI::serverSettingsMotdPreviewName());
                     check(allPreviews.size() == 1,
@@ -31504,7 +30882,7 @@ int main(int argc, char *argv[]) {
                           "★★ U37.15 摆进来的 MOTD 当场画成富文本（`§c` → 红、`§l` → 粗、"
                           "`\\n` → 换行）",
                           painted);
-                    // ★ 行首空格要换成 `&nbsp;`：HTML 会把它吃掉，而服务器正是拿它对齐的。
+                    // 行首空格要换成 `&nbsp;`：HTML 会把它吃掉，而服务器正是拿它对齐的。
                     page.setValues(ServerSettingsPage::Values{
                         {QStringLiteral("motd"), QStringLiteral("  边距")}});
                     QApplication::processEvents();
@@ -31800,8 +31178,8 @@ int main(int argc, char *argv[]) {
                 check(actionToken == QStringLiteral("reinstall"),
                       "★★ U37.11 点一颗发的是它**那个记号**（产品侧拿记号认人）", actionToken);
                 // 在跑的时候：要动盘那颗锁上，只翻页那两颗照旧能按。
-                // ★ `setEditable()` 会**重摆**这一格（`refreshCheckActions()` 把旧按钮删了
-                //   重造）⇒ 这一段必须**重新认一遍**控件，不能抱着上面那一串指针用（悬空的）。
+                // `setEditable()` 会**重摆**这一格（`refreshCheckActions()` 把旧按钮删了
+                // 重造）⇒ 这一段必须**重新认一遍**控件，不能抱着上面那一串指针用（悬空的）。
                 page.setEditable(false, MainWindowUI::serverSettingsRunningNote());
                 const QList<QPushButton *> locked =
                     checkActions->findChildren<QPushButton *>();
@@ -32144,21 +31522,16 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // ==================================================================
     std::printf("\n===== U38. §3.3 键盘焦点与 Tab 顺序（2026-10-14） =====\n");
     // ------------------------------------------------------------------
     // plan §3.3 那一句「完善键盘焦点、Tab 顺序和减少动态效果」，以及 §3.1 最后那条
     // 「每收口一个页面同步检查键盘导航、焦点可见性和减少动态效果」。
     //
-    // 可见的焦点环归 §8.3（画在 `PE_FrameFocusRect`，ui_shot 41 那一节量的是真像素）；
-    // 这一节管的是**顺序**：按 Tab 从一格走到下一格，走的方向得跟眼睛看到的顺序一致 ——
-    // 先上后下、同一行里先左后右。
-    //
-    // ★ 为什么是几何判据、而不是把每一条链的控件名抄一遍：抄名字只钉住"今天这一份布置"，
-    //   而真会犯的毛病是"新加了一格，它建得比底下那排按钮还晚 ⇒ 焦点链把它排到按钮后面"
-    //   ——那种只有这条通用规矩抓得住（下面第一条就是这么抓出来的：`InlineMessageBox` 里
-    //   输入框 / 列表 / 那个勾都是 `setXxx()` 后插的，建得比按钮行晚）。
-    //   名字链那一条留在 W14，因为主题那一栏的顺序是用户点名的。
+    // 为什么是几何判据、而不是把每一条链的控件名抄一遍：抄名字只钉住"今天这一份布置"，
+    // 而真会犯的毛病是"新加了一格，它建得比底下那排按钮还晚 ⇒ 焦点链把它排到按钮后面"
+    // ——那种只有这条通用规矩抓得住（下面第一条就是这么抓出来的：`InlineMessageBox` 里
+    // 输入框 / 列表 / 那个勾都是 `setXxx()` 后插的，建得比按钮行晚）。
+    // 名字链那一条留在 W14，因为主题那一栏的顺序是用户点名的。
     {
         // 从 `first` 出发沿焦点链走一圈，收出"按 Tab 真能到"的那些（不显示的、不是
         // TabFocus 的都跳过 —— 和 Qt 自己按 Tab 时挑法一致）。
@@ -32184,14 +31557,14 @@ int main(int argc, char *argv[]) {
         // 「往回跳」= 眼睛看到的顺序反了。按 Tab 一格一格走，方向得一直是**往下**；唯一
         // 允许往上走的情形是「换到更右边那一栏」（左栏走到头 → 右边那一页的头，那是正常
         // 的"下一栏"，不是回头）：
-        //   · 同一"行"里（纵向重叠过半）：只许往右，往左算往回跳；
-        //   · 不是同一行：往上算往回跳，**除非**同时也往右（换栏）。
-        // ★ 为什么不是"只要往上就报"：多栏布局里"左栏最后一行 → 右栏第一行"必然是往上的
-        //   （右栏从页头下面起，比左栏底矮不了多少也会更高），那是正着走，不是往回跳。
-        //   判"回头"的是"往上**且**没往右"。
-        // ★ 这一条抓到的两类（都是本节真红过的）：`InlineMessageBox` 里输入框 / 列表 /
-        //   那个勾都是 `setXxx()` 后插的，建得比按钮行晚；左栏那几颗齿轮更是
-        //   `setFolderRows()` 运行时才建。
+        // · 同一"行"里（纵向重叠过半）：只许往右，往左算往回跳；
+        // · 不是同一行：往上算往回跳，**除非**同时也往右（换栏）。
+        // 为什么不是"只要往上就报"：多栏布局里"左栏最后一行 → 右栏第一行"必然是往上的
+        // （右栏从页头下面起，比左栏底矮不了多少也会更高），那是正着走，不是往回跳。
+        // 判"回头"的是"往上**且**没往右"。
+        // 这一条抓到的两类（都是本节真红过的）：`InlineMessageBox` 里输入框 / 列表 /
+        // 那个勾都是 `setXxx()` 后插的，建得比按钮行晚；左栏那几颗齿轮更是
+        // `setFolderRows()` 运行时才建。
         // 一次报**全部**（最多列前 4 处）：这一条真正要修的往往是"整页建的时候顺序和摆的
         // 顺序对不上"，只报第一处会让人修一处、跑一趟、再冒一处。
         const auto backwardJump = [&nameOf](QWidget *container, const QVector<QWidget *> &chain) {
@@ -32303,8 +31676,8 @@ int main(int argc, char *argv[]) {
         }
 
         // ---- e) 主窗口当前那一页（拿一个**真的 MainWindowUI**，不是搭出来的小盒子）----
-        //     这一条盯的是"整窗都在这一条规矩底下"：底栏、页表那几颗、当前页里那几十格
-        //     一起走一遍。别的选项卡上的那些页这时不显示，链上自然跳过它们。
+        // 这一条盯的是"整窗都在这一条规矩底下"：底栏、页表那几颗、当前页里那几十格
+        // 一起走一遍。别的选项卡上的那些页这时不显示，链上自然跳过它们。
         if (!window.isVisible()) {
             std::printf("  SKIP U38. 主窗口这会儿没上屏，整窗的 Tab 顺序量不了\n");
             std::fflush(stdout);
@@ -32319,9 +31692,9 @@ int main(int argc, char *argv[]) {
         }
 
         // ---- f) 实例设置那一扇（左栏页表 + 右栏当前那一页）----
-        //     和主窗口**同一个形状**（一列页表 + 一页内容），所以同一套"往上就是往回跳"
-        //     的规矩也摆在这儿：这一扇是用户天天开的那一扇，页表左右两半的焦点顺序和主
-        //     窗口一样会犯"建的时候顺序和摆的顺序对不上"的毛病。
+        // 和主窗口**同一个形状**（一列页表 + 一页内容），所以同一套"往上就是往回跳"
+        // 的规矩也摆在这儿：这一扇是用户天天开的那一扇，页表左右两半的焦点顺序和主
+        // 窗口一样会犯"建的时候顺序和摆的顺序对不上"的毛病。
         {
             using Dlg = InstanceSettingsDialog;
             Dlg::GlobalValues globalValues;
@@ -32346,7 +31719,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // ==================================================================
     std::printf("\n===== U39. 工具箱：信标计算 / 酿造助手（§9.11） =====\n");
     // ------------------------------------------------------------------
     // 这两件和原来那五件同一个形状：控件只收输入、发信号，算的过程在 controller 那边
@@ -32534,7 +31906,6 @@ int main(int argc, char *argv[]) {
         QApplication::processEvents();
     }
 
-    // ==================================================================
     std::printf("\n===== U40. 工具箱：旗帜设计 / 纹饰搭配（§9.11） =====\n");
     // ------------------------------------------------------------------
     // 这两件和 U39 那两件同一个形状：页面只收输入、发信号、摆结果；图案表、层数上限、
@@ -32734,7 +32105,6 @@ int main(int argc, char *argv[]) {
         QApplication::processEvents();
     }
 
-    // ==================================================================
     std::printf("\n===== U40b. 文本那一片的自定颜色 / motd，旗帜的「复制指令」 =====\n");
     // ------------------------------------------------------------------
     // §9.11 第 2 项补的两块：1.16 起那份 `#RRGGBB` 自定颜色（`§x…` 那串由 `TextFormat`
@@ -32802,7 +32172,6 @@ int main(int argc, char *argv[]) {
         QApplication::processEvents();
     }
 
-    // ==================================================================
     std::printf("\n===== U40c. 附魔那张表：「和上一行同一件」那一列 =====\n");
     // ------------------------------------------------------------------
     // 一本书能带好几条附魔、一件装备本来也可能已经有好几条 —— 表格一行只放得下一条，
@@ -32862,7 +32231,6 @@ int main(int argc, char *argv[]) {
         QApplication::processEvents();
     }
 
-    // ==================================================================
     std::printf("\n===== U41. 哈希那一件：算完之后文件变过的提醒 =====\n");
     // ------------------------------------------------------------------
     // §9.11 第 1 项那条「文件变化使结果失效」：盯文件的那一半在 controller（`QFileSystemWatcher`
@@ -33076,8 +32444,6 @@ int main(int argc, char *argv[]) {
 
     std::printf("\n===== %s: %d/%d =====\n", g_fail == 0 ? "全部通过" : "有失败", g_pass,
                 g_pass + g_fail);
-    // ★ 2026-10-18：先冲一遍。退出前那几下一旦撞上那发**已知的**堆损坏（`InstanceFilesPage`
-    //   析构里那个 `c0000374`，还没定位），进程是异常终止的 —— 缓冲区里这行总结会跟着丢。
     std::fflush(stdout);
     return g_fail == 0 ? 0 : 1;
 }

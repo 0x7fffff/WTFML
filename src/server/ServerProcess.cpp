@@ -1,8 +1,6 @@
 /**
  * @file ServerProcess.cpp
  * @brief 服务端那一条 `QProcess` 的实现（形状与取舍见头文件）。
- * @author 0x7fffff
- * @date 2026-10-13
  */
 
 #include "ServerProcess.hpp"
@@ -69,8 +67,8 @@ void ServerProcess::start(const QString &serverId, const QString &dir, const QSt
                     emit exited(m_serverId, exitCode);
                 });
         connect(m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError code) {
-            // ★ `FailedToStart`（java 路径写错、权限不够…）那一路**不会有** `finished` ——
-            //   它是另一条收尾，必须自己接。退出码按 −1 报（"没起得来"不是任何一种退出码）。
+            // `FailedToStart`（java 路径写错、权限不够…）那一路**不会有** `finished` ——
+            // 它是另一条收尾，必须自己接。退出码按 −1 报（"没起得来"不是任何一种退出码）。
             if (code != QProcess::FailedToStart) {
                 return;
             }
@@ -174,14 +172,14 @@ void ServerProcess::detach() {
     }
     // 先断信号：交出去之后 `exited` 之类的槽不该再被调到（那时界面已经在拆了）。
     m_process->disconnect();
-    // ★ 关键那一步：脱离 `this` 的所有权。析构链（MainWindow 是 main() 里的栈对象）走到
-    //   这里时，它已经不是我们的子对象，下面析构里那套"进程还在跑就 kill()"跑不到它，
-    //   java.exe 自己继续活在系统里。
+    // 关键那一步：脱离 `this` 的所有权。析构链（MainWindow 是 main() 里的栈对象）走到
+    // 这里时，它已经不是我们的子对象，下面析构里那套"进程还在跑就 kill()"跑不到它，
+    // java.exe 自己继续活在系统里。
     m_process->setParent(nullptr);
     // NOTE: 这一条 `QProcess` **故意不释放**（同 `LauncherManager::detachRunningGame()` 那段）：
-    //       释放它就等于执行析构、等于把服务端强杀。本对象也不再认得它（`m_process = nullptr`
-    //       —— 析构那一句正因为如此才够不着它）；泄漏的就是一个 QProcess 壳子，进程退出时由
-    //       系统回收。指针不置空会更危险，留一个活着的壳子在这儿没有任何用处。
+    // 释放它就等于执行析构、等于把服务端强杀。本对象也不再认得它（`m_process = nullptr`
+    // —— 析构那一句正因为如此才够不着它）；泄漏的就是一个 QProcess 壳子，进程退出时由
+    // 系统回收。指针不置空会更危险，留一个活着的壳子在这儿没有任何用处。
     m_process = nullptr;
     m_status = ServerModel::Status::Stopped;
 }
@@ -211,8 +209,8 @@ void ServerProcess::appendLine(const QString &line) {
     emit lineAppended(m_serverId, line);
 
     if (!m_started && isReadyLine(line)) {
-        // ★ 服务端没有"窗口出现了"那种信号 —— 这一行才是"真的在跑了"。读到之后启动就
-        //   结束了，宽限那个计时器也就不用等了（它只在"停止中"才有意义）。
+        // 服务端没有"窗口出现了"那种信号 —— 这一行才是"真的在跑了"。读到之后启动就
+        // 结束了，宽限那个计时器也就不用等了（它只在"停止中"才有意义）。
         m_started = true;
         m_gracefulTimer->stop();
         setStatus(ServerModel::Status::Running);
@@ -223,9 +221,9 @@ void ServerProcess::drainOutput() {
     if (m_process == nullptr) {
         return;
     }
-    // ★ 先按**字节**切行、切出整行再解码 —— 不是拿到手就整块 `fromLocal8Bit`。
-    //   判据和那个"为什么"都在 `ServerRun::takeLines()` 的注释里（2026-10-13 修：管道
-    //   把一个多字节字符从中间劈成两截时，逐块解码会解出两个乱码，T41.3 那条断言就时红时绿）。
+    // 先按**字节**切行、切出整行再解码 —— 不是拿到手就整块 `fromLocal8Bit`。
+    // 判据和那个"为什么"都在 `ServerRun::takeLines()` 的注释里（ 修：管道
+    // 把一个多字节字符从中间劈成两截时，逐块解码会解出两个乱码，T41.3 那条断言就时红时绿）。
     const QStringList lines = takeLines(m_pending, m_process->readAllStandardOutput());
     for (const QString &line : lines) {
         appendLine(line);

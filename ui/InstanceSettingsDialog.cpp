@@ -1,19 +1,10 @@
 /**
  * @file InstanceSettingsDialog.cpp
  * @brief 搭出「实例设置…」对话框的控件，并把它们读成一份覆盖值。
- * @author 0x7fffff
- * @date 2026-09-21
  * @note 这里**不落盘、不碰 src/ 下的代码**：值从控件读，落盘在 MainWindow 那边。
  *
  * 这一层唯一的"业务判断"是内存那两行在自动档下的表现（禁用 + 不写覆盖），
  * 理由写在 .hpp 的 override() 上。
- *
- * 2026-09-26 起这一页**没有「确定 / 取消」**：值一改就发 `settingsEdited()`，写盘那边
- * 接住就写（见 .hpp 里那个信号）。所以这一层的出口是**两条信号**加那一堆读值的函数。
- *
- * 2026-09-27 起这一页是**两栏**（左栏一列按实例现算的页表 | 右栏一块堆叠页，见 .hpp 里
- * pinnedPageKeys() 那一段）：控件全部直接挂在 `this` 上、按 objectName 认，所以分栏对
- * "读值"这一侧一个字都没改 —— 只是控件换了个父容器。
  */
 #include "InstanceSettingsDialog.hpp"
 #include "ResourcePackPage.hpp"
@@ -72,7 +63,7 @@
 #include "MainWindowUI.hpp"
 #include "MemorySlider.hpp"
 #include "VersionIcons.hpp"
-// 第 1 格那个世界设置（2026-09-28）。头文件那边已经 include 了它（进参是个嵌套类型），
+// 第 1 格那个世界设置。头文件那边已经 include 了它（进参是个嵌套类型），
 // 这一句是给"这一份 .cpp 自己用得上它的完整定义"留的。
 #include "WorldSettingsPage.hpp"
 #include "VersionTreeDelegate.hpp"
@@ -89,8 +80,6 @@ constexpr int kMemorySliderMinWidth = 200;
 /// 每个都 120 就得 240 + 那个 × + 那对单选钮，整行会被挤出门外；而这里填的是四位像素数，
 /// 80 已经能把「7680」连框一起摆下。
 constexpr int kWindowSizeSpinWidth = 80;
-/// ★ 2026-10-11：「跟随全局 / 自定义」那**七格档位下拉框**的宽度。
-///
 /// 加它之前这七个框是**各长各的** —— 它们默认吃拉伸，于是同一页上量下来是 59 / 143 / 307
 /// 三种宽度（「Java 路径」那一行挤、其它几行摊满），而"档位"是同一件事的同一个控件。
 /// 现在一律**不伸缩 + 一条下限**（见 `addOverrideRow()` 里那两行）：七格一样宽，右边那个值
@@ -128,9 +117,9 @@ QString titleTextFor(const QString &displayName) {
 /// 把一列导航（左栏大类 / 中栏小类）摆进三栏那一行。
 ///
 /// NOTE: 外面套一层**竖排 + 底部 stretch**，不是直接把列表 addWidget 进去 —— 列表自己是
-///       定高的（"贴着内容"那条），而横排布局会把这一格的**高**整个给它，定高控件在那
-///       一格里的落点是 Qt 说了算。套一层之后贴顶是写出来的，不靠猜。设置页左栏那一列
-///       也是这个写法。
+/// 定高的（"贴着内容"那条），而横排布局会把这一格的**高**整个给它，定高控件在那
+/// 一格里的落点是 Qt 说了算。套一层之后贴顶是写出来的，不靠猜。设置页左栏那一列
+/// 也是这个写法。
 void addNavColumn(QHBoxLayout *columns, QWidget *list, QWidget *footer = nullptr) {
     auto *column = new QWidget(list->parentWidget());
     auto *layout = new QVBoxLayout(column);
@@ -146,8 +135,8 @@ void addNavColumn(QHBoxLayout *columns, QWidget *list, QWidget *footer = nullptr
 /// 堆叠页第 @p index 格是**哪一页**（认不出来回空串）。`stackPageIndexOf()` 的反面。
 ///
 /// NOTE: 摆在这一列左栏旁边，是因为"左栏现在该亮哪一条"要从"右栏现在摆着哪一页"反查
-///       （见 rebuildEntryList()）—— 反过来再存一份"现在在哪一页"的影子状态，迟早会和
-///       堆叠页对不上。
+/// （见 rebuildEntryList()）—— 反过来再存一份"现在在哪一页"的影子状态，迟早会和
+/// 堆叠页对不上。
 QString pageKeyAtStackIndex(int index) {
     if (index < 0) {
         return QString();
@@ -162,11 +151,11 @@ QString pageKeyAtStackIndex(int index) {
     return InstanceSettingsDialog::lifecyclePageKeys().value(fileIndex - files.size());
 }
 
-/// 往表格里加一行：**行名独占一行、内容在下一行**（2026-09-26 用户原话「上一行设置名称，
+/// 往表格里加一行：**行名独占一行、内容在下一行**（ 要求「上一行设置名称，
 /// 下一行设置选项」）。跨度都是两列 —— 「启动」这一栏从此不再有"名字在左、控件在右"那一套。
 ///
 /// @param row 行名那一行的下标。**内容占的是 `row + 1`** —— 调用方要 `row += 2`，不是
-///        `row++`（少加的那一行会被下一项盖掉，界面上少一整行而没有任何报错）。
+/// `row++`（少加的那一行会被下一项盖掉，界面上少一整行而没有任何报错）。
 /// @param layoutOut 内容那一格的竖排布局（外面那层格子已经建好了，直接拿去加东西）。
 /// @return 内容那一格（控件的父控件）。
 QWidget *addTitledRow(QGridLayout *grid, int row, const QString &title, QWidget *parent,
@@ -192,19 +181,19 @@ constexpr int kMenuGap = 2;
 /// 一眼就看得出是两个东西。
 ///
 /// NOTE: 这两个数在 MainWindowUI.cpp 里是**文件内**的常量（匿名 namespace），这一层拿不到；
-///       抄一份在这儿是这一版最省的做法，但**它们是一份值** —— 那边改了这边要一起改。
+/// 抄一份在这儿是这一版最省的做法，但**它们是一份值** —— 那边改了这边要一起改。
 constexpr int kMenuPadding = 8;
 constexpr int kMenuRowSpacing = 4;
 
 // ---------------------------------------------------------------------------
-// 页面按钮的大小与排布（2026-09-28）
+// 页面按钮的大小与排布
 // ---------------------------------------------------------------------------
 //
-// 用户原话：「实例设置里面的所有按钮做成恒定宽度和高度的，每一行三个，间距适中且左右能
+// 要求：「实例设置里面的所有按钮做成恒定宽度和高度的，每一行三个，间距适中且左右能
 // 充分利用」。下面这一小段就是那三件事的唯一出处。
 //
-/// 那四个数的**壳**：出处是类里那四个 `constexpr` 函数（验证工程也读它们）。
-/// 这里转一手只是为了在下面那几个 short 函数里少写一截限定名。
+// / 那四个数的**壳**：出处是类里那四个 `constexpr` 函数（验证工程也读它们）。
+// / 这里转一手只是为了在下面那几个 short 函数里少写一截限定名。
 constexpr int kActionButtonsPerRow = InstanceSettingsDialog::actionButtonsPerRow();
 constexpr int kActionButtonHeight = InstanceSettingsDialog::actionButtonHeight();
 constexpr int kActionButtonSpacing = InstanceSettingsDialog::actionButtonSpacing();
@@ -213,7 +202,7 @@ constexpr int kActionButtonMinWidth = InstanceSettingsDialog::actionButtonMinWid
 /// 一颗按钮按这一套的规格摆好（定高 / 最窄 / 横向可抻）。
 ///
 /// NOTE: **凡是要进下面那张网格的按钮都得先过这一手** —— 少过一手的那颗就会比旁边那两颗
-///       矮一头或者窄一块，而"恒定"正是这一套唯一的卖点。
+/// 矮一头或者窄一块，而"恒定"正是这一套唯一的卖点。
 void prepareActionButton(QWidget *button) {
     button->setMinimumWidth(kActionButtonMinWidth);
     button->setFixedHeight(kActionButtonHeight);
@@ -230,16 +219,30 @@ QGridLayout *newActionGrid() {
     return layout;
 }
 
+/// 「一格 + 它那层无外边距的竖排」：这一页里十几处按钮 / 勾选框都长这样。
+struct ZeroColumn {
+    QWidget *cell = nullptr;
+    QVBoxLayout *column = nullptr;
+};
+
+ZeroColumn makeZeroColumn(QWidget *parent, int spacing = 4) {
+    auto *cell = new QWidget(parent);
+    auto *column = new QVBoxLayout(cell);
+    column->setContentsMargins(0, 0, 0, 0);
+    column->setSpacing(spacing);
+    return {cell, column};
+}
+
 /// 把若干**格子**摆进"每行三颗"的网格，三列等宽、整幅铺满。格子自己长什么样不管 ——
 /// 可以只是一颗按钮，也可以是「一颗按钮 + 它下面那句解释」（概览上那四颗就是后者）。
 ///
-/// ★ 「恒定宽度」和「左右充分利用」这两件事在这里是**同一条**：宽不钉像素，而是"三列各
-///   一份 + 网格铺满它所在那一行的整幅"。于是一组里每颗一样宽，**而且这一页上任何另一组
-///   三颗也一样宽**（每一组都跨着同样那幅宽）。钉死一个像素做不到这一点 —— 那样在别的
-///   字号 / 别的 DPI 下就不再"充分利用"了，字长一点的那颗还会开始打省略号。
+/// 「恒定宽度」和「左右充分利用」这两件事在这里是**同一条**：宽不钉像素，而是"三列各
+/// 一份 + 网格铺满它所在那一行的整幅"。于是一组里每颗一样宽，**而且这一页上任何另一组
+/// 三颗也一样宽**（每一组都跨着同样那幅宽）。钉死一个像素做不到这一点 —— 那样在别的
+/// 字号 / 别的 DPI 下就不再"充分利用"了，字长一点的那颗还会开始打省略号。
 ///
 /// NOTE: 少一颗的那一行（四颗 = 三颗 + 一颗）**不摊开**：那颗照旧三分之一宽。用户要的是
-///       "恒定"，四颗里有一颗比别人宽就不是恒定了。
+/// "恒定"，四颗里有一颗比别人宽就不是恒定了。
 void layoutActionCells(QGridLayout *grid, const QList<QWidget *> &cells) {
     for (int i = 0; i < cells.size(); ++i) {
         grid->addWidget(cells.at(i), i / kActionButtonsPerRow, i % kActionButtonsPerRow);
@@ -265,20 +268,20 @@ void layoutActionButtons(QGridLayout *grid, const QList<QWidget *> &buttons) {
  * 颗齿轮收回"靠的是锚点矩形 + 重放压制，而这里的两颗按钮是**真的控件**，不需要那套几何。
  *
  * NOTE: 【为什么要有这个类，而不是直接 new QWidget(…, Qt::Popup)】只有一件事需要拦：
- *       **外面那一下不许重放**。Qt 把一块 popup 关掉时，如果光标不在它的几何里，就会把
- *       同一发 press **重放**给光标底下那个控件 —— 在这一页上那意味着"点一下空白处想收起
- *       浮层，结果顺手按到了底下的东西"，最坏的一发是落在覆盖层左上角那颗**返回箭头**上
- *       （浮层收起来的同时，整个对话框跟着被关掉）。
- *       `WA_NoMouseReplay` 干的正是这件事，但**钉的时机**很刁：Qt 是"关的那一刻"读它，而
- *       这个属性会被 Qt 在"这个控件又收到鼠标事件"时清掉（那条实测经验写在
- *       MainWindowUI.cpp 里 GroupMenu::handleAnchorPress() 上面）—— 所以挂在构造里没用，
- *       得拦在 mousePressEvent 里、落在框外面的那一发上。
+ * **外面那一下不许重放**。Qt 把一块 popup 关掉时，如果光标不在它的几何里，就会把
+ * 同一发 press **重放**给光标底下那个控件 —— 在这一页上那意味着"点一下空白处想收起
+ * 浮层，结果顺手按到了底下的东西"，最坏的一发是落在覆盖层左上角那颗**返回箭头**上
+ * （浮层收起来的同时，整个对话框跟着被关掉）。
+ * `WA_NoMouseReplay` 干的正是这件事，但**钉的时机**很刁：Qt 是"关的那一刻"读它，而
+ * 这个属性会被 Qt 在"这个控件又收到鼠标事件"时清掉（那条实测经验写在
+ * MainWindowUI.cpp 里 GroupMenu::handleAnchorPress() 上面）—— 所以挂在构造里没用，
+ * 得拦在 mousePressEvent 里、落在框外面的那一发上。
  */
 class MenuPopup : public QWidget {
 public:
     explicit MenuPopup(QWidget *parent) : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint) {
         // 底色比内容区深一档（从调色板推，**不写死颜色**）—— 和那两块菜单逐字同款。
-        // 那一档从 2026-09-28 起由 `Theme::partBackground(Part::Panel)` 说了算（这一族浮层
+        // 那一档从 起由 `Theme::partBackground(Part::Panel)` 说了算（这一族浮层
         // 共用一个色），算出来和从前那个 `darker(112)` 一模一样。
         // NOTE: 这块框**每次现建** ⇒ 不用挂 follow()：主题换了之后下一次打开自然就是新的。
         setAutoFillBackground(true);
@@ -370,15 +373,12 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                                                QWidget *parent)
     : QDialog(parent), m_global(global), m_instanceId(instanceId) {
     setWindowTitle(tr("实例设置"));
-    // ★ 2026-09-29（用户原话见 .hpp 里 dragEnterEvent() 那段）：这一页接拖放。
-    //   `setAcceptDrops(true)` 只影响**这一层自己**；拖到子控件上的事件由 Qt 沿父链往上
-    //   找第一个接了拖放的控件（见那段 NOTE），所以不接拖放的子控件照样会把事件送到这儿。
     setAcceptDrops(true);
     // 比分组对话框宽得多：从左到右是**两栏**（左栏一列页 + 右栏一块内容），600 那个老宽度
     // 放不下。
     // NOTE: 嵌进覆盖层的时候这个尺寸**不作数** —— 那一层给它的是内容区的整幅宽（见
-    //       OverlayHost::execEmbedded 里那句 `area->layout()->addWidget(dialog)`）。
-    //       这一句只影响单独把它拿出来用的时候（验证工程那几处）。
+    // OverlayHost::execEmbedded 里那句 `area->layout()->addWidget(dialog)`）。
+    // 这一句只影响单独把它拿出来用的时候（验证工程那几处）。
     resize(kDialogWidth, kDialogHeight);
 
     auto *outer = new QVBoxLayout(this);
@@ -401,13 +401,13 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // 哪几页），构造末尾的 rebuildEntryList() 才灌第一遍。这儿只把"长什么样"摆好。
     //
     // NOTE: **不设** rowRefreshRole()。那一格里画的刷新圈是下载页专有的（这一列没有
-    //       "重新拉一遍"这回事），代理见到没设就不画。
+    // "重新拉一遍"这回事），代理见到没设就不画。
     m_pageList = new QListWidget(this);
     m_pageList->setObjectName(pageListName());
     m_pageList->setUniformItemSizes(false);
     m_pageList->setItemDelegate(new VersionTreeDelegate(m_pageList));
     // 悬停底色由代理画（`Theme::rowHoverFill()`），但那一位 `State_MouseOver` 是**视图**填的。
-    // ★ 少了这一句，代理里那段一个字都不会生效 —— 不报错、断言也不一定先红，屏幕上就是"悬停没反应"。
+    // 少了这一句，代理里那段一个字都不会生效 —— 不报错、断言也不一定先红，屏幕上就是"悬停没反应"。
     m_pageList->setMouseTracking(true);
     QFont listFont = m_pageList->font();
     listFont.setPointSize(listFont.pointSize() + MainWindowUI::versionTreeFontStep());
@@ -436,34 +436,25 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 if (item != nullptr && !item->data(0, Qt::UserRole).toString().isEmpty())
                     showPage(item->data(0, Qt::UserRole).toString());
             });
-    // ★ 2026-10-16：**只为一件事：别让"拿到焦点"变成一次翻页** —— 和上面 `m_pageList`
-    //   那一发是同一件事，`QTreeWidget` 一样是 `QAbstractItemView`、兜底一模一样。
-    //   导航这一趟从那一列搬到树上之后，这一发不跟着搬的话，那扇门就只剩"守着一个
-    //   `hide()` 着的控件"（焦点永远轮不到它）—— 而树上那条路当场就是活的。
-    //   见 eventFilter() 上面那一整段。
     m_navigationTree->installEventFilter(this);
     addNavColumn(columns, m_navigationTree, launchInstance);
-    // ★ 2026-10-16：**焦点链里导航树排在底下那颗「启动实例」前头**。焦点链是**按建控件的
-    //   顺序**串的，而那颗按钮建得比这棵树早（它本来就先有，树是后加到这一列上的）⇒ 按
-    //   Tab 的顺序当场变成"从左下角那颗按钮往上跳回树上"，和眼睛看到的上下顺序反了
-    //   （ui_check U38 那条几何判据报的就是这一处）。上图下文：先树上那一列，再底下那颗。
     QWidget::setTabOrder(m_navigationTree, launchInstance);
 
     m_stack = new QStackedWidget(this);
     m_stack->setObjectName(stackName());
     columns->addWidget(m_stack, 1);
-    // ★ 换页那一下（用户 2026-09-29：「除了切换页面，点击左边栏导致右边栏发生变化的时候也要
-    //   加动画」）：这一页的左栏是**每个实例各一张的页表**（不是顶上那四颗选项卡），而它
-    //   换页只走 `applyPageKey()` 这一条路 —— 挂在这儿等于一处管住左栏点击（`applyEntry`）
-    //   与 `showPage()` 两边。别处那三层右栏是 `MainWindowUI` 接的（那儿够不着这一个对话框：
-    //   它是每次开页时现建的，活在栈上）。
+    // 换页那一下（用户 ：「除了切换页面，点击左边栏导致右边栏发生变化的时候也要
+    // 加动画」）：这一页的左栏是**每个实例各一张的页表**（不是顶上那四颗选项卡），而它
+    // 换页只走 `applyPageKey()` 这一条路 —— 挂在这儿等于一处管住左栏点击（`applyEntry`）
+    // 与 `showPage()` 两边。别处那三层右栏是 `MainWindowUI` 接的（那儿够不着这一个对话框：
+    // 它是每次开页时现建的，活在栈上）。
     // NOTE: 顶上的四颗选项卡、下载页 / 设置页那几层走的是 `MainWindowUI` 里同一条形状的
-    //       接线 —— 形状一样是故意的，但**不是同一个 `connect`**（那几个 `QStackedWidget`
-    //       在那边、这个在这一层）。
-    // ★ 垫的底色是 `QPalette::Base`：右栏每一页都活在一层滚动区里（见 `addPage()`），
-    //   视口铺的就是它。垫窗口那份的话，起手那一帧会看见一整块偏灰的方块。
-    // ★ 抬的也是那一层**视口**（`liftTarget()`，`ui/Animations.cpp` 里那个，滚动区自己那圈框留在原地）——
-    //   见 `Animations.hpp` 里 `pageAppear()` 那段。
+    // 接线 —— 形状一样是故意的，但**不是同一个 `connect`**（那几个 `QStackedWidget`
+    // 在那边、这个在这一层）。
+    // 垫的底色是 `QPalette::Base`：右栏每一页都活在一层滚动区里（见 `addPage()`），
+    // 视口铺的就是它。垫窗口那份的话，起手那一帧会看见一整块偏灰的方块。
+    // 抬的也是那一层**视口**（`liftTarget()`，`ui/Animations.cpp` 里那个，滚动区自己那圈框留在原地）——
+    // 见 `Animations.hpp` 里 `pageAppear()` 那段。
     connect(m_stack, &QStackedWidget::currentChanged, this, [this](int) {
         QWidget *page = m_stack->currentWidget();
         if (page != nullptr && page->isVisible()) {
@@ -473,9 +464,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // 两栏吃掉整页剩下的竖直空间（底下那排按钮按自己的高排）。
     outer->addLayout(columns, 1);
 
-    // ---------- 概览（2026-09-26 重排成四行）----------
+    // ---------- 概览（ 重排成四行）----------
     //
-    // 用户原话（逐字）：「实例设置 概览里 / 第一行 图标 名称（可编辑文本）/ 第二行 更改图标
+    // 要求（逐字）：「实例设置 概览里 / 第一行 图标 名称（可编辑文本）/ 第二行 更改图标
     // （按钮）分组...（按钮）/ 第三行 显示在置顶组中（勾选框，就是在被设为置顶组的那个组里
     // 再放一个同名的，下面给到注释提醒）/ 第四行 导出（还没做，可行的话顺便做了，麻烦的话
     // 先放着）」。
@@ -485,14 +476,14 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // 长得不一样的原因，是刻意的。
     //
     // NOTE: `grid` 与 `row` 在这几栏之间**是复用的**：换一栏就是"换一份表格、行号从 0 数"。
-    //       每一栏各自一张表格（各自的 objectName），互不干扰 —— 只是在同一个函数里搭，
-    //       没必要给每一栏各起一个名字。
+    // 每一栏各自一张表格（各自的 objectName），互不干扰 —— 只是在同一个函数里搭，
+    // 没必要给每一栏各起一个名字。
     QGridLayout *grid = addForm(overviewCategoryKey(), addPage(overviewCategoryKey()));
     int row = 0;
 
     // ---------- 第一行：图标预览 + 实例名 ----------
     //
-    // 名字（= 改名）2026-09-25 从实例页右栏那颗「重命名…」按钮搬进来，2026-09-26 和图标
+    // 名字（= 改名） 从实例页右栏那颗「重命名…」按钮搬进来， 和图标
     // 并排摆成一行。它不是一项"覆盖"：别的几行都有「跟随全局 / 自定义」那对单选钮（那些是
     // 启动参数，全局有一份、实例可以盖过它），而这个是这个实例自己的身份，没有"全局"可比
     // —— 所以它不走 addOverrideRow()。
@@ -537,7 +528,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
 
     // ---------- 第二行：两颗按钮（更改图标 / 分组…），各开一个浮层 ----------
     //
-    // 用户原话：「第二行 更改图标（按钮） 分组...（按钮）」，当场问过之后两个都选了
+    // 要求：「第二行 更改图标（按钮） 分组...（按钮）」，当场问过之后两个都选了
     // **"点了弹浮层"**（而不是把候选项铺在这一页上）。
     {
         auto *cell = new QWidget(this);
@@ -558,9 +549,6 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         connect(m_groupButton, &QPushButton::clicked, this,
                 [this]() { popUpMenuBelow(m_groupMenu, m_groupButton); });
 
-        // ★ 2026-09-28：两颗并排 → **铺成"每行三颗"那一套里的头两颗**（用户原话「所有按钮
-        //   做成恒定宽度和高度的，每一行三个」）。第三格空着，这两颗照旧三分之一宽
-        //   —— "恒定"的意思是这一页上所有按钮一样大，不是"这一行要把三格填满"。
         auto *iconGrid = newActionGrid();
         layoutActionButtons(iconGrid, {m_changeIconButton, m_groupButton});
         line->addLayout(iconGrid);
@@ -569,22 +557,22 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
 
     // ---------- 「更改图标」那个浮层 ----------
     //
-    // 用户原话：「图标（选一张本地图片文件）」「使用实际的那几个 mc 草块 / fabric 布料等的
+    // 要求：「图标（选一张本地图片文件）」「使用实际的那几个 mc 草块 / fabric 布料等的
     // 图片文件，不用担心侵权问题，同时允许用户自主上传」。所以十档：默认 + 八个内置候选
     // + 本地那张。**每一档都有对应的按钮**（八个候选各一颗、「恢复默认」、「选一张图片…」），
     // 没有"换过去就回不来"的死角。
     //
     // NOTE: 那一排按钮**不是**当前值的出处（它们只是 m_iconChoice 的一幅画）—— 理由见 .hpp
-    //       里 setIcon() 上面那一段：本地那一档没有控件能表示它。
+    // 里 setIcon() 上面那一段：本地那一档没有控件能表示它。
     //
     // NOTE: 【浮层是**常驻**的 —— 一次建好、以后每次点按钮只是再弹一遍】
-    //       三件事都指望这个：①验证工程按 objectName 找得到里面那几颗按钮（**没弹出来的
-    //       时候也要能找**，那些断言关心的是"按了会变成什么"，不是"它当时开没开"）；
-    //       ②每点一次就新建一个的话，连点两次就会同时存在两个同名浮层，按名字找控件的
-    //       那一套当场失去意义；③refreshIconRow() 在关着的时候也得把勾选状态摆对（否则
-    //       弹出来那一瞬间画的是上一次的样子）。
-    //       **判"此刻开着没开着"的判据是 isVisible()**，不是它存不存在。
-    //       同一段理由对整个这一页的两个浮层都成立。
+    // 三件事都指望这个：①验证工程按 objectName 找得到里面那几颗按钮（**没弹出来的
+    // 时候也要能找**，那些断言关心的是"按了会变成什么"，不是"它当时开没开"）；
+    // ②每点一次就新建一个的话，连点两次就会同时存在两个同名浮层，按名字找控件的
+    // 那一套当场失去意义；③refreshIconRow() 在关着的时候也得把勾选状态摆对（否则
+    // 弹出来那一瞬间画的是上一次的样子）。
+    // **判"此刻开着没开着"的判据是 isVisible()**，不是它存不存在。
+    // 同一段理由对整个这一页的两个浮层都成立。
     {
         auto *menu = new MenuPopup(this);
         m_iconMenu = menu;
@@ -604,11 +592,11 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             // 图在上、字在下：这一排是"挑哪一张"，光看图认不出 Fabric 和 NeoForge。
             button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
             button->setIconSize(QSize(kIconCandidateSize, kIconCandidateSize));
-            // ★ 2026-09-27：**这张图从前没人画**（`setIconSize` 摆了尺度、`TextUnderIcon`
-            //   摆了位置，偏偏没 `setIcon`）—— 八颗按钮全是光秃秃一个词，用户看着「草方块 /
-            //   覆雪草块 / 土块 / 幸运方块」选图，而上面那一格预览的是**另一张**（默认图标）。
-            //   这一格的全部意义就是"挑哪一张"，看不见图等于没得挑。
-            //   图由 VersionIcons 按同一份候选表解出来（键和画法都只有那一处），这里只管贴。
+            // **这张图从前没人画**（`setIconSize` 摆了尺度、`TextUnderIcon`
+            // 摆了位置，偏偏没 `setIcon`）—— 八颗按钮全是光秃秃一个词，用户看着「草方块 /
+            // 覆雪草块 / 土块 / 幸运方块」选图，而上面那一格预览的是**另一张**（默认图标）。
+            // 这一格的全部意义就是"挑哪一张"，看不见图等于没得挑。
+            // 图由 VersionIcons 按同一份候选表解出来（键和画法都只有那一处），这里只管贴。
             button->setIcon(QIcon(VersionIcons::iconCandidateMark(i, kIconCandidateSize)));
             button->setCheckable(true);
             // 和设置页那些"点一下换个样子"的按钮同一条：不该抢键盘焦点（抢了之后
@@ -690,13 +678,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
 
     // ---------- 第三行：显示在置顶组中（勾选框 + 注释）----------
     //
-    // 用户原话：「第三行 显示在置顶组中（勾选框，**就是在被设为置顶组的那个组里再放一个
+    // 要求：「第三行 显示在置顶组中（勾选框，**就是在被设为置顶组的那个组里再放一个
     // 同名的**，下面给到注释提醒）」。那句解释必须留着 —— 他特意点名的就是"下面给到注释"。
     {
-        auto *cell = new QWidget(this);
-        auto *column = new QVBoxLayout(cell);
-        column->setContentsMargins(0, 0, 0, 0);
-        column->setSpacing(4);
+        auto [cell, column] = makeZeroColumn(this);
         m_pinCheck = new QCheckBox(pinCheckText(), cell);
         m_pinCheck->setObjectName(pinCheckName());
         // **没有 toggled 那条接线了**（原来接 applyPinState()：勾上就把「分组」那一格挪到
@@ -711,23 +696,20 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         grid->addWidget(cell, row++, 0, 1, 2);
     }
 
-    // ---------- 五颗「对整个实例动手」的按钮（2026-09-28 改成一张三列网格）----------
+    // ---------- 五颗「对整个实例动手」的按钮（ 改成一张三列网格）----------
     //
     // 导出整合包 / 检查更新 / 检查并修复 / 复制实例 / 删除实例 —— 原来头四颗**各占一整行**
-    // （一颗按钮 + 它自己那句解释，一条一条摞下来）。用户 2026-09-28 原话「实例设置里面的
+    // （一颗按钮 + 它自己那句解释，一条一条摞下来）。要求「实例设置里面的
     // 所有按钮做成恒定宽度和高度的，每一行三个，间距适中且左右能充分利用」，于是它们收成
     // 一张网格：每行三颗，每格还是"按钮 + 它那句解释"（**解释一个字都没丢**，只是从整幅宽
     // 缩成三分之一宽，靠 `setWordWrap(true)` 自己折行）。
     //
     // NOTE: 五颗一行摆三颗 ⇒ 最后那一行只填得满前两格。**空着的那一格不摊开**是写意的
-    //       （见 layoutActionCells() 里那段）：五颗里有一颗比别人宽就不是"恒定"了。
+    // （见 layoutActionCells() 里那段）：五颗里有一颗比别人宽就不是"恒定"了。
     auto *actionGrid = newActionGrid();
     QList<QWidget *> actionCells;
     {
-        auto *cell = new QWidget(this);
-        auto *column = new QVBoxLayout(cell);
-        column->setContentsMargins(0, 0, 0, 0);
-        column->setSpacing(4);
+        auto [cell, column] = makeZeroColumn(this);
         auto *button = new QPushButton(exportText(), cell);
         button->setObjectName(exportButtonName());
         Theme::markButton(button, Theme::ButtonKind::Neutral);
@@ -746,8 +728,8 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             // 同一档：全项目就剩这几处独立窗）。那个框上的「取消」= 什么都不做。
             //
             // NOTE: 两个筛选项的顺序**就是默认格式的顺序**（保存框默认选第一个），所以
-            //       Modrinth 那一份排在前面 —— 它不需要 API key、也不受"作者关了第三方
-            //       分发"影响，是能完整还原的那一份。
+            // Modrinth 那一份排在前面 —— 它不需要 API key、也不受"作者关了第三方
+            // 分发"影响，是能完整还原的那一份。
             const QString modrinthFilter = tr("Modrinth 整合包 (*.mrpack)");
             const QString curseForgeFilter = tr("CurseForge 整合包 (*.zip)");
             QString selectedFilter = modrinthFilter;
@@ -777,27 +759,24 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         actionCells.append(cell);
     }
 
-    // ---------- 「检查更新」（2026-09-28）----------
+    // ---------- 「检查更新」----------
     //
-    // 用户原话：「实例设置那里做一个更新检测」。摆在「导出…」下面、快捷方式那排上面：
+    // 要求：「实例设置那里做一个更新检测」。摆在「导出…」下面、快捷方式那排上面：
     // 它和「导出…」是同一档东西（一颗按钮 + 底下那句解释，点了之后**会出现一个结果**，
     // 而不是改一格设置就写盘）。
     //
     // NOTE: 这一颗**只发信号**（和导出那颗同一个形状）—— "盘上那几十个 jar 是谁、能不能
-    //       更新"这件事要联好几次网（反查 + 每个项目一发版本列表），全在 MainWindow 那边
-    //       （见 `checkInstanceUpdates()`）。这一层连一个请求都不发，所以验证工程能单独
-    //       构造它、单独点它。
+    // 更新"这件事要联好几次网（反查 + 每个项目一发版本列表），全在 MainWindow 那边
+    // （见 `checkInstanceUpdates()`）。这一层连一个请求都不发，所以验证工程能单独
+    // 构造它、单独点它。
     {
-        auto *cell = new QWidget(this);
-        auto *column = new QVBoxLayout(cell);
-        column->setContentsMargins(0, 0, 0, 0);
-        column->setSpacing(4);
+        auto [cell, column] = makeZeroColumn(this);
         auto *button = new QPushButton(checkUpdatesText(), cell);
         button->setObjectName(checkUpdatesButtonName());
         button->setToolTip(checkUpdatesButtonTooltip());
-        // ★ 白（`Neutral`）："检查…"这一档**只读不写** —— 按下去出现的是一个结果，盘上
-        //   一个字都不变（同「打开目录…」「导出…」）。2026-10-15 之前这里没挂档，于是它
-        //   跟着底色吃了**绿的那一档**（见 Theme.hpp 里 `ButtonKind` 那段）。
+        // 白（`Neutral`）："检查…"这一档**只读不写** —— 按下去出现的是一个结果，盘上
+        // 一个字都不变（同「打开目录…」「导出…」）。 之前这里没挂档，于是它
+        // 跟着底色吃了**绿的那一档**（见 Theme.hpp 里 `ButtonKind` 那段）。
         Theme::markButton(button, Theme::ButtonKind::Neutral);
         connect(button, &QPushButton::clicked, this,
                 [this]() { emit checkUpdatesRequested(); });
@@ -809,30 +788,27 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         actionCells.append(cell);
     }
 
-    // ---------- 「更新中心」（coding plan §7.1，2026-10-13）----------
+    // ---------- 「更新中心」（coding plan §7.1，）----------
     //
-    // 用户原话（§7.1 那一条）：「把实例概览已有"检查更新"结果做成可操作列表」。这一颗就是
+    // 要求（§7.1 那一条）：「把实例概览已有"检查更新"结果做成可操作列表」。这一颗就是
     // 那一页的**门口**：上一次查出来的结论还在（`MainWindow` 记着），它不重查、不联网，只是
     // 把那份结论摆开。
     //
-    // ★ 为什么**不并进**「检查更新」那一颗（按完直接开页）：那一颗是"我现在要重新查一遍"，
-    //   而这一颗是"我要看/改/退回上次那个结果"——"查一次"要联网几十秒，"看一眼"是零成本。
-    //   合成一颗的话，用户想退回上一次更新时会先被迫等一次网络检查，而那一趟**完全可能失败**
-    //   （外网连不上、接口 429），于是"退回去"这件事就进不去了。更新完发现游戏起不来，正是
-    //   最需要它的时候。
+    // 为什么**不并进**「检查更新」那一颗（按完直接开页）：那一颗是"我现在要重新查一遍"，
+    // 而这一颗是"我要看/改/退回上次那个结果"——"查一次"要联网几十秒，"看一眼"是零成本。
+    // 合成一颗的话，用户想退回上一次更新时会先被迫等一次网络检查，而那一趟**完全可能失败**
+    // （外网连不上、接口 429），于是"退回去"这件事就进不去了。更新完发现游戏起不来，正是
+    // 最需要它的时候。
     //
     // NOTE: 和「检查更新」一样**只发信号** —— 那一页要的结论存在 MainWindow 手里，这一层
-    //       连"有没有查过"都不知道。
+    // 连"有没有查过"都不知道。
     {
-        auto *cell = new QWidget(this);
-        auto *column = new QVBoxLayout(cell);
-        column->setContentsMargins(0, 0, 0, 0);
-        column->setSpacing(4);
+        auto [cell, column] = makeZeroColumn(this);
         auto *button = new QPushButton(updateCenterText(), cell);
         button->setObjectName(updateCenterButtonName());
         button->setToolTip(updateCenterButtonTooltip());
-        // ★ 白（`Neutral`）：它连网都不联，只是把上一次那份结论摆开（见上面那段 NOTE）——
-        //   比「检查更新」还轻，同一档。
+        // 白（`Neutral`）：它连网都不联，只是把上一次那份结论摆开（见上面那段 NOTE）——
+        // 比「检查更新」还轻，同一档。
         Theme::markButton(button, Theme::ButtonKind::Neutral);
         connect(button, &QPushButton::clicked, this, [this]() { emit updateCenterRequested(); });
         prepareActionButton(button);
@@ -843,23 +819,15 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         actionCells.append(cell);
     }
 
-    // ---------- 「检查并修复」（coding plan §4.1，2026-10-12）----------
+    // ---------- 「检查并修复」（coding plan §4.1，）----------
     //
     // 摆在「检查更新」旁边：两颗都是"检查…"这一档（点了之后**会出现一个结果**，而不是改一格
     // 设置就写盘），只是一颗查的是**模组有没有新版本**、这一颗查的是**游戏文件齐不齐**。
-    //
-    // NOTE: 和「检查更新」同一个形状 —— 这一颗**只发信号**。清单、后台线程、任务账本、
-    //       报告页全在 MainWindow 那边（见 .hpp 里 integrityCheckText 那段）。
     {
-        auto *cell = new QWidget(this);
-        auto *column = new QVBoxLayout(cell);
-        column->setContentsMargins(0, 0, 0, 0);
-        column->setSpacing(4);
+        auto [cell, column] = makeZeroColumn(this);
         auto *button = new QPushButton(integrityCheckText(), cell);
         button->setObjectName(integrityCheckButtonName());
         button->setToolTip(integrityCheckTooltip());
-        // ★ 白（`Neutral`）：和对面那颗「检查更新」同一档 —— 按下去先**出一份报告**
-        //   （真去补文件是报告页上另一颗按钮的事），所以它自己这一步是只读的。
         Theme::markButton(button, Theme::ButtonKind::Neutral);
         connect(button, &QPushButton::clicked, this,
                 [this]() { emit integrityCheckRequested(); });
@@ -871,21 +839,18 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         actionCells.append(cell);
     }
 
-    // ---------- 「复制实例」（2026-09-28）----------
+    // ---------- 「复制实例」----------
     //
-    // 用户原话：「实例设置的概览里面加一条复制实例，点击以后让用户选择复制到的文件夹，
+    // 要求：「实例设置的概览里面加一条复制实例，点击以后让用户选择复制到的文件夹，
     // 然后给定复制后的实例名称」。摆在「检查更新」下面 —— 它和上面两颗是同一档（一颗
     // 按钮 + 底下那句解释），而这一颗的落点比上面那两颗重（会多出一整个实例目录）。
     //
     // NOTE: 这一颗**只发信号**（和「导出…」「检查更新」同一个形状）：挑哪个游戏文件夹、
-    //       问新名字、跑真那份拷贝，全在 MainWindow —— 那几步要 AppPaths（目标在**另一个**
-    //       游戏文件夹里，见 VersionManager::copyInstance）和 InlineMessage 的"问一句名字"
-    //       （都要覆盖层），这一层两样都没有。
+    // 问新名字、跑真那份拷贝，全在 MainWindow —— 那几步要 AppPaths（目标在**另一个**
+    // 游戏文件夹里，见 VersionManager::copyInstance）和 InlineMessage 的"问一句名字"
+    // （都要覆盖层），这一层两样都没有。
     {
-        auto *cell = new QWidget(this);
-        auto *column = new QVBoxLayout(cell);
-        column->setContentsMargins(0, 0, 0, 0);
-        column->setSpacing(4);
+        auto [cell, column] = makeZeroColumn(this);
         auto *button = new QPushButton(copyText(), cell);
         button->setObjectName(copyButtonName());
         button->setToolTip(copyButtonTooltip());
@@ -899,20 +864,17 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         actionCells.append(cell);
     }
 
-    // ---------- §4.4 那两颗「快照」（2026-10-13）----------
+    // ---------- §4.4 那两颗「快照」----------
     //
     // 摆在「复制实例」和「删除实例」中间：这一行是"整个实例"这一档的事儿 —— 左边那颗多出
     // 一个实例、这两颗是把这一份**留起来 / 换回去**、右边那颗少掉一个。三颗都不动一格设置，
     // 都是"对着整个实例做一件事"。
     //
     // NOTE: 「创建快照…」带省略号是**故意的**：按下去之后 MainWindow 会问一句"要不要连着
-    //       能重新下回来的那部分一起打包"（`InlineMessage::ask` 那三个选项）。省略号在这套
-    //       界面里就是"后面还会问一句"的意思，别为了好看去掉。
+    // 能重新下回来的那部分一起打包"（`InlineMessage::ask` 那三个选项）。省略号在这套
+    // 界面里就是"后面还会问一句"的意思，别为了好看去掉。
     {
-        auto *cell = new QWidget(this);
-        auto *column = new QVBoxLayout(cell);
-        column->setContentsMargins(0, 0, 0, 0);
-        column->setSpacing(4);
+        auto [cell, column] = makeZeroColumn(this);
         auto *button = new QPushButton(createSnapshotText(), cell);
         button->setObjectName(createSnapshotButtonName());
         button->setToolTip(createSnapshotTooltip());
@@ -926,19 +888,16 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         actionCells.append(cell);
     }
     {
-        auto *cell = new QWidget(this);
-        auto *column = new QVBoxLayout(cell);
-        column->setContentsMargins(0, 0, 0, 0);
-        column->setSpacing(4);
+        auto [cell, column] = makeZeroColumn(this);
         auto *button = new QPushButton(restoreSnapshotText(), cell);
         button->setObjectName(restoreSnapshotButtonName());
         button->setToolTip(restoreSnapshotTooltip());
-        // ★ 红：它把**现在这一份**整个换掉 —— 和「删除实例」同一档（`Danger` 那一档的界定
-        //   是"删了就拿不回来"，里面点名的几条里就有**还原**："还原上一次"）。
+        // 红：它把**现在这一份**整个换掉 —— 和「删除实例」同一档（`Danger` 那一档的界定
+        // 是"删了就拿不回来"，里面点名的几条里就有**还原**："还原上一次"）。
         //
-        //   NOTE: 还原之前自动留的那一份安全快照（对面那颗「打开备份目录」翻得到）是**兜底**，
-        //         不是"这一步没风险"：用户按下去那一刻，屏幕上这一份就已经不在了，想回来得
-        //         自己再走一趟还原。红色说的正是这件事。
+        // NOTE: 还原之前自动留的那一份安全快照（对面那颗「打开备份目录」翻得到）是**兜底**，
+        // 不是"这一步没风险"：用户按下去那一刻，屏幕上这一份就已经不在了，想回来得
+        // 自己再走一趟还原。红色说的正是这件事。
         Theme::markButton(button, Theme::ButtonKind::Danger);
         connect(button, &QPushButton::clicked, this,
                 [this]() { emit restoreSnapshotRequested(); });
@@ -950,22 +909,19 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         actionCells.append(cell);
     }
 
-    // ---------- 「删除实例」（2026-09-28）----------
+    // ---------- 「删除实例」----------
     //
-    // 用户原话：「顺便把删除实例功能做了，按钮放在概览里」。摆在「复制实例」下面 ——
+    // 要求：「顺便把删除实例功能做了，按钮放在概览里」。摆在「复制实例」下面 ——
     // 那两颗是这一页上仅有的两个"对整个实例动手"的动作，一个多出一份、一个少掉一份。
     //
     // 见 .hpp 那段：删除这件事**本来就有**（实例行行尾那颗垃圾桶），这一颗是它的第二个
     // 入口 —— 真去删的那条路（两道闸 + 问一句 + 删目录）一行都没重写。
     //
-    // ★ 红的（`ButtonKind::Danger`）：用户点名这一档叫「不可撤销（如修改存档，删除实例）」，
-    //   而这一页上它是唯一一颗真会丢东西的按钮。紧挨着它的「复制实例」是绿的 —— 同一个
-    //   位置上一红一绿，正好是"这两个不一样"最省字的说法。
+    // 红的（`ButtonKind::Danger`）：用户点名这一档叫「不可撤销（如修改存档，删除实例）」，
+    // 而这一页上它是唯一一颗真会丢东西的按钮。紧挨着它的「复制实例」是绿的 —— 同一个
+    // 位置上一红一绿，正好是"这两个不一样"最省字的说法。
     {
-        auto *cell = new QWidget(this);
-        auto *column = new QVBoxLayout(cell);
-        column->setContentsMargins(0, 0, 0, 0);
-        column->setSpacing(4);
+        auto [cell, column] = makeZeroColumn(this);
         auto *button = new QPushButton(deleteText(), cell);
         button->setObjectName(deleteButtonName());
         button->setToolTip(deleteButtonTooltip());
@@ -993,20 +949,15 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     layoutActionCells(actionGrid, overviewActions);
     grid->addLayout(actionGrid, row++, 0, 1, 2);
 
-    // ---------- 常用目录那一排按钮（2026-09-27 从「快捷方式」那一页整块搬来）----------
+    // ---------- 常用目录那一排按钮（ 从「快捷方式」那一页整块搬来）----------
     //
-    // 用户原话：「"快捷方式"放到概览的下方」—— 从这儿起「快捷方式」**不再是一页**，
+    // 要求：「"快捷方式"放到概览的下方」—— 从这儿起「快捷方式」**不再是一页**，
     // 这一排按钮就是概览页的一部分（键、objectName、底下那句话一个字都没改，只是换了个父）。
     //
-    // ★ 2026-10-13（coding plan §5.3「实例工具入口补齐」）：九颗 → 十三颗，并且这一排
-    //   **不再是一个写死的网格**，而是两段 —— 现在真有东西的摆在外面、其余收在「更多目录…」
-    //   里。摆法的那一份唯一出处是 relayoutShortcuts()（这一段只管把控件建出来、按**表序**
-    //   收进 m_shortcutButtons）。
-    //
-    // ★★ 2026-10-18：十三颗 → **五颗**（用户原话「实例设置 概览里面 快捷入口重复了」）。
-    //   被拿掉的八颗全在左栏那一列里有同名的一页，或者紧贴着这段的「显示哪些页」勾选表里
-    //   刚列过一遍 —— 见 shortcutTexts() 那段。**这一段一行为此都不用改**：它建几颗、
-    //   怎么收，全听那张表的。
+    // （coding plan §5.3「实例工具入口补齐」）：九颗 → 十三颗，并且这一排
+    // **不再是一个写死的网格**，而是两段 —— 现在真有东西的摆在外面、其余收在「更多目录…」
+    // 里。摆法的那一份唯一出处是 relayoutShortcuts()（这一段只管把控件建出来、按**表序**
+    // 收进 m_shortcutButtons）。
     {
         auto *cell = new QWidget(this);
         auto *column = new QVBoxLayout(cell);
@@ -1015,14 +966,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         // 记住这两样：relayoutShortcuts() 之后还要拿它们重摆（那时早在别的函数里了）。
         m_shortcutCell = cell;
 
-        // ★ 2026-09-28：这一排**从"默认尺寸靠左堆"改成这一页统一的那一套**（用户原话
-        //   「所有按钮做成恒定宽度和高度的，每一行三个，间距适中且左右能充分利用」）——
-        //   每颗和「导出…」那几颗一样大，三列铺满整幅。
-        //
         // NOTE: `shortcutPerRow()`（一排几颗）和这一套的 `kActionButtonsPerRow` **必须
-        //       是同一个数**（眼下都是 3）。排布改由 `layoutActionButtons()` 按后者算，
-        //       前者只剩"这颗按钮是哪一路目录"那一层意思；两边哪天分叉了，会排成六列或者
-        //       三条 —— 界面上一眼看得出来，但没有任何断言拦得住。
+        // 是同一个数**（眼下都是 3）。排布改由 `layoutActionButtons()` 按后者算，
+        // 前者只剩"这颗按钮是哪一路目录"那一层意思；两边哪天分叉了，会排成六列或者
+        // 三条 —— 界面上一眼看得出来，但没有任何断言拦得住。
         auto *buttonGrid = newActionGrid();
         m_shortcutGrid = buttonGrid;
         const QStringList texts = shortcutTexts();
@@ -1040,8 +987,8 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 emit openInstanceFolderRequested(
                     key == QStringLiteral("dir") ? m_instanceDir : m_fileDirs.value(key));
             });
-            // ★ **按表序**收着（不是按摆出来的次序）—— `shortcutButtonName(i)` 那句
-            //   "第 i 颗是第 i 路目录"就还成立，两段怎么挪都不影响它。
+            // **按表序**收着（不是按摆出来的次序）—— `shortcutButtonName(i)` 那句
+            // "第 i 颗是第 i 路目录"就还成立，两段怎么挪都不影响它。
             m_shortcutButtons.append(button);
         }
         // 摆法整份交给它：这会儿 m_shortcutPresentKeys 还是"全都在"，于是这五颗全在外面、
@@ -1055,9 +1002,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         grid->addWidget(cell, row++, 0, 1, 2);
     }
 
-    // ---------- 「显示哪些页」（2026-09-27）----------
+    // ---------- 「显示哪些页」----------
     //
-    // 用户原话：「概览里面调整是否显示」「是否显示的调整放到"快捷方式"的下方」「如果没有
+    // 要求：「概览里面调整是否显示」「是否显示的调整放到"快捷方式"的下方」「如果没有
     // 对应的加载器，保持对应选项不可勾选的状态，悬停文本解释」。
     //
     // 七条一条一个勾选框（顺序见 optionalPageKeys()），勾/不勾直接决定左栏那一列里有没有
@@ -1066,8 +1013,8 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // 但这个实例上用不上、为什么"。
     //
     // NOTE: 这些勾选框会被 watchEditors() 按类型自动接上（它接 `QAbstractButton::clicked`）
-    //       ⇒ 勾一下就走"改了就写"那条路。程序化 `setChecked()`（refreshPageChecks()）
-    //       **不发 clicked**，所以重建/灌值不会白白写一次盘。
+    // ⇒ 勾一下就走"改了就写"那条路。程序化 `setChecked()`（refreshPageChecks()）
+    // **不发 clicked**，所以重建/灌值不会白白写一次盘。
     {
         auto *cell = new QWidget(this);
         auto *column = new QVBoxLayout(cell);
@@ -1097,16 +1044,16 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             // 两条一排。
             // 勾一下：先把这一格的样子**记进那一份选择**，再让左栏跟着变。
             //
-            // ★ 少了这一发，用户勾掉「存档」之后**左栏里那一条还在** —— `shownEntryKeys()`
-            //   读的是那一份选择（`m_pageOverrides`，勾选框只是它的画），而用户点的这一下
-            //   原来只走"写盘那条线"（watchEditors() → settingsEdited），要等 MainWindow
-            //   把那一次改动写进 wtfml.meta、再灌回来，左栏才掉。用户眼前就是一颗已经空了
-            //   的勾选框配着一条还在的左栏，中间隔着一次写盘。「记到盘上」和「当场看见」
-            //   是两件事，两条都得接。
+            // 少了这一发，用户勾掉「存档」之后**左栏里那一条还在** —— `shownEntryKeys()`
+            // 读的是那一份选择（`m_pageOverrides`，勾选框只是它的画），而用户点的这一下
+            // 原来只走"写盘那条线"（watchEditors() → settingsEdited），要等 MainWindow
+            // 把那一次改动写进 wtfml.meta、再灌回来，左栏才掉。用户眼前就是一颗已经空了
+            // 的勾选框配着一条还在的左栏，中间隔着一次写盘。「记到盘上」和「当场看见」
+            // 是两件事，两条都得接。
             //
             // NOTE: 顺序 —— 这一发接在 watchEditors() 那一发**之前**（构造函数先跑），
-            //       所以 MainWindow 收到 settingsEdited 去读 pageChoices() 时，左栏与那一份
-            //       选择都已经是最新的。
+            // 所以 MainWindow 收到 settingsEdited 去读 pageChoices() 时，左栏与那一份
+            // 选择都已经是最新的。
             connect(check, &QAbstractButton::clicked, this, [this, key](bool checked) {
                 m_pageOverrides.insert(key, checked);
                 rebuildEntryList();
@@ -1121,7 +1068,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     grid = addForm(launchCategoryKey(), addPage(launchCategoryKey()));
     row = 0;
 
-    // 这一句原来挂在整页顶上，2026-09-26 分栏时跟着它解释的那五项一起搬进「启动」栏 ——
+    // 这一句原来挂在整页顶上， 分栏时跟着它解释的那五项一起搬进「启动」栏 ——
     // 「跟随全局 / 自定义」是**这几项**的属性，摆在整页顶上会让「文件管理」那几栏也像有
     // 这么一对档位。
     auto *explain = new QLabel(
@@ -1149,11 +1096,11 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             // 模态，验证工程驱动不了它 —— 那一半是"问路径"，可测的那一半是这个框里的
             // 文字（override() 直接读它）。和 GroupDialog 里问组名的拆法一样。
             // NOTE: "驱动不了"的原因和内嵌提示那几条不一样：这里开的是 **Windows 自己的
-            //       文件选择框**，不是我们的窗。**全项目一共 16 处**（2026-10-11 数的）：
-            //       MainWindow.cpp 十一处（选文件夹 / 选整合包 / 挑各处的目录与文件）、
-            //       AccountSkinDialog.cpp 一处（选皮肤图）、这个文件四处（选 java.exe / 选实例图标 /
-            //       导出整合包的保存框 / 导出 .bat 的保存框）。理由和取舍见 MainWindow.cpp 里
-            //       onAddFolderClicked() 上面那一段。
+            // 文件选择框**，不是我们的窗。**全项目一共 16 处**（ 数的）：
+            // MainWindow.cpp 十一处（选文件夹 / 选整合包 / 挑各处的目录与文件）、
+            // AccountSkinDialog.cpp 一处（选皮肤图）、这个文件四处（选 java.exe / 选实例图标 /
+            // 导出整合包的保存框 / 导出 .bat 的保存框）。理由和取舍见 MainWindow.cpp 里
+            // onAddFolderClicked() 上面那一段。
             const QString picked = QFileDialog::getOpenFileName(
                 this, tr("选择 java.exe"), m_javaPathEdit->text(),
                 tr("Java 可执行文件 (java.exe);;所有文件 (*)"));
@@ -1162,19 +1109,15 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 // 选了一个具体文件 = 用户明确要这个，顺手把这一行切成「自定义」。
                 // 不切的话他选了路径、这一行还在"跟随全局"，这一次选择等于什么都没发生。
                 setChoiceCustom(javaPathField(), true);
-                // ★ 这两句都是**程序化**改值（`setText` 不发 editingFinished，
-                //   `setChoiceCustom` 自己挡着信号）⇒ watchEditors() 那几条按类型的线一条
-                //   都不响。改完自己补一发（见 .hpp 里 watchEditors() 那段 NOTE 里点名的
-                //   两处，这是第一处）。
+                // 这两句都是**程序化**改值（`setText` 不发 editingFinished，
+                // `setChoiceCustom` 自己挡着信号）⇒ watchEditors() 那几条按类型的线一条
+                // 都不响。改完自己补一发（见 .hpp 里 watchEditors() 那段 NOTE 里点名的
+                // 两处，这是第一处）。
                 notifyEdited();
             }
         });
-        // ★ 2026-09-28：框 + 「浏览…」也是那一套三列 —— 输入框跨前两列、按钮占第三列。
-        //   于是这颗按钮和这一页上别的按钮**一样高**，宽度也按同一份比例分（见
-        //   layoutActionCells() 那段：宽是"列数"算出来的，不是钉死的像素）。
-        //
         // NOTE: 这颗按钮**贴着它那个框**摆、不挪到别处 —— 它改的就是这个框里的字。
-        //       全项目唯一一颗这样的按钮，所以它是这一套里唯一不能独自成行的。
+        // 全项目唯一一颗这样的按钮，所以它是这一套里唯一不能独自成行的。
         auto *pathGrid = newActionGrid();
         pathGrid->addWidget(m_javaPathEdit, 0, 0, 1, 2);
         prepareActionButton(browse);
@@ -1194,11 +1137,11 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         auto *choiceRow = choiceRowOf(xmxField());
         // 这一格和设置页那一行一样：**一根条 + 一个数字框**（用户要 PCL 那种拖着改的手感）。
         // 条占满剩下的宽度，数字框窄窄一条 —— 顺序也是这个，条在左边。
-        // ★ 2026-09-27：上限是**这台机器的物理内存**（调用方算好放在 global 里），不是写死的
-        //   65536。从前这一页的上限一直是内置那个数，于是"设置页最多拖到 16256、实例页能拖到
-        //   65536"——用户给一个实例填出比整机内存还大的数，启动时只会拿到一句 JVM 的内存分配
-        //   错误，而界面上从头到尾没有一个字拦过他（见 2026-09-27 审计）。
-        //   `<= 0` 是"调用方没给"（只验结构的构造点），退回内置上限。
+        // 上限是**这台机器的物理内存**（调用方算好放在 global 里），不是写死的
+        // 65536。从前这一页的上限一直是内置那个数，于是"设置页最多拖到 16256、实例页能拖到
+        // 65536"——用户给一个实例填出比整机内存还大的数，启动时只会拿到一句 JVM 的内存分配
+        // 错误，而界面上从头到尾没有一个字拦过他（见 审计）。
+        // `<= 0` 是"调用方没给"（只验结构的构造点），退回内置上限。
         const int memoryCapMb = m_global.memoryCapMb > 0 ? m_global.memoryCapMb
                                                          : MainWindowUI::memoryLimitMaxMb();
         m_memoryMaxSlider = new MemorySlider(cell);
@@ -1231,8 +1174,8 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
 
         // 「改了就写」这一页是**每一发都写盘**的（见 .hpp 里 valueSignature() 那段），
         // 所以拖动中那几十发不能每一发都写一次 —— 和设置页同一个拆法：
-        //   - 拖动中：只跟着走数字（上面那条同步线），落盘等松手；
-        //   - 不是拖动中（键盘、滚轮、点滑槽跳一格）：一次就是一格，立刻报"值变了"。
+        // - 拖动中：只跟着走数字（上面那条同步线），落盘等松手；
+        // - 不是拖动中（键盘、滚轮、点滑槽跳一格）：一次就是一格，立刻报"值变了"。
         // 上面那条同步线用的是**挡了信号**的 setValue，所以 watchEditors() 按类型接的那条
         // 线在拖动时一发都不响 —— 报"值变了"这件事得由条自己说。
         connect(m_memoryMaxSlider, &QSlider::valueChanged, this, [this]() {
@@ -1244,11 +1187,11 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 [this]() { notifyEdited(); });
     }
     {
-        // ★ 2026-09-26：这一整行**不显示了**（用户原话：「不要 xms 了（或者隐藏起来），
-        //   按照默认值」）。对象照旧建、照旧跟着盘上的值走 —— 撤掉的是"给人改"这一件事，
-        //   不是替用户删掉某个实例上已经存过的那份覆盖：那条覆盖照样由 override() 透传回
-        //   去（见 override() 里那段）。整行 hide() 而不是不建，也是为了让验证工程还能按
-        //   objectName 把它找回来 —— "这一项查得到、但看不见"正是现在的意思。
+        // 这一整行**不显示了**（要求：「不要 xms 了（或者隐藏起来），
+        // 按照默认值」）。对象照旧建、照旧跟着盘上的值走 —— 撤掉的是"给人改"这一件事，
+        // 不是替用户删掉某个实例上已经存过的那份覆盖：那条覆盖照样由 override() 透传回
+        // 去（见 override() 里那段）。整行 hide() 而不是不建，也是为了让验证工程还能按
+        // objectName 把它找回来 —— "这一项查得到、但看不见"正是现在的意思。
         const int titleRow = row;   // 标题在 addTitledRow() 里就摆在 (row, 0) 这一格上
         QWidget *cell = addOverrideRow(grid, row, xmsField(), tr("最小内存"),
                                        tr("只对这个实例生效（给 JVM 的 -Xms）。"));
@@ -1275,24 +1218,24 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         }
         cell->hide();
     }
-    // NOTE: 2026-10-18：「内存分配」（自动 / 手动那一行）**整行撤掉了**。用户原话：
-    //       「内存分配和最大内存这玩意完全就是重复的，只保留那个拖动的」。撤掉的是这一页
-    //       对 autoMemory 的**入口**，盘上已经存过的 autoMemory 覆盖照样由
-    //       JavaSettingsOverride 透传（见 src/settings/EffectiveJavaSettings.cpp），
-    //       不会因为开一次这一页就被抹掉 —— 和上面「最小内存」那一行同一个态度。
+    // NOTE: ：「内存分配」（自动 / 手动那一行）**整行撤掉了**。要求：
+    // 「内存分配和最大内存这玩意完全就是重复的，只保留那个拖动的」。撤掉的是这一页
+    // 对 autoMemory 的**入口**，盘上已经存过的 autoMemory 覆盖照样由
+    // JavaSettingsOverride 透传（见 src/settings/EffectiveJavaSettings.cpp），
+    // 不会因为开一次这一页就被抹掉 —— 和上面「最小内存」那一行同一个态度。
 
 
-    // ---------- 窗口模式 / 窗口大小（2026-09-28 加的）----------
+    // ---------- 窗口模式 / 窗口大小（ 加的）----------
     //
-    // 这两行是用户原话「游戏的启动参数 小窗/最大化/全屏 以及游戏分辨率 放到设置和实例设置
+    // 这两行是要求「游戏的启动参数 小窗/最大化/全屏 以及游戏分辨率 放到设置和实例设置
     // 里面」里**实例设置那一半**（全局那一半在设置页「启动」栏，见 MainWindowUI）。
     // 和上面几项同一个形状：能「跟随全局」，也能给这一个实例钉一份 —— 绝大多数实例是跟随。
     //
     // NOTE: 档位那几项**由调用方灌**（windowModes 参数），这一页只认「标签 + 代号」那一对。
-    //       理由见 .hpp 里 WindowModeChoice 那一段（ui/ 不许 include src/，档位那个枚举
-    //       和那三个代号串的唯一出处都在 src/）。
+    // 理由见 .hpp 里 WindowModeChoice 那一段（ui/ 不许 include src/，档位那个枚举
+    // 和那三个代号串的唯一出处都在 src/）。
     // NOTE: 三个串（两个键名 + 那三个代号）在这一页里**一个字都不重写**：键名是上面那三个
-    //       Field() 函数，代号是调用方喂进来的。这正是这条分层规矩要保住的性质。
+    // Field() 函数，代号是调用方喂进来的。这正是这条分层规矩要保住的性质。
     if (!windowModes.isEmpty()) {
         QWidget *cell = addOverrideRow(grid, row, windowModeField(), tr("窗口模式"),
                                        tr("只对这个实例生效：这一个实例照这一档开窗。"));
@@ -1305,18 +1248,18 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         for (const WindowModeChoice &choice : windowModes) {
             m_windowModeCombo->addItem(choice.label, choice.token);
         }
-        // ★ 换档位**也要发 `settingsEdited()`** —— 这一页是「改了就写」，而按类型接的那几条
-        //   线（QAbstractButton / QLineEdit / QSpinBox / QPlainTextEdit）**一条都接不到
-        //   QComboBox**，漏了它的症状很具体 —— 用户把这行切到「自定义」（那一发是档位那格
-        //   发的，写盘了），再从下拉框里换一档 ⇒ **盘上还是老那一档**，而他看着屏幕上写着
-        //   「全屏」。下次动别的开关才会顺带写进去，也就是"改了有时候生效"。
-        //   下面灌值那一段是 setCurrentIndex + QSignalBlocker，不会把"打开这一页"当成一次编辑。
-        //   NOTE: 「跟随全局」那句提示不用跟着重刷 —— 它写的是**全局**那一档，和这一格选了
-        //         什么无关（见 refreshHints()）。
-        //   NOTE: 2026-09-28 起这一条**不再单独接在这儿**：`watchEditors()` 新加的那一循环
-        //         把这一页上**所有** `QComboBox` 一次接上（含这个和那七格档位），所以这里
-        //         只剩这段来龙去脉。那条"容易在测试里被盖住"的教训原样有效 —— mw_check 的
-        //         T20.11b 仍然把换档位摆成那一页上最后一个动作。
+        // 换档位**也要发 `settingsEdited()`** —— 这一页是「改了就写」，而按类型接的那几条
+        // 线（QAbstractButton / QLineEdit / QSpinBox / QPlainTextEdit）**一条都接不到
+        // QComboBox**，漏了它的症状很具体 —— 用户把这行切到「自定义」（那一发是档位那格
+        // 发的，写盘了），再从下拉框里换一档 ⇒ **盘上还是老那一档**，而他看着屏幕上写着
+        // 「全屏」。下次动别的开关才会顺带写进去，也就是"改了有时候生效"。
+        // 下面灌值那一段是 setCurrentIndex + QSignalBlocker，不会把"打开这一页"当成一次编辑。
+        // NOTE: 「跟随全局」那句提示不用跟着重刷 —— 它写的是**全局**那一档，和这一格选了
+        // 什么无关（见 refreshHints()）。
+        // NOTE: 起这一条**不再单独接在这儿**：`watchEditors()` 新加的那一循环
+        // 把这一页上**所有** `QComboBox` 一次接上（含这个和那七格档位），所以这里
+        // 只剩这段来龙去脉。那条"容易在测试里被盖住"的教训原样有效 —— mw_check 的
+        // T20.11b 仍然把换档位摆成那一页上最后一个动作。
         choiceRow->addWidget(m_windowModeCombo, 0, Qt::AlignLeft);
     }
     {
@@ -1332,20 +1275,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         m_windowWidthSpin->setSingleStep(MainWindowUI::windowSizeStep());
         m_windowWidthSpin->setMinimumWidth(kWindowSizeSpinWidth);
         WheelGuard::install(m_windowWidthSpin);
-        // ★ 2026-10-11：这一颗**也得带 `AlignLeft`**。原来只给下面那颗（高）带了，这一颗
-        //   吃到了拉伸 ⇒ 这一格被撑満，于是「×」和高那颗被顶到最右边去，屏幕上成了
-        //   `[跟随全局▾][1280▾]  ×        [720▾]` —— 一行两个数本来就该挨在一起。
         choiceRow->addWidget(m_windowWidthSpin, 0, Qt::AlignLeft);
 
         auto *times = new QLabel(QStringLiteral("×"), cell);
         times->setObjectName(windowSizeTimesName());
-        // ★ 2026-10-11：这一颗**故意不带 `AlignLeft`**……原来就是这样，而它就是那一格的洞。
-        //   另三颗都带了对齐 ⇒ 盒子布局不会拉伸它们，那剩下的空间**全归这个没有对齐的那一颗**
-        //   （QLabel 的默认策略是 Preferred = 能长）。于是屏幕上成了
-        //   `[跟随全局▾][1280▾]      ×           [720▾]` —— 后两句在下面那条注释里写着"整行靠左
-        //   摆"，可代码里**没有任何一处**这么要求（见文件里「注释与代码相反」那条教训）。
-        //   真正的钉子是这一行末尾的 `addStretch()`：它把多出来的空间全吃掉，另四颗因此
-        //   一律停在自己的 `sizeHint()` 上，`宽 × 高` 挨在一起。
         choiceRow->addWidget(times);
 
         m_windowHeightSpin = new QSpinBox(cell);
@@ -1356,10 +1289,6 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         m_windowHeightSpin->setMinimumWidth(kWindowSizeSpinWidth);
         WheelGuard::install(m_windowHeightSpin);
         choiceRow->addWidget(m_windowHeightSpin, 0, Qt::AlignLeft);
-        // 整行按 sizeHint 靠左摆，不撑满 —— 和设置页那一行同一条规矩（那边同一个判据在
-        // ui_check 的 Z2 里）。★ 2026-10-11：**这一句才是真正的执行者**，光给四颗都带
-        // `AlignLeft` 是不够的 —— 见上面 `times` 那一段（没有拉伸项时，多出来的空间会全落到
-        // 对齐"漏掉"的那一颗上）。
         choiceRow->addStretch(1);
         // 顶上那句「跟随全局（当前 854×480）」要写全局那一份，从构造函数给的那份值里取。
         // **只在调用方给了正数时才记**：`<= 0` 是"调用方没给"的哨兵（见 .hpp 里
@@ -1408,14 +1337,14 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             // 折回 → **还是** 600x503（那时布局只要 310，多出来的全是空白）。
             //
             // NOTE: 必须**晚一拍**再缩，而且缩之前得把布局那一串**推一遍**。这一下
-            //       `setHidden()` 只是把"重算布局"排进事件队列，此刻这个窗的最小高度还是
-            //       展开着的那个数（503），当场 `resize()` 会被它钳回去 —— 看着像"修了但
-            //       没生效"。排一发 0 毫秒的还不够：这一页套了**好几级**布局（表格 → 表单
-            //       → 那一页 → 堆叠页 → 三栏 → 整页），一级算完才把下一级的 LayoutRequest
-            //       排进去，实测要**两拍**最小高度才降回来（2026-09-26 分栏之后多套了两级：
-            //       分栏前是一拍就够的）。所以这儿不数拍子，改成**由内到外把每一级的布局
-            //       `activate()` 一遍**再缩 —— 收敛是当场问出来的，跟套了几级无关。
-            //       收尾那一发挂在 this 上，窗先没了就不会再响。
+            // `setHidden()` 只是把"重算布局"排进事件队列，此刻这个窗的最小高度还是
+            // 展开着的那个数（503），当场 `resize()` 会被它钳回去 —— 看着像"修了但
+            // 没生效"。排一发 0 毫秒的还不够：这一页套了**好几级**布局（表格 → 表单
+            // → 那一页 → 堆叠页 → 三栏 → 整页），一级算完才把下一级的 LayoutRequest
+            // 排进去，实测要**两拍**最小高度才降回来（ 分栏之后多套了两级：
+            // 分栏前是一拍就够的）。所以这儿不数拍子，改成**由内到外把每一级的布局
+            // `activate()` 一遍**再缩 —— 收敛是当场问出来的，跟套了几级无关。
+            // 收尾那一发挂在 this 上，窗先没了就不会再响。
             if (!expanded) {
                 QTimer::singleShot(0, this, [this] {
                     if (m_heightBeforeAdvanced <= 0) {
@@ -1493,30 +1422,25 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         }
     }
 
-    // ---------- 导出启动脚本 / 补全版本文件（2026-09-26，两颗按钮并排一行）----------
+    // ---------- 导出启动脚本 / 补全版本文件（，两颗按钮并排一行）----------
     //
     // 这两件是**动作**，不是设置项：它们不改 wtfml.meta 里的任何一格，所以没有
     // 「跟随全局 / 自定义」那一对单选钮 —— 和上面「追加参数」「版本提醒」同一个形状
     // （那两个也不是覆盖层的一项）。
     //
-    // 用户原话「按钮文本直接做成设置名称」，给的例子就是「导出启动脚本（按钮）
+    // 要求「按钮文本直接做成设置名称」，给的例子就是「导出启动脚本（按钮）
     // 补全版本文件（按钮）」并排一行 ⇒ 这一对**没有行名**（按钮上那几个字就是名字），
     // 两句解释挪去 tooltip + 底下那一行合起来的说明。
     //
     // NOTE: 说明**不能只放 tooltip**：「导出的那份里带着登录令牌，别发给别人」是一句安全
-    //       警告，而 tooltip 得悬停才看得见（理由见 .hpp 里 actionsHint() 那段）。
+    // 警告，而 tooltip 得悬停才看得见（理由见 .hpp 里 actionsHint() 那段）。
     // NOTE: 摆在「高级选项」**之后**：这一页从上到下是"这个实例拿什么启动"（Java、内存、
-    //       额外参数），两件动作是收尾。而且高级选项默认折叠着，所以打开这一页看到的
-    //       顺序是 Java 路径 → 最大内存 → 最小内存 → 两件动作（「内存分配」那一行
-    //       2026-10-18 撤掉了，见上面那段 REMOVED 注释）。
+    // 额外参数），两件动作是收尾。而且高级选项默认折叠着，所以打开这一页看到的
+    // 顺序是 Java 路径 → 最大内存 → 最小内存 → 两件动作（「内存分配」那一行
+    // 撤掉了，见上面那段 REMOVED 注释）。
     {
-        auto *cell = new QWidget(this);
-        auto *column = new QVBoxLayout(cell);
-        column->setContentsMargins(0, 0, 0, 0);
-        column->setSpacing(4);
+        auto [cell, column] = makeZeroColumn(this);
 
-        // ★ 2026-09-28：两颗并排 → **这一页统一的那一套**（每行三颗、两颗各占三分之一）。
-        //   两颗那一行**不摊开**，和概览上那四颗同一个道理（见 layoutActionCells() 那段）。
         auto *pairGrid = newActionGrid();
         auto *exportScript = new QPushButton(exportScriptText(), cell);
         exportScript->setObjectName(exportScriptButtonName());
@@ -1573,7 +1497,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // 出处，这一层不抄第二份。
     //
     // NOTE: 页面标题（那行粗体）**故意没有** —— 左栏那一列一直亮着，写在这里是把同一句话
-    //       挨着说两遍。每一页正文底下那行小字才是这一页**特有**的那句。
+    // 挨着说两遍。每一页正文底下那行小字才是这一页**特有**的那句。
     {
         // ② 中间那七页：同一个控件，喂不同的目录与三条开关。
         const QStringList keys = filePageKeys();
@@ -1587,13 +1511,13 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 continue;
             }
 
-            // ★ 「配置文件」那一页是**两格子**（见 .hpp 里 configFilePage() 上面那一段：
-            //   开不出第二个整页覆盖层）。第 0 格是这一张列表（连「上一级」和底下那行小字
-            //   一起），第 1 格是编辑器。别的几页只有一格 —— 所以下面这些"摆进这一页"的
-            //   动作全部改摆进 `target`，而不是一律摆进 `layout`。
+            // 「配置文件」那一页是**两格子**（见 .hpp 里 configFilePage() 上面那一段：
+            // 开不出第二个整页覆盖层）。第 0 格是这一张列表（连「上一级」和底下那行小字
+            // 一起），第 1 格是编辑器。别的几页只有一格 —— 所以下面这些"摆进这一页"的
+            // 动作全部改摆进 `target`，而不是一律摆进 `layout`。
             const bool isConfig = key == QStringLiteral("config");
-            // ★ 2026-09-28：存档那一页（见下面 setCanEdit / setImportText / setBatchText
-            //   那三处 —— 支笔、导入世界、批量编辑都只在这一页上）。
+            // 存档那一页（见下面 setCanEdit / setImportText / setBatchText
+            // 那三处 —— 支笔、导入世界、批量编辑都只在这一页上）。
             const bool isSave = key == QStringLiteral("save");
             const bool isResourcePack = key == QStringLiteral("resourcepack");
             QStackedWidget *resourceStack = nullptr;
@@ -1658,57 +1582,52 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                         this, &InstanceSettingsDialog::modInspectDependenciesRequested);
             }
             // 存档只列文件夹（saves 底下那些 level.dat / session.lock 不是存档）。
-            // ★ 2026-10-11：「模组」那一页**只列文件** —— `mods/` 底下那些目录不是模组
-            //   （`mcef-libraries`、Sinytra 的 `.connector` 这种是模组自己用的房子），
-            //   而它们在屏幕上占着一行、行尾还挂着开关，点一下是把**整个文件夹**改了名
-            //   （真机上已经发生过）。另外三页照旧 —— 一个资源包 / 数据包 / 光影包
-            //   **本身就可以是一个目录**（游戏认没解压的那种），那是另一回事。
+            // 「模组」那一页**只列文件** —— `mods/` 底下那些目录不是模组
+            // （`mcef-libraries`、Sinytra 的 `.connector` 这种是模组自己用的房子），
+            // 而它们在屏幕上占着一行、行尾还挂着开关，点一下是把**整个文件夹**改了名
+            // （真机上已经发生过）。另外三页照旧 —— 一个资源包 / 数据包 / 光影包
+            // **本身就可以是一个目录**（游戏认没解压的那种），那是另一回事。
             files->setMode(key == QStringLiteral("save")   ? InstanceFilesPage::Mode::DirsOnly
                            : key == QStringLiteral("mod") ? InstanceFilesPage::Mode::FilesOnly
                                                           : InstanceFilesPage::Mode::FilesAndDirs);
             // 只有游戏会自己扫的那三个目录给「禁用」；存档**不给删**（理由见
             // InstanceFilesPage::setCanDelete()）。
             //
-            // ★ 「配置文件」也不给删（2026-09-27）：这一页的存在意义就是**改**（点一行开
-            //   编辑器），行尾再挂一颗垃圾桶等于在"只想改一个数"的动线上摆一个删了就没了
-            //   的键 —— 而这一页没有"恢复默认"（模组下次启动会重写一份默认的，但那要等它
-            //   启动，而且不保证每个模组都这么干）。要删，那颗「打开文件夹」就在上面。
+            // 「配置文件」也不给删：这一页的存在意义就是**改**（点一行开
+            // 编辑器），行尾再挂一颗垃圾桶等于在"只想改一个数"的动线上摆一个删了就没了
+            // 的键 —— 而这一页没有"恢复默认"（模组下次启动会重写一份默认的，但那要等它
+            // 启动，而且不保证每个模组都这么干）。要删，那颗「打开文件夹」就在上面。
             files->setCanToggle(fileKeyCanToggle(key));
             files->setCanDelete(key != QStringLiteral("save") && key != QStringLiteral("config"));
-            // ★ 2026-09-28：**只有存档那一页**行尾有那支笔，而且只有那一页的目录行会去
-            //   算真的大小/时间（见 InstanceFilesPage::setCanEdit()——两件事是一套的）。
+            // **只有存档那一页**行尾有那支笔，而且只有那一页的目录行会去
+            // 算真的大小/时间（见 InstanceFilesPage::setCanEdit()——两件事是一套的）。
             files->setCanEdit(isSave);
             files->setEmptyText(filesEmptyText(key));
             files->setDirectory(m_fileDirs.value(key));
-            // ★ 顶上那颗「下载新 X」（2026-09-27）：只有下载页里真有对应一栏的那四页有
-            //   （见 filesDownloadText()）。按下去**只报一个分类键**，切选项卡、挑那
-            //   一行都在 MainWindow 那一层 —— 这一层够不着选项卡，也不该知道下载页左栏
-            //   有几栏（见 browseDownloadsRequested() 那段）。
+            // 顶上那颗「下载新 X」：只有下载页里真有对应一栏的那四页有
+            // （见 filesDownloadText()）。按下去**只报一个分类键**，切选项卡、挑那
+            // 一行都在 MainWindow 那一层 —— 这一层够不着选项卡，也不该知道下载页左栏
+            // 有几栏（见 browseDownloadsRequested() 那段）。
             files->setDownloadText(filesDownloadText(key), filesDownloadTip(key));
-            // ★ 2026-09-28：状态那一栏里要不要有「可更新」——**判据和上面那颗「下载新 X」
-            //   是同一个**（下载页里真有对应一栏的那四页）：只有那四页上的文件查得动更新，
-            //   别的几页（原理图 / 存档 / 配置文件）里的东西根本不在任何平台的清单里。
-            //   多一格永远筛不出东西的选项，用户只会以为"筛坏了"。
+            // 状态那一栏里要不要有「可更新」——**判据和上面那颗「下载新 X」
+            // 是同一个**（下载页里真有对应一栏的那四页）：只有那四页上的文件查得动更新，
+            // 别的几页（原理图 / 存档 / 配置文件）里的东西根本不在任何平台的清单里。
+            // 多一格永远筛不出东西的选项，用户只会以为"筛坏了"。
             files->setCanFilterUpdates(!filesDownloadText(key).isEmpty());
-            // ★ 2026-10-09：**那四页**再开一套「批量管理」（行尾的详情按钮 + 多选 + 底层
-            //   那条悬浮操作条 + 顶上四颗横向筛选按钮）。判据**就是上面那个** ——
-            //   `filesNameOpensResource()` 说的正是"这一条认得出是哪个资源"，而详情按钮
-            //   要的恰好是这一件事（见 MainWindow 那边 detailRequested 那一发 —— 这一发
-            //   2026-10-09 从 `resourceRequested` 改的名）。
-            //   用户原话：「在模组/资源包等的设置里面…」—— 不新开一张"哪几页算数"的名单。
-            // ★ 2026-10-10：这一发同时是**"这一页底下那段说明要不要挂"**的判据（见下面
-            //   建 hint 那一处）—— 用户原话：「把这个页面下方那段叙述删了来让框拉到底充分
-            //   利用空间」，范围是**这四页**（模组 / 资源包 / 数据包 / 光影包，也就是这套
-            //   批量管理的那四页）。其余几页（存档 / 原理图 / 配置文件 / 服务器列表 /
-            //   快捷方式）底下那行小字**照旧挂着** —— 它们讲的是别的规矩（数据包那句
-            //   "下了不等于生效、要自己搬进存档"连它一起没了，是用户点头的）。
+            // **那四页**再开一套「批量管理」（行尾的详情按钮 + 多选 + 底层
+            // 那条悬浮操作条 + 顶上四颗横向筛选按钮）。判据**就是上面那个** ——
+            // `filesNameOpensResource()` 说的正是"这一条认得出是哪个资源"，而详情按钮
+            // 要的恰好是这一件事（见 MainWindow 那边 detailRequested 那一发 —— 这一发
+            // 从 `resourceRequested` 改的名）。
+            // 要求：「在模组/资源包等的设置里面…」—— 不新开一张"哪几页算数"的名单。
+            // 这一发同时是**"这一页底下那段说明要不要挂"**的判据（见下面
+            // 建 hint 那一处）—— 要求：「把这个页面下方那段叙述删了来让框拉到底充分
+            // 利用空间」，范围是**这四页**（模组 / 资源包 / 数据包 / 光影包，也就是这套
+            // 批量管理的那四页）。其余几页（存档 / 原理图 / 配置文件 / 服务器列表 /
+            // 快捷方式）底下那行小字**照旧挂着** —— 它们讲的是别的规矩（数据包那句
+            // "下了不等于生效、要自己搬进存档"连它一起没了，是用户点头的）。
             const bool batch = filesNameOpensResource(key);
             files->setBatchMode(batch);
-            // ★ 2026-09-28：存档那一页顶上多两颗（「导入世界」/「批量编辑」）。用户原话：
-            //   「顶端加个导入世界按钮和批量编辑按钮（这个先做占位）」。
-            //   别的几页**不接文字**（= 那两颗藏起来，见 setImportText）。「批量编辑」今天
-            //   是占位 —— 这一层照旧只发信号，那句"还没做"由 MainWindow 说（这一层连
-            //   InlineMessage 都用不了）。
             if (isSave) {
                 files->setImportText(importWorldText(), importWorldTip());
                 auto *backups = new QPushButton(tr("世界备份"), listHost);
@@ -1724,25 +1643,25 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                     emit browseDownloadsRequested(category);
                 }
             });
-            // ★ 行尾那颗「详情」按下去（2026-09-27 起是"名字点得动"，2026-10-09 换成那颗
-            //   按钮）：**只有"点得动"的那几页接**。判据就是 filesNameOpensResource()
-            //   —— 不在表里的那几页既没有那一格按钮，这一条线也不接。
-            //   接线这一层是多余的：真的按下去是 InstanceFilesPage 那边认出路径才发的
-            //   （认不出来的那些那一颗是灰的，按不动）。
-            //   ★ 2026-10-10：**右键点一行**走的也是这一发（用户原话：「右键点击时也可以
-            //   进入详情页，此时保留上一页的选择」）—— 判据、落点、收页那一套全都一样，
-            //   这一层不必知道用户是按了那颗 ⓘ 还是右键了那一行。
+            // 行尾那颗「详情」按下去（ 起是"名字点得动"， 换成那颗
+            // 按钮）：**只有"点得动"的那几页接**。判据就是 filesNameOpensResource()
+            // —— 不在表里的那几页既没有那一格按钮，这一条线也不接。
+            // 接线这一层是多余的：真的按下去是 InstanceFilesPage 那边认出路径才发的
+            // （认不出来的那些那一颗是灰的，按不动）。
+            // **右键点一行**走的也是这一发（要求：「右键点击时也可以
+            // 进入详情页，此时保留上一页的选择」）—— 判据、落点、收页那一套全都一样，
+            // 这一层不必知道用户是按了那颗 ⓘ 还是右键了那一行。
             if (filesNameOpensResource(key)) {
                 connect(files, &InstanceFilesPage::detailRequested, this,
                         [this, key](const QString &path) { emit fileResourceRequested(key, path); });
-                // ★★ 2026-10-11：这里转过一发 `updateCheckRequested`（那一页顶上「可更新」
-                //   在还没查过时兼作第二个入口）—— 已拆，用户原话「**没有检查的时候先隐藏
-                //   可更新按钮**」：那一颗在没查过的时候根本摆不出来。检查更新这一栏照旧
-                //   只有「概览」那一颗（`checkUpdatesRequested()` 那条线一个字都没动）。
+                // 这里转过一发 `updateCheckRequested`（那一页顶上「可更新」
+                // 在还没查过时兼作第二个入口）—— 已拆，要求「**没有检查的时候先隐藏
+                // 可更新按钮**」：那一颗在没查过的时候根本摆不出来。检查更新这一栏照旧
+                // 只有「概览」那一颗（`checkUpdatesRequested()` 那条线一个字都没动）。
 
                 // 批量那三发：**判据同上**（这三件事只在那四页上谈得上）。
                 // NOTE: 转发上去的三个动作全**不改盘** —— 问不问那句、怎么落盘、落完要不要
-                //       重列，都是 MainWindow 的事（这一层连 AppPaths 都够不着）。
+                // 重列，都是 MainWindow 的事（这一层连 AppPaths 都够不着）。
                 connect(files, &InstanceFilesPage::batchUpdateRequested, this,
                         [this, key](const QStringList &paths) {
                             emit fileBatchUpdateRequested(key, paths);
@@ -1757,9 +1676,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                         });
             }
 
-            // ★ 「配置文件」那一页多两样（2026-09-27）：上面一颗「上级」，以及"双击/回车
-            //   有反应"。别的几页看的是一个平铺的目录，config/ 底下却还有层级
-            //   （`config/ftbquests/`、`config/paxi/`…），得能进去也得出得来。
+            // 「配置文件」那一页多两样：上面一颗「上级」，以及"双击/回车
+            // 有反应"。别的几页看的是一个平铺的目录，config/ 底下却还有层级
+            // （`config/ftbquests/`、`config/paxi/`…），得能进去也得出得来。
             if (isConfig) {
                 // 一颗也走这一页统一的那一套（三分之一宽、靠左）—— 见 layoutActionCells()
                 // 那段：**少一颗的那一行不摊开**，一颗独苗撑满整幅会让它比别处的按钮大一号。
@@ -1783,21 +1702,14 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                     &InstanceSettingsDialog::toggleInstanceFileRequested);
             connect(files, &InstanceFilesPage::deleteRequested, this,
                     &InstanceSettingsDialog::deleteInstanceFileRequested);
-            // ★ 2026-09-28：存档那一页那三样（那支笔 / 导入世界 / 批量编辑）**故意不在这儿
-            //   接线**。上面那几发之所以要绕这一层，是因为它们需要翻译（`downloadRequested`
-            //   要把页键翻成下载页的分类键、`toggleRequested` 是整个文件管理共用的）；
-            //   而这三发只属于存档那一页、也不用翻任何东西 —— 由 MainWindow 直接连到
-            //   `filesPage("save")` 上（那一页就是它）。多一层纯转发的信号，只是多一份
-            //   要跟着改的声明。
+            // 存档那一页那三样（那支笔 / 导入世界 / 批量编辑）**故意不在这儿
+            // 接线**。上面那几发之所以要绕这一层，是因为它们需要翻译（`downloadRequested`
+            // 要把页键翻成下载页的分类键、`toggleRequested` 是整个文件管理共用的）；
+            // 而这三发只属于存档那一页、也不用翻任何东西 —— 由 MainWindow 直接连到
+            // `filesPage("save")` 上（那一页就是它）。多一层纯转发的信号，只是多一份
+            // 要跟着改的声明。
             m_filesPages.insert(key, files);
             target->addWidget(files, 1);
-            // ★ 2026-10-10：**开了批量管理的那四页不再挂底下那段说明**（用户原话：
-            //   「把这个页面下方那段叙述删了来让框拉到底充分利用空间」）—— 列表那一格是
-            //   `stretch = 1`、小字那一格没有 stretch，所以少一句小字 = 列表**直接多长
-            //   那么高**（原来那几页里最长的一句在默认窗口下是两三行；那句所在的
-            //   `filesDetailHint()` 这一趟已删，见 .hpp 里那段）。
-            //   判据就是上面那一发 `batch` —— 和"这一页有没有那一套按钮"是同一句话，
-            //   不新开第二张名单。
             if (!batch && !isSave && key != QStringLiteral("schematic") && key != QStringLiteral("structure")) {
                 auto *hint = new QLabel(filesHint(key), listHost);
                 hint->setObjectName(filesHintName(key));
@@ -1812,7 +1724,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 m_configStack->addWidget(m_configEditor);
                 layout->addWidget(m_configStack, 1);
             }
-            // 存档那一页的第 1 格：世界设置（2026-09-28），做法和理由同上（见 .hpp 里
+            // 存档那一页的第 1 格：世界设置，做法和理由同上（见 .hpp 里
             // openWorldSettings() 上面那一段）。
             if (isSave) {
                 m_worldSettings = new WorldSettingsPage(m_worldStack);
@@ -1833,26 +1745,13 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
             QWidget *page = addPage(QStringLiteral("server"));
             auto *layout = qobject_cast<QVBoxLayout *>(page->layout());
             if (layout != nullptr) {
-                // ★ 2026-09-28：这两颗从前是"靠右一头"（前面一条 stretch），现在归进这一页
-                //   统一的那一套（每行三颗、各占三分之一、靠左）—— 用户原话「每一行三个，
-                //   间距适中且左右能充分利用」。
                 auto *top = newActionGrid();
-                // ★★ 2026-10-10：「测速」**没有了**（用户原话「服务器那一栏测速和刷新
-                //   作用重复了」）—— 它和「刷新」都会连上去问一遍每台现在什么样，屏幕上
-                //   并排摆着，用户分不出该按哪一颗。留下的这一颗把两件事都做了：
-                //   **重读 servers.dat + 重测每一台**（那一页从 2026-09-27 起就不只是那份
-                //   文件的一面镜子：图标 / MOTD / 延迟都是刚问来的）。
                 m_serverRefresh = new QPushButton(serverRefreshText(), page);
                 m_serverRefresh->setObjectName(serverRefreshButtonName());
                 Theme::markButton(m_serverRefresh, Theme::ButtonKind::Neutral);
                 // 重读要碰 NBT 解析（在 src/ 里），所以这一发只能交给 MainWindow。
                 connect(m_serverRefresh, &QPushButton::clicked, this,
                         &InstanceSettingsDialog::refreshServerListRequested);
-                // ★ 2026-10-10：「编辑」（改这一台的名字和地址）。用户原话「在服务器列表
-                //   那里做一个编辑地址和名称的功能」。
-                //   它**不改盘、也不问话** —— 那两件事分别是 src/manage/ServerListFile 和
-                //   覆盖层的事，这一层一样都够不着（问话的入口每一个都要 OverlayHost）。
-                //   所以它只发一条"要改的是哪一台"，剩下的由 MainWindow 接。
                 m_serverEdit = new QPushButton(serverEditText(), page);
                 m_serverEdit->setObjectName(serverEditButtonName());
                 m_serverEdit->setToolTip(serverEditTip());
@@ -1866,15 +1765,15 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                                              item->data(1, MainWindowUI::serverAddressRole())
                                                  .toString());
                 });
-                // ★ 2026-10-10：「添加」和「删除」（用户原话「编辑要能改名字改地址以及
-                //   删除，服务器那个页面里放一个添加服务器的按钮，允许添加」）。和「编辑」
-                //   同一档：这一层不碰盘、也不问话，只发一条，落盘和问话都在 MainWindow。
-                //   ★ 两颗的**可点性不一样**，这是它们和「编辑」唯一的区别：
-                //     - 「添加」不依赖选中行（要加的那一台还没出现在表里），所以**常亮**；
-                //     - 「删除」动的是选中那一行，跟着选中走（见 updateServerSelectionActions）。
-                //   档位：「添加」是普通动作（Neutral）；「删除」是这一页上唯一一颗真会
-                //   从盘上拿掉东西的键 —— 照「删除实例」那一颗（`ButtonKind::Danger`，
-                //   见 ui/Theme.hpp 那句"不可撤销"）。
+                // 「添加」和「删除」（要求「编辑要能改名字改地址以及
+                // 删除，服务器那个页面里放一个添加服务器的按钮，允许添加」）。和「编辑」
+                // 同一档：这一层不碰盘、也不问话，只发一条，落盘和问话都在 MainWindow。
+                // 两颗的**可点性不一样**，这是它们和「编辑」唯一的区别：
+                // - 「添加」不依赖选中行（要加的那一台还没出现在表里），所以**常亮**；
+                // - 「删除」动的是选中那一行，跟着选中走（见 updateServerSelectionActions）。
+                // 档位：「添加」是普通动作（Neutral）；「删除」是这一页上唯一一颗真会
+                // 从盘上拿掉东西的键 —— 照「删除实例」那一颗（`ButtonKind::Danger`，
+                // 见 ui/Theme.hpp 那句"不可撤销"）。
                 m_serverAdd = new QPushButton(serverAddText(), page);
                 m_serverAdd->setObjectName(serverAddButtonName());
                 m_serverAdd->setToolTip(serverAddTip());
@@ -1895,13 +1794,13 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                         item->data(0, MainWindowUI::serverNameRole()).toString(),
                         item->data(1, MainWindowUI::serverAddressRole()).toString());
                 });
-                // ★ 「加入服务器」（**临时占位**，2026-10-10）：用游戏自己的
-                //   `--quickPlayMultiplayer` 直接连进去。用户原话「世界和服务器都做一个
-                //   临时占位（加入选中的世界（仅限有这个参数的版本）/服务器）先试试看能
-                //   不能生效」。
-                //   ★ 默认**收着**（文字一开始是空的，见 setServerJoinText()）：一个没有
-                //     那个启动参数的版本上露着它就是"按下去游戏直接报错退出"（jopt-simple
-                //     认不出那个选项）。露不露由调用方读了版本 json 之后说了算。
+                // 「加入服务器」（**临时占位**，）：用游戏自己的
+                // `--quickPlayMultiplayer` 直接连进去。要求「世界和服务器都做一个
+                // 临时占位（加入选中的世界（仅限有这个参数的版本）/服务器）先试试看能
+                // 不能生效」。
+                // 默认**收着**（文字一开始是空的，见 setServerJoinText()）：一个没有
+                // 那个启动参数的版本上露着它就是"按下去游戏直接报错退出"（jopt-simple
+                // 认不出那个选项）。露不露由调用方读了版本 json 之后说了算。
                 m_serverJoin = new QPushButton(QString(), page);
                 m_serverJoin->setObjectName(serverJoinButtonName());
                 m_serverJoin->setVisible(false);
@@ -1938,20 +1837,20 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 m_serverTree->setUniformRowHeights(true);
                 m_serverTree->setSelectionMode(QAbstractItemView::SingleSelection);
                 m_serverTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
-                // ★ 状态那一格是两行（`在线 · 42 ms` / `7/20 人`，见 setServerStatuses）：
-                //   这一句是那个换行**真的会换行**的前提 —— 条目代理只在开了 wordWrap 时
-                //   才把正文按 QTextLayout 摆，否则那一格里会是"在线 · 42 ms 7/20 人"一行
-                //   （`\n` 被当成一个看不见的字符）。第 0 列不受影响：那两行是代理自己画的。
+                // 状态那一格是两行（`在线 · 42 ms` / `7/20 人`，见 setServerStatuses）：
+                // 这一句是那个换行**真的会换行**的前提 —— 条目代理只在开了 wordWrap 时
+                // 才把正文按 QTextLayout 摆，否则那一格里会是"在线 · 42 ms 7/20 人"一行
+                // （`\n` 被当成一个看不见的字符）。第 0 列不受影响：那两行是代理自己画的。
                 m_serverTree->setWordWrap(true);
 
                 // ---------- 三栏的宽度怎么分 ----------
                 //
                 // 默认是"最后一列吃掉多出来的宽度"，那样一来左边两行 MOTD 会被状态那一栏
-                // 挤掉一大截，动不动就出省略号（用户原话「保证左侧的 motd 能显示全」）。
+                // 挤掉一大截，动不动就出省略号（要求「保证左侧的 motd 能显示全」）。
                 // 改成：**第 0 列把剩下的全吃掉**，另外两列各占自己需要的那点地方 ——
-                //   · 地址那一栏是遮过的（`m-.h-.c-`），本来就窄；
-                //   · 状态那一栏按内容定宽（两行里更宽的那一行），文字**靠右**，所以整栏
-                //     贴着右边停住、不跟着窗口一起长。
+                // · 地址那一栏是遮过的（`m-.h-.c-`），本来就窄；
+                // · 状态那一栏按内容定宽（两行里更宽的那一行），文字**靠右**，所以整栏
+                // 贴着右边停住、不跟着窗口一起长。
                 QHeaderView *header = m_serverTree->header();
                 if (header != nullptr) {
                     header->setStretchLastSection(false);
@@ -1970,7 +1869,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                     0, new VersionTreeDelegate(m_serverTree, /*leafArrow=*/false,
                                                MainWindowUI::serverIconSize()));
                 // 悬停底色由代理画（`Theme::rowHoverFill()`），但那一位 `State_MouseOver` 是**视图**填的。
-                // ★ 少了这一句，代理里那段一个字都不会生效 —— 不报错、断言也不一定先红，屏幕上就是"悬停没反应"。
+                // 少了这一句，代理里那段一个字都不会生效 —— 不报错、断言也不一定先红，屏幕上就是"悬停没反应"。
                 m_serverTree->setMouseTracking(true);
                 // 行高**不是**那个常数：这一列逐条 `setSizeHint` 成 `serverRowHeight()`
                 // （= versionTreeRowHeight() + 18 = 64，见下面「46 px 装不下」那一句），
@@ -1979,14 +1878,14 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                 // 图标会被另算一遍尺寸。
                 m_serverTree->setIconSize(
                     QSize(MainWindowUI::serverIconSize(), MainWindowUI::serverIconSize()));
-                // ★ 地址那一格**右键 = 复制那一串完整的地址**（用户 2026-09-27：「ip地址
-                //   右键可以复制」）。走 `Qt::CustomContextMenu` 只是为了拿到"在哪儿按的"
-                //   这一个坐标 —— **不弹菜单**：这一页上右键只有这一件事可做，而悬停提示
-                //   （serverAddressCopyHint()）已经把这句话告诉用户了。
+                // 地址那一格**右键 = 复制那一串完整的地址**（用户 ：「ip地址
+                // 右键可以复制」）。走 `Qt::CustomContextMenu` 只是为了拿到"在哪儿按的"
+                // 这一个坐标 —— **不弹菜单**：这一页上右键只有这一件事可做，而悬停提示
+                // （serverAddressCopyHint()）已经把这句话告诉用户了。
                 //
                 // NOTE: 不用 QMenu（更别说 QMenu::exec()）：仓库里那几块浮层一律是
-                //       Qt::Popup 手搭的，理由写在 MainWindowUI.hpp 里 folderMenuName()
-                //       那段（offscreen 上的验证工程驱动不了 exec()）。
+                // Qt::Popup 手搭的，理由写在 MainWindowUI.hpp 里 folderMenuName()
+                // 那段（offscreen 上的验证工程驱动不了 exec()）。
                 m_serverTree->setContextMenuPolicy(Qt::CustomContextMenu);
                 connect(m_serverTree, &QTreeWidget::customContextMenuRequested, this,
                         [this](const QPoint &pos) {
@@ -2006,14 +1905,14 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                             }
                             emit copyServerAddressRequested(address);
                         });
-                // ★ 「编辑」和「加入」靠"选中了哪一行"活着（2026-10-10）：选一下重算一次
-                //   那两颗的灰/亮。别的什么都不做 —— 这一发只跟那两颗按钮有关。
+                // 「编辑」和「加入」靠"选中了哪一行"活着：选一下重算一次
+                // 那两颗的灰/亮。别的什么都不做 —— 这一发只跟那两颗按钮有关。
                 connect(m_serverTree, &QTreeWidget::itemSelectionChanged, this,
                         &InstanceSettingsDialog::updateServerSelectionActions);
                 // 初值：现在一条都没有 ⇒ 那两颗是灰的。setServerList() 每次换表还会再喊一遍。
                 updateServerSelectionActions();
                 layout->addWidget(m_serverTree, 1);
-                // 展开/折叠动画（2026-09-29，规则见 ui/Animations.hpp）。
+                // 展开/折叠动画（，规则见 ui/Animations.hpp）。
                 Anim::animateExpansion(m_serverTree);
 
                 m_serverTree->setToolTip(filesHint(QStringLiteral("server")));
@@ -2030,8 +1929,8 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // 跟着中栏一起没了（见 .hpp 里 pinnedPageKeys() 那一段）。
     //
     // NOTE: 越界保护的理由和设置页那条一样 —— 左栏的条目和堆叠页要是对不上，宁可停在原来
-    //       那页，也不要 setCurrentIndex(-1) 把右栏整片清空（"点一下界面就空了"用户只会
-    //       当成崩了）。
+    // 那页，也不要 setCurrentIndex(-1) 把右栏整片清空（"点一下界面就空了"用户只会
+    // 当成崩了）。
     setupLifecyclePages();
     connect(m_pageList, &QListWidget::currentRowChanged, this,
             [this](int row) { applyEntry(row); });
@@ -2063,7 +1962,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     setChoiceCustom(extraJvmArgsField(), current.extraJvmArgs.has_value());
     m_extraJvmArgsEdit->setText(current.extraJvmArgs.value_or(global.extraJvmArgs));
 
-    // ---------- 窗口模式 / 窗口大小（2026-09-28 加的）----------
+    // ---------- 窗口模式 / 窗口大小（ 加的）----------
     if (m_windowModeCombo != nullptr) {
         // 档位：有覆盖就用覆盖那一档、没有就摆**全局那一档**（那一档这时是禁用的，摆出来的
         // 意义是"你跟随的是这一档"）。认不出来的代号（手改过 meta、或者老版本写的名字）
@@ -2090,9 +1989,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
 
     // 每一行下面那句话要等值灌完才刷（它写的是"当前是什么"）。
     //
-    // NOTE: 2026-09-28 起上面那一串是 `setChoiceCustom()`，它**自己挡着信号**（档位下拉框的
-    //       `currentIndexChanged` 既接 refreshHints 也接写盘那条线，灌值的时候一条都不该
-    //       响）—— 所以这一发是这个函数里**唯一**一次算提示的时机，不是"再刷一遍"。
+    // NOTE: 起上面那一串是 `setChoiceCustom()`，它**自己挡着信号**（档位下拉框的
+    // `currentIndexChanged` 既接 refreshHints 也接写盘那条线，灌值的时候一条都不该
+    // 响）—— 所以这一发是这个函数里**唯一**一次算提示的时机，不是"再刷一遍"。
     refreshHints();
 
     // 图标那一行的初值走 setIcon()（调用方在后头调，见 .hpp 里那段"为什么用 setter"）。
@@ -2102,19 +2001,14 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
 
     // ---------- 「改了就写」那套 ----------
     //
-    // ★ 2026-09-26：**底下那排「取消 / 确定」删了**（用户原话「实例设置里面的那个取消和
-    //   确定删了，修改了的设置实时写入」）。于是这一页只剩两条出口，都由覆盖层那一层管：
-    //   左上角那颗返回箭头 = 关页（`execPage` 的 reject），Esc 同它。没有"提交"这一下，
-    //   也不再有"改了一堆又后悔"—— 改一格就落一格，这是用户点名要的。
-    //
-    // NOTE: 2026-09-27 起有一个例外：**「配置文件」那一格里改过还没保存的时候**，
-    //       `reject()` 会把这一关挡下来先问一句（见那边）。那一格是这一页上唯一一处
-    //       "改动没有实时落盘"的地方（它的「保存」是一颗按钮），所以也只有它需要问。
+    // NOTE: 起有一个例外：**「配置文件」那一格里改过还没保存的时候**，
+    // `reject()` 会把这一关挡下来先问一句（见那边）。那一格是这一页上唯一一处
+    // "改动没有实时落盘"的地方（它的「保存」是一颗按钮），所以也只有它需要问。
     //
     // NOTE: 删掉那排按钮之后，**这个对话框自己不再 accept**（从前那颗「确定」是
-    //       `confirm->setDefault(true)` 的默认按钮）。`execPage` 那边判的是 Accepted /
-    //       Rejected，现在永远是后者 —— 而那正是"这一页关掉了"的意思，它不看返回值
-    //       做什么（见 MainWindow::openInstanceSettings() 收尾那一段）。
+    // `confirm->setDefault(true)` 的默认按钮）。`execPage` 那边判的是 Accepted /
+    // Rejected，现在永远是后者 —— 而那正是"这一页关掉了"的意思，它不看返回值
+    // 做什么（见 MainWindow::openInstanceSettings() 收尾那一段）。
     watchEditors();
     // 左栏那一列灌第一遍（内容和第一页都归它管）。**排在 watchEditors() 之后**：它会在
     // 那一列上挑一条（程序化 setCurrentRow()），接上接线之后才走"选中 → 换页"那条正常路。
@@ -2176,35 +2070,31 @@ void InstanceSettingsDialog::dropEvent(QDropEvent *event) {
     }
     event->acceptProposedAction();
     // 判断与落盘全在 MainWindow（见 .hpp）。NOTE: 这里**不能**顺手把事件也交给基类 ——
-    //       交出去之后父链上再有人接一发，同一个文件会被装两遍。
+    // 交出去之后父链上再有人接一发，同一个文件会被装两遍。
     emit filesDropped(paths);
 }
 
 void InstanceSettingsDialog::reject() {
-    // ★ 走这条路的**不是**编辑器自己那颗「返回」（那颗发 backRequested()、由 MainWindow
-    //   接到 leaveConfigEditor() 上），而是**覆盖层页眉那颗返回箭头** —— 它接的是
-    //   `dialog->reject()`（见 OverlayHost::execPage 里那段），点一下关掉的是**整个
-    //   「实例设置」**。而那一格里可能正压着改了一半的东西。
+    // 走这条路的**不是**编辑器自己那颗「返回」（那颗发 backRequested()、由 MainWindow
+    // 接到 leaveConfigEditor() 上），而是**覆盖层页眉那颗返回箭头** —— 它接的是
+    // `dialog->reject()`（见 OverlayHost::execPage 里那段），点一下关掉的是**整个
+    // 「实例设置」**。而那一格里可能正压着改了一半的东西。
     //
-    //   这一层没有覆盖层、弹不出"要丢掉吗"那一句，所以只能**先挡住这一关**、把这一发交
-    //   出去（见 .hpp 里 reject() 那一段）。接的人问完，用户答"丢掉"之后拿
-    //   `done(QDialog::Rejected)` 关 —— 绕开这儿，不然又回到"问一句、再问一句"。
+    // 这一层没有覆盖层、弹不出"要丢掉吗"那一句，所以只能**先挡住这一关**、把这一发交
+    // 出去（见 .hpp 里 reject() 那一段）。接的人问完，用户答"丢掉"之后拿
+    // `done(QDialog::Rejected)` 关 —— 绕开这儿，不然又回到"问一句、再问一句"。
     if (m_configEditor != nullptr && m_configEditor->isDirty()) {
         emit closeBlockedByUnsavedConfigFile();
         return;
     }
-    // ★ 2026-09-28 起有了第二个例外：「世界设置」那一页。那一条的判据在页自己身上
-    //   （`WorldSettingsPage::isDirty()`）—— 这一层不去读盘，"改过没有"拿着页自己的
-    //   台账对一下就有答案（见那个函数的 NOTE）。
-    //
     // NOTE: 两条**分开问、不合并**：两格里同时压着东西的情况不存在（这两格各占一个
-    //       QStackedWidget，同一时刻只可能露出其中一格），而合并成一句只会让"丢掉的是
-    //       哪一份"变得说不清。
+    // QStackedWidget，同一时刻只可能露出其中一格），而合并成一句只会让"丢掉的是
+    // 哪一份"变得说不清。
     //
-    // ★ 2026-09-29：这两条判据挪进了 `leaveBlockedByUnsavedEdits()`，只因为**还有第二个
-    //   人要在做同一件事之前先问一句**（拖进来一个整合包 ⇒ 程序自己发起的那次关页，
-    //   见 MainWindow）。两处各写一遍"哪两条算脏"迟早会分岔。这里只把"是哪一格脏"翻成
-    //   两条不同的信号 —— 那件事仍然只有这一处知道。
+    // 这两条判据挪进了 `leaveBlockedByUnsavedEdits()`，只因为**还有第二个
+    // 人要在做同一件事之前先问一句**（拖进来一个整合包 ⇒ 程序自己发起的那次关页，
+    // 见 MainWindow）。两处各写一遍"哪两条算脏"迟早会分岔。这里只把"是哪一格脏"翻成
+    // 两条不同的信号 —— 那件事仍然只有这一处知道。
     if (m_configEditor != nullptr && m_configEditor->isDirty()) {
         emit closeBlockedByUnsavedConfigFile();
         return;
@@ -2256,13 +2146,9 @@ QWidget *InstanceSettingsDialog::addPage(const QString &key) {
     // **一页一层滚动区**（不是整页套一层）—— 和设置页的 addSettingsPanel() 同一套写法、
     // 同一条理由（见 MainWindowUI.cpp 里那段）。
     //
-    // ★ 2026-09-26 用户报的 bug 就是"反过来"那一版：整页（含左栏那两条导航列）被
-    //   OverlayHost 那一层 pageScroll 包着，右栏内容一高，滚轮滚的是**整页** —— 左栏
-    //   那两条跟着滚走了，而它们是这个页面的导航。滚轮落在哪一栏就滚哪一栏才是对的。
-    //
     // NOTE: 页面自己是 `scroll->widget()`（objectName 还是 panelName(key)）—— 堆叠页里
-    //       加进去的仍然是**一页一个控件**，所以那些按 index 认页的代码（filePageFirstIndex()
-    //       那套）一位都不动。验证工程按 panelName() 找回来的也还是那一页。
+    // 加进去的仍然是**一页一个控件**，所以那些按 index 认页的代码（filePageFirstIndex()
+    // 那套）一位都不动。验证工程按 panelName() 找回来的也还是那一页。
     auto *scroll = new Theme::GutterScrollArea(m_stack);
     scroll->setObjectName(scrollName(key));
     scroll->setWidgetResizable(true);
@@ -2298,25 +2184,25 @@ QGridLayout *InstanceSettingsDialog::addForm(const QString &key, QWidget *page) 
 }
 
 int InstanceSettingsDialog::navListWidth(const QListWidget *list) {
-    // ★ 这一列的宽度**不随"现在显示着哪几页"变**（2026-10-11 改）。原来的算法只看表里
-    //   **这一刻**有的那几条 ⇒ 用户在「高级选项」里勾掉「结构/原理图」（左栏里最宽的那一条）
-    //   之后，这一列当场窄掉十来像素、**右栏整幅跟着横着跳一下**；同一个对话框在两个实例上
-    //   开出来也可以不一样宽（"用不上的那一页"本身就不在表里）。宽度是这一页的**骨架**，
-    //   骨架不该跟着内容晃。现在把"这一页随时可能变出来的那几条"也算进来（钉死的那两条 +
-    //   `optionalPageKeys()` 那七条，与这一刻勾没勾、可不可用都无关），于是**同一个对话框
-    //   永远是同一个宽度**，而且只会比以前宽、绝不会窄（多出来那几条里就有最宽的那一条）。
+    // 这一列的宽度**不随"现在显示着哪几页"变**（ 改）。原来的算法只看表里
+    // **这一刻**有的那几条 ⇒ 用户在「高级选项」里勾掉「结构/原理图」（左栏里最宽的那一条）
+    // 之后，这一列当场窄掉十来像素、**右栏整幅跟着横着跳一下**；同一个对话框在两个实例上
+    // 开出来也可以不一样宽（"用不上的那一页"本身就不在表里）。宽度是这一页的**骨架**，
+    // 骨架不该跟着内容晃。现在把"这一页随时可能变出来的那几条"也算进来（钉死的那两条 +
+    // `optionalPageKeys()` 那七条，与这一刻勾没勾、可不可用都无关），于是**同一个对话框
+    // 永远是同一个宽度**，而且只会比以前宽、绝不会窄（多出来那几条里就有最宽的那一条）。
     //
     // NOTE: 这一列里"装饰"占掉的那一块（样式给条目的边距）由表自己量出来，再用同一个数去
-    //       估不在表里的那几条 —— 别写死一个像素数，换字体/换样式就不是那个数了。
-    // ★★ 2026-10-14：这里的字度量必须和**代理量行宽时用的那个字体**一致。
-    //   左边这一列用的是 `VersionTreeDelegate`，它给**顶层条目**（这一列全是顶层）换的是
-    //   **粗体**（见 `VersionTreeDelegate::sizeHint` 那句 `if (!index.parent().isValid())`）。
-    //   原来这里拿列表自己的（非粗体）字体去量文字，于是
-    //   `decoration = sizeHintForColumn − 最宽那条的文字宽` 里混进了「粗体比普通体宽出来的
-    //   那一点」；而"最宽的那一条"在粗体下和在普通体下**可能不是同一条** ⇒ 勾掉几页之后
-    //   decoration 差个把像素、右栏跟着横着抖 1 px（真 windows 字体下量到过 `140 → 139`，
-    //   offscreen 的桩字体里那两条恰好一样宽、所以量不出来）。两边都在粗体下标量之后，
-    //   差值就剩下一圈**纯粹的样式装饰**（常数），这一列的宽度只由"一共有哪些页"决定。
+    // 估不在表里的那几条 —— 别写死一个像素数，换字体/换样式就不是那个数了。
+    // 这里的字度量必须和**代理量行宽时用的那个字体**一致。
+    // 左边这一列用的是 `VersionTreeDelegate`，它给**顶层条目**（这一列全是顶层）换的是
+    // **粗体**（见 `VersionTreeDelegate::sizeHint` 那句 `if (!index.parent().isValid())`）。
+    // 原来这里拿列表自己的（非粗体）字体去量文字，于是
+    // `decoration = sizeHintForColumn − 最宽那条的文字宽` 里混进了「粗体比普通体宽出来的
+    // 那一点」；而"最宽的那一条"在粗体下和在普通体下**可能不是同一条** ⇒ 勾掉几页之后
+    // decoration 差个把像素、右栏跟着横着抖 1 px（真 windows 字体下量到过 `140 → 139`，
+    // offscreen 的桩字体里那两条恰好一样宽、所以量不出来）。两边都在粗体下标量之后，
+    // 差值就剩下一圈**纯粹的样式装饰**（常数），这一列的宽度只由"一共有哪些页"决定。
     QFont rowFont = list->font();
     rowFont.setBold(true);
     const QFontMetrics fm(rowFont);
@@ -2368,8 +2254,8 @@ QStringList InstanceSettingsDialog::shownEntryKeys() const {
 }
 
 QJsonObject InstanceSettingsDialog::pageChoices() const {
-    // ★ 存下来的**只可能是 false**（见 .hpp 里那一段）：勾选框只在那一页可用时能勾，而
-    //   不可用就没得选 —— 所以这一格是"藏起来的那几页"的名单，不是一份对称的选择表。
+    // 存下来的**只可能是 false**（见 .hpp 里那一段）：勾选框只在那一页可用时能勾，而
+    // 不可用就没得选 —— 所以这一格是"藏起来的那几页"的名单，不是一份对称的选择表。
     QJsonObject out = m_pageOverrides;
     for (const QString &key : optionalPageKeys()) {
         // 每条先按"这一刻的样子"重算一遍：可用但没勾 ⇒ 记 false；其余（可用且勾着、
@@ -2392,14 +2278,6 @@ void InstanceSettingsDialog::setPageChoices(const QJsonObject &stored) {
         }
     }
     rebuildEntryList();
-    // ★ 2026-10-18：签名基线要**跟着这一刻重记**。
-    //   构造末尾那一发布线（见构造函数里 `m_lastSignature = valueSignature()`）的时候，
-    //   盘上那份 `settingsPages` 还没灌进来 —— 它由 controller 在构造**之后**才调本函数。
-    //   于是：勾掉「存档」写盘 → 重开这一页（框是没勾的，可基线还是"七条全勾"）→ 用户
-    //   把它勾回来，拼出来的签名和构造时那份**逐字相同**，`notifyEdited()` 当成"没改过"、
-    //   一个字都不写盘 —— 用户眼前勾回来了，重开还是不见，而且没有任何错话可看。
-    //   这里重记不是"吞掉一次写"：此刻盘上那份就是这一份状态；用户之后再动任何一格，
-    //   签名都会真的变（勾选框那一路走的是 `clicked`，不是 `setChecked()`）。
     m_lastSignature = valueSignature();
 }
 
@@ -2424,11 +2302,7 @@ void InstanceSettingsDialog::applyPageKey(const QString &key) {
     const bool alreadyHere = m_stack->currentIndex() == index;
     m_stack->setCurrentIndex(index);
     refreshLifecycleFiles(key);
-    // ★ 2026-10-18（§9.5）：进「启动诊断」那一页就自动跑一遍（用户点进来要的是"现在
-    //   怎么样"，不是一句"按一下检查"）。重进/改名之后再进也重算。
     if (key == QStringLiteral("diagnosis")) emit diagnosisRequested();
-    // ★ 2026-10-18（§9.9）：进「迁移」/「升级」那一页也重算一遍计划。用户可能在这一页停
-    //   着的时候往盘上加了文件（或反过来），而这两页的"搬多少"就是按盘上现算的。
     if (key == QStringLiteral("migration") || key == QStringLiteral("upgrade")) {
         const QString targetId = transferTarget(key);
         if (!targetId.isEmpty()) emit transferTargetChosen(key, targetId);
@@ -2466,11 +2340,11 @@ void InstanceSettingsDialog::applyPageKey(const QString &key) {
     if (InstanceFilesPage *page = m_filesPages.value(key)) {
         page->refresh();
     }
-    // 「点进去就自动测速」（用户 2026-09-27 原话）。**排在 refresh() 之后**：这一页刚露出来
+    // 「点进去就自动测速」（要求）。**排在 refresh() 之后**：这一页刚露出来
     // 时先有那张表（表里那几行是这一页本来就有的东西），再谈"连上去问一遍"。
     //
     // NOTE: 这一发走的是**键**不是行号 ⇒ 左栏那一列怎么变（勾掉一条、可用性变了）都不影响
-    //       它：只要有人摆到「服务器列表」那一页上，它就该发。
+    // 它：只要有人摆到「服务器列表」那一页上，它就该发。
     if (key == serverPageKey() && !alreadyHere) {
         emit serverPageEntered();
     }
@@ -2510,9 +2384,9 @@ void InstanceSettingsDialog::rebuildEntryList() {
                 item->setData(Qt::UserRole, key);
             }
         }
-        // ★ 尺寸**每次都重算** —— 这一列的内容是会变的（勾掉一条就少一格），照抄构造时
-        //   那份宽高会留下"标签被裁掉"或者"右边空一大截"。行高**交给样式算**
-        //   （sizeHintForRow），别写死数字：换字体/换样式就错。和设置页那一列同一条规矩。
+        // 尺寸**每次都重算** —— 这一列的内容是会变的（勾掉一条就少一格），照抄构造时
+        // 那份宽高会留下"标签被裁掉"或者"右边空一大截"。行高**交给样式算**
+        // （sizeHintForRow），别写死数字：换字体/换样式就错。和设置页那一列同一条规矩。
         // 导航随可用高度滚动，分组再多也不能把底部启动按钮挤出窗口。
         m_pageList->setMinimumHeight(0);
         m_pageList->setMaximumHeight(QWIDGETSIZE_MAX);
@@ -2530,11 +2404,11 @@ void InstanceSettingsDialog::rebuildEntryList() {
     refreshPageChecks();
 
     // 选中那一发要么没发（行号本来就对）、要么压根没有那一条，所以这儿补一次：
-    //   · 当前那一页还在表里 ⇒ 按它换一次页（和自己点了那一条是同一条路）；
-    //   · 当前是「配置文件」⇒ **什么都不做**：它本来就是一个没有条目的页（用户 2026-09-27
-    //     说收起来），重建（比如可用性变了一下）不该把用户从那一页上赶走；
-    //   · 其余（那一页被勾掉 / 变不可用了）⇒ 回概览：右栏摆着一页、左栏里却没有它，
-    //     是最容易让人以为"点坏了"的一种状态。
+    // · 当前那一页还在表里 ⇒ 按它换一次页（和自己点了那一条是同一条路）；
+    // · 当前是「配置文件」⇒ **什么都不做**：它本来就是一个没有条目的页（用户
+    // 说收起来），重建（比如可用性变了一下）不该把用户从那一页上赶走；
+    // · 其余（那一页被勾掉 / 变不可用了）⇒ 回概览：右栏摆着一页、左栏里却没有它，
+    // 是最容易让人以为"点坏了"的一种状态。
     if (keys.contains(currentKey)) {
         applyPageKey(currentKey);
     } else if (currentKey == configPageKey() || lifecyclePageKeys().contains(currentKey)) {
@@ -2556,37 +2430,30 @@ void InstanceSettingsDialog::rebuildEntryList() {
 bool InstanceSettingsDialog::eventFilter(QObject *watched, QEvent *event) {
     // ---- 左栏那一列不许因为"拿到焦点"就自己挑一条 ----
     //
-    // ★ 这是 Qt 的一个**兜底行为**，不是我们写的：`QAbstractItemView::focusInEvent()` 里
-    //   有这么一段（6.10.1 的 qabstractitemview.cpp）——
+    // 这是 Qt 的一个**兜底行为**，不是我们写的：`QAbstractItemView::focusInEvent()` 里
+    // 有这么一段（6.10.1 的 qabstractitemview.cpp）——
     //
-    //       if (model && !d->currentIndexSet && !currentIndexValid) {
-    //           QModelIndex index = moveCursor(MoveNext, ...);   // 第一条
-    //           if (index.isValid() && ... && event->reason() != Qt::MouseFocusReason)
-    //               selectionModel()->setCurrentIndex(index, NoUpdate);
-    //       }
+    // if (model && !d->currentIndexSet && !currentIndexValid) {
+    // QModelIndex index = moveCursor(MoveNext, ...); // 第一条
+    // if (index.isValid() && ... && event->reason() != Qt::MouseFocusReason)
+    // selectionModel()->setCurrentIndex(index, NoUpdate);
+    // }
     //
-    //   也就是"**视图拿到焦点、而当前条目是无效的** ⇒ 替你选中第一条"。落到这一页上：
-    //   「配置文件」是一个**没有左栏条目**的页（见 configPageKey()），摆到它上面时左栏
-    //   选中的就是 -1；接下来用户按一下 Tab 进来、或者窗口重新激活（`ActiveWindowFocusReason`
-    //   —— 开关一次别的窗口回来就会走到），Qt 就把选中挑到第 0 条上，而这一列那一下
-    //   **是翻页**（`currentRowChanged` → applyEntry() → applyPageKey()）⇒ 右栏摆着配置文件，
-    //   左栏自己跳回了概览。**没有用户意图的一次翻页**，正是这一整页最没道理的一种错。
+    // 也就是"**视图拿到焦点、而当前条目是无效的** ⇒ 替你选中第一条"。落到这一页上：
+    // 「配置文件」是一个**没有左栏条目**的页（见 configPageKey()），摆到它上面时左栏
+    // 选中的就是 -1；接下来用户按一下 Tab 进来、或者窗口重新激活（`ActiveWindowFocusReason`
+    // —— 开关一次别的窗口回来就会走到），Qt 就把选中挑到第 0 条上，而这一列那一下
+    // **是翻页**（`currentRowChanged` → applyEntry() → applyPageKey()）⇒ 右栏摆着配置文件，
+    // 左栏自己跳回了概览。**没有用户意图的一次翻页**，正是这一整页最没道理的一种错。
     //
-    //   鼠标点出来的焦点不在其列（上面那句 `reason() != Qt::MouseFocusReason` 挡着），
-    //   所以只有键盘 / 窗口激活这条路会撞上 —— 而它照样是用户会走的路。
+    // 鼠标点出来的焦点不在其列（上面那句 `reason() != Qt::MouseFocusReason` 挡着），
+    // 所以只有键盘 / 窗口激活这条路会撞上 —— 而它照样是用户会走的路。
     //
     // NOTE: 吃掉这一发只是"不让它自己挑"，**焦点照旧落在它身上**（焦点是 Qt 在发这个事件
-    //       之前就设好的）。按一下方向键时 `QListView::moveCursor()` 对"当前条目无效"本来
-    //       就有兜底（回第一条），所以键盘一样能走，只是"没碰过它之前什么都不高亮"。
-    //       判据带上 `!currentIndex().isValid()`：当前条目有效时 focusInEvent() 什么都不会做，
-    //       那种时候这一发没有吃掉的道理。
-    //
-    // ★ 2026-10-16：守的是**两件**控件。界面导航从 `m_pageList`（那一列现在已经
-    //   `hide()`，焦点根本轮不到它）搬到了 `m_navigationTree` 上，而那个兜底属于
-    //   `QAbstractItemView` —— 树上一条不少。这一发是**逐控件**的（`watched ==`），
-    //   所以"搬了导航忘了搬这一发"的后果就是：用户在「配置文件」那一页按一下 Tab，
-    //   右栏当场被顶回概览 —— 一次没有用户意图的翻页。旧那一列留着不花任何代价
-    //   （它已不可见），将来谁把它放回来也不会一下子踩空。
+    // 之前就设好的）。按一下方向键时 `QListView::moveCursor()` 对"当前条目无效"本来
+    // 就有兜底（回第一条），所以键盘一样能走，只是"没碰过它之前什么都不高亮"。
+    // 判据带上 `!currentIndex().isValid()`：当前条目有效时 focusInEvent() 什么都不会做，
+    // 那种时候这一发没有吃掉的道理。
     const auto autoPickPending = [](const QAbstractItemView *view) {
         return view != nullptr && !view->currentIndex().isValid();
     };
@@ -2608,9 +2475,9 @@ void InstanceSettingsDialog::refreshPageChecks() {
             continue;
         }
         const bool available = m_pageAvailable.value(key, true);
-        // ★ 不可用的那一条**不勾且勾不上**（用户原话：「保持对应选项不可勾选的状态」），
-        //   原因走 tooltip（「悬停文本解释」）。灰着而不是藏起来：用户得看得见"有这么
-        //   一页、这个实例上用不上、为什么"。
+        // 不可用的那一条**不勾且勾不上**（要求：「保持对应选项不可勾选的状态」），
+        // 原因走 tooltip（「悬停文本解释」）。灰着而不是藏起来：用户得看得见"有这么
+        // 一页、这个实例上用不上、为什么"。
         const QSignalBlocker checkBlocker(check);
         check->setChecked(available && m_pageOverrides.value(key).toBool(true));
         check->setEnabled(available);
@@ -2621,12 +2488,6 @@ void InstanceSettingsDialog::refreshPageChecks() {
 // ---------- 文件管理那八页（见 .hpp 里 filePageKeys() 上面那一段）----------
 
 QStringList InstanceSettingsDialog::shortcutTexts() {
-    // ★★ 2026-10-18：十三颗 → **五颗**。用户原话：「实例设置 概览里面 快捷入口重复了」。
-    //   原来那一排里的 存档 / 截图 / 模组 / 资源包 / 数据包 / 光影包 / 结构/原理图 / 录像
-    //   这八颗，和紧贴着它下面的「显示哪些页」那几格、以及左栏那一列里的同名页**说的
-    //   是同一件事**（"去那一页"）—— 同一串名字在一屏里出现两遍。
-    //   现在只留**左栏那一列里没有入口**的那五路目录（版本目录 / 日志 / 游戏目录 /
-    //   崩溃报告 / 配置）。**以后要加一条，先问左栏有没有对应的一页：有就别加。**
     return {tr("版本目录"), tr("日志"), tr("游戏目录"), tr("崩溃报告"), tr("配置")};
 }
 
@@ -2671,17 +2532,17 @@ void InstanceSettingsDialog::toggleMoreShortcuts() {
     m_shortcutMoreExpanded = !m_shortcutMoreExpanded;
     relayoutShortcuts();
     // NOTE: **不发 settingsEdited()** —— 展开/收起只动这一页的摆法，一个字节都不进 wtfml.meta。
-    //       发了的话，点一下「更多目录…」就等于把"实例设置改过"的账记上，关页时还会弹那道
-    //       "要保存吗"—— 而那里根本没有东西要保存。
+    // 发了的话，点一下「更多目录…」就等于把"实例设置改过"的账记上，关页时还会弹那道
+    // "要保存吗"—— 而那里根本没有东西要保存。
 }
 
 /// 摆法那一份唯一出处（两段：外面 + 「更多目录」+ 收着的）。**建完按钮、以及每一次
 /// present / 展开态变了之后**都走它。
 ///
 /// NOTE: 收着的那些**照样在网格里**（只是 `setVisible(false)`），不是摘出去 —— 它们的次序
-///       在表里，也就是**永远排在最后那一段**（缺的键按表序补在外面的后面）。于是收起来
-///       的时候网格里看不见的那几格全在尾巴上，前面几行不会出现空洞。哪天这张表的缺项
-///       不再是"一段尾巴"（比如中间空一个），这一条就不成立了。
+/// 在表里，也就是**永远排在最后那一段**（缺的键按表序补在外面的后面）。于是收起来
+/// 的时候网格里看不见的那几格全在尾巴上，前面几行不会出现空洞。哪天这张表的缺项
+/// 不再是"一段尾巴"（比如中间空一个），这一条就不成立了。
 void InstanceSettingsDialog::relayoutShortcuts() {
     if (m_shortcutGrid == nullptr) {
         return;
@@ -2746,31 +2607,12 @@ void InstanceSettingsDialog::relayoutShortcuts() {
 }
 
 QString InstanceSettingsDialog::filesHint(const QString &key) {
-    // ★★ 2026-10-10：**模组 / 资源包 / 数据包 / 光影包四页那几条分支已经删掉了**。
-    //   用户原话：「把这个页面下方那段叙述删了来让框拉到底充分利用空间」—— 那四页
-    //   （＝开着批量管理的那四页，判据 `filesNameOpensResource()`）**压根不建那个 QLabel**
-    //   （见构造里建 hint 那一处），于是这几条分支再没有人调得到，留着就是**第二份真相**：
-    //   哪天有人照着它们改字，改的是一个屏幕上不存在的东西。
-    //   连 `filesDetailHint()`（那句"行尾那颗 ⓘ …按住 Ctrl 能多选"）也一起没了 ——
-    //   ★ 顺带说一句：那句话在 2026-10-10 这一天**本来就过期了**（多选换成了
-    //   `MultiSelection`，"按住 Ctrl"已经不是加选的办法），删得正是时候。
-    //   剩下这几页的小字照旧，一条没动。
     if (key == QStringLiteral("shortcut")) {
-        // ★ 2026-10-18：跟着去重一起改的。原来那句在解释"模组 / 资源包 / 光影包…都在左边
-        //   那一列里对应的那几页"—— 而它底下当时正好也摆着那几颗同名按钮，等于把"重复"
-        //   写在了脸上。现在这一排只开**左栏没有入口的那几路目录**。
         return tr("这几颗只是把文件夹打开 —— 版本目录、日志、游戏目录、崩溃报告、配置，"
                   "这几样左栏里没有单独的入口。模组 / 资源包 / 光影包…那些都在左栏对应的"
                   "那几页里，不在这儿重复摆一遍。下面那几格决定左栏那几页露不露出来。");
     }
     if (key == QStringLiteral("schematic")) {
-        // ★ 2026-10-10：这一页改名叫「结构/原理图」了（用户原话「那个原理图那个改成
-        //   结构/原理图（我记得这两个应该是类似的保存格式？）」），而**"结构"那半边当天
-        //   也做上了**：顶上那两排下拉框（上面「存档」、下面「投影」）就是在说这一页
-        //   同时列哪两个来源 —— 结构方块存的那些 `.nbt` **跟着存档走**，投影的那些
-        //   `.litematic` 在这个实例自己的文件夹里（见 InstanceFilesPage::
-        //   setStructureSources()）。这句话得把这两样都说到：只提投影的话，用户看见
-        //   上面多出来一排「存档」会以为是自己哪儿点错了。
         return tr("这里两样东西都在：结构方块存下来的（跟着存档走，上面那排挑是哪一个存档）"
                   "和投影模组读的（在这个实例自己的文件夹里）。两样都是压缩过的 NBT，"
                   "改坏了游戏读不出来 —— 这一页只列给你看，不动它们。");
@@ -2788,13 +2630,13 @@ QString InstanceSettingsDialog::filesHint(const QString &key) {
                   "文件夹里删。");
     }
     if (key == QStringLiteral("server")) {
-        // ★★ 2026-10-10：这段话重写过两次。
-        //   2026-09-27 起这一页不只是那份文件的一面镜子（图标 / MOTD / 延迟都是**刚问来的**）；
-        //   2026-10-10 起它也不只是"只看"了 —— 加 / 改名 / 改地址 / 删都会**写回
-        //   servers.dat**（用户原话「编辑要能改名字改地址以及删除，服务器那个页面里放一个
-        //   添加服务器的按钮，允许添加」）。
-        //   所以原来那句「启动器只读不改」现在是**错的**，必须说清"哪几颗会动盘"：
-        //   「刷新」只重读 + 重问，一个字都不写；四颗真正写盘的都在下面点名。
+        // 这段话重写过两次。
+        // 起这一页不只是那份文件的一面镜子（图标 / MOTD / 延迟都是**刚问来的**）；
+        // 起它也不只是"只看"了 —— 加 / 改名 / 改地址 / 删都会**写回
+        // servers.dat**（要求「编辑要能改名字改地址以及删除，服务器那个页面里放一个
+        // 添加服务器的按钮，允许添加」）。
+        // 所以原来那句「启动器只读不改」现在是**错的**，必须说清"哪几颗会动盘"：
+        // 「刷新」只重读 + 重问，一个字都不写；四颗真正写盘的都在下面点名。
         return tr("这里就是游戏自己的服务器列表（servers.dat），启动器现在能改它了："
                   "「编辑」改这一台的名字和地址，「添加」多一台，「删除」拿掉一台。"
                   "改的只有名字和地址这两样，图标、隐藏之类的设置原样留着。"
@@ -2856,9 +2698,9 @@ QString InstanceSettingsDialog::datapackUnavailableText() {
 }
 
 QString InstanceSettingsDialog::filesDownloadText(const QString &key) {
-    // ★ 「光影包」那一页上写的是「下载新光影」（用户原话就是这么说的）—— 这四个字要和
-    //   **落地那一栏**对得上：下载页左栏那一栏叫「光影」（MainWindowUI::downloadCategoryTexts()），
-    //   而实例设置左边那一列里这一页仍旧叫「光影包」。
+    // 「光影包」那一页上写的是「下载新光影」（要求就是这么说的）—— 这四个字要和
+    // **落地那一栏**对得上：下载页左栏那一栏叫「光影」（MainWindowUI::downloadCategoryTexts()），
+    // 而实例设置左边那一列里这一页仍旧叫「光影包」。
     if (key == QStringLiteral("mod")) {
         return tr("下载新模组");
     }
@@ -2899,17 +2741,17 @@ QString InstanceSettingsDialog::filesDownloadCategoryKey(const QString &key) {
 }
 
 bool InstanceSettingsDialog::filesNameOpensResource(const QString &key) {
-    // ★ 用户原话（2026-09-27）：「除了模组以外的几个都是点击模组名称自动进入下载界面
-    //   （前提是匹配上了，**模组的待会再说**）」—— "待会"就是这一天到了：模组**接上**
-    //   （用户：「对于模组，点进去和资源包差不多，但是右上角显示快照版那里替换为模组设置
-    //   （先占位）」）。名字点开和资源包三页走的是**同一条路**，唯一的分别落在那一页右上角
-    //   那一格上（`MainWindow::DetailSource::InstanceFiles` + 种类是模组 ⇒ 摆「模组设置」，
-    //   见 ResourceDetailPage::setModSettingsSlot）。
+    // 要求：「除了模组以外的几个都是点击模组名称自动进入下载界面
+    // （前提是匹配上了，**模组的待会再说**）」—— "待会"就是这一天到了：模组**接上**
+    // （用户：「对于模组，点进去和资源包差不多，但是右上角显示快照版那里替换为模组设置
+    // （先占位）」）。名字点开和资源包三页走的是**同一条路**，唯一的分别落在那一页右上角
+    // 那一格上（`MainWindow::DetailSource::InstanceFiles` + 种类是模组 ⇒ 摆「模组设置」，
+    // 见 ResourceDetailPage::setModSettingsSlot）。
     //
-    //   要接别的页时改的只有这一处（setFileResource() 那个循环和构造里那条 connect 都读它）。
+    // 要接别的页时改的只有这一处（setFileResource() 那个循环和构造里那条 connect 都读它）。
     //
     // NOTE: 原理图 / 存档 / 配置文件不在：前两个在下载页里没有"它自己的那一页"可去
-    //       （原理图压根没有那一栏、存档不是一个能下载的资源），配置文件不是资源。
+    // （原理图压根没有那一栏、存档不是一个能下载的资源），配置文件不是资源。
     return key == QStringLiteral("mod") || key == QStringLiteral("resourcepack") ||
            key == QStringLiteral("datapack") || key == QStringLiteral("shader");
 }
@@ -2924,15 +2766,15 @@ QString InstanceSettingsDialog::filesResourceTip(const QString &title) {
     return tr("打开「%1」的下载页（这一页会关掉）。").arg(title);
 }
 
-// ★★ `filesDetailHint()` 2026-10-10 **已删**（原来在这儿，是模组 / 资源包 / 数据包三页小字
-//    末尾那一句"行尾那颗 ⓘ 能进它自己的那一页…按住 Ctrl 能多选，Ctrl+A 全选"）。
-//    删它的直接原因：那几页底下那段叙述整个不挂了（用户："把这个页面下方那段叙述删了来让
-//    框拉到底充分利用空间"），没有第二个调用者。
-//    ★ **它在删之前就已经是一句错话了**，这才值得记一笔：`Ctrl` 那一天还是加选的办法，
-//    而 2026-10-10 同一天多选换成了 `MultiSelection`（点一下切换，一个修饰键都不用）——
-//    留着它的话，用户照着「按住 Ctrl」去按，得到的是"这一条翻了个面"（`Toggle` 不看修饰键），
-//    也就是 `wtfml-comment-vs-code` 那个老毛病再来一次：**字面声称的那一侧就是洞**。
-//    要再挂说明的文字，写的时候**照着 `setBatchMode()` 里那段**写，别照抄记忆里的版本。
+// `filesDetailHint()` **已删**（原来在这儿，是模组 / 资源包 / 数据包三页小字
+// 末尾那一句"行尾那颗 ⓘ 能进它自己的那一页…按住 Ctrl 能多选，Ctrl+A 全选"）。
+// 删它的直接原因：那几页底下那段叙述整个不挂了（用户："把这个页面下方那段叙述删了来让
+// 框拉到底充分利用空间"），没有第二个调用者。
+// **它在删之前就已经是一句错话了**，这才值得记一笔：`Ctrl` 那一天还是加选的办法，
+// 而 同一天多选换成了 `MultiSelection`（点一下切换，一个修饰键都不用）——
+// 留着它的话，用户照着「按住 Ctrl」去按，得到的是"这一条翻了个面"（`Toggle` 不看修饰键），
+// 也就是 `wtfml-comment-vs-code` 那个老毛病再来一次：**字面声称的那一侧就是洞**。
+// 要再挂说明的文字，写的时候**照着 `setBatchMode()` 里那段**写，别照抄记忆里的版本。
 
 QString InstanceSettingsDialog::pageUnavailableText(const QString &key) {
     // **唯一分发处**：页里那句「用不上」和勾选表的悬停提示都走它。
@@ -2963,9 +2805,9 @@ void InstanceSettingsDialog::setInstanceDir(const QString &dir) {
 
 void InstanceSettingsDialog::setFileDirs(const QHash<QString, QString> &dirs) {
     m_fileDirs = dirs;
-    // ★ `config/` 的根**在这儿**认下来（不是在构造函数里）—— 那会儿这一份还没灌进来，
-    //   抓到的永远是空串，"不许越过 config/"那道墙就形同虚设了（见 .hpp 里 m_configRoot
-    //   那一 NOTE）。
+    // `config/` 的根**在这儿**认下来（不是在构造函数里）—— 那会儿这一份还没灌进来，
+    // 抓到的永远是空串，"不许越过 config/"那道墙就形同虚设了（见 .hpp 里 m_configRoot
+    // 那一 NOTE）。
     m_configRoot = m_fileDirs.value(QStringLiteral("config"));
     // 六页在构造函数里就搭好了，那会儿还不知道目录在哪儿（这一份是构造之后才灌的）——
     // 所以灌完必须让它们各列一遍，否则每一页都停在"这个文件夹还是空的"上。
@@ -2995,8 +2837,8 @@ void InstanceSettingsDialog::setConfigBackupAvailable(bool available) {
         return;
     }
     // NOTE: 顺序要紧 —— `setFile()` 会把这一位清成 false（换了一份文件，上一条答案不作数），
-    //       所以这一句必须**排在 openConfigEditor() 之后**。反过来的话，用户看到的是一颗
-    //       永远画不出来的「还原上一次」。
+    // 所以这一句必须**排在 openConfigEditor() 之后**。反过来的话，用户看到的是一颗
+    // 永远画不出来的「还原上一次」。
     m_configEditor->setBackupAvailable(available);
 }
 
@@ -3043,7 +2885,7 @@ void InstanceSettingsDialog::closeConfigEditor() {
     // 重列一次最省事，也一定不会显示一份旧的清单。
     //
     // NOTE: 走的是 `refresh()` 而**不是** `setDirectory()` —— 后者会回到根，而用户可能是从
-    //       `config/ftbquests/` 底下点开一个文件的，返回时该还停在那儿。
+    // `config/ftbquests/` 底下点开一个文件的，返回时该还停在那儿。
     if (InstanceFilesPage *files = m_filesPages.value(QStringLiteral("config"))) {
         files->refresh();
     }
@@ -3199,7 +3041,7 @@ void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> 
         // 编的一句话，「编辑」那颗要预填的是文件里原本那一串（见 MainWindowUI::serverNameRole()）。
         item->setData(0, MainWindowUI::serverNameRole(), server.first);
         // 地址那一栏写**遮过的**（`m-.h-.c-`），完整的那一串只在悬停时给（见
-        // maskedServerAddress 那段）。左边那两行 MOTD 因此能多占一大截宽度 —— 用户原话
+        // maskedServerAddress 那段）。左边那两行 MOTD 因此能多占一大截宽度 —— 要求
         // 「保证左侧的 motd 能显示全」。
         item->setText(1, maskedServerAddress(server.second));
         // 那一串**完整的**地址挂在这一格上：屏幕上写的是遮过的，而右键要复制的是真的那一串
@@ -3220,20 +3062,20 @@ void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> 
         // 走 `Qt::SizeHintRole`（也就是 setSizeHint 这一句）交给代理 —— 它学会了读这一格
         // （见 VersionTreeDelegate::sizeHint 那段），在这之前代理一律返回常数 46。
         // NOTE: 这一页开着 uniformRowHeights(true)，所以**每一条都得是同一个高度**
-        //       （少设一条，那一行就是 46，屏幕上看着像"这一行矮了一截"）。
+        // （少设一条，那一行就是 46，屏幕上看着像"这一行矮了一截"）。
         item->setSizeHint(0, QSize(0, MainWindowUI::serverRowHeight()));
     }
-    // ★「读不动」和「读到了但一条都没有」是**两句不同的话**（和版本树那条"问到了就是
-    //   没有" / "列表没取到"同一条规矩）：说成一句的话，用户会照着错的那句去修 ——
-    //   一边是"我确实没加过服务器"，另一边是"你的 servers.dat 坏了，加多少条都白搭"。
+    // 「读不动」和「读到了但一条都没有」是**两句不同的话**（和版本树那条"问到了就是
+    // 没有" / "列表没取到"同一条规矩）：说成一句的话，用户会照着错的那句去修 ——
+    // 一边是"我确实没加过服务器"，另一边是"你的 servers.dat 坏了，加多少条都白搭"。
     const bool readable = problem.isEmpty();
     const bool empty = servers.isEmpty();
     m_serverTree->setVisible(readable && !empty);
     m_serverNotice->setVisible(!readable || empty);
     m_serverNotice->setText(!readable ? problem : (empty ? serverEmptyText() : QString()));
-    // ★ 换掉整张表 ⇒ 选中没了 ⇒ 「编辑 / 加入」那两颗回到灰的（见 updateServerSelectionActions()）。
-    //   `clear()` 会发一次 itemSelectionChanged，但那一发**不能指望**：表本来就是空的时候
-    //   （第一次灌）clear() 什么都不发。所以在这儿明喊一次。
+    // 换掉整张表 ⇒ 选中没了 ⇒ 「编辑 / 加入」那两颗回到灰的（见 updateServerSelectionActions()）。
+    // `clear()` 会发一次 itemSelectionChanged，但那一发**不能指望**：表本来就是空的时候
+    // （第一次灌）clear() 什么都不发。所以在这儿明喊一次。
     updateServerSelectionActions();
 }
 
@@ -3241,25 +3083,25 @@ QStringList InstanceSettingsDialog::serverStatusLines(const ServerRowStatus &sta
     if (!status.tested) {
         return {serverUntestedText()};
     }
-    // ★★ 2026-09-27 用户原话：「‘上次’两个字也不要」。那一句过去时的前缀**整个删掉**
-    //    （连 `serverCachedPrefix()` 一起没了）—— 这一格从现在起**只有一种写法**，缓存里
-    //    那一份和当场测出来那一份说同一句话。（前一批加的那一位 `Entry::timedOut` 得留着：
-    //    正因为没了前缀，"超时"和"没连上"必须是**同一个判据**得出的同一句字，不然同一台
-    //    服务器前后两次进这一页看见的还是两个说法。）
+    // 要求：「‘上次’两个字也不要」。那一句过去时的前缀**整个删掉**
+    // （连 `serverCachedPrefix()` 一起没了）—— 这一格从现在起**只有一种写法**，缓存里
+    // 那一份和当场测出来那一份说同一句话。（前一批加的那一位 `Entry::timedOut` 得留着：
+    // 正因为没了前缀，"超时"和"没连上"必须是**同一个判据**得出的同一句字，不然同一台
+    // 服务器前后两次进这一页看见的还是两个说法。）
     if (!status.online) {
         // 缓存里"没连上"那一档**不重说理由**：那句话是**当时**的（"连接被拒绝"指的是上一次
         // 那一刻），搬到现在来说等于替这一次下结论。就写结论，理由等真的测完那一趟。
         //
         // NOTE: 这一支和下面"当场测出来"那一支**看着几乎一样**，可别合并：这一支只认
-        //       `timedOut` 这一位（盘上只存了这一位，见 ServerStatusCache::Entry），而下面
-        //       那一支拿得到 `error` 那句全话。
+        // `timedOut` 这一位（盘上只存了这一位，见 ServerStatusCache::Entry），而下面
+        // 那一支拿得到 `error` 那句全话。
         if (status.fromCache) {
             return {status.timedOut ? serverTimeoutText() : QStringLiteral("没连上")};
         }
-        // ★ 超时那一档**只写两个字**（用户 2026-09-27：「超时的只写超时」）。判据是
-        //   `Status::timedOut` 那一位，不是这句 error 的前缀 —— 「网络不通」和「它连上了却
-        //   不答话」在 ServerPing 里是两处不同的判定（见那边 isTimeoutError()），只是对这个
-        //   格子来说结论是同一个：现在连不上。
+        // 超时那一档**只写两个字**（用户 ：「超时的只写超时」）。判据是
+        // `Status::timedOut` 那一位，不是这句 error 的前缀 —— 「网络不通」和「它连上了却
+        // 不答话」在 ServerPing 里是两处不同的判定（见那边 isTimeoutError()），只是对这个
+        // 格子来说结论是同一个：现在连不上。
         if (status.timedOut) {
             return {serverTimeoutText()};
         }
@@ -3271,8 +3113,8 @@ QStringList InstanceSettingsDialog::serverStatusLines(const ServerRowStatus &sta
     // 通了就是两行：第一行延迟、第二行几个人。人**不并进第一行**（那是另一件事，而且这一格
     // 窄），这正是用户说的"在线延迟和人数换到两行来"。
     //
-    // ★ 「在线」那两个字 2026-09-27 傍晚删了（用户原话：「把服务器那个 在线 文本删了，
-    //   只保留延迟和人数」）：`42 ms` 摆在那儿本来就说明它通着，那两个字占的是这一栏的宽度。
+    // 「在线」那两个字 傍晚删了（要求：「把服务器那个 在线 文本删了，
+    // 只保留延迟和人数」）：`42 ms` 摆在那儿本来就说明它通着，那两个字占的是这一栏的宽度。
     QStringList lines;
     if (status.latencyMs >= 0) {
         lines.append(QStringLiteral("%1 ms").arg(status.latencyMs));
@@ -3399,14 +3241,14 @@ void InstanceSettingsDialog::setServerStatuses(const QList<ServerRowStatus> &sta
         // 第二行小字走 rowSubTextRole()（版本树上放的是发布时间，这里放 MOTD）。
         item->setIcon(0, status.icon);
         item->setData(0, MainWindowUI::rowSubTextRole(), status.motd);
-        // ★ MOTD 的**原样**（带 `§` 码和换行）走另一个角色：代理按它分色、分两行画
-        //   （见 VersionTreeDelegate 里 rowMotdRawRole() 那一段）。两个都写 —— 代理那边
-        //   是"有原串就画原串、没有才退回洗过那一行"，而 tooltip 用的永远是洗过那一份。
+        // MOTD 的**原样**（带 `§` 码和换行）走另一个角色：代理按它分色、分两行画
+        // （见 VersionTreeDelegate 里 rowMotdRawRole() 那一段）。两个都写 —— 代理那边
+        // 是"有原串就画原串、没有才退回洗过那一行"，而 tooltip 用的永远是洗过那一份。
         item->setData(0, MainWindowUI::rowMotdRawRole(), status.motdRaw);
-        // ★ 状态那一格是**两行**（`在线 · 42 ms` / `7/20 人`）：`\n` 在这里不是排版上的
-        //   小把戏 —— 控件是开了 wordWrap 的，条目代理照 QTextLayout 摆，一个换行就是
-        //   真的一行（见建表那段）。悬停提示仍旧给**单行**那份：提示框里没有"两行"这回事，
-        //   它要的是一句话。
+        // 状态那一格是**两行**（`在线 · 42 ms` / `7/20 人`）：`\n` 在这里不是排版上的
+        // 小把戏 —— 控件是开了 wordWrap 的，条目代理照 QTextLayout 摆，一个换行就是
+        // 真的一行（见建表那段）。悬停提示仍旧给**单行**那份：提示框里没有"两行"这回事，
+        // 它要的是一句话。
         item->setText(2, serverStatusLines(status).join(QLatin1Char('\n')));
         item->setToolTip(2, serverStatusText(status));
         item->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
@@ -3418,7 +3260,6 @@ void InstanceSettingsDialog::setServerStatuses(const QList<ServerRowStatus> &sta
 }
 
 void InstanceSettingsDialog::setServerPinging(bool pinging) {
-    // ★ 2026-10-10：文字落在**「刷新」**那颗上（「测速」已经并进它了，见构造里那段）。
     if (m_serverRefresh == nullptr) {
         return;
     }
@@ -3470,10 +3311,10 @@ InstanceFilesPage *InstanceSettingsDialog::filesPage(const QString &key) const {
 }
 
 void InstanceSettingsDialog::setFileResource(const QString &path, const QString &title) {
-    // ★ 走**带键**的遍历（不像 setFileIcon() 那样 `values()` 一把梭）：哪几页接这件事是
-    //   有讲究的（见 filesNameOpensResource()）—— 同一份路径当然只会在一个目录里，
-    //   所以"过滤掉哪几页"这件事靠的不是路径，而是**规矩**：不在 filesNameOpensResource()
-    //   那张表里的页连 tip 都不会喂给它（于是那一行连链接的样子都不会有）。
+    // 走**带键**的遍历（不像 setFileIcon() 那样 `values()` 一把梭）：哪几页接这件事是
+    // 有讲究的（见 filesNameOpensResource()）—— 同一份路径当然只会在一个目录里，
+    // 所以"过滤掉哪几页"这件事靠的不是路径，而是**规矩**：不在 filesNameOpensResource()
+    // 那张表里的页连 tip 都不会喂给它（于是那一行连链接的样子都不会有）。
     const QString tip = filesResourceTip(title);
     for (auto it = m_filesPages.constBegin(); it != m_filesPages.constEnd(); ++it) {
         if (it.value() == nullptr || !filesNameOpensResource(it.key())) {
@@ -3536,9 +3377,9 @@ void InstanceSettingsDialog::setGroupChoices(const QList<QPair<QString, QString>
     // 之后再调一次这里，旧的几行就没意义了）。
     //
     // NOTE: **当场 delete，不是 deleteLater**。悬着的那几行和新的几行**同名**（objectName
-    //       按下标给），而按名字找控件的验证工程会先撞上旧那个 —— 那个窗口只在"事件循环
-    //       转起来之前"存在，短到没法调试。代价是这一招**不能在一行自己的槽里调**
-    //       （那一行还站在栈上）：产品里只有 MainWindow 在 execPage() 之前调一次。
+    // 按下标给），而按名字找控件的验证工程会先撞上旧那个 —— 那个窗口只在"事件循环
+    // 转起来之前"存在，短到没法调试。代价是这一招**不能在一行自己的槽里调**
+    // （那一行还站在栈上）：产品里只有 MainWindow 在 execPage() 之前调一次。
     for (QPushButton *row : m_groupRows) {
         delete row;
     }
@@ -3601,9 +3442,9 @@ void InstanceSettingsDialog::chooseGroup(int index) {
     if (m_groupMenu != nullptr) {
         m_groupMenu->close();
     }
-    // ★ 这一发是**自己补的**：浮层里那几行是 setGroupChoices() 每次重建出来的，构造
-    //   函数跑 watchEditors() 的时候它们还不存在（按类型的线接不到以后才建的控件）。
-    //   反正这一个动作只有一个入口，接在这儿比"每次重建再补一遍接线"直白。
+    // 这一发是**自己补的**：浮层里那几行是 setGroupChoices() 每次重建出来的，构造
+    // 函数跑 watchEditors() 的时候它们还不存在（按类型的线接不到以后才建的控件）。
+    // 反正这一个动作只有一个入口，接在这儿比"每次重建再补一遍接线"直白。
     notifyEdited();
 }
 
@@ -3620,7 +3461,7 @@ void InstanceSettingsDialog::refreshGroupMenuState() {
     if (m_groupButton == nullptr) {
         return;
     }
-    // 按钮上那几个字是**固定的**（用户原话就是「分组...（按钮）」），所以"现在归在哪一组"
+    // 按钮上那几个字是**固定的**（要求就是「分组...（按钮）」），所以"现在归在哪一组"
     // 只能走 tooltip —— 不写这一句的话，用户不点开就完全看不出当前值（那个下拉框被换掉
     // 之前的唯一用处就是这个）。
     const QString name = m_chosenGroupIndex >= 0 && m_chosenGroupIndex < m_groupRows.size()
@@ -3637,10 +3478,10 @@ void InstanceSettingsDialog::popUpMenuBelow(QWidget *menu, const QWidget *anchor
     // .hpp 里是 QWidget*"和"那个类是 .cpp 里的实现细节"之间的桥。
     //
     // NOTE: 用 dynamic_cast 而**不是** qobject_cast：MenuPopup 是这个 .cpp 里的一个
-    //       anonymous-namespace 类，**没有 Q_OBJECT**（它不需要信号槽），而 qobject_cast
-    //       要求那个宏（编不过：static_assert HasQ_OBJECT_Macro）。给它补上 Q_OBJECT 是
-    //       另一条路，代价是这个 .cpp 结尾要多一行 `#include "...moc"` —— 全仓库没有第二处
-    //       这么干的，为一次向下转型不值得。dynamic_cast 认的是 C++ 的类型系统，够用。
+    // anonymous-namespace 类，**没有 Q_OBJECT**（它不需要信号槽），而 qobject_cast
+    // 要求那个宏（编不过：static_assert HasQ_OBJECT_Macro）。给它补上 Q_OBJECT 是
+    // 另一条路，代价是这个 .cpp 结尾要多一行 `#include "...moc"` —— 全仓库没有第二处
+    // 这么干的，为一次向下转型不值得。dynamic_cast 认的是 C++ 的类型系统，够用。
     auto *popup = dynamic_cast<MenuPopup *>(menu);
     // 走不到：那两个成员在构造函数里各被赋值一次、都是 MenuPopup。写成断言而不是"没有就
     // 什么都不做"—— 后者是"点了没反应"，而这一页上每一处"点了没反应"都得配一句话。
@@ -3695,11 +3536,11 @@ void InstanceSettingsDialog::refreshIconRow() {
     }
 
     // 当前该画哪一张。三档的先后是有讲究的：
-    //   ① 手上有一张**刚挑的**图 → 画它（用户要立刻看见自己选了什么，而它这会儿还在原处）；
-    //      读不动（不是图 / 半截文件）就往下走，退回这一档原本的样子。
-    //   ② 内置候选 → 那一张。
-    //   ③ 本地那一档 → 调用方解好的那张；它要是空的（文件没了）→ 退回默认那张。
-    //   ④ 默认 → 调用方算好的 defaultMark。
+    // ① 手上有一张**刚挑的**图 → 画它（用户要立刻看见自己选了什么，而它这会儿还在原处）；
+    // 读不动（不是图 / 半截文件）就往下走，退回这一档原本的样子。
+    // ② 内置候选 → 那一张。
+    // ③ 本地那一档 → 调用方解好的那张；它要是空的（文件没了）→ 退回默认那张。
+    // ④ 默认 → 调用方算好的 defaultMark。
     QPixmap mark;
     if (!m_pickedIconPath.isEmpty()) {
         const QPixmap picked(m_pickedIconPath);
@@ -3743,8 +3584,8 @@ void InstanceSettingsDialog::showPage(const QString &key) {
     // 摆着 B —— 那正是"两栏各说各的"）。
     //
     // NOTE: 这一下**压着信号** —— 下面那一发 applyPageKey() 本来就会换页，让这一下也发
-    //       一次的话，同一页会被摆两次（见 applyPageKey() 里那条 alreadyHere：
-    //       多发的那一次在「服务器列表」上就是白连一轮）。
+    // 一次的话，同一页会被摆两次（见 applyPageKey() 里那条 alreadyHere：
+    // 多发的那一次在「服务器列表」上就是白连一轮）。
     {
         const QSignalBlocker blocker(m_pageList);
         int row = -1;
@@ -3812,11 +3653,11 @@ void InstanceSettingsDialog::rebuildNavigationTree() {
     auto *maintenance = group(nullptr, tr("维护"), QStringLiteral("maintenance"));
     leaf(maintenance, QStringLiteral("integritymenu"));
     leaf(maintenance, QStringLiteral("diagnosticsmenu"));
-    // ★ 2026-10-16：这一条原来是自己写死了那一行字（`add(...)`）的，而别处都走 `leaf()`
-    //   ⇒ 那一行写的是「快照与恢复」、`pageText()` 里那一条还是旧名「快照管理」，同一页
-    //   在左栏和它自己的页头上是两个名字。字面按这一行留下的那个（「快照与恢复」）**搬
-    //   进 `lifecyclePageTexts()`**，这一行改回 `leaf()` —— 左栏那一行从此重新由
-    //   `pageText()` 说了算（那一句本来就是这个文件里写明了的唯一出处）。
+    // 这一条原来是自己写死了那一行字（`add(...)`）的，而别处都走 `leaf()`
+    // ⇒ 那一行写的是「快照与恢复」、`pageText()` 里那一条还是旧名「快照管理」，同一页
+    // 在左栏和它自己的页头上是两个名字。字面按这一行留下的那个（「快照与恢复」）**搬
+    // 进 `lifecyclePageTexts()`**，这一行改回 `leaf()` —— 左栏那一行从此重新由
+    // `pageText()` 说了算（那一句本来就是这个文件里写明了的唯一出处）。
     leaf(maintenance, QStringLiteral("snapshots"));
     leaf(maintenance, QStringLiteral("operationsmenu"));
     for (QTreeWidgetItemIterator it(m_navigationTree); *it; ++it) {
@@ -3903,10 +3744,6 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             list->setContextMenuPolicy(Qt::CustomContextMenu);
             layout->addWidget(list, 1);
             m_lifecycleLists.insert(key, list);
-            // ★ 2026-10-18（coding plan §9.5）：Replay / 结构这两页选中一行之后，底下
-            //   那一格说这一条是什么。**读盘不在这里**（见头文件里那段）—— 这里只把
-            //   "选中换了"发出去，再把接的人递回来的话摆上。150 ms 的延迟和原理图那一页
-            //   同一档：上下翻行时不该每过一行就读一次盘（读一份结构要起 PowerShell）。
             if (key == QStringLiteral("replay") || key == QStringLiteral("structure")) {
                 auto *info = new QLabel(page);
                 info->setObjectName(lifecycleInfoLabelName(key));
@@ -3998,12 +3835,12 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             action(tr("查看日志"), [this]() { showPage(QStringLiteral("logs")); });
             action(tr("查看崩溃报告"), [this]() { showPage(QStringLiteral("crash")); });
         } else if (key == QStringLiteral("migration") || key == QStringLiteral("upgrade")) {
-            // ★ 2026-10-18（coding plan §9.9 第 15 项）：这两页原来各是一句「还没实现」。
-            //   现在它们共用一套控件：目标 → 计划正文 → 可勾选的范围表 → 动手那一颗。
-            //   计划怎么算、勾什么、兼容性怎么说全在 `TransferPlanner`；这一层只摆字。
+            // （coding plan §9.9 第 15 项）：这两页原来各是一句「还没实现」。
+            // 现在它们共用一套控件：目标 → 计划正文 → 可勾选的范围表 → 动手那一颗。
+            // 计划怎么算、勾什么、兼容性怎么说全在 `TransferPlanner`；这一层只摆字。
             //
-            //   NOTE: 「升级」**不下载任何东西** —— 目标版本必须是这个游戏文件夹里已经
-            //         装好的那一份。要装新版本走下载页（这里只说清这一条，不假装能装）。
+            // NOTE: 「升级」**不下载任何东西** —— 目标版本必须是这个游戏文件夹里已经
+            // 装好的那一份。要装新版本走下载页（这里只说清这一条，不假装能装）。
             const bool upgrade = key == QStringLiteral("upgrade");
             if (upgrade) {
                 hint(tr("升级副本：按下方勾选范围创建新实例，原实例不动。\n"
@@ -4100,9 +3937,6 @@ void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
         return a.lastModified() > b.lastModified();
     });
     for (const QFileInfo &file : files) {
-        // 第二行是"细节"那一行（和文件管理页的行一个写法：上面名字、下面大小·时间）。
-        // ★ 2026-10-18（§9.5）：截图补上像素尺寸、余下几页补上文件大小 —— 只靠一个
-        //   时间戳，用户分不出"这张截图是 4K 的还是缩过的"、"这段录像有多大"。
         QStringList details{file.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm"))};
         if (key == QStringLiteral("screenshots")) {
             QImageReader reader(file.absoluteFilePath());
@@ -4209,7 +4043,7 @@ void InstanceSettingsDialog::setDiagnosisText(const QString &text) {
     m_diagnosisReport->setPlainText(text.isEmpty() ? diagnosisPendingText() : text);
 }
 
-// ---------- 「迁移」/「升级」那两页(2026-10-18，§9.9 第 15 项) ----------
+// ---------- 「迁移」/「升级」那两页(，§9.9 第 15 项) ----------
 //
 // 两页的控件是 setupLifecyclePages() 建好的；这一组只负责"把接的人递来的东西摆上去"和
 // "把用户勾了什么读回来"。**不读盘、不算兼容性、也不写盘**。
@@ -4218,8 +4052,8 @@ void InstanceSettingsDialog::setTransferTargets(const QString &key,
                                                 const QList<QPair<QString, QString>> &targets) {
     auto *combo = m_transferTargets.value(key);
     if (combo == nullptr) return;
-    // ★ 这一发**不出声**：灌列表是 controller 在开页时做的，它紧接着会自己算第一份计划；
-    //   这里要是发 currentIndexChanged，controller 会在同一次调用里再算一遍（白扫一次盘）。
+    // 这一发**不出声**：灌列表是 controller 在开页时做的，它紧接着会自己算第一份计划；
+    // 这里要是发 currentIndexChanged，controller 会在同一次调用里再算一遍（白扫一次盘）。
     const QSignalBlocker blocker(combo);
     combo->clear();
     for (const QPair<QString, QString> &target : targets) {
@@ -4286,7 +4120,7 @@ void InstanceSettingsDialog::updateTransferApplyState(const QString &key) {
 QWidget *InstanceSettingsDialog::addOverrideRow(QGridLayout *grid, int row, const QString &field,
                                                 const QString &title, const QString &customHint) {
     // **两行**：上面那一行是这个设置的名字（独占一整行），下面那一行才是它的选项
-    // （「跟随全局 / 自定义」那个档位下拉框 + 控件）——用户 2026-09-26 原话「上一行设置
+    // （「跟随全局 / 自定义」那个档位下拉框 + 控件）——要求「上一行设置
     // 名称，下一行设置选项」。**调用方因此要 `row += 2`**（见 addTitledRow() 那段）。
     QVBoxLayout *cellLayout = nullptr;
     QWidget *cell = addTitledRow(grid, row, title, this, &cellLayout);
@@ -4299,18 +4133,16 @@ QWidget *InstanceSettingsDialog::addOverrideRow(QGridLayout *grid, int row, cons
     choiceLayout->setContentsMargins(0, 0, 0, 0);
     choiceLayout->setSpacing(8);
 
-    // ★ 2026-09-28：**一对单选钮 → 一个下拉框**（用户原话「所有单选框换成下拉的」）。
-    //
-    //   两项的**顺序就是下标**：`choiceFollowIndex()`（跟随全局）在前、
-    //   `choiceCustomIndex()`（自定义）在后。那两个函数是档位的唯一出处，读侧
-    //   （isCustomChoice）、写侧（setChoiceCustom）和验证工程都走它们 —— 这里只是把
-    //   它们摆成 `addItem()` 的先后，**不许在别处再写一遍 0 / 1**。
+    // 两项的**顺序就是下标**：`choiceFollowIndex()`（跟随全局）在前、
+    // `choiceCustomIndex()`（自定义）在后。那两个函数是档位的唯一出处，读侧
+    // （isCustomChoice）、写侧（setChoiceCustom）和验证工程都走它们 —— 这里只是把
+    // 它们摆成 `addItem()` 的先后，**不许在别处再写一遍 0 / 1**。
     //
     // NOTE: 下拉框**吃不到** `watchEditors()` 原来那四条按类型的线（它们接的是
-    //       `QAbstractButton::clicked` / `QLineEdit::editingFinished` …，QComboBox 一条
-    //       都不沾），所以那边新加了一循环接它。漏了的症状很具体：把档位切到「自定义」
-    //       之后盘上还是老样子 —— 和「窗口模式」那个下拉框当初漏掉时一模一样
-    //       （那一条的来龙去脉见下面构造它那一段）。
+    // `QAbstractButton::clicked` / `QLineEdit::editingFinished` …，QComboBox 一条
+    // 都不沾），所以那边新加了一循环接它。漏了的症状很具体：把档位切到「自定义」
+    // 之后盘上还是老样子 —— 和「窗口模式」那个下拉框当初漏掉时一模一样
+    // （那一条的来龙去脉见下面构造它那一段）。
     auto *combo = new QComboBox(choiceRow);
     combo->setObjectName(choiceComboName(field));
     combo->addItem(followText());
@@ -4318,9 +4150,6 @@ QWidget *InstanceSettingsDialog::addOverrideRow(QGridLayout *grid, int row, cons
     // 下拉框也吃滚轮（在两项之间来回跳），而这一格上的滚轮多半是"想滚这一页"。
     // 和「窗口模式」那一个同一个理由。
     WheelGuard::install(combo);
-    // ★ 2026-10-11：**不伸缩 + 一条下限** —— 这七格是同一件事的同一个控件，加这两行之
-    //   前它们各占各的拉伸份额、同一页上能有 59 / 143 / 307 三种宽度（见 kChoiceComboWidth
-    //   上面那段）。右边那个值控件也因此从同一条竖线上起头。
     combo->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     combo->setMinimumWidth(kChoiceComboWidth);
     choiceLayout->addWidget(combo);
@@ -4372,7 +4201,7 @@ QHBoxLayout *InstanceSettingsDialog::choiceRowOf(const QString &field) const {
 
 bool InstanceSettingsDialog::effectiveAutoMemory() const {
     // 这一页自己没有「内存分配」（自动 / 手动）的入口 —— 那个开关在设置页最右边那颗
-    // 下拉框上（2026-10-20 恢复的）。所以有效值只看**全局**那份；全局是自动档时，
+    // 下拉框上（ 恢复的）。所以有效值只看**全局**那份；全局是自动档时，
     // 这一页的条和数字框跟着禁用，并显示「自动档下按系统内存现算」那句提示。
     // 盘上老实例存着的 autoMemory 覆盖仍然不生效（`resolveJavaSettings` 读侧忽略它）。
     return m_global.autoMemory;
@@ -4387,23 +4216,23 @@ void InstanceSettingsDialog::refreshHints() {
     m_xmxFollowCell->setEnabled(!autoMemory);
     m_xmsFollowCell->setEnabled(!autoMemory);
 
-    // ★ 2026-09-27：手动档 + **「跟随全局」** 时，那一格里的条和数字框要**灰掉**。
-    //   从前它们只在自动档下禁用，于是在"跟随全局"这一档上照样能拖、能填 —— 而拖完那一发
-    //   `override()` 根本不会读（它只在选了「自定义」时才把 `m_memoryMaxSpin->value()` 装进
-    //   结果，见下面那段），用户看着数字变了、松手、关页，什么都没发生。这正是设置页那条
-    //   注释明确反对的"让人以为能改"。
+    // 手动档 + **「跟随全局」** 时，那一格里的条和数字框要**灰掉**。
+    // 从前它们只在自动档下禁用，于是在"跟随全局"这一档上照样能拖、能填 —— 而拖完那一发
+    // `override()` 根本不会读（它只在选了「自定义」时才把 `m_memoryMaxSpin->value()` 装进
+    // 结果，见下面那段），用户看着数字变了、松手、关页，什么都没发生。这正是设置页那条
+    // 注释明确反对的"让人以为能改"。
     //
-    //   **整格**不能跟着禁（那对单选钮得留着），所以只点这两个控件；单选钮本身照旧能点，
-    //   想要填数就点「自定义」，一按下去这两个就活了（`setEnabled` 的实效是"父与自身都为真"，
-    //   所以自动档下这里的 true 也翻不过上面那句整格禁用）。
+    // **整格**不能跟着禁（那对单选钮得留着），所以只点这两个控件；单选钮本身照旧能点，
+    // 想要填数就点「自定义」，一按下去这两个就活了（`setEnabled` 的实效是"父与自身都为真"，
+    // 所以自动档下这里的 true 也翻不过上面那句整格禁用）。
     //
     // NOTE: 「实例名 / Java 路径」那几行是"跟随全局时编辑框里就摆着全局值、改了等于自定义"
-    //       的另一种拆法（那边靠「浏览…」那一按顺手切档），内存这一行**不用**那个拆法：
-    //       条目上滚一下滚轮就在盘上凭空多出一份覆盖，这种事不能有。
+    // 的另一种拆法（那边靠「浏览…」那一按顺手切档），内存这一行**不用**那个拆法：
+    // 条目上滚一下滚轮就在盘上凭空多出一份覆盖，这种事不能有。
     const bool memoryEditable = !autoMemory && isCustomChoice(xmxField());
     m_memoryMaxSlider->setEnabled(memoryEditable);
     m_memoryMaxSpin->setEnabled(memoryEditable);
-    // 最小内存那一格整个是隐藏的（2026-09-26 撤掉的那一行），但控件照旧跟着同一个规矩 ——
+    // 最小内存那一格整个是隐藏的（ 撤掉的那一行），但控件照旧跟着同一个规矩 ——
     // 它现在唯一的作用就是把盘上那份值透传回去，多一个能改它的入口就是多一条静默改写的路。
     m_memoryMinSpin->setEnabled(memoryEditable);
 
@@ -4425,14 +4254,14 @@ void InstanceSettingsDialog::refreshHints() {
     followOrCustom(extraJvmArgsField(), isCustomChoice(extraJvmArgsField()),
                    m_global.extraJvmArgs.isEmpty() ? tr("未设置") : m_global.extraJvmArgs);
 
-    // ---------- 窗口模式 / 窗口大小（2026-09-28 加的）----------
+    // ---------- 窗口模式 / 窗口大小（ 加的）----------
     //
-    // ★ 「跟随全局」时**这一格里的控件灰掉**（和内存那两行同一个做法，理由也在那边：
-    //   能改、改完 override() 又不读，就是"让人以为能改"）。**不能整格禁**：那个档位
-    //   下拉框得留着才能切回「自定义」。所以只点那几个控件，下拉框照旧能点。
+    // 「跟随全局」时**这一格里的控件灰掉**（和内存那两行同一个做法，理由也在那边：
+    // 能改、改完 override() 又不读，就是"让人以为能改"）。**不能整格禁**：那个档位
+    // 下拉框得留着才能切回「自定义」。所以只点那几个控件，下拉框照旧能点。
     //
     // NOTE: 和内存那一行不同的是，这里**没有**"这一格整格禁用"的第二种情况（内存那两种是
-    //       "自动档"和"跟随全局"）—— 窗口这几项没有自动档。
+    // "自动档"和"跟随全局"）—— 窗口这几项没有自动档。
     if (m_windowModeCombo != nullptr) {
         const bool custom = isCustomChoice(windowModeField());
         m_windowModeCombo->setEnabled(custom);
@@ -4492,7 +4321,7 @@ InstanceSettingsDialog::Override InstanceSettingsDialog::override() const {
         // 的 NOTE），而手动档 + 空路径是**必然启动失败**的（"还没指定路径"）。
         // 用户清空这个框的意思是"这个实例不特殊指定"，那正是「跟随全局」。
         // NOTE: 这一条**只对 javaPath 成立**。extraJvmArgs 自定义成空串是有意义的
-        //       （全局带着 -XX:+UseG1GC，这个实例就是不要额外参数），那里空串照存。
+        // （全局带着 -XX:+UseG1GC，这个实例就是不要额外参数），那里空串照存。
         if (!path.isEmpty()) {
             result.javaPath = path;
         }
@@ -4506,11 +4335,11 @@ InstanceSettingsDialog::Override InstanceSettingsDialog::override() const {
             result.xmx = m_memoryMaxSpin->value();
         }
         if (isCustomChoice(xmsField())) {
-            // ★ 2026-09-26：这一行从界面上撤掉了（整行隐藏），但盘上存过的值**照样透传** ——
-            //   撤掉界面不等于替用户删掉他的设置。唯一不能原样透传的是"比最大内存还大"的
-            //   那些：Xms > Xmx 是 JVM 直接拒绝启动的组合（Initial heap size set to a
-            //   larger value than the maximum heap size），而用户现在在界面上根本看不到
-            //   自己存过这么一对 —— 那一行是隐藏的，没有人在旁边替他看着。
+            // 这一行从界面上撤掉了（整行隐藏），但盘上存过的值**照样透传** ——
+            // 撤掉界面不等于替用户删掉他的设置。唯一不能原样透传的是"比最大内存还大"的
+            // 那些：Xms > Xmx 是 JVM 直接拒绝启动的组合（Initial heap size set to a
+            // larger value than the maximum heap size），而用户现在在界面上根本看不到
+            // 自己存过这么一对 —— 那一行是隐藏的，没有人在旁边替他看着。
             const int effectiveXmx = isCustomChoice(xmxField()) ? m_memoryMaxSpin->value()
                                                                 : m_global.xmx;
             result.xms = qMin(m_memoryMinSpin->value(), effectiveXmx);
@@ -4592,19 +4421,19 @@ void InstanceSettingsDialog::watchEditors() {
         connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this,
                 &InstanceSettingsDialog::notifyEdited);
     }
-    // ★ 下拉框（2026-09-28 加的这一条）。原来这一页上只有「窗口模式」一个下拉框，
-    //   它独自接了一条 `currentIndexChanged`；用户点名「所有单选框换成下拉的」之后
-    //   **档位那一格也成了下拉框**（七行），再一个个手接就成了"每加一行都要记得回来补
-    //   一条线"。收进这个循环之后和上面四条是同一个形状。
-    //   症状（漏掉时）：切到「自定义」之后盘上还是老样子 —— 界面上看着改了、下次开这一页
-    //   又是原来的档。**容易在测试里被盖住**：后面只要再动一个别的控件，那一发写盘会顺带
-    //   把新档位写进去，于是"没接线"这个洞照样全绿（mw_check 的 T20.11b 就是为这个写的：
-    //   它把换档位摆成那一页上**最后一个**动作）。
+    // 下拉框（ 加的这一条）。原来这一页上只有「窗口模式」一个下拉框，
+    // 它独自接了一条 `currentIndexChanged`；用户点名「所有单选框换成下拉的」之后
+    // **档位那一格也成了下拉框**（七行），再一个个手接就成了"每加一行都要记得回来补
+    // 一条线"。收进这个循环之后和上面四条是同一个形状。
+    // 症状（漏掉时）：切到「自定义」之后盘上还是老样子 —— 界面上看着改了、下次开这一页
+    // 又是原来的档。**容易在测试里被盖住**：后面只要再动一个别的控件，那一发写盘会顺带
+    // 把新档位写进去，于是"没接线"这个洞照样全绿（mw_check 的 T20.11b 就是为这个写的：
+    // 它把换档位摆成那一页上**最后一个**动作）。
     //
     // NOTE: 这一循环**连这一页上的子页面一起接**（文件管理那几页的「筛选」下拉框、世界设置
-    //       那一页的难度下拉框 —— 它们都是这一页的后代）。改了它们会白喊一声 notifyEdited()
-    //       —— 无害：那个函数按 `valueSignature()` 去重，而那几个值不在签名里，所以一次盘都
-    //       不会写。按"这一页上的哪些下拉框"去筛是**多一条会过期的名单**，不值当。
+    // 那一页的难度下拉框 —— 它们都是这一页的后代）。改了它们会白喊一声 notifyEdited()
+    // —— 无害：那个函数按 `valueSignature()` 去重，而那几个值不在签名里，所以一次盘都
+    // 不会写。按"这一页上的哪些下拉框"去筛是**多一条会过期的名单**，不值当。
     for (QComboBox *combo : findChildren<QComboBox *>()) {
         connect(combo, &QComboBox::currentIndexChanged, this,
                 &InstanceSettingsDialog::notifyEdited);
@@ -4624,10 +4453,10 @@ void InstanceSettingsDialog::watchEditors() {
     }
 
     // NOTE: 【上面两条按类型的线接不到两种改动，各自在动手的地方补一发 notifyEdited()】
-    //       ①「浏览…」选完 java.exe：那是 `setText()`（程序化，不发 editingFinished）；
-    //       ②「选一张图片…」挑完图：`clicked` 在**框弹出来之前**就发完了，等用户挑完，
-    //         那一发早过去了（值是在那之后才变的）。
-    //       往这一页再加"点一下、然后弹个系统框问点什么"的按钮时，记住同一件事。
+    // ①「浏览…」选完 java.exe：那是 `setText()`（程序化，不发 editingFinished）；
+    // ②「选一张图片…」挑完图：`clicked` 在**框弹出来之前**就发完了，等用户挑完，
+    // 那一发早过去了（值是在那之后才变的）。
+    // 往这一页再加"点一下、然后弹个系统框问点什么"的按钮时，记住同一件事。
 }
 
 QStringList InstanceSettingsDialog::valueSignature() const {
@@ -4652,7 +4481,7 @@ QStringList InstanceSettingsDialog::valueSignature() const {
     result << optionalText(values.javaPath) << optionalNumber(values.xmx)
            << optionalNumber(values.xms) << optionalFlag(values.autoMemory)
            << optionalText(values.extraJvmArgs)
-           // 窗口那三项（2026-09-28）：模式是**代号字符串**，宽高各一个数。和上面同一个
+           // 窗口那三项：模式是**代号字符串**，宽高各一个数。和上面同一个
            // 写法 —— 有没有值 + 值本身，两者都要摆（"自定义成和全局一样的档"仍然是覆盖，
            // 不能和"跟随全局"混成同一个签名）。
            << optionalText(values.windowMode) << optionalNumber(values.windowWidth)

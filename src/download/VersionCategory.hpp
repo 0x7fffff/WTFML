@@ -1,30 +1,12 @@
 /**
  * @file VersionCategory.hpp
  * @brief 下载页那四个分类（正式版 / 快照版 / 远古版 / 愚人节版）的**纯函数**部分。
- * @author 0x7fffff
- * @date 2026-09-22
  * @note 这里不联网、不碰磁盘，只是"version 的 id + type 进，分类出"。真正把 900 多个版本
- *       分堆的是 VersionManager::availableVersionChannels()，它逐条调这里的 channelFor()。
+ * 分堆的是 VersionManager::availableVersionChannels()，它逐条调这里的 channelFor()。
  *
  * 【为什么前三个分类是白捡的、第四个不是】
  *
- * Mojang 那份版本清单（`version_manifest_v2.json`，实测 915 条 / 270 KB）每条都带一个
- * `type`，取值恰好就是四类里的三类：
- *
- *   release（实测 103 条）→ 正式版    old_beta + old_alpha（实测 61 条）→ 远古版
- *   snapshot（实测 742 条）→ 快照版
- *
- * —— 也就是说"正式版 / 快照版 / 远古版"是**照着 type 抄**，一个字节的判据都不用我们自己想。
- * 愚人节版没有这个待遇：**Mojang 把它们和普通快照一样标成 snapshot**，type 里一个字都看
- * 不出来（实测 9 条愚人节版全是 `type: "snapshot"`）。所以第四类只能自己认，见下面。
- *
  * 【愚人节版为什么是一张写死的名单、而不是一条日期规则】
- *
- * "4 月 1 日发布的那些"看着像一条现成的判据，实测**是错的**：清单里 `releaseTime` 落在
- * 3/31 或 4/1 的共 14 条，里面 5 条是**正经版本** —— 包括正式版 `26.1.1` 和快照 `22w13a`、
- * `21w13a`、`17w13b`、`26.1.1-rc-1`。按日期判会把一个正式版塞进"愚人节版"那一栏，
- * 而用户点开那一栏看到 26.1.1，只会觉得这个启动器坏了。反过来，只按日期判还会**漏掉**
- * `1.RV-Pre1`（它发布于 2016-03-31）。
  *
  * 所以名单是写死的，判据就是"id 在这张表里"。这不是偷懒：PCL 也是这么做的（它的名单是从
  * `Plain Craft Launcher 2.exe` 的字符串堆里抠出来的，见本文件底部那段）。**验证工程拿真清单
@@ -138,17 +120,17 @@ inline QStringList channelTexts() {
 /**
  * @brief 愚人节版的全部 id（**小写**，比对时两边都转小写）。
  *
- * 9 条，全部在 2026-09-22 那份清单里核过。表里刻意**只有 id**：日期、type 都不进这张表，
+ * 9 条，全部在 那份清单里核过。表里刻意**只有 id**：日期、type 都不进这张表，
  * 那两样在上面那段说明里已经证明是靠不住的。
  *
  * NOTE: 大小写在这里是真问题：清单里那两条是 `3D Shareware v1.34`（有大写、**还有空格**）
- *       和 `1.RV-Pre1`，所以比对必须 toLower()，而且**不能**用 isSafeVersionId() 那种白名单
- *       去预筛 —— 空格会过不了那个白名单，而这条 id 是官方清单里真实存在的。
+ * 和 `1.RV-Pre1`，所以比对必须 toLower()，而且**不能**用 isSafeVersionId() 那种白名单
+ * 去预筛 —— 空格会过不了那个白名单，而这条 id 是官方清单里真实存在的。
  *
  * NOTE: PCL 那份名单里还有三条**不是版本 id** 的东西（`experimental`、`lore`、简称 `20w14`），
- *       是从 exe 字符串堆里一起抠出来的邻近字面量、或那条版本的俗称。这里不收：这张表的用途
- *       是"给清单里每一条判个类"，而清单里根本不会有 `experimental` 这种 id —— 收进来只会让
- *       "名单里的每一条都能在清单里找到"这条断言失效，反而看不出哪天打错了字。
+ * 是从 exe 字符串堆里一起抠出来的邻近字面量、或那条版本的俗称。这里不收：这张表的用途
+ * 是"给清单里每一条判个类"，而清单里根本不会有 `experimental` 这种 id —— 收进来只会让
+ * "名单里的每一条都能在清单里找到"这条断言失效，反而看不出哪天打错了字。
  */
 inline QStringList aprilFoolsVersionIds() {
     return QStringList{
@@ -184,7 +166,7 @@ inline bool isAprilFoolsVersion(const QString &id) {
  * 愚人节版**先判**：那 9 条的 type 全是 `snapshot`，按 type 判会把它们全塞进快照版那一栏。
  *
  * NOTE: 将来出现没见过的 type 时落到**快照版**。四栏是全集的划分，总得有个地方接；而"少显示
- *       一个版本"比"多显示一个"更难被发现 —— 落到快照版是往"看得见"那边偏。
+ * 一个版本"比"多显示一个"更难被发现 —— 落到快照版是往"看得见"那边偏。
  */
 inline Channel channelFor(const QString &id, const QString &type) {
     if (isAprilFoolsVersion(id)) {

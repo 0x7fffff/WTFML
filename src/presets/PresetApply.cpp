@@ -1,8 +1,6 @@
 /**
  * @file PresetApply.cpp
  * @brief 实现 PresetApply.hpp。取舍都写在头文件里，这里只留实现上的几个坑。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "PresetApply.hpp"
@@ -72,7 +70,7 @@ bool writeWholeFile(const QString &path, const QByteArray &bytes, QString *probl
 /**
  * @brief 造一个这一趟专用的备份目录（`<presets 根>/backups/<实例>/<时间>`）。
  *
- * ★ 同一秒里撞上同名目录时往后加 `-2` / `-3`：覆盖掉上一份备份等于这一趟没备份。
+ * 同一秒里撞上同名目录时往后加 `-2` / `-3`：覆盖掉上一份备份等于这一趟没备份。
  */
 QString makeBackupDir(const QString &presetsRoot, const QString &instanceId) {
     const QString base = presetsRoot + QStringLiteral("/backups/") +
@@ -93,7 +91,7 @@ QString makeBackupDir(const QString &presetsRoot, const QString &instanceId) {
  * @brief 把 @p relative 那一份（文件或整棵目录）从实例里拷进备份目录。
  *
  * @return 成功、或者目标上本来就没有这一份 ⇒ true。**备份失败必须让整趟停下** —— 这是
- *         调用方在写任何东西之前最后一道"还能回到原样"的保证。
+ * 调用方在写任何东西之前最后一道"还能回到原样"的保证。
  */
 bool backupOne(const QString &instanceRoot, const QString &backupDir, const QString &relative,
                QString *problem) {
@@ -117,9 +115,6 @@ bool backupOne(const QString &instanceRoot, const QString &backupDir, const QStr
     return true;
 }
 
-/// 段在界面上的默认标题（段自己没带标题时用）。★ 中文名只应该出现在 `src/` 和 `ui/`
-/// 其中一处；这里沿用的是 `PresetPlanner` 报告里那份叫法（`applyPlanUnit()` 等），
-/// 管理页拿到的是 `PresetApplyRow`，标题为空时按 `kind` 现翻一次。
 QString fallbackSectionTitle(SectionKind kind) {
     switch (kind) {
     case SectionKind::VanillaOptions:
@@ -138,7 +133,6 @@ QString fallbackSectionTitle(SectionKind kind) {
     return applyText("未知内容");
 }
 
-/// 这一段归哪一类（报告里那一行用）。
 PresetApplyRow rowFromPlan(const ApplyPlanRow &planRow) {
     PresetApplyRow row;
     row.sectionId = planRow.sectionId;
@@ -210,8 +204,8 @@ TargetSnapshot readTargetSnapshot(const QString &instanceRoot, QString *problemO
     const ServerListFile::FileState state =
         ServerListFile::loadDocument(serversPath, &document, &gzipped, &why);
     if (state == ServerListFile::FileState::Unreadable) {
-        // ★ 读不动和"没有这一份"是两件事（见 `PresetPlanner::TargetSnapshot` 那段）：
-        //   前者会让服务器列表这一段这一趟做不了，后者是最正常的新实例。
+        // 读不动和"没有这一份"是两件事（见 `PresetPlanner::TargetSnapshot` 那段）：
+        // 前者会让服务器列表这一段这一趟做不了，后者是最正常的新实例。
         snapshot.serversProblem = why;
     } else if (state == ServerListFile::FileState::Ok) {
         if (!serverEntriesOf(&document, &snapshot.servers, &snapshot.serversUntouchable, &why)) {
@@ -288,8 +282,8 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
     // 3. 备份：把"这一趟会改写或删掉的、已经存在的"那几样先收走
     // ------------------------------------------------------------------
     //
-    // ★ 这一趟算的是"哪些会被动"，和下面第 4 步用的是**同一套判据**（适配器自己的
-    //   计划函数）。不重算写出来的那一份，只重算"目标上现在有没有"。
+    // 这一趟算的是"哪些会被动"，和下面第 4 步用的是**同一套判据**（适配器自己的
+    // 计划函数）。不重算写出来的那一份，只重算"目标上现在有没有"。
     QSet<QString> backupPaths;
     const QString optionsPath = request.instanceRoot + QStringLiteral("/options.txt");
     const QString serversPath = request.instanceRoot + QStringLiteral("/servers.dat");
@@ -483,7 +477,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
     // 4. 执行
     // ------------------------------------------------------------------
     //
-    // ★ 一行一段，次序照 manifest。`options.txt` 那两段只在内存里叠，最后写一次。
+    // 一行一段，次序照 manifest。`options.txt` 那两段只在内存里叠，最后写一次。
     OptionsFile optionsTarget = snapshot.options;
     QList<int> optionsRowIndexes;
     bool optionsTouched = false;
@@ -595,9 +589,9 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
                     continue;
                 }
             }
-            // ★ 按**段里这份清单**落（2026-10-20）。从前这里是重扫预设的 `files/<组>`：
-            //   盘上多出来的旧文件也会被应用，而计划表和备份范围都是按清单算的 ——
-            //   于是"落下去的那一份"不在备份里（见 `applyFileGroup(…, items)` 那段）。
+            // 按**段里这份清单**落。从前这里是重扫预设的 `files/<组>`：
+            // 盘上多出来的旧文件也会被应用，而计划表和备份范围都是按清单算的 ——
+            // 于是"落下去的那一份"不在备份里（见 `applyFileGroup(…, items)` 那段）。
             const GenericReport applied = applyFileGroup(presetFilesRoot, request.instanceRoot,
                                                          group, section.mode, items);
             row.ok = applied.ok;
@@ -614,7 +608,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             }
             if (applied.ok && group == FileGroup::ResourcePacks &&
                 resourcePackSectionHasOrdering(section)) {
-                // ★ 留到**最后**再动：`options.txt` 那几段也在内存里叠着，谁先写谁被盖。
+                // 留到**最后**再动：`options.txt` 那几段也在内存里叠着，谁先写谁被盖。
                 resourcePackRows.append(qMakePair(static_cast<int>(result.rows.size()), section));
             }
             result.rows.append(row);
@@ -663,10 +657,10 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             row.ok = applied.ok;
             row.blocked = !applied.ok;
             row.problem = applied.problem;
-            // ★ 这一格报的是"**真改了几个**"：`written` 里含"目标上本来就是那个值"的那些
-            //   （`MalilibKeys.hpp` 里那条口径，和原版设置那边同源）。那一档一个字节都没写
-            //   —— 同一份预设连落两趟时，照抄 `applied.written` 会让界面/日志说"写入 N 项"，
-            //   而盘上一个字都没动（options 那一段在下面专门归过一次零，理由一样）。
+            // 这一格报的是"**真改了几个**"：`written` 里含"目标上本来就是那个值"的那些
+            // （`MalilibKeys.hpp` 里那条口径，和原版设置那边同源）。那一档一个字节都没写
+            // —— 同一份预设连落两趟时，照抄 `applied.written` 会让界面/日志说"写入 N 项"，
+            // 而盘上一个字都没动（options 那一段在下面专门归过一次零，理由一样）。
             row.written = applied.written - applied.unchanged;
             row.added = applied.added;
             row.removed = applied.removed;
@@ -699,10 +693,10 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
                 }
             }
         } else {
-            // ★ 字节一个都没变（同一份预设连着落两趟就是这个样子）：适配器报的"N 项"是
-            //   "这一段管着几个键"，不是"盘上改了几个键"。在这儿归零，让
-            //   `wroteAnything()` 在"什么都没变"的那一趟说实话 —— 界面和日志都拿它判
-            //   "这一趟办完了没有"，而"写了 2 项"在一份没动的文件上是假话。
+            // 字节一个都没变（同一份预设连着落两趟就是这个样子）：适配器报的"N 项"是
+            // "这一段管着几个键"，不是"盘上改了几个键"。在这儿归零，让
+            // `wroteAnything()` 在"什么都没变"的那一趟说实话 —— 界面和日志都拿它判
+            // "这一趟办完了没有"，而"写了 2 项"在一份没动的文件上是假话。
             for (int index : optionsRowIndexes) {
                 PresetApplyRow &row = result.rows[index];
                 row.written = 0;
@@ -714,8 +708,8 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
 
     // ---------- 资源包启用顺序（必须在 options.txt 最后那一次写之后） ----------
     //
-    // ★ 顺序是**低优先级在前**，写的是最后一条 `resourcePacks:`。这一段单独走是因为它
-    //   和 `options.txt` 那两段落在同一个文件上：先写它再写选项，那几行就被盖掉了。
+    // 顺序是**低优先级在前**，写的是最后一条 `resourcePacks:`。这一段单独走是因为它
+    // 和 `options.txt` 那两段落在同一个文件上：先写它再写选项，那几行就被盖掉了。
     if (!resourcePackRows.isEmpty()) {
         const QString instanceIdForBackup =
             request.instanceId.isEmpty() ? QFileInfo(request.instanceRoot).fileName()
@@ -746,10 +740,10 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
         result.removed += row.removed;
         result.deferred += row.deferred;
     }
-    // ★ `ok` 是"**这一趟办完了没有**"，不是"流程走到了末尾"（2026-10-20 修）：
-    //   从前这里无条件置真，于是某一段写盘失败（servers.dat 被占用、options.txt 提交
-    //   失败、通用文件组中途拷不动……）时，管理页顶上照样写「应用完成。」、日志照样记
-    //   "写入 N 项"，而面板里某一行明写着"做不了"。`Skip` 那几行是**办完了**（不算失败）。
+    // `ok` 是"**这一趟办完了没有**"，不是"流程走到了末尾"（ 修）：
+    // 从前这里无条件置真，于是某一段写盘失败（servers.dat 被占用、options.txt 提交
+    // 失败、通用文件组中途拷不动……）时，管理页顶上照样写「应用完成。」、日志照样记
+    // "写入 N 项"，而面板里某一行明写着"做不了"。`Skip` 那几行是**办完了**（不算失败）。
     result.ok = true;
     for (const PresetApplyRow &row : result.rows) {
         if (row.blocked) {

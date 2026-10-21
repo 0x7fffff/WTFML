@@ -1,8 +1,6 @@
 /**
  * @file UpdateRollback.cpp
  * @brief 实现更新前的那个轻量回滚点（形状与取舍见 .hpp）。
- * @author 0x7fffff
- * @date 2026-10-13
  */
 
 #include "manage/UpdateRollback.hpp"
@@ -40,7 +38,7 @@ const QString kSha1Field = QStringLiteral("sha1");
 /// 一份文件的 sha1（小写十六进制）。读不动时回空串 —— **调用方必须把空串当失败**。
 ///
 /// NOTE: 和 `BackupFiles.cpp` 里那个同名的小函数是同一段代码（那一边也是"本地一份"）。
-///       两份**同一个算法**（整文件流式）是这里唯一的硬要求：份数不是问题，算法分叉才是。
+/// 两份**同一个算法**（整文件流式）是这里唯一的硬要求：份数不是问题，算法分叉才是。
 QString sha1OfFile(const QString &path) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
@@ -75,9 +73,9 @@ QString safeSegment(const QString &raw) {
     if (out.size() > 60) {
         out = out.left(60);
     }
-    // ★ 末尾再挂一段**原来的 id 的哈希**：清洗是**多对一**的（`a/b` 和 `a\b` 都变成 `a-b`），
-    //   而两个实例共用一份回滚点的后果是"还原的时候把 A 的旧文件写进 B 里"。哈希那一段让
-    //   清洗之后仍然**一一对应**，代价是目录名里多八个字符。
+    // 末尾再挂一段**原来的 id 的哈希**：清洗是**多对一**的（`a/b` 和 `a\b` 都变成 `a-b`），
+    // 而两个实例共用一份回滚点的后果是"还原的时候把 A 的旧文件写进 B 里"。哈希那一段让
+    // 清洗之后仍然**一一对应**，代价是目录名里多八个字符。
     QCryptographicHash hash(QCryptographicHash::Sha1);
     hash.addData(raw.toUtf8());
     return out + QLatin1Char('-') + QString::fromLatin1(hash.result().toHex().left(8));
@@ -219,14 +217,12 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
     }
 
     const QString dir = snapshotDir(instanceId);
-    // ★ 2026-10-20（keepPrevious）：上一趟那份**先改名、不删**。
-    //
-    //   从前这里是一句"先清掉上一趟那一份"：清完再抄新的。抄新的失败（盘满、文件被占着），
-    //   旧的回滚点已经没了；抄成了但调用方那一批被拒（下载器正忙 / 另一套安装状态机占着 /
-    //   接口给的文件名不能用），调用方 discard() 一撤，旧的同样没了 —— 两次都是"一个字节
-    //   都没动，用户却失去了『撤销上一次更新』"。
-    //   现在：旧的改名成 `<dir>.previous` 先留着；摆新的失败 → 改名回来；这一批被拒
-    //   （discard）→ 改名回来；只有这一批真开起来了，调用方才 commit() 把它删掉。
+    // 从前这里是一句"先清掉上一趟那一份"：清完再抄新的。抄新的失败（盘满、文件被占着），
+    // 旧的回滚点已经没了；抄成了但调用方那一批被拒（下载器正忙 / 另一套安装状态机占着 /
+    // 接口给的文件名不能用），调用方 discard() 一撤，旧的同样没了 —— 两次都是"一个字节
+    // 都没动，用户却失去了『撤销上一次更新』"。
+    // 现在：旧的改名成 `<dir>.previous` 先留着；摆新的失败 → 改名回来；这一批被拒
+    // （discard）→ 改名回来；只有这一批真开起来了，调用方才 commit() 把它删掉。
     const QString previous = dir + QStringLiteral(".previous");
     // An interrupted preparation has not accepted a new batch. Restore the retained
     // snapshot first, including when a partial new directory was already created.
@@ -269,8 +265,8 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
             return Snapshot{};
         }
     }
-    // ★ **先清掉上一趟那一份**（见 .hpp 里"为什么只留最新那一份"那段）。清不动就当场
-    //   停：留着上一趟的东西混进这一趟，还原的时候会把上一次的文件写回来。
+    // **先清掉上一趟那一份**（见 .hpp 里"为什么只留最新那一份"那段）。清不动就当场
+    // 停：留着上一趟的东西混进这一趟，还原的时候会把上一次的文件写回来。
     if (QFileInfo::exists(dir) && !removeTreeWithoutFollowingLinks(dir)) {
         if (problemOut != nullptr) {
             *problemOut = QObject::tr("清不掉上一次的回滚点（%1），它可能正被别的程序占着。")
@@ -404,9 +400,6 @@ Snapshot read(const QString &instanceId, bool *ok, QString *problemOut) {
 bool discard(const QString &instanceId) {
     const QString dir = snapshotDir(instanceId);
     const QString previous = dir + QStringLiteral(".previous");
-    // ★ 2026-10-20：`create(..., keepPrevious=true)` 把上一趟那份改名成了 `.previous`。
-    //   走到这儿 = 这一批没开起来（一个字节都没动）⇒ 把上一趟那份**还回去**，
-    //   而不是连同这一趟刚抄的一起删掉（那样用户就失去了「撤销上一次更新」）。
     if (QFileInfo::exists(previous)) {
         if (QFileInfo::exists(dir) && !removeTreeWithoutFollowingLinks(dir)) {
             return false;

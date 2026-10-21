@@ -1,9 +1,7 @@
 /**
  * @file ServerPropertiesForm.hpp
  * @brief 服务端工作区里「**这十几个旋钮**」那一层（coding plan §6.3 第二阶段 / 里程碑 M4-4）：
- *        常用字段是哪几个、每一项现在是什么值、用户敲进来的值收不收、把改过的那几项合回文件。
- * @author 0x7fffff
- * @date 2026-10-13
+ * 常用字段是哪几个、每一项现在是什么值、用户敲进来的值收不收、把改过的那几项合回文件。
  *
  * 【它和 `ServerModel::Properties` 的分工】
  *
@@ -12,12 +10,12 @@
  *
  * 这一层回答的是另外两件事：
  *
- *   * 「**常用的那几项**是哪几个、叫什么名字、值域多少、没写时游戏自己用什么」（`commonFields()`）
- *     —— §6.3 要的"常用字段表单"就是这个表的落点；
- *   * 「用户敲进那一格的东西**能不能收**」（`accepts()`）—— 表单比文本编辑器多出来的那一点
- *     价值全在这儿：文本编辑器让用户把 `server-port` 敲成 `abc` 也能存下去，而服务端下次
- *     启动会**直接崩**在解析上（那是个 java 的 `NumberFormatException`，报错里一个字都不提
- *     `server.properties`）。
+ * * 「**常用的那几项**是哪几个、叫什么名字、值域多少、没写时游戏自己用什么」（`commonFields()`）
+ * —— §6.3 要的"常用字段表单"就是这个表的落点；
+ * * 「用户敲进那一格的东西**能不能收**」（`accepts()`）—— 表单比文本编辑器多出来的那一点
+ * 价值全在这儿：文本编辑器让用户把 `server-port` 敲成 `abc` 也能存下去，而服务端下次
+ * 启动会**直接崩**在解析上（那是个 java 的 `NumberFormatException`，报错里一个字都不提
+ * `server.properties`）。
  *
  * 所以这一层照旧是**纯函数、不碰盘、不看时钟**（和 `ServerModel` 同一档），验证工程喂几个
  * 字符串进来就能把整张表钉死。
@@ -37,8 +35,8 @@
  * 自己的界，不是"我们觉得合适"的界。
  *
  * NOTE: **`commonFields()` 是这一页的规格唯一出处**：界面上摆哪十几行、`ServerCheck` 拿哪
- *       几项去体检、页面上那几行字怎么排，全从这个表来。加一项只改这一处（别在界面里另写
- *       一份"这一行叫什么"）。
+ * 几项去体检、页面上那几行字怎么排，全从这个表来。加一项只改这一处（别在界面里另写
+ * 一份"这一行叫什么"）。
  */
 
 #pragma once
@@ -74,10 +72,10 @@ struct Field {
     Kind kind = Kind::Text;
     /// **文件里没写这一项时，游戏自己用的那个值**。
     ///
-    /// ★ 这一格是"表单上显示什么"的唯一出处：盘上那份 `server.properties` 只写游戏**自己
-    ///   生成的**那些键，而一个新装的、还没跑过的服务端目录里**根本没有这个文件** —— 那时
-    ///   表单上填的就是缺省值（用户按下保存才落盘）。别用空串代替它：空串在 `online-mode`
-    ///   那一格上会被写进去，服务端读到空值会当 false —— 一个把正版验证悄悄关掉的"默认值"。
+    /// 这一格是"表单上显示什么"的唯一出处：盘上那份 `server.properties` 只写游戏**自己
+    /// 生成的**那些键，而一个新装的、还没跑过的服务端目录里**根本没有这个文件** —— 那时
+    /// 表单上填的就是缺省值（用户按下保存才落盘）。别用空串代替它：空串在 `online-mode`
+    /// 那一格上会被写进去，服务端读到空值会当 false —— 一个把正版验证悄悄关掉的"默认值"。
     QString fallback;
     int min = 0;  ///< `Number` 那档的下界（游戏自己的界）
     int max = 0;  ///< `Number` 那档的上界
@@ -130,14 +128,14 @@ bool isInFile(const ServerModel::Properties &properties, const Field &field);
  *
  * @param raw 界面上那一格现在的内容（字符串形态）。
  * @param normalized 收的时候回**真要写进文件的那个字符串**（数字规范化成十进制、开关一律
- *        `true`/`false`、下拉框回表里拼的那个词、前后空白裁掉）。
+ * `true`/`false`、下拉框回表里拼的那个词、前后空白裁掉）。
  * @param problem 不收时那句话（人话，直接摆给用户）。
  * @return 收 = true。
  *
- * ★ 数字这一档**不做"帮你改一改"**：`" 10 "` 收（裁空白是安全的），但 `"1e3"`、
- *   `"10.0"`、`"0x10"` 一律**不收**并说清楚要整数 —— `toInt()` 对后面那三种会静默回 0，
- *   而 0 在 `view-distance` 那一格上是个合法的烂值（服务端会把它 clamp 到 3，用户却以为
- *   自己填的生效了）。宁可挡在这儿。
+ * 数字这一档**不做"帮你改一改"**：`" 10 "` 收（裁空白是安全的），但 `"1e3"`、
+ * `"10.0"`、`"0x10"` 一律**不收**并说清楚要整数 —— `toInt()` 对后面那三种会静默回 0，
+ * 而 0 在 `view-distance` 那一格上是个合法的烂值（服务端会把它 clamp 到 3，用户却以为
+ * 自己填的生效了）。宁可挡在这儿。
  */
 bool accepts(const Field &field, const QString &raw, QString *normalized, QString *problem);
 
@@ -153,7 +151,7 @@ struct Edit {
 
 /// 某几项现在的值（界面上的表单读回来的那一份）。
 /// NOTE: 用 `QList<QPair>` 而不是 `QHash`：这一层**从来不按散列顺序办事**，而"改了哪几项"
-///       这个次序在日志和判据里都要看得出来（同 `ServerModel::Properties` 保序那条理由）。
+/// 这个次序在日志和判据里都要看得出来（同 `ServerModel::Properties` 保序那条理由）。
 using Values = QList<QPair<QString, QString>>;
 
 /// 从一份 Properties 里把那几项读出来（没有的项回 `fallback`）。**顺序跟着 `fields` 走**。
@@ -164,9 +162,9 @@ Values valuesOf(const ServerModel::Properties &properties, const QList<Field> &f
  *
  * @return **真的改了几项**（值原来就是那样、或者那个键在文件里已经有一模一样的值 ⇒ 不算改）。
  *
- * ★ 只碰 `edits` 里点名的键：别的行（注释、空行、用户手写的别的项、键的顺序、行尾）一个
- *   字节都不动 —— 靠的是 `Properties::setValue()` 那条"改第一个出现的同名键、没有就追加"
- *   的路。所以这一层写出来的文件是"用户那份 + 他改的那几项"，不是"我们重新生成的一份"。
+ * 只碰 `edits` 里点名的键：别的行（注释、空行、用户手写的别的项、键的顺序、行尾）一个
+ * 字节都不动 —— 靠的是 `Properties::setValue()` 那条"改第一个出现的同名键、没有就追加"
+ * 的路。所以这一层写出来的文件是"用户那份 + 他改的那几项"，不是"我们重新生成的一份"。
  */
 int applyEdits(ServerModel::Properties &properties, const Values &edits);
 
@@ -187,7 +185,7 @@ struct ValueProblem {
  * @return 不合规矩的那些（空 = 都对）。
  *
  * NOTE: 只查**文件里真写着的**项 —— 缺省值来自这张表、它按定义就是合法的，报出来只会
- *       制造噪音（那也正是"新装的、还没跑过的服务端"这一页打开时的样子）。
+ * 制造噪音（那也正是"新装的、还没跑过的服务端"这一页打开时的样子）。
  */
 QList<ValueProblem> problemsIn(const ServerModel::Properties &properties);
 

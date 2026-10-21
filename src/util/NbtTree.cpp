@@ -1,8 +1,6 @@
 /**
  * @file NbtTree.cpp
  * @brief NbtTree 的实现：一个**保序、全类型**的 NBT 建树读取器 + 写回器，外加游戏规则那两格。
- * @author 0x7fffff
- * @date 2026-09-28
  *
  * 【为什么读写分成"两套游标"而不是一套】
  *
@@ -158,8 +156,8 @@ private:
  * 处理，解出来的两个 QChar 本来就该是"高代理 + 低代理"相邻躺在一个 QString 里。
  *
  * NOTE: 和 `util/NbtUtil.cpp` 里那份**逐条同规矩**（那一份是匿名命名空间的，够不着，
- *       所以这里重写一遍）。两份都要改的话，得一起改 —— 好在"解出来和 Java 那边一样"
- *       这件事是死的，不会各自演化。
+ * 所以这里重写一遍）。两份都要改的话，得一起改 —— 好在"解出来和 Java 那边一样"
+ * 这件事是死的，不会各自演化。
  */
 QString decodeModifiedUtf8(const QByteArray &bytes) {
     QString out;
@@ -710,8 +708,8 @@ bool setValueText(Node *node, const QString &text) {
         return true;
     }
     case Type::String: {
-        // ★ 长度上限是**编码之后**的字节数（NBT 的长度前缀是 quint16）。超了就拒绝，
-        //   而不是写一个会被截断的值回去 —— "写进去的和用户看见的不一样"是最坏的一种。
+        // 长度上限是**编码之后**的字节数（NBT 的长度前缀是 quint16）。超了就拒绝，
+        // 而不是写一个会被截断的值回去 —— "写进去的和用户看见的不一样"是最坏的一种。
         if (encodeModifiedUtf8(text).size() > 0xFFFF) {
             return false;
         }
@@ -763,9 +761,9 @@ QStringList pathParts(const QString &path) {
 }  // namespace
 
 // NOTE: `const` 与不 `const` 这两份是**分开写的两个循环**，没有合成一个模板。试过，
-//       `field()` 那对重载在模板里过不了（模板里 `current` 是 `T *`，两个重载得靠
-//       `const` 限定去分，而 GCC 在这条路上只挑得中不带 `const` 的那个）。八行代码，
-//       不值得为它绕一圈。
+// `field()` 那对重载在模板里过不了（模板里 `current` 是 `T *`，两个重载得靠
+// `const` 限定去分，而 GCC 在这条路上只挑得中不带 `const` 的那个）。八行代码，
+// 不值得为它绕一圈。
 const Node *descend(const Node &root, const QString &path) {
     const Node *current = &root;
     for (const QString &part : pathParts(path)) {
@@ -912,9 +910,9 @@ bool gameRulesOf(const Node &root, QList<GameRule> *out, QString *problemOut) {
         return false;
     }
     for (const Field &item : rules->fields) {
-        // ★ 值必须是字符串：不是的那一条**跳过**而不是拒绝整份文件 —— 一张表里有一条
-        //   形状不对（模组写的），不该让别的几十条都改不了。跳过的那一条不报数：
-        //   界面上少一条、用户看不出来，而"少的那条"在游戏里照样是那个值（我们没碰它）。
+        // 值必须是字符串：不是的那一条**跳过**而不是拒绝整份文件 —— 一张表里有一条
+        // 形状不对（模组写的），不该让别的几十条都改不了。跳过的那一条不报数：
+        // 界面上少一条、用户看不出来，而"少的那条"在游戏里照样是那个值（我们没碰它）。
         if (item.second.type != Type::String) {
             continue;
         }
@@ -939,9 +937,9 @@ bool setGameRule(Node *root, const QString &name, const QString &value, QString 
     };
     Node *rules = descend(root, QStringLiteral("Data/GameRules"));
     if (rules == nullptr && whenMissing == MissingRule::Create) {
-        // ★ 2026-09-29：这一档是给"这个世界还没被游戏写过档"那种情况用的（`Data/GameRules`
-        //   那一格压根不在）。**只在 `Data` 本身是复合标签时建** —— 连 `Data` 都不是的话，
-        //   这份 level.dat 的形状我们看不懂，宁可一个字都不写。
+        // 这一档是给"这个世界还没被游戏写过档"那种情况用的（`Data/GameRules`
+        // 那一格压根不在）。**只在 `Data` 本身是复合标签时建** —— 连 `Data` 都不是的话，
+        // 这份 level.dat 的形状我们看不懂，宁可一个字都不写。
         Node *data = descend(root, QStringLiteral("Data"));
         if (data != nullptr && data->type == Type::Compound) {
             Field fresh;
@@ -986,7 +984,7 @@ bool setGameRule(Node *root, const QString &name, const QString &value, QString 
         rules->fields.append(fresh);
         return true;
     }
-    // ★ 默认那一档：不发明新规则（理由见 .hpp 里那一段）。
+    // 默认那一档：不发明新规则（理由见 .hpp 里那一段）。
     return missing(QCoreApplication::translate(
         "NbtTree", "这个世界里没有叫「%1」的规则 —— 这一页只改世界里已经有的那些。")
                        .arg(name));

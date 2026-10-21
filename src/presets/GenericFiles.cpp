@@ -1,8 +1,6 @@
 /**
  * @file GenericFiles.cpp
  * @brief 实现 GenericFiles.hpp（扫这一组 / 算这一趟 / 落盘）。理由和取舍都写在那边文件头。
- * @author 0x7fffff
- * @date 2026-10-15
  *
  * 【这一层里唯一一处"写盘"长什么样】
  *
@@ -131,10 +129,10 @@ bool walkItem(const QString &sourceRoot, const QString &targetRoot, FileGroup gr
 bool walkDir(const QString &sourceDir, const QString &targetDir, const QString &sourceGroupDir,
              const QString &targetGroupDir, const QString &groupDirName, bool overwrite,
              bool dryRun, WalkCounts *counts, QString *problemOut) {
-    // ★ 目标这一层**自己**就是一根链接 ⇒ 拒。这一道非有不可：调用方那一手 `mkpath()`
-    //   对着一根已经存在的 junction 回 true（它"已经有了"），接着往下递归就是**写到链接
-    //   那头去** —— 而名字那两道闸看这条路径完全正常（`config/子目录/深.txt`）。挡住它的
-    //   只可能是"目标这一层是不是链接"这一条。
+    // 目标这一层**自己**就是一根链接 ⇒ 拒。这一道非有不可：调用方那一手 `mkpath()`
+    // 对着一根已经存在的 junction 回 true（它"已经有了"），接着往下递归就是**写到链接
+    // 那头去** —— 而名字那两道闸看这条路径完全正常（`config/子目录/深.txt`）。挡住它的
+    // 只可能是"目标这一层是不是链接"这一条。
     if (isLink(QFileInfo(targetDir))) {
         failWith(problemOut, presetText("目标上的「%1」是一根链接，没有动它。").arg(targetDir));
         return false;
@@ -154,18 +152,18 @@ bool walkDir(const QString &sourceDir, const QString &targetDir, const QString &
                                      .arg(groupDirName, entry.fileName()));
             return false;
         }
-        // ★ 第 3 道闸（第 1、2 道在扫和读段那一趟判过了，但那两道判的都是**字面**路径）：
-        //   真正挡住"链接逃逸"的是这两个 —— `pathIsSameOrInside()` 自己会解 junction。
+        // 第 3 道闸（第 1、2 道在扫和读段那一趟判过了，但那两道判的都是**字面**路径）：
+        // 真正挡住"链接逃逸"的是这两个 —— `pathIsSameOrInside()` 自己会解 junction。
         if (!InstanceFiles::pathIsSameOrInside(sourceGroupDir, sourceFile)) {
             failWith(problemOut, presetText("「%1」落到这一组目录外面去了（链接？），没有动它。")
                                      .arg(sourceFile));
             return false;
         }
-        // ★ 目标那一侧**先看它是不是一根链接**，再看它在不在这一组目录底下。两件事都得判，
-        //   但链接那条先说：一句话「往一根链接里写」是把问题说清楚了，而「在这一组目录
-        //   外面」只说了现象（链接的 `canonicalFilePath()` 解不开，所以挡住它的其实是下面
-        //   第二道——两句话说的是同一件事，第一句能让人直接去 `mklink` 那儿看）。
-        //   同一道闸挡的还有**目录**：目标上某一层是链接时，接着递归就会写到链接那头去。
+        // 目标那一侧**先看它是不是一根链接**，再看它在不在这一组目录底下。两件事都得判，
+        // 但链接那条先说：一句话「往一根链接里写」是把问题说清楚了，而「在这一组目录
+        // 外面」只说了现象（链接的 `canonicalFilePath()` 解不开，所以挡住它的其实是下面
+        // 第二道——两句话说的是同一件事，第一句能让人直接去 `mklink` 那儿看）。
+        // 同一道闸挡的还有**目录**：目标上某一层是链接时，接着递归就会写到链接那头去。
         const QFileInfo targetInfo(targetFile);
         if (isLink(targetInfo)) {
             failWith(problemOut, presetText("目标上的「%1」是一根链接，没有动它。")
@@ -224,11 +222,11 @@ bool walkItem(const QString &sourceRoot, const QString &targetRoot, FileGroup gr
     const QString sourceGroupDir = genericJoined(sourceRoot, groupDirName);
     const QString targetGroupDir = genericJoined(targetRoot, groupDirName);
 
-    // ★ 组根自己是一根链接 ⇒ 不往下走（2026-10-20）。`walkDir()` 那道 `isLink(targetDir)`
-    //   判的是**这一次要落的那个目录**，而组根在它上面一层：`<实例>/config` 是 junction 时，
-    //   `walkDir()` 拿到的是 `<实例>/config/某某`（孩子本身不是链接），于是整条路穿过去。
-    //   ★ 源那一侧同理：`scanFileGroup()` 现在也会挡，但这里再判一次是因为
-    //     `applyFileGroup(…, items)` 那一档的清单可以来自预设段（那一趟没有扫盘）。
+    // 组根自己是一根链接 ⇒ 不往下走。`walkDir()` 那道 `isLink(targetDir)`
+    // 判的是**这一次要落的那个目录**，而组根在它上面一层：`<实例>/config` 是 junction 时，
+    // `walkDir()` 拿到的是 `<实例>/config/某某`（孩子本身不是链接），于是整条路穿过去。
+    // 源那一侧同理：`scanFileGroup()` 现在也会挡，但这里再判一次是因为
+    // `applyFileGroup(…, items)` 那一档的清单可以来自预设段（那一趟没有扫盘）。
     if (isLink(QFileInfo(sourceGroupDir))) {
         failWith(problemOut,
                  presetText("「%1」是一根链接（符号链接 / junction），没有跟着它走。")
@@ -260,7 +258,7 @@ bool walkItem(const QString &sourceRoot, const QString &targetRoot, FileGroup gr
     }
 
     const QString targetAbs = genericJoined(targetRoot, item.relativePath);
-    // ★ 次序同 `walkDir()` 那一段（链接先、逃逸后）—— 理由也在那儿。
+    // 次序同 `walkDir()` 那一段（链接先、逃逸后）—— 理由也在那儿。
     const QFileInfo targetInfo(targetAbs);
     if (isLink(targetInfo)) {
         failWith(problemOut, presetText("目标上的「%1」是一根链接，没有往它里面写。")
@@ -289,7 +287,6 @@ bool walkItem(const QString &sourceRoot, const QString &targetRoot, FileGroup gr
     return copyOneFile(sourceAbs, targetAbs, problemOut);
 }
 
-/// 把报告里"这一项怎么落的"那几个数加上去。
 void countAction(const GenericPlanItem &row, int *replaced, int *copied, int *skipped,
                  int *needsChoice) {
     switch (row.action) {
@@ -310,10 +307,10 @@ void countAction(const GenericPlanItem &row, int *replaced, int *copied, int *sk
 
 /// 「整组不认」的那一份计划：**把已经攒下的那些数一起清干净**。
 ///
-/// ★ 这一手不是洁癖。路径那两道路径判据是在**逐项**的那一趟里判的，所以坏项恰好在清单
-///   尾巴上时，前面那几项已经攒进 `replaced` 了 —— 而读者（报告、界面）看的是
-///   `writesAnything()`：不清的话它会说"这一趟要写 4 项"，而其实一个字节都不会写。
-///   `ok = false` 的计划里**清单和四个计数都必须是空的**，那是一句能兑现的承诺。
+/// 这一手不是洁癖。路径那两道路径判据是在**逐项**的那一趟里判的，所以坏项恰好在清单
+/// 尾巴上时，前面那几项已经攒进 `replaced` 了 —— 而读者（报告、界面）看的是
+/// `writesAnything()`：不清的话它会说"这一趟要写 4 项"，而其实一个字节都不会写。
+/// `ok = false` 的计划里**清单和四个计数都必须是空的**，那是一句能兑现的承诺。
 GenericPlan refusePlan(GenericPlan plan, const QString &why) {
     plan.ok = false;
     plan.problem = why;
@@ -338,8 +335,8 @@ QString fileGroupDirName(FileGroup group) {
     case FileGroup::DefaultConfigs:
         return QStringLiteral("defaultconfigs");
     case FileGroup::ResourcePacks:
-        // ★ 不写死：这一串还得和"下载页把资源包下到哪儿"一致，而那件事的唯一出处是
-        //   `ResourceCatalog` 那张表（见 .hpp 里那段）。
+        // 不写死：这一串还得和"下载页把资源包下到哪儿"一致，而那件事的唯一出处是
+        // `ResourceCatalog` 那张表（见 .hpp 里那段）。
         return ResourceCatalog::folderForKind(ResourceCatalog::Kind::ResourcePack);
     case FileGroup::ShaderPacks:
         return ResourceCatalog::folderForKind(ResourceCatalog::Kind::Shader);
@@ -414,8 +411,8 @@ QString genericJoined(const QString &root, const QString &relativePath) {
     while (base.endsWith(QLatin1Char('/')) || base.endsWith(QLatin1Char('\\'))) {
         base.chop(1);
     }
-    // ★ **不做 `QDir::cleanPath()`**：这一层的每一道闸判的都是**字面**路径，清理一遍之后
-    //   `config/../../x` 就变成 `x` 了 ——"名字里有没有 `..`"这件事再也看不出来。
+    // **不做 `QDir::cleanPath()`**：这一层的每一道闸判的都是**字面**路径，清理一遍之后
+    // `config/../../x` 就变成 `x` 了 ——"名字里有没有 `..`"这件事再也看不出来。
     return base + QLatin1Char('/') + relativePath;
 }
 
@@ -439,8 +436,8 @@ bool genericConfigLooksStructured(const QString &absolutePath) {
     if (!info.exists() || !info.isFile()) {
         return false;
     }
-    // ★ 大文件**不看**：`config/` 底下该有的都是几 KB 的东西，几十 MB 的 JSON 只可能是
-    //   别的什么（而"读它一遍"这件事本身就不该在一份**计划**里发生）。
+    // 大文件**不看**：`config/` 底下该有的都是几 KB 的东西，几十 MB 的 JSON 只可能是
+    // 别的什么（而"读它一遍"这件事本身就不该在一份**计划**里发生）。
     constexpr qint64 kMaxSniffBytes = 8 * 1024 * 1024;
     if (info.size() > kMaxSniffBytes) {
         return false;
@@ -456,9 +453,9 @@ bool genericConfigLooksStructured(const QString &absolutePath) {
 
 bool genericItemIsCopyOnly(FileGroup group, const QString &relativePath,
                            const QString &absolutePath) {
-    // ★ 这个记号的**唯一出处**（§6 P3 最后那条 + §6 P4 那条"按结构认"）。两截判法写在
-    //   头文件那一段里，这儿只说为什么是这个次序：**名字那两关先拦掉绝大多数**（不是
-    //   `config/` 底下的、不是 `.json` 的连盘都不用开），剩下那几份才真去读一遍内容。
+    // 这个记号的**唯一出处**（§6 P3 最后那条 + §6 P4 那条"按结构认"）。两截判法写在
+    // 头文件那一段里，这儿只说为什么是这个次序：**名字那两关先拦掉绝大多数**（不是
+    // `config/` 底下的、不是 `.json` 的连盘都不用开），剩下那几份才真去读一遍内容。
     if (group != FileGroup::Config) {
         return true;
     }
@@ -468,9 +465,9 @@ bool genericItemIsCopyOnly(FileGroup group, const QString &relativePath,
     if (absolutePath.isEmpty()) {
         return true;  // 没有盘上的位置 ⇒ 只能按名字算（见头文件那一条）
     }
-    // ★ 到这儿 = `config/` 底下的一份 `.json`。它是不是 MaLiLib 那一族，问**那一层**
-    //   （判据只有一处，这边不自己认结构）。依赖是**单向**的：通用文件组知道 MaLiLib
-    //   那一族的存在，反过来那边一个字都不知道通用文件组。
+    // 到这儿 = `config/` 底下的一份 `.json`。它是不是 MaLiLib 那一族，问**那一层**
+    // （判据只有一处，这边不自己认结构）。依赖是**单向**的：通用文件组知道 MaLiLib
+    // 那一族的存在，反过来那边一个字都不知道通用文件组。
     return !genericConfigLooksStructured(absolutePath);
 }
 
@@ -486,12 +483,12 @@ bool scanFileGroup(const QString &root, FileGroup group, QList<GenericItem> *out
     const QString groupDirName = fileGroupDirName(group);
     const QString groupDir = genericJoined(root, groupDirName);
     const QFileInfo groupInfo(groupDir);
-    // ★ 这一组**自己**是一根链接 ⇒ 整组不扫（2026-10-20）。这一道挡的是"组根被挂到别处"：
-    //   逐项那道 `isLink(entry)` 只看组里的**条目**，组根本身是 junction 时它一条都不挡 ——
-    //   扫（和后面的写）全都会穿到链接那一头去。用户把 `config` / `resourcepacks` 挂到
-    //   共享盘是常见做法，而这一层的承诺是"只动这个实例"（见 .hpp 文件头）。
-    //   ★ 先判链接再判存在：一根**悬空**的 junction `exists()` 是 false，按"这一组不在"
-    //     放过去的话，后面 `mkpath()` 会顺着它建到链接那一头。
+    // 这一组**自己**是一根链接 ⇒ 整组不扫。这一道挡的是"组根被挂到别处"：
+    // 逐项那道 `isLink(entry)` 只看组里的**条目**，组根本身是 junction 时它一条都不挡 ——
+    // 扫（和后面的写）全都会穿到链接那一头去。用户把 `config` / `resourcepacks` 挂到
+    // 共享盘是常见做法，而这一层的承诺是"只动这个实例"（见 .hpp 文件头）。
+    // 先判链接再判存在：一根**悬空**的 junction `exists()` 是 false，按"这一组不在"
+    // 放过去的话，后面 `mkpath()` 会顺着它建到链接那一头。
     if (isLink(groupInfo)) {
         failWith(problemOut,
                  presetText("「%1」是一根链接（符号链接 / junction），没有扫它。").arg(groupDir));
@@ -579,8 +576,6 @@ GenericPlan planFileGroup(const QString &sourceRoot, const QList<GenericItem> &i
             row.reason = presetText("同名的那一份换成预设里的（目标上多出来的文件不动）。");
             break;
         case ApplyMode::CopyIfMissing: {
-            // ★ 先干跑一趟看目标上缺不缺：一项底下**一份都不缺**时这一项就是"不用动"，
-            //   而不是"复制 0 个文件"（报告和界面上那两个数差得很远）。
             FileGroup group = FileGroup::Config;
             if (!fileGroupOfPath(item.relativePath, &group)) {
                 return refusePlan(
@@ -608,10 +603,10 @@ GenericPlan planFileGroup(const QString &sourceRoot, const QList<GenericItem> &i
         case ApplyMode::Merge:
         case ApplyMode::Append: {
             row.action = GenericAction::NeedsChoice;
-            // ★ 「我们认不认得出它的结构」**这儿再算一遍**，而且这次带上**源那一侧的盘上
-            //   位置**：`GenericItem::copyOnly` 那一格可能是从段载荷读回来的（那儿只有相对
-            //   路径、名字那一截说了算），而 P4 的 MaLiLib 那一族是**按结构**认的。
-            //   两截判法合起来只有一处（`genericItemIsCopyOnly()`），这儿只是**喂它一个位置**。
+            // 「我们认不认得出它的结构」**这儿再算一遍**，而且这次带上**源那一侧的盘上
+            // 位置**：`GenericItem::copyOnly` 那一格可能是从段载荷读回来的（那儿只有相对
+            // 路径、名字那一截说了算），而 P4 的 MaLiLib 那一族是**按结构**认的。
+            // 两截判法合起来只有一处（`genericItemIsCopyOnly()`），这儿只是**喂它一个位置**。
             FileGroup groupOfItem = FileGroup::Config;
             const bool copyOnly =
                 item.copyOnly &&
@@ -655,8 +650,8 @@ GenericReport applyFileGroupItems(const QString &sourceRoot, const QString &targ
         return report;
     }
 
-    // ★ `plan.items` 和 `items` **一一对应、同一个次序**（那是上面那趟扫出来的顺序，
-    //   `planFileGroup()` 一项一项地收）—— 所以按下标取，不按名字再找一遍。
+    // `plan.items` 和 `items` **一一对应、同一个次序**（那是上面那趟扫出来的顺序，
+    // `planFileGroup()` 一项一项地收）—— 所以按下标取，不按名字再找一遍。
     for (int i = 0; i < items.size(); ++i) {
         const GenericPlanItem &row = plan.items.at(i);
         if (row.action == GenericAction::Skip || row.action == GenericAction::NeedsChoice) {
@@ -666,8 +661,8 @@ GenericReport applyFileGroupItems(const QString &sourceRoot, const QString &targ
         if (!walkItem(sourceRoot, targetRoot, group, items.at(i),
                       row.action == GenericAction::Replace, false, &counts, &why)) {
             report.problem = why;
-            // ★ 已经写下去的那些**留在盘上**（见 .hpp 文件头末尾）—— `ok = false` 就是要
-            //   让调用方知道"这一趟没走完"，而不是"什么都没做"。
+            // 已经写下去的那些**留在盘上**（见 .hpp 文件头末尾）—— `ok = false` 就是要
+            // 让调用方知道"这一趟没走完"，而不是"什么都没做"。
             return report;
         }
         report.filesWritten += counts.written;
@@ -699,10 +694,10 @@ GenericReport applyFileGroup(const QString &sourceRoot, const QString &targetRoo
 
 GenericReport applyFileGroup(const QString &sourceRoot, const QString &targetRoot, FileGroup group,
                              ApplyMode mode, const QList<GenericItem> &items) {
-    // ★ 清单就是清单（2026-10-20 加的那一档）：预设段里列了哪几项，这一趟就只动哪几项。
-    //   从前这里不管调用方手里的清单、直接重扫预设的 `files/<组>` —— 而那份目录里可能
-    //   躺着**清单之外**的文件（提取那一档"覆盖同名、多出来的不删"，重收之后旧的仍在），
-    //   于是计划/备份按清单算、真正落盘的按盘上算，两边对不上（多落的那几份还不在备份里）。
+    // 清单就是清单（ 加的那一档）：预设段里列了哪几项，这一趟就只动哪几项。
+    // 从前这里不管调用方手里的清单、直接重扫预设的 `files/<组>` —— 而那份目录里可能
+    // 躺着**清单之外**的文件（提取那一档"覆盖同名、多出来的不删"，重收之后旧的仍在），
+    // 于是计划/备份按清单算、真正落盘的按盘上算，两边对不上（多落的那几份还不在备份里）。
     return applyFileGroupItems(sourceRoot, targetRoot, group, items, mode, QStringList());
 }
 
@@ -762,8 +757,8 @@ bool sectionsFromFileGroup(FileGroup group, const QList<GenericItem> &items, App
         }
         QJsonObject row;
         row.insert(QStringLiteral("path"), item.relativePath);
-        // ★ `copyOnly` **照样写下去**：它是 §6 P3 那条"未知配置明确标记"在盘上的样子 ——
-        //   换一个启动器读这份预设时，它自己能不能合并这一项，看的就是这一格。
+        // `copyOnly` **照样写下去**：它是 §6 P3 那条"未知配置明确标记"在盘上的样子 ——
+        // 换一个启动器读这份预设时，它自己能不能合并这一项，看的就是这一格。
         row.insert(QStringLiteral("copyOnly"), item.copyOnly);
         section.items.append(row);
     }
@@ -847,8 +842,8 @@ bool fileGroupFromSection(const PresetSection &section, QList<GenericItem> *out,
 
         GenericItem item;
         item.relativePath = relative;
-        // ★ `copyOnly` 认不出来时按**这一层的判据**算一遍（别信盘上那一格：它可能是手改的，
-        //   也可能是一份旧预设留下的）。
+        // `copyOnly` 认不出来时按**这一层的判据**算一遍（别信盘上那一格：它可能是手改的，
+        // 也可能是一份旧预设留下的）。
         item.copyOnly = genericItemIsCopyOnly(belongsTo, relative);
         items.append(item);
     }

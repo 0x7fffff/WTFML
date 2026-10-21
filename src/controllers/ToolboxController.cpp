@@ -1,8 +1,6 @@
 /**
  * @file ToolboxController.cpp
  * @brief ToolboxController 的实现（为什么这么分、哪几件事不归它管，见头文件那一段）。
- * @author 0x7fffff
- * @date 2026-10-16
  */
 
 #include "controllers/ToolboxController.hpp"
@@ -62,9 +60,9 @@ QString unitText(const QMap<QString, int> &enchantments, bool isBook) {
 
 /// 文本生成器那三种输出里那一段/几段的 HTML（预览那一格画的）。
 ///
-/// ★ 颜色走 `MotdText::readableOn()`：游戏那边底色是黑的，服务器配的 `§f` 白字直接搬到
-///   我们的浅底上等于没画。这一页是"看一眼长什么样"，所以浅底上读不清的那些**压暗到读得清**
-///   —— 和服务器列表里那条 MOTD 是同一套做法（同一个函数，唯一出处）。
+/// 颜色走 `MotdText::readableOn()`：游戏那边底色是黑的，服务器配的 `§f` 白字直接搬到
+/// 我们的浅底上等于没画。这一页是"看一眼长什么样"，所以浅底上读不清的那些**压暗到读得清**
+/// —— 和服务器列表里那条 MOTD 是同一套做法（同一个函数，唯一出处）。
 QString segmentsToHtml(const QList<TextFormat::Segment> &segments, const QColor &background) {
     QString html;
     for (const TextFormat::Segment &segment : segments) {
@@ -366,9 +364,9 @@ void ToolboxController::shutdown() {
     if (m_hashThread != nullptr) {
         m_hashThread->wait();
     }
-    // ★ 2026-10-20：指针可能已经被放掉了（见两处算哈希的收尾），而那条线程还在最后几条
-    //   指令里。析构 QObject 会把子对象连同一条仍在跑的线程一起删掉 ⇒ qFatal。按子对象
-    //   兜一遍底，保证收手时它们都已经退出。
+    // 指针可能已经被放掉了（见两处算哈希的收尾），而那条线程还在最后几条
+    // 指令里。析构 QObject 会把子对象连同一条仍在跑的线程一起删掉 ⇒ qFatal。按子对象
+    // 兜一遍底，保证收手时它们都已经退出。
     for (QThread *thread : findChildren<QThread *>()) {
         if (thread != m_hashThread) thread->wait();
     }
@@ -378,8 +376,8 @@ void ToolboxController::shutdown() {
 }
 
 QStringList ToolboxController::dimensionNames() const {
-    // ★ 能按比例换算的那三个（末地不在 8:1 那个关系里，但"从这一头看它在哪"这件事仍然
-    //   要能问，所以它也列出来 —— 只是结果那一段会写明"末地不按比例算"）。
+    // 能按比例换算的那三个（末地不在 8:1 那个关系里，但"从这一头看它在哪"这件事仍然
+    // 要能问，所以它也列出来 —— 只是结果那一段会写明"末地不按比例算"）。
     QStringList names;
     for (CoordConvert::Dimension dimension :
          {CoordConvert::Dimension::Overworld, CoordConvert::Dimension::Nether,
@@ -574,8 +572,8 @@ void ToolboxController::loadTextFromJson(const QString &json) {
         m_page->setTextNotice(tr("读回来了：%1 段。").arg(parsed.segments.size()));
         return;
     }
-    // ★ 认不出来的那几种组件**不猜**（`translate` 要查语言文件、`score` 要游戏在跑、
-    //   `selector` 要挑实体 —— 都不是这一层能算的）。把名字列出来，用户自己知道少读了什么。
+    // 认不出来的那几种组件**不猜**（`translate` 要查语言文件、`score` 要游戏在跑、
+    // `selector` 要挑实体 —— 都不是这一层能算的）。把名字列出来，用户自己知道少读了什么。
     m_page->setTextNotice(tr("这几样没读：%1 —— 它们要游戏里那台服务器（或者语言文件）"
                              "才算得出来，这一层不猜。")
                               .arg(parsed.unsupported.join(QStringLiteral("、"))));
@@ -828,11 +826,11 @@ void ToolboxController::runHash(const QString &path, int algorithmIndex, const Q
                                    : tr("哈希没算成：%1（%2）").arg(path, result.error));
                 }
                 // 线程自己收掉（这一趟结束了，下一趟要的是一条新的）。
-                // ★ 2026-10-20：**只放指针、不 deleteLater**。这一句跑的时候那条 QThread 还在
-                //   `run()` 的尾巴上（`invokeMethod` 投完就返回）；对一条仍在跑的线程调
-                //   deleteLater() 会让 Qt 处理 DeferredDelete 时
-                //   `qFatal("QThread: Destroyed while thread is still running")`。
-                //   线程对象自己接好了 finished → deleteLater（见下面创建处）。
+                // **只放指针、不 deleteLater**。这一句跑的时候那条 QThread 还在
+                // `run()` 的尾巴上（`invokeMethod` 投完就返回）；对一条仍在跑的线程调
+                // deleteLater() 会让 Qt 处理 DeferredDelete 时
+                // `qFatal("QThread: Destroyed while thread is still running")`。
+                // 线程对象自己接好了 finished → deleteLater（见下面创建处）。
                 if (m_hashThread != nullptr) {
                     m_hashThread = nullptr;
                 }
@@ -979,7 +977,6 @@ void ToolboxController::runHashBatch(const QStringList &paths, int algorithmInde
                                              .arg(failed));
                 }
                 if (m_hashThread != nullptr) {
-                    // ★ 2026-10-20：同上（单文件那一趟），只放指针、不 deleteLater。
                     m_hashThread = nullptr;
                 }
             },

@@ -17,17 +17,17 @@ InstanceGroupDelegate::InstanceGroupDelegate(QObject *parent) : QStyledItemDeleg
 
 QRect InstanceGroupDelegate::chevronRect(const QRect &row) {
     const int pad = MainWindowUI::versionTreeRowPadding();
-    // 边长按这一行的高度收一收。实例树 2026-09-25 之前没有行高常数（就是一行字那么高，
-    // 十几像素），2026-09-25 起钉了一个、2026-09-29 起换成它自己那个
+    // 边长按这一行的高度收一收。实例树 之前没有行高常数（就是一行字那么高，
+    // 十几像素）， 起钉了一个、 起换成它自己那个
     // （instanceTreeRowHeight() = 58）—— 所以这一缩现在**平时不生效**，留着是兜底：
     // 行高哪天再变矮，12 px 的箭头自己跟着缩，而不是上下各冒出去一条被切掉。
     const int arrowSize = qMin(MainWindowUI::versionTreeArrowSize(), row.height());
     // 贴着行右边缘（和 VersionTreeDelegate 算那个箭头是同一个式子："右边留出 pad"）。
     //
     // NOTE: 竖直位置走 `top + (行高 - 边长) / 2`，**不用 `row.center().y()`** —— 后者走的是
-    //       QRect::center()（= top + (h-1)/2），行高是**偶数**时分母那一半少一像素：行高
-    //       和边长一样时（就是上面那一档）那个箭头会往上冒一个像素出去，整屏重绘压到上面
-    //       那条行、局部重绘被切掉一条。这个式子在"边长 ≤ 行高"时恒在行内。
+    // QRect::center()（= top + (h-1)/2），行高是**偶数**时分母那一半少一像素：行高
+    // 和边长一样时（就是上面那一档）那个箭头会往上冒一个像素出去，整屏重绘压到上面
+    // 那条行、局部重绘被切掉一条。这个式子在"边长 ≤ 行高"时恒在行内。
     return QRect(row.right() - pad - arrowSize, row.top() + (row.height() - arrowSize) / 2,
                  arrowSize, arrowSize);
 }
@@ -79,9 +79,9 @@ void InstanceGroupDelegate::instanceActionGlyphRects(const QRect &row, QRect &ge
     // 竖直居中：和 chevronRect()/gearRect() 同一个式子（`top + (行高 - 边长) / 2`，**不用
     // `row.center().y()`**，理由见 chevronRect() —— 行高是偶数时分母那一半少一像素）。
     const int top = row.top() + (row.height() - size) / 2;
-    // ★ 右边缘用 `row.x() + row.width()`，**不是 `row.right()`**：后者是"最后一个像素的 x"
-    //   （= left + width - 1），拿它当锚整排会往左挪一个像素 —— 而这一像素正是调用方
-    //   （`MainWindow::eventFilter`）和代理对不齐的那种错。
+    // 右边缘用 `row.x() + row.width()`，**不是 `row.right()`**：后者是"最后一个像素的 x"
+    // （= left + width - 1），拿它当锚整排会往左挪一个像素 —— 而这一像素正是调用方
+    // （`MainWindow::eventFilter`）和代理对不齐的那种错。
     const int right = row.x() + row.width() - pad;
     // 右起：齿轮 → 上箭头 → 垃圾桶。每一颗都是"前一颗的左边再退一个间隔"。
     gear = QRect(right - size, top, size, size);
@@ -132,7 +132,7 @@ QRect InstanceGroupDelegate::instanceTrashGlyphRect(const QRect &row) {
 
 QString InstanceGroupDelegate::rowActionTip(const QModelIndex &index, const QRect &row,
                                             const QPoint &pos) {
-    // 组行那一半：这一行**只剩齿轮**一格（上下移那两颗 2026-09-25 搬进分组设置窗了，见 .hpp）。
+    // 组行那一半：这一行**只剩齿轮**一格（上下移那两颗 搬进分组设置窗了，见 .hpp）。
     if (index.data(MainWindowUI::rowGroupGearRole()).toBool() && gearRect(row).contains(pos)) {
         return MainWindowUI::rowGroupGearTipText();
     }
@@ -187,70 +187,66 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         QStyleOptionViewItem opt(option);
         // 悬停那一位**先读走、再抹掉**：它是给"下面我们自己画的那两颗悬停按钮"用的，
         // 本来就不是"这一行被指到了"这件事本身。
-        // ★ 2026-09-29 更正（和 VersionTreeDelegate::paint() 里那段同一个更正）：抹掉它
-        //   **本来就不是**为了挡悬停底色 —— 那一层在这个仓库里一直是**我们自己画**才有的
-        //   （见下面那段 fillRect）。核过 Qt 源码：`QCommonStyle::drawPrimitive(
-        //   PE_PanelItemViewItem)` 只认 `backgroundBrush` 和 `State_Selected`，从不看
-        //   `State_MouseOver`；Fusion 没覆写它、`Theme::createStyle()` 也没碰它。
-        //   抹掉这一位仍然要做：别让将来的样式插一层我们没要的底色，把下面那层盖掉。
+        // 更正（和 VersionTreeDelegate::paint() 里那段同一个更正）：抹掉它
+        // **本来就不是**为了挡悬停底色 —— 那一层在这个仓库里一直是**我们自己画**才有的
+        // （见下面那段 fillRect）。核过 Qt 源码：`QCommonStyle::drawPrimitive(
+        // PE_PanelItemViewItem)` 只认 `backgroundBrush` 和 `State_Selected`，从不看
+        // `State_MouseOver`；Fusion 没覆写它、`Theme::createStyle()` 也没碰它。
+        // 抹掉这一位仍然要做：别让将来的样式插一层我们没要的底色，把下面那层盖掉。
         // 读的是**原样传进来**的那个 option：这一位是视图填的，它在 initStyleOption 里
         // 留没留住不该由我们猜（version 树那边也特意读了传进来那一份）。
         const bool hovered = (option.state & QStyle::State_MouseOver) != 0;
         // NOTE: 除 State_MouseOver 之外**别的 state 一个都不许动** —— 这一行还要靠样式
-        //       画选中底色和文字/图标（选中那一位就在这个 state 里）。
+        // 画选中底色和文字/图标（选中那一位就在这个 state 里）。
         opt.state &= ~QStyle::State_MouseOver;
-        // ★★ 2026-09-27 修：正文要在**行尾那三颗按钮之前**停下。
+        // 原来这里是直接 `QStyledItemDelegate::paint(painter, opt, index)`，正文由样式
+        // 按**整格宽度**摆 —— 而实例页这一列是**拉伸**的（表头藏着、只有一列，
+        // stretchLastSection 为真、columnWidth == 视口宽），sizeHint() 里"加了三颗按钮
+        // 的宽度"那一段**根本不参与布局**。于是把一个实例改名成一长串之后，名字一路画到
+        // 格子右边缘、被行尾常显的那颗齿轮压掉最后两三个字和省略号（悬停时还会多压上
+        // 上箭头/垃圾桶两颗）—— 而那正是 sizeHint() 里那段注释说要防的事。
         //
-        //   原来这里是直接 `QStyledItemDelegate::paint(painter, opt, index)`，正文由样式
-        //   按**整格宽度**摆 —— 而实例页这一列是**拉伸**的（表头藏着、只有一列，
-        //   stretchLastSection 为真、columnWidth == 视口宽），sizeHint() 里"加了三颗按钮
-        //   的宽度"那一段**根本不参与布局**。于是把一个实例改名成一长串之后，名字一路画到
-        //   格子右边缘、被行尾常显的那颗齿轮压掉最后两三个字和省略号（悬停时还会多压上
-        //   上箭头/垃圾桶两颗）—— 而那正是 sizeHint() 里那段注释说要防的事。
-        //
-        //   做法：**先自己 initStyleOption**（不能只改传进来那一份：基类 paint 会自己再
-        //   initStyleOption 一次，我们写进去的正文会被它覆盖掉），把正文换成**截断过**的
-        //   那一份，然后照 VersionTreeDelegate 那一套直接 drawControl —— 背景、选中、
-        //   图标、焦点框仍然全归样式画，只是文字短了、自然停在三颗按钮左边。
-        //   文字区的宽度**问样式要**（SE_ItemViewItemText），不去猜它给图标和留白各让了
-        //   多少 —— 猜的话换一个样式就错一截。
+        // 做法：**先自己 initStyleOption**（不能只改传进来那一份：基类 paint 会自己再
+        // initStyleOption 一次，我们写进去的正文会被它覆盖掉），把正文换成**截断过**的
+        // 那一份，然后照 VersionTreeDelegate 那一套直接 drawControl —— 背景、选中、
+        // 图标、焦点框仍然全归样式画，只是文字短了、自然停在三颗按钮左边。
+        // 文字区的宽度**问样式要**（SE_ItemViewItemText），不去猜它给图标和留白各让了
+        // 多少 —— 猜的话换一个样式就错一截。
         initStyleOption(&opt, index);
-        // ★★ 2026-09-29：把左边那一截「分支区」补回底色。
+        // 实例是组的**子条目**，视图按 `setIndentation(14)` 在这一行的左边留出一截。
+        // 而 `QTreeView::drawRow()` 在喊代理之前，会先用**选中色**把那整截涂满
+        // （`PE_PanelItemViewRow`，矩形是 `QRect(position, y, indentation, height)` ——
+        // 注意是**整条行高**、不是卡片那一圈）。代理画卡片时上下各收掉半个缺口
+        // （见 cardRect()），于是选中一行时左边就多出一根 14 px 宽、比卡片上下各冒出去
+        // 3 px 的竖条。要求：「注意蓝色部分，左边那里长了，改一下」。
         //
-        //   实例是组的**子条目**，视图按 `setIndentation(14)` 在这一行的左边留出一截。
-        //   而 `QTreeView::drawRow()` 在喊代理之前，会先用**选中色**把那整截涂满
-        //   （`PE_PanelItemViewRow`，矩形是 `QRect(position, y, indentation, height)` ——
-        //   注意是**整条行高**、不是卡片那一圈）。代理画卡片时上下各收掉半个缺口
-        //   （见 cardRect()），于是选中一行时左边就多出一根 14 px 宽、比卡片上下各冒出去
-        //   3 px 的竖条。用户原话：「注意蓝色部分，左边那里长了，改一下」。
+        // 代理在这条链里**排在视图后面**（drawRow 是"先涂分支区、后
+        // `itemDelegateForIndex(...)->paint(...)`"），所以盖得住：拿树自己的底色
+        // （`QPalette::Base` —— 视口的 backgroundRole 就是它，见 QAbstractItemView
+        // 构造里那句 `viewport->setBackgroundRole(QPalette::Base)`）把那一截补回来。
+        // `PE_PanelItemViewRow` 在"没选中"时**什么都不画**（底色是视口自己铺的），
+        // 所以不能拿它当橡皮 —— 只能自己 fill 一遍。
         //
-        //   代理在这条链里**排在视图后面**（drawRow 是"先涂分支区、后
-        //   `itemDelegateForIndex(...)->paint(...)`"），所以盖得住：拿树自己的底色
-        //   （`QPalette::Base` —— 视口的 backgroundRole 就是它，见 QAbstractItemView
-        //   构造里那句 `viewport->setBackgroundRole(QPalette::Base)`）把那一截补回来。
-        //   `PE_PanelItemViewRow` 在"没选中"时**什么都不画**（底色是视口自己铺的），
-        //   所以不能拿它当橡皮 —— 只能自己 fill 一遍。
-        //
-        //   ★ 宽度取的是 `option.rect.left()`，**不是**写死的 14：它就是"这一格从哪儿开始"
-        //     （= 分支区宽度）。横向滚动时它和视图那边**同时**变小（两边都以
-        //     `columnViewportPosition(0)` 为原点），滚到那一截整条出屏时它 ≤ 0、
-        //     这一句自己什么都不画。写死 14 的话，往右滚一下就会在左边留下一根擦不掉的条。
-        //   ★ 竖直方向用 `option.rect`（**整条行**）而不是卡片：要擦掉的那两条恰恰长在
-        //     卡片上下**外面**。
+        // 宽度取的是 `option.rect.left()`，**不是**写死的 14：它就是"这一格从哪儿开始"
+        // （= 分支区宽度）。横向滚动时它和视图那边**同时**变小（两边都以
+        // `columnViewportPosition(0)` 为原点），滚到那一截整条出屏时它 ≤ 0、
+        // 这一句自己什么都不画。写死 14 的话，往右滚一下就会在左边留下一根擦不掉的条。
+        // 竖直方向用 `option.rect`（**整条行**）而不是卡片：要擦掉的那两条恰恰长在
+        // 卡片上下**外面**。
         if (option.rect.left() > 0) {
             const QRect branch(0, option.rect.top(), option.rect.left(), option.rect.height());
             painter->fillRect(branch, option.palette.brush(QPalette::Base));
         }
-        // ★ 选中那一行的**墨**：底已经由样式画成那块浅灰了（用户 2026-09-29 原话「选中的时候
-        //   那个蓝色的换成深灰色」，紧接着「再浅一点，#cccccc」，两条原语覆写在
-        //   `Theme::createStyle()` 那一份代理样式里），而这一行上手画的那三颗（齿轮 / 置顶箭头 /
-        //   垃圾桶）取的是正文色 —— 不换的话深色主题下它们就是一对白疙瘩压在浅灰上。正文那一半
-        //   归样式管（走 `CE_ItemViewItem`）、那边也换过
-        //   了同一支墨，两处必须一致。
-        //   NOTE: 换的是**这一份局部拷贝**，控件的调色板一点都不动。
-        //   NOTE: **只换墨、不换那一块的形状** —— 实例行选中时的带子只有卡片那一圈，
-        //   左边那一截分支区是用户点名要它保持底色的（见上面那条 ★★ 2026-09-29），
-        //   所以这儿不去补涂它（版本树那一支反过来，它是整条行）。
+        // 选中那一行的**墨**：底已经由样式画成那块浅灰了（要求「选中的时候
+        // 那个蓝色的换成深灰色」，紧接着「再浅一点，#cccccc」，两条原语覆写在
+        // `Theme::createStyle()` 那一份代理样式里），而这一行上手画的那三颗（齿轮 / 置顶箭头 /
+        // 垃圾桶）取的是正文色 —— 不换的话深色主题下它们就是一对白疙瘩压在浅灰上。正文那一半
+        // 归样式管（走 `CE_ItemViewItem`）、那边也换过
+        // 了同一支墨，两处必须一致。
+        // NOTE: 换的是**这一份局部拷贝**，控件的调色板一点都不动。
+        // NOTE: **只换墨、不换那一块的形状** —— 实例行选中时的带子只有卡片那一圈，
+        // 左边那一截分支区是用户点名要它保持底色的（见上面那条 ★★ ），
+        // 所以这儿不去补涂它（版本树那一支反过来，它是整条行）。
         const bool selectedRow = (option.state & QStyle::State_Selected) != 0;
         const QPalette rowPalette = Theme::selectionPalette(option.palette, selectedRow);
         // 行与行之间那道空（见 cardRect()）：这一行**画**的那一圈比整条行上下各小半个缺口。
@@ -258,16 +254,16 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         // 是从 opt.rect 上算的 —— 少了这一句，量出来的宽度还是整条行的，虽然宽度只跟左右有关、
         // 结果一样，但"画在哪一圈"和"按哪一圈量"从此是两件事，读的人得自己核对一遍。
         opt.rect = cardRect(option.rect);
-        // ★ 悬停那一行的加深底色（用户 2026-09-29 原话：「把所有悬停在版本/按钮上都加一个
+        // 悬停那一行的加深底色（要求：「把所有悬停在版本/按钮上都加一个
         // 颜色加深的效果」）。画在 `CE_ItemViewItem` **之前**：选中那一行是样式紧接着用
         // **不透明的** `Highlight` 铺满这一圈的，所以"选中"天然压得住"悬停"，不用互斥判断。
         // 底色走 `Theme::rowHoverFill()`（唯一出处见 ui/Theme.hpp）：从**这一层自己的底色**
         // 出发往主题色混一档 ⇒ 浅色主题下和白底按钮的 `:hover` 逐字节同一个色。
-        // ★ 铺的是 `opt.rect`（= 上面那句收过缺口之后的**卡片**），不是 `option.rect`：
-        //   这一行选中时的带子就是卡片这一圈（左边那截分支区在上面那句 fillRect 里被补回底色了），
-        //   悬停也得是同一个形状 —— 铺整条行的话，悬停带会比选中带左右各宽出去一截。
-        // ★ 不可用的那几行不染：这张树上它们整体是半透明的（`setDisabled()` 那条路），
-        //   再铺一层底色反而像是"点得动"。
+        // 铺的是 `opt.rect`（= 上面那句收过缺口之后的**卡片**），不是 `option.rect`：
+        // 这一行选中时的带子就是卡片这一圈（左边那截分支区在上面那句 fillRect 里被补回底色了），
+        // 悬停也得是同一个形状 —— 铺整条行的话，悬停带会比选中带左右各宽出去一截。
+        // 不可用的那几行不染：这张树上它们整体是半透明的（`setDisabled()` 那条路），
+        // 再铺一层底色反而像是"点得动"。
         if (hovered && (index.flags() & Qt::ItemIsEnabled) != 0) {
             painter->fillRect(opt.rect, Theme::rowHoverFill(option.palette.color(QPalette::Base)));
         }
@@ -285,17 +281,17 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
             }
             style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, opt.widget);
         }
-        // ★★ 左边那根 3 px 指示条在这一行上**不要**（2026-10-12）。
+        // 左边那根 3 px 指示条在这一行上**不要**。
         //
-        //   全仓的"选中一行"从这一天起都带一根主题色指示条（`Theme::selectionRail()`，
-        //   用户答复：「完全照 §9.3（和侧栏导航同款）」），而那一条是**样式**在
-        //   `PE_PanelItemViewItem` 里画的（上一句 `drawControl` 的那条路）。实例行是个例外：
-        //   它选中时的带子**只有卡片那一圈** —— 用户 2026-09-29 原话「注意蓝色部分，左边
-        //   那里长了，改一下」，要删的正是左边冒出来的那一条（长注释在上面那段 ★★）。
+        // 全仓的"选中一行"从这一天起都带一根主题色指示条（`Theme::selectionRail()`，
+        // 用户答复：「完全照 §9.3（和侧栏导航同款）」），而那一条是**样式**在
+        // `PE_PanelItemViewItem` 里画的（上一句 `drawControl` 的那条路）。实例行是个例外：
+        // 它选中时的带子**只有卡片那一圈** —— 要求「注意蓝色部分，左边
+        // 那里长了，改一下」，要删的正是左边冒出来的那一条（长注释在上面那段 ★★）。
         //
-        //   上面那句 `fillRect` 擦的是 `drawRow()` 涂的分支区，它排在这一行**之前**；
-        //   指示条是紧接着 `drawControl` 画的 ⇒ 只能排在这一句**之后**擦，擦的是
-        //   "指示条那一档宽"（不是整截分支区）—— 分支区本来就已经是底色了。
+        // 上面那句 `fillRect` 擦的是 `drawRow()` 涂的分支区，它排在这一行**之前**；
+        // 指示条是紧接着 `drawControl` 画的 ⇒ 只能排在这一句**之后**擦，擦的是
+        // "指示条那一档宽"（不是整截分支区）—— 分支区本来就已经是底色了。
         if (selectedRow) {
             painter->fillRect(QRect(0, option.rect.top(), Theme::selectionBarThickness(),
                                     option.rect.height()),
@@ -306,12 +302,12 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         // 但这一行的正文就是实例名，动作和正文同色才不显得"行尾挂了三个别的东西"。
         //
         // NOTE: 每颗都不自己缓存 pixmap —— `VersionIcons::` 内部已经按"尺寸 + 颜色"缓存
-        //       （见那边 cached()），这一层再存一份只会多一处要同步的地方。
+        // （见那边 cached()），这一层再存一份只会多一处要同步的地方。
         //
-        // ★ 取色走的是上面那份**换了墨的** `palette`（选中那一行的底是我们自己画的那块浅灰
-        //   ⇒ 墨必须和它配套，理由见那段）。别改回 `option.palette` —— 那样深色主题下选中
-        //   一行时三颗按钮会变成一对白疙瘩压在浅灰上（正文那一半倒是归样式管、照样是暗的，
-        //   于是同一行上一暗一白）。
+        // 取色走的是上面那份**换了墨的** `palette`（选中那一行的底是我们自己画的那块浅灰
+        // ⇒ 墨必须和它配套，理由见那段）。别改回 `option.palette` —— 那样深色主题下选中
+        // 一行时三颗按钮会变成一对白疙瘩压在浅灰上（正文那一半倒是归样式管、照样是暗的，
+        // 于是同一行上一暗一白）。
         const QColor ink = rowPalette.color(QPalette::WindowText);
         painter->save();
         // 齿轮**常显**（用户追加答复「要，一颗齿轮常显」）：它和"点这一行任何别的地方"
@@ -325,10 +321,10 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         // 那一格点下去没有去处）。
         //
         // NOTE: 上箭头那一半的判据和原来逐字一样（只有 rowPinRole() 为真的行才画 ——
-        //       已经在置顶组里的那一条挪不动 ⇒ 不画，因为"挪不动的那侧不画"这条先例在
-        //       ui/GroupListDelegate 里；**不是**画一颗灰的）。下箭头那一半是新加的，
-        //       它正好补上了原来那一档"什么都不画"里的一半：现在只剩"根本没有置顶组"
-        //       这一种什么都不画的情形。
+        // 已经在置顶组里的那一条挪不动 ⇒ 不画，因为"挪不动的那侧不画"这条先例在
+        // ui/GroupListDelegate 里；**不是**画一颗灰的）。下箭头那一半是新加的，
+        // 它正好补上了原来那一档"什么都不画"里的一半：现在只剩"根本没有置顶组"
+        // 这一种什么都不画的情形。
         const bool canPin = index.data(MainWindowUI::rowPinRole()).toBool();
         const bool canUnpin = index.data(MainWindowUI::rowUnpinRole()).toBool();
         if (hovered && (canPin || canUnpin)) {
@@ -359,17 +355,17 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
     // 露出来的那一带和行本身的底色是同一个（**悬停**那层带子除外，见下面那段）；
     // 留着是为了"这张树里每一行都是同一种画法"，将来谁给行加了底色不会只加一半。
     opt.rect = cardRect(option.rect);
-    // ★ 组行也要染悬停那一层（用户原话见上），判据和实例行那一支逐字一样，色也是同一个
-    //   `Theme::rowHoverFill()` —— 组行和实例行的悬停从此真的是同一件事。
-    //   这一支以前**不清** `State_MouseOver`（实例行那支清）。现在两边都清、都由我们自己画：
-    //   把这一位交给样式等于把"悬停长什么样"押在"样式永远不画"上，而那个假设没有保证
-    //   （见上面那段更正 —— 它今天恰好成立，不是我们要求的）。
-    //   ★ 这里读的是**传进来**的那一份（和实例行那支同一个理由）：那一位是视图填的。
-    //   ★ 组行**不可选中**，所以不存在"和选中带打架"的问题 —— 建那一行的
-    //     `src/MainWindow.cpp` 里有一句 `setFlags(flags() & ~Qt::ItemIsSelectable)`
-    //     （组头是"一堆东西的标题"，不是"一个能启动的实例"）。这是**唯一**一处放这一位
-    //     的地方，本文件不碰 `flags()`；这条路径上"能不能点得动"仍然只看 `ItemIsEnabled`。
-    // 这一位下面还要用两次（悬停底色 + 行尾那颗齿轮，见 2026-10-12 那一段），所以在这儿
+    // 组行也要染悬停那一层（要求见上），判据和实例行那一支逐字一样，色也是同一个
+    // `Theme::rowHoverFill()` —— 组行和实例行的悬停从此真的是同一件事。
+    // 这一支以前**不清** `State_MouseOver`（实例行那支清）。现在两边都清、都由我们自己画：
+    // 把这一位交给样式等于把"悬停长什么样"押在"样式永远不画"上，而那个假设没有保证
+    // （见上面那段更正 —— 它今天恰好成立，不是我们要求的）。
+    // 这里读的是**传进来**的那一份（和实例行那支同一个理由）：那一位是视图填的。
+    // 组行**不可选中**，所以不存在"和选中带打架"的问题 —— 建那一行的
+    // `src/MainWindow.cpp` 里有一句 `setFlags(flags() & ~Qt::ItemIsSelectable)`
+    // （组头是"一堆东西的标题"，不是"一个能启动的实例"）。这是**唯一**一处放这一位
+    // 的地方，本文件不碰 `flags()`；这条路径上"能不能点得动"仍然只看 `ItemIsEnabled`。
+    // 这一位下面还要用两次（悬停底色 + 行尾那颗齿轮，见 那一段），所以在这儿
     // 读成一个名字 —— 读的仍然是**传进来**那一份，时序和上面那句一模一样。
     const bool rowHovered = (option.state & QStyle::State_MouseOver) != 0;
     if (rowHovered && (index.flags() & Qt::ItemIsEnabled) != 0) {
@@ -406,7 +402,7 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
     painter->save();
     painter->setFont(mainFont);
     painter->setPen(palette.color(QPalette::WindowText));
-    // 组名太长时截成省略号（2026-09-26 修；和 VersionTreeDelegate 里那两行同一个理由 ——
+    // 组名太长时截成省略号（ 修；和 VersionTreeDelegate 里那两行同一个理由 ——
     // `drawText(rect, 文字)` 装不下是硬裁，最后一个字被切掉半个）。组名是用户自己起的名字，
     // 比版本号更容易长过这一格。
     painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
@@ -415,15 +411,15 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
     // 行尾那颗齿轮：画的是 gearGlyphRect()（比命中格小一圈、还要装进行高里），用次要那一档
     // 颜色 —— 它是行里的一个动作，不是正文。
     //
-    // ★ 2026-10-12：它和实例行那两颗一样**只在鼠标停在这一行时才画**（用户那份改版文档：
-    //   实例页"分组齿轮只在悬停时出现"；这也是实例行那两颗（置顶 / 垃圾桶）已经在用的
-    //   规矩，见 InstanceGroupDelegate::paint() 里 `&& hovered` 那两处）。
-    //   · **宽度照扣**（上面 `textRight` 那一段没跟着改）：鼠标挪进来的时候正文不会左右
-    //     跳一下 —— 和下载页那格刷新圈是同一条规矩（`hasRefresh` / `showRefresh` 拆开）。
-    //   · hovered 是**视图**填的 ⇒ 实例列表必须有 `setMouseTracking(true)`（MainWindowUI
-    //     里那一句，少它的话这颗齿轮再也不出现，且不报错、断言也不一定先红）。
-    //   · 不可用的那几行（`setDisabled()` 那条路）不画：那一整行是半透明的，画上去像是
-    //     "点得动"。判据和上面那层悬停底色逐字一样。
+    // 它和实例行那两颗一样**只在鼠标停在这一行时才画**（用户那份改版文档：
+    // 实例页"分组齿轮只在悬停时出现"；这也是实例行那两颗（置顶 / 垃圾桶）已经在用的
+    // 规矩，见 InstanceGroupDelegate::paint() 里 `&& hovered` 那两处）。
+    // · **宽度照扣**（上面 `textRight` 那一段没跟着改）：鼠标挪进来的时候正文不会左右
+    // 跳一下 —— 和下载页那格刷新圈是同一条规矩（`hasRefresh` / `showRefresh` 拆开）。
+    // · hovered 是**视图**填的 ⇒ 实例列表必须有 `setMouseTracking(true)`（MainWindowUI
+    // 里那一句，少它的话这颗齿轮再也不出现，且不报错、断言也不一定先红）。
+    // · 不可用的那几行（`setDisabled()` 那条路）不画：那一整行是半透明的，画上去像是
+    // "点得动"。判据和上面那层悬停底色逐字一样。
     if (hasGear && rowHovered && (index.flags() & Qt::ItemIsEnabled) != 0) {
         const QRect glyph = gearGlyphRect(row);
         painter->drawPixmap(glyph.topLeft(),
@@ -449,14 +445,10 @@ QSize InstanceGroupDelegate::sizeHint(const QStyleOptionViewItem &option,
         opt.font = bold;
     }
     const QSize size = QStyledItemDelegate::sizeHint(opt, index);
-    // 行高**每一行都钉成同一个常数**（组行和实例行都算）—— 用户 2026-09-25 原话：
+    // 行高**每一行都钉成同一个常数**（组行和实例行都算）—— 要求：
     // 「每个版本啥的上下高一点，像下载页那样」。树上开着 uniformRowHeights（第一行多高所有
     // 行就多高），而平铺那一档的第一行是**实例**、有分组时第一行是**组头** —— 两边都给
     // 同一个数，"一张树多高"才不随"有没有分组"翻个面。
-    //
-    // ★ 2026-09-29 起这个常数是**实例列表自己那个**（instanceTreeRowHeight() = 58），不再借
-    //   版本树的 46：用户原话「实例列表里每一个之间留一点空的距离，每一行高一点，图标大一点」。
-    //   版本树那把尺子（46）一个字没动，见 MainWindowUI 里那一段。
     const int height = MainWindowUI::instanceTreeRowHeight();
     if (!isGroup) {
         // 实例行：行尾那三颗按钮占的宽度**无条件**加上 —— 三颗 + 两个间隔 + 左右各一份
@@ -464,11 +456,11 @@ QSize InstanceGroupDelegate::sizeHint(const QStyleOptionViewItem &option,
         // sizeHint() 里那一段同一个规矩）：跟着悬停变的话，鼠标一扫过去整行的宽度就跟着
         // 变、正文左右横跳一下 —— 那比"少一个图标"显眼得多。行高照旧是那个常数。
         //
-        // ★ 2026-09-27 NOTE：**这一份宽度只是"想要多少"，管不住真正的布局** —— 实例页
-        //   只有一列而且它是拉伸的（表头藏着），columnWidth 永远是视口宽，给条目塞一个更
-        //   宽的 sizeHint 也没用。所以"正文不许压到齿轮底下"这件事的真正执行处是
-        //   paint() 里那一段（它自己按 SE_ItemViewItemText 把正文截断）。这里留着不改：
-        //   换了不拉伸的列宽策略时它就是对的，而且两处的"三颗按钮占多宽"必须一致。
+        // NOTE：**这一份宽度只是"想要多少"，管不住真正的布局** —— 实例页
+        // 只有一列而且它是拉伸的（表头藏着），columnWidth 永远是视口宽，给条目塞一个更
+        // 宽的 sizeHint 也没用。所以"正文不许压到齿轮底下"这件事的真正执行处是
+        // paint() 里那一段（它自己按 SE_ItemViewItemText 把正文截断）。这里留着不改：
+        // 换了不拉伸的列宽策略时它就是对的，而且两处的"三颗按钮占多宽"必须一致。
         const int actions = 3 * MainWindowUI::instanceRowActionSize() +
                             2 * MainWindowUI::instanceRowActionGap() +
                             2 * MainWindowUI::instanceRowActionMargin() +

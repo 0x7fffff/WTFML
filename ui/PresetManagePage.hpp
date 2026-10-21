@@ -1,8 +1,6 @@
 /**
  * @file PresetManagePage.hpp
  * @brief 「实例预设」整页：左边一份一份的列表，右边摘要 / 从实例提取 / 应用计划。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 【这一层不认识预设的盘】
  *
@@ -20,7 +18,7 @@
  *
  * 【确认一律在页内做，不开第二个框】
  *
- * 产品方向是"不出现独立窗口"（见 `OverlayHost` / 用户原话）：删除和应用「覆盖」都用
+ * 产品方向是"不出现独立窗口"（见 `OverlayHost` / 要求）：删除和应用「覆盖」都用
  * **点两次**（第一次把按钮文字改成"再点一次确认…"，四秒后自己复位）。这既避开了
  * `execPrompt()` 在页面占着覆盖层时调不动那件事，也符合"危险动作多问一次"的本意。
  */
@@ -150,7 +148,6 @@ public:
         QString summary;            ///< 一句总账（「4 段，共 41 项，删掉 2 项」）
     };
 
-    /// 应用完之后的报告（每段一行 + 备份落在哪儿）。
     struct ApplyView {
         bool ok = false;
         bool needsConfirm = false;
@@ -167,7 +164,7 @@ public:
     void setPresets(const QList<PresetItem> &presets, const QList<BrokenItem> &broken,
                     const QString &selectId);
     /// 类别筛选 chip + 「新建为」下拉框的内容。第一项 `key` 空串 = 「全部」。
-    /// ★ 只摆一次（外面那几类是从枚举翻过来的，运行期间不会变）；重复调会整排重建。
+    /// 只摆一次（外面那几类是从枚举翻过来的，运行期间不会变）；重复调会整排重建。
     void setCategories(const QList<CategoryOption> &categories);
     /// 这一份预设能收哪几样（掩码见 `CaptureBit`）。不许收的那几格**禁掉并清勾**，
     /// `note` 挂到它们的工具提示尾巴上（一句人话：为什么这一类不收）。
@@ -179,7 +176,6 @@ public:
     void setInstances(const QList<InstanceItem> &instances, const QString &selectId = QString());
     /// 计划表。`canApply` 决定「应用」亮不亮；`needsConfirm` 决定它是不是要走"点两次"。
     void showPlan(const PlanView &plan);
-    /// 应用报告。`needsConfirm` 那一趟会把「应用」旁边那句提示改掉。
     void showApplyResult(const ApplyView &result);
     /// 底下那行状态（提取结果、保存成功之类）。
     void showStatus(const QString &text);
@@ -229,7 +225,7 @@ signals:
     void presetSelected(const QString &id);
 
     // ---------- 增删改 ----------
-    /// @param categoryKey 用户在「新建为」下拉框里选的那一类（不透明钥匙，外面翻成枚举）。
+    // / @param categoryKey 用户在「新建为」下拉框里选的那一类（不透明钥匙，外面翻成枚举）。
     void createRequested(const QString &categoryKey);
     void duplicateRequested(const QString &id);
     /// 名字和说明一起交出去（改名 + 改说明是一颗按钮干的两件事）。

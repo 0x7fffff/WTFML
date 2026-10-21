@@ -1,8 +1,6 @@
 /**
  * @file BackupFiles.hpp
  * @brief 世界与实例的**备份**（coding plan §4.4）：打一份包、读它的清单、还原它。
- * @author 0x7fffff
- * @date 2026-10-13
  *
  * 【为什么单独一层】
  *
@@ -30,8 +28,8 @@
  * 失败留下的半截文件，只有这样才认得出（"文件在那儿"和"文件是对的"是两件事）。
  *
  * NOTE: 逐文件清单对一个大存档（几千个 region 文件）是几百 KB 的 JSON，这是**故意**的：
- *       它换来的正是"还原之后能说一句'三千二百个文件都对上了'"。真嫌大，砍的应该是
- *       `files` 而不是 `sha1` 这一层的意思 —— 但那时候得先想清楚"凭什么信这一份备份"。
+ * 它换来的正是"还原之后能说一句'三千二百个文件都对上了'"。真嫌大，砍的应该是
+ * `files` 而不是 `sha1` 这一层的意思 —— 但那时候得先想清楚"凭什么信这一份备份"。
  */
 
 #pragma once
@@ -116,7 +114,7 @@ QString backupDir(Kind kind);
 /// 范围，等用户真挑了一份再读那一份的清单（那时才需要验它的 `root` 对不对）。
 QString backupFilePrefix(const QString &label);
 
-/// 备份文件名：`<label>-2026-10-13-101530.zip`（**一定是合法文件名** —— label 里的非法
+/// 备份文件名：`<label>--101530.zip`（**一定是合法文件名** —— label 里的非法
 /// 字符先过一遍替换，见 .cpp）。`safety` 为真时中间多一个「恢复前」。
 QString backupFileName(const QString &label, const QDateTime &at, bool safety = false);
 
@@ -144,7 +142,7 @@ QList<FileRecord> collectFiles(const QString &rootDir, const QStringList &exclud
 /// @param targetZip 落点（父目录会自动建）。
 /// @param problemOut 失败原因。**失败时盘上不会留下半成品**（`ZipUtil::createZip` 自己删）。
 /// @return 打出来的那一份清单（`ok=false` 时 = 上面那份描述原样返回，别拿它当成功的凭据，
-///         认 `problemOut`）。
+/// 认 `problemOut`）。
 struct WriteResult {
     bool ok = false;
     Manifest manifest;
@@ -164,7 +162,7 @@ struct RestoreResult {
     /// （任务账本上那几步）拿它标"第几步红了"，不用去猜 `problem` 那句话里说到了谁。
     ///
     /// NOTE: 加这一格是因为 `problem` 是**给人看的**（措辞随时会改），而"哪一步"是给
-    ///       账本看的 —— 从一句中文里抠关键字来判，改一个字就静默错位。
+    /// 账本看的 —— 从一句中文里抠关键字来判，改一个字就静默错位。
     enum class Stage {
         Ok,             ///< 走完了（`ok` 那一格才算数）
         ReadManifest,   ///< ① 读清单
@@ -181,7 +179,7 @@ struct RestoreResult {
     QString safetyZip;    ///< 这一趟自动做出来的安全快照（没做 = 空）
     int checked = 0;      ///< 还原之后逐文件对账对了几条
     int mismatched = 0;   ///< 对不上的条数（> 0 时 `ok = false`，而且盘上那一份**留着**，
-                          ///< 好让用户手上有东西可救）
+                          /// < 好让用户手上有东西可救）
     QString targetPath;   ///< 真正落回去的那个目录
 };
 
@@ -189,26 +187,26 @@ struct RestoreResult {
  * @brief 把 @p zipPath 里 `root/` 那一段还原到 @p targetParentDir 底下。
  *
  * 四件事按这个顺序做，**缺一不可**：
- *   1. 读清单。不是我们做的包 → 当场拒绝（**一个字节都不动**）；
- *   2. 落点是一块**空地**时，先看一眼这块盘放不放得下（`restoreSpaceNeeded()` 对着
- *      `QStorageInfo::bytesAvailable()`）。放不下 → 停在 `Stage::Space`，**同样一个字节都不动**
- *      —— 让用户看到一句"盘不够"，而不是解到一半留下满地半截文件。原地替换（落点上已经有
- *      一份）**不看这一眼**，理由见 .cpp 里那一处 NOTE；
- *   3. 现在那儿已经有一份 → **先给它做一份安全快照**（同样是一次 `writeBackup`，落进
- *      同一个备份目录），再把它整个挪走（`removeTreeWithoutFollowingLinks`，不跟链接）。
- *      ★ 目标树里只要有链接（junction / 符号链接）就**停在安全快照之前**、一个字节都不动：
- *      包里和安全快照里都记不住"这里是个链接"，解开就会被换成普通目录，这条路退不回来。
- *      ★ 安全快照**做不成就不往下走** —— "先把旧的删了、再告诉你备份没做出来"是这一整套里
- *      唯一不可接受的结果；
- *   4. 解压 + **逐文件对账**（`verifyTree()`）。对不上就把话说明白（那多半是解压被中途打断，
- *      或者盘满了）。
+ * 1. 读清单。不是我们做的包 → 当场拒绝（**一个字节都不动**）；
+ * 2. 落点是一块**空地**时，先看一眼这块盘放不放得下（`restoreSpaceNeeded()` 对着
+ * `QStorageInfo::bytesAvailable()`）。放不下 → 停在 `Stage::Space`，**同样一个字节都不动**
+ * —— 让用户看到一句"盘不够"，而不是解到一半留下满地半截文件。原地替换（落点上已经有
+ * 一份）**不看这一眼**，理由见 .cpp 里那一处 NOTE；
+ * 3. 现在那儿已经有一份 → **先给它做一份安全快照**（同样是一次 `writeBackup`，落进
+ * 同一个备份目录），再把它整个挪走（`removeTreeWithoutFollowingLinks`，不跟链接）。
+ * 目标树里只要有链接（junction / 符号链接）就**停在安全快照之前**、一个字节都不动：
+ * 包里和安全快照里都记不住"这里是个链接"，解开就会被换成普通目录，这条路退不回来。
+ * 安全快照**做不成就不往下走** —— "先把旧的删了、再告诉你备份没做出来"是这一整套里
+ * 唯一不可接受的结果；
+ * 4. 解压 + **逐文件对账**（`verifyTree()`）。对不上就把话说明白（那多半是解压被中途打断，
+ * 或者盘满了）。
  *
  * NOTE: 这里**不碰界面也不碰账本**：进度那几句由调用方（MainWindow）往任务中心写。
  *
  * @param cancelled 协作式停止（关窗 / 整项超时）。★ **只在 ③ 开始挪走「现在这一份」
- *        *之前* 生效**：那之后停下来，用户手上就既没有旧的那一份、也没有新的这一份。
- *        停下来时返回 `ok = false` 且盘上原样（安全快照已经做出来的话会删掉它）；
- *        `problem` 说清"取消或超时"，调用方照失败/取消如实报。
+ * *之前* 生效**：那之后停下来，用户手上就既没有旧的那一份、也没有新的这一份。
+ * 停下来时返回 `ok = false` 且盘上原样（安全快照已经做出来的话会删掉它）；
+ * `problem` 说清"取消或超时"，调用方照失败/取消如实报。
  */
 RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentDir,
                             const std::function<bool()> &cancelled = {});
@@ -218,13 +216,13 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
 qint64 restoreSpaceNeeded(const Manifest &manifest);
 
 /// @p freeBytes 够不够放 @p neededBytes。
-/// ★ @p freeBytes < 0 = **问不出来**（卷没准备好 / 认不出文件系统）⇒ 回 `true`（**不拦**）：
-///   宁可让它走下去、在解压那一步如实失败，也不要凭一个假数字把用户挡在门外。
+/// @p freeBytes < 0 = **问不出来**（卷没准备好 / 认不出文件系统）⇒ 回 `true`（**不拦**）：
+/// 宁可让它走下去、在解压那一步如实失败，也不要凭一个假数字把用户挡在门外。
 bool hasRoomFor(qint64 freeBytes, qint64 neededBytes);
 
 /// 对账：@p dir 底下那些文件跟 @p files 里记的名字/大小/sha1 对不对得上。
 /// @return 对不上的条数（0 = 全对上）。**多出来的文件不算**（备份是"至少恢复这些"），
-///         缺一个或内容不一样都算。
+/// 缺一个或内容不一样都算。
 int verifyTree(const QString &dir, const QList<FileRecord> &files);
 
 /// 那一句话（「包含范围」摆给用户看的那几句）拼好之后的形状：`saves/基地周目（1234 个文件）`。

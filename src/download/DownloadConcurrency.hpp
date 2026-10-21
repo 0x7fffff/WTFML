@@ -1,12 +1,10 @@
 /**
  * @file DownloadConcurrency.hpp
  * @brief 「同时最多下几个文件」那几档（设置 → 下载 → 并发数；coding plan §9.2）。
- * @author 0x7fffff
- * @date 2026-10-13
  *
  * 【那四个数是从哪儿来的】
  *
- * 它们在 `DownloadManager.hpp` 里那份 2026-09-23 的实测记录上：1.20.1 的全部 3598 个资源
+ * 它们在 `DownloadManager.hpp` 里那份 的实测记录上：1.20.1 的全部 3598 个资源
  * 对象 / 620.43 MB、官方源，6 路 138.76 s、12 路 90.52 s、24 路 72.63 s、48 路 67.05 s
  * （全 0 失败 0 超时）。6 那一档是**延迟** bound（每个文件一个 ~150 ms 的往返 ÷ 6 条），
  * 24 已经贴着这条网线的带宽上限（620 MB ÷ 8.54 MB/s ≈ 73 s），48 只再多 8%。
@@ -20,8 +18,8 @@
  * 「必须有人把这批作业留在我们自己手里」的不变量）。上限 64 = 默认的 2.7 倍，比实测最激进的
  * 一档（48）还高，留出"网线换了"的余地。
  *
- * ★ 这个头文件**没有网络、没有 QObject、不看时钟**：int 进、int 出。所以 verify 能直接
- *   喂一串数进来断言归一化的结果（见 tests/main.cpp 的 ZO 节）。
+ * 这个头文件**没有网络、没有 QObject、不看时钟**：int 进、int 出。所以 verify 能直接
+ * 喂一串数进来断言归一化的结果（见 tests/main.cpp 的 ZO 节）。
  */
 
 #pragma once
@@ -30,14 +28,11 @@
 
 namespace DownloadConcurrency {
 
-/// 出厂值 = 2026-09-23 实测选出来的那一档（也等于从前的 `kMaxConcurrentDownloads`）。
 constexpr int kDefault = 24;
 /// 下限。**不能是 0**：队列一泵都不泵，表现是"下载永远停在 0%"。
 constexpr int kMin = 1;
-/// 上限。比实测最激进的一档（48）还高一截，留出"网线换了"的余地。
 constexpr int kMax = 64;
 
-/// 下拉框里给的那四档（就是上面那份实测的四条线）。**顺序 = 界面上的顺序**。
 inline QList<int> presets() {
     return {6, 12, 24, 48};
 }

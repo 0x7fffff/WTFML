@@ -30,9 +30,9 @@ QString digest(const QString &path, const QSharedPointer<QAtomicInt> &abort) {
 QString hashText(const QByteArray &text) { return QString::fromLatin1(QCryptographicHash::hash(text, QCryptographicHash::Sha256).toHex()); }
 void removeParts(const QString &directory) {
     // 只删除本协调器命名的文件，不递归删除目录，不跟随符号链接 / junction。
-    // ★ 2026-10-20：`QDir::entryList` 默认**不会**替你筛掉链接（`QDir::NoSymLinks` 没给），
-    //   而 junction 在 `NoSymLinks` 下也照样列得出来（Qt 只认 symlink）—— 所以逐条自己判。
-    //   目录本身是链接的那一档在 `start()` 里已经拒了，这里挡的是"链接混在缓存目录里"。
+    // `QDir::entryList` 默认**不会**替你筛掉链接（`QDir::NoSymLinks` 没给），
+    // 而 junction 在 `NoSymLinks` 下也照样列得出来（Qt 只认 symlink）—— 所以逐条自己判。
+    // 目录本身是链接的那一档在 `start()` 里已经拒了，这里挡的是"链接混在缓存目录里"。
     static const QRegularExpression name(QStringLiteral("^part-[0-9]+\\.bin$"));
     for (const auto &file : QDir(directory).entryList({QStringLiteral("part-*.bin")}, QDir::Files | QDir::Hidden | QDir::System)) {
         if (!name.match(file).hasMatch()) continue;
@@ -81,8 +81,8 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
     m_files->shareSpeedLimitBucketWith(m_speedBucketOwner);
     m_files->setUseMirror(false);
     m_files->setMaxConcurrentDownloads(kPartConcurrency);
-    // ★ 2026-10-18（§9.2 限速）：分段作业绕在自己这个下载器上 —— 限值必须在这儿也推一份，
-    //   否则"大于 4 MiB 的文件"整批不受限速管（设置里明明写着 1 MB/s，大文件照样满速）。
+    // （§9.2 限速）：分段作业绕在自己这个下载器上 —— 限值必须在这儿也推一份，
+    // 否则"大于 4 MiB 的文件"整批不受限速管（设置里明明写着 1 MB/s，大文件照样满速）。
     m_files->setSpeedLimitBytesPerSecond(m_speedLimitBytesPerSecond);
     // 关键：协调器的单文件回退（startSingle）会带着 sha1 + size 走同一个 DownloadManager，
     // 不关掉自动分段就会"探测 → 回退单发 → 又被升级成分段"无限递归。
@@ -96,9 +96,6 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
     if (!url.isValid() || (url.scheme() != QStringLiteral("http") && url.scheme() != QStringLiteral("https")) || !QDir::isAbsolutePath(target)) {
         finish(false, tr("下载地址或保存路径无效。")); return;
     }
-    // ★ 2026-10-20：junction 也要判。Qt 对 Windows junction 的 `isSymLink()` 是 false
-    //   （见 `InstanceFiles.hpp` 那段），只判前者的话，一个指着别处的 junction 会让分段和
-    //   manifest 写进链接那一头；收尾的 `removeParts()` 也会去那儿删同名文件。
     const QFileInfo cacheInfo(m_cache);
     if (cacheInfo.isSymLink() || cacheInfo.isJunction() || !QDir().mkpath(m_cache)) {
         finish(false, tr("续传缓存目录不可用。"));
@@ -131,9 +128,9 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
             // 分段请求本身已由内部 DownloadManager 做过有限重试，剩下的失败多半来自
             // "落点过期/单条链路死掉"，换一条落点重来一次通常就过去了。
             //
-            // ★ 必须**等这一批剩下的分段都收尾**再补：现在就重发，同一批里还有别的
-            //   分段在飞，`downloadParts()` 会往同一个 part 文件再开一条写流。所以这里
-            //   只挂个标记，真正重发在 allDownloadsFinished 里（见 start() 的连接）。
+            // 必须**等这一批剩下的分段都收尾**再补：现在就重发，同一批里还有别的
+            // 分段在飞，`downloadParts()` 会往同一个 part 文件再开一条写流。所以这里
+            // 只挂个标记，真正重发在 allDownloadsFinished 里（见 start() 的连接）。
             if (!m_partsRetried) {
                 if (!m_partsRetryPending) {
                     m_partsRetryPending = true;
@@ -600,16 +597,16 @@ void ResumableDownload::checkStuck() {
         // 进度账已经不可信：把这一批全掐掉、只补缺的段再来一次。这是**恢复**、不是失败，
         // 和"某一段失败"那条路共用同一个次数上限（m_partsRetried），所以最多多花一轮。
         //
-        // ★ 2026-10-20：重发之前**必须重新 probe()**，不能直接 `downloadParts()`。
-        //   `m_source` 是探测那一趟拿到的 302 落点（BMCLAPI 那种预签名地址 60 秒就过期，
-        //   见上面 `m_source` 那一行的注释），而能走到这里说明**至少 5 分钟**没有进展了 ——
-        //   拿那个落点发 Range 等于打在一条早就作废的地址上：403 → 这一轮再失败一次 →
-        //   `m_partsRetried` 已经是 true ⇒ 落进"整条判死"，用户看到"下载失败"，而正确的
-        //   恢复代码（`probe()` → `prepareCache()` 复核 ETag / 分段 SHA）就在旁边。
-        //   源站内容换了的时候也一样：重新探测的 ETag 对不上 ⇒ 缓存整批作废、老实重下，
-        //   而不是带着旧的 If-Range 去撞一个 416。
-        //   `probe()` 自己会走 `prepareCache()`，那儿会把上一批残留的 `m_live` 清掉
-        //   （不然进度会先虚高再回落 —— 这就是从前进度账看着"跳过一段"的那个来源）。
+        // 重发之前**必须重新 probe()**，不能直接 `downloadParts()`。
+        // `m_source` 是探测那一趟拿到的 302 落点（BMCLAPI 那种预签名地址 60 秒就过期，
+        // 见上面 `m_source` 那一行的注释），而能走到这里说明**至少 5 分钟**没有进展了 ——
+        // 拿那个落点发 Range 等于打在一条早就作废的地址上：403 → 这一轮再失败一次 →
+        // `m_partsRetried` 已经是 true ⇒ 落进"整条判死"，用户看到"下载失败"，而正确的
+        // 恢复代码（`probe()` → `prepareCache()` 复核 ETag / 分段 SHA）就在旁边。
+        // 源站内容换了的时候也一样：重新探测的 ETag 对不上 ⇒ 缓存整批作废、老实重下，
+        // 而不是带着旧的 If-Range 去撞一个 416。
+        // `probe()` 自己会走 `prepareCache()`，那儿会把上一批残留的 `m_live` 清掉
+        // （不然进度会先虚高再回落 —— 这就是从前进度账看着"跳过一段"的那个来源）。
         m_partsRetried = true;
         m_partsRetryPending = false;
         m_stage = Stage::Probe;  // 先改状态：`cancelBatch()` 的收尾信号别再走进分段分支

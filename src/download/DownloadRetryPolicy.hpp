@@ -70,10 +70,10 @@ inline bool transient(QNetworkReply::NetworkError error, int status) {
 }
 /// 这一次 SSL 握手失败是不是"换一条连接再试一次就可能好"的那一类。
 ///
-/// ★ 2026-10-17：Fabric 1.20.1 的整段资源补齐被**一个** 10 KB 的资源对象打断，错误是
-///   `wrong version number`（一个本来该是 TLS 的连接回了一段明文 —— 中间设备 / 被复用的
-///   死连接都会长这样）。它不是证书判断失败（不是过期、主机名不对、自签名），重试一次
-///   大概率就换到一条正常连接；而真正的证书问题重试一万次也一样，所以**不在这一档**。
+/// Fabric 1.20.1 的整段资源补齐被**一个** 10 KB 的资源对象打断，错误是
+/// `wrong version number`（一个本来该是 TLS 的连接回了一段明文 —— 中间设备 / 被复用的
+/// 死连接都会长这样）。它不是证书判断失败（不是过期、主机名不对、自签名），重试一次
+/// 大概率就换到一条正常连接；而真正的证书问题重试一万次也一样，所以**不在这一档**。
 inline bool sslHandshakeTransient(const QByteArray &errorString) {
     const QByteArray text = errorString.toLower();
     for (const char *hint : {"wrong version number", "unexpected eof", "unexpected message",
@@ -109,7 +109,7 @@ inline int delayMs(int attempts, const QByteArray &retryAfter) {
 /// 429（Too Many Requests）专用的退避。
 ///
 /// 服务器已经明说"你太快了"，而 `delayMs()` 那条通用退避是 500/1000/2000 毫秒 ——
-/// 2026-10-18 的诊断日志里一条分段在 3 秒内连吃 4 个 429，正是这个形状：重试跑得比
+/// 的诊断日志里一条分段在 3 秒内连吃 4 个 429，正是这个形状：重试跑得比
 /// 限流窗口还快，三条命全撞在同一条链路上。没有 `Retry-After` 时从 2 秒起步、翻倍、
 /// 8 秒封顶；服务器给了具体时间就听它的（`delayMs()` 已经夹在 0.5~60 秒）。
 ///

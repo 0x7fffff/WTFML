@@ -1,8 +1,6 @@
 /**
  * @file ModInstallPlan.cpp
  * @brief 实现 ModInstallPlan.hpp（必要/可选、依赖展开、冲突、替代确认与落盘校验）。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "ModInstallPlan.hpp"
@@ -53,8 +51,8 @@ QString contextText(const QString &gameVersion, const QString &loader) {
 
 /// 这一版自己的元数据能不能装进这个上下文。
 ///
-/// ★ 两格**都空**时不判：接口有时候不给（尤其 CurseForge 的旧数据），"不知道"不是
-///   "不兼容"。只要给了、而且目标值也给了，就必须对上。
+/// 两格**都空**时不判：接口有时候不给（尤其 CurseForge 的旧数据），"不知道"不是
+/// "不兼容"。只要给了、而且目标值也给了，就必须对上。
 bool versionMatches(const ResourceCatalog::VersionEntry &version, const QString &gameVersion,
                     const QString &loader) {
     if (!gameVersion.isEmpty() && !version.gameVersions.isEmpty()) {
@@ -323,9 +321,9 @@ ModInstallPlan planModInstall(const ModInstallRequest &request) {
                     altInput != nullptr ? resolvedTitle(*altInput, confirmed)
                                         : (confirmed.name.isEmpty() ? confirmed.projectId
                                                                     : confirmed.name);
-                // ★ 替代项也走同一条解析路：它自己照样要过"上下文 + 文件"那两关，
-                //   过不了就是它自己的失败（原那一条**不再单出一行**，免得同一条在表上
-                //   出现两次、用户不知道该看哪一行）。
+                // 替代项也走同一条解析路：它自己照样要过"上下文 + 文件"那两关，
+                // 过不了就是它自己的失败（原那一条**不再单出一行**，免得同一条在表上
+                // 出现两次、用户不知道该看哪一行）。
                 visit(confirmed, fromDependency, altInput, depth);
                 bool marked = false;
                 for (int index = plan.rows.size() - 1; index >= 0; --index) {

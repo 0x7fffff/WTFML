@@ -1,8 +1,6 @@
 /**
  * @file ServerConsolePage.cpp
  * @brief 服务端控制台那一页的实现（形状与取舍见头文件）。
- * @author 0x7fffff
- * @date 2026-10-13
  */
 
 #include "ServerConsolePage.hpp"
@@ -138,7 +136,7 @@ ServerConsolePage::ServerConsolePage(QWidget *parent) : QDialog(parent) {
         // 不许折行：折了之后一行日志占两行、时间戳和正文错开，反而更难读（横向滚就是了）。
         m_logView->setLineWrapMode(QPlainTextEdit::NoWrap);
         // NOTE: 这里**不做**选中复制那一套特别设置 —— QPlainTextEdit 默认就能选中复制，
-        //       而这一页正是"用户要拿一行去搜"的地方。
+        // 而这一页正是"用户要拿一行去搜"的地方。
         box->addWidget(m_logView, 1);
     }
 

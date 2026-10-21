@@ -1,8 +1,7 @@
 /**
  * @file InlineMessage.cpp
- * @brief Implements the QMessageBox stand-ins (see InlineMessage.hpp for the whole picture).
- * @author 0x7fffff
- * @date 2026-09-25
+ * @brief 实现内嵌提示/确认面板。
+ * @note 替代 QMessageBox；行为约定见 InlineMessage.hpp。
  */
 
 #include "InlineMessage.hpp"
@@ -34,8 +33,8 @@ constexpr int kListVisibleRows = 6;
 /// 默认不用去记那个色号）；第二行是几个色相的"标准"那一档，第三行是它们的深一档，第四行是
 /// 浅一档。
 ///
-/// ★ 为什么自己钉一张表而不是拿 `QColor::fromHsv()` 现算一整圈：色板要"每一块都好看"，
-///   而现算出来的那一圈里有几块（黄绿的中间档、饱和的青色）在浅色界面上是糊的。
+/// 为什么自己钉一张表而不是拿 `QColor::fromHsv()` 现算一整圈：色板要"每一块都好看"，
+/// 而现算出来的那一圈里有几块（黄绿的中间档、饱和的青色）在浅色界面上是糊的。
 const char *const kPalette[] = {
     "#000000", "#262626", "#4d4d4d", "#808080", "#b8b8b8", "#e6e6e6", "#ffffff", "#3d8068",
     "#e53935", "#fb8c00", "#fdd835", "#43a047", "#00acc1", "#1e88e5", "#8e24aa", "#d81b60",
@@ -84,7 +83,7 @@ QColor parseColorText(const QString &text) {
 
 /// 把一块预览摆成 @p color（无效色 = 一块空心的灰框 —— "这里还不是一个色"）。
 void paintPreview(QLabel *preview, const QColor &color) {
-    // 那一圈边**跟着调色板走**（2026-10-14，coding plan §3.3「收口剩余局部样式和硬编码
+    // 那一圈边**跟着调色板走**（，coding plan §3.3「收口剩余局部样式和硬编码
     // 颜色」）：原来写死的是 `#9a9a9a` —— 浅色下正好，深色下那块空心框比周围的底亮一大截，
     // 看着像"这里有个东西"而不是"这里还没有色"。`disabledBorderColor()` 就是这一层里
     // "轮廓还在、但不抢眼"那一档的出处（和灰掉的控件那一圈是同一个色）。
@@ -157,13 +156,13 @@ InlineMessageBox::InlineMessageBox(MessageKind kind, const QString &title, const
         }
         // 三档颜色按**位置**分，不按文字（"取消"这三个字认不得 —— 按钮表是调用方给的，
         // 上面那张世界编辑菜单里就有四颗都叫"做什么"的）：
-        //   - `destructiveIndex` 那一颗 = 危险红（用户 2026-09-28 点名的"不可撤销"那一档）；
-        //   - 默认那一颗 = 确认性（**不挂属性**就是主题色，见 Theme::ButtonKind）；
-        //   - 其余 = 一般性（黑）。
+        // - `destructiveIndex` 那一颗 = 危险红（用户 点名的"不可撤销"那一档）；
+        // - 默认那一颗 = 确认性（**不挂属性**就是主题色，见 Theme::ButtonKind）；
+        // - 其余 = 一般性（黑）。
         //
-        // ★ 这条规矩的前提是"调用方标对了 `destructiveIndex`"—— 在此之前它**只用来记账**、
-        //   一颗都没标过（见下面那条改动的说明）。真正的闸一直是 `defaultIndex`（危险那两颗
-        //   一律不给默认：误按回车不该把事办了），颜色只是第二道。
+        // 这条规矩的前提是"调用方标对了 `destructiveIndex`"—— 在此之前它**只用来记账**、
+        // 一颗都没标过（见下面那条改动的说明）。真正的闸一直是 `defaultIndex`（危险那两颗
+        // 一律不给默认：误按回车不该把事办了），颜色只是第二道。
         if (i == destructiveIndex) {
             Theme::markButton(button, Theme::ButtonKind::Danger);
         } else if (i != defaultIndex) {
@@ -182,10 +181,10 @@ InlineMessageBox::InlineMessageBox(MessageKind kind, const QString &title, const
 void InlineMessageBox::relinkTabOrder() {
     // 理由见头文件里那一段（焦点链默认跟创建顺序，而后面那几行都是后插的）。
     //
-    // ★ 顺序按**布局**走，不按几何走：说"先上后下、先左后右"到底就是布局里那一串的
-    //   先后（竖排 = 从上到下，里面那张横排 = 从左到右）。几何在这里量不得 —— 这几处
-    //   调用都发生在 `show()` **之前**，那会儿布局还没跑过，每个控件都停在默认位置
-    //   （`(0,0,100,30)`），量出来的顺序恒等于创建顺序 —— 那正是要改掉的那一份。
+    // 顺序按**布局**走，不按几何走：说"先上后下、先左后右"到底就是布局里那一串的
+    // 先后（竖排 = 从上到下，里面那张横排 = 从左到右）。几何在这里量不得 —— 这几处
+    // 调用都发生在 `show()` **之前**，那会儿布局还没跑过，每个控件都停在默认位置
+    // （`(0,0,100,30)`），量出来的顺序恒等于创建顺序 —— 那正是要改掉的那一份。
     QVector<QWidget *> focusables;
     const auto collect = [&focusables](auto &&self, QLayout *layout) -> void {
         if (layout == nullptr) {
@@ -231,7 +230,7 @@ QLineEdit *InlineMessageBox::setLineEdit(const QString &initial) {
     // 插在按钮行**前面**，可它建得比按钮行晚 ⇒ 不重排的话 Tab 会往回跳（见 relinkTabOrder）。
     relinkTabOrder();
     // NOTE: 这里**不**叫 setFocus() —— 叫了也不管用（`setParent()` 之后会被清掉，
-    //       见 showEvent() 那段）。真正定光标的是 `showEvent()` 里那一下。
+    // 见 showEvent() 那段）。真正定光标的是 `showEvent()` 里那一下。
     return m_lineEdit;
 }
 
@@ -261,8 +260,8 @@ QListWidget *InlineMessageBox::setList(const QStringList &items, int initialRow)
     }
     // 高度**不跟条数长**：最多露 kListVisibleRows 行，再多就在列表内部滚。
     // NOTE: 行高问 `sizeHintForRow(0)` —— 它才是"这个列表画一行要多少"的出处（字体、
-    //       内边距、将来可能有的行装饰都在里面）；拿 fontMetrics().height() 自己算，
-    //       第一行就会被切掉一点。取不到（一行都没有）时退回字体那一档。
+    // 内边距、将来可能有的行装饰都在里面）；拿 fontMetrics().height() 自己算，
+    // 第一行就会被切掉一点。取不到（一行都没有）时退回字体那一档。
     const int rowHeight = m_list->count() > 0 ? m_list->sizeHintForRow(0)
                                              : fontMetrics().height() + 8;
     const int rows = qBound(1, items.size(), kListVisibleRows);
@@ -352,9 +351,9 @@ QCheckBox *InlineMessageBox::setCheckBox(const QString &text, int acceptButtonIn
         relinkTabOrder();  // 同 setLineEdit：那个勾建得比按钮行晚，Tab 得跟着重排。
 
         if (QPushButton *accept = buttonAt(acceptButtonIndex)) {
-            // ★ 这是这一格真正的用途（见头文件）：没勾之前那一颗是灰的。
-            //   绑法走 `toggled`，而且**当场按现在的状态摆一次** —— 只接信号不摆初值的话，
-            //   那个按钮会以"能按"的样子出现，直到用户手一抖勾一下再取消才变灰。
+            // 这是这一格真正的用途（见头文件）：没勾之前那一颗是灰的。
+            // 绑法走 `toggled`，而且**当场按现在的状态摆一次** —— 只接信号不摆初值的话，
+            // 那个按钮会以"能按"的样子出现，直到用户手一抖勾一下再取消才变灰。
             accept->setEnabled(m_checkBox->isChecked());
             connect(m_checkBox, &QCheckBox::toggled, accept, &QPushButton::setEnabled);
         }
@@ -377,8 +376,8 @@ QLabel *InlineMessageBox::setLink(const QString &text, const QString &url) {
         m_linkLabel->setWordWrap(true);
         // 和正文一样钉住宽度：卡片的高矮才算得准（理由见 ctor 里那段）。
         m_linkLabel->setFixedWidth(OverlayHost::promptContentWidth());
-        // ★ `false` —— 见头文件那段：点了只发链接激活那条信号，开浏览器是调用方的事
-        //   （那一层要写日志、开不了还要弹一句）。改成 true 会绕过这两个线索。
+        // `false` —— 见头文件那段：点了只发链接激活那条信号，开浏览器是调用方的事
+        // （那一层要写日志、开不了还要弹一句）。改成 true 会绕过这两个线索。
         m_linkLabel->setOpenExternalLinks(false);
         // 光靠鼠标悬停变手型还不够：这一行得能被键盘 Tab 到、能用回车激活（Tab 到之后按
         // 回车，QLabel 自己会把 linkActivated 发出来）。所以是 TextBrowserInteraction，
@@ -393,8 +392,8 @@ QLabel *InlineMessageBox::setLink(const QString &text, const QString &url) {
         relinkTabOrder();  // 这一行是 StrongFocus、Tab 够得着，也得跟着重排。
     }
     m_linkUrl = url;
-    // ★ 用 `toHtmlEscaped()` 把显示的那几个字转义掉 —— 它是**内容**，不是标记。不转的话
-    //   带 `&` 或 `<` 的一句话会被 Qt 当成富文本吃掉一段（比如"允许与<服务器>"那种）。
+    // 用 `toHtmlEscaped()` 把显示的那几个字转义掉 —— 它是**内容**，不是标记。不转的话
+    // 带 `&` 或 `<` 的一句话会被 Qt 当成富文本吃掉一段（比如"允许与<服务器>"那种）。
     m_linkLabel->setText(
         QStringLiteral("<a href=\"%1\">%2</a>").arg(url.toHtmlEscaped(), text.toHtmlEscaped()));
     return m_linkLabel;
@@ -459,13 +458,13 @@ int ask(OverlayHost *host, MessageKind kind, const QString &title, const QString
         return -1;
     }
     if (host->promptOpen()) {
-        // ★ 2026-10-20：纯报信的那一档（一颗按钮都没给 —— `warning()` / `information()` /
-        //   `critical()` 全走这儿）**排着，不当场丢**。后台任务收尾最常撞上这一格：用户
-        //   正开着一个「要不要…」的提示，下载失败那句话原来只留一行 qWarning 就没了。
-        //   它不向调用方要答案，晚一步弹出来不改变任何语义。
+        // 纯报信的那一档（一颗按钮都没给 —— `warning()` / `information()` /
+        // `critical()` 全走这儿）**排着，不当场丢**。后台任务收尾最常撞上这一格：用户
+        // 正开着一个「要不要…」的提示，下载失败那句话原来只留一行 qWarning 就没了。
+        // 它不向调用方要答案，晚一步弹出来不改变任何语义。
         //
-        //   要人回答的提示**仍然不叠**（见 OverlayHost::openPrompt 里那段）：排队会让
-        //   调用方从"阻塞到用户答"变成"立刻拿到一个空答案"，那是另一个问题。
+        // 要人回答的提示**仍然不叠**（见 OverlayHost::openPrompt 里那段）：排队会让
+        // 调用方从"阻塞到用户答"变成"立刻拿到一个空答案"，那是另一个问题。
         if (buttons.isEmpty()) {
             const QPointer<OverlayHost> guard(host);
             if (host->queueNotification([guard, kind, title, text, buttons, defaultIndex,
@@ -534,9 +533,9 @@ QString getText(OverlayHost *host, const QString &title, const QString &label,
     // 按钮表就是 `{确定, 取消}`、默认是**确定**（回车 = 认下这个名字，和 QInputDialog
     // 一样：那一档的默认按钮也是 Ok）。`破坏性`那一格不给 —— 没有危险动作。
     // NOTE: 这里不能用光秃秃的 `tr(...)` —— 这是一个自由函数，没有 QObject 那个 tr。
-    //       走 QObject::tr 拿到的是同一个翻译上下文（"QObject"），和 InlineMessageBox
-    //       自己那颗默认的「确定」不是同一个上下文；本仓没有 .ts 文件，所以两处现在都是
-    //       原字面量，但**要改名就两处一起改**（这一句就是给那种时候留的路标）。
+    // 走 QObject::tr 拿到的是同一个翻译上下文（"QObject"），和 InlineMessageBox
+    // 自己那颗默认的「确定」不是同一个上下文；本仓没有 .ts 文件，所以两处现在都是
+    // 原字面量，但**要改名就两处一起改**（这一句就是给那种时候留的路标）。
     InlineMessageBox box(MessageKind::Question, title, label,
                          QStringList{QObject::tr("确定"), QObject::tr("取消")}, 0, -1);
     box.setLineEdit(initial);
@@ -663,8 +662,8 @@ QColor pickColor(OverlayHost *host, const QString &title, const QString &text,
         auto *swatch = new QPushButton(grid);
         swatch->setObjectName(colorSwatchName(i));
         swatch->setFixedSize(kSwatchWidth, kSwatchHeight);
-        // ★ 键盘不给这 32 块（`NoFocus`）：Tab 一趟要穿过它们 32 次，"用键盘挑颜色"这件事
-        //   由上面那一格色号承担（它就是这一档的键盘路径）。
+        // 键盘不给这 32 块（`NoFocus`）：Tab 一趟要穿过它们 32 次，"用键盘挑颜色"这件事
+        // 由上面那一格色号承担（它就是这一档的键盘路径）。
         swatch->setFocusPolicy(Qt::NoFocus);
         Theme::markColorSwatch(swatch, QColor::fromString(QString::fromLatin1(kPalette[i])));
         QObject::connect(swatch, &QPushButton::clicked, edit,

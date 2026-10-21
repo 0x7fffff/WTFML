@@ -233,13 +233,13 @@ void InstanceEditorController::openConfigFile(InstanceSettingsDialog *dialog, co
     if (dialog == nullptr) {
         return;
     }
-    // ★ **打开之前**先量一眼盘上那一份（见 ConfigFileText::Stamp）：保存前拿它比对，对不上
-    //   就说明这中间有别人动过（游戏退出时写回 / 另一个编辑器 / 模组自己的迁移），那一趟
-    //   不许静静盖掉。
+    // **打开之前**先量一眼盘上那一份（见 ConfigFileText::Stamp）：保存前拿它比对，对不上
+    // 就说明这中间有别人动过（游戏退出时写回 / 另一个编辑器 / 模组自己的迁移），那一趟
+    // 不许静静盖掉。
     //
-    // ★ 顺序要紧：量在**读之前**。反过来的话，万一有人正好在"我们读完"和"我们量"之间写了
-    //   一次，量到的就是**新**那一份 —— 保存时会判成"没动过"，正好把那次改动盖掉。这个方向
-    //   的错更贵，所以宁可把"读完就被改"判成"改过"（多问一句，用户点一下就过去了）。
+    // 顺序要紧：量在**读之前**。反过来的话，万一有人正好在"我们读完"和"我们量"之间写了
+    // 一次，量到的就是**新**那一份 —— 保存时会判成"没动过"，正好把那次改动盖掉。这个方向
+    // 的错更贵，所以宁可把"读完就被改"判成"改过"（多问一句，用户点一下就过去了）。
     const QFileInfo onDisk(path);
 
     QFile file(path);
@@ -283,10 +283,10 @@ void InstanceEditorController::saveConfigFile(InstanceSettingsDialog *dialog, co
 
     // ---------- 闸 ①：这个实例正开着游戏 ⇒ 不写 ----------
     //
-    // ★ 这不是"劝一句"，是**不写**：游戏手里有一份配置的内存副本（模组启动时读进去的），
-    //   它退出（或者用户在游戏里改一次设置）的时候会**整份写回**盘上 —— 现在写下去的东西
-    //   会被静默盖掉，而用户看到的是「我改了没用」，回头只会以为这个启动器有毛病。判据和
-    //   「游戏还在跑、窗口不许关」那一趟用的是同一份（runningVersionIds()，一个字都没另起）。
+    // 这不是"劝一句"，是**不写**：游戏手里有一份配置的内存副本（模组启动时读进去的），
+    // 它退出（或者用户在游戏里改一次设置）的时候会**整份写回**盘上 —— 现在写下去的东西
+    // 会被静默盖掉，而用户看到的是「我改了没用」，回头只会以为这个启动器有毛病。判据和
+    // 「游戏还在跑、窗口不许关」那一趟用的是同一份（runningVersionIds()，一个字都没另起）。
     const QString instanceId = m_owner->instanceIdOfPath(path);
     if (!instanceId.isEmpty() && m_owner->runningVersionIds().contains(instanceId)) {
         InlineMessage::warning(
@@ -299,8 +299,8 @@ void InstanceEditorController::saveConfigFile(InstanceSettingsDialog *dialog, co
 
     // ---------- 闸 ②：盘上那份还是我打开时那一份吗 ----------
     //
-    // ★ 这里比的是 **大小 + 修改时间**（见 ConfigFileText::Stamp 那段，两样一起才够用），
-    //   比的是"我打开它的时候"和"现在"—— 中间别人动过就必须问一句，**不许静静盖掉**。
+    // 这里比的是 **大小 + 修改时间**（见 ConfigFileText::Stamp 那段，两样一起才够用），
+    // 比的是"我打开它的时候"和"现在"—— 中间别人动过就必须问一句，**不许静静盖掉**。
     const QFileInfo now(path);
     ConfigFileText::Stamp onDisk;
     if (now.exists()) {
@@ -323,8 +323,8 @@ void InstanceEditorController::saveConfigFile(InstanceSettingsDialog *dialog, co
                 return;  // 关掉 / Esc：盘上、框里都原样
             }
         } else {
-            // ★ 三颗出口，而且**默认那颗是"什么都不做"**（`defaultIndex = -1`）：这是一件
-            //   会毁掉别人改动的事，误按一个回车不该把它办了（和那几处危险动作同一个规矩）。
+            // 三颗出口，而且**默认那颗是"什么都不做"**（`defaultIndex = -1`）：这是一件
+            // 会毁掉别人改动的事，误按一个回车不该把它办了（和那几处危险动作同一个规矩）。
             const int picked = InlineMessage::ask(
                 m_owner->m_ui->overlay(), MessageKind::Question, m_owner->tr("盘上那份被人改过了"),
                 m_owner->tr("%1\n\n这份文件在你打开之后被别的东西改过（多半是游戏退出时写回，也可能"
@@ -348,14 +348,14 @@ void InstanceEditorController::saveConfigFile(InstanceSettingsDialog *dialog, co
 
     // ---------- 闸 ③：写之前把盘上那一份原样留一份 ----------
     //
-    // ★ 备份的是**盘上那一份**（不是框里这一份）：这一页说的"上一次"是"我上一次按下保存
-    //   之前的那一份"，所以留的就是马上要被盖掉的那个样子。于是「还原上一次」有一个确定
-    //   的含义：取回来的永远是"我上一次保存之前的内容"。
+    // 备份的是**盘上那一份**（不是框里这一份）：这一页说的"上一次"是"我上一次按下保存
+    // 之前的那一份"，所以留的就是马上要被盖掉的那个样子。于是「还原上一次」有一个确定
+    // 的含义：取回来的永远是"我上一次保存之前的内容"。
     //
-    // ★ 留不下就不写（不是"警告一句然后照写"）：这一整件事的前提是"改坏了能回去"，而这一页
-    //   自己没有撤销（那一行字是页面上写着的）。备份写不进去还照写，就是把用户手上唯一一份
-    //   配置丢进一个没有回退按钮的操作里 —— 而它挡住的是"这一次保存"，用户还能把框里的
-    //   内容自己拷出来、或者去把那个目录的权限修好再来。
+    // 留不下就不写（不是"警告一句然后照写"）：这一整件事的前提是"改坏了能回去"，而这一页
+    // 自己没有撤销（那一行字是页面上写着的）。备份写不进去还照写，就是把用户手上唯一一份
+    // 配置丢进一个没有回退按钮的操作里 —— 而它挡住的是"这一次保存"，用户还能把框里的
+    // 内容自己拷出来、或者去把那个目录的权限修好再来。
     bool backedUp = false;
     if (!instanceId.isEmpty() && now.exists()) {
         QFile source(path);
@@ -405,10 +405,10 @@ void InstanceEditorController::saveConfigFile(InstanceSettingsDialog *dialog, co
         backedUp = true;
     }
 
-    // ★ `QSaveFile` 而不是 `QFile`：它先往同一个目录下写一个临时文件，最后**原子地**改名
-    //   过去。直接写的话，写到一半失败（盘满 / 被杀毒拦下 / 断电）会把用户手上那份配置
-    //   毁成半截 —— 而这一页没有"恢复默认"（模组的默认值是它下次启动时自己重写一份，
-    //   那要等它启动，也不保证每个模组都这么干）。
+    // `QSaveFile` 而不是 `QFile`：它先往同一个目录下写一个临时文件，最后**原子地**改名
+    // 过去。直接写的话，写到一半失败（盘满 / 被杀毒拦下 / 断电）会把用户手上那份配置
+    // 毁成半截 —— 而这一页没有"恢复默认"（模组的默认值是它下次启动时自己重写一份，
+    // 那要等它启动，也不保证每个模组都这么干）。
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
         InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("保存失败"),
@@ -433,9 +433,9 @@ void InstanceEditorController::saveConfigFile(InstanceSettingsDialog *dialog, co
     // 写失败的时候不许出现（那一档由上面那几句话负责）。
     if (editor != nullptr) {
         editor->markSaved();
-        // ★ 把刚写下去那一份的样子记回去：不记的话，**用户连着存两次**，第二次会被自己
-        //   上一次写下去的那一份判成"盘上被人改过了"（mtime 变了）—— 于是每一次保存都要
-        //   多问一句"要盖掉吗"。它要的是刚写下去那个 Stat。
+        // 把刚写下去那一份的样子记回去：不记的话，**用户连着存两次**，第二次会被自己
+        // 上一次写下去的那一份判成"盘上被人改过了"（mtime 变了）—— 于是每一次保存都要
+        // 多问一句"要盖掉吗"。它要的是刚写下去那个 Stat。
         const QFileInfo after(path);
         ConfigFileText::Stamp fresh;
         if (after.exists()) {
@@ -592,8 +592,8 @@ void InstanceEditorController::showWorldSettingsPage(InstanceSettingsDialog *dia
     }
     const QString worldName = QFileInfo(worldDir).fileName();
 
-    // ★ 量在**读之前**（理由和 m_owner->openConfigFile() 里那段逐字相同：反过来的话，正好卡在
-    //   "读完"和"量"之间的那一次改动会被判成"没动过"，于是保存时被静静盖掉）。
+    // 量在**读之前**（理由和 m_owner->openConfigFile() 里那段逐字相同：反过来的话，正好卡在
+    // "读完"和"量"之间的那一次改动会被判成"没动过"，于是保存时被静静盖掉）。
     const QFileInfo before(WorldFiles::levelDataPath(worldDir));
     ConfigFileText::Stamp stamp;
     if (before.exists()) {
@@ -604,14 +604,14 @@ void InstanceEditorController::showWorldSettingsPage(InstanceSettingsDialog *dia
     WorldFiles::LevelData data;
     QString why;
     if (!WorldFiles::readLevelData(worldDir, &data, &why)) {
-        // ★ 这就是「坏档」唯一的判据**本身**：读得出来就是好的、读不出来就是坏的。判据不
-        //   另立一份（"看 level.dat 在不在""看大小对不对"那种）—— 用户最怕的那件事正是
-        //   "文件看着在、游戏打不开"，而那件事只有真解一遍才知道。
-        //   读不出来 ⇒ **照"读不出来"那一档开页**（页面顶上写「这个世界可能坏了：<目录>」、
-        //   正文整块藏起来、只留改名 / 打开文件夹 / 删除 / 备份一份），把**原因**原样摆给
-        //   用户看（他拿去搜、拿去问人都要它）。2026-09-29 起这里**不再往前补一问**（原来
-        //   会弹「打开（只读）/ 先备份一份 / 取消」）—— 用户原话「点击笔的时候不要弹备份
-        //   提示了」；备份仍然随时可做，就是页里那颗「备份一份」。
+        // 这就是「坏档」唯一的判据**本身**：读得出来就是好的、读不出来就是坏的。判据不
+        // 另立一份（"看 level.dat 在不在""看大小对不对"那种）—— 用户最怕的那件事正是
+        // "文件看着在、游戏打不开"，而那件事只有真解一遍才知道。
+        // 读不出来 ⇒ **照"读不出来"那一档开页**（页面顶上写「这个世界可能坏了：<目录>」、
+        // 正文整块藏起来、只留改名 / 打开文件夹 / 删除 / 备份一份），把**原因**原样摆给
+        // 用户看（他拿去搜、拿去问人都要它）。 起这里**不再往前补一问**（原来
+        // 会弹「打开（只读）/ 先备份一份 / 取消」）—— 要求「点击笔的时候不要弹备份
+        // 提示了」；备份仍然随时可做，就是页里那颗「备份一份」。
         m_owner->m_worldDir = worldDir;
         m_owner->m_worldStampSize = 0;
         m_owner->m_worldStampMtimeMs = 0;
@@ -624,8 +624,8 @@ void InstanceEditorController::showWorldSettingsPage(InstanceSettingsDialog *dia
     m_owner->m_worldStampSize = stamp.size;
     m_owner->m_worldStampMtimeMs = stamp.mtimeMs;
     dialog->openWorldSettings(worldViewOf(worldDir, data));
-    // ★ `setBackupAvailable()` **必须在 openWorldSettings() 之后**：`setWorld()` 会把
-    //   "留过备份没有"这一位清掉（上一条世界的答案对这一个世界不作数）。
+    // `setBackupAvailable()` **必须在 openWorldSettings() 之后**：`setWorld()` 会把
+    // "留过备份没有"这一位清掉（上一条世界的答案对这一个世界不作数）。
     page->setBackupAvailable(!m_owner->latestWorldBackup(worldDir).isEmpty());
 }
 
@@ -639,20 +639,17 @@ void InstanceEditorController::leaveWorldSettings(InstanceSettingsDialog *dialog
         return;
     }
 
-    // ★ 改过的东西不许悄悄没掉 —— 这一页和"配置文件"那一页是同一条规矩。
+    // 改过的东西不许悄悄没掉 —— 这一页和"配置文件"那一页是同一条规矩。
     //
-    // ★★ 2026-09-28：判据是**页自己那本台账**（`WorldSettingsPage::isDirty()`），
-    //    不是"拿页面上的值跟盘上那一份比一遍"。
+    // 上一版这里写的是后一种，而且注释里宣称"为了不为此多解一次 gzip"—— 那句话是假的：
+    // 代码自己就在上面解了一遍（`readLevelData()`，一次 PowerShell、小一秒），而且这么
+    // 比出来的东西**不是**"改过没有"：盘上那一份只要被别的什么东西动过（游戏在跑、
+    // 用户自己删了又拉回来、别的工具碰过），页面上一格没改也会被判成"改过的东西还没存"
+    // —— 用户对着一个自己一个字都没动过的页面被问"要丢掉吗"。
     //
-    //    上一版这里写的是后一种，而且注释里宣称"为了不为此多解一次 gzip"—— 那句话是假的：
-    //    代码自己就在上面解了一遍（`readLevelData()`，一次 PowerShell、小一秒），而且这么
-    //    比出来的东西**不是**"改过没有"：盘上那一份只要被别的什么东西动过（游戏在跑、
-    //    用户自己删了又拉回来、别的工具碰过），页面上一格没改也会被判成"改过的东西还没存"
-    //    —— 用户对着一个自己一个字都没动过的页面被问"要丢掉吗"。
-    //
-    //    台账那一位是现成的，而且**覆盖层页眉那颗返回箭头走的就是它**（见
-    //    `InstanceSettingsDialog::reject()`）：两条出口用两个判据的话，同一个页面按不同的
-    //    返回键会得到两个不同的答案 —— 那正是"有时候问、有时候不问"这种没人查得出来的毛病。
+    // 台账那一位是现成的，而且**覆盖层页眉那颗返回箭头走的就是它**（见
+    // `InstanceSettingsDialog::reject()`）：两条出口用两个判据的话，同一个页面按不同的
+    // 返回键会得到两个不同的答案 —— 那正是"有时候问、有时候不问"这种没人查得出来的毛病。
     const bool dirty = page->isDirty();
 
     if (dirty) {
@@ -684,21 +681,12 @@ void InstanceEditorController::saveWorldSettings(InstanceSettingsDialog *dialog)
     }
     const QString worldDir = m_owner->m_worldDir;
     const QString worldName = QFileInfo(worldDir).fileName();
-    // ★ 用户**真动过**的那几格（"和打开这一页时那一份逐字比"）。存下去的就是它 —— 不是
-    //   "页面上现在长什么样"：那四格一律可动，盘上没有的项在屏幕上摆的是默认值，整份写下去
-    //   等于把几十个默认值塞进用户的存档（见 WorldSettingsPage::Delta 的说明）。
+    // 用户**真动过**的那几格（"和打开这一页时那一份逐字比"）。存下去的就是它 —— 不是
+    // "页面上现在长什么样"：那四格一律可动，盘上没有的项在屏幕上摆的是默认值，整份写下去
+    // 等于把几十个默认值塞进用户的存档（见 WorldSettingsPage::Delta 的说明）。
     const WorldSettingsPage::Delta delta = page->deltaFromOpened();
 
     // ---------- 闸 ①：这个实例正开着游戏 ⇒ 不写 ----------
-    //
-    // ★ 判据和"改配置文件"那一趟**用的是同一个**（`m_owner->instanceIdOfPath()` +
-    //   `runningVersionIds()`）：游戏手里那份存档也是它自己读进去的，退出时整份写回来。
-    //   比这一条更"精确"的做法是去问 `saves/<世界>/session.lock` —— **试过，判不出来**：
-    //   游戏（Java）是用 `FileChannel.tryLock()` 锁它的，在 Windows 上那是 `LockFileEx`
-    //   的**按字节范围锁**，它**不挡**别人 `CreateFile` 打开这个文件。于是"打得开 ⇒
-    //   没人占着"这条推理是错的（实测：游戏开着的时候那个文件照样打得开、写得进）。
-    //   真要判得自己调 `LockFileEx`，而它只覆盖"**这个**世界正开着"这一档 —— 而我们
-    //   自己启动的那一份，`runningVersionIds()` 本来就说得比它准（它连"哪个实例"都知道）。
     const QString runningId = m_owner->instanceIdOfPath(worldDir);
     if (!runningId.isEmpty() && m_owner->runningVersionIds().contains(runningId)) {
         InlineMessage::warning(
@@ -724,7 +712,7 @@ void InstanceEditorController::saveWorldSettings(InstanceSettingsDialog *dialog)
     // `m_owner->m_worldStampMtimeMs == 0` 就是"打开那一刻压根没量到"（文件不在），比不了 —— 和
     // `ConfigFileText::Stamp::valid()` 是同一条判据（见 .hpp 里那两位的说明）。
     if (m_owner->m_worldStampMtimeMs != 0 && (nowSize != m_owner->m_worldStampSize || nowMtimeMs != m_owner->m_worldStampMtimeMs)) {
-        // ★ 三颗出口、默认那颗是"什么都不做"（会毁掉别人改动的事，误按回车不该办了它）。
+        // 三颗出口、默认那颗是"什么都不做"（会毁掉别人改动的事，误按回车不该办了它）。
         const int picked = InlineMessage::ask(
             m_owner->m_ui->overlay(), MessageKind::Question, m_owner->tr("盘上那份被人改过了"),
             m_owner->tr("「%1」的 level.dat 在你打开这一页之后被改过（游戏在跑？别的工具？）。"
@@ -758,12 +746,12 @@ void InstanceEditorController::saveWorldSettings(InstanceSettingsDialog *dialog)
     // `MissingField::Create`：那四格现在**一律可动**，而老存档可能压根没有 `allowCommands`
     // 那一格（1.8 才加的）—— 用户改了它就建出来，而不是让这一次保存以"改不了"收场
     // （用户刚做完一个动作、屏幕上也答应了，然后告诉他存不下去，那是最坏的一种界面）。
-    // ★ 只会碰到 `delta` 点名的那几项：`applyWorldInfo()` 仍然是**逐项看 `hasXxx`** 的，
-    //   而 `applyWorldViewTo()` 只给用户真改过的那几项置上 `hasXxx`。
+    // 只会碰到 `delta` 点名的那几项：`applyWorldInfo()` 仍然是**逐项看 `hasXxx`** 的，
+    // 而 `applyWorldViewTo()` 只给用户真改过的那几项置上 `hasXxx`。
     if (!WorldFiles::applyWorldInfo(&data.document, data.info, &why,
                                     WorldFiles::MissingField::Create)) {
-        // ★ **没写盘**（`applyWorldInfo()` 改的是内存里那棵树）。理由和"配置文件"那条路
-        //   一致：把用户改的一项写成"看着成了、其实没写"最坏。
+        // **没写盘**（`applyWorldInfo()` 改的是内存里那棵树）。理由和"配置文件"那条路
+        // 一致：把用户改的一项写成"看着成了、其实没写"最坏。
         InlineMessage::warning(
             m_owner->m_ui->overlay(), m_owner->tr("这一项改不了"),
             m_owner->tr("「%1」\n\n%2\n\n所以这一次没有存，盘上那份原样没动。").arg(worldName, why));
@@ -780,8 +768,8 @@ void InstanceEditorController::saveWorldSettings(InstanceSettingsDialog *dialog)
 
     // ---------- 闸 ④：写之前把盘上那一份原样留一份 ----------
     //
-    // ★ 留不下就不写（不是"警告一句然后照写"）：这一整套的前提是"改坏了能回去"，而世界
-    //   设置这一页没有撤销（底下那行字是页面上写着的）。
+    // 留不下就不写（不是"警告一句然后照写"）：这一整套的前提是"改坏了能回去"，而世界
+    // 设置这一页没有撤销（底下那行字是页面上写着的）。
     QString backupProblem;
     if (!m_owner->backupWorldLevelData(worldDir, &backupProblem)) {
         InlineMessage::warning(
@@ -798,8 +786,8 @@ void InstanceEditorController::saveWorldSettings(InstanceSettingsDialog *dialog)
     }
 
     page->markSaved();
-    // ★ 把刚写下去那一份的样子记回去：不记的话，**用户连着存两次**，第二次会被自己上一次
-    //   写下去的那一份判成"盘上被人改过了"（mtime 变了）—— 于是每一次保存都要多问一句。
+    // 把刚写下去那一份的样子记回去：不记的话，**用户连着存两次**，第二次会被自己上一次
+    // 写下去的那一份判成"盘上被人改过了"（mtime 变了）—— 于是每一次保存都要多问一句。
     const QFileInfo after(WorldFiles::levelDataPath(worldDir));
     if (after.exists()) {
         m_owner->m_worldStampSize = after.size();
@@ -819,7 +807,7 @@ void InstanceEditorController::leaveConfigEditor(InstanceSettingsDialog *dialog)
     if (editor == nullptr) {
         return;
     }
-    // ★ 改过的东西**不许悄悄没掉**（那一问的字见 m_owner->confirmDiscardConfigEdits()）。
+    // 改过的东西**不许悄悄没掉**（那一问的字见 m_owner->confirmDiscardConfigEdits()）。
     if (editor->isDirty()) {
         if (!m_owner->confirmDiscardConfigEdits()) {
             return;

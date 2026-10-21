@@ -1,8 +1,6 @@
 /**
  * @file UpdateCenterPage.cpp
  * @brief 更新中心那一页的实现（形状与取舍见头文件）。
- * @author 0x7fffff
- * @date 2026-10-13
  */
 
 #include "UpdateCenterPage.hpp"
@@ -20,8 +18,6 @@
 
 namespace {
 
-/// 一行小字（次要信息）。和完整性报告页那个 `makeMutedLabel()` 是同一套做法
-/// （那一页是这一页的形状来源，两页的"说明文字"长得一样是有意的）。
 QLabel *makeMutedLabel(QWidget *parent, const QString &objectName) {
     auto *label = new QLabel(parent);
     label->setObjectName(objectName);
@@ -210,23 +206,23 @@ void UpdateCenterPage::rebuild() {
         while (body->count() > 1) {
             QLayoutItem *child = body->takeAt(0);
             if (QWidget *w = child->widget()) {
-                // ★ **先把这一格摘出这一页、再排删除**（不是光一句 `deleteLater()`）。两件事
-                //   一起办，两件都是真的：
-                //   · 认人：组头和行上的 objectName 是**按组号/行号现拼的**
-                //     （`updateCenterGroupName()` / `updateCenterRowName()`）⇒ 新旧两批
-                //     **同名**，而 `deleteLater()` 要等下一趟事件循环才真的删。旧那一批在
-                //     新的一批画出来之后**还挂在这一页的孩子树里** ⇒ 谁 `findChild` 谁就
-                //     可能先撞上旧的那一批。mw_check T32 真撞上过：名单两行全对，组头却读成
-                //     「0 条」（那是构造里 `setReport(Report())` 那一趟留下的，它一个行都
-                //     没有 —— 所以只有行能读到新的那一批，正是这个症状）。
-                //   · 视觉：旧的那一批这时候几何还没变、也还可见 ⇒ 重画那一瞬间新旧叠在
-                //     一处（`InstanceFilesPage` 那个重建里为这个专门写过一句「先藏再排删除」）。
-                //   `setParent(nullptr)` 把这两件一并办了：控件**立刻**从这一页的孩子树里
-                //   消失，而 Qt 换爹的时候本来就会把它**自动藏起来**（换到 nullptr = 变成
-                //   顶层窗口，一样是藏着的）。
-                //   ★ 这里**不能**学 `IntegrityReportPage` / `TaskDetailPage` 那样当场
-                //     `delete`：这一趟重建可能是被**这一页自己的按钮**点出来的（忽略 / 固定
-                //     那两颗 → `setReport()`），当场删就是把正在发信号的那颗按钮删在信号里。
+                // **先把这一格摘出这一页、再排删除**（不是光一句 `deleteLater()`）。两件事
+                // 一起办，两件都是真的：
+                // · 认人：组头和行上的 objectName 是**按组号/行号现拼的**
+                // （`updateCenterGroupName()` / `updateCenterRowName()`）⇒ 新旧两批
+                // **同名**，而 `deleteLater()` 要等下一趟事件循环才真的删。旧那一批在
+                // 新的一批画出来之后**还挂在这一页的孩子树里** ⇒ 谁 `findChild` 谁就
+                // 可能先撞上旧的那一批。mw_check T32 真撞上过：名单两行全对，组头却读成
+                // 「0 条」（那是构造里 `setReport(Report())` 那一趟留下的，它一个行都
+                // 没有 —— 所以只有行能读到新的那一批，正是这个症状）。
+                // · 视觉：旧的那一批这时候几何还没变、也还可见 ⇒ 重画那一瞬间新旧叠在
+                // 一处（`InstanceFilesPage` 那个重建里为这个专门写过一句「先藏再排删除」）。
+                // `setParent(nullptr)` 把这两件一并办了：控件**立刻**从这一页的孩子树里
+                // 消失，而 Qt 换爹的时候本来就会把它**自动藏起来**（换到 nullptr = 变成
+                // 顶层窗口，一样是藏着的）。
+                // 这里**不能**学 `IntegrityReportPage` / `TaskDetailPage` 那样当场
+                // `delete`：这一趟重建可能是被**这一页自己的按钮**点出来的（忽略 / 固定
+                // 那两颗 → `setReport()`），当场删就是把正在发信号的那颗按钮删在信号里。
                 w->setParent(nullptr);
                 w->deleteLater();
             }
@@ -244,7 +240,6 @@ void UpdateCenterPage::rebuild() {
             }
         }
 
-        // 行的**下标**是全页连着的（objectName 里的那个号）—— 和完整性报告页一个规矩。
         int rowIndex = 0;
         int groupIndex = 0;
         const auto addGroup = [&](const QString &title, const QList<Row> &rows,
@@ -378,8 +373,6 @@ void UpdateCenterPage::rebuild() {
             ++groupIndex;
         };
 
-        // 两组**都摆**（一组空了也摆，写「0 条」）—— 省掉一组的话用户分不清是"这一趟没有
-        // 这一档"还是"这一页没画它"（完整性报告页那四组同一个规矩）。
         addGroup(MainWindowUI::updateCenterOutdatedGroupTitleText(outdated.size()), outdated,
                  /*chips=*/true);
         addGroup(MainWindowUI::updateCenterRestGroupTitleText(rest.size()), rest,

@@ -1,11 +1,9 @@
 /**
  * @file QuickPlay.hpp
  * @brief 「开游戏直接进某个存档 / 直接连某台服务器」那一对参数（`--quickPlaySingleplayer`
- *        / `--quickPlayMultiplayer`）的判据层。
- * @author 0x7fffff
- * @date 2026-10-10
- * @note 用户 2026-10-10 原话：「世界和服务器都做一个临时占位（加入选中的世界（仅限有这个
- *       参数的版本）/服务器）先试试看能不能生效」。
+ * / `--quickPlayMultiplayer`）的判据层。
+ * @note 要求：「世界和服务器都做一个临时占位（加入选中的世界（仅限有这个
+ * 参数的版本）/服务器）先试试看能不能生效」。
  *
  * 做成 header-only：它只依赖 `QJsonObject`，两头都要用 —— 启动那一侧拼命令行
  * （`LauncherManager::generateJvmArguments`），界面那一侧决定那两颗按钮露不露、灰不灰
@@ -15,20 +13,20 @@
  *
  * quick play 是 **1.20 才有的**（1.20 之前 `Main` 的选项表里没有它），而那两条参数在
  * 版本 json 里是**带 feature 规则**的条目：
- *     {"rules":[{"action":"allow","features":{"is_quick_play_singleplayer":true}}],
- *      "value":["--quickPlaySingleplayer","${quickPlaySingleplayer}"]}
+ * {"rules":[{"action":"allow","features":{"is_quick_play_singleplayer":true}}],
+ * "value":["--quickPlaySingleplayer","${quickPlaySingleplayer}"]}
  * 也就是说，**json 里写了这一条 == 这个版本的 `Main` 认这个选项**（那份 json 是照着游戏
  * 自己的选项表生成的）。把版本号当判据（"1.20 及以上"）会在快照 / 模改版上立刻出错，而
  * 且 1.20 那条线以后还会移 —— 所以判据只有这一个：**json 里有没有写着这一条**。
  *
- * ★ 真发了不认它的版本，游戏不是"忽略"，是**当场退出**：jopt-simple 遇到不认识的选项
- *   抛 `UnrecognizedOptionException`，`Main` 起不来。所以这两颗按钮在支持的版本上才露，
- *   别的版本上一颗都发不出去（`supports()` 就是那道闸）。
+ * 真发了不认它的版本，游戏不是"忽略"，是**当场退出**：jopt-simple 遇到不认识的选项
+ * 抛 `UnrecognizedOptionException`，`Main` 起不来。所以这两颗按钮在支持的版本上才露，
+ * 别的版本上一颗都发不出去（`supports()` 就是那道闸）。
  *
  * NOTE: `--quickPlaySingleplayer` / `--quickPlayMultiplayer` 两位在
- *       `VersionArguments::isVanillaGameArgument()` 的名单里 —— 那是"这一条由启动器
- *       自己发"的意思，json 自己声明的那一条（连同它的 `${quickPlaySingleplayer}`）
- *       会被整条丢掉，所以**必须**从这里发出去，和 `--width`/`--height` 同一档。
+ * `VersionArguments::isVanillaGameArgument()` 的名单里 —— 那是"这一条由启动器
+ * 自己发"的意思，json 自己声明的那一条（连同它的 `${quickPlaySingleplayer}`）
+ * 会被整条丢掉，所以**必须**从这里发出去，和 `--width`/`--height` 同一档。
  */
 
 #pragma once
@@ -80,8 +78,8 @@ inline QStringList arguments(const Target &target) {
 /**
  * @brief 这个版本认不认这一条 quick play 参数。
  * @param versionJson 版本 json —— **继承链合并过的那一份**（加载器版本自己的 profile 里
- *        一个 quick play 条目都没有，它们全在父那一份里；拿没合并的那份问，Forge /
- *        NeoForge / Fabric 的实例会一个都答"不支持"）。
+ * 一个 quick play 条目都没有，它们全在父那一份里；拿没合并的那份问，Forge /
+ * NeoForge / Fabric 的实例会一个都答"不支持"）。
  *
  * 判据：`arguments.game` 里有没有写着这个名字（字符串条目直接比；对象条目看它的 `value`，
  * 字符串或字符串数组两种形态都认）。**不看 rules** —— 规则里那个 feature 名

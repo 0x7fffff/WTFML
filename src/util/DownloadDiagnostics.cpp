@@ -1,8 +1,6 @@
 /**
  * @file DownloadDiagnostics.cpp
  * @brief 下载链路"特供版"详细日志的实现（判据与动机见头文件）。
- * @author 0x7fffff
- * @date 2026-10-17
  */
 
 #include "DownloadDiagnostics.hpp"
@@ -70,7 +68,7 @@ void openFileLocked(const QString &logsDir) {
     g_file.setFileName(g_path);
     // ReadWrite 不只是为了读：init() 迁移时要 `g_file.seek(0); readAll()` 把启动早期
     // 已经写下的那几行搬过去。只给 WriteOnly 的话 readAll() 静默回空 —— 迁移"成功"了，
-    // 内容却少了开头那几行（2026-10-18 第一次冒烟就是这么丢的）。
+    // 内容却少了开头那几行（ 第一次冒烟就是这么丢的）。
     if (g_file.open(QIODevice::ReadWrite | QIODevice::Truncate)) {
         g_stream.setDevice(&g_file);
         g_stream.setEncoding(QStringConverter::Utf8);
@@ -132,13 +130,6 @@ void init(const QString &logsDir) {
         return;
     }
     QMutexLocker locker(&g_mutex);
-    // ★ 2026-10-18：main() 里 init() 排在"把设置的游戏文件夹套上去"之后，可启动早期已经有
-    //   事件了（第一行就是并发数设置，+0.000s）—— `line()` 那条兜底会按**默认**数据目录
-    //   (appDir/.minecraft) 先把文件开掉，等 init() 拿着真正的数据目录过来时已经晚了。
-    //   表现：桌面版把明细写进 `D:\Desktop\.minecraft\logs\`，而用户按说明去自己的游戏
-    //   文件夹里找，什么都没有。
-    //   这里把已经写下的那几行搬过去再换文件；路径本来就对（用户的数据目录就是默认那个）
-    //   的话什么都不做。
     if (g_initAttempted) {
         QString dir = logsDir;
         if (dir.isEmpty()) {

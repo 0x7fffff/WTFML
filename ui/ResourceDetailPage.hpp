@@ -1,24 +1,14 @@
 /**
- * @file ResourceDetailPage.hpp
- * @brief 下载页点开一个资源之后那一整页：头卡（图标 + 名字 + 简介 + 一行元信息 + 三颗按钮）、
- *        一排游戏版本 chip、底下按「加载器 + 游戏版本」分组的版本列表。
- * @author 0x7fffff
- * @date 2026-09-26
- * @note 形状照着 PCL 那一页来（用户给的原话是「和pcl类似」+ 一张截图）：上面一块卡写着
- *       图标、名字、简介、加载器/下载量/更新时间/来源，下面一排版本 chip，再下面一组一组
- *       列版本。**整页盖在内容区上**（`OverlayHost::execPage`），不另开窗 —— 顶上那四个
- *       选项卡和底栏照旧露着（那是覆盖层自己的规矩）。
- *
  * 【这一层一个字节都不上网、也不知道 Modrinth 是什么】
  *
  * 进参出参都是**值**（Header / Chip / Group / Row 都是本文件自己的），不 include 任何 src/
  * 下的头 —— 和 InstanceSettingsDialog / GroupDialog 同一条约定（ui/ 不依赖业务层）。
  * 跟网络与磁盘有关的三件事全都由 MainWindow 代办，这一页只发信号：
- *   * `chipChanged()` —— 用户点了某个游戏版本，**筛和分组由 MainWindow 重算再 setGroups()**
- *     （分组的规则在 ResourceCatalog::groupVersions 里，那是业务层的事）；
- *   * `openExternalRequested()` —— 「转到 XXX」那一类按钮（开浏览器是 MainWindow 的事，
- *     它还负责把 QDesktopServices 换成验证工程能拦的那个 handler）；
- *   * `rowActivated()` —— 点了某一个具体版本 = 要下它（下到哪儿、走哪条链路也是 MainWindow）。
+ * * `chipChanged()` —— 用户点了某个游戏版本，**筛和分组由 MainWindow 重算再 setGroups()**
+ * （分组的规则在 ResourceCatalog::groupVersions 里，那是业务层的事）；
+ * * `openExternalRequested()` —— 「转到 XXX」那一类按钮（开浏览器是 MainWindow 的事，
+ * 它还负责把 QDesktopServices 换成验证工程能拦的那个 handler）；
+ * * `rowActivated()` —— 点了某一个具体版本 = 要下它（下到哪儿、走哪条链路也是 MainWindow）。
  *
  * 【行里的东西全是拼好的字符串】
  *
@@ -67,9 +57,9 @@ namespace ResourceDetail {
 struct Header {
     QString title;       ///< 资源名（接口给哪个就用哪个，没有第二份中文名可显示）
     QString description; ///< 一句话简介（**画一行**，放不下从尾巴截成省略号；全文挂在
-                         ///< 鼠标提示上。空 = 这一行不占地方）
-    /// 名字底下那行元信息：「Fabric / NeoForge · 2.31 亿 · 5 天前 · Modrinth」。
-    /// 每一截在不在由 MainWindow 拼（这儿只画一行）。空串 = 这一行不画。
+                         /// < 鼠标提示上。空 = 这一行不占地方）
+                         /// 名字底下那行元信息：「Fabric / NeoForge · 2.31 亿 · 5 天前 · Modrinth」。
+                         /// 每一截在不在由 MainWindow 拼（这儿只画一行）。空串 = 这一行不画。
     QString metaLine;
     /// 那颗「转到 XXX」按钮上的字（`Modrinth` / `CurseForge`）与它的地址。
     /// 地址空 = 那颗按钮**不画**（拼不出网址时不该摆一颗点了没反应的按钮）。
@@ -143,24 +133,24 @@ public:
     /// `showSnapshotsChanged`）。
     ///
     /// NOTE: 这一页自己不重摆（"哪些版本归到哪一个"是业务层的事，见
-    ///       ResourceCatalog::gameVersionChoices）—— 它只把新状态发出去，摆什么由 MainWindow
-    ///       再 `setChips()` 回来。
+    /// ResourceCatalog::gameVersionChoices）—— 它只把新状态发出去，摆什么由 MainWindow
+    /// 再 `setChips()` 回来。
     bool showSnapshots() const;
     /// 摆上/摘下那个勾。**不发信号**（和 setChips 同一条规矩：开页那一下是"调用方在摆
     /// 初始值"，不是"用户拨了"）。
     void setShowSnapshots(bool showSnapshots);
 
-    /// 右上角**同一格**换成那颗「模组设置」（2026-09-27）。
+    /// 右上角**同一格**换成那颗「模组设置」。
     ///
-    /// ★★ 用户原话：「对于模组，点进去和资源包差不多，但是右上角显示快照版那里替换为模组
-    ///    设置（先占位），而且和下载页有点区别，不要不小心把下载页改了」⇒
-    ///    · 只有**从实例的「文件管理」页点一个模组**进来时才摆它（判据在
-    ///      MainWindow::openResourceDetailPage，按"这一页是怎么打开的"分）；
-    ///    · 摆它的时候「显示快照版」那颗**整个收起来**（同一格只露一个）；
-    ///    · 点击请求打开当前实例的配置文件管理，不推测单个模组的配置归属。
+    /// 要求：「对于模组，点进去和资源包差不多，但是右上角显示快照版那里替换为模组
+    /// 设置（先占位），而且和下载页有点区别，不要不小心把下载页改了」⇒
+    /// · 只有**从实例的「文件管理」页点一个模组**进来时才摆它（判据在
+    /// MainWindow::openResourceDetailPage，按"这一页是怎么打开的"分）；
+    /// · 摆它的时候「显示快照版」那颗**整个收起来**（同一格只露一个）；
+    /// · 点击请求打开当前实例的配置文件管理，不推测单个模组的配置归属。
     ///
     /// NOTE: 下载页里点一行模组开出来的是**同一个页面对象**，它照旧摆「显示快照版」——
-    ///       所以这一位**每次开页都要显式摆一次**（页面是建一次留着的，不摆就留着上一次的）。
+    /// 所以这一位**每次开页都要显式摆一次**（页面是建一次留着的，不摆就留着上一次的）。
     void setModSettingsSlot(bool show);
     /// 右上角现在摆的是那颗「模组设置」吗（验证工程和 keyPressEvent 读它）。
     bool modSettingsSlotShown() const { return m_modSettingsShown; }
@@ -168,14 +158,14 @@ public:
     /// 版本列表那一块。**空表 = 摆一句「这个资源一个版本都没发过」**。
     void setGroups(const QList<ResourceDetail::Group> &groups);
 
-    /// 夹在**游戏版本 chip 那一排**和**版本列表**中间的那一行小字（用户 2026-09-28：
+    /// 夹在**游戏版本 chip 那一排**和**版本列表**中间的那一行小字（用户 ：
     /// 「如果有前置模组，在下载页的游戏版本选择和模组版本选择中间加一条写明」）。
     ///
     /// 传空串 = 这一行**整个收起来**（不占高度、也不留一条空白的缝）—— 没有前置的模组、
     /// 以及"这一页不是模组"的那些情况下都是这样。
     ///
     /// NOTE: 那句话**不是这一层写的**：它由 MainWindow 从 `ModDependencies` 取（那才是
-    ///       "界面上的字"的唯一出处，这一层只负责摆）。和 `setPlaceholder()` 同一个形状。
+    /// "界面上的字"的唯一出处，这一层只负责摆）。和 `setPlaceholder()` 同一个形状。
     void setDependencies(const QString &text);
     /// 这一行现在写的是什么（收着的时候是空串）。验证工程读它。
     QString dependenciesText() const;
@@ -210,8 +200,8 @@ public:
     /// 版本行上那一条身份（`Row::key`）挂的**角色号**。
     ///
     /// NOTE: 这一页的树是它自己的（不是 MainWindow 那几张表），所以 `Qt::UserRole` 在这儿
-    ///       没被别人占着 —— 但读它的地方（验证工程、这一页自己的激活处理）必须都走这个
-    ///       函数，别再写一遍字面量。
+    /// 没被别人占着 —— 但读它的地方（验证工程、这一页自己的激活处理）必须都走这个
+    /// 函数，别再写一遍字面量。
     static int rowKeyRole();
 
     // ---------- 验证工程用的读数（产品侧不用）----------
@@ -268,12 +258,12 @@ private:
     void showEvent(QShowEvent *event) override;
     /// 单独接**裸的 Alt**（`Qt::Key_Alt`，不带别的修饰键）= 拨一下「显示快照版」。
     ///
-    /// 为什么一个勾选框还要配一个快捷键：用户原话「按 alt 键可以切换其显示（鼠标悬停里
+    /// 为什么一个勾选框还要配一个快捷键：要求「按 alt 键可以切换其显示（鼠标悬停里
     /// 提到这点）」—— 那一排 chip 上有一颗是"整条线"，勾上/摘下看的是同一件事的两种形状，
     /// 手不用离开键盘。鼠标提示上写着这件事（见构造函数里那个 setToolTip）。
     ///
     /// NOTE: 这儿**只认裸 Alt 那一发**（Ctrl/Shift/Meta 同按一律放过去），而且**必须
-    ///       调一次基类** —— QDialog 的基类实现管着 Esc（和别的那几档）。
+    /// 调一次基类** —— QDialog 的基类实现管着 Esc（和别的那几档）。
     void keyPressEvent(QKeyEvent *event) override;
 
     QLabel *m_icon = nullptr;

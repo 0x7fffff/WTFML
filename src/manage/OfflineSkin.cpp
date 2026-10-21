@@ -1,8 +1,6 @@
 /**
  * @file OfflineSkin.cpp
  * @brief `OfflineSkin.hpp` 的实现：两小段文件读写，没有网络、没有 JAR。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "OfflineSkin.hpp"

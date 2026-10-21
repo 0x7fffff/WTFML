@@ -45,7 +45,7 @@ public:
     /// 「复制实例」**同步**那一版：四道闸 + 拷树都在调用线程里做完，回"成没成"。
     ///
     /// NOTE: 验证工程（`mw_check` / 升级副本）按同步约定钉着它；界面上的那一颗「复制实例」
-    ///       走下面那个后台版 —— 拷一整个实例动辄几十秒，不能把 UI 线程按住。
+    /// 走下面那个后台版 —— 拷一整个实例动辄几十秒，不能把 UI 线程按住。
     bool copyInstance(const QString &sourceId, const QString &destGameFolder,
                       const QString &newName);
 
@@ -70,8 +70,8 @@ public:
     /// 「删除世界」那一趟：确认过了才进来，整棵目录树在工作线程里删。
     ///
     /// NOTE: 删除**不提供取消**。删到一半停下留下的是"半截世界"，比删完更难收拾；
-    ///       账本按 `TaskKind::Other` 记账，默认能力位里本来就没有「取消」。
-    ///       删不干净时照实报失败（`removeTreeWithoutFollowingLinks()` 会尽力删完剩下的）。
+    /// 账本按 `TaskKind::Other` 记账，默认能力位里本来就没有「取消」。
+    /// 删不干净时照实报失败（`removeTreeWithoutFollowingLinks()` 会尽力删完剩下的）。
     void deleteWorldInBackground(const QString &instanceId, const QString &worldDir,
                                  std::function<void(bool, const QString &)> whenDone = {});
     /// 任务中心那一项此刻按「取消」真的停得下来吗（那一颗按钮的唯一判据）。

@@ -1,8 +1,6 @@
 /**
  * @file ToolboxPage.cpp
  * @brief 工具箱那一页的实现（形状、"为什么五件挤一页"、第六件为什么单开窗，见头文件）。
- * @author 0x7fffff
- * @date 2026-10-16
  */
 
 #include "ToolboxPage.hpp"
@@ -45,12 +43,12 @@ namespace {
 
 /// 十件工具的那张表（**键 / 中文名 / 面板短名 / 一句话说明的唯一出处**）。
 /// NOTE: `Download` 只在这张表里出现 —— chip 那排不摆它（构造里从 `m_tools` 摘掉），
-///       底栏那块面板按 `panelTools()` 另排一张（两列五排，见 MainWindowUI.cpp 那头）。
+/// 底栏那块面板按 `panelTools()` 另排一张（两列五排，见 MainWindowUI.cpp 那头）。
 struct ToolInfo {
     ToolboxPage::Tool tool;
     const char *key;
     const char *name;
-    /// 底栏那块面板上写的短名（2026-10-18 用户拿图点名的「不要搜索框、两列五排」那张）。
+    /// 底栏那块面板上写的短名（ 用户拿图点名的「不要搜索框、两列五排」那张）。
     /// **只归面板用**：页面标题和 chip 仍取 `name`（完整名字）。
     const char *shortName;
     const char *summary;
@@ -89,7 +87,7 @@ const ToolInfo *infoOf(ToolboxPage::Tool tool) {
 }
 
 // ---------------------------------------------------------------------------
-// 底栏面板上的那十枚线稿图标（2026-10-18）
+// 底栏面板上的那十枚线稿图标
 // ---------------------------------------------------------------------------
 //
 // 现画，不落盘：48×48 的画布按 2 倍像素密度交出去（逻辑 24×24），线宽 3.4 在这个
@@ -97,7 +95,7 @@ const ToolInfo *infoOf(ToolboxPage::Tool tool) {
 // 拿主题色的 `Ink` 档（深色主题下换 `Pure`），不在这里另立一条配色。
 //
 // NOTE: 十件一件一个 switch 分支，**没有 default 省略** —— 以后往 `Tool` 里加一件，
-//       编译器会在这里点名。
+// 编译器会在这里点名。
 QIcon drawToolIcon(ToolboxPage::Tool tool, const QColor &ink) {
     constexpr int kSide = 48;
     QPixmap pixmap(kSide, kSide);
@@ -291,9 +289,9 @@ QLabel *makeSectionTitle(QWidget *parent, const QString &text) {
 
 /// 一张**小节卡片**（`wtfmlSurface="section"` 那一档面：浅一档的底 + 圆角、不画边）。
 ///
-/// ★ 这个面**只有 `QFrame` 认得**（样式表那条选择器是 `QFrame[wtfmlSurface="section"]`）——
-///   挂在一个 `QLabel` / `QPlainTextEdit` 上等于什么都没发生。所以"要有卡片底"的地方一律
-///   先起一张 `QFrame`、把东西装进去，别指望给内容控件挂个属性就长出来。
+/// 这个面**只有 `QFrame` 认得**（样式表那条选择器是 `QFrame[wtfmlSurface="section"]`）——
+/// 挂在一个 `QLabel` / `QPlainTextEdit` 上等于什么都没发生。所以"要有卡片底"的地方一律
+/// 先起一张 `QFrame`、把东西装进去，别指望给内容控件挂个属性就长出来。
 QFrame *makeSectionCard(QWidget *parent) {
     auto *card = new QFrame(parent);
     card->setProperty(Theme::surfacePropertyName().toUtf8().constData(),
@@ -433,12 +431,12 @@ QList<ToolboxPage::Tool> ToolboxPage::tools() {
 }
 
 QList<ToolboxPage::Tool> ToolboxPage::panelTools() {
-    // 用户 2026-10-18 那张图的次序（两列五排、**行优先**）：
-    //   SHA校验 | 高速下载
-    //   延迟测试 | 附魔助手
-    //   坐标换算 | 彩色文本
-    //   酿造助手 | 旗帜设计
-    //   信标计算 | 纹饰搭配
+    // 用户 那张图的次序（两列五排、**行优先**）：
+    // SHA校验 | 高速下载
+    // 延迟测试 | 附魔助手
+    // 坐标换算 | 彩色文本
+    // 酿造助手 | 旗帜设计
+    // 信标计算 | 纹饰搭配
     return {Tool::Hash,  Tool::Download, Tool::Server, Tool::Anvil, Tool::Coord,
             Tool::Text,  Tool::Brewing,  Tool::Banner, Tool::Beacon, Tool::Trim};
 }
@@ -670,9 +668,9 @@ void ToolboxPage::appendAnvilRow() {
     }
     const int row = m_anvilTable->rowCount();
     m_anvilTable->insertRow(row);
-    // ★ 四格**一眼就能看出是输入控件**：附魔和"这一件"是下拉框、等级和次数是数字框。
-    //   用 `setCellWidget` 而不是可编辑的 item：下拉框和数字框的合法值域由控件自己管着，
-    //   让用户敲一串文本再回来判"这算不算一条附魔"是白费一道工。
+    // 四格**一眼就能看出是输入控件**：附魔和"这一件"是下拉框、等级和次数是数字框。
+    // 用 `setCellWidget` 而不是可编辑的 item：下拉框和数字框的合法值域由控件自己管着，
+    // 让用户敲一串文本再回来判"这算不算一条附魔"是白费一道工。
     auto *combo = new QComboBox(m_anvilTable);
     for (const auto &pair : m_anvilChoices) {
         combo->addItem(pair.second, pair.first);
@@ -1356,7 +1354,7 @@ void ToolboxPage::setServerView(const ServerView &view) {
         html.append(QStringLiteral("<div style='margin-bottom:6px'>%1</div>").arg(view.motd));
         line(QStringLiteral("版本"), view.version);
         line(QStringLiteral("在线"), view.players);
-        // ★ 写「握手往返」不写「延迟」：这一次测的是状态查询那一个来回，不是游戏内延迟。
+        // 写「握手往返」不写「延迟」：这一次测的是状态查询那一个来回，不是游戏内延迟。
         line(QStringLiteral("握手往返"), view.latency);
     }
     line(QStringLiteral("地址"), view.address);
@@ -1592,7 +1590,7 @@ void ToolboxPage::setHashBatchView(const QList<HashBatchRow> &rows, const QStrin
             if (!row.sizeText.isEmpty()) {
                 display.append(QStringLiteral("  %1").arg(row.sizeText));
             }
-            // 标准校验和格式：一行一个「摘要  文件名」。导出/复制都走这一份文本。
+            // 标准校验和格式：一行一个「摘要 文件名」。导出/复制都走这一份文本。
             checksumLines.append(QStringLiteral("%1  %2").arg(row.hex, row.name));
         } else {
             display.append(QStringLiteral("  没算成：%1")

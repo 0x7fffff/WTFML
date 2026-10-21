@@ -3,20 +3,20 @@
 #include <QString>
 #include <QStringList>
 
-// 代理（设置 → 下载 →「代理」，2026-10-18，§9.2）。
+// 代理（设置 → 下载 →「代理」，，§9.2）。
 //
 // 三档：
-//   System  —— 跟随系统（Windows 的「Internet 选项 → 连接 → 局域网设置」）。**出厂就是它**，
-//              也就是"谁都不动这一项时行为一个字都不变"：之前 Qt 一直是这么走的。
-//   Direct  —— 直连，不走任何代理（系统里配了代理但它坏了 / 不想让它管启动器时用）。
-//   Manual  —— 用户自己填 `host:port`（可以带 `socks5://` 前缀）。
+// System —— 跟随系统（Windows 的「Internet 选项 → 连接 → 局域网设置」）。**出厂就是它**，
+// 也就是"谁都不动这一项时行为一个字都不变"：之前 Qt 一直是这么走的。
+// Direct —— 直连，不走任何代理（系统里配了代理但它坏了 / 不想让它管启动器时用）。
+// Manual —— 用户自己填 `host:port`（可以带 `socks5://` 前缀）。
 //
 // 这一层是**纯判据**（没有 QtNetwork、不碰任何全局状态）：怎么解析、怎么归一、认不出来
 // 算什么，唯一出处都在这里；真把它装到进程上的是 `LauncherPreferencesController::
 // syncDownloadProxy()`（`QNetworkProxy::setApplicationProxy`），测试可以直接核这里。
 //
 // NOTE: 只认一个地址，没有"例外列表 / 用户名密码"。理由是这一项要解决的是"启动器连不上
-//       网、而系统里配的代理它没走对"这件事；带认证的代理眼下用系统那一档填更省事。
+// 网、而系统里配的代理它没走对"这件事；带认证的代理眼下用系统那一档填更省事。
 namespace DownloadProxy {
 
 enum class Mode { System, Direct, Manual };
@@ -60,13 +60,13 @@ struct Endpoint {
 /// 解析手动代理地址。
 ///
 /// 认的写法：
-///   `127.0.0.1:7890`、`proxy.example.com:8080`
-///   `http://127.0.0.1:7890`（和上一行同一个意思）
-///   `socks5://127.0.0.1:7890`、`socks5h://...`、`socks://...`
-///   `[::1]:7890`（IPv6 要用方括号）
+/// `127.0.0.1:7890`、`proxy.example.com:8080`
+/// `http://127.0.0.1:7890`（和上一行同一个意思）
+/// `socks5://127.0.0.1:7890`、`socks5h://...`、`socks://...`
+/// `[::1]:7890`（IPv6 要用方括号）
 ///
-/// @param raw   用户填的原串（两头的空白会修掉）。
-/// @param out   解析成功时写入。
+/// @param raw 用户填的原串（两头的空白会修掉）。
+/// @param out 解析成功时写入。
 /// @param error 失败时写入一句给人看的中文原因；可以为 nullptr。
 /// @return 能不能用。
 inline bool parseManual(const QString &raw, Endpoint *out, QString *error = nullptr) {

@@ -1,8 +1,6 @@
 /**
  * @file SkinModel.cpp
  * @brief 实现玩家皮肤模型的几何、投影与光栅化（见头文件里"为什么自己算"那段）。
- * @author 0x7fffff
- * @date 2026-09-21
  */
 
 #include "SkinModel.hpp"
@@ -121,8 +119,8 @@ Cuboid inflatedBox(const Cuboid &box, double inflate) {
 /// 绕 +x 转 degrees 度（右手系）。
 ///
 /// NOTE: **正号 = 关节下面那一段往 -z（身后）摆**：取关节正下方一点 (0,-1,0)，
-///       转一个小角度得到 z' = sin(θ)·(-1) < 0。这条"正负号长什么样"是整个走路姿势
-///       里唯一需要推一次的地方 —— 腿、手臂、披风的仰角全都按它读，谁都别再自己定一套。
+/// 转一个小角度得到 z' = sin(θ)·(-1) < 0。这条"正负号长什么样"是整个走路姿势
+/// 里唯一需要推一次的地方 —— 腿、手臂、披风的仰角全都按它读，谁都别再自己定一套。
 QVector3D rotateX(const QVector3D &v, double degrees) {
     const double r = qDegreesToRadians(degrees);
     const double c = qCos(r);
@@ -168,8 +166,8 @@ QVector3D posedPoint(const Cuboid &box, const QVector3D &p) {
 // ---------- 走路的幅度 ----------
 //
 // 这几个数是照游戏里 ModelBiped 的系数折算的，不是随手挑的：
-//   腿 = cos(步频) * 1.4 * 步幅，而正常走路时步幅 ≈ 0.4  ->  1.4 * 0.4 ≈ 0.56 rad ≈ 32°
-//   臂 = cos(步频) * 1.0 * 步幅 * 2 * 0.5  ->  跟腿同源再乘 0.5，于是 ≈ 23°
+// 腿 = cos(步频) * 1.4 * 步幅，而正常走路时步幅 ≈ 0.4 -> 1.4 * 0.4 ≈ 0.56 rad ≈ 32°
+// 臂 = cos(步频) * 1.0 * 步幅 * 2 * 0.5 -> 跟腿同源再乘 0.5，于是 ≈ 23°
 // 手臂摆得比腿小是**对的**（游戏里就是这样），照 1:1 摆反而像在走正步。
 constexpr double kLegSwingDegrees = 32.0;
 constexpr double kArmSwingDegrees = 23.0;
@@ -177,9 +175,9 @@ constexpr double kArmSwingDegrees = 23.0;
 /// 披风的仰角（度）：**固定**这么翘，不跟着步频晃。
 ///
 /// NOTE: 它曾经是"基础 6° + 走路时多翘 5°"（每迈一步颠一下）。改成固定值是按用户要求
-///       定下来的观感：披风飘起来是为了**别挡住身体**（翘起来之后腿和背都看得见），
-///       而跟着步频一翘一落会让人一直盯着它看、反而看不清皮肤。所以它现在是**常量** ——
-///       `walkingCape()` 连相位都不收（签名里留着相位的话，读的人会以为它跟步频有关）。
+/// 定下来的观感：披风飘起来是为了**别挡住身体**（翘起来之后腿和背都看得见），
+/// 而跟着步频一翘一落会让人一直盯着它看、反而看不清皮肤。所以它现在是**常量** ——
+/// `walkingCape()` 连相位都不收（签名里留着相位的话，读的人会以为它跟步频有关）。
 constexpr double kCapeLiftDegrees = 24.0;
 
 /// 画一个面要用的东西：屏幕上的四边形、贴图上的矩形、每个角离眼睛多远。
@@ -203,9 +201,9 @@ struct DrawFace {
 /// 这块面上有没有半透明像素。查一次是几十个 texel，一帧几十块面，忽略不计。
 ///
 /// NOTE: 扫的范围要跟贴图本身取**交集** —— 调用方给的图不一定够大（披风是从网上
-///       下来的，一张比 22×17 还小的图照样是合法 PNG）。以前这一步是
-///       `drawImage(rect, image, srcRect)`，Qt 会自己把源矩形裁到图里；现在取样是
-///       自己做的，不裁就是读越界。
+/// 下来的，一张比 22×17 还小的图照样是合法 PNG）。以前这一步是
+/// `drawImage(rect, image, srcRect)`，Qt 会自己把源矩形裁到图里；现在取样是
+/// 自己做的，不裁就是读越界。
 bool hasTranslucentPixels(const QImage &texture, const QRect &uv) {
     const QRect area = uv.intersected(QRect(0, 0, texture.width(), texture.height()));
     for (int y = area.top(); y <= area.bottom(); ++y) {
@@ -370,7 +368,7 @@ void rasterizeFace(const DrawFace &face, Canvas &canvas, bool blendOnly) {
 
 // ---------- 默认外观 ----------
 //
-// 用户 2026-09-24 点名的两格十六进制，原话：「整个人都是 #000000，脸部一个 #ffffff
+// 用户 点名的两格十六进制，原话：「整个人都是 #000000，脸部一个 #ffffff
 // 的问号」。所以这里只有这两个色号，**不许调色** —— 改一个数字就是另一张图，
 // ui_check 里那几条是按这两个值逐像素量的。
 const QColor kPlaceholderBody(0x00, 0x00, 0x00);
@@ -381,9 +379,9 @@ const QColor kPlaceholderInk(0xFF, 0xFF, 0xFF);
 /// 这个形状了，而且这一格要能对着像素断言。
 ///
 /// NOTE: 和 `VersionIcons.cpp` 里幸运方块上那枚**不再一样**了 —— 那边还是 5×7（方块是
-///       16×16、四周还有一圈描边，半格的偏差看不出来），这边缩成 4×6 是为了正中（见
-///       kQuestionOffset 那段）。两处各写一份：一个是版本树的方块图标、一个是皮肤贴图，
-///       为了这几行字让两个模块互相 include 不值当。改了哪边，哪边那条按像素量的断言会红。
+/// 16×16、四周还有一圈描边，半格的偏差看不出来），这边缩成 4×6 是为了正中（见
+/// kQuestionOffset 那段）。两处各写一份：一个是版本树的方块图标、一个是皮肤贴图，
+/// 为了这几行字让两个模块互相 include 不值当。改了哪边，哪边那条按像素量的断言会红。
 constexpr int kQuestionWidth = 4;
 constexpr int kQuestionHeight = 6;
 const char *const kQuestionRows[kQuestionHeight] = {
@@ -401,10 +399,10 @@ const char *const kQuestionRows[kQuestionHeight] = {
 /// 字形是 4×6、脸是 8×8，于是上下左右余量正好各是整数：(8−4)/2 = 2、(8−6)/2 = 1 ——
 /// **这就是它居中的全部理由**。
 ///
-/// NOTE: 2026-09-24 用户原话「那个问号能不能再居中一点点，就算小一点也没关系」。原来那版是
-///       5×7 摆在 (1,0)：5 和 7 都是奇数、脸是偶数，**怎么摆都差半格**（那版是左 1 右 2、
-///       上 0 下 1，整个偏左上）。所以"再居中一点点"只有一条路：把字形缩成偶数宽 —— 小
-///       一点是代价，用户认了。想改大的话，宽度必须是 2 / 4 / 6 才可能正中。
+/// NOTE: 要求「那个问号能不能再居中一点点，就算小一点也没关系」。原来那版是
+/// 5×7 摆在 (1,0)：5 和 7 都是奇数、脸是偶数，**怎么摆都差半格**（那版是左 1 右 2、
+/// 上 0 下 1，整个偏左上）。所以"再居中一点点"只有一条路：把字形缩成偶数宽 —— 小
+/// 一点是代价，用户认了。想改大的话，宽度必须是 2 / 4 / 6 才可能正中。
 const QPoint kQuestionOffset(2, 1);
 
 }  // namespace
@@ -502,8 +500,6 @@ QVector<Cuboid> playerCuboids(bool slim) {
     setJoint(rightLeg, 12.0);
     setJoint(leftLeg, 12.0);
 
-    // NOTE: 这个顺序是**对外承诺**的（walkingParts 按下标往对应部件上填角度，
-    //       ui_check 有一条断言把它钉住）：头、身体、右臂、左臂、右腿、左腿。
     return {head, body, rightArm, leftArm, rightLeg, leftLeg};
 }
 
@@ -512,9 +508,9 @@ Cuboid capeCuboid() {
     cape.name = QStringLiteral("披风");
     // 挂在后背，从肩膀（y=24）垂到 y=8。
     // NOTE: z 是**负**的 —— 玩家面朝 +z，所以"背后"在 -z 那侧（身体占 z -2..2）。
-    //       从 -2.2 起是留了一条 0.2 的缝：和身体共面的话两个面会互相穿插着闪。
-    //       披风比身体宽（10 对 8）也略低（垂到 8，而身体只到 12），这是有意的 ——
-    //       游戏里从正面能看到披风从肩膀两侧和后腰下摆露出来一点。
+    // 从 -2.2 起是留了一条 0.2 的缝：和身体共面的话两个面会互相穿插着闪。
+    // 披风比身体宽（10 对 8）也略低（垂到 8，而身体只到 12），这是有意的 ——
+    // 游戏里从正面能看到披风从肩膀两侧和后腰下摆露出来一点。
     cape.lo = QVector3D(-5, 8, -3.2f);
     cape.hi = QVector3D(5, 24, -2.2f);
     cape.base = QPoint(0, 0);  // 披风自己那张 64×32 的图
@@ -529,10 +525,6 @@ Cuboid capeCuboid() {
     // 直接照"背面那一面取背面那块图"贴，从背后看见的就是披风图的**内侧**那块，
     // 于是整件披风是反的（用户报的"披风放反了"）。游戏里这块板就是转过来挂的
     // （原版那一层有一记绕 Y 的转），转了之后贴图左边那块才是朝外给人看的那一面。
-    //
-    // 转 180° 之后**几何一模一样**（pivot 在这块板的中面上，转完这块板落回原处），
-    // 变的只是"哪块贴图落在哪一面" —— 所以 W2 里那些关于披风几何的断言不受影响，
-    // 而"朝外那面取 (1,1,10,16)"这条可以单独钉住（见 ui_check W2）。
     cape.rotation = QVector3D(0, 180, 0);
 
     // 顺带一提：那个固定的仰角（walkingCape）是往 rotation.x() 上填的，也就是"绕同一根
@@ -547,9 +539,6 @@ QVector<Cuboid> walkingParts(bool slim, double walkPhase) {
     // 而"腿正好竖直"落在 restWalkPhase() 上。
     const double stride = qCos(2.0 * M_PI * walkPhase);
 
-    // playerCuboids() 的固定顺序：0 头、1 身体、2 右臂、3 左臂、4 右腿、5 左腿。
-    // 按**下标**填而不是拿名字去认：这个顺序在 playerCuboids 里是写明的，
-    // ui_check 有一条断言把它钉住，谁改了顺序会当场红。
     const int kRightArm = 2;
     const int kLeftArm = 3;
     const int kRightLeg = 4;
@@ -559,9 +548,9 @@ QVector<Cuboid> walkingParts(bool slim, double walkPhase) {
     // 走路"的全部：同相的话四条肢体一起前后荡，看起来像在跳。
     //
     // NOTE: 正负号照游戏里那一套原样照搬（右腿取 +cos、右臂取 -cos），没有为了"看着顺眼"
-    //       再翻一次。照我们的约定（旋转正号 = 关节下面那段往身后摆，见 rotateX）读出来就是：
-    //       相位 0 那一帧右腿在后、左腿在前、右臂在前、左臂在后 —— 正是一个正常的走路交替，
-    //       而且**同侧的手脚永远一前一后**（右腿在后时右臂在前），这条错了会看着像顺拐。
+    // 再翻一次。照我们的约定（旋转正号 = 关节下面那段往身后摆，见 rotateX）读出来就是：
+    // 相位 0 那一帧右腿在后、左腿在前、右臂在前、左臂在后 —— 正是一个正常的走路交替，
+    // 而且**同侧的手脚永远一前一后**（右腿在后时右臂在前），这条错了会看着像顺拐。
     parts[kRightLeg].rotation.setX(kLegSwingDegrees * stride);
     parts[kLeftLeg].rotation.setX(-kLegSwingDegrees * stride);
     parts[kRightArm].rotation.setX(-kArmSwingDegrees * stride);
@@ -943,13 +932,13 @@ QColor avatarFallbackColor(const QString &name) {
     // 白字压得住，又不至于暗到和底栏那片深色糊在一起。
     //
     // NOTE: HSV 只是**输入**，回来的那一份是**按 8 位量化过的 RGB**。这一步不是装饰：
-    //       `QColor::operator==` 比的是内部那一对 ushort，而 Qt 6 的色值是 16 位的 ——
-    //       `fromHsv()` 算出来的分量大多不是"8 位值 × 257"，于是
-    //       `fromHsv(...) == image.pixelColor(...)` 会**假不相等**（图里存的是 8 位，
-    //       取回来是 8 位精确值）。名字、rgba()、redF() 一路看着都一模一样，只有 `==`
-    //       说不一样 —— 这个坑已经吃掉过一整轮排查（2026-09-25，mw_check 的 AH7b）。
-    //       量化成 8 位之后，"画出来的那个色"和"这个函数给的那个色"就恒等，
-    //       而且这一格本来就只画在一块 24×24 的方格里，多出来的精度没有意义。
+    // `QColor::operator==` 比的是内部那一对 ushort，而 Qt 6 的色值是 16 位的 ——
+    // `fromHsv()` 算出来的分量大多不是"8 位值 × 257"，于是
+    // `fromHsv(...) == image.pixelColor(...)` 会**假不相等**（图里存的是 8 位，
+    // 取回来是 8 位精确值）。名字、rgba()、redF() 一路看着都一模一样，只有 `==`
+    // 说不一样 —— 这个坑已经吃掉过一整轮排查（，mw_check 的 AH7b）。
+    // 量化成 8 位之后，"画出来的那个色"和"这个函数给的那个色"就恒等，
+    // 而且这一格本来就只画在一块 24×24 的方格里，多出来的精度没有意义。
     const QColor hsv = QColor::fromHsv(static_cast<int>(qHash(name, 0) % 360), 150, 170);
     return QColor(hsv.red(), hsv.green(), hsv.blue());
 }

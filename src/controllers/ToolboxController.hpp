@@ -1,21 +1,19 @@
 /**
  * @file ToolboxController.hpp
  * @brief 工具箱那几件小工具的脑子（页面在 `ui/ToolboxPage`，纯算术在 `src/tools/`；
- *        「高速下载」不是纯算术，它自己一份 `DirectDownloadController`）。
- * @author 0x7fffff
- * @date 2026-10-16
- * @note 用户 2026-10-16 原话：「不要再往 mainwindow 里堆超级屎山了，用 controller 等等方式
- *       合理分散功能」。所以这一件**一行逻辑都不往 MainWindow 放**：那边只有三件事 ——
- *       建它、把底栏面板那六颗按钮接到 `open()` 上、析构时 `shutdown()`。
+ * 「高速下载」不是纯算术，它自己一份 `DirectDownloadController`）。
+ * @note 要求：「不要再往 mainwindow 里堆超级屎山了，用 controller 等等方式
+ * 合理分散功能」。所以这一件**一行逻辑都不往 MainWindow 放**：那边只有三件事 ——
+ * 建它、把底栏面板那六颗按钮接到 `open()` 上、析构时 `shutdown()`。
  *
  * 【这个 controller 管什么、不管什么】
  *
  * 管：
- *   - **哈希**（`FileHash`）：一个可能几百 MB 的文件要**一条线程**去算，进度和取消都在这儿；
- *   - **服务器在线检测**（`ServerPing::Pinger`）：异步那一套本来就在 `ServerPing` 里
- *     （服务器列表「测速」用的是同一个），这里只是拿它问一台；
- *   - **另三件**（附魔顺序、文本生成器、坐标换算）：当场就能算的纯函数，这里只做
- *     "把页面上的控件读成参数 → 调 `src/tools/` → 把结果翻成页面认的那几个字符串"。
+ * - **哈希**（`FileHash`）：一个可能几百 MB 的文件要**一条线程**去算，进度和取消都在这儿；
+ * - **服务器在线检测**（`ServerPing::Pinger`）：异步那一套本来就在 `ServerPing` 里
+ * （服务器列表「测速」用的是同一个），这里只是拿它问一台；
+ * - **另三件**（附魔顺序、文本生成器、坐标换算）：当场就能算的纯函数，这里只做
+ * "把页面上的控件读成参数 → 调 `src/tools/` → 把结果翻成页面认的那几个字符串"。
  *
  * 不改现有游戏文件。「高速下载」由 DirectDownloadController 写用户指定目标；
  * 纹饰预览资源由 ArmorTrimPreviewController 写独立 cache/preview-resources，不安装或执行客户端。

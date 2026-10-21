@@ -1,8 +1,6 @@
 /**
  * @file ModDependencies.cpp
  * @brief ModDependencies.hpp 的实现。**一行网络、一个文件都不碰**（见那边文件头）。
- * @author 0x7fffff
- * @date 2026-09-28
  */
 
 #include "ModDependencies.hpp"
@@ -208,15 +206,9 @@ static QString dependencyConsumerName() { return QStringLiteral("dependency"); }
 
 /// 「这种前置不用在详情页反复列它」—— 现在只排掉 **Fabric API**。
 ///
-/// 凭据只能是**项目号**：接口给的那一条 `dependencies[]` 里除了项目号什么都没有（Modrinth
-/// 是 `project_id`、CurseForge 是 `modId`，都不带名字/文件名）。所以这里**两家的号都列上**
-/// —— 两个号的形状天然撞不上（Modrinth 是 8 位 base62、CurseForge 是纯数字），放一张表里
-/// 不会互相误伤。**两个号都实测过**（`api.modrinth.com/v2/project/fabric-api` 回来的是
-/// `P7dR8mSH`；CurseForge 那个页面上的 Project ID 写着 `306612`）。
-///
-/// ★ 它**只影响展示清单**。安装判定仍走 `requiredDependenciesOf()`：
-///   实例缺 Fabric API 时仍会进入「一起下载」。把它从真实依赖集合里删掉会让 UI
-///   看起来干净，但最后装出一份缺前置的实例。
+/// 它**只影响展示清单**。安装判定仍走 `requiredDependenciesOf()`：
+/// 实例缺 Fabric API 时仍会进入「一起下载」。把它从真实依赖集合里删掉会让 UI
+/// 看起来干净，但最后装出一份缺前置的实例。
 ///
 /// NOTE: 同一条理由以后要隐藏别人时加进这张表就行，别污染真实依赖判定。
 static bool isObviousPrerequisite(const QString &projectId) {
@@ -232,9 +224,9 @@ QList<ResourceCatalog::Dependency> requiredDependenciesOf(
     QList<ResourceCatalog::Dependency> out;
     for (const ResourceCatalog::Dependency &dependency : version.dependencies) {
         // 这两条都是"不算必装依赖"，但理由不一样：
-        //   · optional / incompatible / embedded → 用户没要，或压根不该单独下一份；
-        //   · projectId 空 → 接口给的烂数据（一版里出现过 `{"project_id":null}` 这种），
-        //     拿它拼出来的地址会是一个"问了一堆不相干的东西"的请求。
+        // · optional / incompatible / embedded → 用户没要，或压根不该单独下一份；
+        // · projectId 空 → 接口给的烂数据（一版里出现过 `{"project_id":null}` 这种），
+        // 拿它拼出来的地址会是一个"问了一堆不相干的东西"的请求。
         // "已经装着了"**不在这一层**：那是 `missingRequiredDependencies()` 的事，
         // 因为"装没装"是这个函数不该知道的东西（见 .hpp 文件头那段）。
         if (!dependency.required()) {
@@ -310,14 +302,12 @@ bool resolveDependency(const ResourceCatalog::Dependency &dependency,
             }
         }
         if (picked == nullptr) {
-            // ★ **不退而求其次挑最新的一条**。作者钉版本往往是因为新旧不兼容，悄悄换一版
-            //   装进去，症状是"这几个模组一起不生效"，而那一刻离这里已经很远了。
+            // **不退而求其次挑最新的一条**。作者钉版本往往是因为新旧不兼容，悄悄换一版
+            // 装进去，症状是"这几个模组一起不生效"，而那一刻离这里已经很远了。
             return fail(QStringLiteral("作者钉的那一版（%1）在这个实例的版本下找不到。")
                             .arg(dependency.versionId));
         }
     } else {
-        // 没钉 = "哪个版本都行" ⇒ 拿最新的那条。这份列表接口给的就是新的在前
-        //（`parseVersions` 那段有实测），所以**不排序、不按版本号比大小**。
         picked = &versions.first();
     }
 
@@ -327,7 +317,7 @@ bool resolveDependency(const ResourceCatalog::Dependency &dependency,
     }
     if (file->url.isEmpty()) {
         // 作者关掉了第三方分发时，那边写好的那句话比"没有可下载的文件"准确得多
-        //（见 FileEntry::unavailableNote 那段），有就用它。
+        // （见 FileEntry::unavailableNote 那段），有就用它。
         return fail(file->unavailableNote.isEmpty()
                         ? QStringLiteral("挑出来的那一版（%1）没有可下载的文件。")
                               .arg(picked->versionNumber)
@@ -387,10 +377,6 @@ UpdateVerdict judgeUpdate(const InstalledItem &item,
         return verdict;
     }
     if (versions.isEmpty()) {
-        // ★★ 2026-10-11：那一发**自己报的那句话**优先（429 那条尤其）——
-        //   从前这里一律写"没问到版本列表（网络或接口没成）"，于是"问得太勤了"这个**真因
-        //   一个字都不会露给用户**：他看到的每一条都是"说不清、网络没成"，于是在那儿反复
-        //   重试网络，而问题在"一次问得太多"上（用户那句「无法正常获取更新」就是这个症状）。
         verdict.reason = problem.isEmpty() ? QStringLiteral("没问到版本列表（网络或接口没成）。")
                                            : problem;
         return verdict;
@@ -475,7 +461,7 @@ UpdateVerdict judgeUpdateAgainstLatest(const InstalledItem &item,
 QString latestVersionsKeyFor(const QString &consumer, const QString &gameVersion,
                              const QString &loader) {
     // 分隔符 `|`：项目号 / 游戏版本 / 加载器 / 消费方这几个字段里都不会出现它，所以不用转义
-    //（和 `versionsRequestKey()` 那边逐字同一个规矩）。**来源不需要**：这一发只有 Modrinth
+    // （和 `versionsRequestKey()` 那边逐字同一个规矩）。**来源不需要**：这一发只有 Modrinth
     // 有（CurseForge 没有对应的批量接口），所以拼不拼上它都是同一把钥匙。
     return QStringLiteral("latest|") + gameVersion + QLatin1Char('|') + loader +
            QLatin1Char('|') + consumer;
@@ -486,12 +472,12 @@ namespace {
 
 /// 名单怎么摆 —— **唯一出处**（界面和验证工程都走这儿）。
 ///
-/// 用户 2026-10-09 的原话：「（模组名称，一行一个，如果多于 3 个的话写 还有 x 个未列出...
+/// 用户 的原话：「（模组名称，一行一个，如果多于 3 个的话写 还有 x 个未列出...
 /// （当然如果刚好还剩一个就列出来了不要搞一行显示 1 个未列出这种高血压操作）」
 ///
 /// 翻成两条判据：
-///   · **总数 ≤ 4 ⇒ 一条不省，全列**（"刚好还剩一个"的就是 4 条这一档，它走的是全列）；
-///   · **总数 > 4 ⇒ 列前 3 条 + 「还有 N 个未列出…」**（N = 总数 − 3）。
+/// · **总数 ≤ 4 ⇒ 一条不省，全列**（"刚好还剩一个"的就是 4 条这一档，它走的是全列）；
+/// · **总数 > 4 ⇒ 列前 3 条 + 「还有 N 个未列出…」**（N = 总数 − 3）。
 /// 所以「还有 1 个未列出」这一行**永远画不出来** —— 那正是用户点名不要的那一句。
 QString dependencyNameLines(const QStringList &names) {
     /// 到这一档为止一律全列（含 4 —— 多出来的第 4 条宁可多占一行，也不给用户看

@@ -40,8 +40,8 @@ public:
     // ---------- 玩家名单（§9.7「玩家管理」）----------
     //
     // 判据全在 `ServerPlayers`（纯函数）；这一层只负责"哪个文件、读写那几个字节"。
-    // ★ 服务端**正在跑**的时候不要调 `writePlayers()`：它退出时会把自己内存里那份名单
-    //   写回盘上，刚写进去的那几条会被它盖掉（界面那边用 `setEditable()` 一起挡）。
+    // 服务端**正在跑**的时候不要调 `writePlayers()`：它退出时会把自己内存里那份名单
+    // 写回盘上，刚写进去的那几条会被它盖掉（界面那边用 `setEditable()` 一起挡）。
     QString playersPath(const QString &serverId, ServerPlayers::List list) const;
     ServerPlayers::Content readPlayers(const QString &serverId, ServerPlayers::List list) const;
     /// 原子写（`QSaveFile`）。失败时 @p problemOut 里有话说。

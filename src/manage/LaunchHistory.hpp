@@ -1,8 +1,6 @@
 /**
  * @file LaunchHistory.hpp
  * @brief 「上一次启动」那本账（coding plan §5.1）：主页那张卡片的唯一数据源。
- * @author 0x7fffff
- * @date 2026-10-13
  *
  * 【为什么单独一层】
  *
@@ -19,7 +17,7 @@
  *
  * 【为什么时间要自己算】
  *
- * 卡片上写的是「昨天 22:14」这种**人话**，不是 `2026-10-13T22:14`。这一层提供
+ * 卡片上写的是「昨天 22:14」这种**人话**，不是 `T22:14`。这一层提供
  * `whenText()`（纯函数：给两个时间，出一个字符串），所以"昨天"这条线能逐格验，而不是靠
  * 人肉盯着界面看。
  */
@@ -42,8 +40,8 @@ enum class Result {
 
 /// 这一趟是**直接进游戏里的哪一块**，还是普通进主菜单。
 ///
-/// ★ §5.1：「世界 / 服务器只有通过 Quick Play 启动时才记录，普通进主菜单不能猜」——
-///   所以 `None` 不是"不知道"，是"这一趟就是普通启动"。
+/// §5.1：「世界 / 服务器只有通过 Quick Play 启动时才记录，普通进主菜单不能猜」——
+/// 所以 `None` 不是"不知道"，是"这一趟就是普通启动"。
 enum class Target {
     None,    ///< 普通启动（进主菜单，玩什么由用户在游戏里挑）
     World,   ///< 单人世界（Quick Play）
@@ -75,10 +73,10 @@ struct Record {
 
 /// 账本落在哪儿：`<当前游戏文件夹>/wtfml.history`。
 ///
-/// ★ **跟当前游戏文件夹走**（不是 `AppPaths::defaultMinecraftDir()`）：这张卡说的是
-///   "这个文件夹里的哪一份实例上次玩过"，而实例本身就在 `versions/` 底下 —— 和
-///   `wtfml.folders`（分组）同一档，换了游戏文件夹就该看见另一个文件夹的历史。
-///   （任务账本反过来，它是启动器级的，理由见 `Tasks::defaultHistoryPath()`。）
+/// **跟当前游戏文件夹走**（不是 `AppPaths::defaultMinecraftDir()`）：这张卡说的是
+/// "这个文件夹里的哪一份实例上次玩过"，而实例本身就在 `versions/` 底下 —— 和
+/// `wtfml.folders`（分组）同一档，换了游戏文件夹就该看见另一个文件夹的历史。
+/// （任务账本反过来，它是启动器级的，理由见 `Tasks::defaultHistoryPath()`。）
 QString historyPath();
 
 /// 留几条。★ §5.1：第一版只留最近 20 条（主页只用得上第一条，剩下的留给以后的"活动历史"）。
@@ -107,8 +105,8 @@ QList<Record> prepend(const QList<Record> &records, const Record &record);
 
 /// 账本上"接着玩哪一份"的那一条：按 `startedAt` 取最新的一条可玩记录。
 ///
-/// ★ **跳过 `StartFailed`**（那一趟压根没玩成，拿它当"上次游玩"是撒谎）；
-///   `Running` 算数（游戏这会儿正开着，主页那张卡更应该显示它）。
+/// **跳过 `StartFailed`**（那一趟压根没玩成，拿它当"上次游玩"是撒谎）；
+/// `Running` 算数（游戏这会儿正开着，主页那张卡更应该显示它）。
 /// @return 一条都没有时回一个 `isValid() == false` 的空记录。
 Record latestPlayable(const QList<Record> &records);
 
@@ -118,7 +116,7 @@ QDateTime lastStartedAt(const QList<Record> &records, const QString &instanceId)
 
 /// 「昨天 22:14」这种写法。纯函数：给"什么时候"和"现在"，出一句人话。
 ///
-/// - 今天 → `22:14`；昨天 → `昨天 22:14`；前天 → `前天 22:14`；再早 → `2026-10-05 22:14`。
+/// - 今天 → `22:14`；昨天 → `昨天 22:14`；前天 → `前天 22:14`；再早 → ` 22:14`。
 /// - 跨年也照旧写年份（"去年"要用户自己算，不如把日子写全）。
 /// - 时间无效 → 空串（**不编**）。
 QString whenText(const QDateTime &at, const QDateTime &now);
@@ -126,8 +124,8 @@ QString whenText(const QDateTime &at);
 
 /// 卡片上第二行那半句：`单人世界：基地周目` / `服务器：play.example.com` / 空串。
 ///
-/// ★ 空串就是"这一趟是普通启动"（`Target::None`），**不写"主菜单"三个字** —— 那是句废话，
-///   卡片上少一行正是"没什么可说的"。
+/// 空串就是"这一趟是普通启动"（`Target::None`），**不写"主菜单"三个字** —— 那是句废话，
+/// 卡片上少一行正是"没什么可说的"。
 QString targetLine(const Record &record);
 
 /// 卡片上那句补充（`（上次是异常退出）` / `（还在玩）` / `（上次没起来）`）。
@@ -137,8 +135,8 @@ QString resultNote(const Record &record);
 /// 「玩了 1 小时 12 分」那种写法。`< 0` 回空串（还没算出来）；不到一分钟写
 /// 「玩了不到 1 分钟」。
 ///
-/// ★ 回的是**整句**（含"玩了"两个字），不是一个数量：卡片上那一行由"目标 · 时长（结局）"
-///   拼出来，让调用方去拼"玩了 %1"会拼出「玩了 不到 1 分钟」那种话。
+/// 回的是**整句**（含"玩了"两个字），不是一个数量：卡片上那一行由"目标 · 时长（结局）"
+/// 拼出来，让调用方去拼"玩了 %1"会拼出「玩了 不到 1 分钟」那种话。
 QString durationText(qint64 seconds);
 
 }  // namespace LaunchHistory

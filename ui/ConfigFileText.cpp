@@ -1,11 +1,9 @@
 /**
  * @file ConfigFileText.cpp
  * @brief ConfigFileText 的实现。**纯函数，不碰盘** —— 这一份里没有一个 QFile。
- * @author 0x7fffff
- * @date 2026-09-27
  * @note 见 .hpp 那一段（为什么"当文本处理"这件事本身不免费）。这里只补三处实现上的
- *       说明：`split()` 为什么必须和 QPlainTextEdit 一致、BOM 那三个字节、以及
- *       `encode()` 里那个"取不够就用多数派"的取法。
+ * 说明：`split()` 为什么必须和 QPlainTextEdit 一致、BOM 那三个字节、以及
+ * `encode()` 里那个"取不够就用多数派"的取法。
  */
 #include "ConfigFileText.hpp"
 
@@ -18,7 +16,7 @@
 
 namespace {
 
-/// UTF-8 BOM。**解码器会自己吃掉它**（2026-09-27 实测：`EF BB BF` + 「中」解出来第一个
+/// UTF-8 BOM。**解码器会自己吃掉它**（ 实测：`EF BB BF` + 「中」解出来第一个
 /// 字符直接就是「中」），所以这一串只有"写回去时补不补"这一个用处。
 QByteArray bomBytes() { return QByteArrayLiteral("\xEF\xBB\xBF"); }
 
@@ -37,16 +35,16 @@ QString ConfigFileText::Loaded::terminator(Eol eol) {
 }
 
 ConfigFileText::Split ConfigFileText::split(const QString &text) {
-    // ★ 这个函数的输出**必须和 QPlainTextEdit 的文本模型一致**，否则"用户什么都没改"
-    //   也会被判成改过（甚至是"每次保存都多一个换行"这种慢性病）。2026-09-27 实测过
-    //   QPlainTextEdit 的四条行为，这个实现是照它们写的：
-    //     - `\r\n` 当**一个**换行（`a\r\nb\r\n` → `a\nb\n`）
-    //     - 单独的 `\r` **也**是换行（`a\rb` → `a\nb`）
-    //     - 末尾那个换行**保得住**（`a\nb\n` 原样回来，`a\nb` 也原样回来 —— 所以
-    //       「最后一行后面有没有换行」这一位是能从正文里往返的，不用单独记）
-    //     - `\n` 当然还是换行
-    //   反过来，这个函数的 `ends` **不能**从正文倒推回来（正文里全是 `\n` 了）——
-    //   那就是 Loaded 非得把 ends 单独存一份的原因。
+    // 这个函数的输出**必须和 QPlainTextEdit 的文本模型一致**，否则"用户什么都没改"
+    // 也会被判成改过（甚至是"每次保存都多一个换行"这种慢性病）。 实测过
+    // QPlainTextEdit 的四条行为，这个实现是照它们写的：
+    // - `\r\n` 当**一个**换行（`a\r\nb\r\n` → `a\nb\n`）
+    // - 单独的 `\r` **也**是换行（`a\rb` → `a\nb`）
+    // - 末尾那个换行**保得住**（`a\nb\n` 原样回来，`a\nb` 也原样回来 —— 所以
+    // 「最后一行后面有没有换行」这一位是能从正文里往返的，不用单独记）
+    // - `\n` 当然还是换行
+    // 反过来，这个函数的 `ends` **不能**从正文倒推回来（正文里全是 `\n` 了）——
+    // 那就是 Loaded 非得把 ends 单独存一份的原因。
     Split out;
     QString current;
     int i = 0;
@@ -82,7 +80,6 @@ ConfigFileText::Split ConfigFileText::split(const QString &text) {
 }
 
 qint64 ConfigFileText::editableByteLimit() {
-    // 4 MiB。理由（含实测分布）在 .hpp 上那一 NOTE 里。
     return 4LL * 1024LL * 1024LL;
 }
 
@@ -94,24 +91,16 @@ ConfigFileText::Loaded ConfigFileText::decode(const QByteArray &raw) {
 
     // **不用 QString::fromUtf8**：那条路遇到非法字节直接塞 U+FFFD 而且**不告诉你**，
     // 于是"这个文件能不能编辑"就没得判了。QStringDecoder 有一个 hasError() 正是这一位
-    // （2026-09-27 实测：合法 UTF-8 上 false、`bad \xb4 byte` 上 true）。
+    // （ 实测：合法 UTF-8 上 false、`bad \xb4 byte` 上 true）。
     QStringDecoder decoder(QStringDecoder::Utf8);
     const QString decoded = decoder(raw);
-    // ★ 2026-09-29 补：`hasError()` **一位不够** —— 它只数"认出来的非法字节"
-    //   （`qstringconverter_base.h:157`：`hasError() == (invalidChars != 0)`），而
-    //   **末尾那半截被截断的多字节序列不算非法**：解码器把它留在
-    //   `state->remainingChars` 里等下一批发数据（`qstringconverter.cpp:993` 那一段），
-    //   一次喂完（我们就是这么用的）时它**永远不碰 `invalidChars`**，于是"正文合法、
-    //   只是尾巴上缺半个字"这一档被判成可以编辑 —— 用户一改一存，`QString` 里本来就没
-    //   那半个字，那几个字节**永久没了**（而且是静默的）。
+    // 所以再加一道**原地往返**：解出来的串再编回 UTF-8，和原来那串字节**逐字节比**。
+    // 合法 UTF-8 上解码→编码是恒等的（能走到这儿的串里不可能有孤立代理码元）；尾巴被
+    // 丢掉时这一比就露馅（短了几个字节）。比之前把 BOM 摘掉 —— 解码器默认会吃掉开头
+    // 那个 BOM（`ConvertInitialBom` 不设默认就是吃），它没进 `decoded`，也不该进这一比。
     //
-    //   所以再加一道**原地往返**：解出来的串再编回 UTF-8，和原来那串字节**逐字节比**。
-    //   合法 UTF-8 上解码→编码是恒等的（能走到这儿的串里不可能有孤立代理码元）；尾巴被
-    //   丢掉时这一比就露馅（短了几个字节）。比之前把 BOM 摘掉 —— 解码器默认会吃掉开头
-    //   那个 BOM（`ConvertInitialBom` 不设默认就是吃），它没进 `decoded`，也不该进这一比。
-    //
-    //   NOTE: 盘上现查过 137,693 个文本文件，**没有一个**尾巴是半截的 —— 这是"闸门有洞"，
-    //         不是"已经在丢数据"。所以就按"判据该长什么样"来修，不动别的。
+    // NOTE: 盘上现查过 137,693 个文本文件，**没有一个**尾巴是半截的 —— 这是"闸门有洞"，
+    // 不是"已经在丢数据"。所以就按"判据该长什么样"来修，不动别的。
     const QByteArray body = out.bom ? raw.mid(bomBytes().size()) : raw;
     out.utf8Ok = !decoder.hasError() && decoded.toUtf8() == body;
 
@@ -182,7 +171,7 @@ namespace {
 /// 备份文件夹名的形状：`yyyyMMdd-HHmmss`，撞了的话后面挂 `-2`、`-3`…
 ///
 /// NOTE: 这个名字**按字典序排就是按时间排**（定长的数字段），挑最新一份和清理旧备份
-///       都靠它 —— 别改成"好看"的那种格式。
+/// 都靠它 —— 别改成"好看"的那种格式。
 bool looksLikeBackupName(const QString &name) {
     // 先剥掉可能挂着的 `-N` 那一截。
     QString core = name;
@@ -218,10 +207,10 @@ QString ConfigFileText::backupFolderName(const QDateTime &when, const QStringLis
     // 同一秒里存了两次（连着按两下「保存」就是这个情形）：挂一个序号，**不覆盖**上一次
     // 那一份 —— 覆盖的话，"上一步"就悄悄变成了"这一步"。
     //
-    // ★ 序号**补零到三位**（`-002`）：名字排序 == 时间排序这条约定（见 .hpp）靠的是定长，
-    //   而 "…-2" 和 "…-10" 按字典序是 `-10` 在前 —— 挤到两位数之后，"最新的那一份"就会
-    //   认错（清理那一趟删的就不是最老的那一份了）。补零是让这条约定在这一秒里也成立。
-    //   （上限 999 次/秒：到了那儿超出的是"同一秒里的先后"，跨秒的顺序不受影响。）
+    // 序号**补零到三位**（`-002`）：名字排序 == 时间排序这条约定（见 .hpp）靠的是定长，
+    // 而 "…-2" 和 "…-10" 按字典序是 `-10` 在前 —— 挤到两位数之后，"最新的那一份"就会
+    // 认错（清理那一趟删的就不是最老的那一份了）。补零是让这条约定在这一秒里也成立。
+    // （上限 999 次/秒：到了那儿超出的是"同一秒里的先后"，跨秒的顺序不受影响。）
     for (int i = 2; i < 1000; ++i) {
         const QString candidate =
             base + QLatin1Char('-') + QStringLiteral("%1").arg(i, 3, 10, QLatin1Char('0'));

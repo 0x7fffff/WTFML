@@ -1,9 +1,7 @@
 /**
  * @file ServerRegistry.cpp
  * @brief `ServerRegistry` 的实现 —— 扫 `<数据目录>/Servers`、读/写 `.wtfml-server` 与那两个
- *        配置文件。
- * @author 0x7fffff
- * @date 2026-10-13
+ * 配置文件。
  *
  * 这里**是**那一层碰盘的代码（见头文件的分工）：扫目录、读文件、写文件、建目录、删目录。
  * 判据（`eula.txt` 到底算不算接受了、`server.properties` 怎么解、这一档装好了没有）全在
@@ -41,9 +39,9 @@ QStringList rootFileNames(const QString &dir) {
 /**
  * @brief 扫出 Forge / NeoForge 那两张 `win_args.txt` 的**相对路径**。
  *
- * ★ 只探两个**已知的**位置（安装器自己定的，见 `ServerInstall::planFor()` 里那段），
- *   **不**去 walk 整个 `libraries/`：一个装好的 Forge 服务端的 libraries 底下有几千个文件，
- *   而这张参数文件的位置从第一个版本起就没变过。
+ * 只探两个**已知的**位置（安装器自己定的，见 `ServerInstall::planFor()` 里那段），
+ * **不**去 walk 整个 `libraries/`：一个装好的 Forge 服务端的 libraries 底下有几千个文件，
+ * 而这张参数文件的位置从第一个版本起就没变过。
  */
 QStringList forgeArgsPaths(const QString &dir) {
     QStringList found;
@@ -212,8 +210,8 @@ Entry describe(const QString &serverId, QString *problemOut) {
         entry.flavor = info.flavor;
         entry.flavorKnown = true;
     } else {
-        // ★ 自己记的永远优先；没有才从文件反推（用户可能手动换了加载器版本，那个事实只有
-        //   `.wtfml-server` 说得清，见 `ServerModel::inferFlavorFromPaths()` 那段）。
+        // 自己记的永远优先；没有才从文件反推（用户可能手动换了加载器版本，那个事实只有
+        // `.wtfml-server` 说得清，见 `ServerModel::inferFlavorFromPaths()` 那段）。
         entry.flavor = ServerModel::inferFlavorFromPaths(relPaths);
         entry.flavorKnown = false;
         notes.append(QStringLiteral("这一档是从目录里的文件反推的（%1），点一下确认")
@@ -221,7 +219,7 @@ Entry describe(const QString &serverId, QString *problemOut) {
     }
 
     // 3) 装好了没有 —— 先按"我们记的那一档 + 版本"精确判（那一档的 markers 才拼得出来），
-    //    拼不出来就退回按文件认。
+    // 拼不出来就退回按文件认。
     QString missing;
     entry.installed =
         installedFor(entry.flavor, rootFiles, forgeArgs, &missing);
@@ -277,8 +275,8 @@ ServerModel::Info readMeta(const QString &serverId, QString *problemOut) {
     bool ok = false;
     const ServerModel::Info info = ServerModel::fromJson(bytes, &ok);
     if (!ok && problemOut != nullptr) {
-        // ★ "文件在、但读不懂"这件事**必须说出来**（别当成"这个服务端什么设置都没有"）——
-        //   和 `UpdatePolicy::load()` 里那句同源。
+        // "文件在、但读不懂"这件事**必须说出来**（别当成"这个服务端什么设置都没有"）——
+        // 和 `UpdatePolicy::load()` 里那句同源。
         *problemOut = QStringLiteral("这一份服务端记录读不懂（%1），按「什么都没记」处理"
                                      "；再装一次或者手动改一下就能好")
                           .arg(ServerModel::formatTag());
@@ -330,9 +328,9 @@ QString sanitizeId(const QString &desired) {
             continue;
         }
         // Windows 文件名里不许出现的那几个 + 路径分隔符。
-        // ★ 这个集合里**一个空格都不能有** —— 写成 `"< > : …"` 那种带空格的形式，空格本身
-        //   也在这个集合里，症状是"服务端的名字里每一个空格都被换成下划线"（而用户真机上
-        //   的名字就有带空格的，`Server1.20.2(modded)` 旁边那种）。
+        // 这个集合里**一个空格都不能有** —— 写成 `"< > : …"` 那种带空格的形式，空格本身
+        // 也在这个集合里，症状是"服务端的名字里每一个空格都被换成下划线"（而用户真机上
+        // 的名字就有带空格的，`Server1.20.2(modded)` 旁边那种）。
         if (QStringLiteral("<>:\"/\\|?*").contains(c)) {
             out.append(QLatin1Char('_'));
             continue;

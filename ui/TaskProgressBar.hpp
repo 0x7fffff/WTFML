@@ -1,8 +1,6 @@
 /**
  * @file TaskProgressBar.hpp
  * @brief 自绘的进度条（coding plan §1.2 / §3.3「统一自绘任务进度组件」）。
- * @author 0x7fffff
- * @date 2026-10-13
  *
  * 三处进度条（底栏中间那格的摘要、任务中心面板里每一行、任务详情页）**共用这一条**，
  * 换掉三处原来各自"就地 new 一颗原生 QProgressBar"的写法。
@@ -11,11 +9,6 @@
  *
  * 因为"进度"这件事的**模型**（`range` / `value` / "总量未知 ⇒ 不确定态"）原生那一位已经
  * 说得很清楚了，而且两样东西已经钉在它身上：
- *
- * - `Anim::smoothProgress(QProgressBar *, int)`：底栏那条"一格格追成连续"的平滑追值，
- *   它读的是 `maximum()`、写的是 `setValue()`（见 `ui/Animations.cpp` 那四条"原地落"的规矩）；
- * - 测试：`ui_check` / `mw_check` / `ui_shot` 一律 `findChild<QProgressBar *>(名字)` +
- *   读 `value()` / `minimum()` / `maximum()` 来断言。
  *
  * 另起一个 `QWidget` 的话，上面两处全得改（连带 `smoothProgress` 的签名）。子类化之后
  * **只把"画"换掉**，模型、动画、断言一个字节都不动 —— 这正是"换一层皮"该有的样子。

@@ -1,15 +1,7 @@
 /**
  * @file GroupDialog.cpp
- * @brief Implements the instance-group settings dialog.
- * @author 0x7fffff
- * @date 2026-09-21
- * @note 布局：一列 —— 上面一句说明、中间是组清单和它那排按钮、底下一条「恢复默认分组设置…」
- *       加取消/确定。2026-09-25 之前这里是左右并排（右边是"这个实例归到哪个组"那排单选钮），
- *       那半整个搬走了（见 .hpp 文件头），于是只剩一列。
- * @note 2026-09-25 傍晚：那排按钮里的「上移」「下移」删了，改成点清单**行尾那两颗三角**
- *       （画在 ui/GroupListDelegate 里、认下那一下的是下面那个 eventFilter()）。用户原话：
- *       「这个点击一下就同时展开和调整了，其次这个箭头不应该在这里，而应该在 分组设置
- *       里面，这里的删了，去分组设置里面加上，设置那个框下方的上移下移的按钮就删了」。
+ * @brief 实现实例分组设置对话框。
+ * @note 组列表及行尾上下移按钮的交互在本页；几何与绘制见 GroupListDelegate。
  */
 
 #include "GroupDialog.hpp"
@@ -30,7 +22,7 @@
 #include <QVBoxLayout>
 
 #include "GroupListDelegate.hpp"
-// 内嵌提示那一套（2026-09-25）：这个对话框自己就是"一页"，所以要弹的那两句
+// 内嵌提示那一套：这个对话框自己就是"一页"，所以要弹的那两句
 // 得从自己往上找那一层覆盖层 —— 见 OverlayHost::forWidget。
 #include "InlineMessage.hpp"
 #include "OverlayHost.hpp"
@@ -41,9 +33,9 @@ namespace {
 /// 一个新的组 id。
 ///
 /// NOTE: 和 InstanceGroupStore::newGroupId() 是同一件事，这里没有复用而是各写一份
-///       —— ui/ 不依赖 src/（见 .hpp 文件头），为了一个 QUuid 的调用把业务层拖进来
-///       不划算。两份必须**同格式**（WithoutBraces 的 UUID），因为这里的 id 会被
-///       原样写进那个文件。
+/// —— ui/ 不依赖 src/（见 .hpp 文件头），为了一个 QUuid 的调用把业务层拖进来
+/// 不划算。两份必须**同格式**（WithoutBraces 的 UUID），因为这里的 id 会被
+/// 原样写进那个文件。
 QString newGroupId() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 
 }  // namespace
@@ -76,7 +68,7 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
 
         m_groupList = new QListWidget(groupBox);
         m_groupList->setObjectName(groupListName());
-        // 行尾那两颗「上移 / 下移」三角（2026-09-25 从实例树搬过来的，见 GroupListDelegate
+        // 行尾那两颗「上移 / 下移」三角（ 从实例树搬过来的，见 GroupListDelegate
         // 文件头）。代理只管画，认下那一下的是 GroupDialog::eventFilter() —— 挂的是**视口**，
         // 因为鼠标事件是按光标位置投给最上面那个孩子的（挂在表上收不到）。
         m_groupList->setItemDelegate(new GroupListDelegate(m_groupList));
@@ -102,9 +94,9 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
         buttons->addWidget(m_removeButton);
         layout->addLayout(buttons);
 
-        // 第二排：只剩"画出来是展开还是收着"（用户原话里的「默认展开/关闭」）。**顺序**
-        // 那一半 2026-09-25 起是行尾那两颗三角（原来这里那两颗「上移」「下移」按钮删了，
-        // 用户原话：「设置那个框下方的上移下移的按钮就删了」）。
+        // 第二排：只剩"画出来是展开还是收着"（要求里的「默认展开/关闭」）。**顺序**
+        // 那一半 起是行尾那两颗三角（原来这里那两颗「上移」「下移」按钮删了，
+        // 要求：「设置那个框下方的上移下移的按钮就删了」）。
         auto *orderRow = new QHBoxLayout;
         m_expandedCheck = new QCheckBox(tr("默认展开"), groupBox);
         m_expandedCheck->setObjectName(expandedCheckName());
@@ -113,7 +105,7 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
                "是同一个状态。"));
         orderRow->addStretch(1);
         orderRow->addWidget(m_expandedCheck);
-        // 紧挨着「默认展开」右边：用户原话「分组设置里面那个默认展开旁边整一个『设为置顶组』」
+        // 紧挨着「默认展开」右边：要求「分组设置里面那个默认展开旁边整一个『设为置顶组』」
         // —— 「旁边」就是这一行、这一格。勾上的那一组变成**置顶组**（全清单只能有一个，
         // 所以勾这一颗会把别组那一颗清掉，见 setGroupPinned()）。
         m_pinnedCheck = new QCheckBox(pinnedCheckText(), groupBox);
@@ -175,8 +167,8 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
                 deleteGroup(groupId);
             }
         });
-        // 上移/下移那两颗按钮 2026-09-25 删了 —— 挪动改成点组清单**行尾那两颗三角**
-        // （一次一格；**按住 Shift** 点就是"直接放到最顶上 / 最底下"，用户原话）。
+        // 上移/下移那两颗按钮 删了 —— 挪动改成点组清单**行尾那两颗三角**
+        // （一次一格；**按住 Shift** 点就是"直接放到最顶上 / 最底下"，要求）。
         // 那一套手势整个在 eventFilter() 里，这里不再有按钮可接。
         connect(m_expandedCheck, &QCheckBox::toggled, this, [this](bool checked) {
             // m_updatingExpanded：这是 refreshActionButtons() 在摆状态（跟着选中的组），
@@ -198,8 +190,8 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
         // 双击一行 = 重命名它（列表上的常规手势，省一次"先选中再点按钮"）。
         //
         // NOTE: 行尾那一带（两颗箭头占的那两格）**到不了这里** —— eventFilter() 把那几发
-        //       整个吃掉了。不这样的话，用户连点两下那颗三角想挪两格，第二发会弹出一个
-        //       重命名框（挪一格 + 挡住手上的事，正是 2026-09-25 用户在实例树上报的那个形状）。
+        // 整个吃掉了。不这样的话，用户连点两下那颗三角想挪两格，第二发会弹出一个
+        // 重命名框（挪一格 + 挡住手上的事，正是 用户在实例树上报的那个形状）。
         connect(m_groupList, &QListWidget::itemDoubleClicked, this, [this] {
             if (m_renameButton->isEnabled()) {
                 m_renameButton->click();
@@ -212,9 +204,9 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
     // 动作，和那两颗"这一趟改完了没有"的按钮不是一类东西，挨着摆会点错。
     m_restoreButton = new QPushButton(tr("恢复默认分组设置…"), this);
     m_restoreButton->setObjectName(restoreDefaultsButtonName());
-    // ★ 红：下面那段说得很死 —— 它是**不可逆**的（自己建的组全没了），
-    //   而且和旁边那对「这一趟改完了没有」的按钮不是一类东西 ——
-    //   颜色和摆位置（最左边）说的是同一件事。
+    // 红：下面那段说得很死 —— 它是**不可逆**的（自己建的组全没了），
+    // 而且和旁边那对「这一趟改完了没有」的按钮不是一类东西 ——
+    // 颜色和摆位置（最左边）说的是同一件事。
     Theme::markButton(m_restoreButton, Theme::ButtonKind::Danger);
     buttons->addWidget(m_restoreButton);
     buttons->addStretch(1);
@@ -290,11 +282,11 @@ bool GroupDialog::eventFilter(QObject *watched, QEvent *event) {
     if (!inUp && !inDown) {
         return QDialog::eventFilter(watched, event);  // 点的不是那两格：这一行该怎样还怎样
     }
-    // ★ 落在那两格里以后**一律吃掉**，哪怕这一侧挪不动（第一行没有上移、最后一行没有
-    //   下移）。不吃的话那一带会漏给"点这一行"：那一行会顺手被选中，连点的第二发还会弹出
-    //   重命名框 —— 用户 2026-09-25 报的「点击一下就同时展开和调整了」就是这个形状。
-    //   漏出去的那几格**本来就没有画箭头**（见 GroupListDelegate::canMoveUp()），所以
-    //   "点下去什么都没发生"是这里唯一说得过去的解释。
+    // 落在那两格里以后**一律吃掉**，哪怕这一侧挪不动（第一行没有上移、最后一行没有
+    // 下移）。不吃的话那一带会漏给"点这一行"：那一行会顺手被选中，连点的第二发还会弹出
+    // 重命名框 —— 用户 报的「点击一下就同时展开和调整了」就是这个形状。
+    // 漏出去的那几格**本来就没有画箭头**（见 GroupListDelegate::canMoveUp()），所以
+    // "点下去什么都没发生"是这里唯一说得过去的解释。
     if (type == QEvent::MouseButtonPress || type == QEvent::MouseButtonDblClick) {
         // 点得快的时候，第二发（以及后面每一发）到的是**双击**事件而不是按下事件（见
         // ui/RowActivation.hpp 那段）—— 这里要**每一发都算**：用户连点三下就是想挪三格。
@@ -497,10 +489,10 @@ void GroupDialog::setGroupPinned(const QString &groupId, bool pinned) {
     if (m_groups.at(row).pinned == pinned) {
         return;
     }
-    // ★ 置顶组只能有一个 —— 一句把目标那一组和别的所有组一起摆好：pinned 为 true 时只有
-    //   目标留下 true，为 false 时全清（含目标自己）。和 InstanceGroupStore::setGroupPinned()
-    //   里那句**逐字对应**：两边对"谁当家"的看法必须一样，否则对话框里看到的那一份
-    //   （按「确定」会落盘的正是它）和存储层自己算出来的那一份会对不上。
+    // 置顶组只能有一个 —— 一句把目标那一组和别的所有组一起摆好：pinned 为 true 时只有
+    // 目标留下 true，为 false 时全清（含目标自己）。和 InstanceGroupStore::setGroupPinned()
+    // 里那句**逐字对应**：两边对"谁当家"的看法必须一样，否则对话框里看到的那一份
+    // （按「确定」会落盘的正是它）和存储层自己算出来的那一份会对不上。
     for (Group &group : m_groups) {
         group.pinned = pinned && group.id == groupId;
     }
@@ -527,12 +519,12 @@ void GroupDialog::rebuildGroupList() {
     {
         const QSignalBlocker blocker(m_groupList);
         m_groupList->clear();
-        // 行高和版本下载那棵树一样（用户 2026-09-25 原话：「每个版本啥的上下高一点，像
+        // 行高和版本下载那棵树一样（要求：「每个版本啥的上下高一点，像
         // 下载页那样，分组设置界面也是」）。这儿的行只有一行字，不给的话就是字那么高 ——
         // 同一份组名在实例页那棵树上和在这张表里高矮不一样，看着像两个东西。
         //
         // **条目还要再加一条缝**（GroupListDelegate::rowGap()）：46 高一行紧挨着一行码
-        // 起来，两条组名之间只剩行内那点余量，扫一眼分不出这是两条（用户 2026-09-25 原话
+        // 起来，两条组名之间只剩行内那点余量，扫一眼分不出这是两条（要求
         // 「给组和组之间留一点距离，不然粘在一起分辨不开」）。画出来的那一块仍然是 46 高
         // —— 代理按 contentRect() 把底下那一条收掉（字、背景、行尾那个方框都按它摆）。
         const int rowHeight =
@@ -560,9 +552,9 @@ void GroupDialog::refreshActionButtons() {
     m_renameButton->setEnabled(hasSelection);
     m_removeButton->setEnabled(hasSelection);
     // NOTE: 上移/下移**不在这儿启用/禁用** —— 它们画在每一行自己的行尾，挪不动的那一侧
-    //       根本不画（判据是 ui/GroupListDelegate::canMoveUp()/canMoveDown()，和
-    //       eventFilter() 认下那一下读的是同一对函数）。这一点和"选中的那一组"没关系，
-    //       所以刷按钮可用性这条路上没有它们的事。
+    // 根本不画（判据是 ui/GroupListDelegate::canMoveUp()/canMoveDown()，和
+    // eventFilter() 认下那一下读的是同一对函数）。这一点和"选中的那一组"没关系，
+    // 所以刷按钮可用性这条路上没有它们的事。
 
     // 勾选框跟着选中的那一组走。摆状态**必须挡一下**：setChecked() 会发 toggled，
     // 而那个槽会把这次"摆"当成用户点的一下，绕回去改一遍状态（然后又是下一次刷新……）。

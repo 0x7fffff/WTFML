@@ -1,19 +1,17 @@
 /**
  * @file PresetCompatibility.hpp
  * @brief 模组预设的**兼容检查**（coding plan §6.0 P2、§7.2）。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 【这一层管什么】
  *
  * 一份模组预设里那串 `ModReference`（平台 + 稳定项目 ID），在"这次要装到
  * 游戏版本 X / 加载器 Y"的上下文里能不能拿到 —— 结论只有五种：
  *
- *   · `Matched`  平台明确说有兼容发行版；
- *   · `Missing`  平台明确说**没有**（或者这一条自己钉死的版本/加载器和这次对不上）；
- *   · `Unknown`  网络失败 / 429 / 超时 —— ★ **不计入缺失**（§7.2 那条验收）；
- *   · `Invalid`  引用本身坏了（平台认不出来 / 没有项目 id）—— 本地就能判，不联网；
- *   · `Pending`  还没查 / 正在查。
+ * · `Matched` 平台明确说有兼容发行版；
+ * · `Missing` 平台明确说**没有**（或者这一条自己钉死的版本/加载器和这次对不上）；
+ * · `Unknown` 网络失败 / 429 / 超时 —— ★ **不计入缺失**（§7.2 那条验收）；
+ * · `Invalid` 引用本身坏了（平台认不出来 / 没有项目 id）—— 本地就能判，不联网；
+ * · `Pending` 还没查 / 正在查。
  *
  * 【为什么先本地、再缓存、最后网络】
  *
@@ -24,11 +22,11 @@
  * 【去重、并发、超时、旧回调】
  *
  * · 去重按 `ModReference::key()`（平台 + 项目 id）。同一项目出现在几类/几份预设里，
- *   这一次只问一遍；结果按**首次出现的次序**摆回去。
+ * 这一次只问一遍；结果按**首次出现的次序**摆回去。
  * · 在途请求数封顶（`Options::maxInFlight`），多出来的排队。
  * · 每一项一条超时：超时就是 `Unknown`，**不**自动重试（重试交给下一次打开 / 用户再点）。
  * · `start()` / `cancel()` 都会让 generation +1；旧 generation 的迟到回调一律丢掉
- *   （§7.2「generation/context token 拒绝旧回调」）。
+ * （§7.2「generation/context token 拒绝旧回调」）。
  *
  * 【这一层不做什么】
  *
@@ -132,9 +130,9 @@ CompatibilityState localCompatibilityCheck(const ModReference &reference,
 /**
  * @brief 查**一个平台项目**有没有兼容这次上下文的发行版。
  *
- * ★ 实现只许回 `Matched` / `Missing` / `Unknown` 三种。调用方（`CompatibilityChecker`）
- *   已经做过去重和本地筛选，不会拿坏引用或钉死冲突的项来问。
- * ★ `reply` **最多调用一次**；同步调用也允许（检查器会转成队列调用，不会重入）。
+ * 实现只许回 `Matched` / `Missing` / `Unknown` 三种。调用方（`CompatibilityChecker`）
+ * 已经做过去重和本地筛选，不会拿坏引用或钉死冲突的项来问。
+ * `reply` **最多调用一次**；同步调用也允许（检查器会转成队列调用，不会重入）。
  */
 class CompatibilityProvider {
 public:

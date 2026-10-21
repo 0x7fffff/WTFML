@@ -1,8 +1,6 @@
 /**
  * @file TransferApply.cpp
  * @brief TransferApply.hpp 的实现：按计划搬文件，只增不删、不跟链接。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "operations/TransferApply.hpp"
@@ -101,10 +99,10 @@ ModTransferResult transferMods(const QString &sourceRoot, const QString &targetR
         }
         staging.setAutoRemove(false);
         ++result.copied;
-        // ★ 发布成功就算这一条"复制完成"，进度要跟着走：
-        //   2026-10-20 之前这里先判停再 `++completed`，于是"刚发布完就收到取消"那一
-        //   瞬间账上 `copied` 已经是 1、进度却还停在上一条（界面少记一个）。
-        //   移动删源是另一件事（没删掉时来源原样保留），它的成败不影响这条文件已复制。
+        // 发布成功就算这一条"复制完成"，进度要跟着走：
+        // 之前这里先判停再 `++completed`，于是"刚发布完就收到取消"那一
+        // 瞬间账上 `copied` 已经是 1、进度却还停在上一条（界面少记一个）。
+        // 移动删源是另一件事（没删掉时来源原样保留），它的成败不影响这条文件已复制。
         ++completed;
         report(QStringLiteral("已复制"));
         if (move) {
@@ -147,9 +145,9 @@ void copyOneFile(const QString &sourceFile, const QString &targetFile, Result *r
         noteFailure(result, sourceFile);  // 链接不跟
         return;
     }
-    // ★ 目标那一格自己是一根链接 ⇒ 也不写（2026-10-20）。上面的"目标已存在就跳过"只挡
-    //   得住**指得通**的那种；一根悬空的链接 `exists()` 是 false，接着 `QFile::copy()`
-    //   会顺着它写到链接那一头去。承诺是"只动目标实例里的文件"（见 .hpp 文件头 ②）。
+    // 目标那一格自己是一根链接 ⇒ 也不写。上面的"目标已存在就跳过"只挡
+    // 得住**指得通**的那种；一根悬空的链接 `exists()` 是 false，接着 `QFile::copy()`
+    // 会顺着它写到链接那一头去。承诺是"只动目标实例里的文件"（见 .hpp 文件头 ②）。
     const QFileInfo targetInfo(targetFile);
     if (targetInfo.isJunction() || targetInfo.isSymLink()) {
         noteFailure(result, targetFile);
@@ -173,10 +171,10 @@ void copyOneFile(const QString &sourceFile, const QString &targetFile, Result *r
 
 /// 把一棵目录**合并**进目标：只拷目标里没有的文件，目录先建出来。
 void mergeTree(const QString &sourceDir, const QString &targetDir, Result *result) {
-    // ★ 这一层（目标）自己是一根链接 ⇒ 不进去（2026-10-20）。递归到下一层时子目录那道
-    //   `sub.isJunction()` 挡的是**源**那一侧；目标那一侧从前一条闸都没有 ——
-    //   `<目标>/config/共享` 是 junction 时，`mkpath()` 对着一根已经存在的链接回 true，
-    //   接着就写到链接那头去了。
+    // 这一层（目标）自己是一根链接 ⇒ 不进去。递归到下一层时子目录那道
+    // `sub.isJunction()` 挡的是**源**那一侧；目标那一侧从前一条闸都没有 ——
+    // `<目标>/config/共享` 是 junction 时，`mkpath()` 对着一根已经存在的链接回 true，
+    // 接着就写到链接那头去了。
     const QFileInfo sourceInfo(sourceDir);
     if (sourceInfo.isJunction() || sourceInfo.isSymLink()) {
         noteFailure(result, sourceDir);
@@ -296,8 +294,8 @@ Result apply(const QString &sourceDir, const QString &targetDir,
         return result;
     }
     // ② 源和目标不能是同一份、也不能互相嵌套。判据和「复制实例」那道闸是同一个函数
-    //   （它解 junction / 8.3 短名 —— 光比字面路径挡不住"拿一个指着源实例的 junction
-    //   当目标"）。双向各问一次：往源里面搬 = 自己抄自己，往源外面搬进它的祖先也一样危险。
+    // （它解 junction / 8.3 短名 —— 光比字面路径挡不住"拿一个指着源实例的 junction
+    // 当目标"）。双向各问一次：往源里面搬 = 自己抄自己，往源外面搬进它的祖先也一样危险。
     if (InstanceFiles::pathIsSameOrInside(source, target)
         || InstanceFiles::pathIsSameOrInside(target, source)) {
         result.problem = QStringLiteral("源实例和目标实例是同一份（或互相嵌套），什么都没有搬。");
@@ -313,11 +311,11 @@ Result apply(const QString &sourceDir, const QString &targetDir,
         }
         const QString sourcePath = source + QLatin1Char('/') + item.relativePath;
         const QString targetPath = target + QLatin1Char('/') + item.relativePath;
-        // ★ 这一项**路过的每一层**都得是普通目录（2026-10-20）。选中的那一项自己是
-        //   junction / symlink 时，`item.isDirectory && isDir()` 对它回 true（`isDir()`
-        //   跟着链接走），下面整棵就搬到链接那一头去了 —— `mergeTree()` 里那道
-        //   `sub.isJunction()` 只判**子树里的子目录**，判不到项根。
-        //   ★ 两侧都判：源是链接 ⇒ 从别处读；目标是链接 ⇒ 写到别处去。
+        // 这一项**路过的每一层**都得是普通目录。选中的那一项自己是
+        // junction / symlink 时，`item.isDirectory && isDir()` 对它回 true（`isDir()`
+        // 跟着链接走），下面整棵就搬到链接那一头去了 —— `mergeTree()` 里那道
+        // `sub.isJunction()` 只判**子树里的子目录**，判不到项根。
+        // 两侧都判：源是链接 ⇒ 从别处读；目标是链接 ⇒ 写到别处去。
         const bool sourceLinked =
             InstanceFiles::pathHasLinkComponent(source, item.relativePath);
         const bool targetLinked =

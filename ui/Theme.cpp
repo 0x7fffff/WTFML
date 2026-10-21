@@ -1,8 +1,6 @@
 /**
  * @file Theme.cpp
  * @brief Theme 的实现：预设 / 覆盖项怎么算成一个调色板，以及"地方"和"语义色"现在是什么颜色。
- * @author 0x7fffff
- * @date 2026-09-28
  */
 
 #include "Theme.hpp"
@@ -54,9 +52,9 @@ Tokens tokens(const QString &id) {
         static const Tokens ocean = {QColor("#196DAA"), QColor("#195F9D"), QColor("#135F98"), QColor("#104F7F"),
                 QColor("#F3F8FD"), QColor("#F8FBFF"), QColor("#FFFFFF"), QColor("#E1EDF9"),
                 QColor("#EAF4FE"), QColor("#D2E7F8"), QColor("#FFFFFF"), QColor("#263647"),
-                // ★ 海洋蓝这一支：`#9AABBB` 压在 `subtle` #E1EDF9 上只有 **1.98:1**
-                //   （3:1 底线那条判据在 ui_check 里是按**当前这一档**现算的）⇒ 改 `#6E7E90`（**3.50:1**）。
-                //   翡翠那一支同一天也改了一处（`#94A9A0` → `#6B7D76`，见下面 emerald 那段★）。
+                // 海洋蓝这一支：`#9AABBB` 压在 `subtle` #E1EDF9 上只有 **1.98:1**
+                // （3:1 底线那条判据在 ui_check 里是按**当前这一档**现算的）⇒ 改 `#6E7E90`（**3.50:1**）。
+                // 翡翠那一支同一天也改了一处（`#94A9A0` → `#6B7D76`，见下面 emerald 那段★）。
                 QColor("#687D90"), QColor("#6E7E90"), QColor("#A9C7E4"), QColor("#D3E3F4"),
                 QColor("#196DAA"), QColor("#A9C4DC"), QColor("#EBF3FA"), QColor("#F3F8FD"),
                 QColor("#E1EDF9"), QColor("#FDFEFF"), QColor("#6B7B8B"), QColor("#91B8E0"), QColor("#BCD2EC")};
@@ -65,10 +63,10 @@ Tokens tokens(const QString &id) {
     static const Tokens emerald = {QColor("#087A68"), QColor("#075E51"), QColor("#096D5E"), QColor("#055548"),
             QColor("#F2FAF7"), QColor("#F8FCFA"), QColor("#FFFFFF"), QColor("#D8F1E9"),
             QColor("#E5F5EF"), QColor("#C7E9DB"), QColor("#FFFFFF"), QColor("#20352E"),
-            // ★ `disabled`（第 14 位）2026-10-16 从 `#94A9A0` 改深到 `#6B7D76`：
-            //   灰掉那一档的字必须对**它自己的底**（`subtle` #D8F1E9）读得出来 ——
-            //   `#94A9A0` 只有 **2.09:1**，破了这个工程钉着的那条 3:1 底线
-            //   （ui_check「§3.3 灰掉那一档的字对底 ≥ 3:1」）。改后是 **3.67:1**。
+            // `disabled`（第 14 位） 从 `#94A9A0` 改深到 `#6B7D76`：
+            // 灰掉那一档的字必须对**它自己的底**（`subtle` #D8F1E9）读得出来 ——
+            // `#94A9A0` 只有 **2.09:1**，破了这个工程钉着的那条 3:1 底线
+            // （ui_check「§3.3 灰掉那一档的字对底 ≥ 3:1」）。改后是 **3.67:1**。
             QColor("#607C70"), QColor("#6B7D76"), QColor("#A8CFC0"), QColor("#D5E7DD"),
             QColor("#087A68"), QColor("#AAC8BA"), QColor("#EDF5F0"), QColor("#F6FAF8"),
             QColor("#E4F2EC"), QColor("#FCFEFD"), QColor("#64776D"), QColor("#9CCDBB"), QColor("#B2D6C5")};
@@ -77,11 +75,11 @@ Tokens tokens(const QString &id) {
 
 /// 平台现在是不是深色那一档。
 ///
-/// ★ 为什么要单独问一句，而不是继续拿 `isDark()`（= 应用调色板的明度）：从 2026-10-20
-///   起「跟着系统」也会把一份**我们自己算的**调色板铺到应用上（这样按钮 / 输入框那些
-///   样式表颜色才能从调色板里读现成的，换配色不用重挂整份样式表）。铺过之后应用调色板
-///   就是"上一次算出来的那一份"，再拿它判深浅会自己咬自己。所以这一位先问平台的
-///   `colorScheme()`；平台不认（offscreen 就是 Unknown）才退回基样式那份标准调色板的明度。
+/// 为什么要单独问一句，而不是继续拿 `isDark()`（= 应用调色板的明度）：从
+/// 起「跟着系统」也会把一份**我们自己算的**调色板铺到应用上（这样按钮 / 输入框那些
+/// 样式表颜色才能从调色板里读现成的，换配色不用重挂整份样式表）。铺过之后应用调色板
+/// 就是"上一次算出来的那一份"，再拿它判深浅会自己咬自己。所以这一位先问平台的
+/// `colorScheme()`；平台不认（offscreen 就是 Unknown）才退回基样式那份标准调色板的明度。
 bool platformColorSchemeDark() {
     if (QGuiApplication::instance() != nullptr) {
         const Qt::ColorScheme scheme = QGuiApplication::styleHints()->colorScheme();
@@ -147,14 +145,6 @@ protected:
             if (reason == Qt::MouseFocusReason) {
                 m_keyboard = false;
             }
-            // ★★ 2026-10-18（用户报的「在主页点用户那颗按钮、再切到管理/下载，它们右上角
-            //   那颗也进入选中状态」）：**`TabFocusReason` 不等于"用户按了 Tab"**。焦点控件
-            //   所在的页被藏起来时，Qt 用 `focusNextPrevChild()` 把焦点交给同一窗口里的下一颗
-            //   —— 那条路报的理由也是 TabFocusReason。于是鼠标用户切一次页，新页面那颗
-            //   页面级按钮就被标成"键盘焦点"，画出一圈他没碰过的绿框（实测：藏起主页面
-            //   那一刻先焦点给底栏 `runStateButton`、再交给 `groupInstanceButton`）。
-            //   现在这一档**只认真的按键**（上面 KeyPress 那一支）：真按 Tab 时 KeyPress
-            //   先到（把 `m_keyboard` 摆上）、FocusIn 后到读到的就是 true；这里不再自己打开。
             setVisible(button, m_keyboard);
         }
         return false;
@@ -177,10 +167,10 @@ private:
 
 /// 一块骨架今天的样子：`from` 那一档颜色压暗 `shade`，
 ///
-///   - `shade == 0` ⇒ 直接用 `from` 那一档（卡片：今天就是 `Base`）；
-///   - `literal` ⇒ 默认值是个写死的色（四周变暗那一层），不从 `from` 推；
-///   - `accent` ⇒ 默认值是**主题色那一支**（`accentShade(AccentShade::Pure)`），
-///     既不看 `from` 也不看 `shade`（只有标题栏是）。
+/// - `shade == 0` ⇒ 直接用 `from` 那一档（卡片：今天就是 `Base`）；
+/// - `literal` ⇒ 默认值是个写死的色（四周变暗那一层），不从 `from` 推；
+/// - `accent` ⇒ 默认值是**主题色那一支**（`accentShade(AccentShade::Pure)`），
+/// 既不看 `from` 也不看 `shade`（只有标题栏是）。
 struct PartInfo {
     const char *key;
     const char *name;
@@ -192,12 +182,8 @@ struct PartInfo {
 
 /// 顺序 = `Part` 的枚举顺序。`static_assert` 在下面盯着。
 /// NOTE: 最后那一位（出厂字色是不是白墨）在 `partLightInk()` 里另有一张表 —— 它只有标题栏
-///       用得到，塞进这一张只会让上面五行都跟着多一个恒假的字段。
+/// 用得到，塞进这一张只会让上面五行都跟着多一个恒假的字段。
 const PartInfo kPartInfos[] = {
-    // ★ 标题栏出厂就是**主题色那一支**（默认值由 defaultAccentColor() 统一提供）。
-    //   它原来和底栏一样是"窗口底色压暗一档"，两处**故意不一样了**：
-    //   底下那条留着中性色 —— 它装的是启动/日志那一排控件，那些控件自己有自己的底色，
-    //   而顶上那条整条就是一块主题色的底。ui_check W5 那两条照着这件事改过。
     {"titleBar", "标题栏", 105, QPalette::Window, false, true},
     {"bottomBar", "底栏", 105, QPalette::Window, false, false},
     {"panel", "浮层面板", 112, QPalette::Window, false, false},
@@ -246,9 +232,9 @@ constexpr const char kButtonKindProperty[] = "wtfmlButtonKind";
 constexpr const char kButtonSizeProperty[] = "wtfmlButtonSize";
 constexpr const char kIconButtonValue[] = "icon";
 
-/// 页面骨架那几层"面"挂在控件上的属性名 / 属性值（2026-10-12）。
+/// 页面骨架那几层"面"挂在控件上的属性名 / 属性值。
 ///
-/// 用户 2026-10-12 那份改版文档里的第一条规则是「减少框」：整页只留**两个**面
+/// 用户 那份改版文档里的第一条规则是「减少框」：整页只留**两个**面
 /// （侧栏 + 正文），其余靠排版分层。这一套属性就是那两个面（外加"小节卡片"和"页脚"
 /// 两档）的**唯一出处** —— 产品那边 `setProperty()` 写的是这两个常量，样式表里那几条
 /// 选择器读的也是它们。两边各写一遍字符串的话，改名字就成了"属性挂上了、样式一条都没
@@ -277,14 +263,6 @@ QColor mixWithWhite(const QColor &color, int percent) {
 ///
 /// 和 `mixWithWhite()` 是同一族（同一个式子，只是那一头是 `0` 而不是 `255`）——
 /// **主题色那一支里"深一点"那两档走的就是它**，不走 `QColor::darker()`。
-///
-/// ★ 为什么不用 `darker()`（2026-10-13 修 W13 时定的）：两者算出来的数**基本一样**
-///   —— 实测出厂色下 `pure.darker(167)` 和 `mixWithBlack(pure, 60)` **逐字节相等**，
-///   都是 `#254d3e`；换别的主题色最多差 1（八种主题色逐个量过）。
-///   差别在**读得懂读不懂**：`darker(n)` 那一头是"明度乘 `100/n`"，想表达"六成"得写
-///   `167`、"八成"得写 `125` —— 这两个数在调用点上读不出意图，改一个数还得先在脑子里
-///   换算一遍。这里从**通道**出发直接混，算式和 `mixWithWhite()` 逐字同式（含那一位
-///   `+50`），调用点写的就是比例本身（六成 / 八成），和 `mixWithWhite(pure, 12)` 是一族。
 QColor mixWithBlack(const QColor &color, int percent) {
     const int p = qBound(0, percent, 100);
     const auto mix = [p](int c) { return (c * p + 50) / 100; };
@@ -328,7 +306,7 @@ static_assert(sizeof(kRoleInfos) / sizeof(kRoleInfos[0]) == static_cast<size_t>(
 /// 跟着变淡的话选中那一块就淡了，那不是"文字透明度"。
 ///
 /// NOTE: `ToolTipText` 也在这儿，它**不在** `kRoleInfos` 里（用户调不到它，但它是字，
-///       全局那一位得管它，不然提示框里的字会比别处清楚）。
+/// 全局那一位得管它，不然提示框里的字会比别处清楚）。
 const QPalette::ColorRole kInkRoles[] = {
     QPalette::WindowText, QPalette::Text,        QPalette::ButtonText,
     QPalette::HighlightedText, QPalette::PlaceholderText, QPalette::ToolTipText,
@@ -345,10 +323,6 @@ Spec &mutableSpec() {
     return spec;
 }
 
-// ★ 2026-10-20：「跟着系统」那一档不再"把平台调色板原样还回去" —— 它现在也铺一份
-//   我们自己算的调色板（样式表里的 `palette(...)` 要读）。平台深浅变了由
-//   `ColorSchemeWatcher` 接住、重铺一遍，见 `apply()` 那一段。原来那对
-//   `platformPalette()` / `installedExplicit()` 因此一起删了（留着也没人读）。
 
 int clampOpacity(int value) {
     return qBound(0, value, 100);
@@ -368,7 +342,7 @@ QColor appColor(QPalette::ColorRole role) {
 
 const char *const kPresetKey = "Theme/Preset";
 const char *const kTextOpacityKey = "Theme/TextOpacity";
-/// ★ **单数**：主题色（"这一套界面是什么颜色"）。底下那个复数前缀是**语义色**
+/// **单数**：主题色（"这一套界面是什么颜色"）。底下那个复数前缀是**语义色**
 /// （"红黄绿各是哪一个红黄绿"）。两个前缀只差一个 s，别看串了：往 `Theme/Accents/` 里写
 /// 一个 "Accent" 是不生效的（`load()` 读的是这个单数键）。
 const char *const kAccentKey = "Theme/Accent";
@@ -407,19 +381,19 @@ QString accentSettingKey(const char *field) {
 /**
  * @brief 产品+三个验证工程共用的那一份代理样式。**它接手两件事**：
  *
- *   1. 下拉框右边那个 `∨`（下面这一大段）；
- *   2. **选中那一块**（`PE_PanelItemViewItem` / `PE_PanelItemViewRow` 两条原语 +
- *      `CE_ItemViewItem` 里换墨）—— 用户 2026-09-29 原话「选中的时候那个蓝色的换成深灰色」，
- *      2026-10-12 起那一块是"这一行自己的底色混一档主题色 + 左边一根 3 px 主题色指示条"
- *      （用户答复：「完全照 §9.3（和侧栏导航同款）」）。
- *      为什么落在这一层：调色板的 `Highlight` 是平台给的蓝，而"出厂那一份不碰调色板"这条
- *      不能破（破=把"跟着系统深浅"钉死，见 `apply()` 那段）。样式这一层一份代码就管住
- *      全仓每一张表，连不用我们那两个代理的表、以及下拉框弹出来那张表也一起管住了。
+ * 1. 下拉框右边那个 `∨`（下面这一大段）；
+ * 2. **选中那一块**（`PE_PanelItemViewItem` / `PE_PanelItemViewRow` 两条原语 +
+ * `CE_ItemViewItem` 里换墨）—— 要求「选中的时候那个蓝色的换成深灰色」，
+ * 起那一块是"这一行自己的底色混一档主题色 + 左边一根 3 px 主题色指示条"
+ * （用户答复：「完全照 §9.3（和侧栏导航同款）」）。
+ * 为什么落在这一层：调色板的 `Highlight` 是平台给的蓝，而"出厂那一份不碰调色板"这条
+ * 不能破（破=把"跟着系统深浅"钉死，见 `apply()` 那段）。样式这一层一份代码就管住
+ * 全仓每一张表，连不用我们那两个代理的表、以及下拉框弹出来那张表也一起管住了。
  *
  * （类名原来叫 `ComboChevronStyle`，只管得着第 1 件。加第 2 件的时候一并改成现在这个名字
- *   —— 名字叫"下拉框箭头样式"会让人以为选中色是别处画的。）
+ * —— 名字叫"下拉框箭头样式"会让人以为选中色是别处画的。）
  *
- * 【第 1 件：下拉框右边那个 `∨` 为什么非自己画不可】2026-09-29 读 `qstylesheetstyle.cpp`
+ * 【第 1 件：下拉框右边那个 `∨` 为什么非自己画不可】 读 `qstylesheetstyle.cpp`
  * + 实测：样式表里只要出现
  * `QComboBox::drop-down { border: none; … }`，这一格在 `QRenderRule::hasDrawable()` 眼里就
  * 成了"有东西要画" —— `border: none` 解析出来是 `BorderStyle_None`，**不等于**
@@ -454,16 +428,16 @@ public:
             (vopt->state & QStyle::State_Selected) == 0) {
             return nullptr;
         }
-        // ★ 只接管"铺**平台那一档**选中色"的地方。谁**自己**把选中色换掉了，就交回给基样式
-        //   —— 下拉框弹出来那张表正是（`widgetStyleSheet()` 里那条 `selection-background-color`
-        //   是用户 2026-09-28 点名要的"主题色打底 + 黑墨"）。判据是"这一份 option 里的
-        //   `Highlight` 和**应用调色板**里那一档是不是同一个色"：一样 ⇒ 它没自己换过。
+        // 只接管"铺**平台那一档**选中色"的地方。谁**自己**把选中色换掉了，就交回给基样式
+        // —— 下拉框弹出来那张表正是（`widgetStyleSheet()` 里那条 `selection-background-color`
+        // 是用户 点名要的"主题色打底 + 黑墨"）。判据是"这一份 option 里的
+        // `Highlight` 和**应用调色板**里那一档是不是同一个色"：一样 ⇒ 它没自己换过。
         //
-        //   ★ 比的是 **Active 那一组**，不是 `color(role)` 那个 Current：窗口一失焦，控件身上
-        //     的 `Highlight` 就落到 Inactive 那一组（Fusion 给的是另一种淡蓝），拿 Current 比
-        //     会得到"窗口一失焦我们就撒手"—— 那个 bug 只在失焦时出现，屏幕上看着像"有时灰
-        //     有时蓝"。比 8 位的那三个数（`.rgb()`），不用 `QColor::operator==`：Qt 6 那个比
-        //     的是内部 16 位分量，两处各构造一次就可能不相等（这条坑见 `ui_check` 里那段）。
+        // 比的是 **Active 那一组**，不是 `color(role)` 那个 Current：窗口一失焦，控件身上
+        // 的 `Highlight` 就落到 Inactive 那一组（Fusion 给的是另一种淡蓝），拿 Current 比
+        // 会得到"窗口一失焦我们就撒手"—— 那个 bug 只在失焦时出现，屏幕上看着像"有时灰
+        // 有时蓝"。比 8 位的那三个数（`.rgb()`），不用 `QColor::operator==`：Qt 6 那个比
+        // 的是内部 16 位分量，两处各构造一次就可能不相等（这条坑见 `ui_check` 里那段）。
         if (vopt->palette.color(QPalette::Active, QPalette::Highlight).rgb() !=
             platformSelectionColor().rgb()) {
             return nullptr;
@@ -480,25 +454,25 @@ public:
     void drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPainter *p,
                        const QWidget *w) const override
     {
-        // ★ 选中那一块：调色板里那一档（`Highlight`）是**平台给的蓝**，而"出厂那一份不碰
-        //   调色板"这条不能破（破了就把"跟着系统深浅"钉死了，见 `apply()` 那段）⇒ 由这里
-        //   接过来自己画成"这一行自己的底色混一档主题色"。用户 2026-09-29 原话：「选中的
-        //   时候那个蓝色的换成深灰色」；2026-10-12 换成现在这一档（用户答复：「完全照 §9.3
-        //   （和侧栏导航同款）」）—— 底和左边那根指示条的理由都在 `ui/Theme.hpp` 那段里。
+        // 选中那一块：调色板里那一档（`Highlight`）是**平台给的蓝**，而"出厂那一份不碰
+        // 调色板"这条不能破（破了就把"跟着系统深浅"钉死了，见 `apply()` 那段）⇒ 由这里
+        // 接过来自己画成"这一行自己的底色混一档主题色"。要求：「选中的
+        // 时候那个蓝色的换成深灰色」； 换成现在这一档（用户答复：「完全照 §9.3
+        // （和侧栏导航同款）」）—— 底和左边那根指示条的理由都在 `ui/Theme.hpp` 那段里。
         //
-        //   两条原语各管一半，缺一条屏幕上就留一块蓝：
-        //   - `PE_PanelItemViewItem` = 条目那一格（每张表都有）；
-        //   - `PE_PanelItemViewRow`  = **左边那一截分支区**（`QTreeView::drawRow()` 在把画笔
-        //     交给代理之前自己铺的那一条，矩形是"整条行高 × 缩进宽度"）。
-        //   代理侧还有一份同样的补涂（`VersionTreeDelegate::paint()` 里那段），因为这两条
-        //   原语是不是真的被走到由**视图**决定 —— 补涂那一份是保底，两边同一个色。
+        // 两条原语各管一半，缺一条屏幕上就留一块蓝：
+        // - `PE_PanelItemViewItem` = 条目那一格（每张表都有）；
+        // - `PE_PanelItemViewRow` = **左边那一截分支区**（`QTreeView::drawRow()` 在把画笔
+        // 交给代理之前自己铺的那一条，矩形是"整条行高 × 缩进宽度"）。
+        // 代理侧还有一份同样的补涂（`VersionTreeDelegate::paint()` 里那段），因为这两条
+        // 原语是不是真的被走到由**视图**决定 —— 补涂那一份是保底，两边同一个色。
         //
-        //   ★ 指示条也在这里画：这张表是不是真的走这两条原语由**视图**决定，等它铺完再
-        //     补一条竖条的话，视图那条路上就又留一个"补没补"的分叉 ⇒ 一次画齐（代理那边
-        //     只在"它自己把这一格又盖了一遍"时才需要重画一次，见 `VersionTreeDelegate`）。
-        //   ★ 两处例子**故意不要这根条**（各自有自己那一圈形状），由它们自己拿底色擦掉：
-        //     实例行（带子只有卡片那一圈 —— 用户 2026-09-29 点名要删的正是左边那根竖条）
-        //     和分组对话框那份表（一行一块内缩的卡片）。见那两个代理里的 NOTE。
+        // 指示条也在这里画：这张表是不是真的走这两条原语由**视图**决定，等它铺完再
+        // 补一条竖条的话，视图那条路上就又留一个"补没补"的分叉 ⇒ 一次画齐（代理那边
+        // 只在"它自己把这一格又盖了一遍"时才需要重画一次，见 `VersionTreeDelegate`）。
+        // 两处例子**故意不要这根条**（各自有自己那一圈形状），由它们自己拿底色擦掉：
+        // 实例行（带子只有卡片那一圈 —— 用户 点名要删的正是左边那根竖条）
+        // 和分组对话框那份表（一行一块内缩的卡片）。见那两个代理里的 NOTE。
         if (pe == PE_PanelItemViewItem || pe == PE_PanelItemViewRow) {
             if (const QStyleOptionViewItem *vopt = selectedItemOption(opt)) {
                 p->fillRect(vopt->rect, selectionFill(vopt->palette.color(QPalette::Base)));
@@ -507,21 +481,21 @@ public:
             }
         }
 
-        // ★ 键盘焦点环（coding plan §8.3「全部关键操作具备键盘焦点、可见焦点环」）。
+        // 键盘焦点环（coding plan §8.3「全部关键操作具备键盘焦点、可见焦点环」）。
         //
-        //   基样式（Fusion）画的是**一圈虚线**，而我们的按钮挂了应用级样式表之后那圈虚线
-        //   常常被自己的边盖掉/看不见 —— "按 Tab 键跳到哪儿了"就成了一个说不出口的状态。
-        //   这里把它接过来画成**两像素的主题色圆圈**：浅底上用 `AccentShade::Ink`（深绿）、
-        //   深底上用 `AccentShade::Hover`（浅绿），判据只有一处（`focusRingColor()`）。
+        // 基样式（Fusion）画的是**一圈虚线**，而我们的按钮挂了应用级样式表之后那圈虚线
+        // 常常被自己的边盖掉/看不见 —— "按 Tab 键跳到哪儿了"就成了一个说不出口的状态。
+        // 这里把它接过来画成**两像素的主题色圆圈**：浅底上用 `AccentShade::Ink`（深绿）、
+        // 深底上用 `AccentShade::Hover`（浅绿），判据只有一处（`focusRingColor()`）。
         //
-        //   ★ **条目视图（列表 / 树 / 表格）不接管、而且是"一笔都不画"**（2026-10-18 改）：
-        //     原来这一支把它们交回基样式，Fusion 就在"当前项"那一格外面套一圈**浅色细框**
-        //     （左边三页的左栏那一列上量到的是 1 px 的 `#BDD9F0` 圆角框）—— 用户原话
-        //     「左栏都会有选中后一个浅浅的灰色框，不要使其出现」。列表这边"现在停在哪儿"
-        //     本来就由我们那套选中底（`selectionFill()` + 左边那根指示条）说清楚了，这一圈
-        //     框是多余的第二层，而且它画在**整格**上、比里面那块内缩的圆角选中块大一圈，
-        //     正是用户说的"框和实际按钮大小不同 ⇒ 难看"。所以直接返回，什么都不画。
-        //   ★ `w == nullptr` 时交回去：没有控件就没有"谁拿着焦点"这回事（探针调用的场景）。
+        // **条目视图（列表 / 树 / 表格）不接管、而且是"一笔都不画"**（ 改）：
+        // 原来这一支把它们交回基样式，Fusion 就在"当前项"那一格外面套一圈**浅色细框**
+        // （左边三页的左栏那一列上量到的是 1 px 的 `#BDD9F0` 圆角框）—— 要求
+        // 「左栏都会有选中后一个浅浅的灰色框，不要使其出现」。列表这边"现在停在哪儿"
+        // 本来就由我们那套选中底（`selectionFill()` + 左边那根指示条）说清楚了，这一圈
+        // 框是多余的第二层，而且它画在**整格**上、比里面那块内缩的圆角选中块大一圈，
+        // 正是用户说的"框和实际按钮大小不同 ⇒ 难看"。所以直接返回，什么都不画。
+        // `w == nullptr` 时交回去：没有控件就没有"谁拿着焦点"这回事（探针调用的场景）。
         if (pe == PE_FrameFocusRect) {
             if (qobject_cast<const QAbstractButton *>(w) != nullptr &&
                 !w->property("wtfmlKeyboardFocus").toBool()) return;
@@ -530,13 +504,6 @@ public:
                 QProxyStyle::drawPrimitive(pe, opt, p, w);
                 return;
             }
-            // ★ 2026-10-18（用户拿图点名的「选中框的强调比实际按钮大小小」）：
-            //   `QStyleSheetStyle` 交给我们的焦点矩形是按样式表那圈 border/padding /
-            //   `PM_FocusFrameHMargin` **内缩过**的 —— 环于是画在按钮自己的边里面一小圈，
-            //   和 QSS 画出来的那颗按钮不是同一个形状（按钮越矮内缩越显眼）。`QPushButton`
-            //   / `QToolButton` 的"按钮本身"就是整个控件矩形，这里改拿 `w->rect()`；
-            //   复选框 / 单选框 / 输入类仍用传进来的那一个（它们的焦点框本来就不该铺满
-            //   整个控件，比如字在指示器右边）。
             const bool wholeWidgetButton =
                 qobject_cast<const QPushButton *>(w) != nullptr
                 || qobject_cast<const QToolButton *>(w) != nullptr;
@@ -572,7 +539,7 @@ public:
         }
 
         // 1) 先把那一格擦成下拉框自己的底：基样式在画箭头之前压了一层 95 风格的立体边
-        //    （`qDrawWinButton`），不擦掉的话 V 会坐在一个凸起的小方块里。
+        // （`qDrawWinButton`），不擦掉的话 V 会坐在一个凸起的小方块里。
         QStyleOptionComboBox comboOpt;
         comboOpt.initFrom(w);
         comboOpt.rect = w->rect();
@@ -586,8 +553,8 @@ public:
         }
 
         // 2) 画 V。墨色跟着 `ButtonText` 走 —— 应用级样式表那句 `color:` 已经被灌进调色板
-        //    了（可用 = 纯黑、禁用 = 灰），**不用自己判 `isEnabled()`**：判了就等于在别的底上
-        //    写死了两档灰。
+        // 了（可用 = 纯黑、禁用 = 灰），**不用自己判 `isEnabled()`**：判了就等于在别的底上
+        // 写死了两档灰。
         const QRect box = cell.isValid() ? cell : opt->rect;
         const QPoint center = box.center();
         const int half = 4;  // 半宽
@@ -611,19 +578,19 @@ public:
     void drawControl(ControlElement ce, const QStyleOption *opt, QPainter *p,
                      const QWidget *w) const override
     {
-        // ★ 选中那一行的**字**：底色那一块已经换成"这一行自己的底色混一档主题色"了（见上面
-        //   那两条原语），而基样式紧接着印字用的是 `HighlightedText` —— 那一档还是"照蓝底
-        //   配的"（深色系统主题下是白、浅色下是近黑）。这一块底上必须换一支**配套**的墨：
-        //   浅色主题下平台给的近黑勉强能用，深色主题下那支白字压上去就没了（见
-        //   `selectionInk()` 里那两档怎么翻）。用户原话和整套理由见 `ui/Theme.hpp` 那段。
+        // 选中那一行的**字**：底色那一块已经换成"这一行自己的底色混一档主题色"了（见上面
+        // 那两条原语），而基样式紧接着印字用的是 `HighlightedText` —— 那一档还是"照蓝底
+        // 配的"（深色系统主题下是白、浅色下是近黑）。这一块底上必须换一支**配套**的墨：
+        // 浅色主题下平台给的近黑勉强能用，深色主题下那支白字压上去就没了（见
+        // `selectionInk()` 里那两档怎么翻）。要求和整套理由见 `ui/Theme.hpp` 那段。
         //
-        //   改的是**这一份拷贝**、不是控件身上那份：换色只对这一次绘制生效，别的地方读
-        //   `HighlightedText`（它们是照平台那一套算的）一点都不受影响。
+        // 改的是**这一份拷贝**、不是控件身上那份：换色只对这一次绘制生效，别的地方读
+        // `HighlightedText`（它们是照平台那一套算的）一点都不受影响。
         //
-        //   ★ 只有 `CE_ItemViewItem` 走这一支。两个代理自己手画正文的那几棵树不经过这儿
-        //     （它们在 `paint()` 里读的是自己那份局部调色板，`VersionTreeDelegate` /
-        //     `InstanceGroupDelegate` 各有一处同样的换墨），实例行那种"把文字交给样式印"
-        //     的走这儿 —— 三条路上屏幕看到的必须是同一支墨。
+        // 只有 `CE_ItemViewItem` 走这一支。两个代理自己手画正文的那几棵树不经过这儿
+        // （它们在 `paint()` 里读的是自己那份局部调色板，`VersionTreeDelegate` /
+        // `InstanceGroupDelegate` 各有一处同样的换墨），实例行那种"把文字交给样式印"
+        // 的走这儿 —— 三条路上屏幕看到的必须是同一支墨。
         if (ce == CE_ItemViewItem) {
             if (const QStyleOptionViewItem *vopt = selectedItemOption(opt)) {
                 QStyleOptionViewItem patched(*vopt);
@@ -723,10 +690,10 @@ bool roleFromKey(const QString &key, Role *out) {
 // ---------------------------------------------------------------------------
 
 QColor defaultAccentColor() {
-    // 2026-10-12 把原先偏荧光的 #56eb6c 收成更沉稳的翡翠绿：顶栏长时间停在视野里，
+    // 把原先偏荧光的 #56eb6c 收成更沉稳的翡翠绿：顶栏长时间停在视野里，
     // 降低明度后不再抢内容；同时白字对它仍有 4.5:1 以上的对比度，实心主按钮也能复用。
-    //   全仓只有这一处写这六个十六进制位 —— 顶栏、按钮的字与边、当前那一颗导航底下那条
-    //   线，量的都是它算出来的某一档（见 `accentShade()`），**不许在别处再写一遍**。
+    // 全仓只有这一处写这六个十六进制位 —— 顶栏、按钮的字与边、当前那一颗导航底下那条
+    // 线，量的都是它算出来的某一档（见 `accentShade()`），**不许在别处再写一遍**。
     return QColor(QStringLiteral("#087A68"));
 }
 
@@ -738,10 +705,10 @@ QColor rowHoverFill(const QColor &base) {
     if (!accent.isValid()) {
         accent = defaultAccentColor();
     }
-    // ★ 混法**必须和 `mixWithWhite()` 逐字同式**（`(底*(100-p) + 主题*p + 50) / 100`）：
-    //   浅色下 `base` 就是白，这一份和 `accentShade(AccentShade::Hover)` 因此**逐字节相等**
-    //   —— ui_check 钉着这条（"行悬停和按钮悬停是同一个色"就是靠它）。四舍五入那一位
-    //   （`+50`）不改的话两边会对不上，而那种差 1 的错在屏幕上完全看不出来。
+    // 混法**必须和 `mixWithWhite()` 逐字同式**（`(底*(100-p) + 主题*p + 50) / 100`）：
+    // 浅色下 `base` 就是白，这一份和 `accentShade(AccentShade::Hover)` 因此**逐字节相等**
+    // —— ui_check 钉着这条（"行悬停和按钮悬停是同一个色"就是靠它）。四舍五入那一位
+    // （`+50`）不改的话两边会对不上，而那种差 1 的错在屏幕上完全看不出来。
     const int p = qBound(0, rowHoverAccentPercent(), 100);
     const auto mix = [p](int b, int a) { return (b * (100 - p) + a * p + 50) / 100; };
     return QColor(mix(base.red(), accent.red()), mix(base.green(), accent.green()),
@@ -775,14 +742,14 @@ QColor selectionFill(const QColor &base) {
 }
 
 QColor selectionInk(const QColor &base) {
-    // ★ 墨**跟着那一块底的明暗翻**（2026-09-29 立下的规矩：底改浅了墨必须跟着翻过去 ——
-    //   反方向上"亮墨压浅底 = 等于没字"照样成立）。浮上来的一直是**主题色那一支**里
-    //   对应的那一档，不是黑/白两档写死的灰。
+    // 墨**跟着那一块底的明暗翻**（ 立下的规矩：底改浅了墨必须跟着翻过去 ——
+    // 反方向上"亮墨压浅底 = 等于没字"照样成立）。浮上来的一直是**主题色那一支**里
+    // 对应的那一档，不是黑/白两档写死的灰。
     //
-    //   浅底（默认那身浅色主题：20% 主题色罩在白上）：`AccentShade::Ink` 压上去约 7.4:1。
-    //   **不能**用 `AccentShade::Pure` —— 本色压在自己 20% 的浅底上只有 2.4:1，那行字就糊了。
-    //   深底（深色预设：约 `#31433a`）：`Ink` 那一档压上去只剩 1.2:1（等于没字）⇒ 换成
-    //   那一支里"深底上写字"的那一档（主题色罩 25% 白 —— 罩白比例**越小越亮**），约 7.5:1。
+    // 浅底（默认那身浅色主题：20% 主题色罩在白上）：`AccentShade::Ink` 压上去约 7.4:1。
+    // **不能**用 `AccentShade::Pure` —— 本色压在自己 20% 的浅底上只有 2.4:1，那行字就糊了。
+    // 深底（深色预设：约 `#31433a`）：`Ink` 那一档压上去只剩 1.2:1（等于没字）⇒ 换成
+    // 那一支里"深底上写字"的那一档（主题色罩 25% 白 —— 罩白比例**越小越亮**），约 7.5:1。
     if (selectionFill(base).lightness() > 128) {
         return accentShade(AccentShade::Ink);
     }
@@ -807,8 +774,6 @@ void paintSelectionRail(QPainter *painter, const QRect &rowRect) {
     if (painter == nullptr || rowRect.height() <= 0 || selectionBarThickness() <= 0) {
         return;
     }
-    // x 恒取 0：行在画家坐标系里的左边缘就是 0（横向滚动是烘进 `option.rect` 里的，
-    // 不是平移画家）—— ui_check §⑫ 量到的也正是 x = 0..2 这一列。
     painter->fillRect(QRect(0, rowRect.top(), selectionBarThickness(), rowRect.height()),
                       selectionBar());
 }
@@ -853,21 +818,13 @@ QColor accentShade(AccentShade shade) {
     case AccentShade::Pure:
         return pure;
     case AccentShade::Ink:
-        // 白底上写字的那一档：**主题色的 60%**（= 明度压到六成，色相 / 饱和度原样）。
-        //   出厂色 #3d8068 下是 `#254d3e` —— 对白底 9.5:1，比正文（纯黑 21:1）轻，
-        //   但一眼看得出是"主题色那一支的深绿"。
-        // ★ 2026-10-13 修 W13 改的就是这一档：原先取的是纯色的**一半**（`darker(200)`
-        //   = `#1f4034`），对白底 11:1 —— 太黑了，压到和「一般性」那一档黑（`#202020`）
-        //   只差 53（ui_check 那条判据要 60），屏幕上就是"分了三档"这句话说不响：
-        //   一颗主题色按钮和一颗黑按钮长得几乎一样。六成之后两处同时成立：离那一档黑
-        //   80、对白底仍有 9.5:1（WCAG 正文那条要 4.5:1）。
         return mixWithBlack(pure, 60);
     case AccentShade::Border:
         // 那一圈边：**主题色的 80%**（出厂色下 `#316653`，对白底 6.7:1）。
-        //   比字浅一档（"边只要看得见、字要读得清"），但对白底仍远超界面部件那条 3:1。
-        // ★ 2026-10-13 跟着 `Ink` 一起抬：它原来取纯色的 2/3（`#295545`），夹在
-        //   "抬上来的字"和纯色之间只剩 12 的明度差，三档就挤成一坨了。现在纯色 / 边 /
-        //   字是 128 / 102 / 77，两两差着 20 上下，屏幕上真能分出三层。
+        // 比字浅一档（"边只要看得见、字要读得清"），但对白底仍远超界面部件那条 3:1。
+        // 跟着 `Ink` 一起抬：它原来取纯色的 2/3（`#295545`），夹在
+        // "抬上来的字"和纯色之间只剩 12 的明度差，三档就挤成一坨了。现在纯色 / 边 /
+        // 字是 128 / 102 / 77，两两差着 20 上下，屏幕上真能分出三层。
         return mixWithBlack(pure, 80);
     case AccentShade::Hover:
     case AccentShade::Pressed:
@@ -895,11 +852,11 @@ QColor neutralInkColor() {
 // 「灰掉」那一档的三个色（详见头文件里那段）。★ 三处**必须一起看**：底浅一档、字浅两档、
 // 边浅浅地留一道 —— 单看哪一个都只是"一个灰色"，合起来才是"这一格现在按不动，但形状还在"。
 QColor disabledInkColor() {
-    // ★ 2026-10-14（coding plan §3.3「单独设计 Disabled 状态」）：从 `#9a9a9a` 提到
-    //   **`#8a8a8a`**。原来那个对 `disabledFillColor()` 只有 2.6:1 —— 一页里字号最小的
-    //   那几颗（12~13px）灰掉之后基本是"看不清"而不是"读得清"。这一档是 3.2:1，
-    //   既还是明显灰的（对白底 3.4:1、对次要用那支纯黑 15:1），又读得出来写的是什么。
-    //   判据不是"我觉得好看"：ui_check 里那条**现算对比度**，下限就是 3:1。
+    // （coding plan §3.3「单独设计 Disabled 状态」）：从 `#9a9a9a` 提到
+    // **`#8a8a8a`**。原来那个对 `disabledFillColor()` 只有 2.6:1 —— 一页里字号最小的
+    // 那几颗（12~13px）灰掉之后基本是"看不清"而不是"读得清"。这一档是 3.2:1，
+    // 既还是明显灰的（对白底 3.4:1、对次要用那支纯黑 15:1），又读得出来写的是什么。
+    // 判据不是"我觉得好看"：ui_check 里那条**现算对比度**，下限就是 3:1。
     return tokens().disabled;
 }
 
@@ -953,7 +910,7 @@ QString buttonKindKey(ButtonKind kind) {
 }
 
 // ---------------------------------------------------------------------------
-// 「面」与「文字角色」那两个属性（2026-10-12）
+// 「面」与「文字角色」那两个属性
 // ---------------------------------------------------------------------------
 
 // 这一组就是上面那几个 `constexpr char` 的出口（**唯一出处**：产品、样式表、验证工程
@@ -1021,9 +978,9 @@ namespace {
 
 /// 滚动条那两段规则的**唯一模板**（竖的 + 横的，同一串参数）。
 ///
-/// ★ 应用级样式表那一份用 `palette(...)` 当占位（换配色不用重挂整份表），
-///   每一根真滚动条身上那一份用 `rgba(...)` 精确色（`scrollHandleColor()` 那三档带 alpha）。
-///   两份用同一个模板，免得"竖的改了、横的没改"那种漂。
+/// 应用级样式表那一份用 `palette(...)` 当占位（换配色不用重挂整份表），
+/// 每一根真滚动条身上那一份用 `rgba(...)` 精确色（`scrollHandleColor()` 那三档带 alpha）。
+/// 两份用同一个模板，免得"竖的改了、横的没改"那种漂。
 QString scrollBarRules(const QString &handle, const QString &handleHover,
                        const QString &handlePressed) {
     return QStringLiteral(
@@ -1032,9 +989,6 @@ QString scrollBarRules(const QString &handle, const QString &handleHover,
                " border-radius: %4px; margin: %5px; }"
                "QScrollBar::handle:vertical:hover { background: %6; }"
                "QScrollBar::handle:vertical:pressed { background: %7; }"
-               // ★ 2026-10-18：`Theme::GutterScrollArea` 那条常驻的条子装得下时是"空的"
-               //   （`wtfmlIdle`）—— 那一格是留给文字的**死区**，不是一根拖不动的把手。
-               //   放在 hover / pressed 之后：两者 QSS 优先级相同，后写的赢。
                "QScrollBar::handle:vertical[wtfmlIdle=\"true\"] { background: transparent; }"
                "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
                "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
@@ -1063,12 +1017,12 @@ constexpr const char kScrollBarThemeProperty[] = "wtfmlScrollTheme";
 
 /// 把**当前**那一支滚动条样式挂到 @p bar 身上（控件级样式表，压过应用级那一份）。
 ///
-/// ★ 为什么滚动条要单独走控件级：它那三档是**带 alpha 的中性灰**（`scrollHandleColor()`），
-///   而 `palette(...)` 只能给出一个实色角色；把它塞进调色板又会占掉别的语义档。
-///   滚动条的数量是两位数，换主题时挨个重挂一遍不贵（按钮 / 输入框那几千个走的是
-///   调色板 + 一次 `repolishWidgets()`）。
+/// 为什么滚动条要单独走控件级：它那三档是**带 alpha 的中性灰**（`scrollHandleColor()`），
+/// 而 `palette(...)` 只能给出一个实色角色；把它塞进调色板又会占掉别的语义档。
+/// 滚动条的数量是两位数，换主题时挨个重挂一遍不贵（按钮 / 输入框那几千个走的是
+/// 调色板 + 一次 `repolishWidgets()`）。
 ///
-/// ★ 新生出来的滚动条（换页之后冒出来那一根）由 `ScrollBarStyler` 在 `Show` 上补一次。
+/// 新生出来的滚动条（换页之后冒出来那一根）由 `ScrollBarStyler` 在 `Show` 上补一次。
 void styleScrollBar(QScrollBar *bar) {
     if (bar == nullptr) {
         return;
@@ -1201,8 +1155,8 @@ QString chipStyleSheet(const QPalette &palette) {
     hover.setAlpha(48);
     return QStringLiteral("QPushButton { border: 1px solid %1; border-radius: %2px;"
                           " padding: 2px 10px; background: transparent; }"
-                          // ★ 悬停这一条要 `:!checked`：不加的话，鼠标划过**按着的**那颗
-                          //   会把实底盖成半透明的一层 —— "哪一颗是按着的"当场看不出来。
+                          // 悬停这一条要 `:!checked`：不加的话，鼠标划过**按着的**那颗
+                          // 会把实底盖成半透明的一层 —— "哪一颗是按着的"当场看不出来。
                           "QPushButton:hover:!checked { background-color: %3; }"
                           "QPushButton:checked { background-color: %4; color: %5;"
                           " border-color: %4; }")
@@ -1218,8 +1172,6 @@ void markChipButton(QPushButton *button) {
     }
     button->setFixedHeight(chipHeight());
     button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    // 报一句"我按自己钉的那一档高度来"：全局那条 `min-height` 会把它顶到 `actionHeight()`
-    // （32），光 `setFixedHeight()` 拦不住（见 `markIconButton()` 那段实测）。
     markIconButton(button);
     button->setStyleSheet(chipStyleSheet(button->palette()));
     // QSS 里嵌的是色名 ⇒ 主题一换得重算。chip 是**常驻**控件（不像资源详情页那一排是整排
@@ -1232,28 +1184,26 @@ QColor swatchBorder(const QColor &color) {
     // 全实的话浅色页面上会是一圈扎眼的黑。
     //
     // NOTE: 判据取的是**这块色自己的明度**（不是当前主题的深浅）：一块近黑的主题色搁在浅色
-    //       页面上，跟着主题走照样是"一个没有形状的洞"。
+    // 页面上，跟着主题走照样是"一个没有形状的洞"。
     return color.lightness() < 128 ? QColor(0xff, 0xff, 0xff, 0xa0)
                                    : QColor(0x00, 0x00, 0x00, 0xa0);
 }
 
 /// 现在这一块是哪个色（存在按钮自己的动态属性上）。
 ///
-/// ★ 为什么要存一份：`follow()` 那条重算**不能捕获调用方当时给的那个 `color`** —— 用户换过
-///   一个色之后，同一个按钮身上那条老登记还在，主题一变它会把**旧色**贴回去。存一份、
-///   重算时读回来，改色这条路上就只有一个出处。
+/// 为什么要存一份：`follow()` 那条重算**不能捕获调用方当时给的那个 `color`** —— 用户换过
+/// 一个色之后，同一个按钮身上那条老登记还在，主题一变它会把**旧色**贴回去。存一份、
+/// 重算时读回来，改色这条路上就只有一个出处。
 const char *const kSwatchColorProperty = "wtfmlSwatchColor";
-/// 这一块**登记过 follow 没有**。`follow()` 每调一次就新挂一个事件过滤器，重算里再调一次
-/// 就是每换一次主题多挂一个（越挂越多，`ui_check` W6 那种"只许跑一遍"的判据也会跟着炸）。
 const char *const kSwatchFollowProperty = "wtfmlSwatchFollow";
 
 QString swatchStyleSheet(const QColor &color) {
     const QColor edge = swatchBorder(color);
     // 悬停 / 按下**只动边框**：底色就是它要表达的那件事，跟着鼠标换掉等于这块色块什么都不是。
-    //   - 悬停 → 边框换成主题色本色（"这一块能点"）；
-    //   - 按下 → 边框换成主题色更深的那一档（这一下真的按下去了）。
-    // ★ 这几条 `:hover` / `:pressed` 是**必须写的**：应用级那份样式表里有同名的伪类规则，
-    //   不写的话鼠标一划过去，块里的色会被换成"按钮悬停"那一层淡主题色。
+    // - 悬停 → 边框换成主题色本色（"这一块能点"）；
+    // - 按下 → 边框换成主题色更深的那一档（这一下真的按下去了）。
+    // 这几条 `:hover` / `:pressed` 是**必须写的**：应用级那份样式表里有同名的伪类规则，
+    // 不写的话鼠标一划过去，块里的色会被换成"按钮悬停"那一层淡主题色。
     return QStringLiteral("QPushButton { background-color: %1; border: 1px solid %2;"
                           " border-radius: %3px; padding: 0px; }"
                           "QPushButton:hover { background-color: %1; border-color: %4; }"
@@ -1268,29 +1218,12 @@ void markColorSwatch(QPushButton *button, const QColor &color) {
     if (button == nullptr) {
         return;
     }
-    // 先报一句"我按自己钉死的边长来"：全局那条 `min-height` 会把它顶到 `actionHeight()`
-    // （32），`setFixedSize()` 拦不住（见 markIconButton() 那段实测）。
     markIconButton(button);
-    // ★ 2026-10-13：**把这一刻钉死的尺寸先记下来**，挂完样式表之后再钉一次（下一段有实测）。
-    //   "钉死"= 调用方 `setFixedSize()` 过 ⇒ 最小 == 最大；没钉过的是 0×0 对 QWIDGETSIZE_MAX，
-    //   不相等 ⇒ 这里就什么都不做。
     const QSize pinned = button->minimumSize() == button->maximumSize() ? button->minimumSize()
                                                                        : QSize();
     button->setCursor(Qt::PointingHandCursor);
     button->setProperty(kSwatchColorProperty, color);
     button->setStyleSheet(swatchStyleSheet(color));
-    // ★★ 2026-10-13（ui_shot 第 41 节在**真机**上量出来的）：`setStyleSheet()` 那一下会走一遍
-    //    `QStyleSheetStyle::polish`，而它**会按样式表里的 `min-height` 把控件的最小高度改掉** ——
-    //    我们那条图标复位规则写的是 `min-height: 0px`，于是最小高度被打回 **2**（= 上下各 1px
-    //    边框），`setFixedSize()` 设的"最小 = 最大"就只剩下最大那一半。
-    //
-    //    后果不是"差几个像素"：最小高度不再是钉死那个数，布局就能把它压下去。真机实测
-    //    （ui_shot 第 41 节）：四块语义色量出来是 64×**18**（它们和 18 高的名字标签同一行），
-    //    而主题色那一块是 64×**24**（同一行挨着一颗 32 高的按钮，被撑到了最大那儿）——
-    //    屏幕上就是"上面那块比下面四块高一头"。钉回去之后五块都是 24。
-    //
-    //    NOTE: offscreen（ui_check 的跑法）量不出这一条：那边量到的是 64×24，看着好好的。
-    //          布局类断言在 offscreen 上会假绿，这是全仓那条老规矩。
     if (pinned.isValid() && pinned.width() < QWIDGETSIZE_MAX && pinned.height() < QWIDGETSIZE_MAX) {
         button->setFixedSize(pinned);
     }
@@ -1301,8 +1234,8 @@ void markColorSwatch(QPushButton *button, const QColor &color) {
         follow(button, [button]() {
             button->setStyleSheet(
                 swatchStyleSheet(button->property(kSwatchColorProperty).value<QColor>()));
-            // ★ 样式表重挂那一趟同样会把最小高度打回去 —— 这里也得跟着再钉一次（不然
-            //   "换了主题之后色块矮了一截"会在下一次布局时冒出来）。
+            // 样式表重挂那一趟同样会把最小高度打回去 —— 这里也得跟着再钉一次（不然
+            // "换了主题之后色块矮了一截"会在下一次布局时冒出来）。
             const QSize again = button->maximumSize();
             if (again.width() < QWIDGETSIZE_MAX && again.height() < QWIDGETSIZE_MAX) {
                 button->setFixedSize(again);
@@ -1316,18 +1249,18 @@ QString paletteRef(const char *role) {
 }
 
 QString widgetStyleSheet() {
-    // ★ 2026-10-20：这一份样式表里的**颜色**一律写成 `palette(角色)`，不再把十六进制
-    //   色名嵌进字符串。QSS 那边的 `palette(...)` 是"按控件自己的调色板现取"，于是
-    //   换配色只需要换调色板，样式表字符串**一个字节都不变** —— `installButtonSheet()`
-    //   那一层"没变就不重挂"才真正成立。
+    // 这一份样式表里的**颜色**一律写成 `palette(角色)`，不再把十六进制
+    // 色名嵌进字符串。QSS 那边的 `palette(...)` 是"按控件自己的调色板现取"，于是
+    // 换配色只需要换调色板，样式表字符串**一个字节都不变** —— `installButtonSheet()`
+    // 那一层"没变就不重挂"才真正成立。
     //
-    //   旧写法（`.arg(t.text.name())` 这一族）每换一次配色都会让整份样式表变成另一串，
-    //   `QApplication::setStyleSheet()` 于是把每一个控件重新 polish 一遍；实测 6800 个
-    //   控件要 1.9 秒，用户看到的就是"改完配色界面卡住一会"。现在的代价只有一次
-    //   `repolishWidgets()`（同量级 ~100 ms）。
+    // 旧写法（`.arg(t.text.name())` 这一族）每换一次配色都会让整份样式表变成另一串，
+    // `QApplication::setStyleSheet()` 于是把每一个控件重新 polish 一遍；实测 6800 个
+    // 控件要 1.9 秒，用户看到的就是"改完配色界面卡住一会"。现在的代价只有一次
+    // `repolishWidgets()`（同量级 ~100 ms）。
     //
-    //   这些角色在 `buildPalette()` 里**全部**备好（包括 `Accent` / `Light` / `LinkVisited`
-    //   这些平时没人用的档位）。别在这儿写死色名 —— 写死一个，就会回到"整份重挂"那条路。
+    // 这些角色在 `buildPalette()` 里**全部**备好（包括 `Accent` / `Light` / `LinkVisited`
+    // 这些平时没人用的档位）。别在这儿写死色名 —— 写死一个，就会回到"整份重挂"那条路。
     const QString ink = paletteRef("button-text");
     const QString border = paletteRef("link");
     const QString pure = paletteRef("accent");
@@ -1348,23 +1281,13 @@ QString widgetStyleSheet() {
     // 按钮挂控件级样式；这一份应用级规则只是它没走到那条路时的兜底（中性底，不刺眼）。
     const QString dangerFill = paletteRef("button");
 
-    // ★ `padding: 6px` 不是随手写的：Fusion 的 `PM_ButtonMargin` 就是 6，边框 1 ⇒
-    //   2*(6+1) = 14，和样式自己算的**一模一样**。差一点点的话界面上是看不出来，但一堆
-    //   "这一行放得下几颗按钮"的断言会整片地漂。
-    // ★ 2026-10-12（coding plan §9.1）：圆角走 `buttonRadius()`、**高度走 `actionHeight()`**。
-    //   `min-height` 这一位以前根本不存在 —— 一颗按钮多高全看系统字号 + `padding: 6px`
-    //   算出来多少（字号一换就在 30~33 之间飘，"一行里两颗一样高"是碰巧的）。钉成 32 之后
-    //   它是个**确定的数**，`Theme::actionHeight()` 那个常量也就是从这儿生效的。
-    //
-    //   NOTE: 两处**故意不跟**（都是 `setMinimumHeight()` 钉过的，QSS 这是"最小"高度，
-    //         只会被它们顶上去）：主页那颗「启动游戏」（76）、下载页那颗「安装」（40）。
-    //   NOTE: `min-height` 对**自己钉过固定高度**的小控件不生效（行尾那几颗 22/24 px 的
-    //         图标按钮都是 `setFixedSize()` 的）—— 那不是漏了，是"它自己说了算"。
-    // 按钮那一圈"镀层"：上下各 6px 内边距 + 各 1px 边框 = 14。
-    // ★★ QSS 的 `min-height` 量的是**内容**那一格，不是整颗控件（2026-10-12 探针实测：
-    //    这一套样式配 `min-height: 32px` 量出来是 **46**，配 18px 才是 32）。所以"整颗
-    //    `actionHeight()`"在样式表里得写成它**减掉这一圈**。写错不报错 —— 症状只是"每颗
-    //    按钮都胖了一圈"，而那条只能靠数值判据（ui_check 里那一条量的就是整颗高度）。
+    // `padding: 6px` 不是随手写的：Fusion 的 `PM_ButtonMargin` 就是 6，边框 1 ⇒
+    // 2*(6+1) = 14，和样式自己算的**一模一样**。差一点点的话界面上是看不出来，但一堆
+    // "这一行放得下几颗按钮"的断言会整片地漂。
+    // （coding plan §9.1）：圆角走 `buttonRadius()`、**高度走 `actionHeight()`**。
+    // `min-height` 这一位以前根本不存在 —— 一颗按钮多高全看系统字号 + `padding: 6px`
+    // 算出来多少（字号一换就在 30~33 之间飘，"一行里两颗一样高"是碰巧的）。钉成 32 之后
+    // 它是个**确定的数**，`Theme::actionHeight()` 那个常量也就是从这儿生效的。
     constexpr int kButtonChrome = 2 * 6 + 2 * 1;
     QString qss = QStringLiteral(
                       "QPushButton {"
@@ -1387,8 +1310,8 @@ QString widgetStyleSheet() {
     // 状态而降低；普通确认 / 危险 / 次要按钮仍是白底描边，不会整页争夺注意力。
     const auto primaryBlock = [](const QString &key, const QString &fill,
                                  const QString &hoverFill, const QString &pressedFill) {
-        // ★ 2026-10-12（coding plan §9.1）：主动作单独高一档（36）。它是页面上唯一一颗实心
-        //   按钮，"这一页最重要的那一下"值得多 4px；其余那颗留在 32 上，一页里两档就够。
+        // （coding plan §9.1）：主动作单独高一档（36）。它是页面上唯一一颗实心
+        // 按钮，"这一页最重要的那一下"值得多 4px；其余那颗留在 32 上，一页里两档就够。
         return QStringLiteral("QPushButton[%1=\"%2\"], QPushButton[%1=\"%2\"]:default:enabled { background-color: %3; color: #ffffff;"
                               " border-color: %3; border-radius: %6px; min-height: %7px; }"
                               "QPushButton[%1=\"%2\"]:hover:enabled { background-color: %4;"
@@ -1414,25 +1337,25 @@ QString widgetStyleSheet() {
                               "QPushButton[%1=\"%2\"]:pressed:enabled { background-color: %6; }")
             .arg(QString::fromLatin1(kButtonKindProperty), key, color, fill, hoverFill, pressedFill);
     };
-    // ★ 危险那一档的悬停 / 按下用的是比底色再深一档的红，调色板里没有第三、第四个红档；
-    //   这一对由 `markButton()` 给那一颗按钮挂的**控件级**样式补上（只影响挂 Danger 的
-    //   那几十颗，不影响整份应用样式表）。这里留同一档底色，保证没走那条路时也不会花。
+    // 危险那一档的悬停 / 按下用的是比底色再深一档的红，调色板里没有第三、第四个红档；
+    // 这一对由 `markButton()` 给那一颗按钮挂的**控件级**样式补上（只影响挂 Danger 的
+    // 那几十颗，不影响整份应用样式表）。这里留同一档底色，保证没走那条路时也不会花。
     qss += kindBlock(QStringLiteral("danger"), red, dangerFill, dangerFill, dangerFill);
     qss += kindBlock(QStringLiteral("neutral"), black, neutralFill, hover, pressed);
 
-    // ---------- Ghost（2026-10-14，coding plan §3.3「统一按钮视觉层级」）----------
+    // ---------- Ghost（，coding plan §3.3「统一按钮视觉层级」）----------
     //
     // 「低频辅助动作」那一档：**只有字**。和 `Neutral` 的分别不是颜色而是**形状** ——
     // 它没有底、没有边，所以它挪到卡片边上不抢眼（这是这一档存在的全部意义）。
     //
-    // ★★ 边**不是删掉，是留成透明的 1px**。这一条是这一段最容易写错的地方：写
-    //    `border: none` 看着"更干净"，可它会把控件矮 2px、窄 2px（基样式那条
-    //    `QPushButton` 规则给的就是 1px 边）—— 于是同一个布局里换一档 kind，行里所有
-    //    东西都跟着挪 1px。留着透明的边，三档的几何**一模一样**。
-    //   NOTE: 悬停/按下那两层浅灰和 `Neutral` 用的是同一对（`#f0f0f0` / `#e0e0e0`）：
-    //         两档的区别在"平时有没有形"，不在"按下去什么色"。
-    //   NOTE: 勾上那一档给的是主题色那层淡底（和基样式里 `:default` 同一支色）—— 一颗
-    //         checkable 的 Ghost（比如"只看选中的"那种小开关）得让人看出它现在是"亮着"的。
+    // 边**不是删掉，是留成透明的 1px**。这一条是这一段最容易写错的地方：写
+    // `border: none` 看着"更干净"，可它会把控件矮 2px、窄 2px（基样式那条
+    // `QPushButton` 规则给的就是 1px 边）—— 于是同一个布局里换一档 kind，行里所有
+    // 东西都跟着挪 1px。留着透明的边，三档的几何**一模一样**。
+    // NOTE: 悬停/按下那两层浅灰和 `Neutral` 用的是同一对（`#f0f0f0` / `#e0e0e0`）：
+    // 两档的区别在"平时有没有形"，不在"按下去什么色"。
+    // NOTE: 勾上那一档给的是主题色那层淡底（和基样式里 `:default` 同一支色）—— 一颗
+    // checkable 的 Ghost（比如"只看选中的"那种小开关）得让人看出它现在是"亮着"的。
     const QString ghostTint = pressed;
     qss += QStringLiteral("QPushButton[%1=\"ghost\"] { background-color: transparent;"
                           " border-color: transparent; color: %2; }"
@@ -1441,25 +1364,25 @@ QString widgetStyleSheet() {
                           "QPushButton[%1=\"ghost\"]:checked { background-color: %5; }")
                .arg(QString::fromLatin1(kButtonKindProperty), black, hover, pressed, ghostTint);
 
-    // ★ 「灰掉」这一条**必须摆在上面那两块之后**（2026-10-09 真机踩到）。
-    //   Qt 的样式表按**优先级**排：`QPushButton[wtfmlButtonKind="neutral"]` 和
-    //   `QPushButton:disabled` 都是"元素 + 一个属性/伪类"，**优先级一模一样** ——
-    //   平手的规矩就是**谁写在后面谁赢**。原来那条 `:disabled` 摆在最前面，于是
-    //   中性/危险那两种按钮一灰掉，底变成 `disabledFill` 了（说明确实 disabled 生效了），
-    //   **字和边却还是 `#202020`** —— 屏幕上看着就是一颗能按的按钮，只有主题色那颗
-    //   （Accent，没有 kind 属性、不参与这场平手）灰得对。真机像素实测：禁用一颗中性
-    //   按钮，底 `#F7F7F7` / 字 `#202020`。
-    //   所以这一条挪到**最后**追加，把两种 kind 的字和边一并按下去。
+    // 「灰掉」这一条**必须摆在上面那两块之后**（ 真机踩到）。
+    // Qt 的样式表按**优先级**排：`QPushButton[wtfmlButtonKind="neutral"]` 和
+    // `QPushButton:disabled` 都是"元素 + 一个属性/伪类"，**优先级一模一样** ——
+    // 平手的规矩就是**谁写在后面谁赢**。原来那条 `:disabled` 摆在最前面，于是
+    // 中性/危险那两种按钮一灰掉，底变成 `disabledFill` 了（说明确实 disabled 生效了），
+    // **字和边却还是 `#202020`** —— 屏幕上看着就是一颗能按的按钮，只有主题色那颗
+    // （Accent，没有 kind 属性、不参与这场平手）灰得对。真机像素实测：禁用一颗中性
+    // 按钮，底 `#F7F7F7` / 字 `#202020`。
+    // 所以这一条挪到**最后**追加，把两种 kind 的字和边一并按下去。
     qss += QStringLiteral(
                "QPushButton:disabled { background-color: %1; color: %2;"
                " border-color: transparent; }")
                .arg(disabledFill, disabledInk);
 
-    // ★ 图标按钮那一档**必须摆在最后**（2026-10-12）：它和 `[wtfmlButtonKind="primary"]`
-    //   优先级一样（都是"元素 + 一个属性"），平手时后面写的赢。它只有一句话 ——
-    //   "我按自己钉死的边长来"，把上面那条 `min-height` 按回去。
-    //   实测（探针）：写死 22 的 `QPushButton` 在 `min-height: 18px` 下量出来是 **32**
-    //   —— `setFixedSize()` 拦不住它，只能靠这一条。`min-height: 0` 是有效的复位。
+    // 图标按钮那一档**必须摆在最后**：它和 `[wtfmlButtonKind="primary"]`
+    // 优先级一样（都是"元素 + 一个属性"），平手时后面写的赢。它只有一句话 ——
+    // "我按自己钉死的边长来"，把上面那条 `min-height` 按回去。
+    // 实测（探针）：写死 22 的 `QPushButton` 在 `min-height: 18px` 下量出来是 **32**
+    // —— `setFixedSize()` 拦不住它，只能靠这一条。`min-height: 0` 是有效的复位。
     qss += QStringLiteral("QPushButton[%1=\"%2\"] { min-height: 0px; }")
                .arg(QString::fromLatin1(kButtonSizeProperty), QString::fromLatin1(kIconButtonValue));
 
@@ -1492,46 +1415,34 @@ QString widgetStyleSheet() {
                .arg(paletteRef("button"), ink, hover, pressed, border);
 
     // -----------------------------------------------------------------------
-    // 输入框（2026-09-28）
+    // 输入框
     // -----------------------------------------------------------------------
     //
-    // 用户原话：「输入文本的搜索框的框框跟随主题色，文本保留黑色」。所以**边**走主题色
+    // 要求：「输入文本的搜索框的框框跟随主题色，文本保留黑色」。所以**边**走主题色
     // （`Border` 那一档，对白底 6.7:1 —— 边框要看得见，不必像字那么重），**底一律白、
     // 字一律黑**（不去跟深浅：这一套界面上的按钮和输入框都是"白纸"，跟了深浅反而会在
     // 深色系统主题下出现白底黑字旁边一堆深灰控件）。
     //
     // 聚焦那一档换成 `Ink`（9.5:1）：边框从"看得见"变成"这一格是活的" —— 只靠加粗或者
     // 换灰是说不清"哪一格有光标"的，而换一档更深的同色系一眼就是它。
-    // ★ 高度（2026-09-29 用户原话：「下拉框和所有输入框的高度略微改高点」）。
-    //   下面两条**要一起看**，它们必须落成一样高（并排摆着差 1px 一眼就看出来）：
+    // 高度（ 要求：「下拉框和所有输入框的高度略微改高点」）。
+    // 下面两条**要一起看**，它们必须落成一样高（并排摆着差 1px 一眼就看出来）：
     //
-    //     `QLineEdit` / `QComboBox`：`padding: 1px 3px` + `min-height: 20px`
-    //     `QAbstractSpinBox`：       `min-height: 18px`
+    // `QLineEdit` / `QComboBox`：`padding: 1px 3px` + `min-height: 20px`
+    // `QAbstractSpinBox`： `min-height: 18px`
     //
-    //   ★★ 2026-10-14（coding plan §3.3 的高度收口）：这一套原来是 **`padding: 3px`**、
-    //     靠"字体的自然内容高 + 上下各 3px"凑出 24。那笔账是拿**离屏那套桩字体**算的：
-    //     真 windows 的字体下自然内容高是 19（输入框）/ 20（下拉框）/ 18（数字框），
-    //     于是三样落成 **25 / 26 / 24** —— 数字框那条 `min-height` 把它钉住了，另外两样
-    //     直接吃字体的自然高。并排摆着差 1~2 px，正是当初要消掉的那个毛病。
-    //     ⇒ 现在改成**给内容盒统一下限** + 竖向 padding 收成 1px：
-    //        输入框 / 下拉框：20 + 2×1 + 2×1（边）= 24
-    //        数字框：          18 + 6（它自己那一圈框，基样式画的）= 24
-    //       正常字号下两边都是 24px；大字号下允许控件随字体一起长高，不能为对齐裁字。
+    // （coding plan §3.3 的高度收口）：这一套原来是 **`padding: 3px`**、
+    // 靠"字体的自然内容高 + 上下各 3px"凑出 24。那笔账是拿**离屏那套桩字体**算的：
+    // 真 windows 的字体下自然内容高是 19（输入框）/ 20（下拉框）/ 18（数字框），
+    // 于是三样落成 **25 / 26 / 24** —— 数字框那条 `min-height` 把它钉住了，另外两样
+    // 直接吃字体的自然高。并排摆着差 1~2 px，正是当初要消掉的那个毛病。
+    // ⇒ 现在改成**给内容盒统一下限** + 竖向 padding 收成 1px：
+    // 输入框 / 下拉框：20 + 2×1 + 2×1（边）= 24
+    // 数字框： 18 + 6（它自己那一圈框，基样式画的）= 24
+    // 正常字号下两边都是 24px；大字号下允许控件随字体一起长高，不能为对齐裁字。
     //
-    //   水平那一位**故意还是 3px**：用户只说了高度，横着那 1px 没有理由动 —— 动了就是
-    //   "这一页上所有输入框的字整体右移 1px"。
-    //
-    //   ★ 为什么数字框不是同样的算法：它那一圈边是**基样式自己画的**（下面那条把里面的
-    //     `QLineEdit` 按了回去），给它加 `padding` 就是"框里再套一个框"。它走 `min-height`
-    //     —— Qt 里那一位是**设控件的最小高度**（`setMinimumHeight()`，值 = `boxSize(内容高)`），
-    //     数字框那一圈框占 6px ⇒ 18 + 6 = 24。两种控件用两种写法不是没统一，是只能这么写。
-    //   ★ 因此数字框的 `sizeHint()`（21）和它最后占的高度（24）**不是同一个数**：竖向 `Fixed`
-    //     的控件过布局时要取"最小高度"那一关。**量高度别只量 `sizeHint()`** —— ui_check 的
-    //     W13 就是那么栽过一次的（三个数都报 24、摆上屏幕数字框却是 27）。
-    //   ★ 2026-10-12（coding plan §9.1）：圆角 3 → `controlRadius()`（4）。输入类四个控件
-    //     （`QLineEdit` / `QComboBox` / 数字框里面的 `QLineEdit` / 勾选框那个方框）**共用
-    //     同一个数**，而按钮是 `buttonRadius()`（6，高一档）—— 按钮比输入框矮胖，同一个
-    //     圆角摆在它身上看着更方。
+    // 水平那一位**故意还是 3px**：用户只说了高度，横着那 1px 没有理由动 —— 动了就是
+    // "这一页上所有输入框的字整体右移 1px"。
     qss += QStringLiteral(
                "QLineEdit { background-color: #ffffff; color: #000000; border: 1px solid %1;"
                " border-radius: %6px; padding: 1px 3px;"
@@ -1543,40 +1454,40 @@ QString widgetStyleSheet() {
     // 只钉最小高度，不钉最大高度：正常字号下三者仍是 24px；系统使用大字号时允许控件
     // 跟着长高，不能为了像素对齐把字裁掉。
     qss += QStringLiteral("QAbstractSpinBox { min-height: 18px; }");
-    // ★ **数字框 / 下拉框里面那一格也是 `QLineEdit`** —— 上面那条会连它一起框上，画出来
-    //   就是"框里还套着一个框"（自旋框自己已经有一圈边了）。这一条把它按回去。
-    //   用**后代**选择器（Qt 的 `>` 子选择器不可靠，后代选择器一定生效）。
-    //   ★ 2026-10-14：**高度那两位也要按回去**（`min-height: 0px` 是有记录的复位写法，见
-    //     下面 `markIconButton()` 那一条）。不按回去的话：里面那一格被钉成"内容高 20"，
-    //     而它比数字框自己要的 18 还大 ⇒ **反过来把数字框撑到 26** —— 三样等高的意图从
-    //     另一头破掉。
+    // **数字框 / 下拉框里面那一格也是 `QLineEdit`** —— 上面那条会连它一起框上，画出来
+    // 就是"框里还套着一个框"（自旋框自己已经有一圈边了）。这一条把它按回去。
+    // 用**后代**选择器（Qt 的 `>` 子选择器不可靠，后代选择器一定生效）。
+    // **高度那两位也要按回去**（`min-height: 0px` 是有记录的复位写法，见
+    // 下面 `markIconButton()` 那一条）。不按回去的话：里面那一格被钉成"内容高 20"，
+    // 而它比数字框自己要的 18 还大 ⇒ **反过来把数字框撑到 26** —— 三样等高的意图从
+    // 另一头破掉。
     qss += QStringLiteral("QAbstractSpinBox QLineEdit, QComboBox QLineEdit {"
                           " border: none; background: transparent; padding: 0;"
                           " min-height: 0px; max-height: 16777215px; }");
 
     // -----------------------------------------------------------------------
-    // 下拉框（2026-09-28）
+    // 下拉框
     // -----------------------------------------------------------------------
     //
-    // 用户原话：「下拉框和输入框一样都主题色」。所以**和上面那条一模一样的四个色** ——
+    // 要求：「下拉框和输入框一样都主题色」。所以**和上面那条一模一样的四个色** ——
     // 白底 / 纯黑字 / `Border` 那一档的边 / 聚焦换 `Ink`。两处各写一份颜色是**有意**的：
     // 它们在这一页上是同一族控件（一个框住一段字、一个框住一个选择），差一档并排摆着
     // 一眼就看得出来。改这一条的时候顺手看一眼上面那条。
     //
-    // ★ 下拉框比输入框多一层：**弹出来那张表是它的子控件**。Qt 样式表里的 `color` 会
-    //   **往下传**，而那张表有自己的底色 —— 不点名的话，深色系统主题下弹出来的就是
-    //   "黑的字压在深色的底上"。所以最底下那条 `QComboBox QAbstractItemView` 把表和
-    //   选中那一格也一起写成白底黑字（选中那一格用主题色打底、**黑墨**：黑压 `Pure`
-    //   是 13.5:1，白压 `Pure` 只有 1.56:1）。
+    // 下拉框比输入框多一层：**弹出来那张表是它的子控件**。Qt 样式表里的 `color` 会
+    // **往下传**，而那张表有自己的底色 —— 不点名的话，深色系统主题下弹出来的就是
+    // "黑的字压在深色的底上"。所以最底下那条 `QComboBox QAbstractItemView` 把表和
+    // 选中那一格也一起写成白底黑字（选中那一格用主题色打底、**黑墨**：黑压 `Pure`
+    // 是 13.5:1，白压 `Pure` 只有 1.56:1）。
     //
-    // NOTE: 箭头那一格是 **2026-09-29 用户原话「下拉框最右边放一个 V 箭头」** 改过的：
+    // NOTE: 箭头那一格是 ** 要求「下拉框最右边放一个 V 箭头」** 改过的：
     //
-    //   - 宽度 18 → 20；
-    //   - **`border: none` 拿掉了**。这是这一条里唯一一处看着像"退了一步"、其实是必须的
-    //     动作：留着它这一格就算"有东西要画"，Qt 于是走另一条分支、把箭头整个吃掉（实测
-    //     旧样式表下箭头压根不存在，见 `WtfmlProxyStyle` 那段）。拿掉之后由
-    //     `WtfmlProxyStyle` 接手画那个 `∨` —— 墨色跟着 `color:` 走，换深浅主题照样跟着变。
-    //   ⇒ **改这一条之前先把 `WtfmlProxyStyle` 那段读了**，两处是一对。
+    // - 宽度 18 → 20；
+    // - **`border: none` 拿掉了**。这是这一条里唯一一处看着像"退了一步"、其实是必须的
+    // 动作：留着它这一格就算"有东西要画"，Qt 于是走另一条分支、把箭头整个吃掉（实测
+    // 旧样式表下箭头压根不存在，见 `WtfmlProxyStyle` 那段）。拿掉之后由
+    // `WtfmlProxyStyle` 接手画那个 `∨` —— 墨色跟着 `color:` 走，换深浅主题照样跟着变。
+    // ⇒ **改这一条之前先把 `WtfmlProxyStyle` 那段读了**，两处是一对。
     qss += QStringLiteral(
                "QComboBox { background-color: #ffffff; color: #000000; border: 1px solid %1;"
                " border-radius: %7px; padding: 1px 3px;"
@@ -1592,17 +1503,17 @@ QString widgetStyleSheet() {
                .arg(controlRadius());
 
     // -----------------------------------------------------------------------
-    // 勾选框（2026-09-28）
+    // 勾选框
     // -----------------------------------------------------------------------
     //
-    // 用户原话：「勾选框未勾选的时候框和文本做成黑色，勾选了两者都变成主题色」。
+    // 要求：「勾选框未勾选的时候框和文本做成黑色，勾选了两者都变成主题色」。
     // 所以这里**成对**地换色：未勾选 = 黑框 + 黑字（`neutralInkColor()`）；勾上 = 主题色
     // 的**实心**框 + 主题色的字（用 `Ink` 那一档写字，9.5:1，`Pure` 只有 1.56:1）。
     //
-    // ★ 勾上那一格画的是**实心块**、不是"白底 + 一个勾"：样式表画勾要一张图，而图是死的
-    //   —— 主题色是能换的（`Theme/Accent`），贴一张绿勾上去等于把"换一个主题色"这件事
-    //   在勾选框这一格上弄坏。实心 vs 空心是**不依赖任何图**就能分辨的一对状态，而且
-    //   "框变成主题色"正是用户点名要的那个效果。
+    // 勾上那一格画的是**实心块**、不是"白底 + 一个勾"：样式表画勾要一张图，而图是死的
+    // —— 主题色是能换的（`Theme/Accent`），贴一张绿勾上去等于把"换一个主题色"这件事
+    // 在勾选框这一格上弄坏。实心 vs 空心是**不依赖任何图**就能分辨的一对状态，而且
+    // "框变成主题色"正是用户点名要的那个效果。
     qss += QStringLiteral(
                "QCheckBox { color: %1; }"
                "QCheckBox:checked { color: %2; }"
@@ -1615,70 +1526,70 @@ QString widgetStyleSheet() {
                .arg(controlRadius());
 
     // -----------------------------------------------------------------------
-    // 滚动条（2026-09-29）
+    // 滚动条
     // -----------------------------------------------------------------------
     //
-    // 用户原话：「每一次切页面的时候滚动条都是瞬间出现的，把滚动条变成一个嵌在页面边上的
+    // 要求：「每一次切页面的时候滚动条都是瞬间出现的，把滚动条变成一个嵌在页面边上的
     // 条，不要直接一个白色条」。
     //
     // 这一条一次说清三件事：
     //
-    //   1. **没有底**（`background: transparent`）：Fusion 出厂那一条是"一格浅灰的槽",
-    //      看着就是一根白条 —— 那是用户点名不要的。底色不画之后，滚动条那一条露出来的是
-    //      **它自己底下那一层**（页面 / 卡片的底），于是把手看着是"嵌在页面边上"，
-    //      而不是"旁边另开了一栏"。
-    //   2. **两头的小箭头不要**（`add-line` / `sub-line` 给 0）：这一套界面里没有人点那个
-    //      三角翻一格。★ 但 `add-page` / `sub-page`（在槽上点一下翻一屏）**必须留着** ——
-    //      给它 0 就是把"点槽翻页"这件事一起删掉了，只是"不画"，不是"没有"。
-    //   3. **把手是一个胶囊**：宽 = `scrollBarThickness() - 2 * scrollBarHandleMargin()`，
-    //      圆角 = 半宽（`scrollBarHandleRadius()`），墨色跟着深浅各取一支带 alpha 的灰
-    //      （`scrollHandleColor()` 那段讲了为什么必须跟着深浅走）。
+    // 1. **没有底**（`background: transparent`）：Fusion 出厂那一条是"一格浅灰的槽",
+    // 看着就是一根白条 —— 那是用户点名不要的。底色不画之后，滚动条那一条露出来的是
+    // **它自己底下那一层**（页面 / 卡片的底），于是把手看着是"嵌在页面边上"，
+    // 而不是"旁边另开了一栏"。
+    // 2. **两头的小箭头不要**（`add-line` / `sub-line` 给 0）：这一套界面里没有人点那个
+    // 三角翻一格。★ 但 `add-page` / `sub-page`（在槽上点一下翻一屏）**必须留着** ——
+    // 给它 0 就是把"点槽翻页"这件事一起删掉了，只是"不画"，不是"没有"。
+    // 3. **把手是一个胶囊**：宽 = `scrollBarThickness() - 2 * scrollBarHandleMargin()`，
+    // 圆角 = 半宽（`scrollBarHandleRadius()`），墨色跟着深浅各取一支带 alpha 的灰
+    // （`scrollHandleColor()` 那段讲了为什么必须跟着深浅走）。
     //
-    // ★ `margin` 是这儿**唯一一处"留白"**：它把把手从滚动条那一条的两边各推进来
-    //   `scrollBarHandleMargin()`，看着才是"嵌在边上的一条"而不是"顶满一整条"。
-    // ★ 横的那一条**必须跟着一起写**：这一套界面里横向滚动条是少，但少不等于没有（表里
-    //   某一列放不下就出来了）。只写竖的，横的那一条会**整条退回 Fusion 出厂样子** ——
-    //   那时候屏幕上"竖的变了、横的没变"，比两处都不改还显眼。两段**同一个 `.arg()`**，
-    //   就是不许它们漂开。
+    // `margin` 是这儿**唯一一处"留白"**：它把把手从滚动条那一条的两边各推进来
+    // `scrollBarHandleMargin()`，看着才是"嵌在边上的一条"而不是"顶满一整条"。
+    // 横的那一条**必须跟着一起写**：这一套界面里横向滚动条是少，但少不等于没有（表里
+    // 某一列放不下就出来了）。只写竖的，横的那一条会**整条退回 Fusion 出厂样子** ——
+    // 那时候屏幕上"竖的变了、横的没变"，比两处都不改还显眼。两段**同一个 `.arg()`**，
+    // 就是不许它们漂开。
     const QString handle = paletteRef("placeholder-text");
     const QString handleHover = paletteRef("mid");
     const QString handlePressed = paletteRef("dark");
     qss += scrollBarRules(handle, handleHover, handlePressed);
 
     // -----------------------------------------------------------------------
-    // 页面骨架那几层"面"（2026-10-12）
+    // 页面骨架那几层"面"
     // -----------------------------------------------------------------------
     //
-    // 用户 2026-10-12 那份改版文档：整页只留**侧栏 + 正文**两个面，其余靠排版分层（不再
+    // 用户 那份改版文档：整页只留**侧栏 + 正文**两个面，其余靠排版分层（不再
     // 用一堆 QGroupBox 套起来）。这两块的色**从调色板现问**（`QPalette::Base` / `Mid`）——
-    // 2026-10-20 起这句话是字面意思：样式表里写的是 `palette(...)`，换主题只铺调色板，
+    // 起这句话是字面意思：样式表里写的是 `palette(...)`，换主题只铺调色板，
     // **不再重挂样式表**（见这里上面 `widgetStyleSheet()` 开头那段）。
     //
-    // ★ 侧栏是"轻微底色"（正文色混主题色 6%）：一眼分得出"这一列是导航"，又不至于像一块
-    //   独立的卡片。正文面就是 `Base`（今天那份卡片色）加一圈极细的边 —— 边**只有一档**
-    //   （`Mid`），不是主题色：整页上一个面而已，边上再点一笔主题色就变成第三个强调点了。
-    // ★ 小节卡片（`section`）比正文面**再淡一档**（6%），它装在正文面里面，"一块白压在白上"
-    //   是看不见的（用户要的是"标题 + 内容卡片"，卡片得看得出来是一块）。
-    // ★ 页脚（`footer`）**不铺底**、只画上面那条分隔线：它是正文面的一部分，铺底会把它切
-    //   成"又一个面"。用户要的"固定底栏"是**位置**上的固定（钉在正文面底部），不是又一个盒子。
-    // ★ 这几条**只管挂了这个属性的控件**（属性选择器），别处一个像素都不动。控件本身得是
-    //   QFrame（`QLabel`/裸 `QWidget` 不铺样式表给的底色）。
+    // 侧栏是"轻微底色"（正文色混主题色 6%）：一眼分得出"这一列是导航"，又不至于像一块
+    // 独立的卡片。正文面就是 `Base`（今天那份卡片色）加一圈极细的边 —— 边**只有一档**
+    // （`Mid`），不是主题色：整页上一个面而已，边上再点一笔主题色就变成第三个强调点了。
+    // 小节卡片（`section`）比正文面**再淡一档**（6%），它装在正文面里面，"一块白压在白上"
+    // 是看不见的（用户要的是"标题 + 内容卡片"，卡片得看得出来是一块）。
+    // 页脚（`footer`）**不铺底**、只画上面那条分隔线：它是正文面的一部分，铺底会把它切
+    // 成"又一个面"。用户要的"固定底栏"是**位置**上的固定（钉在正文面底部），不是又一个盒子。
+    // 这几条**只管挂了这个属性的控件**（属性选择器），别处一个像素都不动。控件本身得是
+    // QFrame（`QLabel`/裸 `QWidget` 不铺样式表给的底色）。
     //
-    // ★★ **这里故意没有**那份文档里给的这几条（如实记一笔，不是漏了）：
-    //     `QListView[wtfmlNav="sidebar"]::item { min-height: 42px; padding: 0 12px;
-    //      border-radius: 7px; }` / `::item:selected { ... border-left: 3px solid ...; }`
-    //     —— 文档点名的两个"侧栏导航"（下载页左栏那六条分类、设置页左栏那五条）用的都是
-    //     `VersionTreeDelegate`，**整行是代理自己画的**（底色、文字、行高全在 paint() 里），
-    //     样式表里那几条 `::item` 规则一条都匹配不到那层底色：写上去就是死代码 ——
-    //     挂在那里让人以为"侧栏选中样式配好了"，而实际画出来的仍然只有代理那一支。
-    //     所以那一档落成了**代理里的 `navRow` 模式**（`new VersionTreeDelegate(..., true)`），
-    //     色一个字节都没另写：`selectionFill()`（这一列自己的底色混 20% 主题色）、
-    //     `selectionInk()`（主题色那一支里配套的那一档墨）、`selectionBar()` +
-    //     `selectionBarThickness()`（左边那根 3 px 的指示条），三处都在 ui/Theme.hpp 里 ——
-    //     从 2026-10-12 起**全仓的列表选中态都是这一套**（用户答复：「完全照 §9.3
-    //     （和侧栏导航同款）」）。
-    //     行高和圆角同理：那份列表的行高一直是 `versionTreeRowHeight()`（46 ≥ 文档要的 42），
-    //     而代理画的是一整行**不带圆角**的方块 —— 多出来的圆角只能由代理画（今天没画）。
+    // **这里故意没有**那份文档里给的这几条（如实记一笔，不是漏了）：
+    // `QListView[wtfmlNav="sidebar"]::item { min-height: 42px; padding: 0 12px;
+    // border-radius: 7px; }` / `::item:selected { ... border-left: 3px solid ...; }`
+    // —— 文档点名的两个"侧栏导航"（下载页左栏那六条分类、设置页左栏那五条）用的都是
+    // `VersionTreeDelegate`，**整行是代理自己画的**（底色、文字、行高全在 paint() 里），
+    // 样式表里那几条 `::item` 规则一条都匹配不到那层底色：写上去就是死代码 ——
+    // 挂在那里让人以为"侧栏选中样式配好了"，而实际画出来的仍然只有代理那一支。
+    // 所以那一档落成了**代理里的 `navRow` 模式**（`new VersionTreeDelegate(..., true)`），
+    // 色一个字节都没另写：`selectionFill()`（这一列自己的底色混 20% 主题色）、
+    // `selectionInk()`（主题色那一支里配套的那一档墨）、`selectionBar()` +
+    // `selectionBarThickness()`（左边那根 3 px 的指示条），三处都在 ui/Theme.hpp 里 ——
+    // 从 起**全仓的列表选中态都是这一套**（用户答复：「完全照 §9.3
+    // （和侧栏导航同款）」）。
+    // 行高和圆角同理：那份列表的行高一直是 `versionTreeRowHeight()`（46 ≥ 文档要的 42），
+    // 而代理画的是一整行**不带圆角**的方块 —— 多出来的圆角只能由代理画（今天没画）。
     {
         const QString sheetBase = paletteRef("alternate-base");
         const QString sidebarFill = paletteRef("button");
@@ -1686,9 +1597,6 @@ QString widgetStyleSheet() {
         // 足以建立层级，又不会像旧式 GroupBox 那样每节都变成一个沉重的框。
         const QString sectionFill = paletteRef("tooltip-base");
         const QString sheetSecondary = paletteRef("placeholder-text");
-        // ★ 2026-10-12（coding plan §9.1）：两个圆角各走 `surfaceRadius()`（8）/ `sectionRadius()`
-        //   （10）—— **数没变**，变的是它从"样式表里写着 8"变成"令牌层说了算"。层级是
-        //   小节卡片（10）> 主表面（8）> 普通动作（6）> 输入类（4），四档一路收小。
         qss += QStringLiteral(
                    "QFrame[%1=\"sidebar\"] { background-color: %2; border: none;"
                    " border-radius: %7px; }"
@@ -1707,25 +1615,25 @@ QString widgetStyleSheet() {
                    .arg(sectionRadius());
     }
     // -----------------------------------------------------------------------
-    // 三套预设给输入类控件 / 正文面那些"贴上去的颜色"（2026-10-16）
+    // 三套预设给输入类控件 / 正文面那些"贴上去的颜色"
     // -----------------------------------------------------------------------
     //
-    // ★ 这一块**排在最后** ⇒ 按 QSS 的规矩（同优先级后写的赢）它盖在上面那几条之上。
-    //   所以每加一句都得回上面看一眼**它盖掉的是哪一条**，以及那一条是不是钉过的规格。
+    // 这一块**排在最后** ⇒ 按 QSS 的规矩（同优先级后写的赢）它盖在上面那几条之上。
+    // 所以每加一句都得回上面看一眼**它盖掉的是哪一条**，以及那一条是不是钉过的规格。
     //
-    // ★★ 两条**故意不在这里**：
-    //   · `QScrollBar`：滚动条有自己的唯一出处（上面那一段），「**不画底**」是拿像素钉死的
-    //     那一条（ui_check ⑭：槽上量到的色必须**等于它底下那一层**）。这里原来有一句
-    //     `QScrollBar { background-color: track }` —— 它是后写的 ⇒ 赢 ⇒ 横竖两条当场长出
-    //     一根底色条，⑭ 那一组（把手留白、把手宽度、那条"不画底"）跟着一起红。
-    //   · `QAbstractSpinBox`：数字框那一圈框是**基样式自己画的**（6px），它的高度是
-    //     `min-height: 18px` + 那 6px 凑出来的 24（见上面那段★★）。在这儿给它补一句
-    //     `border: 1px solid` 就会把那一圈的宽度改掉（量出来 23）—— 三样等高（24/24/24）
-    //     那条钉子当场破。它的颜色跟着**调色板**走（`buildPalette()` 已经按预设铺过
-    //     Mid/Dark/Base/Text），不需要这一层再管。
+    // 两条**故意不在这里**：
+    // · `QScrollBar`：滚动条有自己的唯一出处（上面那一段），「**不画底**」是拿像素钉死的
+    // 那一条（ui_check ⑭：槽上量到的色必须**等于它底下那一层**）。这里原来有一句
+    // `QScrollBar { background-color: track }` —— 它是后写的 ⇒ 赢 ⇒ 横竖两条当场长出
+    // 一根底色条，⑭ 那一组（把手留白、把手宽度、那条"不画底"）跟着一起红。
+    // · `QAbstractSpinBox`：数字框那一圈框是**基样式自己画的**（6px），它的高度是
+    // `min-height: 18px` + 那 6px 凑出来的 24（见上面那段★★）。在这儿给它补一句
+    // `border: 1px solid` 就会把那一圈的宽度改掉（量出来 23）—— 三样等高（24/24/24）
+    // 那条钉子当场破。它的颜色跟着**调色板**走（`buildPalette()` 已经按预设铺过
+    // Mid/Dark/Base/Text），不需要这一层再管。
     //
-    // ★ 圆角走 `controlRadius()`：**别在样式表里另写一个数** —— 换主题时那个数跟着主题一起
-    //   变，`ui_modernize.py` 那类按名字定位的东西也认这个令牌。
+    // 圆角走 `controlRadius()`：**别在样式表里另写一个数** —— 换主题时那个数跟着主题一起
+    // 变，`ui_modernize.py` 那类按名字定位的东西也认这个令牌。
     qss += QStringLiteral(
         "QLineEdit, QComboBox, QComboBox QAbstractItemView {"
         " background-color: %1; color: %2; border: 1px solid %3; border-radius: %7px; }"
@@ -1899,14 +1807,14 @@ QPalette buildPalette(const Spec &spec, const QPalette &base) {
         palette.setColor(qtRole(static_cast<Role>(it.key())), it.value());
     }
 
-    // ★ 2026-10-20：样式表里那些"跟着主题走"的颜色全部改成 `palette(...)` 引用，
-    //   所以调色板除了原来那几档，还得把样式表要念的这几档一起备好。**只在这里备**：
-    //   它们是样式表的"变量"，不是用户能单独挑的 `Role`（见头文件里 `Role` 那段）。
+    // 样式表里那些"跟着主题走"的颜色全部改成 `palette(...)` 引用，
+    // 所以调色板除了原来那几档，还得把样式表要念的这几档一起备好。**只在这里备**：
+    // 它们是样式表的"变量"，不是用户能单独挑的 `Role`（见头文件里 `Role` 那段）。
     //
-    //   为什么非走这一步：换配色时旧做法是 `QApplication::setStyleSheet()` 重挂整份
-    //   样式表，Qt 会把**每一个**控件重新 polish 一遍 —— 真机 6800 个控件量到 1.9 秒，
-    //   界面就卡在那儿。改成调色板当变量之后，样式表字符串一个字节都不变，换配色只
-    //   铺调色板 + 重 polish（同一个量级降到 ~100 ms）。
+    // 为什么非走这一步：换配色时旧做法是 `QApplication::setStyleSheet()` 重挂整份
+    // 样式表，Qt 会把**每一个**控件重新 polish 一遍 —— 真机 6800 个控件量到 1.9 秒，
+    // 界面就卡在那儿。改成调色板当变量之后，样式表字符串一个字节都不变，换配色只
+    // 铺调色板 + 重 polish（同一个量级降到 ~100 ms）。
     const QColor accent = spec.accent.isValid() ? spec.accent : t.primary;
     const bool dark = isDarkPalette(palette);
     palette.setColor(QPalette::Accent, accent);
@@ -1939,12 +1847,6 @@ void notifyWidgets() {
     if (QGuiApplication::instance() == nullptr) {
         return;
     }
-    // ★ 2026-10-20：这一圈里跑的是**别的代码**（`Theme::follow()` 的回调多半会
-    //   `setStyleSheet()` / `setPalette()`，也有的会重建自己的子控件）。真有哪一个在这
-    //   期间被删掉时，`allWidgets()` 那份裸指针就悬了 —— 往悬着的指针上发事件是
-    //   堆上的一处随机写，症状是几十条断言之后在**另一个**对话框析构时炸掉（实测：
-    //   `InstanceSettingsDialog::~InstanceSettingsDialog()` 里 free 到坏块 / 0xC0000374）。
-    //   所以先换成一圈 `QPointer`：被删掉的自己变空，跳过就是。
     QList<QPointer<QWidget>> widgets;
     const QList<QWidget *> all = QApplication::allWidgets();
     widgets.reserve(all.size());
@@ -1962,16 +1864,12 @@ void notifyWidgets() {
 
 /// 把那一套控件外观（按钮 / 输入框 / 勾选框）挂到应用上。**只在字符串真变了的时候挂**。
 ///
-/// ★ 2026-10-20：样式表里的颜色全部改成 `palette(...)` 引用之后，这一份字符串换主题时
-///   一个字节都不变 —— 于是 `QApplication::setStyleSheet()`（它会重新 polish 每一个
-///   控件）在换配色这条路上**一次都不会跑**。要让新调色板生效，走 `repolishWidgets()`。
-///
-/// ★ 历史（留着说明为什么从前必须重挂）：应用身上挂着样式表的时候，
-///   `QApplication::setPalette()` 那套"发给每个控件"的传播会**漏掉一部分控件** ——
-///   最明显的是 `QCheckBox`：从深色换回"跟着系统"之后，它记着的还是深色那一份调色板
-///   （白字 + 深色勾选框），在浅底上那行字就**看不见了**。把样式表再挂一遍能冲掉那层
-///   缓存，代价是整窗口重新 polish（6800 个控件 ~1.9 秒）。现在换成了显式
-///   `polish()` 一圈（~100 ms），同一个目的、小一个数量级。
+/// 历史（留着说明为什么从前必须重挂）：应用身上挂着样式表的时候，
+/// `QApplication::setPalette()` 那套"发给每个控件"的传播会**漏掉一部分控件** ——
+/// 最明显的是 `QCheckBox`：从深色换回"跟着系统"之后，它记着的还是深色那一份调色板
+/// （白字 + 深色勾选框），在浅底上那行字就**看不见了**。把样式表再挂一遍能冲掉那层
+/// 缓存，代价是整窗口重新 polish（6800 个控件 ~1.9 秒）。现在换成了显式
+/// `polish()` 一圈（~100 ms），同一个目的、小一个数量级。
 void installButtonSheet(QApplication &app) {
     const QString buttons = widgetStyleSheet();
     static QString installed;
@@ -1991,15 +1889,6 @@ bool &applyingTheme() {
 }
 
 /// 把"该重新取色了"这件事落到每一个控件身上（`polish()`）。
-///
-/// ★ 为什么不是 `QApplication::setStyleSheet()`：那一句会把**整份样式表**重新解析、
-///   给每个控件新建一遍 `QRenderRule`，6800 个控件实测 1.9 秒；而这里只是让已有的
-///   规则按**新的调色板**再算一遍（样式表字符串没变），同量级 100 ms。
-/// ★ 为什么只 `polish()`、不先 `unpolish()`：2026-10-20 探针实测，`polish()` 自己就会
-///   重新解析 `palette(...)`（`unpolish + polish` 多花 30%，画出来的色一模一样）。
-/// ★ 为什么要显式做：`palette(...)` 是 polish 那一刻解析成具体颜色的，`setPalette()`
-///   本身不会让 `QStyleSheetStyle` 重算（2026-10-20 探针实测：只设调色板，按钮颜色不变；
-///   `polish()` 之后才变）。
 void repolishWidgets() {
     if (QGuiApplication::instance() == nullptr) {
         return;
@@ -2019,12 +1908,12 @@ void repolishWidgets() {
         if (qobject_cast<QScrollBar *>(widget.data()) != nullptr) {
             continue;
         }
-        // ★ 自己 `setPalette()` 过的控件（标题栏 / 底栏 / 侧栏 / 卡片…）**收不到**
-        //   `QApplication::setPalette()` 那套自动传播 —— Qt 只把"应用调色板变了"发给
-        //   没有本地调色板的控件。它们各自存着一份算好的色，靠 `changeEvent()` 重算；
-        //   从前的 `setStyleSheet(force)` 会顺手发一个 StyleChange 把它们叫醒，现在不走
-        //   那条路了，所以这里点名补一发。
-        //   NOTE: 判据用 `WA_SetPalette`，不乱发 —— 没本地调色板的控件 Qt 已经发过了。
+        // 自己 `setPalette()` 过的控件（标题栏 / 底栏 / 侧栏 / 卡片…）**收不到**
+        // `QApplication::setPalette()` 那套自动传播 —— Qt 只把"应用调色板变了"发给
+        // 没有本地调色板的控件。它们各自存着一份算好的色，靠 `changeEvent()` 重算；
+        // 从前的 `setStyleSheet(force)` 会顺手发一个 StyleChange 把它们叫醒，现在不走
+        // 那条路了，所以这里点名补一发。
+        // NOTE: 判据用 `WA_SetPalette`，不乱发 —— 没本地调色板的控件 Qt 已经发过了。
         if (widget->testAttribute(Qt::WA_SetPalette)) {
             QEvent event(QEvent::PaletteChange);
             QCoreApplication::sendEvent(widget.data(), &event);
@@ -2049,9 +1938,9 @@ void styleScrollBars() {
 
 /// 「跟着系统」那一档：平台深浅一换，重新铺一遍我们那份调色板。
 ///
-/// ★ 为什么需要它：从 2026-10-20 起"跟着系统"也会铺一份我们自己算的调色板（样式表里
-///   的 `palette(...)` 需要它）。铺过之后 Qt 就不再自动把平台调色板同步过来了，所以
-///   平台深浅的变化得自己接住。
+/// 为什么需要它：从 起"跟着系统"也会铺一份我们自己算的调色板（样式表里
+/// 的 `palette(...)` 需要它）。铺过之后 Qt 就不再自动把平台调色板同步过来了，所以
+/// 平台深浅的变化得自己接住。
 class ColorSchemeWatcher : public QObject {
 public:
     explicit ColorSchemeWatcher(QApplication &app) : QObject(&app) {
@@ -2090,11 +1979,11 @@ void apply(QApplication &app) {
     const bool followSystem = spec.presetId == QLatin1String("system");
 
     // -1) 按钮 / 输入框那一套外观：应用级样式表。**换主题时不重挂**（字符串不变），
-    //     只在这一份字符串真的变了（第一次铺、或者以后改了结构）时挂一次。
+    // 只在这一份字符串真的变了（第一次铺、或者以后改了结构）时挂一次。
     installButtonSheet(app);
 
     // 1) 深浅那一档。"跟着系统"仍然交给平台（原生对话框那些也跟着走）；只是我们自己
-    //    那份调色板按平台的深浅算，见 `platformColorSchemeDark()`。
+    // 那份调色板按平台的深浅算，见 `platformColorSchemeDark()`。
     if (followSystem) {
         app.styleHints()->unsetColorScheme();
     } else {
@@ -2104,8 +1993,8 @@ void apply(QApplication &app) {
     }
 
     // 2) 基色一律现问样式要。**不能拿"现在的应用调色板"当基色**：铺过一次深色预设之后
-    //    它就是深色那一份了，再叠一次"跟系统"的覆盖项会得到深底 + 浅色覆盖的怪东西。
-    //    这一刻深浅那一档已经定好，所以 `standardPalette()` 问到的就是那一档。
+    // 它就是深色那一份了，再叠一次"跟系统"的覆盖项会得到深底 + 浅色覆盖的怪东西。
+    // 这一刻深浅那一档已经定好，所以 `standardPalette()` 问到的就是那一档。
     const QPalette base = app.style()->standardPalette();
     const QPalette before = app.palette();
     app.setPalette(buildPalette(spec, base));
@@ -2120,7 +2009,7 @@ void apply(QApplication &app) {
         // （`buildPalette()` 只读 preset / roles / textOpacity）。于是 `apply()`
         // 跑完了、规格也换了，屏幕上却还是上一张图 —— `ThemeBackground` 记着两份位图，
         // 只有收到 "调色板变了" 才会重画（见它构造里那句 `follow`）。
-        //   症状：换图之后要切到别的选项卡再切回来、或者拖一下窗口改尺寸，才看得见新图。
+        // 症状：换图之后要切到别的选项卡再切回来、或者拖一下窗口改尺寸，才看得见新图。
         notifyWidgets();
     }
     applyingTheme() = false;
@@ -2169,9 +2058,9 @@ bool partHasBackground(Part part) {
 
 bool partLightInk(Part part) {
     const int index = static_cast<int>(part);
-    // ★ 白墨这一位跟着"顶栏底色 = 主题色那一支"走：绿条上的字必须够白才读得出来
-    //   （用户 2026-09-28：「顺便那个最小化和 x 都换成白的」）。它是**出厂值**，
-    //   用户单独给这一块设过前景色的话那个覆盖照样赢（`partForeground()` 里那条在前）。
+    // 白墨这一位跟着"顶栏底色 = 主题色那一支"走：绿条上的字必须够白才读得出来
+    // （用户 ：「顺便那个最小化和 x 都换成白的」）。它是**出厂值**，
+    // 用户单独给这一块设过前景色的话那个覆盖照样赢（`partForeground()` 里那条在前）。
     return index >= 0 && index < partCount() && kPartInfos[index].accent;
 }
 
@@ -2240,8 +2129,6 @@ QColor warningColor(const QPalette &palette) {
     if (override.isValid()) {
         return override;
     }
-    // 黄这一档取的是**偏金黄**的琥珀色（不是纯黄 #ffff00）：那块方块的底色是底栏，
-    // 纯黄在浅色底上几乎看不见。色相实测 43(浅)/45(深)，和红那一档（0）差得开。
     return isDarkPalette(palette) ? QColor(0xff, 0xd2, 0x4d) : QColor(0xe0, 0xa0, 0x00);
 }
 
@@ -2263,7 +2150,7 @@ QColor errorTextColor(const QPalette &palette) {
     // 深色主题的底上只有 2.26:1 —— 名字写错了却看不出底下那行写了什么，等于没有。
     // 所以借用同一个界面里已经调好的那个浅红（`dangerColor()`）。
     // NOTE: 两处红**故意**不合并成一个语义色：浅底那一档 #c0392b 和 #c02828 各有各的
-    //       对比度来历（见 `MainWindowUI::installNameErrorColor()` 从前那段注释）。
+    // 对比度来历（见 `MainWindowUI::installNameErrorColor()` 从前那段注释）。
     return isDarkPalette(palette) ? dangerFor(true) : QColor(0xc0, 0x39, 0x2b);
 }
 
@@ -2331,10 +2218,6 @@ Spec load() {
     Spec spec = defaultSpec();
     spec.presetId = settings.value(QLatin1String(kPresetKey), spec.presetId).toString();
     spec.accent = tokens(spec.presetId).primary;
-    // ★ 2026-10-20：这一行是能手改的。`toInt()` 认不出来的字符串回的是 **0**，而 0% 的
-    //   文字透明度 = 所有字都不画（界面一片空白），0% 的图 = 一张看不见的背景 ——
-    //   都不是"读不懂"该有的样子。认不出就退回出厂那一档（同一个文件末尾对语义色
-    //   写的那条原则：认不出的一律退回出厂）。
     bool textOpacityOk = false;
     const int textOpacity =
         settings.value(QLatin1String(kTextOpacityKey), spec.textOpacity).toInt(&textOpacityOk);
@@ -2456,8 +2339,8 @@ QJsonObject specFields(const Spec &spec) {
                 one.insert(QStringLiteral("textOpacity"), style.textOpacity);
             }
             if (style.hasImage) {
-                // ★ 写的是**导出这台机器上的那一条路径**（理由见 .hpp 里那段：图不在这份
-                //   文件里）。换台机器导入之后那几张图找不到，由 `MainWindow` 数出来说一句。
+                // 写的是**导出这台机器上的那一条路径**（理由见 .hpp 里那段：图不在这份
+                // 文件里）。换台机器导入之后那几张图找不到，由 `MainWindow` 数出来说一句。
                 one.insert(QStringLiteral("image"), style.imagePath);
                 one.insert(QStringLiteral("imageName"), style.imageName);
                 one.insert(QStringLiteral("imageFit"), imageFitKey(style.fit));
@@ -2584,7 +2467,7 @@ bool specFromJson(const QJsonObject &json, Spec *out, QString *error) {
     spec.errorText = colorFromJson(semantic.value(QStringLiteral("errorText")));
 
     if (out != nullptr) {
-        *out = normalize(spec);  // 收拾干净 —— 和盘上读回来那份走同一道闸
+        *out = normalize(spec); // 收拾干净 —— 和盘上读回来那份走同一道闸
     }
     if (error != nullptr) {
         error->clear();
@@ -2617,10 +2500,6 @@ protected:
         case QEvent::ApplicationPaletteChange:
         case QEvent::PaletteChange:
         case QEvent::StyleChange:
-            // ★ 防自咬：`m_fn()` 里多半就是 `setStyleSheet()` / `setPalette()`，而这两样
-            //   各自会**再发一次** `StyleChange` / `PaletteChange` —— 不拦的话就是
-            //   "重算 → 又收到 → 再重算"，而且它是无限递归，屏幕上只会看到卡死。
-            //   `ui_check` W6 那条断言就是照着这句话量的（计数器不许涨第二下）。
             if (!m_running) {
                 m_running = true;
                 m_fn();

@@ -1,8 +1,6 @@
 /**
  * @file PresetCapture.cpp
  * @brief 实现 PresetCapture.hpp（提取那一趟）。取舍都写在头文件里。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 【这一层不做的事】
  *
@@ -53,9 +51,6 @@ bool readWholeFile(const QString &path, QByteArray *out, QString *problem) {
     return true;
 }
 
-/// 一个通用文件组的名字（给说明和报告用）。★ 和 `GenericFiles` 的目录名同源，
-/// 但那一口的 `fileGroupDirName()` 是 `src/` 内部的事 —— 这里只用 `scanFileGroup()`，
-/// 名字自己按产品里的叫法写。
 QString groupDisplayName(FileGroup group) {
     switch (group) {
     case FileGroup::Config:
@@ -90,9 +85,9 @@ bool captureFileGroup(const CaptureRequest &request, FileGroup group,
         return false;
     }
 
-    // ★ 先扫后拷：`sectionsFromFileGroup()` 要的是"这一组里有哪些项"，而那个清单在拷贝
-    //   前后是同一份（拷贝只往预设那一侧写，不动实例）。次序反过来也行，但先扫能让
-    //   "扫描就失败"的那一趟连一个文件都不碰。
+    // 先扫后拷：`sectionsFromFileGroup()` 要的是"这一组里有哪些项"，而那个清单在拷贝
+    // 前后是同一份（拷贝只往预设那一侧写，不动实例）。次序反过来也行，但先扫能让
+    // "扫描就失败"的那一趟连一个文件都不碰。
     const GenericReport extracted =
         extractFileGroup(request.instanceRoot, request.presetFilesRoot, group);
     if (!extracted.ok) {
@@ -241,9 +236,6 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
         const int before = static_cast<int>(report.sections.size());
         captureFileGroup(request, FileGroup::ResourcePacks, &report.sections, &report);
         if (static_cast<int>(report.sections.size()) > before) {
-            // ★ 「有那一份」和「游戏里开着它」是两件事（见 `ResourcePackPreset.hpp`）：
-            //   文件已经收进来了，这里再把当时的启用顺序补进这一段的载荷。读不到那一行
-            //   ⇒ 一格都不加（"没读到"不冒充"全是关着"），报告里说清楚这一份只带文件。
             const ResourcePackOrderState state = readResourcePackOrderState(request.instanceRoot);
             PresetSection &section = report.sections[before];
             if (!state.problem.isEmpty()) {
@@ -268,9 +260,9 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
     if (request.selection.malilib) {
         MalilibExtractRequest extract;
         extract.instanceRoot = request.instanceRoot;
-        // ★ 空 = 扫 `config/` 下所有**结构上**认得出的（`malilibModIdsInInstance()` 那条
-        //   判据）—— 不立模组名表：那种表永远不全，而结构识别认得出来 TweakerMore 这类
-        //   名字里根本没有 "malilib" 的扩展。
+        // 空 = 扫 `config/` 下所有**结构上**认得出的（`malilibModIdsInInstance()` 那条
+        // 判据）—— 不立模组名表：那种表永远不全，而结构识别认得出来 TweakerMore 这类
+        // 名字里根本没有 "malilib" 的扩展。
         extract.includeValues = request.selection.malilibValues;
         extract.mode = ApplyMode::Merge;
         const MalilibExtractReport malilib = extractMalilibSections(extract);

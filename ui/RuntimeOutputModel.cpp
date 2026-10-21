@@ -1,8 +1,6 @@
 /**
  * @file RuntimeOutputModel.cpp
  * @brief 共用日志模型的实现（形状与取舍见头文件）。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "RuntimeOutputModel.hpp"
@@ -45,7 +43,7 @@ bool levelFromToken(const QString &token, RuntimeOutputModel::Level *out) {
 /// 只认这一行**自己写出来的**级别。返回 false 就表示它可能是上一条的续行。
 bool explicitLevelOf(const QString &line, RuntimeOutputModel::Level *out) {
     // ① 行首那串**连着开头**的方括号：`[12:34:56] [main/INFO] [net.minecraft.Foo]`
-    //    只认连着开头的那几格 —— 消息体里出现的方括号不算。
+    // 只认连着开头的那几格 —— 消息体里出现的方括号不算。
     int i = 0;
     while (i < line.size() && line.at(i) == QLatin1Char('[')) {
         const int close = line.indexOf(QLatin1Char(']'), i + 1);
@@ -68,7 +66,7 @@ bool explicitLevelOf(const QString &line, RuntimeOutputModel::Level *out) {
     }
 
     // ② 开头那一小段里**带冒号**的裸词（`12:34:56 WARN: msg`，java.util.logging 那一套）。
-    //    冒号是必须的：不然 `Loaded 3 INFO files` 会被认成 INFO。
+    // 冒号是必须的：不然 `Loaded 3 INFO files` 会被认成 INFO。
     const QString head = line.left(RuntimeOutputModel::levelScanHead());
     int p = 0;
     while (p < head.size()) {
@@ -289,7 +287,7 @@ QString RuntimeOutputModel::visibleText() const {
 
 QVector<int> RuntimeOutputModel::lineLimitChoices() {
     // 六档，从"只想看最后一段"到"全都看"。最后一档是 0（全部）—— 它同时是默认值，
-    // 也就是"打开这个窗看到的和 2026-09-24 之前一样"。
+    // 也就是"打开这个窗看到的和 之前一样"。
     //
     // 第四档是 5000：用户当天原话里打的是「25」，那是**打错了**（他随后订正为 5000）。
     // 所以这一档**不是**从原话推出来的，是问出来的 —— 别照着「25」去猜 250。
@@ -297,7 +295,7 @@ QVector<int> RuntimeOutputModel::lineLimitChoices() {
 }
 
 QString RuntimeOutputModel::lineLimitText(int limit) {
-    // 数字**写全**（用户 2026-09-24 说的「直接写数字」，别学他打的 1k/2k）。
+    // 数字**写全**（用户 说的「直接写数字」，别学他打的 1k/2k）。
     if (limit <= 0) {
         return QStringLiteral("全部");
     }

@@ -1,14 +1,12 @@
 /**
  * @file ZipUtil.hpp
  * @brief 通过 PowerShell 压缩/解压压缩包的通用工具。
- * @author 0x7fffff
- * @date 2026-09
  * @note 项目没有引入 zlib/QuaZip 之类的解压库，沿用 GlobalJavaSettings 里
- *       已有的"调用 PowerShell"方案。这里改用 .NET 的 ZipFile，因为
- *       Expand-Archive 既不能排除 META-INF/，对 .jar 扩展名也不可靠。
+ * 已有的"调用 PowerShell"方案。这里改用 .NET 的 ZipFile，因为
+ * Expand-Archive 既不能排除 META-INF/，对 .jar 扩展名也不可靠。
  * @note **写**那一侧只有一个口（createZip）：压缩级别、条目名的分隔符、失败时删半成品
- *       这三件事都由它一处管 —— 散到调用点去做，迟早会有一处忘了删（用户下次看到的是
- *       "我明明失败了，盘上却躺着一个能打开的坏包"）。
+ * 这三件事都由它一处管 —— 散到调用点去做，迟早会有一处忘了删（用户下次看到的是
+ * "我明明失败了，盘上却躺着一个能打开的坏包"）。
  */
 #pragma once
 #include <functional>
@@ -39,12 +37,12 @@ struct ZipSource {
  * 就是一个名字里带反斜杠的文件，等于整层 overrides 全废。
  *
  * NOTE: 压缩级别用的是 Optimal（.cpp 里那个常数就是旋钮）。包里绝大多数是**已经压过的**
- *       jar，这一档换来的只是几个百分点 —— 真要抠速度，改成 NoCompression 是安全的，
- *       只是给出一个"和大家不一样"的包，没那个必要。
+ * jar，这一档换来的只是几个百分点 —— 真要抠速度，改成 NoCompression 是安全的，
+ * 只是给出一个"和大家不一样"的包，没那个必要。
  * NOTE: 条目表**走临时文件**，不进脚本正文 —— 脚本是用命令行递给 PowerShell 的，而
- *       Windows 一条命令行只有 32767 个字符（Base64 + UTF-16LE 之后脚本正文只剩一万二千
- *       来个字符），一个几百文件的实例的表就超过它了（2026-09-26 撞的，见 .cpp 里那段）。
- *       ⇒ **别为了"省一次写盘"把表改回拼进脚本**。
+ * Windows 一条命令行只有 32767 个字符（Base64 + UTF-16LE 之后脚本正文只剩一万二千
+ * 来个字符），一个几百文件的实例的表就超过它了（ 撞的，见 .cpp 里那段）。
+ * ⇒ **别为了"省一次写盘"把表改回拼进脚本**。
  */
 bool createZip(const QString &targetZip, const QList<ZipSource> &entries,
                 QString *errorOut = nullptr, const std::function<bool()> &cancelled = {});
@@ -74,13 +72,13 @@ bool extractArchives(const QStringList &archives, const QString &targetDir,
  * @brief 读压缩包里**一个条目**的原始字节（不解压其它任何东西）。
  * @param archive 压缩包绝对路径（.zip）。
  * @param entryName 条目名，`/` 分隔的完整路径，例如 `modrinth.index.json`。
- *        先按原样找，找不到再**不区分大小写**找一遍（有些整合包工具会把文件名写得大小写
- *        不一样，而 zip 的条目名是区分大小写的）。
+ * 先按原样找，找不到再**不区分大小写**找一遍（有些整合包工具会把文件名写得大小写
+ * 不一样，而 zip 的条目名是区分大小写的）。
  * @param out 成功时写入条目的原始字节（会被 clear()）。
  * @param errorOut 失败时的人类可读描述（NotAnArchive 时是空串 —— 那种情况调用方自己有话说）。
  * @param what 这次动作叫什么，拼进 errorOut 那几句话里（`读 X 超时` / `读 X 时进程被强行结束了`）。
- *        默认是通用的一句；**调用方要把它写清楚**，因为 Failed 那一路的 errorOut 有一处是
- *        **直接弹给用户看的**（整合包那条路），句子里的主语换成别人就说不通了。
+ * 默认是通用的一句；**调用方要把它写清楚**，因为 Failed 那一路的 errorOut 有一处是
+ * **直接弹给用户看的**（整合包那条路），句子里的主语换成别人就说不通了。
  * @return 见 EntryStatus。**没这个条目**和**读失败**是两件事，调用方必须分开处理。
  */
 EntryStatus readEntry(const QString &archive, const QString &entryName, QByteArray *out,
@@ -90,19 +88,15 @@ EntryStatus readEntry(const QString &archive, const QString &entryName, QByteArr
 /**
  * @brief 列出压缩包里所有条目的名字（`/` 分隔，**原样**：不排序、不去重、不改大小写）。
  *
- * 2026-09-29 加，给"用户把一个压缩包拖进来、这是模组还是资源包还是整合包"那一判断用的：
- * 那件事只能看**里面有什么**，一个个 `readEntry()` 去猜名字是猜不全的（一个光影包里
- * 可能就一个 `shaders/` 目录条目，我们事先不知道要问哪个名字）。
- *
  * @param archive 压缩包绝对路径。
  * @param out 成功时写入条目名（会被 clear()）。**目录条目也在里面**（zip 里那一条
- *        `foo/` 结尾的记录），所以判据用"有没有这个前缀"比用"有没有这个文件"结实。
+ * `foo/` 结尾的记录），所以判据用"有没有这个前缀"比用"有没有这个文件"结实。
  * @param errorOut 失败时的人类可读描述（**NotAnArchive 时也是空串**，和 readEntry 一样）。
  * @param what 这次动作叫什么，拼进 errorOut 那几句话里（同 readEntry）。
  * @return 见 EntryStatus。**没这个条目**那一档不会出现（列一张表要么成功要么失败）。
  *
  * NOTE: 大包（几百 MB、几千个条目）列一遍只是把**名字**读出来，不解压任何东西 ——
- *       但它是**另起一个 PowerShell 进程**，所以别放进每秒都要跑的那种循环里。
+ * 但它是**另起一个 PowerShell 进程**，所以别放进每秒都要跑的那种循环里。
  */
 EntryStatus listEntries(const QString &archive, QStringList *out, QString *errorOut = nullptr,
                         const QString &what = QStringLiteral("读压缩包的条目表"));
@@ -112,7 +106,7 @@ EntryStatus listEntries(const QString &archive, QStringList *out, QString *error
  * @param archives 待解压的压缩包绝对路径（.zip）。
  * @param targetDir 目标目录，不存在则自动创建。
  * @param roots 前缀（`overrides/` / `client-overrides/` 这种），**顺序有意义**：
- *        排后面的**覆盖**排前面的 —— 整合包的规矩是 client-overrides 盖过 overrides。
+ * 排后面的**覆盖**排前面的 —— 整合包的规矩是 client-overrides 盖过 overrides。
  * @param extractedOut 非空时回填真正写出去的条目数（给"解开了 N 个覆盖文件"那句话用）。
  * @param errorOut 失败时的描述。
  * @return 全部成功返回 true。
@@ -135,7 +129,7 @@ bool extractSubtrees(const QStringList &archives, const QString &targetDir,
  * 接口对不上，硬塞进那个循环只会让两边都变难读。
  *
  * NOTE: 别把它当「通用解压」用 —— 这里**只管 gzip 这一层**：`.tar.gz` 解出来还是
- *       一份 tar，那层 tar 得调用方自己处理；zip 走 extractArchives()。
+ * 一份 tar，那层 tar 得调用方自己处理；zip 走 extractArchives()。
  */
 bool gunzipTo(const QString &sourceGz, const QString &targetPath, QString *errorOut = nullptr);
 
@@ -151,8 +145,8 @@ bool gunzipTo(const QString &sourceGz, const QString &targetPath, QString *error
  *
  * NOTE: 它和 `gunzipTo()` 一样**只管 gzip 这一层**，不是"通用压缩"。
  * NOTE: 压缩级别是 Optimal（和 createZip 同一档）。这里 **不是** 逐字节可复现的：同一个
- *       源压两次的字节可能不一样（gzip 头里有个 mtime）。所以"改过的地方对不对"不能靠
- *       比 gz 的字节，要比**解开来之后**的 NBT 字节（见验证工程 V5 那一带）。
+ * 源压两次的字节可能不一样（gzip 头里有个 mtime）。所以"改过的地方对不对"不能靠
+ * 比 gz 的字节，要比**解开来之后**的 NBT 字节（见验证工程 V5 那一带）。
  */
 bool gzipFrom(const QString &sourcePath, const QString &targetGz,
               QString *errorOut = nullptr);

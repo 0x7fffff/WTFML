@@ -1,8 +1,6 @@
 /**
  * @file ServerSettingsPage.cpp
  * @brief 「服务端设置」那一整页的实现（形状与取舍见头文件）。
- * @author 0x7fffff
- * @date 2026-10-13
  */
 
 #include "ServerSettingsPage.hpp"
@@ -89,11 +87,11 @@ QLabel *makeNoteLabel(QWidget *parent, const QString &text) {
  * `MotdText::parse()` 已经把"哪一段是什么颜色 / 什么字形"拆好了（见那个文件头：色号、
  * `§l/m/n/o`、`§r` 复位、`§x` 十六进制都认）。这一步只剩三件事：
  *
- *   - **按行拼 `<br>`**（游戏那边 MOTD 就是两行，`parse(..., 2)` 第 3 行起就丢了）；
- *   - **颜色照游戏那 16 个色号**（`pieceColor()`），不按我们的主题走 —— 这一块画的是
- *     "别的玩家在服务器列表里看到的样子"，改成我们的主题色就不像了；
- *   - **空格换成 `&nbsp;`**：HTML 会把行首空格和连续空格吃掉，而 MOTD 里那几种空格正是
- *     服务器拿来对齐的。
+ * - **按行拼 `<br>`**（游戏那边 MOTD 就是两行，`parse(..., 2)` 第 3 行起就丢了）；
+ * - **颜色照游戏那 16 个色号**（`pieceColor()`），不按我们的主题走 —— 这一块画的是
+ * "别的玩家在服务器列表里看到的样子"，改成我们的主题色就不像了；
+ * - **空格换成 `&nbsp;`**：HTML 会把行首空格和连续空格吃掉，而 MOTD 里那几种空格正是
+ * 服务器拿来对齐的。
  */
 QString motdPreviewHtml(const QString &raw) {
     const QVector<MotdPiece> pieces = MotdText::parse(raw, 2);
@@ -220,10 +218,10 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
     m_stack = new QStackedWidget(this);
     m_stack->setObjectName(MainWindowUI::serverSettingsStackName());
     columns->addWidget(m_stack, 1);
-    // 换页那一下（用户 2026-09-29 要的"切换页面"那一档）：新那一页淡进来、顺带从下面抬
+    // 换页那一下（用户 要的"切换页面"那一档）：新那一页淡进来、顺带从下面抬
     // 一小段。这一层和实例设置那一页是同一个形状（左栏 + 一个 `QStackedWidget`）。
-    // ★ 垫的底色是 `QPalette::Base`：右栏每一页都活在一层滚动区里（见 `addSectionPage()`），
-    //   视口铺的就是它 —— 垫窗口那份的话，起手那一帧会看见一整块偏灰的方块。
+    // 垫的底色是 `QPalette::Base`：右栏每一页都活在一层滚动区里（见 `addSectionPage()`），
+    // 视口铺的就是它 —— 垫窗口那份的话，起手那一帧会看见一整块偏灰的方块。
     connect(m_stack, &QStackedWidget::currentChanged, this, [this](int) {
         QWidget *page = m_stack->currentWidget();
         if (page != nullptr && page->isVisible()) {
@@ -290,7 +288,7 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
             for (int i = 0; i < MainWindowUI::serverSettingsContentKindCount(); ++i) {
                 m_contentKindCombo->addItem(MainWindowUI::serverSettingsContentKindTitle(i));
             }
-            // ★ 接在**摆完项之后**（同玩家那个下拉框：`addItem` 也会发 `currentIndexChanged`）。
+            // 接在**摆完项之后**（同玩家那个下拉框：`addItem` 也会发 `currentIndexChanged`）。
             connect(m_contentKindCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
                 refreshContentActions();
                 emit contentKindChanged(index);
@@ -471,8 +469,8 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
             for (int i = 0; i < MainWindowUI::serverSettingsPlayerListCount(); ++i) {
                 m_playerListCombo->addItem(MainWindowUI::serverSettingsPlayerListTitle(i));
             }
-            // ★ 接在**摆完项之后**：`addItem` 也会发 `currentIndexChanged`，接早了会在
-            //   构造期把"换了一份名单"报给 `MainWindow`（那一头还没摆好这一页）。
+            // 接在**摆完项之后**：`addItem` 也会发 `currentIndexChanged`，接早了会在
+            // 构造期把"换了一份名单"报给 `MainWindow`（那一头还没摆好这一页）。
             connect(m_playerListCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
                 if (m_playerAddButton != nullptr) {
                     m_playerAddButton->setText(
@@ -626,8 +624,8 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
         if (m_settingSection || row < 0) {
             return;
         }
-        // ★ **切页之前**发：`MainWindow` 要借这一下把"表单补丁"和"原始文本"合起来
-        //   （见 .hpp 文件头那段），合完再让右栏翻过去。
+        // **切页之前**发：`MainWindow` 要借这一下把"表单补丁"和"原始文本"合起来
+        // （见 .hpp 文件头那段），合完再让右栏翻过去。
         emit sectionChanged(row);
         m_stack->setCurrentIndex(row);
     });
@@ -660,9 +658,9 @@ void ServerSettingsPage::setFields(const QList<FieldView> &fields) {
         return;
     }
     // 清掉上一次那几行（弹簧留着：它永远在收尾）。
-    // ★ 这里用 `delete` 而不是仓库里常见的那一发 `deleteLater()`：行里的控件名字是
-    //   **按 key 拼的**（`serverSettingsFieldName()`），`deleteLater()` 会让新旧两批同名
-    //   控件同时活在树上，谁先被 `findChild()` 找着就看运气了（验证工程会当场踩到）。
+    // 这里用 `delete` 而不是仓库里常见的那一发 `deleteLater()`：行里的控件名字是
+    // **按 key 拼的**（`serverSettingsFieldName()`），`deleteLater()` 会让新旧两批同名
+    // 控件同时活在树上，谁先被 `findChild()` 找着就看运气了（验证工程会当场踩到）。
     while (m_formLayout->count() > 1) {
         QLayoutItem *item = m_formLayout->takeAt(0);
         QWidget *row = item->widget();
@@ -671,8 +669,8 @@ void ServerSettingsPage::setFields(const QList<FieldView> &fields) {
     }
     m_editors.clear();
     m_baseline.clear();
-    // ★ 预览那两块跟着行一起被 `delete` 掉了 —— 手边这两个指针必须同时作废，不然它们是
-    //   悬空的（`refreshSaveBar()` 那一路上还会用到 "有没有预览" 这个判断）。
+    // 预览那两块跟着行一起被 `delete` 掉了 —— 手边这两个指针必须同时作废，不然它们是
+    // 悬空的（`refreshSaveBar()` 那一路上还会用到 "有没有预览" 这个判断）。
     m_motdPreview = nullptr;
     m_motdPreviewNote = nullptr;
     m_zipPickButton = nullptr;
@@ -696,8 +694,8 @@ void ServerSettingsPage::setValues(const Values &values) {
         }
     }
     m_settingValues = false;
-    // ★ 摆进来的这一份就是**新的基线**（"改过没有"是拿它比的）—— `setValues()` 自己
-    //   就带着 `clearChanged()` 的语义，别指望调用方记得再喊一次。
+    // 摆进来的这一份就是**新的基线**（"改过没有"是拿它比的）—— `setValues()` 自己
+    // 就带着 `clearChanged()` 的语义，别指望调用方记得再喊一次。
     clearChanged();
 }
 
@@ -706,9 +704,9 @@ void ServerSettingsPage::setFieldValue(const QString &key, const QString &value)
         if (field.key != key) {
             continue;
         }
-        // ★ **不**进 `m_settingValues` 那一段：这一发是"用户选了东西之后的产物"，要按
-        //   改动算（保存带上那句"改过 1 项"、保存时会写回盘上）。控件自己的 `textChanged`
-        //   会把 `edited()` 发出去 —— 那正是这里要的（`setValues()` 那一趟才是基线）。
+        // **不**进 `m_settingValues` 那一段：这一发是"用户选了东西之后的产物"，要按
+        // 改动算（保存带上那句"改过 1 项"、保存时会写回盘上）。控件自己的 `textChanged`
+        // 会把 `edited()` 发出去 —— 那正是这里要的（`setValues()` 那一趟才是基线）。
         setEditorValue(field, value);
         refreshSaveBar();
         return;
@@ -769,8 +767,8 @@ void ServerSettingsPage::setRawText(const QString &text) {
     if (m_rawEdit == nullptr) {
         return;
     }
-    // ★ 行尾记在手边：文本框只认 `\n`（见 `m_rawCrlf` 那段），盘上那份是 CRLF ——
-    //   回来的时候要按它自己的规矩补回去，不然"只改了一个端口"会把整份文件的行尾翻掉。
+    // 行尾记在手边：文本框只认 `\n`（见 `m_rawCrlf` 那段），盘上那份是 CRLF ——
+    // 回来的时候要按它自己的规矩补回去，不然"只改了一个端口"会把整份文件的行尾翻掉。
     m_rawCrlf = text.contains(QStringLiteral("\r\n"));
     QString body = text;
     if (m_rawCrlf) {
@@ -1060,8 +1058,8 @@ void ServerSettingsPage::setSection(Section section) {
     if (index < 0 || index >= m_stack->count()) {
         return;
     }
-    // ★ **不发 `sectionChanged`**：这是程序摆的（"开页时摆到某一页"/"从体检的出路按钮跳
-    //   过去"），不是用户点的那一发 —— 发出去的话 `MainWindow` 会再合一次两边的编辑。
+    // **不发 `sectionChanged`**：这是程序摆的（"开页时摆到某一页"/"从体检的出路按钮跳
+    // 过去"），不是用户点的那一发 —— 发出去的话 `MainWindow` 会再合一次两边的编辑。
     m_settingSection = true;
     m_sectionList->setCurrentRow(index);
     m_settingSection = false;
@@ -1105,8 +1103,8 @@ void ServerSettingsPage::addFieldRow(const FieldView &field) {
     case Kind::Text: {
         auto *edit = new QLineEdit(row);
         edit->setFixedWidth(kFieldEditorWidth);
-        // ★ 接在**摆默认值之后**：`addItem` / `setRange` 这一类也会发信号，接早了会在
-        //   搭界面这一路就把 `edited()` 发出去（那时页面还没搭完）。
+        // 接在**摆默认值之后**：`addItem` / `setRange` 这一类也会发信号，接早了会在
+        // 搭界面这一路就把 `edited()` 发出去（那时页面还没搭完）。
         connect(edit, &QLineEdit::textChanged, this, [changed](const QString &) { changed(); });
         editor = edit;
         break;
@@ -1265,10 +1263,10 @@ void ServerSettingsPage::setEditorValue(const FieldView &field, const QString &v
     }
     case Kind::Number: {
         if (auto *spin = qobject_cast<QSpinBox *>(editor)) {
-            // ★ 读不动的值（`1e3` / `10.0` / `0x10` / 空串）**不帮它圆**，一律落到框的下限，
-            //   而且**这一格紧接着会被当成基线**（见 `clearChanged()`）—— 于是它不会被写回
-            //   盘上（"没改过"）。文件里那个不合法的值原样留着，由体检那一页报出来、
-            //   由用户决定怎么办（同 `ServerPropertiesForm::accepts()` 那条规矩）。
+            // 读不动的值（`1e3` / `10.0` / `0x10` / 空串）**不帮它圆**，一律落到框的下限，
+            // 而且**这一格紧接着会被当成基线**（见 `clearChanged()`）—— 于是它不会被写回
+            // 盘上（"没改过"）。文件里那个不合法的值原样留着，由体检那一页报出来、
+            // 由用户决定怎么办（同 `ServerPropertiesForm::accepts()` 那条规矩）。
             bool ok = false;
             const int parsed = value.toInt(&ok);
             spin->setValue(ok ? parsed : spin->minimum());
@@ -1327,9 +1325,9 @@ void ServerSettingsPage::refreshSaveBar() {
     } else {
         m_saveNote->setText(m_saveNoteText);
     }
-    // ★ 「保存」的灰亮由这一层**再兜一道**：`MainWindow` 那一边说"允许"之外，还得真的
-    //   改过点什么 —— 没改过就按下去是白按（而且会把"保存"这两个字的份量花掉）。
-    //   在跑的时候一律点不动。
+    // 「保存」的灰亮由这一层**再兜一道**：`MainWindow` 那一边说"允许"之外，还得真的
+    // 改过点什么 —— 没改过就按下去是白按（而且会把"保存"这两个字的份量花掉）。
+    // 在跑的时候一律点不动。
     const bool dirty = !dirtyValues().isEmpty() || m_rawEdited;
     if (m_saveButton != nullptr) {
         m_saveButton->setEnabled(m_editable && m_saveAllowed && dirty);

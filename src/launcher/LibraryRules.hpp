@@ -1,10 +1,8 @@
 /**
  * @file LibraryRules.hpp
  * @brief version.json 中 library 的平台规则判定与 natives classifier 解析。
- * @author 0x7fffff
- * @date 2026-09
  * @note DownloadManager 选 natives classifier、LauncherManager 拼 classpath
- *       都要用同一套平台规则，所以提取到这里，避免两处语义各自漂移。
+ * 都要用同一套平台规则，所以提取到这里，避免两处语义各自漂移。
  */
 #pragma once
 
@@ -44,7 +42,7 @@ inline QString platformName() {
 /**
  * @brief 当前 CPU 架构在 version.json 里使用的名字。
  * @return "x86_64" / "x86" / "arm64"，无法识别时返回**已经转成小写**的那个原始值
- *         （QSysInfo 在各平台本来就返回小写，所以这一支今天看不出差别）。
+ * （QSysInfo 在各平台本来就返回小写，所以这一支今天看不出差别）。
  */
 inline QString platformArch() {
     const QString arch = QSysInfo::currentCpuArchitecture().toLower();
@@ -77,14 +75,7 @@ inline QString osVersion() {
 
 /**
  * @brief 按 pattern 串缓存的 `QRegularExpression`（给 `ruleMatches()` 里那条 `os.version`
- *        规则用）。
- *
- * 构造一个 `QRegularExpression` 实测 9.3 µs、用它 match 只 0.33 µs —— 每次现构造的话，
- * 光构造就比匹配贵三十倍（同一个理由见下面 `mavenPathForName()` 里那个 `static const
- * safe`）；先前这里正是每趟现构造，和那段注释自相矛盾。`QRegularExpression` 是隐式共享的，
- * 返回一份拷贝只是引用计数，编译好的 pattern 跟着共享。
- * `thread_local`：这一层会被下载线程池并发调到，不用锁、每线程一份；pattern 的种类有
- * 限（version.json 里写死的那几条），长不到哪去。
+ * 规则用）。
  */
 inline QRegularExpression cachedOsVersionPattern(const QString &pattern) {
     static thread_local QHash<QString, QRegularExpression> cache;
@@ -138,12 +129,12 @@ inline bool ruleMatches(const QJsonObject &rule, const QSet<QString> &features =
  * 这一段和 Mojang 那套（起手 lastAction = DISALLOW，逐条命中的覆盖它）逐字一致。
  *
  * NOTE: **唯一一处和 Mojang 不一样**：`"rules": []`（键在、但是个空数组）这里算**允许**，
- *       官方那套算**不允许**（它没有"空数组就放行"这条早退）。这条注释以前写的是笼统的
- *       "语义与 Mojang 一致"，把这个差别盖过去了。
- *       为什么朝着"允许"这边偏：这两种解释在现实中几乎不会碰上（真实版本 json 里没见过
- *       空数组），而万一碰上，两种错的代价差得很远 —— 多带一个库上 classpath 顶多是重复，
- *       少一个库是游戏起来时一句 NoClassDefFoundError（这个项目已经为这一类症状查过好几次）。
- *       哪天要改成和官方严格一致，判据就是"键在不在"（contains），而不是数组空不空。
+ * 官方那套算**不允许**（它没有"空数组就放行"这条早退）。这条注释以前写的是笼统的
+ * "语义与 Mojang 一致"，把这个差别盖过去了。
+ * 为什么朝着"允许"这边偏：这两种解释在现实中几乎不会碰上（真实版本 json 里没见过
+ * 空数组），而万一碰上，两种错的代价差得很远 —— 多带一个库上 classpath 顶多是重复，
+ * 少一个库是游戏起来时一句 NoClassDefFoundError（这个项目已经为这一类症状查过好几次）。
+ * 哪天要改成和官方严格一致，判据就是"键在不在"（contains），而不是数组空不空。
  */
 inline bool libraryAllowed(const QJsonObject &libObj,
                            const QSet<QString> &features = QSet<QString>()) {
@@ -172,7 +163,7 @@ inline bool libraryAllowed(const QJsonObject &libObj,
  * @brief 把 maven 坐标（library 的 `name`）翻译成它在 maven 仓库里的相对路径。
  * @param name 形如 `group:artifact:version`，可带 `:classifier`，末段可带 `@扩展名`。
  * @return 形如 `group/with/slashes/artifact/version/artifact-version[-classifier].jar`；
- *         解析不出来（字段不够、有任何一段不干净）时返回**空串**。
+ * 解析不出来（字段不够、有任何一段不干净）时返回**空串**。
  *
  * 什么时候用得上：**库对象里只有 `name` 和 `url`、没有 `downloads` 那一块**的时候。
  * 带模组加载器的版本 json 一律长这样 —— Fabric 的 profile json 里 8 个库全都没有
@@ -180,20 +171,20 @@ inline bool libraryAllowed(const QJsonObject &libObj,
  * 加载器生态（Forge/NeoForge 的 maven、Fabric 的 maven）都按它走。
  *
  * NOTE: 每一段都按 `[A-Za-z0-9._+-]+` 白名单过滤，**任何一段不符合就整体返回空**。
- *       这不是"防御性编程"的姿态：这个字符串来自**下载来的 JSON**，而它的用途是拼
- *       文件路径，`../../` 这种 group 会让库被写到 libraries/ 外面去。宁可这个库下不下来
- *       （调用方会跳过它、日志里看得见），也不要往任意路径写文件。
+ * 这不是"防御性编程"的姿态：这个字符串来自**下载来的 JSON**，而它的用途是拼
+ * 文件路径，`../../` 这种 group 会让库被写到 libraries/ 外面去。宁可这个库下不下来
+ * （调用方会跳过它、日志里看得见），也不要往任意路径写文件。
  * NOTE: 白名单里必须有 `+`。maven 的版本号本来就能带它，而 Fabric 真的在用：
- *       `net.fabricmc:sponge-mixin:0.17.4+mixin.0.8.7`（jar 的名字里也带 `+`，仓库那边
- *       就是这么存的）。漏了它这一个库就静默消失，症状还是那句 NoClassDefFoundError。
- *       反过来说，Windows 上不能进文件名的字符（`<>:"/\|?*`）一个都不在白名单里。
+ * `net.fabricmc:sponge-mixin:0.17.4+mixin.0.8.7`（jar 的名字里也带 `+`，仓库那边
+ * 就是这么存的）。漏了它这一个库就静默消失，症状还是那句 NoClassDefFoundError。
+ * 反过来说，Windows 上不能进文件名的字符（`<>:"/\|?*`）一个都不在白名单里。
  * NOTE: **classifier 是可选的**（`group:artifact:version` 三段最常见，Fabric 给的 8 个
- *       坐标里有 7 个就是三段）—— 所以它不能进上面那个"任何一段为空就拒绝"的循环，
- *       否则每一个不带 classifier 的坐标都会解析失败。这个坑很容易再踩一次。
+ * 坐标里有 7 个就是三段）—— 所以它不能进上面那个"任何一段为空就拒绝"的循环，
+ * 否则每一个不带 classifier 的坐标都会解析失败。这个坑很容易再踩一次。
  * NOTE: `@zip` 这类扩展名照收（maven 的坐标本来就允许），classifier 段最多认一个，
- *       第 5 段往后直接**当作不存在**：maven 没有那种形式，拿它拼只会得到错路径，
- *       而"错路径"在下载时会 404、界面报错，比"静默少一个库、游戏起来时
- *       NoClassDefFoundError"更容易查。
+ * 第 5 段往后直接**当作不存在**：maven 没有那种形式，拿它拼只会得到错路径，
+ * 而"错路径"在下载时会 404、界面报错，比"静默少一个库、游戏起来时
+ * NoClassDefFoundError"更容易查。
  */
 inline QString mavenPathForName(const QString &name) {
     QString coordinate = name;
@@ -214,17 +205,6 @@ inline QString mavenPathForName(const QString &name) {
     const QString classifier = parts.size() > 3 ? parts.at(3) : QString();
 
     // 字符白名单：允许 `.` 是因为它要做**段内**的分隔（组名的层级、版本号里的点）。
-    //
-    // NOTE: **但整段就是 `.` 或 `..` 的一律拒**（2026-09-24 补的）。`..` 本来就能过
-    //       `[A-Za-z0-9._+-]+`，而 artifact / version 是原样当**路径段**拼进去的
-    //       （见下面那行），于是 `a:..:..` 能拼出 `a/../../a-...jar` —— 越到 libraries/
-    //       外面一层去。这一段拼出来是给 files/ 和 libraries/ 用的相对路径，写出去就是
-    //       把文件丢到别的目录。仓库里没有这样的坐标（那些是被规则过滤掉的垃圾数据才会
-    //       有的形状），所以拒掉它不会少装任何东西。
-    // `static const`：这条尺子是**常量**，而 artifactFor()/nativeClassifier() 会给每一个库
-    // 各跑一趟（一次启动约 200 个库）。构造一个 QRegularExpression 实测 9.3 µs、用它 match
-    // 0.33 µs —— 每次现构造的话，光是构造就比匹配贵三十倍（上游**没有**这层缓存，见
-    // qregularexpression.cpp：compilePattern() 是 doMatch 时惰性跑的，模式缓存不存在）。
     static const QRegularExpression safe(QStringLiteral("^[A-Za-z0-9._+-]+$"));
     // 不写捕获列表：`safe` 是 static（静态存储期），lambda 直接就能看见它 —— 写 `[&safe]`
     // 反而会让 gcc 报一条「capture of variable with non-automatic storage duration」。
@@ -264,15 +244,15 @@ inline QString mavenPathForName(const QString &name) {
  * `"path": "../../../x.jar"`，库就落到 `libraries/` 外面去了（Windows 上那就是一个
  * DLL 劫持面）。所以同一把尺子量到底。
  *
- * NOTE: **实测过真实数据**（2026-09-25）：本机 `E:\MC\.minecraft\versions` 下 66 份
- *       version.json、6596 条 path（872 条去重，含 Forge/NeoForge/OptiFine/Fabric 装出来的
- *       那些）逐段喂进来，**一条都过不了白名单的都没有**；出现过的字符只有
- *       `+ - . / 0-9 F J M S _ a-z`。所以这条判据不会把任何一个正经库挡在外面。
+ * NOTE: **实测过真实数据**：本机 `E:\MC\.minecraft\versions` 下 66 份
+ * version.json、6596 条 path（872 条去重，含 Forge/NeoForge/OptiFine/Fabric 装出来的
+ * 那些）逐段喂进来，**一条都过不了白名单的都没有**；出现过的字符只有
+ * `+ - . / 0-9 F J M S _ a-z`。所以这条判据不会把任何一个正经库挡在外面。
  *
  * NOTE: 判据比 maven 那条多两样（那边是逐段拼、这里的字符串是整条路径）：
- *   - **反斜杠一律拒** —— 它按 `/` 切是一整段，逐段看起来完全正常（`..\..\x.jar`），
- *     而 Windows 那边照样当分隔符用；
- *   - **冒号一律拒** —— 盘符（`C:...`）和 NTFS 的备用数据流（`a.jar:x`）都是靠它。
+ * - **反斜杠一律拒** —— 它按 `/` 切是一整段，逐段看起来完全正常（`..\..\x.jar`），
+ * 而 Windows 那边照样当分隔符用；
+ * - **冒号一律拒** —— 盘符（`C:...`）和 NTFS 的备用数据流（`a.jar:x`）都是靠它。
  */
 inline bool libraryRelativePathIsSafe(const QString &path) {
     if (path.isEmpty()) {
@@ -325,18 +305,18 @@ struct Artifact {
  * @return 路径/地址至少有一个解析不出来时返回一个 invalid 结构。
  *
  * 三种写法：
- *   1. `downloads.artifact` 里给全了 path/url/sha1/size（Mojang 的原版 json 都是这样）；
- *   2. **只有 `name`（maven 坐标）和 `url`（仓库地址）**。带模组加载器的版本 json 一律
- *      长这样 —— Fabric 的 profile json 里 8 个库全都没有 `downloads` 那一块；
- *   3. **只有 `name`，连 `url` 都没有**（见下面那条）：jar 是别人已经放好的，不下只挂。
+ * 1. `downloads.artifact` 里给全了 path/url/sha1/size（Mojang 的原版 json 都是这样）；
+ * 2. **只有 `name`（maven 坐标）和 `url`（仓库地址）**。带模组加载器的版本 json 一律
+ * 长这样 —— Fabric 的 profile json 里 8 个库全都没有 `downloads` 那一块；
+ * 3. **只有 `name`，连 `url` 都没有**（见下面那条）：jar 是别人已经放好的，不下只挂。
  *
  * 第 2 种照"只认 downloads.artifact"的判据会被**静默跳过**，症状是加载器装好了、
  * 启动时 NoClassDefFoundError 找不到 net.fabricmc.loader，而下载界面一路绿灯。
  *
  * NOTE: 路径按 maven 的规矩从名字拼，而那个名字来自**下载来的 JSON**、用途是拼文件路径，
- *       `mavenPathForName()` 的逐段白名单正是为此（`../../` 这种 group 会让库被写到
- *       libraries/ 外面去）。拼不出来时如果仓库地址是有的，**必须吭声** —— 不然就是
- *       "库静默少了一个"，只有游戏起来时才炸。
+ * `mavenPathForName()` 的逐段白名单正是为此（`../../` 这种 group 会让库被写到
+ * libraries/ 外面去）。拼不出来时如果仓库地址是有的，**必须吭声** —— 不然就是
+ * "库静默少了一个"，只有游戏起来时才炸。
  */
 inline Artifact artifactFor(const QJsonObject &libObj) {
     Artifact result;
@@ -351,12 +331,12 @@ inline Artifact artifactFor(const QJsonObject &libObj) {
     result.size = artifact.value(QStringLiteral("size")).toVariant().toLongLong();
 
     // 这个 path 是**原样收下、原样拼**的（:233 那句就是它），所以先过一遍白名单。
-    // NOTE(2026-09-25)：这里原来**没有**这道闸 —— 白名单只做在下面那条"没有 downloads
-    //       块、按 maven 名字拼"的回退路上，而两条路的字符串是同一个来路、同一个用途。
-    //       给一句 `"path":"../../../x.jar"` 就够了，库会落到 libraries/ 外面。
-    //       拒掉之后**不算完**：把 path 清掉，让下面那条 maven 回退路照样有机会把这个库
-    //       装对（名字干净的话它拼出来的路径是安全的）；名字也拼不出来才真的少一个库 ——
-    //       那种情况上面已经 qWarning 了，不会静默。
+    // NOTE()：这里原来**没有**这道闸 —— 白名单只做在下面那条"没有 downloads
+    // 块、按 maven 名字拼"的回退路上，而两条路的字符串是同一个来路、同一个用途。
+    // 给一句 `"path":"../../../x.jar"` 就够了，库会落到 libraries/ 外面。
+    // 拒掉之后**不算完**：把 path 清掉，让下面那条 maven 回退路照样有机会把这个库
+    // 装对（名字干净的话它拼出来的路径是安全的）；名字也拼不出来才真的少一个库 ——
+    // 那种情况上面已经 qWarning 了，不会静默。
     if (!result.path.isEmpty() && !libraryRelativePathIsSafe(result.path)) {
         qWarning() << "Refusing an unsafe library path from the version json:" << result.path
                    << "for" << libObj.value(QStringLiteral("name")).toString();

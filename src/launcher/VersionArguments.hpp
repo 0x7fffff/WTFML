@@ -1,10 +1,8 @@
 /**
  * @file VersionArguments.hpp
  * @brief 展开 version.json 的 arguments 数组（平台规则过滤 + ${...} 占位符替换）。
- * @author 0x7fffff
- * @date 2026-09
  * @note 做成 header-only：LauncherManager 和验证工程都要用，而它只依赖
- *       LibraryRules 的规则判定，不需要 Widgets。
+ * LibraryRules 的规则判定，不需要 Widgets。
  */
 #pragma once
 
@@ -23,7 +21,7 @@ namespace VersionArguments {
 /// 替换一条参数里的 ${...} 占位符。
 ///
 /// NOTE: 不认识的占位符**保留原文并告警**。宁可日志里显眼，也不要静默丢掉一个 Mojang
-///       认为必要的参数 —— 那种"参数凭空消失"正是 26.3 崩溃的成因。
+/// 认为必要的参数 —— 那种"参数凭空消失"正是 26.3 崩溃的成因。
 inline QString substitutePlaceholders(const QString &raw,
                                       const QHash<QString, QString> &placeholders) {
     QString arg = raw;
@@ -42,11 +40,11 @@ inline QString substitutePlaceholders(const QString &raw,
  * 用来避免同一件事发两遍：加载器版本的 arguments.game 是**整份继承下来的**，里面绝大多数
  * 条目原版就有，而启动器那边已经按自己的规则发过一遍（--username / --gameDir / ...）。
  *
- * NOTE: `--width`/`--height` 在这张表里是**有活干**的，不是凑数（2026-09-24 补的说明）。
- *       原版 json 里那条带 `has_custom_resolution` 规则的 width/height 条目就是靠这里被
- *       丢掉的 —— 去掉它们的话，用户设了窗口大小、而启动器又自己发一遍 `--width`，同一个
- *       开关就会发两次，joptsimple 遇到重复选项直接报错退出。启动器那一侧发这一对参数的
- *       地方见 LauncherManager::generateJvmArguments 里「游戏窗口大小」那一段。
+ * NOTE: `--width`/`--height` 在这张表里是**有活干**的，不是凑数（ 补的说明）。
+ * 原版 json 里那条带 `has_custom_resolution` 规则的 width/height 条目就是靠这里被
+ * 丢掉的 —— 去掉它们的话，用户设了窗口大小、而启动器又自己发一遍 `--width`，同一个
+ * 开关就会发两次，joptsimple 遇到重复选项直接报错退出。启动器那一侧发这一对参数的
+ * 地方见 LauncherManager::generateJvmArguments 里「游戏窗口大小」那一段。
  */
 inline bool isVanillaGameArgument(const QString &flag) {
     static const QSet<QString> names = {
@@ -66,17 +64,11 @@ inline bool isVanillaGameArgument(const QString &flag) {
 
 /**
  * @brief 只做"规则过滤"这一步：把 arguments 数组里**适用**的条目按原顺序摊平成原始 token
- *        列表，**一个占位符都不替换**。
- *
- * 抽出来是为了让"替换"能排到调用方自己的过滤之后去做（见 extraGameArguments 那段 NOTE）：
- * `expand()` 是"过滤 + 替换"一步到位，而 `substitutePlaceholders()` 会给每条还带着 `${}`
- * 的参数打一句 qWarning —— 中间那一步先替换的话，明知下一句就要整条跳过的那些原版参数
- * 会**每次启动都刷一屏警告**（实测 1.18.2 / 1.20.1 各 11 条、1.21.11+ 有 10 条），
- * 而那几行一个字节都不会进命令行。
+ * 列表，**一个占位符都不替换**。
  *
  * NOTE: `dropClasspath` 那一格**不在这里**（它挪不掉）—— 它要在替换之前看着"上一条是不是
- *       已经被丢了"，所以留在 `expand()` 里。调用它的只有 extraGameArguments，而那边
- *       本来就是 `dropClasspath = false`。
+ * 已经被丢了"，所以留在 `expand()` 里。调用它的只有 extraGameArguments，而那边
+ * 本来就是 `dropClasspath = false`。
  */
 inline QStringList declaredArguments(const QJsonArray &entries,
                                      const QSet<QString> &features = QSet<QString>()) {
@@ -111,8 +103,8 @@ inline QStringList declaredArguments(const QJsonArray &entries,
  * @brief 把一个 arguments 数组展开成参数列表。
  *
  * NOTE: 两种数组它都能吃，但启动器给它的主要是 arguments.jvm（调用点在 LauncherManager）。
- *       version.json 的 arguments.game 走的是下面 extraGameArguments 那一条 —— 那是
- *       2026-09-22 补的（NeoForge 26.2 启动即崩，缺的正是 arguments.game 里的 --fml.*）。
+ * version.json 的 arguments.game 走的是下面 extraGameArguments 那一条 —— 那是
+ * 补的（NeoForge 26.2 启动即崩，缺的正是 arguments.game 里的 --fml.*）。
  * @param entries version.json 里 arguments 下的数组，可同时含字符串和规则对象。
  * @param placeholders ${...} 占位符到实际值的映射。
  * @param features 已启用的 feature 集合，启动器不启用任何 feature，传空即可。
@@ -120,8 +112,8 @@ inline QStringList declaredArguments(const QJsonArray &entries,
  * @return 返回可以直接交给 QProcess 的参数列表。
  *
  * 数组里每个元素有两种形态：
- *   - 字符串：无条件使用，例如 '-XX:StackShadowPages=32'；
- *   - 对象：{"rules": [...], "value": <字符串或字符串数组>}，只有规则命中当前平台才使用。
+ * - 字符串：无条件使用，例如 '-XX:StackShadowPages=32'；
+ * - 对象：{"rules": [...], "value": <字符串或字符串数组>}，只有规则命中当前平台才使用。
  *
  * NOTE: 规则对象的形状和 library 的 rules 完全一致（rules 数组 + allow/disallow
  * 折叠），所以这里直接复用 LibraryRules::libraryAllowed —— 绝不写第二份规则逻辑，
@@ -173,38 +165,27 @@ inline bool declaresPrefix(const QStringList &args, const QString &prefix) {
 /**
  * @brief 把 version.json 自己声明的**额外游戏参数**挑出来。
  *
- * NOTE: 这个问题是 2026-09-22 由真机日志顶出来的（用户报"启动游戏崩了"）：
- *       `versions/neoforge-26.2.0.88/` 那份 json 的 arguments.game 里写着
- *       `--fml.neoForgeVersion 26.2.0.88 --fml.mcVersion 26.2 --fml.neoFormVersion 2`，
- *       而启动器**只展开 arguments.jvm**，于是 FML 起来第一句就是
- *       "When launching in production, --fml.mcVersion must be present as a
- *       command-line argument"，紧接着 `VersionSupportMatrix.<init>` 拿着 null 版本号 NPE，
- *       游戏在加载窗口那一步就没了（日志见 build/.minecraft/logs/latest.log）。Forge 走的
- *       是同一条路（`--launchTarget forgeclient --fml.*`）；Fabric 不受影响（它的东西都在
- *       arguments.jvm 里），所以这个 bug 只在 Forge / NeoForge 上现形。
+ * NOTE: 这个问题是 由真机日志顶出来的（用户报"启动游戏崩了"）：
+ * `versions/neoforge-26.2.0.88/` 那份 json 的 arguments.game 里写着
+ * `--fml.neoForgeVersion 26.2.0.88 --fml.mcVersion 26.2 --fml.neoFormVersion 2`，
+ * 而启动器**只展开 arguments.jvm**，于是 FML 起来第一句就是
+ * "When launching in production, --fml.mcVersion must be present as a
+ * command-line argument"，紧接着 `VersionSupportMatrix.<init>` 拿着 null 版本号 NPE，
+ * 游戏在加载窗口那一步就没了（日志见 build/.minecraft/logs/latest.log）。Forge 走的
+ * 是同一条路（`--launchTarget forgeclient --fml.*`）；Fabric 不受影响（它的东西都在
+ * arguments.jvm 里），所以这个 bug 只在 Forge / NeoForge 上现形。
  *
- * 三条规矩：
- *   1. 已经在 `alreadyPassed` 里发过的选项、以及原版那套参数名（isVanillaGameArgument），
- *      一律跳过（**连它的值一起**），剩下的按原顺序原样追加。纯原版那条路因此是空的：它的
- *      arguments.game / minecraftArguments 里全是那套名字（实测 26.2 / 26.3 / 1.18.2 /
- *      1.19 / 1.12.2 五份原版 json，名单外的 flag 一个都没有），而原版启动器该怎么发这些
- *      参数、上面那段硬编码已经发过了 —— 已经验过的那条路逐字节不变。
- *   2. 老格式（`minecraftArguments` 那个空格分隔的字符串）也吃 —— 1.12.2 那一代的 Forge
- *      就是靠它声明 `--tweakClass` 的，同样从来没被展开过。
- *   3. 占位符在**过滤之后**才替换（下面那一段说的是怎么做到的）—— 被丢掉的那些参数
- *      不替换、也就不为它们报「值没填」。
- *
- * NOTE: 2026-09-22 第二版改动：**判据不是 `inheritsFrom`**。第一版写的是"json 里有
- *       inheritsFrom 才展开"，单元测试（拿 meta/ 里那份原样的加载器 profile 喂进去）是过的，
- *       可真实启动那条路上进来的 json 是**继承链合并过**的那份 —— 而 `VersionInheritance::
- *       merge` 刻意把 `inheritsFrom` 丢掉了（见那边的 NOTE），于是判据恒为假、这三条
- *       `--fml.*` 一条都发不出去，NeoForge 26.2 照旧崩在原来那一句上。
- *       这个坑是靠 `verify.exe dumpmerged <版本> <主版本> <文件>`（拿沙箱里真装好的版本目录
- *       走一遍合并，把 generateJvmArguments 的结果打出来）看出来的：光看单元测试是绿的。
- *       所以判据只剩上面第 1 条 —— 它对"合并过的"和"没合并的"两种输入给同一个答案。
+ * NOTE: 第二版改动：**判据不是 `inheritsFrom`**。第一版写的是"json 里有
+ * inheritsFrom 才展开"，单元测试（拿 meta/ 里那份原样的加载器 profile 喂进去）是过的，
+ * 可真实启动那条路上进来的 json 是**继承链合并过**的那份 —— 而 `VersionInheritance::
+ * merge` 刻意把 `inheritsFrom` 丢掉了（见那边的 NOTE），于是判据恒为假、这三条
+ * `--fml.*` 一条都发不出去，NeoForge 26.2 照旧崩在原来那一句上。
+ * 这个坑是靠 `verify.exe dumpmerged <版本> <主版本> <文件>`（拿沙箱里真装好的版本目录
+ * 走一遍合并，把 generateJvmArguments 的结果打出来）看出来的：光看单元测试是绿的。
+ * 所以判据只剩上面第 1 条 —— 它对"合并过的"和"没合并的"两种输入给同一个答案。
  *
  * @param versionJson 版本 json（**最终那份**：加载器版本是继承链合并后的，merge 会把
- *        arguments.game 按"父在前、子在后"拼起来）。
+ * arguments.game 按"父在前、子在后"拼起来）。
  * @param alreadyPassed 启动器已经发过的参数（把最终 args 列表原样传进来即可）。
  * @param placeholders ${...} 占位符到实际值的映射（游戏参数那一套，见调用点）。
  * @param features 已启用的 feature 集合，启动器不启用任何 feature，传空即可。
@@ -218,19 +199,19 @@ inline QStringList extraGameArguments(const QJsonObject &versionJson,
     const QJsonArray game = arguments.value(QStringLiteral("game")).toArray();
     QStringList declared;
     if (!game.isEmpty()) {
-        // ★ 这一份**只过滤、不替换**（`declaredArguments()` 而不是 `expand()`）—— 替换挪到
-        //   最后那一步去做。理由：这一份里绝大多数条目是原版那套名字（`--clientId
-        //   ${clientid}`、`--xuid ${auth_xuid}`、`--userProperties ${user_properties}`、
-        //   `--quickPlayPath ${quickPlayPath}` …），它们**下一句就会被整条跳掉**（启动器
-        //   自己发的是另一份），可那几个占位符我们本来就不提供 —— 先替换的话，每一次启动
-        //   都会为这几条打一句「Unresolved placeholder」（实测 10~11 条），而那几行
-        //   **一个字节都不会进命令行**。真出问题的那种（我们会发出去、却没人填值的）照样
-        //   会报，因为它活到了最后那一步。
+        // 这一份**只过滤、不替换**（`declaredArguments()` 而不是 `expand()`）—— 替换挪到
+        // 最后那一步去做。理由：这一份里绝大多数条目是原版那套名字（`--clientId
+        // ${clientid}`、`--xuid ${auth_xuid}`、`--userProperties ${user_properties}`、
+        // `--quickPlayPath ${quickPlayPath}` …），它们**下一句就会被整条跳掉**（启动器
+        // 自己发的是另一份），可那几个占位符我们本来就不提供 —— 先替换的话，每一次启动
+        // 都会为这几条打一句「Unresolved placeholder」（实测 10~11 条），而那几行
+        // **一个字节都不会进命令行**。真出问题的那种（我们会发出去、却没人填值的）照样
+        // 会报，因为它活到了最后那一步。
         //
-        //   NOTE: 2026-09-26 修的那一版**原来是错的**：这里传的是 `expand(game, 空映射,
-        //         features, false)`——`expand()` 里那句 `substitutePlaceholders()` 是**无条件
-        //         调的**，空映射只是"一条都换不掉"，警告照发 ⇒ 注释逐字承诺的事一件没做到，
-        //         反而每次启动多刷 10~11 条。**空映射不等于"不替换"**，这个坑就是那句话。
+        // NOTE: 修的那一版**原来是错的**：这里传的是 `expand(game, 空映射,
+        // features, false)`——`expand()` 里那句 `substitutePlaceholders()` 是**无条件
+        // 调的**，空映射只是"一条都换不掉"，警告照发 ⇒ 注释逐字承诺的事一件没做到，
+        // 反而每次启动多刷 10~11 条。**空映射不等于"不替换"**，这个坑就是那句话。
         declared = declaredArguments(game, features);
     } else {
         declared = versionJson.value(QStringLiteral("minecraftArguments"))

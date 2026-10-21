@@ -1,8 +1,6 @@
 /**
  * @file AccountSkinDialog.cpp
  * @brief 「账号与外观」对话框（见 .hpp 里那几段说明）。
- * @author 0x7fffff
- * @date 2026-09-22
  */
 
 #include "AccountSkinDialog.hpp"
@@ -89,18 +87,15 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     accountTitle->setFont(sectionFont);
     left->addWidget(accountTitle);
 
-    // ★ 2026-09-29 用户原话「账户管理那里太长了做短一点，添加账户等按钮放到顶上」。
-    //   这一栏**摆的次序**改了，控件本身一块都没动：
+    // 标题 → 四个按钮 → 离线那一行 → 列表（吃掉剩下的高度）→ 登录说明
     //
-    //       标题 → 四个按钮 → 离线那一行 → 列表（吃掉剩下的高度）→ 登录说明
+    // 从前是"标题 → 列表 → 说明 → 按钮 → 离线那一行"：按钮压在列表底下，列表一长
+    // 整窗就往下坠，加账号还得先往下找。现在按钮贴着标题，列表在它下面长。
     //
-    //   从前是"标题 → 列表 → 说明 → 按钮 → 离线那一行"：按钮压在列表底下，列表一长
-    //   整窗就往下坠，加账号还得先往下找。现在按钮贴着标题，列表在它下面长。
-    //
-    //   NOTE: **建控件**的次序一个字没改（下面还是按老次序 new 出来的）—— Qt 里"摆在哪"
-    //         只由 `addWidget()` / `addLayout()` 的次序说了算，new 的先后不影响。
-    //         所以这一段和下面那两处 `addWidget`/`addLayout` 是**同一件事的两半**，
-    //         改一头必须改另一头（`m_accountList` 和 `loginHint` 是在下面才 add 的）。
+    // NOTE: **建控件**的次序一个字没改（下面还是按老次序 new 出来的）—— Qt 里"摆在哪"
+    // 只由 `addWidget()` / `addLayout()` 的次序说了算，new 的先后不影响。
+    // 所以这一段和下面那两处 `addWidget`/`addLayout` 是**同一件事的两半**，
+    // 改一头必须改另一头（`m_accountList` 和 `loginHint` 是在下面才 add 的）。
     m_accountList = new QListWidget(this);
     m_accountList->setObjectName(accountListName());
     m_accountList->setMinimumHeight(kListMinHeight);
@@ -119,9 +114,9 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_removeButton = new QPushButton(removeButtonText(), this);
     m_removeButton->setObjectName(removeButtonName());
     // 「删除所选」是这一窗里唯一一处**删东西**的按钮（账号删了就没了），所以它走那一档
-    // **红字红边**（用户 2026-09-28：「按钮文本和边框用这个颜色/黑色/红色」里那个红）。
+    // **红字红边**（用户 ：「按钮文本和边框用这个颜色/黑色/红色」里那个红）。
     // NOTE: 挂属性就够，样式表那边按属性选中（见 `Theme::buttonStyleSheet()`）——
-    //       属性要在**第一次 polish 之前**挂上，所以是紧挨着 new 的这一行。
+    // 属性要在**第一次 polish 之前**挂上，所以是紧挨着 new 的这一行。
     Theme::markButton(m_removeButton, Theme::ButtonKind::Danger);
     m_refreshButton = new QPushButton(refreshButtonText(), this);
     m_refreshButton->setObjectName(refreshButtonName());
@@ -244,7 +239,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
 
     // ---------- 底：关闭 ----------
     // NOTE: 只有「关闭」，没有「确定」—— 这个窗里的每一件事（切换、上传、换披风）**当场
-    //       就生效**，没有"确定之后才写盘"这一层。摆一个"确定"会让用户以为不点它就不算数。
+    // 就生效**，没有"确定之后才写盘"这一层。摆一个"确定"会让用户以为不点它就不算数。
     QHBoxLayout *bottom = new QHBoxLayout();
     root->addLayout(bottom);
     bottom->addStretch(1);
@@ -423,8 +418,6 @@ void AccountSkinDialog::setBusy(bool busy, const QString &what) {
 void AccountSkinDialog::setOfflineSkinState(bool offline, bool hasCustomSkin) {
     m_offlineSkin = offline;
     m_hasCustomSkin = hasCustomSkin;
-    // 两档互斥：「上传皮肤…」要令牌（离线账号没有），「换一张…」只动本机。
-    // 藏起来而不是灰着 —— 一颗永远点不动的按钮只会让人问"为什么它不亮"。
     m_uploadButton->setVisible(!offline);
     m_offlineSkinButton->setVisible(offline);
     m_offlineSkinResetButton->setVisible(offline);
@@ -451,15 +444,15 @@ QString AccountSkinDialog::selectedVariant() const {
 
 void AccountSkinDialog::pickSkinFile() {
     // NOTE: 这一处也是独立窗（Windows 自己的文件选择框）—— 理由和取舍见
-    //       MainWindow::onAddFolderClicked() 上面那一段。
+    // MainWindow::onAddFolderClicked() 上面那一段。
     const QString path = QFileDialog::getOpenFileName(this, tr("选择皮肤图片"), QString(),
                                                       tr("PNG 图片 (*.png)"));
     if (path.isEmpty()) {
         return;  // 用户取消了，不是错误
     }
     // NOTE: 这里**只**把路径交出去，不自己校验尺寸 —— 尺寸那条规矩在
-    //       SkinApi::isAcceptableSkinSize() 里（唯一出处），校验失败由 MainWindow 弹窗说。
-    //       在这个窗里也判一遍的话，会出现"这里说不行、那边说行"的两份判据。
+    // SkinApi::isAcceptableSkinSize() 里（唯一出处），校验失败由 MainWindow 弹窗说。
+    // 在这个窗里也判一遍的话，会出现"这里说不行、那边说行"的两份判据。
     emit skinUploadRequested(path, selectedVariant());
 }
 
@@ -485,7 +478,7 @@ void AccountSkinDialog::refreshButtonStates() {
     // 「切换到所选」「删除所选」「显示所选披风」三件事都**要有一个选中的东西**才做得了。
     // 没选中就灰着：点了没反应比灰着更难理解（用户会以为功能坏了）。
     // NOTE: 三个都要**同时**看「有没有选中」和「忙不忙」。只看选中那一半的话，
-    //       setBusy(true) 里末尾那次调用会把它们重新点亮（见 .hpp 里 m_busy 那段）。
+    // setBusy(true) 里末尾那次调用会把它们重新点亮（见 .hpp 里 m_busy 那段）。
     const bool idle = !m_busy;
     const bool haveAccount = !selectedUuid().isEmpty();
     m_switchButton->setEnabled(idle && haveAccount);
@@ -496,13 +489,6 @@ void AccountSkinDialog::refreshButtonStates() {
     // 不看"有没有选中"（加东西不依赖选中项）。
     m_offlineNameEdit->setEnabled(idle);
     m_addOfflineButton->setEnabled(idle);
-    // ★ 2026-09-27：这颗原来**漏了**（setBusy() 里灰了六样、偏偏没灰它），所以忙态下它照样
-    //   点得动。它的槽是这一页里最重的一颗（MainWindow::onCapeHideRequested()：**同步**
-    //   loadSavedToken() → 发一次取消披风的请求 → 再进一次 refreshAccountSkin()），正撞在
-    //   "正在刷新外观"或"正在等浏览器完成登录"那两段上：等于在别人的嵌套事件循环里又发一轮
-    //   请求、又重入一次刷新，忙态、状态行和"我点的是哪个账号"当场对不上。
-    //   NOTE: 它**不看"有没有选中"**（取消披风作用于当前账号，不依赖右栏选中的那一项），
-    //         所以只借 idle 这一半 —— 和上面「加离线账号」那两颗同一个形状。
     m_hideCapeButton->setEnabled(idle);
     // 离线那一档：露着的时候才按 idle 判；「恢复默认外观」还要**确实有东西可撤** ——
     // 没有手动挑过、按下去什么也不会变的按钮，灰着比亮着好懂。

@@ -1,12 +1,10 @@
 /**
  * @file ToolboxPage.hpp
  * @brief 工具箱那一整页（底栏那把扳手 → 一片整块盖住内容区的页），五件小工具共用一页；
- *        第六件「高速下载」不在这一页里，它开自己的独立窗口（见下面的【第六件】）。
- * @author 0x7fffff
- * @date 2026-10-16
- * @note 用户 2026-10-16 点名的那一批：文件哈希校验、MOTD 文本生成器（含彩色文本那几种
- *       命令写法）、坐标换算（认 F3+C 复制来的那行 tp 命令）、服务器在线检测，再加上他
- *       补的「基于 mc 的铁砧惩罚机制做一个附魔顺序助手」。
+ * 第六件「高速下载」不在这一页里，它开自己的独立窗口（见下面的【第六件】）。
+ * @note 用户 点名的那一批：文件哈希校验、MOTD 文本生成器（含彩色文本那几种
+ * 命令写法）、坐标换算（认 F3+C 复制来的那行 tp 命令）、服务器在线检测，再加上他
+ * 补的「基于 mc 的铁砧惩罚机制做一个附魔顺序助手」。
  *
  * 【为什么五件工具在一个页里，而不是五片页】
  *
@@ -17,12 +15,12 @@
  *
  * 【第六件：高速下载为什么不在 chip 里】
  *
- * 2026-10-17 加的那一件（直链下载）**和这五件不是一个形状**：它要一直挂着一个正在跑的任务
+ * 加的那一件（直链下载）**和这五件不是一个形状**：它要一直挂着一个正在跑的任务
  * （进度、取消、关掉窗口还得接着下），塞进"随手用一下就走"的 chip 页会把这一页变成半个
  * 任务中心。所以它仍然登记在**同一张表** `kToolInfos` / `tools()` 里（键、名字、说明、底栏
  * 面板那颗按钮都跟着这张表走），但 `m_tools` 在构造里把它摘掉：chip 只有五颗、
  * `QStackedWidget` 也只有五片，它由 `ToolboxController::open("download")` 转给独立窗口。
- * 用户 2026-10-17 点名：工具箱里的工具允许开独立小窗口（以后可能加到十条）。
+ * 用户 点名：工具箱里的工具允许开独立小窗口（以后可能加到十条）。
  *
  * 【这一页自己一根手指都不碰游戏目录】
  *
@@ -74,7 +72,7 @@ class ToolboxPage : public QDialog {
 public:
     /// 十件工具。**`tools()` 是 chip 那一排的次序唯一出处**：顶上那排 chip 用其中除
     /// `Download` 之外的九件（`.cpp` 构造里摘的）；底栏面板另按 `panelTools()` 摆
-    /// （两列五排，2026-10-18 用户拿图点名的那张）。
+    /// （两列五排， 用户拿图点名的那张）。
     enum class Tool { Anvil, Text, Coord, Server, Hash, Beacon, Brewing, Banner, Trim, Download };
 
     /// 工具的键（底栏面板那六颗按钮、`ToolboxController::open()` 都用它认人）。
@@ -87,7 +85,7 @@ public:
     static QString toolSummary(Tool tool);
     /// 八件，**次序唯一出处**（`Download` 排第一；它不出 chip、只出底栏面板那颗按钮）。
     static QList<Tool> tools();
-    /// 底栏那块「工具箱」面板的摆放次序（2026-10-18 用户拿图点名的那张：**两列五排、
+    /// 底栏那块「工具箱」面板的摆放次序（ 用户拿图点名的那张：**两列五排、
     /// 行优先**）。它和 `tools()` 故意不是同一个次序 —— `tools()` 是 chip 那一排的次序，
     /// 面板按常用程度从左到右、从上到下另排一张。返回的十件一件不多一件不少。
     static QList<Tool> panelTools();
@@ -282,9 +280,9 @@ public:
     void setHashView(const HashView &view);
     /// 批量算完之后那一列（文件名 / 大小 / 摘要；没算成的那几个带原因）。
     ///
-    /// ★ 和 `setHashView()` **是两档**：单文件那一份是"一个大摘要摆在正中间"，批量这一份是
-    ///   一张清单 —— 两档各自把对方那份收掉（按钮、`hashBatchText()` 都跟着走），免得屏幕上
-    ///   一半是上一次的单文件结果、一半是这一次的清单。
+    /// 和 `setHashView()` **是两档**：单文件那一份是"一个大摘要摆在正中间"，批量这一份是
+    /// 一张清单 —— 两档各自把对方那份收掉（按钮、`hashBatchText()` 都跟着走），免得屏幕上
+    /// 一半是上一次的单文件结果、一半是这一次的清单。
     struct HashBatchRow {
         QString name;      ///< 文件名（清单里那一行开头就是它）
         QString path;      ///< 完整路径（tooltip 与导出用）
@@ -296,7 +294,7 @@ public:
     /// @param rows 已算完的那几个（顺序就是选文件的顺序）
     /// @param summary 顶上那句（"共 3 个文件 · SHA-256 · 1 个没算成"这种，controller 拼）
     void setHashBatchView(const QList<HashBatchRow> &rows, const QString &summary);
-    /// 批量结果导出/复制的**纯文本**（`<摘要>  <文件名>` 一行一个，标准校验和格式）。
+    /// 批量结果导出/复制的**纯文本**（`<摘要> <文件名>` 一行一个，标准校验和格式）。
     /// 没有批量结果时是空串。
     QString hashBatchText() const;
     /// 批量时那句"第 i / n 个：名字"（单文件那一趟不受影响）。
@@ -306,9 +304,9 @@ public:
     void setHashBusy(bool busy);
     /// 算完之后那个文件被改过 / 不在了 ⇒ 摆这句提醒（空串 = 收起来）。
     ///
-    /// ★ 为什么这句必须露在结果旁边：屏幕上那串十六进制**看上去和刚才一模一样**，
-    ///   但它已经不是这个文件现在的摘要了。不说的话，用户会拿它去和人家给的比，
-    ///   然后得出一个反的结论（"明明重新下载过了还是对不上"）。
+    /// 为什么这句必须露在结果旁边：屏幕上那串十六进制**看上去和刚才一模一样**，
+    /// 但它已经不是这个文件现在的摘要了。不说的话，用户会拿它去和人家给的比，
+    /// 然后得出一个反的结论（"明明重新下载过了还是对不上"）。
     void setHashStaleNote(const QString &text);
 
     // ================= 六、信标计算 =================
@@ -427,7 +425,7 @@ signals:
     void brewingRequested(int potionIndex, bool extended, bool level2, int formIndex,
                           int bottles);
     // ---- 旗帜设计 / 纹饰搭配 ----
-    /// @p layers 每层一项 `图案下标:颜色下标`，顺序 = 从下往上叠的顺序。
+    // / @p layers 每层一项 `图案下标:颜色下标`，顺序 = 从下往上叠的顺序。
     void bannerRequested(int baseColor, const QStringList &layers);
     void trimRequested(int armorMaterial, int part, int patternIndex, int trimMaterial,
                        int pieces, bool wholeSet);
@@ -519,7 +517,7 @@ private:
     QPushButton *m_hashBatch = nullptr;    ///< 「批量…」——选好几个文件一次算
     QPushButton *m_hashCopyAll = nullptr;  ///< 「复制全部」（标准校验和文本）
     QPushButton *m_hashExport = nullptr;   ///< 「导出…」（写一个 .txt）
-    /// 批量结果的纯文本（`<摘要>  <文件名>` 一行一个）。空串 = 没有批量结果。
+    /// 批量结果的纯文本（`<摘要> <文件名>` 一行一个）。空串 = 没有批量结果。
     QString m_hashBatchText;
 
     // 六、信标计算

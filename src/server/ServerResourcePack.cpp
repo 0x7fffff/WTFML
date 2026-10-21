@@ -1,8 +1,6 @@
 /**
  * @file ServerResourcePack.cpp
  * @brief ServerResourcePack.hpp 的实现（读条目表、算 SHA-1；不装、不下载、不填地址）。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "server/ServerResourcePack.hpp"

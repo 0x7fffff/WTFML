@@ -1,14 +1,12 @@
 /**
  * @file PresetStore.cpp
  * @brief 实例预设落盘那一层的实现（形状与取舍见头文件与 `PresetTypes.hpp`）。
- * @author 0x7fffff
- * @date 2026-10-14
  *
  * 这一份里三处最容易写歪的地方，各自都有长注释：
- *   · `isValidPresetId()` —— 唯一的目录逃逸闸（§6 P1 的验收之一）；
- *   · `list()` —— "一份坏了不许连坐别的"（§6 P1 的另一条验收）落成的那个形状；
- *   · `remove()` / `create()` 里那两句"下标读不回来就**不写回去**" —— 写回去等于把用户
- *     排好的顺序抹平，而那一下屏幕上什么都不会说。
+ * · `isValidPresetId()` —— 唯一的目录逃逸闸（§6 P1 的验收之一）；
+ * · `list()` —— "一份坏了不许连坐别的"（§6 P1 的另一条验收）落成的那个形状；
+ * · `remove()` / `create()` 里那两句"下标读不回来就**不写回去**" —— 写回去等于把用户
+ * 排好的顺序抹平，而那一下屏幕上什么都不会说。
  */
 
 #include "PresetStore.hpp"
@@ -30,8 +28,6 @@ const char *kIndexFileName = "index.json";
 const char *kManifestFileName = "manifest.json";
 const char *kFilesDirName = "files";
 
-/// 显示名最长这么多个字。★ 界面那一侧还会再按宽度截一次（那是摆不下的问题），这一刀管的是
-/// "用户粘进来一整篇"：名字会进 `manifest.json`，而它还会被写进任务标题和错误报告。
 constexpr int kDisplayNameLimit = 80;
 
 /// 说明那一栏的上限。比名字宽松得多 —— 说明本来就是一段话。
@@ -66,8 +62,8 @@ QString cleanDescription(const QString &raw) {
 /// Windows 上那几个保留的设备名（`CON` / `NUL` / `COM1`……）。★ 它不属于"穿越"，属于
 /// "写下去就不见了"：拿它当文件名，`QFile::open()` 那句**会成功**，写进黑洞里。
 ///
-/// ★ 判的是**基名**（第一个点之前那一截）：Windows 上 `nul.txt` 一样是那个空设备
-///   （跟后缀无关），而 `console.txt` 是正常文件 —— 差的就是这个点。
+/// 判的是**基名**（第一个点之前那一截）：Windows 上 `nul.txt` 一样是那个空设备
+/// （跟后缀无关），而 `console.txt` 是正常文件 —— 差的就是这个点。
 bool isReservedDeviceName(const QString &part) {
     QString base = part;
     const int dot = base.indexOf(QLatin1Char('.'));
@@ -111,9 +107,9 @@ QString faultAt(const QString &path, const QString &why) {
 // ---------------------------------------------------------------------------
 
 QString presetsRoot() {
-    // ★ 启动器自带的数据根目录（不是 `minecraftDir()`）：预设是用户的习惯，换一个游戏
-    //   文件夹之后它不该跟着不见 —— 理由和 `Tasks::defaultHistoryPath()` 逐字同源，
-    //   见头文件那一段。
+    // 启动器自带的数据根目录（不是 `minecraftDir()`）：预设是用户的习惯，换一个游戏
+    // 文件夹之后它不该跟着不见 —— 理由和 `Tasks::defaultHistoryPath()` 逐字同源，
+    // 见头文件那一段。
     return AppPaths::defaultMinecraftDir() + QStringLiteral("/presets");
 }
 
@@ -142,12 +138,12 @@ QString newPresetId() {
 }
 
 bool isValidPresetId(const QString &id) {
-    // ★★ 这一条是**唯一**的目录逃逸闸，所以判据是"必须是一个 UUID"而不是"里面没有斜杠"。
-    //    "没有斜杠"那种黑名单挡不住 `..`、挡不住 `C:`、挡不住以点开头、也挡不住 Windows
-    //    那几个设备名 —— 而这几样正好都是"拼出来的路径不在 root 里面"的路子。
+    // 这一条是**唯一**的目录逃逸闸，所以判据是"必须是一个 UUID"而不是"里面没有斜杠"。
+    // "没有斜杠"那种黑名单挡不住 `..`、挡不住 `C:`、挡不住以点开头、也挡不住 Windows
+    // 那几个设备名 —— 而这几样正好都是"拼出来的路径不在 root 里面"的路子。
     //
-    // ★ 连带的好处：我们自己在 `newPresetId()` 里造出来的 id 永远是 UUID，所以"用户手打
-    //   一个 id 进来"这种事在这一层根本不存在（它只会走显示名那一路，而显示名不进路径）。
+    // 连带的好处：我们自己在 `newPresetId()` 里造出来的 id 永远是 UUID，所以"用户手打
+    // 一个 id 进来"这种事在这一层根本不存在（它只会走显示名那一路，而显示名不进路径）。
     if (id.isEmpty() || id.size() > 64) {
         return false;
     }
@@ -155,9 +151,9 @@ bool isValidPresetId(const QString &id) {
     if (parsed.isNull()) {
         return false;
     }
-    // ★ 要的是**逐字**等于规范写法（小写、不带花括号）：`QUuid::fromString` 连
-    //   `{...}` 和大小写混着写都认，认下来就等于"同一个 id 有两种写法" —— 而目录名是
-    //   按字符串比的，两种写法在盘上就是两个目录。
+    // 要的是**逐字**等于规范写法（小写、不带花括号）：`QUuid::fromString` 连
+    // `{...}` 和大小写混着写都认，认下来就等于"同一个 id 有两种写法" —— 而目录名是
+    // 按字符串比的，两种写法在盘上就是两个目录。
     return parsed.toString(QUuid::WithoutBraces) == id;
 }
 
@@ -249,14 +245,13 @@ PresetIndex loadIndex(const QString &root, bool *ok) {
     bool parsed = false;
     PresetIndex index = indexFromJson(bytes, &parsed);
     if (!parsed) {
-        // ★ 读不回来时回的是**空下标 + ok=false**：调用方那一下不许把它写回去。写回去等于
-        //   把用户排好的顺序抹平，而屏幕上什么都不会说（列表还是那么几份，只是次序变了）。
+        // 读不回来时回的是**空下标 + ok=false**：调用方那一下不许把它写回去。写回去等于
+        // 把用户排好的顺序抹平，而屏幕上什么都不会说（列表还是那么几份，只是次序变了）。
         if (ok != nullptr) {
             *ok = false;
         }
         return PresetIndex();
     }
-    // 表里那些不像 id 的条目当场摘掉：留着它们只会让列表那一侧多出几行"查无此物"的报告。
     QStringList kept;
     for (const QString &id : index.order) {
         if (isValidPresetId(id)) {
@@ -398,13 +393,13 @@ PresetManifest loadManifest(const QString &root, const QString &id, bool *ok, QS
         return fail(faultAt(path, QStringLiteral("读不回来（不是合法 JSON、不是我们写的格式、"
                                                 "版本比这个启动器新、或者缺了 id / 名字）")));
     }
-    // ★ 记的 id 和目录名对不上 ⇒ 这一份被人动过（拷串了、或者手改过）。这种时候**宁可
-    //   把它报成坏的**，也不要拿着"目录 A 里的内容属于 B"去覆盖用户的实例。
+    // 记的 id 和目录名对不上 ⇒ 这一份被人动过（拷串了、或者手改过）。这种时候**宁可
+    // 把它报成坏的**，也不要拿着"目录 A 里的内容属于 B"去覆盖用户的实例。
     if (manifest.id != id) {
         return fail(faultAt(path, QStringLiteral("记的 id 是「%1」，和目录名对不上").arg(manifest.id)));
     }
-    // ★ `category` 与段表对不上（比如有人手改过、或者以后的数据被降级写回来）⇒ 同样报坏：
-    //   拿一份"类别说 A、内容其实是 B"的预设去改用户实例，比少一份预设危险得多。
+    // `category` 与段表对不上（比如有人手改过、或者以后的数据被降级写回来）⇒ 同样报坏：
+    // 拿一份"类别说 A、内容其实是 B"的预设去改用户实例，比少一份预设危险得多。
     const QString mismatch = categoryMismatch(manifest);
     if (!mismatch.isEmpty()) {
         return fail(faultAt(path, mismatch));
@@ -451,8 +446,8 @@ QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken) {
         QString reason;
         const PresetManifest manifest = loadManifest(root, id, &ok, &reason);
         if (!ok) {
-            // ★ 坏的那一份**只进 broken**（不进 summary 列表）：这是 §6 P1 那条验收落成的
-            //   形状 —— 一份读不回来，别的照旧列出来、照旧能用。
+            // 坏的那一份**只进 broken**（不进 summary 列表）：这是 §6 P1 那条验收落成的
+            // 形状 —— 一份读不回来，别的照旧列出来、照旧能用。
             if (broken != nullptr) {
                 broken->append(BrokenPreset{id, reason});
             }
@@ -522,10 +517,10 @@ PresetManifest create(const QString &root, const QString &name, const QString &d
         return PresetManifest();
     }
     if (!saveManifest(root, manifest)) {
-        // ★ 建目录成、清单没写成 ⇒ 把这个 id 的目录整棵收掉（2026-10-20）。不收的话盘上
-        //   留下一个**有目录没 manifest** 的 UUID：`list()` 会把它当成"坏预设"列出来，
-        //   用户看到一条自己没建过的坏条目，重试还会再留一个。`duplicate()` 那条路早就
-        //   是这么收的（下面），这里原来漏了。
+        // 建目录成、清单没写成 ⇒ 把这个 id 的目录整棵收掉。不收的话盘上
+        // 留下一个**有目录没 manifest** 的 UUID：`list()` 会把它当成"坏预设"列出来，
+        // 用户看到一条自己没建过的坏条目，重试还会再留一个。`duplicate()` 那条路早就
+        // 是这么收的（下面），这里原来漏了。
         const QString dir = presetDir(root, manifest.id);
         if (QFileInfo::exists(dir)) {
             removeTreeWithoutFollowingLinks(dir);
@@ -536,9 +531,9 @@ PresetManifest create(const QString &root, const QString &name, const QString &d
     bool indexReadable = true;
     PresetIndex index = loadIndex(root, &indexReadable);
     if (indexReadable) {
-        // ★ 下标读不回来时**不去覆盖它**（那会把用户的顺序抹平）；代价是刚建的这一份这一趟
-        //   进不了顺序表 —— 而 `list()` 会把"盘上有、下标里没有"的那一份追加在末尾列出来，
-        //   所以它从用户的角度依然是"建出来了"。
+        // 下标读不回来时**不去覆盖它**（那会把用户的顺序抹平）；代价是刚建的这一份这一趟
+        // 进不了顺序表 —— 而 `list()` 会把"盘上有、下标里没有"的那一份追加在末尾列出来，
+        // 所以它从用户的角度依然是"建出来了"。
         if (saveIndex(root, appendToIndex(index, manifest.id))) {
             return manifest;
         }
@@ -619,8 +614,6 @@ bool remove(const QString &root, const QString &id) {
     if (!pathIsInsideRoot(root, dir)) {
         return false;
     }
-    // ★ 目录那一趟**不追链接**：用户把 `files/` 挂到另一块盘上是常见做法，追进去删的是
-    //   那一头的东西（这条在 `FolderManager.cpp` 里有一整段实测结论）。
     if (QFileInfo::exists(dir) && !removeTreeWithoutFollowingLinks(dir)) {
         return false;
     }

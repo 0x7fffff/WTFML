@@ -1,8 +1,6 @@
 /**
  * @file AccountStore.cpp
  * @brief 多账号列表的实现（见 .hpp 里那三段说明）。
- * @author 0x7fffff
- * @date 2026-09-22
  */
 
 #include "AccountStore.hpp"
@@ -30,15 +28,15 @@ constexpr const char kOfflineField[] = "offline";
 /// 读列表（整份 JSON）。
 ///
 /// NOTE: **两种"读不到"必须分开**（所以有 @p readableOut）：盘上就没有这一格（真的还没有
-///       任何账号 —— 这是空列表）和那一格在、但解不开（DPAPI 换了 Windows 账户或换机器
-///       之后解不出来，或者值被写坏了）。以前两种都折成空数组，于是 captureActive() /
-///       addOffline() 这两个"读-改-写"的写方会拿空数组当底子把整份列表覆盖成一项 ——
-///       列表里其它账号那两份 refresh_token 副本一起没了（那些副本是**唯一**能切回去的
-///       东西，抹掉就只剩重新登录一条路）。两个"读-改-写"的写方（captureActive /
-///       addOffline）先看 readableOut，假就不写；remove() 走的是裸 readAccounts()，
-///       读不出来时**静默**返回 false（既不动盘、也不给用户那句话）。
-///       只当"列表里有没有这个人"用的读者（find/contains/nameOf/accounts/entryFor/activate）
-///       继续忽略它 —— 解不开的时候它们本来就查不到人，行为跟以前一样。
+/// 任何账号 —— 这是空列表）和那一格在、但解不开（DPAPI 换了 Windows 账户或换机器
+/// 之后解不出来，或者值被写坏了）。以前两种都折成空数组，于是 captureActive() /
+/// addOffline() 这两个"读-改-写"的写方会拿空数组当底子把整份列表覆盖成一项 ——
+/// 列表里其它账号那两份 refresh_token 副本一起没了（那些副本是**唯一**能切回去的
+/// 东西，抹掉就只剩重新登录一条路）。两个"读-改-写"的写方（captureActive /
+/// addOffline）先看 readableOut，假就不写；remove() 走的是裸 readAccounts()，
+/// 读不出来时**静默**返回 false（既不动盘、也不给用户那句话）。
+/// 只当"列表里有没有这个人"用的读者（find/contains/nameOf/accounts/entryFor/activate）
+/// 继续忽略它 —— 解不开的时候它们本来就查不到人，行为跟以前一样。
 QJsonArray readAccounts(bool *readableOut = nullptr) {
     bool readable = false;
     const QJsonObject root = TokenStore::readJsonChecked(TokenStore::accountsKey(), &readable);
@@ -79,7 +77,7 @@ QJsonObject activeMinecraftPayload() {
 /// 列表里那一项（原始 JSON）。找不到返回空对象。
 ///
 /// NOTE: 单独有这个函数是为了 activeUuid() —— 它需要"只看列表、不问当前是谁"，而
-///       find() 自己会去问 activeUuid()（要填 isCurrent），拿 find() 取会无限递归。
+/// find() 自己会去问 activeUuid()（要填 isCurrent），拿 find() 取会无限递归。
 QJsonObject entryFor(const QString &uuid) {
     if (uuid.isEmpty()) {
         return QJsonObject();
@@ -96,13 +94,13 @@ QJsonObject entryFor(const QString &uuid) {
 /// 把某个离线账号记成"当前"，并且**清空活动槽**（离开在线身份）。
 /// 切换和添加两条路共用这一句，免得一处改了另一处忘。
 ///
-/// ★ 2026-10-20：`CurrentAccountUuid` 那一格写不进去**要让调用方知道**（@return false）。
-///   在线账号的"当前是谁"是从活动槽里那份凭据推出来的，这一格坏了不影响它；可**离线账号
-///   只有这一格**（见 activeUuid() 第二档）—— 写不进去，用户切过去之后界面会说"没登录"，
-///   而他刚刚明明选了那个账号。QSettings 写失败是**静默**的（没有组织名/权限/注册表被占），
-///   所以这一格必须自己查状态。
+/// `CurrentAccountUuid` 那一格写不进去**要让调用方知道**（@return false）。
+/// 在线账号的"当前是谁"是从活动槽里那份凭据推出来的，这一格坏了不影响它；可**离线账号
+/// 只有这一格**（见 activeUuid() 第二档）—— 写不进去，用户切过去之后界面会说"没登录"，
+/// 而他刚刚明明选了那个账号。QSettings 写失败是**静默**的（没有组织名/权限/注册表被占），
+/// 所以这一格必须自己查状态。
 bool makeOfflineCurrent(const QString &uuid, QString *errorOut) {
-    // **清空活动槽之前，先把里面那位在线账号收进列表**（2026-09-24 补的）。
+    // **清空活动槽之前，先把里面那位在线账号收进列表**（ 补的）。
     // 下面两句一执行，活动槽里那份 refresh_token 就在盘上没有了 —— 而它**可能根本不在
     // 列表里**：从没有多账号的版本升上来的用户就是这样（那时凭据只存活动槽），
     // captureActive() 也只在"登录成功"那一下被调过。少了这一句，点一下「添加离线账号」
@@ -111,8 +109,8 @@ bool makeOfflineCurrent(const QString &uuid, QString *errorOut) {
     // 靠的就是这一句成真。
     //
     // NOTE: 收不进去**不拦这次切换** —— 离线账号本来就没有凭据，切过去这条路不该被
-    //       盘上的问题挡住；而收不进去的那几种情况都是"列表读不出来"，那时也不该
-    //       拿活动槽里那份去覆盖它（captureActive 自己就是这么设计的，见它的实现）。
+    // 盘上的问题挡住；而收不进去的那几种情况都是"列表读不出来"，那时也不该
+    // 拿活动槽里那份去覆盖它（captureActive 自己就是这么设计的，见它的实现）。
     QString captureError;
     if (!AccountStore::captureActive(&captureError)) {
         qWarning().noquote() << "切到离线账号之前，没能把当前账号收进列表：" << captureError;
@@ -201,8 +199,8 @@ QString AccountStore::activeUuid() {
     }
     // 第二档：活动槽是空的。这时候**只有离线账号**可能还是"当前"（它本来就没有凭据，
     // 清空活动槽正是"切到它"的一部分）。两个条件都要满足才认：
-    //   ① `CurrentAccountUuid` 确实指向列表里的一项（不然那是个孤儿键 —— 列表都删空了
-    //      它还留着）；② 那一项是离线的。
+    // ① `CurrentAccountUuid` 确实指向列表里的一项（不然那是个孤儿键 —— 列表都删空了
+    // 它还留着）；② 那一项是离线的。
     // ② 是这里的关键：在线账号在活动槽空着的时候**必须**算"没登录"，不能因为记录键上
     // 还写着它就说"当前是某某" —— 那正好是 remove() 清空活动槽之后要避免的那个状态。
     QSettings settings;
@@ -244,7 +242,7 @@ bool AccountStore::captureActive(QString *errorOut) {
 
     // 已有同一个人就**就地更新**（换新令牌、改名字都算同一个人），否则追加到末尾。
     // NOTE: 读不出来就**什么都不写**（理由见 readAccounts()）：这一句是"读-改-写"，
-    //       底子读错 = 把整份列表覆盖掉，而列表里存着别的账号唯一的一份 refresh_token 副本。
+    // 底子读错 = 把整份列表覆盖掉，而列表里存着别的账号唯一的一份 refresh_token 副本。
     bool readable = false;
     QJsonArray array = readAccounts(&readable);
     if (!readable) {
@@ -436,10 +434,10 @@ bool AccountStore::addOffline(const QString &name, QString *errorOut) {
 
     // 同名 = 同一个 uuid = 同一个人，就地更新，否则追加。
     //
-    // NOTE: 名字是**逐字节**比的，不是"改个大小写也算同一个"（2026-09-24 把原文那句错的
-    //       括号改掉了）：offlineUuidFor() 是 md5("OfflinePlayer:" + name)，大小写不同就是
-    //       不同的字节、不同的 uuid —— `Steve` 和 `steve` 在这份列表里是两条，点它们进的是
-    //       两个不同的离线身份。照原来那句注释写测试，会写出一个跟代码相反的期望值。
+    // NOTE: 名字是**逐字节**比的，不是"改个大小写也算同一个"（ 把原文那句错的
+    // 括号改掉了）：offlineUuidFor() 是 md5("OfflinePlayer:" + name)，大小写不同就是
+    // 不同的字节、不同的 uuid —— `Steve` 和 `steve` 在这份列表里是两条，点它们进的是
+    // 两个不同的离线身份。照原来那句注释写测试，会写出一个跟代码相反的期望值。
     // NOTE: 同 captureActive()：列表读不出来就不写，否则这一下会把列表里其它账号抹掉。
     bool readable = false;
     QJsonArray array = readAccounts(&readable);

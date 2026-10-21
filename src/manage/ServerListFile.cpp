@@ -1,8 +1,6 @@
 /**
  * @file ServerListFile.cpp
  * @brief 实现 ServerListFile.hpp 里那三个入口（改 / 加 / 删）和 `pathFor()`。
- * @author 0x7fffff
- * @date 2026-10-10
  * @note 见 ServerListFile.hpp 的说明。这里只留实现上的坑。
  */
 
@@ -78,7 +76,7 @@ QString stringField(const NbtTree::Node &compound, const QString &name) {
 /// （类型和位置照着原版自己写的形状来 —— 名字那一格排在 `ip` 后面）。
 ///
 /// NOTE: `append()` 之后必须**重新取一次**那一格的地址（`QList` 可能把内存搬走）——
-///       和 `WorldFiles.cpp` 里 `writeFieldOrCreate()` 是同一个坑、同一个写法。
+/// 和 `WorldFiles.cpp` 里 `writeFieldOrCreate()` 是同一个坑、同一个写法。
 bool setStringField(NbtTree::Node *compound, const QString &name, const QString &text) {
     if (NbtTree::Node *node = NbtTree::field(compound, name)) {
         if (node->type != NbtTree::Type::String) {
@@ -181,8 +179,8 @@ bool commitBytes(const QString &target, const QByteArray &body, bool gzipped, QS
 
 /// 一份读进来、并且已经认出 `servers` 那一格的 `servers.dat`。
 ///
-/// ★ `servers` 是指进 `document` 里的 —— 两者**必须一起用**（别把那个指针一个人带出去，
-///   它指向的东西跟着 `document` 走）。
+/// `servers` 是指进 `document` 里的 —— 两者**必须一起用**（别把那个指针一个人带出去，
+/// 它指向的东西跟着 `document` 走）。
 struct LoadedList {
     NbtTree::Document document;
     NbtTree::Node *servers = nullptr;
@@ -196,11 +194,11 @@ struct LoadedList {
 /// 认不出（文件不在 / 太大 / 读不动 / gzip 解不开 / parse 不过 / `servers` 那一格不是
 /// 一张服务器表）一律返回 false 并在 @p problem 里留一句给人看的话式**一个字节都不写**。
 /// NOTE: 文件不在这一档对"改"和"删"是失败，对"加"**不是**（见 `addEntry()`）—— 所以这一条
-///       留在这儿由 `addEntry()` 自己在调用之前先判一次，别的入口直接用返回值。
+/// 留在这儿由 `addEntry()` 自己在调用之前先判一次，别的入口直接用返回值。
 bool loadServers(const QString &datPath, LoadedList *out, QString *problem) {
     QString why;
-    // ★ 那两口在 `namespace ServerListFile` 里，而这一段在它**外面**（匿名命名空间）——
-    //   所以要写全名。摆在外面是因为它是"读进来 + 认出那一格"这一段的实现，和三个入口同层。
+    // 那两口在 `namespace ServerListFile` 里，而这一段在它**外面**（匿名命名空间）——
+    // 所以要写全名。摆在外面是因为它是"读进来 + 认出那一格"这一段的实现，和三个入口同层。
     const ServerListFile::FileState state =
         ServerListFile::loadDocument(datPath, &out->document, &out->gzipped, &why);
     if (state == ServerListFile::FileState::Missing) {
@@ -218,9 +216,9 @@ bool loadServers(const QString &datPath, LoadedList *out, QString *problem) {
 
 /// 认"要动的是哪一条"，回来的是它在 `servers` 那个 list 里的**下标**。
 ///
-/// ★ 认的是**值不是下标**：`NbtUtil::readServerList()` 会跳过没有 `ip` 的元素，所以界面上
-///   第 N 行**未必**是盘上第 N 个元素。两趟：第一趟要名字 + 地址都逐字对上；对不上再退一步
-///   只按地址找（用户可能在游戏里顺手把名字改了）。认不准就返回 false，**一个字都不写**。
+/// 认的是**值不是下标**：`NbtUtil::readServerList()` 会跳过没有 `ip` 的元素，所以界面上
+/// 第 N 行**未必**是盘上第 N 个元素。两趟：第一趟要名字 + 地址都逐字对上；对不上再退一步
+/// 只按地址找（用户可能在游戏里顺手把名字改了）。认不准就返回 false，**一个字都不写**。
 bool findEntryIndex(const NbtTree::Node &servers, const QString &name, const QString &address,
                     int *indexOut, QString *problem) {
     for (int i = 0; i < servers.items.size(); ++i) {
@@ -312,8 +310,8 @@ FileState loadDocument(const QString &datPath, NbtTree::Document *out, bool *gzi
     }
     const bool compressed = looksGzipped(bytes);
     if (compressed) {
-        // ★ 解压走 `ZipUtil::gunzipTo()`（临时文件那一路）：gzip 只有那一处实现，理由见
-        //   `ZipUtil.hpp` 里那一句"别把它当通用解压用"。
+        // 解压走 `ZipUtil::gunzipTo()`（临时文件那一路）：gzip 只有那一处实现，理由见
+        // `ZipUtil.hpp` 里那一句"别把它当通用解压用"。
         const QString tempPlain = tempPathFor(QStringLiteral("serverlist-read"));
         QString why;
         if (!ZipUtil::gunzipTo(datPath, tempPlain, &why)) {
@@ -336,8 +334,8 @@ FileState loadDocument(const QString &datPath, NbtTree::Document *out, bool *gzi
     // ---------- 解开整棵树 ----------
     if (!NbtTree::parse(bytes, out, &problem)) {
         if (problemOut != nullptr) {
-            // ★ `NbtTree::parse()` 拒绝的每一档（类型不认识 / 长度越界 / 嵌套太深 / 末尾多
-            //   出来一截）都算"我们看不懂这一份" —— 不留"部分解出来"的树，也就没有下文。
+            // `NbtTree::parse()` 拒绝的每一档（类型不认识 / 长度越界 / 嵌套太深 / 末尾多
+            // 出来一截）都算"我们看不懂这一份" —— 不留"部分解出来"的树，也就没有下文。
             *problemOut = QStringLiteral("servers.dat 读不动：%1").arg(problem);
         }
         return FileState::Unreadable;
@@ -375,8 +373,8 @@ NbtTree::Document emptyDocument() {
     NbtTree::Field serversField;
     serversField.first = QStringLiteral("servers");
     serversField.second.type = NbtTree::Type::List;
-    // ★ 空的表**也要带着元素类型**：少了它写回去的是一张"元素类型是 End"的表，而那是坏的
-    //   （`NbtTree::serialize()` 按 `itemType` 落盘）。第一次加服务器那次就撞在这儿。
+    // 空的表**也要带着元素类型**：少了它写回去的是一张"元素类型是 End"的表，而那是坏的
+    // （`NbtTree::serialize()` 按 `itemType` 落盘）。第一次加服务器那次就撞在这儿。
     serversField.second.itemType = NbtTree::Type::Compound;
     document.root.fields.append(serversField);
     return document;
@@ -476,7 +474,7 @@ bool addEntry(const QString &datPath, const QString &name, const QString &addres
         NbtTree::Node *servers = &document.root.fields.last().second;
         servers->items.append(entryNode(name, address));
 
-        // ★ gzip（不是跟着"原来那份"—— 没有原来那份）。见文件头那段。
+        // gzip（不是跟着"原来那份"—— 没有原来那份）。见文件头那段。
         return commitBytes(datPath, NbtTree::serialize(document), kFreshFileGzipped, problemOut);
     }
 

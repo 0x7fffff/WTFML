@@ -1,8 +1,6 @@
 /**
  * @file ArmorTrim.hpp
  * @brief 纹饰搭配的判据层（coding plan §9.11 那一批里的「纹饰搭配」）。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 只做一张表 + 一条计划：用户选"哪件盔甲、什么材质、哪个纹饰、用什么纹饰材料、做几件"，
  * 这里回一段"锻造台里怎么摆、每种东西要多少"。**不碰盘、不联网、不画图**。
@@ -90,12 +88,12 @@ struct Plan {
 /**
  * @brief 算一条纹饰计划。
  * @param armorMaterial 盔甲材质（`armorMaterialName()` 的下标）。
- * @param part          部位（`partName()` 的下标；@p wholeSet 时忽略）。
- * @param patternIndex  纹饰图案（`patternAt()` 的下标）。
- * @param trimMaterial  纹饰材料（`trimMaterialAt()` 的下标）。
- * @param pieces        做几件（1–4；做整套就填 4）。
- * @param wholeSet      true = 整套四件（头盔 / 胸甲 / 护腿 / 靴子各一件；@p pieces 忽略）。
- *                      海龟壳没有整套，选它会报错（不悄悄只做头盔）。
+ * @param part 部位（`partName()` 的下标；@p wholeSet 时忽略）。
+ * @param patternIndex 纹饰图案（`patternAt()` 的下标）。
+ * @param trimMaterial 纹饰材料（`trimMaterialAt()` 的下标）。
+ * @param pieces 做几件（1–4；做整套就填 4）。
+ * @param wholeSet true = 整套四件（头盔 / 胸甲 / 护腿 / 靴子各一件；@p pieces 忽略）。
+ * 海龟壳没有整套，选它会报错（不悄悄只做头盔）。
  */
 Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int pieces,
           bool wholeSet = false);

@@ -1,12 +1,7 @@
 /**
  * @file GlobalJavaSettings.cpp
- * @brief Manages Java runtime settings and version detection for Minecraft.
- * @author LoserKugua
- * @date 2026-04-10
- * @note Implements Java discovery and version verification logic.
- *
- * Handles Java executable discovery, version parsing, memory settings,
- * and ensures appropriate Java runtime for specific Minecraft versions.
+ * @brief 实现 Java 路径、版本选择、内存与运行时检测设置。
+ * @note 持久化键和内存自动分配规则见 .hpp。
  */
 #include "GlobalJavaSettings.hpp"
 
@@ -54,8 +49,8 @@ static constexpr int kBuiltinXmsMb = 1024;
 /// 步长和界面那两个数字框**是**一份：MainWindowUI::memoryStepMb() 也是 256（数字框里的值
 /// 必须是它的整数倍，否则用户会看到一个 3071）。
 /// NOTE: **上限不是**。自动档自己封在 8 GB（那是个刻意的天花板：自动算出来的数不该比
-///       用户手动能填的更激进），而界面手动档的上限是 MainWindowUI::memoryLimitMaxMb()
-///       = 65536。以前这条注释把"取值范围"和那个函数绑在一起说"保持一致"，上限那半是假的。
+/// 用户手动能填的更激进），而界面手动档的上限是 MainWindowUI::memoryLimitMaxMb()
+/// = 65536。以前这条注释把"取值范围"和那个函数绑在一起说"保持一致"，上限那半是假的。
 static constexpr int kAutoXmxMinMb = 1024;
 static constexpr int kAutoXmxMaxMb = 8192;
 static constexpr int kAutoXmsMinMb = 512;
@@ -108,10 +103,10 @@ bool runProcess(const QString &program, const QStringList &arguments, QString *s
         *stdErr = QString::fromLocal8Bit(process.readAllStandardError());
     }
     // NOTE: 退出码也要看。以前只看 exitStatus，于是 PowerShell 自己正常退出、但它那条命令
-    //       失败（exitCode != 0，比如 Expand-Archive 解不开那个 zip）会被当成功 ——
-    //       调用方接着去找 java.exe，找不到，报出来的是"找不到也下载不到 Java"，
-    //       而真正的原因（解压失败）一个字都看不见。
-    //       `java -version` 成功时退出码是 0，另一个调用方不受影响。
+    // 失败（exitCode != 0，比如 Expand-Archive 解不开那个 zip）会被当成功 ——
+    // 调用方接着去找 java.exe，找不到，报出来的是"找不到也下载不到 Java"，
+    // 而真正的原因（解压失败）一个字都看不见。
+    // `java -version` 成功时退出码是 0，另一个调用方不受影响。
     return process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0;
 }
 
@@ -149,11 +144,11 @@ bool verifyJavaExecutable(const QString &path, QString *versionOut = nullptr) {
 /// 免得两处各判一次"1.8 该取第二段"、慢慢就判歪一个。
 int majorFromVersionString(const QString &version) {
     // NOTE: 这个函数只把**裸版本号**解析成主版本，和"哪个游戏版本要多新的 Java"无关。
-    //       那张对照表（1.6-1.16.5 → 8、**1.17 → 16**、1.18-1.20.4 → 17、
-    //       1.20.5-1.21.11 → 21、26.1+ → 25）不在这里 —— 实际来源是 version.json 的
-    //       javaVersion.majorVersion，由 MainWindow 读取（另有一处兜底值）。
-    //       以前这条 NOTE 把 1.17 也写成 17（那是 java-runtime-alpha，实际是 16），
-    //       照它去改下载表会下错版本。
+    // 那张对照表（1.6-1.16.5 → 8、**1.17 → 16**、1.18-1.20.4 → 17、
+    // 1.20.5-1.21.11 → 21、26.1+ → 25）不在这里 —— 实际来源是 version.json 的
+    // javaVersion.majorVersion，由 MainWindow 读取（另有一处兜底值）。
+    // 以前这条 NOTE 把 1.17 也写成 17（那是 java-runtime-alpha，实际是 16），
+    // 照它去改下载表会下错版本。
     const QStringList parts = version.split(QLatin1Char('.'));
     if (parts.isEmpty()) {
         return -1;
@@ -282,9 +277,9 @@ QString findJavaInCommonLocations(int requiredMajor = -1) {
  * @return 若找到匹配的 java.exe 则返回其绝对路径，否则返回空.
  *
  * NOTE: 为什么必须解析成**绝对路径**（旧实现返回裸命令 "java"，已修 —— 这段留在这里是
- *       免得有人再"简化"回去）：裸命令过不了 verifyJavaExecutable() 第一步的
- *       QFileInfo::exists()；即使侥幸通过，startGame() 也会用 QFileInfo(program).exists()
- *       判定成"Java 可执行文件未找到"。
+ * 免得有人再"简化"回去）：裸命令过不了 verifyJavaExecutable() 第一步的
+ * QFileInfo::exists()；即使侥幸通过，startGame() 也会用 QFileInfo(program).exists()
+ * 判定成"Java 可执行文件未找到"。
  */
 QString findJavaOnPath(int requiredMajor = -1) {
     const QString resolved = QStandardPaths::findExecutable(QStringLiteral("java"));
@@ -312,7 +307,7 @@ struct VanillaRuntime {
  * 而且它们是 Mojang 针对该游戏版本挑选过的。
  *
  * @return 组件名到该运行时（路径 + 主版本）的映射。认不出主版本的组件不入表 ——
- *         它对调用方没有意义，留着只会让调用方再过滤一遍。
+ * 它对调用方没有意义，留着只会让调用方再过滤一遍。
  */
 QMap<QString, VanillaRuntime> scanVanillaRuntimeComponents() {
     QMap<QString, VanillaRuntime> components;
@@ -346,8 +341,8 @@ QMap<QString, VanillaRuntime> scanVanillaRuntimeComponents() {
 
 /// 把一个值放进 PowerShell 的**单引号**字符串里：单引号在单引号串里靠写两个来转义。
 /// NOTE: 两个路径都要过这一道。以前是原样塞进 `'%1'`，于是路径里只要有一个 `'`
-///       （数据目录或 exe 放在这种目录下），那条命令就不是我们想发的那条了 ——
-///       PowerShell 会把它切成别的参数（甚至别的命令），而这里只看"解压成功没有"。
+/// （数据目录或 exe 放在这种目录下），那条命令就不是我们想发的那条了 ——
+/// PowerShell 会把它切成别的参数（甚至别的命令），而这里只看"解压成功没有"。
 QString psSingleQuoted(const QString &value) {
     QString escaped = value;
     escaped.replace(QLatin1Char('\''), QLatin1String("''"));
@@ -442,10 +437,10 @@ bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {
     QNetworkAccessManager manager;
     QNetworkRequest request(url);
     // NOTE: 这个超时**不能省**。这一路在工作线程里用内嵌事件循环等待；没有超时的话，
-    //       对端连上了却不发数据时 loop.exec() 没有任何退出条件。
-    //       它是"不活动超时"，一直匀速在下的不会因此被切断。
-    //       全仓联网处只有这里和下面那个 Adoptium 列表没有超时（别处 10/15/30 秒），
-    //       取 30 秒和下载管理器那条约定一致。
+    // 对端连上了却不发数据时 loop.exec() 没有任何退出条件。
+    // 它是"不活动超时"，一直匀速在下的不会因此被切断。
+    // 全仓联网处只有这里和下面那个 Adoptium 列表没有超时（别处 10/15/30 秒），
+    // 取 30 秒和下载管理器那条约定一致。
     request.setTransferTimeout(30000);
     QNetworkReply *reply = manager.get(request);
     QEventLoop loop;
@@ -486,19 +481,19 @@ bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {
  * @param component Mojang 的运行时组件名，如 java-runtime-epsilon。
  * @param javaPathOut 解压后找到的 java.exe 路径。
  * @return 若下载、解压**并且**在解压结果里找到一个能跑的 java.exe 才返回 true。
- *         解压成功但没找到 java.exe 的会继续试下一个 URL，全都如此就返回 false。
+ * 解压成功但没找到 java.exe 的会继续试下一个 URL，全都如此就返回 false。
  */
 bool downloadJavaRuntime(const QString &destinationDir, const QString &component,
                          QString *javaPathOut) {
     QList<QUrl> urls;
     // 每个 component 到底要哪个主版本，**以 version.json 里那份为准**（这个函数只负责
     // "按 component 名下一份**对得上**的"）：下面这几档是照着 Mojang 那张表来的 ——
-    //   jre-legacy → 8、alpha → 16、beta → 17、gamma → 17、delta → 21、epsilon → 25。
+    // jre-legacy → 8、alpha → 16、beta → 17、gamma → 17、delta → 21、epsilon → 25。
     // NOTE: gamma 和 delta **不是**一档（以前合在一起当 21，是错的）：1.19~1.20.4 报的是
-    //       gamma 但 majorVersion 是 **17**（仓库里 1.19.json 就是 `gamma / 17`），
-    //       只有 1.20.5 起的 delta 才是 21。合在一起的表现：给 1.19 下了一份 40~100 MB 的
-    //       Java 21，调用方拿 majorVersion 一核（17）对不上，再下一份 17 —— 白下一次。
-    //       同理 1.17 的 alpha 是 **16**（不是 8）。
+    // gamma 但 majorVersion 是 **17**（仓库里 1.19.json 就是 `gamma / 17`），
+    // 只有 1.20.5 起的 delta 才是 21。合在一起的表现：给 1.19 下了一份 40~100 MB 的
+    // Java 21，调用方拿 majorVersion 一核（17）对不上，再下一份 17 —— 白下一次。
+    // 同理 1.17 的 alpha 是 **16**（不是 8）。
     if (component == "java-runtime-epsilon") {
         // Java 25 —— Minecraft 26.1 及以后要求该运行时
         urls = {QUrl("https://download.oracle.com/java/25/latest/jdk-25_windows-x64_bin.zip"),
@@ -640,18 +635,18 @@ void GlobalJavaSettings::setExtraJvmArgs(const QString &args) { m_extraJvmArgs =
 void GlobalJavaSettings::load() {
     QSettings settings;
     m_javaPath = settings.value(kJavaPath).toString();
-    // ★ 2026-09-27 修：这两个数**读回来也要过一遍钳位**。原来是直接 toInt() 赋给成员，
-    //   而"盘上那份不能当成可信的"这条规矩在 LauncherSettings 那边写得很清楚（宽高、
-    //   标题读侧写侧都钳），偏偏内存这两个数漏了。
-    //   翻车的例子：注册表 HKCU\Software\WTFML\WTFML\Java\Xmx 被手改成 0（或者一个非数字
-    //   串 —— QVariant→int 失败同样是 0）→ 界面那格被 setRange 夹出下限、那行说明文字里
-    //   是 **0 MB**、真正发给 JVM 的却是 resolveJavaSettings 钳出来的 256m：**三处数字
-    //   互不相同**。更糟的是启动链发现"最小值 > 最大值"之后会 save()，把这个坏值**自己
-    //   写回注册表** —— 从此它就活下来了，用户改回来都难对得上账。
-    //   NOTE: 钳位的唯一出处是 setXmx()/setXms()（256 / 128 那两道下限写在它们里面），
-    //         所以这里用 setter 而不是自己再写一遍 qMax。
-    //   NOTE: 认不出数字（ok == false）时**要说一声**：静默把用户的值换成下限，和"识别失败
-    //         装作没事"是同一个毛病。这一行进日志文件（安装 handler 之后就有落点）。
+    // 修：这两个数**读回来也要过一遍钳位**。原来是直接 toInt() 赋给成员，
+    // 而"盘上那份不能当成可信的"这条规矩在 LauncherSettings 那边写得很清楚（宽高、
+    // 标题读侧写侧都钳），偏偏内存这两个数漏了。
+    // 翻车的例子：注册表 HKCU\Software\WTFML\WTFML\Java\Xmx 被手改成 0（或者一个非数字
+    // 串 —— QVariant→int 失败同样是 0）→ 界面那格被 setRange 夹出下限、那行说明文字里
+    // 是 **0 MB**、真正发给 JVM 的却是 resolveJavaSettings 钳出来的 256m：**三处数字
+    // 互不相同**。更糟的是启动链发现"最小值 > 最大值"之后会 save()，把这个坏值**自己
+    // 写回注册表** —— 从此它就活下来了，用户改回来都难对得上账。
+    // NOTE: 钳位的唯一出处是 setXmx()/setXms()（256 / 128 那两道下限写在它们里面），
+    // 所以这里用 setter 而不是自己再写一遍 qMax。
+    // NOTE: 认不出数字（ok == false）时**要说一声**：静默把用户的值换成下限，和"识别失败
+    // 装作没事"是同一个毛病。这一行进日志文件（安装 handler 之后就有落点）。
     bool okXmx = false;
     bool okXms = false;
     const int rawXmx = settings.value(kXmx, m_xmx).toInt(&okXmx);
@@ -666,7 +661,7 @@ void GlobalJavaSettings::load() {
     // 也就是加这个开关之前的行为。
     m_autoSelectJava = settings.value(kAutoSelect, m_autoSelectJava).toBool();
 
-    // 「内存分配」自动档（2026-10-20 恢复入口）：老配置没有这个键 = 手动档，读回 false。
+    // 「内存分配」自动档（ 恢复入口）：老配置没有这个键 = 手动档，读回 false。
     m_memoryAuto = settings.value(kMemoryAuto, m_memoryAuto).toBool();
 
     // 自动档之前的现场：没有这两个键（老配置 / 从没开过自动）就拿刚刚读回来的 Xmx/Xms
@@ -758,8 +753,8 @@ int GlobalJavaSettings::suggestXmsMb(int xmxMb) {
     // Xms 给 Xmx 的四分之一：太小会一直扩容（老版本的卡顿来源），太大等于一启动就占满。
     //
     // Xms **必须** <= Xmx，否则 JVM 直接起不来：
-    //   Error occurred during initialization of VM
-    //   Initial heap size set to a larger value than the maximum heap size
+    // Error occurred during initialization of VM
+    // Initial heap size set to a larger value than the maximum heap size
     // 所以下限和上限要一起排好序再夹：Xmx 比 512 还小的时候（setXmx 的下限是 256），
     // 下限得跟着退到 Xmx 上，直接写 qBound(512, x, xmx) 会变成 min > max，取到的值没有意义。
     const int xmx = qMax(xmxMb, 256);
@@ -781,8 +776,8 @@ SystemMemory::Usage GlobalJavaSettings::refreshSuggestedMemory() {
 
 int GlobalJavaSettings::majorVersionFromReleaseFile(const QString &releaseText) {
     // release 文件是 KEY="value" 一行一条，版本那条叫 JAVA_VERSION：
-    //   Java 9+ : JAVA_VERSION="21.0.7"
-    //   Java 8  : JAVA_VERSION="1.8.0_422"
+    // Java 9+ : JAVA_VERSION="21.0.7"
+    // Java 8 : JAVA_VERSION="1.8.0_422"
     // 刻意**只认带引号的 JAVA_VERSION=** 这一种写法：同一个文件里还有
     // JAVA_VERSION_DATE、MODULES 之类的行，宽泛地找 "version" 会撞上它们。
     // 找不到就返回 -1，调用方退回真的跑一次 java -version，不猜。
@@ -796,7 +791,7 @@ int GlobalJavaSettings::majorVersionFromReleaseFile(const QString &releaseText) 
 
 QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions() {
     // NOTE: 定义处按 C++ 的规矩不写 static（.hpp 里那一声才作数）。它是 static 的：
-    //       扫的是这台机器上有什么，不读也不写这个对象的任何状态。
+    // 扫的是这台机器上有什么，不读也不写这个对象的任何状态。
     QMap<int, QString> versions;
     const QString javaDir = AppPaths::javaDir();
 
@@ -814,10 +809,6 @@ QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions() {
 
     // 原版启动器已经下载好的运行时（jre-legacy / java-runtime-*）同样可以复用，
     // 省掉一次完整下载。这里用 first-wins，优先保留启动器自己下载的那一份。
-    //
-    // NOTE: 主版本在 scanVanillaRuntimeComponents() 里就已经认出来了，这里**不重跑**。
-    //       以前这一层对每个组件又跑了一遍 java -version，同一件事做两遍 ——
-    //       本机 4 个组件就是多冻 0.3 s，而且这 0.3 s 一个字的信息都没换来。
     const QMap<QString, VanillaRuntime> vanillaComponents = scanVanillaRuntimeComponents();
     for (auto it = vanillaComponents.cbegin(); it != vanillaComponents.cend(); ++it) {
         const VanillaRuntime &runtime = it.value();
@@ -851,23 +842,14 @@ bool GlobalJavaSettings::installerJavaFor(int requiredMajor, const QString &conf
         *javaPathOut = configuredPath;
     }
     const int configuredMajor = probeJavaMajorVersion(configuredPath);
-    // 三种情况都原样用配的那份：不知道版本要求、压根没配（空 = 走 PATH 上的 java，也就是加
-    // 这一条之前的行为）、以及配的那份已经够新。**这三种之外才去扫本机** ——
-    // scanLocalJavaVersions() 是同步的（本机几十毫秒），能省就省。
     if (requiredMajor <= 0 || configuredPath.isEmpty() || configuredMajor >= requiredMajor) {
         return true;
     }
 
     QMap<int, QString> candidates = scanLocalJavaVersions();
-    // PATH 上那份和 JAVA_HOME / JDK_HOME 指的那份也算"本机已有的"：用户完全可能装过
-    // Java 21、只是没在设置里指过它。两处都走 probeJavaMajorVersion()（读 release 文件，
-    // 微秒级），**不**走 findJavaOnPath() / findJavaInEnvironment() —— 那两个最后都收口到
-    // javaMatchesMajor()，会为每个候选冷启一次 JVM（本机实测 80~100 ms），而这个函数是在
-    // 点下「下载版本」那一刻同步跑的。
-    //
     // NOTE: 刻意**不**翻 Program Files（findJavaInCommonLocations()）：它是递归扫整棵树、
-    //       而且每个 java.exe 都要跑一次 java -version，几百毫秒起步。真装在 Program Files
-    //       里的 Java 一般也在 PATH 上，上面那条就够。
+    // 而且每个 java.exe 都要跑一次 java -version，几百毫秒起步。真装在 Program Files
+    // 里的 Java 一般也在 PATH 上，上面那条就够。
     const auto addCandidate = [&candidates](const QString &path) {
         const int major = probeJavaMajorVersion(path);
         if (major > 0 && !candidates.contains(major)) {
@@ -884,7 +866,6 @@ bool GlobalJavaSettings::installerJavaFor(int requiredMajor, const QString &conf
 
     const QString picked = pickMinimalJavaAtLeast(requiredMajor, candidates);
     if (picked.isEmpty()) {
-        // 报"本机最高的是多少"，用户才知道该去装哪一个。
         int highest = 0;
         for (auto it = candidates.cbegin(); it != candidates.cend(); ++it) {
             highest = qMax(highest, it.key());
@@ -1030,7 +1011,7 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion, QString *javaP
  *
  * @param majorVersion Required Java major version (e.g., 8, 11, 17, 21, 25)
  * @param component Optional runtime component name from version.json,
- *        e.g. "java-runtime-epsilon"
+ * e.g. "java-runtime-epsilon"
  * @return true if appropriate Java is available and configured, false otherwise
  */
 bool GlobalJavaSettings::ensureJavaForVersion(int majorVersion, const QString &component) {
@@ -1145,8 +1126,8 @@ bool GlobalJavaSettings::ensureJavaForVersion(EffectiveJavaSettings &io, int maj
     qDebug() << "No matching Java found, downloading version" << majorVersion << "from Adoptium...";
     QString downloaded;
     // NOTE: 这一条**不**再认一次主版本 —— 老代码也没有（downloadJavaFromMojang 内部
-    //       已经确认解压出来的 java.exe 能跑，而 Adoptium 是照 majorVersion 要的包）。
-    //       这里多判一次会让"本来能启动"变成"报错"，那不是这次改动该带来的差别。
+    // 已经确认解压出来的 java.exe 能跑，而 Adoptium 是照 majorVersion 要的包）。
+    // 这里多判一次会让"本来能启动"变成"报错"，那不是这次改动该带来的差别。
     if (downloadJavaFromMojang(majorVersion, &downloaded)) {
         qDebug() << "Downloaded Java version" << majorVersion;
         io.javaPath = downloaded;

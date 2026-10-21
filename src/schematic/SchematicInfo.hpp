@@ -1,8 +1,6 @@
 /**
  * @file SchematicInfo.hpp
  * @brief 读一份结构 / 原理图的**元数据与方块统计**（Litematica / Sponge / 原版结构）。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 【这是拿来干什么的】
  *
@@ -17,10 +15,10 @@
  *
  * 后缀只是个提示（用户会把 `.schematic` 改名成 `.litematic`）。真正认的是根的字段：
  *
- *   · Litematica `.litematic`：根里有 `Regions`（Compound）—— 一个投影一个文件，
- *     里面可以有好几个 region，各自一份调色板和方块表；
- *   · Sponge `.schematic`：根里有 `Palette`（Compound）+ `BlockData`（ByteArray）；
- *   · 原版结构 `.nbt`：根里有 `palette`（List）+ `blocks`（List）。
+ * · Litematica `.litematic`：根里有 `Regions`（Compound）—— 一个投影一个文件，
+ * 里面可以有好几个 region，各自一份调色板和方块表；
+ * · Sponge `.schematic`：根里有 `Palette`（Compound）+ `BlockData`（ByteArray）；
+ * · 原版结构 `.nbt`：根里有 `palette`（List）+ `blocks`（List）。
  *
  * 认不出来就如实说「认不出这是什么格式」，**不猜**。三种格式的字段名大小写不同
  * （`Palette` vs `palette`），按名字逐字认。
@@ -35,13 +33,13 @@
  * 【方块统计的口径】
  *
  * - `paletteSize` 是**调色板条目数**（不同的方块状态数，`minecraft:stone[variant=granite]`
- *   和 `minecraft:stone` 算两个状态）；
+ * 和 `minecraft:stone` 算两个状态）；
  * - `blockCount` 是**非空气**方块的个数；调色板里的 `air` / `cave_air` / `void_air`
- *   不计入（投影的包络里绝大多数格子都是空气，把它们算进去这个数就没有意义了）；
+ * 不计入（投影的包络里绝大多数格子都是空气，把它们算进去这个数就没有意义了）；
  * - `topBlocks` 按**方块 id** 聚合（同一 id 的不同状态合在一起），取最多的前
- *   `kTopBlockLimit` 个；
+ * `kTopBlockLimit` 个；
  * - 解不出来的时候（尺寸离谱、方块表长度对不上调色板、bits 推不出来）`countsComplete`
- *   为 false，`blockCount` / `topBlocks` 留空 —— **不编一个数**。
+ * 为 false，`blockCount` / `topBlocks` 留空 —— **不编一个数**。
  *
  * 【数据版本】
  *
@@ -105,8 +103,8 @@ struct Info {
 /// 读一份（不认识 / 读不动都返回 `ok == false`，原因在 `problem` 里）。**不抛异常。**
 ///
 /// NOTE: 解析是**同步**的；Litematica 那种几百万方块的投影要几百毫秒。调用方在 UI
-///       线程上用的时候应该先显示一句「正在读取…」，并且只在用户选中一行时读一份
-///       （`InstanceFilesPage` 那边就是这么接的）。
+/// 线程上用的时候应该先显示一句「正在读取…」，并且只在用户选中一行时读一份
+/// （`InstanceFilesPage` 那边就是这么接的）。
 Info read(const QString &path);
 
 /// 数据版本 → 正式版号（`3465` → `1.20.1`）。认不出来返回空串。

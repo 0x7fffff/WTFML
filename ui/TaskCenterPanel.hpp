@@ -1,8 +1,6 @@
 /**
  * @file TaskCenterPanel.hpp
  * @brief 任务中心（coding plan §3.2）：底栏中间那格向上弹出来的那块面板。
- * @author 0x7fffff
- * @date 2026-10-12
  *
  * 【为什么另起一个类，不接着用 `BottomBarPanel`】
  *
@@ -63,9 +61,9 @@ struct Step {
 /// 这一项**当下允许哪些操作**。和 `Tasks::TaskCapabilities` 一一对应（唯一翻译点 =
 /// `MainWindow::taskCenterItems()`）。
 ///
-/// ★ 它**不是**"这个状态本来该能干什么"，而是**账本那一刻记下来的那一位** —— 面板和详情页
-///   只照着它摆按钮，不再自己按状态推一遍。两处各推一遍的结局是"界面上有一颗点了没反应的
-///   按钮"（推的那一边不知道下载批次已经不在了）。
+/// 它**不是**"这个状态本来该能干什么"，而是**账本那一刻记下来的那一位** —— 面板和详情页
+/// 只照着它摆按钮，不再自己按状态推一遍。两处各推一遍的结局是"界面上有一颗点了没反应的
+/// 按钮"（推的那一边不知道下载批次已经不在了）。
 struct Capabilities {
     bool cancel = false;
     bool pause = false;
@@ -154,11 +152,11 @@ QString stepMark(StepState state);
 /// 一步在**某一项任务**里该画成什么（名字、记号、备注都可能是改写过的）。
 ///
 /// NOTE: 任务收尾时，正在跑的那一步会原样留在 `Running`（`TaskManager::finish()` 只把
-///       失败那一档的 Running 改成 Failed —— 取消/中断是"人叫停的"，改写成一堆 ✗ 是
-///       在冤枉那些步骤）。于是**画**的那一侧要补这一眼：任务已经有终态记号了，步骤再
-///       画一个 ● 就是"这一项已经结束、里面还有东西在跑"的自相矛盾。
-///       面板行、详情页、复制成文本三处**都走这一个函数**：以前详情弹层那一处自己做对了，
-///       另外几处各漏各的。
+/// 失败那一档的 Running 改成 Failed —— 取消/中断是"人叫停的"，改写成一堆 ✗ 是
+/// 在冤枉那些步骤）。于是**画**的那一侧要补这一眼：任务已经有终态记号了，步骤再
+/// 画一个 ● 就是"这一项已经结束、里面还有东西在跑"的自相矛盾。
+/// 面板行、详情页、复制成文本三处**都走这一个函数**：以前详情弹层那一处自己做对了，
+/// 另外几处各漏各的。
 Step stepForTask(State taskState, const Step &step);
 
 /// 任务还在走（排队 / 运行 / 等用户 / 暂停）。收尾过的一律 false。
@@ -178,15 +176,15 @@ QString timeText(const QDateTime &when);
  * @brief 一块贴在某颗按钮正上方、可以随时重建内容的 `Qt::Popup` 面板。
  *
  * NOTE: 和 `BottomBarPanel` 一样，它是个**窗口**（`Qt::Popup` 一定是顶层窗口），但 parent
- *       照旧挂着 —— 这样 `findChild` 找得到它（验证工程靠这个量几何），生命周期也不用
- *       单独管。
+ * 照旧挂着 —— 这样 `findChild` 找得到它（验证工程靠这个量几何），生命周期也不用
+ * 单独管。
  */
 class TaskCenterPanel : public QWidget {
 public:
     /// 「点在面板外面」那一下要问外面两件事（两个都按**全局坐标**说话）。两问的顺序不能换：
-    ///   · `claimed` —— 收回去**之前**问：这一下落在底栏那三颗按钮上吗？（是 ⇒ 钉
-    ///     `WA_NoMouseReplay`，把 Qt 那记重放压掉）
-    ///   · `dismissed` —— 收回去**之后**叫：去开该开的那一块（点的要是同一颗就什么都不开）。
+    /// · `claimed` —— 收回去**之前**问：这一下落在底栏那三颗按钮上吗？（是 ⇒ 钉
+    /// `WA_NoMouseReplay`，把 Qt 那记重放压掉）
+    /// · `dismissed` —— 收回去**之后**叫：去开该开的那一块（点的要是同一颗就什么都不开）。
     /// 理由全文见 `MainWindowUI.cpp` 里 `BottomBarPanel::handleOutsidePress()` 那两段 NOTE。
     struct OutsidePressHandler {
         std::function<bool(const QPoint &globalPos)> claimed;
@@ -252,9 +250,9 @@ private:
     void rebuildDetail(const QList<TaskCenter::Item> &items);
     void selectTask(const QString &key);
     void syncSelection();
-    /// 把**真在视口里露了脸**的失败行标成"看过了"（见 `rebuild()` 里那段 ★ 2026-10-20）。
+    /// 把**真在视口里露了脸**的失败行标成"看过了"（见 `rebuild()` 里那段 ★ ）。
     void acknowledgeVisibleFailures();
-    /// 鼠标键还按着的时候不重建，排到松手之后（见 `refresh()` 里那段 ★ 2026-10-20）。
+    /// 鼠标键还按着的时候不重建，排到松手之后（见 `refresh()` 里那段 ★ ）。
     void deferRefreshUntilRelease();
     /// 宽屏三列 / 窄屏“列表或详情占满整页”的唯一布局切换点。
     void applyWorkspaceMode();
@@ -307,7 +305,7 @@ private:
     bool m_refreshPending = false;
     /// 本次重建里**还没看过**的失败行钥匙（`rebuild()` 收集，`acknowledgeVisibleFailures()` 消费）。
     QSet<QString> m_unreadFailureKeys;
-    /// 重建已经排到"鼠标松开之后"了（见 `refresh()` 里那段 ★ 2026-10-20）。
+    /// 重建已经排到"鼠标松开之后"了（见 `refresh()` 里那段 ★ ）。
     bool m_refreshDeferred = false;
     /// 为了"松手之后再重建"已经等了几个 40 ms 拍（到 50 拍就放弃等待、照常重建）。
     int m_deferTicks = 0;

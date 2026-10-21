@@ -1,8 +1,6 @@
 /**
  * @file ModrinthCompatibility.cpp
  * @brief `ModrinthCompatibility.hpp` 的实现。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "ModrinthCompatibility.hpp"
@@ -125,8 +123,8 @@ void PlatformCompatibilityProvider::queryModrinth(const ModReference &reference,
     if (!context.gameVersion.trimmed().isEmpty()) {
         query.addQueryItem(QStringLiteral("game_versions"), versionFilter(context.gameVersion));
     }
-    // ★ 只有这四个是 Modrinth 认的模组加载器。`optifine` / 别的名字**不加**这一格：
-    //   加一个它不认的加载器名等于什么都查不到，那是假"缺失"。
+    // 只有这四个是 Modrinth 认的模组加载器。`optifine` / 别的名字**不加**这一格：
+    // 加一个它不认的加载器名等于什么都查不到，那是假"缺失"。
     const QString loader = normalizeCompatibilityLoader(context.loader);
     if (loader == QLatin1String("fabric") || loader == QLatin1String("forge") ||
         loader == QLatin1String("neoforge") || loader == QLatin1String("quilt")) {
@@ -184,8 +182,8 @@ void PlatformCompatibilityProvider::queryModrinth(const ModReference &reference,
                              return;
                          }
                          if (status == 429) {
-                             // ★ 限流：记下一个窗口，窗口里的后续查询直接「暂无法确认」，
-                             //   不去把平台的桶敲得更空。429 本身从不算缺失。
+                             // 限流：记下一个窗口，窗口里的后续查询直接「暂无法确认」，
+                             // 不去把平台的桶敲得更空。429 本身从不算缺失。
                              m_modrinthThrottledUntilMs =
                                  QDateTime::currentMSecsSinceEpoch() + kThrottleWindowMs;
                              reply(CompatibilityState::Unknown,

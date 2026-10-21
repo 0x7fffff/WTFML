@@ -1,8 +1,6 @@
 /**
  * @file ServerPlayers.cpp
  * @brief ServerPlayers.hpp 的实现（纯解析 / 纯拼 JSON，一个字节的盘都不碰）。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "server/ServerPlayers.hpp"
@@ -21,12 +19,7 @@ namespace ServerPlayers {
 namespace {
 
 /// 服务端自己写的时间格式：Mojang 那边是 `SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z")`，
-/// 写出来长 `2026-10-18 12:00:00 +0800`（**数字偏移、不带冒号**）。
-///
-/// Qt 没有 `Z` 那个记号（`t` 出的是时区缩写、`zzz` 出的带冒号），所以两头都自己来：
-/// 写的时候把 `offsetFromUtc()` 拼成 `±HHMM`；读的时候先认 ISO（手改过的文件里常见），
-/// 再认 `±HHMM`。**按那个偏移算绝对时刻**，不拿本机时区硬套 —— 不然一份 +0000 的文件
-/// 在东八区机器上会被读早八个小时，`isExpired()` 的判断就跟着错。
+/// 写出来长 ` 12:00:00 +0800`（**数字偏移、不带冒号**）。
 QDateTime parseMoment(const QString &text) {
     const QString trimmed = text.trimmed();
     if (trimmed.isEmpty()) return QDateTime();

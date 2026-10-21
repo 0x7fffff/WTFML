@@ -89,37 +89,37 @@ void ConnectionsController::setup() {
         });
     }
     // NOTE: 这里原来接的是主页那个「离线模式」勾选框 —— 它一变就得重画底栏（名字下面那行
-    //       写的是"这次启动用哪种身份"）。勾选框去掉了，现在让那个身份变的动作是
-    //       **换账号 / 加一个离线账号**，而那两个槽自己就会调 m_owner->updateBottomBar()，
-    //       所以这里没有对应的接线了。
+    // 写的是"这次启动用哪种身份"）。勾选框去掉了，现在让那个身份变的动作是
+    // **换账号 / 加一个离线账号**，而那两个槽自己就会调 m_owner->updateBottomBar()，
+    // 所以这里没有对应的接线了。
     // 「账号与外观…」的隐藏兼容入口 + 设置页入口。这两条仍然直通那个窗。
     //
-    // ★ 主页那张账号卡片（`getAccountSkinButton()`）**2026-10-16 不在这一串里了** ——
-    //   它现在点开的是"最近用过的账号"那块面板（接线在 MainWindowUI 自己那儿，见
-    //   `toggleAccountsPanel()`），而进「账号与外观」窗的那条路挪进面板**末行**那一颗
-    //   （用户原话：「这个的对应功能继承到右上角那个按钮去」）。两边都留着的话，点一下
-    //   卡片会同时冒出面板和那个窗。
+    // 主页那张账号卡片（`getAccountSkinButton()`）** 不在这一串里了** ——
+    // 它现在点开的是"最近用过的账号"那块面板（接线在 MainWindowUI 自己那儿，见
+    // `toggleAccountsPanel()`），而进「账号与外观」窗的那条路挪进面板**末行**那一颗
+    // （要求：「这个的对应功能继承到右上角那个按钮去」）。两边都留着的话，点一下
+    // 卡片会同时冒出面板和那个窗。
     connect(m_owner->m_ui->getAccountSkinSettingsButton(), &QPushButton::clicked, m_owner,
             &MainWindow::onAccountSkinButtonClicked);
     connect(m_owner->m_ui->getAddFolderButton(), &QPushButton::clicked, m_owner,
             &MainWindow::onAddFolderClicked);
-    // NOTE: 「移除文件夹」那个按钮 2026-09-24 删掉了（用户原话：「下面那个移除文件夹
-    //       也可以弃掉了」）—— 「移除」现在只有行尾齿轮菜单里那一项，走
-    //       m_owner->onFolderActionRequested() → m_owner->removeFolderFromList()，和按钮原来那条是同一个函数。
-    // NOTE: 实例页右栏那排按钮 2026-09-25 傍晚从三颗剩下一颗（用户原话：「删掉实例页面
-    //       右侧三个按钮（因为都已经分别有入口了），顺便把下面的文本干掉」）：
-    //         - 「实例设置…」那颗**没有接线了** —— 它的入口改成"点这一条实例行"（行里的
-    //           任意处）和行尾那颗常显的齿轮，两条都落在 MainWindow::eventFilter 里；
-    //         - 「重命名…」那颗也没有接线了 —— 改名搬进了「实例设置」那一页，走
-    //           m_owner->openInstanceSettings() 里那条路（用户原话：「重命名进实例设置」）；
-    //         - 只有「分组设置…」这一颗还在（它挪到「实例列表」那个框外面的右上角），
-    //           接线**一个字没改**。
+    // NOTE: 「移除文件夹」那个按钮 删掉了（要求：「下面那个移除文件夹
+    // 也可以弃掉了」）—— 「移除」现在只有行尾齿轮菜单里那一项，走
+    // m_owner->onFolderActionRequested() → m_owner->removeFolderFromList()，和按钮原来那条是同一个函数。
+    // NOTE: 实例页右栏那排按钮 傍晚从三颗剩下一颗（要求：「删掉实例页面
+    // 右侧三个按钮（因为都已经分别有入口了），顺便把下面的文本干掉」）：
+    // - 「实例设置…」那颗**没有接线了** —— 它的入口改成"点这一条实例行"（行里的
+    // 任意处）和行尾那颗常显的齿轮，两条都落在 MainWindow::eventFilter 里；
+    // - 「重命名…」那颗也没有接线了 —— 改名搬进了「实例设置」那一页，走
+    // m_owner->openInstanceSettings() 里那条路（要求：「重命名进实例设置」）；
+    // - 只有「分组设置…」这一颗还在（它挪到「实例列表」那个框外面的右上角），
+    // 接线**一个字没改**。
     connect(m_owner->m_ui->getGroupInstanceButton(), &QPushButton::clicked, m_owner,
             &MainWindow::onGroupInstanceClicked);
-    // NOTE: 实例页那颗「停止游戏…」2026-09-25 删掉了（用户原话），这里原来接
-    //       onStopGameClicked() 的那条线跟着没了 —— 停游戏现在只有底栏左面板里那行电源
-    //       那条路（m_owner->onBottomBarPanelAction() → m_owner->stopGameSession()）。
-    // 「导入整合包…」这一颗 2026-09-25 从右栏挪到了左栏「游戏文件夹」那一组（在
+    // NOTE: 实例页那颗「停止游戏…」 删掉了（要求），这里原来接
+    // onStopGameClicked() 的那条线跟着没了 —— 停游戏现在只有底栏左面板里那行电源
+    // 那条路（m_owner->onBottomBarPanelAction() → m_owner->stopGameSession()）。
+    // 「导入整合包…」这一颗 从右栏挪到了左栏「游戏文件夹」那一组（在
     // 「添加文件夹…」下面），槽没变、接线也没变。
     connect(m_owner->m_ui->getImportModpackButton(), &QPushButton::clicked, m_owner,
             &MainWindow::onImportModpackClicked);
@@ -141,7 +141,7 @@ void ConnectionsController::setup() {
         if (QPushButton *newServer = m_owner->m_ui->getNewServerButton()) {
             connect(newServer, &QPushButton::clicked, m_owner, &MainWindow::openNewServerPage);
         }
-        // 服务端列表里双击一行 = 开控制台（2026-10-13 定的：双击那一下最想看的正是"它现在
+        // 服务端列表里双击一行 = 开控制台（ 定的：双击那一下最想看的正是"它现在
         // 在说什么"；"打开目录"退到右键菜单里那一项 —— 行尾那颗按钮和右键菜单一共六件事，
         // 双击只能占一件）。
         if (QTreeWidget *serverList = m_owner->m_ui->getServerList()) {
@@ -171,7 +171,7 @@ void ConnectionsController::setup() {
     // 都会从它这儿发信号出来，界面只管跟着重画。
     connect(m_owner->m_folderManager, &FolderManager::foldersChanged, m_owner, [this] {
         m_owner->refreshFolderList();
-        // 列表变了 = 可借的来源也变了（加进来的 / 移走的），重新推一遍（2026-10-20）。
+        // 列表变了 = 可借的来源也变了（加进来的 / 移走的），重新推一遍。
         m_owner->syncDownloadReuseSources();
     });
     connect(m_owner->m_folderManager, &FolderManager::directoryAccessDenied, m_owner,
@@ -182,18 +182,18 @@ void ConnectionsController::setup() {
     connect(m_owner->m_folderManager, &FolderManager::currentFolderChanged, m_owner, [this] {
         m_owner->applyCurrentFolderToPaths();
         // 换了一整份 .minecraft，三件跟着"上一份"走的事要重置：
-        //   - "目录名和 jar 名对不上"的告警只报一次，新目录得重新能报；
-        //   - 本机 Java 列表是**按根目录**扫的（自管 Java 在 <数据目录>/java 下），
-        //     下次进设置页要重扫一遍。★ 2026-09-28：那份结果现在整个换掉（scanLocalJava
-        //     直接赋值给 m_owner->m_localJavaVersions），所以下面连着它一起丢 —— 以前是往一个
-        //     下拉框里"往里加"，上一个根目录里那份自管 Java 会留在框里（它指着的是个
-        //     真实存在的 java.exe，不碍事，但要重开启动器才清干净），现在没有这一档了。
-        //   - ★ 2026-09-27 补的第三件：**版本 json 的两张内存缓存表**。它们的键只有版本
-        //     id（= 目录名），而两份 .minecraft 里各有一个 `1.20.1` 是常态 —— 不丢的话，
-        //     切过来再启动同名的那个实例，classpath / natives / javaVersion / assetIndex
-        //     全按**上一份目录**里那份 json 算，而游戏自己去读新目录的 json。这条原来漏了
-        //     （上面那句只数了两件），症状是"换文件夹之后启动的不是这个版本"。详见
-        //     VersionManager::clearVersionJsonCache()。
+        // - "目录名和 jar 名对不上"的告警只报一次，新目录得重新能报；
+        // - 本机 Java 列表是**按根目录**扫的（自管 Java 在 <数据目录>/java 下），
+        // 下次进设置页要重扫一遍。★ ：那份结果现在整个换掉（scanLocalJava
+        // 直接赋值给 m_owner->m_localJavaVersions），所以下面连着它一起丢 —— 以前是往一个
+        // 下拉框里"往里加"，上一个根目录里那份自管 Java 会留在框里（它指着的是个
+        // 真实存在的 java.exe，不碍事，但要重开启动器才清干净），现在没有这一档了。
+        // - ★ 补的第三件：**版本 json 的两张内存缓存表**。它们的键只有版本
+        // id（= 目录名），而两份 .minecraft 里各有一个 `1.20.1` 是常态 —— 不丢的话，
+        // 切过来再启动同名的那个实例，classpath / natives / javaVersion / assetIndex
+        // 全按**上一份目录**里那份 json 算，而游戏自己去读新目录的 json。这条原来漏了
+        // （上面那句只数了两件），症状是"换文件夹之后启动的不是这个版本"。详见
+        // VersionManager::clearVersionJsonCache()。
         m_owner->m_reportedUnrecognizedVersions = false;
         m_owner->m_javaSettingsController->resetDiscovery();
         m_owner->m_versionManager->clearVersionJsonCache();
@@ -201,17 +201,17 @@ void ConnectionsController::setup() {
         // 分组**不需要**在这里重置或重读：InstanceGroupStore 每个访问器都会比一下
         // "这次问的是哪一份 .minecraft"，不一样就自己重读（见它的文件头）。
         m_owner->refreshInstalledVersions();
-        // ★ 换游戏文件夹也算"点击左边栏、右边栏跟着变"（用户 2026-09-29：「除了切换页面，
-        //   点击左边栏导致右边栏发生变化的时候也要加动画」）。
-        //   挂在这儿、而不是挂在左栏那一次点击上：这一发**就是**"右边那一列真的换了一整份"
-        //   的判据 —— 同一个文件夹再点一下，`FolderManager::setCurrentFolder()` 直接返回、
-        //   这条根本不响，所以它天生不会"点了一下没换也淡一遍"。
+        // 换游戏文件夹也算"点击左边栏、右边栏跟着变"（用户 ：「除了切换页面，
+        // 点击左边栏导致右边栏发生变化的时候也要加动画」）。
+        // 挂在这儿、而不是挂在左栏那一次点击上：这一发**就是**"右边那一列真的换了一整份"
+        // 的判据 —— 同一个文件夹再点一下，`FolderManager::setCurrentFolder()` 直接返回、
+        // 这条根本不响，所以它天生不会"点了一下没换也淡一遍"。
         // NOTE: 窗口还没露面那一趟（开程序时认当前文件夹）由 `isVisible()` 挡掉 —— 和顶上
-        //       四颗选项卡那条接线逐字同一个判据（见 MainWindowUI.cpp 里 `appearOnSwitch`）。
+        // 四颗选项卡那条接线逐字同一个判据（见 MainWindowUI.cpp 里 `appearOnSwitch`）。
         // 垫的是 `QPalette::Base`：这一列树的底就是它（一行行的卡片画在它上面）。
-        // ★ 抬的是树**的视口**（`liftTarget()`，`ui/Animations.cpp` 里那个），不是树自己：这棵树自带那圈框（还有
-        //   顶上那条表头），树本身换文件夹前后**都在原地** —— 整棵跟着挪就是"框瞬移"
-        //   （用户 2026-10-11 报的那件事）。见 `Animations.hpp` 里 `pageAppear()` 那段。
+        // 抬的是树**的视口**（`liftTarget()`，`ui/Animations.cpp` 里那个），不是树自己：这棵树自带那圈框（还有
+        // 顶上那条表头），树本身换文件夹前后**都在原地** —— 整棵跟着挪就是"框瞬移"
+        // （用户 报的那件事）。见 `Animations.hpp` 里 `pageAppear()` 那段。
         if (QTreeWidget *list = m_owner->m_ui->getInstanceList()) {
             if (list->isVisible()) {
                 Anim::pageAppear(list, list->palette().color(QPalette::Base));
@@ -252,7 +252,7 @@ void ConnectionsController::setup() {
     connect(m_owner->m_ui->getInstanceList(), &QTreeWidget::currentItemChanged, m_owner, [this] {
         syncComboToTree(m_owner->m_ui->getInstalledVersionCombo(), m_owner->m_ui->getInstanceList());
     });
-    // 点**组头**那一下 = 展开/收起（用户原话：「每一个组和版本下载几乎一致，点一下
+    // 点**组头**那一下 = 展开/收起（要求：「每一个组和版本下载几乎一致，点一下
     // 打开/关闭」），而且当场记下来 —— 下次打开还照这样画（见 InstanceGroupStore::
     // Group::expanded）。点实例那一行仍旧只是"把它选中"（上面那条 currentItemChanged）。
     //
@@ -260,29 +260,29 @@ void ConnectionsController::setup() {
     // 当成启动器坏了的情况（和版本树那几条分类同一条规矩）。
     //
     // NOTE: 先算再做（`!item->isExpanded()` 在 setExpanded() 之前求值）—— 和加载器树那
-    //       一句同一个写法、同一个教训（见那里的 NOTE）。
+    // 一句同一个写法、同一个教训（见那里的 NOTE）。
     const auto onInstanceTreeActivated = [this](QTreeWidgetItem *item) {
         if (item == nullptr) {
             return;
         }
         if (!item->data(0, MainWindowUI::rowGroupGearRole()).toBool()) {
-            // ★ **实例行**：点这一行（空白处、左边那个图标、版本名 —— 除了行尾那三颗按钮
-            // 之外的任何地方）= 进这个实例的设置。用户 2026-09-25 原话：「直接点空白区域
+            // **实例行**：点这一行（空白处、左边那个图标、版本名 —— 除了行尾那三颗按钮
+            // 之外的任何地方）= 进这个实例的设置。要求：「直接点空白区域
             // （和左边图标版本名）进入实例设置」。行尾那三颗由 eventFilter 先吃掉，落不到
             // 这里来（见那一段；它们三个各自是"别的事"，不该顺带把设置页也开了）。
             //
             // NOTE: 这一下**同时**把它选中（视图在按下那一刻就把 currentItem 挪过来了），
-            //       那条路照旧、它同步到主页那个下拉框。两件事不冲突：选中是给"启动"用的，
-            //       进设置是这一下点名的另一件事 —— 用户明确要的是"点这一行就进设置"。
+            // 那条路照旧、它同步到主页那个下拉框。两件事不冲突：选中是给"启动"用的，
+            // 进设置是这一下点名的另一件事 —— 用户明确要的是"点这一行就进设置"。
             m_owner->openInstanceSettings(item->data(0, MainWindowUI::instanceIdRole()).toString());
             return;
         }
         const bool expand = !item->isExpanded();
         item->setExpanded(expand);
-        // ★ 筛着的时候**不落盘**（coding plan §7.2「清空搜索恢复原展开状态」）：筛着的时候
-        //   每一组都是被我们摆成展开的，用户这一下点的是"这一次先收起来看看"，不是"以后
-        //   默认都收着"。落盘的话，清空搜索之后那一组的**原**展开状态就被这一次点击悄悄
-        //   改掉了 —— 而那句要求说的正是"清空之后要回到原来那样"。
+        // 筛着的时候**不落盘**（coding plan §7.2「清空搜索恢复原展开状态」）：筛着的时候
+        // 每一组都是被我们摆成展开的，用户这一下点的是"这一次先收起来看看"，不是"以后
+        // 默认都收着"。落盘的话，清空搜索之后那一组的**原**展开状态就被这一次点击悄悄
+        // 改掉了 —— 而那句要求说的正是"清空之后要回到原来那样"。
         if (!m_owner->instanceFilterQuery().isActive()) {
             m_owner->rememberGroupExpanded(item->data(0, MainWindowUI::groupIdRole()).toString(), expand);
         }
@@ -299,7 +299,7 @@ void ConnectionsController::setup() {
     // 组行行尾那颗**齿轮**：它不是"点这一行"，所以不走上面那条路 —— 走**视口上的事件
     // 过滤器**，判据是 InstanceGroupDelegate::gearRect()（和代理画它的那一格是同一份
     // 几何）。过滤器是为了**吃掉**那一下：不然点齿轮会顺手把这一组展开/收起
-    //（和加载器树上那个「取消」小叉、下载页那几个刷新圈完全同一个路数）。
+    // （和加载器树上那个「取消」小叉、下载页那几个刷新圈完全同一个路数）。
     m_owner->m_ui->getInstanceList()->viewport()->installEventFilter(m_owner);
     // 组行行尾那颗齿轮里那几项点了做什么（界面只报"哪一组、第几项"）。
     m_owner->m_ui->setGroupActionHandler([this](const QString &groupId, int action) {
@@ -316,8 +316,8 @@ void ConnectionsController::setup() {
     // 条件只有一个出处，就是那几个控件此刻的样子。
     //
     // NOTE: 不接 `textEdited` + 防抖那一套：这条路**不扫盘**（原料是
-    //       `m_owner->m_instancePageParts`，见那一格），重灌一次只是建几十个树条目。真机 61 个
-    //       实例实测不卡 —— 需要防抖的话它会是这条路先冒出来的问题。
+    // `m_owner->m_instancePageParts`，见那一格），重灌一次只是建几十个树条目。真机 61 个
+    // 实例实测不卡 —— 需要防抖的话它会是这条路先冒出来的问题。
     if (QLineEdit *search = m_owner->m_ui->getInstanceSearchEdit()) {
         connect(search, &QLineEdit::textChanged, m_owner, [this] { m_owner->rebuildInstanceTree(); });
     }
@@ -328,8 +328,8 @@ void ConnectionsController::setup() {
             continue;
         }
         connect(button, &QPushButton::clicked, m_owner, [this, which] {
-            // ★ 原版 / 模组**互斥**：点一颗就把另一颗摘掉（用户点的是"我要看哪一类"，
-            //   不是"再加一条条件"）。另外两颗（可更新 / 最近运行）各管各的、不动别人。
+            // 原版 / 模组**互斥**：点一颗就把另一颗摘掉（用户点的是"我要看哪一类"，
+            // 不是"再加一条条件"）。另外两颗（可更新 / 最近运行）各管各的、不动别人。
             const bool pair = which == MainWindowUI::InstanceFilterButton::Vanilla
                               || which == MainWindowUI::InstanceFilterButton::Modded;
             if (pair) {
@@ -386,21 +386,21 @@ void ConnectionsController::setup() {
             &MainWindow::backToVersionTree);
     connect(m_owner->m_ui->getInstallButton(), &QPushButton::clicked, m_owner,
             &MainWindow::onInstallButtonClicked);
-    // 实例预设那一行（2026-10-18，coding plan §7.1）：它是**加载器树里的一条**，点它是
+    // 实例预设那一行（，coding plan §7.1）：它是**加载器树里的一条**，点它是
     // 开那张四类弹窗（在 onLoaderTreeClicked 里按 UserRole 认出来）—— 没有单独的控件
     // 要接线。
-    // 名称框：每敲一个字都要重算那句小字（重名提示要"实时"——用户原话）。
+    // 名称框：每敲一个字都要重算那句小字（重名提示要"实时"——要求）。
     connect(m_owner->m_ui->getInstallNameEdit(), &QLineEdit::textChanged, m_owner,
             &MainWindow::onInstallNameEdited);
     // 加载器那棵树（安装页）：**点一下**那条里的两件事分开办 ——
-    //   · 点顶层（一个加载器）：**只展开/收起**那一条（用户原话："点一下，展开，再点一下
-    //     关闭"）。展开是"看看有哪些版本"，看一眼不等于选了它 —— **选中是点版本号那一下
-    //     的事**（2026-09-23 用户原话："现在是展开以后就自动选择"，那正是要改掉的旧样子）；
-    //   · 点「不装（纯原版）」：它底下没有版本可展开，点它就是选中它。它也是换加载器的
-    //     唯一退路 —— 选中某一条之后其余几条会变灰（见 m_owner->updateLoaderRows()），
-    //     没有它就走不回去了；
-    //   · 点子条目（一个版本号）：选中它爹那条加载器 + 把这一条钉在这个版本上，**收起**
-    //     那条，并把版本号写回它的第二行小字（用户原话："选择版本以后收缩，显示版本"）。
+    // · 点顶层（一个加载器）：**只展开/收起**那一条（要求："点一下，展开，再点一下
+    // 关闭"）。展开是"看看有哪些版本"，看一眼不等于选了它 —— **选中是点版本号那一下
+    // 的事**（ 要求："现在是展开以后就自动选择"，那正是要改掉的旧样子）；
+    // · 点「不装（纯原版）」：它底下没有版本可展开，点它就是选中它。它也是换加载器的
+    // 唯一退路 —— 选中某一条之后其余几条会变灰（见 m_owner->updateLoaderRows()），
+    // 没有它就走不回去了；
+    // · 点子条目（一个版本号）：选中它爹那条加载器 + 把这一条钉在这个版本上，**收起**
+    // 那条，并把版本号写回它的第二行小字（要求："选择版本以后收缩，显示版本"）。
     // 共用一份 lambda 而不是槽：槽签名里带 QTreeWidgetItem* 就得让 moc 也认得这个类型
     // （版本树那边同一个理由，见 openFromTreeItem 上面那段）。
     const auto onLoaderTreeClicked = [this](QTreeWidgetItem *item) {
@@ -427,10 +427,10 @@ void ConnectionsController::setup() {
                 return;
             }
             // NOTE: 这里**先算再做**（`!item->isExpanded()` 在动状态之前求值）是老账：
-            //       2026-09-23 那次"选了「自动」以后列表就点不开了"就是这一句读到了**已被
-            //       改过**的 isExpanded()（当时这一支里还夹着一次 m_owner->selectLoader()，它顺手
-            //       把这一条撑开了）。如今这一支除了 setExpanded 一行都不做，写法还是留着：
-            //       它是这一句话唯一安全的写法。
+            // 那次"选了「自动」以后列表就点不开了"就是这一句读到了**已被
+            // 改过**的 isExpanded()（当时这一支里还夹着一次 m_owner->selectLoader()，它顺手
+            // 把这一条撑开了）。如今这一支除了 setExpanded 一行都不做，写法还是留着：
+            // 它是这一句话唯一安全的写法。
             const bool expand = !item->isExpanded();
             item->setExpanded(expand);
             return;
@@ -472,8 +472,8 @@ void ConnectionsController::setup() {
     // "点这一行"，所以不走上面两条路 —— 走**视口上的事件过滤器**，判据是
     // VersionTreeDelegate::clearRect()（和代理画它的那一格是同一份几何）。
     // NOTE: 过滤器是为了**吃掉**那一下：Qt 那边 itemClicked 是在鼠标松开时发的，而
-    //       "点中了行里的一个按钮"和"点中了这一行"必须是两件事 —— 不然点叉会顺手把那一列
-    //       展开/收起，用户看到的是"我按了取消，它却收起来了"。
+    // "点中了行里的一个按钮"和"点中了这一行"必须是两件事 —— 不然点叉会顺手把那一列
+    // 展开/收起，用户看到的是"我按了取消，它却收起来了"。
     m_owner->m_ui->getLoaderTree()->viewport()->installEventFilter(m_owner);
     // 下载页左栏那份分类列表的行尾也有"行里的一个按钮"：每个条目右边那个刷新
     // （见 MainWindow::refreshDownloadCategory()）。同一个理由挂同一个过滤器 —— 那一下
@@ -494,17 +494,10 @@ void ConnectionsController::setup() {
                 if (row >= 0 && row < stack->count()) {
                     stack->setCurrentIndex(row);
                 }
-                // 页头那行说明跟着当前这一类走（2026-10-12 那次改版：页头要写"当前状态"）。
+                // 页头那行说明跟着当前这一类走（ 那次改版：页头要写"当前状态"）。
                 // 摆在这儿是**唯一**一处 —— 翻类有两条路（点条目、页头那颗刷新切过去），
                 // 两条最后都会走到 `currentRowChanged` 上，各写一遍迟早会有一边漏。
                 m_owner->m_ui->setDownloadHeaderRow(row);
-                // 后面那几页（整合包/模组/数据包/资源包/光影）**第一次进页面时**才去搜一次
-                //（空搜索词 = 这一类里最热门的）。理由有两条，第二条才是主要的：
-                //   · 启动时一次发好几个请求是白花用户的等待（他多半只会进其中一页）；
-                //   · 那个接口按分钟限流（实测响应头 X-Ratelimit-Limit: 300），
-                //     每个用户每次开启动器都固定烧掉几发额度，换来的东西他一次都没看。
-                // "第一次"的判据在 m_owner->ensureResourcePageLoaded() 里（树上已经有东西就不动）。
-                // 「游戏」那一页（第 0 页）不是这一类，kindFromCategoryKey 认不出来。
                 const QStringList keys = MainWindowUI::downloadCategoryKeys();
                 ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
                 if (row >= 0 && row < keys.size()
@@ -512,36 +505,36 @@ void ConnectionsController::setup() {
                     m_owner->ensureResourcePageLoaded(kind);
                 }
             });
-    // 左栏顶上那颗「← 返回实例设置」（2026-09-28）。**整个下载页一颗**，摆在左栏顶上
-    // （用户原话「返回按钮也是放在左上角（就是左边栏的顶上）」）—— 所以这里不再是一圈循环，
+    // 左栏顶上那颗「← 返回实例设置」。**整个下载页一颗**，摆在左栏顶上
+    // （要求「返回按钮也是放在左上角（就是左边栏的顶上）」）—— 所以这里不再是一圈循环，
     // 就接一次。
     //
     // NOTE: 那颗键要回的是"当初从哪个实例点进来"，而那个实例只有一个出处
-    //       （`m_owner->m_downloadFromInstanceId`，由 openDownloadCategory 摆、由这个槽消费掉）。
-    //       把实例号塞进信号里也能做，但那样"哪一位是活的"就有两份，而"按下时用的那一位"
-    //       和"露出来的那一颗"必须永远是同一个。
+    // （`m_owner->m_downloadFromInstanceId`，由 openDownloadCategory 摆、由这个槽消费掉）。
+    // 把实例号塞进信号里也能做，但那样"哪一位是活的"就有两份，而"按下时用的那一位"
+    // 和"露出来的那一颗"必须永远是同一个。
     if (QPushButton *back = m_owner->m_ui->getDownloadBackButton()) {
         connect(back, &QPushButton::clicked, m_owner,
                 &MainWindow::returnToInstanceSettingsFromDownload);
     }
-    // 下载页**页头右上角**那颗刷新（2026-10-12 加的）。用户那份改版文档把刷新归到
+    // 下载页**页头右上角**那颗刷新（ 加的）。用户那份改版文档把刷新归到
     // "当前分类自己的页面头部"—— 于是它和分类行行尾那一颗做的是同一件事（`m_owner->refreshDownloadCategory()`），
     // 只是作用对象不用再从"点在哪一行"推：就是**现在停着的那一类**。
     // NOTE: 传的是 `currentRow()` 而不是捕获下来的某一行 —— 那颗键一直活着，翻类之后
-    //       它必须跟着新那一类走。
+    // 它必须跟着新那一类走。
     if (QPushButton *refresh = m_owner->m_ui->getDownloadHeaderRefreshButton()) {
         connect(refresh, &QPushButton::clicked, m_owner, [this]() {
             QListWidget *categories = m_owner->m_ui->getDownloadCategoryList();
             m_owner->refreshDownloadCategory(categories != nullptr ? categories->currentRow() : -1);
         });
     }
-    // 下载页「服务端」那一栏里那颗「新建服务端…」（2026-10-18，coding plan §1.4）。
+    // 下载页「服务端」那一栏里那颗「新建服务端…」（，coding plan §1.4）。
     // **和实例页那颗是同一个动作**（`MainWindow::openNewServerPage()`），这里只是把
     // 那条路也摆到下载页上 —— 别另开一条"在下载页里建服务端"的实现。
     if (QPushButton *newServer = m_owner->m_ui->getDownloadNewServerButton()) {
         connect(newServer, &QPushButton::clicked, m_owner, &MainWindow::openNewServerPage);
     }
-    // 顶上那四颗导航（2026-09-28，用户原话「点击顶部下载按钮就刷新页面回到主页」）。
+    // 顶上那四颗导航（，要求「点击顶部下载按钮就刷新页面回到主页」）。
     //
     // **只管 MainWindowUI 管不着的那一件**：翻页和"点的是当前这一颗就把覆盖层收起来"那两条
     // 仍旧由 MainWindowUI 自己接的那一条负责（见那边搭导航那段）。这边补的一条只做
@@ -557,7 +550,7 @@ void ConnectionsController::setup() {
     // 三个回复信号接的全是同一个槽（槽里按请求钥匙认回来的是哪一页）。
     //
     // NOTE: 那两个 lambda 收的是 Kind 而不是 res 的键 —— 用值捕获，每页一份，
-    //       不会在循环结束后全都指向最后一页。
+    // 不会在循环结束后全都指向最后一页。
     for (ResourceCatalog::Kind kind : ResourceCatalog::allKinds()) {
         const QString key = ResourceCatalog::kindKey(kind);
         QLineEdit *edit = m_owner->m_ui->getDownloadSearchEdit(key);
@@ -571,17 +564,17 @@ void ConnectionsController::setup() {
         // 回车（returnPressed）才搜，不是边打字边搜：一次搜索是一条请求，而这个接口按分钟
         // 限流；边打边搜等于把额度花在"用户打到一半的那些词"上。
         // NOTE: 信号带一个 QString（编辑框里的文字），这个槽不收参数，多余的那个会被丢掉
-        //       （Qt 的新式 connect 允许槽少收参数）。
+        // （Qt 的新式 connect 允许槽少收参数）。
         connect(edit, &QLineEdit::returnPressed, m_owner, [this, kind] { m_owner->startResourceSearch(kind); });
 
-        // ---------- 旁边那一行筛子（2026-09-25）----------
+        // ---------- 旁边那一行筛子----------
         //
-        // 「搜索」那颗键：和名称框里按回车是**同一件事**（用户原话「一个搜索键」）。
+        // 「搜索」那颗键：和名称框里按回车是**同一件事**（要求「一个搜索键」）。
         if (QPushButton *searchButton = m_owner->m_ui->getDownloadFilterSearchButton(key)) {
             connect(searchButton, &QPushButton::clicked, m_owner,
                     [this, kind] { m_owner->startResourceSearch(kind); });
         }
-        // 「清空条件」：把名称框和四个筛子退回"不筛"，然后**重搜一发**（2026-09-26 用户原话
+        // 「清空条件」：把名称框和四个筛子退回"不筛"，然后**重搜一发**（ 要求
         // 「修改任何内容（不论是来源网站还是…）都刷新一下」；从前这里是"清完不动"，于是
         // 清完的界面和列表对不上 —— 六个框全空着，底下还摆着上一批按老条件筛出来的结果）。
         if (QPushButton *resetButton = m_owner->m_ui->getDownloadFilterResetButton(key)) {
@@ -590,16 +583,16 @@ void ConnectionsController::setup() {
                 m_owner->startResourceSearch(kind);
             });
         }
-        // 「版本」那一格也可输入，在里面按回车**同样等同于按搜索键**（用户原话
+        // 「版本」那一格也可输入，在里面按回车**同样等同于按搜索键**（要求
         // 「名字/版本可自行输入，这两个框选中时按回车等同于按搜索键」）。
         //
         // NOTE: 必须接 `lineEdit()->returnPressed`，不能接下拉框自己的 `returnPressed` ——
-        //       后者只在"框里那串字正好是列表里选中的那一项"时才发（Qt 的
-        //       QComboBox::returnPressed 就是 `lineEdit()->returnPressed` 加了一道
-        //       "有没有选中项"的闸，见它文档里那句）。而这一格存在的理由正是**用户自己
-        //       打一个清单里没有的版本号**，那一发会被那道闸吃掉：回车下去什么都没发生。
+        // 后者只在"框里那串字正好是列表里选中的那一项"时才发（Qt 的
+        // QComboBox::returnPressed 就是 `lineEdit()->returnPressed` 加了一道
+        // "有没有选中项"的闸，见它文档里那句）。而这一格存在的理由正是**用户自己
+        // 打一个清单里没有的版本号**，那一发会被那道闸吃掉：回车下去什么都没发生。
         // NOTE: `lineEdit()` 只有在 `setEditable(true)` 之后才不是空的（界面那边已经设了，
-        //       见 MainWindowUI 里 makeFilterCombo 那一段），所以这里要判一下。
+        // 见 MainWindowUI 里 makeFilterCombo 那一段），所以这里要判一下。
         if (QComboBox *versionCombo = m_owner->m_ui->getDownloadFilterVersionCombo(key)) {
             if (QLineEdit *versionEdit = versionCombo->lineEdit()) {
                 connect(versionEdit, &QLineEdit::returnPressed, m_owner, [this, kind, key] {
@@ -613,13 +606,13 @@ void ConnectionsController::setup() {
             // 「版本」是从下拉里挑的（而不是手打的字）⇒ 挑完就搜。
             //
             // NOTE: 这一发**和上面那一发会撞**：这一格是**可输入的**，在框里按回车时 Qt
-            //       先发 `QLineEdit::returnPressed`（上面那条路），紧接着发
-            //       `editingFinished`，而 QComboBox 自己接了后者 —— 框里那串字正好是清单里
-            //       某一项时它补一次 setCurrentIndex + activated（见 Qt 6.10 的
-            //       QComboBoxPrivate::editingFinished 与 QLineEditPrivate::controlEditingFinished
-            //       那两句的先后）。两发都通到"搜一发"，不拦的话同一按回车会搜两次、
-            //       烧两发限流额度。判据就是上面 `returnPressed` 记的那一笔 —— **同一回合里
-            //       只认第一发**（那一笔由 0 毫秒的单次定时器抹掉）。
+            // 先发 `QLineEdit::returnPressed`（上面那条路），紧接着发
+            // `editingFinished`，而 QComboBox 自己接了后者 —— 框里那串字正好是清单里
+            // 某一项时它补一次 setCurrentIndex + activated（见 Qt 6.10 的
+            // QComboBoxPrivate::editingFinished 与 QLineEditPrivate::controlEditingFinished
+            // 那两句的先后）。两发都通到"搜一发"，不拦的话同一按回车会搜两次、
+            // 烧两发限流额度。判据就是上面 `returnPressed` 记的那一笔 —— **同一回合里
+            // 只认第一发**（那一笔由 0 毫秒的单次定时器抹掉）。
             connect(versionCombo, &QComboBox::activated, m_owner, [this, kind, key](int) {
                 if (m_owner->m_versionEnterSearches.contains(key)) {
                     return;
@@ -627,16 +620,16 @@ void ConnectionsController::setup() {
                 m_owner->startResourceSearch(kind);
             });
         }
-        // ---------- 四个筛子：在下拉里挑了一项 ⇒ 立刻重搜（2026-09-26）----------
+        // ---------- 四个筛子：在下拉里挑了一项 ⇒ 立刻重搜----------
         //
-        // 用户原话：「修改任何内容（不论是来源网站还是…）都刷新一下」+「下拉即搜，文字回车才搜」。
+        // 要求：「修改任何内容（不论是来源网站还是…）都刷新一下」+「下拉即搜，文字回车才搜」。
         // 于是分工是：**筛子（下拉）挑一项 = 立刻搜；框里打的字 = 只有回车那一下搜**。
         //
         // NOTE: 这四格接的是 `activated` 而不是 `currentIndexChanged`。后者在**程序**改
-        //       的时候也发（灌清单、换来源时把加载器/类型退回「全部」、清空条件），而"用户
-        //       在下拉里挑了一项"只有 activated 说得清（Qt 只在 itemSelected /
-        //       editingFinished 里发它）。两个好处：灌数据不会自己搜自己，而
-        //       `setCurrentIndex()` 这种"改到一半"的中间态也不会漏出去一发。
+        // 的时候也发（灌清单、换来源时把加载器/类型退回「全部」、清空条件），而"用户
+        // 在下拉里挑了一项"只有 activated 说得清（Qt 只在 itemSelected /
+        // editingFinished 里发它）。两个好处：灌数据不会自己搜自己，而
+        // `setCurrentIndex()` 这种"改到一半"的中间态也不会漏出去一发。
         //
         // 「来源」换了一项：这一页的加载器 / 类型跟着换一份选项（两边的键不是一套），
         // 换完**就按新来源搜一发**。
@@ -663,10 +656,10 @@ void ConnectionsController::setup() {
         // 第三层那一行"点它就是下它"，而双击的两发里第二发会撞上"已有下载任务正在进行"，
         // 界面于是先弹一句假的「下载失败」，顺手把待导入记录也吃掉了（真的整合包下完就
         // 再也不会走导入）。
-        // NOTE: 2026-09-25 起那笔记录只在"这一批真的开起来了"之后才登记（见
-        //       downloadResourceVersion 里那句），假失败那一发带的是同一个 label，
-        //       但它根本没开出批次，登记这一步压根没走到 —— 吃不到它了。
-        //       这里仍然只该进来一次：假失败本身是假的，双击仍只该下一次。
+        // NOTE: 起那笔记录只在"这一批真的开起来了"之后才登记（见
+        // downloadResourceVersion 里那句），假失败那一发带的是同一个 label，
+        // 但它根本没开出批次，登记这一步压根没走到 —— 吃不到它了。
+        // 这里仍然只该进来一次：假失败本身是假的，双击仍只该下一次。
         // 哪几行是"开/关"：**上面两层**（资源、游戏版本）是，第三层那一行（版本号）
         // 是"下它"，算做事 —— 双击仍然只下一次。这个判据和 m_owner->onResourceItemActivated()
         // 里那个 m_owner->resourceRowDepth() 说的是同一件事（那边 2 才是下），两处必须一起看。
@@ -677,24 +670,24 @@ void ConnectionsController::setup() {
                                  const int depth = m_owner->resourceRowDepth(item);
                                  return depth == 0 || depth == 1;
                              });
-        // 点行身 = 打开详情页，点箭头 = 展开/收起（2026-09-26）。这一发走**事件过滤器**
+        // 点行身 = 打开详情页，点箭头 = 展开/收起。这一发走**事件过滤器**
         // 而不是上面那个接线口：接线的那个只给"点中了哪个条目"、不给"点在条目里的哪儿"
         // （箭头是行里的一格），和加载器树上那个「取消」小叉是同一个形状的判据
         // —— 见 MainWindow::eventFilter 里"下载页那四张资源表"那一段。
         //
         // NOTE: 装的是**视口**（鼠标事件按光标位置投递给视口）—— 和实例树、加载器树、
-        //       左栏那份分类列表三处一模一样。
-        // ★ 这一句**必须排在上面那句 connectRowActivation 之后**：Qt 的事件过滤器是
-        //   "后装的先跑"，而上面那个接线口会给**开关行**的每一发双击补一次激活
-        //   （见 RowActivation.hpp 里那段"点得快的时候每一下都要算"）。排在它前面的话，
-        //   "双击行身"那一发会先被它当成展开/收起办掉、再被我们吃掉 —— 症状是"点开这一页
-        //   之前，底下那棵树自己展开又收起了一下"。位置反过来就没有这个窗口。
-        //   （那个接线口自己也挂在视口上，所以这两句的先后**就是**那两条过滤器的先后。）
+        // 左栏那份分类列表三处一模一样。
+        // 这一句**必须排在上面那句 connectRowActivation 之后**：Qt 的事件过滤器是
+        // "后装的先跑"，而上面那个接线口会给**开关行**的每一发双击补一次激活
+        // （见 RowActivation.hpp 里那段"点得快的时候每一下都要算"）。排在它前面的话，
+        // "双击行身"那一发会先被它当成展开/收起办掉、再被我们吃掉 —— 症状是"点开这一页
+        // 之前，底下那棵树自己展开又收起了一下"。位置反过来就没有这个窗口。
+        // （那个接线口自己也挂在视口上，所以这两句的先后**就是**那两条过滤器的先后。）
         tree->viewport()->installEventFilter(m_owner);
         // 图标是**懒要**的：条目建出来之后才 requestIcon()，不然图标回来时没有行可以放
-        //（而且 store 命中缓存时是同步发的，见 requestIcon 的 NOTE）。
+        // （而且 store 命中缓存时是同步发的，见 requestIcon 的 NOTE）。
     }
-    // 下载页「整合包」那一页那颗「导入整合包…」（用户原话「整合包那一页带一个导入功能」）
+    // 下载页「整合包」那一页那颗「导入整合包…」（要求「整合包那一页带一个导入功能」）
     // 走的**就是**实例页那颗同一个槽：同一条路、同一套"选文件 → 问实例名 → 挑 Java"，
     // 没有理由抄两份。两颗按钮的区别只在它们在哪儿，做的事是同一件。
     if (QPushButton *downloadImport = m_owner->m_ui->getDownloadFilterImportModpackButton()) {
@@ -706,39 +699,38 @@ void ConnectionsController::setup() {
             &MainWindow::onResourceVersionsFinished);
     connect(m_owner->m_resourceStore, &ResourceStore::iconReady, m_owner,
             &MainWindow::onResourceIconReady);
-    // ★ 2026-09-28：同一个 `versionsFinished` 上**再挂两个接的人**（前置模组那一趟、
-    //   更新检测那一趟）。Qt 允许多个槽接同一个信号，而**那三处各自按自己的钥匙认人**
-    //   （详情页那把、`ModDependencies::Lookup::requestKey`、更新检测那把）—— 所以
-    //   谁的回复谁接走，不会互相顶掉。**不要**为了"省两个连接"把它们并成一个槽：
-    //   那样这个函数会变成三段 if，而三件事的生命周期根本不一样（详情页那一页关掉就没了、
-    //   前置那一趟跟着一次点击、更新检测那一趟跟着一次检查）。
+    // 同一个 `versionsFinished` 上**再挂两个接的人**（前置模组那一趟、
+    // 更新检测那一趟）。Qt 允许多个槽接同一个信号，而**那三处各自按自己的钥匙认人**
+    // （详情页那把、`ModDependencies::Lookup::requestKey`、更新检测那把）—— 所以
+    // 谁的回复谁接走，不会互相顶掉。**不要**为了"省两个连接"把它们并成一个槽：
+    // 那样这个函数会变成三段 if，而三件事的生命周期根本不一样（详情页那一页关掉就没了、
+    // 前置那一趟跟着一次点击、更新检测那一趟跟着一次检查）。
     connect(m_owner->m_resourceStore, &ResourceStore::versionsFinished, m_owner,
             &MainWindow::onDependencyVersionsFinished);
     connect(m_owner->m_resourceStore, &ResourceStore::versionsFinished, m_owner,
             &MainWindow::onUpdateCheckVersionsFinished);
-    // ★ 2026-10-11：更新检测里**Modrinth 那一拨**走的是批量那一发（见 batchItems 那段）。
     connect(m_owner->m_resourceStore, &ResourceStore::latestVersionsFinished, m_owner,
             &MainWindow::onUpdateCheckLatestFinished);
     connect(m_owner->m_resourceStore, &ResourceStore::projectsFinished, m_owner,
             &MainWindow::onDependencyProjectsFinished);
-    // 详情页那一行前置要的名字（2026-09-28）。**和上面那一趟分开两个槽**，理由同 `versionsFinished`
+    // 详情页那一行前置要的名字。**和上面那一趟分开两个槽**，理由同 `versionsFinished`
     // 那三条 —— 两件事各有各的钥匙，各自认人（见 :: 后面那段 ★）。
     connect(m_owner->m_resourceStore, &ResourceStore::projectsFinished, m_owner,
             &MainWindow::onResourceProjectsFinished);
     // ---------- 设置页 ----------
-    // 「Java 版本」那一格现在是一颗按钮：点开「Java 管理」那一页去看/去装（2026-09-28）。
+    // 「Java 版本」那一格现在是一颗按钮：点开「Java 管理」那一页去看/去装。
     // 那一页自己只发信号（它不认识 Java），点哪一行、点哪颗按钮都在下面这几个槽里落地。
     connect(m_owner->m_ui->getJavaManageButton(), &QPushButton::clicked, m_owner,
             &MainWindow::openJavaManage);
-    // 「实例预设」那一页 2026-10-18 搬进了实例页的模式行（第三档），设置页里那颗门跟着撤了 ——
+    // 「实例预设」那一页 搬进了实例页的模式行（第三档），设置页里那颗门跟着撤了 ——
     // 接线在下面「模式切换」那一段（三颗 chip 同一个槽）。
     // 「实例指定的 Java 版本不符时提醒」这个总闸。管的是**启动时那个三岔口**
     // （onStartButtonClicked 里问的那一次），不是这一页的显示。
     connect(m_owner->m_ui->getJavaWarnMismatchCheck(), &QCheckBox::toggled, m_owner,
             &MainWindow::onJavaWarnMismatchChanged);
     // 内存：「最大内存」那一行的**一根条 + 一个数字框 + 一颗自动/手动下拉框**。
-    // ★ 2026-10-20：自动分配重新有入口了。那颗下拉框只读不写数值，真正的重算 / 回滚
-    //   在 JavaSettingsController 里（`setMemoryModeFromUi()`）。
+    // 自动分配重新有入口了。那颗下拉框只读不写数值，真正的重算 / 回滚
+    // 在 JavaSettingsController 里（`setMemoryModeFromUi()`）。
     // 条和数字框说的是同一件事 ⇒ 走同一个槽，谁改的在那儿看当前值就知道（见 onMemoryChanged：
     // "另一个还停在旧值上"的那一侧会被挪过去）。条多走一道 onMemorySliderMoved 只是为了把
     // **拖动中**（还没松手）那一串 valueChanged 和"松手了、该落盘了"分开。
@@ -757,24 +749,24 @@ void ConnectionsController::setup() {
             &MainWindow::onLauncherBehaviourChanged);
     connect(m_owner->m_ui->getDownloadSourceCombo(), &QComboBox::currentIndexChanged, m_owner,
             &MainWindow::onDownloadSourceChanged);
-    // 「同时最多下几个」（2026-10-13，§9.2）。和上面那颗同一个形状：改完立刻生效。
+    // 「同时最多下几个」（，§9.2）。和上面那颗同一个形状：改完立刻生效。
     connect(m_owner->m_ui->getDownloadConcurrencyCombo(), &QComboBox::currentIndexChanged, m_owner,
             &MainWindow::onDownloadConcurrencyChanged);
-    // 「下载速度上限」（2026-10-18，§9.2）：同一个形状 —— 改完立刻生效（正在下的那一批也慢下来）。
+    // 「下载速度上限」（，§9.2）：同一个形状 —— 改完立刻生效（正在下的那一批也慢下来）。
     connect(m_owner->m_ui->getDownloadSpeedLimitCombo(), &QComboBox::currentIndexChanged, m_owner,
             &MainWindow::onDownloadSpeedLimitChanged);
-    // 「代理」（2026-10-18，§9.2）：档位改完立刻装到进程上；手动地址那一格按回车 /
+    // 「代理」（，§9.2）：档位改完立刻装到进程上；手动地址那一格按回车 /
     // 点到别处（editingFinished）才提交 —— 每敲一个字就重装一次代理没有意义，而且
     // 半截地址会让请求短暂走错路。
     connect(m_owner->m_ui->getDownloadProxyCombo(), &QComboBox::currentIndexChanged, m_owner,
             &MainWindow::onDownloadProxyModeChanged);
     connect(m_owner->m_ui->getDownloadProxyManualEdit(), &QLineEdit::editingFinished, m_owner,
             &MainWindow::onDownloadProxyManualChanged);
-    // 「下载新模组时直接放进当前实例」（2026-09-28）：和上面那一项同一条路 —— 设置里改完
+    // 「下载新模组时直接放进当前实例」：和上面那一项同一条路 —— 设置里改完
     // 立刻生效（下载那一刻现读），不用重启启动器。
     connect(m_owner->m_ui->getDownloadAutoIntoInstanceCheck(), &QCheckBox::toggled, m_owner,
             &MainWindow::onDownloadAutoIntoInstanceChanged);
-    // 「下载缺前置时提醒」（2026-10-09）：同一条路 —— 改完立刻生效（点下载那一刻现读）。
+    // 「下载缺前置时提醒」：同一条路 —— 改完立刻生效（点下载那一刻现读）。
     connect(m_owner->m_ui->getWarnMissingDependenciesCheck(), &QCheckBox::toggled, m_owner,
             &MainWindow::onWarnMissingDependenciesChanged);
     // 「启动选项」那三项。三项都是"下一次启动才读"的设置（日志那个例外：见
@@ -783,7 +775,7 @@ void ConnectionsController::setup() {
             &MainWindow::onShowGameLogChanged);
     connect(m_owner->m_ui->getProcessPriorityCombo(), &QComboBox::currentIndexChanged, m_owner,
             &MainWindow::onProcessPriorityChanged);
-    // 「窗口模式」（小窗 / 最大化 / 全屏，2026-09-28 加的）。改完不只是落盘，还要**回头
+    // 「窗口模式」（小窗 / 最大化 / 全屏， 加的）。改完不只是落盘，还要**回头
     // 把下面那两个数字框按档位灰/亮** —— 那一格在「最大化」时是不生效的（见那一档的说明），
     // 亮着会让人以为改了有用。所以槽里既落盘也调 m_owner->updateGameWindowSizeEnabled()。
     connect(m_owner->m_ui->getGameWindowModeCombo(), &QComboBox::currentIndexChanged, m_owner,
@@ -805,15 +797,15 @@ void ConnectionsController::setup() {
             &MainWindow::onApplyExtraJvmArgsClicked);
     // 「外观」那一格（条上那行字）：**反着来** —— 边打字边生效、也边落盘。
     // NOTE: 为什么不跟上面那条 JVM 参数走"点应用才存"：那边怕的是"半条参数进命令行"，
-    //       半条 JVM 参数会让游戏起不来；这里存的只是一行**显示用的**名字，半路的名字
-    //       没有任何副作用，而"打着字就能看见条上变了"正是这一项该有的手感。
-    //       代价是每个字符一次 QSettings 写（最多 titleTextMaxLength() 次），可以接受。
+    // 半条 JVM 参数会让游戏起不来；这里存的只是一行**显示用的**名字，半路的名字
+    // 没有任何副作用，而"打着字就能看见条上变了"正是这一项该有的手感。
+    // 代价是每个字符一次 QSettings 写（最多 titleTextMaxLength() 次），可以接受。
     connect(m_owner->m_ui->getTitleTextEdit(), &QLineEdit::textChanged, m_owner,
             &MainWindow::onTitleTextChanged);
     // 「背景图」那一节（主页左栏 / 页面背景）。四颗控件**每改一下都立刻生效、也立刻落盘**
     // —— 和上面那一格同一个理由：改的是"界面长什么样"，改完看不见效果等于没改。
     // NOTE: 下标只用来取这一行，**认它是哪一块靠 `partKey`**（见 MainWindowUI::ThemeImageRow）。
-    //       越界不崩：`getThemeImageRow()` 给一个空行，那边每一处都判了空。
+    // 越界不崩：`getThemeImageRow()` 给一个空行，那边每一处都判了空。
     for (int i = 0; i < MainWindowUI::themeImageRowCount(); ++i) {
         const MainWindowUI::ThemeImageRow &imageRow = m_owner->m_ui->getThemeImageRow(i);
         if (imageRow.choose == nullptr) {
@@ -831,7 +823,7 @@ void ConnectionsController::setup() {
     // 「主题」那一节（配色 / 主题色 / 文字不透明度 / 语义色 / 整份导入导出）。
     // 和上面那一节同一个手感：**改一下就生效、也立刻落盘**。
     // NOTE: 越界不崩：`getThemeSemanticButton()` 给 nullptr，那边判空了；而"一共几个语义色"
-    //       和那四个槽里的 switch 是同一张表（`MainWindowUI::themeSemanticCount()`）。
+    // 和那四个槽里的 switch 是同一张表（`MainWindowUI::themeSemanticCount()`）。
     if (m_owner->m_ui->getThemePresetCombo() != nullptr) {
         connect(m_owner->m_ui->getThemePresetCombo(), &QComboBox::currentIndexChanged, m_owner,
                 &MainWindow::onThemePresetChanged);
@@ -899,13 +891,13 @@ void ConnectionsController::setup() {
     connect(m_owner->m_authManager, &AuthManager::loginSucceeded, m_owner, &MainWindow::onLoginSucceeded);
     connect(m_owner->m_authManager, &AuthManager::loginFailed, m_owner, &MainWindow::onLoginFailed);
 
-    // ★ 2026-10-15：玩家外观那三条（Store 的三个信号）**不再接在这里** —— 它们现在接在
-    //   PlayerSkinController 自己身上（见那个 const 函数里的接线），因为"档案到了怎么办"
-    //   已经是它的判断（认人、落盘、要不要重画）。这一层只收它的两个出口：
-    //     ① skinChanged —— 现在该画这一套了（右栏小人 + 底栏头像 + 那个窗的 3D 预览）；
-    //     ② hintChanged —— 事实变了，那句话重挑一遍（`m_owner->updateSkinHint()`）。
-    //   外加一条日志通道：那几行"取不到/记不下"仍然要走在 m_owner->appendLog() 这条公共路上
-    //   （验证工程是数那条路上的行数）。三件事一条都不做，只改"谁是谁的来源"。
+    // 玩家外观那三条（Store 的三个信号）**不再接在这里** —— 它们现在接在
+    // PlayerSkinController 自己身上（见那个 const 函数里的接线），因为"档案到了怎么办"
+    // 已经是它的判断（认人、落盘、要不要重画）。这一层只收它的两个出口：
+    // ① skinChanged —— 现在该画这一套了（右栏小人 + 底栏头像 + 那个窗的 3D 预览）；
+    // ② hintChanged —— 事实变了，那句话重挑一遍（`m_owner->updateSkinHint()`）。
+    // 外加一条日志通道：那几行"取不到/记不下"仍然要走在 m_owner->appendLog() 这条公共路上
+    // （验证工程是数那条路上的行数）。三件事一条都不做，只改"谁是谁的来源"。
     connect(m_owner->m_playerSkin, &PlayerSkinController::skinChanged, m_owner,
             &MainWindow::onPlayerSkinChanged);
     connect(m_owner->m_playerSkin, &PlayerSkinController::hintChanged, m_owner, &MainWindow::updateSkinHint);
@@ -981,9 +973,9 @@ void ConnectionsController::setup() {
     // 接进来的是另一个槽，那个槽不碰任何实例的安装状态。
     connect(m_owner->m_versionManager, &VersionManager::resourceDownloadFinished, m_owner,
             &MainWindow::onResourceDownloadFinished);
-    // ★ 2026-10-13（§7.1）：**每一个文件**下完之后那一条结果（成功 / 失败 + 原因）。
-    //   任务的账本上一步一个资源（§7.1 那条「更新任务显示每个资源的结果，不只显示总数」）
-    //   就是靠它填的。不是更新那一批的时候这一路什么都不做（见那个信号的 NOTE）。
+    // （§7.1）：**每一个文件**下完之后那一条结果（成功 / 失败 + 原因）。
+    // 任务的账本上一步一个资源（§7.1 那条「更新任务显示每个资源的结果，不只显示总数」）
+    // 就是靠它填的。不是更新那一批的时候这一路什么都不做（见那个信号的 NOTE）。
     connect(m_owner->m_versionManager, &VersionManager::resourceDownloadFileFinished, m_owner,
             &MainWindow::onUpdateBatchFileFinished);
     // 加载器安装中间那几步（拉列表、挑版本、先补原版）只写日志、不弹窗：那几件事都在
@@ -1027,8 +1019,8 @@ void ConnectionsController::setup() {
     });
     connect(m_owner->m_serverInstall, &ServerInstallRun::ServerInstallController::message, m_owner,
             [this](const QString &text) { m_owner->appendLog(text); });
-    // ★ 这几条连线**只接一次**（在构造里），靠 `m_owner->m_serverInstallTaskId` 认"现在这一趟是哪一项"
-    //   —— 接在 `m_owner->installServer()` 里的话，第二次安装会接上第二遍（同一件事被记两回账）。
+    // 这几条连线**只接一次**（在构造里），靠 `m_owner->m_serverInstallTaskId` 认"现在这一趟是哪一项"
+    // —— 接在 `m_owner->installServer()` 里的话，第二次安装会接上第二遍（同一件事被记两回账）。
     connect(m_owner->m_serverInstall, &ServerInstallRun::ServerInstallController::stepsChanged, m_owner,
             [this](const QStringList &names, int runningIndex) {
                 if (m_owner->m_serverInstallTaskId == Tasks::invalidTaskId()) {
@@ -1078,9 +1070,9 @@ void ConnectionsController::setup() {
                     m_owner->finishTask(id, true);
                     break;
                 case ServerInstallRun::Outcome::Cancelled:
-                    // ★ 取消是一种**正常**的收场（§3.3 里"取消"是单独一档），不是失败 ——
-                    //   所以不能借 `m_owner->finishTask(id, false, …)` 那条路（那会把它记成失败、
-                    //   还点亮底栏那颗"没看过的失败"红点）。账本自己那颗入口就在这儿。
+                    // 取消是一种**正常**的收场（§3.3 里"取消"是单独一档），不是失败 ——
+                    // 所以不能借 `m_owner->finishTask(id, false, …)` 那条路（那会把它记成失败、
+                    // 还点亮底栏那颗"没看过的失败"红点）。账本自己那颗入口就在这儿。
                     m_owner->m_activityCenter->tasks()->cancel(id);
                     break;
                 case ServerInstallRun::Outcome::Failed:

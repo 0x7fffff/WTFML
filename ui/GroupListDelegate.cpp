@@ -1,10 +1,7 @@
 /**
  * @file GroupListDelegate.cpp
- * @brief Implements the group-settings list row painter.
- * @author 0x7fffff
- * @date 2026-09-25
- * @note 形状：一行字（左）+ 行尾一个方框，框里上箭头在上、下箭头在下（见 .hpp 那张图）。
- *       能不能挪是**算出来的**（见 .hpp），所以这一层除了几何什么都不用从条目上读。
+ * @brief 实现分组设置列表的行绘制。
+ * @note 行尾上下移是否可用由条目计算，本层只负责几何和绘制。
  */
 
 #include "GroupListDelegate.hpp"
@@ -136,13 +133,13 @@ void GroupListDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opt
     // 底下穿过去）。
     opt.text.clear();
     opt.icon = QIcon();
-    // ★ 全仓的"选中一行"从 2026-10-12 起都带一根 3 px 的主题色指示条
-    //   （`Theme::paintSelectionRail()`，用户答复：「完全照 §9.3（和侧栏导航同款）」）——
-    //   上面那一句 `drawControl` 里就画出来了，这一行**不用**再补也不用擦：这一张表每一行
-    //   左右是**铺满**的（`contentRect()` 只在高度上收那条 `rowGap()`，横向一点都不动），
-    //   所以指示条正好落在这一行选中色的左边缘上、高度也正好是卡片那一圈 —— 就是标准那一款。
-    //   （实例树那一边反过来：它左边留着一截缩进，指示条会落在分支区里 ⇒ 那边得擦掉，
-    //   见 `InstanceGroupDelegate` 里那段 ★★ 2026-10-12。）
+    // 全仓的"选中一行"从 起都带一根 3 px 的主题色指示条
+    // （`Theme::paintSelectionRail()`，用户答复：「完全照 §9.3（和侧栏导航同款）」）——
+    // 上面那一句 `drawControl` 里就画出来了，这一行**不用**再补也不用擦：这一张表每一行
+    // 左右是**铺满**的（`contentRect()` 只在高度上收那条 `rowGap()`，横向一点都不动），
+    // 所以指示条正好落在这一行选中色的左边缘上、高度也正好是卡片那一圈 —— 就是标准那一款。
+    // （实例树那一边反过来：它左边留着一截缩进，指示条会落在分支区里 ⇒ 那边得擦掉，
+    // 见 `InstanceGroupDelegate` 里那段 ★★ 。）
     if (QStyle *style = opt.widget != nullptr ? opt.widget->style() : QApplication::style()) {
         style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, opt.widget);
     }
@@ -150,13 +147,13 @@ void GroupListDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opt
     // 下面所有几何都吃**条目矩形**（option.rect），映射在里面做一次（见 .hpp 那段）。
     const QRect row = option.rect;
     const bool selected = (option.state & QStyle::State_Selected) != 0;
-    // ★ 选中那一行的底色已经换成浅灰了（用户 2026-09-29 原话「选中的时候那个蓝色的换成
-    //   深灰色」，紧接着「再浅一点，#cccccc」，见 `ui/Theme.hpp` 的 `selectionFill()`）⇒
-    //   这一行上手画的那两笔（组名、行尾方框里那两颗三角）取色的那一份也得跟着换：原来
-    //   "选中就取 `HighlightedText`"那条规矩本身没错，错的是**浅灰上那一档还是照蓝底配的**
-    //   （深色主题下是白，白压 `#cccccc` 只有 1.6:1）。
-    //   换哪几档只有一处出处（`Theme::selectionPalette()`），理由是"三个手画正文的代理
-    //   抄三遍迟早漏一档"。
+    // 选中那一行的底色已经换成浅灰了（要求「选中的时候那个蓝色的换成
+    // 深灰色」，紧接着「再浅一点，#cccccc」，见 `ui/Theme.hpp` 的 `selectionFill()`）⇒
+    // 这一行上手画的那两笔（组名、行尾方框里那两颗三角）取色的那一份也得跟着换：原来
+    // "选中就取 `HighlightedText`"那条规矩本身没错，错的是**浅灰上那一档还是照蓝底配的**
+    // （深色主题下是白，白压 `#cccccc` 只有 1.6:1）。
+    // 换哪几档只有一处出处（`Theme::selectionPalette()`），理由是"三个手画正文的代理
+    // 抄三遍迟早漏一档"。
     const QPalette palette = Theme::selectionPalette(option.palette, selected);
     const int pad = MainWindowUI::versionTreeRowPadding();
     // 右边那个方框**无条件**扣掉（不管这一行此刻画不画它）：只扣画了的那几行的话，文字
@@ -179,8 +176,8 @@ void GroupListDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opt
     // —— 判据和 eventFilter() 认那一下读的是同一对函数，画和点永远不会错开。
     //
     // NOTE: 选中那一行改用高亮前景色：这几笔用的是次要那一档灰（PlaceholderText），压在
-    //       选中底色上基本看不见 —— 用户会以为"箭头没了"。字色那一档怎么走，它就怎么走
-    //       （两档之外不引入第三种颜色）。
+    // 选中底色上基本看不见 —— 用户会以为"箭头没了"。字色那一档怎么走，它就怎么走
+    // （两档之外不引入第三种颜色）。
     if (showsMoveBox(index)) {
         const QColor arrowInk =
             palette.color(selected ? QPalette::HighlightedText : QPalette::PlaceholderText);

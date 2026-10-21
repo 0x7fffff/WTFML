@@ -1,15 +1,13 @@
 /**
  * @file ServerInstallController.hpp
  * @brief 真的把一份服务端安装计划跑出来（coding plan §6.2 / 里程碑 M4-2）。
- * @author 0x7fffff
- * @date 2026-10-13
  *
  * 【它干的那几件事，和"怎么判断"分在两层】
  *
  * 该不该做、要取哪一份元数据、取回来怎么读、跑什么命令、分成几步 —— 全在
  * `ServerInstallRun.hpp`（纯函数，`verify` 直接钉）。这一个文件只管**接口那半边**：
  *
- *   取元数据 → 下文件 → 跑安装器 → 核对装好了没有
+ * 取元数据 → 下文件 → 跑安装器 → 核对装好了没有
  *
  * 每一段都要碰外面的世界（网络 / 磁盘 / 进程），所以它是个 QObject，并且**只往前推**：
  * 每一段收尾时才决定要不要进下一段，任何一段失败就 `finished(Failed, 那句人话)` 收场。
@@ -22,8 +20,8 @@
  * 而且起手先看它忙不忙（忙就拒掉 —— coding plan §2.3：先单任务聚合）。
  *
  * NOTE: 元数据那几次 GET 用的是**自己**的 `QNetworkAccessManager`，和 VersionManager
- *       给加载器元数据开的那一份是同一个道理（见那边 `m_loaderVersionRequests` 的注释）：
- *       那些是"问一句就完事"的请求，混进下载器的回复表里只会让两边的收尾互相算错。
+ * 给加载器元数据开的那一份是同一个道理（见那边 `m_loaderVersionRequests` 的注释）：
+ * 那些是"问一句就完事"的请求，混进下载器的回复表里只会让两边的收尾互相算错。
  *
  * 【取消】
  *
@@ -95,10 +93,10 @@ public:
      * @brief 开装。
      *
      * @param serverId `Servers/<这个名字>` 那个目录（**调用方得先建好它和那一份记账** ——
-     *        这样"排在任务中心那一项"和"列表里那一行"从第一秒起就是指同一个东西）。
+     * 这样"排在任务中心那一项"和"列表里那一行"从第一秒起就是指同一个东西）。
      * @param request 用户在「新建服务端…」那一页上填的东西。
      * @param javaPath 跑安装器用哪个 java（那一档不跑安装器时用不上）。空 = 那一档要跑安装器
-     *        但没给 java ⇒ 直接失败，措辞见 `javaMissingMessage()`。
+     * 但没给 java ⇒ 直接失败，措辞见 `javaMissingMessage()`。
      */
     void start(const ServerInstall::Request &request, const QString &serverId,
                const QString &javaPath);

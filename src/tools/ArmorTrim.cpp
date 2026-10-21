@@ -1,8 +1,6 @@
 /**
  * @file ArmorTrim.cpp
  * @brief ArmorTrim 的实现：纹饰材料表 / 图案表 / 部位与盔甲材质表 / 一条计划。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "tools/ArmorTrim.hpp"
@@ -16,8 +14,8 @@ struct TrimMaterialRow {
     const char *since;  ///< 哪个 Java 版本开始有
 };
 
-// ★ 名字照游戏 `zh_cn.json` 的 `trim_material.minecraft.*` 写（「紫水晶质」那一列），
-//   不是自己另起一套简称；`item` 是锻造台里真正摆进去的那件东西。
+// 名字照游戏 `zh_cn.json` 的 `trim_material.minecraft.*` 写（「紫水晶质」那一列），
+// 不是自己另起一套简称；`item` 是锻造台里真正摆进去的那件东西。
 const TrimMaterialRow kTrimMaterials[] = {
     {"amethyst", "紫水晶质", "紫水晶碎片", "1.20"},
     {"copper", "铜质", "铜锭", "1.20"},
@@ -39,8 +37,8 @@ struct TrimPatternRow {
     const char *since;   ///< 哪个 Java 版本开始有
 };
 
-// ★ 名字照游戏 `zh_cn.json` 的 `trim_pattern.minecraft.*` 写（「镶铆盔甲纹饰」那一列），
-//   来源按 Java 1.20 / 1.21 的实际箱子写；不写"城堡里某处"这种含糊说法。
+// 名字照游戏 `zh_cn.json` 的 `trim_pattern.minecraft.*` 写（「镶铆盔甲纹饰」那一列），
+// 来源按 Java 1.20 / 1.21 的实际箱子写；不写"城堡里某处"这种含糊说法。
 const TrimPatternRow kPatterns[] = {
     {"coast", "海岸", "沉船（藏宝箱）", "1.20"},
     {"sentry", "哨兵", "掠夺者前哨站", "1.20"},

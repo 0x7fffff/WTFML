@@ -1,8 +1,6 @@
 /**
  * @file DataPackPreset.hpp
  * @brief 「数据包」这一类预设的判据层（coding plan §10.1 第 6 项 / P4）。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 【数据包属于世界，不属于实例】
  *
@@ -10,13 +8,6 @@
  * `saves/<世界>/datapacks/`。所以"把数据包预设应用到实例上"这件事，在没有对应世界时
  * **没有可落的地方**。§6 的原话是「无目标世界时保存'待新建世界使用的模板 / 待应用清单'；
  * 不强建世界」——这一层就是照那句话做的：
- *
- *   · 目标上**已经有**同名世界 ⇒ 把包拷进 `saves/<世界>/datapacks/`；
- *   · 没有同名世界 ⇒ 拷进 `<实例>/datapacks-pending/<世界>/`，并记进
- *     `<实例>/wtfml.datapacks`（JSON）——**不建世界**，也不把包塞进别的世界；
- *   · 两种情况都**不冒充"游戏里已经启用"**：世界数据包开没开记在 `level.dat` 的
- *     `DataPacks` 里，这一层不碰 `level.dat`。报告里种一句"是否启用由游戏内
- *     `/datapack list` 决定"。
  *
  * 【为什么用 `SectionKind::Custom`】
  *
@@ -144,9 +135,9 @@ struct DataPackApplyReport {
  * @param presetFilesRoot 预设的 `files/` 根（项里的 `relativePath` 在它底下）。
  * @param instanceRoot 目标实例目录。
  *
- * ★ `Replace` 会先删掉目标上同名的那个包再拷（**备份是调用方的事** —— 应用引擎那一层
- *   在动手之前会把它收走）；`CopyIfMissing` 目标上有就不动；`Merge` / `Append` 一个字节
- *   都不写，只把"要你选"的数报出来。
+ * `Replace` 会先删掉目标上同名的那个包再拷（**备份是调用方的事** —— 应用引擎那一层
+ * 在动手之前会把它收走）；`CopyIfMissing` 目标上有就不动；`Merge` / `Append` 一个字节
+ * 都不写，只把"要你选"的数报出来。
  */
 DataPackApplyReport applyDataPacks(const QString &presetFilesRoot, const QString &instanceRoot,
                                    const PresetSection &section, ApplyMode mode,

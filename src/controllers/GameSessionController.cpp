@@ -44,8 +44,6 @@ void GameSessionController::beginSession(int sessionId, const QString &displayNa
     m_launchTaskIds.insert(sessionId, launchTask);
     m_sessionDisplayNames.insert(sessionId, displayName);
     m_sessionLaunchFacts.insert(sessionId, facts);
-    // §9.8 第三条：账本上那件「启动 X」从这一刻起和这一号会话是同一件事（日志窗、
-    // 退出诊断、崩溃报告都拿同一个号说话）。启动任务是在进程起来之前记的，所以补在这里。
     if (m_host.bindTaskSession && launchTask != Tasks::invalidTaskId()) {
         m_host.bindTaskSession(launchTask, sessionId);
     }
@@ -53,8 +51,8 @@ void GameSessionController::beginSession(int sessionId, const QString &displayNa
 
 void GameSessionController::closeAllGameLogWindows() {
     // NOTE: 先把表清空再逐个 delete。窗的 finished 处理函数会来动这张表
-    //       （m_gameLogWindows.remove），一边删一边被删的容器是未定义行为。
-    //       values() 拿的是一份拷贝，清表在这一刻，所以那几下 remove 落空而不出错。
+    // （m_gameLogWindows.remove），一边删一边被删的容器是未定义行为。
+    // values() 拿的是一份拷贝，清表在这一刻，所以那几下 remove 落空而不出错。
     const QList<GameLogWindow *> logWindows = m_gameLogWindows.values();
     m_gameLogWindows.clear();
     for (GameLogWindow *window : logWindows) {
@@ -64,7 +62,6 @@ void GameSessionController::closeAllGameLogWindows() {
 
 void GameSessionController::onProcessOutput(int sessionId, const QString &text) {
     m_host.log(tr("[游戏输出] %1%2").arg(sessionLogTag(m_launcherManager->session(sessionId)), text));
-    // 底账先记（崩溃报告要用它），窗是附加的那一份。
     rememberSessionLogText(sessionId, text);
     // 「显示游戏日志」开着时，同一段字也进那一份的游戏日志窗。**放在 appendLog 之后**是
     // 刻意的：日志文件那一份是永远要写的（用户的排查底账），弹窗是附加的。
@@ -73,7 +70,7 @@ void GameSessionController::onProcessOutput(int sessionId, const QString &text) 
     // 底栏中间那格让给下载进度（如果有），左下角换成"实例运行中"。
     //
     // NOTE: 按会话号摘，不按"有没有在启动" —— 同时启动两三个实例时，用布尔量的话第一个
-    //       出话就会把后面那几个的启动进度一起收掉。
+    // 出话就会把后面那几个的启动进度一起收掉。
     if (m_launchingSessions.remove(sessionId)) {
         // 这一份出话了 ⇒ 账本上那件「启动 X」**成了**。收在这一刻、而不是"游戏退出"那一
         // 刻：一次启动在进程起来的那一刻就办完了，之后几个小时是"游戏在运行"（那件事由
@@ -103,18 +100,18 @@ void GameSessionController::onProcessError(int sessionId, const QString &text) {
 }
 
 void GameSessionController::onSessionDiscarded(int sessionId) {
-    // ★ 2026-10-20：`startGame()` 的三条早退路径（会话数到顶 / 找不到 Java / 进程起不来）
-    //   会先带号发一句 `processError`，再把这一号会话收回。那一句本身是对的（用户要看到
-    //   原因，`LaunchController` 那边负责弹出来），但它走的是**和游戏 stderr 同一条槽** ——
-    //   `showGameLogLine()` 收到"这一份的第一行"就给这一号建了一扇游戏日志窗，底账也按号
-    //   记了一笔。会话一收，从此再没有任何信号提到这个号：那扇窗不会自己关（自动关窗只
-    //   发生在"正常以 0 退出"那条路上，见 onGameFinished()），底账也不会被删 —— 每启动
-    //   失败一次就多留一扇只有一行字的窗和一笔内存，直到用户手动去关。
+    // `startGame()` 的三条早退路径（会话数到顶 / 找不到 Java / 进程起不来）
+    // 会先带号发一句 `processError`，再把这一号会话收回。那一句本身是对的（用户要看到
+    // 原因，`LaunchController` 那边负责弹出来），但它走的是**和游戏 stderr 同一条槽** ——
+    // `showGameLogLine()` 收到"这一份的第一行"就给这一号建了一扇游戏日志窗，底账也按号
+    // 记了一笔。会话一收，从此再没有任何信号提到这个号：那扇窗不会自己关（自动关窗只
+    // 发生在"正常以 0 退出"那条路上，见 onGameFinished()），底账也不会被删 —— 每启动
+    // 失败一次就多留一扇只有一行字的窗和一笔内存，直到用户手动去关。
     //
-    //   这里把刚才顺手建出来的那几笔一起收掉。窗走 `close()`（不是 `delete`）：和用户自己
-    //   关窗、以及 closeAllGameLogWindows() 之外的收尾走同一条路，finished 里那一笔
-    //   "用户关过"随之落下 —— 下面紧跟着就把它清掉（这一份已经结束了，那个集合不该为它
-    //   留名，和 onGameFinished() 末尾同一个理由）。
+    // 这里把刚才顺手建出来的那几笔一起收掉。窗走 `close()`（不是 `delete`）：和用户自己
+    // 关窗、以及 closeAllGameLogWindows() 之外的收尾走同一条路，finished 里那一笔
+    // "用户关过"随之落下 —— 下面紧跟着就把它清掉（这一份已经结束了，那个集合不该为它
+    // 留名，和 onGameFinished() 末尾同一个理由）。
     if (GameLogWindow *window = m_gameLogWindows.take(sessionId)) {
         window->close();
     }
@@ -215,7 +212,7 @@ GameLogWindow *GameSessionController::ensureGameLogWindow(int sessionId, bool us
     // 上一个空窗都不会冒出来，而"进程真的起来了"那一句（startGame 内部同步发的第一条
     // processOutput）正好在建窗这一刻被写上 —— 用户看到的第一行就是"游戏已启动"。
     const QString name = m_launcherManager->session(sessionId).displayName;
-    // **父窗口传 nullptr**（2026-09-24 改，原来传的是主窗口）。在 Windows 上"有主的窗"
+    // **父窗口传 nullptr**（ 改，原来传的是主窗口）。在 Windows 上"有主的窗"
     // 永远压在自己的主窗上面，用户点启动器也翻不上来 —— 那正是用户说的「日志一定会
     // 显示在启动器前面，会遮挡」。这是平台规则，不是能调的风格，所以只能不给它主。
     // 代价是"跟着启动器一起关掉"要自己接（见 closeAllGameLogWindows()）。
@@ -235,7 +232,7 @@ GameLogWindow *GameSessionController::ensureGameLogWindow(int sessionId, bool us
         snapshot.startedAtMs = live.startedAtMs;
         m_gameLogFacts.insert(sessionId, snapshot);
     }
-    // 底下那两颗导出键（2026-09-28）。它们只发信号，弹框、写盘全在主窗口那边 —— `ui/`
+    // 底下那两颗导出键。它们只发信号，弹框、写盘全在主窗口那边 —— `ui/`
     // 那一层不认识数据目录，也不该认识（见 GameLogWindow 的文件头）。
     connect(window, &GameLogWindow::exportLogRequested, this,
             [this, sessionId] { m_host.exportGameLog(sessionId); });
@@ -282,13 +279,13 @@ void GameSessionController::openGameLogForSession(int sessionId) {
     }
     // 窗还没建出来。两种情形在**产品行为**上差得很远，所以这儿分开办：
     //
-    //   · 会话还在跑（窗还没建 = 那一刻还没收到过它的输出，见 ensureGameLogWindow 里
-    //     "第一条输出才建窗"那一段，或者是**用户自己关过**这一扇，见 m_gameLogDismissed-
-    //     Sessions）⇒ 用户点名要看，就给他建一扇出来。这一刻可能是空的（一句输出都还没有），
-    //     那一窗自己会摆一句"还没有输出"—— 从这个窗往后每一行都能看见。
-    //   · 会话已经结束了 ⇒ 那一份日志**已经没了**（它只活在窗里，见 m_gameLogWindows 那
-    //     一段）。这里**不留一句"点不动"**：说清"它结束了、日志跟着没了"。
-    //     （异常退出那一路另有去处：任务中心那一项记着当时那两段日志，见 openTaskLog()。）
+    // · 会话还在跑（窗还没建 = 那一刻还没收到过它的输出，见 ensureGameLogWindow 里
+    // "第一条输出才建窗"那一段，或者是**用户自己关过**这一扇，见 m_gameLogDismissed-
+    // Sessions）⇒ 用户点名要看，就给他建一扇出来。这一刻可能是空的（一句输出都还没有），
+    // 那一窗自己会摆一句"还没有输出"—— 从这个窗往后每一行都能看见。
+    // · 会话已经结束了 ⇒ 那一份日志**已经没了**（它只活在窗里，见 m_gameLogWindows 那
+    // 一段）。这里**不留一句"点不动"**：说清"它结束了、日志跟着没了"。
+    // （异常退出那一路另有去处：任务中心那一项记着当时那两段日志，见 openTaskLog()。）
     const LauncherManager::GameSession game = m_launcherManager->session(sessionId);
     if (game.sessionId == 0) {
         m_host.log(tr("这一场游戏已经结束了，它那份日志窗也跟着没了。"));
@@ -307,14 +304,6 @@ void GameSessionController::onGameFinished(int sessionId, int exitCode, QProcess
     // 必须在任何“是否异常”的判断之前取走：QProcess::kill() 在 Windows 上通常表现为
     // CrashExit / 非零退出码，但从任务中心主动点“停止游戏”不是一次意外崩溃。
     const bool userStopped = m_userStoppedSessions.remove(sessionId);
-    // ★ 2026-09-27 修：这里原来读的是 `m_launcherManager->session(sessionId)`，而**这一趟
-    //    走到这儿的时候那份会话已经从表里摘掉了** —— handleProcessFinished() 里 discard 在
-    //    emit 之前（那是有意的，见那边的 NOTE），LauncherManager.hpp 的 gameFinished 文档
-    //    也明写了「收信号的槽去查 session(id) 会查不到，要用的东西请从参数/自己那边拿」。
-    //    于是拿到的是**空快照**（sessionId == 0、displayName 空），sessionLogTag() 的
-    //    sessionId==0 守卫把它降级成"不加前缀" ⇒ 同时跑两个实例、其中一个退出时，日志里
-    //    是「游戏进程已结束，退出码：0」，没有 `[实例名] `，看不出是谁退了（它上面那些
-    //    `[游戏输出]` 行都有名字）。名字在**启动那一刻**就记了一份，见 m_sessionDisplayNames。
     LauncherManager::GameSession game;
     game.sessionId = sessionId;
     game.displayName = m_sessionDisplayNames.value(sessionId);
@@ -328,17 +317,17 @@ void GameSessionController::onGameFinished(int sessionId, int exitCode, QProcess
     }
     // 日志窗那边也收个尾，两种收法：
     //
-    // - **正常以 0 退出就自己关掉**（2026-09-24 用户说的「如果游戏正常以0退出就自动关闭日志
-    //   界面」）。那一趟没有任何可看的东西（真出了事不会给 0），留一扇只写着一行"已退出"的
-    //   窗等于替用户留了个垃圾。判据是 `GameLogWindow::autoCloseOnExit()`（**唯一出处**，
-    //   验证工程拿真值表钉它）—— 注意崩溃一律不关，哪怕码正好是 0。
+    // - **正常以 0 退出就自己关掉**（ 用户说的「如果游戏正常以0退出就自动关闭日志
+    // 界面」）。那一趟没有任何可看的东西（真出了事不会给 0），留一扇只写着一行"已退出"的
+    // 窗等于替用户留了个垃圾。判据是 `GameLogWindow::autoCloseOnExit()`（**唯一出处**，
+    // 验证工程拿真值表钉它）—— 注意崩溃一律不关，哪怕码正好是 0。
     // - 其余情况**留着**（用户正是要看崩溃前那几行），只补一行"到此为止"，不关窗也不销毁
-    //   —— 关不关是用户的事（他关了就走 finished 那条路）。末尾这行必须是**末行**才读得懂：
-    //   "进程已结束，退出码 -1" 之后还要有东西的话，用户会以为窗口没跟上。
+    // —— 关不关是用户的事（他关了就走 finished 那条路）。末尾这行必须是**末行**才读得懂：
+    // "进程已结束，退出码 -1" 之后还要有东西的话，用户会以为窗口没跟上。
     //
     // NOTE: 关窗走的是 close() → WA_DeleteOnClose → finished 那条路（它会顺手把这一笔
-    //       记进"用户关过的不再自动开"）。下面那句 remove 因此**必须在关窗之后**：关窗
-    //       那一刻刚记上的那一笔，紧接着就要清掉（这一份已经结束了，那个集合不该为它留名）。
+    // 记进"用户关过的不再自动开"）。下面那句 remove 因此**必须在关窗之后**：关窗
+    // 那一刻刚记上的那一笔，紧接着就要清掉（这一份已经结束了，那个集合不该为它留名）。
     // 退出这件事记进那一份快照（「导出错误报告」的头部要写退出码，而**这个值是这一刻才知道
     // 的**、错过就再也拿不到了）。必须排在下面那次 close() **之前**：正常退出会关窗，而关窗
     // 那个 finished 里会把整份快照删掉。
@@ -365,13 +354,13 @@ void GameSessionController::onGameFinished(int sessionId, int exitCode, QProcess
     // ---------- §5.1：这一趟的结局写回「上一次启动」那本账 ----------
     //
     // 位置有三处讲究，全都要在这一段之前：
-    //   · `m_launchingSessions` 那一格判的是"游戏**连第一行日志都没打出来**就结束了"
-    //     （游戏吐出第一行输出时它才被摘掉，见 onProcessOutput）—— 那不算"玩过"；
-    //   · `m_sessionLaunchFacts` 里放着**启动时刻**，它是账上那一条唯一的钥匙
-    //     （会话早从 LauncherManager 的表里摘掉了，见上面那段 NOTE）；
-    //   · 那个判据本身只有一个出处（`GameExitDiagnosis::isAbnormal()`），下面
-    //     「异常退出补一项」那一支读的也是**同一个值**，不重算第二遍（两处各算一次的话，
-    //     以后改判据就会有一处漏改）。
+    // · `m_launchingSessions` 那一格判的是"游戏**连第一行日志都没打出来**就结束了"
+    // （游戏吐出第一行输出时它才被摘掉，见 onProcessOutput）—— 那不算"玩过"；
+    // · `m_sessionLaunchFacts` 里放着**启动时刻**，它是账上那一条唯一的钥匙
+    // （会话早从 LauncherManager 的表里摘掉了，见上面那段 NOTE）；
+    // · 那个判据本身只有一个出处（`GameExitDiagnosis::isAbnormal()`），下面
+    // 「异常退出补一项」那一支读的也是**同一个值**，不重算第二遍（两处各算一次的话，
+    // 以后改判据就会有一处漏改）。
     const bool abnormalExit =
         !userStopped && GameExitDiagnosis::isAbnormal(exitCode, exitStatus == QProcess::CrashExit);
     m_launchHistory->recordFinish(
@@ -388,14 +377,14 @@ void GameSessionController::onGameFinished(int sessionId, int exitCode, QProcess
     // 的（比如用户刚进去就自己关了）确实是一次成功的启动。
     //
     // NOTE: 对已经成功收过尾的那一件，这里什么都不做（终态只落一次，见 TaskManager::finish），
-    //       所以"游戏跑了三小时后正常退出"不会把那次成功改写成失败。
+    // 所以"游戏跑了三小时后正常退出"不会把那次成功改写成失败。
     const auto finishingLaunchTask = m_launchTaskIds.take(sessionId);
     const bool launchSucceeded = exitCode == 0 && exitStatus != QProcess::CrashExit;
-    // ★ 2026-10-20：用户自己按的「停止游戏」不是失败。`kill()` 在 Windows 上报的是
-    //   CrashExit / 非零退出码，从前这一段不看 `userStopped`，于是一次**主动取消**会以
-    //   「游戏进程没等到能打日志就结束了，退出码 1」收尾 —— 任务中心多一行红色失败、
-    //   底栏亮起红点，说的全是用户自己刚做的事。按 `Cancelled` 收才对得上他的操作
-    //   （和任务中心里手动取消一件任务同一个终态、同样不点红点）。
+    // 用户自己按的「停止游戏」不是失败。`kill()` 在 Windows 上报的是
+    // CrashExit / 非零退出码，从前这一段不看 `userStopped`，于是一次**主动取消**会以
+    // 「游戏进程没等到能打日志就结束了，退出码 1」收尾 —— 任务中心多一行红色失败、
+    // 底栏亮起红点，说的全是用户自己刚做的事。按 `Cancelled` 收才对得上他的操作
+    // （和任务中心里手动取消一件任务同一个终态、同样不点红点）。
     if (userStopped) {
         m_host.cancelLaunchTask(finishingLaunchTask);
     } else {
@@ -406,15 +395,11 @@ void GameSessionController::onGameFinished(int sessionId, int exitCode, QProcess
 
     // ---------- §4.3：异常退出 → 账本上补一项「游戏异常退出」 ----------
     //
-    // 用户报的是「崩了以后除了一扇不会自动关的日志窗什么也没有」—— 补的这一项就是那件事
-    // 的**去处**：底栏亮一颗红点、任务中心里看得见、点进去能打开日志 / 导报告 / 开崩溃报告
-    // 目录 / 复制摘要。
-    //
     // 位置有两处讲究：
-    //   · 排在**日志窗那一趟之后** —— 下面要读的就是那一窗里现在这份内容（末尾那行
-    //     "已崩溃退出"也在里面，正合适）；
-    //   · 排在 `m_sessionLaunchFacts.remove()` **之前** —— 那一份启动事实（实例名、身份、
-    //     Java 路径、内存、加载器）是这一项唯一的来源。
+    // · 排在**日志窗那一趟之后** —— 下面要读的就是那一窗里现在这份内容（末尾那行
+    // "已崩溃退出"也在里面，正合适）；
+    // · 排在 `m_sessionLaunchFacts.remove()` **之前** —— 那一份启动事实（实例名、身份、
+    // Java 路径、内存、加载器）是这一项唯一的来源。
     // 判据是 `GameExitDiagnosis::isAbnormal()`（崩溃，或者非 0 退出码；崩了但码正好是 0 的
     // 也算 —— 那种"0"什么都不能证明），和那一层说的必须是同一条。
     // NOTE: `abnormalExit` 在上面（§5.1 记账那一段）就算好了，这一支读的就是同一个值。
@@ -438,7 +423,7 @@ void GameSessionController::onGameFinished(int sessionId, int exitCode, QProcess
     // 窗口不该因为游戏退出就跳出来。
     //
     // NOTE: 还要**一份都不剩**才叫回来。同时开着三个时，第一个退出就把窗口弹到用户脸上
-    //       会打断他正在看的别的东西；那时他在启动器上想知道的是"还剩谁在跑"。
+    // 会打断他正在看的别的东西；那时他在启动器上想知道的是"还剩谁在跑"。
     if (m_hiddenForGame && m_launcherManager->runningCount() == 0) {
         m_hiddenForGame = false;
         m_host.restoreWindowAfterGame();
@@ -477,10 +462,10 @@ bool GameSessionController::confirmStopGame(const QString &displayName, int sess
     // 「停」在 Windows 上就是 TerminateProcess（见 LauncherManager::stopGame()），游戏
     // 来不及存档。**这件事必须在这里说清楚**，默认那一边是"别停"（回车 = 取消）。
     //
-    // NOTE: 2026-09-25 之前就**只有**底栏左面板里那行电源走这儿了（实例页那颗「停」连同
-    //       applyStopGame() 一起删了，见 MainWindowUI.cpp 里那段）。所以 `sessions > 1`
-    //       那半句现在是**死支**—— stopGameSession() 恒传 1。留着它是因为它是这个函数
-    //       的一部分（"一次停几份"这件事问话里要说清），不是因为还有人在用。
+    // NOTE: 之前就**只有**底栏左面板里那行电源走这儿了（实例页那颗「停」连同
+    // applyStopGame() 一起删了，见 MainWindowUI.cpp 里那段）。所以 `sessions > 1`
+    // 那半句现在是**死支**—— stopGameSession() 恒传 1。留着它是因为它是这个函数
+    // 的一部分（"一次停几份"这件事问话里要说清），不是因为还有人在用。
     const QString text =
         sessions > 1
             ? tr("「%1」正在运行（共 %2 个游戏进程，这一下全部停止）。\n\n停止会"

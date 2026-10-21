@@ -1,8 +1,6 @@
 /**
  * @file TitleBar.cpp
  * @brief TitleBar 的实现（条上那几样东西的摆法与画法）。
- * @author 0x7fffff
- * @date 2026-09-25
  */
 
 #include "TitleBar.hpp"
@@ -23,45 +21,36 @@ namespace {
 
 /// 条高（逻辑像素）。52 = 12 + 28 + 12，也就是"缩放边 + 按钮 + 缩放边"，
 /// 见 `TitleBar::buttonInset()` 那段 —— 条再矮就得把按钮压进缩放边里了。
-/// ★ 2026-09-29 用户原话「把顶上标题栏加高一点，文字大一点」：从 **44 抬到 52**。
-///   抬的是**上下留白**（8 → 12），按钮那一档 `kButtonSize` 没动 —— 用户只说条高和文字。
-///   条高与按钮高之间那条恒等式 `H == 2 * inset() + buttonSize()` 照旧成立，而
-///   `inset()` 反过来又必须 ≥ `WindowChrome::resizeBorder()`（全仓那条缩放边不变式）。
-///   NOTE: `H - kButtonSize` **必须是偶数**（`inset()` 是整数除法，见那条恒等式）。
+/// 要求「把顶上标题栏加高一点，文字大一点」：从 **44 抬到 52**。
+/// 抬的是**上下留白**（8 → 12），按钮那一档 `kButtonSize` 没动 —— 用户只说条高和文字。
+/// 条高与按钮高之间那条恒等式 `H == 2 * inset() + buttonSize()` 照旧成立，而
+/// `inset()` 反过来又必须 ≥ `WindowChrome::resizeBorder()`（全仓那条缩放边不变式）。
+/// NOTE: `H - kButtonSize` **必须是偶数**（`inset()` 是整数除法，见那条恒等式）。
 constexpr int kTitleBarHeight = 52;
 /// 那几颗按钮的高（逻辑像素）。
 constexpr int kButtonSize = 28;
 
-/// 条上那行名字比正文大多少（pt）。★ 2026-09-29 用户那句「文字大一点」。
+/// 条上那行名字比正文大多少（pt）。★ 用户那句「文字大一点」。
 ///
 /// 名字是 `paintEvent` 画的（不是 QLabel），字号在这一行之前**没有人设过** —— 取的就是面板
 /// 默认字体，这里只加粗。所以"大一点"的唯一落点就是加这个增量，不在 Theme / QSS 里。
-///
-/// NOTE: 用**增量**而不是写死一个 pt：面板字号跟着系统走（本机 150% 下不是 9pt），写死会把
-///       "比正文大一点"变成"在某些机器上比正文小"。`font().pointSizeF()` 为 −1 时（那份字体
-///       是按像素定义的）退回像素那一档，见下面 `paintEvent`。
 constexpr qreal kBrandPointDelta = 2.0;
 /// 退回像素那一档时的增量（同上）。
 constexpr int kBrandPixelDelta = 3;
 
-/// 那四颗**导航**按钮上的字号比正文大多少。★ 2026-09-30 用户原话「上面四个按钮的文本也做大点」。
+/// 那四颗**导航**按钮上的字号比正文大多少。★ 要求「上面四个按钮的文本也做大点」。
 ///
 /// 和名字那两个常量**分开两个旋钮**（值一样只是碰巧）：用户说的是两句话、可以分开调，而且
 /// 名字那一颗是**加粗**的、同一号字看着本来就大一点。两个数的用法跟上面那两个一样
 /// （增量、不写死 pt、点数与像素各一条路），走同一个 `enlargedFont()`。
 ///
 /// NOTE: 落在 `setNavItems()` 里 `setFont()` 到按钮上（**不是**画的时候临时算）——
-///       于是"这一颗用的什么字"能直接问 `QAbstractButton::font()` 读回来，验证工程量的
-///       就是它（画的时候临时改的话，字体没落在控件上，谁都读不到）。
+/// 于是"这一颗用的什么字"能直接问 `QAbstractButton::font()` 读回来，验证工程量的
+/// 就是它（画的时候临时改的话，字体没落在控件上，谁都读不到）。
 constexpr qreal kNavPointDelta = 2.0;
 /// 退回像素那一档时的增量（同上）。
 constexpr int kNavPixelDelta = 3;
 
-/// 每一颗**导航**按钮的宽（逻辑像素）。四个汉字标签（"主页"两个字）+ 左右各 20 的余量：
-/// 两字的正文是 24~26 px 宽，20 的余量让悬停时那块底色不至于贴着字。
-/// NOTE: 2026-09-30 字号大了 2pt 之后两字约 30 px 宽，余量掉到 19 上下 —— 还是没贴着字，
-///       所以这个数没跟着动；**真动了的话要连 ui_check 那条"每颗都是 navItemWidth()"一起看**
-///       （那个数有访问器、验证工程读的是它，不是写死的 68）。
 constexpr int kNavItemWidth = 68;
 /// 草方块那颗图标的边长。16 的倍数最清楚（见 `VersionIcons::grassBlock()` 的说明）。
 constexpr int kLogoSize = 16;
@@ -71,41 +60,38 @@ constexpr int kLeftPadding = 12;
 constexpr int kLogoGap = 8;
 /// 名字和导航那一组之间**至少**空多少（画名字时的右边留白，见 `paintEvent`）。
 /// NOTE: 这一格**是量出来的**：名字那几个字母一长、"主页"就贴到它脸上（中间连一口气都
-///       没有），所以这儿的留白比 kLogoGap 大一倍。
+/// 没有），所以这儿的留白比 kLogoGap 大一倍。
 constexpr int kBrandGap = 16;
 
 /// 最小化/关闭那两颗离窗口右边缘多远（逻辑像素）。
-/// ★ 2026-09-29 用户原话「右上角的最小化和关闭稍稍往左边靠一点」：原来是 **0**（顶到条
-///   的最右边，和系统那两颗一样顶着角），现在往左挪这一格 —— 10 是"稍稍"：还不够一条
-///   导航按钮的一半宽（`kNavItemWidth` 是 68），但肉眼一眼看得出来。
+/// 要求「右上角的最小化和关闭稍稍往左边靠一点」：原来是 **0**（顶到条
+/// 的最右边，和系统那两颗一样顶着角），现在往左挪这一格 —— 10 是"稍稍"：还不够一条
+/// 导航按钮的一半宽（`kNavItemWidth` 是 68），但肉眼一眼看得出来。
 /// NOTE: 这个数**不能自己单独改**，它和下面那个左边距是同一个方程的两头，见 kNavGroupLeftMargin。
 constexpr int kWindowButtonsRightMargin = 10;
 
 /// 导航那一组的**左边距**。
 ///
-/// ★ 这个数不是审美，是「四个按钮的正中 == 整条的正中」（用户原话「上面的四个居中」）
-///   的解法，也是**唯一**的调法。布局是
+/// 这个数不是审美，是「四个按钮的正中 == 整条的正中」（要求「上面的四个居中」）
+/// 的解法，也是**唯一**的调法。布局是
 ///
-///       [这一格留白][stretchA][导航那一组][stretchB][最小化][关闭][右边距]
+/// [这一格留白][stretchA][导航那一组][stretchB][最小化][关闭][右边距]
 ///
-///   两段 stretch 的因子都是 1 ⇒ 导航那一组的正中
+/// 两段 stretch 的因子都是 1 ⇒ 导航那一组的正中
 ///
-///       = L + (W - L - R - B) / 2
+/// = L + (W - L - R - B) / 2
 ///
-///   （W = 条宽、L/R = 布局左右边距、B = 右边那两颗窗口按钮占的宽）。要它等于 W/2，
-///   等价于
+/// （W = 条宽、L/R = 布局左右边距、B = 右边那两颗窗口按钮占的宽）。要它等于 W/2，
+/// 等价于
 ///
-///       L - R = B
+/// L - R = B
 ///
-///   而 B = 2 * buttonSize()、R = kWindowButtonsRightMargin
-///   ⇒ 左边距就**必须是** `2 * buttonSize() + kWindowButtonsRightMargin`。
+/// 而 B = 2 * buttonSize()、R = kWindowButtonsRightMargin
+/// ⇒ 左边距就**必须是** `2 * buttonSize() + kWindowButtonsRightMargin`。
 ///
-///   **★ R 从 0 变成 10 的那一趟（2026-09-29）左边距跟着加了 10** —— 这就是那条不变式
-///     "两头一起动"的样子：单独把 R 改成 10 会让导航那一组整体往右偏 5 px，而屏幕上看着
-///     只是"四个字好像没居中"，没人查得出来。
-///
-///   NOTE: 导航那一组自己的宽 N **消掉了** —— 加一颗按钮、改一次 `navItemWidth()` 都不用
-///         回来调这个数。ui_check 里那条"组的中正 == 条的中正"就是照着这句量的。
+/// **★ R 从 0 变成 10 的那一趟左边距跟着加了 10** —— 这就是那条不变式
+/// "两头一起动"的样子：单独把 R 改成 10 会让导航那一组整体往右偏 5 px，而屏幕上看着
+/// 只是"四个字好像没居中"，没人查得出来。
 constexpr int kNavGroupLeftMargin = 2 * kButtonSize + kWindowButtonsRightMargin;
 /// 当前那一颗底下那条横线的高。
 constexpr int kCurrentMarkHeight = 2;
@@ -142,15 +128,15 @@ QColor blendedColor(const QColor &from, const QColor &to, qreal progress) {
                             from.alphaF() + (to.alphaF() - from.alphaF()) * t);
 }
 
-// ★ 条的颜色原来是这儿的一个 `barColor()`：把窗口底色压暗一档（`darker(105)`，和底栏
-//   同一档）。2026-09-28 起它挪进了 `Theme::Part::TitleBar` —— 只有那一层才知道"用户把
-//   标题栏单独改过了没有"，算两遍的话覆盖项只会在一半地方生效。条上每一处颜色现在都问
-//   `Theme::partBackground(Part::TitleBar)`，**别在这儿再写一遍那个 darker(105)**。
+// 条的颜色原来是这儿的一个 `barColor()`：把窗口底色压暗一档（`darker(105)`，和底栏
+// 同一档）。 起它挪进了 `Theme::Part::TitleBar` —— 只有那一层才知道"用户把
+// 标题栏单独改过了没有"，算两遍的话覆盖项只会在一半地方生效。条上每一处颜色现在都问
+// `Theme::partBackground(Part::TitleBar)`，**别在这儿再写一遍那个 darker(105)**。
 
 }  // namespace
 
 QString TitleBar::defaultBrandText() {
-    // 用户原话：「现在把顶上标题换成五个字母」+「左上角五个字母默认是这五个」。就这五个，
+    // 要求：「现在把顶上标题换成五个字母」+「左上角五个字母默认是这五个」。就这五个，
     // **写死**（要改成别的走设置页「个性化」栏的「外观」，见 `setBrandText()`）。
     return QStringLiteral("WTFML");
 }
@@ -321,8 +307,8 @@ TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
     // 悬停底色：最小化那颗是条底色再压暗一档（"有个东西在里头"就够了），
     // 关闭那颗是**红底白叉** —— 那个红取自 Theme::dangerColor()，全仓只有这一个出处。
     // NOTE: 这一带**只负责把按钮建出来**，颜色一律由下面的 `applyColors()` 给（含这四个
-    //       色，它们都是"条底色/调色板算出来的"）。从前是在这儿现算现传的，于是主题一换
-    //       它们就停在旧色上 —— 见 `applyColors()` 那段。
+    // 色，它们都是"条底色/调色板算出来的"）。从前是在这儿现算现传的，于是主题一换
+    // 它们就停在旧色上 —— 见 `applyColors()` 那段。
     m_minimize = new TitleBarButton(TitleBarButton::Glyph::Minimize, QColor(), QColor(), this);
     m_minimize->setObjectName(QStringLiteral("titleBarMinimize"));
     m_close = new TitleBarButton(TitleBarButton::Glyph::Close, QColor(), QColor(), this);
@@ -335,14 +321,14 @@ TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
     m_layout = new QHBoxLayout(this);
     // 左边那一段留白就是"居中"的全部秘密（推导见 kNavGroupLeftMargin）—— 它和名字有多宽
     // **没关系**：名字画在条的左头（paintEvent），导航那一组自己居中，两边互不干扰。
-    // 右边那一格是 2026-09-29 用户点名要的"那两颗往左靠一点"；它和左边距是一对、必须
+    // 右边那一格是 用户点名要的"那两颗往左靠一点"；它和左边距是一对、必须
     // 一起动，理由写在 kNavGroupLeftMargin 那段。
     m_layout->setContentsMargins(kNavGroupLeftMargin, 0, kWindowButtonsRightMargin, 0);
     m_layout->setSpacing(0);
     // 导航那一组**自己一层布局**，夹在两段等长 stretch 中间 ⇒ 它就是条的中正。
     // NOTE: 为什么不是把四颗按钮直接 addWidget 到主布局里：主布局上还挂着右边那两颗窗口
-    //       按钮，往中间插控件要按下标算，而"一共几颗导航"是 setupUi 灌进来的
-    //       （0 到 4 颗都合法，见 setNavItems）。独立一层之后 setNavItems() 只管这一层。
+    // 按钮，往中间插控件要按下标算，而"一共几颗导航"是 setupUi 灌进来的
+    // （0 到 4 颗都合法，见 setNavItems）。独立一层之后 setNavItems() 只管这一层。
     m_navLayout = new QHBoxLayout;
     m_navLayout->setContentsMargins(0, 0, 0, 0);
     m_navLayout->setSpacing(0);
@@ -362,8 +348,8 @@ TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
 }
 
 void TitleBar::applyColors() {
-    // ★ 防自咬：下面那句 `setPalette()` 会发一次 `PaletteChange`，而我们就挂在那个事件上
-    //   （`changeEvent()`）—— 不拦的话就是"改 → 收到 → 再改"。见 `Theme::follow()` 的 NOTE。
+    // 防自咬：下面那句 `setPalette()` 会发一次 `PaletteChange`，而我们就挂在那个事件上
+    // （`changeEvent()`）—— 不拦的话就是"改 → 收到 → 再改"。见 `Theme::follow()` 的 NOTE。
     if (m_applyingColors) {
         return;
     }
@@ -371,11 +357,11 @@ void TitleBar::applyColors() {
 
     // 条底色：用户单独改过就是那个，没改过 = 窗口底色压暗一档（原来是 `barColor()`）。
     const QColor chrome = Theme::partBackground(Theme::Part::TitleBar);
-    // ★ 基色调色板一律取**应用那一份**，不能取 `palette()`：条自己持有一份（下面就把 Window
-    //   改成了 chrome），第二次进来 `palette().color(Window)` 已经是压暗过一档的那个，
-    //   再算就是**第二次压暗**（2026-09-25 之前就是这么写的，于是最小化那颗的悬停色比它
-    //   该有的深了两档：量出来 #bdbdbd，而"条底色再压暗一档"应该是 #c6c6c6）。ui_check Z11
-    //   那条像素断言量的就是这件事。
+    // 基色调色板一律取**应用那一份**，不能取 `palette()`：条自己持有一份（下面就把 Window
+    // 改成了 chrome），第二次进来 `palette().color(Window)` 已经是压暗过一档的那个，
+    // 再算就是**第二次压暗**（ 之前就是这么写的，于是最小化那颗的悬停色比它
+    // 该有的深了两档：量出来 #bdbdbd，而"条底色再压暗一档"应该是 #c6c6c6）。ui_check Z11
+    // 那条像素断言量的就是这件事。
     QPalette barPalette = QApplication::palette();
     barPalette.setColor(QPalette::Window, chrome);
     // 条上那一份"正文色"也一起定下来：条上的字（`paintEvent` 那行品牌名）是拿
@@ -388,11 +374,11 @@ void TitleBar::applyColors() {
     setPalette(barPalette);
 
     // 次要墨色（不是当前那一颗导航写的那个色）：
-    //   - 条是主题色那一支（白墨）时 = **白墨压到 68%**。这一档不能取调色板里那个次要灰：
-    //     灰的压在白绿条上就是"两个字糊在一起"（界面上看着像没渲染完）。
-    //   - 其余情形（用户把条单独改成深色底）照旧用调色板那个次要色。
+    // - 条是主题色那一支（白墨）时 = **白墨压到 68%**。这一档不能取调色板里那个次要灰：
+    // 灰的压在白绿条上就是"两个字糊在一起"（界面上看着像没渲染完）。
+    // - 其余情形（用户把条单独改成深色底）照旧用调色板那个次要色。
     // NOTE: 判据取的是"这一块的出厂字色是不是白墨"（`partLightInk()`），不是"底色深不深"
-    //       —— 用户点名要的就是白墨，而这一支绿的明度并不低（拿明度判会给回深色）。
+    // —— 用户点名要的就是白墨，而这一支绿的明度并不低（拿明度判会给回深色）。
     const QColor strongFallback =
         Theme::partLightInk(Theme::Part::TitleBar)
             ? QColor(0xff, 0xff, 0xff, 0xad)
@@ -404,16 +390,16 @@ void TitleBar::applyColors() {
         button->setInkColor(strong);
     }
     if (auto *button = qobject_cast<TitleBarButton *>(m_close)) {
-        // ★ 两态两套色，别把悬停那一套当成常驻的：
-        //   不悬停 = **条上那几笔正文色**（和旁边那颗最小化同一个墨色，所以它平时就是条上
-        //   一个普通记号）；
-        //   悬停  = 红底 + 白叉，那个红是全仓唯一一处"危险操作的红"，白叉**只在红底上**成立
-        //   （底色上除了白没有别的能读的颜色）。
-        //   `setHoverColors()` 给的是悬停那一套、`setInkColor()` 给的是平时那一套 —— 从前
-        //   这里两样都写成白的，于是不悬停时那颗叉也是白的（ui_check Z11 那条像素断言量的
-        //   就是这件事：正文色 0 个像素）。
-        //   **故意不走 `partForeground()` 的是红底那一半**：那是"这一块的字色"，而红底上的
-        //   墨色不是"条上的字"。平时那一半照走。
+        // 两态两套色，别把悬停那一套当成常驻的：
+        // 不悬停 = **条上那几笔正文色**（和旁边那颗最小化同一个墨色，所以它平时就是条上
+        // 一个普通记号）；
+        // 悬停 = 红底 + 白叉，那个红是全仓唯一一处"危险操作的红"，白叉**只在红底上**成立
+        // （底色上除了白没有别的能读的颜色）。
+        // `setHoverColors()` 给的是悬停那一套、`setInkColor()` 给的是平时那一套 —— 从前
+        // 这里两样都写成白的，于是不悬停时那颗叉也是白的（ui_check Z11 那条像素断言量的
+        // 就是这件事：正文色 0 个像素）。
+        // **故意不走 `partForeground()` 的是红底那一半**：那是"这一块的字色"，而红底上的
+        // 墨色不是"条上的字"。平时那一半照走。
         button->setHoverColors(Theme::dangerColor(barPalette), QColor(Qt::white));
         button->setInkColor(strong);
     }
@@ -461,9 +447,6 @@ void TitleBar::setNavItems(const QStringList &labels) {
         auto *button = new TitleBarButton(TitleBarButton::Glyph::Text, QColor(), QColor(), this);
         button->setObjectName(QStringLiteral("titleBarNav%1").arg(i));
         button->setLabel(labels.at(i));
-        // ★ 2026-09-30 用户原话「上面四个按钮的文本也做大点」：和名字走**同一套**放大算法
-        //   （`enlargedFont()`），只是各用各的常量。落在控件上而不是画的时候临时算 —— 见
-        //   `kNavPointDelta` 那段 NOTE（验证工程就量这个字体）。
         button->setFont(enlargedFont(font(), kNavPointDelta, kNavPixelDelta));
         button->setFixedSize(kNavItemWidth, kButtonSize);
         m_navButtons.append(button);
@@ -534,8 +517,8 @@ void TitleBar::paintEvent(QPaintEvent *) {
     if (textRect.width() <= 0) {
         return;
     }
-    // ★ 2026-09-29 用户那句「文字大一点」：放大这一档的唯一出处是 `kBrandPointDelta` /
-    //   `kBrandPixelDelta` 加下面那个 `enlargedFont()`（两档各自的理由都在它头上）。
+    // 用户那句「文字大一点」：放大这一档的唯一出处是 `kBrandPointDelta` /
+    // `kBrandPixelDelta` 加下面那个 `enlargedFont()`（两档各自的理由都在它头上）。
     QFont titleFont = enlargedFont(font(), kBrandPointDelta, kBrandPixelDelta);
     titleFont.setBold(true);
     p.setFont(titleFont);

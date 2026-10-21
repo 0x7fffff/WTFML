@@ -1,8 +1,6 @@
 /**
  * @file TaskProgressBar.cpp
  * @brief 自绘进度条的实现（取舍见头文件）。
- * @author 0x7fffff
- * @date 2026-10-13
  */
 
 #include "TaskProgressBar.hpp"
@@ -84,9 +82,9 @@ void TaskProgressBar::paintEvent(QPaintEvent *) {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
 
-    // ★ 色取**应用那一份**调色板，不取这一格自己的 —— 底栏那一条装在一颗挂着 QSS 的按钮
-    //   里，那颗按钮的 QPalette 里 `Window` 是黑的，照它算会掉进深色那一档（同一个顾虑
-    //   见 `MainWindowUI` 里给底栏选色那几处）。取应用那一份就不必操心谁先收到事件。
+    // 色取**应用那一份**调色板，不取这一格自己的 —— 底栏那一条装在一颗挂着 QSS 的按钮
+    // 里，那颗按钮的 QPalette 里 `Window` 是黑的，照它算会掉进深色那一档（同一个顾虑
+    // 见 `MainWindowUI` 里给底栏选色那几处）。取应用那一份就不必操心谁先收到事件。
     const QPalette palette = QApplication::palette();
     const QColor track = Theme::progressTrackColor(palette);
     const QColor fill = Theme::progressFillColor(palette);

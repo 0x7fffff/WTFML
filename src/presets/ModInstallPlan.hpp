@@ -1,21 +1,19 @@
 /**
  * @file ModInstallPlan.hpp
  * @brief 模组预设「真正去下」之前的判据层（coding plan §10.1 第 7 项 / P5）。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 【这一层解决的四件事】
  *
- *   · **必要 / 可选分开**：预设里每一条引用自己带 `required`；平台回答里每条前置带
- *     `required` / `optional` / `incompatible` / `embedded`。必要项失败 ⇒ 整份计划 `ok = false`
- *     （界面要明确标出来）；可选项失败只计数，不许把整份安装拖垮。
- *   · **依赖**：把「这一版声明要的前置」折进同一张下载清单，按 `平台:项目号` 去重、带环检测；
- *     `optional` 只列出来**不自动下**（那正是"可选失败"的语义），`embedded` 无视。
- *   · **冲突**：平台声明的 `incompatible` 指向的那一项如果也在这一趟里（或已经装在实例里），
- *     这一条就是「不兼容」，**不装** —— 含不兼容文件的计划不算成功。
- *   · **替代项目必须确认**：某一条在平台上确实没有兼容发行版时，调用方可以递一份候选替代；
- *     这一层**只报「等你确认」**，用户确认过（`confirmedAlternatives` 里有那个 key）才换成它。
- *     绝不自己挑一个看起来像的。
+ * · **必要 / 可选分开**：预设里每一条引用自己带 `required`；平台回答里每条前置带
+ * `required` / `optional` / `incompatible` / `embedded`。必要项失败 ⇒ 整份计划 `ok = false`
+ * （界面要明确标出来）；可选项失败只计数，不许把整份安装拖垮。
+ * · **依赖**：把「这一版声明要的前置」折进同一张下载清单，按 `平台:项目号` 去重、带环检测；
+ * `optional` 只列出来**不自动下**（那正是"可选失败"的语义），`embedded` 无视。
+ * · **冲突**：平台声明的 `incompatible` 指向的那一项如果也在这一趟里（或已经装在实例里），
+ * 这一条就是「不兼容」，**不装** —— 含不兼容文件的计划不算成功。
+ * · **替代项目必须确认**：某一条在平台上确实没有兼容发行版时，调用方可以递一份候选替代；
+ * 这一层**只报「等你确认」**，用户确认过（`confirmedAlternatives` 里有那个 key）才换成它。
+ * 绝不自己挑一个看起来像的。
  *
  * 【为什么不发网络、不读实例盘】
  *
@@ -84,7 +82,7 @@ struct ModInstallRequest {
     /// 某一条缺失时**候选的替代项目**（键 = 原引用 `key()`）。空 = 没有候选。
     QHash<QString, QList<ModReference>> alternativesByKey;
     /// 用户已经确认要用的替代（`ModReference::key()` 的集合）。
-    /// ★ 替代项自己也得出现在 `references` 里（带平台答复），这一层不替它问网络。
+    /// 替代项自己也得出现在 `references` 里（带平台答复），这一层不替它问网络。
     QSet<QString> confirmedAlternatives;
 
     /// 依赖展开的最大层数（防环 + 防接口给出病态的长链）。默认 8。
@@ -173,8 +171,6 @@ ModInstallPlan planModInstall(const ModInstallRequest &request);
 
 struct DownloadVerification {
     bool ok = false;
-    /// 接口没有给 sha1（只按大小对上了 / 连大小都没有）—— 这不是"校验通过"，
-    /// 调用方在报告里要如实说一句。
     bool unverified = false;
     qint64 size = -1;
     QString sha1;

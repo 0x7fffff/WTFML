@@ -1,8 +1,6 @@
 /**
  * @file ServerListPreset.cpp
  * @brief 实现 ServerListPreset.hpp（判据 + 落到实例上）。理由和取舍都写在那边文件头。
- * @author 0x7fffff
- * @date 2026-10-15
  *
  * 【这一层一个 `QFile` 都不开】
  *
@@ -12,8 +10,6 @@
  * （`loadDocument()` / `serversListOf()` / `storeDocument()` / `emptyDocument()` /
  * `entryNode()` / `kFreshFileGzipped`），自己再写一遍 gzip 检测或者落盘，就等于多开了一个
  * 能把用户的服务器列表写坏的入口 —— 而 `NbtUtil.hpp` 文件头那条设计决定防的正是这件事。
- *
- * 【报告里那些数不是另算一遍的】
  *
  * `applyServerListToInstance()` 落盘时"要改哪几条"用的是 `planServerList()` 算出来的那个
  * 计划（连「覆盖」档"哪条对得上哪条"都是同一个 `matchForReplace()`）。P2 那边
@@ -38,7 +34,7 @@ namespace {
 /// 取一格字符串（那一格不在 / 不是字符串 → 空串）。
 ///
 /// NOTE: 这几行和 `ServerListFile.cpp` 匿名命名空间里那一份**意思一样**（那边出不来）。
-///       规矩只有一条：取不到就是空串，别替它猜。
+/// 规矩只有一条：取不到就是空串，别替它猜。
 QString stringFieldOf(const NbtTree::Node &compound, const QString &name) {
     const NbtTree::Node *node = NbtTree::field(compound, name);
     if (node == nullptr || node->type != NbtTree::Type::String) {
@@ -50,9 +46,9 @@ QString stringFieldOf(const NbtTree::Node &compound, const QString &name) {
 /**
  * @brief 这个元素算不算一条服务器。
  *
- * ★ 判据和读侧**必须一直是同一条**：`NbtUtil::readServerList()` 跳的正是"不是复合标签的、
- *   或者 `ip` 那一格不是字符串 / 是空串的"这些元素。不这么对齐的话，界面上第 N 行和树里
- *   第 N 个元素就是两回事 —— `ServerListFile.hpp` 文件头第 3 条纪律防的就是这件事。
+ * 判据和读侧**必须一直是同一条**：`NbtUtil::readServerList()` 跳的正是"不是复合标签的、
+ * 或者 `ip` 那一格不是字符串 / 是空串的"这些元素。不这么对齐的话，界面上第 N 行和树里
+ * 第 N 个元素就是两回事 —— `ServerListFile.hpp` 文件头第 3 条纪律防的就是这件事。
  */
 bool isServerEntry(const NbtTree::Node &item, NbtUtil::ServerEntry *out) {
     if (item.type != NbtTree::Type::Compound) {
@@ -86,10 +82,10 @@ bool targetHasAddress(const QList<NbtUtil::ServerEntry> &target, const QString &
  * 下标"（= 就地改名），`-1` 是"对不上，要拿掉"。`claimed` 和 `accepted` 一一对应：写的时候
  * 认领过的**就地改**、没认领的**接在表尾**。
  *
- * ★ 计划和执行**共用这一趟**（`planServerListApply()` 数 `removed`、`applyServerListToInstance()`
- *   真的挑哪一条改，走的都是它）—— 各算一遍的话，"计划说拿掉 2 条、实际拿了 1 条"就会变成
- *   一个只有用户能发现的 bug。认过的不会第二条再认（一个地址在目标上出现两次是合法的，
- *   那一档只认头一条、第二条进 `-1`）。
+ * 计划和执行**共用这一趟**（`planServerListApply()` 数 `removed`、`applyServerListToInstance()`
+ * 真的挑哪一条改，走的都是它）—— 各算一遍的话，"计划说拿掉 2 条、实际拿了 1 条"就会变成
+ * 一个只有用户能发现的 bug。认过的不会第二条再认（一个地址在目标上出现两次是合法的，
+ * 那一档只认头一条、第二条进 `-1`）。
  */
 struct ReplaceMatch {
     QList<int> pickedForTarget;
@@ -132,9 +128,9 @@ QString normalizeServerAddress(const QString &address) {
     }
     const ServerPing::Address parsed = ServerPing::splitAddress(trimmed);
     if (!parsed.valid) {
-        // ★ 认不出来的**原样回去**（只去两头空白）：那多半是模组加的地址形状、或者用户手打
-        //   错了一个字。替它补上 25565 换来的是一句假的"这两条是同一台"
-        //   （`ServerPing::splitAddress()` 那段 ★ 是同一条取舍）。
+        // 认不出来的**原样回去**（只去两头空白）：那多半是模组加的地址形状、或者用户手打
+        // 错了一个字。替它补上 25565 换来的是一句假的"这两条是同一台"
+        // （`ServerPing::splitAddress()` 那段 ★ 是同一条取舍）。
         return trimmed;
     }
     // IPv6 字面量把方括号加回去：`[::1]` 和 `[::1]:25565` 得归一成同一个串，而没加方括号的
@@ -222,9 +218,9 @@ ServerListPlan planServerList(const QList<NbtUtil::ServerEntry> &target, int tar
 
     // ---------- 其余三档（Merge / Append / CopyIfMissing）----------
     //
-    // ★ 对一张**列表**来说这三档是同一件事（见 .hpp）：添目标上没有的、保序、按归一化去重。
-    //   源里自己重复的那两条也只留头一条 —— 那一条之外的第二条在游戏里和第一条长得
-    //   一模一样（同地址同名字），添进去只是让用户多一行要自己删的东西。
+    // 对一张**列表**来说这三档是同一件事（见 .hpp）：添目标上没有的、保序、按归一化去重。
+    // 源里自己重复的那两条也只留头一条 —— 那一条之外的第二条在游戏里和第一条长得
+    // 一模一样（同地址同名字），添进去只是让用户多一行要自己删的东西。
     for (int i = 0; i < source.size(); ++i) {
         if (targetHasAddress(target, source.at(i).address)) {
             plan.skippedAddresses.append(source.at(i).address);
@@ -275,8 +271,6 @@ ServerListReport planServerListApply(ApplyMode mode, const QList<NbtUtil::Server
             }
         }
         if (!replaceConfirmed) {
-            // ★ 没确认就是**一个字节都不写**（不是"先写了再回滚"）—— 报告里那几个数照给，
-            //   界面正是拿它去问用户"这一下要拿掉 2 条、添 1 条，确定吗"。
             report.needsConfirm = true;
             report.problem = QCoreApplication::translate(
                 "Presets",
@@ -323,7 +317,7 @@ ServerListReport applyServerListToInstance(const QString &datPath, ApplyMode mod
             return report;
         }
     }
-    // ★ `Missing` 不是失败（见 .hpp）：目标那边就是一张空表，真要写的时候才建文件。
+    // `Missing` 不是失败（见 .hpp）：目标那边就是一张空表，真要写的时候才建文件。
 
     report = planServerListApply(mode, target, untouchable, source, replaceConfirmed);
     if (!report.ok) {
@@ -358,9 +352,9 @@ ServerListReport applyServerListToInstance(const QString &datPath, ApplyMode mod
     if (mode == ApplyMode::Replace) {
         // ---------- 就地改名 / 拿掉 ----------
         //
-        // ★ 不是"清空整张表再照预设重建"：重建会把每一条都换成只有 `ip` + `name` 两格的新
-        //   节点，顺手抹掉盘上原来那些 `icon` / `hidden`（`ServerListFile.hpp` 那条"只动
-        //   name 和 ip 两格"的纪律）。对得上的那几条**整颗节点带着走，只改两格**。
+        // 不是"清空整张表再照预设重建"：重建会把每一条都换成只有 `ip` + `name` 两格的新
+        // 节点，顺手抹掉盘上原来那些 `icon` / `hidden`（`ServerListFile.hpp` 那条"只动
+        // name 和 ip 两格"的纪律）。对得上的那几条**整颗节点带着走，只改两格**。
         const ReplaceMatch match = matchForReplace(target, plan.accepted);
         claimed = match.claimed;
 
@@ -450,8 +444,8 @@ QList<PresetSection> sectionsFromServerList(const QList<NbtUtil::ServerEntry> &e
     section.mode = mode;
     for (int i = 0; i < entries.size(); ++i) {
         QJsonObject item;
-        // ★ 名字允许是空串（盘上的 `name` 真能是空串），所以这一格**照样写**、不省掉
-        //   （见 .hpp 那条 NOTE）——"省掉的 `name`"和"名字是空的"在读回来那一头是两句话。
+        // 名字允许是空串（盘上的 `name` 真能是空串），所以这一格**照样写**、不省掉
+        // （见 .hpp 那条 NOTE）——"省掉的 `name`"和"名字是空的"在读回来那一头是两句话。
         item.insert(QStringLiteral("name"), entries.at(i).name);
         item.insert(QStringLiteral("address"), entries.at(i).address);
         section.items.append(item);

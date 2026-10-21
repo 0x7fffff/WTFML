@@ -1,8 +1,6 @@
 /**
  * @file AnvilPlanner.cpp
  * @brief AnvilPlanner 的实现（这套规矩的出处与"不做什么"在 .hpp 开头那一段）。
- * @author 0x7fffff
- * @date 2026-10-16
  */
 #include "AnvilPlanner.hpp"
 
@@ -16,12 +14,12 @@ namespace {
 
 using namespace Anvil;
 
-/// 那一对倍率的来源：wiki 的 Anvil mechanics 页面（2026-10-16 核对）。
+/// 那一对倍率的来源：wiki 的 Anvil mechanics 页面（ 核对）。
 ///
 /// NOTE: 1.21 那几条锤子上的新附魔（`density` / `breach` / `wind_burst`）的**互斥关系**没
-///       登记在这张表里 —— 那几条我只核到了倍率与上限。表里 `incompatible` 那一列收的是
-///       从早期版本起就定下来的那几对（锋利/亡灵杀手/节肢杀手、保护四兄弟、精准采集/时运、
-///       深海探索者/冰霜行者、经验修补/无限、三叉戟那三条、多重箭/穿透）。
+/// 登记在这张表里 —— 那几条我只核到了倍率与上限。表里 `incompatible` 那一列收的是
+/// 从早期版本起就定下来的那几对（锋利/亡灵杀手/节肢杀手、保护四兄弟、精准采集/时运、
+/// 深海探索者/冰霜行者、经验修补/无限、三叉戟那三条、多重箭/穿透）。
 struct TableEntry {
     const char *id;
     const char *name;
@@ -147,7 +145,7 @@ MergeMaps mergeMaps(const QMap<QString, int> &target, const QMap<QString, int> &
         const int existingLevel = target.value(id, 0);
         int level_ = level;
         if (existingLevel == level) {
-            // ★ 同级 ⇒ +1（这就是"两本锋利 III 合出锋利 IV"那条规矩）。
+            // 同级 ⇒ +1（这就是"两本锋利 III 合出锋利 IV"那条规矩）。
             ++level_;
         } else {
             level_ = qMax(existingLevel, level);
@@ -280,7 +278,7 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
     const int total = 1 << units.size();
     // 每个子集的候选状态（**帕累托**：代价和前科都不比它差的那个留着，其余丢掉）。
     // NOTE: 这里必须写成 `static_cast<size_t>(…)` 而不是 `size_t(total)` —— 后者会被当成
-    //       一个名叫 `total` 的形参声明（最刁钻的解析），`best` 就变成函数声明了。
+    // 一个名叫 `total` 的形参声明（最刁钻的解析），`best` 就变成函数声明了。
     std::vector<QList<State>> best(static_cast<size_t>(total));
 
     for (int index = 0; index < units.size(); ++index) {
@@ -393,9 +391,9 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
     }
 
     // ---------- 选哪一条 ----------
-    // ★ "合完是哪一件"要跟着用户抱来的那堆东西走：全是书 ⇒ 合出来还是书；里面有一件
-    //   已经附过魔的装备 ⇒ 合出来必须是**那件装备**。不钉这一条的话，两件东西里"把装备
-    //   当牺牲品喂给书"往往更便宜，算出来的计划就变成"把装备烧了换一本书"，不是用户要的。
+    // "合完是哪一件"要跟着用户抱来的那堆东西走：全是书 ⇒ 合出来还是书；里面有一件
+    // 已经附过魔的装备 ⇒ 合出来必须是**那件装备**。不钉这一条的话，两件东西里"把装备
+    // 当牺牲品喂给书"往往更便宜，算出来的计划就变成"把装备烧了换一本书"，不是用户要的。
     bool wantBook = true;
     for (const Unit &unit : units) {
         if (!unit.isBook) {
@@ -464,11 +462,11 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
         /// 回一个"节点号"：叶子的节点号 = 输入下标，中间件的节点号 = 产出它的那一步在
         /// steps 里的序号（从输入个数开始数）。
         ///
-        // ★ `identity`：这一件东西**是哪一件输入**（叶子下标）。中间件的那一件其实还是它左边
-        //   那一件（铁砧的结果就是把左边那件改一改，不是凭空多出来一件），所以它的身份要
-        //   一路传上来。`consumed` 收的是"被吃掉的那一件是**哪件输入**"—— 直接把
-        //   `step.sacrificeIndex` 收进去的话，牺牲品是中间件的那一步就什么都不记（四件东西
-        //   按两两配对的次序合，最后一步被吃的是中间件 ⇒ 只会记下两件，而实际上你做掉了三件）。
+        /// `identity`：这一件东西**是哪一件输入**（叶子下标）。中间件的那一件其实还是它左边
+        /// 那一件（铁砧的结果就是把左边那件改一改，不是凭空多出来一件），所以它的身份要
+        /// 一路传上来。`consumed` 收的是"被吃掉的那一件是**哪件输入**"—— 直接把
+        /// `step.sacrificeIndex` 收进去的话，牺牲品是中间件的那一步就什么都不记（四件东西
+        /// 按两两配对的次序合，最后一步被吃的是中间件 ⇒ 只会记下两件，而实际上你做掉了三件）。
         std::map<int, int> identity;
 
         int walk(int mask, int index) {

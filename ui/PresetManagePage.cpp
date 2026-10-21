@@ -1,8 +1,6 @@
 /**
  * @file PresetManagePage.cpp
  * @brief 实现 PresetManagePage.hpp。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 布局从上到下：左栏（预设列表 + 增删改）→ 右栏（这一份是什么 / 从实例提取 / 应用到实例）。
  * 右栏放在滚动区里：窗口矮的时候下边那两段还能滚到，不会被布局压成一条。
@@ -52,7 +50,7 @@ void applyHintStyle(QLabel *hint) {
 }
 
 /// 区块标题（「这一份是什么」「从实例提取」……）。粗一号，不带框 —— `QGroupBox` 那一圈
-/// 边在 2026-10-12 的视觉收口里已经全仓退场了（见 MainWindowUI 那段"最后一个 QGroupBox"）。
+/// 边在 的视觉收口里已经全仓退场了（见 MainWindowUI 那段"最后一个 QGroupBox"）。
 QLabel *makeSectionTitle(const QString &text, QWidget *parent) {
     auto *label = new QLabel(text, parent);
     QFont font = label->font();
@@ -537,7 +535,7 @@ void PresetManagePage::rebuildPresetList(const QString &selectId, bool emitSelec
     // 等于替它们猜一个身份。
     if (m_filterKey.isEmpty()) {
         for (const BrokenItem &one : m_broken) {
-            // ★ 读不回来的那些**照样列出来**，但不可选：用户至少知道"它还在，只是读不动"。
+            // 读不回来的那些**照样列出来**，但不可选：用户至少知道"它还在，只是读不动"。
             auto *item = new QListWidgetItem(m_presetList);
             QString name = one.id;
             if (name.size() > 12) name = name.left(12) + QStringLiteral("…");
@@ -821,7 +819,6 @@ void PresetManagePage::showApplyResult(const ApplyView &result) {
     }
 
     if (!result.problem.isEmpty()) {
-        // 一句人话打头；报告里已经有一行明细的话就并到同一行，别让人对着两行猜。
         const QString head = result.lines.isEmpty()
                                  ? result.problem
                                  : QStringLiteral("%1：%2").arg(result.problem,
@@ -948,9 +945,9 @@ void PresetManagePage::refreshCaptureEnabled() {
     if (m_captureButton == nullptr) {
         return;  // 构造里第一轮 refreshActions() 可能先到（见 buildUi 末尾）
     }
-    // ★ 每一格能不能点 = 「这一类收不收它」（`m_captureMask`）×「忙不忙」。
-    //   只按忙碌状态写的话，切回这一份预设之后被禁掉的格子会重新亮起来 —— 那就是
-    //   "不串类别"在界面上破了一个口子。
+    // 每一格能不能点 = 「这一类收不收它」（`m_captureMask`）×「忙不忙」。
+    // 只按忙碌状态写的话，切回这一份预设之后被禁掉的格子会重新亮起来 —— 那就是
+    // "不串类别"在界面上破了一个口子。
     const quint32 mask = m_captureMask;
     auto enable = [this, mask](QCheckBox *box, quint32 bit, bool extra = true) {
         if (box != nullptr) {

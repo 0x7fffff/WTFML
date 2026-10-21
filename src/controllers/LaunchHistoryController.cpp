@@ -1,17 +1,15 @@
 /**
  * @file LaunchHistoryController.cpp
  * @brief 「上一次启动」那本账的驱动层：见头文件那段"为什么"。判据全在 `manage/LaunchHistory`。
- * @author 0x7fffff
- * @date 2026-10-15
  *
- * 这一片原先整段长在 `MainWindow.cpp` 的「「上一次启动」那本账」那一节里，2026-10-15 原样
+ * 这一片原先整段长在 `MainWindow.cpp` 的「「上一次启动」那本账」那一节里， 原样
  * 搬过来，只做了两处**边界上的**改动（行为一个字没变）：
  *
- *   · `recordStart()` 多两个入参（实例显示名 / 账号键）—— 那两格分别要读界面上的下拉框和
- *     当前账号，是主窗口才知道的事，这一层不许自己去问。
- *   · 原来直接调 `updateHomeRecent()` 的三处改成 `emit changed()`，主窗口把它接回同一个
- *     槽函数上（发的位置逐处照旧：`load()` 和 `recordStart()` 收尾各一发，`recordFinish()`
- *     **只在真改到了一条的时候**发 —— 空转那一趟什么都不变，不必重画）。
+ * · `recordStart()` 多两个入参（实例显示名 / 账号键）—— 那两格分别要读界面上的下拉框和
+ * 当前账号，是主窗口才知道的事，这一层不许自己去问。
+ * · 原来直接调 `updateHomeRecent()` 的三处改成 `emit changed()`，主窗口把它接回同一个
+ * 槽函数上（发的位置逐处照旧：`load()` 和 `recordStart()` 收尾各一发，`recordFinish()`
+ * **只在真改到了一条的时候**发 —— 空转那一趟什么都不变，不必重画）。
  */
 
 #include "LaunchHistoryController.hpp"

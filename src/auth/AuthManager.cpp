@@ -1,8 +1,6 @@
 /**
  * @file AuthManager.cpp
  * @brief 执行微软 OAuth 登录、换出 Minecraft 令牌并存储登录信息。
- * @author LoserKugua
- * @date 2026-04-10
  * @note 处理基于浏览器的登录重定向、回调处理、Xbox/XSTS/Minecraft 令牌链、存取与刷新。
  *
  * 这个文件里的网络请求都是**同步**的（QEventLoop + 超时），因为调用方是界面上的一次
@@ -44,11 +42,11 @@
 namespace {
 // 正版登录那两格随构建配置走的常数（coding plan §9.4）。
 //
-// ★ 这两个宏由 CMakeLists 那两条 `WTFML_CLIENT_ID` / `WTFML_REDIRECT_URI` 缓存变量按需注入
-//   （带了 `-D` 才有定义）；**没带的时候用下面这份兜底值**，所以"不改那两条、照旧构建"
-//   出来的东西跟从前一模一样。想换成自己那份 Azure 应用注册时不必改源码。
-// ★ 回调地址一定要和"我们监听哪个端口"同步（见 OAuthEndpoints.hpp 那段）：换地址就等于
-//   换端口，端口是**从下面这串地址里算出来的**，不是另写的一位。
+// 这两个宏由 CMakeLists 那两条 `WTFML_CLIENT_ID` / `WTFML_REDIRECT_URI` 缓存变量按需注入
+// （带了 `-D` 才有定义）；**没带的时候用下面这份兜底值**，所以"不改那两条、照旧构建"
+// 出来的东西跟从前一模一样。想换成自己那份 Azure 应用注册时不必改源码。
+// 回调地址一定要和"我们监听哪个端口"同步（见 OAuthEndpoints.hpp 那段）：换地址就等于
+// 换端口，端口是**从下面这串地址里算出来的**，不是另写的一位。
 #ifdef WTFML_CLIENT_ID
 static constexpr const char kClientId[] = WTFML_CLIENT_ID;
 #else
@@ -56,8 +54,8 @@ static constexpr const char kClientId[] = "1f3dc837-04f1-4389-947e-d698b69571b7"
 #endif
 
 // NOTE: 两份凭据落在哪些键上、以及那串字节怎么保护，都**不在这里** ——
-//       见 TokenStore.hpp（多账号列表里的副本必须和活动槽是同一套格式，所以它只有一个
-//       出处）。这一层要知道的只有"键名从 TokenStore 取"。
+// 见 TokenStore.hpp（多账号列表里的副本必须和活动槽是同一套格式，所以它只有一个
+// 出处）。这一层要知道的只有"键名从 TokenStore 取"。
 static constexpr const char kOAuthAuthorizeUrl[] =
     "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize";
 static constexpr const char kOAuthTokenUrl[] =
@@ -80,13 +78,13 @@ static constexpr const char kOAuthScope[] = "XboxLive.signin offline_access";
 // 等浏览器回来的上限。见 AuthManager::loginInFlight() 的说明。
 static constexpr int kLoginTimeoutMinutes = 5;
 // NOTE: 值和 LauncherManager 的 kDefaultPlayerName 一致。那边用它兜底（调用方没给名字时），
-//       这里是没有账户时的"名字"。两处都写死同一个字面量是因为它们各有各的来路，
-//       谁都不该 include 对方 —— 改的时候一起改。
+// 这里是没有账户时的"名字"。两处都写死同一个字面量是因为它们各有各的来路，
+// 谁都不该 include 对方 —— 改的时候一起改。
 static constexpr const char kDefaultPlayerName[] = "Player";
 
 /// NOTE: 这里只剩个**名字**：真正的结构在 HttpClient.hpp（那条同步请求的规矩、含"超时了
-///       要 abort、abort 之后别读正文"那一串）只有一份，登录链和皮肤接口共用。留这行别名
-///       是为了让下面那几十处调用点一个都不用动 —— 搬家的改动越小越不容易搬出 bug。
+/// 要 abort、abort 之后别读正文"那一串）只有一份，登录链和皮肤接口共用。留这行别名
+/// 是为了让下面那几十处调用点一个都不用动 —— 搬家的改动越小越不容易搬出 bug。
 using HttpResult = HttpClient::Reply;
 
 /// 发一个 JSON 请求并同步等结果（登录链用的都是 GET/POST，所以这里就这一个开关）。
@@ -120,7 +118,7 @@ QString httpFailureText(const HttpResult &result, const QString &what) {
     // 有些端点把原因写在正文里（Minecraft 服务是 errorMessage，Xbox 是 Message）。
     // 只认这几个字段、不把正文原样丢出去：正文里还有 traceId / path / 令牌之类的东西。
     // NOTE: 这一句是"HTTP 403"和"HTTP 403：Invalid app registration"的区别 —— 后者才是
-    //       用户能拿去查、能照着做的那句话（真机上折在 login_with_xbox 时就是它）。
+    // 用户能拿去查、能照着做的那句话（真机上折在 login_with_xbox 时就是它）。
     for (const char *key : {"errorMessage", "Message", "error"}) {
         const QString detail = result.json.value(QString::fromLatin1(key)).toString();
         if (!detail.isEmpty()) {
@@ -156,8 +154,8 @@ QString firstUserHash(const QJsonObject &json) {
 AuthManager::AuthManager(QObject *parent)
     : QObject(parent),
       // NOTE: 默认玩家名**不是界面文案，别翻译** —— 它就是启动游戏时 --username 的
-      //       值（离线与正版两条分支都取它），也是"还没登录"时的占位名字。
-      //       登录成功之后会被档案里的真名替掉，见 applyMinecraftTokenData()。
+      // 值（离线与正版两条分支都取它），也是"还没登录"时的占位名字。
+      // 登录成功之后会被档案里的真名替掉，见 applyMinecraftTokenData()。
       m_playerName(QString::fromLatin1(kDefaultPlayerName)),
       m_callbackServer(new QTcpServer(this)),
       m_networkManager(new QNetworkAccessManager(this)),
@@ -207,12 +205,12 @@ bool AuthManager::loginMicrosoft() {
             // handleNewConnection），它收尾时自己会关服务器、复位 m_loginInFlight、
             // 停掉这个定时器。
             // NOTE: 少了这一句，正好卡在这段时间里到点的定时器会**抢先**发一个 loginFailed
-            //       —— 用户看见"登录没有完成（等了 5 分钟）"，几十毫秒之后回调那头发
-            //       loginSucceeded，一次登录发出两个相反的信号：界面先按失败把按钮放回可点，
-            //       再按成功刷一遍底栏，而弹窗是模态的，用户点掉它之后才轮到成功那一步。
-            //       回调那头本来就挡住了重入（handleNewConnection 开头的同一个判据），
-            //       只有这里漏了。换令牌那条链每一条请求都有自己的 15 秒超时
-            //       （见 HttpClient::kDefaultTimeoutMs），所以这里不再另设窗口也不会一直挂着。
+            // —— 用户看见"登录没有完成（等了 5 分钟）"，几十毫秒之后回调那头发
+            // loginSucceeded，一次登录发出两个相反的信号：界面先按失败把按钮放回可点，
+            // 再按成功刷一遍底栏，而弹窗是模态的，用户点掉它之后才轮到成功那一步。
+            // 回调那头本来就挡住了重入（handleNewConnection 开头的同一个判据），
+            // 只有这里漏了。换令牌那条链每一条请求都有自己的 15 秒超时
+            // （见 HttpClient::kDefaultTimeoutMs），所以这里不再另设窗口也不会一直挂着。
             if (m_handlingCallback) {
                 return;
             }
@@ -221,8 +219,8 @@ bool AuthManager::loginMicrosoft() {
             m_oauthState.clear();
             // 走 loginFailed 而不是自己憋着：界面就是靠它把几个按钮放回可点状态的。
             // NOTE: 这句**不许点名某个按钮** —— 原来写的是「再点一次"微软登录"重来」，
-            //       而那个按钮已经并进「账号与外观」那个窗里了（设置页那格现在只是一个
-            //       入口）。用户手上看到的文案会变，这里只说下一步做什么。
+            // 而那个按钮已经并进「账号与外观」那个窗里了（设置页那格现在只是一个
+            // 入口）。用户手上看到的文案会变，这里只说下一步做什么。
             emit loginFailed(tr("登录没有完成（等了 %1 分钟，浏览器那头一直没回来）。\n"
                                 "再试一次，或者检查一下网络和代理设置。")
                                  .arg(kLoginTimeoutMinutes));
@@ -285,12 +283,6 @@ bool AuthManager::refreshMinecraftToken(QString *errorMessage) {
     if (refreshToken.isEmpty()) {
         return fail(tr("还没有登录过，或者登录信息已经不完整了。"));
     }
-    // ★ 2026-10-20：这一趟是**替谁**刷的。整条链（微软 → XBL → XSTS → Minecraft → 档案）
-    //   全是同步 HTTP，`HttpClient::send()` 里面那个嵌套事件循环会照常派发用户输入 ——
-    //   账号面板的「选择」在这中间点得动（MainWindow::onAccountSwitchRequested() 没有忙态
-    //   闸），于是用户切走之后这一趟还在替上一个人写盘：微软槽在链头、Minecraft 槽在链尾，
-    //   两处一前一后被 activate() 夹在中间，写出来的就是"A 的 uuid 配 B 的刷新令牌"。
-    //   下面每一步落盘之前都比一次；对不上就整趟作废（**一个字节都不写**）。
     const QString refreshUuid = AccountStore::activeUuid();
 
     QString microsoftToken;
@@ -303,7 +295,7 @@ bool AuthManager::refreshMinecraftToken(QString *errorMessage) {
         return fail(failure);
     }
 
-    // 刷新出来的新令牌**要写回列表里那份副本**（2026-09-24 补的）。
+    // 刷新出来的新令牌**要写回列表里那份副本**（ 补的）。
     // 列表里那份是"切回这个账号"时的唯一来路（见 AccountStore 文件头那种两栏结构），
     // 而在补这句之前，captureActive() 只在"登录成功"那一下被调过一次 —— 于是活动槽里
     // 的 refresh_token 每隔几天就刷新一轮，列表里那份却永远停在登录那一天。切走再切回来
@@ -311,9 +303,9 @@ bool AuthManager::refreshMinecraftToken(QString *errorMessage) {
     // 浏览器登录。上面两个 store*TokenData() 已经把新令牌放进活动槽了，这里搬的就是新的。
     //
     // NOTE: 收不进列表**不算这次刷新失败**：活动槽里那份是好的、游戏照常能启动，
-    //       为一件"备份没更新"的事拦住启动不值得（原因写一行日志）。
-    // ★ 2026-10-20：收之前再认一次人（见上面 refreshUuid 那段）。切换过的话活动槽已经不是
-    //   这一趟刷的那个人了，这时 captureActive() 收进去的会是新旧混着的一对 —— 不收。
+    // 为一件"备份没更新"的事拦住启动不值得（原因写一行日志）。
+    // 收之前再认一次人（见上面 refreshUuid 那段）。切换过的话活动槽已经不是
+    // 这一趟刷的那个人了，这时 captureActive() 收进去的会是新旧混着的一对 —— 不收。
     if (refreshUuid.isEmpty() || AccountStore::activeUuid() == refreshUuid) {
         QString captureError;
         if (!AccountStore::captureActive(&captureError)) {
@@ -446,13 +438,6 @@ void AuthManager::handleNewConnection() {
         return;
     }
 
-    // ★ 2026-10-19：这里以前是 `waitForReadyRead(10000)` —— 在 **UI 线程**上真等，
-    //   于是本机任何一个进程随手连一下回调端口、一个字都不发，整个启动器就冻 10 秒
-    //   （窗口不重绘、点不动，Windows 还会挂上"无响应"）。现在改成异步收：先挂
-    //   readyRead，收全 HTTP 头才进 `processCallbackRequest()`；10 秒只是"这条连接
-    //   一直不把请求头说完就关掉"的看门狗，不再占用界面。
-    //   NOTE: 超时用 QTimer 而不是 `QTimer::singleShot` —— 它挂在 socket 底下，
-    //         socket 一删就跟着没了，不会在一个已经关掉的连接上多放一发。
     auto *deadline = new QTimer(socket);
     deadline->setSingleShot(true);
     connect(deadline, &QTimer::timeout, socket, [socket] { socket->disconnectFromHost(); });
@@ -519,19 +504,12 @@ void AuthManager::processCallbackRequest(QTcpSocket *socket, const QByteArray &r
     const QString error = query.queryItemValue("error");
 
     // NOTE: 这里**不要**把 code / error 的内容写进日志。授权码是密钥材料（PKCE 挡的是
-    //       "被别人截走后换成令牌"，不是"被别人抄走"），而 Qt 的 qDebug 默认打到 stderr，
-    //       谁把启动器的输出重定向了谁就拿到一份。要确认回调有没有成功，看下面的分支和
-    //       loginSucceeded/loginFailed 信号就够了。
+    // "被别人截走后换成令牌"，不是"被别人抄走"），而 Qt 的 qDebug 默认打到 stderr，
+    // 谁把启动器的输出重定向了谁就拿到一份。要确认回调有没有成功，看下面的分支和
+    // loginSucceeded/loginFailed 信号就够了。
 
     m_handlingCallback = true;
 
-    // ★ 2026-10-19：下面那两段令牌交换是**同步** HTTP（`HttpClient::send()` 里有一个
-    //   嵌套 `QEventLoop`），而这条连接在 `handleNewConnection()` 里挂了
-    //   `disconnected → deleteLater`。用户在这几秒里把浏览器标签页关掉（很常见：
-    //   "授权都点完了"），FIN 到了 ⇒ `disconnected` 在**嵌套循环里**发出来 ⇒
-    //   `deleteLater` 排的 DeferredDelete 在同一个循环层级立刻被派发，socket 就被
-    //   释放了。回来以后这句 `socket->write(response)` 写的是已经释放的内存。
-    //   `QPointer` 是这道闸：令牌链照走、信号照发，只是不再往一个已经没了的连接上写。
     const QPointer<QTcpSocket> socketGuard(socket);
 
     QString responseHtml;
@@ -545,8 +523,8 @@ void AuthManager::processCallbackRequest(QTcpSocket *socket, const QByteArray &r
         // exchangeAuthorizationCode()），**但 Minecraft 令牌和玩家名一个都不写** ——
         // 那份微软令牌单独用不了，它是"下次续期用的凭据"，不是"已登录"。
         // NOTE: 这里的原注释写的是"一份令牌都不落盘"，与代码不符：微软令牌在
-        //       exchangeAuthorizationCode() 里就存了。2026-09-20 真机上正是靠盘上这份
-        //       微软令牌把失败的链重放了一遍，才查出 login_with_xbox 的 403。
+        // exchangeAuthorizationCode() 里就存了。 真机上正是靠盘上这份
+        // 微软令牌把失败的链重放了一遍，才查出 login_with_xbox 的 403。
         if (exchangeAuthorizationCode(code, &microsoftToken, &failureMessage) &&
             runMinecraftChain(microsoftToken, &failureMessage)) {
             success = true;
@@ -606,58 +584,56 @@ void AuthManager::processCallbackRequest(QTcpSocket *socket, const QByteArray &r
         qInfo().noquote() << "登录成功：" << m_playerName;
         emit loginSucceeded(m_playerName);
     } else {
-        // ★ 2026-09-26：登录没成的时候，**内存里那份身份要跟着盘走**。
+        // 这一趟开头的 exchangeAuthorizationCode() 已经把盘上那份 Minecraft 凭据清掉了
+        // （那是 有意的一步，为的是不让"旧账号的 uuid 配新账号的刷新令牌"
+        // 这种错配留在盘上）。可 **m_uuid / m_playerName / m_accessToken 是另一份**，
+        // 谁都没去动它 —— 于是盘上写着"没登录"、内存里还登着上一个账号：
+        // · 底栏左下照旧显示上一个账号，而点启动时那句判据（offlineIdentity()，
+        // 读的是盘）走的是"在线"那一支；
+        // · 接着 loadSavedToken() 会拿 microsoft 槽里那份**新账号**的刷新令牌换出
+        // 新账号来 —— 一次"失败"的登录，点一下启动就悄悄成了另一个人的登录。
+        // reloadStoredAccount() 正是"内存跟着盘走"的唯一出处（切账号那条路用的是它），
+        // 盘上那份刚被清空 ⇒ 它会退回未登录。
         //
-        //   这一趟开头的 exchangeAuthorizationCode() 已经把盘上那份 Minecraft 凭据清掉了
-        //   （那是 2026-09-25 有意的一步，为的是不让"旧账号的 uuid 配新账号的刷新令牌"
-        //   这种错配留在盘上）。可 **m_uuid / m_playerName / m_accessToken 是另一份**，
-        //   谁都没去动它 —— 于是盘上写着"没登录"、内存里还登着上一个账号：
-        //     · 底栏左下照旧显示上一个账号，而点启动时那句判据（offlineIdentity()，
-        //       读的是盘）走的是"在线"那一支；
-        //     · 接着 loadSavedToken() 会拿 microsoft 槽里那份**新账号**的刷新令牌换出
-        //       新账号来 —— 一次"失败"的登录，点一下启动就悄悄成了另一个人的登录。
-        //   reloadStoredAccount() 正是"内存跟着盘走"的唯一出处（切账号那条路用的是它），
-        //   盘上那份刚被清空 ⇒ 它会退回未登录。
+        // NOTE: 当前账号是**离线账号**时不能走那一句：盘上那份凭据本来就没被动过
+        // （离线账号没有凭据），而 reloadStoredAccount() 会把 m_playerName 抹成
+        // 占位值 "Player"，底栏那句"离线登录"照旧说着 —— 名字和身份当场对不上，
+        // 启动参数里 --username 也会变成 Player。那种情况什么都不用做。
         //
-        //   NOTE: 当前账号是**离线账号**时不能走那一句：盘上那份凭据本来就没被动过
-        //         （离线账号没有凭据），而 reloadStoredAccount() 会把 m_playerName 抹成
-        //         占位值 "Player"，底栏那句"离线登录"照旧说着 —— 名字和身份当场对不上，
-        //         启动参数里 --username 也会变成 Player。那种情况什么都不用做。
+        // 补的第二个洞（上面那一句只堵了内存那一半）：**盘上那份微软令牌
+        // 也得清掉**，否则整件事根本没防住。
         //
-        // ★★ 2026-09-27 补的第二个洞（上面那一句只堵了内存那一半）：**盘上那份微软令牌
-        //    也得清掉**，否则整件事根本没防住。
+        // 上面那两个"点一下启动就悄悄成了另一个人的登录"里，作祟的不是内存那份身份，
+        // 而是**盘上的微软槽** —— 而 loadSavedToken() 读的正是盘：
+        // · 这一趟 exchangeAuthorizationCode() 已经把微软槽覆盖成**新账号 B** 的
+        // 刷新令牌了（:685 清掉 minecraft 槽，紧接着写微软槽）；
+        // · runMinecraftChain() 失败 ⇒ minecraft 槽是空的，而微软槽里躺着 B 的凭据
+        // （上面那句"盘上留着微软那份、好把链重放一遍"说的就是它）；
+        // · 于是 reloadStoredAccount() 把**内存**退回"未登录"之后，用户点一下启动：
+        // loadSavedToken() → minecraft 槽是空的 ⇒ 走 refreshMinecraftToken() ⇒
+        // **从微软槽读出 B 的刷新令牌**，换出 B 的 Minecraft 令牌起游戏，收尾那句
+        // captureActive() 还会把 B 补进账号列表 —— 一次报过"登录失败"的登录，
+        // 一步就悄悄成了另一个人的登录，屏幕上全程没有任何提示。
+        // ⇒ 既然这次失败**换过人**（m_microsoftTokenOverwritten），微软槽就得跟 minecraft
+        // 槽一样清干净：盘上只剩"没登录"这一种状态，和内存、和界面上那句"登录失败"
+        // 三边对齐。不清的话，清掉 minecraft 槽这道闸只拦住了"两个槽错配"，
+        // "指针说是 A、槽里是 B"这个错配只是往上挪了一层。
         //
-        //   上面那两个"点一下启动就悄悄成了另一个人的登录"里，作祟的不是内存那份身份，
-        //   而是**盘上的微软槽** —— 而 loadSavedToken() 读的正是盘：
-        //     · 这一趟 exchangeAuthorizationCode() 已经把微软槽覆盖成**新账号 B** 的
-        //       刷新令牌了（:685 清掉 minecraft 槽，紧接着写微软槽）；
-        //     · runMinecraftChain() 失败 ⇒ minecraft 槽是空的，而微软槽里躺着 B 的凭据
-        //       （上面那句"盘上留着微软那份、好把链重放一遍"说的就是它）；
-        //     · 于是 reloadStoredAccount() 把**内存**退回"未登录"之后，用户点一下启动：
-        //       loadSavedToken() → minecraft 槽是空的 ⇒ 走 refreshMinecraftToken() ⇒
-        //       **从微软槽读出 B 的刷新令牌**，换出 B 的 Minecraft 令牌起游戏，收尾那句
-        //       captureActive() 还会把 B 补进账号列表 —— 一次报过"登录失败"的登录，
-        //       一步就悄悄成了另一个人的登录，屏幕上全程没有任何提示。
-        //   ⇒ 既然这次失败**换过人**（m_microsoftTokenOverwritten），微软槽就得跟 minecraft
-        //     槽一样清干净：盘上只剩"没登录"这一种状态，和内存、和界面上那句"登录失败"
-        //     三边对齐。不清的话，清掉 minecraft 槽这道闸只拦住了"两个槽错配"，
-        //     "指针说是 A、槽里是 B"这个错配只是往上挪了一层。
-        //
-        //   NOTE: **只在换过人时清**（就是上面那一位存在的理由）。refreshMinecraftToken()
-        //         那条路（续期，不是登录）也会覆盖微软槽，但它覆盖的是**同一个账号**的
-        //         令牌，清掉等于把一份好好的凭据扔了 —— 那条路也不走这里（它不走 handleNewConnection，
-        //         失败只是把 errorMessage 交回调用方）。
-        //   NOTE: 代价是**"把链重放一遍"这个方便没了**（B 那份刷新令牌被清掉，用户得回到
-        //         浏览器再登一次）。这是有意的取舍：那个"方便"的实质就是**本次启动时按一份
-        //         谁也认不出来的凭据换身份**，而"不静默改用户的东西"是这个启动器的硬规矩
-        //         （不静默换 Java、不静默改内存都是同一条）。真要重放，日志里那次失败的
-        //         原因照旧写着。
-        //   NOTE: 上一个账号（A）的凭据**不会因此丢** —— 这一趟开头的 captureActive()
-        //         已经先把它收进账号列表了（见上面那道闸），切回来一键的事。
-        //   这一句**不看在用的是哪种账号**（离线也一样要清）：离线时候选不上启动那条路
-        //   只是因为 offlineIdentity() 拦着不许读凭据，可盘上那份凭据是**真的**躺着的 ——
-        //   哪天用户加了个在线账号再用一次「刷新外观」之类读盘的地方，它照样会被翻出来。
-        //   换了人又没换到底的凭据，一个字节都不该留。
+        // NOTE: **只在换过人时清**（就是上面那一位存在的理由）。refreshMinecraftToken()
+        // 那条路（续期，不是登录）也会覆盖微软槽，但它覆盖的是**同一个账号**的
+        // 令牌，清掉等于把一份好好的凭据扔了 —— 那条路也不走这里（它不走 handleNewConnection，
+        // 失败只是把 errorMessage 交回调用方）。
+        // NOTE: 代价是**"把链重放一遍"这个方便没了**（B 那份刷新令牌被清掉，用户得回到
+        // 浏览器再登一次）。这是有意的取舍：那个"方便"的实质就是**本次启动时按一份
+        // 谁也认不出来的凭据换身份**，而"不静默改用户的东西"是这个启动器的硬规矩
+        // （不静默换 Java、不静默改内存都是同一条）。真要重放，日志里那次失败的
+        // 原因照旧写着。
+        // NOTE: 上一个账号（A）的凭据**不会因此丢** —— 这一趟开头的 captureActive()
+        // 已经先把它收进账号列表了（见上面那道闸），切回来一键的事。
+        // 这一句**不看在用的是哪种账号**（离线也一样要清）：离线时候选不上启动那条路
+        // 只是因为 offlineIdentity() 拦着不许读凭据，可盘上那份凭据是**真的**躺着的 ——
+        // 哪天用户加了个在线账号再用一次「刷新外观」之类读盘的地方，它照样会被翻出来。
+        // 换了人又没换到底的凭据，一个字节都不该留。
         if (m_microsoftTokenOverwritten) {
             TokenStore::clear(TokenStore::microsoftKey());
             m_microsoftTokenOverwritten = false;
@@ -738,32 +714,32 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code, QString *access
         return false;
     }
 
-    // ── 覆盖微软槽之前的两道闸（2026-09-25 补的）──────────────────────────────
+    // ── 覆盖微软槽之前的两道闸（ 补的）──────────────────────────────
     // 下面这一句写的是"活动槽里那份微软令牌"。而一个账号条目是**两个槽拼出来的**
     // （AccountStore::captureActive()：uuid 取自 minecraft 槽、微软令牌取自 microsoft
     // 槽），新登录要等 runMinecraftChain() 一路走到底、:772 才写 minecraft 那一半。
     // 于是从这一句到那一句之间，盘上那个"账号"是 **A 的 uuid 配 B 的微软令牌**：
-    //   ① 这中间只要有人调 captureActive()（用户在等登录的时候点一下「添加离线账号」，
-    //      makeOfflineCurrent() 里正有一句），写出来的条目就是上面那个错配的东西。
-    //   ② 更要紧的是**失败**那条路：runMinecraftChain() 挂掉（真机上最常见的就是
-    //      login_with_xbox 那条 403）之后没人会再调 captureActive()，盘上就**永久**停在
-    //      这个错配状态 —— activeUuid() 说是 A，而 refreshMinecraftToken() 从 microsoft
-    //      槽读出来的是 B 的 refresh_token，拿它去续 A 的登录必然失败；同时 A 原来那份
-    //      refresh_token 已经被这一句覆盖掉了（老版本升上来的用户凭据**只在活动槽里**，
-    //      盘上再没有第二份，只能重开浏览器登一遍）。
+    // ① 这中间只要有人调 captureActive()（用户在等登录的时候点一下「添加离线账号」，
+    // makeOfflineCurrent() 里正有一句），写出来的条目就是上面那个错配的东西。
+    // ② 更要紧的是**失败**那条路：runMinecraftChain() 挂掉（真机上最常见的就是
+    // login_with_xbox 那条 403）之后没人会再调 captureActive()，盘上就**永久**停在
+    // 这个错配状态 —— activeUuid() 说是 A，而 refreshMinecraftToken() 从 microsoft
+    // 槽读出来的是 B 的 refresh_token，拿它去续 A 的登录必然失败；同时 A 原来那份
+    // refresh_token 已经被这一句覆盖掉了（老版本升上来的用户凭据**只在活动槽里**，
+    // 盘上再没有第二份，只能重开浏览器登一遍）。
     // 所以：先把现在这位**收进列表**（凭据留一份），再把 minecraft 槽**清掉**（两个槽不
     // 再可能错配）。失败时的结果是"没登录"，但上一个账号在列表里、一键就切得回来 ——
     // 比"错配着继续用 + 凭据丢了"好。
     //
     // NOTE: 清掉 minecraft 槽**不影响**这里刻意保留的那半个凭据：文件头那句"失败时盘上
-    //       留着微软那份，好把链重放一遍"说的是 microsoft 槽，它照旧写着新令牌。
-    // ★ 2026-09-26：这道闸的判据原来只有"活动槽里有人"（`activeUuid()` 非空）——
-    //   而**离线账号也满足它**（它靠 `CurrentAccountUuid` 那一格算"当前"，见
-    //   AccountStore::activeUuid() 第二档）。于是"用着离线账号去登微软"这条路上，
-    //   captureActive() 必然失败（离线账号本来就没有凭据可存，makeOfflineCurrent() 把两个
-    //   槽都清空了），每次都在命令行甩一句"盘上没有可保存的登录凭据。"。
-    //   那句话既不是错误也不新 —— 真正读日志的人会被它骗着去找一个不存在的故障。
-    //   判据换成"当前这位是个**在线**账号"：只有它才有凭据要保。
+    // 留着微软那份，好把链重放一遍"说的是 microsoft 槽，它照旧写着新令牌。
+    // 这道闸的判据原来只有"活动槽里有人"（`activeUuid()` 非空）——
+    // 而**离线账号也满足它**（它靠 `CurrentAccountUuid` 那一格算"当前"，见
+    // AccountStore::activeUuid() 第二档）。于是"用着离线账号去登微软"这条路上，
+    // captureActive() 必然失败（离线账号本来就没有凭据可存，makeOfflineCurrent() 把两个
+    // 槽都清空了），每次都在命令行甩一句"盘上没有可保存的登录凭据。"。
+    // 那句话既不是错误也不新 —— 真正读日志的人会被它骗着去找一个不存在的故障。
+    // 判据换成"当前这位是个**在线**账号"：只有它才有凭据要保。
     const QString currentUuid = AccountStore::activeUuid();
     if (!currentUuid.isEmpty() && !AccountStore::isOffline(currentUuid)) {
         QString captureError;
@@ -779,10 +755,10 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code, QString *access
         *errorMessage = tr("登录信息保存失败（写不进配置文件）。");
         return false;
     }
-    // ★ 2026-09-27：从这一句起，盘上的微软槽已经是**新账号**的了。这一趟后面还有
-    //   runMinecraftChain() 那半截（XSTS + 换 Minecraft 令牌 + 拉档案），它会失败
-    //   （超时 / 429 / 那道 403 都算）。失败收尾时必须记得"这里换过人" —— 见 handleNewConnection()
-    //   里失败那一支的 NOTE。
+    // 从这一句起，盘上的微软槽已经是**新账号**的了。这一趟后面还有
+    // runMinecraftChain() 那半截（XSTS + 换 Minecraft 令牌 + 拉档案），它会失败
+    // （超时 / 429 / 那道 403 都算）。失败收尾时必须记得"这里换过人" —— 见 handleNewConnection()
+    // 里失败那一支的 NOTE。
     m_microsoftTokenOverwritten = true;
 
     *accessToken = result.json.value("access_token").toString();
@@ -822,9 +798,6 @@ bool AuthManager::requestMicrosoftTokenRefresh(const QString &refreshToken, QStr
     if (tokenData.value("refresh_token").toString().isEmpty()) {
         tokenData.insert(QStringLiteral("refresh_token"), refreshToken);
     }
-    // ★ 2026-10-20：这一发 HTTP 期间用户可能把账号切走了（嵌套事件循环，见 refreshMinecraftToken()
-    //   那段）。切走了就**不写**：写进去的是 B 槽里那份微软令牌覆盖掉的新令牌 —— 微软那边
-    //   已经把旧的轮换作废了，等于把 B 的刷新令牌丢掉。
     if (!expectedActiveUuid.isEmpty() && AccountStore::activeUuid() != expectedActiveUuid) {
         *errorMessage = tr("刷新登录的途中切了账号，这一趟作废（盘上的登录信息没有改动）。");
         return false;
@@ -869,8 +842,6 @@ bool AuthManager::runMinecraftChain(const QString &microsoftAccessToken, QString
         return false;
     }
 
-    // ★ 2026-10-20：链尾落盘之前再认一次人（理由见 refreshMinecraftToken() 那段）。
-    //   对不上就整趟作废：这里写下去的那一份会把 B 的 Minecraft 槽覆盖成 A 的。
     if (!expectedActiveUuid.isEmpty() && AccountStore::activeUuid() != expectedActiveUuid) {
         *errorMessage = tr("刷新登录的途中切了账号，这一趟作废（盘上的登录信息没有改动）。");
         return false;
@@ -968,7 +939,7 @@ bool AuthManager::requestMinecraftToken(const QString &userHash, const QString &
 
     if (!result.ok()) {
         // 这一步的 403 有一种很具体的原因（应用没被 Mojang 批准），单独认出来说明白，
-        // 别只回一句"HTTP 403" —— 那正是 2026-09-20 真机上卡住登录却查不出原因的那次。
+        // 别只回一句"HTTP 403" —— 那正是 真机上卡住登录却查不出原因的那次。
         const QString hint =
             appRegistrationHint(result.json.value(QStringLiteral("errorMessage")).toString());
         *errorMessage =
@@ -1036,11 +1007,11 @@ bool AuthManager::storeMinecraftTokenData(const QString &mcToken, int expiresIn,
     // 记住是什么时候存的。
     //
     // NOTE: 这里以前补了一句"取 ISO 字符串而不是毫秒时间戳，是为了在 ini 里能看懂" ——
-    //       两个理由都站不住：盘上那一格是 TokenStore 加密过的密文（DPAPI + base64，
-    //       整个 JSON 一起加），谁都"看不懂"；而且 QSettings 走的是 NativeFormat，
-    //       落在注册表 HKCU\\Software\\WTFML\\WTFML 下，压根不是 ini 文件。
-    //       选 ISO 的真正理由只剩"和别处存时间的方式一致、人用调试工具看到的是个日期"
-    //       （验证工程里读那份 json 也是按 ISODate 解）。
+    // 两个理由都站不住：盘上那一格是 TokenStore 加密过的密文（DPAPI + base64，
+    // 整个 JSON 一起加），谁都"看不懂"；而且 QSettings 走的是 NativeFormat，
+    // 落在注册表 HKCU\\Software\\WTFML\\WTFML 下，压根不是 ini 文件。
+    // 选 ISO 的真正理由只剩"和别处存时间的方式一致、人用调试工具看到的是个日期"
+    // （验证工程里读那份 json 也是按 ISODate 解）。
     tokenData.insert(QStringLiteral("expires_at"),
                      QDateTime::currentDateTimeUtc().addSecs(expiresIn).toString(Qt::ISODate));
     tokenData.insert(QStringLiteral("name"), name);

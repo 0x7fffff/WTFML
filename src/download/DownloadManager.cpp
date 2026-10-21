@@ -1,8 +1,6 @@
 /**
  * @file DownloadManager.cpp
  * @brief 为启动器执行版本文件和 asset 下载逻辑。
- * @author LoserKugua
- * @date 2026-04-10
  * @note 进行网络文件下载并将文件存储至 .minecraft 文件夹。
  *
  * 从mojang服务器获取元数据，处理网络回应，将版本数据和资产存储到本地 .minecraft 路径。
@@ -65,11 +63,11 @@ QString rangeProblem(QNetworkReply *reply, const DownloadRange &range) {
     if (status != 206) return {};
     const QByteArray expected = "bytes " + QByteArray::number(range.first) + "-" + QByteArray::number(range.last) + "/" + QByteArray::number(range.total);
     if (reply->rawHeader("Content-Range").trimmed() != expected) return QStringLiteral("range:source-changed");
-    // ★ 2026-10-20：**必须回 ETag**这条不许要。RFC 9110 只要求 206 带 Content-Range，没要求
-    //   回显 ETag；而 If-Range 已经保证"校验值不匹配时只能回 200"（上面那一句已经把它挡掉了）。
-    //   以前这里少了"服务器回了才比"这一层：探测那一条带了 ETag、分段那几条没带（代理剥掉
-    //   了、或者落到另一台后端节点），每一条分段都被判成 "range:source-changed"，大文件
-    //   整批失败、重试也是同一结果。没回显时靠整文件 sha1 兜底（分段只对带 sha1 的文件开）。
+    // **必须回 ETag**这条不许要。RFC 9110 只要求 206 带 Content-Range，没要求
+    // 回显 ETag；而 If-Range 已经保证"校验值不匹配时只能回 200"（上面那一句已经把它挡掉了）。
+    // 以前这里少了"服务器回了才比"这一层：探测那一条带了 ETag、分段那几条没带（代理剥掉
+    // 了、或者落到另一台后端节点），每一条分段都被判成 "range:source-changed"，大文件
+    // 整批失败、重试也是同一结果。没回显时靠整文件 sha1 兜底（分段只对带 sha1 的文件开）。
     const QByteArray echoedEtag = reply->rawHeader("ETag");
     if (!range.validator.isEmpty() && !echoedEtag.isEmpty() && echoedEtag != range.validator)
         return QStringLiteral("range:source-changed");
@@ -83,38 +81,24 @@ constexpr char kOfficialVersionManifest[] =
 /// 镜像源（BMCLAPI，第三方服务）的基址。
 constexpr char kMirrorBase[] = "https://bmclapi2.bangbang93.com";
 
-// ---------------------------------------------------------------------------
-// 失速看门狗的三个数（实测依据见 DownloadManager.hpp 里 mirrorPreferred() 的注释）
-// ---------------------------------------------------------------------------
-/// 多久看一次"在飞的下载动没动"。5 秒是"慢到该退"和"慢但在动"之间的分辨力：
-/// 官方那条 209 KB 的版本清单 2.9 秒（每跳 ~350 KB），镜像那条 21 秒（每跳 ~50 KB）。
 constexpr int kStallTickMs = 5000;
-/// 一跳少于这么多字节就算"没动"。取 64 KB = 12.8 KB/s 的下限：镜像那条慢链子实测
-/// 0.85~10 KB/s（都不够），而它在 maven 那一支上 0.9 秒给 64 KB（够）。
 constexpr qint64 kStallMinBytesPerTick = 64 * 1024;
 /// 连着几跳"没动"才算数。两跳 = 10 秒 —— 一条**已经在吐字节**的链子停 10 秒，够说明它不行了。
-///
-/// NOTE: 这里以前还有半句理由「一次 DNS + TLS 建连（本机 1~3 秒）不该被误判」，那半句现在
-///       由 countsTowardStallStrike() 承担 —— 但**那句结论 2026-09-24 改对了，原文写反了**：
-///       判据是 `bytesSeen > 0 && mirrorStalled(...)`（见那个函数的实现，理由在 .hpp 里），
-///       一个字节都还没收到的回复进不了这条判据。所以"一条刚发出去的回复可能几十秒才轮到它
-///       吐第一个字节"这件事**不会**被算成失速，那几十秒里 bytesSeen 一直是 0。照原文
-///      （「照样会被这条判据算成失速」）去改，会去修一个不存在的问题。
 constexpr int kStallStrikesToDemote = 2;
-/// 分段 Range 请求那一档的"太慢"判据（2026-10-20）。比镜像那一档宽得多：一条分段手里没有
+/// 分段 Range 请求那一档的"太慢"判据。比镜像那一档宽得多：一条分段手里没有
 /// 任何备用地址，abort 掉它 = 协调器只能把这一整段（最多 4 MiB）从 0 重下，而且只补一次。
 /// 按镜像那档 12.8 KB/s 判的话，一条 10 KB/s 的慢链子永远下不完一段（4 MiB / 10 KB/s =
 /// 410 秒，而它每 10 秒就被 abort 一次）—— 慢但能用的链路会把整批大文件拖失败。
-/// 0.8 KB/s × 30 秒：真爬不动的（2026-10-18 实测那条 664 秒几百字节/秒）照样断，
+/// 0.8 KB/s × 30 秒：真爬不动的（ 实测那条 664 秒几百字节/秒）照样断，
 /// 慢但在动的（≥ 1 KB/s）让它慢慢下完。
 constexpr qint64 kStallMinBytesPerTickRange = 4 * 1024;
 constexpr int kStallStrikesToDemoteRange = 6;
 
 // ---------------------------------------------------------------------------
-// 下载限速那一个数（2026-10-18，§9.2）
+// 下载限速那一个数（，§9.2）
 // ---------------------------------------------------------------------------
-/// 令牌泵多久放一次字节。100 ms 是"看起来连续"和"定时器开销"之间的折中：Windows 上
-/// 这个间隔常常迟到 10~20 ms，所以令牌桶另外留了 1/4 秒的容量（见 burstBytes()）。
+// / 令牌泵多久放一次字节。100 ms 是"看起来连续"和"定时器开销"之间的折中：Windows 上
+// / 这个间隔常常迟到 10~20 ms，所以令牌桶另外留了 1/4 秒的容量（见 burstBytes()）。
 constexpr int kSpeedPumpMs = 100;
 
 /// 从**官方**那条版本 json 的地址里取出 sha1。
@@ -154,7 +138,7 @@ QString sha1FromVersionUrl(const QString &url) {
 /// 判据都比"文件头像不像 zip"强，也没必要多读一次盘。
 ///
 /// NOTE: 只判 `.jar` / `.zip` 两个后缀是**故意收着**的。资源对象（`objects/ab/abcdef…`）
-///       没有后缀、版本 json 是 `.json`、皮肤是 `.png` —— 拿"zip 头"去要求它们全是错的。
+/// 没有后缀、版本 json 是 `.json`、皮肤是 `.png` —— 拿"zip 头"去要求它们全是错的。
 bool shouldBeZipArchive(const QString &path) {
     return path.endsWith(QLatin1String(".jar"), Qt::CaseInsensitive) ||
            path.endsWith(QLatin1String(".zip"), Qt::CaseInsensitive);
@@ -175,15 +159,6 @@ bool looksLikeZipArchive(const QString &path) {
 
 /// 这条作业**最终会打到哪个地址**上：首选地址那个主机正被降级、而这条作业知道备用地址时，
 /// 就是备用地址（`startDownload()` 里那条"别等它慢 10 秒再退"的改道）。
-///
-/// ★★ 2026-09-27：这个判断**只能有一处**。它是"请求发给谁"和"按主机那道并发闸问谁"共同的
-///    前提，两处各写一遍就会漂开 —— 漂开之后的形状正是修掉的那一个：pumpDownloadQueue()
-///    按**首选主机**问额度，而 startDownload() 换了个主机发出去、activeCountForHost() 又把
-///    回复记在**新**主机头上 ⇒ 首选主机那一侧永远数到 0、那道闸永远放行，一次泵的 while
-///    循环就能往一个按设计只该放 kMaxConcurrentPerHost 条的主机上塞满
-///    kMaxConcurrentDownloads(24) 条。而那条路的代价是实测过的：h1.1 主机上 24 条一起
-///    发出，30 秒传输超时**从请求建好就开始算** ⇒ 成批 `Operation timed out`，而且改道那
-///    一侧 fallback 已经被清空（本来就走官方了），超时就是作业真死。
 QString effectiveDownloadUrl(const QString &url, const QString &officialUrl,
                              bool mirrorDemoted) {
     if (mirrorDemoted && !officialUrl.isEmpty() && officialUrl != url) {
@@ -295,12 +270,6 @@ QString DownloadManager::mirrorUrl(const QString &officialUrl) {
         return QLatin1String(kMirrorBase) + QStringLiteral("/assets") + path;
     }
     // 库文件：官方就是标准 maven 布局 /com/foo/bar/1.0/bar-1.0.jar → 镜像 /maven/...
-    //
-    // Forge 那两个 host 是**同一个形状**，所以并在一起认：
-    //   maven.minecraftforge.net → 库和安装器 jar（/net/minecraftforge/...）
-    //   files.minecraftforge.net → 那个 1.7 KB 的推广表（/net/minecraftforge/forge/promotions_slim.json）
-    // 2026-09-22 实测：这两条镜像上都 200，而且是**同一个文件** —— 26.2-65.1.0 的安装器 jar
-    // 官方和镜像都恰好 7855558 字节；老版本也在（1.20.1-47.4.10、1.18.2-40.2.0 都 200）。
     if (host == QLatin1String("libraries.minecraft.net") ||
         host == QLatin1String("maven.minecraftforge.net") ||
         host == QLatin1String("files.minecraftforge.net")) {
@@ -331,7 +300,7 @@ QString DownloadManager::mirrorVersionJsonUrl(const QString &versionId) {
 
 QString DownloadManager::mirrorClientJarUrl(const QString &versionId) {
     // NOTE: 官方地址里的那个 sha1 在这里用不上 —— 镜像不按 sha1 存，按版本号。
-    //       文件本身的校验没丢：downloadFile() 照样拿 version.json 里的 sha1 比。
+    // 文件本身的校验没丢：downloadFile() 照样拿 version.json 里的 sha1 比。
     return QLatin1String(kMirrorBase) + QStringLiteral("/version/") + versionId +
            QStringLiteral("/client");
 }
@@ -445,7 +414,7 @@ void DownloadManager::noteDeadRedirectTarget(const QUrl &landed, const QUrl &ent
         return;
     }
     // 短时间内连着这么多条落在死节点上：**先探一下官方**再决定整条镜像要不要降级。
-    // 2026-10-17 的两种真实网络都要照顾到 —— 本机校园网官方 0.4~1.6 秒一个对象（该切），
+    // 的两种真实网络都要照顾到 —— 本机校园网官方 0.4~1.6 秒一个对象（该切），
     // 测试员那条系统代理网络上官方整条不通（不该切，继续用镜像）。探测失败的话这一层
     // 什么都不做，和从前一样按作业级重排。
     probeOfficialRoute(mirrorHost);
@@ -460,8 +429,6 @@ void DownloadManager::probeOfficialRoute(const QString &mirrorHost) {
         return;  // 刚探过、没通：两分钟之内不再拿真实请求去撞
     }
     m_officialProbeInFlight = true;
-    // HEAD：只要拿到 2xx 就说明这条路"接得上、答得快"，不必拉正文。官方资源 CDN 实测支持
-    // （curl -I 200）。10 秒没答话就按"不通"处理 —— 探测本身也算延迟。
     QNetworkRequest request{QUrl(m_officialProbeUrl)};
     configureHttp1(request);
     request.setTransferTimeout(10000);
@@ -513,7 +480,6 @@ bool DownloadManager::mirrorStalled(qint64 bytesDelta, qint64 minBytesPerTick) {
 
 bool DownloadManager::countsTowardStallStrike(qint64 bytesSeen, qint64 bytesDelta,
                                               qint64 minBytesPerTick) {
-    // 一次都没收到过字节 = 这条回复还没开始传，不是"传得慢"。理由和实测见头文件。
     return bytesSeen > 0 && mirrorStalled(bytesDelta, minBytesPerTick);
 }
 
@@ -576,10 +542,10 @@ void DownloadManager::setSpeedLimitBytesPerSecond(qint64 bytesPerSecond) {
     const qint64 normalized = DownloadSpeedLimit::normalize(bytesPerSecond);
     const bool changed = normalized != m_speedBucket->limit;
     m_speedLimitBytesPerSecond = normalized;
-    // ★ 2026-10-20：写的是**桶**里的那份（分段作业的内部下载器共用它）。内层那个对象
-    //   自己的 `m_speedLimitBytesPerSecond` 也在这里跟着更新 —— 外层改档时会把新值转发给
-    //   每个分段作业，走到这里时桶已经是新值了（changed=false），但成员必须照写，不然
-    //   内层 readyRead / 看门狗读到的还是旧档。
+    // 写的是**桶**里的那份（分段作业的内部下载器共用它）。内层那个对象
+    // 自己的 `m_speedLimitBytesPerSecond` 也在这里跟着更新 —— 外层改档时会把新值转发给
+    // 每个分段作业，走到这里时桶已经是新值了（changed=false），但成员必须照写，不然
+    // 内层 readyRead / 看门狗读到的还是旧档。
     m_speedBucket->limit = normalized;
     if (normalized > 0) {
         if (changed) {
@@ -630,7 +596,6 @@ void DownloadManager::setSpeedLimitBytesPerSecond(qint64 bytesPerSecond) {
 }
 
 void DownloadManager::onSpeedPumpTick() {
-    // ★ 2026-10-20：速率和余额都读**桶**（分段作业内部那个下载器共用同一份）。
     const qint64 limit = m_speedBucket->limit;
     if (m_shuttingDown || limit <= 0) {
         return;
@@ -643,8 +608,8 @@ void DownloadManager::onSpeedPumpTick() {
         capacity, m_speedBucket->tokens + double(limit) * double(elapsed) / 1000.0);
     if (m_throttledReplies.isEmpty()) {
         // 没有人在等：余额也别攒（不然下一批一开始就会冲一个 burst）。
-        // ★ 2026-10-20：桶是共用的时候**不许**抹 —— 这个下载器这一拍没人等，不代表共用它的
-        //   那个（分段作业内部那个）也没人等；抹掉的话它那边的节奏会被这里每 100 ms 打回零。
+        // 桶是共用的时候**不许**抹 —— 这个下载器这一拍没人等，不代表共用它的
+        // 那个（分段作业内部那个）也没人等；抹掉的话它那边的节奏会被这里每 100 ms 打回零。
         if (m_speedBucket->sharers <= 0) {
             m_speedBucket->tokens = 0;
         }
@@ -722,13 +687,13 @@ DownloadManager::DownloadManager(QObject *parent, NetworkManagerFactory networkF
 
     // "这个主机走不走 h2"只在这一处问，四条 finished 槽里一条都不问。
     // NOTE: 这条信号的连接**必须比我们自己那些 finished 连接早**，而它确实是：它是
-    //       QNetworkAccessManager 在造回复时就接好的，我们是在造出来之后才接的。
-    //       顺序反过来的话，第一条回复收尾时 pumpDownloadQueue() 看到的还是"这个主机
-    //       没证明过 h2"，白等一轮往返（不会错，只是慢）。
+    // QNetworkAccessManager 在造回复时就接好的，我们是在造出来之后才接的。
+    // 顺序反过来的话，第一条回复收尾时 pumpDownloadQueue() 看到的还是"这个主机
+    // 没证明过 h2"，白等一轮往返（不会错，只是慢）。
     connect(networkManager, &QNetworkAccessManager::finished, this,
             &DownloadManager::noteReplyProtocol);
 
-    // 「从别的游戏文件夹里借文件」那条线的线程池（2026-10-20）。4 条：这个活要么是
+    // 「从别的游戏文件夹里借文件」那条线的线程池。4 条：这个活要么是
     // 一瞬间的硬链接，要么是一次整文件 SHA-1 + 复制；4 条既能把 SSD 喂饱，又不会在
     // 机械盘上把刚从网络落盘的那几条挤到没响应。
     m_reusePool = new QThreadPool(this);
@@ -747,7 +712,7 @@ DownloadManager::~DownloadManager() {
     // 对象正在析构，那些回调不该再跑，用这个标志在 checkAllDownloadsFinished
     // 和槽函数入口处挡掉。
     m_shuttingDown = true;
-    // 「借文件」那条线先收手再等干净（2026-10-20）。等这一步是必须的：复制那条路会
+    // 「借文件」那条线先收手再等干净。等这一步是必须的：复制那条路会
     // 一直往盘上写，本对象没了它还在写就是"程序都退了还在动文件"。取消令牌 + clear()
     // 只停"还没开跑"的那些，已经开跑的要靠复制循环里那个判据自己退出来，所以最后是
     // waitForDone()。排队进来的结果投递是 context = this 的 queued invocation，对象没了
@@ -815,15 +780,15 @@ void DownloadManager::fetchVersionManifest() {
     job.label = QStringLiteral("version_manifest.json");
     m_metadataReplies[reply] = job;
     // 元数据**必须**进看门狗，而且这里**不看是不是走镜像**：它一发卡住，下游的版本 json /
-    // 资源索引 / 几千个资源对象一个都还没排上，整条流程就那么挂着（2026-09-22 的 NeoForge
+    // 资源索引 / 几千个资源对象一个都还没排上，整条流程就那么挂着（ 的 NeoForge
     // 26.2 实测就是这么挂的）。以前这两条登记都写在"有官方备用地址"那个 if 里面，于是
     // **官方源下两条元数据请求根本没人看着**：30 秒的传输超时只管"一个字节都没有"，
     // 而细水长流（每秒几个字节、永远不结束）正好是看门狗要管的那一种。
     //
     // NOTE: lastSignOfLifeMs 必须显式写成**现在**：StallMeter 的默认值是 0，而应用跑过
-    //       90 秒之后 0 会被算成"已经 90 秒没动静"—— 第一个 tick（最多 5 秒后）就会把这条
-    //       刚发出去的请求判成卡死。另外三处登记（startDownload / downloadAssets /
-    //       retryWithOfficialUrl）都是显式写当前时刻的，这两处以前跟着那个 if 一起漏了。
+    // 90 秒之后 0 会被算成"已经 90 秒没动静"—— 第一个 tick（最多 5 秒后）就会把这条
+    // 刚发出去的请求判成卡死。另外三处登记（startDownload / downloadAssets /
+    // retryWithOfficialUrl）都是显式写当前时刻的，这两处以前跟着那个 if 一起漏了。
     m_stallMeters[reply].lastSignOfLifeMs = m_clock.elapsed();
     connect(reply, &QNetworkReply::downloadProgress, this,
             &DownloadManager::onDownloadReplyProgress);
@@ -844,10 +809,6 @@ void DownloadManager::fetchVersionJson(const QString &versionId) {
             // 用不上 version.url。
             const QString effectiveUrl =
                 mirrorPreferred() ? mirrorVersionJsonUrl(versionId) : version.url;
-            // 具名 QUrl 只是和下面几处保持一致的写法，**不是**为了躲"最令人烦恼的解析"：
-            // 这一行本身编译无警告（实测），`QUrl url(x);` 是对象。会歧义的是
-            // `QNetworkRequest request(QUrl(x))` 那种"参数写成了类型名(值)"的形状，
-            // 详细说明在 onAssetIndexDownloaded() 上面。
             const QUrl versionQUrl(effectiveUrl);
             QNetworkRequest request(versionQUrl);
             configureHttp1(request);
@@ -869,7 +830,7 @@ void DownloadManager::fetchVersionJson(const QString &versionId) {
             // onVersionJsonReplyFinished）：这条 json 决定用哪个 Java、读哪个资源索引，
             // 半份或者别的版本那份会让游戏起不来，而那种失败现场看不出原因。
             // NOTE: 镜像那条路由是自己拿版本号拼的（不带 sha1），所以镜像下 sha1 为空
-            //       = 不核 sha1，但 id 照样核。
+            // = 不核 sha1，但 id 照样核。
             job.expectedId = versionId;
             job.expectedSha1 = sha1FromVersionUrl(version.url);
             m_metadataReplies[reply] = job;
@@ -965,7 +926,7 @@ void DownloadManager::abandonBatch() {
     // 还排着队的作业**不发了**：这一批已经放弃了，让它们接着跑等于"用户点了取消，
     // 几百 MB 还在后台往盘上写"。已经在飞的那几条照旧跑完（那几条的 NOTE 见 hpp）。
     // NOTE: 队列曾经只装资源对象，而资源对象只在批次里排，所以漏掉这一句不要紧；
-    //       现在库、整合包文件也走这条队列，"放弃"就必须把队列一起清掉。
+    // 现在库、整合包文件也走这条队列，"放弃"就必须把队列一起清掉。
     m_pendingJobs.clear();
     // 借文件那条线同理：还在后台找来源 / 复制的那些也一起作废（它们的结账会因为代次
     // 对不上被丢掉，不会往这一批里记任何数）。
@@ -994,15 +955,15 @@ void DownloadManager::cancelBatch() {
                                .arg(m_pendingJobs.size()));
     }
     // 1. 还排着队的**不发了**。几百个作业留着的话，用户按了取消之后它们会一批批地继续
-    //    发出去（每一次有回复收尾都会泵一遍队列），看着就是"取消了还在下"。
+    // 发出去（每一次有回复收尾都会泵一遍队列），看着就是"取消了还在下"。
     m_pendingJobs.clear();
     // 借文件那条线同理：排着的不找了，已经开跑的复制循环每个块看一次取消令牌。
     clearReuseJobs();
     // 2. 封口 + 加代次。这两句合起来的**唯一**意思是"这一批到此为止、之后回来的所有回复
-    //    都与我无关"：m_batchEmitted 挡住收尾那一次发射，代次让已经在飞的那几条
-    //    （下面 abort() 逼回来的那些）在 `onDownloadReplyFinished` / `handleDownloadError`
-    //    里被认成 stale —— 不记账、不进失败清单、不发 downloadFinished、
-    //    **也不退回官方地址重发**（retryWithOfficialUrl 那头看的就是同一件事）。
+    // 都与我无关"：m_batchEmitted 挡住收尾那一次发射，代次让已经在飞的那几条
+    // （下面 abort() 逼回来的那些）在 `onDownloadReplyFinished` / `handleDownloadError`
+    // 里被认成 stale —— 不记账、不进失败清单、不发 downloadFinished、
+    // **也不退回官方地址重发**（retryWithOfficialUrl 那头看的就是同一件事）。
     m_batchOpen = false;
     m_batchEmitted = true;
     ++m_batchGeneration;
@@ -1010,19 +971,19 @@ void DownloadManager::cancelBatch() {
     // 同 abandonBatch()：取消了，"点名的那几条"也一起作废（见 setFlaggedPaths）。
     m_flaggedPaths.clear();
     // 3. ★ 已经在飞的那几条**真的掐掉**。必须在加完代次之后：abort() 会（在某些后端上同步）
-    //    触发 finished，那些回调走的正是上面那句"stale 那条路"。
-    //    NOTE: 先拷一份键再 abort —— 回调里会 `activeDownloads.remove(reply)`，边遍历边改
-    //          Qt 的哈希表是未定义行为。回复本身不会被立刻 delete（收尾那几步都走
-    //          `deleteLater()`），所以这一圈里那些指针一直是有效的。
+    // 触发 finished，那些回调走的正是上面那句"stale 那条路"。
+    // NOTE: 先拷一份键再 abort —— 回调里会 `activeDownloads.remove(reply)`，边遍历边改
+    // Qt 的哈希表是未定义行为。回复本身不会被立刻 delete（收尾那几步都走
+    // `deleteLater()`），所以这一圈里那些指针一直是有效的。
     const QList<QNetworkReply *> inflight = activeDownloads.keys();
     for (QNetworkReply *reply : inflight) {
         reply->abort();
     }
     // 4. 分段作业没有回复可 abort，逐个取消。cancel() 返回 true 时**不会**再发
-    //    finished（见 ResumableDownload::cancel），所以这里必须当场摘表并 deleteLater；
-    //    返回 false = 已经进入原子提交（QSaveFile 的 commit），只能让它做完 —— 批次已经
-    //    封口、代次也加了，它回来时只会清理，不会记账。isBusy() 会一直为真到提交结束，
-    //    这是对的：文件还在往盘上写。
+    // finished（见 ResumableDownload::cancel），所以这里必须当场摘表并 deleteLater；
+    // 返回 false = 已经进入原子提交（QSaveFile 的 commit），只能让它做完 —— 批次已经
+    // 封口、代次也加了，它回来时只会清理，不会记账。isBusy() 会一直为真到提交结束，
+    // 这是对的：文件还在往盘上写。
     const QList<ResumableDownload *> segmented = m_segmentJobs.keys();
     for (ResumableDownload *task : segmented) {
         const bool cancelled = task->cancel();
@@ -1038,7 +999,7 @@ void DownloadManager::cancelBatch() {
         }
     }
     // 5. 队列空了、批次封口了、在飞的那几条也被逼着收尾了 —— 这时候 isBusy() 必然回 false，
-    //    界面（底栏那一格、下载页那几颗按钮）下一轮就会解禁。
+    // 界面（底栏那一格、下载页那几颗按钮）下一轮就会解禁。
 }
 
 QList<DownloadManager::FailedJob> DownloadManager::failedJobs() const { return m_failedJobInfos; }
@@ -1067,8 +1028,8 @@ DownloadStats DownloadManager::stats() const {
 
 bool DownloadManager::fileAlreadyValid(const QString &path, const QString &expectedSha1,
                                        qint64 expectedSize, VerifyMode mode) {
-    // ★ 体检点过名的那几条：不看盘上这份，直接当"要下"（见 setFlaggedPaths 的说明）。
-    //   排在最前面 —— 这一句是"这条别人已经替我判过了"，比下面任何一条判据都靠前。
+    // 体检点过名的那几条：不看盘上这份，直接当"要下"（见 setFlaggedPaths 的说明）。
+    // 排在最前面 —— 这一句是"这条别人已经替我判过了"，比下面任何一条判据都靠前。
     if (mode == VerifyMode::AlwaysDownload || m_flaggedPaths.contains(path)) {
         return false;
     }
@@ -1077,23 +1038,23 @@ bool DownloadManager::fileAlreadyValid(const QString &path, const QString &expec
         return false;
     }
     if (info.size() == 0) {
-        // **0 字节的文件永远不算数**，哪一档都不算（2026-09-25 补）。
+        // **0 字节的文件永远不算数**，哪一档都不算（ 补）。
         //
         // NOTE: 这一条要在 ExistsOnly 前面。以前 ExistsOnly 是无条件 true，而"资源对象"
-        //       那几千个就是这么登记的（见 downloadAssets）—— 于是写盘写到一半被中断留下
-        //       的那个 0 字节文件会被永久当成"这个我已经下过了"，而且**再也不会重下**。
-        //       一份真资源的字节数不可能是 0，所以这条判据不会误伤任何好东西。
+        // 那几千个就是这么登记的（见 downloadAssets）—— 于是写盘写到一半被中断留下
+        // 的那个 0 字节文件会被永久当成"这个我已经下过了"，而且**再也不会重下**。
+        // 一份真资源的字节数不可能是 0，所以这条判据不会误伤任何好东西。
         return false;
     }
     if (mode == VerifyMode::ExistsOnly) {
-        // ★ "文件在就算好"这一档里，**该是 zip 的那一类还要真的是 zip**（2026-09-26 补）。
+        // "文件在就算好"这一档里，**该是 zip 的那一类还要真的是 zip**（ 补）。
         //
-        //   这一档喂的是两类东西：资源对象（文件名就是 sha1、没有后缀 —— 上面那条判据对
-        //   它们一个字都不管）和**加载器安装器 jar**（`installs/forge-…-installer.jar`）。
-        //   后者是全仓唯一"既没有 sha1、也没有字节数"的下载，于是它只有"存在"这一条判据。
-        //   一份 200 + HTML 错误页要是落在这儿，`fileAlreadyValid()` 从此每次都点头 ⇒
-        //   用户**永远装不上那个加载器**，而且每次都在同一个地方失败（重下也没用，
-        //   因为根本不会重下）。前四个字节就是这时候唯一还说得上话的东西。
+        // 这一档喂的是两类东西：资源对象（文件名就是 sha1、没有后缀 —— 上面那条判据对
+        // 它们一个字都不管）和**加载器安装器 jar**（`installs/forge-…-installer.jar`）。
+        // 后者是全仓唯一"既没有 sha1、也没有字节数"的下载，于是它只有"存在"这一条判据。
+        // 一份 200 + HTML 错误页要是落在这儿，`fileAlreadyValid()` 从此每次都点头 ⇒
+        // 用户**永远装不上那个加载器**，而且每次都在同一个地方失败（重下也没用，
+        // 因为根本不会重下）。前四个字节就是这时候唯一还说得上话的东西。
         return !shouldBeZipArchive(path) || looksLikeZipArchive(path);
     }
     // SizeAndSha1：先比字节数。大小对不上一眼就知道要重下，省掉一次全文件哈希。
@@ -1140,18 +1101,18 @@ void DownloadManager::scheduleFile(const QString &url, const QString &destinatio
     }
 
     if (fileAlreadyValid(destinationPath, expectedSha1, expectedSize, mode)) {
-        // ★★ 盘上已经好好的那几个**只记 skipped、不进 done/total**（2026-10-15 改）
+        // 盘上已经好好的那几个**只记 skipped、不进 done/total**（ 改）
         //
-        //   从前这里写的是「跳过也要计入 done/total，否则进度条的分母会对不上，最后一批还会
-        //   少发一次信号」—— 后半句本来就是假的（整批结束的判据是 `pendingDownloads` /
-        //   `m_pendingJobs` / `m_batchOpen`，见 checkAllDownloadsFinished，一个都不碰这两个
-        //   计数器），前半句则是那个坑本身：分母因此变成"这个实例一共有多少文件"。
+        // 从前这里写的是「跳过也要计入 done/total，否则进度条的分母会对不上，最后一批还会
+        // 少发一次信号」—— 后半句本来就是假的（整批结束的判据是 `pendingDownloads` /
+        // `m_pendingJobs` / `m_batchOpen`，见 checkAllDownloadsFinished，一个都不碰这两个
+        // 计数器），前半句则是那个坑本身：分母因此变成"这个实例一共有多少文件"。
         //
-        //   用户在真机上撞的就是它：一个装好的实例点一次「补全文件」，先看到进度条在开跑那
-        //   一瞬间就满了（几千个"已完成"是问盘问出来的），收尾再报一句
-        //   「n 个文件已全部就绪（其中 n-1 个本来就存在，已跳过）」—— 读起来像"补全了一个
-        //   文件"，而那一个其实是永远要重取的资源索引（现在也不计了，见 downloadAssets）。
-        //   用户要看的是**缺的那几个下到哪儿了**，那就让分母只剩它们。
+        // 用户在真机上撞的就是它：一个装好的实例点一次「补全文件」，先看到进度条在开跑那
+        // 一瞬间就满了（几千个"已完成"是问盘问出来的），收尾再报一句
+        // 「n 个文件已全部就绪（其中 n-1 个本来就存在，已跳过）」—— 读起来像"补全了一个
+        // 文件"，而那一个其实是永远要重取的资源索引（现在也不计了，见 downloadAssets）。
+        // 用户要看的是**缺的那几个下到哪儿了**，那就让分母只剩它们。
         m_skippedJobs++;
         emit downloadFinished(fileName, true, QString());
         emitBatchProgress(destinationPath);
@@ -1159,18 +1120,9 @@ void DownloadManager::scheduleFile(const QString &url, const QString &destinatio
         return;
     }
 
-    // ★ 盘上没有，但**别的游戏文件夹里可能有一模一样的**（2026-10-20，见
-    //   setReuseSourceFolders()）。这一步排在 m_totalJobs++ 之前是故意的：借成功的话它
-    //   压根不走网络，就不该占进度条分母（和跳过那一支同一个道理）；借不到再回来补记。
-    //
-    // 四道闸：
-    //   · AlwaysDownload / 体检点名 —— 它们的意思就是"盘上任何一份都不算数"，从本机再拿
-    //     一份同样不算数（点名那几条本来就在 fileAlreadyValid() 里被挡下了，这里只是把
-    //     "不许借"写明白）；
-    //   · expectedSha1 为空 —— 没有内容判据，"同名"不等于"同内容"（加载器安装器）；
-    //   · range.active() —— 分段请求要的是某一截，借整份只会写坏目标；
-    //   · 当前文件夹里相对路径 —— 拼不出相对路径 = 这个目标不在游戏目录下（或者路径里
-    //     有 `.`/`..`），没有可对照的位置，不借。
+    // 盘上没有，但**别的游戏文件夹里可能有一模一样的**（，见
+    // setReuseSourceFolders()）。这一步排在 m_totalJobs++ 之前是故意的：借成功的话它
+    // 压根不走网络，就不该占进度条分母（和跳过那一支同一个道理）；借不到再回来补记。
     if (mode != VerifyMode::AlwaysDownload && !m_flaggedPaths.contains(destinationPath)
         && !expectedSha1.isEmpty() && !range.active() && !m_reuseSourceFolders.isEmpty()) {
         const QString relativePath =
@@ -1227,11 +1179,6 @@ void DownloadManager::pumpDownloadQueue() {
         if (!mayIssueAnotherDownload(streamActive, m_pendingJobs.size(), m_maxConcurrentDownloads)) break;
         const PendingJob &candidate = m_pendingJobs.at(i);
         if (candidate.readyAtMs > m_clock.elapsed()) { ++i; continue; }
-        // ★★ 2026-09-27：问的是**这条作业真正会打到**的那个主机，不是它首选地址那个主机。
-        //    首选主机正被降级时 startDownload() 会当场改道，而回复是按改道后的主机记账的
-        //    （见 activeCountForHost 里那条 NOTE）—— 按首选主机问额度的话，那道闸对它永远是
-        //    放行的（那一侧一条都不会再记上去），一次泵就能把备用主机塞满 24 条。
-        //    判据和 startDownload() 里那条**同源**：都走 effectiveDownloadUrl()。
         const QString targetUrl =
             effectiveDownloadUrl(candidate.url, candidate.officialUrl,
                                  mirrorDemotedFor(candidate.host));
@@ -1261,10 +1208,10 @@ void DownloadManager::pumpDownloadQueue() {
             const bool schemeOk = scheme == QStringLiteral("http") || scheme == QStringLiteral("https");
             segmented = budget && schemeOk;
         }
-        // ★ 降级成普通下载（候选是分段作业、但名额/预算不够）**也要过每主机那道闸**：
-        //   它走的是外层这个 QNAM，多出来的会进 Qt 内部那个会超时的队列 —— 正是
-        //   kMaxConcurrentPerHost 要挡的东西。这里跳过的是"这一条暂时发不出去"，
-        //   不是"整队停住"：i 往前走，后面的作业照发（和上面那条循环同一个理由）。
+        // 降级成普通下载（候选是分段作业、但名额/预算不够）**也要过每主机那道闸**：
+        // 它走的是外层这个 QNAM，多出来的会进 Qt 内部那个会超时的队列 —— 正是
+        // kMaxConcurrentPerHost 要挡的东西。这里跳过的是"这一条暂时发不出去"，
+        // 不是"整队停住"：i 往前走，后面的作业照发（和上面那条循环同一个理由）。
         if (!segmented
             && !mayIssueAnotherDownloadToHost(activeCountForHost(targetHost), hostHttp2)) {
             ++i;
@@ -1410,8 +1357,8 @@ void DownloadManager::startSegmentedDownload(const PendingJob &job) {
 
     auto *task = new ResumableDownload(this, m_networkFactory);
     // 限速要跟着这一条走：它在 start() 里会建自己那份下载器（见那个 setter 的说明）。
-    // ★ 2026-10-20：并且**和外层共用一个令牌桶** —— 从前每个分段作业各拿一份上限，
-    //   设 1 MB/s 时三个作业加上外层能跑出四倍。
+    // 并且**和外层共用一个令牌桶** —— 从前每个分段作业各拿一份上限，
+    // 设 1 MB/s 时三个作业加上外层能跑出四倍。
     task->setSpeedLimitBucketOwner(this);
     task->setSpeedLimitBytesPerSecond(m_speedBucket->limit);
     SegmentJob record;
@@ -1425,8 +1372,8 @@ void DownloadManager::startSegmentedDownload(const PendingJob &job) {
     record.officialRetried = job.officialRetried;
     record.plainRetried = job.plainRetried;
     record.generation = m_batchGeneration;
-    // ★ 先登记、先连信号，再 start()：start() 在本地准备失败时会**同步**发 finished，
-    //   晚一步就会漏掉那一次失败（那条作业会永远占着名额）。
+    // 先登记、先连信号，再 start()：start() 在本地准备失败时会**同步**发 finished，
+    // 晚一步就会漏掉那一次失败（那条作业会永远占着名额）。
     m_segmentJobs.insert(task, record);
 
     connect(task, &ResumableDownload::transferBytes, this, [this, task](qint64 bytes) {
@@ -1534,8 +1481,8 @@ void DownloadManager::finishSegmentedJob(ResumableDownload *task, bool success,
     } else {
         m_failedJobs++;
         FailedJob failed;
-        // ★ 记**入口地址**，不是 302 落点：failedJobs() 的重试会拿它再发一次，
-        //   预签名落点几秒后就过期了。
+        // 记**入口地址**，不是 302 落点：failedJobs() 的重试会拿它再发一次，
+        // 预签名落点几秒后就过期了。
         failed.url = record.url;
         failed.destinationPath = record.destinationPath;
         failed.expectedSha1 = record.expectedSha1;
@@ -1575,14 +1522,14 @@ int DownloadManager::activeCountForHost(const QString &host) const {
     int n = 0;
     for (auto it = activeDownloads.constBegin(); it != activeDownloads.constEnd(); ++it) {
         // 两把钥匙都要认，**不是二选一**：
-        //  · `request().url()` 是"我们这条发给谁"的原话，和队列那头的 `PendingJob::host`
-        //    是同一个东西。只认 `reply->url()` 的话，镜像 302 到别处之后这条就不再算在
-        //    入口头上了 —— 发给镜像的那几条一条都没记账，入口那道闸等于没生效（2026-09-27
-        //    那条 NOTE 说的就是这个）。
-        //  · `reply->url()` 是**真正开着连接的那个主机**。2026-10-18 加这一半：BMCLAPI 的
-        //    资源地址每条都 302 到它背后临时挑的 MinIO 落点，而落点全是 HTTP/1.1、每家只
-        //    放 6 条连接。只记入口的话，20 多条作业可以同时压在**同一台落点**身上，多出来
-        //    的进 Qt 内部队列（30 秒传输超时从请求建好就开始算）。入口和落点各算各的额度。
+        // · `request().url()` 是"我们这条发给谁"的原话，和队列那头的 `PendingJob::host`
+        // 是同一个东西。只认 `reply->url()` 的话，镜像 302 到别处之后这条就不再算在
+        // 入口头上了 —— 发给镜像的那几条一条都没记账，入口那道闸等于没生效（
+        // 那条 NOTE 说的就是这个）。
+        // · `reply->url()` 是**真正开着连接的那个主机**。 加这一半：BMCLAPI 的
+        // 资源地址每条都 302 到它背后临时挑的 MinIO 落点，而落点全是 HTTP/1.1、每家只
+        // 放 6 条连接。只记入口的话，20 多条作业可以同时压在**同一台落点**身上，多出来
+        // 的进 Qt 内部队列（30 秒传输超时从请求建好就开始算）。入口和落点各算各的额度。
         const QNetworkReply *reply = it.key();
         if (reply->request().url().host() == host || reply->url().host() == host) {
             ++n;
@@ -1620,11 +1567,11 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     // 判据再退等于把 10 秒乘以几千。
     //
     // NOTE: 问的是**这条地址自己那个主机**，不是"镜像源降没降级"。整合包的"镜像"是每条文件
-    //       各自的首选地址（见 mirrorDemotedFor()），问全局那一个的话，mediafilez 慢会把
-    //       cdn.modrinth.com 上的作业一起改道 —— 那正是 2026-09-23 那次导入垮掉的地方。
-    // ★★ 2026-09-27：判据搬进了 effectiveDownloadUrl() —— **发出去的是谁**和
-    //    pumpDownloadQueue() 那道按主机闸**问的是谁**必须是同一个判断，两处各写一遍就会
-    //    漂开（漂开的形状见那个函数上面那段）。这里只把结果取出来用。
+    // 各自的首选地址（见 mirrorDemotedFor()），问全局那一个的话，mediafilez 慢会把
+    // cdn.modrinth.com 上的作业一起改道 —— 那正是 那次导入垮掉的地方。
+    // 判据搬进了 effectiveDownloadUrl() —— **发出去的是谁**和
+    // pumpDownloadQueue() 那道按主机闸**问的是谁**必须是同一个判断，两处各写一遍就会
+    // 漂开（漂开的形状见那个函数上面那段）。这里只把结果取出来用。
     const QString urlText = url.toString();
     const QString targetText =
         effectiveDownloadUrl(urlText, officialUrl, mirrorDemotedFor(url.host()));
@@ -1634,7 +1581,6 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     // （most vexing parse），下一句 setTransferTimeout 直接编不过。
     QNetworkRequest request{QUrl(targetText)};
     configureHttp1(request);
-    // ★ 2026-10-19：文件正文默认走 HTTP/1.1（见 header 里 preferHttp1ForFiles()）。
     if (m_preferHttp1ForFiles) {
         request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     }
@@ -1651,10 +1597,10 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     QNetworkReply *reply = networkManager->get(request);
     reply->setProperty("wtfmlRetryAttempts", retryAttempts);
     reply->setProperty("wtfmlStartMs", m_clock.elapsed());
-    // ★ 2026-10-20：把**发出去的那个入口地址**记在回复身上。`reply->url()` 在 302 之后
-    //   已经变成落点地址了，拿它去记失败清单（见 handleDownloadError）等于把"下一次该
-    //   往哪儿重试"记成了那台随机挑的落点 —— 用户点重试时直打落点，绕开了入口重新
-    //   选一台的机会。分段那条路（ResumableDownload）一直记的就是入口地址，这里对齐。
+    // 把**发出去的那个入口地址**记在回复身上。`reply->url()` 在 302 之后
+    // 已经变成落点地址了，拿它去记失败清单（见 handleDownloadError）等于把"下一次该
+    // 往哪儿重试"记成了那台随机挑的落点 —— 用户点重试时直打落点，绕开了入口重新
+    // 选一台的机会。分段那条路（ResumableDownload）一直记的就是入口地址，这里对齐。
     reply->setProperty("wtfmlEntryUrl", targetText);
     // 这条是"降级改道"发出去的 ⇒ 记住它是从哪只镜像主机改道过来的。改道之后身上没有
     // 备用地址（fallback 已清空），所以官方这条再失败就真的失败了；这个属性是
@@ -1667,9 +1613,9 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     reply->setProperty("rangeTotal", range.total);
     reply->setProperty("rangeValidator", range.validator);
     reply->setReadBufferSize(256 * 1024);
-    // ★★ 2026-10-17：这一发要是 302 转到一台**刚刚证明过是死的**落点上，别等首字节计时
-    //     到期（12 秒）—— 当场 abort，让它去重新掷一台落点。代价只有一个往返。
-    //     落点表见 noteDeadRedirectTarget()：那里记的是"接得上、一个字节都不给"的主机。
+    // 这一发要是 302 转到一台**刚刚证明过是死的**落点上，别等首字节计时
+    // 到期（12 秒）—— 当场 abort，让它去重新掷一台落点。代价只有一个往返。
+    // 落点表见 noteDeadRedirectTarget()：那里记的是"接得上、一个字节都不给"的主机。
     const QUrl entryUrlForRedirect{QUrl(targetText)};
     const QString officialFallbackForRedirect = fallback;
     connect(reply, &QNetworkReply::redirected, this,
@@ -1719,9 +1665,6 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
             reply->setProperty("wtfmlFirstByteMs", m_clock.elapsed());
         }
         if (!rangeProblem(reply, rangeOf(reply)).isEmpty()) { reply->abort(); return; }
-        // ★ 2026-10-18（§9.2 下载限速）：设了上限就**只登记、不读** —— 真正的读取由
-        //   onSpeedPumpTick() 按令牌放行。回复自己的 readBufferSize（256 KiB）就是闸门：
-        //   我们不读，socket 那边很快就没人往下拉了（背压）。
         if (m_speedBucket->limit > 0) {
             if (reply->isReadable()) {
                 m_throttledReplies.insert(reply);
@@ -1750,7 +1693,7 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     // 走的是镜像、而且调用方知道官方那条地址是什么 —— 记下来，这一发取不回来时
     // 拿它再试一次（见 m_officialFallbacks 和 retryWithOfficialUrl()）。
     // NOTE: 两个地址相同就不记：那种情况下"退回官方"等于原样再发一次，只会把
-    //       同一个失败重复一遍，还多花一个超时。
+    // 同一个失败重复一遍，还多花一个超时。
     if (shouldRecordOfficialFallback(targetText, fallback)) {
         m_officialFallbacks[reply] = fallback;
     }
@@ -1833,13 +1776,13 @@ void DownloadManager::handleDownloadError(QNetworkReply *reply, const QString &e
         return;
     }
     m_failedJobs++;
-    // ★ 这一条**也是重试要的那一份**（§4.2「失败任务保存失败文件列表和原始 URL 来源，重试
-    //   只重做失败项」）。在这里登记而不是在 scheduleFile()：只有真失败了的才需要重做 ——
-    //   排进去的几千个作业里绝大多数是好的，全留着等于把整批再存一份。
-    //   NOTE: 那几张按 reply 存的小表（expectedSha1s / expectedSizes / m_officialFallbacks）
-    //         在这**之后**才被摘掉（onDownloadReplyFinished 的收尾），所以这里读得到。
-    //         同一份路径失败两次（镜像一次、官方一次）也不去重：后一条覆盖不了前一条的
-    //         sha1/字节数，两条都重试一遍是安全的（第二次会走"已经下好了"那条路跳过）。
+    // 这一条**也是重试要的那一份**（§4.2「失败任务保存失败文件列表和原始 URL 来源，重试
+    // 只重做失败项」）。在这里登记而不是在 scheduleFile()：只有真失败了的才需要重做 ——
+    // 排进去的几千个作业里绝大多数是好的，全留着等于把整批再存一份。
+    // NOTE: 那几张按 reply 存的小表（expectedSha1s / expectedSizes / m_officialFallbacks）
+    // 在这**之后**才被摘掉（onDownloadReplyFinished 的收尾），所以这里读得到。
+    // 同一份路径失败两次（镜像一次、官方一次）也不去重：后一条覆盖不了前一条的
+    // sha1/字节数，两条都重试一遍是安全的（第二次会走"已经下好了"那条路跳过）。
     FailedJob failed;
     // 记**入口地址**（发出去的那一条），不是 302 之后的落点：重试要重新经过入口才有机会
     // 换一台落点（理由同分段那条路，见 ResumableDownload 的 failed.url）。属性在
@@ -1932,7 +1875,7 @@ void DownloadManager::downloadLibraries(const QList<Library> &libraries, const Q
         // 这里经 endpoint() 过一道把地址落到当前下载源上（换算规则只写一份）。
         // 第三个参数是那条**官方**地址：镜像上取不回来时按它再试一次（实测有一次
         // Forge/NeoForge 的库就是这么慢下来才失败的）。注意 Forge 那几个 maven 从
-        // 2026-09-22 起也认得了（见 mirrorUrl()），认不出来的才会原样返回。
+        // 起也认得了（见 mirrorUrl()），认不出来的才会原样返回。
         downloadFile(endpoint(lib.url), destPath, lib.sha1, lib.size, VerifyMode::SizeAndSha1,
                      lib.url);
     }
@@ -1953,21 +1896,16 @@ void DownloadManager::downloadAssets(const AssetIndex &assetIndex) {
     QDir().mkpath(QFileInfo(indexPath).absolutePath());
 
     m_batchEmitted = false;
-    // ★ 索引这一条**不进 done/total**（2026-10-15 改，见 DownloadStats 那段）。它是"清单"
-    //   不是"这个实例的文件"，而且每次都要重取 —— 让它占一格的话，一个什么都没缺的实例点
-    //   一次「补全文件」也会报出"下载了 1 个"，用户读到的就是那个说不通的「n-1 个已存在」。
-    //   收尾那边照样等它（它进 pendingDownloads / activeDownloads），一个字节都没少做。
+    // 索引这一条**不进 done/total**（ 改，见 DownloadStats 那段）。它是"清单"
+    // 不是"这个实例的文件"，而且每次都要重取 —— 让它占一格的话，一个什么都没缺的实例点
+    // 一次「补全文件」也会报出"下载了 1 个"，用户读到的就是那个说不通的「n-1 个已存在」。
+    // 收尾那边照样等它（它进 pendingDownloads / activeDownloads），一个字节都没少做。
     m_currentFile = indexPath;
 
     // NOTE: 索引文件必须无条件重取（走不了"已存在就跳过"）。Mojang 修订索引后
     // SHA1 和 objects 都会变，只按存在性判断会永远沿用旧索引，新资源一个都下不到。
     //
     // 镜像源下按索引号重拼。这一条映射是整套镜像里最没把握的一个（/indexes/<id>.json）。
-    //
-    // 2026-09-22 实测：这个路由**整个是坏的** —— /indexes/{legacy,1.18,1.20,1.21,5,32}.json
-    // 全是 404「Not Found」，而同一时刻同一个 host 上 /version/<id>/json 和 /version/<id>/client
-    // 都是 200、资源对象 /assets/<hash> 也是 200。也就是说不是我们拼错了，是它那一边这条路由
-    // 当下没了（它自己的文档里还写着这个地址，以后可能会回来）。
     //
     // 所以这里**登记一份官方地址当备用**：镜像那份不管因为什么没拿到（404 / 内容不对 /
     // 超时），就退回官方再试一次 —— 见 onAssetIndexDownloaded()。不这么做的话，镜像源下
@@ -1976,9 +1914,9 @@ void DownloadManager::downloadAssets(const AssetIndex &assetIndex) {
     const QString indexUrl =
         mirrorPreferred() ? mirrorAssetIndexUrl(assetIndex.id) : assetIndex.url;
     // NOTE: 这几个 URL 先落到具名的 QUrl 变量上，不写 `QNetworkRequest request(QUrl(x))`：
-    //       那一行会被编译器当成函数声明（最令人烦恼的解析）—— 它读成"形参名叫 x 的
-    //       QUrl 类型参数"，于是 request 成了函数名。原来那句能编过只是因为括号里
-    //       是 `assetIndex.url` 这种带点的表达式，没法当形参名。
+    // 那一行会被编译器当成函数声明（最令人烦恼的解析）—— 它读成"形参名叫 x 的
+    // QUrl 类型参数"，于是 request 成了函数名。原来那句能编过只是因为括号里
+    // 是 `assetIndex.url` 这种带点的表达式，没法当形参名。
     const QUrl indexQUrl(indexUrl);
     QNetworkRequest request(indexQUrl);
     configureHttp1(request);
@@ -2071,7 +2009,7 @@ void DownloadManager::onAssetIndexDownloaded() {
                     if (stale) {
                         success = true;
                     } else {
-                        // ★ 2026-10-20：解析失败必须让这一条作业**算失败**。资源对象故意
+                        // 解析失败必须让这一条作业**算失败**。资源对象故意
                         // 不占 total/done 的格子（见 downloadAssets），所以从前来这里
                         // `qWarning` 一句就 return 的话，整批会以"0 个资源、全部成功"收尾
                         // —— 版本装好了，材质音效一个都没有，界面上找不到任何异常。
@@ -2113,7 +2051,7 @@ void DownloadManager::onAssetIndexDownloaded() {
             // QFileInfo(...).fileName()，见 handleDownloadError）。这一处原来报的是
             // indexPath（一整条绝对路径）—— 同一个作业成功时给一条路径、失败时给一个名字，
             // 收信号的那一侧就没法把"这一条报上来的名字"和"那一条报上来的名字"对上
-            //（2026-09-25 修，这个信号的形参就叫 fileName）。
+            // （ 修，这个信号的形参就叫 fileName）。
             emit downloadFinished(QFileInfo(indexPath).fileName(), true, QString());
         }
     } else if (!stale &&
@@ -2168,19 +2106,19 @@ bool DownloadManager::retryStalledFromMirror(QNetworkReply *reply,
     const QUrl landed = reply->url();
     // 只有 302 转手过的那一类才值得回入口重挑落点；没转手的 abort 是看门狗对"慢镜像"
     // 那一档做的，它本来就该按原来的顺序退官方。
-    // ★ 2026-10-17：判"转没转手"用**主机 + 端口** —— 同一主机换端口的落点也算换了一台
-    //   （见 authorityKey()），只比主机名会把这种当成"没转手"、直接退官方。
+    // 判"转没转手"用**主机 + 端口** —— 同一主机换端口的落点也算换了一台
+    // （见 authorityKey()），只比主机名会把这种当成"没转手"、直接退官方。
     if (landed.host().isEmpty() || authorityKey(landed) == authorityKey(mirrorEntry)) {
         return false;
     }
     if (!m_officialFallbacks.contains(reply)) return false;  // 本来就走官方的作业没得回
-    // ★ 2026-10-18：**入口已经在降级期里就别再掷第二次**。降级只有两种来路，两种都说明
-    //   "官方那条当下是能用的"：探针探通（probeOfficialRoute 成功）或者入口自己慢到被
-    //   判死。这时候回镜像入口重赌一台落点，等于把用户刚等过的那 10~12 秒再花一遍；
-    //   直接返回 false，让调用方按原来的顺序走 retryWithOfficialUrl()。
-    //   NOTE: 官方那条真不通的网络不会走到这里 —— 探针失败不降级、降级还会被
-    //         noteReroutedReplyOutcome() 撤掉（2026-10-17 测试员那条网络就是这一种），
-    //         那边"回入口重掷"的老行为一个字都没动。
+    // **入口已经在降级期里就别再掷第二次**。降级只有两种来路，两种都说明
+    // "官方那条当下是能用的"：探针探通（probeOfficialRoute 成功）或者入口自己慢到被
+    // 判死。这时候回镜像入口重赌一台落点，等于把用户刚等过的那 10~12 秒再花一遍；
+    // 直接返回 false，让调用方按原来的顺序走 retryWithOfficialUrl()。
+    // NOTE: 官方那条真不通的网络不会走到这里 —— 探针失败不降级、降级还会被
+    // noteReroutedReplyOutcome() 撤掉（ 测试员那条网络就是这一种），
+    // 那边"回入口重掷"的老行为一个字都没动。
     if (mirrorDemotedFor(mirrorEntry.host())) return false;
     const int attempts = reply->property("wtfmlRetryAttempts").toInt();
     if (attempts >= 1) return false;  // 镜像只再试一次，之后照旧退官方
@@ -2223,24 +2161,14 @@ bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &
     // 30 秒的传输超时**从请求建好就开始算** —— 于是它们会在拿到连接之前成批报
     // `Operation timed out`，而且**这一次死是真死**：重发出去那条身上已经没有备用地址了
     // （take 已经把它拿走），超时就是作业失败。
-    // 2026-09-23 那次导入就是 13 条一起退回官方、9 条这么死在 65 秒那一跳上（35 秒 abort 的
+    // 那次导入就是 13 条一起退回官方、9 条这么死在 65 秒那一跳上（35 秒 abort 的
     // 那 8 条 +30 秒整）。所以放回**我们自己**的队列里等泵那一头腾位置，判据和别的作业
     // 用的是同一个 mayIssueAnotherDownloadToHost()。
     //
     // NOTE: 只认**文件**作业这一条路。退回官方之后它就是一条普通作业了（没有备用地址、
-    //       落盘路径和 sha1 都在身上），队列放得下。资源索引那条是元数据作业，得带着
-    //       MetadataJob 和它自己的完成槽走；而它一次只会有一条、堆不起来 —— 为了它给
-    //       PendingJob 塞上元数据字段，换来的收益是零。
-    //
-    // NOTE: 这一段**没有端到端用例**（验证工程里那个 V6f 只钉了降级那两条，钉不到这里）。
-    //       要真区分出"我们拦住了"和"Qt 拦住了"，得让**同时**退回官方的作业数超过
-    //       kMaxConcurrentPerHost —— 也就是一次 tick 里要 abort 掉整整一档以上。而镜像那一侧
-    //       自己也受这条按主机守卫管着（假服务器都只会说 HTTP/1.1，拿不到"已证明 h2"那个
-    //       豁免），所以在飞的永远不超过 kMaxConcurrentPerHost 条、能同时退回的最多也就这么
-    //       多，正好等于官方那个主机的上限：拦与不拦都是一样多条上链路，测试是绿的但什么都
-    //       没证明。
-    //       真要做到，得有一台**真会协商 h2 的假镜像**（h2 主机才有 24 条豁免），本机做不到。
-    //       所以要改写这一段，请按"这条判据没被用例守着"来对待。
+    // 落盘路径和 sha1 都在身上），队列放得下。资源索引那条是元数据作业，得带着
+    // MetadataJob 和它自己的完成槽走；而它一次只会有一条、堆不起来 —— 为了它给
+    // PendingJob 塞上元数据字段，换来的收益是零。
     const QString retryHost = QUrl(officialUrl).host();
     // 文件换源统一重新排队：复用连接预算与流式写盘，不另开一条旁路。
     if (finishedSlot == &DownloadManager::onDownloadReplyFinished) {
@@ -2472,7 +2400,6 @@ QList<Library> DownloadManager::extractLibraries(const QJsonObject &versionJson)
     for (const QJsonValue &value : libs) {
         QJsonObject libObj = value.toObject();
 
-        // 先过平台规则，不适用于本机的库连下载都不必
         if (!LibraryRules::libraryAllowed(libObj)) {
             continue;
         }
@@ -2484,8 +2411,8 @@ QList<Library> DownloadManager::extractLibraries(const QJsonObject &versionJson)
         // 用的是同一个函数，两处的语义不会各自漂移。
         //
         // NOTE: 这里用 valid()（要**有下载地址**）是对的，和 classpath 那边的 hasPath() 不是
-        //       一回事：OptiFine 那两个库没有地址、盘上本来就有，它们不该出现在下载列表里
-        //       —— 拿 hasPath() 当判据会造出两条 url 为空的幽灵请求。
+        // 一回事：OptiFine 那两个库没有地址、盘上本来就有，它们不该出现在下载列表里
+        // —— 拿 hasPath() 当判据会造出两条 url 为空的幽灵请求。
         const LibraryRules::Artifact artifact = LibraryRules::artifactFor(libObj);
         if (artifact.valid()) {
             Library lib;
@@ -2552,22 +2479,22 @@ void DownloadManager::onVersionManifestReplyFinished() {
     }
     m_stallMeters.remove(reply);
     // NOTE: 这张表**每一条收尾的路都要摘干净**（这条是成功路径，以前漏了它）。
-    //       键是回复指针，Qt 释放之后下一批复用同一个地址，残留的键会让一条**没有**
-    //       备用地址的新回复被判成"有退路"（看门狗那条慢镜像判据），然后拿着一份**陈旧**的
-    //       官方地址去重发 —— 重发到上一个版本 json 的地址上。
+    // 键是回复指针，Qt 释放之后下一批复用同一个地址，残留的键会让一条**没有**
+    // 备用地址的新回复被判成"有退路"（看门狗那条慢镜像判据），然后拿着一份**陈旧**的
+    // 官方地址去重发 —— 重发到上一个版本 json 的地址上。
     //
-    // NOTE: 摘的时机是**下面那段内容核完之后**，不是紧跟 m_stallMeters（2026-09-24 挪的）：
-    //       镜像的那份清单"HTTP 200 + 截了一半/根本不是 JSON"是它的典型坏法，那种失败也该
-    //       退回官方源再试一次 —— 先摘掉就没有退路了。
+    // NOTE: 摘的时机是**下面那段内容核完之后**，不是紧跟 m_stallMeters（ 挪的）：
+    // 镜像的那份清单"HTTP 200 + 截了一半/根本不是 JSON"是它的典型坏法，那种失败也该
+    // 退回官方源再试一次 —— 先摘掉就没有退路了。
     //
-    // NOTE(2026-09-25)：上面那句注释说的挪动**当时只做在了姊妹槽
-    //       onVersionJsonReplyFinished() 里**（那边用的是 take），这一条一直还摘在内容核对
-    //       之前 —— 于是"解不开 → retryWithOfficialUrl()"那条路上 take() 是空的，重发出去
-    //       的那条身上只剩 activeDownloads 里那一笔。它要是再卡死 90 秒，failWedgedDownload()
-    //       认不出这是元数据作业，按**文件**作业收尾：可它从没进过 pendingDownloads
-    //       （见那个函数开头的 NOTE），那一下 --pendingDownloads 吃的是**别人**的计数
-    //       （钳到 0），checkAllDownloadsFinished() 于是在文件还在路上时宣布整批下完。
-    //       现在真挪到这儿，和姊妹槽一个口径。
+    // NOTE()：上面那句注释说的挪动**当时只做在了姊妹槽
+    // onVersionJsonReplyFinished() 里**（那边用的是 take），这一条一直还摘在内容核对
+    // 之前 —— 于是"解不开 → retryWithOfficialUrl()"那条路上 take() 是空的，重发出去
+    // 的那条身上只剩 activeDownloads 里那一笔。它要是再卡死 90 秒，failWedgedDownload()
+    // 认不出这是元数据作业，按**文件**作业收尾：可它从没进过 pendingDownloads
+    // （见那个函数开头的 NOTE），那一下 --pendingDownloads 吃的是**别人**的计数
+    // （钳到 0），checkAllDownloadsFinished() 于是在文件还在路上时宣布整批下完。
+    // 现在真挪到这儿，和姊妹槽一个口径。
     if (reply->error() == QNetworkReply::NoError) {
         QJsonParseError error;
         QJsonDocument json = QJsonDocument::fromJson(reply->readAll(), &error);
@@ -2623,10 +2550,10 @@ void DownloadManager::onVersionJsonReplyFinished() {
     // take 而不是 remove：这条作业记着"该是哪个版本、该是什么字节"，下面要拿它核。
     const MetadataJob job = m_metadataReplies.take(reply);
     m_stallMeters.remove(reply);
-    // NOTE: 备用地址**不在这里摘**（2026-09-24 挪到下面那段内容核之后）：内容级失败
-    //       （sha1 / JSON / id 对不上）和网络失败一样该退回官方源再试一次，而镜像源
-    //       "HTTP 200 + 内容不对"正是它的典型坏法。先摘掉的话那种失败直接成了硬失败
-    //       —— 而这条作业的姊妹路径（资源索引）一直是"success == false 就退"的口径。
+    // NOTE: 备用地址**不在这里摘**（ 挪到下面那段内容核之后）：内容级失败
+    // （sha1 / JSON / id 对不上）和网络失败一样该退回官方源再试一次，而镜像源
+    // "HTTP 200 + 内容不对"正是它的典型坏法。先摘掉的话那种失败直接成了硬失败
+    // —— 而这条作业的姊妹路径（资源索引）一直是"success == false 就退"的口径。
     if (reply->error() == QNetworkReply::NoError) {
         const QByteArray bytes = reply->readAll();
         // **下回来的东西要核**（以前一个字都不核，只要 JSON 解得开就当成功）。
@@ -2674,8 +2601,8 @@ void DownloadManager::onVersionJsonReplyFinished() {
             // 字节都还在），所以核 sha1/id 那两步在它回来时照做。
             //
             // NOTE: 作业记录得**放回去**再退：retryWithOfficialUrl() 是 take 出来搬到新回复上
-            //       的（它只在"表格里有这条"时才搬），不放回去这一搬就是空的 —— 表现是重发
-            //       回来那条不再核 sha1/id，正是这一段要防的东西。
+            // 的（它只在"表格里有这条"时才搬），不放回去这一搬就是空的 —— 表现是重发
+            // 回来那条不再核 sha1/id，正是这一段要防的东西。
             m_metadataReplies[reply] = job;
             if (retryWithOfficialUrl(reply, QStringLiteral("version_json"),
                                      &DownloadManager::onVersionJsonReplyFinished)) {
@@ -2845,13 +2772,13 @@ void DownloadManager::onDownloadReplyFinished() {
         // 镜像那条路没成，已经换成官方地址重发了 —— 这一次**不算失败**：作业还在这一个
         // 里，计数和失败清单都不动，直接返回（下面那些收尾是给"这个 reply 真的结账"用的）。
         // NOTE: 已经放弃的那一批不在这里重发（重发出去的那条会被登记成当前代次，等于把一条
-        //       上一批的作业塞进新批）—— retryWithOfficialUrl() 自己那头也拦了一道。
+        // 上一批的作业塞进新批）—— retryWithOfficialUrl() 自己那头也拦了一道。
         return;
     } else if (!stale && requeueTransientFailure(reply, destPath)) {
         retryQueued = true; // 同一作业仍在排队，不增加总量，也不提前报失败。
     } else {
         // NOTE: 要在 activeDownloads.remove() 之前，handleDownloadError 靠它反查路径。
-        //       它自己会认出 stale 的那几条（只留一行日志、不记账）。
+        // 它自己会认出 stale 的那几条（只留一行日志、不记账）。
         handleDownloadError(reply, errorMessage);
     }
 
@@ -2879,9 +2806,9 @@ void DownloadManager::onDownloadReplyFinished() {
     // 腾出一条连接就补一个排队的作业，然后才判定整批是否下完（顺序不能反：
     // 先判会把"队列里还有、但当下一个都没在飞"误判成整批结束）。
     // NOTE: 这两句**不按代次分**：连接预算是全类共用的，排队的作业也还等着发；而
-    //       checkAllDownloadsFinished() 自己就会看 m_batchEmitted / m_batchOpen，
-    //       上一批残留的回复把它叫醒一次不会让它多发一个信号（它们只是把 pendingDownloads
-    //       还回来，而判据是"还有没有在飞的"）。
+    // checkAllDownloadsFinished() 自己就会看 m_batchEmitted / m_batchOpen，
+    // 上一批残留的回复把它叫醒一次不会让它多发一个信号（它们只是把 pendingDownloads
+    // 还回来，而判据是"还有没有在飞的"）。
     pumpDownloadQueue();
     checkAllDownloadsFinished();
 }
@@ -2900,14 +2827,14 @@ void DownloadManager::onStallWatchdogTick() {
         StallMeter &meter = it.value();
         // (0) 进账从**回复自己**身上取，不信 downloadProgress 的报数时机。
         //
-        //     Qt 的 downloadProgress 不是"到了字节就报"：2026-09-23 用探针量过（Qt 6.10.1），
-        //     响应头和 body 同一段到达、之后链子停住的那种形状，它**只在超时那一刻报一次**
-        //     （1 KB / 64 KB / 200 KB 都一样，客户端读不读都一样）；连续细流才会逐片报。
-        //     `bytesAvailable()` 那边是 494 ms 就有值的 —— 所以头 + 1 KB 然后卡住的镜像回复，
-        //     在旧口径下这一跳的进账永远是 0，看门狗对它一声不吭（既不算失速、也不算卡死），
-        //     只能干等 Qt 那 30 秒传输超时。改成问回复自己之后，这种回复 10 秒就被判失速、
-        //     降级它自己的那个主机、退回官方地址（正是实测里该发生的事）。
-        //     产品这条路上中途不读回复（收尾才 readAll），所以 bytesAvailable() 就是"到手的字节"。
+        // Qt 的 downloadProgress 不是"到了字节就报"： 用探针量过（Qt 6.10.1），
+        // 响应头和 body 同一段到达、之后链子停住的那种形状，它**只在超时那一刻报一次**
+        // （1 KB / 64 KB / 200 KB 都一样，客户端读不读都一样）；连续细流才会逐片报。
+        // `bytesAvailable()` 那边是 494 ms 就有值的 —— 所以头 + 1 KB 然后卡住的镜像回复，
+        // 在旧口径下这一跳的进账永远是 0，看门狗对它一声不吭（既不算失速、也不算卡死），
+        // 只能干等 Qt 那 30 秒传输超时。改成问回复自己之后，这种回复 10 秒就被判失速、
+        // 降级它自己的那个主机、退回官方地址（正是实测里该发生的事）。
+        // 产品这条路上中途不读回复（收尾才 readAll），所以 bytesAvailable() 就是"到手的字节"。
         const auto stream = m_streamedFiles.value(reply);
         const qint64 availableNow = reply->bytesAvailable() + (stream ? stream->bytes : 0);
         if (availableNow > meter.bytesSeen) {
@@ -2916,23 +2843,20 @@ void DownloadManager::onStallWatchdogTick() {
             // 那种 0.85~10 KB/s）靠这句活着，它该由"太慢"那条判据管，不该被兜底掐掉。
             meter.lastSignOfLifeMs = now;
         }
-        // (0b) ★★ 2026-10-17（用户本机实测）：走镜像、有退路、**一个字节都没收到**的回复，
-        //      12 秒就换路 —— 别等下面那条 90 秒的兜底。
+        // 根子是 BMCLAPI 的 302：每条资源地址都会转到它背后临时挑的一台落点
+        // （minio.749333.xyz / bmclapiN.sakura.sld.tw ...），而那几台里有的
+        // **TLS 接得上、一个字节都不给**（curl 实测 25 秒 0 字节）。这种回复
+        // Qt 的 30 秒不活动超时也掐不掉（握手 / h2 PING 的字节把它喂着了），
+        // 所以从前只有 90 秒兜底会动它 —— 一条死落点占满一个并发位一分半钟。
+        // 用户那次 24 位里常年有几条在等死节点，整批只剩一两文件/秒（751/5222、11 分钟）。
         //
-        //      根子是 BMCLAPI 的 302：每条资源地址都会转到它背后临时挑的一台落点
-        //      （minio.749333.xyz / bmclapiN.sakura.sld.tw ...），而那几台里有的
-        //      **TLS 接得上、一个字节都不给**（curl 实测 25 秒 0 字节）。这种回复
-        //      Qt 的 30 秒不活动超时也掐不掉（握手 / h2 PING 的字节把它喂着了），
-        //      所以从前只有 90 秒兜底会动它 —— 一条死落点占满一个并发位一分半钟。
-        //      用户那次 24 位里常年有几条在等死节点，整批只剩一两文件/秒（751/5222、11 分钟）。
-        //
-        //      这里只换路、不判失败：abort 出来的 OperationCanceledError 会走
-        //      onDownloadReplyFinished，那里先 retryStalledFromMirror() 重新掷一台落点
-        //      （只掷一次），再不行就退官方。落到死落点这件事还要记一笔（noteDeadRedirectTarget），
-        //      攒够了整条镜像先探官方、再决定降不降级。
-        // ★ 2026-10-18 补：**分段 Range 请求也过这一条**。它自己身上没有备用地址，但协调器
-        //   有"只补缺的段"那条退路；一条 302 到死落点的分段以前只有 90 秒那条兜底会动它，
-        //   而协调器要等整批收尾才补段 —— 等于整条作业白等一分半。
+        // 这里只换路、不判失败：abort 出来的 OperationCanceledError 会走
+        // onDownloadReplyFinished，那里先 retryStalledFromMirror() 重新掷一台落点
+        // （只掷一次），再不行就退官方。落到死落点这件事还要记一笔（noteDeadRedirectTarget），
+        // 攒够了整条镜像先探官方、再决定降不降级。
+        // 补：**分段 Range 请求也过这一条**。它自己身上没有备用地址，但协调器
+        // 有"只补缺的段"那条退路；一条 302 到死落点的分段以前只有 90 秒那条兜底会动它，
+        // 而协调器要等整批收尾才补段 —— 等于整条作业白等一分半。
         if (meter.bytesSeen == 0
             && (m_officialFallbacks.contains(reply) || rangeOf(reply).active())
             && now - meter.lastSignOfLifeMs >
@@ -2946,33 +2870,32 @@ void DownloadManager::onStallWatchdogTick() {
             continue;
         }
         // (1) 卡死兜底。**不看有没有退路** —— 没有退路的回复以前是没人管的，而它一旦永远
-        //     不结束，pendingDownloads 就永远归不了零：整批永不收尾、界面永远停在"下载中"、
-        //     连个错误都没有（2026-09-22 那次 422 个文件的导入就这么挂了二十分钟，进度条
-        //     停在 1%，用户只能重启）。
+        // 不结束，pendingDownloads 就永远归不了零：整批永不收尾、界面永远停在"下载中"、
+        // 连个错误都没有（ 那次 422 个文件的导入就这么挂了二十分钟，进度条
+        // 停在 1%，用户只能重启）。
         if (now - meter.lastSignOfLifeMs > m_noProgressGiveUpMs) {
             wedged.append(reply);
             continue;
         }
         // (2) 慢镜像那条只对"有退路"的回复成立：abort 掉它 = 换一条路再试；没有退路的
-        //     abort 掉就是纯粹把这次下载弄失败。
-        //     ★ 2026-10-18（用户那份 17:06 的诊断日志）：**分段请求（Range 作业）也算
-        //       "有退路"** —— 它自己身上没有官方备用地址，但协调器有"只补缺的段"那条
-        //       退路（见 ResumableDownload::downloadParts）。实测一条 4 MiB 的分段停在
-        //       3.7/4.2 MiB、以几百字节每秒往终点爬，`bytesAvailable()` 一直在涨 ⇒ 90 秒
-        //       的"卡死"兜底不响，而没备用地址又不进这一条 ⇒ 那条分段在 664 秒里一直攥着
-        //       连接；协调器要等整批收尾才补段，于是整条分段作业永远不会结束（用户只能
-        //       取消）。给 Range 作业也过这一条，abort 掉就是让协调器换一次落点重下。
-        //     NOTE: "一个字节都还没收到"的不算数（判据在 countsTowardStallStrike 里，理由和
-        //           2026-09-23 那次实测都写在头文件）—— 那种回复的进账天然是 0，会把
-        //           "还在建连"误判成"链子太慢"。
-        // ★ 2026-10-18（§9.2 下载限速）：**限速开着的时候这条整条不成立**。这条判据量的是
-        //   "链子来得多快"，而限速正是我们自己把它按住的方式 —— 512 KiB/s 分给 24 条，
-        //   每条每 5 秒只有 10 KB，比 kStallMinBytesPerTick（64 KB）还少 ⇒ 一开限速，
-        //   整批镜像作业每隔 10 秒就被 abort 一遍（用户看到的形状是"限速一开就疯狂重试、
-        //   根本下不完"）。"一个字节都不来"那两条（0b / 1）仍然照旧：那才是真的死了。
+        // abort 掉就是纯粹把这次下载弄失败。
+        // （用户那份 17:06 的诊断日志）：**分段请求（Range 作业）也算
+        // "有退路"** —— 它自己身上没有官方备用地址，但协调器有"只补缺的段"那条
+        // 退路（见 ResumableDownload::downloadParts）。实测一条 4 MiB 的分段停在
+        // 3.7/4.2 MiB、以几百字节每秒往终点爬，`bytesAvailable()` 一直在涨 ⇒ 90 秒
+        // 的"卡死"兜底不响，而没备用地址又不进这一条 ⇒ 那条分段在 664 秒里一直攥着
+        // 连接；协调器要等整批收尾才补段，于是整条分段作业永远不会结束（用户只能
+        // 取消）。给 Range 作业也过这一条，abort 掉就是让协调器换一次落点重下。
+        // NOTE: "一个字节都还没收到"的不算数（判据在 countsTowardStallStrike 里，理由和
+        // 那次实测都写在头文件）—— 那种回复的进账天然是 0，会把
+        // "还在建连"误判成"链子太慢"。
+        // （§9.2 下载限速）：**限速开着的时候这条整条不成立**。这条判据量的是
+        // "链子来得多快"，而限速正是我们自己把它按住的方式 —— 512 KiB/s 分给 24 条，
+        // 每条每 5 秒只有 10 KB，比 kStallMinBytesPerTick（64 KB）还少 ⇒ 一开限速，
+        // 整批镜像作业每隔 10 秒就被 abort 一遍（用户看到的形状是"限速一开就疯狂重试、
+        // 根本下不完"）。"一个字节都不来"那两条（0b / 1）仍然照旧：那才是真的死了。
         if (m_speedBucket->limit <= 0
             && (m_officialFallbacks.contains(reply) || rangeOf(reply).active())) {
-            // ★ 2026-10-20：分段那一档另用一套阈值（见 kStallMinBytesPerTickRange 那段）。
             const bool rangePart = rangeOf(reply).active();
             const qint64 minBytes =
                 rangePart ? kStallMinBytesPerTickRange : kStallMinBytesPerTick;
@@ -2995,22 +2918,12 @@ void DownloadManager::onStallWatchdogTick() {
         //
         // 降级是**按主机**的，而且降的是**这一条回复自己所在的那个主机**：一次 tick 里失速的
         // 回复可能来自好几个 CDN（整合包那条路就是），只降它们各自那个。降错方向的代价是
-        // 2026-09-23 那次事故：一个慢 CDN 上的 8 条回复把别的 CDN 一起关了 300 秒。
-        //
-        // ★★ 2026-10-17（特供版诊断日志）：**经过 302 的回复不降请求的那个主机**。
-        //    BMCLAPI 的资源对象地址（bmclapi2.bangbang93.com/assets/...）会 302 到它背后
-        //    临时挑的一台镜像（minio.749333.xyz / bmclapi.hurtmc.com / sakura...）。慢的是
-        //    落点那一台，不是入口；把入口降级 300 秒，排队里的**几千个**资源对象会一起改道
-        //    官方 resources.download.minecraft.net —— 而测试员那条网络上官方资源 CDN 每个
-        //    请求都吃满 30 秒超时（同一份日志：降级后 433 个官方请求 0 成功、400 个超时），
-        //    十分钟只下完 246/5222 个文件。只给"没有转手"的那条降级，转手慢的那一条自己
-        //    abort 后走官方重试即可（作业级，不连累别人）。
-        //    同一个主机只降一次（顺延本身是幂等的，这里只是别把日志刷满）。
+        // 那次事故：一个慢 CDN 上的 8 条回复把别的 CDN 一起关了 300 秒。
         QSet<QString> demotedHosts;
         for (QNetworkReply *reply : stalled) {
             // 分段请求（Range 作业）没有备用地址：它慢不代表"这个入口该降级"，而且它
             // 入口常常就是官方那一台 —— 把官方降 300 秒等于让排队里的镜像作业全改道，
-            // 正是 2026-10-17 那条事故的翻版。它们只 abort、由协调器补段。
+            // 正是 那条事故的翻版。它们只 abort、由协调器补段。
             if (!m_officialFallbacks.contains(reply)) {
                 continue;
             }
@@ -3065,12 +2978,6 @@ void DownloadManager::onStallWatchdogTick() {
         }
         failWedgedDownload(reply);
     }
-    // ★ 2026-10-20：这一拍顺带**泵一次队列**。pumpDownloadQueue() 里有一条"这个源还在
-    //   冷却里，跳过"（429 的退避，见 requeueTransientFailure）。冷却到期之后，如果这一批
-    //   剩下的作业全排在那一个源上、而且一条都不在飞，就再没有谁会来叫泵了 —— finished
-    //   不会来（没有在飞的回复）、重排那边的唤醒定时器也只管它自己那一条。整批会永远
-    //   停在"下载中"。原来那句注释写的是"The periodic watchdog pumps again"，可这个槽
-    //   以前从来没泵过。5 秒一拍，队列空时第一行就返回，代价可以忽略。
     pumpDownloadQueue();
 }
 
@@ -3116,13 +3023,13 @@ void DownloadManager::failWedgedDownload(QNetworkReply *reply) {
     // 90 秒一个字节都没有 = 这条链路根本不通。如果它是降级改道到官方的，这就是
     // "官方也不通"的证据 —— 不管下面走重排还是记失败，都得先把这一笔记上。
     noteReroutedReplyOutcome(reply, false, /*forceUnreachable=*/true);
-    // ★★ 2026-10-17（无代理实测）：90 秒一个字节都没有，几乎都不是"这个文件没了"，
-    //    而是这一次 302 落到了死节点上 —— 测试员那条网络下 5222 个对象只有 13 个这样，
-    //    落点全是 18/19/20.749333.xyz 这几台；同一个入口（bmclapi2）的另外 5209 个
-    //    对象都正常。**重新排回同一个地址**（BMCLAPI 每次会重新挑一台落点），别把它
-    //    当永久失败 —— 否则整批 5222 个下完了还要为这 13 个报"安装失败"。
-    //    NOTE: 走 `wtfmlRetryAttempts` 那套计数（和 transient 重试共用 3 次上限）：
-    //          一个真死的入口必须能停下来，不然整批永远收不了尾。
+    // （无代理实测）：90 秒一个字节都没有，几乎都不是"这个文件没了"，
+    // 而是这一次 302 落到了死节点上 —— 测试员那条网络下 5222 个对象只有 13 个这样，
+    // 落点全是 18/19/20.749333.xyz 这几台；同一个入口（bmclapi2）的另外 5209 个
+    // 对象都正常。**重新排回同一个地址**（BMCLAPI 每次会重新挑一台落点），别把它
+    // 当永久失败 —— 否则整批 5222 个下完了还要为这 13 个报"安装失败"。
+    // NOTE: 走 `wtfmlRetryAttempts` 那套计数（和 transient 重试共用 3 次上限）：
+    // 一个真死的入口必须能停下来，不然整批永远收不了尾。
     const int wedgedAttempts = reply->property("wtfmlRetryAttempts").toInt();
     const int wedgedDelay = DownloadRetryPolicy::delayMs(wedgedAttempts, {});
     // 只重排**走镜像、身上有备用地址**的那一类（测试员日志里那 13 个就是）：它们的地址
@@ -3174,9 +3081,6 @@ void DownloadManager::failWedgedDownload(QNetworkReply *reply) {
         expectedSizes.remove(reply);
         m_stallMeters.remove(reply);
         m_officialFallbacks.remove(reply);
-        // ★ 2026-10-20：限速泵攥着的那张表也得摘。这条回复是在**设了限速**的时候被判死
-        //   的，readyRead 早就把它登记进去了；不摘的话 `onSpeedPumpTick` 下一拍会拿着
-        //   一个 deleteLater 之后的指针去问 `isReadable()`（悬空）。
         m_throttledReplies.remove(reply);
         reply->abort();
         reply->deleteLater();
@@ -3240,13 +3144,13 @@ void DownloadManager::onDownloadReplyProgress(qint64 bytesReceived, qint64 bytes
         // 0.85~10 KB/s 的链子）不该被这条兜底掐掉，它该由"太慢"那条判据管。
         meter->lastSignOfLifeMs = m_clock.elapsed();
     }
-    // ★ 属于**已经被放弃的那一批**的回复到此为止（2026-09-26 补）。上面那两笔看门狗的记账
-    //   照记（它们判的是"这条链子还行不行"，和批次无关），但**一条进度都不许报**：
-    //   用户点了取消、新的一批已经开起来了，而这两个 emit 会把上一批的文件名和字节数塞进
-    //   新一批的进度里 —— `emitBatchProgress()` 那一头还会顺手把 `m_currentFile` 覆盖掉，
-    //   界面上"正在下载 X"那一行于是指着上一批的文件，每文件那条进度条也跟着上一批的数字
-    //   跳。同一条规矩在另外三个槽里都已经有了（handleDownloadError / failWedgedDownload /
-    //   onDownloadReplyFinished），只有这一处漏了。
+    // 属于**已经被放弃的那一批**的回复到此为止（ 补）。上面那两笔看门狗的记账
+    // 照记（它们判的是"这条链子还行不行"，和批次无关），但**一条进度都不许报**：
+    // 用户点了取消、新的一批已经开起来了，而这两个 emit 会把上一批的文件名和字节数塞进
+    // 新一批的进度里 —— `emitBatchProgress()` 那一头还会顺手把 `m_currentFile` 覆盖掉，
+    // 界面上"正在下载 X"那一行于是指着上一批的文件，每文件那条进度条也跟着上一批的数字
+    // 跳。同一条规矩在另外三个槽里都已经有了（handleDownloadError / failWedgedDownload /
+    // onDownloadReplyFinished），只有这一处漏了。
     if (!replyIsFromCurrentBatch(reply)) {
         return;
     }

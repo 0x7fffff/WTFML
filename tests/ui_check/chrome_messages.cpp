@@ -1,18 +1,15 @@
 /**
- * @file chrome_messages.cpp
- * @brief 一小块**单独编的**翻译单元：只为了让 `ui_check/main.cpp` 不必 include `<windows.h>`。
- *
  * 【为什么单开一个文件】
  * `ui_check/main.cpp` 有一万多行。往里面塞一个 `<windows.h>` 会同时踩两件事：
- *   1. `windef.h` 里那两个上古兼容宏（`near` / `far`）会把那片代码里同名的一个局部变量
- *      整个吃掉 —— 实测编不过，报在 `const bool near = …` 那一行（`near` 被展开成空）；
- *   2. `<windows.h>` 得排在 Qt 头**之前**才稳，而那个大文件里 Qt 头在最上面。
+ * 1. `windef.h` 里那两个上古兼容宏（`near` / `far`）会把那片代码里同名的一个局部变量
+ * 整个吃掉 —— 实测编不过，报在 `const bool near = …` 那一行（`near` 被展开成空）；
+ * 2. `<windows.h>` 得排在 Qt 头**之前**才稳，而那个大文件里 Qt 头在最上面。
  * 为了两条断言让整个 TU 承担这些不划算。这里只暴露四个普通函数：把消息拼好交给
  * `WindowChrome::handleNativeEvent()`，再把结果带回去。
  *
  * NOTE: 这几个函数量的只是**契约**（认不认这条消息、回什么），不是真的 Win32 行为 ——
- *       真的那一份（客户区铺满整窗、缩放边、HTCAPTION、双击不最大化）是探针
- *       `build/tools/chromeprobe2` 挂到真 HWND 上量的。
+ * 真的那一份（客户区铺满整窗、缩放边、HTCAPTION、双击不最大化）是探针
+ * `build/tools/chromeprobe2` 挂到真 HWND 上量的。
  */
 
 #include "chrome_messages.hpp"

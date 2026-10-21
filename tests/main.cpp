@@ -3,10 +3,10 @@
  * @brief natives / Java 选择的控制台验证入口（一次性，不属于仓库）。
  *
  * 直接调用生产代码而不是复刻逻辑：
- *   - DownloadManager::extractLibraries   -> 证明 classifier 会被下载
- *   - LauncherManager::prepareNatives     -> 证明解压链路通、且有守卫
- *   - LauncherManager::generateJvmArguments -> 证明 java.library.path / 选项过滤
- *   - GlobalJavaSettings::ensureJavaForVersion -> 证明 Java 25 选得到
+ * - DownloadManager::extractLibraries -> 证明 classifier 会被下载
+ * - LauncherManager::prepareNatives -> 证明解压链路通、且有守卫
+ * - LauncherManager::generateJvmArguments -> 证明 java.library.path / 选项过滤
+ * - GlobalJavaSettings::ensureJavaForVersion -> 证明 Java 25 选得到
  * 最后再和"改动前的 classpath 算法"逐字节对比，证明 1.19+ 零回归。
  *
  * F/G/H 三节（pipeline / vm-batch / vm-fetch-fail 模式）验证下载批次的记账：
@@ -71,7 +71,7 @@
 #include "download/ResourceCatalog.hpp"
 #include "download/ResourceStore.hpp"
 // ServerInstall：服务端那八档"要下什么、要不要跑安装器、装完的入口是什么"。**纯函数**，
-// 地址那一半是 2026-09-28 逐条 curl 出来的（形状抄在那个文件的文件头注释里）。见 ZK 节。
+// 地址那一半是 逐条 curl 出来的（形状抄在那个文件的文件头注释里）。见 ZK 节。
 #include "download/ServerInstall.hpp"
 #include "download/VersionCategory.hpp"
 #include "launcher/AsciiPathAlias.hpp"
@@ -86,43 +86,43 @@
 // 删一棵目录那两个自由函数（`removeTreeWithoutFollowingLinks` / 只读文件那一手）。见 ZAN 节
 // —— 那两条**必须真动盘**才验得出来（只读位是盘上的属性、junction 更是）。
 #include "manage/FolderManager.hpp"
-// 「上一次启动」那本账（coding plan §5.1，2026-10-13）：主页那张卡唯一的数据源。见 ZR 节 ——
+// 「上一次启动」那本账（coding plan §5.1，）：主页那张卡唯一的数据源。见 ZR 节 ——
 // 那一节全是**纯函数**（给值、出字符串 / 一段字节），连时钟都不问（`whenText()` 的"现在"
 // 是参数），所以它不需要临时游戏文件夹，只有"落在哪个文件上"那一条要换一下数据根目录。
 #include "manage/LaunchHistory.hpp"
-// 实例页搜索与筛选的判据层（coding plan §7.2，2026-10-13）。见 ZS 节 —— 纯函数：
+// 实例页搜索与筛选的判据层（coding plan §7.2，）。见 ZS 节 —— 纯函数：
 // 「这一条算不算匹配」全在这儿，树那一侧一条都不必真的建出来。
 #include "manage/InstanceFilter.hpp"
-// 实例预设（coding plan §5–§6 / P1，2026-10-14）。见 PA 节 —— 值那一层和盘那一层都收一个
+// 实例预设（coding plan §5–§6 / P1，）。见 PA 节 —— 值那一层和盘那一层都收一个
 // `root` 参数，所以整节在一个 `QTemporaryDir` 里真存真读，连界面都不用起。
 #include "presets/PresetStore.hpp"
-// 原版设置那一段（2026-10-15，coding plan §6 P2）。见 PB 节 —— 全是纯函数（字节进、字节出），
+// 原版设置那一段（，coding plan §6 P2）。见 PB 节 —— 全是纯函数（字节进、字节出），
 // 两份假 `options.txt` 一喂就能逐格念，不碰盘、不联网、不开界面。
 #include "presets/VanillaOptions.hpp"
-// 服务器列表那一段（2026-10-15，coding plan §6 P3）。见 PC 节 —— 判据那几条是纯值，落盘那几条
+// 服务器列表那一段（，coding plan §6 P3）。见 PC 节 —— 判据那几条是纯值，落盘那几条
 // **真的动盘**（在 `QTemporaryDir` 里造一份真 `servers.dat`，读回来逐格看），不碰共享沙箱。
 #include "presets/ServerListPreset.hpp"
-// 通用文件组那一段（2026-10-15，coding plan §6 P3 后半）。见 PD 节 —— 和 PC 一样**真的动盘**
+// 通用文件组那一段（，coding plan §6 P3 后半）。见 PD 节 —— 和 PC 一样**真的动盘**
 // （两个临时目录之间真拷真比字节），另外还**真造 junction** 来验那两道逃逸闸。
 #include "presets/GenericFiles.hpp"
-// 应用计划那一层（2026-10-15，coding plan §5 / §7）。见 PE 节 —— 一段一行地算这一趟会发生
+// 应用计划那一层（，coding plan §5 / §7）。见 PE 节 —— 一段一行地算这一趟会发生
 // 什么（除了通用文件组的干跑，全是纯值）。
 #include "presets/PresetPlanner.hpp"
-// 提取与落到实例上（2026-10-18，coding plan §6 P1 / §7 / §8.1）。见 PG 节 —— 在两个临时
+// 提取与落到实例上（，coding plan §6 P1 / §7 / §8.1）。见 PG 节 —— 在两个临时
 // 实例目录之间真收真落，覆盖那几样**真去备份目录里看**，游戏在跑时**真去比字节**。
 #include "presets/PresetApply.hpp"
 #include "presets/PresetCapture.hpp"
 #include "presets/PresetCompatibility.hpp"
-// 资源包次序 / 启用 + 存档数据包（2026-10-18，coding plan §6 P4）。见 PL 节 —— 在临时实例里
+// 资源包次序 / 启用 + 存档数据包（，coding plan §6 P4）。见 PL 节 —— 在临时实例里
 // 真造 `options.txt` / `saves/<世界>/datapacks/`，验"部署"与"启用"分开报、没世界只记账。
 #include "presets/DataPackPreset.hpp"
 #include "presets/ResourcePackPreset.hpp"
-// 模组「真正去下」之前的判据层（2026-10-18，coding plan §10.1 第 7 项 / P5）。见 PM 节 ——
+// 模组「真正去下」之前的判据层（，coding plan §10.1 第 7 项 / P5）。见 PM 节 ——
 // 必要/可选失败分开、依赖按 `平台:项目号` 去重展开、optional 只列不下、embedded 无视、
 // incompatible 挡住、替代项目不确认就不换、落盘大小/sha1 校验。全拿手搭的假答复逐格念。
 #include "presets/ModInstallPlan.hpp"
 #include "presets/InstalledModInventory.hpp"
-// 工具箱那四件小工具的判据层（2026-10-16，coding plan §9.11）。见 ZAA–ZAD 四节 —— 全是
+// 工具箱那四件小工具的判据层（，coding plan §9.11）。见 ZAA–ZAD 四节 —— 全是
 // **纯函数**（哈希那一节要真读一个文件，它在一个 QTemporaryDir 里读），不联网、不开界面。
 #include "tools/AnvilPlanner.hpp"
 #include "tools/Beacon.hpp"
@@ -148,7 +148,7 @@
 // 体检那一层（plan / check / Report 三个纯值进出的口子）。见 ZN 节 —— 那一节全在一个临时
 // 游戏文件夹里跑：它要造 jar / 库 / 资源索引 / 资源对象四档文件，不碰共享沙箱。
 #include "manage/VersionIntegrity.hpp"
-// 更新中心那两件（coding plan §7.1，2026-10-13）：「忽略这一版 / 固定这一版」那本账
+// 更新中心那两件（coding plan §7.1，）：「忽略这一版 / 固定这一版」那本账
 // （见 ZT 节）和更新前那份轻量回滚点（见 ZU 节）。两节都是**纯值 + 一次文件读写**，
 // 各在一个 QTemporaryDir 里真存真读 —— 不碰共享沙箱、不联网。
 #include "manage/UpdatePolicy.hpp"
@@ -190,7 +190,7 @@
 #include "settings/GameWindowSettings.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/LauncherSettings.hpp"
-// 结构 / 原理图的元数据与方块统计（2026-10-18，coding plan §9.5）。见 SG 节 —— 三种格式
+// 结构 / 原理图的元数据与方块统计（，coding plan §9.5）。见 SG 节 —— 三种格式
 // 的树都是这里手搭的（`NbtTree::serialize()`），gzip 那一份拿 `ZipUtil` 真压。
 #include "schematic/SchematicInfo.hpp"
 #include "replay/ReplayInfo.hpp"
@@ -198,19 +198,16 @@
 #include "operations/TransferPlanner.hpp"
 #include "operations/TransferApply.hpp"
 #include "util/AppPaths.hpp"
-// NbtTree：世界设置那条路的判据层（2026-09-28）。放进 ZL 那一节是为了能**拿手工拼的字节
+// NbtTree：世界设置那条路的判据层。放进 ZL 那一节是为了能**拿手工拼的字节
 // 去喂它** ——"越界的长度当场拒绝""改一格别的地方一个字节不变"这些角落，造一个真存档来
 // 验是验不到的。
 #include "util/NbtTree.hpp"
-// ErrorReport：日志窗底下那颗「导出错误报告…」写出来的那一份文本（头部那几行、两段之间
-// 的分隔、空的时候那句"这一段里一行都没有"、两种文件名的推荐值）。**纯值进、QString 出**
-// —— 时间由调用方传，所以这一节能把整份报告一个字一个字钉住。
 #include "util/ErrorReport.hpp"
 #include "util/ImageDecode.hpp"
 // ThemeImage：设置页「背景图」那两行「选择图片…」按下去之后干的事 —— 把用户挑的那张
 // 拷一份进 `<数据目录>/cache/theme/<槽位>.png|jpg`。**纯路径进、路径出**，所以这一节能
 // 在一个临时数据根目录里把"收得进来 / 收不进来 / 换图只留一份"这些角落逐个钉住。
-// 用户 2026-09-28 原话：「能给主页左侧自定义图像吗？其他页面的背景能换图吗」。见 V5v。
+// 要求：「能给主页左侧自定义图像吗？其他页面的背景能换图吗」。见 V5v。
 #include "util/ThemeImage.hpp"
 // 造"假 JAR"的那两个小工具（ZF 段和 mw_check 的 ZG 段共用）。见那个文件头。
 #include "fakejar.hpp"
@@ -222,7 +219,7 @@
 // servers.dat 的**写侧**（改一条服务器的名字/地址）。读那一半仍旧走 NbtUtil —— 只读那条
 // 设计决定没被推翻，写入端长在另一个文件里。见 ZK 节。
 #include "manage/ServerListFile.hpp"
-// 上面那三个写入口**谁在指挥**（改 / 加 / 删那三条链路上的四道闸，2026-10-15 从
+// 上面那三个写入口**谁在指挥**（改 / 加 / 删那三条链路上的四道闸， 从
 // MainWindow 搬出来）。见 ZK13 起那一节 —— 它收成一个假 Host 就能驱动的形状，所以这一层
 // 现在验得了。**一个 QWidget 都不碰**。
 #include "controllers/ServerListController.hpp"
@@ -232,7 +229,7 @@
 // 「开游戏直接进某个存档 / 直接连某台服务器」那一对参数（--quickPlaySingleplayer /
 // --quickPlayMultiplayer）的判据层。见 ZL 节。
 #include "launcher/QuickPlay.hpp"
-// 任务账本那一套（2026-10-12，coding plan §2 / §3）：形状 + 几条纯规则（AL 节）、
+// 任务账本那一套（，coding plan §2 / §3）：形状 + 几条纯规则（AL 节）、
 // 账本自己的语义与落盘/读回（AM 节）。**这一层一个 QWidget 都不碰、一个网络都不开**，
 // 所以能直接 new 出来喂假任务。
 #include "tasks/TaskHistory.hpp"
@@ -246,7 +243,7 @@ static int g_checks = 0;
 
 /// 数"占位符没填上"那条警告（V6h 那一条用）。
 /// NOTE: 处理器必须是**自由函数**（QtMessageHandler 就是个函数指针，带捕获的 lambda
-///       换不过去），所以计数也只好放在文件作用域。
+/// 换不过去），所以计数也只好放在文件作用域。
 static int g_placeholderWarnings = 0;
 
 static void countPlaceholderWarnings(QtMsgType, const QMessageLogContext &,
@@ -283,9 +280,9 @@ static void section(const QString &title) {
  * @brief 往一个路径写一段内容，目录不存在就建出来，**写完立刻关掉句柄**。
  *
  * NOTE: 关句柄不是讲究，是必需的。Windows 上文件被一个还开着的 QFile 攥着时，
- *       后面的 rename / 删除 / 读都会失败，而报出来的错是"拒绝访问"或者
- *       "内容不是合法的 JSON" —— 看着像产品 bug，其实是测试自己没放手。
- *       用它替掉"就地 new 一个 QFile 写到作用域结束"，就不会再踩这个坑。
+ * 后面的 rename / 删除 / 读都会失败，而报出来的错是"拒绝访问"或者
+ * "内容不是合法的 JSON" —— 看着像产品 bug，其实是测试自己没放手。
+ * 用它替掉"就地 new 一个 QFile 写到作用域结束"，就不会再踩这个坑。
  */
 static void writeFileAt(const QString &path, const QByteArray &bytes) {
     QDir().mkpath(QFileInfo(path).absolutePath());
@@ -298,7 +295,7 @@ static void writeFileAt(const QString &path, const QByteArray &bytes) {
 
 /// 把一条路径包成 PowerShell 的单引号字符串（给 V5b 造包那条脚本用）。
 /// NOTE: 单引号里面不转义反斜杠，所以 toNativeSeparators 是可以的；代价是路径里带 `'`
-///       会破 —— 这个沙盒路径是我们自己拼的，不带。
+/// 会破 —— 这个沙盒路径是我们自己拼的，不带。
 static QString psQuoted(const QString &path) {
     return QStringLiteral("'") + QDir::toNativeSeparators(path) + QStringLiteral("'");
 }
@@ -332,10 +329,10 @@ static QJsonObject loadJson(const QString &path) {
 // 改动前的 classpath 算法（原样抄自 LauncherManager.cpp 修改前的内容），
 // 用来和现在的输出做对比，证明 1.19+ 零回归。
 // ---------------------------------------------------------------------------
-/// 把一条"相对数据目录"的路径变成产品现在发出去的那种绝对路径。
-///
-/// ★ 2026-09-28 起 classpath 上的每一条都是**绝对路径**（理由见 legacy::classpath 那段），
-///   所以凡是拿相对路径去比 classpath 的断言都要过这一道。
+// / 把一条"相对数据目录"的路径变成产品现在发出去的那种绝对路径。
+// /
+// / ★ 起 classpath 上的每一条都是**绝对路径**（理由见 legacy::classpath 那段），
+// / 所以凡是拿相对路径去比 classpath 的断言都要过这一道。
 static QString absoluteMcPath(const QString &relative) {
     return QDir::toNativeSeparators(
         QDir(AppPaths::minecraftDir()).absoluteFilePath(relative));
@@ -376,13 +373,6 @@ static bool allowed(const QJsonObject &libObj) {
 }
 
 /// 改动前那条 classpath 算法（"零回归"那条断言拿它当参照）。
-///
-/// ★ 2026-09-28 改成**绝对路径**：产品侧那一天把 classpath 全部换成了绝对路径 ——
-///   Forge/NeoForge 的 BootstrapLauncher 拿 `java.class.path` 里的字符串去和 JVM 模块路径
-///   上的**盘上路径**做 `Paths.get(a).equals(Paths.get(b))` 比较，相对串永远不相等，于是
-///   它认为同一个 jar 上了两次模块路径并抛 `IllegalStateException`（真机 6 个 NeoForge
-///   实例全崩在那一条）。这一份参照实现跟着改，那条断言的**意思**没变：产品的算法和一份
-///   独立写出来的实现逐项一致。
 static QStringList classpath(const QJsonObject &versionJson, const QString &versionId) {
     QStringList cp;
     const QString root = AppPaths::minecraftDir();
@@ -421,7 +411,6 @@ static QStringList classpath(const QJsonObject &versionJson, const QString &vers
 
 }  // namespace legacy
 
-// ---------------------------------------------------------------------------
 
 static QString javaVersionOf(const QString &exe) {
     QProcess p;
@@ -645,8 +634,8 @@ static int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
         check(o.stats.skipped == kAssetObjects,
               "F1 冷批次: 只有已在盘上的 asset 对象被跳过（ExistsOnly）",
               QString("skipped=%1").arg(o.stats.skipped));
-        // ★ 用户看进度条时读到的就是这两个数。从前 total 里塞着"跳过的 + 索引"，
-        //   两个数加不出登记总数；现在分母 + 跳过 = 登记的作业 - 索引那一格。
+        // 用户看进度条时读到的就是这两个数。从前 total 里塞着"跳过的 + 索引"，
+        // 两个数加不出登记总数；现在分母 + 跳过 = 登记的作业 - 索引那一格。
         check(o.stats.total + o.stats.skipped == kRegisteredJobs - 1,
               "★ F1 冷批次: 分母 + 跳过 = 登记总数 - 索引那一格（两个数终于对得上）",
               QString("%1 + %2 vs %3").arg(o.stats.total).arg(o.stats.skipped).arg(kRegisteredJobs));
@@ -680,8 +669,8 @@ static int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
 
     // F3 只刷新索引：其余文件都在，只把索引文件删掉
     // NOTE: 索引现在和 objects 同源，落在 AppPaths::assetsDir()（= 沙盒的 .minecraft/assets）
-    //       下，不再是 base + "/assets"。删它其实是多余的（索引无条件重取），留着是为了
-    //       让这一节的名字对得上它想证明的事。
+    // 下，不再是 base + "/assets"。删它其实是多余的（索引无条件重取），留着是为了
+    // 让这一节的名字对得上它想证明的事。
     {
         QFile::remove(sandbox + "/assets/indexes/synthidx.json");
         const BatchObservation o = runBatch(app, startGood(warmBase));
@@ -778,9 +767,9 @@ static int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
     }
 
     // F6 索引 SHA1 校验：把 assetIndex.sha1 故意写错。改动前这条路径写完文件就
-    //    success = true（expectedSha1s 里登记了却没人读），镜像源拼错索引时会拿一份
-    //    **内容不对的索引**去下几千个资源，而且要等资源层面才炸、看不出根因。
-    //   改了之后：整批失败、坏索引删掉、后面的解析根本不跑。
+    // success = true（expectedSha1s 里登记了却没人读），镜像源拼错索引时会拿一份
+    // **内容不对的索引**去下几千个资源，而且要等资源层面才炸、看不出根因。
+    // 改了之后：整批失败、坏索引删掉、后面的解析根本不跑。
     {
         QJsonObject badIndexJson = goodJson;
         QJsonObject ai = badIndexJson[QStringLiteral("assetIndex")].toObject();
@@ -818,10 +807,10 @@ static int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
 
     // F6b 索引"能解析、但不是索引"：镜像/代理回一段合法 JSON 的错误体（{"error":...}）。
     //
-    // ★ 2026-10-20：资源对象**故意不占** total/done 的格子（见 downloadAssets），所以从
-    //   前解析失败只 `qWarning` 一句就 return —— 整批照样以"0 个资源、全部成功"收尾：
-    //   版本装好了，材质音效一个都没有，界面上找不到任何异常。现在解析失败必须让索引这
-    //   一条算失败（走镜像退官方 → handleDownloadError），用户至少能看见"索引解析失败"。
+    // 资源对象**故意不占** total/done 的格子（见 downloadAssets），所以从
+    // 前解析失败只 `qWarning` 一句就 return —— 整批照样以"0 个资源、全部成功"收尾：
+    // 版本装好了，材质音效一个都没有，界面上找不到任何异常。现在解析失败必须让索引这
+    // 一条算失败（走镜像退官方 → handleDownloadError），用户至少能看见"索引解析失败"。
     {
         const synth::RemoteFile brokenIndex = synth::makeRemote(
             remoteDir, QStringLiteral("indexes/brokenidx.json"),
@@ -1029,7 +1018,7 @@ static int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox)
           "G3 没有 version.json 时: 立刻回一个失败终态（UI 不会卡在下载中）",
           QString::number(emissions));
 
-    // --- G4：从信号里往回接续（2026-09-22 那次无日志崩溃的修复）-------------------
+    // --- G4：从信号里往回接续（ 那次无日志崩溃的修复）-------------------
     //
     // 那次是：原版那一批下完 -> allDownloadsFinished -> **在上一批的栈里**同步起了"加载器
     // 自己的库"那个批次 -> extractAssetIndex() -> Qt 内部一把 QReadWriteLock 的 unlock()
@@ -1063,13 +1052,13 @@ static int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox)
 
     // --- G5：补全文件（VersionManager::repairVersionFiles）------------------------
     //
-    // 实例设置「启动」栏那颗「补全文件」走的就是它。用户 2026-09-26 的原话是「校验已装的，
+    // 实例设置「启动」栏那颗「补全文件」走的就是它。用户 的原话是「校验已装的，
     // 缺哪个补哪个」—— 前半句是重点：**不是"缺了才下"**，内容不对的也要换掉。
     //
     // 它和 downloadVersion() 有三处刻意不同（见 .hpp 里那段块注释），三条都在这里钉：
-    //   ① json 从盘上读 —— 这一节从头到尾没有网络、也没有先 fetchVersionDetails 过；
-    //   ② **不**写 version.json（那一步只有"下载一个版本"才该做）；
-    //   ③ 客户端 jar 的落点按 InstanceFiles::jarPath()：加载器实例补的是**父版本**那一份。
+    // ① json 从盘上读 —— 这一节从头到尾没有网络、也没有先 fetchVersionDetails 过；
+    // ② **不**写 version.json（那一步只有"下载一个版本"才该做）；
+    // ③ 客户端 jar 的落点按 InstanceFiles::jarPath()：加载器实例补的是**父版本**那一份。
     //
     // 用上面那批已经下好的文件当前提（G1/G2 摆的就是 jar 1 + 库 2 + 索引 1 这 4 个作业）。
     section("G5. 补全文件：校验已装的，只补缺的和坏的");
@@ -1117,9 +1106,9 @@ static int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox)
           << lastTotal << "\n";
     check(emissions == 1 && lastSuccess, "G5.1 补全: 恰好一个成功终态",
           QString("emissions=%1 success=%2").arg(emissions).arg(lastSuccess));
-    // ★ 用户 2026-10-15 报的就是这一对数：他点一次补全，看到的分母是"这个实例一共有几个
-    //   文件"。现在分母只剩**缺的和坏的**（这里 = 内容不对的 jar + 被删掉的那个库），
-    //   本来就好的那个库和每次都重取的索引都不在里头。
+    // 用户 报的就是这一对数：他点一次补全，看到的分母是"这个实例一共有几个
+    // 文件"。现在分母只剩**缺的和坏的**（这里 = 内容不对的 jar + 被删掉的那个库），
+    // 本来就好的那个库和每次都重取的索引都不在里头。
     check(lastDone == 2 && lastTotal == 2,
           "★ G5.1 补全: 分母 == 缺的 + 坏的 == 2（好的那个库、索引都不进分母）",
           QString("%1/%2").arg(lastDone).arg(lastTotal));
@@ -1131,10 +1120,10 @@ static int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox)
           "G5.4 本来就是好的那个库一个字节都没动（校验通过就跳过，不是全量重写）");
     check(lastMessage.contains(QStringLiteral("跳过")),
           "G5.5 汇总里说明了有几个是本来就存在的", lastMessage);
-    // ★ 逐字钉住那句话的形状：从前写的是「%1 个文件已全部就绪（**其中** %2 个本来就存在，
-    //   已跳过）」——而 %2 当时是包含在 %1 里的，于是"13 个已全部就绪（其中 12 个本来就
-    //   存在）"被读成"只下了 1 个"。改完之后两个数是**并列**的（另有），而且分母本身
-    //   就只剩缺的那几个。
+    // 逐字钉住那句话的形状：从前写的是「%1 个文件已全部就绪（**其中** %2 个本来就存在，
+    // 已跳过）」——而 %2 当时是包含在 %1 里的，于是"13 个已全部就绪（其中 12 个本来就
+    // 存在）"被读成"只下了 1 个"。改完之后两个数是**并列**的（另有），而且分母本身
+    // 就只剩缺的那几个。
     check(lastMessage.contains(
               QStringLiteral("2 个文件已全部就绪（另有 1 个本来就存在，已跳过）。")),
           "★ G5.5 汇总: 「下了 2 个」和「另有 1 个本来就在」是两个并列的数", lastMessage);
@@ -1165,7 +1154,7 @@ static int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox)
           "G5.7 重复补全: 三个文件一个字节都没动");
     check(!vm.isDownloading(), "G5.7 结束后 isDownloading() 为假");
 
-    // --- G5.12：体检点名的那几条（2026-10-15 加的第二个入参）------------------------
+    // --- G5.12：体检点名的那几条（ 加的第二个入参）------------------------
     //
     // 「体检说这个文件是坏的、补全却跳过它」这个洞的补法：把体检那份清单（每条都带绝对路径）
     // 一起交给补全，那一批就**不问盘上那份**、直接重下。链子是
@@ -1190,8 +1179,8 @@ static int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox)
             loop.exec();
         }
         check(emissions == 1 && lastSuccess, "G5.12 点名补全: 一个成功终态", lastMessage);
-        // ★ 和不点名那两趟（G5.7 的「一个文件都不用下」）对照着看：同样三个文件都在盘上、
-        //   全都完好，只有 jar 被点了名 ⇒ 分母是 1 而不是 0。
+        // 和不点名那两趟（G5.7 的「一个文件都不用下」）对照着看：同样三个文件都在盘上、
+        // 全都完好，只有 jar 被点了名 ⇒ 分母是 1 而不是 0。
         check(lastDone == 1 && lastTotal == 1,
               "★ G5.12 点名的那一条进了分母（同样是「全都好好的」，不点名时这个数是 0）",
               QString("%1/%2").arg(lastDone).arg(lastTotal));
@@ -1337,7 +1326,7 @@ static int runVersionManagerFetchFail(QCoreApplication &app) {
 
 // ---------------------------------------------------------------------------
 // I. 版本显示名：formatVersionName / normalizeVersionNameOptions（纯函数）
-//    + VersionManager::displayParts()（读盘）+ LauncherSettings（读写设置）
+// + VersionManager::displayParts()（读盘）+ LauncherSettings（读写设置）
 // ---------------------------------------------------------------------------
 // 这一节的意义：显示名是"用户唯一能看见的版本标识"，而拼错了不会崩、只会安静地
 // 显示成另一个东西（甚至空串）。所以真值表整表逐条钉死，不留任何组合靠推理。
@@ -1572,14 +1561,12 @@ static int runVersionNameTests(const QString &sandbox) {
               "I4 非字符串字段只丢自己，不影响其他字段",
               mixed.customName + "/" + mixed.loaderName);
 
-        // ★★ 2026-10-13（coding plan §2.6 最后一条）：**旧的四个字段原样读，不许猜测剥离**。
-        //
-        //   这一条钉的是"别自作聪明"：`realVersion` 写成 `1.20.1-Forge`（PCL 那种把加载器
-        //   一起塞进版本名的写法）、`loaderName` 写成 `NeoForge-Beta`、显示名两头带空格
-        //   —— 这些都是**用户盘上真实存在的形状**（老启动器写的、或者别人手改的）。任何
-        //   "看见 -Forge 就切掉""顺手 trim 一下"的猜测都会让界面上显示的名字**不是盘上那个**，
-        //   而且这种改法是静默的：少一个字、多一个空格，没人会收到报错。
-        //   要改格式就走「版本名格式」那四个开关（那是明说的规则），不是在这儿猜。
+        // 这一条钉的是"别自作聪明"：`realVersion` 写成 `1.20.1-Forge`（PCL 那种把加载器
+        // 一起塞进版本名的写法）、`loaderName` 写成 `NeoForge-Beta`、显示名两头带空格
+        // —— 这些都是**用户盘上真实存在的形状**（老启动器写的、或者别人手改的）。任何
+        // "看见 -Forge 就切掉""顺手 trim 一下"的猜测都会让界面上显示的名字**不是盘上那个**，
+        // 而且这种改法是静默的：少一个字、多一个空格，没人会收到报错。
+        // 要改格式就走「版本名格式」那四个开关（那是明说的规则），不是在这儿猜。
         check(writeMeta(R"({"name":"  我的整合包  ","realVersion":"1.20.1-Forge",)"
                         R"("loaderName":"NeoForge-Beta","loaderVersion":"21.1.0-beta"})"),
               "I4 能写出带后缀与空白的四个旧字段");
@@ -1695,10 +1682,10 @@ static int runVersionNameTests(const QString &sandbox) {
         check(reopened.versionNameOptions().showLoaderVersion,
               "I5 四个开关跨实例读得回来");
 
-        // 「缺失前置提醒」（2026-10-09，需求一里那个勾）。它有两件事要钉死：
-        //   ① 全新沙盒里**默认开着**（用户要的那个弹窗默认就弹）；
-        //   ② 关掉之后**跨实例读得回来** —— 也就是说读的是盘上 `Download/WarnMissingDependencies`
-        //      那个键，不是留在某个成员变量里（留在内存里的话换一个实例就"自己又打开了"）。
+        // 「缺失前置提醒」（，需求一里那个勾）。它有两件事要钉死：
+        // ① 全新沙盒里**默认开着**（用户要的那个弹窗默认就弹）；
+        // ② 关掉之后**跨实例读得回来** —— 也就是说读的是盘上 `Download/WarnMissingDependencies`
+        // 那个键，不是留在某个成员变量里（留在内存里的话换一个实例就"自己又打开了"）。
         check(reopened.warnMissingDependencies(),
               "I5 全新沙盒里「缺失前置提醒」默认是开的（那个弹窗默认就弹）");
         reopened.setWarnMissingDependencies(false);
@@ -1792,7 +1779,7 @@ static int runVersionNameTests(const QString &sandbox) {
 
     // I7 launchStatusName()：底栏左下角「启动中...」那句里的实例名。
     //
-    // 用户 2026-09-24 原话：「启动的时候…文本为版本名（没有就版本号-加载器名称，**不受名字
+    // 要求：「启动的时候…文本为版本名（没有就版本号-加载器名称，**不受名字
     // 显示设置影响**）启动中...」。这个函数的签名里**没有 options 参数**就是那句话的骨架
     // （想传开关都没处传），下面再用真值表把两档的具体写法钉死。
     {
@@ -1803,14 +1790,14 @@ static int runVersionNameTests(const QString &sandbox) {
         p.loaderVersion = QStringLiteral("21.1.210");
 
         // ① 没有自定义名 → "版本号-加载器名"。**用的是 realVersion 不是目录名** ——
-        //    拿目录名会拼出 `1.21.1-NeoForge_21.1.210-NeoForge`（版本号和加载器各说两遍）。
+        // 拿目录名会拼出 `1.21.1-NeoForge_21.1.210-NeoForge`（版本号和加载器各说两遍）。
         check(launchStatusName(p) == QStringLiteral("1.21.1-NeoForge"),
               "I7 没重命名过 -> 版本号-加载器名", launchStatusName(p));
         check(!launchStatusName(p).contains(QStringLiteral("NeoForge_21.1.210")),
               "I7 不拿目录名当版本号（那会把加载器名也说两遍）", launchStatusName(p));
 
         // ② 有自定义名 → **只用名字**。这一条是"照 formatVersionName() 凑一个开关组合"
-        //    凑不出来的地方：凑出来的会是 `我的整合包-1.21.1-NeoForge`。
+        // 凑不出来的地方：凑出来的会是 `我的整合包-1.21.1-NeoForge`。
         p.customName = QStringLiteral("我的整合包");
         check(launchStatusName(p) == QStringLiteral("我的整合包"),
               "I7 重命名过 -> 只有名字，不缀版本号和加载器", launchStatusName(p));
@@ -1818,7 +1805,7 @@ static int runVersionNameTests(const QString &sandbox) {
               "I7 有名字时结果里不含加载器名", launchStatusName(p));
 
         // ③ 「不受名字显示设置影响」：把四个开关摆遍所有组合，这一句都不许变
-        //    （拿 formatVersionName() 对照着钉——它在某些档位下**就是**会变）。
+        // （拿 formatVersionName() 对照着钉——它在某些档位下**就是**会变）。
         bool stable = true;
         bool formatMoves = false;
         for (int mask = 0; mask < 16; ++mask) {
@@ -1844,7 +1831,7 @@ static int runVersionNameTests(const QString &sandbox) {
               "I7 原版实例 -> 就是版本号", launchStatusName(vanilla));
 
         // ⑤ realVersion 为空时退化成目录名（和 formatVersionName() 同一条兜底：
-        //    这个实例在"启动中"和下拉框里必须报同一个版本号）
+        // 这个实例在"启动中"和下拉框里必须报同一个版本号）
         VersionDisplayParts noReal;
         noReal.id = QStringLiteral("26.2-Fabric 0.19.5");
         noReal.loaderName = QStringLiteral("Fabric");
@@ -1852,9 +1839,9 @@ static int runVersionNameTests(const QString &sandbox) {
               "I7 realVersion 为空时用目录名兜底（和 formatVersionName 同一处退化）",
               launchStatusName(noReal));
         // ⑤b realVersion **非空、但清洗完为空**（只有空白 / 控制字符 —— wtfml.meta 是能手改
-        //     的文本文件）⇒ 必须和上面那一档给同一个答案。2026-09-26 之前这一格两边是分开的：
-        //     formatVersionName() 先清洗再判空，而 launchStatusName() 先判空再清洗 ⇒
-        //     列表里显示目录名、底栏"启动中"那句显示加载器名 —— "两处必须一致"当时是假的。
+        // 的文本文件）⇒ 必须和上面那一档给同一个答案。 之前这一格两边是分开的：
+        // formatVersionName() 先清洗再判空，而 launchStatusName() 先判空再清洗 ⇒
+        // 列表里显示目录名、底栏"启动中"那句显示加载器名 —— "两处必须一致"当时是假的。
         VersionDisplayParts blankReal;
         blankReal.id = QStringLiteral("26.2-Fabric 0.19.5");
         blankReal.realVersion = QStringLiteral("   ");
@@ -2050,7 +2037,7 @@ static int runInstanceFileTests(const QString &sandbox) {
     }
     {
         // ④ 一个 jar 都没有、但 json 声明了父版本 → 认得出。带模组加载器的版本长这样：
-        //    Fabric 装出来的目录里只有一份 json，客户端 jar 在原版那个目录里。
+        // Fabric 装出来的目录里只有一份 json，客户端 jar 在原版那个目录里。
         InstanceFiles::DirListing l =
             listing(QStringLiteral("fabric-loader-0.15.11-1.20.1"), {},
                     {QStringLiteral("fabric-loader-0.15.11-1.20.1.json")});
@@ -2103,8 +2090,8 @@ static int runInstanceFileTests(const QString &sandbox) {
               "N2 libraries/ 里的库 jar 不算候选（扫描不递归）",
               QString::number(afterLibs.jarCandidates.size()));
         // NOTE: 清理必须能真的删干净。以前这里就地 new 了一个 QFile 写到作用域结束，
-        //       句柄还开着，removeRecursively() 就删不掉 —— 每跑一次留一个目录在
-        //       沙盒里，谁也没发现。走 writeFileAt() 它写完就关。
+        // 句柄还开着，removeRecursively() 就删不掉 —— 每跑一次留一个目录在
+        // 沙盒里，谁也没发现。走 writeFileAt() 它写完就关。
         const bool cleaned = QDir(versionsRoot + "/" + id).removeRecursively();
         check(cleaned && !QDir(versionsRoot + "/" + id).exists(),
               "N2 用完的沙盒目录删干净了（句柄没被自己攥着）");
@@ -2189,9 +2176,9 @@ static int runInstanceFileTests(const QString &sandbox) {
 
     // ---- N5：半成品导入 vs 别的启动器装好的加载器实例 ----
     //
-    // ★ 2026-10-20：这两者**长得一样**（没有 wtfml.meta、没有顶层 jar、json 里都有
-    //   inheritsFrom）。只按那三条判会把第三方实例从启动列表里弄消失、点启动还被拦一句
-    //   "还没装完"；所以判据多了第 ④ 条：导入开始时落的标记，或者"薄到只有三格"的 json。
+    // 这两者**长得一样**（没有 wtfml.meta、没有顶层 jar、json 里都有
+    // inheritsFrom）。只按那三条判会把第三方实例从启动列表里弄消失、点启动还被拦一句
+    // "还没装完"；所以判据多了第 ④ 条：导入开始时落的标记，或者"薄到只有三格"的 json。
     {
         const QString stub = QStringLiteral("N段-半成品导入");
         writeFileAt(versionsRoot + "/" + stub + "/" + stub + ".json",
@@ -2223,9 +2210,9 @@ static int runInstanceFileTests(const QString &sandbox) {
         check(InstanceFiles::isUnfinishedImport(marked),
               "N5 有导入标记时就算 json 已经被盖成满的也算半成品");
 
-        // ★ 2026-10-20：同名**不等于**同一个包。标记里记着上一次那份清单的指纹，这一趟拿
-        //   另一个包的指纹来问时不能再走「接着下」—— 否则两个包的文件会混进一个目录，
-        //   而清单里 sha1 对不上的那几条会被当成"已经有文件"跳过。
+        // 同名**不等于**同一个包。标记里记着上一次那份清单的指纹，这一趟拿
+        // 另一个包的指纹来问时不能再走「接着下」—— 否则两个包的文件会混进一个目录，
+        // 而清单里 sha1 对不上的那几条会被当成"已经有文件"跳过。
         const QByteArray manifestA =
             QByteArrayLiteral("{\"formatVersion\":1,\"name\":\"A\",\"files\":[]}");
         const QByteArray manifestB =
@@ -2281,12 +2268,6 @@ static int runInstanceFileTests(const QString &sandbox) {
     }
 
     // ---- N6：实例改名之后，按目录名认人的缓存备份跟着搬 ----
-    //
-    // ★ 2026-10-20：配置回退（`cache/config-backups/<id>`）、资源包备份
-    //   （`cache/resource-pack-backups/<id>`）和存档 level.dat 的备份格子
-    //   （`worldBackupSlot()`：实例目录名 + 世界目录绝对路径的哈希）都是由**目录名**
-    //   派生出来的。改名不搬的话，新名字底下查不到旧备份、清理也够不着 —— 用户看到的
-    //   是"改个名，自动备份全没了"，而磁盘上那份其实还在。
     {
         const QString configRoot = AppPaths::configBackupDir();
         const QString packRoot = AppPaths::resourcePackBackupDir();
@@ -2318,7 +2299,7 @@ static int runInstanceFileTests(const QString &sandbox) {
               "N6 资源包备份格子也搬了");
 
         // 2) 目标格子已经有东西（以前叫过这个名字的另一个实例）⇒ 不合并、不删，
-        //    报一句让用户自己决定。
+        // 报一句让用户自己决定。
         const QString takenOld = QStringLiteral("N段-占用旧");
         const QString takenNew = QStringLiteral("N段-占用新");
         QDir().mkpath(configRoot + "/" + takenOld + "/20261020-120000");
@@ -2346,8 +2327,8 @@ static int runInstanceFileTests(const QString &sandbox) {
               badProblems.join(QStringLiteral(" / ")));
 
         // 4) 存档 level.dat 的备份格子：格子名里同时有实例目录名和世界目录绝对路径的
-        //    哈希，改名把两样都改了。这里走一遍真实时序：先备份 → 改目录名 →
-        //    用新路径查不到（就是那条 bug）→ 搬家 → 新路径查得到、内容还是那一份。
+        // 哈希，改名把两样都改了。这里走一遍真实时序：先备份 → 改目录名 →
+        // 用新路径查不到（就是那条 bug）→ 搬家 → 新路径查得到、内容还是那一份。
         const QString slotOld = QStringLiteral("N段-存档改名前");
         const QString slotNew = QStringLiteral("N段-存档改名后");
         const QString worldName = QStringLiteral("世界");
@@ -2636,7 +2617,7 @@ static int runRenameInstanceTests(const QString &sandbox) {
         }
     }
     {
-        // 反过来那一侧：**不是**保留名的不能被误判（2026-09-25 补）。COM0 / LPT0 看着像
+        // 反过来那一侧：**不是**保留名的不能被误判（ 补）。COM0 / LPT0 看着像
         // 设备名，实测**不是**（GetFullPathName 不把它们映射进设备命名空间，建目录照建）；
         // 上标那一族里只有 ¹²³ 三个算设备名，`COM´`（U+00B4，重音符）不算。
         // 判据要是写成"以 COM 开头就拒"，用户给实例起名 COM0 会收到一句"这个名字不能用"
@@ -2847,11 +2828,11 @@ static int runRenameInstanceTests(const QString &sandbox) {
 // 实例分组：<数据目录>/wtfml.folders。
 //
 // NOTE: 这一段里所有"到底写进盘里没有"的断言，一律**换一个 InstanceGroupStore 对象读回来**
-//       再判。拿同一个对象自证等于没验：它把读到的内容缓存在 m_root 里，盘上那份哪怕一个
-//       字节都没动，同一个对象也照样能"读出"它内存里那份看起来正确的值来。
+// 再判。拿同一个对象自证等于没验：它把读到的内容缓存在 m_root 里，盘上那份哪怕一个
+// 字节都没动，同一个对象也照样能"读出"它内存里那份看起来正确的值来。
 // NOTE: 反过来，每个"先自己写一份原始文件、再读"的子段都必须**新建一个 store**：按需重读
-//       的触发条件是"目录变了"，不是"文件变了"（见 InstanceGroupStore::ensureLoaded()）。
-//       这是设计如此 —— 一份 .minecraft 里的文件不会被别人改，能改它的只有启动器自己。
+// 的触发条件是"目录变了"，不是"文件变了"（见 InstanceGroupStore::ensureLoaded()）。
+// 这是设计如此 —— 一份 .minecraft 里的文件不会被别人改，能改它的只有启动器自己。
 static int runInstanceGroupTests(const QString &sandbox) {
     section("Q. 实例分组（wtfml.folders）");
 
@@ -2950,11 +2931,11 @@ static int runInstanceGroupTests(const QString &sandbox) {
     // 和清洗过的组 id 比 —— 两边不一致时，记事本里多敲两个空格的那一条在界面上是一条完全
     // 正常的归属，而**任何一次写盘**（改别的实例的分组就会重写整份文件）都会把它当成
     // "指向一个不存在的组"悄悄清掉：用户下次打开就是"这个实例怎么又回未分组了"，
-    // 而且没有任何提示（2026-09-25 修，写侧那一句见 writeThrough）。
+    // 而且没有任何提示（ 修，写侧那一句见 writeThrough）。
     //
     // NOTE: 这一小段把**整份文件**换成它自己那一份（要的就是"手改过的文件"那个形状），
-    //       所以先留一份原样，验完再写回去 —— 下一节 Q4 用的那两个组就在里面，
-    //       不还回去的话它会以"找不到那个分组"红给你看（而那是这一段的锅）。
+    // 所以先留一份原样，验完再写回去 —— 下一节 Q4 用的那两个组就在里面，
+    // 不还回去的话它会以"找不到那个分组"红给你看（而那是这一段的锅）。
     const QByteArray q3bBefore = readBytes();
     {
         const QString paddedKey = QStringLiteral("Q3b-实例");
@@ -3109,7 +3090,7 @@ static int runInstanceGroupTests(const QString &sandbox) {
         check(InstanceGroupStore().groupIdOf(QStringLiteral("Q8-实例")).isEmpty(),
               "Q8 取消之后这个实例读回来还是未分组（空串）");
 
-        // 但文件里那一条**留着**，写的是那个保留值（2026-09-24 改的）。以前这里写的是
+        // 但文件里那一条**留着**，写的是那个保留值（ 改的）。以前这里写的是
         // "成员表里那条没了"，而那条现在是**错**的：删掉条目 = 用户从来没表过态，于是
         // MainWindow 下一次刷新就按版本类型把它归类回去 —— 表现是"点了确定没生效"。
         // 两者在界面上是同一格，在文件里必须分得开，理由见 ungroupedMarker() 那段。
@@ -3256,10 +3237,6 @@ static int runInstanceGroupTests(const QString &sandbox) {
     }
 
     // ---------- Q9b 文件读不懂时，assign 报的是**真因**，不是「找不到那个分组」 ----------
-    //
-    // 2026-09-24 改的：assign() 原来先判"这个组在不在已知表里"，而一份读不懂的文件会让
-    // groups() 返回空表 —— 于是用户一路被告知"找不到那个分组，可能刚刚被删掉了"，而
-    // 分组一个都没删，是这一版压根没读进来。查错会查到"我是不是点错了"上去。
     {
         const QByteArray broken = QByteArrayLiteral("{ 这不是 JSON");
         writeRaw(broken);
@@ -3286,7 +3263,7 @@ static int runInstanceGroupTests(const QString &sandbox) {
 
     // ---------- Q13 写盘失败不许在内存里留下幽灵状态 ----------
     //
-    // 这一条验的是 writeThrough() 里那份 candidate 副本（2026-09-24 改的）。原来那三句
+    // 这一条验的是 writeThrough() 里那份 candidate 副本（ 改的）。原来那三句
     // 直接盖在 m_root 上，而后面三条失败路径都不回滚 —— 于是"告知失败"的那个操作会先在
     // 内存里生效（groups() / groupIdOf() 读的正是 m_root），接着**另一次成功的写盘**会把
     // 这份幽灵状态一起提交：「说失败的操作在稍后静默生效」。
@@ -3344,7 +3321,7 @@ static int runInstanceGroupTests(const QString &sandbox) {
     }
 
     // ---------- Q14 五个默认组：什么时候种、什么时候一个字节都不写 ----------
-    // 用户 2026-09-24 原话：「把实例分组做个默认（可安装mod，原版，快照版，远古版，置顶），
+    // 要求：「把实例分组做个默认（可安装mod，原版，快照版，远古版，置顶），
     // 默认可以删除」。**"默认可以删除"这件要求的全部实现就在 Q14b/Q14c 那两条上**：
     // 只有"文件不存在"才种，删过之后就再也不会长回来。
     {
@@ -3455,12 +3432,12 @@ static int runInstanceGroupTests(const QString &sandbox) {
 
     // ---------- Q15 「置顶前的归属」：置顶记下原来在哪一组，取消置顶走回去 ----------
     //
-    // 用户 2026-09-26 原话：「加一个记录置顶前这玩意属于哪一组的，用户直接塞的取消置顶
+    // 要求：「加一个记录置顶前这玩意属于哪一组的，用户直接塞的取消置顶
     // 才归进未分类」。四种来路四种落点（完整规矩见 InstanceGroupStore 文件头那一段），
     // 外加"记录什么时候作废"（写侧那道自清理不变量）和几条空操作。
     //
     // NOTE: 这一段凡是"盘上究竟写了什么"的断言一律读**文件**（readRaw()），不问任何一个
-    //       store 对象 —— 拿内存自证等于没验（见本节开头那两段）。
+    // store 对象 —— 拿内存自证等于没验（见本节开头那两段）。
     {
         const auto membersInFile = [&readRaw]() {
             return readRaw().value(QStringLiteral("members")).toObject();
@@ -3514,7 +3491,7 @@ static int runInstanceGroupTests(const QString &sandbox) {
         }
 
         // (2) 从**没表过态**置顶（显示层按版本类型把它归在某组里）⇒ 取消置顶把成员条目
-        //     **删掉**，让它重新按类型归类 —— 落回它置顶前**显示**的那一组。
+        // **删掉**，让它重新按类型归类 —— 落回它置顶前**显示**的那一组。
         {
             seed(QByteArrayLiteral("{}"), QByteArray());
             InstanceGroupStore store;
@@ -3536,8 +3513,8 @@ static int runInstanceGroupTests(const QString &sandbox) {
         }
 
         // (3) 从「未分组」（= 用户**明确**选过的那一档）置顶 ⇒ 取消置顶回到那条保留值。
-        //     它和 (2) 在界面上是同一格，在文件里必须差一格 —— 这正是"别把 (2) 写成保留值"
-        //     那条的反面：这里写回去的**就是**保留值，因为它本来就是保留值。
+        // 它和 (2) 在界面上是同一格，在文件里必须差一格 —— 这正是"别把 (2) 写成保留值"
+        // 那条的反面：这里写回去的**就是**保留值，因为它本来就是保留值。
         {
             seed(QByteArrayLiteral("{\"Q15-明确未分组\":\"ungrouped\"}"), QByteArray());
             InstanceGroupStore store;
@@ -3559,8 +3536,8 @@ static int runInstanceGroupTests(const QString &sandbox) {
         }
 
         // (4) **用户自己塞进置顶组的** ⇒ 取消置顶落未分组（用户那句"用户直接塞的才归进未分类"）。
-        //     两条来路各来一次：走 assign()（=「移入分组」那个动作），和"文件里本来就在
-        //     置顶组里、连 pinOrigin 这一格都没有"（= 这一版之前的老数据）。
+        // 两条来路各来一次：走 assign()（=「移入分组」那个动作），和"文件里本来就在
+        // 置顶组里、连 pinOrigin 这一格都没有"（= 这一版之前的老数据）。
         {
             seed(QByteArrayLiteral("{}"), QByteArray());
             InstanceGroupStore store;
@@ -3607,7 +3584,7 @@ static int runInstanceGroupTests(const QString &sandbox) {
         }
 
         // (6) 别的动作把记录清掉 —— 写侧那道自清理不变量（只留"此刻确实待在置顶组里"的）。
-        //     每一条都是"先摆成'在置顶组里、记着 g1'，再走那个动作，然后记录必须没了"。
+        // 每一条都是"先摆成'在置顶组里、记着 g1'，再走那个动作，然后记录必须没了"。
         {
             // (6a) 移入别组。
             seed(QByteArrayLiteral("{\"Q15-搬家\":\"g2\"}"),
@@ -3751,13 +3728,13 @@ static int runInstanceGroupTests(const QString &sandbox) {
     return 0;
 }
 
-// 判据在 2026-09-21 放松过：以前要求 <id>/<id>.jar（目录名和 jar 名必须一致），
+// 判据在 放松过：以前要求 <id>/<id>.jar（目录名和 jar 名必须一致），
 // 现在只要求"认得出哪个是客户端 jar"（<id>.jar 优先，否则顶层恰好一个 jar 就是它）。
 //
 // NOTE: J1 那几条**是有意翻转的**，不是"顺手改坏又被改回来"。旧断言写着"判据没有放松"，
-//       而它当初存在的唯一目的就是钉住那个行为。翻转的理由：用户自己在资源管理器里改了
-//       目录名、没改里面 jar 名的实例，旧判据下会从列表里**静默消失**（真机上 388 MB 和
-//       851 MB 的整合包各一个），本轮要消灭的正是这种静默。
+// 而它当初存在的唯一目的就是钉住那个行为。翻转的理由：用户自己在资源管理器里改了
+// 目录名、没改里面 jar 名的实例，旧判据下会从列表里**静默消失**（真机上 388 MB 和
+// 851 MB 的整合包各一个），本轮要消灭的正是这种静默。
 static int runInstalledScanTests(const QString &sandbox) {
     section("J. 已安装版本扫描（认不出的要说）");
 
@@ -3861,7 +3838,7 @@ static int runMemorySuggestionTests(const QString &sandbox) {
 
     // ---- L1: Xmx 真值表 ----
     // 规则：min(总/4, 可用/2) → 夹 [1024, 8192] → 再套"物理内存一半"的硬顶 →
-    //       向下取整到 256，但不小于 256。
+    // 向下取整到 256，但不小于 256。
     struct XmxCase {
         qint64 total;
         qint64 available;
@@ -4140,10 +4117,10 @@ static int runMemorySuggestionTests(const QString &sandbox) {
 //
 // 这个纯函数决定"扫本机 Java 时能不能不启动 JVM"，而它解析错了的后果是**静默认不出**
 // 已经装好的 Java（然后白白去下一个几百 MB 的运行时）。所以这里钉两件事：
-//   1. 各种写法的真值表 —— 含只写 JAVA_VERSION_DATE 这种假阳性陷阱；
-//   2. 真机对账 —— 每个扫出来的运行时，"release 文件里读到的版本"必须等于"真的跑一次
-//      java -version 问出来的版本"。这一条才是"快路没有改变结果"的凭据，
-//      前一条只证明解析器本身对。
+// 1. 各种写法的真值表 —— 含只写 JAVA_VERSION_DATE 这种假阳性陷阱；
+// 2. 真机对账 —— 每个扫出来的运行时，"release 文件里读到的版本"必须等于"真的跑一次
+// java -version 问出来的版本"。这一条才是"快路没有改变结果"的凭据，
+// 前一条只证明解析器本身对。
 // ---------------------------------------------------------------------------
 static void runEffectiveJavaSettingsTests(const QString &sandbox) {
     section("R. 每实例设置的合成（resolveJavaSettings / 覆盖的读写）");
@@ -4209,9 +4186,9 @@ static void runEffectiveJavaSettingsTests(const QString &sandbox) {
         check(onlyChanged(ov, QStringLiteral("xms")), "R2 只覆盖 Xms");
     }
     {
-        // ★ 2026-10-18：覆盖里的 autoMemory **不再参与合成**（界面上「内存分配」那一档
-        //   撤掉了）。老实例的 meta 里留着 true 时，有效值必须逐字段等于全局 —— 认了它，
-        //   用户拖出来的数每次启动都会被重算掉，而界面上没有关掉它的入口。
+        // 覆盖里的 autoMemory **不再参与合成**（界面上「内存分配」那一档
+        // 撤掉了）。老实例的 meta 里留着 true 时，有效值必须逐字段等于全局 —— 认了它，
+        // 用户拖出来的数每次启动都会被重算掉，而界面上没有关掉它的入口。
         JavaSettingsOverride ov;
         ov.autoMemory = true;
         const EffectiveJavaSettings got = resolveJavaSettings(global, ov);
@@ -4289,7 +4266,7 @@ static void runEffectiveJavaSettingsTests(const QString &sandbox) {
               "R4 xmx 写成了字符串 → 当没有（**不是**当成 0）");
         check(javaOverrideFromJson(QJsonObject{{QStringLiteral("autoMemory"), 1}}).isEmpty(),
               "R4 autoMemory 写成数字 → 当没有");
-        // 非整数的 double：**自己截断**（2026-09-25 修）。这一条钉的是一个实测过的 Qt 行为：
+        // 非整数的 double：**自己截断**（ 修）。这一条钉的是一个实测过的 Qt 行为：
         // QJsonValue::toInt() 遇到 4096.5 返回的是**默认值 0**（它不截断，探针见
         // tmp/probe_toint），而那个 0 一路走到夹取那一段就变成"用户设了 4096 MB、起步内存
         // 256 MB"这种**没人报错**的错值。所以截断是我们自己做的，而且下限以下/上限以上
@@ -4453,8 +4430,8 @@ static void runEffectiveJavaSettingsTests(const QString &sandbox) {
         }
 
         // ③ 真盘一趟：清空追加参数之后那个键要**从文件里消失**（不是留一个空数组）。
-        //    这条是 R7 存在的理由：留着一个空数组时读侧当空、界面上也看不出来，但手写
-        //    这个文件的人会以为该往里填 —— 而"这个实例没有追加参数"就是键不存在。
+        // 这条是 R7 存在的理由：留着一个空数组时读侧当空、界面上也看不出来，但手写
+        // 这个文件的人会以为该往里填 —— 而"这个实例没有追加参数"就是键不存在。
         {
             const QString versionId = QStringLiteral("实例设置字段版本");
             const QString versionDir = AppPaths::versionDir(versionId);
@@ -4488,10 +4465,6 @@ static void runEffectiveJavaSettingsTests(const QString &sandbox) {
 
 // ---------------------------------------------------------------------------
 // S. 实例 Java 版本不符时的提醒开关
-//
-// 这个功能有两处存储、各管一段：**全局总闸**（QSettings 的 Java/WarnVersionMismatch）
-// 和**每个实例自己的记忆**（wtfml.meta 的 skipJavaVersionWarning）。这里钉这两处的
-// 读写语义；"谁在什么时候问"归 mw_check 的 U 段，那个三岔口对话框本身归 ui_check 的 V 段。
 //
 // 为什么值得单开一段：两处的默认值都必须是"提醒" —— 那是加这个功能之前的行为
 // （一律报错拦下，等于总是提醒）。默认值写反，老配置一升级就变成"悄悄放行一个版本
@@ -4728,7 +4701,7 @@ static void runJavaReleaseParseTests() {
 
 /// 造一段"看起来像皮肤 PNG"的字节：8 字节签名 + IHDR + 宽高。
 /// NOTE: **不是**一张真能解码的图 —— looksLikeSkinPng() 只看文件头这 24 个字节，
-///       这一节要验的正是"它只看了那么点"（真解码那一步在界面侧，见 .hpp）。
+/// 这一节要验的正是"它只看了那么点"（真解码那一步在界面侧，见 .hpp）。
 static QByteArray fakeSkinPng(quint32 width, quint32 height) {
     const auto bigEndian = [](quint32 value) {
         QByteArray bytes;
@@ -4939,7 +4912,7 @@ static void runPlayerSkinTests(const QString &sandbox) {
               "T5 只有签名、后面截断了 → 不认（不能读越界）");
     }
 
-    // ---- T6 贴图地址认不认（官方给的就是 http://，这条 2026-09-21 折在真机上） ----
+    // ---- T6 贴图地址认不认（官方给的就是 http://，这条 折在真机上） ----
     {
         // 下面这个 URL 是**真档案里的形状**，不是编的：官方 sessionserver 返回的
         // SKIN.url / CAPE.url 都是 `http://textures.minecraft.net/texture/<sha>`。
@@ -5024,8 +4997,8 @@ static void runPlayerSkinTests(const QString &sandbox) {
               lastError);
 
         // NOTE: "不命中缓存时会去请求"这条**故意不在这里断言** —— 那会真的发一个请求，
-        //       而这一节是不联网的。它的两个半边都有别的落点：缓存检查发生在请求之前
-        //       （T6b 那条同步性），请求本身的行为留给真机验证。
+        // 而这一节是不联网的。它的两个半边都有别的落点：缓存检查发生在请求之前
+        // （T6b 那条同步性），请求本身的行为留给真机验证。
         QFile::remove(path);
     }
 
@@ -5039,7 +5012,7 @@ static void runPlayerSkinTests(const QString &sandbox) {
         check(PlayerSkinStore::classifyProfileResponse(204, QByteArray()) ==
                   Outcome::NoSuchPlayer,
               "T7 204 → 「查不到这个人」（sessionserver 也用 204 表达软限流），**不是错误**");
-        // 429 以前钉的是 Failed（理由是"限流走 204 那条路"）—— 2026-09-22 真机上撞到它
+        // 429 以前钉的是 Failed（理由是"限流走 204 那条路"）—— 真机上撞到它
         // 之后这条理由不成立了：它确实是限流，而且是**明说**的那种。
         check(PlayerSkinStore::classifyProfileResponse(429, QByteArray()) == Outcome::Throttled,
               "T7 429 → 限流（也不是错误，但和 204 不同：它明说问得太勤，要退避）");
@@ -5066,17 +5039,16 @@ static void runPlayerSkinTests(const QString &sandbox) {
     }
 }
 
-// ---------------------------------------------------------------------------
 
 /// 离线账号那张随机皮肤：地址怎么拼、列表怎么解、挑下标越界了怎么办、盘上那一行还算不算数。
 ///
 /// NOTE: 这一节**一个请求都不发**。"那个端点今天还在不在"不是断言能钉住的东西，它归
-///       mw_check 里那条一次性探针（`random-skin-live`）。这里只钉**没有一行能靠肉眼
-///       看准**的那几件事。
+/// mw_check 里那条一次性探针（`random-skin-live`）。这里只钉**没有一行能靠肉眼
+/// 看准**的那几件事。
 static void runRandomSkinTests(const QString &sandbox) {
     section("ZE. 离线账号的随机皮肤（挑地址 + 记盘）");
 
-    // 下面这两个哈希是**真的**：2026-09-24 从 `api.mineskin.org/v2/skins?size=3` 拿回来的
+    // 下面这两个哈希是**真的**： 从 `api.mineskin.org/v2/skins?size=3` 拿回来的
     // 那三行原样（连重复的那一条也照抄 —— 它正好拿来钉去重）。自己编一串 `aaaa…` 证不了
     // "64 位十六进制"这个形态是**从真响应里**看出来的这件事。
     const QString hashA = QStringLiteral(
@@ -5094,8 +5066,6 @@ static void runRandomSkinTests(const QString &sandbox) {
         check(list.query() == QStringLiteral("size=128"),
               "ZE1 默认要满一页（列表只有 next 游标、没有「跳到第 N 页」，「随机」的范围就是这一页）",
               list.query());
-        // 超限**自己先钳住**：官方对超限回的是 400（实测 size=200/256/500 都是），
-        // 而不是一个截短了的列表 —— 与其拿一个 400 去猜，不如根本别发出去。
         check(RandomSkinStore::listRequestUrl(100000).query() == QStringLiteral("size=128"),
               "ZE1 要得比上限多 → 钳到 128（官方对超限回 400，不是给个短列表）",
               RandomSkinStore::listRequestUrl(100000).query());
@@ -5138,12 +5108,12 @@ static void runRandomSkinTests(const QString &sandbox) {
     // ---- ZE3 解那一页（真响应 + 每一条坏在哪） ----
     {
         // 真响应的形状（`name` 真的是 null）。里面混了六条，只有两条该活下来：
-        //   ① hashA            真的、能用
-        //   ② hashA 再来一次    同一张图连着出现 —— **去重**
-        //   ③ hashB            真的、能用
-        //   ④ 短一位的 hash     形态不对 → 丢（留着它只会在挑中之后才发现是坏的）
-        //   ⑤ 大写 hash         同上
-        //   ⑥ texture 是 null   没有贴图 → 跳过（另一条还是能挑）
+        // ① hashA 真的、能用
+        // ② hashA 再来一次 同一张图连着出现 —— **去重**
+        // ③ hashB 真的、能用
+        // ④ 短一位的 hash 形态不对 → 丢（留着它只会在挑中之后才发现是坏的）
+        // ⑤ 大写 hash 同上
+        // ⑥ texture 是 null 没有贴图 → 跳过（另一条还是能挑）
         const QByteArray body =
             QByteArrayLiteral(R"JSON({"success":true,"skins":[)JSON") +
             QByteArrayLiteral(R"JSON({"uuid":"c1db371c68fe4c02a4069aed4aa44bbe",)JSON")
@@ -5442,10 +5412,6 @@ static void runOfflineSkinTests(const QString &sandbox) {
 // 目录 + 假 JAR，因为这一节最要紧的一条断言恰恰是"判据是**那个 JAR 里有没有这一条**，
 // 不是版本号" —— 拿真版本号去判就证不出这件事（而且分界线那两个小版本本机一个都没有）。
 //
-// 真值表来自**本机 JVM**：一个跑 `UUID.nameUUIDFromBytes(("OfflinePlayer:" + 名字).getBytes(UTF_8))`
-// 的小程序（java-runtime-delta 那份 JDK 编译运行的）。自己按理解推一遍再拿它当断言，
-// 等于什么都没证 —— 所以这里钉的是 JVM 打印出来的那几行原样，含两个中文名字。
-//
 // 假 JAR 那套工具（makeFakeJar / makePngBytes）在 fakejar.hpp 里，和 mw_check 的 ZG 段共用。
 // ---------------------------------------------------------------------------
 static void runDefaultSkinTests(const QString &sandbox) {
@@ -5706,7 +5672,7 @@ static void runDefaultSkinTests(const QString &sandbox) {
     // ---- ZF8 取不到 / 坏掉，各是哪一种 ----
     {
         // ① 两条都没有（不是原版客户端：第三方安装器做的薄壳 JAR 就长这样）→ Unavailable，
-        //    这是**常态**：调用方会退回"随机挑一张"，不报错。
+        // 这是**常态**：调用方会退回"随机挑一张"，不报错。
         const QString emptyId = QStringLiteral("1.19.9-noskin");
         const QString emptyJar = sandbox + QStringLiteral("/versions/") + emptyId + QLatin1Char('/') +
                                  emptyId + QStringLiteral(".jar");
@@ -5728,7 +5694,7 @@ static void runDefaultSkinTests(const QString &sandbox) {
               "ZF8 没选中任何已安装版本 → Unavailable", reason);
 
         // ③ 那个 JAR 根本不是 zip（文件坏了 / 半截）→ Failed。和"没有这一条"分开：
-        //    前者值得记一行日志，后者是常态。
+        // 前者值得记一行日志，后者是常态。
         const QString brokenId = QStringLiteral("1.20.6-notzip");
         const QString brokenJar = sandbox + QStringLiteral("/versions/") + brokenId +
                                   QLatin1Char('/') + brokenId + QStringLiteral(".jar");
@@ -5755,8 +5721,8 @@ static void runDefaultSkinTests(const QString &sandbox) {
               QStringLiteral("「%1」").arg(reason));
 
         // ④ 条目在、但不是一张图 → Failed，而且**盘上不许留下东西**：写下去的话
-        //    "文件存在"就等于"已经算好了"，那张坏图会永远躺在缓存里（每次开启动器都拿它
-        //    解码、每次失败，而且再没有哪一趟来纠正它）。
+        // "文件存在"就等于"已经算好了"，那张坏图会永远躺在缓存里（每次开启动器都拿它
+        // 解码、每次失败，而且再没有哪一趟来纠正它）。
         const QString badPngId = QStringLiteral("1.20.7-badpng");
         const QString badPngJar = sandbox + QStringLiteral("/versions/") + badPngId +
                                   QLatin1Char('/') + badPngId + QStringLiteral(".jar");
@@ -5880,7 +5846,7 @@ static void runLoaderInheritanceTests(const QString &sandbox) {
     // 这条是上面那条的另一半：子**声明了**这个键，哪怕值是空对象也是子赢（不回退到父的）。
     // 真数据里就有这一号 —— Forge 装出来的 profile 写着 `"logging": {}`，用意正是把原版
     // 那份 log4j 配置清掉，官方启动器的合并同样是"子赢"。只有 null / 根本没有这个键才
-    // 算"没写"。**判据不能写成"logging 必须非空"**：2026-09-22 就是这条把真装的断言顶红
+    // 算"没写"。**判据不能写成"logging 必须非空"**： 就是这条把真装的断言顶红
     // 的（当时还怀疑是 merge 丢了键，其实数据里就是空对象）。
     {
         QJsonObject childClearingLogging = loader;
@@ -5898,7 +5864,7 @@ static void runLoaderInheritanceTests(const QString &sandbox) {
     // 父自己也指着上一级那种（子 → 父 → 祖父）才是会漏的那个形状：`out = parent` 会把
     // 父的 inheritsFrom 一起抄过来，于是合出来的这份 json 还指着祖父 —— 读它的人
     // （启动参数展开、classpath 拼接）会再去找祖父合一遍，多走一层。合完就是**什么都不缺**
-    // 的一份，那个字段一条都不该留（2026-09-25 修）。
+    // 的一份，那个字段一条都不该留（ 修）。
     {
         QJsonObject chainedParent = vanilla;
         chainedParent.insert(QStringLiteral("inheritsFrom"), QStringLiteral("1.19.2"));
@@ -6350,37 +6316,6 @@ static void runLoaderInheritanceTests(const QString &sandbox) {
 // 和"发请求"拆开：所有决定（LoaderMeta 里的纯函数、VersionManager 里的下标翻译）都在
 // 这一节钉住；"真发请求那一次"是 `loader-install` 那个**联网**模式（见下面那一段），
 // 不进默认模式。
-//
-// 这一节里的数据全部是**真数据**（tests/meta/ 下那几份原样存下来的）：
-//   fabric-loader-0.19.5-1.19.json    meta.fabricmc.net 的 profile
-//   forge-promotions_slim.json        files.minecraftforge.net 的推广版本表
-//   neoforge-maven-metadata.xml       maven.neoforged.net 的全部 1716 个版本号
-//   optifine-downloads.html           optifine.net/downloads 整页 203 KB（53 个游戏版本一节）
-//   optifine-1.18.2-list.json         bmclapi2 的 /optifine/1.18.2（11 条，正式版和预览版混排）
-//   optifine-adloadx.html             optifine.net/adloadx?f=… 的广告页（那条带 token 的链接）
-//   forge-promotions_slim_mirror.json **镜像（BMCLAPI）**那份 Forge 推广表 —— 2026-09-22
-//                                     实测是个旧文件（1782 B / 29 个游戏版本，最新停在
-//                                     1.15.2），用户报的"每个版本都没有 Forge 支持"就是从
-//                                     它来的
-//   installer-help-legacy-1.8.9.txt   Forge 1.8.9 安装器（11.15.1.2318）的 `--help` 原样
-//   installer-help-neoforge-26.2.txt  NeoForge 26.2 安装器的 `--help` 原样
-//   forge-install-profile-1.12.2-14.23.5.2847.json
-//   forge-install-profile-1.7.10-10.13.4.1614-1.7.10.json
-//   forge-install-profile-1.12.2-14.23.5.2860.json
-//                                    三份都是**从真的安装器 jar 里抽出来的**
-//                                    `install_profile.json` 原样：前两份是老格式（install +
-//                                    versionInfo），第三份是新格式（spec/profile/processors）
-//                                    —— 新格式那份认 `--installClient`，不走"自己装"那条路，
-//                                    在这里当**反面判据**用（2026-10-17 抽的）
-//   neoforge-26.2.0.88.json           NeoForge 安装器写出来的那份 profile 原样（它的
-//                                     arguments.game 里就是启动崩溃缺的那三个 --fml.*）
-// 挑版本的规则、id 的格式、inheritsFrom 长什么样，都不许靠我自己的样例来证 —— U 节那次
-// 已经吃过"自造 json 永远抓不到真数据里的 `+`"的亏。
-//
-// NOTE: NeoForge 那几条尤其只能拿真数据验：`<versions>` 是**按发布时间排的**（实测那份的
-//       末尾是 `21.1.251, 26.3.0.8-beta` —— 一个给旧版本补发的正式版夹在一堆快照中间），
-//       自造的"排序好的"样例会把"取最后一个"这种错做法验成绿的。
-// ---------------------------------------------------------------------------
 static void runLoaderInstallTests() {
     section("V. 加载器安装（纯函数：地址 / 挑版本 / profile 检查 / 下标翻译）");
 
@@ -6416,7 +6351,6 @@ static void runLoaderInstallTests() {
         return QJsonObject{{QStringLiteral("loader"), loader}};
     };
     {
-        // 实测的形状：第一条就是 stable。
         const QJsonArray realShaped{entry(QStringLiteral("0.19.5"), true),
                                     entry(QStringLiteral("0.19.4"), false),
                                     entry(QStringLiteral("0.19.3"), false)};
@@ -6553,7 +6487,7 @@ static void runLoaderInstallTests() {
         check(VersionManager::loaderKindFromIndex(0, nullptr),
               "V4 out 允许传 nullptr（只想问「这个下标认不认」）");
 
-        // 四个都接通了（OptiFine 是 2026-09-22 接上的，走的是第三条路：**无界面入口 +
+        // 四个都接通了（OptiFine 是 接上的，走的是第三条路：**无界面入口 +
         // 换 APPDATA + 对着临时目录装**）。界面靠它决定"点了下载弹哪一种话"，数据层也靠
         // 它拦一道 —— 挡反了的症状是"用户勾着某个加载器，装出来一个纯原版"。
         check(VersionManager::loaderInstallSupported(VersionManager::LoaderKind::Fabric) &&
@@ -6578,7 +6512,6 @@ static void runLoaderInstallTests() {
     check(!forgePromos[QStringLiteral("promos")].toObject().isEmpty(),
           "V5 真推广表读到了（顶层得有个非空的 promos）");
     {
-        // 实测 1.20.1 那一对是 47.4.10（recommended）/ 47.4.23（latest）。
         const LoaderMeta::LoaderPick rec =
             LoaderMeta::pickForgeVersion(forgePromos, QStringLiteral("1.20.1"));
         check(rec.ok() && rec.version == QStringLiteral("47.4.10") && rec.stable,
@@ -6628,11 +6561,7 @@ static void runLoaderInstallTests() {
               "V5 推广表地址里没有空格（拼坏了的症状是 404，不是崩）");
     }
 
-    // --- V5b. 镜像那份推广表是**旧的**（2026-09-22 加）--------------------------
-    //
-    // 用户报的是"反复提示各个版本没有 Forge 支持（实际上是有的）"。真因在**数据**上：镜像
-    // （BMCLAPI）那份 promotions_slim.json 是个旧文件，拿它挑 1.16 以后的版本**一条都挑不
-    // 出来**，于是界面上就成了"这个版本还没有 Forge 支持"。两份都是实测原样存下来的。
+    // --- V5b. 镜像那份推广表是**旧的**（ 加）--------------------------
     //
     // 所以版本表那条路是"镜像发一发，挑不出来就换官方再发一发"（见 VersionManager::
     // retryInstallerListFromOfficial）。这一节钉的就是那个前提：镜像那份确实挑不出来、
@@ -6670,10 +6599,6 @@ static void runLoaderInstallTests() {
     }
 
     // --- V6. NeoForge：版本号比大小 / 前缀匹配 / 从 maven 元数据里挑 ------------
-    //
-    // 这一节的值全得和**真数据**对上：maven 那份 1716 个版本号里有 21.1.x 和 21.10.x
-    // 两族（分别对应 MC 1.21.1 和 1.21.10），按字符串前缀比就会把它们混起来 ——
-    // 实测最容易犯的错是"1.21.1 挑出 21.10.64"。
     {
         // 一个小糖：让下面那几条断言能写成 nums({21, 1, 251}) 的样子。
         const auto nums = [](QList<int> values) { return values; };
@@ -6723,7 +6648,7 @@ static void runLoaderInstallTests() {
 
         // --- V6b 自然序比较（compareVersionStrings）----------------------------
         //
-        // 这一级是 2026-09-24 修的：排序的最后一级 tie-break 原来是 `a < b`（字符串），
+        // 这一级是 修的：排序的最后一级 tie-break 原来是 `a < b`（字符串），
         // 而它接手的正是"切掉后缀之后数字一模一样"的那一族 —— NeoForge 26.1 那批
         // `26.1.0.0-alpha.N+snapshot-N`。按字符串比 `alpha.10 < alpha.2`，于是「最新档」
         // 会挑中一个更旧的快照（列表是"新到旧"的）。
@@ -6837,11 +6762,11 @@ static void runLoaderInstallTests() {
               LoaderMeta::neoforgeInstallerUrl(QStringLiteral("21.1.251")));
     }
 
-    // --- V6b. 官方地址 -> 镜像地址（含 2026-09-22 新认的 Forge / NeoForge 那几条）------
+    // --- V6b. 官方地址 -> 镜像地址（含 新认的 Forge / NeoForge 那几条）------
     //
     // 这一批是**纯函数**、不碰网络，钉的是"哪条地址会被换成什么"。换错的症状不是崩，而是
     // "下载全失败"或者"白等了很久才发现根本没走镜像"，所以每条都得有写死的期望值。
-    // NOTE: 这几条 2026-09-22 才补上（在此之前这四个函数一条断言都没有）。
+    // NOTE: 这几条 才补上（在此之前这四个函数一条断言都没有）。
     {
         const QString base = QStringLiteral("https://bmclapi2.bangbang93.com");
 
@@ -6861,7 +6786,6 @@ static void runLoaderInstallTests() {
                   base + QStringLiteral("/maven/com/foo/bar/1.0/bar-1.0.jar"),
               "V6b 原版库：加 /maven 前缀");
 
-        // 2026-09-22 新认的（用户报的"forge 下载太慢"就是走这条路）。
         check(DownloadManager::mirrorUrl(LoaderMeta::forgeInstallerUrl(
                   QStringLiteral("1.20.1"), QStringLiteral("47.4.10"))) ==
                   base + QStringLiteral("/maven/net/minecraftforge/forge/1.20.1-47.4.10/"
@@ -6915,8 +6839,6 @@ static void runLoaderInstallTests() {
               "V6b 资源索引按索引号拼（这条地址在镜像上实测 404，所以下载那边有一条"
               "退回官方的兜底 —— 那一段只有联网真跑才看得见，见 loader-install 的 mirror 模式）");
 
-        // 给安装器的那个根地址：**结尾的斜杠是行为的一部分**，不是排版问题（实测漏了它，
-        // 安装器会去要 .../mavennet/...，镜像 404、它自己退回官方）。
         const QString mavenRoot = DownloadManager::mirrorMavenRootUrl();
         check(mavenRoot == base + QStringLiteral("/maven/"),
               "V6b --mirror 用的根地址就是这个", mavenRoot);
@@ -6925,11 +6847,6 @@ static void runLoaderInstallTests() {
     }
 
     // --- V6c. 安装器命令行（--mirror 把安装器自己那条下载路钉到一个明确的根上）-----
-    //
-    // ★ 2026-10-17 改过一次语义：以前官方模式**不给** --mirror，理由是"用户的源选择不许
-    //   被绕过"。但实测（加载器矩阵）不给它的时候安装器去的既不是镜像、也不是官方，而是
-    //   它内置的第三方镜像列表（本机挑中 creeperhost），那条连接一坏整次安装就死在
-    //   `org.ow2.asm:asm:9.6` 上。官方模式下给**官方 maven 根**恰恰是"按用户的选择来"。
     {
         const QString jar = QStringLiteral("C:/cache/installers/forge-1.20.1-47.4.10-installer.jar");
         const QStringList official = VersionManager::forgeInstallerArguments(
@@ -6966,7 +6883,7 @@ static void runLoaderInstallTests() {
               LoaderMeta::neoForgeMavenRoot());
     }
 
-    // --- V6g. 安装器的命令行开关要**先探一次**（2026-09-22 加）-----------------
+    // --- V6g. 安装器的命令行开关要**先探一次**（ 加）-----------------
     //
     // 起因是一条真机日志（用户报的那个 1.8.9 安装失败）：安装器被喂了 `--installClient`，
     // 它当场 joptsimple.UnrecognizedOptionException 退出码 1 —— 那个年代的安装器把"装
@@ -7032,8 +6949,6 @@ static void runLoaderInstallTests() {
         check(yesMirror.size() == 6,
               "V6g 认 --mirror 时照旧给（老行为不变）", yesMirror.join(QLatin1Char(' ')));
 
-        // 老游戏版本的安装器 jar 在**另一种坐标**上（实测：1.8.9-11.15.1.2318-1.8.9 有、
-        // 单坐标那份 404）。常规那种下不来时换它再下一遍。
         check(LoaderMeta::forgeInstallerUrlAlternate(QStringLiteral("1.8.9"),
                                                      QStringLiteral("11.15.1.2318")) ==
                   QStringLiteral("https://maven.minecraftforge.net/net/minecraftforge/forge/"
@@ -7050,7 +6965,7 @@ static void runLoaderInstallTests() {
               " —— 也正是 V6d 那条 shouldRecordOfficialFallback 的判据");
     }
 
-    // --- V6i. 老 Forge：照它自己那份安装说明装（2026-10-17 加）-----------------
+    // --- V6i. 老 Forge：照它自己那份安装说明装（ 加）-----------------
     //
     // 起因是用户那句话：「forge 在新电脑上完全装不了难道不算 bug」—— 1.7.10 / 1.8.9 /
     // 1.9.4 / 1.10.2 / 1.11.2 和 1.12.2 的**推荐版（2847）**这些安装器都没有
@@ -7127,7 +7042,7 @@ static void runLoaderInstallTests() {
                   "5.0.3）—— 留着就是拿我们猜的地址下重一遍",
                   QString::number(plan.droppedFromParent));
 
-            // ★ 这一条是整条路的地基：它自己那颗库**不能带 url**。
+            // 这一条是整条路的地基：它自己那颗库**不能带 url**。
             const LibraryRules::Artifact universal = LibraryRules::artifactFor(
                 libs.value(QStringLiteral("net.minecraftforge:forge:1.12.2-14.23.5.2847")));
             check(universal.localOnly && universal.hasPath() && !universal.valid(),
@@ -7138,8 +7053,6 @@ static void runLoaderInstallTests() {
             check(universal.path == plan.universalLibraryPath,
                   "V6i 「摆到哪」和「classpath 挂哪」是同一处算出来的", universal.path);
 
-            // 没有 url、原版也不带的四颗：按 Mojang 拼（实测那四颗在 Mojang 上都是 200，
-            // 而 launchwrapper 在 forge maven 上是 404）。
             check(plan.assumedMojang == 4,
                   "V6i 没有 url 而原版也不带的正好四颗（launchwrapper / lzma / vecmath / "
                   "trove4j）",
@@ -7180,11 +7093,6 @@ static void runLoaderInstallTests() {
                   QString::number(unresolved));
         }
 
-        // 1.7.10（更老那个年代）：还是老格式，键的写法却不一样了 —— 它的
-        // `clientreq`/`serverreq` 都在，没有 url 的库是另外六颗。原版那一份这里**故意
-        // 传空对象**：那条路本来就允许"原版 json 拿不到"，此时一条都不丢、全靠 Mojang 兜底
-        // （实测那六颗里 lzma / launchwrapper 在 Mojang 上 200；guava / jopt-simple /
-        // commons-lang3 / asm-all 原版 1.7.10 自己带着，本来也会被上面那条规则丢掉）。
         QFile profile1710File(metaDir +
                               QStringLiteral("/forge-install-profile-1.7.10-10.13.4.1614-1.7.10.json"));
         const bool profile1710Open = profile1710File.open(QIODevice::ReadOnly);
@@ -7272,11 +7180,6 @@ static void runLoaderInstallTests() {
                   "V6i 两个字段都认不出父版本 -> 拒绝（否则写出来的 json 指向一个没下过的原版）");
         }
         {
-            // 反面判据里最容易被"顺手指"改成错的那一条：**不许按 `clientreq` 丢库**。
-            // 2847 那份 profile 里 `org.jline:jline:3.5.1` 写着 `clientreq: false`，而真装
-            // 出来的客户端 classpath 上**有它**（本机 1.12.2-Forge_14.23.5.2860 那份 json
-            // 里，jline 从 forge maven 下来）—— 第一版按这个键丢库，19 条变成了 18 条，
-            // 就是这两条断言抓出来的。这里钉住"它还在、而且地址就是它给的那个"。
             QJsonObject keep = QJsonDocument::fromJson(profile2847).object();
             const LegacyForgeInstall::Plan keepPlan = LegacyForgeInstall::planFromInstallProfile(
                 QJsonDocument(keep).toJson(QJsonDocument::Compact), vanilla122, ourId);
@@ -7291,7 +7194,7 @@ static void runLoaderInstallTests() {
         }
     }
 
-    // --- V6h. version.json 自己声明的游戏参数（2026-09-22 加）------------------
+    // --- V6h. version.json 自己声明的游戏参数（ 加）------------------
     //
     // 起因是用户报的那次启动崩溃：NeoForge 26.2 的版本 json 在 arguments.game 里写着
     // `--fml.neoForgeVersion 26.2.0.88 --fml.mcVersion 26.2 --fml.neoFormVersion 2`，而
@@ -7303,8 +7206,8 @@ static void runLoaderInstallTests() {
     // meta/26.2.json 是原版那份。
     //
     // NOTE: 判据必须是**继承链合并过**的那份 json —— 真实启动时 generateJvmArguments 拿到的
-    //       就是它。第一版把判据设在 `inheritsFrom` 上，而 merge 刻意丢掉了那个字段，于是
-    //       单元测试（喂原样 profile）全绿、真机照旧崩在原来那一句上。所以下面先合并再喂。
+    // 就是它。第一版把判据设在 `inheritsFrom` 上，而 merge 刻意丢掉了那个字段，于是
+    // 单元测试（喂原样 profile）全绿、真机照旧崩在原来那一句上。所以下面先合并再喂。
     {
         const QJsonObject neoforgeJson = loadJson(metaDir + "/neoforge-26.2.0.88.json");
         const QJsonObject vanillaJson = loadJson(metaDir + "/26.2.json");
@@ -7368,19 +7271,19 @@ static void runLoaderInstallTests() {
             check(VersionArguments::extraGameArguments(vanillaLegacy, QStringList(), placeholders)
                       .isEmpty(),
                   "V6h 纯原版（minecraftArguments 那代）也一条都不加");
-            // ★ 占位符警告（2026-09-26 修的那条）：extraGameArguments 拿到的这一份里，
-            //   绝大多数条目**下一句就会被整条跳掉**（原版那套名字启动器上面已经发过了），
-            //   而它们身上的 ${clientid} / ${auth_xuid} / ${user_properties} … 我们本来就
-            //   不提供 —— 所以"替换"必须排到过滤**之后**去做，否则每一条都会甩一句
-            //   "Unresolved placeholder"（实测 1.18.2 / 1.20.1 各 11 条、1.21.11+ 有 10 条），
-            //   而那几行**一个字节都不会进命令行**。
+            // 占位符警告（ 修的那条）：extraGameArguments 拿到的这一份里，
+            // 绝大多数条目**下一句就会被整条跳掉**（原版那套名字启动器上面已经发过了），
+            // 而它们身上的 ${clientid} / ${auth_xuid} / ${user_properties} … 我们本来就
+            // 不提供 —— 所以"替换"必须排到过滤**之后**去做，否则每一条都会甩一句
+            // "Unresolved placeholder"（实测 1.18.2 / 1.20.1 各 11 条、1.21.11+ 有 10 条），
+            // 而那几行**一个字节都不会进命令行**。
             //
-            //   原来那一版传的是 `expand(game, 空映射, ...)` —— **空映射不等于"不替换"**，
-            //   substitutePlaceholders() 是无条件调的，警告照发，注释逐字承诺的事一件没做到。
+            // 原来那一版传的是 `expand(game, 空映射, ...)` —— **空映射不等于"不替换"**，
+            // substitutePlaceholders() 是无条件调的，警告照发，注释逐字承诺的事一件没做到。
             //
-            //   这里量两件事：真夹具过一遍**一条警告都没有**；**并且先自检拦法通不通** ——
-            //   故意拿一个没人填的占位符调一次，计数必须动一下，否则"0 条"可能只是这个处理器
-            //   压根收不到东西（那种假绿正是这个坑第一次溜过去的原因）。
+            // 这里量两件事：真夹具过一遍**一条警告都没有**；**并且先自检拦法通不通** ——
+            // 故意拿一个没人填的占位符调一次，计数必须动一下，否则"0 条"可能只是这个处理器
+            // 压根收不到东西（那种假绿正是这个坑第一次溜过去的原因）。
             {
                 const QtMessageHandler previous = qInstallMessageHandler(countPlaceholderWarnings);
                 g_placeholderWarnings = 0;
@@ -7469,7 +7372,7 @@ static void runLoaderInstallTests() {
         }
     }
 
-    // --- V6d. 镜像失败时"退一步走官方"的两条边界（2026-09-22 加）----------------
+    // --- V6d. 镜像失败时"退一步走官方"的两条边界（ 加）----------------
     //
     // 这条兜底原来只有资源索引有（镜像那条 /indexes/<id>.json 实测全 404）。现在
     // **所有**走镜像的下载都能退一步 —— 起因是那次 NeoForge 26.2 的实测验收：兜底让
@@ -7494,7 +7397,7 @@ static void runLoaderInstallTests() {
               "V6d 客户端 jar：镜像那条是按版本号拼的，跟官方那条完全不像 -> 登记");
     }
 
-    // --- V6e. 镜像"太慢就先不用"的判据（2026-09-22 加）---------------------------
+    // --- V6e. 镜像"太慢就先不用"的判据（ 加）---------------------------
     //
     // 起因还是那次 NeoForge 26.2 的实测：兜底只认"失败"，可镜像这条链子**不是失败**，
     // 它是 302 跳到一条只有几百字节每秒的链子上、细水长流地掉字节 —— Qt 的
@@ -7528,7 +7431,7 @@ static void runLoaderInstallTests() {
               "V6e 计数变小（跳转会让 downloadProgress 从头报）-> 按「没动」算，"
               "最多误记一跳，下一跳真在动就会把连击清零");
 
-        // 2026-09-23 加的那一道闸（理由和实测见头文件 countsTowardStallStrike()）：
+        // 加的那一道闸（理由和实测见头文件 countsTowardStallStrike()）：
         // 一跳的进账不到下限**还不够**记 strike，这条回复必须至少收到过一个字节。
         // 上面那条 mirrorStalled(0, ...) 仍然成立 —— 变的不是"0 算不算没动"，
         // 变的是"一条还没开始传的回复该不该被这条判据管"。
@@ -7571,7 +7474,7 @@ static void runLoaderInstallTests() {
         dm.setUseMirror(false);
         check(dm.endpoint(assetUrl) == assetUrl, "V6e 用户改回官方源 -> 当然还是官方那条");
 
-        // 降级**按主机**（2026-09-23 加）：整合包那条路上"镜像"是每条文件各自的首选地址
+        // 降级**按主机**（ 加）：整合包那条路上"镜像"是每条文件各自的首选地址
         // （Modrinth 清单里给 2~3 条，preferredUrlOrder() 把 cdn.modrinth.com 排前面），
         // 一个全局的降级位会让一个慢 CDN 把别的 CDN 一起关掉 —— 那次事故的现场就是这么垮的：
         // mediafilez 上 8 条不动 -> 全体降级 -> 89% 的字节（1405.9 MB）被赶到慢 CDN 上。
@@ -7602,12 +7505,12 @@ static void runLoaderInstallTests() {
     //
     // V6e 钉的是判据，这一节把整条链子跑一遍。两个假镜像都给 HTTP 头、body 只给一点点
     // 就不给了，它们对应真慢链子的两种形状：
-    //   (a) 细水长流：吐了一小口（够不着"一跳 64 KB"那条下限）就停住 —— 镜像那条 302 到
-    //       MinIO 的链子就是这个形状（实测 0.85~10 KB/s），**这一种该被看门狗在 10 秒判掉**；
-    //   (b) 一个字节都不吐。这一种**不记失速 strike**（它可能只是还在建连 / 排在一条 h2
-    //       连接的队列里；2026-09-23 的判据，理由见 countsTowardStallStrike()）。2026-10-17
-    //       起它由 (0b) 那条「12 秒零字节就换路」收尾（理由见下面 (b) 那段注释），照样走
-    //       "退回官方、不算失败"那条路。
+    // (a) 细水长流：吐了一小口（够不着"一跳 64 KB"那条下限）就停住 —— 镜像那条 302 到
+    // MinIO 的链子就是这个形状（实测 0.85~10 KB/s），**这一种该被看门狗在 10 秒判掉**；
+    // (b) 一个字节都不吐。这一种**不记失速 strike**（它可能只是还在建连 / 排在一条 h2
+    // 连接的队列里； 的判据，理由见 countsTowardStallStrike()）。
+    // 起它由 (0b) 那条「12 秒零字节就换路」收尾（理由见下面 (b) 那段注释），照样走
+    // "退回官方、不算失败"那条路。
     // "官方那条"给成 file://（一个真文件），所以这两条用例**都不碰外网**，在哪台机器上跑
     // 都是同一个结果；顺带证明了 abort / 超时之后那次重发真的走通了。
     // 代价：十来秒（看门狗两跳）+ 十五秒（(0b) 那条），是这套里仅有的按秒计的用例。
@@ -7696,18 +7599,11 @@ static void runLoaderInstallTests() {
                   QStringLiteral("%1 ms").arg(tookMs));
         }
 
-        // (b) 一个字节都不吐的假镜像（2026-10-17 改口径）。
+        // (b) 一个字节都不吐的假镜像（ 改口径）。
         //
-        //     2026-09-23 那次 422 个文件的导入是因为"还没收到第一个字节也算失速"垮掉的：
-        //     头一批里 8 条两跳就被判"镜像太慢"，然后整个主机被降级 300 秒。所以
-        //     countsTowardStallStrike() 那条判据（零字节不算"太慢"）**仍然保留**。
-        //
-        //     但那种"零字节"当年还有另一个来源：几百条请求一起交给 Qt、排在它内部队列里。
-        //     现在连接预算在我们自己手里（全局 24、单主机 6），一条请求发出去 12 秒还是零字节
-        //     ＝ 那一跳真的死了（用户本机实测的 sakura 落点就是这个形状：TLS 接得上、一个
-        //     字节不给）。所以 (0b) 那条判据接管它：换路 + 把入口降级，不再干等 Qt 的 30 秒
-        //     不活动超时 —— 那一分半钟在 24 个并发位里全被死节点占着。这一条同时钉住
-        //     "换路之后整批照样下成"。
+        // 那次 422 个文件的导入是因为"还没收到第一个字节也算失速"垮掉的：
+        // 头一批里 8 条两跳就被判"镜像太慢"，然后整个主机被降级 300 秒。所以
+        // countsTowardStallStrike() 那条判据（零字节不算"太慢"）**仍然保留**。
         QTcpServer silentMirror;
         const bool silentListening = silentMirror.listen(QHostAddress::LocalHost, 0);
         check(silentListening, "V6f 第二个假镜像（只 accept、一个字节都不发）起来了");
@@ -7773,7 +7669,7 @@ static void runLoaderInstallTests() {
         }
     }
 
-    // --- V6i. 发出去的请求有上限 / 卡死的回复会被判失败（2026-09-22 加）----------
+    // --- V6i. 发出去的请求有上限 / 卡死的回复会被判失败（ 加）----------
     //
     // 这一节钉的是"一次 422 个文件的整合包导入把整批挂死"那两个真因。当时的现场：
     // 422 个请求一次性全交给 QNetworkAccessManager → Qt 每个主机只开 6 条连接，其余在它
@@ -7784,10 +7680,6 @@ static void runLoaderInstallTests() {
     // 两条都在本地跑：假服务器只 accept、一个字节都不发，一次外网都不碰。
     {
         // (1) 判据本身（纯函数）：到顶之后**不管还排着多少条**都不发。
-        //
-        // 上限写成 kMaxConcurrentDownloads 而不是那个字面数字：这一节验的是**规则**
-        // （到顶就不发、不管排着多少），不是"这个数等于几"。2026-09-23 把上限从 6 调到 24
-        // （见那个常量上的实测记录）时，正是这几行证明"改的只是个数、规则一个字没动"。
         constexpr int kCap = DownloadManager::kMaxConcurrentDownloads;
         check(!DownloadManager::mayIssueAnotherDownload(0, 0),
               "V6i 队列是空的 -> 没有什么可发");
@@ -7805,7 +7697,7 @@ static void runLoaderInstallTests() {
               "V6i 超过了也不发");
     }
 
-    // (1b) 判据本身（纯函数）：**按主机**那一条（2026-09-23 加，把上限从 6 调到 24 时补的）。
+    // (1b) 判据本身（纯函数）：**按主机**那一条（ 加，把上限从 6 调到 24 时补的）。
     //
     // 全局放 24 条之后，"排队必须发生在我们自己手里"这条不变量在**单个主机**上会被打破：
     // 一个走 h1.1 的主机，Qt 只认 6 条连接，第 7 条开始进 Qt 内部那个会超时的队列
@@ -7834,16 +7726,16 @@ static void runLoaderInstallTests() {
     // (2) 端到端：一次排进去**比上限多得多**的作业，真正被交给 Qt 的只有按主机允许的那几条。
     //
     // NOTE: 作业数必须**超过**上限，否则这条用例会退化成"全都发出去了也算过"。上限从 6 改成
-    //       24 那次就踩过这个：原来写死的 20 条在新上限下一条都不会排队，用例还照样绿。
+    // 24 那次就踩过这个：原来写死的 20 条在新上限下一条都不会排队，用例还照样绿。
     //
     // 【为什么非要**两台**假服务器】单看一台是量不出按主机那条判据的：Qt 自己对每个
-    //   host:port 也只开一个固定的通道数，所以"我们拦住了"和"Qt 拦住了"这两种情况在那台
-    //   服务器上看到的都是一样的条数 —— 那么写的话，把判据整个删掉也照样绿（2026-09-23
-    //   加这条时就是为了躲开这个：**断言要量"由我们自己决定"的那一格**）。
-    //   两台服务器就不一样了：Qt 的通道数按 host:port 各算各的（敢给的话它开 12 + 12），
-    //   而我们的判据按**主机名**算（同一个 127.0.0.1，两个端口合起来只有
-    //   kMaxConcurrentPerHost 条）。于是"两台服务器上一共挂了几条连接"这一格由我们说了算：
-    //   kMaxConcurrentPerHost = 判据在，翻倍 = 判据被删了。
+    // host:port 也只开一个固定的通道数，所以"我们拦住了"和"Qt 拦住了"这两种情况在那台
+    // 服务器上看到的都是一样的条数 —— 那么写的话，把判据整个删掉也照样绿（
+    // 加这条时就是为了躲开这个：**断言要量"由我们自己决定"的那一格**）。
+    // 两台服务器就不一样了：Qt 的通道数按 host:port 各算各的（敢给的话它开 12 + 12），
+    // 而我们的判据按**主机名**算（同一个 127.0.0.1，两个端口合起来只有
+    // kMaxConcurrentPerHost 条）。于是"两台服务器上一共挂了几条连接"这一格由我们说了算：
+    // kMaxConcurrentPerHost = 判据在，翻倍 = 判据被删了。
     //
     // 这条同时是那次挂死的**直接**回归测试：改之前几百条会一个不落地全建连（422 条就是
     // 422 条），改之后多出来的留在我们自己的队列里 —— 只有"在我们手里排"才谈得上后面那些
@@ -8010,7 +7902,7 @@ static void runLoaderInstallTests() {
         }
     }
 
-    // --- V6j. 镜像 302 到一台"接得上、一个字节都不给"的落点（2026-10-17 加）--------
+    // --- V6j. 镜像 302 到一台"接得上、一个字节都不给"的落点（ 加）--------
     //
     // 用户本机实测的形状（校园网，无代理）：BMCLAPI 的资源地址 302 到
     // bmclapiN.sakura.sld.tw，TLS 接得上、一个字节都不来（curl 25 秒 0 字节）；
@@ -8019,9 +7911,9 @@ static void runLoaderInstallTests() {
     // 24 位里常年有几条在等死节点，整批只剩一两文件/秒（实测 751/5222、十一分钟）。
     //
     // 现在要钉住的三件事（这条用例把它压成一秒半）：
-    //   1) 走镜像、有退路、连首字节都没等到的回复，到点就换路（不等 90 秒）；
-    //   2) 那台落点被拉黑，第二次再转到它时当场 abort（约一个往返）；
-    //   3) 两条都没成之后退回官方，作业照常下成、不算失败。
+    // 1) 走镜像、有退路、连首字节都没等到的回复，到点就换路（不等 90 秒）；
+    // 2) 那台落点被拉黑，第二次再转到它时当场 abort（约一个往返）；
+    // 3) 两条都没成之后退回官方，作业照常下成、不算失败。
     {
         QTemporaryDir scratch(QDir::tempPath() + "/wtfml_deadredir-XXXXXX");
         check(scratch.isValid(), "V6j 临时目录建出来了");
@@ -8267,8 +8159,6 @@ static void runLoaderInstallTests() {
                                                                  LoaderMeta::LoaderChannel::Newest);
             };
 
-            // 实测 1.18.2 那一节：正文（downloadLineMain）是 H9，折叠在「+ More」里的两条是
-            // H7/H6，**这一节里没有预览版**。挑成 H7/H6 就是"给用户默默装了个旧版本"。
             const LoaderMeta::OptiFinePick pick1182 = pickFromPage(QStringLiteral("1.18.2"));
             check(pick1182.ok() &&
                       pick1182.fileName == QStringLiteral("OptiFine_1.18.2_HD_U_H9.jar"),
@@ -8281,7 +8171,7 @@ static void runLoaderInstallTests() {
                   pickNewest(QStringLiteral("1.18.2")).fileName);
 
             // 1.8.9 那一节更狠：预览版（M6-pre2/pre1）排在最前面，正文是 M5，More 里还有一堆
-            // 旧版本。稳定档必须挑 M5；最新档挑的**就是**最上面那条预览版（用户 2026-09-23
+            // 旧版本。稳定档必须挑 M5；最新档挑的**就是**最上面那条预览版（用户
             // 拍板："beta 版虽然不稳定，但是也能使用，要列出来"——预览版同理）。
             const LoaderMeta::OptiFinePick pick189 = pickFromPage(QStringLiteral("1.8.9"));
             check(pick189.ok() &&
@@ -8292,13 +8182,13 @@ static void runLoaderInstallTests() {
             check(newest189.fileName ==
                       QStringLiteral("preview_OptiFine_1.8.9_HD_U_M6_pre2.jar"),
                   "V8.4 1.8.9 最新档 -> 最上面那条预览版 M6-pre2", newest189.fileName);
-            // ★ 两档挑出来的**必须是不同的文件**：这一节就是"多一档"这件事在真数据上的证据。
+            // 两档挑出来的**必须是不同的文件**：这一节就是"多一档"这件事在真数据上的证据。
             check(newest189.fileName != pick189.fileName,
                   "V8.4 1.8.9 上两档挑出不同版本（稳定 M5 / 最新 M6-pre2）");
 
             // 只有预览版、还没发正式版的游戏版本：那一节里**根本没有 main 行** ——
             // 稳定档挑不出来（由调用方报"还没有支持这个版本的正式版"），**最新档挑得出来**
-            // （2026-09-23 之前这里两档都挑不出来，预览版也装不了；现在装得下去了）。
+            // （ 之前这里两档都挑不出来，预览版也装不了；现在装得下去了）。
             check(!pickFromPage(QStringLiteral("1.21.8")).ok() &&
                       !pickFromPage(QStringLiteral("26.1.2")).ok(),
                   "V8.4 只有预览版的版本（1.21.8 / 26.1.2）稳定档挑不出来");
@@ -8432,7 +8322,7 @@ static void runLoaderInstallTests() {
                                    QStringLiteral("HD_U_J1_pre9")}),
                   "V8.5b 列表按发布时间从新到旧（J1 09-24 → pre15 09-23 → … → pre9 09-04）",
                   LoaderMeta::loaderVersionStrings(list).join(QStringLiteral(", ")));
-            // ★ 反证：数组倒过来（老做法）得到的是 pre9 打头 —— 全份数据里最老的那条。
+            // 反证：数组倒过来（老做法）得到的是 pre9 打头 —— 全份数据里最老的那条。
             QStringList reversed = LoaderMeta::loaderVersionStrings(list);
             std::reverse(reversed.begin(), reversed.end());
             check(reversed.first() == QStringLiteral("HD_U_J1_pre9") &&
@@ -8450,9 +8340,9 @@ static void runLoaderInstallTests() {
 
         // --- V8.5c 镜像源上"预览版比正式版新"的版本：两档分开 --------------------
         //
-        // 1.21.4 那一份：J4_pre2（2025-02-20）、J4_pre1（02-19）都**比正式版 J3（02-09）新**，
+        // 1.21.4 那一份：J4_pre2、J4_pre1（02-19）都**比正式版 J3（02-09）新**，
         // 而且这份数据里 18 条只有 1 条正式版 —— 正是"最新档装预览版、稳定档装正式版"的
-        // 真实场景（1.21.4 的正式版 J4 到 2026-09 都还没发）。
+        // 真实场景（1.21.4 的正式版 J4 到 都还没发）。
         {
             QFile f(metaDir + "/optifine-1.21.4-list.json");
             QByteArray bytes;
@@ -8499,8 +8389,6 @@ static void runLoaderInstallTests() {
         check(!ad.isEmpty(), "V8.6 真广告页读到了", QString("%1 字节").arg(ad.size()));
         if (!ad.isEmpty()) {
             const QString adHtml = QString::fromUtf8(ad);
-            // 实测：那份页面里是**两条一模一样的** H7 链接（同一个 token）—— 说明当时要抓的
-            // 那个文件在那张页面上是 H7。
             const QString h7 = LoaderMeta::optifineJarUrlFromAdPage(
                 adHtml, QStringLiteral("OptiFine_1.18.2_HD_U_H7.jar"));
             check(h7 == QStringLiteral("https://optifine.net/downloadx?f=OptiFine_1.18.2_HD_U_H7.jar"
@@ -8517,7 +8405,7 @@ static void runLoaderInstallTests() {
         // 页面里**只有一条**链接时就直接用它 —— 实测那个 token 和文件名**不绑定**（拿 H7 的
         // token 去请求 H9，下下来的照样是 6.7 MB 的 H9 jar），所以"只有一条"是可以信的。
         // NOTE: 这一条是**自造**的一条链接（上面那两条才是真页面）—— 真页面里凑不出"只有一条
-        //       而且文件名对不上"的形状，但那条分支在真实请求里会走到（页面结构变简单时）。
+        // 而且文件名对不上"的形状，但那条分支在真实请求里会走到（页面结构变简单时）。
         check(LoaderMeta::optifineJarUrlFromAdPage(
                   QStringLiteral("<a href=\"downloadx?f=OptiFine_1.18.2_HD_U_H9.jar"
                                  "&x=0123456789abcdef\">"),
@@ -8558,12 +8446,12 @@ static void runLoaderInstallTests() {
 // APPDATA、把它指到我们自己的一个临时目录上，装完再从那个临时目录里把产物认出来搬回去），
 // 所以这个模式也得分着跑：
 //
-//     verify.exe loader-install 1.21.8                （默认 Fabric）
-//     verify.exe loader-install 1.20.1 forge
-//     verify.exe loader-install 1.21.1 neoforge
-//     verify.exe loader-install 1.18.2 optifine
+// verify.exe loader-install 1.21.8 （默认 Fabric）
+// verify.exe loader-install 1.20.1 forge
+// verify.exe loader-install 1.21.1 neoforge
+// verify.exe loader-install 1.18.2 optifine
 //
-// 后面还能再跟一个词 `mirror`：整个安装走**镜像源**（这一条是 2026-09-22 加的，用来真验
+// 后面还能再跟一个词 `mirror`：整个安装走**镜像源**（这一条是 加的，用来真验
 // "Forge/NeoForge 的下载拨到 bmclapi"这件事 —— 安装器 jar、版本表、还有安装器**自己**下
 // 那十几个库（靠给它 `--mirror`）都该走镜像）。不给这个词就是官方源，和产品默认一致。
 //
@@ -8577,8 +8465,8 @@ static void runLoaderInstallTests() {
 // 几百 MB 的客户端 jar。
 //
 // NOTE: 装完之后沙箱里会多出来东西（versions/ 下的加载器目录、cache/installers/ 下的
-//       安装器 jar、还有 launcher_profiles.json），这是**故意留着的**：这个模式的价值
-//       之一就是让人能去盘上看真装出来的是什么样子。清沙箱的话这些东西一起没。
+// 安装器 jar、还有 launcher_profiles.json），这是**故意留着的**：这个模式的价值
+// 之一就是让人能去盘上看真装出来的是什么样子。清沙箱的话这些东西一起没。
 // ---------------------------------------------------------------------------
 static int runLoaderInstallLive(QCoreApplication &app, const QString &sandbox,
                                 const QString &gameVersion, VersionManager::LoaderKind kind,
@@ -8624,16 +8512,10 @@ static int runLoaderInstallLive(QCoreApplication &app, const QString &sandbox,
 
     // --- 安装器要用的那份 Java ---------------------------------------------------
     //
-    // 产品里这一步是 MainWindow::startLoaderInstall() 在**点下「下载版本」那一刻**做的
-    // （版本 json 的 javaVersion.majorVersion → installerJavaFor()），mw_check 的 Y4 钉的
-    // 是界面那一段接线。这里补的是"在**真机器**上把那套判据跑一遍"：那张纯函数表（本文件
-    // M 段）和接线都验过了，唯独"在本机扫一圈、真挑出一份能用的"离线造不出来 ——
-    // installerJavaFor() 会读 PATH / JAVA_HOME / 本机已装的运行时。
-    //
     // 断言写成**与机器无关**的形式（live 模式在哪台机器上跑都得站得住）：
-    //   - 说成功 → 挑中的那份主版本必须真的够新（拿 Java 8 去跑一个要 17 的安装器，用户
-    //     看到的是 UnsupportedClassVersionError 那串鬼话，不是"该装个新 Java"）；
-    //   - 说失败 → 必须给出一句能照做的理由。
+    // - 说成功 → 挑中的那份主版本必须真的够新（拿 Java 8 去跑一个要 17 的安装器，用户
+    // 看到的是 UnsupportedClassVersionError 那串鬼话，不是"该装个新 Java"）；
+    // - 说失败 → 必须给出一句能照做的理由。
     // 本机（Java 21）走的是前一条。
     if (kind != VersionManager::LoaderKind::Fabric) {
         int requiredMajor = 0;
@@ -8648,8 +8530,6 @@ static int runLoaderInstallLive(QCoreApplication &app, const QString &sandbox,
         check(requiredMajor > 0, "沙箱里那份原版 json 说了它要哪个 Java",
               QString::number(requiredMajor));
 
-        // 「设置」里那份给一个**不存在**的路径：认不出主版本 → 该去本机找一份够新的，
-        // 而不是拿着它硬上。
         const QString kBogusJava = QStringLiteral("C:/没有这个目录/java.exe");
         QString picked;
         QString reason;
@@ -8698,11 +8578,11 @@ static int runLoaderInstallLive(QCoreApplication &app, const QString &sandbox,
         // 超时兜底：卡住时也要退出来，不然是个永远不返回的验证。
         //
         // NOTE: 这个数**必须**比产品自己的硬超时（VersionManager 里那个 30 分钟）长。
-        //       原来是 300 秒，结果是"产品还在正常跑，验证先放弃了"——实测 Forge 40.3.0
-        //       在 1.18.2 上装一次，光从 creeperhost 那个镜像下十几个库就超过 300 秒，
-        //       报出来的是"失败"，而产品那一路其实一切正常。留 35 分钟：比产品的 30 分钟
-        //       多 5 分钟，这样"真卡住了"报出来的是产品那句中文（带它最后的输出），
-        //       而不是这里一句光秃秃的"超时"。
+        // 原来是 300 秒，结果是"产品还在正常跑，验证先放弃了"——实测 Forge 40.3.0
+        // 在 1.18.2 上装一次，光从 creeperhost 那个镜像下十几个库就超过 300 秒，
+        // 报出来的是"失败"，而产品那一路其实一切正常。留 35 分钟：比产品的 30 分钟
+        // 多 5 分钟，这样"真卡住了"报出来的是产品那句中文（带它最后的输出），
+        // 而不是这里一句光秃秃的"超时"。
         constexpr int kLiveWaitMs = 35 * 60 * 1000;
         QTimer::singleShot(kLiveWaitMs, &loop, [&] {
             out() << "  超时 " << kLiveWaitMs << " ms，结束等待（产品自己那条硬超时早该报了）\n";
@@ -8779,7 +8659,7 @@ static int runLoaderInstallLive(QCoreApplication &app, const QString &sandbox,
 
     const QJsonObject meta = loadJson(AppPaths::versionMetaPath(loaderId));
     // loaderName 跟外面的 loaderName 比，**不写死 "Fabric"**：这条原来是 Fabric 单干时写的，
-    // 加了 forge/neoforge 之后就成了"产品对了、断言红"（2026-09-22 真装时撞上）。
+    // 加了 forge/neoforge 之后就成了"产品对了、断言红"（ 真装时撞上）。
     check(meta[QStringLiteral("realVersion")].toString() == gameVersion &&
               meta[QStringLiteral("loaderName")].toString() == loaderName &&
               !meta[QStringLiteral("loaderVersion")].toString().isEmpty(),
@@ -8819,12 +8699,12 @@ static int runLoaderInstallLive(QCoreApplication &app, const QString &sandbox,
               "Fabric 的是 KnotClient（V 节那份真 profile 里就是这个）", loaderMain);
     }
     // 两样分开判，因为"继承"对它们不是同一条规矩：
-    //  - downloads 是**父版本独有**的键（加载器的 profile 里根本没有），它非空就直接证明
-    //    继承发生了。
-    //  - logging 要按"子赢"核对：子声明了就取子的 —— Forge 1.18.2 装出来的 profile 写着
-    //    `"logging": {}`，那是它有意清掉原版那份 log4j 配置（官方启动器也一样），子没声明
-    //    才继承父的。**所以这里不能断言"logging 非空"**：2026-09-22 就是这条把真装的
-    //    断言顶红的（当时怀疑是 merge 丢了键，其实数据里就是个空对象）。
+    // - downloads 是**父版本独有**的键（加载器的 profile 里根本没有），它非空就直接证明
+    // 继承发生了。
+    // - logging 要按"子赢"核对：子声明了就取子的 —— Forge 1.18.2 装出来的 profile 写着
+    // `"logging": {}`，那是它有意清掉原版那份 log4j 配置（官方启动器也一样），子没声明
+    // 才继承父的。**所以这里不能断言"logging 非空"**： 就是这条把真装的
+    // 断言顶红的（当时怀疑是 merge 丢了键，其实数据里就是个空对象）。
     const QJsonValue expectedLogging = onDisk.contains(QStringLiteral("logging"))
                                            ? onDisk[QStringLiteral("logging")]
                                            : parentJson[QStringLiteral("logging")];
@@ -9182,8 +9062,8 @@ static void runAccountSkinTests(const QString &sandbox) {
 
     // ---- W11 盘上有坏项 / 残项时的下场 ----
     // 手写一份列表（当"外部写入者"），验产品的读。两种坏法各一条：
-    //   - 一项连 uuid 都没有 → 列表里**不摆**（摆一个点不动的账号比少一项更难查）；
-    //   - 一项缺了微软那半边 → activate 拒掉，别把半份凭据写进活动槽。
+    // - 一项连 uuid 都没有 → 列表里**不摆**（摆一个点不动的账号比少一项更难查）；
+    // - 一项缺了微软那半边 → activate 拒掉，别把半份凭据写进活动槽。
     {
         const QString uuidBad = QStringLiteral("dddddddddddddddddddddddddddddddd");
         QJsonObject noUuid;
@@ -9507,7 +9387,7 @@ static void runAccountSkinTests(const QString &sandbox) {
         // **裸数组**那种形状（没有外层那个 "capes" 键）：旧的 `api.mojang.com` 那条查披风
         // 的路、以及别的启动器从 OpenAPI 那边看到的就是它。上面几条喂的全是"外层是对象"
         // 那份（**产品走的就是这份**，见 X7），只有这一组钉得住另一种。
-        // NOTE: 产品**不发**一条独立的"列披风"请求 —— 那条路由不存在（2026-09-22 的 404）。
+        // NOTE: 产品**不发**一条独立的"列披风"请求 —— 那条路由不存在（ 的 404）。
         const QByteArray bareCapes =
             QStringLiteral(R"J([{"id":"c1","alias":"Migrator","url":"%1","state":"ACTIVE"},)J"
                            R"J({"id":"c2","alias":"MineCon 2016","url":"%2","state":"INACTIVE"}])J")
@@ -9612,7 +9492,7 @@ static void runAccountSkinTests(const QString &sandbox) {
 
         // 429：限流。**不许**跟下面那条通用分支走 —— 通用分支认的正是正文里那个 `error`
         // 字段（Minecraft 服务 429 时它就是 "TOO_MANY_REQUESTS"），端给用户等于说了句
-        // 他照做不了的话。2026-09-22 真机日志里那句
+        // 他照做不了的话。 真机日志里那句
         // "读取披风失败（HTTP 429）：TOO_MANY_REQUESTS" 就是从这儿来的。
         const QByteArray tooMany = QByteArrayLiteral(
             R"({"path":"/minecraft/profile","errorType":"TOO_MANY_REQUESTS","error":"TOO_MANY_REQUESTS","status":429})");
@@ -9659,7 +9539,7 @@ static void runAccountSkinTests(const QString &sandbox) {
     }
 
     // ---- X7 披风列表来自**档案**那条地址（没有一条独立的 /capes 路由） ----
-    // 这一条钉的是一个**没有纯函数可验**的东西：请求打到哪个地址。2026-09-22 真机上披风
+    // 这一条钉的是一个**没有纯函数可验**的东西：请求打到哪个地址。 真机上披风
     // 一直回 404，根因就是这里原来有一条 `GET /minecraft/profile/capes` —— 按"设披风、
     // 取消披风都在 /capes/active 下，那把拥有的列一遍大概也在 /capes 下"对称猜出来的，
     // 而那条路由**不存在**（对过 Mojang 的 OpenAPI：那一层只有 /capes/active 两个方法）。
@@ -9683,12 +9563,12 @@ static void runAccountSkinTests(const QString &sandbox) {
 // V. 整合包导入（Modrinth 格式）：清单解析、路径判据、按前缀解压
 //
 // 三层各验各的，因为它们的错法完全不同：
-//   * 纯函数（ModpackImport）：一段 json 进去、一个结果出来，不碰磁盘不联网；
-//   * ZipUtil 那两个新函数：真造一个压缩包、真解一次 —— 下面 V5 钉的两个坑都是实测
-//     踩出来的（条目名里的反斜杠、两个前缀的优先级）；
-//   * 真清单：meta/modrinth-index-att2.json 是从一个真整合包（779 MB，ATT2）里原样
-//     读出来的，用它证"真实的一百多条路径一条都没被误判"—— 自造的假 json 只会证回
-//     我自己以为的格式。
+// * 纯函数（ModpackImport）：一段 json 进去、一个结果出来，不碰磁盘不联网；
+// * ZipUtil 那两个新函数：真造一个压缩包、真解一次 —— 下面 V5 钉的两个坑都是实测
+// 踩出来的（条目名里的反斜杠、两个前缀的优先级）；
+// * 真清单：meta/modrinth-index-att2.json 是从一个真整合包（779 MB，ATT2）里原样
+// 读出来的，用它证"真实的一百多条路径一条都没被误判"—— 自造的假 json 只会证回
+// 我自己以为的格式。
 // ---------------------------------------------------------------------------
 // =========================================================================
 // Y 节：下载页那四个分类 + 四个加载器的「能挑哪些版本」。
@@ -9699,9 +9579,7 @@ static void runAccountSkinTests(const QString &sandbox) {
 static void runVersionChannelTests() {
     const QString metaDir = QStringLiteral(REPO_ROOT_PATH) + "/tests/meta";
 
-    // ---------------------------------------------------------------------
     section("Y. 版本四分类（真清单 915 条）");
-    // ---------------------------------------------------------------------
 
     QList<MinecraftVersion> manifest;
     QStringList manifestIds;
@@ -9817,10 +9695,6 @@ static void runVersionChannelTests() {
           QString::number(mismatched));
 
     // --- Y2b. 「最新版本」那一组的两条 --------------------------------------
-    //
-    // 树上最上面那一组（用户原话：「下载游戏那个界面最上方放一个 最新版本 类，默认展开，
-    // 里面放最新的正式版和快照」）。这里钉的是**挑哪两条**这件事本身 —— 界面那一侧
-    // （摆在哪、默认展开、点一下是什么）由 mw_check 管，视觉由 ui_shot 07d 管。
     const QList<VersionManager::LatestVersion> latest = VersionManager::latestVersions(manifest);
     check(latest.size() == 2, "Y2b 清单上挑得出两条（一个正式版、一个快照）",
           QString::number(latest.size()));
@@ -9980,15 +9854,12 @@ static void runVersionChannelTests() {
               VersionCategory::Channel::Snapshot,
           "Y4 没见过的 type 落到快照版（一条都不许从四分类里漏掉）");
 
-    // ---------------------------------------------------------------------
     section("Y5. 四个加载器的「能挑哪些版本」（真 maven 清单 / 真页面）");
-    // ---------------------------------------------------------------------
-    //
     // 这一段回答的是「安装页上点开一个加载器，列表里该有些什么」。四份数据源都是真的：
-    //   meta/forge-maven-metadata.xml     211487 B / 5048 条
-    //   meta/neoforge-maven-metadata.xml  63597 B
-    //   meta/optifine-downloads.html      200723 B（官方下载页）
-    //   meta/optifine-1.18.2-list.json    11 条（镜像那份 JSON）
+    // meta/forge-maven-metadata.xml 211487 B / 5048 条
+    // meta/neoforge-maven-metadata.xml 63597 B
+    // meta/optifine-downloads.html 200723 B（官方下载页）
+    // meta/optifine-1.18.2-list.json 11 条（镜像那份 JSON）
 
     // --- Y6. Forge：新开的那个 maven 源 -----------------------------------
     {
@@ -10104,8 +9975,8 @@ static void runVersionChannelTests() {
                   !LoaderMeta::loaderChannelFromKey(QString(), &channel) &&
                   !LoaderMeta::loaderChannelFromKey(QStringLiteral("@Latest"), &channel),
               "Y6b 真版本号 / 空串 / 大小写不一样的键 -> 都不是频道键");
-        // ★ 这条是上面所有断言的地基：`@` 不在版本号那个白名单里（`[A-Za-z0-9._+-]`），
-        //   所以真版本号永远长不成 `@latest` 那个样子，两个键也永远过不了真版本号那关。
+        // 这条是上面所有断言的地基：`@` 不在版本号那个白名单里（`[A-Za-z0-9._+-]`），
+        // 所以真版本号永远长不成 `@latest` 那个样子，两个键也永远过不了真版本号那关。
         check(!LoaderMeta::isSafeVersionId(QStringLiteral("@latest")) &&
                   !LoaderMeta::isSafeVersionId(QStringLiteral("@stable")) &&
                   LoaderMeta::isSafeVersionId(QStringLiteral("1.20.1-47.4.10")),
@@ -10127,7 +9998,7 @@ static void runVersionChannelTests() {
 
     // --- Y7. NeoForge -----------------------------------------------------
     //
-    // 改动前这一段断言的是「列表里没有 -beta」。而用户 2026-09-23 报的那一版（26.3）
+    // 改动前这一段断言的是「列表里没有 -beta」。而用户 报的那一版（26.3）
     // 上游**只发过 -beta**，于是列表被清空、只能显示「无可用版本」；他那台机器上跑的
     // exe 更旧，看到的是「列表没取到」。现在 beta 一律列出来、在第二行标「测试版」，
     // 「稳定档」挑不出来时那条自己灰掉写「没有正式版」——所以这一段整个反过来了。
@@ -10178,7 +10049,7 @@ static void runVersionChannelTests() {
                   "Y7 稳定档挑出来的 == 列表里第一条正式版（和列表同一处解析，不是两套）");
             check(newestIsFirst, "Y7 最新档挑出来的 == 列表第一条（beta 也在里头挑）");
 
-            // ★ 用户报的那一版的原样数据：26.3 只发过 -beta，9 条。
+            // 用户报的那一版的原样数据：26.3 只发过 -beta，9 条。
             const LoaderMeta::LoaderVersionList nf263 =
                 LoaderMeta::listNeoForgeVersions(xml, QStringLiteral("26.3"));
             check(nf263.size() == 9, "★ Y7 26.3 那 9 条 -beta 全列出来了（改动前一条都不列）",
@@ -10198,7 +10069,7 @@ static void runVersionChannelTests() {
                       .version == QStringLiteral("26.3.0.8-beta"),
                   "★ Y7 26.3 最新档挑得出 26.3.0.8-beta —— 点「下载最新版」装的就是它");
 
-            // ★ beta 不是都挂在尾巴上：1.21.10 里第 3 条就是 beta，前两条是正式版。
+            // beta 不是都挂在尾巴上：1.21.10 里第 3 条就是 beta，前两条是正式版。
             // 所以挑正式版必须逐条看 stable，不能靠"从头往下取第一条"或者比名字长短。
             const LoaderMeta::LoaderVersionList v2110 =
                 LoaderMeta::listNeoForgeVersions(xml, QStringLiteral("1.21.10"));
@@ -10286,7 +10157,7 @@ static void runVersionChannelTests() {
                       QStringLiteral("OptiFine_1.18.2_HD_U_H9.jar"),
                   "Y8 镜像稳定档挑出来是 H9 那个 jar");
 
-            // ★ 列表里第一条**正式版**必须就是稳定档挑出来的那个 —— 列出来的和装下去
+            // 列表里第一条**正式版**必须就是稳定档挑出来的那个 —— 列出来的和装下去
             // 的是同一个，用户照着列表点不会装到别的东西上。
             QString firstStable;
             for (const LoaderMeta::LoaderVersionEntry &entry : mirrorVersionList) {
@@ -10388,12 +10259,11 @@ static void runVersionChannelTests() {
               "Y9 Fabric：空列表回 ok()=false（不是回一个空版本的 ok()=true）");
     }
 
-    // ---------------------------------------------------------------------
     section("Y10. 版本号下面那行小字：发布日期（精确到日）");
     // ---------------------------------------------------------------------
-    // 用户原话：「在版本号下面小字写发布时间（精确到日）」。那一行现在是
+    // 要求：「在版本号下面小字写发布时间（精确到日）」。那一行现在是
     // releaseDateText() 从 releaseTime 里切出来的 —— 走的必须是真清单那 915 条
-    //（每一条都是 `2026-09-15T11:23:02+00:00` 这种 25 个字符的 ISO8601），
+    // （每一条都是 `T11:23:02+00:00` 这种 25 个字符的 ISO8601），
     // 不是自己编两个好看的字符串。
     {
         int cut = 0;
@@ -10405,7 +10275,7 @@ static void runVersionChannelTests() {
                 ++cut;
                 dates.insert(text);
             }
-            // **精确到日**：切出来就是那 10 个字符，不是 `2026-09-15T11:23:02+00:00`
+            // **精确到日**：切出来就是那 10 个字符，不是 `T11:23:02+00:00`
             // 这种一长串，也不是 `2026/09/15` 那种换个写法。
             if (text.size() == 10 && text == version.releaseTime.left(10)) {
                 ++tenChars;
@@ -10421,8 +10291,6 @@ static void runVersionChannelTests() {
               "Y10 那 915 条切出来的日期有 100 多种（真值，不是写死的）",
               QString::number(dates.size()));
     }
-    // 时区**不换算**：清单是 UTC，本机多半在 UTC+8 —— 23:30 那条要是被换算一遍
-    // 就成了第二天，而它和 00:30 那条就再也分不出来了。这两条钉住这个方向。
     check(releaseDateText(QStringLiteral("2026-09-15T23:30:00+00:00")) ==
               QStringLiteral("2026-09-15"),
           "Y10 UTC 当天最后一刻那条还是当天（不许被本机时区推到第二天）",
@@ -10484,11 +10352,11 @@ static void runModpackImportTests(const QString &sandbox) {
               quiltText.contains(QStringLiteral("没有")) &&
               quiltText.contains(QStringLiteral("0.20.0")),
           "V1 Quilt 拦下来，而且说清了是哪个加载器、哪个版本、没有导入", quiltText);
-    // NOTE: 这一条 2026-09-25 改过。原来钉的是"CurseForge 那一支要把「清单里没有下载
-    //       地址」说清楚"—— 那一支已经删了（CurseForge 现在装得了，见 ZG 节），留着
-    //       就等于钉一个不存在的分支。现在这个函数只回答一件事：**两个清单都没有**
-    //       ⇒ 认不出它是什么格式。所以钉的是"把两个名字都写出来"，以及它替用户猜了
-    //       一句"多半是个普通压缩包"（不说这一句，用户只能自己猜要不要放弃）。
+    // NOTE: 这一条 改过。原来钉的是"CurseForge 那一支要把「清单里没有下载
+    // 地址」说清楚"—— 那一支已经删了（CurseForge 现在装得了，见 ZG 节），留着
+    // 就等于钉一个不存在的分支。现在这个函数只回答一件事：**两个清单都没有**
+    // ⇒ 认不出它是什么格式。所以钉的是"把两个名字都写出来"，以及它替用户猜了
+    // 一句"多半是个普通压缩包"（不说这一句，用户只能自己猜要不要放弃）。
     const QString cfText = ModpackImport::unsupportedFormatText(ModpackImport::Format::CurseForge);
     check(cfText.contains(QStringLiteral("manifest.json")) &&
               cfText.contains(ModpackImport::modrinthIndexName()) &&
@@ -10574,9 +10442,9 @@ static void runModpackImportTests(const QString &sandbox) {
         // 这一条是这一节里最要紧的：候选名字是**界面预填**到输入框里的，它自己过不了
         // 校验的话，用户一进来就撞一句报错，而他什么都没输。
         // NOTE: 这里比的是 suggestInstanceName() 的**产物**，不是包名本身 —— 包名里带
-        //       冒号、带结尾的点、叫 CON 都是正常的（真那份就叫
-        //       "ATT2: The Journey Of Revelation.1.8.4"，名字里就有冒号）。要证的是
-        //       "推出来、预填进输入框的那个名字，用户直接点确定就能过"。
+        // 冒号、带结尾的点、叫 CON 都是正常的（真那份就叫
+        // "ATT2: The Journey Of Revelation.1.8.4"，名字里就有冒号）。要证的是
+        // "推出来、预填进输入框的那个名字，用户直接点确定就能过"。
         const QStringList packNames = {QStringLiteral("ATT2: The Journey Of Revelation.1.8.4"),
                                        QStringLiteral("包."), QStringLiteral("CON"), QString(),
                                        longName, QStringLiteral("带 空格 的名字"),
@@ -10597,10 +10465,6 @@ static void runModpackImportTests(const QString &sandbox) {
 
     // --- V3b. 先试哪条地址：cdn.modrinth.com 排最前 -----------------------------
     {
-        // 真机背景：那个包里同一条文件常常给 2~3 条地址（forgecdn 两台 + modrinth 一台），
-        // 清单把 modrinth 排在最后，而原来的代码只用 first() 和 value(1)。实测 3~10 倍差
-        // （见 ModpackImport.hpp 里 preferredUrlOrder 的注释）。这一节钉的就是"换次序"，
-        // 不钉任何速度 —— 速度是网络的事，验证工程不联网。
         const QString cf1 = QStringLiteral(
             "https://mediafilez.forgecdn.net/files/8246/47/L_Enders_Cataclysm-3.31.jar");
         const QString cf2 = QStringLiteral(
@@ -10757,10 +10621,10 @@ static void runModpackImportTests(const QString &sandbox) {
     // --- V5. ZipUtil：真造一个压缩包、真解一次 -------------------------------
     //
     // 两个坑都是实测踩出来的，都值得钉住：
-    //   ① PowerShell 的 Compress-Archive 写进去的条目名用的是**反斜杠**。按 `/` 比前缀
-    //      的话一条都匹配不上 —— 表现是"解压成功、解出来 0 个文件"，不报任何错。
-    //   ② 两个前缀的**顺序**就是优先级（client-overrides 盖过 overrides），这是整合包
-    //      格式的规矩，不能调换。
+    // ① PowerShell 的 Compress-Archive 写进去的条目名用的是**反斜杠**。按 `/` 比前缀
+    // 的话一条都匹配不上 —— 表现是"解压成功、解出来 0 个文件"，不报任何错。
+    // ② 两个前缀的**顺序**就是优先级（client-overrides 盖过 overrides），这是整合包
+    // 格式的规矩，不能调换。
     {
         const QString work = sandbox + "/modpack-check";
         QDir(work).removeRecursively();
@@ -10842,19 +10706,19 @@ static void runModpackImportTests(const QString &sandbox) {
         QDir(work).removeRecursively();
     }
 
-    // --- V5z. 拖进来的那一个文件到底是什么（2026-09-29 加） --------------------
+    // --- V5z. 拖进来的那一个文件到底是什么（ 加） --------------------
     //
-    // 用户原话：「打开某个实例设置的时候如果拖入.jar/.zip之类的文件，检测是整合包还是资源包
+    // 要求：「打开某个实例设置的时候如果拖入.jar/.zip之类的文件，检测是整合包还是资源包
     // 等」。判据层是 `manage/DroppedResource`（纯函数：输入一条路径，输出一个 Kind）——
     // 它只做判断，问什么、往哪儿放都在 MainWindow 那边，所以这一节能在这儿钉死。
     //
-    // ★ 八个包**一趟 PowerShell 造完**（一个 ZipArchive::Create 里连着建八个）：.NET 的
-    //   `CreateEntry()` 按原字面量写条目名，`Compress-Archive` 会规整掉反斜杠 —— 要测
-    //   "反斜杠写的包"就只能走 .NET。见 V5c 里那条 NOTE，同一个理由。
+    // 八个包**一趟 PowerShell 造完**（一个 ZipArchive::Create 里连着建八个）：.NET 的
+    // `CreateEntry()` 按原字面量写条目名，`Compress-Archive` 会规整掉反斜杠 —— 要测
+    // "反斜杠写的包"就只能走 .NET。见 V5c 里那条 NOTE，同一个理由。
     //
-    // ★ 优先级那两条是这一节的**主角**：一个包里同时有 `pack.mcmeta`+`assets/` 和
-    //   `shaders/`（真实世界里的资源包太常见了），判成资源包还是光影，取决于两个判据的
-    //   先后 —— 排错了不会崩、不会报错，就是往 shaderpacks/ 里塞一个资源包。
+    // 优先级那两条是这一节的**主角**：一个包里同时有 `pack.mcmeta`+`assets/` 和
+    // `shaders/`（真实世界里的资源包太常见了），判成资源包还是光影，取决于两个判据的
+    // 先后 —— 排错了不会崩、不会报错，就是往 shaderpacks/ 里塞一个资源包。
     {
         const QString work = sandbox + "/dropped";
         QDir(work).removeRecursively();
@@ -10862,8 +10726,8 @@ static void runModpackImportTests(const QString &sandbox) {
 
         const auto buildArchive = [&](const QString &archive,
                                       const QList<QPair<QString, QString>> &entries) {
-            // ★ 条目名/正文**只能**自己包单引号：`psQuoted()` 会顺手 toNativeSeparators，
-            //   那会把条目名里的 `/` 全折成 `\` —— 造出来的就不再是我们要测的那个包了。
+            // 条目名/正文**只能**自己包单引号：`psQuoted()` 会顺手 toNativeSeparators，
+            // 那会把条目名里的 `/` 全折成 `\` —— 造出来的就不再是我们要测的那个包了。
             const auto psq = [](const QString &text) {
                 return QStringLiteral("'") + text + QStringLiteral("'");
             };
@@ -10911,7 +10775,7 @@ static void runModpackImportTests(const QString &sandbox) {
                            {{QStringLiteral("shaders/final.fsh"), QStringLiteral("void main(){}")},
                             {QStringLiteral("shaders/gbuffers_terrain.vsh"), QStringLiteral("void main(){}")}}),
               "V5z 造出一个光影包（shaders/）");
-        // ★ 同时有 assets/ 和 shaders/：资源包排在前面 ⇒ 必须是资源包。
+        // 同时有 assets/ 和 shaders/：资源包排在前面 ⇒ 必须是资源包。
         const QString both = work + "/respack-with-shader.zip";
         check(buildArchive(both,
                            {{QStringLiteral("pack.mcmeta"), QStringLiteral("{}")},
@@ -10956,7 +10820,7 @@ static void runModpackImportTests(const QString &sandbox) {
               "V5z pack.mcmeta + data/ ⇒ 数据包", kindOf(datapack).detail);
         check(isKind(shader, ResourceCatalog::Kind::Shader),
               "V5z 只有 shaders/ ⇒ 光影", kindOf(shader).detail);
-        // ★★ 优先级：这条要是红了，用户拖一个带 shaders/ 的资源包进来会进 shaderpacks/。
+        // 优先级：这条要是红了，用户拖一个带 shaders/ 的资源包进来会进 shaderpacks/。
         check(isKind(both, ResourceCatalog::Kind::ResourcePack),
               "★★ V5z 同时有 assets/ 和 shaders/ ⇒ **资源包**（那一串判据的先后就是优先级，"
               "排错了就是往光影目录里塞资源包）",
@@ -11001,8 +10865,8 @@ static void runModpackImportTests(const QString &sandbox) {
               "V5z 认不出来的时候带一句理由（界面上那个括号里就是它）",
               kindOf(notZip).detail);
 
-        // ★ 空目录条目那一档：`Compress-Archive` 会写进 `assets/` 这样以斜杠结尾的记录。
-        //   只按 `assets/…` 认前缀的话，一个只有空目录的资源包会被判成"什么都没有"。
+        // 空目录条目那一档：`Compress-Archive` 会写进 `assets/` 这样以斜杠结尾的记录。
+        // 只按 `assets/…` 认前缀的话，一个只有空目录的资源包会被判成"什么都没有"。
         const QString dirOnly = work + "/dir-only.zip";
         check(buildArchive(dirOnly,
                            {{QStringLiteral("pack.mcmeta"), QStringLiteral("{}")},
@@ -11012,8 +10876,8 @@ static void runModpackImportTests(const QString &sandbox) {
               "V5z 目录条目本身（`assets/` 这一条）也算数 ⇒ 还是资源包",
               kindOf(dirOnly).detail);
 
-        // ★ `listEntries()` 就是上面那条路读条目表用的那一发：条目名**原样**拿回来
-        //   （不替我们归一化、不排序，谁用谁自己折），不是压缩包时和 readEntry 分得一样清。
+        // `listEntries()` 就是上面那条路读条目表用的那一发：条目名**原样**拿回来
+        // （不替我们归一化、不排序，谁用谁自己折），不是压缩包时和 readEntry 分得一样清。
         QStringList names;
         QString error;
         check(ZipUtil::listEntries(respack, &names, &error) == ZipUtil::EntryStatus::Ok &&
@@ -11026,11 +10890,11 @@ static void runModpackImportTests(const QString &sandbox) {
               names.join(QLatin1Char(' ')));
         check(ZipUtil::listEntries(notZip, &names, &error) == ZipUtil::EntryStatus::NotAnArchive,
               "V5z listEntries 对不是压缩包的文件报 NotAnArchive");
-        // ★ 盘上根本没有这一份：**和 readEntry 给同一个答案**（打不开 = NotAnArchive，不是
-        //   NotFound）。`NotFound` 在这个枚举里的意思是"**压缩包里**没有这一条"，一条都还没
-        //   读到的时候谈不上"没有哪一条"；两处答得不一样的话，界面同一个故障会说出两句
-        //   不同的话。上面 V5z 那一条"盘上没有这个文件 ⇒ 认不出来"是**判据层**自己先挡掉的
-        //   （它的 detail 是「找不到这份文件」）—— listEntries 根本轮不到。
+        // 盘上根本没有这一份：**和 readEntry 给同一个答案**（打不开 = NotAnArchive，不是
+        // NotFound）。`NotFound` 在这个枚举里的意思是"**压缩包里**没有这一条"，一条都还没
+        // 读到的时候谈不上"没有哪一条"；两处答得不一样的话，界面同一个故障会说出两句
+        // 不同的话。上面 V5z 那一条"盘上没有这个文件 ⇒ 认不出来"是**判据层**自己先挡掉的
+        // （它的 detail 是「找不到这份文件」）—— listEntries 根本轮不到。
         QByteArray oneEntry;
         check(ZipUtil::listEntries(work + "/没有这个.zip", &names, &error) ==
                       ZipUtil::EntryStatus::NotAnArchive &&
@@ -11056,9 +10920,6 @@ static void runModpackImportTests(const QString &sandbox) {
     // 官方 jar 里解出来的，用的是 ZipUtil::extractArchives）。原来的守卫只判条目名里
     // 有没有 `..`，漏了"条目名本身就是绝对路径"那一类 —— .NET 的 Path.Combine 会把
     // 目标目录整个丢掉，文件落到外面去。
-    //
-    // NOTE: 造包这一步**只能**用 .NET 的 ZipArchive::Create：PowerShell 的 Compress-Archive
-    //       会把 `..`、绝对路径这些名字规整掉，造不出要测的东西（实测确认过条目名原样保留）。
     {
         const QString work = sandbox + "/zip-slip";
         QDir(work).removeRecursively();
@@ -11121,7 +10982,7 @@ static void runModpackImportTests(const QString &sandbox) {
             return f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll()) : QString();
         };
         // 正路照样得通：正常的条目要解出来，反斜杠的条目名归一之后也落在目标目录里
-        //（Minecraft 那些 jar 是 `/`，但别的工具打的包不一定讲究）。
+        // （Minecraft 那些 jar 是 `/`，但别的工具打的包不一定讲究）。
         check(readTextAt(out + "/ok.txt") == QStringLiteral("正常条目") &&
                   readTextAt(out + "/sub/ok2.txt") == QStringLiteral("反斜杠条目"),
               "V5c 正常条目照解不误，反斜杠条目名归一成 / 之后落在目标目录里");
@@ -11506,7 +11367,6 @@ static void runModpackImportTests(const QString &sandbox) {
                   reasonOf(QStringLiteral("mods/icon.png"), defaults).isEmpty() &&
                   reasonOf(QStringLiteral("mods/sodium.jar"), defaults).isEmpty(),
               "V5f 排除表只按**顶层**那一段判：`mods/logs/…`、`mods/icon.png` 是 mod 自己的东西");
-        // 存档与截图：默认不进（PCL 那套默认），勾上就进。
         ModpackExport::IncludeOptions withSaves = defaults;
         withSaves.saves = true;
         withSaves.screenshots = true;
@@ -11551,20 +11411,10 @@ static void runModpackImportTests(const QString &sandbox) {
                   !collected.skippedDirs.contains(QStringLiteral("config")),
               "V5f 被排掉的顶层目录也记下来了（界面上要照实说哪些没进包）",
               collected.skippedDirs.join(QLatin1Char(',')));
-        // ★ 2026-09-27：这个数从 **9 变成 18**。从前它只数"被排除表直接拦下来的文件"，
-        //   而被排掉的**目录里面**的东西一个都没数 —— 可 logs / crash-reports / natives /
-        //   libraries / saves / screenshots 这一档全是整个目录被排掉，于是报告里那句
-        //   「没进包：存档、截图（共 N 个文件）」几乎永远是「共 0 个文件」。这个数的意义
-        //   就是让用户知道"少了多少东西"，所以两半都要数：9（顶层文件）+ 9（被排掉的
-        //   目录里的，见下面那一条）。真实实例里 saves/ 一个目录就是三百个文件。
         check(collected.skippedFileCount == 18,
               "V5f 被排掉的文件个数 = 顶层文件 9（启动器状态 2 + 版本文件 2 + 凭据 2 + "
               "账号缓存 1 + 打包设置 1 + 系统垃圾 1）+ 被排掉的目录里的 9",
               QString::number(collected.skippedFileCount));
-        // 两半分开钉一次：把存档与截图勾上，那两个目录就不被排掉了 ⇒ 它们里面各那一个
-        // 文件（`saves/我的世界/level.dat`、`screenshots/一张图.png`）也不该再数进去 ——
-        // 18 - 2 = 16。这一条钉的是"目录里那些确实是被目录那一条带走的"，而不是碰巧
-        // 从别处凑出来的 18。顺带覆盖**递归**：level.dat 在一个子目录里（我的世界/）。
         const ModpackExport::CollectResult withSavesCollected =
             ModpackExport::collectInstanceFiles(tree, withSaves);
         check(withSavesCollected.skippedFileCount == 16,
@@ -11649,10 +11499,6 @@ static void runModpackImportTests(const QString &sandbox) {
         const QByteArray cfBody = ModpackExport::curseForgeFingerprintsRequestBody({3309664856u});
         const QJsonArray cfList =
             QJsonDocument::fromJson(cfBody).object().value(QStringLiteral("fingerprints")).toArray();
-        // ★ 2026-09-27 改：从前这一条钉的是**字符串**，还附了一句"发成数字那边回 400" ——
-        //   那句话把因果说反了，钉住的正是那个洞。实测（拿用户真实例里的文件问的真网络）：
-        //   `{"fingerprints":["3816865428"]}` → 400（`invalid type: string … expected i64`）、
-        //   `{"fingerprints":[3816865428]}` → 200。所以现在钉的是**数字**。
         check(cfList.size() == 1 && cfList.at(0).isDouble() &&
                   static_cast<quint32>(cfList.at(0).toDouble()) == 3309664856u,
               "★★ V5h CurseForge 的请求体里指纹是**数学意义上的数字**（int64）—— 发成字符串"
@@ -11904,7 +11750,7 @@ static void runModpackImportTests(const QString &sandbox) {
               "V5i 有清单条目 ⇒ 这是个我们自己装得回来的包");
 
         // ② 反查没成：**不是错误**，但一个文件都不许丢 —— 那些"本来能认出来"的现在
-        //    也只能进 overrides（断网也能出包，这是 PCL 那套的取舍）。
+        // 也只能进 overrides（断网也能出包，这是 PCL 那套的取舍）。
         const ModpackExport::ModrinthQuery deadQuery =
             [](const QStringList &, QHash<QString, ModpackExport::ModrinthHit> *,
                QString *problemOut) {
@@ -11933,8 +11779,8 @@ static void runModpackImportTests(const QString &sandbox) {
               "（我们自己的解析器拒收空清单：ModpackImport.cpp:379）");
 
         // ③ 取消：一个文件都还没读就停 —— 反查那一发**不许发出去**，清单一条都没有。
-        //    这时候整份 plan 作废（`overrides` 里可能有半截东西，见 .hpp 那句），
-        //    所以这里不去数 overrides，只钉"叫停之后收手了没有"。
+        // 这时候整份 plan 作废（`overrides` 里可能有半截东西，见 .hpp 那句），
+        // 所以这里不去数 overrides，只钉"叫停之后收手了没有"。
         int cancelQueryCalls = 0;
         const ModpackExport::ModrinthQuery countingQuery =
             [&cancelQueryCalls](const QStringList &, QHash<QString, ModpackExport::ModrinthHit> *,
@@ -12004,9 +11850,6 @@ static void runModpackImportTests(const QString &sandbox) {
                 closed.projectId = 238222;
                 closed.fileId = 8971390;
                 closed.available = false;  // 作者关了第三方分发
-                // ★ 2026-09-27：**接口是明说这一句的**（回复里有 `isAvailable`，值是假）。
-                //   这一位不设的话，那一份就落进"接口没说"那一档去了（见
-                //   notDistributableUnknown）—— 两种来路分开报，是这一节要钉的东西之一。
                 closed.availableKnown = true;
                 closed.fileName = QStringLiteral("关了分发的.jar");
                 out->insert(fpClosed, closed);
@@ -12135,10 +11978,10 @@ static void runModpackImportTests(const QString &sandbox) {
         // 反证：真写进去的话，**读侧就是整包拒绝** —— 这一条把"为什么必须退回"钉在读侧
         // 那句实现上（哪天读侧把长度那一条去掉了，这里会红，因为拒绝不再发生）。
         // NOTE: 是拿**这一趟真写出来的那份清单**改的（不是手搓一份）：手搓的话，
-        //       "被拒"可能来自别的缺项（少个 dependencies 之类），那就证明不了这一条。
-        //       也不能拿 badSpec 走 buildModrinthIndex —— 那个函数自己也会先问
-        //       writableAsIndexFile，会把这条**跳过不写**（见它里面那段），于是清单里
-        //       根本没有这一条，验的是一句空话。
+        // "被拒"可能来自别的缺项（少个 dependencies 之类），那就证明不了这一条。
+        // 也不能拿 badSpec 走 buildModrinthIndex —— 那个函数自己也会先问
+        // writableAsIndexFile，会把这条**跳过不写**（见它里面那段），于是清单里
+        // 根本没有这一条，验的是一句空话。
         QJsonObject tampered =
             QJsonDocument::fromJson(ModpackExport::buildModrinthIndex(plan.spec)).object();
         QJsonArray tamperedFiles = tampered.value(QStringLiteral("files")).toArray();
@@ -12170,12 +12013,12 @@ static void runModpackImportTests(const QString &sandbox) {
     // --- V5t. 导出（CF）：没说能不能分发 ≠ 作者关了分发；改过名/禁用着的退回 overrides
     //
     // 三条都是"报告里那句话必须对得上盘上的事实"：
-    //   ① 回复里**没有** `isAvailable` 这一项时，`toBool(false)` 也是假，但那是"接口没说"，
-    //      不是"作者关了第三方分发" —— 两种分开报；
-    //   ② 用户自己改过名（`改过名.jar`）或者禁用着（`禁用着的.jar.disabled`）的 mod，
-    //      写进 CF 清单等于让收包的人那边落回**作者给的原名**：禁用着的那个会变成启用的。
-    //      它们只有原样 copy 才留得住状态 ⇒ 退回 overrides；
-    //   ③ 接口根本没接上时 `queried` 是 **0**（一个字节都没发出去），不是"本来打算问几个"。
+    // ① 回复里**没有** `isAvailable` 这一项时，`toBool(false)` 也是假，但那是"接口没说"，
+    // 不是"作者关了第三方分发" —— 两种分开报；
+    // ② 用户自己改过名（`改过名.jar`）或者禁用着（`禁用着的.jar.disabled`）的 mod，
+    // 写进 CF 清单等于让收包的人那边落回**作者给的原名**：禁用着的那个会变成启用的。
+    // 它们只有原样 copy 才留得住状态 ⇒ 退回 overrides；
+    // ③ 接口根本没接上时 `queried` 是 **0**（一个字节都没发出去），不是"本来打算问几个"。
     {
         const QString tree = sandbox + "/export-cf-state/我的实例";
         QDir(tree).removeRecursively();
@@ -12270,8 +12113,8 @@ static void runModpackImportTests(const QString &sandbox) {
               "V5t 那四种全退回 overrides（原样带着用户那个名字），认出来的那条不在里面",
               overridePaths.join(QLatin1Char(',')));
         // ③ 接口没接上：一个字节都没发出去 ⇒ queried 必须是 0。从前它在这里就已经是 5 了
-        //    （「本来打算问几个」），于是报告里那句「问过 5 个文件，认出来 0 个」会让人去查
-        //    网络、查限流，而真相是这一趟根本没联网。
+        // （「本来打算问几个」），于是报告里那句「问过 5 个文件，认出来 0 个」会让人去查
+        // 网络、查限流，而真相是这一趟根本没联网。
         const ModpackExport::ExportPlan noQuery = ModpackExport::buildExportPlan(
             request, ModpackExport::ModrinthQuery(), ModpackExport::CurseForgeQuery());
         check(noQuery.queried == 0 && noQuery.lookupFailed && noQuery.matched == 0 &&
@@ -12578,17 +12421,17 @@ static void runModpackImportTests(const QString &sandbox) {
 
     // --- V5o. PCL / HMCL 那类"合并过的"实例：基于哪个原版 + 装的是什么加载器 --------
     //
-    // 2026-09-26 用户在真机上撞的那一条：日志里只有一句「导出失败：读不出 海波篮子 基于哪个
+    // 用户在真机上撞的那一条：日志里只有一句「导出失败：读不出 海波篮子 基于哪个
     // 原版」。真因是那个实例是 PCL 装的 —— 整份 json 都合进了实例目录（`inheritsFrom` 是
     // 空的，`id` 就是用户起的名字），所以 V5m 那几条按 id 认的路一步都走不出去；而它的加载器
     // （`net.fabricmc:fabric-loader:0.19.5`）和原版（`clientVersion: 26.2`）就明明白白写在
     // 那份 json 自己身上。**真机上大多数实例都是这个形状**，所以这不是一条边界用例。
     //
     // 这一节钉两件**方向相反**的事：
-    //   ① 这两格读得出来（读不出来，那些实例一个都导不出去）；
-    //   ② 读不出来时**一个字都不许猜** —— 目录名以数字开头但带空格（`1.20.2-Fabric 0.17.2`）
-    //      不许顶成游戏版本；认不出加载器时不许悄悄当成纯原版（那正是这个功能最怕的失败：
-    //      包看上去是好的、装回来模组都在、游戏起不来）。
+    // ① 这两格读得出来（读不出来，那些实例一个都导不出去）；
+    // ② 读不出来时**一个字都不许猜** —— 目录名以数字开头但带空格（`1.20.2-Fabric 0.17.2`）
+    // 不许顶成游戏版本；认不出加载器时不许悄悄当成纯原版（那正是这个功能最怕的失败：
+    // 包看上去是好的、装回来模组都在、游戏起不来）。
     {
         const QString versionsRoot = sandbox + "/versions";
         const auto writeJson = [&versionsRoot](const QString &id, const QByteArray &body) {
@@ -12630,7 +12473,7 @@ static void runModpackImportTests(const QString &sandbox) {
         }
 
         // ② 目录名以数字开头、但不是版本号（真机上有 `1.20.2-Fabric 0.17.2` 这种）。
-        //    这条钉的是判据本身：**"以数字开头"不够**。
+        // 这条钉的是判据本身：**"以数字开头"不够**。
         const QString idSpacey = QStringLiteral("1.20.2-Fabric 0.17.2");
         writeJson(idSpacey, QByteArrayLiteral("{\"id\":\"1.20.2-Fabric 0.17.2\",\"libraries\":["
                                              "{\"name\":\"net.fabricmc:fabric-loader:0.17.2\"}]}"));
@@ -12662,7 +12505,7 @@ static void runModpackImportTests(const QString &sandbox) {
         }
 
         // ④ 目录名完全不像版本号（真机上有 `原版ATT2地图（无模组）` 这种）：宁可返回空串
-        //    （调用点会拦住并报一句），也不许编一个版本号出来。
+        // （调用点会拦住并报一句），也不许编一个版本号出来。
         const QString idOdd = QStringLiteral("历史存档（无模组）");
         writeJson(idOdd, QByteArrayLiteral("{\"id\":\"历史存档（无模组）\"}"));
         check(vm.instanceGameVersion(idOdd).isEmpty(),
@@ -12823,28 +12666,28 @@ static void runModpackImportTests(const QString &sandbox) {
         }
     }
 
-    // --- V5u. 实例设置里「数据包」那一页该不该出现（纯函数，2026-09-27 加） ------
+    // --- V5u. 实例设置里「数据包」那一页该不该出现（纯函数， 加） ------
     //
-    // 用户 2026-09-27 补的一句：「对于没有数据包的版本，数据包也默认隐藏且不可勾选」。
+    // 用户 补的一句：「对于没有数据包的版本，数据包也默认隐藏且不可勾选」。
     // 判据落在 `VersionManager::gameVersionSupportsDatapacks()` 上，**纯函数**（喂版本号
     // 与 releaseTime 两串文字），所以这一节不碰盘、不联网，喂多少种版本号都行。
     //
-    // 数据包是快照 `17w43a`（2017-10-25）引进的。两格判据按**先准后糙**排：
-    //   ① 盘上那份**合并过的** json 有 `releaseTime` ⇒ 和 2017-11-01 比。这一格离线也准，
-    //      快照 / `a1.2.6` / `b1.7.3` 那种"版本号看着不像数字"的也分得对；
-    //   ② 没有 ⇒ 看版本号本身，以数字开头的按 `主.次 >= (1,13)` 比；
-    //   ③ 两条都问不出来 ⇒ **给**（宁可多一页，不要静默藏掉一页）。
+    // 数据包是快照 `17w43a`引进的。两格判据按**先准后糙**排：
+    // ① 盘上那份**合并过的** json 有 `releaseTime` ⇒ 和 比。这一格离线也准，
+    // 快照 / `a1.2.6` / `b1.7.3` 那种"版本号看着不像数字"的也分得对；
+    // ② 没有 ⇒ 看版本号本身，以数字开头的按 `主.次 >= (1,13)` 比；
+    // ③ 两条都问不出来 ⇒ **给**（宁可多一页，不要静默藏掉一页）。
     //
-    // ★ 这一节另一半钉的是**"哪一格说了算"**：releaseTime 在的时候**盖过**版本号本身，
-    //   而且两格都不许悄悄把"读不出来"当成"没有"。
+    // 这一节另一半钉的是**"哪一格说了算"**：releaseTime 在的时候**盖过**版本号本身，
+    // 而且两格都不许悄悄把"读不出来"当成"没有"。
     {
         const auto supports = [](const QString &id, const QString &stamp) {
             return VersionManager::gameVersionSupportsDatapacks(id, stamp);
         };
 
         // ① releaseTime 说了算 —— 而且用的是**真清单里那种形状**（`+00:00` 那个后缀）。
-        //    这一格要是解析不出来，整条规则会**静默**退到版本号那一档（1.12.2 照样对、
-        //    快照就全错），症状是"看着都对、就是那几个版本多出一页"。
+        // 这一格要是解析不出来，整条规则会**静默**退到版本号那一档（1.12.2 照样对、
+        // 快照就全错），症状是"看着都对、就是那几个版本多出一页"。
         check(!supports(QStringLiteral("1.12.2"),
                         QStringLiteral("2017-09-18T11:05:56+00:00")),
               "V5u 1.12.2 那一份的 releaseTime 早于 2017-11-01 ⇒ 没有数据包那一页");
@@ -12854,7 +12697,7 @@ static void runModpackImportTests(const QString &sandbox) {
         check(!supports(QStringLiteral("1.20.1"), QStringLiteral("2010-01-01T00:00:00+00:00")),
               "V5u releaseTime 在手时**盖过**版本号本身：1.20.1 配一个 2010 的时间戳 ⇒ "
               "按时间戳判（判成没有）");
-        // 界线本身：`17w43a` 就是把数据包引进来的那一个快照，而它的日期在 2017-11-01
+        // 界线本身：`17w43a` 就是把数据包引进来的那一个快照，而它的日期在
         // **之前**。这一条故意钉住"按日期切"这个口径 —— 不为几个界上的快照编例外表。
         check(!supports(QStringLiteral("17w43a"),
                         QStringLiteral("2017-10-25T15:00:00+00:00")),
@@ -12912,14 +12755,14 @@ static void runModpackImportTests(const QString &sandbox) {
     // --- V5p. 版本号那一格的判据（纯函数，喂**真清单夹具**） ---------------------
     //
     // 规矩：**清单在手时以清单为准，清单没取到时看长相**。两边各自防一种错：
-    //   ① 清单在手时不看长相 ⇒ 老版本号认不出来。`rd-132211`（Minecraft 最早的开发版之一）
-    //      **不以数字开头**，而真机上就躺着一份 —— 2026-09-26 拿只读探针
-    //      `mw_check instance-scan <数据目录>` 扫出来的，它导不出整合包没有道理。
-    //   ② 清单在手时也不放过"长相" ⇒ 反过来那一半：`20w14∞`（正式 id 是 `20w14infinite`）、
-    //      `26.2hyperland`（私服客户端）长得都像版本号，可 Mojang 没有这两个 id，写进清单
-    //      收包的人那边装不回来 —— 也是同一个病（包看上去是好的）。
-    //   ③ 清单没取到（离线第一趟）⇒ 退回长相那条，宁可放行也不让"离线时一个都导不出去"。
-    //   ④ 两条都挡着的：`原版ATT2地图（无模组）` 和 `1.20.2-Fabric 0.17.2` 这种明显的假版本号。
+    // ① 清单在手时不看长相 ⇒ 老版本号认不出来。`rd-132211`（Minecraft 最早的开发版之一）
+    // **不以数字开头**，而真机上就躺着一份 —— 拿只读探针
+    // `mw_check instance-scan <数据目录>` 扫出来的，它导不出整合包没有道理。
+    // ② 清单在手时也不放过"长相" ⇒ 反过来那一半：`20w14∞`（正式 id 是 `20w14infinite`）、
+    // `26.2hyperland`（私服客户端）长得都像版本号，可 Mojang 没有这两个 id，写进清单
+    // 收包的人那边装不回来 —— 也是同一个病（包看上去是好的）。
+    // ③ 清单没取到（离线第一趟）⇒ 退回长相那条，宁可放行也不让"离线时一个都导不出去"。
+    // ④ 两条都挡着的：`原版ATT2地图（无模组）` 和 `1.20.2-Fabric 0.17.2` 这种明显的假版本号。
     {
         // 真清单夹具：走产品自己那条解析路（`DownloadManager::parseVersionManifest`），
         // 不在这儿另写一份 —— 和 Y 那一节同一个理由。
@@ -13092,10 +12935,10 @@ static void runModpackImportTests(const QString &sandbox) {
                   replaced == manifest,
               "V5n 覆盖之后盘上那份是新包（原来那份已经不在了）");
 
-        // ③b `★ 2026-10-20`：目标旁边那两个"陪跑名"**不归我们处置**。
-        //     `<目标>.part` / `<目标>.bak` 这两个后缀太常见（别的下载器的半截、用户自己手
-        //     打的备份），原来那一趟上来就 `QFile::remove()` 它们。现在换一个没人用的名字，
-        //     用户那两份必须原样留在盘上（逐字节），而这一趟照样得打成功。
+        // ③b `★ `：目标旁边那两个"陪跑名"**不归我们处置**。
+        // `<目标>.part` / `<目标>.bak` 这两个后缀太常见（别的下载器的半截、用户自己手
+        // 打的备份），原来那一趟上来就 `QFile::remove()` 它们。现在换一个没人用的名字，
+        // 用户那两份必须原样留在盘上（逐字节），而这一趟照样得打成功。
         {
             const QByteArray userPart = QByteArrayLiteral("用户的半截（别的下载器留下的）");
             const QByteArray userBak = QByteArrayLiteral("用户的备份（自己手打的）");
@@ -13156,7 +12999,7 @@ static void runModpackImportTests(const QString &sandbox) {
 
     // --- V5q. 条目表长到命令行塞不下时也要打得出来 -----------------------------
     //
-    // 2026-09-26 在真实例上撞的（用户的「海波篮子」「永利制造翻译测试版」都是这个死法）：
+    // 在真实例上撞的（用户的「海波篮子」「永利制造翻译测试版」都是这个死法）：
     // createZip 原来把整张 `@('条目名','盘上路径')` 表**拼进脚本正文**，而脚本是经
     // `-EncodedCommand` 用**命令行**递给 PowerShell 的 —— Windows 一条命令行只有 32767 个
     // 字符，Base64（×4/3）再加 UTF-16LE（×2）之后脚本只剩一万二千来个字符。133 个模组的
@@ -13223,7 +13066,7 @@ static void runModpackImportTests(const QString &sandbox) {
     // 只有真的那份文件清单能复现（133 个模组、真名字、真路径长度）。
     //
     // 默认**不跑**：路径写在别人的机器上不存在，做成常驻断言就是一条必然假红。要跑就：
-    //   WTFML_PROBE_DIRS=<一行一个实例目录的 UTF-8 清单>  WTFML_PROBE_OUT=<产物落点>
+    // WTFML_PROBE_DIRS=<一行一个实例目录的 UTF-8 清单> WTFML_PROBE_OUT=<产物落点>
     // 名字走**清单文件**而不是环境变量：实例名里全是中文，而 Windows 上 qgetenv 拿的是
     // 本地 8 位（GBK），从环境变量读中文路径必然踩编码。
     //
@@ -13319,11 +13162,6 @@ static void runModpackImportTests(const QString &sandbox) {
 
     // --- V5v. 用户挑的那张背景图是怎么收进数据目录的（主题那两张图） -----------------
     //
-    // 2026-09-28 用户原话：「能给主页左侧自定义图像吗？其他页面的背景能换图吗」。设置页
-    // 里那两行「选择图片…」按下去之后走的就是 `ThemeImage::store()`：**把他挑的那张拷一份
-    // 进数据目录**，而不是记着他自己那个路径（三条理由写在 `src/util/ThemeImage.hpp` 的
-    // 文件头里：图会被挪走、图可能在慢盘上、一张手机照片解出来是 48 MB 位图）。
-    //
     // 这一整节在**临时数据根目录**里跑（`AppPaths::setMinecraftDir()` 一处切换，和
     // runIconCacheTests 那一段同一形状）：下面这些断言全都要"看着 cache/theme 里现在有哪
     // 几个文件"，不隔离就是拿用户盘上已经存着的那张图做实验。跑完必须还原 —— 所以这一节里
@@ -13347,7 +13185,7 @@ static void runModpackImportTests(const QString &sandbox) {
               "V5v 前提：cache/theme 这会儿还不存在");
 
         // 源图三张，各有各要证的那一条：带透明的 PNG（必须存成 .png）、不带透明的 JPEG
-        //（存成 .jpg）、3000 px 宽的大图（长边必须被缩到 2560 以内）。
+        // （存成 .jpg）、3000 px 宽的大图（长边必须被缩到 2560 以内）。
         const QString alphaPng = src + QStringLiteral("/带透明.png");
         const QString plainJpg = src + QStringLiteral("/不透明.jpg");
         const QString bigJpg = src + QStringLiteral("/大图.jpg");
@@ -13385,7 +13223,7 @@ static void runModpackImportTests(const QString &sandbox) {
               "V5v 不带透明的存成 .jpg", storedJpg);
 
         // ③ 名字撒谎的那张：同一段 JPEG 字节换个 .png 的名字挑进来，**后缀仍然跟着内容走**。
-        //    这一条是"用户把桌面上的图重命名过"的日常 —— 认名字的话这里就存出一份 .png。
+        // 这一条是"用户把桌面上的图重命名过"的日常 —— 认名字的话这里就存出一份 .png。
         const QString lyingPng = src + QStringLiteral("/名字是png其实是jpeg.png");
         QFile::copy(plainJpg, lyingPng);
         const QString storedLying = ThemeImage::store(slotB, lyingPng, &error);
@@ -13411,7 +13249,7 @@ static void runModpackImportTests(const QString &sandbox) {
               storedBig);
 
         // ⑤ 挑了一张坏的（一段文字当图片）：如实拒绝，而且**原来那张一个字节都不许动**
-        //    —— 用户手滑挑错一次，不该顺手把他现在用的那张也弄没。
+        // —— 用户手滑挑错一次，不该顺手把他现在用的那张也弄没。
         const QString notImage = src + QStringLiteral("/不是图片.png");
         writeFileAt(notImage, QByteArrayLiteral("这不是一张图片，只是一段文字。"));
         QByteArray keepBytes;
@@ -13436,7 +13274,7 @@ static void runModpackImportTests(const QString &sandbox) {
               "★ V5v 挑坏图那一发没能动到原来那张（字节一模一样）");
 
         // ⑥ 太大：**只 resize、内容一个字节都不写**（全是 0 也够了 —— 这一条判的是文件大小，
-        //    而且判在解码之前，所以它挡的正是"手滑选了个视频/压缩包"）。
+        // 而且判在解码之前，所以它挡的正是"手滑选了个视频/压缩包"）。
         const QString huge = src + QStringLiteral("/太大.png");
         {
             QFile file(huge);
@@ -13466,8 +13304,8 @@ static void runModpackImportTests(const QString &sandbox) {
               "★ V5v 那一发一个文件都没写出去（槽位名要是被当路径用，它就跑出 cache/theme 了）");
 
         // ⑨ 这份 Qt 自己解不了的那种（**webp**）：挑图那个对话框的筛选里写着 `*.webp`，
-        //    它就得真的打得开 —— 走的是 `ImageDecode`（WIC）那第二条路。夹具就是 ZC 段
-        //    用的同一份（从 Modrinth CDN 上真取下来的 96px 缩略图）。
+        // 它就得真的打得开 —— 走的是 `ImageDecode`（WIC）那第二条路。夹具就是 ZC 段
+        // 用的同一份（从 Modrinth CDN 上真取下来的 96px 缩略图）。
         QByteArray webpBytes;
         {
             QFile fixture(QStringLiteral(REPO_ROOT_PATH) + "/tests/meta/icon-sample.webp");
@@ -13480,10 +13318,10 @@ static void runModpackImportTests(const QString &sandbox) {
             const QString webpPath = src + QStringLiteral("/浏览器存下来的.webp");
             writeFileAt(webpPath, webpBytes);
             const QString storedWebp = ThemeImage::store(slotC, webpPath, &error);
-            // ★ 2026-10-17：判据跟着**这条路真能不能解**走，不跟 `webpAvailable()` 那个
-            //   枚举结果走 —— Windows Server 镜像上它会说有、真解却失败（见 ZC2 那段）。
-            //   ThemeImage 自己先让 Qt 试、再走 `ImageDecode::decode`，这里用的正是同一个
-            //   判据（同一份夹具、同一条路）。
+            // 判据跟着**这条路真能不能解**走，不跟 `webpAvailable()` 那个
+            // 枚举结果走 —— Windows Server 镜像上它会说有、真解却失败（见 ZC2 那段）。
+            // ThemeImage 自己先让 Qt 试、再走 `ImageDecode::decode`，这里用的正是同一个
+            // 判据（同一份夹具、同一条路）。
             if (!ImageDecode::decode(webpBytes).isNull()) {
                 check(!storedWebp.isEmpty() && QFileInfo::exists(storedWebp),
                       "★ V5v webp 也收得进来（Qt 认不得，退给 WIC 那条路）", error);
@@ -13582,10 +13420,10 @@ static void runModpackImportTests(const QString &sandbox) {
 /// 在哪台机器上跑都是同一个结果。
 ///
 /// NOTE: 正文必须**按 Content-Length 收全了再答**，答完带着 `Connection: close` 关掉。
-///       理由：HttpClient 那一侧用的是同一个 QNAM（VersionManager::loaderNetworkManager），
-///       Qt 会把连接留着复用，而"一个连接上只答一发"那种图省事的写法（本文件里 V6f 那两
-///       个假镜像就是这个形状 —— 它们**故意**不答）在第二个请求上会一声不响地不答，那一发
-///       就得等满 15 秒超时，整节的结论全变。
+/// 理由：HttpClient 那一侧用的是同一个 QNAM（VersionManager::loaderNetworkManager），
+/// Qt 会把连接留着复用，而"一个连接上只答一发"那种图省事的写法（本文件里 V6f 那两
+/// 个假镜像就是这个形状 —— 它们**故意**不答）在第二个请求上会一声不响地不答，那一发
+/// 就得等满 15 秒超时，整节的结论全变。
 struct FakeCurseForgeApi {
     QTcpServer server;
     int filesStatus = 200;
@@ -13982,8 +13820,8 @@ static void runCurseForgeTests() {
         // 接口出错时正文里只有一句 error（没有 data）。那句话**要原样带给用户** ——
         // 我们猜不出来它为什么拒。
         // NOTE: 这一段的正文**不能写成 R"json(…)json" 再交给 QByteArrayLiteral()** ——
-        //       那是宏，一进预处理器的参数扫描就把带自定义定界符的原始字符串看错了
-        //       （报的是"unterminated raw string"，指着一行完全正常的写法）。转义写法。
+        // 那是宏，一进预处理器的参数扫描就把带自定义定界符的原始字符串看错了
+        // （报的是"unterminated raw string"，指着一行完全正常的写法）。转义写法。
         const QByteArray deniedBody = QByteArrayLiteral("{\"error\":\"Invalid API key\"}");
         const ModpackImport::CurseForgeFiles denied =
             ModpackImport::parseCurseForgeFileInfo(deniedBody, asked);
@@ -14083,29 +13921,19 @@ static void runCurseForgeTests() {
 
     // --- ZG5. 问哪一台接口 ---------------------------------------------------
     {
-        // 官方那份要 `x-api-key`（不带 = 403，2026-09-25 实测），所以默认走一台不要 key 的
+        // 官方那份要 `x-api-key`（不带 = 403， 实测），所以默认走一台不要 key 的
         // **社区镜像**。这一条链的取舍写在 curseForgeApiBase() 上面：key 编进 exe 就等于公开。
-        //
-        // ★ 这里**不写死镜像的域名**：它已经换过一次（`api.curse.tools` 整个 403 →
-        //   现在这台 `mod.mcimirror.top/curseforge`，见 .cpp 里那段实测），写死的话下次再换
-        //   就得记着改这一条 —— 而漏改它**还是绿的**（两边都错得一样，正是 Z7e 那条注释
-        //   说的假绿）。要钉的是**性质**，不是那一串字符：
-        //     · 非空（不是"忘了给默认值"）；
-        //     · https；
-        //     · **不是官方那一台**（是的话说明这一档根本没走镜像，而是把官方的地址填了进来，
-        //       而官方不带 key 一律 403 ⇒ 整个 CurseForge 那一栏会全空）。
-        //   这台镜像**当下通不通**由联网探针管（mw_check `cf-resolve-live`），不归这里。
         const QString noKeyBase = ModpackImport::curseForgeApiBase(QString());
         check(!noKeyBase.isEmpty() && noKeyBase.startsWith(QStringLiteral("https://")) &&
                   !noKeyBase.contains(QStringLiteral("api.curseforge.com")),
               "ZG5 没填 key：走一台不要 key 的社区镜像（不是官方那一台）", noKeyBase);
-        // ★ 尾巴上那段 `/v1` **一个字符都不能少**：这个函数的约定是"返回到 `/v1` 为止"，
-        //   调用点只往后接 `/mods/search` / `/mods/files` / `/mods/{id}/files`。少了它每一发
-        //   都是 404，而**症状和"服务挂了"一模一样**（那一栏什么都搜不出来 / 导入说换不到文件）。
-        //   2026-09-26 就是这么踩的：换镜像那一笔把 `/v1` 漏在地址外面了，而这一条链在两个
-        //   验证工程里**全是拿假接口验的**（假接口的 base 本身就带 `/v1`）⇒ 四个验证工程
-        //   全绿、真网络每一发 404，只有 `cf-resolve-live` 那一跑看得出来。
-        //   所以这条断言钉的不是"哪台机器"，是**那台机器后面必须接上 `/v1` 这一段**。
+        // 尾巴上那段 `/v1` **一个字符都不能少**：这个函数的约定是"返回到 `/v1` 为止"，
+        // 调用点只往后接 `/mods/search` / `/mods/files` / `/mods/{id}/files`。少了它每一发
+        // 都是 404，而**症状和"服务挂了"一模一样**（那一栏什么都搜不出来 / 导入说换不到文件）。
+        // 就是这么踩的：换镜像那一笔把 `/v1` 漏在地址外面了，而这一条链在两个
+        // 验证工程里**全是拿假接口验的**（假接口的 base 本身就带 `/v1`）⇒ 四个验证工程
+        // 全绿、真网络每一发 404，只有 `cf-resolve-live` 那一跑看得出来。
+        // 所以这条断言钉的不是"哪台机器"，是**那台机器后面必须接上 `/v1` 这一段**。
         check(noKeyBase.endsWith(QStringLiteral("/v1")),
               "ZG5 默认那台也带 `/v1` 那一段（少它每一发都是 404，而症状看着像服务挂了）",
               noKeyBase);
@@ -14113,7 +13941,6 @@ static void runCurseForgeTests() {
                   QStringLiteral("https://api.curseforge.com/v1"),
               "ZG5 填了 key：改走官方",
               ModpackImport::curseForgeApiBase(QStringLiteral("abc")));
-        // 验证工程的口子优先级最高（离线端到端就靠它把接口指到本机）。
         check(ModpackImport::curseForgeApiBase(QStringLiteral("abc"),
                                                QStringLiteral("http://127.0.0.1:8123/v1")) ==
                   QStringLiteral("http://127.0.0.1:8123/v1"),
@@ -14146,10 +13973,6 @@ static void runCurseForgeTests() {
     }
 
     // --- ZG7. 数据层端到端：号真的发到那台机器上，换回来的东西真的落回 pack ------------
-    //
-    // 上面几节全是纯函数（两头）。这一节跑**中间那一发**：`VersionManager::resolveCurseForgeFiles`
-    // 拼出来的地址、写出来的正文、带上的头，以及答复怎么变成 `pack.files`。
-    // 接口是本机的假服务器（`Launcher/CurseForgeApiBase` 就是为这个留的口子，产品从不写它）。
     //
     // 这一节要防的错，全都是"纯函数全绿、但整件事不成"的那种：地址少一个 `/` 变成 404、
     // 正文的键名写成 `fileIDs`、带了 key 却不发 `x-api-key`（官方 403）、
@@ -14197,7 +14020,6 @@ static void runCurseForgeTests() {
             // ---- ZG7a 顺利的那一条：两发都发出去、两发都答回来、落地 ----
             {
                 VersionManager manager;
-                // 这一句就是"把接口指到本机上"的全部（产品自己从不写这个键）。
                 manager.setCurseForgeApiBaseOverride(api.baseUrl());
                 ModpackImport::Pack pack;
                 check(freshPack(&pack), "ZG7 前提：那份清单解析得出来");
@@ -14388,10 +14210,10 @@ static void runCurseForgeTests() {
 /// 取 URL 里某个查询参数，**按百分号解码回原样**（拼地址那几条断言要读回原值）。
 ///
 /// NOTE: 这里是自己切 `&` / `=` 再 QUrl::fromPercentEncoding，**不是** QUrlQuery。
-///       实测（2026-09-23）QUrlQuery 把 `%3A` 解回了 `:`，却把 `%5B` / `%5D` 原样留着 ——
-///       它只解"它认为必须解"的那些，于是读回来的是半解码的东西，看着像产品把地址拼错了
-///       （三条断言就是这么假红的）。要测的是"拼进去的原值能不能原样读回来"，那就自己解，
-///       别用一个自带一套规矩的解析器去验另一个拼串的人。
+/// 实测QUrlQuery 把 `%3A` 解回了 `:`，却把 `%5B` / `%5D` 原样留着 ——
+/// 它只解"它认为必须解"的那些，于是读回来的是半解码的东西，看着像产品把地址拼错了
+/// （三条断言就是这么假红的）。要测的是"拼进去的原值能不能原样读回来"，那就自己解，
+/// 别用一个自带一套规矩的解析器去验另一个拼串的人。
 static QString urlParam(const QString &url, const QString &key) {
     const int question = url.indexOf(QLatin1Char('?'));
     if (question < 0) {
@@ -14415,17 +14237,11 @@ static QJsonDocument jsonOf(const QString &text) {
 static void runResourceCatalogTests() {
     const QString metaDir = QStringLiteral(REPO_ROOT_PATH) + "/tests/meta";
 
-    // ---------------------------------------------------------------------
     section("Z1. 几类资源的键 / 目标目录 / 名字");
-    // ---------------------------------------------------------------------
 
-    // 这几个键要和下载页左栏那份分类表里对应的几条**逐字相同**（界面上"点的是哪一类"和
-    // "去问哪一类"靠这个字符串对起来）。那份表在 ui/MainWindowUI.hpp，要 QtWidgets 才编得动，
-    // verify 这边链不进来 —— 所以那个等号由 ui_check 钉，这里钉的是 API 那边认的那几个词。
-    //
-    // NOTE: 2026-09-25 加了「数据包」（用户原话「下载那一栏少了个数据包类型，把它放在模组和
-    //       资源包中间加上」）—— API 那边认的词是 Modrinth 自己的 `datapack`（不是
-    //       `datapacks`，那个是我们落盘用的目录名，两回事）。
+    // NOTE: 加了「数据包」（要求「下载那一栏少了个数据包类型，把它放在模组和
+    // 资源包中间加上」）—— API 那边认的词是 Modrinth 自己的 `datapack`（不是
+    // `datapacks`，那个是我们落盘用的目录名，两回事）。
     check(ResourceCatalog::kindKey(ResourceCatalog::Kind::Mod) == QStringLiteral("mod") &&
               ResourceCatalog::kindKey(ResourceCatalog::Kind::Modpack) ==
                   QStringLiteral("modpack") &&
@@ -14478,9 +14294,7 @@ static void runResourceCatalogTests() {
                   QStringLiteral("资源包"),
           "Z1 五个名字（和下载页左栏那几个字一样）");
 
-    // ---------------------------------------------------------------------
     section("Z2. 搜索地址怎么拼（纯函数，不联网）");
-    // ---------------------------------------------------------------------
 
     const QString plain = ResourceCatalog::searchUrl(ResourceCatalog::Kind::Mod,
                                                     QString(), 0, 20);
@@ -14554,9 +14368,7 @@ static void runResourceCatalogTests() {
               .contains(QStringLiteral("offset=40")),
           "Z2 翻页的 offset 真的换了");
 
-    // ---------------------------------------------------------------------
     section("Z3. 读真搜索响应（meta/modrinth-search-mod.json）");
-    // ---------------------------------------------------------------------
 
     QByteArray searchJson;
     {
@@ -14629,7 +14441,7 @@ static void runResourceCatalogTests() {
     // 这三条用的是真响应，里面**两种形状都有**：前两条是 `…_96.webp`，第三条
     // （Bh37bMuy）接口直接给的就是 `…/icon.png`。所以要**按每一条自己判** —— 假定
     // "接口给的一定是 webp"的话，第三条会被送去解 webp，而它本来就是一张 PNG
-    //（这正是 isWebpUrl 存在的理由，见 ResourceCatalog.hpp）。
+    // （这正是 isWebpUrl 存在的理由，见 ResourceCatalog.hpp）。
     if (search.hits.size() >= 3) {
         const ResourceCatalog::Hit &sodium = search.hits.at(0);
         check(sodium.iconUrl ==
@@ -14648,9 +14460,7 @@ static void runResourceCatalogTests() {
               search.hits.at(2).iconUrl);
     }
 
-    // ---------------------------------------------------------------------
     section("Z3b. 接口给的图标地址：只认我们自己那个域名");
-    // ---------------------------------------------------------------------
 
     // 这个串是**外部输入**（从接口正文里读的），而它的下一个用途是"拿去发一个请求"。
     // 所以三件事都要过：https、host 全等 cdn.modrinth.com、以及空串一律当"没给"。
@@ -14694,14 +14504,8 @@ static void runResourceCatalogTests() {
               "Z3b 当没给之后，兜底那条还是拼得出来");
     }
 
-    // ---------------------------------------------------------------------
     section("Z3c. 批量问图标地址（`GET /projects?ids=…`）");
-    // ---------------------------------------------------------------------
 
-    // ★ 2026-09-27 加的（用户原话「模组的图标没有正确加载」）。要这一发的理由见
-    //   ResourceCatalog.hpp 里 `iconUrlForProject()` 那段实测：**自己拼的那条
-    //   `<id>/icon.png` 只是老项目的别名**，20 个真模组里 11 个回 404。真正那条地址在
-    //   带哈希的文件名底下，除了接口没人说得出来。
     check(ResourceCatalog::projectsRequestUrl({QStringLiteral("AANobbMI"),
                                                QStringLiteral("P7dR8mSH")}) ==
               QStringLiteral("https://api.modrinth.com/v2/projects?ids="
@@ -14750,9 +14554,7 @@ static void runResourceCatalogTests() {
               ResourceCatalog::parseProjectIconUrls(QByteArray()).isEmpty(),
           "Z3c 读不懂 / 空正文 → 空表（不是崩、也不是塞一条空的进来）");
 
-    // ---------------------------------------------------------------------
     section("Z4. 读不动 / 没搜到 是两句话");
-    // ---------------------------------------------------------------------
 
     // 「没搜到」不是错（下面 Z4b），但「没搜成」必须如实报，不能返回一个空列表 ——
     // 空列表到界面上就是"什么都没搜到"，用户会去改搜索词，而真正的问题在网络那头。
@@ -14781,9 +14583,7 @@ static void runResourceCatalogTests() {
               "Z4b 空 hits 算「问到了、没有」（ok=true）", none.problem);
     }
 
-    // ---------------------------------------------------------------------
     section("Z5. 下载量那串字（唯一一处换单位）");
-    // ---------------------------------------------------------------------
 
     check(ResourceCatalog::formatDownloads(0) == QStringLiteral("0") &&
               ResourceCatalog::formatDownloads(9999) == QStringLiteral("9999") &&
@@ -14800,9 +14600,7 @@ static void runResourceCatalogTests() {
     check(ResourceCatalog::formatDownloads(-1).isEmpty(),
           "Z5 负数（接口没给）回空串，不回「-1」");
 
-    // ---------------------------------------------------------------------
     section("Z6. 版本列表地址与真版本列表（meta/modrinth-versions-iris.json）");
-    // ---------------------------------------------------------------------
 
     {
         const QString url = ResourceCatalog::versionsUrl(QStringLiteral("YL57xq9U"),
@@ -14818,7 +14616,7 @@ static void runResourceCatalogTests() {
               url);
 
         // 没选游戏版本时**不问**筛条件（界面在用户还没选版本时不该把范围缩掉）。
-        // 唯一常带的那条是 `include_changelog=false`（2026-10-18 照 PCL 学的：这一层
+        // 唯一常带的那条是 `include_changelog=false`（ 照 PCL 学的：这一层
         // 一个字节的 changelog 都不读，接口默认却把每个文件的更新日志原文塞回来）。
         const QString bare = ResourceCatalog::versionsUrl(QStringLiteral("YL57xq9U"),
                                                           QString());
@@ -14927,11 +14725,9 @@ static void runResourceCatalogTests() {
               "Z6c 没有 primary 时回第一条；没有文件时回 nullptr");
     }
 
-    // ---------------------------------------------------------------------
     section("Z6d. 前置模组：缺哪些 / 去哪问 / 挑哪一版（一键下载那一批）");
-    // ---------------------------------------------------------------------
 
-    // 用户 2026-09-28：「在模组下载页，选择模组后显示其依赖，点击下载后弹出窗口，让用户
+    // 用户 ：「在模组下载页，选择模组后显示其依赖，点击下载后弹出窗口，让用户
     // 可以点击一键下载所有缺少的依赖」。这一带钉的是**判断**那一半（纯函数），
     // 界面上那几个框怎么弹、下载批次怎么开在 MainWindow 里。
     {
@@ -14941,7 +14737,7 @@ static void runResourceCatalogTests() {
         target.loader = QStringLiteral("fabric");
 
         // ① "装过的算不算装了"这件事的键，必须和图标缓存那张表**同一个拼法** ——
-        //    对不上等于"装过的前置每次都当成没装、再下一遍"，而且不报错。
+        // 对不上等于"装过的前置每次都当成没装、再下一遍"，而且不报错。
         check(target.installedKey(QStringLiteral("AANobbMI")) ==
                   ResourceCatalog::Hit{.projectId = QStringLiteral("AANobbMI"),
                                        .source = ResourceCatalog::Source::Modrinth}
@@ -14971,11 +14767,11 @@ static void runResourceCatalogTests() {
                       ld.isArray() && ld.array().size() == 1 &&
                       ld.array().at(0).toString() == QStringLiteral("fabric"),
                   "Z6d 去问前置版本列表时带着目标实例的游戏版本 + 加载器", url);
-            // ★ 钥匙 = `versionsRequestKey()` **再加一个消费方后缀**。后缀那一截不是装饰：
-            //   `ResourceStore::fetchVersions()` 按钥匙去重（同一把钥匙再来一发会把前一发
-            //   abort 掉），而"详情页在读这个项目的版本"和"前置检查在读它"是两件事 ——
-            //   不区分的话后发那一发把先发掐掉，先发那一趟永远等不到自己的回复
-            //   （症状正是"按了没反应"）。
+            // 钥匙 = `versionsRequestKey()` **再加一个消费方后缀**。后缀那一截不是装饰：
+            // `ResourceStore::fetchVersions()` 按钥匙去重（同一把钥匙再来一发会把前一发
+            // abort 掉），而"详情页在读这个项目的版本"和"前置检查在读它"是两件事 ——
+            // 不区分的话后发那一发把先发掐掉，先发那一趟永远等不到自己的回复
+            // （症状正是"按了没反应"）。
             check(key == ResourceCatalog::versionsRequestKey(QStringLiteral("AANobbMI"),
                                                             QStringLiteral("1.21.1"),
                                                             QStringLiteral("fabric")) +
@@ -14998,9 +14794,9 @@ static void runResourceCatalogTests() {
               "Z6d 已经装过的前置不再下一次");
 
         // ④ ★ 但"装着的是**另一家**的同号项目"**不算装了**。两个来源的 id 各在自己那套里
-        //    唯一，`238222` 这种纯数字 id 在 Modrinth 那条 base62 里也合法 —— 不带来源
-        //    去比的话，这里会得出"已经装过了"、于是**一个前置都不下**，而用户手上那个
-        //    mods/ 里根本没有它。
+        // 唯一，`238222` 这种纯数字 id 在 Modrinth 那条 base62 里也合法 —— 不带来源
+        // 去比的话，这里会得出"已经装过了"、于是**一个前置都不下**，而用户手上那个
+        // mods/ 里根本没有它。
         const QSet<QString> otherSource{
             ResourceCatalog::Hit{.projectId = QStringLiteral("AANobbMI"),
                                  .source = ResourceCatalog::Source::CurseForge}
@@ -15026,8 +14822,8 @@ static void runResourceCatalogTests() {
               "Z6d optional 和没写项目号的都不进这一批，只留下那一条真的",
               QStringLiteral("%1 条").arg(onlyReal.size()));
 
-        // ⑥ ★ Fabric API 不列（用户 2026-10-13：「所有的 fabric 模组当然都要用 fabricAPI，
-        //    这个是前置简直是废话，需要的前置列表里排除一下吧」）。两家各一个号，都要认。
+        // ⑥ ★ Fabric API 不列（用户 ：「所有的 fabric 模组当然都要用 fabricAPI，
+        // 这个是前置简直是废话，需要的前置列表里排除一下吧」）。两家各一个号，都要认。
         {
             ResourceCatalog::VersionEntry fabricMod;
             ResourceCatalog::Dependency mrApi;
@@ -15056,7 +14852,7 @@ static void runResourceCatalogTests() {
                   "★★ Z6d Fabric API 只在详情展示中隐藏，缺失判定仍保留真依赖",
                   QStringLiteral("%1 条").arg(missingWithApi.size()));
 
-            // ★ 是**按号**排的，不是"看着像"就排：差一位的两个号一个都不能误伤。
+            // 是**按号**排的，不是"看着像"就排：差一位的两个号一个都不能误伤。
             ResourceCatalog::VersionEntry lookalikes;
             ResourceCatalog::Dependency nearMr;
             nearMr.projectId = QStringLiteral("P7dR8mS");  // 少一位
@@ -15123,9 +14919,9 @@ static void runResourceCatalogTests() {
         check(ModDependencies::resolveDependency(loose, candidates, &picked, &why) &&
                   picked.version.id == QStringLiteral("s7adptIg"),
               "Z6d 没钉版本 -> 拿列表第一条（接口给的就是新的在前）", why);
-        // ★ 这一条钉的是"不按版本号比大小"：把两条**倒过来**摆，挑出来的必须还是第一条
-        //   （`0.6.12` 那条）。按版本号挑的话这一条会红 —— 而那个比较器（"1.9 比 1.10 旧"）
-        //   写错了不会有任何东西报警。
+        // 这一条钉的是"不按版本号比大小"：把两条**倒过来**摆，挑出来的必须还是第一条
+        // （`0.6.12` 那条）。按版本号挑的话这一条会红 —— 而那个比较器（"1.9 比 1.10 旧"）
+        // 写错了不会有任何东西报警。
         const QList<ResourceCatalog::VersionEntry> reversed{v1, v0};
         why.clear();
         check(ModDependencies::resolveDependency(loose, reversed, &picked, &why) &&
@@ -15206,7 +15002,7 @@ static void runResourceCatalogTests() {
             ResourceCatalog::Kind::Mod,
             {QStringLiteral("Sodium"), QStringLiteral("Fabric API")});
         // 正文 = 句头 + 名单 + 「要一起下载吗？」。名单**一条一行、前面带短横**（用户
-        // 2026-10-09 原话「模组名称，一行一个」）。旧版那句"这几个还没装"里的**计数**已经
+        // 原话「模组名称，一行一个」）。旧版那句"这几个还没装"里的**计数**已经
         // 不写了 —— 名单里几条一眼就看得见，而截断那一档写的是"还有 N 个未列出"。
         check(prompt.contains(QStringLiteral("- Sodium\n- Fabric API")) &&
                   prompt.contains(ModDependencies::dependencyPromptHead(ResourceCatalog::Kind::Mod)) &&
@@ -15223,7 +15019,7 @@ static void runResourceCatalogTests() {
                       .contains(QStringLiteral("Sodium：没问到")),
               "Z6d 没解开那几条的原话会被列出来；空表回空串");
 
-        // ---- 句头认类别（2026-10-09：光影包也查前置）----
+        // ---- 句头认类别（：光影包也查前置）----
         check(ModDependencies::dependencyPromptHead(ResourceCatalog::Kind::Mod) ==
                       QStringLiteral("此模组缺失必要的前置：") &&
                   ModDependencies::dependencyPromptHead(ResourceCatalog::Kind::Shader) ==
@@ -15237,12 +15033,12 @@ static void runResourceCatalogTests() {
               ModDependencies::dependencyPromptText(ResourceCatalog::Kind::Shader,
                                                     {QStringLiteral("Iris")}));
 
-        // ---- 名单的截断规则（用户 2026-10-09 点名，两条边界都要钉）----
+        // ---- 名单的截断规则（用户 点名，两条边界都要钉）----
         //
         // 原话：「如果多于 3 个的话写 还有 x 个未列出...（当然如果刚好还剩一个就列出来了
         // 不要搞一行显示 1 个未列出这种高血压操作）」。翻成判据：
-        //   · **总数 ≤ 4 ⇒ 全列**（4 条这一档就是"刚好还剩一个"，它走全列）；
-        //   · **总数 > 4 ⇒ 列前 3 条 + 「还有 N 个未列出…」**。
+        // · **总数 ≤ 4 ⇒ 全列**（4 条这一档就是"刚好还剩一个"，它走全列）；
+        // · **总数 > 4 ⇒ 列前 3 条 + 「还有 N 个未列出…」**。
         // 所以「还有 1 个未列出」**永远画不出来** —— 下面最后一档就是拿它反着量的。
         const auto names = [](int n) {
             QStringList out;
@@ -15304,11 +15100,9 @@ static void runResourceCatalogTests() {
               ModDependencies::dependencyPromptUnknownText(ResourceCatalog::Kind::Mod, names(5)));
     }
 
-    // ---------------------------------------------------------------------
     section("Z6e. 更新检测：盘上这一条是不是最新");
-    // ---------------------------------------------------------------------
 
-    // 用户 2026-09-28：「实例设置那里做一个更新检测」。判据**只有一条**：盘上那个文件的
+    // 用户 ：「实例设置那里做一个更新检测」。判据**只有一条**：盘上那个文件的
     // sha1 落在列表的第几条上（第 0 条 = 最新的那条）。**不许**按版本号比大小 ——
     // 那个比较器（"1.9 比 1.10 旧"）写错了不会有任何东西报警。
     {
@@ -15338,8 +15132,8 @@ static void runResourceCatalogTests() {
                   .arg(oldest.newerCount)
                   .arg(oldest.latestVersionNumber));
 
-        // ★ 三档都**不许**混：说不清的两种绝不能被当成"已是最新"（那是"告诉用户没事、
-        //   其实没查成"，比不报更糟）。
+        // 三档都**不许**混：说不清的两种绝不能被当成"已是最新"（那是"告诉用户没事、
+        // 其实没查成"，比不报更糟）。
         ModDependencies::InstalledItem noHash = item;
         noHash.sha1.clear();
         const ModDependencies::UpdateVerdict unknownHash =
@@ -15382,16 +15176,7 @@ static void runResourceCatalogTests() {
               ModDependencies::updateSummaryText(5, 2));
     }
 
-    // ---------------------------------------------------------------------
     section("Z6f. 更新检测：批量那一发（`/version_files/update`）");
-    // ---------------------------------------------------------------------
-    //
-    // 用户 2026-10-11：「还有个无法正常获取更新的问题」（他自己点名的是**模组更新**）。
-    // 真机上量出来的样子是：一个 352 个模组的实例，一项目一发版本列表 = **623 发请求**
-    //（同一个文件在 Modrinth 和 CurseForge **两家都认出来**时是两条记录，两条各问一发），
-    // 实测整批 429（Cloudflare 的 `error code: 1015`）/ CF 那边 151 发 `GOAWAY`，
-    // 报告里于是每条都是"说不清"。
-    //
     // 改法两半：① Modrinth 那一拨换成 `POST /version_files/update`（一次一串 sha1，
     // 352 个模组 = 3 发）；② **一个文件只查一家**（两家都有时走 Modrinth，Modrinth 那一发
     // 没给出答案时才退回问 CurseForge）。②那一半的状态机在 `MainWindow` 上，由 mw_check 的
@@ -15402,7 +15187,7 @@ static void runResourceCatalogTests() {
 
         // ---------- ① 请求体 ----------
         //
-        // ★ 空哈希表：**不许**发（空表的回复必然是空表，白花一发）。
+        // 空哈希表：**不许**发（空表的回复必然是空表，白花一发）。
         check(ResourceCatalog::versionFilesUpdateRequestBody({}, QStringLiteral("1.20.1"),
                                                              QStringLiteral("forge"))
                   .isEmpty(),
@@ -15426,10 +15211,10 @@ static void runResourceCatalogTests() {
                   bodyHashes.at(0).toString() == shaA && bodyHashes.at(1).toString() == shaB,
               "Z6f 两个真空哈希原样进去了、空白和空串被剔掉（顺序照给的顺序）",
               QStringLiteral("%1 个").arg(bodyHashes.size()));
-        // ★★ 加载器那一格**必须翻一道**：`dependencyTargetFor()` 给的是显示名（「Forge」），
-        //    而这一发只认小写那个词 —— 递错的症状是"一个哈希都匹配不上"（不是报错）：
-        //    整批模组会被退回问 CurseForge，而屏幕上看像"这一批没查到"。
-        //    见 `ResourceCatalog::versionFilesUpdateRequestBody()` 里那段。
+        // 加载器那一格**必须翻一道**：`dependencyTargetFor()` 给的是显示名（「Forge」），
+        // 而这一发只认小写那个词 —— 递错的症状是"一个哈希都匹配不上"（不是报错）：
+        // 整批模组会被退回问 CurseForge，而屏幕上看像"这一批没查到"。
+        // 见 `ResourceCatalog::versionFilesUpdateRequestBody()` 里那段。
         check(bodyObject.value(QStringLiteral("loaders")).toArray() ==
                   QJsonArray{QStringLiteral("forge")},
               "★★ Z6f 加载器递显示名「Forge」也被翻成 loaders=[forge] —— 这一格是"
@@ -15439,7 +15224,7 @@ static void runResourceCatalogTests() {
                   QJsonArray{QStringLiteral("1.20.1")},
               "Z6f 游戏版本那一格是小写键 `game_versions`、值是个数组");
         // 认不出来的加载器词（用户盘上的 OptiFine 就是这一档）：**那一格整个不出现**
-        //（= 不筛），别拼一个筛不出来的词上去。
+        // （= 不筛），别拼一个筛不出来的词上去。
         const QJsonObject optifineBody = QJsonDocument::fromJson(
             ResourceCatalog::versionFilesUpdateRequestBody({shaA}, QStringLiteral("1.20.1"),
                                                            QStringLiteral("OptiFine"))).object();
@@ -15520,10 +15305,10 @@ static void runResourceCatalogTests() {
                   ModDependencies::UpdateState::Unknown,
               "Z6f 本地那个文件算不出 sha1 -> 说不清（不是「已是最新」）");
 
-        // ★★ 接口对它**什么都没给**（那一批自己 429 了 / 这个项目在这个游戏版本+加载器下
-        //    没有版本）：`problem` 里那句话就是这几条"说不清"的理由 —— 从前它被吞成
-        //    "网络或接口没成"，于是用户看到的每一条都是"网络没成"，在那儿反复重试网络，
-        //    而真因是"一次问得太多"。
+        // 接口对它**什么都没给**（那一批自己 429 了 / 这个项目在这个游戏版本+加载器下
+        // 没有版本）：`problem` 里那句话就是这几条"说不清"的理由 —— 从前它被吞成
+        // "网络或接口没成"，于是用户看到的每一条都是"网络没成"，在那儿反复重试网络，
+        // 而真因是"一次问得太多"。
         const QString throttled = QStringLiteral("问得太勤了，等一会儿再试。");
         const ModDependencies::UpdateVerdict noAnswer =
             ModDependencies::judgeUpdateAgainstLatest(item, ResourceCatalog::VersionEntry(),
@@ -15567,22 +15352,7 @@ static void runResourceCatalogTests() {
               key);
     }
 
-    // ---------------------------------------------------------------------
     section("Z6g. 更新检测：**问版本列表时带不带加载器**（2026-10-11）");
-    // ---------------------------------------------------------------------
-    //
-    // 用户 2026-10-11：「看上去依然获取不到有效更新」（同一个实例里**资源包和光影包
-    // 一条都判不出来**，报告里全是"说不清"）。
-    //
-    // 真因不是网络：那个筛一旦带上，**只对模组是对的**。当场拿用户盘上那些文件的 sha1
-    // 各问一次 `POST /v2/version_files/update`（同一条命令、只改 `loaders` 那一格）：
-    //   · `loaders:["fabric"]` ⇒ `{}`（一个都不答）；
-    //   · 去掉 `loaders` ⇒ 当场答（`BlockPixel` / `Visible Ores` / `Translations for
-    //     Sodium` 都是这样）；
-    //   · 光影那条在 Modrinth 上写的是 `["iris","optifine"]`（拿 `Complementary` 的
-    //     项目号 `R6NEzAwj` 实测），资源包写的是 `["minecraft"]` —— **没有一个**是实例
-    //     的加载器。
-    // 叶子判据就是这一支纯函数（产品的两处调用点都读它，不许就地写"哪几类带"）。
     {
         check(ModDependencies::kindUsesLoader(ResourceCatalog::Kind::Mod) &&
                   ModDependencies::kindUsesLoader(ResourceCatalog::Kind::Modpack),
@@ -15594,7 +15364,7 @@ static void runResourceCatalogTests() {
               "★★ Z6g 资源包 / 光影包 / 数据包**一个都不带** —— 带上去不会报错、只是"
               "一个都不匹配（真机症状：那一类每一条都是「说不清」）");
         // 逐类过一遍 `allKinds()`：后加一类时**不许**悄悄落进「带上去」那一档
-        //（带错了的症状是「这一类一条都判不出来」），这一条会当场红。
+        // （带错了的症状是「这一类一条都判不出来」），这一条会当场红。
         QStringList withLoader;
         for (const ResourceCatalog::Kind kind : ResourceCatalog::allKinds()) {
             if (ModDependencies::kindUsesLoader(kind)) {
@@ -15617,11 +15387,9 @@ static void runResourceCatalogTests() {
               "走，不会静默变成「不带」）");
     }
 
-    // ---------------------------------------------------------------------
     section("Z7. 第二个来源（CurseForge）：来源本身 + 那一行筛选项");
-    // ---------------------------------------------------------------------
 
-    // 用户 2026-09-25 要的「按版本 / 模组加载器 / 来源 / 类型 / 名称搜索」里，"来源"和"类型"
+    // 用户 要的「按版本 / 模组加载器 / 来源 / 类型 / 名称搜索」里，"来源"和"类型"
     // 两栏的**所有出处**都在这儿：哪几个来源、每一栏有哪些项、以及"哪一类根本没有这一栏"
     // （Modrinth 的数据包）。界面上那四个下拉框是照这几张表填的 —— 表错了，界面上看不出
     // 任何异常，只是搜出来的东西不对。
@@ -15768,9 +15536,7 @@ static void runResourceCatalogTests() {
               .isEmpty(),
           "Z7d 整合包这一类没有落点（它走导入那条路）");
 
-    // ---------------------------------------------------------------------
     section("Z7e. CurseForge 的搜索地址（纯函数，不联网）");
-    // ---------------------------------------------------------------------
 
     const QString fakeBase = QStringLiteral("http://127.0.0.1:9/v1");
     {
@@ -15791,17 +15557,17 @@ static void runResourceCatalogTests() {
                   urlParam(url, QStringLiteral("index")) == QStringLiteral("20") &&
                   urlParam(url, QStringLiteral("pageSize")) == QStringLiteral("20"),
               "Z7e 六个筛子 + 分页都拼进去了", url);
-        // ★ 名字那一段必须叫 `searchFilter`，**不能是 `search`**。这一条是补上去的：
-        //   2026-09-26 之前我们发的是 `search=`，这一家**一个字都不筛**、也不报错，安安静静
-        //   把"这一类里最热门的"那一批回给你（`totalCount` 是整类的 10000，而不是 "jei"
-        //   那 377 条）—— 界面上看起来"搜出来了"，其实搜什么都是同一批。
-        //   **它不报错**，所以只能靠"地址里那一段叫什么"来钉住（正面一条 + 反面一条）。
-        //   （更早那句"实测 Popularity 会把搜索词无视掉"是同一个错的另一副面孔：词压根没
-        //   送到，换哪个排序都一样。更正之后 sortField=6 只是为了"按总下载量"。）
+        // 名字那一段必须叫 `searchFilter`，**不能是 `search`**。这一条是补上去的：
+        // 之前我们发的是 `search=`，这一家**一个字都不筛**、也不报错，安安静静
+        // 把"这一类里最热门的"那一批回给你（`totalCount` 是整类的 10000，而不是 "jei"
+        // 那 377 条）—— 界面上看起来"搜出来了"，其实搜什么都是同一批。
+        // **它不报错**，所以只能靠"地址里那一段叫什么"来钉住（正面一条 + 反面一条）。
+        // （更早那句"实测 Popularity 会把搜索词无视掉"是同一个错的另一副面孔：词压根没
+        // 送到，换哪个排序都一样。更正之后 sortField=6 只是为了"按总下载量"。）
         check(urlParam(url, QStringLiteral("search")).isEmpty(),
               "Z7e 地址里**没有**裸的 `search=` 那一段（发它等于没搜）", url);
         // 排序：一个值就够（TotalDownloads），但**方向必须是 desc**
-        //（这一家的默认方向是 asc，那样头一条是"这一类里最没人用的"）。
+        // （这一家的默认方向是 asc，那样头一条是"这一类里最没人用的"）。
         check(urlParam(url, QStringLiteral("sortField")) == QStringLiteral("6") &&
                   urlParam(url, QStringLiteral("sortOrder")) == QStringLiteral("desc"),
               "Z7e 排序用 TotalDownloads + 倒序", url);
@@ -15840,18 +15606,16 @@ static void runResourceCatalogTests() {
               "Z7e 版本列表：问哪个项目的哪个游戏版本", files);
     }
 
-    // ---------------------------------------------------------------------
     section("Z7e2. 加载器那一格：显示名 / 数字键 → 那一边要的词形（2026-10-10 补）");
-    // ---------------------------------------------------------------------
 
     {
-        // ★★ 这一格是**静默失灵**那一类：两边要的不是一套词（CurseForge 要 `modLoaderType`
-        //    的数字、Modrinth 要 `fabric` 这个词），拼错了那边**不报错**，只是什么都筛不
-        //    出来 —— 而"什么都没筛出来"和"这个资源一个版本都没有"在界面上是同一句话。
+        // 这一格是**静默失灵**那一类：两边要的不是一套词（CurseForge 要 `modLoaderType`
+        // 的数字、Modrinth 要 `fabric` 这个词），拼错了那边**不报错**，只是什么都筛不
+        // 出来 —— 而"什么都没筛出来"和"这个资源一个版本都没有"在界面上是同一句话。
         //
-        //    修之前：`instanceLoaderName()` 给的是**显示名**（「Fabric」），主程序直接把它
-        //    递进了这一格 ⇒ 给一个 Fabric 实例问前置，回来的可能是任意加载器的版本。
-        //    所以三个来源（数字键 / 显示名 / 小写词）都得认，认不出来必须回空串。
+        // 修之前：`instanceLoaderName()` 给的是**显示名**（「Fabric」），主程序直接把它
+        // 递进了这一格 ⇒ 给一个 Fabric 实例问前置，回来的可能是任意加载器的版本。
+        // 所以三个来源（数字键 / 显示名 / 小写词）都得认，认不出来必须回空串。
         check(ResourceCatalog::loaderRequestValue(QStringLiteral("4"),
                                                   ResourceCatalog::Source::CurseForge) ==
                       QStringLiteral("4") &&
@@ -15884,9 +15648,7 @@ static void runResourceCatalogTests() {
               "两头的空白也不影响认");
     }
 
-    // ---------------------------------------------------------------------
     section("Z7f. 读真搜索响应（meta/curseforge-search-mod.json）");
-    // ---------------------------------------------------------------------
 
     {
         QByteArray json;
@@ -15970,11 +15732,11 @@ static void runResourceCatalogTests() {
                       QStringList({QStringLiteral("1.9"), QStringLiteral("1.10"),
                                    QStringLiteral("1.21"), QStringLiteral("1.21.1")}),
                   "Z7g 1.9 < 1.10 < 1.21 < 1.21.1");
-            // ★ 2026-09-26 补的三条（P4）。这个比较器改之前**不是全序**：
-            //   1.9 < 1.10（数比）· 1.10 < 1.10-pre1（字符串比）· 1.10-pre1 < 1.9（字符串比），
-            //   三条同时成立 = 一个圈，而它喂的是 std::stable_sort（未定义行为）。
-            //   判据用"**六种入参次序排出来必须是同一个答案**"：比较器不是全序时，
-            //   stable_sort 分区时"看谁先"会随入参次序变，排出来的东西就跟着变。
+            // 补的三条（P4）。这个比较器改之前**不是全序**：
+            // 1.9 < 1.10（数比）· 1.10 < 1.10-pre1（字符串比）· 1.10-pre1 < 1.9（字符串比），
+            // 三条同时成立 = 一个圈，而它喂的是 std::stable_sort（未定义行为）。
+            // 判据用"**六种入参次序排出来必须是同一个答案**"：比较器不是全序时，
+            // stable_sort 分区时"看谁先"会随入参次序变，排出来的东西就跟着变。
             {
                 const QString v19 = QStringLiteral("1.9");
                 const QString v110 = QStringLiteral("1.10");
@@ -16017,9 +15779,7 @@ static void runResourceCatalogTests() {
         }
     }
 
-    // ---------------------------------------------------------------------
     section("Z7h. 读真文件列表（meta/curseforge-files-jei.json）");
-    // ---------------------------------------------------------------------
 
     {
         QByteArray json;
@@ -16069,7 +15829,7 @@ static void runResourceCatalogTests() {
         }
 
         // `downloadUrl` 是 **null** = 作者关掉了第三方分发。这一条真响应里没有样本
-        //（JEI 开着），所以自己造一条 —— 它是**许可**，不是"技术上做不到"：
+        // （JEI 开着），所以自己造一条 —— 它是**许可**，不是"技术上做不到"：
         // 界面上必须说清"作者不让代下"，而不是"没有可下载的文件"（后者会让用户一遍遍重试）。
         const QByteArray notDistributable = QByteArrayLiteral(
             "{\"data\":[{\"id\":123,\"fileName\":\"secret.jar\",\"fileLength\":10,"
@@ -16098,15 +15858,13 @@ static void runResourceCatalogTests() {
 // 渠道那一档是哪一档，全在 ResourceCatalog 里 —— 那也正是这一节要钉的。
 //
 // 为什么要一节专门的：这几句话**错了不会报错**，只会让人看到一份"少了几个版本"的列表
-//（筛错了）、或者一条看不见的渠道标签（档位认错了）。两类都能在这一节里量出来。
+// （筛错了）、或者一条看不见的渠道标签（档位认错了）。两类都能在这一节里量出来。
 // =========================================================================
 
 static void runResourceDetailTests() {
     const QString metaDir = QStringLiteral(REPO_ROOT_PATH) + "/tests/meta";
 
-    // ---------------------------------------------------------------------
     section("Z8a. 「多久以前」那几档（「现在」由调用方钉死，不然每一条都会漂）");
-    // ---------------------------------------------------------------------
 
     {
         // 固定一个"现在"，然后每档各喂一条。用**同一个** now 去算，边界才不会随当下时间漂。
@@ -16151,9 +15909,7 @@ static void runResourceDetailTests() {
               QStringLiteral("[%1][%2][%3]").arg(noTime, garbage, future));
     }
 
-    // ---------------------------------------------------------------------
     section("Z8b. 发布渠道：那两个字 + 那**一档**（详情页左边那个方块）");
-    // ---------------------------------------------------------------------
 
     {
         check(ResourceCatalog::releaseChannelNote(QStringLiteral("beta")) ==
@@ -16167,7 +15923,7 @@ static void runResourceDetailTests() {
                   ResourceCatalog::releaseChannelNote(QStringLiteral("rc")).isEmpty(),
               "Z8b 正式版和认不出来的都不写字");
 
-        // ★ 档位：0 绿 / 1 橙 / 2 红（详情页 ResourceDetailMarks::channelColor 按它取色）。
+        // 档位：0 绿 / 1 橙 / 2 红（详情页 ResourceDetailMarks::channelColor 按它取色）。
         const int release = ResourceCatalog::releaseChannelRank(QStringLiteral("release"));
         const int beta = ResourceCatalog::releaseChannelRank(QStringLiteral("beta"));
         const int alpha = ResourceCatalog::releaseChannelRank(QStringLiteral("alpha"));
@@ -16176,8 +15932,8 @@ static void runResourceDetailTests() {
         check(release == 0 && beta == 1 && alpha == 2,
               "Z8b 三档的次序就是 release / beta / alpha",
               QStringLiteral("%1 %2 %3").arg(release).arg(beta).arg(alpha));
-        // ★ 认不出来回 **-1**，不是 0。回 0 等于把一条不知道是什么渠道的版本画成绿色的
-        //   "正式版" —— 那是把"不知道"说成了"很稳"。
+        // 认不出来回 **-1**，不是 0。回 0 等于把一条不知道是什么渠道的版本画成绿色的
+        // "正式版" —— 那是把"不知道"说成了"很稳"。
         check(unknown == -1 && empty == -1,
               "Z8b 认不出来回 -1（不是 0：那会把它画成绿色的正式版）",
               QStringLiteral("%1 / %2").arg(unknown).arg(empty));
@@ -16188,9 +15944,7 @@ static void runResourceDetailTests() {
               "Z8b 档位和那两个字说的是同一件事（正式版：无字 + 第 0 档）");
     }
 
-    // ---------------------------------------------------------------------
     section("Z8c. 加载器显示名（认不出来原样还回去）");
-    // ---------------------------------------------------------------------
 
     check(ResourceCatalog::loaderDisplayName(QStringLiteral("fabric")) ==
                   QStringLiteral("Fabric") &&
@@ -16200,9 +15954,7 @@ static void runResourceDetailTests() {
                   QStringLiteral("optifine"),
           "Z8c 四个加载器有自己的写法；没见过的原样还回去（不编、也不空）");
 
-    // ---------------------------------------------------------------------
     section("Z8d. 版本行那一行小字（喂真夹具）");
-    // ---------------------------------------------------------------------
 
     QByteArray versionsJson;
     {
@@ -16220,7 +15972,7 @@ static void runResourceDetailTests() {
     if (versions.size() == 12) {
         // 那一行是**拼出来的**：加载器 / 文件名 / 下载量 / 更新于 / 渠道，各缺各的不写。
         // 逐条查一遍"每一截该在的都在、不该在的都不在"比对着一条写死那句话结实得多
-        //（明天接口多一格、少一格，这里不会变成一条假的失败）。
+        // （明天接口多一格、少一格，这里不会变成一条假的失败）。
         int complete = 0;
         bool betaHasNote = false;
         bool releaseHasNoNote = true;
@@ -16249,9 +16001,7 @@ static void runResourceDetailTests() {
         check(releaseHasNoNote, "Z8d 正式版那一行**不写**渠道（那两个字不是信息）");
     }
 
-    // ---------------------------------------------------------------------
     section("Z8e. 分组：一组 = 一个游戏版本 + 一个加载器");
-    // ---------------------------------------------------------------------
 
     if (versions.size() == 12) {
         const QList<ResourceCatalog::VersionGroup> groups =
@@ -16301,9 +16051,7 @@ static void runResourceDetailTests() {
         }
     }
 
-    // ---------------------------------------------------------------------
     section("Z8f. ★ chip 筛的是**这一版声明过的游戏版本**，不是它落在哪个组里");
-    // ---------------------------------------------------------------------
 
     if (versions.size() == 12) {
         const QList<ResourceCatalog::VersionGroup> groups =
@@ -16341,8 +16089,8 @@ static void runResourceDetailTests() {
                   "Z8f 它声明了两档、只落在其中一档（组归属 ≠ 全部声明）",
                   groupedUnder + " / " + other);
             if (!other.isEmpty()) {
-                // ★ 按"另一档"筛，它必须在结果里 —— 只看"落在哪个组里"的写法会把它漏掉，
-                //   而界面上看起来只是"这个模组少列了几版"，没有人会报错。
+                // 按"另一档"筛，它必须在结果里 —— 只看"落在哪个组里"的写法会把它漏掉，
+                // 而界面上看起来只是"这个模组少列了几版"，没有人会报错。
                 const QList<ResourceCatalog::VersionEntry> filtered =
                     ResourceCatalog::versionsForGameVersion(versions, other, false);
                 bool found = false;
@@ -16382,16 +16130,13 @@ static void runResourceDetailTests() {
               "Z8f 谁都没声明过的版本 → 空表");
     }
 
-    // ---------------------------------------------------------------------
     section("Z8f2. ★ 当前实例那个加载器排前面（同一档游戏版本里的第三个排序键）");
-    // ---------------------------------------------------------------------
-    //
-    // 用户原话：「点开某个模组等的时候…对应的模组加载器的版本放在前面…展示为对应版本适用的」。
+    // 要求：「点开某个模组等的时候…对应的模组加载器的版本放在前面…展示为对应版本适用的」。
     // 排序键一共三档，**次序不能换**：
-    //   ① 游戏版本（新的在前）—— 换了的话，点名 neoforge 就会把 1.20.1 那一组顶到 1.21.4
-    //      前面去，用户一眼看见的是"这个模组只支持老版本"；
-    //   ② 同一档游戏版本里，被点名的加载器在前（没点名时是 loaderOrderIndex 那个老次序）；
-    //   ③ 输入次序（`std::stable_sort` 保住的）。
+    // ① 游戏版本（新的在前）—— 换了的话，点名 neoforge 就会把 1.20.1 那一组顶到 1.21.4
+    // 前面去，用户一眼看见的是"这个模组只支持老版本"；
+    // ② 同一档游戏版本里，被点名的加载器在前（没点名时是 loaderOrderIndex 那个老次序）；
+    // ③ 输入次序（`std::stable_sort` 保住的）。
     //
     // 这一节拿一份**合成**清单来钉，不借 Z8d 那份真夹具：要钉的是"哪一组的键是什么"，
     // 手写的六条比真夹具里那 12 条看得清（而且真夹具里 fabric 本来就排在前面 —— 拿它
@@ -16431,7 +16176,7 @@ static void runResourceDetailTests() {
               "Z8f2 前提：不点名时是那个老次序（游戏版本新的在前，同一档里按固定那张表）",
               plain.join(QStringLiteral(", ")));
 
-        // ★ 点名 forge：同一档游戏版本里它就得到最前面 —— 而**游戏版本那一档不动**。
+        // 点名 forge：同一档游戏版本里它就得到最前面 —— 而**游戏版本那一档不动**。
         const QStringList wanted =
             keysOf(ResourceCatalog::groupVersions(pool, false, QStringLiteral("forge")));
         check(wanted ==
@@ -16443,8 +16188,8 @@ static void runResourceDetailTests() {
         check(wanted.size() == plain.size(),
               "★ Z8f2 排前面**只是挪位置**，不是把别的组筛掉（用户要的是「放前面」）",
               QStringLiteral("%1 vs %2").arg(wanted.size()).arg(plain.size()));
-        // ★ 这条才是"三档键次序不能换"的判据：1.20.1 那个 forge 组**排在所有 1.21.4 组后面**。
-        //   它要是跑到最前面，用户看见的第一屏就是"这个模组只支持 1.20.1"。
+        // 这条才是"三档键次序不能换"的判据：1.20.1 那个 forge 组**排在所有 1.21.4 组后面**。
+        // 它要是跑到最前面，用户看见的第一屏就是"这个模组只支持 1.20.1"。
         const int oldForge = wanted.indexOf(QStringLiteral("forge/1.20.1"));
         const int newestQuilt = wanted.indexOf(QStringLiteral("quilt/1.21.4"));
         check(oldForge > newestQuilt && newestQuilt >= 0,
@@ -16456,7 +16201,7 @@ static void runResourceDetailTests() {
         // 传进来的是**显示名**（「Forge」）或带空白时也认。调用点那一侧写的是
         // loaderGroupKey(instanceLoaderName(...))，本来就是小写；这里钉的是"这一层自己
         // 兜得住"—— 哪天有人图省事把显示名直接递进来，不会静默地按"没点名"处理
-        //（那种错的形状是"排前面没生效"，屏幕上一点异常都没有）。
+        // （那种错的形状是"排前面没生效"，屏幕上一点异常都没有）。
         check(keysOf(ResourceCatalog::groupVersions(pool, false, QStringLiteral("Forge"))) == wanted,
               "Z8f2 点名那串大小写不一样也认（「Forge」和 forge 同一组）");
         check(keysOf(ResourceCatalog::groupVersions(pool, false, QStringLiteral("  forge  "))) ==
@@ -16482,9 +16227,7 @@ static void runResourceDetailTests() {
         }
     }
 
-    // ---------------------------------------------------------------------
     section("Z8g. 头卡那行元信息 + 那两颗按钮的地址");
-    // ---------------------------------------------------------------------
 
     {
         ResourceCatalog::Hit hit;
@@ -16534,11 +16277,9 @@ static void runResourceDetailTests() {
               "Z8g MC 百科那条是「按名字搜」的地址，名字照原样转义", mcmod);
     }
 
-    // ---------------------------------------------------------------------
     section("Z8g2. ★★ 一条 Hit 写进 json 再读回来，一个字段都不许丢");
-    // ---------------------------------------------------------------------
 
-    // ★★ 2026-10-10（用户原话：「模组图标做本地缓存功能，不要每次都拉取」）：盘上那份
+    // （要求：「模组图标做本地缓存功能，不要每次都拉取」）：盘上那份
     // 缓存（`<数据目录>/cache/instance-icons/<实例>.json`）里存的就是这条 Hit —— 它是
     // 「第一次查出来那个资源长什么样」的唯一载体。少写一栏的症状不是报错，而是**那一页
     // 顶着一个空标题 / 那一格退回占位拼图**（"缓存命中了但画不出来"），而且只在**第二次
@@ -16620,23 +16361,19 @@ static void runResourceDetailTests() {
               ResourceCatalog::sourceKey(back.source));
     }
 
-    // ---------------------------------------------------------------------
     section("Z8h. ★ 快照版归到对应的大版本（26.2-rc1 → 26.2）");
-    // ---------------------------------------------------------------------
 
-    // 用户原话：「把快照版本的模组放到对应的大版本里（如 26.2rc1 放在 26.2 里）」，外加
+    // 要求：「把快照版本的模组放到对应的大版本里（如 26.2rc1 放在 26.2 里）」，外加
     // 详情页上方那颗「显示快照版」勾选框。这一节分三层钉：认不认得出是快照 → 折不折得动 →
     // 那排 chip / 按 chip 筛 / 组头三处说的**是不是同一个值**（三处传岔了的症状是"点了 26.2
     // 少了几个版本"，而那排 chip 本身看着完全正常，见 ResourceCatalog.hpp 那三段注释）。
     {
         // 认得出的两类：尾巴上带 -preN / -rcN 的（新老两套命名都长这样）、老式快照号
-        //（两位年 + 'w' + 两位周 + 一个小写字母）。
+        // （两位年 + 'w' + 两位周 + 一个小写字母）。
         const QStringList snapshots = {QStringLiteral("26.2-rc1"),
                                        QStringLiteral("1.21.4-pre3"),
                                        QStringLiteral("24w14a"),
                                        QStringLiteral("13w41b"),
-                                       // 2026-09-27 加的两套：以前一条都不认
-                                       //（见 ResourceCatalog.cpp 里 snapshotShapeOf）。
                                        QStringLiteral("26.2-snapshot-1"),
                                        QStringLiteral("1.14 Pre-Release 3")};
         int recognized = 0;
@@ -16659,7 +16396,7 @@ static void runResourceDetailTests() {
                                           QStringLiteral("20w14∞"),
                                           // 愚人节版。折出来是 `1.RV` —— 一个谁也不是的
                                           // 大版本，摆在那一排里用户点进去什么都搜不到
-                                          //（见 .cpp 里 isPlainVersionStem）。
+                                          // （见 .cpp 里 isPlainVersionStem）。
                                           QStringLiteral("1.RV-Pre1"),
                                           // 尾巴不是"末尾那一段"：`pre3` 后面还挂着一截。
                                           QStringLiteral("1.21.4-pre3-1")};
@@ -16695,7 +16432,7 @@ static void runResourceDetailTests() {
                   ResourceCatalog::majorGameVersionOf(QStringLiteral("24w14a"))),
               "Z8h 「折不动」的判据：折完还是快照");
 
-        // ---- 2026-09-27：真清单说了算 ----
+        // ---- ：真清单说了算 ----
         //
         // 上面那几颗是**手写**的，而手写的永远只覆盖得到"作者想得到的写法" —— 新式快照号
         // （`26.2-snapshot-1`）漏掉就是这么漏的：它既没有 -pre/-rc、长度也不是 6，六年前
@@ -16704,7 +16441,7 @@ static void runResourceDetailTests() {
         // 的那个大版本**必须在清单里真有一条**（不然等于凭空造一个版本摆给用户）。
         //
         // NOTE: 愚人节版（20w14∞、24w14potato、3D Shareware v1.34）天然不在这两族里 ——
-        //       它们的名字里没有这两个词，所以"按设计不算快照"这件事不受这一条影响。
+        // 它们的名字里没有这两个词，所以"按设计不算快照"这件事不受这一条影响。
         {
             // 这里**自己读一遍**夹具（不复用上面 Y 那一节解析出来的那份）：它俩离得远，
             // 中间还隔着几十节，借一个"这一节还看得见吗"的变量比读一遍文件难查得多。
@@ -16855,19 +16592,15 @@ static void runResourceDetailTests() {
 
 // =========================================================================
 // ZB 节：下载页图标的**盘上那一份缓存**、它的**凭据**、以及那一发请求本身
-//（都是 ResourceStore 的静态部分）。
+// （都是 ResourceStore 的静态部分）。
 //
 // 纯函数 + 文件层，不联网：这一节一次都不构造 ResourceStore（一构造就建
 // QNetworkAccessManager），所以图标那条真网络路仍然只有 mw_check 的 resource-live 覆盖。
 //
-// 为什么这些非得钉住：图标这一路 2026-09-23 实测从国内**根本走不通** ——
+// 为什么这些非得钉住：图标这一路 实测从国内**根本走不通** ——
 // `cdn.modrinth.com` 对每一张图只回一个 307，真正的字节在 `cdn-alt.modrinth.com` 上，
 // 而那个域名连不上。于是"盘上那份缓存"就变成用户还能看到图的唯一来源，它拼错路径，
 // 症状只是"图标又变慢了"，没有任何东西会报错。
-//
-// 2026-09-23 用户改的规矩（同一天的第二批）：**缓存不过期** —— 没有"存了多久算旧"这条线
-// 了（原来那个七天判据已经删掉），盘上有一份就一直用；换新版靠**每次打开核对一遍**：
-// 带上次存下来的凭据去问一句"变了没有"，没变（304）就一个字节都不动。
 //
 // 所以这一节现在钉的是三件事：那份字节读得回来、那条**凭据**存得住读得回、以及**那一发
 // 请求到底带不带条件头**（真值表在 ZB3）。第二、三件是这次改动最要紧的两个地方 ——
@@ -16958,9 +16691,7 @@ static void runIconCacheTests() {
     QTemporaryDir rootB;
     check(rootA.isValid() && rootB.isValid(), "ZB0 两个临时数据根目录建出来了");
 
-    // ---------------------------------------------------------------------
     section("ZB1. 缓存路径怎么拼（以及哪些 id 宁可不缓存）");
-    // ---------------------------------------------------------------------
 
     AppPaths::setMinecraftDir(rootA.path());
     const QString path = ResourceStore::iconCachePath(QStringLiteral("AANobbMI"));
@@ -16989,12 +16720,10 @@ static void runIconCacheTests() {
     check(rejected == badIds.size(), "ZB1 不安全/空的 project_id 一律不拼路径",
           QStringLiteral("%1/%2 被挡下").arg(rejected).arg(badIds.size()));
 
-    // ---------------------------------------------------------------------
     section("ZB2. 凭据（ETag / Last-Modified）：存得住、读得回、空的不留文件");
-    // ---------------------------------------------------------------------
 
-    // 凭据是**跟着一条地址**的（2026-09-25 补的第三行）。同一个 project 有两条地址
-    //（接口那条 96px webp / 自己拼的 icon.png），这条测试全程用同一条，另有一段专门
+    // 凭据是**跟着一条地址**的（ 补的第三行）。同一个 project 有两条地址
+    // （接口那条 96px webp / 自己拼的 icon.png），这条测试全程用同一条，另有一段专门
     // 验"地址对不上 = 当没有凭据"。
     const QString kMetaId = QStringLiteral("EEEfff");
     const QString kMetaUrl = QStringLiteral("https://cdn.modrinth.com/data/EEEfff/icon-96.webp");
@@ -17028,8 +16757,8 @@ static void runIconCacheTests() {
               ResourceStore::loadIconValidators(kMetaId, kMetaUrl).lastModified.isEmpty(),
           "ZB2 只存 ETag 时另一条读回来是空的");
 
-    // 两条都空：**从前是"把文件删掉"，2026-10-10 起改成照样写**
-    //（用户那句「模组图标做本地缓存功能，不要每次都拉取」⇒ 那份 meta 现在多装着
+    // 两条都空：**从前是"把文件删掉"， 起改成照样写**
+    // （用户那句「模组图标做本地缓存功能，不要每次都拉取」⇒ 那份 meta 现在多装着
     // "上一次核对是什么时候"，见 IconValidators::checkedAtMs —— 主机不给凭据的那些源
     // 照样该被那道时间闸管着，删了文件这一位就没了）。
     //
@@ -17042,8 +16771,8 @@ static void runIconCacheTests() {
             ResourceStore::loadIconValidators(kMetaId, kMetaUrl);
         check(empty.etag.isEmpty() && empty.lastModified.isEmpty(),
               "ZB2 ……而且读回来还是「没有凭据」（一个空条件头都不许发出去）");
-        // ★ 第四行那一位得**真的写下去了**（它是那道「攒够 7 天才核一次」的闸的判据）——
-        //   不写的话，主机不给凭据的那些图标每次启动都要白敲一遍门。
+        // 第四行那一位得**真的写下去了**（它是那道「攒够 7 天才核一次」的闸的判据）——
+        // 不写的话，主机不给凭据的那些图标每次启动都要白敲一遍门。
         check(empty.checkedAtMs > 0, "ZB2 ……并且盖上了「刚核过」那个时间戳（第四行）",
               QStringLiteral("%1").arg(empty.checkedAtMs));
     }
@@ -17063,7 +16792,7 @@ static void runIconCacheTests() {
     // 正文读不懂（被别的东西写过、写了一半）也**不崩**：这个格式就是两行纯文本，
     // 第一行是什么就当 ETag 是什么。一条对不上的凭据是无害的 —— 主机不认它，照旧把整张
     // 发回来，下面那条"字节一样 = 没变"照样接得住。真正危险的是**拿别人的凭据去问**
-    //（那一份字节已经不在了、凭据还在），那条由 dropIconFromCache 一起删来保证，
+    // （那一份字节已经不在了、凭据还在），那条由 dropIconFromCache 一起删来保证，
     // 断言在 ZB4 里。
     writeFileAt(ResourceStore::iconMetaPath(kMetaId), QByteArray("这不是凭据\n"));
     const ResourceStore::IconValidators garbage =
@@ -17071,9 +16800,7 @@ static void runIconCacheTests() {
     check(garbage.etag == QStringLiteral("这不是凭据") && garbage.lastModified.isEmpty(),
           "ZB2 读不懂的正文：第一行当 ETag、其余当没有（不崩、不凭空多一条）", garbage.etag);
 
-    // ---------------------------------------------------------------------
     section("ZB2b. 凭据跟的是**哪条地址**（2026-09-25 补的第三行）");
-    // ---------------------------------------------------------------------
 
     // 缓存和凭据都只按 project_id 存，而同一个 project 有**两条**图标地址（接口那条 96px
     // 的 webp、自己拼的 icon.png，见 requestIcon）。不记"这条凭据是哪条地址给的"，换一条
@@ -17101,7 +16828,7 @@ static void runIconCacheTests() {
               "ZB2b 第三行真的写着这条地址（不是「没记」，是「记的是它」）");
     }
 
-    // 老版本（2026-09-25 之前）写的那些 meta 只有两行 —— 第三行读出来是空的。那种是
+    // 老版本（ 之前）写的那些 meta 只有两行 —— 第三行读出来是空的。那种是
     // **"没记地址"**，不是"记的是别的地址"：照样得能用。少写一行就把用户的凭据整份作废，
     // 是这次改动最容易顺手犯的错（代价是所有人下次启动都把整本图标重下一遍）。
     writeFileAt(ResourceStore::iconMetaPath(kMetaId),
@@ -17111,9 +16838,7 @@ static void runIconCacheTests() {
               legacy.lastModified == QStringLiteral("Tue, 23 Sep 2026 04:11:07 GMT"),
           "ZB2b 两行的老 meta（没记地址）照样用，不因为缺第三行就作废", legacy.etag);
 
-    // ---------------------------------------------------------------------
     section("ZB3. 那一发请求到底带什么头（哪条凭据发哪个头）");
-    // ---------------------------------------------------------------------
 
     // 这个函数是纯的（造一个 QNetworkRequest 再把头发读回来），所以"哪条凭据发哪个头"
     // 这张真值表可以在这儿逐条钉住 —— 而它是这次改动里最容易写错、错了又不报错的地方。
@@ -17155,16 +16880,7 @@ static void runIconCacheTests() {
               headerOf(bothRequest, "If-Modified-Since") == both.lastModified,
           "ZB3 两条都有 = 两条都发，值一字不改");
 
-    // ---------------------------------------------------------------------
     section("ZB3b. 问项目名字那一发的头（CurseForge 那条 400 的真因）");
-    // ---------------------------------------------------------------------
-    //
-    // 2026-09-28 用户报的 bug：「这个前置模组缺失的提示为数字而非模组名称」。查下来根子
-    // 在这里：CurseForge 那条"按 id 问项目"是 `POST /mods`，而**漏了 `Content-Type` 时
-    // 那台社区镜像回 400**（实测矩阵：`application/json` → 200、不带 → 400、`text/plain`
-    // → 400）。400 在界面上长得和"这个项目没了"一模一样 —— 于是名字一条都没到，前置那
-    // 个框里只剩下一串项目号。
-    //
     // 所以这一节钉两件事：**那一发的头表**（纯函数，一毫秒）+ **端到端跑一遍**（本地假
     // 服务器：不带那个头就回 400，带了才回 200 和一份真形状的 json —— 这一条才是"下次谁
     // 再把那个参数删了"能当场变红的那条）。
@@ -17251,7 +16967,6 @@ static void runIconCacheTests() {
                             if (!lines.isEmpty()) {
                                 lastPath = QString::fromUtf8(lines.first().trimmed());
                             }
-                            // 实测那条规矩：没有 `application/json` 就 400。
                             const bool accepted =
                                 lastContentType.compare(QStringLiteral("application/json"),
                                                         Qt::CaseInsensitive) == 0;
@@ -17328,9 +17043,7 @@ static void runIconCacheTests() {
         }
     }
 
-    // ---------------------------------------------------------------------
     section("ZB4. 存了能不能读回来（含读到坏字节那种）");
-    // ---------------------------------------------------------------------
 
     const QByteArray bytes = QByteArrayLiteral("\x89PNG\r\n\x1a\n-not-really-a-png");
     check(ResourceStore::saveIconToCache(QStringLiteral("AAAbbb"), bytes),
@@ -17368,7 +17081,7 @@ static void runIconCacheTests() {
               ResourceStore::loadIconValidators(QStringLiteral("AAAbbb"), kUrl).isEmpty(),
           "ZB4 ……凭据跟着一起删（不删的话下次会问出一条 304 把这一格焊死）");
 
-    // 盘上那份**存了多久都不算过期** —— 这正是用户 2026-09-23 那条规矩。没有配套的断言
+    // 盘上那份**存了多久都不算过期** —— 这正是用户 那条规矩。没有配套的断言
     // 的话，"哪天有人又加回一条时间线"是查不出来的（界面上只是"图标忽然又下了一遍"）。
     // 判据只能这么写：把文件的修改时间往前拨一大截，读回来照样是它、照样能画。
     check(ResourceStore::saveIconToCache(QStringLiteral("CCCDdd"), bytes), "ZB4 再存一份");
@@ -17388,9 +17101,7 @@ static void runIconCacheTests() {
               readBack == bytes,
           "ZB4 五年前存的那份照样读得出来（缓存不过期）");
 
-    // ---------------------------------------------------------------------
     section("ZB5. 缓存跟着「当前游戏文件夹」走");
-    // ---------------------------------------------------------------------
 
     check(ResourceStore::saveIconToCache(QStringLiteral("DDDeee"), bytes), "ZB5 在 A 里存一份");
     check(ResourceStore::saveIconValidators(QStringLiteral("DDDeee"), both, kUrl),
@@ -17406,9 +17117,7 @@ static void runIconCacheTests() {
               readBack == bytes,
           "ZB5 换回 A 那份还是原来那张");
 
-    // ---------------------------------------------------------------------
     section("ZB6. 哪几种失败算「这一路整条不通」");
-    // ---------------------------------------------------------------------
 
     // 0 = 压根没连上（断网 / DNS / 超时）—— 这才是那道闸要挡的。
     check(ResourceStore::isHostLevelIconFailure(0), "ZB6 没连上（0）= 主机级");
@@ -17448,9 +17157,7 @@ static void runIconCacheTests() {
 static void runImageDecodeTests() {
     const QString metaDir = QStringLiteral(REPO_ROOT_PATH) + "/tests/meta";
 
-    // ---------------------------------------------------------------------
     section("ZC1. Qt 自己认得的那一半：按内容判，不按后缀判");
-    // ---------------------------------------------------------------------
 
     // 自己现搭一张 PNG（不落盘，走 QBuffer）当夹具 —— 这一条要证的只是"这条路通"，
     // 造一张比去 meta/ 里挂一份更干净。
@@ -17481,9 +17188,7 @@ static void runImageDecodeTests() {
     check(ImageDecode::decode(QByteArrayLiteral("<html>502 Bad Gateway</html>")).isNull(),
           "ZC1 网关挡回来的那段 HTML = null（界面上就是画占位方块）");
 
-    // ---------------------------------------------------------------------
     section("ZC2. webp：这台机器解不解得动，解出来的对不对");
-    // ---------------------------------------------------------------------
 
     const bool webp = ImageDecode::webpAvailable();
     out() << "     （这台机器 webpAvailable() = " << (webp ? "true" : "false") << "）\n";
@@ -17511,11 +17216,11 @@ static void runImageDecodeTests() {
           "ZC2 这份 Qt 自己解不了 webp（所以才有 ImageDecode 这一层）");
 
     const QImage webpImage = ImageDecode::decode(webpBytes);
-    // ★ 2026-10-17：**「列表里说有」不等于「真解得动」**。GitHub 的 windows runner 是
-    //   Windows Server 镜像：`webpAvailable()` 枚举得到一条认 `.webp` 的解码器，可真拿
-    //   这份字节去 CopyPixels 时失败、回 null（本机 Win11 上是好的）。所以这一节按
-    //   **真解出来的东西**分岔，而不是按当初那次枚举的结果 —— 产品在两种机器上的行为
-    //   都对：解得出就给图，解不出就如实回 null。
+    // **「列表里说有」不等于「真解得动」**。GitHub 的 windows runner 是
+    // Windows Server 镜像：`webpAvailable()` 枚举得到一条认 `.webp` 的解码器，可真拿
+    // 这份字节去 CopyPixels 时失败、回 null（本机 Win11 上是好的）。所以这一节按
+    // **真解出来的东西**分岔，而不是按当初那次枚举的结果 —— 产品在两种机器上的行为
+    // 都对：解得出就给图，解不出就如实回 null。
     if (!webpImage.isNull()) {
         check(webpImage.size() == QSize(96, 96), "ZC2 解得动：96x96",
               QStringLiteral("%1x%2").arg(webpImage.width()).arg(webpImage.height()));
@@ -17539,22 +17244,16 @@ static void runImageDecodeTests() {
 // =========================================================================
 // ZD. 设置页「启动选项」那三项（设置 → 命令行这一条链）
 //
-// 2026-09-24 加的这一组设置，三件事各验各的那一半：
-//   * 「显示游戏日志」：这里只验**它存得下来、读得回来**（默认关）。"开了之后真会弹窗"
-//     那半边在 mw_check 里 —— 那条路要真的把 MainWindow 立起来、还得有会话输出。
-//   * 「进程优先级」：存的是**字符串**，所以"五个值怎么写进去、怎么读回来"是这里的事。
-//   * 「游戏窗口大小」：上下限钳位，外加它真的变成命令行上的 --width/--height。
-//
 // NOTE: 有一件事这一节**证不到**，如实写在这儿：applyProcessPriority() 调的是 Win32 的
-//       SetPriorityClass()，它躲在 LauncherManager.cpp 的匿名命名空间里、还要一个真进程
-//       句柄。能验的那一半（档位 → 字符串 → 档位、认不出来的值兜到 Normal）在下面；
-//       另一半（那句 Win32 调用到底有没有生效）只能真机上开任务管理器看一眼。
+// SetPriorityClass()，它躲在 LauncherManager.cpp 的匿名命名空间里、还要一个真进程
+// 句柄。能验的那一半（档位 → 字符串 → 档位、认不出来的值兜到 Normal）在下面；
+// 另一半（那句 Win32 调用到底有没有生效）只能真机上开任务管理器看一眼。
 //
 // NOTE: 窗口大小那几条为什么这么绕（合成一份 json、而不是只喂真夹具）：真夹具里那条
-//       `--width` 规则挂在 `has_custom_resolution` 上，而启动器一律传空 feature 集合，
-//       所以那条规则**根本没命中过** —— 只喂真夹具的话，"我们发的那一对"和"json 那条
-//       被丢掉了"这两件事里任何一件坏掉，结果都是"恰好一条 --width"，红不了。所以要再
-//       造一份**把那个值写死成别的数字**的 json：谁发的这一对，从这里就分得出来了。
+// `--width` 规则挂在 `has_custom_resolution` 上，而启动器一律传空 feature 集合，
+// 所以那条规则**根本没命中过** —— 只喂真夹具的话，"我们发的那一对"和"json 那条
+// 被丢掉了"这两件事里任何一件坏掉，结果都是"恰好一条 --width"，红不了。所以要再
+// 造一份**把那个值写死成别的数字**的 json：谁发的这一对，从这里就分得出来了。
 // =========================================================================
 
 static void runLaunchOptionsTests(const QString &sandbox) {
@@ -17567,9 +17266,7 @@ static void runLaunchOptionsTests(const QString &sandbox) {
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir);
     const QString iniPath = settingsDir + QStringLiteral("/WTFML/WTFML.ini");
 
-    // ---------------------------------------------------------------------
     section("ZD1. 三项设置的默认值（全新沙盒）");
-    // ---------------------------------------------------------------------
     {
         LauncherSettings fresh;
         check(!fresh.showGameLog(), "ZD1 默认不开「显示游戏日志」");
@@ -17590,9 +17287,7 @@ static void runLaunchOptionsTests(const QString &sandbox) {
               QStringLiteral("[%1]").arg(fresh.titleText()));
     }
 
-    // ---------------------------------------------------------------------
     section("ZD2. 三项跨实例读得回来；手改 ini 也得兜住");
-    // ---------------------------------------------------------------------
     {
         LauncherSettings settings;
         settings.setShowGameLog(true);
@@ -17673,9 +17368,7 @@ static void runLaunchOptionsTests(const QString &sandbox) {
         check(QFileInfo::exists(iniPath), "ZD2 沙盒那份 ini 真的写出来了", iniPath);
     }
 
-    // ---------------------------------------------------------------------
     section("ZD3. 优先级的持久化字符串：五个值往返 + 认不出来兜 Normal");
-    // ---------------------------------------------------------------------
     {
         // 这几个串是**持久化格式的一部分**：改掉它们，用户盘上已经存好的值就会被当成
         // "认不出来"、静默退回 Normal —— 用户看到的是"设了高，重启又变回正常"。
@@ -17709,9 +17402,7 @@ static void runLaunchOptionsTests(const QString &sandbox) {
         }
     }
 
-    // ---------------------------------------------------------------------
     section("ZD4. 窗口大小真的会进命令行（--width / --height）");
-    // ---------------------------------------------------------------------
     {
         LauncherManager launcher;
         GlobalJavaSettings jvm;
@@ -17772,11 +17463,11 @@ static void runLaunchOptionsTests(const QString &sandbox) {
         // ---- (b) 没传窗口设置：发的是**原版默认那一对**（854×480）----
         //
         // NOTE: 加了「窗口模式」之后这一条的判据变了。原来这两个数默认为 0、判的是
-        //       "一条都不发"；现在默认构造就是原版那个默认窗口大小（854×480），所以默认
-        //       那一趟是**照发**。两条都对用户是同一件事（游戏开出来还是那个 854×480），
-        //       但"什么都不发"和"发一对 854×480"在命令行上不是一回事 —— 而 json 自己带的
-        //       那对 --width 只在 has_custom_resolution 那类规则成立时才出现，靠它兜底不
-        //       可靠，所以这一档我们**明着发**。
+        // "一条都不发"；现在默认构造就是原版那个默认窗口大小（854×480），所以默认
+        // 那一趟是**照发**。两条都对用户是同一件事（游戏开出来还是那个 854×480），
+        // 但"什么都不发"和"发一对 854×480"在命令行上不是一回事 —— 而 json 自己带的
+        // 那对 --width 只在 has_custom_resolution 那类规则成立时才出现，靠它兜底不
+        // 可靠，所以这一档我们**明着发**。
         {
             const QStringList args = launcher.generateJvmArguments(
                 QString(), QStringLiteral("1.19"), QStringLiteral("1"), modern, jvm, true, 17);
@@ -17922,7 +17613,6 @@ static void runLaunchOptionsTests(const QString &sandbox) {
         }
     }
 
-    // ---------------------------------------------------------------------
     section("ZD5. 窗口那三档：代号往返、合成、以及各档发什么参数");
     // ---------------------------------------------------------------------
     // 这一节全是**纯函数**（除了最后那几条 LauncherSettings 的持久化），所以断的是
@@ -18030,7 +17720,7 @@ static void runLaunchOptionsTests(const QString &sandbox) {
                   "ZD5 覆盖了模式和宽 → 那两项用覆盖、没覆盖的高跟随全局",
                   QStringLiteral("%1x%2").arg(merged.width).arg(merged.height));
 
-            // ★ 覆盖里的数**要钳位**（meta 是手写的文件，这两个数会原样进命令行）。
+            // 覆盖里的数**要钳位**（meta 是手写的文件，这两个数会原样进命令行）。
             GameWindowOverride wild;
             wild.width = -1920;
             wild.height = 999999;
@@ -18086,11 +17776,6 @@ static void runLaunchOptionsTests(const QString &sandbox) {
         }
 
         // ---- (f) 「最大化」要照屏幕工作区算：量不出边框就原样 ----
-        //
-        // NOTE: verify 这一份是**纯 Core** 的（没链 Widgets），所以 maximizedContentSize()
-        //       里"起一个探测窗口量边框"那一段是编不进来的 —— 这里量的是它那条**兜底**
-        //       行为（拿不到边框时原样返回工作区）。带上窗口系统的那条路在 mw_check /
-        //       ui_shot 里跑（那边走的是同一个函数、同一个分支判据）。
         {
             const ScreenWorkArea same = maximizedContentSize(ScreenWorkArea{1920, 1040});
             check(same.width <= 1920 && same.width > 0 && same.height <= 1040 && same.height > 0,
@@ -18134,21 +17819,21 @@ static void runLaunchOptionsTests(const QString &sandbox) {
 // =========================================================================
 // ZH. 服务器列表：真的连上去问一句（Server List Ping / 状态协议）
 //
-// 用户 2026-09-26 问的「服务器列表能实际 ping 服务器并显示服务器图标和 motd 吗」。这一
+// 用户 问的「服务器列表能实际 ping 服务器并显示服务器图标和 motd 吗」。这一
 // 节分两半，因为两半的错法完全不同：
 //
-//   * **拆包那一半**（地址怎么拆、VarInt 怎么编怎么读、MOTD 怎么展平、图标那串 data URL
-//     怎么解）全是纯函数，喂什么进来看什么出来；
-//   * **协议那一半必须真连一次**。只验纯函数的话，"我们发出去的握手长什么样"和"服务器真
-//     答回来一坨我们读不读得下来"这两件事一条都没碰到 —— 而真机上错的恰恰是这两件：握手
-//     里写错一格（比如下一状态写成 2）服务器会等一个永远不来的登录包，一个字节都不答；
-//     收包不按长度收全，带图标的响应会缺尾巴、解出来是一张破图。所以下面起一台**真**
-//     QTcpServer 说这个协议，并且把它**收到的字节**逐字段拆开核对。
+// * **拆包那一半**（地址怎么拆、VarInt 怎么编怎么读、MOTD 怎么展平、图标那串 data URL
+// 怎么解）全是纯函数，喂什么进来看什么出来；
+// * **协议那一半必须真连一次**。只验纯函数的话，"我们发出去的握手长什么样"和"服务器真
+// 答回来一坨我们读不读得下来"这两件事一条都没碰到 —— 而真机上错的恰恰是这两件：握手
+// 里写错一格（比如下一状态写成 2）服务器会等一个永远不来的登录包，一个字节都不答；
+// 收包不按长度收全，带图标的响应会缺尾巴、解出来是一张破图。所以下面起一台**真**
+// QTcpServer 说这个协议，并且把它**收到的字节**逐字段拆开核对。
 //
 // NOTE: 假服务器**跑在自己的线程里**，这不是讲究：产品的 ServerPing::ping() 是同步的
-//       （waitForConnected / waitForReadyRead 一路等到底），中间**不转 Qt 的事件循环**。
-//       同一个线程里摆一台 QTcpServer，那一侧的新连接通知永远排不上队，看到的会是"连上了
-//       但没人回答" —— 那正好是超时那一档的样子，而那是测试自己的错，不是产品的。
+// （waitForConnected / waitForReadyRead 一路等到底），中间**不转 Qt 的事件循环**。
+// 同一个线程里摆一台 QTcpServer，那一侧的新连接通知永远排不上队，看到的会是"连上了
+// 但没人回答" —— 那正好是超时那一档的样子，而那是测试自己的错，不是产品的。
 //
 // NOTE: 这一节只碰 127.0.0.1，**一条都不出网**（所以断网的机器上也该全绿）。
 // =========================================================================
@@ -18219,9 +17904,9 @@ public:
         // 写出去的，所以一次 readAll 就把两个包一起拿到了。
         //
         // NOTE: 退出条件必须写成"读到了、而且对面接着没别的了"，**不能**写成"读到够 N 个
-        //       字节"：握手一共才 22 个字节，写成 `seen.size() < 48` 的话每一次都会在这儿
-        //       干等满那个上限，于是下面量"耗时"的每一条断言（latency、当场放弃那两条）
-        //       量到的全是这段死等的时间 —— 实测就是 1.6 秒，看起来像产品慢。
+        // 字节"：握手一共才 22 个字节，写成 `seen.size() < 48` 的话每一次都会在这儿
+        // 干等满那个上限，于是下面量"耗时"的每一条断言（latency、当场放弃那两条）
+        // 量到的全是这段死等的时间 —— 实测就是 1.6 秒，看起来像产品慢。
         QElapsedTimer clock;
         clock.start();
         while (clock.elapsed() < 2000) {
@@ -18237,12 +17922,12 @@ public:
         if (m_mode == Silent) {
             // 收下、不回：让客户端自己等到超时（那一档验的就是这个）。
             //
-            // ★ **监听不能收**：「叫停之后马上再测一趟」那一节会在上一趟还卡在超时里时
-            //   再连进来。要是这里等第一条断开就 `return`，监听跟着没了，第二趟那条
-            //   已经握上手、还在 backlog 里没被 accept 的连接会被 RST 掉 —— 量到的
-            //   是"对面把连接断了"，不是"连上了没答话"，`timedOut` 也就不是 true。
-            //   所以这里继续守着端口，来一条收一条、一条都不答，守够 4 秒再收摊
-            //   （测试那边最多等到两趟各 600 ms，离 4 秒很远）。
+            // **监听不能收**：「叫停之后马上再测一趟」那一节会在上一趟还卡在超时里时
+            // 再连进来。要是这里等第一条断开就 `return`，监听跟着没了，第二趟那条
+            // 已经握上手、还在 backlog 里没被 accept 的连接会被 RST 掉 —— 量到的
+            // 是"对面把连接断了"，不是"连上了没答话"，`timedOut` 也就不是 true。
+            // 所以这里继续守着端口，来一条收一条、一条都不答，守够 4 秒再收摊
+            // （测试那边最多等到两趟各 600 ms，离 4 秒很远）。
             QList<QTcpSocket *> held;
             held.append(socket);
             QEventLoop holdLoop;
@@ -18314,9 +17999,9 @@ private:
 /// 收摊：等假服务器那条线程跑完。
 ///
 /// NOTE: **必须等**。一个还在跑的 QThread 被析构掉（"QThread: Destroyed while thread is
-///       still running"）会直接把进程带崩，而这儿崩掉的话后面那些节一条都跑不到 —— 看
-///       起来会像是"这次改动把别的东西弄坏了"。run() 里每一段都有上限，所以正常情况下
-///       这里一定等得到。
+/// still running"）会直接把进程带崩，而这儿崩掉的话后面那些节一条都跑不到 —— 看
+/// 起来会像是"这次改动把别的东西弄坏了"。run() 里每一段都有上限，所以正常情况下
+/// 这里一定等得到。
 static void waitFakeServer(FakeStatusServer &server) {
     if (!server.wait(12000)) {
         check(false, "ZH 假服务器那条线程没停下来（最多等 12 秒）");
@@ -18336,7 +18021,7 @@ public:
 
     /// 报一个到，然后等大家都到齐（最多 @p ms 毫秒）。
     /// @return 到齐了没有。**等不到时调用方必须做点看得见的坏事**（这里是"不回话"），
-    ///         否则"没到齐"会被下一句照常回的那一答盖过去，整节就变成了一个假绿。
+    /// 否则"没到齐"会被下一句照常回的那一答盖过去，整节就变成了一个假绿。
     bool arriveAndWait(int ms) {
         QMutexLocker locker(&m_mutex);
         ++m_arrived;
@@ -18417,7 +18102,7 @@ public:
             seen += socket->readAll();
         }
 
-        // ★ 这一节的全部要害就在这一句：**等别的几台也连上来**。
+        // 这一节的全部要害就在这一句：**等别的几台也连上来**。
         const bool allHere = m_gate->arriveAndWait(2500);
         if (!allHere) {
             // 等不到 = 对面不可能是同时在问。**一个字都不回**：让那一条走到超时，
@@ -18445,9 +18130,7 @@ private:
 };
 
 static void runServerPingTests() {
-    // ---------------------------------------------------------------------
     section("ZH1. 地址怎么拆（主机名 / :端口 / [IPv6]:端口）");
-    // ---------------------------------------------------------------------
 
     {
         const ServerPing::Address plain = ServerPing::splitAddress(QStringLiteral("example.com"));
@@ -18504,9 +18187,7 @@ static void runServerPingTests() {
               QStringLiteral("%1:%2").arg(trailingColon.host).arg(trailingColon.port));
     }
 
-    // ---------------------------------------------------------------------
     section("ZH1b. SRV：先按优先级、再按权重挑（§9.11 第 3 项）");
-    // ---------------------------------------------------------------------
 
     {
         using Record = ServerPing::SrvRecord;
@@ -18557,9 +18238,7 @@ static void runServerPingTests() {
         check(!ServerPing::pickSrvRecord(QList<Record>{}, 0, &picked), "ZH1b 空表 ⇒ 挑不出来");
     }
 
-    // ---------------------------------------------------------------------
     section("ZH1c. 错误分类：哪一类没通（不拿那句中文去认）");
-    // ---------------------------------------------------------------------
 
     {
         check(ServerPing::kindForSocketError(QAbstractSocket::ConnectionRefusedError) ==
@@ -18591,9 +18270,7 @@ static void runServerPingTests() {
         check(ServerPing::srvLookupEnabled(), "ZH1c 出厂是开的（和游戏一样先查 SRV）");
     }
 
-    // ---------------------------------------------------------------------
     section("ZH2. VarInt：协议里每一个数字的写法");
-    // ---------------------------------------------------------------------
 
     {
         check(ServerPing::varIntBytes(0) == QByteArrayLiteral("\x00") &&
@@ -18657,9 +18334,7 @@ static void runServerPingTests() {
               "ZH2 指针给 nullptr = 读不到（不是崩）");
     }
 
-    // ---------------------------------------------------------------------
     section("ZH3. MOTD：三种 JSON 形态展平成一行，再把颜色码洗掉");
-    // ---------------------------------------------------------------------
 
     {
         check(ServerPing::motdText(QJsonValue(QStringLiteral("一句纯文本"))) ==
@@ -18719,9 +18394,7 @@ static void runServerPingTests() {
               ServerPing::cleanMotd(multiline));
     }
 
-    // ---------------------------------------------------------------------
     section("ZH4. 图标那串 data URL");
-    // ---------------------------------------------------------------------
 
     QByteArray iconPng;
     {
@@ -18747,9 +18420,7 @@ static void runServerPingTests() {
               "ZH4 别的形态一律回空（不猜）：jpeg 前缀 / 一条 http 地址 / 只有前缀 / 空串");
     }
 
-    // ---------------------------------------------------------------------
     section("ZH5. 连不上的话怎么说（自己写的那张表）");
-    // ---------------------------------------------------------------------
 
     {
         check(ServerPing::connectionErrorText(QAbstractSocket::ConnectionRefusedError)
@@ -18805,9 +18476,7 @@ static void runServerPingTests() {
         check(withLatin.isEmpty(), "ZH5 每一条都是中文（一个 ASCII 字母都没有）", withLatin);
     }
 
-    // ---------------------------------------------------------------------
     section("ZH6. 真连一次：我们发的、服务器答的，逐字段核对");
-    // ---------------------------------------------------------------------
 
     FakeStatusServer answer(FakeStatusServer::Answer);
     {
@@ -18946,12 +18615,9 @@ static void runServerPingTests() {
                   .arg(requestStart));
     }
 
-    // ---------------------------------------------------------------------
     section("ZH7. 连不上的样子（端口没人听 / 地址看不懂）");
-    // ---------------------------------------------------------------------
 
     {
-        // 拿一个**刚被放开**的端口（listen 一下就关）：本机上连它一定被拒。
         quint16 freePort = 0;
         {
             QTcpServer probe;
@@ -18980,9 +18646,9 @@ static void runServerPingTests() {
                   refused.error.contains(QStringLiteral("断了")),
               "ZH7 报出来的是一句人话（没有回应 / 超时 / 对面把连接断了）",
               QStringLiteral("「%1」").arg(refused.error));
-        // ★ `timedOut` 那一位和那句话**说的是同一件事**（界面上就是照这一位把那一格缩成
-        //   「超时」两个字的，见 ServerRowStatus::timedOut）。这一台机器上"连一个刚放开的
-        //   端口"未必报超时（见上面那段 NOTE），所以这里钉的是**两者一致**，不是"必须报超时"。
+        // `timedOut` 那一位和那句话**说的是同一件事**（界面上就是照这一位把那一格缩成
+        // 「超时」两个字的，见 ServerRowStatus::timedOut）。这一台机器上"连一个刚放开的
+        // 端口"未必报超时（见上面那段 NOTE），所以这里钉的是**两者一致**，不是"必须报超时"。
         check(refused.timedOut == refused.error.contains(QStringLiteral("超时")),
               "★ ZH7 `timedOut` 和那句话说的是同一件事（界面上照着它缩成「超时」）",
               QStringLiteral("timedOut=%1、话是「%2」")
@@ -18999,9 +18665,7 @@ static void runServerPingTests() {
               "ZH7 地址看不懂 = 直接说地址有问题", broken.error);
     }
 
-    // ---------------------------------------------------------------------
     section("ZH8. 连上了但没人回答：超时那一档（顺带量一次那个旋钮）");
-    // ---------------------------------------------------------------------
 
     {
         // 那个旋钮的下限：0 会让每一次 waitFor* 立刻返回，"连不上"和"连上了但还没答"就
@@ -19032,9 +18696,9 @@ static void runServerPingTests() {
                   status.error.contains(QStringLiteral("没有回答")),
               "ZH8 没人回答 = 「超时（连上了，但服务器没有回答）」",
               QStringLiteral("「%1」").arg(status.error));
-        // ★ 界面上那一格对超时只写两个字（用户 2026-09-27：「超时的只写超时」），判据是
-        //   这一位 —— 所以它必须是**真的判定出来的**，而不是界面上拿 error 那句话的前缀猜的。
-        //   上面那一句留着全话、这一位是"缩成两个字"的依据，两条缺一不可。
+        // 界面上那一格对超时只写两个字（用户 ：「超时的只写超时」），判据是
+        // 这一位 —— 所以它必须是**真的判定出来的**，而不是界面上拿 error 那句话的前缀猜的。
+        // 上面那一句留着全话、这一位是"缩成两个字"的依据，两条缺一不可。
         check(status.timedOut,
               "★ ZH8 这一档的 `timedOut` 是**真**的（界面上据此只写「超时」两个字）");
         check(silent.connections == 1,
@@ -19043,11 +18707,6 @@ static void runServerPingTests() {
         check(!silent.seen.isEmpty(),
               "ZH8 两个包在超时之前就发出去了（不是压根没发）",
               QStringLiteral("%1 字节").arg(silent.seen.size()));
-        // NOTE: 下界**故意不是 200**。要钉的是"这个旋钮真的管用"（没等满默认那 4 秒、
-        //       也不是压根没等），而 Windows 上 `waitForReadyRead(200)` 回来的墙钟时间
-        //       **就是会少一两毫秒**（计时器粒度 + 那句超时本身算在等待里面）——
-        //       2026-09-27 实测拿到过 199 ms，照着 `>= 200` 写就是一条间歇性假红。
-        //       真要坏（旋钮没接上）的话量到的是个位数，180 这条线照样抓得住。
         check(wallMs >= 180 && wallMs < 3000,
               "ZH8 200 毫秒那个旋钮真的管用（没等满默认的 4 秒、也不是压根没等）",
               QStringLiteral("实际等了 %1 ms").arg(wallMs));
@@ -19057,9 +18716,7 @@ static void runServerPingTests() {
         waitFakeServer(silent);
     }
 
-    // ---------------------------------------------------------------------
     section("ZH9. 服务器答得不对的四种样子");
-    // ---------------------------------------------------------------------
 
     {
         FakeStatusServer garbage(FakeStatusServer::Garbage);
@@ -19108,18 +18765,15 @@ static void runServerPingTests() {
         waitFakeServer(shortBody);
     }
 
-    // ---------------------------------------------------------------------
     section("ZH10. 几台一起问（并发）：三台假服务器互相等，串行必红");
-    // ---------------------------------------------------------------------
-    //
-    // 【这一节要证明的事】用户 2026-09-27：「能多线程一起 ping 吗，一个个 ping 效率有点
+    // 【这一节要证明的事】用户 ：「能多线程一起 ping 吗，一个个 ping 效率有点
     // 低」。判据不能是"量一遍耗时"——那是**环境说了算**的（本机连一个没人听的回环端口
     // 要等满整个超时，ZH7 实测过），机器一忙就会假红。所以这里换成一个**只能靠并发通过**
     // 的构造：三台假服务器**互相等**，每一台都要等到另外两台也连上来才回话。
     //
-    //   并发跑（产品的样子）：三台几乎同时连上 → 闸门一开 → 三台一起回话 → 三条都通；
-    //   串行跑（改回去的样子）：第 1 台等到闸门超时、一个字都不回 → 断在它这儿；后面两台
-    //                              根本没人来连。于是这一节**必红**，一点都不含糊。
+    // 并发跑（产品的样子）：三台几乎同时连上 → 闸门一开 → 三台一起回话 → 三条都通；
+    // 串行跑（改回去的样子）：第 1 台等到闸门超时、一个字都不回 → 断在它这儿；后面两台
+    // 根本没人来连。于是这一节**必红**，一点都不含糊。
     //
     // 顺带把"结果按 index 认人"也钉住：并发之后 oneFinished 回来的次序**不再等于** 0、1、2，
     // 接的人要是按"先后"去推，屏幕上会出现"这台的 MOTD 挂在那一台底下"。每台把自己的号
@@ -19149,12 +18803,12 @@ static void runServerPingTests() {
         // ——这一步顺带也就把"跨线程排队投递真的通了"验了（Status 没登记元类型的话，
         // 这里会一条都收不到，而那是**静默**的）。
         //
-        // ★ 这两个 connect **必须带第三个参数那个上下文对象**（这里就是 `&pinger`）。
-        //   不带的话走的是那个三参数的 functor 重载，它内部写死的是 **Qt::DirectConnection**
-        //   —— 于是 lambda 会在**工作线程**上跑，往主线程这两个变量上写。那样写出来的
-        //   测试是**碰运气**绿的：主线程那个 while 有时看得见、有时看不见（这里真踩到过：
-        //   同一份代码一次全绿、下一次这一条红）。带上上下文之后按 AutoConnection 走，
-        //   发送方在工作线程、接收方在主线程 ⇒ 排队投递，正好也就是产品那边走的那条路。
+        // 这两个 connect **必须带第三个参数那个上下文对象**（这里就是 `&pinger`）。
+        // 不带的话走的是那个三参数的 functor 重载，它内部写死的是 **Qt::DirectConnection**
+        // —— 于是 lambda 会在**工作线程**上跑，往主线程这两个变量上写。那样写出来的
+        // 测试是**碰运气**绿的：主线程那个 while 有时看得见、有时看不见（这里真踩到过：
+        // 同一份代码一次全绿、下一次这一条红）。带上上下文之后按 AutoConnection 走，
+        // 发送方在工作线程、接收方在主线程 ⇒ 排队投递，正好也就是产品那边走的那条路。
         QObject::connect(&pinger, &ServerPing::Pinger::oneFinished, &pinger,
                          [&results](int index, const ServerPing::Status &status) {
                              results.insert(index, status);
@@ -19233,17 +18887,15 @@ static void runServerPingTests() {
         ServerPing::setTimeoutMs(savedTimeout);
     }
 
-    // ---------------------------------------------------------------------
     section("ZH11. 叫停之后马上再测一趟（2026-10-19：上一趟的线程还在超时里）");
-    // ---------------------------------------------------------------------
 
     {
-        // ★ 这一条钉的是一次**进程级的崩**（不是某个数字不对）：`abort()` 只放下
-        //   `m_running`，每一条线程手上那一台还在同步 socket 的超时里；「取消」会把
-        //   「测速」那颗按钮重新点亮，用户立刻再点一次 —— 上一版的 `start()` 会把这些
-        //   **还在跑**的 QThread `deleteLater()` 掉，主线程处理那条 DeferredDelete 时
-        //   Qt 直接 `qFatal("QThread: Destroyed while thread is still running")`，
-        //   整个启动器当场消失。判据就是"这条测试进程还活着、第二趟照常收尾"。
+        // 这一条钉的是一次**进程级的崩**（不是某个数字不对）：`abort()` 只放下
+        // `m_running`，每一条线程手上那一台还在同步 socket 的超时里；「取消」会把
+        // 「测速」那颗按钮重新点亮，用户立刻再点一次 —— 上一版的 `start()` 会把这些
+        // **还在跑**的 QThread `deleteLater()` 掉，主线程处理那条 DeferredDelete 时
+        // Qt 直接 `qFatal("QThread: Destroyed while thread is still running")`，
+        // 整个启动器当场消失。判据就是"这条测试进程还活着、第二趟照常收尾"。
         const int saved = ServerPing::timeoutMs();
         ServerPing::setTimeoutMs(600);
         FakeStatusServer silent(FakeStatusServer::Silent);
@@ -19445,10 +19097,10 @@ QStringList nbtFieldNames(const NbtTree::Node &compound) {
 // ---------------------------------------------------------------------------
 // ZK 节：`servers.dat` 的写侧（`ServerListFile` 的**改 / 加 / 删**三个入口）。
 //
-// 用户 2026-10-10 原话：「在服务器列表那里做一个编辑地址和名称的功能」。读那一半仍旧走
+// 要求：「在服务器列表那里做一个编辑地址和名称的功能」。读那一半仍旧走
 // `NbtUtil`（只读那条设计决定一个字没松），这一节钉的是**写**。
 //
-// ZK12 往后是同一页的另两件事（用户原话：「编辑要能改名字改地址以及删除，服务器那个页面里
+// ZK12 往后是同一页的另两件事（要求：「编辑要能改名字改地址以及删除，服务器那个页面里
 // 放一个添加服务器的按钮，允许添加」）：加（`addEntry`）和删（`removeEntry`）。三个入口
 // **共用同一个开头**（`loadServers()` + `findEntryIndex()`），所以这里钉的很多条其实是在
 // 钉那个开头 —— 那正是"认不出就不写"只有一处实现的好处。
@@ -19482,9 +19134,7 @@ static void runServerListEditTests() {
 
     check(writeBytesAt(datPath, nbtServersDat(fixture)), "ZK0 夹具落盘了");
 
-    // ---------------------------------------------------------------------
     section("ZK1. 先证明夹具是「游戏会写的那种文件」");
-    // ---------------------------------------------------------------------
     {
         QList<NbtUtil::ServerEntry> rows;
         QString problem;
@@ -19503,9 +19153,7 @@ static void runServerListEditTests() {
               "ZK1 名字 / 地址逐条对得上（第三条没有 name ⇒ 空串）");
     }
 
-    // ---------------------------------------------------------------------
     section("ZK2. 改一条：成功，而且没碰的地方一个字节都不变");
-    // ---------------------------------------------------------------------
     {
         QString problem;
         const bool ok = ServerListFile::updateEntry(datPath, QStringLiteral("A服"),
@@ -19528,9 +19176,7 @@ static void runServerListEditTests() {
               "ZK2 读回来就是改完的样子");
     }
 
-    // ---------------------------------------------------------------------
     section("ZK3. 名字对不上 ⇒ 退一步按地址认");
-    // ---------------------------------------------------------------------
     {
         QString problem;
         const bool ok = ServerListFile::updateEntry(datPath, QStringLiteral("B服改成别的了"),
@@ -19548,9 +19194,7 @@ static void runServerListEditTests() {
         check(readBytesAt(datPath) == nbtServersDat(current), "ZK3 同样只有那两格变了");
     }
 
-    // ---------------------------------------------------------------------
     section("ZK4 / ZK5. 拒写的两条：找不到那一条 / 新地址是空的");
-    // ---------------------------------------------------------------------
     {
         const QByteArray before = readBytesAt(datPath);
         QString problem;
@@ -19569,9 +19213,7 @@ static void runServerListEditTests() {
         check(readBytesAt(datPath) == before, "ZK5 拒写之后盘上逐字节还是原来那份");
     }
 
-    // ---------------------------------------------------------------------
     section("ZK6. 同一个地址出现两条、名字又没对上 ⇒ 认不准，不猜");
-    // ---------------------------------------------------------------------
     {
         const QByteArray dup = nbtServersDat({
             NbtServerItem{QStringLiteral("一"), QStringLiteral("dup.example.com"), true, true,
@@ -19593,9 +19235,7 @@ static void runServerListEditTests() {
         check(writeBytesAt(datPath, nbtServersDat(current)), "ZK6 把夹具换回来");
     }
 
-    // ---------------------------------------------------------------------
     section("ZK7. ★ 认的是值不是下标：没有 ip 的那一条排在最前面");
-    // ---------------------------------------------------------------------
     {
         const QList<NbtServerItem> withGhost{
             NbtServerItem{QStringLiteral("我在界面上一行都不占"), QString(), true, false, false,
@@ -19642,9 +19282,7 @@ static void runServerListEditTests() {
         }
     }
 
-    // ---------------------------------------------------------------------
     section("ZK8. 盘上没有 name 那一格 ⇒ 按空串认，写的时候补建一格");
-    // ---------------------------------------------------------------------
     {
         const QList<NbtServerItem> oldStyle{
             NbtServerItem{QString(), QStringLiteral("c.example.com"), false, true, false, true,
@@ -19681,9 +19319,7 @@ static void runServerListEditTests() {
         }
     }
 
-    // ---------------------------------------------------------------------
     section("ZK9. 原来是 gzip ⇒ 写回去还是 gzip");
-    // ---------------------------------------------------------------------
     {
         // 游戏读的是 `NbtIo.readCompressed`，所以"顺手帮你压一下"或者"顺手解开"两种都不是
         // 用户要的 —— 换了形状会让游戏当场把这个文件当成坏的。
@@ -19717,9 +19353,7 @@ static void runServerListEditTests() {
               "ZK9 解开之后那一格真的变了，别的地方没动", QString::number(rows.size()));
     }
 
-    // ---------------------------------------------------------------------
     section("ZK10. 拒写的另外两条：文件不在 / 根里没有 servers");
-    // ---------------------------------------------------------------------
     {
         QString problem;
         const bool nowhere = ServerListFile::updateEntry(
@@ -19741,9 +19375,7 @@ static void runServerListEditTests() {
         check(readBytesAt(oddPath) == notServers, "ZK10 拒写之后那一份逐字节没动");
     }
 
-    // ---------------------------------------------------------------------
     section("ZK11. 读那一半就是 NbtUtil（不多不少）");
-    // ---------------------------------------------------------------------
     {
         QList<NbtUtil::ServerEntry> rows;
         QString problem;
@@ -19752,9 +19384,7 @@ static void runServerListEditTests() {
               "ZK11 文件不在 ⇒ Missing（不是 Unreadable，也不是一张空的 Ok 表）");
     }
 
-    // ---------------------------------------------------------------------
     section("ZK12. 往已有的那一份里加一条：接在表尾，别的条目逐字节不动");
-    // ---------------------------------------------------------------------
     {
         const QString addPath = dir.filePath(QStringLiteral("add.dat"));
         check(writeBytesAt(addPath, nbtServersDat(fixture)), "ZK12 夹具落盘了");
@@ -19780,9 +19410,7 @@ static void runServerListEditTests() {
               "ZK12 读回来多出来的就是最后那一条", QString::number(rows.size()));
     }
 
-    // ---------------------------------------------------------------------
     section("ZK13. 文件不在 ⇒ 建一份新的，而且**是 gzip**");
-    // ---------------------------------------------------------------------
     {
         // 这个实例从来没加过服务器时 `servers.dat` 就是不在的，而那正是"添加"最常见的
         // 第一次 —— 所以这一档**不是失败**（"改"和"删"那两条路上它是）。
@@ -19816,9 +19444,7 @@ static void runServerListEditTests() {
               "ZK13 读回来就是刚加的那一条", QString::number(rows.size()));
     }
 
-    // ---------------------------------------------------------------------
     section("ZK14. 删一条：剩下的逐条对得上；删到空表仍然合法");
-    // ---------------------------------------------------------------------
     {
         const QString rmPath = dir.filePath(QStringLiteral("rm.dat"));
         check(writeBytesAt(rmPath, nbtServersDat(fixture)), "ZK14 夹具落盘了");
@@ -19859,9 +19485,7 @@ static void runServerListEditTests() {
               "ZK14 留下的是「元素类型是复合标签的空表」（不是把文件删了）");
     }
 
-    // ---------------------------------------------------------------------
     section("ZK15. 拒写的两条：地址是空的 / 那份读不懂");
-    // ---------------------------------------------------------------------
     {
         const QString guardPath = dir.filePath(QStringLiteral("guard.dat"));
         check(writeBytesAt(guardPath, nbtServersDat(fixture)), "ZK15 夹具落盘了");
@@ -19890,9 +19514,7 @@ static void runServerListEditTests() {
         check(readBytesAt(brokenPath) == garbage, "ZK15 坏文件逐字节没动");
     }
 
-    // ---------------------------------------------------------------------
     section("ZK16. gzip 的那一份：加 / 删之后**还是 gzip**");
-    // ---------------------------------------------------------------------
     {
         const QString plainPath = dir.filePath(QStringLiteral("gz-plain.dat"));
         const QString gzPath = dir.filePath(QStringLiteral("gz-round.dat"));
@@ -19932,9 +19554,6 @@ static void runServerListEditTests() {
 // —— 夹在 `connect` 和 `InlineMessage::getText()` 中间的那四道闸（两样都没变就别写 / 地址
 // 必填 / 认值不认下标 / 改完重读重测）**一条都没被直接钉过**，要验就得开真窗口、过
 // `OverlayHost`（mw_check 那几条只能钉对话框的信号，钉不到"有没有落盘"）。
-//
-// 2026-10-15 把这一层搬出来之后它收成了"一个假 Host 就能驱动"的形状，这一节就是那次搬运
-// 的收益本身：下面这些断言全在**看得见的几本账**上，一个窗口都不用开。
 //
 // 假 Host 记四本账：问过哪几句（连预填一起）、弹过什么、记过哪几行日志、喊过几次"重读重测"。
 // ---------------------------------------------------------------------------
@@ -20008,9 +19627,7 @@ static void runServerListControllerTests() {
     };
     const auto seed = [&]() { return writeBytesAt(datPath, nbtServersDat(fixture)); };
 
-    // ---------------------------------------------------------------------
     section("ZK17. 前提：那一份在 <数据根>/versions/<id>/ 下，一开始根本没有");
-    // ---------------------------------------------------------------------
     check(AppPaths::minecraftDir() == QDir::cleanPath(root.path()),
           "ZK17 数据根已切到临时目录（这一节读的写的是它，不是用户盘上那一份）",
           AppPaths::minecraftDir());
@@ -20026,9 +19643,7 @@ static void runServerListControllerTests() {
                            QStringLiteral("|c.example.com")}),
           "ZK17 三条都读得出来（第三条名字是空串）", rowsOf().join(QStringLiteral(" / ")));
 
-    // ---------------------------------------------------------------------
     section("ZK18. 「（无名）」只有一处出处");
-    // ---------------------------------------------------------------------
     check(ServerListController::displayName(QString()) == QStringLiteral("（无名）"),
           "ZK18 空名字 ⇒ 「（无名）」");
     check(ServerListController::displayName(QStringLiteral("A服")) == QStringLiteral("A服"),
@@ -20036,9 +19651,7 @@ static void runServerListControllerTests() {
     check(ServerListController::displayName(QStringLiteral(" ")) == QStringLiteral(" "),
           "ZK18 只有空白**不算**没名字 —— 它不替用户裁那一格（裁了就写不回原样）");
 
-    // ---------------------------------------------------------------------
     section("ZK19. 改一台：两样都没变 ⇒ 一个字都不写");
-    // ---------------------------------------------------------------------
     {
         FakeHost fake;
         ServerListController controller(fake.make());
@@ -20060,9 +19673,7 @@ static void runServerListControllerTests() {
               "ZK19 两句的预填都是现成的值", fake.initials.join(QStringLiteral(" / ")));
     }
 
-    // ---------------------------------------------------------------------
     section("ZK20. 改一台：第二句取消 ⇒ 还是不写");
-    // ---------------------------------------------------------------------
     {
         FakeHost fake;
         ServerListController controller(fake.make());
@@ -20079,9 +19690,7 @@ static void runServerListControllerTests() {
               "ZK20 半截操作不许留痕：没日志、没弹、没重读");
     }
 
-    // ---------------------------------------------------------------------
     section("ZK21. 改一台：成了 —— 日志逐字、盘上真改、喊一声重读重测");
-    // ---------------------------------------------------------------------
     {
         FakeHost fake;
         ServerListController controller(fake.make());
@@ -20101,9 +19710,7 @@ static void runServerListControllerTests() {
               "ZK21 盘上真改了");
     }
 
-    // ---------------------------------------------------------------------
     section("ZK22. 加一台：地址是空白 ⇒ 在问话之后立刻挡，不碰盘");
-    // ---------------------------------------------------------------------
     {
         check(seed(), "ZK22 夹具重新落盘");
         const QByteArray before = readBytesAt(datPath);
@@ -20125,9 +19732,7 @@ static void runServerListControllerTests() {
               fake.initials.join(QStringLiteral(" / ")));
     }
 
-    // ---------------------------------------------------------------------
     section("ZK23. 加一台：名字留空也行，日志里那一格是「（无名）」");
-    // ---------------------------------------------------------------------
     {
         check(seed(), "ZK23 夹具重新落盘");
         FakeHost fake;
@@ -20142,9 +19747,7 @@ static void runServerListControllerTests() {
         check(rowsOf().size() == 4, "ZK23 只多了一条");
     }
 
-    // ---------------------------------------------------------------------
     section("ZK24. 改一台：数据层说不 ⇒ 只负责把原因弹出去，别的一律不动");
-    // ---------------------------------------------------------------------
     {
         // 一份读不懂的 servers.dat：改它 ⇒ `ServerListFile` 拒绝（见 ZK15）。
         const QByteArray garbage = QByteArrayLiteral("not nbt at all");
@@ -20166,9 +19769,7 @@ static void runServerListControllerTests() {
         check(seed(), "ZK24 夹具还原");
     }
 
-    // ---------------------------------------------------------------------
     section("ZK25. 删一台：那句问话**点名字**（没名字的点「（无名）」）");
-    // ---------------------------------------------------------------------
     {
         FakeHost fake;
         ServerListController controller(fake.make());
@@ -20183,9 +19784,7 @@ static void runServerListControllerTests() {
         check(fake.logs.isEmpty() && fake.reloads.isEmpty(), "ZK25 没记日志、没喊重读");
     }
 
-    // ---------------------------------------------------------------------
     section("ZK26. 删一台：成了 —— 日志逐字、盘上真删、也喊重读重测");
-    // ---------------------------------------------------------------------
     {
         FakeHost fake;
         ServerListController controller(fake.make());
@@ -20203,9 +19802,7 @@ static void runServerListControllerTests() {
               "ZK26 盘上真删了那一台、剩下两条原样", rowsOf().join(QStringLiteral(" / ")));
     }
 
-    // ---------------------------------------------------------------------
     section("ZK27. 删一台：认不出来的那一条 ⇒ 删不动，也不留痕");
-    // ---------------------------------------------------------------------
     {
         const QByteArray before = readBytesAt(datPath);
         FakeHost fake;
@@ -20228,24 +19825,22 @@ static void runServerListControllerTests() {
 // ---------------------------------------------------------------------------
 // ZL 节：quick play 那两个参数（`QuickPlay`）。
 //
-// 用户 2026-10-10 原话：「世界和服务器都做一个临时占位（加入选中的世界（仅限有这个参数的
+// 要求：「世界和服务器都做一个临时占位（加入选中的世界（仅限有这个参数的
 // 版本）/服务器）先试试看能不能生效」。
 //
 // 这一节钉三件事：
-//   1. **判据的形状**（`supports()`）—— 认的是版本 json 的 `arguments.game` 里有没有写着
-//      这个名字，**不是版本号**。真 json（`meta/26.2.json`）是照游戏自己的选项表生成的，
-//      所以"和真写的那一份对得上"这件事只有拿真 json 才验得出来；
-//   2. ★ **要问合并过的那一份** —— 加载器版本的 profile 里一条 quick play 都没有（全在父
-//      版本那份里），拿没合并的那份问，Forge / Fabric 的实例会一个都答"不支持"；
-//   3. 这一对参数**必须由启动器自己发**（json 自己声明的那一条会被整条丢掉）。
+// 1. **判据的形状**（`supports()`）—— 认的是版本 json 的 `arguments.game` 里有没有写着
+// 这个名字，**不是版本号**。真 json（`meta/26.2.json`）是照游戏自己的选项表生成的，
+// 所以"和真写的那一份对得上"这件事只有拿真 json 才验得出来；
+// 2. ★ **要问合并过的那一份** —— 加载器版本的 profile 里一条 quick play 都没有（全在父
+// 版本那份里），拿没合并的那份问，Forge / Fabric 的实例会一个都答"不支持"；
+// 3. 这一对参数**必须由启动器自己发**（json 自己声明的那一条会被整条丢掉）。
 // ---------------------------------------------------------------------------
 static void runQuickPlayTests(const QString &metaDir) {
     const QuickPlay::Kind single = QuickPlay::Kind::Singleplayer;
     const QuickPlay::Kind multi = QuickPlay::Kind::Multiplayer;
 
-    // ---------------------------------------------------------------------
     section("ZL1. 参数名 / 拼出来的 token");
-    // ---------------------------------------------------------------------
     {
         check(QuickPlay::argumentName(single) == QStringLiteral("--quickPlaySingleplayer") &&
                   QuickPlay::argumentName(multi) == QStringLiteral("--quickPlayMultiplayer"),
@@ -20261,9 +19856,7 @@ static void runQuickPlayTests(const QString &metaDir) {
               "ZL1 有那一发 ⇒ 先名字后值，两个 token", tokens.join(QStringLiteral(" ")));
     }
 
-    // ---------------------------------------------------------------------
     section("ZL2 / ZL3. 认哪几种写法");
-    // ---------------------------------------------------------------------
     {
         // 照抄真 json（26.2 那份）里的原样。
         const QJsonObject entry = QJsonDocument::fromJson(R"({
@@ -20302,16 +19895,14 @@ static void runQuickPlayTests(const QString &metaDir) {
               "ZL3 老格式那串空格分隔的也扫一遍");
     }
 
-    // ---------------------------------------------------------------------
     section("ZL4. 反面：空 json / 只有 feature 名");
-    // ---------------------------------------------------------------------
     {
         check(!QuickPlay::supports(QJsonObject(), single) &&
                   !QuickPlay::supports(QJsonObject(), multi),
               "ZL4 空 json ⇒ 两位都不支持");
 
-        // ★ 判据是 **value 里那个名字**，不是 rules 里那个 feature 名。这一条故意只写
-        //   feature 名：把判据写成"rules 里出现过 is_quick_play_*"的实现会在这儿假绿。
+        // 判据是 **value 里那个名字**，不是 rules 里那个 feature 名。这一条故意只写
+        // feature 名：把判据写成"rules 里出现过 is_quick_play_*"的实现会在这儿假绿。
         const QJsonObject onlyFeature = QJsonDocument::fromJson(R"({
             "arguments": {"game": [
                 {"rules": [{"action": "allow", "features": {"is_quick_play_singleplayer": true}}],
@@ -20322,9 +19913,7 @@ static void runQuickPlayTests(const QString &metaDir) {
               "ZL4 只有 feature 名、value 里没有这个 flag ⇒ 不支持");
     }
 
-    // ---------------------------------------------------------------------
     section("ZL5. 真 json：1.20 之后那份有、1.19 那份没有");
-    // ---------------------------------------------------------------------
     {
         const QJsonObject modern = loadJson(metaDir + QStringLiteral("/26.2.json"));
         check(!modern.isEmpty(), "ZL5 读到了真 json 夹具（meta/26.2.json）");
@@ -20341,9 +19930,7 @@ static void runQuickPlayTests(const QString &metaDir) {
         }
     }
 
-    // ---------------------------------------------------------------------
     section("ZL6. ★ 要问**合并过**的那一份");
-    // ---------------------------------------------------------------------
     {
         const QJsonObject vanilla = loadJson(metaDir + QStringLiteral("/26.2.json"));
         check(!vanilla.isEmpty(), "ZL6 父版本那份真 json 读到了");
@@ -20366,9 +19953,7 @@ static void runQuickPlayTests(const QString &metaDir) {
         }
     }
 
-    // ---------------------------------------------------------------------
     section("ZL7 / ZL8. 那句话，以及这一对参数必须我们发");
-    // ---------------------------------------------------------------------
     {
         const QString saySingle = QuickPlay::unsupportedText(single);
         const QString sayMulti = QuickPlay::unsupportedText(multi);
@@ -20383,18 +19968,15 @@ static void runQuickPlayTests(const QString &metaDir) {
               "ZL8 两位在 isVanillaGameArgument 名单里（json 自己声明的那条会被丢掉 ⇒ 必须我们发）");
     }
 
-    // ---------------------------------------------------------------------
     section("ZL9. ★ 这一对参数**真的接进了命令行**（判据层写对了 ≠ 接上了）");
-    // ---------------------------------------------------------------------
-    //
     // 上面 ZL1~ZL8 全在 `QuickPlay` 那个纯函数里 —— 它们全绿也**证明不了**命令行上真有
     // 那一条：`LauncherManager::generateJvmArguments()` 里少写一句 `args << …`，上面的
     // 断言一条都不会红（这正是 `--fml.*` 当年踩过的那个坑：判据写好了、参数一条都没发出去）。
     // 所以这一节拿**真的那个函数**拼一次命令行。
     //
     // NOTE: 拿的是真 json 夹具（`meta/26.2.json`，真支持这两位），不是手搓的一份 ——
-    //       手搓的会绕开"json 自己声明的那条在 isVanillaGameArgument 名单上、必须由我们发"
-    //       那件事（见 ZL8），而那件事恰恰是这条接线存在的理由。
+    // 手搓的会绕开"json 自己声明的那条在 isVanillaGameArgument 名单上、必须由我们发"
+    // 那件事（见 ZL8），而那件事恰恰是这条接线存在的理由。
     {
         const QJsonObject vanilla = loadJson(metaDir + QStringLiteral("/26.2.json"));
         check(!vanilla.isEmpty(), "ZL9 前提：拿到那份真 json");
@@ -20420,7 +20002,7 @@ static void runQuickPlayTests(const QString &metaDir) {
                   "★ ZL9 没排这一发的时候，那两条**一条都不在命令行上**"
                   "（绝大多数启动的处境；json 自己声明的那条必须被丢掉）");
 
-            // ★★ 存档：参数名后面**紧跟**的就是那个值（不是隔着别的 token）。
+            // 存档：参数名后面**紧跟**的就是那个值（不是隔着别的 token）。
             const QString worldName = QStringLiteral("我的世界 A");
             const QStringList singleArgs = commandLine(
                 QuickPlay::Target{single, worldName});
@@ -20437,7 +20019,7 @@ static void runQuickPlayTests(const QString &metaDir) {
             check(!singleArgs.contains(QuickPlay::argumentName(multi)),
                   "★ ZL9 单人那一发不该顺手把多人那条也带上（两位各算各的）");
 
-            // ★★ 服务器：`host:port` 原样过去（游戏自己认得这个写法）。
+            // 服务器：`host:port` 原样过去（游戏自己认得这个写法）。
             const QString address = QStringLiteral("mc.example.com:25566");
             const QStringList multiArgs =
                 commandLine(QuickPlay::Target{multi, address});
@@ -20457,22 +20039,15 @@ static void runQuickPlayTests(const QString &metaDir) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// ZI 节：「导出错误报告…」写出来的那一份文本。
-//
-// 用户原话：「把日志和错误报告导出功能加上，就在那个日志窗口下方，右下角放着」。
-//
 // 这一份文本**是要发给别人的**（拖进群里、贴进 issue），所以它长什么样得能被钉死 ——
 // 而它偏偏又最容易"悄悄变样"（改一句措辞、多一个字段，谁也不会当场看出来）。所以这一节
 // 把整份报告逐行钉住：头部那几行的顺序与形状、退出码那一行**只在真的收到过的时候**写、
 // 空的那一段写一句"一行都没有"、以及两种文件名的清洗。
 //
 // NOTE: 时间是从外面传进去的（`ErrorReport` 不读时钟），所以 `生成时间：` 那一行在这里
-//       是个定值 —— 这一条是整个文件里唯一能钉住"时间那一格长什么样"的办法。
+// 是个定值 —— 这一条是整个文件里唯一能钉住"时间那一格长什么样"的办法。
 static void runErrorReportTests() {
-    // ---------------------------------------------------------------------
     section("ZI1. 头部那几行（顺序、形状、哪些空着就不写）");
-    // ---------------------------------------------------------------------
     const QDateTime now = QDateTime::fromString(QStringLiteral("2026-09-28 21:03:11"),
                                                 QStringLiteral("yyyy-MM-dd HH:mm:ss"));
 
@@ -20499,8 +20074,6 @@ static void runErrorReportTests() {
     check(fullLines.contains(QStringLiteral("启动器版本：0.9.3")), "ZI1 启动器版本那一行");
     check(fullHeader.contains(QStringLiteral("系统：") + ErrorReport::systemDescription()),
           "ZI1 系统那一行用的就是 systemDescription()");
-    // 实例**两行都写**：显示名是人认的，id 是盘上那个目录名 —— 自定义过名字时两者不一样，
-    // 拿到报告的人要照着 id 去找是哪一个。
     check(fullLines.contains(QStringLiteral("实例：我的整合包")), "ZI1 实例显示名那一行");
     check(fullLines.contains(QStringLiteral("实例 id：1.20.1-forge")), "ZI1 实例 id 那一行");
     check(fullLines.contains(QStringLiteral("账号：Steve")), "ZI1 账号那一行");
@@ -20516,8 +20089,6 @@ static void runErrorReportTests() {
               QStringLiteral("退出码：-1073741819（异常终止）")),
           "ZI1 崩溃时退出码后面跟一句「（异常终止）」");
 
-    // ★ 游戏还在跑的时候**不许编一个退出码出来**。编出来的"退出码：0"是最坏的一种假话：
-    //   看报告的人会照着它去排除"崩溃"这个方向。
     full.finished = false;
     full.crashed = false;
     full.exitCode = 0;
@@ -20543,9 +20114,7 @@ static void runErrorReportTests() {
               bareHeader.contains(QStringLiteral("退出码：")),
           "ZI1 但时间和退出码那两行任何时候都在");
 
-    // ---------------------------------------------------------------------
     section("ZI2. 整份报告：两段、分隔线、以及「一行都没有」那句");
-    // ---------------------------------------------------------------------
     check(ErrorReport::sectionDivider(QStringLiteral("x")) ==
               QStringLiteral("------------------------------ x ------------------------------"),
           "ZI2 分隔线的形状");
@@ -20574,7 +20143,7 @@ static void runErrorReportTests() {
     check(halfLine.contains(QStringLiteral("一行错误\n")), "ZI2 摘录末尾补了换行");
     check(halfLine.endsWith(QStringLiteral("一行日志\n")), "ZI2 日志末尾也补了换行");
 
-    // ★ 一行错误都没有时**照样写上那一段**：空着的话看的人分不清"没出错"和"导出漏了"。
+    // 一行错误都没有时**照样写上那一段**：空着的话看的人分不清"没出错"和"导出漏了"。
     full.errorLines = 0;
     const QString noErrors =
         ErrorReport::text(full, now, QString(), QStringLiteral("[21:03:10] 一切正常\n"));
@@ -20585,10 +20154,10 @@ static void runErrorReportTests() {
     check(noErrors.contains(QStringLiteral("[21:03:10] 一切正常")),
           "ZI2 日志那一段照旧在");
 
-    // ★ 2026-10-20：内容截过就要**说出来**。崩溃报告正文只有末尾 200 / 500 行，而标题
-    //   原来照样写「共 N 行」—— 玩家把一份八千行的日志导出、发给别人排查时，前面真正的
-    //   起因早就不在文件里了，而文件自己说它是完整的。旗子由 `CrashReportController`
-    //   在"记录里的总行数 > 实际留下的行数"时竖起来；日志窗那条导出是全量，两个都 false。
+    // 内容截过就要**说出来**。崩溃报告正文只有末尾 200 / 500 行，而标题
+    // 原来照样写「共 N 行」—— 玩家把一份八千行的日志导出、发给别人排查时，前面真正的
+    // 起因早就不在文件里了，而文件自己说它是完整的。旗子由 `CrashReportController`
+    // 在"记录里的总行数 > 实际留下的行数"时竖起来；日志窗那条导出是全量，两个都 false。
     {
         ErrorReport::Facts truncated = full;
         truncated.errorLines = 8000;
@@ -20618,9 +20187,7 @@ static void runErrorReportTests() {
               "ZI2 没截（两个旗子都不竖）时标题照旧");
     }
 
-    // ---------------------------------------------------------------------
     section("ZI3. 两种文件名的推荐值（实例名里的坏字符要换掉）");
-    // ---------------------------------------------------------------------
     check(ErrorReport::suggestedFileName(QStringLiteral("我的整合包"), now) ==
               QStringLiteral("错误报告-我的整合包-20260928-210311.txt"),
           "ZI3 报告文件名",
@@ -20635,7 +20202,6 @@ static void runErrorReportTests() {
               QStringLiteral("错误报告-a_b_c_d_e_f_g_h_i_j-20260928-210311.txt"),
           "ZI3 名字里的坏字符换成下划线",
           ErrorReport::suggestedFileName(QStringLiteral("a/b:c*d?e\"f<g>h|i\\j"), now));
-    // 实例名拿不到时**不留一个空档**：`错误报告--2026…` 看着像坏了。
     check(ErrorReport::suggestedFileName(QString(), now) ==
               QStringLiteral("错误报告-20260928-210311.txt"),
           "ZI3 名字空着时不留双横杠",
@@ -20645,7 +20211,6 @@ static void runErrorReportTests() {
           "ZI3 系统那一行里带着架构",
           ErrorReport::systemDescription());
 
-    // ---------------------------------------------------------------------
     section("ZI4. 「游戏异常退出」那一份多出来的三行 + 「可能的原因」那一节（§4.3）");
     // ---------------------------------------------------------------------
     // 这三行是 §4.3 点名要收的那几样（Java 版本 / 加载器版本 / 内存参数）。**只有那一路
@@ -20698,20 +20263,20 @@ static void runErrorReportTests() {
 }
 
 // =========================================================================
-// ZJ. 「复制实例」和「导入世界 / 世界改名」（2026-09-28）
+// ZJ. 「复制实例」和「导入世界 / 世界改名」
 //
 // 这一节盯的是**真的动盘**那两件事：
-//   · `VersionManager::copyInstance()` —— 实例设置的概览里那一颗「复制实例」。
-//   · `WorldFiles::copyWorldInto()` / `renameWorld()` —— 存档那一页顶上那颗「导入世界」
-//     和行尾那支笔里的「重命名…」。
+// · `VersionManager::copyInstance()` —— 实例设置的概览里那一颗「复制实例」。
+// · `WorldFiles::copyWorldInto()` / `renameWorld()` —— 存档那一页顶上那颗「导入世界」
+// 和行尾那支笔里的「重命名…」。
 //
 // 为什么在这一层测而不是在 mw_check 里：那两颗按钮的前一站是**原生选择框**
 // （QFileDialog），验证工程驱动不了它。所以真正动手的那一半被切成了"收几个字符串"的纯
 // 函数 —— 和 deleteInstance() / exportLaunchScript() 那两处同一个切法。
 //
 // NOTE: 这一节自己开两个临时游戏文件夹（源一个、目标一个），跑完把数据根目录换回去。
-//       不往共享沙盒里写东西：这一节要造的是一整份实例和一个世界，留在共享沙盒里会
-//       给后面（以及下一次重跑）的节留下没预料到的包袱。
+// 不往共享沙盒里写东西：这一节要造的是一整份实例和一个世界，留在共享沙盒里会
+// 给后面（以及下一次重跑）的节留下没预料到的包袱。
 // =========================================================================
 
 /// 造一个最小可用的实例目录（jar + json + meta + 一点嵌套内容）。
@@ -20747,9 +20312,7 @@ static QJsonObject readMetaAt(const QString &dir) {
 }
 
 static void runTaskLedgerTests() {
-    // ---------------------------------------------------------------------
     section("AL1. percentOf：测不出就回 -1，绝不编一个百分比（§3.4）");
-    // ---------------------------------------------------------------------
     {
         const auto make = [](qint64 done, qint64 total) {
             Tasks::TaskSnapshot task;
@@ -20776,9 +20339,7 @@ static void runTaskLedgerTests() {
               QString::number(Tasks::percentOf(make(-5, 100))));
     }
 
-    // ---------------------------------------------------------------------
     section("AL2. summaryPriority：收起态那一格的先后（§3.1 那一串逐条对上）");
-    // ---------------------------------------------------------------------
     {
         const auto p = [](Tasks::TaskKind kind, Tasks::TaskState state, bool unread = false) {
             Tasks::TaskSnapshot task;
@@ -20816,9 +20377,7 @@ static void runTaskLedgerTests() {
               "「等用户」比「正在启动」还靠前（不管它是哪一类任务）");
     }
 
-    // ---------------------------------------------------------------------
     section("AL3. collapsedSummary：收起态显示谁（唯一出处）");
-    // ---------------------------------------------------------------------
     {
         const QDateTime now = QDateTime::fromString(QStringLiteral("2026-10-12 12:00:00"),
                                                     QStringLiteral("yyyy-MM-dd HH:mm:ss"));
@@ -20948,10 +20507,7 @@ static void runTaskLedgerTests() {
         }
     }
 
-    // ---------------------------------------------------------------------
     section("AL4. retryOffered：那颗「重试」露不露（§3.1① 逐任务能力表的重试那一半）");
-    // ---------------------------------------------------------------------
-    //
     // 三样缺一不可（`capabilities.canRetry` ∧ 已收尾 ∧ **那一格失败清单还是它的、还在**）。
     // 最要紧的是最后那两样：账本里的 `canRetry` 是**失败那一刻**钉下的、会跨重启留在盘上，
     // 而真那份失败清单只在内存里、只有一格 —— 少了它俩，上一件失败任务的详情页会露着一颗
@@ -20997,7 +20553,7 @@ static void runTaskLedgerTests() {
                   QStringLiteral("★ AL4 终态（%1）都按账本那一位说话").arg(int(done)));
         }
         // ⑥ 无效号不许"误配"：没有清单时 owner 是无效号，而 `TaskManager::snapshot()` 找不到
-        //    人时回的是**默认快照**（id 也是那个无效号）—— 那一条不许被判成"对得上"。
+        // 人时回的是**默认快照**（id 也是那个无效号）—— 那一条不许被判成"对得上"。
         {
             Tasks::TaskSnapshot missing;      // id = invalidTaskId()
             missing.capabilities.canRetry = true;
@@ -21007,9 +20563,7 @@ static void runTaskLedgerTests() {
         }
     }
 
-    // ---------------------------------------------------------------------
     section("AM1. TaskManager：终态只落一次（§3.4「重复信号不生成重复完成」）");
-    // ---------------------------------------------------------------------
     {
         QTemporaryDir dir;
         check(dir.isValid(), "AM1 建得出一个临时目录来放历史文件");
@@ -21068,13 +20622,6 @@ static void runTaskLedgerTests() {
         check(manager.snapshot(b).doneUnits == 10, "AM1 成功收尾时完成数补齐到总数",
               QString::number(manager.snapshot(b).doneUnits));
 
-        // ★ 收尾**不许**把"收尾之后才露"的那几位一起抹掉。生产代码里两位都是这么用的：
-        //   · 重试：`ActivityCenterController::finish()` 在 `fail()` **之前**钉 `canRetry`
-        //     （`setCapabilities()` 只收活动态）；
-        //   · 崩溃项：`CrashReportController::report()` 建出来就带着导出报告那两位，
-        //     随即 `fail()`。
-        //   这两条都在 `TaskManager::finish()` 里被一句 `capabilities = TaskCapabilities()`
-        //   吃掉过 —— 症状就是「界面上永远没有重试 / 没有导出报告」。
         {
             const Tasks::TaskId c =
                 manager.begin(Tasks::TaskKind::Download, QStringLiteral("下载 C"));
@@ -21105,9 +20652,7 @@ static void runTaskLedgerTests() {
         }
     }
 
-    // ---------------------------------------------------------------------
     section("AM2. TaskManager：一模一样的一帧不用再喊一遍 / 无效号什么都不做");
-    // ---------------------------------------------------------------------
     {
         QTemporaryDir dir;
         if (!dir.isValid()) {
@@ -21133,7 +20678,6 @@ static void runTaskLedgerTests() {
         check(!manager.succeed(Tasks::invalidTaskId()), "AM2 无效号收尾 ⇒ false");
         check(!manager.cancel(999999), "AM2 压根不存在的号 ⇒ false");
 
-        // §9.8 第三条：任务和会话对号（启动 / 崩溃报告两条路都走这一笔）。
         check(!manager.setSessionId(a, 0), "AM2 §9.8 会话号 0 ⇒ false");
         check(!manager.setSessionId(Tasks::invalidTaskId(), 7), "AM2 §9.8 无效任务号 ⇒ false");
         check(manager.setSessionId(a, 7), "AM2 §9.8 第一次对上 ⇒ true");
@@ -21143,9 +20687,7 @@ static void runTaskLedgerTests() {
               "AM2 §9.8 已经对上过的不许改口（一项任务只属于一份会话）");
     }
 
-    // ---------------------------------------------------------------------
     section("AM3. 落盘 / 读回：盘上只有摘要，号从盘上续，没跑完的算已中断");
-    // ---------------------------------------------------------------------
     {
         QTemporaryDir dir;
         if (!dir.isValid()) {
@@ -21204,12 +20746,12 @@ static void runTaskLedgerTests() {
                   QStringLiteral("新号 %1（盘上最大 2）").arg(next));
         }
 
-        // ★★ AM3b（2026-10-20）：盘上那份是**普通文本文件**，重号 / 号回绕这两种坏账
-        //   都得在 `loadHistory()` 里挡住 ——
-        //     · 重号：`find()` 只认第一条，后面那条从此收不了尾；面板拿号当行钥匙，
-        //       两行共用一个钥匙 ⇒ 点一行的按钮打到另一条身上。
-        //     · `TaskId` 最大值：`id + 1` 回绕成 0 ⇒ 计数器退回 1 ⇒ 新任务和历史撞号，
-        //       而历史那一条是终态 ⇒ 真在跑的那件事**再也收不了尾**。
+        // AM3b：盘上那份是**普通文本文件**，重号 / 号回绕这两种坏账
+        // 都得在 `loadHistory()` 里挡住 ——
+        // · 重号：`find()` 只认第一条，后面那条从此收不了尾；面板拿号当行钥匙，
+        // 两行共用一个钥匙 ⇒ 点一行的按钮打到另一条身上。
+        // · `TaskId` 最大值：`id + 1` 回绕成 0 ⇒ 计数器退回 1 ⇒ 新任务和历史撞号，
+        // 而历史那一条是终态 ⇒ 真在跑的那件事**再也收不了尾**。
         const QString badPath = dir.filePath(QStringLiteral("bad.tasks"));
         {
             QFile bad(badPath);
@@ -21242,11 +20784,11 @@ static void runTaskLedgerTests() {
                   "AM3b 新那一件收得了尾（撞号的话这里会是 false）");
         }
 
-        // ★★ AM3d（2026-10-20）：AM3b 只挡了"盘上正好写着最大值"那一档，还差半步 ——
-        //   盘上最大是 `max - 1` 时，`m_nextId` 算出来就是 `max`，发出去之后 `max + 1`
-        //   原地回绕成 0 ⇒ **从那以后每一件新任务都是 `invalidTaskId()`**：任务中心上
-        //   一行都不出现、`finish()` 永远收不了尾。号是**发出去的**，得自己确认这一个
-        //   没人用；最大值本身也不发（`loadHistory()` 下次会把它当坏账丢掉）。
+        // AM3d：AM3b 只挡了"盘上正好写着最大值"那一档，还差半步 ——
+        // 盘上最大是 `max - 1` 时，`m_nextId` 算出来就是 `max`，发出去之后 `max + 1`
+        // 原地回绕成 0 ⇒ **从那以后每一件新任务都是 `invalidTaskId()`**：任务中心上
+        // 一行都不出现、`finish()` 永远收不了尾。号是**发出去的**，得自己确认这一个
+        // 没人用；最大值本身也不发（`loadHistory()` 下次会把它当坏账丢掉）。
         const QString wrapPath = dir.filePath(QStringLiteral("wrap.tasks"));
         {
             QFile bad(wrapPath);
@@ -21280,10 +20822,10 @@ static void runTaskLedgerTests() {
                   QString::number(second));
         }
 
-        // ★ AM3c（2026-10-20）：账本读不动的时候**不许当成"没有历史"默默吞掉**。
-        //   `loadHistory()` 之后紧跟着的第一次 `saveHistory()` 会把文件整个覆写 ——
-        //   用户看见的是"任务中心突然空了"，而盘上那份坏账本连证据都不剩。
-        //   现在原文件不动，旁边留一份 `<账本>.corrupt`。
+        // AM3c：账本读不动的时候**不许当成"没有历史"默默吞掉**。
+        // `loadHistory()` 之后紧跟着的第一次 `saveHistory()` 会把文件整个覆写 ——
+        // 用户看见的是"任务中心突然空了"，而盘上那份坏账本连证据都不剩。
+        // 现在原文件不动，旁边留一份 `<账本>.corrupt`。
         {
             const QString corruptPath = dir.filePath(QStringLiteral("corrupt.tasks"));
             const QByteArray garbage = "{这不是 JSON，也不是数组";
@@ -21327,9 +20869,7 @@ static void runTaskLedgerTests() {
               "AM3 已中断那一件**没有**结束时间戳（不许编一个「刚刚完成」出来）");
     }
 
-    // ---------------------------------------------------------------------
     section("AM4. markInterrupted / clearFinished / 启动器级固定落点");
-    // ---------------------------------------------------------------------
     {
         // markInterrupted：只动非终态那几件；终态一个字节都不碰。
         QList<Tasks::TaskSnapshot> tasks;
@@ -21409,7 +20949,6 @@ static void runTaskLedgerTests() {
               "AM4 指回空串 = 回到默认那一份（不是「写到空路径去」）", lazy.historyPath());
     }
 
-    // ---------------------------------------------------------------------
     section("AM5. 压力：几百项任务一起推进 / 收尾（大量下载 + 多实例 + 批量改文件）");
     // ---------------------------------------------------------------------
     // 玩家真实形状：一边下几十个文件、一边开几个实例、一边批量启用/禁用模组 ——
@@ -21523,9 +21062,9 @@ static void runTaskLedgerTests() {
         // 顺序：最近的在前；同一毫秒并列时号大的在前 —— 这条不靠运气，靠比较器里那个
         // 第二把尺（批量操作就是几十项挤在同一毫秒里收尾的）。
         //
-        // ★ 内存里也只留最近 `finishedHistoryLimit()` 条（2026-10-20 起和落盘同一把尺子）：
-        //   以前是"这一趟会话攒多少留多少、只有落盘才截断" —— 跑一天下来任务中心那一栏
-        //   能堆几千行，重启之后又只剩 50 条，同一份账本自己跟自己说的不一样。
+        // 内存里也只留最近 `finishedHistoryLimit()` 条（ 起和落盘同一把尺子）：
+        // 以前是"这一趟会话攒多少留多少、只有落盘才截断" —— 跑一天下来任务中心那一栏
+        // 能堆几千行，重启之后又只剩 50 条，同一份账本自己跟自己说的不一样。
         const int runtimeLimit = Tasks::finishedHistoryLimit();
         const int expectedFinished = qMin(kCount / 2, runtimeLimit);
         const QList<Tasks::TaskSnapshot> finished = manager.finished();
@@ -21603,9 +21142,7 @@ static void runCopyInstanceAndWorldTests() {
 
     AppPaths::setMinecraftDir(sourceRoot.path());
 
-    // ---------------------------------------------------------------------
     section("ZJ1. looksLikeWorld：凭什么认一个目录是「世界」");
-    // ---------------------------------------------------------------------
     {
         const QString world = scratch.path() + QStringLiteral("/有leveldat");
         QDir().mkpath(world + QStringLiteral("/region"));
@@ -21617,16 +21154,14 @@ static void runCopyInstanceAndWorldTests() {
         check(!WorldFiles::looksLikeWorld(bare),
               "ZJ1 没 level.dat 的不算（region/ 空着不算数：刚建好的世界 region 就是空的）");
 
-        // ★ 这一条是"用户挑错了"那一档里最容易漏的：他把 `level.dat` **这个文件**选进来了
-        //   （原生选择框在 Windows 上是可以选文件的）。判据只看"这个路径下面有没有
-        //   level.dat"，`<...>/level.dat/level.dat` 当然不存在 ⇒ 判 false，正是要的结果。
+        // 这一条是"用户挑错了"那一档里最容易漏的：他把 `level.dat` **这个文件**选进来了
+        // （原生选择框在 Windows 上是可以选文件的）。判据只看"这个路径下面有没有
+        // level.dat"，`<...>/level.dat/level.dat` 当然不存在 ⇒ 判 false，正是要的结果。
         check(!WorldFiles::looksLikeWorld(world + QStringLiteral("/level.dat")),
               "ZJ1 传进来一个文件（level.dat 本身）也不算世界");
     }
 
-    // ---------------------------------------------------------------------
     section("ZJ2. nameProblem：世界目录名和实例目录名同一套规矩");
-    // ---------------------------------------------------------------------
     check(WorldFiles::nameProblem(QStringLiteral("我的世界")).isEmpty(),
           "ZJ2 普通中文名字过");
     check(!WorldFiles::nameProblem(QStringLiteral("a/b")).isEmpty(), "ZJ2 带分隔符不过");
@@ -21642,9 +21177,7 @@ static void runCopyInstanceAndWorldTests() {
               InstanceFiles::validateDirName(QStringLiteral("CON")),
           "ZJ2 和 InstanceFiles::validateDirName 逐字同源（不是各写一套）");
 
-    // ---------------------------------------------------------------------
     section("ZJ3. copyWorldInto：把一个世界拷进 saves/");
-    // ---------------------------------------------------------------------
     const QString saves = scratch.path() + QStringLiteral("/saves");
     const QString worldSrc = scratch.path() + QStringLiteral("/外面的世界");
     QDir().mkpath(saves);
@@ -21741,9 +21274,7 @@ static void runCopyInstanceAndWorldTests() {
               "ZJ3 源传进来一个文件也拒绝");
     }
 
-    // ---------------------------------------------------------------------
     section("ZJ4. renameWorld：改一个世界的目录名");
-    // ---------------------------------------------------------------------
     {
         const QString dir = scratch.path() + QStringLiteral("/改名靶子");
         QDir().mkpath(dir + QStringLiteral("/region"));
@@ -21798,9 +21329,7 @@ static void runCopyInstanceAndWorldTests() {
               QDir(scratch.path()).entryList(QDir::Dirs | QDir::NoDotAndDotDot).join(QLatin1Char(',')));
     }
 
-    // ---------------------------------------------------------------------
     section("ZJ5. VersionManager::copyInstance：多出一份实例");
-    // ---------------------------------------------------------------------
     AppPaths::setMinecraftDir(sourceRoot.path());
     const QString srcId = QStringLiteral("源实例");
     const QString srcDir = makeInstanceDir(sourceRoot.path() + QStringLiteral("/versions"), srcId,
@@ -21850,12 +21379,6 @@ static void runCopyInstanceAndWorldTests() {
               "ZJ5 而且落在新建的 versions/ 下面");
     }
     {
-        // ★ 2026-10-19：「复制实例」/「升级副本」的拷树已经挪进**后台线程**。后台一律走
-        //    copyInstanceFrom()（源目录在主线程算好传进去）—— `copyInstance()` 内部现读
-        //    `AppPaths::versionDir()`，而那是进程级可变状态：用户完全可以在这趟跑着的
-        //    时候切换游戏文件夹，worker 里去读就是数据竞争，而且真会拷错目录。
-        //    这一条把"当前数据目录"换成另一份，里面摆一个**同名、内容不同**的实例：
-        //    实现要是偷懒去问 AppPaths，拷出来的就是替身那一份的 jar。
         const QString decoyRoot = scratch.path() + QStringLiteral("/换过去的游戏文件夹");
         const QString decoyDir = makeInstanceDir(decoyRoot + QStringLiteral("/versions"), srcId,
                                                  R"({"name":"替身","instanceId":"decoy-uuid"})");
@@ -21887,12 +21410,12 @@ static void runCopyInstanceAndWorldTests() {
               "ZJ5 目标是源自己那一份拒绝");
         check(error.contains(QStringLiteral("就是这一份自己")), "ZJ5 而且原因说的是这话", error);
 
-        // ★★ 目标落在**源实例目录自己里面** → 拒（2026-09-29 补的第四道闸）。这一条在数据
-        //    层是兜底（界面那一层也有一条，用的是同一个 InstanceFiles::pathIsSameOrInside），
-        //    但**必须自己站得住**：不然将来任何一个别的调用点喂进来一个这样的目标，下面那步
-        //    mkpath(versionsDir) 就会在源实例目录内部造出一个 `versions/`，紧接着"先 mkpath
-        //    目标、再列源目录"的复制会把它自己刚造的这一层也列进去 —— **自己抄自己、每层再
-        //    深一层**，一声不响地写到盘满。
+        // 目标落在**源实例目录自己里面** → 拒（ 补的第四道闸）。这一条在数据
+        // 层是兜底（界面那一层也有一条，用的是同一个 InstanceFiles::pathIsSameOrInside），
+        // 但**必须自己站得住**：不然将来任何一个别的调用点喂进来一个这样的目标，下面那步
+        // mkpath(versionsDir) 就会在源实例目录内部造出一个 `versions/`，紧接着"先 mkpath
+        // 目标、再列源目录"的复制会把它自己刚造的这一层也列进去 —— **自己抄自己、每层再
+        // 深一层**，一声不响地写到盘满。
         check(!vm.copyInstance(srcId, srcDir, QStringLiteral("里面"), &error),
               "★★ ZJ5 目标就是源实例目录自己拒绝（判据比的是规范化之后的真路径）");
         // 注意别把整个句子当成一截 —— 实例名是插在中间那句里的（「不能把「X」复制到它自己
@@ -21908,17 +21431,17 @@ static void runCopyInstanceAndWorldTests() {
         check(!existsAt(srcDir + QStringLiteral("/saves/versions")),
               "★ ZJ5 同样是「盘上没多出东西来」");
 
-        // ★★ 别名：拿一个**指着源实例目录的 junction** 当游戏文件夹。
+        // 别名：拿一个**指着源实例目录的 junction** 当游戏文件夹。
         //
-        //    这一条是 2026-09-29 实测补上的：`canonicalFilePath()` **不解 junction**
-        //    （Windows 上它走 `slowCanonicalized()`、逐段判的是 `isSymLink()`，而 junction 在
-        //    Qt 里是 `JunctionType`；见 InstanceFiles.cpp 里 resolveJunctions() 那一大段）。
-        //    只靠 canonicalFilePath 的话，这一条会让复制真的跑起来（自己抄自己，直到撞上路径
-        //    长度上限才失败）—— 那时 `!ok` 还是绿的，是个**假绿**，而盘上已经多出一层
-        //    `versions/`。所以下面同时钉住"报的是哪一句"。
+        // 这一条是 实测补上的：`canonicalFilePath()` **不解 junction**
+        // （Windows 上它走 `slowCanonicalized()`、逐段判的是 `isSymLink()`，而 junction 在
+        // Qt 里是 `JunctionType`；见 InstanceFiles.cpp 里 resolveJunctions() 那一大段）。
+        // 只靠 canonicalFilePath 的话，这一条会让复制真的跑起来（自己抄自己，直到撞上路径
+        // 长度上限才失败）—— 那时 `!ok` 还是绿的，是个**假绿**，而盘上已经多出一层
+        // `versions/`。所以下面同时钉住"报的是哪一句"。
         //
-        //    NOTE: junction 必须**最后**清掉、而且只能 rmdir（删链接本体，不动它那一头）；
-        //          `QTemporaryDir::removeRecursively()` 是会**跟着** junction 往下删的。
+        // NOTE: junction 必须**最后**清掉、而且只能 rmdir（删链接本体，不动它那一头）；
+        // `QTemporaryDir::removeRecursively()` 是会**跟着** junction 往下删的。
         const QString aliasHost = scratch.path() + QStringLiteral("/别名宿主");
         QDir().mkpath(aliasHost);
         const QString aliasDir = aliasHost + QStringLiteral("/指到源实例");
@@ -21931,7 +21454,7 @@ static void runCopyInstanceAndWorldTests() {
         check(madeAlias, "★ ZJ5 先造出一个真 junction 指着源实例目录（mklink /J）");
         if (madeAlias) {
             // NOTE: 前置事实 —— canonicalFilePath **不**解 junction。这一条要是红了，
-            //       说明 Qt 那边换了实现（那时候 resolveJunctions 可以删，但先得有人复核）。
+            // 说明 Qt 那边换了实现（那时候 resolveJunctions 可以删，但先得有人复核）。
             check(QDir::cleanPath(QFileInfo(aliasDir).canonicalFilePath())
                       != QDir::cleanPath(QFileInfo(srcDir).canonicalFilePath()),
                   "★ ZJ5 前置事实：canonicalFilePath 解不掉 junction（这一位就是那个洞的出处）",
@@ -21959,10 +21482,10 @@ static void runCopyInstanceAndWorldTests() {
               "ZJ5 空的「复制到哪儿」拒绝 —— 空串会被 QDir 当成当前工作目录，那不是用户挑的地方");
     }
     {
-        // ★★ 最后一步失败时**把自己刚拷出来的半份删掉**（和整合包导入那条"失败不删半成品"
-        //    故意相反）。造法：源里那份 wtfml.meta 是坏 JSON ⇒ 拷完树、改完 jar/json 之后
-        //    卡在第 4 步。这一条同时钉住两件事：那一趟**返回 false**，以及目标目录
-        //    **没留在盘上**（判据必须看盘，不能只看返回值 —— 半份留着才是真正的坑）。
+        // 最后一步失败时**把自己刚拷出来的半份删掉**（和整合包导入那条"失败不删半成品"
+        // 故意相反）。造法：源里那份 wtfml.meta 是坏 JSON ⇒ 拷完树、改完 jar/json 之后
+        // 卡在第 4 步。这一条同时钉住两件事：那一趟**返回 false**，以及目标目录
+        // **没留在盘上**（判据必须看盘，不能只看返回值 —— 半份留着才是真正的坑）。
         const QString badId = QStringLiteral("坏meta");
         makeInstanceDir(sourceRoot.path() + QStringLiteral("/versions"), badId,
                         QByteArray("{ 这不是 JSON"));
@@ -21978,14 +21501,14 @@ static void runCopyInstanceAndWorldTests() {
     check(AppPaths::minecraftDir() == originalDir, "ZJ6 数据根目录换回来了");
 
     // =====================================================================
-    //  ZK. 服务端那八档：装法、地址、以及"装完之后入口是什么"
+    // ZK. 服务端那八档：装法、地址、以及"装完之后入口是什么"
     // =====================================================================
-    //  这一节全是**纯函数**：地址怎么拼、接口回复怎么读、装一份服务端的计划长什么样。
-    //  一个请求都不发、一个文件都不读、一个字节都不写盘。
+    // 这一节全是**纯函数**：地址怎么拼、接口回复怎么读、装一份服务端的计划长什么样。
+    // 一个请求都不发、一个文件都不读、一个字节都不写盘。
     //
-    //  NOTE: 断言里那些地址原串是 2026-09-28 逐条 curl 出来的（形状连同响应头一起记在
-    //        ServerInstall.hpp 的文件头）。**上游改了它们这里会红，红得对** —— 这一层存在的
-    //        意义就是"别让一个改过期的地址活到用户点下去那一刻"。
+    // NOTE: 断言里那些地址原串是 逐条 curl 出来的（形状连同响应头一起记在
+    // ServerInstall.hpp 的文件头）。**上游改了它们这里会红，红得对** —— 这一层存在的
+    // 意义就是"别让一个改过期的地址活到用户点下去那一刻"。
     section("ZK1. 八档的身份：代号往返、认不出来不碰 out、顺序就是界面上的顺序");
     {
         using namespace ServerInstall;
@@ -22180,10 +21703,10 @@ static void runCopyInstanceAndWorldTests() {
         const QStringList versions = paperVersionsFromJson(project);
         check(versions.size() == 4, "ZK4 工程信息摊平成一维并去掉重复",
               versions.join(QStringLiteral(" ")));
-        // ★ 这条是**自己排出来的**，不是原序：上游那个对象走到这一层时键已经按字典序排过
-        //   （QJsonObject 就是这么存的），照原序摊平出来是 `1.20.6 1.20.1 1.21.11 1.21.4`
-        //   —— 正好是反的。真实数据里 `1.21` 还会排在 `26.1` 前面（字典序 `1` < `2`），
-        //   拿它当"新到旧"用会挑中最老的版本。
+        // 这条是**自己排出来的**，不是原序：上游那个对象走到这一层时键已经按字典序排过
+        // （QJsonObject 就是这么存的），照原序摊平出来是 `1.20.6 1.20.1 1.21.11 1.21.4`
+        // —— 正好是反的。真实数据里 `1.21` 还会排在 `26.1` 前面（字典序 `1` < `2`），
+        // 拿它当"新到旧"用会挑中最老的版本。
         check(!versions.isEmpty() && versions.first() == QStringLiteral("1.21.11") &&
                   versions.last() == QStringLiteral("1.20.1"),
               "ZK4 ★ 摊平之后**自己排成新到旧**（1.21 那组排在 1.20 那组前面 —— "
@@ -22238,8 +21761,6 @@ static void runCopyInstanceAndWorldTests() {
         check(versions.size() == 3, "ZK5 Purpur 那份是**平铺**的一维数组（不是像 Paper 那样"
                                     "按大版本分组的），去重",
               versions.join(QStringLiteral(" ")));
-        // ★ 上游那个数组是**按发布时间升序**的（实测尾部是 …1.21.11, 26.1.2, 26.2, 26.3），
-        //   拿原序当"新到旧"用，界面上第一行会是它最老的那个版本。
         check(!versions.isEmpty() && versions.first() == QStringLiteral("1.21.11") &&
                   versions.last() == QStringLiteral("1.8.9"),
               "ZK5 ★ 排成新到旧（原序是升序，直接用就反了）",
@@ -22697,18 +22218,18 @@ static void runCopyInstanceAndWorldTests() {
     }
 
     // =====================================================================
-    //  ZL. 世界设置那条路：NbtTree（判据层）+ WorldFiles 的读写
+    // ZL. 世界设置那条路：NbtTree（判据层）+ WorldFiles 的读写
     // =====================================================================
     //
-    // 用户原话：「世界根据其存档文件在存档设置（那支笔）里面编辑游戏规则等，打开之前弹出
+    // 要求：「世界根据其存档文件在存档设置（那支笔）里面编辑游戏规则等，打开之前弹出
     // 坏档警告并提供备份按钮」。这一节量的是**判据那一半**：一棵树怎么读怎么写、"坏档"
     // 是谁说的、改一格会不会动到别的字节。界面上那一半（那支笔、那一页、那一句警告）在
     // mw_check 的 T27 那一节。
     //
     // NOTE: 树是**手工搭**出来的，不是从某个真存档里抄的。理由是这个模块的价值全在角落上
-    //       ——"长度前缀越界""多出来一截""嵌套太深""改一格别的地方一个字节不变"，随便找一
-    //       个真存档都撞不上这些；而撞得上它们的那些输入（一个被写坏的世界）恰恰是这一整
-    //       条路存在的原因。
+    // ——"长度前缀越界""多出来一截""嵌套太深""改一格别的地方一个字节不变"，随便找一
+    // 个真存档都撞不上这些；而撞得上它们的那些输入（一个被写坏的世界）恰恰是这一整
+    // 条路存在的原因。
     section("ZL1. NbtTree：手工搭一棵树，写出去再读回来一个字节都不差");
     {
         const auto field = [](const QString &name, const NbtTree::Node &node) {
@@ -22742,11 +22263,11 @@ static void runCopyInstanceAndWorldTests() {
             return node;
         };
 
-        // ★ 世界名里塞两样"普通字符串不会碰到"的东西：
-        //   - 一个补充平面上的字（U+1F600）：NBT 的字符串是**改过的 UTF-8**，这一档要写
-        //     成 CESU-8 的那对代理项，写错的表现是"存完这一份，游戏读出来是个乱码"；
-        //   - 一个真正的 NUL（U+0000）：它必须写成 `C0 80`，直接写 `00` 的话长度前缀还
-        //     对得上、但游戏那边的读取会在那儿断掉。
+        // 世界名里塞两样"普通字符串不会碰到"的东西：
+        // - 一个补充平面上的字（U+1F600）：NBT 的字符串是**改过的 UTF-8**，这一档要写
+        // 成 CESU-8 的那对代理项，写错的表现是"存完这一份，游戏读出来是个乱码"；
+        // - 一个真正的 NUL（U+0000）：它必须写成 `C0 80`，直接写 `00` 的话长度前缀还
+        // 对得上、但游戏那边的读取会在那儿断掉。
         const char32_t trickyChars[4] = {U'我', U'\0', U'\U0001F600', U'界'};
         const QString trickyName = QString::fromUcs4(trickyChars, 4);
 
@@ -22807,9 +22328,9 @@ static void runCopyInstanceAndWorldTests() {
         NbtTree::Document back;
         QString why;
         check(NbtTree::parse(bytes, &back, &why), "ZL1 再读回来不报错", why);
-        // ★ 这一条是这个模块的**地基**：写出去 → 读回来 → 再写出去，两次的字节必须一样。
-        //   它是"改一格别的地方一个字节不变"那条保证的来源（改完写回去的树就是从盘上那份
-        //   读出来的同一棵，只有被改的那一格不一样）。
+        // 这一条是这个模块的**地基**：写出去 → 读回来 → 再写出去，两次的字节必须一样。
+        // 它是"改一格别的地方一个字节不变"那条保证的来源（改完写回去的树就是从盘上那份
+        // 读出来的同一棵，只有被改的那一格不一样）。
         check(NbtTree::serialize(back) == bytes,
               "★★ ZL1 读回来的那棵树再写出去，和原来那串字节**逐字节相同**");
 
@@ -22868,8 +22389,8 @@ static void runCopyInstanceAndWorldTests() {
             const NbtTree::Node *longs = NbtTree::field(*dataBack, QStringLiteral("长整数数组"));
             check(longs != nullptr && longs->longs == QList<qint64>({1, -2}), "ZL1 长整数数组原样");
             const NbtTree::Node *empty = NbtTree::field(*dataBack, QStringLiteral("空表"));
-            // ★ 空列表的**元素类型**必须留着：靠"猜第一个元素的类型"来写的话，空表一律变成
-            //   TAG_End，游戏读出来是两个不一样的东西。
+            // 空列表的**元素类型**必须留着：靠"猜第一个元素的类型"来写的话，空表一律变成
+            // TAG_End，游戏读出来是两个不一样的东西。
             check(empty != nullptr && empty->type == NbtTree::Type::List &&
                       empty->items.isEmpty() && empty->itemType == NbtTree::Type::Byte,
                   "★★ ZL1 空列表的元素类型留住了（空表不是「没有类型」）");
@@ -22980,8 +22501,8 @@ static void runCopyInstanceAndWorldTests() {
         text.type = NbtTree::Type::String;
         text.text = QStringLiteral("原来那句");
         // NOTE: 这里要的是 70000 个**中文字**（每个 3 字节，编码之后 21 万字节 > 65535）。
-        //       不能写 `QLatin1Char('字')` —— Latin-1 装不下，编译器会把它当成一个
-        //       多字符常量（`-Wmultichar` + `-Woverflow`），char 里只剩最后一个字节。
+        // 不能写 `QLatin1Char('字')` —— Latin-1 装不下，编译器会把它当成一个
+        // 多字符常量（`-Wmultichar` + `-Woverflow`），char 里只剩最后一个字节。
         check(!NbtTree::setValueText(&text, QString(70000, QChar(0x5B57))) ,
               "★★ ZL3 编码之后超过 65535 字节的文字拒收（长度前缀是 quint16，收下就是写一份被截断的东西）");
         check(text.text == QStringLiteral("原来那句"), "ZL3 拒收之后那一格还是原来那句");
@@ -23043,7 +22564,7 @@ static void runCopyInstanceAndWorldTests() {
                  n.text = QStringLiteral("3");
                  return n;
              }()},
-            // ★ 一条**值不是字符串**的（模组会写这种东西）：它要被跳过，而不是让整张表都读不出来。
+            // 一条**值不是字符串**的（模组会写这种东西）：它要被跳过，而不是让整张表都读不出来。
             {QStringLiteral("模组塞的"), [] {
                  NbtTree::Node n;
                  n.type = NbtTree::Type::Int;
@@ -23076,7 +22597,7 @@ static void runCopyInstanceAndWorldTests() {
         NbtTree::gameRulesOf(document.root, &got, &why);
         check(got.size() == 2 && got[1].value == QStringLiteral("42"), "ZL4 改完读出来就是新值");
 
-        // ★ 不发明新的。
+        // 不发明新的。
         const int before = NbtTree::descend(document.root, QStringLiteral("Data/GameRules")) != nullptr
                                ? NbtTree::descend(document.root, QStringLiteral("Data/GameRules"))->fields.size()
                                : -1;
@@ -23102,14 +22623,14 @@ static void runCopyInstanceAndWorldTests() {
                                     QStringLiteral("true"), &why),
               "★ ZL4 没有那一格时也**不替它造一格**");
 
-        // ★★ 2026-09-29：`MissingRule::Create` 那一档 —— 界面上"改一条盘上还没有的规则"
-        //    走的就是它（用户原话「下面的世界设置不要要求进了世界才显示而是把所有的都列出来，
-        //    并允许修改值」）。上面那几条量的是**默认那一档**（拒绝、一个字节都不改），
-        //    这里量的是"谁要建谁自己说"。
+        // `MissingRule::Create` 那一档 —— 界面上"改一条盘上还没有的规则"
+        // 走的就是它（要求「下面的世界设置不要要求进了世界才显示而是把所有的都列出来，
+        // 并允许修改值」）。上面那几条量的是**默认那一档**（拒绝、一个字节都不改），
+        // 这里量的是"谁要建谁自己说"。
         //
-        //    NOTE: 下面这几棵树都是**新造的**，不在上面那几棵上接着改 —— 在"已经被拒绝过
-        //          一次"的树上量"建出来了没有"，量到的是上一次留下的样子（那确实没变，
-        //          但那是搭巧合，不是判据）。
+        // NOTE: 下面这几棵树都是**新造的**，不在上面那几棵上接着改 —— 在"已经被拒绝过
+        // 一次"的树上量"建出来了没有"，量到的是上一次留下的样子（那确实没变，
+        // 但那是搭巧合，不是判据）。
         NbtTree::Document creatable;
         creatable.root.type = NbtTree::Type::Compound;
         {
@@ -23324,7 +22845,7 @@ static void runCopyInstanceAndWorldTests() {
         check(reread.rules.size() == 2 && reread.rules[0].value == QStringLiteral("false"),
               "★ ZL5 没改的那条规则一个字都没动");
 
-        // ★ 盘上没有的那一格：`hasXxx = false` 时**不许**顺手造一格出来。
+        // 盘上没有的那一格：`hasXxx = false` 时**不许**顺手造一格出来。
         WorldFiles::WorldInfo invent = bareInfo;
         invent.hasLevelName = false;
         const int bareFields =
@@ -23336,9 +22857,6 @@ static void runCopyInstanceAndWorldTests() {
                   NbtTree::descend(bare.root, QStringLiteral("Data"))->fields.size() == bareFields,
               "★★ ZL5 什么都没改 ⇒ 一个字段都没多出来");
 
-        // ★★ 2026-10-20：盘上那一格在、但**类型不对**（这里 `allowCommands` 是个 Int）。
-        //   游戏读它是按 Byte 读的，类型对不上就当没有这一项 —— 原来照写不误：值改成了 1、
-        //   类型还是 Int，界面上"开了"、进游戏却没开、收尾还报成功。
         {
             NbtTree::Document oddTypes;
             oddTypes.root.type = NbtTree::Type::Compound;
@@ -23370,12 +22888,12 @@ static void runCopyInstanceAndWorldTests() {
                   "★★ ZL5' 文字那一格类型不对 ⇒ 明说写不进去（不写一个游戏不认的值）", oddWhy);
         }
 
-        // ★★ 2026-09-29：`MissingField::Create` 那一档 —— 界面上那四格**不再按"盘上有没有"
-        //    灰掉**（用户原话「并允许修改值」），所以"盘上没有这一格"必须有个着落。
-        //    上面那一条量的是**默认那一档**（`Refuse`，一个字段都不多）；这里量 `Create`。
+        // `MissingField::Create` 那一档 —— 界面上那四格**不再按"盘上有没有"
+        // 灰掉**（要求「并允许修改值」），所以"盘上没有这一格"必须有个着落。
+        // 上面那一条量的是**默认那一档**（`Refuse`，一个字段都不多）；这里量 `Create`。
         //
-        //    NOTE: 判据里**连类型一起量** —— 建出来一个类型错的字段比"没建"更坏：游戏读到
-        //          一个 Int 的 `LevelName` 会当成没有它，而"我们刚写进去了"这句话是真的。
+        // NOTE: 判据里**连类型一起量** —— 建出来一个类型错的字段比"没建"更坏：游戏读到
+        // 一个 Int 的 `LevelName` 会当成没有它，而"我们刚写进去了"这句话是真的。
         {
             // 一棵 `Data` 是空复合标签的树（= 一个老存档：这八格一格都没有）。
             NbtTree::Document fresh;
@@ -23438,7 +22956,7 @@ static void runCopyInstanceAndWorldTests() {
 
     section("ZL5b. WorldFiles::knownGameRules / allGameRules（界面上那一列是**全集**）");
     {
-        // 用户 2026-09-29 原话：「下面的世界设置不要要求进了世界才显示而是把所有的都列出来，
+        // 要求：「下面的世界设置不要要求进了世界才显示而是把所有的都列出来，
         // 并允许修改值」。`level.dat` 里那份 `GameRules` 常常只有几条（工具做出来的档、从没
         // 进过一次的档**一条都没有**），所以界面上那一列是拿 `knownGameRules()`（启动器认识
         // 的规则全集）并出来的。这一段量的是那张表本身**站不站得住**。
@@ -23643,7 +23161,7 @@ static void runCopyInstanceAndWorldTests() {
         check(data.info.rules.size() == 1 && data.info.rules[0].name == QStringLiteral("keepInventory"),
               "ZL6 读出来一条规则");
 
-        // ★ 记下**没被改的那些字节**：写回去之后要比。
+        // 记下**没被改的那些字节**：写回去之后要比。
         const QByteArray before = NbtTree::serialize(data.document);
 
         data.info.levelName = QStringLiteral("改过的名字");
@@ -23659,18 +23177,18 @@ static void runCopyInstanceAndWorldTests() {
         check(back.info.rules.size() == 1 && back.info.rules[0].value == QStringLiteral("true"),
               "ZL6 新规则值在盘上");
 
-        // ★★ 这一条是"只改用户动过的格子"那条承诺的**字节级**凭据：拿改之前那棵树和盘上
-        //    这一份比，除了那两格，别的地方必须一模一样。
+        // 这一条是"只改用户动过的格子"那条承诺的**字节级**凭据：拿改之前那棵树和盘上
+        // 这一份比，除了那两格，别的地方必须一模一样。
         NbtTree::Document expected = data.document;
         check(NbtTree::serialize(back.document) == NbtTree::serialize(expected),
               "★★ ZL6 写下去的就是「那棵树改了两格」（没有多出任何一格、顺序也没动）");
         check(!before.isEmpty(), "ZL6 改之前那棵树也写得出来（对照用）");
 
         // ---- 临时文件不许留下 ----
-        // ★ 2026-09-28：以前只扫 `.wtfml-*`（那是改动前中间产物的名字）。现在落盘走
-        //   `QSaveFile`，它在同一个目录里开的临时文件叫 `level.dat.XXXXXX` —— 换个名字
-        //   就漏过了。所以这里改成**把整个目录列出来**：这个世界里除了 `level.dat`
-        //   一个文件都不该有。名字变了这条还是拦得住。
+        // 以前只扫 `.wtfml-*`（那是改动前中间产物的名字）。现在落盘走
+        // `QSaveFile`，它在同一个目录里开的临时文件叫 `level.dat.XXXXXX` —— 换个名字
+        // 就漏过了。所以这里改成**把整个目录列出来**：这个世界里除了 `level.dat`
+        // 一个文件都不该有。名字变了这条还是拦得住。
         QStringList leftovers =
             QDir(worldDir).entryList(QDir::Files | QDir::Hidden | QDir::System);
         leftovers.removeAll(QStringLiteral("level.dat"));
@@ -23708,9 +23226,9 @@ static void runCopyInstanceAndWorldTests() {
 
         // ---- 不 gzip 的那一份：**不算坏档**，而且写回去还是不加 gzip ----
         //
-        // ★ 这一档是被"有没有 gzip 头"那条判据故意放行的：第三方工具（以及少数版本的
-        //   服务端）会写不压缩的 level.dat。把它报成"这个存档可能坏了"，用户就得去处理一个
-        //   根本没坏的东西。
+        // 这一档是被"有没有 gzip 头"那条判据故意放行的：第三方工具（以及少数版本的
+        // 服务端）会写不压缩的 level.dat。把它报成"这个存档可能坏了"，用户就得去处理一个
+        // 根本没坏的东西。
         const QString rawDir = scratch.path() + QStringLiteral("/不压缩");
         QDir().mkpath(rawDir);
         NbtTree::Document rawDoc;
@@ -23749,7 +23267,7 @@ static void runCopyInstanceAndWorldTests() {
 // ============================================================================
 // ZM. Java 8 的 ASCII 别名（"路径里有非 ASCII 字符就起不来"那个坑）
 //
-// 真机那趟（2026-09-28）里 `20w14∞` 和中文名的 1.8 整合包都只留下一句
+// 真机那趟里 `20w14∞` 和中文名的 1.8 整合包都只留下一句
 // `找不到或无法加载主类`：Java 8 打不开带非 ASCII 字符的路径（这台机器开着 Windows 的
 // "Beta: 使用 Unicode UTF-8"，Java 8 认定的编码却是 GBK）。产品侧的绕法是另建一套纯 ASCII
 // 的路径（联接 + 硬链接），判据/建法都在 src/launcher/AsciiPathAlias.hpp 里。
@@ -23845,10 +23363,10 @@ static void runAsciiAliasTests() {
                .entryList(QStringList() << QStringLiteral("*.jar"), QDir::Files)
                .isEmpty(),
           "ZM5 jars/ 里至少有一个 jar（isReady() 的判据之一）");
-    // ★ 每次启动都会走一遍 ensure()，所以"已经在的那一份"必须**原地留着**：建一套新的
-    //   （删掉再建）会让联接的创建时间每次都变，而且万一那一刻有别的进程正拿着它、
-    //   删除还会失败。判据是创建时间不变 —— 这不是讲究：改坏了不会有任何症状，
-    //   只会在真机上留下"每次启动都重建一遍"的额外动作。
+    // 每次启动都会走一遍 ensure()，所以"已经在的那一份"必须**原地留着**：建一套新的
+    // （删掉再建）会让联接的创建时间每次都变，而且万一那一刻有别的进程正拿着它、
+    // 删除还会失败。判据是创建时间不变 —— 这不是讲究：改坏了不会有任何症状，
+    // 只会在真机上留下"每次启动都重建一遍"的额外动作。
     {
         const QDateTime gameBorn = QFileInfo(alias.gameDir).birthTime();
         const QDateTime jarsBorn = QFileInfo(alias.jarsDir).birthTime();
@@ -23879,7 +23397,7 @@ static void runAsciiAliasTests() {
           "ZM6 ★ 另一套指向已消失实例的别名被顺手清掉了（不然会一直攒着）");
     check(QFileInfo(alias.root).isDir(), "ZM6 清的时候没碰自己这一套");
 
-    // --- ZM6'. ★ 反方向：**还活着**的那一套不许被当成过期的清掉（2026-10-20 修的那条） ---
+    // --- ZM6'. ★ 反方向：**还活着**的那一套不许被当成过期的清掉（ 修的那条） ---
     //
     // 判据 `liveTargetOfAlias()` 原来只读 `QFileInfo::symLinkTarget()`。我们建的是
     // `mklink /J` 那种目录联接（IO_REPARSE_TAG_MOUNT_POINT），Qt 对它的 `isSymLink()`
@@ -23911,7 +23429,7 @@ static void runAsciiAliasTests() {
               QFileInfo(liveAlias.gameDir).junctionTarget());
     }
 
-    // --- ZM6''. ★ 普通空目录不许当成"联接已经建好了"（2026-10-20 修的那条） ---
+    // --- ZM6''. ★ 普通空目录不许当成"联接已经建好了"（ 修的那条） ---
     //
     // `createJunction()` 是"先 mkpath、再设 reparse 点"两步。中间那一步失败（杀软、权限、
     // 盘突然没了）留下的正是一个同名普通目录。`linkUsable()` 原来在"读不出目标名字"时
@@ -23949,7 +23467,7 @@ static void runAsciiAliasTests() {
 }
 
 // ============================================================================
-// ZNat. natives 解压的"整套解完了"标记（2026-10-20）
+// ZNat. natives 解压的"整套解完了"标记
 //
 // 旧判据是"目录里有没有 .dll"。可 natives 是**分组**解压的（每组一次
 // `ZipUtil::extractArchives`），第一组成功、第二组失败（盘满 / 被杀软锁住 / 用户中途关掉
@@ -24258,8 +23776,8 @@ static void runVersionIntegrityTests() {
     }
 
     // NOTE: Unreadable 那一档这里够不着 —— 要造出一份"QFileInfo 说得清楚、真读又读不动"
-    //       的文件得占住它（真机上就是"游戏正跑着，jar 被独占"）。这条留到真机上报错了
-    //       再看：default 分支那句「读不动」就是为了它在那儿摆着。
+    // 的文件得占住它（真机上就是"游戏正跑着，jar 被独占"）。这条留到真机上报错了
+    // 再看：default 分支那句「读不动」就是为了它在那儿摆着。
 
     // ---------- ZN4. 资源对象：照索引 json 里那份 objects 表列 ----------
     // 索引 json 的落点由产品自己说了算（<数据目录>/assets/indexes/<id>.json），先按它算出来
@@ -24399,7 +23917,6 @@ static void runVersionIntegrityTests() {
               "★ ZN6 check() 把组带到 Verdict 上（缺文件那一档也带着）");
     }
 
-    // ---------- ZN7. Report 按组数 + 那段纯文本（「复制报告」）----------
     {
         const auto problem = [](VersionIntegrity::Status status, VersionIntegrity::Group group,
                                 const QString &label) {
@@ -24475,8 +23992,6 @@ static void runVersionIntegrityTests() {
         check(lines.contains(QStringLiteral("    D:/x/libA")),
               "ZN7 路径缩进换一行（4 个空格）");
 
-        // ★ problemPaths()：报告给**补全**的那一份（2026-10-15 加）。补全只认路径，
-        //   所以这里钉住"就是 problems 里那几条的 path、顺序也不动"。
         const QStringList paths = report.problemPaths();
         check(paths == QStringList({QStringLiteral("D:/x/libA"), QStringLiteral("D:/x/libB"),
                                     QStringLiteral("D:/x/objA")}),
@@ -24503,7 +24018,7 @@ static void runVersionIntegrityTests() {
 }
 
 // ============================================================================
-// ZP. 游戏异常退出那几句话（2026-10-12，coding plan §4.3）
+// ZP. 游戏异常退出那几句话（，coding plan §4.3）
 //
 // 这一节盯的是**规则本身**：`src/diag/GameExitDiagnosis` 是个纯函数（值进、字符串出，
 // 不看时钟、不读盘、不开进程），所以那张表能在这里逐格念一遍。
@@ -24516,9 +24031,7 @@ static void runVersionIntegrityTests() {
 // 都没有）：那种情况下多说一句就是猜。
 // ============================================================================
 static void runGameExitDiagnosisTests() {
-    // ---------------------------------------------------------------------
     section("ZP1. 退出码写成一句人话（认不出的原样写，不编）");
-    // ---------------------------------------------------------------------
     check(GameExitDiagnosis::exitDescription(-1073741819)
               == QStringLiteral("0xC0000005（内存访问冲突）"),
           "★ ZP1 访问冲突那几个字是认出来的",
@@ -24538,9 +24051,7 @@ static void runGameExitDiagnosisTests() {
     check(GameExitDiagnosis::exitDescription(1) == QStringLiteral("1"), "★ ZP1 认不出的照原样写");
     check(GameExitDiagnosis::exitDescription(0) == QStringLiteral("0"), "ZP1 零也是原样");
 
-    // ---------------------------------------------------------------------
     section("ZP2. 哪些退出算「异常」");
-    // ---------------------------------------------------------------------
     check(!GameExitDiagnosis::isAbnormal(0, false), "★ ZP2 以 0 正常退出的不算异常");
     check(GameExitDiagnosis::isAbnormal(0, true),
           "★ ZP2 崩了但码正好是 0 **也算**（那种 0 什么都不能证明）");
@@ -24553,9 +24064,7 @@ static void runGameExitDiagnosisTests() {
               == GameExitDiagnosis::isAbnormal(7, false),
           "★ ZP2 两个重载说的是同一条规则");
 
-    // ---------------------------------------------------------------------
     section("ZP3. 一句概括");
-    // ---------------------------------------------------------------------
     GameExitDiagnosis::Facts facts;
     facts.instanceName = QStringLiteral("我的整合包");
     facts.instanceId = QStringLiteral("1.20.1-forge");
@@ -24581,9 +24090,7 @@ static void runGameExitDiagnosisTests() {
     check(GameExitDiagnosis::summary(noName) == QStringLiteral("游戏以非 0 退出码结束（3）。"),
           "★ ZP3 两个名字都没有时不留空引号", GameExitDiagnosis::summary(noName));
 
-    // ---------------------------------------------------------------------
     section("ZP4. 日志里那几句话认得出来");
-    // ---------------------------------------------------------------------
     check(GameExitDiagnosis::logShowsOutOfMemory(
               QStringLiteral("[21:03:11] [Render thread/ERROR] java.lang.OutOfMemoryError: Java heap space")),
           "ZP4 OutOfMemoryError");
@@ -24603,7 +24110,6 @@ static void runGameExitDiagnosisTests() {
     check(!GameExitDiagnosis::logShowsMissingDependency(QStringLiteral("Loaded 42 mods")),
           "★ ZP4 没说不许猜（认的是加载器自己那句原文，不是我们按清单猜）");
 
-    // ---------------------------------------------------------------------
     section("ZP5. 提示那张表：每一条都指着某个字段");
     // ---------------------------------------------------------------------
     // 这一节的底：**"这一趟收到了游戏的输出"**。⑧那一条（没收到输出）在 `logCaptured`
@@ -24613,7 +24119,7 @@ static void runGameExitDiagnosisTests() {
     base.logCaptured = true;
 
     // ① Java 版本对不上 —— **两个数都非 0 才说话**：只拿到一个的时候分不出"对得上"和
-    //    "没测出来"，那时候说"版本不匹配"就是猜。
+    // "没测出来"，那时候说"版本不匹配"就是猜。
     GameExitDiagnosis::Facts javaMismatch = base;
     javaMismatch.requiredJavaMajor = 21;
     javaMismatch.usedJavaMajor = 17;
@@ -24711,7 +24217,7 @@ static void runGameExitDiagnosisTests() {
           loadHints.join(QStringLiteral(" | ")));
 
     // ⑦ 非崩溃、非 0、日志里一条错误都没有 ⇒ 最像"它就是自己退出的"。**只在确实拿到了
-    //    日志的情况下说** —— 没开日志开关时"没有错误行"什么都不代表。
+    // 日志的情况下说** —— 没开日志开关时"没有错误行"什么都不代表。
     GameExitDiagnosis::Facts quietExit;
     quietExit.exitCode = 1;
     quietExit.logCaptured = true;
@@ -24757,22 +24263,22 @@ static void runGameExitDiagnosisTests() {
         unique.insert(hint);
     }
     check(unique.size() == all.size(), "ZP5 一条都不重复");
-    // ★ 顺序稳定：同一个输入永远同一串话（验证工程和以后的界面都指着这一条）。
+    // 顺序稳定：同一个输入永远同一串话（验证工程和以后的界面都指着这一条）。
     check(GameExitDiagnosis::hints(everything) == all, "★ ZP5 同一份事实永远同一串话");
 }
 
 /**
- * @brief 世界与实例备份（2026-10-13，coding plan §4.4）：清单 / 打包 / 还原。
+ * @brief 世界与实例备份（，coding plan §4.4）：清单 / 打包 / 还原。
  *
  * 这一节**真打 zip**（走产品那条 PowerShell / .NET 的路）、**真删目录**、**真还原**，
  * 所以它在一个 `QTemporaryDir` 里换一次 `AppPaths::setMinecraftDir()`（备份落点就是
  * `<数据目录>/cache/backups`），跑完换回来 —— 不碰共享沙盒。
  *
  * 盯的是四件事，每一件都是"错了会静默丢东西"的那种：
- *   ① 清单里的名字 / 大小 / sha1 是**数出来的**，不是别人说多少就是多少；
- *   ② 排除只按**顶层目录名**（别处的同名目录照收）；
- *   ③ 还原之前**先**给"现在这一份"做安全快照，**做不成就不许动**；
- *   ④ 解出来了还要**逐文件对账**（"在"和"对"是两件事）。
+ * ① 清单里的名字 / 大小 / sha1 是**数出来的**，不是别人说多少就是多少；
+ * ② 排除只按**顶层目录名**（别处的同名目录照收）；
+ * ③ 还原之前**先**给"现在这一份"做安全快照，**做不成就不许动**；
+ * ④ 解出来了还要**逐文件对账**（"在"和"对"是两件事）。
  */
 static void runBackupTests() {
     section("ZQ. 世界与实例备份：清单 / 打包 / 还原（§4.4）");
@@ -24880,8 +24386,6 @@ static void runBackupTests() {
     check(!escape.isValid(), "★★ ZQ1 前缀是绝对路径的清单不认");
     escape.root = QStringLiteral("..");
     check(!escape.isValid(), "ZQ1 前缀就是 `..` 的清单不认");
-    // ★ 2026-10-20：Windows 打开路径时会把每一段末尾的空格 / 点折掉 —— 这几种写法和 `..`
-    //   是同一个落点（父目录本身），而下面几步会把那个路径**整个删掉**。
     for (const QString &sneaky : {QStringLiteral(".. "), QStringLiteral(". "),
                                   QStringLiteral("..."), QStringLiteral("a. "),
                                   QStringLiteral("a "), QStringLiteral("CON"),
@@ -25102,8 +24606,8 @@ static void runBackupTests() {
           "ZQ4 嵌套的、名字里带点的都回来了");
 
     // ② 还原到"已经有一份"的地方：必须**先**做安全快照，再整个挪走。
-    //    往里塞一个备份里没有的文件 + 手改 level.dat —— 这两样如果没有被安全快照收走，
-    //    就在"还原"这个动作里**没了**。
+    // 往里塞一个备份里没有的文件 + 手改 level.dat —— 这两样如果没有被安全快照收走，
+    // 就在"还原"这个动作里**没了**。
     writeFileAt(restoredWorld + QStringLiteral("/只在这儿有.txt"), QByteArrayLiteral("OLD-ONLY"));
     writeFileAt(restoredWorld + QStringLiteral("/level.dat"), QByteArrayLiteral("CHANGED-BY-HAND"));
     const BackupFiles::RestoreResult over = BackupFiles::restoreBackup(worldZip, restoreParent);
@@ -25143,11 +24647,11 @@ static void runBackupTests() {
     check(readAll(restoredWorld + QStringLiteral("/level.dat")) == QByteArrayLiteral("STILL-HERE"),
           "★★ ZQ4 拒绝的时候现在这一份**一个字节都没动**（读清单在动盘之前）");
 
-    // ③' ★ 2026-10-20：落点已经是个**空目录**时照常还原，不许卡死在这一档。
-    //   原来只要落点是个已存在的目录就无条件先做安全快照，而空目录的 `writeBackup()`
-    //   必然失败（「这个目录是空的，没什么可备份的」）⇒ 之后每一次还原都停在
-    //   安全快照那一档，界面只说"目录没有被改动"，用户没有任何出口（上一次解压被杀在
-    //   第一份文件之前留下的正是这么一个空目录）。
+    // ③' ★ ：落点已经是个**空目录**时照常还原，不许卡死在这一档。
+    // 原来只要落点是个已存在的目录就无条件先做安全快照，而空目录的 `writeBackup()`
+    // 必然失败（「这个目录是空的，没什么可备份的」）⇒ 之后每一次还原都停在
+    // 安全快照那一档，界面只说"目录没有被改动"，用户没有任何出口（上一次解压被杀在
+    // 第一份文件之前留下的正是这么一个空目录）。
     {
         const QString emptyParent = work + QStringLiteral("/空落点");
         QDir().mkpath(emptyParent + QStringLiteral("/基地周目"));
@@ -25160,10 +24664,10 @@ static void runBackupTests() {
               ontoEmpty.problem);
     }
 
-    // ③''' ★ 2026-10-20：落点树里有链接（junction / 符号链接）⇒ **拒绝还原**，动盘之前停。
-    //    包里和安全快照里都记不住"这里是个链接"，而 `removeTreeWithoutFollowingLinks()`
-    //    会把链接本身摘掉、再按包里那份普通目录解出来 —— 链接指向的内容不会丢，但链接
-    //    这件事退不回来。
+    // ③''' ★ ：落点树里有链接（junction / 符号链接）⇒ **拒绝还原**，动盘之前停。
+    // 包里和安全快照里都记不住"这里是个链接"，而 `removeTreeWithoutFollowingLinks()`
+    // 会把链接本身摘掉、再按包里那份普通目录解出来 —— 链接指向的内容不会丢，但链接
+    // 这件事退不回来。
     {
         const QString linkedParent = work + QStringLiteral("/有链接的落点");
         const QString linkedWorld = linkedParent + QStringLiteral("/基地周目");
@@ -25200,8 +24704,8 @@ static void runBackupTests() {
         }
     }
 
-    // ③'' ★ 2026-10-20：还原接上停止条件（关窗 / 整项 600 秒），但**只在挪走旧那一份
-    //    之前**生效。三种停法各钉一条：一开始就停、读清单之后停、安全快照做完停。
+    // ③'' ★ ：还原接上停止条件（关窗 / 整项 600 秒），但**只在挪走旧那一份
+    // 之前**生效。三种停法各钉一条：一开始就停、读清单之后停、安全快照做完停。
     {
         const QString cancelParent = work + QStringLiteral("/取消还原");
         QDir().mkpath(cancelParent + QStringLiteral("/基地周目"));
@@ -25284,8 +24788,8 @@ static void runBackupTests() {
     }
 
     // ⑤ **安全快照做不成就不许动** —— 这一整套里唯一不可接受的结果是"先把旧的删了、
-    //    再回来告诉你备份没做出来"。办法：把实例快照那个备份目录的位置摆成一个**文件**，
-    //    于是 mkpath 建不出来、zip 也落不了地。
+    // 再回来告诉你备份没做出来"。办法：把实例快照那个备份目录的位置摆成一个**文件**，
+    // 于是 mkpath 建不出来、zip 也落不了地。
     {
         const QString instanceDir = work + QStringLiteral("/我的实例");
         writeFileAt(instanceDir + QStringLiteral("/options.txt"), QByteArrayLiteral("fov:70"));
@@ -25371,8 +24875,8 @@ static void runBackupTests() {
                                           label, QDateTime(QDate(2026, 10, 1), QTime(8, 0)));
         const QStringList sorted = BackupFiles::sortBackupsNewestFirst(
             QStringList{oldFile, safetyFile, midFile, newerFile}, prefix);
-        // ★ 2026-10-20：原来按整名字典序倒排 —— 安全快照名字里那段汉字码位在数字之后，
-        //   于是**每一份安全快照都排到了最新那份的上面**，"越上面越新"当场不成立。
+        // 原来按整名字典序倒排 —— 安全快照名字里那段汉字码位在数字之后，
+        // 于是**每一份安全快照都排到了最新那份的上面**，"越上面越新"当场不成立。
         check(sorted.size() == 4 && sorted.value(0) == safetyFile && sorted.value(1) == newerFile,
               "★★ ZQ6' 「恢复前-」安全快照不会因为汉字排在数字后面就被摆到最新那份前面"
               "（同一秒里它在前、常规那份紧跟）",
@@ -25494,7 +24998,7 @@ static void runBackupTests() {
               "（看空间这一眼排在安全快照和解压之前，盘上一个字节都没动）");
 
         // ③ 同一份包，落到**原地已经有一份**的地方：那一趟**不看**空间这一眼
-        //    （把旧的挪走会把空间还回来，凭剩下的空间算会假报"放不下"）⇒ 得能走到解压。
+        // （把旧的挪走会把空间还回来，凭剩下的空间算会假报"放不下"）⇒ 得能走到解压。
         writeFileAt(hugeParent + QStringLiteral("/大实例/regions-先来的.txt"),
                     QByteArrayLiteral("OLD"));
         const BackupFiles::RestoreResult inPlace = BackupFiles::restoreBackup(hugeZip, hugeParent);
@@ -25504,15 +25008,14 @@ static void runBackupTests() {
               inPlace.problem);
     }
 
-    // -----------------------------------------------------------------
     section("ZQ9. 世界 level.dat 的世代备份：**按「哪个实例的哪个世界」分格子**（§4.4）");
     // -----------------------------------------------------------------
-    // ★ 2026-10-20：格子原来只按**存档目录名**分（`cache/world-backups/world/<时间戳>`），
-    //   两个实例各有一个叫 `world`（中文环境里更常见的是都叫「新的世界」）的存档就共用
-    //   一格。两件坏事：A 备份一次会把 B 的代数挤掉一份（清理按每格只留最近 N 代算），
-    //   而 `latestWorldBackup()` 会拿到**另一个世界**的 level.dat —— 界面上那句提示正是
-    //   "要还原的话把那一份拷回存档目录"，用户照着做，拿到的就是别人的种子和地形设置。
-    //   这一节拿两个同名的世界（分别在两个实例目录下）把两个方向都钉死。
+    // 格子原来只按**存档目录名**分（`cache/world-backups/world/<时间戳>`），
+    // 两个实例各有一个叫 `world`（中文环境里更常见的是都叫「新的世界」）的存档就共用
+    // 一格。两件坏事：A 备份一次会把 B 的代数挤掉一份（清理按每格只留最近 N 代算），
+    // 而 `latestWorldBackup()` 会拿到**另一个世界**的 level.dat —— 界面上那句提示正是
+    // "要还原的话把那一份拷回存档目录"，用户照着做，拿到的就是别人的种子和地形设置。
+    // 这一节拿两个同名的世界（分别在两个实例目录下）把两个方向都钉死。
     {
         const auto writeWorld = [](const QString &dir, const QByteArray &bytes) {
             QDir().mkpath(dir);
@@ -25563,9 +25066,6 @@ static void runBackupTests() {
         const int gensB = QDir(slotB).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size();
         check(gensB == 1, "ZQ9 乙那一格按 keep=1 收成了一代", QString::number(gensB));
 
-        // ★★ 2026-10-20：**"实例__世界"不是单射**。"__" 在实例名和世界名里都合法，
-        //    所以「SMP」+「2024__old」和「SMP__2024」+「old」拼出来的是同一格 ——
-        //    又是上面那两件坏事。格子名最后那段绝对路径哈希就是为了分开它们。
         const QString instanceSmp = temp.path() + QStringLiteral("/versions/SMP");
         const QString instanceSmp2024 = temp.path() + QStringLiteral("/versions/SMP__2024");
         const QString worldSmpOld = instanceSmp + QStringLiteral("/saves/2024__old");
@@ -25597,15 +25097,9 @@ static void runBackupTests() {
 // ---------------------------------------------------------------------------
 // ZR. 「上一次启动」那本账（coding plan §5.1）
 //
-// §5.1 那张卡（主页左栏「上次游玩」）分三处验：
-//   ① **这一节**：账本自己 —— 格式怎么写怎么读、时间怎么说成人话、目标没了怎么降级、
-//      上限怎么截。全是纯函数（时间那一列的"现在"是参数，不问时钟），所以连界面都不用起；
-//   ② **接线**（记在哪一刻、退出怎么改写、卡片上写出什么）在 mw_check 的 T36；
-//   ③ **那张卡长什么样**在 ui_check 的 U31。
-//
-// ★ 这一节里最要紧的两条，都不是"能不能跑"，而是**这句规矩有没有被写歪**：
-//   · 「上一次」以成功创建游戏进程为准 ⇒ `latestPlayable()` 跳过"没起来"那一档；
-//   · 「昨天」按**日期**算，不按差了多少秒（23:59 → 次日 00:01 只差两分钟，可那是昨天）。
+// 这一节里最要紧的两条，都不是"能不能跑"，而是**这句规矩有没有被写歪**：
+// · 「上一次」以成功创建游戏进程为准 ⇒ `latestPlayable()` 跳过"没起来"那一档；
+// · 「昨天」按**日期**算，不按差了多少秒（23:59 → 次日 00:01 只差两分钟，可那是昨天）。
 // ---------------------------------------------------------------------------
 static void runLaunchHistoryTests() {
     section("ZR. 「上一次启动」那本账：格式 / 时间怎么说 / 目标没了怎么降级（§5.1）");
@@ -25892,25 +25386,25 @@ static void runLaunchHistoryTests() {
 // 这一节收的是**除"从实例提取"和"管理页"之外**的全部：那两样一个要适配器层（P2/P3）、一个
 // 要界面（P1 的后半），都不是这一节念得出来的。
 //
-// ★ 这一节里最要紧的三条，都不是"能不能跑"，而是**这三句规矩有没有被写歪**：
-//   · id 那道闸的判据是"必须是一个规范的 UUID"，不是"里面没有斜杠" —— 后一种黑名单挡不住
-//     `..`、挡不住 `C:`，也挡不住 `NUL`（Windows 上那个"写下去就不见了"的设备名）；
-//   · 一份读不回来**只进 broken、不进列表**，别的几份照旧列得出来；
-//   · 下标读不回来时那一趟**不写盘**（写回去等于把用户排好的顺序抹平，而屏幕上什么都不说）。
+// 这一节里最要紧的三条，都不是"能不能跑"，而是**这三句规矩有没有被写歪**：
+// · id 那道闸的判据是"必须是一个规范的 UUID"，不是"里面没有斜杠" —— 后一种黑名单挡不住
+// `..`、挡不住 `C:`，也挡不住 `NUL`（Windows 上那个"写下去就不见了"的设备名）；
+// · 一份读不回来**只进 broken、不进列表**，别的几份照旧列得出来；
+// · 下标读不回来时那一趟**不写盘**（写回去等于把用户排好的顺序抹平，而屏幕上什么都不说）。
 //
 // 整节纯函数 + 一个 QTemporaryDir 里的真存真读：不联网、不碰共享沙箱、不碰 ui/。
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// 模组预设的兼容检查（2026-10-18，coding plan §6.0 P2 / §7.2），见下面 PH 节。
+// 模组预设的兼容检查（，coding plan §6.0 P2 / §7.2），见下面 PH 节。
 //
 // 这一节**一条网络都不碰**：`CompatibilityProvider` 就是为这件事留的口子，四个替身
 // 分别代表"立刻答"、"慢答"、"等我们手动放行"、"永远不答"。要验的也正是那几句规矩：
-//   · 本地能判的（钉死的版本/加载器、坏引用）不问网络；
-//   · 同一个项目只问一遍，必要项取"或"；
-//   · 在途请求数封顶；
-//   · 旧 generation 的迟到回调一个字都不许改（用户换了另一份预设）；
-//   · 网络失败 / 超时 / 429 只算「暂无法确认」，**绝不计入缺失**；
-//   · 缓存只收 `Matched` / `Missing`，过期的要重问。
+// · 本地能判的（钉死的版本/加载器、坏引用）不问网络；
+// · 同一个项目只问一遍，必要项取"或"；
+// · 在途请求数封顶；
+// · 旧 generation 的迟到回调一个字都不许改（用户换了另一份预设）；
+// · 网络失败 / 超时 / 429 只算「暂无法确认」，**绝不计入缺失**；
+// · 缓存只收 `Matched` / `Missing`，过期的要重问。
 // ---------------------------------------------------------------------------
 namespace {
 
@@ -25987,9 +25481,7 @@ Presets::ModReference makeRef(const QString &platform, const QString &projectId,
 }  // namespace
 
 static void runPresetCompatibilityTests() {
-    // ---------------------------------------------------------------------
     section("PH1. 状态行那句话：缺失与「暂无法确认」分开说（§7.2）");
-    // ---------------------------------------------------------------------
     {
         Presets::CompatibilitySummary empty;
         check(empty.text() == QStringLiteral("没有模组引用要检查。"),
@@ -26032,9 +25524,7 @@ static void runPresetCompatibilityTests() {
               "PH1 坏引用单独一档", bad.text());
     }
 
-    // ---------------------------------------------------------------------
     section("PH2. 本地筛选：钉死的版本 / 加载器 / 坏引用都不问网络（§7.2）");
-    // ---------------------------------------------------------------------
     {
         Presets::CompatibilityContext context;
         context.gameVersion = QStringLiteral("1.21.1");
@@ -26078,9 +25568,7 @@ static void runPresetCompatibilityTests() {
               "PH2 缓存键的格式固定（上下文 + 运行侧）");
     }
 
-    // ---------------------------------------------------------------------
     section("PH3. 检查器：去重 / 本地优先 / 并发上限 / 旧一代回调（§7.2）");
-    // ---------------------------------------------------------------------
     {
         ImmediateProvider provider;
         Presets::CompatibilityChecker checker;
@@ -26191,9 +25679,7 @@ static void runPresetCompatibilityTests() {
               "PH3 新一代的结论才落得下来", checker.summary().text());
     }
 
-    // ---------------------------------------------------------------------
     section("PH4. 失败不报缺失 / 缓存只收准话（§7.2）");
-    // ---------------------------------------------------------------------
     {
         // 没装查询实现：每一项都是「暂无法确认」，不是缺失。
         Presets::CompatibilityChecker checker;
@@ -26292,9 +25778,7 @@ static void runPresetCompatibilityTests() {
               "PH4 拒收的条目真的不在表里");
     }
 
-    // ---------------------------------------------------------------------
     section("PH5. 模组引用进 manifest：往返 / 旧版仍读得回 / 类别对不上");
-    // ---------------------------------------------------------------------
     {
         Presets::PresetManifest manifest;
         manifest.id = Presets::newPresetId();
@@ -26353,9 +25837,9 @@ static void runPresetCompatibilityTests() {
 
 // §10.1 第 8 项 / P6：「大量预设、限流、切版本/关闭弹窗/取消与回归」。验收原话是
 // 「无过期回调、失控并发或主线程假死」—— 这一节里最值钱的三条：
-//   · 一次性几百条引用，检查器的在途数**绝不越过上限**，而且真的收得了尾；
-//   · 连着换几十代（用户来回切版本），旧一代的迟到回调**一个字都不许改**新结果；
-//   · 检查器比提供方先没（关闭那一页）时，晚到的 `Reply` 不许碰已析构对象。
+// · 一次性几百条引用，检查器的在途数**绝不越过上限**，而且真的收得了尾；
+// · 连着换几十代（用户来回切版本），旧一代的迟到回调**一个字都不许改**新结果；
+// · 检查器比提供方先没（关闭那一页）时，晚到的 `Reply` 不许碰已析构对象。
 // 另外两格是数量级的粗检（几百份预设 / 几百条引用），只钉"能跑完、算得对"，不钉毫秒。
 // ---------------------------------------------------------------------------
 static void runPresetStressTests() {
@@ -26514,7 +25998,7 @@ static void runPresetStressTests() {
         Presets::CompatibilityContext context;
         context.gameVersion = QStringLiteral("1.21.1");
         checker.start({makeRef(QStringLiteral("modrinth"), QStringLiteral("flaky"))}, context);
-        // ★ 先收尾再念总账：函数实参的求值次序没保证，写在一个表达式里会念到"检查中"。
+        // 先收尾再念总账：函数实参的求值次序没保证，写在一个表达式里会念到"检查中"。
         const bool firstDone = waitForChecker(checker);
         check(firstDone && checker.summary().unknown == 1,
               "PN5 第一趟问回来「说不清」", checker.summary().text());
@@ -26556,8 +26040,8 @@ static void runPresetStoreTests() {
     if (!temp.isValid()) {
         return;
     }
-    // ★ 预设那一层的每一个动盘函数都收一个 `root` 参数，所以这一整节连全局数据目录都不用
-    //   改 —— 喂进来的就是 root（唯一那个"默认落点"单独在 PA4 念一次）。
+    // 预设那一层的每一个动盘函数都收一个 `root` 参数，所以这一整节连全局数据目录都不用
+    // 改 —— 喂进来的就是 root（唯一那个"默认落点"单独在 PA4 念一次）。
     const QString root = temp.path() + QStringLiteral("/presets");
     const QString outside = temp.path() + QStringLiteral("/外面");
 
@@ -27230,10 +26714,10 @@ static void runPresetStoreTests() {
 // 全屏分辨率等硬件相关项默认不选」，外加那两句「不要简单用 `QMap` 重写整个文件，也不要把
 // 缺失字段当空值写回」。
 //
-// ★ 这一节最要紧的三格，全是"我们**没**弄坏用户东西"的那种红：
-//   · **原地往返**：读进来再写出去逐字节相同（别人的行、行尾、非 UTF-8 的字节都不许动）；
-//   · **目标版本新增的键一个都不许丢** —— 拿一张 map 重写整个文件，坏就坏在这儿；
-//   · **认不出来的行任何一档都不删**，连"覆盖"都不删。
+// 这一节最要紧的三格，全是"我们**没**弄坏用户东西"的那种红：
+// · **原地往返**：读进来再写出去逐字节相同（别人的行、行尾、非 UTF-8 的字节都不许动）；
+// · **目标版本新增的键一个都不许丢** —— 拿一张 map 重写整个文件，坏就坏在这儿；
+// · **认不出来的行任何一档都不删**，连"覆盖"都不删。
 //
 // 整节纯函数：两份假 `options.txt` 一喂，不该动盘、不该联网、不碰 ui/。
 // ---------------------------------------------------------------------------
@@ -27561,8 +27045,8 @@ static void runVanillaOptionsTests() {
               "★★ PB8 改的是**那一行的值**、位置一个都不动（`fov` 还在它原来那一行上，后面"
               "紧跟的还是 `renderDistance`）",
               QString::fromUtf8(merged));
-        // ★ 最硬的那一条：整个文件逐字节比。多一行、少一行、把哪一行挪个位置、换行符被
-        //   统一过 —— 全都会红。上面那几条 `contains` 负责在红了之后说清楚是哪一格。
+        // 最硬的那一条：整个文件逐字节比。多一行、少一行、把哪一行挪个位置、换行符被
+        // 统一过 —— 全都会红。上面那几条 `contains` 负责在红了之后说清楚是哪一格。
         const QByteArray expectedMerge = QByteArrayLiteral(
             "key_forward:key.keyboard.up\n"
             "key_back:key.keyboard.s\n"
@@ -27714,25 +27198,23 @@ static void runVanillaOptionsTests() {
 //
 // §6 P3 原话：「`servers.dat` 支持 Append / Replace / Skip；按规范化地址去重并保留顺序」。
 //
-// ★ 这一节和 PB 那一节最大的不同：这一层**真的动盘**（PB 是字节进字节出）。所以夹具是
-//   真的 `servers.dat`（用 ZK 那一节那套 NBT 组字节的帮手造出来的），跑完再读回来逐格看。
-//   纯判据那几条（归一化、计划的数）不碰盘。
+// 这一节和 PB 那一节最大的不同：这一层**真的动盘**（PB 是字节进字节出）。所以夹具是
+// 真的 `servers.dat`（用 ZK 那一节那套 NBT 组字节的帮手造出来的），跑完再读回来逐格看。
+// 纯判据那几条（归一化、计划的数）不碰盘。
 //
-// ★★ 这一节里最值钱的几条：
-//   · **去重按规范化地址**（`MC.Example.com` 和 `mc.example.com:25565` 是同一台），但
-//     报出来的"没写的那几条"一条都不许少 —— 悄悄丢掉是这一档最坏的错法；
-//   · **已有的顺序一格都不许重排**（新条目一律接在表尾）；
-//   · **「覆盖」是就地改名不是清空重建** —— 盘上那些 `icon` / `hidden` 一个都不许丢；
-//   · **没确认的「覆盖」一个字节都不写**；
-//   · **认不出来的元素任何一档都不动**（连「覆盖」都不动）；
-//   · **一条都不用动时连写都不写**（否则用户实例里会多出一个变了 mtime 的文件）。
+// 这一节里最值钱的几条：
+// · **去重按规范化地址**（`MC.Example.com` 和 `mc.example.com:25565` 是同一台），但
+// 报出来的"没写的那几条"一条都不许少 —— 悄悄丢掉是这一档最坏的错法；
+// · **已有的顺序一格都不许重排**（新条目一律接在表尾）；
+// · **「覆盖」是就地改名不是清空重建** —— 盘上那些 `icon` / `hidden` 一个都不许丢；
+// · **没确认的「覆盖」一个字节都不写**；
+// · **认不出来的元素任何一档都不动**（连「覆盖」都不动）；
+// · **一条都不用动时连写都不写**（否则用户实例里会多出一个变了 mtime 的文件）。
 // ---------------------------------------------------------------------------
 static void runServerListPresetTests() {
     section("PC. 服务器列表那一段：追加 / 覆盖 / 跳过与去重（§6 P3）");
 
-    // ---------------------------------------------------------------------
     section("PC0. 「同一台服务器」怎么判（纯值）");
-    // ---------------------------------------------------------------------
     {
         check(Presets::normalizeServerAddress(QStringLiteral("MC.Example.com")) ==
                   QStringLiteral("mc.example.com:25565"),
@@ -27759,9 +27241,7 @@ static void runServerListPresetTests() {
               "PC0 空地址归一成空串，而且**不和任何一条**算同一台");
     }
 
-    // ---------------------------------------------------------------------
     section("PC1. 计划：追加只添目标上没有的，条数一条都不少报");
-    // ---------------------------------------------------------------------
     const QList<NbtUtil::ServerEntry> target{
         NbtUtil::ServerEntry{QStringLiteral("A服"), QStringLiteral("a.example.com")},
         NbtUtil::ServerEntry{QStringLiteral("B服"), QStringLiteral("b.example.com:25565")},
@@ -27806,9 +27286,7 @@ static void runServerListPresetTests() {
               "PC1「跳过」：一项都不写、源里那四条全算没动");
     }
 
-    // ---------------------------------------------------------------------
     section("PC2. 计划：源里有空地址 ⇒ 整份不认");
-    // ---------------------------------------------------------------------
     {
         const Presets::ServerListPlan plan = Presets::planServerList(
             target, 0,
@@ -27821,9 +27299,7 @@ static void runServerListPresetTests() {
               plan.problem);
     }
 
-    // ---------------------------------------------------------------------
     section("PC3. 真落盘：追加，保序、去重、没碰过的条目逐字节不变");
-    // ---------------------------------------------------------------------
     QTemporaryDir dir;
     check(dir.isValid(), "PC3 建得出一个临时目录来摆夹具");
     if (!dir.isValid()) {
@@ -27892,9 +27368,7 @@ static void runServerListPresetTests() {
               "用户的实例里留下一个变了时间的文件）");
     }
 
-    // ---------------------------------------------------------------------
     section("PC4. 目标上还没有 servers.dat：建一份游戏认得出的、而且是 gzip");
-    // ---------------------------------------------------------------------
     {
         const QString freshPath = dir.filePath(QStringLiteral("fresh/servers.dat"));
         // 目录都不在：这一档游戏自己也是这个行为（实例目录本来就有，这里造的是最狠的一档）。
@@ -27931,9 +27405,7 @@ static void runServerListPresetTests() {
               "★★ PC4「跳过」+ 文件不在 ⇒ **连文件都不建**（用户让跳过，我们就什么都别做）");
     }
 
-    // ---------------------------------------------------------------------
     section("PC5. 「覆盖」= 就地改名 + 拿掉对不上的，不是清空重建");
-    // ---------------------------------------------------------------------
     {
         // 先把夹具摆回那两条（上一条 PC3 末尾它已经是三条了）。
         current = {
@@ -27952,7 +27424,6 @@ static void runServerListPresetTests() {
             NbtUtil::ServerEntry{QStringLiteral("D服"), QStringLiteral("d.example.com")},
         };
 
-        // 没确认：一个字节都不写，而且报告里把数给出来（界面拿它去问用户）。
         const QByteArray before = readBytesAt(datPath);
         const Presets::ServerListReport asked = Presets::applyServerListToInstance(
             datPath, Presets::ApplyMode::Replace, replaceWith, false);
@@ -28004,9 +27475,7 @@ static void runServerListPresetTests() {
               "★★ PC5 而且它就地改名之后那两格 extra 还在、认不出的那条位置也没动");
     }
 
-    // ---------------------------------------------------------------------
     section("PC6. 读不动的那些：拒写，一个字节都不动");
-    // ---------------------------------------------------------------------
     {
         const QString brokenPath = dir.filePath(QStringLiteral("broken.dat"));
         const QByteArray garbage = QByteArrayLiteral("\x0a\x00\x00\xff\xff not nbt at all");
@@ -28038,9 +27507,7 @@ static void runServerListPresetTests() {
               "PC6 没给路径 ⇒ 拒（报告里说清楚）", nowhere.problem);
     }
 
-    // ---------------------------------------------------------------------
     section("PC7. 预设段 ⇄ 这一份列表");
-    // ---------------------------------------------------------------------
     {
         const QList<NbtUtil::ServerEntry> entries{
             NbtUtil::ServerEntry{QStringLiteral("家"), QStringLiteral("home.example.com")},
@@ -28108,9 +27575,7 @@ static void runServerListPresetTests() {
               "PC7 不归这一层管的段 ⇒ 拒绝（`serverListHandlesSection()` 就是分派判据）");
     }
 
-    // ---------------------------------------------------------------------
     section("PC8. 端到端：造一份预设、提取、落到另一个实例上");
-    // ---------------------------------------------------------------------
     {
         const QString fromPath = dir.filePath(QStringLiteral("e2e-from.dat"));
         const QString toPath = dir.filePath(QStringLiteral("e2e-to.dat"));
@@ -28166,22 +27631,20 @@ static void runServerListPresetTests() {
 // 每项支持 Replace / CopyIfMissing / Skip；路径穿越、绝对路径和符号链接逃逸检查；未知配置
 // 明确标记为"只能复制/覆盖"」。
 //
-// ★ 这一节和 PC 那一节一样**真的动盘**（两个临时目录之间真拷真读），而它最值钱的几条是
-//   "我们**没**弄坏用户东西"和"我们**没**跑出这一组去"：
-//   · **`Replace` 不删目标上多出来的文件** —— 那是不可恢复的，而"覆盖"这两个字在这儿的
-//     意思只有一个：同名的那份换成我的；
-//   · **`CopyIfMissing` 逐文件判**（一项是一棵子树时，用户已经调过的那几份一个都不动）；
-//   · **`Merge` / `Append` 下什么都不写**（对一坨字节谈不上合并）—— 条数报出来给用户选，
-//     而不是悄悄按复制做；
-//   · **三道路径闸**：绝对路径 / `..` / 空段 / 非法字符 / 保留设备名，以及**源侧和目标侧的
-//     junction**（那两条只有真造一根链接才验得出来）。
+// 这一节和 PC 那一节一样**真的动盘**（两个临时目录之间真拷真读），而它最值钱的几条是
+// "我们**没**弄坏用户东西"和"我们**没**跑出这一组去"：
+// · **`Replace` 不删目标上多出来的文件** —— 那是不可恢复的，而"覆盖"这两个字在这儿的
+// 意思只有一个：同名的那份换成我的；
+// · **`CopyIfMissing` 逐文件判**（一项是一棵子树时，用户已经调过的那几份一个都不动）；
+// · **`Merge` / `Append` 下什么都不写**（对一坨字节谈不上合并）—— 条数报出来给用户选，
+// 而不是悄悄按复制做；
+// · **三道路径闸**：绝对路径 / `..` / 空段 / 非法字符 / 保留设备名，以及**源侧和目标侧的
+// junction**（那两条只有真造一根链接才验得出来）。
 // ---------------------------------------------------------------------------
 static void runGenericFilesTests() {
     section("PD. 通用文件组：config / defaultconfigs / 资源包 / 光影（§6 P3 后半）");
 
-    // ---------------------------------------------------------------------
     section("PD0. 四个落点与路径归属（纯值）");
-    // ---------------------------------------------------------------------
     {
         check(Presets::fileGroupDirName(Presets::FileGroup::Config) == QStringLiteral("config") &&
                   Presets::fileGroupDirName(Presets::FileGroup::DefaultConfigs) ==
@@ -28223,9 +27686,7 @@ static void runGenericFilesTests() {
               "光一个 `config` 都不属于）");
     }
 
-    // ---------------------------------------------------------------------
     section("PD1. 第 1 道闸：名字本身（纯值）");
-    // ---------------------------------------------------------------------
     {
         QString why;
         check(Presets::genericPathIsSafe(QStringLiteral("config/sodium-options.json"), &why) &&
@@ -28252,9 +27713,7 @@ static void runGenericFilesTests() {
               "和点）—— 那一条**只有一处实现**（`validatePathSegment()`）", why);
     }
 
-    // ---------------------------------------------------------------------
     section("PD2. 扫这一组");
-    // ---------------------------------------------------------------------
     QTemporaryDir scratch;
     check(scratch.isValid(), "PD2 建得出一个临时目录来摆夹具");
     if (!scratch.isValid()) {
@@ -28315,9 +27774,7 @@ static void runGenericFilesTests() {
               "PD2 那个位置上不是目录 ⇒ 拒（并说清是哪一个）", problem);
     }
 
-    // ---------------------------------------------------------------------
     section("PD3. 计划：五档各是什么意思");
-    // ---------------------------------------------------------------------
     {
         Presets::GenericPlan plan = Presets::planFileGroup(sourceRoot, items, targetRoot,
                                                           Presets::ApplyMode::Replace);
@@ -28355,8 +27812,8 @@ static void runGenericFilesTests() {
         check(!plan.ok && !plan.problem.isEmpty() && !plan.writesAnything() && plan.total() == 0,
               "★★ PD3 清单里混进一条 `config/../外面.txt` ⇒ 整组不认、一个字节都不写",
               plan.problem);
-        // ★ 那一条坏项在**尾巴上**，所以前三项已经攒进 `replaced` 了 —— 不清干净的话
-        //   `writesAnything()` 会回 true，读者会以为"这一趟要写 4 项"。
+        // 那一条坏项在**尾巴上**，所以前三项已经攒进 `replaced` 了 —— 不清干净的话
+        // `writesAnything()` 会回 true，读者会以为"这一趟要写 4 项"。
         check(plan.replaced == 0 && plan.copied == 0 && plan.skipped == 0 &&
                   plan.needsChoice == 0,
               "★★ PD3 而且**四个计数一个都不留**（「整组不认」的计划里没有半截数字）",
@@ -28367,9 +27824,7 @@ static void runGenericFilesTests() {
                   .arg(plan.needsChoice));
     }
 
-    // ---------------------------------------------------------------------
     section("PD4. 缺了才拷：逐文件判，已经有的一个都不动");
-    // ---------------------------------------------------------------------
     {
         QDir().mkpath(targetRoot + QStringLiteral("/config"));
         check(writeBytesAt(targetRoot + QStringLiteral("/config/b.txt"),
@@ -28405,9 +27860,7 @@ static void runGenericFilesTests() {
               QStringLiteral("拷 %1 / 跳 %2").arg(again.copied).arg(again.skipped));
     }
 
-    // ---------------------------------------------------------------------
     section("PD5. 覆盖：同名的那份换成我的，**多出来的不删**");
-    // ---------------------------------------------------------------------
     {
         check(writeBytesAt(targetRoot + QStringLiteral("/config/a.json"), QByteArrayLiteral("旧")),
               "PD5 先把目标上那份改成「旧」");
@@ -28424,15 +27877,13 @@ static void runGenericFilesTests() {
               "而那不可恢复 —— 「覆盖」在这儿的含义只有「同名的那份换成我的」）");
     }
 
-    // ---------------------------------------------------------------------
     section("PD6. 提取：实例 → 预设的 files/");
-    // ---------------------------------------------------------------------
     {
         const QString presetFiles = scratch.filePath(QStringLiteral("预设/files"));
         const Presets::GenericReport report = Presets::extractFileGroup(
             targetRoot, presetFiles, Presets::FileGroup::Config);
-        // ★ 5 项而不是 4 项：提取扫的是**实例上现在这一份**，而它比预设那 4 项多一份
-        //   `config/用户自己的.txt`（那一份正是我们刚刚证明过"覆盖不删"的那一个）。
+        // 5 项而不是 4 项：提取扫的是**实例上现在这一份**，而它比预设那 4 项多一份
+        // `config/用户自己的.txt`（那一份正是我们刚刚证明过"覆盖不删"的那一个）。
         check(report.ok && report.replaced == 5 && report.filesWritten == 5,
               "★★ PD6 五份都收进去了（四项 + 用户自己加的那一份；`子目录` 那一项是 1 份文件）",
               QStringLiteral("项 %1 / 文件 %2：%3")
@@ -28458,9 +27909,7 @@ static void runGenericFilesTests() {
               "★★ PD6 端到端：提取出来的一份落到空实例上，一个字不差", land.problem);
     }
 
-    // ---------------------------------------------------------------------
     section("PD7. 第 3 道闸：源侧 / 目标侧的 junction");
-    // ---------------------------------------------------------------------
     {
         // 窗外那一份（**绝对不该被拷进来、也绝对不该被写进去**）。
         const QString outsideDir = scratch.filePath(QStringLiteral("外面"));
@@ -28528,8 +27977,8 @@ static void runGenericFilesTests() {
             }
 
             // ③ 目标侧但**是目录那一层**：`config/子目录` 是根链接。★ 这一条是三道闸里
-            //    最容易被漏掉的一种形状 —— 名字那两道判的是字面路径（`config/子目录/深.txt`
-            //    看着完全正常），而递归一旦走下去，写的就是链接那头那个目录。
+            // 最容易被漏掉的一种形状 —— 名字那两道判的是字面路径（`config/子目录/深.txt`
+            // 看着完全正常），而递归一旦走下去，写的就是链接那头那个目录。
             const QString target4 = scratch.filePath(QStringLiteral("目标实例4"));
             QDir().mkpath(target4 + QStringLiteral("/config"));
             const QString targetDirLink = target4 + QStringLiteral("/config/子目录");
@@ -28559,9 +28008,7 @@ static void runGenericFilesTests() {
         }
     }
 
-    // ---------------------------------------------------------------------
     section("PD8. 预设段 ⇄ 这一组");
-    // ---------------------------------------------------------------------
     {
         QList<Presets::GenericItem> items;
         QString problem;
@@ -28657,25 +28104,23 @@ static void runGenericFilesTests() {
 //
 // 这一层只回答一件事：**"你按下应用之后会发生什么"**。§7 那张表就是它的全部输出：
 //
-//     游戏设置          合并 18 项
-//     原版按键          合并 23 项，冲突 1 项
-//     服务器列表        追加 3 个
-//     配置文件          复制 8 个，覆盖 1 个
+// 游戏设置 合并 18 项
+// 原版按键 合并 23 项，冲突 1 项
+// 服务器列表 追加 3 个
+// 配置文件 复制 8 个，覆盖 1 个
 //
 // 所以这一节的重量在两件事上：
-//   · **表上那几个数是从适配器那边真算出来的**（走 `sectionsFrom*()` 造真段 —— 手搓一个
-//     `QJsonArray` 去喂它，验的就只是"加法对不对"，那件事没有价值）；
-//   · **几道闸真的会拦**：还没确认的「覆盖」、游戏在跑、不认识的种类、段和它的身份对不上。
+// · **表上那几个数是从适配器那边真算出来的**（走 `sectionsFrom*()` 造真段 —— 手搓一个
+// `QJsonArray` 去喂它，验的就只是"加法对不对"，那件事没有价值）；
+// · **几道闸真的会拦**：还没确认的「覆盖」、游戏在跑、不认识的种类、段和它的身份对不上。
 //
-// ★ 除了通用文件组那一段的干跑（要真数一遍目标上缺哪几份），这一节全是纯值 —— 这也正是
-//   这一层该有的样子：拿任意一份预设对任意一个实例**算**，算完不满意就丢掉，盘上什么都没变。
+// 除了通用文件组那一段的干跑（要真数一遍目标上缺哪几份），这一节全是纯值 —— 这也正是
+// 这一层该有的样子：拿任意一份预设对任意一个实例**算**，算完不满意就丢掉，盘上什么都没变。
 // ---------------------------------------------------------------------------
 static void runPresetPlannerTests() {
     section("PE. 应用计划：一段一行地算这一趟会怎么样（§5 / §7）");
 
-    // ---------------------------------------------------------------------
     section("PE0. 那些字（动作词与量词）");
-    // ---------------------------------------------------------------------
     {
         const QStringList verbs = {Presets::applyPlanVerb(Presets::ApplyMode::Merge),
                                    Presets::applyPlanVerb(Presets::ApplyMode::Replace),
@@ -28710,8 +28155,8 @@ static void runPresetPlannerTests() {
 
     // ---- 一份真的预设段：从 `options.txt` 的字节造出来（P2 那一层的原样产物）----
     const QByteArray sourceBytes = QByteArrayLiteral("fov:0.5\nkey_attack:key.keyboard.a\n");
-    // ★ 目标上比预设**多一个** `gamma` —— 那一个正是「覆盖」档要拿掉的（`fov` 是被同名
-    //   覆盖掉的，不算"删"）。少了它，"覆盖会删东西"这条在夹具上根本演不出来。
+    // 目标上比预设**多一个** `gamma` —— 那一个正是「覆盖」档要拿掉的（`fov` 是被同名
+    // 覆盖掉的，不算"删"）。少了它，"覆盖会删东西"这条在夹具上根本演不出来。
     const QByteArray targetBytes =
         QByteArrayLiteral("fov:0.0\ngamma:1.0\nkey_jump:key.keyboard.a\n");
     const Presets::OptionsFile sourceFile = Presets::parseOptions(sourceBytes);
@@ -28722,9 +28167,7 @@ static void runPresetPlannerTests() {
     check(optionSections.size() == 2, "PE 夹具：一份 `options.txt` 造出两段（设置 + 按键）",
           QString::number(optionSections.size()));
 
-    // ---------------------------------------------------------------------
     section("PE1. 没有目标实例 / 空预设");
-    // ---------------------------------------------------------------------
     {
         Presets::PlanRequest empty;
         Presets::ApplyPlan plan = Presets::planPresetApplication(empty);
@@ -28740,9 +28183,7 @@ static void runPresetPlannerTests() {
               "不是错误）");
     }
 
-    // ---------------------------------------------------------------------
     section("PE2. 两行真数（设置 + 按键，都合并）");
-    // ---------------------------------------------------------------------
     {
         Presets::PlanRequest request;
         request.target.instanceRoot = scratch.filePath(QStringLiteral("实例"));
@@ -28777,9 +28218,7 @@ static void runPresetPlannerTests() {
               "PE2 整份：一共动 2 项、有风险的那一行只有按键那一行、可以开工");
     }
 
-    // ---------------------------------------------------------------------
     section("PE3. 「覆盖」的两趟协议（§6 P2「Replace 必须明确确认」）");
-    // ---------------------------------------------------------------------
     {
         Presets::PlanRequest request;
         request.target.instanceRoot = scratch.filePath(QStringLiteral("实例"));
@@ -28811,9 +28250,7 @@ static void runPresetPlannerTests() {
               Presets::applyPlanRowText(second.rows.at(0)));
     }
 
-    // ---------------------------------------------------------------------
     section("PE4. 空段铺上去 = 把那一片清空（这一行最容易被写成「覆盖 0 项」）");
-    // ---------------------------------------------------------------------
     {
         Presets::PresetSection empty;
         empty.id = Presets::optionsSectionId(Presets::SectionKind::VanillaOptions);
@@ -28840,9 +28277,7 @@ static void runPresetPlannerTests() {
               "★★ PE4 而且它算「有风险」的那一行（会删东西）—— 哪怕「会动的项数」是 0");
     }
 
-    // ---------------------------------------------------------------------
     section("PE5. 服务器列表那一段");
-    // ---------------------------------------------------------------------
     {
         const QList<NbtUtil::ServerEntry> sourceEntries = {
             NbtUtil::ServerEntry{QStringLiteral("甲服"), QStringLiteral("play.example.com")},
@@ -28902,9 +28337,7 @@ static void runPresetPlannerTests() {
               "PE5 做不了的那一行右栏只说得出这三个字");
     }
 
-    // ---------------------------------------------------------------------
     section("PE6. 通用文件组那一段（唯一会读盘的一档）");
-    // ---------------------------------------------------------------------
     {
         const QString presetFiles = scratch.filePath(QStringLiteral("预设/files"));
         const QString instanceRoot = scratch.filePath(QStringLiteral("目标实例"));
@@ -28990,13 +28423,11 @@ static void runPresetPlannerTests() {
               plan.rows.at(0).problem);
     }
 
-    // ---------------------------------------------------------------------
     section("PE7. 还不认识的种类（`custom` 那一段落 blocked，不拖累别的行）");
-    // ---------------------------------------------------------------------
     {
-        // ★ 拿 `Custom` 当那一档：MaLiLib 从 PF 那一节起**有适配器接手了**（§6 P4），
-        //   不能再拿它当"没人认识的种类" —— 那样这一条就不是在测那条路，而是在测一个
-        //   早就补上的缺口。
+        // 拿 `Custom` 当那一档：MaLiLib 从 PF 那一节起**有适配器接手了**（§6 P4），
+        // 不能再拿它当"没人认识的种类" —— 那样这一条就不是在测那条路，而是在测一个
+        // 早就补上的缺口。
         Presets::PresetSection unknown;
         unknown.id = Presets::sectionIdFor(Presets::SectionKind::Custom);
         unknown.kind = Presets::SectionKind::Custom;
@@ -29020,9 +28451,7 @@ static void runPresetPlannerTests() {
               "★★ PE7 做不了的那一段**不拦着别的段**（整份 still 可以开工）");
     }
 
-    // ---------------------------------------------------------------------
     section("PE8. 实例正在跑");
-    // ---------------------------------------------------------------------
     {
         Presets::PlanRequest request;
         request.target.instanceRoot = scratch.filePath(QStringLiteral("实例"));
@@ -29038,9 +28467,7 @@ static void runPresetPlannerTests() {
               plan.blockedReason);
     }
 
-    // ---------------------------------------------------------------------
     section("PE9. 右栏那几条规则的边角（手工搓行，不经过适配器）");
-    // ---------------------------------------------------------------------
     {
         Presets::ApplyPlanRow row;
         row.kind = Presets::SectionKind::VanillaOptions;
@@ -29096,20 +28523,19 @@ static void runPresetPlannerTests() {
 //
 // 这一节的重量在三件事上：
 //
-//   · **认这一族靠的是结构、不是文件名**：实测那 236 份 `config/*.json` 里，模组名的表永远列
-//     不全（TweakerMore / Masa Gadget / OMMC 这些扩展的名字一个都没写进代码），可它们的结构
-//     一眼就是这一族的 —— 所以判据落在**内容**上（`malilibInspect()`）；
-//   · **合并不许退化成覆盖**（最要紧的那一格）：目标上那些**没被这一份点名**的热键一个都不许
-//     动。这一条要是错了，用户应用一次预设就把自己几百个键位清空了；
-//   · **拒绝都在改动之前**：类型对不上就「不转」，不是「先写一半再说」。
+// · **认这一族靠的是结构、不是文件名**：实测那 236 份 `config/*.json` 里，模组名的表永远列
+// 不全（TweakerMore / Masa Gadget / OMMC 这些扩展的名字一个都没写进代码），可它们的结构
+// 一眼就是这一族的 —— 所以判据落在**内容**上（`malilibInspect()`）；
+// · **合并不许退化成覆盖**（最要紧的那一格）：目标上那些**没被这一份点名**的热键一个都不许
+// 动。这一条要是错了，用户应用一次预设就把自己几百个键位清空了；
+// · **拒绝都在改动之前**：类型对不上就「不转」，不是「先写一半再说」。
 //
-// ★ 夹具是**真格式的缩小版**（`{"keys": "M,A"}` 这种逗号分隔的 GLFW 词、热键那一大格和值那一
-//   大格分开、顶层那个 `config_version` 标量），不是我们想象出来的形状。
+// 夹具是**真格式的缩小版**（`{"keys": "M,A"}` 这种逗号分隔的 GLFW 词、热键那一大格和值那一
+// 大格分开、顶层那个 `config_version` 标量），不是我们想象出来的形状。
 // ---------------------------------------------------------------------------
 static void runMalilibKeysTests() {
     section("PF. MaLiLib 那一族的热键：认、合、覆盖（§6 P4）");
 
-    // ---- 夹具：一份真的 `config/malilib.json`（照实测那 236 份的形状缩小）----
     const QByteArray malilibBytes = QByteArrayLiteral(
         "{\n"
         "  \"config_version\": 1,\n"
@@ -29135,9 +28561,7 @@ static void runMalilibKeysTests() {
         return nullptr;
     };
 
-    // ---------------------------------------------------------------------
     section("PF0. 认这一族：看结构，不看名字");
-    // ---------------------------------------------------------------------
     {
         const Presets::MalilibFileFacts facts = Presets::malilibInspect(malilibBytes);
         check(facts.recognized && facts.categories == 3 && facts.hotkeys == 2 &&
@@ -29150,8 +28574,8 @@ static void runMalilibKeysTests() {
                   .arg(facts.hotkeyedValues)
                   .arg(facts.values));
 
-        // ★ 我们**一个模组名都没写进代码**：TweakerMore / Masa Gadget / OMMC 这些扩展是照结构
-        //   认出来的（§6 P4 那句点名的就是这一条）。
+        // 我们**一个模组名都没写进代码**：TweakerMore / Masa Gadget / OMMC 这些扩展是照结构
+        // 认出来的（§6 P4 那句点名的就是这一条）。
         const QStringList extensions = {QStringLiteral("tweakermore"),
                                         QStringLiteral("masagadget"), QStringLiteral("ommc"),
                                         QStringLiteral("minihud")};
@@ -29193,9 +28617,7 @@ static void runMalilibKeysTests() {
               "都拒（拼出来会跑到 `config/` 外面去）");
     }
 
-    // ---------------------------------------------------------------------
     section("PF1. 三档格子 / 「什么都不说的格子不收」/ DTO 那几样");
-    // ---------------------------------------------------------------------
     {
         QList<Presets::MalilibEntry> hotkeys;
         QString problem;
@@ -29260,9 +28682,6 @@ static void runMalilibKeysTests() {
               "★★ PF1 「连值一起收」那一档里，真正什么都不说的那一格（没绑、没开关、没别的）还是"
               "不收");
 
-        // ---- DTO：触发 / 上下文 / 额外键 / 顺序 / 独占（§6 P4 那一串）----
-        // ★ 实测那 236 份里这几样**一次都没见着**，所以它们是 DTO 自己的名字：认得出就填上给界面
-        //   用，**永远不写回去**（写回去的是 `keys` 和 `extra`）。
         const QByteArray dtoBytes = QByteArrayLiteral(
             "{\n  \"Hotkeys\": {\n    \"Fancy\": { \"keys\": \"LEFT_CTRL,LEFT_SHIFT,K\", "
             "\"trigger\": \"press\", \"context\": \"inGame\", \"orderSensitive\": true, "
@@ -29333,9 +28752,7 @@ static void runMalilibKeysTests() {
         }
     }
 
-    // ---------------------------------------------------------------------
     section("PF2. 一个真的实例上算：合并（目标上没被点名的那几格一个都不动）");
-    // ---------------------------------------------------------------------
     QTemporaryDir scratch;
     check(scratch.isValid(), "PF 建得出一个临时目录来摆夹具");
     if (!scratch.isValid()) {
@@ -29451,9 +28868,7 @@ static void runMalilibKeysTests() {
               "被写没了");
     }
 
-    // ---------------------------------------------------------------------
     section("PF3. 「追加」不抢已经绑好的 / 「缺了才写」是按格算的");
-    // ---------------------------------------------------------------------
     {
         const Presets::MalilibApplyResult appended =
             Presets::applyMalilibEntries(presetEntries, target, Presets::ApplyMode::Append, false);
@@ -29496,9 +28911,7 @@ static void runMalilibKeysTests() {
                   .arg(bindIt.report.added));
     }
 
-    // ---------------------------------------------------------------------
     section("PF4. 「覆盖」= 解绑但不删格子（+ 没确认就不动）");
-    // ---------------------------------------------------------------------
     {
         const Presets::MalilibApplyResult refused =
             Presets::applyMalilibEntries(presetEntries, target, Presets::ApplyMode::Replace, false);
@@ -29519,9 +28932,9 @@ static void runMalilibKeysTests() {
                   .arg(swept.report.untouchable));
 
         if (!swept.files.isEmpty() && swept.files.at(0).changed) {
-            // ★ 这一条**只能拿字节看**：`malilibEntriesFromFile()` 按设计**不收**"什么都不说的
-            //   格子"（`{"keys": ""}`，PF1 钉过），而被解绑的格子长的正是那个样子 —— 拿格子那
-            //   条路读，解绑和"删掉了"看起来一模一样。这一条问的恰好是那两者的分别。
+            // 这一条**只能拿字节看**：`malilibEntriesFromFile()` 按设计**不收**"什么都不说的
+            // 格子"（`{"keys": ""}`，PF1 钉过），而被解绑的格子长的正是那个样子 —— 拿格子那
+            // 条路读，解绑和"删掉了"看起来一模一样。这一条问的恰好是那两者的分别。
             const QJsonObject sweptRoot =
                 QJsonDocument::fromJson(swept.files.at(0).bytes).object();
             const QJsonObject sweptGeneric =
@@ -29565,9 +28978,7 @@ static void runMalilibKeysTests() {
         }
     }
 
-    // ---------------------------------------------------------------------
     section("PF5. 值那一格：类型变了就拒、目标上没有就跳过、一模一样就不写");
-    // ---------------------------------------------------------------------
     {
         Presets::MalilibEntry valueEntry;
         valueEntry.modId = QStringLiteral("malilib");
@@ -29622,9 +29033,7 @@ static void runMalilibKeysTests() {
                   .arg(equal.report.unchanged));
     }
 
-    // ---------------------------------------------------------------------
     section("PF6. `extra`（认不出来的那些兄弟）：只补缺，不覆盖");
-    // ---------------------------------------------------------------------
     {
         // 目标上那一格已经有 `trigger`（而且是别的值）⇒ 不覆盖；`onCancel` 缺 ⇒ 补上。
         Presets::MalilibTargetFile richFile;
@@ -29659,9 +29068,7 @@ static void runMalilibKeysTests() {
               QString::fromUtf8(richBytes));
     }
 
-    // ---------------------------------------------------------------------
     section("PF7. 冲突分析：抢同一组键位的那些");
-    // ---------------------------------------------------------------------
     {
         auto claim = [](const QString &modId, const QString &group, const QString &option,
                         const QString &keys) {
@@ -29701,9 +29108,7 @@ static void runMalilibKeysTests() {
                   : QStringLiteral("%1 × %2").arg(conflicts.at(0).keys).arg(conflicts.at(0).claimedBy()));
     }
 
-    // ---------------------------------------------------------------------
     section("PF8. 计划表上那一行 + 真写一遍 + 跨模组的冲突");
-    // ---------------------------------------------------------------------
     {
         Presets::PlanRequest planRequest;
         planRequest.target.instanceRoot = targetRoot;
@@ -29777,15 +29182,15 @@ static void runMalilibKeysTests() {
                   onDisk.contains("\"SomeToggle\""),
               "★★★ PF8 落盘之后：点名的那一格换掉了（`M,C`）、没点名的那两格原样还在");
 
-        // ★ 「这一个字节都没改」的那一趟**不许碰那一份文件**：把它设成只读，再拿一份和目标上
-        //   **一模一样**的格子去落一次 —— 真写了的话换不过去（`QSaveFile` 的原子换在只读的
-        //   目标上会失败），`problem` 就会有话说。
-        // ★ 「本来就是这样」的那一趟**不许碰那一份文件**（不是"写进去一样的字节"，是**根本
-        //   不许写**）：把用户的文件重写一遍，哪怕内容一样，mtime 也变了、他在外面拿别的工具
-        //   比的时候会以为我们动过。证据两截：
-        //   ① 盘上的字节和 mtime 都要一模一样；
-        //   ② 再把那一份设成只读，同样的一趟照样得一路走到底 —— 真去写的话，`QSaveFile`
-        //      那个原子换在只读的目标上会失败（Windows 上换不过去），`problem` 就有话说。
+        // 「这一个字节都没改」的那一趟**不许碰那一份文件**：把它设成只读，再拿一份和目标上
+        // **一模一样**的格子去落一次 —— 真写了的话换不过去（`QSaveFile` 的原子换在只读的
+        // 目标上会失败），`problem` 就会有话说。
+        // 「本来就是这样」的那一趟**不许碰那一份文件**（不是"写进去一样的字节"，是**根本
+        // 不许写**）：把用户的文件重写一遍，哪怕内容一样，mtime 也变了、他在外面拿别的工具
+        // 比的时候会以为我们动过。证据两截：
+        // ① 盘上的字节和 mtime 都要一模一样；
+        // ② 再把那一份设成只读，同样的一趟照样得一路走到底 —— 真去写的话，`QSaveFile`
+        // 那个原子换在只读的目标上会失败（Windows 上换不过去），`problem` 就有话说。
         QList<Presets::MalilibEntry> asIs;
         check(Presets::malilibEntriesFromFile(QStringLiteral("malilib"), onDisk, &asIs, &problem,
                                               false),
@@ -29809,9 +29214,7 @@ static void runMalilibKeysTests() {
         QFile::setPermissions(targetPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
     }
 
-    // ---------------------------------------------------------------------
     section("PF9. 通用文件组那一层：`config/<模组>.json` 不再是「只能复制/覆盖」");
-    // ---------------------------------------------------------------------
     {
         check(writeBytesAt(sourceRoot + QStringLiteral("/config/valuesonly.json"),
                            QByteArrayLiteral("{\"Visuals\": {\"RenderLines\": true}}")),
@@ -29863,13 +29266,13 @@ static void runMalilibKeysTests() {
 // PG. 提取与落到实例上：收一份 → 落回另一个实例 → 备份 / 两趟确认 / 游戏在跑（§6 P1 / §7）
 // ---------------------------------------------------------------------------
 //
-// ★ 这一节和 PE 那一节的分界：PE 只算"会怎么样"（一个字节都不写）；这一节**真的在两个临时
-//   实例目录之间收和落**。所以夹具是两份形状正确的实例目录（`options.txt` + `config/`），
-//   而最值钱的四条都是"盘上到底变了没有"：
-//     · 合并落下去以后，目标上预设没点名的键**还在**；
-//     · 覆盖那一趟**先**回 `needsConfirm`、盘上一个字节都没动，第二次才真写；
-//     · 游戏在跑 ⇒ 整趟不写（拿字节比，不是看那一句说明）；
-//     · 改写过的那一份**在备份目录里有一份原样的**。
+// 这一节和 PE 那一节的分界：PE 只算"会怎么样"（一个字节都不写）；这一节**真的在两个临时
+// 实例目录之间收和落**。所以夹具是两份形状正确的实例目录（`options.txt` + `config/`），
+// 而最值钱的四条都是"盘上到底变了没有"：
+// · 合并落下去以后，目标上预设没点名的键**还在**；
+// · 覆盖那一趟**先**回 `needsConfirm`、盘上一个字节都没动，第二次才真写；
+// · 游戏在跑 ⇒ 整趟不写（拿字节比，不是看那一句说明）；
+// · 改写过的那一份**在备份目录里有一份原样的**。
 static void runPresetCaptureApplyTests() {
     QTemporaryDir scratch;
     check(scratch.isValid(), "PG 建得出一个临时目录来摆夹具");
@@ -29900,7 +29303,7 @@ static void runPresetCaptureApplyTests() {
 
     const QByteArray optionsA =
         QByteArrayLiteral("fov:0.5\nkey_attack:key.keyboard.a\n");
-    // ★ 目标上比预设**多一个** `gamma`：合并那一趟它必须留着，覆盖那一趟才该被拿掉。
+    // 目标上比预设**多一个** `gamma`：合并那一趟它必须留着，覆盖那一趟才该被拿掉。
     const QByteArray optionsB = QByteArrayLiteral("fov:0.0\ngamma:1.0\n");
     const QByteArray configA = QByteArrayLiteral("{\"quality\":\"high\"}");
     check(writeBytes(instanceA + QStringLiteral("/options.txt"), optionsA),
@@ -29910,13 +29313,9 @@ static void runPresetCaptureApplyTests() {
     check(writeBytes(instanceB + QStringLiteral("/options.txt"), optionsB),
           "PG 夹具：目标实例的 options.txt 写下去了");
 
-    // ---------------------------------------------------------------------
     section("PG1. 从实例收一份：三段、文件真的拷进预设的 files/");
-    // ---------------------------------------------------------------------
     const QString presetId = Presets::newPresetId();
     Presets::CaptureSelection selection;
-    // 默认只收这一小节关心的四样：游戏设置 / 按键 / config/。服务器和 MaLiLib 不勾 ——
-    // 这一节不验那两条（PC / PF 已经各自验过），勾上只会让夹具多两份空报告。
     selection.servers = false;
     selection.malilib = false;
 
@@ -29951,9 +29350,7 @@ static void runPresetCaptureApplyTests() {
           "★★ PG1 一样都没勾 ⇒ 成功但一段都没有（不是失败，也不该存成一份空预设）",
           emptyReport.notes.join(QStringLiteral("；")));
 
-    // ---------------------------------------------------------------------
     section("PG2. 合并落下去：目标上没点名的键还在");
-    // ---------------------------------------------------------------------
     Presets::PresetManifest manifest;
     manifest.id = presetId;
     manifest.name = QStringLiteral("PG 夹具");
@@ -29982,26 +29379,20 @@ static void runPresetCaptureApplyTests() {
     check(readBytes(instanceB + QStringLiteral("/config/sodium-options.json")) == configA,
           "★★ PG2 config/ 那一份「缺了才拷」也落到了目标上");
 
-    // ---------------------------------------------------------------------
     section("PG3. 备份：改写过的那一份在备份目录里原样躺着一份");
-    // ---------------------------------------------------------------------
     check(!applied.backupDir.isEmpty(), "★★ PG3 这一趟有备份目录");
     check(readBytes(applied.backupDir + QStringLiteral("/options.txt")) == optionsB,
           "★★★ PG3 备份里那份 `options.txt` 逐字节等于**动手之前**的那一份",
           QString::fromUtf8(readBytes(applied.backupDir + QStringLiteral("/options.txt"))));
 
-    // ---------------------------------------------------------------------
     section("PG4. 什么都不用做的那一趟：不写、也不建空备份目录");
-    // ---------------------------------------------------------------------
     const Presets::PresetApplyResult second =
         Presets::applyPresetToInstance(presetsRoot, saved, applyRequest);
     check(second.ok && !second.wroteAnything() && second.backupDir.isEmpty(),
           "★★ PG4 第二趟：目标已经是那个样子 ⇒ 没写、也没留下一个空备份目录",
           QStringLiteral("written=%1 removed=%2").arg(second.written).arg(second.removed));
 
-    // ---------------------------------------------------------------------
     section("PG5. 「覆盖」两趟：不点头一个字节都不动，点头之后才真写");
-    // ---------------------------------------------------------------------
     Presets::PresetManifest replaceManifest = saved;
     for (Presets::PresetSection &section : replaceManifest.sections) {
         if (section.kind == Presets::SectionKind::VanillaOptions) {
@@ -30028,9 +29419,7 @@ static void runPresetCaptureApplyTests() {
     check(secondPass.removed >= 1, "★★ PG5 报告里那个「拿掉了几项」的数对得上",
           QString::number(secondPass.removed));
 
-    // ---------------------------------------------------------------------
     section("PG6. 游戏在跑：整趟不写");
-    // ---------------------------------------------------------------------
     writeBytes(instanceB + QStringLiteral("/options.txt"), optionsB);
     Presets::PresetApplyRequest running = applyRequest;
     running.gameRunning = true;
@@ -30041,9 +29430,7 @@ static void runPresetCaptureApplyTests() {
     check(readBytes(instanceB + QStringLiteral("/options.txt")) == optionsB,
           "★★★ PG6 而且目标那份 `options.txt` 一个字节都没动");
 
-    // ---------------------------------------------------------------------
     section("PG7. 读目标快照：没有 / 读不动是两件事");
-    // ---------------------------------------------------------------------
     const QString instanceC = scratch.filePath(QStringLiteral("instanceC"));
     QDir().mkpath(instanceC);
     QString snapshotProblem;
@@ -30063,12 +29450,6 @@ static void runPresetCaptureApplyTests() {
           snapshotProblem);
 }
 
-// §6 P4 / §10.1 第 6 项：「资源包顺序与启用」「世界级数据包待应用清单」。验收原话是
-// 「没世界就待应用；部署不冒充启用」—— 所以这一节最值钱的三条是：
-//   · 资源包只部署时，`options.txt` 一个字节都不许动（"部署成功"≠"游戏里开着"）；
-//   · 数据包没有同名世界 ⇒ 进 `datapacks-pending/` + `wtfml.datapacks`，**不建世界**；
-//   · 两种情况下报告都不许说"已启用"（数据包的启用记在 `level.dat`，这一层不碰它）。
-// ---------------------------------------------------------------------------
 static void runResourceAndDataPackTests() {
     QTemporaryDir scratch;
     check(scratch.isValid(), "PL 建得出一个临时目录来摆夹具");
@@ -30091,9 +29472,7 @@ static void runResourceAndDataPackTests() {
         return file.readAll();
     };
 
-    // ---------------------------------------------------------------------
     section("PL1. 资源包：提取时把「启用 / 次序」记进那一段");
-    // ---------------------------------------------------------------------
     const QString sourceInstance = scratch.filePath(QStringLiteral("rpSource"));
     QDir().mkpath(sourceInstance + QStringLiteral("/resourcepacks"));
     const QByteArray sourceOptions = QByteArrayLiteral(
@@ -30157,9 +29536,7 @@ static void runResourceAndDataPackTests() {
     check(!untouched.items.at(0).toObject().contains(QStringLiteral("enabled")),
           "★★ PL1 不许把「没读到」写成「全是关着」");
 
-    // ---------------------------------------------------------------------
     section("PL2. 资源包：按预设重排并启用，目标上没点名的留着");
-    // ---------------------------------------------------------------------
     const QString targetInstance = scratch.filePath(QStringLiteral("rpTarget"));
     QDir().mkpath(targetInstance + QStringLiteral("/resourcepacks"));
     const QByteArray targetOptions = QByteArrayLiteral(
@@ -30198,9 +29575,7 @@ static void runResourceAndDataPackTests() {
     check(again.ok && again.hasOrdering && !again.wrote,
           "★★ PL2 顺序已经对了 ⇒ 不重写 options.txt");
 
-    // ---------------------------------------------------------------------
     section("PL3. 资源包：没有启用信息 / 目标太老 ⇒ 只部署，不冒充启用");
-    // ---------------------------------------------------------------------
     Presets::PresetSection plainSection = packsSection;
     for (int i = 0; i < plainSection.items.size(); ++i) {
         QJsonObject item = plainSection.items.at(i).toObject();
@@ -30231,9 +29606,7 @@ static void runResourceAndDataPackTests() {
     check(readBytes(oldInstance + QStringLiteral("/options.txt")) == oldOptions,
           "★★★ PL3 老版本那份 options.txt 一个字节都没动");
 
-    // ---------------------------------------------------------------------
     section("PL4. 数据包：从存档里收出来");
-    // ---------------------------------------------------------------------
     const QString dpSource = scratch.filePath(QStringLiteral("dpSource"));
     QDir().mkpath(dpSource + QStringLiteral("/saves/W1/datapacks"));
     QDir().mkpath(dpSource + QStringLiteral("/saves/W2"));
@@ -30265,14 +29638,12 @@ static void runResourceAndDataPackTests() {
     check(QFileInfo::exists(dpFiles + QStringLiteral("/saves/W1/datapacks/pack1.zip")) &&
               QFileInfo::exists(dpFiles + QStringLiteral("/saves/W3/datapacks/dirpack/pack.mcmeta")),
           "★★ PL4 包真的拷进了预设的 files/（目录包整棵拷）");
-    // ★ 预设里再摆一份「目标上没有那个世界」的包：PL5 要验的正是那一条。
+    // 预设里再摆一份「目标上没有那个世界」的包：PL5 要验的正是那一条。
     QDir().mkpath(dpFiles + QStringLiteral("/saves/W2/datapacks"));
     check(writeBytes(dpFiles + QStringLiteral("/saves/W2/datapacks/pack1.zip"), packOne),
           "PL4 夹具：预设里 W2 那一份也摆好了（用来验「待应用」）");
 
-    // ---------------------------------------------------------------------
     section("PL5. 数据包：有同名世界就部署，没有就记「待应用」且不建世界");
-    // ---------------------------------------------------------------------
     const QString dpTarget = scratch.filePath(QStringLiteral("dpTarget"));
     QDir().mkpath(dpTarget + QStringLiteral("/saves/W1"));
 
@@ -30327,9 +29698,7 @@ static void runResourceAndDataPackTests() {
               .arg(dpAgain.deferred)
               .arg(dpAgain.skipped));
 
-    // ---------------------------------------------------------------------
     section("PL6. 数据包：合并 / 追加做不了主，什么都别写；跳过就是跳过");
-    // ---------------------------------------------------------------------
     const QByteArray pendingBefore = readBytes(dpTarget + QStringLiteral("/wtfml.datapacks"));
     const QByteArray deployedBefore =
         readBytes(dpTarget + QStringLiteral("/saves/W1/datapacks/pack1.zip"));
@@ -30348,9 +29717,7 @@ static void runResourceAndDataPackTests() {
     check(skipped.ok && skipped.skipped == 2 && skipped.deployed == 0,
           "★★ PL6 跳过那档只报跳过");
 
-    // ---------------------------------------------------------------------
     section("PL7. 数据包：「覆盖」两趟 —— 不点头一个字节都不动");
-    // ---------------------------------------------------------------------
     const QByteArray oldTargetPack = QByteArrayLiteral("old-on-target");
     check(writeBytes(dpTarget + QStringLiteral("/saves/W1/datapacks/pack1.zip"), oldTargetPack),
           "PL7 夹具：把目标上那份改成另一份");
@@ -30368,9 +29735,7 @@ static void runResourceAndDataPackTests() {
     check(readBytes(dpTarget + QStringLiteral("/saves/W1/datapacks/pack1.zip")) == packOne,
           "★★ PL7 目标上那份换成了预设里的");
 
-    // ---------------------------------------------------------------------
     section("PL8. 数据包：路径形状不对 ⇒ 整段不认（不猜）");
-    // ---------------------------------------------------------------------
     Presets::PresetSection bad = dpSection;
     QJsonObject badItem;
     badItem.insert(QStringLiteral("path"), QStringLiteral("saves/W1/../W2/datapacks/x.zip"));
@@ -30389,7 +29754,6 @@ static void runResourceAndDataPackTests() {
     check(!Presets::dataPackItemsFromSection(bad, &ignored, &badWhy),
           "★★ PL8 世界名和路径对不上也不认");
 
-    // ---------------------------------------------------------------------
     section("PL9. 计划与应用引擎都认数据包：版本太老整行做不了");
     // ---------------------------------------------------------------------
     // 计划这边另开一个干净目标：`dpTarget` 上 W1 那份已经在 PL5 落过了（"缺了才拷"会
@@ -30433,7 +29797,7 @@ static void runResourceAndDataPackTests() {
     gateManifest.sections = made;
     const QString gateFiles = Presets::filesDir(presetsGateRoot, gateManifest.id);
     for (const Presets::DataPackItem &item : wanted) {
-        // ★ 用 world/name 现拼（这两项是自己填的，`relativePath` 那一格本来就空）。
+        // 用 world/name 现拼（这两项是自己填的，`relativePath` 那一格本来就空）。
         const QString relative = QStringLiteral("saves/%1/datapacks/%2")
                                      .arg(item.world, item.name);
         QDir().mkpath(QFileInfo(gateFiles + QStringLiteral("/") + relative).absolutePath());
@@ -30468,9 +29832,9 @@ static void runResourceAndDataPackTests() {
 
 // §10.1 第 7 项 / P5：「模组平台身份、依赖/冲突、必要可选失败与下载校验」。验收原话是
 // 「不错装不兼容文件；替代项目需确认；落盘校验」—— 这一节的三条红线：
-//   · 本地先筛：版本自己的 `gameVersions` / `loaders` 对不上就不许下（"接口筛过"不算数）；
-//   · 替代项目**绝不自己挑**：没有用户确认就只报「等你确认」，确认了也要它自己过兼容关；
-//   · 下完的文件按大小 + sha1 对一遍；接口没给 sha1 时只能说"没校验"，不许说"校验通过"。
+// · 本地先筛：版本自己的 `gameVersions` / `loaders` 对不上就不许下（"接口筛过"不算数）；
+// · 替代项目**绝不自己挑**：没有用户确认就只报「等你确认」，确认了也要它自己过兼容关；
+// · 下完的文件按大小 + sha1 对一遍；接口没给 sha1 时只能说"没校验"，不许说"校验通过"。
 // 这一层不发网络、不读实例盘：版本答复、实例里装了什么、确认过哪一条都是手搭的假值。
 // ---------------------------------------------------------------------------
 static void runModInstallPlanTests() {
@@ -31039,10 +30403,10 @@ static void runModInstallPlanTests() {
 // 改变分组归属；清空搜索恢复原展开状态」。四句里只有**前两句**是这一节的事（纯判据：
 // 一条实例算不算匹配）；后两句说的是"重灌树时别动别的状态"，那是接线，在 mw_check 的 T37。
 //
-// ★ 这一节最要紧的不是"能不能筛出来"，而是**会不会筛错**：
-//   · 空搜索词 + 四颗都不勾 ⇒ 一条都不许滤掉（`isActive()` 为假是那条路的唯一判据）；
-//   · 一个空串混进可比对的串里 ⇒ `contains("")` 恒真 ⇒ 搜什么都搜得到（最难发现的一种坏）；
-//   · 词与词是**与**、词与串是**或**（用户打两个词是"都要有"，不是"任一"）。
+// 这一节最要紧的不是"能不能筛出来"，而是**会不会筛错**：
+// · 空搜索词 + 四颗都不勾 ⇒ 一条都不许滤掉（`isActive()` 为假是那条路的唯一判据）；
+// · 一个空串混进可比对的串里 ⇒ `contains("")` 恒真 ⇒ 搜什么都搜得到（最难发现的一种坏）；
+// · 词与词是**与**、词与串是**或**（用户打两个词是"都要有"，不是"任一"）。
 // ---------------------------------------------------------------------------
 static void runInstanceFilterTests() {
     section("ZS. 实例页的搜索与筛选：搜哪些串 / 四档筛子怎么算（§7.2）");
@@ -31178,7 +30542,7 @@ static void runInstanceFilterTests() {
         InstanceFilter::Query chip;
         chip.recentOnly = true;
         check(chip.isActive(), "ZS5 只勾了一颗筛选 chip 也算在筛");
-        // ★ 「不在筛」的那一条路必须**原样放行**：`matches()` 对着空条件也得回真。
+        // 「不在筛」的那一条路必须**原样放行**：`matches()` 对着空条件也得回真。
         InstanceFilter::Facts anything;
         anything.texts = QStringList{QStringLiteral("随便什么")};
         check(InstanceFilter::matches(empty, anything),
@@ -31191,12 +30555,12 @@ static void runInstanceFilterTests() {
 //
 // 这一节盯的是"**什么时候它自己就回来了**"这件事 —— 那两档"别再提示我"最怕的不是记不住，
 // 是**记死了**（用户按一下就把这个资源永远钉在原地，作者再发新版本也不提示了）：
-//   · 忽略记的是**要换上的那一版的 id** ⇒ 下一趟要换的是另一版时，它自己回来；
-//   · 固定记的是**盘上那一份的 sha1** ⇒ 文件被换过（手动 / 又更新了一次）就自动失效；
-//   · 两个"不知道"（拿不到当前 sha1 / 拼不出目标版本）**一律按"没记过"算** —— 不知道的
-//     事不能当成知道（不知道当成知道，症状是"更新不提示了，而且用户不知道为什么"）。
+// · 忽略记的是**要换上的那一版的 id** ⇒ 下一趟要换的是另一版时，它自己回来；
+// · 固定记的是**盘上那一份的 sha1** ⇒ 文件被换过（手动 / 又更新了一次）就自动失效；
+// · 两个"不知道"（拿不到当前 sha1 / 拼不出目标版本）**一律按"没记过"算** —— 不知道的
+// 事不能当成知道（不知道当成知道，症状是"更新不提示了，而且用户不知道为什么"）。
 //
-// ★ 整节纯函数 + 一个 QTemporaryDir 里的真存真读：不联网、不碰共享沙箱、不碰 ui/。
+// 整节纯函数 + 一个 QTemporaryDir 里的真存真读：不联网、不碰共享沙箱、不碰 ui/。
 // ---------------------------------------------------------------------------
 static void runUpdatePolicyTests() {
     section("ZT. 更新中心：忽略 / 固定那一本账（§7.1）");
@@ -31221,8 +30585,8 @@ static void runUpdatePolicyTests() {
               QStringLiteral("mods/jei.jar"),
           "★ ZT1 键是**实例内相对路径**（绝对路径搬一次家就全废）",
           UpdatePolicy::storeKey(instanceDir, instanceDir + QStringLiteral("/mods/jei.jar")));
-    // ★ 大小写 / 反斜杠：产品给的路径是 QFileInfo 出来的（在 Windows 上就是 `/`），但别的
-    //   调用点万一塞了个反斜杠进来，键不能变成两个。
+    // 大小写 / 反斜杠：产品给的路径是 QFileInfo 出来的（在 Windows 上就是 `/`），但别的
+    // 调用点万一塞了个反斜杠进来，键不能变成两个。
     check(UpdatePolicy::storeKey(instanceDir, instanceDir + QStringLiteral("/mods/jei.jar")) ==
               UpdatePolicy::storeKey(instanceDir, instanceDir + QStringLiteral("\\mods\\jei.jar")),
           "ZT1 反斜杠进来的那一条拼出**同一把**钥匙（不许一个文件记成两条）");
@@ -31240,7 +30604,7 @@ static void runUpdatePolicyTests() {
         check(UpdatePolicy::suppressed(ignored, shaNew, QStringLiteral("ver-2.0")) ==
                   UpdatePolicy::Suppress::Ignored,
               "ZT2 记着的那一版就是要换上的那一版 ⇒ 忽略生效");
-        // ★★ 这一条是这一档存在的理由：作者发了更新的一版，它自己回来。
+        // 这一条是这一档存在的理由：作者发了更新的一版，它自己回来。
         check(UpdatePolicy::suppressed(ignored, shaNew, QStringLiteral("ver-3.0")) ==
                   UpdatePolicy::Suppress::None,
               "★★ ZT2 要换上的换成了**另一版** ⇒ 忽略**自己失效**（用户讨厌的是那一版，"
@@ -31297,7 +30661,7 @@ static void runUpdatePolicyTests() {
               "ZT3 过期的那条**整条没了**（不是留一个空壳）");
         check(!UpdatePolicy::entryOf(store, instanceId, QStringLiteral("mods/other.jar")).isEmpty(),
               "ZT3 没过期的那条还在");
-        // ★ 忽略那一档**不清**：它记的是"那一版"，只要那一版还在，用户的意思就还成立。
+        // 忽略那一档**不清**：它记的是"那一版"，只要那一版还在，用户的意思就还成立。
         check(UpdatePolicy::entryOf(store, instanceId, QStringLiteral("mods/ignored.jar"))
                   .ignoreVersionId == QStringLiteral("ver-2.0"),
               "★★ ZT3 忽略那一档**不清**（它记的是「那一版」，和盘上现在是什么内容无关）");
@@ -31306,8 +30670,8 @@ static void runUpdatePolicyTests() {
         QHash<QString, QString> emptyMap;
         check(UpdatePolicy::dropStalePins(store, instanceId, emptyMap) == 1,
               "★ ZT3 盘上见不到这个文件（清单里连这个键都没有）⇒ 那条固定也清掉");
-        // ★★ 而"键在、sha1 空"是**另一回事**：那是"读不动 / 没算出来"，**不许**当成"换了"
-        //    —— 清一条记录是不可逆的，用户会发现固定自己没了、而且不知道为什么。
+        // 而"键在、sha1 空"是**另一回事**：那是"读不动 / 没算出来"，**不许**当成"换了"
+        // —— 清一条记录是不可逆的，用户会发现固定自己没了、而且不知道为什么。
         UpdatePolicy::Store keep;
         UpdatePolicy::setPinned(keep, instanceId, QStringLiteral("mods/jei.jar"), shaOld);
         QHash<QString, QString> unknown;
@@ -31414,10 +30778,10 @@ static void runUpdatePolicyTests() {
 // "动手之前手上有一份旧的"：抄得对不对、退回来的**是内容是字节**、更新新添的那个文件撤回
 // 时**要消失** —— 这三件事在纯值上一条都验不出来。
 //
-// ★ 最要紧的几条（错了会静默丢数据）：
-//   · 清单里"当时有没有这个文件"要记准（记错了 = 撤销时把一个**本来就在**的文件删掉）；
-//   · 只留**最新那一份**（留多代 = 每更新一次攒几十 MB，而用户永远只用最近那一次）；
-//   · 一条失败**不影响其余**（"3 个没退回去"比"失败了，一个都没动"诚实）。
+// 最要紧的几条（错了会静默丢数据）：
+// · 清单里"当时有没有这个文件"要记准（记错了 = 撤销时把一个**本来就在**的文件删掉）；
+// · 只留**最新那一份**（留多代 = 每更新一次攒几十 MB，而用户永远只用最近那一次）；
+// · 一条失败**不影响其余**（"3 个没退回去"比"失败了，一个都没动"诚实）。
 // ---------------------------------------------------------------------------
 static void runUpdateRollbackTests() {
     section("ZU. 更新中心：更新前的轻量回滚点（§7.1）");
@@ -31431,8 +30795,8 @@ static void runUpdateRollbackTests() {
     AppPaths::setMinecraftDir(temp.path());
 
     const QString instanceId = QStringLiteral("1.20.1-forge-47.2.0");
-    // ★ 实例 id 里带 `/`（`isKnownGameVersion()` 那一档放行的名字）：这一层得把它换成
-    //   合法的一段，否则这一份回滚点会落到别的目录里去。
+    // 实例 id 里带 `/`（`isKnownGameVersion()` 那一档放行的名字）：这一层得把它换成
+    // 合法的一段，否则这一份回滚点会落到别的目录里去。
     const QString slashyId = QStringLiteral("20w14∞/test");
     const QString instanceDir = temp.path() + QStringLiteral("/versions/") + instanceId;
     const QString modsDir = instanceDir + QStringLiteral("/mods");
@@ -31559,7 +30923,7 @@ static void runUpdateRollbackTests() {
         check(UpdateRollback::discard(instanceId),
               "ZU4 本来就没有再撤一次也不算错（幂等）");
 
-        // ★ 清单读不动 = 这一份回滚点用不了：**数据不全的东西不能拿去还原**。
+        // 清单读不动 = 这一份回滚点用不了：**数据不全的东西不能拿去还原**。
         const QString dir = UpdateRollback::snapshotDir(instanceId);
         QDir().mkpath(dir + QStringLiteral("/files/mods"));
         writeAt(dir + QStringLiteral("/files/mods/jei.jar"), QByteArrayLiteral("JEI-1.0-OLD"));
@@ -31593,7 +30957,7 @@ static void runUpdateRollbackTests() {
         check(!bad.isValid() && !badProblem.isEmpty(),
               "★★ ZU5 带 `..` 的路径 ⇒ **整份拒绝**（不就地跳过、也不往外面写）", badProblem);
 
-        // ★ 实例 id 里带 `/` 的那一档：目录名要换成合法的一段，但**账上记的还是原来的 id**。
+        // 实例 id 里带 `/` 的那一档：目录名要换成合法的一段，但**账上记的还是原来的 id**。
         QString slashyProblem;
         const UpdateRollback::Snapshot slashy = UpdateRollback::create(
             instanceDir, slashyId, QStringList{QStringLiteral("mods/jei.jar")}, &slashyProblem);
@@ -31603,8 +30967,8 @@ static void runUpdateRollbackTests() {
         check(slashy.dir.startsWith(temp.path() + QStringLiteral("/cache/update-rollback/")) &&
                   !slashy.dir.contains(QStringLiteral("20w14∞/test")),
               "★ ZU5 而目录名里那个 `/` 被换掉了（它得是个合法的一段）", slashy.dir);
-        // ★★ 清洗是**多对一**的（`a/b` 和 `a\b` 都变成 `a-b`），所以末尾还挂了原来 id 的
-        //    哈希：两个实例共用一份回滚点的后果是"还原的时候把 A 的旧文件写进 B 里"。
+        // 清洗是**多对一**的（`a/b` 和 `a\b` 都变成 `a-b`），所以末尾还挂了原来 id 的
+        // 哈希：两个实例共用一份回滚点的后果是"还原的时候把 A 的旧文件写进 B 里"。
         check(UpdateRollback::snapshotDir(QStringLiteral("a/b")) !=
                   UpdateRollback::snapshotDir(QStringLiteral("a\\b")),
               "★★ ZU5 清洗之后**还是一一对应**（两个实例不许共用一份回滚点）");
@@ -31624,11 +30988,11 @@ static void runUpdateRollbackTests() {
 //
 // 这一节全是**纯函数**（值进、结构出）：一个服务端目录都不必真的存在、一个进程都不必起。
 // 盯的是几处"错了不会报错、只会静默丢东西"的地方：
-//   · `eula.txt` 到底算不算"接受了"（文件头那段声明里就有 `eula` 字样，判成"含 true 就算"会误判）；
-//   · 我们写下去的那份 `eula.txt` 里那句声明**必须原样留着**（它是"用户接受了"的文本凭证）；
-//   · `server.properties` 解了再写出去要**原地往返**（注释、键序、CRLF 一个字节都不许动 ——
-//     用户在表单里改了端口，别的东西不该跟着变）；
-//   · 从文件反推"这是哪一档"、以及"装好了没有"的判据（Spigot 那一档产物名拼不出来只能扫）。
+// · `eula.txt` 到底算不算"接受了"（文件头那段声明里就有 `eula` 字样，判成"含 true 就算"会误判）；
+// · 我们写下去的那份 `eula.txt` 里那句声明**必须原样留着**（它是"用户接受了"的文本凭证）；
+// · `server.properties` 解了再写出去要**原地往返**（注释、键序、CRLF 一个字节都不许动 ——
+// 用户在表单里改了端口，别的东西不该跟着变）；
+// · 从文件反推"这是哪一档"、以及"装好了没有"的判据（Spigot 那一档产物名拼不出来只能扫）。
 // ---------------------------------------------------------------------------
 static void runServerModelTests() {
     section("ZW. 服务端判据层：状态 / EULA / properties（§6 / M4）");
@@ -31654,7 +31018,7 @@ static void runServerModelTests() {
     // ---------- ZW2. eula.txt 算不算"接受了" ----------
     check(!ServerModel::eulaAccepted(QString()),
           "ZW2 空字节（服务端还没跑过）⇒ 还没接受");
-    // ★ 服务端自己写的那份文件头里就有 `eula` 字样（网址那段），只按"含 true"判会误判。
+    // 服务端自己写的那份文件头里就有 `eula` 字样（网址那段），只按"含 true"判会误判。
     check(!ServerModel::eulaAccepted(
               QStringLiteral("#By changing the setting below to TRUE you are indicating your "
                              "agreement to our EULA (https://aka.ms/MinecraftEULA).\n"
@@ -31685,7 +31049,7 @@ static void runServerModelTests() {
 
     // ---------- ZW4. server.properties：解 / 改 / 原样写回 ----------
     {
-        // ★ 带注释、带 CRLF、键序打乱 —— 解了再写出去，这些**一个字节都不许动**。
+        // 带注释、带 CRLF、键序打乱 —— 解了再写出去，这些**一个字节都不许动**。
         const QString raw = QStringLiteral("#Minecraft server properties\r\n"
                                            "#(这是游戏自己写的文件头)\r\n"
                                            "max-players=20\r\n"
@@ -31858,11 +31222,11 @@ static void runServerModelTests() {
 // ---------------------------------------------------------------------------
 // ZX. 服务端工作区：`<数据目录>/Servers` 底下谁在住（coding plan §6 / M4）
 //
-// ★ 这一节**真动盘**：在一个 QTemporaryDir（当成临时数据根目录）里真建目录、真写文件、真删。
-//   盯的是这一层唯一一件本事 —— "把盘上那个目录读成一行事实"：
-//   · 自己记的那一份（`.wtfml-server`）优先，没有才从文件反推（反推的要标成"猜的"）；
-//   · "装好了没有"是照盘上的文件认的（缺哪一样要说得出来）；
-//   · `removeServer()` 的三道闸（空 id / 路径分隔符 / 不许删到根外面）。
+// 这一节**真动盘**：在一个 QTemporaryDir（当成临时数据根目录）里真建目录、真写文件、真删。
+// 盯的是这一层唯一一件本事 —— "把盘上那个目录读成一行事实"：
+// · 自己记的那一份（`.wtfml-server`）优先，没有才从文件反推（反推的要标成"猜的"）；
+// · "装好了没有"是照盘上的文件认的（缺哪一样要说得出来）；
+// · `removeServer()` 的三道闸（空 id / 路径分隔符 / 不许删到根外面）。
 // ---------------------------------------------------------------------------
 static void runServerRegistryTests() {
     section("ZX. 服务端工作区：Servers 底下谁在住（§6 / M4）");
@@ -31993,8 +31357,8 @@ static void runServerRegistryTests() {
         check(ServerRegistry::sanitizeId(QStringLiteral("Server1.20.1")) ==
                   QStringLiteral("Server1.20.1"),
               "★ ZX7 名字里的点**不摘**（`Server1.20.1` 是用户真机上那种叫法）");
-        // ★ 空格必须原样留着（真机上的名字就有带空格的）。这一条专门盯"s 那串禁字符里
-        //   混进一个空格"那种写法 —— 症状是每个空格都被换成下划线。
+        // 空格必须原样留着（真机上的名字就有带空格的）。这一条专门盯"s 那串禁字符里
+        // 混进一个空格"那种写法 —— 症状是每个空格都被换成下划线。
         check(ServerRegistry::sanitizeId(QStringLiteral("我的 服务端 2")) ==
                   QStringLiteral("我的 服务端 2"),
               "★★ ZX7 名字里的空格**原样留着**（不许被当成禁字符换掉）",
@@ -32050,11 +31414,6 @@ static void runServerRegistryTests() {
 // `ServerInstallRun.hpp` 那个头整个是纯函数：喂一份 `Plan` + 一份字节进去，回一个结论出来。
 // 所以这一节**不联网、不建目录、不起 java** —— 那三件事是驱动层（`ServerInstallController`）
 // 干的，归 mw_check。这一节盯的就是"取哪一份元数据 / 取回来怎么读 / 分成几步"这几件纯事。
-//
-// ★ 这里用的那几份 json 都是**手写的最小样本**，不是真回复 —— 结构照上游实测那个形状抄
-//   （Paper 的 `downloads["server:default"]`、原版的 `downloads.server`），字段名错一个
-//   这一节就红，正好是那个用处。
-// ---------------------------------------------------------------------------
 static void runServerInstallRunTests() {
     section("ZY. 服务端安装那四段：还差哪一份元数据 / 取回来怎么读（§6.2 / M4-2）");
 
@@ -32068,8 +31427,8 @@ static void runServerInstallRunTests() {
             if (ServerInstallRun::flavorSupported(flavor)) {
                 ++supported;
             }
-            // ★ 两句话必须是**同一件事**：没接的档一定说得出为什么，接了的档一个字都不说。
-            //   漂开的症状是"界面上写着暂不支持，可「创建」是能点的"。
+            // 两句话必须是**同一件事**：没接的档一定说得出为什么，接了的档一个字都不说。
+            // 漂开的症状是"界面上写着暂不支持，可「创建」是能点的"。
             if (ServerInstallRun::unsupportedReason(flavor).isEmpty()
                 == !ServerInstallRun::flavorSupported(flavor)) {
                 invariant = false;
@@ -32196,7 +31555,7 @@ static void runServerInstallRunTests() {
         ServerInstall::Request request;
         request.flavor = ServerInstall::Flavor::Paper;
         request.gameVersion = QStringLiteral("1.21.4");
-        // ★ 起手那一份计划里 `downloads` 是**空的**（地址里带着对象 sha256，拼不出来）。
+        // 起手那一份计划里 `downloads` 是**空的**（地址里带着对象 sha256，拼不出来）。
         const ServerInstall::Plan plan = ServerInstall::planFor(request);
         check(plan.ok && plan.downloads.isEmpty(),
               "★ ZY3 Paper 起手那份计划就是要联网现查地址的那种");
@@ -32339,7 +31698,7 @@ static void runServerInstallRunTests() {
         check(quiet,
               "★ ZY6 下下来就是服务端的那几档：不跑安装器（这几档起手就该直接核对）");
 
-        // ★ 这一条是那一层自己的不变式：判据是"有没有工具参数"，不是"是哪一档"。
+        // 这一条是那一层自己的不变式：判据是"有没有工具参数"，不是"是哪一档"。
         bool sameYesNo = true;
         for (const ServerInstall::Flavor flavor : ServerInstall::allFlavors()) {
             ServerInstall::Request request;
@@ -32415,18 +31774,18 @@ static void runServerInstallRunTests() {
 
 // ---------------------------------------------------------------------------
 // ZZ. 服务端「跑起来 / 停下来」那一层的**判据层**（coding plan §6.2 的操作 + §6.3 的停止时序 /
-//     里程碑 M4-3）
+// 里程碑 M4-3）
 //
 // `ServerRun.hpp` 和 `ServerInstallRun.hpp` 同一个形状：纯头、全 inline、不联网、不起进程、
 // 不看时钟 —— 喂几个数进来、回一个结论出去。所以这一节能把它整片钉死。真的 `QProcess` /
 // `QTimer`（`ServerProcess`）在 mw_check 的 T41，那儿拿本工程自己的 exe 当"服务端"跑整趟。
 //
-// ★ 这一层里最要紧的一条是 **内存那几项插在第几位**（`Plan::launchJvmArgsIndex`）：
-//   `ServerInstall.hpp` 里原来的注释把方向说反了（"接在这几个 token **后面**"），照着实现
-//   出来是 `java @user_jvm_args.txt @…/win_args.txt nogui -Xmx4G` —— 那张 win_args.txt
-//   **自带主类**，`-Xmx` 落在它后面会被 java 当成给服务端的**程序参数**，一个字都不生效、
-//   也不报错（界面上那根内存滑杆成了摆设）。所以 ZZ0 里那几条不是在测"顺序对不对"，是在
-//   钉死"那个坑不会再回来"。
+// 这一层里最要紧的一条是 **内存那几项插在第几位**（`Plan::launchJvmArgsIndex`）：
+// `ServerInstall.hpp` 里原来的注释把方向说反了（"接在这几个 token **后面**"），照着实现
+// 出来是 `java @user_jvm_args.txt @…/win_args.txt nogui -Xmx4G` —— 那张 win_args.txt
+// **自带主类**，`-Xmx` 落在它后面会被 java 当成给服务端的**程序参数**，一个字都不生效、
+// 也不报错（界面上那根内存滑杆成了摆设）。所以 ZZ0 里那几条不是在测"顺序对不对"，是在
+// 钉死"那个坑不会再回来"。
 // ---------------------------------------------------------------------------
 static void runServerRunTests() {
     section("ZZ. 服务端跑起来 / 停下来：命令怎么拼、起来没有、宽限多久（§6.2 / §6.3 / M4-3）");
@@ -32450,8 +31809,8 @@ static void runServerRunTests() {
         check(withMem.mid(1) == vanilla.launchTokens,
               "★ ZZ0 原来那串 token 原样跟在后面、一个不差", withMem.join(QLatin1Char(' ')));
 
-        // ★ `<= 0` 就一项都不发（"不限制"是 java 的默认档；编一个数出来比不发更危险 ——
-        //   同实例设置那条老规矩）。
+        // `<= 0` 就一项都不发（"不限制"是 java 的默认档；编一个数出来比不发更危险 ——
+        // 同实例设置那条老规矩）。
         for (const int memory : {0, -1, -4096}) {
             const QStringList none = ServerRun::launchArguments(vanilla, memory);
             bool hasXmx = false;
@@ -32533,7 +31892,7 @@ static void runServerRunTests() {
                   joined);
             check(mainAt == 2 && noguiAt == 3,
                   QStringLiteral("★★ ZZ0b %1 自带主类那张在 `-Xmx` **之后**").arg(name), joined);
-            // ★ 这一条就是那个坑本身：`-Xmx` 一旦跑到主类后面，它就成了"给服务端的参数"。
+            // 这一条就是那个坑本身：`-Xmx` 一旦跑到主类后面，它就成了"给服务端的参数"。
             check(memAt >= 0 && mainAt >= 0 && memAt < mainAt,
                   QStringLiteral("★★ ZZ0b %1 `-Xmx` 不许落在主类后面（落了就等于没发）")
                       .arg(name),
@@ -32582,9 +31941,9 @@ static void runServerRunTests() {
             if (plan.launchJvmArgsIndex != sample.expectIndex) {
                 indicesOk = false;
             }
-            // ★ 两张 `@` 参数文件是 Forge / NeoForge 那两档的记号：有它俩的档 index 必须是 1，
-            //   没有的必须是 0。这条把"表"和"token 的形状"绑在一起 —— 将来加一档忘了填
-            //   这一格，这儿就红。
+            // 两张 `@` 参数文件是 Forge / NeoForge 那两档的记号：有它俩的档 index 必须是 1，
+            // 没有的必须是 0。这条把"表"和"token 的形状"绑在一起 —— 将来加一档忘了填
+            // 这一格，这儿就红。
             const bool hasArgFiles =
                 !plan.launchTokens.isEmpty() && plan.launchTokens.first().startsWith(QLatin1Char('@'));
             if (hasArgFiles != (plan.launchJvmArgsIndex == 1)) {
@@ -32688,7 +32047,7 @@ static void runServerRunTests() {
               "★★ ZZ3 两头都拉满 ⇒ 总上限 120 秒",
               QString::number(ServerRun::gracefulStopSeconds(100'000, 50 * kGiB)));
 
-        // ★ 两个方向的单调：东西越多只会等得越久，不会反而更短。
+        // 两个方向的单调：东西越多只会等得越久，不会反而更短。
         bool monotone = true;
         int prevMods = 0;
         int prevWorld = 0;
@@ -32755,11 +32114,6 @@ static void runServerRunTests() {
     }
 
     // ---------- ZZ5. 管道里的字节怎么切成行（★ 一个多字节字符被劈成两半的那一路） ----------
-    //
-    // 2026-10-13 修的真 bug：`drainOutput()` 原来拿到一截就整块 `fromLocal8Bit`，
-    // 一个三字节的汉字正好落在两次 `readyRead` 中间时，前后各解出半个 ⇒ 拼回来是乱码，
-    // mw_check 的 T41.3（"回声回来了没有"）就**时红时绿**（纯 ASCII 那几条一直绿，所以之前
-    // 没露头）。这一节把它钉成确定性的：喂字节、自己控制从哪儿切断。
     {
         // --- 一趟能凑几行：切出完整的行、剩下半行留到下趟 ---
         {
@@ -32780,10 +32134,10 @@ static void runServerRunTests() {
 
         // --- ★★ 多字节字符被切断：这是原来那版会红的那一路 ---
         //
-        // ★ 2026-10-17：造字节要用**本地代码页**，不是 UTF-8 —— `takeLines()` 解码走的是
-        //   `fromLocal8Bit`（服务端 stdout 的编码），原来的 `.toUtf8()` 只在"本地代码页
-        //   恰好是 UTF-8"的机器上才自洽。英文版 Windows 的代码页是单字节的（cp1252），
-        //   那儿根本没有多字节字符可切，这一路无从量起 —— 如实跳过，不假装量过。
+        // 造字节要用**本地代码页**，不是 UTF-8 —— `takeLines()` 解码走的是
+        // `fromLocal8Bit`（服务端 stdout 的编码），原来的 `.toUtf8()` 只在"本地代码页
+        // 恰好是 UTF-8"的机器上才自洽。英文版 Windows 的代码页是单字节的（cp1252），
+        // 那儿根本没有多字节字符可切，这一路无从量起 —— 如实跳过，不假装量过。
         {
             const QString wide =
                 QStringLiteral("[12:00:02] [Server thread/INFO]: [回声] say 你好");
@@ -32880,15 +32234,15 @@ static void runServerRunTests() {
 // ZV. 「服务端设置」那两层判据（coding plan §6.3 / 里程碑 M4-4）
 //
 // 这一页上有四样东西，其中三样背后各有一层**纯判据**：
-//   · `ServerPropertiesForm`（哪几项、值域多少、收不收、合回文件）—— 见 ZV0 ~ ZV4；
-//   · `ServerCheck`（体检报哪几条、按什么次序、每一条的出路是什么记号）—— 见 ZV5 ~ ZV6；
-//   · `ServerPortCheck`（"这个端口有人占着吗"）—— 见 ZV7（**这一条要真占一次**，不联网）。
+// · `ServerPropertiesForm`（哪几项、值域多少、收不收、合回文件）—— 见 ZV0 ~ ZV4；
+// · `ServerCheck`（体检报哪几条、按什么次序、每一条的出路是什么记号）—— 见 ZV5 ~ ZV6；
+// · `ServerPortCheck`（"这个端口有人占着吗"）—— 见 ZV7（**这一条要真占一次**，不联网）。
 //
-// ★ 这一节里最要紧的几条，都是"错了不会报错、只会静默做错事"的地方：
-//   · 表里写的 `fallback` **自己必须过得了 `accepts()`** —— 缺省值都收不住的表，
-//     用户点一次保存就会把 `server.properties` 写坏（而且他不会知道）；
-//   · `applyEdits()` **只碰点名的键**（注释、键序、CRLF、我们不认识的键一个字节都不动）；
-//   · 体检的**次序**（拦路的在最上面）和**在跑时不报端口**那两条。
+// 这一节里最要紧的几条，都是"错了不会报错、只会静默做错事"的地方：
+// · 表里写的 `fallback` **自己必须过得了 `accepts()`** —— 缺省值都收不住的表，
+// 用户点一次保存就会把 `server.properties` 写坏（而且他不会知道）；
+// · `applyEdits()` **只碰点名的键**（注释、键序、CRLF、我们不认识的键一个字节都不动）；
+// · 体检的**次序**（拦路的在最上面）和**在跑时不报端口**那两条。
 // ---------------------------------------------------------------------------
 static void runServerSettingsTests() {
     section("ZV. 服务端设置：那十几张表的表 / 收不收 / 合回文件 / 体检（§6.3 / M4-4）");
@@ -32915,8 +32269,8 @@ static void runServerSettingsTests() {
         check(!dupKey, "★★ ZV0 十九个键互不相同（键是身份，重了界面上就摆两行同一个东西）");
         check(!blankText, "★★ ZV0 每一项都有键、行首那个中文名、和那行小字");
 
-        // ★ 只有 `motd` 那一项挂"游戏里长什么样"的预览（§9.7）：挂错一项就是那一行下面
-        //   多出一块画着 `§` 码的深色框；一项都不挂就是"格式化预览"又没了。
+        // 只有 `motd` 那一项挂"游戏里长什么样"的预览（§9.7）：挂错一项就是那一行下面
+        // 多出一块画着 `§` 码的深色框；一项都不挂就是"格式化预览"又没了。
         QStringList previewKeys;
         for (const ServerPropertiesForm::Field &field : fields) {
             if (field.preview) {
@@ -32931,9 +32285,9 @@ static void runServerSettingsTests() {
         check(motd != nullptr && motd->preview && motd->kind == ServerPropertiesForm::Kind::Text,
               "ZV0 挂了预览的那一格是个文本框（预览跟着一格一格的文字走）");
 
-        // ★ 表里写的那几个 `fallback` **必须过得了自己的 `accepts()`** —— 这是"按下保存会
-        //   不会把文件写坏"的第一道保险。错在这儿的后果是：用户什么都没改、只按了一下保存，
-        //   那一项就被写成了 `accepts()` 拒绝的东西（或者干脆写不进去、报一句他看不懂的错）。
+        // 表里写的那几个 `fallback` **必须过得了自己的 `accepts()`** —— 这是"按下保存会
+        // 不会把文件写坏"的第一道保险。错在这儿的后果是：用户什么都没改、只按了一下保存，
+        // 那一项就被写成了 `accepts()` 拒绝的东西（或者干脆写不进去、报一句他看不懂的错）。
         int badFallback = 0;
         for (const ServerPropertiesForm::Field &field : fields) {
             QString normalized;
@@ -32969,10 +32323,10 @@ static void runServerSettingsTests() {
                 }
                 break;
             case ServerPropertiesForm::Kind::Choice: {
-                // ★ 缺省值必须是候选**之一**，不一定是第一个（`difficulty` 的缺省是 `easy`，
-                //   它在候选里排第二 —— 游戏自己的顺序是 和平/简单/普通/困难，缺省却落在
-                //   "简单"上）。真正要钉的是"缺省值不会掉到候选外面去"：那种值落盘之后，
-                //   服务端读到的是一档它不认识的难度。
+                // 缺省值必须是候选**之一**，不一定是第一个（`difficulty` 的缺省是 `easy`，
+                // 它在候选里排第二 —— 游戏自己的顺序是 和平/简单/普通/困难，缺省却落在
+                // "简单"上）。真正要钉的是"缺省值不会掉到候选外面去"：那种值落盘之后，
+                // 服务端读到的是一档它不认识的难度。
                 bool inChoices = false;
                 for (const ServerPropertiesForm::Choice &choice : field.choices) {
                     if (choice.token == field.fallback) {
@@ -33017,8 +32371,8 @@ static void runServerSettingsTests() {
                   && keyAt(20) == QStringLiteral("player-idle-timeout"),
               "ZV0 最后三项是性能（视距 / 模拟距离 / 挂机踢出）", keyAt(18));
 
-        // ★ 只有 `level-name` 是"要当目录名用"的那一项（值里带路径分隔符就等于把世界写到
-        //   服务端目录外面去 —— 见 `Field::dirName` 那段）。
+        // 只有 `level-name` 是"要当目录名用"的那一项（值里带路径分隔符就等于把世界写到
+        // 服务端目录外面去 —— 见 `Field::dirName` 那段）。
         int dirNameCount = 0;
         QString dirNameKey;
         for (const ServerPropertiesForm::Field &field : fields) {
@@ -33152,8 +32506,8 @@ static void runServerSettingsTests() {
         check(accept(*motd, QString(), &out) && out.isEmpty(),
               "★ ZV1 文本那几格可以是空的（motd 空着就是空着）");
 
-        // ★ 换行：一口下去会把这一项切成两行，落盘之后那份文件再也解不回来 —— 四种控件
-        //   一律挡在这儿。
+        // 换行：一口下去会把这一项切成两行，落盘之后那份文件再也解不回来 —— 四种控件
+        // 一律挡在这儿。
         for (const ServerPropertiesForm::Field *field : {motd, port, pvp, mode}) {
             check(!accept(*field, QStringLiteral("a\nb"), &out),
                   QStringLiteral("★★ ZV1 「%1」收不下换行（落盘会把这一项切成两行）").arg(field->key),
@@ -33162,7 +32516,7 @@ static void runServerSettingsTests() {
                   QStringLiteral("★★ ZV1 「%1」CRLF 也一样不收").arg(field->key));
         }
 
-        // ★ 目录名那一项：空 / `.` / `..` / 带路径字符的全不收。
+        // 目录名那一项：空 / `.` / `..` / 带路径字符的全不收。
         check(!accept(*level, QString(), &out) && !accept(*level, QStringLiteral("  "), &out),
               "★★ ZV1 世界目录名不能是空的");
         for (const QString &bad : {QStringLiteral("."), QStringLiteral(".."),
@@ -33206,7 +32560,7 @@ static void runServerSettingsTests() {
 
     // ---------- ZV3. `applyEdits`：只碰点名的键 ----------
     {
-        // ★ 一份"什么花样都有"的文件：注释、空行、我们不认识的键、CRLF、键序打乱。
+        // 一份"什么花样都有"的文件：注释、空行、我们不认识的键、CRLF、键序打乱。
         const QString raw = QStringLiteral("#Minecraft server properties\r\n"
                                            "#Fri Oct 13 12:00:00 CST 2026\r\n"
                                            "motd=A Minecraft Server\r\n"
@@ -33243,7 +32597,7 @@ static void runServerSettingsTests() {
                   == 0,
               "★ ZV3 表里没有的键不写（不是「谁传进来就写谁」）");
 
-        // ★ 值不合法：跳过、不写 —— 这是给"调用方忘了先过 accepts()"准备的兜底。
+        // 值不合法：跳过、不写 —— 这是给"调用方忘了先过 accepts()"准备的兜底。
         ServerModel::Properties bad = ServerModel::parseProperties(QStringLiteral("server-port=1\n"));
         check(ServerPropertiesForm::applyEdits(bad,
                                                {{QStringLiteral("server-port"), QStringLiteral("abc")}})
@@ -33271,7 +32625,7 @@ static void runServerSettingsTests() {
 
     // ---------- ZV4. `problemsIn` / `duplicateKeys` / `unknownKeys` / `worldDirName` ----------
     {
-        // ★ 只查**文件里真写着的**项：缺省值按定义就是合法的，报出来只会制造噪音。
+        // 只查**文件里真写着的**项：缺省值按定义就是合法的，报出来只会制造噪音。
         const ServerModel::Properties clean =
             ServerModel::parseProperties(QStringLiteral("server-port=25565\nview-distance=10\n"));
         check(ServerPropertiesForm::problemsIn(clean).isEmpty(),
@@ -33316,7 +32670,7 @@ static void runServerSettingsTests() {
                   .isEmpty(),
               "★ ZV4 认键大小写不敏感（`MOTD` 不报成「不认识的」）");
 
-        // ★ 世界目录名：认得出就是它，认不出**回空串**（调用方要靠"空"去拒绝备份 / 恢复）。
+        // 世界目录名：认得出就是它，认不出**回空串**（调用方要靠"空"去拒绝备份 / 恢复）。
         check(ServerPropertiesForm::worldDirName(
                   ServerModel::parseProperties(QStringLiteral("level-name=mc\n")))
                   == QStringLiteral("mc"),
@@ -33346,9 +32700,9 @@ static void runServerSettingsTests() {
         good.worldBytes = 12 * 1024 * 1024;
         good.worldBackupCount = 2;
         const QList<ServerCheck::Finding> none = ServerCheck::inspect(good);
-        // ★ "全都对"**不等于**一条都不报：世界在盘上那一条是**说明**（"它在哪儿、多大"），
-        //   它永远在（只要世界在盘上）。真正一条都没有的情形是"这个服务端我们连世界名叫什么
-        //   都说不出来"—— 见下面那一段。这一页怕的是**空着**（用户以为页坏了）。
+        // "全都对"**不等于**一条都不报：世界在盘上那一条是**说明**（"它在哪儿、多大"），
+        // 它永远在（只要世界在盘上）。真正一条都没有的情形是"这个服务端我们连世界名叫什么
+        // 都说不出来"—— 见下面那一段。这一页怕的是**空着**（用户以为页坏了）。
         check(none.size() == 1 && none.first().severity == ServerCheck::Severity::Info,
               "★★ ZV5 全都对 ⇒ 只剩那条说明（世界在盘上），一条要处理 / 提醒都没有",
               QString::number(none.size()));
@@ -33436,7 +32790,7 @@ static void runServerSettingsTests() {
               "★ ZV5 只有说明那一档时，前面两档一个字都不出现",
               ServerCheck::summaryText(twoInfo));
 
-        // ★ 在跑的时候端口那一条**不报**：它自己就占着那个端口，报"被人占了"是一句吓人的废话。
+        // 在跑的时候端口那一条**不报**：它自己就占着那个端口，报"被人占了"是一句吓人的废话。
         ServerCheck::Facts running = worst;
         running.running = true;
         running.launchable = true;
@@ -33452,7 +32806,7 @@ static void runServerSettingsTests() {
         }
         check(!mentionsPort, "★★ ZV5 服务端正在跑时**不报**「端口被占」（那正是它自己占着的）");
 
-        // ★ 没装好那一条：不再往下报 EULA / 世界 / 备份那几条 —— 那些本来就没到那一步。
+        // 没装好那一条：不再往下报 EULA / 世界 / 备份那几条 —— 那些本来就没到那一步。
         ServerCheck::Facts fresh;
         fresh.installed = false;
         fresh.installedNote = QStringLiteral("入口文件不在这个目录里。");
@@ -33496,8 +32850,8 @@ static void runServerSettingsTests() {
 
     // ---------- ZV6. 端口：真占一次，再放开 ----------
     {
-        // ★ 这一格要**真听一次**才知道（Windows 上没有不需要权限的"谁占着这个端口"接口 ——
-        //   见 `ServerPortCheck.hpp` 的文件头）。全程 127.0.0.1，不联网。
+        // 这一格要**真听一次**才知道（Windows 上没有不需要权限的"谁占着这个端口"接口 ——
+        // 见 `ServerPortCheck.hpp` 的文件头）。全程 127.0.0.1，不联网。
         check(ServerPortCheck::stateOf(0) == ServerPortCheck::State::Unknown
                   && ServerPortCheck::stateOf(70000) == ServerPortCheck::State::Unknown
                   && ServerPortCheck::stateOf(-1) == ServerPortCheck::State::Unknown,
@@ -33531,11 +32885,11 @@ static void runServerSettingsTests() {
 // 白名单 / 管理员 / 封禁的玩家 / 封禁的 IP —— 四份文件都由服务端自己写，格式是 Gson 的漂亮
 // JSON。这一节钉的是判据层 `ServerPlayers`（全纯函数，不碰盘）：
 //
-//   · **读要宽容**：文件不在 = 空名单；读不懂 = `ok = false` + 一句毛病。这一条最要紧 ——
-//     拿空名单覆盖一份用户手改坏的 JSON，等于把他里面的记录全抹了；
-//   · **写按游戏那一份的字段形状**：多一个自定义键，服务端下次启动就整份读不懂、丢掉；
-//   · 离线 UUID 是确定的（`OfflinePlayer:<名字>` 的 MD5 + RFC 4122 那两个位），
-//     「按名字加一条」不登录 Mojang 也算得对。
+// · **读要宽容**：文件不在 = 空名单；读不懂 = `ok = false` + 一句毛病。这一条最要紧 ——
+// 拿空名单覆盖一份用户手改坏的 JSON，等于把他里面的记录全抹了；
+// · **写按游戏那一份的字段形状**：多一个自定义键，服务端下次启动就整份读不懂、丢掉；
+// · 离线 UUID 是确定的（`OfflinePlayer:<名字>` 的 MD5 + RFC 4122 那两个位），
+// 「按名字加一条」不登录 Mojang 也算得对。
 // ---------------------------------------------------------------------------
 static void runServerPlayersTests() {
     section("ZAE. 服务端那四份玩家名单：读写 / 认人 / 离线 UUID（§9.7）");
@@ -33848,9 +33202,9 @@ static void runServerPlayersTests() {
 //
 // 这一节钉的是 `ServerRestart` 那几条纯判据。最要紧的三条：
 //
-//   · **用户自己停的 / 正常退出**一律不拉 —— 点了「停止」五秒后又起来是最吓人的；
-//   · **连着崩几次就收手**，而且次数是「连着」的（跑够久再崩算新的一轮）；
-//   · 两次之间**退避**（5、10、20、40、60 封顶）：给用户留出看控制台的时间。
+// · **用户自己停的 / 正常退出**一律不拉 —— 点了「停止」五秒后又起来是最吓人的；
+// · **连着崩几次就收手**，而且次数是「连着」的（跑够久再崩算新的一轮）；
+// · 两次之间**退避**（5、10、20、40、60 封顶）：给用户留出看控制台的时间。
 //
 // 真接线在 `MainWindow::onServerExited()`（排那一发 `singleShot`），策略那两格在
 // `.wtfml-server` 里 —— 下面顺带钉一遍往返：记不住的设置等于没有。
@@ -34019,10 +33373,10 @@ static void runServerRestartTests() {
 // §9.7 那一句是：「服务端资源包选择本地 zip、计算 SHA-1，并明确 URL 托管仍需用户提供，
 // 启动器不假装本地路径能被其他玩家访问」。这一节钉**判据那一半**：
 //
-//   · 游戏只认**最外层**那一份 `pack.mcmeta` —— "整个文件夹一起压"是最常见的错；
-//   · 只有 `data/` 没有 `assets/` 的那份是**数据包**，放错地方了，说法要跟着换；
-//   · SHA-1 得是这份 zip 的**真摘要**（小写 40 位）—— 填错一格，客户端每个人进服都
-//     会卡在一个下不下来的资源包上。
+// · 游戏只认**最外层**那一份 `pack.mcmeta` —— "整个文件夹一起压"是最常见的错；
+// · 只有 `data/` 没有 `assets/` 的那份是**数据包**，放错地方了，说法要跟着换；
+// · SHA-1 得是这份 zip 的**真摘要**（小写 40 位）—— 填错一格，客户端每个人进服都
+// 会卡在一个下不下来的资源包上。
 //
 // 真 zip 由这一节自己用 `ZipUtil::createZip()` 打（和导出整合包同一条写侧），不碰安装。
 // ---------------------------------------------------------------------------
@@ -34166,10 +33520,10 @@ static void runServerResourcePackTests() {
 // 内容那一页只认两种文件（`mods/*.jar`、`<世界>/datapacks/*.zip`），禁用 = 加 `.disabled`
 // 尾巴。这一层不碰盘，所以这里钉的全是"名字上的规矩"：
 //
-//   · **认名先摘尾巴**：`X.jar.disabled` 是禁用的模组，`X.jar.bak` 不是模组（尾巴摘不掉就
-//     落选）—— 少了这一步，禁用过的文件会在那一页上"消失"；
-//   · **改名只动尾巴**：内容、大小、mtime 一个字节都不变（用户随时能改回来）；
-//   · **认不出来的回空串**，不猜（调用方拿空串说明"这一行动不了"）。
+// · **认名先摘尾巴**：`X.jar.disabled` 是禁用的模组，`X.jar.bak` 不是模组（尾巴摘不掉就
+// 落选）—— 少了这一步，禁用过的文件会在那一页上"消失"；
+// · **改名只动尾巴**：内容、大小、mtime 一个字节都不变（用户随时能改回来）；
+// · **认不出来的回空串**，不猜（调用方拿空串说明"这一行动不了"）。
 // ---------------------------------------------------------------------------
 static void runServerContentTests() {
     section("ZAH. 服务端内容：模组 / 数据包的名字与分类（§9.7）");
@@ -34293,25 +33647,25 @@ static void runServerContentTests() {
 }
 
 // ---------------------------------------------------------------------------
-// ZAI. 工具箱那两件：信标计算 / 酿造助手（coding plan §9.11，2026-10-18）
+// ZAI. 工具箱那两件：信标计算 / 酿造助手（coding plan §9.11，）
 //
 // 两件都是纯算术 + 一张表，所以这里直接钉数字和路线：
 //
-//   · **信标**：一层 `(2n+1)^2` 块、累计 9 / 34 / 83 / 164；范围 `10n+10`；效果按级解锁。
-//     这些数错一格，界面上给出的"还要多少块"就会骗人（用户真的会照它去挖矿）。
-//   · **酿造**：链式前驱（隐身 ← 夜视 ← 粗制的药水）、水瓶直出（虚弱 / 缓降）、
-//     红石与荧石二选一、以及"滞留必须先从喷溅来"那一步。
+// · **信标**：一层 `(2n+1)^2` 块、累计 9 / 34 / 83 / 164；范围 `10n+10`；效果按级解锁。
+// 这些数错一格，界面上给出的"还要多少块"就会骗人（用户真的会照它去挖矿）。
+// · **酿造**：链式前驱（隐身 ← 夜视 ← 粗制的药水）、水瓶直出（虚弱 / 缓降）、
+// 红石与荧石二选一、以及"滞留必须先从喷溅来"那一步。
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // 删一棵目录（`FolderManager` 里那两个自由函数）。见 ZAN 节。
 //
-// ★ 2026-10-20：这一节钉的是两件**只有在真盘上才看得见**的事：
-//   ① Windows 上 Qt 6.10 的 `QFile::remove()` 就是一句 `DeleteFile()`，**不会**替你摘
-//      `FILE_ATTRIBUTE_READONLY` —— 只读文件于是"删不掉"。用户从只读介质拷来的整合包、被
-//      网盘/别的启动器标成只读的 jar，删实例、删文件时会卡在这一步，而界面那句提示写的是
-//      "多半是它正被游戏占着"：关掉游戏再删一百次也没用。
-//   ② 删这一棵**绝不许顺着链接走过去**：`QDir::removeRecursively()` 跟进去把链接那头的东西
-//      真删掉（见 FolderManager.cpp 文件头那段实测记录）。
+// 这一节钉的是两件**只有在真盘上才看得见**的事：
+// ① Windows 上 Qt 6.10 的 `QFile::remove()` 就是一句 `DeleteFile()`，**不会**替你摘
+// `FILE_ATTRIBUTE_READONLY` —— 只读文件于是"删不掉"。用户从只读介质拷来的整合包、被
+// 网盘/别的启动器标成只读的 jar，删实例、删文件时会卡在这一步，而界面那句提示写的是
+// "多半是它正被游戏占着"：关掉游戏再删一百次也没用。
+// ② 删这一棵**绝不许顺着链接走过去**：`QDir::removeRecursively()` 跟进去把链接那头的东西
+// 真删掉（见 FolderManager.cpp 文件头那段实测记录）。
 // ---------------------------------------------------------------------------
 static void runFolderRemovalTests() {
     section("ZAN. 删一棵目录（FolderManager）：只读文件删得掉，链接那一头一个字节都不动");
@@ -34353,8 +33707,8 @@ static void runFolderRemovalTests() {
                               QFileDevice::ReadOwner | QFileDevice::ReadUser);
         check(made && wroteNormal && wroteRo, "★ ZAN2 前提：那一棵树摆好了");
         // NOTE: 最后那一栏只报**路径**。`check()` 的几个实参求值次序是没保证的 —— 在这里再问
-        //       一次 `QDir(root).exists()` 的话，问到的可能是"删之前"那一份，红的时候反而
-        //       把人带偏。
+        // 一次 `QDir(root).exists()` 的话，问到的可能是"删之前"那一份，红的时候反而
+        // 把人带偏。
         check(removeTreeWithoutFollowingLinks(root) && !QDir(root).exists(),
               "★★ ZAN2 整棵删干净了 —— 中间躺着一件只读文件也不该让「删实例」停在一半",
               QDir::toNativeSeparators(root));
@@ -34842,7 +34196,7 @@ static void runToolboxExtraTests() {
               "★ ZAJ3 每种纹饰材料在锻造台里摆的那件东西写在表里",
               ArmorTrim::trimMaterialAt(0).item + QStringLiteral(" / ")
                   + ArmorTrim::trimMaterialAt(9).item);
-        // ★ 名字以游戏 zh_cn.json 为准：`trim_material.minecraft.*` / `trim_pattern.minecraft.*`
+        // 名字以游戏 zh_cn.json 为准：`trim_material.minecraft.*` / `trim_pattern.minecraft.*`
         const QStringList materialNames = ArmorTrim::trimMaterialNames();
         check(materialNames
                   == QStringList{QStringLiteral("紫水晶质"), QStringLiteral("铜质"),
@@ -34882,8 +34236,6 @@ static void runToolboxExtraTests() {
                   && !ArmorTrim::patternSource(17).contains(QStringLiteral("不祥")),
               "★★ ZAJ3 镶铆在普通宝库，涡流才在不祥宝库",
               ArmorTrim::patternSource(17));
-        // ★ 2026-10-20：预览资源按**版本发布时间**从新到旧挑 jar。按版本目录 mtime 排
-        //   （几十个版本同一天解压）会挑到 1.21 以前的客户端，涡流/镶铆/树脂质就永远缺。
         const auto ranked = ArmorTrimAssets::newestFirst(
             {{QStringLiteral("1.12.2-Forge"), QStringLiteral("C:/mc/versions/1.12.2/1.12.2.jar"), 100},
              {QStringLiteral("26.3"), QStringLiteral("C:/mc/versions/26.3/26.3.jar"), 900},
@@ -35338,9 +34690,6 @@ static void runToolboxExtraTests() {
                   .arg(capped.lineCount())
                   .arg(capped.lines().isEmpty() ? QString() : capped.lines().first().text));
 
-        // ★ 2026-10-20：被上限挤掉的行**要记得数**。导出错误报告那一段写的是"原始共 N 行"，
-        // 而 N 只从模型这儿问得出来 —— 从前模型只知道自己**留着**几行，被挤掉的那些无声无息
-        // 就没了，报告于是把"挤掉了一大半"写成"一共就这么多"。
         check(capped.receivedLineCount() == 5 && capped.droppedLineCount() == 2 &&
                   capped.droppedLineCountFrom(Level::Info) == 2 &&
                   capped.droppedLineCountFrom(Level::Error) == 0,
@@ -35456,12 +34805,12 @@ static void runToolboxExtraTests() {
 // `-DWTFML_CLIENT_ID` / `-DWTFML_REDIRECT_URI`），地址是谁给的就不一定了 —— 所以端口
 // **从地址里算**（`OAuthEndpoints::callbackPort()`，唯一出处）。这里钉的就是那个算法。
 //
-// ★ 这一节最要紧的两条：
-//   · "地址里没写端口"**不等于**读不出来 —— 浏览器那时会连协议默认端口（http 80 /
-//     https 443），我们照它听才对；回一个别的数（比如兜底的 38226）就是「听着一个没人会
-//     连的端口」，症状只有一句转圈到超时。
-//   · 真读不出来（不是 http/https、没有主机名）时**回调用方给的兜底值**，而不是 0 ——
-//     0 会让 `listen()` 去要一个随机端口，那就更没人连得上了。
+// 这一节最要紧的两条：
+// · "地址里没写端口"**不等于**读不出来 —— 浏览器那时会连协议默认端口（http 80 /
+// https 443），我们照它听才对；回一个别的数（比如兜底的 38226）就是「听着一个没人会
+// 连的端口」，症状只有一句转圈到超时。
+// · 真读不出来（不是 http/https、没有主机名）时**回调用方给的兜底值**，而不是 0 ——
+// 0 会让 `listen()` 去要一个随机端口，那就更没人连得上了。
 // ---------------------------------------------------------------------------
 static void runOAuthEndpointTests() {
     section("ZA. 回调地址 → 监听端口（§9.4 构建注入那两格）");
@@ -35550,10 +34899,10 @@ static void runOAuthEndpointTests() {
 // 设置 → 下载 → 并发数里挑 6/12/24/48。判据层是 `DownloadConcurrency`（唯一出处：四档、
 // 上下限、越界的值怎么办）；这里钉的就是它 + 那条线在 DownloadManager 上真的被用上了。
 //
-// ★ 这一节最要紧的两条：
-//   · **队列泵问的是这个对象当下那一档**（不是那个常量）。漏了这一条的形状是"设置里改成 6
-//     了、界面上也显示 6、下载却还是 24 条一起飞" —— 不报错、也看不出是哪儿没接上。
-//   · 越界的值回**默认**而不是夹到边上：夹到边上会让"被限流 / 下不动"看起来像用户自己选的。
+// 这一节最要紧的两条：
+// · **队列泵问的是这个对象当下那一档**（不是那个常量）。漏了这一条的形状是"设置里改成 6
+// 了、界面上也显示 6、下载却还是 24 条一起飞" —— 不报错、也看不出是哪儿没接上。
+// · 越界的值回**默认**而不是夹到边上：夹到边上会让"被限流 / 下不动"看起来像用户自己选的。
 // ---------------------------------------------------------------------------
 static void runDownloadConcurrencyTests() {
     section("ZO. 「同时最多下几个」那几档（§9.2）");
@@ -35651,14 +35000,14 @@ static void runDownloadConcurrencyTests() {
 }
 
 // ---------------------------------------------------------------------------
-// ZP. 「下载速度上限」那几档（2026-10-18，coding plan §9.2 下载限速）
+// ZP. 「下载速度上限」那几档（，coding plan §9.2 下载限速）
 //
 // 判据层是 `DownloadSpeedLimit`（唯一出处：几档、上下限、归一化、令牌桶容量）；这里钉的
 // 就是它 + 那条线在 DownloadManager 上真的被用上了。
 //
-// ★ 和 ZO 那条最大的不同：**0 是合法值**（= 不限，也是出厂值）。所以"越界回默认"在这里
-//   等于"越界回不限" —— 写成夹到下限（32 KiB/s）就把"关掉限速"变成了"最慢那一档"，
-//   用户改回「不限」时下载反而更慢，那种错误没有任何报错。
+// 和 ZO 那条最大的不同：**0 是合法值**（= 不限，也是出厂值）。所以"越界回默认"在这里
+// 等于"越界回不限" —— 写成夹到下限（32 KiB/s）就把"关掉限速"变成了"最慢那一档"，
+// 用户改回「不限」时下载反而更慢，那种错误没有任何报错。
 // ---------------------------------------------------------------------------
 static void runDownloadSpeedLimitTests() {
     section("ZP. 「下载速度上限」那几档（§9.2）");
@@ -35763,7 +35112,7 @@ static void runDownloadSpeedLimitTests() {
 }
 
 // ===========================================================================
-// ZQ. 代理：三档 + 手动地址解析（2026-10-18，coding plan §9.2）
+// ZQ. 代理：三档 + 手动地址解析（，coding plan §9.2）
 //
 // 这一节只碰纯判据（`DownloadProxy`）和 `LauncherSettings` 的存取；"装到进程上"那一下
 // （`QNetworkProxy::setApplicationProxy`）在 mw_check 的冷启动那一节里核。
@@ -35946,7 +35295,7 @@ static void runDownloadProxyTests() {
 }
 
 // ===========================================================================
-// 工具箱那四层（2026-10-16，coding plan §9.11；用户那天点名的那一批小工具）
+// 工具箱那四层（，coding plan §9.11；用户那天点名的那一批小工具）
 //
 // 这一批的共同形状：**纯函数**（除了哈希要读一个真文件 —— 它在临时目录里读）。
 // 界面那一侧（`ui/ToolboxPage.cpp` + `src/controllers/ToolboxController.cpp`）一条断言都不在
@@ -36043,7 +35392,7 @@ static void runTextFormatTests() {
         check(shapes, "ZAA2 `§c红§l粗` ⇒ 两段：红（红）/ 粗（红 + 粗）",
               QStringLiteral("%1 段").arg(parsed.size()));
 
-        // ★ 这一条是 `§` 那套规矩里最容易写错的一条：颜色码把格式位一起清掉。
+        // 这一条是 `§` 那套规矩里最容易写错的一条：颜色码把格式位一起清掉。
         const QList<TextFormat::Segment> reset =
             TextFormat::parseLegacy(QStringLiteral("§a§lb§cc"));
         const bool resetOkay = reset.size() == 2
@@ -36149,7 +35498,7 @@ static void runTextFormatTests() {
               "★ ZAA5 `extra` 里的孩子**继承父组件那一段样式**（金 + 粗）",
               QStringLiteral("%1 段").arg(extra.segments.size()));
 
-        // ★ 顶上就是一段光字符串（`/tellraw @a "你好"` 的那种写法）。
+        // 顶上就是一段光字符串（`/tellraw @a "你好"` 的那种写法）。
         const TextFormat::JsonParseResult bare =
             TextFormat::parseJson(QStringLiteral("\"你好\""));
         check(bare.ok && bare.segments.size() == 1
@@ -36688,7 +36037,7 @@ struct ToolboxBruteUnit {
  * 这是 ZAD 那条"计划确确实实最省"的**独立算法**（写法故意和 `AnvilPlanner` 里那套子集 DP
  * 不一样）：两边算出来的数一样，才说明 DP 的剪枝没把最优解剪掉。
  * NOTE: 中间件是什么跟着左边（`targetItem.isBook`）—— 铁砧的结果就是把左边那件改一改。
- *       只收 `wantBook` 那一档的收尾（全是书 ⇒ 合出来是书；有装备 ⇒ 合出来必须是装备）。
+ * 只收 `wantBook` 那一档的收尾（全是书 ⇒ 合出来是书；有装备 ⇒ 合出来必须是装备）。
  */
 static QString toolboxEnchantKey(const QMap<QString, int> &map) {
     QStringList parts;
@@ -36816,7 +36165,7 @@ static void runAnvilPlannerTests() {
               "★ ZAD1 九条量化过的：上限与那两列倍率和 wiki 逐条一样（9/9）",
               QStringLiteral("%1/9").arg(tallied));
 
-        // ★ 互斥那一列**两边都要写**（表自己声明的规矩），而且写进去的 id 必须在表里。
+        // 互斥那一列**两边都要写**（表自己声明的规矩），而且写进去的 id 必须在表里。
         int asymmetric = 0;
         int dangling = 0;
         const QList<Anvil::EnchantInfo> &table = Anvil::enchantmentTable();
@@ -36886,7 +36235,7 @@ static void runAnvilPlannerTests() {
               "ZAD3 崭新的一对：总代价 = 牺牲品那一侧的价值 + 两边前科(0+0) = 16",
               QString::number(merged.total));
 
-        // ★ 左右不能对调着看：附魔价值只算牺牲品那一边。
+        // 左右不能对调着看：附魔价值只算牺牲品那一边。
         const Anvil::MergeCost swapped = Anvil::mergeCost(book, boots);
         check(swapped.enchantValue == 24,
               "★★ ZAD3 换个左右手：这回被吃的是靴子（不是书）⇒ 价值按**物品**那一列算 = 8×3 = 24",
@@ -36973,7 +36322,7 @@ static void runAnvilPlannerTests() {
               "★★ ZAD5 合并后的前科 = 2 × max(左, 右) + 1（两边各 1 ⇒ 3，不是 1+1=2）",
               QStringLiteral("penalties=%1 resultPenalty=%2").arg(merge.penalties).arg(merge.resultPenalty));
 
-        // ★ 39 级那条线：**超过** 39 才拒绝（39 本身能做）。
+        // 39 级那条线：**超过** 39 才拒绝（39 本身能做）。
         Anvil::Unit target;
         target.enchantments.insert(QStringLiteral("protection"), 4);
         target.penalty = 20;
@@ -37038,7 +36387,7 @@ static void runAnvilPlannerTests() {
               "★ ZAD6 `includeRename` 把「顺带改个名」那 1 级算进去（正好多 1）",
               QStringLiteral("%1 → %2").arg(pair.totalCost).arg(renamed.totalCost));
 
-        // ★ 改名那 1 级也要走 39 级那条线（不能因为"原本 39 能做"就放过）。
+        // 改名那 1 级也要走 39 级那条线（不能因为"原本 39 能做"就放过）。
         Anvil::Unit target;
         target.enchantments.insert(QStringLiteral("protection"), 4);
         target.penalty = 20;
@@ -37170,15 +36519,15 @@ static void runAnvilPlannerTests() {
 }
 
 // ---------------------------------------------------------------------------
-// 结构 / 原理图的元数据与方块统计（2026-10-18，coding plan §9.5）
+// 结构 / 原理图的元数据与方块统计（，coding plan §9.5）
 // ---------------------------------------------------------------------------
 //
 // 三种格式各造一份**真形状**的 NBT（用 `NbtTree::serialize()` 手搭，不依赖任何外部文件）：
-//   · 原版结构 `.nbt` —— `size` + `palette` + `blocks`；
-//   · Sponge `.schematic` —— `Width/Height/Length` + `Palette` + `BlockData`（varint，
-//     其中一格故意写成两字节，验跨字节那个读法）；
-//   · Litematica `.litematic` —— 两个 region，一处 bits=2、一处 bits=5（后者的第 13 个值
-//     从第 60 位开始，**故意跨 long**；测试自己那套打包是独立写的一份，不是抄实现）。
+// · 原版结构 `.nbt` —— `size` + `palette` + `blocks`；
+// · Sponge `.schematic` —— `Width/Height/Length` + `Palette` + `BlockData`（varint，
+// 其中一格故意写成两字节，验跨字节那个读法）；
+// · Litematica `.litematic` —— 两个 region，一处 bits=2、一处 bits=5（后者的第 13 个值
+// 从第 60 位开始，**故意跨 long**；测试自己那套打包是独立写的一份，不是抄实现）。
 // 另外验：后缀骗人时按**字段**认、空气不算方块数、gzip 那一层（拿 `ZipUtil` 真压一份）、
 // 数据版本那张表、以及三种"读不动"（认不出 / 空的 / 太大）。
 static void runSchematicInfoTests() {
@@ -37900,7 +37249,6 @@ static void runStartupDiagnosisTests() {
               textOf(report));
     }
 
-    // ---------- DX6. 最近的崩溃报告 ----------
     {
         const QString crashDir = root + QStringLiteral("/crash");
         QDir().mkpath(crashDir);
@@ -38005,7 +37353,6 @@ static void runTransferPlannerTests() {
     }
     const QString root = dir.path();
     const QString source = root + QStringLiteral("/src-instance");
-    // 一份有代表性的源实例：两块存档、一个模组、一份配置、游戏设置、日志、截图。
     writeFileAt(source + QStringLiteral("/saves/w1/level.dat"), QByteArrayLiteral("AAA"));
     writeFileAt(source + QStringLiteral("/saves/w2/level.dat"), QByteArrayLiteral("BBBBB"));
     writeFileAt(source + QStringLiteral("/mods/a.jar"), QByteArrayLiteral("jar"));
@@ -38219,17 +37566,13 @@ static void runTransferPlannerTests() {
             check(!QFileInfo::exists(target + QStringLiteral("/mods/linked-saves")),
                   "★★ TR5 目标里没有那个链接，也没有顺着它把存档抄一份进来");
 
-            // ★ 收尾：junction 只能 rmdir（删链接本体，不跟着删那一头）——
-            //   QTemporaryDir 的清理会跟着 junction 往下走。
+            // 收尾：junction 只能 rmdir（删链接本体，不跟着删那一头）——
+            // QTemporaryDir 的清理会跟着 junction 往下走。
             QDir().rmdir(link);
         }
     }
 
     // ---------- TR6. 逐项回调 + 中断之后再跑一遍是可续的 ----------
-    //
-    // 任务中心那张步骤表靠 `ProgressCallback` 一块一块点亮（§9.9 bullet 5「逐项报告」）；
-    // 「可恢复中断」不另存进度，靠的是"只增不覆盖" ⇒ 第二遍同样的 keys 应当一个字节都不写、
-    // 全部按跳过计数。这两条都不碰界面，所以在 verify 工程里钉死。
     {
         const QString target = root + QStringLiteral("/dst-progress");
         QDir().mkpath(target);
@@ -38334,21 +37677,19 @@ static void runTransferPlannerTests() {
 }
 
 // ---------------------------------------------------------------------------
-// 「从别的游戏文件夹里借文件」（2026-10-20）
+// 「从别的游戏文件夹里借文件」
 // ---------------------------------------------------------------------------
-// 用户原话：「下载新版本的时候（甚至在全新文件夹里下载新东西的时候）复用其它 mc
+// 要求：「下载新版本的时候（甚至在全新文件夹里下载新东西的时候）复用其它 mc
 // 文件夹/版本的文件以减少等待时间」；随后补的那道闸：「文件夹的使用仅限用户添加了的和
 // 官方启动器默认文件夹（如果存在），不要全盘扫描」。
 //
 // 这一节分两半：
-//   · LF1–LF5 是纯值层（`LocalFileReuse`）：路径怎么对、候选怎么排、来源算不算数、
-//     硬链接 / 复制怎么落 —— 一个 QTemporaryDir 里造两棵树就能逐格念，不联网。
-//   · LF6 之后是 `DownloadManager` 那一层：证明"借到了就真的不发网络请求"，以及
-//     点名 / AlwaysDownload 那两条路**不许**借。
+// · LF1–LF5 是纯值层（`LocalFileReuse`）：路径怎么对、候选怎么排、来源算不算数、
+// 硬链接 / 复制怎么落 —— 一个 QTemporaryDir 里造两棵树就能逐格念，不联网。
+// · LF6 之后是 `DownloadManager` 那一层：证明"借到了就真的不发网络请求"，以及
+// 点名 / AlwaysDownload 那两条路**不许**借。
 static void runLocalFileReuseTests() {
-    // ---------------------------------------------------------------------
     section("LF1. 目标 → 当前游戏文件夹里的相对路径");
-    // ---------------------------------------------------------------------
     using LocalFileReuse::relativePathWithin;
     check(relativePathWithin(QStringLiteral("D:/mc/versions/a/a.jar"), QStringLiteral("D:/mc"))
               == QStringLiteral("versions/a/a.jar"),
@@ -38372,9 +37713,7 @@ static void runLocalFileReuseTests() {
               && relativePathWithin(QString(), QStringLiteral("D:/mc")).isEmpty(),
           "LF1 空的一头 ⇒ 空");
 
-    // ---------------------------------------------------------------------
     section("LF2. 候选来源怎么排");
-    // ---------------------------------------------------------------------
     using LocalFileReuse::candidatePaths;
     for (const QString &unsafe : {QStringLiteral("../outside.jar"), QStringLiteral("..\\outside.jar"),
                                  QStringLiteral("D:/outside.jar"), QStringLiteral("/outside.jar"),
@@ -38415,9 +37754,7 @@ static void runLocalFileReuseTests() {
               "LF2 只有当前文件夹 ⇒ 没得借");
     }
 
-    // ---------------------------------------------------------------------
     section("LF3. 来源算不算数");
-    // ---------------------------------------------------------------------
     using LocalFileReuse::Check;
     using LocalFileReuse::sourceMatches;
     QTemporaryDir temp(QDir::tempPath() + QStringLiteral("/wtfml_localreuse-XXXXXX"));
@@ -38453,9 +37790,7 @@ static void runLocalFileReuseTests() {
                          payload.size(), Check::SizeAndSha1),
           "LF3 文件不存在 ⇒ 不用");
 
-    // ---------------------------------------------------------------------
     section("LF4. 硬链接 / 复制");
-    // ---------------------------------------------------------------------
     using LocalFileReuse::materialize;
     using LocalFileReuse::Method;
     QString error;
@@ -38488,9 +37823,7 @@ static void runLocalFileReuseTests() {
     check(!QFile::exists(badDest),
           "★★ LF4 作废的那一份**没留在盘上**（QSaveFile 的临时文件也跟着撤了）");
 
-    // ---------------------------------------------------------------------
     section("LF5. 一整套 reuseFrom()");
-    // ---------------------------------------------------------------------
     using LocalFileReuse::reuseFrom;
     const QString currentRoot = temp.filePath(QStringLiteral("current"));
     const QString sourceRoot = temp.filePath(QStringLiteral("source"));
@@ -38523,7 +37856,6 @@ static void runLocalFileReuseTests() {
         currentRoot, payloadSha1, payload.size(), Check::SizeAndSha1, nullptr, true, &error);
     check(onlyCurrent == Method::None, "LF5 只有当前文件夹 ⇒ 没得借（不自己借自己）");
 
-    // ---------------------------------------------------------------------
     section("LF6. DownloadManager：借到了就真的不发网络请求");
     // ---------------------------------------------------------------------
     // 目标路径必须是**当前游戏文件夹里**的（相对路径是候选来源的拼法），所以这一小段
@@ -38605,7 +37937,6 @@ static void runLocalFileReuseTests() {
                   "LF6 目标路径上的内容正确");
         }
 
-        // -----------------------------------------------------------------
         section("LF7. 体检点名 / AlwaysDownload 那两条路**不许**借");
         // -----------------------------------------------------------------
         // 它们的意思就是"盘上/本机任何一份都不算数、重新拿一次"。借过来一份同样不算数，
@@ -38658,9 +37989,7 @@ static void runLocalFileReuseTests() {
     AppPaths::setMinecraftDir(originalDir == AppPaths::defaultMinecraftDir() ? QString()
                                                                              : originalDir);
 
-    // ---------------------------------------------------------------------
     section("LF8. 允许的来源只有那两处");
-    // ---------------------------------------------------------------------
     {
         const QString appData = qEnvironmentVariable("APPDATA");
         const QString official = FolderManager::officialLauncherFolder();
@@ -38839,7 +38168,7 @@ int main(int argc, char *argv[]) {
     // names 模式：版本显示名的纯函数真值表 + displayParts() 读盘 + LauncherSettings
     // + 已安装版本扫描的告警 + 内存建议值。
     // modpack-read 模式：拿一个**真整合包**走一遍导入的前半段，一个字节都不下。
-    //   verify.exe modpack-read "<整合包.zip>"
+    // verify.exe modpack-read "<整合包.zip>"
     // 检的是两件事：ZipUtil 从真压缩包（几百 MB、条目名大小写不一定对得上）里读单条目
     // 这条路，以及真清单的解析结果。这两步是**全离线**能验到的最远处 —— 再往下就要下
     // 加载器和那 150 个模组了（那条路在联网时用产品界面走）。
@@ -39229,7 +38558,7 @@ int main(int argc, char *argv[]) {
     }
 
     const QStringList versions = {"26.3", "26.1", "1.19", "1.18.2", "1.12.2"};
-    // A verification run must not inherit files left by an earlier run.  The
+    // A verification run must not inherit files left by an earlier run. The
     // old build-local harness happened to start with a hand-maintained
     // .minecraft tree; CTest should be reproducible from a clean checkout.
     QDir(sandbox).removeRecursively();
@@ -39248,9 +38577,7 @@ int main(int argc, char *argv[]) {
     DownloadManager dm;
     LauncherManager launcher;
 
-    // -----------------------------------------------------------------
     section("A. natives classifier 选择（DownloadManager::extractLibraries）");
-    // -----------------------------------------------------------------
     QMap<QString, QList<Library>> nativesOf;
     for (const QString &v : versions) {
         const QList<Library> libs = dm.extractLibraries(jsons[v]);
@@ -39281,8 +38608,8 @@ int main(int argc, char *argv[]) {
     check(nativesOf["1.18.2"].size() == 8, "1.18.2 选出 8 个 natives classifier",
           QString::number(nativesOf["1.18.2"].size()));
     // 1.12.2 共 5 个库带 natives 字段，其中：
-    //   lwjgl-platform:2.9.2 的 rules 只 allow osx -> 排除
-    //   java-objc-bridge 只有 osx 的 natives key -> 无 windows classifier
+    // lwjgl-platform:2.9.2 的 rules 只 allow osx -> 排除
+    // java-objc-bridge 只有 osx 的 natives key -> 无 windows classifier
     // 剩下 3 个（lwjgl-platform:2.9.4 / jinput-platform / text2speech）
     check(nativesOf["1.12.2"].size() == 3, "1.12.2 选出 3 个 natives classifier",
           QString::number(nativesOf["1.12.2"].size()));
@@ -39297,9 +38624,7 @@ int main(int argc, char *argv[]) {
     }
     check(!has292, "1.12.2 的 rules 过滤生效（没有 2.9.2 的 DLL）");
 
-    // -----------------------------------------------------------------
     section("B. 1.19+ classpath 零回归（对比改动前的算法）");
-    // -----------------------------------------------------------------
     for (const QString &v : {"1.19", "26.1"}) {
         GlobalJavaSettings s;
         const QStringList args =
@@ -39341,9 +38666,7 @@ int main(int argc, char *argv[]) {
               QString("%1: -Djava.library.path 是存在的绝对路径").arg(v), libPath);
     }
 
-    // -----------------------------------------------------------------
     section("C. JVM 选项按 Java 版本过滤");
-    // -----------------------------------------------------------------
     for (const auto &pair : QList<QPair<int, bool>>{{8, false}, {17, true}, {21, true}, {25, true}}) {
         GlobalJavaSettings s;
         const QStringList args = launcher.generateJvmArguments(QString(), QStringLiteral("1.19"),
@@ -39356,7 +38679,6 @@ int main(int argc, char *argv[]) {
                   .arg(pair.second ? "存在" : "不存在"));
     }
 
-    // -----------------------------------------------------------------
     section("C2. arguments.jvm 展开（26.3 的 StackShadowPages）");
     // -----------------------------------------------------------------
     // generateJvmArguments 必须把 version.json 的 arguments.jvm 按规则过滤后原样
@@ -39483,9 +38805,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // -----------------------------------------------------------------
     section("C3. 新增选项的门槛（OmitStackTrace / sun-misc / stdout.encoding）");
-    // -----------------------------------------------------------------
     {
         const auto countPrefix = [](const QStringList &list, const QString &prefix) {
             int n = 0;
@@ -39497,8 +38817,6 @@ int main(int argc, char *argv[]) {
             return n;
         };
 
-        // 门槛全部来自实测（java <flag> -version 逐个试）：写错门槛的后果不是"参数
-        // 不生效"而是 JVM 直接 Unrecognized option 起不来，所以每一档都要钉住。
         struct Gate {
             int javaMajor;
             bool expectSunMisc;   // --sun-misc-unsafe-memory-access=allow（实测 Java 25+）
@@ -39635,7 +38953,6 @@ int main(int argc, char *argv[]) {
               "（解码侧只有一个开关，混搭编码无论取哪边都是错的）");
     }
 
-    // -----------------------------------------------------------------
     section("C4. --gameDir / --assetsDir 是绝对路径（两个分支都要）");
     // -----------------------------------------------------------------
     // 它们以前是靠 cwd(.minecraft) 解析的相对路径，而 startGame() 又自己算了一份绝对
@@ -39684,7 +39001,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // -----------------------------------------------------------------
     section("C5. 多会话：一个 LauncherManager 同时管好几份游戏进程");
     // -----------------------------------------------------------------
     // 多账户多实例那件事的地基。四件容易写错的：① 早退路径不能留下"幽灵会话"
@@ -39709,11 +39025,11 @@ int main(int argc, char *argv[]) {
         // (a) 找不到 Java 的早退路径：返回 0，而且**不留会话**。
         GlobalJavaSettings missing;
         missing.setJavaPath(sandbox + "/no-such-java.exe");
-        // ★ 2026-10-20：早退路径除了那句带号的 processError，还必须再发一条
-        //   `sessionDiscarded`。界面（GameSessionController）收到 processError 时会按号
-        //   给这一份建一扇游戏日志窗、记一笔底账 —— 而这一号此后**再也不会有任何信号**
-        //   （它连进程都没起），所以不补这一条的话，那些东西会随"启动失败的次数"一直留在
-        //   内存里、窗也永远不自己关。两发的号码必须对得上。
+        // 早退路径除了那句带号的 processError，还必须再发一条
+        // `sessionDiscarded`。界面（GameSessionController）收到 processError 时会按号
+        // 给这一份建一扇游戏日志窗、记一笔底账 —— 而这一号此后**再也不会有任何信号**
+        // （它连进程都没起），所以不补这一条的话，那些东西会随"启动失败的次数"一直留在
+        // 内存里、窗也永远不自己关。两发的号码必须对得上。
         QList<int> errorSessionIds;
         QList<int> discardedSessionIds;
         QObject::connect(&mgr, &LauncherManager::processError, &app,
@@ -39758,7 +39074,7 @@ int main(int argc, char *argv[]) {
                              });
 
             // ---- 两份**同一个实例**：这就是"一个实例同一账号多次启动 / 不同账号各一个"
-            //      那条需求的最小形状（身份不同、实例相同）。
+            // 那条需求的最小形状（身份不同、实例相同）。
             const QStringList args{QStringLiteral("-n"), QStringLiteral("20"),
                                    QStringLiteral("127.0.0.1")};
             const int first = mgr.startGame(args, shell, QStringLiteral("1.20.1"),
@@ -39854,17 +39170,12 @@ int main(int argc, char *argv[]) {
                   "全停掉之后一份都不剩（会话表收干净了）",
                   QString::number(mgr.runningCount()));
             check(mgr.runningGames().isEmpty(), "会话列表也跟着空了");
-            // ★ 2026-10-20：**跑完的会话不许发 sessionDiscarded**。它只属于"从没真的起来过"
-            //   的那三条早退路径；在正常结束那一路抢先发一句，界面会把这一份的底账和日志窗
-            //   一起清掉 —— 崩溃那几行没了、「导出错误报告」也导不出来（收尾本来归
-            //   gameFinished，见 GameSessionController::onGameFinished）。
             check(discardedSessionIds.size() == 1,
                   "正常结束的那些会话一条 sessionDiscarded 都不发（那是早退路径的专利）",
                   QString::number(discardedSessionIds.size()));
         }
     }
 
-    // -----------------------------------------------------------------
     section("C6. --username 只有调用方给的那一个来源（离线/正版都一样）");
     // -----------------------------------------------------------------
     // 底栏左下角显示的名字和游戏里那个名字必须是同一个 —— 以前离线分支自己拼
@@ -39956,9 +39267,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // -----------------------------------------------------------------
     section("D. natives 解压（LauncherManager::prepareNatives）");
-    // -----------------------------------------------------------------
     for (const QString &v : {"1.18.2", "1.12.2"}) {
         prepareSandbox(sandbox, v);
         QDir().mkpath(sandbox + "/versions/" + v);
@@ -39966,8 +39275,8 @@ int main(int argc, char *argv[]) {
                     sandbox + "/versions/" + v + "/" + v + ".json");
 
         // The former build/verify tree contained downloaded native JARs that
-        // were never source-controlled.  Generate tiny but genuine JARs here
-        // so the extraction test is hermetic.  The legacy case checks the
+        // were never source-controlled. Generate tiny but genuine JARs here
+        // so the extraction test is hermetic. The legacy case checks the
         // exact DLL names, while the modern case only needs a real DLL entry.
         bool nativeFixturesReady = true;
         for (qsizetype i = 0; i < nativesOf[v].size(); ++i) {
@@ -40050,9 +39359,7 @@ int main(int argc, char *argv[]) {
               preErrors.join(QStringLiteral("; ")));
     }
 
-    // -----------------------------------------------------------------
     section("E. Java 运行时选择（GlobalJavaSettings::ensureJavaForVersion）");
-    // -----------------------------------------------------------------
     GlobalJavaSettings settings;
     settings.load();
     out() << "  配置中的 java: " << settings.javaPath() << "\n";
@@ -40082,44 +39389,32 @@ int main(int argc, char *argv[]) {
     settings.save();
     out() << "  已恢复配置中的 java: " << settings.javaPath() << "\n";
 
-    // -----------------------------------------------------------------
     runPipelineTests(app, sandbox);
 
-    // -----------------------------------------------------------------
     runVersionNameTests(sandbox);
 
-    // -----------------------------------------------------------------
     runInstanceFileTests(sandbox);
 
-    // -----------------------------------------------------------------
     runInstalledScanTests(sandbox);
 
     // -----------------------------------------------------------------
     // 排在扫描之后，理由见 names 模式里同名调用点上的注释。
     runVersionMetaWriteTests(sandbox);
 
-    // -----------------------------------------------------------------
     runRenameInstanceTests(sandbox);
 
-    // -----------------------------------------------------------------
     runInstanceGroupTests(sandbox);
 
-    // -----------------------------------------------------------------
     runVersionJvmArgsTests(sandbox);
 
-    // -----------------------------------------------------------------
     runMemorySuggestionTests(sandbox);
 
-    // -----------------------------------------------------------------
     runEffectiveJavaSettingsTests(sandbox);
 
-    // -----------------------------------------------------------------
     runJavaWarnMismatchTests(sandbox);
 
-    // -----------------------------------------------------------------
     runJavaReleaseParseTests();
 
-    // -----------------------------------------------------------------
     runPlayerSkinTests(sandbox);
     runRandomSkinTests(sandbox);
     // 紧挨着它：这一节管的是"离线账号那张脸"的另一半 —— 能算出游戏会给哪一张时，
@@ -40133,7 +39428,6 @@ int main(int argc, char *argv[]) {
     // 所以别把它插在中间 —— 上面那些节读盘走的是真实注册表。
     runAccountSkinTests(sandbox);
 
-    // -----------------------------------------------------------------
     runLoaderInheritanceTests(sandbox);
 
     // -----------------------------------------------------------------
@@ -40194,9 +39488,6 @@ int main(int argc, char *argv[]) {
     // ZL 节。纯值进、bool 出；真 json 那两条读的是 meta/ 里的夹具。
     runQuickPlayTests(metaDir);
 
-    // -----------------------------------------------------------------
-    // 日志窗底下那颗「导出错误报告…」写出来的那一份文本，见上面 ZI 节。纯值进、QString 出
-    // —— 时间是从外面传进去的，所以整份报告能一个字一个字钉住。
     runErrorReportTests();
 
     // -----------------------------------------------------------------
@@ -40211,7 +39502,7 @@ int main(int argc, char *argv[]) {
     runAsciiAliasTests();
 
     // -----------------------------------------------------------------
-    // 「从别的游戏文件夹里借文件」（2026-10-20，见上面 LF 节）。纯值那半不碰盘；
+    // 「从别的游戏文件夹里借文件」（，见上面 LF 节）。纯值那半不碰盘；
     // DownloadManager 那半自己开临时游戏文件夹、跑完换回去 —— 那几条证明的是
     // "借到了就真的一个网络请求都不发"（地址给的是一条必然失败的 file://）。
     runLocalFileReuseTests();
@@ -40227,103 +39518,103 @@ int main(int argc, char *argv[]) {
     runVersionIntegrityTests();
 
     // -----------------------------------------------------------------
-    // 任务账本那一套（2026-10-12，coding plan §2 / §3），见上面 AL / AM 两节。**一个
+    // 任务账本那一套（，coding plan §2 / §3），见上面 AL / AM 两节。**一个
     // QWidget 都不碰、一个网络都不开**：纯规则喂值进去、账本自己在一个临时目录里落盘读回
     // —— 不碰共享沙盒。
     runTaskLedgerTests();
 
     // -----------------------------------------------------------------
-    // 游戏异常退出那几句话（2026-10-12，coding plan §4.3），见上面 ZP 节。纯函数：值进、
+    // 游戏异常退出那几句话（，coding plan §4.3），见上面 ZP 节。纯函数：值进、
     // 字符串出，不看时钟、不读盘、不起进程 —— 那一张提示表在这里逐格念一遍。
     runGameExitDiagnosisTests();
 
     // -----------------------------------------------------------------
-    // 世界与实例备份（2026-10-13，coding plan §4.4），见上面 ZQ 节。**真打 zip、真删目录、
+    // 世界与实例备份（，coding plan §4.4），见上面 ZQ 节。**真打 zip、真删目录、
     // 真还原**：自己开一个临时游戏文件夹（备份落点就是 `<数据目录>/cache/backups`）、跑完
     // 换回去 —— 不碰共享沙盒；这一节留下的痕迹在盘上是好几个压缩包，留在沙箱里碍事。
     runBackupTests();
 
     // -----------------------------------------------------------------
-    // 「上一次启动」那本账（2026-10-13，coding plan §5.1），见上面 ZR 节。**全是纯函数**：
+    // 「上一次启动」那本账（，coding plan §5.1），见上面 ZR 节。**全是纯函数**：
     // 值进、字符串/一段字节出，不问时钟（那一列的"现在"是参数）—— 只有"账本落在哪个文件上"
     // 那一条要换一下数据根目录（换完就还原），所以它和 ZQ 那一节一样自己开临时目录。
     runLaunchHistoryTests();
 
     // -----------------------------------------------------------------
-    // 实例预设（2026-10-14，coding plan §5–§6 / P1），见上面 PA 节。值那一层是纯函数，
+    // 实例预设（，coding plan §5–§6 / P1），见上面 PA 节。值那一层是纯函数，
     // 盘那一层在一个临时目录里真存真读（每一件都收一个 `root` 参数，所以连全局数据根目录
     // 都不用改）—— 不联网、不碰共享沙箱、不开界面。
     runPresetStoreTests();
 
     // -----------------------------------------------------------------
-    // 原版设置那一段（2026-10-15，coding plan §6 P2），见上面 PB 节。**全是纯函数**：`options.txt`
+    // 原版设置那一段（，coding plan §6 P2），见上面 PB 节。**全是纯函数**：`options.txt`
     // 的字节进、字节出 —— 门槛是"读进来再写出去逐字节相同"，所以这一节一条临时目录都不用开。
     runVanillaOptionsTests();
 
     // -----------------------------------------------------------------
-    // 服务器列表那一段（2026-10-15，coding plan §6 P3），见上面 PC 节。判据那几条是纯值；
+    // 服务器列表那一段（，coding plan §6 P3），见上面 PC 节。判据那几条是纯值；
     // "落到那个实例上"那几条**真动盘** —— 在一个临时目录里造真 `servers.dat`，跑完读回来
     // 逐字节比（"没碰过的条目一个字节都不变"只有比字节才验得出来）。
     runServerListPresetTests();
     // -----------------------------------------------------------------
-    // 通用文件组那一段（2026-10-15，coding plan §6 P3 后半），见上面 PD 节。这一节的重量在
+    // 通用文件组那一段（，coding plan §6 P3 后半），见上面 PD 节。这一节的重量在
     // "我们**没**弄坏用户东西"和"我们**没**跑出这一组去"：覆盖不删多出来的文件、缺了才拷
     // 是逐文件判的、源侧和目标侧那两根 junction 都真造了一根来验。
     runGenericFilesTests();
     // -----------------------------------------------------------------
-    // 应用计划那一层（2026-10-15，coding plan §5 / §7），见上面 PE 节。这一节验的是 §7 那张
+    // 应用计划那一层（，coding plan §5 / §7），见上面 PE 节。这一节验的是 §7 那张
     // 表：段一行、数从适配器那边真算出来、几道闸（没点头的覆盖 / 游戏在跑 / 不认识的种类）
     // 真的会拦。★ 这一层只读：除了通用文件组的干跑、MaLiLib 那一档读一遍目标上的
     // `config/<模组>.json`，一个字节都不写。
     runPresetPlannerTests();
     // -----------------------------------------------------------------
-    // MaLiLib 那一族的热键（2026-10-17，coding plan §6 P4 / §10 第 12 条），见上面 PF 节。
+    // MaLiLib 那一族的热键（，coding plan §6 P4 / §10 第 12 条），见上面 PF 节。
     // 这一节的重量在三处：**按结构认模组**（TweakerMore / Masa Gadget / OMMC 这些名字代码里
     // 一个都没有）、**合并不许退化成覆盖**（目标上没被点名的那几格一个都不动）、**拒绝都在
     // 改动之前**（类型对不上就不转）。
     runMalilibKeysTests();
     // -----------------------------------------------------------------
-    // 提取与落到实例上（2026-10-18，coding plan §6 P1 / §7），见上面 PG 节。和 PE 那一节的
+    // 提取与落到实例上（，coding plan §6 P1 / §7），见上面 PG 节。和 PE 那一节的
     // 分界是"有没有真写盘"：这一节拿两份真实例形状的临时目录走一遍收与落，最值钱的是
     // 覆盖那两趟（第一趟一个字节都不动）、游戏在跑整趟不写、以及备份里那份是不是原样。
     runPresetCaptureApplyTests();
     // -----------------------------------------------------------------
-    // 资源包次序 / 启用 + 世界级数据包（2026-10-18，coding plan §6 P4），见上面 PL 节。
+    // 资源包次序 / 启用 + 世界级数据包（，coding plan §6 P4），见上面 PL 节。
     // 验收原话是「没世界就待应用；部署不冒充启用」：这一节在两个临时实例里真造
     // `options.txt` 与 `saves/<世界>/datapacks/`，比的都是逐字节。
     runResourceAndDataPackTests();
     // -----------------------------------------------------------------
-    // 模组「真正去下」之前的判据层（2026-10-18，coding plan §10.1 第 7 项 / P5），
+    // 模组「真正去下」之前的判据层（，coding plan §10.1 第 7 项 / P5），
     // 见上面 PM 节。验收原话是「不错装不兼容文件；替代项目需确认；落盘校验」：
     // 这一节全拿手搭的假答复逐格念，一条网络都不碰；落盘校验读的是临时目录里的真文件。
     runModInstallPlanTests();
     // -----------------------------------------------------------------
-    // 模组预设的兼容检查（2026-10-18，coding plan §6.0 P2 / §7.2），见上面 PH 节。
+    // 模组预设的兼容检查（，coding plan §6.0 P2 / §7.2），见上面 PH 节。
     // **一条网络都不碰**：四个假提供方分别代表立刻答 / 慢答 / 手动放行 / 永远不答，
     // 验的是去重、本地优先、并发上限、旧 generation 作废、失败不算缺失、缓存只收准话。
     runPresetCompatibilityTests();
     // -----------------------------------------------------------------
-    // 大量预设 / 大量引用 / 连换几十代 / 先关检查器（2026-10-18，coding plan §10.1
+    // 大量预设 / 大量引用 / 连换几十代 / 先关检查器（，coding plan §10.1
     // 第 8 项 / P6），见上面 PN 节。验收原话是「无过期回调、失控并发或主线程假死」。
     runPresetStressTests();
     // -----------------------------------------------------------------
-    // 实例页的搜索与筛选（2026-10-13，coding plan §7.2），见上面 ZS 节。**全是纯函数**：
+    // 实例页的搜索与筛选（，coding plan §7.2），见上面 ZS 节。**全是纯函数**：
     // 值进、bool 出，不读盘、不问时钟 —— 连一条实例都不必真的存在。
     runInstanceFilterTests();
 
     // -----------------------------------------------------------------
-    // 更新中心的「忽略 / 固定」那本账（2026-10-13，coding plan §7.1），见上面 ZT 节。
+    // 更新中心的「忽略 / 固定」那本账（，coding plan §7.1），见上面 ZT 节。
     // **纯函数 + 一个临时目录里的真存真读**：不联网、不碰共享沙箱、不开任何界面。
     runUpdatePolicyTests();
 
     // -----------------------------------------------------------------
-    // 更新前那份轻量回滚点（2026-10-13，coding plan §7.1），见上面 ZU 节。**真动盘**：
+    // 更新前那份轻量回滚点（，coding plan §7.1），见上面 ZU 节。**真动盘**：
     // 自己开一个临时游戏文件夹造实例目录（这一层整个存在的意义就是"动手之前手上有一份
     // 旧的"，纯值上验不出来），跑完换回来。
     runUpdateRollbackTests();
 
     // -----------------------------------------------------------------
-    // 服务端工作区（2026-10-13，coding plan §6 / 里程碑 M4）：判据层（状态 / EULA /
+    // 服务端工作区（，coding plan §6 / 里程碑 M4）：判据层（状态 / EULA /
     // server.properties / 我们记的那一份），见上面 ZW 节。**纯函数**：值进、结构出。
     runServerModelTests();
 
@@ -40333,35 +39624,35 @@ int main(int argc, char *argv[]) {
     runServerRegistryTests();
 
     // -----------------------------------------------------------------
-    // 服务端安装那四段的判据层（2026-10-13，coding plan §6.2 / 里程碑 M4-2），见上面 ZY 节。
+    // 服务端安装那四段的判据层（，coding plan §6.2 / 里程碑 M4-2），见上面 ZY 节。
     // **纯函数**：喂一份计划 + 一份字节进去，回一个结论出来（不联网、不建目录、不起 java
     // —— 真干那三件事的是驱动层，归 mw_check）。
     runServerInstallRunTests();
 
     // -----------------------------------------------------------------
-    // 服务端"跑起来 / 停下来"那条路的判据层（2026-10-13，coding plan §6.2 的操作 + §6.3 的
+    // 服务端"跑起来 / 停下来"那条路的判据层（，coding plan §6.2 的操作 + §6.3 的
     // 停止时序 / 里程碑 M4-3），见上面 ZZ 节。**纯函数**：那条命令怎么拼、起来没有、退了算
     // 哪一档状态、宽限多久才允许强杀（真起进程那一半 `ServerProcess` 归 mw_check 的 T41）。
     runServerRunTests();
 
     // -----------------------------------------------------------------
-    // 「服务端设置」那一页底下那两层判据（2026-10-13，coding plan §6.3 / 里程碑 M4-4），见上面
+    // 「服务端设置」那一页底下那两层判据（，coding plan §6.3 / 里程碑 M4-4），见上面
     // ZV 节。**几乎全是纯函数**：表本身 / 收不收 / 合回文件 / 体检报哪几条与次序。唯一的例外
     // 是 ZV6 那一条 —— "这个端口有人占着吗"要**真听一次**（本机、不联网）。
     runServerSettingsTests();
 
     // -----------------------------------------------------------------
-    // 服务端那四份玩家名单（2026-10-18，coding plan §9.7「玩家管理」），见上面 ZAE 节。
+    // 服务端那四份玩家名单（，coding plan §9.7「玩家管理」），见上面 ZAE 节。
     // **纯函数**：读要宽容 / 写按游戏那份字段形状 / 认人 / 离线 UUID / 到期。
     runServerPlayersTests();
 
     // -----------------------------------------------------------------
-    // 服务端异常退出后自动重启那条策略（2026-10-18，coding plan §9.7「重启策略 + 上限」），
+    // 服务端异常退出后自动重启那条策略（，coding plan §9.7「重启策略 + 上限」），
     // 见上面 ZAF 节。**纯函数**：哪一档才拉 / 连着几次收手 / 退避 / 策略往返（不读盘、不看时钟）。
     runServerRestartTests();
 
     // -----------------------------------------------------------------
-    // 服务端资源包那一份本地 zip（2026-10-18，coding plan §9.7），见上面 ZAG 节。
+    // 服务端资源包那一份本地 zip（，coding plan §9.7），见上面 ZAG 节。
     // 条目表判据是纯的；那一发 `inspect()` 会真打一个 zip 再读它（走 ZipUtil + FileHash）。
     runServerResourcePackTests();
     // 服务端内容（§9.7）：模组 / 数据包的名字与分类（ZAH）。
@@ -40373,22 +39664,22 @@ int main(int argc, char *argv[]) {
     runToolboxExtraTests();
 
     // -----------------------------------------------------------------
-    // 正版登录那两格随构建配置走的常数（2026-10-13，coding plan §9.4），见上面 ZA 节。
+    // 正版登录那两格随构建配置走的常数（，coding plan §9.4），见上面 ZA 节。
     // **纯函数**：一串地址进去、端口出来（不联网、不开监听；真绑端口那一半在 AuthManager
     // 里，归 mw_check）。
     runOAuthEndpointTests();
 
     // -----------------------------------------------------------------
-    // 「同时最多下几个」那几档（2026-10-13，coding plan §9.2 并发数预设），见上面 ZO 节。
+    // 「同时最多下几个」那几档（，coding plan §9.2 并发数预设），见上面 ZO 节。
     // **纯函数 + 一个字面对象**：四档那个表、归一化、以及"队列泵问的是这个对象当下那一档"
     // （真发请求那一半归 mw_check）。
     runDownloadConcurrencyTests();
-    // 「下载速度上限」那几档（2026-10-18，coding plan §9.2 下载限速），见上面 ZP 节。
+    // 「下载速度上限」那几档（，coding plan §9.2 下载限速），见上面 ZP 节。
     runDownloadSpeedLimitTests();
     runDownloadProxyTests();
 
     // -----------------------------------------------------------------
-    // 工具箱那四件小工具（2026-10-16，coding plan §9.11），见上面 ZAA–ZAD 四节。
+    // 工具箱那四件小工具（，coding plan §9.11），见上面 ZAA–ZAD 四节。
     // **纯函数**：彩色文本那三份形态的往返 / 坐标换算与 F3+C 那条命令 / 哈希与那串"已知值"
     // （要真读一个文件，在临时目录里）/ 铁砧那套账（最后那一条拿穷举当独立对照）。
     // 界面那一侧（ToolboxPage + ToolboxController）的断言不在这一节里。
@@ -40398,14 +39689,11 @@ int main(int argc, char *argv[]) {
     runAnvilPlannerTests();
 
     // -----------------------------------------------------------------
-    // 结构 / 原理图的元数据与方块统计（2026-10-18，coding plan §9.5），见上面 SG 节。
+    // 结构 / 原理图的元数据与方块统计（，coding plan §9.5），见上面 SG 节。
     // 三种格式的**真形状**都由这一节自己搭（`NbtTree::serialize()`），gzip 那一份真压一遍。
     runSchematicInfoTests();
     runReplayInfoTests();
 
-    // -----------------------------------------------------------------
-    // 综合启动诊断报告（coding plan §9.5「实例：诊断」），见上面 DX 节。
-    // 判据层是纯函数：读的东西都是这一节自己写的临时文件，一个字节都不碰真安装。
     runStartupDiagnosisTests();
 
     // -----------------------------------------------------------------
@@ -40413,7 +39701,6 @@ int main(int argc, char *argv[]) {
     // 计划层只读盘、落盘层只增加；这一节自己搭源与目标两棵树，junction 那一发真造。
     runTransferPlannerTests();
 
-    // -----------------------------------------------------------------
     out() << "\n===== " << (g_failures == 0 ? "全部通过" : "有失败项") << ": "
           << (g_checks - g_failures) << "/" << g_checks << " =====\n";
     out().flush();

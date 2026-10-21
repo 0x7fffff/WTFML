@@ -1,8 +1,6 @@
 /**
  * @file ModrinthCompatibility.hpp
  * @brief 真网络版的兼容检查提供方：Modrinth（+ 可选的 CurseForge）。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 【为什么是异步的】
  *
@@ -16,8 +14,8 @@
  * · 200 + 空列表 / 404 ⇒ `Missing`（平台**明确**说没有）；
  * · 429 / 5xx / 网络错误 / 超时 ⇒ `Unknown` —— ★ 一律不报缺失（§7.2 的验收）。
  *
- * ★ CurseForge 官方接口要 `x-api-key`。没配置时这一侧一律 `Unknown`
- *   （"没有配置 CurseForge 接口"），**不**拿别的接口猜。
+ * CurseForge 官方接口要 `x-api-key`。没配置时这一侧一律 `Unknown`
+ * （"没有配置 CurseForge 接口"），**不**拿别的接口猜。
  */
 
 #pragma once

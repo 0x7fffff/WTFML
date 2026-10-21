@@ -1,13 +1,11 @@
 /**
  * @file ServerModel.hpp
  * @brief 服务端工作区（coding plan §6 / 里程碑 M4）的**判据层**：一个服务端是什么、
- *        它现在处于哪一档状态、`eula.txt` 与 `server.properties` 怎么读怎么写。
- * @author 0x7fffff
- * @date 2026-10-13
+ * 它现在处于哪一档状态、`eula.txt` 与 `server.properties` 怎么读怎么写。
  *
  * 【为什么单独一层，和 `download/ServerInstall.hpp` 不是一回事】
  *
- * `ServerInstall.hpp`（2026-09-28 就有的那一层）回答的是「**装**这一档要下什么、跑不跑安装器、
+ * `ServerInstall.hpp`（ 就有的那一层）回答的是「**装**这一档要下什么、跑不跑安装器、
  * 装完必须看到哪个文件、启动它发什么参数」——它是**一次安装动作的计划**，纯函数，参数进、
  * 计划出，一个服务端目录都不认识。
  *
@@ -51,9 +49,9 @@ namespace ServerModel {
  *
  * NOTE: 这里面有两类东西，别混：
  *
- *   * **装没装好**（`NotInstalled`）—— 判据是"入口文件在不在"（见 `isInstalled()`）；
- *   * **进程在不在跑**（`Starting` / `Running` / `Stopping`）—— 判据是进程本身的死活，
- *     和盘上的文件**无关**（一个装在盘上、进程没起的服务端是 `Ready` 或 `Stopped`）。
+ * * **装没装好**（`NotInstalled`）—— 判据是"入口文件在不在"（见 `isInstalled()`）；
+ * * **进程在不在跑**（`Starting` / `Running` / `Stopping`）—— 判据是进程本身的死活，
+ * 和盘上的文件**无关**（一个装在盘上、进程没起的服务端是 `Ready` 或 `Stopped`）。
  *
  * `Stopped` 和 `Crashed` 是"没在跑、但**上一次退出**留下了一个事实"的那两档：前者是干净
  * 退出（退出码 0 / 被请出来），后者是异常退出（非 0 / 崩）。`Ready` 则是"没在跑、也没有
@@ -108,10 +106,10 @@ inline bool canStart(Status status) {
 /**
  * @brief `eula.txt` 里是不是写着接受（`eula=true`）。
  *
- * ★ 判据是**逐行找 `eula=` 那一项、把值小写后比 `true`**，不是"文件里含 true 这个词"：
- *   服务端自己写的那份文件头有一大段注释，里面就有 "https://aka.ms/MinecraftEULA" 这种
- *   带 `eula` 字样的行，而且用户可能在下面手动敲了一行 `eula=FALSE` 又跟了一行 `eula=true`。
- *   逐行取**最后**一个有效赋值，和 Java 的 Properties 语义一致（后面的盖前面的）。
+ * 判据是**逐行找 `eula=` 那一项、把值小写后比 `true`**，不是"文件里含 true 这个词"：
+ * 服务端自己写的那份文件头有一大段注释，里面就有 "https://aka.ms/MinecraftEULA" 这种
+ * 带 `eula` 字样的行，而且用户可能在下面手动敲了一行 `eula=FALSE` 又跟了一行 `eula=true`。
+ * 逐行取**最后**一个有效赋值，和 Java 的 Properties 语义一致（后面的盖前面的）。
  *
  * NOTE: 传进来的字节可以是空的（文件还没被服务端生成）——那是"还没接受"。
  */
@@ -143,11 +141,11 @@ inline bool eulaAccepted(const QString &text) {
 /**
  * @brief 我们要写下去的那份 `eula.txt`。
  *
- * ★ **不是**把用户原来那份改一个字节就完事：服务端第一次跑自己写的那份文件头有一句
- *   `By changing the setting below to TRUE you are indicating your agreement to our EULA`
- *   ——我们等于替用户说了这句话，所以**这一行必须原样留着**（它是"用户接受了"这件事的
- *   文本凭证）。用户自己那份长什么样我们不知道（可能是游戏写的、也可能是手改的），
- *   所以由我们自己写一份**内容确定**的、带同一句声明的版本，写进去就是"接受了"。
+ * **不是**把用户原来那份改一个字节就完事：服务端第一次跑自己写的那份文件头有一句
+ * `By changing the setting below to TRUE you are indicating your agreement to our EULA`
+ * ——我们等于替用户说了这句话，所以**这一行必须原样留着**（它是"用户接受了"这件事的
+ * 文本凭证）。用户自己那份长什么样我们不知道（可能是游戏写的、也可能是手改的），
+ * 所以由我们自己写一份**内容确定**的、带同一句声明的版本，写进去就是"接受了"。
  *
  * @param accepted 传 false 就是拒绝（写 eula=false）——留个口子，产品里只会写 true。
  */
@@ -175,7 +173,7 @@ inline QString eulaFileText(bool accepted) {
  * 那些行才带 key/value，其余（注释、空行、看不懂的行）原样留着，`toString()` 时照旧吐出去。
  *
  * NOTE: 判据和 Java 的 Properties 对齐到"够用"为止：`key=value` / `key:value`、`#` 与 `!`
- *       开头是注释、两侧空白裁掉。**不**做转义与续行（Minecraft 自己那份文件里没有）。
+ * 开头是注释、两侧空白裁掉。**不**做转义与续行（Minecraft 自己那份文件里没有）。
  */
 struct Properties {
     /// 一"行"。`key` 空 = 这一行原样保留（注释 / 空行 / 看不懂的）。
@@ -253,8 +251,8 @@ struct Properties {
 /// 解一份 `server.properties`。**不抛、不报错**：读不懂的行原样留着。
 inline Properties parseProperties(const QString &text) {
     Properties props;
-    // ★ 行尾那个 `\r` 要**记下来**（不是丢掉）：Windows 上游戏自己写出来的是 CRLF，而
-    //   "解了再写回去要逐字一样"是这一页两种编辑方式（表单 / 原始文本）都靠的那条命根子。
+    // 行尾那个 `\r` 要**记下来**（不是丢掉）：Windows 上游戏自己写出来的是 CRLF，而
+    // "解了再写回去要逐字一样"是这一页两种编辑方式（表单 / 原始文本）都靠的那条命根子。
     const QStringList lines = text.split(QLatin1Char('\n'));
     for (int i = 0; i < lines.size(); ++i) {
         QString line = lines[i];
@@ -289,7 +287,7 @@ inline Properties parseProperties(const QString &text) {
         out.key = trimmed.left(sep).trimmed();
         out.value = trimmed.mid(sep + 1).trimmed();
         // NOTE: 这里把原值两侧的空白裁掉是刻意的（写回去时由 toString() 重新拼 `key=value`）；
-        //       换行那一位**没有**裁掉（走 out.cr），所以"没改过的文件解了再写"仍是逐字一样。
+        // 换行那一位**没有**裁掉（走 out.cr），所以"没改过的文件解了再写"仍是逐字一样。
         props.lines.append(out);
     }
     return props;
@@ -319,15 +317,15 @@ inline int serverPortOf(const Properties &props) {
 /**
  * @brief 拿一个服务端目录里的文件反推它是哪一档。
  *
- * ★ 用途是"用户从外面拖进来一个已经装好的服务端"：他没有我们的 `.wtfml-server`，我们要
- *   自己看出来这一档怎么启动。判据全在**入口文件**上（和 `ServerInstall::Plan::installedMarkers`
- *   同一套判法），所以我们**只在自己记的那一份没有时才问它**——自己记的永远优先（用户可能
- *   手动换了加载器版本，那个事实只有 `.wtfml-server` 说得清）。
+ * 用途是"用户从外面拖进来一个已经装好的服务端"：他没有我们的 `.wtfml-server`，我们要
+ * 自己看出来这一档怎么启动。判据全在**入口文件**上（和 `ServerInstall::Plan::installedMarkers`
+ * 同一套判法），所以我们**只在自己记的那一份没有时才问它**——自己记的永远优先（用户可能
+ * 手动换了加载器版本，那个事实只有 `.wtfml-server` 说得清）。
  *
  * NOTE: 光靠文件**分不出 Jar 那四档**（原版 / Paper / Purpur / Spigot 都是 `server.jar`，
- *       或者 Spigot 那个带后缀的 jar）—— 但这四档的**启动命令一模一样**
- *       （`-jar server.jar nogui`），所以分不出也不影响启动，回 `Vanilla` 当缺省即可。
- *       Spigot 那一档靠"没有 `server.jar`、但有 `spigot-*.jar`"认出来（见 `pickSpigotJar`）。
+ * 或者 Spigot 那个带后缀的 jar）—— 但这四档的**启动命令一模一样**
+ * （`-jar server.jar nogui`），所以分不出也不影响启动，回 `Vanilla` 当缺省即可。
+ * Spigot 那一档靠"没有 `server.jar`、但有 `spigot-*.jar`"认出来（见 `pickSpigotJar`）。
  *
  * @param fileNames 目录**根**下的文件名（不含子目录）。
  * @return 认不出来回 `Vanilla`（四档同命，缺省最稳）。
@@ -392,11 +390,11 @@ inline ServerInstall::Flavor inferFlavorFromPaths(const QStringList &relPaths) {
  * 判据是 `ServerInstall::Plan::installedMarkers` 里的每一条都在（见那一段：Forge/NeoForge
  * 看的是那张参数文件、Quilt 要**两张**都在）。
  *
- * ★ Spigot 那一档的 markers 是**空的**（产物名带它自己的后缀、拼不出来，只能扫，见
- *   `pickSpigotJar`）——空 markers 时退回"目录里有没有 `spigot-*.jar`"。
+ * Spigot 那一档的 markers 是**空的**（产物名带它自己的后缀、拼不出来，只能扫，见
+ * `pickSpigotJar`）——空 markers 时退回"目录里有没有 `spigot-*.jar`"。
  *
  * @param relPaths 目录里的文件相对路径（`/` 分隔）。用相对路径而不是文件名，是因为
- *        Forge 那两张 markers 落在 `libraries/…` 深处。
+ * Forge 那两张 markers 落在 `libraries/…` 深处。
  */
 inline bool isInstalled(const ServerInstall::Plan &plan, const QStringList &relPaths) {
     if (plan.installedMarkers.isEmpty()) {
@@ -513,11 +511,11 @@ inline QByteArray toJson(const Info &info) {
 /**
  * @brief 读回那一份。
  *
- * ★ `ok = false` 有两种情形（和 `UpdatePolicy::fromJson()` 逐字同源）：根本不是一个 json
- *   对象；**或者**格式标记 / 版本号不认。两种都回**空 Info**，差别只在那句话怎么写。
- * ★ 空字节回**空 Info + `ok = true`**（那是真读懂了：文件里什么都没有，或者是空的/不存在的
- *   文件）——所以调用方按 `ok` 办事时，"读不懂"那句话一定会被说出来，而不是被当成"这个
- *   服务端什么设置都没有"。
+ * `ok = false` 有两种情形（和 `UpdatePolicy::fromJson()` 逐字同源）：根本不是一个 json
+ * 对象；**或者**格式标记 / 版本号不认。两种都回**空 Info**，差别只在那句话怎么写。
+ * 空字节回**空 Info + `ok = true`**（那是真读懂了：文件里什么都没有，或者是空的/不存在的
+ * 文件）——所以调用方按 `ok` 办事时，"读不懂"那句话一定会被说出来，而不是被当成"这个
+ * 服务端什么设置都没有"。
  */
 inline Info fromJson(const QByteArray &bytes, bool *ok = nullptr) {
     if (ok != nullptr) {

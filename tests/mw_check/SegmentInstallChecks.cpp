@@ -39,7 +39,7 @@ int runSegmentInstallChecks() {
     const QString bodySha1 = digest(body), smallSha1 = digest(small);
 
     // 每个场景开始前清零；请求计数按"实际到达数据端点的请求"统计：
-    //   probes = Range: bytes=0-0；parts = 其它带 Range 的请求；full = 完全不带 Range 的请求。
+    // probes = Range: bytes=0-0；parts = 其它带 Range 的请求；full = 完全不带 Range 的请求。
     // 302 的入口请求不计（一次分段会打入口 + 落点两条），这样计数只反映数据请求本身。
     int probes = 0, parts = 0, full = 0, redirects = 0, signedHits = 0, badSigned = 0;
     int partDelayMs = 0;
@@ -49,7 +49,7 @@ int runSegmentInstallChecks() {
     // 之后正常。用来钉住"重新探测、只补缺的那一条、不整文件重下"。
     bool flakyFailed = false;
     // /stall：第一条**分段**请求回完头和半段 body 之后**不关连接、不再给字节** ——
-    // 2026-10-18 用户日志里那条分段停在 3.7/4.2 MiB 的翻版。之后正常。
+    // 用户日志里那条分段停在 3.7/4.2 MiB 的翻版。之后正常。
     bool stallTriggered = false;
     // /silent：第一条**分段**请求只回响应头（Content-Length 照写整段的长度），正文一个字
     // 都不给、连接也不关 —— BMCLAPI 302 到死落点那种形状。看门狗那条"一个字节都没收到"
@@ -301,8 +301,8 @@ int runSegmentInstallChecks() {
     }
 
     // 4. 入口 302 到带令牌落点（BMCLAPI 形态）：**探测一次拿到落点，四条分段复用这一条**
-    //    （docs/HIGH_SPEED_DOWNLOAD.md「2026-10-18 现场日志修正」：避免每段重复入口、
-    //    反复调度和 429）。令牌真过期的那一批会在补投前重新探测刷新。
+    // （docs/HIGH_SPEED_DOWNLOAD.md「 现场日志修正」：避免每段重复入口、
+    // 反复调度和 429）。令牌真过期的那一批会在补投前重新探测刷新。
     {
         resetCounters();
         const auto out = runOne(QStringLiteral("redirect.bin"), QStringLiteral("/redirect"), {}, cache, false);
@@ -318,7 +318,7 @@ int runSegmentInstallChecks() {
     }
 
     // 5. 本地续传目录不可用（父级是普通文件）：这是本地准备失败，不是源站失败。
-    //    必须一次性降级成普通下载并成功，不能把文件判死，也不能无限重试。
+    // 必须一次性降级成普通下载并成功，不能把文件判死，也不能无限重试。
     {
         resetCounters();
         const QString blocker = fixture.filePath(QStringLiteral("blocker"));
@@ -406,7 +406,7 @@ int runSegmentInstallChecks() {
     }
 
     // 9. 某一条分段 404（永久失败、不走瞬态重试）：**先只补缺的那一条**，不整文件重下。
-    //    失败那一发延迟 300 ms 才回，保证它到达时另外三条已经完整落盘。
+    // 失败那一发延迟 300 ms 才回，保证它到达时另外三条已经完整落盘。
     {
         resetCounters();
         const auto out = runOne(QStringLiteral("flaky.bin"), QStringLiteral("/flaky"), {}, cache, false);
@@ -420,12 +420,12 @@ int runSegmentInstallChecks() {
                "part-level retry keeps the job billed as one success");
     }
 
-    // 10. 某一条分段"头 + 半段 body 之后链子停住、连接还活着"（2026-10-18 用户日志的形状）：
-    //     bytesAvailable 涨过一次 ⇒ 90 秒卡死兜底不响；它身上又没有官方备用地址 ⇒ 旧口径
-    //     下"太慢"那条也不管它。结果就是那条分段 664 秒里一直攥着连接，协调器要等整批
-    //     收尾才补段 ⇒ 整条作业永远不会结束。
-    //     Range 作业也算"有退路"（协调器只补缺段）；新口径持续六跳低于阈值才 abort。
-    //     断言：看门狗把那条段掐掉 → 协调器补一条 → 整条作业成功；**只多一条 Range**。
+    // 10. 某一条分段"头 + 半段 body 之后链子停住、连接还活着"（ 用户日志的形状）：
+    // bytesAvailable 涨过一次 ⇒ 90 秒卡死兜底不响；它身上又没有官方备用地址 ⇒ 旧口径
+    // 下"太慢"那条也不管它。结果就是那条分段 664 秒里一直攥着连接，协调器要等整批
+    // 收尾才补段 ⇒ 整条作业永远不会结束。
+    // Range 作业也算"有退路"（协调器只补缺段）；新口径持续六跳低于阈值才 abort。
+    // 断言：看门狗把那条段掐掉 → 协调器补一条 → 整条作业成功；**只多一条 Range**。
     {
         resetCounters();
         deadlineMs = 45000;  // 六跳（约 30–35 s）+ 补段，留出调度余量
@@ -444,10 +444,10 @@ int runSegmentInstallChecks() {
     }
 
     // 11. 某一条分段**只回响应头、正文一个字节都不给**（BMCLAPI 302 到死落点的形状）。
-    //     它身上没有官方备用地址，旧口径下"12 秒没首字节就换路"那条只管镜像作业 ⇒ 只能等
-    //     90 秒兜底（或者 Qt 那条 30 秒不活动超时）。
-    //     ★ 截止线必须压在 Qt 那条 30 秒**之前**（25 秒）：否则就算产品里没有这条修复，
-    //       30 秒一到 Qt 自己会把回复掐掉，用例照样绿 —— 正是 10-18 那次"假绿"的坑。
+    // 它身上没有官方备用地址，旧口径下"12 秒没首字节就换路"那条只管镜像作业 ⇒ 只能等
+    // 90 秒兜底（或者 Qt 那条 30 秒不活动超时）。
+    // 截止线必须压在 Qt 那条 30 秒**之前**（25 秒）：否则就算产品里没有这条修复，
+    // 30 秒一到 Qt 自己会把回复掐掉，用例照样绿 —— 正是 10-18 那次"假绿"的坑。
     {
         resetCounters();
         deadlineMs = 25000;  // 12 秒判据 + 下一跳（≤5 s）+ 补段；必须 < Qt 的 30 秒

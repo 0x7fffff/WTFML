@@ -1,8 +1,6 @@
 /**
  * @file PresetApply.hpp
  * @brief 把一份预设**落到**一个实例上：读目标快照 → 算计划 → 备份 → 执行（§7 那条执行链）。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 【为什么这一层要存在】
  *
@@ -32,8 +30,8 @@
  * 就是还原，不需要我们再写一个还原器 —— 而"再写一个还原器"正是 §8.1 那条"先备份再原子
  * 替换"最容易被做坏的附件。
  *
- * ★ 备份失败 ⇒ **整趟不开始**（不是"备份不上就算了"）。只在有东西要被覆盖时才建备份目录；
- *   一趟全是"缺了才拷"的时候不建空目录。
+ * 备份失败 ⇒ **整趟不开始**（不是"备份不上就算了"）。只在有东西要被覆盖时才建备份目录；
+ * 一趟全是"缺了才拷"的时候不建空目录。
  *
  * 【写失败之后不回滚】
  *
@@ -61,9 +59,9 @@ namespace Presets {
  * `PresetPlanner` / 适配器自己按盘上的路径去看（那两口本来就收 `instanceRoot`）。
  *
  * @param problemOut `options.txt` **存在但读不动**时的一句人话。这是唯一让它非空的来路：
- *        没有 `options.txt` 是正常开局（新实例就是没有），而读不动的那一份绝不能当成
- *        空的来铺预设 —— 那会把用户整份设置换成预设里那几个键（"合并不是覆盖"在那一刻
- *        已经不成立了）。
+ * 没有 `options.txt` 是正常开局（新实例就是没有），而读不动的那一份绝不能当成
+ * 空的来铺预设 —— 那会把用户整份设置换成预设里那几个键（"合并不是覆盖"在那一刻
+ * 已经不成立了）。
  */
 TargetSnapshot readTargetSnapshot(const QString &instanceRoot, QString *problemOut = nullptr);
 
@@ -72,7 +70,6 @@ TargetSnapshot readTargetSnapshot(const QString &instanceRoot, QString *problemO
 // ---------------------------------------------------------------------------
 
 struct PresetApplyRequest {
-    /// 实例目录名（`versions/<id>`）。只用于备份落点和报告；空则从 `instanceRoot` 取。
     QString instanceId;
     /// 实例目录（`<数据目录>/versions/<id>`）。
     QString instanceRoot;
@@ -138,19 +135,19 @@ struct PresetApplyResult {
  * @brief 把一份预设落到实例上。
  *
  * @param presetsRoot 预设根（`PresetStore::presetsRoot()` 或验证工程的临时目录）。
- *        ★ 这一层用它推两件事：`PresetStore::filesDir()`（通用文件组那几段的源）和备份
- *        落点。`manifest.id` 不合法 ⇒ 直接失败。
+ * 这一层用它推两件事：`PresetStore::filesDir()`（通用文件组那几段的源）和备份
+ * 落点。`manifest.id` 不合法 ⇒ 直接失败。
  *
  * 做的事（次序固定）：
- *   1. 读目标快照（`readTargetSnapshot()`）；
- *   2. `planPresetApplication()` 算一遍 —— 算不出来 / 游戏在跑 / 需要确认 ⇒ 到此为止；
- *   3. 算"哪些已存在的文件会被改写"，**先把它们备份走**；
- *   4. 按段次序执行：`options.txt` 两段在内存里叠加、最后**一次**原子写出；服务器列表
- *      逐段落；通用文件组逐段落；MaLiLib 逐段落。
+ * 1. 读目标快照（`readTargetSnapshot()`）；
+ * 2. `planPresetApplication()` 算一遍 —— 算不出来 / 游戏在跑 / 需要确认 ⇒ 到此为止；
+ * 3. 算"哪些已存在的文件会被改写"，**先把它们备份走**；
+ * 4. 按段次序执行：`options.txt` 两段在内存里叠加、最后**一次**原子写出；服务器列表
+ * 逐段落；通用文件组逐段落；MaLiLib 逐段落。
  *
- * ★ 第 4 步的次序就是计划表的次序（= manifest 里 `sections` 的次序）。把 `options.txt`
- *   两段合成一次写，是因为它们落在同一个文件上：分两次写会让第二段读到第一段刚写下去的
- *   那一份（那样也对，但会多一次原子替换、多一个中途状态）。
+ * 第 4 步的次序就是计划表的次序（= manifest 里 `sections` 的次序）。把 `options.txt`
+ * 两段合成一次写，是因为它们落在同一个文件上：分两次写会让第二段读到第一段刚写下去的
+ * 那一份（那样也对，但会多一次原子替换、多一个中途状态）。
  */
 PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const PresetManifest &manifest,
                                         const PresetApplyRequest &request);

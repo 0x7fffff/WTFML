@@ -33,9 +33,9 @@ int runModActionPanelChecks() {
     QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/msyh.ttc"));
     QApplication::setFont(QFont(QStringLiteral("Microsoft YaHei"), 10));
     qApp->setStyleSheet(Theme::widgetStyleSheet());
-    // ★ 不要写在 `cwd/build/...`：`mw_check.exe` 是从自己的目录跑的，
-    //   那里没有 `build/` 这一层 ⇒ QTemporaryDir 无效、第一条 fixture 就 `return 1`，
-    //   而且**一个字都不打印**（看起来像崩溃）。系统临时目录永远可用。
+    // 不要写在 `cwd/build/...`：`mw_check.exe` 是从自己的目录跑的，
+    // 那里没有 `build/` 这一层 ⇒ QTemporaryDir 无效、第一条 fixture 就 `return 1`，
+    // 而且**一个字都不打印**（看起来像崩溃）。系统临时目录永远可用。
     QTemporaryDir dir;
     if (!dir.isValid()) { std::printf("FAIL temporary fixture directory unavailable\n"); return 2; }
     for (const auto &name : {QStringLiteral("Sodium.jar"), QStringLiteral("Iris.jar.disabled")}) {

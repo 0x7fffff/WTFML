@@ -1,8 +1,6 @@
 /**
  * @file InstanceIconLookup.cpp
  * @brief 实现见 .hpp。
- * @author 0x7fffff
- * @date 2026-09-27
  */
 
 #include "InstanceIconLookup.hpp"
@@ -175,9 +173,9 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
     // 同时存在），所以两张表都是"哈希 → 路径表"。
     QHash<QString, QStringList> pathsBySha1;
     QHash<quint32, QStringList> pathsByFingerprint;
-    // 路径 → sha1。★ 2026-09-28 加的一位：这一位**不是为了认身份**（认身份用上面那两张
+    // 路径 → sha1。★ 加的一位：这一位**不是为了认身份**（认身份用上面那两张
     // 表），是为了 `Found::sha1` —— 实例设置那个「检查更新」拿它判"盘上这一份是第几版"
-    //（见 Found::sha1 那段）。键是**路径**：同一个文件摆了两份时两条路径都要拿到它。
+    // （见 Found::sha1 那段）。键是**路径**：同一个文件摆了两份时两条路径都要拿到它。
     QHash<QString, QString> sha1ByPath;
     for (const QString &path : paths) {
         if (!isLookupCandidate(path)) {
@@ -192,8 +190,6 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
             continue;
         }
         ++result.hashed;
-        // ★ 2026-09-28：这一位是**为了更新检测**（见 Found::sha1 那段）。算它不用多读一个
-        //   字节 —— 上面那一趟本来就把 sha1 和指纹一起算出来了。
         sha1ByPath.insert(path, hashes.sha1);
         pathsBySha1[hashes.sha1].append(path);
         if (hashes.fingerprintOk) {
@@ -204,15 +200,15 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
         return result;
     }
 
-    // ★ 这一层自己 new 一个 QNAM：**它归调用它的那个线程**（见 .hpp 里那段"为什么不在
-    //   工作线程里用 VersionManager 那两个 lookup"）。三发都走它。
+    // 这一层自己 new 一个 QNAM：**它归调用它的那个线程**（见 .hpp 里那段"为什么不在
+    // 工作线程里用 VersionManager 那两个 lookup"）。三发都走它。
     QNetworkAccessManager network;
 
     // ---------- ② Modrinth：sha1 → 项目号 ----------
     //
-    // ★ 2026-09-27：这一趟只定"哪个文件是哪个项目"，**不再当场造 Found** —— 项目号到手时
-    //   手上还没有名字 / slug / 简介 / 支持的游戏版本（那几样只在**项目对象**里，见 ②'）。
-    //   记成"路径 → 项目号"，等详情回来再摊成一条一条。
+    // 这一趟只定"哪个文件是哪个项目"，**不再当场造 Found** —— 项目号到手时
+    // 手上还没有名字 / slug / 简介 / 支持的游戏版本（那几样只在**项目对象**里，见 ②'）。
+    // 记成"路径 → 项目号"，等详情回来再摊成一条一条。
     if (!pathsBySha1.isEmpty()) {
         QHash<QString, QString> projectByPath;
         QHash<QString, ResourceCatalog::VersionEntry> versionsByPath;
@@ -238,9 +234,9 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
                 // 这一发没成：**到此为止**（不再往下问 CurseForge），但**已经认出来的那些
                 // 留着** —— 它们是真的，没理由因为后面这一发失败就把它们扔掉。
                 //
-                // ★ 真正要紧的是 `problem` 立起来了：接的人按它决定"没认出来的那些**别**
-                //   记成'问过了、没有'"。半真半假的一趟要是把负缓存写了，用户这一整个会话
-                //   都再也看不到图标（见 Result::problem 那段）。
+                // 真正要紧的是 `problem` 立起来了：接的人按它决定"没认出来的那些**别**
+                // 记成'问过了、没有'"。半真半假的一趟要是把负缓存写了，用户这一整个会话
+                // 都再也看不到图标（见 Result::problem 那段）。
                 result.problem = reply.networkError.isEmpty()
                                      ? QObject::tr("Modrinth 反查回了 HTTP %1。").arg(reply.status)
                                      : QObject::tr("Modrinth 反查没连上：%1").arg(reply.networkError);
@@ -260,11 +256,11 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
                 if (projectId.isEmpty()) {
                     continue;
                 }
-                // ★ 只有**这一趟真的有文件对得上**的那个号才进 wantedProjects：这一发要的是
-                //   "这些文件分别属于哪个项目"，回一句里多出来的条目（对不上任何路径的）跟
-                //   这一趟无关。按整份回复收号的话，那一发会**替不相干的号白问一次详情**
-                //   —— 请求地址更长、偶尔多一批 404，而屏幕上一点异常都没有（mw_check 的
-                //   T22.4b「同一个资源摆两份」那一条就盯在这里）。
+                // 只有**这一趟真的有文件对得上**的那个号才进 wantedProjects：这一发要的是
+                // "这些文件分别属于哪个项目"，回一句里多出来的条目（对不上任何路径的）跟
+                // 这一趟无关。按整份回复收号的话，那一发会**替不相干的号白问一次详情**
+                // —— 请求地址更长、偶尔多一批 404，而屏幕上一点异常都没有（mw_check 的
+                // T22.4b「同一个资源摆两份」那一条就盯在这里）。
                 const QStringList paths = pathsBySha1.value(it.key());
                 if (paths.isEmpty()) {
                     continue;
@@ -281,24 +277,17 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
 
         // ---------- ②' 这些项目号各自的**项目对象**（图标地址 + 详情）----------
         //
-        // ★ 这一段是 2026-09-27 补的，缘由是一次实测：原来这里不收图标地址，指望
-        //   `Hit::iconPngUrl()` 自己拼的那条 `cdn.modrinth.com/data/<id>/icon.png` 兜住。
-        //   那条地址**只是老项目的别名** —— 拿用户真实 `mods/` 里 20 个模组一个一个要过：
-        //   **11 个回 404**（FerriteCore / Fabric Language Kotlin / Carpet / Fabric
-        //   Permissions API / ArmorQuickSwap / Fox Friend …），只有 9 个回 200（恰好是
-        //   "图标当年就叫 icon.png"的那几个：Sodium / Fabric API / Jade / cloth-config …）。
-        //   修完再用本工程的 `icon-lookup-live` 对着一个真实例的 mods/ 复量（51 个模组）：
-        //   **51 个全部拿到接口给的图标地址**，而那条老别名 33 个回 404、18 个回 200。
-        //   于是这一页上**绝大多数模组只有占位拼图**，而屏幕上一点异常都没有（那一发 404
-        //   被当成"这个项目没传过图标"—— 那本来是完全正常的一件事）。
-        //   （用户原话：「模组的图标没有正确加载」。）
-        //
-        //   真正那条地址在**带哈希的文件名**底下（`…/<哈希>.png` 或 `…/<哈希>_96.webp`），
-        //   除了接口没人说得出来。一发问一批（同一个上限），50 个号实测 894 字符、1.0 秒。
-        //
-        // ★ 2026-09-27 又补一半：读的是 `parseProjects()`，也就是**整个项目对象** ——
-        //   文件管理那几页"点名字进它的下载页"要的名字 / slug / 简介 / 支持的游戏版本
-        //   就在同一份字节里（见 `Found::hit` 那段）。多读几栏，不多发一个请求。
+        // 这一段是 补的，缘由是一次实测：原来这里不收图标地址，指望
+        // `Hit::iconPngUrl()` 自己拼的那条 `cdn.modrinth.com/data/<id>/icon.png` 兜住。
+        // 那条地址**只是老项目的别名** —— 拿用户真实 `mods/` 里 20 个模组一个一个要过：
+        // **11 个回 404**（FerriteCore / Fabric Language Kotlin / Carpet / Fabric
+        // Permissions API / ArmorQuickSwap / Fox Friend …），只有 9 个回 200（恰好是
+        // "图标当年就叫 icon.png"的那几个：Sodium / Fabric API / Jade / cloth-config …）。
+        // 修完再用本工程的 `icon-lookup-live` 对着一个真实例的 mods/ 复量（51 个模组）：
+        // **51 个全部拿到接口给的图标地址**，而那条老别名 33 个回 404、18 个回 200。
+        // 于是这一页上**绝大多数模组只有占位拼图**，而屏幕上一点异常都没有（那一发 404
+        // 被当成"这个项目没传过图标"—— 那本来是完全正常的一件事）。
+        // （要求：「模组的图标没有正确加载」。）
         QHash<QString, ResourceCatalog::Hit> hitsByProject;
         for (int offset = 0; offset < wantedProjects.size(); offset += kLookupChunk) {
             const HttpClient::Reply reply = HttpClient::send(
@@ -308,11 +297,11 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
                 HttpClient::Verb::Get, QByteArray(), QByteArray(), QByteArray(),
                 HttpClient::kDefaultTimeoutMs, headers);
             if (!reply.ok()) {
-                // ★ **不 return**（和上面那两处不一样）：身份已经定下来了 —— 上面那一发认
-                //   出来的那些是真的，缺的只是详情与图，那几格退回占位拼图就是正确的界面。
-                //   而且也不能往 `problem` 里写：它是"这一趟完整不完整"的判据，这一发失败
-                //   不影响那个判断，写进去的代价是下一趟把几十兆 jar 从头重读一遍
-                //   （见 Result::iconProblem）。
+                // **不 return**（和上面那两处不一样）：身份已经定下来了 —— 上面那一发认
+                // 出来的那些是真的，缺的只是详情与图，那几格退回占位拼图就是正确的界面。
+                // 而且也不能往 `problem` 里写：它是"这一趟完整不完整"的判据，这一发失败
+                // 不影响那个判断，写进去的代价是下一趟把几十兆 jar 从头重读一遍
+                // （见 Result::iconProblem）。
                 result.iconProblem = reply.networkError.isEmpty()
                                          ? QObject::tr("Modrinth 取图标地址时回了 HTTP %1。")
                                                .arg(reply.status)
@@ -401,8 +390,6 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
         // 项目号 → **项目对象**（logo 那两条地址，以及名字 / slug / 简介 / 游戏版本）。
         // **只有认出来的项目才问**（十几个号一发就够）。
         QList<int> projectIds;
-        // ★ 2026-10-11：去重先用一个 QSet 过一遍（先前是 `projectIds.contains()` 线性扫 ——
-        //   指纹表一大就是 O(n²)；同仓 VersionManager 里同样的事用的正是 QSet）。
         QSet<int> seenProjectIds;
         for (auto it = projectByFingerprint.constBegin(); it != projectByFingerprint.constEnd();
              ++it) {
@@ -429,11 +416,11 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
                 // 所以**认出来的那些照样往下走**（名字空着 ⇒ 那一行的名字点不动，图标退回
                 // 占位拼图），只把 iconProblem 立起来。
                 //
-                // ★ 2026-09-27 改：这里从前写的是 `problem`（那个字段是**整趟完整不完整**的
-                //   判据，见 Result::iconProblem 那段），而紧挨着的注释写着"只影响图标地址"
-                //   —— 注释和代码说的不是一件事。按注释（也就是按规矩）改过来：这一发失败
-                //   不该让整趟作废，否则每开一次设置页都要把几十兆 jar 从头重读重算一遍，
-                //   换来的只是"图标可能来了"。
+                // 改：这里从前写的是 `problem`（那个字段是**整趟完整不完整**的
+                // 判据，见 Result::iconProblem 那段），而紧挨着的注释写着"只影响图标地址"
+                // —— 注释和代码说的不是一件事。按注释（也就是按规矩）改过来：这一发失败
+                // 不该让整趟作废，否则每开一次设置页都要把几十兆 jar 从头重读重算一遍，
+                // 换来的只是"图标可能来了"。
                 result.iconProblem = reply.networkError.isEmpty()
                                          ? QObject::tr("CurseForge 取图标时回了 HTTP %1。")
                                                .arg(reply.status)
@@ -471,14 +458,14 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
 /// 把这一趟的结果并回盘上那份、写回去（见 .hpp 里那段）。
 ///
 /// 三条规矩：
-///  * **盘上那些照旧留着**（这一趟没问它们）；「这一趟问过、这一趟有结论」的那些才覆盖掉。
-///  * **阴性只在整趟跑完时才记**（`problem` 空）—— 断网那一趟记下去，用户网好了也看不到
-///    图标（见 `Result::problem` 那段）。
-///  * 盘上那个文件已经不在的就**顺手丢掉**（不然一份缓存会越攒越大，而它记的都是些早被
-///    用户删掉的文件）。
+/// * **盘上那些照旧留着**（这一趟没问它们）；「这一趟问过、这一趟有结论」的那些才覆盖掉。
+/// * **阴性只在整趟跑完时才记**（`problem` 空）—— 断网那一趟记下去，用户网好了也看不到
+/// 图标（见 `Result::problem` 那段）。
+/// * 盘上那个文件已经不在的就**顺手丢掉**（不然一份缓存会越攒越大，而它记的都是些早被
+/// 用户删掉的文件）。
 ///
 /// NOTE: 判"文件还在不在"要**两个名字都试**（身份路径，以及它 + `.disabled`）—— 身份路径
-///       是摘过后缀的那一个，禁用着的模组在盘上叫另一个名字。
+/// 是摘过后缀的那一个，禁用着的模组在盘上叫另一个名字。
 void saveCache(const Options &options, const QStringList &paths, const Result &result,
                const QHash<QString, CacheEntry> &cached) {
     if (!cacheEnabled(options)) {

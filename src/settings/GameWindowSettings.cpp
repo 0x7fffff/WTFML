@@ -1,10 +1,8 @@
 /**
  * @file GameWindowSettings.cpp
  * @brief 实现游戏窗口那一组设置的合成、读写与命令行拼接。
- * @author 0x7fffff
- * @date 2026-09-28
  * @note 见 GameWindowSettings.hpp。这一份里全是纯函数，唯一有副作用的是
- *       maximizedContentSize()（它要起一个看不见的窗口量一次边框）。
+ * maximizedContentSize()（它要起一个看不见的窗口量一次边框）。
  */
 
 #include "GameWindowSettings.hpp"
@@ -14,19 +12,19 @@
 #include <QCoreApplication>
 #include <QJsonValue>
 
-// ★ 只有**链了 Widgets 的那几份**才编得出探测窗口那一段：verify 那个工程是纯 Core 的
-//   （它是"喂纯值、断纯函数"的那一档，一个窗口都不开），在那儿 QWidget 这个头根本不存在。
-//   所以这一段按 `QT_WIDGETS_LIB` 编 —— 那是 Qt6Widgets 这个 CMake 目标自己带的编译宏
-//   （QWidget 那套头文件里也是拿它认的），链了 Widgets 才有。
+// 只有**链了 Widgets 的那几份**才编得出探测窗口那一段：verify 那个工程是纯 Core 的
+// （它是"喂纯值、断纯函数"的那一档，一个窗口都不开），在那儿 QWidget 这个头根本不存在。
+// 所以这一段按 `QT_WIDGETS_LIB` 编 —— 那是 Qt6Widgets 这个 CMake 目标自己带的编译宏
+// （QWidget 那套头文件里也是拿它认的），链了 Widgets 才有。
 //
-//   没有它的那一份里 maximizedContentSize() 退回"量不出来"那条路（原样返回工作区），
-//   而那正是**它的行为在那种进程里本来就该是的样子**（那时连 QApplication 都没有，下面
-//   那一段的运行时判据也过不去）。两条路不是两份实现：能跑的那一份走的还是同一个分支。
+// 没有它的那一份里 maximizedContentSize() 退回"量不出来"那条路（原样返回工作区），
+// 而那正是**它的行为在那种进程里本来就该是的样子**（那时连 QApplication 都没有，下面
+// 那一段的运行时判据也过不去）。两条路不是两份实现：能跑的那一份走的还是同一个分支。
 //
-//   NOTE: 别改用 `QT_CONFIG(widgets)` —— 那个宏展开成 `1/QT_FEATURE_widgets`，而
-//         `QT_FEATURE_widgets` 定义在 QtWidgets 自己的那份 config 里，得先 include 一个
-//         Widgets 头才看得见（于是它判不出"这个工程链没链 Widgets"，只会报"division by
-//         zero in #if"）。
+// NOTE: 别改用 `QT_CONFIG(widgets)` —— 那个宏展开成 `1/QT_FEATURE_widgets`，而
+// `QT_FEATURE_widgets` 定义在 QtWidgets 自己的那份 config 里，得先 include 一个
+// Widgets 头才看得见（于是它判不出"这个工程链没链 Widgets"，只会报"division by
+// zero in #if"）。
 #if defined(QT_WIDGETS_LIB)
 #include <QApplication>
 #include <QEventLoop>  // QEventLoop::ExcludeUserInputEvents
@@ -206,10 +204,10 @@ ScreenWorkArea maximizedContentSize(const ScreenWorkArea &workArea) {
     // 窗口拿不到边框（量出来是 0），正好等于"量不出来就原样返回"。
     //
     // NOTE: 这就是本文件唯一的副作用。它凭什么可以留在这儿：量出来的结果**只**用于
-    //       「最大化」那一档，而且量不出来时是"退化成工作区原样"，不会把谁弄崩。
+    // 「最大化」那一档，而且量不出来时是"退化成工作区原样"，不会把谁弄崩。
 #if defined(QT_WIDGETS_LIB)
     // NOTE: 判的是"真的有一个 QApplication"（不是 `instance() != nullptr` —— 那一句在一个
-    //       只有 QCoreApplication 的进程里也成立，而在那种进程里造 QWidget 会直接崩）。
+    // 只有 QCoreApplication 的进程里也成立，而在那种进程里造 QWidget 会直接崩）。
     if (qobject_cast<QApplication *>(QCoreApplication::instance()) != nullptr) {
         QWidget probe;
         probe.setWindowFlags(Qt::Window);
@@ -218,10 +216,10 @@ ScreenWorkArea maximizedContentSize(const ScreenWorkArea &workArea) {
         // 摆到桌面外面去：量边框**不影响窗口在哪儿**，而摆在屏幕里会让用户看见一个白框闪一下。
         probe.move(-32000, -32000);
         probe.show();
-        // ★ 2026-10-20：只转事件循环、**不收用户输入**。这一句是在拼启动参数的最后一步里跑的，
-        //   一次 `processEvents()` 会把此刻积在队列里的鼠标/键盘事件派发出去 —— 用户正好在点
-        //   「启动」时按下的东西（比如再点一下别的按钮、或者勾/取消勾一个选项）会插进这一趟
-        //   正在拼的命令行中间。量边框只需要窗口被真正创建出来，和用户输入无关。
+        // 只转事件循环、**不收用户输入**。这一句是在拼启动参数的最后一步里跑的，
+        // 一次 `processEvents()` 会把此刻积在队列里的鼠标/键盘事件派发出去 —— 用户正好在点
+        // 「启动」时按下的东西（比如再点一下别的按钮、或者勾/取消勾一个选项）会插进这一趟
+        // 正在拼的命令行中间。量边框只需要窗口被真正创建出来，和用户输入无关。
         QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
         const QSize frame = probe.frameGeometry().size() - probe.size();
         probe.hide();

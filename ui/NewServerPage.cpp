@@ -1,8 +1,6 @@
 /**
  * @file NewServerPage.cpp
  * @brief 「新建服务端」那一页的实现（形状与取舍见头文件）。
- * @author 0x7fffff
- * @date 2026-10-13
  */
 
 #include "NewServerPage.hpp"

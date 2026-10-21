@@ -1,13 +1,11 @@
 /**
  * @file ModDependencies.hpp
  * @brief 两件和"前置模组"有关的事的**纯函数**部分：
- *        ① 装一个模组时，它声明要的那些前置里**还缺哪几个**、每个该去问哪条地址、
- *           问回来之后挑哪一版（用户 2026-09-28：「选择模组后显示其依赖，点击下载后
- *           弹出窗口，让用户可以点击一键下载所有缺少的依赖」）；
- *        ② 实例里已经装着的那些模组**有没有新版本**（用户 2026-09-28：「实例设置那里
- *           做一个更新检测」）。
- * @author 0x7fffff
- * @date 2026-09-28
+ * ① 装一个模组时，它声明要的那些前置里**还缺哪几个**、每个该去问哪条地址、
+ * 问回来之后挑哪一版（用户 ：「选择模组后显示其依赖，点击下载后
+ * 弹出窗口，让用户可以点击一键下载所有缺少的依赖」）；
+ * ② 实例里已经装着的那些模组**有没有新版本**（用户 ：「实例设置那里
+ * 做一个更新检测」）。
  *
  * 【为什么单独一个文件，而不是塞进 ResourceCatalog】
  *
@@ -19,16 +17,16 @@
  *
  * 【这一层刻意不知道的事】
  *
- *   · 不知道网络：它只**拼**地址（`Lookup::url` / `requestKey`），发不发、什么时候发、
- *     回来的是不是这一发（钥匙对得上没有）都是 ResourceStore 和 MainWindow 的事；
- *   · 不知道界面：没有一句"要不要弹窗""按钮写什么"，只有 `*Text()` 那几个**唯一出处**
- *     的静态函数（界面拿它们写字，验证工程拿它们断言）；
- *   · 不知道盘：`installedKeys` 是**调用方**从会话缓存里算好递进来的（主程序那边是
- *     `m_instanceFileIdentities`，见 MainWindow 里那一段）。
+ * · 不知道网络：它只**拼**地址（`Lookup::url` / `requestKey`），发不发、什么时候发、
+ * 回来的是不是这一发（钥匙对得上没有）都是 ResourceStore 和 MainWindow 的事；
+ * · 不知道界面：没有一句"要不要弹窗""按钮写什么"，只有 `*Text()` 那几个**唯一出处**
+ * 的静态函数（界面拿它们写字，验证工程拿它们断言）；
+ * · 不知道盘：`installedKeys` 是**调用方**从会话缓存里算好递进来的（主程序那边是
+ * `m_instanceFileIdentities`，见 MainWindow 里那一段）。
  *
- * NOTE: 用户 2026-09-27 说过「前置模组记得预留一键下载的接口，先不急」，`requiredDependenciesOf`
- *       那一版就停在"要下谁"（只有 project_id）。这一版接着往下走了一格：**要下谁、去哪儿问、
- *       挑哪一版、挑不出来怎么说** 全在这一层，界面那一层只负责"把 Plan 变成一批下载"。
+ * NOTE: 用户 说过「前置模组记得预留一键下载的接口，先不急」，`requiredDependenciesOf`
+ * 那一版就停在"要下谁"（只有 project_id）。这一版接着往下走了一格：**要下谁、去哪儿问、
+ * 挑哪一版、挑不出来怎么说** 全在这一层，界面那一层只负责"把 Plan 变成一批下载"。
  */
 
 #pragma once
@@ -51,9 +49,9 @@ namespace ModDependencies {
  * （症状一样）。所以 `versionsUrl()` 两个参数都发。
  *
  * NOTE: `gameVersion` / `loader` 为空**不是错误**，是"这个实例认不出来"（纯原版、或者
- *       PCL 那类合并实例读不出版本 json 里的加载器，见 MainWindow 里 `instanceLoaderName()`
- *       那段）。那时候只能是"不筛"—— 问出来的可能是任意一版，**界面得如实说这一条是猜的**，
- *       不能假装筛过。
+ * PCL 那类合并实例读不出版本 json 里的加载器，见 MainWindow 里 `instanceLoaderName()`
+ * 那段）。那时候只能是"不筛"—— 问出来的可能是任意一版，**界面得如实说这一条是猜的**，
+ * 不能假装筛过。
  */
 struct Target {
     /// 装进哪儿的 id（只用来写日志 / 认人，判据不用它）。
@@ -63,10 +61,10 @@ struct Target {
     /// 加载器名（**小写**，`fabric` / `forge` / `neoforge` / `quilt`）。空 = 不筛。
     ///
     /// NOTE: 塞进来的那个词**不一定**是这一家接口认得的那几个（`OptiFine` 就不在 Modrinth /
-    ///       CurseForge 的白名单里）。这一层**不判**：它只把值原样递给 `versionsUrl()` /
-    ///       `versionsRequestKey()`，由 `ResourceCatalog::loaderRequestValue()` 按来源翻成
-    ///       接口要的写法 —— **认不出来就回空串 = 不筛**（那边不报错，只是什么都筛不出来，
-    ///       而"什么都没筛出来"和"这个资源没有能用的版本"在界面上是同一句话）。
+    /// CurseForge 的白名单里）。这一层**不判**：它只把值原样递给 `versionsUrl()` /
+    /// `versionsRequestKey()`，由 `ResourceCatalog::loaderRequestValue()` 按来源翻成
+    /// 接口要的写法 —— **认不出来就回空串 = 不筛**（那边不报错，只是什么都筛不出来，
+    /// 而"什么都没筛出来"和"这个资源没有能用的版本"在界面上是同一句话）。
     QString loader;
     /// 这个模组是从哪一家下来的 —— 前置也去**同一家**问（两家的项目号不是一套）。
     ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
@@ -91,15 +89,8 @@ struct Target {
 
 /// 这一层自己去问版本列表时要的那把钥匙（`@p consumer` 是"谁在问"）。
 ///
-/// 形状就是 `versionsRequestKey()` 后面挂一个消费方名字。**为什么要挂**：
-/// `ResourceStore::fetchVersions()` 是**按钥匙去重**的 —— 同一把钥匙再来一发，它会把
-/// 前一发 **abort** 掉（那一发的结果于是永远不回）。而"资源详情页正在读这个项目的版本"
-/// 和"前置检查 / 更新检测也在读它"是**三件不同的事**，三者不区分的话，后发的那一发会把
-/// 先发的掐掉，先发那一趟的 `pending` 永远减不到 0 —— 它那个框（或者那份报告）就永远不
-/// 出来，而屏幕上一点异常都没有（用户看到的正是"按了没反应"）。
-///
 /// @param consumer 谁在问（`dependency` / `update`）。**新加一个消费方就得换个名字** ——
-///        重名等于回到上面那个坑。
+/// 重名等于回到上面那个坑。
 QString versionsKeyFor(const QString &consumer, const QString &projectId,
                        const QString &gameVersion, const QString &loader,
                        ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth);
@@ -108,7 +99,7 @@ QString versionsKeyFor(const QString &consumer, const QString &projectId,
 /// "这几个号叫什么"）。`consumer` 那张名单和上面那条各算各的（一个消费方在两条路上是
 /// 同一个名字，但两条路的钥匙本来就是两份不同的字符串）。
 ///
-/// 为什么这一条也得挂消费方（2026-09-28 补）：`fetchProjects()` 和 `fetchVersions()` 一样
+/// 为什么这一条也得挂消费方（ 补）：`fetchProjects()` 和 `fetchVersions()` 一样
 /// 是**按钥匙去重**的（同一把钥匙再来一发会把前一发 abort 掉，那一发的结果于是永远不回）。
 /// 今天有两个人在问名字：「装一个模组时那几个前置叫什么」（`dependency`）和「详情页上那
 /// 一行前置写什么」（`detail`）。两边问的**恰好是同一批号**时撞车的话，先发那一趟的
@@ -145,20 +136,20 @@ struct Lookup {
  * @brief 这个版本声明的必装前置里，目标实例**还缺哪几个**。
  *
  * 判据三样，缺一不可：
- *   · `dependency.required()` —— optional / incompatible / embedded 都不下（`embedded` 是
- *     已经打进那个 jar 里的，再下一份反而是两份）；
- *   · `projectId` 非空 —— 空的那一条是接口给的烂数据，拼出来的地址会问出一堆东西来；
- *   · 目标实例里**没有**它 —— `installedKeys` 里有 `target.installedKey(projectId)` 就跳过。
+ * · `dependency.required()` —— optional / incompatible / embedded 都不下（`embedded` 是
+ * 已经打进那个 jar 里的，再下一份反而是两份）；
+ * · `projectId` 非空 —— 空的那一条是接口给的烂数据，拼出来的地址会问出一堆东西来；
+ * · 目标实例里**没有**它 —— `installedKeys` 里有 `target.installedKey(projectId)` 就跳过。
  *
  * @param version 用户点"下载"的那一版（它自己的 `dependencies`）。
  * @param installedKeys 目标实例里已经认出来的资源（键是 `<来源>-<项目号>`，见
- *        `Target::installedKey`）。
+ * `Target::installedKey`）。
  * @param target 装进哪儿。
  * @return 还缺的那些，**顺序原样**（接口给的顺序，不排 —— 排一个"哪个更该先下"的比较器，
- *         错了不会有任何东西报警，而下载顺序本来不影响结果）。一条不缺就回空表。
+ * 错了不会有任何东西报警，而下载顺序本来不影响结果）。一条不缺就回空表。
  *
  * NOTE: 回空表 ≠ "这个模组没有前置" —— 也可能是"前置都装着了"。**别拿它当那句话用**：
- *       要那个数得看 `requiredDependenciesOf()`（那边不看已装）。
+ * 要那个数得看 `requiredDependenciesOf()`（那边不看已装）。
  */
 QList<Lookup> missingRequiredDependencies(const ResourceCatalog::VersionEntry &version,
                                           const QSet<QString> &installedKeys,
@@ -181,12 +172,12 @@ struct Resolved {
  * @brief 从一个前置项目问回来的版本列表里挑一版。
  *
  * 两条路，**不要合并**：
- *   · 接口**钉了** `versionId`（作者说了"就要这一版"）→ 必须正好是那一条。找不到 =
- *     解不开，**不许退而求其次挑最新的一条** —— 作者钉版本往往是因为新旧不兼容，
- *     悄悄换一版比"这个前置没装上"更难查（症状是那几个模组一起不生效）。
- *   · 没钉（`versionId` 空 = "哪个版本都行"）→ 取**列表第一条**。这份列表接口给的就是
- *     **新的在前**（`parseVersions` 那段有实测），所以这里不排序、也不按版本号比大小 ——
- *     那种比较器（"1.9 比 1.10 旧"）写错了不会有任何东西报警。
+ * · 接口**钉了** `versionId`（作者说了"就要这一版"）→ 必须正好是那一条。找不到 =
+ * 解不开，**不许退而求其次挑最新的一条** —— 作者钉版本往往是因为新旧不兼容，
+ * 悄悄换一版比"这个前置没装上"更难查（症状是那几个模组一起不生效）。
+ * · 没钉（`versionId` 空 = "哪个版本都行"）→ 取**列表第一条**。这份列表接口给的就是
+ * **新的在前**（`parseVersions` 那段有实测），所以这里不排序、也不按版本号比大小 ——
+ * 那种比较器（"1.9 比 1.10 旧"）写错了不会有任何东西报警。
  *
  * 挑出来的那一条**还得有文件可下**：`primaryFile()` 为空、或者它的 `url` 是空串
  * （CurseForge 那边 = 作者关掉了第三方分发），都算解不开 —— 那时候界面上要说的正是
@@ -214,12 +205,12 @@ struct Plan {
  * @brief 把"问回来的答案"算成"下什么"。
  *
  * @param lookups `missingRequiredDependencies()` 发出去的那一批（**顺序照原样**，
- *        Plan 里 downloads 的顺序就跟着它）。
+ * Plan 里 downloads 的顺序就跟着它）。
  * @param answers 钥匙（`Lookup::requestKey`）→ 那一发的版本列表。缺席（钥匙不在里面）
- *        算**解不开**，理由写"没问到"—— 那一发失败和"它一个版本都没有"是两件事，
- *        但用户的下一步是同一件（去项目页自己看），所以分成两句话、一个字都不许含糊。
+ * 算**解不开**，理由写"没问到"—— 那一发失败和"它一个版本都没有"是两件事，
+ * 但用户的下一步是同一件（去项目页自己看），所以分成两句话、一个字都不许含糊。
  * @param titlesByProjectId 项目号 → 名字（界面上那几句话里用的是名字）。空表也行
- *        （那就是名字取不到，退成项目号 —— 列出来总比"有 2 个前置没找到"强）。
+ * （那就是名字取不到，退成项目号 —— 列出来总比"有 2 个前置没找到"强）。
  */
 Plan buildPlan(const QList<Lookup> &lookups,
                const QHash<QString, QList<ResourceCatalog::VersionEntry>> &answers,
@@ -243,7 +234,7 @@ struct InstalledItem {
     /// `xxx.jar` 是同一份），而**同一个文件的 sha1 换不了**。接口两条路都带它
     /// （Modrinth `files[].hashes.sha1`、CurseForge `hashes` 里 `algo == 1` 那条）。
     QString sha1;
-    /// ★★ 2026-10-11：问版本列表时**要不要带上实例的加载器**。
+    /// 问版本列表时**要不要带上实例的加载器**。
     ///
     /// 它就是 `kindUsesLoader()`（那支函数是这条规矩的唯一出处）在**这一条文件**上的答案，
     /// 由调用方在"反查回来、知道这个路径在哪一类目录下"那一刻填上。
@@ -254,7 +245,7 @@ struct InstalledItem {
     /// —— Modrinth 的资源包写 `minecraft`、光影写 `iris` / `optifine`（实测 Complementary
     /// 那条就是 `['iris','optifine']`）、数据包写 `datapack` —— 带上「Fabric」上去
     /// **不会报错、只是一个都不匹配**，于是那一类的每一条都判成"说不清"。真机实测
-    /// （2026-10-11，用户那个整合包）：14 个资源包 + 光影包一条都判不出来，报告里全是
+    /// （，用户那个整合包）：14 个资源包 + 光影包一条都判不出来，报告里全是
     /// "没问到版本列表（网络或接口没成）"—— 而同一个 sha1 把 `loaders` 去掉再问，
     /// 接口**当场就答**（同一条 `curl` 实测，见 FEATURES.md）。
     bool loaderApplies = true;
@@ -307,16 +298,16 @@ QString updateDifferenceText(const ResourceCatalog::VersionEntry &current,
  * @brief 拿"这个资源问回来的版本列表"判盘上这一条是不是最新的。
  *
  * 判据只有一条：**这个文件的 sha1 落在列表的第几条上**。
- *   · 落在第 0 条（最新的那一条）→ 已是最新；
- *   · 落在第 k 条（k > 0）→ 有 k 条比它新；
- *   · 一条都没落上 → 说不清。
+ * · 落在第 0 条（最新的那一条）→ 已是最新；
+ * · 落在第 k 条（k > 0）→ 有 k 条比它新；
+ * · 一条都没落上 → 说不清。
  *
  * 【为什么会"一条都没落上"（这一档不是错误）】
  *
- *   · 列表是**按目标实例筛过**的（游戏版本 + 加载器，见 `versionsUrl`），盘上那一版可能是
- *     另一个游戏版本的 —— 那不是"过期"，是"这一版不该装在这个实例里"；
- *   · 作者把老版本删了（接口就不再列它）；
- *   · 用户自己改过那个 jar（改过的 jar sha1 当然对不上，而它**确实**不是任何一版）。
+ * · 列表是**按目标实例筛过**的（游戏版本 + 加载器，见 `versionsUrl`），盘上那一版可能是
+ * 另一个游戏版本的 —— 那不是"过期"，是"这一版不该装在这个实例里"；
+ * · 作者把老版本删了（接口就不再列它）；
+ * · 用户自己改过那个 jar（改过的 jar sha1 当然对不上，而它**确实**不是任何一版）。
  * 这三种的下一步都是"去项目页自己看"，所以合成一句。**不许**退化成"按版本号比大小" ——
  * 那是上面那段说的那个不会报警的比较器。
  *
@@ -327,7 +318,7 @@ UpdateVerdict judgeUpdate(const InstalledItem &item,
                           const QString &problem = QString());
 
 /**
- * @brief 拿**批量那一发**给的"最新那一版"判盘上这一条是不是最新的（2026-10-11 加）。
+ * @brief 拿**批量那一发**给的"最新那一版"判盘上这一条是不是最新的（ 加）。
  *
  * 和上面那个 `judgeUpdate()` 的判据**是同一条**（"盘上这一份是不是最新的那一版"），区别只在
  * 手里有什么：那一条拿的是整个版本列表（所以能说"比它新的有几条"），这一条拿的是接口直接
@@ -335,14 +326,14 @@ UpdateVerdict judgeUpdate(const InstalledItem &item,
  * `ResourceStore::fetchLatestVersions()` 那段：一页几百个模组各问一发会把 Modrinth 问到
  * 429，那一发就是为这件事加的）。
  *
- *   · `latest` 有东西、而且它某个文件的 sha1 就是 `item.sha1` → **已是最新**；
- *   · `latest` 有东西、对不上 → **可更新**（换成它的那一版）；
- *   · `latest` 空的 → **说不清**（不是"已是最新"）：接口对"这个哈希"什么都没给 —— 那个项目
- *     在这个游戏版本 / 加载器下没有版本，或者它压根不在 Modrinth 上。
+ * · `latest` 有东西、而且它某个文件的 sha1 就是 `item.sha1` → **已是最新**；
+ * · `latest` 有东西、对不上 → **可更新**（换成它的那一版）；
+ * · `latest` 空的 → **说不清**（不是"已是最新"）：接口对"这个哈希"什么都没给 —— 那个项目
+ * 在这个游戏版本 / 加载器下没有版本，或者它压根不在 Modrinth 上。
  *
  * @param problem 那一批自己的毛病（429 / 没连上 / 正文读不懂）。非空时**整批**都是
- *        "说不清"，而且 `reason` 就是它 —— 这就是 2026-10-11 那次用户报「无法正常获取更新」
- *        的正面修法：429 原来被吞成"没问到版本列表（网络或接口没成）"，用户看不见真因。
+ * "说不清"，而且 `reason` 就是它 —— 这就是 那次用户报「无法正常获取更新」
+ * 的正面修法：429 原来被吞成"没问到版本列表（网络或接口没成）"，用户看不见真因。
  */
 UpdateVerdict judgeUpdateAgainstLatest(const InstalledItem &item,
                                        const ResourceCatalog::VersionEntry &latest,
@@ -363,20 +354,20 @@ QString latestVersionsKeyFor(const QString &consumer, const QString &gameVersion
 QString dependencyPromptTitle();
 
 /// 弹窗正文的**句头**：「此模组缺失必要的前置：」/「此光影包缺失必要的前置：」。
-/// 2026-10-09 起光影包也查前置（用户确认），所以句头得认这一版是哪一类。
+/// 起光影包也查前置（用户确认），所以句头得认这一版是哪一类。
 QString dependencyPromptHead(ResourceCatalog::Kind kind);
 
 /**
  * @brief 弹窗正文：句头 + 名单（一行一条）+「要一起下载吗？」。空表回空串
- *        （**空表时不该弹这个框**，见调用点）。
+ * （**空表时不该弹这个框**，见调用点）。
  *
- * 名单怎么摆是**这一层说了算**（用户 2026-10-09 点名的截断规则，那一整段写在 .cpp 里
+ * 名单怎么摆是**这一层说了算**（用户 点名的截断规则，那一整段写在 .cpp 里
  * 的 `dependencyNameLines`）：**总数 ≤ 4 全列**、**> 4 列前 3 条 + 「还有 N 个未列出…」**。
  * 所以永远看不到「还有 1 个未列出」那一行。
  *
- * @param kind  这一版是模组还是光影包（只决定句头那半句）。
+ * @param kind 这一版是模组还是光影包（只决定句头那半句）。
  * @param names 还没装的那些的**名字**（一条一行，前面带个短横）。名字取不到时调用方
- *        递进来的是项目号（见 MainWindow 里那段）—— 总比一条都不列强。
+ * 递进来的是项目号（见 MainWindow 里那段）—— 总比一条都不列强。
  */
 QString dependencyPromptText(ResourceCatalog::Kind kind, const QStringList &names);
 
@@ -393,11 +384,11 @@ QString dependencyPromptText(ResourceCatalog::Kind kind, const QStringList &name
 QString dependencyPromptUnknownText(ResourceCatalog::Kind kind, const QStringList &names);
 
 /// 弹窗里那行**灰字**（「可以在设置中关闭此提示（设置页「下载」→「缺失前置提醒」）。」）。
-/// 用户 2026-10-09：「弹窗里灰字写可以在设置里面关掉弹窗」。界面拿它喂
+/// 用户 ：「弹窗里灰字写可以在设置里面关掉弹窗」。界面拿它喂
 /// `InlineMessage::ask(...)` 的 note，验证工程拿它断言 —— 别在别处再写一遍。
 QString dependencyPromptNoteText();
 
-/// 「一起下载」（用户 2026-09-28 要的那个"一键下载所有缺少的依赖"）。
+/// 「一起下载」（用户 要的那个"一键下载所有缺少的依赖"）。
 QString dependencyAllButtonText();
 
 /// 「只下这个」（一起下载的反面 —— 用户得能说"不"）。
@@ -409,7 +400,7 @@ QString unresolvedNoteText(const QStringList &lines);
 /// 日志里那一行：「正在问 %1 个前置模组要下哪一版…」。
 QString dependencyLookupLogText(int count);
 
-/// 详情页上那一行（用户 2026-09-28：「如果有前置模组，在下载页的游戏版本选择和模组版本
+/// 详情页上那一行（用户 ：「如果有前置模组，在下载页的游戏版本选择和模组版本
 /// 选择中间加一条写明」）：`%1` = 名字用「、」连起来的那一串。
 ///
 /// 说的是"**这一版**要装什么"，所以句子里**不出现"还缺"** —— 那两个字是点下载那一刻
@@ -417,21 +408,17 @@ QString dependencyLookupLogText(int count);
 QString detailPrerequisiteText(const QStringList &names);
 
 /// 同一件事，但**名字一条都没取到**（那一发没成、或者接口那边没有这几条）。
-/// 只说得出口"有几条"，那就只说这些 —— **不许退成项目号**：用户 2026-09-28 报的那件事
+/// 只说得出口"有几条"，那就只说这些 —— **不许退成项目号**：用户 报的那件事
 /// （「这个前置模组缺失的提示为数字而非模组名称」）正是"把项目号当名字用"的下场，
 /// 而那一串数字对他什么也没说。
 QString detailPrerequisiteCountText(int count);
 
-/// 更新检测：已是最新那一句（一格小字 / 报告里的一行）。
 QString updateUpToDateText();
 
-/// 更新检测：有新版本那一句（报告里的一行，后面接版本号）。
 QString updateOutdatedText();
 
-/// 更新检测：说不清那一句（报告里的一行，后面接 `UpdateVerdict::reason` 那句）。
 QString updateUnknownText();
 
-/// 更新检测：报告的开头那一句（`%1` = 查了几个资源、`%2` = 有几个有新版本）。
 QString updateSummaryText(int checked, int outdated);
 
 }  // namespace ModDependencies

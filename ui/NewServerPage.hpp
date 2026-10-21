@@ -1,20 +1,18 @@
 /**
  * @file NewServerPage.hpp
  * @brief 「新建服务端」那一页（coding plan §6.2 / 里程碑 M4）：挑服务端类型、游戏版本、
- *        加载器/构建版本、名称、内存，确认之后建这个服务端。
- * @author 0x7fffff
- * @date 2026-10-13
+ * 加载器/构建版本、名称、内存，确认之后建这个服务端。
  *
  * 【这一页只摆控件，判据一条都不在这儿】
  *
  * `ui/` **不 include `src/`**（见 `GroupDialog.hpp` 文件头那段老规矩）。所以：
  *
- *   * **哪八档、每一档叫什么** —— 由 `MainWindow` 从 `ServerInstall::allFlavors()` 那几张表
- *     翻好，当作 `FlavorOption` 喂进来（`setFlavors()`）；
- *   * **每一档要填哪几格**（Forge/NeoForge 要加载器版本、Fabric 还要安装器版本…）—— 同样
- *     由那一层填在 `FlavorOption` 的四个 `needs*` 上，这一页只负责照着露/收那几行；
- *   * **"这一档要下什么、装完是什么样"那句说明** —— 由那一层现算（`ServerInstall::planFor()`）
- *     之后用 `setSummary()` 摆进来。
+ * * **哪八档、每一档叫什么** —— 由 `MainWindow` 从 `ServerInstall::allFlavors()` 那几张表
+ * 翻好，当作 `FlavorOption` 喂进来（`setFlavors()`）；
+ * * **每一档要填哪几格**（Forge/NeoForge 要加载器版本、Fabric 还要安装器版本…）—— 同样
+ * 由那一层填在 `FlavorOption` 的四个 `needs*` 上，这一页只负责照着露/收那几行；
+ * * **"这一档要下什么、装完是什么样"那句说明** —— 由那一层现算（`ServerInstall::planFor()`）
+ * 之后用 `setSummary()` 摆进来。
  *
  * 这样这一页做到最后只有一个"输入表单"的职责：用户填了什么，原样报出去。
  *
@@ -25,7 +23,7 @@
  * 才知道下一步要填什么（类型一变，下面那几行跟着露/收），挤在小框里做不了这件事。
  *
  * NOTE: 这一页**不联网、不碰盘**：它 `accept()` 之后才轮到 `MainWindow` 去建目录、去下载。
- *       所以验证工程能离线把它整页驱动一遍（填字段 → 读回来）。
+ * 所以验证工程能离线把它整页驱动一遍（填字段 → 读回来）。
  */
 
 #pragma once
@@ -73,7 +71,7 @@ public:
      * 摆出来是为了让用户在建之前就看见"名字会变成盘上哪个目录"，而不是建完才知道。
      *
      * NOTE: 名字里那些不能当目录名的字符由翻译点在喂进来之前已经处理掉了（`sanitizeId()`），
-     *       这一页照抄，不改一个字。
+     * 这一页照抄，不改一个字。
      */
     void setTargetDir(const QString &dir);
 

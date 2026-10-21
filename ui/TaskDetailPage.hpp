@@ -1,8 +1,6 @@
 /**
  * @file TaskDetailPage.hpp
  * @brief 任务详情页（coding plan §3.2 / §3.4）：点任务中心里的一行，在内容区整块开出来的那一页。
- * @author 0x7fffff
- * @date 2026-10-12
  *
  * 【它是"页"，不是窗口】
  *
@@ -73,8 +71,8 @@ public:
 
     // ---------- 供验证工程与 MainWindow 调的那几个槽 ----------
     // NOTE: 按钮那条路是"点一下 → 发一个信号"，真正的干活在 MainWindow。这几个槽是**另一条
-    //       路**（MainWindow 自己也可能从别处触发同一个动作），所以按钮的信号和这些槽
-    //       故意不是同一个东西。
+    // 路**（MainWindow 自己也可能从别处触发同一个动作），所以按钮的信号和这些槽
+    // 故意不是同一个东西。
 
     /// 用户点了 @p action（按钮的信号槽直接转发到它）。`MainWindow` 接 `actionRequested`。
     void requestAction(Action action) { emit actionRequested(m_key, action); }

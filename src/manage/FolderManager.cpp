@@ -1,8 +1,6 @@
 /**
  * @file FolderManager.cpp
  * @brief 实现「游戏文件夹」列表的读取、添加、移除、改名、删除与切换。
- * @author LoserKugua
- * @date 2026-04-10
  * @note 见 FolderManager.hpp 的说明。
  */
 
@@ -23,19 +21,19 @@ namespace {
 /// 链接）。删目录树的时候必须认它，否则会把链接那一头的东西一起删掉。
 ///
 /// NOTE: 判据**不能**只写 `isSymLink()`，也不能用 `canonicalFilePath() !=
-///       absoluteFilePath()` —— 实测（2026-09-25，两个探针见 tmp/probe_symlink/）：
-///         · `mklink /J` 造出来的 junction，`isSymLink()` 是 **false**（Qt 把它报成
-///           普通目录），`canonicalFilePath()` 也**原样返回字面路径**（根本不解链接）；
-///         · 只有 `isJunction()` 认得出它。
-///       junction 恰恰是普通用户（不需要管理员权限）挂目录时最常用的那一种，所以只判
-///       isSymLink() 等于对这一类完全没设防。
+/// absoluteFilePath()` —— 实测（，两个探针见 tmp/probe_symlink/）：
+/// · `mklink /J` 造出来的 junction，`isSymLink()` 是 **false**（Qt 把它报成
+/// 普通目录），`canonicalFilePath()` 也**原样返回字面路径**（根本不解链接）；
+/// · 只有 `isJunction()` 认得出它。
+/// junction 恰恰是普通用户（不需要管理员权限）挂目录时最常用的那一种，所以只判
+/// isSymLink() 等于对这一类完全没设防。
 bool isLinkToElsewhere(const QFileInfo &info) {
     return info.isJunction() || info.isSymLink();
 }
 
 /// 删一个**文件**（文件符号链接也走这里）。
 ///
-/// ★ 2026-10-20：第一次失败时**清掉只读位再试一次**。Qt 6.10 在 Windows 上的
+/// 第一次失败时**清掉只读位再试一次**。Qt 6.10 在 Windows 上的
 /// `QFile::remove()` 就是一句 `DeleteFile()`（qfilesystemengine_win.cpp），**不会**替你
 /// 摘 `FILE_ATTRIBUTE_READONLY` —— 而只读文件恰恰删不掉（ERROR_ACCESS_DENIED）。用户从只读
 /// 介质拷来的整合包、被别的启动器/网盘标成只读的 jar，都会卡在这一步，而调用方那句
@@ -60,25 +58,22 @@ bool removeFileAllowingReadOnly(const QString &path) {
 /// 递归删掉 @p path 这一棵，但**一个链接都不追进去**：链接只把链接本身摘掉，那一头的东西
 /// 一个字节都不动。
 ///
-/// NOTE: 为什么不能用 `QDir::removeRecursively()`。实测（2026-09-25 探针）：
-///         · 对一个**本身就是 junction** 的目录调用它 → junction 指向的那个真目录里的
-///           文件**没了**（目标是活的，链接没了）；
-///         · 目录**里面**含一个 junction 时 → 同样跟着进去把目标删了。
-///       于是"删掉这一份游戏文件夹"会牵连到游戏文件夹**外面**的东西。把 `saves` 挂到
-///       网盘同步目录、把 `mods` 挂到另一块盘，都是很常见的做法 —— 而用户点的是"删掉这
-///       一份"，不是"删掉那边那块盘上的东西"（别的程序可能还在用同一份数据）。
-///
-/// NOTE: 链接本身用 `QDir().rmdir()` 摘。实测它对 junction 有效：只摘掉那个重解析点，
-///       目标原封不动。`QFile::remove()` 对目录不行（对文件符号链接才是对的那一个）。
+/// NOTE: 为什么不能用 `QDir::removeRecursively()`。实测（ 探针）：
+/// · 对一个**本身就是 junction** 的目录调用它 → junction 指向的那个真目录里的
+/// 文件**没了**（目标是活的，链接没了）；
+/// · 目录**里面**含一个 junction 时 → 同样跟着进去把目标删了。
+/// 于是"删掉这一份游戏文件夹"会牵连到游戏文件夹**外面**的东西。把 `saves` 挂到
+/// 网盘同步目录、把 `mods` 挂到另一块盘，都是很常见的做法 —— 而用户点的是"删掉这
+/// 一份"，不是"删掉那边那块盘上的东西"（别的程序可能还在用同一份数据）。
 ///
 /// @return 整棵都删干净了没有。删到一半失败时**返回 false 但仍然尽力删完**（剩下的留着，
-///         调用方照实报"没能删干净"，比留一半还不说话强）。
+/// 调用方照实报"没能删干净"，比留一半还不说话强）。
 ///
-/// NOTE: 这个函数**故意留在匿名命名空间外面**（它上面那个 `}  // namespace` 就是为它关的）：
-///       删实例那条路（VersionManager::deleteInstance）要用它，而 FolderManager.hpp 里
-///       已经把它声明成了一个自由函数。放在匿名命名空间里的话，头文件那条声明会和它
-///       变成**两个不同的重载**，调用处直接报 ambiguous。isLinkToElsewhere() 可以留在里面
-///       —— 只有它用，而且它在上面、看得见。
+/// NOTE: 这个函数**故意留在匿名命名空间外面**（它上面那个 `} // namespace` 就是为它关的）：
+/// 删实例那条路（VersionManager::deleteInstance）要用它，而 FolderManager.hpp 里
+/// 已经把它声明成了一个自由函数。放在匿名命名空间里的话，头文件那条声明会和它
+/// 变成**两个不同的重载**，调用处直接报 ambiguous。isLinkToElsewhere() 可以留在里面
+/// —— 只有它用，而且它在上面、看得见。
 bool removeTreeWithoutFollowingLinks(const QString &path) {
     const QFileInfo info(path);
     if (isLinkToElsewhere(info)) {
@@ -111,11 +106,11 @@ bool removeTreeWithoutFollowingLinks(const QString &path) {
 /// 把 @p from 这一棵原样拷到 @p to（@p to 必须还不存在），一个链接都不追进去。
 ///
 /// NOTE: 目录必须**先建再进**：`QFile::copy()` 不会替你造父目录，mkdir 和拷文件分两步
-///       是必须的（先拷文件再建目录这条最常见的写法在这里会失败）。
+/// 是必须的（先拷文件再建目录这条最常见的写法在这里会失败）。
 ///
 /// NOTE: 顺序上**先把目标目录建出来**再往里灌。中途失败时盘上会留下一个"拷了一半"的
-///       目录 —— 这是故意的：调用方（复制实例、导入世界）拿到的 from/to 都是它自己算
-///       出来的，它比这里更清楚该不该收拾，而"留一半"比"悄悄删掉用户别的东西"安全。
+/// 目录 —— 这是故意的：调用方（复制实例、导入世界）拿到的 from/to 都是它自己算
+/// 出来的，它比这里更清楚该不该收拾，而"留一半"比"悄悄删掉用户别的东西"安全。
 bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to,
                                    const std::function<bool()> &cancelled) {
     if (cancelled && cancelled()) return false;
@@ -198,10 +193,10 @@ FolderManager::FolderManager(LauncherSettings *settings, QObject *parent)
     const QStringList storedNames =
         m_settings != nullptr ? m_settings->folderNames() : QStringList();
     for (const QString &entry : storedNames) {
-        // ★ 按**最后一个**制表符切，不是第一个：名字那一半由 validateDisplayName()
-        //   挡着制表符（进不去），而路径那一半在 NTFS 上是**可以**带制表符的。
-        //   按第一个切的话，`D:\MC\foo<TAB>bar` 这种目录配的名字会被读成
-        //   路径 `D:\MC\foo` + 名字 `bar<TAB>…` —— 名字没了、还可能认给别的目录。
+        // 按**最后一个**制表符切，不是第一个：名字那一半由 validateDisplayName()
+        // 挡着制表符（进不去），而路径那一半在 NTFS 上是**可以**带制表符的。
+        // 按第一个切的话，`D:\MC\foo<TAB>bar` 这种目录配的名字会被读成
+        // 路径 `D:\MC\foo` + 名字 `bar<TAB>…` —— 名字没了、还可能认给别的目录。
         const int tab = entry.lastIndexOf(QLatin1Char('\t'));
         if (tab <= 0) {
             continue;  // 连分隔符都没有（手改的）：这一项读不出是给谁起的名字
@@ -233,20 +228,20 @@ QString FolderManager::normalized(const QString &path) {
     }
     const QFileInfo info(path);
     if (info.exists()) {
-        // ★ 这一格**本身就是个链接**时不许解（2026-09-26 修）。canonicalFilePath() 会把
-        //   符号链接解析成它指向的那个目录 —— 于是用户添加进来的 `D:\MC\link` 在列表里
-        //   变成 `E:\real`，而"删除这一份游戏文件夹"随后调的就是
-        //   `removeTreeWithoutFollowingLinks(E:\real)`：链接本身还在，**另一块盘上的东西
-        //   没了**。上面 isLinkToElsewhere() 那个 guard 判的正是 `isJunction() ||
-        //   isSymLink()`，可它**在更早的这一步就被解掉了**，所以它一辈子也看不到符号链接。
+        // 这一格**本身就是个链接**时不许解（ 修）。canonicalFilePath() 会把
+        // 符号链接解析成它指向的那个目录 —— 于是用户添加进来的 `D:\MC\link` 在列表里
+        // 变成 `E:\real`，而"删除这一份游戏文件夹"随后调的就是
+        // `removeTreeWithoutFollowingLinks(E:\real)`：链接本身还在，**另一块盘上的东西
+        // 没了**。上面 isLinkToElsewhere() 那个 guard 判的正是 `isJunction() ||
+        // isSymLink()`，可它**在更早的这一步就被解掉了**，所以它一辈子也看不到符号链接。
         //
-        //   NOTE: junction 不受影响 —— 实测（探针 linkprobe，2026-09-26，和 2026-09-25
-        //         那次结论一致）`canonicalFilePath()` 对 junction **原样返回字面路径**，
-        //         根本不解释链接，所以它在下面那条路上活得好好的。这个不对称正是"自测
-        //         全绿"的原因：能造的那一类（junction）防住了，防不住的那一类没进过测试。
+        // NOTE: junction 不受影响 —— 实测（探针 linkprobe，，和
+        // 那次结论一致）`canonicalFilePath()` 对 junction **原样返回字面路径**，
+        // 根本不解释链接，所以它在下面那条路上活得好好的。这个不对称正是"自测
+        // 全绿"的原因：能造的那一类（junction）防住了，防不住的那一类没进过测试。
         //
-        //   只把**父目录**归一（盘符大小写、`..` 这些照旧收拾掉），最后那一段原样留着 ——
-        //   列表里那条还是用户亲手加进来的那一条，删的时候也只是把链接摘掉。
+        // 只把**父目录**归一（盘符大小写、`..` 这些照旧收拾掉），最后那一段原样留着 ——
+        // 列表里那条还是用户亲手加进来的那一条，删的时候也只是把链接摘掉。
         if (isLinkToElsewhere(info)) {
             const QFileInfo parent(info.absolutePath());
             const QString parentPath = parent.canonicalFilePath();
@@ -432,10 +427,6 @@ bool FolderManager::deleteFolder(const QString &path, QString *error) {
         return false;
     }
     // 盘上那个目录不存在（U 盘没插、已经被手工删掉）不算失败：列表里那一条照样要清掉。
-    //
-    // NOTE: 走的是 removeTreeWithoutFollowingLinks() 而**不是** QDir::removeRecursively()
-    //       —— 后者会追进 junction / 符号链接，把链接那一头的东西也删掉（实测见上面那个
-    //       函数的说明）。这一份自己就是个链接时，这里只摘掉链接、那边一个字节不动。
     if (QFileInfo(target).exists() && !removeTreeWithoutFollowingLinks(target)) {
         if (error != nullptr) {
             // 失败原因照实说：删到一半失败时目录是**半截**的（前面那些文件已经没了），

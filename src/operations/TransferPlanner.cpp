@@ -1,8 +1,6 @@
 /**
  * @file TransferPlanner.cpp
  * @brief TransferPlanner.hpp 的实现：只读盘、只算，给迁移 / 升级副本一份范围表。
- * @author 0x7fffff
- * @date 2026-10-18
  */
 
 #include "operations/TransferPlanner.hpp"
@@ -23,11 +21,6 @@ struct TreeSize {
     qint64 bytes = 0;
 };
 
-/// ★ 目录**不跟链接**（junction / 符号链接）：一个指回自己的 junction 能让这个计数
-///   永远转下去；而"顺着链接把外面那块盘也算进来"会让报告里的体积凭空变大。
-///   `QDir::NoSymLinks` 挡不住 junction（见 FolderManager.cpp 里量过的那一段），
-///   所以这里拿 `isJunction() || isSymLink()` 显式挡。文件那一侧照收（一个指向文件的
-///   链接就是一份文件，和打包那一套同一口径）。
 TreeSize scanTree(const QString &root) {
     TreeSize total;
     QStringList stack;

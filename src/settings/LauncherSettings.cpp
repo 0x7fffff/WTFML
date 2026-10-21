@@ -1,8 +1,6 @@
 /**
  * @file LauncherSettings.cpp
  * @brief 实现启动器设置的读写。
- * @author 0x7fffff
- * @date 2026-09-20
  * @note 见 LauncherSettings.hpp 的说明。
  */
 
@@ -27,21 +25,21 @@ static constexpr const char kFolders[] = "Launcher/Folders";
 static constexpr const char kCurrentFolder[] = "Launcher/CurrentFolder";
 static constexpr const char kFolderNames[] = "Launcher/FolderNames";
 static constexpr const char kDownloadSource[] = "Download/Source";
-// 「同时最多下几个」（2026-10-13，§9.2 并发数预设）。同一个前缀：它也是"下载怎么走"。
-// ★ 存的是**整数**，不是 `Download/Source` 那种记号 —— 那四档要有第五档"自定义"的位置
-//   （手改过配置的人写个 [1,64] 里的别的数，界面上就该照他写的显示），记号表反而挡路。
+// 「同时最多下几个」（，§9.2 并发数预设）。同一个前缀：它也是"下载怎么走"。
+// 存的是**整数**，不是 `Download/Source` 那种记号 —— 那四档要有第五档"自定义"的位置
+// （手改过配置的人写个 [1,64] 里的别的数，界面上就该照他写的显示），记号表反而挡路。
 static constexpr const char kDownloadConcurrency[] = "Download/Concurrency";
-// 「下载速度上限」（2026-10-18，§9.2 限速）。单位**字节/秒**，0 = 不限；和其他几项同一个
+// 「下载速度上限」（，§9.2 限速）。单位**字节/秒**，0 = 不限；和其他几项同一个
 // 前缀 —— 它也是"下载怎么走"。
 static constexpr const char kDownloadSpeedLimit[] = "Download/SpeedLimitBytes";
-// 「代理」（2026-10-18，§9.2）。档位存记号（system/direct/manual），手动那一档的
+// 「代理」（，§9.2）。档位存记号（system/direct/manual），手动那一档的
 // `host:port` 另存一格原串。同一个前缀：它也是"下载怎么走"。
 static constexpr const char kProxyMode[] = "Download/ProxyMode";
 static constexpr const char kProxyManual[] = "Download/ProxyManual";
-// 「下载新模组时直接放进当前实例」（2026-09-28，设置页「下载」栏那一项）。
+// 「下载新模组时直接放进当前实例」（，设置页「下载」栏那一项）。
 // 和上面那条同一个前缀：它也是"下下来的东西往哪儿去"这一件事。
 static constexpr const char kDownloadAutoIntoInstance[] = "Download/AutoIntoInstance";
-// 「下载缺前置时提醒」（2026-10-09，设置页「下载」栏那一项）。同一个前缀：它管的也是
+// 「下载缺前置时提醒」（，设置页「下载」栏那一项）。同一个前缀：它管的也是
 // "点下载那一刻多问一句"这一类的事。
 static constexpr const char kWarnMissingDependencies[] = "Download/WarnMissingDependencies";
 static constexpr const char kShowGameLog[] = "Launcher/ShowGameLog";
@@ -521,7 +519,7 @@ void LauncherSettings::save() const {
     settings.setValue(kWarnWorldLoss, m_warnWorldLoss);
     settings.setValue(kCurseForgeApiKey, m_curseForgeApiKey);
     // NOTE: `kCurseForgeApiBase` / `kModrinthApiBase` **刻意不在这里** —— 那两个键是验证
-    //       工程的口子，产品一写就等于把用户自己指的地址抹掉（见 .hpp 里那条 NOTE）。
+    // 工程的口子，产品一写就等于把用户自己指的地址抹掉（见 .hpp 里那条 NOTE）。
     settings.setValue(kNameShowCustom, m_versionNameOptions.showCustomName);
     settings.setValue(kNameShowReal, m_versionNameOptions.showRealVersion);
     settings.setValue(kNameShowLoaderName, m_versionNameOptions.showLoaderName);

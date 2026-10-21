@@ -1,6 +1,6 @@
 /**
  * @file fakejar.hpp
- * @brief 造"假 JAR"的那两个小工具（verify 和 mw_check 共用，2026-09-24 加的）。
+ * @brief 造"假 JAR"的那两个小工具（verify 和 mw_check 共用， 加的）。
  *
  * 为什么放在这个位置上、而不是某个工程的 main.cpp 里：**两个工程都要用它** ——
  * verify 的 ZF 段要证"判据是 JAR 里有没有那一条，不是版本号"，mw_check 的 ZG 段要证
@@ -35,8 +35,8 @@ inline QString psQuote(const QString &value) {
 /// 用 .NET 的 ZipFile 造一个假 JAR（真的 zip，条目名带 `/`）。
 ///
 /// NOTE: 走 PowerShell 是有意的：产品读 JAR 走的就是这条路（ZipUtil::readEntry），造出来
-///       的东西必须是**同一条路读得出来的那种 zip**；而这两个工程连 zlib 都没有（见
-///       src/util/ZipUtil.hpp 文件头），本来就只能这么造。
+/// 的东西必须是**同一条路读得出来的那种 zip**；而这两个工程连 zlib 都没有（见
+/// src/util/ZipUtil.hpp 文件头），本来就只能这么造。
 inline bool makeFakeJar(const QString &jarPath, const QMap<QString, QByteArray> &entries) {
     QTemporaryDir srcDir;
     if (!srcDir.isValid()) {

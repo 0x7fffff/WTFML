@@ -1,8 +1,7 @@
 /**
  * @file ErrorReport.cpp
- * @brief Implements the error-report text composition.
- * @author 0x7fffff
- * @date 2026-09-28
+ * @brief 实现错误报告文本的组装。
+ * @note 只生成文本，不写文件、不联网。
  */
 
 #include "ErrorReport.hpp"
@@ -12,7 +11,6 @@
 
 namespace {
 
-/// 报告头部那几行里，一个字段写成 `名字：值`。
 QString field(const QString &name, const QString &value) {
     return name + QStringLiteral("：") + value;
 }
@@ -69,8 +67,6 @@ QString header(const Facts &facts, const QDateTime &now) {
     if (!facts.systemDescription.isEmpty()) {
         lines.append(field(QStringLiteral("系统"), facts.systemDescription));
     }
-    // 实例那两行：显示名和 id **都写**。显示名是人认的，id 是盘上那个目录名 ——
-    // 拿到报告的人要照着它去找是哪一个实例（用户自定义过名字时两者不一样）。
     if (!facts.instanceName.isEmpty()) {
         lines.append(field(QStringLiteral("实例"), facts.instanceName));
     }
@@ -131,9 +127,6 @@ QString text(const Facts &facts, const QDateTime &now, const QString &errors, co
         out += QLatin1Char('\n');
     }
 
-    // ★ 2026-10-20：标题写的是**事实**，不是"这一段本可以有多长"。崩溃报告那条路只留
-    //   末尾 200 / 500 行（见 `Facts::errorTruncated` 那段），原来照样写「共 N 行」——
-    //   看报告的人会把"前面都正常"当成结论，而真正的起因已经被截掉了。
     const QString errorTitle =
         facts.errorTruncated && !errors.isEmpty()
             ? QStringLiteral("错误与致命（末尾 %1 行 / 原始共 %2 行）")
@@ -185,8 +178,6 @@ QString text(const Facts &facts, const QDateTime &now, const QString &errors, co
 
 QString suggestedFileName(const QString &instanceName, const QDateTime &now) {
     const QString name = sanitizeForFileName(instanceName);
-    // 实例名拿不到（会话快照是空的）时不留一个空档：那样文件名会是"错误报告--20260928..."，
-    // 看着像坏了。
     const QString middle = name.isEmpty() ? QString() : name + QLatin1Char('-');
     return QStringLiteral("错误报告-%1%2.txt").arg(middle, stampForName(now));
 }

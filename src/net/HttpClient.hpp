@@ -1,18 +1,16 @@
 /**
  * @file HttpClient.hpp
  * @brief 一次**同步** HTTP 请求（QEventLoop + 超时），返回状态码、正文和解析出来的 JSON。
- * @author 0x7fffff
- * @date 2026-09-22
  * @note 从 AuthManager.cpp 里搬出来的。原来那套 `sendJson()` 是它文件内的匿名函数、只支持
- *       GET/POST，够登录链用；换成皮肤/披风那几条接口之后要 PUT 和 DELETE，于是把它提出来
- *       共用 —— 不是为了少写代码，是为了**超时那一段只有一份**（"超时了要 abort、abort
- *       之后不能再去读正文"这种细节，抄第二遍必然抄漏一处，漏了就是偶发崩溃）。
+ * GET/POST，够登录链用；换成皮肤/披风那几条接口之后要 PUT 和 DELETE，于是把它提出来
+ * 共用 —— 不是为了少写代码，是为了**超时那一段只有一份**（"超时了要 abort、abort
+ * 之后不能再去读正文"这种细节，抄第二遍必然抄漏一处，漏了就是偶发崩溃）。
  *
  * 为什么同步：调用方是界面上的一次点击，本来就等着一个结果（登录、换皮肤）。异步化只会让
  * 调用点多出一堆状态机。内嵌事件循环期间界面仍然会重画（Qt 在处理事件）。
  *
  * NOTE: 认 HTTP 响应和认网络失败是**两件事**（见 Reply 的字段）：4xx/5xx 的正文里往往带着
- *       具体的错误码，那比 Qt 那句 "server replied" 有用得多，所以拿到状态码就不算网络错误。
+ * 具体的错误码，那比 Qt 那句 "server replied" 有用得多，所以拿到状态码就不算网络错误。
  */
 
 #pragma once
@@ -46,11 +44,11 @@ public:
     /// HTTP 429。
     ///
     /// NOTE: 它和别的 4xx/5xx **不是一回事** —— 它说的不是"这次请求哪儿写错了"，而是
-    ///       "你问得太勤了"。所以唯一该做的事是**等一等**：改参数没用，马上重试只会继续
-    ///       被挡（两个调用方因此都不在收到它之后自动重发）。
-    ///       判据和那句文案放在这里，是因为 2026-09-22 用户真机上看到的正是它 ——
-    ///       当时登录链和皮肤接口各写各的，都在把官方那句 `TOO_MANY_REQUESTS` 原样端给
-    ///       用户看，看着像接口坏了。
+    /// "你问得太勤了"。所以唯一该做的事是**等一等**：改参数没用，马上重试只会继续
+    /// 被挡（两个调用方因此都不在收到它之后自动重发）。
+    /// 判据和那句文案放在这里，是因为 用户真机上看到的正是它 ——
+    /// 当时登录链和皮肤接口各写各的，都在把官方那句 `TOO_MANY_REQUESTS` 原样端给
+    /// 用户看，看着像接口坏了。
     static constexpr int kStatusTooManyRequests = 429;
 
     /// HTTP 304：**没变**。
@@ -75,10 +73,10 @@ public:
      * @param bearer 非空则加 Authorization: Bearer 头。
      * @param timeoutMs 见 kDefaultTimeoutMs。
      * @param extraHeaders 额外的请求头（**追加式**：放在最后，既有调用点一个字都不用改）。
-     *        现在唯一的用户是 CurseForge 的 `x-api-key` —— 用户自己在设置里填了 key 时
-     *        才带（见 ModpackImport::curseForgeApiBase 与 VersionManager::resolveCurseForgeFiles）。
-     *        NOTE: 名字里带连字符的头**必须**走 setRawHeader（QNetworkRequest 那几个枚举
-     *              里没有它），这也正是这里收原始字节对而不是 QVariant 的原因。
+     * 现在唯一的用户是 CurseForge 的 `x-api-key` —— 用户自己在设置里填了 key 时
+     * 才带（见 ModpackImport::curseForgeApiBase 与 VersionManager::resolveCurseForgeFiles）。
+     * NOTE: 名字里带连字符的头**必须**走 setRawHeader（QNetworkRequest 那几个枚举
+     * 里没有它），这也正是这里收原始字节对而不是 QVariant 的原因。
      * @return 见 Reply。超时会把请求 abort 掉（**之后别再去读那个 reply**）。
      */
     static Reply send(QNetworkAccessManager *manager, const QUrl &url, Verb verb,

@@ -1,11 +1,7 @@
 /**
  * @file JavaManageDialog.cpp
- * @brief Implements the 「Java 管理」 page (managed majors + the auto row).
- * @author 0x7fffff
- * @date 2026-09-28
- * @note 布局从上到下：各主版本（一行 = 版本 + 路径 + 「选用」 + 「下载 / 重新下载」）→
- *       那行说明 → 底下那排两颗动作按钮。主版本列表由 managedMajors() 统一提供，
- *       顶上那一行是「自动（按版本挑选）」（它是"选哪个 Java"那把钥匙，见 .hpp）。
+ * @brief 实现「Java 管理」页：主版本列表与自动选择。
+ * @note 版本列表由 managedMajors() 提供，下载/选用动作只发信号。
  */
 
 #include "JavaManageDialog.hpp"
@@ -117,7 +113,7 @@ JavaManageDialog::JavaManageDialog(QWidget *parent) : QDialog(parent) {
     // ---------- 顶上那一行：自动（按版本挑选） ----------
     // 它没有"下载"（自动那一档不是一份运行时，没什么可下的），所以只有「选用」。
     // NOTE: 它占的是同一个网格，下面各行的两颗按钮和它在一条竖线上。
-    //       "每一行的『选用』都在同一列"是这一页看起来整齐的全部原因。
+    // "每一行的『选用』都在同一列"是这一页看起来整齐的全部原因。
     m_autoLabel = new QLabel(this);
     m_autoLabel->setObjectName(autoLabelName());
     m_autoLabel->setWordWrap(true);
@@ -168,11 +164,6 @@ JavaManageDialog::JavaManageDialog(QWidget *parent) : QDialog(parent) {
     applyHintStyle(hint);
     outer->addWidget(hint);
 
-    // ★ 这一排**紧跟着那行说明**摆，不推到页面底部去（早先那句 `addStretch(1)` 是摆在这一排
-    //   **后面**的，一撑开这两颗按钮就离它们要操作的那四行八九百像素远 —— 用户原话里它们
-    //   就是紧挨着那四行的）。撑开的那一份改摆在**最后**：这一页的高度是整个内容区（一千
-    //   多像素），不留一个收尾的弹簧的话，多出来的高度会被上面那些行**各自分掉**，四行会
-    //   散成一张松散的表（实测就是这样）。
     auto *actions = new QHBoxLayout;
     actions->setContentsMargins(0, 0, 0, 0);
     m_downloadAll = new QPushButton(downloadAllText(), this);
@@ -200,9 +191,9 @@ JavaManageDialog::JavaManageDialog(QWidget *parent) : QDialog(parent) {
 
     // 各行先按“没装”显示，控制器打开页面后会灌入扫描结果。
     //
-    // ★ 这一轮**必须排在所有控件都建出来之后**（早先它写在上面那个行循环里，那样点第一下
-    //   「Java 管理…」就崩）：`setRuntime()` 会顺着 `refreshDownloadAllState()` 去够底下
-    //   那一排按钮，而那一排是**行循环之后**才摆上来的 —— 循环里调它，够到的是个空指针。
+    // 这一轮**必须排在所有控件都建出来之后**（早先它写在上面那个行循环里，那样点第一下
+    // 「Java 管理…」就崩）：`setRuntime()` 会顺着 `refreshDownloadAllState()` 去够底下
+    // 那一排按钮，而那一排是**行循环之后**才摆上来的 —— 循环里调它，够到的是个空指针。
     for (int major : managedMajors()) {
         setRuntime(major, QString());
     }

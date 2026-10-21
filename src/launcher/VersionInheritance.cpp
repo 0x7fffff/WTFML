@@ -1,10 +1,7 @@
 /**
  * @file VersionInheritance.cpp
- * @brief Implements the inheritsFrom merge.
- * @author 0x7fffff
- * @date 2026-09-21
- * @note 规则的来龙去脉写在 .hpp 的块注释里；这里只有实现，几处 NOTE 说的是"为什么不能
- *       照直觉改"。
+ * @brief 实现 version.json 继承链合并。
+ * @note 合并规则见 .hpp；这里只保留实现。
  */
 
 #include "VersionInheritance.hpp"
@@ -21,9 +18,9 @@ namespace {
 /// 合并 arguments 下的一个数组：**父的在前、子的在后**。
 ///
 /// NOTE: 顺序不能反。JVM 对同一条可重复选项取**后写**的那个（`-cp`、`-D` 都是），
-///       而"加载器盖掉原版声明的参数"正是加载器留这些 `arguments.jvm` 的用意
-///       （Fabric 就靠 `-DFabricMcEmu=` 那一行把原版主类告诉自己的 Knot）。
-///       反过来拼，加载器的参数会被原版盖掉，症状是加载器像没装一样。
+/// 而"加载器盖掉原版声明的参数"正是加载器留这些 `arguments.jvm` 的用意
+/// （Fabric 就靠 `-DFabricMcEmu=` 那一行把原版主类告诉自己的 Knot）。
+/// 反过来拼，加载器的参数会被原版盖掉，症状是加载器像没装一样。
 QJsonArray concatArrays(const QJsonArray &parentArray, const QJsonArray &childArray) {
     QJsonArray out = parentArray;
     for (const QJsonValue &value : childArray) {
@@ -69,11 +66,11 @@ QJsonArray mergeLibraries(const QJsonArray &parentLibraries, const QJsonArray &c
     return out;
 }
 
-//// 一条库坐标里**不看版本号**的那几段：`group:artifact`（有 classifier 时再加上它）。
+/// / 一条库坐标里**不看版本号**的那几段：`group:artifact`（有 classifier 时再加上它）。
 ///
 /// 名字的形状是 `group:artifact:version[:classifier][@ext]`，例如
-///   `org.ow2.asm:asm:9.6`、`org.lwjgl:lwjgl:3.3.3:natives-windows`、
-///   `net.minecraftforge:forge:1.20.1-47.4.10:universal@zip`。
+/// `org.ow2.asm:asm:9.6`、`org.lwjgl:lwjgl:3.3.3:natives-windows`、
+/// `net.minecraftforge:forge:1.20.1-47.4.10:universal@zip`。
 /// 版本号是第 3 段；classifier 是第 4 段（如果有），它**要留着** —— 见 .hpp 的 NOTE。
 QString coordinateKey(const QString &name) {
     QString body = name;
@@ -93,20 +90,20 @@ QString coordinateKey(const QString &name) {
 
 /// 一条库的 `rules` 数组原样序列化出来的那串字符（没有 rules 时是空串）。
 ///
-/// ★ 去重的键里**必须带上它**，不然会把"同一坐标、不同平台"的那一对合成一条 —— 那正是
-///   原版 json 表达"Windows 用 2.9.1、macOS 用 2.9.2-nightly"的手法：
-///       1.8.json 里 `org.lwjgl.lwjgl:lwjgl` 就有两条，
-///         `2.9.1`      rules = [allow, disallow/osx]   ← Windows 要的那个
-///         `2.9.2-…`    rules = [allow/osx]             ← macOS 要的那个
-///   只按坐标去重（后到的赢）会把 Windows 那份**换掉**，而它留下的那条在当前平台上
-///   "没有一条规则命中 ⇒ 不允许"（`LibraryRules::libraryAllowed` 的语义），于是 lwjgl 从
-///   classpath 上整个消失 —— 真机上 `1.8` 就是这个下场：
-///       java.lang.NoClassDefFoundError: org/lwjgl/LWJGLException
-///   （2026-09-28 实测，`20w14∞` 里那 9 对 LWJGL 3.2.1/3.2.2 是同一个形状。）
+/// 去重的键里**必须带上它**，不然会把"同一坐标、不同平台"的那一对合成一条 —— 那正是
+/// 原版 json 表达"Windows 用 2.9.1、macOS 用 2.9.2-nightly"的手法：
+/// 1.8.json 里 `org.lwjgl.lwjgl:lwjgl` 就有两条，
+/// `2.9.1` rules = [allow, disallow/osx] ← Windows 要的那个
+/// `2.9.2-…` rules = [allow/osx] ← macOS 要的那个
+/// 只按坐标去重（后到的赢）会把 Windows 那份**换掉**，而它留下的那条在当前平台上
+/// "没有一条规则命中 ⇒ 不允许"（`LibraryRules::libraryAllowed` 的语义），于是 lwjgl 从
+/// classpath 上整个消失 —— 真机上 `1.8` 就是这个下场：
+/// java.lang.NoClassDefFoundError: org/lwjgl/LWJGLException
+/// （ 实测，`20w14∞` 里那 9 对 LWJGL 3.2.1/3.2.2 是同一个形状。）
 ///
 /// NOTE: 判据是"逐字相同"（只认字面，不去理解 `os`/`features` 里写了什么）。宁可**少合并**
-///       几条（退化成改动前的行为：两条都在 classpath 上），也不要按自己的理解去挑一条 ——
-///       平台的语义只有 LibraryRules 那一处说了算，这一层不重复实现一遍。
+/// 几条（退化成改动前的行为：两条都在 classpath 上），也不要按自己的理解去挑一条 ——
+/// 平台的语义只有 LibraryRules 那一处说了算，这一层不重复实现一遍。
 QString rulesFingerprint(const QJsonObject &library) {
     const QJsonValue rules = library.value(QStringLiteral("rules"));
     if (!rules.isArray()) {
@@ -175,7 +172,7 @@ int maxDepth() {
 QJsonObject merge(const QJsonObject &child, const QJsonObject &parent) {
     QJsonObject out = parent;
 
-    // 父那份的 inheritsFrom **也要去掉**（2026-09-25 修）。这里原来只跳了**子**的
+    // 父那份的 inheritsFrom **也要去掉**（ 修）。这里原来只跳了**子**的
     // （见下面那个循环），而 `out = parent` 已经把父那份的抄进来了 —— 于是三层链
     // （OptiFine → Forge → 原版这种真的存在：OptiFine 的 json 继承的是它打过补丁那一层）
     // 合完之后，结果里还留着一个 `inheritsFrom`（指着中间那一层），而 .hpp 里那句
@@ -252,7 +249,7 @@ QJsonArray dedupeLibraries(const QJsonArray &libraries) {
         if (existing != positions.constEnd()) {
             // 同一个坐标又来一条：**后到的赢**，但留在先到的那条的位置上
             // （位置那条的理由和 mergeLibraries() 里一样：classpath 上的先后决定
-            //  谁盖住谁，覆盖项不该因此往后挪）。
+            // 谁盖住谁，覆盖项不该因此往后挪）。
             merged[existing.value()] = library;
             continue;
         }

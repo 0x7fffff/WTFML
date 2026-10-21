@@ -2,11 +2,9 @@
  * @file ModpackImport.cpp
  * @brief ModpackImport 的实现。判据的来龙去脉写在 .hpp 里；这里只有实现。
  * @note 两种整合包：Modrinth（`modrinth.index.json`，清单里带地址）与
- *       CurseForge（`manifest.json`，**清单里只有号**，要先拿去接口换文件）。
- *       后者在这里分两段：`parseCurseForgeManifest` 读号，`parseCurseForgeFileInfo`
- *       读接口的答复 —— 中间那一发网络请求在 VersionManager 里（见 resolveCurseForgeFiles）。
- * @author 0x7fffff
- * @date 2026-09-22
+ * CurseForge（`manifest.json`，**清单里只有号**，要先拿去接口换文件）。
+ * 后者在这里分两段：`parseCurseForgeManifest` 读号，`parseCurseForgeFileInfo`
+ * 读接口的答复 —— 中间那一发网络请求在 VersionManager 里（见 resolveCurseForgeFiles）。
  */
 #include "ModpackImport.hpp"
 
@@ -55,7 +53,7 @@ QString unsupportedLoaderText(const QString &loaderKey, const QString &loaderVer
 
     const QString version =
         loaderVersion.isEmpty() ? QString() : QStringLiteral(" %1").arg(loaderVersion);
-    // 两句话都得说清"哪一条路认得什么"（2026-09-25 修）：原来这两句都写着"能装的是
+    // 两句话都得说清"哪一条路认得什么"（ 修）：原来这两句都写着"能装的是
     // Fabric / Forge / NeoForge / OptiFine"，那说的是**安装页**那条路（那边四个加载器
     // 都能装，见 VersionManager::loaderInstallSupported）。可这里判的是**整合包导入**
     // 这条路，它只认三个加载器键（fabric-loader / forge / neoforge）—— 于是
@@ -79,7 +77,7 @@ QString unsupportedLoaderText(const QString &loaderKey, const QString &loaderVer
 
 QString unsupportedFormatText(Format format) {
     // NOTE: 参数现在**用不上**了（CurseForge 那一支已经能装，两条路都不该走到这个函数）。
-    //       留着形状是为了调用点不用改，也留着"将来多一种格式时往哪儿加"的位置。
+    // 留着形状是为了调用点不用改，也留着"将来多一种格式时往哪儿加"的位置。
     Q_UNUSED(format);
     return QObject::tr(
         "这个压缩包里没有整合包清单，认不出它是什么格式。\n\n"
@@ -128,13 +126,13 @@ bool isModrinthCdnUrl(const QString &url) {
 
 /// 清单里那条路径的**去重键**。
 ///
-/// 为什么不能直接拿路径当键（2026-09-24 加的）：Windows 的文件系统**不区分大小写**，
+/// 为什么不能直接拿路径当键（ 加的）：Windows 的文件系统**不区分大小写**，
 /// `mods/X.jar` 和 `mods/x.jar` 是同一个文件，而按区分大小写的键去重会给它们排出两个
 /// 作业 —— 两个作业抢着写同一个路径（内容一样就白下一遍，不一样就"谁最后写完谁说了算"）。
 /// 别的平台上这两个确实是两个文件，照旧各算一条，所以这一手只在 Windows 上做。
 ///
 /// NOTE: toLower() 不是 Windows 那套精确的大小写折叠（它认的是 UpCaseTable），但对整合包
-///       里这种 ASCII 路径足够了 —— 目标是"认得出这是同一个文件"，不是逐字符等价。
+/// 里这种 ASCII 路径足够了 —— 目标是"认得出这是同一个文件"，不是逐字符等价。
 QString pathDedupKey(const QString &path) {
 #ifdef Q_OS_WIN
     return path.toLower();
@@ -201,7 +199,7 @@ QString suggestInstanceName(const QString &packName) {
         name = QObject::tr("整合包 %1").arg(name);
         if (name.length() > InstanceFiles::kMaxDirNameLength) {
             name = name.left(InstanceFiles::kMaxDirNameLength).trimmed();
-            // 截完**还要再砍一次结尾的点**（2026-09-24 补的）：上面那处截断带着这一段，
+            // 截完**还要再砍一次结尾的点**（ 补的）：上面那处截断带着这一段，
             // 这一处原来漏了 —— 截出来的名字可能以点结尾，那就过不了 validateDirName()，
             // 于是这个函数返回一个"它自己刚拒过一次"的名字。而这里又不许报错（用户什么都没
             // 输），调用方拿它去建目录，Windows 会悄悄把结尾的点吃掉 = 名字跟返回值不一样。
@@ -277,12 +275,12 @@ Result parseModrinthIndex(const QByteArray &json) {
     }
     // 认不出的加载器键**也得带出去**，不能就这么丢掉。
     // NOTE: 上面那个循环只在那四个键里挑，于是 dependencies 里写着别的加载器
-    //       （rift-loader / liteloader / 以后新出的……）时 loaderKey 是空串 —— 而空串在
-    //       unsupportedLoaderText() 眼里是"纯原版整合包，放行"，最后装出来一个**进不去**
-    //       的包：一堆 mod 躺在 mods/ 里，游戏按原版起。.hpp 里写着"认不出来的键走和
-    //       Quilt 同一条路、不返回空串"，当时就是被这一步悄悄绕过去的。
-    //       多个认不出的键时取**排序后的第一个**：这种包本身就不合规，报哪个都算报，
-    //       但得报确定的那一个 —— 靠 QJsonObject 的遍历顺序挑，换一次 Qt 就可能换一个。
+    // （rift-loader / liteloader / 以后新出的……）时 loaderKey 是空串 —— 而空串在
+    // unsupportedLoaderText() 眼里是"纯原版整合包，放行"，最后装出来一个**进不去**
+    // 的包：一堆 mod 躺在 mods/ 里，游戏按原版起。.hpp 里写着"认不出来的键走和
+    // Quilt 同一条路、不返回空串"，当时就是被这一步悄悄绕过去的。
+    // 多个认不出的键时取**排序后的第一个**：这种包本身就不合规，报哪个都算报，
+    // 但得报确定的那一个 —— 靠 QJsonObject 的遍历顺序挑，换一次 Qt 就可能换一个。
     if (pack.loaderKey.isEmpty()) {
         QStringList unknownKeys;
         for (auto it = dependencies.constBegin(); it != dependencies.constEnd(); ++it) {
@@ -344,10 +342,10 @@ Result parseModrinthIndex(const QByteArray &json) {
                         .toString();
         // fileSize 越界（或者干脆不是数）= **当"不知道字节数"**（-1），不强转。
         // NOTE: 这一步原来是裸的 `static_cast<qint64>(size.toDouble())`，而越界的 double 转
-        //       qint64 是**未定义行为**（x86 上给出 0x8000…，一个负数）。清单是外部输入，
-        //       写个 1e30 就能撞上，而那个负数会一路走进"这份文件下完了没有"的判断里 ——
-        //       变成一个永远下不完的作业。0 也留着（0 字节的文件确实存在，但那份字节数由
-        //       sha1 那一侧兜），这里只挡"明显不是字节数"的。
+        // qint64 是**未定义行为**（x86 上给出 0x8000…，一个负数）。清单是外部输入，
+        // 写个 1e30 就能撞上，而那个负数会一路走进"这份文件下完了没有"的判断里 ——
+        // 变成一个永远下不完的作业。0 也留着（0 字节的文件确实存在，但那份字节数由
+        // sha1 那一侧兜），这里只挡"明显不是字节数"的。
         // 2^63 这个字面量在 double 里表示得**正好**，`<` 它就一定塞得进 qint64。
         constexpr double kQint64UpperBound = 9223372036854775808.0;
         const QJsonValue size = entry.value(QStringLiteral("fileSize"));
@@ -442,7 +440,7 @@ CurseForgeLoaderId splitCurseForgeLoaderId(const QString &rawId) {
 ///
 /// 找不到回空串 —— 空 sha1 在下载那一段是"不核 sha1、只核字节数"，不是错误。
 /// NOTE: **不能拿 `hashes[0]`**：数组的次序没有承诺，而且实际回来时它常常是 md5
-///       （那样下载完每一条都会被判成"校验不过"，而字节数是对的）。
+/// （那样下载完每一条都会被判成"校验不过"，而字节数是对的）。
 QString sha1FromCurseForgeHashes(const QJsonArray &hashes) {
     for (const QJsonValue &value : hashes) {
         const QJsonObject entry = value.toObject();
@@ -720,8 +718,8 @@ QString curseForgeFilePath(int classId) {
     case 6945:  // Data Packs —— 和下载页那一类的落点**必须一致**（见
                 // ResourceCatalog::folderForKind）：同一个东西两条路放进两个目录，
                 // 症状是"从下载页下的能生效、从整合包里来的不生效"。
-        // 注意原版只认存档里那份（`<存档>/datapacks/`），这里的产物要用户自己搬进存档 ——
-        // 和 ResourceCatalog 那边同一句话，别在这儿说成"装好了"。
+                // 注意原版只认存档里那份（`<存档>/datapacks/`），这里的产物要用户自己搬进存档 ——
+                // 和 ResourceCatalog 那边同一句话，别在这儿说成"装好了"。
         return QStringLiteral("datapacks/");
     case 17:    // Worlds（存档）
         return QStringLiteral("saves/");
@@ -809,26 +807,26 @@ QString curseForgeApiBase(const QString &apiKey, const QString &override) {
     // 但填了它就得最优先 —— 那是"把接口指到本机的假服务器上"的唯一办法。
     QString base = override.trimmed();
     if (base.isEmpty()) {
-        // ★ 没填 key 时走的那一台（2026-09-26 换过一次，原因是**上一台整个死了**）：
-        //   · 旧的那台 `api.curse.tools` —— 2026-09-25 实测 200，2026-09-26 再测**整站 403**
-        //     （Cloudflare 的拦截页，不带 UA、带浏览器 UA、带全套浏览器头都一样）。
-        //     它的症状是"CurseForge 那一栏什么都搜不出来 / 整合包导入说换不到文件"，
-        //     而那句话里只会看到 HTTP 403。
-        //   · 现在这台 `mod.mcimirror.top/curseforge/v1` —— 实测 200，而且是**照着官方那份
-        //     做的镜像**（`{"data":[…]}`、`pagination`、`downloadUrl`、`hashes`、
-        //     `latestFilesIndexes` 一层不差），所以上层一个字都不用改。同一趟实测过的还有：
-        //     搜索（`searchFilter=jei` 377 条）、版本列表（`/mods/{id}/files` 带 gameVersion +
-        //     modLoaderType）、单文件（`/mods/{id}/files/{id}`）、两个批量 POST
-        //     （`/mods/files`、`/mods`）与分类表（`/categories`）—— 这条路用到的每一发都问过。
-        //   · ★ **结尾那个 `/v1` 一个字符都不能少**。这个函数的约定是"返回到 `/v1` 为止的
-        //     那一段"，调用点只往后接 `/mods/search` / `/mods/files` / `/mods/{id}/files` ——
-        //     少这一段就变成 `/curseforge/mods/search`，**每一发都是 404**。
-        //     2026-09-26 实测：`/curseforge/mods/search?…` → 404、`/curseforge/v1/mods/search?…`
-        //     → 200。它坑人的地方在于**症状和"服务挂了"长得一模一样**（CurseForge 那一栏搜不出
-        //     东西、整合包导入说换不到文件），而这条路的每一发都是拿假服务器验的 ——
-        //     本机那个假接口的 base 就是 `…:/v1`，所以少一段这种事**只有真网络那一跑能看见**
-        //     （mw_check 的 `cf-resolve-live` 当场报 404）。ZG5 有一条断言钉着 `/v1` 这个尾巴。
-        //   · **它也可能哪天就没了**（上一台就是这么没的）：换的时候只改下面这一行。
+        // 没填 key 时走的那一台（ 换过一次，原因是**上一台整个死了**）：
+        // · 旧的那台 `api.curse.tools` —— 实测 200， 再测**整站 403**
+        // （Cloudflare 的拦截页，不带 UA、带浏览器 UA、带全套浏览器头都一样）。
+        // 它的症状是"CurseForge 那一栏什么都搜不出来 / 整合包导入说换不到文件"，
+        // 而那句话里只会看到 HTTP 403。
+        // · 现在这台 `mod.mcimirror.top/curseforge/v1` —— 实测 200，而且是**照着官方那份
+        // 做的镜像**（`{"data":[…]}`、`pagination`、`downloadUrl`、`hashes`、
+        // `latestFilesIndexes` 一层不差），所以上层一个字都不用改。同一趟实测过的还有：
+        // 搜索（`searchFilter=jei` 377 条）、版本列表（`/mods/{id}/files` 带 gameVersion +
+        // modLoaderType）、单文件（`/mods/{id}/files/{id}`）、两个批量 POST
+        // （`/mods/files`、`/mods`）与分类表（`/categories`）—— 这条路用到的每一发都问过。
+        // · ★ **结尾那个 `/v1` 一个字符都不能少**。这个函数的约定是"返回到 `/v1` 为止的
+        // 那一段"，调用点只往后接 `/mods/search` / `/mods/files` / `/mods/{id}/files` ——
+        // 少这一段就变成 `/curseforge/mods/search`，**每一发都是 404**。
+        // 实测：`/curseforge/mods/search?…` → 404、`/curseforge/v1/mods/search?…`
+        // → 200。它坑人的地方在于**症状和"服务挂了"长得一模一样**（CurseForge 那一栏搜不出
+        // 东西、整合包导入说换不到文件），而这条路的每一发都是拿假服务器验的 ——
+        // 本机那个假接口的 base 就是 `…:/v1`，所以少一段这种事**只有真网络那一跑能看见**
+        // （mw_check 的 `cf-resolve-live` 当场报 404）。ZG5 有一条断言钉着 `/v1` 这个尾巴。
+        // · **它也可能哪天就没了**（上一台就是这么没的）：换的时候只改下面这一行。
         base = apiKey.trimmed().isEmpty()
                    ? QStringLiteral("https://mod.mcimirror.top/curseforge/v1")
                    : QStringLiteral("https://api.curseforge.com/v1");

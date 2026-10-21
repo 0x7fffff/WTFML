@@ -1,8 +1,6 @@
 /**
  * @file GameExitDiagnosis.hpp
  * @brief 游戏进程异常退出之后那几句话怎么得出来（coding plan §4.3）。
- * @author 0x7fffff
- * @date 2026-10-12
  *
  * 【为什么单独一个文件】
  *
@@ -32,10 +30,9 @@ namespace GameExitDiagnosis {
 
 /// 异常退出时留多少行 ERROR/Fatal（coding plan §4.3 说的"最后 200 行"）。
 ///
-/// ★ 这个数是**唯一出处**：`MainWindow` 按它截、报告里那句"只留了末尾 N 行"也按它写。
+/// 这个数是**唯一出处**：`MainWindow` 按它截、报告里那句"只留了末尾 N 行"也按它写。
 constexpr int kExcerptLineLimit = 200;
 
-/// 报告里那一段"完整日志"留多少行。全量可能是几万行，一份要发到群里的报告不该有几十兆。
 constexpr int kLogTailLineLimit = 500;
 
 /**
@@ -80,7 +77,7 @@ struct Facts {
     /// 那些行里**有没有**"某个模组的前置没装"（`logShowsMissingDependency()` 认出来的）。
     ///
     /// NOTE: 这是**加载器自己说的那几句话**，不是我们按模组清单猜的 —— 退出这一刻去联网问
-    ///       一遍每个模组的前置，用户只会看到启动器卡在那里（见 `hints()` 里那段）。
+    /// 一遍每个模组的前置，用户只会看到启动器卡在那里（见 `hints()` 里那段）。
     bool sawMissingDependency = false;
     /// 这一趟到底有没有拿到游戏的输出（`显示游戏日志` 那个开关关着时是 false）。
     bool logCaptured = false;
@@ -109,7 +106,7 @@ bool logShowsOutOfMemory(const QString &logText);
 /// 退出码写成一句人话：`0xC0000005（内存访问冲突）`。认不出的原样写十进制。
 ///
 /// NOTE: Windows 上 `QProcess` 报的崩溃码就是 NTSTATUS（不是进程的 exit code），所以
-///       那几个高位 0xC0 的值能指名道姓地说出"哪种崩"。认不出的**不编**，照原样写。
+/// 那几个高位 0xC0 的值能指名道姓地说出"哪种崩"。认不出的**不编**，照原样写。
 QString exitDescription(int exitCode);
 
 /// 一句话概括这次退出（写进账本的 `errorSummary`）。
@@ -122,7 +119,7 @@ QString summary(const Facts &facts);
  * 我们手上没有能指认的东西 —— 空着比说一句"可能有很多原因"强）。
  *
  * NOTE: 这个函数**不看时钟、不读盘**，所以同一份 Facts 永远给同一串话 —— 验证工程按它
- *       钉那张表。
+ * 钉那张表。
  */
 QStringList hints(const Facts &facts);
 

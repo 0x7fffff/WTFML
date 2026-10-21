@@ -47,8 +47,8 @@ private:
 
     // ---------- 任务中心那一格 ----------
     //
-    // ★ 步骤表是这一层的**唯一出处**（`exportStepNames()`）：起手按它建任务，之后只按
-    //   下标改状态。四步对着 coding plan 那条流程：规划 / 兼容性确认 / 执行 / 验证。
+    // 步骤表是这一层的**唯一出处**（`exportStepNames()`）：起手按它建任务，之后只按
+    // 下标改状态。四步对着 coding plan 那条流程：规划 / 兼容性确认 / 执行 / 验证。
     QList<Tasks::TaskStep> initialSteps() const;
     void setTaskDetail(const QString &text) const;
     void setTaskProgress(qint64 doneUnits, qint64 totalUnits) const;

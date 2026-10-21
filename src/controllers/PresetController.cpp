@@ -1,8 +1,6 @@
 /**
  * @file PresetController.cpp
  * @brief 实现 PresetController.hpp。
- * @author 0x7fffff
- * @date 2026-10-18
  *
  * 这一份里只有三类句子：**读盘**（`Presets::loadManifest` / `readTargetSnapshot`）、
  * **把结果翻成页面认识的形状**、以及**把页面发上来的那一下交给 `Presets::` 那一层**。
@@ -782,8 +780,8 @@ void PresetController::captureInto(const QString &presetId, const QString &insta
     request.instanceId = instanceId;
     request.instanceRoot = instanceRoot(instanceId);
     request.presetFilesRoot = Presets::filesDir(root, presetId);
-    // ★ 「不串类别」的第二道闸（第一道在界面上把格子禁掉）：外面要是还是塞进来了
-    //   不属于这一类的样，这里静默摘掉并说清楚，绝不让它落进 manifest。
+    // 「不串类别」的第二道闸（第一道在界面上把格子禁掉）：外面要是还是塞进来了
+    // 不属于这一类的样，这里静默摘掉并说清楚，绝不让它落进 manifest。
     QStringList skipped;
     request.selection = filterCapture(manifest.category, toSelection(choice), &skipped);
     if (request.selection.isEmpty()) {
@@ -1053,11 +1051,6 @@ void PresetController::applyPlan(const QString &presetId, const QString &instanc
     }
     PresetManagePage::ApplyView view;
 
-    // ★ 2026-10-19：这个实例正在后台被别的作业写着 —— 复制 / 还原 / 迁移那一趟整棵
-    //   目录都在被读或被换掉，安装 / 补全文件那一趟也在改 `versions/<id>/`；而这一页
-    //   接下来也要往同一个目录里写（模组预设写 `mods/`，别的预设改 `options.txt`、
-    //   服务器清单这些文件）。原来这里只问"搬文件"那一份名单，正被安装 / 补全的实例
-    //   漏了过去。这里问宽的那一份（= `installingVersionIds()` 的合集）。
     if (m_host.isInstanceBusy && m_host.isInstanceBusy(instanceId)) {
         view.problem = tr("这个实例正在安装、补全文件或后台搬文件（复制、还原、导入），"
                           "等它收尾之后再应用预设。");
@@ -1260,7 +1253,7 @@ PresetController::InstallPreview PresetController::previewForInstall(
     request.presetFilesRoot = Presets::filesDir(presetsRoot(), presetId);
     request.sections = manifest.sections;
     request.target = snapshot;
-    // ★ 第一趟一律 `false`：这里就是"给用户看的第一趟"，有「覆盖」就如实报出来。
+    // 第一趟一律 `false`：这里就是"给用户看的第一趟"，有「覆盖」就如实报出来。
     request.replaceConfirmed = false;
     request.gameRunning = m_host.isRunning ? m_host.isRunning(instanceName) : false;
 
@@ -1463,8 +1456,8 @@ void PresetController::startModCheck(const QString &presetId, const QString &gam
     if (m_modChecker == nullptr) {
         return;
     }
-    // ★ 先把"这一代查的是哪一份"记下来，再 start()：`start()` 会**同步**发一发
-    //   `updated`（本地能判的那几条立刻有结论），那一发里必须已经带着正确的 presetId。
+    // 先把"这一代查的是哪一份"记下来，再 start()：`start()` 会**同步**发一发
+    // `updated`（本地能判的那几条立刻有结论），那一发里必须已经带着正确的 presetId。
     m_modCheckPresetId = presetId;
     Presets::CompatibilityContext context;
     context.gameVersion = gameVersion.trimmed();
@@ -1532,22 +1525,14 @@ void PresetController::installModsAfterInstall(const QStringList &presetIds, con
     task->setSelectionSnapshot(snapshot);
     task->setInstanceIdentityKey(instanceId);
     m_modInstallTask = task;
-    // ★ 2026-10-19：这一趟要联网查版本、下模组、往 `mods/` 里写文件，可原来**没有任何
-    //   "忙"标记** —— 用户在预设页按下「应用」之后，照样能启动这一份实例（启动器读到的
-    //   是一半的模组目录），也能把它整个删掉（安装器收尾时还会把目录重新建出来，用户
-    //   看到的是"删掉了、过一会儿它自己又回来了"）。记进和「复制实例」「还原」同一个集合。
-    //
-    //   必须在 `start()` **之前**记：`start()` 在"没有版本 / 加载器对不上"那几条路上
-    //   会**同步**回调 completed，先记后清才是对的顺序。
+    // 必须在 `start()` **之前**记：`start()` 在"没有版本 / 加载器对不上"那几条路上
+    // 会**同步**回调 completed，先记后清才是对的顺序。
     if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(instanceId, true);
     task->start(references, instanceRoot(instanceId), m_versions->instanceGameVersion(instanceId), loader,
                 m_presetApiKey, [this, instanceId] { return m_host.isRunning && m_host.isRunning(instanceId); },
                 [this, instanceId, completed](const Presets::PresetModInstaller::Result &result) {
                     m_modInstallTask.clear();
                     if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(instanceId, false);
-                    // ★ 2026-10-19：这一趟记着"搬文件忙"期间，别的刷新（下载收尾、改设置）
-                    //   已经按 `installingVersionIds()` 把这一份从实例页滤掉过的话，摘掉忙
-                    //   标记并不会让它自己回来 —— 这里补一次重灌。
                     if (m_host.refreshInstances) m_host.refreshInstances();
                     const QString text = result.lines.join(QLatin1Char('\n'));
                     log(text);

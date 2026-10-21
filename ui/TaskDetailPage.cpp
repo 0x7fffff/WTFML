@@ -1,8 +1,6 @@
 /**
  * @file TaskDetailPage.cpp
  * @brief 任务详情页的实现（形状与取舍见头文件）。
- * @author 0x7fffff
- * @date 2026-10-12
  */
 
 #include "TaskDetailPage.hpp"
@@ -89,8 +87,8 @@ TaskDetailPage::TaskDetailPage(QWidget *parent) : QDialog(parent) {
     m_box->addWidget(m_detailLabel);
 
     // ---------- 进度：条 + 右边那个数 ----------
-    // ★ 测不出总量（percent < 0）的时候**整行收起来**，不画一根不确定态的条，也不编一个
-    //   百分比出来 —— 和面板那一行同一条规矩（coding plan §3.4）。
+    // 测不出总量（percent < 0）的时候**整行收起来**，不画一根不确定态的条，也不编一个
+    // 百分比出来 —— 和面板那一行同一条规矩（coding plan §3.4）。
     auto *barRow = new QHBoxLayout;
     barRow->setContentsMargins(0, 0, 0, 0);
     barRow->setSpacing(8);
@@ -153,9 +151,6 @@ TaskDetailPage::TaskDetailPage(QWidget *parent) : QDialog(parent) {
     m_targetButton = makeActionButton(MainWindowUI::taskDetailTargetText(), Action::OpenTarget,
                                       MainWindowUI::taskDetailTargetName());
     actions->addWidget(m_targetButton);
-    // 下面这两颗是 §4.3 那一档（游戏异常退出）专用的：它们跟在「打开目标位置」**后面**，
-    // 而不是插在左边那两颗前面 —— 那一排左边是"当下还能做点什么"（取消 / 重试），右边是
-    // "事后看一眼"（日志 / 报告 / 摘要），两堆之间空着一段（见 06d/06e 那两张截图判据）。
     m_reportButton = makeActionButton(MainWindowUI::taskDetailReportText(), Action::ExportReport,
                                       MainWindowUI::taskDetailReportName());
     actions->addWidget(m_reportButton);

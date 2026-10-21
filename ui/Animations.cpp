@@ -1,11 +1,6 @@
 /**
  * @file Animations.cpp
  * @brief `Animations.hpp` 那一套的实现。规矩（不许有元素超出 / 几何一个像素都不动）写在头文件里。
- *
- * ★★ 2026-10-11 下午：**换页那一发从 `QGraphicsEffect` 换成了"自己盖一块幕布"**
- *    （`PageCurtain`）。理由整段写在那个类上 —— 一句话：挂在控件上的效果**不会把它的
- *    子控件跟着一起重画**，于是"抬"只抬得动控件自己画的那点东西。按下 / 滚动条 / 覆盖层
- *    那三发**仍然是效果**（它们要么没有子控件，要么是"刚建出来就淡"的新控件，实测没问题）。
  */
 
 #include "Animations.hpp"
@@ -43,8 +38,8 @@
 
 #if defined(Q_OS_WIN)
 // NOTE: 放在所有 Qt 头之后 —— windows.h 定义的东西太多（min/max 宏、`interface`……），
-//       先于 Qt 包含容易撞名。写法和 `src/launcher/LauncherManager.cpp` 里那一套一致。
-//       用途只有一个：下面的 `refreshPlatformReducedMotion()`（SystemParametersInfo）。
+// 先于 Qt 包含容易撞名。写法和 `src/launcher/LauncherManager.cpp` 里那一套一致。
+// 用途只有一个：下面的 `refreshPlatformReducedMotion()`（SystemParametersInfo）。
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -93,9 +88,9 @@ const char *const kEnabledKey = "Look/Animations";
  * 调色板）**一个字节都不动** —— 用户点名的"不许有元素超出"于是变成结构上做不到，
  * 而不是靠分寸拿捏。
  *
- * NOTE: 2026-10-11 下午之后，这一层**只剩"淡"和"压暗"**（换页那一位挪去了 `PageCurtain`）：
- *       曾经这里还有"抬"（`setShift()` / `setContentRect()`）与"定住的那一张"，
- *       那两样都是给换页用的，跟着一起搬走了。
+ * NOTE: 下午之后，这一层**只剩"淡"和"压暗"**（换页那一位挪去了 `PageCurtain`）：
+ * 曾经这里还有"抬"（`setShift()` / `setContentRect()`）与"定住的那一张"，
+ * 那两样都是给换页用的，跟着一起搬走了。
  */
 class AnimEffect : public QGraphicsEffect {
 public:
@@ -117,7 +112,7 @@ public:
         update();
     }
 
-    /// ★ 这一条就是"不许有元素超出"的那一句：效果的有效范围**就是源矩形自己**
+    /// 这一条就是"不许有元素超出"的那一句：效果的有效范围**就是源矩形自己**
     /// （默认实现也是这么返回的，这里明写出来，免得将来有人"顺手"给它加个外扩）。
     QRectF boundingRectFor(const QRectF &sourceRect) const override { return sourceRect; }
 
@@ -142,22 +137,17 @@ protected:
         }
 
         painter->setWorldTransform(QTransform());
-        // ★★ 这个画笔的坐标空间是**逻辑像素**（原点在控件父坐标系里，`offset` 就是控件左上角
-        //    在那一格里的逻辑位置）。实地标定（2026-10-11）：`ui_shot` 里那颗按下按钮外面
-        //    正好留了 16 px 边距，这里量到的 `offset` **就是 `QPoint(16,16)`**（不是 24 =
-        //    16×1.5），而 `source` 那张图是**设备像素**（`dpr` 1.5，180×36 的按钮照出 270×54）。
-        //
-        //    ★ 这一条以前是含糊的（那一格一直混着用），后果**看得见**：真帧里内容被推到
-        //      1.5 倍的位置上。所以这里把两把尺子分清楚：**画笔这一层一律逻辑像素，
-        //      `source` 的像素矩形一律设备像素**。
+        // 这一条以前是含糊的（那一格一直混着用），后果**看得见**：真帧里内容被推到
+        // 1.5 倍的位置上。所以这里把两把尺子分清楚：**画笔这一层一律逻辑像素，
+        // `source` 的像素矩形一律设备像素**。
         const qreal dpr = source.devicePixelRatio() > 0.0 ? source.devicePixelRatio() : 1.0;
         const QRectF widgetRect(offset, QSizeF(source.size()) / dpr);
-        // ★ 再上一道保险：不管上面那些数怎么算错，都画不到源矩形之外去。
+        // 再上一道保险：不管上面那些数怎么算错，都画不到源矩形之外去。
         painter->setClipRect(widgetRect, Qt::IntersectClip);
         // NOTE: 这里原来还有"底下垫一层底色"（`setBackdrop()`）：那是给换页那一发准备的，
-        //       它跟着换页一起搬去了 `PageCurtain`（那一层仍然照旧垫 —— 起手那几帧是半透明
-        //       的，不垫的话不透明子控件视口那一块屏幕上留的是上一帧的像素）。剩下这三发
-        //       （按下 / 滚动条 / 覆盖层）都是**盖在已经画好的界面**上的，不垫。
+        // 它跟着换页一起搬去了 `PageCurtain`（那一层仍然照旧垫 —— 起手那几帧是半透明
+        // 的，不垫的话不透明子控件视口那一块屏幕上留的是上一帧的像素）。剩下这三发
+        // （按下 / 滚动条 / 覆盖层）都是**盖在已经画好的界面**上的，不垫。
         painter->setOpacity(qBound(0.0, m_opacity, 1.0));
         painter->drawPixmap(offset, out);
     }
@@ -207,25 +197,25 @@ void dropEffect(QWidget *widget) {
 }
 
 /**
- * ★★ 换页那一发用的那块**幕布**（2026-10-11 下午加的）。用户原话：
- *    「这个动画，在有框的时候框会瞬移，能不能考虑一下用其它组件之类的解决」。
+ * 换页那一发用的那块**幕布**（ 下午加的）。要求：
+ * 「这个动画，在有框的时候框会瞬移，能不能考虑一下用其它组件之类的解决」。
  *
  * 【为什么不接着用 `QGraphicsEffect` —— 在真屏上量出来的】
  *
  * 挂在控件上的效果**只重画控件自己那一层**。它身上的**子控件**（列表 / 树的视口这类
- * 不透明控件）那一块**停在起手那一帧**：2026-10-11 在真机上逐帧量过（`build/tmp-run/
+ * 不透明控件）那一块**停在起手那一帧**： 在真机上逐帧量过（`build/tmp-run/
  * wtfml-bandscan.ps1` 扫"一行字在第几行"），换页那一发里：
  *
- *   * 页面自己画的那些文字（「游戏文件夹」「实例列表」）**每一拍都在动**；
- *   * **子控件里的那些行**整整一发一动不动地停在 +27 设备像素（= `pageRiseDistance()`
- *     当时的 18 逻辑像素 × dpr 1.5）、浓淡停在当时的起手值 0.65（黑字压在白底上 = 亮度 90，
- *     帧帧都是 90）—— 也就是说那一块屏幕显示的是**这一发第一帧的合成结果**，
- *     跑完之后效果一摘才"啪"地对齐。用户看到的就是「瞬移」。
+ * * 页面自己画的那些文字（「游戏文件夹」「实例列表」）**每一拍都在动**；
+ * * **子控件里的那些行**整整一发一动不动地停在 +27 设备像素（= `pageRiseDistance()`
+ * 当时的 18 逻辑像素 × dpr 1.5）、浓淡停在当时的起手值 0.65（黑字压在白底上 = 亮度 90，
+ * 帧帧都是 90）—— 也就是说那一块屏幕显示的是**这一发第一帧的合成结果**，
+ * 跑完之后效果一摘才"啪"地对齐。用户看到的就是「瞬移」。
  *
- *   换 `repaint()`（同步整块重画）、把抬的量按整块走（不分"框 / 内容"）、只淡不抬，
- *   三种都试过 —— 子控件那一块**照样定住**（只淡不抬那一版里它站的位置是对的、
- *   浓淡仍然是死的：判据 `f01` 到 `f17` 全是 `min 90`）。这一层里的病因不在我们的
- *   `draw()`（那里画的每一帧都真的上屏了），在 Qt 的效果管线本身。
+ * 换 `repaint()`（同步整块重画）、把抬的量按整块走（不分"框 / 内容"）、只淡不抬，
+ * 三种都试过 —— 子控件那一块**照样定住**（只淡不抬那一版里它站的位置是对的、
+ * 浓淡仍然是死的：判据 `f01` 到 `f17` 全是 `min 90`）。这一层里的病因不在我们的
+ * `draw()`（那里画的每一帧都真的上屏了），在 Qt 的效果管线本身。
  *
  * 【修法：不用效果，自己盖一块普通控件】
  *
@@ -244,15 +234,6 @@ void dropEffect(QWidget *widget) {
  * 起手照一次，之后每一帧都拿那一张 —— 理由和以前一样（见 `pageAppear()`）：换页那一刻
  * 常是"内容还在往里灌"的时候，现照现淡的话这一发淡的每一帧都不是同一张画面。尺寸变了
  * 才重照。
- *
- * ★★ 2026-10-17：照那一张从 `paintEvent()` 里挪到了外面（`ensureSnapshot()`，
- *    `start()` / `setFrame()` 调）。原来写成"懒照：第一帧真要画的时候才照"，可照相是
- *    `grabSource->grab()` —— 抓的是 host / 顶层窗口，它会把**正在画**的这块幕布也重画
- *    一遍，Qt 当场报一串 `QWidget::repaint: Recursive repaint detected` +
- *    `QPainter::begin: Paint device returned engine == 0`（用户桌面版的 log 里那一串就是
- *    它），那几帧还画不出来、换页第一帧会闪一下。起手这一刻页面已经 `show()` 过、几何
- *    和布局都落了地（`pageAppear()` 挂在 `currentChanged` 上，而它是 `setCurrentIndex()`
- *    里同步发的），照出来的和"第一帧"是同一张。
  */
 class PageCurtain : public QWidget {
 public:
@@ -273,7 +254,7 @@ public:
         if (target != nullptr && parentWidget() != nullptr) {
             setGeometry(QRect(target->mapTo(parentWidget(), QPoint(0, 0)), target->size()));
         }
-        // 照这一张**必须**在 paintEvent 外面（理由见类头上 2026-10-17 那一段）。
+        // 照这一张**必须**在 paintEvent 外面（理由见类头上 那一段）。
         ensureSnapshot();
         show();
         raise();
@@ -295,9 +276,9 @@ protected:
             return;
         }
         // NOTE: 幕布和它照的那一块都是 `parentWidget()` 的孩子（幕布是**兄弟**，不是祖先）
-        //       —— 所以这里量位置问的是 `parentWidget()`，不是 `this`（问 `this` 的话
-        //       Qt 会报 `QWidget::mapTo(): parent must be in parent hierarchy` 然后返回一个
-        //       没人认的坐标，症状是整块幕布一个像素都不画）。
+        // —— 所以这里量位置问的是 `parentWidget()`，不是 `this`（问 `this` 的话
+        // Qt 会报 `QWidget::mapTo(): parent must be in parent hierarchy` 然后返回一个
+        // 没人认的坐标，症状是整块幕布一个像素都不画）。
         QWidget *host = parentWidget();
         if (host == nullptr) {
             return;
@@ -307,17 +288,17 @@ protected:
         if (inHost.isEmpty() || inMe.isEmpty()) {
             return;
         }
-        // ★ 「淡的是一张定住的图」：快照已经由 `ensureSnapshot()` 在 paint 外面照好了。
-        //   这里**绝不**抓图 —— 在这一摞栈上 `grab()` 会把正在画的这块幕布也重画一遍
-        //   （2026-10-17，用户 log 里那一串 recursive repaint 就是它）。
+        // 「淡的是一张定住的图」：快照已经由 `ensureSnapshot()` 在 paint 外面照好了。
+        // 这里**绝不**抓图 —— 在这一摞栈上 `grab()` 会把正在画的这块幕布也重画一遍
+        // （，用户 log 里那一串 recursive repaint 就是它）。
         QPainter painter(this);
         // `setGeometry()` 已经把幕布搬到了 inHost；QPainter 用的是幕布**自己的**坐标，
         // 这里必须从 (0, 0) 画。再用 inHost 会把目标相对父层的偏移重复加一次，幕布左上会
         // 留出一块透明区域，动画时正好透出后面的灰色窗口。
         // 「不许有元素超出」：画之前先把范围收到这一格（挪下去的那一条也不会跑出去）。
         painter.setClipRect(inMe, Qt::IntersectClip);
-        // ★ 底下先铺满底色：起手那几帧是半透明的，而 `target` 底下可能有"谁都不画"的
-        //   不透明子控件视口（那一块屏幕上留着的是上一帧的像素）。铺一层就总是满的。
+        // 底下先铺满底色：起手那几帧是半透明的，而 `target` 底下可能有"谁都不画"的
+        // 不透明子控件视口（那一块屏幕上留着的是上一帧的像素）。铺一层就总是满的。
         if (m_backdrop.isValid() && m_backdrop.alpha() > 0) {
             painter.setOpacity(1.0);
             painter.fillRect(inMe, m_backdrop);
@@ -325,7 +306,7 @@ protected:
         painter.setOpacity(qBound(0.0, m_opacity, 1.0));
         // 「抬」这一位按**逻辑像素**说；落到屏幕上再吸到**整设备像素**上
         // （150% 缩放下 1 逻辑 px = 1.5 设备 px —— 不吸的话内容每一拍都停在半像素上，
-        //  文字会发虚）。
+        // 文字会发虚）。
         const qreal dpr = m_snapshot.devicePixelRatio() > 0.0 ? m_snapshot.devicePixelRatio() : 1.0;
         const qreal shift = m_shift > 0.0 ? qRound(m_shift * dpr) / dpr : 0.0;
         painter.drawPixmap(QPointF(inMe.topLeft()) + QPointF(0.0, shift), m_snapshot);
@@ -333,7 +314,7 @@ protected:
 
 private:
     /// 照那一张"起手定住"的图。**只能在 paintEvent 外面调**（在里面抓 = 抓到自己，
-    /// 见类头上 2026-10-17 那一段）。
+    /// 见类头上 那一段）。
     void ensureSnapshot() {
         if (m_target == nullptr || parentWidget() == nullptr) {
             return;
@@ -347,21 +328,11 @@ private:
             return;
         }
         // NOTE: 不能直接 `m_target->grab()`：页面本身经常是透明光板，单独抓它时 Qt 会
-        //       用 `QPalette::Window` 补底（Fusion 下就是灰的），而屏幕上真正透出来的是
-        //       父层那张白卡片。动画期间于是会先灰、收掉幕布后才突然变白。
-        //       从 host 的对应区域抓，拿到的才是用户此刻真正看见的合成结果。
-        //       幕布自己可能就在 host 里面，所以照相时让自己一个像素都不画，避免照镜子
-        //       （`m_grabbing` 那道早退 —— 抓图会把这块幕布也重画一遍）。
-        //
-        // ★★ 2026-10-12（ui_check ⑬ 那条「透明页面换页时背景从第一帧起就是白的」逮住的）：
-        //   上面那条「从 host 抓」**漏了 host 就是 m_target 的那一路** —— `liftTarget()`
-        //   什么都没抬的时候（页面自己没有滚动区、也不是选项卡，`lift == widget`）幕布的
-        //   父层**就是**要照的那一块，`host->grab()` 于是又回到"抓一张透明光板"：
-        //   Qt 拿 `QPalette::Window` 补底，实测灰 `#808080` 配 `0.72` 的起手浓淡正好是
-        //   屏幕上那块先灰一下再变白。这时往**顶层窗口**的那一片区域抓，合成本身才是对的
-        //   （幕布是目标的**孩子**，它自己那一下照样由 `m_grabbing` 挡着不画）。
-        //   NOTE: 只改这一路 —— host 不是 target 那一路（选项卡 / 滚动区，也是界面上
-        //         真正跑得最多的那一路）一个字节都没动。
+        // 用 `QPalette::Window` 补底（Fusion 下就是灰的），而屏幕上真正透出来的是
+        // 父层那张白卡片。动画期间于是会先灰、收掉幕布后才突然变白。
+        // 从 host 的对应区域抓，拿到的才是用户此刻真正看见的合成结果。
+        // 幕布自己可能就在 host 里面，所以照相时让自己一个像素都不画，避免照镜子
+        // （`m_grabbing` 那道早退 —— 抓图会把这块幕布也重画一遍）。
         QWidget *grabSource = host;
         if (grabSource == m_target) {
             if (QWidget *top = m_target->window()) {
@@ -406,19 +377,19 @@ struct StepRun {
  * `apply` 收到的是**已经映射好的值**（`from` → `to`，走 `OutSine`），不是 0→1。
  *
  * `owner`：这一发动画和步进器挂在谁身上（效果的拥有者那几发就是效果自己；换页那几发是
- *          那块幕布）。同一个 `owner` 上又进来一发时，上一发会被停掉。
+ * 那块幕布）。同一个 `owner` 上又进来一发时，上一发会被停掉。
  * `repaintTarget`：每一拍推完之后要 `update()` 的那一块（效果那几发就是挂着效果的那个
- *          控件；换页那几发是幕布自己）。
+ * 控件；换页那几发是幕布自己）。
  * `finish`：跑完做的那一下（可能为空 = 不收尾）。
  *
  * `stepMs`：
- *   * `> 0` —— **按帧走**：定时器每一拍推一档（"为什么"整段写在这个函数下半截）。
- *     换页 / 覆盖层 / 滚动条这三发走这条。
- *   * `0`   —— 按 Qt 自己的墙上时钟走。**按下 / 松手那两发走这条**：手指按着的时候那一档
- *     要立刻见、要一直挂着（按住不放可以是任意长），跟"一段固定时长的转场"不是一回事。
+ * * `> 0` —— **按帧走**：定时器每一拍推一档（"为什么"整段写在这个函数下半截）。
+ * 换页 / 覆盖层 / 滚动条这三发走这条。
+ * * `0` —— 按 Qt 自己的墙上时钟走。**按下 / 松手那两发走这条**：手指按着的时候那一档
+ * 要立刻见、要一直挂着（按住不放可以是任意长），跟"一段固定时长的转场"不是一回事。
  *
- * ★ 2026-10-11：这里原来还有一个 `delayMs` 参数（"起手先干等一段"），只有换页那一发用。
- *   那一段跟着 `pageDelayMs()` 一起拿掉了，见 `Animations.hpp` 里 `appearMs()` 上面那段。
+ * 这里原来还有一个 `delayMs` 参数（"起手先干等一段"），只有换页那一发用。
+ * 那一段跟着 `pageDelayMs()` 一起拿掉了，见 `Animations.hpp` 里 `appearMs()` 上面那段。
  */
 void runProgress(QObject *owner, QWidget *repaintTarget, qreal from, qreal to, int ms, int stepMs,
                  const std::function<void()> &finish, const std::function<void(qreal)> &apply) {
@@ -442,14 +413,10 @@ void runProgress(QObject *owner, QWidget *repaintTarget, qreal from, qreal to, i
     animation->setDuration(qMax(1, ms));
     animation->setStartValue(from);
     animation->setEndValue(to);
-    // ★ 2026-10-11：`OutCubic` → **`OutSine`**。同样是"起手快、收尾慢"，但 `OutCubic`
-    //   把动感堆得太靠前：换页一共才 12 拍，它**第一拍就走掉 25%、头三拍走掉 74%**，
-    //   后面每拍不到 1 px —— 看着就是"跳一下，然后一条不动的尾巴"。`OutSine` 每拍最多
-    //   摊 13%，十几拍下来是一条匀匀的滑行（实测真帧见下面 ★★ 那一段）。
     animation->setEasingCurve(QEasingCurve::OutSine);
-    // ★ 每一拍推完之后让那一块自己重画一遍。效果那几发这儿只叫得动"控件自己"那一层
-    //   （子控件那一块要等它自己脏了才画 —— 这正是换页那一发不能用效果的原因，见
-    //   `PageCurtain` 那段）；幕布是一块普通控件，这一句就是"整块都新"。
+    // 每一拍推完之后让那一块自己重画一遍。效果那几发这儿只叫得动"控件自己"那一层
+    // （子控件那一块要等它自己脏了才画 —— 这正是换页那一发不能用效果的原因，见
+    // `PageCurtain` 那段）；幕布是一块普通控件，这一句就是"整块都新"。
     QObject::connect(animation, &QVariantAnimation::valueChanged, owner,
                      [apply, w = QPointer<QWidget>(repaintTarget)](const QVariant &value) {
                          apply(value.toReal());
@@ -459,8 +426,8 @@ void runProgress(QObject *owner, QWidget *repaintTarget, qreal from, qreal to, i
                      });
 
     // NOTE: 收尾那一下**不能**在 `finished` 里直接做：那一刻我们是站在动画自己的信号里，
-    //       而动画是 `owner` 的孩子 —— 删父亲等于把这个正在发信号的动画也删了。
-    //       挪到下一轮做。
+    // 而动画是 `owner` 的孩子 —— 删父亲等于把这个正在发信号的动画也删了。
+    // 挪到下一轮做。
     const auto finishLater = [owner, finish]() {
         if (!finish) {
             return;
@@ -478,44 +445,31 @@ void runProgress(QObject *owner, QWidget *repaintTarget, qreal from, qreal to, i
     }
 
     // ---------------------------------------------------------------------
-    // ★★ 按帧走（2026-10-11 修用户报的「动画有严重的卡顿感」）
+    // 按帧走（ 修用户报的「动画有严重的卡顿感」）
     // ---------------------------------------------------------------------
     //
     // 【症状】换页那一发里，前面一大截是**定住的**，然后"啪"地跳掉三分之一。
     //
-    // 【真因】**不是掉帧**，是这一发自己在跳。`QVariantAnimation` 的进度是按墙上时钟算的
-    //   （`当前时间 = 现在 - 起跑那一刻`），而它"什么时候被叫醒"取决于 `QUnifiedTimer`：
-    //   换页那一刻主线程正忙着（摆版、新那一页第一遍画），第一拍**来得很晚**。2026-10-11
-    //   在 `ui_shot` 里临时插了一段追踪量出来的原话（`画` = 窗口画了一帧、括号里是距上一
-    //   条过了多少毫秒、数字 = 那一刻动画走到哪儿）：
+    // 900x620 : (2)画 (0)(6)画 (0)(1)画 (23)0.46 (0)画 (15)0.66 (1)画 (14)0.80 ...
+    // 1600x1000: (0)画 (64)0.43 (1)画 (14)0.65 (1)画 (14)0.78 (1)画 (14)0.89 ...
     //
-    //       900x620  : (2)画 (0)(6)画 (0)(1)画 (23)0.46 (0)画 (15)0.66 (1)画 (14)0.80 ...
-    //       1600x1000: (0)画 (64)0.43 (1)画 (14)0.65 (1)画 (14)0.78 (1)画 (14)0.89 ...
-    //
-    //   也就是：切过去之后**先定住 23~64 ms**（一帧都没动），第一拍一到就直接跳到 0.43 ——
-    //   当时这一发一共 `appearMs()`（200 ms），等于五分之一是跳过去的。后面的每一拍都稳稳
-    //   14~16 ms（帧率其实好好的）。用户说的"卡"就是这个。
+    // 也就是：切过去之后**先定住 23~64 ms**（一帧都没动），第一拍一到就直接跳到 0.43 ——
+    // 当时这一发一共 `appearMs()`（200 ms），等于五分之一是跳过去的。后面的每一拍都稳稳
+    // 14~16 ms（帧率其实好好的）。用户说的"卡"就是这个。
     //
     // 【修法】**不按墙上时钟算，每一拍推一档**。定时器摆在 `stepMs` 上，每响一次
-    //   `index += 1`，再把动画时间戳摆到 `index / steps` 那一档去。迟到的第一拍于是只推
-    //   一档，而不是一口气跳到半路 —— **"第一拍什么时候来"不再影响这一发走到哪儿**，
-    //   最多是起手多定住一两帧（那一段的观感由 `pageStartOpacity()` 和 `pageRiseDistance()`
-    //   管着，那两个数就是照这份真帧定的）。
+    // `index += 1`，再把动画时间戳摆到 `index / steps` 那一档去。迟到的第一拍于是只推
+    // 一档，而不是一口气跳到半路 —— **"第一拍什么时候来"不再影响这一发走到哪儿**，
+    // 最多是起手多定住一两帧（那一段的观感由 `pageStartOpacity()` 和 `pageRiseDistance()`
+    // 管着，那两个数就是照这份真帧定的）。
     //
-    //   ★ 同一天下午：这一条修完用户还是说"像是从下面瞬移上去的，没有过渡"。再量真帧，
-    //     还剩两个毛病：**两拍会挤在一起**、**后面几拍几乎不动**。于是同一天又补了三刀：
-    //     曲线换 `OutSine`、时长当时由 130 → 200（拍到 13 拍）、步进器在"离上一拍太近"的那一拍上
-    //     原地丢掉（单发链试过，慢一倍，见下面那一段）。
+    // 同一天下午：这一条修完用户还是说"像是从下面瞬移上去的，没有过渡"。再量真帧，
+    // 还剩两个毛病：**两拍会挤在一起**、**后面几拍几乎不动**。于是同一天又补了三刀：
+    // 曲线换 `OutSine`、时长当时由 130 → 200（拍到 13 拍）、步进器在"离上一拍太近"的那一拍上
+    // 原地丢掉（单发链试过，慢一倍，见下面那一段）。
     //
-    // 【为什么动画对象留着、却不 start】`setCurrentTime()` 在"停着"的状态下照样算值、
-    //   照样发 `valueChanged`、`currentValue()` 也跟着走 —— 2026-10-11 用一次性探针验过
-    //   （`build/tmp-wtfml-animprobe/ct.cpp`，跑完即删）：停着和"start 完再 pause"两种状态
-    //   下，同样四个采样点量出来的值一模一样。留着它，`ui_check` ⑬ 那几条判据
-    //   （`findChildren<QVariantAnimation *>()` / `duration()` / `currentValue()`）一个字都
-    //   不用改。
-    //
-    //   NOTE: 走这条路时 `finished` **不会**发（从来没 start 过），所以收尾那一下得由
-    //         步进器自己叫。
+    // NOTE: 走这条路时 `finished` **不会**发（从来没 start 过），所以收尾那一下得由
+    // 步进器自己叫。
     auto state = QSharedPointer<StepRun>::create();
     state->animation = animation;
     state->steps = qMax(1, qRound(qreal(animation->duration()) / stepMs));
@@ -525,32 +479,26 @@ void runProgress(QObject *owner, QWidget *repaintTarget, qreal from, qreal to, i
     stepper->setObjectName(QLatin1String(kStepperName));
     stepper->setTimerType(Qt::PreciseTimer);
     stepper->setInterval(stepMs);
-    // ★★ 2026-10-11 下午：**周期定时器 + 丢掉"积压的那一拍"**。
+    // t=5 画（现场照了一张 4ms） 0.800 / +10.0
+    // t=10 画（定住的那张） 0.800 / +10.0
+    // t=16 画（定住的那张） 0.800 / +10.0
+    // ---- 空档 30 ms ----
+    // t=46 推 1/8 → 画 0.865 / +6.7
+    // t=48 推 2/8 → 画 0.917 / +4.2 ← 两拍只差 2 ms
+    // t=64 推 3/8 → 画 0.952 / +2.4
+    // …
     //
-    //   上半天那版是"周期 16 ms"，我按"Qt 每颗定时器最多只补发**一个**迟到事件"来推理
-    //   （结论来自一个一次性探针）。同一天下午在 `ui_shot` 里量真帧，直接推翻了它 ——
-    //   主线程被占 40 ms（建页 + 第一帧 + 截图）之后，**两拍是连着来的**：
+    // 那 2 ms 里一口气推掉的是 5.8 px 和 12% 浓淡 —— **用户说的"瞬移"就是这一下**。
     //
-    //       t=5   画（现场照了一张 4ms）  0.800 / +10.0
-    //       t=10  画（定住的那张）        0.800 / +10.0
-    //       t=16  画（定住的那张）        0.800 / +10.0
-    //       ----  空档 30 ms  ----
-    //       t=46  推 1/8 → 画            0.865 / +6.7
-    //       t=48  推 2/8 → 画            0.917 / +4.2     ← 两拍只差 2 ms
-    //       t=64  推 3/8 → 画            0.952 / +2.4
-    //       …
+    // 【试过一版"单发链"（推完一档再 start 下一发），不好】两拍之间确实至少隔一个
+    // `stepMs()` 了，可节拍也跟着变成"16 ms + 这一拍之后主线程还要干的活儿"——
+    // 同样这一发，实测总时长从 208 ms 变成 **416 ms**（每拍 30 ms 上下），太拖。
+    // 周期定时器那边节拍是稳的 16 ms 网格，**只有补发那一下会挤**。
     //
-    //   那 2 ms 里一口气推掉的是 5.8 px 和 12% 浓淡 —— **用户说的"瞬移"就是这一下**。
-    //
-    //   【试过一版"单发链"（推完一档再 start 下一发），不好】两拍之间确实至少隔一个
-    //   `stepMs()` 了，可节拍也跟着变成"16 ms + 这一拍之后主线程还要干的活儿"——
-    //   同样这一发，实测总时长从 208 ms 变成 **416 ms**（每拍 30 ms 上下），太拖。
-    //   周期定时器那边节拍是稳的 16 ms 网格，**只有补发那一下会挤**。
-    //
-    //   所以最后是：**周期 16 ms 不动**，只在"离上一拍太近"的那一拍上原地返回。
-    //   判据取 `stepMs() * 3 / 4`（12 ms）：正常那一拍是 16 ms 的网格（抖动 0~1 ms），
-    //   一定过得去；补发那一拍是 2~8 ms，一定被丢掉。丢掉的只是"多推一档"，
-    //   定时器还在跑 ⇒ 下一拍（16 ms 后）照常接上，这一发最多晚一个 `stepMs()` 结束。
+    // 所以最后是：**周期 16 ms 不动**，只在"离上一拍太近"的那一拍上原地返回。
+    // 判据取 `stepMs() * 3 / 4`（12 ms）：正常那一拍是 16 ms 的网格（抖动 0~1 ms），
+    // 一定过得去；补发那一拍是 2~8 ms，一定被丢掉。丢掉的只是"多推一档"，
+    // 定时器还在跑 ⇒ 下一拍（16 ms 后）照常接上，这一发最多晚一个 `stepMs()` 结束。
     QObject::connect(stepper, &QTimer::timeout, owner, [state, stepper, finishLater, stepMs]() {
         const qint64 nowMs = state->clock.elapsed();
         if (state->lastStepMs >= 0 && nowMs - state->lastStepMs < stepMs * 3 / 4) {
@@ -621,7 +569,7 @@ void pressUp(QAbstractButton *button) {
  * 挂在 `QApplication` 上的那个事件过滤器：谁被按下去就动谁。
  *
  * NOTE: 它**从不吞事件**（永远返回 `false`）—— 这一层只是"顺便看一眼"，按钮自己该怎么
- *       响应还怎么响应。
+ * 响应还怎么响应。
  */
 class PressFilter : public QObject {
 public:
@@ -676,7 +624,7 @@ protected:
 /**
  * 挂在 `QApplication` 上的另一个事件过滤器：**滚动条一露面就淡进来**。
  *
- * 用户 2026-09-29：「每一次切页面的时候滚动条都是瞬间出现的」。滚动条是按需出现的
+ * 用户 ：「每一次切页面的时候滚动条都是瞬间出现的」。滚动条是按需出现的
  * （内容不够长它就不在），Qt 出现的那一下是硬切 —— 页面在淡，它"啪"地跳出来。
  *
  * NOTE: 和按下那一份一样，它**从不吞事件**（`Show` 本来也不归谁"处理"）。
@@ -691,7 +639,7 @@ protected:
             return false;
         }
         // NOTE: 这个过滤器会看到**每一个**控件的 `Show`（窗口一露头，里面所有子控件都会走
-        //       一趟）—— 所以这一句 `qobject_cast` 就是它的全部开销，其余一律原样放行。
+        // 一趟）—— 所以这一句 `qobject_cast` 就是它的全部开销，其余一律原样放行。
         auto *bar = qobject_cast<QScrollBar *>(watched);
         if (bar == nullptr) {
             return false;
@@ -708,12 +656,12 @@ protected:
  * 参照物（换页前后它都在原地），让它跟着往下挪，看着就是"框瞬移"；里面的内容是新上来的，
  * 往下挪再滑上去才像一次转场。
  *
- *   * `QTabWidget`（顶上那四颗导航翻出来的内容区）⇒ `currentWidget()`：用户看到的那圈
- *     卡片和外框**是选项卡自己画的**，页面是它里面那一块（`ThemeBackground` 一个像素都不画）。
- *   * `QAbstractScrollArea`（列表 / 树 / 滚动区 —— 它们自带那圈 `#b9b9b9` 的框）⇒ `viewport()`：
- *     框、表头、滚动条都长在视口**外面**，抬视口就正好是"内容抬、框不动"。
- *   * 别的（下载页/设置页里那些光板一页、实例设置那一列页表）⇒ 就是它自己：那些块没有单独
- *     画的框，整块抬和以前一模一样。
+ * * `QTabWidget`（顶上那四颗导航翻出来的内容区）⇒ `currentWidget()`：用户看到的那圈
+ * 卡片和外框**是选项卡自己画的**，页面是它里面那一块（`ThemeBackground` 一个像素都不画）。
+ * * `QAbstractScrollArea`（列表 / 树 / 滚动区 —— 它们自带那圈 `#b9b9b9` 的框）⇒ `viewport()`：
+ * 框、表头、滚动条都长在视口**外面**，抬视口就正好是"内容抬、框不动"。
+ * * 别的（下载页/设置页里那些光板一页、实例设置那一列页表）⇒ 就是它自己：那些块没有单独
+ * 画的框，整块抬和以前一模一样。
  */
 QWidget *liftTarget(QWidget *widget) {
     if (widget == nullptr) {
@@ -854,8 +802,8 @@ void scrollBarAppear(QWidget *bar) {
     // 和 `overlayAppear()` 是同一条路（**只淡、不抬**）：滚动条就贴在它自己那一格里，
     // "往下挪着画"没有任何意义，只会让它看着离开自己那条边线。
     effect->setOpacity(0.0);
-    // ★ 按帧走（`stepMs()`）：它跟换页是**同一时刻**起来的（滚动条是那一页进页之后才露的
-    //   头），主线程忙的是同一件事 —— 按墙上时钟走的话它一样会"定住再跳"。
+    // 按帧走（`stepMs()`）：它跟换页是**同一时刻**起来的（滚动条是那一页进页之后才露的
+    // 头），主线程忙的是同一件事 —— 按墙上时钟走的话它一样会"定住再跳"。
     runProgress(effect, bar, 0.0, 1.0, scrollBarMs(), stepMs(),
                 [w = QPointer<QWidget>(bar)]() { dropEffect(w); },
                 [effect](qreal progress) { effect->setOpacity(progress); });
@@ -874,27 +822,27 @@ void pageAppear(QWidget *widget, const QColor &backdrop) {
     if (widget == nullptr || !enabled()) {
         return;
     }
-    // ★★ 「抬的是**内容**、框一个像素都不动」（2026-10-11）。用户原话：「这个动画，在有框的
-    //    时候框会瞬移，能不能考虑一下用其它组件之类的解决」。
+    // 「抬的是**内容**、框一个像素都不动」。要求：「这个动画，在有框的
+    // 时候框会瞬移，能不能考虑一下用其它组件之类的解决」。
     //
-    //    真因：这一发原来是**整块**（连它自己那圈外框）一起往下挪着画的，而其中有些控件
-    //    （内容区那个 `QTabWidget` 的卡片、实例列表那棵树）**是换页前后都在的同一块** ——
-    //    于是那圈外框起手先跳下去十几像素、再滑回原处，看着就是"框瞬移"，而内容因为是新
-    //    上来的、没有参照物，反倒像正常的滑入。修法不是"抬得少一点"，是**让框压根不参与**：
-    //    盖上去的那块幕布**就是内容自己的矩形**（见 `liftTarget()`），外框长在幕布外面，
-    //    这一发从头到尾碰都没碰过它。
+    // 真因：这一发原来是**整块**（连它自己那圈外框）一起往下挪着画的，而其中有些控件
+    // （内容区那个 `QTabWidget` 的卡片、实例列表那棵树）**是换页前后都在的同一块** ——
+    // 于是那圈外框起手先跳下去十几像素、再滑回原处，看着就是"框瞬移"，而内容因为是新
+    // 上来的、没有参照物，反倒像正常的滑入。修法不是"抬得少一点"，是**让框压根不参与**：
+    // 盖上去的那块幕布**就是内容自己的矩形**（见 `liftTarget()`），外框长在幕布外面，
+    // 这一发从头到尾碰都没碰过它。
     //
-    //    ★★ 同一天下午又换了一次**怎么画**：原来是把 `QGraphicsEffect` 挂在整块上、自己
-    //       分两趟贴图（外框原位一趟、内容抬着趟），真机上量出来**子控件那一块定在起手
-    //       那一帧**（完整来龙去脉写在 `PageCurtain` 那个类上）。现在改成**一块普通控件
-    //       盖在上面**，`paintEvent` 自己画 —— 普通控件走 Qt 平时的绘制路径，每一帧整块
-    //       都是新的，那一类"定住"从根上没有了。
+    // 同一天下午又换了一次**怎么画**：原来是把 `QGraphicsEffect` 挂在整块上、自己
+    // 分两趟贴图（外框原位一趟、内容抬着趟），真机上量出来**子控件那一块定在起手
+    // 那一帧**（完整来龙去脉写在 `PageCurtain` 那个类上）。现在改成**一块普通控件
+    // 盖在上面**，`paintEvent` 自己画 —— 普通控件走 Qt 平时的绘制路径，每一帧整块
+    // 都是新的，那一类"定住"从根上没有了。
     QWidget *lift = liftTarget(widget);
     if (lift == nullptr) {
         lift = widget;
     }
     // NOTE: `PageCurtain` 没有 `Q_OBJECT`（这一层不需要信号槽、也不需要 moc），所以这里
-    //       够不到它的类型：按**名字**找回来再 `static_cast` —— 那个名字只有这一处会写。
+    // 够不到它的类型：按**名字**找回来再 `static_cast` —— 那个名字只有这一处会写。
     PageCurtain *curtain = nullptr;
     if (QWidget *existing = widget->findChild<QWidget *>(QLatin1String(kCurtainName))) {
         curtain = static_cast<PageCurtain *>(existing);
@@ -908,7 +856,7 @@ void pageAppear(QWidget *widget, const QColor &backdrop) {
     // （幕布里是整块往下挪着画，所以多出来的那一条在**上面**、被裁掉的是下面那一条）。
     curtain->setFrame(rise, from);
     // NOTE: 收尾只是**收起来**，不删 —— 同一个控件上下一次换页接着用这一块（省一次生灭，
-    //       也躲开"上一发还在跑、下一发就来了"那一下的悬空指针）。
+    // 也躲开"上一发还在跑、下一发就来了"那一下的悬空指针）。
     runProgress(curtain, curtain, 0.0, 1.0, appearMs(), stepMs(),
                 [c = QPointer<QWidget>(curtain)]() {
                     if (c != nullptr) {
@@ -971,9 +919,9 @@ void overlayAppear(QWidget *widget) {
         return;
     }
     effect->setOpacity(0.0);
-    // ★ 按帧走（`stepMs()`）：它开页那一刻主线程也在忙（建页、第一遍画）。
-    //   NOTE: 它起手仍是**全透明**（不是 `pageStartOpacity()`）—— 它是"从无到有"，
-    //         底下那层的观感问题跟换页不一样（见 `pageStartOpacity()` 那一节）。
+    // 按帧走（`stepMs()`）：它开页那一刻主线程也在忙（建页、第一遍画）。
+    // NOTE: 它起手仍是**全透明**（不是 `pageStartOpacity()`）—— 它是"从无到有"，
+    // 底下那层的观感问题跟换页不一样（见 `pageStartOpacity()` 那一节）。
     runProgress(effect, widget, 0.0, 1.0, overlayMs(), stepMs(),
                 [w = QPointer<QWidget>(widget)]() { dropEffect(w); },
                 [effect](qreal progress) { effect->setOpacity(progress); });
@@ -1002,9 +950,9 @@ void slideUp(QWidget *window, const QPoint &target) {
     animation->setDuration(panelMs());
     animation->setStartValue(start);
     animation->setEndValue(target);
-    // NOTE: 这一发**故意留着 `OutCubic`**（"整页转场"那几发 2026-10-11 换成了 `OutSine`）：
-    //       它是"一小块面板弹出来"，要的是干脆利落 —— 16 px 走完就该能点上面的东西了。
-    //       收尾圆滑在这儿的代价是"最后 1~2 px 还在慢慢挪"。
+    // NOTE: 这一发**故意留着 `OutCubic`**（"整页转场"那几发 换成了 `OutSine`）：
+    // 它是"一小块面板弹出来"，要的是干脆利落 —— 16 px 走完就该能点上面的东西了。
+    // 收尾圆滑在这儿的代价是"最后 1~2 px 还在慢慢挪"。
     animation->setEasingCurve(QEasingCurve::OutCubic);
     // 兜底：跑完一定落到算好的那个点上（中途被打断、被拖动这些情况也算）。
     QObject::connect(animation, &QPropertyAnimation::finished, window,
@@ -1018,7 +966,7 @@ void slideUp(QWidget *window, const QPoint &target) {
 
 /// 往下弹的那一档（主页右上那张账号卡片那块面板）：从落点上面 `panelSlideDistance()`
 /// 滑下来。**和 `slideUp()` 是同一条动效的两头** —— 时长、缓动、收尾兜底全都一样，
-/// 只有起手位在另一边（2026-10-16 加的，见 MainWindowUI 里 BottomBarPanel::popUp()）。
+/// 只有起手位在另一边（ 加的，见 MainWindowUI 里 BottomBarPanel::popUp()）。
 void slideDown(QWidget *window, const QPoint &target) {
     if (window == nullptr) {
         return;
@@ -1034,7 +982,7 @@ void slideDown(QWidget *window, const QPoint &target) {
     animation->setStartValue(start);
     animation->setEndValue(target);
     // NOTE: 缓动曲线和 `slideUp()` 一致（那一发的理由写在它那儿）：面板弹出来要干脆，
-    //       16 px 走完就该能点上面的东西。
+    // 16 px 走完就该能点上面的东西。
     animation->setEasingCurve(QEasingCurve::OutCubic);
     QObject::connect(animation, &QPropertyAnimation::finished, window,
                      [w = QPointer<QWidget>(window), target]() {
@@ -1053,8 +1001,8 @@ void rowAppear(QWidget *row) {
     if (effect == nullptr) {
         return;
     }
-    // ★ 起手全透明，一路淡到 1 —— 和滚动条那一发同一条路（`stepMs()`：这一趟往往正赶上
-    //   主线程在忙，按墙上时钟算进度的话第一拍会直接跳到半路）。
+    // 起手全透明，一路淡到 1 —— 和滚动条那一发同一条路（`stepMs()`：这一趟往往正赶上
+    // 主线程在忙，按墙上时钟算进度的话第一拍会直接跳到半路）。
     effect->setOpacity(0.0);
     runProgress(effect, row, 0.0, 1.0, rowAppearMs(), stepMs(),
                 [w = QPointer<QWidget>(row)]() { dropEffect(w); },
@@ -1071,18 +1019,18 @@ void smoothProgress(QProgressBar *bar, int value) {
     const int maximum = bar->maximum();
     bar->setProperty(kProgressMaxMark, maximum);
     // 四条"如实更新"的路（规矩写在头文件那一段）：
-    //   · 总量变了（换了一批 / 从不确定态换回来 / 复位成 0–100）；
-    //   · 真进度倒退（重试、跳过校验那种情报不能被动画盖住）；
-    //   · 已经等于目标了（没什么好追的）；
-    //   · 这一格现在停在 0（"还回来"那一路：启动借走时被钳回 0，记下的总量却没变过
-    //     ⇒ 不拦的话用户看到的是下载在重头爬，见头文件那一段）；
-    //   以及动效关着的时候。
+    // · 总量变了（换了一批 / 从不确定态换回来 / 复位成 0–100）；
+    // · 真进度倒退（重试、跳过校验那种情报不能被动画盖住）；
+    // · 已经等于目标了（没什么好追的）；
+    // · 这一格现在停在 0（"还回来"那一路：启动借走时被钳回 0，记下的总量却没变过
+    // ⇒ 不拦的话用户看到的是下载在重头爬，见头文件那一段）；
+    // 以及动效关着的时候。
     if (!enabled() || maximum != previousMaximum || value <= bar->value() || bar->value() <= 0) {
         bar->setValue(value);
         return;
     }
-    // ★ 追值**不走效果器**：进度条要动的是它自己的那个数，不是"贴一张图"。
-    //   几何照旧一个像素都不动（这一层那条硬要求管着每一条路）。
+    // 追值**不走效果器**：进度条要动的是它自己的那个数，不是"贴一张图"。
+    // 几何照旧一个像素都不动（这一层那条硬要求管着每一条路）。
     runProgress(bar, bar, qreal(bar->value()), qreal(value), progressMs(), stepMs(),
                 // 收尾再钉一次：`qRound()` 那一串中间值可能停在 value-1 上。
                 [b = QPointer<QProgressBar>(bar), value]() {

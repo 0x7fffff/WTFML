@@ -15,7 +15,7 @@ class ResumableDownload;
 class ArmorTrimPreviewController final : public QObject {
 public:
     /// @param overlay 问「确认下载」时开在内容区中间的那一块（全仓「不出现独立窗口」，
-    ///        下载确认也走它）。
+    /// 下载确认也走它）。
     ArmorTrimPreviewController(ToolboxPage *page, OverlayHost *overlay,
                                QObject *parent = nullptr);
     ~ArmorTrimPreviewController() override;

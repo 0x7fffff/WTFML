@@ -1,27 +1,25 @@
 /**
  * @file MalilibKeys.cpp
  * @brief 实现 MalilibKeys.hpp（认这一族 / 读一格一格 / 算这一趟 / 落盘）。理由和取舍都写在
- *        那边文件头，这一份只说三件实现上的事。
- * @author 0x7fffff
- * @date 2026-10-17
+ * 那边文件头，这一份只说三件实现上的事。
  *
  * 【一、"一格一格地写"长什么样】
  *
  * `applyCell()` 是**唯一**一处改用户配置的地方，它对一格做四件事，顺序不许颠倒：
  *
- *   1. **先判类型**（这一格是对象吗？`hotkey` 是对象吗？`enabled` 是布尔吗？）—— 判完才动手。
- *      边判边改的话，一个走到一半被判死的格子已经在盘上留了半截（§8.1 那条"不许带半截"）。
- *      ★ **值那一档是这条规矩的例外**：它的格子天生是个标量（`"RenderLines": true`），
- *      "整格必须是对象"只对热键那两档成立 —— 见 `applyCell()` 里那一处注释（套上去了的话
- *      每一个**已经存在**的值都会被判成"类型对不上"，永远搬不动）。
- *   2. **「这一格什么都不说」就整格不动**（没绑、没开关、没别的字段）：真数据里 `keys: ""`
- *      那种空格子满地都是，照着写一圈等于把目标上**所有**绑好的键解绑一遍 —— 「合并」这一档
- *      会当场变成「覆盖」。
- *   3. 写热键那一半（`keys`）、`enabled`、`extra`（**只补缺，绝不覆盖**）。
- *   4. 放回根上。
+ * 1. **先判类型**（这一格是对象吗？`hotkey` 是对象吗？`enabled` 是布尔吗？）—— 判完才动手。
+ * 边判边改的话，一个走到一半被判死的格子已经在盘上留了半截（§8.1 那条"不许带半截"）。
+ * **值那一档是这条规矩的例外**：它的格子天生是个标量（`"RenderLines": true`），
+ * "整格必须是对象"只对热键那两档成立 —— 见 `applyCell()` 里那一处注释（套上去了的话
+ * 每一个**已经存在**的值都会被判成"类型对不上"，永远搬不动）。
+ * 2. **「这一格什么都不说」就整格不动**（没绑、没开关、没别的字段）：真数据里 `keys: ""`
+ * 那种空格子满地都是，照着写一圈等于把目标上**所有**绑好的键解绑一遍 —— 「合并」这一档
+ * 会当场变成「覆盖」。
+ * 3. 写热键那一半（`keys`）、`enabled`、`extra`（**只补缺，绝不覆盖**）。
+ * 4. 放回根上。
  *
- * ★ `extra` 的方向只有一条：**源上有、目标上没有的才补**。反过来的（目标上有、源上没有）
- *   一个字不动 —— 那些是用户在这台电脑上调出来的东西，不是这一份预设能代表的。
+ * `extra` 的方向只有一条：**源上有、目标上没有的才补**。反过来的（目标上有、源上没有）
+ * 一个字不动 —— 那些是用户在这台电脑上调出来的东西，不是这一份预设能代表的。
  *
  * 【二、写回去的文件长什么样（别指望和原来逐字节一样）】
  *
@@ -36,12 +34,6 @@
  *
  * 覆盖档那趟清扫会一边走一边改，所以它是"先把要改的收集起来、走完再一次性插回去"——
  * Qt 那些容器（`QJsonObject` / `QHash` / `QSet`）在迭代中插入是未定义行为，不是"可能没效果"。
- *
- * ★ **"走完再插"要走到哪一层，是有讲究的**：`root` 自己是那个被迭代的容器，所以**整趟**
- *   （所有大格都扫完）之后才许往它上面插 —— 只做到"每一大格内部先收集"是不够的，
- *   那一大格写回去的那一下（`root.insert()`）就已经把外层迭代器废掉了。这一条踩过：
- *   覆盖档报告说"解绑了 2 格"，可第二个大格那几个键还绑着（那一下插到了一个被读错的
- *   键名底下）。**改这一处之前先看 `sweepUnboundHotkeys()` 顶上那段注释。**
  */
 
 #include "MalilibKeys.hpp"
@@ -74,7 +66,6 @@ void failWith(QString *problemOut, const QString &why) {
     }
 }
 
-/// 盘上那个值是哪种 JSON（拼报告用）。
 QString jsonTypeName(const QJsonValue &value) {
     switch (value.type()) {
     case QJsonValue::Null:
@@ -141,8 +132,8 @@ bool readWholeFile(const QString &path, QByteArray *out, QString *problemOut) {
 
 /// 一份根对象 → 一格一格。`malilibEntriesFromFile()` 和冲突分析都走这一处。
 ///
-/// ★ "什么都不说的格子"**不收**（见文件头第 2 条）：`{"keys": ""}` 是"这一格没绑"，把它当成
-///   一份预设的内容，等于宣布"目标上这一格也得解绑"。
+/// "什么都不说的格子"**不收**（见文件头第 2 条）：`{"keys": ""}` 是"这一格没绑"，把它当成
+/// 一份预设的内容，等于宣布"目标上这一格也得解绑"。
 QList<MalilibEntry> entriesFromRoot(const QString &modId, const QJsonObject &root,
                                     bool includeValues) {
     QList<MalilibEntry> entries;
@@ -170,8 +161,8 @@ QList<MalilibEntry> entriesFromRoot(const QString &modId, const QJsonObject &roo
                 if (kind == MalilibEntryKind::Hotkeyed) {
                     entry.gesture = keyGestureFromHotkeyObject(
                         cell.value(QStringLiteral("hotkey")).toObject());
-                    // ★ 开关那一半**只有用户要"连开关一起搬"时才收**（见文件头那条：这一趟要
-                    //   搬哪几样这件事只写在载荷里）。
+                    // 开关那一半**只有用户要"连开关一起搬"时才收**（见文件头那条：这一趟要
+                    // 搬哪几样这件事只写在载荷里）。
                     if (includeValues && cell.value(QStringLiteral("enabled")).isBool()) {
                         entry.hasEnabled = true;
                         entry.enabled = cell.value(QStringLiteral("enabled")).toBool();
@@ -202,8 +193,8 @@ QJsonObject entryToJson(const MalilibEntry &entry) {
     object.insert(QStringLiteral("option"), entry.optionName);
     object.insert(QStringLiteral("type"), malilibEntryKindKey(entry.kind));
     if (entry.kind != MalilibEntryKind::Value) {
-        // ★ 空绑定**不写**（见文件头第 2 条）：`keys` 缺了就是"这一格的热键那一半不动"
-        //   （「覆盖」档例外，那儿的空 = 解绑）。
+        // 空绑定**不写**（见文件头第 2 条）：`keys` 缺了就是"这一格的热键那一半不动"
+        // （「覆盖」档例外，那儿的空 = 解绑）。
         if (!entry.gesture.keys.isEmpty()) {
             object.insert(QStringLiteral("keys"), QJsonArray::fromStringList(entry.gesture.keys));
         }
@@ -253,7 +244,7 @@ struct CellApply {
 /**
  * @brief 把一格写进那份根上（这一层**唯一**一处在用户的配置上动手的地方）。
  *
- * ★ 分支顺序见文件头第 1 条：所有"拒绝"都在第一次改动**之前**。
+ * 分支顺序见文件头第 1 条：所有"拒绝"都在第一次改动**之前**。
  */
 CellApply applyCell(QJsonObject &root, const MalilibEntry &entry, ApplyMode mode,
                     QStringList *details) {
@@ -281,10 +272,10 @@ CellApply applyCell(QJsonObject &root, const MalilibEntry &entry, ApplyMode mode
 
     // ---- ② 值那一格（没有热键那一半，单独一条路）----
     //
-    // ★ **它排在"整格必须是个对象"那条规矩前面**（下面那一处判的是热键那两档的事）：
-    //   这一档的格子天生就是个标量（`"RenderLines": true`），套上"整格必须是对象"的话
-    //   每一个**已经存在**的值都会被判成"类型对不上" —— 用户勾了「连设置一起搬」也永远
-    //   搬不动（目标上没有的那几格倒进得去，改已有的进不去）。类型对不对这一档自己判。
+    // **它排在"整格必须是个对象"那条规矩前面**（下面那一处判的是热键那两档的事）：
+    // 这一档的格子天生就是个标量（`"RenderLines": true`），套上"整格必须是对象"的话
+    // 每一个**已经存在**的值都会被判成"类型对不上" —— 用户勾了「连设置一起搬」也永远
+    // 搬不动（目标上没有的那几格倒进得去，改已有的进不去）。类型对不对这一档自己判。
     if (entry.kind == MalilibEntryKind::Value) {
         if (entry.value.isUndefined()) {
             details->append(presetText("「%1」：这一项的载荷里没有值，跳过。").arg(entry.label()));
@@ -293,9 +284,6 @@ CellApply applyCell(QJsonObject &root, const MalilibEntry &entry, ApplyMode mode
         }
         const bool absent = !cellPresent;
         if (absent && mode != ApplyMode::CopyIfMissing) {
-            // §6 P4「目标字段缺失时跳过并报告」——值这一档**不凭空造一格**（热键才造：搬热键
-            // 本来就是这一层的用处，而一个值在目标上没有这一项多半是模组版本不一样）。
-            // ★ 「缺了才写」那一档是例外：它的活就是把缺的补上。
             details->append(presetText("「%1」：目标上还没有这一项（模组版本不一样？），跳过。")
                                 .arg(entry.label()));
             result.skipped = true;
@@ -326,7 +314,7 @@ CellApply applyCell(QJsonObject &root, const MalilibEntry &entry, ApplyMode mode
     }
 
     // ---- ①-b 热键那两档：目标上这一格**得是个对象**（`{"keys": …}` 或者 `{"enabled": …,
-    //      "hotkey": …}`）----
+    // "hotkey": …}`）----
     if (cellPresent && !cellValue.isObject()) {
         details->append(presetText("「%1」：目标上那一格是个%2（不是一格对象），换成我们的样子"
                                    "就是改类型，没动它。")
@@ -376,8 +364,8 @@ CellApply applyCell(QJsonObject &root, const MalilibEntry &entry, ApplyMode mode
             return result;
         }
         if (cellPresent && enabledValue.isUndefined()) {
-            // ★ 这一档要的是"连开关一起搬"：搬不了开关就整格不动（半搬比不搬更难解释，
-            //   用户看到"热键搬过去了、开关没搬"只会以为我们搞坏了）。
+            // 这一档要的是"连开关一起搬"：搬不了开关就整格不动（半搬比不搬更难解释，
+            // 用户看到"热键搬过去了、开关没搬"只会以为我们搞坏了）。
             details->append(presetText("「%1」：目标那一格没有 enabled 这一项，这一格整格跳过"
                                        "（要的是连开关一起搬，搬不了开关就不搬这一格）。")
                                 .arg(entry.label()));
@@ -450,16 +438,11 @@ struct ReplaceSweep {
 
 /// 「覆盖」档：目标上**没被预设点名**的热键全解绑。
 ///
-/// ★ 只解绑、**不删格子**（见 `MalilibKeys.hpp` 文件头）：删掉那一格，模组会按它代码里的
-///   默认值重建，用户看到的就不是"这个键被解绑了"。
-/// ★ 值那一格和认不出来是什么的那些格子**一个都不动**（`untouched` 数着）。
+/// 只解绑、**不删格子**（见 `MalilibKeys.hpp` 文件头）：删掉那一格，模组会按它代码里的
+/// 默认值重建，用户看到的就不是"这个键被解绑了"。
+/// 值那一格和认不出来是什么的那些格子**一个都不动**（`untouched` 数着）。
 ReplaceSweep sweepUnboundHotkeys(QJsonObject &root, const QSet<QPair<QString, QString>> &named) {
     ReplaceSweep sweep;
-    // ★ **整趟走完才插**（文件头第 3 条）：不只是每一大格内部"收集完再插"，而是**连那一大格
-    //   的写回也要等的**。`root.insert()` 是就地在那个容器上改（这时候它只被这一处引用着，
-    //   Qt 不会替我们拷一份），而我们正拿迭代器走 `root` 本人 —— 一边走一边插 = 迭代器失效，
-    //   下一个 `groupIt.key()` 读出来的是别的名字，那一大格的解绑就插到一个不存在的键底下。
-    //   那时候用户看到的是「覆盖了、报告也说解绑了 2 格，可那几个键还绑着」。
     QList<QPair<QString, QJsonObject>> touched;
     for (auto groupIt = root.constBegin(); groupIt != root.constEnd(); ++groupIt) {
         if (!isCategoryValue(groupIt.value())) {
@@ -487,10 +470,6 @@ ReplaceSweep sweepUnboundHotkeys(QJsonObject &root, const QSet<QPair<QString, QS
                 continue;  // 本来就没绑
             }
             holder.insert(QStringLiteral("keys"), QString());
-            // ★ 非 `hotkeyed` 那一档收的是 **`holder`**、不是 `cell`：这两口一开始指的是同一份
-            //   字节（`QJsonObject` 是写时拷贝），可 `holder.insert()` 那一下就让它俩分开了 ——
-            //   `cell` 还停在"原来绑着"的那一份上。收 `cell` 的话报告照样说"解绑了 2 格"，
-            //   而盘上那几格**还绑着**（这正是这里踩过的坑：报告和字节各说各话，谁都没报错）。
             QJsonObject updated = holder;
             if (hotkeyed) {
                 updated = cell;
@@ -558,8 +537,8 @@ MalilibFileFacts malilibInspect(const QByteArray &bytes) {
         }
     }
 
-    // ★ 判据：顶层是"一大格一大格"的、而且**至少有一格是热键**（整格是热键，或者一格装
-    //   开关 + 热键）。光有顶层对象不够 —— 那会把一大堆别的模组的 json 都圈进来。
+    // 判据：顶层是"一大格一大格"的、而且**至少有一格是热键**（整格是热键，或者一格装
+    // 开关 + 热键）。光有顶层对象不够 —— 那会把一大堆别的模组的 json 都圈进来。
     facts.recognized = facts.categories > 0 && (facts.hotkeys + facts.hotkeyedValues) > 0;
     if (!facts.recognized) {
         facts.problem = presetText("这一份不像 MaLiLib 那一族（没有一格热键），不认它。");
@@ -574,7 +553,7 @@ bool malilibLooksLikeConfig(const QByteArray &bytes) { return malilibInspect(byt
 // ---------------------------------------------------------------------------
 
 QString KeyGesture::toKeysString() const {
-    // ★ 拼法只有这一处：逗号分隔、不加空格（实测真数据就是这么写的）。
+    // 拼法只有这一处：逗号分隔、不加空格（实测真数据就是这么写的）。
     return keys.join(QLatin1Char(','));
 }
 
@@ -589,8 +568,6 @@ KeyGesture keyGestureFromHotkeyObject(const QJsonObject &hotkey) {
     if (hotkey.value(QStringLiteral("keys")).isString()) {
         gesture.keys = splitKeys(hotkey.value(QStringLiteral("keys")).toString());
     }
-    // ★ 下面这几样是 DTO 自己的名字，**本机 236 份真配置里一次都没见着**（见文件头）。
-    //   认得出就填上给界面用，认不出就是空 —— 这一层**永远不把它们写回去**。
     gesture.trigger = hotkey.value(QStringLiteral("trigger")).toString();
     gesture.context = hotkey.value(QStringLiteral("context")).toString();
     gesture.orderSensitive = hotkey.value(QStringLiteral("orderSensitive")).toBool();
@@ -614,7 +591,7 @@ bool keyGesturesEqual(const KeyGesture &left, const KeyGesture &right) {
 // ---------------------------------------------------------------------------
 
 QString malilibEntryKindKey(MalilibEntryKind kind) {
-    // ★ 这是**盘上的词**（改一个词就是改格式），和 `sectionKindKey()` 那条同一个规矩：不翻译。
+    // 这是**盘上的词**（改一个词就是改格式），和 `sectionKindKey()` 那条同一个规矩：不翻译。
     switch (kind) {
     case MalilibEntryKind::Hotkey:
         return QStringLiteral("hotkey");
@@ -650,7 +627,7 @@ bool malilibEntryKindFromKey(const QString &key, MalilibEntryKind *out) {
 
 QJsonObject MalilibSourceVersions::toJson() const {
     QJsonObject object;
-    // ★ 空的那些**根本不写**（见头文件那条：不知道的字段写个空串，读的人会以为那是答案）。
+    // 空的那些**根本不写**（见头文件那条：不知道的字段写个空串，读的人会以为那是答案）。
     if (!minecraft.isEmpty()) {
         object.insert(QStringLiteral("minecraft"), minecraft);
     }
@@ -676,7 +653,7 @@ MalilibSourceVersions MalilibSourceVersions::fromJson(const QJsonObject &object)
 }
 
 QString MalilibEntry::label() const {
-    // ★ 身份那三样的拼法只有这一处（§6 P4：不用翻译名、不用行号）。
+    // 身份那三样的拼法只有这一处（§6 P4：不用翻译名、不用行号）。
     return modId + QLatin1Char('/') + groupId + QLatin1Char('/') + optionName;
 }
 
@@ -692,8 +669,8 @@ QString malilibModIdProblem(const QString &modId) {
     if (modId.isEmpty()) {
         return presetText("模组名是空的。");
     }
-    // ★ 用的是实例名那一套规矩（Windows 的禁区、`.` / `..`、保留设备名、结尾的点或空格）——
-    //   那一条只有一处实现，不另立一套。
+    // 用的是实例名那一套规矩（Windows 的禁区、`.` / `..`、保留设备名、结尾的点或空格）——
+    // 那一条只有一处实现，不另立一套。
     const QString why = InstanceFiles::validatePathSegment(modId);
     if (!why.isEmpty()) {
         return presetText("这个模组名当不了文件名：%1").arg(why);
@@ -710,8 +687,8 @@ bool malilibEntriesFromFile(const QString &modId, const QByteArray &bytes,
     }
     const MalilibFileFacts facts = malilibInspect(bytes);
     if (!facts.recognized) {
-        // ★ 认不出来 = "我们不知道拿它怎么办"，**不是**"这一份是空的"：两种情况的后果差得远
-        //   （照着写下去就是拿一份半懂的文件去改用户的实例）。
+        // 认不出来 = "我们不知道拿它怎么办"，**不是**"这一份是空的"：两种情况的后果差得远
+        // （照着写下去就是拿一份半懂的文件去改用户的实例）。
         failWith(problemOut, presetText("「%1」：%2").arg(malilibConfigRelativePath(modId),
                                                         facts.problem));
         return false;
@@ -724,9 +701,9 @@ bool malilibEntriesFromFile(const QString &modId, const QByteArray &bytes,
 }
 
 QString malilibSectionId(const QString &modId) {
-    // ★ `sectionIdFor()` 是 UUID v5（**单向**：算得出来、反推不回去），所以段的身份是"按模组名
-    //   算出来的"，不是"从 id 里读出来的" —— 读一份预设的时候要按载荷里那个模组名再算一遍，
-    //   对不上就是这一份被谁动过（`malilibEntriesFromSections()` 里那一条）。
+    // `sectionIdFor()` 是 UUID v5（**单向**：算得出来、反推不回去），所以段的身份是"按模组名
+    // 算出来的"，不是"从 id 里读出来的" —— 读一份预设的时候要按载荷里那个模组名再算一遍，
+    // 对不上就是这一份被谁动过（`malilibEntriesFromSections()` 里那一条）。
     return sectionIdFor(SectionKind::MalilibKeys, modId);
 }
 
@@ -941,8 +918,8 @@ QStringList malilibModIdsInInstance(const QString &instanceRoot, QStringList *sk
             }
             continue;
         }
-        // ★ 认不出来的**不算问题**：`config/` 底下大多数模组的 json 都不是这一族（它们各有
-        //   各的格式），一家一家报出来只会把真正读不动的那几份淹掉。
+        // 认不出来的**不算问题**：`config/` 底下大多数模组的 json 都不是这一族（它们各有
+        // 各的格式），一家一家报出来只会把真正读不动的那几份淹掉。
         if (!malilibLooksLikeConfig(bytes)) {
             continue;
         }
@@ -1023,8 +1000,8 @@ MalilibTarget malilibReadTarget(const QString &instanceRoot, const QStringList &
         problemOut->clear();
     }
     if (instanceRoot.trimmed().isEmpty()) {
-        // ★ 没给实例目录就往下走的话，`config/x.json` 会变成一个**相对路径** —— 读的是当前
-        //   目录、写的也是当前目录。这一条必须是"整趟不办"，不是"那几份当作不存在"。
+        // 没给实例目录就往下走的话，`config/x.json` 会变成一个**相对路径** —— 读的是当前
+        // 目录、写的也是当前目录。这一条必须是"整趟不办"，不是"那几份当作不存在"。
         failWith(problemOut, presetText("没给实例目录，读不了目标上的配置。"));
         return target;
     }
@@ -1039,12 +1016,6 @@ MalilibTarget malilibReadTarget(const QString &instanceRoot, const QStringList &
             continue;
         }
         const QString relativePath = malilibConfigRelativePath(modId);
-        // ★ 2026-10-20：`config/` 或 `config/<mod>.json` 是 junction / 符号链接时**一个字节
-        //   都不碰**。这一层原来只查文件名合法不合法，于是"把 config 做成指向另一个实例
-        //   （或者网盘）的链接"这种共享配置的做法会让预设把热键写到**别人**头上；而目标
-        //   文件本身是符号链接时，`QSaveFile::commit()` 的改名会把链接换成普通文件 ——
-        //   链接被悄悄破坏。同一批落点的 DataPack / Generic 两个适配器都是这条规矩
-        //   （见 InstanceFiles::pathHasLinkComponent()）。
         if (InstanceFiles::pathHasLinkComponent(instanceRoot, relativePath)) {
             file.problem =
                 presetText("「%1」这一条路上有链接目录（junction / 符号链接），不动它。")
@@ -1055,16 +1026,16 @@ MalilibTarget malilibReadTarget(const QString &instanceRoot, const QStringList &
         const QString path = QDir(instanceRoot).filePath(relativePath);
         const QFileInfo info(path);
         if (!info.exists()) {
-            // ★ 没有这一份**不是问题**（`CopyIfMissing` 就靠这个）：`present = false`。
+            // 没有这一份**不是问题**（`CopyIfMissing` 就靠这个）：`present = false`。
             target.files.append(file);
             continue;
         }
         QByteArray bytes;
         QString why;
         if (!readWholeFile(path, &bytes, &why)) {
-            // ★ 读不动 ⇒ `problem` 非空、`present` 留 false：这一份这一趟整个跳过。
-            //   "读不出来"和"没有这一份"是两件事，混成一件会让「缺了才写」照着一个读不动的
-            //   文件往下写。
+            // 读不动 ⇒ `problem` 非空、`present` 留 false：这一份这一趟整个跳过。
+            // "读不出来"和"没有这一份"是两件事，混成一件会让「缺了才写」照着一个读不动的
+            // 文件往下写。
             file.problem = why;
             target.files.append(file);
             continue;
@@ -1182,8 +1153,8 @@ MalilibApplyResult applyMalilibEntries(const QList<MalilibEntry> &entries,
             }
         }
 
-        // ★ 只有**真改了字节**的那一份才落盘（`before` 是这一份原来的样子；目标上没有这一份
-        //   时 `before` 是空的，什么都没写进去的话它俩还是一样 ⇒ 不写一个空文件出来）。
+        // 只有**真改了字节**的那一份才落盘（`before` 是这一份原来的样子；目标上没有这一份
+        // 时 `before` 是空的，什么都没写进去的话它俩还是一样 ⇒ 不写一个空文件出来）。
         const bool changed = root != before;
         MalilibFileResult outFile;
         outFile.modId = modId;

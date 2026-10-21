@@ -34,7 +34,7 @@ QString pageKeyForKind(ResourceCatalog::Kind kind) { return ResourceCatalog::kin
 /// 「正在向 CurseForge 换取文件清单…」也只是一张不动的截图。
 /// `resolveCurseForgeFiles()` 自己开 QNAM（不借主线程那个），所以能安全地放在这边。
 ///
-/// ★ 嵌套循环会把用户输入送回来 ⇒ 调用方要自己挡住"再来一次"（见 `m_importFlow`）。
+/// 嵌套循环会把用户输入送回来 ⇒ 调用方要自己挡住"再来一次"（见 `m_importFlow`）。
 template <typename Work>
 void runOffUiThread(Work work) {
     QEventLoop loop;
@@ -73,7 +73,7 @@ void ImportController::onImportModpackClicked() {
     }
 
     // NOTE: 这一处也是独立窗（Windows 自己的文件选择框）—— 理由和取舍见
-    //       onAddFolderClicked() 上面那一段。
+    // onAddFolderClicked() 上面那一段。
     const QString zipPath = QFileDialog::getOpenFileName(
         m_owner, m_owner->tr("选一个整合包"), QString(),
         m_owner->tr("整合包 (*.zip *.mrpack);;所有文件 (*)"));
@@ -84,13 +84,13 @@ void ImportController::onImportModpackClicked() {
 }
 
 void ImportController::importModpackFromFile(const QString &zipPath, const QString &namePrefill) {
-    // ★ 拖进来的这一路也得过忙态这道闸（2026-10-19）。上面那颗「导入整合包…」按钮在忙的
-    //   时候是灰的（`setDownloadUiBusy()`），但主窗口的拖放照收不误（`dropEvent()` 不看
-    //   忙态）。不拦的话：导入 A 的过程中再拖进来一个 B，B 会从问名字那一步一路走到下面
-    //   `m_importingInstanceId = B` —— A 的 id 被顶掉（A 下完时 `versionId !=
-    //   m_importingInstanceId`，连忙态都不收）、任务中心当前那条任务还是 A 的，而两条
-    //   导入同时在往 versions 下面写。判据和按钮那一处**是同一句话**（`m_downloadInFlight`），
-    //   不另立一个。
+    // 拖进来的这一路也得过忙态这道闸。上面那颗「导入整合包…」按钮在忙的
+    // 时候是灰的（`setDownloadUiBusy()`），但主窗口的拖放照收不误（`dropEvent()` 不看
+    // 忙态）。不拦的话：导入 A 的过程中再拖进来一个 B，B 会从问名字那一步一路走到下面
+    // `m_importingInstanceId = B` —— A 的 id 被顶掉（A 下完时 `versionId !=
+    // m_importingInstanceId`，连忙态都不收）、任务中心当前那条任务还是 A 的，而两条
+    // 导入同时在往 versions 下面写。判据和按钮那一处**是同一句话**（`m_downloadInFlight`），
+    // 不另立一个。
     if (m_owner->m_downloadInFlight) {
         m_owner->appendLog(m_owner->tr("已有下载或导入任务正在进行，%1 没有导入。")
                                .arg(QFileInfo(zipPath).fileName()));
@@ -118,8 +118,8 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
     // 次序只影响"两个都有"这种怪包报成哪一种，无所谓。
     //
     // NOTE: 第五个参数（动作名）是**给用户看的**：下面 Failed 那一路会把 error 原样弹进那个
-    //       警告框（「读这个压缩包的时候出错了：…」），所以这里必须写「读整合包清单」，
-    //       而不是 ZipUtil 那个通用的默认说法。
+    // 警告框（「读这个压缩包的时候出错了：…」），所以这里必须写「读整合包清单」，
+    // 而不是 ZipUtil 那个通用的默认说法。
     QByteArray manifestJson;
     QString error;
     ModpackImport::Format format = ModpackImport::Format::Unknown;
@@ -189,11 +189,11 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
     // 收长度），用户改不改都行。校验用**数据层那一份**
     // （InstanceFiles::validateRenameTarget），界面绝不自己抄一遍规则。
     //
-    // ★ 推的那个候选有两种来源（2026-09-29）：调用方给了 @p namePrefill 就用它
-    //   （"拖进来的那个整合包"给的是**文件名**，见 .hpp），没给才按包名推
-    //   （「导入整合包…」那颗按钮那一档）。**两路都过同一个清洗** —— 文件名里有
-    //   `/` `:` 那些字符的时候，不清洗的话下一步 `checkImportTargetName` 会报
-    //   "这个名字不能用"，而用户会觉得"我明明什么都没填"。
+    // 推的那个候选有两种来源：调用方给了 @p namePrefill 就用它
+    // （"拖进来的那个整合包"给的是**文件名**，见 .hpp），没给才按包名推
+    // （「导入整合包…」那颗按钮那一档）。**两路都过同一个清洗** —— 文件名里有
+    // `/` `:` 那些字符的时候，不清洗的话下一步 `checkImportTargetName` 会报
+    // "这个名字不能用"，而用户会觉得"我明明什么都没填"。
     QString name = namePrefill.isEmpty() ? ModpackImport::suggestInstanceName(pack.name)
                                          : ModpackImport::suggestInstanceName(namePrefill);
     while (true) {
@@ -242,8 +242,8 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
     if (format == ModpackImport::Format::CurseForge) {
         // 等一两发请求（通常一两秒）。底栏那格要顶着"在等什么"，不然用户看到的是
         // 点完确认之后界面卡住（和启动路径那三段同步等是同一个手法）。
-        // ★ 2026-10-20：请求本身挪到工作线程上（`runOffUiThread()`）。网络慢的时候
-        //   UI 线程不再被钉住 —— 窗口照常重绘，底栏那句一直看得见。
+        // 请求本身挪到工作线程上（`runOffUiThread()`）。网络慢的时候
+        // UI 线程不再被钉住 —— 窗口照常重绘，底栏那句一直看得见。
         QString problem;
         VersionManager *versions = m_owner->m_versionManager;
         const VersionManager::CurseForgeResolveSettings settings =
@@ -428,12 +428,12 @@ bool ImportController::installLocalResourceFile(const QString &versionId,
     // 同名文件：**问一句**（不静默盖）。用户拖进来的东西，谁也不知道那一份是不是
     // 他手改过的 —— 而"顺手拖一下就把改过的那份盖掉了"是这个功能最糟的失败方式。
     if (QFileInfo::exists(target)) {
-        // ★ 先看一眼"拖进来的这一份**就是**这一格自己"（2026-10-10 修）：从实例自己的
-        //   `mods/` 里把文件再拖回启动器是最容易中的一路，而往下走的话，答完「盖掉」就会
-        //   把 target —— 也就是**源文件本身** —— 删掉，源没了，文件就这么从盘上消失。
-        //   比的是盘上那个**真路径**（`canonicalFilePath()` 解开大小写 / 8.3 短名那些别名）。
-        //   它不解 junction，但那种情形也不丢东西：下面写的是临时文件、最后一步才改名字换
-        //   上去，读与写不会互相踩。
+        // 先看一眼"拖进来的这一份**就是**这一格自己"（ 修）：从实例自己的
+        // `mods/` 里把文件再拖回启动器是最容易中的一路，而往下走的话，答完「盖掉」就会
+        // 把 target —— 也就是**源文件本身** —— 删掉，源没了，文件就这么从盘上消失。
+        // 比的是盘上那个**真路径**（`canonicalFilePath()` 解开大小写 / 8.3 短名那些别名）。
+        // 它不解 junction，但那种情形也不丢东西：下面写的是临时文件、最后一步才改名字换
+        // 上去，读与写不会互相踩。
         const QString dropped = QFileInfo(path).canonicalFilePath();
         if (!dropped.isEmpty() && dropped == QFileInfo(target).canonicalFilePath()) {
             return true;  // 它本来就在那儿了，一个字都不用动
@@ -457,11 +457,11 @@ bool ImportController::installLocalResourceFile(const QString &versionId,
         }
         return false;
     }
-    // ★ 写盘这一步走 `QSaveFile`（2026-10-10 修）：它先写到旁边那个临时文件、`commit()`
-    //   那一刻才**原子地**换上去。原来那一版是"先 `QFile::remove(target)`，再
-    //   `QFile::copy(path, target)`" —— 用户明明点的是「盖掉」，可删成功、拷失败（盘满 /
-    //   权限 / 杀软锁着那一下）的时候，盘上**一份都没有了**：旧的已经删掉、新的没到位，
-    //   而且没有退路（比不点「盖掉」还糟）。
+    // 写盘这一步走 `QSaveFile`（ 修）：它先写到旁边那个临时文件、`commit()`
+    // 那一刻才**原子地**换上去。原来那一版是"先 `QFile::remove(target)`，再
+    // `QFile::copy(path, target)`" —— 用户明明点的是「盖掉」，可删成功、拷失败（盘满 /
+    // 权限 / 杀软锁着那一下）的时候，盘上**一份都没有了**：旧的已经删掉、新的没到位，
+    // 而且没有退路（比不点「盖掉」还糟）。
     QSaveFile out(target);
     if (!out.open(QIODevice::WriteOnly)) {
         if (problemOut != nullptr) {
@@ -526,9 +526,9 @@ void ImportController::handleInstanceSettingsDrop(QWidget *page, const QString &
         if (!result.known || result.kind != ResourceCatalog::Kind::Modpack) {
             continue;
         }
-        // ★ 关页**可能被挡住**（配置编辑器 / 世界设置里压着改了一半的东西，见
-        //   `leaveBlockedByUnsavedEdits()`）。挡住时**不当作关掉了**：底下那一格要是被
-        //   静默丢掉，用户丢的是自己手改的配置。
+        // 关页**可能被挡住**（配置编辑器 / 世界设置里压着改了一半的东西，见
+        // `leaveBlockedByUnsavedEdits()`）。挡住时**不当作关掉了**：底下那一格要是被
+        // 静默丢掉，用户丢的是自己手改的配置。
         auto *dialog = qobject_cast<InstanceSettingsDialog *>(page);
         if (dialog != nullptr && dialog->leaveBlockedByUnsavedEdits()) {
             InlineMessage::information(
@@ -545,13 +545,13 @@ void ImportController::handleInstanceSettingsDrop(QWidget *page, const QString &
         // `backPressed` —— `execPage()` 里那条连接把它接在 `dialog->reject()` 上（见
         // OverlayHost.cpp 那段），一字不差就是"点了一下返回箭头"。
         //
-        // ★ 这里**不要**再自己补一发 `dialog->reject()`：那一发这一轮还没生效（页正卡在
-        //   自己的嵌套事件循环里），补了也只是让 `backPressed` 那条连接**再跑一遍**
-        //   reject —— 两次 done() 不报错，但"关页这件事有两个发起人"是白添的麻烦。
+        // 这里**不要**再自己补一发 `dialog->reject()`：那一发这一轮还没生效（页正卡在
+        // 自己的嵌套事件循环里），补了也只是让 `backPressed` 那条连接**再跑一遍**
+        // reject —— 两次 done() 不报错，但"关页这件事有两个发起人"是白添的麻烦。
         //
-        // ★ 也不能"让位那一步"省掉（直接开问）：这一层还占着，`execPrompt()` 会被
-        //   `OverlayHost` 挡掉（一层只放得下一件，见它的头文件），用户看到的是"拖了半天
-        //   什么也没发生"。`m_owner->runWhenOverlayFree()` 排的下一轮才真的空出来。
+        // 也不能"让位那一步"省掉（直接开问）：这一层还占着，`execPrompt()` 会被
+        // `OverlayHost` 挡掉（一层只放得下一件，见它的头文件），用户看到的是"拖了半天
+        // 什么也没发生"。`m_owner->runWhenOverlayFree()` 排的下一轮才真的空出来。
         m_owner->runWhenOverlayFree([this, path = result.path, prefill] {
             m_owner->importDroppedModpack(path, prefill);
         });
@@ -595,8 +595,8 @@ void ImportController::handleInstanceSettingsDrop(QWidget *page, const QString &
     bool installedAnything = false;
     for (const QPair<ResourceCatalog::Kind, QStringList> &entry : byKind) {
         const ResourceCatalog::Kind kind = entry.first;
-        // ★ 用户点名的那一条：**正好在对应那一页就直接塞进去，不问**（"如果是模组且正好
-        //   在模组设置那一页，那就直接塞进去"）。不在对应页才问那一句"是否继续"。
+        // 用户点名的那一条：**正好在对应那一页就直接塞进去，不问**（"如果是模组且正好
+        // 在模组设置那一页，那就直接塞进去"）。不在对应页才问那一句"是否继续"。
         if (pageKeyForKind(kind) != currentPage) {
             // 那一句话就是用户点名要的：「将在此实例中安装 资源包/...（判断出的文件类型），
             // 是否继续」。多个文件时把个数说出来 —— 一次拖三个模组，那句"安装模组"要是
@@ -623,8 +623,8 @@ void ImportController::handleInstanceSettingsDrop(QWidget *page, const QString &
             } else if (!problem.isEmpty()) {
                 problems.append(problem);
                 // NOTE: `m_owner->installLocalResourceFile()` 返回 false 而 problem 为空 = 用户
-                //       自己答了"不盖" —— 那不是错，不进这一张表（也不打断剩下几个文件：
-                //       同一类里别的文件该照装）。
+                // 自己答了"不盖" —— 那不是错，不进这一张表（也不打断剩下几个文件：
+                // 同一类里别的文件该照装）。
             }
         }
         if (done > 0) {
@@ -655,9 +655,9 @@ void ImportController::handleInstanceSettingsDrop(QWidget *page, const QString &
 }
 
 void ImportController::importDroppedModpack(const QString &zipPath, const QString &namePrefill) {
-    // ★ 用户点名要的第一步：「让用户选择安装的文件夹」。手法和「复制实例」那一处**逐字
-    //   相同**（原生目录选择框 —— `ui/` 不碰 AppPaths，"该默认到哪儿"只有这一层知道；
-    //   那一处那段 NOTE 就是这条的出处）。
+    // 用户点名要的第一步：「让用户选择安装的文件夹」。手法和「复制实例」那一处**逐字
+    // 相同**（原生目录选择框 —— `ui/` 不碰 AppPaths，"该默认到哪儿"只有这一层知道；
+    // 那一处那段 NOTE 就是这条的出处）。
     const QString folder = QFileDialog::getExistingDirectory(
         m_owner, m_owner->tr("装到哪个游戏文件夹"), AppPaths::minecraftDir(),
         QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
@@ -666,11 +666,11 @@ void ImportController::importDroppedModpack(const QString &zipPath, const QStrin
         return;  // 用户取消
     }
 
-    // ★ 挑的那一份**必须真的切过去**：整条导入路（`checkImportTargetName`、
-    //   `applyModpackImport`、`AppPaths::versionDir()`）看的是**当前**这一份 .minecraft，
-    //   不切的话整合包会装到用户没挑的那一份里 —— 而屏幕上什么异常都没有。
-    //   （"不切也行"是不可能的：那要在导入路上把"装到哪一份"从头传到尾，见
-    //   `AppPaths::versionDir()` 那段。）
+    // 挑的那一份**必须真的切过去**：整条导入路（`checkImportTargetName`、
+    // `applyModpackImport`、`AppPaths::versionDir()`）看的是**当前**这一份 .minecraft，
+    // 不切的话整合包会装到用户没挑的那一份里 —— 而屏幕上什么异常都没有。
+    // （"不切也行"是不可能的：那要在导入路上把"装到哪一份"从头传到尾，见
+    // `AppPaths::versionDir()` 那段。）
     if (folder != m_owner->m_folderManager->currentFolder()) {
         // 不在列表里就先加进去（`setCurrentFolder()` 只认 `folders()` 里的那几份）。
         // 加不进去 = 那个路径不是个目录（也不该发生：刚从这个框里选出来的）。
@@ -704,8 +704,8 @@ void ImportController::handleWindowDrop(const QStringList &paths) {
 
     // 其余几类：**装到哪个实例**要问（这一档没有上下文可推，见文件头那段 ★）。
     // NOTE: 分类结果**复用上面那一趟**（不在这里再 classify 一遍）：读一个压缩包的条目表
-    //       要起一次 PowerShell，重跑一遍就是纯浪费，而且两次的答案理论上可以不一样
-    //       （文件在这中间被换了）—— 一份输入只认一次。
+    // 要起一次 PowerShell，重跑一遍就是纯浪费，而且两次的答案理论上可以不一样
+    // （文件在这中间被换了）—— 一份输入只认一次。
     QStringList installable;
     QStringList unrecognized;
     for (const DroppedResource::Result &result : results) {

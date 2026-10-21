@@ -1,10 +1,4 @@
 /**
- * @file ErrorReport.hpp
- * @brief 「错误报告」那一份文本怎么拼（纯函数：给一组事实，回一段可以直接发出去的文本）。
- * @author 0x7fffff
- * @date 2026-09-28
- * @note 用户原话：「把日志和错误报告导出功能加上，就在那个日志窗口下方，右下角放着」。
- *
  * 【为什么单独一个文件，而不是写在 MainWindow 里拼】
  *
  * 这一份文本**是要发给别人的**（用户把文件拖进群里、贴进 issue），所以它长什么样得能
@@ -28,8 +22,6 @@
 namespace ErrorReport {
 
 /**
- * @brief 一份报告里那些"事实"（报告头部那几行）。
- *
  * 全部由调用方从**它自己那边**取：这个文件读不到盘、也看不见会话表。
  */
 struct Facts {
@@ -53,10 +45,9 @@ struct Facts {
     bool crashed = false;
     /// 退出码（只在 finished 为真时有意义）。
     int exitCode = 0;
-    /// 报告里那两段日志各有多少行（**由调用方数好**：行数在这里数等于把两段文本再切一遍）。
     int errorLines = 0;
     int totalLines = 0;
-    /// 递进来的那两段文本是不是**只截了末尾一截**（2026-10-20）。
+    /// 递进来的那两段文本是不是**只截了末尾一截**。
     ///
     /// 崩溃报告那条路为了"发到群里的文件不该有几十兆"，只留错误最后 200 行、日志最后
     /// 500 行（`GameExitDiagnosis::kExcerptLineLimit` / `kLogTailLineLimit`）。原来那两个
@@ -64,20 +55,16 @@ struct Facts {
     /// 的报错已经被截掉了。这两个位为 true 时标题改成「末尾 N 行 / 原始共 M 行」。
     ///
     /// NOTE: 默认 false（**不截就当没截**）—— 日志窗那条路给的就是全量（自己的行数也按
-    ///       全量数），它必须逐字节保持原来的标题。
+    /// 全量数），它必须逐字节保持原来的标题。
     bool errorTruncated = false;
     bool logTruncated = false;
 
     // ---------- 下面这几样只有「游戏异常退出」那一项会填（§4.3）----------
-    //
-    // 别的几路（日志窗那颗「导出错误报告」）一律留空 —— 那一路手上确实没有这些值，
-    // 而**写一个猜的值比不写这一行坏得多**：拿到报告的人会照着它去排除方向。
 
     /// 这一趟实际用的 Java：`21（D:\...\java.exe）`。空 = 不写这一行。
     QString javaVersion;
     /// 这个实例的加载器：`Fabric 0.15.11`。空 = 不写这一行（原版实例就是空）。
     QString loaderVersion;
-    /// 给 JVM 的内存参数：`-Xmx 4096 MB / -Xms 512 MB（本机共 32768 MB）`。空 = 不写。
     QString memoryArgs;
     /// 「可能的原因」那几句（`GameExitDiagnosis::hints()` 给的）。空 = 那一节整个不写。
     QStringList hints;
@@ -86,29 +73,20 @@ struct Facts {
 /// 这台机器是什么（`Windows 11 Home China (10.0.26200) x86_64` 这样一行）。
 ///
 /// NOTE: 只有 `QSysInfo` 一处出处，所以它放在这个文件里而不是调用方那边 —— 报告的头部
-///       是**给别人看的**，那一行的形状要能跟着报告一起被断言钉住。
+/// 是**给别人看的**，那一行的形状要能跟着报告一起被断言钉住。
 QString systemDescription();
 
-/// 生成这一份报告时的时间。**由调用方传**（不在这里读时钟）—— 验证工程要能钉死它。
 QString header(const Facts &facts, const QDateTime &now);
 
 /// 两段之间的那行分隔。`sectionDivider("错误与致命（共 3 行）")`。
 QString sectionDivider(const QString &title);
 
 /**
- * @brief 拼出整份报告：头部 + 错误摘录 + 完整日志。
- * @param errors 不轻于 Error 的那些行（可以是空串 —— 一档都没有时那一段会明说"没有"）。
- * @param log 全部日志。
- *
- * NOTE: `errors` 为空**照样写上那一段**（写一句"这一段里没有 Error/Fatal"）：一份缺了
- *       那一段的报告，看的人分不清"没出错"和"导出的时候漏了"。
  */
 QString text(const Facts &facts, const QDateTime &now, const QString &errors, const QString &log);
 
-/// 报告文件名的推荐值（`错误报告-实例名-20260928-210311.txt`）。
-///
 /// NOTE: 实例名里可能有文件名不允许的字符（冒号、斜杠…），这里**换成下划线**：
-///       存不下的时候用户的感受是"导出失败了"，而原因只是一个名字里有冒号。
+/// 存不下的时候用户的感受是"导出失败了"，而原因只是一个名字里有冒号。
 QString suggestedFileName(const QString &instanceName, const QDateTime &now);
 
 /// 日志文件名的推荐值（`日志-实例名-20260928-210311.log`）。和上面同一个理由与同一条
