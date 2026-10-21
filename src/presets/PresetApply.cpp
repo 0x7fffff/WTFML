@@ -589,9 +589,9 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
                     continue;
                 }
             }
-            // 按**段里这份清单**落。从前这里是重扫预设的 `files/<组>`：
-            // 盘上多出来的旧文件也会被应用，而计划表和备份范围都是按清单算的 ——
-            // 于是"落下去的那一份"不在备份里（见 `applyFileGroup(…, items)` 那段）。
+            // 按**段里这份清单**落，不能重扫预设的 `files/<组>`：盘上多出来的旧文件
+            // 也会被应用，而计划表和备份范围都是按清单算的 —— 于是"落下去的那一份"
+            // 不在备份里（见 `applyFileGroup(…, items)` 那段）。
             const GenericReport applied = applyFileGroup(presetFilesRoot, request.instanceRoot,
                                                          group, section.mode, items);
             row.ok = applied.ok;
@@ -740,9 +740,9 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
         result.removed += row.removed;
         result.deferred += row.deferred;
     }
-    // `ok` 是"**这一趟办完了没有**"，不是"流程走到了末尾"（ 修）：
-    // 从前这里无条件置真，于是某一段写盘失败（servers.dat 被占用、options.txt 提交
-    // 失败、通用文件组中途拷不动……）时，管理页顶上照样写「应用完成。」、日志照样记
+    // `ok` 是"**这一趟办完了没有**"，不是"流程走到了末尾"：
+    // 无条件置真的话，某一段写盘失败（servers.dat 被占用、options.txt 提交失败、
+    // 通用文件组中途拷不动……）时，管理页顶上照样写「应用完成。」、日志照样记
     // "写入 N 项"，而面板里某一行明写着"做不了"。`Skip` 那几行是**办完了**（不算失败）。
     result.ok = true;
     for (const PresetApplyRow &row : result.rows) {

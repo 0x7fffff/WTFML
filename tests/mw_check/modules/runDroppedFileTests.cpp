@@ -46,8 +46,8 @@ void runDroppedFileTests() {
     writeFileAt(modA, "A");
     writeFileAt(modB, "B");
     // 资源包那一份必须是**真的** zip：认类型要读压缩包的条目表（`pack.mcmeta` + `assets/`，
-    // 判据在 `DroppedResource::classify()` 里）。第一版这里写的是一个"改名叫 .zip 的
-    // 文本文件"，症状是那一句话里写的是「下面这几个不是能装进实例的东西」—— 红的理由
+    // 判据在 `DroppedResource::classify()` 里）。拿一个"改名叫 .zip 的文本文件"来喂，
+    // 症状是那一句话里写的是「下面这几个不是能装进实例的东西」—— 红的理由
     // 看着像"产品认不出资源包"，其实是**喂进去的东西本来就不是资源包**。
     // NOTE: `.jar` 那几份不受这条影响：模组是**看后缀**认的（一个 jar 也可能是别的什么，
     // 但凡是 jar 就按模组装，永远不去读它的条目表 —— 见 classify() 里那段）。
@@ -314,7 +314,7 @@ void runDroppedFileTests() {
                 // `clearSelection()` 不够 —— 当前项还在，`currentRow()` 照样回 0，于是
                 // "没选就点确定"变成了"选了第 0 行再点确定"，产品**真的会装进去**，接着
                 // 它还要弹一条「装好了」—— 那条没有人在旁边答，测试**挂在**它上面
-                // （ 实测挂过一次）。
+                // （实测会挂）。
                 list->setCurrentItem(nullptr);
             }
             if (QComboBox *combo = w.ui() != nullptr ? w.ui()->getInstalledVersionCombo() : nullptr) {

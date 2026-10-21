@@ -1,6 +1,6 @@
 /**
  * @file ServerPlayers.hpp
- * @brief 服务端那四份玩家名单的**判据层**（coding plan §9.7「玩家管理」）。
+ * @brief 服务端那四份玩家名单的**判据层**（「玩家管理」）。
  *
  * 四份文件（都由服务端自己写，格式是 Gson 的漂亮 JSON）：
  * * `whitelist.json` —— `[{uuid, name}]`（白名单开关在 `server.properties` 的
@@ -60,7 +60,7 @@ struct Entry {
     bool bypassesPlayerLimit = false;  ///< 管理员那一档
     QString reason;   ///< 封禁那两档
     QString source;   ///< 封禁那两档（谁封的）
-    QString created;  ///< 封禁那两档（"2026-10-18 12:00:00 +0800"）
+    QString created;  ///< 封禁那两档（"年-月-日 时:分:秒 时区"）
     QString expires;  ///< 封禁那两档（`forever` 或同一个时间格式）
 };
 

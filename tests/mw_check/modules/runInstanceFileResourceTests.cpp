@@ -41,7 +41,7 @@ void runInstanceFileResourceTests() {
 
     // ---------- 夹具：一个实例，里面三个文件 ----------
     //
-    // 这个实例**报得出游戏版本号（1.20.1）和一个加载器（NeoForge）**（ 加）：
+    // 这个实例**报得出游戏版本号（1.20.1）和一个加载器（NeoForge）**：
     // "点开一个资源时按当前实例的版本预选、把它的加载器排前面"这件事（要求
     // 「点开某个模组等的时候将版本自动选到当前实例对应的那个，对应的模组加载器的版本
     // 放在前面」）走的就是这两份值，而**一个报不出东西的实例量不出来**（没有版本号 ⇒
@@ -205,7 +205,7 @@ void runInstanceFileResourceTests() {
                 return nullptr;
             };
             // 等的是**那一颗从灰的变成能按的** —— 一个用户看得见的终点，不是"某个内部标志位"。
-            // （从前等的是名字的手型光标，那条路整条退场了。）
+            // （名字上的手型光标不再是入口。）
             const bool arrived = pumpUntil(
                 [&] {
                     QToolButton *detail = detailForPath(packs, packZip);
@@ -238,14 +238,12 @@ void runInstanceFileResourceTests() {
             modRowFound = modDetail != nullptr;
             modTip = modDetail != nullptr ? modDetail->toolTip() : QString();
             modClickable = modDetail != nullptr && modDetail->isEnabled();
-            // 用户后半句：「对于模组，点进去和资源包差不多…」。以前这一条钉的是
-            // **反向**（模组故意不接，用户那句"待会再说"）；"待会"到了 ⇒ 现在和资源包三页
-            // 一样必须**点得动**，提示就是「打开…的下载页…」那一句。判据仍然只在
-            // `filesNameOpensResource()` 一处。
+            // 模组和资源包三页一样必须**点得动**，提示就是「打开…的下载页…」那一句。
+            // 判据仍然只在 `filesNameOpensResource()` 一处。
             check(modRowFound && modClickable &&
                       modTip == InstanceSettingsDialog::filesResourceTip(modTitle),
                   "★★ T24.3 「模组甲」那一行尾巴上的「详情」**点得动**，提示就是「打开…的"
-                  "下载页（这一页会关掉）。」那句（用户 2026-09-27：「对于模组，点进去和"
+                  "下载页（这一页会关掉）。」那句（「对于模组，点进去和"
                   "资源包差不多」）",
                   QStringLiteral("tip=%1 能点=%2")
                       .arg(modTip.isEmpty() ? QStringLiteral("(空)") : modTip.left(40))
@@ -291,9 +289,8 @@ void runInstanceFileResourceTests() {
             // （见 openInstanceFileResource() 里那段 ★）—— 在这儿泵一下事件，
             // 新页就会在那个嵌套循环还没退出的时候就开，被 `overlay->isOpen()` 吃掉。
             // （ZJ 那一段里同一条规矩的另一种写法。）
-            // 按的是**行尾那颗「详情」**（用户：「把点击条目进入对应详情页的
-            // 功能变成一个详情按钮…单击改为选中」）。`click()` 走的是 `QToolButton::clicked`
-            // —— 这颗按钮接的就是 `emit detailRequested(path)`（和从前名字上那一发同一条路）。
+            // 按的是**行尾那颗「详情」**（单击条目只是选中）。`click()` 走的是
+            // `QToolButton::clicked` —— 这颗按钮接的就是 `emit detailRequested(path)`。
             if (packDetail != nullptr) {
                 packDetail->click();
             }
@@ -681,7 +678,7 @@ void runInstanceFileResourceTests() {
         // 这一条就是用户那半句话的落点：**同一格换成了「模组设置」**。
         check(modProbe.slotShown && modProbe.modButtonVisible,
               "★★ T24.7 从实例的文件管理页点一个**模组** ⇒ 右上角那一格摆的是「模组设置」"
-              "（用户 2026-09-27：「右上角显示快照版那里替换为模组设置」）",
+              "（「右上角显示快照版那里替换为模组设置」）",
               QStringLiteral("槽位=%1 按钮露着=%2")
                   .arg(modProbe.slotShown ? QStringLiteral("模组设置") : QStringLiteral("快照版"),
                        modProbe.modButtonVisible ? QStringLiteral("是") : QStringLiteral("不是")));

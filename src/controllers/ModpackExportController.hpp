@@ -14,7 +14,7 @@ class VersionManager;
 class ModpackExportController final : public QObject {
     Q_OBJECT
 public:
-    /// 任务中心那一格的口子（coding plan §9.9：导出也走「规划 → 兼容性确认 → 执行 →
+    /// 任务中心那一格的口子（导出也走「规划 → 兼容性确认 → 执行 →
     /// 验证」，不在 UI 线程里闷头打包）。四个回调都允许为空 —— 验证工程里只关心
     /// 导出本身时可以一个都不接。
     struct Host {
@@ -48,7 +48,7 @@ private:
     // ---------- 任务中心那一格 ----------
     //
     // 步骤表是这一层的**唯一出处**（`exportStepNames()`）：起手按它建任务，之后只按
-    // 下标改状态。四步对着 coding plan 那条流程：规划 / 兼容性确认 / 执行 / 验证。
+    // 下标改状态。四步就对着这条流程：规划 / 兼容性确认 / 执行 / 验证。
     QList<Tasks::TaskStep> initialSteps() const;
     void setTaskDetail(const QString &text) const;
     void setTaskProgress(qint64 doneUnits, qint64 totalUnits) const;

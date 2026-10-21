@@ -12,7 +12,7 @@
  * 能把用户的服务器列表写坏的入口 —— 而 `NbtUtil.hpp` 文件头那条设计决定防的正是这件事。
  *
  * `applyServerListToInstance()` 落盘时"要改哪几条"用的是 `planServerList()` 算出来的那个
- * 计划（连「覆盖」档"哪条对得上哪条"都是同一个 `matchForReplace()`）。P2 那边
+ * 计划（连「覆盖」档"哪条对得上哪条"都是同一个 `matchForReplace()`）。原版设置那边
  * （`VanillaOptions`）同一条规矩：计划说添 3 条、实际就得添 3 条，做不到说明是 bug，
  * 不是"以实际为准"。
  */

@@ -174,10 +174,9 @@ constexpr double kArmSwingDegrees = 23.0;
 
 /// 披风的仰角（度）：**固定**这么翘，不跟着步频晃。
 ///
-/// NOTE: 它曾经是"基础 6° + 走路时多翘 5°"（每迈一步颠一下）。改成固定值是按用户要求
-/// 定下来的观感：披风飘起来是为了**别挡住身体**（翘起来之后腿和背都看得见），
-/// 而跟着步频一翘一落会让人一直盯着它看、反而看不清皮肤。所以它现在是**常量** ——
-/// `walkingCape()` 连相位都不收（签名里留着相位的话，读的人会以为它跟步频有关）。
+/// NOTE: 它**固定**这么翘，不跟着步频晃：披风飘起来是为了**别挡住身体**（翘起来之后
+/// 腿和背都看得见），而跟着步频一翘一落会让人一直盯着它看、反而看不清皮肤。所以它是
+/// **常量** —— `walkingCape()` 连相位都不收（签名里留着相位的话，读的人会以为它跟步频有关）。
 constexpr double kCapeLiftDegrees = 24.0;
 
 /// 画一个面要用的东西：屏幕上的四边形、贴图上的矩形、每个角离眼睛多远。
@@ -201,9 +200,7 @@ struct DrawFace {
 /// 这块面上有没有半透明像素。查一次是几十个 texel，一帧几十块面，忽略不计。
 ///
 /// NOTE: 扫的范围要跟贴图本身取**交集** —— 调用方给的图不一定够大（披风是从网上
-/// 下来的，一张比 22×17 还小的图照样是合法 PNG）。以前这一步是
-/// `drawImage(rect, image, srcRect)`，Qt 会自己把源矩形裁到图里；现在取样是
-/// 自己做的，不裁就是读越界。
+/// 下来的，一张比 22×17 还小的图照样是合法 PNG）。取样是自己做的，不裁就是读越界。
 bool hasTranslucentPixels(const QImage &texture, const QRect &uv) {
     const QRect area = uv.intersected(QRect(0, 0, texture.width(), texture.height()));
     for (int y = area.top(); y <= area.bottom(); ++y) {
@@ -237,7 +234,7 @@ void collectFace(QVector<DrawFace> &faces, const Cuboid &box, Face face, bool ov
         const QPointF point = project(cam, geometry.corners[i], &depth);
         if (depth <= 0.0) {
             // 角跑到相机背后了（只有把模型缩得极大才可能）：投影出来的点没有意义，
-            // 整块丢掉。以前是靠"四边形退化成一条线、quadToQuad 返回 false"兜住的。
+            // 整块丢掉。
             return;
         }
         draw.screen[i] = (point - origin) * scale;
@@ -267,8 +264,8 @@ struct Canvas {
 /// 把一块面**逐像素**画进画布：像素中心落在面里就取它的深度和贴图上的 texel，
 /// 比深度缓冲近才写。@param blendOnly true = 半透明那一遍（见 render()）。
 ///
-/// 采样是**最近邻**：贴图坐标取完 floor 就是那个 texel（和以前 drawImage 关掉平滑
-/// 一个意思，皮肤是像素画，插值只会糊）。透视校正是必须的 —— 贴图坐标和深度都要先
+/// 采样是**最近邻**：贴图坐标取完 floor 就是那个 texel（皮肤是像素画，插值只会糊）。
+/// 透视校正是必须的 —— 贴图坐标和深度都要先
 /// 插 1/z 再取倒数，直接线性插会在近处明显偏。
 void rasterizeFace(const DrawFace &face, Canvas &canvas, bool blendOnly) {
     const int tri[2][3] = {{0, 1, 2}, {0, 2, 3}};
@@ -368,8 +365,8 @@ void rasterizeFace(const DrawFace &face, Canvas &canvas, bool blendOnly) {
 
 // ---------- 默认外观 ----------
 //
-// 用户 点名的两格十六进制，原话：「整个人都是 #000000，脸部一个 #ffffff
-// 的问号」。所以这里只有这两个色号，**不许调色** —— 改一个数字就是另一张图，
+// 两格十六进制：整个人是 #000000，脸上一枚 #ffffff 的问号。
+// 这里只有这两个色号，**不许调色** —— 改一个数字就是另一张图，
 // ui_check 里那几条是按这两个值逐像素量的。
 const QColor kPlaceholderBody(0x00, 0x00, 0x00);
 const QColor kPlaceholderInk(0xFF, 0xFF, 0xFF);
@@ -378,8 +375,8 @@ const QColor kPlaceholderInk(0xFF, 0xFF, 0xFF);
 /// 中间空的那一行是它和上面那钩子之间的距离）。**写死**，不画字体 —— 字号一缩放就不是
 /// 这个形状了，而且这一格要能对着像素断言。
 ///
-/// NOTE: 和 `VersionIcons.cpp` 里幸运方块上那枚**不再一样**了 —— 那边还是 5×7（方块是
-/// 16×16、四周还有一圈描边，半格的偏差看不出来），这边缩成 4×6 是为了正中（见
+/// NOTE: 和 `VersionIcons.cpp` 里幸运方块上那枚**不一样** —— 那边是 5×7（方块是
+/// 16×16、四周还有一圈描边，半格的偏差看不出来），这边是 4×6 为了正中（见
 /// kQuestionOffset 那段）。两处各写一份：一个是版本树的方块图标、一个是皮肤贴图，
 /// 为了这几行字让两个模块互相 include 不值当。改了哪边，哪边那条按像素量的断言会红。
 constexpr int kQuestionWidth = 4;
@@ -399,10 +396,9 @@ const char *const kQuestionRows[kQuestionHeight] = {
 /// 字形是 4×6、脸是 8×8，于是上下左右余量正好各是整数：(8−4)/2 = 2、(8−6)/2 = 1 ——
 /// **这就是它居中的全部理由**。
 ///
-/// NOTE: 要求「那个问号能不能再居中一点点，就算小一点也没关系」。原来那版是
-/// 5×7 摆在 (1,0)：5 和 7 都是奇数、脸是偶数，**怎么摆都差半格**（那版是左 1 右 2、
-/// 上 0 下 1，整个偏左上）。所以"再居中一点点"只有一条路：把字形缩成偶数宽 —— 小
-/// 一点是代价，用户认了。想改大的话，宽度必须是 2 / 4 / 6 才可能正中。
+/// NOTE: 字形必须是偶数宽才可能正中：脸是 8×8，4×6 摆出来的上下左右余量正好各是整数
+/// —— (8−4)/2 = 2、(8−6)/2 = 1。5×7 那种奇数尺寸**怎么摆都差半格**。想改大的话，
+/// 宽度必须是 2 / 4 / 6。
 const QPoint kQuestionOffset(2, 1);
 
 }  // namespace
@@ -518,13 +514,13 @@ Cuboid capeCuboid() {
 
     // 关节定在肩膀那条横线上，z 取这块板自己的中面（(-3.2 + -2.2)/2 = -2.7）。
     cape.pivot = QVector3D(0, 24, -2.7f);
-    // **整块板绕 Y 转 180°**。这一条是"披风朝外那面取贴图哪一块"的出处，踩过一次：
+    // **整块板绕 Y 转 180°**。这一条是"披风朝外那面取贴图哪一块"的出处：
     //
     // 贴图公式（faceRect）本身没得挑 —— 摊平之后就摆在那儿，前/后两块分别是 (1,1,10,16)
-    // 和 (12,1,10,16)，两条独立旁证都对得上。错的是**这两块分别该贴到哪一面上**：
-    // 直接照"背面那一面取背面那块图"贴，从背后看见的就是披风图的**内侧**那块，
-    // 于是整件披风是反的（用户报的"披风放反了"）。游戏里这块板就是转过来挂的
-    // （原版那一层有一记绕 Y 的转），转了之后贴图左边那块才是朝外给人看的那一面。
+    // 和 (12,1,10,16)，两条独立旁证都对得上。关键是**这两块分别该贴到哪一面上**：
+    // 照"背面那一面取背面那块图"贴，从背后看见的就是披风图的**内侧**那块，
+    // 整件披风就是反的。游戏里这块板就是转过来挂的（原版那一层有一记绕 Y 的转），
+    // 转了之后贴图左边那块才是朝外给人看的那一面。
     cape.rotation = QVector3D(0, 180, 0);
 
     // 顺带一提：那个固定的仰角（walkingCape）是往 rotation.x() 上填的，也就是"绕同一根
@@ -658,8 +654,7 @@ bool isFaceVisible(const Camera &cam, const FaceGeometry &face) {
     }
     // 两个对角的中点就是面中心。这里取的是 corners.first()/last()，而 corners 的顺序是
     // {左上, 右上, 右下, 左下}（见 faceGeometry 里那一行），所以这两个是**左边缘**的两端 ——
-    // 不是一对对角线。结论不受影响：矩形的两条对角线中点重合，取哪一对都是同一个中心点
-    // （原来的注释写成"一条对角线上的两个角"，会让人以为下标 0/3 是一对对角）。
+    // 不是一对对角线。结论不受影响：矩形的两条对角线中点重合，取哪一对都是同一个中心点。
     const QVector3D center = (face.corners.first() + face.corners.last()) / 2.0f;
     return QVector3D::dotProduct(face.normal, cam.eye - center) > 0.0f;
 }
@@ -716,7 +711,7 @@ void render(QPainter &painter, const QRectF &target, const Scene &scene) {
                             : scene.cape.convertToFormat(QImage::Format_ARGB32_Premultiplied);
 
     // 画布按**设备像素**开：高 DPI 屏上（缩放 125%、150%）一个逻辑像素是两三个物理像素，
-    // 按逻辑尺寸开再被放大就会糊 —— 以前是直接把面画到屏幕上，没有这一步。
+    // 按逻辑尺寸开再被放大就会糊。
     const double scale =
         painter.device() != nullptr ? painter.device()->devicePixelRatioF() : 1.0;
     const int canvasW = static_cast<int>(std::ceil(target.width() * scale));
@@ -771,7 +766,7 @@ void render(QPainter &painter, const QRectF &target, const Scene &scene) {
     canvas.depth.fill(1e30f, canvasW * canvasH);
 
     // 不透明的一遍：谁近谁写进去，**跟画的先后无关**（这就是它比画家算法强的地方：
-    // 不再需要"按远近排序"这个前提，也就没有"排错序"这回事）。
+    // 不依赖"按远近排序"这个前提，也就没有"排错序"这回事）。
     for (const DrawFace &face : faces) {
         if (face.translucent) {
             continue;  // 带半透明的面走下面那两遍，见 rasterizeFace 的说明
@@ -875,8 +870,7 @@ QImage headAvatar(const QImage &skin, int size) {
 QImage completeLegacySkin(const QImage &skin) {
     // 老格式（64×32）里**根本没有左臂和左腿那两块贴图** —— 摊开数一下就知道放不下：
     // 每块四肢要占 16 列 × 16 行，而 32 行高的图扣掉头和帽子只剩 16 行，只够右臂右腿
-    // 挤在 64 列里（左臂左腿那两块是 1.8 把图扩成 64×64 时才加的）。那个年代游戏是
-    // 拿右边那份**镜像**过去画的。
+    // 挤在 64 列里。客户端对老格式是拿右边那份**镜像**过去画的。
     //
     // 不补这一步的表现是：左臂左腿会去取贴图外面 —— copy() 越界返回空图，于是整块
     // 不画，小人看上去"少了半拉身子"（而且右边那块的**内侧面**会顶上来，因为挡住它的
@@ -936,7 +930,7 @@ QColor avatarFallbackColor(const QString &name) {
     // `fromHsv()` 算出来的分量大多不是"8 位值 × 257"，于是
     // `fromHsv(...) == image.pixelColor(...)` 会**假不相等**（图里存的是 8 位，
     // 取回来是 8 位精确值）。名字、rgba()、redF() 一路看着都一模一样，只有 `==`
-    // 说不一样 —— 这个坑已经吃掉过一整轮排查（，mw_check 的 AH7b）。
+    // 说不一样。
     // 量化成 8 位之后，"画出来的那个色"和"这个函数给的那个色"就恒等，
     // 而且这一格本来就只画在一块 24×24 的方格里，多出来的精度没有意义。
     const QColor hsv = QColor::fromHsv(static_cast<int>(qHash(name, 0) % 360), 150, 170);

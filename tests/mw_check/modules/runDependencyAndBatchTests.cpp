@@ -451,7 +451,6 @@ void runDependencyAndBatchTests() {
             // 盘上的读数**必须在这一发里面记下来**：这三下是**前后串着**做的
             // （禁用 → 启用 → 删除），等整段跑完再到外面去读盘，读到的已经是
             // "启用回来之后 + 删掉一个"那个终态 —— 禁用那一条永远看不见自己的现场。
-            // （第一版就是这么写的，红的正是"禁用"那一条，而它其实做对了。）
             bool disabledBoth = false;   ///< 点完「禁用」：两条都挂上了后缀
             bool reenabledBoth = false;  ///< 点完「启用」：又都改回原名了
             bool plainGone = false;      ///< 点完「删除」：选中的那一份没了
@@ -479,12 +478,9 @@ void runDependencyAndBatchTests() {
                 // 按路径选中（"选中"这件事在屏幕上就是那一条的选中态，产品按路径记账）。
                 // 先把旧的选择**清干净**再选 —— 这个 helper 三个调用点的意思都是
                 // 「把选择设成这几条」，而 `setSelected(true)` 只会**加**不会减。
-                // 为什么这里以前不需要清： 第四批之前「拨开关」那一发会改名
-                // ⇒ 按盘上真路径回还账时比不中 ⇒ 那两条**自己掉出了选择**，于是这一发
-                // 落在空选择上、结果恰好只有 plainJar 一条。第四批用户点名废掉了那条
-                // 旧规矩（「修复点击开关的时候会取消选中的问题」）⇒ 那两条**留在选中**
-                // ⇒ 不清的话这一发等于"两条都选着"，删除会把 modJar 也带走，
-                // 而这条断言的**本意**是"只删选中的那一条"。
+                // 为什么这里必须先清：产品在拨开关时**不**取消选中 —— 那两条会
+                // **留在选中**里；不清的话这一发等于"两条都选着"，删除会把 modJar 也
+                // 带走，而这条断言的**本意**是"只删选中的那一条"。
                 const auto selectByPaths = [&](const QStringList &paths) {
                     mods->list()->clearSelection();
                     for (int row = 0; row < mods->list()->count(); ++row) {
@@ -533,10 +529,10 @@ void runDependencyAndBatchTests() {
                 //
                 // 走的是悬浮条上那颗「禁用」真正走的那条路（`batchToggleRequested` →
                 // 对话框转发 → `MainWindow::toggleInstanceFiles()` → 逐条
-                // `toggleInstanceFile()`）。喂进去的是一个**目录** —— 从前那一发会真的
-                // 把 `mods/.connector` 改名成 `.connector.disabled`（真机上发生过）。
-                // 现在只该说一句人话，一个字节都不动盘。整批都不改的话
-                // `toggleInstanceFiles()` 末尾那个「改动失败」框就是这一句话的出口。
+                // `toggleInstanceFile()`）。喂进去的是一个**目录** —— 目录不许被改名成
+                // `.connector.disabled`（真机上发生过）。这里只该说一句人话，一个字节都
+                // 不动盘。整批都不改的话 `toggleInstanceFiles()` 末尾那个「改动失败」框
+                // 就是这一句话的出口。
                 const int saidBefore = deleter.answered.size();
                 if (InstanceFilesPage *dirPage = page->filesPage(QStringLiteral("mod"))) {
                     // 这一发**自己带一个 answerer** —— 上面那个 `deleter` 已经 `stop()`

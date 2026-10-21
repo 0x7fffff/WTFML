@@ -1,7 +1,7 @@
 #include "Support.hpp"
 
 void runMalilibKeysTests() {
-    section("PF. MaLiLib 那一族的热键：认、合、覆盖（§6 P4）");
+    section("PF. MaLiLib 那一族的热键：认、合、覆盖");
 
     const QByteArray malilibBytes = QByteArrayLiteral(
         "{\n"
@@ -42,7 +42,7 @@ void runMalilibKeysTests() {
                   .arg(facts.values));
 
         // 我们**一个模组名都没写进代码**：TweakerMore / Masa Gadget / OMMC 这些扩展是照结构
-        // 认出来的（§6 P4 那句点名的就是这一条）。
+        // 认出来的。
         const QStringList extensions = {QStringLiteral("tweakermore"),
                                         QStringLiteral("masagadget"), QStringLiteral("ommc"),
                                         QStringLiteral("minihud")};
@@ -108,13 +108,13 @@ void runMalilibKeysTests() {
                       toggleHud->gesture.toKeysString() == QStringLiteral("LEFT_ALT,H") &&
                       toggleHud->extra.isEmpty(),
                   "★★ PF1 `{\"keys\": \"LEFT_ALT,H\"}` → 键位拆成两张词（逗号分隔、修饰键在前，"
-                  "实测就是这么写的）");
+                  "就是这么写的）");
         }
         if (openGui != nullptr) {
             check(openGui->kind == Presets::MalilibEntryKind::Hotkeyed && !openGui->hasEnabled &&
                       openGui->label() == QStringLiteral("malilib/Generic/OpenConfigGui"),
                   "★★★ PF1 「热键 + 开关」那一档默认**只搬热键**（开关那一半不跟着走）；身份是 "
-                  "`modId/groupId/optionName` —— §6 P4 点名：**不用**翻译名（会随语言变）、不用"
+                  "`modId/groupId/optionName` —— 点名：**不用**翻译名（会随语言变）、不用"
                   "行号（会随模组版本变）",
                   openGui->label());
         }
@@ -126,7 +126,7 @@ void runMalilibKeysTests() {
               "★★★ PF1 「什么都不说的格子」**不收**：`{\"keys\": \"\"}` 是这一格没绑 —— 把它当成"
               "预设的内容，等于宣布「目标上这一格也得解绑」");
 
-        // ---- 连开关和值一起收（§6 P4「可选合并全部已知设置」）----
+        // ---- 连开关和值一起收（可选合并全部已知设置）----
         QList<Presets::MalilibEntry> all;
         check(Presets::malilibEntriesFromFile(QStringLiteral("malilib"), malilibBytes, &all,
                                               &problem, true),
@@ -275,7 +275,7 @@ void runMalilibKeysTests() {
               presetEntries.at(0).source.loader == QStringLiteral("neoforge-21.1.9") &&
               presetEntries.at(0).source.mod == QStringLiteral("malilib-0.21.0") &&
               presetEntries.at(0).source.malilib == QStringLiteral("neoforge-0.21.0"),
-          "★★ PF2 §6 P4 最后那句：来源的 Minecraft / 加载器 / 模组 / MaLiLib 版本记在每一格上",
+          "★★ PF2 最后那句：来源的 Minecraft / 加载器 / 模组 / MaLiLib 版本记在每一格上",
           presetEntries.isEmpty() ? QString() : presetEntries.at(0).source.toJson().keys().join(','));
 
     const Presets::MalilibTarget target =
@@ -460,7 +460,7 @@ void runMalilibKeysTests() {
                   mismatch.report.written == 0 && !mismatch.files.at(0).changed &&
                   !mismatch.report.details.isEmpty() &&
                   mismatch.report.details.at(0).contains(QStringLiteral("类型对不上")),
-              "★★★ PF5 §6 P4「类型变化时拒绝转换」：目标上那一格是开关、预设里是个字符串 ⇒ 这一项"
+              "★★★ PF5「类型变化时拒绝转换」：目标上那一格是开关、预设里是个字符串 ⇒ 这一项"
               "**没动**，而且理由说给用户听（原样能显示）",
               mismatch.report.details.join(QStringLiteral(" / ")));
 
@@ -471,7 +471,7 @@ void runMalilibKeysTests() {
                   absent.report.typeMismatch == 0 && !absent.files.at(0).changed &&
                   !absent.report.details.isEmpty() &&
                   absent.report.details.at(0).contains(QStringLiteral("还没有这一项")),
-              "★★★ PF5 §6 P4「目标字段缺失时跳过并报告」：值那一档**不凭空造一格**（热键才造 —— "
+              "★★★ PF5「目标字段缺失时跳过并报告」：值那一档**不凭空造一格**（热键才造 —— "
               "搬热键本来就是这一层的用处，而一个值在目标上没有多半是模组版本不一样）",
               absent.report.details.join(QStringLiteral(" / ")));
 
@@ -568,7 +568,7 @@ void runMalilibKeysTests() {
                   conflicts.at(0).claims.contains(QStringLiteral("litematica/Hotkeys/OpenGui")) &&
                   !conflicts.at(0).claims.contains(QStringLiteral("minihud/GenericHotkeys/Nothing")),
               "★★★ PF7 两个模组抢同一组键位 ⇒ 1 组冲突、`claims` 里把两个身份都列出来"
-              "（§6 P4 说这一层的 DTO「只用于展示和冲突分析」）；没绑的不参与、`exclusive` 不一样"
+              "（这一层的 DTO「只用于展示和冲突分析」）；没绑的不参与、`exclusive` 不一样"
               "的那一条算**另一组**",
               conflicts.isEmpty()
                   ? QString()
@@ -589,7 +589,7 @@ void runMalilibKeysTests() {
               Presets::applyPlanRowText(plan.rows.at(0)));
         check(Presets::applyPlanRowText(plan.rows.at(0)) == QStringLiteral("合并 2 项") &&
                   Presets::applyPlanUnit(Presets::SectionKind::MalilibKeys) == QStringLiteral("项"),
-              "★★★ PF8 那一行的右栏就是 §7 那个形状，量词是「项」（一格热键 / 一格设置都是一项）",
+              "★★★ PF8 那一行的右栏就是那个形状，量词是「项」（一格热键 / 一格设置都是一项）",
               Presets::applyPlanRowText(plan.rows.at(0)));
 
         Presets::PlanRequest replaceRequest = planRequest;
@@ -697,7 +697,7 @@ void runMalilibKeysTests() {
                   Presets::genericItemIsCopyOnly(
                       Presets::FileGroup::ShaderPacks, QStringLiteral("shaderpacks/x.zip"),
                       sourceRoot + QStringLiteral("/shaderpacks/x.zip")),
-              "★★★ PF9 那个记号（§6 P3「未知配置明确标记为只能复制/覆盖」）现在**看内容**："
+              "★★★ PF9 那个记号（「未知配置明确标记为只能复制/覆盖」）现在**看内容**："
               "`config/malilib.json` 里有 P4 的适配器 ⇒ 不再是「只能复制/覆盖」；一格热键都没有的"
               "那一份、光影包那一档还是（名字那一截说了算）");
 

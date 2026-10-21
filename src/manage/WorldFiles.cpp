@@ -68,7 +68,7 @@ bool readStringField(const NbtTree::Node &root, const QString &path, bool *prese
  * @brief 改一格的值；那一格在盘上根本没有时，按 @p whenMissing 决定拒绝还是**建一格**。
  *
  * （见头文件里 `MissingField` 那一段）：老存档可能没有 `Data/allowCommands`
- * （1.8 才加的）或者 `Data/hardcore`。界面上那几格原来遇到这种档是灰的，现在一律可动，
+ * （1.8 才加的）或者 `Data/hardcore`。这类档在界面上那几格一律可动，
  * 所以"盘上没有"这件事必须有个着落。`Create` 那一档就是它。
  *
  * @param type 建的时候用什么类型 —— 世界名是 `String`，允许作弊 / 极限模式 / 难度是 `Byte`
@@ -644,22 +644,17 @@ bool writeLevelData(const QString &worldDir, const LevelData &data, QString *pro
         }
     }
 
-    // 修：落盘这一步**不能用 `QFile::rename()`**。
-    //
-    // 上一版这里写的是「`QFile::rename()` 在 Windows 上走
-    // MoveFileEx(MOVEFILE_REPLACE_EXISTING)，目标存在也照样盖掉，而且是原子的」。
-    // **那句话是错的**，而且同一个坑 已经在 `VersionManager::writePackArchive()`
-    // 上踩过一次（见那边 `renameOnto()` 上面那段 ★★）：Qt 6.10 的 `QFile::rename` 走的是
+    // 落盘这一步**不能用 `QFile::rename()`**：Qt 6.10 里它走的是
     // `QFileSystemEngine::renameFile()` → `::MoveFile`，**不带** REPLACE_EXISTING
     // （qfilesystemengine_win.cpp:1761-1770），目标已存在时就是**失败**。
     // 带 REPLACE_EXISTING 的是隔壁那个私有函数 `renameOverwriteFile()`（1778-1790），
     // 而它只有一条路走得出去：`QSaveFile::commit()`。
     //
-    // 症状有多难猜：`level.dat` 到这一步**永远**已经存在（这整件事就是"改一个已有世界的
-    // 设置"），所以这条路是**每次必失败**，而界面上只看到一句"换掉 level.dat 失败了" +
+    // `level.dat` 到这一步**永远**已经存在（这整件事就是"改一个已有世界的设置"），
+    // 所以用 `QFile::rename()` 每次都会失败，而界面上只看到一句"换掉 level.dat 失败了" +
     // 一个问号 —— 看着像"游戏正开着这个世界"的占用问题，其实是改名盖不住。
     //
-    // 所以改成 QSaveFile：它在**目标所在的目录**里开自己的临时文件，`commit()` 用
+    // 所以用 QSaveFile：它在**目标所在的目录**里开自己的临时文件，`commit()` 用
     // `renameOverwriteFile()` 一步换掉 —— 真·原子替换（中途断电，盘上要么还是原来那份、
     // 要么已经是新的那份，不会留半截）。代价是压好的字节要多抄一遍：level.dat 量级是
     // 几 MB，值。
@@ -677,12 +672,12 @@ bool writeLevelData(const QString &worldDir, const LevelData &data, QString *pro
             char buffer[64 * 1024];
             while (true) {
                 const qint64 got = gz.read(buffer, static_cast<qint64>(sizeof(buffer)));
-                // 补：**读到尾（0）和读出错（-1）不是一回事**，原来写成
-                // `got <= 0` 一 break，两者被并成了同一个出口 —— 于是"读到一半失败"
+                // **读到尾（0）和读出错（-1）不是一回事**：写成
+                // `got <= 0` 一 break 会把两者并成同一个出口 —— 于是"读到一半失败"
                 // 会被当成"抄完了"，wroteOk 还是 true，底下 commit() 就把一份**截断的**
                 // gzip 原子地盖到 level.dat 上，界面还报成功。
                 //
-                // 这一位查到过底：QIODevice::read() 出错回 **-1**（qfiledevice.cpp:463-486
+                // QIODevice::read() 出错回 **-1**（qfiledevice.cpp:463-486
                 // 的 readData() 在 `!isOpen()` 等情况下 `return -1`），只有真到尾才回 0。
                 // 这一趟是**逐字节抄**（不经过解压），所以除这两种没有第三种结局 ——
                 // 写侧那两处已经由底下 `out.write(...) != got` 管着。

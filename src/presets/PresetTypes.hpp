@@ -1,25 +1,25 @@
 /**
  * @file PresetTypes.hpp
- * @brief 实例预设的**值**那一层（coding plan §4–§8、里程碑 M1 的 P1）。
+ * @brief 实例预设的**值**那一层。
  *
  * 【一份预设长什么样】
  *
  * 一份预设 = 一份 `PresetManifest`：一个 UUID（磁盘目录名）、一个显示名、一句话说明，
  * 外加一串**段**（`PresetSection`）—— 游戏设置、原版按键、服务器列表、通用文件组……
- * 每一段自己带着 `mode`（合并 / 覆盖 / 追加 / 缺了才拷 / 跳过，见 §5 的 `ApplyMode`）
+ * 每一段自己带着 `mode`（合并 / 覆盖 / 追加 / 缺了才拷 / 跳过`ApplyMode`）
  * 和一小块载荷 `items`。
  *
- * **这一层不解释 `items` 里是什么。** 那是各个**适配器**的活（P2 的
- * `VanillaOptionsAdapter` 管 `options.txt` 那一段、P3 的 `ServerListAdapter` 管
- * `servers.dat` 那一段……见 §5 那张图）。把"怎么解释"提前搬进这一层，等于一开始就把
- * 四个适配器焊死在一个文件里；而 §5 那张图存在的全部理由就是让它们各活各的。
+ * **这一层不解释 `items` 里是什么。** 那是各个**适配器**的活（
+ * `VanillaOptionsAdapter` 管 `options.txt` 那一段、`ServerListAdapter` 管
+ * `servers.dat` 那一段……）。把"怎么解释"提前搬进这一层，等于一开始就把
+ * 四个适配器焊死在一个文件里；而那张图存在的全部理由就是让它们各活各的。
  *
  * 【为什么先立值、再立盘】
  *
- * §6 的 P1 要把预设做成**先把账做对**的东西，而"做对"的四条全是值层和盘层的事，跟界面
+ * 要把预设做成**先把账做对**的东西，而"做对"的四条全是值层和盘层的事，跟界面
  * 无关：① id 用 UUID（**显示名不当路径**）；② 一份坏了不许连坐别的；③ 写盘一律原子替换；
  * ④ 读不回来的段不许拿去改用户的实例。所以这一份（连同 `PresetStore`）先落地，管理页那一
- * 半等 P1 的界面上线时再接 —— 界面只拿 `PresetSummary` 摆字。
+ * 半等界面上线时再接 —— 界面只拿 `PresetSummary` 摆字。
  *
  * 【三层格式标记】
  *
@@ -46,7 +46,7 @@ namespace Presets {
 /// 比这个数大的我们读不懂（那是以后版本的启动器写的），**整份不认**而不是猜着读。
 ///
 /// NOTE: 它和格式标记是两件事，两个都要留 —— 标记回答"这是不是我们这一类文件"，版本回答
-/// "是哪一代的我们"。改动字段含义时**只动这个数**（§2.6 那条同样的取舍）。
+/// "是哪一代的我们"。改动字段含义时**只动这个数**（同样的取舍）。
 /// 常数和那个函数**两个名字**是必须的：`PresetManifest` 里有一个同名字段
 /// （`int schemaVersion`），拿函数给它做默认值的话，类作用域里的名字查找会先撞上那个
 /// 字段本身（`= schemaVersion()` 于是成了"拿一个 int 去调用"），而这是编译期就报的。
@@ -75,9 +75,9 @@ inline QString indexFormatTag() {
 // ---------------------------------------------------------------------------
 
 /**
- * @brief 一段预设**怎么落到**实例上（§5）。
+ * @brief 一段预设**怎么落到**实例上。
  *
- * 默认是 `Merge`：P2 点名的「基础设置与 `key_` 按键分组选择；**默认 Merge**，Replace 必须
+ * 默认是 `Merge`：要求的「基础设置与 `key_` 按键分组选择；**默认 Merge**，Replace 必须
  * 明确确认」。所以不认识的词也落到这一档 —— 那是四个里最不容易弄坏用户东西的一个。
  */
 enum class ApplyMode {
@@ -88,9 +88,9 @@ enum class ApplyMode {
     Skip,           ///< 这一段这一趟不动
 };
 
-/// 一份预设**属于哪一类**（coding plan §4 / §6.0 P0）。
+/// 一份预设**属于哪一类**。
 ///
-/// 首版四类独立创建、展示和管理；**不再保存"跨类总预设"**。旧版本写的那些混合 manifest
+/// 四类独立创建、展示和管理；**不保存"跨类总预设"**。旧版本写的那些混合 manifest
 /// 读回来落进 `Unset`（界面上叫「旧版（混合）」）—— 它们照样能看、能用、能提取，只是
 /// 新建的那一档必须从四类里挑一个。
 ///
@@ -167,18 +167,18 @@ inline QString normalizeModPlatform(const QString &raw) {
 }
 
 /**
- * @brief 一条**模组引用**（coding plan §6.0 P2 的检查对象，§5「目标资源条目」的前两格）。
+ * @brief 一条**模组引用**（检查对象，「目标资源条目」的前两格）。
  *
- * 身份是 `platform + projectId`，**不是显示名**（§5 那句「不以展示名称作为项目身份」）。
+ * 身份是 `platform + projectId`，**不是显示名**（「不以展示名称作为项目身份」）。
  * `name` 只是快照时记下来给界面兜底用的；改名、翻译、重名都不影响这一条是谁。
  *
  * `gameVersion` / `loader` 非空 = 这一项自己钉死了版本/加载器；空 = 跟着这一次安装走。
- * 钉死的那种在**本地**就能判（§7.2「先做已知约束筛选」），不必等网络。
+ * 钉死的那种在**本地**就能判（「先做已知约束筛选」），不必等网络。
  */
 struct ModReference {
     /// `normalizeModPlatform()` 之后的词（`modrinth` / `curseforge`）；空 = 认不出来。
     QString platform;
-    /// 平台上的稳定项目 id。★ **一律字符串**（§8.1「大整数 ID 保存为字符串」）。
+    /// 平台上的稳定项目 id。★ **一律字符串**（「大整数 ID 保存为字符串」）。
     QString projectId;
     /// 快照时的显示名（只作提示；不作身份、不参与去重）。
     QString name;
@@ -223,7 +223,7 @@ inline QJsonObject modReferenceToJson(const ModReference &reference) {
 }
 
 /// 读一条引用。**不返回失败**：认不出来的字段留空，由检查层判 `Invalid` 并如实计数 ——
-/// 一条坏引用不该让整份预设读不回来（§8.1「区分缺失、`null` 与错误类型」）。
+/// 一条坏引用不该让整份预设读不回来（「区分缺失、`null` 与错误类型」）。
 inline ModReference modReferenceFromJson(const QJsonObject &object) {
     ModReference reference;
     reference.platform = normalizeModPlatform(object.value(QStringLiteral("platform")).toString());
@@ -243,11 +243,11 @@ inline ModReference modReferenceFromJson(const QJsonObject &object) {
 /// 认不出来的种类 ⇒ **整份读不回来**（见 `sectionFromJson`）：那是以后版本的启动器写的，
 /// 而"读不懂还硬套"的后果是拿一份半懂的东西去改用户的实例。
 enum class SectionKind {
-    VanillaOptions,  ///< 原版游戏设置（`options.txt`，P2）
-    VanillaKeys,     ///< 原版按键（同一个文件里的 `key_*`，P2）
-    ServerList,      ///< 服务器列表（`servers.dat`，P3）
-    MalilibKeys,     ///< MaLiLib 那一族的热键（P4）
-    GenericFiles,    ///< 通用文件组（`config/`、资源包、光影包……，P3）
+    VanillaOptions,  ///< 原版游戏设置（`options.txt`）
+    VanillaKeys,     ///< 原版按键（同一个文件里的 `key_*`）
+    ServerList,      ///< 服务器列表（`servers.dat`）
+    MalilibKeys,     ///< MaLiLib 那一族的热键
+    GenericFiles,    ///< 通用文件组（`config/`、资源包、光影包……）
     Custom,          ///< 以后新加的种类落在这儿之前先得改这一层
 };
 
@@ -337,7 +337,7 @@ inline SectionKind sectionKindFromKey(const QString &key, bool *ok = nullptr) {
  * @brief 段自己的稳定键：由**段的种类**推出来的 UUID v5（命名空间写死）。
  *
  * 定死的，不是每写一次现搓一个：同一段的 id 在两份预设里一样、两次读回来也一样 ——
- * §6 P4 那种"这一段是同一个东西吗"的判断、以及界面上"这一段的身份没变"才有落脚点
+ * 这种"这一段是同一个东西吗"的判断、以及界面上"这一段的身份没变"才有落脚点
  * （`PresetSection::id` 就是干这个的）。
  *
  * 和 `sectionKindKey()` 是**两件事**：后者是给盘上那份 JSON 看的**词**（改一个词就是改
@@ -347,7 +347,7 @@ inline SectionKind sectionKindFromKey(const QString &key, bool *ok = nullptr) {
  * 命名空间那个字面量**改了等于所有段的 id 全变一遍**（盘上那些预设的身份会一起失配）。
  * 要动它之前先想清楚：这件事没有回头路。
  *
- * @param subKey 同一个种类底下再分几段时的那半截名字（ 加的：通用文件组那一段是
+ * @param subKey 同一个种类底下再分几段时的那半截名字（通用文件组那一段是
  * 一个 `SectionKind` 底下四组 —— `config` / `defaultconfigs` / 资源包 / 光影，各自
  * 得有自己的身份）。★ **默认是空** ⇒ 所有老调用点算出来的 id 一个字都不变（空
  * subKey 拼出来的名字就是 `sectionKindKey(kind)` 本身），也就是说这次加参数没有动
@@ -371,7 +371,7 @@ inline QString sectionIdFor(SectionKind kind, const QString &subKey = QString())
 /// 里面每一项是什么意思，归那个 `kind` 的适配器。
 struct PresetSection {
     /// 段自己的稳定键（UUID）。★ **不是给用户看的**，也不参与冲突判断 —— 冲突判断按
-    /// `kind` + 适配器自己的身份（比如 P4 那条 `modId/groupId/optionName`）走，见 §6 P4。
+    /// `kind` + 适配器自己的身份（比如那条 `modId/groupId/optionName`）走。
     QString id;
     SectionKind kind = SectionKind::Custom;
     /// 界面上那一段的标题（`游戏设置` / `原版按键`……）。空的由界面按 `kind` 现翻。
@@ -380,7 +380,7 @@ struct PresetSection {
     QJsonArray items;
 
     /// 这一段有没有东西。★ 空段**照样写下去**（"我这一趟就是要覆盖成空"和"我没有这一段"
-    /// 是两件事，见 §8.1「区分缺失、`null` 与错误类型」）。
+    /// 是两件事，见「区分缺失、`null` 与错误类型」）。
     bool isEmpty() const { return items.isEmpty(); }
 };
 
@@ -389,9 +389,9 @@ struct PresetManifest {
     /// 落盘时写一遍、读的时候对一次（和目录名不一致 = 这一份被谁动过，见 `PresetStore`）。
     int schemaVersion = kSchemaVersion;
 
-    /// 稳定 UUID。**磁盘目录名就是它** —— §6 P1「ID 使用 UUID，显示名不作为磁盘路径」。
+    /// 稳定 UUID。**磁盘目录名就是它** —— 「ID 使用 UUID，显示名不作为磁盘路径」。
     QString id;
-    /// 显示名（用户输入的）。★ 改名**只改这一个**，目录和 id 一个字都不动（§2.6 同一条）。
+    /// 显示名（用户输入的）。★ 改名**只改这一个**，目录和 id 一个字都不动（同一条规矩）。
     QString name;
     QString description;
     QDateTime createdAt;
@@ -401,7 +401,7 @@ struct PresetManifest {
     QString sourceInstanceId;
     /// 这一份属于哪一类（见 `PresetCategory`）。`Unset` = 旧版混合预设。
     PresetCategory category = PresetCategory::Unset;
-    /// 模组引用（P2 的检查对象；P5 的下载依据）。★ 只写在 `Mods` 那类上
+    /// 模组引用（检查对象；下载依据）。★ 只写在 `Mods` 那类上
     /// （旧混合预设也能带 —— 见 `PresetStore::categoryMismatch()`）。
     QList<ModReference> modReferences;
     QList<PresetSection> sections;
@@ -420,16 +420,16 @@ struct PresetManifest {
     }
 };
 
-/// 下标：**只管两件事** —— 列表的次序、和那个唯一的默认项（§5）。
+/// 下标：**只管两件事** —— 列表的次序、和那个唯一的默认项。
 ///
 /// 这里**故意不存草稿**（名字、说明、段数一个都不在这儿）：一份预设的全部内容只写在它
-/// 自己的 `manifest.json` 里。存两份的后果不是"省一次读盘"，而是**两份会漂**（§2.8 那
-/// 条同样的取舍：不新增 `quick_launch.json` 那样的第二本账）。
+/// 自己的 `manifest.json` 里。存两份的后果不是"省一次读盘"，而是**两份会漂**（这里用同一条取舍：
+/// 不新增 `quick_launch.json` 那样的第二本账）。
 struct PresetIndex {
     int schemaVersion = kSchemaVersion;
     /// 列表顺序 = 用户排的顺序。里面只放**合法 UUID**。
     QStringList order;
-    /// 那个唯一的默认项（§4「将任意一个设为唯一默认项」）。空 = 没有默认项。
+    /// 那个唯一的默认项（「将任意一个设为唯一默认项」）。空 = 没有默认项。
     QString defaultPresetId;
 
     bool contains(const QString &id) const { return order.contains(id); }
@@ -462,7 +462,7 @@ struct BrokenPreset {
 /// 段写下去的形状：`{id, kind, title?, mode, items?}`。
 ///
 /// 空的 `title` / `items` **根本不写下去**（不是一个空串、一个空数组）—— 和在
-/// `LaunchHistory` 那边同一条：写空串的人会以为"那是个开关"（§8.1）。
+/// `LaunchHistory` 那边同一条规矩：写空串的人会以为"那是个开关"。
 inline QJsonObject sectionToJson(const PresetSection &section) {
     QJsonObject object;
     if (!section.id.isEmpty()) {

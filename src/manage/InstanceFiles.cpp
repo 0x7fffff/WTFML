@@ -144,12 +144,11 @@ QString validatePathSegment(const QString &segment) {
     // Windows 会**静默**删掉结尾的空格和点：输入 `abc ` 建出来就是 `abc`。静默是关键 ——
     // 用户看到的目录名和他刚输的不一样，然后就在列表里找不到自己的实例了。
     //
-    // NOTE: 空格和点**这里都判**（ 加的空格那一条）。以前只有点，理由写的是
-    // "尾随空格已经被调用方 trim 吃掉了" —— 那句话只对"实例名"那条路成立
-    // （validateDirName() 开头就 trim），对**整合包清单里那一条**不成立：
-    // ModpackImport::isSafeRelativePath() 是逐段原样喂进来的，中间不经过任何 trim，
-    // 于是 `mods/x.jar ` 这一条能过判据、Windows 建出来却是 `mods/x.jar` ——
-    // 名字和清单里写的对不上。两种字符被吃掉的后果一模一样，判据也就该一样。
+    // NOTE: 空格和点**这里都判**。只判点不行："尾随空格已经被调用方 trim 吃掉了"
+    // 这句话只对"实例名"那条路成立（validateDirName() 开头就 trim），对**整合包清单
+    // 里那一条**不成立：ModpackImport::isSafeRelativePath() 是逐段原样喂进来的，
+    // 中间不经过任何 trim，于是 `mods/x.jar ` 这一条能过判据、Windows 建出来却是
+    // `mods/x.jar` —— 名字和清单里写的对不上。两种字符被吃掉的后果一模一样，判据也就该一样。
     if (segment.endsWith(QLatin1Char('.')) || segment.endsWith(QLatin1Char(' '))) {
         return QStringLiteral("名字不能以点或空格结尾（Windows 会把它悄悄去掉）。");
     }
@@ -316,7 +315,7 @@ QString validateRenameTarget(const QString &rawName, const QString &currentId) {
 
     // 重名比较不区分大小写，理由见 .hpp。`entry` 用磁盘上的真实拼写，
     // 那句提示要指得出到底撞上了哪一个。
-    // 带上 QDir::Hidden（ 修）：不带的话，盘上有个 `.foo`（用户自己建的、
+    // 带上 QDir::Hidden：不带的话，盘上有个 `.foo`（用户自己建的、
     // 或者别的工具留下的）时这里**看不见它**，于是"重命名成 .foo"和"整合包叫 .foo"
     // 都判成"不重名"—— 而下一步是往那个目录里搬东西（整合包那条路是解压合并、不是
     // 建新目录），几秒钟后用户的账上就多了一个半新半旧、而且在实例列表里根本看不见的
@@ -551,8 +550,6 @@ int mainClassJavaMajor(const QString &versionId, const QString &mainClass) {
 // **`JunctionType`**（qfilesystemmetadata_p.h:365-370：`IO_REPARSE_TAG_SYMLINK` → LinkType，
 // `IO_REPARSE_TAG_MOUNT_POINT` → JunctionType）。所以**canonicalFilePath 不解 junction**：
 // 拿一个指着实例目录的 junction 当"游戏文件夹"喂进来，它就原样把那串字面量还给你。
-// （实测就是这么翻的车：mw_check 的 T27.3 那条 junction 断言原来"绿"是因为复制跑起来之后
-// 撞了路径长度上限才失败 —— 一个假绿，而盘上已经多出一层 `versions/`。）
 //
 // NOTE: 用的是**公开 API**（`QFileInfo::isJunction()` / `junctionTarget()`，Qt 6.2+），
 // 所以这里不需要 windows.h，非 Windows 上这两个函数一个永远 false、一个回空串。

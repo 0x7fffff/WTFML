@@ -107,11 +107,10 @@ QString store(const QString &slot, const QString &sourcePath, QString *errorOut)
     const QString suffix = keepAlpha ? QStringLiteral(".png") : QStringLiteral(".jpg");
     const QString target = AppPaths::themeImageDir() + QLatin1Char('/') + slot + suffix;
 
-    // 先写新的、提交成功之后才删旧的那一份。原来的次序是"先删旧的再写"，
-    // 而 `QImage::save(QString)` 内部走的是普通 QFile：写不进去（盘满 / 没权限 / 进程正好
-    // 在这一刻被杀）时旧的**已经被删掉了** —— 与头文件那句"失败时不动盘上原来那一份"
-    // 正好相反。同后缀那一路也一样：原来的写法会先把旧文件截断再写。
-    // 现在写侧走 `QSaveFile`（同目录临时文件 + 原子改名），旧的一份留到提交之后才清。
+    // 先写新的、提交成功之后才删旧的那一份。不能用 `QImage::save(QString)`（内部是普通
+    // QFile）：写不进去（盘满 / 没权限 / 进程正好在这一刻被杀）时旧文件已经被截断了 ——
+    // 与头文件那句"失败时不动盘上原来那一份"正好相反。写侧走 `QSaveFile`
+    // （同目录临时文件 + 原子改名），旧的一份留到提交之后才清。
     const QString stale = existingFile(slot);
     QSaveFile file(target);
     bool ok = file.open(QIODevice::WriteOnly);

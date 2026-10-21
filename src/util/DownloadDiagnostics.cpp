@@ -68,7 +68,7 @@ void openFileLocked(const QString &logsDir) {
     g_file.setFileName(g_path);
     // ReadWrite 不只是为了读：init() 迁移时要 `g_file.seek(0); readAll()` 把启动早期
     // 已经写下的那几行搬过去。只给 WriteOnly 的话 readAll() 静默回空 —— 迁移"成功"了，
-    // 内容却少了开头那几行（ 第一次冒烟就是这么丢的）。
+    // 内容却少了开头那几行 —— 那种"成功"是假的。
     if (g_file.open(QIODevice::ReadWrite | QIODevice::Truncate)) {
         g_stream.setDevice(&g_file);
         g_stream.setEncoding(QStringConverter::Utf8);

@@ -116,7 +116,7 @@ public:
                        const QString &loader = QString());
 
     /**
-     * @brief 批量问"这一串文件各自该换成哪一版"（ 加）。
+     * @brief 批量问"这一串文件各自该换成哪一版"。
      *
      * 这个接口（`POST /version_files/update`）就是为它准备的：**一次带一串 sha1**，
      * 回"每个 sha1 它那个项目在 `gameVersion` + `loader` 下**最新**的那一版"。295 个模组
@@ -141,7 +141,7 @@ public:
                              const QString &gameVersion, const QString &loader = QString());
 
     /**
-     * @brief 批量问"这几个项目号叫什么"（ 加）。
+     * @brief 批量问"这几个项目号叫什么"。
      *
      * 用户 要的那两件事（前置模组一键下载 / 实例更新检测）都卡在**同一个缺口**上：
      * 手上只有项目号，而项目号（Modrinth 的 `nvQzSEkH`、CurseForge 的 `238222`）给用户看
@@ -259,7 +259,7 @@ public:
     /// 前面加任何东西都会让"按内容认格式"（ImageDecode，见那条 NOTE）读不出来。
     /// `.icon.meta` 是纯文本四行（etag / last-modified / 这份凭据是哪条地址给的 /
     /// 上一次核对是什么时候），读不懂就当没有。第三行是 补的、第四行是
-    /// 补的：**老版本写的那几行读出来是空串**，按"没记地址 / 不知道核过
+    /// **老版本写的那几行读出来是空串**，按"没记地址 / 不知道核过
     /// 没有"处理（照样用得上 —— 前者当没凭据、后者当"该核一遍"）。
     static QString iconMetaPath(const QString &cacheId);
 

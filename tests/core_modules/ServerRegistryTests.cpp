@@ -1,7 +1,7 @@
 #include "Support.hpp"
 
 void runServerRegistryTests() {
-    section("ZX. 服务端工作区：Servers 底下谁在住（§6 / M4）");
+    section("ZX. 服务端工作区：Servers 底下谁在住");
 
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir temp;

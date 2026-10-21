@@ -214,10 +214,9 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
         check(!QDir(versionsDir.filePath(kJava99Id)).exists(), "AA7 那个假版本目录删干净了");
 
         // ---- AA8 「上次没下完的导入」能接着下 ----
-        // 真机上这一条是必需的：整合包是几百个文件分着下的，网一断就留下半份（那次是
-        // 600+ MB / 300 多个文件），而重名判据只认目录名 —— 不能接着下的话，用户唯一的
-        // 办法是"换个名字重导"，也就是把已经下好的那几百 MB 再下一遍（和「重下=校验
-        // 跳过」正好相反）。
+        // 真机上这一条是必需的：整合包是几百个文件分着下的，网一断就留下半份，而重名
+        // 判据只认目录名 —— 不能接着下的话，用户唯一的办法是"换个名字重导"，也就是把
+        // 已经下好的那几百 MB 再下一遍（和「重下=校验 跳过」正好相反）。
         //
         // 判据本体（InstanceFiles::checkImportTargetName）是纯函数，真值表直接钉。
         // 最后两条用 applyModpackImport() 走一遍 —— 验的是"执行那一半也认同一个判据"。
@@ -333,7 +332,7 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
 
         // ---- AA9 CurseForge 那一份清单（`manifest.json`）走的是同一个执行函数 ----
         //
-        // 之前这个格式是**直接拒**的（"整合包里没有下载地址"），现在能装了。
+        // CurseForge 那一份清单也能装了（有下载地址就装，不是直接拒）。
         // 这一组钉三件事：
         // ① 界面那一半真的按格式分流了（同一个字节串交给 CurseForge 的解析器，不是
         // Modrinth 那个 —— 两个解析器给的原因话说的是**不同的清单文件名**，一眼分得开）；
@@ -474,8 +473,8 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
         // ---- AA11 已经有一批下载在跑：这时候**拖一个整合包进来** ----
         //
         // 那颗按钮这时候是灰的，可是窗口的拖放**不经过按钮**（用户从资源管理器里把文件
-        // 拖进来，走的是 dropEvent）。上一版这里没有闸：`m_importingInstanceId` 会被
-        // 第二趟直接覆盖，第一趟收尾时按那个 id 收，两趟互相把对方的忙态/目录认错。
+        // 拖进来，走的是 dropEvent）。这里必须有一道闸：没有的话 `m_importingInstanceId`
+        // 会被第二趟直接覆盖，第一趟收尾时按那个 id 收，两趟互相把对方的忙态/目录认错。
         {
             const int startedBefore = countOccurrences(g_messages, QStringLiteral("开始导入整合包"));
             window.seedDownloadInFlightForTest(true);

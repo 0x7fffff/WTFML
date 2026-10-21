@@ -1,6 +1,6 @@
 /**
  * @file TaskId.hpp
- * @brief 任务的身份（coding plan §2.2 里的 `TaskId`）。
+ * @brief 任务的身份（`TaskId`）。
  *
  * 【为什么是一个单调递增的整数，而不是指针/字符串】
  *

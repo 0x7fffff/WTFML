@@ -1,18 +1,18 @@
 /**
  * @file PresetStore.hpp
- * @brief 实例预设的**盘**那一层：落点、下标、读一份 / 写一份、以及那几件增删改（§5–§6 的 P1）。
+ * @brief 实例预设的**盘**那一层：落点、下标、读一份 / 写一份、以及那几件增删改。
  *
- * 【磁盘上的形状】（§5）
+ * 【磁盘上的形状】
  *
  * ```
  * <启动器数据根>/presets/
  * index.json 顺序 + 那个唯一的默认项
  * <preset-id>/
  * manifest.json 这一份的全部内容（值那一层见 PresetTypes.hpp）
- * files/ 这一份带的那几个文件（P3 的通用文件组才往里放）
+ * files/ 这一份带的那几个文件（通用文件组才往里放）
  * ```
  *
- * `<preset-id>` 是 **UUID**，显示名一个字节都不进路径 —— §6 P1 那条「ID 使用 UUID，显示名
+ * `<preset-id>` 是 **UUID**，显示名一个字节都不进路径 —— 「ID 使用 UUID，显示名
  * 不作为磁盘路径」就是这一层的存在理由之一：用户把一份预设叫作 `../../windows` 也不会有
  * 任何后果（那个名字只会出现在界面上）。
  *
@@ -70,7 +70,7 @@ QString newPresetId();
 ///
 /// 它在**每一个**动盘函数的门口都要过一遍：`presetDir(root, "../../..")` 拼出来的路径是
 /// 能落到 root 外面的，而那条路的症状不是报错 —— 是"删掉一份预设"顺手删了别的东西。
-/// §6 P1 那条验收（**非法名称无法逃逸目录**）指的就是这一道闸。
+/// 验收（**非法名称无法逃逸目录**）指的就是这一道闸。
 bool isValidPresetId(const QString &id);
 
 /// 用户输入的显示名 → 一句能显示的：去掉首尾空白、把换行折成空格、长度钳到 80。
@@ -78,14 +78,14 @@ bool isValidPresetId(const QString &id);
 QString cleanDisplayName(const QString &raw);
 
 /**
- * @brief 这一段**能不能**属于这一类预设（coding plan §4 / §6.0 P0「不串类别」）。
+ * @brief 这一段**能不能**属于这一类预设（「不串类别」）。
  *
  * 四类各自管什么（首版口径）：
  * · `GameSettings` —— `options.txt` 那两段、MaLiLib 热键、服务器列表，以及
- * `config/` / `defaultconfigs/` 这两个**高级内容**组（§6.3 明说它们不新增第五类，
+ * `config/` / `defaultconfigs/` 这两个**高级内容**组（要求它们不新增第五类，
  * 归到哪儿还没定案，首版先允许落在游戏设置里并如实显示）；
  * · `ResourcePacks` —— `resourcepacks/` 与 `shaderpacks/`（光影跟资源包同一摊文件）；
- * · `Mods` / `DataPacks` —— 首版还没有对应的段种类（模组引用与数据包载荷在 P4/P5），
+ * · `Mods` / `DataPacks` —— 首版还没有对应的段种类，
  * 只放得下 `Custom`；空预设完全合法；
  * · `Unset`（旧版混合预设）—— 什么都放得下，老数据一个字节都不动。
  */
@@ -94,7 +94,7 @@ bool sectionFitsCategory(PresetCategory category, const PresetSection &section);
 /// 一份预设里有没有"不属于它那一类"的段。空串 = 全都对得上（`Unset` 永远对得上）。
 QString categoryMismatch(const PresetManifest &manifest);
 
-/// 条目里那个**相对路径**安全吗（P3 的通用文件组要用，P1 先把闸立在这儿）。
+/// 条目里那个**相对路径**安全吗（通用文件组要用，先把闸立在这儿）。
 ///
 /// 挡掉四样：空串 / 绝对路径（含盘符和 UNC）/ 任何一段是 `..` / 任何一段带冒号。
 /// `\` 和 `/` 都当分隔符收（Windows 上两种都认，只挡一种等于没挡）。
@@ -108,7 +108,7 @@ bool isSafeRelativePath(const QString &path);
 PresetIndex appendToIndex(PresetIndex index, const QString &id);
 
 /// 摘掉一条。★ 摘掉的正好是默认项时，**默认位空出来**（`defaultPresetId` 清空）——
-/// 不偷偷换给列表里的下一份：那一下用户看不见，而"默认项"是个有后果的开关（§7 安装时
+/// 不偷偷换给列表里的下一份：那一下用户看不见，而"默认项"是个有后果的开关（安装时
 /// 那个预选框会跟着动）。
 PresetIndex dropFromIndex(PresetIndex index, const QString &id);
 
@@ -158,7 +158,7 @@ bool saveManifest(const QString &root, const PresetManifest &manifest);
 QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken = nullptr);
 
 /// 那个唯一的默认项（没有 = 空串）。**不检查它还在不在** —— 默认项丢了这件事由列表那一侧
-/// 回答（§8.2 的 UI 用例「默认项丢失」要的是这个组合，不是一个会撒谎的"有默认项"）。
+/// 回答（UI 用例「默认项丢失」要的是这个组合，不是一个会撒谎的"有默认项"）。
 QString defaultPresetId(const QString &root);
 
 // ---------------------------------------------------------------------------
@@ -169,7 +169,7 @@ QString defaultPresetId(const QString &root);
 ///
 /// @param name 显示名。清完是空串 ⇒ **不建**（回一个 `id` 为空的空壳）—— 名字是这一份的
 /// 身份里给用户看的那一半，界面上"点新建"那一趟总会先问到名字。
-/// @param category 这一份属于哪一类（§4 首版四类）。★ 界面新建时**必须**给一个四类里的；
+/// @param category 这一份属于哪一类（首版四类）。★ 界面新建时**必须**给一个四类里的；
 /// 默认 `Unset` 只给"旧数据/测试"留门，新做的跨类总预设不在产品里。
 /// @return 建出来的那一份（失败时空壳，判据是 `id.isEmpty()`）。
 PresetManifest create(const QString &root, const QString &name,
@@ -183,7 +183,7 @@ PresetManifest create(const QString &root, const QString &name,
 PresetManifest duplicate(const QString &root, const QString &id, const QString &newName = QString());
 
 /// 改名 = **只改显示名**（目录、id、`files/` 里那些文件名一个字都不动）。
-/// 清完是空串回 false。§2.6 那条同样的取舍：普通重命名不改磁盘上的身份。
+/// 清完是空串回 false。同样的取舍：普通重命名不改磁盘上的身份。
 bool rename(const QString &root, const QString &id, const QString &newName);
 
 /// 删一份（连它的目录），并从下标里摘掉（摘掉的是默认项时默认位跟着空出来）。

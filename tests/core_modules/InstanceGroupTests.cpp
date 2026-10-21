@@ -257,9 +257,9 @@ int runInstanceGroupTests(const QString &sandbox) {
         check(InstanceGroupStore().groupIdOf(QStringLiteral("Q8-实例")).isEmpty(),
               "Q8 取消之后这个实例读回来还是未分组（空串）");
 
-        // 但文件里那一条**留着**，写的是那个保留值（ 改的）。以前这里写的是
-        // "成员表里那条没了"，而那条现在是**错**的：删掉条目 = 用户从来没表过态，于是
-        // MainWindow 下一次刷新就按版本类型把它归类回去 —— 表现是"点了确定没生效"。
+        // 但文件里那一条**留着**，写的是那个保留值。不能写成"成员表里那条没了"：
+        // 删掉条目 = 用户从来没表过态，于是 MainWindow 下一次刷新就按版本类型把它归类
+        // 回去 —— 表现是"点了确定没生效"。
         // 两者在界面上是同一格，在文件里必须分得开，理由见 ungroupedMarker() 那段。
         const QJsonObject markedMembers =
             readRaw().value(QStringLiteral("members")).toObject();
@@ -639,13 +639,13 @@ int runInstanceGroupTests(const QString &sandbox) {
             check(originsInFile().value(QStringLiteral("Q15-甲组")).toString() ==
                           QStringLiteral("g1") &&
                       !originsInFile().value(QStringLiteral("Q15-甲组")).isNull(),
-                  "Q15 ★ 顺手记下了「置顶之前它在哪一组」（用户 2026-09-26 那句）",
+                  "Q15 ★ 顺手记下了「置顶之前它在哪一组」",
                   originsInFile().value(QStringLiteral("Q15-甲组")).toString());
             check(store.unpinInstance(QStringLiteral("Q15-甲组"), &error), "Q15 取消置顶成功",
                   error);
             check(membersInFile().value(QStringLiteral("Q15-甲组")).toString() ==
                       QStringLiteral("g1"),
-                  "Q15 ★ 取消置顶**回到置顶之前的那一组**（这一条就是这次改动要的那件事）",
+                  "Q15 ★ 取消置顶**回到置顶之前的那一组**",
                   membersInFile().value(QStringLiteral("Q15-甲组")).toString());
             check(originsInFile().isEmpty(),
                   "Q15 记录用完就删（留着的话下一次置顶会把旧账当成「置顶前」再读一遍）",

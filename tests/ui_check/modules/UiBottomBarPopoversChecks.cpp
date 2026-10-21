@@ -27,7 +27,7 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
               "I4 底栏那两颗按钮 + 主页那张账号卡片都在");
         if (runBtn != nullptr && accBtn != nullptr && runState != nullptr &&
             runDetail != nullptr && avatar != nullptr && progress != nullptr) {
-            // ① 整格是**一颗按钮**：原来那两行字（右边是头像那组）现在装在按钮里面。
+            // ① 整格是**一颗按钮**：那两行字（右边是头像那组）都装在按钮里面。
             // 这条同时是"挤短进度条"那个 bug 的护栏 —— 宽度钉在**按钮**上，
             // 里面有没有字都一样宽（隐藏的控件在布局里宽度是 0）。
             check(runState->parentWidget() == runBtn && runDetail->parentWidget() == runBtn,
@@ -38,8 +38,8 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
                   avatar->parentWidget() != nullptr ? avatar->parentWidget()->objectName()
                                                     : QStringLiteral("<null>"));
             // 是**贴着按钮左边缘**摆的：靠右摆会在头像左边空出一大段（实测 115 px ——
-            // 那一格宽 208、内容只有九十来 px），用户 报的
-            // 「头像那里的左侧有一段空白」就是它。箭头照旧钉在按钮右边缘。
+            // 那一格宽 208、内容只有九十来 px），「头像那里的左侧有一段空白」就是它。
+            // 箭头照旧钉在按钮右边缘。
             check(avatar->x() == 0, "I4 头像贴着按钮左边缘（左边不留空）",
                   QStringLiteral("头像 x=%1 / 按钮宽 %2").arg(avatar->x()).arg(accBtn->width()));
             QLabel *accChevron = accBtn->findChild<QLabel *>(MainWindowUI::bottomBarChevronName());
@@ -89,7 +89,7 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
                   QStringLiteral("朝上顶行宽 %1 / 朝下顶行宽 %2").arg(upTop).arg(downTop));
             check(upTop > 0 && upTop < upBottom, "I4 上窄下宽 = 尖朝上",
                   QStringLiteral("顶 %1 / 底 %2").arg(upTop).arg(upBottom));
-            // 三格各带一个箭头（ 任务中心那次从两颗变三颗）：左边"几份在跑"、
+            // 三格各带一个箭头：左边"几份在跑"、
             // 中间"任务摘要"、右边"账号"，三块都是往上弹的面板，所以箭头长得一样、名字也
             // 共用（`makeChevronLabel()` 是唯一出处）。数的时候按**整窗**数 —— 这也就顺手
             // 钉住了"三颗都得挂上"。
@@ -112,9 +112,8 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
             ui.setBottomBarPanelContent(
                 [](bool account) -> QList<MainWindowUI::PanelRow> {
                     if (account) {
-                        // 右边那块（账号）：当前账号那颗按钮写「登出」、**能点**（用户
-                        // 改的，原先写「当前」并灰掉），另一个账号那颗写
-                        // 「选择」/「登录」。
+                        // 右边那块（账号）：当前账号那颗按钮写「登出」、**能点**，
+                        // 另一个账号那颗写「选择」/「登录」。
                         QList<MainWindowUI::PanelRow> accounts;
                         MainWindowUI::PanelRow mine;
                         mine.key = QStringLiteral("uuid-mine");
@@ -153,7 +152,7 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
                                                    ink);
                     gear.tooltip = QStringLiteral("实例设置");
                     gear.enabled = false;  // 灰掉一颗，"灰的那颗点不动"才有得量
-                    // 第三颗是**字的**（ 加：运行中实例弹层"打开日志/停止"那一套，
+                    // 第三颗是**字的**（运行中实例弹层"打开日志/停止"那一套，
                     // 见 MainWindowUI::bottomBarPanelLogText()）。摆成和产品里一样的
                     // 「图标 / 图标 / 字」三颗，那条"文字那颗按字撑宽、图标那两颗是正方形"
                     // 才有得量。
@@ -276,7 +275,7 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
                 check(gearBtn != nullptr && !gearBtn->isEnabled(),
                       "I4 灰掉的那一颗真的点不动（照 PanelAction::enabled 走，右面板"
                       "「当前」那颗也靠它）");
-                // 「打开日志」那颗（ 加）：**没给图标就给字**，而且按字撑宽 ——
+                // 「打开日志」那颗：**没给图标就给字**，而且按字撑宽 ——
                 // 图标那两颗是钉死的正方形（22），文字这颗要是也被压成 22 宽，「日志」两个字
                 // 就只剩半个。两条合起来钉住 "PanelAction 的两种形态各走各的那一支"。
                 check(logBtn != nullptr && logBtn->icon().isNull() && !logBtn->text().isEmpty(),
@@ -472,7 +471,7 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
             QApplication::processEvents();
             check(window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()) != nullptr,
                   "I4 收回之后再点一下还能打开（开关是双向的）");
-            // 右边那一块（ 起锚点是**主页右上那张账号卡片**）：贴卡片**右**边缘
+            // 右边那一块（锚点是**主页右上那张账号卡片**）：贴卡片**右**边缘
             // （面板比卡片宽的时候往左长，不出窗口），而且往下弹 —— 卡片贴着头顶，往上弹没地方。
             // 这会儿左边那块是开着的：点卡片要**这块收、那块开**，不能两块一起挂着。
             // NOTE: 真鼠标下这一下多半先被左那块（Qt::Popup）吃掉、只收不开（Qt 的规矩：
@@ -498,7 +497,7 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
                       .arg(window.findChildren<QWidget *>(MainWindowUI::bottomBarPanelName()).size()));
             if (rightPanel != nullptr) {
                 const QPoint accAnchor = accCard->mapToGlobal(QPoint(accCard->width(), 0));
-                // 这一条量的是**整条规矩**（，§3.3「窄窗口避让」）：
+                // 这一条量的是**整条规矩**（「窄窗口避让」）：
                 // 「右边缘贴锚点右边缘」**且**「整块不许越过屏幕右边缘」。这两句会打架
                 // —— 而它们在 **offscreen 那一趟真的打架**：那块虚拟屏只有 800x600，
                 // 而主窗是按 900 摆的，右边那个锚点的全局 x 落在屏幕**外面**（888），
@@ -546,7 +545,7 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
                 check(currentBtn != nullptr &&
                           currentBtn->text() == MainWindowUI::bottomBarPanelLogoutText() &&
                           currentBtn->isEnabled() && !currentBtn->toolTip().isEmpty(),
-                      "I4 当前账号那一行写「登出」并且**能点**（2026-09-24 之前是「当前」+ 灰掉）",
+                      "I4 当前账号那一行写「登出」并且**能点**（不是灰掉的「当前」）",
                       currentBtn != nullptr
                           ? QStringLiteral("%1 / enabled=%2")
                                 .arg(currentBtn->text())
@@ -587,12 +586,10 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
                     check(window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()) == nullptr,
                           "I4 点了「登出」之后面板也收回去（和「选择」一样）");
                 }
-                // NOTE: 这儿原来有一条"点**灰掉**那一颗什么都不发生"。**那一颗没有了** ——
-                // 右面板里当前账号那颗现在写着「登出」且能点，产品里已经没有任何一颗走
-                // `PanelAction::enabled = false` 了（那个开关留着，给将来"这一下现在
-                // 做不了"的按钮）。为它硬摆一个合成的假灰按钮就变成在量 Qt 自己
-                // （disabled 的 QPushButton 不发 clicked 是 Qt 的规矩）。替它的是上面
-                // 那条"真能点、回调带对了 key"。
+                // NOTE: 产品里没有任何一颗走 `PanelAction::enabled = false`（那个开关留着，
+                // 给将来"这一下现在做不了"的按钮）。为它硬摆一个合成的假灰按钮就变成在量
+                // Qt 自己（disabled 的 QPushButton 不发 clicked 是 Qt 的规矩）。右面板里
+                // 当前账号那颗写着「登出」且能点 —— 下面那条"真能点、回调带对了 key"就是它。
                 //
                 // 点「选择」那颗：面板收回去，回调带 account = true + 那个账号的 uuid。
                 // 先把它重新打开（上面那一下已经收掉了），**并把上一下那几条回调记录清掉**
@@ -629,7 +626,7 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
                     QApplication::processEvents();
                 }
             }
-            // ⑥b 账户那一块**只有一行高的时候就一行高**（，coding plan §3.3
+            // ⑥b 账户那一块**只有一行高的时候就一行高**（
             // 「账户弹层保持紧凑，单账户不浪费成大列表，多账户时再展开切换列表」）。
             // 面板的高度跟着**行数**走（popUp() 里 adjustSize()）：一个账号时那块就是
             // "一行 + 上下内边距"，**不许**留出三行那种大盒子的空位；账号多起来（这里是
@@ -730,11 +727,11 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
             ui.setBottomBarPanelContent(nullptr, nullptr);
             progress->hide();
             // 那一格还成开局那一份 —— 不能再 `status->hide()`：它开局就是亮的
-            // （ 任务中心那次改的，理由见 E4/I 那两节）。
+            // （理由见 E4/I 那两节）。
             ui.setBottomBarTaskSummary(MainWindowUI::BottomBarTaskSummary());
             QApplication::processEvents();
 
-            // ⑧ 左下那一格**点不点得开**（ 加）。判据在 MainWindow 手里
+            // ⑧ 左下那一格**点不点得开**。判据在 MainWindow 手里
             // （`runningGames()` 空不空），界面这一头只管把"点得开 / 点不开"画出来
             // （见 setRunPanelAvailable()）—— 所以这里量两件事：**初值**必须是点得开
             // （谁都没摆过的时候不该一上来就点不动，独立构造 MainWindowUI 的地方吃这个

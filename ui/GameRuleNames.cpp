@@ -153,7 +153,7 @@ const QHash<QString, QString> &lookupTable() {
 }  // namespace
 
 QString GameRuleNames::displayName(const QString &ruleName) {
-    // 认不出来就原样回它自己（见头文件里那条 ★）：屏幕上最坏也只是回到改造之前的样子。
+    // 认不出来就原样回它自己（见头文件里那条 ★）：屏幕上最坏也只是原样显示它自己。
     return lookupTable().value(ruleName, ruleName);
 }
 

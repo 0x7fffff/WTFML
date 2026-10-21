@@ -369,7 +369,7 @@ void runAccountSkinTests(const QString &sandbox) {
         check(!TokenStore::hasValue(TokenStore::microsoftKey()) &&
                   !TokenStore::hasValue(TokenStore::minecraftKey()),
               "W14 活动槽被清空了（离线身份没有凭据那一半）");
-        // 这一条钉的就是 activeUuid() 改动的那个点：活动槽空着、而当前是离线账号。
+        // 这一条钉的就是 activeUuid() 的这个点：活动槽空着、而当前是离线账号。
         check(AccountStore::activeUuid() == offlineUuid,
               "W14 活动槽空着也认得出当前是谁（离线账号的第二档）",
               AccountStore::activeUuid());
@@ -407,7 +407,7 @@ void runAccountSkinTests(const QString &sandbox) {
         check(!TokenStore::hasValue(TokenStore::minecraftKey()),
               "W15 活动槽又被清空了");
 
-        // 回归钉子①：活动槽空着 + 记录键指向一个**在线**账号 → 必须是"没登录"。
+        // ① 活动槽空着 + 记录键指向一个**在线**账号 → 必须是"没登录"。
         // 不卡这一条的话，删掉当前账号之后界面还会说"当前是某某"（记录键上写着它）。
         TokenStore::clear(TokenStore::microsoftKey());
         TokenStore::clear(TokenStore::minecraftKey());
@@ -418,7 +418,7 @@ void runAccountSkinTests(const QString &sandbox) {
               "W15 活动槽空着时，记录键指向在线账号**不算**当前（= 没登录）",
               AccountStore::activeUuid());
 
-        // 回归钉子②：记录键指向一个**不在列表里**的 uuid → 也是"没登录"（孤儿键）。
+        // ② 记录键指向一个**不在列表里**的 uuid → 也是"没登录"（孤儿键）。
         settings.setValue(TokenStore::currentUuidKey(),
                           QStringLiteral("cccccccccccccccccccccccccccccccc"));
         settings.sync();
@@ -696,8 +696,8 @@ void runAccountSkinTests(const QString &sandbox) {
               "X6 body 不是 JSON 也不会返回空串");
 
         // 断网 / DNS 解析不了 / 超时被 abort：**没有 HTTP 状态码**（HttpClient 给的初值
-        // 是 -1）。这条分支是这一版补上的 —— 以前报出来的是「读取披风失败（HTTP -1）。」，
-        // 用户既不知道该去查网络，还看见一个不存在的状态码。
+        // 是 -1）。这里不许报「读取披风失败（HTTP -1）。」，用户既不知道该去查网络，
+        // 还看见一个不存在的状态码。
         const QString offline =
             SkinApi::failureText(httpReplyFailed(QStringLiteral("Host not found")), what);
         check(offline.contains(what), "X6 没连上 → 也要说清是哪一步在干什么", offline);
@@ -709,11 +709,10 @@ void runAccountSkinTests(const QString &sandbox) {
     }
 
     // ---- X7 披风列表来自**档案**那条地址（没有一条独立的 /capes 路由） ----
-    // 这一条钉的是一个**没有纯函数可验**的东西：请求打到哪个地址。 真机上披风
-    // 一直回 404，根因就是这里原来有一条 `GET /minecraft/profile/capes` —— 按"设披风、
-    // 取消披风都在 /capes/active 下，那把拥有的列一遍大概也在 /capes 下"对称猜出来的，
-    // 而那条路由**不存在**（对过 Mojang 的 OpenAPI：那一层只有 /capes/active 两个方法）。
-    // 它之所以能活到真机上，是因为路径原本是个 .cpp 私有常量，离线跑的几个工程一行都碰不到。
+    // 这一条钉的是一个**没有纯函数可验**的东西：请求打到哪个地址。披风列表就走档案
+    // 那条地址；`GET /minecraft/profile/capes` **不存在**（对过 Mojang 的 OpenAPI：那一层
+    // 只有 /capes/active 两个方法），别按"设披风、取消披风都在 /capes/active 下"对称猜出
+    // 一条 /capes 路由来。
     {
         check(SkinApi::profilePath() == QStringLiteral("/minecraft/profile"),
               "X7 档案那条路径是 /minecraft/profile", SkinApi::profilePath());

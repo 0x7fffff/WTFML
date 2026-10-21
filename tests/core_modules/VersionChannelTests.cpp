@@ -412,7 +412,7 @@ void runVersionChannelTests() {
               "Y6b @latest -> 没钉版本、按最新档挑");
         const LoaderMeta::LoaderRequest byDefault = LoaderMeta::loaderRequestFromChoice(QString());
         check(!byDefault.pinned() && byDefault.channel == LoaderMeta::LoaderChannel::Stable,
-              "Y6b 空串 -> 按稳定档挑（这就是改动前「按老规矩挑」那条路）");
+              "Y6b 空串 -> 按稳定档挑（「按老规矩挑」那条路）");
         const LoaderMeta::LoaderRequest pinned =
             LoaderMeta::loaderRequestFromChoice(QStringLiteral("1.20.1-47.4.10"));
         check(pinned.pinned() && pinned.pinnedVersion == QStringLiteral("1.20.1-47.4.10") &&
@@ -422,10 +422,9 @@ void runVersionChannelTests() {
 
     // --- Y7. NeoForge -----------------------------------------------------
     //
-    // 改动前这一段断言的是「列表里没有 -beta」。而用户 报的那一版（26.3）
-    // 上游**只发过 -beta**，于是列表被清空、只能显示「无可用版本」；他那台机器上跑的
-    // exe 更旧，看到的是「列表没取到」。现在 beta 一律列出来、在第二行标「测试版」，
-    // 「稳定档」挑不出来时那条自己灰掉写「没有正式版」——所以这一段整个反过来了。
+    // 上游对 26.3 **只发过 -beta**：beta 一律列出来、在第二行标「测试版」；「稳定档」
+    // 挑不出来时那条自己灰掉写「没有正式版」。所以这一段钉的是 beta 出现在列表里，
+    // 不是"列表里没有 -beta"。
     {
         QFile fixture(metaDir + "/neoforge-maven-metadata.xml");
         const bool haveFixture = fixture.open(QIODevice::ReadOnly);
@@ -476,7 +475,7 @@ void runVersionChannelTests() {
             // 用户报的那一版的原样数据：26.3 只发过 -beta，9 条。
             const LoaderMeta::LoaderVersionList nf263 =
                 LoaderMeta::listNeoForgeVersions(xml, QStringLiteral("26.3"));
-            check(nf263.size() == 9, "★ Y7 26.3 那 9 条 -beta 全列出来了（改动前一条都不列）",
+            check(nf263.size() == 9, "★ Y7 26.3 那 9 条 -beta 全列出来了（一条都不许漏）",
                   QStringLiteral("%1 条").arg(nf263.size()));
             int stable263 = 0;
             for (const LoaderMeta::LoaderVersionEntry &entry : nf263) {
@@ -520,10 +519,9 @@ void runVersionChannelTests() {
 
     // --- Y8. OptiFine：两条路各列各的，但正式版那一段必须一致 -----------------
     //
-    // 改动前这里断言的是「两条路**逐条**一致」。那在"只列正式版"的年代成立（两路都
-    // 只剩 H9/H7/H6），现在预览版也列出来了，而两条路**预览版的覆盖范围本来就不同**：
-    // 官方页按小节走（1.18.2 只有 3 条正式版），镜像是全量（3 条正式版 + 8 条预览版）。
-    // 所以改成钉"正式版子序列一致"，逐条一致那条断言撤销。
+    // 两条路**不逐条一致**：预览版的覆盖范围本来就不同 —— 官方页按小节走（1.18.2 只有
+    // 3 条正式版），镜像是全量（3 条正式版 + 8 条预览版）。所以这里钉的是"正式版子序列
+    // 一致"，不是逐条一致。
     {
         QFile listFixture(metaDir + "/optifine-1.18.2-list.json");
         QFile pageFixture(metaDir + "/optifine-downloads.html");
@@ -548,7 +546,7 @@ void runVersionChannelTests() {
                   fromPage.join(QStringLiteral(", ")));
 
             // 镜像是全量：3 条正式版 + 8 条预览版，而且**混着排**（H9 后面紧跟 H9_pre3），
-            // 所以老的"两条路逐条一致"在这份真数据上已经不成立了 —— 那正是这次要改的。
+            // 所以两条路逐条一致在这份真数据上不成立 —— 这里比的是正式版子序列。
             int mirrorStable = 0;
             QStringList mirrorStableList;
             for (const LoaderMeta::LoaderVersionEntry &entry : mirrorVersionList) {

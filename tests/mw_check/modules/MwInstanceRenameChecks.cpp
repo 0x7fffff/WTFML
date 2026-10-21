@@ -1,15 +1,12 @@
 #include "Support.hpp"
 int MwInstanceRenameChecks(const QDir &versionsDir, MainWindow &window) {
     // ------------------------------------------------------------------
-    // （第二轮）：要求「重命名进实例设置」。外面那颗「重命名…」按钮删掉
-    // 了，那一格搬进了实例设置页（`InstanceSettingsDialog::instanceNameEditName()`，
-    // 初值是**目录名**）。
+    // 重命名在实例设置页里（`InstanceSettingsDialog::instanceNameEditName()`，
+    // 初值是**目录名**），外面没有「重命名…」按钮。
     //
-    // （第三轮）：要求「实例设置里面的那个取消和确定删了，修改了的设置
-    // 实时写入」。于是这一节的形状又变了一次 —— 从前是"改那一格 → 点确定 → 改名"，
-    // 现在是**改名那一格自己带一发**（回车 / 失焦 ⇒ `editingFinished` ⇒
-    // `renameRequested` ⇒ MainWindow 那边 applyRename()）。页面上已经**没有「确定」
-    // 可点**了，唯一的出口是左上角那颗返回箭头（= reject）。这一节验的就是这条新路：
+    // 实例设置没有「确定」：**改名那一格自己带一发**（回车 / 失焦 ⇒
+    // `editingFinished` ⇒ `renameRequested` ⇒ MainWindow 那边 applyRename()）。
+    // 唯一的出口是左上角那颗返回箭头（= reject）。这一节验的就是这条路：
     // 改完字的那一下磁盘上**当场**就变了，而"关掉这一页"不等于"放弃"。
     //
     // 这一节同时钉住用户给的那条方向 ——「最终不出现独立的窗口」：整件事里**顶窗一个都不
@@ -51,7 +48,7 @@ int MwInstanceRenameChecks(const QDir &versionsDir, MainWindow &window) {
         QString titleAfterRename;
         bool nameRevertedOnEmpty = false;
         QString anyConfirmButton;
-        // 用户报的那条 bug 直接量在这儿：覆盖层**整页那一层**的滚动区还滚不滚得动。
+        // 要量的是：覆盖层**整页那一层**的滚动区还滚不滚得动。
         // 滚得动 = 整页（含左栏那两条导航列）能被推着走 —— 那正是"滚动的时候左边也跟着
         // 滚了"。修法是把滚动区挪到**每一页自己**身上（见 InstanceSettingsDialog::
         // addPage()），于是这一层再也滚不动（内容全装得下）。量不到 = -1（下面会红）。
@@ -140,8 +137,8 @@ int MwInstanceRenameChecks(const QDir &versionsDir, MainWindow &window) {
               "S2 整件事里顶窗一个都没多（用户要的「不出现独立的窗口」）",
               QString("%1 -> %2").arg(windowsBefore).arg(topLevelWindowCount()));
         check(outerScrollMax == 0,
-              "★ S2 覆盖层**整页那一层**的滚动区滚不动了（范围 0）—— 从前整页（连带左栏"
-              "那两条导航列）套在这一层里，它就是用户报的「滚动的时候左边也跟着滚了」的"
+              "★ S2 覆盖层**整页那一层**的滚动区滚不动了（范围 0）—— 整页（连带左栏"
+              "那两条导航列）不再套在这一层里（那正是「滚动的时候左边也跟着滚了」的"
               "来路；现在滚动区落在每一页自己身上，这一层再推也推不动",
               QString::number(outerScrollMax));
         check(prefilled == btnOldId,

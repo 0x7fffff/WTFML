@@ -113,7 +113,7 @@ int MwVersionActivationChecks(MainWindow &window, QTreeWidget * &versionTree, QS
                 // 一个都不许画（画了就骗人说点得开）—— 那是代理画的，由 ui_check 按像素管。
                 // 这里管的是"分类条目在模型层没有说谎"：
                 // · 分类一律**不许**被设成 DontShowIndicator（左边那个三角的开关）。
-                // 踩过这个坑：想去掉左边那个三角就写了它，而
+                // 坑在这里：想去掉左边那个三角就写了它，而
                 // QTreeModel::hasChildren() 是按 policy 直接 return false 的 ——
                 // 那个分类的版本号**一条都排不进布局**，界面上只剩四行空的分类，
                 // 点开也没东西，而所有断言（身份、条数、itemClicked）照样全绿。
@@ -349,7 +349,7 @@ int MwVersionActivationChecks(MainWindow &window, QTreeWidget * &versionTree, QS
                       QStringLiteral("%1 行对、%2 行不对").arg(rowsWithRightMark).arg(wrongMark));
 
                 // 上面那些都是**模型层**的事（数条目、看身份）—— 模型里有、界面上没有，
-                // 是完全可能发生的： 那次 DontShowIndicator 就是"四条分类都在、
+                // 是完全可能发生的：`DontShowIndicator` 那种写法就是"四条分类都在、
                 // 900 多个版本号一条都排不进布局"，而上面每一条断言照样全绿。
                 // 所以这里量一次**真的排进布局了没有**：翻开一条有版本的分类，
                 // 子条目必须有一个落在视口里的矩形（看得见才点得到）。

@@ -1,7 +1,7 @@
 /**
  * @file GroupDialog.cpp
  * @brief 实现实例分组设置对话框。
- * @note 组列表及行尾上下移按钮的交互在本页；几何与绘制见 GroupListDelegate。
+ * @note 组列表及行尾上下移三角的交互在本页；几何与绘制见 GroupListDelegate。
  */
 
 #include "GroupDialog.hpp"
@@ -68,7 +68,7 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
 
         m_groupList = new QListWidget(groupBox);
         m_groupList->setObjectName(groupListName());
-        // 行尾那两颗「上移 / 下移」三角（ 从实例树搬过来的，见 GroupListDelegate
+        // 行尾那两颗「上移 / 下移」三角（见 GroupListDelegate
         // 文件头）。代理只管画，认下那一下的是 GroupDialog::eventFilter() —— 挂的是**视口**，
         // 因为鼠标事件是按光标位置投给最上面那个孩子的（挂在表上收不到）。
         m_groupList->setItemDelegate(new GroupListDelegate(m_groupList));
@@ -94,9 +94,7 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
         buttons->addWidget(m_removeButton);
         layout->addLayout(buttons);
 
-        // 第二排：只剩"画出来是展开还是收着"（要求里的「默认展开/关闭」）。**顺序**
-        // 那一半 起是行尾那两颗三角（原来这里那两颗「上移」「下移」按钮删了，
-        // 要求：「设置那个框下方的上移下移的按钮就删了」）。
+        // 第二排：只剩"画出来是展开还是收着"。**顺序**那一半是行尾那两颗三角。
         auto *orderRow = new QHBoxLayout;
         m_expandedCheck = new QCheckBox(tr("默认展开"), groupBox);
         m_expandedCheck->setObjectName(expandedCheckName());
@@ -105,8 +103,8 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
                "是同一个状态。"));
         orderRow->addStretch(1);
         orderRow->addWidget(m_expandedCheck);
-        // 紧挨着「默认展开」右边：要求「分组设置里面那个默认展开旁边整一个『设为置顶组』」
-        // —— 「旁边」就是这一行、这一格。勾上的那一组变成**置顶组**（全清单只能有一个，
+        // 紧挨着「默认展开」右边 —— 「旁边」就是这一行、这一格。
+        // 勾上的那一组变成**置顶组**（全清单只能有一个，
         // 所以勾这一颗会把别组那一颗清掉，见 setGroupPinned()）。
         m_pinnedCheck = new QCheckBox(pinnedCheckText(), groupBox);
         m_pinnedCheck->setObjectName(pinnedCheckName());
@@ -116,8 +114,8 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
         orderRow->addWidget(m_pinnedCheck);
         layout->addLayout(orderRow);
 
-        // 底下那句说明紧跟着这一行（中间不隔东西）。**必须短**：这是一个新概念，但为了说清
-        // 它而写长一句，代价是这张窗整个变宽（理由与 40 个字的上限见 pinnedHintText()）。
+        // 底下那句说明紧跟着这一行（中间不隔东西）。**必须短**：为了说清它而写长一句，
+        // 代价是这张窗整个变宽（理由与 40 个字的上限见 pinnedHintText()）。
         auto *pinHint = new QLabel(pinnedHintText(), groupBox);
         pinHint->setWordWrap(true);
         layout->addWidget(pinHint);
@@ -167,9 +165,9 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
                 deleteGroup(groupId);
             }
         });
-        // 上移/下移那两颗按钮 删了 —— 挪动改成点组清单**行尾那两颗三角**
-        // （一次一格；**按住 Shift** 点就是"直接放到最顶上 / 最底下"，要求）。
-        // 那一套手势整个在 eventFilter() 里，这里不再有按钮可接。
+        // 上移/下移走组清单**行尾那两颗三角**
+        // （一次一格；**按住 Shift** 点就是直接放到最顶上 / 最底下）。
+        // 那一套手势整个在 eventFilter() 里。
         connect(m_expandedCheck, &QCheckBox::toggled, this, [this](bool checked) {
             // m_updatingExpanded：这是 refreshActionButtons() 在摆状态（跟着选中的组），
             // 不是用户点的 —— 不挡的话每选一行都会把那一行的状态"改"成它本来就有的值。
@@ -191,7 +189,7 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
         //
         // NOTE: 行尾那一带（两颗箭头占的那两格）**到不了这里** —— eventFilter() 把那几发
         // 整个吃掉了。不这样的话，用户连点两下那颗三角想挪两格，第二发会弹出一个
-        // 重命名框（挪一格 + 挡住手上的事，正是 用户在实例树上报的那个形状）。
+        // 重命名框（挪一格 + 挡住手上的事）。
         connect(m_groupList, &QListWidget::itemDoubleClicked, this, [this] {
             if (m_renameButton->isEnabled()) {
                 m_renameButton->click();
@@ -284,7 +282,7 @@ bool GroupDialog::eventFilter(QObject *watched, QEvent *event) {
     }
     // 落在那两格里以后**一律吃掉**，哪怕这一侧挪不动（第一行没有上移、最后一行没有
     // 下移）。不吃的话那一带会漏给"点这一行"：那一行会顺手被选中，连点的第二发还会弹出
-    // 重命名框 —— 用户 报的「点击一下就同时展开和调整了」就是这个形状。
+    // 重命名框。
     // 漏出去的那几格**本来就没有画箭头**（见 GroupListDelegate::canMoveUp()），所以
     // "点下去什么都没发生"是这里唯一说得过去的解释。
     if (type == QEvent::MouseButtonPress || type == QEvent::MouseButtonDblClick) {
@@ -425,7 +423,7 @@ bool GroupDialog::moveGroupUp(const QString &groupId) {
     const int row = rowOfGroup(groupId);
     if (row <= 0) {
         // 已经在最上面（或者压根没这个组）：什么都不做。**不弹窗也不返回错误文字** ——
-        // 界面上那颗按钮在到顶时就是灰的，这条路只有验证工程会走。
+        // 界面上到顶的那一侧根本不画箭头，这条路只有验证工程会走。
         return false;
     }
     m_groups.swapItemsAt(row, row - 1);
@@ -519,13 +517,11 @@ void GroupDialog::rebuildGroupList() {
     {
         const QSignalBlocker blocker(m_groupList);
         m_groupList->clear();
-        // 行高和版本下载那棵树一样（要求：「每个版本啥的上下高一点，像
-        // 下载页那样，分组设置界面也是」）。这儿的行只有一行字，不给的话就是字那么高 ——
+        // 行高和版本下载那棵树一样。这儿的行只有一行字，不给的话就是字那么高 ——
         // 同一份组名在实例页那棵树上和在这张表里高矮不一样，看着像两个东西。
         //
         // **条目还要再加一条缝**（GroupListDelegate::rowGap()）：46 高一行紧挨着一行码
-        // 起来，两条组名之间只剩行内那点余量，扫一眼分不出这是两条（要求
-        // 「给组和组之间留一点距离，不然粘在一起分辨不开」）。画出来的那一块仍然是 46 高
+        // 起来，两条组名之间只剩行内那点余量，扫一眼分不出这是两条。画出来的那一块仍然是 46 高
         // —— 代理按 contentRect() 把底下那一条收掉（字、背景、行尾那个方框都按它摆）。
         const int rowHeight =
             MainWindowUI::versionTreeRowHeight() + GroupListDelegate::rowGap();

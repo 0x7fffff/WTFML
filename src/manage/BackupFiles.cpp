@@ -1,6 +1,6 @@
 /**
  * @file BackupFiles.cpp
- * @brief 世界与实例备份的实现（coding plan §4.4）。设计与为什么这么设计见头文件。
+ * @brief 世界与实例备份的实现。设计与为什么这么设计见头文件。
  */
 
 #include "manage/BackupFiles.hpp"
@@ -156,7 +156,7 @@ QStringList stringListOf(const QJsonValue &value) {
 
 /// 这一串能不能原样当一个**目录名**用（还原的落点是 `targetParentDir + "/" + root` 拼出来的）。
 ///
-/// 只挡 `/`、`\`、`.`、`..` 是不够的（ 补）：Windows 在打开路径时会把每一段
+/// 只挡 `/`、`\`、`.`、`..` 是不够的：Windows 在打开路径时会把每一段
 /// **末尾的空格和点折掉** —— `".. "`、`". "`、`"..."`、`"a. "` 全都解析回上一层 / 本层
 /// 目录。于是 `target = 父目录/".. "` 指向的就是父目录本身：安全快照照做（把父目录整个
 /// 收进去）、`isDir()` 为真、整棵父目录被删掉，再把包里那一份解回来，最后报「还原完成」。
@@ -220,7 +220,7 @@ QByteArray manifestToJson(const Manifest &manifest) {
     root.insert(QStringLiteral("kind"), kindKey(manifest.kind));
     root.insert(QStringLiteral("root"), manifest.root);
     root.insert(QStringLiteral("label"), manifest.label);
-    // §4.4 点名的四样：来源实例 id、时间、游戏版本、包含范围。校验值在下面 `files` 里。
+    // 要求的四样：来源实例 id、时间、游戏版本、包含范围。校验值在下面 `files` 里。
     root.insert(QStringLiteral("sourceInstanceId"), manifest.sourceInstanceId);
     root.insert(QStringLiteral("sourceInstanceName"), manifest.sourceInstanceName);
     root.insert(QStringLiteral("gameVersion"), manifest.gameVersion);
@@ -507,13 +507,13 @@ WriteResult writeBackup(const Manifest &manifest, const QString &sourceDir,
     // （整张表走临时文件递进 PowerShell，理由见 ZipUtil.hpp 里 createZip 那段 ——
     // Windows 一条命令行只有 32767 个字符）。
     //
-    // 这里**不能用 `QTemporaryFile`**（ verify ZQ3 撞出来的，产品级的错）：
+    // 这里**不能用 `QTemporaryFile`**（产品级的错）：
     // 它建出来的文件在**那个对象还活着的时候别的进程读不了** —— 连 `close()` 过之后
     // 也一样，.NET 那边拿到的是「The process cannot access the file ... because it is
     // being used by another process」。而打包这件事**正是**"另一个进程（PowerShell）
     // 去读这个文件"，所以只要走 QTemporaryFile，这一趟必然整份失败：清单加不进去 ⇒
     // zip 一个条目都没有 ⇒ 用户在「立即备份」上看到的是一句和自己的盘毫无关系的话。
-    // 改成普通 QFile + 一个不会撞的名字（和 `ZipUtil::createZip` 递条目表那张临时文件
+    // 用普通 QFile + 一个不会撞的名字（和 `ZipUtil::createZip` 递条目表那张临时文件
     // 同一个写法），写进一个作用域里让它在打包之前就关掉，成功失败都删掉那一份。
     const QString manifestPath = QDir::tempPath() + QStringLiteral("/wtfml-backup-")
                                  + QUuid::createUuid().toString(QUuid::WithoutBraces)

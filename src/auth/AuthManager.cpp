@@ -10,8 +10,8 @@
 
 #include "AuthManager.hpp"
 
-#include "AccountStore.hpp"    // 刷新成功后把新凭据写回列表（M5）
-#include "OAuthEndpoints.hpp"  // 回调地址 → 监听端口（唯一出处，§9.4）
+#include "AccountStore.hpp"    // 刷新成功后把新凭据写回列表
+#include "OAuthEndpoints.hpp"  // 回调地址 → 监听端口（唯一出处）
 #include "TokenStore.hpp"      // 凭据落盘的字节格式（唯一出处）
 #include "../net/HttpClient.hpp"  // 同步 HTTP（唯一出处）
 
@@ -40,11 +40,11 @@
 #include <limits>  // tokenSecondsLeft() 那个夹取（int 的上界）
 
 namespace {
-// 正版登录那两格随构建配置走的常数（coding plan §9.4）。
+// 正版登录那两格随构建配置走的常数。
 //
 // 这两个宏由 CMakeLists 那两条 `WTFML_CLIENT_ID` / `WTFML_REDIRECT_URI` 缓存变量按需注入
 // （带了 `-D` 才有定义）；**没带的时候用下面这份兜底值**，所以"不改那两条、照旧构建"
-// 出来的东西跟从前一模一样。想换成自己那份 Azure 应用注册时不必改源码。
+// 出来的东西保持不变。想换成自己那份 Azure 应用注册时不必改源码。
 // 回调地址一定要和"我们监听哪个端口"同步（见 OAuthEndpoints.hpp 那段）：换地址就等于
 // 换端口，端口是**从下面这串地址里算出来的**，不是另写的一位。
 #ifdef WTFML_CLIENT_ID
@@ -95,8 +95,8 @@ HttpResult sendJson(QNetworkAccessManager *manager, const QUrl &url, bool post,
                     const QByteArray &body, const QByteArray &contentType,
                     const QByteArray &bearer) {
     // 超时用 HttpClient 那一份（kDefaultTimeoutMs，也是 15 秒），**不在这里再写一个常量**：
-    // 以前这里有一份自己的 kRequestTimeoutMs，值和它一样、名字不一样，于是"15 秒"在仓库里
-    // 有两个出处 —— 哪天有人只改了一处，登录链和皮肤接口的超时就会悄悄不一样，而这是
+    // 写一份自己的值和它一样、名字不一样的常量，"15 秒"在仓库里就有两个出处 ——
+    // 哪天有人只改了一处，登录链和皮肤接口的超时就会悄悄不一样，而这是
     // 只有网络慢的时候才看得出来、看出来了也未必查得到的那种差别。
     return HttpClient::send(manager, url, post ? HttpClient::Verb::Post : HttpClient::Verb::Get,
                             body, contentType, bearer, HttpClient::kDefaultTimeoutMs);
@@ -167,7 +167,6 @@ AuthManager::AuthManager(QObject *parent)
     // 这一句**不碰网络**（loadMinecraftTokenData() 只读一遍 QSettings、再解一层
     // DPAPI，见 TokenStore），
     // 所以放构造函数里是安全的 —— 要换令牌得走 loadSavedToken()，那会发请求。
-    // NOTE: 以前这一句是 loadStoredTokenData()，const 方法、返回值直接丢掉，等于什么都没做。
     applyMinecraftTokenData(loadMinecraftTokenData());
 }
 
@@ -218,9 +217,8 @@ bool AuthManager::loginMicrosoft() {
             m_loginInFlight = false;
             m_oauthState.clear();
             // 走 loginFailed 而不是自己憋着：界面就是靠它把几个按钮放回可点状态的。
-            // NOTE: 这句**不许点名某个按钮** —— 原来写的是「再点一次"微软登录"重来」，
-            // 而那个按钮已经并进「账号与外观」那个窗里了（设置页那格现在只是一个
-            // 入口）。用户手上看到的文案会变，这里只说下一步做什么。
+            // NOTE: 这句**不许点名某个按钮**：用户手上看到的文案会变，
+            // 这里只说下一步做什么。
             emit loginFailed(tr("登录没有完成（等了 %1 分钟，浏览器那头一直没回来）。\n"
                                 "再试一次，或者检查一下网络和代理设置。")
                                  .arg(kLoginTimeoutMinutes));
@@ -263,8 +261,8 @@ int AuthManager::tokenSecondsLeft() const {
     }
     // **夹到 int 里再返回**：secsTo() 是 qint64，而盘上那个 expires_at 是别人给的字节 ——
     // 一个离谱的远期时刻（几百年的那种）会让这个转换溢出成负数，于是"剩得远远够用"
-    // 会被读成"已经不剩了"，调用方就会去换一张根本不需要换的令牌（拿一个假的到期时刻
-    // 试过：溢出之后取到的是负值）。负数那一头也夹到 0："已经过期"和"剩 0 秒"对调用方
+    // 会被读成"已经不剩了"，调用方就会去换一张根本不需要换的令牌（溢出之后取到的是
+    // 负值）。负数那一头也夹到 0："已经过期"和"剩 0 秒"对调用方
     // 是同一件事，而 -1 这个哨兵只留给"根本没有可用时刻"那一档。
     const qint64 left = QDateTime::currentDateTimeUtc().secsTo(m_tokenExpiry);
     const qint64 cap = std::numeric_limits<int>::max();
@@ -295,10 +293,10 @@ bool AuthManager::refreshMinecraftToken(QString *errorMessage) {
         return fail(failure);
     }
 
-    // 刷新出来的新令牌**要写回列表里那份副本**（ 补的）。
-    // 列表里那份是"切回这个账号"时的唯一来路（见 AccountStore 文件头那种两栏结构），
-    // 而在补这句之前，captureActive() 只在"登录成功"那一下被调过一次 —— 于是活动槽里
-    // 的 refresh_token 每隔几天就刷新一轮，列表里那份却永远停在登录那一天。切走再切回来
+    // 刷新出来的新令牌**要写回列表里那份副本**。
+    // 列表里那份是"切回这个账号"时的唯一来路（见 AccountStore 文件头那种两栏结构）；
+    // 不写回的话，活动槽里的 refresh_token 每隔几天就刷新一轮，列表里那份却停在登录
+    // 那一天。切走再切回来
     // 把那份旧的写回活动槽，轻的是一次白刷新（微软那边已经轮换作废了），重的就只能重开
     // 浏览器登录。上面两个 store*TokenData() 已经把新令牌放进活动槽了，这里搬的就是新的。
     //
@@ -600,7 +598,7 @@ void AuthManager::processCallbackRequest(QTcpSocket *socket, const QByteArray &r
         // 占位值 "Player"，底栏那句"离线登录"照旧说着 —— 名字和身份当场对不上，
         // 启动参数里 --username 也会变成 Player。那种情况什么都不用做。
         //
-        // 补的第二个洞（上面那一句只堵了内存那一半）：**盘上那份微软令牌
+        // 另一处同样要堵：**盘上那份微软令牌
         // 也得清掉**，否则整件事根本没防住。
         //
         // 上面那两个"点一下启动就悄悄成了另一个人的登录"里，作祟的不是内存那份身份，
@@ -714,7 +712,7 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code, QString *access
         return false;
     }
 
-    // ── 覆盖微软槽之前的两道闸（ 补的）──────────────────────────────
+    // ── 覆盖微软槽之前的两道闸 ──────────────────────────────
     // 下面这一句写的是"活动槽里那份微软令牌"。而一个账号条目是**两个槽拼出来的**
     // （AccountStore::captureActive()：uuid 取自 minecraft 槽、微软令牌取自 microsoft
     // 槽），新登录要等 runMinecraftChain() 一路走到底、:772 才写 minecraft 那一半。
@@ -725,7 +723,7 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code, QString *access
     // login_with_xbox 那条 403）之后没人会再调 captureActive()，盘上就**永久**停在
     // 这个错配状态 —— activeUuid() 说是 A，而 refreshMinecraftToken() 从 microsoft
     // 槽读出来的是 B 的 refresh_token，拿它去续 A 的登录必然失败；同时 A 原来那份
-    // refresh_token 已经被这一句覆盖掉了（老版本升上来的用户凭据**只在活动槽里**，
+    // refresh_token 已经被这一句覆盖掉了（凭据**只存在活动槽里**，
     // 盘上再没有第二份，只能重开浏览器登一遍）。
     // 所以：先把现在这位**收进列表**（凭据留一份），再把 minecraft 槽**清掉**（两个槽不
     // 再可能错配）。失败时的结果是"没登录"，但上一个账号在列表里、一键就切得回来 ——
@@ -733,8 +731,8 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code, QString *access
     //
     // NOTE: 清掉 minecraft 槽**不影响**这里刻意保留的那半个凭据：文件头那句"失败时盘上
     // 留着微软那份，好把链重放一遍"说的是 microsoft 槽，它照旧写着新令牌。
-    // 这道闸的判据原来只有"活动槽里有人"（`activeUuid()` 非空）——
-    // 而**离线账号也满足它**（它靠 `CurrentAccountUuid` 那一格算"当前"，见
+    // 这道闸的判据不能只有"活动槽里有人"（`activeUuid()` 非空）：
+    // **离线账号也满足它**（它靠 `CurrentAccountUuid` 那一格算"当前"，见
     // AccountStore::activeUuid() 第二档）。于是"用着离线账号去登微软"这条路上，
     // captureActive() 必然失败（离线账号本来就没有凭据可存，makeOfflineCurrent() 把两个
     // 槽都清空了），每次都在命令行甩一句"盘上没有可保存的登录凭据。"。
@@ -939,7 +937,7 @@ bool AuthManager::requestMinecraftToken(const QString &userHash, const QString &
 
     if (!result.ok()) {
         // 这一步的 403 有一种很具体的原因（应用没被 Mojang 批准），单独认出来说明白，
-        // 别只回一句"HTTP 403" —— 那正是 真机上卡住登录却查不出原因的那次。
+        // 别只回一句"HTTP 403"。
         const QString hint =
             appRegistrationHint(result.json.value(QStringLiteral("errorMessage")).toString());
         *errorMessage =
@@ -1006,12 +1004,10 @@ bool AuthManager::storeMinecraftTokenData(const QString &mcToken, int expiresIn,
     // 盘上存**到期时刻**而不是 expires_in：下次开窗要判"还能不能用"，存秒数还得自己
     // 记住是什么时候存的。
     //
-    // NOTE: 这里以前补了一句"取 ISO 字符串而不是毫秒时间戳，是为了在 ini 里能看懂" ——
-    // 两个理由都站不住：盘上那一格是 TokenStore 加密过的密文（DPAPI + base64，
-    // 整个 JSON 一起加），谁都"看不懂"；而且 QSettings 走的是 NativeFormat，
-    // 落在注册表 HKCU\\Software\\WTFML\\WTFML 下，压根不是 ini 文件。
-    // 选 ISO 的真正理由只剩"和别处存时间的方式一致、人用调试工具看到的是个日期"
-    // （验证工程里读那份 json 也是按 ISODate 解）。
+    // NOTE: 选 ISO 字符串的真正理由只有"和别处存时间的方式一致、人用调试工具看到的是个日期"
+    // （验证工程里读那份 json 也是按 ISODate 解）—— 盘上那一格是 TokenStore 加密过的密文
+    // （DPAPI + base64，整个 JSON 一起加），QSettings 走的是 NativeFormat，落在注册表
+    // HKCU\\Software\\WTFML\\WTFML 下，压根不是 ini 文件，所以"在 ini 里能看懂"站不住。
     tokenData.insert(QStringLiteral("expires_at"),
                      QDateTime::currentDateTimeUtc().addSecs(expiresIn).toString(Qt::ISODate));
     tokenData.insert(QStringLiteral("name"), name);

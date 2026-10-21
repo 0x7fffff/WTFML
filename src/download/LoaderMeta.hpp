@@ -404,7 +404,7 @@ inline QString forgeInstallerUrl(const QString &gameVersion, const QString &load
 
 /// Forge 安装器 jar 的**另一种坐标**：`<游戏>-<加载器>-<游戏>`。
 ///
-/// NOTE: 实测发现的坑（起因是用户那次 1.8.9 的安装失败）：老的游戏版本只发布了
+/// NOTE: 老的游戏版本只发布了
 /// 这一种坐标，常规那种（forgeInstallerUrl）**直接 404**。一个一个 curl 出来的表：
 ///
 /// 坐标 1.7.10 1.8.9 1.9.4 1.11.2 1.12.2
@@ -455,7 +455,7 @@ inline QList<int> parseDottedVersion(const QString &text) {
         if (!digits.match(segment).hasMatch()) {
             return QList<int>();
         }
-        // 溢出**也得当"不是版本号"**（ 修）：`^[0-9]+$` 过得了、toInt() 过不了的
+        // 溢出**也得当"不是版本号"**：`^[0-9]+$` 过得了、toInt() 过不了的
         // 那一段（maven 上别人写的东西，`26.1.2.99999999999` 这种）原来是静默变成 **0**，
         // 于是这个版本比谁都小 —— "有新版本"永远消不掉、版本榜上排到最后，而且一声不响。
         // 这个函数的契约本来就是"空列表 = 认不出来"，认不出来有的是地方处理它。

@@ -31,11 +31,9 @@ void runModpackImportTests(const QString &sandbox) {
               quiltText.contains(QStringLiteral("没有")) &&
               quiltText.contains(QStringLiteral("0.20.0")),
           "V1 Quilt 拦下来，而且说清了是哪个加载器、哪个版本、没有导入", quiltText);
-    // NOTE: 这一条 改过。原来钉的是"CurseForge 那一支要把「清单里没有下载
-    // 地址」说清楚"—— 那一支已经删了（CurseForge 现在装得了，见 ZG 节），留着
-    // 就等于钉一个不存在的分支。现在这个函数只回答一件事：**两个清单都没有**
-    // ⇒ 认不出它是什么格式。所以钉的是"把两个名字都写出来"，以及它替用户猜了
-    // 一句"多半是个普通压缩包"（不说这一句，用户只能自己猜要不要放弃）。
+    // NOTE: 这个函数只回答一件事：**两个清单都没有** ⇒ 认不出它是什么格式。所以钉的是
+    // "把两个名字都写出来"，以及它替用户猜了一句"多半是个普通压缩包"（不说这一句，
+    // 用户只能自己猜要不要放弃）。
     const QString cfText = ModpackImport::unsupportedFormatText(ModpackImport::Format::CurseForge);
     check(cfText.contains(QStringLiteral("manifest.json")) &&
               cfText.contains(ModpackImport::modrinthIndexName()) &&
@@ -385,7 +383,7 @@ void runModpackImportTests(const QString &sandbox) {
         QDir(work).removeRecursively();
     }
 
-    // --- V5z. 拖进来的那一个文件到底是什么（ 加） --------------------
+    // --- V5z. 拖进来的那一个文件到底是什么 --------------------
     //
     // 要求：「打开某个实例设置的时候如果拖入.jar/.zip之类的文件，检测是整合包还是资源包
     // 等」。判据层是 `manage/DroppedResource`（纯函数：输入一条路径，输出一个 Kind）——
@@ -596,9 +594,9 @@ void runModpackImportTests(const QString &sandbox) {
     // --- V5c. extractArchives：那几条恶意条目名一个都不许解出去（zip slip） ------
     //
     // 这一节盯的是 LauncherManager::prepareNatives() 那条路（旧格式的 natives 是从
-    // 官方 jar 里解出来的，用的是 ZipUtil::extractArchives）。原来的守卫只判条目名里
-    // 有没有 `..`，漏了"条目名本身就是绝对路径"那一类 —— .NET 的 Path.Combine 会把
-    // 目标目录整个丢掉，文件落到外面去。
+    // 官方 jar 里解出来的，用的是 ZipUtil::extractArchives）。守卫必须同时判"条目名里
+    // 有没有 `..`"和"条目名本身就是绝对路径"—— .NET 的 Path.Combine 会把目标目录整个
+    // 丢掉，文件落到外面去。
     {
         const QString work = sandbox + "/zip-slip";
         QDir(work).removeRecursively();
@@ -1572,8 +1570,8 @@ void runModpackImportTests(const QString &sandbox) {
     //
     // 读侧对清单里**每一条**路径都跑 isSafeRelativePath()（ModpackImport.cpp:313），
     // 不过就是**整包拒绝**（"所以整个包都没有导入"）。所以产出这一侧不许写出那样一条。
-    // 从前写得出：实例里有一个嵌套很深、拼起来超过 240 个字符的文件时，我们导出的包
-    // 连自己都装不回来，而且**当场看不出来**（清单写得出来、zip 打得出来）。
+    // 实例里有一个嵌套很深、拼起来超过 240 个字符的文件时，导出侧若照样写进清单，这个
+    // 包连自己都装不回来，而且**当场看不出来**（清单写得出来、zip 打得出来）。
     // 退回 overrides 之后文件一个不少 —— 那一条路不经过这个判据。
     {
         const QString tree = sandbox + "/export-long/我的实例";
@@ -1791,9 +1789,9 @@ void runModpackImportTests(const QString &sandbox) {
                   !overridePaths.contains(QStringLiteral("mods/能下的.jar")),
               "V5t 那四种全退回 overrides（原样带着用户那个名字），认出来的那条不在里面",
               overridePaths.join(QLatin1Char(',')));
-        // ③ 接口没接上：一个字节都没发出去 ⇒ queried 必须是 0。从前它在这里就已经是 5 了
-        // （「本来打算问几个」），于是报告里那句「问过 5 个文件，认出来 0 个」会让人去查
-        // 网络、查限流，而真相是这一趟根本没联网。
+        // ③ 接口没接上：一个字节都没发出去 ⇒ queried 必须是 0，不是"本来打算问几个"
+        // （写成 5 的话，报告里那句「问过 5 个文件，认出来 0 个」会让人去查网络、查限流，
+        // 而真相是这一趟根本没联网）。
         const ModpackExport::ExportPlan noQuery = ModpackExport::buildExportPlan(
             request, ModpackExport::ModrinthQuery(), ModpackExport::CurseForgeQuery());
         check(noQuery.queried == 0 && noQuery.lookupFailed && noQuery.matched == 0 &&
@@ -2616,8 +2614,8 @@ void runModpackImportTests(const QString &sandbox) {
 
         // ③b `★ `：目标旁边那两个"陪跑名"**不归我们处置**。
         // `<目标>.part` / `<目标>.bak` 这两个后缀太常见（别的下载器的半截、用户自己手
-        // 打的备份），原来那一趟上来就 `QFile::remove()` 它们。现在换一个没人用的名字，
-        // 用户那两份必须原样留在盘上（逐字节），而这一趟照样得打成功。
+        // 打的备份），不许上来就 `QFile::remove()` 它们。换一个没人用的名字，用户那两份
+        // 必须原样留在盘上（逐字节），而这一趟照样得打成功。
         {
             const QByteArray userPart = QByteArrayLiteral("用户的半截（别的下载器留下的）");
             const QByteArray userBak = QByteArrayLiteral("用户的备份（自己手打的）");
@@ -2678,8 +2676,7 @@ void runModpackImportTests(const QString &sandbox) {
 
     // --- V5q. 条目表长到命令行塞不下时也要打得出来 -----------------------------
     //
-    // 在真实例上撞的（用户的「海波篮子」「永利制造翻译测试版」都是这个死法）：
-    // createZip 原来把整张 `@('条目名','盘上路径')` 表**拼进脚本正文**，而脚本是经
+    // createZip 不能把整张 `@('条目名','盘上路径')` 表**拼进脚本正文**：脚本是经
     // `-EncodedCommand` 用**命令行**递给 PowerShell 的 —— Windows 一条命令行只有 32767 个
     // 字符，Base64（×4/3）再加 UTF-16LE（×2）之后脚本只剩一万二千来个字符。133 个模组的
     // 实例光那张表就一万七千多字符 ⇒ CreateProcess 直接失败，用户看到「打包失败」

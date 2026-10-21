@@ -11,7 +11,7 @@
  * `https://sessionserver.mojang.com/session/minecraft/profile/<uuid>` 是**免鉴权**的：
  * 知道 uuid 就能问。走它就不必碰 AuthManager 那条同步登录链 —— 那条链在 token 过期时会
  * **同步**重走一遍刷新（见 loadSavedToken()），在启动路径上调它等于卡界面。而 uuid 本身
- * 是从 QSettings 恢复的（AuthManager::playerUuid()），以前登录成功过的用户重启后不用
+ * 是从 QSettings 恢复的（AuthManager::playerUuid()），登录成功过的用户重启后不用
  * 重新登录就取得到皮肤。
  *
  * 【为什么"取不到"只是记日志，不弹窗】
@@ -61,7 +61,7 @@ struct PlayerSkinProfile {
 
 /// 这个类型会**跟着信号走出去**（profileReady），所以声明成元类型，让它能跨线程/排队
 /// 连接传（Qt 的规矩：信号里出现的自定义类型都该有这一行）。顺带也让验证工程能拿它
-/// 当 Q_ARG 用 —— 于是"档案到了"那条路能在**不联网**的情况下被驱动（见 mw_check 的 X 节）。
+/// 当 Q_ARG 用 —— 于是"档案到了"那条路能在**不联网**的情况下被驱动。
 Q_DECLARE_METATYPE(PlayerSkinProfile)
 
 class PlayerSkinStore : public QObject {
@@ -103,8 +103,7 @@ public:
 
     /// 被限流（429）之后，这段时间里**一个请求都不再发**（毫秒）。
     ///
-    /// NOTE: 用户真机上撞到的就是它（日志里那句"取档案失败（HTTP 429）"）。
-    /// 当时的表现是：被挡这一下之后，**每次刷新照样再去问一遍**，于是每问一次被挡
+    /// NOTE: 不按这个退避，被挡那一下之后**每次刷新照样再去问一遍**，于是每问一次被挡
     /// 一次、日志里再添一行 —— 看着像启动器坏了，其实是自己在往限流窗口里撞。
     /// 退避一分钟：外观那一栏沿用上次那份（和 204 同一套降级），一分钟后再问。
     static constexpr int kThrottleBackoffMs = 60000;
@@ -119,7 +118,7 @@ public:
 
     /// 把档案里那个贴图地址变成**真去取**时用的 QUrl。无效 QUrl = 这个地址不能取。
     ///
-    /// 这里干两件事，都是 真机上撞出来的（见 .cpp 里那段 NOTE）：
+    /// 这里干两件事（见 .cpp 里那段 NOTE）：
     ///
     /// 1. **http → https**。官方档案里的地址就是 `http://textures.minecraft.net/...`，
     /// 所以"不是 https 就拒"那条会把**每一份真档案**都拒掉 —— 表现是右栏永远画着
@@ -206,12 +205,11 @@ signals:
     /// 而手上那份在调用方手里 —— 去重逻辑放在那边一处即可（PlayerSkinProfile::
     /// sameAs() 就是给它用的），两边各留一份比较反而会不一致。
     ///
-    /// NOTE: 起**带上身份**。以前它只带一份 profile，调用方只能拿"当下
+    /// NOTE: 信号必须**带上身份**。只带一份 profile 的话，调用方只能拿"当下
     /// 那个账号"去落盘 —— 于是"刷新还在飞的时候切了账号"这条路会把 A 的档案
     /// 写进 `profile-<B>.json`（那份文件是**跨重启**的：下次开窗先按它画出 A 的
-    /// 脸，直到下一次刷新成功才纠正）。这是同一个类里已经踩过一次的坑：
-    /// MainWindow::onRandomSkinReady() 那句 `if (!offlineIdentity()) return;`
-    /// 防的就是同一件事，只不过程序里那处防了、这处没防。
+    /// 脸，直到下一次刷新成功才纠正）。MainWindow::onRandomSkinReady() 那句
+    /// `if (!offlineIdentity()) return;` 防的也是这件事。
     void profileReady(const QString &uuid, const PlayerSkinProfile &profile);
     /// 一张贴图在本地就绪了。@param path 本地文件路径 —— 界面自己去读成 QImage。
     void textureReady(const QString &url, const QString &path);

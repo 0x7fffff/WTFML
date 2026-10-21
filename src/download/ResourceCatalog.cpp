@@ -621,7 +621,7 @@ QString loaderRequestValue(const QString &loader, Source source) {
 
 QStringList Hit::loaders() const {
     // 接口自己说了加载器就**只认它**（CurseForge 那条路：categories 是「Technology」那种
-    // 分类标签，按老规矩去里面找 `fabric` 会一个都找不到）。
+    // 分类标签，按现有规则去里面找 `fabric` 会一个都找不到）。
     if (!explicitLoaders.isEmpty()) {
         return explicitLoaders;
     }
@@ -816,7 +816,7 @@ SearchResult parseCurseForgeSearch(const QByteArray &json) {
         // 漏了 `authors`（或者哪一天真给了一条没有作者的记录），搜到这一条就当场读到一个
         // 垃圾值，轻则那行小字空着，重则整个搜索结果页画不出来。
         // 这一段里别的字段（id/slug/summary/categories/…）全都写了缺省兜底，只有这一处
-        // 原来没有 —— 现在补上：取不到就是空作者，那行小字自己会少写一段。
+        // 没有兜底 —— 补上：取不到就是空作者，那行小字自己会少写一段。
         const QJsonArray authors = object.value(QStringLiteral("authors")).toArray();
         if (!authors.isEmpty()) {
             hit.author = authors.first().toObject().value(QStringLiteral("name")).toString();
@@ -930,7 +930,7 @@ struct SnapshotShape {
  * chip 上，下载页那棵树的第二层也一家伙多出十来行（26.3-snapshot-1…10 各占一行）。
  * ② 预览与候选 `1.21.4-pre3` / `26.2-rc1`（新老两套命名都长这样）。
  * ③ 空格式的预览版 `1.14 Pre-Release 3`、`1.14.2 Pre-Release 4` —— 老 Mojang 的写法：
- * 分隔符是**空格**、词也写全了。同样是以前一条都不认。
+ * 分隔符是**空格**、词也写全了，也必须认。
  * ④ 老式周号 `24w14a`：认得出是快照，但读不出属于哪个大版本（`stem` 留空 = 折不了）。
  *
  * 尾巴必须是**末尾那一段**（`1.21.4-pre3`，不是 `1.21.4-pre3-1`），前缀必须是纯数字加点
@@ -1704,7 +1704,7 @@ QList<VersionEntry> parseVersions(const QByteArray &json) {
     if (document.isObject()) {
         // 根是对象 = CurseForge 那一份（`{"data":[…]}`）。**按根分岔**而不是让调用方先判
         // 来源：调用方判的话，"哪个接口回哪种形状"这件事就抄到了调用点上。
-        // 把**已经解析好的那一份**递下去（ 修）：原来递的是原始 bytes，于是
+        // 把**已经解析好的那一份**递下去：原来递的是原始 bytes，于是
         // 这一份几百到几千条 file 的回复被整棵树建了两遍。
         return parseCurseForgeDocument(document);
     }

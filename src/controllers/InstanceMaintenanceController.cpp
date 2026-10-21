@@ -22,7 +22,7 @@ namespace {
 
 /// 一个存档在 `<数据目录>/cache/world-backups` 底下占的**格子名**。
 ///
-/// 原来这里只用**存档目录名**（`QFileInfo(worldDir).fileName()`），于是
+/// 只用**存档目录名**（`QFileInfo(worldDir).fileName()`）不行：
 /// 两个实例各有一个叫 `world`（中文环境里更常见的是都叫「新的世界」）的存档就共用一个
 /// 格子，两件坏事同时发生：
 /// · 清理按"每个格子只留最近 N 代"算 —— A 备份一次就把 B 的代数挤掉一份，B 那份
@@ -36,13 +36,13 @@ namespace {
 /// `"<实例 id>__<世界>-<绝对路径哈希>"`：
 /// 一眼看得懂是哪个实例的哪个存档；实例目录改名/删掉之后旧备份不再和这一份认亲 ——
 /// 那是"另一个世界"了，正是这里要的。别的布局拿绝对路径的短哈希兜底（**不能**只退回
-/// 世界名，那正是这次要修的那个撞车）。
+/// 世界名，那正是要避免的那个撞车）。
 ///
 /// 补：**最后那段哈希不能省**。`__` 在实例名和世界名里都是合法字符
 /// （`validatePathSegment` 只挡 `<>:"/\|?*`），所以纯 `实例__世界` 仍然不是单射：
 /// 实例「SMP__2024」+ 世界「old」和实例「SMP」+ 世界「2024__old」拼出来是同一个
-/// 格子名 —— 两个不同世界的 level.dat 又回到"互相挤掉代数、latestWorldBackup()
-/// 拿到别人的文件"那条老路上。加了绝对路径的哈希之后两边才真正分开。
+/// 格子名 —— 两个不同世界的 level.dat 又会互相挤掉代数、`latestWorldBackup()`
+/// 拿到别人的文件。加了绝对路径的哈希之后两边才真正分开。
 QString worldBackupSlot(const QString &worldDir) {
     const QFileInfo info(worldDir);
     const QString worldName = info.fileName();

@@ -81,13 +81,13 @@ void runInstanceIconLookupTests() {
                           "238/222/256/256.jpeg\","
                           "\"url\":\"https://media.forgecdn.net/avatars/238/222/t.png\"}}]}");
     // Modrinth 那一支**还要多问一发**才拿得到图标地址（`GET /v2/projects?ids=…`，答复是
-    // 一个数组）。这一条正是 修的那个 bug 的落点：`<id>/icon.png` 那条自己拼的
+    // 一个数组）。这一条正是那个 bug 的落点：`<id>/icon.png` 那条自己拼的
     // 地址只是**老项目的别名**，回 404 的项目一个图标都画不出来。
     //
-    // 同一天又补一半：这一份回复里**本来就有**名字 / slug / 简介 / 支持的游戏版本，
-    // 从前只读 `icon_url` 那一栏、其余全丢了。现在「点名字进它自己的那一页」要的就是
-    // 那几样（见 `Found::hit`），所以下面几条断言开始盯它们 —— 它们和图标走的是
-    // **同一份字节**，少读一栏的症状不是"没反应"而是那一页顶着一个空标题。
+    // 这一份回复里**本来就有**名字 / slug / 简介 / 支持的游戏版本，
+    // 「点名字进它自己的那一页」要的就是那几样（见 `Found::hit`），所以下面几条断言
+    // 盯它们 —— 它们和图标走的是**同一份字节**，少读一栏的症状不是"没反应"而是那一页
+    // 顶着一个空标题。
     api.modrinthProjectsReply =
         QByteArrayLiteral("[{\"id\":\"AANobbMI\",\"icon_url\":\"https://cdn.modrinth.com/data/"
                           "AANobbMI/295862f4724dc3f78df3447ad6072b2dcd3ef0c9_96.webp\","
@@ -243,15 +243,12 @@ void runInstanceIconLookupTests() {
           QStringLiteral("title=%1 slug=%2 gv=%3")
               .arg(fRes.hit.title, fRes.hit.slug,
                    fRes.hit.gameVersions.join(QStringLiteral(","))));
-    // 更正：这里原来断言的是"Modrinth 那两条图标地址**故意留空**"（兜底由
-    // `Hit::iconPngUrl()` 按项目号自己拼）。**那个假设是错的** —— 拼出来的
+    // NOTE: Modrinth 那两条图标地址**不能**靠 `Hit::iconPngUrl()` 按项目号自己拼：
     // `cdn.modrinth.com/data/<id>/icon.png` 只是"图标当年就叫 icon.png"那批**老项目的
-    // 别名**：拿用户真实 `mods/` 里 20 个模组一个一个要过，11 个回 404（FerriteCore /
-    // Fabric Language Kotlin / Carpet / Fabric Permissions API / ArmorQuickSwap …）。
-    // 症状就是用户报的那句「模组的图标没有正确加载」—— 一页模组里绝大多数只有占位拼图，
-    // 而且**屏幕上一点异常都没有**（那一发 404 被当成"这个项目没传过图标"，那本来是
-    // 完全正常的一件事）。真正那条地址在带哈希的文件名底下，除了接口没人说得出来，
-    // 所以现在多问一发 `GET /v2/projects?ids=…`（见 T22.4b）。
+    // 别名**（拿用户真实 `mods/` 里 20 个模组一个一个要过，11 个回 404）。症状是一页
+    // 模组里绝大多数只有占位拼图，而且**屏幕上一点异常都没有**（那一发 404 被当成
+    // "这个项目没传过图标"，那本来是完全正常的一件事）。真正那条地址在带哈希的文件名
+    // 底下，除了接口没人说得出来，所以要多问一发 `GET /v2/projects?ids=…`（见 T22.4b）。
     //
     // 兜底那一条（`iconFallbackUrl`）**照旧空着** —— 它仍然是 `Hit::iconPngUrl()` 的事，
     // 在这里也填一份就是第二处出处。

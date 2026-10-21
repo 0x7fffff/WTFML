@@ -96,7 +96,7 @@ int UiDownloadCategoriesChecks(MainWindowUI &ui, QStackedWidget * &gameStack, QW
               "那两层堆叠也在「游戏」那一页里");
 
         // 其余几页：**一行筛子 + 一棵三层树**（资源 → 游戏版本 → 版本号）。
-        // ① 名称框（就是原来那个搜索框， 起它同时是筛子里的「名称」那一格）：
+        // ① 名称框（它同时是筛子里的「名称」那一格）：
         // 按 objectName 找得回来，提示文字非空、而且是这一页那一句；
         // ② 一棵树（按 objectName 找得回来），形状和上一页那两棵一样（表头藏着、根不装饰、
         // 一列、代理是 VersionTreeDelegate）；
@@ -132,8 +132,7 @@ int UiDownloadCategoriesChecks(MainWindowUI &ui, QStackedWidget * &gameStack, QW
                 MainWindowUI::downloadFilterVersionComboName(key));
             const QString hint = MainWindowUI::downloadSearchHint(i);
             // 页上的 QLineEdit **正好两个**：名称框，和版本那个可编辑下拉框内部的文本框
-            // （`QComboBox::lineEdit()`）。原来那条"页上只有这一个输入框"的断言到这里必须换
-            // —— 它是**名不副实**的那种红：多出来的那个不是谁漏删的，正是"版本可自行输入"
+            // （`QComboBox::lineEdit()`）。多出来的那个不是谁漏删的，正是"版本可自行输入"
             // 这条要求本身。判据写成"这两个、而且就是这两个"，多一个少一个都还是要红。
             const QList<QLineEdit *> edits = page->findChildren<QLineEdit *>();
             searchEditsOk = searchEditsOk && search != nullptr && !hint.isEmpty() &&
@@ -172,9 +171,8 @@ int UiDownloadCategoriesChecks(MainWindowUI &ui, QStackedWidget * &gameStack, QW
                      << MainWindowUI::downloadFilterTypeComboName(key)
                      << MainWindowUI::downloadFilterSearchButtonName(key)
                      << MainWindowUI::downloadFilterResetButtonName(key);
-            // NOTE: 「← 返回实例设置」那颗**不在这份名单里**（ 起）：它从右栏那行
-            // 筛子里挪到了左栏顶上，成了整个下载页**共用的一颗**，不属于任何一页。
-            // （它现在长在左栏那个盒子里 —— 上面那一节钉的就是这一条。）
+            // NOTE: 「← 返回实例设置」那颗**不在这份名单里**：它长在左栏顶上，成了整个
+            // 下载页**共用的一颗**，不属于任何一页（上面那一节钉的就是这一条）。
             // 「模组加载器」那一栏**只有模组页有**（要求）。判据是下标表里那一条，
             // 不是"这个键里有没有 mod 三个字母"那种猜法。
             const bool isModPage = i == MainWindowUI::downloadCategoryModIndex();
@@ -315,7 +313,7 @@ int UiDownloadCategoriesChecks(MainWindowUI &ui, QStackedWidget * &gameStack, QW
                   importButton == nullptr ? QStringLiteral("没找到") : importButton->objectName());
         }
 
-        // ---- 「服务端」那一栏（，coding plan §1.4）----
+        // ---- 「服务端」那一栏 ----
         //
         // 它和「游戏」一样**不是资源搜索页**：没有搜索框、没有三层树、没有筛子，
         // 也没有行尾/页头那颗「刷新」（它不向任何资源站问东西）。那一页只有一句说明

@@ -14,23 +14,18 @@
  *
  * 【约定：按钮那半和干活那半分开】
  *
- * 「新建…」要问一句名字、「删除」要问一句确认、「恢复默认分组设置…」也要确认。这三下现在
- * 都是**内嵌**在内容区里的（`InlineMessage::getText()` / `question()`），不再是独立窗口 ——
- * 但它们照旧**卡住调用方**（内部一个嵌套事件循环），所以真正的逻辑还是分开放在
+ * 「新建…」要问一句名字、「删除」要问一句确认、「恢复默认分组设置…」也要确认。这三下
+ * 都是**内嵌**在内容区里的（`InlineMessage::getText()` / `question()`）——
+ * 但它们**卡住调用方**（内部一个嵌套事件循环），所以真正的逻辑分开放在
  * createGroup() / renameGroup() / deleteGroup() / moveGroupUp() / moveGroupDown() /
  * setGroupExpanded() / restoreDefaults() 这几个 public 槽里，按钮那条路只是"问一句 → 调它们"。
- * 验证工程驱动的也一直是后者。
+ * 干活那一半不该依赖界面在不在，验证工程驱动的也是那几个槽。
  *
- * NOTE: 之前上面那段写的是"三个都是模态的、在 offscreen 里驱动不了"——"驱动不了"
- * 这一半从换成内嵌提示起就**不成立了**（问名字那一格现在是能找得到、能打字的
- * QLineEdit），但"问/做分开"这个约定留着：干活那一半不该依赖界面在不在。
+ * 【上移/下移走组清单行尾那两颗三角】
  *
- * 【上移/下移那两条路 起不是按钮了】
- *
- * 那两颗按钮删了，改成点组清单**行尾那两颗三角**（画在 ui/GroupListDelegate 里，
- * 认下那一下的是下面那个 eventFilter()）—— 要求：「这个箭头不应该在这里，而应该
- * 在 分组设置 里面，这里的删了，去分组设置里面加上，设置那个框下方的上移下移的按钮
- * 就删了」。上面那几个槽一个没动。和 MainWindow::onRenameInstanceClicked() / applyRename() 的拆法
+ * 上移/下移点组清单**行尾那两颗三角**（画在 ui/GroupListDelegate 里，
+ * 认下那一下的是下面那个 eventFilter()）。上面那几个槽和
+ * MainWindow::onRenameInstanceClicked() / applyRename() 的拆法
  * 完全一样，理由也一样：这一半里藏着真会错的东西（重名怎么办、删组要不要连实例一起删、
  * 顺序换到边界上怎么办），它必须验得了。
  */
@@ -63,8 +58,7 @@ public:
         /// 而且改完要等用户按「确定」才落盘（对话框不碰磁盘那条约定）。
         bool expanded = true;
 
-        /// 这一组是**置顶组**：实例行行尾那颗上箭头点了就把实例移进这一组
-        /// （要求：「置顶以后进选了这个的组」）。
+        /// 这一组是**置顶组**：实例行行尾那颗上箭头点了就把实例移进这一组。
         ///
         /// NOTE: 全清单里**最多一个** —— 这一格改的不是"这一组怎么样"，而是"别的组都不是
         /// 置顶组了"，所以 setGroupPinned() 把别人一起清掉（和
@@ -111,14 +105,14 @@ public slots:
     /// @return 删掉了返回 true（找不到这个组时返回 false）。
     bool deleteGroup(const QString &groupId);
 
-    /// 把某个组在清单里**往上挪一格**（要求里的「给组排列展示顺序」）。
+    /// 把某个组在清单里**往上挪一格**。
     /// 已经在最上面、或者找不到这个组时**什么都不做**，返回 false。
     bool moveGroupUp(const QString &groupId);
 
     /// 同上，往下挪一格。
     bool moveGroupDown(const QString &groupId);
 
-    /// 把某个组**直接挪到最上面**（要求：「按住 shift 时点击就直接放最顶上/底下」）。
+    /// 把某个组**直接挪到最上面**（界面按住 Shift 点那颗箭头就是这一步）。
     /// 已经在最上面、或者找不到这个组时什么都不做，返回 false。
     ///
     /// NOTE: 和 moveGroupUp() 拆成两个槽（不是给那个加个 bool 参数）：**置顶不是"挪很多
@@ -134,8 +128,7 @@ public slots:
     /// 改某一组的「默认展开」。
     ///
     /// NOTE: 摆勾选框的**那一下**会发一次 toggled，那一次不该被当成用户点的（那会绕回去
-    /// 再改一遍状态）；挡它的是 m_updatingExpanded，和以前那排单选钮的
-    /// m_updatingAssignment 同一个路数。
+    /// 再改一遍状态）；挡它的是 m_updatingExpanded，和下面 m_updatingPinned 同一个路数。
     void setGroupExpanded(const QString &groupId, bool expanded);
 
     /// 把某一组设成**置顶组**（或者取消它）。设上去时**别的组这一位一律清掉** ——
@@ -149,7 +142,7 @@ public slots:
     /// 本来就是跟着选中的那一行摆的，用户切到哪个组看到的就是那一组的实话。
     void setGroupPinned(const QString &groupId, bool pinned);
 
-    /// 把整份清单换成五个默认分组（要求里的「恢复默认分组设置」）。
+    /// 把整份清单换成五个默认分组。
     ///
     /// NOTE: 这是**工作副本**上的动作，和别的槽一样等「确定」才落盘 —— 半路按「取消」
     /// 就等于什么都没发生。实例一个都不会被删：自己建的那些组分没了之后，里面的
@@ -176,10 +169,10 @@ public slots:
     static QString pinnedCheckText() { return QStringLiteral("设为收藏组"); }
     /// 勾选框底下那句极短的说明。
     ///
-    /// NOTE: 「置顶组」是个新概念（ 才有的），光看那五个字不知道勾上会怎样 ——
+    /// NOTE: 「置顶组」光看那五个字不知道勾上会怎样 ——
     /// 所以紧挨着它写一句。**上限 40 个汉字，而且这个数字是量出来的、不是随便定的**：
-    /// 这张窗只有 460 宽，折行的 QLabel 一长就把整窗的 sizeHint 顶宽（这个仓库有过
-    /// 一次"一句话把整窗顶破"的记录）。现在这句 21 个字，一行放得下。
+    /// 这张窗只有 460 宽，折行的 QLabel 一长就把整窗的 sizeHint 顶宽。
+    /// 这句 21 个字，一行放得下。
     static QString pinnedHintText() {
         return QStringLiteral("收藏的实例会同时显示在这个组和主页快速启动区。");
     }
@@ -213,8 +206,8 @@ protected:
     ///
     /// 为什么是事件过滤器而不是委托的 editorEvent()：点箭头不能让那一行**顺手被选中**，
     /// 更不能让点得快的那第二发落到"双击 = 重命名"那条路上（那会弹一个模态框）——
-    /// 而 itemClicked / itemDoubleClicked 是视图自己发的，代理那边压不住（ 用户
-    /// 报的「点击一下就同时展开和调整了」正是这个形状，见 ui/RowActivation.hpp 那段）。
+    /// 而 itemClicked / itemDoubleClicked 是视图自己发的，代理那边压不住
+    /// （见 ui/RowActivation.hpp 那段）。
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:

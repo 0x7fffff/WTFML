@@ -80,7 +80,7 @@ int MwIntegrityActionsChecks(const QDir &root) {
         // 有一条"jar 就得是 zip"的判据（`shouldBeZipArchive` + `looksLikeZipArchive`，
         // 见 onDownloadReplyFinished 里那一支），**字节数对得上也一样会走它** —— 一段
         // `FAKE-SERVER-…` 开头的正文会被当场**从盘上删掉**，于是这一节看到的是"文件没了"
-        // （ 实测：#13 那次 T40.3 报的就是 `Not a zip archive`）。
+        // （报出来的就是 `Not a zip archive`）。
         // 我们造假的是"服务端的那份 jar"，所以它得像一份 jar。
         const QByteArray jarBody = QByteArrayLiteral("PK\x03\x04") +
                                    QByteArrayLiteral("FAKE-SERVER-JAR-") +
@@ -317,7 +317,7 @@ int MwIntegrityActionsChecks(const QDir &root) {
                   "T40.5 前提：下拉框里**列着** Spigot 这一档（用户得知道有它）");
             check(createDisabled,
                   "★★ T40.5 选中 Spigot：「创建」点不动"
-                  "（不留一颗按下去什么都不发生的按钮 —— 用户 2026-10-13 定的）");
+                  "（不留一颗按下去什么都不发生的按钮）");
             check(summary == ServerInstallRun::unsupportedReason(ServerInstall::Flavor::Spigot),
                   "★★ T40.5 而且摘要**逐字**就是判据层那句「暂时不支持」"
                   "（界面不另写一句话，`unsupportedReason()` 是唯一出处）",

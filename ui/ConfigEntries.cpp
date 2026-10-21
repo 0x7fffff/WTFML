@@ -17,11 +17,11 @@
  * 值 value"，`"a": 1` 和 `ab: 1` 都还是"键 a / 键 ab、值 1"。
  * ③ **字符下标**：客户是 `QPlainTextEdit`（见 .hpp 那 NOTE）。所以整份实现里
  * **没有一处 `QByteArray`** —— 它连字节都不认识，也就没机会把区间算歪。
- * ④ **裸值读到哪儿为止要看方言**（`Dialect`， 加）：逗号在 JSON/JSON5/TOML
+ * ④ **裸值读到哪儿为止要看方言**（`Dialect`）：逗号在 JSON/JSON5/TOML
  * 里是元素分隔符，在 `.properties` / `.cfg` 那一族里只是值里的一个字符；而紧贴着
  * 分隔符的 `#` 两种方言里都是值（`S:hexblack=#1e1b1b`）。**一个容错扫描器认全部
  * 格式**这件事在"值的边界"这一处认不住，只能让调用方把后缀告诉它 —— 那一位是
- * `dialectForPath()`，**默认 Jsonish = 老行为**，所以不传的调用方一个字节都不变。
+ * `dialectForPath()`，**默认 Jsonish**，所以不传的调用方读法不变。
  */
 #include "ConfigEntries.hpp"
 
@@ -337,14 +337,13 @@ private:
         if (m_text.at(m_i) != QLatin1Char('[')) {
             return false;
         }
-        // 原先漏的是"单独一行的一个 `[2]`"这一类：JSON5 里 `"a": [ [2], [3] ]` 横着写开
+        // 单独一行的一个 `[2]` 这一类不能当段头：JSON5 里 `"a": [ [2], [3] ]` 横着写开
         // 就是这样。它前面没有 `=`、没有 `,`、没有引号、`]` 之后也没有别的东西 ⇒
-        // 底下那几条判据一条都不拦，于是被当成 TOML 的段头读掉 —— 而 readSectionHeader()
+        // 底下那几条判据一条都不拦，会被当成 TOML 的段头读掉 —— 而 readSectionHeader()
         // 会把 `m_path` **整个清空**（段不嵌套，那是 TOML/INI 的语义），外面那层
         // `{...}` / `[...]` 的前缀就这么没了，后面所有条目的路径**集体错位**。
         //
-        // 盘上 0 命中（所以是"闸门有洞"不是"现在读错了"），但判据本来就该是这个方向：
-        // 段头是**顶层的东西**，容器里面那个 `[` 是元素/数组，不是段。
+        // 判据是这个方向：段头是**顶层的东西**，容器里面那个 `[` 是元素/数组，不是段。
         if (!m_path.isEmpty() && m_path.last().isContainer) {
             return false;
         }
@@ -623,14 +622,14 @@ private:
             }
             // ① 逗号：**只有结构化那一族**（JSON / JSON5 / TOML）才是元素分隔符。
             // `.properties` / `.cfg` 那一族没有容器语法，逗号就是值里的一个普通字符 ——
-            // 原先一刀切当分隔符：`particle$noCulling=com.lowdragmc…,com.brandon3055…`
+            // 一刀切当分隔符的话：`particle$noCulling=com.lowdragmc…,com.brandon3055…`
             // 只剩第一个逗号前面那半截，而**后面那半截还被当成正文重新扫了一遍**
             // （于是能凭空多出几条假条目）。
             if (x == QLatin1Char(',') && !m_keyValue) {
                 break;
             }
             // ② `#`：**只有前面有空白的时候才算行内注释起头**。紧贴着分隔符的 `#` 是值本身
-            // （1.12 Forge 的颜色 `S:hexblack=#1e1b1b` 就长这样），原先一刀切当注释 ⇒
+            // （1.12 Forge 的颜色 `S:hexblack=#1e1b1b` 就长这样），一刀切当注释的话 ⇒
             // 值的区间落在值开头以前 ⇒ 底下那个 `valueEnd <= m_i` 的静默出口把**整条
             // 设置项**吞掉（不报错、不留痕，用户看到的是"这份文件里没有这一项"）。
             // 这条和下面 `//` 那条是同一个形状的判据（同一个理由：`http://…` 不能从中间
@@ -706,7 +705,7 @@ ConfigEntries::Dialect ConfigEntries::dialectForPath(const QString &path) {
     const int backslash = path.lastIndexOf(QLatin1Char('\\'));
     const int dot = path.lastIndexOf(QLatin1Char('.'));
     if (dot <= qMax(slash, backslash)) {
-        return Dialect::Jsonish;  // 没后缀（或者点号在目录名里）：老行为
+        return Dialect::Jsonish;  // 没后缀（或者点号在目录名里）：默认档
     }
     const QString suffix = path.mid(dot + 1).toLower();
     // 只放**语法上确定是"键=值、无容器"**的那四个后缀（表怎么来的见 .hpp 上那段分布）。

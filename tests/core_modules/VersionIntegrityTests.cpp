@@ -274,7 +274,7 @@ void runVersionIntegrityTests() {
               failed.summary());
     }
 
-    // ---------- ZN6. 分组（coding plan §4.1：结果按客户端 / 库 / 资源索引 / 资源对象 分）----------
+    // ---------- ZN6. 分组（结果按客户端 / 库 / 资源索引 / 资源对象 分）----------
     {
         check(VersionIntegrity::allGroups().size() == 4, "ZN6 四组");
         check(VersionIntegrity::groupName(VersionIntegrity::Group::ClientJar)
@@ -396,7 +396,7 @@ void runVersionIntegrityTests() {
         VersionIntegrity::Report nothingToFix;
         nothingToFix.checked = 3120;
         check(nothingToFix.problemPaths().isEmpty(),
-              "★ ZN7 一个要修的都没有 ⇒ 空表（补全那边就是老行为：问盘、缺什么补什么）");
+              "★ ZN7 一个要修的都没有 ⇒ 空表（补全那边：问盘、缺什么补什么）");
         VersionIntegrity::Report notRun;
         notRun.error = QStringLiteral("读不出这个实例的 version.json");
         check(notRun.problemPaths().isEmpty(),

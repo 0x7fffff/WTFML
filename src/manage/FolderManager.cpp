@@ -21,7 +21,7 @@ namespace {
 /// 链接）。删目录树的时候必须认它，否则会把链接那一头的东西一起删掉。
 ///
 /// NOTE: 判据**不能**只写 `isSymLink()`，也不能用 `canonicalFilePath() !=
-/// absoluteFilePath()` —— 实测（，两个探针见 tmp/probe_symlink/）：
+/// absoluteFilePath()` —— 实际行为是：
 /// · `mklink /J` 造出来的 junction，`isSymLink()` 是 **false**（Qt 把它报成
 /// 普通目录），`canonicalFilePath()` 也**原样返回字面路径**（根本不解链接）；
 /// · 只有 `isJunction()` 认得出它。
@@ -58,7 +58,7 @@ bool removeFileAllowingReadOnly(const QString &path) {
 /// 递归删掉 @p path 这一棵，但**一个链接都不追进去**：链接只把链接本身摘掉，那一头的东西
 /// 一个字节都不动。
 ///
-/// NOTE: 为什么不能用 `QDir::removeRecursively()`。实测（ 探针）：
+/// NOTE: 为什么不能用 `QDir::removeRecursively()`。实际行为：
 /// · 对一个**本身就是 junction** 的目录调用它 → junction 指向的那个真目录里的
 /// 文件**没了**（目标是活的，链接没了）；
 /// · 目录**里面**含一个 junction 时 → 同样跟着进去把目标删了。
@@ -179,8 +179,8 @@ FolderManager::FolderManager(LauncherSettings *settings, QObject *parent)
     const QStringList stored = m_settings != nullptr ? m_settings->folders() : QStringList();
     for (const QString &entry : stored) {
         const QString path = normalized(entry);
-        // 等于自带那份的要丢掉：启动器被拷到 D:\MC\ 之后，原先"用户添加的
-        // D:\MC\.minecraft"就和自带那份撞上了，留着就是列表里两条一模一样的路径。
+        // 等于自带那份的要丢掉：启动器被拷到 D:\MC\ 之后，用户添加的
+        // D:\MC\.minecraft 会和自带那份撞上，留着就是列表里两条一模一样的路径。
         if (path.isEmpty() || path == defaultFolder() || m_userFolders.contains(path)) {
             continue;
         }
@@ -228,17 +228,16 @@ QString FolderManager::normalized(const QString &path) {
     }
     const QFileInfo info(path);
     if (info.exists()) {
-        // 这一格**本身就是个链接**时不许解（ 修）。canonicalFilePath() 会把
+        // 这一格**本身就是个链接**时不许解。canonicalFilePath() 会把
         // 符号链接解析成它指向的那个目录 —— 于是用户添加进来的 `D:\MC\link` 在列表里
         // 变成 `E:\real`，而"删除这一份游戏文件夹"随后调的就是
         // `removeTreeWithoutFollowingLinks(E:\real)`：链接本身还在，**另一块盘上的东西
         // 没了**。上面 isLinkToElsewhere() 那个 guard 判的正是 `isJunction() ||
         // isSymLink()`，可它**在更早的这一步就被解掉了**，所以它一辈子也看不到符号链接。
         //
-        // NOTE: junction 不受影响 —— 实测（探针 linkprobe，，和
-        // 那次结论一致）`canonicalFilePath()` 对 junction **原样返回字面路径**，
-        // 根本不解释链接，所以它在下面那条路上活得好好的。这个不对称正是"自测
-        // 全绿"的原因：能造的那一类（junction）防住了，防不住的那一类没进过测试。
+        // NOTE: junction 不受影响 —— `canonicalFilePath()` 对 junction **原样返回字面路径**，
+        // 根本不解释链接，所以它在下面那条路上活得好好的。这个不对称让"链"这一类
+        // 很容易只防住能造出来的 junction、漏掉符号链接。
         //
         // 只把**父目录**归一（盘符大小写、`..` 这些照旧收拾掉），最后那一段原样留着 ——
         // 列表里那条还是用户亲手加进来的那一条，删的时候也只是把链接摘掉。

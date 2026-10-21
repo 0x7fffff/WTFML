@@ -5,12 +5,11 @@
  * 所以这些判据能在验证工程里逐条钉住 —— 而整合包这条路真正难的就是它们（下载、
  * 解压、落盘都是仓库里已经验过的老路，见 VersionManager::importModpack）。
  *
- * 【为什么要做整合包导入】真机上的整合包（ 拿用户桌面上那个 779 MB 的
- * `ATT2-The Journey Of Revelation.1.8.4.zip` 核过）是这么个东西：
+ * 【为什么要做整合包导入】真机上的整合包是这么个东西：
  * - 压缩包根目录一份 `modrinth.index.json`：它基于哪个 Minecraft 版本、哪个加载器
- * 的哪个版本，以及**一长串待下载文件**（那个包 150 条，每条都带 sha1 + sha512 +
+ * 的哪个版本，以及**一长串待下载文件**（每条都带 sha1 + sha512 +
  * 字节数，地址指向 cdn.modrinth.com / mediafilez.forgecdn.net）；
- * - 根目录再一份 `overrides/`（那个包 922 条）：整合包作者自己塞的 config、资源包、
+ * - 根目录再一份 `overrides/`：整合包作者自己塞的 config、资源包、
  * 光影，以及没托管在 Modrinth 上的 mod。**这一份不在 index 里**，只能从压缩包里解。
  * 所以"导入"= 装一个带加载器的版本（老路）+ 按清单下一批文件 + 把 overrides 解开。
  */
@@ -123,9 +122,9 @@ Result parseModrinthIndex(const QByteArray &json);
 // POST /v1/mods/files {"fileIds":[...]} **批量**，一个包一问就够（200）
 // POST /v1/mods {"modIds":[...]} 批量问"这是模组还是资源包"（200）
 //
-// 官方那份 `api.curseforge.com` **要 `x-api-key`**（不带 = 403，实测）。所以默认走的是
-// 一台不要 key 的社区镜像（同一个接口形状，连 `{"data":[…]}` 那一层都一样）—— 现在用的
-// 是哪一台、为什么换过，写在 curseForgeApiBase() 上面。用户自己填了 key 就改走官方。
+// 官方那份 `api.curseforge.com` **要 `x-api-key`**（不带 = 403）。所以默认走的是
+// 一台不要 key 的社区镜像（同一个接口形状，连 `{"data":[…]}` 那一层都一样）—— 默认用
+// 哪一台、为什么，写在 curseForgeApiBase() 上面。用户自己填了 key 就改走官方。
 
 /**
  * @brief 解析一份 CurseForge 的 `manifest.json`。
@@ -244,10 +243,10 @@ QHash<int, int> parseCurseForgeClassIds(const QByteArray &json, QString *problem
  * @param override 非空则**优先**用它（`Launcher/CurseForgeApiBase`，验证工程拿它把接口
  * 指到本机的假服务器上）。产品自己**从不写这个键**。
  *
- * 【为什么默认是镜像】官方那份要 `x-api-key`（不带 = 403，实测 ）。而 key 一旦
+ * 【为什么默认是镜像】官方那份要 `x-api-key`（不带 = 403）。而 key 一旦
  * 编进 exe 就等于公开（谁都能从二进制里抠出来），泄露的 key 会被吊销 —— 所以默认走一台
- * 不要 key 的镜像。**代价要说清楚**：那是**别人的服务**，可能限流、可能哪天就没了
- * （ 就换过一次，见 .cpp 里那段实测）。所以：① 用户填了自己的 key 就改走官方；
+ * 不要 key 的镜像。**代价要说清楚**：那是**别人的服务**，可能限流、可能哪天就没了。
+ * 所以：① 用户填了自己的 key 就改走官方；
  * ② 接口那一发失败时那句话里要提到"可以在设置里填自己的 CurseForge API key"
  * （见 VersionManager）。
  */
@@ -314,16 +313,8 @@ QString suggestInstanceName(const QString &packName);
  * @param urls 清单里那一条文件的 `downloads`（1~3 条）。
  * @return 同样那几条，只换次序；认不出 modrinth 的整份原样返回。
  *
- * NOTE: 上面那组"6 条并发"是 量的，当天 `kMaxConcurrentDownloads` 还是 6。
- * 那个上限提到了 24（依据是官方 CDN 上 3598 个对象的实测，见那个常量），
- * **mod CDN 这一侧没有跟着重测**：它的单条连接本来就慢（22~119 KB/s），并发高一点
- * 大概率更快，但那条 CDN 另有"连下两百多个文件之后开始回 `HTTP/2 protocol error`、
- * 甚至直接掐连接"的毛病（那次 422 个文件的真导入实测），并发调高会不会让它更早翻脸
- * 还不知道。别把这里的数当成"现在的行为"，要用就得重新量一遍。
- * NOTE: 上限调到 24 的同一批里补了**按主机**那条守卫（`kMaxConcurrentPerHost`）：一个还没
- * 证明自己走 h2 的主机只放 6 条。所以这里真正的变化是"**这一条 CDN 要是 h2，它就能用
- * 到 24 条；要是不是，它还按 6 条走**"，不会因为全局上限调大而把请求塞进 Qt 那个会
- * 超时的内部队列（那个形状在本地 h1.1 假服务器上复现过：40 条作业 28 条超时）。
+ * NOTE: 并发与按主机限流不归这里管（见 `DownloadManager` 的 `kMaxConcurrentDownloads`
+ * 与 `kMaxConcurrentPerHost`）。别在这条路上假设某个并发数。
  */
 QStringList preferredUrlOrder(const QStringList &urls);
 

@@ -191,9 +191,9 @@ JavaManageDialog::JavaManageDialog(QWidget *parent) : QDialog(parent) {
 
     // 各行先按“没装”显示，控制器打开页面后会灌入扫描结果。
     //
-    // 这一轮**必须排在所有控件都建出来之后**（早先它写在上面那个行循环里，那样点第一下
-    // 「Java 管理…」就崩）：`setRuntime()` 会顺着 `refreshDownloadAllState()` 去够底下
-    // 那一排按钮，而那一排是**行循环之后**才摆上来的 —— 循环里调它，够到的是个空指针。
+    // 这一轮**必须排在所有控件都建出来之后**：`setRuntime()` 会顺着
+    // `refreshDownloadAllState()` 去够底下那一排按钮，而那一排是**行循环之后**才摆上来的
+    // —— 循环里调它，够到的是个空指针。
     for (int major : managedMajors()) {
         setRuntime(major, QString());
     }

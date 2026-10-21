@@ -122,8 +122,8 @@ void runShutdownTests() {
     // ---------- ③④ 拆窗口那一刻后台还有活：反查那一趟 / 还在飞的下载 ----------
     //
     // 这一段**没有"事后"能断言的**：那一趟被等掉这件事，唯一的证据就是"`delete w` 那句
-    // 回来了、后面那几行跑到了"。从前（析构里只等体检和备份那两趟）走到 `delete w` 就是
-    // `qFatal`，整个 mw_check 进程当场 abort、后面所有的节连同总数一起没了。所以下面那句
+    // 回来了、后面那几行跑到了"。析构不等那几趟的话，走到 `delete w` 就是 `qFatal`，
+    // 整个 mw_check 进程当场 abort、后面所有的节连同总数一起没了。所以下面那句
     // check() 是拿"进程还活着、而且真的等了一段时间"当判据的。
     bool lookupRan = false;
     bool lookupStillRunning = false;
@@ -131,7 +131,7 @@ void runShutdownTests() {
     {
         // 这一格**故意摆在堆上**（这一节别处的窗口都是栈上的 `MainWindow w;`）：这一节
         // 要量的正是**析构**，而栈上那个窗口的析构发生在 `}` 上 —— 比"我要掐表的那一句"
-        // 晚，掐出来的数就永远是 `close()` 那一发（16 ms）。改成堆上之后 `delete w;`
+        // 晚，掐出来的数就永远是 `close()` 那一发（16 ms）。`delete w;`
         // 就是拆窗口那一下，表掐在它两边。
         auto *w = new MainWindow();
         w->show();
@@ -182,9 +182,9 @@ void runShutdownTests() {
         check(vm != nullptr && vm->canCancelDownload(),
               "T43.4 前提：关窗那一刻真有一批下载挂在那儿");
 
-        // 这一下是从前必红的地方：窗口里那几条线程**还活着**，而析构只等了体检和备份。
+        // 这一下窗口里那几条线程**还活着**，析构必须等它们。
         // 表掐在 `delete` 两边 —— **这一句就是拆窗口**（析构里那几条 `wait()` 全在里面）。
-        // 从前（析构里没等反查和检查更新那两趟）走到这一句就是 `qFatal`，整个 mw_check
+        // 析构不等反查和检查更新那两趟的话，走到这一句就是 `qFatal`，整个 mw_check
         // 进程当场 abort。
         QElapsedTimer clock;
         clock.start();

@@ -1,7 +1,7 @@
 /**
  * @file TextFormat.hpp
  * @brief 彩色文本：`§` 码 ↔ 一段一段带样式的正文 ↔ JSON 文本组件 ↔ `/tellraw` 命令。
- * @note 用户 点名的工具箱第二件（coding plan §9.11 第 2 项）：「Minecraft 文本
+ * @note 用户点名的工具箱第二件：「Minecraft 文本
  * 生成器：首版只做 MOTD 与传统 `§` 格式文本，编辑与预览能力和服务端设置页共用」，
  * 外加他那一句「看看还有彩色文本的命令什么的」—— 所以这一层除了 `§` 那种写法，
  * 还要出得了**命令那一侧**的两种形态：JSON 文本组件（`/tellraw` 的正文）和拼好的
@@ -50,16 +50,16 @@ inline constexpr QChar kSectionSign = QChar(0x00A7);
 /// 十六色 + 默认色。顺序照 `§` 的码位排（0-9 a-f），`Default` 是"没写过颜色"那个状态。
 enum class Color {
     Default,
-    Black,        ///< §0
-    DarkBlue,     ///< §1
-    DarkGreen,    ///< §2
-    DarkAqua,     ///< §3
-    DarkRed,      ///< §4
-    DarkPurple,   ///< §5
-    Gold,         ///< §6
-    Gray,         ///< §7
-    DarkGray,     ///< §8
-    Blue,         ///< §9
+    Black,        ///< 颜色码 0
+    DarkBlue,     ///< 颜色码 1
+    DarkGreen,    ///< 颜色码 2
+    DarkAqua,     ///< 颜色码 3
+    DarkRed,      ///< 颜色码 4
+    DarkPurple,   ///< 颜色码 5
+    Gold,         ///< 颜色码 6
+    Gray,         ///< 颜色码 7
+    DarkGray,     ///< 颜色码 8
+    Blue,         ///< 颜色码 9
     Green,        ///< §a
     Aqua,         ///< §b
     Red,          ///< §c

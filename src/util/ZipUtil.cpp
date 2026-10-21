@@ -76,8 +76,8 @@ QString encodeCommand(const QString &script) {
  * @return 返回给用户看的一句话。
  *
  * NOTE: 超时**不是**唯一一种"waitForFinished() 给 false"。进程压根没起来（PowerShell
- * 不存在、被安全软件拦下）也是 false，而三个调用点以前一律报「解压超时」——
- * 用户和排查的人都会往网络/磁盘上找，而真因在"进程没起来"那一头（ 改的）。
+ * 不存在、被安全软件拦下）也是 false。三个调用点都要按 `error()` 分开报，不能一律报
+ * 「解压超时」—— 用户和排查的人会往网络/磁盘上找，而真因在"进程没起来"那一头。
  */
 QString describeProcessFailure(QProcess::ProcessError failure, const QString &detail,
                                const QString &what) {
@@ -103,8 +103,8 @@ QString describeProcessFailure(QProcess::ProcessError failure, const QString &de
  *
  * —— **人话夹在中间那两行机器话之间**。只取第一行得到的是 `#< CLIXML` 七个字符
  * （等于什么也没说）；只判「头一行是不是 CLIXML 就整段丢掉」会把真因一起丢掉
- * （这个坑踩过：脚本里加了 catch、原因也写出来了，用户看到的还是兜底那句话，
- * 原因就在这儿）。所以按行过一遍，把机器话那两种行跳过，取第一条活下来的。
+ * （脚本里加了 catch、原因也写出来了，用户看到的却还是兜底那句话，原因就在这儿）。
+ * 所以按行过一遍，把机器话那两种行跳过，取第一条活下来的。
  * NOTE: 脚本 catch 里那句是 `[Console]::Error.WriteLine()` 写的，走**原生 stderr**、
  * 不经过 PowerShell 的错误流序列化，所以它自己能干净地占一行 —— 上面那个形状
  * 就是这么来的。没被 catch 住的错则整个躺在 `<Objs>` 的那条 XML 里（换行写成
@@ -127,12 +127,12 @@ QString readProcessError(const QString &raw) {
 
 /// 起一次 PowerShell 跑这段脚本。返回 false 时 errorOut 里是原因。
 ///
-/// NOTE: 三个 - 号开头的开关一个都不能少，理由见 extractArchives 里原来那段（-NoProfile
+/// NOTE: 三个 - 号开头的开关一个都不能少（-NoProfile
 /// 挡用户 profile 里的别名、-ExecutionPolicy Bypass 挡执行策略、-EncodedCommand
 /// 绕开两层引号转义）。四个调用点共用这一份，免得哪天只给其中一个加了新开关。
 /// NOTE: `what` 是**这次动作的名字**，由调用方给 —— 这几句是要弹给用户看的，主语写错就是
-/// 一句说不通的话：打包那一条原来报的是「**解压**没跑起来」（ 真实例上撞
-/// 出来的），用户拿着这句话往解压上找，而全程根本没解压。
+/// 一句说不通的话：打包那一条若写成「**解压**没跑起来」，用户拿着这句话往解压上找，
+/// 而全程根本没解压。
 bool runPowershell(const QString &script, int timeoutMs, QByteArray *stdoutOut,
                    QString *errorOut, const QString &what,
                    const std::function<bool()> &cancelled = {}) {
@@ -143,7 +143,7 @@ bool runPowershell(const QString &script, int timeoutMs, QByteArray *stdoutOut,
     const QString encoded = encodeCommand(script);
     // 兜底闸：Windows 一条命令行只有 32767 个字符，超了 CreateProcess 直接失败，QProcess
     // 报的是「文件名或扩展名太长」（ERROR_FILENAME_EXCED_RANGE）—— 那句话和真正的原因
-    // （脚本太长）一个字都对不上， 就是拿着它查了半天。这里自己先拦一道，
+    // （脚本太长）一个字都对不上。这里自己先拦一道，
     // 把它变成一句说得通的话。
     //
     // NOTE: 撞到这一道说明**我们自己的脚本里放了跟着数据长大的东西**，那是写错了，
@@ -232,9 +232,9 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
     }
 
     QStringList skipConditions;
-    // 防 zip slip。这几条和 extractSubtrees() 里那组**一样严**（以前这里只判 `..`，漏了
-    // "条目名本身就是绝对路径"那种 —— 见下面 NOTE）。正常 Minecraft jar 不会有这种条目，
-    // 但解压工具没理由不设防。
+    // 防 zip slip。这几条和 extractSubtrees() 里那组**一样严**（三条判据不能只剩 `..`，
+    // 否则漏掉"条目名本身就是绝对路径"那种 —— 见下面 NOTE）。正常 Minecraft jar 不会有
+    // 这种条目，但解压工具没理由不设防。
     //
     // NOTE: 三条各自的来路：
     // - `..`：翻到 $out 上面去（`../x`、`a/../../x`，`\` 分隔也一样）；
@@ -243,7 +243,7 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
     // - 判的必须是**归一过 `\`→`/` 的名字**：Windows 上 `\` 同样是分隔符，不归一的话
     // `META-INF\MANIFEST.MF` 这类条目还会从 excludePrefixes 底下溜过去。
     const QString fullName = QStringLiteral("$e.FullName.Replace('\\','/')");
-    // `..` 判的是**路径分量**，不是子串（ 修）。`.Contains('..')` 会把名字里
+    // `..` 判的是**路径分量**，不是子串。`.Contains('..')` 会把名字里
     // 正好带两个点的**正常文件**一并丢掉 —— `mods/foo..bar.jar`、`assets/a..b.png` 都是
     // 合法名字，而这里的丢弃是**静默的**（`continue`，不报错、不计入任何清单），于是用户
     // 看到的是"整合包导完了但少东西"。判分量之后 `..` 仍然拦得住（`../x` 拆出来第一段
@@ -679,9 +679,6 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
     // （那边有完整来路）：剥完之后如果剩下的是 `C:/x` 或 `/x`，.NET 的 Path.Combine 会
     // **丢掉**前半截（它认为第二个参数已经是绝对路径了），于是文件被写到 $out 外面去。
     // 条目名里的 `\` 也先换成 `/` 再判 —— Windows 上它同样是分隔符。
-    //
-    // 这里以前写的是「比 extractArchives 里那条**只判 `..`** 的严一点」——那句话在
-    // extractArchives 补上另外两条（绝对路径 / `:`）之后就**说反了**，两边现在一样严。
     const QString script =
         QStringLiteral("$ErrorActionPreference='Stop'\n"
                        "Add-Type -AssemblyName System.IO.Compression.FileSystem\n"
@@ -715,8 +712,8 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
                        "    }\n"
                        "  } catch {\n"
                        // 同上（整包解压那一段的 NOTE 逐条适用）。整合包导入这条路走的**就是**
-                       // 这一段：`overrides/` 里出现一个超长路径或者被占用的文件时，从前用户
-                       // 拿到的是「PowerShell 退出码 1」，现在拿得到是哪个包、哪句 .NET 的原话。
+                       // 这一段：`overrides/` 里出现一个超长路径或者被占用的文件时，报出来的是
+                       // 哪个包、哪句 .NET 的原话，而不是一句「PowerShell 退出码 1」。
                        "    $msg=$_.Exception.GetBaseException().Message\n"
                        "    if([string]::IsNullOrEmpty($msg)){ $msg=$_.Exception.Message }\n"
                        "    [Console]::Error.WriteLine(('解压「' + $z + '」时出错：' + $msg))\n"
@@ -893,13 +890,13 @@ bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entrie
 
     // 条目表**写成一个临时文件，不拼进脚本正文**。
     //
-    // NOTE: 这是 在真实例上撞出来的一条硬限制：脚本是经 `-EncodedCommand`
+    // NOTE: 这是一条硬限制：脚本是经 `-EncodedCommand`
     // 用**命令行**递给 PowerShell 的，而 Windows 给一条命令行只有 32767 个字符；
     // 脚本要先做 Base64（×4/3）再算 UTF-16LE（×2）⇒ 能塞进去的脚本大约 1.2 万字符。
-    // 一个装着 133 个模组的实例，光这张 `@('条目名','盘上路径')` 表就一万七千多字符
+    // 一个装着上百个模组的实例，光这张 `@('条目名','盘上路径')` 表就超过一万字符
     // ⇒ CreateProcess 当场失败，QProcess 报「文件名或扩展名太长」
     // （ERROR_FILENAME_EXCED_RANGE），用户看到的是「打包失败」而盘上什么都没留下。
-    // **小夹具（两条三条）永远看不见这个** —— 断言得照真实例的量级摆（见 verify V5q）。
+    // **小夹具（两条三条）永远看不见这个** —— 断言得照真实例的量级摆。
     // NOTE: 表用 JSON 而不是"一行一条、TAB 分隔"：条目名和路径里什么都可能有（空格、单引号、
     // 中文、`.`），拼分隔符迟早踩雷，而 JSON 由 Qt 这一侧写、PowerShell 那一侧
     // ConvertFrom-Json 读，两边都不用自己转义。
@@ -921,7 +918,7 @@ bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entrie
             }
             return false;
         }
-        // 这一发的返回值**从前是丢掉的**。写不进去（磁盘满、临时目录没有写
+        // 这一发的返回值**必须查**。写不进去（磁盘满、临时目录没有写
         // 权限、被安全软件拦下）时 `write()` 回 -1，而流程照旧往下走：PowerShell 那一侧
         // 拿到一个空文件，`ConvertFrom-Json` 报「不能对 Null 值表达式调用方法」，用户看到
         // 的是这么一句和真因（盘满）毫无关系的话，而目标 zip 里**一个条目都没有**。
@@ -951,8 +948,7 @@ bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entrie
                        // ⇒ foreach 只跑一圈、`$p.name` 由成员枚举变成**所有名字拼成的一串**
                        // ⇒ CreateEntryFromFile 收到一个数组当路径，报
                        // 「The given path's format is not supported.」
-                       // （ 撞的，改用临时文件后又踩了这一脚；`[array]` 两种形态
-                       // 都是平铺的，实测见 verify V5q 与"只有一条条目"那些用例。）
+                       // (`[array]` 对一条和多条两种形态都是平铺的。)
                        "$pairs=[array]([System.IO.File]::ReadAllText"
                        "($table,[System.Text.Encoding]::UTF8) | ConvertFrom-Json)\n"
                        "$dir=[System.IO.Path]::GetDirectoryName($target)\n"

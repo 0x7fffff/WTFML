@@ -153,10 +153,10 @@
 #include "VersionTreeDelegate.hpp"
 // T27.7：那一格世界设置本身（页面上摆了什么值、那几条规则各是第几行）。
 #include "WorldSettingsPage.hpp"
-// T28 / T32（§7.1）：那一趟「检查更新」的结论现在**开成一整页**（「更新中心」）—— 按页眉
+// T28 / T32：那一趟「检查更新」的结论**开成一整页**（「更新中心」）—— 按页眉
 // 认它（`PageCloser::setOnlyTitle()`）。
 #include "UpdateCenterPage.hpp"
-// T38（§7.1）：那一页上「忽略这一版 / 固定这一版」记的那本账、以及更新前那一份回滚点。
+// T38：那一页上「忽略这一版 / 固定这一版」记的那本账、以及更新前那一份回滚点。
 // 这一节**从盘上把它们读回来**核对（读内存里那份等于让产品自己证明自己）。
 #include "manage/UpdatePolicy.hpp"
 #include "manage/UpdateRollback.hpp"
@@ -184,7 +184,7 @@
 #include "settings/GameWindowSettings.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/LauncherSettings.hpp"
-// 速度上限那几档的数字（§9.2 限速）—— N 节要拿它们去数框里的项和 itemData。
+// 速度上限那几档的数字（限速）—— N 节要拿它们去数框里的项和 itemData。
 #include "download/DownloadSpeedLimit.hpp"
 // T35：世界与实例备份那一层的**引擎**（清单 / 打包 / 还原）。这一节从界面那几个入口
 // 点下去，然后拿它把盘上那个包**读回来**核对 —— "真打出一个包了"和"包里是我要的那些"
@@ -211,7 +211,7 @@
 #include "manage/PlayerSkinStore.hpp"
 #include "manage/RandomSkinStore.hpp"
 #include "manage/VersionManager.hpp"
-// T38：服务端工作区那一套（coding plan §6 / M4-1）。三份各一角：`ServerInstall` 是"这一档
+// T38：服务端工作区那一套（M4-1）。三份各一角：`ServerInstall` 是"这一档
 // 装什么、装完长什么样"，`ServerModel` 是"一个服务端是什么 / 状态怎么叫"，`ServerRegistry`
 // 是"盘上那一份谁在住"（扫目录 + 读写 `.wtfml-server`）。这一节直接调它们摆夹具 / 核对，
 // 也拿来比 MainWindow 那一按之后盘上真的多了什么。
@@ -227,7 +227,7 @@
 // exe 当"服务端"（`--fake-server`）把它的整条命跑一遍。
 #include "server/ServerProcess.hpp"
 #include "server/ServerRun.hpp"
-// T42：「服务端设置」那一整页（coding plan §6.3 第二阶段 / M4-4）—— 这一节把它经真
+// T42：「服务端设置」那一整页（M4-4）—— 这一节把它经真
 // `MainWindow` 整页开出来、改一格、保存、看盘上那份文件、按「立即备份」、读体检单。
 #include "ServerSettingsPage.hpp"
 // T42.10：玩家名单那四份文件（`whitelist.json` / `ops.json` / `banned-players.json` /
@@ -249,7 +249,7 @@
 // T29：设置页「背景图」那两行，一头是**主题规格**（`ui/Theme.hpp`），另一头是那两行控件。
 // `ThemeImage` 是 MainWindow 收图那一步调的（把用户挑的那张拷进数据目录）—— 这一节要在
 // 沙盒里先真的存一张进去，才能量"设了图之后那两行长什么样"。
-#include "Animations.hpp"  // 动效总开关：这个工程把它关掉（2026-09-29）
+#include "Animations.hpp"  // 动效总开关：这个工程把它关掉
 #include "Theme.hpp"
 #include "util/AppPaths.hpp"
 #include "util/ImageDecode.hpp"
@@ -439,7 +439,7 @@ inline QComboBox *comboByObjectName(QWidget *parent, const QString &name) {
 ///
 /// NOTE: ★ 起"没实例在跑"那一档是**灰**的，而灰**没有色相** ⇒ 它在这儿
 /// 回 -1，和"认不出"撞在一起。要量那一档请用下面的 `runStateIsGrey()`；
-/// `-1` 不能再被当成"那档灰"来用（这一条正是那次改动最容易漏的地方）。
+/// `-1` 不能再被当成"那档灰"来用（这一档最容易漏）。
 inline int runStateHueBand(const QColor &color) {
     if (color.saturation() < 60) {
         return -1;
@@ -657,8 +657,7 @@ inline void recordPrompt(InlineMessageBox *box) {
     if (auto *text = box->findChild<QLabel *>(InlineMessageBox::textLabelName())) {
         g_modalText = text->text();
     }
-    // 老写法量的是 `box->icon() == QMessageBox::Warning`（"这是出错，还是一句报信"），
-    // 对应的就是这一格。两个都是"这一句是哪一类"，只影响标题的颜色。
+    // 这一格量的是"这是出错，还是一句报信"（`MessageKind::Warning`），只影响标题的颜色。
     g_modalWasWarning = box->kind() == MessageKind::Warning;
 }
 
@@ -672,7 +671,7 @@ inline void clickPromptButton(int index) {
     // 框已经收掉之后**才醒的（它只按 `g_modalHandlerGeneration` 认过期，而那一格要到
     // `withPage` 的收尾才 ++，正好晚于 act() 里那一发 `processEvents()`）。于是
     // "答得够快 + 后面那一节干得够慢（>300 毫秒）"时，真正记下来的那一句话会被这一发
-    // 抹成空 —— 断言读到的就是"什么都没弹"，而盘上文件明明装进去了（ 实测：
+    // 抹成空 —— 断言读到的就是"什么都没弹"，而盘上文件明明装进去了（实测：
     // T30.7 三次里红一次，红的正是这一句）。
     if (box == nullptr) {
         return;
@@ -685,7 +684,7 @@ inline void clickPromptButton(int index) {
     box->close();
 }
 
-/// 相当于老的 `dismissNextPrompt()`：**不选**（原来是把那个 QMessageBox `close()` 掉）。
+/// `dismissNextPrompt()` 的语义是**不选**（不是把框 `close()` 掉）。
 /// 在这一层里"没选"就是 `clickedIndex()` 停在 -1。映射过来的那些问句里**最后一颗恒是
 /// 「否 / 取消」**（`InlineMessage::question` 的按钮表就是 `{是要问的那件事, 否}`），
 /// 所以点最后一颗得到的是同一个结果 —— 这也是为什么这里要数到最后一颗，而不是点第一颗。
@@ -718,7 +717,7 @@ inline void dismissNextPrompt() {
 /// 点**一颗具体的按钮**（不是"不选"）。
 ///
 /// 为什么不能靠 dismissNextPrompt()：那一颗是最后一颗（否 / 取消），而"我要答是"和
-/// "框被关了"在断言里必须是两件不同的事。位置按**下标**认（原来是按
+/// "框被关了"在断言里必须是两件不同的事。位置按**下标**认（不是按
 /// QMessageBox::StandardButton 认）：映射过来时按钮表就是 `{是, 否}`，所以
 /// `QMessageBox::Yes` → 下标 0、`QMessageBox::No` → 下标 1。
 inline void answerNextPrompt(int index) {
@@ -740,9 +739,8 @@ inline void answerNextPrompt(int index) {
 /// 底栏左面板里那颗电源点出来的「停止游戏」那一问：**点那颗"停止"**。
 ///
 /// 那一问的按钮表是 `{停止游戏, 取消}`（见 MainWindow::confirmStopGame），停止是**第一颗**。
-/// 老写法是按 `QMessageBox::DestructiveRole` 找的 —— 现在这一层里没有角色这一说（那个
-/// "哪一颗是危险动作"是按**下标**给的：`destructiveIndex`， 起它还顺带决定那颗
-/// 按钮染不染红，见 InlineMessageBox 的 ctor），所以只能按下标认。
+/// 这一层里没有角色这一说："哪一颗是危险动作"是按**下标**给的（`destructiveIndex`，
+/// 它还顺带决定那颗按钮染不染红，见 InlineMessageBox 的 ctor），所以只能按下标认。
 /// **两颗的字都断言一遍**：光按下标点，将来按钮顺序换了也照样绿。
 inline void answerStopGamePrompt() {
     g_modalTitle.clear();
@@ -776,8 +774,8 @@ inline void answerStopGamePrompt() {
 /// 定时器排上去，**不**在这里等）。
 ///
 /// NOTE: 判据还是"页眉上那句话"，不是"有没有这一页" —— 那样的话"开错了实例"这条断言
-/// 就永远绿。弹出的是别的东西时，这里会像老的 dismissNextPrompt() 那样把它记进
-/// g_modalTitle/g_modalText 再收掉，于是断言看到的是"多弹了一个"。
+/// 就永远绿。弹出的是别的东西时，这里也会把它记进 g_modalTitle/g_modalText 再收掉，
+/// 于是断言看到的是"多弹了一个"。
 inline void closeInstanceSettingsPage(QString *instanceOut) {
     // 三样**先清掉**（和上面那几个助手一样）：它们记的是"这一发弹了什么"，不清的话
     // 断言读到的是上一次调用留下的旧值 —— 那正是"多弹了一个"这条断言恒真的来路。
@@ -855,11 +853,11 @@ inline void answerJavaMismatchDialog(const QString &buttonName, bool checkDontRe
     QTimer::singleShot(0, handle);
     // 兜底那一条的理由和 dismissNextPrompt() 一样。
     //
-    // 它原来是一发 300 毫秒的**单次**定时器。现在点启动那一下的失败
-    // （进程起不来）也会弹一条提示，而那条提示排在**三岔口之后** —— 单发很容易在
-    // "三岔口已经收了、提示还没摆上来"的那段空档里醒过来，什么都不做就走了，于是
-    // 那条提示没人收、测试挂死在嵌套事件循环里。所以改成**盯着看**：每 50 毫秒看
-    // 一眼，直到后面某个助手换掉这一发（gen 变了）或者 15 秒到头。
+    // 点启动那一下的失败（进程起不来）也会弹一条提示，而那条提示排在**三岔口之后** ——
+    // 单发定时器很容易在"三岔口已经收了、提示还没摆上来"的那段空档里醒过来，
+    // 什么都不做就走了，于是那条提示没人收、测试挂死在嵌套事件循环里。
+    // 所以这里**盯着看**：每 50 毫秒看一眼，直到后面某个助手换掉这一发（gen 变了）
+    // 或者 15 秒到头。
     auto *watcher = new QTimer;
     watcher->setInterval(50);
     QObject::connect(watcher, &QTimer::timeout, watcher,
@@ -978,7 +976,7 @@ public:
     struct Seen {
         QString title;    ///< 覆盖层页眉上那句话
         QString summary;  ///< 体检报告页顶部那句总述（别的页上没有这一格，留空）
-        /// 更新中心（§7.1，）那一页上的东西：总述那一句、两组的标题、
+        /// 更新中心那一页上的东西：总述那一句、两组的标题、
         /// 每一行的名字（左栏）和状态（右边那一格）。**收页之前**读下来。
         ///
         /// 为什么读的是**控件上的字**而不是哪一份数据：这一页是 MainWindow 那一层
@@ -1021,7 +1019,7 @@ private:
                 host->findChild<QLabel *>(MainWindowUI::integrityReportSummaryName())) {
             one.summary = summary->text();
         }
-        // 更新中心（§7.1）：总述 + 两组的标题 + 每一行那两格。组的数量是**固定的两个**
+        // 更新中心：总述 + 两组的标题 + 每一行那两格。组的数量是**固定的两个**
         // （见 UpdateCenterPage::rebuild() —— 一组空了也摆），行数按 `updateCenterRowN`
         // 往后数到找不到为止。
         if (auto *summary =
@@ -1067,8 +1065,8 @@ private:
 /// 那份里捞回来的"，扳机自己要是先把数写一遍（比如重灌一次 onVersionDownloadStats），
 /// 那就成了自证。
 ///
-/// 为什么不用主页那个「离线模式」勾选框（ 之前就是这么干的）：用户让把它去掉
-/// 了（「不要启动界面那个离线登录勾选框了，在添加账户那里选择添加离线账号」）。为什么
+/// 为什么不用主页那个「离线模式」勾选框：它已经去掉了（离线身份由当前账号决定）。
+/// 为什么
 /// 不用 setDownloadUiBusy()：那是全项目唯一的 Q_INVOKABLE，但它会把下载那几个数清零，
 /// 正好把要量的现场毁掉。真正在生产里触发这次重画的是「游戏吐出第一行输出」
 /// （onProcessOutput / onGameFinished），那两条路要有真的进程起来，验不了。
@@ -1157,7 +1155,7 @@ static QByteArray solidPngBytes(const QColor &color, int side = 32) {
 /// 记着"来问过几次"和"那一发带了哪些条件头"—— ZB8 要验的东西全在这两件事上。用它就
 /// 不碰外网，在哪台机器上跑都是同一个结果；而"核对那一发"是这次改动最要紧的那条路，
 /// 光靠 icon-live 那条只报数的探针是钉不住的。
-/// 预置用的两个地址。哈希是**真的**（ 从 `api.mineskin.org/v2/skins` 拿回来的
+/// 预置用的两个地址。哈希是**真的**（从 `api.mineskin.org/v2/skins` 拿回来的
 /// 那一页里抄的，见 verify 的 ZE 段），形态和产品里会落到盘上的一模一样。
 ///
 /// 两张是为了 AF 段能验"又挑中了一张"这件事：只给一张的话，"换上了"和"还是原来那张"
@@ -1438,7 +1436,7 @@ void runResourceSourceTests();
 //
 // 界面那一半（这几个控件长什么样、摆在哪、模组加载器只在模组页有）在 ui_check 那边量过；
 // 数据那一半（这几个参数拼出来的地址对不对）由 ZH 那一节量过。**中间这一段** —— 用户在框里
-// 挑的那一项有没有真的变成发出去的那一发请求上的参数 —— 以前没人管，而它错起来一个错都
+// 挑的那一项有没有真的变成发出去的那一发请求上的参数 —— 这一段要盯住，而它错起来一个错都
 // 不报：搜索照发、结果照回，只是筛子根本没生效（用户看到的是"筛了跟没筛一样"）。
 void runDownloadFilterTests();
 
@@ -1459,7 +1457,7 @@ void runDownloadFilterTests();
 void runResourceDetailPageTests();
 
 // ---------------------------------------------------------------------------
-// T19. 实例设置「启动」栏那两颗按钮：导出启动脚本 / 补全文件（ 加的）
+// T19. 实例设置「启动」栏那两颗按钮：导出启动脚本 / 补全文件
 //
 // 「补全文件」（repairInstanceFiles → VersionManager::repairVersionFiles）要钉住的是它
 // 和"装一个版本"那几条路的区别：
@@ -1482,7 +1480,7 @@ void runResourceDetailPageTests();
 void runInstanceStartActionsTests();
 
 // ---------------------------------------------------------------------------
-// T33. 完整性检查（coding plan §4.1）里"从私有槽点下去"的那一半
+// T33. 完整性检查里"从私有槽点下去"的那一半
 //
 // 闸口那几条为什么是**确定性**的：判「正在体检」的唯一出处是
 // `MainWindow::integrityScanningVersion()`，那一位在 `submitIntegrityCheck()` 里
@@ -1498,9 +1496,9 @@ void runInstanceStartActionsTests();
 // ---------------------------------------------------------------------------
 void runIntegrityScanTests();
 
-// T34. 游戏异常退出（coding plan §4.3）里"从 onGameFinished 那一路补出来"的那一半
+// T34. 游戏异常退出里"从 onGameFinished 那一路补出来"的那一半
 //
-// §4.3 分三处验：
+// 分三处验：
 // ① **那几句话本身**（每一条提示从哪个字段推出来、退出码怎么写成人话）在 verify 的
 // ZP 段（纯函数，逐格念一遍）；
 // ② **这一节**：真的把 `onGameFinished` 那一槽打进去 → 账本上**多出一项** kind=crash 的
@@ -1521,9 +1519,9 @@ void runIntegrityScanTests();
 void runGameCrashTests();
 
 // ---------------------------------------------------------------------------
-// T35. 世界与实例备份（coding plan §4.4）里"从那几个入口点下去"的那一半
+// T35. 世界与实例备份里"从那几个入口点下去"的那一半
 //
-// §4.4 分三处验：
+// 分三处验：
 // ① **引擎**（清单怎么读写、目录怎么走、还原之前那份安全快照、还原之后的对账）在 verify
 // 的 ZQ 段（真打 zip、真删目录、纯函数那一层，连目录都不换）；
 // ② **这一节**：`snapshotInstance()` / `backupWorldNow()` / `startBackupRestore()` 打下去
@@ -1537,18 +1535,17 @@ void runGameCrashTests();
 // 启动器自带的固定位置，所以"这一节新补出来的那几项"一律**按号认**，不按位置。
 //
 // 那一发「创建快照」的分岔框（默认排除 / 完整 / 取消）用 `PromptAnswerer` 答：它按
-// **条数**给按钮下标，第一问点第 0 颗 = 默认那一档 —— §4.4 要的正是"默认排除能重新
+// **条数**给按钮下标，第一问点第 0 颗 = 默认那一档 —— 要的正是"默认排除能重新
 // 下回来的那部分"，所以这一节量的就是默认那一档。
 void runBackupTaskTests();
 
 // ---------------------------------------------------------------------------
-// T36. 「上一次启动」那张卡（coding plan §5.1）：主页左栏那一小块（离线）
+// T36. 「上一次启动」那张卡：主页左栏那一小块（离线）
 //
-// §5.1 要的是「一小块最近活动提示，不是一个仪表盘」，所以这一段分三处验：
+// 要求的是「一小块最近活动提示，不是一个仪表盘」，所以这一段分三处验：
 //
 // ① **账怎么写**：`LaunchHistoryController::recordStart()` / `recordFinish()` 是产品唯一的
-// 写点（ 之前这两条叫 `appendLaunchRecord()` / `finishLaunchRecord()`，长在
-// MainWindow 里；主窗口现在只剩一个补"启动那一刻的显示名 / 当时是谁"的转手），
+// 写点（主窗口只剩一个补"启动那一刻的显示名 / 当时是谁"的转手），
 // 摆账就摆这两条（`seedLaunchRecordForTest` 那一族全走它们），摆完看盘上那份
 // `wtfml.history` 逐格对不对。判据层（格式 / 时间怎么说 / 目标没了怎么降级 / 上限）
 // 在 verify 的 ZR 段逐条念过，这里验的是**接线**：产品读的是同一本账。
@@ -1566,7 +1563,7 @@ void runHomeRecentCardTests();
 #endif
 
 // ---------------------------------------------------------------------------
-// T20. 实例设置「文件管理」那八页：真正碰盘的这一半（ 加的）
+// T20. 实例设置「文件管理」那八页：真正碰盘的这一半
 //
 // 那八页**长什么样**在 ui_check 的 U10 段里验（列得对不对、三条开关摆得对不对、
 // "用不上"那一页说的是哪句）。这里验的是另一半 —— 目录从哪儿来、改名和删除到底动了
@@ -1630,7 +1627,7 @@ struct FakeLookupApi {
     /// 得出来（那条 `<id>/icon.png` 只是老项目的别名，见 ResourceCatalog 里那段实测）。
     QByteArray modrinthProjectsReply;
     /// `GET /v2/project/<id>/version` 的答复正文（**一个数组**）—— 详情页底下那一份版本列表
-    /// 只有这一发给得出来（ 加：开页时"按实例的版本预选、把它的加载器排前面"这件事
+    /// 只有这一发给得出来（开页时"按实例的版本预选、把它的加载器排前面"这件事
     /// 要**有版本可排**才量得到，一列空表上什么都看不出来）。
     QByteArray modrinthVersionListReply;
     /// T31 补：**按项目号分叉**的那一份版本列表（项目号 → 答复正文）。
@@ -1704,7 +1701,7 @@ struct FakeLookupApi {
             const QByteArray trimmed = line.trimmed();
             // 请求行 `GET /v2/projects?ids=… HTTP/1.1` —— 头那一行（`Host: …`）第二段不以
             // `/` 开头，所以这一个判据认得出请求行。**GET 和 POST 都要认**：图标地址那一发
-            // 是 GET（`VersionManager` 那两发是 POST，原来只认 POST，GET 会被当成 404）。
+            // 是 GET（`VersionManager` 那两发是 POST；只认 POST 的话 GET 会被当成 404）。
             const QList<QByteArray> parts = trimmed.split(' ');
             if (parts.size() >= 2 && parts.at(1).startsWith('/')) {
                 verb = QString::fromUtf8(parts.at(0));
@@ -1886,7 +1883,7 @@ void runServerStatusCacheTests();
 //
 // 四个假版本各管一条路（都在临时根目录里，跑完随根目录一起消失）：
 // 1.20.1-defskin 新规矩那条在 → 算得出来
-// 1.18.2-defskin 只有老规矩那条在 → 换一套规矩也算得出来
+// 1.18.2-defskin 只有旧版布局那条在 → 换一套布局也算得出来
 // 1.19.9-noskin 两条都不在 → **常态**：退回随机那张
 // 1.7.10-broken jar 根本不是 zip（第三方安装器的薄壳那种）→ 记一行日志再退回随机
 // ---------------------------------------------------------------------------
@@ -1951,8 +1948,8 @@ void runLaunchGuardTests();
 // 反查那一趟真跑（后台线程 + 假接口）→ 行尾那颗「详情」真的从灰的变亮 → 真的按它一下
 // → 实例设置那一页收起来 → 资源详情页真的开出来、标题就是接口给的那个名字。
 //
-// NOTE: 起**名字那一格不再是链接**（单击 = 选中这一行）；"这一条是哪个资源"
-// 整件事就落在那颗按钮上，所以这一节从前量的"名字是手型光标"那几条一并改到了它身上。
+// NOTE: 名字那一格**不是链接**（单击 = 选中这一行）；"这一条是哪个资源"
+// 整件事就落在那颗按钮上，所以这一节量的就是那颗按钮。
 //
 // 【为什么非要端到端，不满足于"两个部件各自对"】
 // 这一条路上有**三处**只有接起来才存在的判据，任何一处错了，界面上都是"点一下没反应"：
@@ -2065,7 +2062,7 @@ template <typename T> T *newestByObjectName(QObject *parent, const QString &name
 }
 
 // =========================================================================
-// T38. 「更新中心」上那几颗动作（coding plan §7.1，）
+// T38. 「更新中心」上那几颗动作
 //
 // · 「忽略这一版」→ 账本（`<数据目录>/wtfml.updates`）里记下"要换上的**那一版**的 id"，
 // 那一行当场写成「已忽略这一版（2.0）」、那一颗翻成「不再忽略」；
@@ -2090,7 +2087,7 @@ void runUpdateCenterActionTests();
 
 void runThemeImageRowTests();
 
-/// T39. 设置页「主题」那一节：控件 → 主题规格 → 盘（coding plan §8.3，）。
+/// T39. 设置页「主题」那一节：控件 → 主题规格 → 盘。
 ///
 /// 两处**故意不点**（底下是覆盖层 / 原生框，测试里点下去就是卡住）：
 /// · 那三块色板（主题色 + 四个语义色）—— 底下是 `InlineMessage::pickColor()`；
@@ -2205,7 +2202,7 @@ static void clickDetailTreeRow(QTreeWidget *tree, const QPoint &pos) {
 void runDependencyAndBatchTests();
 
 // =========================================================================
-// T41. 服务端「跑起来 / 停下来」（coding plan §6.2 的操作 + §6.3 的停止时序，M4-3）
+// T41. 服务端「跑起来 / 停下来」（M4-3）
 //
 // 那一层叫 `ServerRun::ServerProcess` —— 它管一条真进程的整条命：起、读它的 stdout、
 // 往它的 stdin 写、正常停、宽限到点强杀。这条路上任何一处断了，屏幕上的样子都是
@@ -2227,7 +2224,7 @@ void runDependencyAndBatchTests();
 void runServerProcessTests();
 
 // =========================================================================
-// T42. 「服务端设置」那一整页（coding plan §6.3 第二阶段 / M4-4）
+// T42. 「服务端设置」那一整页（M4-4）
 //
 // 这一节量的是**只能在这一层说得清**的事：那一页经真 `MainWindow` 开到内容区上之后，
 // 按下去的那几发到底有没有落到盘上 —— 表单改一格 → 保存 → 盘上那份 `server.properties`
@@ -2237,16 +2234,16 @@ void runServerProcessTests();
 void runServerSettingsPageTests();
 
 // =========================================================================
-// T43. 关窗那一刻：worker 线程 / 子进程 / 还在飞的下载各自怎么收场（coding plan §3.1②）
+// T43. 关窗那一刻：worker 线程 / 子进程 / 还在飞的下载各自怎么收场
 //
-// 那条问的是「关掉启动器的时候，后台那些活分别怎么收尾」。这一节之前**一条判据都没有**，
-// 而这几条路各自都能把"关个窗"变成"崩一下"，或者"把用户的东西弄丢"：
+// 那条问的是「关掉启动器的时候，后台那些活分别怎么收尾」。这一段钉的就是它们：
+// 这几条路各自都能把"关个窗"变成"崩一下"，或者"把用户的东西弄丢"：
 //
 // · **worker 线程**：`MainWindow` 手上那几趟后台活（体检 / 备份 / 图标反查 / 检查更新）
 // 都是 `QThread::create()` + `setParent(this)` 出来的。线程还在跑、窗口先散 ⇒ Qt 直接
 // `qFatal("QThread: Destroyed while thread is still running")`，也就是 abort。
 // 体检和备份那两趟在析构里会被等（那两段写着 `~MainWindow()` 里），**图标反查和
-// 检查更新那两趟从前没人等** —— T43.3 就是给它们摆的钉子。
+// 检查更新那两趟没人等** —— T43.3 给它们摆了钉子。
 // · **子进程（游戏）**：关窗**不许杀**它（用户那句「关掉启动器游戏继续跑」）。窗口一关，
 // `LauncherManager` 就跟着析构，而 `QProcess` 的析构里第一件事就是 `kill()` ——
 // 所以那一问走完必须先 `detachRunningGame()` 把进程**交出去**。T43.2 量到的是"窗口连
@@ -2266,8 +2263,8 @@ void runServerSettingsPageTests();
 ///
 /// 必须**另起线程**：`HttpClient::send()` 是同步的（自己转自己的事件循环），而 T43.3 那
 /// 一段**主线程正卡在 `~MainWindow()` 里等它**、根本转不动事件循环 —— 摆在主线程这边的
-/// `QTimer` 那一下**永远响不了**，"过一会儿把连接放掉"就没机会发生（同 ServerPing 那次
-/// "假服务器必须另起线程"的教训）。这一条线程用的是 `msleep`，不靠任何事件循环。
+/// `QTimer` 那一下**永远响不了**，"过一会儿把连接放掉"就没机会发生（和 ServerPing 一样：
+/// "假服务器必须另起线程"）。这一条线程用的是 `msleep`，不靠任何事件循环。
 class StallingApi : public QThread {
 public:
     /// @param holdMs 收到一发连接之后**吊多久**再把它放掉。

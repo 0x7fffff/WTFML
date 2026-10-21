@@ -31,8 +31,8 @@
  * java.exe 活不活得下去是游戏自己的事（同一个游戏目录开两份会不会坏档由用户判断），
  * 启动器的职责只是**不替用户做这个决定**，并且把每一份都如实报出来。
  *
- * 于是本类里**没有**"已经在跑了所以不能再起"这条早退路径（它以前有，见
- * runningGames() 的说明）。取而代之的是三条不变式：
+ * 于是本类里**没有**"已经在跑了所以不能再起"这条早退路径（见 runningGames() 的说明）。
+ * 取而代之的是三条不变式：
  * 1. 每个进程的输出/结束都带着自己的 sessionId 往外发，界面按 id 归属到具体那一份；
  * 2. 编码方式（-Dstdout.encoding）**按会话各记一份** —— 两份会话用的 Java 主版本可能
  * 不同，共用一份状态就会有一份的中文变乱码；
@@ -124,17 +124,15 @@ public:
      * GlobalJavaSettings::extraJvmArgs() **之后** —— JVM 参数后写的胜出，
      * 所以单个实例能盖掉全局默认那套（例如全局写死了 -XX:+UseG1GC）。
      * @param playerName 玩家名，写进 --username。离线与正版两条分支**都用这一个来源**
-     * （调用方传 AuthManager::playerName()）—— 以前两条分支各写各的：正版写死
-     * "Player"，离线是 "Player" 拼一个时间戳。空 = 调用方没给（测试、未登录），
+     * （调用方传 AuthManager::playerName()）—— 不能两条分支各写各的（正版写死
+     * "Player"、离线拼一个时间戳）。空 = 调用方没给（测试、未登录），
      * 退回默认名。**不能发一个空的 --username 给游戏**，那样游戏会拒绝启动，
      * 所以空值是"退回默认"而不是"原样传下去"。
      * @param playerUuid 正版分支的 --uuid（调用方传 AuthManager::playerUuid()，带横线的
      * 标准写法）。空 = 没有档案（没登录、或者测试没给），那时退回全零 UUID ——
-     * 这是老行为：以前登录流程根本不拉档案，全工程没有 UUID 来源，所以正版分支一
-     * 直发全零，正版服上等于一个"谁都不是"的身份。离线分支**不用**它（那边每次
-     * 自己随机生成一个）。
+     * 那在正版服上等于一个"谁都不是"的身份。离线分支**不用**它（那边按名字推）。
      * @param window 这一次启动要用的窗口那一组（模式 + 分辨率）。默认是"小窗 + 原版默认
-     * 的 854×480"，也就是加这一档之前的行为。
+     * 的 854×480"。
      * @param screen 屏幕工作区（像素）。**只有「最大化」那一档用得上**：那一档原版没有对应
      * 参数，是照工作区算一个大小再当 --width/--height 发下去的（见
      * GameWindowSettings.hpp）。<= 0 = 调用方没给（验证工程那些纯值的构造点），
@@ -166,8 +164,8 @@ public:
     /**
      * @brief 启动一个 Minecraft 游戏进程（新增一份会话）。
      * @param arguments JVM and game arguments.
-     * @param settings 这次启动要用的 Java 值（只读它里面的 javaPath；改成 const 引用
-     * 是安全的，也是上一版就有的行为 —— 这里从来不改设置）。
+     * @param settings 这次启动要用的 Java 值（只读它里面的 javaPath；const 引用
+     * 是安全的，这里从来不改设置）。
      * @param versionId Version identifier.
      * @param displayName 启动那一刻这个实例的显示名。空 = 退回 versionId。
      * @param accountName 这次启动用的身份。空 = 记不着（未登录、测试），界面就不报身份。
@@ -177,7 +175,7 @@ public:
      * 非 Windows 平台上这个参数被忽略（没有任何等价物）。
      * @return **这次会话的 id**（> 0）；没能起来时返回 0。
      *
-     * NOTE: 返回值从"起没起来"改成了会话号 —— 语义是 `sessionId > 0` 就等于"进程真的
+     * NOTE: 返回值就是会话号 —— 语义是 `sessionId > 0` 就等于"进程真的
      * 起来了"。三条早退路径（找不到 Java 可执行文件、waitForStarted 超时、
      * 会话数到顶）一律 return 0，且**都不会**留下会话。调用方拿它决定要不要把
      * 这个版本记成"上次启动的版本"，所以失败时绝不能返回非零。
@@ -285,7 +283,7 @@ private:
         bool outputIsUtf8 = false;
         /// 为什么要它：`readyRead` 是**按管道里的字节块**来的，一次读到的末尾完全可能
         /// 正落在**一个汉字的两个字节中间**（Java ≤18 走本地代码页 = 中国区 GBK，那更是
-        /// 两字节一个汉字）。原来每块各自 `QString::fromLocal8Bit(块)` ⇒ 前半截和后半截
+        /// 两字节一个汉字）。每块各自 `QString::fromLocal8Bit(块)` 会让前半截和后半截
         /// 各解出一个替换字符，日志里零星多出乱码。QStringDecoder 是**有状态**的，
         /// 末尾那半个字节留着等下一块拼上。
         std::shared_ptr<QStringDecoder> stdoutDecoder;

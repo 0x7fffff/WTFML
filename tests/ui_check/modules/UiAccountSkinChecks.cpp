@@ -319,7 +319,7 @@ int UiAccountSkinChecks() {
                 check(viewer->skin() == SkinModel::defaultSteveSkin(),
                       "皮肤传空图 → 退回默认外观，不是空白");
 
-                // 那个「模型」下拉框的滚轮防护：这一个以前漏了，而后果比设置页那几个重 ——
+                // 那个「模型」下拉框的滚轮防护：漏了后果比设置页那几个重 ——
                 // 鼠标划过去静默换一档，接着点上传就传错模型（经典/纤细在游戏里是两套手臂）。
                 {
                     const QString problem = wheelGuardProblem(
@@ -329,7 +329,7 @@ int UiAccountSkinChecks() {
             }
 
             // ---- X8 忙碌态：按钮一起灰 ----
-            // 这一段是这次补的一个真缺陷：refreshButtonStates() 是按「有没有选中」定
+            // 这一段盯的是一个真缺陷：refreshButtonStates() 是按「有没有选中」定
             // 可用性的，而 setBusy() 末尾会调它一次 —— 于是忙的时候那三个按钮被重新点亮，
             // 登录还在飞（浏览器可能几十秒才回来）用户就能切账号，回来之后两条路各写一遍
             // 凭据。所以下面这条断言是**故意**盯着它们的。

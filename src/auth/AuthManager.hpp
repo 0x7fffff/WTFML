@@ -4,7 +4,6 @@
  * Minecraft 令牌过期之后重新换一遍。它换不出能启动游戏的令牌。
  * - Minecraft 那份（`MinecraftTokenData`）：启动游戏时 `--accessToken` 要的就是它，
  * 有效期约 24 小时，**换不出来就得从微软那头整条链重走**。
- * 以前这里只有微软那份，还把它当成启动令牌用 —— 那不是登录成功，是拿到了半张票。
  */
 #pragma once
 
@@ -77,8 +76,7 @@ public:
     /// 为什么不是"等它真的过期"：一张 Minecraft 令牌能用 24 小时，而"能不能启动游戏"问的是
     /// **点启动那一刻**。启动器很可能开着不关（用户挂着它过夜、第二天点启动），那时候按
     /// "还没过期"放过去的就是一张只剩几分钟的令牌 —— 用户要的是"这趟走得顺"，不是
-    /// "这一毫秒还没过期"。6 小时也是用户 指定的数（要求：
-    /// 「看令牌需不需要更新，（过期时间小于6h）要的话就刷新」）。
+    /// "这一毫秒还没过期"。6 小时是刷新窗口：过期时间小于 6 小时就刷新。
     static constexpr int tokenRefreshWindowSecs = 6 * 60 * 60;
 
     /**
@@ -188,8 +186,8 @@ public:
                                   const QString &what);
 
 signals:
-    // NOTE: 三个信号在 MainWindow 里都接上了（ 补的）—— 原来只有 loginSucceeded
-    // 有接收方，于是登录失败只在浏览器那个页面里看得见，启动器界面上什么都不发生。
+    // NOTE: 三个信号在 MainWindow 里都接上了：登录失败不能只在浏览器那个页面里
+    // 看得见，启动器界面上也得有反应。
     // loginFailed 的正文是**给用户看的**，接收方要拿它弹窗（产品约定：挡住操作的
     // 错误必须弹窗，不能只写日志）。
     void loginStarted();
@@ -225,11 +223,9 @@ private:
     /// 返回 true：中途任何一步失败，**Minecraft 那份令牌和玩家名一个都不写**
     /// （半截的登录状态比没登录更难查）。
     ///
-    /// NOTE: 这里以前写的是"一份令牌都不落盘"，**不准确** —— 微软那份（refresh_token /
-    /// access_token）在这条链之前就已经落盘了（见 exchangeAuthorizationCode()，
-    /// 同文件实现里那段 NOTE 也记着）。它单独用不了（是"下次续期用的凭据"、不是
-    /// "已登录"），但盘上确实有它 —— 真机上正是靠它把失败的链重放了一遍，
-    /// 才查出 login_with_xbox 的 403。
+    /// NOTE: 这条链**不清**微软那份令牌：refresh_token / access_token 在链之前就已经落盘
+    /// （见 exchangeAuthorizationCode()，同文件实现里那段 NOTE 也记着）。它单独用不了
+    /// （是"下次续期用的凭据"、不是"已登录"），但盘上确实有它。
     bool runMinecraftChain(const QString &microsoftAccessToken, QString *errorMessage,
                            const QString &expectedActiveUuid = QString());
     bool requestXboxLiveToken(const QString &microsoftAccessToken, QString *xblToken,

@@ -124,7 +124,7 @@ PresetController::PresetController(VersionManager *versions, QWidget *hostPage, 
                                    QObject *parent)
     : QObject(parent), m_versions(versions), m_hostPage(hostPage), m_host(std::move(host)) {
     // 兼容检查那一套：真网络提供方 + 共享缓存 + 检查器。★ 缓存与 checker 都活到这一层
-    // 结束，所以"同一批模组在两个弹窗里连着看两次"第二趟是缓存结论（§7.2「共享缓存」）。
+    // 结束，所以"同一批模组在两个弹窗里连着看两次"第二趟是缓存结论（「共享缓存」）。
     m_modProvider = new Presets::PlatformCompatibilityProvider(
         QUrl(QStringLiteral("https://api.modrinth.com/v2")), this);
     m_modChecker = new Presets::CompatibilityChecker(&m_modCache, this);
@@ -359,7 +359,7 @@ quint32 PresetController::captureMaskFor(Presets::PresetCategory category) {
     case Presets::PresetCategory::ResourcePacks:
         return Bits::CaptureResourcePacks | Bits::CaptureShaderPacks;
     case Presets::PresetCategory::DataPacks:
-        // 数据包只收世界里的那一坨（P4）；模组类仍然没有可提取的段（P5）。
+        // 数据包只收世界里的那一坨；模组类仍然没有可提取的段。
         return Bits::CaptureDataPacks;
     case Presets::PresetCategory::Mods:
         return 0;
@@ -1166,7 +1166,7 @@ void PresetController::fillInstallSelector(QComboBox *combo, const QString &pref
     }
 
     // 选哪一项：**用户选过就听用户的**（哪怕他选的是"不使用预设"，那也是 selection）；
-    // 没选过才轮到默认项（§7「不因后台默认项变化而偷偷切换」）。
+    // 没选过才轮到默认项（「不因后台默认项变化而偷偷切换」）。
     int index = -1;
     if (preferredKnown) {
         if (preferredId.isEmpty()) {
@@ -1272,7 +1272,7 @@ PresetController::InstallPreview PresetController::previewForInstall(
         view.lines.append(line);
         view.reasons.append(line);
     }
-    // 弹窗状态行那几格（§7.1）：动几项 / 跳过几项 / 哪几段做不了。三个数都是
+    // 弹窗状态行那几格：动几项 / 跳过几项 / 哪几段做不了。三个数都是
     // `ApplyPlan` 自己算的，这一层只做加法 —— 别在界面上拿 `lines.size()` 之类的近似。
     view.itemCount = plan.totalCount();
     for (const Presets::ApplyPlanRow &row : plan.rows) {
@@ -1434,7 +1434,7 @@ Presets::PresetApplyResult PresetController::planOnly(
 }
 
 // ---------------------------------------------------------------------------
-// 安装前的兼容检查（§7.2 / P2）
+// 安装前的兼容检查
 // ---------------------------------------------------------------------------
 
 QList<Presets::ModReference> PresetController::modReferencesFor(const QString &presetId) const {

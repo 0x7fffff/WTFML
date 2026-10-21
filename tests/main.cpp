@@ -522,7 +522,7 @@ return runVersionManagerFetchFail(app);
     //
     // 为什么不能直接用 meta/ 里那份：那份是加载器版本（或原版）自己写的原样 json，加载器
     // 那份里**没有原版的库**（log4j、joml 之类全在父那份），照它拼出来的 classpath 连
-    // LogManager 都找不到 —— 那样起不来，也就验不出"这次改动之后游戏真的能启动"。
+    // LogManager 都找不到 —— 那样起不来，也就验不出"游戏真的能启动"。
     if (argc >= 5 && QString::fromLocal8Bit(argv[1]) == QLatin1String("dumpmerged")) {
         const QString versionId = QString::fromLocal8Bit(argv[2]);
         const int major = QString::fromLocal8Bit(argv[3]).toInt();
@@ -634,7 +634,7 @@ return runVersionManagerFetchFail(app);
     }
     check(!has292, "1.12.2 的 rules 过滤生效（没有 2.9.2 的 DLL）");
 
-    section("B. 1.19+ classpath 零回归（对比改动前的算法）");
+    section("B. 1.19+ classpath 零回归（对比基准算法）");
     for (const QString &v : {"1.19", "26.1"}) {
         GlobalJavaSettings s;
         const QStringList args =
@@ -645,7 +645,7 @@ return runVersionManagerFetchFail(app);
                          : QStringList();
         const QStringList expected = legacy::classpath(jsons[v], v);
 
-        check(actual == expected, QString("%1: classpath 与改动前逐项一致").arg(v),
+        check(actual == expected, QString("%1: classpath 与基准逐项一致").arg(v),
               QString("new=%1 old=%2").arg(actual.size()).arg(expected.size()));
         if (actual != expected) {
             const QSet<QString> a(actual.begin(), actual.end());
@@ -658,10 +658,9 @@ return runVersionManagerFetchFail(app);
             }
         }
 
-        // 改动前这里断言"1.19+ 不出现 -Djava.library.path"。现在按 version.json 原样
-        // 传递：1.19 和 26.1 都声明了这条属性，值就是该版本的 natives 目录。断言改成
-        // "有且只有一条，且是存在的绝对路径" —— 这比"不许出现"更贴近原版行为，也仍然
-        // 能抓住"把不存在的路径塞进去"那类回归（QDir::exists 会失败）。
+        // 按 version.json 原样传递：1.19 和 26.1 都声明了这条属性，值就是该版本的
+        // natives 目录。断言"有且只有一条，且是存在的绝对路径" —— 这比"不许出现"更贴近
+        // 原版行为，也仍然能抓住"把不存在的路径塞进去"那类回归（QDir::exists 会失败）。
         int libPathCount = 0;
         QString libPath;
         for (const QString &a : args) {
@@ -835,14 +834,14 @@ return runVersionManagerFetchFail(app);
         };
         const QList<Gate> gates = {
             {8, false, false, QStringLiteral("Java 8：两条都不能加，加了就起不来")},
-            {17, false, false, QStringLiteral("Java 17：实测拒绝 sun-misc")},
-            {19, false, true, QStringLiteral("Java 19：encoding 的下界（实测 17 忽略、21 生效）")},
-            {21, false, true, QStringLiteral("Java 21：实测拒绝 sun-misc，编码已生效")},
+            {17, false, false, QStringLiteral("Java 17：会拒绝 sun-misc")},
+            {19, false, true, QStringLiteral("Java 19：encoding 的下界（17 忽略、21 生效）")},
+            {21, false, true, QStringLiteral("Java 21：拒绝 sun-misc，编码已生效")},
             // 24 这一档是**刻意**放"没有"边的：JEP 498 在 JDK 24 引入这个选项，但本机
             // 没有 24 的运行时，21 拒绝 / 25 接受之间无法验证。代价不对称 —— 少加一条
             // 只是少压一句警告，加错一条是 JVM 起不来 —— 所以门槛取实测下界 25。
-            {24, false, true, QStringLiteral("Java 24：无法实测，取保守边（见注释）")},
-            {25, true, true, QStringLiteral("Java 25：实测接受 sun-misc，门槛的下界")},
+            {24, false, true, QStringLiteral("Java 24：无法验证，取保守边（见注释）")},
+            {25, true, true, QStringLiteral("Java 25：接受 sun-misc，门槛的下界")},
             {0, false, false, QStringLiteral("调用方没传版本：一律按最保守的来")},
         };
 
@@ -965,8 +964,7 @@ return runVersionManagerFetchFail(app);
 
     section("C4. --gameDir / --assetsDir 是绝对路径（两个分支都要）");
     // -----------------------------------------------------------------
-    // 它们以前是靠 cwd(.minecraft) 解析的相对路径，而 startGame() 又自己算了一份绝对
-    // 路径。改成绝对路径后解析结果不变，但不再依赖 cwd —— 所以这里既断言"是绝对的"，
+    // --gameDir / --assetsDir 是绝对路径，不依赖 cwd —— 所以这里既断言"是绝对的"，
     // 也断言"指的正是那个目录"，两件事都要钉住。
     {
         const QString expectedGameDir = sandbox + "/versions/1.19";
@@ -1188,9 +1186,8 @@ return runVersionManagerFetchFail(app);
 
     section("C6. --username 只有调用方给的那一个来源（离线/正版都一样）");
     // -----------------------------------------------------------------
-    // 底栏左下角显示的名字和游戏里那个名字必须是同一个 —— 以前离线分支自己拼
-    // "Player<毫秒时间戳>"、正版分支写死 "Player"，于是底栏写着谁、游戏里就是另一个人。
-    // 现在两条分支都取调用方传进来的 playerName（真实路径传 AuthManager::playerName()）。
+    // 底栏左下角显示的名字和游戏里那个名字必须是同一个 —— 两条分支都取调用方传进来的
+    // playerName（真实路径传 AuthManager::playerName()），不许各自拼名字。
     {
         const auto argValue = [](const QStringList &list, const QString &flag) -> QString {
             const int i = list.indexOf(flag);
@@ -1599,7 +1596,7 @@ runAsciiAliasTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 「从别的游戏文件夹里借文件」（，见上面 LF 节）。纯值那半不碰盘；
+    // 「从别的游戏文件夹里借文件」（见上面 LF 节）。纯值那半不碰盘；
     // DownloadManager 那半自己开临时游戏文件夹、跑完换回去 —— 那几条证明的是
     // "借到了就真的一个网络请求都不发"（地址给的是一条必然失败的 file://）。
 
@@ -1624,7 +1621,7 @@ runVersionIntegrityTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 任务账本那一套（，coding plan §2 / §3），见上面 AL / AM 两节。**一个
+    // 任务账本那一套，见上面 AL / AM 两节。**一个
     // QWidget 都不碰、一个网络都不开**：纯规则喂值进去、账本自己在一个临时目录里落盘读回
     // —— 不碰共享沙盒。
 
@@ -1633,7 +1630,7 @@ runTaskLedgerTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 游戏异常退出那几句话（，coding plan §4.3），见上面 ZP 节。纯函数：值进、
+    // 游戏异常退出那几句话，见上面 ZP 节。纯函数：值进、
     // 字符串出，不看时钟、不读盘、不起进程 —— 那一张提示表在这里逐格念一遍。
 
 #ifndef WTFML_CORE_BASELINE
@@ -1641,7 +1638,7 @@ runGameExitDiagnosisTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 世界与实例备份（，coding plan §4.4），见上面 ZQ 节。**真打 zip、真删目录、
+    // 世界与实例备份，见上面 ZQ 节。**真打 zip、真删目录、
     // 真还原**：自己开一个临时游戏文件夹（备份落点就是 `<数据目录>/cache/backups`）、跑完
     // 换回去 —— 不碰共享沙盒；这一节留下的痕迹在盘上是好几个压缩包，留在沙箱里碍事。
 
@@ -1650,7 +1647,7 @@ runBackupTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 「上一次启动」那本账（，coding plan §5.1），见上面 ZR 节。**全是纯函数**：
+    // 「上一次启动」那本账，见上面 ZR 节。**全是纯函数**：
     // 值进、字符串/一段字节出，不问时钟（那一列的"现在"是参数）—— 只有"账本落在哪个文件上"
     // 那一条要换一下数据根目录（换完就还原），所以它和 ZQ 那一节一样自己开临时目录。
 
@@ -1659,7 +1656,7 @@ runLaunchHistoryTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 实例预设（，coding plan §5–§6 / P1），见上面 PA 节。值那一层是纯函数，
+    // 实例预设，见上面 PA 节。值那一层是纯函数，
     // 盘那一层在一个临时目录里真存真读（每一件都收一个 `root` 参数，所以连全局数据根目录
     // 都不用改）—— 不联网、不碰共享沙箱、不开界面。
 
@@ -1668,7 +1665,7 @@ runPresetStoreTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 原版设置那一段（，coding plan §6 P2），见上面 PB 节。**全是纯函数**：`options.txt`
+    // 原版设置那一段，见上面 PB 节。**全是纯函数**：`options.txt`
     // 的字节进、字节出 —— 门槛是"读进来再写出去逐字节相同"，所以这一节一条临时目录都不用开。
 
 #ifndef WTFML_CORE_BASELINE
@@ -1676,7 +1673,7 @@ runVanillaOptionsTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 服务器列表那一段（，coding plan §6 P3），见上面 PC 节。判据那几条是纯值；
+    // 服务器列表那一段，见上面 PC 节。判据那几条是纯值；
     // "落到那个实例上"那几条**真动盘** —— 在一个临时目录里造真 `servers.dat`，跑完读回来
     // 逐字节比（"没碰过的条目一个字节都不变"只有比字节才验得出来）。
 
@@ -1684,7 +1681,7 @@ runVanillaOptionsTests();
 runServerListPresetTests();
 #endif
     // -----------------------------------------------------------------
-    // 通用文件组那一段（，coding plan §6 P3 后半），见上面 PD 节。这一节的重量在
+    // 通用文件组那一段，见上面 PD 节。这一节的重量在
     // "我们**没**弄坏用户东西"和"我们**没**跑出这一组去"：覆盖不删多出来的文件、缺了才拷
     // 是逐文件判的、源侧和目标侧那两根 junction 都真造了一根来验。
 
@@ -1692,7 +1689,7 @@ runServerListPresetTests();
 runGenericFilesTests();
 #endif
     // -----------------------------------------------------------------
-    // 应用计划那一层（，coding plan §5 / §7），见上面 PE 节。这一节验的是 §7 那张
+    // 应用计划那一层，见上面 PE 节。这一节验的是下面那张
     // 表：段一行、数从适配器那边真算出来、几道闸（没点头的覆盖 / 游戏在跑 / 不认识的种类）
     // 真的会拦。★ 这一层只读：除了通用文件组的干跑、MaLiLib 那一档读一遍目标上的
     // `config/<模组>.json`，一个字节都不写。
@@ -1701,7 +1698,7 @@ runGenericFilesTests();
 runPresetPlannerTests();
 #endif
     // -----------------------------------------------------------------
-    // MaLiLib 那一族的热键（，coding plan §6 P4 / §10 第 12 条），见上面 PF 节。
+    // MaLiLib 那一族的热键，见上面 PF 节。
     // 这一节的重量在三处：**按结构认模组**（TweakerMore / Masa Gadget / OMMC 这些名字代码里
     // 一个都没有）、**合并不许退化成覆盖**（目标上没被点名的那几格一个都不动）、**拒绝都在
     // 改动之前**（类型对不上就不转）。
@@ -1710,7 +1707,7 @@ runPresetPlannerTests();
 runMalilibKeysTests();
 #endif
     // -----------------------------------------------------------------
-    // 提取与落到实例上（，coding plan §6 P1 / §7），见上面 PG 节。和 PE 那一节的
+    // 提取与落到实例上，见上面 PG 节。和 PE 那一节的
     // 分界是"有没有真写盘"：这一节拿两份真实例形状的临时目录走一遍收与落，最值钱的是
     // 覆盖那两趟（第一趟一个字节都不动）、游戏在跑整趟不写、以及备份里那份是不是原样。
 
@@ -1718,7 +1715,7 @@ runMalilibKeysTests();
 runPresetCaptureApplyTests();
 #endif
     // -----------------------------------------------------------------
-    // 资源包次序 / 启用 + 世界级数据包（，coding plan §6 P4），见上面 PL 节。
+    // 资源包次序 / 启用 + 世界级数据包，见上面 PL 节。
     // 验收原话是「没世界就待应用；部署不冒充启用」：这一节在两个临时实例里真造
     // `options.txt` 与 `saves/<世界>/datapacks/`，比的都是逐字节。
 
@@ -1726,7 +1723,7 @@ runPresetCaptureApplyTests();
 runResourceAndDataPackTests();
 #endif
     // -----------------------------------------------------------------
-    // 模组「真正去下」之前的判据层（，coding plan §10.1 第 7 项 / P5），
+    // 模组「真正去下」之前的判据层，
     // 见上面 PM 节。验收原话是「不错装不兼容文件；替代项目需确认；落盘校验」：
     // 这一节全拿手搭的假答复逐格念，一条网络都不碰；落盘校验读的是临时目录里的真文件。
 
@@ -1734,7 +1731,7 @@ runResourceAndDataPackTests();
 runModInstallPlanTests();
 #endif
     // -----------------------------------------------------------------
-    // 模组预设的兼容检查（，coding plan §6.0 P2 / §7.2），见上面 PH 节。
+    // 模组预设的兼容检查，见上面 PH 节。
     // **一条网络都不碰**：四个假提供方分别代表立刻答 / 慢答 / 手动放行 / 永远不答，
     // 验的是去重、本地优先、并发上限、旧 generation 作废、失败不算缺失、缓存只收准话。
 
@@ -1742,14 +1739,13 @@ runModInstallPlanTests();
 runPresetCompatibilityTests();
 #endif
     // -----------------------------------------------------------------
-    // 大量预设 / 大量引用 / 连换几十代 / 先关检查器（，coding plan §10.1
-    // 第 8 项 / P6），见上面 PN 节。验收原话是「无过期回调、失控并发或主线程假死」。
+    // 大量预设 / 大量引用 / 连换几十代 / 先关检查器，见上面 PN 节。验收原话是「无过期回调、失控并发或主线程假死」。
 
 #ifndef WTFML_CORE_BASELINE
 runPresetStressTests();
 #endif
     // -----------------------------------------------------------------
-    // 实例页的搜索与筛选（，coding plan §7.2），见上面 ZS 节。**全是纯函数**：
+    // 实例页的搜索与筛选，见上面 ZS 节。**全是纯函数**：
     // 值进、bool 出，不读盘、不问时钟 —— 连一条实例都不必真的存在。
 
 #ifndef WTFML_CORE_BASELINE
@@ -1757,7 +1753,7 @@ runInstanceFilterTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 更新中心的「忽略 / 固定」那本账（，coding plan §7.1），见上面 ZT 节。
+    // 更新中心的「忽略 / 固定」那本账，见上面 ZT 节。
     // **纯函数 + 一个临时目录里的真存真读**：不联网、不碰共享沙箱、不开任何界面。
 
 #ifndef WTFML_CORE_BASELINE
@@ -1765,7 +1761,7 @@ runUpdatePolicyTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 更新前那份轻量回滚点（，coding plan §7.1），见上面 ZU 节。**真动盘**：
+    // 更新前那份轻量回滚点，见上面 ZU 节。**真动盘**：
     // 自己开一个临时游戏文件夹造实例目录（这一层整个存在的意义就是"动手之前手上有一份
     // 旧的"，纯值上验不出来），跑完换回来。
 
@@ -1774,7 +1770,7 @@ runUpdateRollbackTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 服务端工作区（，coding plan §6 / 里程碑 M4）：判据层（状态 / EULA /
+    // 服务端工作区：判据层（状态 / EULA /
     // server.properties / 我们记的那一份），见上面 ZW 节。**纯函数**：值进、结构出。
 
 #ifndef WTFML_CORE_BASELINE
@@ -1782,7 +1778,7 @@ runServerModelTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 扫盘那一层（coding plan §6 / 里程碑 M4），见上面 ZX 节。**真动盘**：自己开一个临时
+    // 扫盘那一层，见上面 ZX 节。**真动盘**：自己开一个临时
     // 数据根目录，真建服务端目录、真读写那两个配置文件、真删 —— 跑完换回来。
 
 #ifndef WTFML_CORE_BASELINE
@@ -1790,7 +1786,7 @@ runServerRegistryTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 服务端安装那四段的判据层（，coding plan §6.2 / 里程碑 M4-2），见上面 ZY 节。
+    // 服务端安装那四段的判据层，见上面 ZY 节。
     // **纯函数**：喂一份计划 + 一份字节进去，回一个结论出来（不联网、不建目录、不起 java
     // —— 真干那三件事的是驱动层，归 mw_check）。
 
@@ -1799,8 +1795,7 @@ runServerInstallRunTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 服务端"跑起来 / 停下来"那条路的判据层（，coding plan §6.2 的操作 + §6.3 的
-    // 停止时序 / 里程碑 M4-3），见上面 ZZ 节。**纯函数**：那条命令怎么拼、起来没有、退了算
+    // 服务端"跑起来 / 停下来"那条路的判据层，见上面 ZZ 节。**纯函数**：那条命令怎么拼、起来没有、退了算
     // 哪一档状态、宽限多久才允许强杀（真起进程那一半 `ServerProcess` 归 mw_check 的 T41）。
 
 #ifndef WTFML_CORE_BASELINE
@@ -1808,7 +1803,7 @@ runServerRunTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 「服务端设置」那一页底下那两层判据（，coding plan §6.3 / 里程碑 M4-4），见上面
+    // 「服务端设置」那一页底下那两层判据，见上面
     // ZV 节。**几乎全是纯函数**：表本身 / 收不收 / 合回文件 / 体检报哪几条与次序。唯一的例外
     // 是 ZV6 那一条 —— "这个端口有人占着吗"要**真听一次**（本机、不联网）。
 
@@ -1817,7 +1812,7 @@ runServerSettingsTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 服务端那四份玩家名单（，coding plan §9.7「玩家管理」），见上面 ZAE 节。
+    // 服务端那四份玩家名单，见上面 ZAE 节。
     // **纯函数**：读要宽容 / 写按游戏那份字段形状 / 认人 / 离线 UUID / 到期。
 
 #ifndef WTFML_CORE_BASELINE
@@ -1825,7 +1820,7 @@ runServerPlayersTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 服务端异常退出后自动重启那条策略（，coding plan §9.7「重启策略 + 上限」），
+    // 服务端异常退出后自动重启那条策略，
     // 见上面 ZAF 节。**纯函数**：哪一档才拉 / 连着几次收手 / 退避 / 策略往返（不读盘、不看时钟）。
 
 #ifndef WTFML_CORE_BASELINE
@@ -1833,13 +1828,13 @@ runServerRestartTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 服务端资源包那一份本地 zip（，coding plan §9.7），见上面 ZAG 节。
+    // 服务端资源包那一份本地 zip，见上面 ZAG 节。
     // 条目表判据是纯的；那一发 `inspect()` 会真打一个 zip 再读它（走 ZipUtil + FileHash）。
 
 #ifndef WTFML_CORE_BASELINE
 runServerResourcePackTests();
 #endif
-    // 服务端内容（§9.7）：模组 / 数据包的名字与分类（ZAH）。
+    // 服务端内容：模组 / 数据包的名字与分类（ZAH）。
 
 #ifndef WTFML_CORE_BASELINE
 runServerContentTests();
@@ -1850,14 +1845,14 @@ runServerContentTests();
 #ifndef WTFML_CORE_BASELINE
 runFolderRemovalTests();
 #endif
-    // 工具箱那两件（§9.11）：信标计算 / 酿造助手（ZAI）。
+    // 工具箱那两件：信标计算 / 酿造助手（ZAI）。
 
 #ifndef WTFML_CORE_BASELINE
 runToolboxExtraTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 正版登录那两格随构建配置走的常数（，coding plan §9.4），见上面 ZA 节。
+    // 正版登录那两格随构建配置走的常数，见上面 ZA 节。
     // **纯函数**：一串地址进去、端口出来（不联网、不开监听；真绑端口那一半在 AuthManager
     // 里，归 mw_check）。
 
@@ -1866,14 +1861,14 @@ runOAuthEndpointTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 「同时最多下几个」那几档（，coding plan §9.2 并发数预设），见上面 ZO 节。
+    // 「同时最多下几个」那几档（并发数预设），见上面 ZO 节。
     // **纯函数 + 一个字面对象**：四档那个表、归一化、以及"队列泵问的是这个对象当下那一档"
     // （真发请求那一半归 mw_check）。
 
 #ifndef WTFML_CORE_BASELINE
 runDownloadConcurrencyTests();
 #endif
-    // 「下载速度上限」那几档（，coding plan §9.2 下载限速），见上面 ZP 节。
+    // 「下载速度上限」那几档（下载限速），见上面 ZP 节。
 
 #ifndef WTFML_CORE_BASELINE
 runDownloadSpeedLimitTests();
@@ -1884,7 +1879,7 @@ runDownloadProxyTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 工具箱那四件小工具（，coding plan §9.11），见上面 ZAA–ZAD 四节。
+    // 工具箱那四件小工具，见上面 ZAA–ZAD 四节。
     // **纯函数**：彩色文本那三份形态的往返 / 坐标换算与 F3+C 那条命令 / 哈希与那串"已知值"
     // （要真读一个文件，在临时目录里）/ 铁砧那套账（最后那一条拿穷举当独立对照）。
     // 界面那一侧（ToolboxPage + ToolboxController）的断言不在这一节里。
@@ -1906,7 +1901,7 @@ runAnvilPlannerTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 结构 / 原理图的元数据与方块统计（，coding plan §9.5），见上面 SG 节。
+    // 结构 / 原理图的元数据与方块统计，见上面 SG 节。
     // 三种格式的**真形状**都由这一节自己搭（`NbtTree::serialize()`），gzip 那一份真压一遍。
 
 #ifndef WTFML_CORE_BASELINE
@@ -1922,7 +1917,7 @@ runStartupDiagnosisTests();
 #endif
 
     // -----------------------------------------------------------------
-    // 跨实例迁移 / 升级副本（coding plan §9.9 第 15 项），见上面 TR 节。
+    // 跨实例迁移 / 升级副本，见上面 TR 节。
     // 计划层只读盘、落盘层只增加；这一节自己搭源与目标两棵树，junction 那一发真造。
 
 #ifndef WTFML_CORE_BASELINE

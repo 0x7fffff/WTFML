@@ -76,7 +76,7 @@ QLabel *makeNoteLabel(QWidget *parent, const QString &text) {
     auto *label = new QLabel(text, parent);
     label->setWordWrap(true);
     label->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    // 折行 QLabel 的 sizeHint 是"整句排成一行"的宽度 —— 纯说明不许参与横向度量（老规矩）。
+    // 折行 QLabel 的 sizeHint 是"整句排成一行"的宽度 —— 纯说明不许参与横向度量（同一条规矩）。
     label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     return label;
 }
@@ -218,7 +218,7 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
     m_stack = new QStackedWidget(this);
     m_stack->setObjectName(MainWindowUI::serverSettingsStackName());
     columns->addWidget(m_stack, 1);
-    // 换页那一下（用户 要的"切换页面"那一档）：新那一页淡进来、顺带从下面抬
+    // 换页那一下：新那一页淡进来、顺带从下面抬
     // 一小段。这一层和实例设置那一页是同一个形状（左栏 + 一个 `QStackedWidget`）。
     // 垫的底色是 `QPalette::Base`：右栏每一页都活在一层滚动区里（见 `addSectionPage()`），
     // 视口铺的就是它 —— 垫窗口那份的话，起手那一帧会看见一整块偏灰的方块。
@@ -235,7 +235,7 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
         m_formLayout = addSectionPage(m_stack, MainWindowUI::serverSettingsFormName());
         m_formBody = m_formLayout->parentWidget();
         // 弹簧**摆在收尾**：新加的行一律插在它前面（`addFieldRow()` 那一下）。摆中间的话，
-        // 重摆表单时得先把它认出来、再想好插哪儿（同实例设置那条老规矩）。
+        // 重摆表单时得先把它认出来、再想好插哪儿（同实例设置那条规矩）。
         m_formLayout->addStretch(1);
     }
 
@@ -267,7 +267,7 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
         layout->addWidget(m_rawEdit, 1);
     }
 
-    // ---------- ③ 内容（模组 / 数据包，§9.7）----------
+    // ---------- ③ 内容（模组 / 数据包）----------
     //
     // 两类内容一个文件夹一个下拉框：上面选哪一类，中间一张表（名字 / 大小 / 状态），底下
     // 四颗按钮（加 / 启用禁用 / 打开文件夹 / 刷新）。**这一页不碰盘**：列目录、改名、拷
@@ -527,7 +527,7 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
             });
             rowLayout->addWidget(m_playerRemoveButton);
             // 「踢出…」：**只在服务端跑着的时候才有意义**（把一条 kick 命令送进它 stdin，
-            // 结果回显在控制台里 —— §9.7 那句的要求）。所以它和上面两颗正好相反：不是跟着
+            // 结果回显在控制台里）。所以它和上面两颗正好相反：不是跟着
             // "能不能改文件"走，而是跟着"进程在不在"走（见 `setPlayerKickAvailable()`）。
             m_playerKickButton = new QPushButton(MainWindowUI::serverSettingsPlayerKickText(), row);
             m_playerKickButton->setObjectName(
@@ -1178,7 +1178,7 @@ void ServerSettingsPage::addFieldRow(const FieldView &field) {
     // 弹簧在收尾 ⇒ 新行插在它**前面**。
     m_formLayout->insertWidget(m_formLayout->count() - 1, row);
 
-    // ---------- 这一行下面那块"游戏里长什么样"（§9.7「MOTD 提供格式化预览」）----------
+    // ---------- 这一行下面那块"游戏里长什么样"（MOTD 提供格式化预览）----------
     //
     // 只有 `FieldView::preview` 为真的那一行才有（目前是 `motd`）。它**紧跟在那一行后面**
     // 插进同一竖排，左边留出和编辑栏同一个起点 —— 看起来是"这一格的注释"，而不是另一项设置。

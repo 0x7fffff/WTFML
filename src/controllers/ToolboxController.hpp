@@ -20,7 +20,7 @@
  *
  * 【为什么那几张表由 controller 喂给页面】
  *
- * `ui/` 不 include `src/`（全仓的老规矩）。所以"十六色是哪十六个""算法有哪三档""维度有
+ * `ui/` 不 include `src/`（全仓的约定）。所以"十六色是哪十六个""算法有哪三档""维度有
  * 哪几个""附魔表长什么样"这四张表都由这里读出来、翻成**字符串**再交给页面 —— 表本身
  * 各自只有一处出处（`TextFormat` / `FileHash` / `CoordConvert` / `Anvil`）。
  */
@@ -100,7 +100,7 @@ private:
     void cancelServerCheck();
     // ---------- 文件哈希校验 ----------
     void runHash(const QString &path, int algorithmIndex, const QString &expected);
-    /// 批量算（§9.11 第 1 项「补多文件」）：一个线程里逐个算，中途可以取消。
+    /// 批量算（「补多文件」）：一个线程里逐个算，中途可以取消。
     void runHashBatch(const QStringList &paths, int algorithmIndex);
     /// 把批量清单写到用户挑的那个路径（写盘只在这一层做）。
     void exportHashBatch(const QString &path, const QString &text);
@@ -133,7 +133,7 @@ private:
     QThread *m_hashThread = nullptr;
     /// 用户点了「停下」置 1（工作线程每一块读之前看一眼）。
     QAtomicInt m_hashAbort{0};
-    /// 算完之后盯着的那个文件（"文件变化使结果失效"，§9.11 第 1 项）。
+    /// 算完之后盯着的那个文件（"文件变化使结果失效"）。
     QFileSystemWatcher *m_hashWatcher = nullptr;
     QString m_hashWatchedPath;
     qint64 m_hashWatchedBytes = -1;

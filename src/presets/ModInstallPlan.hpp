@@ -1,6 +1,6 @@
 /**
  * @file ModInstallPlan.hpp
- * @brief 模组预设「真正去下」之前的判据层（coding plan §10.1 第 7 项 / P5）。
+ * @brief 模组预设「真正去下」之前的判据层。
  *
  * 【这一层解决的四件事】
  *

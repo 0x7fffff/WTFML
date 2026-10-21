@@ -146,7 +146,7 @@ void runInstanceUpdateFilterTests() {
             return;
         }
 
-        // （§7.1）：这一趟的结论**不再弹一段文本**，而是开成一整页（「更新
+        // 这一趟的结论**不再弹一段文本**，而是开成一整页（「更新
         // 中心」）—— 和 T32 那一节同一个改动。那一页开出来的时候，**实例设置那一页会让位**
         // （`runWhenOverlayFree()` 静默收掉它，见 MainWindow 那段），所以"查完之后这一页
         // 长什么样"必须在**重新开一次**实例设置里量（下面第二趟）。
@@ -190,10 +190,8 @@ void runInstanceUpdateFilterTests() {
                 return;
             }
             // ① 先量"还没查过"那一档。
-            // 收尾（要求：**「没有检查的时候先隐藏可更新按钮」**）：
-            // 还没查过 ⇒ 那一颗**整颗收着**。同一天上午这里曾经反过来做过一版（露着、
-            // 不写条数，点它顺手查一趟），被他这一句否掉了 —— "哪一条有更新"现在改由
-            // **那一行自己的 ↑** 说（见下面 ③ 里那几条）。
+            // 收尾：还没查过 ⇒ 那一颗**整颗收着**，不露、不写条数、点它也不顺手查一趟 ——
+            // "哪一条有更新"由**那一行自己的 ↑** 说（见下面 ③ 里那几条）。
             InstanceFilesPage *mods = page->filesPage(QStringLiteral("mod"));
             page->showPage(QStringLiteral("mod"));
             QPushButton *state = mods != nullptr
@@ -300,9 +298,9 @@ void runInstanceUpdateFilterTests() {
 
         check(checkedFound, "T28.1 概览那一栏那颗「检查更新」找得到（下面就靠它跑一趟）");
         check(updateChipHiddenBefore,
-              "★★ T28.2 还没查过的时候，「可更新」那一颗**整颗收着**（用户 2026-10-11 原话："
-              "「没有检查的时候先隐藏可更新按钮」—— 同一天上午这里曾反过来做过一版，被他"
-              "这一句否掉了）",
+              "★★ T28.2 还没查过的时候，「可更新」那一颗**整颗收着**（原话："
+              "「没有检查的时候先隐藏可更新按钮」"
+              "）",
               QStringLiteral("那一颗藏没藏：%1").arg(int(updateChipHiddenBefore)));
         // ⚠ 藏起来的那一颗**照样写着条数**（`stateFilterButtonText()` = 那三个字 + `(0)`）：
         // 条数在 fillStateButtons() 里是**一句话一种写法**，有没有依据这一层归显隐那条
@@ -324,7 +322,7 @@ void runInstanceUpdateFilterTests() {
               QStringLiteral("开了 %1 页：%2").arg(centerPageCount).arg(centerPageTitle));
         check(comboCount == 4,
               "★ T28.2 模组那一页有「可更新」这一档（下载页里真有那一栏的四页之一）—— "
-              "★ 2026-10-10 起量的是 `canFilterUpdates()`（那一档在不在），不是「露着几颗」",
+              "★ 量的是 `canFilterUpdates()`（那一档在不在），不是「露着几颗」",
               QStringLiteral("%1 档").arg(comboCount));
         // 这一条就是这一节的正题：那一趟查出来"有新版本"的那一条**必须已经递到这一页上**。
         // 只弹报告、不递结果的话，这里筛出来是空的（而屏幕上就是"这个实例干净得很"）。
@@ -386,7 +384,7 @@ void runInstanceUpdateFilterTests() {
             };
             check(countMatching(QStringLiteral("/version_files/update")) == 1,
                   "★★ T28.3 Modrinth 那一拨走的是**批量那一发**（`POST /version_files/update`，"
-                  "一次一串 sha1）—— 一项目一发是 623 发请求、实测整批 429 的那条路",
+                  "一次一串 sha1）—— 一项目一发是 623 发请求、整批 429 的那条路",
                   QStringLiteral("%1 发").arg(countMatching(QStringLiteral("/version_files/update"))));
             // 这一条和上一条是**两件事的两面**：只加上批量那一发、单发那条路照样跑，
             // 请求数一发都不少（用户下次还是撞限流）。

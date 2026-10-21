@@ -66,8 +66,7 @@ public:
         /// 导入整合包）。
         /// 应用预设同样往实例目录里写（模组预设写 `mods/`，普通预设改
         /// `options.txt` / 服务器清单等），和后台拷树撞在一起时两边都不知道对方在写
-        /// 什么。所以开跑之前先问一句；别处那几条路都能查到这个名单，只有预设这一页
-        /// 原来漏了。
+        /// 所以开跑之前先问一句；别处那几条路都能查到这个名单，预设这一页也要查。
         /// 问的必须**只是搬文件那一份**，不是"不能启动"那个合集：安装向导收尾那一步
         /// 是带着 `m_installingInstanceId` 调进来的（那是它自己的标记）。
         std::function<bool(const QString &)> isFileOperationBusy;
@@ -123,7 +122,7 @@ public:
     void previewPlan(const QString &presetId, const QString &instanceId);
     void applyPlan(const QString &presetId, const QString &instanceId, bool replaceConfirmed);
 
-    // ---------- 给安装流程的只读入口（§7 / §8.3） ----------
+    // ---------- 给安装流程的只读入口 ----------
     // / 可用的预设（读得回来的那些，按下标次序）。
     QList<Presets::PresetSummary> availablePresets() const;
     /// 那个唯一的默认项（可能为空 / 可能已经不在盘上，调用方按 `availablePresets()` 核）。
@@ -132,7 +131,7 @@ public:
     Presets::PresetApplyResult planOnly(const Presets::PresetManifest &manifest,
                                         const Presets::PresetApplyRequest &request) const;
 
-    // ---------- 安装页（§7） ----------
+    // ---------- 安装页 ----------
     /**
      * @brief 把"盘上有哪几份预设"灌进安装页那个下拉框。
      *
@@ -140,7 +139,7 @@ public:
      * 默认那一份的名字尾巴上带「（默认）」，且**默认就选中它**。
      *
      * @param preferredId 用户上一次手动选的那一份（空 = 用户没选过）。它在盘上还在 ⇒
-     * 选它；不在了 ⇒ 退回默认那一份。★ 这条规则就是 §7 那句「用户手动选择后，
+     * 选它；不在了 ⇒ 退回默认那一份。★ 这条规则就是「用户手动选择后，
      * 不因后台默认项变化而偷偷切换」的落点 —— 默认项只在"用户没选过"时说话。
      */
     void fillInstallSelector(QComboBox *combo, const QString &preferredId = QString(),
@@ -152,7 +151,7 @@ public:
         QString title;
     };
     /// 四类（游戏设置 / 模组 / 资源包 / 数据包）。★ 「旧版（混合）」`Unset` **不在里面**：
-    /// §4 那条"不静默拆分类别"在安装页这一侧同样是"不猜它属于哪一类"。
+    /// "不静默拆分类别"在安装页这一侧同样是"不猜它属于哪一类"。
     static QList<InstallCategory> installCategories();
 
     /// 某一类的可用预设（按下标次序，只含读得回来的那些）。认不出的 key 回空表。
@@ -208,7 +207,7 @@ public:
     InstallApply applyAfterInstall(const QString &presetId, const QString &instanceName,
                                    bool replaceConfirmed);
 
-    // ---------- 安装前的兼容检查（coding plan §7.2 / P2） ----------
+    // ---------- 安装前的兼容检查 ----------
     /**
      * @brief 一次兼容检查的进度快照。
      *
@@ -230,7 +229,7 @@ public:
     /**
      * @brief 开始查「这一份模组预设在这个版本 / 加载器下能不能拿到」。
      *
-     * 弹窗**先出来**、这里再查（§7.2 第一条）：本地能判的立刻有结论，剩下的按
+     * 弹窗**先出来**、这里再查：本地能判的立刻有结论，剩下的按
      * 并发上限排队；网络失败 / 超时只算「暂无法确认」，**不计入缺失**。
      * 在途期间再调一次就是新一代，旧回调作废（generation token）。
      */

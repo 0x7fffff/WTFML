@@ -243,8 +243,8 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
                   QStringLiteral("buttonInset=%1 缩放边=%2")
                       .arg(TitleBar::buttonInset())
                       .arg(WindowChrome::resizeBorder()));
-            // NOTE: 那句说明里的三个数是**现算的**（从前写死成「44 = 8 + 28 + 8」）——
-            // 条高 从 44 抬到 52 那一趟，断言本身是绿的、只有这句话在说谎。
+            // NOTE: 那句说明里的三个数是**现算的** —— 条高改为 52 之后，写死的
+            // 「44 = 8 + 28 + 8」会让断言绿、只有这句话在说谎。
             check(TitleBar::barHeight() == TitleBar::buttonInset() * 2 + TitleBar::buttonSize(),
                   QStringLiteral("Z11 条高 = 上留白 + 按钮 + 下留白（%1 = %2 + %3 + %2）")
                       .arg(TitleBar::barHeight()).arg(TitleBar::buttonInset())
@@ -281,14 +281,13 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
                 // 条上那几片空白**必须是空的**：`WindowChrome` 判"这一手是不是拖窗"用的
                 // 就是 `strip->childAt()`。往后谁往条上加一个铺满的空白 label（比如"顺手用
                 // QLabel 显示标题"），这几条会当场红。
-                // NOTE: 那四颗导航按钮**搬到正中间**之后（用户：「上面的四个
-                // 居中」），"正中"从此**不是**空的 —— 空的是它左右那两片。所以这里改成
-                // 量那两片，并且反过来把"正中归按钮"也钉住（居中的命中测试后果）。
+                // NOTE: 那四颗导航按钮**在正中间**（用户：「上面的四个居中」），所以
+                // "正中"**不是**空的 —— 空的是它左右那两片。这里量那两片，并且反过来
+                // 把"正中归按钮"也钉住（居中的命中测试后果）。
                 const QList<QWidget *> direct =
                     strip->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly);
-                // 起条上多了那四颗导航按钮 ⇒ 是 **6 颗**（2 窗口 + 4 导航），
-                // 一颗都不许多。这里刻意写死这个数、不用 `2 + navCount()`：写死的意思是
-                // "加子控件这件事必须有人来改这一行"。
+                // 条上是 **6 颗**（2 窗口 + 4 导航），一颗都不许多。这里刻意写死这个数、
+                // 不用 `2 + navCount()`：写死的意思是"加子控件这件事必须有人来改这一行"。
                 check(direct.size() == 6,
                       "★ Z11 条上只有六颗按钮（2 窗口 + 4 导航），没有别的子控件",
                       QStringLiteral("%1 个：%2").arg(direct.size()).arg(
@@ -359,10 +358,9 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
             check(soloHost.isVisible(), "★ Z11 条自己不动窗（点了「×」父控件照旧在）");
 
             // ---------- 颜色：量渲染出来的多数色 ----------
-            // 改了设计：条底色**不再是"窗口底色压暗一档"**，而是**主题色那一支**
-            // （要求：「使用 #56eb6c 作为默认主题颜色（顶栏用）」）。所以原来那条
-            // "上下两条框同色"的断言**作废了** —— 底下那条留着中性色（它装的是启动/日志
-            // 那一排控件），现在量的是"各自都铺着它该铺的那一支"。
+            // 条底色**就是主题色那一支**（要求：「使用 #56eb6c 作为默认主题颜色
+            // （顶栏用）」）；底下那条留着中性色（它装的是启动/日志那一排控件）。
+            // 量的是"各自都铺着它该铺的那一支"，比的是"上下两条框同色"要细一层。
             // NOTE: 比的是 `.rgb()`，不是 `QColor` 直接比 —— `darker()` 给的是 Hsv spec，
             // 而量出来的是 Rgb（这条坑本文件里踩过一次，见下面最小化那颗的注释）。
             QFrame *bottom = ui.getBottomBar();
@@ -457,7 +455,7 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
                 const QColor minHoverFill = dominantColor(captureWidget(minBtn), minBtn->rect());
                 // NOTE: 这里比的是 `.rgb()`，**不是 QColor 直接比** —— `QColor::darker()` 返回的
                 // 颜色 spec 是 **Hsv**，而量出来的那个是 Rgb；`operator==` 连 spec 一起比，
-                // 于是两个 `name()` 打印出来一模一样、`==` 却是假（ 踩过：
+                // 于是两个 `name()` 打印出来一模一样、`==` 却是假（踩过：
                 // FAIL 那一行写成「量到 #c6c6c6 期望 #c6c6c6」，看着像见了鬼）。
                 const QColor expectMinHover = stripFill.darker(115);
                 check(minHoverFill.rgb() != danger.rgb() &&
@@ -471,9 +469,9 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
                 QApplication::processEvents();
 
                 // 导航那四颗的悬停**和最小化那一颗同一档**（条底色再压暗一档、不是那个红）。
-                // NOTE: 这一条是照着一段真踩过的坑写的 —— `setNavItems()` 里原来写的是
-                // `barColor(palette())...`，而调色板里的 Window **已经是条底色**
-                // （构造函数把压暗过的那一档写进去了），于是那是**第二次压暗**、
+                // NOTE: `setNavItems()` 里不能写
+                // `barColor(palette())...`：调色板里的 Window **已经是条底色**
+                // （构造函数把压暗过的那一档写进去了），再压一次就是**第二次压暗**、
                 // 量出来比方框里该有的深一档。和"两颗按钮的悬停色"是同一个坑的两种形状。
                 if (strip->navCount() > 0) {
                     // 挑一颗**不是当前**的（当前那颗多了加粗和底下一条横线，底色不好当多数票）。
@@ -515,17 +513,17 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
                   QStringLiteral("条 sizeHint %1 → %2 / 窗口 %3")
                       .arg(hintBefore).arg(strip->sizeHint().width()).arg(window.sizeHint().width()));
             // 窗口标题换成 300 个字之后**条上那行字一个字都不动** —— 这条和上面那条一起，
-            // 把"条上的字是从窗口标题来的"这条路彻底堵死（那正是这一轮改掉的东西）。
+            // 把"条上的字是从窗口标题来的"这条路彻底堵死（条上的字不从窗口标题取）。
             check(strip->titleText() == QStringLiteral("WTFML"),
                   "★ Z11 窗口标题换成长长一串，条上照旧是那五个字母", strip->titleText());
             window.setWindowTitle(QStringLiteral("WTF Minecraft Launcher"));
             QApplication::processEvents();
 
-            // ---------- 条上那行字可以在设置页里改（ 加的） ----------
+            // ---------- 条上那行字可以在设置页里改 ----------
             // 要求：「左上角五个字母默认是这五个，在设置里允许自定义」。
             // 这里量的是**条这一侧**：换过之后画出来的**真的是新的那串**（不是"titleText()
-            // 报了个新值、paintEvent 那支笔还在写旧值" —— 那个默认值原来是个静态函数直接
-            // 调用的，改成能换之后这条是最容易漏的一处）。
+            // 报了个新值、paintEvent 那支笔还在写旧值" —— 默认值走的是可换的那条路，
+            // 漏改一处就画旧值）。
             // 「设置页那一格 → 条」那条接线在 mw_check 的 AG 节。
             const QImage defaultBrandShot = captureWidget(strip);
             strip->setBrandText(QStringLiteral("自定义的名字"));

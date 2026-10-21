@@ -1,6 +1,6 @@
 /**
  * @file ResourcePackPreset.hpp
- * @brief 资源包预设的**启用顺序**那一半（coding plan §10.1 第 6 项 / P4）。
+ * @brief 资源包预设的**启用顺序**那一半。
  *
  * 【文件和启用是两件事】
  *

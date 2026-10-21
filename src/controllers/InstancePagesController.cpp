@@ -2,14 +2,14 @@
  * @file InstancePagesController.cpp
  * @brief `InstancePagesController` 的实现。
  *
- * 这一份里没有一行新逻辑 —— 全是 `MainWindow` 里那几处判断**逐字**搬过来的（那几处的注释
+ * 这一份里的判断全是 `MainWindow` 里那几处**逐字**搬过来的（那几处的注释
  * 也一字未动地跟了过来：它们记的是"为什么是这个判据"，和判据本身一样是要留下来的东西）。
- * 搬的时候只改了两处**形状**：
+ * 只有两处**形状**不同：
  *
- * ① `instanceCommonFolderKeys()` 原来直接在函数里问 `InstanceSettingsDialog::shortcutPathKeys()`
- * —— 现在按参数收。**有哪几条是界面的事**（这一层只说"哪几条现在真有东西"），
+ * ① `instanceCommonFolderKeys()` 不直接问 `InstanceSettingsDialog::shortcutPathKeys()`，
+ * 而是按参数收。**有哪几条是界面的事**（这一层只说"哪几条现在真有东西"），
  * 而且这样一来这一层一个 ui 头都不用拉进来。
- * ② `worldStructureSources()` 原来顺手把那两排的**排头**（「存档」/「投影」）也填上了 ——
+ * ② `worldStructureSources()` 不把两排的**排头**（「存档」/「投影」）也填上 ——
  * 那几个字是 `ui/InstanceFilesPage` 上的静态函数（唯一出处），这一层不该认字，
  * 所以它只说"哪几个存档有结构"，排头由摆控件那边补（见 .hpp 里那段边界）。
  */
@@ -79,7 +79,7 @@ QHash<QString, QString> InstancePagesController::fileDirs(const QString &version
 QStringList InstancePagesController::commonFolderKeys(const QString &versionId,
                                                      const QHash<QString, QString> &dirs,
                                                      const QStringList &shortcutKeys) {
-    // coding plan §5.3 原话：「仅在**目录存在**或**相关模组可识别**时优先展示，其他项收在
+    // 要求「仅在**目录存在**或**相关模组可识别**时优先展示，其他项收在
     // "更多目录"」—— 这个函数就是那句话的那两条判据，一条不多。
     //
     // NOTE: **没有第二张"哪些一定得有"的表** —— 表里每一条的判据都是同一个
@@ -88,7 +88,7 @@ QStringList InstancePagesController::commonFolderKeys(const QString &versionId,
     const QString instanceDir = AppPaths::versionDir(versionId);
     // 「录像」是唯一一条"目录还没有、也算有"的：没装 ReplayMod 的用户这辈子看不到这个
     // 目录，装了但还没录过的实例上它往往也还没建（第一次开录像时才建）。所以**装了那个
-    // 模组就算有** —— 这正是 §5.3 那句"相关模组可识别"。识别的办法和仓里别的几处一样，
+    // 模组就算有** —— 这正是"相关模组可识别"。识别的办法和仓里别的几处一样，
     // 走 hasMod()（mods/ 里文件名的那个整段词，见它上面那段说明）。
     //
     // NOTE: 目录名 `replay_recordings` 的出处是 AppPaths::replayRecordingsDir()（那个模组
@@ -230,7 +230,7 @@ bool InstancePagesController::shaderUsable(VersionManager *versions, const QStri
     // `iris`（Fabric / NeoForge / Quilt 上那个）、`oculus`（Forge 上那个 Iris 移植 ——
     // 「落幕曲」「香草纪元」「魔改版ATT2」三个整合包用的都是它）、`optifine`
     // （1.12.2 及以前 OptiFine 是**当普通模组装进 mods/ 下**的，
-    // `OptiFine_1.12.2_HD_U_G5.jar`）。三条原来一条都不认。
+    // `OptiFine_1.12.2_HD_U_G5.jar`）。
     // NOTE: 没有 `optifabric`（Fabric 上那个把 OptiFine 塞进来的桥）：它要求 OptiFine
     // 的 jar 也在 mods/ 里，所以上面那条 `optifine` 本来就盖住了它。
     static const QStringList loaders = {

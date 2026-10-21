@@ -460,7 +460,7 @@ void ServerManagementActions::kickServerPlayer(MainWindow *owner, const QString 
                                   "它现在没在跑，所以踢不了人。"));
         return;
     }
-    // §9.7：在线动作**必须走运行控制台**（不是偷偷改名单 —— 那要等它重启才生效，
+    // 在线动作**必须走运行控制台**（不是偷偷改名单 —— 那要等它重启才生效，
     // 而且用户会以为人已经踢下去了）。命令和用户自己敲的那一条完全相同。
     const QString command = QStringLiteral("kick ") + name;
     if (!process->sendCommand(command)) {
@@ -487,7 +487,7 @@ void ServerManagementActions::runServerCheckAction(MainWindow *owner, const QStr
     if (token == QStringLiteral("reinstall")) {
         // 重装是那一行行尾那颗「修复」做的同一件事（`repairServer()`）——**先收掉这一页**：
         // 它正卡在 `execPage()` 的嵌套事件循环里，而重装要走一遍下载 + 装，收掉之后用户
-        // 才看得见任务中心里那一项在跑（同"开新页之前先收页面"那条老规矩）。
+        // 才看得见任务中心里那一项在跑（同"开新页之前先收页面"那条规矩）。
         //
         // ★ 收页走 `dismiss()`（不是 `closeOverlay()`）：这一页正卡在 `execPage()` 的嵌套
         //   事件循环里，`dismiss()` 发的就是"返回箭头那一发"，`execPage()` 会正常返回；
@@ -645,11 +645,11 @@ void ServerManagementActions::restoreServerWorldBackup(MainWindow *owner, const 
     }
     const QString worldName = owner->serverWorldName(serverId);
     const QString serverDir = ServerRegistry::describe(serverId).dirPath;
-    // ★ 2026-10-20：这一页的备份列只按**文件名前缀**筛（读清单要起一次 PowerShell，那一列
+    // 这一页的备份列只按**文件名前缀**筛（读清单要起一次 PowerShell，那一列
     //   可能摆着几十份，见 `BackupFiles::backupFilePrefix()` 那段）。可按下「还原…」之后
     //   要拿清单里的 `root` 去解压、把那个目录整个换掉 —— 名字能凑出来（从别处拷来的、
     //   改过名的、碰巧和前缀一样的），而清单说的不是这个世界的包，必须在这里拦住，不能
-    //   等解到一半。`BackupController::pickZip()` 那条路一直有这道闸，服务端这条没有。
+    //   等解到一半。`BackupController::pickZip()` 那条路有同一道闸。
     bool readable = false;
     QString problem;
     const BackupFiles::Manifest manifest = BackupFiles::readManifest(zipPath, &readable, &problem);

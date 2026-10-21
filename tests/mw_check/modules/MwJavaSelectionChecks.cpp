@@ -36,7 +36,7 @@ int MwJavaSelectionChecks(const QDir &root) {
                       "上一节存下的镜像源，冷启动就选上了（读盘那条路也走了 syncDownloadSource）",
                       QString::number(source5->currentData().toInt()));
 
-                // ---- 并发数（，§9.2）----
+                // ---- 并发数 ----
                 // 这一节量的是**冷启动那条路**：盘上写着 6 ⇒ 下拉框里四档都在、选中的是 6、
                 // 而且**真正发请求的那一层也拿到 6 了**（少了最后那半句，界面显示 6、下载
                 // 还是按 24 条一起飞 —— 不报错、也看不出哪儿没接上）。
@@ -74,7 +74,7 @@ int MwJavaSelectionChecks(const QDir &root) {
                     }
                 }
 
-                // ---- 速度上限（，§9.2 限速）----
+                // ---- 速度上限 ----
                 // 和并发数同一个形状：盘上写着 1 MiB/s ⇒ 框里那几档都在、选中的是它、
                 // 而且发请求那一层也拿到同一个数（漏了最后那半句的表现是「界面显示限了、
                 // 实际满速跑」，不报错、也看不出哪儿没接上）。
@@ -116,7 +116,7 @@ int MwJavaSelectionChecks(const QDir &root) {
                     }
                 }
 
-                // ---- 代理（，§9.2）----
+                // ---- 代理 ----
                 // 盘上写着「手动 + 127.0.0.1:7890」⇒ 框选中「手动」、地址那一格露着并回填，
                 // 而且 **`QNetworkProxy::applicationProxy()` 真的换成了那个 HTTP 代理**
                 // （少了最后那半句 = 界面显示手动、请求还是走系统那条路）。
@@ -200,9 +200,9 @@ int MwJavaSelectionChecks(const QDir &root) {
         {
             LauncherSettings reset;
             reset.setDownloadConcurrency(DownloadConcurrency::kDefault);
-            // 速度上限同理（§9.2 限速）：留个 2 MB/s 的话后面真下东西的几节会慢得莫名其妙。
+            // 速度上限同理：留个 2 MB/s 的话后面真下东西的几节会慢得莫名其妙。
             reset.setDownloadSpeedLimit(DownloadSpeedLimit::kUnlimited);
-            // 代理同理（§9.2）：删掉「手动」那一档并把进程代理还回默认，否则后面真联网的
+            // 代理同理：删掉「手动」那一档并把进程代理还回默认，否则后面真联网的
             // 那几节会全部往 127.0.0.1:7890 发请求（那儿没人接，一律超时）。
             reset.setProxyMode(DownloadProxy::kDefaultMode);
             reset.setProxyManualText(QString());

@@ -2,9 +2,9 @@
  * @file ToolboxPage.hpp
  * @brief 工具箱那一整页（底栏那把扳手 → 一片整块盖住内容区的页），五件小工具共用一页；
  * 第六件「高速下载」不在这一页里，它开自己的独立窗口（见下面的【第六件】）。
- * @note 用户 点名的那一批：文件哈希校验、MOTD 文本生成器（含彩色文本那几种
- * 命令写法）、坐标换算（认 F3+C 复制来的那行 tp 命令）、服务器在线检测，再加上他
- * 补的「基于 mc 的铁砧惩罚机制做一个附魔顺序助手」。
+ * @note 这一页收五件小工具：文件哈希校验、MOTD 文本生成器（含彩色文本那几种
+ * 命令写法）、坐标换算（认 F3+C 复制来的那行 tp 命令）、服务器在线检测，外加
+ * 「基于 mc 的铁砧惩罚机制」的附魔顺序助手。
  *
  * 【为什么五件工具在一个页里，而不是五片页】
  *
@@ -15,16 +15,16 @@
  *
  * 【第六件：高速下载为什么不在 chip 里】
  *
- * 加的那一件（直链下载）**和这五件不是一个形状**：它要一直挂着一个正在跑的任务
+ * 直链下载那一件**和这五件不是一个形状**：它要一直挂着一个正在跑的任务
  * （进度、取消、关掉窗口还得接着下），塞进"随手用一下就走"的 chip 页会把这一页变成半个
  * 任务中心。所以它仍然登记在**同一张表** `kToolInfos` / `tools()` 里（键、名字、说明、底栏
  * 面板那颗按钮都跟着这张表走），但 `m_tools` 在构造里把它摘掉：chip 只有五颗、
  * `QStackedWidget` 也只有五片，它由 `ToolboxController::open("download")` 转给独立窗口。
- * 用户 点名：工具箱里的工具允许开独立小窗口（以后可能加到十条）。
+ * 工具箱里的工具允许开独立小窗口（以后可能加到十条）。
  *
  * 【这一页自己一根手指都不碰游戏目录】
  *
- * `ui/` **不 include `src/`**（全仓的老规矩）。所以这一页只干两件事：把用户敲的东西
+ * `ui/` **不 include `src/`**（全仓的规矩）。所以这一页只干两件事：把用户敲的东西
  * **收成信号**发出去、把 `ToolboxController` 算好的**字符串**摆上去。算哈希、认坐标、
  * 拼 `tellraw`、排附魔顺序那些全在 `src/tools/` 里（纯函数，各自有判据在 tests/main.cpp）。
  *
@@ -72,7 +72,7 @@ class ToolboxPage : public QDialog {
 public:
     /// 十件工具。**`tools()` 是 chip 那一排的次序唯一出处**：顶上那排 chip 用其中除
     /// `Download` 之外的九件（`.cpp` 构造里摘的）；底栏面板另按 `panelTools()` 摆
-    /// （两列五排， 用户拿图点名的那张）。
+    /// （两列五排）。
     enum class Tool { Anvil, Text, Coord, Server, Hash, Beacon, Brewing, Banner, Trim, Download };
 
     /// 工具的键（底栏面板那六颗按钮、`ToolboxController::open()` 都用它认人）。
@@ -85,7 +85,7 @@ public:
     static QString toolSummary(Tool tool);
     /// 八件，**次序唯一出处**（`Download` 排第一；它不出 chip、只出底栏面板那颗按钮）。
     static QList<Tool> tools();
-    /// 底栏那块「工具箱」面板的摆放次序（ 用户拿图点名的那张：**两列五排、
+    /// 底栏那块「工具箱」面板的摆放次序（**两列五排、
     /// 行优先**）。它和 `tools()` 故意不是同一个次序 —— `tools()` 是 chip 那一排的次序，
     /// 面板按常用程度从左到右、从上到下另排一张。返回的十件一件不多一件不少。
     static QList<Tool> panelTools();
@@ -108,7 +108,7 @@ public:
     static QString toolPageName(Tool tool);
     static QString toolButtonName(Tool tool);
 
-    /// 新加那四件（信标 / 酿造 / 旗帜 / 纹饰）里认控件用的名字（验证工程用）。
+    /// 信标 / 酿造 / 旗帜 / 纹饰四件里认控件用的名字（验证工程用）。
     static QString beaconFromSpinName() { return QStringLiteral("toolboxBeaconFrom"); }
     static QString beaconLevelSpinName() { return QStringLiteral("toolboxBeaconLevel"); }
     /// 底座方块种类（铁块 / 金块 / 钻石块 / 绿宝石块 / 下界合金块）。
@@ -138,7 +138,7 @@ public:
     static QString trimPatternComboName() { return QStringLiteral("toolboxTrimPattern"); }
     static QString trimMaterialComboName() { return QStringLiteral("toolboxTrimMaterial"); }
     static QString trimPiecesSpinName() { return QStringLiteral("toolboxTrimPieces"); }
-    /// 「整套（四件）」那个勾（§9.11 第 10 项「单件 / 整套预览」）。
+    /// 「整套（四件）」那个勾（「单件 / 整套预览」）。
     static QString trimWholeSetName() { return QStringLiteral("toolboxTrimWholeSet"); }
     static QString trimResultName() { return QStringLiteral("toolboxTrimResult"); }
     /// 「显示披风」那个勾（默认不勾；没有披风的账号那一格是灰的）。
@@ -416,7 +416,7 @@ signals:
     // ---- 文件哈希校验 ----
     void hashRequested(const QString &path, int algorithmIndex, const QString &expected);
     void hashCancelRequested();
-    /// 批量算（§9.11 第 1 项：「补多文件」）。`paths` 是用户一次选中的那几个。
+    /// 批量算（「补多文件」）。`paths` 是用户一次选中的那几个。
     void hashBatchRequested(const QStringList &paths, int algorithmIndex);
     /// 把批量结果的纯文本写到 @p path（写盘那一半在 controller；这一层只给路和字）。
     void hashExportRequested(const QString &path, const QString &text);
@@ -513,7 +513,7 @@ private:
     QLabel *m_hashNotice = nullptr;
     /// 算出来的那一串摘要（「复制」那颗拷的是它 —— 结果标签里画的带 HTML，不能整段拷）。
     QString m_hashHex;
-    /// 批量那一档（§9.11 第 1 项：「补多文件」+「复制/导出列表」）。
+    /// 批量那一档（「补多文件」+「复制/导出列表」）。
     QPushButton *m_hashBatch = nullptr;    ///< 「批量…」——选好几个文件一次算
     QPushButton *m_hashCopyAll = nullptr;  ///< 「复制全部」（标准校验和文本）
     QPushButton *m_hashExport = nullptr;   ///< 「导出…」（写一个 .txt）

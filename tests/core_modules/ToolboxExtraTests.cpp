@@ -1,7 +1,7 @@
 #include "Support.hpp"
 
 void runToolboxExtraTests() {
-    section("ZAI. 工具箱：信标计算 / 酿造助手（§9.11）");
+    section("ZAI. 工具箱：信标计算 / 酿造助手");
 
     // ---------- ZAI0. 信标：层、累计、范围 ----------
     {
@@ -81,7 +81,7 @@ void runToolboxExtraTests() {
               detail.left(80));
     }
 
-    // ---------- ZAI1b. 信标：矿物折算与多颗共用底座（§9.11 第 9 项）----------
+    // ---------- ZAI1b. 信标：矿物折算与多颗共用底座----------
     {
         check(Beacon::materialNames().size() == 5
                   && Beacon::materialNames().first() == QStringLiteral("铁块")
@@ -230,7 +230,7 @@ void runToolboxExtraTests() {
               "★ ZAI4 认不出来的下标 ⇒ 报错，不编一份计划出来");
     }
 
-    // ---------- ZAI3b. 酿造：瓶数、材料账与燃料（§9.11 第 7 项）----------
+    // ---------- ZAI3b. 酿造：瓶数、材料账与燃料----------
     {
         check(Brewing::maxBottlesPerOperation() == 3 && Brewing::maxBottles() == 64,
               "★ ZAI3b 一次最多 3 瓶；界面最多问 64 瓶");
@@ -277,7 +277,7 @@ void runToolboxExtraTests() {
                   && !tooMany.ok && tooMany.error.contains(QStringLiteral("瓶数")),
               "★ ZAI3b 瓶数越界 ⇒ 报错（不悄悄钳到 1 或 64）", none.error + tooMany.error);
 
-        // 表里的两处事实（§9.11 第 7 项要求「合法效果/等级/延长」）：再生能延长；迟缓的
+        // 表里的两处事实（要求「合法效果/等级/延长」）：再生能延长；迟缓的
         // 荧石粉给的是 IV。
         int regeneration = -1;
         int slowness = -1;
@@ -554,7 +554,7 @@ void runToolboxExtraTests() {
               "★ ZAJ4 认不出来的图案下标 ⇒ 报错", badIndex.error);
     }
 
-    // ---------- ZAJ5. 纹饰：模板来源 / 版本 / 整套（§9.11 第 10 项）----------
+    // ---------- ZAJ5. 纹饰：模板来源 / 版本 / 整套----------
     {
         const int coast = 0;
         check(ArmorTrim::patternSource(coast).contains(QStringLiteral("沉船")),
@@ -614,7 +614,7 @@ void runToolboxExtraTests() {
 
     // ---------- ZAK. 哈希：算完之后文件变过没有 ----------
     //
-    // §9.11 第 1 项那条「文件变化使结果失效」：摘要算的是当时那一刻的字节，文件被重新下载
+    // 「文件变化使结果失效」：摘要算的是当时那一刻的字节，文件被重新下载
     // 之后屏幕上那串就不是"它现在的摘要"了。判据是**大小 + 修改时间**（只看这两样，不重读
     // 几百 MB）。这里在一个真的临时文件上钉它。
     {
@@ -650,7 +650,7 @@ void runToolboxExtraTests() {
               "★★ ZAK0 文件不在了 ⇒ 读不出来，而且**不能**和任何一份算成「没变」");
     }
 
-    // ---------- ZAL. 世界只读概况（§9.6：种子 / 玩家位置 / 已生成区域 / 大小） ----------
+    // ---------- ZAL. 世界只读概况（种子 / 玩家位置 / 已生成区域 / 大小） ----------
     //
     // 这一层是"世界地图第一阶段"的**读**那一半：`level.dat` 里那几格、`region/*.mca` 的
     // 8 KiB 头部表。这里分别用一棵手搭的树、一段合成的头部、一个真的临时世界目录钉住，
@@ -871,7 +871,7 @@ void runToolboxExtraTests() {
               "★ ZAL4 目录不在了 ⇒ 明说一句（不是悄悄回一份空的）");
     }
 
-    // ---------- ZAM. 运行输出共用模型（§9.8：游戏日志窗 / 服务端控制台同一份） ----------
+    // ---------- ZAM. 运行输出共用模型（游戏日志窗 / 服务端控制台同一份） ----------
     //
     // 这一节钉的是"两页共用"的那一半：认级别、独立记录计数、档位筛选、搜索、两条上限
     // （容量 vs 显示）、三份导出文本。`GameLogWindow` 现在整个转发到它，`ServerConsolePage`

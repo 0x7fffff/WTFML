@@ -184,9 +184,9 @@ int MwGameLogLifecycleChecks(const bool settingsWired, MainWindow &window, QChec
 
         // ---- ④ 日志窗：开关关着时一个窗都不建 ----
         //
-        // 【为什么这一节不再用 findChildren 找窗（ 改）】
+        // 【为什么这一节从顶层窗里找日志窗】
         // 用户报「日志一定会显示在启动器前面，会遮挡」—— 病根是**有主的窗在 Windows 上永远
-        // 压在主窗上面**，所以产品那边改成 `new GameLogWindow(name, nullptr)`（没有父窗口，
+        // 压在主窗上面**，所以产品那边用的是 `new GameLogWindow(name, nullptr)`（没有父窗口，
         // 见 GameLogWindow 头文件那段）。父窗口没了，这些窗就不是 window 的孩子了，
         // `window.findChild<GameLogWindow*>()` 从此**一个都找不到** —— 得从顶层窗里挑。
         const auto openLogWindows = []() {
@@ -400,7 +400,7 @@ int MwGameLogLifecycleChecks(const bool settingsWired, MainWindow &window, QChec
             check(missing.isEmpty(), "AE6 五档各有一颗筛选按钮（顶上那排五颗都在）", missing);
             check(mismatched.isEmpty(), "AE6 每颗按钮上的计数就是这一档的账（那份统计的出处）",
                   mismatched);
-            // 顶上那排右边那颗**行数上限**下拉框（ 用户让把「显示全部」换成它：
+            // 顶上那排右边那颗**行数上限**下拉框（用户让把「显示全部」换成它：
             // 「显示500/1000/2000/25/10k/all（直接写数字，不要学我）条」—— 原话里那个
             // 「25」是他打错了，订正成 5000；这一节不钉档位（那是 ui_check Z10 的事），
             // 只钉"有这么个控件、默认停在全部那一档"）。
@@ -447,10 +447,10 @@ int MwGameLogLifecycleChecks(const bool settingsWired, MainWindow &window, QChec
                   levelWin->getLogView()->placeholderText());
 
             // ⑤ 五档一颗一颗点回来（也是**真按钮**）。
-            // NOTE: 之前这里是点那颗「显示全部」一下全勾回来。用户让把那颗
-            // 换成行数下拉框了，于是"全部勾回来"这条路**只剩手点五颗按钮**这一
-            // 条 —— 这一节照这条路走，同时把"顶上的下拉框跟筛选是两件事"钉住：
-            // 五颗都点回来之后，正文该一字不差地回来（下拉框那档没动过）。
+            // NOTE: 「显示全部」那颗已经换成行数下拉框，所以"全部勾回来"这条路
+            // **只剩手点五颗按钮**这一条 —— 这一节照这条路走，同时把"顶上的
+            // 下拉框跟筛选是两件事"钉住：五颗都点回来之后，正文该一字不差地
+            // 回来（下拉框那档没动过）。
             for (int i = 0; i < GameLogWindow::levelCount(); ++i) {
                 QToolButton *button = levelWin->getFilterButton(GameLogWindow::levelAt(i));
                 if (!button->isChecked()) {

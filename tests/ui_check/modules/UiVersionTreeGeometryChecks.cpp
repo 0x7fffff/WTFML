@@ -29,7 +29,7 @@ int UiVersionTreeGeometryChecks(QMainWindow &window, QTreeWidget * &versionTree)
         //
         // NOTE: 这里**不能**用 setChildIndicatorPolicy(DontShowIndicator)：QTreeModel::
         // hasChildren() 是按那个 policy 直接 return false 的，子条目**一条都排不进
-        // 布局**（ 踩过：产品那边原来就是这么写的，树上只剩四行空的分类）。
+        // 布局**（产品那边写成这样过：树上只剩四行空的分类）**。
         // 要去掉那个三角就走 rootIsDecorated(false) —— 它只影响装饰格的绘制。
         probe.setRootIsDecorated(false);
         // 窗口开得比三行高一截：不留竖滚动条，行宽就等于视口宽，下面算右端那格才对得上。
@@ -82,7 +82,7 @@ int UiVersionTreeGeometryChecks(QMainWindow &window, QTreeWidget * &versionTree)
 
         // ① 版本号前面那个草方块。
         // NOTE: 不写死 x —— 子条目左边缩进多少是样式说了算（缩进的宽窄和笔者的
-        // 猜测无关），写死就会量到空白上、然后报"没画"。改成**按颜色找**：
+        // 猜测无关），写死就会量到空白上、然后报"没画"。所以这里**按颜色找**：
         // 草是绿的、土是棕的，找得到而且"绿在上、棕在下"才算画对了。
         const QRect leafRow = rowRect(1);
         int greenCount = 0;
@@ -234,10 +234,10 @@ int UiVersionTreeGeometryChecks(QMainWindow &window, QTreeWidget * &versionTree)
         probe.setItemDelegate(new VersionTreeDelegate(&probe, /*leafArrow=*/true));
         QApplication::processEvents();
 
-        // ⑤ 不可用的那一条**整行淡下去**： 起"选中一个加载器之后其余几条加载器
+        // ⑤ 不可用的那一条**整行淡下去**："选中一个加载器之后其余几条加载器
         // 变灰、也点不开"。淡那一下是**代理**画的（按条目的 enabled 位切透明度），跟
         // "点不动"是两件事 —— 不淡的话用户看不出来那条点不得，只会觉得"点一下没反应"
-        // （ 用户报的"点不开了"正是这个形状）。
+        // （"点不开了"正是这个形状）。
         // 判据："同一条内容，禁用之后那格里的墨**轻**了一截" —— 颜色朝背景淡过去，
         // 每个像素离背景的距离都变小，加起来（总墨量）就变小。量"离背景多远"而不是
         // "有多黑"，是为了不假设背景一定是白的。
@@ -368,7 +368,7 @@ int UiVersionTreeGeometryChecks(QMainWindow &window, QTreeWidget * &versionTree)
             opt.font = probe.font();
             // NOTE: 别写成 model()->index(1, 0) —— 那说的是**顶层第 1 条**
             // （=「愚人节」那个空分类），不是屏幕上第 1 行那个版本号。版本号是分类底下的
-            // 子条目，得从它爹那儿往下点一层才对得上（ 踩过：拿错条目之后
+            // 子条目，得从它爹那儿往下点一层才对得上（踩过：拿错条目之后
             // 这条断言量的是另一条的行宽，怎么改都看不出差别）。
             const QModelIndex channelIndex = probe.model()->index(0, 0);
             const QModelIndex leafIndex = probe.model()->index(0, 0, channelIndex);

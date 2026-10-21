@@ -43,7 +43,7 @@ void runDownloadFromInstanceTests() {
     QDir().mkpath(root.path() + QStringLiteral("/libraries"));
     QDir().mkpath(root.path() + QStringLiteral("/assets"));
 
-    // 这个实例**报得出游戏版本号和一个加载器**（ 加）：④b 那两条（"筛子自动
+    // 这个实例**报得出游戏版本号和一个加载器**：④b 那两条（"筛子自动
     // 填成对应版本和加载器"，要求「点击下载新模组/...后自动在搜索框里填入对应的版本
     // 和加载器」）走的就是这两份值 —— 一个报不出东西的实例量不出来（填出来是空的，和
     // "接线断了"长得一模一样）。
@@ -162,9 +162,8 @@ void runDownloadFromInstanceTests() {
               "T25.3 左上角那颗「← 返回实例设置」露出来了",
               back == nullptr ? QStringLiteral("<没有这颗键>") : QString());
         {
-            // 它**只有一颗**（ 起整个下载页共用一颗、摆在左栏顶上）。
-            // NOTE: 早先这里是"只有这一栏那颗露着、其余四栏照旧收着"—— 那条断言随着
-            // "一栏一颗"一起没了：现在别的栏压根没有第二颗可按。
+            // 它**只有一颗**（整个下载页共用一颗、摆在左栏顶上）。
+            // NOTE: 别的栏压根没有第二颗可按 —— 共用这一颗。
             QWidget *downloadPage = tabs->widget(MainWindowUI::downloadTabIndex());
             const int backCount =
                 downloadPage == nullptr
@@ -454,10 +453,9 @@ void runDownloadFromInstanceTests() {
         // ---------- ⑨ 这一层已经被别的页面占着时，「实例」那一颗**不许**把来路吃掉 ----------
         //
         // 场景：用户从实例进来 → 在下载页点开一个资源的详情页 → 又按顶上「实例」。
-        // 起 `openInstanceSettings()` 撞上"占着"时**不再拒绝**（静默收掉那一页、
-        // 排到下一轮再开，见 `runWhenOverlayFree()`）；从前那一档是弹一句"先关掉现在这一页"
-        // 然后什么都不开。这一条断言量的是**这一按算不算"回实例设置"**（占着的时候按「实例」
-        // 就照常翻页、来路留给上面那一发去用），所以它不受那个改动影响、也不该受影响。
+        // `openInstanceSettings()` 撞上"占着"时**不拒绝**（静默收掉那一页、
+        // 排到下一轮再开，见 `runWhenOverlayFree()`）。这一条断言量的是**这一按算不算
+        // "回实例设置"**（占着的时候按「实例」就照常翻页、来路留给上面那一发去用）。
         //
         // 这里拿**一张提示**当"这一层被占着"的最小样本（真详情页要一整套假资源清单，
         // 那是 ZJ 那一节的活）；判据是同一句 `overlay->isOpen()`。

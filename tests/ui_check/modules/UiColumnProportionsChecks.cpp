@@ -20,10 +20,9 @@ int UiColumnProportionsChecks(QComboBox * &installed, QPushButton * &startBtn, Q
               QString("%1:%2")
                   .arg(MainWindowUI::leftColumnStretch(QStringLiteral("home")))
                   .arg(MainWindowUI::rightColumnStretch(QStringLiteral("home"))));
-        // 另三页**不再是按比例分宽**（ 那次改版）：左栏换成**固定宽度的
-        // 侧栏**（`sidebarWidth()`，用户那份文档："侧栏 208 px"），份数给 0 ——
-        // 宽度全归正文那一栏。从前那两套 2:8（下载页 / 设置页）连函数一起删了，
-        // 所以这里量的是**真实的栏宽**，不是份数：
+        // 另三页**按固定宽度分**：左栏是**固定宽度的侧栏**（`sidebarWidth()`，用户那份
+        // 文档："侧栏 208 px"），份数给 0 —— 宽度全归正文那一栏。所以这里量的是
+        // **真实的栏宽**，不是份数：
         // · 左栏 == sidebarWidth()（一个像素都不多不少）；
         // · 右栏 == 页面宽 - 左栏 - 两条页边距 - 中间那条间距（也就是"剩下的全给它"）。
         check(!MainWindowUI::leftColumnIsWider(QStringLiteral("instance")) &&
@@ -121,11 +120,10 @@ int UiColumnProportionsChecks(QComboBox * &installed, QPushButton * &startBtn, Q
               QStringLiteral("combo visible=%1 / 启动按钮 visible=%2")
                   .arg(installed != nullptr ? int(installed->isVisible()) : -1)
                   .arg(startBtn != nullptr ? int(startBtn->isVisible()) : -1));
-        // 主页右栏 曾经是空的（那张「版本列表」去掉了），现在装的是「我的角色」：
-        // 顶上一张账号卡片 + 3D 小人 +（默认收起来的那行说明）。★ ：这一栏的
-        // 宽度**不再由份数决定** —— 它被 `setFixedWidth()` 钉死（见上面那一段量的
-        // `homeRightColumnWidth()`），里面那行说明把自己从横向度量里摘出去只是"顺手"，
-        // 不再是"这一栏宽度成立的前提"。
+        // 主页右栏装的是「我的角色」：顶上一张账号卡片 + 3D 小人 +（默认收起来的那行
+        // 说明）。这一栏的宽度**不由份数决定** —— 它被 `setFixedWidth()` 钉死（见上面
+        // 那一段量的 `homeRightColumnWidth()`），里面那行说明把自己从横向度量里摘出去
+        // 只是"顺手"，不再是"这一栏宽度成立的前提"。
         auto *skinViewer =
             homeRight != nullptr
                 ? homeRight->findChild<SkinViewer *>(MainWindowUI::skinViewerName())

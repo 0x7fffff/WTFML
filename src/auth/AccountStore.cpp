@@ -29,14 +29,14 @@ constexpr const char kOfflineField[] = "offline";
 ///
 /// NOTE: **两种"读不到"必须分开**（所以有 @p readableOut）：盘上就没有这一格（真的还没有
 /// 任何账号 —— 这是空列表）和那一格在、但解不开（DPAPI 换了 Windows 账户或换机器
-/// 之后解不出来，或者值被写坏了）。以前两种都折成空数组，于是 captureActive() /
+/// 之后解不出来，或者值被写坏了）。不分开的话，captureActive() /
 /// addOffline() 这两个"读-改-写"的写方会拿空数组当底子把整份列表覆盖成一项 ——
 /// 列表里其它账号那两份 refresh_token 副本一起没了（那些副本是**唯一**能切回去的
 /// 东西，抹掉就只剩重新登录一条路）。两个"读-改-写"的写方（captureActive /
 /// addOffline）先看 readableOut，假就不写；remove() 走的是裸 readAccounts()，
 /// 读不出来时**静默**返回 false（既不动盘、也不给用户那句话）。
 /// 只当"列表里有没有这个人"用的读者（find/contains/nameOf/accounts/entryFor/activate）
-/// 继续忽略它 —— 解不开的时候它们本来就查不到人，行为跟以前一样。
+/// 继续忽略它 —— 解不开的时候它们本来就查不到人。
 QJsonArray readAccounts(bool *readableOut = nullptr) {
     bool readable = false;
     const QJsonObject root = TokenStore::readJsonChecked(TokenStore::accountsKey(), &readable);
@@ -100,10 +100,10 @@ QJsonObject entryFor(const QString &uuid) {
 /// 而他刚刚明明选了那个账号。QSettings 写失败是**静默**的（没有组织名/权限/注册表被占），
 /// 所以这一格必须自己查状态。
 bool makeOfflineCurrent(const QString &uuid, QString *errorOut) {
-    // **清空活动槽之前，先把里面那位在线账号收进列表**（ 补的）。
+    // **清空活动槽之前，先把里面那位在线账号收进列表**。
     // 下面两句一执行，活动槽里那份 refresh_token 就在盘上没有了 —— 而它**可能根本不在
-    // 列表里**：从没有多账号的版本升上来的用户就是这样（那时凭据只存活动槽），
-    // captureActive() 也只在"登录成功"那一下被调过。少了这一句，点一下「添加离线账号」
+    // 列表里**（凭据只存在活动槽、captureActive() 也只在"登录成功"那一下被调过）。
+    // 少了这一句，点一下「添加离线账号」
     // 或是切到某个离线账号，那份唯一的凭据就被抹掉了，而且盘上再没有任何地方找得回来
     // （只能重走一遍浏览器登录）。文件头那句"当前那个在线账号不会丢：凭据还在列表里"
     // 靠的就是这一句成真。
@@ -434,10 +434,10 @@ bool AccountStore::addOffline(const QString &name, QString *errorOut) {
 
     // 同名 = 同一个 uuid = 同一个人，就地更新，否则追加。
     //
-    // NOTE: 名字是**逐字节**比的，不是"改个大小写也算同一个"（ 把原文那句错的
-    // 括号改掉了）：offlineUuidFor() 是 md5("OfflinePlayer:" + name)，大小写不同就是
+    // NOTE: 名字是**逐字节**比的，不是"改个大小写也算同一个"：offlineUuidFor() 是
+    // md5("OfflinePlayer:" + name)，大小写不同就是
     // 不同的字节、不同的 uuid —— `Steve` 和 `steve` 在这份列表里是两条，点它们进的是
-    // 两个不同的离线身份。照原来那句注释写测试，会写出一个跟代码相反的期望值。
+    // 两个不同的离线身份；按"大小写不敏感"写测试会写出一个跟代码相反的期望值。
     // NOTE: 同 captureActive()：列表读不出来就不写，否则这一下会把列表里其它账号抹掉。
     bool readable = false;
     QJsonArray array = readAccounts(&readable);

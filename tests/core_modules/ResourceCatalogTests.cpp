@@ -277,7 +277,7 @@ void runResourceCatalogTests() {
               QStringLiteral("https://api.modrinth.com/v2/projects?ids="
                              "%5B%22AANobbMI%22%2C%22P7dR8mSH%22%5D"),
           "★ Z3c ids 那一段是**百分号编码过的 JSON 数组**（写成 `ids=AANobbMI,P7dR8mSH` "
-          "这一家不认；这一串 2026-09-27 拿真接口核过：回 200、两个项目都在）",
+          "这一家不认；这一串回 200、两个项目都在）",
           ResourceCatalog::projectsRequestUrl({QStringLiteral("AANobbMI"),
                                                QStringLiteral("P7dR8mSH")}));
     check(ResourceCatalog::projectsRequestUrl({QStringLiteral("AANobbMI")},
@@ -768,8 +768,8 @@ void runResourceCatalogTests() {
             ResourceCatalog::Kind::Mod,
             {QStringLiteral("Sodium"), QStringLiteral("Fabric API")});
         // 正文 = 句头 + 名单 + 「要一起下载吗？」。名单**一条一行、前面带短横**（用户
-        // 原话「模组名称，一行一个」）。旧版那句"这几个还没装"里的**计数**已经
-        // 不写了 —— 名单里几条一眼就看得见，而截断那一档写的是"还有 N 个未列出"。
+        // 原话「模组名称，一行一个」）。不写"这几个还没装"里的**计数** ——
+        // 名单里几条一眼就看得见，而截断那一档写的是"还有 N 个未列出"。
         check(prompt.contains(QStringLiteral("- Sodium\n- Fabric API")) &&
                   prompt.contains(ModDependencies::dependencyPromptHead(ResourceCatalog::Kind::Mod)) &&
                   prompt.trimmed().endsWith(QStringLiteral("要一起下载吗？")),
@@ -1072,8 +1072,8 @@ void runResourceCatalogTests() {
               "Z6f 本地那个文件算不出 sha1 -> 说不清（不是「已是最新」）");
 
         // 接口对它**什么都没给**（那一批自己 429 了 / 这个项目在这个游戏版本+加载器下
-        // 没有版本）：`problem` 里那句话就是这几条"说不清"的理由 —— 从前它被吞成
-        // "网络或接口没成"，于是用户看到的每一条都是"网络没成"，在那儿反复重试网络，
+        // 没有版本）：`problem` 里那句话就是这几条"说不清"的理由 —— 不能吞成
+        // "网络或接口没成"，否则用户看到的每一条都是"网络没成"，在那儿反复重试网络，
         // 而真因是"一次问得太多"。
         const QString throttled = QStringLiteral("问得太勤了，等一会儿再试。");
         const ModDependencies::UpdateVerdict noAnswer =
@@ -1095,7 +1095,7 @@ void runResourceCatalogTests() {
             ModDependencies::judgeUpdate(item, {}, throttled);
         check(singleNoAnswer.state == ModDependencies::UpdateState::Unknown &&
                   singleNoAnswer.reason == throttled,
-              "★★ Z6f 一项目一发那条路同样不许吞（从前这里一律写「没问到版本列表（网络或"
+              "★★ Z6f 一项目一发那条路同样不许吞（否则这里一律写「没问到版本列表（网络或"
               "接口没成）」，429 在报告里和「网断了」长得一模一样）",
               singleNoAnswer.reason);
 
@@ -1118,7 +1118,7 @@ void runResourceCatalogTests() {
               key);
     }
 
-    section("Z6g. 更新检测：**问版本列表时带不带加载器**（2026-10-11）");
+    section("Z6g. 更新检测：**问版本列表时带不带加载器**");
     {
         check(ModDependencies::kindUsesLoader(ResourceCatalog::Kind::Mod) &&
                   ModDependencies::kindUsesLoader(ResourceCatalog::Kind::Modpack),
@@ -1372,7 +1372,7 @@ void runResourceCatalogTests() {
               "Z7e 版本列表：问哪个项目的哪个游戏版本", files);
     }
 
-    section("Z7e2. 加载器那一格：显示名 / 数字键 → 那一边要的词形（2026-10-10 补）");
+    section("Z7e2. 加载器那一格：显示名 / 数字键 → 那一边要的词形");
 
     {
         // 这一格是**静默失灵**那一类：两边要的不是一套词（CurseForge 要 `modLoaderType`
@@ -1527,7 +1527,7 @@ void runResourceCatalogTests() {
                                        QStringLiteral("1.20.5-pre1"),
                                        QStringLiteral("1.20.6")}),
                       "Z7h 5-pre1 和 6 按**数**比（1.20.5-pre1 在 1.20.6 前面），"
-                      "改动前后一致");
+                      "次序不变");
                 check(ResourceCatalog::gameVersionsOldestFirst(
                           {QStringLiteral("Forge"), QStringLiteral("1.21"),
                            QStringLiteral("1.9")}) ==

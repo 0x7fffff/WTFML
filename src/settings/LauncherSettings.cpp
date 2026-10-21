@@ -25,21 +25,21 @@ static constexpr const char kFolders[] = "Launcher/Folders";
 static constexpr const char kCurrentFolder[] = "Launcher/CurrentFolder";
 static constexpr const char kFolderNames[] = "Launcher/FolderNames";
 static constexpr const char kDownloadSource[] = "Download/Source";
-// 「同时最多下几个」（，§9.2 并发数预设）。同一个前缀：它也是"下载怎么走"。
+// 「同时最多下几个」（并发数预设）。同一个前缀：它也是"下载怎么走"。
 // 存的是**整数**，不是 `Download/Source` 那种记号 —— 那四档要有第五档"自定义"的位置
 // （手改过配置的人写个 [1,64] 里的别的数，界面上就该照他写的显示），记号表反而挡路。
 static constexpr const char kDownloadConcurrency[] = "Download/Concurrency";
-// 「下载速度上限」（，§9.2 限速）。单位**字节/秒**，0 = 不限；和其他几项同一个
+// 「下载速度上限」（限速）。单位**字节/秒**，0 = 不限；和其他几项同一个
 // 前缀 —— 它也是"下载怎么走"。
 static constexpr const char kDownloadSpeedLimit[] = "Download/SpeedLimitBytes";
-// 「代理」（，§9.2）。档位存记号（system/direct/manual），手动那一档的
+// 「代理」。档位存记号（system/direct/manual），手动那一档的
 // `host:port` 另存一格原串。同一个前缀：它也是"下载怎么走"。
 static constexpr const char kProxyMode[] = "Download/ProxyMode";
 static constexpr const char kProxyManual[] = "Download/ProxyManual";
-// 「下载新模组时直接放进当前实例」（，设置页「下载」栏那一项）。
+// 「下载新模组时直接放进当前实例」（设置页「下载」栏那一项）。
 // 和上面那条同一个前缀：它也是"下下来的东西往哪儿去"这一件事。
 static constexpr const char kDownloadAutoIntoInstance[] = "Download/AutoIntoInstance";
-// 「下载缺前置时提醒」（，设置页「下载」栏那一项）。同一个前缀：它管的也是
+// 「下载缺前置时提醒」（设置页「下载」栏那一项）。同一个前缀：它管的也是
 // "点下载那一刻多问一句"这一类的事。
 static constexpr const char kWarnMissingDependencies[] = "Download/WarnMissingDependencies";
 static constexpr const char kShowGameLog[] = "Launcher/ShowGameLog";
@@ -348,7 +348,7 @@ LauncherBehaviour LauncherSettings::behaviourFromKey(const QString &key) {
     if (key == QLatin1String(kBehaviourCloseAndRestore)) {
         return LauncherBehaviour::CloseAndRestore;
     }
-    // 认不出来（旧版本写的值、用户手改的注册表）就当"不变"：这是唯一一个
+    // 认不出来（别的名字写下的值、用户手改的注册表）就当"不变"：这是唯一一个
     // 什么副作用都没有的档位，猜错的代价比"最小化/关闭"小得多。
     return LauncherBehaviour::Unchanged;
 }
@@ -420,7 +420,7 @@ void LauncherSettings::load() {
     // 同上：盘上写着负数 / 一个荒唐的大数时，读出来的是"不限"。
     m_downloadSpeedLimit = DownloadSpeedLimit::normalize(
         settings.value(kDownloadSpeedLimit, m_downloadSpeedLimit).toLongLong());
-    // 代理：档位认不出来回 System（= 加这一项之前的行为）；手动那一格原样读，不在这里校验。
+    // 代理：档位认不出来回 System；手动那一格原样读，不在这里校验。
     m_proxyMode = DownloadProxy::modeFromKey(
         settings.value(kProxyMode, DownloadProxy::modeKey(m_proxyMode)).toString());
     m_proxyManualText = settings.value(kProxyManual, m_proxyManualText).toString().trimmed();
@@ -441,7 +441,7 @@ void LauncherSettings::load() {
     m_gameWindowHeight =
         clampWindowHeight(settings.value(kGameWindowHeight, m_gameWindowHeight).toInt());
     // 窗口模式：盘上那个串认不出来时**留在默认档（小窗）**，不猜也不报错 —— 认不出来的
-    // 两种来历（手改过、老版本写的别的名字）都该退回"和加这个功能之前一样"。
+    // 两种来历（手改过、别的名字写下的值）都该退回默认档。
     {
         GameWindowMode parsed = m_gameWindowMode;
         const QString token = settings.value(kGameWindowMode, gameWindowModeToken(m_gameWindowMode))

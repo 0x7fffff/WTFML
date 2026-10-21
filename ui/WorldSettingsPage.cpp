@@ -57,7 +57,7 @@ constexpr int kRuleFilterDelayMs = 200;
  * 为什么需要它：这一页每一行都是一个自己摆的控件（开关 / 输入框），列表
  * 本身**没有**"选中 / 当前"这回事 —— 构造里也写了 `setSelectionMode(NoSelection)`。
  * 可是这拦不住它：`addItem()` 之后、视图**第一次布局**的那一下，Qt 会把第 0 行设成
- * **当前项**（实测：`setWorld()` 那一刻 `currentRow()` 还是 -1，`resize()` 之后就变成
+ * **当前项**（`setWorld()` 那一刻 `currentRow()` 还是 -1，`resize()` 之后就变成
  * 0 了 —— 所以"摆完内容顺手清一下当前项"是**没用**的，下一次布局它又回来），而 Fusion
  * 画当前项用的是一道**竖渐变**（第 0 行整行 #e7f2f9，越往下越深）。屏幕上看着就是
  * "这一条被选中了"，而它并没有。
@@ -165,11 +165,10 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     }
     top->addWidget(m_title, 1);
 
-    // ---------- 这个世界能做的三件事（：原先那支笔上的小菜单搬进来了）----------
+    // ---------- 这个世界能做的三件事 ----------
     //
-    // 要求：「改文件的设置上方是重命名 打开文件夹 删除世界（弹窗确认）」。三颗都在这儿，
-    // **一个字节的盘都不碰**：改名和删除是 MainWindow 的事（它要弹输入框 / 确认框、
-    // 还要在成功之后把这一页的名字摆回来或者干脆收掉这一页）。
+    // 三颗都在这儿，**一个字节的盘都不碰**：改名和删除是 MainWindow 的事（它要弹输入框 /
+    // 确认框、还要在成功之后把这一页的名字摆回来或者干脆收掉这一页）。
     auto *actions = new QHBoxLayout;
     actions->setContentsMargins(0, 0, 0, 0);
     actions->setSpacing(8);
@@ -188,7 +187,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
             [this] { emit openFolderRequested(); });
     actions->addWidget(m_openFolder);
 
-    // ---------- §4.4：整份存档的备份 / 还原 / 打开备份目录 ----------
+    // ---------- 整份存档的备份 / 还原 / 打开备份目录 ----------
     //
     // 三颗放在**这一排**（"这个世界能做的几件事"）而不是最底下那一排（"整页的两件动作"）：
     // 它们动的是**这个存档**（打它、还原它、去看它的备份），和「重命名 / 打开文件夹 /
@@ -228,7 +227,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     m_delete = new QPushButton(deleteText(), this);
     m_delete->setObjectName(deleteButtonName());
     m_delete->setToolTip(tr("把这个世界连同里面的东西从盘上删掉（会先问一句）。"));
-    // 红：用户点名这一档叫「不可撤销（如修改存档，删除实例）」—— 这一颗删的就是一整个
+    // 红：这一档叫「不可撤销（如修改存档，删除实例）」—— 这一颗删的就是一整个
     // 存档目录（里面的 region 是几十上百 MB 的游玩记录，删了拿不回来）。
     Theme::markButton(m_delete, Theme::ButtonKind::Danger);
     connect(m_delete, &QPushButton::clicked, this, &WorldSettingsPage::deleteRequested);
@@ -246,7 +245,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
 
     m_save = new QPushButton(saveText(), this);
     m_save->setObjectName(saveButtonName());
-    // 一律红：用户点名这一档叫「不可撤销（如**修改存档**，删除实例）」——
+    // 一律红：这一档叫「不可撤销（如**修改存档**，删除实例）」——
     // 这一颗写的就是存档里那份 level.dat。上面确实会自动留一代备份
     // （那是"能挽回来"的保障），但对用户而言这仍然是一次**向着已有存档**
     // 的写入 —— 和右边那颗「备份」（多出一份）正好一红一黑。
@@ -273,8 +272,8 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
 
     // ---------- 「修改存档文件」那个折叠框（默认收起）----------
     //
-    // 要求：「修改文件的设置放在一个类似版本下载那里的收起来的框里，默认收起，展开是
-    // 弹出备份警告」。做法和「实例设置 → 启动」那一页的「高级选项」逐字一样（`QToolButton`
+    // 「修改文件的设置」放在一个类似版本下载那里的收起来的框里，默认收起，展开时弹备份
+    // 警告。做法和「实例设置 → 启动」那一页的「高级选项」逐字一样（`QToolButton`
     // 可勾选 + 箭头 + 文字在图标旁边），只是这一颗点下去**不自己开门**：它先发
     // `fileEditingRequested()`，由 MainWindow 弹完那句备份警告，再拿 `setFileEditingOpen()`
     // 把结果摆回来（见那两个函数的说明）。
@@ -282,11 +281,10 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     // 框里是**这一页上会去动 `<存档目录>/level.dat` 的所有东西**：世界名 / 允许作弊 /
     // 极限模式 / 难度四格，加上底下的游戏规则那一列。
     //
-    // 用户点名的第二件事：「下面的 gamerules 不会改坏吗，如果可能会的话也放到
-    // 那个框里去」。答案是不会"另算一档"——**它们改的是同一份文件**（游戏规则就存在
+    // 游戏规则**和上面那四格改的是同一份文件**（游戏规则就存在
     // `level.dat` 的 `Data/GameRules` 里，见 .hpp 顶上那段文件结构），所以风险、备份那一句
-    // 警告、"要不要动文件"这个决定**全都是同一件事**。原来按"游戏里 `/gamerule` 能不能改"
-    // 把这两拨分开摆是错的切法：**切法该按"动的是哪份文件"**，动 `level.dat` 的一律收进来。
+    // 警告、"要不要动文件"这个决定**全都是同一件事**。切法按"动的是哪份文件"，而不是按
+    // "游戏里 `/gamerule` 能不能改"：动 `level.dat` 的一律收进来。
     m_fileToggle = new QToolButton(m_body);
     m_fileToggle->setObjectName(fileToggleName());
     m_fileToggle->setText(fileToggleText());
@@ -306,7 +304,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     // 默认收起：这是"改存档文件"那几格，用户没点开之前一个都不该看见。
     m_fileBody->setVisible(false);
 
-    // 世界名：★ 起**不再是灰的**（要求「并允许修改值」）—— 盘上没有这一格
+    // 世界名：盘上没有这一格
     // 时它照样能改，只是 tooltip 会说明"现在写的是默认值，改了才会写进去"（见
     // refreshFileHints()）。
     m_nameEdit = new QLineEdit(m_fileBody);
@@ -364,11 +362,8 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
 
     // ---------- 世界设置（游戏规则）----------
     //
-    // 这一段**整个搬进了上面那个折叠框**（原来是 `m_body` / `body`）。
-    // 理由见 `m_fileToggle` 那一段 ★：规则也写在 `level.dat` 里，和上面四格是**同一档
-    // 风险、同一份文件、同一句警告**，所以摆在一起、一起收着。
-    // 搬动只改了 parent 与 `addLayout/addWidget` 的接收者（`m_body`/`body` → `m_fileBody`/
-    // `fileBody`），控件本身、行代理、重建逻辑一个字没动。
+    // 这一段和上面四格摆在一起、一起收着。理由见 `m_fileToggle` 那一段 ★：规则也写在
+    // `level.dat` 里，和上面四格是**同一档风险、同一份文件、同一句警告**。
     fileBody->addSpacing(6); // 另起一段：和上面那四格拉开一点
     auto *rulesRow = new QHBoxLayout;
     rulesRow->setContentsMargins(0, 0, 0, 0);
@@ -416,7 +411,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
 
     body->addWidget(m_fileBody, 1);
 
-    // 正文收尾那根弹簧（，要求「没有展开的时候排版太诡异了修一下」）。
+    // 正文收尾那根弹簧。
     //
     // 框收着的时候正文里活着的只剩「那一行事实」和上面那颗折叠钮，而 `QVBoxLayout` 在
     // 没有 stretch 可用的时候会把多出来的高度**均分**给它们 —— 屏幕上就是"那行事实飘在
@@ -589,8 +584,7 @@ QString WorldSettingsPage::emptyRulesText() {
     return QStringLiteral("一条规则都没有（连启动器认识的那些也没有）—— 这不该发生。");
 }
 QString WorldSettingsPage::rulesSourceHint(bool hasRules) {
-    // 这一段是"这一列是怎么来的"的说明书：要求里的「把所有的都列出来」要有个交代
-    // —— 不然用户会以为**屏幕上每一条**都是他这个世界里本来就有的。
+    // 这一段是"这一列是怎么来的"的说明书 —— 不然用户会以为**屏幕上每一条**都是他这个世界里本来就有的。
     if (hasRules) {
         return QStringLiteral("列表里是启动器认识的全部规则：存档里有的用存档里的值，"
                               "存档里还没有的那几条用游戏默认值（名字旁边写着「默认」）。"
@@ -659,8 +653,8 @@ void WorldSettingsPage::setWorld(const WorldView &view) {
         const int index = m_difficulty->findData(view.difficulty);
         m_difficulty->setCurrentIndex(index >= 0 ? index : 0);
     }
-    // 这四格**一律可动**（要求「并允许修改值」）。原来 `hasXxx = false`
-    // 的时候它们是被 `setEnabled(false)` 灰掉的，现在改成只在 tooltip 上说实话 ——
+    // 这四格**一律可动**：`hasXxx = false`
+    // 时也不灰掉，只在 tooltip 上说实话 ——
     // 见 refreshFileHints()，以及那一句本身（`defaultedHintText()`）。
     refreshFileHints();
     // 每进一个世界，那个折叠框都**从收起开始**：它是"改文件"那一档，不该一进来就摊着。
@@ -797,7 +791,7 @@ void WorldSettingsPage::updateBodyTail(bool open) {
     //
     // * 框**收着**（open = false）⇒ 弹簧 stretch = 1。规则表那一项是空的（控件藏着的项
     // 在 `QVBoxLayout` 里会被跳过），所以这一份 stretch 就是全场唯一，多余高度全归它
-    // ⇒ 那行事实和那颗钮都贴顶（用户 点名要修的就是这个）。
+    // ⇒ 那行事实和那颗钮都贴顶。
     // * 框**摊开**（open = true）⇒ 弹簧 stretch = 0，让位给规则表（`addWidget(m_fileBody,
     // 1)` 那一份）。留着 1 的话两边会各分一半，规则表白矮一半。
     //
@@ -861,11 +855,11 @@ ToggleSwitch *WorldSettingsPage::hardcoreSwitch() const {
 void WorldSettingsPage::harvestEdits() {
     // 把**现在摆出来的那些行**里的值收回 `m_view.rules` 里。
     //
-    // 为什么必须有这一步（，加 Z16 的时候当场红的）：`rebuildRuleRows()` 是
+    // 为什么必须有这一步：`rebuildRuleRows()` 是
     // `m_ruleList->clear()` + 重建 —— 行里那些开关和输入框是 `setItemWidget()` 摆进去的真
     // 控件，`clear()` 会把它们连同用户刚打的字一起销毁；而这一页**每次改搜索框都会重建
-    // 一遍**。于是"改一条规则 → 顺手搜一下别的 → 存"这条路原来会把刚改的那条**悄悄丢回
-    // 盘上那个值**（`editedView()` 对被筛掉的行是回 `m_view` 里取，而 `m_view` 一直是刚
+    // 一遍**。不先收回来，"改一条规则 → 顺手搜一下别的 → 存"这条路会把刚改的那条**悄悄
+    // 丢回盘上那个值**（`editedView()` 对被筛掉的行是回 `m_view` 里取，而 `m_view` 是
     // 打开时那一份）。屏幕上一点异常都没有，用户存完再进来才发现某一条没改上。
     //
     // 规矩：**控件里的值就是这一页的真值**，重建之前先收回来（`m_view` 是"摆出来的那一份
@@ -920,7 +914,7 @@ void WorldSettingsPage::rebuildRuleRows(bool harvestFromRows) {
         // 「默认」小标记，名字和值那两格的 tooltip 上再说一遍。不标的话，用户会以为
         // "屏幕上摆的"就是"这个存档本来的样子"—— 而这一列现在是**全集**。
         //
-        // 起这一串（英文规则名）**只出现在 tooltip 里** —— 行上那一格盖的是
+        // 这一串（英文规则名）**只出现在 tooltip 里** —— 行上那一格盖的是
         // 官方中文名（见下面 `setText()` 那儿）。英文名不能丢：它才是写进存档的那个键，
         // 也是用户在游戏里 `/gamerule` 要打的那个词。
         const QString ruleTip =
@@ -939,7 +933,7 @@ void WorldSettingsPage::rebuildRuleRows(bool harvestFromRows) {
         auto *name = new ElidedLabel(row);
         name->setObjectName(ruleNameLabelName());
         name->setElideMode(Qt::ElideRight);
-        // 要求：「游戏规则的英文拿一层对应的官方中文覆盖上去」。盖的这层
+        // 游戏规则的英文拿一层对应的官方中文覆盖上去。盖的这层
         // 是 `GameRuleNames`（官方 zh_cn.json 里那条）——**认不出来就原样回英文**，所以
         // 模组写的规则、比那张表还新的规则不会变成空白。
         name->setText(GameRuleNames::displayName(rule.name));
@@ -1164,10 +1158,9 @@ void WorldSettingsPage::refreshNote() {
     if (m_backupAvailable) {
         lines.append(tr("这个世界的备份已经有了（「备份一份」会再留一份新的）。"));
     }
-    // 原来这里是那句「这个存档里还没有游戏规则，进游戏玩一次就会写进去」
-    // （`noAddHintText()`）—— 现在那一列是**全集**，所以这句换成了"这一列是怎么来的"
+    // 这一列是**全集**，所以底下那句是"这一列是怎么来的"
     // 的说明书（`rulesSourceHint()`，盘上有没有那一格各说一句）。
-    // 第二版：那一列**搬进了折叠框**（规则改的也是 level.dat，见构造函数里
+    // 那一列在折叠框里（规则改的也是 level.dat，见构造函数里
     // `m_fileToggle` 那一段），所以这句只在**框开着**的时候说 —— 框收着的时候屏幕上没有
     // 那个列表，说它等于让用户去找一样看不见的东西。开合那道 `toggled` 会重跑一次这一段。
     if (m_fileToggle->isChecked()) {

@@ -410,7 +410,7 @@ int UiContentRowsChecks() {
                   "「清空 + 重建行」，图不记在页上的话，用户每刷新一次就退回占位图、"
                   "而图标是读盘+联网几秒才回来的（那几秒里看着像「图标没了」）");
 
-            // ---- ★★ 禁用之后**还是这张图**（，用户报的「模组禁用以后图标没了」）----
+            // ---- ★★ 禁用之后**还是这张图**（用户报的「模组禁用以后图标没了」）----
             //
             // 这一段是那一条的红绿钉子：**真的在盘上改一次名**（`X.jar` → `X.jar.disabled`，
             // 就是行尾那颗开关干的那件事，见 disabledSuffix），再让这一页重列一遍 ——
@@ -432,7 +432,7 @@ int UiContentRowsChecks() {
                     check(!afterToggle.isNull() &&
                               afterToggle.toImage().pixelColor(iconPx / 2, iconPx / 2) ==
                                   QColor(0x11, 0x88, 0x44),
-                          "★★ Z15c **禁用之后那一行的图标还在**（用户 2026-10-10 报的「模组禁用"
+                          "★★ Z15c **禁用之后那一行的图标还在**（用户报的「模组禁用"
                           "以后图标没了」）—— 图标是按 `identityPath()` 记的：禁用只是改了名字，"
                           "盘上那份内容一个字节都没动，图标还是那一张");
                     // 还原（底下那几段还要在 sodium.jar 这条路径上接着量）。
@@ -524,7 +524,7 @@ int UiContentRowsChecks() {
                           shownBig.height() == iconPx,
                       "★★ Z15c 比这一格**大**的真图标要缩进这一格（96 → 32）—— 不缩的话"
                       "QLabel 按原尺寸画、超出的一律裁掉，屏幕上只看得见左上角那一小块"
-                      "（用户 2026-09-27 截图报的正是这个）",
+                      "（截图里报的正是这个）",
                       QStringLiteral("画出来 %1x%2（这一格 %3）")
                           .arg(shownBig.width())
                           .arg(shownBig.height())
@@ -585,7 +585,7 @@ int UiContentRowsChecks() {
                 check(enabled != nullptr && disabled != nullptr &&
                           qobject_cast<ToggleSwitch *>(enabled) != nullptr,
                       "★ Z15c 行尾那颗是**开关**（用户原话「启用和禁用使用开关的那种形式」），"
-                      "不是从前那颗写着「禁用」/「启用」的文字按钮");
+                      "不是一颗写着「禁用」/「启用」的文字按钮");
                 check(enabled != nullptr && disabled != nullptr && enabled->isChecked() &&
                           !disabled->isChecked(),
                       "★ Z15c 名字正常的那些**开着**、`.disabled` 那些**关着** ——"
@@ -866,7 +866,7 @@ int UiContentRowsChecks() {
                                              : -1;
                 check(serverHeight == MainWindowUI::serverRowHeight(),
                       "★★ Z15e 条目自己给的 `Qt::SizeHintRole` **真被代理采纳了**"
-                      "（从前这里是写死的常数、那一格被静默无视 —— 症状是"
+                      "（写死的常数会把那一格静默无视 —— 症状是"
                       "「setSizeHint 设了、屏幕上一点没变」，什么都不报）",
                       QStringLiteral("%1 px（条目要的是 %2）")
                           .arg(serverHeight)

@@ -104,7 +104,7 @@ void planOptionsRow(const PlanRequest &request, const PresetSection &section, Ap
 
     // 「勾了哪些键」= **这一段里有的那些键**。段里的内容本来就是用户勾过的那一套
     // （`sectionsFromOptions()` 只写勾中的），所以这一趟不该拿"默认该勾什么"再猜一遍 ——
-    // 猜的后果是用户特意没勾的硬件项被我们偷偷写进去（§6 P2 点名的「显示器、全屏分辨率等
+    // 猜的后果是用户特意没勾的硬件项被我们偷偷写进去（要求的「显示器、全屏分辨率等
     // 硬件相关项默认不选」）。
     QSet<QString> selected;
     for (const QString &key : source.keys()) {
@@ -318,13 +318,13 @@ QString applyPlanVerb(ApplyMode mode) {
 
 QString applyPlanUnit(SectionKind kind) {
     switch (kind) {
-    // `options.txt` 那两段动的是**键**，说「项」（§7：「游戏设置 合并 18 项」）。
+    // `options.txt` 那两段动的是**键**，说「项」（「游戏设置 合并 18 项」）。
     // MaLiLib 那一段动的也是**格**（一格热键 / 一格设置），还是「项」。
     case SectionKind::VanillaOptions:
     case SectionKind::VanillaKeys:
     case SectionKind::MalilibKeys:
         return plannerText("项");
-    // 服务器条目、配置文件、资源包都是"一个东西"，说「个」（§7：「服务器列表 追加 3 个」）。
+    // 服务器条目、配置文件、资源包都是"一个东西"，说「个」（「服务器列表 追加 3 个」）。
     case SectionKind::ServerList:
     case SectionKind::GenericFiles:
     case SectionKind::Custom:

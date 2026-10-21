@@ -223,7 +223,7 @@ void runCopyAndSavePageTests() {
               "★ T27.3 话里点名了**用户刚挑的那个目录**（这一层存在的意义就是这句话）",
               g_modalText);
         check(!QFileInfo::exists(versionDir + QStringLiteral("/versions")),
-              "★★ T27.3 拒绝之后**盘上一个目录都没多**（老代码会在这儿造出一个 versions/，"
+              "★★ T27.3 拒绝之后**盘上一个目录都没多**（多出一个 versions/，"
               "那就是递归的开始）");
         // 源目录自己及其内容照旧。
         check(QFileInfo::exists(versionDir + QStringLiteral("/mods/sodium.jar")) &&
@@ -877,9 +877,9 @@ void runCopyAndSavePageTests() {
                 // `QSaveFile::commit()` → `MoveFileEx(REPLACE_EXISTING)` 换掉 level.dat，
                 // 而那一步要求目标**没有别人开着**。测试自己攥着一个读句柄的话，换名会
                 // 以"拒绝访问"失败 —— 症状是产品弹「保存失败」、盘上一个字没变，而这一节
-                // 每一条断言都红得像是"翻译错了 / 没写盘"（ 实测踩到：第一版
-                // 这一行就是一个活到本节末尾的 `QFile`，整段保存全红）。产品里没有这一档
-                // （没人攥着 level.dat），是测试自己的手。
+                // 每一条断言都红得像是"翻译错了 / 没写盘"（测试自己攥着一个活到本节末尾的
+                // `QFile` 就会踩到）。产品里没有这一档（没人攥着 level.dat），
+                // 是测试自己的手。
                 QByteArray beforeBytes;
                 {
                     QFile freshFile(WorldFiles::levelDataPath(worldDir));
@@ -929,7 +929,7 @@ void runCopyAndSavePageTests() {
                     openAsks = answerer.answered;
                 }
                 check(openAsks.isEmpty(),
-                      "★★ T27.7 点那支笔**不弹任何提示框**（打开之前那一问被用户点名删掉了）",
+                      "★★ T27.7 点那支笔**不弹任何提示框**（打开之前那一问已经没有了）",
                       openAsks.isEmpty() ? QString() : openAsks.first().title);
 
                 WorldSettingsPage *world = page->worldSettingsPage();
@@ -1407,7 +1407,7 @@ void runCopyAndSavePageTests() {
             //
             // 这一关**也得接住**：`InstanceSettingsDialog::reject()` 上挂着那两道闸
             // （「配置文件」/「世界设置」改过还没存），存过之后它们**都不该响** —— 响了就是
-            // 用户按了一下返回箭头被问一句"要丢掉吗"。第一版这一发没接，一次保存失败就让
+            // 用户按了一下返回箭头被问一句"要丢掉吗"。这一发必须接：一次保存失败就会让
             // 它挂在「改过还没保存」那个框上（屏幕上什么都没发生、测试整个卡死）——
             // 脚本那一位顶着"真多问了一句"，下面那条断言会红，而不会让测试挂住。
             QList<PromptAnswerer::Answered> closeAsks;
@@ -1438,7 +1438,7 @@ void runCopyAndSavePageTests() {
         // 提示了」）。原来这里垫着一问「打开（只读）/ 先备份一份 / 取消」，现在它整个没了
         // —— 所以这一条量的是"没弹东西"，而不是"弹的那一问长什么样"。
         check(penAsks.isEmpty(),
-              "★★ T27.6 点那支笔**不弹任何提示框**（那一问被用户点名删掉了）",
+              "★★ T27.6 点那支笔**不弹任何提示框**（那一问已经没有了）",
               penAsks.isEmpty() ? QString() : penAsks.first().title);
         check(pageOpened, "★★ T27.6 点完那支笔人真的站在「世界设置」那一页上"
                           "（不是还停在世界列表上）");
@@ -1518,8 +1518,7 @@ void runCopyAndSavePageTests() {
                 keptOnCancel = host->pageOpen() &&
                                host->findChild<InstanceSettingsDialog *>() != nullptr;
                 // "盘上一个字节都没动"**只能量在这儿**：下面第 ② 趟是**真要删**的，
-                // 等整段跑完再问就已经晚了（第一版就是这么写红的 —— 那条断言量到的是
-                // 删完之后的盘）。
+                // 等整段跑完再问就已经晚了（那时量到的是删完之后的盘）。
                 dirUntouchedAfterCancel = QFileInfo::exists(versionDir);
             }
 
@@ -1527,7 +1526,7 @@ void runCopyAndSavePageTests() {
             //
             // 「产品自己收页了没有」**只能这么量**：`dismiss()` 发的是 `backPressed()`，
             // 而 `m_mode` 要到 `execPage()` 那层嵌套循环**转回来**才被放成 None —— 在我们
-            // 这个 handler 里 `pageOpen()` 恒为 true（第一版就是这么红了一条假阳性）。
+            // 这个 handler 里 `pageOpen()` 恒为 true。
             // 所以直接接那一发信号：它响了 = 产品真的喊了"收页"。
             auto dismissConnection = QObject::connect(
                 host, &OverlayHost::backPressed, host,
@@ -1546,8 +1545,7 @@ void runCopyAndSavePageTests() {
                 // NOTE: **这里读不出"收页了没有"**。`dismiss()` 发的是 `backPressed()`，
                 // 而它要到 `execPage()` 那层嵌套循环真的转回来才会把 `m_mode` 放成
                 // None —— 也就是说"这一页收掉了"这件事**只有在 `invokeMethod` 返回
-                // 之后才量得到**（下面那条就是这么量的）。第一版在这儿读，量到的是
-                // "还没收到"，红了一条假阳性。
+                // 之后才量得到**（下面那条就是这么量的）。在这儿读只会量到"还没收到"。
             }
 
             QObject::disconnect(dismissConnection);

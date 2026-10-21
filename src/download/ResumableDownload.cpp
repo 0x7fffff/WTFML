@@ -81,7 +81,7 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
     m_files->shareSpeedLimitBucketWith(m_speedBucketOwner);
     m_files->setUseMirror(false);
     m_files->setMaxConcurrentDownloads(kPartConcurrency);
-    // （§9.2 限速）：分段作业绕在自己这个下载器上 —— 限值必须在这儿也推一份，
+    // （限速）：分段作业绕在自己这个下载器上 —— 限值必须在这儿也推一份，
     // 否则"大于 4 MiB 的文件"整批不受限速管（设置里明明写着 1 MB/s，大文件照样满速）。
     m_files->setSpeedLimitBytesPerSecond(m_speedLimitBytesPerSecond);
     // 关键：协调器的单文件回退（startSingle）会带着 sha1 + size 走同一个 DownloadManager，
@@ -606,7 +606,7 @@ void ResumableDownload::checkStuck() {
         // 源站内容换了的时候也一样：重新探测的 ETag 对不上 ⇒ 缓存整批作废、老实重下，
         // 而不是带着旧的 If-Range 去撞一个 416。
         // `probe()` 自己会走 `prepareCache()`，那儿会把上一批残留的 `m_live` 清掉
-        // （不然进度会先虚高再回落 —— 这就是从前进度账看着"跳过一段"的那个来源）。
+        // （不然进度会先虚高再回落 —— 进度账看着"跳过一段"就是这么来的）。
         m_partsRetried = true;
         m_partsRetryPending = false;
         m_stage = Stage::Probe;  // 先改状态：`cancelBatch()` 的收尾信号别再走进分段分支

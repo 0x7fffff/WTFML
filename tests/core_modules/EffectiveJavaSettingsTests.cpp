@@ -144,7 +144,7 @@ void runEffectiveJavaSettingsTests(const QString &sandbox) {
               "R4 xmx 写成了字符串 → 当没有（**不是**当成 0）");
         check(javaOverrideFromJson(QJsonObject{{QStringLiteral("autoMemory"), 1}}).isEmpty(),
               "R4 autoMemory 写成数字 → 当没有");
-        // 非整数的 double：**自己截断**（ 修）。这一条钉的是一个实测过的 Qt 行为：
+        // 非整数的 double：**自己截断**。这一条钉的是一个实测过的 Qt 行为：
         // QJsonValue::toInt() 遇到 4096.5 返回的是**默认值 0**（它不截断，探针见
         // tmp/probe_toint），而那个 0 一路走到夹取那一段就变成"用户设了 4096 MB、起步内存
         // 256 MB"这种**没人报错**的错值。所以截断是我们自己做的，而且下限以下/上限以上
@@ -265,10 +265,9 @@ void runEffectiveJavaSettingsTests(const QString &sandbox) {
     }
 
     // ---- R7 「值 → 要写进 meta 的那批字段」整批（javaOverrideMetaFields） ----
-    // 这是写侧真正交给 updateVersionMeta() 的东西：五项加追加参数一起。它以前长在
-    // MainWindow::applyInstanceSettings() 里，而那里收的是对话框引用 —— 验证工程驱动
-    // 不了它（自定义类型进不了 Q_ARG），于是"清空追加参数之后那个键还在不在"这种事
-    // 没有任何断言盯着。搬成纯函数之后这里直接喂值、比对 JSON。
+    // 这是写侧真正交给 updateVersionMeta() 的东西：五项加追加参数一起。它收的是纯值，
+    // 验证工程能直接喂值、比对 JSON —— 收对话框引用的话自定义类型进不了 Q_ARG，
+    // "清空追加参数之后那个键还在不在"这种事就没有断言盯得住。
     {
         const QString jvmKey = VersionManager::jvmArgsField();
 

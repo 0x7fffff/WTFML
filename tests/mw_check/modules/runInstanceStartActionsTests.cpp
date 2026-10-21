@@ -286,8 +286,8 @@ void runInstanceStartActionsTests() {
             check(newLogContains(QStringLiteral("✓ 实例「%1」的文件校验完成：").arg(displayA)),
                   "T19.5 日志里「结束」那一行也是");
 
-            // ---------- ⓪（续）修完再体检一遍：一句坏话都没有 ----------
-            // 和上面那一趟成对 —— 同一个函数、同一份实例：修之前两个问题，修之后零个。
+            // ---------- ⓪（续）补全之后再体检一遍：一句坏话都没有 ----------
+            // 和上面那一趟成对 —— 同一个函数、同一份实例：补全之前两个问题，补全之后零个。
             // 这也是「只报不装」的另一面（它不会因为"我刚报过"就顺手改点什么）。
             {
                 const VersionIntegrity::Report after = vm->checkInstanceIntegrity(idA);

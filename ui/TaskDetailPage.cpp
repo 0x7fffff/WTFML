@@ -88,7 +88,7 @@ TaskDetailPage::TaskDetailPage(QWidget *parent) : QDialog(parent) {
 
     // ---------- 进度：条 + 右边那个数 ----------
     // 测不出总量（percent < 0）的时候**整行收起来**，不画一根不确定态的条，也不编一个
-    // 百分比出来 —— 和面板那一行同一条规矩（coding plan §3.4）。
+    // 百分比出来 —— 和面板那一行同一条规矩。
     auto *barRow = new QHBoxLayout;
     barRow->setContentsMargins(0, 0, 0, 0);
     barRow->setSpacing(8);

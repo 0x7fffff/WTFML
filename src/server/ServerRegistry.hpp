@@ -1,6 +1,6 @@
 /**
  * @file ServerRegistry.hpp
- * @brief 服务端工作区（coding plan §6.1）里**盘上那一份**：`<数据目录>/Servers` 底下现在
+ * @brief 服务端工作区里**盘上那一份**：`<数据目录>/Servers` 底下现在
  * 有哪些服务端、每一个是哪一档、装好了没有、配置文件里写着什么。
  *
  * 【它和 ServerModel / ServerInstall 的分工】

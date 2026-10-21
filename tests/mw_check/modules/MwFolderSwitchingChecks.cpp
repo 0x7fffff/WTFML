@@ -19,9 +19,8 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
             const QString cb = QFileInfo(b).canonicalFilePath();
             return !ca.isEmpty() && ca == cb;
         };
-        // NOTE: 这里原来有个 buttonByText() 助手（按按钮上的字找控件）。它现在**没人用了**：
-        // 文件夹那一列挂出来的按钮都带 objectName，改按名字找（那一列现在只剩「添加
-        // 文件夹…」一个 —— 「移除文件夹…」 删了，只剩行尾齿轮里那一项）。
+        // NOTE: 文件夹那一列挂出来的按钮都带 objectName，按名字找（那一列只剩「添加
+        // 文件夹…」一个 —— 「移除文件夹…」在行尾齿轮里）。
         // 按文案认控件是这套验证里明确不要的做法 —— 文案会随产品改，改完的第一次跑
         // 会变成"找不到控件、后面全不跑"，而挂出来的样子看不出是文案变了。
 
@@ -120,9 +119,9 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
                           sameDir(shownPath, AppPaths::defaultMinecraftDir()),
                       "那一条就是启动器自带的那份 .minecraft",
                       shownPath + QStringLiteral(" / ") + AppPaths::defaultMinecraftDir());
-                // 那一条上面写的现在是「当前文件夹」——「（自带）」是单行列表时代的写法
-                // （ 换成两行式之后没了）。字在**行里那个子控件**上，所以
-                // item->text() 是空的（和上面那条按 UserRole 认人的断言不冲突）。
+                // 那一条上面写的是「当前文件夹」—— 单行列表时代那个「（自带）」后缀不写了。
+                // 字在**行里那个子控件**上，所以 item->text() 是空的（和上面那条按 UserRole
+                // 认人的断言不冲突）。
                 const int assistantRow =
                     folderRowIndexOf(&w6, MainWindowUI::folderAssistantTitle());
                 QLabel *assistantSubtitle =
@@ -136,8 +135,8 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
                               QDir::toNativeSeparators(AppPaths::defaultMinecraftDir()),
                       "下面那行是它完整的路径（系统分隔符，别把 QDir 的 `/` 露给用户）",
                       assistantSubtitle != nullptr ? assistantSubtitle->text() : QString());
-                // 「移除」现在只有行尾齿轮菜单里那一项（那个按钮 删掉了，用户
-                // 原话「下面那个移除文件夹也可以弃掉了」）—— 自带那份移不掉的判据跟着搬家。
+                // 「移除」只有行尾齿轮菜单里那一项（用户原话「下面那个移除文件夹也可以
+                // 弃掉了」）—— 自带那份移不掉的判据就在菜单里量。
                 {
                     QWidget *menu = openGearMenuOfRow(&w6, MainWindowUI::folderAssistantTitle());
                     auto *removeEntry = menu != nullptr
@@ -156,7 +155,7 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
                 }
                 // 数的是**实例条目**（instanceItemsOf 跳过组头）。沙盒里本来没有
                 // wtfml.folders，开这个窗的时候产品把那五个默认组种了进去
-                // （ 用户要的那五个），于是树是**分组**的 —— 三个实例一条不少，
+                // （用户要的那五个），于是树是**分组**的 —— 三个实例一条不少，
                 // 只是各挂在「可安装mod」/「原版」底下。
                 const QList<QTreeWidgetItem *> unsorted = instanceItemsOf(instances);
                 check(unsorted.size() == 3,
@@ -275,11 +274,9 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
         }
 
         // ---- 「移除」＝只动列表：盘上的文件一个字节都不能少 ----
-        // 用户提的就是这件事：「文件夹管理里面弄一个从列表中移除文件夹但不删除文件的选项」。
-        // 数据层一直是这么做的（FolderManager::removeFolder 只写设置、从不碰盘），但**从来没有
-        // 一条断言真的去看过盘** —— "读代码觉得它对"和"使用者敢按"是两件事，而这个入口以前
-        // 那个按钮就叫「删除文件夹」。所以这一节真点一次齿轮里那一项（确认框也真点「是」），
-        // 然后看盘上。
+        // 「移除」只写设置、从不碰盘（FolderManager::removeFolder）—— 但这里必须真点
+        // 一次齿轮里那一项（确认框也真点「是」），然后看盘上："读代码觉得它对"和
+        // "使用者敢按"是两件事。
         //
         // 这一节用 before/after 的写法：先在那一份目录里放两个"用户的东西"（一个在根上、
         // 一个在存档目录里），移除之后它们必须一个字节都没少。
@@ -381,7 +378,7 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
         // —— 拿符号链接验的话，防不住的那一半照样绿。
         //
         // 而"防不住的那一半"就是符号链接（canonicalFilePath() 对它**是解**
-        // 的），见下面 ③。上一版只有 ① / ②，结论"全绿"是**假的**：能造的那一类防住了，
+        // 的），见下面 ③。只验 ① / ② 的结论是**假的全绿**：能造的那一类防住了，
         // 防不住的那一类没进过测试。
         {
             const QString realDir = root.filePath(QStringLiteral("junction-target"));
@@ -596,7 +593,7 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
                     QApplication::processEvents();
                     return true;
                 };
-                // 一张图标里有没有「红」（ 要求「删除的垃圾桶也换成红色吧」）。
+                // 一张图标里有没有「红」（要求「删除的垃圾桶也换成红色吧」）。
                 // 判据要**连饱和度一起看**：灰色像素的色相也是 0，只看色相的话把图标画成灰的
                 // 这条照样绿。量的是**按钮上挂着的那张图**，不是再调一次 folderActionIcon()
                 // —— 后者颜色是调用方自己传的，跟菜单里真用的那张是两回事。
@@ -664,7 +661,7 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
                         // 设成居中 —— 设了就成了"一排居中按钮"，看着不像菜单。
                         check(entry->styleSheet().contains(QStringLiteral("text-align: left")),
                               QString("P2 第 %1 项是从左边起排的").arg(a));
-                        // 五项的字全是粗的（ 要求「这个字能不能用加粗的」）。
+                        // 五项的字全是粗的（要求「这个字能不能用加粗的」）。
                         // 两条一起钉：一条看样式表里有没有写、一条看控件**身上**的字体是不是
                         // 真粗了 —— 只写样式表那句话在 QSS 没被应用时照样绿。
                         check(entry->styleSheet().contains(QStringLiteral("font-weight: bold")),
@@ -694,7 +691,7 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
                                                                  Qt::black)
                                       .toImage(),
                           "P2 垃圾桶和刷新圈是两个不同的字形（画重了才会一样）");
-                    // 垃圾桶跟着字一起红（ 要求「删除的垃圾桶也换成红色吧」）。
+                    // 垃圾桶跟着字一起红（要求「删除的垃圾桶也换成红色吧」）。
                     check(deleteEntry != nullptr && hasDangerRed(deleteEntry->icon()),
                           "P2 垃圾桶是红的（和那一项的字同一个色）");
                     check(refreshEntry != nullptr && !hasDangerRed(refreshEntry->icon()),

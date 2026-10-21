@@ -108,7 +108,7 @@ void runOfflineDefaultSkinTests() {
                   "ZG2 算得出来时随机那条路**整条没走**：没在加载、盘上那行还是上一张",
                   RandomSkinStore::loadChosenSkinUrl(uuid));
 
-            // ---- ZG3 换到只有老规矩那条的版本：图换了，模型也跟着换 ----
+            // ---- ZG3 换到只有旧版布局那条的版本：图换了，模型也跟着换 ----
             // 这一条同时验了"换版本会重算"（下拉框 currentIndexChanged → startPlayerSkinLoad）
             // 和"两套规矩算出来的是两张不同的图"—— 少了任一条，屏幕上都不会变。
             combo->setCurrentIndex(combo->findData(oldId));

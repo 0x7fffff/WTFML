@@ -124,9 +124,9 @@ int runInstanceFileTests(const QString &sandbox) {
                   afterLibs.jarCandidates.size() == 1,
               "N2 libraries/ 里的库 jar 不算候选（扫描不递归）",
               QString::number(afterLibs.jarCandidates.size()));
-        // NOTE: 清理必须能真的删干净。以前这里就地 new 了一个 QFile 写到作用域结束，
-        // 句柄还开着，removeRecursively() 就删不掉 —— 每跑一次留一个目录在
-        // 沙盒里，谁也没发现。走 writeFileAt() 它写完就关。
+        // NOTE: 清理必须能真的删干净。就地 `new QFile` 写到作用域结束会一直攥着句柄，
+        // `removeRecursively()` 就删不掉 —— 每跑一次留一个目录在沙盒里。走
+        // writeFileAt() 它写完就关。
         const bool cleaned = QDir(versionsRoot + "/" + id).removeRecursively();
         check(cleaned && !QDir(versionsRoot + "/" + id).exists(),
               "N2 用完的沙盒目录删干净了（句柄没被自己攥着）");
@@ -174,7 +174,7 @@ int runInstanceFileTests(const QString &sandbox) {
               InstanceFiles::jarOwnerId(solo));
         check(InstanceFiles::jarRelativePath(solo) ==
                   QStringLiteral("versions/%1/真名.jar").arg(solo),
-              "N4 自立型实例的 classpath 那一段和改动前一样",
+              "N4 自立型实例的 classpath 那一段按自己的真名拼",
               InstanceFiles::jarRelativePath(solo));
 
         // 环：A 继承 B、B 继承 A。不能死循环，也不能崩 —— 退化成链上最后一个。
@@ -425,12 +425,12 @@ int runInstanceFileTests(const QString &sandbox) {
         // 解析不出来时退回老名字 —— 只想拿个名字去看看在不在的调用方在正常目录上逐字节不变。
         const QString missing = QStringLiteral("N段-不存在");
         check(InstanceFiles::jarName(missing) == missing + QStringLiteral(".jar"),
-              "N3 认不出时 jarName 退回 <id>.jar（老行为）", InstanceFiles::jarName(missing));
+              "N3 认不出时 jarName 退回 <id>.jar", InstanceFiles::jarName(missing));
         check(InstanceFiles::jsonName(missing) == missing + QStringLiteral(".json"),
               "N3 认不出时 jsonName 退回 <id>.json", InstanceFiles::jsonName(missing));
         check(InstanceFiles::jarPath(missing) ==
                   AppPaths::versionJarPath(missing),
-              "N3 认不出时 jarPath 与改动前逐字节一致", InstanceFiles::jarPath(missing));
+              "N3 认不出时 jarPath 也退回 <id>.jar", InstanceFiles::jarPath(missing));
     }
 
     return 0;

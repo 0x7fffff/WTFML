@@ -104,7 +104,7 @@ int UiGameLogActionsChecks(QFrame * &bar) {
             check(view->font().family() != QApplication::font().family(),
                   "Z3 而且真的换掉了默认字体（不然上面那条是白验）",
                   QString("%1 vs %2").arg(view->font().family(), QApplication::font().family()));
-            // 字号**比系统那个等宽字体大一号**（ 用户说的「字号稍微大一点」）。
+            // 字号**比系统那个等宽字体大一号**（用户说的「字号稍微大一点」）。
             //
             // NOTE: 比的是**系统那一份**，不是 `GameLogWindow::logFont()` 自己 —— 跟自己比
             // 是空的（那个函数改回原样，这条跟着一起变）。另外点大小和像素大小二选一

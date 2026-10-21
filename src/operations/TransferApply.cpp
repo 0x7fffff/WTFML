@@ -172,7 +172,7 @@ void copyOneFile(const QString &sourceFile, const QString &targetFile, Result *r
 /// 把一棵目录**合并**进目标：只拷目标里没有的文件，目录先建出来。
 void mergeTree(const QString &sourceDir, const QString &targetDir, Result *result) {
     // 这一层（目标）自己是一根链接 ⇒ 不进去。递归到下一层时子目录那道
-    // `sub.isJunction()` 挡的是**源**那一侧；目标那一侧从前一条闸都没有 ——
+    // `sub.isJunction()` 挡的是**源**那一侧；目标那一侧没有对应的闸 ——
     // `<目标>/config/共享` 是 junction 时，`mkpath()` 对着一根已经存在的链接回 true，
     // 接着就写到链接那头去了。
     const QFileInfo sourceInfo(sourceDir);
@@ -207,7 +207,7 @@ void mergeTree(const QString &sourceDir, const QString &targetDir, Result *resul
     }
 }
 
-// ---------- 校验（§9.9 bullet 3 的最后一步）----------
+// ---------- 校验（最后一步） ----------
 
 constexpr int kVerifyListLimit = 5;
 
@@ -331,7 +331,7 @@ Result apply(const QString &sourceDir, const QString &targetDir,
         } else {
             copyOneFile(sourcePath, targetPath, &result);
         }
-        // 逐项报告（§9.9 bullet 5）：一块搬完就报一次，**跳过不算失败**。
+        // 逐项报告：一块搬完就报一次，**跳过不算失败**。
         if (progress) progress(item.key, result.failedFiles == failedBefore);
     }
 

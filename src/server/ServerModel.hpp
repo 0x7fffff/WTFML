@@ -1,6 +1,6 @@
 /**
  * @file ServerModel.hpp
- * @brief 服务端工作区（coding plan §6 / 里程碑 M4）的**判据层**：一个服务端是什么、
+ * @brief 服务端工作区的**判据层**：一个服务端是什么、
  * 它现在处于哪一档状态、`eula.txt` 与 `server.properties` 怎么读怎么写。
  *
  * 【为什么单独一层，和 `download/ServerInstall.hpp` 不是一回事】
@@ -35,13 +35,13 @@
 #include <QStringList>
 
 #include "download/ServerInstall.hpp"
-// 重启策略那两格（§9.7）：判据全在 `ServerRestart`，这里只负责把它们记进 `.wtfml-server`。
+// 重启策略那两格：判据全在 `ServerRestart`，这里只负责把它们记进 `.wtfml-server`。
 #include "server/ServerRestart.hpp"
 
 namespace ServerModel {
 
 // ---------------------------------------------------------------------------
-// 状态：§6.2 点名的那七档，一个不多一个不少
+// 状态：要求的那七档，一个不多一个不少
 // ---------------------------------------------------------------------------
 
 /**
@@ -167,7 +167,7 @@ inline QString eulaFileText(bool accepted) {
 /**
  * @brief 一份 `server.properties`：**保序**的 key/value，外加原样的注释与空行。
  *
- * 为什么要"保序 + 留注释"：这一页有两种编辑方式（表单 / 原始文本，§6.3），而两种都要能
+ * 为什么要"保序 + 留注释"：这一页有两种编辑方式（表单 / 原始文本），而两种都要能
  * **原地往返**——用户在表单里改了端口、保存，文件里别的东西（注释、他不知道的那些键、
  * 键的顺序）**一个字节都不该动**。所以这里不是 `QHash`，是一条一条的**行**：认出是赋值的
  * 那些行才带 key/value，其余（注释、空行、看不懂的行）原样留着，`toString()` 时照旧吐出去。
@@ -444,7 +444,7 @@ struct Info {
     QString javaPath;
     /// 内存上限 MB（<= 0 = 用启动器默认那档）。
     int memoryMb = 0;
-    /// 异常退出之后自动拉起（`ServerRestart` §9.7）。出厂**关着**：没问过用户的事不替他做。
+    /// 异常退出之后自动拉起（`ServerRestart`）。出厂**关着**：没问过用户的事不替他做。
     bool restartOnCrash = false;
     /// 连着自动重启几次就收手（判据 / 上下限在 `ServerRestart::normalizeMaxAttempts()`）。
     int restartMaxAttempts = ServerRestart::kDefaultMaxAttempts;

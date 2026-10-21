@@ -162,8 +162,8 @@ bool isLookupCandidate(const QString &path) {
 
 namespace {
 
-/// 真正要发请求的那一趟（就是从前那个 `lookup()` 的全部内容）。
-/// 盘上那份命中与否由外面那个 `lookup()` 管，这一层只管 `paths` 里递进来的这些。
+/// 真正要发请求的那一趟。盘上那份命中与否由外面那个 `lookup()` 管，这一层只管
+/// `paths` 里递进来的这些。
 Result lookupNetwork(const QStringList &paths, const Options &options) {
     Result result;
 
@@ -173,7 +173,7 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
     // 同时存在），所以两张表都是"哈希 → 路径表"。
     QHash<QString, QStringList> pathsBySha1;
     QHash<quint32, QStringList> pathsByFingerprint;
-    // 路径 → sha1。★ 加的一位：这一位**不是为了认身份**（认身份用上面那两张
+    // 路径 → sha1。★ 这一位**不是为了认身份**（认身份用上面那两张
     // 表），是为了 `Found::sha1` —— 实例设置那个「检查更新」拿它判"盘上这一份是第几版"
     // （见 Found::sha1 那段）。键是**路径**：同一个文件摆了两份时两条路径都要拿到它。
     QHash<QString, QString> sha1ByPath;
@@ -277,17 +277,10 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
 
         // ---------- ②' 这些项目号各自的**项目对象**（图标地址 + 详情）----------
         //
-        // 这一段是 补的，缘由是一次实测：原来这里不收图标地址，指望
-        // `Hit::iconPngUrl()` 自己拼的那条 `cdn.modrinth.com/data/<id>/icon.png` 兜住。
-        // 那条地址**只是老项目的别名** —— 拿用户真实 `mods/` 里 20 个模组一个一个要过：
-        // **11 个回 404**（FerriteCore / Fabric Language Kotlin / Carpet / Fabric
-        // Permissions API / ArmorQuickSwap / Fox Friend …），只有 9 个回 200（恰好是
-        // "图标当年就叫 icon.png"的那几个：Sodium / Fabric API / Jade / cloth-config …）。
-        // 修完再用本工程的 `icon-lookup-live` 对着一个真实例的 mods/ 复量（51 个模组）：
-        // **51 个全部拿到接口给的图标地址**，而那条老别名 33 个回 404、18 个回 200。
-        // 于是这一页上**绝大多数模组只有占位拼图**，而屏幕上一点异常都没有（那一发 404
-        // 被当成"这个项目没传过图标"—— 那本来是完全正常的一件事）。
-        // （要求：「模组的图标没有正确加载」。）
+        // 这一发**必须收图标地址**，不能指望 `Hit::iconPngUrl()` 自己拼的
+        // `cdn.modrinth.com/data/<id>/icon.png`：那条地址**只是老项目的别名**，
+        // 绝大多数模组回 404，于是这一页上只有占位拼图，而屏幕上一点异常都没有
+        // （404 被当成"这个项目没传过图标"—— 那本来是完全正常的一件事）。
         QHash<QString, ResourceCatalog::Hit> hitsByProject;
         for (int offset = 0; offset < wantedProjects.size(); offset += kLookupChunk) {
             const HttpClient::Reply reply = HttpClient::send(
@@ -416,11 +409,9 @@ Result lookupNetwork(const QStringList &paths, const Options &options) {
                 // 所以**认出来的那些照样往下走**（名字空着 ⇒ 那一行的名字点不动，图标退回
                 // 占位拼图），只把 iconProblem 立起来。
                 //
-                // 改：这里从前写的是 `problem`（那个字段是**整趟完整不完整**的
-                // 判据，见 Result::iconProblem 那段），而紧挨着的注释写着"只影响图标地址"
-                // —— 注释和代码说的不是一件事。按注释（也就是按规矩）改过来：这一发失败
-                // 不该让整趟作废，否则每开一次设置页都要把几十兆 jar 从头重读重算一遍，
-                // 换来的只是"图标可能来了"。
+                // 这里写的是 `iconProblem` 而不是 `problem`（那个字段是**整趟完整不完整**
+                // 的判据，见 Result::iconProblem 那段）：这一发失败不该让整趟作废，否则
+                // 每开一次设置页都要把几十兆 jar 从头重读重算一遍，换来的只是"图标可能来了"。
                 result.iconProblem = reply.networkError.isEmpty()
                                          ? QObject::tr("CurseForge 取图标时回了 HTTP %1。")
                                                .arg(reply.status)

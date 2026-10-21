@@ -1,6 +1,6 @@
 /**
  * @file ServerConsoleController.hpp
- * @brief 服务端控制台那一页（coding plan §6.2 / M4-3）：页对象 +「这一页现在说的是谁」。
+ * @brief 服务端控制台那一页：页对象 +「这一页现在说的是谁」。
  *
  * 从 MainWindow 搬出来的（「接着拆，拆点小的功能」）。搬走的是**功能**而不是
  * 几个辅助函数：这一页的**状态**（页对象 + 现在说的是哪一个服务端）和**决定**（状态那一行
@@ -63,7 +63,7 @@ public:
     bool showing(const QString &serverId) const { return !m_serverId.isEmpty() && m_serverId == serverId; }
 
 private:
-    /// 「导出日志…」：把控制台**整份**输出写到用户挑的那个文件（§9.8 的导出接口）。
+    /// 「导出日志…」：把控制台**整份**输出写到用户挑的那个文件（导出接口）。
     void exportLog();
 
 private:

@@ -73,8 +73,7 @@ void runLoaderInheritanceTests(const QString &sandbox) {
     // 这条是上面那条的另一半：子**声明了**这个键，哪怕值是空对象也是子赢（不回退到父的）。
     // 真数据里就有这一号 —— Forge 装出来的 profile 写着 `"logging": {}`，用意正是把原版
     // 那份 log4j 配置清掉，官方启动器的合并同样是"子赢"。只有 null / 根本没有这个键才
-    // 算"没写"。**判据不能写成"logging 必须非空"**： 就是这条把真装的断言顶红
-    // 的（当时还怀疑是 merge 丢了键，其实数据里就是空对象）。
+    // 算"没写"。**判据不能写成"logging 必须非空"**：真装出来就是一个空对象。
     {
         QJsonObject childClearingLogging = loader;
         childClearingLogging.insert(QStringLiteral("logging"), QJsonObject());
@@ -91,7 +90,7 @@ void runLoaderInheritanceTests(const QString &sandbox) {
     // 父自己也指着上一级那种（子 → 父 → 祖父）才是会漏的那个形状：`out = parent` 会把
     // 父的 inheritsFrom 一起抄过来，于是合出来的这份 json 还指着祖父 —— 读它的人
     // （启动参数展开、classpath 拼接）会再去找祖父合一遍，多走一层。合完就是**什么都不缺**
-    // 的一份，那个字段一条都不该留（ 修）。
+    // 的一份，那个字段一条都不该留。
     {
         QJsonObject chainedParent = vanilla;
         chainedParent.insert(QStringLiteral("inheritsFrom"), QStringLiteral("1.19.2"));
@@ -293,7 +292,7 @@ void runLoaderInheritanceTests(const QString &sandbox) {
     {
         DownloadManager dm;
         const QList<Library> picked = dm.extractLibraries(loader);
-        check(picked.size() == loaderLibs.size(), "U4 8 个库一个不少地被选中（改之前是 0 个）",
+        check(picked.size() == loaderLibs.size(), "U4 8 个库一个不少地被选中",
               QString::number(picked.size()));
 
         int withUrl = 0;
@@ -339,8 +338,8 @@ void runLoaderInheritanceTests(const QString &sandbox) {
     // 坐标 -> 路径的纯函数真值表（含"脏名字一律拒绝"）
     {
         // 三段（没有 classifier）是**最常见**的形状，7/8 个 Fabric 坐标都是它 ——
-        // 这条曾经红过：白名单循环把"空的 classifier"也当成脏段，于是每一个不带
-        // classifier 的坐标都解析失败（库全被静默丢掉）。留着当回归钉子。
+        // 白名单循环不能把"空的 classifier"当成脏段，否则每一个不带 classifier 的坐标
+        // 都解析失败（库全被静默丢掉）。
         check(LibraryRules::mavenPathForName(QStringLiteral("net.fabricmc:fabric-loader:0.19.5")) ==
                   QStringLiteral("net/fabricmc/fabric-loader/0.19.5/fabric-loader-0.19.5.jar"),
               "U4 坐标 -> maven 路径（三段、没有 classifier）");

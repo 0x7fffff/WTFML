@@ -453,7 +453,7 @@ bool genericConfigLooksStructured(const QString &absolutePath) {
 
 bool genericItemIsCopyOnly(FileGroup group, const QString &relativePath,
                            const QString &absolutePath) {
-    // 这个记号的**唯一出处**（§6 P3 最后那条 + §6 P4 那条"按结构认"）。两截判法写在
+    // 这个记号的**唯一出处**（"未知配置明确标记"与"按结构认"两处规矩）。两截判法写在
     // 头文件那一段里，这儿只说为什么是这个次序：**名字那两关先拦掉绝大多数**（不是
     // `config/` 底下的、不是 `.json` 的连盘都不用开），剩下那几份才真去读一遍内容。
     if (group != FileGroup::Config) {
@@ -605,7 +605,7 @@ GenericPlan planFileGroup(const QString &sourceRoot, const QList<GenericItem> &i
             row.action = GenericAction::NeedsChoice;
             // 「我们认不认得出它的结构」**这儿再算一遍**，而且这次带上**源那一侧的盘上
             // 位置**：`GenericItem::copyOnly` 那一格可能是从段载荷读回来的（那儿只有相对
-            // 路径、名字那一截说了算），而 P4 的 MaLiLib 那一族是**按结构**认的。
+            // 路径、名字那一截说了算），而 MaLiLib 那一族是**按结构**认的。
             // 两截判法合起来只有一处（`genericItemIsCopyOnly()`），这儿只是**喂它一个位置**。
             FileGroup groupOfItem = FileGroup::Config;
             const bool copyOnly =
@@ -694,10 +694,10 @@ GenericReport applyFileGroup(const QString &sourceRoot, const QString &targetRoo
 
 GenericReport applyFileGroup(const QString &sourceRoot, const QString &targetRoot, FileGroup group,
                              ApplyMode mode, const QList<GenericItem> &items) {
-    // 清单就是清单（ 加的那一档）：预设段里列了哪几项，这一趟就只动哪几项。
-    // 从前这里不管调用方手里的清单、直接重扫预设的 `files/<组>` —— 而那份目录里可能
-    // 躺着**清单之外**的文件（提取那一档"覆盖同名、多出来的不删"，重收之后旧的仍在），
-    // 于是计划/备份按清单算、真正落盘的按盘上算，两边对不上（多落的那几份还不在备份里）。
+    // 清单就是清单：预设段里列了哪几项，这一趟就只动哪几项。不能不管调用方手里的清单、
+    // 直接重扫预设的 `files/<组>` —— 那份目录里可能躺着**清单之外**的文件（提取那一档
+    // "覆盖同名、多出来的不删"，重收之后旧的仍在），于是计划/备份按清单算、真正落盘的
+    // 按盘上算，两边对不上（多落的那几份还不在备份里）。
     return applyFileGroupItems(sourceRoot, targetRoot, group, items, mode, QStringList());
 }
 
@@ -757,7 +757,7 @@ bool sectionsFromFileGroup(FileGroup group, const QList<GenericItem> &items, App
         }
         QJsonObject row;
         row.insert(QStringLiteral("path"), item.relativePath);
-        // `copyOnly` **照样写下去**：它是 §6 P3 那条"未知配置明确标记"在盘上的样子 ——
+        // `copyOnly` **照样写下去**：它是"未知配置明确标记"在盘上的样子 ——
         // 换一个启动器读这份预设时，它自己能不能合并这一项，看的就是这一格。
         row.insert(QStringLiteral("copyOnly"), item.copyOnly);
         section.items.append(row);

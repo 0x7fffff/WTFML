@@ -19,7 +19,7 @@ public:
 
     /// 同上，但**最多读 maxBytes 个字节**（-1 = 不限）。限速泵按这一格"喂"回复。
     ///
-    /// （§9.2 下载限速）：抽成"限量版"之后，`drain()` 仍然是一个字节都不少
+    /// （下载限速）：抽成"限量版"之后，`drain()` 仍然是一个字节都不少
     /// 的行为 —— 收尾那一趟（`onDownloadReplyFinished`）必须用它把缓冲里剩下的读完，
     /// 否则大小/SHA1 校验会对着一个少了尾巴的文件判失败。
     qint64 drainUpTo(QNetworkReply *reply, qint64 maxBytes) {

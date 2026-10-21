@@ -220,7 +220,7 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
     const TrimMaterial material = trimMaterialAt(trimMaterial);
     const QString templateName = QStringLiteral("%1纹饰模板").arg(pattern.name);
 
-    // 来源与版本是计划 §9.11 要求的「模板来源」——不写"地牢里"这种含糊说法。
+    // 来源与版本要求写「模板来源」——不写"地牢里"这种含糊说法。
     result.notes.append(QStringLiteral("这枚%1来自：%2。").arg(templateName, pattern.source));
     if (pattern.since != QStringLiteral("1.20")) {
         result.notes.append(QStringLiteral("%1是 Java %2 才加入的 —— 更早的版本里没有这枚模板。")

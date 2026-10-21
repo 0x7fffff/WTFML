@@ -88,7 +88,7 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
         layout->addWidget(label);
         m_targetDirLabel = makeMutedLabel(row, MainWindowUI::newServerTargetDirName());
         m_targetDirLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        // 路径可能很长：**不许**参与横向度量（老规矩，和摘要那一句同一条）。
+        // 路径可能很长：**不许**参与横向度量（同一条规矩，和摘要那一句一样）。
         m_targetDirLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         m_targetDirLabel->setToolTip(QStringLiteral("服务端根目录下面以它的名字命名的那个目录"));
         layout->addWidget(m_targetDirLabel, 1);
@@ -150,7 +150,7 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
     m_summaryLabel = makeMutedLabel(this, MainWindowUI::newServerSummaryLabelName());
     m_summaryLabel->setWordWrap(true);
     m_summaryLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    // 折行 QLabel 的 sizeHint 是"整句排成一行"的宽度 —— 纯说明不许参与横向度量（老规矩）。
+    // 折行 QLabel 的 sizeHint 是"整句排成一行"的宽度 —— 纯说明不许参与横向度量（同一条规矩）。
     m_summaryLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     box->addWidget(m_summaryLabel);
     box->addStretch(1);

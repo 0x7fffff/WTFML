@@ -50,7 +50,7 @@ static constexpr int kBuiltinXmsMb = 1024;
 /// 必须是它的整数倍，否则用户会看到一个 3071）。
 /// NOTE: **上限不是**。自动档自己封在 8 GB（那是个刻意的天花板：自动算出来的数不该比
 /// 用户手动能填的更激进），而界面手动档的上限是 MainWindowUI::memoryLimitMaxMb()
-/// = 65536。以前这条注释把"取值范围"和那个函数绑在一起说"保持一致"，上限那半是假的。
+/// = 65536。
 static constexpr int kAutoXmxMinMb = 1024;
 static constexpr int kAutoXmxMaxMb = 8192;
 static constexpr int kAutoXmsMinMb = 512;
@@ -60,8 +60,8 @@ static constexpr int kAutoStepMb = 256;
 /// 「这个实例装了多少模组」那一档的加成（见 suggestXmxMb 的 modCount 参数）。
 ///
 /// 为什么要它：光看机器内存算出来的值对原版够用，对两百个模组的整合包是不够的 ——
-/// 同一个数字在两台机器上服务的是**两件不同的事**。以前自动档不认这个差别，于是
-/// "原版和 200 模组拿到一样的建议值"（FEATURES.md 待办里点过名）。
+/// 同一个数字在两台机器上服务的是**两件不同的事**。只按机器内存算的话，
+/// "原版和 200 模组拿到一样的建议值"。
 ///
 /// 三个数都是**加在 total/4 那一步上的**，所以上面那两条机器侧的硬顶（available/2、
 /// total/2）和 [1024, 8192] 那个体面范围**照旧说了算** —— 加成只抬"目标值"，
@@ -93,7 +93,7 @@ bool runProcess(const QString &program, const QStringList &arguments, QString *s
         return false;
     }
 
-    // NOTE: 这里刻意用 fromLocal8Bit、**不跟着游戏进程一起改成 fromUtf8**。
+    // NOTE: 这里刻意用 fromLocal8Bit、**不改成 fromUtf8**。
     // 走这条路的两种调用（java -version、PowerShell）都不受 -Dstdout.encoding 约束
     // —— 那个属性是 JVM 的参数，PowerShell 不是 JVM、不认它。跟着改才是引入乱码。
     if (stdOut) {
@@ -102,7 +102,7 @@ bool runProcess(const QString &program, const QStringList &arguments, QString *s
     if (stdErr) {
         *stdErr = QString::fromLocal8Bit(process.readAllStandardError());
     }
-    // NOTE: 退出码也要看。以前只看 exitStatus，于是 PowerShell 自己正常退出、但它那条命令
+    // NOTE: 退出码也要看。只看 exitStatus 的话，PowerShell 自己正常退出、但它那条命令
     // 失败（exitCode != 0，比如 Expand-Archive 解不开那个 zip）会被当成功 ——
     // 调用方接着去找 java.exe，找不到，报出来的是"找不到也下载不到 Java"，
     // 而真正的原因（解压失败）一个字都看不见。
@@ -147,8 +147,6 @@ int majorFromVersionString(const QString &version) {
     // 那张对照表（1.6-1.16.5 → 8、**1.17 → 16**、1.18-1.20.4 → 17、
     // 1.20.5-1.21.11 → 21、26.1+ → 25）不在这里 —— 实际来源是 version.json 的
     // javaVersion.majorVersion，由 MainWindow 读取（另有一处兜底值）。
-    // 以前这条 NOTE 把 1.17 也写成 17（那是 java-runtime-alpha，实际是 16），
-    // 照它去改下载表会下错版本。
     const QStringList parts = version.split(QLatin1Char('.'));
     if (parts.isEmpty()) {
         return -1;
@@ -276,8 +274,7 @@ QString findJavaInCommonLocations(int requiredMajor = -1) {
  * @param requiredMajor 需要的 Java 主版本，-1 表示不限。
  * @return 若找到匹配的 java.exe 则返回其绝对路径，否则返回空.
  *
- * NOTE: 为什么必须解析成**绝对路径**（旧实现返回裸命令 "java"，已修 —— 这段留在这里是
- * 免得有人再"简化"回去）：裸命令过不了 verifyJavaExecutable() 第一步的
+ * NOTE: 为什么必须解析成**绝对路径**（别"简化"回去）：裸命令过不了 verifyJavaExecutable() 第一步的
  * QFileInfo::exists()；即使侥幸通过，startGame() 也会用 QFileInfo(program).exists()
  * 判定成"Java 可执行文件未找到"。
  */
@@ -340,7 +337,7 @@ QMap<QString, VanillaRuntime> scanVanillaRuntimeComponents() {
 }
 
 /// 把一个值放进 PowerShell 的**单引号**字符串里：单引号在单引号串里靠写两个来转义。
-/// NOTE: 两个路径都要过这一道。以前是原样塞进 `'%1'`，于是路径里只要有一个 `'`
+/// NOTE: 两个路径都要过这一道。原样塞进 `'%1'` 的话，路径里只要有一个 `'`
 /// （数据目录或 exe 放在这种目录下），那条命令就不是我们想发的那条了 ——
 /// PowerShell 会把它切成别的参数（甚至别的命令），而这里只看"解压成功没有"。
 QString psSingleQuoted(const QString &value) {
@@ -358,7 +355,7 @@ bool extractZipWithPowerShell(const QString &zipFile, const QString &targetDir) 
                          &stdOut, &stdErr, 60000);
     if (!ok) {
         // 解压失败必须留下**为什么**（Expand-Archive 会把它说得很清楚：空间不够、
-        // 压缩包坏了、路径太长……）。以前这段 stderr 抓了却从没读过，用户看到的只有
+        // 压缩包坏了、路径太长……）。不读 stderr 的话，用户看到的只有
         // 后面那句"找不到也下载不到 Java"。
         qWarning().noquote() << "解压 Java 运行时失败：" << stdErr.trimmed()
                              << "（zip:" << zipFile << "）";
@@ -489,7 +486,7 @@ bool downloadJavaRuntime(const QString &destinationDir, const QString &component
     // 每个 component 到底要哪个主版本，**以 version.json 里那份为准**（这个函数只负责
     // "按 component 名下一份**对得上**的"）：下面这几档是照着 Mojang 那张表来的 ——
     // jre-legacy → 8、alpha → 16、beta → 17、gamma → 17、delta → 21、epsilon → 25。
-    // NOTE: gamma 和 delta **不是**一档（以前合在一起当 21，是错的）：1.19~1.20.4 报的是
+    // NOTE: gamma 和 delta **不是**一档：1.19~1.20.4 报的是
     // gamma 但 majorVersion 是 **17**（仓库里 1.19.json 就是 `gamma / 17`），
     // 只有 1.20.5 起的 delta 才是 21。合在一起的表现：给 1.19 下了一份 40~100 MB 的
     // Java 21，调用方拿 majorVersion 一核（17）对不上，再下一份 17 —— 白下一次。
@@ -635,9 +632,9 @@ void GlobalJavaSettings::setExtraJvmArgs(const QString &args) { m_extraJvmArgs =
 void GlobalJavaSettings::load() {
     QSettings settings;
     m_javaPath = settings.value(kJavaPath).toString();
-    // 修：这两个数**读回来也要过一遍钳位**。原来是直接 toInt() 赋给成员，
-    // 而"盘上那份不能当成可信的"这条规矩在 LauncherSettings 那边写得很清楚（宽高、
-    // 标题读侧写侧都钳），偏偏内存这两个数漏了。
+    // NOTE: 这两个数**读回来也要过一遍钳位**。盘上那份不能当成可信的（这条规矩在
+    // LauncherSettings 那边写得很清楚：宽高、标题读侧写侧都钳），直接 toInt() 赋给成员
+    // 就少了这一道。
     // 翻车的例子：注册表 HKCU\Software\WTFML\WTFML\Java\Xmx 被手改成 0（或者一个非数字
     // 串 —— QVariant→int 失败同样是 0）→ 界面那格被 setRange 夹出下限、那行说明文字里
     // 是 **0 MB**、真正发给 JVM 的却是 resolveJavaSettings 钳出来的 256m：**三处数字
@@ -657,11 +654,10 @@ void GlobalJavaSettings::load() {
     setXmx(rawXmx);
     setXms(rawXms);
     m_extraJvmArgs = settings.value(kExtraArgs, m_extraJvmArgs).toString();
-    // 默认值取成员当前值（构造时是 true）：注册表里没这一项就落到"自动"，
-    // 也就是加这个开关之前的行为。
+    // 默认值取成员当前值（构造时是 true）：注册表里没这一项就落到"自动"。
     m_autoSelectJava = settings.value(kAutoSelect, m_autoSelectJava).toBool();
 
-    // 「内存分配」自动档（ 恢复入口）：老配置没有这个键 = 手动档，读回 false。
+    // 「内存分配」自动档：没有这个键 = 手动档，读回 false。
     m_memoryAuto = settings.value(kMemoryAuto, m_memoryAuto).toBool();
 
     // 自动档之前的现场：没有这两个键（老配置 / 从没开过自动）就拿刚刚读回来的 Xmx/Xms
@@ -676,8 +672,8 @@ void GlobalJavaSettings::load() {
         m_manualXms = m_manualXmx;
     }
 
-    // 提醒总闸：没有这个键（加它之前存下来的老配置）就落到成员默认值 true，
-    // 也就是老行为 —— 那时候这类不匹配是一律报错拦下的，等于"总是提醒"。
+    // 提醒总闸：没有这个键（老配置）就落到成员默认值 true ——
+    // 这类不匹配一律提醒。
     m_warnVersionMismatch = settings.value(kWarnVersionMismatch, m_warnVersionMismatch).toBool();
 }
 
@@ -750,7 +746,7 @@ int GlobalJavaSettings::suggestXmxMb(qint64 totalMb, qint64 availableMb, int mod
 }
 
 int GlobalJavaSettings::suggestXmsMb(int xmxMb) {
-    // Xms 给 Xmx 的四分之一：太小会一直扩容（老版本的卡顿来源），太大等于一启动就占满。
+    // Xms 给 Xmx 的四分之一：太小会一直扩容（常见的卡顿来源），太大等于一启动就占满。
     //
     // Xms **必须** <= Xmx，否则 JVM 直接起不来：
     // Error occurred during initialization of VM
@@ -1015,8 +1011,8 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion, QString *javaP
  * @return true if appropriate Java is available and configured, false otherwise
  */
 bool GlobalJavaSettings::ensureJavaForVersion(int majorVersion, const QString &component) {
-    // 老签名 = **全局档**：挑中的路径写回本对象并落盘。除了"值从成员换成一份副本"，
-    // 这一步的行为和加实例覆盖之前逐字节一致（E 段那几条断言钉的就是它）。
+    // 这个重载 = **全局档**：挑中的路径写回本对象并落盘。除了"值从成员换成一份副本"，
+    // 这一步的行为与无实例覆盖时逐字节一致。
     EffectiveJavaSettings io = effective();
     QString error;
     if (!ensureJavaForVersion(io, majorVersion, component, m_autoSelectJava, &error)) {
@@ -1125,9 +1121,9 @@ bool GlobalJavaSettings::ensureJavaForVersion(EffectiveJavaSettings &io, int maj
     // Download from Adoptium as a last resort
     qDebug() << "No matching Java found, downloading version" << majorVersion << "from Adoptium...";
     QString downloaded;
-    // NOTE: 这一条**不**再认一次主版本 —— 老代码也没有（downloadJavaFromMojang 内部
+    // NOTE: 这一条**不**再认一次主版本（downloadJavaFromMojang 内部
     // 已经确认解压出来的 java.exe 能跑，而 Adoptium 是照 majorVersion 要的包）。
-    // 这里多判一次会让"本来能启动"变成"报错"，那不是这次改动该带来的差别。
+    // 多判一次会让"本来能启动"变成"报错"。
     if (downloadJavaFromMojang(majorVersion, &downloaded)) {
         qDebug() << "Downloaded Java version" << majorVersion;
         io.javaPath = downloaded;

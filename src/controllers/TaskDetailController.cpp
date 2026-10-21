@@ -32,7 +32,7 @@ TaskDetailController::TaskDetailController(ActivityCenterController *activity,
       m_sessions(sessions), m_overlay(overlay), m_pageParent(pageParent), m_host(std::move(host)) {
     // 这一页开着的时候账本**照样在动**（下载会跑完 / 失败、启动那几步会往前走、
     // 用户在别处把这一批取消了），而页上那一份 `TaskCenter::Item` 是点开那一刻的快照。
-    // 以前只有"在这一页上按了某颗按钮"才会重摆 —— 于是一个正在下载的任务在页上永远停在
+    // 只在"在这一页上按了某颗按钮"时才重摆的话，一个正在下载的任务在页上会永远停在
     // 40%，底下的调用早就收尾了；「取消」那颗按钮也还亮着（点了才发现已经没什么可取消）。
     // `execPage()` 是嵌套事件循环，这些信号在这里收得到，重摆就会当场出现在屏幕上。
     //
@@ -143,7 +143,7 @@ void TaskDetailController::openLog(const QString &key) {
     // 会话结束就没了（见 GameSessionController 里那一份表）。拿一次"下载失败"去开游戏日志，
     // 开出来的多半是空的、或者上一次玩的那一场 —— 那比不开更让人糊涂。
     //
-    // §4.3 那一项「游戏异常退出」另外给「打开日志」一个**明确的**去处：它就是下面这一段。
+    // 「游戏异常退出」那一项另外给「打开日志」一个**明确的**去处：它就是下面这一段。
     bool parsed = false;
     // 行钥匙是 64 位的 `TaskId`（见 `ActivityCenterController::markViewed()` 那段的 NOTE）。
     const Tasks::TaskId id = key.toULongLong(&parsed);
@@ -185,7 +185,7 @@ void TaskDetailController::openTarget(const QString &key) {
     // 目标就是那一项自己记的那个 id，空的话落到数据目录 —— 一样"点得开"，不给一颗点了
     // 没反应的按钮。
     //
-    // **服务端那一批任务记的是服务端 id，不是实例 id**（M4-2 的安装 / M4-4 的备份都走
+    // **服务端那一批任务记的是服务端 id，不是实例 id**（安装和备份那两批都走
     // `beginTask(..., serverId, ...)`），而 `AppPaths::versionDir()` 拼出来的是
     // `<数据目录>/versions/<id>` —— 对服务端来说那个目录**永远不存在**。所以按下
     // 「打开目标位置」本来会报一句"那个目录现在不在"（而它明明就在 `Servers/<id>`）。

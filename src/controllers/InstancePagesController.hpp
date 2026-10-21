@@ -4,8 +4,8 @@
  *
  * 【为什么要有这一层】
  *
- * `MainWindow::openInstanceSettingsNow()` 里那个 `refreshInstanceDirs` lambda（原来 13047 起、
- * 一百来行）是这条路上**判断最密**的一处：八个文件页指向哪个目录、左栏那一列该露哪几页、
+ * `MainWindow::openInstanceSettingsNow()` 里那个 `refreshInstanceDirs` lambda 是这条路上
+ * **判断最密**的一处（一百来行）：八个文件页指向哪个目录、左栏那一列该露哪几页、
  * 「结构/原理图」那一页顶上那两排「来源」摆什么……而它夹在一堆 `dialog.setXxx()` 中间，
  * 判断和数据摆在一块儿，谁也验不了（要验就得开一扇真的实例设置页）。
  *
@@ -14,21 +14,20 @@
  * 【边界（谁在这一层里，谁不在）】
  *
  * · 在：**页键 → 目录**那张表（`ResourceCatalog::folderForKind()` 是目录名的唯一出处，
- * 这一层是它的唯一读者；原来那个 `instanceFileDirs()` 在仓里有十来个调用点，现在全都
- * 转发到这儿）。
+ * 这一层是它的唯一读者；仓里那些调用点全都转发到这儿）。
  * · 在：**六条可用性判据** —— 模组（`instanceLoaderName()` 认得出来就算、`mods/` 里有 jar
  * 也算）、光影包（加载器**就是** OptiFine、或者 mods/ 里装着 iris / oculus / optifine）、
  * 结构/原理图（装了 Litematica **或**这个实例真有结构）、数据包（版本认不认）。
  * 这几条都是"只有业务层够得着"的：ui/ 不 include src/、也读不了版本 json。
  * · 在：**文件名切词命中**（`jarNameHasToken()`）—— 「装没装那个模组」的唯一出处。
- * 之前是按前缀认的，而中文整合包和 PCL 会给 jar 前面挂一个中文名
+ * 按前缀认不行：中文整合包和 PCL 会给 jar 前面挂一个中文名
  * （`[投影] litematica-….jar`），于是「光影包」「原理图」那两页谎报"用不上"。
  * · 在：**有结构的那些存档**（规矩见 `worldStructures()`）。它要读盘、要认"结构方块存下来的
  * 东西落在哪"，ui/ 一样都够不着。
  * · 不在：**中文与排头**。「存档」/「投影」那几个字是 `ui/InstanceFilesPage` 上的静态
  * 函数（唯一出处），这一层只说"哪几个存档有结构"，不说那两排叫什么。
  * · 不在：**摆控件**。`dialog.setModUsable(...)` 那一串留在 `MainWindow` —— 那正是
- * "灌数据"，不是判断（要求：把信号连接/灌数据搬走本身不是架构改善）。
+ * "灌数据"，不是判断。
  * · 不在：**服务器列表 / 图标反查 / 更新结果回灌**那三件事（`loadServerList` /
  * `requestInstanceFileIcons` / `pushInstanceFileUpdates`）：它们要么收一个对话框指针、
  * 要么起后台线程，是**动作**不是事实。
@@ -86,7 +85,7 @@ public:
     /**
      * @brief 十三条「常用目录」里**现在真有东西**的那些（键序跟着 @p shortcutKeys 走）。
      *
-     * 判据只有两条（coding plan §5.3 原话：「仅在**目录存在**或**相关模组可识别**时优先展示」）：
+     * 判据只有两条（要求「仅在**目录存在**或**相关模组可识别**时优先展示」）：
      * 目录存在；「录像」那一条额外认"装了 ReplayMod"（没录过的实例上那个目录往往还没建）。
      *
      * @param dirs `fileDirs()` 的结果**再并上那三个快捷项**（`game` / `replay` / `crash`）——
@@ -164,7 +163,7 @@ public:
      * 空格、方括号，以及**中日韩字**（那一档是刻意的：`虹膜iris-….jar` 这种一个分隔符都不带
      * 的写法也切得出来，中文不会粘住后面的词）。
      * 命中判据两条：词**等于**它，或者词**以它开头**（`irisfly.jar` / `litematicafoo.jar`
-     * 这种粘连写法照旧算 —— 和从前那个前缀语义对齐，不多不少）。
+     * 这种粘连写法照旧算 —— 和前缀语义对齐，不多不少）。
      */
     static bool jarNameHasToken(const QString &fileName, const QString &token);
 };

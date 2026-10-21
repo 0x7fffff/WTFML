@@ -77,8 +77,8 @@ class WindowChrome;
  *
  * 【这条判据要成立，必须连焦点策略一起改 —— 只装过滤器是哑的】
  *
- * 修的。以前这里只有 installEventFilter()，判据读到的 hasFocus() 却**永远
- * 已经是 true**：Qt 对**真滚轮事件**（spontaneous）是"先按焦点策略给焦点、再派发"，
+ * 只装过滤器时，判据读到的 hasFocus() 已经**永远是 true**：Qt 对**真滚轮事件**
+ * （spontaneous）是"先按焦点策略给焦点、再派发"，
  * - qapplication.cpp 的 case QEvent::Wheel 里先调
  * QApplicationPrivate::giveFocusAccordingToFocusPolicy(w, e, relpos)（:2887），
  * 真正的 d->notify_helper(w, &we)（事件过滤器就是在这一句里跑的）在 :2895 之后；
@@ -87,13 +87,13 @@ class WindowChrome;
  * - 偏巧 QComboBox（非 macOS 那条分支）和 QAbstractSpinBox 的**默认焦点策略就是
  * WheelFocus**（qcombobox.cpp:1066 / qabstractspinbox.cpp:1625）。
  * 于是判据通过 → 事件过滤器跑的那一刻 hasFocus() 已经是 true → 一律放行 → 值照样被改。
- * 改成 StrongFocus（= TabFocus|ClickFocus|0x8，**不含** WheelFocus 多出来的那个 0x4 位）
- * 之后 shouldSetFocus() 不通过、滚轮不再抢焦点，!hasFocus() 才恢复它字面上的意思：
+ * 焦点策略必须是 StrongFocus（= TabFocus|ClickFocus|0x8，**不含** WheelFocus 多出来的
+ * 那个 0x4 位）：shouldSetFocus() 不通过、滚轮不再抢焦点，!hasFocus() 才恢复它字面上的意思：
  * 鼠标划过（焦点在别处）吃掉、用户点/切进来的那一个照常认滚轮。
  *
  * NOTE: 这两件事**必须一起做**，所以入口只有一个 WheelGuard::install()。直接
  * new WheelGuard(...) + installEventFilter(...) 会得到一个看着装上了、其实
- * 一次都不生效的防护 —— 这正是它原来那个样子。
+ * 一次都不生效的防护。
  *
  * NOTE: QObject::eventFilter 是虚函数、不是槽，所以这里不需要 Q_OBJECT，
  * AUTOMOC 不会牵扯进来，也不用在 cpp 末尾补 .moc 包含。
@@ -143,8 +143,8 @@ public:
     // 验证工程靠这些名字认控件。**不要**改回按占位文案或条目文本去认——那些是
     // 会被产品逻辑改写的显示内容（占位文案现在就要随"有没有可选版本"切换），
     // 拿显示内容当身份标识的测试会在产品改动时以看不懂的方式挂掉。
-    // / 设置页「个性化」栏里「账户」那一格的入口按钮：「账号与外观…」。主页可见入口已经
-    // / 搬到底栏账号面板；隐藏兼容控件仍沿用同一文案，避免旧接线分叉。
+    // / 设置页「个性化」栏里「账户」那一格的入口按钮：「账号与外观…」。主页可见入口在
+    // / 底栏账号面板；隐藏兼容控件用同一文案，避免两处接线分叉。
     static QString accountSkinSettingsButtonName() {
         return QStringLiteral("accountSkinSettingsButton");
     }
@@ -155,15 +155,11 @@ public:
     // 「选中哪一条」决定「安装」装什么（0..3 = 加载器，见 VersionManager::loaderKindFromIndex），
     // 而那一个「不装」选项是**默认选中的**，它代表装纯原版那条路。
     //
-    // NOTE: 起这一组是**一棵树**（要求："做成和上一页的版本选择相同的
-    // 模式，点击以后展开版本，选择版本以后收缩，显示版本"）：
+    // NOTE: 这一组是**一棵树**，和上一页的版本选择同一个模式：
     // · 顶层五条 = 四个加载器 + 「不装（纯原版）」，前面各挂自己那个标志；
     // · 点一条加载器 → 它**展开**，底下先摆那两档、再列出它能装的版本；
     // · 点一个版本 → 那一列**收起来**，选中的版本号写回这条的第二行小字。
-    // 换掉的是一组单选钮 + 四个下拉框（`modLoaderGroupName()` /
-    // `loaderVersionComboName()` 那两个名字随之作废）。下标、文案、那五条的顺序
-    // 一条都没变 —— 变的只是它们现在长成一棵树。上一版是"钮在左、组合框在右"，
-    // 因为那时没能展开/收起；现在展开在**同一行下面**，和版本树那边长得一样。
+    // 下标、文案、那五条的顺序都是固定的；展开在**同一行下面**，和版本树那边长得一样。
     //
     // / 那五条在**代码里**叫什么，顺序就是界面上从上到下的顺序。
     // /
@@ -206,12 +202,12 @@ public:
     /// 这棵树最高长到几行：五条加载器都收起来时是 5 行，展开其中一条之后按
     /// "5 + 那条的版本数"往上长，长到这么多行就停（再多就出滚动条）。
     /// 太小的话展开一条只能看见两三个版本，太大（比如整页铺满）会让「安装」按钮被推到
-    /// 窗口最底下 —— 用户要的是"安装键做大点在右侧居中"，它得一直在看得见的地方。
+    /// 窗口最底下 —— 「安装」键做得大一点、摆在右侧居中，它得一直在看得见的地方。
     static int loaderTreeMaxRows() { return 10; }
-    /// 选中了某个加载器时，**其余那几个加载器**那条上写的话（要求："剩余的加载器
-    /// （如果不兼容的话）显示为与【已选中的加载器名称】不兼容"）。
+    /// 选中了某个加载器时，**其余那几个加载器**那条上写的话（「与【已选中的加载器
+    /// 名称】不兼容」）。
     ///
-    /// NOTE: 现在**任何两个加载器都不兼容** —— 本启动器一次只装一个加载器
+    /// NOTE: **任何两个加载器都不兼容** —— 本启动器一次只装一个加载器
     /// （`VersionManager::installNamedLoader()` 收的就是一个枚举），所以"选中的那个"
     /// 和"其余的"在安装这件事上就是互斥的。这句小字说的是这条事实，不是"这两家
     /// 上游合不来"。哪天要支持 Forge + OptiFine 那种搭配，改的是**这一处**和安装
@@ -219,21 +215,19 @@ public:
     static QString loaderConflictText(const QString &selectedName) {
         return QCoreApplication::translate("MainWindowUI", "与 %1 不兼容").arg(selectedName);
     }
-    /// 展开之后**头两条**：不钉具体版本号时按哪一档挑（要求："模组加载器
-    /// 选择界面把自动那一行变成下载最新版（alpha/beta）和下载稳定版（release）两行"）。
+    /// 展开之后**头两条**：不钉具体版本号时按哪一档挑（下载最新版 / 下载稳定版）。
     ///
-    /// NOTE: 那两句里的括号**不上界面**（用户 又一句："那个稳定版（release）那个
-    /// 括号啥的是给你看的，不用实际放在界面里面"）—— 它解释的是"最新版"连 alpha/beta
+    /// NOTE: 那两句里的括号**不上界面** —— 它解释的是"最新版"连 alpha/beta
     /// 一起算、"稳定版"就是 release，写给读代码的人看；界面上那两行就四个字 / 五个字。
     ///
     /// 这两条的 userData 是 LoaderMeta::loaderChannelKey() 那两个键（`@latest` / `@stable`），
     /// 再往下那些才是具体版本号。**认得出这两个键的地方只有一处**：
     /// LoaderMeta::loaderChannelFromKey()（安装那条路在 installLoaderVersion 里解码一次）。
     ///
-    /// NOTE: 改动前这里是**一条**「自动（推荐）」，userData 是空串。那一档在数据层挑的是
-    /// "推荐/正式版"（Fabric 最新的正式版、Forge/NeoForge 推荐的那个、OptiFine 官方页
-    /// 那一行），也就是现在这条「下载稳定版」—— 空串这个值仍然有意义
-    /// （"没取到列表、用户什么都没点"时按稳定档算），只是不再有一条界面条目去写它。
+    /// NOTE: userData 是空串时，数据层挑的是"推荐/正式版"（Fabric 最新的正式版、
+    /// Forge/NeoForge 推荐的那个、OptiFine 官方页那一行），也就是「下载稳定版」这一档 ——
+    /// 空串这个值仍然有意义（"没取到列表、用户什么都没点"时按稳定档算），
+    /// 只是没有一条界面条目去写它。
     static QString loaderVersionLatestText() {
         return QCoreApplication::translate("MainWindowUI", "下载最新版");
     }
@@ -253,7 +247,7 @@ public:
                              : QCoreApplication::translate("MainWindowUI", "稳定版");
     }
     /// 具体版本号那一条第二行的小字：这一条不是正式版（alpha/beta/快照/预览版）。
-    /// 要求是"beta 版虽然不稳定，但是也能使用"—— 所以照列，但得看出来"这不是正式版"。
+    /// beta 版虽然不稳定但也能使用，所以照列，只是得看出来"这不是正式版"。
     static QString loaderVersionBetaSubText() {
         return QCoreApplication::translate("MainWindowUI", "测试版");
     }
@@ -268,31 +262,30 @@ public:
     static QString loaderVersionFailedText() {
         return QCoreApplication::translate("MainWindowUI", "列表没取到");
     }
-    /// **这个版本上这个加载器一个能装的都没有**时那个灰条目（要求："如果对应版本
-    /// 不支持……这个情况下的 列表没取到 换成无可用版本"）。
+    /// **这个版本上这个加载器一个能装的都没有**时那个灰条目。
     /// 它和 loaderVersionFailedText() 是两件事，别混：那是"**没问到**"（网络的事，换一次
     /// 可能就有了，所以那条底下仍然留着那两档）；这是"**问到了、就是没有**"
     /// （真结论 —— 比如 Forge 还没支持某个刚发的快照）—— 这种情况下底下**连那两档都不留**：
     /// 留着它等于让用户挑一条必然装不出来的路（装的时候会以"还没有支持 X 的版本"收场），
     /// 而"这一条我装不了"本来就该在这一眼说完。
     ///
-    /// NOTE: 起"**有预览版、没有正式版**"的那种版本**不算**"一个能装的都没有"
-    /// （要求："beta 版虽然不稳定，但是也能使用，要列出来"）—— 列表非空就摆那两档
-    /// 和实有的版本号，只有稳定档那一行是灰的（第二行写着「没有正式版」）。
+    /// NOTE: "**有预览版、没有正式版**"的那种版本**不算**"一个能装的都没有"
+    /// —— 列表非空就摆那两档和实有的版本号，只有稳定档那一行是灰的
+    /// （第二行写着「没有正式版」）。
     static QString loaderVersionUnavailableText() {
         return QCoreApplication::translate("MainWindowUI", "无可用版本");
     }
 
     // ---------- 下载页「游戏」里那两层：版本树 / 安装页 ----------
     //
-    // 要求：「下载版本那里改成四个分类（正式版 快照版 远古版 愚人节版），每一个占一条，
-    // 点开后展开对应版本，再点击具体版本后进入一个新页面……顶上预留版本名称输入框……
-    // 再下面放四个选项卡分别对应加载器（默认不选就是原版）也是可以点开选择加载器版本的」。
+    // 四条分类（正式版 / 快照版 / 远古版 / 愚人节版）各占一条，点开后展开对应版本，
+    // 再点具体版本进入安装页；安装页顶上是版本名称输入框，下面是可以点开选加载器版本的
+    // 加载器列表（默认不选就是原版）。
     //
     // 所以「游戏」那一页里再分两层（QStackedWidget）：
     // [0] 版本树 —— 四条分类，点开是版本号；点一个版本号去 [1]
     // [1] 安装页 —— 名称框 + 加载器那棵树（点开选版本）+ 「安装」
-    // 左栏那列分类、右栏这份堆叠、底下状态栏都不动（用户明确说了那几样不变）。
+    // 左栏那列分类、右栏这份堆叠、底下状态栏都不动。
     static QString downloadGameStackName() { return QStringLiteral("downloadGameStack"); }
     static int downloadGameTreeIndex() { return 0; }
     static int downloadGameInstallIndex() { return 1; }
@@ -303,7 +296,7 @@ public:
     /// 每一条身份存在第几列。只有一列，写 0 是给"将来加一列（比如发布日期）"留个说明：
     /// 那一列要是插在前面，认条目的代码就全得改。
     static int versionTreeKeyColumn() { return 0; }
-    /// 版本树上面那个筛选框（，coding plan §9「版本树没有过滤/搜索」）。
+    /// 版本树上面那个筛选框（补上「版本树没有过滤/搜索」那条缺口）。
     /// 筛的是**版本号**（子条目 `Qt::UserRole` 那串），不是分类文字：分类名那四个字
     /// 本来就在眼前，按它筛只会把整栏一起留下或者一起藏掉。
     /// 空格分词、每个词都得出现（和实例搜索、文件搜索同一条规矩）；不区分大小写。
@@ -331,34 +324,34 @@ public:
     /// 和"条目身份"那一批（`Qt::UserRole` / `+1` / `+2` / `+3`…，各张表各用各的）必须岔开。
     static int rowSubTextRole() { return Qt::UserRole + 8; }
     /// 条目前面那个图标挂在哪个角色上（`Qt::DecorationRole`）—— 见 VersionTreeDelegate：
-    /// 给了就画它，没给就按"版本号前面是草方块"那条老规矩画。
+    /// 给了就画它，没给就按"版本号前面是草方块"那条约定画。
     /// 加载器那棵树五条都是给全的（各自那个标志）。
     static int rowIconRole() { return Qt::DecorationRole; }
     /// 「这一行尾那个小叉要画」挂在哪个角色上（真 = 画）。只有安装页那棵树上"**选中的那条
     /// 加载器**"会写真（见 MainWindow::updateLoaderRows()），点了它 = 取消装这个加载器、
-    /// 退回「不装（纯原版）」（要求："选中以后在那个 > 左侧加一个 x 来取消安装对应版本"）。
+    /// 退回「不装（纯原版）」（选中以后在那个 > 左侧加一个 x 来取消安装）。
     /// NOTE: 版本树从来不写这个角色 —— 那棵树上没有"取消掉这一条"这种事。
-    /// NOTE: 号码为什么从 `UserRole + 1` 挪到 `UserRole + 9`，见 rowSubTextRole() 上面那段。
+    /// NOTE: 号码是 `UserRole + 9`：它属于行装饰那一档（+8/+9/+10），不能和条目身份那批
+    /// （+0…+7）撞，见 rowSubTextRole() 上面那段。
     static int rowClearRole() { return Qt::UserRole + 9; }
     /// 「这一行尾那个**刷新按钮**要画」挂在哪个角色上（真 = 画）。现在是下载页左栏那五个
-    /// 分类条目在用（要求："每一项的右边放一个刷新按钮"），点它 = 这一类重新问一遍
+    /// 分类条目在用（每一项的右边放一个刷新按钮），点它 = 这一类重新问一遍
     /// （见 MainWindow::refreshDownloadCategory()）。画在哪一格、怎么认下那一下，
     /// 见 VersionTreeDelegate::refreshRect()。
     /// NOTE: 和 rowClearRole()（那个「取消」小叉）是两件不同的事，但**一行不能同时挂这两个**：
     /// 那两块地方在行尾是重叠的（一个挂在箭头左边、一个贴着右边缘），同时挂会叠在一起。
     /// 今天界面上没有任何一行同时挂着，ui_check 里有一条断言把这条互斥钉住。
-    /// NOTE: 号码为什么从 `UserRole + 3` 挪到 `UserRole + 10` —— 见 rowSubTextRole() 上面
-    /// 那一段（原来是撞了 resourceKindRole()，资源表上每一行都长出一个圈）。
-    /// 这个角色现在只表示"这一行**有**这么一个按钮"，**不再表示"这会儿要画"**
-    /// —— 它画不画还看鼠标有没有悬停在这一行上（要求：「下载界面只有鼠标悬停在按钮上时
-    /// 才显示对应的刷新按钮」）。那一半判据在 VersionTreeDelegate::paint() 里，理由是
-    /// "悬停这一位得视图先填、而视图默认不填"（探针在 tmp/probe_hover）。
+    /// NOTE: 号码是 `UserRole + 10`：`UserRole + 3` 会撞 resourceKindRole()，
+    /// 资源表上每一行都长出一个圈（见 rowSubTextRole() 上面那一段）。
+    /// 这个角色只表示"这一行**有**这么一个按钮"，**不表示"这会儿要画"**
+    /// —— 它画不画还看鼠标有没有悬停在这一行上（只有悬停时才显示对应的刷新按钮）。
+    /// 那一半判据在 VersionTreeDelegate::paint() 里，理由是"悬停这一位得视图先填、
+    /// 而视图默认不填"。
     /// 所以：**别拿这个角色当"屏幕上有这一格"用**（命中判定/几何仍然照旧，那两处只认几何，
     /// 而要点到它就必须先悬停在它上面）。
     static int rowRefreshRole() { return Qt::UserRole + 10; }
-    /// 「这一组行尾那颗**齿轮**要画」挂在哪个角色上（真 = 画）。 加的，
-    /// 要求：「每一个组和版本下载几乎一致，点一下打开/关闭，右侧有个箭头和齿轮，
-    /// 齿轮可以批量管理实例或者编辑该分组的设置」。
+    /// 「这一组行尾那颗**齿轮**要画」挂在哪个角色上（真 = 画）。
+    /// 组行行尾是箭头 + 齿轮：点一下打开/关闭，齿轮里批量管理实例或者编辑该分组的设置。
     ///
     /// 它挂在实例页那张树的**每一个分组头**上（`groupIdRole()` 有值的那种行），**虚拟的
     /// 「未分组」那一格也挂** —— 那一格能做的事只有一件（把选中的实例移进某个组），
@@ -377,17 +370,14 @@ public:
     /// 两行式的行，这一行只有一行字，齿轮得装在行高里面。
     ///
     /// NOTE: 这个数是**画出来**的那一圈的边长；命中格还要四周各留 3 px
-    /// （`InstanceGroupDelegate::gearRect()`）。实例树的行高 起**和版本树
-    /// 一样了**（要求「每个版本啥的上下高一点，像下载页那样」）、 起
-    /// 换成它自己的 `instanceTreeRowHeight()`（58，见上面那一段），16 px 一直装得下；
+    /// （`InstanceGroupDelegate::gearRect()`）。实例树的行高是 `instanceTreeRowHeight()`
+    /// （58，见上面那一段），16 px 一直装得下；
     /// `gearGlyphRect()` 里那道"按行高收一收"留着当兜底 —— 行高哪天再变矮，它自己缩。
     static int instanceGroupGearSize() { return 16; }
-    // ---------- 实例行行尾那一排按钮（ 晚） ----------
+    // ---------- 实例行行尾那一排按钮 ----------
     //
-    // 要求：「实例页面，实例设置也是放在每一条的右侧，鼠标悬停时右侧显示上箭头和垃圾桶，
-    // 分别对应 置顶和删除实例，删除前需要弹窗提示，直接点空白区域（和左边图标版本名）进入
-    // 实例设置」。于是这一页右边那一排按钮（重命名… / 分组设置… / 实例设置…）整个没了，
-    // 每一条实例行自己带上入口。**一行三颗，右起**：
+    // 每一条实例行自己带入口：悬停时右侧显示上箭头和垃圾桶，分别对应置顶和删除实例，
+    // 删除前弹窗提示；点空白区域、左边图标或版本名进入实例设置。**一行三颗，右起**：
     //
     // [垃圾桶] [上箭头] [齿轮] ← 齿轮在**最右边**（这一行的锚）
     // 悬停 悬停 常显
@@ -411,20 +401,17 @@ public:
     /// 语义和 `rowRefreshRole()` 一样是"这一行**有**这么一个按钮"，**不是**"这会儿要画"
     /// （那一刻归悬停态管，见 InstanceGroupDelegate::paint()）。
     ///
-    /// NOTE: 号码 **`Qt::UserRole + 12`** —— 这一档原来是"这一行画哪一颗上/下箭头"那位掩码
-    /// （ 上半天的 rowGroupMoveRole() 和那两句话一起删了），一直空到这一条
-    /// 回来为止（"今天"指的就是 加下面这颗箭头的那一天，不是"到现在还空着"）。
-    /// 加新角色前先看 rowSubTextRole() 上面那段：撞号的表现是"屏幕上多出一笔"。
+    /// NOTE: 号码 **`Qt::UserRole + 12`**。加新角色前先看 rowSubTextRole() 上面那段：
+    /// 撞号的表现是"屏幕上多出一笔"。
     static int rowPinRole() { return Qt::UserRole + 12; }
 
     /// 这一行的实例**已经在置顶组里** ⇒ 悬停时**同一格**画得出那颗下箭头，
     /// 点它 = 取消置顶（挪出置顶组，落到「未分组」）。
     ///
-    /// 要求：「置顶组里的实例悬停时右侧显示下箭头，即取消置顶」。
-    /// 于是那一格现在是**一对反义词共用一格**：不在里面 → ↑「置顶」，在里面 → ↓
+    /// 那一格是**一对反义词共用一格**：不在里面 → ↑「置顶」，在里面 → ↓
     /// 「取消置顶」。一个实例**永远只可能是其中一边**（`groupId` 要么等于置顶组、要么
     /// 不等于），所以这一格没有"两颗都画"或者"一颗都不画"的中间态 ——
-    /// 这也正是当初只留一格的原因：那一排右边紧贴着就是垃圾桶，一行里塞不下第四颗。
+    /// 只留一格是因为那一排右边紧贴着就是垃圾桶，一行里塞不下第四颗。
     ///
     /// NOTE: 它和 rowPinRole() 是**两格相反的角色**，不是"同一个含义的两个写法"：
     /// `rowPinRole()` = 还挪得动（画 ↑），`rowUnpinRole()` = 已经在里面（画 ↓）。
@@ -491,30 +478,30 @@ public:
     /// 行尾那三颗按钮各自弹的那句话（和 rowRefreshTipText() 一个规矩：**只在这一格上**才
     /// 说话，整条行不弹；谁弹的、按哪一格判，见 InstanceGroupDelegate::rowActionTip()）。
     /// 齿轮那句和那一页自己的页眉（`InstanceSettingsDialog::titleText()`）是**两回事**：
-    /// 这里是提示，那里是标题。原来那颗按钮上写的「实例设置…」带省略号（Qt 的规矩：点下去
-    /// 还要问点什么的才带），这个齿轮点下去直接把那一页开出来、不先问什么，所以不带。
+    /// 这里是提示，那里是标题。这个齿轮点下去直接把那一页开出来、不先问什么，
+    /// 所以提示不带省略号（Qt 的规矩：点下去还要问点什么的才带）。
     static QString rowInstanceSettingsTipText() { return QStringLiteral("实例设置"); }
     static QString rowPinTipText() { return QStringLiteral("收藏"); }
-    /// 同一格反过来那一颗（下箭头）弹的话。它是 `rowPinTipText()` 的反义词，**不是**
-    /// 「取消置顶」四个字以外的东西 —— 要求就把它写成"即取消置顶"。
+    /// 同一格反过来那一颗（下箭头）弹的话。它是 `rowPinTipText()` 的反义词，
+    /// 只说「取消收藏」这一个意思。
     static QString rowUnpinTipText() { return QStringLiteral("取消收藏"); }
     static QString rowDeleteInstanceTipText() { return QStringLiteral("删除这个实例"); }
-    /// 悬停在那两个**行里的按钮**上时弹的那句话（ 要求：「鼠标悬停在箭头上
-    /// 出现刷新二字，之后不少功能要做悬停」）。谁把它弹出来的、按哪一格判，见
-    /// VersionTreeDelegate::rowActionTip()（那儿是**几何的唯一出处**，这儿只是文案）。
+    /// 悬停在那两个**行里的按钮**上时弹的那句话（刷新 / 取消）。谁把它弹出来的、
+    /// 按哪一格判，见 VersionTreeDelegate::rowActionTip()（那儿是**几何的唯一出处**，
+    /// 这儿只是文案）。
     ///
     /// NOTE: 只有"行里的按钮"才有话 —— 整条行不弹。整行弹一句的话，鼠标扫过一列版本号
-    /// 会一路弹个不停，而那条行上真正的按钮只有一小格（用户要的是"对着那个圈/那个
-    /// 叉才有"）。条目自己写 `Qt::ToolTipRole` 的老路照旧（那条走代理的兜底）。
+    /// 会一路弹个不停，而那条行上真正的按钮只有一小格（要对着那个圈/那个叉才有）。
+    /// 条目自己写 `Qt::ToolTipRole` 的老路照旧（那条走代理的兜底）。
     static QString rowRefreshTipText() { return QStringLiteral("刷新"); }
     static QString rowClearTipText() { return QStringLiteral("取消"); }
-    /// 树上用的字号相对**默认**字号的偏移：用户要"文本放大一点"，+2。
+    /// 树上用的字号相对**默认**字号的偏移：文本放大一点，+2。
     /// 默认字号在系统上是 9~12 pt 不等，所以这里记的只能是偏移，不能记死一个点数。
     static int versionTreeFontStep() { return 2; }
     /// 发布时间那行小字相对**树**字号的偏移（-3 → = 默认字号 -1，比正文还小一号）。
     /// 两处的关系写在这里：那行小字是从 option.font（= 树字号）推出来的，见代理。
     static int versionDateFontDelta() { return -3; }
-    /// 树里每一行的高度：两行字 + 上下留白。用户要"上下间距放大一点"。
+    /// 树里每一行的高度：两行字 + 上下留白，上下间距比默认放大一点。
     /// NOTE: 这是个**常数**，不走"按内容算行高" —— 树上开着 uniformRowHeights，
     /// 第一行（分类，一行字）和底下的版本号（两行字）高度必须一样。
     static int versionTreeRowHeight() { return 46; }
@@ -527,12 +514,9 @@ public:
 
     // ---------- 「实例列表」那张树自己的三个数 ----------
     //
-    // 要求：「实例列表里每一个之间留一点空的距离，每一行高一点，图标大一点」。
-    // 在那之前这一页借的是版本树那把尺子（行高 46 / 图标 18）—— 用户 那句
-    // 「每个版本啥的上下高一点，像下载页那样」要的就是"两棵树一样高"，所以当时是借的。
-    // 现在用户点名"实例列表这一页再高一点、图标再大一点"，于是它有了自己的三个数。
+    // 实例列表里每一个之间留一点空、每一行高一点、图标大一点，所以它有自己的三个数。
     //
-    // 借来的那三个版本树的数**一个字都没动**：下载页那棵版本树、安装页那棵加载器树、
+    // 版本树那三个数**一个字都没动**：下载页那棵版本树、安装页那棵加载器树、
     // 文件管理页那几条、服务端列表那一档，全都还走 versionTreeRowHeight() /
     // versionTreeIconSize()。"改一处等于改五页"正是把它们分开的理由。
     //
@@ -570,15 +554,14 @@ public:
     /// 名称框下面那行灰色小字：**说这一份装下去是什么** —— 平时的说明，或者重名提示。
     /// 两种取值一处决定（MainWindow::updateInstallNameHint()）。
     ///
-    /// NOTE: 起它**不再兼职报错**。名字不能用（有非法字符、空着）时那句原因
-    /// 挪到下面那行红字里去了，这一行照旧说"装好之后会在哪儿"（要求："如果版本
-    /// 名字存在非法字符，不要替换掉那个「装好后在实例...」，而是在下面添加一行红色字"）。
+    /// NOTE: 它**不兼职报错**。名字不能用（有非法字符、空着）时那句原因在下面那行
+    /// 红字里，这一行照旧说"装好之后会在哪儿"。
     static QString installNameHintName() { return QStringLiteral("installNameHint"); }
     /// 名称框底下那行**红字**：名字不能用时那句原因（`InstanceFiles::validateDirName()` 的
     /// 返回值，界面这边不抄一份规则）。名字能用的时候它是空的、也藏起来 —— 于是名字框、
     /// 加载器树、安装按钮在正常情况下一个像素都不动。
     static QString installNameErrorName() { return QStringLiteral("installNameError"); }
-    /// 安装页那棵树里「预设」那一行（coding plan §7.1 那张图：就在 OptiFine 下面、
+    /// 安装页那棵树里「预设」那一行（就在 OptiFine 下面、
     /// 「不装（纯原版）」上面）。
     ///
     /// 它**不是加载器**：`Qt::UserRole` 是下面那个哨兵值，不是 `modLoaderOptionNames()`
@@ -610,19 +593,16 @@ public:
     }
     /// 那行红字的红。色值放在这儿当唯一出处（验证工程量像素时要认的就是它）。
     ///
-    /// NOTE: 起**跟着调色板分深浅两档**，不再是一个写死的值。那句"产品里只有
-    /// 这一处红字"当时就不对（`folderDangerColor()` 早就有了），更要紧的是**它不分
-    /// 深浅这件事本身就是个洞**：这个红是给浅底配的，量出来对窗口底色（浅色主题下
-    /// `#f0f0f0`）是 4.77:1；同一个色落到深色主题的底上只剩 2.26:1（WCAG 正文要
-    /// 4.5:1）—— 名字写错了却不给原因，正是"用户以为界面坏了"的那一类。
-    /// 现在浅底那一档还是原来那个色，深底那一档借用同一个界面里已经调好的浅红。
+    /// NOTE: 它**跟着调色板分深浅两档**，不是一个写死的值。这个红是给浅底配的，
+    /// 量出来对窗口底色（浅色主题下 `#f0f0f0`）是 4.77:1；同一个色落到深色主题的底上
+    /// 只剩 2.26:1（WCAG 正文要 4.5:1）—— 名字写错了却不给原因，正是"用户以为界面坏了"
+    /// 的那一类。浅底那一档用深红，深底那一档借用同一个界面里已经调好的浅红。
     static QColor installNameErrorColor(const QPalette &palette);
     static QString installButtonName() { return QStringLiteral("installButton"); }
     /// 安装页最下面那条**固定底栏**（一条分隔线 + 右下角那颗「安装」）。
     ///
-    /// 用户那份改版文档要求"确认操作放右下角或固定底栏，不悬浮在页面中间"，
-    /// 那一颗原来是 `Qt::AlignHCenter` 摆的（就是"悬浮在中间"）。这一格的父窗就是那条
-    /// 底栏，样式由 `wtfmlSurface="footer"` 那条 QSS 给（只有一条上边框，不上底色）。
+    /// 确认操作放右下角或固定底栏，不悬浮在页面中间。这一格的父窗就是那条底栏，
+    /// 样式由 `wtfmlSurface="footer"` 那条 QSS 给（只有一条上边框，不上底色）。
     static QString installFooterName() { return QStringLiteral("installFooter"); }
     static QString installBackButtonName() { return QStringLiteral("installBackButton"); }
     /// 安装页中间那一层滚动区（名称框 + 加载器卡片），见 cpp 里 `installPage` 那段
@@ -634,14 +614,13 @@ public:
     /// （`OverlayHost`）也是一整个"页面"，它那边留白必须和别的页面一样，所以它读的是
     /// 这一个数，而不是自己再写一个。
     ///
-    /// （coding plan §9.1）从 9 抬到 **20**：那一版文档给的"页面外边距
-    /// 20–24"，而 9 是照着"导航栏那种紧凑骨架"定的老数 —— 正文面本身已经是一张带圆角
-    /// 的卡片了，它离窗口边只有 9 px 时，四边那一圈呼吸空间全挤在选项卡自己的内边距上，
-    /// 看着是"内容顶在框上"。20 落在文档那一档的下沿（窗口 900 px 时左右各让出 11 px，
+    /// 取值 **20**：页面外边距 20–24 那一档，正文面本身已经是
+    /// 一张带圆角的卡片了，再贴近窗口边，四边那一圈呼吸空间就全挤在选项卡自己的内边距上，
+    /// 看着是"内容顶在框上"。20 落在那一档的下沿（窗口 900 px 时左右各让出 11 px，
     /// 正文面还够宽）。
     static int pageMargin() { return 20; }
 
-    /// 「安装」按钮的字号相对**默认**字号的偏移。要求"安装键做大点"。
+    /// 「安装」按钮的字号相对**默认**字号的偏移：安装键做大一点。
     /// NOTE: 记的是**偏移**不是点数（和 versionTreeFontStep() 一个道理：默认字号在系统上
     /// 是 9~12 pt 不等）。
     static int installButtonFontStep() { return 2; }
@@ -662,21 +641,18 @@ public:
 
     // ---------- 下载页左栏那份「下载分类」（仿 PCL） ----------
     //
-    // 左栏原来是"挑加载器 + 挑版本"， 换成 PCL 那种**一列分类**：游戏 / 整合包 /
-    // 模组 / 数据包 / 资源包 / 光影。点哪个，右栏那份 QStackedWidget 就换到哪一页。
+    // 左栏是 PCL 那种**一列分类**：游戏 / 整合包 / 模组 / 数据包 / 资源包 / 光影 /
+    // 服务端。点哪个，右栏那份 QStackedWidget 就换到哪一页。
     //
-    // NOTE: 起后面几页**全是真的**了：第 0 页「游戏」还是原来那一摊（挑加载器、
-    // 挑版本、下载），其余几页是"一个搜索框 + 一棵三层树"（资源 → 游戏版本 → 版本号，
-    // 见下面 downloadResourceTreeName() 那段）。原来那几句"还没做"的话连同
-    // downloadPlaceholderText() 一起删掉了 —— 留着就是那几页在说假话。
-    // 加了「数据包」一条（要求：「下载那一栏少了个数据包类型，把它放在
-    // 模组和资源包中间加上」）—— 插在「模组」和「资源包」之间，其余几条的位置不动
+    // NOTE: 第 0 页「游戏」是版本树 + 安装页，其余几页是"一个搜索框 + 一棵三层树"
+    // （资源 → 游戏版本 → 版本号，见下面 downloadResourceTreeName() 那段）。
+    // 「数据包」插在「模组」和「资源包」之间，其余几条的位置不动
     // （「模组」还是第 2 条，写死下标的地方不受影响）。
     static QString downloadCategoryListName() { return QStringLiteral("downloadCategoryList"); }
     static QString downloadStackName() { return QStringLiteral("downloadStack"); }
     /// 「游戏」那一页（唯一有内容的那页）的 objectName。
     static QString downloadGamePageName() { return QStringLiteral("downloadGamePage"); }
-    /// 下载页页头那个标题（ 那次改版加的，见 cpp 里 `buildTwoColumnPage()` 那段）。
+    /// 下载页页头那个标题（见 cpp 里 `buildTwoColumnPage()` 那段）。
     static QString downloadPageTitle() { return QStringLiteral("下载"); }
     /// 页头那行说明写什么 —— **跟着当前停在哪一类变**（第 index 个分类）。
     static QString downloadHeaderSubtitle(int index) {
@@ -696,15 +672,15 @@ public:
     static QString downloadHeaderRefreshButtonName() {
         return QStringLiteral("downloadHeaderRefreshButton");
     }
-    /// 页头那颗刷新的字。**唯一出处**（原来这一串字只有那颗按钮上写了一遍）。
+    /// 页头那颗刷新的字。**唯一出处**。
     static QString downloadHeaderRefreshText() {
         return QCoreApplication::translate("MainWindowUI", "刷新");
     }
     /// 分类的键（进条目的 userData，也是那几张资源表的 objectName 前缀）。
     /// **顺序就是界面上从上到下的顺序**，第 0 个是「游戏」（它没有资源表，有别的两张）。
     ///
-    /// 「服务端」补在**表尾**（coding plan §1.4 那条「下载页里没有
-    /// 『服务端』入口栏」）。补在末尾不是为了好写 —— 第 0/1/2 条的下标
+    /// 「服务端」补在**表尾**（补上「下载页里没有『服务端』入口栏」那条缺口）。
+    /// 补在末尾不是为了好写 —— 第 0/1/2 条的下标
     /// （downloadCategoryGameIndex / ModpackIndex / ModIndex）是别处写死判据的，
     /// 插在中间会把它们全挪位。它和「游戏」一样**没有资源搜索那一套**（见
     /// downloadCategoryServerIndex() 那段），所以后面那些"按分类键建资源页"的循环
@@ -723,15 +699,15 @@ public:
     /// 有内容的那个分类的下标（「游戏」）。写死数字的地方一律用它。
     static int downloadCategoryGameIndex() { return 0; }
     /// 另外两条要按"是哪一页"分岔的分类的下标：
-    /// 「整合包」—— 那一页多一颗「导入整合包…」（要求「整合包那一页带一个导入功能」）
-    /// 「模组」 —— 只有那一页有「模组加载器」这个筛子（要求「模组加载器只在模组那栏存在」）
+    /// 「整合包」—— 那一页多一颗「导入整合包…」
+    /// 「模组」 —— 只有那一页有「模组加载器」这个筛子
     ///
     /// 判据用**下标**（和 downloadCategoryGameIndex() 一个规矩），不在这里再写一遍分类键的
     /// 字面量：键只在 downloadCategoryKeys() 那张表里写一次，两处各写一份迟早会写歪，
     /// 而写歪的症状是"那一页多长了一个控件/少长了一个控件"。表里现在这两条的位子见那张表。
     static int downloadCategoryModpackIndex() { return 1; }
     static int downloadCategoryModIndex() { return 2; }
-    /// 「服务端」那一栏的下标（表尾那一条， 加的）。
+    /// 「服务端」那一栏的下标（表尾那一条）。
     ///
     /// 它**不是**资源搜索页：没有搜索框、没有那张三层树、没有「刷新」那一格（三样
     /// 都没有意义 —— 它不向任何一家资源站问东西）。那一页只有一句说明 + 一颗
@@ -761,14 +737,11 @@ public:
     }
     /// 每个分类**能在这儿干什么**的一句话（「游戏」那条是空的：它没有搜索框）。
     ///
-    /// 这句话现在的去处是那一页搜索框里的**提示文字** —— 要求「上方预留搜索功能
-    /// （如果简单就直接做了）」，做成能用的之后，这句话正好落在最该看见它的地方
-    /// （一个还没输入过的空框里）。
-    /// NOTE: 之前它是"还没做"那几页上的一句话，措辞是"将来放什么"；现在改成了
-    /// "在这儿能干什么"。顺手把原来写的 "CurseForge" 去掉了 —— 这一轮只做 Modrinth，
-    /// 提示里写着它、点进去却没有，就是撒谎（CurseForge 那件事另有原因，见 ModpackImport）。
+    /// 这句话的去处是那一页搜索框里的**提示文字**（一个还没输入过的空框里），
+    /// 说的是"在这儿能干什么"。
+    /// NOTE: 提示里只写当前支持的来源；写着点进去却没有的东西就是撒谎。
     /// NOTE: 数据包那一条**必须**说清"下进实例的 datapacks/、要自己放进存档"：原版只认
-    /// `<存档>/datapacks/`，而这一轮做的就是"和三个兄弟类一样下进实例目录"
+    /// `<存档>/datapacks/`，而这一层做的就是"和三个兄弟类一样下进实例目录"
     /// （见 ResourceCatalog::folderForKind 那段）。不写的话，用户装完进游戏找不到，
     /// 只会当成装坏了 —— 那句话是这一页唯一说得出这件事的地方。
     static QStringList downloadSearchHints() {
@@ -787,12 +760,11 @@ public:
 
     // ---- 后面那几页的那几张资源表（整合包 / 模组 / 数据包 / 资源包 / 光影）----
     //
-    // 每页两样东西：一个搜索框 + 一棵**三层**树。三层的走法和用户描述的那条路一一对应：
+    // 每页两样东西：一个搜索框 + 一棵**三层**树。三层依次展开：
     // 第一层 资源（图标 + 名字 + 「作者 · 下载量」）→ 点开
     // 第二层 游戏版本 → 点开（这时才去问接口）→
     // 第三层 版本号（文件名 + 「release · 日期 · 加载器」）→ 点它 = 下它
-    // 要求：「点开模组后是选择游戏版本，在选择游戏版本后展开下方的版本列表，
-    // 类似模组加载器的样子」。三层用的是**上一页那两棵树的同一个代理**，所以长得一样。
+    // 三层用的是**上一页那两棵树的同一个代理**，所以长得一样。
     //
     // 控件的名字按分类键拼（`modTree` / `shaderSearchEdit` 这种）：这几页的控件一模一样、
     // 只有那几个字不同，所以下面是一段循环搭几遍，不是抄几份。
@@ -805,10 +777,9 @@ public:
 
     // ---- 下载页左上角那颗「返回」----
     //
-    // 要求：「点击下载新模组/资源包/...时左上角保留一个返回键，返回到实例设置里面，
-    // 和资源包详情啥的一致」。实例设置那几个文件页顶上那颗「下载新模组」把用户送到**这一
-    // 页**，而那一下会把实例设置那一页收掉（见 MainWindow::openDownloadCategory）—— 用户
-    // 于是丢了原来的地方（连页码带勾选）。这一颗就是让他回得去的那条路。
+    // 实例设置那几个文件页顶上那颗「下载新模组」把用户送到**这一页**，而那一下会把
+    // 实例设置那一页收掉（见 MainWindow::openDownloadCategory）—— 用户于是丢了原来的
+    // 地方（连页码带勾选）。这一颗就是让他回得去的那条路。
     //
     // 它**只在这一次是从实例设置进来的时候才露面**（`setDownloadBackVisible()`），别的
     // 时候连位置都不占 —— 一个常驻的"返回实例设置"在"我就是来逛下载页"的时候是一颗
@@ -823,12 +794,9 @@ public:
 
     // ---- 每一页顶上那一行筛子----
     //
-    // 要求：「搜索，加入按版本 模组加载器 来源 类型 名称搜索，一个搜索键和一个清空条件键，
-    // 名字/版本可自行输入，这两个框选中时按回车等同于按搜索键，当然模组加载器只在模组那栏
-    // 存在，整合包那一页带一个导入功能」。
-    //
-    // 一行筛子一共这几件：名称（自由输入，就是原来那个搜索框）/ 版本（可输入的下拉）/
+    // 一行筛子一共这几件：名称（自由输入）/ 版本（可输入的下拉）/
     // 加载器（只有模组页）/ 来源 / 类型，外加「搜索」和「清空条件」两颗键。
+    // 名字和版本都可输入，这两个框选中时按回车等同于按搜索键。
     // 摆成**两行**（为什么不摆一行见 .cpp 里那一段）：第一行「名称 + 搜索 + 清空条件」，
     // 第二行四个下拉框。
     //
@@ -840,7 +808,7 @@ public:
     // —— 它按 `categoryOptions()` 有没有回空表决定（回空表 = 这一来源 × 这一类没有分类
     // 可选），藏的是 `getDownloadFilterTypeBox()` 那一个小组（连标签一起，理由见那一段）。
     //
-    // 【模组加载器只有模组页有】用户点名的一条。摆法上就是"循环里加一个 if"：只有**模组**
+    // 【模组加载器只有模组页有】摆法上就是"循环里加一个 if"：只有**模组**
     // 那一页建这个下拉框，别的页连控件都没有（不是建了再藏起来 —— 藏着的控件仍然会被验证
     // 工程按名字找出来，那就不叫"只在模组那栏存在"了）。
     static QString downloadFilterVersionComboName(const QString &categoryKey) {
@@ -863,21 +831,20 @@ public:
     }
     /// 四个筛子前面那四个小标签上的字。顺序和摆法见 .cpp 里那一段。
     ///
-    /// 「模组加载器」写全称而不是「加载器」：要求就是这四个字，而且它只在模组那一页上
-    /// 出现（别的页没有这一栏），说得全一点不占别处的地方。
+    /// 「模组加载器」写全称而不是「加载器」：它只在模组那一页上出现（别的页没有这一栏），
+    /// 说得全一点不占别处的地方。
     static QString downloadFilterVersionLabel() { return QStringLiteral("版本"); }
     static QString downloadFilterLoaderLabel() { return QStringLiteral("模组加载器"); }
     static QString downloadFilterSourceLabel() { return QStringLiteral("来源"); }
     static QString downloadFilterTypeLabel() { return QStringLiteral("类型"); }
-    /// 「搜索」那颗键上的字。要求「一个搜索键」。
+    /// 「搜索」那颗键上的字。
     static QString downloadFilterSearchText() { return QStringLiteral("搜索"); }
-    /// 「清空条件」那颗键上的字。要求「一个清空条件键」。
+    /// 「清空条件」那颗键上的字。
     ///
     /// NOTE: 它清的是**筛子**（四个下拉框 + 两个输入框），不是搜索结果 —— 名字里带"条件"
     /// 就是为了跟"清空列表"分开。
-    /// NOTE: 起清完**重搜一发**（要求「修改任何内容（不论是来源网站还是…）
-    /// 都刷新一下」）。从前这里是"清完不动" —— 于是清完的界面和列表对不上：六个框全
-    /// 空着，底下还摆着上一批按老条件筛出来的结果，而那正是用户点这颗键要摆脱的东西。
+    /// NOTE: 清完**重搜一发**。清完不动的话，界面和列表对不上：六个框全空着，底下还摆着
+    /// 上一批按老条件筛出来的结果，而那正是用户点这颗键要摆脱的东西。
     static QString downloadFilterResetText() { return QStringLiteral("清空条件"); }
     /// 版本那一格空着时里面的灰字。**必须 ≤ `downloadFilterMinimumContentsLength()` 个字符**，
     /// 否则会把框顶宽（那个坑见 .cpp 里 installedVersionCombo 那一段）。
@@ -893,16 +860,16 @@ public:
     /// 四个筛子下拉框的**宽度上限**。上面那个 `minimumContentsLength` 管的是"有多宽"，
     /// 这一个管的是"不许比这更宽"——两个一起才把这一行的宽度钉住。
     ///
-    /// 为什么非要有上限：**这一行摆不下就顶大整窗的 sizeHint**，而 E5 那条断言（≤900）
-    /// 是主窗口默认宽度的依据。 量的：加上这一行之后整窗 sizeHint 从 ≤900 涨到
-    /// **934**，正好是"模组那一页四个下拉框"顶出来的（模组页 644，别的页 454）—— 也就是说
-    /// 到了默认那个 900 px 宽的窗口上，这一行会被右边界切掉一块（四个框各自的
+    /// 为什么非要有上限：**这一行摆不下就顶大整窗的 sizeHint**。加上这一行之后整窗
+    /// sizeHint 会涨到 **934**，正好是"模组那一页四个下拉框"顶出来的
+    /// （模组页 644，别的页 454）—— 也就是说到了默认那个 900 px 宽的窗口上，这一行会被
+    /// 右边界切掉一块（四个框各自的
     /// minimumSizeHint 就是它的 sizeHint，挤不下去）。
     /// 96 是照着"四个框 + 四个标签 + 七道 8 px 间隙 ≤ 610（900 px 窗口下右栏的宽度）"
     /// 反算的，留了三十来 px 余量。代价：框里那串字会被省略（「CurseForge」显示成
     /// 「CurseFor…」）—— 展开下拉框看得见全的，而这些框本来就是"点开挑一个"的东西。
     static int downloadFilterComboMaxWidth() { return 96; }
-    /// 整合包那一页那颗「导入整合包…」的 objectName。要求「整合包那一页带一个导入功能」。
+    /// 整合包那一页那颗「导入整合包…」的 objectName。
     ///
     /// NOTE: 字和实例页那颗是**同一句**（`importModpackText()`，一个"导入整合包…"不该有
     /// 两种说法），但**是两颗不同的按钮**：那一个在实例页左栏、走的是"往当前实例里
@@ -912,7 +879,7 @@ public:
         return QStringLiteral("modpackImportButton");
     }
     /// 那几张资源表里**前面那个图标画多大**（版本树/加载器树是 18）。
-    /// 用户要"会有图片"，18 px 那个尺寸看不清缩略图；行高仍是 versionTreeRowHeight()（46），
+    /// 资源表里会有图片，18 px 那个尺寸看不清缩略图；行高仍是 versionTreeRowHeight()（46），
     /// 32 px 的图在行里上下各留 7 px，不挤。
     static int resourceTreeIconSize() { return 32; }
     /// 实例设置「文件管理 → 服务器列表」那一页前面那个**服务器图标**画多大。
@@ -933,10 +900,10 @@ public:
     /// `ResourceCatalog::kindFromCategoryKey()` —— 那个函数认得出来才是"这一行是我们建的"，
     /// 而把一个 int 硬转成枚举是没有这层校验的（值是脏的就会变成一个不存在的 Kind）。
     ///
-    /// NOTE: 挑号码的时候看一眼 rowSubTextRole() 上面那段 —— 这里原来和
-    /// `rowRefreshRole()` 撞了（都是 `UserRole + 3`），症状是这几张表上**每一行**
-    /// 右端都多画一个刷新圈压在 `>` 上。代理那三个角色现在自成一档（+8/+9/+10），
-    /// 这一档（条目身份）用 +0/+1/+2/+3…，两边别再串。
+    /// NOTE: 挑号码的时候看一眼 rowSubTextRole() 上面那段 —— 这一档（条目身份）用
+    /// +0/+1/+2/+3…，代理那三个行装饰角色自成一档（+8/+9/+10），两边别再串。
+    /// 和 `rowRefreshRole()` 撞号（都是 `UserRole + 3`）的症状是这几张表上**每一行**
+    /// 右端都多画一个刷新圈压在 `>` 上。
     static int resourceKindRole() { return Qt::UserRole + 3; }
 
     /// 这一条是**从哪个来源**搜出来的（存 `ResourceCatalog::sourceKey()` 那个键，
@@ -965,80 +932,69 @@ public:
     /// 用户那份界面改版文档给每一页定了同一套骨架（侧栏 + 页头 + 一个正文面），
     /// 页头第一行就是页面标题。文案只有这一处，验证工程也按这个名字/这句话找。
     static QString instancePageTitle() { return QStringLiteral("实例"); }
-    /// 侧栏那个小节标题（原来是一个 `QGroupBox("游戏文件夹")` 的缺口式标题）。
-    ///
-    /// 那份文档点名「小节使用"标题 + 内容卡片"，避免传统 QGroupBox 的缺口式
-    /// 标题」—— 于是它变成一行普通的粗体字（`wtfmlTextRole="sectionTitle"`），框整块没了。
-    /// 文案一个字没改：它一直说的是"这一列管的是哪一份 .minecraft 目录"。
+    /// 侧栏那个小节标题：一行普通的粗体字（`wtfmlTextRole="sectionTitle"`），
+    /// 不是传统 QGroupBox 的缺口式标题（按"标题 + 内容卡片"的骨架）。
+    /// 文案说的是"这一列管的是哪一份 .minecraft 目录"。
     static QString folderSectionTitleText() { return QStringLiteral("游戏文件夹"); }
     static QString folderSectionTitleName() { return QStringLiteral("folderSectionTitle"); }
     static QString instanceFolderLabelName() { return QStringLiteral("instanceFolderLabel"); }
-    // 「游戏文件夹」那一列上的按钮。这里**必须**有 objectName —— 「移除」的文案当初
-    // 从「删除文件夹」改成过「移除文件夹…」（那个词会让人以为盘上的文件也没了），按文案
-    // 找控件的写法会在改文案的第一次跑就变成"找不到控件、后面全不跑"。文案另有 *Text()，
+    // 「游戏文件夹」那一列上的按钮。这里**必须**有 objectName —— 按文案找控件的写法
+    // 会在改文案的第一次跑就变成"找不到控件、后面全不跑"。文案另有 *Text()，
     // 只用来核对显示内容。
     //
-    // NOTE: 「移除文件夹…」那个按钮与列表下面那段提示 ** 一起删掉了**（用户
-    // 原话：「下面那个移除文件夹也可以弃掉了，下面那个文本也删了」）—— 「移除」
-    // 现在只有行尾齿轮菜单里那一项。这里也不再留有 removeFolderButtonName() /
+    // NOTE: 「移除」只有行尾齿轮菜单里那一项，这一列没有 removeFolderButtonName() /
     // removeFolderText() / folderHintLabelName()，别照着旧记性写。
     //
-    // NOTE: 起这一列是**两个**按钮：「添加文件夹…」+ 下面那颗「导入整合包…」
-    // （要求：「导入整合包放在左边添加文件夹下面」）。它们俩同处「游戏文件夹」
-    // 这一组、宽度都顶满这一栏 —— 都是"往这一列里添东西"的动作。
+    // NOTE: 这一列是**两个**按钮：「添加文件夹…」+ 下面那颗「导入整合包…」。
+    // 它们俩同处「游戏文件夹」这一组、宽度都顶满这一栏 —— 都是"往这一列里添东西"的动作。
     static QString addFolderButtonName() { return QStringLiteral("addFolderButton"); }
     static QString addFolderText() { return QStringLiteral("添加文件夹…"); }
     /// 启动器自带的那一份（和 exe 同一个目录里的 .minecraft）在列表**上面那行**写什么。
     ///
-    /// NOTE: 要求：「显示的时候，和启动器在一个目录里的叫当前文件夹」。
+    /// 它叫「当前文件夹」：和启动器在一个目录里的那一份。
     /// 注意它不是"正在用的那一份"（那一份是**选中**哪一行说了算，两者大多数时候
     /// 是同一个，但用户加了别的目录之后就不是了）—— 这一份认的是位置，不是状态。
     static QString folderAssistantTitle() { return QStringLiteral("当前文件夹"); }
-    // 实例页**右栏那一排按钮 傍晚没了**（要求：「删掉实例页面右侧三个按钮
-    // （因为都已经分别有入口了），顺便把下面的文本干掉」）。三颗各自的去处：
+    // 实例页右栏那一排只剩「分组设置…」一颗，摆在「实例列表」那个框**外面**的右上角。
+    // 其余入口：
     //
     // - 「实例设置…」= **点这一条实例行**（空白、左边那个图标、版本名都算），行尾还有
-    // 一颗**常显**的齿轮做同一件事（追加答复：「要，一颗齿轮常显」）；
-    // - 「重命名…」= 搬进了「实例设置」那一页；
-    // - 「分组设置…」= 挪到「实例列表」那个框**外面**的右上角（追加答复：「分组设置先放
-    // 右上角框外不删了」），所以只剩它这一颗按钮，名字和文案都留着。
+    // 一颗**常显**的齿轮做同一件事；
+    // - 「重命名…」= 在「实例设置」那一页里；
+    // - 「分组设置…」= 右上角框外那一颗，名字和文案都留着。
     //
-    // 所以 `renameInstanceButtonName()` / `instanceSettingsButtonName()` 这两个**已经删了**，
+    // 所以这里没有 `renameInstanceButtonName()` / `instanceSettingsButtonName()`，
     // 别照着旧记性写；`instanceSettingsText()` 留着（底栏那行齿轮的 tooltip 还在用它）。
     //
-    // NOTE: 这里**不做右键菜单**（仓库里至今一处 QMenu 都没有 —— 右键那几处一律走
+    // NOTE: 这里**不做右键菜单**（仓库里一处 QMenu 都没有 —— 右键那几处一律走
     // Qt::CustomContextMenu 或事件过滤器自己认坐标，不弹菜单；而且验证工程跑在
     // offscreen 上，QMenu::exec() 会阻塞在事件循环里几乎驱动不了）—— 行里的东西
     // 一律是"画出来的一格 + 事件过滤器认下那一下"，见 InstanceGroupDelegate 那三处几何。
     //
-    // NOTE: 上半天的「停止游戏…」也不在这排里了（入口只剩底栏左面板里那一行的
-    // 电源，见 MainWindow::stopGameSession()），所以这里也没有 stopGameButtonName()。
+    // NOTE: 这排里也没有 stopGameButtonName()（停止游戏的入口只剩底栏左面板里那一行的
+    // 电源，见 MainWindow::stopGameSession()）。
     static QString groupInstanceButtonName() { return QStringLiteral("groupInstanceButton"); }
-    /// 「导入整合包…」。它和上面那三颗**不是一回事**：那三颗改的是已有的东西（前两颗
-    /// 作用于选中的实例、第三颗作用于分组清单），这个是**造**一个新实例出来。所以它不在右栏那一排里 —— 起它归左栏
-    /// 「游戏文件夹」那一组，紧挨在「添加文件夹…」下面（要求：「导入整合包放在左边
-    /// 添加文件夹下面」）。两者都是"往这一列里添东西"。
+    /// 「导入整合包…」。它和「分组设置…」**不是一回事**：那一颗改的是已有的东西，
+    /// 这个是**造**一个新实例出来。所以它不在右栏那一排里 —— 它归左栏
+    /// 「游戏文件夹」那一组，紧挨在「添加文件夹…」下面。两者都是"往这一列里添东西"。
     static QString importModpackButtonName() { return QStringLiteral("importModpackButton"); }
     /// 那颗按钮**下面**那句说明（"收 Modrinth 格式的整合包…"）。
     static QString importHintLabelName() { return QStringLiteral("importHintLabel"); }
     // 按钮上的字。验证工程**不要**拿它们当身份标识（那是显示内容），只用来核对文案。
-    // / NOTE: 「重命名…」那颗按钮** 傍晚删了** —— 改名搬进了「实例设置」那一页
-    // / （要求：「重命名进实例设置」）。所以 `renameInstanceText()` 也一起没了，
-    // / 别再照着旧记性写；那一页里那行自己的文案在 InstanceSettingsDialog 里。
-    // /
-    // / NOTE: 起它开的那张窗**不再问"这个实例归到哪个组"**，改成了分组自己的
-    // / 设置（有哪些组、叫什么名字、什么顺序、默认展开还是收着、**哪一个是置顶组**）
-    // / —— 要求：「不再是针对单个实例的设置，而是对现有分组数目/名称等的设置」。
-    // / 所以文案跟着从「分组…」变成「分组设置…」，而且它**不读选中的实例**。
-    // / 想按实例归组走组行行尾那颗齿轮（GroupActionAddSelected）或者分组窗里那条
-    // / 归属单选钮原来那一套？—— 那一套**没有了**，别再照旧记性找。
+    // NOTE: 这里没有 `renameInstanceText()` —— 改名在「实例设置」那一页里，
+    // 那一页里那行自己的文案在 InstanceSettingsDialog 里。
+    //
+    // NOTE: 「分组设置…」开的是分组自己的设置（有哪些组、叫什么名字、什么顺序、
+    // 默认展开还是收着、**哪一个是置顶组**），**不读选中的实例**。
+    // 想按实例归组走组行行尾那颗齿轮（GroupActionAddSelected）；这里没有
+    // "这个实例归到哪个组"那排归属单选钮。
     static QString groupInstanceText() { return QStringLiteral("分组设置…"); }
-    /// NOTE: `instanceSettingsText()`（「实例设置…」，那颗按钮上的字）** 傍晚跟着
-    /// 按钮一起删了**。现在这一页的那句话有**两个**出处，各管一件事，别再合成一个：
-    /// `rowInstanceSettingsTipText()`（实例行行尾那颗齿轮的悬停提示）和
-    /// `InstanceSettingsDialog::titleText()`（覆盖层页眉上那行「实例设置：<实例名>」）。
+    /// NOTE: `instanceSettingsText()` 不是这一页的出处。这一页相关的那句话有**两个**
+    /// 出处，各管一件事，别再合成一个：`rowInstanceSettingsTipText()`（实例行行尾那颗
+    /// 齿轮的悬停提示）和 `InstanceSettingsDialog::titleText()`（覆盖层页眉上那行
+    /// 「实例设置：<实例名>」）。
     /// NOTE: 带省略号 —— 按 Qt 的规矩，点了之后还要弹框问点什么的，文案结尾就带省略号
-    /// （这个字上传出去的信息是"点下去不等于事情就开始了"，和上面三个一致）。
+    /// （这个字传出去的信息是"点下去不等于事情就开始了"）。
     static QString importModpackText() { return QStringLiteral("导入整合包…"); }
     // ---------- 实例列表那张树里的「组」 ----------
     // 组头不是实例：选中它不等于选中某个版本。判据是**它有没有组 id**（存在
@@ -1061,18 +1017,17 @@ public:
     /// 「未分组」那一格的名字。它是个**虚拟**的组（不进文件），只在它下面真的挂着实例时
     /// 才画出来 —— 一个组都没有的时候列表是平铺的，不插任何组头。
     ///
-    /// NOTE: 这一句原来住在 GroupDialog 里（跟着"这个实例归到哪个组"那排单选钮一起）。
-    /// 那半搬走了，分组设置窗也**不再认得**「未分组」这个东西（它只认
-    /// 真实的分组），于是这句话搬到这里 —— 现在唯一的读者是灌树那个函数和
-    /// "移到未分组"那条提示。文件里的那个保留值另有出处（InstanceGroupStore::
-    /// ungroupedMarker()），和这一句是两回事，别混。
+    /// NOTE: 这一句的读者只有灌树那个函数和"移到未分组"那条提示。
+    /// 分组设置窗**不认得**「未分组」这个东西（它只认真实的分组）。
+    /// 文件里的那个保留值另有出处（InstanceGroupStore::ungroupedMarker()），
+    /// 和这一句是两回事，别混。
     static QString ungroupedGroupText() { return QStringLiteral("未分组"); }
     /// 组头的文字（组名 + 里面有几个实例）。规则和分组对话框里那张列表共用一份。
     static QString groupItemText(const QString &name, int count) {
         return GroupDialog::groupItemText(name, count);
     }
 
-    // ---------- 实例列表那张树的搜索与筛选（coding plan §7.2）----------
+    // ---------- 实例列表那张树的搜索与筛选 ----------
     //
     // 一页两件东西：一个搜索框 + 四颗筛选 chip，摆在正文面里、树的上方。**判据不在这儿**
     // —— "哪几个串参与搜索、四档筛子怎么算"全在 `src/manage/InstanceFilter.hpp` 那一层
@@ -1091,7 +1046,7 @@ public:
     /// 那一排筛选 chip 的外框（验证工程按它量"整排有没有超出去"）。
     static QString instanceFilterRowName() { return QStringLiteral("instanceFilterRow"); }
     static QString instanceSearchName() { return QStringLiteral("instanceSearch"); }
-    /// 搜索框里那句占位说明。§7.2 点名的三样（实例名 / 版本号 / 加载器）就写在这儿 ——
+    /// 搜索框里那句占位说明。三样（实例名 / 版本号 / 加载器）就写在这儿 ——
     /// 用户不用去猜"这一格搜的是什么"。
     static QString instanceSearchPlaceholder() {
         return QStringLiteral("搜索实例名、版本号或加载器");
@@ -1149,19 +1104,18 @@ public:
         return QString();
     }
 
-    // ---------- 实例页顶部的模式切换：客户端实例 | 服务端（coding plan §6.1）----------
+    // ---------- 实例页顶部的模式切换：客户端实例 | 服务端 ----------
     //
-    // §6.1 原话：「实例管理页顶部增加模式切换：`客户端实例 | 服务端`。两边复用"左侧根目录 +
-    // 右侧条目"的页面骨架，但使用不同模型和操作」。
+    // 两边复用"左侧根目录 + 右侧条目"的页面骨架，但使用不同模型和操作。
     //
     // 摆位：这一排**在正文面里、最上面**（筛选行/树那一切的上方），不在页头右上角那排
     // 页面级操作里 —— 切换的是"下面这一页说的是什么"，和「分组设置…」不是一类东西。
     // 左边那一栏（游戏文件夹）**两种模式共用**：服务端的根挂在 `<数据目录>/Servers` 底下，
     // "选哪一份 .minecraft"这件事两边都要（换了数据目录 = 换了一整套实例，也换了一整套服务端）。
     enum class InstanceMode {
-        Client,  ///< 客户端实例（老那一页）
-        Server,  ///< 服务端（M4 新那一页）
-        Preset,  ///< 实例预设（2026-10-18 从设置页搬进来：管理页不再是一扇覆盖页）
+        Client,  ///< 客户端实例
+        Server,  ///< 服务端
+        Preset,  ///< 实例预设（管理页里的一档，不是覆盖页）
     };
     static QString instanceModeRowName() { return QStringLiteral("instanceModeRow"); }
     /// 某一颗模式按钮的 objectName。**按这一档点名找**（不解析文字）。
@@ -1176,7 +1130,7 @@ public:
         }
         return QString();
     }
-    /// 那一颗上写的字。**唯一出处**（§6.1 点名的那两个词）。
+    /// 那一颗上写的字。**唯一出处**。
     static QString instanceModeText(InstanceMode mode) {
         switch (mode) {
         case InstanceMode::Client:
@@ -1207,7 +1161,7 @@ public:
     /// 「预设」那一页的宿主（内容由 `PresetController` 塞进来）。
     static QString instancePresetPageName() { return QStringLiteral("instancePresetPage"); }
 
-    // ---------- 服务端那一页（coding plan §6 / M4）----------
+    // ---------- 服务端那一页 ----------
     static QString serverListName() { return QStringLiteral("serverList"); }
     /// 「一个服务端都还没有」那句（和实例页「没有符合筛选条件的实例」不是一回事：这一句
     /// 说的是"**盘上真的一条都没有**"）。平时收着，列表空着时才露。
@@ -1220,9 +1174,9 @@ public:
     static QString newServerButtonName() { return QStringLiteral("newServerButton"); }
     static QString newServerText() { return QStringLiteral("新建服务端…"); }
 
-    // ---------- 「新建服务端」那一页（coding plan §6.2 / M4）----------
+    // ---------- 「新建服务端」那一页 ----------
     //
-    // `ui/` **不 include `src/`**（见 GroupDialog 文件头那段老规矩）：这一页只摆控件、
+    // `ui/` **不 include `src/`**（见 GroupDialog 文件头那段约定）：这一页只摆控件、
     // 只把"用户填了什么"如实报出去；八档的表、每一档要填哪几格、"这一档要下什么"那句
     // 计划说明，全由 `MainWindow` 那一个翻译点喂进来（`NewServerPage::setFlavors()` /
     // `setSummary()`）。
@@ -1244,9 +1198,9 @@ public:
     static QString newServerSummaryLabelName() { return QStringLiteral("newServerSummary"); }
     static QString newServerCreateButtonName() { return QStringLiteral("newServerCreateButton"); }
 
-    // ---------- 服务端行尾那颗主操作（coding plan §6.2 的操作 / M4-3）----------
+    // ---------- 服务端行尾那颗主操作 ----------
     //
-    // 用户 定的：「行尾按钮 + 右键菜单」。所以一行上**只有一颗**按主操作
+    // 行尾按钮 + 右键菜单。一行上**只有一颗**主操作按钮
     // （未装好 = 修复 / 能启动 = 启动 / 在跑 = 停止），其余的（强制结束、打开控制台、
     // 打开目录、删掉…）全在右键菜单里 —— 一行塞四颗按钮，扫一眼就不知道点哪颗了。
     //
@@ -1309,7 +1263,7 @@ public:
                               "你自己按「停止」或者它正常退出都不会被拉起来。");
     }
 
-    // ---------- 服务端控制台那一页（coding plan §6.2 / M4-3）----------
+    // ---------- 服务端控制台那一页 ----------
     //
     // 整页（`OverlayHost::execPage()`）—— 日志要多宽有多宽，底下留一行输入框。
     // 它和 `NewServerPage` 同一条规矩：**只摆控件、判据一条都不在这儿**（`ui/` 不 include
@@ -1334,7 +1288,7 @@ public:
     static QString serverConsoleStopText() { return QStringLiteral("停止服务端"); }
     static QString serverConsoleForceKillText() { return QStringLiteral("强制结束"); }
 
-    // ---------- 服务端设置那一页（coding plan §6.3 第二阶段 / M4-4）----------
+    // ---------- 服务端设置那一页 ----------
     //
     // 整页（`OverlayHost::execPage()`）：左栏四页（常用设置 / 原始文本 / 世界备份 / 体检），
     // 右边一个堆叠页，底下一条保存带。它和 `NewServerPage` / `ServerConsolePage` 同一条
@@ -1354,7 +1308,7 @@ public:
     static QString serverSettingsStackName() { return QStringLiteral("serverSettingsStack"); }
     /// 「常用设置」那一页里那张表单（每一格的名字见 `serverSettingsFieldName()`）。
     static QString serverSettingsFormName() { return QStringLiteral("serverSettingsForm"); }
-    /// 「服务器简介」那一格下面那块预览（§9.7「MOTD 提供格式化预览」）。
+    /// 「服务器简介」那一格下面那块预览（MOTD 提供格式化预览）。
     static QString serverSettingsMotdPreviewName() {
         return QStringLiteral("serverSettingsMotdPreview");
     }
@@ -1370,7 +1324,7 @@ public:
     static QString serverSettingsMotdEmptyText() {
         return QStringLiteral("（空的 —— 服务器列表那一行会是空白）");
     }
-    /// 「资源包 SHA-1」那一格旁边那颗「选择本地 zip…」（§9.7）。
+    /// 「资源包 SHA-1」那一格旁边那颗「选择本地 zip…」。
     static QString serverSettingsPickZipButtonName() {
         return QStringLiteral("serverSettingsPickZip");
     }
@@ -1386,7 +1340,7 @@ public:
     static QString serverSettingsCheckListName() {
         return QStringLiteral("serverSettingsFindings");
     }
-    // ---------- 玩家名单（§9.7「玩家管理」）----------
+    // ---------- 玩家名单（玩家管理）----------
     static QString serverSettingsPlayerNoteName() {
         return QStringLiteral("serverSettingsPlayerNote");
     }
@@ -1439,7 +1393,7 @@ public:
     }
 
     /// 左栏那六页的标题。**顺序就是左栏的顺序**（`ServerSettingsPage::Section` 按下标对齐）。
-    /// 「内容」那一页是 §9.7 的内容管理（模组 / 数据包）。
+    /// 「内容」那一页是内容管理（模组 / 数据包）。
     static int serverSettingsSectionCount() { return 6; }
     static QString serverSettingsSectionTitle(int index) {
         switch (index) {
@@ -1514,10 +1468,10 @@ public:
         return QStringList{QStringLiteral("这一条"), QStringLiteral("说的是什么")};
     }
 
-    // ---------- 内容（§9.7 内容管理）----------
+    // ---------- 内容（模组 / 数据包）----------
     //
     // 两类：模组（服务端目录的 `mods/`）和数据包（世界目录的 `datapacks/`）。插件（Paper /
-    // Spigot）等服务器类型稳定之后再单独开——这一版不做（见 `ServerContent.hpp` 文件头）。
+    // Spigot）等服务器类型稳定之后再单独开——暂不实现（见 `ServerContent.hpp` 文件头）。
     static QString serverSettingsContentNoteName() {
         return QStringLiteral("serverSettingsContentNote");
     }
@@ -1609,7 +1563,7 @@ public:
     static QString serverSettingsPlayerKickButtonName() {
         return QStringLiteral("serverSettingsPlayerKick");
     }
-    /// 「踢出…」：只对**正在跑**的服务端有意义，而且必须走控制台（§9.7 那句）。
+    /// 「踢出…」：只对**正在跑**的服务端有意义，而且必须走控制台。
     static QString serverSettingsPlayerKickText() { return QStringLiteral("踢出…"); }
     /// 这一页顶上那句说明（哪个文件、在跑时为什么改不了）。
     static QString serverSettingsPlayerNoteText(int index, bool running) {
@@ -1697,7 +1651,7 @@ public:
     void setHomeQuickRows(const QList<HomeQuickItem> &current,
                           const QList<HomeQuickItem> &favorites,
                           const QList<HomeQuickItem> &recent);
-    /// 旧验证和旧调用点仍按“收藏 / 最近”两排传参；保留这个适配入口，避免它们为了布局迁移
+    /// 两参数版本仍按“收藏 / 最近”两排传参；保留这个适配入口，避免调用方为了布局迁移
     /// 误把第一份列表当成“当前”。产品代码统一走三参版本。
     void setHomeQuickRows(const QList<HomeQuickItem> &favorites,
                           const QList<HomeQuickItem> &recent) {
@@ -1758,23 +1712,23 @@ public:
     ///
     /// NOTE: **多开之后左边那格的内容是真的会变长的**：第一行从「实例运行中」变成
     /// 「3 个实例运行中」、第二行从实例名变成「A（账号甲）、B（账号乙）」；
-    /// 一变中间那根条就跟着长一截短一截 —— 用户报的「条会变长变短」就是这个。
+    /// 一变中间那根条就跟着长一截短一截 —— 这就是「条会变长变短」。
     /// 超出去的字由那两行自己截成省略号（QLabel 没有 elide API，硬裁会把最后一个字
     /// 切成半个，所以那两行用的是 MainWindowUI.cpp 里那个 ElidedLabel），
     /// 文字能占多宽由 bottomBarRunStateTextWidth() 说了算。
     /// **左边这格钉死是安全的**：它贴着窗口左边缘，多出来的空档落在文字右边。
     /// 另外，钉死的那个是**装字的按钮**（不是那两行字本身）：那两行有藏起来的时候
-    /// （没有实例在跑时），而布局里藏起来的控件宽度是 0 —— 钉在字上等于没钉
-    /// （实测条会从 582 跳到 440）。详见 MainWindowUI.cpp 里 runStateButton 那段。
+    /// （没有实例在跑时），而布局里藏起来的控件宽度是 0 —— 钉在字上等于没钉。
+    /// 详见 MainWindowUI.cpp 里 runStateButton 那段。
     ///
-    /// 宽度**从 200 改到 170**：两头那两格加起来原来是 458 px，
-    /// 900 px 的窗口里中间那根条只剩 262 px（条还没那两格宽），用户报「奇小无比」。
+    /// 宽度 170：两头那两格加起来 458 px 时，900 px 的窗口里中间那根条只剩 262 px
+    /// （条还没那两格宽）。
     /// 那一格装的是「3 个实例运行中」+ 一行实例名 + 箭头，170 够（文字能占 152）。
     static int bottomBarRunStateColumnWidth() { return 170; }
     /// 左边那两行字**各自留给字**的宽度上限 = 那一格的宽度减掉**最左边那颗状态方块占掉的
     /// 一段**，再减掉右边那个箭头和它左边的间距。封这个顶，布局就永远不会被长名字撑开。
     ///
-    /// NOTE: 方块那一段（`bottomBarRunStateMarkWidth()`）**必须一起减掉**（ 补的）：
+    /// NOTE: 方块那一段（`bottomBarRunStateMarkWidth()`）**必须一起减掉**：
     /// 方块和第一行文字在同一行里，不减的话那一行的需要宽度变成
     /// 16 + 152 = 168 > 152，方块要么被压掉、要么把这一格撑出 170 之外。
     ///
@@ -1782,15 +1736,15 @@ public:
     /// 第一行那个方块是布局里单独的控件（占的是这个上限**之外**的位置，所以这 136 全是给
     /// 字的），第二行的缩进是 `contentsMargins`（那 16 px 从上限**里面**扣）。所以第二行
     /// 那个 QLabel 的上限要写 `bottomBarRunStateTextWidth() + bottomBarRunStateMarkWidth()`，
-    /// 两行留给字的宽度才真的都是 136（ 修：原来两行都写这个数，第二行实际只有
-    /// 120，右边短一截）。
+    /// 两行留给字的宽度才真的都是 136（两行都写这个数时，第二行实际只有 120，
+    /// 右边短一截）。
     static int bottomBarRunStateTextWidth() {
         return bottomBarRunStateColumnWidth() - bottomBarChevronSpacing() - bottomBarChevronSize() -
                bottomBarRunStateMarkWidth();
     }
     /// 底栏**右边那颗按钮（头像 + 用户名 + 箭头）的固定宽度**（像素）。右边那颗和左边的
-    /// 一样**要钉死**：进度条那一边彻底不再受"用户名多长"的影响（以前只给用户名封了个顶，
-    /// 换账号时这一格仍会变 200 px）。
+    /// 一样**要钉死**：进度条那一边彻底不再受"用户名多长"的影响（只给用户名封顶时，
+    /// 换账号这一格仍会变 200 px）。
     static int bottomBarAccountButtonWidth() {
         return avatarSize() + bottomBarAccountRowSpacing() + bottomBarAccountColumnWidth() +
                bottomBarChevronSpacing() + bottomBarChevronSize();
@@ -1798,25 +1752,25 @@ public:
     /// 底栏那颗账号按钮里**用户名那一格的宽度上限**（像素）：16 个字符的 ID 按当前字体
     /// 大约就是这么宽，再长的名字截成省略号。
     ///
-    /// 宽度**从 200 改到 150**（，和左边那格一起收）：右上角那格原来跟左边
-    /// 一样宽（200），可它装的是"32 的头像 + 名字 + 箭头"，200 是上限、不是需要 ——
-    /// 16 个字符的正版名在 150 里放得下（放不下的名字截成省略号，它用的是 ElidedLabel）。
+    /// 宽度 150（和左边那格一起收）：它装的是"32 的头像 + 名字 + 箭头"，200 是上限、
+    /// 不是需要 —— 16 个字符的正版名在 150 里放得下（放不下的名字截成省略号，它用的是
+    /// ElidedLabel）。
     static int bottomBarAccountColumnWidth() { return 150; }
     /// 底栏**中间那格**进度文字（`已下载 d / t 文件名`）的宽度上限（像素）。
     ///
-    /// 补的：那一格原来**只有最小宽度、没有上限**（见 MainWindowUI.cpp 里
-    /// statusLabel 那几行）。它顶宽窗口走的是 **sizeHint** 那条路 —— 那个 ElidedLabel 的
-    /// sizeHint() 就是拿 maximumWidth() 当上限的（见 MainWindowUI.cpp 里那个类）。实测
-    /// （ui_check 的 E5 段）：300 个字符的文件名，不设上限时这一格 sizeHint 3912、
-    /// 底栏 4338、**主窗口 4338**（默认窗口只有 900×620）；设了上限是 320 / 746 / 818。
-    /// 任何走 sizeHint 的路径（adjustSize()、平台给初次尺寸、以后哪天加的"记住窗口大小"）
+    /// 那一格**必须同时有上限**（见 MainWindowUI.cpp 里 statusLabel 那几行）。
+    /// 它顶宽窗口走的是 **sizeHint** 那条路 —— 那个 ElidedLabel 的
+    /// sizeHint() 就是拿 maximumWidth() 当上限的（见 MainWindowUI.cpp 里那个类）。
+    /// 不设上限时，一个长文件名会让这一格 sizeHint 涨到几千像素，底栏和**主窗口**
+    /// 跟着一起涨（默认窗口只有 900×620）。
+    /// 任何走 sizeHint 的路径（adjustSize()、平台给初次尺寸、"记住窗口大小"）
     /// 都会因此拿到一个四倍宽的窗口。
     ///
     /// 取值按"900 px 的窗口里中间那格大致能有多少"：左右两格（170 + 头像那格）和两头的
     /// 边距扣掉之后剩下的就是它，取 320 让长文件名一定截得住，同时短句不会被截。
     static int bottomBarStatusTextWidth() { return 320; }
 
-    /// 底栏两颗按钮里**头像和文字之间的间距**（和原来那格一样是 8）。
+    /// 底栏两颗按钮里**头像和文字之间的间距**（8）。
     static int bottomBarAccountRowSpacing() { return 8; }
     /// 底栏两颗按钮右边那个**朝上箭头**的边长（像素）：点开是向上弹的，箭头就朝上。
     static int bottomBarChevronSize() { return 12; }
@@ -1847,9 +1801,9 @@ public:
         /// 鼠标停上去显示的那句话（图标按钮**必须**有 —— 一个电源符号说明不了
         /// "点了会把游戏杀掉"，文字按钮可省）。
         QString tooltip;
-        /// false = 灰掉点不动。**现在右面板里没有哪一颗走这一档**（当前账号那一行原先
-        /// 灰着， 换成了可点的「登出」）；留着是给将来"这一下现在做不了"
-        /// 那种按钮用的 —— 灰掉必须是真灰（Qt 的 disabled 按钮根本不发 clicked）。
+        /// false = 灰掉点不动。**右面板里没有哪一颗走这一档**（当前账号那一行是
+        /// 可点的「登出」）；留着是给"这一下现在做不了"那种按钮用的 —— 灰掉必须是
+        /// 真灰（Qt 的 disabled 按钮根本不发 clicked）。
         bool enabled = true;
     };
     /// 面板里的一行。
@@ -1885,9 +1839,8 @@ public:
         m_panelActionHandler = std::move(handler);
     }
 
-    /// 左下那一格（实例列表）现在**能不能点开**。没有实例在跑时点不开、箭头也收起来
+    /// 左下那一格（实例列表）**能不能点开**。没有实例在跑时点不开、箭头也收起来
     /// —— 那种时候面板里只有"现在没有实例在运行"那一句话，一个可点的东西都没有。
-    /// （要求：「没有运行中的实例时让那个实例栏点不开，箭头隐藏」）
     ///
     /// **由 MainWindow 每次重画底栏时给**（`updateBottomBar()`，判据是 `runningGames()`
     /// 空不空 —— 那也正是"左面板里会不会有行"的唯一出处）。界面这一头**不查数据**，只画。
@@ -1897,8 +1850,8 @@ public:
     ///
     /// NOTE: "点不开"是**收不到鼠标**（`WA_TransparentForMouseEvents`），**不是**
     /// `setEnabled(false)`：那一格里「当前没有运行中的实例」是给人看的状态，按钮一
-    /// 灰，装在它里面的那几行字会跟着进 Disabled 调色板一起变暗 —— 用户要的只是
-    /// 那一下点不动，不是把那句话弄糊。连带的：鼠标指针也不会变手型，划过不再高亮。
+    /// 灰，装在它里面的那几行字会跟着进 Disabled 调色板一起变暗 —— 这里只要
+    /// 那一下点不动，不能把那句话弄糊。连带的：鼠标指针也不会变手型，划过不再高亮。
     void setRunPanelAvailable(bool available);
 
     /// 把**任务中心**要画的东西装进来。**由 MainWindow 在构造时调一次**（任务账本在
@@ -1959,16 +1912,13 @@ public:
     static QString bottomBarPanelRowActionName(int index, int action) {
         return QStringLiteral("bottomBarPanelRowAction%1_%2").arg(index).arg(action);
     }
-    /// 右面板里那几行右边那颗按钮上的字。**离线账号写「选择」、正版账号写「登录」**
-    /// （要求：「离线的右侧按钮写 选择，正版的右侧写 登录（链接令牌刷新）」）：
+    /// 右面板里那几行右边那颗按钮上的字。**离线账号写「选择」、正版账号写「登录」**：
     /// 离线账号没有凭据，切过去就完事；正版账号切过去之后还要看一眼盘上那张令牌够不够用
     /// （<6 小时就顺手换一张，见 MainWindow）。
     static QString bottomBarPanelSelectText() { return QStringLiteral("选择"); }
     static QString bottomBarPanelLoginText() { return QStringLiteral("登录"); }
-    /// 当前账号那一行：按钮写「登出」、**可点**。
-    ///
-    /// NOTE: 要求：「把那个账户管理里的当前改成登出」—— 原先是写「当前」
-    /// 并把那颗按钮**灰掉**（点自己等于什么都不做）。
+    /// 当前账号那一行：按钮写「登出」、**可点**（不能再写「当前」并灰掉 ——
+    /// 点自己等于什么都不做）。
     ///
     /// NOTE: 登出**不删账号**：只清掉盘上的登录状态，那一项还留在列表里，点它那行的
     /// 「选择」/「登录」就回来了（见 AccountStore::logout()）。想彻底不要这个账号
@@ -1997,8 +1947,8 @@ public:
     static QString bottomBarPanelNoAccountNote() {
         return QStringLiteral("在「账号与外观…」里登录或添加离线账号");
     }
-    /// 左面板**运行中那一行**最后那颗按钮上的字（ 加，coding plan §3.3
-    /// 「运行中实例弹层优先展示实例名、运行时长和『打开日志/停止』等可用动作」）。
+    /// 左面板**运行中那一行**最后那颗按钮上的字（运行中实例弹层优先展示实例名、
+    /// 运行时长和『打开日志/停止』等可用动作）。
     ///
     /// 这一颗**故意是字的、不是图标**（和右面板那颗「选择」同一个写法）：另外两颗
     /// （电源 / 齿轮）是"画个符号全世界都认得"的那一类，而"日志"在 `bottomBarPanelActionIconSize()`
@@ -2009,8 +1959,7 @@ public:
     /// 会话**做什么"（把它关了 / 改它的设置），这一颗是"看它说了什么"，最不打紧的一下
     /// 摆在边上（和日志窗里那两颗导出键摆「关闭」左边是同一个道理）。
     static QString bottomBarPanelLogText() { return QStringLiteral("日志"); }
-    /// 左面板里每行那句「跑了多久」（要求：「一行一个会话，有时长是好主意，
-    /// 做进去」）。
+    /// 左面板里每行那句「跑了多久」。
     ///
     /// 精确到**分钟**是刻意的：面板是弹出来那一刻的一张快照，开着的这几秒里不会自己重画
     /// （见 MainWindowUI 里 BottomBarPanel 那段），写成"3 分 12 秒"过两秒就成假的了。
@@ -2041,32 +1990,31 @@ public:
     static QString runStateLabelName() { return QStringLiteral("runStateLabel"); }
     static QString runStateDetailLabelName() { return QStringLiteral("runStateDetailLabel"); }
     static QString progressBarName() { return QStringLiteral("progressBar"); }
-    /// 那根条右边那一格里的百分比（「42%」）。**名字是 加的**（§3.3：条改成
-    /// 自绘、不再自己画数，数挪到条右边这一格）。
+    /// 那根条右边那一格里的百分比（「42%」）：条自绘、不自己画数，数在
+    /// 条右边这一格。
     static QString taskPercentLabelName() { return QStringLiteral("taskPercentLabel"); }
     static QString statusLabelName() { return QStringLiteral("statusLabel"); }
 
     // ------------------------------------------------------------------
-    // 底栏中间那格 = **任务摘要**（，coding plan §3.1）
+    // 底栏中间那格 = **任务摘要**
     // ------------------------------------------------------------------
-    // 用户要的形状（§3.1 的原图）：
+    // 形状：
     //
     // ┌ 任务摘要 ───────────────────┐
     // │ ↓ 安装 1.21.4 Fabric 62% ∧ │
     // │ ███████████░░░░░░░░ │
     // └───────────────────────────────┘
     //
-    // 这一格以前是「一句字 + 一根条」，三件事（启动 / 下载 / 同步等待）抢着往里写
-    // （那套优先级原来叫 `bottomBarProgressOwner`）。现在这一格只说**一句话**：手上
-    // 最该被看见的那一项任务 —— 谁说话算数由 `Tasks::collapsedSummary()` 说了算（那是
-    // 账本层的纯函数，见 src/tasks/TaskSnapshot.hpp），这里只负责把结果画出来。
-    // 启动因此**不再抢走并覆盖下载**（§3.1 明写的那一条）：它俩是任务表里并列的两行，
-    // 收起态挑一行展示而已 —— 旧那套"启动最大、借完要还"的优先级整个撤掉了。
+    // 这一格只说**一句话**：手上最该被看见的那一项任务 —— 谁说话算数由
+    // `Tasks::collapsedSummary()` 说了算（那是账本层的纯函数，见
+    // src/tasks/TaskSnapshot.hpp），这里只负责把结果画出来。
+    // 启动**不抢走并覆盖下载**：它俩是任务表里并列的两行，
+    // 收起态挑一行展示而已 —— 不能有"启动最大、借完要还"那种优先级。
     // ------------------------------------------------------------------
 
     /// 底栏中间那格的**全部内容**。`MainWindow` 每次重画底栏都摆一份进来。
     struct BottomBarTaskSummary {
-        /// false = 一项都没有 ⇒ 画一句低强调度的占位话（§3.1：「无任务时不显示空进度条」）。
+        /// false = 一项都没有 ⇒ 画一句低强调度的占位话（「无任务时不显示空进度条」）。
         bool hasTask = false;
         /// 保留完整状态，取消/中断不能被“非失败”误画成成功。
         TaskCenter::State state = TaskCenter::State::Queued;
@@ -2128,9 +2076,9 @@ public:
         return QCoreApplication::translate("MainWindowUI", "点一下展开任务中心");
     }
     /// 那一格右边小字（「另有 N 项」）的宽度上限（像素）—— `ElidedLabel` 的 sizeHint 就
-    /// 封在这个数上，所以再长的句子也顶不宽中间那一格（E5 那一段量的就是这件事）。
+    /// 封在这个数上，所以再长的句子也顶不宽中间那一格。
     static int taskExtraTextWidth() { return 64; }
-    /// 一件任务**完成之后**还能在收起态那格上露多久（毫秒）。§3.1：「完成任务短暂显示后
+    /// 一件任务**完成之后**还能在收起态那格上露多久（毫秒）。「完成任务短暂显示后
     /// 收进历史」—— "短暂"这个数就是它。
     ///
     /// NOTE: 它是**界面**这一层的数，不是账本那一层的：账本只知道"这件事什么时候收的尾"
@@ -2146,16 +2094,15 @@ public:
 
     /// 任务中心那块面板（`ui/TaskCenterPanel.hpp`）。
     static QString taskCenterPanelName() { return QStringLiteral("taskCenterPanel"); }
-    /// 面板宽度那一档（§3.2：约 440–520）。面板按内容 `adjustSize()` 之后夹在这两档里。
+    /// 面板宽度那一档（约 440–520）。面板按内容 `adjustSize()` 之后夹在这两档里。
     static int taskCenterPanelMinWidth() { return 440; }
     static int taskCenterPanelMaxWidth() { return 520; }
-    /// 面板高度上限 = 屏幕**可用**高度的百分之多少（§3.2：60%）。
+    /// 面板高度上限 = 屏幕**可用**高度的百分之多少（60%）。
     static int taskCenterPanelHeightPercent() { return 60; }
     /// 进度条那一根**细轨道**的高度（像素）。**三处共用的唯一出处**：任务中心面板里每一行、
-    /// 底栏中间那格、任务详情页 —— （§3.3 统一自绘组件）起三处都读它（原来名字只
-    /// 提"面板"，详情页还各自写死 8；现在统一）。
+    /// 底栏中间那格、任务详情页，三处都读它，不许各自写死。
     ///
-    /// NOTE: 名字先没改（`ui_modernize.py` 的 `task_progress_height` 令牌按这个名字定位）。
+    /// NOTE: 名字不能改（`ui_modernize.py` 的 `task_progress_height` 令牌按这个名字定位）。
     static int taskCenterPanelBarHeight() { return 4; }
     /// 步骤之间空多少（像素）。
     static int taskCenterPanelStepSpacing() { return 14; }
@@ -2214,7 +2161,7 @@ public:
     }
 
     // ------------------------------------------------------------------
-    // 任务详情页（`ui/TaskDetailPage.hpp`， 加）
+    // 任务详情页（`ui/TaskDetailPage.hpp`）
     // ------------------------------------------------------------------
 
     /// **每一件东西的名字都从这里来**（验证工程按名字找控件量状态，找不到的按"没画"算）。
@@ -2470,15 +2417,11 @@ public:
     }
 
     // ------------------------------------------------------------------
-    // 实例页左栏那张「游戏文件夹」列表（ 改造：两行式 + 行尾齿轮菜单）
+    // 实例页左栏那张「游戏文件夹」列表（两行式 + 行尾齿轮菜单）
     // ------------------------------------------------------------------
-    // 要求：「显示的时候和版本下载那里类似，上面（版本名同样的地方）写 customname，
-    // 下面（发布日期那里）写路径，分栏做高一点不要像现在那么小，每个版本右侧有个齿轮，
-    // 点击以后会有个类似右键菜单的页面（框），里面是刷新 重命名 打开（explorer.exe）
-    // 移除 删除（红色字）」。
-    //
-    // 形状照抄版本树那几行：**上面一行正文 + 下面一行小字**，行高因此比原来那条单行
-    // 列表高一倍（见 folderRowHeight()）。行尾那颗齿轮是**真按钮**（不是画出来再靠
+    // 形状照抄版本树那几行：**上面一行正文（customname）+ 下面一行小字（路径）**，
+    // 行高因此是 `folderRowHeight()` 那 56。行尾那颗齿轮点开是一个五项菜单
+    // （刷新 / 重命名 / 打开 / 移除 / 删除），齿轮本身是**真按钮**（不是画出来再靠
     // 事件过滤器认位置）—— 和底栏面板那几颗同一个理由：真控件白得 hover / 按下 /
     // disabled 三态，验证工程也能按 objectName 把它找回来点。
     // ------------------------------------------------------------------
@@ -2523,27 +2466,25 @@ public:
     /// 这块调色板的底色算不算"深"那一档。
     ///
     /// NOTE: 判据**只此一处** —— 红的深浅两档（下面的 `folderDangerColor()`、安装页那行
-    /// 红字）、底栏那颗方块的三态都拿它分档。原来 `folderDangerColor()` 和
-    /// `runStateMarkColor()` 各写了一遍同一个 `lightness() < 128`，第三个要分档的
-    /// 地方（安装页那行红字）就漏了 —— 阈值这种东西一散开就会这样。
+    /// 红字）、底栏那颗方块的三态都拿它分档。阈值一散开写成好几份
+    /// （`lightness() < 128` 那种），第三个要分档的地方必然漏掉。
     /// 取的是**窗口底色的明度**，不是某个"主题叫什么"的标志位：将来是哪套主题谁也
     /// 不知道，明度是量得出来的、也是真决定了"看不看得见"的那个量。
     static bool paletteIsDark(const QPalette &palette);
-    /// 「删除」那一项的字色。用户点名要的（要求里就写着"红色字"）。
+    /// 「删除」那一项的字色（红色）。
     ///
     /// NOTE: 红分两档（浅色主题用深红、深色主题用浅红）：深红落在深色底上只剩一团黑，
     /// 而这颗红字正是"这一项会把东西删掉"这件事的唯一提示，看不见就等于没有。
     /// 判据走 paletteIsDark() —— 和 QSS 那几处"从调色板推颜色"同一个路数。
     static QColor folderDangerColor(const QPalette &palette);
 
-    /// 一行的高度（像素）。两行字 + 上下各一圈边距，比原来那条单行列表高不少 ——
-    /// 要求「分栏做高一点不要像现在那么小」。
+    /// 一行的高度（像素）。两行字 + 上下各一圈边距。
     static int folderRowHeight() { return 56; }
 
     /// 齿轮弹出来那个框。名字挂在这里是为了让验证工程能按 objectName 把它找回来
     /// （它是个 Qt::Popup 窗口，父子关系照旧，所以 findChild 找得到）。
     static QString folderMenuName() { return QStringLiteral("folderMenu"); }
-    // NOTE: **不用 QMenu::exec()**。仓库里右键菜单本来是零先例的，原因写在实例页那三个
+    // NOTE: **不用 QMenu::exec()**。仓库里没有右键菜单的先例，原因写在实例页那三个
     // 按钮那段注释里：验证工程跑在 offscreen 上，exec() 会阻塞在事件循环里，
     // 几乎驱动不了。所以这里和底栏那两块面板一样 —— Qt::Popup + show()，
     // 点外面/Esc 自己关，但**不阻塞**，验证工程能把它捞回来逐项点。
@@ -2569,7 +2510,7 @@ public:
     /// NOTE: 这是 `folderRowSubtitle%1` 那个标签自己的 `elideMode` 属性（见
     /// MainWindowUI.cpp 里的 ElidedLabel），不是 QListWidget 上那个
     /// `setTextElideMode()` —— 那一张列表的条目**一个字都没有**（内容全是
-    /// setItemWidget() 塞进去的真控件），所以 起那处设置已经删掉了。
+    /// setItemWidget() 塞进去的真控件），所以那张列表上不设它。
     /// 放在 MainWindowUI 里是为了让验证工程量得到"用户看到的那个标签"。
     static Qt::TextElideMode folderRowPathElideMode() { return Qt::ElideMiddle; }
     static QString folderRowGearName(int index) {
@@ -2596,10 +2537,8 @@ public:
     void setFolderRows(const QList<FolderRow> &rows);
 
     // ------------------------------------------------------------------
-    // 实例页右栏那张树里的**组行**：右边一个箭头 + 一颗齿轮，齿轮弹一个框。
-    //
-    // 要求：「每一个组和版本下载几乎一致，点一下打开/关闭，右侧有个箭头和齿轮，
-    // 齿轮可以批量管理实例或者编辑该分组的设置」。
+    // 实例页右栏那张树里的**组行**：右边一个箭头 + 一颗齿轮，齿轮弹一个框
+    // （批量管理实例 / 编辑该分组的设置）。
     //
     // 做法照左栏那个文件夹齿轮（Qt::Popup + findChild 认"现在开着的是哪一块"、
     // 灰着的项必须配一句为什么）。三处不同：
@@ -2620,7 +2559,7 @@ public:
         QString groupId;
         /// 组名（不带后面那个计数）。
         QString name;
-        /// 这一组里几个实例。**0 个的组在树里根本不画**（用户要的"空白的分组隐藏"），
+        /// 这一组里几个实例。**0 个的组在树里根本不画**（"空白的分组隐藏"），
         /// 所以它只可能是"菜单开着的时候实例被别处搬走了"这种过期快照 —— 那几个动作
         /// 落到 MainWindow 那头会按 id 重新查一遍，查不到就当没发生。
         int memberCount = 0;
@@ -2720,12 +2659,11 @@ public:
     // 栏是**真的控件**（不是裸布局）：这样才能按 objectName 找回来量几何、
     // 也才能在验证工程里断言左右两栏的份数（每一页各自的那一对）。
     //
-    // NOTE: 起「设置」页也用 buildTwoColumnPage() 了 —— 左栏是那五条分类、
-    // 右栏是一个堆叠页（原来它是一张通到底的两列 grid，见 setupSettingsPage 那段）。
-    // 所以栏内那张 grid 现在**每一栏各有一张**（objectName 见 settingsFormName(key)），
-    // 它管的是**栏内**那一层；而左右两栏之间那一层是这一对份数。
-    // 栏内那些行 又改成了上下结构（每格跨两列，见 cpp 的 addSettingRow()），
-    // 所以这张 grid 的列份数如今只摆形状、不再分隔任何一行。
+    // NOTE: 「设置」页也用 buildTwoColumnPage() —— 左栏是那五条分类、
+    // 右栏是一个堆叠页。栏内那张 grid **每一栏各有一张**（objectName 见
+    // settingsFormName(key)），它管的是**栏内**那一层；而左右两栏之间那一层是这一对份数。
+    // 栏内那些行是上下结构（每格跨两列，见 cpp 的 addSettingRow()），
+    // 所以这张 grid 的列份数只摆形状、不分隔任何一行。
     // / @param tab "home" / "instance" / "download" / "settings"。
     static QString leftColumnName(const QString &tab) {
         return tab + QStringLiteral("LeftColumn");
@@ -2735,21 +2673,20 @@ public:
         return tab + QStringLiteral("RightColumn");
     }
 
-    /// 侧栏那一列的宽度（**唯一出处**， 那套统一页面骨架里那一档）。
+    /// 侧栏那一列的宽度（**唯一出处**，统一页面骨架里那一档）。
     ///
-    /// 用户 那份改版文档：`侧栏 208~220 px`。导航那一列是**固定宽度**、不再按
+    /// 侧栏落在 208~220 px 这一档。导航那一列是**固定宽度**、不按
     /// 份数分（见 `buildTwoColumnPage()` 里那段）；只有主页不套这一档 —— 它左边是"选版本 +
     /// 启动"，那是正文。验证工程拿它当"侧栏就是该这么宽"的期望值，界面和测试各写一份的话
     /// 改宽度时一定会有一边忘了改。
     static int sidebarWidth() { return 216; }
 
-    /// 主页**右栏**（「我的角色」那一栏）的宽度（**唯一出处**， 起）。
+    /// 主页**右栏**（「我的角色」那一栏）的宽度（**唯一出处**）。
     ///
-    /// 主页右栏**不再按份数分宽**：装上「我的角色」那张卡片之后，这一栏的宽度由卡片
+    /// 主页右栏**不按份数分宽**：这一栏的宽度由「我的角色」那张卡片
     /// 自己钉死（卡片里那 160 px 的人物画布 + 左右各 8 px 内边距），左栏吃剩下的全部。
-    /// 从前那个"精确的 7:3"（见 `homeLeftColumnStretch()`）是"这一栏只由份数决定宽度"
-    /// 那个前提下的说法 —— 前提没了，那份比例也就不再是这一栏的真话（验证工程按它量
-    /// 会量出 664:176 这种数）。
+    /// `homeLeftColumnStretch()` 那份比例管不了这一栏，验证工程按它量
+    /// 会量出 664:176 这种数。
     /// NOTE: 右栏列本身在 `buildTwoColumnPage()` 里就 `setFixedWidth()` 到这一个数，
     /// 所以它是**跟窗口宽度无关**的常量 —— 这正是验证工程能拿它当期望值的原因。
     static constexpr int homeRightColumnWidth() { return 176; }
@@ -2768,7 +2705,7 @@ public:
         return tab + QStringLiteral("PageSubtitle");
     }
     /// 栏**内**那些表格的份数：左 3 右 7。设置页每一栏那张 grid（见「设置页」那一段）
-    /// 和实例设置里那几张表格用它 —— ★ 它**不再是页面两栏的比例**（ 起
+    /// 和实例设置里那几张表格用它 —— ★ 它**不是页面两栏的比例**（
     /// 侧栏是固定宽度，见 sidebarWidth()）。
     static int leftColumnStretch() { return 3; }
     /// 栏内那张表格右列占的份数（默认那一套）。
@@ -2776,10 +2713,10 @@ public:
     /// 栏内那张表格里右列是不是真的更宽（验证工程拿它当"默认的 3:7 生效了"的判据）。
     static bool rightColumnIsWider() { return rightColumnStretch() > leftColumnStretch(); }
     /// 主页那一套份数：7:3。
-    /// 这一对**不再是主页两栏的宽度规则** —— 主页右栏装上「我的角色」
-    /// 之后宽度被 `setFixedWidth()` 钉死（见 `homeRightColumnWidth()`），左栏吃剩下的
-    /// 全部。这两个数现在只是 `buildTwoColumnPage()` 里那一次 `addWidget(..., stretch)`
-    /// 的入参（右栏定宽之后 stretch 对它无效，左栏是唯一能长的那一栏，所以 7 也一样
+    /// 这一对**不是主页两栏的宽度规则** —— 主页右栏的宽度被 `setFixedWidth()` 钉死
+    /// （见 `homeRightColumnWidth()`），左栏吃剩下的全部。这两个数只是
+    /// `buildTwoColumnPage()` 里那一次 `addWidget(..., stretch)` 的入参
+    /// （右栏定宽之后 stretch 对它无效，左栏是唯一能长的那一栏，所以 7 也一样
     /// 不影响结果）。**量宽度请看 `homeRightColumnWidth()`**，别拿 7:3 去算。
     static int homeLeftColumnStretch() { return 7; }
     static int homeRightColumnStretch() { return 3; }
@@ -2804,17 +2741,14 @@ public:
     }
 
     // ---------- 设置页：左栏那几条分类 ----------
-    // 起设置页**分了栏**（要求：「将设置分栏，分为启动/提示/个性化/… 然后
-    // 分门别类放进去」）。形状和下载页一模一样：左栏一列分类、右栏一份堆叠页，
+    // 设置页**分了栏**。形状和下载页一模一样：左栏一列分类、右栏一份堆叠页，
     // **两边的下标一一对应**（搭的时候按同一张表、同一个顺序加页，点第 N 条就
     // setCurrentIndex(N)）—— 验证工程会数一遍两边的条数。
     //
-    // NOTE: 从前这里只有 settingsScrollName()/settingsFormName() 两个名字 —— 那时候
-    // 整页就是**一张通到底的两列表格**（列 0 选项名称、列 1 控件、3:7），
-    // 没有栏的概念。现在那张表格**每一栏各有一张**（objectName 见
-    // settingsFormName(key)），它管的是**栏内**那一层；栏与栏之间那一层换成
-    // 真控件（settingsCategoryList + settingsCategoryStack），比例走
-    // settingsLeftColumnStretch()/settingsRightColumnStretch()。
+    // NOTE: 那张表格**每一栏各有一张**（objectName 见 settingsFormName(key)），
+    // 它管的是**栏内**那一层；栏与栏之间那一层是真控件
+    // （settingsCategoryList + settingsCategoryStack），比例走
+    // leftColumnStretch()/rightColumnStretch()。
     // / 分栏的键。**顺序就是界面上从上到下的顺序**，也是堆叠页的下标顺序。
     // / 进条目的 `Qt::UserRole`（条目文字是显示内容、会随文案改，不能拿它当身份）。
     static QStringList settingsCategoryKeys() {
@@ -2828,8 +2762,8 @@ public:
     }
     static QString settingsCategoryListName() { return QStringLiteral("settingsCategoryList"); }
     static QString settingsCategoryStackName() { return QStringLiteral("settingsCategoryStack"); }
-    /// 设置页页头那个标题（ 那次改版给每一页都加了页头，见 cpp 里
-    /// `buildTwoColumnPage()` 那段）。这一页**没有说明那一行**，只有标题。
+    /// 设置页页头那个标题（页头由 cpp 里 `buildTwoColumnPage()` 建）。
+    /// 这一页**没有说明那一行**，只有标题。
     static QString settingsPageTitle() { return QStringLiteral("设置"); }
     /// 设置页那张表单**最宽**多宽（逻辑像素）。**唯一出处**（`addSettingsPanel()` 用它
     /// 给 `panel.form` 限宽）。
@@ -2855,10 +2789,10 @@ public:
     /// 这一行是"现在是什么"（「自动：上次用的是 …」/「手动指定：…」）。
     static QString javaPathLabelName() { return QStringLiteral("javaPathLabel"); }
     static QString javaWarnMismatchCheckName() { return QStringLiteral("javaWarnMismatchCheck"); }
-    /// 这一行的行标题（左列那一格）。★ ：它原来叫「版本提醒」—— 说不清是提醒
-    /// 什么，而这一行自己说的是"实例指定的 Java 对不上"。分栏之后它和「重复启动」
-    /// 「进度提醒」并排（都在「提示」栏里），标题跟着改成同一族的说法（说的是"什么时候
-    /// 会被问一句"）。**勾选框上那句话一个字都没动**。
+    /// 这一行的行标题（左列那一格）。★ 不能叫「版本提醒」—— 说不清是提醒
+    /// 什么，而这一行说的是"实例指定的 Java 对不上"。它和「重复启动」
+    /// 「进度提醒」并排（都在「提示」栏里），用同一族的说法（说的是"什么时候
+    /// 会被问一句"）。**勾选框上那句话一个字都不能动**。
     static QString javaWarnMismatchRowText() { return QStringLiteral("Java 版本"); }
     static QString memoryHintName() { return QStringLiteral("memoryHint"); }
     /// 「最大内存」那一行下面那句说明。文字随系统内存变（可用内存不是一个定值），
@@ -2868,9 +2802,8 @@ public:
     static QString memoryMaxSliderName() { return QStringLiteral("memoryMaxSlider"); }
     /// 「内存分配」那一行最右边那颗下拉框（自动分配 / 手动分配）。
     static QString memoryModeComboName() { return QStringLiteral("memoryModeCombo"); }
-    // NOTE: 「最小内存」（-Xms）那个数字框**没有了**—— 要求是「不要 xms 了
-    // （或者隐藏起来），按照默认值」。值仍然存在设置里、命令行照发 -Xms（见
-    // LauncherManager 里那两行），少的只是界面上那一格。
+    // NOTE: 「最小内存」（-Xms）**没有数字框**：值仍然存在设置里、命令行照发 -Xms
+    // （见 LauncherManager 里那两行），界面上不摆这一格。
     static QString launcherBehaviourComboName() { return QStringLiteral("launcherBehaviourCombo"); }
     static QString extraJvmArgsEditName() { return QStringLiteral("extraJvmArgsEdit"); }
     static QString applyExtraJvmArgsButtonName() {
@@ -2878,7 +2811,7 @@ public:
     }
     static QString downloadSourceComboName() { return QStringLiteral("downloadSourceCombo"); }
 
-    // ---------- 「同时最多下几个」（ 加的，§9.2 并发数预设，在「下载源」那一组里） ----------
+    // ---------- 「同时最多下几个」（并发数预设，在「下载源」那一组里） ----------
     // 和 gameWindowModeCombo 同一个形状：**只有框没有项** —— 四档那个表在 src/ 的
     // `DownloadConcurrency.hpp` 里（唯一出处），而 ui/ 不许 include src/（分层铁律）。
     // 项由 MainWindow 灌（每项 itemData 存那个 int），出厂选中的那一档也由它选。
@@ -2888,7 +2821,7 @@ public:
     /// 这一行的行标题（左列那一格）。
     static QString downloadConcurrencyRowText() { return QStringLiteral("并发数"); }
 
-    // ---------- 「下载速度上限」（ 加的，§9.2 限速，在「下载源」那一组里） ----------
+    // ---------- 「下载速度上限」（限速，在「下载源」那一组里） ----------
     // 和上面那颗同一个形状：**只有框没有项** —— 档位表（字节/秒）在 src/ 的
     // `DownloadSpeedLimit.hpp` 里（唯一出处；ui/ 不许 include src/）。项由 MainWindow 灌
     // （每项 itemData 是 qint64 的字节/秒，0 = 不限）。
@@ -2898,7 +2831,7 @@ public:
     /// 这一行的行标题（左列那一格）。
     static QString downloadSpeedLimitRowText() { return QStringLiteral("速度上限"); }
 
-    // ---------- 「代理」（ 加的，§9.2，在「下载源」那一组里） ----------
+    // ---------- 「代理」（在「下载源」那一组里） ----------
     // 三档（跟随系统 / 直连 / 手动）的语义和 `host:port` 怎么解析在 src/ 的
     // `DownloadProxy.hpp`（唯一出处；ui/ 不许 include src/）。下拉框**只有框没有项**，
     // 项由 MainWindow 灌；手动那一格只在「手动」档露出来。
@@ -2907,20 +2840,20 @@ public:
     /// 这一行的行标题（左列那一格）。
     static QString downloadProxyRowText() { return QStringLiteral("代理"); }
 
-    // ---------- CurseForge API key（ 加的，在「下载源」那一组里） ----------
+    // ---------- CurseForge API key（在「下载源」那一组里） ----------
     // CurseForge 那一条路（下载页把来源选成 CurseForge、以及 CurseForge 格式的整合包导入）
     // 都要靠接口：前者搜项目、后者把那份只有编号的清单换成下载地址 —— 而官方接口要 key。
     // 默认走一台不要 key 的社区镜像，这一格是给用户"自己填一份走官方"的退路 —— 所以它是
-    // **可留空的一格**，不是必填项（空 = 镜像）。**现在用的是哪一台、为什么换过**，
-    // 见 ModpackImport::curseForgeApiBase（ 换过一次）。
+    // **可留空的一格**，不是必填项（空 = 镜像）。用的是哪一台，
+    // 见 ModpackImport::curseForgeApiBase。
     static QString curseForgeApiKeyEditName() { return QStringLiteral("curseForgeApiKeyEdit"); }
     /// 这一行的行标题（左列那一格）。
     static QString curseForgeApiKeyRowText() { return QStringLiteral("CurseForge API key"); }
     /// 输入框里的占位文字（空着的时候显示那一句）。
     static QString curseForgeApiKeyPlaceholder() { return QStringLiteral("留空则用公共接口"); }
 
-    // ---------- 「下载新模组时直接放进当前实例」（ 加的，在「下载」栏里） ----------
-    // 语义的**唯一出处**是 LauncherSettings 里那一节（那是要求）。这里只有形状：
+    // ---------- 「下载新模组时直接放进当前实例」（在「下载」栏里） ----------
+    // 语义的**唯一出处**是 LauncherSettings 里那一节。这里只有形状：
     // 一个勾选框 + 一句话说清"勾上是什么、不勾是什么"。
     //
     // NOTE: 那一句话必须把**两种进入方式**都写出来 —— 这一项的名字（"放进当前实例"）只说得
@@ -2937,11 +2870,11 @@ public:
     static QString downloadAutoIntoInstanceCheckText() {
         return QStringLiteral("从实例设置里点「下载新模组」时直接放进该实例");
     }
-    // ---------- 「下载缺前置时提醒」（ 加的，也在「下载」栏里） ----------
-    // 语义的**唯一出处**是 LauncherSettings 里那一节（要求）。这里只有形状。
+    // ---------- 「下载缺前置时提醒」（也在「下载」栏里） ----------
+    // 语义的**唯一出处**是 LauncherSettings 里那一节。这里只有形状。
     //
-    // NOTE: 那一句话要说清**关掉之后是什么样** —— 用户 把它定死成「什么都不装，
-    // 只下用户点的那一版」。只说"关掉提醒"的话，用户会以为前置照装，只是不弹窗。
+    // NOTE: 那一句话要说清**关掉之后是什么样** —— 什么都不装，
+    // 只下用户点的那一版。只说"关掉提醒"的话，用户会以为前置照装，只是不弹窗。
     static QString warnMissingDependenciesCheckName() {
         return QStringLiteral("warnMissingDependenciesCheck");
     }
@@ -2955,7 +2888,7 @@ public:
     }
     static QString showGameLogCheckName() { return QStringLiteral("showGameLogCheck"); }
     static QString processPriorityComboName() { return QStringLiteral("processPriorityCombo"); }
-    /// 「窗口模式」那个下拉框（小窗 / 最大化 / 全屏）。 加的。
+    /// 「窗口模式」那个下拉框（小窗 / 最大化 / 全屏）。
     ///
     /// NOTE: 里面那几项**不由本类填** —— 档位那一侧的枚举（GameWindowMode）在 src/ 里，
     /// 而 ui/ 不许 include src/（分层铁律）。所以这里是**只有框没有项**，项由
@@ -2964,16 +2897,16 @@ public:
     static QString gameWindowModeComboName() { return QStringLiteral("gameWindowModeCombo"); }
     static QString gameWindowWidthSpinName() { return QStringLiteral("gameWindowWidthSpin"); }
     static QString gameWindowHeightSpinName() { return QStringLiteral("gameWindowHeightSpin"); }
-    /// 「外观」那一格那个文本框：条上那行字（ 加的）。
+    /// 「外观」那一格那个文本框：条上那行字。
     static QString titleTextEditName() { return QStringLiteral("titleTextEdit"); }
     /// 「宽 × 高」中间那个乘号。它也要有名字：验证工程量这三格的几何时得能取到它。
     static QString gameWindowSizeTimesLabelName() { return QStringLiteral("gameWindowSizeTimes"); }
     /// 「启动选项」那一组里那几个勾选框/数字框的文案。
-    /// 「显示游戏日志」这个串是**要求**（ 提的需求），别改写成别的说法。
+    /// 「显示游戏日志」这个串不能改写成别的说法。
     static QString showGameLogCheckText() { return QStringLiteral("显示游戏日志"); }
     static QString showGameLogRowText() { return QStringLiteral("游戏日志"); }
 
-    // ---------- 「启动提醒」那一组（ 加的） ----------
+    // ---------- 「启动提醒」那一组 ----------
     // 两个勾选框各管一条启动前的确认，默认都是勾上的（理由见 LauncherSettings 那一节）。
     // 行标题与勾选框文字**只此一处** —— 界面、验证工程、提示框上那句小字都引这里。
 
@@ -3014,9 +2947,8 @@ public:
     /// 这台机器的物理内存总量（MB）→「最大内存」那一格实际允许拖到的上限。
     ///
     /// NOTE: **两处都要按它收口** —— 设置页那一行（MainWindow::applyMemoryLimits）和实例
-    /// 设置里那一行（InstanceSettingsDialog）。从前只有设置页收口，实例页的上限一直是
-    /// 写死的 65536，用户能给一个实例填出比整机内存还大的数，而 JVM 那边只会
-    /// "内存不足"地起不来（见 审计）。
+    /// 设置里那一行（InstanceSettingsDialog）。只收一处时，另一处上限写死成 65536，
+    /// 用户能给一个实例填出比整机内存还大的数，而 JVM 那边只会"内存不足"地起不来。
     ///
     /// NOTE: 条上的档位和数字框的步长都是 memoryStepMb() ⇒ 上限也**往下取到它的整数倍**：
     /// 一台物理内存 16257 MB 的机器上，上限写 16257、条拖到头只能停在 16128（档位表最后
@@ -3059,8 +2991,8 @@ public:
     // 再长的名字不会把条撑坏（`TitleBar::paintEvent` 会拿省略号截），但那属于"写了也看不见"。
     static int titleTextMaxLength() { return 16; }
 
-    // ---------- 「背景图」那一节（ 加的） ----------
-    // 要求：「能给主页左侧自定义图像吗？其他页面的背景能换图吗」。两块底各一行：
+    // ---------- 「背景图」那一节 ----------
+    // 两块底各一行：
     // 主页左栏（`Theme::Part::HomeLeft`）+ 四个页面的内容区（`Theme::Part::PageBackground`）。
     // **没设图时一个像素都不改**，所以这一节可以一直不用（见 ui/ThemeBackground.hpp）。
     //
@@ -3112,11 +3044,10 @@ public:
     /// 一行里两组之间那道更宽的缝。
     static int themeImageGroupSpacing() { return 16; }
 
-    // ---------- 「主题」那一节（ 加的，coding plan §8.3） ----------
+    // ---------- 「主题」那一节 ----------
     //
-    // 用户 立的底：「各个地方的背景等允许切换……先不急着做入口，把 ui 框架改成
-    // 能高度个性化定义的状态」。框架（`ui/Theme` 的 `Spec` / `Role` / `Part`）铺了半个多月，
-    // 这一节就是那个"做入口"：**配色（跟随系统 / 浅色 / 深色）+ 主题色 + 文字不透明度 +
+    // 这一节是主题框架（`ui/Theme` 的 `Spec` / `Role` / `Part`）的入口：
+    // **配色（跟随系统 / 浅色 / 深色）+ 主题色 + 文字不透明度 +
     // 四个语义色**，外加恢复默认与导入/导出。
     //
     // 这一节只搭控件：**改完立刻生效也立刻落盘**（那三步在 `MainWindow::applyThemeSpec()`）。
@@ -3143,7 +3074,7 @@ public:
     static QString themeResetAllButtonName() { return QStringLiteral("themeResetAllButton"); }
     static QString themeExportButtonName() { return QStringLiteral("themeExportButton"); }
     static QString themeImportButtonName() { return QStringLiteral("themeImportButton"); }
-    /// 「动效」那个勾（§8.3 后半句：总开关继续保留 + 尊重系统的"减少动态效果"）。
+    /// 「动效」那个勾（总开关继续保留 + 尊重系统的"减少动态效果"）。
     static QString animationsCheckName() { return QStringLiteral("animationsCheck"); }
 
     /// 语义色一共几个（危险 / 警告 / 正常 / 报错）。三个地方共用这一个数：这一节搭控件、
@@ -3193,19 +3124,14 @@ public:
     static QString noInstalledVersionPlaceholder() { return QStringLiteral("暂无已安装版本"); }
     static QString chooseVersionPlaceholder() { return QStringLiteral("请选择一个版本"); }
 
-    // ---------- 底栏左下角那颗状态方块（ 加的） ----------
+    // ---------- 底栏左下角那颗状态方块 ----------
     // / 那一格最左边那颗小方块的状态。
     // /
-    // / 要求：「左下角没有实例的时候显示（红色的）■（默认的黑色）当前没有
-    // / 运行中的实例，启动的时候那个符号（也可以画图代替）变成黄色，文本为版本名（没有就
-    // / 版本号-加载器名称，不受名字显示设置影响）启动中... 启动以后符号变成绿色，和原来一样」。
-    // /
-    // / 「（默认的黑色）」说的是**文字**的颜色 —— 那两行字一直用调色板的默认正文色，
-    // / 这一批一个字都没改（别顺手给哪一档状态把字也染上色）。
-    // /
-    // / ★ 用户改的**只有红那一档**：「黄和绿不变，红色改有实例报错，没有实例用
-    // / 灰色」。于是"一个实例都没在跑"从红退成灰，红腾出来专说"出过事"：
+    // / 那两行字一直用调色板的默认正文色（**别给哪一档状态把字也染上色**），
+    // / 状态只由那颗方块的颜色表示：
     // / - 灰 = 没实例、也没欠着什么事（`Idle`）；
+    // / - 黄 = 正在启动（进程起来了、游戏还没出话）；
+    // / - 绿 = 有实例在跑，而且没有没处理的异常退出；
     // / - 红 = **账上还有没处理的异常退出**（`Error`，见 `runStateErrorText()`）——
     // / 判据那一头是 `CrashReportController::pendingRecordIds()`（任务中心里那一项还在，
     // / 用户把它清掉之后红自己就没了），**不是**"此刻有没有进程在跑"。
@@ -3247,15 +3173,13 @@ public:
     static QString runStateRunningText() { return QStringLiteral("实例运行中"); }
     /// 一个实例都没在跑时那一行写什么。
     ///
-    /// NOTE: 用户要的：「没有实例运行的时候就写实例未运行」（以前是整格藏起来、
-    /// 底下空一块）。改成一句话还有个连带的好处 —— 那一格的文字**任何时候都非空**，
-    /// 布局上也就没有"从无到有"这一步了（那一步正是"中间那根条突然缩短"的来源，
-    /// 见 MainWindowUI.cpp 里 runStateButton 那段）。
+    /// NOTE: 没实例在跑时这一格**必须写一句话、不能整格藏起来**（藏起来底下空一块）。
+    /// 文字**任何时候都非空**，布局上就没有"从无到有"这一步（那一步正是
+    /// "中间那根条突然缩短"的来源，见 MainWindowUI.cpp 里 runStateButton 那段）。
     ///
-    /// NOTE: 用户把这一句改成「当前没有运行中的实例」（原来写的是「实例未运行」）。
-    /// 左边那颗方块那一批因此有了红的那一档 —— 光看字和别的状态分不出"完全没在跑"，
-    /// 一眼看颜色能分出来。** 起这一档的方块是灰的**（红挪去说"出过事"了），
-    /// 但那句话一个字没动：它说的仍然是"没实例在跑"这件事本身。
+    /// NOTE: 这一句是「当前没有运行中的实例」。光看字和别的状态分不出"完全没在跑"，
+    /// 一眼看颜色能分出来。**这一档的方块是灰的**（红挪去说"出过事"了），
+    /// 但那句话一个字都不能动：它说的仍然是"没实例在跑"这件事本身。
     static QString runStateNotRunningText() { return QStringLiteral("当前没有运行中的实例"); }
     /// 有实例异常退出、而且账上那一项还没处理掉时那一行写什么。
     static QString runStateErrorText() { return QStringLiteral("有实例异常退出"); }
@@ -3362,7 +3286,7 @@ public:
     /// 上，或者下拉框里选着另一个版本）都得靠名字说清楚跑的是谁 —— 尤其是"选中的和
     /// 在跑的不是同一个"这种最容易看错的场面。
     ///
-    /// NOTE: `launching` 这一档是 加的。**启动中必须一律不显示第二行**：
+    /// NOTE: `launching` 这一档**启动中必须一律不显示第二行**：
     /// 第一行那时候已经是「<实例名>启动中...」（见 runStateLaunchingText()），
     /// 实例名就在那句话里；第二行再报一遍同一个名字看着就像界面出了故障。
     /// 而且这一档跟"在哪个选项卡""下拉框选的谁"都没关系 —— 那两句问的是
@@ -3380,7 +3304,7 @@ public:
 
     /// 底栏中间那格"正在启动"那句文案。**唯一一处**拼它。
     ///
-    /// 两个调用点说的是同一件事：startGame() 之前那次 enterSyncWait()，和进程起来之后
+    /// 两个调用点说的是同一件事：startGame() 之前那一次 enterSyncWait()，和进程起来之后
     /// updateBottomBar()。两处各写一遍字面量，改了其中一处就会出现"文字在启动的一瞬间
     /// 变一下"。
     static QString launchingStatusText(const QString &displayName) {
@@ -3404,7 +3328,7 @@ public:
     // 是从哪一份 .minecraft 里扫出来的就说不清了。
     QLabel *getInstanceFolderLabel() const { return instanceFolderLabel; }
 
-    /// 实例页那个搜索框（coding plan §7.2）。里面那一行就是**筛选条件之一**：谁读它、
+    /// 实例页那个搜索框。里面那一行就是**筛选条件之一**：谁读它、
     /// 什么时候重灌树，见 `MainWindow::setupConnections` 里那条 `textChanged`。
     QLineEdit *getInstanceSearchEdit() const { return instanceSearchEdit; }
     /// 那一排筛选 chip 里第 @p button 颗。越界回 nullptr（不崩）。
@@ -3418,7 +3342,7 @@ public:
     /// "没有符合筛选条件的实例"那一行字（平时收着，见 `instanceNoMatchText()` 那段）。
     QLabel *getInstanceNoMatchLabel() const { return instanceNoMatchLabel; }
 
-    // ---------- 实例页的模式切换 + 服务端那一页（coding plan §6.1 / M4）----------
+    // ---------- 实例页的模式切换 + 服务端那一页 ----------
     // / 某一颗模式按钮（越界/认不出回 nullptr）。点它换页这件事由 `MainWindow` 接 ——
     // / 这一层只摆控件、只把自己的 `isChecked()` 如实报出去（和筛选 chip 同一个路数）。
     QPushButton *getInstanceModeButton(InstanceMode mode) const {
@@ -3447,8 +3371,8 @@ public:
     // 两个下拉框，数据源互不相干，**也因此不在一页上**：
     // installedVersionCombo —— 磁盘上已经装好的（.minecraft/versions/<id>/<id>.jar），
     // 在「主页」，启动用它
-    // —— 原来下载页那个 availableVersionCombo 没了（ 换成版本树 + 安装页，
-    // 见下面那一段）：在线版本现在是**树**里的条目，不再是下拉框里的一行。
+    // —— 下载页的在线版本是**树**里的条目（版本树 + 安装页，见下面那一段），
+    // 不是下拉框里的一行；也没有 availableVersionCombo 那个下拉框。
     QComboBox *getInstalledVersionCombo() const { return installedVersionCombo; }
     // 剩下的两张列表和它们各自的下拉框是同一份数据的两种看法（条目文本也是同一套
     // 显示名），选中项双向同步：点列表 = 在下拉框里选中它，反之亦然。
@@ -3460,8 +3384,8 @@ public:
 
     /// 下载页**左栏顶上**那颗「返回实例设置」（见上面 downloadBackButtonName 那段）。
     ///
-    /// NOTE: 起**整个下载页只有这一颗**（原来是五栏各一颗、摆在右栏那行筛子
-    /// 里）。所以它不再按分类键索引 —— 用户翻到哪一栏，它都在同一个地方。
+    /// NOTE: **整个下载页只有这一颗**（不是五栏各一颗、摆在右栏那行筛子里）。
+    /// 所以它不按分类键索引 —— 用户翻到哪一栏，它都在同一个地方。
     QPushButton *getDownloadBackButton() const { return downloadBackButton; }
 
     /// 下载页页头右上角那颗**刷新**（只作用于当前停着的那一类）。
@@ -3471,14 +3395,13 @@ public:
     ///
     /// 它和实例页那颗（`getNewServerButton()`）**是同一个动作**：都接
     /// `MainWindow::openNewServerPage()`。这一颗的存在只是把那条路也摆到下载页上
-    /// （coding plan §1.4：「服务端功能齐全，但下载页那一栏始终没接」）。
+    /// （下载页那一栏也要能新建服务端）。
     QPushButton *getDownloadNewServerButton() const { return downloadNewServerButton; }
 
     /// 下载页页头**那一整块**（标题 + 说明 + 右上角动作）。
     ///
-    /// 要求「那个页面顶上的大标题和刷新键不要（点进去就隐藏，外面
-    /// 还保留）」—— 这里的"那页"是「下载 → 游戏」里面那一层**安装页**（挑加载器那页）。
-    /// 它一打开，这一整块就整块收起来（不是只收标题和按钮、留一行空说明）；退回版本树
+    /// 「下载 → 游戏」里面那一层**安装页**（挑加载器那页）一打开，这一整块就整块
+    /// 收起来（不是只收标题和按钮、留一行空说明）；退回版本树
     /// 或者翻到别的分类，它又露出来。判据只有一处：`syncDownloadHeaderVisibility()`
     /// （cpp 匿名命名空间），挂在 `downloadStack` / `gameStack` 两发 `currentChanged` 上。
     QWidget *getDownloadHeader() const { return downloadHeader; }
@@ -3510,7 +3433,7 @@ public:
     /// 点第 N 个分类就 setCurrentIndex(N)，这条不变量由界面自己保证（搭的时候就按
     /// 同一个表、同一个顺序加页），验证工程会数一遍两边的条数。
     QStackedWidget *getDownloadStack() const { return downloadStack; }
-    /// 设置页左栏那份「分类」与右栏那份堆叠页（ 加）。形状与上面那两份一一对应，
+    /// 设置页左栏那份「分类」与右栏那份堆叠页。形状与上面那两份一一对应，
     /// 认一个条目的身份同样看 `Qt::UserRole`（= settingsCategoryKeys() 里那个键），
     /// 下标同样和 settingsCategoryKeys() 一一对应。**两个都可能是 nullptr** ——
     /// setupSettingsPage() 里才建。
@@ -3540,7 +3463,7 @@ public:
     QLabel *getInstallNameError() const { return installNameError; }
     /// 安装页顶上那句"将基于原版 X 安装"。
     QLabel *getInstallTargetLabel() const { return installTargetLabel; }
-    /// 安装页那个「安装」按钮。原来那个「下载版本」按钮的位子 —— 它现在只在这一页上，
+    /// 安装页那个「安装」按钮。它只在这一页上，
     /// 而"装什么"由这一页上的名称框 + 加载器那几条决定。
     QPushButton *getInstallButton() const { return installButton; }
     /// 「← 返回版本列表」：回树那一层（不改任何选择，回去还是原来那棵树）。
@@ -3564,7 +3487,7 @@ public:
         return downloadResourceTrees.value(categoryKey, nullptr);
     }
     /// 那一页上面那个搜索框（回车就搜，见 downloadSearchHint() 那段）。
-    /// 起它同时是筛子行里的**「名称」那一格**（行的排法见 .cpp 里那一段）。
+    /// 它同时是筛子行里的**「名称」那一格**（行的排法见 .cpp 里那一段）。
     QLineEdit *getDownloadSearchEdit(const QString &categoryKey) const {
         return downloadResourceSearches.value(categoryKey, nullptr);
     }
@@ -3572,8 +3495,8 @@ public:
     /// 灌（来源 = allSources()、类型 = categoryOptions()、加载器 = loaderOptions()，
     /// 见头文件里 downloadFilterVersionComboName() 那段）。
     ///
-    /// NOTE: 「模组加载器」那一个**只有模组页有**（别的页回 nullptr）：要求
-    /// 「模组加载器只在模组那栏存在」。拿它之前先判空 —— 资源包/光影/数据包/整合包
+    /// NOTE: 「模组加载器」那一个**只有模组页有**（别的页回 nullptr）——
+    /// 模组加载器只在模组那栏存在。拿它之前先判空 —— 资源包/光影/数据包/整合包
     /// 那四页**压根没有这个控件**，不是"有但是藏着"。
     QComboBox *getDownloadFilterVersionCombo(const QString &categoryKey) const {
         return downloadFilterVersionCombos.value(categoryKey, nullptr);
@@ -3604,8 +3527,8 @@ public:
     QPushButton *getDownloadFilterResetButton(const QString &categoryKey) const {
         return downloadFilterResetButtons.value(categoryKey, nullptr);
     }
-    /// 整合包那一页那颗「导入整合包…」。**别的页回 nullptr**（用户要的是"整合包那一页带一个
-    /// 导入功能"，别的页没有这一颗）。它走的路和实例页那颗是**同一条**。
+    /// 整合包那一页那颗「导入整合包…」。**别的页回 nullptr**（整合包那一页带一个
+    /// 导入功能，别的页没有这一颗）。它走的路和实例页那颗是**同一条**。
     QPushButton *getDownloadFilterImportModpackButton() const {
         return downloadImportModpackButton;
     }
@@ -3687,7 +3610,7 @@ public:
     QCheckBox *getVersionNameLoaderCheck() const { return versionNameLoaderCheck; }
     QCheckBox *getVersionNameLoaderVersionCheck() const { return versionNameLoaderVersionCheck; }
 
-    // 主页右栏那个可拖动旋转的 3D 皮肤预览；说明标签保留作状态/无障碍数据但不再显示。
+    // 主页右栏那个可拖动旋转的 3D 皮肤预览；说明标签只留作状态/无障碍数据，不显示。
     // 这个控件是**自己画的**（QWidget 子类 + paintEvent，不是标准控件），
     // 所以它比别处多一层：界面只管把贴图喂进去，贴图从哪来是业务层的事。
     SkinViewer *getSkinViewer() const { return skinViewer; }
@@ -3695,7 +3618,7 @@ public:
     QLabel *getHomeAccountLabel() const { return homeAccountLabel; }
     QLabel *getHomeAvatarLabel() const { return homeAvatarLabel; }
     QLabel *getHomeAccountTypeLabel() const { return homeAccountTypeLabel; }
-    /// 主页右上那张账号卡片（头像 + 名字 + 「⌄」）。** 起它是账号那个入口**：
+    /// 主页右上那张账号卡片（头像 + 名字 + 「⌄」）。**它是账号那个入口**：
     /// 点一下在卡片**下面**展开「最近用过的账号」那一块面板（见 `toggleAccountsPanel()`）。
     QPushButton *getAccountSkinButton() const { return accountSkinButton; }
 
@@ -3725,20 +3648,20 @@ public:
     /// 一块面板（左那块列在跑的实例、中间那块是任务中心、右那块是工具箱菜单），内容由
     /// MainWindow 灌进来（见 setBottomBarPanelContent()）。
     QPushButton *getRunStateButton() const { return runStateButton; }
-    /// 底栏右头那一格（头像 + 用户名 + 「⌃」）。★ 起它**不摆出来了**
-    /// （`setupBottomBar()` 里 `hide()`）：账号身份与入口整个搬到主页右上那张卡片，
+    /// 底栏右头那一格（头像 + 用户名 + 「⌃」）。★ 它**不摆出来**
+    /// （`setupBottomBar()` 里 `hide()`）：账号身份与入口在主页右上那张卡片，
     /// 这里只留下这一组控件供业务层继续灌数据（`updateBottomBar()` 那两行文字）。
     /// 账号面板现在的锚点是 **`getAccountSkinButton()` 那张卡片**。
     QPushButton *getAccountButton() const { return accountButton; }
     QPushButton *getToolboxButton() const { return toolboxButton; }
-    /// 底栏中间那一格（ 起它也是一整颗按钮：点一下向上展开任务中心）。
+    /// 底栏中间那一格（整颗都是一颗按钮：点一下向上展开任务中心）。
     QPushButton *getTaskSummaryButton() const { return taskSummaryButton; }
     /// 那格右边那句小字（「另有 N 项」）。**空着的时候它自己就收起来了**（布局里宽度 0）。
     QLabel *getTaskExtraLabel() const { return taskExtraLabel; }
     QLabel *getAvatarLabel() const { return avatarLabel; }
     QLabel *getAccountLabel() const { return accountLabel; }
     QLabel *getAccountTypeLabel() const { return accountTypeLabel; }
-    // 进度只出现在底栏中间那一格，不进日志（旧版是钉在 QStatusBar 上的）
+    // 进度只出现在底栏中间那一格，不进日志
     QProgressBar *getProgressBar() const { return progressBar; }
     /// 那根条右边那一格里的百分比（「42%」）。测不出百分比时它是**藏着的**（和条一起）。
     QLabel *getTaskPercentLabel() const { return taskPercentLabel; }
@@ -3758,16 +3681,15 @@ private:
     /// （3:7，行是上下结构），见 addSettingsPanel()。
     void setupSettingsPage(QWidget *page);
     /// 设置页那五个分栏的**内容**（各自往堆叠页里加一页，顺序就是 settingsCategoryKeys()
-    /// 的顺序）。拆成五个函数只为一件事：`row` 那个行号计数本来就是"每个分栏各数各的"
-    /// （从前是十个花括号块顺序往下数），一个函数一个分栏之后那件事就不言自明了。
+    /// 的顺序）。拆成五个函数只为一件事：`row` 那个行号计数是"每个分栏各数各的"，
+    /// 一个函数一个分栏，这件事就不言自明。
     /// 每个分栏都是"自己的滚动区 + 自己的表格"，页面从 addSettingsPanel() 拿。
     void setupSettingsLaunchPanel(QStackedWidget *stack);
     void setupSettingsGamePanel(QStackedWidget *stack);
     void setupSettingsWarnPanel(QStackedWidget *stack);
     void setupSettingsLookPanel(QStackedWidget *stack);
     void setupSettingsDownloadPanel(QStackedWidget *stack);
-    /// 搭底部那条通栏状态条（左：实例运行状态，中：进度，右：头像/用户名 ——
-    /// 把左右两格对调过，见 .cpp 里的说明）。
+    /// 搭底部那条通栏状态条（左：实例运行状态，中：进度，右：头像/用户名）。
     void setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout);
     /// 行尾那颗齿轮被点了：把菜单贴在那颗按钮上弹出来（或者**收回去** —— 已经弹着、
     /// 而且就是这一颗弹的时候，再点一下是收回，和底栏那两块面板一个路数）。
@@ -3779,7 +3701,7 @@ private:
         None,       ///< 没落在任何一颗按钮上
         Instances,  ///< 左下那格：列正在跑的实例（`BottomBarPanel`）
         Accounts,   ///< 右下那格：列最近用过的账号（`BottomBarPanel`）
-        Tasks,      ///< 中间那格：任务中心（`TaskCenterPanel`，2026-10-12 加）
+        Tasks,      ///< 中间那格：任务中心（`TaskCenterPanel`）
         Tools,      ///< 右下那格：工具箱轻量菜单
     };
     struct BottomBarAnchor {
@@ -3787,8 +3709,7 @@ private:
         BottomBarAnchorKind kind = BottomBarAnchorKind::None;
         /// 面板挂在锚点**下面**（往下弹），不是上面。只有一档是 true：主页右上那张
         /// 账号卡片 —— 它本身就贴着头顶，往上弹只会跑到屏幕外面去（见 BottomBarPanel::popUp()）。
-        /// （要求：「这个的对应功能继承到右上角那个按钮去」）：底栏那颗
-        /// 账号按钮 `hide()` 之后，账号面板换到主页卡片上，方向也就跟着翻了过来。
+        /// 底栏那颗账号按钮 `hide()`：账号面板挂在主页右上那张卡片上，方向因此翻过来。
         bool dropDown = false;
         bool account() const { return kind == BottomBarAnchorKind::Accounts; }
     };
@@ -3822,7 +3743,7 @@ private:
 
     // 控件指针
     //
-    // NOTE: 全部显式初始化成 nullptr（ 加的）。这不是为了好看：下面那些
+    // NOTE: 全部显式初始化成 nullptr。这不是为了好看：下面那些
     // 访问器和 isHomeTabCurrent() 拿"空指针"当"setupUi() 还没跑完"的判据 ——
     // 成员没有初值时，那个判据读的是**未初始化的值**（UB），只是现在的调用点
     // 全都排在 setupUi() 之后才没炸。
@@ -3856,7 +3777,7 @@ private:
     QPushButton *groupInstanceButton = nullptr;
     QPushButton *importModpackButton = nullptr;
     QLabel *instanceFolderLabel = nullptr;
-    /// 实例页那一行搜索与筛选（coding plan §7.2）：一个搜索框 + 四颗 chip，摆进正文面里
+    /// 实例页那一行搜索与筛选：一个搜索框 + 四颗 chip，摆进正文面里
     /// 树的上方。**外框是自己一个控件**（不是裸布局）：验证工程要按 objectName 找回来量
     /// "整排有没有超出正文面"（和下载页页头那条同一套做法）。
     QWidget *instanceFilterRow = nullptr;
@@ -3871,13 +3792,13 @@ private:
     QWidget *instancePresetPage = nullptr;
     /// 顶上那三颗模式按钮，下标 = `InstanceMode` 的序号（见 `getInstanceModeButton()`）。
     QList<QPushButton *> instanceModeButtons;
-    /// 服务端那一页：列表 + 空态那句 + 「新建服务端…」那颗（coding plan §6 / M4）。
+    /// 服务端那一页：列表 + 空态那句 + 「新建服务端…」那颗。
     QTreeWidget *serverList = nullptr;
     QLabel *serverEmptyLabel = nullptr;
     QPushButton *newServerButton = nullptr;
     QComboBox *installedVersionCombo = nullptr;
     /// 下载页左栏那份「下载分类」（见头文件上面那段）与右栏那份 QStackedWidget。
-    /// 五页**全是真**的（ 起）：第 0 页「游戏」是版本树 + 安装页，其余四页
+    /// 五页**全是真**的：第 0 页「游戏」是版本树 + 安装页，其余四页
     /// 各是一张「资源 → 游戏版本 → 版本号」的三层表。
     QListWidget *downloadCategoryList = nullptr;
     /// 每一栏左上角那颗「返回实例设置」（键 = 分类键，见 downloadBackButtonName 那段）。
@@ -3910,7 +3831,7 @@ private:
     QLineEdit *versionFilterEdit = nullptr;
     QLabel *versionFilterHint = nullptr;
     /// 筛选**第一次生效之前**每个分类是展开还是收着（键 = 分类键）。
-    /// 筛完清空时按它还原 —— 不然"筛一下再清空"会把用户原来只展开一个分类的树撑成
+    /// 筛完清空时按它还原 —— 不然"筛一下再清空"会把筛选前只展开一个分类的树撑成
     /// 四栏全开，那不是用户自己动的手。
     QHash<QString, bool> versionFilterExpandedBefore;
     /// 上一趟过滤是不是"真的在筛"（空串 / 纯空白 = 没在筛）。
@@ -3956,11 +3877,11 @@ private:
     QPlainTextEdit *extraJvmArgsEdit = nullptr;
     QPushButton *applyExtraJvmArgsButton = nullptr;
     QComboBox *downloadSourceCombo = nullptr;
-    /// 「同时最多下几个」那个下拉框（，§9.2）。项由 MainWindow 灌。
+    /// 「同时最多下几个」那个下拉框。项由 MainWindow 灌。
     QComboBox *downloadConcurrencyCombo = nullptr;
-    /// 「下载速度上限」那个下拉框（，§9.2）。项由 MainWindow 灌（0 = 不限）。
+    /// 「下载速度上限」那个下拉框。项由 MainWindow 灌（0 = 不限）。
     QComboBox *downloadSpeedLimitCombo = nullptr;
-    /// 「代理」那颗下拉框与手动地址那一格（，§9.2）。项由 MainWindow 灌。
+    /// 「代理」那颗下拉框与手动地址那一格。项由 MainWindow 灌。
     QComboBox *downloadProxyCombo = nullptr;
     QLineEdit *downloadProxyManualEdit = nullptr;
     QLineEdit *curseForgeApiKeyEdit = nullptr;
@@ -4012,7 +3933,7 @@ private:
     QPushButton *runStateButton = nullptr;
     QPushButton *accountButton = nullptr;
     QPushButton *toolboxButton = nullptr;
-    /// 中间那一格**也是一整颗按钮**（，coding plan §3.1「整块可点击」）：
+    /// 中间那一格**也是一整颗按钮**（整块可点击）：
     /// 里面装着"任务标题 + 右边那句小字 + 一块进度条 + 右边一个朝上的箭头"。
     /// 宽度**不钉**（中间那格本来就是吃富余宽度的那一份，见 .cpp 里那段 6:1:1）。
     QPushButton *taskSummaryButton = nullptr;
@@ -4026,7 +3947,7 @@ private:
     /// 自绘进度条（`ui/TaskProgressBar`）。**声明成基类指针**：`getProgressBar()` 照旧回
     /// `QProgressBar *`，测试那边按那个类型找。
     TaskProgressBar *progressBar = nullptr;
-    /// 那根条右边那一格里的百分比（「42%」）—— 条不再自己画数了（见 `TaskProgressBar.hpp`）。
+    /// 那根条右边那一格里的百分比（「42%」）—— 条自己不画数（见 `TaskProgressBar.hpp`）。
     QLabel *taskPercentLabel = nullptr;
     QLabel *statusLabel = nullptr;
     QLabel *runStateLabel = nullptr;

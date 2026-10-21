@@ -218,7 +218,7 @@ void runInstanceFilesPagesTests() {
                       hasMod(idR, QStringLiteral("litematica")),
                   "★★ T20.2 jar 前面挂着中文名（`[虹膜] iris-….jar` / `[投影] litematica-….jar`）"
                   " 照样认得出来 —— 那是中文整合包和 PCL 的常态写法。按前缀认的话，这两个"
-                  " 实例上那两页会谎报「用不上」（用户 2026-09-27 报的"
+                  " 实例上那两页会谎报「用不上」（用户报的"
                   "「原理图和光影包没正常显示」）");
             check(!hasMod(idN, QStringLiteral("iris")),
                   "★★ T20.2 判据是**整段词**，不是「文件名里找子串」："
@@ -274,7 +274,7 @@ void runInstanceFilesPagesTests() {
                 check(nameP == QStringLiteral("Fabric") && versionP == QStringLiteral("0.19.5"),
                       "★★ T20.3b 目录名是用户起的中文名、`wtfml.meta` 里只有 instanceId —— "
                       "加载器照样从 json 的 `net.fabricmc:fabric-loader:<版本>` 上认出来，"
-                      "版本号也一块儿带回来（海波篮子那一个实例，用户 2026-09-27 点名报的）",
+                      "版本号也一块儿带回来（海波篮子那一个实例，用户点名报的）",
                       QStringLiteral("%1 %2").arg(nameP, versionP));
                 check(nameB.isEmpty(),
                       "★★ T20.3b 真的什么都没有的实例（没 meta、没 json、没 mods/）上"
@@ -673,7 +673,6 @@ void runInstanceFilesPagesTests() {
             // `ServerPing::Pinger`，要求「现在如果没测完会锁住其他按钮，不能这样」）
             // —— 所以这一发回来时那一趟**还在跑**，「刷新中…」这一格现在就能直接读
             // 「测速」并进「刷新」之后，这一格挂的是**「刷新」那颗**。
-            // （从前得排一个 0 毫秒定时器，钻它 processEvents 那一瞬间的空子）。
             const QString buttonWhilePinging =
                 dialog2.serverRefreshButton() != nullptr ? dialog2.serverRefreshButton()->text()
                                                       : QStringLiteral("<没这颗按钮>");
@@ -748,7 +747,7 @@ void runInstanceFilesPagesTests() {
             check(quietItem != nullptr &&
                       quietItem->text(2) == InstanceSettingsDialog::serverTimeoutText(),
                   "★★ T20.6 连上但不答话的那一台：那一格**只写「超时」**"
-                  "（用户 2026-09-27：「超时的只写超时」；判据是 Status::timedOut，"
+                  "（「超时的只写超时」；判据是 Status::timedOut，"
                   "不是拿 error 那句字符串去认前缀）",
                   quietItem != nullptr ? quietItem->text(2) : QStringLiteral("<没有这一行>"));
             check(deadItem != nullptr && deadItem->text(2) != InstanceSettingsDialog::serverUntestedText() &&
@@ -1353,7 +1352,7 @@ void runInstanceFilesPagesTests() {
                   noticeText);
         }
 
-        // ---------- ⑦.6 原理图那一页底下那条「这一份是什么」（，§9.5）----------
+        // ---------- ⑦.6 原理图那一页底下那条「这一份是什么」----------
         //
         // 这一条**只有把真页立起来才验得到**：那一条连接在 `InstanceDialogController` 里
         // （选中一行 → 150 ms 合并 → `SchematicInfo::read()` → 摆回那一格），ui_check 够
@@ -1491,7 +1490,7 @@ void runInstanceFilesPagesTests() {
                   "★★ T20.11 别的页（模组）上那一格是关着的 —— 只有原理图那一页开");
         }
 
-        // ---------- ⑦.7 Replay 那一页底下那条「这一份是什么」（，§9.5）----------
+        // ---------- ⑦.7 Replay 那一页底下那条「这一份是什么」----------
         {
             const QString replayDir = AppPaths::replayRecordingsDir();
             QDir().mkpath(replayDir);
@@ -1668,7 +1667,7 @@ void runInstanceFilesPagesTests() {
                   "★ T20.13 按「重新检查」⇒ 真再算一遍（哨兵被换掉了）");
         }
 
-        // ---------- ⑦.9 「迁移」/「升级」那两页（，§9.9 第 15 项）----------
+        // ---------- ⑦.9 「迁移」/「升级」那两页----------
         //
         // 判据层（`TransferPlanner` / `TransferApply`）由 verify.exe 的 TR 节逐条钉住；
         // 这里只量**这条线接没接上**：

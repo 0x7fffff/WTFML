@@ -12,8 +12,8 @@
  * 那几档"只在真窗口下才量得出错值"的断言会跟着变红（`ColorScheme`、三个框的高度…）。
  * 实测：不带它 = 2276 PASS / 7 FAIL；带上它 = 全绿。
  *
- * 这个工程有一份**偶发**段错误（ 又查了一轮）：**是布局 / 时序敏感的潜伏问题，
- * 不是产品逻辑，也不是本次那三条改动**。当天在同一台机器上量到的全部事实：
+ * 这个工程有一份**偶发**段错误（查过一轮）：**是布局 / 时序敏感的潜伏问题，
+ * 不是产品逻辑，也不是那三条改动**。同一台机器上量到的全部事实：
  * * 同一份 exe 连着 42 趟**全部**崩在 986 PASS；也连着 8 趟 2281/2281 全绿。崩起来是
  * 连成一片的（不是五五开）—— 换一次链接、或者干脆什么都不做过一会儿再跑，都可能翻面；
  * * 崩点上那一串栈**只有 Qt 自己**：`QAccessibleEvent::accessibleInterface()` ←
@@ -136,9 +136,9 @@
 #include "IntegrityReportPage.hpp"
 #include "UpdateCenterPage.hpp"  // U33：更新中心（「检查更新」查出来的结论摊成能动手的一页）
 #include "JavaMismatchDialog.hpp"
-#include "NewServerPage.hpp"  // U34：「新建服务端」那一页（coding plan §6.2 / M4）
-#include "ServerConsolePage.hpp"  // U36：服务端控制台那一页（coding plan §6.2 / M4-3）
-// U37：「服务端设置」那一整页（coding plan §6.3 第二阶段 / M4-4）—— 常用设置表单 /
+#include "NewServerPage.hpp"  // U34：「新建服务端」那一页（M4）
+#include "ServerConsolePage.hpp"  // U36：服务端控制台那一页（M4-3）
+// U37：「服务端设置」那一整页（M4-4）—— 常用设置表单 /
 // 原始文本编辑 / 世界备份 / 体检。这一页一个字节都不认 `server.properties` 的语法
 // （那些全在 `src/server/ServerPropertiesForm*` 那一层，由 `MainWindow` 翻好喂进来）。
 #include "ServerSettingsPage.hpp"
@@ -153,7 +153,7 @@
 #include "OverlayHost.hpp"  // O 段：内容区覆盖层（设置界面 / 提示都开在这儿）
 #include "ResourceDetailPage.hpp"  // Z14：下载页点开一个资源之后那一整页
 #include "TaskDetailPage.hpp"      // I5：任务详情页（点任务中心里的一行开出来的那一页）
-// 自绘的进度条（，coding plan §3.3）：三处（底栏 / 面板行 / 详情页）共用的那一条。
+// 自绘的进度条：三处（底栏 / 面板行 / 详情页）共用的那一条。
 // 这一层要量的是"那三处**真的**换成了它"：按 objectName 找得到 `QProgressBar`、但
 // `qobject_cast<TaskProgressBar*>` 是空指针，就是漏换了一处（画出来还是原生那个样子）。
 #include "TaskProgressBar.hpp"
@@ -166,7 +166,7 @@
 #include "SkinViewer.hpp"
 // W：主题那一层（背景 / 文字不透明度 / 每一块骨架能不能单独换）。这一层是从各处那几句
 // `darker()` 里收出来的，所以量的是"收得对不对、能不能整套换"，不是"某个色好不好看"。
-#include "Animations.hpp"  // 动效总开关：这个工程把它关掉（2026-09-29）
+#include "Animations.hpp"  // 动效总开关：这个工程把它关掉
 #include "Theme.hpp"
 // W11：主题里那两张背景图（主页左栏 / 页面背景）。这一层量的是"没设图时一个像素都不画"
 // 和"设了图真的画上去了"—— 两件事都只能用一像素一像素比（见那一段开头的说明）。
@@ -233,7 +233,7 @@ inline QString g_modalText;
 
 /// 让下一条**内嵌提示**自己点掉，并把它说了什么记下来。
 ///
-/// NOTE: 两条 timer 的必要性和以前一样：0 毫秒那条在嵌套事件循环一进去就触发；
+/// NOTE: 两条 timer 都必要：0 毫秒那条在嵌套事件循环一进去就触发；
 /// 300 毫秒那条是兜底（提示是先摆好再进循环的，个别平台上第一条可能跑在
 /// 它真正露出来之前）。两条都响时后一条找不到东西，直接返回。
 ///
@@ -279,7 +279,7 @@ inline QImage captureWidget(QWidget *widget) {
 
 /// 一块图里**出现次数最多的那个颜色**（按整块数票）。
 ///
-/// 为什么这么量（，日志窗那几条底色断言）：一行里既有底色又有字，而字是另一种
+/// 为什么这么量（日志窗那几条底色断言）：一行里既有底色又有字，而字是另一种
 /// 颜色 —— 直接取某一个像素太看运气（那一个点可能正好落在字形上、也可能落在行间空白上）。
 /// 底色是**铺满那一行**的，所以按整块数票，多数那一票一定是它。
 /// 顺带把"行高里到底铺了多少"这种样式细节也一起甩掉了：铺满也好、只铺字形那一圈也好，

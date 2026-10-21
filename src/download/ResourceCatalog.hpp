@@ -43,7 +43,7 @@ namespace ResourceCatalog {
 enum class Kind {
     Mod,          ///< 模组
     Modpack,      ///< 整合包（下回来是 .mrpack，接着走既有的导入流程）
-    DataPack,     ///< 数据包（Modrinth 的 datapack，2026-09-25 加的）
+    DataPack,     ///< 数据包（Modrinth 的 datapack）
     Shader,       ///< 光影
     ResourcePack, ///< 资源包
 };
@@ -232,7 +232,7 @@ struct Hit {
     /// 加载器（`categories` 里属于加载器的那几个）。界面上当标签显示、以及挑版本时筛。
     ///
     /// NOTE: `explicitLoaders` 非空就**只认它**（CurseForge 那条路）—— 那边的 categories
-    /// 是分类标签，按老规矩去里面找 `fabric` 会一个都找不到，症状是"点击那一下
+    /// 是分类标签，按现有规则去里面找 `fabric` 会一个都找不到，症状是"点击那一下
     /// 不报错、只是加载器那道闸再也不拦了"。
     QStringList loaders() const;
 
@@ -294,8 +294,8 @@ QStringList gameVersionsOldestFirst(const QStringList &versions);
 /// 这一串是不是**快照/预览版**那一类（`26.2-rc1` / `1.21.4-pre3` / `24w14a`）。
 ///
 /// 四套形状，都是照着**版本号自己**判的（接口不给这一栏）：
-/// * 新式快照 `26.2-snapshot-1`（ 才认：这一套以前**一条都不认**，不勾
-/// 「显示快照版」时它们照样摆在那一排 chip 上、树第二层也多出十来行）；
+/// * 新式快照 `26.2-snapshot-1`（这一套也要认：不勾「显示快照版」时，它们
+/// 不能摆在那一排 chip 上，树第二层也不能多出十来行）；
 /// * 尾巴上带 `-preN` / `-rcN` 的（1.21.4-pre3、26.2-rc1）—— 新老两套命名都长这样；
 /// * 空格式的预览版 `1.14 Pre-Release 3` / `1.14.2 Pre-Release 4`（老 Mojang 的写法）；
 /// * 老式快照号 `24w14a` / `13w41b`（两位年 + 'w' + 两位周 + 一个小写字母）。
@@ -656,7 +656,7 @@ QString versionsUrl(const QString &projectId, const QString &gameVersion,
                     const QString &loader = QString(),
                     Source source = Source::Modrinth, const QString &apiBase = QString());
 
-/// 「这一串文件各自该换成哪一版」—— `POST {base}/version_files/update`（ 加）。
+/// 「这一串文件各自该换成哪一版」—— `POST {base}/version_files/update`。
 ///
 /// 这个接口就是为它准备的：**一次带一串 sha1**，回"每个 sha1 它那个项目在
 /// `gameVersion` + `loader` 下**最新**的那一版"。295 个模组 = 3 发（每发 100 个哈希，

@@ -108,7 +108,7 @@ void PlayerSkinController::reload(const QString &versionId) {
     //
     // 这一档必须在下面 !loggedIn() **之前**：离线账号必然同时是"没有登录态"
     // （AuthManager::setOfflinePlayer() 把 uuid 和令牌一起清了，见 AuthManager.cpp），
-    // 摆在那句后面就等于永远走不到 —— 以前就是这样，离线账号的预览永远是那张写死的
+    // 摆在那句后面就等于永远走不到 —— 离线账号的预览永远是那张写死的
     // 内置 Steve。
     //
     // 判据是 offlineIdentity()（当前账号本身是不是离线账号），不是"有没有勾某个框"。
@@ -193,15 +193,14 @@ void PlayerSkinController::reload(const QString &versionId) {
     if (!m_auth->loggedIn()) {
         // 没登录就没有 uuid，连问都不用问（问也问不出东西来）。那句话现在是
         // "未登录，显示的是默认外观"，由**开头那次 applyPlayerSkin()** 顺带写好了
-        // —— 那一步发回来的 skinChanged 会让主窗口重挑一次。这里不再发（搬出来之前
-        // 那一版这里也是不刷的）。
+        // —— 那一步发回来的 skinChanged 会让主窗口重挑一次。这里不再发。
         return;
     }
     const QString uuid = m_auth->playerUuid();
     // 当前账号是离线账号的意思是"别联网"（启动时走的就是离线登录），这时候还发一个外观
     // 请求是自相矛盾的 —— 所以整条联网路径都跳过，只认已经躺在缓存里的那一份。
     //
-    // NOTE: 判据从"勾选框勾没勾"换成了 offlineIdentity()。而且这一档现在**必然**同时是
+    // NOTE: 判据是 offlineIdentity()，不是"勾选框勾没勾"。这一档**必然**同时是
     // "没有登录态"（setOfflinePlayer() 把 uuid 和令牌一起清了），上面那句 !loggedIn()
     // 其实已经先返回了 —— 留着它是为了这条路自己读起来是完整的，不靠上面的早退。
     const bool offline = offlineIdentity();
@@ -301,7 +300,7 @@ void PlayerSkinController::onTextureReady(const QString &url, const QString &pat
         // 皮肤到手了：不再是"正在获取"。就算这张图后面载不进来，也该由那句
         // "取不到…"来说，而不是一直停在"正在获取"。
         m_skinFetchInFlight = false;
-        // 随机挑的那一张**到这里才记账**（ 修）：能走到这一句就说明字节已经在
+        // 随机挑的那一张**到这里才记账**：能走到这一句就说明字节已经在
         // 盘上了（这个信号的契约就是"本地就绪"，fetchTexture() 里那几条失败路一条都不发它），
         // 而那条记录是永不失效的 —— 记一条"图上没有"的地址，等于把这个账号钉死在重下同
         // 一个失败地址上。挑的那一刻只把它放进了 m_pendingRandomSkin*，见 onRandomSkinReady()。
@@ -340,10 +339,8 @@ void PlayerSkinController::onTextureReady(const QString &url, const QString &pat
             // 那个分支永远不会执行、也不会失败，因为没有请求发出去）。
             // NOTE: 皮肤在路上的时候**不能**落（那才是正常的一小段），所以判据是
             // "档案里根本没有皮肤地址"，而不是"m_skinPath 还空着"。
-            // NOTE: 这里**故意不发 `hintChanged()`** —— 搬出来之前那一版也没刷那句话
-            // （那句话一直是靠"画一次"顺带刷的，而这一趟不画）。也就是说"档案里
-            // 只有披风"那种人的「正在获取…」会一直挂着 —— 这是**搬之前就有的**，
-            // 不是这次拆出来的；拆的时候原样留着，等哪一版专门修那句话时一起改。
+            // NOTE: 这里**故意不发 `hintChanged()`**：那句话一直是靠"画一次"顺带刷的，
+            // 而这一趟不画 —— 也就是说"档案里只有披风"那种人的「正在获取…」会一直挂着。
             if (m_skinProfile.skinUrl.isEmpty()) {
                 m_skinFetchInFlight = false;
             }
@@ -361,14 +358,14 @@ void PlayerSkinController::onRandomSkinReady(const QString &skinUrl) {
     // 或者干脆登录成正式账号了。**不是同一个离线身份就丢掉** —— 记下去等于把 A 的脸
     // 记到 B 名下，而且再也不会有人来纠正它（那份记录是"永不失效"的）。
     //
-    // 修：这里原来只有 `if (!offlineIdentity()) return;` 这一道，而它回答的
+    // 判据是"发请求时那位 == 现在这位"：只看 `!offlineIdentity()` 不够，它回答的
     // 是"现在这位**是不是**离线账号"，**不是**"是不是**刚才那一位**" —— 从离线 A 切到
-    // 离线 B 之后（两个都满足那一句，而且这是最常见的切法）A 那一趟的结果照样走得下去：
+    // 离线 B 之后，A 那一趟的结果照样走得下去：
     // · m_pendingRandomSkinUuid 被写成 **B**（下面那句读的是"当下"），
     // · 贴图到了以后 onTextureReady() 就把 A 挑的那张记进 `random-<B>.txt`；
     // · 而 A 名下永远不会有记录 ⇒ A 每次开启动器都重挑一张、脸一直变（那份记录存在的
     // 全部意义正是"挑一次就定住"）。
-    // 判据换成"发请求时那位 == 现在这位"：`m_randomSkinRequestUuid` 是发请求那一刻写的
+    // `m_randomSkinRequestUuid` 是发请求那一刻写的
     // （见 reload() 里那一句），两个都是 AccountStore 给的同一个规整 uuid，直接比字符串
     // 就行。
     //
@@ -391,16 +388,15 @@ void PlayerSkinController::onRandomSkinReady(const QString &skinUrl) {
         // 所以这一句能真的发出去。
         // NOTE: 只在**现在这位是离线账号**时才补 —— 正版账号的皮肤走官方那条路，
         // 切过去的时候已经有另一条路在刷了，不该由这里再捅一次。
-        // NOTE: 重叫的是 reload()（原来叫的是 startPlayerSkinLoad()），参数取
-        // m_versionId —— 那一位就是"最近一次让我重走时选中的那个实例"，语义和
-        // 它原来自己读下拉框拿到的那个值是同一个。
+        // NOTE: 重叫的是 reload()，参数取 m_versionId —— 那一位就是"最近一次让我
+        // 重走时选中的那个实例"，和下拉框当下选中的那一项是同一个。
         if (offlineIdentity()) {
             reload(m_versionId);
         }
         return;
     }
     // 挑中的这一张**先记在内存里**，等贴图真的落在盘上再写那行记录（见
-    // onTextureReady 里那一段）。原来是在这里就写的，而这一句之前图一个字节都还没到：
+    // onTextureReady 里那一段）。在这里就写的话，这一句之前图一个字节都还没到：
     // requestTexture() 会因为超时、非 200、或者"不是一张 64 宽的皮肤 PNG"
     // （PlayerSkinStore::fetchTexture）**一个字节都不落盘**，而记录已经写下了 —— 那条记录
     // 是永不失效的，于是这个账号从此每次都去重下同一条永远失败的地址、永远停在默认外观，

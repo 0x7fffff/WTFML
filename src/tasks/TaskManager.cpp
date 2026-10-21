@@ -96,7 +96,7 @@ bool TaskManager::saveHistory() const {
         keep.append(finishedTasks.at(i));
     }
     const bool saved = save(resolvedHistoryPath(), keep);
-    // 落盘失败（盘满、目录变成只读、账本被别的进程删成目录……）以前是一声不吭：
+    // 落盘失败（盘满、目录变成只读、账本被别的进程删成目录……）不能一声不吭：
     // 这一次会话看着一切正常，关掉启动器以后历史就没了。日志里至少得留一行。
     if (!saved) {
         qWarning() << "Failed to save the task history to" << resolvedHistoryPath();
@@ -195,11 +195,11 @@ bool TaskManager::finish(TaskId id, TaskState state, const QString &errorSummary
     }
     // 收尾之后**只**收掉"干活时才有的"那两位，其余几位原样留着。
     //
-    // 这里原来是一句 `task->capabilities = TaskCapabilities()`（M1 时确实没有可点的），
-    // 后来 §4.2 的「重试」和 §4.3 的崩溃项都是**收尾之后才露**的按钮：
+    // 不能写成 `task->capabilities = TaskCapabilities()`：「重试」和 
+    // 崩溃项都是**收尾之后才露**的按钮：
     // · 「重试」：`ActivityCenterController::finish()` 在 `fail()` **之前**把 `canRetry`
-    // 写进快照（`setCapabilities()` 只收活动态），结果下一句 `fail()` 走进这里又把它
-    // 整份抹掉 ⇒ `Tasks::retryOffered()` 恒 false，界面上永远没有那颗按钮；
+    // 写进快照（`setCapabilities()` 只收活动态），下一句 `fail()` 走进这里再整份抹掉的话
+    // ⇒ `Tasks::retryOffered()` 恒 false，界面上永远没有那颗按钮；
     // · 崩溃项（`CrashReportController::report()`）建出来那一刻就带着
     // `canExportReport` / `canOpenCrashDir`，随即 `finish()` —— 一起抹掉的话详情页
     // 上「导出错误报告」「打开崩溃报告目录」「打开日志」一颗都不露。

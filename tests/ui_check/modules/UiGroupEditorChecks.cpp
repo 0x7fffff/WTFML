@@ -564,7 +564,7 @@ int UiGroupEditorChecks() {
                       "第一条那一侧点上去不挪（组序原样）", orderNow());
                 check(glist->currentRow() == 2 && selectedId() == shaderId,
                       "★ 而且那一下**被整个吃掉了**：选中项还停在原来那一行 —— 漏出去的话这一下"
-                      "会顺手把第一行选中（用户 2026-09-25 报的「点击一下就同时展开和调整了」"
+                      "会顺手把第一行选中（「点击一下就同时展开和调整了」"
                       "就是这个形状）",
                       QStringLiteral("选中第 %1 行 / %2").arg(glist->currentRow()).arg(selectedId()));
 

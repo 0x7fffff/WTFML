@@ -193,13 +193,11 @@ int UiFolderDisplayChecks(MainWindowUI &ui, QListWidget * &folderList, QTabWidge
                 check(title->text() != subtitle->text() ||
                           rows.at(i).title == rows.at(i).subtitle,
                       QStringLiteral("第 %1 行那两行字不是同一句").arg(i));
-                // 路径那行**从中间省略**。在此之前它和别处的 ElidedLabel 一样
-                // 从**尾巴**省略 —— 而这一列是路径，尾巴上那截（最后一级目录名）恰是唯一
-                // 认得出"这是哪一份"的信息：几个文件夹前缀一样时（D:/MC/a、D:/MC/b）两行
-                // 会长得一模一样。这里读的是**标签自己那个属性**（画字的 paintEvent 读的是
-                // 同一个成员），所以谁把 FolderRowWidget 里那句 setElideMode() 删了，它就
-                // 退回 ElideRight，这条当场红 —— 而不是像 QListWidget 上那句
-                // setTextElideMode() 那样在"已经配好了"的样子下白躺了很久。
+                // 路径那行**从中间省略**：这一列是路径，尾巴上那截（最后一级目录名）恰是
+                // 唯一认得出"这是哪一份"的信息 —— 几个文件夹前缀一样时（D:/MC/a、D:/MC/b）
+                // 两行会长得一模一样。从尾巴省略的话这些行就分不开。这里读的是**标签自己
+                // 那个属性**（画字的 paintEvent 读的是同一个成员）—— 谁把 FolderRowWidget
+                // 里那句 setElideMode() 删了，它就退回 ElideRight，这条当场红。
                 check(subtitle->property("elideMode").toInt() ==
                           static_cast<int>(MainWindowUI::folderRowPathElideMode()),
                       QStringLiteral("第 %1 行路径那行是从中间省略的（两头都比中间那截有用）")
@@ -317,7 +315,7 @@ int UiFolderDisplayChecks(MainWindowUI &ui, QListWidget * &folderList, QTabWidge
                       QStringLiteral("第 %1 项前面带着图标").arg(a));
                 check(entry->styleSheet().contains(QStringLiteral("text-align: left")),
                       QStringLiteral("第 %1 项是从左边起排的（像菜单，不是一排居中按钮）").arg(a));
-                // 字要**粗**（ 要求「这个字能不能用加粗的」，问的就是这五项）。
+                // 字要**粗**（要求「这个字能不能用加粗的」，问的就是这五项）。
                 // 两条一起钉：样式表里写着这条声明（和上面 text-align 那条同一个写法），
                 // **以及它真的落到了控件上** —— 只钉样式表字符串的话，哪年换一个不认
                 // font-weight 的样式就变成假绿了。
@@ -326,7 +324,7 @@ int UiFolderDisplayChecks(MainWindowUI &ui, QListWidget * &folderList, QTabWidge
                 check(entry->font().bold(),
                       QStringLiteral("第 %1 项的字真的变粗了（不是只写在样式表里）").arg(a),
                       QStringLiteral("bold=%1").arg(entry->font().bold() ? 1 : 0));
-                // 垃圾桶图标也是红的，而且**只有**「删除」那一项是红的（ 用户
+                // 垃圾桶图标也是红的，而且**只有**「删除」那一项是红的（用户
                 // 原话「删除的垃圾桶也换成红色吧」）。量的是字形里有没有饱和的红 —— 字形
                 // 的颜色是我们自己传进去的，不吃调色板，所以这一格真的是"颜色由我们决定"。
                 if (a == MainWindowUI::FolderActionDelete) {
@@ -346,7 +344,7 @@ int UiFolderDisplayChecks(MainWindowUI &ui, QListWidget * &folderList, QTabWidge
             }
             check(menuNow() == nullptr, "点完一项那块框自己收回去了（不会越点越多）");
 
-            // ---- 那块框自己的留白（ 用户要收紧的那一圈）----
+            // ---- 那块框自己的留白（用户要收紧的那一圈）----
             //
             // 要求：「点开的那个框在文本左右都有点留白，上下也是，能不能缩小一点点
             // （减少到 80% 的样子）」，紧接着又划了一句「上下不用减那么多，匹配即可」。
@@ -382,9 +380,8 @@ int UiFolderDisplayChecks(MainWindowUI &ui, QListWidget * &folderList, QTabWidge
                       entry != nullptr ? entry->styleSheet() : QString());
                 // 上面两条量的是留白"由哪两截拼出来"，这一条量的是用户真正看得见的那件事：
                 // **字形到框边有多远**。两截加起来，横向和纵向必须一样宽 —— 用户那句
-                // "匹配即可"说的就是这个（原来左右 18 / 上下 16，两个轴差着 2 px；现在两边
-                // 都是 14）。两截分开量：框那 8 px 是上面第一条量的 geometry，这一项那 6 px
-                // 只有渲染出来才看得见。
+                // "匹配即可"说的就是这个（横向和纵向都是 14）。两截分开量：框那 8 px 是
+                // 上面第一条量的 geometry，这一项那 6 px 只有渲染出来才看得见。
                 if (entry != nullptr) {
                     const QImage shot = captureWidget(entry);
                     const auto hasInk = [](QRgb p) { return QColor::fromRgba(p).alpha() > 128; };

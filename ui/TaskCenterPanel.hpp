@@ -1,12 +1,11 @@
 /**
  * @file TaskCenterPanel.hpp
- * @brief 任务中心（coding plan §3.2）：底栏中间那格向上弹出来的那块面板。
+ * @brief 任务中心：底栏中间那格向上弹出来的那块面板。
  *
  * 【为什么另起一个类，不接着用 `BottomBarPanel`】
  *
- * coding plan §3.2 原话：「复用底栏向上弹出的交互，但**不要复用**目前只适合短行的
- * `BottomBarPanelRowWidget`」——那一行的形状是"图标 + 两行字 + 行尾几颗按钮"，是给
- * "一行一个实例/账号"用的。任务那一行要装的东西不一样：标题 + 一行小字 + 一根进度条 +
+ * `BottomBarPanel` 那一行的形状是"图标 + 两行字 + 行尾几颗按钮"，是给
+ * "一行一个实例/账号"用的，不适合任务行。任务那一行要装的东西不一样：标题 + 一行小字 + 一根进度条 +
  * 一串步骤圆点，还要分成「当前工作 / 已完成」两栏。硬塞进短行那个壳里，行里那些
  * `bottomBarPanelRow*` 的名字也会跟着变成谎话（验证工程按名字找控件）。
  *
@@ -51,7 +50,7 @@ enum class StepState { Pending, Running, Done, Failed };
 /// Cancelled / Interrupted 这种终态压成“不是失败，所以成功”。
 enum class State { Queued, Running, WaitingUser, Paused, Succeeded, Failed, Cancelled, Interrupted };
 
-/// 一步：名字 + 到哪儿了。`note` 是给以后的"这一步跑了几秒"留的（M1 不用）。
+/// 一步：名字 + 到哪儿了。`note` 是那一步的补充说明（见 `stepForTask()`）。
 struct Step {
     QString name;
     StepState state = StepState::Pending;
@@ -70,7 +69,7 @@ struct Capabilities {
     bool retry = false;
     bool openTarget = false;
     bool openLog = false;
-    /// 「导出错误报告」/「打开崩溃报告目录」（§4.3）：只有游戏异常退出那一项为真。
+    /// 「导出错误报告」/「打开崩溃报告目录」：只有游戏异常退出那一项为真。
     bool exportReport = false;
     bool openCrashDir = false;
 };
@@ -86,11 +85,11 @@ struct Item {
     /// 标题下面那行小字（"正在下载资源对象 · 2.8 MB/s"）。空 = 不画那一行。
     QString detail;
     /// -1 = **不可测**（没有 Content-Length 那一类）：画不确定态，绝不编一个百分比出来
-    /// （coding plan §3.4：「无 Content-Length 的 Fabric 下载显示'已下载多少'，
+    /// （「无 Content-Length 的 Fabric 下载显示'已下载多少'，
     /// 不显示假百分比」——"已下载多少"那句走 `detail`）。
     int percent = -1;
     /// 字节级进度那一句（"已下载 12.3 MB / 45.6 MB"）。空 = 这一项不按字节记账。
-    /// **只有详情页用它**：面板上那一行装不下（§3.4 说得很清楚，那一行小字是 `detail`）。
+    /// **只有详情页用它**：面板上那一行装不下（那一行小字是 `detail`）。
     QString bytesText;
     State state = State::Queued;
     /// 用户**还没看过**的一次失败：行尾挂一个红点（看见之后由 MainWindow 撤掉）。
@@ -103,7 +102,7 @@ struct Item {
     /// （见 `TaskCenter::timeText()`）—— 时间怎么写成字是界面的事，不该由账本那边拼好了送进来。
     QDateTime finishedAt;
     /// 失败/中断的简短原因（账本里的 `errorSummary`）。空 = 没出过错。
-    /// §3.4：「任务失败能看到失败阶段、简短原因和'查看日志/重试'」——这是"简短原因"那一半。
+    /// 「任务失败能看到失败阶段、简短原因和'查看日志/重试'」——这是"简短原因"那一半。
     QString errorSummary;
     QList<Step> steps;
     Capabilities capabilities;
@@ -113,7 +112,7 @@ struct Item {
 /// 一个路数：不缓存，"上一次那几行"留着迟早会在界面上说假话）。
 using ItemProvider = std::function<QList<Item>()>;
 
-/// 行尾那颗小按钮上的动作（coding plan §3.2 的「行内快捷动作：取消 / 查看详情」那一半）。
+/// 行尾那颗小按钮上的动作（「行内快捷动作：取消 / 查看详情」那一半）。
 ///
 /// 「查看详情」不在这一枚举里 —— 它是**点那一行本身**（整行的行为，不是行尾一颗按钮）。
 /// 两样分开是因为它们的位置不一样：详情页是"我想看看这是怎么回事"，取消是"别下了"，
@@ -155,8 +154,7 @@ QString stepMark(StepState state);
 /// 失败那一档的 Running 改成 Failed —— 取消/中断是"人叫停的"，改写成一堆 ✗ 是
 /// 在冤枉那些步骤）。于是**画**的那一侧要补这一眼：任务已经有终态记号了，步骤再
 /// 画一个 ● 就是"这一项已经结束、里面还有东西在跑"的自相矛盾。
-/// 面板行、详情页、复制成文本三处**都走这一个函数**：以前详情弹层那一处自己做对了，
-/// 另外几处各漏各的。
+/// 面板行、详情页、复制成文本三处**都走这一个函数**。
 Step stepForTask(State taskState, const Step &step);
 
 /// 任务还在走（排队 / 运行 / 等用户 / 暂停）。收尾过的一律 false。
@@ -219,7 +217,7 @@ public:
 
     /// 面板里的一行被点了要告诉谁（参数是那一行的 `key`）。
     ///
-    /// **可以给空的** = 面板里那几行点了没反应（M2 之前就是这样，验证工程搭裸面板时也这样）。
+    /// **可以给空的** = 面板里那几行点了没反应（验证工程搭裸面板时就是这样）。
     /// 挂上了才会给那几行手型光标 —— "看着能点、点了没反应"比不给更糟。
     void setRowActivatedHandler(const std::function<void(const QString &key)> &handler) {
         m_onRowActivated = handler;

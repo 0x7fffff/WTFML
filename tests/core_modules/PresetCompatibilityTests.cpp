@@ -1,7 +1,7 @@
 #include "Support.hpp"
 
 void runPresetCompatibilityTests() {
-    section("PH1. 状态行那句话：缺失与「暂无法确认」分开说（§7.2）");
+    section("PH1. 状态行那句话：缺失与「暂无法确认」分开说");
     {
         Presets::CompatibilitySummary empty;
         check(empty.text() == QStringLiteral("没有模组引用要检查。"),
@@ -44,7 +44,7 @@ void runPresetCompatibilityTests() {
               "PH1 坏引用单独一档", bad.text());
     }
 
-    section("PH2. 本地筛选：钉死的版本 / 加载器 / 坏引用都不问网络（§7.2）");
+    section("PH2. 本地筛选：钉死的版本 / 加载器 / 坏引用都不问网络");
     {
         Presets::CompatibilityContext context;
         context.gameVersion = QStringLiteral("1.21.1");
@@ -88,7 +88,7 @@ void runPresetCompatibilityTests() {
               "PH2 缓存键的格式固定（上下文 + 运行侧）");
     }
 
-    section("PH3. 检查器：去重 / 本地优先 / 并发上限 / 旧一代回调（§7.2）");
+    section("PH3. 检查器：去重 / 本地优先 / 并发上限 / 旧一代回调");
     {
         ImmediateProvider provider;
         Presets::CompatibilityChecker checker;
@@ -199,7 +199,7 @@ void runPresetCompatibilityTests() {
               "PH3 新一代的结论才落得下来", checker.summary().text());
     }
 
-    section("PH4. 失败不报缺失 / 缓存只收准话（§7.2）");
+    section("PH4. 失败不报缺失 / 缓存只收准话");
     {
         // 没装查询实现：每一项都是「暂无法确认」，不是缺失。
         Presets::CompatibilityChecker checker;

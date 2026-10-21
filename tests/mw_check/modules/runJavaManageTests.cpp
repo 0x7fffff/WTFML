@@ -82,7 +82,7 @@ void runJavaManageTests() {
         // 正是这一条要拦住的。
         check(javaManage->text() == QStringLiteral("Java 管理…"),
               "T26.1 那颗按钮上写的就是用户点名的那五个字", javaManage->text());
-        // 原来那个「Java 版本」下拉框**撤干净了**：留着它就有两处各自声称"这台机器用哪份
+        // 「Java 版本」下拉框**不许**回来：留着它就有两处各自声称"这台机器用哪份
         // Java"，而那两处迟早对不上（见 MainWindowUI.hpp 那段）。
         check(w.findChild<QComboBox *>(QStringLiteral("javaVersionCombo")) == nullptr,
               "T26.1 老的那个下拉框一个都不剩（按它原来的 objectName 找）");
@@ -306,8 +306,8 @@ void runJavaManageTests() {
 
             // ---------- 「选用」：这一页也是「选哪份 Java」那把钥匙 ----------
             //
-            // 原来设置页那个下拉框同时是**全局手动指定 Java 的唯一入口**，换成按钮之后那把
-            // 钥匙搬到了这儿（见 JavaManageDialog.hpp 那段）—— 搬了就得验它真写进了盘。
+            // 那把钥匙是**全局手动指定 Java 的唯一入口**（见 JavaManageDialog.hpp 那段）
+            // —— 这里验它真写进了盘。
             check(autoUse != nullptr && !autoUse->isEnabled(),
                   "T26.6 前提：现在在「自动」档上 ⇒ 它那颗「选用」是**灰的**（已经在用的那一"
                   "档，再点一次什么都不会变 —— 灰而不是藏：这一档确实存在、也确实选得动）");

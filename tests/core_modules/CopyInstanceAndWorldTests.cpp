@@ -291,7 +291,7 @@ void runCopyInstanceAndWorldTests() {
         check(error.contains(QStringLiteral("复制到它自己里面去")),
               "ZJ5 而且原因说的是这话", error);
         check(!existsAt(srcDir + QStringLiteral("/versions")),
-              "★★ ZJ5 拒绝之后**源实例目录里没多出任何东西**（老代码会在这儿造出 "
+              "★★ ZJ5 拒绝之后**源实例目录里没多出任何东西**（多出一个 "
               "`versions/`，那就是递归的第一层）");
         check(!vm.copyInstance(srcId, srcDir + QStringLiteral("/saves"), QStringLiteral("更里面"),
                                &error),
@@ -445,7 +445,7 @@ void runCopyInstanceAndWorldTests() {
               "ZK2 三句话都不空、互相不一样");
     }
 
-    section("ZK3. 地址怎么拼（原串是 2026-09-28 实测量到的）");
+    section("ZK3. 地址怎么拼");
     {
         using namespace ServerInstall;
         check(paperBuildsUrl(QStringLiteral("1.21.4")) ==
@@ -461,7 +461,7 @@ void runCopyInstanceAndWorldTests() {
               "ZK3 Purpur 最新一条");
         check(purpurDownloadUrl(QStringLiteral("1.21.4"), QStringLiteral("latest")) ==
                   QStringLiteral("https://api.purpurmc.org/v2/purpur/1.21.4/latest/download"),
-              "ZK3 Purpur 下载：latest 真的能这么用（实测 200）",
+              "ZK3 Purpur 下载：latest 真的能这么用（回 200）",
               purpurDownloadUrl(QStringLiteral("1.21.4"), QStringLiteral("latest")));
         check(purpurDownloadUrl(QStringLiteral("1.21.4"), QStringLiteral("2416")) ==
                   QStringLiteral("https://api.purpurmc.org/v2/purpur/1.21.4/2416/download"),
@@ -476,7 +476,7 @@ void runCopyInstanceAndWorldTests() {
         check(fabricJar.contains(QStringLiteral("/loader/1.21.4/0.16.9/1.0.1/")) &&
                   fabricJar.endsWith(QStringLiteral("/server/jar")),
               "ZK3 ★ Fabric 那条里游戏版本、加载器、安装器三段都在 —— 少任何一段上游就是 404"
-              "（少了 loader 段和少了 installer 段两种都实测过）");
+              "（少了 loader 段和少了 installer 段两种都走过）");
         check(fabricInstallerListUrl() ==
                   QStringLiteral("https://meta.fabricmc.net/v2/versions/installer"),
               "ZK3 Fabric 安装器列表");
@@ -497,7 +497,7 @@ void runCopyInstanceAndWorldTests() {
               spigotBuildToolsUrl());
     }
 
-    section("ZK4. Paper 的构建列表怎么读（形状是 2026-09-28 实测的）");
+    section("ZK4. Paper 的构建列表怎么读");
     {
         using namespace ServerInstall;
         const auto makeBuild = [](int id, const char *channel, const char *name, const char *sha,
@@ -528,7 +528,7 @@ void runCopyInstanceAndWorldTests() {
         const QList<Build> list = paperBuildsFromJson(raw);
         check(list.size() == 3, "ZK4 没有可下文件的那一条被跳过", QString::number(list.size()));
         check(!list.isEmpty() && list.first().number == 3 && list.last().number == 1,
-              "ZK4 排成新到旧（上游回的是升序：实测 224 条，头一条 id=1）",
+              "ZK4 排成新到旧（上游回的是升序：224 条，头一条 id=1）",
               list.isEmpty() ? QString()
                              : QStringLiteral("%1 .. %2").arg(list.first().number).arg(list.last().number));
         check(!list.isEmpty() && list.first().sha256 == QStringLiteral("ccc") &&
@@ -797,7 +797,7 @@ void runCopyInstanceAndWorldTests() {
                   "ZK8 Fabric：启动参数");
             check(plan.firstLaunchNeedsNetwork,
                   "ZK8 ★ Fabric：下下来那份是**启动器**不是服务端，第一次跑要联网把库拉下来"
-                  "（2026-09-28 真装实测：第一次跑下 8 个 loader 库 + 把原版 bundler jar "
+                  "（第一次跑下 8 个 loader 库 + 把原版 bundler jar "
                   "本地解开；第二次跑一条下载都没有 —— 落地名和字节都没被改过）");
             check(plan.method == InstallMethod::DirectJar,
                   "ZK8 Fabric：虽然第一次要联网，但对用户来说就是「下下来直接跑」"
@@ -902,11 +902,11 @@ void runCopyInstanceAndWorldTests() {
                   plan.toolArguments.join(QLatin1Char(' ')));
             check(plan.toolArguments.contains(QStringLiteral("--install-dir=.")) &&
                       !plan.toolArguments.contains(QStringLiteral("--install-dir")),
-                  "ZK8 ★ Quilt 那个参数必须 `=` 连写成一段（分段写它不认，实测原话是 "
+                  "ZK8 ★ Quilt 那个参数必须 `=` 连写成一段（分段写它不认，原话是 "
                   "`Option \"--install-dir\" must specify a value`）");
             check(plan.toolArguments.contains(QStringLiteral("--download-server")),
                   "ZK8 ★★ Quilt 必须带上 `--download-server`：不带的话装完的目录里**没有 "
-                  "server.jar**，而它那份启动器**不会**自己去补 —— 实测是直接退出，"
+                  "server.jar**，而它那份启动器**不会**自己去补 —— 会直接退出，"
                   "原话 `The Minecraft server .JAR is missing (…\\server.jar)!`，"
                   "用户看到的症状就是「装好了，一双击窗口闪一下没了」");
             check(plan.installedMarkers ==
@@ -932,9 +932,9 @@ void runCopyInstanceAndWorldTests() {
                   "两个选项一个不少",
                   loosePlan.toolArguments.join(QLatin1Char(' ')));
             check(!plan.firstLaunchNeedsNetwork,
-                  "ZK8 ★★ Quilt 第一次启动**不联网**（2026-09-28 真装实测：44 条 Unpacking、"
+                  "ZK8 ★★ Quilt 第一次启动**不联网**（44 条 Unpacking、"
                   "0 条下载 —— loader 的库是**安装器**下的，原版那部分是从本地 bundler jar "
-                  "解开的）。★ 原来这一条写的是 true，那是照 Fabric 的形状推的、没实测；"
+                  "解开的）。★ "
                   "两档在这件事上**不一样**，别互相抄");
         }
 
@@ -2053,10 +2053,9 @@ void runCopyInstanceAndWorldTests() {
         check(!before.isEmpty(), "ZL6 改之前那棵树也写得出来（对照用）");
 
         // ---- 临时文件不许留下 ----
-        // 以前只扫 `.wtfml-*`（那是改动前中间产物的名字）。现在落盘走
-        // `QSaveFile`，它在同一个目录里开的临时文件叫 `level.dat.XXXXXX` —— 换个名字
-        // 就漏过了。所以这里改成**把整个目录列出来**：这个世界里除了 `level.dat`
-        // 一个文件都不该有。名字变了这条还是拦得住。
+        // 落盘走 `QSaveFile`，它在同一个目录里开的临时文件叫 `level.dat.XXXXXX` ——
+        // 只按某个前缀扫会漏过它。所以这里**把整个目录列出来**：这个世界里除了
+        // `level.dat` 一个文件都不该有，临时文件换了名字这条还是拦得住。
         QStringList leftovers =
             QDir(worldDir).entryList(QDir::Files | QDir::Hidden | QDir::System);
         leftovers.removeAll(QStringLiteral("level.dat"));

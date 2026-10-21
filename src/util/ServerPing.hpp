@@ -89,7 +89,7 @@ struct Address {
  */
 Address splitAddress(const QString &text);
 
-// ---------- SRV（`_minecraft._tcp.<主机>`，§9.11 第 3 项） ----------
+// ---------- SRV（`_minecraft._tcp.<主机>`） ----------
 
 /// 一台主机在 DNS 里自己报的服务地址（SRV 记录的四条：目标、端口、优先级、权重）。
 struct SrvRecord {
@@ -142,7 +142,7 @@ struct Resolution {
  */
 Resolution resolve(const QString &text, int budgetMs = -1);
 
-/// 没通的原因**归成哪一类**（§9.11 第 3 项：协议错误分类）。
+/// 没通的原因**归成哪一类**（协议错误分类）。
 ///
 /// 界面**不许再拿 `Status::error` 那句中文去认**（那是给人看的字，改一个字就静默失配）。
 /// 要判"哪种没通"一律问 `Status::kind`。
@@ -181,11 +181,10 @@ struct Status {
     /// 前者变成后者），排查的时候要的正是这个区别。判据在 .cpp 里只有一处
     /// （`isTimeoutError()`），界面上不许再去拿字符串认。
     ///
-    /// NOTE: 缓存（ServerStatusCache::Entry）**存这一位**（ 起；它照旧不存
-    /// `error` 那句理由 —— 理由是当时那一刻的）。盘上那份"上次问到"的没通按它写
+    /// NOTE: 缓存（ServerStatusCache::Entry）**存这一位**，照旧不存
+    /// `error` 那句理由 —— 理由是当时那一刻的。盘上那份"上次问到"的没通按它写
     /// 「超时」或者「没连上」（见那边 Entry::timedOut 那条 NOTE）—— 那两句和当场
-    /// 测出来写的是**同一句字**（用户 ：「‘上次’两个字也不要」，那一格
-    /// 原来那句过去时的前缀整个删了）。
+    /// 测出来写的是**同一句字**。
     bool timedOut = false;
     /// 延迟：**连接建好之后**，握手那一趟往返花了多久（毫秒）。ok 为假时是 -1。
     int latencyMs = -1;
@@ -217,11 +216,10 @@ Status ping(const QString &address);
 /**
  * @brief 「一台一台问下去」这件事，**在后台线程上跑**。
  *
- * 要求：「现在如果没测完会锁住其他按钮，不能这样」。在这之前这一段是
- * 在界面线程里同步跑的（每台之间 `processEvents(ExcludeUserInputEvents)` 转一圈）——
- * 用户输入**故意没转**，所以那几秒里整个设置页是按不动的：想翻到别的页要等、想关掉
- * 要等，一台服务器连满 4 秒超时的时候尤其难受。而"边测边能点别的"这件事本来就该是
- * 默认行为。
+ * 线程模型：这一段**在后台线程上跑**，界面线程不阻塞。不能在界面线程里同步跑
+ * （每台之间 `processEvents(ExcludeUserInputEvents)` 转一圈也不行）——那几秒里整个设置页
+ * 是按不动的：想翻到别的页要等、想关掉要等，一台服务器连满 4 秒超时的时候尤其难受。
+ * "边测边能点别的"就是默认行为。
  *
  * 用法：`start()` 之后一台问完发一次 `oneFinished(index, …)`（下标与传进去那份一一对应），
  * 全问完发 `allFinished()`。**两个信号都是从工作线程发出来的**，接的人在主线程，Qt 自己
@@ -328,7 +326,7 @@ QString connectionErrorText(int socketError);
 
 }  // namespace ServerPing
 
-// 这一条**必须在命名空间外面**（ 在 `ModpackImport::Format` 上踩过一次）：
+// 这一条**必须在命名空间外面**：
 // 写在里面的话，`qRegisterMetaType<T>()` 注册出来的是**裸类型名**（`Status`），而
 // `Q_ARG(ServerPing::Status, …)` 找的是修过名那个 —— 对不上等于没注册，`invokeMethod`
 // **静默返回 false**（编得过、跑起来什么都不发生）。跨线程的排队连接同理。

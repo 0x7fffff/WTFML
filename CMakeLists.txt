@@ -29,7 +29,7 @@ set(HEADER_FILES
     src/MainWindow.hpp
     src/controllers/JavaRuntimeController.hpp
     src/controllers/JavaSettingsController.hpp
-    # 实例预设管理页的胶水（2026-10-18，coding plan §6 P1 / §10 第 10 项）。
+    # 实例预设管理页的胶水。
     src/controllers/PresetController.hpp
     src/controllers/LauncherPreferencesController.hpp
     src/controllers/CrashReportController.hpp
@@ -85,57 +85,56 @@ set(HEADER_FILES
     src/manage/UpdateRollback.hpp
     src/manage/BackupFiles.hpp
     src/manage/WorldFiles.hpp
-    # 世界只读概况（2026-10-18，coding plan §9.6）：种子 / 玩家位置 / 已生成区域 / 大小。
+    # 世界只读概况：种子 / 玩家位置 / 已生成区域 / 大小。
     src/manage/WorldMap.hpp
-    # 启动历史账本（2026-10-13，coding plan §5.1）：主页“最近游玩”排与统计的数据源。
+    # 启动历史账本：主页“最近游玩”排与统计的数据源。
     src/manage/LaunchHistory.hpp
-    # 实例页那张树的搜索与筛选（2026-10-13，coding plan §7.2）：判据层，纯函数。
+    # 实例页那张树的搜索与筛选：判据层，纯函数。
     src/manage/InstanceFilter.hpp
-    # 实例预设（2026-10-14，coding plan §5–§6 / P1）：先落「值」和「账」两层，
+    # 实例预设：先落「值」和「账」两层，
     # 段里那点载荷归各个适配器，界面那一半等 P1 的管理页上线时再接。
     src/presets/PresetTypes.hpp
     src/presets/PresetStore.hpp
-    # 原版设置那一段（2026-10-15，coding plan §6 P2）：`options.txt` 的保序模型 + 认得的
+    # 原版设置那一段：`options.txt` 的保序模型 + 认得的
     # 键那张表 + 按键冲突 + "这一段怎么落到实例上"的计划。纯值层（字节进、字节出）。
     src/presets/VanillaOptions.hpp
-    # 服务器列表那一段（2026-10-15，coding plan §6 P3）：`servers.dat` 的判据 —— 地址怎么算
+    # 服务器列表那一段：`servers.dat` 的判据 —— 地址怎么算
     # 同一台、Append / Replace / Skip 各是什么、这一趟会动哪几条。写盘那一半仍旧只有一处
     # 实现（`src/manage/ServerListFile` 露出来的那几口），这一层一个 QFile 都不开。
     src/presets/ServerListPreset.hpp
-    # 通用文件组那一段（2026-10-15，coding plan §6 P3）：`config/` / `defaultconfigs/` /
+    # 通用文件组那一段：`config/` / `defaultconfigs/` /
     # 资源包 / 光影 —— 我们看不懂里面的东西，所以只做整份的动作（缺了才拷 / 覆盖 / 跳过），
     # 三道路径闸和"这一项只能复制或覆盖"那记号都在这一份里。
     src/presets/GenericFiles.hpp
-    # MaLiLib 那一族的热键（2026-10-17，coding plan §6 P4 / §10 第 12 项）：`config/` 底下
+    # MaLiLib 那一族的热键：`config/` 底下
     # `malilib.json` / `litematica.json` / `tweakeroo.json` / `minihud.json` / `itemscroller.json`
     # 那一族 —— **按结构认**（不看文件名，所以 TweakerMore / Masa Gadget / OMMC 这些扩展照样认
     # 得出来），身份是 `modId/groupId/optionName`，默认只搬热键、可选连开关和别的值一起搬。
     src/presets/MalilibKeys.hpp
-    # 把一份预设落到一个实例上这件事的**计划**那一层（2026-10-15，coding plan §5 的
-    # `PresetPlanner` / §7 那张计划表 / 里程碑 M1 的「应用前可见精确计划」）：一段一行，
+    # 把一份预设落到一个实例上这件事的**计划**那一层：一段一行，
     # 按段的种类分派给上面三个适配器，再把各自的报告翻成同一张表。**只读，一个字节都不写。**
     src/presets/PresetPlanner.hpp
-    # 提取那一趟（2026-10-18，coding plan §6 P1「从实例提取」）：四个适配器各会收自己那
+    # 提取那一趟：四个适配器各会收自己那
     # 一摊，但"先收哪几样、收不出来怎么报"是一条流程，只在这一处。
     src/presets/PresetCapture.hpp
-    # 落到实例上那一趟（2026-10-18，coding plan §7 / §8.1）：快照 → 计划 → 备份 → 执行。
+    # 落到实例上那一趟：快照 → 计划 → 备份 → 执行。
     # 两趟确认协议照 `PresetPlanner` 那一份实现，别的层不再立第二套。
     src/presets/PresetApply.hpp
-    # 模组预设的兼容检查（2026-10-18，coding plan §6.0 P2 / §7.2）：先本地判、再查缓存、
+    # 模组预设的兼容检查：先本地判、再查缓存、
     # 最后有限并发问平台。★ 网络失败 / 429 / 超时只算「暂无法确认」，**不计入缺失**。
     src/presets/PresetCompatibility.hpp
     # 真网络版的平台查询（Modrinth 异步；CurseForge 要 key，没配置就一律「暂无法确认」）。
     src/presets/ModrinthCompatibility.hpp
-    # 结构 / 原理图的元数据与方块统计（2026-10-18，coding plan §9.5）：
+    # 结构 / 原理图的元数据与方块统计：
     # Litematica / Sponge / 原版结构三种格式，只读盘、只算。
     src/schematic/SchematicInfo.hpp
-    # Replay 录像（`.mcpr`）的元数据（2026-10-18，coding plan §9.5）：
+    # Replay 录像（`.mcpr`）的元数据：
     # 只读 zip 里的 metaData.json，不读那份几百 MB 的 recording.tmcpr。
     src/replay/ReplayInfo.hpp
-    # 启动诊断（2026-10-18，coding plan §9.5「综合启动诊断报告」）：
+    # 启动诊断：
     # 版本 / 加载器 / Java / 内存 / 模组 / 日志 / 崩溃报告，只读盘、只算。
     src/diagnose/StartupDiagnosis.hpp
-    # 迁移 / 升级副本（2026-10-18，coding plan §9.9 第 15 项）：计划只读盘，落盘在
+    # 迁移 / 升级副本：计划只读盘，落盘在
     # TransferApply。目标版本 / 加载器不一致时如实说不一致，不替用户猜。
     src/operations/TransferPlanner.hpp
     src/operations/TransferApply.hpp
@@ -151,39 +150,38 @@ set(HEADER_FILES
     src/download/ResourceCatalog.hpp
     src/download/ModDependencies.hpp
     src/download/ResourceStore.hpp
-    # 任务中心那一套（2026-10-12，coding plan §2）：账本的形状（TaskSnapshot / TaskId，
+    # 任务中心那一套：账本的形状（TaskSnapshot / TaskId，
     # 纯值 + 几条纯函数）、账本自己（TaskManager）、以及它的落盘（TaskHistory）。
     src/tasks/TaskId.hpp
     src/tasks/TaskSnapshot.hpp
     src/tasks/TaskManager.hpp
     src/tasks/TaskHistory.hpp
     src/diag/GameExitDiagnosis.hpp
-    # 服务端工作区（2026-10-13，coding plan §6 / 里程碑 M4）：一个服务端是什么（判据层，
+    # 服务端工作区：一个服务端是什么（判据层，
     # 纯函数）、盘上那一份谁在住（扫目录 + 读写 .wtfml-server）。
     src/server/ServerModel.hpp
     src/server/ServerRegistry.hpp
-    # 服务端安装那四段（2026-10-13，coding plan §6.2 / 里程碑 M4-2）：判据层（纯头：还差哪
+    # 服务端安装那四段：判据层（纯头：还差哪
     # 一份元数据、取回来怎么读、分成几步）+ 驱动层（取元数据 → 下载 → 跑安装器 → 核对）。
     src/server/ServerInstallRun.hpp
     src/server/ServerInstallController.hpp
-    # 服务端的启动 / 停止那一套（2026-10-13，coding plan §6.2 的操作 + §6.3 的停止时序 /
-    # 里程碑 M4-3）：判据层（纯头：那条命令怎么拼、起来没有、怎么停、宽限多久）+ 驱动层
+    # 服务端的启动 / 停止那一套：判据层（纯头：那条命令怎么拼、起来没有、怎么停、宽限多久）+ 驱动层
     # （一条 QProcess，一个服务端一份）。
     src/server/ServerRun.hpp
     src/server/ServerProcess.hpp
-    # 「服务端设置」那几层的判据（2026-10-13，coding plan §6.3 / 里程碑 M4-4）：
+    # 「服务端设置」那几层的判据：
     # `server.properties` 常用字段那张表与它的值域（纯）、端口占用那一次真监听（薄）、
     # 体检（纯值进、结论出）。
     src/server/ServerPropertiesForm.hpp
     src/server/ServerPortCheck.hpp
     src/server/ServerCheck.hpp
-    # 服务端那四份玩家名单（2026-10-18，§9.7「玩家管理」）：纯解析 / 纯拼 JSON。
+    # 服务端那四份玩家名单：纯解析 / 纯拼 JSON。
     src/server/ServerPlayers.hpp
-    # 异常退出后自动重启那一条策略（2026-10-18，§9.7「重启策略 + 上限」）：纯判据。
+    # 异常退出后自动重启那一条策略：纯判据。
     src/server/ServerRestart.hpp
-    # 服务端资源包那一份本地 zip 的判据 + SHA-1（2026-10-18，§9.7）。
+    # 服务端资源包那一份本地 zip 的判据 + SHA-1。
     src/server/ServerResourcePack.hpp
-    # 服务端内容（模组 / 数据包）的名字与分类判据（2026-10-18，§9.7「内容管理」）：纯函数。
+    # 服务端内容（模组 / 数据包）的名字与分类判据：纯函数。
     src/server/ServerContent.hpp
     src/util/AppPaths.hpp
     src/util/ThemeImage.hpp
@@ -195,13 +193,13 @@ set(HEADER_FILES
     src/util/ServerPing.hpp
     src/util/ErrorReport.hpp
     src/util/DownloadDiagnostics.hpp
-    # 工具箱那五件（2026-10-16，用户点名的那一批）：纯逻辑层，各自的"照什么规矩、不做什么"
+    # 工具箱那五件：纯逻辑层，各自的"照什么规矩、不做什么"
     # 都写在头文件开头那一段里。
     src/tools/TextFormat.hpp
     src/tools/CoordConvert.hpp
     src/tools/FileHash.hpp
     src/tools/AnvilPlanner.hpp
-    # 工具箱 2026-10-18 加的那四件（信标计算 / 酿造助手 / 旗帜设计 / 纹饰搭配）：同一层纯逻辑。
+    # 工具箱另外四件（信标计算 / 酿造助手 / 旗帜设计 / 纹饰搭配）：同一层纯逻辑。
     src/tools/Beacon.hpp
     src/tools/Brewing.hpp
     src/tools/Banner.hpp
@@ -210,7 +208,7 @@ set(HEADER_FILES
     ui/ConfigFileEditorPage.hpp
     ui/WorldSettingsPage.hpp
     ui/GameRuleNames.hpp
-    # 运行输出共用模型（2026-10-18，coding plan §9.8）：游戏日志窗和服务端控制台
+    # 运行输出共用模型：游戏日志窗和服务端控制台
     # 共用"认级别 / 计数 / 搜索 / 行数上限 / 导出"这一份。
     ui/RuntimeOutputModel.hpp
     ui/Theme.hpp
@@ -220,19 +218,19 @@ set(HEADER_FILES
     ui/ToggleSwitch.hpp
     # 工具箱那一整页（五件小工具共用一页 + 顶上那排 chip，见它文件头那一段）。
     ui/ToolboxPage.hpp
-    # 「服务端设置」那一整页（2026-10-13，coding plan §6.3 / M4-4）。
+    # 「服务端设置」那一整页。
     ui/ServerSettingsPage.hpp
     ui/JavaManageDialog.hpp
-    # 实例预设管理页（2026-10-18，coding plan §6 P1 / §10 第 10 项）：
+    # 实例预设管理页：
     # 左侧列表 + 右侧摘要 / 提取 / 应用计划，全部在覆盖层里，不另开窗。
     ui/PresetManagePage.hpp
-    # 安装页「预设」那一行点开的紧凑弹窗（2026-10-18，coding plan §7.1）：
+    # 安装页「预设」那一行点开的紧凑弹窗：
     # 四类各挑一份、计划与原因可展开，**不跳页**。
     ui/PresetInstallPicker.hpp
     # 底栏中间那格点开之后弹出来的任务中心面板（页面/行的形状见它的文件头）。
     ui/TaskCenterPanel.hpp
-    # 自绘的进度条（2026-10-13，coding plan §3.3「统一自绘任务进度组件」）：
-    # 底栏 / 任务面板 / 详情页三处共用这一条，换掉原来各自的原生 QProgressBar。
+    # 自绘的进度条：
+    # 底栏 / 任务面板 / 详情页三处共用这一条，不再各自用原生 QProgressBar。
     ui/TaskProgressBar.hpp
 )
 
@@ -297,7 +295,7 @@ set(SOURCE_FILES
     src/manage/DefaultSkin.cpp
     src/manage/PlayerSkinStore.cpp
     src/manage/RandomSkinStore.cpp
-    # 离线账号自己挑的那张皮肤（coding plan §1.4「换一张」那一格）。
+    # 离线账号自己挑的那张皮肤。
     src/manage/OfflineSkin.cpp
     src/manage/VersionManager.cpp
     src/manage/VersionDisplay.cpp
@@ -306,43 +304,43 @@ set(SOURCE_FILES
     src/manage/UpdateRollback.cpp
     src/manage/BackupFiles.cpp
     src/manage/WorldFiles.cpp
-    # 世界只读概况（§9.6）：只读 level.dat 的那几格 + region/*.mca 的 8 KiB 头。
+    # 世界只读概况：只读 level.dat 的那几格 + region/*.mca 的 8 KiB 头。
     src/manage/WorldMap.cpp
-    # 「上一次启动」那本账（2026-10-13，coding plan §5.1）。
+    # 「上一次启动」那本账。
     src/manage/LaunchHistory.cpp
-    # 实例预设的盘那一层（2026-10-14，coding plan §5–§6 / P1）：下标 + 单份 + 那几件增删改。
+    # 实例预设的盘那一层：下标 + 单份 + 那几件增删改。
     src/presets/PresetStore.cpp
-    # 原版设置那一段的判据（2026-10-15，coding plan §6 P2）：见头文件那一位。
+    # 原版设置那一段的判据：见头文件那一位。
     src/presets/VanillaOptions.cpp
-    # 服务器列表那一段的判据 + 落到实例上（2026-10-15，coding plan §6 P3）：见头文件那一位。
+    # 服务器列表那一段的判据 + 落到实例上：见头文件那一位。
     src/presets/ServerListPreset.cpp
-    # 通用文件组那一段的判据 + 落盘（2026-10-15，coding plan §6 P3）：见头文件那一位。
+    # 通用文件组那一段的判据 + 落盘：见头文件那一位。
     src/presets/GenericFiles.cpp
-    # 应用计划那一层（2026-10-15，coding plan §5 / §7）：见头文件那一位。
+    # 应用计划那一层：见头文件那一位。
     src/presets/PresetPlanner.cpp
-    # 提取与落到实例上（2026-10-18，coding plan §6 P1 / §7）。
+    # 提取与落到实例上。
     src/presets/PresetCapture.cpp
     src/presets/PresetApply.cpp
     src/presets/PresetModInstaller.cpp
-    # 资源包次序 / 启用 + 存档数据包（2026-10-18，coding plan §6 P4）：见头文件那两位。
+    # 资源包次序 / 启用 + 存档数据包：见头文件那两位。
     src/presets/ResourcePackPreset.cpp
     src/presets/DataPackPreset.cpp
-    # 模组「真正去下」之前的判据层（2026-10-18，coding plan §10.1 第 7 项 / P5）：
+    # 模组「真正去下」之前的判据层：
     # 必要/可选、依赖展开、冲突、替代确认与落盘校验，见头文件那一位。
     src/presets/ModInstallPlan.cpp
     src/presets/InstalledModInventory.cpp
-    # 模组预设的兼容检查（2026-10-18，coding plan §6.0 P2 / §7.2）：见头文件那一位。
+    # 模组预设的兼容检查：见头文件那一位。
     src/presets/PresetCompatibility.cpp
     src/presets/ModrinthCompatibility.cpp
-    # MaLiLib 那一族的热键（2026-10-17，coding plan §6 P4）：见头文件那一位。
+    # MaLiLib 那一族的热键：见头文件那一位。
     src/presets/MalilibKeys.cpp
-    # 结构 / 原理图的元数据与方块统计（2026-10-18，coding plan §9.5）。
+    # 结构 / 原理图的元数据与方块统计。
     src/schematic/SchematicInfo.cpp
-    # Replay 录像的元数据（2026-10-18，coding plan §9.5）。
+    # Replay 录像的元数据。
     src/replay/ReplayInfo.cpp
-    # 启动诊断（2026-10-18，coding plan §9.5）。
+    # 启动诊断。
     src/diagnose/StartupDiagnosis.cpp
-    # 迁移 / 升级副本（2026-10-18，coding plan §9.9 第 15 项）。
+    # 迁移 / 升级副本。
     src/operations/TransferPlanner.cpp
     src/operations/TransferApply.cpp
     src/operations/InstanceUpgrade.cpp
@@ -357,28 +355,28 @@ set(SOURCE_FILES
     src/download/ResourceCatalog.cpp
     src/download/ModDependencies.cpp
     src/download/ResourceStore.cpp
-    # 任务中心那一套（2026-10-12，coding plan §2）：账本 + 它的落盘。
+    # 任务中心那一套：账本 + 它的落盘。
     src/tasks/TaskManager.cpp
     src/tasks/TaskHistory.cpp
-    # 游戏异常退出那几句话（2026-10-12，coding plan §4.3）：纯规则，一张表。
+    # 游戏异常退出那几句话：纯规则，一张表。
     src/diag/GameExitDiagnosis.cpp
     src/server/ServerRegistry.cpp
-    # 服务端安装的驱动层（2026-10-13，§6.2 / M4-2）：它带 QObject + QNetwork + QProcess
+    # 服务端安装的驱动层：它带 QObject + QNetwork + QProcess
     # （判据那一半在 `ServerInstallRun.hpp`，是纯头）。
     src/server/ServerInstallController.cpp
-    # 服务端的"跑"（2026-10-13，§6.2 的操作 / M4-3）：一个服务端一条 QProcess
+    # 服务端的"跑"：一个服务端一条 QProcess
     # （判据那一半在 `ServerRun.hpp`，是纯头）。
     src/server/ServerProcess.cpp
-    # 服务端设置那两张表 + 那一次真监听（2026-10-13，§6.3 / M4-4；判据那一半在各自的头里）。
+    # 服务端设置那两张表 + 那一次真监听（判据那一半在各自的头里）。
     src/server/ServerPropertiesForm.cpp
     src/server/ServerPortCheck.cpp
-    # 玩家名单的 JSON 读写判据（2026-10-18，§9.7）。
+    # 玩家名单的 JSON 读写判据。
     src/server/ServerPlayers.cpp
-    # 崩溃自动重启的判据（2026-10-18，§9.7）。
+    # 崩溃自动重启的判据。
     src/server/ServerRestart.cpp
-    # 服务端资源包（2026-10-18，§9.7）：条目表判据 + SHA-1（借 ZipUtil / FileHash）。
+    # 服务端资源包：条目表判据 + SHA-1（借 ZipUtil / FileHash）。
     src/server/ServerResourcePack.cpp
-    # 服务端内容（模组 / 数据包）的名字与分类（2026-10-18，§9.7「内容管理」）。
+    # 服务端内容（模组 / 数据包）的名字与分类。
     src/server/ServerContent.cpp
     src/util/ImageDecode.cpp
     src/util/ThemeImage.cpp
@@ -400,7 +398,7 @@ set(SOURCE_FILES
     src/controllers/ArmorTrimPreviewController.cpp
     ui/AccountSkinDialog.cpp
     ui/GameLogWindow.cpp
-    # 运行输出共用模型（§9.8）：上面那一窗和 ServerConsolePage 都直接用它。
+    # 运行输出共用模型：上面那一窗和 ServerConsolePage 都直接用它。
     ui/RuntimeOutputModel.cpp
     ui/MainWindowUI.cpp
     ui/MemorySlider.cpp
@@ -436,7 +434,7 @@ set(SOURCE_FILES
     ui/OverlayHost.cpp
     ui/SkinModel.cpp
     ui/VersionIcons.cpp
-    # 四个加载器的标志那几张真图（2026-09-28）。CMAKE_AUTORCC 是开的，所以一个 .qrc
+    # 四个加载器的标志那几张真图。CMAKE_AUTORCC 是开的，所以一个 .qrc
     # 列在这儿就够了、不用再写 qt_add_resources。验证工程也要各自列一份（见那几个
     # CMakeLists 里同一行的注释）：漏了的表现是那几张图**静默变回草方块**。
     assets/icons.qrc
@@ -446,7 +444,7 @@ set(SOURCE_FILES
     ui/SkinViewer.cpp
     ui/TitleBar.cpp
     ui/Theme.cpp
-    # 动效那一层（2026-09-29）：按下按钮 / 换页 / 展开折叠。
+    # 动效那一层：按下按钮 / 换页 / 展开折叠。
     ui/Animations.cpp
     ui/ThemeBackground.cpp
     ui/WindowChrome.cpp
@@ -460,8 +458,8 @@ qt_add_executable(WTFMinecraftLauncher
 # GUI 子系统（**不弹控制台窗口**）。
 #
 # 不设这一条的话，MinGW 出来的默认是 CUI（Windows 控制台程序），而双击一个 CUI 程序时
-# Windows 会给它开一个黑框：用户 2026-09-23 报的「运行的时候弹了一串消息」就是它 ——
-# 里面刷的是 [WTFML] 的启动日志和 Qt 自己那几句警告。验证工程的 exe（verify / ui_check /
+# Windows 会给它开一个黑框，里面刷的是 [WTFML] 的启动日志和 Qt 自己那几句警告。
+# 验证工程的 exe（verify / ui_check /
 # mw_check / ui_shot）**不受影响**：它们是各自 CMakeLists 里单独的 target，本来就该是
 # 控制台程序（那一跑就是"看它打什么字"）。
 #
@@ -485,8 +483,7 @@ set_target_properties(WTFMinecraftLauncher PROPERTIES qt_no_entrypoint TRUE)
 #   * `src/launcher/LauncherManager.cpp` —— version.json 里 `${launcher_version}` 展开成
 #     `-Dlauncher_version=`（盘上那一位空的时候回落到字面量 `1.0`）；
 #   * `src/MainWindow.cpp` 的错误报告（`facts.launcherVersion`）。
-# 从前这两处是**各写各的**（CMakeLists 写 0.1.0、main.cpp 写 1.0.0，早就不一致了），
-# 发 0.2.0 的时候才发现——所以改成从这一个宏出来，别再写第二份字面量。
+# 两处必须都从这里取，不要再写第二份字面量。
 target_compile_definitions(WTFMinecraftLauncher PRIVATE WTFML_VERSION="${PROJECT_VERSION}")
 
 # 特供版（-DWTFML_DIAG_DOWNLOAD=ON）：详细下载日志恒开。
@@ -499,10 +496,10 @@ if(WTFML_DIAG_DOWNLOAD)
         COMPILE_DEFINITIONS "WTFML_DIAG_DOWNLOAD=1;WTFML_BUILD_FLAVOR=\"download-diagnostics\"")
 endif()
 
-# 正版登录那两格（coding plan §9.4「客户端 ID 和回调地址通过构建配置注入」）。
+# 正版登录那两格（客户端 ID 和回调地址通过构建配置注入）。
 #
 # 默认**空 = 用源码里那份兜底值**（`src/auth/AuthManager.cpp` 里那两个 `#ifdef` 的另一半），
-# 所以不带 `-D` 构建出来的东西和从前逐字一样。要换成自己那份 Azure 应用注册时不用改源码：
+# 所以不带 `-D` 构建时用的就是源码里的兜底值。要换成自己那份 Azure 应用注册时不用改源码：
 #
 #   cmake -DWTFML_CLIENT_ID=<你的应用 id> -DWTFML_REDIRECT_URI=http://localhost:38300/ …
 #

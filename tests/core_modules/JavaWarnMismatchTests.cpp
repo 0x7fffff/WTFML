@@ -14,7 +14,7 @@ void runJavaWarnMismatchTests(const QString &sandbox) {
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir);
 
-        // 盘上是个"加这个开关之前"的老配置：有别的 Java 键，就是没有这一个
+        // 盘上是个没有这个开关的老配置：有别的 Java 键，就是没有这一个
         {
             QSettings raw;
             raw.clear();

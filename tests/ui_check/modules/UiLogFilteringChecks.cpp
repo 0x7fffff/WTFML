@@ -100,10 +100,9 @@ int UiLogFilteringChecks() {
             check(log->lineCount() == 6, "Z5 但六行都还在模型里（关掉显示不是丢掉）",
                   QString::number(log->lineCount()));
 
-            // NOTE: 这里原来是点那颗「显示全部」按钮 —— 它 换成了行数下拉框
-            // （用户点名要的，见 Z10），于是"一键把五档全勾回来"没有了。回退的路只剩
-            // 占位那句话指的那一条，所以先钉住**那句指引本身还在**（不然这一档就真成了
-            // 死胡同：五档全关之后界面上没有任何一句话说得出怎么办），再自己勾回来。
+            // NOTE: 「一键把五档全勾回来」那颗按钮**没有了**（换成了行数下拉框，见 Z10），
+            // 回退的路只剩占位那句话指的那一条，所以先钉住**那句指引本身还在**（不然这一档
+            // 就真成了死胡同：五档全关之后界面上没有任何一句话说得出怎么办），再自己勾回来。
             check(GameLogWindow::filteredOutPlaceholderText().contains(QStringLiteral("勾")),
                   "Z5 五档全关之后那句占位得说清怎么回去（那颗「显示全部」已经没有了）",
                   GameLogWindow::filteredOutPlaceholderText());

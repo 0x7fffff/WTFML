@@ -1,11 +1,11 @@
 /**
  * @file MalilibKeys.hpp
  * @brief MaLiLib 那一族的热键（`config/malilib.json` / `litematica.json` / `tweakeroo.json` /
- * `minihud.json` / `itemscroller.json` ……）的**字段级**适配层（coding plan §6 P4）。
+ * `minihud.json` / `itemscroller.json` ……）的**字段级**适配层。
  *
  * 【为什么这一族值得单独一层，而不是并进通用文件组】
  *
- * 通用文件组（P3）把一份配置当**一坨字节**：合并一坨字节等于拿用户的配置去赌（§6 P3 那条
+ * 通用文件组把一份配置当**一坨字节**：合并一坨字节等于拿用户的配置去赌（这条规矩
  * 已经写死了），所以那一层只会整份拷或者整份换。可 MaLiLib 这一族的文件**是结构化的、而且
  * 用户真正想搬走的常常只有热键那几行** —— "把这台电脑上这一套按键搬过去"是玩家换机时最想要
  * 的一件事，而"把整份 `tweakeroo.json` 拷过去"会连他在这一台上调过的每一个开关一起搬走。
@@ -37,13 +37,13 @@
  * `{"enabled": …, "hotkey": {…}}` 那种"带热键的开关"又是**一格装两样**。所以这一层认出
  * 三档来：`Hotkey`（整格就是热键）、`Hotkeyed`（一格装开关 + 热键）、`Value`（别的值）。
  * * **文件是**可以不全的**：这一族读配置是"文件里写了哪几格就改哪几格、没写的就是模组自己
- * 的默认值"（实测本机那 236 份里最长 29 KB、最短 149 B，149 B 那份只有 3 格而模组照跑）。
+ * 的默认值"（真数据里最短的一份只有 3 格，模组照跑）。
  * 所以缺格、添格、只写一小片都是**正常文件**，不是我们造的怪东西 —— 这一层的合并因此
  * 可以放心地"只补缺的那几格"。
  *
  * 【★ 认这一族靠的是**结构**，不是文件名】
  *
- * §6 P4 说「并通过结构识别 TweakerMore、Masa Gadget、OMMC 等扩展」。落地就是
+ * 要求「并通过结构识别 TweakerMore、Masa Gadget、OMMC 等扩展」。落地就是
  * `malilibInspect()`：不看它叫什么，只看**它长不长这样** —— 顶层是对象、值也是对象、
  * 里面至少有一格是"热键那一格"（对象里有字符串 `keys`）或者"带热键的开关"（布尔 `enabled`
  * 加一个 `hotkey`）。这样一来：
@@ -66,7 +66,7 @@
  * 走**比丢掉强，而"覆盖一个我们看不懂的字段"比丢掉还糟）；
  * · `Hotkeyed` —— 它的 `hotkey`（整块按上面那条走）；`enabled` **只有预设里带了才写**
  * （这就是「仅合并热键」和「合并全部已知设置」的区别，见下）；
- * · `Value` —— 整格换成预设里那一份，但**类型必须一致**（§6 P4「类型变化时拒绝转换」）。
+ * · `Value` —— 整格换成预设里那一份，但**类型必须一致**（「类型变化时拒绝转换」）。
  *
  * **不认识的**格子（模组自己的、别的版本的、我们这一层还没接的）一律**一个字节都不动**：
  * 合并是"把这几格搬过去"，不是"把文件改成我们的样子"。
@@ -83,9 +83,9 @@
  *
  * `CopyIfMissing` 按**格**算，不是按整份文件算 —— 和原版设置那一层是**同一把尺子**
  * （`VanillaOptions.cpp`：「缺了才拷」这一档：目标上已经有这个键的，一个字节都不动）。
- * 要把"整份配置在目标上还没有的时候照搬一份"这件事办了，走**通用文件组**（P3，`files/` 里
+ * 要把"整份配置在目标上还没有的时候照搬一份"这件事办了，走**通用文件组**（`files/` 里
  * 装着整份文件 + `缺失时才拷`），不是这一层 —— 这一层装的是"用户选了哪几格"，再存一份原始
- * 字节等于同一个东西两处记（§2.8）。
+ * 字节等于同一个东西两处记。
  *
  * `Replace` 是**解绑 `keys`、不删格子**：`"keys": ""` 就是这一族自己的"没绑"（真数据里
  * 满地都是），而**删掉那一格**会让模组按它代码里的默认值重建 —— 用户看到的就不是"这个键
@@ -94,12 +94,12 @@
  *
  * 【「仅热键」与「全部已知设置」：区别在**载荷里有没有那几格**，不在一个模式开关上】
  *
- * §6 P4 要的是「默认仅合并热键；**可选**合并全部已知设置、完整覆盖、缺失时复制」。落地：
+ * 要求「默认仅合并热键；**可选**合并全部已知设置、完整覆盖、缺失时复制」。落地：
  * 提取的时候用户勾没勾"连开关一起搬"，决定的是**载荷里写不写 `enabled` / `value`**；
  * 合并的时候照着载荷里有的写。这样"这一份预设要搬哪几样"这件事只有**一处**说法（那几格
  * 本身），不必再在模式和载荷之间对一次账。
  *
- * 【§6 P4 那几格 DTO 与"保存触发、上下文……"】
+ * 【那几格 DTO 与"保存触发、上下文……"】
  *
  * · **写**回目标那一份时只写 `keys`（外加上面那条"只补缺"），**绝不凭空写**那些字段 ——
  * 凭空写一格等于我们伪造了一份格式，而模组下一版可能根本不认；
@@ -158,14 +158,14 @@ MalilibFileFacts malilibInspect(const QByteArray &bytes);
 bool malilibLooksLikeConfig(const QByteArray &bytes);
 
 // ---------------------------------------------------------------------------
-// 键位那一张（§6 P4 的 DTO：只用于展示和冲突分析）
+// 键位那一张（DTO：只用于展示和冲突分析）
 // ---------------------------------------------------------------------------
 
 /**
- * @brief 一组键位（§6 P4 点名的那张 DTO）。
+ * @brief 一组键位（要求的那张 DTO）。
  *
  * `keys` 是**原样的词**（`LEFT_ALT` / `BUTTON_3` / `KP_MULTIPLY`）：这一层没有一张
- * "哪个词是哪个物理键"的表，也**不编**一张（§6 P4 要的是把用户的绑定原样搬过去，不是翻译）。
+ * "哪个词是哪个物理键"的表，也**不编**一张（要求的是把用户的绑定原样搬过去，不是翻译）。
  * 界面上怎么把它画得好看归 `ui/`。
  */
 struct KeyGesture {
@@ -205,10 +205,10 @@ enum class MalilibEntryKind {
 QString malilibEntryKindKey(MalilibEntryKind kind);
 bool malilibEntryKindFromKey(const QString &key, MalilibEntryKind *out);
 
-/// 它从哪儿来（§6 P4 最后一条「保存来源 Minecraft、加载器、模组和 MaLiLib 版本」）。
+/// 它从哪儿来（「保存来源 Minecraft、加载器、模组和 MaLiLib 版本」）。
 ///
 /// **不知道的字段一个都不写**（空串 ⇒ 那一格根本不出现在 JSON 里）：
-/// "我们没记上"和"记的是空串"是两件事，而前者才是真的（§8.1 那条同样的取舍）。
+/// "我们没记上"和"记的是空串"是两件事，而前者才是真的（同样的取舍）。
 /// 这几个值**由调用方给**（它知道那个实例是什么版本装的）：这一层不自己去猜 ——
 /// 模组版本得读 `mods/*.jar` 里的元数据，那是另一件事，没做就不写。
 struct MalilibSourceVersions {
@@ -227,7 +227,7 @@ struct MalilibSourceVersions {
 /**
  * @brief 一格（= `config/<modId>.json` 里 `<groupId>.<optionName>` 那一格）。
  *
- * 身份是 **`modId` / `groupId` / `optionName`**（§6 P4 点名的那个三元组）—— 不是翻译名、
+ * 身份是 **`modId` / `groupId` / `optionName`**（要求的那个三元组）—— 不是翻译名、
  * 不是行号、不是下标。目标那一格就是按这三样找的。
  */
 struct MalilibEntry {
@@ -266,7 +266,7 @@ QString malilibModIdProblem(const QString &modId);
 /**
  * @brief 一份字节 → 一格一格。
  *
- * @param includeValues `false` = 只要热键那两档（§6 P4「**默认**仅合并热键」）。
+ * @param includeValues `false` = 只要热键那两档（「**默认**仅合并热键」）。
  * @param problemOut 读不动时的一句人话（**认不出这一族**也走这儿：那不是"空文件"，是
  * "我们不知道拿它怎么办"）。
  *
@@ -356,10 +356,10 @@ struct MalilibTarget {
 MalilibTarget malilibReadTarget(const QString &instanceRoot, const QStringList &modIds,
                                 QString *problemOut = nullptr);
 
-/// 这一趟会做什么（界面按它摆「MaLiLib 热键 合并 12 项，跳过 2 项」，见 §7）。
+/// 这一趟会做什么（界面按它摆「MaLiLib 热键 合并 12 项，跳过 2 项」）。
 struct MalilibApplyReport {
     bool ok = false;
-    /// 走到「覆盖」而用户还没明确确认过（同 §6 P2 那条：覆盖必须明确确认）。
+    /// 走到「覆盖」而用户还没明确确认过（同一条规矩：覆盖必须明确确认）。
     bool needsConfirm = false;
     QString problem;
 
@@ -368,7 +368,7 @@ struct MalilibApplyReport {
     int unchanged = 0;     ///< 其中目标上本来就是那个值的（照样算 `written`，和原版设置那边同一条）
     int removed = 0;       ///< 「覆盖」档要解绑的目标侧热键数
     int skipped = 0;       ///< 预设里有、这一趟不动的
-    int typeMismatch = 0;  ///< 类型不符、**拒绝转换**的那些（§6 P4 点名）
+    int typeMismatch = 0;  ///< 类型不符、**拒绝转换**的那些（这一类拒绝转换）
     /// 「覆盖」档**没动**的那些格子（值那一格、还有认不出来是什么的）—— 覆盖只解绑热键，
     /// 一个值都不删。★ 这个数**只在覆盖档填**（别的档一个都不删，报出来只会让人以为我们在
     /// 权衡什么），和 `OptionsApplyReport::untouchable` 同一条。
@@ -429,7 +429,7 @@ MalilibApplyReport planMalilibApply(const QList<MalilibEntry> &entries,
  * 只写**内容真的变了的**那几份（`changed`）：这一族的文件里放着用户几百个开关，一次
  * "什么都没改"的重写没有必要，而重写会动它的 mtime（模组那边有按 mtime 判"要不要重读"
  * 的做法）。★ 一份里第 2 个模组写失败就当场收手，前一份留着（和 `applyFileGroup()` 一样，
- * 整趟回滚是 §8.1 那一层备份的事）。
+ * 整趟回滚由备份那一层负责）。
  */
 MalilibApplyReport applyMalilibToInstance(const QString &instanceRoot,
                                           const QList<MalilibEntry> &entries, ApplyMode mode,
@@ -444,9 +444,9 @@ struct MalilibExtractRequest {
     QString instanceRoot;
     /// 要收哪几个模组。★ 空 = **扫 `config/` 下所有认得出来的**（结构识别，见文件头）。
     QStringList modIds;
-    /// 连开关和别的值一起收（§6 P4「可选合并全部已知设置」）。默认**只要热键**。
+    /// 连开关和别的值一起收（「可选合并全部已知设置」）。默认**只要热键**。
     bool includeValues = false;
-    /// 收出来的那几段**记哪一档**（§6 P4 那四条："默认合并" / "完整覆盖" / "缺失时复制"）。
+    /// 收出来的那几段**记哪一档**（那四条："默认合并" / "完整覆盖" / "缺失时复制"）。
     /// 这一档写进段里、由应用那一趟照着办 —— 提取这一趟不写盘，所以它不是"现在就覆盖"。
     ApplyMode mode = ApplyMode::Merge;
     /// 记进载荷的来源版本（不知道就空着，见 `MalilibSourceVersions`）。

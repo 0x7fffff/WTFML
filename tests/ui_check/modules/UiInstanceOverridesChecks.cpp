@@ -27,17 +27,14 @@ int UiInstanceOverridesChecks() {
         }();
         // 全局是**手动档**（autoMemory=false）：下面"自动档下两行禁用"那几条要自己
         // 把那一行切成自定义才看得到，否则验的是"跟随全局跟着全局禁用"，两件事混一起。
-        // 「跟随全局 / 自定义」那一格**从前是一对单选钮**（`followRadioName()`
-        // / `customRadioName()` 两个 objectName 一起没了），要求「所有单选框换成下拉的」
-        // 之后成了**一个** QComboBox，下标 0 / 1。
+        // 「跟随全局 / 自定义」那一格是**一个** QComboBox，下标 0 / 1。
         //
         // 下面这三个辅助就是那一格的读 / 写两半 —— 档位只有一个出处
         // （`choiceFollowIndex()` / `choiceCustomIndex()`），这里一个 `0` / `1` 都不写。
         const auto choiceCombo = [](const Dlg &d, const QString &field) {
             return d.findChild<QComboBox *>(Dlg::choiceComboName(field));
         };
-        // 「把这一项的档位切到自定义 / 跟随全局」。和从前那对单选钮的 `setChecked()` 对着看：
-        // 下拉框的 `currentIndexChanged` **是接在写盘那条线上的**（见 .hpp 里那段），所以这一下
+        // 把这一项的档位切到自定义 / 跟随全局：下拉框的 `currentIndexChanged` **是接在写盘那条线上的**（见 .hpp 里那段），所以这一下
         // 等价于"用户真的改了一次档位"—— 那正是这些调用点想要的意思（它们紧接着就读
         // `override()`），别用 QSignalBlocker 盖掉。
         const auto setChoice = [&choiceCombo](const Dlg &d, const QString &field, bool custom) {
@@ -54,7 +51,7 @@ int UiInstanceOverridesChecks() {
             const auto *combo = choiceCombo(d, field);
             return combo != nullptr && combo->currentIndex() == Dlg::choiceFollowIndex();
         };
-        // 那一格下拉框里第 @p index 项的文字（从前是 `followRadio(...)->text()` 那种读法）。
+        // 那一格下拉框里第 @p index 项的文字。
         const auto choiceText = [&choiceCombo](const Dlg &d, const QString &field, int index) {
             const auto *combo = choiceCombo(d, field);
             return combo != nullptr ? combo->itemText(index) : QString();
@@ -66,7 +63,7 @@ int UiInstanceOverridesChecks() {
         const auto lineEditOf = [](const Dlg &d, const QString &name) {
             return d.findChild<QLineEdit *>(name);
         };
-        // ---- U0 左栏（ 起只有一列：按实例现算出来的页表）----
+        // ---- U0 左栏（只有一列：按实例现算出来的页表）----
         //
         // 要求：「针对每个实例，在实例设置里个性化自定义，概览里面调整是否显示，把整个
         // 文件管理换了」。这一段钉的是**骨架**：一列页表 + 右边一层堆叠页、两张键表按下标
@@ -98,14 +95,13 @@ int UiInstanceOverridesChecks() {
                 QWidget *page = stack != nullptr ? panelAt(stack, stack->currentIndex()) : nullptr;
                 return page != nullptr ? page->objectName() : QString();
             };
-            // 左栏那条导航**换成了树**之后，从前那个"某一键在第几行"（`rowOfKey`）整条退场：
-            // 树里认人靠 `UserRole` 上那个键（`navItemOf()`），没有行号这一层 —— 也就没有
-            // "差一格点错页"这种错法了（这一节里原来那条 `setCurrentRow(i)` 就是这么量的）。
+            // 左栏那条导航是**树**：认人靠 `UserRole` 上那个键（`navItemOf()`），没有行号这一层 ——
+            // 也就没有"差一格点错页"这种错法了。
 
-            // 左栏那条导航**变成了一棵树**（`navigationTreeName()` —— 界面
-            // 导航的唯一出处）。上面那个 `pageListOf` 现在只指得到一列**旧的、`hide()` 着
-            // 的** `QListWidget`：它的内容还是老的四组十三行、`shownEntryKeys()` 改了它
-            // 也不动。所以凡是"量左栏"的判据一律改认下面这几个。
+            // 左栏那条导航是**一棵树**（`navigationTreeName()` —— 界面
+            // 导航的唯一出处）。`pageListOf` 只指得到一列**旧的、`hide()` 着的**
+            // `QListWidget`：它的内容还是四组十三行、`shownEntryKeys()` 改了它
+            // 也不动。所以凡是"量左栏"的判据一律认下面这几个。
             //
             // 树的形状（`rebuildNavigationTree()`）：顶上两条光叶子（概览 / 启动），底下
             // 四组（内容管理 / 世界与联机 / 创作工具 / 维护），组里的叶子才是页。组的
@@ -183,7 +179,7 @@ int UiInstanceOverridesChecks() {
                           nullptr &&
                       dialog.findChild<QListWidget *>(QStringLiteral("instanceSettingsCategoryList")) ==
                           nullptr,
-                  "★ U0a 2026-09-26 那版的两条导航列（大类 / 小类）在这一页上**一个都找不到"
+                  "★ U0a 两条导航列（大类 / 小类）在这一页上**一个都找不到"
                   "了**（左栏只剩一列）");
 
             // 左栏此刻有哪几条 = pinnedPageKeys() + optionalPageKeys()：这是"七条全可用、
@@ -307,7 +303,7 @@ int UiInstanceOverridesChecks() {
                   QStringLiteral("可选 %1 条 / 文件页 %2 条")
                       .arg(Dlg::optionalPageKeys().size())
                       .arg(Dlg::filePageKeys().size()));
-            // 「快捷方式」不再是一页（ 那九颗按钮搬进了概览）。键表少一条 ⇒
+            // 「快捷方式」不再是一页（那九颗按钮在概览里）。键表少一条 ⇒
             // 少一页； 起又补上了那一整批**生命周期页**（worldbackup … operationsmenu
             // 那 16 条），所以 pageCount() 现在是 26 = 钉死 2 + 文件 8 + 生命周期 16。
             // 下面这一条把三张表的**关系**钉死，"加一页忘了动表"当场红。
@@ -364,10 +360,9 @@ int UiInstanceOverridesChecks() {
                   QStringLiteral("对上 %1/%2").arg(indexHit).arg(expectedPanels.size()));
 
             // 每一页外面套着**它自己那一层**滚动区，名字一一对上。
-            // 这一条钉的就是用户 报的那个 bug 的**修法本身**：从前是
-            // 「整页套一层」（那一层在 OverlayHost 上，把左栏那条导航列一起包进去了
-            // ⇒ 滚右栏的内容时左栏跟着滚走了 —— 要求「滚动的时候左边也跟着滚了」）。
-            // 现在滚动区落在**每一页自己**身上，左栏不在任何一层里。
+            // 这一条钉的是一条布局约束：滚动区落在**每一页自己**身上，
+            // 不能「整页套一层」（那种套法会把左栏那条导航列一起包进去
+            // ⇒ 滚右栏的内容时左栏跟着滚走）。左栏不在任何一层里。
             int scrollHit = 0;
             for (int i = 0; i < stack->count(); ++i) {
                 auto *scroll = qobject_cast<QScrollArea *>(stack->widget(i));
@@ -542,7 +537,7 @@ int UiInstanceOverridesChecks() {
             // 而"换父容器"这件事一旦漏了一个，症状是"那一颗按钮在哪儿都找不着"
             // （它还在，只是挂在一页根本没露出来的控件底下）。
             //
-            // NOTE: （§5.3）那一排一度是十三条、而且可能收着几颗；
+            // NOTE: 那一排一度是十三条、而且可能收着几颗；
             // 去重后是**五条** —— 这一条数的仍然是"每一颗都在概览页里"（`belongsTo`
             // 看的是父链，和露不露无关），条数跟着捷径表走。
             int shortcutInOverview = 0;
@@ -593,18 +588,17 @@ int UiInstanceOverridesChecks() {
                   "U0g 左栏比内容区窄（导航列不该跟内容抢地方）",
                   QStringLiteral("%1 vs %2").arg(navShown->width()).arg(stack->width()));
 
-            // U0g-2 左栏的宽度**不随"现在显示着哪几页"变**（ 修，
-            // 换成树之后这条**更硬**了：树本来就是定宽）。
+            // U0g-2 左栏的宽度**不随"现在显示着哪几页"变**（树是定宽的，这条更硬）。
             //
-            // 原来那个算法只看表里**这一刻**有的那几条 ⇒ 用户在「高级选项」里勾掉「结构/原理图」
-            // （左栏里最宽的那一条）之后，这一列当场窄掉十来像素、**右栏整幅跟着横着跳一下**；
+            // 宽度只看表里**这一刻**有的那几条的话，用户在「高级选项」里勾掉「结构/原理图」
+            // （左栏里最宽的那一条）之后，这一列会窄掉十来像素、**右栏整幅跟着横着跳一下**；
             // 同一个对话框开在两个实例上也可以不一样宽（"用不上的那一页"根本不在表里）。
             // 宽度是这一页的**骨架**，骨架不该跟着内容晃 —— 和「少一颗的那一行不摊开」是同一条
             // 性质的规矩。
             //
             // NOTE: 拿"把七条可选页**全勾掉**"来量是最狠也最省事的一发：树上那七条叶子当场
-            // 消失（"内容管理"那一组会剩个空组），要是有哪一条比钉死那几条宽，原来的
-            // 算法一定当场窄下来。
+            // 消失（"内容管理"那一组会剩个空组），要是有哪一条比钉死那几条宽，宽度
+            // 当场就会窄下来。
             {
                 const int countBefore = navLeafKeys(navShown).size();
                 const int widthBefore = navShown->width();
@@ -641,7 +635,7 @@ int UiInstanceOverridesChecks() {
             //
             // NOTE: 这里量的 x()/width() 都是**相对那个装按钮的格子**的 —— 它们同父，
             // 比宽度和间距不需要换算坐标。
-            // NOTE: （§5.3）那一排一度是十三条； 去重后回到**五条**
+            // NOTE: 那一排一度是十三条；去重后回到**五条**
             // （默认"全都在"⇒ 五颗全在外面、也没有「更多目录…」）。下面这些是按
             // `shortcutTexts().size()` 现算的，一条都不写死条数。
             {
@@ -737,8 +731,7 @@ int UiInstanceOverridesChecks() {
         // ---- U0h 概览栏那四行（图标+名称 / 两颗按钮 / 置顶 / 导出占位，）----
         //
         // 要求：「第一行 图标 名称 / 第二行 更改图标 分组… / 第三行 显示在置顶组中 /
-        // 第四行 导出」（原来那一版是「概览（版本名、图标，分组，置顶/取消置顶）」那样三行，
-        // 每行一个行名）。那几行都**不改启动参数**，改的是"这个实例是谁"：长什么样、摆在哪儿。
+        // 第四行 导出」。那几行都**不改启动参数**，改的是"这个实例是谁"：长什么样、摆在哪儿。
         //
         // 出参那条约定的**唯一例外**就在这一行里（图标那一行有十档、其中"本地图片"没有任何
         // 控件能表示它，所以它的当前值在成员里、按钮只是它的画，见 .hpp 里那段）。所以这里
@@ -930,10 +923,9 @@ int UiInstanceOverridesChecks() {
 
             // ---- 置顶那一行 ----
             //
-            // 用户把置顶改成**两边都显示**（「就是在被设为置顶组的那个组里再放
-            // 一个同名的」）之后，这一格和「分组…」那一格**不再互相影响**：一个管"要不要在
-            // 置顶组里多摆一条"，一个管"老家在哪"。旧断言（勾上置顶会把这颗按钮底下那一格
-            // 挪到置顶组上并禁用）钉的是老语义，已经删了 —— 现在钉的是反过来那句。
+            // 置顶是**两边都显示**（被设为置顶组的那个组里再放一个同名的）：
+            // 这一格和「分组…」那一格**不互相影响** —— 一个管"要不要在
+            // 置顶组里多摆一条"，一个管"老家在哪"。这里钉的是两者互不影响。
             dialog.setGroupChoices(groups, QStringLiteral("default-vanilla"));
             dialog.setPinned(true, QStringLiteral("default-moddable"));
             check(pinOf(dialog)->isChecked() && dialog.pinned(),
@@ -986,13 +978,13 @@ int UiInstanceOverridesChecks() {
                       .arg(changeIconOf(dialog)->text())
                       .arg(groupButtonOf(dialog)->text())
                       .arg(pinOf(dialog)->text()));
-            // 第四行那颗「导出…」** 起是真的**（原来是灰占位）：点得动、字和
+            // 第四行那颗「导出…」**是真的**：点得动、字和
             // tooltip 都换成产品那一份，而且**和「导出启动脚本」不是同一个 objectName**
             // —— 那两颗认错控件过一次（一个是整合包、一个是 .bat）。
             auto *exportPack = dialog.findChild<QPushButton *>(Dlg::exportButtonName());
             check(exportPack != nullptr && exportPack->isEnabled() &&
                       exportPack->text() == Dlg::exportText(),
-                  "★ U0h 第四行那颗「导出…」是能点的了（2026-09-26 从灰占位换的），"
+                  "★ U0h 第四行那颗「导出…」是能点的了，"
                   "字是产品那个访问器给的",
                   exportPack != nullptr ? exportPack->text() : QString());
             check(exportPack != nullptr && exportPack->toolTip() == Dlg::exportButtonTooltip(),
@@ -1258,7 +1250,7 @@ int UiInstanceOverridesChecks() {
                       "U1d 反面：「最大内存」那一行照样露着（判据不是「这个窗什么都藏着」）");
             }
 
-            // ---- U1c 「实例名」那一格（ 从实例页右栏搬进来的「重命名…」） ----
+            // ---- U1c 「实例名」那一格（实例页右栏那个「重命名…」） ----
             // 它改的是这个实例的**身份**（磁盘上那个目录名），不是一项启动参数，所以单独一行、
             // 摆在这张表的最上面（先看清改的是哪一个，再谈别的）。这一格存在的理由就是下面
             // 那第二条断言：**初值取的是目录名、不是显示名** —— 拿显示名当初值的话，用户进
@@ -1430,7 +1422,7 @@ int UiInstanceOverridesChecks() {
         {
             Dlg::Override current;
             current.xmx = 2048;   // 这个实例自己钉了最大内存
-            current.xms = 16384;  // 而盘上还留着一条比它大的最小内存（老版本存的）
+            current.xms = 16384;  // 而盘上还留着一条比它大的最小内存（遗留值）
             Dlg dialog(instanceDisplayName, instanceDirName, current, global, QStringList(), true);
             const Dlg::Override ov = dialog.override();
             check(ov.xmx.has_value() && *ov.xmx == 2048, "U5b 自定义的最大内存原样读回来",
@@ -1497,10 +1489,10 @@ int UiInstanceOverridesChecks() {
 
         // ---- U7b 展开高级选项：窗口**一个字都不动**，多出来的内容让那一页自己滚 ----
         //
-        // 用户 报的：「实例设置在点开高级选项后再关闭，窗口大小会有问题」。
-        // 那时的形状是：Qt 只在"窗口比内容还小"时把窗口**撑大**，内容变少时一动不动 ——
-        // 于是 600x480 → 展开 600x503 → 折回**还是** 600x503（布局只要 310，多出来那一截
-        // 全是空白）。当天产品里补的是一条"展开前记下高度、折回时按它还原"的还原逻辑。
+        // 展开高级选项再折回，窗口**一个字都不动**。Qt 只在"窗口比内容还小"时把窗口
+        // **撑大**，内容变少时一动不动 —— 不补还原逻辑的话
+        // 600x480 → 展开 600x503 → 折回**还是** 600x503（布局只要 310，多出来那一截
+        // 全是空白）。产品在"展开前记下高度、折回时按它还原"。
         //
         // NOTE: 这一段必须**真的 show()**（U7 那一段没 show：布局在隐藏的窗上根本不重算）。
         // 开量之前先把窗缩到"折叠时最矮"那一档 —— 这样"多出来的内容一定超出一屏"
@@ -1533,8 +1525,8 @@ int UiInstanceOverridesChecks() {
             const int expandedMax =
                 scroll != nullptr ? scroll->verticalScrollBar()->maximum() : -1;
             check(dialog.height() == collapsedHeight,
-                  "★ U7b 展开高级选项之后**窗口高度一个字都不动**（2026-09-26 那版修法之前，"
-                  "Qt 会把它撑高 —— 那一截空白就是用户当年报的问题）",
+                  "★ U7b 展开高级选项之后**窗口高度一个字都不动**（不被 "
+                  "Qt 撑高、留一截空白）",
                   QStringLiteral("展开前 %1 / 现在 %2").arg(collapsedHeight).arg(dialog.height()));
             check(expandedMax > collapsedMax,
                   "★ U7b 多出来的那一块落在**这一页自己的滚动区**里（滚得动 = 用户够得着"
@@ -1608,9 +1600,9 @@ int UiInstanceOverridesChecks() {
         }
 
         // ---- U8b 内存上限：由**调用方递进来**（设置页那一格算出来的那个数） ----
-        // （第 5 轮审计）：上限从前是这一页自己算的（再读一次系统内存），
-        // 于是"设置页能填 4096、实例页能填 16384"这种两边对不上的事做得到。
-        // 现在只有一处算（MainWindowUI::memoryCapForTotalMb），由 MainWindow 从
+        // 上限不能是这一页自己算的（再读一次系统内存），否则"设置页能填 4096、
+        // 实例页能填 16384"这种两边对不上的事做得到。
+        // 只有一处算（MainWindowUI::memoryCapForTotalMb），由 MainWindow 从
         // 设置页那一格上取下来递进来（GlobalValues::memoryCapMb）。
         {
             const auto maxOf = [&](int capMb) {
@@ -1757,7 +1749,7 @@ int UiInstanceOverridesChecks() {
                 }
             }
 
-            // (1b) 那一行的几何：`宽 × 高` 三样**挨在一起**、整行靠左（ 修）
+            // (1b) 那一行的几何：`宽 × 高` 三样**挨在一起**、整行靠左
             //
             // 唯一的洞是「×」那一颗 —— 四颗里只有它**没带对齐**。盒子布局里"没有对齐、
             // 又能长"的那一颗会把多出来的空间**全吃掉**（QLabel 的默认策略就是能长），
@@ -1869,7 +1861,7 @@ int UiInstanceOverridesChecks() {
                       "U9b 一进来就读回去：和盘上那份逐项相同");
             }
 
-            // (4) 盘上那个代号这一版认不出来（换过名、或者手写过）：停在第一档，不崩、不留空。
+            // (4) 盘上那个代号产品认不出来（换过名、或者手写过）：停在第一档，不崩、不留空。
             // 真实后果是用户看见「小窗」而盘上写着别的 —— 但那一份本来就谁也读不懂，
             // **可断言的是"界面不空、也不越界"**（真正的兜底在合成那一侧，见 verify ZD5）。
             {

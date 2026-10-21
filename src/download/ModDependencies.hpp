@@ -99,7 +99,7 @@ QString versionsKeyFor(const QString &consumer, const QString &projectId,
 /// "这几个号叫什么"）。`consumer` 那张名单和上面那条各算各的（一个消费方在两条路上是
 /// 同一个名字，但两条路的钥匙本来就是两份不同的字符串）。
 ///
-/// 为什么这一条也得挂消费方（ 补）：`fetchProjects()` 和 `fetchVersions()` 一样
+/// 为什么这一条也得挂消费方：`fetchProjects()` 和 `fetchVersions()` 一样
 /// 是**按钥匙去重**的（同一把钥匙再来一发会把前一发 abort 掉，那一发的结果于是永远不回）。
 /// 今天有两个人在问名字：「装一个模组时那几个前置叫什么」（`dependency`）和「详情页上那
 /// 一行前置写什么」（`detail`）。两边问的**恰好是同一批号**时撞车的话，先发那一趟的
@@ -245,7 +245,7 @@ struct InstalledItem {
     /// —— Modrinth 的资源包写 `minecraft`、光影写 `iris` / `optifine`（实测 Complementary
     /// 那条就是 `['iris','optifine']`）、数据包写 `datapack` —— 带上「Fabric」上去
     /// **不会报错、只是一个都不匹配**，于是那一类的每一条都判成"说不清"。真机实测
-    /// （，用户那个整合包）：14 个资源包 + 光影包一条都判不出来，报告里全是
+    /// （用户那个整合包）：14 个资源包 + 光影包一条都判不出来，报告里全是
     /// "没问到版本列表（网络或接口没成）"—— 而同一个 sha1 把 `loaders` 去掉再问，
     /// 接口**当场就答**（同一条 `curl` 实测，见 FEATURES.md）。
     bool loaderApplies = true;
@@ -318,7 +318,7 @@ UpdateVerdict judgeUpdate(const InstalledItem &item,
                           const QString &problem = QString());
 
 /**
- * @brief 拿**批量那一发**给的"最新那一版"判盘上这一条是不是最新的（ 加）。
+ * @brief 拿**批量那一发**给的"最新那一版"判盘上这一条是不是最新的。
  *
  * 和上面那个 `judgeUpdate()` 的判据**是同一条**（"盘上这一份是不是最新的那一版"），区别只在
  * 手里有什么：那一条拿的是整个版本列表（所以能说"比它新的有几条"），这一条拿的是接口直接
@@ -332,8 +332,8 @@ UpdateVerdict judgeUpdate(const InstalledItem &item,
  * 在这个游戏版本 / 加载器下没有版本，或者它压根不在 Modrinth 上。
  *
  * @param problem 那一批自己的毛病（429 / 没连上 / 正文读不懂）。非空时**整批**都是
- * "说不清"，而且 `reason` 就是它 —— 这就是 那次用户报「无法正常获取更新」
- * 的正面修法：429 原来被吞成"没问到版本列表（网络或接口没成）"，用户看不见真因。
+ * "说不清"，而且 `reason` 就是它 —— 这就是「无法正常获取更新」
+ * 的正面修法：429 不能被吞成"没问到版本列表（网络或接口没成）"，否则用户看不见真因。
  */
 UpdateVerdict judgeUpdateAgainstLatest(const InstalledItem &item,
                                        const ResourceCatalog::VersionEntry &latest,

@@ -1,7 +1,7 @@
 #include "Support.hpp"
 
 void runServerListPresetTests() {
-    section("PC. 服务器列表那一段：追加 / 覆盖 / 跳过与去重（§6 P3）");
+    section("PC. 服务器列表那一段：追加 / 覆盖 / 跳过与去重");
 
     section("PC0. 「同一台服务器」怎么判（纯值）");
     {

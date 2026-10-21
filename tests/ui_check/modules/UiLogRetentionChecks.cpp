@@ -22,8 +22,8 @@ int UiLogRetentionChecks() {
                       uniqueChoices.size() == choices.size() && choices.contains(0),
                   "Z10 六档两两不同，而且有「全部」那一档（0）",
                   QString::number(combo->count()));
-            // NOTE: 第四档是 **5000**，不是要求里那个「25」（他打错了，随后订正过）。
-            // 这里写死 5000 而不是"随便有个中间值"：这一档正是那次订正本身。
+            // NOTE: 第四档是 **5000**（要求里那个「25」是笔误，以 5000 为准）。
+            // 这里写死 5000 而不是"随便有个中间值"：这一档就是把那条要求钉死的地方。
             check(choices.contains(500) && choices.contains(1000) && choices.contains(2000) &&
                       choices.contains(5000) && choices.contains(10000),
                   "Z10 500 / 1000 / 2000 / 5000 / 10000 那五档都在",

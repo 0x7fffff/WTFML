@@ -37,7 +37,7 @@ public:
     ServerCheck::Facts checkFacts(const QString &serverId,
                                   ServerPortCheck::State portState) const;
 
-    // ---------- 玩家名单（§9.7「玩家管理」）----------
+    // ---------- 玩家名单（「玩家管理」） ----------
     //
     // 判据全在 `ServerPlayers`（纯函数）；这一层只负责"哪个文件、读写那几个字节"。
     // 服务端**正在跑**的时候不要调 `writePlayers()`：它退出时会把自己内存里那份名单

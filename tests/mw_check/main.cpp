@@ -203,7 +203,7 @@ int main(int argc, char *argv[]) {
     // 每个 run 都从"从没启动过任何版本"开始，否则上一轮留下的记录会让冷启动断言失效
     QFile::remove(settingsDir + QStringLiteral("/WTFML-check/mw_check.ini"));
 
-    // ---------- 启动器级那几份账本：也不许跨趟（coding plan §3.1⑤「纳入稳定回归」）----------
+    // ---------- 启动器级那几份账本：也不许跨趟（纳入稳定回归）----------
     // 它们落在 `AppPaths::defaultMinecraftDir()`（= **<这个 exe 旁边>/.minecraft**），而那个
     // 位置**故意不跟沙盒走**：`TaskHistory::filePath()` 读的就是它，因为任务历史是**启动器级**
     // 账本 —— 用户换游戏文件夹它也不该跟着搬（见 `src/tasks/TaskHistory.hpp` 文件头那段）。
@@ -1513,11 +1513,10 @@ int main(int argc, char *argv[]) {
     // ---------- icon-lookup-live：**真网络 + 用户自己的盘**量一次"这一页到底有几张图" --
     // mw_check.exe icon-lookup-live <目录>
     //
-    // 存在的理由： 用户报「模组的图标没有正确加载」。查下去的真因是
-    // `InstanceIconLookup` 原来**不收图标地址**、指望 `Hit::iconPngUrl()` 自己拼的那条
-    // `cdn.modrinth.com/data/<id>/icon.png` —— 而那条**只是老项目的别名**。当时是靠
-    // "照着他自己的盘一个一个要过"才认定的（20 个模组 11 个回 404），所以修完得能**再照
-    // 他的盘跑一遍**看现在是什么样，而不是只信假服务器上那几条断言。
+    // 存在的理由：`InstanceIconLookup` **必须收接口给的图标地址**，不能指望
+    // `Hit::iconPngUrl()` 自己拼的 `cdn.modrinth.com/data/<id>/icon.png` ——
+    // 那条**只是老项目的别名**。用户盘上 20 个模组有 11 个回 404，所以这条命令要能
+    // **照着他的盘跑一遍**看现在是什么样，而不是只信假服务器上那几条断言。
     //
     // **一个字节都不写**：`InstanceIconLookup::lookup` 只读文件算哈希 + 发网络请求
     // （图标缓存是 `ResourceStore` 那一层的事，这条路根本不碰它，`Options` 也不带任何落盘
@@ -2018,9 +2017,8 @@ int main(int argc, char *argv[]) {
     // 那一个。这类目录**继续不算已安装版本**，但必须上报一次（J 节验的就是这个"一次"），
     // 所以它必须在 MainWindow 构造之前摆好，让冷启动那次扫描去发现它。
     //
-    // NOTE: 判据 放松过，这个 fixture 跟着换了 —— 以前这里是「目录名和 jar 名
-    // 对不上」的目录，而那种目录现在**认得出**了（那正是放松要救的情形），再拿它当
-    // "认不出"的例子就驴唇不对马嘴。真正还认不出的只剩"顶层多个 jar"这一类。
+    // NOTE: 「目录名和 jar 名对不上」的目录**认得出**（那正是判据要救的情形），
+    // 不能拿它当"认不出"的例子。真正还认不出的只有"顶层多个 jar"这一类。
     const QString kTwoJarsDir = QStringLiteral("两个jar的目录");
     const QString kTwoJarsA = QStringLiteral("aaa.jar");
     const QString kTwoJarsB = QStringLiteral("bbb.jar");
@@ -2048,7 +2046,7 @@ int main(int argc, char *argv[]) {
     // 而 QMetaObject::invokeMethod 是按**类型名**找这个参数的 —— 不注册就找不到。
     qRegisterMetaType<PlayerSkinProfile>("PlayerSkinProfile");
     // 同理：Y2c/Y2d 那几节要自己把"列表到了"那一发回复打进 onLoaderVersionsFetched，
-    // 参数从 QStringList 换成了带正式版标记的 LoaderVersionList（ 两档那次）。
+    // 参数是带正式版标记的 LoaderVersionList。
     // 产品那边在 VersionManager 的构造函数里注册（发信号的也是它），这里自己再注一次 ——
     // 这一节不经过 VersionManager 也能跑，不能指望它。
     qRegisterMetaType<LoaderMeta::LoaderVersionList>("LoaderMeta::LoaderVersionList");
@@ -2066,7 +2064,7 @@ int main(int argc, char *argv[]) {
     // ---------- 找控件（按 objectName） ----------
     QComboBox *installed = comboByObjectName(&window, MainWindowUI::installedVersionComboName());
     QPushButton *startBtn = startButton(&window);
-    // 下载页那一套（ 起）：版本树 → 安装页。老的「可安装版本」下拉框没了。
+    // 下载页那一套：版本树 → 安装页，不再有「可安装版本」下拉框。
     QTreeWidget *versionTree =
         window.findChild<QTreeWidget *>(MainWindowUI::versionTreeName());
     QStackedWidget *gameStack =
@@ -2353,7 +2351,7 @@ int main(int argc, char *argv[]) {
               QString::number(installed->count()));
 
         // ---- 另一半：用户自己在资源管理器里改过目录名的实例必须认得出来 ----
-        // 这是判据放松要救的那个真机场景（388 MB / 851 MB 的整合包各一个，以前从列表里
+        // 这是判据要救的那个真机场景（388 MB / 851 MB 的整合包各一个，会从列表里
         // 静默消失）。现造一个出来再刷新：目录名是「改名了的整合包」，里面躺着的是
         // 「旧名字.jar」和「旧名字.json」。
         const QString renamedDir = QStringLiteral("改名了的整合包");
@@ -2568,7 +2566,7 @@ int main(int argc, char *argv[]) {
         byObjectName<QCheckBox>(&window, MainWindowUI::versionNameLoaderCheckName());
     QCheckBox *loaderVersionCheck =
         byObjectName<QCheckBox>(&window, MainWindowUI::versionNameLoaderVersionCheckName());
-    // 「启动选项」那一组（，AE 节用）
+    // 「启动选项」那一组（AE 节用）
     QCheckBox *showLogCheck =
         byObjectName<QCheckBox>(&window, MainWindowUI::showGameLogCheckName());
     QComboBox *priorityCombo =
@@ -2582,7 +2580,7 @@ int main(int argc, char *argv[]) {
     // 两个数字框中间那个「×」。它也得跟着灰 —— 灰了两个框却留一个亮着的 × 是那种"看着
     // 像坏了"的界面。
     QLabel *windowSizeTimes = window.findChild<QLabel *>(MainWindowUI::gameWindowSizeTimesLabelName());
-    // 「外观」那一格（，AI 节用）
+    // 「外观」那一格（AI 节用）
     QLineEdit *titleEdit = byObjectName<QLineEdit>(&window, MainWindowUI::titleTextEditName());
     const bool settingsWired = javaManageButton != nullptr && javaLabel != nullptr &&
                                javaWarn != nullptr &&
@@ -2678,7 +2676,7 @@ int main(int argc, char *argv[]) {
               "有效期内 loadSavedToken() 直接用盘上那张，不重新换", token);
         check(reason.isEmpty(), "成功时不该带着失败原因", reason);
 
-        // 界面也得跟着变：底栏真名 + 第二行「正版登录」。这两条以前只能真机登录一次才验得了。
+        // 界面也得跟着变：底栏真名 + 第二行「正版登录」。
         MainWindow w8;
         w8.show();
         QApplication::processEvents();
@@ -2785,13 +2783,13 @@ int main(int argc, char *argv[]) {
     header("T. 实例分组：树怎么画、组头、跟着游戏文件夹走");
     if (const int result = MwInstanceGroupsChecks(root, versionsDir); result != 0) return result;
 
-    header("T37. 实例页的搜索与筛选（§7.2）：搜什么 / 四颗 chip / 清空恢复原样");
+    header("T37. 实例页的搜索与筛选：搜什么 / 四颗 chip / 清空恢复原样");
     if (const int result = MwInstanceFiltersChecks(); result != 0) return result;
 
-    header("T39. 服务端那一半：模式切换的接线 + 建服务端真的落了盘（coding plan §6 / M4-1）");
+    header("T39. 服务端那一半：模式切换的接线 + 建服务端真的落了盘");
     if (const int result = MwServerCreationChecks(root); result != 0) return result;
 
-    header("T40. 服务端安装那四段真的跑起来（coding plan §6.2 / M4-2）");
+    header("T40. 服务端安装那四段真的跑起来");
     if (const int result = MwIntegrityActionsChecks(root); result != 0) return result;
 
     header("T18. 实例设置「概览」栏那四行：图标+名称 / 两颗按钮 / 置顶勾选 / 导出占位");
@@ -2821,13 +2819,13 @@ int main(int argc, char *argv[]) {
     header("AA. 整合包导入：界面那几道守卫（全程离线）");
     if (const int result = MwModpackImportChecks(versionsDir, window, windowJava, pinGlobalJava, unpinGlobalJava); result != 0) return result;
 
-    header("AB. 下载进度进的是任务账本：底栏那格 + 任务中心面板（2026-10-12 任务中心那次）");
+    header("AB. 下载进度进的是任务账本：底栏那格 + 任务中心面板");
     if (const int result = MwTaskSummaryChecks(window); result != 0) return result;
 
     header("AB6. 压力：几十项任务同屏（大量下载 + 多实例启动 + 批量改文件）");
     if (const int result = MwTaskStressChecks(window); result != 0) return result;
 
-    header("AB7. 任务中心收在别的选项卡上时，底栏那一按要把它收回当前页（2026-10-19）");
+    header("AB7. 任务中心收在别的选项卡上时，底栏那一按要把它收回当前页");
     // ------------------------------------------------------------------
     // 用户报的形状：在主页把任务中心点开 → 切到下载页（这一页按设计**收在**别的选项卡上，
     // 不关也不销毁）→ 再点底栏中间那格，**什么都没发生**。
@@ -2947,8 +2945,7 @@ int main(int argc, char *argv[]) {
                   QStringLiteral("min=%1 max=%2")
                       .arg(acAccountButton->minimumWidth())
                       .arg(acAccountButton->maximumWidth()));
-            // 改写：原来这里断言"两行封的是同一个数"，那是**当时的行为**，
-            // 不是该有的行为。两行真正的判据是"**留给字的**宽度一样"——
+            // 两行真正的判据是"**留给字的**宽度一样"，不是"两行封的是同一个数"——
             // 第一行那格是 136（方块在布局里另占一格，不吃这个上限），
             // 第二行那格的上限要 136 + 方块段（它的缩进是 contentsMargins，从上限里扣）。
             // 照原样封同一个数，第二行能写的只有 120 px，右边比第一行短 16 px。
@@ -3233,24 +3230,24 @@ int main(int argc, char *argv[]) {
 
     // 同样排在**最后**：这一节也要造 MainWindow、也要换当前身份（离线账号）。它要的是
     // 「体检正在跑」这个状态（闸口那几条全靠它），所以**不能**混进别的节里跑。
-    header("T33. 完整性检查（§4.1）：点下去 → 后台一趟 → 闸口 → 报告页（离线）");
+    header("T33. 完整性检查：点下去 → 后台一趟 → 闸口 → 报告页（离线）");
     runIntegrityScanTests();
 
     // 同样排在**最后**：这一节也要造 MainWindow、也要换当前身份（离线账号）。
     // 同样排在**最后**：这一节也要造 MainWindow、也要换当前身份（离线账号）。它**不换**
     // 数据根目录（账本那一份故意挂在启动器自带的固定位置，见 T34 那段说明）—— 所以它
     // 前后要是有别的节在读那本账，看到的会多出这一节补的那几项。
-    header("T34. 游戏异常退出（§4.3）：从 onGameFinished 那一路补出来的一项（离线）");
+    header("T34. 游戏异常退出：从 onGameFinished 那一路补出来的一项（离线）");
     runGameCrashTests();
 
-    header("T35. 世界与实例备份（§4.4）：创建快照 / 立即备份 / 还原（离线）");
+    header("T35. 世界与实例备份：创建快照 / 立即备份 / 还原（离线）");
     runBackupTaskTests();
 
     // 同样排在**最后**：这一节也要造 MainWindow、也要换当前身份（离线账号），还要
     // **换数据根目录**（那本账落在 `<当前游戏文件夹>/wtfml.history` 底下 —— 不换的话
     // 这一节就会往用户真正的那本账上写）。它**不碰网络**：三个夹具的 Java 都钉在
     // 一个不存在的路径上，点到启动那一步就停在提示上（见那一节的文件头）。
-    header("T36. 「上一次启动」那张卡（§5.1）：账怎么写 / 卡片上写什么 / 点下去走哪条路（离线）");
+    header("T36. 「上一次启动」那张卡：账怎么写 / 卡片上写什么 / 点下去走哪条路（离线）");
 
     header("T20. 实例设置「文件管理」那八页：目录从哪儿来 / 启用·禁用 / 删除（离线）");
     runInstanceFilesPagesTests();
@@ -3312,7 +3309,7 @@ int main(int argc, char *argv[]) {
     // 紧跟 T29 的三处理由完全一样：要造 MainWindow、要换数据根目录（节尾逐字还原）、要往
     // 主题规格和 `Theme/…` / `Look/Animations` 那几个键里写东西（节尾一样还原）。它也是
     // **一个原生框都不点**：三块色板底下是覆盖层、导出/导入底下是 QFileDialog。
-    header("T39. 设置页「主题」那一节：配色 / 主题色 / 语义色 / 文字不透明度 / 动效开关（§8.3，离线）");
+    header("T39. 设置页「主题」那一节：配色 / 主题色 / 语义色 / 文字不透明度 / 动效开关（离线）");
     runThemeControlsTests();
 
     // 同样排在**最后**：也要造 MainWindow、也要换数据根目录（节尾逐字还原）。这一节
@@ -3341,7 +3338,7 @@ int main(int argc, char *argv[]) {
 
     // **也要造 MainWindow、也要换数据根目录**（同一节自己的沙盒，节尾逐字还原）。这一节
     // 量的是**关窗那一刻**：后台那几趟活、那几个子进程、还在飞的网络请求各自怎么收场。
-    header("T43. 关窗收尾：worker 线程 / 子进程 / 还在飞的下载（§3.1②，离线）");
+    header("T43. 关窗收尾：worker 线程 / 子进程 / 还在飞的下载（离线）");
     runShutdownTests();
 
     std::printf("\n===== %s: %d/%d =====\n", g_fail == 0 ? "全部通过" : "有失败", g_pass,

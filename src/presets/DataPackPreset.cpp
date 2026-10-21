@@ -200,10 +200,10 @@ bool removeTreeNoLinks(const QString &path, QString *problem) {
 
 /// 把一份文件/一棵目录拷到目标上（**换掉目标上已有的那一份**）。目标上一根链接都不跟。
 ///
-/// 次序改成"**先拷到旁边、再换过去**"。从前是"先删目标、再拷"—— 拷到一半
-/// 失败（盘满、源在枚举之后消失、目标被占用）时，目标上原来那一份**已经没了**，而且
-/// 采集那一档（往预设 `files/` 里收）没有任何备份可回滚：用户重收一次数据包失败，预设里
-/// 之前收好的那一份就永久丢了。现在的次序里，拷失败时目标原样还在；换过去那一步用的是
+/// 次序**先拷到旁边、再换过去**，不能"先删目标、再拷"：拷到一半失败（盘满、源在
+/// 枚举之后消失、目标被占用）时，目标上原来那一份**已经没了**，而且采集那一档
+/// （往预设 `files/` 里收）没有任何备份可回滚 —— 用户重收一次数据包失败，预设里
+/// 之前收好的那一份就永久丢了。先拷的次序里，拷失败时目标原样还在；换过去那一步用的是
 /// 目录改名（同盘、原子），失败的话把原来那一份改名回来。
 bool copyOverwrite(const QString &source, const QString &target, QString *problem) {
     const QString parent = QFileInfo(target).absolutePath();
@@ -269,9 +269,10 @@ ParsedPath parseDataPackPath(const QString &relativePath) {
 
 /// 世界目录（`<实例>/saves/<world>`）能不能往下写。链接 ⇒ 不写。
 ///
-/// 判的是**一路上每一层**：从前只看 `saves/<world>` 这一格本身，而
-/// `<实例>/saves` 自己是一根 junction 时它一字不差地判"能用" —— 采集那一侧对 `saves/`
-/// 明确判过链接（见下面 `captureDataPacks()`），应用这一侧当时却没有，同一个功能两套标准。
+/// 判的是**一路上每一层**：只看 `saves/<world>` 这一格本身不够 ——
+/// `<实例>/saves` 自己是一根 junction 时，只看最后一格会一字不差地判"能用"。
+/// 采集那一侧对 `saves/` 明确判过链接（见下面 `captureDataPacks()`），应用这一侧必须
+/// 同一个标准。
 bool worldUsable(const QString &instanceRoot, const QString &world, bool *exists) {
     const QString path =
         instanceRoot + QLatin1Char('/') + QLatin1String(kSavesDir) + QLatin1Char('/') + world;

@@ -36,7 +36,7 @@ void ModpackExportController::setStatus(const QString &text) const {
 }
 
 QList<Tasks::TaskStep> ModpackExportController::initialSteps() const {
-    // 四步对着 coding plan 那条流程（规划 → 兼容性确认 → 执行 → 验证）。第一步起手就是
+    // 四步就对着这条流程（规划 → 兼容性确认 → 执行 → 验证）。第一步起手就是
     // Running —— 任务记出来的那一刻分析已经在路上了。
     const QStringList names{
         tr("规划：盘点实例文件并反查资源出处"),
@@ -150,7 +150,7 @@ void ModpackExportController::exportPack(const QString &versionId,
                  format == ModpackExport::Format::CurseForge ? tr("CurseForge 规范")
                                                              : tr("Modrinth 规范")));
     m_busy = true;
-    // 任务中心（coding plan §9.9）：先记一项，再由它推着这四步走。验证工程不接这几个
+    // 任务中心：先记一项，再由它推着这四步走。验证工程不接这几个
     // 回调也照样能导出 —— 任务中心只是同一段流程的镜子，不是新的执行路径。
     if (m_host.beginTask) {
         m_taskId = m_host.beginTask(Tasks::TaskKind::Export,

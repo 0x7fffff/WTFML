@@ -1,13 +1,9 @@
 /**
  * @file InstanceSettingsDialog.hpp
- * @brief 「实例设置…」对话框。** 起左栏是一列按实例现算的页表**（概览 / 启动
+ * @brief 「实例设置…」对话框。**左栏是一列按实例现算的页表**（概览 / 启动
  * ＋ 存档 / 服务器列表 / 资源包 / 数据包 / 模组 / 光影包 / 原理图里"这个实例用得上
  * 且用户没勾掉"的那些，见 pinnedPageKeys() / optionalPageKeys()），右边一块堆叠页；
  * 要显示哪几页在概览页最下面那张勾选表里调（`settingsPages`，落在 wtfml.meta）。
- * 中间那一列小类（ 那版的三栏）已经拆掉了。
- * 再往前它是一张通到底的表：上面一行实例名，下面给单个实例覆盖启动五项
- * （Java 路径 / Xmx / Xms / 内存自动 / 额外 JVM 参数），每项都是两级
- * 「跟随全局 / 自定义」。
  * @note 进参出参都是**值**，本文件不 include 任何 src/ 下的头 —— 和 GroupDialog 同一条
  * 约定（ui/ 不依赖业务层）。所以这里的 Override 是它自己的一份，和
  * src/settings/EffectiveJavaSettings.hpp 里的 JavaSettingsOverride 逐字段相同，
@@ -18,14 +14,14 @@
  * 只做**启动五项**。其余设置项各有各的归属，混进来只会让"这个实例"变成一个说不清的概念：
  * - 下载源（Download/Source）：下载那一刻的决定，和"启动这个实例"无关；
  * - 启动后（Launcher/AfterLaunch）：那是启动器自己的行为，不是这个实例的属性；
- * - 版本名格式那四个开关：读侧 nameFormat 早就支持，本轮不做界面。
+ * - 版本名格式那四个开关：读侧 nameFormat 支持它们，但这一页不做界面。
  *
  * 【约定：对话框只改自己手里那份值，不碰磁盘】
  *
  * **这一层一个字节都不写盘**：它把控件读成一份值（override() / appendJvmArgs() /
  * iconChoice() …）交给调用方。落盘那一步**只有一条路**：`MainWindow::applyInstanceSettings()`
  * 把这些值读成一份 `InstanceSettingsController::Edit`，再交给
- * `InstanceSettingsController::apply()`（ 从主窗口搬过去的；主窗口那一层只剩
+ * `InstanceSettingsController::apply()`（主窗口那一层只剩
  * "读对话框"这个适配器和一个按 `Notice::Kind` 挑中文的地方）。
  *
  * 唯一的例外是**改名**：那一格动的是磁盘上的目录名，它走自己那条信号
@@ -155,9 +151,9 @@ public:
      * @param current 这个实例**现在**的覆盖（wtfml.meta 里读出来的）。
      * @param global 全局有效值（GlobalJavaSettings::effective()），用来写「当前 …」。
      * @param appendJvmArgs 这个实例现有的「追加参数」（wtfml.meta 的 jvmArgs 数组）。
-     * 它不是覆盖层的一项，和全局没有"跟随"关系，所以单独一行、没有那对单选钮。
+     * 它不是覆盖层的一项，和全局没有"跟随"关系，所以单独一行、没有档位下拉框。
      * @param warnJavaMismatch 这个实例的「Java 版本不符时提醒」。和 appendJvmArgs 一样
-     * 不是覆盖层的一项（存 meta 的另一个键），所以也没有那对单选钮。
+     * 不是覆盖层的一项（存 meta 的另一个键），所以也没有档位下拉框。
      * @param windowModes 「窗口模式」那个下拉框里的档位表（显示的字 + 存进 meta 的代号，
      * **顺序就是界面上的顺序**）。由调用方喂是分层的要求，理由见 WindowModeChoice
      * 上面那一段。空表 = 不建「窗口模式」这一行（验证工程里那些只验别的结构的构造点
@@ -173,14 +169,13 @@ public:
     /// 用户摆好的覆盖。每一项各自：那行选了「自定义」就有值，选了「跟随全局」就没有值。
     ///
     /// 「窗口大小」这一项有**两个**值（宽和高），但界面上是**一行**、共用
-    /// 一对单选钮 —— 所以要么两个都有值、要么两个都没有。实现上就是"这一行选自定义时
+    /// 一个档位下拉框 —— 所以要么两个都有值、要么两个都没有。实现上就是"这一行选自定义时
     /// 两个框的值一起收，选跟随时两个都不收"（见 .cpp 里那一行）。**不会**出现只有宽
     /// 有值的情况。
     ///
-    /// NOTE: ★ 起「内存分配」那一档整行撤掉了（要求「内存分配和最大内存
-    /// 这玩意完全就是重复的，只保留那个拖动的」）⇒ 这里**不再产出 autoMemory**
-    /// 覆盖。`Override::autoMemory` 字段还在（老数据、老测试要用），只是这一页
-    /// 永远不填它；读侧 `resolveJavaSettings()` 也当它不存在。
+    /// NOTE: 「内存分配」那一档整行不显示（它和最大内存说的是同一件事，只保留那个拖动的）
+    /// ⇒ 这里**不产出 autoMemory** 覆盖。`Override::autoMemory` 字段还在（老数据、
+    /// 老测试要用），只是这一页永远不填它；读侧 `resolveJavaSettings()` 也当它不存在。
     Override override() const;
 
     /// 高级选项里那两行之一：**追加**在命令行最后的 JVM 参数（写进 meta 的 jvmArgs，
@@ -207,32 +202,26 @@ public:
     /// 本文件不 include 任何 src/ 下的头，也就够不着 renameInstance()。
     QString instanceName() const;
 
-    /// 自动内存是不是**有效**开着（这一行自定义了就听它的，否则听全局的）。
+    /// 自动内存是不是**有效**开着。这一页没有「内存分配」那一项，所以只看全局那份
+    /// （见 .cpp 里 effectiveAutoMemory()）。
     /// 界面用它决定下面两个数字框禁不禁用；验证工程用它当"这个实例这次是自动还是手动"
     /// 的判据。
     bool effectiveAutoMemory() const;
 
     /// 刷新每一行下面那句话，以及两行内存的可用性（自动档下整行禁用）。
-    /// 每次那对单选钮或自动勾选框变化都会调它。
+    /// 每次某个档位下拉框变化都会调它。
     void refreshHints();
 
-    // ---------- 左栏那一列页（ 重画）----------
+    // ---------- 左栏那一列页 ----------
     //
-    // 要求（逐字）：「针对每个实例，在实例设置里个性化自定义，概览里面调整
-    // 是否显示，把整个文件管理换了，"快捷方式"放到概览的下方，剩下的和概览/启动等并列，
-    // 是否显示的调整放到"快捷方式"的下方，默认情况下展示（记住都按这个顺序）存档 服务器
-    // 列表 资源包 数据包 如果是有模组加载器的版本，在此基础上增加模组，有光影加载器的
-    // 在模组后面加光影，有 litematica 的在最后加原理图」。
-    //
-    // 于是**从前的三栏（大类 | 小类 | 内容）没了**：左边只剩一列，摆的是**按这个实例现算
-    // 出来**的一份页表（`shownEntryKeys()`）：
+    // 左栏只剩一列，摆的是**按这个实例现算出来**的一份页表（`shownEntryKeys()`）：
     //
     // 概览 启动 ← 钉死的那两条（`pinnedPageKeys()`），关不掉
     // 存档 服务器列表 资源包 数据包 模组 光影包 原理图 ← `optionalPageKeys()` 的顺序，
     // 可用 + 没被用户勾掉才出现
     //
-    // 右栏还是那份堆叠页，**顺序一个字没动**（`filePageKeys()`，见 `pageCount()`）；左栏的
-    // 先后与堆叠页的先后从此互不相干 —— 跳页一律按**键**（`stackPageIndexOf()`），不按行号。
+    // 右栏还是那份堆叠页，顺序按 `filePageKeys()`（见 `pageCount()`）；左栏的先后与堆叠页
+    // 的先后**互不相干** —— 跳页一律按**键**（`stackPageIndexOf()`），不按行号。
     //
     // 用户能调的是"显示哪些页"：概览页最下面那张勾选表（`pageCheckName()`）；勾掉哪几页记在
     // 这个实例自己的 wtfml.meta 里（`settingsPages`，见 `pageChoices()` 与 setPageChoices()）。
@@ -242,8 +231,8 @@ public:
 
     /// 左栏里**钉死的那两条**的键（顺序就是界面上从上到下的顺序）。
     ///
-    /// 用户 ：「概览/启动 不能关」（要求里的「快捷方式」也是一条，但它
-    /// 起不再是一页了 —— 那九颗按钮并进了概览页，见 shortcutTexts()）。
+    /// 概览和启动**不能关**（「快捷方式」也是一页的时候同样不能关，但它不是一页了 ——
+    /// 那几颗按钮并进了概览页，见 shortcutTexts()）。
     static QString overviewCategoryKey() { return QStringLiteral("overview"); }
     static QString launchCategoryKey() { return QStringLiteral("launch"); }
     static QStringList pinnedPageKeys() {
@@ -253,8 +242,8 @@ public:
         return {QStringLiteral("概览"), QStringLiteral("启动")};
     }
 
-    /// **能勾、能关**的那几页的键，**顺序就是用户点名的那一串**
-    /// （「默认情况下展示（记住都按这个顺序）存档 服务器列表 资源包 数据包 …模组…光影…原理图」）。
+    /// **能勾、能关**的那几页的键，顺序是"存档 服务器列表 资源包 数据包 …模组…光影…原理图"
+    /// （默认展示的也是这个顺序）。
     ///
     /// NOTE: 这一份是 `filePageKeys()` 去掉「配置文件」之后的一个**排列**（同一批键、不同
     /// 次序），验证工程钉着这个等式。堆叠页那边的顺序（filePageKeys()）是另一件事：
@@ -280,8 +269,8 @@ public:
     /// NOTE: 左栏那一列的先后**不是**这个（见 optionalPageKeys()）：这一张是"哪几页存在、
     /// 在堆叠页里排第几"，那一张是"用户眼里从上到下怎么排"。
     ///
-    /// NOTE: 「配置文件」是 加的那一页（用户要的："在启动器就直接编辑模组的
-    /// config.json"）。**插在原理图与存档之间**，不是为了好看：`serverPageKey()` 的
+    /// NOTE: 「配置文件」这一页的用途是"在启动器里直接编辑模组的 config.json"。
+    /// **插在原理图与存档之间**，不是为了好看：`serverPageKey()` 的
     /// 唯一出处是"最后那一个"，往尾巴上接会把它那句话变成假的。
     static QStringList filePageKeys() {
         return {QStringLiteral("mod"),    QStringLiteral("resourcepack"),
@@ -296,7 +285,7 @@ public:
 
     /// 「配置文件」那一页的键。
     ///
-    /// NOTE: 这一页**一个入口都没有**（要求「我说配置文件收起来」）—— 它
+    /// NOTE: 这一页**一个入口都没有** —— 它
     /// 不在 optionalPageKeys() 里、所以左栏和勾选表里都没有它，只有验证工程拿
     /// showPage() 够得着。要放出来：把它接进 optionalPageKeys()（并给一条默认关的
     /// 选择），别的地方一个字都不用改。
@@ -352,9 +341,9 @@ public:
         return extra < 0 ? -1 : filePageFirstIndex() + filePageKeys().size() + extra;
     }
 
-    /// 旧的左栏那一列（`QListWidget`）。★ 起它已经**不是界面上的导航**了 ——
+    /// 隐藏的左栏列表（`QListWidget`）。它**不是界面上的导航** ——
     /// 界面导航统一由 `navigationTreeName()` 那棵树承担，这一列在构造里 `hide()` 掉、只剩
-    /// "旧访问接口"这一个身份（见 .cpp 里那句 `m_pageList->hide()`）。要量"左栏"请用树。
+    /// objectName 这一个身份（见 .cpp 里那句 `m_pageList->hide()`）。要量"左栏"请用树。
     static QString pageListName() { return QStringLiteral("instanceSettingsPageList"); }
     /// 左栏那棵导航树的 objectName（界面导航的唯一出处）。
     static QString navigationTreeName() { return QStringLiteral("instanceLifecycleTree"); }
@@ -392,7 +381,7 @@ public:
 
     /// 关页会不会被"有没保存的改动"挡住（= `reject()` 里那两道闸）。
     ///
-    /// 用户 那条"拖进来一个整合包就离开实例设置"要**先问这一句**：那是程序
+    /// 拖进来一个整合包就会离开实例设置，而那条路要**先问这一句**：那是程序
     /// 自己发起的关页，被闸挡住时不能当作"关掉了"继续往下走（底下那一格压着改了一半的
     /// 配置，继续走等于替用户丢掉它）。复述一遍那两条判据是错的 —— 此处**就是**它们的
     /// 定义处，`reject()` 也走这里。
@@ -446,11 +435,11 @@ public:
     void setModUsable(bool usable);
 
     /// 「数据包」那一页在这个实例上**用得上吗**（= 这个游戏版本有没有数据包这回事）。
-    /// 判据是"游戏版本 ≥ 1.13"（数据包是快照 17w43a引进的），出处见
+    /// 判据是"游戏版本 ≥ 1.13"（数据包从这个版本起才有），出处见
     /// VersionManager::instanceSupportsDatapacks()。默认可用，同上。
     void setDatapackUsable(bool usable);
 
-    // ---------- 文件管理那八页（，见上面 filePageKeys()）----------
+    // ---------- 文件管理那八页（见上面 filePageKeys()）----------
     //
     // 八页分成三种形状：
     // - **快捷方式**：一排按钮，每颗开一个文件夹。没有目录可列。
@@ -469,7 +458,7 @@ public:
     /// 同上：**装了 Litematica 才谈得上这一页**（那是 Litematica 自己的目录）。
     void setSchematicUsable(bool usable);
 
-    /// 「加入服务器」那一颗的文字与悬停提示（**临时占位**，）。
+    /// 「加入服务器」那一颗的文字与悬停提示（**临时占位**）。
     ///
     /// @param text 空串 = 这一颗**收起来**（这个版本没有 `--quickPlayMultiplayer`）。
     ///
@@ -492,7 +481,7 @@ public:
     /// 「还没测」）—— 它换掉的是整张表，旧的那些状态配的是旧的那些行。
     void setServerList(const QList<QPair<QString, QString>> &servers, const QString &problem);
 
-    /// 一台服务器**现在**什么样（一次 ping 的结果，）。
+    /// 一台服务器**现在**什么样（一次 ping 的结果）。
     ///
     /// NOTE: 「连上去问一句」那一半在 `src/util/ServerPing` 里 —— 这一层连 QTcpSocket 都
     /// 够不着（ui/ 不 include src/），也**不该**自己去连：一次点击发多少网络请求是
@@ -503,15 +492,14 @@ public:
         QString error;          ///< 没通的理由（人话，来自 ServerPing）
         /// 没通的那一档里**是不是超时**（来自 ServerPing::Status::timedOut）。
         ///
-        /// 界面上**只写「超时」两个字**（用户 ），而 `error` 那句话仍是全的
+        /// 界面上**只写「超时」两个字**，而 `error` 那句话仍是全的
         /// （「超时（网络不通）」/「超时（连上了，但服务器没有回答）」—— 两者是不同的事，
         /// 留在那一份里给排查用）。不许在这里拿 error 的字符串去认前缀：判据只有
         /// ServerPing 那一处（`isTimeoutError()`）。
         ///
         /// 缓存那一份（`fromCache()`）也带着这一位（盘上存着，见 ServerStatusCache::
-        /// Entry::timedOut）：没通那一档两处写**同一句字**。用户 先是
-        /// 「服务器那个会显示上次:没连上，也改成超时」、接着「‘上次’两个字也不要」——
-        /// 于是这一位成了**两处唯一的判据**（那一句过去时的前缀已经整个删了）。
+        /// Entry::timedOut）：没通那一档两处写**同一句字**，而这一位是**两处唯一的判据**
+        /// （状态那一格里没有"上次"之类的过去时前缀）。
         bool timedOut = false;
         int latencyMs = -1;     ///< 延迟（毫秒；-1 = 不知道）
         int playersOnline = -1; ///< 在线人数（**-1 = 服务器没说**，和 0 个人不是一回事）
@@ -523,10 +511,9 @@ public:
         QString motdRaw;
         /// 这一份是**盘上缓存**里"上一次问到"的样子，不是刚刚问的。
         ///
-        /// 它**不再影响**状态那一格写出来的字（ 用户：「‘上次’两个字也不要」
-        /// —— 那一句过去时的前缀原来就是唯一读它的地方）。这一位留着是因为**它还得管
-        /// 别的**：没通那一档只有它分得出"理由要不要重说"（见 serverStatusLines() 里
-        /// 那两条支路）。一有真的结果就整条盖掉（fromCache 回到假）。
+        /// 它**不影响**状态那一格写出来的字（那一格里没有过去时前缀）。这一位留着是因为
+        /// **它管别的**：没通那一档只有它分得出"理由要不要重说"（见 serverStatusLines()
+        /// 里那两条支路）。一有真的结果就整条盖掉（fromCache 回到假）。
         bool fromCache = false;
         QIcon icon;             ///< 服务器图标（favicon；服务器没给就是空的）
     };
@@ -535,11 +522,11 @@ public:
     /// 短了的话后面那几条回到「还没测」、长了多出来的丢掉 —— 绝不按下标越界写。
     void setServerStatuses(const QList<ServerRowStatus> &statuses);
 
-    /// 正在测速。true 时那颗「测速」换成「测速中…」并且点不动（连点三下发三遍请求是
+    /// 正在测速。true 时那颗「刷新」换成「刷新中…」并且点不动（连点三下发三遍请求是
     /// 用户没要的，而且每一遍都要等满超时）。
     void setServerPinging(bool pinging);
 
-    /// 状态那一格要写的**那几行**（用户 ：「在线延迟和人数换到两行来」）。
+    /// 状态那一格要写的**那几行**：在线延迟和人数**分成两行**。
     ///
     /// 第一行是**延迟**（`42 ms`），第二行是人数（`7/20 人`）。没通那一档只有一行（那句话
     /// 本来就长；超时的那一档更短，只有「超时」两个字）。**唯一出处** —— 格子、悬停提示、
@@ -558,7 +545,7 @@ public:
     /// 把六页目录列表**重新列一遍**。MainWindow 动过盘（删了 / 改了名）之后喊它。
     void refreshFilePages();
 
-    // ---- 概览页那排常用目录的两段（§5.3）----
+    // ---- 概览页那排常用目录的两段 ----
     // / 按「在盘的在外、其余收着」把那一排**重摆一次**（唯一出处，见 .cpp 里那段）。
     void relayoutShortcuts();
     /// 点「更多目录…」/「收起更多目录」。
@@ -609,16 +596,16 @@ public:
     QTreeWidget *serverTree() const { return m_serverTree; }
     QLabel *serverNotice() const { return m_serverNotice; }
     QPushButton *serverRefreshButton() const { return m_serverRefresh; }
-    /// 「编辑」（改这一台的名字和地址，）。
+    /// 「编辑」：改这一台的名字和地址。
     QPushButton *serverEditButton() const { return m_serverEdit; }
-    /// 「添加」（多一台，；**常亮**，不跟着选中走）。
+    /// 「添加」：多一台；**常亮**，不跟着选中走。
     QPushButton *serverAddButton() const { return m_serverAdd; }
-    /// 「删除」（拿掉选中那一台，；没选中时灰着）。
+    /// 「删除」：拿掉选中那一台；没选中时灰着。
     QPushButton *serverDeleteButton() const { return m_serverDelete; }
-    /// 「加入服务器」（**临时占位**，；没这个参数的版本上它是收着的）。
+    /// 「加入服务器」（临时占位；没这个参数的版本上它是收着的）。
     QPushButton *serverJoinButton() const { return m_serverJoin; }
 
-    // ---------- 概览栏那三行（图标 / 分组 / 置顶，）----------
+    // ---------- 概览栏那三行（图标 / 分组 / 置顶）----------
     //
     // 它们和「实例名」是一类东西：说的都是**这个实例自己是谁**（叫什么、长什么样、摆在
     // 哪儿），不是它的启动参数。所以归「概览」，不归「启动」。
@@ -638,8 +625,8 @@ public:
 
     /// 「文件管理」那几页各看哪个目录：**键 → 绝对路径**。
     ///
-    /// NOTE: 上面那九条是**文件管理那几页**要的，一条不多。★ （§5.3）那排按钮又
-    /// 多要三路目录（`game` / `replay` / `crash`），它们**并在这同一份里一起灌**进来：
+    /// NOTE: 上面那九条是**文件管理那几页**要的，一条不多。概览那排快捷按钮又多要三路
+    /// 目录（`game` / `replay` / `crash`），它们**并在这同一份里一起灌**进来：
     /// 这一层只是"按某个键取一个路径"，多出来的键没有任何人当"文件管理页"读过（那几页
     /// 认的是 `filePageKeys()`），而 MainWindow 那边的 `instanceFileDirs()` 形状保持
     /// 不变（它有断言在数九条，为了这三条去动它不划算）。
@@ -651,9 +638,9 @@ public:
     /// folderForKind()，整合包那一路也照着它写），ui/ 抄第二份迟早会跟它对不上。
     void setFileDirs(const QHash<QString, QString> &dirs);
 
-    // ---------- 左侧那两类文件的「选中一行说一句」那一格（，§9.5）----------
+    // ---------- 左侧那两类文件的「选中一行说一句」那一格 ----------
     //
-    // 「Replay」和「结构」两页今天只是把文件列出来。选中一行之后底下那一格要说的是：
+    // 「Replay」和「结构」两页只把文件列出来；选中一行之后底下那一格要说的是：
     // 这份录像录了多久、什么版本、多少位玩家；这份结构多大、多少种方块、和这个实例的
     // 版本兼不兼容。**算的活不在这层**（读 `metaData.json` / gzip NBT 都在 src/），
     // ui/ 只负责"选中换了" → 发 `lifecycleFileInfoRequested()`，拿到答案再摆上去。
@@ -678,7 +665,7 @@ public:
     static QString diagnosisPendingText() { return QStringLiteral("正在检查…"); }
     void setDiagnosisText(const QString &text);
 
-    // ---------- 「迁移」与「升级」那两页（，§9.9 第 15 项）----------
+    // ---------- 「迁移」与「升级」那两页 ----------
     //
     // 两页共用一套控件：目标下拉框 + 计划正文 + 可勾选的范围表 + 动手那一颗。**算的活
     // 全在 `src/operations/TransferPlanner`**（扫盘、兼容结论、默认勾选都在那儿），
@@ -699,7 +686,7 @@ public:
     static QString transferApplyButtonName(const QString &key) {
         return QStringLiteral("instanceTransferApply_%1").arg(key);
     }
-    /// 灌目标列表（(显示名, id) 对）。**不发信号** —— 开页时由 controller 紧接着算第一份
+    /// 灌目标列表（显示名, id 对）。**不发信号** —— 开页时由 controller 紧接着算第一份
     /// 计划；用户在下拉框里换目标才发 `transferTargetChosen()`。
     void setTransferTargets(const QString &key, const QList<QPair<QString, QString>> &targets);
     /// 摆计划正文（`TransferPlanner::Plan::detailText()` 那一份）。
@@ -708,7 +695,7 @@ public:
     QStringList upgradeKeptMods() const;
     int upgradePendingModCount() const;
     void setUpgradeModChecks(const QList<QStringList> &rows, const QString &summary);
-    /// 摆可勾选的范围表（(显示名, 键) 对 + 默认勾选的键）。
+    /// 摆可勾选的范围表（显示名, 键 对 + 默认勾选的键）。
     void setTransferItems(const QString &key, const QList<QPair<QString, QString>> &items,
                           const QStringList &defaultKeys);
     /// 现在选中的目标 id（没有目标 = 空串）。
@@ -830,19 +817,18 @@ public:
     /// 「组被删之后它自然落到未分组」是同一条规矩，不为它写清理代码。
     /// NOTE: **传的是「老家」不是「存的是哪一组」**。这两个对"正在置顶"的实例不是一个答案
     /// （存的那一格指着置顶组），而用户在这一格说的永远是"它本来属于哪儿"—— 两边都
-    /// 显示之后，勾上置顶不再挪这一格（见 setPinned()）。
+    /// 显示之后，勾上置顶**不挪这一格**（见 setPinned()）。
     void setGroupChoices(const QList<QPair<QString, QString>> &groups, const QString &currentGroupId);
 
     /// 置顶那一行的初值。
     /// @param pinned 这个实例现在在不在置顶组里（「显示在置顶组中」勾没勾）。
     /// @param pinnedGroupId 置顶组是哪一组，只用来写进那一句解释里（"会在「置顶」里也摆
-    /// 一条"）。**它不再影响任何控件** —— 早先勾上置顶会把「分组」那一格挪到置顶组
-    /// 上并禁用，那是"置顶 = 搬进置顶组"那套旧语义留下的；现在两边都显示，分组那
-    /// 一格是**老家**，和勾选框互不相干。空串 = 这一份 .minecraft 里没有置顶组
-    /// （用户把它删了）：勾选框照旧能勾，但勾上这一下真的什么都不会发生
+    /// 一条"）。**它不影响任何控件** —— 「分组」那一格说的永远是**老家**，「置顶」勾选框
+    /// 说的是"要不要在置顶组里多摆一条"，两边都显示、互不相干。空串 = 这一份 .minecraft
+    /// 里没有置顶组（用户把它删了）：勾选框照旧能勾，但勾上这一下真的什么都不会发生
     /// （MainWindow::pinInstance() 直接返回）。
     ///
-    /// NOTE: 和 setGroupChoices() **没有先后要求**了（旧版有：置顶要把下拉框挪过去）。
+    /// NOTE: 和 setGroupChoices() **没有先后要求**。
     void setPinned(bool pinned, const QString &pinnedGroupId);
 
     /// 图标那一行现在选的是什么：空串 = 默认、`builtin:<键>` = 内置候选、`local` = 本地那张。
@@ -882,10 +868,8 @@ public:
     // 验证工程靠这些名字认控件，别改回按文字去认（文字会随全局值变）。
     // / 某一项的「跟随全局 / 自定义」那个下拉框。@param field 见下面那五个常量。
     // /
-    // / ★ ：**这一格从前是一对单选钮**（两个 objectName：`override_<field>_follow`
-    // / / `override_<field>_custom`），要求「所有单选框换成下拉的」之后成了**一个**
-    // / 下拉框，那两个名字一起没了。验证工程改成按这一个名字找、按**下标**选
-    // / （`choiceFollowIndex()` / `choiceCustomIndex()`）。
+    // / **这一格是一个档位下拉框**（objectName 就是这一个名字）。验证工程按这个名字找、
+    // / 按**下标**选（`choiceFollowIndex()` / `choiceCustomIndex()`）。
     static QString choiceComboName(const QString &field) {
         return QStringLiteral("override_%1_choiceCombo").arg(field);
     }
@@ -897,9 +881,9 @@ public:
 
     // ---------- 页面按钮那一套的规格----------
     //
-    // 要求：「实例设置里面的所有按钮做成恒定宽度和高度的，每一行三个，间距适中且左右
-    // 能充分利用」。排布在 .cpp 里那三个 `layout…` 函数里算，**量的这几个数就是它们**
-    // —— 验证工程别抄第二份（抄一份的下场是改了这里、那边还在断言老数字）。
+    // 页面按钮**恒定宽度和高度、每一行三个、间距适中且左右铺满**。排布在 .cpp 里那三个
+    // `layout…` 函数里算，**量的这几个数就是它们** —— 验证工程别抄第二份（抄一份的下场
+    // 是改了这里、那边还在断言旧数）。
     //
     // NOTE: **宽度不在这儿** —— 它不是钉死的像素，是"三列各一份 + 铺满整幅"算出来的
     // （见 .cpp 里 layoutActionCells() 那段）。这两个数只是"排几列"和"至少多宽"。
@@ -921,7 +905,7 @@ public:
     static QString xmxField() { return QStringLiteral("xmx"); }
     static QString xmsField() { return QStringLiteral("xms"); }
     static QString extraJvmArgsField() { return QStringLiteral("extraJvmArgs"); }
-    /// 「窗口模式」那两行（ 加的）。
+    /// 「窗口模式」那两行。
     ///
     /// NOTE: 这三个串**就是 wtfml.meta 里那三个键名**（`src/settings/GameWindowSettings.cpp`
     /// 里 gameWindowModeMetaField() 那一组，那边是读侧写侧的唯一出处）。这一份是
@@ -939,9 +923,8 @@ public:
     static QString memoryMaxSpinName() { return QStringLiteral("instanceMemoryMaxSpin"); }
     /// 「最大内存」那一行左半边那根条（和设置页同一套，见 MemorySlider.hpp）。
     static QString memoryMaxSliderName() { return QStringLiteral("instanceMemoryMaxSlider"); }
-    /// 对象还在、还在跟着盘上的值走，但**整行不显示了**（用户要求撤掉这一
-    /// 项）。名字留着是因为验证工程还按它找这个控件 —— 找得到、但不该看得见（见 .cpp 里
-    /// 「最小内存」那一行上面那段）。
+    /// 对象还在、还在跟着盘上的值走，但**整行不显示**。名字留着是因为验证工程还按它找
+    /// 这个控件 —— 找得到、但不该看得见（见 .cpp 里「最小内存」那一行上面那段）。
     static QString memoryMinSpinName() { return QStringLiteral("instanceMemoryMinSpin"); }
     /// 「窗口模式」那个下拉框。**项由调用方喂**（见 WindowModeChoice），这里只搭框。
     static QString windowModeComboName() { return QStringLiteral("instanceWindowModeCombo"); }
@@ -958,19 +941,19 @@ public:
     static QString warnJavaMismatchCheckName() {
         return QStringLiteral("instanceWarnJavaMismatchCheck");
     }
-    /// 「实例名」那一格（改名）。**它在「概览」栏的第一行**（ 分栏之前它在整页
-    /// 最上面）：它改的是这个实例的身份，别的几项改的都是它的启动参数 —— 先看清改的是
-    /// 哪一个，再谈别的。打开对话框默认停在「概览」，所以它还是第一眼看到的那一格。
+    /// 「实例名」那一格（改名）。**它在「概览」栏的第一行**：它改的是这个实例的身份，
+    /// 别的几项改的都是它的启动参数 —— 先看清改的是哪一个，再谈别的。打开对话框默认停在
+    /// 「概览」，所以它还是第一眼看到的那一格。
     static QString instanceNameEditName() { return QStringLiteral("instanceNameEdit"); }
     static QString instanceNameText() { return QStringLiteral("实例名"); }
 
     // ---- 概览栏那四行（见上面 setIcon 那一段）----
     //
-    // 排法（要求「第一行 图标 名称 / 第二行 更改图标 分组… / 第三行
-    // 显示在置顶组中 / 第四行 导出」）：概览这一栏**不再有"标题在左、内容在右"的行名**，
-    // 那三句话变成了第一行的控件自己（名称输入框）、第二行两颗按钮、第三行勾选框上的字。
+    // 排法：第一行 图标 名称 / 第二行 更改图标 分组… / 第三行 显示在置顶组中 / 第四行 导出。
+    // 概览这一栏**没有"标题在左、内容在右"的行名**，那三句话变成了第一行的控件自己
+    // （名称输入框）、第二行两颗按钮、第三行勾选框上的字。
     // / 第一行：图标预览（一张固定边长的图，当前选的是哪一张就画哪一张）+ 名称输入框
-    // / （`instanceNameEditName()`，就是「实例名」那一格， 搬到它旁边）。
+    // / （`instanceNameEditName()`，就是「实例名」那一格）。
     static QString iconPreviewName() { return QStringLiteral("instanceIconPreview"); }
     /// 第二行左边那颗「更改图标」——点了在它底下开 @c iconMenuName() 那个浮层。
     static QString changeIconButtonName() { return QStringLiteral("instanceChangeIconButton"); }
@@ -995,19 +978,19 @@ public:
     }
     /// 第三行那个勾选框。
     static QString pinCheckName() { return QStringLiteral("instancePinCheck"); }
-    /// 第四行那个「导出…」按钮（ 从灰占位换成真的）。
+    /// 第四行那个「导出…」按钮。
     ///
     /// NOTE: 它**不叫** `exportScript*` 那一套 —— 「导出启动脚本」是同一个页面上另一件事
     /// （导出的是 .bat，和整合包规范一点关系都没有）。两个名字长得像过一次，
     /// 断言认错过控件。
     static QString exportButtonName() { return QStringLiteral("instanceExportButton"); }
-    /// 概览页那颗「检查更新」的 objectName（；验证工程拿它找那颗按钮）。
+    /// 概览页那颗「检查更新」的 objectName；验证工程拿它找那颗按钮。
     static QString checkUpdatesButtonName() { return QStringLiteral("instanceCheckUpdatesButton"); }
     /// 那颗按钮上的字（**唯一出处**）。
     static QString checkUpdatesText() { return QStringLiteral("检查更新"); }
     /// 那一格下面那句解释。
     ///
-    /// 用户 要的是「更新检测」这四个字，而这句话得把**我们能说什么**讲清楚：
+    /// 这一句要写出「更新检测」这四个字的含义，同时得把**我们能说什么**讲清楚：
     /// 判据是"盘上那个文件的 sha1 等于这个项目最新那一版的哪个文件"（见
     /// `ModDependencies::judgeUpdate`），所以它认不出来的那些会如实说"说不清"——
     /// 那句话不是失败，是"这一条我没法判"。**别把这句话写成"已经全部检查过了"**：
@@ -1024,7 +1007,7 @@ public:
                               "认不出来的（自己改过的、作者删了老版本的）会写「说不清」——"
                               "那不是「没有问题」，是这一条没法判。");
     }
-    /// 概览页那颗「更新中心」的 objectName（，coding plan §7.1）。
+    /// 概览页那颗「更新中心」的 objectName。
     ///
     /// NOTE: 和「检查更新」是**两颗、不是一颗**：那一颗要联网重查一遍（几十个文件、好几发
     /// 请求），而这一颗只是把**上一次查出来的**那份结论摆开看（一个网络都不发）——
@@ -1048,8 +1031,7 @@ public:
 
     // ---- 「复制实例」----
     //
-    // 要求：「实例设置的概览里面加一条复制实例，点击以后让用户选择复制到的文件夹，
-    // 然后给定复制后的实例名称」。
+    // 概览里的「复制实例」：点击以后让人选择复制到的文件夹，再给复制出来的实例起个名字。
     // / 概览页第五行那颗「复制实例」的 objectName。
     static QString copyButtonName() { return QStringLiteral("instanceCopyButton"); }
     /// 那颗按钮上的字（**唯一出处**）。
@@ -1069,8 +1051,7 @@ public:
     /// 那颗按钮的 tooltip（**说全的那一份**）。
     ///
     /// NOTE: 最后那句"先关掉游戏"是真的会拦（MainWindow::copyInstanceTo() 里第二道闸）。
-    /// v1 这段原来写的是"游戏正在跑也能复制，但拷出来是那一刻的样子" —— 那是照着
-    /// "没有闸"写的，两处一起改掉了：界面不该在明着教用户做一件会被拦住的事。
+    /// 界面不该在明着教用户做一件会被拦住的事。
     static QString copyButtonTooltip() {
         return QStringLiteral("选一个游戏文件夹，再给副本起个名字，就会在"
                               "「<那个文件夹>\\versions\\<名字>」下多出一份。\n\n"
@@ -1082,10 +1063,9 @@ public:
 
     // ---- 「删除实例」----
     //
-    // 要求：「顺便把删除实例功能做了，按钮放在概览里」。**删除这件事其实早就有了**
-    // （实例行悬停时行尾那颗垃圾桶），但从没在界面上"看得见"过 —— 它藏在一个要悬停才出现
-    // 的格子里，而用户找它的时候找的是"这个实例的设置里面有没有"。所以这一颗不是新功能，
-    // 是**同一个动作的第二个入口**：真去删的那条路一个字都没改
+    // 删除这件事在实例行悬停时行尾那颗垃圾桶上已经有了，但界面上一直"看不见"它 —— 它藏在
+    // 一个要悬停才出现的格子里，而用户找它的时候找的是"这个实例的设置里面有没有"。所以
+    // 这一颗不是新功能，是**同一个动作的第二个入口**：真去删的那条路一个字都没改
     // （`MainWindow::confirmDeleteInstance()`，两道闸 + 问一句都在那儿）。
     //
     // NOTE: 和「复制实例」同一个形状 —— 这一层只发一句信号。理由也一样：那两步（问一句
@@ -1096,8 +1076,8 @@ public:
     static QString deleteText() { return QStringLiteral("删除实例"); }
     /// 那一格下面那句解释。
     ///
-    /// 这句话里**必须带"删了找不回来"**。用户点名把这一颗归进"不可撤销"那一档（所以它是
-    /// 红的）—— 颜色只是提醒，真正让人停下来的是字。上面那颗「复制实例」是"多出一份"，
+    /// 这句话里**必须带"删了找不回来"**。这一颗归在"不可撤销"那一档（所以它是红的）——
+    /// 颜色只是提醒，真正让人停下来的是字。上面那颗「复制实例」是"多出一份"，
     /// 这一颗是"少掉一份"，两颗摆在一起时这一句就是它们唯一的区别。
     static QString deleteHint() {
         return QStringLiteral("把这个实例整个删掉（jar、json、以及它自己的设置都在里面），"
@@ -1114,26 +1094,26 @@ public:
 
     // ---- 存档那一页顶上那两颗----
     //
-    // 要求：「顶端加个导入世界按钮和批量编辑按钮（这个先做占位）」。
+    // 存档页顶端有「导入世界」和「批量编辑」两颗按钮（后者先做占位）。
     // NOTE: 这两句和上面那些 `xxxText()` 一样是**唯一出处** —— 那一页照 setDownloadText()
-    // 的老规矩按"文字空不空"决定露不露，所以字写在这儿、别的几页不接。
+    // 的约定按"文字空不空"决定露不露，所以字写在这儿、别的几页不接。
     // / 存档页顶上那颗「导入世界」。
     static QString importWorldText() { return QStringLiteral("导入世界"); }
     static QString importWorldTip() {
         return QStringLiteral("把一个已经在你盘上的世界文件夹拷进这个实例的 saves 里。");
     }
-    /// 存档页顶上那颗「批量编辑」。**今天是个占位**（用户点头的）—— 点下去只会说一句
+    /// 存档页顶上那颗「批量编辑」。**它是个占位** —— 点下去只会说一句
     /// 「还没做」。字和提示都照实写，不假装它能用。
     static QString batchEditWorldsText() { return QStringLiteral("批量编辑"); }
     static QString batchEditWorldsTip() {
         return QStringLiteral("一次改好几个世界（还没做，这个按钮先摆在这儿）。");
     }
 
-    // ---- 启动栏那两颗「动作」按钮（导出启动脚本 / 补全版本文件，）----
+    // ---- 启动栏那两颗「动作」按钮（导出启动脚本 / 补全版本文件）----
     //
     // 它们是**动作**不是设置项（不改 wtfml.meta 里任何一格），所以没有「跟随全局 /
-    // 自定义」那一对单选钮。用户 追加的那句「按钮文本直接做成设置名称」说的就是
-    // 它们：**不再有单独一行行名**，按钮上那几个字就是这一项的名字，两句话挪去 tooltip。
+    // 自定义」那一格档位。**没有单独一行行名**：按钮文本直接就是设置名称，两句话挪去
+    // tooltip。
     // / 「导出启动脚本」（开的是 Windows 自己的保存框）。
     static QString exportScriptButtonName() { return QStringLiteral("instanceExportScriptButton"); }
     /// 「补全版本文件」（校验并补齐这个实例的文件）。
@@ -1154,7 +1134,7 @@ public:
     /// 安全警告，光放 tooltip 里会有人一辈子看不到。
     static QString actionsHint();
 
-    // ---- 概览栏那颗「检查并修复」（coding plan §4.1，）----
+    // ---- 概览栏那颗「检查并修复」----
     static QString integrityCheckButtonName() { return QStringLiteral("instanceIntegrityCheckButton"); }
     static QString integrityCheckText() { return QStringLiteral("检查并修复"); }
     static QString integrityCheckHint() {
@@ -1165,7 +1145,7 @@ public:
         return QStringLiteral("扫描在后台跑，期间可以接着用启动器。扫完会开一页报告。");
     }
 
-    // ---- 概览栏那两颗「快照」（coding plan §4.4，）----
+    // ---- 概览栏那两颗「快照」----
     //
     // 和「检查并修复」一样**只发信号**：清单、后台线程、任务账本、挑哪一份、"还原之前先给
     // 现在这一份做安全快照"全在 MainWindow 那边（这一层连读盘都没有）。
@@ -1200,8 +1180,8 @@ public:
     /// 常用目录那一排按钮：**两张按下标对齐的表**（按钮上的字 / 路径键）。
     /// 路径键见 setFileDirs() 与 setInstanceDir()。
     ///
-    /// NOTE: 起它们长在**概览页**上（要求：「"快捷方式"放到概览的下方」），
-    /// 「快捷方式」不再是一页 —— 键和 objectName 一个字没改，只是换了个父。
+    /// NOTE: 它们长在**概览页**上，不是单独一页 —— 「快捷方式」那个页键和 objectName
+    /// 都还留着，只是这一排按钮并进了概览。
     static QStringList shortcutTexts();
     static QStringList shortcutPathKeys();
     /// 快捷方式一排摆几颗（三条正好一排）。
@@ -1213,7 +1193,7 @@ public:
 
     /// 「更多目录…」那颗按钮（收起时写「更多目录…」、展开后写「收起更多目录」）。
     ///
-    /// §5.3 原话：「仅在目录存在或相关模组可识别时**优先展示**，其他项收在"更多目录"」
+    /// 只在目录存在或相关模组可识别时**优先展示**，其他项收在"更多目录"里
     /// —— 它是那两段之间的**唯一开关**。一条"现在没有的"都没有时，**它自己也不摆**
     /// （不摆一颗按下去什么都不变的按钮）。
     static QString shortcutMoreText() { return QStringLiteral("更多目录…"); }
@@ -1250,8 +1230,8 @@ public:
 
     /// 第 @p key 那一页顶上那颗「下载新 X」上写的字（**空串 = 这一页没有那颗按钮**）。
     ///
-    /// 要求：「在实例设置里模组 资源包 数据包 光影包里添加下载新光影，按了
-    /// 以后导向下载页对应类别」。所以有它的就是**下载页里真有对应一栏的那四页**。
+    /// 这颗按钮按下去要导向下载页里对应的那一栏 ⇒ 只有**下载页里真有对应一栏的
+    /// 那四页**才有它。
     ///
     /// NOTE: 「光影包」那一页上的字是「下载新光影」（不是「下载新光影包」）：这四个字要和
     /// **落地那一栏**说同一句话（下载页那一栏叫「光影」），而左边那一列里这一页仍旧
@@ -1273,11 +1253,9 @@ public:
 
     /// 「点一下**名字**就进它自己的那一页」这一条在这几页上开不开。
     ///
-    /// 要求（ 上半句）：「除了模组以外的几个都是点击模组名称自动进入下载
-    /// 界面（**前提是匹配上了，模组的待会再说**）」⇒ 先接的是**资源包 / 数据包 / 光影包**
-    /// 三页。**同一天下半句到了**：「对于模组，点进去和资源包差不多…」⇒ **模组也接上了**，
-    /// 现在这一张表是**四页**。要接别的页时改的是这**一处**（`setFileResource()` 那个循环
-    /// 和构造里那条 connect 都读它）。
+    /// 这一张表是**四页**：模组 / 资源包 / 数据包 / 光影包，判据是"名字匹配上了资源"。
+    /// 要接别的页时改的是这**一处**（`setFileResource()` 那个循环和构造里那条 connect
+    /// 都读它）。
     ///
     /// NOTE: 模组和另外三页**走的是同一条路**（同一个页面对象、同一个返回去处）—— 唯一的
     /// 分别落在那一页**右上角那一格**上：只有"从实例的文件管理页点一个模组进来"才摆
@@ -1294,17 +1272,9 @@ public:
     /// @param title 那个资源在接口上的名字。空串（= 没认出来）回空串。
     static QString filesResourceTip(const QString &title);
 
-    // `filesDetailHint()` **已删**（原来是"四页底下那行说明里多出来的那一句"，
-    // 说的是「行尾那颗 ⓘ 能进详情页，单击选中一条，按住 Ctrl 能多选，Ctrl+A 全选」）。
-    // 删它的直接原因：**模组 / 资源包 / 数据包 / 光影包这四页底下那段叙述整个不挂了**
-    // （用户："把这个页面下方那段叙述删了来让框拉到底充分利用空间"，四处都删）⇒ 没有第二个
-    // 调用者。★ 它删之前就已经是一句错话：多选 当天换成了 `MultiSelection`
-    // （**点一下就切换，一个修饰键都不用**），"按住 Ctrl"那句照着按只会把这一条翻个面
-    // —— `wtfml-comment-vs-code` 那个老毛病。要再挂这类文字，**照着
-    // `InstanceFilesPage::setBatchMode()` 里那段注释写**，别照抄记忆里的版本。
-    //
-    // NOTE: 一句也没搬去别处 —— 这些"要动手才发现"的事现在由**操作条自己**说（选中才露），
-    // 不需要一段常驻小字。
+    // 这几页底下不挂常驻小字：多选是 `MultiSelection`（点一下切换，一个修饰键都不用），
+    // "要动手才发现"的事由**操作条自己**说（选中才露）。要再挂这类文字，**照着
+    // `InstanceFilesPage::setBatchMode()` 里那段写**，别照抄记忆里的版本。
 
     /// 「配置文件」那一页上面那颗「上级」。**只有这一页有** —— 别的几页
     /// 看的是一个平铺的目录，而 `config/` 底下还有层级（`config/ftbquests/` 这种），
@@ -1332,8 +1302,7 @@ public:
         return QStringLiteral("instanceServerJoinButton");
     }
     static QString serverRefreshText() { return QStringLiteral("刷新"); }
-    /// 「编辑」：改**选中的那一台**的名字和地址（，要求「在服务器列表那里
-    /// 做一个编辑地址和名称的功能」）。
+    /// 「编辑」：改**选中的那一台**的名字和地址。
     ///
     /// NOTE: 没选中一条时它是**灰的**（见 updateServerSelectionActions()）—— "编辑哪一台"
     /// 这个问题只有一个答案，而那个答案就是选中那一行。
@@ -1343,7 +1312,7 @@ public:
                               "一次只能问一样），两个都能留空。改完直接写进这个实例的 "
                               "servers.dat。");
     }
-    /// 「添加」（，要求「服务器那个页面里放一个添加服务器的按钮，允许添加」）。
+    /// 「添加」：往列表里加一台服务器。
     ///
     /// NOTE: 和「编辑」不同，它**不跟着选中走** —— 要加的那一台还没出现在表里，没有
     /// "先选中"这一步，所以它**常亮**（连一条都没有的时候尤其要能按）。
@@ -1352,8 +1321,7 @@ public:
         return QStringLiteral("加一台新的。名字可以留空，地址得填。加完直接写进这个实例的 "
                               "servers.dat。");
     }
-    /// 「删除」：把选中那一台从列表里拿掉（，要求「编辑要能改名字改地址以及
-    /// 删除」）。
+    /// 「删除」：把选中那一台从列表里拿掉。
     ///
     /// NOTE: 它是这一页上唯一一颗**真会从盘上拿掉东西**的键，所以
     /// ① 没选中一条时灰着（同「编辑」）；② 按下去还有一道问话（`InlineMessage::question`
@@ -1378,14 +1346,13 @@ public:
     static QString serverPingingText() { return QStringLiteral("刷新中…"); }
     /// 还没测过的那一格写什么（**不是空着**：空着和"测了没通"在屏幕上是同一个样子）。
     static QString serverUntestedText() { return QStringLiteral("还没测"); }
-    /// 超时那一档在界面上**就写这两个字**（用户 ：「超时的只写超时」）。
+    /// 超时那一档在界面上**就写这两个字**，不加别的解释。
     ///
     /// NOTE: 和 `Status::timedOut` 那一位配着用 —— 那一位才是判据，这一句只是写出来的字。
     /// 那一格窄（`ResizeToContents`），而「它没答话」和「网络不通」这两个理由对这个
     /// 格子的读者（想点进去玩的人）是同一件事：现在连不上。
     static QString serverTimeoutText() { return QStringLiteral("超时"); }
-    /// 地址那一格悬停提示里那句**告诉用户右键能复制**的话（用户 ：「ip地址右键
-    /// 可以复制（这一点在悬停文本上也告知）」）。
+    /// 地址那一格悬停提示里那句**告诉用户右键能复制**的话。
     ///
     /// NOTE: 唯一出处。那一格显示的是**遮过的**地址（`m-.h-.c-`），所以这句话还得说清
     /// "复制到的是完整的那个" —— 不然用户看到 `m-.h-.c-`、复制出来却是一长串，
@@ -1393,19 +1360,13 @@ public:
     static QString serverAddressCopyHint() {
         return QStringLiteral("右键复制完整的地址");
     }
-    // NOTE: 这儿原来还有一颗 `serverCachedPrefix()`（「上次：」）。 要求
-    // 「‘上次’两个字也不要」，那一句过去时的前缀整个删了 —— 状态那一格现在**缓存
-    // 里那一份和当场测出来那一份写的是同一句字**。别再加回来：要在界面上给这一格
-    // 加前缀，等于重新发明那句被点名删掉的话。
+    // NOTE: 状态那一格**不加任何前缀**（连「上次：」都不行）—— 缓存里那一份和当场
+    // 测出来那一份写的是同一句字。要在界面上给这一格加前缀，等于重新发明一句不该出现的话。
     static QString serverNameColumnText() { return QStringLiteral("名称"); }
     static QString serverAddressColumnText() { return QStringLiteral("地址"); }
     static QString serverStatusColumnText() { return QStringLiteral("状态"); }
 
     /// 地址那一栏显示的**遮过的**写法。**唯一出处**（完整地址只在悬停提示里给）。
-    ///
-    /// 要求：「域名就显示首个字母+一条横杠（如 m-.h-.c- 来表示
-    /// mc.hyperlands.cloud），悬停在上方时才显示完整的，ipv4 的显示为 123.45.*.*，
-    /// ipv6 显示为 [123:123:*:*:*:*:*:*]」。
     ///
     /// 规矩：
     /// - **域名** —— 每一个点分开的段取**首字母 + 一条横杠**（`mc.hyperlands.cloud`
@@ -1435,13 +1396,11 @@ public:
     /// 「用不上」和勾选表的悬停提示都走它，别再各写一遍 if 链。
     static QString pageUnavailableText(const QString &key);
 
-    // ---- 「显示哪些页」那张勾选表（，概览页最下面）----
-    //
-    // 要求：「概览里面调整是否显示」「是否显示的调整放到"快捷方式"的下方」「如果没有
-    // 对应的加载器，保持对应选项不可勾选的状态，悬停文本解释」。
+    // ---- 「显示哪些页」那张勾选表（概览页最下面）----
     //
     // 七条一条一个勾选框（顺序见 optionalPageKeys()），**不可用的那一条不勾、灰着、
-    // tooltip 说为什么**。勾/不勾直接决定左栏那一列里有没有这一条。
+    // tooltip 说为什么**。勾/不勾直接决定左栏那一列里有没有这一页。
+    //
     // / 第 @p key 条勾选框的 objectName。
     static QString pageCheckName(const QString &key) {
         return QStringLiteral("instanceSettingsShowPage-") + key;
@@ -1452,10 +1411,10 @@ public:
     static QString pageShownHint();
 
     /// 第二行右边那颗按钮上的字（**唯一出处**：它是打开那个浮层的按钮，也是这一项的
-    /// 名字 —— 概览这一栏不再有单独的行名）。
+    /// 名字 —— 概览这一栏没有单独的行名）。
     static QString groupButtonText() { return QStringLiteral("分组…"); }
-    /// 第三行那个勾选框上的字。**用户 点名的这一句**（原来叫「置顶（固定在最
-    /// 前面）」，那是"置顶 = 搬进置顶组"那套旧语义留下的说法）。
+    /// 第三行那个勾选框上的字。它说的是"在收藏组中另留一条快捷入口"，
+    /// **不是把实例搬过去**。
     static QString pinCheckText() { return QStringLiteral("加入收藏"); }
     /// 「更改图标」/「导出…」两颗按钮上的字。
     static QString changeIconText() { return QStringLiteral("更改图标"); }
@@ -1475,11 +1434,10 @@ public:
         return QStringLiteral("挑一张图当这个实例的标志。它会出现在实例树上，以及底栏"
                               "「正在运行」那一行里。");
     }
-    /// 勾选框下面那句话（**新语义**：两边各摆一条，说明白"原组那份不动"）。
+    /// 勾选框下面那句话：两边各摆一条，说明白"原组那份不动"。
     ///
-    /// NOTE: 用户 特意点名的就是这一句（要求：「下面给到注释提醒」）。它得说清
-    /// 三件事：勾上之后**哪儿多出一条**、**原来那份不动**、取消勾选之后哪一条没了 ——
-    /// 少说中间那一件，用户就会以为勾上等于"搬家"（那是这一版之前的语义）。
+    /// NOTE: 它得说清三件事：勾上之后**哪儿多出一条**、**原来那份不动**、取消勾选之后
+    /// 哪一条没了 —— 少说中间那一件，用户就会以为勾上等于"搬家"。
     static QString pinHint() {
         return QStringLiteral("在收藏组中保留快捷入口，不改变原分组。主页收藏区按显示数量和"
                               "最近启动时间展示；取消收藏不会删除实例。");
@@ -1508,9 +1466,8 @@ public:
     static QString advancedToggleName() { return QStringLiteral("instanceAdvancedToggle"); }
     static QString advancedBoxName() { return QStringLiteral("instanceAdvancedBox"); }
     static QString titleLabelName() { return QStringLiteral("instanceSettingsTitle"); }
-    // NOTE: 起这一页**没有「确定」也没有「取消」**（要求：「实例设置里面的
-    // 那个取消和确定删了，修改了的设置实时写入」）⇒ 那两个 objectName 一起删了，
-    // 覆盖层页眉上那颗返回箭头就是这一页唯一的出口（Esc 同它）。
+    // NOTE: 这一页**没有「确定」也没有「取消」**（改了就写）⇒ 覆盖层页眉上那颗返回
+    // 箭头就是这一页唯一的出口（Esc 同它）。
 
     /// 这一页叫什么（`「实例设置：<实例名>」`）。页面型覆盖层要把这一句写在自己那条
     /// 页眉上，所以它得能问出来 —— 不然两边就各写各的了。
@@ -1559,7 +1516,7 @@ public:
     /// 它顺手把导出脚本那个默认文件名用的 `m_instanceId` 一起换掉。
     void setInstanceName(const QString &name);
 
-    /// 那一对单选钮的文字。**这两句是产品文案**，验证工程按它们核对而不是自己拼。
+    /// 档位下拉框里那两项的文字。**这两句是产品文案**，验证工程按它们核对而不是自己拼。
     static QString followText() { return QStringLiteral("跟随全局"); }
     static QString customText() { return QStringLiteral("自定义"); }
     /// 「跟随全局（当前 %1）」。@param current 全局那一项的值的可读写法。
@@ -1577,8 +1534,7 @@ public:
     /// 追加参数那行提示的正文（也是"一条一行"这条约定的唯一出处）。
     ///
     /// NOTE: 「之后」那两个字**不许写成 `**之后**`** —— 这一页上没有任何一处设过
-    /// `setTextFormat(Qt::MarkdownText)`，星号会原样画在用户眼前（全项目同一条，
-    /// 顺手清掉了几处）。
+    /// `setTextFormat(Qt::MarkdownText)`，星号会原样画在用户眼前（全项目同一条）。
     static QString appendJvmArgsHint() {
         return QStringLiteral("一条一行。排在全局额外参数之后（同一条以后写的为准），"
                               "不覆盖全局那一份。");
@@ -1591,8 +1547,7 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
     /**
-     * @brief 有东西被拖到这一页上（，要求「打开某个实例设置的时候如果拖入
-     * .jar/.zip之类的文件，检测是整合包还是资源包等」）。
+     * @brief 有东西被拖到这一页上。
      *
      * 这一页**只报到"落了哪些文件"**，一个字的判断都不做：认类型要读压缩包的条目表
      * （`DroppedResource`）、装进去要知道实例目录在哪（`AppPaths`）—— 两件都在
@@ -1616,15 +1571,14 @@ signals:
     void launchInstanceRequested();
 
     /**
-     * @brief 页面上的值**改完了**，该写盘了（ 起这一页没有「确定」）。
+     * @brief 页面上的值**改完了**，该写盘了（这一页没有「确定」）。
      *
-     * 要求：「实例设置里面的那个取消和确定删了，修改了的设置实时写入」。于是这一页
-     * 从"改一堆、按确定一次性提交"变成了"改哪一格就写哪一格"：
+     * 这一页是"改哪一格就写哪一格"：
      *
      * - 这一发**只是"值变了"**，不含任何"该写成什么" —— 写成什么由 MainWindow 拿
-     * `override()` / `appendJvmArgs()` / `iconChoice()` 那几问现读（和从前按确定
-     * 那一刻读的是同一批函数，所以"实时写"和"按确定写"落到盘上的字节是一样的）。
-     * - **值没变就不发**（见 .cpp 里 notifyEdited() 那段）：点一下已经选中的单选钮、
+     * `override()` / `appendJvmArgs()` / `iconChoice()` 那几问现读（和写整份设置读的
+     * 是同一批函数，所以两边落到盘上的字节是一样的）。
+     * - **值没变就不发**（见 .cpp 里 notifyEdited() 那段）：点一下已经选中的那一项、
      * 把一个数改回原样，都不该让磁盘动一次。
      * - 同一发可能由"用户操作完成"以外的原因触发（回车 / 离开那一格），这条线只认值，
      * 不认手势。
@@ -1641,7 +1595,7 @@ signals:
      * @param name 那一格里的字（**原样**，不 trim、不改大小写 —— 合不合法由
      * `InstanceFiles::validateRenameTarget()` 判，界面不抄第二份规则）。
      *
-     * 这一发是**改名那条路**的入口（从前是"点确定"那一半）：接了的人负责改目录名、
+     * 这一发是**改名那条路**的入口：接了的人负责改目录名、
      * 失败时把这一格退回去（setInstanceName()）。
      *
      * NOTE: 每一格按键都发的话，用户打字打到一半目录就被改一次（"我"→"我的"→
@@ -1682,13 +1636,13 @@ signals:
      * @brief 用户点了概览那一栏的「检查更新」。
      *
      * NOTE: **不传实例 id** —— 这一页就是某个实例的设置页（`setInstanceDir()` / 那一份
-     * wtfml.meta 都是它的），接的人从自己那边认（MainWindow 那次 openInstanceSettings
-     * 记着开的是哪一个）。
+     * wtfml.meta 都是它的），接的人从自己那边认（MainWindow 在 openInstanceSettings
+     * 里记着开的是哪一个）。
      */
     void checkUpdatesRequested();
 
     /**
-     * @brief 用户点了概览那一栏的「更新中心」（，coding plan §7.1）。
+     * @brief 用户点了概览那一栏的「更新中心」。
      *
      * 和上面那一颗同一档（一颗按钮 + 底下那句解释，点了之后**会出现一个结果**），但**不联网**：
      * 只是把上一次「检查更新」查出来的那份结论摆成能动手的一页（`MainWindow::openUpdateCenter`）。
@@ -1734,7 +1688,7 @@ signals:
     void repairFilesRequested();
 
     /**
-     * @brief 用户点了概览栏那颗「检查并修复」（coding plan §4.1）。
+     * @brief 用户点了概览栏那颗「检查并修复」。
      *
      * **能不能开始、扫完怎么办，全由 MainWindow 说了算** —— 只有它知道有没有下载在跑、
      * 这个实例这会儿装没装、任务账本怎么记。这一层只报"用户想做一次体检"。
@@ -1742,7 +1696,7 @@ signals:
     void integrityCheckRequested();
 
     /**
-     * @brief 用户点了概览栏那颗「创建快照…」（coding plan §4.4）。
+     * @brief 用户点了概览栏那颗「创建快照…」。
      *
      * 按下去之后 MainWindow 先问一句"要不要连着能重新下回来的那部分一起打包"，然后起一趟
      * 后台打包、记进任务账本。**这一层不碰盘**（见 .hpp 里 createSnapshotText 那段）。
@@ -1750,7 +1704,7 @@ signals:
     void createSnapshotRequested();
 
     /**
-     * @brief 用户点了概览栏那颗「从快照恢复…」（coding plan §4.4）。
+     * @brief 用户点了概览栏那颗「从快照恢复…」。
      *
      * 挑哪一份、确认、以及"还原之前先给现在这一份做安全快照"全在 MainWindow 那边。
      */
@@ -1768,7 +1722,7 @@ signals:
     void backupSelectedWorldRequested(const QString &path);
     void restoreSelectedWorldRequested(const QString &path);
 
-    /// 「Replay」/「结构」那一页里**选中的那一条换了**（，§9.5）。
+    /// 「Replay」/「结构」那一页里**选中的那一条换了**。
     ///
     /// 接的人负责把 `metaData.json` / 结构 NBT 读成一句话，再拿
     /// `setLifecycleInfoText(key, path, …)` 递回来。**这一层不读盘**（它连
@@ -1777,7 +1731,7 @@ signals:
 
     void diagnosisRequested();
 
-    /// 用户在「迁移」/「升级」那一页换了一个目标（，§9.9）。
+    /// 用户在「迁移」/「升级」那一页换了一个目标。
     /// @param key `migration` / `upgrade`
     /// @param targetId 目标实例 / 目标版本的 id（下拉框的 data）。
     ///
@@ -1840,8 +1794,7 @@ signals:
     void closeBlockedByUnsavedConfigFile();
 
     /**
-     * @brief 用户想关掉整个「实例设置」，而**「世界设置」那一页里还有没保存的改动**
-     * 。
+     * @brief 用户想关掉整个「实例设置」，而**「世界设置」那一页里还有没保存的改动**。
      *
      * 和 `closeBlockedByUnsavedConfigFile()` 是同一件事的第二个实例（那一条的说明逐字
      * 适用）：那颗返回箭头走的是 `dialog->reject()`，点一下关掉的是**整个**「实例设置」，
@@ -1851,29 +1804,23 @@ signals:
     void closeBlockedByUnsavedWorldSettings();
 
     /**
-     * @brief 用户按了「文件管理」某几页顶上那颗「下载新 X」⇒ 请切到下载页对应的那一栏
-     * 。
-     *
-     * 要求：「在实例设置里模组 资源包 数据包 光影包里添加下载新光影，按了以后导向下载页
-     * 对应类别」。
+     * @brief 用户按了「文件管理」某几页顶上那颗「下载新 X」⇒ 请切到下载页对应的那一栏。
      *
      * @param categoryKey `MainWindowUI::downloadCategoryKeys()` 里的一个键 —— 就是那一页
      * 对应的一栏（写法见 filesDownloadCategoryKey()）。**是键不是行号**：下载页左栏
      * 的行序由界面自己摆，这一层不该知道它。
      *
      * NOTE: 这一层只发信号，自己什么都不做（不关这一页、也不碰选项卡）—— 它正卡在
-     * MainWindow 那次 `execPage()` 的嵌套事件循环里，"收页之后再切到哪儿"的顺序只有
+     * MainWindow 的 `execPage()` 嵌套事件循环里，"收页之后再切到哪儿"的顺序只有
      * 那边知道（见 OverlayHost::dismiss() 那段 ★）。
      */
     void browseDownloadsRequested(const QString &categoryKey);
 
     /**
      * @brief 用户**点了某一条行尾那颗「详情」**，而这一条认得出是哪个资源 ⇒ 请打开它自己的
-     * 那一页（； 起触发点是那颗按钮，不再是被点了一下名字）。
+     * 那一页。
      *
-     * 要求（说"点名字"那一版）：「除了模组以外的几个都是点击模组名称自动进入下载界面
-     * （前提是匹配上了）」； 改成「把点击条目进入对应详情页的功能变成一个详情
-     * 按钮，放到开关和删除中间」。
+     * 触发点是那颗按钮，不是点一下名字（见 filesNameOpensResource()）。
      *
      * @param pageKey 哪一页发出来的（`filePageKeys()` 里的一个键 —— 也就是"这是个资源包
      * 还是光影包"，见 filesNameOpensResource()）。**是键不是下标**。
@@ -1881,7 +1828,7 @@ signals:
      * 反查表里的东西（`InstanceFilesPage` 和这一层都不知道一个文件对应哪个项目）。
      *
      * NOTE: 这一层只发信号，自己什么都不做（不关这一页）—— 和 browseDownloadsRequested()
-     * 同一个理由：它正卡在 MainWindow 那次 `execPage()` 的嵌套事件循环里。
+     * 同一个理由：它正卡在 MainWindow 的 `execPage()` 嵌套事件循环里。
      */
     void fileResourceRequested(const QString &pageKey, const QString &path);
 
@@ -1931,11 +1878,9 @@ signals:
      * 那一页的内容是**解析好的结果**递进来的（setServerList()），重读一遍要碰 src/ 里的
      * NBT 解析，所以只能由 MainWindow 接。
      *
-     * 这一条现在是**这一页上唯一一条"重新看一眼"的信号** —— 「测速」
-     * 并进来了（要求「服务器那一栏测速和刷新作用重复了」）。接的人该做满两件事：
-     * **重读一遍 servers.dat** + **把每一台重测一遍**。「刷新」的意思是"把这一页刷成
-     * 现在的样子"，而这一页从 起不只是那份文件的镜像（图标、MOTD、延迟都是
-     * 刚问来的）。
+     * 这一条是**这一页上唯一一条"重新看一眼"的信号**：接的人该做满
+     * 两件事：**重读一遍 servers.dat** + **把每一台重测一遍**。「刷新」的意思是"把这一页
+     * 刷成现在的样子"，而这一页不只是那份文件的镜像（图标、MOTD、延迟都是刚问来的）。
      *
      * NOTE: 进这一页（`serverPageEntered()`）走的是**只重测**那一半 —— 刚打开的一页没有
      * "重读"的道理（表本来就是刚递进来的），但延迟该当场问一次。
@@ -1944,8 +1889,6 @@ signals:
 
     /**
      * @brief 用户在地址那一格**按了右键** ⇒ 请把那一串**完整的**地址放进剪贴板。
-     *
-     * 要求：「ip地址右键可以复制（这一点在悬停文本上也告知）」。
      *
      * 给出去的是**没遮过**的那一串（`host:port`，就是 servers.dat 里写的那个）—— 屏幕上
      * 那一格显示的是遮过的写法（`maskedServerAddress()`），复制一份"屏幕上那样的"给用户
@@ -1974,8 +1917,6 @@ signals:
     /**
      * @brief 用户按了服务器列表那一页的「添加」。
      *
-     * 要求：「服务器那个页面里放一个添加服务器的按钮，允许添加」。
-     *
      * 这一发**不带参数** —— 要加的那一台还没出现在表里，这一层没有它的名字和地址可给；
      * 问那两句（名字可空 / 地址必填）和写盘都在 MainWindow（前者要覆盖层，后者要
      * `src/manage/ServerListFile`，这一层一样都够不着）。
@@ -1987,8 +1928,6 @@ signals:
      * @param name 选中那一行在 `servers.dat` 里**真正**的名字（可以是空串）。
      * @param address 选中那一行**完整**的地址（没遮过的）。
      *
-     * 要求：「编辑要能改名字改地址以及删除」。
-     *
      * 参数和 `editServerRequested` **逐字同义**（都是"改之前的样子"，落盘那边按值在
      * `servers.dat` 里认出那一条 —— 见 ServerListFile 那段）；差别只在接的人要做的事：
      * 这一条要先问一句（不可撤销的定夺），再去删。
@@ -1998,7 +1937,7 @@ signals:
     void deleteServerRequested(const QString &name, const QString &address);
 
     /**
-     * @brief 用户按了服务器列表那一页的「加入服务器」（**临时占位**，）。
+     * @brief 用户按了服务器列表那一页的「加入服务器」（**临时占位**）。
      * @param name 选中那一台的名字（同上，可以是空串；回话里用得着）。
      * @param address 选中那一台**完整**的地址 —— 这一串就是 `--quickPlayMultiplayer` 的
      * 值（`host[:port]`，游戏自己认得这个写法）。
@@ -2011,9 +1950,8 @@ signals:
     /**
      * @brief 用户**切到了服务器列表那一页**。
      *
-     * 要求：「服务器列表点进去要自动测速」。所以这一发是"这一页露出来了"这件事本身
-     * —— 接到的人该去测一遍。它和上面那两条**不是一回事**：那两条说的是"用户按了某颗
-     * 按钮"，这一条说的是"这一页被打开了"。
+     * 这一发是"这一页露出来了"这件事本身 —— 接到的人该去测一遍。它和上面那两条
+     * **不是一回事**：那两条说的是"用户按了某颗按钮"，这一条说的是"这一页被打开了"。
      *
      * NOTE: 每一页都会发一次（切回「概览」再切回来还会再发）—— 那正是"点进去就测"该有的
      * 行为。"正在测的时候又切进来一次"不会真的并发出两趟：接的人那边有一道
@@ -2023,8 +1961,7 @@ signals:
 
 private:
     ResourcePackPage *m_resourcePackPage = nullptr;
-    /// 「编辑」「删除」「加入服务器」三颗按钮的**可用性**照"现在选没选中一行"重算一次
-    /// 。
+    /// 「编辑」「删除」「加入服务器」三颗按钮的**可用性**照"现在选没选中一行"重算一次。
     ///
     /// 没选中任何一行时三颗都是**灰的**：这三件事都要一个明确的对象（"改哪一台"、"删哪
     /// 一台"、"连哪一台"），而那个对象只有选中那一行能给。灰着比"按下去什么也不发生"
@@ -2058,11 +1995,9 @@ private:
 
     /// 某一项选的是「自定义」还是「跟随全局」。**档位的读侧唯一出处**。
     ///
-    /// 这一问从前读的是 `m_<field>Custom` 那颗单选钮的 `isChecked()`，
-    /// 要求「所有单选框换成下拉的」之后改读下拉框的 `currentIndex()`。
-    /// 认不出来的 field（或那一格没建出来）**回 false = 跟随全局** ——
-    /// 和从前"单选钮指针为空就崩"相比，这是"没建出来 = 没有覆盖"那个方向，
-    /// 正是 override() 想要的（少写一份覆盖比多写一份安全）。
+    /// 读的是下拉框的 `currentIndex()`。
+    /// 认不出来的 field（或那一格没建出来）**回 false = 跟随全局** —— 这是"没建出来 =
+    /// 没有覆盖"那个方向，正是 override() 想要的（少写一份覆盖比多写一份安全）。
     bool isCustomChoice(const QString &field) const;
 
     /// 摆某一项的档位（`custom` = true 就是「自定义」）。**不发任何信号**。
@@ -2084,7 +2019,7 @@ private:
     /// 东西（一句话说明、一颗按钮）时不用把表格拆开 —— 设置页那一层就是这个形状。
     QGridLayout *addForm(const QString &key, QWidget *page);
 
-    /// 左栏那两条导航列的宽度：按最长的一条条目算（`sizeHintForColumn`），不写死像素
+    /// 左栏那条导航列表的宽度：按最长的一条条目算（`sizeHintForColumn`），不写死像素
     /// —— 换字体 / 换样式就错。再加一点左右余量，条目的字离边太近看着像被切了。
     static int navListWidth(const QListWidget *list);
 
@@ -2110,7 +2045,7 @@ private:
     /// @param markPage 要不要把那一页**整页换成一句「用不上」**。
     ///
     /// NOTE: 「光影包 / 原理图」要（那两页里的东西在没加载器时真的一点用都没有），
-    /// 「模组 / 数据包」不要 —— 老版本上的 `datapacks/`、原版实例上的 `mods/` 里
+    /// 「模组 / 数据包」不要 —— 低版本上的 `datapacks/`、原版实例上的 `mods/` 里
     /// 照样可能有东西，列出来是句真话（用户真想看，把这一条勾出来就看得见）。
     /// 它们"用不上"这件事由勾选框那一格的 tooltip 说（见 pageUnavailableText()）。
     void setPageUsable(const QString &key, bool usable, bool markPage = true);
@@ -2153,7 +2088,7 @@ private:
     /// 值变了吗：变了就把这一份记下来、发一发 settingsEdited()。
     ///
     /// **判据是"和上一次发出去的那一份比"，不是"有没有人动过控件"**：
-    /// - 点一下已经选中的那颗单选钮、把数字改回原样、在一个框里打一个字又删掉 ——
+    /// - 点一下已经选中的那一项、把数字改回原样、在一个框里打一个字又删掉 ——
     /// 值没变就不该让磁盘动一次；
     /// - 反过来，`setChecked()` 这类程序化的改动也照样算数（这一页上那些只发生在
     /// 构造期，构造函数最后会把当时的签名记下来当起点，所以打开页面不会立刻写一次）。
@@ -2263,7 +2198,7 @@ private:
     QStackedWidget *m_configStack = nullptr;
     /// 第 1 格那个编辑器（**建一次留着**，见 configFilePage() 的 NOTE）。
     ConfigFileEditorPage *m_configEditor = nullptr;
-    /// 「存档」那一页的两格子（，见 openWorldSettings() 上面那一段）。
+    /// 「存档」那一页的两格子（见 openWorldSettings() 上面那一段）。
     QStackedWidget *m_worldStack = nullptr;
     /// 第 1 格那个世界设置（**建一次留着**，同上）。
     WorldSettingsPage *m_worldSettings = nullptr;
@@ -2327,8 +2262,8 @@ private:
     QCheckBox *m_pinCheck = nullptr;
     /// 置顶组是哪一组（setPinned() 灌进来）。空串 = 这一份 .minecraft 里没有置顶组。
     ///
-    /// NOTE: 它**只管那一句解释怎么写**（"会在「置顶」里也摆一条"），不再影响任何控件 ——
-    /// 见 .hpp 里 setPinned() 那段。
+    /// NOTE: 它**只管那一句解释怎么写**（"会在「置顶」里也摆一条"），**不影响任何控件**
+    /// —— 见 .hpp 里 setPinned() 那段。
     QString m_pinnedGroupId;
     QLineEdit *m_javaPathEdit = nullptr;
     QSpinBox *m_memoryMaxSpin = nullptr;
@@ -2365,11 +2300,9 @@ private:
 
     /// 每一项的档位下拉框，键是那个 field（`javaPathField()` 那一组）。
     ///
-    /// **从前是七对单选钮**（`m_javaPathFollow` / `m_javaPathCustom` …
-    /// 十四位成员），要求「所有单选框换成下拉的」之后收成这一个表 ——
-    /// 一对成员换一个下拉框，七行长得一模一样，写成表就不必再维护那个 if 链。
-    /// 存在成员里（而不是每次 findChild）是因为 refreshHints() 每次信号都要读它们算
-    /// "有效值"，而那是按键最频繁的一条路。
+    /// 七行长得一模一样，写成表就不必再维护那条 if 链。存在成员里（而不是每次
+    /// findChild）是因为 refreshHints() 每次信号都要读它们算"有效值"，而那是按键
+    /// 最频繁的一条路。
     QHash<QString, QComboBox *> m_choiceCombos;
     /// 「最大内存」「最小内存」两行那一格的容器 —— 自动档下整行禁用，
     /// 禁用的是这两个容器（连同里面的档位下拉框），不是只禁数字框。

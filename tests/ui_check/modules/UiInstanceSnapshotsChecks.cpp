@@ -82,7 +82,7 @@ int UiInstanceSnapshotsChecks() {
                       kindOf(updates) == Theme::buttonKindKey(Theme::ButtonKind::Neutral),
                   "★★ U30.2 而这一排上原来那颗红的「删除实例」照旧红；"
                   "「检查并修复」「检查更新」那些是**白的那一档**（`Neutral` —— "
-                  "它们只读不写，按下去出现的是个结果，2026-10-15 之前没挂档、跟着默认"
+                  "它们只读不写，按下去出现的是个结果（不挂档就会跟着默认"
                   "吃了绿的）—— 加了一颗红的**没有**把别的一起带下来（全红等于没有红）",
                   (remove != nullptr ? kindOf(remove) : QStringLiteral("<没找到>"))
                       + QStringLiteral(" / ")
@@ -91,11 +91,10 @@ int UiInstanceSnapshotsChecks() {
                       + QStringLiteral(" / ")
                       + (updates != nullptr ? kindOf(updates) : QStringLiteral("<没找到>")));
 
-            // ---- ：那一格「检查并修复」旁边的「更新中心」也得挂上档 ----
+            // ---- 「检查并修复」旁边的「更新中心」也得挂上档 ----
             //
-            // 用户当时指着这几颗说「**检查功能不套用新的按钮格式，看着就像没有改过的老
-            // 文件**」。底下的事实 = 概览里这三颗（检查更新 / 更新中心 / 检查并修复）
-            // 只调了 `prepareActionButton()`、**没挂档** ⇒ 跟着默认吃了绿的那一档。
+            // 概览里这三颗（检查更新 / 更新中心 / 检查并修复）只调了
+            // `prepareActionButton()`、**没挂档** ⇒ 会跟着默认吃了绿的那一档。
             // 这一条钉的就是"别再有第四颗漏挂"：挑法一样，**认名字不认位置**。
             auto *updateCenter = byName(Dlg::updateCenterButtonName());
             check(updateCenter != nullptr &&
@@ -107,12 +106,10 @@ int UiInstanceSnapshotsChecks() {
                   updateCenter != nullptr ? kindOf(updateCenter)
                                           : QStringLiteral("<没找到>"));
 
-            // ---- ：四颗一条线的旧次序**已经分家** ----
+            // ---- 四颗按钮**不在同一条线上** ----
             //
-            // 从前这四颗在概览上排成一条线：「复制实例 → 创建快照… → 从快照恢复… →
-            // 删除实例」。现在复制 / 删除去了「实例操作」页、快照那两颗去了「快照」页 ——
-            // **不在同一页上就没有一条线可比**，所以改成每一页各自比一遍（量法不变：
-            // 同一行比 x、换行比 y）。
+            // 复制 / 删除在「实例操作」页、快照那两颗在「快照」页 —— **不在同一页上就没有
+            // 一条线可比**，所以每一页各自比一遍（量法不变：同一行比 x、换行比 y）。
             const auto pointOf = [](QWidget *w) {
                 if (w == nullptr) {
                     return QPoint(-1, -1);

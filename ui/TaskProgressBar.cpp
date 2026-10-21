@@ -28,8 +28,8 @@ constexpr int kBusyTickMs = 16;
 }  // namespace
 
 TaskProgressBar::TaskProgressBar(QWidget *parent) : QProgressBar(parent) {
-    // 自绘的那一条**不画百分比文字**（数在标题行 / 右边那一格）。这一句同时替掉上游原来
-    // 把文字打开的那一位（`ui_modernize.py audit` 的 "progress text enabled"）。
+    // 自绘的那一条**不画百分比文字**（数在标题行 / 右边那一格）。这一句同时对上
+    // `ui_modernize.py audit` 的 "progress text enabled"（上游把文字打开的那一位）。
     setTextVisible(false);
     m_busyTimer = new QTimer(this);
     m_busyTimer->setInterval(kBusyTickMs);

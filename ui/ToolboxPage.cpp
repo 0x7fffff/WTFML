@@ -48,7 +48,7 @@ struct ToolInfo {
     ToolboxPage::Tool tool;
     const char *key;
     const char *name;
-    /// 底栏那块面板上写的短名（ 用户拿图点名的「不要搜索框、两列五排」那张）。
+    /// 底栏那块面板上写的短名（面板按「不要搜索框、两列五排」排）。
     /// **只归面板用**：页面标题和 chip 仍取 `name`（完整名字）。
     const char *shortName;
     const char *summary;
@@ -200,7 +200,7 @@ QIcon drawToolIcon(ToolboxPage::Tool tool, const QColor &ink) {
         }
         break;
     case ToolboxPage::Tool::Beacon:
-        // 发光立方体和阶梯底座，不再画成三角形山峰。
+        // 发光立方体和阶梯底座。
         painter.drawLine(QPointF(24, 5), QPointF(24, 11));
         painter.drawRect(QRectF(18, 16, 12, 12));
         painter.drawLine(QPointF(12, 34), QPointF(36, 34));
@@ -233,7 +233,7 @@ QIcon drawToolIcon(ToolboxPage::Tool tool, const QColor &ink) {
     return QIcon(pixmap);
 }
 
-/// 标题用带提手和锁扣的工具箱，不再使用断开的圆弧扳手。
+/// 标题用带提手和锁扣的工具箱。
 QIcon drawToolboxIcon(const QColor &ink) {
     QPixmap pixmap(48, 48);
     pixmap.fill(Qt::transparent);
@@ -431,7 +431,7 @@ QList<ToolboxPage::Tool> ToolboxPage::tools() {
 }
 
 QList<ToolboxPage::Tool> ToolboxPage::panelTools() {
-    // 用户 那张图的次序（两列五排、**行优先**）：
+    // 面板的次序（两列五排、**行优先**）：
     // SHA校验 | 高速下载
     // 延迟测试 | 附魔助手
     // 坐标换算 | 彩色文本
@@ -481,7 +481,7 @@ ToolboxPage::ToolboxPage(QWidget *parent) : QDialog(parent) {
     setAcceptDrops(true);  // 哈希那一件要能"拖一个文件进来"
 
     m_tools = tools();
-    // 直链下载使用独立小窗口，不再把第六颗长 chip 挤进原来的共享工具页。
+    // 直链下载使用独立小窗口，所以不在这张工具页的 chip 里。
     m_tools.removeAll(Tool::Download);
 
     auto *box = new QVBoxLayout(this);
@@ -1442,7 +1442,7 @@ QWidget *ToolboxPage::buildHashPanel() {
     auto *copy = makeCopyButton(panel, QStringLiteral("hashCopy"));
     copy->setToolTip(QStringLiteral("复制算出来的那串摘要"));
     copyRow->addWidget(copy);
-    // ---------- 批量（§9.11 第 1 项：「补多文件、复制/导出列表」） ----------
+    // ---------- 批量（「补多文件、复制/导出列表」） ----------
     m_hashBatch = new QPushButton(QStringLiteral("批量…"), panel);
     m_hashBatch->setObjectName(hashBatchName());
     m_hashBatch->setToolTip(QStringLiteral("一次选好几个文件，按同一档算法逐个算。"));
@@ -1685,7 +1685,7 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     form->addStretch(1);
     layout->addLayout(form);
 
-    // 第二排：底座材质 + 同一座金字塔上放几颗（§9.11 第 9 项「矿物折算」「多信标共用底座」）。
+    // 第二排：底座材质 + 同一座金字塔上放几颗（「矿物折算」「多信标共用底座」）。
     auto *form2 = new QHBoxLayout;
     form2->setContentsMargins(0, 0, 0, 0);
     form2->setSpacing(8);
@@ -2339,9 +2339,8 @@ QWidget *ToolboxPage::buildTrimPanel() {
     auto *panel = new QWidget(this);
     auto *layout = new QVBoxLayout(panel);
     layout->setContentsMargins(0, 2, 0, 0); layout->setSpacing(6);
-    // 标题与那一句总述已经在覆盖页顶上（`toolName()` / `toolSummary()`），这里不再重复。
-    // 但旧版标题下面那句「模板每打一件消耗一个…」是这一页的规则，不能跟着标题一起没掉 ——
-    // 它现在是四列表格下面一行浅色小字。
+    // 标题与那一句总述已经在覆盖页顶上（`toolName()` / `toolSummary()`），这里不重复。
+    // 那句「模板每打一件消耗一个…」是这一页的规则，摆在四列表格下面一行浅色小字里。
     auto *body = new QHBoxLayout; body->setSpacing(12);
     auto *left = new QVBoxLayout; left->setSpacing(8);
     auto *form = new QGridLayout; form->setHorizontalSpacing(6); form->setVerticalSpacing(6);

@@ -40,7 +40,7 @@ void runLoaderInstallTests() {
                                     entry(QStringLiteral("0.19.3"), false)};
         const LoaderMeta::LoaderPick pick = LoaderMeta::pickFabricLoader(realShaped);
         check(pick.ok() && pick.version == QStringLiteral("0.19.5") && pick.stable,
-              "V2 实测形状（最新那条是 stable）-> 挑最新那条", pick.version);
+              "V2 实际形状（最新那条是 stable）-> 挑最新那条", pick.version);
 
         // 有更新的非 stable 在前面时，仍然挑 stable 那条（版本号比较不是我们判断的事，
         // 但"优先正式版"是）。挑错这条的表现是"装上一个 corner 版本"。
@@ -215,8 +215,8 @@ void runLoaderInstallTests() {
                                     .arg(onlyLatest.stable)
                               : QStringLiteral("挑不出来"));
 
-        // 反过来钉一下上面那条的前提：1.7.10 在真表里**两个键都有**（值还一样）。留着
-        // 这条是因为我第一版把"1.7.10 只有 latest"写进了注释和断言里 —— 那是想当然。
+        // 反过来钉一下上面那条的前提：1.7.10 在真表里**两个键都有**（值还一样），
+        // 不能假定它只有 latest。
         check(LoaderMeta::pickForgeVersion(forgePromos, QStringLiteral("1.7.10")).stable,
               "V5 1.7.10 在真表里两个键都有（所以它走的是 recommended 那一支）",
               LoaderMeta::pickForgeVersion(forgePromos, QStringLiteral("1.7.10")).version);
@@ -245,7 +245,7 @@ void runLoaderInstallTests() {
               "V5 推广表地址里没有空格（拼坏了的症状是 404，不是崩）");
     }
 
-    // --- V5b. 镜像那份推广表是**旧的**（ 加）--------------------------
+    // --- V5b. 镜像那份推广表是**旧的**--------------------------
     //
     // 所以版本表那条路是"镜像发一发，挑不出来就换官方再发一发"（见 VersionManager::
     // retryInstallerListFromOfficial）。这一节钉的就是那个前提：镜像那份确实挑不出来、
@@ -277,7 +277,7 @@ void runLoaderInstallTests() {
             // 两份的体量：镜像那份小得多。不靠"哪个文件新"判断，靠"挑不出来就退"。
             QFileInfo officialInfo(metaDir + "/forge-promotions_slim.json");
             check(mirrorBytes.size() < officialInfo.size(),
-                  "V5b 镜像那份比官方那份小得多（实测 1782 B / 4111 B）",
+                  "V5b 镜像那份比官方那份小得多（1782 B / 4111 B）",
                   QStringLiteral("%1 / %2").arg(mirrorBytes.size()).arg(officialInfo.size()));
         }
     }
@@ -367,7 +367,7 @@ void runLoaderInstallTests() {
         // --- V6c 排序里"后缀不同、数字相同"那一族：新的在前 ---------------------
         // 拿真那一族的形状造一份最小的列表（26.1.0.0-alpha.1 / .2 / .10 + 一个正式版）。
         // 这几条**故意**用 sortLoaderVersionsNewestFirst() 自己排，而不是直接调比较函数：
-        // 上一版的问题就在这个函数最后一级上。
+        // 判据就落在这个函数的最后一级。
         {
             LoaderMeta::LoaderVersionList list;
             list.append({QStringLiteral("26.1.0.0-alpha.1+snapshot-1"), false});
@@ -377,12 +377,12 @@ void runLoaderInstallTests() {
             LoaderMeta::sortLoaderVersionsNewestFirst(list);
             check(list.size() == 4, "V6c 排完还是四条（没丢没重）");
             check(list.value(0).version == QStringLiteral("26.1.0.0"),
-                  "V6c 正式版排在最前（数字一样时正式版在前，这一级没被新加的 tie-break 顶掉）",
+                  "V6c 正式版排在最前（数字一样时正式版在前，这一级没被 tie-break 顶掉）",
                   list.value(0).version);
             check(list.value(1).version == QStringLiteral("26.1.0.0-alpha.10+snapshot-1") &&
                       list.value(2).version == QStringLiteral("26.1.0.0-alpha.2+snapshot-1") &&
                       list.value(3).version == QStringLiteral("26.1.0.0-alpha.1+snapshot-1"),
-                  "★ V6c 三个快照按 10 > 2 > 1 排（改之前是 2 > 1 > 10，最后一条最旧）",
+                  "★ V6c 三个快照按 10 > 2 > 1 排",
                   QStringLiteral("%1, %2, %3")
                       .arg(list.value(1).version, list.value(2).version, list.value(3).version));
         }
@@ -520,7 +520,7 @@ void runLoaderInstallTests() {
               "V6b 客户端 jar 按版本号拼");
         check(DownloadManager::mirrorAssetIndexUrl(QStringLiteral("1.18")) ==
                   base + QStringLiteral("/indexes/1.18.json"),
-              "V6b 资源索引按索引号拼（这条地址在镜像上实测 404，所以下载那边有一条"
+              "V6b 资源索引按索引号拼（这条地址在镜像上回 404，所以下载那边有一条"
               "退回官方的兜底 —— 那一段只有联网真跑才看得见，见 loader-install 的 mirror 模式）");
 
         const QString mavenRoot = DownloadManager::mirrorMavenRootUrl();
@@ -567,7 +567,7 @@ void runLoaderInstallTests() {
               LoaderMeta::neoForgeMavenRoot());
     }
 
-    // --- V6g. 安装器的命令行开关要**先探一次**（ 加）-----------------
+    // --- V6g. 安装器的命令行开关要**先探一次**-----------------
     //
     // 起因是一条真机日志（用户报的那个 1.8.9 安装失败）：安装器被喂了 `--installClient`，
     // 它当场 joptsimple.UnrecognizedOptionException 退出码 1 —— 那个年代的安装器把"装
@@ -631,7 +631,7 @@ void runLoaderInstallTests() {
         const QStringList yesMirror = VersionManager::forgeInstallerArguments(
             probeJar, QStringLiteral("D:/mc"), LoaderMeta::forgeMavenRoot(), true);
         check(yesMirror.size() == 6,
-              "V6g 认 --mirror 时照旧给（老行为不变）", yesMirror.join(QLatin1Char(' ')));
+              "V6g 认 --mirror 时照旧给", yesMirror.join(QLatin1Char(' ')));
 
         check(LoaderMeta::forgeInstallerUrlAlternate(QStringLiteral("1.8.9"),
                                                      QStringLiteral("11.15.1.2318")) ==
@@ -649,7 +649,7 @@ void runLoaderInstallTests() {
               " —— 也正是 V6d 那条 shouldRecordOfficialFallback 的判据");
     }
 
-    // --- V6i. 老 Forge：照它自己那份安装说明装（ 加）-----------------
+    // --- V6i. 老 Forge：照它自己那份安装说明装-----------------
     //
     // 起因是用户那句话：「forge 在新电脑上完全装不了难道不算 bug」—— 1.7.10 / 1.8.9 /
     // 1.9.4 / 1.10.2 / 1.11.2 和 1.12.2 的**推荐版（2847）**这些安装器都没有
@@ -762,7 +762,7 @@ void runLoaderInstallTests() {
                           QStringLiteral("https://maven.minecraftforge.net/org/scala-lang/plugins/"
                                          "scala-continuations-library_2.11/1.0.2/"
                                          "scala-continuations-library_2.11-1.0.2.jar"),
-                  "V6i 有 url 的库原样照它给的 url（不加 _mc 后缀也一样能下：实测 200）",
+                  "V6i 有 url 的库原样照它给的 url（不加 _mc 后缀也一样能下：回 200）",
                   scalaContinuations.url);
 
             // 一条都不许静默消失：每条都得拼得出 libraries/ 下的路径（拼不出来的那种，
@@ -878,20 +878,20 @@ void runLoaderInstallTests() {
         }
     }
 
-    // --- V6h. version.json 自己声明的游戏参数（ 加）------------------
+    // --- V6h. version.json 自己声明的游戏参数------------------
     //
-    // 起因是用户报的那次启动崩溃：NeoForge 26.2 的版本 json 在 arguments.game 里写着
-    // `--fml.neoForgeVersion 26.2.0.88 --fml.mcVersion 26.2 --fml.neoFormVersion 2`，而
-    // 启动器**只展开 arguments.jvm**，于是 FML 报 "--fml.mcVersion must be present as a
+    // NeoForge 26.2 的版本 json 在 arguments.game 里写着
+    // `--fml.neoForgeVersion 26.2.0.88 --fml.mcVersion 26.2 --fml.neoFormVersion 2`，启动器
+    // 必须把它展开：只展开 arguments.jvm 时 FML 报 "--fml.mcVersion must be present as a
     // command-line argument"、接着 VersionSupportMatrix 拿着空版本号 NPE，游戏在加载窗口
-    // 那一步就没了（日志见 build/.minecraft/logs/latest.log）。
+    // 那一步就没了。
     //
     // 两份都是真数据：meta/neoforge-26.2.0.88.json 是那个安装器写出来的 profile 原样，
     // meta/26.2.json 是原版那份。
     //
     // NOTE: 判据必须是**继承链合并过**的那份 json —— 真实启动时 generateJvmArguments 拿到的
-    // 就是它。第一版把判据设在 `inheritsFrom` 上，而 merge 刻意丢掉了那个字段，于是
-    // 单元测试（喂原样 profile）全绿、真机照旧崩在原来那一句上。所以下面先合并再喂。
+    // 就是它。判据设在 `inheritsFrom` 上不行：merge 刻意丢掉了那个字段，单测喂原样
+    // profile 会全绿、真机照旧崩。所以下面先合并再喂。
     {
         const QJsonObject neoforgeJson = loadJson(metaDir + "/neoforge-26.2.0.88.json");
         const QJsonObject vanillaJson = loadJson(metaDir + "/26.2.json");
@@ -1056,11 +1056,10 @@ void runLoaderInstallTests() {
         }
     }
 
-    // --- V6d. 镜像失败时"退一步走官方"的两条边界（ 加）----------------
+    // --- V6d. 镜像失败时"退一步走官方"的两条边界----------------
     //
-    // 这条兜底原来只有资源索引有（镜像那条 /indexes/<id>.json 实测全 404）。现在
-    // **所有**走镜像的下载都能退一步 —— 起因是那次 NeoForge 26.2 的实测验收：兜底让
-    // 索引下成之后，失败变成 38 个资源对象，逐条 curl 探出来镜像不是 404，是 302 跳到
+    // 兜底要覆盖**所有**走镜像的下载，不只是资源索引（镜像那条 /indexes/<id>.json 全
+    // 404）。实测：索引下成之后，失败变成 38 个资源对象 —— 镜像不是 404，是 302 跳到
     // openbmclapi 的兄弟节点、慢到 30 秒都拿不全（官方同一时刻 1 秒就给）。
     {
         check(!DownloadManager::shouldRecordOfficialFallback(QStringLiteral("https://a/x"), QString()),
@@ -1081,13 +1080,13 @@ void runLoaderInstallTests() {
               "V6d 客户端 jar：镜像那条是按版本号拼的，跟官方那条完全不像 -> 登记");
     }
 
-    // --- V6e. 镜像"太慢就先不用"的判据（ 加）---------------------------
+    // --- V6e. 镜像"太慢就先不用"的判据---------------------------
     //
-    // 起因还是那次 NeoForge 26.2 的实测：兜底只认"失败"，可镜像这条链子**不是失败**，
-    // 它是 302 跳到一条只有几百字节每秒的链子上、细水长流地掉字节 —— Qt 的
-    // setTransferTimeout() 是"不活动超时"，于是既不会失败（等不到兜底）也不会完成，
-    // 整条安装就那么挂着（gdb 里主线程空转在事件循环里，三个 socket 挂着、一个文件不落）。
-    // 处置是给"走了镜像、而且知道官方那条地址"的回复加一条失速判据 + 一段降级期。
+    // 兜底只认"失败"，可镜像这条链子**不是失败**：它是 302 跳到一条只有几百字节每秒的
+    // 链子上、细水长流地掉字节 —— Qt 的 setTransferTimeout() 是"不活动超时"，于是既不会
+    // 失败（等不到兜底）也不会完成，整条安装就那么挂着（gdb 里主线程空转在事件循环里，
+    // 三个 socket 挂着、一个文件不落）。处置是给"走了镜像、而且知道官方那条地址"的回复
+    // 加一条失速判据 + 一段降级期。
     //
     // 这几条钉的是判据本身（纯函数 + 公开的两个开关），"真慢到触发"那一半只能靠 live
     // 那一跑 —— 本地造不出一条慢慢掉字节的服务器。
@@ -1130,7 +1129,7 @@ void runLoaderInstallTests() {
         check(!DownloadManager::countsTowardStallStrike(1, kMinBytes, kMinBytes),
               "V6e 收到过字节、这一跳到下限 -> 不算失速（闸门不是在 mirrorStalled 上再收紧一次）");
         check(DownloadManager::countsTowardStallStrike(1024, -5, kMinBytes),
-              "V6e 收到过字节、计数变小 -> 照样算失速（这条老行为一个字没动）");
+              "V6e 收到过字节、计数变小 -> 照样算失速");
 
         check(DownloadManager::demoteDeadline(400000, 100000) == 400000 +
                   DownloadManager::kMirrorDemoteMs,
@@ -1158,10 +1157,10 @@ void runLoaderInstallTests() {
         dm.setUseMirror(false);
         check(dm.endpoint(assetUrl) == assetUrl, "V6e 用户改回官方源 -> 当然还是官方那条");
 
-        // 降级**按主机**（ 加）：整合包那条路上"镜像"是每条文件各自的首选地址
+        // 降级**按主机**：整合包那条路上"镜像"是每条文件各自的首选地址
         // （Modrinth 清单里给 2~3 条，preferredUrlOrder() 把 cdn.modrinth.com 排前面），
-        // 一个全局的降级位会让一个慢 CDN 把别的 CDN 一起关掉 —— 那次事故的现场就是这么垮的：
-        // mediafilez 上 8 条不动 -> 全体降级 -> 89% 的字节（1405.9 MB）被赶到慢 CDN 上。
+        // 一个全局的降级位会让一个慢 CDN 把别的 CDN 一起关掉：mediafilez 上 8 条不动
+        // -> 全体降级 -> 89% 的字节（1405.9 MB）被赶到慢 CDN 上。
         {
             DownloadManager perHost;
             perHost.setUseMirror(true);
@@ -1283,9 +1282,9 @@ void runLoaderInstallTests() {
                   QStringLiteral("%1 ms").arg(tookMs));
         }
 
-        // (b) 一个字节都不吐的假镜像（ 改口径）。
+        // (b) 一个字节都不吐的假镜像。
         //
-        // 那次 422 个文件的导入是因为"还没收到第一个字节也算失速"垮掉的：
+        // 422 个文件的导入会因"还没收到第一个字节也算失速"垮掉：
         // 头一批里 8 条两跳就被判"镜像太慢"，然后整个主机被降级 300 秒。所以
         // countsTowardStallStrike() 那条判据（零字节不算"太慢"）**仍然保留**。
         QTcpServer silentMirror;
@@ -1353,9 +1352,9 @@ void runLoaderInstallTests() {
         }
     }
 
-    // --- V6i. 发出去的请求有上限 / 卡死的回复会被判失败（ 加）----------
+    // --- V6i. 发出去的请求有上限 / 卡死的回复会被判失败----------
     //
-    // 这一节钉的是"一次 422 个文件的整合包导入把整批挂死"那两个真因。当时的现场：
+    // 这一节钉的是"一次 422 个文件的整合包导入把整批挂死"那两个真因。现场：
     // 422 个请求一次性全交给 QNetworkAccessManager → Qt 每个主机只开 6 条连接，其余在它
     // 内部排队（30 秒的传输超时从请求建好就开始算）→ 排在后面的回复一个字节都收不到 →
     // 失速看门狗两跳（10 秒）把它们全判成"镜像太慢"并重发 → 重发又是几百条一起发 →
@@ -1409,20 +1408,20 @@ void runLoaderInstallTests() {
 
     // (2) 端到端：一次排进去**比上限多得多**的作业，真正被交给 Qt 的只有按主机允许的那几条。
     //
-    // NOTE: 作业数必须**超过**上限，否则这条用例会退化成"全都发出去了也算过"。上限从 6 改成
-    // 24 那次就踩过这个：原来写死的 20 条在新上限下一条都不会排队，用例还照样绿。
+    // NOTE: 作业数必须**超过**上限，否则这条用例会退化成"全都发出去了也算过"—— 写死
+    // 20 条时，上限一调高就一条都不会排队，用例还照样绿。
     //
     // 【为什么非要**两台**假服务器】单看一台是量不出按主机那条判据的：Qt 自己对每个
     // host:port 也只开一个固定的通道数，所以"我们拦住了"和"Qt 拦住了"这两种情况在那台
-    // 服务器上看到的都是一样的条数 —— 那么写的话，把判据整个删掉也照样绿（
-    // 加这条时就是为了躲开这个：**断言要量"由我们自己决定"的那一格**）。
+    // 服务器上看到的都是一样的条数 —— 那么写的话，把判据整个删掉也照样绿
+    // （**断言要量"由我们自己决定"的那一格**）。
     // 两台服务器就不一样了：Qt 的通道数按 host:port 各算各的（敢给的话它开 12 + 12），
     // 而我们的判据按**主机名**算（同一个 127.0.0.1，两个端口合起来只有
     // kMaxConcurrentPerHost 条）。于是"两台服务器上一共挂了几条连接"这一格由我们说了算：
     // kMaxConcurrentPerHost = 判据在，翻倍 = 判据被删了。
     //
-    // 这条同时是那次挂死的**直接**回归测试：改之前几百条会一个不落地全建连（422 条就是
-    // 422 条），改之后多出来的留在我们自己的队列里 —— 只有"在我们手里排"才谈得上后面那些
+    // 这条同时是那类挂死的**直接**回归测试：没有队列时几百条会一个不落地全建连（422 条
+    // 就是 422 条），多出来的留在我们自己的队列里 —— 只有"在我们手里排"才谈得上后面那些
     // 看门狗判据。
     {
         QTcpServer floodA;
@@ -1525,8 +1524,8 @@ void runLoaderInstallTests() {
     // (3) 端到端：一条**没有备用地址**、发出去之后一个字节都收不到的下载，到点会被判失败。
     //
     // 这一条是 V6f 的另一半。V6f 那种回复有退路（走镜像 + 知道官方那条地址），看门狗 10 秒
-    // 就 abort 它换一条路；**没有**退路的那些以前是没人管的 —— 而它一旦永远不结束，
-    // pendingDownloads 就永远归不了零，整批永远收不了尾（那次挂死的就是这一类）。
+    // 就 abort 它换一条路；**没有**退路的那些也必须有人管 —— 它一旦永远不结束，
+    // pendingDownloads 就永远归不了零，整批永远收不了尾。
     {
         QTcpServer deadServer;
         const bool deadListening = deadServer.listen(QHostAddress::LocalHost, 0);
@@ -1586,12 +1585,12 @@ void runLoaderInstallTests() {
         }
     }
 
-    // --- V6j. 镜像 302 到一台"接得上、一个字节都不给"的落点（ 加）--------
+    // --- V6j. 镜像 302 到一台"接得上、一个字节都不给"的落点--------
     //
-    // 用户本机实测的形状（校园网，无代理）：BMCLAPI 的资源地址 302 到
+    // 实测的形状（校园网，无代理）：BMCLAPI 的资源地址 302 到
     // bmclapiN.sakura.sld.tw，TLS 接得上、一个字节都不来（curl 25 秒 0 字节）；
     // 同一时刻官方 resources.download.minecraft.net 0.4~1.6 秒一个对象。
-    // 从前只有 90 秒兜底会动这种回复 —— 一条死落点占满一个并发位一分半钟，
+    // 只靠 90 秒兜底动不了这种回复 —— 一条死落点占满一个并发位一分半钟，
     // 24 位里常年有几条在等死节点，整批只剩一两文件/秒（实测 751/5222、十一分钟）。
     //
     // 现在要钉住的三件事（这条用例把它压成一秒半）：

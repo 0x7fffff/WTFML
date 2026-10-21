@@ -1,10 +1,10 @@
 #include "Support.hpp"
 
 void runVanillaOptionsTests() {
-    section("PB. 原版设置：options.txt 保序 / 未知行不许丢 / 按键冲突（§6 P2）");
+    section("PB. 原版设置：options.txt 保序 / 未知行不许丢 / 按键冲突");
 
     // 一份"从用户那儿来的"预设底稿：里面**故意**混了四种东西 —— 基础设置、两条抢同一个键
-    // 的标准按键、硬件相关项（默认不选）、还有我们认不出来的（`resourcePacks` 归 §4 那块、
+    // 的标准按键、硬件相关项（默认不选）、还有我们认不出来的（`resourcePacks` 归预设那一块、
     // `lastServer` 是状态不是设置、模组写的那条谁也不知道是什么）。
     const QByteArray sourceBytes = QByteArrayLiteral(
         "fov:0.5\n"
@@ -93,7 +93,7 @@ void runVanillaOptionsTests() {
                   Presets::OptionsField::Hardware &&
               Presets::optionsFieldOf(QStringLiteral("touchscreen")) ==
                   Presets::OptionsField::Hardware,
-          "PB2 硬件相关项（§6 P2 点名的「显示器、全屏分辨率」那几条）");
+          "PB2 硬件相关项（点名的「显示器、全屏分辨率」那几条）");
     check(Presets::optionsFieldOf(QStringLiteral("resourcePacks")) ==
                   Presets::OptionsField::Unknown &&
               Presets::optionsFieldOf(QStringLiteral("lastServer")) ==
@@ -101,16 +101,16 @@ void runVanillaOptionsTests() {
               Presets::optionsFieldOf(QStringLiteral("someNewOptionFromFutureVersion")) ==
                   Presets::OptionsField::Unknown &&
               Presets::optionsFieldOf(QString()) == Presets::OptionsField::Unknown,
-          "PB2 认不出来的那一档：资源包（归 §4 那块）、`lastServer`（是状态不是设置）、"
+          "PB2 认不出来的那一档：资源包、`lastServer`（是状态不是设置）、"
           "别的版本写的、空键");
     check(Presets::optionsDefaultSelected(QStringLiteral("fov")) &&
               Presets::optionsDefaultSelected(QStringLiteral("key_forward")),
-          "PB2 基础设置与标准按键**默认勾**（§6 P2 那句「分组选择」的默认档）");
+          "PB2 基础设置与标准按键**默认勾**（「分组选择」的默认档）");
     check(!Presets::optionsDefaultSelected(QStringLiteral("guiScale")) &&
               !Presets::optionsDefaultSelected(QStringLiteral("fullscreenResolution")) &&
               !Presets::optionsDefaultSelected(QStringLiteral("resourcePacks")) &&
               !Presets::optionsDefaultSelected(QStringLiteral("someNewOptionFromFutureVersion")),
-          "★★ PB2 硬件相关项**默认不选**（§6 P2 点名），认不出来的也不选 —— 不认识的键的"
+          "★★ PB2 硬件相关项**默认不选**（点名），认不出来的也不选 —— 不认识的键的"
           "正确值只有用户知道，替他搬过去是拿猜出来的值改他的实例");
     check(Presets::optionsFieldKey(Presets::OptionsField::Game) == QStringLiteral("game") &&
               Presets::optionsFieldKey(Presets::OptionsField::Hotkey) == QStringLiteral("hotkey") &&
@@ -159,7 +159,7 @@ void runVanillaOptionsTests() {
         check(sections.size() == 2 &&
                   sections.at(0).kind == Presets::SectionKind::VanillaOptions &&
                   sections.at(1).kind == Presets::SectionKind::VanillaKeys,
-              "PB4 拆成两段（§6 P2 那句「基础设置与 `key_` 按键分组选择」）");
+              "PB4 拆成两段（「基础设置与 `key_` 按键分组选择」）");
         check(sections.at(0).items.size() == 3 && sections.at(1).items.size() == 3,
               "PB4 设置那一半 3 项、按键那一半 3 项（`guiScale` / `fullscreen` 默认没勾 ⇒ "
               "一条都不进段）",
@@ -168,7 +168,7 @@ void runVanillaOptionsTests() {
                   .arg(sections.at(1).items.size()));
         check(sections.at(0).mode == Presets::ApplyMode::Merge &&
                   sections.at(1).mode == Presets::ApplyMode::Merge,
-              "★★ PB4 两段的默认档都是**合并**（§6 P2：「默认 Merge，Replace 必须明确确认」"
+              "★★ PB4 两段的默认档都是**合并**（「默认 Merge，Replace 必须明确确认」"
               "—— 覆盖档是用户在界面上点头之后才写进这一段的）");
         const QJsonObject first = sections.at(1).items.at(0).toObject();
         check(first.value(QStringLiteral("key")).toString() == QStringLiteral("key_forward") &&
@@ -207,7 +207,7 @@ void runVanillaOptionsTests() {
         Presets::optionsFromSections(brokenSection(QByteArrayLiteral("[{\"key\":\"fov\"}]")),
                                      &badOk);
         check(!badOk,
-              "★★ PB4 缺 `value` **不算空串** —— 这一份被谁动过（§8.1「区分缺失、`null` 与"
+              "★★ PB4 缺 `value` **不算空串** —— 这一份被谁动过（「区分缺失、`null` 与"
               "错误类型」）");
         badOk = true;
         Presets::optionsFromSections(
@@ -298,7 +298,7 @@ void runVanillaOptionsTests() {
             Presets::planOptionsApply(Presets::SectionKind::VanillaOptions, source, target,
                                       selected, Presets::ApplyMode::Merge);
         check(report.ok && !report.needsConfirm,
-              "PB7 合并档不用确认（§6 P2 的默认档）", report.problem);
+              "PB7 合并档不用确认", report.problem);
         check(report.written == 3 && report.added == 1,
               "PB7 计划里说得清要写几项、其中几项是**新加的**（`lang` 目标上没有 ⇒ 1 项要"
               "追加）",
@@ -310,7 +310,7 @@ void runVanillaOptionsTests() {
               "PB7 合并档一项都不删（`untouchable` 那个数只在覆盖档填 —— 别的档报出来只会让人"
               "以为我们在权衡什么）");
         check(!report.hasConflicts(),
-              "★★ PB7 设置那一段**不报按键冲突**（§7 那张计划表里也只有「原版按键」那一行"
+              "★★ PB7 设置那一段**不报按键冲突**（计划表里也只有「原版按键」那一行"
               "带冲突数：报在这儿等于把别的段的账记到它头上）");
     }
 
@@ -352,7 +352,7 @@ void runVanillaOptionsTests() {
               "重写整个文件就坏在这儿）");
         check(QString::fromUtf8(merged).contains(
                   QStringLiteral("someNewOptionFromFutureVersion:yes")),
-              "★★ PB8 目标版本新增的字段也在（§6 P2 点名的那一条）");
+              "★★ PB8 目标版本新增的字段也在（点名的那一条）");
         check(QString::fromUtf8(merged).contains(
                   QStringLiteral("fullscreenResolution:1920x1080@60:24")),
               "★★ PB8 硬件那条这一趟**没勾** ⇒ 目标上原来那份分辨率原样留着（值里那个"
@@ -376,7 +376,7 @@ void runVanillaOptionsTests() {
                                   Presets::ApplyMode::Replace);
         check(!refused.report.ok && refused.report.needsConfirm &&
                   !refused.report.problem.isEmpty(),
-              "★★ PB9 覆盖档没确认过 ⇒ 不动手，而且**说得出为什么**（§6 P2「Replace 必须明确"
+              "★★ PB9 覆盖档没确认过 ⇒ 不动手，而且**说得出为什么**（「Replace 必须明确"
               "确认」）", refused.report.problem);
         check(refused.bytes == targetBytes,
               "★★ PB9 没确认的那一趟**目标一个字节都没动**（不是「先写了再回滚」）");
@@ -402,7 +402,7 @@ void runVanillaOptionsTests() {
                       QStringLiteral("someNewOptionFromFutureVersion:yes")) &&
                   QString::fromUtf8(out).contains(QStringLiteral("tutorialStep:none")),
               "★★ PB9 **覆盖档也不删认不出来的行**（那是别人写的东西，不是「多余的东西」——"
-              "把不认识的键当成该被覆盖掉的，正是 §6 P2 点名的那个坑）");
+              "把不认识的键当成该被覆盖掉的，正是这一层要防的那个坑）");
         check(QString::fromUtf8(out).contains(QStringLiteral("key_forward:key.keyboard.up")) &&
                   QString::fromUtf8(out).contains(QStringLiteral("key_back:key.keyboard.s")),
               "PB9 覆盖档的**域**只有设置那几档：按键那一份原样在");
@@ -442,12 +442,12 @@ void runVanillaOptionsTests() {
                       .bytes,
               "PB10「追加」和「合并」结果一样（这是**故意**的，不是漏了一档）");
 
-        // 按键那一段：只写 `key_*`，而且冲突照 §7 那张表报在它自己头上。
+        // 按键那一段：只写 `key_*`，而且冲突照冲突规则报在它自己头上。
         const Presets::OptionsApplyResult keys =
             Presets::applyOptions(Presets::SectionKind::VanillaKeys, target, source, selected,
                                   Presets::ApplyMode::Merge);
         check(keys.report.ok && keys.report.written == 3 && keys.report.hasConflicts(),
-              "★★ PB10 按键那一段：写 3 项、而且**冲突数报在它自己这一行上**（§7 那张计划表"
+              "★★ PB10 按键那一段：写 3 项、而且**冲突数报在它自己这一行上**（计划表"
               "「原版按键 合并 23 项，冲突 1 项」）",
               QStringLiteral("写 %1 / 冲突 %2")
                   .arg(keys.report.written)

@@ -21,7 +21,7 @@ bool isLinkEntry(const QFileInfo &info) {
 
 /// 单条删除那一问。★ ：链接**不能**按文件夹写 —— `removeUnasked()` 对目录走
 /// `removeTreeWithoutFollowingLinks()`，它碰到链接只摘掉链接本身、指向的东西一个字节都不动；
-/// 而 `QFileInfo::isDir()` 对 junction 是 `true`。原来那一问照着 `isDir()` 写，用户看到的是
+/// 而 `QFileInfo::isDir()` 对 junction 是 `true`。照着 `isDir()` 写这一问，用户看到的是
 /// 「连同里面的东西一起删掉」，实际删掉的是个两字节的壳子 —— 反过来更糟：用户以为链接背后
 /// 那棵大树还在、其实（如果他自己以为是删文件）也没有。说什么就得做什么。
 QString removalQuestionFor(const QFileInfo &info) {
@@ -138,9 +138,9 @@ void InstanceFileController::removeMany(const QStringList &paths) {
     if (paths.isEmpty()) return;
     // 这一批里**可能有文件夹**。资源包 / 数据包 / 光影包那三页连目录一起列
     // （未压缩的目录包正是游戏认可的一种形态），而 `removeUnasked()` 对目录是**连里面的
-    // 东西一起递归删**（`removeTreeWithoutFollowingLinks`）。原来这一问无论收到什么都
-    // 写「这 N 个文件」—— 唯一的确认框把实际破坏范围说小了，用户以为只删一个壳子。
-    // 单条那条路（`remove()`）早就分开写了，批量这条路漏了同一件事。
+    // 东西一起递归删**（`removeTreeWithoutFollowingLinks`）。这一问若无论收到什么都
+    // 写「这 N 个文件」，唯一的确认框就把实际破坏范围说小了，用户以为只删一个壳子。
+    // 单条那条路（`remove()`）是分开写的，批量这条路也要照办。
     // 链接单独数：它们**不**是"里面的东西一起删"，只摘壳子（见 `removalQuestionFor()`）。
     int dirCount = 0;
     int linkCount = 0;

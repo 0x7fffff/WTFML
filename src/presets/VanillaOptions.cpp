@@ -56,7 +56,7 @@ QString defaultEolFor(const OptionsFile &file) {
 // 认得的键
 // ---------------------------------------------------------------------------
 
-/// 「显示器、全屏分辨率等硬件相关项」那一档（§6 P2，**默认不选**）。
+/// 「显示器、全屏分辨率等硬件相关项」那一档（**默认不选**）。
 ///
 /// 判据是"这个值对不对要对着**这台机器**才说得清"：分辨率、窗口模式、GUI 缩放（跟屏幕
 /// 物理尺寸走）、有没有触摸屏。性能那几项（`renderDistance`、`maxFps`）**故意不进**：
@@ -75,7 +75,7 @@ const QSet<QString> &hardwareKeys() {
 ///
 /// 这是一张**允许表**（不在表里的落 `Unknown`），不是"除了按键都是基础设置"那种排他
 /// 判断。反过来写的后果是：任何我们没听说过的键（别的版本新增的、模组写的）都会被当成
-/// "基础设置"默认勾上，一应用就是拿我们看不懂的值去改用户的实例（§2.3）。
+/// "基础设置"默认勾上，一应用就是拿我们看不懂的值去改用户的实例。
 const QSet<QString> &gameKeys() {
     static const QSet<QString> keys = {
         // 画面
@@ -130,7 +130,7 @@ bool inFillDomain(SectionKind kind, const QString &key) {
 /// 「覆盖」档**删得掉**的那些键：这一段域里、我们**认得出**的几档。
 ///
 /// `Unknown` 一个都不删（`inFillDomain` 为真但这里为假）：那是别人写的东西，不是
-/// "多余的东西"。把不认识的键当成"该被覆盖掉的"，正是 §6 P2 点名的那个坑。
+/// "多余的东西"。把不认识的键当成"该被覆盖掉的"，正是要避开的那个坑。
 bool removableInReplace(SectionKind kind, const QString &key) {
     if (!inFillDomain(kind, key)) {
         return false;
@@ -431,7 +431,7 @@ QList<PresetSection> sectionsFromOptions(const OptionsFile &source, const QSet<Q
         PresetSection section;
         section.id = optionsSectionId(kind);
         section.kind = kind;
-        // §6 P2：「默认 Merge，Replace 必须明确确认」——默认档写在这儿，覆盖档由界面那一步
+        // 「默认 Merge，Replace 必须明确确认」——默认档写在这儿，覆盖档由界面那一步
         // 让用户点头之后才写进这一段。
         section.mode = ApplyMode::Merge;
 
@@ -474,7 +474,7 @@ OptionsFile optionsFromSections(const QList<PresetSection> &sections, bool *ok) 
             const QJsonValue key = item.value(QStringLiteral("key"));
             const QJsonValue itemValue = item.value(QStringLiteral("value"));
             // `value` 缺了**不算空串**：我们自己写下去的每一项都有这一个字段，缺了说明这一份
-            // 被谁动过（§8.1「区分缺失、`null` 与错误类型」）。读不回来的段不许拿去改用户的
+            // 被谁动过（「区分缺失、`null` 与错误类型」）。读不回来的段不许拿去改用户的
             // 实例 —— 这里回一个空文件 + `ok = false`，让调用方自己决定怎么报。
             if (!key.isString() || key.toString().isEmpty() || !itemValue.isString()) {
                 if (ok != nullptr) {
@@ -556,14 +556,14 @@ OptionsApplyResult applyOptions(SectionKind kind, const OptionsFile &target,
     result.report.skipped = skipped;
     // 这个数**只在覆盖档**填：别的档一行都不删，报出来只会让人以为我们在权衡什么。
     result.report.untouchable = mode == ApplyMode::Replace ? untouchableLineCount(target) : 0;
-    // 按键冲突只归「原版按键」那一段报（§7 那张计划表里也只有那一行带冲突数）：
+    // 按键冲突只归「原版按键」那一段报（也只有那一行带冲突数）：
     // 设置那一段管不着 `key_*`（`inFillDomain` 把它们挡在外面），在这儿报等于把别的段的
     // 账记到它头上。
     if (kind == SectionKind::VanillaKeys) {
         result.report.conflicts = optionsConflicts(source, target, selected);
     }
 
-    // ---- ④ 「覆盖」要用户明确确认过才动手（§6 P2）----
+    // ---- ④ 「覆盖」要用户明确确认过才动手 ----
     if (mode == ApplyMode::Replace && !replaceConfirmed) {
         result.bytes = target.toBytes();
         result.report.needsConfirm = true;

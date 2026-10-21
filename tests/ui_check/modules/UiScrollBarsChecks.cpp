@@ -67,7 +67,7 @@ int UiScrollBarsChecks(QApplication &app, QFrame * &bar) {
             return shot.pixelColor(qBound(0, x, shot.width() - 1), qBound(0, y, shot.height() - 1));
         };
         // 把手在哪一格**问样式要**（`subControlRect`）—— 那一刻的值是 0，把手在最上面那一段，
-        // 不是正中间（第一版按"正中间"取样，量到的是槽，于是"一个墨点都没有"）。
+        // 不是正中间（按"正中间"取样量到的是槽，会得出"一个墨点都没有"）。
         const auto subRect = [](QScrollBar *widget, QStyle::SubControl which) {
             QStyleOptionSlider option;
             option.initFrom(widget);

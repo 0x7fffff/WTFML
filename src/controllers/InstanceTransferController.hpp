@@ -27,7 +27,7 @@ public:
         /// `MainWindow::m_fileOperationInstanceIds`）。不记的话，复制跑到一半用户
         /// 照样能启动这一份 —— 游戏一边写存档、拷树一边读，副本里就是半截世界。
         std::function<void(const QString &, bool)> setFileOperationBusy;
-        // 任务中心那一格（coding plan §9.9「不在 UI 线程直接复制整个目录」）。全可空。
+        // 任务中心那一格（「不在 UI 线程直接复制整个目录」）。全可空。
         std::function<Tasks::TaskId(Tasks::TaskKind, const QString &, const QString &,
                                     const QList<Tasks::TaskStep> &)>
             beginTask;

@@ -1,6 +1,6 @@
 /**
  * @file DownloadSpeedLimit.hpp
- * @brief 「下载速度上限」那几档（设置 → 下载 → 速度上限；coding plan §9.2）。
+ * @brief 「下载速度上限」那几档（设置 → 下载 → 速度上限）。
  *
  * 【这一项管的是谁】
  *

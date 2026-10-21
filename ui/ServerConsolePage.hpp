@@ -1,6 +1,6 @@
 /**
  * @file ServerConsolePage.hpp
- * @brief 一个服务端的**控制台**那一页（coding plan §6.2 / 里程碑 M4-3）。
+ * @brief 一个服务端的**控制台**那一页。
  *
  * 【它是干什么的】
  *
@@ -10,7 +10,7 @@
  *
  * 【这一页只摆控件，判据一条都不在这儿】
  *
- * `ui/` **不 include `src/`**（见 `GroupDialog.hpp` 文件头那段老规矩），所以：
+ * `ui/` **不 include `src/`**（见 `GroupDialog.hpp` 文件头那段规矩），所以：
  *
  * * **哪一档状态、那句话怎么说** —— 由 `MainWindow` 翻好（`ServerModel::statusName()`）
  * 用 `setStatusText()` 喂进来；
@@ -66,7 +66,7 @@ public:
 
     /// 日志最多留几行（`QPlainTextEdit::setMaximumBlockCount()`）。见文件头那段。
     ///
-    /// §9.8 起这个数同时钉在**共用模型**的容量上：视图那一格只是"现在显示多少"，
+    /// 这个数同时钉在**共用模型**的容量上：视图那一格只是"现在显示多少"，
     /// 模型那一边才是真正的保留上限（搜索/切行数之后还能把行找回来）。
     void setMaxLines(int lines);
     /**
@@ -83,7 +83,7 @@ public:
     /// 整份日志（含被筛掉的），一行一句、末尾有换行 —— 「导出日志…」交给外面的那一份。
     QString allLogText() const;
 
-    // ---------- 搜索 / 显示上限（§9.8：和游戏日志窗共用同一份模型） ----------
+    // ---------- 搜索 / 显示上限（和游戏日志窗共用同一份模型） ----------
 
     void setSearchText(const QString &text);
     QString searchText() const;
@@ -92,7 +92,7 @@ public:
     int displayLineLimit() const { return m_model.displayLimit(); }
     static QString searchPlaceholderText();
 
-    // ---------- 命令历史（§9.8 第三条：服务端模式保留） ----------
+    // ---------- 命令历史（服务端模式保留） ----------
 
     /// 敲过的命令（从老到新）。空行、连续重复的不记。
     QStringList commandHistory() const { return m_history; }
@@ -136,7 +136,7 @@ private:
     QPushButton *m_stopButton = nullptr;
     QPushButton *m_forceKillButton = nullptr;
 
-    /// 记账那一半：和游戏日志窗同一份共用模型（§9.8）。档位筛选在这一页没有入口
+    /// 记账那一半：和游戏日志窗同一份共用模型。档位筛选在这一页没有入口
     /// （服务端的原始输出不按那五档组织），但搜索、行数上限、导出都走它。
     RuntimeOutputModel m_model;
     /// 命令历史（从老到新）。`m_historyCursor == m_history.size()` = 不在历史里。

@@ -16,7 +16,7 @@
 
 namespace {
 
-/// UTF-8 BOM。**解码器会自己吃掉它**（ 实测：`EF BB BF` + 「中」解出来第一个
+/// UTF-8 BOM。**解码器会自己吃掉它**（`EF BB BF` + 「中」解出来第一个
 /// 字符直接就是「中」），所以这一串只有"写回去时补不补"这一个用处。
 QByteArray bomBytes() { return QByteArrayLiteral("\xEF\xBB\xBF"); }
 
@@ -36,8 +36,8 @@ QString ConfigFileText::Loaded::terminator(Eol eol) {
 
 ConfigFileText::Split ConfigFileText::split(const QString &text) {
     // 这个函数的输出**必须和 QPlainTextEdit 的文本模型一致**，否则"用户什么都没改"
-    // 也会被判成改过（甚至是"每次保存都多一个换行"这种慢性病）。 实测过
-    // QPlainTextEdit 的四条行为，这个实现是照它们写的：
+    // 也会被判成改过（甚至是"每次保存都多一个换行"这种慢性病）。这个实现照
+    // QPlainTextEdit 的四条行为写：
     // - `\r\n` 当**一个**换行（`a\r\nb\r\n` → `a\nb\n`）
     // - 单独的 `\r` **也**是换行（`a\rb` → `a\nb`）
     // - 末尾那个换行**保得住**（`a\nb\n` 原样回来，`a\nb` 也原样回来 —— 所以
@@ -91,7 +91,7 @@ ConfigFileText::Loaded ConfigFileText::decode(const QByteArray &raw) {
 
     // **不用 QString::fromUtf8**：那条路遇到非法字节直接塞 U+FFFD 而且**不告诉你**，
     // 于是"这个文件能不能编辑"就没得判了。QStringDecoder 有一个 hasError() 正是这一位
-    // （ 实测：合法 UTF-8 上 false、`bad \xb4 byte` 上 true）。
+    // （合法 UTF-8 上 false、`bad \xb4 byte` 上 true）。
     QStringDecoder decoder(QStringDecoder::Utf8);
     const QString decoded = decoder(raw);
     // 所以再加一道**原地往返**：解出来的串再编回 UTF-8，和原来那串字节**逐字节比**。
@@ -99,8 +99,7 @@ ConfigFileText::Loaded ConfigFileText::decode(const QByteArray &raw) {
     // 丢掉时这一比就露馅（短了几个字节）。比之前把 BOM 摘掉 —— 解码器默认会吃掉开头
     // 那个 BOM（`ConvertInitialBom` 不设默认就是吃），它没进 `decoded`，也不该进这一比。
     //
-    // NOTE: 盘上现查过 137,693 个文本文件，**没有一个**尾巴是半截的 —— 这是"闸门有洞"，
-    // 不是"已经在丢数据"。所以就按"判据该长什么样"来修，不动别的。
+    // NOTE: 这一比只判"能不能原地往返"，不改读法：合法 UTF-8 的文件照常打开。
     const QByteArray body = out.bom ? raw.mid(bomBytes().size()) : raw;
     out.utf8Ok = !decoder.hasError() && decoded.toUtf8() == body;
 

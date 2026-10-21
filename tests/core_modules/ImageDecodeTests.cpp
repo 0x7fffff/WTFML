@@ -65,7 +65,7 @@ void runImageDecodeTests() {
     // **「列表里说有」不等于「真解得动」**。GitHub 的 windows runner 是
     // Windows Server 镜像：`webpAvailable()` 枚举得到一条认 `.webp` 的解码器，可真拿
     // 这份字节去 CopyPixels 时失败、回 null（本机 Win11 上是好的）。所以这一节按
-    // **真解出来的东西**分岔，而不是按当初那次枚举的结果 —— 产品在两种机器上的行为
+    // **真解出来的东西**分岔，而不是按枚举的结果 —— 产品在两种机器上的行为
     // 都对：解得出就给图，解不出就如实回 null。
     if (!webpImage.isNull()) {
         check(webpImage.size() == QSize(96, 96), "ZC2 解得动：96x96",

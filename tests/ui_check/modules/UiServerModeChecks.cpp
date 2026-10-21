@@ -1,8 +1,8 @@
 #include "Support.hpp"
 int UiServerModeChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs) {
-    // ---------- U34 实例页顶部模式切换 + 服务端那半页（coding plan §6.1 / M4-1）----------
+    // ---------- U34 实例页顶部模式切换 + 服务端那半页（M4-1）----------
     //
-    // §6.1 落到界面上的那一份：实例页正文面顶上多一行**模式切换**（客户端实例 | 服务端），
+    // 落到界面上的那一份：实例页正文面顶上多一行**模式切换**（客户端实例 | 服务端），
     // 下面那一整块跟着换页（`instanceModeStack`）—— 客户端那一页就是原来那张「文件夹 +
     // 实例树」，服务端那一页是一棵空的树 + 一句「还没有服务端」+ 一颗「新建服务端…」。
     // 这一节量的是**看得见的那一份**：两颗 chip 在不在 / 勾没勾对、换页换没换对、服务端
@@ -208,7 +208,7 @@ int UiServerModeChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
             QApplication::processEvents();
         }
 
-        // ---------- U35 「新建服务端」那一页的「目录」那一行（coding plan §6.2 / M4-2）----------
+        // ---------- U35 「新建服务端」那一页的「目录」那一行（M4-2）----------
         //
         // 用户 定的那一条：「创建」= 建目录 + 当趟把东西下下来。落盘那件事在
         // mw_check 的 T40（真建、真下、真取消）；这一节只量**建之前用户看得见的那一格**：
@@ -257,7 +257,7 @@ int UiServerModeChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
                       "★ U35.3 名字洗空了那一趟，悬停给的是「先起名」那句话（不留一个空提示）",
                       dirLabel->toolTip());
 
-                // 长路径不许把这一页撑宽：那一格挂的是 Ignored（路径可能很长，老规矩）。
+                // 长路径不许把这一页撑宽：那一格挂的是 Ignored（路径可能很长）。
                 page.setTargetDir(QStringLiteral("/x"));
                 QApplication::processEvents();
                 const int shortHint = page.sizeHint().width();
@@ -271,7 +271,7 @@ int UiServerModeChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
                           longHint == shortHint,
                       "★★ U35.4 400 个字的长路径**不许**把这一页撑宽：那一格挂的是 "
                       "`QSizePolicy::Ignored` ⇒ 页面的 sizeHint 一个字都不变（路径可能很长，"
-                      "同摘要那一句的老规矩；屏幕上真怎么样由 ui_shot §38 钉）",
+                      "同摘要那一句的规矩；屏幕上真怎么样另有一处钉着）",
                       QStringLiteral("短路径 hint=%1 / 长路径 hint=%2（那一格自己的 sizeHint 宽 %3）")
                           .arg(shortHint)
                           .arg(longHint)
@@ -281,7 +281,7 @@ int UiServerModeChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
             QApplication::processEvents();
         }
 
-        // ---------- U36 服务端控制台那一页 + EULA 那道闸（coding plan §6.2 / M4-3）----------
+        // ---------- U36 服务端控制台那一页 + EULA 那道闸（M4-3）----------
         //
         // M4-3 在界面上长出两样东西：
         //
@@ -405,7 +405,7 @@ int UiServerModeChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
                 check(stop->isEnabled() && !kill->isEnabled() && edit->isEnabled() &&
                           send->isEnabled(),
                       "★★ U36.4 「停止」亮着、「强制结束」还灰着、输入框能用了 —— 宽限时间"
-                      "没到你就不该能把它打死（用户 2026-10-13 定的那一条）");
+                      "没到你就不该能把它打死");
                 page.setForceKillAvailable(true);
                 check(kill->isEnabled(), "★ U36.4 宽限时间到了 ⇒ 「强制结束」这才亮起来");
 

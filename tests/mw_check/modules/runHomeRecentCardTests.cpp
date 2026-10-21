@@ -160,7 +160,7 @@ void runHomeRecentCardTests() {
 
         // ---------- ① 一次都没启动过 ----------
         check(!cardShown(card),
-              "★★ T36.1 一次都没启动过 ⇒ **整张卡收起来**（§5.1 要的是一小块活动提示，"
+              "★★ T36.1 一次都没启动过 ⇒ **整张卡收起来**（要的是一小块活动提示，"
               "不是一个空壳子占着主页的左栏）");
 
         // ---------- ② 普通启动一次：账上一条 → 卡片当场出来 ----------
@@ -170,7 +170,7 @@ void runHomeRecentCardTests() {
         QList<LaunchHistory::Record> records = onDisk();
         check(QFile::exists(root.path() + QStringLiteral("/wtfml.history")),
               "★★ T36.2 账落在**当前游戏文件夹**里（`wtfml.history`）—— 换一个游戏文件夹"
-              "就是另一本账，这是 §5.1 那条「跟着数据走」的落点");
+              "就是另一本账，这是「跟着数据走」的落点");
         check(records.size() == 1,
               "★ T36.2 摆进去一条 ⇒ 盘上就一条（摆的是产品那条写路，不是测试自己另写一份）",
               QString::number(records.size()));
@@ -184,7 +184,7 @@ void runHomeRecentCardTests() {
             check(first.result == LaunchHistory::Result::Running &&
                       first.target == LaunchHistory::Target::None,
                   "★ T36.2 刚记下来是「还在跑」；这一趟是普通启动 ⇒ 目标那一格是空的"
-                  "（§5.1：世界 / 服务器只有通过 Quick Play 启动时才记录，普通进主菜单不能猜）",
+                  "（世界 / 服务器只有通过 Quick Play 启动时才记录，普通进主菜单不能猜）",
                   LaunchHistory::targetKey(first.target));
             check(first.startedAt.toMSecsSinceEpoch() == t0,
                   "★ T36.2 时间就是**启动那一刻**（产品记的是「进程真的起来了」那一秒，"
@@ -204,7 +204,7 @@ void runHomeRecentCardTests() {
               labelText(&w, MainWindowUI::homeRecentWhenLabelName()));
         check(continueButton != nullptr &&
                   continueButton->text() == MainWindowUI::homeRecentContinueText(),
-              "★★ T36.2 普通启动那一趟也是「继续游玩」（§5.1 那张草图里那颗按钮的两个说法："
+              "★★ T36.2 普通启动那一趟也是「继续游玩」（那张草图里那颗按钮的两个说法："
               "接着玩的动作就是**把这一份再开起来**；只有「这一份自己也开不起来」时才降级成"
               "「启动实例」）",
               continueButton != nullptr ? continueButton->text() : QString());
@@ -244,7 +244,7 @@ void runHomeRecentCardTests() {
               labelText(&w, MainWindowUI::homeRecentDetailLabelName()));
 
         // ---------- ④ 「压根没玩成」那一条不算数（卡片退回上一条真的玩过的）----------
-        // §5.1 那句「以成功创建游戏进程为准，不以点击启动按钮为准」的落点：进程起来就死 /
+        // 「以成功创建游戏进程为准，不以点击启动按钮为准」的落点：进程起来就死 /
         // 没起来的那一趟不该把"上次玩的是哪一份"改掉。
         {
             const qint64 tFail = QDateTime::currentMSecsSinceEpoch();
@@ -259,7 +259,7 @@ void runHomeRecentCardTests() {
                       labelText(&w, MainWindowUI::homeRecentDetailLabelName()) ==
                           QStringLiteral("玩了 8 分钟（上次是异常退出）"),
                   "★★ T36.4 「压根没玩成」那一条**卡片不认** ⇒ 退回上一条真的玩过的"
-                  "（§5.1：「上一次」以成功创建游戏进程为准）",
+                  "（「上一次」以成功创建游戏进程为准）",
                   labelText(&w, MainWindowUI::homeRecentDetailLabelName()));
             check(whenExpectation(tCrash).contains(
                       labelText(&w, MainWindowUI::homeRecentWhenLabelName())),
@@ -314,7 +314,7 @@ void runHomeRecentCardTests() {
               continueButton != nullptr ? continueButton->text() : QString());
         {
             // 这一发会一路走到启动那条路（Java 那一步）—— 那一问就是"完整入口真的被
-            // 走到了"的证据（§5.1：「快捷启动仍走完整校验、登录、Java 和重复运行提醒，
+            // 走到了"的证据（「快捷启动仍走完整校验、登录、Java 和重复运行提醒，
             // 不绕过现有启动入口」）。
             const QList<PromptAnswerer::Answered> answered = clickAndAnswer(continueButton, {0});
             check(answered.size() == 1 && answered.first().text.contains(QStringLiteral("跟随全局")),
@@ -325,7 +325,7 @@ void runHomeRecentCardTests() {
                   "★★ T36.7 降级那一档真的**把下拉框切到了这个实例**（不是另一条捷径）",
                   combo != nullptr ? selectedId(combo) : QString());
             check(records.size() == onDisk().size(),
-                  "★★ T36.7 没启动成 ⇒ 账上**一条都没多**（§5.1：点按钮那一刻不算数）",
+                  "★★ T36.7 没启动成 ⇒ 账上**一条都没多**（点按钮那一刻不算数）",
                   QString::number(onDisk().size()));
         }
 
@@ -364,7 +364,7 @@ void runHomeRecentCardTests() {
             }
             records = onDisk();
             check(records.size() == LaunchHistory::historyLimit(),
-                  "★ T36.9 从产品这条写路连记 25 条 ⇒ 盘上只留最近 20 条（§5.1：第一版只保存"
+                  "★ T36.9 从产品这条写路连记 25 条 ⇒ 盘上只留最近 20 条（只保存"
                   "最近 20 条）",
                   QString::number(records.size()));
             check(!records.isEmpty() &&

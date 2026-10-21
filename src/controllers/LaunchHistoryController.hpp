@@ -1,6 +1,6 @@
 /**
  * @file LaunchHistoryController.hpp
- * @brief 「上一次启动」那本账（coding plan §5.1）从主窗口搬出来：什么时候记、记的是谁、结局怎么改。
+ * @brief 「上一次启动」那本账从主窗口搬出来：什么时候记、记的是谁、结局怎么改。
  *
  * 【为什么这一件事该有一个自己的 controller】
  *
@@ -46,7 +46,7 @@ public:
     /// 账上那一条的结局：从"这一趟结束时的两个事实"翻过来。
     ///
     /// 这里**不是**"崩没崩"两个分支：游戏连第一行日志都没打出来就结束了的那一趟
-    /// （`neverStarted`）单独算一档 —— §5.1 说"上一次"以**成功创建游戏进程**为准，那种
+    /// （`neverStarted`）单独算一档 —— 要求"上一次"以**成功创建游戏进程**为准，那种
     /// 情况进程确实起来了、用户却什么都没玩到，拿它当"上次玩的就是这一份"是撒谎。
     static LaunchHistory::Result resultFor(bool crashed, bool neverStarted);
 
@@ -67,14 +67,14 @@ public:
     const QList<LaunchHistory::Record> &records() const { return m_records; }
 
     /// 把"这一趟成功了"记进账本。**产品那一侧唯一的调用点**是 `onStartButtonClicked()`
-    /// 里 `sessionId > 0` 那一段（进程真的起来了那一刻）—— §5.1 明写「以成功创建游戏进程
+    /// 里 `sessionId > 0` 那一段（进程真的起来了那一刻）—— 要求「以成功创建游戏进程
     /// 为准，不以点击启动按钮为准」。
     ///
     /// @param instanceId 实例 id（= `versions/` 下面那个目录名）。
     /// @param instanceName **启动那一刻**那一句显示名（`MainWindow::instanceDisplayName()`）。
     /// @param accountKey 当时用的账号（`MainWindow::launchIdentityKey()`）；空 = 记不下来。
     /// @param quickPlay 这一趟要进哪儿（空的 = 普通启动）。**`Target::None` 不是"不知道"，
-    /// 是"这一趟就是普通启动"** —— §5.1：普通进主菜单那一趟不许猜。
+    /// 是"这一趟就是普通启动"** —— 普通进主菜单那一趟不许猜。
     /// @param startedAtMs 启动时刻（毫秒；取会话自己的 `startedAtMs`，不是"现在"）。
     void recordStart(const QString &instanceId, const QString &instanceName,
                      const QString &accountKey, const QuickPlay::Target &quickPlay,

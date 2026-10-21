@@ -50,16 +50,16 @@ struct Facts {
     /// 递进来的那两段文本是不是**只截了末尾一截**。
     ///
     /// 崩溃报告那条路为了"发到群里的文件不该有几十兆"，只留错误最后 200 行、日志最后
-    /// 500 行（`GameExitDiagnosis::kExcerptLineLimit` / `kLogTailLineLimit`）。原来那两个
-    /// 标题照样写「共 N 行」，可正文只有末尾一截 —— 拿到报告的人以为线索全在，其实早期
+    /// 500 行（`GameExitDiagnosis::kExcerptLineLimit` / `kLogTailLineLimit`）。标题不能
+    /// 照样写「共 N 行」，否则拿到报告的人以为线索全在，其实早期
     /// 的报错已经被截掉了。这两个位为 true 时标题改成「末尾 N 行 / 原始共 M 行」。
     ///
     /// NOTE: 默认 false（**不截就当没截**）—— 日志窗那条路给的就是全量（自己的行数也按
-    /// 全量数），它必须逐字节保持原来的标题。
+    /// 全量数），它必须逐字节保持全量标题。
     bool errorTruncated = false;
     bool logTruncated = false;
 
-    // ---------- 下面这几样只有「游戏异常退出」那一项会填（§4.3）----------
+    // ---------- 下面这几样只有「游戏异常退出」那一项会填 ----------
 
     /// 这一趟实际用的 Java：`21（D:\...\java.exe）`。空 = 不写这一行。
     QString javaVersion;

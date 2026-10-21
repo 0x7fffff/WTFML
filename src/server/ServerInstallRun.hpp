@@ -1,7 +1,7 @@
 /**
  * @file ServerInstallRun.hpp
- * @brief 「拿一份安装计划，真的把这一档装出来」这条路上的**判据层**（coding plan §6.2 /
- * 里程碑 M4-2）。
+ * @brief 「拿一份安装计划，真的把这一档装出来」这条路上的**判据层**
+ * （纯判据：不下载、不写盘、不起进程）。
  *
  * 【它和 `download/ServerInstall.hpp` 差在哪】
  *

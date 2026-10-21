@@ -87,7 +87,7 @@ constexpr int kInstallerHeartbeatSeconds = 20;
 
 /// 安装器连续这么久**一个字节都没往外打**，就当它卡在一条死连接上了：杀掉重起一次。
 ///
-/// 依据（ 的加载器矩阵）：Forge 1.20.1 / 47.4.0 的安装器在 `DOWNLOAD_MOJMAPS`
+/// 依据：Forge 1.20.1 / 47.4.0 的安装器在 `DOWNLOAD_MOJMAPS`
 /// 那一步一声不吭停了 580 秒（最后一行永远是 `Skip: false`），而同一个映射地址用 curl
 /// 4.5 秒就拿完 —— Java 那边是一条既不超时也不报错的死连接（`setTransferTimeout` 那套
 /// 只管我们自己的 QNetworkReply，管不到安装器内部的 HttpURLConnection）。安装器每下一次
@@ -148,17 +148,13 @@ QJsonObject readVersionJsonAt(const QString &path) {
 ///
 /// NOTE: 目标已存在时**拒绝**，不直接交给 QFile::rename。
 ///
-/// 修：这一段的理由原来写反了 —— 它说"QFile::rename 在 Windows 上走
-/// MoveFileEx + MOVEFILE_REPLACE_EXISTING，会静默盖掉目标"。**真相正好相反**：
 /// Qt 6.10 里 `QFile::rename` → `QFileSystemEngine::renameFile()` → `::MoveFile`
 /// （**不带** REPLACE_EXISTING，qfilesystemengine_win.cpp:1761-1770），目标已存在时
 /// 就是失败；带 REPLACE_EXISTING 的是**另一个私有函数**
 /// （`renameOverwriteFile()`，同文件 1778-1790，`QSaveFile::commit()` 走的才是它）。
-/// 这个反转不是咬文嚼字：按错的版本写出来的"直接改名叫覆盖"在
-/// VersionManager::writePackArchive() 里真的红过（V5n）。所以：
-/// **要覆盖别人，只能自己先把它挪开/删掉，不能指望 rename。**
-/// 这里的判据保持不变（显式拒绝，让"目标已存在"在这一层被说出来，而不是靠 rename 的
-/// 副作用）。唯一的例外是只差大小写：那种"目标已存在"其实是同一个文件（Windows 的
+/// 所以**要覆盖别人，只能自己先把它挪开/删掉，不能指望 rename。**
+/// 这里的判据是显式拒绝，让"目标已存在"在这一层被说出来，而不是靠 rename 的
+/// 副作用。唯一的例外是只差大小写：那种"目标已存在"其实是同一个文件（Windows 的
 /// 路径比较本来就不区分大小写），而改显示大小写是合法操作。
 bool renameOnto(const QString &from, const QString &to) {
     if (!QFile::exists(from)) {
@@ -204,17 +200,14 @@ bool copyTreeInto(const QString &from, const QString &to) {
         return true;
     }
     if (source.isDir()) {
-        // 带上 QDir::Hidden（ 补）：这是一条**搬回来**的路（加载器装失败之后
+        // 带上 QDir::Hidden：这是一条**搬回来**的路（加载器装失败之后
         // 把版本目录 / libraries/optifine 还原回去），漏掉的条目**没有第二次机会** ——
         // 源目录随后就被删了。不带这一位时，盘上凡是带**隐藏属性位**的东西都会在"还原"
         // 这一步**静默消失**：用户看到的是"装了一次加载器，我放在版本目录里的东西少了
         // 几样"。删得掉的东西，拷贝时更要一个不落。
-        // NOTE: 括号里原来还有半句"或者名字以点开头" —— 那是 **Unix 侧**的规矩
-        // （`qfilesystemengine_unix.cpp` 里那句 `nativeFilePath.at(lastSlash + 1) == '.'`），
-        // 本工程只有 Windows。Windows 侧的 HiddenAttribute 只由
-        // `FILE_ATTRIBUTE_HIDDEN` 置起来（`qfilesystemmetadata_p.h` 的
-        // fillFromFileAttribute）；点开头的名字在 Windows 上算不算隐藏要看那个属性位，
-        // 光看名字不算。结论不变（这一位该带），只是理由别记成 Unix 那条。
+        // NOTE: Windows 侧的 HiddenAttribute 只由 `FILE_ATTRIBUTE_HIDDEN` 置起来
+        // （`qfilesystemmetadata_p.h` 的 fillFromFileAttribute）；点开头的名字在 Windows 上
+        // 算不算隐藏要看那个属性位，光看名字不算。
         const QFileInfoList entries = QDir(from).entryInfoList(
             QDir::Files | QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot);
         for (const QFileInfo &entry : entries) {
@@ -227,11 +220,10 @@ bool copyTreeInto(const QString &from, const QString &to) {
     return true;
 }
 
-/// NOTE: 原来这里还有一个 `copyTreeNew()`（"把 from 原样拷成还不存在的 to"），**
-/// 搬到 `src/manage/FolderManager.cpp` 去了**，名字改成 `copyTreeWithoutFollowingLinks()`
-/// —— 因为复制实例和导入世界这两条路都要"造一份新的出来"，这是第二处调用，再留成
-/// 本文件的局部函数就得抄一遍（抄一遍之后，下面这三条规矩里任何一条以后只改了一处，
-/// 另一处**不会报错**、只会静默地按老规矩做）。
+/// NOTE: `copyTreeWithoutFollowingLinks()`（"把 from 原样拷成还不存在的 to"）在
+/// `src/manage/FolderManager.cpp`：复制实例和导入世界这两条路都要"造一份新的出来"，
+/// 所以它是公用函数而不是本文件的局部函数（两处各抄一份的话，下面这三条规矩里任何一条
+/// 只改了一处，另一处**不会报错**、只会静默地按另一套规矩做）。
 ///
 /// 两个函数的规矩**条条相反**，因为要办的事相反：copyTreeInto 是"把东西搬回用户真实
 /// 的游戏目录"（目标常态是已经有一份，要的是覆盖），那一个是"多出一份"（目标必须是
@@ -287,12 +279,11 @@ VersionManager::VersionManager(QObject *parent)
             &VersionManager::onVersionManifestFetched);
     connect(downloadManager, &DownloadManager::versionJsonFetched, this,
             &VersionManager::onVersionJsonFetched);
-    // NOTE: 这里以前还接了一个 downloadFinished -> onDownloadFinished，把每个文件的
-    // 完成都转发成 versionDownloadFinished，于是下载一个版本会在日志里刷出几千行
-    // 一模一样的话。现在只认整批结束的信号。
+    // NOTE: 只认整批结束的信号。每个文件的完成都转发成 versionDownloadFinished 的话，
+    // 下载一个版本会在日志里刷出几千行一模一样的话。
     connect(downloadManager, &DownloadManager::allDownloadsFinished, this,
             &VersionManager::onAllDownloadsFinished);
-    // 单个文件的结果（§7.1：更新任务里那一步"哪个资源成了/没成"）。★ **只管资源那一批**：
+    // 单个文件的结果（更新任务里那一步"哪个资源成了/没成"）。★ **只管资源那一批**：
     // 上面那句 NOTE 说的"每完成一个文件转发一次"会刷屏，这里转发的前提是"这一批下的是
     // 用户在下载页/更新中心点名的那几个资源"（`m_resourceDownload.running`）——那种一批
     // 就是几个到几十个文件，正好是逐条报得完、也正需要逐条报的东西。
@@ -337,9 +328,9 @@ QStringList VersionManager::installedVersions(QStringList *warnings) const {
     if (versionsDir.exists()) {
         QStringList versionDirs = versionsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
         for (const QString &versionDir : versionDirs) {
-            // 判据是"认得出客户端 jar 在不在"，**不再要求 jar 名和目录名一致** ——
+            // 判据是"认得出客户端 jar 在不在"，**不要求 jar 名和目录名一致** ——
             // 放宽的来龙去脉见 InstanceFiles.hpp 的块注释（一句话：用户自己在资源管理器里
-            // 改过目录名的实例，以前会从列表里静默消失，真机上 388 MB / 851 MB 各一个）。
+            // 改过目录名的实例不能被静默丢掉）。
             //
             // 判据没有一路放松到"目录里有任意 .jar 就算已安装"：那样"顶层两个 jar、
             // 认不出哪个是客户端"的目录也会被收进来，点启动时才发现找不着 jar。
@@ -378,10 +369,9 @@ QStringList VersionManager::installedVersions(QStringList *warnings) const {
         }
     }
 
-    // NOTE: 这里以前在没有任何已安装版本时会塞一个 "自定义版本" 进去，好让旧版
-    // QListWidget 不至于空着。那是界面层的占位职责，混进数据层之后调用方还得反过来
-    // 判 versionId == "自定义版本" 才能把它拒掉（MainWindow 里写了两处）。
-    // 现在空就是空：界面用下拉框的 placeholderText 表达"没有可选版本"。
+    // NOTE: 没有已安装版本时这里返回的就是空列表。占位是界面层的职责：界面用下拉框的
+    // placeholderText 表达"没有可选版本"；数据层塞一个假版本的话，每个调用方都得反过来
+    // 判 versionId == "自定义版本" 才能把它拒掉。
     //
     // NOTE: versions/ 里除了真正的版本目录，还可能有用户随手丢进去的整合包 .zip
     // （真机 4 个、共 935 MB）和纯空目录（真机有个 0 字节的 `26.2hyperland`）。
@@ -544,8 +534,8 @@ void VersionManager::unwindDownloadBatch(const QString &reason) {
         failLoaderInstall(reason);
         return;
     }
-    // 资源下载那一路（下载页那五类里挑一个装）原来**不在**这条收尾路上（ 补）。
-    // 它不属于上面任何一套安装流程，`m_resourceDownload.running` 一旦留在 true 上，之后
+    // 资源下载那一路（下载页那五类里挑一个装）**也在这条收尾路上**：它不属于上面任何
+    // 一套安装流程，`m_resourceDownload.running` 一旦留在 true 上，之后
     // 每一次资源下载都会被"已有下载任务正在进行"顶回来，只能重启启动器 —— 和上面那三个
     // 状态机是同一个病，只是它没有"相位"可以看，更容易被漏掉。
     if (m_resourceDownload.running) {
@@ -811,7 +801,7 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
     // 把 version.json 落盘。缺了它，下一次启动时 getVersionJson() 取不到
     // javaVersion / assetIndex，会静默退回错误的 Java 版本和资产索引 ——
     // 26.1 需要 Java 25，退成 Java 21 就是 UnsupportedClassVersionError。
-    // NOTE: 写失败**不**中止这一批（老行为，保留）：这里只写一句日志 —— 版本 json 写不进去
+    // NOTE: 写失败**不**中止这一批：这里只写一句日志 —— 版本 json 写不进去
     // 的报错，用户看的是后面那批文件下完之后的收尾话。整合包那条路不一样，它要一个
     // 明确的终态，所以那边看返回值（见 startModpackFiles）。
     writeVersionJson(versionId, destinationPath, versionJson, nullptr);
@@ -842,11 +832,10 @@ void VersionManager::registerVersionFiles(const QJsonObject &versionJson,
     // Download libraries
     // NOTE: 库的目标目录走 AppPaths::libraryDir()（= <数据目录>/libraries），是**全体实例
     // 共用**的那一份 —— 和官方启动器、和别的启动器都共用同一份。
-    // 这里以前有一句"库走 basePath（= versions/<id>）、库是这个版本自己的"：两句话
-    // 都是错的（当时那个 basePath 其实是 minecraftDir()）。照那句话去"修"代码的代价
-    // 是给每个实例各下一份库 —— 几百 MB 起步，而且和共用那份不一致。
-    // 真正"这个版本自己的"只有 versionDir() 底下那两样（<id>.jar / <id>.json）。
-    // 资源（assets）也共用，那边的目录由 AppPaths::assetsDir() 说了算。
+    // 库是**全体版本共用**的一份，落在 AppPaths::libraryDir()：给每个实例各下一份库
+    // 要多花几百 MB，而且和共用那份不一致。真正"这个版本自己的"只有 versionDir()
+    // 底下那两样（<id>.jar / <id>.json）。资源（assets）也共用，那边的目录由
+    // AppPaths::assetsDir() 说了算。
     QList<Library> libraries = downloadManager->extractLibraries(versionJson);
     downloadManager->downloadLibraries(libraries, AppPaths::libraryDir());
 
@@ -876,7 +865,7 @@ void VersionManager::repairVersionFiles(const QString &versionId,
 
     // 体检点过名的那几条：这一批不问盘上那份，直接重下（见 .hpp 的 @param 和
     // DownloadManager::setFlaggedPaths()）。**必须在 beginBatch() 之后**——它会清掉上一批
-    // 留下的那张表。体检没跑过 / 体检的不是这个实例时这里是一张空表，就是老行为。
+    // 留下的那张表。体检没跑过 / 体检的不是这个实例时这里是一张空表，等于没点名任何文件。
     downloadManager->setFlaggedPaths(flaggedPaths);
 
     // 不写 json（见头文件里的 ②）；jar 的主人可能是父版本（见 ③）。
@@ -978,7 +967,7 @@ bool VersionManager::downloadResourceFiles(const QString &destinationDir,
             return false;
         }
         // 落点：**每一条自己可以带一个目录**（见 `ResourceFile::dir` 那段 —— 更新中心那一批
-        // 是跨类勾出来的）。空 = 还是用这一批的 `destinationDir`，也就是原来那条路。
+        // 是跨类勾出来的）。空 = 还是用这一批的 `destinationDir`，也就是默认那条路。
         // NOTE: `dir` 是我们自己拼的绝对路径（来自 `QFileInfo::absolutePath()`），**不是**
         // 接口给的东西 —— 所以这里不需要再防它一次（要防的是 `filename`，上面刚防过）。
         const QString dir = file.dir.isEmpty() ? destinationDir : file.dir;
@@ -1208,8 +1197,8 @@ void VersionManager::startModpackFiles() {
     // 和"别的启动器装好的加载器实例"，见那边的 ④）。写不进去也不算失败：那种老办法
     // （看薄 json 的形状）仍然认得出这一份；它只是少一层最硬的证据。
     // 标记里顺手记下**这一份清单的指纹**：同名再导入时，`checkImportTargetName()` 靠它
-    // 认出"上一次没导完的是这个包"还是"另一个包撞了名字"。老版本写的是纯时间戳，
-    // 读侧把解析不出来的当成"没有指纹"放行，不影响升级前留下的半成品。
+    // 认出"上一次没导完的是这个包"还是"另一个包撞了名字"。标记里没有指纹（读侧解析
+    // 不出来的当成"没有指纹"）时照常放行，盘上已有的半成品照样能接着导入。
     QDir().mkpath(AppPaths::versionDir(id));
     QJsonObject markerJson;
     markerJson[QStringLiteral("startedAt")] =
@@ -1264,7 +1253,7 @@ void VersionManager::extractModpackOverrides() {
     // "谁在后谁赢"这一条是格式的一部分，不能调换。
     // 只把明确路径交给后台，所有状态机和 UI 信号仍在主线程收尾。
     //
-    // NOTE: 这两个目录名来自清单，**不是写死的**（ 起）：CurseForge 的清单里
+    // NOTE: 这两个目录名来自清单，**不是写死的**：CurseForge 的清单里
     // `overrides` 那一项是自己写的（真包见过 `overrides` / `overrides-1.20.1` 这种），
     // 而它**没有** client-overrides 这个规矩 —— 那种包的 clientOverridesDir 是空串，
     // 下面那个判断会把它跳过（空串拼出来的前缀是 `/`，那是从压缩包根目录往下解，
@@ -1634,10 +1623,10 @@ void VersionManager::requestLoaderVersions(const QString &gameVersion, LoaderKin
     // 别的加载器在飞的那几发**不动**：四个各占一格，四条一起问是正常的（见头里那段）。
     LoaderVersionRequest &slot = m_loaderVersionRequests[int(kind)];
     if (slot.reply != nullptr) {
-        // **先摘指针，再 abort()** —— 顺序不能换。原来写的是 abort() 在前、置空在后，
-        // 而 abort() 有可能**当场**把 finished() 发出来（回复已经在手上、只是还没被处理
-        // 时就是这一种）。那一发进来时这一格里还是旧指针，onLoaderVersionsReply() 的
-        // "还是我手上这一发吗"当场判成"是" ⇒ 我们自己掐掉的那一发被当成一次真回复，
+        // **先摘指针，再 abort()** —— 顺序不能换。abort() 有可能**当场**把 finished()
+        // 发出来（回复已经在手上、只是还没被处理时就是这一种）。那一发进来时这一格里
+        // 若还是旧指针，onLoaderVersionsReply() 的 "还是我手上这一发吗"当场判成"是" ⇒
+        // 我们自己掐掉的那一发被当成一次真回复，
         // 给用户弹一句「拿不到 X 的版本列表（Operation canceled）」。用户什么都没做错。
         QNetworkReply *stale = slot.reply;
         slot.reply = nullptr;
@@ -1666,8 +1655,8 @@ void VersionManager::requestLoaderVersions(const QString &gameVersion, LoaderKin
     // 最新只到 1.15.2），照着它列会给用户一个"1.16 以后都没有 Forge"的假结论。
     // 列表这件事对"全不全"比对"快不快"敏感得多，所以宁可直接问官方。
     QString url;
-    // "这一发走没走镜像"**只在这里读一次**，然后一路带到解析那一步去（同一次读的结果）。
-    // 以前解析那边又读了一遍 downloadManager->useMirror()，两次之间用户点一下开关就会出现
+    // "这一发走没走镜像"**只在这里读一次**，然后一路带到解析那一步去（同一次读的结果）：
+    // 解析那边若再读一遍 downloadManager->useMirror()，两次之间用户点一下开关就会出现
     // "正文是镜像那份、却按官方那套规矩解析"。见 LoaderVersionRequest 里那段 NOTE。
     bool fromMirror = false;
     switch (kind) {
@@ -1827,10 +1816,7 @@ VersionManager::LoaderVersionParse VersionManager::parseLoaderVersions(
     // NOTE: "这个游戏版本一个能装的都没有"**不算读失败**（`error` 留空、按 success 发出去，
     // 版本列表是空的）。四种加载器里都是**真结论**：比如 Forge 还没支持某个刚发的
     // 快照、OptiFine 只发了预览版 —— 不是网络问题、也不是清单读不懂，重试一百次
-    // 还是这个答案。 之前这里给的是一个 `error`（"X 还没有支持 Y 的版本"），
-    // 界面那边**认不出**它和"没问到"的区别，只能一律写成「列表没取到」并留着一条
-    // 「自动（推荐）」—— 用户看到的就是"这一条明明装不了，还给个自动让我挑"。
-    // 现在两种答案在数据上分得开：**空列表 = 就是没有**（界面写「无可用版本」、
+    // 还是这个答案。两种答案在数据上分得开：**空列表 = 就是没有**（界面写「无可用版本」、
     // 底下连那两档都不留）、**success=false = 没问到**（界面写「列表没取到」、
     // 底下留着那两档，因为"让安装器自己挑"那条路不依赖这份列表）。
     return result;
@@ -1910,8 +1896,8 @@ void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind
         // 钉死了就不用去问版本表 —— 和下面 Forge/NeoForge 那条一个道理，只是它得排在
         // "OptiFine 分支"**里面**（那一段的钉死判断在分支之后，够不着这里）。
         //
-        // NOTE: 这一条**以前漏了**：OptiFine 的分支无条件去拉版本表，于是"钉死一个 OptiFine
-        // 版本"被无声忽略 —— 用户在安装页上选了 H7，装出来的是版本表里那条最新的 H9。
+        // NOTE: 这个分支必须先判钉死。无条件去拉版本表的话，"钉死一个 OptiFine
+        // 版本"会被无声忽略 —— 用户在安装页上选了 H7，装出来的是版本表里那条最新的 H9。
         // 症状还特别难认：装是装成了、版本目录也在，只是不是他选的那个。
         if (!m_loaderInstall.pinnedVersion.isEmpty()) {
             emit loaderInstallMessage(tr("正在装指定的 %1 %2（不去问版本表了）...")
@@ -1958,19 +1944,19 @@ void VersionManager::onFabricLoaderListReply(QNetworkReply *reply) {
     }
 
     // 读之前先看设备开没开：超时/掐断回来的那条已经不 open，readAll() 会甩
-    // `QIODevice::read ... device not open`（ 日志里那一行就是它）。
+    // `QIODevice::read ... device not open`。
     // **仍然不拿 error() 当门**（理由见下面那条 ★★ 400 带正文的坑）。
     const QByteArray body = reply->isOpen() ? reply->readAll() : QByteArray();
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
-    // （1.12.2 实测，用户报「明明有联网怎么老是失败」）：**先看回复里有没有
-    // 能读的东西，再看传输层报没报错** —— 不能拿 `reply->error()` 当第一道门。
+    // （1.12.2 实测）：**先看回复里有没有能读的东西，再看传输层报没报错** ——
+    // 不能拿 `reply->error()` 当第一道门。
     //
     // Fabric 的接口遇到它**从没支持过**的游戏版本（1.12.2）回的是 `HTTP 400`、
-    // **正文带着一个 `[]`**；Qt 把 400 记进 `reply->error()`，照着从前那个
-    // `error != NoError` 的判断走，用户拿到的是「检查网络后重试」——
-    // 一个**永远不可能成功**的版本被报成网络抖动，连点 5 次就是同一句话 5 遍
-    // （wtfml.log 里那天就是 5 遍）。正文读得出来就说明这一趟传输是通的，
+    // **正文带着一个 `[]`**；Qt 把 400 记进 `reply->error()`，若照
+    // `error != NoError` 判断，用户拿到的是「检查网络后重试」——
+    // 一个**永远不可能成功**的版本被报成网络抖动，连点多少次都是同一句话。
+    // 正文读得出来就说明这一趟传输是通的，
     // 该走的是下面那条「列表是空的 ⇒ 这个版本还没支持」。
     if (!doc.isArray()) {
         failLoaderInstall(tr("拿不到 %1 的加载器列表（%2）。检查网络后重试。")
@@ -2235,24 +2221,20 @@ void VersionManager::startInstallerDownload() {
     beginOwnBatch();
     // phase 放在 beginBatch() **之后**设：那个函数在"上一批还没收尾就又开一批"那条异常
     // 支路里会替上一批收尾、并发一次 allDownloadsFinished（见它的实现），那一次不该被
-    // 当成「安装器下好了」。
-    //
-    // NOTE: 这条理由在**正常路径**上走不到（调用方前面已经用 isBusy() 挡过，不可能带着
-    // 一个开着的批次进来），原文把它写成了"每次都会发生"的因果。顺序照旧留着
-    // （先清场、再进相位本来就是对的），只是别再照原文去找那条不存在的支路。
+    // 当成「安装器下好了」。正常路径上调用方前面已经用 isBusy() 挡过，走不到那条支路；
+    // 顺序仍然按这个摆（先清场、再进相位）。
     m_loaderInstall.phase = LoaderInstall::Phase::WaitingInstallerJar;
     // 安装器 jar 没有公布 sha1（Forge 只在下载页给别的东西，NeoForge 的 maven-metadata
     // 里也没有），所以这里只能"文件在就算好" —— 第二次装同一个加载器版本时省掉这 6 MB。
     //
-    // NOTE: 改了**半条**：原来这里到此为止（"校验不了是接受的"），于是它是全仓
-    // 唯一"既没有 sha1、也没有字节数"的下载 —— 一份 200 + HTML 错误页会被当成"下好了"
+    // NOTE: 这一条路上没有 sha1，也没有字节数 —— 一份 200 + HTML 错误页会被当成"下好了"
     // 落盘，而且因为"已存在"**再也不会重下**，症状是那个加载器版本永远装不上、
-    // 每次都在同一处失败。现在这一条路上还剩的判据是 **jar 必须是 zip**（`PK` 那四个
+    // 每次都在同一处失败。所以这一条路上还剩的判据是 **jar 必须是 zip**（`PK` 那四个
     // 字节），判在 DownloadManager 里那两处"别的判据都没有"的支路上（落盘那一步 +
     // fileAlreadyValid）。**不是**真的完整性校验 —— 拿不到 sha1 就是拿不到，这一句
     // 别读成"已经校验过了"。
     // 安装器 jar 也走镜像（6 MB 上下，是这条路上最大的一笔）。镜像上那份和官方是同一个
-    // 文件（见 的实测）。installerUrl 本身**不改**：盘上那个文件名是从它切的，
+    // 文件。installerUrl 本身**不改**：盘上那个文件名是从它切的，
     // 两条路上游的文件名一模一样。
     const QString installerUrl =
         downloadManager->useMirror()
@@ -2499,9 +2481,8 @@ void VersionManager::onProbeFinished(int exitCode, bool crashed) {
         // 老安装器把"装客户端"做成了图形界面（不给参数就弹窗等人点），命令行里没有这条路。
         // 别在这儿判死刑 —— 那个年代的安装器把自己该做的事全写在自己 jar 里那份
         // install_profile.json 里了，照着它装**既不用开它的界面、也不用起 JVM**。
-        // （★ ：这里原来是直接报「本启动器替你点不了」+ 让用户去找别的启动器。
-        // 用户当场指出这不叫边界、叫没做完 —— 一台只有本启动器的新电脑上，默认挑的那个
-        // 「稳定版」（1.12.2 就是 2847）永远装不上。见 LegacyForgeInstall.hpp 文件头。）
+        // 也不能报"本启动器替你点不了"让用户去找别的启动器：一台只有本启动器的新电脑上，
+        // 默认挑的那个「稳定版」（1.12.2 就是 2847）永远装不上。见 LegacyForgeInstall.hpp 文件头。
         startLegacySelfInstall();
         return;
     }
@@ -2703,7 +2684,7 @@ void VersionManager::startInstallerProcess() {
     installerProcess->setProgram(m_installerProgram);
 
     // 环境**每次都显式设一遍**，不是"只在 OptiFine 时设"：QProcess 的环境是常驻的
-    // （set 一次之后每次 start 都用它），OptiFine 那次换过 APPDATA 之后不还原的话，下一次
+    // （set 一次之后每次 start 都用它），OptiFine 那条路换过 APPDATA 之后不还原的话，下一次
     // 装 Forge/NeoForge 会把 APPDATA 指到一个**已经删掉的**临时目录上。
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     if (optifine) {
@@ -2725,7 +2706,7 @@ void VersionManager::startInstallerProcess() {
         // 传的是 mirrorPreferred() 而不是 useMirror()：镜像正被降级时**不能**再把安装器
         // 拨到它那边去 —— 降级的判据是"这条链子慢到 10 秒给不出 64 KB"，和走的是哪条
         // 路由无关（maven 那一支实测快，但真慢起来也不该硬塞）。
-        // 但**官方模式不再是"不给 --mirror"**：不给它就会去 creeperhost（见函数里那条 ★）。
+        // 但**官方模式不是"不给 --mirror"**：不给它就会去 creeperhost（见函数里那条 ★）。
         const QString mavenRoot =
             downloadManager->mirrorPreferred()
                 ? DownloadManager::mirrorMavenRootUrl()
@@ -3035,7 +3016,7 @@ void VersionManager::fetchOptifineVersionList() {
     // 回复也不共用处理，各走各的（见 LoaderMeta.hpp 里那两个纯函数）。
     //
     // NOTE: 走哪条源在**发请求这里决定一次**，然后原样传进回复处理函数，那边**不再重新读**。
-    // 以前两边各读一次 useMirror()：这中间用户去设置页换一下「下载源」（安装卡着不动
+    // 若两边各读一次 useMirror()，这中间用户去设置页换一下「下载源」（安装卡着不动
     // 时他多半会去换），回复回来就会**按另一条源的格式去解** —— HTML 当 JSON 解，
     // 报出来是"版本表读不懂"；JSON 当下载页解，报出来是"还没有支持这个版本的正式版"
     // （而它明明有，只是我们根本没看）。两句话都在指向错误的方向。
@@ -3084,9 +3065,9 @@ void VersionManager::onOptifineVersionListReply(QNetworkReply *reply, bool fromM
 
     if (!pick.ok()) {
         // 和另外三条一样：这不是网络问题，也**不能**退回"装原版"。NOTE: 到了这一步就只剩
-        // "**稳定档**上一条正式版都没有"这一种可能（ 起预览版也列、也装，所以
-        // 官方页那一节里只有预览版的情况在「最新版」那一档是能装下去的）—— 那句提示得把
-        // 退路指出来，不能像以前那样说"预览版不装"（现在装了）。
+        // "**稳定档**上一条正式版都没有"这一种可能（预览版在「最新版」那一档也会列、也装，
+        // 所以官方页那一节里只有预览版的情况在那一档是能装下去的）—— 那句提示得把
+        // 退路指出来，不能说"预览版不装"。
         // NOTE: 这句话里**不引界面那两行的原文** —— 数据层不认识 ui/MainWindowUI.hpp
         // （那一层依赖是单向的），引一次就等于为了五个字把两层拧在一起。
         failLoaderInstall(
@@ -3132,8 +3113,8 @@ void VersionManager::onOptifineVersionListReply(QNetworkReply *reply, bool fromM
  * 「下载源」，就会出现"表是按官方页取的、文件却按镜像地址拼"这种半截组合）。
  *
  * 两条路（版本表挑出来的 / 用户钉死的）共用这一段的理由：**挑法和钉死的差别只在"版本号从
- * 哪来"**，后面填文件名、拼地址、走镜像还是广告页，一个字都不该不一样。这里以前是内联在
- * onOptifineVersionListReply() 里的，于是"钉死"那条路根本没有入口 —— 选了 H7 会装成 H9。
+ * 哪来"**，后面填文件名、拼地址、走镜像还是广告页，一个字都不该不一样。两条路都从这里
+ * 进，才不会出现"钉死"那条路没有入口、选了 H7 却装成 H9 的情况。
  *
  * NOTE: 版本目录名（= loaderId，最终 finished 信号里的 id）这里**故意不填** —— 它是安装器
  * 自己拼的，我们算不出来。装完认出来再填（见 adoptOptifineProducts），在那之前要报
@@ -3444,7 +3425,7 @@ void VersionManager::finishLoaderInstall(bool success, const QString &message) {
         emit modpackImportMessage(tr("%1 %2 装好了，接着落实例自己的文件...")
                                       .arg(loaderName, loaderVersion));
         // 这一步是从"加载器那批文件下完"的信号栈里回来的（allDownloadsFinished 一路同步
-        // 到这儿）：排到下一轮，让它从干净栈上开始（同 那次崩溃的改法）。
+        // 到这儿）：排到下一轮，让它从干净栈上开始。
         deferNextStep([this] { startModpackFiles(); });
         return;
     }
@@ -3508,14 +3489,14 @@ void VersionManager::failLoaderInstall(const QString &reason) {
     // 就是失败了，收尾只能走 failModpackImport() —— 它会把加载器那半截一起收掉，而且发的
     // 是**实例名**（用户等的是那个名字）。
     //
-    // NOTE: 这一支以前**漏了**（只有 finishLoaderInstall 那边有），后果不是"少一句话"而是
-    // **永久卡死**：m_modpackInstall 会一直停在 InstallingLoader 相位上，而它正是
+    // NOTE: 这一支**必须**和 finishLoaderInstall 那边一样收掉导入状态，后果不是"少一句话"
+    // 而是**永久卡死**：m_modpackInstall 会一直停在 InstallingLoader 相位上，而它正是
     // "谁不能开局"的判据 —— importModpack() / downloadResourceFiles() /
     // installNamedVanilla() / installNamedLoader() 四道闸全看它。用户此后导入不了
     // 整合包、装不了实例、下不了模组，只能重启；同时这一路发出去的终态信号带的是
     // **加载器目录名**，而 MainWindow 那边只认实例名，那个实例于是永远点不动。
     // 加载器安装失败的理由很多（安装器退出码非 0、产物核对不过、版本表拉不到、
-    // 找不到 Java、安装器下不下来…），47 个调用点每一条都会踩到这里。
+    // 找不到 Java、安装器下不下来…），任何一条都会踩到这里。
     if (m_modpackInstall.active() &&
         m_modpackInstall.phase == ModpackInstall::Phase::InstallingLoader) {
         // loaderName 必须在 failModpackImport() 之前取（它会 reset 掉加载器那份状态）。
@@ -3550,10 +3531,9 @@ void VersionManager::clearVersionJsonCache() {
     //
     // 下面那两张表的键**只有版本 id**（就是目录名），而目录名在换文件夹之后不再是唯一的
     // —— 两份目录里各有一个 `1.20.1` 是常态（一份原版、一份装过加载器，或者两份的
-    // javaVersion / assetIndex 完全不同）。MainWindow 换文件夹那一路上原来只重置了
-    // "目录名对不上 jar 名"的告警和本机 Java 列表，版本 json 这两张表没人管：
-    // 在 A 里启动过 `1.20.1` → 切到 B → 启动 B 里的 `1.20.1`，rawVersionJson() /
-    // mergedVersionJsons 命中的仍是 **A 那份**，于是 classpath、natives、
+    // javaVersion / assetIndex 完全不同）。换文件夹那条路若不喊这一句，这两张表就会继续
+    // 拿旧的：在 A 里启动过 `1.20.1` → 切到 B → 启动 B 里的 `1.20.1`，
+    // rawVersionJson() / mergedVersionJsons 命中的仍是 **A 那份**，于是 classpath、natives、
     // `javaVersion`、`assetIndex` 全按 A 算，而游戏自己去读 `B/versions/1.20.1/1.20.1.json`
     // —— 轻则 UnsupportedClassVersionError，重则两套库混着启动，而且屏幕上没有任何
     // 一句话说得通。同一条路还会污染 inheritanceProblem() 和实例列表的 channel 判定。
@@ -3653,8 +3633,8 @@ QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
 
     // 只缓存**链正常走完**的那一份。
     //
-    // NOTE: 上面两种 break（环、父版本没装）都会留下一份"合了一半"的 json。以前不管走没走完
-    // 都往缓存里塞，于是：启动前 MainWindow 先 getVersionJson() 拿到半份、再问
+    // NOTE: 上面两种 break（环、父版本没装）都会留下一份"合了一半"的 json。若不管走没走完
+    // 都往缓存里塞，就会：启动前 MainWindow 先 getVersionJson() 拿到半份、再问
     // inheritanceProblem()，此时用户把缺的那个父版本装上 —— 同一个会话里第二次
     // getVersionJson() 直接命中半份缓存（inheritanceProblem() 是重新读盘、这时已经不抱怨了），
     // 启动器就拿着缺 assets/librarys 的半份 json 去启动，且不报任何错。
@@ -4003,8 +3983,6 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
     // 而且同样不是形式主义：id 直接拼成一条路径，空串拼出来是 `versions/` **本身**
     // （它当然"存在"），于是空 id 会把**整个 versions 目录**拷成一份副本 —— 一次点击
     // 复制出几十 GB，而且不报任何错。`..` 和带分隔符的名字同理（指到实例目录外面去）。
-    // NOTE: 这一条是 补的：原来只判了 destGameFolder，漏了 sourceId ——
-    // ZJ5「空的源 id 拒绝」那一条断言就是照着当时那个洞写的。
     if (id.isEmpty() || id == QStringLiteral(".") || id == QStringLiteral("..")
         || id.contains(QLatin1Char('/')) || id.contains(QLatin1Char('\\'))) {
         return fail(tr("「%1」不是一个合法的实例名，什么都没有复制。").arg(sourceId));
@@ -4032,7 +4010,7 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
         return fail(tr("目标文件夹 %1 不在盘上。").arg(QDir::toNativeSeparators(target)));
     }
 
-    // 补：**目标不能落在源实例目录里面**（含"就是它自己"这一档）。这一条在
+    // **目标不能落在源实例目录里面**（含"就是它自己"这一档）。这一条在
     // 这儿是兜底，界面那一层（MainWindow::copyInstanceTo）有一条同款的、话术更长的。
     //
     // 它是这一整条路上唯一会**把自己写爆**的洞，而且不需要用户做任何怪事：挑游戏文件夹
@@ -4439,7 +4417,7 @@ void VersionManager::onVersionJsonFetched(const QJsonObject &versionJson) {
                                 [this, versionJson] { writeLegacyProfile(versionJson); });
                 return;
             }
-            // OptiFine 那次是"**装之前**先把原版下全"（它的安装器要拿原版的客户端 jar 当
+            // OptiFine 这一路是"**装之前**先把原版下全"（它的安装器要拿原版的客户端 jar 当
             // 输入），所以它用另一个 phase 记着：那一批结束时该起安装器，而不是收尾。
             // 另外三个都是"装完再补原版"，走 WaitingParentFiles。
             const bool beforeOptifineInstaller = m_loaderInstall.kind == LoaderKind::OptiFine &&
@@ -4520,7 +4498,7 @@ void VersionManager::onVersionJsonFetched(const QJsonObject &versionJson) {
 
     // 带名字的实例（纯原版那一条）在等原版那份 json：这次失败就是安装失败。
     // 和上面加载器那一段不会撞车：installNamedVanilla 的入口就拒掉了 m_loaderInstall 活着
-    // 的情况，两者不会同时是活的。父版本是加载器的那一条也走不到这里 —— 那次是加载器在等
+    // 的情况，两者不会同时是活的。父版本是加载器的那一条也走不到这里 —— 那一条是加载器在等
     // json，由上面那一小段转给 failLoaderInstall()。
     if (m_namedInstance.active() &&
         m_namedInstance.phase == NamedInstance::Phase::WaitingParentJson &&
@@ -4537,14 +4515,14 @@ void VersionManager::onVersionJsonFetched(const QJsonObject &versionJson) {
 // 批次的开与收："这一批是不是我开的"
 // ---------------------------------------------------------------------------
 //
-// NOTE: 这一层是 （M4-2）加的。下载器是**共用**的：服务端安装那四段
+// NOTE: 下载器是**共用**的：服务端安装那四段
 // （`src/server/ServerInstallController.cpp`）也在同一个 `DownloadManager` 上开批次，
 // 而 `allDownloadsFinished` 只有一个接收方（下面那个 `onAllDownloadsFinished`）。
-// 原来那个函数里没有"这一批是谁的"这道判据，于是一条**外来的**批次结束之后，它照样
+// 没有"这一批是谁的"这道判据的话，一条**外来的**批次结束之后，它也会
 // 往下走到最后那一句，照着 `m_currentVersionDownloading`（**上一次**下过的那个版本号，
 // 收尾之后故意不清空）报一句「版本 X 的文件已全部就绪」——装服务端下完一个文件，
 // 界面上会弹一次"版本下载完成"（真机上还会**挡住用户**：`InlineMessage` 是模态的）。
-// 实测那次比这还难看：`m_failedJobs` 是上一批留下的（只有 `beginBatch()` 清它），
+// `m_failedJobs` 还会是上一批留下的（只有 `beginBatch()` 清它），
 // 于是那条外来的批次被报成"有文件未能下载完成"。
 //
 // 所以判据只能是"开批次的时候我就记住了"。四个包装把 `DownloadManager` 那四个
@@ -4629,7 +4607,7 @@ void VersionManager::onAllDownloadsFinished(bool success) {
         message = tr("%1 个文件下载失败：").arg(stats.failed) + QLatin1Char('\n') + list;
     }
 
-    // §4.2「失败任务保存失败文件列表和原始 URL 来源，重试只重做失败项」：在这里把那一份
+    // 「失败任务保存失败文件列表和原始 URL 来源，重试只重做失败项」：在这里把那一份
     // 记下来（DownloadManager 那边刚收完尾，失败清单还是这一批的）。
     //
     // **只有"纯下文件"的批次留**：加载器安装 / 整合包导入 / 带名字的实例那三条路上，
@@ -4707,9 +4685,8 @@ void VersionManager::onAllDownloadsFinished(bool success) {
                 emit loaderInstallMessage(tr("原版 %1 就绪，接着装 %2 自己的文件...")
                                               .arg(m_loaderInstall.gameVersion,
                                                    m_loaderInstall.loaderName));
-                // NOTE: 那次崩溃就在这一句上（取证见 build/tools/crashdump/）：
-                // 这里直接 startLoaderFiles() 的话，加载器那个批次是在**上一批的
-                // 信号栈里**起来的。排到下一轮，让它从干净栈上开始。
+                // NOTE: 不能在这里直接调 startLoaderFiles()：加载器那个批次会在**上一批的
+                // 信号栈里**起来。排到下一轮，让它从干净栈上开始。
                 deferLoaderStep(LoaderInstall::Phase::WaitingParentFiles,
                                 [this] { startLoaderFiles(); });
                 return;
@@ -4750,9 +4727,8 @@ void VersionManager::onAllDownloadsFinished(bool success) {
             if (!success) {
                 // 半成品目录**刻意留着**（几百 MB 已经下好的文件在里面，删是不逆的）：
                 // 失败那句话得说清它在哪、以及**怎么接着下**。
-                // NOTE: 原来这里写的是「先把那个目录删掉，再导入一次」—— 那是「接着下」
-                // （`ImportNameVerdict::OkResume`， 加的）**之前**留下来的
-                // 说法，照它做等于把几百 MB 白删、还把唯一能续的点毁了。这一支失败时
+                // NOTE: 不能做成「先把那个目录删掉，再导入一次」：照它做等于把几百 MB
+                // 白删、还把唯一能续的点毁了。这一支失败时
                 // 实例那份薄 json 已经落盘（`startModpackFiles()` 的第一步就是写它），
                 // 所以 `isUnfinishedImport()` 认得出这个目录 ⇒ 同一个包、同一个名字
                 // 再导入一次就走 OkResume，已经下好的按 sha1 跳过。
@@ -4797,8 +4773,8 @@ void VersionManager::onAllDownloadsFinished(bool success) {
         return;
     }
 
-    // 一批只发一次。改动前这里由每个文件的 downloadFinished 触发，
-    // 下载一个版本会在日志里刷出几千行一模一样的话。
+    // 一批只发一次（每个文件的 downloadFinished 都触发的话，
+    // 下载一个版本会在日志里刷出几千行一模一样的话）。
     emit versionDownloadFinished(m_currentVersionDownloading, success, message);
 }
 
@@ -4896,7 +4872,7 @@ bool loaderIdParts(const QString &id, const QList<MinecraftVersion> &knownVersio
     // Forge 这条和上面三条**不一样**：它的分隔符 `-forge-` 是个**不带头锚点**
     // 的子串（`<游戏版本>-forge-<加载器版本>` 只能从中间认），而这一条路要读的 id 里
     // 混着**用户自己起的名字**（PCL 那类合并实例的 `id` 就是目录名，见 instanceGameVersion
-    // 里那段），于是「1.20.1-forge-版」「26.2hyperland-forge-47.4.10」这种名字从前会被当成
+    // 里那段），于是「1.20.1-forge-版」「26.2hyperland-forge-47.4.10」这种名字会被当成
     // 一个真的 Forge 实例：清单里写上一个不存在的 Forge 版本号，收包的人那边整包装不上，
     // 而包看上去是好的（正是 .hpp 里那段最怕的失败形态）。
     // 两道判据一起上，左边那半走**全项目同一套** isKnownGameVersion（清单里有它才算数，
@@ -5048,7 +5024,7 @@ static QString loaderDisplayNameForEvidenceKey(const QString &key) {
  * 实例都是这样）：它们的 `inheritsFrom` 是空的，`id` 就是用户给实例起的名字（`海波篮子`、
  * `1.21.11-Fabric 0.19.3`），于是按 id 认的那条路一步都走不出去 —— 走不出去的结果是
  * 「纯原版」，于是一个装着 133 个模组的 Fabric 实例会被导成一个**原版包**：收包的人那边
- * 模组都在、游戏起不来，而包看上去是好的（ 用户报的那次就是这个形状的前一半）。
+ * 模组都在、游戏起不来，而包看上去是好的。
  *
  * 【`mainClass` 不能当判据】`cpw.mods.bootstraplauncher.BootstrapLauncher` 是 Forge 与
  * NeoForge **共用**的，而 `net.minecraft.launchwrapper.Launch` 连纯原版 1.12.2 都是它。
@@ -5287,7 +5263,7 @@ QString VersionManager::instanceLoaderInfo(const QString &instanceId, QString *k
     // 它们的链上一步都走不出去（`inheritsFrom` 是空的，`id` 是用户给实例起的名字），
     // 所以第一条路问不出任何东西；而它们**照样**把加载器明明白白写在 libraries 里。
     // 少了这一条，一个装着 133 个模组的 Fabric 实例会被下面那条 meta 路当成**纯原版**
-    // 导出去（ 用户报的那次就是这个形状）。
+    // 导出去。
     //
     // 顺序是**从实例自己那份开始**（链越靠前越贴着这个实例），一份一份往下看。
     for (const QJsonObject &json : chainJsons) {
@@ -5406,8 +5382,7 @@ QString VersionManager::instanceGameVersion(const QString &instanceId) {
     // 这是 PCL / HMCL 那类**合并过的**实例唯一说得出口的地方（真机上绝大多数实例都是）：
     // 它们的 `id` 就是用户给实例起的名字（`海波篮子`、`1.21.11-Fabric 0.19.3`）、
     // `inheritsFrom` 是空的，所以 ① 没有、② 走不动，而 `clientVersion` 是真值。
-    // 少了这一条，这些实例一个都导不出去（ 用户报的那次就是这个：日志里那句
-    // 「导出失败：读不出 海波篮子 基于哪个原版」）。
+    // 少了这一条，这些实例一个都导不出去 —— 报出来是「导出失败：读不出 海波篮子 基于哪个原版」。
     //
     // 从**末端**往前找：链越靠末越接近原版那一份。Mojang 自己那份 json 里没有这一格，
     // 所以薄 json（我们自己的整合包导入、加载器安装）不受影响，照旧落到 ④。
@@ -5443,7 +5418,7 @@ bool VersionManager::gameVersionSupportsDatapacks(const QString &versionId,
         const QDateTime released = QDateTime::fromString(stamp, Qt::ISODate);
         if (released.isValid()) {
             // 只比**日期**（`releaseTime` 带的是 `+00:00` 偏移，换算到 UTC 再取日期，
-            // 免得"离那一天只差几个钟头"把结果翻过去）。卡在 而不是 17w43a
+            // 免得"离那一天只差几个钟头"把结果翻过去）。卡在 2017-11-01 而不是 17w43a
             // 那一天本身：17w43a 是 10-25 发的，但它之后还有 17w44a…17w47a 一串快照，
             // 全都带数据包。留几天富裕比卡在当天稳 —— **多给一页**是可以修的，
             // 静默藏掉一页不行（见 .hpp 里那条 NOTE）。
@@ -5460,7 +5435,7 @@ bool VersionManager::gameVersionSupportsDatapacks(const QString &versionId,
     }
     // 到第一个不是数字也不是点的字符为止：`1.20.1` → `1.20.1`、`1.13-pre1` → `1.13`、
     // `26.2-snapshot` → `26.2`。`20w14∞` 那种也是数字开头，取出来是 `20` ⇒ 判成"有"
-    // （它其实是 2020 年的快照，本来就有 —— 蒙对了）。
+    // （它是 2020 年的快照，本来就有 —— 取成 `20` 正好判对）。
     int end = 0;
     while (end < text.size() && (text.at(end).isDigit() || text.at(end) == QLatin1Char('.'))) {
         ++end;
@@ -5733,10 +5708,10 @@ QString VersionManager::writePackArchive(const ModpackExport::ExportPlan &plan,
     //
     // **不删**已经在那儿的 `<目标>.part` / `<目标>.bak`，换一个没人用的
     // 名字（`.part-2`、`.bak-2`…）。这两个后缀太常见了 —— 别的下载器留下的半截、用户
-    // 自己手打的一份备份，都可能正好叫这个名字。原来那两行 `QFile::remove()` 会把它们
-    // 当"我们上一趟的残骸"直接删掉，而那不是我们的文件（那个 `.bak` 尤其像用户自己的
-    // 备份：我们自己的 `.bak` 只在成功换名之后存在几毫秒，崩溃留下的那种又只会在目标
-    // 已经不存在时才出现，而那种情况这一趟根本不会走到这儿）。
+    // 自己手打的一份备份，都可能正好叫这个名字。若把那两行 `QFile::remove()` 加回来、
+    // 把它们当"我们上一趟的残骸"直接删掉，删的就不是我们的文件（那个 `.bak` 尤其像用户
+    // 自己的备份：我们自己的 `.bak` 只在成功换名之后存在几毫秒，崩溃留下的那种又只会在
+    // 目标已经不存在时才出现，而那种情况这一趟根本不会走到这儿）。
     const auto freshSidecar = [](const QString &base, const QString &suffix) {
         QString candidate = base + suffix;
         for (int i = 2; QFile::exists(candidate) && i < 1000; ++i) {
@@ -5750,14 +5725,12 @@ QString VersionManager::writePackArchive(const ModpackExport::ExportPlan &plan,
         QFile::remove(partPath);
         return error.isEmpty() ? tr("打包失败。") : error;
     }
-    // 上一版是**直接** `QFile::rename(partPath, targetZip)`，理由写的是"renameOnto() 上面
-    // 那条 NOTE 说 QFile::rename 在 Windows 上会静默盖掉目标"——**那句话是错的**，而按它
-    // 写出来的这一段在"目标本来就在那儿"时（= 用户在 QFileDialog 里选了一个已存在的包名、
-    // 对话框问过"要不要替换"之后最常见的收尾）**必然失败**：Qt 6.10 的 QFile::rename 走的是
+    // 收尾不能直接用 `QFile::rename(partPath, targetZip)`：Qt 6.10 的 QFile::rename 走的是
     // `::MoveFile`（不带 REPLACE_EXISTING，见 qfilesystemengine_win.cpp 的 renameFile()），
-    // 目标已存在就是失败。验证工程的 V5n 当场变红。
+    // 目标已存在就是失败 —— 而"目标本来就在那儿"（用户在 QFileDialog 里选了一个已存在的
+    // 包名、对话框问过"要不要替换"之后）正是最常见的收尾。
     //
-    // 现在这个顺序：先把原来那份挪到 `<目标>.bak`，成了再删它；中途任何一步失败就把它放回
+    // 所以这个顺序：先把原来那份挪到 `<目标>.bak`，成了再删它；中途任何一步失败就把它放回
     // 去。整段里用户原来那份文件**要么还在原地、要么还在 .bak 上** —— 不会出现"包没换成功、
     // 原来那份也没了"。目标本来不存在时（第一次导出）就是一条干净的改名。
     const bool hadTarget = QFile::exists(targetZip);

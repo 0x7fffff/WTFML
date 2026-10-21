@@ -89,11 +89,11 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
 
     // 标题 → 四个按钮 → 离线那一行 → 列表（吃掉剩下的高度）→ 登录说明
     //
-    // 从前是"标题 → 列表 → 说明 → 按钮 → 离线那一行"：按钮压在列表底下，列表一长
-    // 整窗就往下坠，加账号还得先往下找。现在按钮贴着标题，列表在它下面长。
+    // 按钮贴着标题，列表在它下面长：按钮压在列表底下的话，列表一长整窗就往下坠，
+    // 加账号还得先往下找。
     //
-    // NOTE: **建控件**的次序一个字没改（下面还是按老次序 new 出来的）—— Qt 里"摆在哪"
-    // 只由 `addWidget()` / `addLayout()` 的次序说了算，new 的先后不影响。
+    // NOTE: **建控件**的次序和下面 `addWidget()` / `addLayout()` 的次序是两回事 ——
+    // Qt 里"摆在哪"只由后者说了算，new 的先后不影响。
     // 所以这一段和下面那两处 `addWidget`/`addLayout` 是**同一件事的两半**，
     // 改一头必须改另一头（`m_accountList` 和 `loginHint` 是在下面才 add 的）。
     m_accountList = new QListWidget(this);
@@ -114,7 +114,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_removeButton = new QPushButton(removeButtonText(), this);
     m_removeButton->setObjectName(removeButtonName());
     // 「删除所选」是这一窗里唯一一处**删东西**的按钮（账号删了就没了），所以它走那一档
-    // **红字红边**（用户 ：「按钮文本和边框用这个颜色/黑色/红色」里那个红）。
+    // **红字红边**（走 `Theme::ButtonKind::Danger`）。
     // NOTE: 挂属性就够，样式表那边按属性选中（见 `Theme::buttonStyleSheet()`）——
     // 属性要在**第一次 polish 之前**挂上，所以是紧挨着 new 的这一行。
     Theme::markButton(m_removeButton, Theme::ButtonKind::Danger);
@@ -181,7 +181,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_variantCombo->setObjectName(variantComboName());
     m_variantCombo->addItem(variantClassicText(), variantClassicValue());
     m_variantCombo->addItem(variantSlimText(), variantSlimValue());
-    // 滚轮防护（见 MainWindowUI.hpp 里的 WheelGuard）：这一个以前**漏了** —— 而它的后果
+    // 滚轮防护（见 MainWindowUI.hpp 里的 WheelGuard）：它的后果
     // 和设置页那几个不一样，不是"显示不对"而是"传错了"：鼠标从它上面划过去会静默换成
     // 另一种模型，接着点「上传」传上去的就是错的那种（经典/纤细在游戏里是两套手臂宽度）。
     WheelGuard::install(m_variantCombo);
@@ -301,7 +301,7 @@ void AccountSkinDialog::showEvent(QShowEvent *event) {
     if (host && host->isOpen()) {
         layout()->removeWidget(m_headerBar);
         host->setPageHeaderWidget(m_headerBar);
-        m_closeButton->hide(); // 内嵌页已有返回，不再占用一整排页脚。
+        m_closeButton->hide(); // 内嵌页已有返回，不占一整排页脚。
     } else {
         qobject_cast<QVBoxLayout *>(layout())->insertWidget(0, m_headerBar);
         m_headerBar->show();

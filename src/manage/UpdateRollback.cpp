@@ -217,12 +217,12 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
     }
 
     const QString dir = snapshotDir(instanceId);
-    // 从前这里是一句"先清掉上一趟那一份"：清完再抄新的。抄新的失败（盘满、文件被占着），
-    // 旧的回滚点已经没了；抄成了但调用方那一批被拒（下载器正忙 / 另一套安装状态机占着 /
-    // 接口给的文件名不能用），调用方 discard() 一撤，旧的同样没了 —— 两次都是"一个字节
-    // 都没动，用户却失去了『撤销上一次更新』"。
-    // 现在：旧的改名成 `<dir>.previous` 先留着；摆新的失败 → 改名回来；这一批被拒
-    // （discard）→ 改名回来；只有这一批真开起来了，调用方才 commit() 把它删掉。
+    // 旧的改名成 `<dir>.previous` 先留着，**不能先清掉上一趟那一份**：清完再抄新的，
+    // 抄新的失败（盘满、文件被占着）时旧的回滚点已经没了；抄成了但调用方那一批被拒
+    // （下载器正忙 / 另一套安装状态机占着 / 接口给的文件名不能用），调用方 discard() 一撤，
+    // 旧的同样没了 —— 两次都是"一个字节都没动，用户却失去了『撤销上一次更新』"。
+    // 摆新的失败 → 改名回来；这一批被拒（discard）→ 改名回来；只有这一批真开起来了，
+    // 调用方才 commit() 把它删掉。
     const QString previous = dir + QStringLiteral(".previous");
     // An interrupted preparation has not accepted a new batch. Restore the retained
     // snapshot first, including when a partial new directory was already created.

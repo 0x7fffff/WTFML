@@ -14,7 +14,7 @@
 
 namespace {
 // NOTE: 档案那条路径不在这里 —— 它是公开的 SkinApi::profilePath()（见 .hpp 那段说明：
-// 披风列表就在档案那份响应里，这里曾经有一条 `kCapesPath`，它指向的路由不存在）。
+// 披风列表就在档案那份响应里；单独一条披风列表路由不存在）。
 constexpr const char kActiveCapePath[] = "/minecraft/profile/capes/active";
 constexpr const char kSkinsPath[] = "/minecraft/profile/skins";
 
@@ -139,10 +139,10 @@ QByteArray SkinApi::skinUploadContentType(const QByteArray &boundary) {
 
 QString SkinApi::failureText(const HttpClient::Reply &reply, const QString &what) {
     // 第一条分支：**根本没连上**（断网、DNS 解析不了、超时被 abort）。
-    // NOTE: 这一条以前不在 —— 那时参数是 (status, body)，于是这几种情况下 status 是
+    // NOTE: 不看 networkError 的话，这几种情况下 status 是
     // HttpClient 给的初值 -1，报出来的是「读取披风失败（HTTP -1）。」：既没说清
     // 是没连上（用户该去查网络/代理），还端出一个不存在的状态码。登录那条路
-    // 一直有这一条（AuthManager 里 httpFailureText 的第一句），皮肤披风这条路漏了。
+    // 一直有这一条（AuthManager 里 httpFailureText 的第一句），皮肤披风这条路也要有。
     if (!reply.networkError.isEmpty()) {
         return tr("%1：%2").arg(what, reply.networkError);
     }
@@ -170,7 +170,7 @@ QString SkinApi::failureText(const HttpClient::Reply &reply, const QString &what
     }
     if (status == HttpClient::kStatusTooManyRequests) {
         // 429：限流。**不许走下面那条通用分支** —— 通用分支会把正文里那句
-        // `TOO_MANY_REQUESTS` 端给用户（ 真机上看到的就是这种），而那是官方
+        // `TOO_MANY_REQUESTS` 端给用户（真机上看到的就是这种），而那是官方
         // 的内部错误码，用户照它做不了任何事。这一句只有一个出处（登录链说的是同一句）。
         return HttpClient::throttledText(what);
     }
@@ -198,8 +198,8 @@ bool SkinApi::fetchCurrentSkin(const QString &token, SkinSummary *out, QString *
 
 bool SkinApi::fetchOwnedCapes(const QString &token, QList<OwnedCape> *out, QString *errorOut) {
     // 打的是**档案**那个地址：披风列表在它里面（`capes[]`），没有一条独立的"列披风"路由。
-    // 之前这里打的是 `/minecraft/profile/capes`，真机上回 404，而界面把那句
-    // 404 说成"这个账号没有可改的 Minecraft 档案"—— 看着像账号没买游戏，实际是路径不存在。
+    // 不能打 `/minecraft/profile/capes`：那条路由不存在，404 会被界面
+    // 说成"这个账号没有可改的 Minecraft 档案"—— 看着像账号没买游戏，实际是路径不存在。
     // 详见 .hpp 文件头那一段（也记着"别按对称性猜路由"这条）。
     const HttpClient::Reply reply =
         HttpClient::send(m_network, QUrl(baseUrl() + profilePath()),

@@ -1,7 +1,7 @@
 #include "Support.hpp"
 
 void runBackupTests() {
-    section("ZQ. 世界与实例备份：清单 / 打包 / 还原（§4.4）");
+    section("ZQ. 世界与实例备份：清单 / 打包 / 还原");
 
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir temp;
@@ -70,7 +70,7 @@ void runBackupTests() {
               back.sourceInstanceName == sample.sourceInstanceName &&
               back.gameVersion == sample.gameVersion && back.worldName == sample.worldName &&
               back.createdAt == sample.createdAt && back.scope == sample.scope,
-          "★ ZQ1 清单往返：§4.4 点名的四样（来源实例 id / 时间 / 游戏版本 / 包含范围）一字不差",
+          "★ ZQ1 清单往返：四样（来源实例 id / 时间 / 游戏版本 / 包含范围）一字不差",
           back.gameVersion);
     check(back.files.size() == 2 &&
               fileAt(back.files, QStringLiteral("region/r.0.0.mca")).sha1
@@ -186,7 +186,7 @@ void runBackupTests() {
     const QList<BackupFiles::FileRecord> noAssets =
         BackupFiles::collectFiles(worldDir, QStringList{QStringLiteral("assets")}, nullptr);
     check(noAssets.size() == 5 && fileAt(noAssets, QStringLiteral("assets/skip.txt")).path.isEmpty(),
-          "★ ZQ2 顶层 `assets/` 被排除掉了（§4.4：默认不收能重新下回来的那一堆）",
+          "★ ZQ2 顶层 `assets/` 被排除掉了（默认不收能重新下回来的那一堆）",
           QString::number(noAssets.size()));
     check(fileAt(noAssets, QStringLiteral("sub/assets/keep.txt")).path
               == QStringLiteral("sub/assets/keep.txt"),
@@ -642,7 +642,7 @@ void runBackupTests() {
               == 0,
           "ZQ7 备份里没有、盘上多出来的文件不算对不上（备份是「至少恢复这些」）");
 
-    // ---------- ZQ8. 坏场景：包坏了 / 盘不够（coding plan §3.1③）----------
+    // ---------- ZQ8. 坏场景：包坏了 / 盘不够----------
     //
     // 三个坏场景里，「**中断**」那一支已经在 ZQ7 钉过（长短不对 = 解到一半被打断留下的
     // 半截文件，`verifyTree` 的 size 那一支认得出），ZQ4 ④ 也钉了端到端那一趟。这里补上
@@ -728,7 +728,7 @@ void runBackupTests() {
               inPlace.problem);
     }
 
-    section("ZQ9. 世界 level.dat 的世代备份：**按「哪个实例的哪个世界」分格子**（§4.4）");
+    section("ZQ9. 世界 level.dat 的世代备份：**按「哪个实例的哪个世界」分格子**");
     // -----------------------------------------------------------------
     // 格子原来只按**存档目录名**分（`cache/world-backups/world/<时间戳>`），
     // 两个实例各有一个叫 `world`（中文环境里更常见的是都叫「新的世界」）的存档就共用

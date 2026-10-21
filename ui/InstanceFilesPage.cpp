@@ -93,17 +93,14 @@ QPixmap placeholderIcon(bool isDir, const QColor &color) {
 
 /// 把**接口给的那张真图**缩到这一格的大小。
 ///
-/// 补。用户报「图标虽然加载了，但是只显现了左上角的一小部分」，根子就在
 /// `QLabel::setPixmap()` **不缩放**：它按 pixmap 本来的大小画，超出控件的那一块被裁掉。
 /// 而作者传的那张图本来就不是这一格的大小 —— Modrinth 那条 `_96.webp` 是 96 px，
 /// `icon.png` 那条更是**原图**（几百 px 的都有），而这一格只有
-/// `MainWindowUI::instanceFileIconSize()`（32）。于是每一张真图标都只露出左上角那一小块，
-/// 看着像"图裂了"。
+/// `MainWindowUI::instanceFileIconSize()`（32）。不缩放的话每一张真图标都只露出左上角
+/// 那一小块，看着像"图裂了"。
 ///
 /// NOTE: 这个毛病**只有真图标真的加载出来了**才看得见 —— 占位图本来就是照这一格的尺寸画的
-/// （见 placeholderIcon），一个像素都不差。所以它和「模组的图标没有正确加载」是
-/// 前后脚冒出来的：先修好"地址取不回来"（那条 `<id>/icon.png` 只是老项目的别名），
-/// 图一到位，这一格立刻露出第二个毛病。
+/// （见 placeholderIcon），一个像素都不差。
 ///
 /// NOTE: `KeepAspectRatio` 而不是拉满 —— 资源包封面不是方的，拉满会变形。
 /// （`setScaledContents(true)` 那个开关的意思恰好就是"拉满"，所以不能用它。）
@@ -142,9 +139,8 @@ QPixmap scaleToIconSlot(const QPixmap &icon) {
 /// NOTE: 这是一个**同步**的递归遍历，几十万文件的存档要几百毫秒。调用它的地方只有
 /// fillDirectoryStats()，而那一趟一次只算一行（理由写在那边）。
 ///
-/// 改成**自己递归**（原先用 `QDirIterator(QDirIterator::Subdirectories)`）。
-/// 这不是换一种写法，而是判据必须自己握着 —— 原来那版里"看到链接就 `continue`"是
-/// **不生效的**：
+/// 这里**自己递归**，不用 `QDirIterator(QDirIterator::Subdirectories)`：判据必须自己
+/// 握着 —— 那条路上"看到链接就 `continue`"是**不生效的**：
 ///
 /// ① **junction 不是符号链接**。Windows 上 `mklink /J` 出来的目录 junction，
 /// `QFileInfo::isSymLink()` 是 **false**、只有 `isJunction()` 是 true。Qt 自己是这么
@@ -158,7 +154,7 @@ QPixmap scaleToIconSlot(const QPixmap &icon) {
 /// 而**进去之后每个文件都是一条独立的结果**，`continue` 只挡住了它自己那一格
 /// （目录项，`size()` 是 0）—— 数照样翻倍，只是翻得看不出来。
 ///
-/// 所以改成本地递归：**下潜前**自己判两个条件，判完再决定进不进。
+/// 所以这里走本地递归：**下潜前**自己判两个条件，判完再决定进不进。
 ///
 /// NOTE: 这里**故意不 include `src/manage/FolderManager.hpp`**：ui/ 这一层不 include src/
 /// （不碰 AppPaths、也不认识 src/ 里任何一条规矩，见上面那 NOTE）。所以那两个条件是
@@ -232,8 +228,7 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
 
     // ---------- 最上面那一排：一条搜索框----------
     //
-    // 要求是「模组等的下载新/刷新/打开文件夹的**上方**加一个搜索」⇒ 这一排在那一排
-    // 按钮**之上**（下面还有一排状态选择，在按钮之下 —— 那个位置也是用户点名要的）。
+    // 搜索框在「下载新 / 刷新 / 打开文件夹」那一排按钮**之上**，状态选择在那一排**之下**。
     //
     // 作用范围是**这一页的列表**：`mods/` 底下几十上百个 jar，找一个名字靠眼睛扫是最费的
     // 一件事，而这一页每一趟都是全列的。筛的是"这一条在界面上叫什么"（以及盘上那个文件名
@@ -264,10 +259,9 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     auto *pathRow = new QHBoxLayout(m_pathRow);
     pathRow->setContentsMargins(0, 0, 0, 0);
     pathRow->setSpacing(8);
-    // 这一格从前**一个字都没有**（建出来、上了色、给了宽度策略，就是没人
-    // setText）—— 上面那一排看着是「…… [刷新] [打开文件夹]」，用户不知道这一页在看哪个
-    // 目录，而这一页叫「文件管理」。文字由 refresh() 灌（目录是从 setDirectory() 来的，
-    // 只有那一处知道）。
+    // 这一格写这一页在看哪个目录：文字由 refresh() 灌（目录从 setDirectory() 来，
+    // 只有那一处知道）。没有它，上面那一排就是「…… [刷新] [打开文件夹]」，用户
+    // 不知道这一页在看哪个目录，而这一页叫「文件管理」。
     // 用 ElidedLabel 而不是普通 QLabel：路径一定比这一格长（实例名本身能到 64 个字），
     // 普通 QLabel 装不下是**硬裁**（最后一级目录名被切掉一半），而这一段文字两头都有用
     // （盘符那头说明是哪个游戏目录，尾巴那头是 mods / saves 哪一页）⇒ 从**中间**省略。
@@ -281,18 +275,17 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     // 不能让它要宽度，这边是不能让它给宽度。）
     m_pathLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_pathLabel->setMinimumWidth(0);
-    // NOTE: 这里从前挂着 `setTextInteractionFlags(Qt::TextSelectableByMouse)`（"路径能选能复
-    // 制"）。换 ElidedLabel 之后那个开关等于没开：文字是 paintEvent 自己画的，选中
-    // 高亮画不出来 —— 用户拖一遍什么反应都没有，比一开始就不给还费解。整条完整路径
-    // 改由**悬停提示**给（见 refresh() 里 setToolTip 那句），那是这一格现在唯一
-    // "看得全"的路。
+    // NOTE: 这里不挂 `setTextInteractionFlags(Qt::TextSelectableByMouse)`：ElidedLabel
+    // 的文字是 paintEvent 自己画的，选中高亮画不出来 —— 用户拖一遍什么反应都没有，
+    // 比不提供还费解。整条完整路径由**悬停提示**给（见 refresh() 里 setToolTip 那句），
+    // 那是这一格唯一"看得全"的路。
     pathRow->addWidget(m_pathLabel, 1);
 
     // 顶上那颗「下载新 X」。摆在**路径右边、刷新左边**：它是这一页上
     // 「往里加东西」的那一颗，比刷新/打开文件夹更靠前；而路径仍旧贴着最左边 —— 那一格带
     // 的是"这一页在看哪儿"的身份，把它挪开，这一排就没有主语了。
     //
-    // NOTE: 一开始是藏着的（没有文字 = 没有这一颗，见 setDownloadText()）。**每一页都建**
+    // NOTE: 构造时是藏着的（没有文字 = 没有这一颗，见 setDownloadText()）。**每一页都建**
     // 它（这几页是同一段循环搭出来的，只多一个 if 反而要多一处"哪几页有"的知识）。
     m_download = new QPushButton(m_pathRow);
     m_download->setObjectName(downloadButtonName());
@@ -348,7 +341,7 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
 
     // ---------- 路径那一排的下面：「结构/原理图」那一页那几排「来源」----------
     //
-    // 要求：「两个下拉框并排」+「横着并排，即**上面一排是存档的，下面一排是投影的**」。
+    // 两排下拉框**横着并排：上面一排是存档的，下面一排是投影的**。
     // 结构方块那半边跟着存档走、投影那半边跟着实例走（见 .hpp 里 setStructureSources 那段）
     // ⇒ 这一页要能同时列两个来源，屏幕上就得先有"看哪几个来源"这一件事。
     //
@@ -365,7 +358,7 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
 
     // ---------- 按钮那排的下面：一个状态选择----------
     //
-    // 要求：「三个按钮的**下方**一个选择 全部/启用/禁用/可更新」。四格的顺序就是它们
+    // 状态选择在那一排按钮的**下方**，四格是全部 / 启用 / 禁用 / 可更新。顺序就是它们
     // 写在这儿的样子（`stateFilterText()` 是那些字的唯一出处）。
     //
     // 「可更新」这一格**不是每一页都有**（见 setCanFilterUpdates）：它靠的是一趟更新
@@ -380,7 +373,7 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
         // （和下载页那一排筛选的下拉框一样，每一格前面都有个标签。）
         // **只有没开批量的那几页还看得到它** —— 开了批量的页摆的是右边
         // 那四颗按钮，而那四颗自己就写着「全部(352) 启用(351) …」，再加一个「显示」
-        // 是多余的（用户点名要的那张 PCL 截图上也没有这个标签）。
+        // 是多余的。
         m_stateLabel = new QLabel(stateLabelText(), m_stateRow);
         m_stateLabel->setObjectName(stateLabelName());
         makeSecondary(m_stateLabel);
@@ -398,8 +391,8 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
         fillStateCombo();
         row->addWidget(m_stateCombo);
 
-        // **四颗横向按钮**（要求：「显示全部/可更新…那个下拉框变成横向
-        // 四个按钮（类似 pcl）」）。和上面那个下拉框**互相显隐**（见 applyState），
+        // **四颗横向按钮**（全部 / 启用 / 禁用 / 可更新）。和上面那个下拉框
+        // **互相显隐**（见 applyState），
         // 两套说的是同一件事（`m_stateFilter` 是唯一出处）。
         //
         // NOTE: **四颗都建着**，不能筛更新的那几页把「可更新」那一颗藏起来（见
@@ -424,9 +417,8 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
                 // 一般性那一档（黑字黑边）：这一排是"筛成什么样"，不是这一页的主语，
                 // 不该和顶上那几颗主行动按钮抢眼睛（和「刷新」「打开文件夹」同一档）。
                 Theme::markButton(button, Theme::ButtonKind::Neutral);
-                // 点一下 = 把条件落到这一档上。**没有别的副作用** —— 试过让它顺带
-                // 发起一趟更新检测（那条路已经拆了：要求「没有检查的时候先隐藏可更新
-                // 按钮」，那一颗在没查过的时候根本摆不出来，也就没有"点它"这回事了）。
+                // 点一下 = 把条件落到这一档上。**没有别的副作用** —— 这一颗只筛条件，
+                // 不发起更新检测（没查过的时候这一颗根本摆不出来，也就没有"点它"这回事）。
                 connect(button, &QPushButton::clicked, this,
                         [this, filter] { setStateFilter(filter); });
                 m_stateButtons.append(button);
@@ -483,7 +475,7 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     if (m_list->viewport() != nullptr) {
         m_list->viewport()->installEventFilter(this);
     }
-    // **滚动也要重摆一遍「详情」那一格**（见文件头【第四批】②）。
+    // **滚动也要重摆一遍「详情」那一格**（见文件头【行尾三格的次序】②）。
     // 滚轮一动，光标底下那一行往往就换人了 —— 而 Qt **不会**因为滚动补发 Enter/Leave
     // （滚的是 viewport 的孩子，鼠标一个像素都没动，见 scrollContentsBy 那段）⇒ 那一格会
     // 留在**已经不光标底下的**那一行上，直到用户动一下鼠标才自己纠正。所以每一趟滚动之后：
@@ -514,7 +506,7 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
 
     // ---------- 列表下面那条"这一份是什么"----------
     //
-    // coding plan §9.5：原理图 / 结构那一页要给元数据、方块统计和那句版本兼容提示。
+    // 原理图 / 结构那一页要给元数据、方块统计和那句版本兼容提示。
     // **这一层算不出那些**（要读 gzip NBT、要认 Litematica 的位打包，全在 src/ 里；
     // 这一层不 include src/）—— 它只摆一格标签，选中一条文件时发 infoRequested()，
     // 由接的人算好再 `setInfoText()` 递回来。
@@ -552,13 +544,12 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
 
     // ---------- 底下那条**悬浮**操作条----------
     //
-    // 父控件是 **`m_list` 本身（ 起；在那之前是 `m_list->viewport()`，为什么
-    // 非换不可见下面那一发 ★★）**、**不进任何布局**：进了布局就变成"列表下面另起一行"，
-    // 而用户点名要的是「在列表下方的位置（不是表尾而是悬浮）」。位置由
-    // repositionSelectionBar() 算，重算的时机是 viewport 的 Resize（见 eventFilter）。
+    // 父控件是 **`m_list` 本身**、**不进任何布局**：进了布局就变成"列表下面另起一行"，
+    // 而这一条要**悬浮在列表下缘**。位置由 repositionSelectionBar() 算，重算的时机是
+    // viewport 的 Resize（见 eventFilter）。
     //
-    // 父控件**从 `m_list->viewport()` 换成 `m_list`**（要求：「选中以后
-    // 出现下方框，但是滚动滚轮以后框会跟着跑了」）。根子在 Qt 那边：
+    // 父控件必须是 `m_list`，不能是 `m_list->viewport()`：挂在 viewport 底下的话，
+    // 滚动滚轮时这一条会跟着跑。根子在 Qt 那边：
     // `QAbstractItemViewPrivate::scrollContentsBy()`（`qabstractitemview_p.h`）滚的是
     // `viewport->scroll(dx, dy)`，而 **`QWidget::scroll()` 是"连孩子一起挪"的**
     // （`QWidgetPrivate::scroll_sys()` 第一句就是 `scrollChildren(dx, dy)`，Qt 6 里那句
@@ -868,16 +859,15 @@ void InstanceFilesPage::setBatchMode(bool batchMode) {
     // "`SingleSelection` 什么都不做" —— 单选的视图上那一发就是**什么都不发生**，这正是
     // 不开批量的那几页该有的样子。
     //
-    // **`ExtendedSelection` 换成 `MultiSelection`**（要求：「点击的时候
-    // 处于选中，再点一次才是取消，在选中的状态下点击其它的就是选中多个文件」）。
+    // **用 `MultiSelection`，不用 `ExtendedSelection`**。
     // 这两种模式的分别**不是"能不能多选"，而是"要不要按住 Ctrl"**：
     // · `ExtendedSelection` —— 不按修饰键点第二行是 `ClearAndSelect`，**把上一条抹掉**；
-    // 要加选得按住 Ctrl（或者 Shift 拉一段）。用户要的不是这个。
+    // 要加选得按住 Ctrl（或者 Shift 拉一段）。这里要的不是这个。
     // · `MultiSelection` —— 每一发左键都是 `Toggle`（见 Qt 的
     // `QAbstractItemViewPrivate::multiSelectionCommand()`：按下时给
     // `Toggle|selectionBehaviorFlags()`，已在选中的那一条等到**松开**才翻），
     // 也就是**点一下选中、再点一下取消、点别的是加进去**，一个修饰键都不用。
-    // 代价（知道就好，用户没要）：Shift 拉一段那次不再有用；点在**空白处**也不清选择
+    // 代价：Shift 拉一段不再有用；点在**空白处**也不清选择
     // （`multiSelectionCommand` 对无效行回 `NoUpdate`）—— 清空交给操作条上那颗「取消」。
     m_list->setSelectionMode(batchMode ? QAbstractItemView::MultiSelection
                                        : QAbstractItemView::SingleSelection);
@@ -976,7 +966,7 @@ void InstanceFilesPage::setStructureSources(const QList<StructureSource> &source
         while (QLayoutItem *item = m_structureLayout->takeAt(0)) {
             if (QWidget *w = item->widget()) {
                 // **先藏再排删除**：`deleteLater()` 要等下一趟事件循环，而这一会儿那一排
-                // 还挂在原来的位置上（几何没变）——屏幕上就是"旧那一排闪一下"。
+                // 还挂在原来的位置上（几何没变）——屏幕上就是"上一趟那一排闪一下"。
                 w->hide();
                 w->deleteLater();
             }
@@ -985,9 +975,9 @@ void InstanceFilesPage::setStructureSources(const QList<StructureSource> &source
     }
     // 两个排头占的宽度**统一成最宽的那一个**（下面每一格都拿这一份），这样两排的下拉框
     // 左边对得齐 —— 一列下来歪一格是最显眼的那种不齐。
-    // 这一句量的是**递进来的那些 title**，不是一个写死的词：「存档」/「投影」今天同宽
-    // （两格全角），但"排头一样宽"是今天这两句话凑巧的结果，不是这套排版的保证 ——
-    // 照今天那两个字去量的话（`horizontalAdvance(structureWorldTitle())`），哪一天某一排
+    // 这一句量的是**递进来的那些 title**，不是一个写死的词：「存档」/「投影」当前同宽
+    // （两格全角），但"排头一样宽"是这两句话凑巧的结果，不是这套排版的保证 ——
+    // 照当前那两个字去量的话（`horizontalAdvance(structureWorldTitle())`），哪一天某一排
     // 的排头多一个字，它那一排的下拉框就整体右移一格，屏幕上就是两排没对齐。
     // `makeSecondary()` 改的只是颜色、字号没动 ⇒ 拿这一页的 fontMetrics() 量是准的。
     int structureTitleWidth = 0;
@@ -1009,8 +999,8 @@ void InstanceFilesPage::setStructureSources(const QList<StructureSource> &source
         layout->addWidget(title);
         auto *combo = new QComboBox(line);
         combo->setObjectName(structureComboName(row));
-        // 一个来源一行都没有 ⇒ 摆一行**灰的**（要求：「如果没有任何存档含有结构那么存档
-        // 总下拉打开显示无可用的结构」）。它**不是**一个可选中的值：选中它就等于没选，
+        // 一个来源一行都没有 ⇒ 摆一行**灰的**，写「无可用的结构」。它**不是**一个
+        // 可选中的值：选中它就等于没选，
         // 于是这一排对下面那份列表一个条目都不贡献。
         if (source.labels.isEmpty()) {
             combo->addItem(structureNoneText());
@@ -1059,7 +1049,7 @@ QString InstanceFilesPage::selectedStructurePath(int row) const {
 
 QStringList InstanceFilesPage::scanDirectories() const {
     if (m_structureSources.isEmpty()) {
-        // 别的七页：就是那一个目录（**这条路一个字都没改**）。
+        // 别的七页：就是那一个目录。
         return m_directory.isEmpty() ? QStringList() : QStringList{m_directory};
     }
     QStringList dirs;
@@ -1176,7 +1166,7 @@ int InstanceFilesPage::stateFilterCount(StateFilter filter) const {
 
 bool InstanceFilesPage::stateFilterVisible(StateFilter filter) const {
     if (m_worldLayout && filter != StateFilter::All) return false;
-    // 「全部」恒在（用户 那句的后半截：「…全部的默认显示」）。
+    // 「全部」恒在（别的档全收起来时，剩下的那一颗也得有个东西亮着）。
     if (filter == StateFilter::All) {
         return true;
     }
@@ -1184,28 +1174,23 @@ bool InstanceFilesPage::stateFilterVisible(StateFilter filter) const {
     if (filter == StateFilter::Update && !m_canFilterUpdates) {
         return false;
     }
-    // 这一天上午这里曾经反过来做过一版（没查过时让它露着、点它就顺手查一趟），理由是
-    // "用户在这一页上看不到任何入口"。用户当天的回复把那一版否掉了，原话是：
-    // 「**没有检查的时候先隐藏可更新按钮**」。现在的说法是这条：
-    //
     // * 没查过 ⇒ 这一颗**收着**（页面上确实没有任何东西说"有更新"，但那是对的 ——
     // 还没问过，谁也说不出口）；哪一条有新版本改由**那一行自己的 ↑**
     // 来说（见 makeRow 里那个箭头），不靠这一颗筛子。
     // * 查过了、一条没有 ⇒ 也收着（下面那条"空档收起来"）。
     // * 查过了、有几条 ⇒ 露着，写「可更新(N)」。
     //
-    // ⚠ 于是 `m_updateChecked` 在这一页上**不再是"露不露"的判据**（它现在只管提示语那一
-    // 句，见 applyState），别再拿它回来判一次 —— 用户点名的正是"没查过就藏起来"。
-    // **一条都没有的那一档收起来**（要求：「没有可更新的和禁用的/
-    // 启用的就默认隐藏那个类别，全部的默认显示」）。那四颗自己写着条数，「禁用(0)」是
+    // ⚠ 于是 `m_updateChecked` 在这一页上**不是"露不露"的判据**（它只管提示语那一
+    // 句，见 applyState），别再拿它来判一次 —— 判据是"没查过就藏起来"。
+    // **一条都没有的那一档收起来**（「全部」恒在）。那四颗自己写着条数，「禁用(0)」是
     // 一颗点下去什么都没有的按钮 —— 收起来既省地方、也少一个"看着能按其实没用"的键。
     //
     // 这一条**只管开了批量的那四页**：没开批量的那几页摆的是下拉框，而它**不写条数**
-    // —— 那里少一格读起来像出了错（用户说的是那四颗，那几页本来也只有三格、行也不多）。
+    // —— 那里少一格读起来像出了错（那几页只有三格、行也不多）。
     if (!m_batchMode) {
         return true;
     }
-    // 要求：「没有禁用模组时不显示 启用 分类」。理由和底下那条"空档收起来"是同一
+    // **一条禁用都没有时，「启用」那一档也收起来**。理由和底下那条"空档收起来"是同一
     // 个：一条禁用都没有 ⇒ 启用的那些**就是全部**，「启用(N)」和「全部(N)」是同一份名单
     // —— 一颗按下去什么都不筛的按钮。
     //
@@ -1325,9 +1310,8 @@ void InstanceFilesPage::setStateFilter(StateFilter filter) {
 
 void InstanceFilesPage::setUpdateResult(const QStringList &outdatedPaths, bool checked) {
     const QSet<QString> incoming(outdatedPaths.cbegin(), outdatedPaths.cend());
-    // 这份名单现在**每一行都在吃**（那一行名字后面的 ↑ 就是它，见 makeRow
-    // 里那段）—— 于是它一变就得把行重列一遍。从前只有"正选着「可更新」"那一档要重列
-    // （别的档下这一趟检测改变不了任何一行）。
+    // 这份名单**每一行都在吃**（那一行名字后面的 ↑ 就是它，见 makeRow
+    // 里那段）—— 于是它一变就得把行重列一遍。
     // 判据取"**名单本身变没变**"而不是一刀切重列：主程序每查完一趟都会往这一页递一份
     // （哪怕结果和上一趟一模一样），一刀切就是白重排一次上百行的表。
     const bool changed = (m_outdatedPaths != incoming) || (m_updateChecked != checked);
@@ -1464,7 +1448,7 @@ void InstanceFilesPage::refresh() {
     // 这一趟要读的目录**可能不止一个**（「结构/原理图」那一页那两个来源，
     // 见 scanDirectories()）。那几排下拉框自己就写着这一页在看哪些来源，「路径」这一格
     // 于是把**它们现在选中的那几个**一起报出来（一眼看得全"这一页正在列哪几个文件夹"）。
-    // 别的七页永远只有一个 ⇒ 这一句在那边和从前逐字一样。
+    // 别的七页永远只有一个 ⇒ 那边走的就是这一条。
     const QStringList dirs = scanDirectories();
     const QString shownDir = QDir::toNativeSeparators(dirs.join(QStringLiteral("   ·   ")));
     m_pathLabel->setText(shownDir);
@@ -1492,7 +1476,7 @@ void InstanceFilesPage::refresh() {
     m_empty = true;
     m_entries.clear();
 
-    // 一个都不存在（或者压根没有要读的目录）⇒ 和从前那条早退路是同一件事。
+    // 一个都不存在（或者压根没有要读的目录）⇒ 走下面这条早退路。
     bool anyExists = false;
     for (const QString &one : dirs) {
         if (QDir(one).exists()) {
@@ -1507,8 +1491,8 @@ void InstanceFilesPage::refresh() {
         return;
     }
 
-    // **这一层循环是「结构/原理图」那一页加出来的**（见 scanDirectories()）。
-    // 别的七页 dirs 里只有一个元素 ⇒ 和从前逐字同一条路。一个来源不见了（用户把那个存档
+    // **这一层循环服务「结构/原理图」那一页**（见 scanDirectories()）。
+    // 别的七页 dirs 里只有一个元素 ⇒ 走的是同一条路。一个来源不见了（用户把那个存档
     // 删了）就跳过它接着列别的 —— 不要因为一个来源不在盘上就把整页判成空的。
     for (const QString &one : dirs) {
         const QDir dir(one);
@@ -1540,19 +1524,17 @@ void InstanceFilesPage::refresh() {
             const QString shown = disabled ? raw.left(raw.size() - disabledSuffix().size()) : raw;
             const QString path = info.absoluteFilePath();
             // 「这一条叫什么」——**盘上的名字**去掉那个后缀，被禁用的再挂上四个字。
-            // 从前这串是拼给 `QListWidgetItem` 的，行里那一格是**转手**从 `item->text()` 拿的
-            // （`makeRow(item->text(), …)`）；条目不给文字之后（见下）这一格就得自己算出来，
-            // 否则那四个字会**整条从界面上消失** —— 名字后面不再有任何东西说明这一条是关着的，
-            // 而灰掉的名字色在浅色主题下几乎看不出来（ui_check 的 U10c/U10k 当场抓到了这一处）。
+            // 条目不给文字（见下），所以这一格得自己算出来，否则那四个字会**整条从界面上
+            // 消失** —— 名字后面不再有任何东西说明这一条是关着的，而灰掉的名字色在浅色
+            // 主题下几乎看不出来。
             const QString displayName = disabled ? shown + disabledMark() : shown;
 
-            // 条目**故意不给文字**（从前给的是这一条的名字）。
-            // `QListWidgetItem` 上的文字是**视图代理画的**，而这一行的内容是一个用
-            // setItemWidget() 摆上去的真控件；那个控件是**透明的**（要这样，选中高亮才从
-            // 底下透出来），所以代理画的字会从它底下露出来 —— 屏幕上是**同一个名字画两遍**，
-            // 一行字的位置和控件里那个名字差着半行，看着像重影（用户 截图报的
-            // 「模组名称出现了两次」）。文字由 makeRow() 那一格全权负责（名字在
-            // nameLabelName() 上，那才是"这一条叫什么"的唯一出处）。
+            // 条目**故意不给文字**。`QListWidgetItem` 上的文字是**视图代理画的**，而这一行
+            // 的内容是一个用 setItemWidget() 摆上去的真控件；那个控件是**透明的**（要这样，
+            // 选中高亮才从底下透出来），所以代理画的字会从它底下露出来 —— 屏幕上是
+            // **同一个名字画两遍**，一行字的位置和控件里那个名字差着半行，看着像重影。
+            // 文字由 makeRow() 那一格全权负责（名字在 nameLabelName() 上，那才是"这一条
+            // 叫什么"的唯一出处）。
             Entry entry;
             entry.displayName = displayName;
             entry.raw = raw;
@@ -1626,9 +1608,9 @@ void InstanceFilesPage::rebuildRows() {
     //
     // 身份**只在"那一条刚刚改过名"时才拿来还选择**。身份是把 `.disabled`
     // 抹掉算的（见 `identityPath`），于是 `X.jar` 和 `X.jar.disabled` **同时在场**时
-    // 两行同身份 —— 原来那一版会在重列之后把"用户只点了一条"的选择变成两条（搜索框敲
-    // 一个字、批量开关跑完之后那一次重列，都会走到这里），紧接着一次「删除选中项」就
-    // 把用户**从来没选过**的那一份也删掉了（不可逆）。两份准账，各管一件事：
+    // 两行同身份 —— 重列不能把"用户只点了一条"的选择变成两条（搜索框敲一个字、批量
+    // 开关跑完之后那一次重列，都会走到这里），否则紧接着一次「删除选中项」就把用户
+    // **从来没选过**的那一份也删掉了（不可逆）。两份准账，各管一件事：
     // · `presentPaths` —— 盘上还在的所有路径（**含被筛掉的**）。某个旧路径还在
     // ⇒ 那不是改名，是它暂时被筛出去了；
     // · `visibleIdentityCounts` —— 这一趟**看得见**的条目里每个身份有几条。不止一条
@@ -1654,7 +1636,7 @@ void InstanceFilesPage::rebuildRows() {
             }
         }
     }
-    // （coding plan §9.4）：这一趟攒下来的两样东西（下面逐行填，出了循环再用）：
+    // 这一趟攒下来的两样东西（下面逐行填，出了循环再用）：
     // · `freshRows` —— 这一趟**新冒出来**的那几行控件（上一趟没摆过它们，见那一小段）；
     // · `shownIdentities` —— 这一趟摆出来的**全部**身份。**不能就地往 `m_shownIdentities`
     // 里写**：它是下面判"新不新"的那份底账，边判边写等于每一行都判成旧的。
@@ -1688,9 +1670,8 @@ void InstanceFilesPage::rebuildRows() {
             shownIdentities.insert(identity);
             // 选择按**身份**还回去，不是按盘上那个名字（`identityPath`，
             // 见 .hpp 里 m_selectedPaths 那段）—— 用户点一下行尾那个开关，MainWindow 就把
-            // `X.jar` 改成了 `X.jar.disabled` 再回头重列，按名字比的话这一行**当场掉出选择**
-            // （要求：「修复点击开关的时候会取消选中的问题」）。盘上还是同一个文件、
-            // 用户手里选的就是"这一条"，身份一比就还上了。
+            // `X.jar` 改成了 `X.jar.disabled` 再回头重列，按名字比的话这一行**当场掉出
+            // 选择**。盘上还是同一个文件、用户手里选的就是"这一条"，身份一比就还上了。
             // 身份只在**这一条是刚才那一条改过名**时才替用户选 ——
             // ① 路径逐字对得上（没改名的那一趟，最常见）；
             // ② 或者旧名字已经不在盘上了（= 真的改了名），并且这一页里同身份只有
@@ -1705,7 +1686,7 @@ void InstanceFilesPage::rebuildRows() {
             }
         }
     }
-    // （coding plan §9.4）：「同页筛选/列表变化：只动画**新增**、删除和状态，
+    // 「同页筛选/列表变化：只动画**新增**、删除和状态，
     // **不重播整页**」那一半的正面。
     // · **只淡新冒出来的那几行**（`Anim::rowAppear()`，120 ms，只有淡没有抬）——
     // 整页一个像素都不动，更不重播换页那一发（那一条现在由"筛一下不会调到
@@ -1722,8 +1703,8 @@ void InstanceFilesPage::rebuildRows() {
     }
     m_shownIdentities = shownIdentities;
     m_rowsBuilt = true;
-    // 这一趟真摆出来的那些路径 —— ★ 起**只有"筛完一条不剩"那一个判据**在用它
-    // （选择那份账改由 syncSelectedPaths() 从列表里现问一遍，见下面那一段）。
+    // 这一趟真摆出来的那些路径 —— **只有"筛完一条不剩"那一个判据**在用它
+    // （选择那份账由 syncSelectedPaths() 从列表里现问一遍，见下面那一段）。
     QStringList shownPaths;
     shownPaths.reserve(m_list->count());
     for (int row = 0; row < m_list->count(); ++row) {
@@ -1820,11 +1801,10 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
 
     // ---------- 左边那半：**名字一行、大小·时间一行** ----------
     //
-    // 用户 报的「实例设置里模组列表模组名称显示存在错误」，根子在这儿：
-    // 从前这三样是**一行**里排的（名字 + 「12.3 MB · 12:00」+ 两颗按钮）。
-    // 那个大小·时间那一截在 150% 缩放的字号下要 300 px，而行宽只有 450 上下 ——
-    // 于是名字那一格被挤成 **0 宽**，一整列的名字全看不见（`fabric-api-0.119.3+1.21.4.jar`
-    // 这类名字在盘上是常态）。行高本来就是 46 px（versionTreeRowHeight()），
+    // 名字和「大小 · 时间」分两行排：三样挤在一行时，大小·时间那一截在 150% 缩放的
+    // 字号下要 300 px，而行宽只有 450 上下 —— 名字那一格会被挤成 **0 宽**，一整列的
+    // 名字全看不见（`fabric-api-0.119.3+1.21.4.jar` 这类名字在盘上是常态）。
+    // 行高本来就是 46 px（versionTreeRowHeight()），
     // 装两行字够 —— 摆成上下两行，名字那一格就能拿到整幅宽度（按钮除外）。
     auto *textColumn = new QWidget(row);
     auto *textLayout = new QVBoxLayout(textColumn);
@@ -1844,7 +1824,7 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
     // `QSizePolicy::Ignored` 的，它会把整行余下的宽度全吃掉，"名字后面紧挨着"在那种
     // 布局里做不到，箭头只会被推到行的最右边）。拼成一个字符串之后：
     // · "紧挨着名字"是结构保证的（就是同一串字）；
-    // · 那一条用户点名的"**和名字一个字号**"更是结构保证的（同一格、同一个字体）；
+    // · "**和名字一个字号**"也是结构保证的（同一格、同一个字体）；
     // · 省略号那一套不用改：`ElideMiddle` 两头都留，尾巴上那颗 ↑（和「（已禁用）」）
     // 不会被省略掉。
     auto *name = new ElidedLabel(textColumn);
@@ -1904,17 +1884,15 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
     if (m_batchMode) {
         // ---------- 行尾那颗「详情」----------
         //
-        // 两处一起改（要求：「详情和启用/禁用换个顺序，且详情只在悬停时
-        // 显现，右键点击时也可以进入详情页，此时保留上一页的选择」）：
-        // ① 这一格挪到开关**前面** ⇒ 行尾从此是 `[详情][开关][删除]`
-        // （从前是 `[开关][详情][删除]`）；
+        // 这一格的次序与显隐：
+        // ① 这一格在开关**前面** ⇒ 行尾是 `[详情][开关][删除]`；
         // ② 它**只在鼠标悬停这一行的时候才露出来** —— 建出来时是藏着的，显隐由
         // eventFilter 里 Enter/Leave 那一支管（见 .hpp 里 setRowDetailVisible 那段）。
         //
         // NOTE: **每一行都建这一格**（哪怕认不出资源），认不出来的那些 `setEnabled(false)`
         // —— 一列下来三格左右要对得齐，而"有的行少一格"会让名字那一列宽窄不一。
         // 灰着而不是不摆，读起来是"这一条没有详情页"，不是"这里漏画了"。
-        // NOTE: 判据和从前那一发**逐字相同**：`m_resourceTips` 里有这一条 = 认出来了
+        // NOTE: 判据只有一条：`m_resourceTips` 里有这一条 = 认出来了
         // （见 setResourceForPath）。
         auto *detail = new QToolButton(row);
         detail->setObjectName(detailButtonName());
@@ -1940,9 +1918,9 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
     }
 
     if (m_canToggle && !isDir) {
-        // NOTE: 开关的位置：★ 起它排在**详情那颗后面**（行尾三格是
-        // `[详情][开关][删除]`，要求「详情和启用/禁用换个顺序」；从前是
-        // `[开关][详情][删除]`）。没开批量那几页没有详情那一格，它照旧是倒数第二格。
+        // NOTE: 开关的位置：它排在**详情那颗后面**（行尾三格是
+        // `[详情][开关][删除]`）。没开批量那几页
+        // 没有详情那一格，它照旧是倒数第二格。
         // 一列下来各格都对得齐。**只给"游戏会自己扫的那三个目录里的文件"**
         // （见 setCanToggle）。
         auto *toggle = new ToggleSwitch(row);
@@ -2136,7 +2114,7 @@ void InstanceFilesPage::applyState() {
             stateFilterVisible(StateFilter::Disabled) || stateFilterVisible(StateFilter::Update);
         m_stateRow->setVisible(filtersUseful && !m_worldLayout && (!m_compactHeader || choice));
     }
-    // 那一排里**下拉框和四颗按钮互相显隐**（，见 .hpp 里 m_stateRow 那段）：
+    // 那一排里**下拉框和四颗按钮互相显隐**（见 .hpp 里 m_stateRow 那段）：
     // 开了批量的页摆那四颗（连「显示」那个标签一起收掉 —— 那四颗自己就写着「全部(352)」），
     // 没开的页一丝不变。
     if (m_stateLabel != nullptr) {
@@ -2263,7 +2241,7 @@ void InstanceFilesPage::updateSelectionBar() {
     // 还压在 m_selectedPaths 上（我**不清它** —— 用户切一眼目录再切回来，选择该还在）。
     const bool show = m_batchMode && !m_selectedPaths.isEmpty() && m_list->isVisibleTo(this);
 
-    // ---------- 灰化规则（要求，见 .hpp 里那段）----------
+    // ---------- 灰化规则（见 .hpp 里那段）----------
     bool anyOutdated = false;
     for (const QString &path : m_selectedPaths) {
         if (m_outdatedPaths.contains(path)) {
@@ -2283,11 +2261,9 @@ void InstanceFilesPage::updateSelectionBar() {
     // （见 .hpp 里 SelectionAction 那段的 NOTE）。所以这里先按"这一页有没有开关"决定摆不摆，
     // 再决定灰不灰。
     //
-    // 这是把 那条**故意不对称**的规矩（「没有禁用的时候不显示启用，但是全是
-    // 禁用的时候保持显示禁用」）收回来的：那一条下，选中的里面一条禁用着的都没有时
-    // 「启用」整颗不见了 —— 而用户看到的是"这条上只有禁用、没有启用"，于是以为这一页
-    // 根本没有启用这个功能（他当时要的是"别摆一颗按不动的"，今天要的是"两颗都在"）。
-    // 现在的规矩和这一条上其余每一颗**逐字同一条**：摆着，不适用就灰着。
+    // 这里的规矩和这一条上其余每一颗**逐字同一条**：摆着，不适用就灰着。
+    // 选中的里面一条禁用着的都没有时，「启用」也仍然摆着（只是灰着）—— 整颗不见会让
+    // 用户以为这一页根本没有启用这个功能。
     //
     // NOTE: 判据取的是选中且确实需要改变状态的文件，而不是整页的条数
     // （`stateFilterCount`，那是顶上那四颗筛选按钮的口径）—— 这条操作条办的一直是
@@ -2363,7 +2339,7 @@ void InstanceFilesPage::repositionSelectionBar() {
     // 的是"浮在列表上"，见 .hpp 里 eventFilter 那段）。算的是**居中 + 离下缘
     // kSelectionBarMargin**：PCL 那一条就在这个位置。
     // NOTE: 用 `sizeHint()` 而不是 `width()/height()`：它这会儿可能还没被 show 过
-    // （geometry 是 0×0），而 sizeHint 是布局现算的，一开始就是对的。
+    // （geometry 是 0×0），而 sizeHint 是布局现算的，布局一算出来就是对的。
     const QSize hint = m_selectionBar->sizeHint();
     const int roomiest = qMax(0, viewport->width() - 2 * kSelectionBarMargin);
     const int width = roomiest > 0 ? qMin(hint.width(), roomiest) : hint.width();
@@ -2627,7 +2603,7 @@ bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
         repositionSelectionBar();
     }
 
-    // ---------- 行控件上那三发（★ 加）----------
+    // ---------- 行控件上那三发 ----------
     //
     // 认"这一发来自哪一行"靠行控件上那个**动态属性**（makeRow 里 `setProperty`，名字见
     // .hpp 里 rowPathProperty）—— 列表底下的另一个孩子是那条悬浮操作条，它身上没有这一格，
@@ -2648,13 +2624,13 @@ bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
             if (mouse->button() != Qt::RightButton) {
                 break;
             }
-            // 右键这一发 = 开这一条的详情页（要求：「右键点击时也可以进入详情页，
-            // 此时保留上一页的选择」）。**只认"认得出资源"的那些** —— 判据和这一行那格
-            // ⓘ 的可用性逐字相同（`m_resourceTips`，见 applyDetailButtonState）。
+            // 右键这一发 = 开这一条的详情页，并**保留上一页的选择**。**只认"认得出
+            // 资源"的那些** —— 判据和这一行那格 ⓘ 的可用性逐字相同（`m_resourceTips`，
+            // 见 applyDetailButtonState）。
             //
             // 【为什么必须把它吃掉，而不是让视图也看见这一发】
             // ① 视图收到右键会自己动当前项/选中态（Qt 为了让右键菜单有个目标，会先把
-            // 鼠标底下那一条选中），而用户点名要「此时保留上一页的选择」；
+            // 鼠标底下那一条选中），而这里要保留上一页的选择；
             // ② 这一页没有右键菜单，放它过去也没有第二个读者。
             // ⚠ `accept()` 那一句**不能省**：Qt 那个"被忽略了就往上冒"的循环判的是
             // `res && isAccepted()` —— 事件过滤器只 return true（不 accept）的话，
@@ -2736,7 +2712,7 @@ void InstanceFilesPage::syncRowHover() {
     // 的「详情」就一直藏着，直到他把鼠标挪一下。
     //
     // 判据不用 `underMouse()`：那个位是 Qt 在 Enter/Leave 那一趟顺手摆的，而这一趟正是
-    // "Enter 没来过"的那种情况。改成**当场问一句"光标底下现在是哪个控件"**
+    // "Enter 没来过"的那种情况。判据是**当场问一句"光标底下现在是哪个控件"**
     // （`QApplication::widgetAt` 走的是真正的命中测试，还能顺带把"光标其实在另一扇窗上面"
     // 也排除掉）—— 它确实是"此刻在不在这一行上"的权威答案。
     //

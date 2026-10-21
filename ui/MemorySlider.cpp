@@ -150,7 +150,7 @@ void MemorySlider::paintEvent(QPaintEvent *) {
     const QColor knobInner = track;
 
     // 轨道比底栏那条（4 px）略粗一点：这条要用手拖，太细了不好瞄；但仍是"一条圆角细线"，
-    // 不是从前那种一整格高的灰块。
+    // 不是一整格高的灰块。
     const int railHeight = qBound(2, height() / 4, 6);
     const qreal radius = railHeight / 2.0;
     const QRectF rail(groove.left(), (height() - railHeight) / 2.0, groove.width(), railHeight);
@@ -162,7 +162,7 @@ void MemorySlider::paintEvent(QPaintEvent *) {
     //
     // 自动档的**把手留在原地**（= 上次手动档停的位置），只有进度条跟着自动值走：
     // 用户一眼能看出"自动现在给这么多、我原来手动设的是那么多"。条本身画成半透明的
-    // 虚条，和可拖的手动档区分开（用户 点名要的"虚条，圆圈不跟着走"）。
+    // 虚条，和可拖的手动档区分开：圆圈不跟着自动值走。
     const qreal centerX = qBound(rail.left(), qreal(handle.center().x()), rail.right());
     const bool autoMode = m_autoValueMb >= 0;
     const int autoIndex = autoMode ? nearestIndex(m_steps, m_autoValueMb) : -1;

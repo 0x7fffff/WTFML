@@ -3,7 +3,7 @@
 #include <QString>
 #include <QStringList>
 
-// 代理（设置 → 下载 →「代理」，，§9.2）。
+// 代理（设置 → 下载 →「代理」）。
 //
 // 三档：
 // System —— 跟随系统（Windows 的「Internet 选项 → 连接 → 局域网设置」）。**出厂就是它**，
@@ -39,7 +39,7 @@ inline QString modeKey(Mode mode) {
     return QStringLiteral("system");
 }
 
-/// @return 认不出来的值一律当 System（= 以前的行为，不会因为一行坏配置把网络掐掉）。
+/// @return 认不出来的值一律当 System（= 默认行为，不会因为一行坏配置把网络掐掉）。
 inline Mode modeFromKey(const QString &key) {
     const QString text = key.trimmed().toLower();
     if (text == QStringLiteral("direct")) return Mode::Direct;

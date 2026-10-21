@@ -212,9 +212,9 @@ void UpdateCenterPage::rebuild() {
                 // （`updateCenterGroupName()` / `updateCenterRowName()`）⇒ 新旧两批
                 // **同名**，而 `deleteLater()` 要等下一趟事件循环才真的删。旧那一批在
                 // 新的一批画出来之后**还挂在这一页的孩子树里** ⇒ 谁 `findChild` 谁就
-                // 可能先撞上旧的那一批。mw_check T32 真撞上过：名单两行全对，组头却读成
-                // 「0 条」（那是构造里 `setReport(Report())` 那一趟留下的，它一个行都
-                // 没有 —— 所以只有行能读到新的那一批，正是这个症状）。
+                // 可能先撞上旧的那一批：名单两行全对，组头却读成「0 条」（那是构造里
+                // `setReport(Report())` 那一趟留下的，它一个行都没有 —— 所以只有行能
+                // 读到新的那一批）。
                 // · 视觉：旧的那一批这时候几何还没变、也还可见 ⇒ 重画那一瞬间新旧叠在
                 // 一处（`InstanceFilesPage` 那个重建里为这个专门写过一句「先藏再排删除」）。
                 // `setParent(nullptr)` 把这两件一并办了：控件**立刻**从这一页的孩子树里
@@ -332,7 +332,7 @@ void UpdateCenterPage::rebuild() {
                 lineLayout->addWidget(stateLabel);
 
                 if (chips) {
-                    // ①「更新」：就这一条（§7.1 的"逐项"那一档）。
+                    // ①「更新」：就这一条（"逐项"那一档）。
                     auto *one = makeRowChip(line, MainWindowUI::updateCenterRowUpdateText(),
                                             MainWindowUI::updateCenterRowUpdateName(index),
                                             MainWindowUI::updateCenterRowUpdateTipText());

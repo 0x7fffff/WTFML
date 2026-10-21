@@ -29,8 +29,8 @@ QString pageKeyForKind(ResourceCatalog::Kind kind) { return ResourceCatalog::kin
 
 /// 把一段阻塞的重活放到工作线程上跑，UI 线程用**嵌套事件循环**等它。
 ///
-/// 现在唯一的用户是 CurseForge 整合包预览：那一发是同步 HTTP（每批 100 条、一个整合包
-/// 通常两三类请求），以前整段跑在 UI 线程上 —— 网络慢的时候窗口不重绘，底栏那句
+/// 唯一的用户是 CurseForge 整合包预览：那一发是同步 HTTP（每批 100 条、一个整合包
+/// 通常两三类请求），整段跑在 UI 线程上的话网络慢的时候窗口不重绘，底栏那句
 /// 「正在向 CurseForge 换取文件清单…」也只是一张不动的截图。
 /// `resolveCurseForgeFiles()` 自己开 QNAM（不借主线程那个），所以能安全地放在这边。
 ///
@@ -428,7 +428,7 @@ bool ImportController::installLocalResourceFile(const QString &versionId,
     // 同名文件：**问一句**（不静默盖）。用户拖进来的东西，谁也不知道那一份是不是
     // 他手改过的 —— 而"顺手拖一下就把改过的那份盖掉了"是这个功能最糟的失败方式。
     if (QFileInfo::exists(target)) {
-        // 先看一眼"拖进来的这一份**就是**这一格自己"（ 修）：从实例自己的
+        // 先看一眼"拖进来的这一份**就是**这一格自己"：从实例自己的
         // `mods/` 里把文件再拖回启动器是最容易中的一路，而往下走的话，答完「盖掉」就会
         // 把 target —— 也就是**源文件本身** —— 删掉，源没了，文件就这么从盘上消失。
         // 比的是盘上那个**真路径**（`canonicalFilePath()` 解开大小写 / 8.3 短名那些别名）。
@@ -457,9 +457,9 @@ bool ImportController::installLocalResourceFile(const QString &versionId,
         }
         return false;
     }
-    // 写盘这一步走 `QSaveFile`（ 修）：它先写到旁边那个临时文件、`commit()`
-    // 那一刻才**原子地**换上去。原来那一版是"先 `QFile::remove(target)`，再
-    // `QFile::copy(path, target)`" —— 用户明明点的是「盖掉」，可删成功、拷失败（盘满 /
+    // 写盘这一步走 `QSaveFile`：它先写到旁边那个临时文件、`commit()`
+    // 那一刻才**原子地**换上去。"先 `QFile::remove(target)`，再
+    // `QFile::copy(path, target)`" 不行 —— 用户明明点的是「盖掉」，可删成功、拷失败（盘满 /
     // 权限 / 杀软锁着那一下）的时候，盘上**一份都没有了**：旧的已经删掉、新的没到位，
     // 而且没有退路（比不点「盖掉」还糟）。
     QSaveFile out(target);

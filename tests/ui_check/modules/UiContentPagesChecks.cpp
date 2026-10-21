@@ -38,7 +38,7 @@ int UiContentPagesChecks(QFrame * &bar) {
         mkfile(modsDir + QStringLiteral("/.connector/config.json"));
         // 再放一个**不带点**的（`run/` 底下那个 mcef 目录就是这一种），这样这一条断言
         // 不靠"点开头的算不算隐藏"这档子平台差异 —— 无论 Qt 在 Windows 上认不认点开头，
-        // 这个名字从前都实打实占着一行。
+        // 这个名字都实打实占着一行。
         mkfile(modsDir + QStringLiteral("/mcef-libraries/README.txt"));
         mkfile(root + QStringLiteral("/resourcepacks/材质.zip"));
         // 资源包 / 数据包 / 光影包都可以是一个**目录**（不是只有 zip）。
@@ -170,11 +170,10 @@ int UiContentPagesChecks(QFrame * &bar) {
                   "是一片空白）");
         }
 
-        // ---- U10b 常用目录那一排按钮（ 起住在**概览**页里）----
+        // ---- U10b 常用目录那一排按钮（住在**概览**页里）----
         //
-        // 它们从前是单独一页（「快捷方式」，夹在概览和启动之间），要求
-        // 「"快捷方式"放到概览的下方」⇒ 那一页没了、这一排按钮整块搬进概览（键、objectName、
-        // 底下那句话一个字都没改，只是换了个父）。U0h 那两条钉的就是"它们真的落在概览里"。
+        // 这一排按钮在概览页里，不再有单独的「快捷方式」页（键、objectName、底下那句话
+        // 一个字都没改，只是换了个父）。U0h 那两条钉的就是"它们真的落在概览里"。
         {
             const QList<QWidget *> buttons = dialog.shortcutButtons();
             const QStringList texts = Dlg::shortcutTexts();
@@ -235,9 +234,9 @@ int UiContentPagesChecks(QFrame * &bar) {
             }
         }
 
-        // ---- U10b2 §5.3：那一排分成两段（在盘的在外、其余收在「更多目录…」里）----
+        // ---- U10b2：那一排分成两段（在盘的在外、其余收在「更多目录…」里）----
         //
-        // coding plan §5.3 原话：「仅在**目录存在**或**相关模组可识别**时优先展示，其他项
+        // 要求原话：「仅在**目录存在**或**相关模组可识别**时优先展示，其他项
         // 收在'更多目录'」。**判据不在这儿**（哪几路目录在盘上、哪个实例装了 ReplayMod 都
         // 只有 MainWindow 知道，见 MainWindow::instanceCommonFolderKeys()）—— 这一层只认
         // 递进来的那张表，所以这一条量的是"递进去一张只有三路的表之后，五颗分别在哪一段"。
@@ -629,10 +628,9 @@ int UiContentPagesChecks(QFrame * &bar) {
                 dialog.setFileUpdates({}, true);
             }
 
-            // ---- U10P-8 同页筛选：**只淡新冒出来的那几行**，整页不重播（★ ，
-            // coding plan §9.4）----
+            // ---- U10P-8 同页筛选：**只淡新冒出来的那几行**，整页不重播（★ ）----
             //
-            // §9.4 那一句：「同页筛选/列表变化：只动画**新增**、删除和状态，**不重播整页**」。
+            // 要求那一句：「同页筛选/列表变化：只动画**新增**、删除和状态，**不重播整页**」。
             // 这一段的判据全是**结构**上的（不是"看着好像淡了一下"）：
             // · 这一趟真**新冒出来**的行，每一个身上挂着一个效果、而且那一发动画的时长
             // 就是 `rowAppearMs()`（效果挂在行上，动画是效果的子对象 —— 这儿的够法
@@ -695,7 +693,7 @@ int UiContentPagesChecks(QFrame * &bar) {
                         ++boundsKept;
                     }
                 }
-                // 这一趟**故意不把事件循环再跑起来**：§9.4 要的那两条（"新冒出来的在淡"
+                // 这一趟**故意不把事件循环再跑起来**：要求的那两条（"新冒出来的在淡"
                 // 和"本来就在的不淡"）都是**接线上**的事，重列那一发是同步的，当场就量得
                 // 到。"动画跑起来那一段时间里几何不动"由 ⑬ 那一段自己量（它本来就有一整
                 // 段真帧），这一段不必再往这一段 U10 里塞一发事件循环。
@@ -1018,7 +1016,7 @@ int UiContentPagesChecks(QFrame * &bar) {
                       "★ U10O 后面那一截是一个「yyyy-MM-dd HH:mm」的时刻（最后游玩时间）",
                       filled);
 
-                // ---- ★ 不跟 junction 走（ 补）----
+                // ---- ★ 不跟 junction 走 ----
                 //
                 // 这一条量的是一条**判据的洞**：那个数的判据原来是 `isSymLink()` 一条，而
                 // `mklink /J` 造出来的目录 junction 在 Qt 里 `isSymLink()` 是 **false**
@@ -1169,10 +1167,9 @@ int UiContentPagesChecks(QFrame * &bar) {
                   "★ U10f 装不了光影的实例：「光影包」那一页整页换成一句解释"
                   "（列表、那排按钮、以及那两排筛选一起收起来）",
                   shader != nullptr ? shader->noticeLabel()->text() : QString());
-            // 从前的规矩是"两条落两处"：页里那一句 + 左栏**一条都不列**（用户根本点不进
-            // 这一页）。树那一版的取舍写在 `rebuildNavigationTree()` 的注释里 ——
+            // 取舍写在 `rebuildNavigationTree()` 的注释里 ——
             // 「保留用户明确关闭页面的选择；可用性不足在既有页面里解释，**不吞掉导航入口**」：
-            // 只在树上认"用户自己勾掉的"（`m_pageOverrides`），不再看 `m_pageAvailable`。
+            // 只在树上认"用户自己勾掉的"（`m_pageOverrides`），不看 `m_pageAvailable`。
             // 于是"点得进去"这件事仍然成立：点进去那一页整幅是一句解释 + 那两颗按钮，
             // 而不是"树上少一条、用户不知道这一页去哪了"。
             //
@@ -1244,7 +1241,7 @@ int UiContentPagesChecks(QFrame * &bar) {
                                  QString());
             // NOTE: 地址那一格是**遮过**的（服务端地址不往屏幕上摆全，见 U10L-8）；完整的
             // 那一份在悬停提示里。所以这里核的是行数 + 名字 + 遮过的地址，别拿原始
-            // 字符串来比 —— 那是这条断言从前的样子、现在已经不是产品行为了。
+            // 字符串来比 —— 那不是产品行为。
             check(!tree->isHidden() && tree->topLevelItemCount() == 2 &&
                       tree->topLevelItem(0)->text(0) == QStringLiteral("我的服") &&
                       tree->topLevelItem(0)->text(1) == QStringLiteral("m-.e-.c-"),
@@ -1414,16 +1411,15 @@ int UiContentPagesChecks(QFrame * &bar) {
 
                 // ---- U10k-1 **名字那一格真的拿到了宽度**（这一节的正题）----
                 //
-                // 从前这三样是挤在**同一行**里的，而「4.0 KB · 00:12」在 150%
-                // 的字号下要 300 px —— 名字那一格（横向是 Ignored，最小宽度 0）被挤成
-                // **0 宽**，一整列名字一个字都看不见。这就是用户说的「模组名称显示存在错误」
-                // 的真身（不是"裁得难看"，是"根本没有"）。
+                // 这三样挤在**同一行**时，「4.0 KB · 00:12」在 150% 的字号下要 300 px ——
+                // 名字那一格（横向是 Ignored，最小宽度 0）被挤成 **0 宽**，一整列名字一个
+                // 字都看不见（不是"裁得难看"，是"根本没有"）。
                 const bool wideEnough = nameLabel->width() >= InstanceFilesPage::nameLabelMinWidth();
                 const bool moreThanHalf =
                     rowWidget != nullptr && nameLabel->width() * 2 > rowWidget->width();
                 check(wideEnough && moreThanHalf,
                       "★ U10k 名字那一格**真的拿到了宽度**（不小于下限，而且超过行宽的一半）"
-                      "—— 那个大小·时间从前跟它挤同一行，把它挤成过 0 宽",
+                      "—— 那个大小·时间不能跟它挤同一行（会把它挤成 0 宽）",
                       QStringLiteral("名字宽 %1（下限 %2、行宽 %3、要过半 %4）；列表宽 %5；"
                                      "小字「%6」宽 %7")
                           .arg(nameLabel->width())
@@ -1477,7 +1473,7 @@ int UiContentPagesChecks(QFrame * &bar) {
 
                 // ---- U10k-4 这么窄的一格里，省略出来的是什么 ----
                 //
-                // ① 这份夹具**真的**长到装不下 —— 不然这一节等于空转（第一版夹具就是这样：
+                // ① 这份夹具**真的**长到装不下 —— 不然这一节等于空转（夹具太短就是这样：
                 // 名字全短得根本用不上省略，所以那个"硬裁"的毛病一直没人看见）。
                 const bool tooLong = metrics.horizontalAdvance(shownName) > nameLabel->width();
                 // ② 省略之后尾巴上那四个字还在（`…` 之后那一段）—— 硬裁恰好会把它切没。
@@ -1857,8 +1853,7 @@ int UiContentPagesChecks(QFrame * &bar) {
                   "「这一行没有这一格」不一样，一列下来三格要对得齐）",
                   unknownDetail != nullptr ? unknownDetail->toolTip() : QString());
 
-            // 行尾那几格的**次序**。★ ：要求「详情和启用/禁用换个顺序」—— 行尾
-            // 从此是 **`[详情][开关][删除]`**（从前是 `[开关][详情][删除]`）。
+            // 行尾那几格的**次序**：**`[详情][开关][删除]`**。
             // 资源包这一页的那颗「启用 / 禁用」**整个退场**了 —— 改名当启停
             // 对资源包已经不成立（`fileKeyCanToggle()` 只留给模组和光影，资源包改走
             // `options.txt` 的启用顺序页，见 U10d），所以这一页的行尾只剩
@@ -1916,7 +1911,7 @@ int UiContentPagesChecks(QFrame * &bar) {
             QToolButton *modDetail = detailButtonFor(linked, QStringLiteral("mod"), modPath);
             check(modDetail != nullptr && modDetail->isEnabled() &&
                       modDetail->toolTip() == Dlg::filesResourceTip(modTitle),
-                  "★★ U10N 模组那一页的「详情」**也认得出**（用户 2026-09-27 下半句："
+                  "★★ U10N 模组那一页的「详情」**也认得出**（原话："
                   "「对于模组，点进去和资源包差不多」）",
                   modDetail != nullptr ? modDetail->toolTip() : QString());
             reported.clear();
@@ -2621,11 +2616,9 @@ int UiContentPagesChecks(QFrame * &bar) {
                 // → MainWindow 把 `X.jar` 改成 `X.jar.disabled`，再回头喊一声
                 // refreshFilePages()（见 toggleInstanceFile）。
                 //
-                // 这一档从前是**绕开这一页**直接 `QFile::rename` +
-                // `refresh()`。产品后来只把"这一页刚发出去的开关"解释成改名
-                // （`m_pendingIdentityMigration`）—— 否则一条**被删掉**的文件也会把同名的
-                // `.disabled` 那一行重新选上（见 ⑥ 那一档）。测试照着那条捷径走，这笔账
-                // 没人记，于是成了假红。现在按真那条路走。
+                // 这一档必须**走这一页**，不能直接 `QFile::rename` + `refresh()`：产品只把
+                // "这一页刚发出去的开关"解释成改名（`m_pendingIdentityMigration`）—— 否则
+                // 一条**被删掉**的文件也会把同名的 `.disabled` 那一行重新选上（见 ⑥ 那一档）。
                 const auto simulateDiskToggle = [](const QString &path) {
                     const QString suffix = InstanceFilesPage::disabledSuffix();
                     const QString target = path.endsWith(suffix)
@@ -2660,7 +2653,7 @@ int UiContentPagesChecks(QFrame * &bar) {
                 check(bar != nullptr && bar->isVisible() && page->selectionCountLabel() != nullptr &&
                           page->selectionCountLabel()->text() ==
                               InstanceFilesPage::selectionCountText(1),
-                      "★★ U10R 那条操作条**也没有跟着消失**（从前那一条唯一选中的一掉出选择，"
+                      "★★ U10R 那条操作条**也没有跟着消失**（唯一选中的一条掉出选择时，"
                       "整条就一起收起来了）",
                       page->selectionCountLabel() != nullptr ? page->selectionCountLabel()->text()
                                                              : QString());
@@ -3365,7 +3358,7 @@ int UiContentPagesChecks(QFrame * &bar) {
             const QStringList shortcuts = Dlg::shortcutTexts();
             const QStringList optionalTexts = Dlg::optionalPageTexts();
             check(!shortcuts.contains(QStringLiteral("结构/原理图")),
-                  "★ U10S 「结构/原理图」不再在快捷方式那一串里重复摆一遍（2026-10-18 去重）",
+                  "★ U10S 「结构/原理图」不再在快捷方式那一串里重复摆一遍",
                   shortcuts.join(QStringLiteral(" / ")));
             check(optionalTexts.size() > 6 &&
                       optionalTexts.at(6) == QStringLiteral("结构/原理图"),
@@ -3873,7 +3866,7 @@ int UiContentPagesChecks(QFrame * &bar) {
                     return false;
                 };
 
-                // ---- ① 没人摆过「来源」：这一页还是从前那一页 ----
+                // ---- ① 没人摆过「来源」：这一页保持原样 ----
                 check(structurePage->structureSourceCombos().isEmpty(),
                       "★ U10T 没摆过「来源」的时候那一页上一个下拉框都没有（别的七页走的"
                       "就是这条早退路 —— 它们谁也走不到那两排上去）");

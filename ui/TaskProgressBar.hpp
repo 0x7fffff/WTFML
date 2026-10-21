@@ -1,9 +1,9 @@
 /**
  * @file TaskProgressBar.hpp
- * @brief 自绘的进度条（coding plan §1.2 / §3.3「统一自绘任务进度组件」）。
+ * @brief 自绘的进度条（统一自绘任务进度组件）。
  *
  * 三处进度条（底栏中间那格的摘要、任务中心面板里每一行、任务详情页）**共用这一条**，
- * 换掉三处原来各自"就地 new 一颗原生 QProgressBar"的写法。
+ * 而不是各自就地 new 一颗原生 `QProgressBar`。
  *
  * 【为什么是 `QProgressBar` 的子类，而不是另起一个 `QWidget`】
  *

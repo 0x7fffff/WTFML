@@ -2,12 +2,11 @@
  * @file ServerListController.cpp
  * @brief `ServerListController` 的实现。
  *
- * 三条链路都是从 `MainWindow::openInstanceSettingsNow()` 里**逐字**搬过来的（连注释也跟了
- * 过来）。搬的时候只改了两处**形状**：
+ * 三条链路在这里只保留 `Host` 这一层接口，两处**形状**：
  *
- * ① 四句问话改成 `Host::ask()` 回出去（那一层才有 `OverlayHost`），这一层只说"问哪一格"。
- * ② "改完重读重测"那一句 `loadServerList(...)` + `pingServers(...)` 收成一次
- * `Host::changed()` —— 两条调用**必须一起**发生（只重读不重测的话，那一台的图标 /
+ * ① 四句问话走 `Host::ask()`（那一层才有 `OverlayHost`），这一层只说"问哪一格"。
+ * ② "改完重读重测"收成一次 `Host::changed()`：`loadServerList(...)` + `pingServers(...)`
+ * 两条调用**必须一起**发生（只重读不重测的话，那一台的图标 /
  * MOTD / 延迟会停在上一次的状态上，看着像"改了名之后这一台失联了"）。
  */
 

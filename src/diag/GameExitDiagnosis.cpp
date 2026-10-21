@@ -213,7 +213,7 @@ QStringList hints(const Facts &facts) {
 
     // ⑧ 压根没拿到输出。放在最后：它是"上面那些结论的依据缺一块"的说明，不是原因本身。
     if (!facts.logCaptured) {
-        // 这句原来把原因归到「显示游戏日志」那个开关上。现在不是了 ——
+        // 这句**不能**把原因归到「显示游戏日志」那个开关上 ——
         // 进程输出另有一份和窗无关的底账（`GameSessionController::sessionLogTail`），
         // 开关关着也照样收得到。真的一行都没有，那是游戏自己没打到能收的地方。
         say(QStringLiteral("这一趟没有收到游戏的输出 —— 进程起来之后一行都没打出来。"

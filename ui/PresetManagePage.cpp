@@ -120,7 +120,7 @@ void PresetManagePage::buildUi() {
     connect(m_presetList, &QListWidget::currentItemChanged, this,
             &PresetManagePage::onCurrentPresetChanged);
 
-    // 「新建」建出来的是哪一类：★ 必须四类里选一个 —— 跨类总预设不在产品里（§6.0 P0）。
+    // 「新建」建出来的是哪一类：★ 必须四类里选一个 —— 跨类总预设不在产品里。
     auto *newCategoryRow = new QHBoxLayout;
     newCategoryRow->setContentsMargins(0, 0, 0, 0);
     newCategoryRow->setSpacing(8);
@@ -343,7 +343,7 @@ void PresetManagePage::buildUi() {
              QStringLiteral("按结构认这一族，一个模组一段；默认只收绑好的热键。"),
              true, &m_captureMalilib);
     addCheck(4, 2, QStringLiteral("连值一起收"),
-             QStringLiteral("把开关和别的值也收进来（§6 P4 的「可选合并全部已知设置」）。"),
+             QStringLiteral("把开关和别的值也收进来。"),
              false, &m_captureMalilibValues);
     captureGrid->addWidget(new QLabel(QStringLiteral("数据包"), right), 5, 0);
     addCheck(5, 1, QStringLiteral("存档数据包"),

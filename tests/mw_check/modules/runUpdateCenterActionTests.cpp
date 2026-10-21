@@ -51,7 +51,7 @@ void runUpdateCenterActionTests() {
     writeFileAt(modJar, originalBytes);
     // ② 一条**禁用着**的、内容和上面那一份**逐字节一样**（⇒ 同一个 sha1 ⇒ 真查的话它照样
     // 判得出"可更新"）。它的用处只有一个：量这一趟**整个跳过**了它，而且"更新"那一批
-    // 也**没有**把它启用回来（§7.1 最后那半句「禁用资源保持跳过，不擅自启用或更新」）。
+    // 也**没有**把它启用回来（「禁用资源保持跳过，不擅自启用或更新」）。
     const QString disabledJar = dirV + QStringLiteral("/mods/禁用模组.jar.disabled");
     writeFileAt(disabledJar, originalBytes);
 
@@ -395,7 +395,7 @@ void runUpdateCenterActionTests() {
         }
         check(rowsOnPage == 1,
               "★★ T38.2 那一页上只有**一行** —— 那个禁用着的文件（内容和它逐字节一样、真查的"
-              "话照样判得出「可更新」）**整个跳过了**（§7.1：禁用资源保持跳过）",
+              "话照样判得出「可更新」）**整个跳过了**（禁用资源保持跳过）",
               QStringLiteral("%1 行").arg(rowsOnPage));
 
         // ---------- 「忽略这一版」/「不再忽略」----------
@@ -436,10 +436,10 @@ void runUpdateCenterActionTests() {
               undoTextAfterFail);
         check(snapshotAfterFail == 1,
               "★★ T38.4 **动手之前**真留了一份回滚点（盘上那份清单里就是那 1 个文件）—— "
-              "§7.1「更新前创建轻量回滚点」这一条在界面按下去的那条路上真的走到了",
+              "「更新前创建轻量回滚点」这一条在界面按下去的那条路上真的走到了",
               QStringLiteral("清单里 %1 个").arg(snapshotAfterFail));
         {
-            // 失败那一框里**逐条**说着每个资源的结果（§7.1「不只显示总数」）。这一条只有
+            // 失败那一框里**逐条**说着每个资源的结果（「不只显示总数」）。这一条只有
             // 用户看得见的地方说得清 —— `m_taskManager` 是私有的，而屏幕上的那一框就是
             // 产品对用户交的账。
             bool reported = false;
@@ -460,7 +460,7 @@ void runUpdateCenterActionTests() {
         check(QFile::exists(disabledJar)
                   && !QFile::exists(dirV + QStringLiteral("/mods/禁用模组.jar")),
               "★★ T38.4 那个禁用着的文件**还是禁用着**（那一批没有顺手把它启用回来 —— "
-              "§7.1：禁止资源保持跳过，不擅自启用或更新）");
+              "禁止资源保持跳过，不擅自启用或更新）");
 
         // ---------- 「撤销上一次更新」----------
         check(undoHiddenAfterUndo && jarBackAfterUndo,

@@ -46,7 +46,7 @@ int runInstalledScanTests(const QString &sandbox) {
 
     VersionManager vm;
 
-    // warnings 传 nullptr 时必须与加这个参数之前**完全一样**：不崩、不多事。
+    // warnings 传 nullptr 时必须和没有警告的调用**完全一样**：不崩、不多事。
     const QStringList silent = vm.installedVersions();
 
     check(silent.contains(renamedDir), "J1 名字对不上的目录**进**列表（判据已放松）",
@@ -63,8 +63,7 @@ int runInstalledScanTests(const QString &sandbox) {
     check(!reported.contains(emptyDir) && !reported.contains(strayZip),
           "J2 纯空目录和散落的 zip 都不算版本");
 
-    // 上报条数还是 1，但**来源全变了**：以前是 renamedDir（名字对不上），现在是 twoJarsDir
-    // （两个 jar 认不出）。数字不变纯属巧合，别以为这条没动过。
+    // 恰好上报一条，来源是 twoJarsDir（两个 jar 认不出）：认得出的、空目录、zip 都不该报。
     check(warnings.size() == 1, "J1 恰好上报一条（认得出的、空目录、zip 都不该报）",
           QString::number(warnings.size()));
     if (warnings.size() == 1) {

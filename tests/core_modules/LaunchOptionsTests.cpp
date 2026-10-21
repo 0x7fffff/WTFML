@@ -16,7 +16,7 @@ void runLaunchOptionsTests(const QString &sandbox) {
         check(!fresh.showGameLog(), "ZD1 默认不开「显示游戏日志」");
         // 854x480 是**原版自己的默认窗口大小**（1.12.2 的 Main 里那对 defaultsTo(854, 480)）。
         // 钉它是因为这条默认值承担着一个承诺：谁都不动这一项时，启动器发出去的两个参数
-        // 就等于游戏本来要用的值 —— "加了这个功能"不该让任何人的窗口大小变一下。
+        // 就等于游戏本来要用的值 —— 默认这一档不该让任何人的窗口大小变一下。
         check(fresh.gameWindowWidth() == 854 && fresh.gameWindowHeight() == 480,
               "ZD1 默认窗口大小就是原版那个 854x480",
               QStringLiteral("%1x%2").arg(fresh.gameWindowWidth()).arg(fresh.gameWindowHeight()));
@@ -132,8 +132,8 @@ void runLaunchOptionsTests(const QString &sandbox) {
                   QString("ZD3 %1 读得回来").arg(row.second));
             seenKeys << key;
         }
-        // 「两两不同」这条是house rule：以前撞过一次角色编号（两个用途共用一个号码），
-        // 症状是"看起来全绿、界面上却少了一个东西"。枚举到字符串这一层同样会撞。
+        // 「两两不同」这条是house rule：枚举到字符串这一层，两个用途共用一个持久化字符串时，
+        // 症状是"看起来全绿、界面上却少了一个东西"。
         check(QSet<QString>(seenKeys.begin(), seenKeys.end()).size() == table.size(),
               "ZD3 五个持久化字符串两两不同", seenKeys.join(QStringLiteral(" | ")));
 
@@ -206,10 +206,9 @@ void runLaunchOptionsTests(const QString &sandbox) {
 
         // ---- (b) 没传窗口设置：发的是**原版默认那一对**（854×480）----
         //
-        // NOTE: 加了「窗口模式」之后这一条的判据变了。原来这两个数默认为 0、判的是
-        // "一条都不发"；现在默认构造就是原版那个默认窗口大小（854×480），所以默认
-        // 那一趟是**照发**。两条都对用户是同一件事（游戏开出来还是那个 854×480），
-        // 但"什么都不发"和"发一对 854×480"在命令行上不是一回事 —— 而 json 自己带的
+        // NOTE: 默认构造就是原版那个默认窗口大小（854×480），所以默认那一趟是**照发**。
+        // 两条都对用户是同一件事（游戏开出来还是那个 854×480），但"什么都不发"和"发一对
+        // 854×480"在命令行上不是一回事 —— 而 json 自己带的
         // 那对 --width 只在 has_custom_resolution 那类规则成立时才出现，靠它兜底不
         // 可靠，所以这一档我们**明着发**。
         {
@@ -224,7 +223,7 @@ void runLaunchOptionsTests(const QString &sandbox) {
 
         // ---- (b2) 两格不是正数：一条都不发 ----
         //
-        // 这是"调用方明确说不给"的那一档（原来那条"默认 0"的判据搬到了这里）。发一个 0
+        // 这是"调用方明确说不给"的那一档。发一个 0
         // 出去的后果是 joptsimple 抛异常、游戏根本起不来 —— 宁可不发。
         {
             const QStringList args = launcher.generateJvmArguments(
@@ -319,7 +318,7 @@ void runLaunchOptionsTests(const QString &sandbox) {
         }
 
         // ---- (f) 那两个 resolution_* 占位符真的是填进去的 ----
-        // LauncherManager 里填它们是为了**万一**有老版本的 minecraftArguments 直接写着
+        // LauncherManager 里填它们是为了**万一**有版本的 minecraftArguments 直接写着
         // `${resolution_width}`（那种拼法见过）：留一个没替换的 ${...} 在命令行上，
         // 游戏拿到的就是一个字面量的 "${resolution_width}"。
         //
@@ -508,7 +507,7 @@ void runLaunchOptionsTests(const QString &sandbox) {
             check(!noScreen.contains(QStringLiteral("--fullscreen")),
                   "ZD5 最大化**不是**全屏（原版没有最大化参数，见 .hpp 那一节）");
 
-            // 两格不是正数时一条都不发（老规矩）。
+            // 两格不是正数时一条都不发（约定）。
             check(gameWindowArguments(GameWindowSettings{GameWindowMode::Windowed, 0, 0}, screen)
                       .isEmpty(),
                   "ZD5 宽高是 0 → 一条都不发（宁可不发，也不发一个 0）");

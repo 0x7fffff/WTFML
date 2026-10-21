@@ -83,7 +83,7 @@ WorldSettingsPage::WorldView worldViewOf(const QString &worldDir,
     view.formatText = data.info.hasDataVersion ? QString::number(data.info.dataVersion) : QString();
     view.hasLastPlayed = data.info.hasLastPlayed;
     view.lastPlayedMs = data.info.lastPlayedMs;
-    // ---------- §9.6：只读概况（种子 / 玩家位置 / 已生成区域 / 大小） ----------
+    // ---------- 只读概况（种子 / 玩家位置 / 已生成区域 / 大小） ----------
     // `level.dat` 那一份已经解出来了，这里不再解第二遍；`region/` 那边只读每个文件的
     // 前 8 KiB 头部（见 `WorldMap.hpp` 开头），不解区块正文。
     WorldMap::Snapshot map = WorldMap::scan(worldDir);
@@ -132,7 +132,7 @@ WorldSettingsPage::WorldView worldViewOf(const QString &worldDir,
     if (map.hasOtherDimensions) {
         notes.append(InstanceEditorController::tr("下界 / 末地与模组维度的区域没有算进来。"));
     }
-    // §9.6 那句要求：「Mod 世界明确标注结果可能不完整」。判据拿不到"装没装模组"这件事
+    // 要求：「Mod 世界明确标注结果可能不完整」。判据拿不到"装没装模组"这件事
     // （模组可以只写在别处），所以这一句**一直在**，说的是这份统计的口径。
     notes.append(InstanceEditorController::tr(
         "这份统计只看主世界 region/ 里的 .mca —— 模组生成的地形与维度不在里面，结果可能不完整。"));
@@ -609,9 +609,8 @@ void InstanceEditorController::showWorldSettingsPage(InstanceSettingsDialog *dia
         // "文件看着在、游戏打不开"，而那件事只有真解一遍才知道。
         // 读不出来 ⇒ **照"读不出来"那一档开页**（页面顶上写「这个世界可能坏了：<目录>」、
         // 正文整块藏起来、只留改名 / 打开文件夹 / 删除 / 备份一份），把**原因**原样摆给
-        // 用户看（他拿去搜、拿去问人都要它）。 起这里**不再往前补一问**（原来
-        // 会弹「打开（只读）/ 先备份一份 / 取消」）—— 要求「点击笔的时候不要弹备份
-        // 提示了」；备份仍然随时可做，就是页里那颗「备份一份」。
+        // 用户看（他拿去搜、拿去问人都要它）。开页前**不补问**：备份随时可做，
+        // 就是页里那颗「备份一份」。
         m_owner->m_worldDir = worldDir;
         m_owner->m_worldStampSize = 0;
         m_owner->m_worldStampMtimeMs = 0;
@@ -641,11 +640,11 @@ void InstanceEditorController::leaveWorldSettings(InstanceSettingsDialog *dialog
 
     // 改过的东西不许悄悄没掉 —— 这一页和"配置文件"那一页是同一条规矩。
     //
-    // 上一版这里写的是后一种，而且注释里宣称"为了不为此多解一次 gzip"—— 那句话是假的：
-    // 代码自己就在上面解了一遍（`readLevelData()`，一次 PowerShell、小一秒），而且这么
-    // 比出来的东西**不是**"改过没有"：盘上那一份只要被别的什么东西动过（游戏在跑、
-    // 用户自己删了又拉回来、别的工具碰过），页面上一格没改也会被判成"改过的东西还没存"
-    // —— 用户对着一个自己一个字都没动过的页面被问"要丢掉吗"。
+    // 不能靠"盘上这份和页面上的比一遍"来判：那要多解一次 gzip（`readLevelData()`，
+    // 一次 PowerShell、小一秒），而且这么比出来的东西**不是**"改过没有"：盘上那一份
+    // 只要被别的什么东西动过（游戏在跑、用户自己删了又拉回来、别的工具碰过），
+    // 页面上一格没改也会被判成"改过的东西还没存"—— 用户对着一个自己一个字都没动过的
+    // 页面被问"要丢掉吗"。
     //
     // 台账那一位是现成的，而且**覆盖层页眉那颗返回箭头走的就是它**（见
     // `InstanceSettingsDialog::reject()`）：两条出口用两个判据的话，同一个页面按不同的

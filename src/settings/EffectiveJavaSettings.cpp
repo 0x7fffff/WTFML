@@ -38,7 +38,7 @@ std::optional<QString> readString(const QJsonObject &meta, const QString &key) {
 /// 读一个整数项：类型不对当没有。JSON 没有整数类型，只认"塞得进 int"的数
 /// （4096.0 收下、4096.5 收下并按截断算 4096；写坏成字符串的当没写）。
 ///
-/// NOTE: 那句"toInt() 截断"原来是**错的**（ 实测，探针见 tmp/probe_toint）：
+/// NOTE: 不能指望 `QJsonValue::toInt()` 来截断：
 /// QJsonValue::toInt() 遇到非整数的 double 返回的是**默认值**（不给就 0），它不截断 ——
 /// 4096.5 → 0、-1024.7 → 0、1e30 → 0，而 4096.0 → 4096。这个 0 **不是**一个显眼的
 /// 错值：它一路走到下面夹取那一段，最后变成"用户设了 4096 MB、起步内存 256 MB"这种

@@ -1,7 +1,7 @@
 /**
  * @file ServerRun.hpp
  * @brief 「把一个已经装好的服务端跑起来、再让它干净地停下来」这条路上的**判据层**
- * （coding plan §6.2 的操作那一段 + §6.3 的停止时序 / 里程碑 M4-3）。
+ * （操作那一段 + 停止时序）。
  *
  * 【它和 `ServerModel` / `ServerInstall` 差在哪】
  *
@@ -17,10 +17,9 @@
  * 不看时钟** —— 喂几个数进来、回一个结论出去。所以 `verify` 能直接把它整片钉死
  * （见 tests 的 **ZZ** 一节），真的 `QProcess` / `QTimer` 留给 `ServerProcess`。
  *
- * 【★ 内存那几项插在哪儿：一张被注释说反了的坑（ 修的）】
+ * 【★ 内存那几项插在哪儿】
  *
- * `ServerInstall.hpp` 里原来那两张 NOTE 写的是"驱动层拼的时候要把内存那几项接在
- * **这几个 token 后面**"。照那句话实现出来是错的，而且错得很安静：
+ * 不能接在最后：
  *
  * java @user_jvm_args.txt @libraries/…/win_args.txt nogui -Xmx4G
  * ^^^^^^^^^^^^^^^^ 这一串是**主类 + 它的参数**
@@ -34,8 +33,8 @@
  * 正确的位置是**两张参数文件之间**：排在 `@user_jvm_args.txt` 之后（那张文件里可能也写着
  * `-Xmx`，同一个参数以最后出现的为准 —— 接在前面会被它盖掉，界面上那根内存滑杆成了摆设），
  * 又排在 `@win_args.txt` **之前**（那之后就是主类了）。所以那个"第几位"不能靠"接哪儿"这句
- * 话表达，`ServerInstall::Plan` 上多了一格 `launchJvmArgsIndex`（默认 0 = 接在最前面，
- * Forge / NeoForge 是 1）。`ServerInstall.hpp` 里那两段注释也一并改成了这个说法。
+ * 话表达，`ServerInstall::Plan` 上有一格 `launchJvmArgsIndex`（默认 0 = 接在最前面，
+ * Forge / NeoForge 是 1）。
  *
  * 【停下来：宽限时间是**算出来的**，不是拍的】
  *
@@ -70,7 +69,7 @@ namespace ServerRun {
  *
  * @param plan 那一档的安装计划（要的是 `launchTokens` 和 `launchJvmArgsIndex`）。
  * @param memoryMb 内存上限，MB。**`<= 0` 就一项都不发**（"不限制"是 java 的默认档；
- * 编一个数出来比不发更危险 —— 同实例设置那条老规矩）。
+ * 编一个数出来比不发更危险 —— 同实例设置那条规则）。
  * @param extraJvmArgs 别的 JVM 参数（排在内存那几项后面）。空 = 不发。
  *
  * 返回值**不含** `java` 自己（那是 `QProcess::setProgram()`）；调用方拼的时候别把
@@ -126,21 +125,20 @@ inline bool isReadyLine(const QString &line) {
  * @brief 把新到手的一截**字节**拼到 `pending` 上，切出里面**所有完整的行**，剩下的留在
  * `pending` 里等下一趟。
  *
- * 这一层为什么必须按**字节**切、切完再解码 —— 修的一个真 bug（mw_check 的
- * T41.3 偶发红那一次）：`QProcess::readAllStandardOutput()` 到手的是**字节**，而一次
- * `readyRead` 只保证"有东西来了"，**不保证切在字符边界上**。原来那版是
- * `QString::fromLocal8Bit(readAllStandardOutput())`（到手就整块解码），一个三字节的汉字
- * 正好被两次 `readyRead` 从中间劈开时，前后各解出半个字符 —— 拼回来是两个替换字符/乱码，
- * 于是"回声回来了没有"这条断言**时红时绿**（管道怎么分包看系统心情；纯 ASCII 那几条
- * 一直是绿的，所以之前没露头）。
+ * 这一层为什么必须按**字节**切、切完再解码：`QProcess::readAllStandardOutput()` 到手的
+ * 是**字节**，而一次 `readyRead` 只保证"有东西来了"，**不保证切在字符边界上**。
+ * `QString::fromLocal8Bit(readAllStandardOutput())`（到手就整块解码）遇到一个三字节的
+ * 汉字正好被两次 `readyRead` 从中间劈开时，前后各解出半个字符 —— 拼回来是两个替换字符/
+ * 乱码，于是"回声回来了没有"这条判断就时红时绿（管道怎么分包看系统心情；纯 ASCII 那几条
+ * 看不出来）。
  *
  * 先按字节切行就绕开了这件事：`\n`(0x0A) 和 `\r`(0x0D) 在 UTF-8 里**只可能是行尾**，
  * 多字节字符的后续字节一律 ≥ 0x80 ⇒ 按这两个字节切永远不会把字符切开，切出来的每一段
  * 都是完整的字节序列、可以放心逐行解码。
  *
- * 空行**不回来**（原来是 `if (!line.isEmpty())` 那个判断）—— 服务端自己会打空行，
+ * 空行**不回来** —— 服务端自己会打空行，
  * 而且 `\r\n`（Windows 那套换行）会被切成"前一段 + 一个空段"，把空段也当一行报上去
- * 会让行数凭空多出来。这个行为是**故意保持**的（mw_check T41.2 数的行数就吃它）。
+ * 会让行数凭空多出来。这个行为是**故意的**。
  *
  * @param pending 跨趟攒着的那截（进来时是上一趟剩下的，返回时是这一趟剩下的）。
  * @param chunk 刚 `readAllStandardOutput()` 到手的一截（**不要先解码**）。
@@ -262,7 +260,7 @@ inline QString eulaUrl() {
  * @brief EULA 那道闸的正文与标题（**唯一出处**，界面照抄）。
  *
  * 三条规矩写死在这儿：
- * ① **不自动接受**（coding plan §6.4 明写不做）—— 只有用户自己勾了才写 `eula=true`；
+ * ① **不自动接受**（要求不做）—— 只有用户自己勾了才写 `eula=true`；
  * ② 勾选框那一句只陈述"我读过并同意哪一份协议"，不替他判断"这个协议没问题"；
  * ③ 原文地址是**可点的一行**（用户 点名：「要提供通向 eula 的链接，且可以
  * 点击跳转」）—— 他把同意两个字打在屏幕上之前得能真看见那是什么。

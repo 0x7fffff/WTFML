@@ -16,8 +16,8 @@ int UiBottomBarGeometryChecks(MainWindowUI &ui, QFrame * &bar) {
         if (avatar != nullptr && account != nullptr && status != nullptr && progress != nullptr &&
             runState != nullptr && runDetail != nullptr && mark != nullptr) {
             // 中间那格：**没有任务时那根进度条不出现**（"如果正在下载"那条要求），但那一格
-            // 自己（连同那句占位话）是**亮着的** —— 任务中心那一次改的：原来
-            // 整格藏起来，现在它是"平时也写一句「暂无后台任务」、点一下展开任务中心"的按钮。
+            // 自己（连同那句占位话）是**亮着的** —— 它是"平时也写一句「暂无后台任务」、
+            // 点一下展开任务中心"的按钮，不整格藏起来。
             check(!progress->isVisible() && status->isVisible(),
                   "一开始没有任务：进度条藏着，但那格（和占位话）是亮着的",
                   QStringLiteral("进度条 %1 / 那句话 %2")
@@ -30,12 +30,12 @@ int UiBottomBarGeometryChecks(MainWindowUI &ui, QFrame * &bar) {
             // 所以初值跟那两行一起藏着 —— 不然会先亮一个"没有含义的颜色"再被改掉。
             check(!mark->isVisible(), "一开始那颗状态方块也是藏着的");
 
-            // 两格（ 起）的左右顺序：运行状态 → 任务摘要（进度）→ 工具箱。
-            // 底栏**从三格变回两格**：右边那一格（头像 + 用户名）整个收进了主页右上
-            // 那张账号卡片 —— `accountButton` 还在、业务层照旧往里写数据，但它**不再进
-            // 布局**（`hide()`），所以它里面那几样（头像/用户名/第二行）的几何是"没人
-            // 给它分位置"的旧值，**不能**再拿它们当"右边那一格"来量。右下角换成了跨页面的
-            // 「工具箱」入口（`toolboxButton`，宽度和左边那格一样、也是 170）。
+            // 两格的左右顺序：运行状态 → 任务摘要（进度）→ 工具箱。
+            // 右边那一格（头像 + 用户名）整个在主页右上那张账号卡片里 —— `accountButton`
+            // 还在、业务层照旧往里写数据，但它**不进布局**（`hide()`），所以它里面那几样
+            // （头像/用户名/第二行）的几何是"没人给它分位置"的旧值，**不能**再拿它们当
+            // "右边那一格"来量。右下角是跨页面的「工具箱」入口（`toolboxButton`，宽度和
+            // 左边那格一样、也是 170）。
             // NOTE: 量之前必须先把要量的控件显示出来 —— 布局不给隐藏的控件分位置，
             // 藏着的控件几何停在旧值（通常是 0），拿它比大小等于没比。
             progress->show();
@@ -68,9 +68,8 @@ int UiBottomBarGeometryChecks(MainWindowUI &ui, QFrame * &bar) {
                   "用户名在头像右边（账户那一组内部）");
 
             // 中间那格**不吃掉全部富余宽度**：左右各留空档，两头都留白所以它还居中。
-            // 以前富余宽度全给中间那格，900 px 下进度条横跨大半个底栏（用户嫌太长）。
-            // 右边那头拿**工具箱**那格的左边缘当参照（原来拿的是隐藏的
-            // 账号格里那颗头像 —— 它不在布局里，量出来的空档是负的，等于没量）。
+            // 右边那头拿**工具箱**那格的左边缘当参照 —— 隐藏的账号格里那颗头像不在
+            // 布局里，拿它量出来的空档是负的，等于没量。
             const int runStateRight = runState->mapTo(bar, QPoint(runState->width(), 0)).x();
             const int progressLeft = progress->mapTo(bar, QPoint(0, 0)).x();
             const int progressRight = progress->mapTo(bar, QPoint(progress->width(), 0)).x();
@@ -100,7 +99,7 @@ int UiBottomBarGeometryChecks(MainWindowUI &ui, QFrame * &bar) {
             check(runDetail->mapTo(bar, QPoint(0, 0)).y() > runState->mapTo(bar, QPoint(0, 0)).y(),
                   "实例名那行在状态正文下面");
 
-            // ---- 那颗状态方块摆在哪（ 加的）----
+            // ---- 那颗状态方块摆在哪 ----
             // 它是**第一行的一部分**（方块 + 文字的一个横排），不是"整格最左边的一个点"：
             // 后者在显示第二行时会停在两行的中间，看着不属于任何一行。
             check(mark->width() == mark->height() &&
@@ -149,12 +148,12 @@ int UiBottomBarGeometryChecks(MainWindowUI &ui, QFrame * &bar) {
                       .arg(MainWindowUI::bottomBarChevronSpacing())
                       .arg(MainWindowUI::bottomBarChevronSize())
                       .arg(MainWindowUI::bottomBarRunStateColumnWidth()));
-            // 两行**留给字**的宽度必须一样（ 修）。第一行那颗方块是布局里
+            // 两行**留给字**的宽度必须一样。第一行那颗方块是布局里
             // 单独的控件（占的是上限**之外**的位置），第二行的缩进走 contentsMargins
             // （从上限**里面**扣）⇒ 两个 QLabel 自己的上限本来就该差一段，扣掉各自
-            // "不属于字"的那一段之后才是同一个数。原来两行封同一个数，第二行实际只有
-            // 120 px，右边比第一行短一截 —— 那条断言量的是"方块那一段到底多宽"，
-            // 量不出"第二行少写了 16 px"，所以它一直是绿的。
+            // "不属于字"的那一段之后才是同一个数。两行封同一个数的话，第二行实际只有
+            // 120 px、右边比第一行短一截 —— 那条断言量的是"方块那一段到底多宽"，
+            // 量不出"第二行少写了 16 px"，会一直是绿的。
             const int row1TextBand = runState->maximumWidth() - runState->contentsMargins().left();
             const int row2TextBand = runDetail->maximumWidth() - runDetail->contentsMargins().left();
             check(row1TextBand == row2TextBand &&

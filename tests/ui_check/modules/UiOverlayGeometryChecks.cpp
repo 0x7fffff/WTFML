@@ -240,7 +240,7 @@ int UiOverlayGeometryChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * 
               "按 Esc = 拒绝，而且没选中任何一颗（-1）",
               QStringLiteral("code=%1 index=%2").arg(escCode).arg(escBox.clickedIndex()));
 
-        // ⑤ 「问一句名字」那一档（ 加的输入框）：标题 + 正文 + **一行输入框** +
+        // ⑤ 「问一句名字」那一档（输入框）：标题 + 正文 + **一行输入框** +
         // 右边那一排按钮。这一档要钉两件事：
         // - 卡片宽度**照旧是那个唯一出处** —— 多插一行不许多出一个宽度。这一档是
         // 最容易破的那一个（输入框天生想长），破了就正好撞上用户那句
@@ -314,7 +314,7 @@ int UiOverlayGeometryChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * 
                   inputBox.lineEditText());
         }
 
-        // ---------- 「挑一个」那一档：卡片里多一张列表（ 加） ----------
+        // ---------- 「挑一个」那一档：卡片里多一张列表 ----------
         //
         // 要求：「在一些其它的地方拖入模组等时选择要安装在的目标实例」。这一档和上面那
         // 个输入框是**同一条规矩**：多插一行**不许多出一个宽度**（那句"不会让界面出现尺寸
@@ -605,17 +605,16 @@ int UiOverlayGeometryChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * 
         }
 
         // ---------- ★ 提示叠在**产品那条路**上：点掉提示不能把底下那一页一起拒掉 ----------
-        // （ 修的那条：`execEmbedded` 里 `promptDismissed` 原来**两层都接**。）
         //
         // 上面那一段走的是 `openPage` / `openPrompt` —— 这两个函数**不卡调用方**，所以
         // 它们量不到 `execEmbedded` 里那条连接；而「点一下提示框外面，底下那一页跟着没了」
         // 这个 bug 只在 `execEmbedded` 的嵌套事件循环里才成立（页面那一次的 `loop.exec()`
-        // 还卡着、它那条连接还活着）。这一段走产品那条路（阻塞的 `execPage`），复现的正是
-        // 用户报的那一串：「分组设置」那一页 → 改完名字点确定 → 叠出一条重名警告 →
+        // 还卡着、它那条连接还活着）。这一段走产品那条路（阻塞的 `execPage`），复现的是
+        // 那一串：「分组设置」那一页 → 改完名字点确定 → 叠出一条重名警告 →
         // 点警告框外面 → 整页跟着没了、改的全丢（GroupDialog 判的是 `!= Accepted`）。
         //
         // 判据放在**返回值**上：那一页是被自己 accept 掉的还是被上面那条提示连坐 reject 掉的，
-        // 从 `execPage` 返回什么就看得出来（修之前一律是 Rejected）。
+        // 从 `execPage` 返回什么就看得出来（连坐的话返回的就是 Rejected）。
         {
             QDialog pageDialog;
             int promptDismissals = 0;
@@ -654,10 +653,9 @@ int UiOverlayGeometryChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * 
                 QApplication::processEvents();
                 check(promptDismissals == 1, "★ 点框外面发出了一次 promptDismissed",
                       QStringLiteral("发了 %1 次").arg(promptDismissals));
-                // 这一条就是那个 bug：修之前，这一发让**底下那一页**也 reject 了 ——
-                // `pageDialog` 当场收掉、`finished(Rejected)` 立刻发出去、`execPage`
-                // 返回 Rejected。用户那边看到的就是"我只点关了一条提示，刚编辑的分组
-                // 设置全丢了"。
+                // 这一条就是那个 bug 的形状：点框外面这一发如果连坐，`pageDialog` 会当场
+                // 收掉、`finished(Rejected)` 立刻发出去、`execPage` 返回 Rejected。用户
+                // 那边看到的就是"我只点关了一条提示，刚编辑的分组设置全丢了"。
                 check(pageFinishedCount == 0,
                       "★ 那一发没有连坐到底下的页（它一次 finished 都没发）",
                       QStringLiteral("finished %1 次，code=%2")

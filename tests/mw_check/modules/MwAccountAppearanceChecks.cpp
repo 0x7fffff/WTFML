@@ -46,10 +46,9 @@ int MwAccountAppearanceChecks() {
         };
 
         // ---- Z1 第二行三种取值里那两种"不发凭据就说得出来"的：未登录 ↔ 离线登录 ----
-        // 这一节以前是"勾一下主页那个勾选框"，那个勾选框去掉了（，要求：
-        // 「不要启动界面那个离线登录勾选框了，在添加账户那里选择添加离线账号」）。现在
-        // 这一行**只跟着当前账号走**（MainWindow::offlineIdentity()），所以这里走产品那条
-        // 路来换它：加一个离线账号 → 变成「离线登录」；再把它删掉 → 回到「未登录」。
+        // 这一行**只跟着当前账号走**（MainWindow::offlineIdentity()），启动界面上没有
+        // 离线登录勾选框。这里走产品那条路来换它：加一个离线账号 → 变成「离线登录」；
+        // 再把它删掉 → 回到「未登录」。
         // 加、删都调 MainWindow 那两个槽（用户在「账号与外观…」里点的就是它们）。
         {
             MainWindow w9;
@@ -230,7 +229,6 @@ int MwAccountAppearanceChecks() {
 
                     // 页面开着的时候再点一次入口：**不是**又建一个，也**不是**又盖一层
                     // （`onAccountSkinButtonClicked()` 开头那道 `overlay->isOpen()` 的闸）。
-                    // 老写法验的是"再点一次是把它 show 回来"，窗口那会儿才成立。
                     //
                     // NOTE: 这一发**故意不 processEvents** —— 上面那一发
                     // refreshAccountSkin() 要是还没跑，这里放行一次它就会插进来。
@@ -340,10 +338,8 @@ int MwAccountAppearanceChecks() {
                 // ---- Z5 切账号：底栏整行跟着换人 ----
                 // 排在这里（而不是等那个窗开出来之后）：那个窗一开，refreshAccountSkin()
                 // 就会发同步的披风请求。见本节开头那段 NOTE。
-                // NOTE: 之前这一条验的是「勾着离线切号，那句话不动」——
-                // 那句"离线"是勾选框给的，而勾选框去掉了。现在这一行**只跟着当前
-                // 账号走**，两个账号都是正版，所以切完还是「正版登录」；真正会变的
-                // 那一半在 Z7（切到离线账号）。
+                // NOTE: 这一行**只跟着当前账号走**，两个账号都是正版，所以切完还是
+                // 「正版登录」；真正会变的那一半在 Z7（切到离线账号）。
                 QMetaObject::invokeMethod(&w11, "onAccountSwitchRequested", Qt::DirectConnection,
                                           Q_ARG(QString, uuidA));
                 QApplication::processEvents();
@@ -402,9 +398,9 @@ int MwAccountAppearanceChecks() {
                           "Z7 但它不算登录态 —— 盘上确实没有可用的账户");
                     check(accountName->text() == QStringLiteral("Steve"),
                           "Z7 底栏左下的名字跟着换成它", accountName->text());
-                    // 这一条是这次改动的**重心**：这一行以前要两个条件（账号 + 那个勾选框），
-                    // 现在只有一个 —— 当前账号本身是不是离线账号。它从「正版登录」变成
-                    // 「离线登录」就是因为店主换成了 Steve，没有别的开关。
+                    // 这一条是这一行的**重心**：只有一个条件 —— 当前账号本身是不是离线
+                    // 账号。它从「正版登录」变成「离线登录」就是因为换成了 Steve，
+                    // 没有别的开关。
                     check(accountType->text() == MainWindowUI::accountTypeOfflineText(),
                           "Z7 第二行从「正版登录」整行换成「离线登录」（只跟着账号走）",
                           accountType->text());
@@ -413,9 +409,7 @@ int MwAccountAppearanceChecks() {
                           "Z7 活动槽被清空了（离线身份没有凭据那一半）");
 
                     // ---- Z8 切回在线账号：名字回来，第二行**也得**跟着换回来 ----
-                    // NOTE: 之前这里钉的是"切到在线账号**不动**勾选框（那是用户
-                    // 的选择）"。勾选框去掉了，那句话也就没有载体了 —— 现在这一行
-                    // 必须跟着账号走，钉的正好是反面。
+                    // NOTE: 这一行必须跟着账号走，钉的正好是"切到在线账号要换回来"。
                     QMetaObject::invokeMethod(&w11, "onAccountSwitchRequested",
                                               Qt::DirectConnection, Q_ARG(QString, uuidA));
                     QApplication::processEvents();
@@ -584,7 +578,7 @@ int MwAccountAppearanceChecks() {
         // 复现的是"用着账号 A 去登另一个微软账号、登录没成"那一刻：登录那一趟开头的
         // exchangeAuthorizationCode() 已经把活动槽里那份 Minecraft 凭据清掉了（那是
         // 有意的一步，为的是不让"旧 uuid 配新刷新令牌"的错配留在盘上），而
-        // m_uuid / m_playerName 是**另一份**，原来谁都没去动它 —— 于是盘上写着"没登录"、
+        // m_uuid / m_playerName 是**另一份**，不跟着清 —— 于是盘上写着"没登录"、
         // 内存和底栏还登着上一个人；接着点启动，loadSavedToken() 会拿 microsoft 槽里那份
         // **新账号**的刷新令牌换出新账号来，一次"失败"的登录悄悄成了另一个人。
         //

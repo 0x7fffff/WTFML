@@ -1,15 +1,11 @@
 #include "Support.hpp"
 int MwTaskSummaryChecks(MainWindow &window) {
     // ------------------------------------------------------------------
-    // 这一节原来量的是「底栏那格被启动借走之后要原样还回来」（用户报的原话：「启动后进度
-    // 条没有恢复成下载的，而是留了个空条」）。
+    // 底栏中间那格不归谁所有 —— 每一件活（下载 / 安装 / 导入 / 启动）都是账本里的一行，
+    // 那一格画的是 `Tasks::collapsedSummary()` 现算出来的那一行。所以"还回来"不是
+    // 一段要写对的代码，判据是：那一格任何时候都等于账本投影。
     //
-    // 任务中心那一次把"借"这件事**从结构上拿掉了**：那一格不再归谁所有 ——
-    // 每一件活（下载 / 安装 / 导入 / 启动）都是账本里的一行，那一格画的是
-    // `Tasks::collapsedSummary()` 现算出来的那一行。于是"还回来"不再是需要写对的一段代码，
-    // 「忘了还」这个 bug 也就不存在了（判据换成：那一格任何时候都等于账本投影）。
-    //
-    // 所以这一节改成量**新的那条链**：
+    // 这一节量的是**那条链**：
     // setDownloadUiBusy / onVersionDownloadStats → 账本 → 底栏那格 + 面板
     //
     // NOTE: 怎么把「在下载」摆出来 —— 这个态只由 setDownloadUiBusy(true) 置上，而那两处
@@ -34,8 +30,7 @@ int MwTaskSummaryChecks(MainWindow &window) {
             check(abStatus->text() == QStringLiteral("下载游戏文件"),
                   "AB1 起一批下载：中间那格写的是**这件任务的标题**（不再是一根空条）",
                   abStatus->text());
-            // 还没报过数 ⇒ 数量不可测 ⇒ 条走不确定态（range 0..0）。**绝不编一个 0% 出来**
-            // （§3.4）。
+            // 还没报过数 ⇒ 数量不可测 ⇒ 条走不确定态（range 0..0）。**绝不编一个 0% 出来**。
             check(abBar->isVisible() && abBar->minimum() == 0 && abBar->maximum() == 0,
                   "AB1 还没报过总数：条是不确定态（不编 0%）",
                   QStringLiteral("%1..%2").arg(abBar->minimum()).arg(abBar->maximum()));
@@ -107,7 +102,7 @@ int MwTaskSummaryChecks(MainWindow &window) {
                       "AB2 那一行的小字写着「已下载 400 / 1000」",
                       detail != nullptr ? detail->text() : QStringLiteral("<没找到>"));
 
-                // ---- ②b 行尾那颗「取消」（§3.2 的行内快捷动作）----
+                // ---- ②b 行尾那颗「取消」（行内快捷动作）----
                 // 这一件是**在跑的下载** ⇒ 账本那一位 `canCancel` 该是 true（见
                 // `MainWindow::defaultTaskCapabilities()`：只有下载 / 安装 / 导入那三档给
                 // 它）。面板只照着那一位摆按钮，不自己按状态推一遍。

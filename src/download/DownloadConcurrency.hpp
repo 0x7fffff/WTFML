@@ -1,6 +1,6 @@
 /**
  * @file DownloadConcurrency.hpp
- * @brief 「同时最多下几个文件」那几档（设置 → 下载 → 并发数；coding plan §9.2）。
+ * @brief 「同时最多下几个文件」那几档（设置 → 下载 → 并发数）。
  *
  * 【那四个数是从哪儿来的】
  *

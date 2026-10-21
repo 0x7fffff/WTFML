@@ -1,7 +1,7 @@
 #include "Support.hpp"
 
 void runUpdatePolicyTests() {
-    section("ZT. 更新中心：忽略 / 固定那一本账（§7.1）");
+    section("ZT. 更新中心：忽略 / 固定那一本账");
 
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir temp;

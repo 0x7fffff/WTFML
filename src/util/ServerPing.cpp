@@ -117,7 +117,7 @@ QString flattenMotd(const QJsonValue &value) {
 /// 发 `§r`，而 `§r` 连颜色一起清 —— 所以关任何一位之前先把颜色复位再补回来，
 /// 不然症状是"那一小段的颜色莫名变成白的"。
 struct MotdState {
-    QString colorCode;  ///< `§` 后面那一串（`c` / `x§f§f§0§0§0§0`）；空 = 没指定
+    QString colorCode;  ///< Minecraft 颜色码（`c` / `x` 开头的一串）；空 = 没指定
     bool bold = false;
     bool italic = false;
     bool underline = false;
@@ -681,7 +681,7 @@ Status ping(const QString &address) {
     const int budget = timeoutMs();
     const auto left = [&clock, budget] { return qMax(1, budget - static_cast<int>(clock.elapsed())); };
 
-    // §9.11 第 3 项：先按 SRV 算一遍"真正要连哪一对"（写了端口 / IP / localhost 那几种
+    // 先按 SRV 算一遍"真正要连哪一对"（写了端口 / IP / localhost 那几种
     // 情况 resolve() 自己就不查，见它的规矩）。SRV 这一段和建连**共用同一个预算** ——
     // 否则一台写域名、又没有 SRV 的服务器会连着超时两回。
     const Resolution resolved = resolve(address, budget);
@@ -705,11 +705,10 @@ Status ping(const QString &address) {
         return status;
     }
 
-    // 延迟从**这儿**起算，不是从进这个函数起算（ 改）：上面那一段（DNS 解析 +
-    // TCP 三次握手）不算进 `latencyMs`。原来两样一起算，于是那一格写的是"解析域名 +
-    // 建连 + 握手一个来回"—— 一个 RTT 的服务器在我们这儿看着像两个 RTT，用户
-    // 报的「服务器的延迟有问题」就是它（见 .hpp 里 latencyMs 那一段：
-    // 游戏里那一列量的也是连上之后的一个来回）。
+    // 延迟从**这儿**起算，不是从进这个函数起算：上面那一段（DNS 解析 +
+    // TCP 三次握手）不算进 `latencyMs`。否则那一格写的是"解析域名 +
+    // 建连 + 握手一个来回"—— 一个 RTT 的服务器在我们这儿看着像两个 RTT（见 .hpp
+    // 里 latencyMs 那一段：游戏里那一列量的也是连上之后的一个来回）。
     //
     // NOTE: **两把表各管各的**。`clock` 管整趟预算（超时还得从进函数起算，否则一个连不
     // 上的地址会连着超时两回），`roundTrip` 只量延迟。
@@ -856,7 +855,7 @@ void Pinger::start(const QStringList &addresses) {
     //
     // 只放走**已经收摊**的那些。abort() 只放下 `m_running`，每条线程
     // 手上那一台还在同步 socket 的 4 秒超时里；用户取消之后立刻再点「测速」（取消会把
-    // 按钮重新点亮），上一版会把一条**还在跑**的 QThread `deleteLater` 掉并把它从表里
+    // 按钮重新点亮），**不能**对一条**还在跑**的 QThread `deleteLater` 并把它从表里
     // 抹掉 —— 主线程处理那条 DeferredDelete 时 Qt 直接
     // `qFatal("QThread: Destroyed while thread is still running")`，整个启动器当场消失。
     // 还在跑的那几条留在表里：它们自己会在超时到了之后退出，下一趟 start() 再收；

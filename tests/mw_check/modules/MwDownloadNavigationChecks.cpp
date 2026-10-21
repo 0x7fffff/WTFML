@@ -12,7 +12,7 @@ int MwDownloadNavigationChecks(MainWindow &window) {
     // 接线上还多了一件事：切到资源的四页**会自己去问一次"最热门的"**（那四页的第一眼
     // 就是结果，不是空树）。所以这一节要读的是"切过去当下"的状态 —— 见下面那段 NOTE。
     //
-    // NOTE: 从 起，**mw_check 不再是离线的了**：这一节每跑一次会真的往
+    // NOTE: **mw_check 不是离线的**：这一节每跑一次会真的往
     // api.modrinth.com 发四次搜索（每页一次）。断网时也不会红 —— 那一行占位的
     // 「正在获取…」跟回复到没到没关系，它就是"发出去那一刻"的东西；断网的结果
     // 是过了一会儿它换成一行「搜索失败：…」（那句只在树上，不弹窗，见
@@ -173,7 +173,7 @@ int MwDownloadNavigationChecks(MainWindow &window) {
                       "转一圈回来，版本树里选中的那条还在",
                       QString("%1 → %2").arg(treeRowBefore).arg(treeRowAfter));
             }
-            // ---- Y2c. 左栏每一条右边那个**刷新按钮**（ 加）----
+            // ---- Y2c. 左栏每一条右边那个**刷新按钮** ----
             //
             // 这一下必须走**真的鼠标事件**：产品把它接在视口的事件过滤器上
             // （QEvent::MouseButtonPress/Release，见 MainWindow::eventFilter），伪造

@@ -72,10 +72,9 @@ void runIconCacheTests() {
               ResourceStore::loadIconValidators(kMetaId, kMetaUrl).lastModified.isEmpty(),
           "ZB2 只存 ETag 时另一条读回来是空的");
 
-    // 两条都空：**从前是"把文件删掉"， 起改成照样写**
-    // （用户那句「模组图标做本地缓存功能，不要每次都拉取」⇒ 那份 meta 现在多装着
-    // "上一次核对是什么时候"，见 IconValidators::checkedAtMs —— 主机不给凭据的那些源
-    // 照样该被那道时间闸管着，删了文件这一位就没了）。
+    // 两条都空：**照样写一份，不删文件**
+    // （那份 meta 还装着"上一次核对是什么时候"，见 IconValidators::checkedAtMs ——
+    // 主机不给凭据的那些源照样该被那道时间闸管着，删了文件这一位就没了）。
     //
     // 判据因此收成两条：① 保存成功；② **读回来还是"没有凭据"**（这一点一个字都不能变 ——
     // 空的 ETag 发出去就是一个空条件头）。
@@ -115,7 +114,7 @@ void runIconCacheTests() {
     check(garbage.etag == QStringLiteral("这不是凭据") && garbage.lastModified.isEmpty(),
           "ZB2 读不懂的正文：第一行当 ETag、其余当没有（不崩、不凭空多一条）", garbage.etag);
 
-    section("ZB2b. 凭据跟的是**哪条地址**（2026-09-25 补的第三行）");
+    section("ZB2b. 凭据跟的是**哪条地址**");
 
     // 缓存和凭据都只按 project_id 存，而同一个 project 有**两条**图标地址（接口那条 96px
     // 的 webp、自己拼的 icon.png，见 requestIcon）。不记"这条凭据是哪条地址给的"，换一条
@@ -143,9 +142,9 @@ void runIconCacheTests() {
               "ZB2b 第三行真的写着这条地址（不是「没记」，是「记的是它」）");
     }
 
-    // 老版本（ 之前）写的那些 meta 只有两行 —— 第三行读出来是空的。那种是
-    // **"没记地址"**，不是"记的是别的地址"：照样得能用。少写一行就把用户的凭据整份作废，
-    // 是这次改动最容易顺手犯的错（代价是所有人下次启动都把整本图标重下一遍）。
+    // 旧版 meta 只有两行 —— 第三行读出来是空的。那种是
+    // **"没记地址"**，不是"记的是别的地址"：照样得能用。少写一行就把用户的凭据整份作废
+    // （代价是所有人下次启动都把整本图标重下一遍）。
     writeFileAt(ResourceStore::iconMetaPath(kMetaId),
                 QByteArray("\"old-etag\"\nTue, 23 Sep 2026 04:11:07 GMT\n"));
     const ResourceStore::IconValidators legacy = ResourceStore::loadIconValidators(kMetaId, kMetaUrl);

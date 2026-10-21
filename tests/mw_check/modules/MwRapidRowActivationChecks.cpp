@@ -32,7 +32,7 @@ int MwRapidRowActivationChecks(MainWindow &window, QTreeWidget * &versionTree, Q
         };
         // **点得快的那一发**：到的是 MouseButtonDblClick。视图自己的双击处理
         // （qtreeview.cpp:2007 → qabstractitemview.cpp:2012）在这一发上**不发** clicked
-        // （松开时 releaseFromDoubleClick 把它挡掉）—— 所以修之前这一发是白白丢掉的。
+        // （松开时 releaseFromDoubleClick 把它挡掉）—— 所以靠视图自己的处理，这一发是白白丢掉的。
         // NOTE: 真机上"第二下以及后面点得够快的每一下"都是这个事件，所以下面凡是快点击
         // 都紧跟在一次 clickRow 之后发（那样 pressedIndex 已经指着这一行，和真机一致）。
         const auto fastClickRow = [&](QTreeWidget *tree, QTreeWidgetItem *item) {
@@ -67,7 +67,7 @@ int MwRapidRowActivationChecks(MainWindow &window, QTreeWidget * &versionTree, Q
             check(top->isExpanded(), "Y7 再点一下分类：又翻一次（展开）");
 
             // 这两条就是"一直点会有几次失效"：点得快的那一发到的是双击事件，
-            // 补发之前它是**完全丢掉**的（展开状态一下都不动）。两条各换一个起点，
+            // 补发之前：没有补发的话它是**完全丢掉**的（展开状态一下都不动）。两条各换一个起点，
             // 这样"补发一下都没走"和"补发走反了"都跑不掉。
             top->setExpanded(false);
             QApplication::processEvents();
@@ -78,7 +78,7 @@ int MwRapidRowActivationChecks(MainWindow &window, QTreeWidget * &versionTree, Q
             fastClickRow(versionTree, top);
             check(!top->isExpanded(), "Y7 再快一发也算（展开 → 收起）");
 
-            // 连着点六下 = 翻六次 ⇒ **回到原样**（展开）。修之前后面五下全丢，只剩第一下，
+            // 连着点六下 = 翻六次 ⇒ **回到原样**（展开）。少了补发后面五下全丢，只剩第一下，
             // 它会停在收起 —— 偶数下正是为了让"少算的那几下"露出来（奇数下会假装对）。
             top->setExpanded(true);
             QApplication::processEvents();
@@ -119,7 +119,7 @@ int MwRapidRowActivationChecks(MainWindow &window, QTreeWidget * &versionTree, Q
             // 再把安装页开一遍。看得见的代价是**名称框里刚改的名字会被那第二遍抹掉**
             // （openInstallPage() 会把名字重置成版本号）—— 这里就拿它当证人。
             // NOTE: 真机上那第二下确实会落到树上（Windows 在按下时就把鼠标捕获给了这个
-            // 控件，切页不会把它抢走 —— 老账里"openInstallPage 跑两遍"就是这么来的），
+            // 控件，切页不会把它抢走 —— 安装页因此会开两遍），
             // 所以下面直接发给 viewport 是真机的样子，不是硬凑的场景。
             const QString sentinel = QStringLiteral("手改的名字");
             if (installNameEdit != nullptr) {

@@ -1,7 +1,7 @@
 #include "Support.hpp"
 int MwInstanceFiltersChecks() {
     // ------------------------------------------------------------------
-    // coding plan §7.2 原话：「搜索实例名、版本号、加载器；筛选原版/模组实例、可更新、
+    // 判据：「搜索实例名、版本号、加载器；筛选原版/模组实例、可更新、
     // 最近运行；搜索不改变分组归属；清空搜索恢复原展开状态」。
     //
     // 这一节验的是**接线**：搜索框里敲几个字、四颗 chip 点一下，树上剩下的到底是哪几个
@@ -111,7 +111,7 @@ int MwInstanceFiltersChecks() {
         // ---------- ② 搜索按版本号：剩下的组头只剩命中的那些 ----------
         typeText(QStringLiteral("1.18"));
         check(shownIds() == QStringList{QStringLiteral("1.18.2")},
-              "★ T37.1 搜「1.18」⇒ 树上只剩 1.18.2 一条（§7.2「搜索版本号」）",
+              "★ T37.1 搜「1.18」⇒ 树上只剩 1.18.2 一条（「搜索版本号」）",
               shownIds().join(QLatin1Char('|')));
         check(headersNow() == QStringLiteral("甲组 (1)"),
               "★ T37.1 一条都没命中的组**整组不画** —— 不是留一个空组头让用户点开看",
@@ -122,7 +122,7 @@ int MwInstanceFiltersChecks() {
         check(tree->topLevelItem(0) != nullptr &&
                   tree->topLevelItem(0)->data(0, MainWindowUI::groupIdRole()).toString() ==
                       collapsedGroup,
-              "★ T37.1 而且它挂的还是**原来那一组**（§7.2「搜索不改变分组归属」）");
+              "★ T37.1 而且它挂的还是**原来那一组**（「搜索不改变分组归属」）");
         check(folderLabel != nullptr &&
                   folderLabel->text().contains(QStringLiteral("（3 个实例，筛出 1 个）")),
               "★ T37.1 顶上那行说明**两个数都要**报（「3 个实例，筛出 1 个」）—— 只报筛出来"
@@ -136,7 +136,7 @@ int MwInstanceFiltersChecks() {
               "★ T37.2 清空搜索：三条都回来、组头照旧",
               QStringLiteral("%1 条 / %2").arg(instanceItemsOf(tree).size()).arg(headersNow()));
         check(!groupExpandedAt(0) && groupExpandedAt(1),
-              "★ T37.2 而且**甲组回到收着的那个样子**（§7.2「清空搜索恢复原展开状态」）—— "
+              "★ T37.2 而且**甲组回到收着的那个样子**（「清空搜索恢复原展开状态」）—— "
               "筛着的时候那一下展开是临时的，不落盘");
         check(readBytesAt(groupFile) == foldersAfterOpen,
               "★★ T37.2 这一路走下来 wtfml.folders **一个字节都没被重写**"
@@ -166,7 +166,7 @@ int MwInstanceFiltersChecks() {
         // ---------- ⑤ 搜索按加载器（大小写随便） ----------
         typeText(QStringLiteral("forge"));
         check(shownIds() == QStringList{QStringLiteral("1.20.1")},
-              "★ T37.4 搜加载器名也搜得到（§7.2 点名的「加载器」；大小写用户不会去打对）",
+              "★ T37.4 搜加载器名也搜得到（点名的「加载器」；大小写用户不会去打对）",
               shownIds().join(QLatin1Char('|')));
         typeText(QString());
 

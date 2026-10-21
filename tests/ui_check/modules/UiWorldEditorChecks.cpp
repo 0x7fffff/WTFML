@@ -22,8 +22,7 @@ int UiWorldEditorChecks() {
 
         // **还没摆过任何世界**的这一页必须是干净的。
         //
-        // 这一条是补一个真踩到的回归：那四格原来是"盘上没有这一项就 `setEnabled(false)`
-        // 灰掉、也不收它的值"，现在它们一律可动、`editedView()` 也就一律收 —— 于是"难度"
+        // 这一条钉的是"那四格一律可动、`editedView()` 也一律收"：于是"难度"
         // 那一格收上来的是**下拉框的当前项**，而刚建出来的下拉框停在第一项（0 和平），
         // 基线的 `WorldView()` 里写的却是 2（普通）。两个对不上 ⇒ 这一页凭空是脏的。
         //
@@ -44,7 +43,7 @@ int UiWorldEditorChecks() {
         view.formatText = QStringLiteral("3465");
         view.hasLastPlayed = true;
         view.lastPlayedMs = 1758960000000LL;
-        // §9.6 的只读概况：大小 / 种子 / 玩家位置 / 已生成区域。
+        // 只读概况：大小 / 种子 / 玩家位置 / 已生成区域。
         view.hasSize = true;
         view.sizeText = QStringLiteral("123.4 MB");
         view.hasSeed = true;
@@ -73,7 +72,7 @@ int UiWorldEditorChecks() {
         page.setWorld(view);
 
         {
-            // 行宽必须**跟着视口走**（ 顺着用户那句"排版"一起修的）。
+            // 行宽必须**跟着视口走**（用户那句"排版"要的就是这个）。
             //
             // 根因是 Qt 布局那一趟的次序：这一列的行是**在折叠框还收着的时候**建的（那时
             // 列表根本没有大小 —— 探针量到的是 100x0），摆开之后视图先按"还没有滚动条"的
@@ -81,7 +80,7 @@ int UiWorldEditorChecks() {
             // **没有第二趟**回来改行的宽度。
             //
             // 所以这一条走的是**那条真路**：另起干干净净的一页 ⇒ 造行（框还收着）⇒ 第一次
-            // 摆开 ⇒ 马上量。用外面那一页量不出来 —— 它在这之前已经被摆开又收起过一次，
+            // 摆开 ⇒ 马上量。用外面那一页量不出来 —— 那一页已经摆开又收起过一次，
             // 多的那几趟布局把宽度自己捯饬整齐了，量出来恒绿（这就是"假绿"）。
             WorldSettingsPage probe;
             probe.show();
@@ -150,9 +149,9 @@ int UiWorldEditorChecks() {
                   infoLabel->text().contains(QStringLiteral("游戏版本 1.20.1")),
               "Z16a 那行只读的事实里有游戏版本（缺的那几位不写，不拿 0 / 空串顶替）",
               infoLabel == nullptr ? QStringLiteral("找不到那行字") : infoLabel->text());
-        // §9.6：那行事实多了四件只读的 —— 大小 / 种子 / 玩家位置 / 已生成区域。
+        // 那行事实多了四件只读的 —— 大小 / 种子 / 玩家位置 / 已生成区域。
         check(infoLabel != nullptr && infoLabel->text().contains(QStringLiteral("大小 123.4 MB")),
-              "★★ Z16a 那行事实里有这个世界的**大小**（§9.6 第一条要的只读摘要）",
+              "★★ Z16a 那行事实里有这个世界的**大小**（只读摘要）",
               infoLabel == nullptr ? QStringLiteral("找不到那行字") : infoLabel->text());
         check(infoLabel != nullptr && infoLabel->text().contains(QStringLiteral("种子 1234567890123")),
               "★★ Z16a 那行事实里有**种子**");
@@ -247,13 +246,12 @@ int UiWorldEditorChecks() {
             const int h = page.ruleList()->sizeHintForRow(0);
             const QColor first = shot.pixelColor(shot.width() / 2, qMax(1, h / 2));
             const QColor second = shot.pixelColor(shot.width() / 2, qMax(1, h + h / 2));
-            // NOTE: 这一条一开始量出来是红的（第 0 行 `#e7f2f9`、第 1 行 `#ffffff`）。
-            // 根因：`addItem()` 之后、视图**第一次布局**那一下 Qt 会把第 0 行设成
+            // NOTE: 根因是 `addItem()` 之后、视图**第一次布局**那一下 Qt 会把第 0 行设成
             // **当前项**（`setWorld()` 那一刻 `currentRow()` 还是 -1，`resize()`
             // 之后就变成 0），而 Fusion 画当前项用的是一道**竖渐变**；
             // `setSelectionMode(NoSelection)` 拦不住它（那一位管的是"选中"，管不着
-            // "当前项"）。产品那边是在**画的这一侧**掐掉的（见 RuleItemDelegate
-            // —— 试过"摆完内容清一下当前项"，没用：下一次布局它又回来）。
+            // "当前项"）。产品在**画的这一侧**掐掉（见 RuleItemDelegate —— 摆完内容
+            // 清一下当前项没用：下一次布局它又回来）。
             check(first == second,
                   "★★ Z16a 第 0 行的底色和第 1 行**一模一样**（不一样的底色看着像"
                   "「这一条被选中了」）",
@@ -267,11 +265,11 @@ int UiWorldEditorChecks() {
         check(page.ruleList()->item(0)->data(WorldSettingsPage::ruleNameRole()).toString() ==
                   QStringLiteral("keepInventory"),
               "Z16a 那一行是哪一条看的是 item 上那个角色（**不是**行上写着的那串字 —— "
-              "从 2026-09-29 起行上盖的是官方中文名）");
+              "行上盖的是官方中文名）");
         {
             // 盖的这一层是 `GameRuleNames`（官方 `zh_cn.json` 里 `gamerule.<名字>` 那一条，
             // 出处见那个文件头）——**认不出来就原样回英文**，所以模组写的规则、比那张表还新
-            // 的规则最坏也只是回到改造之前的样子。英文名**没有丢**：它退到 tooltip 里了
+            // 的规则最坏也只是回到英文原样。英文名**没有丢**：它退到 tooltip 里了
             // （它才是写进 `level.dat` 的那个键，也是游戏里 `/gamerule` 要打的那个词）。
             QWidget *row0 = page.ruleList()->itemWidget(page.ruleList()->item(0));
             QLabel *name = row0 == nullptr
@@ -289,7 +287,7 @@ int UiWorldEditorChecks() {
             check(GameRuleNames::displayName(QStringLiteral("keepInventory")) ==
                           QStringLiteral("死亡后保留物品栏") &&
                       // 表里没有的（模组写的、或者比这张表还新的规则）**原样回它自己**：
-                      // 屏幕上最坏也只是回到改造之前的样子，不会变成空白。
+                      // 屏幕上最坏也只是英文原样，不会变成空白。
                       GameRuleNames::displayName(QStringLiteral("someModRule")) ==
                           QStringLiteral("someModRule"),
                   "★★ Z16a 认不出来的规则名原样回它自己（不许变成空串 —— 那一行就没人认得出"
@@ -353,7 +351,7 @@ int UiWorldEditorChecks() {
             check(page.fileToggle() != nullptr && !page.fileToggle()->isChecked() &&
                       !page.fileBody()->isVisible(),
                   "★★ Z16a 那个折叠框**默认收起**（世界名 / 允许作弊 / 极限模式 / 难度这四格，"
-                  "加上 2026-09-29 搬进来的那一整列游戏规则，一个都不该一进来就摊在屏幕上）");
+                  "加上那一整列游戏规则，一个都不该一进来就摊在屏幕上）");
             check(page.fileToggle()->toolTip().contains(QStringLiteral("游戏规则")),
                   "★ Z16a 那颗钮的 tooltip 里点到了游戏规则（框里现在装的是那两拨东西）",
                   page.fileToggle()->toolTip());
@@ -514,8 +512,7 @@ int UiWorldEditorChecks() {
                   "★ Z16e 一条规则都没有 ⇒ 摆一句实话那一行（**产品里走不到这一档** —— "
                   "主程序摆进来的是并过全集的那一列，好几十条；留着是给「只摆了个空 "
                   "WorldView」那种场面一句话，而不是一片看着像「还没读完」的空白）");
-            // 这一句换人了 —— 原来是「这个存档里还没有游戏规则，进游戏玩一次
-            // 就会写进去」（`noAddHintText()`），现在是"这一列是怎么来的"的说明书。
+            // 这一句是"这一列是怎么来的"的说明书。
             // `unwrapped` 是 `view` 拷来的，`hasRules` 还是 true ⇒ 走"有那一格"那一档。
             // 那句话只在那个折叠框**开着**的时候说（上面 Z16a 那两条盯的就是这件事）。
             raw.setFileEditingOpen(true);

@@ -16,7 +16,7 @@ bool levelFromToken(const QString &token, RuntimeOutputModel::Level *out) {
         RuntimeOutputModel::Level level;
     };
     // TRACE 归 Debug、WARNING 归 Warn、SEVERE 归 Error：都是同一个意思的不同写法
-    // （log4j2 / java.util.logging / 各家的老代码），对用户来说"该不该看一眼"才重要。
+    // （log4j2 / java.util.logging / 各家框架的旧式输出），对用户来说"该不该看一眼"才重要。
     static const Entry table[] = {
         {"TRACE", RuntimeOutputModel::Level::Debug},
         {"DEBUG", RuntimeOutputModel::Level::Debug},
@@ -287,15 +287,14 @@ QString RuntimeOutputModel::visibleText() const {
 
 QVector<int> RuntimeOutputModel::lineLimitChoices() {
     // 六档，从"只想看最后一段"到"全都看"。最后一档是 0（全部）—— 它同时是默认值，
-    // 也就是"打开这个窗看到的和 之前一样"。
+    // 也就是"打开这个窗看到的就是全部"。
     //
-    // 第四档是 5000：用户当天原话里打的是「25」，那是**打错了**（他随后订正为 5000）。
-    // 所以这一档**不是**从原话推出来的，是问出来的 —— 别照着「25」去猜 250。
+    // 第四档是 5000：这一档是问出来的，不是照着打错的数推的 —— 别把上限猜成 250。
     return {500, 1000, 2000, 5000, 10000, 0};
 }
 
 QString RuntimeOutputModel::lineLimitText(int limit) {
-    // 数字**写全**（用户 说的「直接写数字」，别学他打的 1k/2k）。
+    // 数字**写全**（直接写数字，不做 1k/2k 缩写）。
     if (limit <= 0) {
         return QStringLiteral("全部");
     }

@@ -333,14 +333,14 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
             });
     connect(m_page, &ToolboxPage::bannerRequested, this,
             [this](int baseColor, const QStringList &layers) { refreshBanner(baseColor, layers); });
-    // 旧三件那套信号还在（隐藏的迁移适配器与验证工程用），但结果只看四列现在摆的装备。
+    // 这几个信号还留着（隐藏的迁移适配器与验证工程用），但结果只看四列现在摆的装备。
     connect(m_page, &ToolboxPage::trimRequested, this, [this] { refreshTrim(); });
     connect(m_page, &ToolboxPage::trimEquipmentChanged, this, [this] { refreshTrim(); });
 
     ToolboxInputState::attach(m_page);
     // 一进来先把文本生成器那一页的两块空着的地方填上（空预览框看着像没搭好）。
     refreshText();
-    // 新加那两件也一样：开页之前先把那两格算出来，别摆在"空的"那一档上。
+    // 信标、酿造也一样：开页之前先把那几格算出来，别摆在"空的"那一档上。
     refreshBeacon(m_page->beaconFromLevel(), m_page->beaconTargetLevel(),
                   m_page->beaconMaterialIndex(), m_page->beaconCount());
     refreshBrewing(m_page->brewingPotionIndex(), m_page->brewingExtended(),
@@ -1083,7 +1083,7 @@ void ToolboxController::refreshBeacon(int fromLevel, int level, int materialInde
     }
     // 两格都是转盘（0–4 / 1–4），越不了界；真给了怪值也由 `Beacon` 回一句人话。
     //
-    // 后面两行是 §9.11 第 9 项要求的两块：矿物折算（方块 → 锭/宝石）与多颗信标共用
+    // 后面两行是两块：矿物折算（方块 → 锭/宝石）与多颗信标共用
     // 底座。`detailText()` 那段本身不碰材质 —— 材质只影响折算，效果和层数跟它无关。
     QString text = Beacon::detailText(fromLevel, level);
     const int baseBlocks = Beacon::sharedBaseBlocks(level, beaconCount);

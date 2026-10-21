@@ -54,7 +54,7 @@ QString elidedFor(const QLabel *label);
 ///
 /// **为什么非它不可**：资源名和简介都能长过这一格（CurseForge 上的简介常常是整段话），
 /// 而 QLabel 在控件比文字窄的时候是**硬裁**的 —— 最后一个字被切掉半个、右边什么都没有，
-/// 看着像画坏了（`VersionTreeDelegate::paint()` 里那条 的注释讲的是同一件事）。
+/// 看着像画坏了（`VersionTreeDelegate::paint()` 的注释讲的是同一件事）。
 /// QLabel 自己没有 elide 相关的 API（翻遍 qlabel.h 都没有），所以只能自己接 paintEvent。
 ///
 /// NOTE: 和 `MainWindowUI.cpp` 里底栏用的那一个**是同一种东西、不是同一份代码**（那个在
@@ -88,7 +88,7 @@ QString elidedFor(const QLabel *label) {
                                           qMax(0, label->contentsRect().width()));
 }
 
-/// 一处卡的调色板：底出厂是 `Base`， 起归 `Theme::Part::Card` 管。
+/// 一处卡的调色板：底出厂是 `Base`，由 `Theme::Part::Card` 管。
 /// NOTE: 基色取**应用调色板**，不能取卡自己的（它身上已经写着算好的那一份）。
 QPalette cardChromePalette() {
     QPalette palette = QApplication::palette();
@@ -107,10 +107,10 @@ QFrame *makeCard(QWidget *parent) {
     return card;
 }
 
-/// chip 那一排的形状与颜色**从 起是 `Theme::markChipButton()` 一处说了算**
-/// （实例页那排搜索筛子是第二个读者）：原来这一页自己那份 QSS 搬去了 `ui/Theme.cpp`
-/// （`chipStyleSheet()`），一个字节都没改。这一页唯一那句话照旧：chip 的外观不走 QSS 之外
-/// 的东西（其余外观都交给 Fusion + 代理，见用户定的 UI 样式基线）。
+/// chip 那一排的形状与颜色**由 `Theme::markChipButton()` 一处说了算**
+/// （实例页那排搜索筛子是第二个读者），底下走 `ui/Theme.cpp` 的 `chipStyleSheet()`。
+/// 这一页唯一那句话：chip 的外观不走 QSS 之外的东西（其余外观都交给 Fusion + 代理，
+/// 见 UI 样式基线）。
 
 }  // namespace
 
@@ -316,8 +316,8 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     chipLayout->setSpacing(6);
     chipLayout->addStretch(1);
     chipScroll->setWidget(m_chipRow);
-    // 那一排 chip 的**右边**挂着「显示快照版」—— 用户要的位置（「上方右侧放一个勾选框」），
-    // 而且它和那一排是同一件事（见 ResourceDetailPage.hpp 里那段）：放在滚动区**外面**，
+    // 那一排 chip 的**右边**挂着「显示快照版」，而且它和那一排是同一件事（见
+    // ResourceDetailPage.hpp 里那段）：放在滚动区**外面**，
     // 版本多的资源横向滚起来时这颗勾选框不会跟着滚走。
     auto *chipLine = new QHBoxLayout;
     chipLine->setContentsMargins(0, 0, 0, 0);
@@ -326,7 +326,7 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
 
     m_showSnapshots = new QCheckBox(tr("显示快照版"), this);
     m_showSnapshots->setObjectName(showSnapshotsCheckBoxName());
-    // 鼠标提示里点明快捷键 —— 用户要的那句「鼠标悬停里提到这点」。
+    // 鼠标提示里点明快捷键。
     m_showSnapshots->setToolTip(tr("按 Alt 键也能切换"));
     m_showSnapshots->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     connect(m_showSnapshots, &QCheckBox::toggled, this,
@@ -350,7 +350,6 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
 
     // ---------- chip 那一排与版本列表中间那一行----------
     //
-    // 要求：「如果有前置模组，在下载页的游戏版本选择和模组版本选择中间加一条写明」。
     // "游戏版本选择"就是上面那一排 chip、"模组版本选择"就是下面那棵树 —— 于是这一行夹在
     // 它俩中间（chipLine 的 addLayout 之后、m_list 的 addWidget 之前）。
     //
@@ -387,7 +386,7 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     m_list->setIconSize(QSize(ResourceDetailMarks::badgeSize(),
                               ResourceDetailMarks::badgeSize()));
     outer->addWidget(m_list, 1);
-    // 展开/折叠动画（，规则见 ui/Animations.hpp）。
+    // 展开/折叠动画（规则见 ui/Animations.hpp）。
     Anim::animateExpansion(m_list);
 
     // 组头那一行是**开关**（点一下展开、再点一下收起），版本那一行是**动作**（下它）——
@@ -505,7 +504,7 @@ void ResourceDetailPage::rebuildChips() {
         auto *button = new QPushButton(chip.text, m_chipRow);
         button->setObjectName(chipButtonNamePrefix() + QString::number(i));
         button->setCheckable(true);
-        // 高度、圆角外观、换主题重挂三件事一起（原来是这一页自己那三行，见上面那段）。
+        // 高度、圆角外观、换主题重挂三件事一起（见上面那段）。
         Theme::markChipButton(button);
         // 身份挂属性上（和 rowKeyRole 那条同一个理由：文字是给人看的，会随文案改）。
         button->setProperty("chipKey", chip.key);
@@ -589,8 +588,7 @@ void ResourceDetailPage::setModSettingsSlot(bool show) {
     if (m_modSettings == nullptr || m_showSnapshots == nullptr) {
         return;
     }
-    // 同一格只露一个 —— 摆谁就把另一个**整个收起来**（要求「右上角显示快照版那里替换为
-    // 模组设置」："替换"就是这个意思，不是两颗并排）。
+    // 同一格只露一个 —— 摆谁就把另一个**整个收起来**（「替换」就是这个意思，不是两颗并排）。
     m_modSettings->setVisible(show);
     m_modSettings->setEnabled(show);
     m_showSnapshots->setVisible(!show);
@@ -639,7 +637,7 @@ void ResourceDetailPage::fillGroups(const QList<Group> &groups) {
         }
         // 组头一律**展开**：用户点进这一页就是想看版本，先收着等于让他再点十几下。
         // NOTE: 换一颗 chip 会把整份列表重建（分组的算法在业务层），展开状态也就跟着复位 ——
-        // 这是这一版有意接受的（要留住它得按组名记一份，而组名会随 chip 改）。
+        // 这是有意接受的（要留住它得按组名记一份，而组名会随 chip 改）。
         groupItem->setExpanded(true);
     }
 }
@@ -740,7 +738,7 @@ void ResourceDetailPage::showEvent(QShowEvent *event) {
 }
 
 void ResourceDetailPage::keyPressEvent(QKeyEvent *event) {
-    // 裸 Alt = 拨一下「显示快照版」（用户要的那条，鼠标提示上也写着）。Ctrl/Shift/Meta 同按
+    // 裸 Alt = 拨一下「显示快照版」（鼠标提示上也写着）。Ctrl/Shift/Meta 同按
     // 的那几发**不算** —— 那是别的快捷键，放给下面那一层。
     const Qt::KeyboardModifiers others =
         event->modifiers() & ~(Qt::AltModifier | Qt::KeypadModifier);

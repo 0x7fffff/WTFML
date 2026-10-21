@@ -34,17 +34,16 @@ const QString kNameField = QStringLiteral("name");
 /// 组在实例树里展开/收着（用户 要的「默认展开/关闭」）。
 /// **文件里没有这一条 = 展开**（老文件、手写的文件都算展开）—— 见 groups() 里那一行。
 const QString kExpandedField = QStringLiteral("expanded");
-/// 这一组是不是**置顶组**（用户 要的「设为置顶组」）。
+/// 这一组是不是**置顶组**（「设为置顶组」选中的那一组）。
 /// **文件里没有这一条 = 不是置顶组**（老文件、手写的文件都不认领这个身份）—— 只有一条
 /// 例外在读取口上：一个都没有时退回那个叫「置顶」的默认组，见 pinnedGroupId()。
 const QString kPinnedField = QStringLiteral("pinned");
-/// **置顶前的归属**：那颗上箭头点下去之前，这个实例待在哪儿（要求：
-/// 「加一个记录置顶前这玩意属于哪一组的，用户直接塞的取消置顶才归进未分类」）。
+/// **置顶前的归属**：那颗上箭头点下去之前，这个实例待在哪儿。
 /// 与 members 平级的一个对象，键和 members 同一套（实例归属键），值有三种形态 ——
 /// 完整规矩与"为什么第三种必须是 null"见 .hpp 文件头那一段。
 ///
 /// **文件里没有这一格 = 一个记录都没有**（老文件、手改的文件都算），此时取消置顶
-/// 一律落未分组 —— 正是用户那句"用户直接塞的才归进未分类"。
+/// 一律落未分组。
 const QString kPinOriginField = QStringLiteral("pinOrigin");
 
 /// 五个默认组的 id。**写死的**、不是 UUID —— 理由见 .hpp 里 defaultGroupId() 那段。
@@ -106,7 +105,7 @@ QList<InstanceGroupStore::Group> InstanceGroupStore::defaultGroups() {
         group.id = defaultGroupId(kind);
         group.name = defaultGroupName(kind);
         // 「置顶」这一组**就是**那个置顶组（只有它是），其余四个都不是。它和「默认展开」
-        // 的关系是：展开那半是缺省（true），和以前那行花括号写法一模一样。
+        // 的关系是：展开那半是缺省（true），所以这里不用显式写出来。
         //
         // NOTE: 种默认（seedDefaultGroups）和恢复默认（restoreDefaultGroups）**共用这一个
         // 函数**，所以"两处的置顶组必须是同一个"是结构上成立的，不是两处各写一遍。
@@ -225,18 +224,17 @@ QList<InstanceGroupStore::Group> InstanceGroupStore::groups() const {
         // 而空名字在树里就是一行空白。
         const QString name = object.value(kNameField).toString().trimmed();
         group.name = name.isEmpty() ? id : name;
-        // 默认收藏组曾经叫“置顶”。只迁移这个稳定 id 且仍使用旧默认名的条目；用户自己
-        // 改过的组名原样保留。下一次写盘时会自然保存成新名字。
+        // 默认收藏组的旧默认名是“置顶”。只迁移这个稳定 id 且仍使用旧默认名的条目；
+        // 用户自己改过的组名原样保留。下一次写盘时会自然保存成新名字。
         if (id == kDefaultIdPinned && group.name == QStringLiteral("置顶")) {
             group.name = QStringLiteral("收藏");
         }
-        // **缺省是展开**（toBool 的缺省值）：这一条是 才有的，之前写的文件
-        // 里一个都没有，而那时界面上组一律是展开的 —— 缺省值就把老文件读成了老样子。
+        // **缺省是展开**（toBool 的缺省值）：没有这一格的老文件按展开读，保持界面上
+        // 组一律展开的样子。
         group.expanded = object.value(kExpandedField).toBool(true);
-        // **缺省是不置顶**（toBool 的缺省值）：和上面那一格同一个写法，来路也一样 ——
-        // 这一条是 才有的，之前写的文件里一个都没有。**类型不对也当 false**
-        // （toBool 对"字符串 true"这种返回的也是缺省值），理由和 expanded 那行一样：
-        // 认不出来的东西就按"没这一位"处理，绝不猜。
+        // **缺省是不置顶**（toBool 的缺省值）：没有这一格的老文件按不置顶读。
+        // **类型不对也当 false**（toBool 对"字符串 true"这种返回的也是缺省值），
+        // 理由和 expanded 那行一样：认不出来的东西就按"没这一位"处理，绝不猜。
         group.pinned = object.value(kPinnedField).toBool(false);
         result.append(group);
     }
@@ -450,7 +448,7 @@ bool InstanceGroupStore::assign(const QString &instanceKey, const QString &group
 
     ensureLoaded();
 
-    // 文件读不懂这条**先判**（ 挪上来的）。它排在"找不到那个分组"后面时，
+    // 文件读不懂这条**先判**。它排在"找不到那个分组"后面时，
     // 真正的因由（文件坏了 / 是更新版本写的，这一版拒绝动它）会被挡在后面说不出口：
     // 那份读不懂的文件让 groups() 返回空表，于是用户一路都被告知"找不到那个分组，
     // 可能刚刚被删掉了"—— 而分组一个都没删，是这一版压根没读进来。
@@ -510,7 +508,7 @@ bool InstanceGroupStore::pinInstance(const QString &instanceKey, QString *errorO
         return true;
     }
 
-    // 记下"置顶之前它属于哪一组"（用户 要的那一句）。三种来路三种记法：
+    // 记下"置顶之前它属于哪一组"。三种来路三种记法：
     // - 有归属、指向一个活着的组 ⇒ 记那个组 id（取消置顶时原样写回去）；
     // - 明确选了「未分组」⇒ 记那个**保留值**（原样写回去，见 ungroupedMarker()那段）；
     // - **压根没有这一条**（用户从没表过态，显示层按版本类型把它归在某一组里）⇒ 记 null。
@@ -555,8 +553,8 @@ bool InstanceGroupStore::unpinInstance(const QString &instanceKey, QString *erro
         members.remove(instanceKey);
     } else {
         // 有记录 ⇒ 回记录里的那一组（组 id / ungroupedMarker() 那个保留值）。
-        // 没记录 ⇒ 未分组：这一条是"用户自己塞进置顶组的"（「移入分组」挑的、或者这一版
-        // 之前就在里面的老数据）—— 用户要的就是这一档归未分类。
+        // 没记录 ⇒ 未分组：这一条是"用户自己塞进置顶组的"（「移入分组」挑的、或者
+        // 本来就在里面的老数据）—— 用户要的就是这一档归未分类。
         QString target = recorded ? origins.value(instanceKey).toString().trimmed() : QString();
         if (!target.isEmpty() && target != ungroupedMarker()) {
             // 记录里那个组可能已经被删了（删组不清这一格 —— 它只在**写盘时**自清理，
@@ -709,7 +707,7 @@ bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObj
     QJsonObject members;
     for (auto it = rawMembers.constBegin(); it != rawMembers.constEnd(); ++it) {
         const QString key = it.key();
-        // 值**先 trim**（ 修）。读侧（groupIdOf）读出来的是 trim 过的值，而下面
+        // 值**先 trim**。读侧（groupIdOf）读出来的是 trim 过的值，而下面
         // 那句 keptIds.contains(groupId) 比的是**清洗过的**组 id —— 两边不一致时，手改过的
         // `"1.20.1": " default-mod "`（记事本里多打两个空格就会这样）在界面上是一条正常
         // 归属，而**任何一次写盘**（改别的实例的分组就会重写整个文件）都会把它当成"指向
@@ -779,11 +777,10 @@ bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObj
 
     // 以原来那个对象为底，只盖我们认识的四个键 —— 更新版本写的别的字段原样留着。
     //
-    // NOTE: 盖的是**副本 candidate**，不是 m_root（ 改的）。这三句原来排在
-    // mkpath / open / commit 之前，而下面三条失败路径都不回滚 —— 于是"写盘失败"
-    // 这件事会先在内存里生效（groups() / groupIdOf() 读的正是 m_root），接着**另一次
-    // 成功的写盘**会把这份幽灵状态一起提交：「告知失败的操作在稍后静默生效」。
-    // 内存状态只在确实落盘成功之后才认账。
+    // NOTE: 盖的是**副本 candidate**，不是 m_root。内存里的 m_root 必须等落盘成功之后
+    // 才认账：它要是先在内存里生效（groups() / groupIdOf() 读的正是 m_root），接着
+    // **另一次成功的写盘**会把这份幽灵状态一起提交 ——「告知失败的操作在稍后静默生效」。
+    // 下面三条失败路径都不回滚，所以这层顺序不能动。
     QJsonObject candidate = m_root;
     candidate.insert(kVersionField, kVersion);
     candidate.insert(kGroupsField, array);

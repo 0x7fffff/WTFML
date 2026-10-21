@@ -1,7 +1,7 @@
 #include "Support.hpp"
 
 void runDownloadSpeedLimitTests() {
-    section("ZP. 「下载速度上限」那几档（§9.2）");
+    section("ZP. 「下载速度上限」那几档");
 
     // ---------- ZP0. 几档 + 出厂值 ----------
     {

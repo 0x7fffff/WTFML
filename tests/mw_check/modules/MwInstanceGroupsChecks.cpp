@@ -950,8 +950,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             check(firstRow.width() > 0 && firstRow.contains(oldArrowPos) &&
                       !InstanceGroupDelegate::gearRect(firstRow).contains(oldArrowPos) &&
                       oldArrowPos.x() > firstRow.left() + 8,
-                  "T16 前提：要点的那个点落在那一行里、在齿轮**左边**（当年那两颗三角就在"
-                  "这一格上），也不是行首给文字留的那一截",
+                  "T16 前提：要点的那个点落在那一行里、在齿轮**左边**（这一格不是齿轮那一格，也不是行首），也不是行首给文字留的那一截",
                   QStringLiteral("点 (%1,%2) / 行 %3,%4 %5x%6 / 齿轮命中格左 %7")
                       .arg(oldArrowPos.x())
                       .arg(oldArrowPos.y())
@@ -965,14 +964,14 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             sendRowMouse(tree, QEvent::MouseButtonPress, oldArrowPos, Qt::NoModifier);
             sendRowMouse(tree, QEvent::MouseButtonRelease, oldArrowPos, Qt::NoModifier);
             check(groupOrderInFile() == QStringList({kSortA, kSortEmpty, kSortB, kSortC}),
-                  "★ 点当年画三角的那一格：盘上的组序一个字节都没动（那一格现在归这一行"
+                  "★ 点那一格（那里不画任何东西）：盘上的组序一个字节都没动（那一格现在归这一行"
                   "自己，没有「挪一格」这件事了）",
                   groupOrderInFile().join(QLatin1Char('|')));
             QTreeWidgetItem *afterOldArrow = rowOfGroupId(tree, kSortA);
             check(afterOldArrow != nullptr && !afterOldArrow->isExpanded() &&
                       expandedInFile(kSortA) == 0,
-                  "★ 而且它办的是这一行本来那件事：这一组收起来了（用户 2026-09-25 报的"
-                  "「点击一下就同时展开和调整了」—— 那两件事当年正挤在同一个格子上，现在这"
+                  "★ 而且它办的是这一行本来那件事：这一组收起来了（用户报的"
+                  "「点击一下就同时展开和调整了」—— 那两件事不能挤在同一个格子上，这"
                   "一格只剩这一件）",
                   QStringLiteral("树上 isExpanded=%1 / 文件 expanded=%2")
                       .arg(afterOldArrow != nullptr ? (afterOldArrow->isExpanded() ? 1 : 0) : -1)
@@ -1345,7 +1344,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                                                            QStringLiteral("置顶组 (1)"),
                                                            QStringLiteral("未分组 (2)")}),
                       "★ 树上真的跟着动了（原来那个空的置顶组现在有了一条、它才出现）—— "
-                      "而未分组那个数**没变**：按用户 2026-09-26 定的「两边都显示」，置顶"
+                      "而未分组那个数**没变**：按「两边都显示」，置顶"
                       "不是搬家 —— 老家留一份，置顶组里多一条同名的（26.3 的老家还在未分组里）",
                       groupHeadersOf(tree).join(QLatin1Char('|')));
                 check(rowsOfInstanceId(tree, QStringLiteral("26.3")) == 2,
@@ -1397,7 +1396,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 check(pinOriginInFile().size() == 1 && originNullCount() == 1,
                       "★ 置顶这一下顺手记下了「置顶之前它在哪一组」：26.3 置顶前没有归属，"
                       "记成 null ⇒ 取消置顶时把这一条**删掉**，让它按版本类型重新归类、落回"
-                      "置顶前显示的那一组（用户 2026-09-26 那句）",
+                      "置顶前显示的那一组",
                       QStringLiteral("记录 %1 条 / 其中 null %2 条")
                           .arg(pinOriginInFile().size())
                           .arg(originNullCount()));
@@ -1487,7 +1486,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 clickRowAt(tree, InstanceGroupDelegate::instancePinRect(inPinRow).center());
                 check(membersPointingAt(kPlainGroup) == 2 && membersPointingAt(kPinGroup) == 1 &&
                           membersInFile().size() == 3 && originCount(kPlainGroup) == 0,
-                      "★ 点一下下箭头：它**回到了置顶之前待的那一组**（用户 2026-09-26 那句）"
+                      "★ 点一下下箭头：它**回到了置顶之前待的那一组**"
                       "—— 归属的条数一条不多一条不少（写回去的是记录里那个组 id，不是未分组"
                       "那条保留值）",
                       QStringLiteral("指到普通组 %1 条 / 指到置顶组 %2 条 / 成员 %3 条")

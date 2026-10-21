@@ -62,9 +62,9 @@ namespace ServerListFile {
 
 /// 这个实例的 `servers.dat` 在哪儿 —— `AppPaths::versionDir(versionId) + "/servers.dat"`。
 ///
-/// 这串路径**只有这一份实现**：写侧三个入口的调用方（`MainWindow`）和读侧原来各拼各的
-/// （`MainWindow.cpp` 里内联了三处），拼错一处就是"改了这份、读的是那份"。摆在这儿是因为
-/// 三个入口本来就要一个 `datPath`，而这是它在真实世界里唯一的那一个值。
+/// 这串路径**只有这一份实现**：不能各处各拼各的（拼错一处就是"改了这份、读的是
+/// 那份"），调用方只拿这一份。摆在这儿是因为三个入口本来就要一个 `datPath`，而这是
+/// 它在真实世界里唯一的那一个值。
 QString pathFor(const QString &versionId);
 
 /// 读一遍服务器列表。**就是 `NbtUtil::readServerList()`**，在这儿转一道手只是为了让
@@ -138,9 +138,9 @@ bool removeEntry(const QString &datPath, const QString &name, const QString &add
                  QString *problemOut);
 
 // ---------------------------------------------------------------------------
-// 预设那一段用的那几口（，coding plan §6 P3）
+// 实例预设那一段用的那几口
 //
-// 「实例预设」要把一批服务器**一次**落到这个文件上（§6 P3：Append / Replace / Skip、
+// 「实例预设」要把一批服务器**一次**落到这个文件上（Append / Replace / Skip、
 // 按规范化地址去重、保留顺序）—— 那是**同一棵树上的多次改动**，上面那三个"改一条 / 加一条
 // / 删一条"各走一趟的入口凑不出来。
 //

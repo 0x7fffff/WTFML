@@ -1,11 +1,11 @@
 /**
  * @file NewServerPage.hpp
- * @brief 「新建服务端」那一页（coding plan §6.2 / 里程碑 M4）：挑服务端类型、游戏版本、
+ * @brief 「新建服务端」那一页：挑服务端类型、游戏版本、
  * 加载器/构建版本、名称、内存，确认之后建这个服务端。
  *
  * 【这一页只摆控件，判据一条都不在这儿】
  *
- * `ui/` **不 include `src/`**（见 `GroupDialog.hpp` 文件头那段老规矩）。所以：
+ * `ui/` **不 include `src/`**（见 `GroupDialog.hpp` 文件头那段）。所以：
  *
  * * **哪八档、每一档叫什么** —— 由 `MainWindow` 从 `ServerInstall::allFlavors()` 那几张表
  * 翻好，当作 `FlavorOption` 喂进来（`setFlavors()`）；

@@ -1,7 +1,7 @@
 #include "Support.hpp"
 
 void runUpdateRollbackTests() {
-    section("ZU. 更新中心：更新前的轻量回滚点（§7.1）");
+    section("ZU. 更新中心：更新前的轻量回滚点");
 
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir temp;

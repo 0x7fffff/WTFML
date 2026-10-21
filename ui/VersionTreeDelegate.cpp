@@ -20,7 +20,7 @@ VersionTreeDelegate::VersionTreeDelegate(QObject *parent, bool leafArrow, int ic
 }
 
 int VersionTreeDelegate::rowIconSize() const {
-    // 0 = 没传 = 按老规矩。两棵老树走的就是这一条，取到的值和改动前写死的那个常数一样。
+    // 0 = 没传 = 用默认那一档（`MainWindowUI::versionTreeIconSize()`）。
     return m_iconSize > 0 ? m_iconSize : MainWindowUI::versionTreeIconSize();
 }
 
@@ -97,25 +97,20 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     opt.icon = QIcon();
     opt.features = QStyleOptionViewItem::None;
     // 悬停那一位**先读走、再抹掉**：它是给"这一行上我们自己画的那个按钮"用的（见下面那段
-    // showRefresh），本来就不是"这一行被指到了"这件事本身。
-    // 更正：抹掉它**本来就不是**为了挡悬停底色 —— 那一层在这个仓库里一直是
-    // **我们自己画**才有的（就是下面那段 fillRect）。核过 Qt 源码：
-    // `QCommonStyle::drawPrimitive(PE_PanelItemViewItem)` 只认 `backgroundBrush` 和
-    // `State_Selected`，**从不看 `State_MouseOver`**；Fusion 没有覆写它，而我们的
-    // `Theme::createStyle()` 也只重写了 `PE_IndicatorArrowDown` 一个原语。
-    // （旧注释写的是"留着的话样式会给整行铺一层悬停底色、而那是用户没要的"：前半句按
-    // 源码不成立，后半句从 起也反了 —— 要求「把所有悬停在版本/按钮上都
-    // 加一个颜色加深的效果」。）
+    // showRefresh），不是"这一行被指到了"这件事本身。
+    // 抹掉它**不是**为了挡悬停底色 —— 那一层在仓库里是**我们自己画**才有的（就是下面那段
+    // fillRect）。核过 Qt 源码：`QCommonStyle::drawPrimitive(PE_PanelItemViewItem)` 只认
+    // `backgroundBrush` 和 `State_Selected`，**从不看 `State_MouseOver`**；Fusion 没有
+    // 覆写它，而我们的 `Theme::createStyle()` 也只重写了 `PE_IndicatorArrowDown` 一个原语。
+    // 悬停加深本身是这条规矩的一部分（版本与按钮上都要有效果），只是不靠这一位来画。
     // 这一位仍然要抹掉：别让**将来**某个样式插一层我们没要的底色，把我们画的那层盖掉。
     // 读的是**原样传进来**的那个 option，不是 initStyleOption 之后的那一份：这一位是视图
     // 填的，它在 initStyleOption 里留没留住不该由我们猜（这条路上我们自己说了算）。
     const bool hovered = (option.state & QStyle::State_MouseOver) != 0;
     // 选中那一块由**样式**画成"这一行自己的底色混一档主题色 + 左边一根 3 px 指示条"
-    // （要求：「选中的时候那个蓝色的换成深灰色」； 换成现在
-    // 这一档 —— 用户答复「完全照 §9.3（和侧栏导航同款）」
-    // —— 两条原语覆写在 `Theme::createStyle()` 那一份代理样式里，见 `ui/Theme.hpp` 的
-    // `selectionFill()` 那段）。这一位在这儿用来做三件事：左边那一截分支区补涂、
-    // 分支区那截上**把指示条补回来**，以及下面那一份**局部调色板**里换墨。
+    // （与侧栏导航同款 —— 两条原语覆写在 `Theme::createStyle()` 那一份代理样式里，
+    // 见 `ui/Theme.hpp` 的 `selectionFill()` 那段）。这一位在这儿用来做三件事：左边那一截
+    // 分支区补涂、分支区那截上**把指示条补回来**，以及下面那一份**局部调色板**里换墨。
     const bool selected = (option.state & QStyle::State_Selected) != 0;
     opt.state &= ~QStyle::State_MouseOver;
     // 侧栏导航的选中底由下面那支自己画成「内缩圆角块」。这里先把 Selected 从交给
@@ -124,7 +119,7 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     if (m_navRow) {
         opt.state &= ~QStyle::State_Selected;
     }
-    // 悬停那一行的加深底色（要求见上）。
+    // 悬停那一行的加深底色（见上）。
     //
     // 这一层**画在 `CE_ItemViewItem` 之前**是有意的：选中那一行是样式紧接着用**不透明的**
     // `Highlight` 铺满整格的，所以"选中"天然压得住"悬停"，两者不需要互斥判断（下面那句
@@ -174,8 +169,8 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     // ui/InstanceGroupDelegate.cpp 里那段 ★★ ）。样式那一层已经把
     // `PE_PanelItemViewRow` 也接过去画成我们这一档了，但"drawRow 到底走不走那条原语"是
     // **视图**说了算的事 —— 这一句是保底，两边同一个色，重复涂一遍看不出区别。
-    // NOTE: 实例树那一边**故意不补**（它选中时的带子只有卡片那一圈，左边那根竖条正是
-    // 用户 点名要删掉的东西，见那条 ★★）。两张表的选中带形状本来就不一样。
+    // NOTE: 实例树那一边**故意不补**（它选中时的带子只有卡片那一圈，左边没有竖条，
+    // 见那条 ★★）。两张表的选中带形状本来就不一样。
     //
     // 指示条得在**这一句之后**补一次：样式那条 `PE_PanelItemViewItem` 早在 3 行之前
     // 就把 0..3 那一列画成主题色了，而这一句正好从 0 铺过来、会把它整根盖掉。
@@ -189,7 +184,7 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
 
     // 侧栏那一列（`m_navRow`）：选中那一行的底和墨和别处**是同一套**，只是形状不同 ——
     // 这里是"内缩圆角块 + 一块跟着圆角走的指示条"，别的表是"整条行 + 左边那根直条"
-    // （用户 那份改版文档点名侧栏是圆角块那一款）。
+    // （侧栏用圆角块那一款）。
     //
     // 平台样式那一层的 Selected 已在上面拿掉：这一档要的是内缩圆角块；如果先让
     // Fusion 铺满灰底，再在上面盖圆角块，四个圆角外仍会漏出灰色直角。
@@ -204,7 +199,7 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
         painter->setBrush(Theme::selectionFill(option.palette.color(QPalette::Base)));
         painter->drawRoundedRect(selectedRect, 7.0, 7.0);
 
-        // 指示条也收在圆角块里面，上下留一点呼吸，不再像一根贯穿两行之间的分隔线。
+        // 指示条也收在圆角块里面，上下留一点呼吸，而不是一根贯穿两行之间的分隔线。
         const QRectF barRect(selectedRect.left(), selectedRect.top() + 6.0,
                              Theme::selectionBarThickness(),
                              qMax(0.0, selectedRect.height() - 12.0));
@@ -220,13 +215,12 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     // 不换的话深色主题下就是白字压浅底（等于没字）。换哪几档只有一处出处
     // （`selectionPalette()`），换的是**一份局部拷贝**：控件的调色板、别处的取色一点都不
     // 受影响。
-    // 侧栏那一列**不用再单独换一遍**（ 合成一份之前它有自己那一支墨）：
-    // 现在两条路的底是同一个混法，墨自然也是同一支 —— 合成之前那句话留下的第二处
-    // 取色点正是"以后改一处漏一处"的形状。
+    // 侧栏那一列**不用单独换一遍**：两条路的底是同一个混法，墨自然也是同一支 ——
+    // 多留一处取色点就是"以后改一处漏一处"的形状。
     QPalette palette = Theme::selectionPalette(option.palette, selected);
     // 不可用的那几条（安装页上"选中了一个加载器之后其余几条"）**整行淡下去**：这一行
     // 的字和图标都是这儿自己画的，不处理的话"点得动"和"点了没反应"在屏幕上一模一样
-    // —— 用户报的"点不开了"正是这个形状，别再制造一次。
+    // —— 不处理就会出现"点不开了"那个形状，别再制造一次。
     //
     // 判据用 index.flags() 而不是 option.state：Qt 到底有没有替我们把 State_Enabled
     // 填进去要看版本和样式，而**这一位是我们自己 setDisabled() 写下去的**，
@@ -250,7 +244,7 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     const int iconSize = rowIconSize();
 
     // 前面那个小图标：条目自己给了 `Qt::DecorationRole` 就画它（加载器那棵树五条都是
-    // 这么给的 —— 各自那个标志），没给就按版本树那条老规矩来（**版本号**前面是草方块、
+    // 这么给的 —— 各自那个标志），没给就按版本树的规矩来（**版本号**前面是草方块、
     // 分类前面什么都没有）。给成空的 QIcon 等于没给。
     QPixmap mark;
     const QVariant decoration = index.data(MainWindowUI::rowIconRole());
@@ -276,21 +270,19 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     const QRect crossBox = clearRect(row);
     // 行尾那个刷新按钮（rowRefreshRole()）：和上面那个叉一样，它占的那一格也要从文字的
     // 可用宽度里扣掉 —— 不扣的话长条目会从它底下穿过去。
-    // 这个按钮**只在鼠标悬停到这一行时才画**（要求：「下载界面只有鼠标
-    // 悬停在按钮上时才显示对应的刷新按钮」）。扣宽度那一条**没有**跟着挂 hovered ——
+    // 这个按钮**只在鼠标悬停到这一行时才画**。扣宽度那一条**不**跟着挂 hovered ——
     // 宽度一直留着，鼠标挪进来的时候正文不会左右跳一下（那比少一个图标显眼得多）。
-    // NOTE: hovered 是**视图**填的，而视图**默认不填**：量过（探针在 tmp/probe_hover）——
+    // NOTE: hovered 是**视图**填的，而视图**默认不填** ——
     // 干净的 QListWidget 视口 WA_Hover=0 / mouseTracking=0，真鼠标移动一个字都不改
     // State_MouseOver；给那份列表开 setMouseTracking(true) 之后才会改（真平台的
     // windows 与 offscreen 各量一遍，同一个结果）。所以这一段搭在 MainWindowUI 里
     // 建左栏那份列表时那句 setMouseTracking 上 —— 那句被删掉的话，症状是"刷新按钮
     // 再也不出现了"，不是报错、也不是断言先红。
     //
-    // 上面那句话（"扣宽度没跟着挂 hovered"）在代码里**曾经是相反的** ——
-    // 扣宽度用的就是 `showRefresh`，而它带着 `&& hovered`。于是鼠标一进这一行：图标
-    // 冒出来（对的）+ 文字宽度当场变窄 ⇒ 长条目的省略号位置左右跳一下，正是上面那句
-    // "那比少一个图标显眼得多"要避免的。两个判据拆开：**这一行有没有这一格**（一直扣）、
-    // **这一刻画不画它**（跟着 hovered）。
+    // 两个判据必须拆开：**这一行有没有这一格**（`hasRefresh`，一直扣宽度）、
+    // **这一刻画不画它**（`showRefresh`，跟着 hovered）。合成一个的话鼠标一进这一行：
+    // 图标冒出来（对的）+ 文字宽度当场变窄 ⇒ 长条目的省略号位置左右跳一下，正是上面那句
+    // "那比少一个图标显眼得多"要避免的。
     const bool hasRefresh = index.data(MainWindowUI::rowRefreshRole()).toBool();
     const bool showRefresh = hasRefresh && hovered;
     const QRect refreshBox = refreshRect(row);
@@ -307,11 +299,10 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     painter->save();
     painter->setOpacity(rowOpacity);
     // 第二行小字（rowSubTextRole）：版本树上是发布时间，加载器那棵树上是「与 X 不兼容」
-    // 或者选中的版本号。两种行**都**看这个角色 —— 分类以前不画第二行只是因为没人给它
-    // 塞过值（空串就是不画）。
+    // 或者选中的版本号。两种行**都**看这个角色 —— 空串就是不画。
     const QString subText = index.data(MainWindowUI::rowSubTextRole()).toString();
-    // 服务器那一行的 MOTD（rowMotdRawRole()）：**照游戏里的样子画**（用户
-    // 原话「motd按照游戏里显示的样式展现」）—— 带颜色、带字形、还是两行。
+    // 服务器那一行的 MOTD（rowMotdRawRole()）：**照游戏里的样子画** ——
+    // 带颜色、带字形、还是两行。
     //
     // NOTE: **在这里现解析**，不把解析结果塞进 QVariant：`QVector<MotdPiece>` 要做成
     // 元类型得先登记（跨线程的排队连接还要 `qRegisterMetaType`），而这一串是**画**的
@@ -344,12 +335,10 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     }
     painter->setFont(mainFont);
     painter->setPen(palette.color(QPalette::WindowText));
-    // 两行都要**先截成省略号再画**（ 修）。`drawText(rect, 文字)` 在装不下时
-    // 是**硬裁**：最后那个字被切掉半个、右边那一小截贴在图标上，看着像"字画坏了"，
-    // 而不是"这里还有更多"。版本名和加载器名都能长过这一格（自定义名更长），
-    // 资源表那几张也一样 —— 四张表都用这一个代理。
-    // 同一份写法在 GroupListDelegate 里（那是 加的新代理，一开始就带截断），
-    // 这里当时漏了。宽度的算法一个字没动，只多这一步。
+    // 两行都要**先截成省略号再画**。`drawText(rect, 文字)` 在装不下时是**硬裁**：
+    // 最后那个字被切掉半个、右边那一小截贴在图标上，看着像"字画坏了"，而不是"这里还有更多"。
+    // 版本名和加载器名都能长过这一格（自定义名更长），资源表那几张也一样 ——
+    // 四张表都用这一个代理，截断也走同一份 `elidedText`。
     painter->drawText(QRect(textRect.left(), y, textRect.width(), mainMetrics.height()),
                       Qt::AlignLeft | Qt::AlignVCenter,
                       mainMetrics.elidedText(mainText, Qt::ElideRight, textRect.width()));
@@ -444,10 +433,9 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     const bool drawArrow = isChannel || m_leafArrow;
     // 箭头颜色：**真能展开的**那几行用正文色（"这儿点得开"要说清楚），别的用浅一档的
     // （"点进去"那层意思，次要）。
-    // NOTE: 判据里那个 `hasChildren` 是 加的。加之前只看 `isChannel`（顶层），
-    // 而下载页那张资源表里"游戏版本"那一层**不是顶层、但真的能展开**（点它才去问
-    // 版本列表），照老判据会画成浅色。对原有的两棵树这是空的：它们的非顶层行全是
-    // 叶子（没有孩子），取到的颜色和以前一模一样。
+    // NOTE: 判据要带上 `hasChildren`：只看 `isChannel`（顶层）的话，下载页那张资源表里
+    // "游戏版本"那一层**不是顶层、但真的能展开**（点它才去问版本列表），会被画成浅色。
+    // 另外两棵树的非顶层行全是叶子（没有孩子），所以这一位不影响它们的颜色。
     const QColor arrowColor = (isChannel || hasChildren)
                                   ? palette.color(QPalette::WindowText)
                                   : palette.color(QPalette::PlaceholderText);
@@ -460,7 +448,7 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     painter->save();
     painter->setOpacity(rowOpacity);
     // 选中的那条加载器：箭头**左边**再画一个「取消」小叉（点它 = 不装这个加载器了，
-    // 退回纯原版 —— 要求："选中以后在那个 > 左侧加一个 x 来取消安装对应版本"）。
+    // 退回纯原版）。
     // 它比正文浅一档：那是个次要操作，别和版本号抢眼睛。
     if (showClear) {
         const QRect glyph = crossBox.adjusted(3, 3, -3, -3);
@@ -470,11 +458,9 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     }
     if (drawArrow) {
         // 展开着就画朝下的 V，收着就画朝右的 >。
-        // NOTE: 判据里那个 `expanded` 原来写的是 `isChannel && expanded` —— 那是"非顶层行
-        // 不可能展开"这个假设的产物（原有的两棵树确实如此）。下载页那张资源表里
-        // "游戏版本"那一层就是非顶层、又要能展开的：照老判据展开之后箭头还朝右，
-        // 和"收着"长得一样。改成只看 expanded 对原有的行是空的（叶子永远 expanded
-        // 为假，取到的还是 >）。
+        // NOTE: 判据只看 `expanded`，**不能**再与 `isChannel` 相与：下载页那张资源表里
+        // "游戏版本"那一层就是非顶层、又要能展开的 —— 相与之后展开完箭头还朝右，
+        // 和"收着"长得一样。叶子永远 expanded 为假，取到的还是 >。
         painter->drawPixmap(arrowGlyph.topLeft(),
                             VersionIcons::chevron(expanded, arrowSize, arrowColor));
     }
@@ -489,8 +475,8 @@ QSize VersionTreeDelegate::sizeHint(const QStyleOptionViewItem &option,
     //
     // 条目自己给了 `Qt::SizeHintRole` 的**按它算高度**。服务器列表那一页要的
     // 就是这一条 —— 它的行里画的是**两行** MOTD（照游戏里那个样子），46 装不下，那一页
-    // 逐条 `setSizeHint(QSize(0, serverRowHeight()))`。在这之前这里写死一个常数，
-    // `SizeHintRole` 被**静默无视**（Qt 的规矩是代理说了算，模型那一格只是"建议"）——
+    // 逐条 `setSizeHint(QSize(0, serverRowHeight()))`。反过来写死一个常数的话，
+    // `SizeHintRole` 会被**静默无视**（Qt 的规矩是代理说了算，模型那一格只是"建议"）——
     // 症状是"设了行高、屏幕上一点没变"，不报任何东西。
     // 宽度**照旧自己算**（它要按两行字、图标、行尾那几个角色逐项加起来），只在条目自己
     // 给了更宽的要求时才让路。
@@ -529,10 +515,10 @@ QSize VersionTreeDelegate::sizeHint(const QStyleOptionViewItem &option,
     }
     // 前面那个图标的宽度：子条目一定有（草方块或条目自己给的），顶层条目**真给了才有**。
     //
-    // NOTE: 认形态必须和 paint() 那条路**一模一样**（ 改的）：那边 QIcon 和
-    // QPixmap 两种都认，这里原来只认 QIcon —— 于是"给的是 QPixmap"的条目画得出
-    // 图标、量宽度时却没算它，右边那个箭头（有「取消」小叉时还有小叉）压掉一截文字。
-    // 产品代码目前全走 setIcon()（QIcon），所以先踩到的是验证代码。
+    // NOTE: 认形态必须和 paint() 那条路**一模一样**：两边都认 QIcon 和 QPixmap。
+    // 只认 QIcon 的话，"给的是 QPixmap"的条目画得出图标、量宽度时却没算它，右边那个
+    // 箭头（有「取消」小叉时还有小叉）会压掉一截文字。产品代码全走 setIcon()（QIcon），
+    // 但验证代码会走 QPixmap，这一位不能省。
     const QVariant decoration = index.data(MainWindowUI::rowIconRole());
     bool hasIcon = false;
     if (decoration.canConvert<QIcon>()) {

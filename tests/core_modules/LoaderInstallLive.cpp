@@ -81,9 +81,9 @@ int runLoaderInstallLive(QCoreApplication &app, const QString &sandbox,
                   "挑不出来时给了一句能照做的理由", reason);
         }
 
-        // 反过来那条 —— 这次改动的**要害**就在这儿：配置里那份**已经够新**时必须原样用它。
+        // 反过来那条 —— 配置里那份**已经够新**时必须原样用它。
         // "顺手换个更贴近的"是没道理的：用户配着 Java 21 去装一个要 17 的版本，换掉他选的
-        // 那份只会让人莫名其妙（而且旧实现还会把它写回全局设置）。
+        // 那份只会让人莫名其妙，还会被写回全局设置。
         const QString onPath = QStandardPaths::findExecutable(QStringLiteral("java"));
         if (!onPath.isEmpty() &&
             GlobalJavaSettings::probeJavaMajorVersion(onPath) >= requiredMajor) {
@@ -110,10 +110,9 @@ int runLoaderInstallLive(QCoreApplication &app, const QString &sandbox,
         // 超时兜底：卡住时也要退出来，不然是个永远不返回的验证。
         //
         // NOTE: 这个数**必须**比产品自己的硬超时（VersionManager 里那个 30 分钟）长。
-        // 原来是 300 秒，结果是"产品还在正常跑，验证先放弃了"——实测 Forge 40.3.0
-        // 在 1.18.2 上装一次，光从 creeperhost 那个镜像下十几个库就超过 300 秒，
-        // 报出来的是"失败"，而产品那一路其实一切正常。留 35 分钟：比产品的 30 分钟
-        // 多 5 分钟，这样"真卡住了"报出来的是产品那句中文（带它最后的输出），
+        // 短于它的话会出现"产品还在正常跑，验证先放弃了"——Forge 40.3.0 在 1.18.2 上
+        // 装一次，光从 creeperhost 那个镜像下十几个库就超过 300 秒。留 35 分钟：比产品
+        // 的 30 分钟多 5 分钟，这样"真卡住了"报出来的是产品那句中文（带它最后的输出），
         // 而不是这里一句光秃秃的"超时"。
         constexpr int kLiveWaitMs = 35 * 60 * 1000;
         QTimer::singleShot(kLiveWaitMs, &loop, [&] {
@@ -190,8 +189,8 @@ int runLoaderInstallLive(QCoreApplication &app, const QString &sandbox,
           QString("库 %1 个，缺 %2 个（%3）").arg(libs.size()).arg(missingLibs).arg(firstMissing));
 
     const QJsonObject meta = loadJson(AppPaths::versionMetaPath(loaderId));
-    // loaderName 跟外面的 loaderName 比，**不写死 "Fabric"**：这条原来是 Fabric 单干时写的，
-    // 加了 forge/neoforge 之后就成了"产品对了、断言红"（ 真装时撞上）。
+    // loaderName 跟外面的 loaderName 比，**不写死 "Fabric"**：写死的话 forge/neoforge
+    // 就成了"产品对了、断言红"。
     check(meta[QStringLiteral("realVersion")].toString() == gameVersion &&
               meta[QStringLiteral("loaderName")].toString() == loaderName &&
               !meta[QStringLiteral("loaderVersion")].toString().isEmpty(),
@@ -235,8 +234,7 @@ int runLoaderInstallLive(QCoreApplication &app, const QString &sandbox,
     // 继承发生了。
     // - logging 要按"子赢"核对：子声明了就取子的 —— Forge 1.18.2 装出来的 profile 写着
     // `"logging": {}`，那是它有意清掉原版那份 log4j 配置（官方启动器也一样），子没声明
-    // 才继承父的。**所以这里不能断言"logging 非空"**： 就是这条把真装的
-    // 断言顶红的（当时怀疑是 merge 丢了键，其实数据里就是个空对象）。
+    // 才继承父的。**所以这里不能断言"logging 非空"**：真装出来就是个空对象。
     const QJsonValue expectedLogging = onDisk.contains(QStringLiteral("logging"))
                                            ? onDisk[QStringLiteral("logging")]
                                            : parentJson[QStringLiteral("logging")];

@@ -124,7 +124,7 @@ void WindowChrome::applyFrame() {
     SetWindowLongPtrW(hwnd, GWL_STYLE, GetWindowLongPtrW(hwnd, GWL_STYLE) | kFrameStyle);
 
     // 2) 任务栏条目。无主的 WS_POPUP 窗系统不往任务栏上摆，得自己说一声；这是"建窗时是
-    // WS_POPUP、后来才加上 WS_CAPTION"的补救（正常情况下 WS_CAPTION|WS_SYSMENU 就够）。
+    // WS_POPUP、建完再加 WS_CAPTION"的补救（正常情况下 WS_CAPTION|WS_SYSMENU 就够）。
     const LONG_PTR exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
     if ((exStyle & WS_EX_APPWINDOW) == 0) {
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, exStyle | WS_EX_APPWINDOW);

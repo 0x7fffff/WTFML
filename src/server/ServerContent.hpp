@@ -1,11 +1,11 @@
 /**
  * @file ServerContent.hpp
- * @brief 服务端「内容」那一页的**判据层**（coding plan §9.7「内容管理」）。
+ * @brief 服务端「内容」那一页的**判据层**（「内容管理」）。
  *
  * 服务端要装东西只有两个地方：
  *
  * * `mods/` 里的 `.jar` —— 模组和插件（Paper/Spigot 的插件也是往这里扔，只是游戏侧
- * 现在还没把"插件"单独分出来，见 §9.7 那句）；
+ * 现在还没把"插件"单独分出来）；
  * * `<世界>/datapacks/` 里的 `.zip` —— 数据包（世界目录 = `server.properties` 的
  * `level-name`）。
  *

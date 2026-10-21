@@ -68,7 +68,7 @@ ServerConsolePage::ServerConsolePage(QWidget *parent) : QDialog(parent) {
         box->addWidget(row);
     }
 
-    // ---------- 搜索 / 显示多少行 / 导出（coding plan §9.8）----------
+    // ---------- 搜索 / 显示多少行 / 导出 ----------
     //
     // 这三件和游戏日志窗**共用同一份模型与文案**（`RuntimeOutputModel`）：搜索是大小写
     // 不分的子串，显示上限只影响视图，导出拿的永远是整份日志。
@@ -165,7 +165,7 @@ ServerConsolePage::ServerConsolePage(QWidget *parent) : QDialog(parent) {
             if (text.isEmpty()) {
                 return;  // 空行不发（服务端那边收到一个空命令只会回一句没用的报错）
             }
-            // 命令历史（§9.8 第三条）：**发出去的那一刻**记，连续重复的不记（按两下回车
+            // 命令历史：**发出去的那一刻**记，连续重复的不记（按两下回车
             // 不该在历史里留下两条一模一样的）。
             if (m_history.isEmpty() || m_history.last() != text) {
                 m_history.append(text);
@@ -254,7 +254,7 @@ void ServerConsolePage::setCommandAvailable(bool available) {
 }
 
 void ServerConsolePage::setMaxLines(int lines) {
-    // §9.8：保留上限钉在**共用模型**上；视图的块数上限跟着它（或者跟着显示上限）走。
+    // 保留上限钉在**共用模型**上；视图的块数上限跟着它（或者跟着显示上限）走。
     m_model.setCapacity(qMax(1, lines));
     if (m_logView != nullptr) {
         m_logView->setMaximumBlockCount(viewBlockLimit());

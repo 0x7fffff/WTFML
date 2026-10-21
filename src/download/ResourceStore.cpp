@@ -28,7 +28,7 @@ namespace {
 ///
 /// 100 这个数和 `InstanceIconLookup::kLookupChunk` / `VersionManager::kLookupChunk` 是
 /// **同一个数**（那两处也是"一次带一串哈希/指纹"）—— 三处在做同一件事，没有理由各写一个。
-/// 一个 295 个模组的整合包 = 3 发，而不是 295 发（那 295 发正是 那次限流的原因，
+/// 一个 295 个模组的整合包 = 3 发，而不是 295 发（295 发会直接撞上限流，
 /// 见 .hpp 里 fetchLatestVersions 那段）。
 constexpr int kLatestChunk = 100;
 
@@ -264,7 +264,7 @@ void ResourceStore::abortAll() {
         }
     }
     for (QNetworkReply *reply : replies) {
-        // abort 之后**不能再去读它**（HttpClient 那边的老规矩，漏了就是偶发崩溃）。
+        // abort 之后**不能再去读它**（HttpClient 那边的约定，漏了就是偶发崩溃）。
         // 掐掉会让它发 finished，那个回调第一件事就是"这一发还是不是手上这个"——
         // 上面已经把 key 摘掉了，所以它会自己安静地退出去，不会往界面上发过期的东西。
         if (reply != nullptr) {
@@ -322,7 +322,7 @@ void ResourceStore::search(const QString &requestKey, ResourceCatalog::Kind kind
     m_iconGaveUp = false;
 
     const bool isCurseForge = source == ResourceCatalog::Source::CurseForge;
-    // 接口根地址**两条路都递**（ 修）：CurseForge 那一侧 key 空不空、走镜像还是
+    // 接口根地址**两条路都递**：CurseForge 那一侧 key 空不空、走镜像还是
     // 官方，都在 curseForgeApiBase() 里一处判；Modrinth 那一侧就是我们手上这一份 override
     // （空 = 官方那一份，见 setModrinthApiBaseOverride）。
     const QString url = ResourceCatalog::searchUrl(
@@ -664,12 +664,12 @@ ResourceStore::IconValidators ResourceStore::loadIconValidators(const QString &c
     if (lines.size() > 1) {
         validators.lastModified = QString::fromUtf8(lines.at(1)).trimmed();
     }
-    // 第四行（ 补）：上一次**核对**是什么时候（epoch 毫秒）。读不出来 / 老版本
+    // 第四行：上一次**核对**是什么时候（epoch 毫秒）。读不出来 / 老版本
     // 没有这一行 ⇒ 留 0 ⇒ "不知道" ⇒ 照旧核一遍（见 IconValidators::checkedAtMs 那段）。
     if (lines.size() > 3) {
         validators.checkedAtMs = QString::fromUtf8(lines.at(3)).trimmed().toLongLong();
     }
-    // 凭据得和"问哪条地址"配成一对（ 补）。同一个 project 有**两条**图标地址
+    // 凭据得和"问哪条地址"配成一对。同一个 project 有**两条**图标地址
     // （接口那条 96px 的 webp / 自己拼的 icon.png，见 requestIcon），而缓存和凭据都只按
     // project_id 存 —— 于是"上回问的是哪条"在这份文件里根本没记，这一发就会拿着 **A 的
     // ETag 去问 B**：主机不认时答 200（白带一个没用的条件头，还得再下一整张，白等），
@@ -689,17 +689,16 @@ bool ResourceStore::saveIconValidators(const QString &cacheId,
     if (path.isEmpty()) {
         return false;
     }
-    // ⚠ 老规矩（"两条都没有就不留一份空文件"）当年是为了盘上少一个东西；现在这一行
-    // 时间戳本身就不是空的了，那条理由不成立。
+    // ⚠ 不按"两条都没有就不留一份空文件"处理：这一行的时间戳本身就不是空的。
     const qint64 checkedAtMs = QDateTime::currentMSecsSinceEpoch();
     QDir().mkpath(AppPaths::iconCacheDir());
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         return false; // best-effort：写不进去只是下次多要一次整张，不是错误
     }
-    // 第三行是**这条凭据对应哪条地址**（ 补）：读的那一侧靠它判断"这份凭据
+    // 第三行是**这条凭据对应哪条地址**：读的那一侧靠它判断"这份凭据
     // 还是不是问这条地址用的"，见 loadIconValidators 里那条 NOTE。
-    // 第四行是**上一次核对的时间**（ 补）：见 IconValidators::checkedAtMs。
+    // 第四行是**上一次核对的时间**：见 IconValidators::checkedAtMs。
     const QByteArray text = validators.etag.toUtf8() + '\n' + validators.lastModified.toUtf8() +
                             '\n' + url.toUtf8() + '\n' +
                             QByteArray::number(checkedAtMs) + '\n';
@@ -878,7 +877,7 @@ void ResourceStore::startIconRequest(const QString &iconId, const QString &url,
         return;
     }
 
-    // 图标这一发也进"在飞"那张表（ 补），见 abortAll() 那条 NOTE：它原来只掐
+    // 图标这一发也进"在飞"那张表，见 abortAll() 那条 NOTE：它原来只掐
     // 接口那几发，图标是**表外**的 —— 于是"把在飞的都掐掉"这句话对图标不成立（今天唯一的
     // 调用者是析构，所以没现出症状，但契约这么说就得这么做）。顺带白拿一件东西：同一个
     // project 已经在飞的那一发会被掐掉，和接口那两条请求同款。
@@ -895,7 +894,7 @@ void ResourceStore::startIconRequest(const QString &iconId, const QString &url,
                       validators]() {
         reply->deleteLater();
         // 被掐掉的那一发（abortAll()，或者同一张图又问了第二遍）到此为止：**不读它**、
-        // 什么都不做（abort 之后读它是 HttpClient 那边的老规矩，见 abortAll 那段）。
+        // 什么都不做（abort 之后读它是 HttpClient 那边的约定，见 abortAll 那段）。
         // 也**不动** m_iconPending —— 那一格现在是新的那一发在管。
         if (m_replies.value(requestKey) != reply) {
             return;

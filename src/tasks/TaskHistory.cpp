@@ -20,7 +20,7 @@
 namespace Tasks {
 namespace {
 
-/// 盘上最多留几条**已完成**的。50 条足够回答"上一次那次更新怎么样了"，而这份文件是每完成
+/// 盘上最多留几条**已完成**的。50 条足够回答"上一次更新怎么样了"，而这份文件是每完成
 /// 一件事就重写一遍的小文件（比留着几千行更值得）。
 constexpr int kFinishedLimit = 50;
 
@@ -218,7 +218,7 @@ void markInterrupted(QList<TaskSnapshot> &tasks) {
     for (TaskSnapshot &task : tasks) {
         if (!isTerminalState(task.state)) {
             task.state = TaskState::Interrupted;
-            // 结束时间**故意不补**（原来是补 `now`， 撤掉）。
+            // 结束时间**故意不补**。
             //
             // 那不是"读回来时顺手填一个"，那是**编一个时间**：盘上那条是上一回过活的，
             // 它到底什么时候停的一概不知。补上 `now` 有两个看得见的坏处：
@@ -247,7 +247,7 @@ QList<TaskSnapshot> load(const QString &path) {
     // 这条路后面紧跟着的那次 `saveHistory()` 会把文件整个覆写，用户看到的是"任务中心
     // 突然空了"，而盘上那份坏账本（里面也许还留着一半能读的行）连证据都不剩。
     // 原文件**一个字节都不动**，只在旁边留一份 `<账本>.corrupt`（已经有了就不覆盖，
-    // 留最早那一份）；正常流程照走 —— 读出来是空的，和以前一样开得起来。
+    // 留最早那一份）；正常流程照走 —— 读出来是空的，照样开得起来。
     if (!parsed && !bytes.trimmed().isEmpty()) {
         const QString evidencePath = path + QStringLiteral(".corrupt");
         if (!QFile::exists(evidencePath) && QFile::copy(path, evidencePath)) {

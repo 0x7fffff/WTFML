@@ -51,7 +51,7 @@ struct ZipSource {
  * 只是给出一个"和大家不一样"的包，没那个必要。
  * NOTE: 条目表**走临时文件**，不进脚本正文 —— 脚本是用命令行递给 PowerShell 的，而
  * Windows 一条命令行只有 32767 个字符（Base64 + UTF-16LE 之后脚本正文只剩一万二千
- * 来个字符），一个几百文件的实例的表就超过它了（ 撞的，见 .cpp 里那段）。
+ * 来个字符），一个几百文件的实例的表就超过它了。
  * ⇒ **别为了"省一次写盘"把表改回拼进脚本**。
  */
 bool createZip(const QString &targetZip, const QList<ZipSource> &entries,

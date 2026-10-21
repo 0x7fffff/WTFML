@@ -193,8 +193,7 @@ QStringList LaunchController::launchArguments(const QString &versionId, const QJ
     // 对应物）；全局那半边是 EffectiveJavaSettings::extraJvmArgs，在
     // generateJvmArguments() 里比它先入列，所以单个实例能盖掉全局默认值。
     // 玩家名和底栏左下角显示的是**同一个**（AuthManager::playerName()），离线与正版
-    // 两条分支都用它 —— 以前离线分支自己拼 "Player<时间戳>"、正版分支写死 "Player"，
-    // 于是底栏上的名字和游戏里看到的名字可以不一样。
+    // 两条分支都用它 —— 各自拼名字的话，底栏上的名字和游戏里看到的名字可以不一样。
     // UUID 也一样：正版分支用它当 --uuid（没登录时 AuthManager 给空串，那边退回全零）。
     // 「启动选项 → 窗口模式 / 窗口大小」：全局那一份，再叠上**这个实例自己的覆盖**
     // （`wtfml.meta` 里那三个键，由「实例设置…」的启动页写）。合成的规矩在
@@ -281,11 +280,11 @@ void LaunchController::onStartButtonClicked() {
 
     // 闸口：**正在下载/安装的那一个**不能启动 —— 文件还没齐，点了也是崩。
     //
-    // NOTE: 这条判据 从"有任何一批下载在跑就拦"改成了**按版本**判。旧那条把
-    // 启动和下载彻底串起来了：装 1.20.1 的那十来分钟里，用户想开一个早就装好的
-    // 1.18.2 是点不动的，而两者之间一个字节的关系都没有。现在只有"你选中的那个
+    // NOTE: 判据**按版本**判。"有任何一批下载在跑就拦"会把
+    // 启动和下载彻底串起来：装 1.20.1 的那十来分钟里，用户想开一个早就装好的
+    // 1.18.2 是点不动的，而两者之间一个字节的关系都没有。按版本判之后只有"你选中的那个
     // 正好在装"才拦 —— 也就只有那一种情况真的会启动一个文件不全的实例。
-    // 那几个 isXxx() 判据（装加载器 / 导入整合包 / 装带名字的实例的前奏）没有丢，
+    // 那几个 isXxx() 判据（装加载器 / 导入整合包 / 装带名字的实例的前奏）都收进了
     // 它们被收进了 m_owner->installingVersionIds()：那几条路在"拉版本表、拉 profile"的前奏里
     // 还没开批次，靠的就是界面自己记的那个实例名。
     //
@@ -363,8 +362,7 @@ void LaunchController::onStartButtonClicked() {
         token = m_owner->m_authManager->loadSavedToken(&tokenError);
         m_owner->leaveSyncWait();
         if (token.isEmpty()) {
-            // NOTE: 这两句原来写的是"或使用离线模式" —— 那个开关去掉了，
-            // 照旧文案去界面上找是找不到东西的。现在指的是**那一个动作**：在
+            // NOTE: 这里的"离线"指的是**那一个动作**：在
             // 「账号与外观…」那个窗里填个名字、点「添加离线账号」。
             InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("登录缺失"),
                                  tokenError.isEmpty()
@@ -397,8 +395,8 @@ void LaunchController::onStartButtonClicked() {
     // version.json 要提前取：natives 的准备和启动前检查都依赖它
     QJsonObject versionJson = m_owner->m_versionManager->getVersionJson(versionId);
 
-    // 拿不到 version.json 就不能猜。以前这里会静默用 javaMajorVersion = 21 和
-    // assetIndex = "29" 继续启动，26.1（需要 Java 25）就会崩在
+    // 拿不到 version.json 就不能猜：静默用 javaMajorVersion = 21 和
+    // assetIndex = "29" 继续启动的话，26.1（需要 Java 25）会崩在
     // UnsupportedClassVersionError，且看不出原因。
     if (versionJson.isEmpty()) {
         m_owner->appendLog(m_owner->tr("找不到版本 %1 的 version.json").arg(versionId));
@@ -424,10 +422,10 @@ void LaunchController::onStartButtonClicked() {
     // 旧格式（1.18.2 及以下）的 natives 必须先落地，否则会被 checkPreLaunch 拦下。
     // 该方法自带守卫，已经解压过的版本直接返回，不会重复解压。
     //
-    // （第二批）：它现在**跑在工作线程上**（`runOffUiThread()`）。这一段底下是
+    // 它**跑在工作线程上**（`runOffUiThread()`）。这一段底下是
     // 180 秒的 PowerShell；同步跑在 UI 线程上时，`enterSyncWait()` 只能保证"进去之前
-    // 把话说出来"，之后窗口是真的不重绘 —— 老版本第一次启动那几秒到几十秒里，用户看到
-    // 的就是标题挂上「(无响应)」。挪到工作线程之后窗口照常重绘，底栏那句也一直看得见。
+    // 把话说出来"，之后窗口是真的不重绘 —— 不放在工作线程上时，第一次启动那几秒到几十秒里，用户看到
+    // 的就是标题挂上「(无响应)」。放在工作线程上窗口照常重绘，底栏那句也一直看得见。
     // `prepareNatives()` 是 const、只碰参数和盘上的文件，不读启动器的可变状态。
     QStringList nativeErrors;
     QString nativesDir;
@@ -442,7 +440,7 @@ void LaunchController::onStartButtonClicked() {
         for (const QString &error : nativeErrors) {
             m_owner->appendLog(error);
         }
-        // NOTE: 这条以前只写日志。日志面板在主页是收起来的，用户看到的就是"点了启动、什么都没发生"。
+        // NOTE: 这条**必须弹窗**：只写日志的话，日志面板在主页是收起来的，用户看到的就是"点了启动、什么都没发生"。
         // 同文件 appendLog 上面那段 NOTE 的规矩：拦下用户操作的消息一律要弹窗。
         InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("无法启动"),
                              m_owner->tr("准备 natives 失败，游戏起不来：\n\n%1")
@@ -612,7 +610,7 @@ void LaunchController::onStartButtonClicked() {
 
     // 「改用匹配的 Java」：把刚挑中的那条路径写回**这个实例**。
     //
-    // 要求是"在实例设置中恢复为匹配的 Java"，所以写的是那个实例的 wtfml.meta，
+    // 「改用匹配的 Java」写的是**这个实例**的 wtfml.meta，
     // 不是全局 —— 下面那段 adoptJavaPath 的注释说的就是为什么不能写全局。
     //
     // NOTE: 这一步失败**要弹窗而且不启动**。这次启动其实能成（javaSettings 里已经有
@@ -642,8 +640,8 @@ void LaunchController::onStartButtonClicked() {
     // 结局 —— 原样认可那个路径，或者直接失败返回。**它没有能力换一个路径出来**，
     // 也就是说只要实例钉了路径，这次启动就不可能改到全局配置，污染在结构上不存在。
     //
-    // 剩下的就只有全局档：老行为 —— 自动挑中的路径写回全局配置
-    // （adoptJavaPath() 里那句"值没变就不写盘"也是老行为的一部分）。
+    // 剩下的就只有全局档：自动挑中的路径写回全局配置
+    // （adoptJavaPath() 里那句"值没变就不写盘"也守着同一条）。
     if (!instanceOwnsJavaPath) {
         m_owner->m_javaSettings->adoptJavaPath(javaSettings.javaPath);
     }
@@ -652,8 +650,8 @@ void LaunchController::onStartButtonClicked() {
     // 可能过了很久，中间可能开了浏览器、IDE，可用内存差好几 GB，而 JVM 只认这一刻的机器
     // 状态。手动档下这一句什么都不动。
     //
-    // NOTE: 这里**不刷设置页**。老代码在这一句之后会把设置页那两个框硬刷成"这次实际
-    // 用的值"，有了实例覆盖之后那句话不再成立：实例覆盖了 2048 而设置页显示
+    // NOTE: 这里**不刷设置页**。把设置页那两个框硬刷成"这次实际
+    // 用的值"就不对了：实例覆盖了 2048 而设置页显示
     // 2048，用户会以为全局被改了。设置页显示的是**全局那一层**，它只由用户自己
     // 在设置页的改动（和切到设置页时的那次重算）决定。
     m_owner->resolveMemoryForLaunch(versionId, javaSettings, override);
@@ -665,7 +663,7 @@ void LaunchController::onStartButtonClicked() {
         launchArguments(versionId, versionJson, javaSettings, token, offlineMode, quickPlay);
     // 记住"上次启动的版本"的时机是**进程真的起来了**，不是"表达式算完了"。
     // startGame() 有三条早退路径（找不到 Java / waitForStarted 超时 / 会话数到顶），
-    // 以前它们都会先骗一句"已开始启动游戏"再显示错误。以"起来了"为准也是对的：
+    // 那些路径上不能先报"已开始启动游戏"再显示错误。以"起来了"为准：
     // 因为库缺失之类的原因崩掉，恰恰是最需要下次打开还选着这个版本的时候。
     //
     // startGame() 返回之前那一段（准备 natives、探 Java、等进程起来）是**同步阻塞**的，
@@ -724,11 +722,11 @@ void LaunchController::onStartButtonClicked() {
         //
         // 下面那四笔（启动进度 / 对上的任务 / 名字 / 启动事实）现在**一次
         // 就位**，走 `GameSessionController::beginSession()` —— 它们同寿，而且判断和记账
-        // 都搬进了那一层（从前是这一层往主窗口的四个私有成员里各插一笔，靠一句 friend）。
+        // 都在那一层。
         // 这一趟的收尾**已经交给别处**了（上面那句 + 后面那些进程信号），栈上那个兜底
         // 撤销 —— 不撤的话函数一退出它就把这件任务按失败收掉了。
         launchGuard.disarm();
-        // §4.3：这一趟的"启动事实"在**进程真的起来**这一刻留一份。退出那一刻
+        // 这一趟的"启动事实"在**进程真的起来**这一刻留一份。退出那一刻
         // `javaSettings`、会话表、名字全都已经不是这一趟的了，而异常退出那一项要报的正是
         // 这几个数（实例名、身份、Java 路径、内存参数、加载器）。
         //
@@ -736,7 +734,7 @@ void LaunchController::onStartButtonClicked() {
         // 崩溃那一刻现读 `<javaPath>/release` 就够（见 buildCrashRecord），平时一次盘
         // 都不碰。这里记的是"要什么"（`javaMajorVersion`，已经按主类抬高过）。
         //
-        // NOTE: 这一份会话快照提到这一层来（原来在下面那个块里）—— §5.1 记账那一句也要读
+        // NOTE: 这一份会话快照放在这一层 —— 记账那一句也要读
         // 它的 `startedAtMs`："上一次启动"记的就是**进程真的起来**那一刻，不是"现在"。
         // NOTE: 名字记的是**"这一份当初是谁"**，和 startGame() 收到的那个名字是同一个值
         // （都是 `m_owner->instanceDisplayName(versionId)`）—— 之后用户改名、切账号都
@@ -762,7 +760,7 @@ void LaunchController::onStartButtonClicked() {
             m_owner->m_gameSessionController->beginSession(sessionId, facts.instanceName, launchTask,
                                                            facts);
         }
-        // §5.1：记进「上一次启动」那本账。**位置就是"以成功创建游戏进程为准"这句规矩的
+        // 记进「上一次启动」那本账。**位置就是"以成功创建游戏进程为准"这句规矩的
         // 落点** —— 这一整个 `if (sessionId > 0)` 块只有"进程真起来了"才走得到（startGame()
         // 那三条早退路径在上面就返回了）。`quickPlay` 是这一趟开头取走的那个目标：空 = 普通
         // 启动，有值 = 这一趟游戏自己会进那个世界 / 那台服务器。

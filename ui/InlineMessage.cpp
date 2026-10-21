@@ -83,10 +83,10 @@ QColor parseColorText(const QString &text) {
 
 /// 把一块预览摆成 @p color（无效色 = 一块空心的灰框 —— "这里还不是一个色"）。
 void paintPreview(QLabel *preview, const QColor &color) {
-    // 那一圈边**跟着调色板走**（，coding plan §3.3「收口剩余局部样式和硬编码
-    // 颜色」）：原来写死的是 `#9a9a9a` —— 浅色下正好，深色下那块空心框比周围的底亮一大截，
-    // 看着像"这里有个东西"而不是"这里还没有色"。`disabledBorderColor()` 就是这一层里
-    // "轮廓还在、但不抢眼"那一档的出处（和灰掉的控件那一圈是同一个色）。
+    // 那一圈边**跟着调色板走**：`disabledBorderColor()` 就是这一层里
+    // "轮廓还在、但不抢眼"那一档的出处（和灰掉的控件那一圈是同一个色）。写死一个灰
+    // 在浅色下正好、深色下那块空心框会比周围的底亮一大截，看着像"这里有个东西"而不是
+    // "这里还没有色"。
     const QColor edge = color.isValid() ? Theme::swatchBorder(color)
                                         : Theme::disabledBorderColor();
     preview->setStyleSheet(QStringLiteral("background-color: %1; border: 1px solid %2;"
@@ -131,10 +131,9 @@ InlineMessageBox::InlineMessageBox(MessageKind kind, const QString &title, const
     m_textLabel = new QLabel(text, this);
     m_textLabel->setObjectName(textLabelName());
     m_textLabel->setWordWrap(true);
-    // 正文允许选中复制：正文里常带路径 / 版本号 / 报错原文，手抄一条路径是不现实的
-    // （"Java 版本对不上"那个框早就这么干了）。
+    // 正文允许选中复制：正文里常带路径 / 版本号 / 报错原文，手抄一条路径是不现实的。
     m_textLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    // 宽度**钉死**。它同时管两件事：所有提示一样宽（用户点名要的），以及"这段字换几行"
+    // 宽度**钉死**。它同时管两件事：所有提示一样宽，以及"这段字换几行"
     // 是个确定的数 —— 卡片的高矮才算得准（指望 heightForWidth 一路穿过两层布局传上来，
     // 是会失手的那种）。
     m_textLabel->setFixedWidth(OverlayHost::promptContentWidth());
@@ -156,13 +155,12 @@ InlineMessageBox::InlineMessageBox(MessageKind kind, const QString &title, const
         }
         // 三档颜色按**位置**分，不按文字（"取消"这三个字认不得 —— 按钮表是调用方给的，
         // 上面那张世界编辑菜单里就有四颗都叫"做什么"的）：
-        // - `destructiveIndex` 那一颗 = 危险红（用户 点名的"不可撤销"那一档）；
+        // - `destructiveIndex` 那一颗 = 危险红（"不可撤销"那一档）；
         // - 默认那一颗 = 确认性（**不挂属性**就是主题色，见 Theme::ButtonKind）；
         // - 其余 = 一般性（黑）。
         //
-        // 这条规矩的前提是"调用方标对了 `destructiveIndex`"—— 在此之前它**只用来记账**、
-        // 一颗都没标过（见下面那条改动的说明）。真正的闸一直是 `defaultIndex`（危险那两颗
-        // 一律不给默认：误按回车不该把事办了），颜色只是第二道。
+        // 这条规矩的前提是"调用方标对了 `destructiveIndex`"。真正的闸是 `defaultIndex`
+        // （危险那两颗一律不给默认：误按回车不该把事办了），颜色只是第二道。
         if (i == destructiveIndex) {
             Theme::markButton(button, Theme::ButtonKind::Danger);
         } else if (i != defaultIndex) {
@@ -184,7 +182,7 @@ void InlineMessageBox::relinkTabOrder() {
     // 顺序按**布局**走，不按几何走：说"先上后下、先左后右"到底就是布局里那一串的
     // 先后（竖排 = 从上到下，里面那张横排 = 从左到右）。几何在这里量不得 —— 这几处
     // 调用都发生在 `show()` **之前**，那会儿布局还没跑过，每个控件都停在默认位置
-    // （`(0,0,100,30)`），量出来的顺序恒等于创建顺序 —— 那正是要改掉的那一份。
+    // （`(0,0,100,30)`），量出来的顺序恒等于创建顺序 —— 那不是要的布局顺序。
     QVector<QWidget *> focusables;
     const auto collect = [&focusables](auto &&self, QLayout *layout) -> void {
         if (layout == nullptr) {
@@ -441,8 +439,8 @@ void InlineMessageBox::showEvent(QShowEvent *event) {
     }
     // 理由见头文件里那一段（setParent 会清焦点、QDialog 会把焦点交给默认按钮）。
     m_lineEdit->setFocus(Qt::OtherFocusReason);
-    // 预填的内容整段选中 —— 老那一档（QInputDialog::getText）就是这么干的：用户想整段换掉
-    // 时直接打字就行，不用先全选一遍。改一两个字的人点一下/按方向键也能取消选中。
+    // 预填的内容整段选中：用户想整段换掉时直接打字就行，不用先全选一遍。改一两个字的人
+    // 点一下/按方向键也能取消选中。
     m_lineEdit->selectAll();
 }
 
@@ -460,7 +458,7 @@ int ask(OverlayHost *host, MessageKind kind, const QString &title, const QString
     if (host->promptOpen()) {
         // 纯报信的那一档（一颗按钮都没给 —— `warning()` / `information()` /
         // `critical()` 全走这儿）**排着，不当场丢**。后台任务收尾最常撞上这一格：用户
-        // 正开着一个「要不要…」的提示，下载失败那句话原来只留一行 qWarning 就没了。
+        // 正开着一个「要不要…」的提示，下载失败那句话不该只留一行 qWarning 就丢掉。
         // 它不向调用方要答案，晚一步弹出来不改变任何语义。
         //
         // 要人回答的提示**仍然不叠**（见 OverlayHost::openPrompt 里那段）：排队会让

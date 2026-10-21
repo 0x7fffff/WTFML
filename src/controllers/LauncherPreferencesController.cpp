@@ -203,13 +203,12 @@ void LauncherPreferencesController::syncDownloadProxy() {
             proxy.setHostName(endpoint.host);
             proxy.setPort(quint16(endpoint.port));
         } else {
-            // 地址认不出来（多半还没填）：退回系统代理 —— 那是加这一项之前的行为，
-            // 也是"宁可走系统那条能通的路，也不要把网络掐死"的那一侧。界面上那句
-            // 警告已经把原因说清楚了。
+            // 地址认不出来（多半还没填）：退回系统代理 —— 宁可走系统那条能通的路，
+            // 也不要把网络掐死。界面上那句警告已经把原因说清楚了。
             proxy.setType(QNetworkProxy::DefaultProxy);
         }
     } else {
-        // 跟随系统：DefaultProxy 就是 Qt 原来的默认值（加这一项之前一直是它）。
+        // 跟随系统：DefaultProxy 就是 Qt 的默认值。
         proxy.setType(QNetworkProxy::DefaultProxy);
     }
     QNetworkProxy::setApplicationProxy(proxy);

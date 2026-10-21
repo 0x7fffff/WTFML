@@ -374,7 +374,7 @@ NbtTree::Document emptyDocument() {
     serversField.first = QStringLiteral("servers");
     serversField.second.type = NbtTree::Type::List;
     // 空的表**也要带着元素类型**：少了它写回去的是一张"元素类型是 End"的表，而那是坏的
-    // （`NbtTree::serialize()` 按 `itemType` 落盘）。第一次加服务器那次就撞在这儿。
+    // （`NbtTree::serialize()` 按 `itemType` 落盘）。
     serversField.second.itemType = NbtTree::Type::Compound;
     document.root.fields.append(serversField);
     return document;

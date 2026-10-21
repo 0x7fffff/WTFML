@@ -314,7 +314,7 @@ ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
             [this](QTreeWidgetItem *item, int /*column*/) { jumpToEntry(item); });
     panelColumn->addWidget(m_index, 1);
     middle->addWidget(m_indexPanel);
-    // 展开/折叠动画（，规则见 ui/Animations.hpp）。
+    // 展开/折叠动画（规则见 ui/Animations.hpp）。
     Anim::animateExpansion(m_index);
 
     m_editor = new CodeEditor(this);
@@ -391,9 +391,8 @@ void ConfigFileEditorPage::setFile(const QString &path, const ConfigFileText::Lo
 
     const bool editable = loaded.editable();
     m_editor->setReadOnly(!editable);
-    // 摆正文：`setPlainText()` 会把"改过没有"重置回"没改"（Qt 的文档模型就是这么做的，
-    // 实测过）—— 不过 isDirty() 压根不看那一位，它是拿 m_loaded.text 现比的，
-    // 所以这一句与它无关，写在这儿只是因为它是刚才量过的那件事。
+    // 摆正文：`setPlainText()` 会把"改过没有"重置回"没改"（Qt 的文档模型就是这么做的）
+    // —— 不过 isDirty() 压根不看那一位，它是拿 m_loaded.text 现比的，所以这一句与它无关。
     //
     // 这一句会发 textChanged，而"改字了 ⇒ 索引得重算"那台延时器接的就是它 —— 不挡住
     // 的话，刚摆完一份文件又自己扫一遍全文（白扫，而且会把下面刚摆好的索引再清一次）。
@@ -742,7 +741,7 @@ void ConfigFileEditorPage::jumpToEntry(QTreeWidgetItem *item) {
             }
         }
         // 找不回来 = 这一条在这一版正文里已经没了（键被删掉或改名）—— 那就什么都不跳，
-        // 这也正是原来那条"宁可不动"的兜底。
+        // 这也正是"宁可不动"那条兜底。
         if (fresh == nullptr) {
             return;
         }

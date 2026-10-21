@@ -79,7 +79,7 @@ InstanceSettingsController::InstanceSettingsController(VersionManager *versions,
 QString InstanceSettingsController::instanceKeyFor(const VersionManager *versions,
                                                    const QString &versionId) {
     // 有稳定 id 就用它，没有就退回目录名 —— 见 InstanceGroupStore 文件头那段。
-    // NOTE: 退回目录名不是"临时凑合"，它是老实例（ 之前建的，一个都没有稳定 id）
+    // NOTE: 退回目录名不是"临时凑合"，它是老实例（稳定 id 出现之前建的，一个都没有）
     // 唯一的现实身份。更要紧的是**读和写必须走同一个函数**：读的时候按目录名找、
     // 写的时候按 id 存，归属会在存下去的那一刻就对不上，而那个错不报任何东西。
     if (versions == nullptr) {
@@ -109,14 +109,13 @@ bool InstanceSettingsController::rename(const QString &oldId, const QString &new
     // 实例在 Windows 上 jar 被 JVM 锁着，改到一半才失败的话用户看到的是一句"拒绝访问"，
     // 而真正该说的是这一句。
     //
-    // NOTE: 这一道原来在 onRenameInstanceClicked() 里（界面的入口上）。改名搬进实例设置
-    // 那一页之后，入口变成了"任何一条点进设置页的路"，守卫放在入口上迟早会漏一条
-    // —— 放在这里，所有调用点（含验证工程）都绕不过去。
+    // NOTE: 守卫放在这里而不是入口上：改名有"任何一条点进设置页的路"那么多入口，
+    // 守卫放在入口上迟早会漏一条 —— 放在这里，所有调用点（含验证工程）都绕不过去。
     if (m_host.isRunning && m_host.isRunning(oldId)) {
         notify(Notice::Kind::RenameBlockedRunning, oldId, QString());
         return false;
     }
-    // 闸口一之二：**正在体检的不能改名**（coding plan §4.1「同一实例不允许同时扫描和删除/
+    // 闸口一之二：**正在体检的不能改名**（「同一实例不允许同时扫描和删除/
     // 改名」）。后台那一趟攥着的是改名前算好的那些**绝对路径**，改到一半才让它醒过来的话，
     // 报告里每一条都会指着一个已经不存在的路径（全是假的"缺文件"）。
     if (m_host.isScanning && m_host.isScanning(oldId)) {
@@ -414,7 +413,7 @@ bool InstanceSettingsController::apply(const QString &versionId, const Edit &edi
         m_host.instanceTreeChanged();
     }
 
-    // ---------- 分组 / 置顶（，当天晚些时候改成"两边都显示"）----------
+    // ---------- 分组 / 置顶 ----------
     //
     // 排在写 meta **之后**、`rekey()` **之后**（那一步在上面）：归属的键刚刚才定下来，在它
     // 之前写等于写到旧键上。
@@ -429,11 +428,8 @@ bool InstanceSettingsController::apply(const QString &versionId, const Edit &edi
     // （`edit.homeGroupAtOpen`）比，不是拿它和"现在存在哪一组"比 —— 和验证工程驱动
     // 这颗按钮时同一个口径，见 .hpp 里 setGroupChoices() 那段。
     //
-    // NOTE: ②③ 和 ① 现在**互不相干**了。旧语义（置顶 = 把它挪进置顶组）里这两件事抢同一格：
-    // 勾上置顶会把「分组」那一格当场挪到置顶组上去（旧代码里那个 applyPinState()），
-    // 于是"分组被改过"这一问必须有额外的规矩才分得清是用户改的还是置顶顺手摆的。
-    // 现在那一格是老家、勾选框只管多摆一条，两者不再打架，那段规矩连同 hasPinGroup
-    // 那道闸一起删了 —— 没有置顶组时勾选框本来就是灰的（setPinned()），勾不上。
+    // NOTE: ②③ 和 ① **互不相干**：分组那一格是老家、勾选框只管多摆一条，两者不抢同一格。
+    // 没有置顶组时勾选框本来就是灰的（setPinned()），勾不上。
     //
     // NOTE: 三条路都走**主窗口那几个现有入口**（走 `Host`），不在这里另写一遍 wtfml.folders
     // 的读写：它们各自会发 groupsChanged、自己把树重灌，而且"没有置顶组时什么都不做"

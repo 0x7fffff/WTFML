@@ -74,14 +74,14 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/net/HttpClient.cpp
     ${REPO_ROOT}/src/net/HttpClient.hpp
     ${REPO_ROOT}/src/download/DownloadManager.cpp
-    # 「从别的游戏文件夹里借文件」（2026-10-20）：DownloadManager 现在会调它
+    # 「从别的游戏文件夹里借文件」：DownloadManager 会调它
     # （来源为空 = 一个文件都不看）。纯值进结论出那一层直接编进 verify 逐格念。
     ${REPO_ROOT}/src/download/LocalFileReuse.cpp
     ${REPO_ROOT}/src/download/LocalFileReuse.hpp
     ${REPO_ROOT}/src/download/ResumableDownload.cpp
     ${REPO_ROOT}/src/download/ResumableDownload.hpp
     ${REPO_ROOT}/src/download/DownloadManager.hpp
-    # 下载诊断层（2026-10-17）：DownloadManager / ResumableDownload 现在无条件调它
+    # 下载诊断层：DownloadManager / ResumableDownload 无条件调它
     # （普通构建 enabled() 是编译期 false，一个字段都不多写）。不放进来源表就是链接期
     # 一片 undefined reference。
     ${REPO_ROOT}/src/util/DownloadDiagnostics.cpp
@@ -130,13 +130,13 @@ set(PROJECT_SOURCES
     # 临时游戏文件夹跑。
     ${REPO_ROOT}/src/manage/VersionIntegrity.cpp
     ${REPO_ROOT}/src/manage/VersionIntegrity.hpp
-    # 更新中心那两层（2026-10-13，§7.1）：判据（忽略 / 固定那一档，纯值 + 一次文件读写）和
+    # 更新中心那两层：判据（忽略 / 固定那一档，纯值 + 一次文件读写）和
     # 回滚点（真拷文件、真还原）。都放进来 —— ZX / ZT 两节直接对着临时目录钉。
     ${REPO_ROOT}/src/manage/UpdatePolicy.cpp
     ${REPO_ROOT}/src/manage/UpdatePolicy.hpp
     ${REPO_ROOT}/src/manage/UpdateRollback.cpp
     ${REPO_ROOT}/src/manage/UpdateRollback.hpp
-    # 备份那一层（§4.4）：打一份包、读清单、还原。和 WorldFiles 同一个理由放进验证工程 ——
+    # 备份那一层：打一份包、读清单、还原。和 WorldFiles 同一个理由放进验证工程 ——
     # 「清单读得回来吗」「还原之前那份安全快照做出来没有」「解压到一半失败时旧的那一份还在不在」
     # 这三件事都能绕开界面直接钉死，而且全是真的建 zip、真的解回来。
     ${REPO_ROOT}/src/manage/BackupFiles.cpp
@@ -145,71 +145,71 @@ set(PROJECT_SOURCES
     # （测试驱动不了它）直接调函数 —— 重名挡住没有、拷一半失败会不会留半份，都在这里钉。
     ${REPO_ROOT}/src/manage/WorldFiles.cpp
     ${REPO_ROOT}/src/manage/WorldFiles.hpp
-    # 世界只读概况（§9.6）：头部表解析、种子/玩家位置读取、目录扫描 —— 纯函数那两截
+    # 世界只读概况：头部表解析、种子/玩家位置读取、目录扫描 —— 纯函数那两截
     # 直接喂假数据就能逐格念，不用造一个真存档。
     ${REPO_ROOT}/src/manage/WorldMap.cpp
     ${REPO_ROOT}/src/manage/WorldMap.hpp
-    # 「上一次启动」那本账（§5.1）：格式怎么读写、时间怎么说成人话、目标没了怎么降级、
+    # 「上一次启动」那本账：格式怎么读写、时间怎么说成人话、目标没了怎么降级、
     # 上限怎么截 —— 全是纯函数，**一条都不用起界面**就能逐格念。
     ${REPO_ROOT}/src/manage/LaunchHistory.cpp
     ${REPO_ROOT}/src/manage/LaunchHistory.hpp
-    # 实例预设（2026-10-14，coding plan §5–§6 / P1）：值那一层（格式标记、schema 版本、
+    # 实例预设：值那一层（格式标记、schema 版本、
     # 枚举⇄词、段与整份的读回）与盘那一层（下标、单份、增删改）。★ 两个都收一个 `root`
     # 参数，所以 `verify` 的 **PA** 一节拿 `QTemporaryDir` 一喂就能逐格念 —— 包括最难查的
     # 那两格：「一份坏了另外几份照旧列得出来」和「名字里带 `../` 也逃不出预设目录」。
     ${REPO_ROOT}/src/presets/PresetTypes.hpp
     ${REPO_ROOT}/src/presets/PresetStore.cpp
     ${REPO_ROOT}/src/presets/PresetStore.hpp
-    # 原版设置那一段（2026-10-15，coding plan §6 P2）：`options.txt` 的保序读写（门槛就是
+    # 原版设置那一段：`options.txt` 的保序读写（门槛就是
     # **原地往返**，测试里那几条逐字节比的就是它）、认得的键那张表、按键冲突，以及"这一段
     # 怎么落到目标上"的计划与执行。`verify` 的 **PB** 一节拿两份假 `options.txt` 一喂就能
     # 逐格念 —— 包括最容易做错的那两格：「目标版本新增的键一个都不许丢」和「认不出来的行
     # 任何一档都不删」。
     ${REPO_ROOT}/src/presets/VanillaOptions.cpp
     ${REPO_ROOT}/src/presets/VanillaOptions.hpp
-    # 服务器列表那一段（2026-10-15，coding plan §6 P3）：归一化地址、Append / Replace / Skip
+    # 服务器列表那一段：归一化地址、Append / Replace / Skip
     # 的计划与报告，以及真的落在一份 `servers.dat` 上的那一趟（读回来还是不是游戏认得出来
     # 的那棵树、没碰过的条目是不是逐字节没变）。`verify` 的 **PC** 一节拿 `QTemporaryDir`
     # 造一份真文件（gzip / 裸的两种都有）就能逐格念。
     ${REPO_ROOT}/src/presets/ServerListPreset.cpp
     ${REPO_ROOT}/src/presets/ServerListPreset.hpp
-    # 通用文件组那一段（2026-10-15，coding plan §6 P3 的后半）：`config/` / `defaultconfigs/`
+    # 通用文件组那一段：`config/` / `defaultconfigs/`
     # / 资源包 / 光影 —— 只做整份的动作（缺了才拷 / 覆盖 / 跳过）+ 那三道路径闸。`verify`
     # 的 **PD** 一节在两个临时目录之间真拷真读（含 junction 逃逸那两条：源侧和目标的）。
     ${REPO_ROOT}/src/presets/GenericFiles.cpp
     ${REPO_ROOT}/src/presets/GenericFiles.hpp
-    # 应用计划那一层（2026-10-15，coding plan §5 / §7）：一段一行地算"这一趟会怎么样"。
+    # 应用计划那一层：一段一行地算"这一趟会怎么样"。
     # `verify` 的 **PE** 一节：手搓几段假段 + 一份快照，念表上那一列字和那几个数（那一层
     # 只读盘、一个字节都不写，所以除了通用文件组的干跑之外全都是纯值）。
     ${REPO_ROOT}/src/presets/PresetPlanner.cpp
     ${REPO_ROOT}/src/presets/PresetPlanner.hpp
-    # 提取与落到实例上（2026-10-18，coding plan §6 P1 / §7 / §8.1）：`verify` 的 **PG**
+    # 提取与落到实例上：`verify` 的 **PG**
     # 一节拿真实例形状的临时目录走一遍 —— 收一份出来、再落回另一个实例、覆盖那几样
     # 备份在不在、游戏在跑时是不是一个字节都没写。
     ${REPO_ROOT}/src/presets/PresetCapture.cpp
     ${REPO_ROOT}/src/presets/PresetCapture.hpp
     ${REPO_ROOT}/src/presets/PresetApply.cpp
     ${REPO_ROOT}/src/presets/PresetApply.hpp
-    # 资源包次序 / 启用 + 存档数据包（2026-10-18，coding plan §6 P4）：`verify` 的 **PL**
+    # 资源包次序 / 启用 + 存档数据包：`verify` 的 **PL**
     # 一节 —— 资源包按 options.txt 那一行摆启用与次序（内置包不动）、数据包落进真存档 /
     # 没那个存档时进 `datapacks-pending/` 并记进 `wtfml.datapacks`（**从不冒充已启用**）。
     ${REPO_ROOT}/src/presets/ResourcePackPreset.cpp
     ${REPO_ROOT}/src/presets/ResourcePackPreset.hpp
     ${REPO_ROOT}/src/presets/DataPackPreset.cpp
     ${REPO_ROOT}/src/presets/DataPackPreset.hpp
-    # 模组「真正去下」之前的判据层（2026-10-18，coding plan §10.1 第 7 项 / P5）：
+    # 模组「真正去下」之前的判据层：
     # `verify` 的 **PM** 一节 —— 必要/可选失败分开、依赖按 `平台:项目号` 去重展开、
     # optional 只列不下、embedded 无视、incompatible 挡住、替代项目不确认就不换、
     # 落盘大小/sha1 校验。全拿手搭的假答复，**一条都不用联网**。
     ${REPO_ROOT}/src/presets/ModInstallPlan.cpp
     ${REPO_ROOT}/src/presets/InstalledModInventory.cpp
     ${REPO_ROOT}/src/presets/ModInstallPlan.hpp
-    # 模组预设的兼容检查（2026-10-18，coding plan §6.0 P2 / §7.2）：本地筛选、去重、
+    # 模组预设的兼容检查：本地筛选、去重、
     # 有限并发、generation 隔离、缓存命中/过期、超时 ⇒ `Unknown` —— 全部拿假提供方
     # 逐格念，**一条都不用联网**。`verify` 的 **PH** 一节。
     ${REPO_ROOT}/src/presets/PresetCompatibility.cpp
     ${REPO_ROOT}/src/presets/PresetCompatibility.hpp
-    # MaLiLib 那一族的热键（2026-10-17，coding plan §6 P4 / §10 第 12 项）：按**结构**认这一族
+    # MaLiLib 那一族的热键：按**结构**认这一族
     # （不看文件名）、一格一格地读/写（认三档：整格是热键 / 一格装开关+热键 / 别的值）、
     # 冲突分析、以及在两份真形状的 `config/*.json` 之间真写一遍。`verify` 的 **PF** 一节拿
     # `QTemporaryDir` 造几份真形状的配置就能逐格念 —— 最要紧的那几格：「目标上没绑的那些
@@ -217,20 +217,20 @@ set(PROJECT_SOURCES
     # **不删格子**」。
     ${REPO_ROOT}/src/presets/MalilibKeys.cpp
     ${REPO_ROOT}/src/presets/MalilibKeys.hpp
-    # 结构 / 原理图的元数据与方块统计（2026-10-18，coding plan §9.5）。`verify` 的 **SG**
+    # 结构 / 原理图的元数据与方块统计。`verify` 的 **SG**
     # 一节拿 `NbtTree::serialize()` 手搭三种格式的树（含 gzip 那一层）逐项念。
     ${REPO_ROOT}/src/schematic/SchematicInfo.cpp
     ${REPO_ROOT}/src/schematic/SchematicInfo.hpp
-    # Replay 录像（`.mcpr`）的元数据（2026-10-18，coding plan §9.5）。`verify` 的 **RP**
+    # Replay 录像（`.mcpr`）的元数据。`verify` 的 **RP**
     # 一节拿 `ZipUtil::createZip()` 造几份真形状的 `.mcpr` 逐项念（缺字段 / 不是 zip /
     # 少了 metaData.json 各一路）。
     ${REPO_ROOT}/src/replay/ReplayInfo.cpp
     ${REPO_ROOT}/src/replay/ReplayInfo.hpp
-    # 启动诊断（2026-10-18，coding plan §9.5）。`verify` 的 **DX** 一节造临时
+    # 启动诊断。`verify` 的 **DX** 一节造临时
     # mods/日志/崩溃报告，逐条念「问题 / 提醒 / 信息」的判据。
     ${REPO_ROOT}/src/diagnose/StartupDiagnosis.cpp
     ${REPO_ROOT}/src/diagnose/StartupDiagnosis.hpp
-    # 迁移 / 升级副本（2026-10-18，coding plan §9.9 第 15 项）。`verify` 的 **TR** 一节
+    # 迁移 / 升级副本。`verify` 的 **TR** 一节
     # 自己摆一份源实例（存档 / 模组 / 日志），逐条念兼容结论、默认勾选与"只增不删"。
     ${REPO_ROOT}/src/operations/TransferPlanner.cpp
     ${REPO_ROOT}/src/operations/TransferPlanner.hpp
@@ -250,7 +250,7 @@ set(PROJECT_SOURCES
     # 连一次 —— 纯函数那半只证明"我按我写的规则拆了包"，协议那头对不对得看那一趟。
     ${REPO_ROOT}/src/util/ServerPing.cpp
     ${REPO_ROOT}/src/util/ServerPing.hpp
-    # 工具箱那四件（2026-10-16）：纯函数，判据在 tests/main.cpp 里那几节（彩色文本三种写法
+    # 工具箱那四件：纯函数，判据在 tests/main.cpp 里那几节（彩色文本三种写法
     # 的往返、坐标 8:1 与 F3+C 那行 tp、哈希的"已知值"归一化与流式读取、铁砧那套惩罚机制）。
     ${REPO_ROOT}/src/tools/TextFormat.cpp
     ${REPO_ROOT}/src/tools/TextFormat.hpp
@@ -260,33 +260,33 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/tools/FileHash.hpp
     ${REPO_ROOT}/src/tools/AnvilPlanner.cpp
     ${REPO_ROOT}/src/tools/AnvilPlanner.hpp
-    # 信标计算 / 酿造助手（2026-10-18，coding plan §9.11）：ZAI 那一节钉那几组数
+    # 信标计算 / 酿造助手：ZAI 那一节钉那几组数
     # （累计方块数、效果范围、效果解锁表）与酿造路线（链式前驱、二选一冲突、形态后处理）。
     ${REPO_ROOT}/src/tools/Beacon.cpp
     ${REPO_ROOT}/src/tools/Beacon.hpp
     ${REPO_ROOT}/src/tools/Brewing.cpp
     ${REPO_ROOT}/src/tools/Brewing.hpp
-    # 旗帜设计 / 纹饰搭配（2026-10-18，coding plan §9.11）：ZAJ 那一节钉图案表、层数上限、
+    # 旗帜设计 / 纹饰搭配：ZAJ 那一节钉图案表、层数上限、
     # 材料合并与纹饰的海龟壳限制。
     ${REPO_ROOT}/src/tools/Banner.cpp
     ${REPO_ROOT}/src/tools/Banner.hpp
     ${REPO_ROOT}/src/tools/ArmorTrim.cpp
     ${REPO_ROOT}/src/tools/ArmorTrim.hpp
-    # 运行输出共用模型（2026-10-18，coding plan §9.8）：只依赖 QtCore（字符串 + 容器），
+    # 运行输出共用模型：只依赖 QtCore（字符串 + 容器），
     # 所以 ZAM 那一节能直接驱动它：认级别 / 计数 / 档案筛选 / 搜索 / 两条上限 / 导出。
     ${REPO_ROOT}/ui/RuntimeOutputModel.cpp
     ${REPO_ROOT}/ui/RuntimeOutputModel.hpp
-    # ServerListFile（2026-10-10）：servers.dat 的读（转 NbtUtil）和「只动 name / ip
+    # ServerListFile：servers.dat 的读（转 NbtUtil）和「只动 name / ip
     # 两格」的写。它要 NbtUtil（读）和 ZipUtil（gzip 那一层）—— 那两样都在上面。
     ${REPO_ROOT}/src/manage/ServerListFile.cpp
     ${REPO_ROOT}/src/manage/ServerListFile.hpp
-    # ServerListController（2026-10-15）：上面那三个写入口**谁在指挥**（改 / 加 / 删那三条
-    # 链路上的四道闸）。2026-10-15 从 MainWindow 搬出来，收成一个假 Host 就能驱动的形状 ——
-    # ZK13 起那一节正是靠这一点才验得了（从前那些闸夹在 OverlayHost 中间，要验得开真窗口）。
+    # ServerListController：上面那三个写入口**谁在指挥**（改 / 加 / 删那三条
+    # 链路上的四道闸）。它收成一个假 Host 就能驱动的形状 —— ZK13 起那一节正是靠
+    # 这一点才验得了（那些闸不夹在 OverlayHost 中间，不必开真窗口）。
     # 它只要 ServerListFile（在上面）和 QtCore。
     ${REPO_ROOT}/src/controllers/ServerListController.cpp
     ${REPO_ROOT}/src/controllers/ServerListController.hpp
-    # InstanceMaintenanceController（2026-10-20）：世界 level.dat 的世代备份落在哪个格子 ——
+    # InstanceMaintenanceController：世界 level.dat 的世代备份落在哪个格子 ——
     # ZQ9 那一节拿两个实例下**同名**的存档钉住"各占一格、清理互不挤代数、最近一份不串门"。
     # 它只要 FolderManager（在上面）、WorldFiles（在上面）、ConfigFileText（头文件）、QtCore。
     ${REPO_ROOT}/src/controllers/InstanceMaintenanceController.cpp
@@ -310,7 +310,7 @@ set(PROJECT_SOURCES
     # 传进来，所以报告头部那几行能被断言钉死）。
     ${REPO_ROOT}/src/util/ErrorReport.cpp
     ${REPO_ROOT}/src/util/ErrorReport.hpp
-    # GameExitDiagnosis：游戏异常退出之后那几句话（coding plan §4.3）。**纯函数**（值进、
+    # GameExitDiagnosis：游戏异常退出之后那几句话。**纯函数**（值进、
     # 字符串出，不看时钟、不读盘、不起进程）—— "哪条提示是从哪个字段推出来的"这件事只能
     # 在这里逐格念一遍（真机上要真崩一次才走得到，见下面 ZP 节）。
     ${REPO_ROOT}/src/diag/GameExitDiagnosis.cpp
@@ -344,7 +344,7 @@ if(EXISTS ${REPO_ROOT}/src/download/LoaderMeta.hpp)
     list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/download/LoaderMeta.hpp)
 endif()
 
-# ServerInstall 是"服务端安装链路"那次改动（2026-09-28）引入的纯函数层：八档服务端各要
+# ServerInstall 是"服务端安装链路"那一层纯函数：八档服务端各要
 # 下什么、要不要跑安装器、装完的入口是什么、启动参数怎么拼。理由同 LoaderMeta ——
 # 一整个文件都是判据，离线喂数据就能钉住；它只依赖 LoaderMeta，不拖任何网络进来。
 if(EXISTS ${REPO_ROOT}/src/download/ServerInstall.hpp)
@@ -358,7 +358,7 @@ if(EXISTS ${REPO_ROOT}/src/download/ResourceCatalog.cpp)
                                 ${REPO_ROOT}/src/download/ResourceCatalog.hpp)
 endif()
 
-# ModDependencies 是"前置模组一键下载 + 实例更新检测"那次改动（2026-09-28）引入的纯函数层：
+# ModDependencies 是"前置模组一键下载 + 实例更新检测"那一层纯函数：
 # 缺哪些前置 / 去哪问 / 挑哪一版 / 盘上这一条是不是最新。理由同 ResourceCatalog ——
 # 一整个文件都是判据，离线喂数据就能钉住（这一节里的是 R1/R2 两带）。
 # **它只依赖 ResourceCatalog**（不含 QNetwork 那一套），所以放在这里不会把网络拖进来。
@@ -385,7 +385,7 @@ if(EXISTS ${REPO_ROOT}/src/util/ImageDecode.cpp)
                                 ${REPO_ROOT}/src/util/ImageDecode.hpp)
 endif()
 
-# 任务账本那一套（2026-10-12，coding plan §2 / §3）。它**一个 QWidget 都不碰、一个网络都
+# 任务账本那一套。它**一个 QWidget 都不碰、一个网络都
 # 不开**，所以 verify 这一节能直接 new 一个、喂几条假任务进去，把那几条纯规则钉死：
 # 「终态只落一次」「号从盘上续」「没跑完的读回来算已中断」。
 # 理由同上：别的分支上没有它，存在才加。
@@ -398,7 +398,7 @@ if(EXISTS ${REPO_ROOT}/src/tasks/TaskManager.cpp)
                                 ${REPO_ROOT}/src/tasks/TaskId.hpp)
 endif()
 
-# ThemeImage 是设置页「背景图」那两行收图的那一层（2026-09-28，用户点名要的"能换背景图"）。
+# ThemeImage 是设置页「背景图」那两行收图的那一层（用户点名要的"能换背景图"）。
 # 它能离线验：V5s 那一段在一个临时数据根目录里真存真删，只看盘上少了哪一个文件。
 # 理由同上：别的分支上没有它，存在才加。
 if(EXISTS ${REPO_ROOT}/src/util/ThemeImage.cpp)
@@ -406,7 +406,7 @@ if(EXISTS ${REPO_ROOT}/src/util/ThemeImage.cpp)
                                 ${REPO_ROOT}/src/util/ThemeImage.hpp)
 endif()
 
-# 服务端工作区那一层（2026-10-13，coding plan §6 / 里程碑 M4）：判据层（`ServerModel`，
+# 服务端工作区那一层：判据层（`ServerModel`，
 # 纯值进、结构出：状态那七档、`eula.txt` 算不算接受、`server.properties` 解/写、我们记的
 # 那一份的字节格式）+ 扫盘那一层（`ServerRegistry`）。两样都能离线钉死 —— 后者在一个**临时
 # 数据根目录**里真建真读真删（见 main.cpp 的 ZW / ZX 两节）。
@@ -417,7 +417,7 @@ if(EXISTS ${REPO_ROOT}/src/server/ServerModel.hpp)
                                 ${REPO_ROOT}/src/server/ServerRegistry.hpp)
 endif()
 
-# 服务端安装那条路（2026-10-13，coding plan §6.2 / 里程碑 M4-2）：`ServerInstallRun.hpp` 是
+# 服务端安装那条路：`ServerInstallRun.hpp` 是
 # **纯头**（还差哪一份元数据、取回来的那份怎么读、跑工具的命令行、分成几步）—— 全是纯函数，
 # 喂一份 json 就出结论，不联网不起进程。所以 `verify` 的 **ZY** 一节能把它整片钉死。
 # 驱动层（`ServerInstallController`）不在这儿：它要 QObject / QProcess，归 mw_check。
@@ -425,7 +425,7 @@ if(EXISTS ${REPO_ROOT}/src/server/ServerInstallRun.hpp)
     list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/server/ServerInstallRun.hpp)
 endif()
 
-# 服务端的"跑"那条路（2026-10-13，coding plan §6.2 的操作 + §6.3 的停止时序 / 里程碑 M4-3）：
+# 服务端的"跑"那条路：
 # `ServerRun.hpp` 同样是**纯头**（那条启动命令怎么拼、起来没有、退了算哪一档状态、宽限多久
 # 才允许强杀）—— 不联网不起进程不看时钟，所以 `verify` 的 **ZZ** 一节能把它整片钉死。
 # 驱动层（`ServerProcess`，一条真 QProcess）不在这儿：归 mw_check（T41 拿它自己的 exe 当
@@ -434,7 +434,7 @@ if(EXISTS ${REPO_ROOT}/src/server/ServerRun.hpp)
     list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/server/ServerRun.hpp)
 endif()
 
-# 「服务端设置」那几层（2026-10-13，coding plan §6.3 / 里程碑 M4-4）：
+# 「服务端设置」那几层：
 #   * `ServerPropertiesForm` —— `server.properties` 常用字段那张表（每一项的值域、"这个值
 #     收不收"、把补丁叠回一份原文上、文件级的那几处不对）；
 #   * `ServerPortCheck` —— 那一件**真去占一次端口**的小事（它要 Qt6::Network，本工程已链）；
@@ -448,27 +448,27 @@ if(EXISTS ${REPO_ROOT}/src/server/ServerPropertiesForm.hpp)
                                 ${REPO_ROOT}/src/server/ServerCheck.hpp)
 endif()
 
-# 服务端那四份玩家名单（2026-10-18，§9.7）：纯解析 / 纯拼 JSON，一个字节的盘都不碰。
+# 服务端那四份玩家名单：纯解析 / 纯拼 JSON，一个字节的盘都不碰。
 # verify 的 **ZAE** 一节直接钉它（外加离线 UUID 那个已知向量）。
 if(EXISTS ${REPO_ROOT}/src/server/ServerPlayers.hpp)
     list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/server/ServerPlayers.hpp
                                 ${REPO_ROOT}/src/server/ServerPlayers.cpp)
 endif()
 
-# 崩溃自动重启那条策略（2026-10-18，§9.7）：纯判据，verify 的 **ZAF** 一节钉它。
+# 崩溃自动重启那条策略：纯判据，verify 的 **ZAF** 一节钉它。
 if(EXISTS ${REPO_ROOT}/src/server/ServerRestart.hpp)
     list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/server/ServerRestart.hpp
                                 ${REPO_ROOT}/src/server/ServerRestart.cpp)
 endif()
 
-# 服务端资源包（2026-10-18，§9.7）：条目表判据是纯的；`inspect()` 会借 ZipUtil（真 zip）。
+# 服务端资源包：条目表判据是纯的；`inspect()` 会借 ZipUtil（真 zip）。
 # verify 的 **ZAG** 一节钉它。
 if(EXISTS ${REPO_ROOT}/src/server/ServerResourcePack.hpp)
     list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/server/ServerResourcePack.hpp
                                 ${REPO_ROOT}/src/server/ServerResourcePack.cpp)
 endif()
 
-# 服务端内容（模组 / 数据包，2026-10-18，§9.7）：名字 / 分类 / 改名全是纯函数。
+# 服务端内容（模组 / 数据包）：名字 / 分类 / 改名全是纯函数。
 # verify 的 **ZAH** 一节钉它。
 if(EXISTS ${REPO_ROOT}/src/server/ServerContent.hpp)
     list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/server/ServerContent.hpp
@@ -487,10 +487,8 @@ target_include_directories(verify PRIVATE ${REPO_ROOT}/src ${REPO_ROOT}/ui)
 target_link_libraries(verify PRIVATE Qt6::Core Qt6::Network Qt6::Gui Qt6::Concurrent)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(verify PRIVATE -O0)
-    # main.cpp 已经长到 COFF 的 32767 个节装不下（2026-10-18 加了代理那节之后真的炸了：
-    # `too many sections` / `file too big`，这是链接**之前**汇编器那一步报的）。
-    # -Wa,-mbig-obj 让汇编器写大对象格式；不加的话只能靠拆文件，而这条回归本来就该是
-    # 一个可执行文件。
+    # Keep MinGW's large-object support for template-heavy assertion modules.
+    # verify is a compatibility driver; routine CI builds independent domains.
     target_compile_options(verify PRIVATE -Wa,-mbig-obj)
 endif()
 
@@ -523,7 +521,7 @@ set_tests_properties(wtfml.test-runner PROPERTIES
     LABELS "tooling"
     TIMEOUT 60
 )
-# TIMEOUT 900（2026-10-17）：300 秒在 CI 上不够。GitHub 那个 windows runner 上，300 秒
+# TIMEOUT 900：300 秒在 CI 上不够。GitHub 那个 windows runner 上，300 秒
 # 只跑到 V5z（源码里大约四成），而被杀的那一刻还在稳定出 PASS —— 不是挂住，是慢
 # （O0 的验证工程 + 临时目录里一堆真文件 + 那几段等 10/30 秒超时的用例）。本机同样
 # 这一份大约 100 秒。放到 900 给 CI 留三倍富余；工作流自己还有 45 分钟的总闸。

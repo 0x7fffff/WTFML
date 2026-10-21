@@ -2,10 +2,9 @@
 int UiTaskCenterChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs) {
 
     {
-        // 这一节原来是 `bottomBarShowsProgress()` 那五条（"在启动 / 在下载 / 在同步阻塞"）。
-        // 那套布尔量 随任务中心一起拆掉了：现在中间那格写哪句话由**任务账本**
+        // 这一节量的是任务中心这颗入口按钮：中间那格写哪句话由**任务账本**
         // 决定（`Tasks::collapsedSummary()`，纯规则在 verify 的 AL/AM 两节量；"同步等待
-        // 压在上面"那条在 mw_check 量）。界面这一头留下的是这颗按钮**本身**：它是任务中心
+        // 压在上面"那条在 mw_check 量）。界面这一头量的是这颗按钮**本身**：它是任务中心
         // 的入口，点一下往上弹那块面板。
         QPushButton *cell = ui.getTaskSummaryButton();
         check(cell != nullptr && cell->isVisible() && cell->isEnabled(),
@@ -152,7 +151,7 @@ int UiTaskCenterChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
                           ? rowWidget0->property(MainWindowUI::taskCenterPanelRowKeyProperty())
                                 .toString()
                           : QStringLiteral("<没找到>"));
-                // 百分比测不出时**不摆那根条**（coding plan §3.4：不编一个假百分比出来）。
+                // 百分比测不出时**不摆那根条**（不编一个假百分比出来）。
                 // 这一行里那点信息由下面那句小字说（"已下载 3 / 9 个文件"）。
                 // NOTE: 不确定态（range 0..0）是**底栏那一整格**的写法（"有东西在跑但说不清
                 // 到哪了"），不是面板里每一行的 —— 一行一行都摆一根空转的条，面板
@@ -182,7 +181,7 @@ int UiTaskCenterChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
                     check(clearCalls == 1, "I2 点「清除已完成」把话带回了调用方（一次）",
                           QStringLiteral("回来 %1 次").arg(clearCalls));
                 }
-                // 行尾那颗「取消」（，coding plan §3.2 的行内快捷动作）：
+                // 行尾那颗「取消」（行内快捷动作）：
                 // 只有**能力位说可以**、而且外面挂了处理器时才长。上面那件在跑的那一行
                 // 没设 `capabilities.cancel` ⇒ 那一行行尾什么都不长；挂上处理器也不长。
                 auto *cancel0 = panel->findChild<QPushButton *>(

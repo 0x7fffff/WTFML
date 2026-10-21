@@ -3,8 +3,8 @@
  * @brief 实例预设落盘那一层的实现（形状与取舍见头文件与 `PresetTypes.hpp`）。
  *
  * 这一份里三处最容易写歪的地方，各自都有长注释：
- * · `isValidPresetId()` —— 唯一的目录逃逸闸（§6 P1 的验收之一）；
- * · `list()` —— "一份坏了不许连坐别的"（§6 P1 的另一条验收）落成的那个形状；
+ * · `isValidPresetId()` —— 唯一的目录逃逸闸（验收之一）；
+ * · `list()` —— "一份坏了不许连坐别的"（另一条验收）落成的那个形状；
  * · `remove()` / `create()` 里那两句"下标读不回来就**不写回去**" —— 写回去等于把用户
  * 排好的顺序抹平，而那一下屏幕上什么都不会说。
  */
@@ -287,7 +287,7 @@ bool saveIndex(const QString &root, const PresetIndex &index) {
 }
 
 // ---------------------------------------------------------------------------
-// 类别约束（§4 / §6.0 P0）
+// 类别约束
 // ---------------------------------------------------------------------------
 
 bool sectionFitsCategory(PresetCategory category, const PresetSection &section) {
@@ -309,7 +309,7 @@ bool sectionFitsCategory(PresetCategory category, const PresetSection &section) 
         case SectionKind::ServerList:
             return true;
         case SectionKind::GenericFiles:
-            // `config/` 与 `defaultconfigs/` 是"高级内容"（§6.3），首版先收在游戏设置里；
+            // `config/` 与 `defaultconfigs/` 是"高级内容"，首版先收在游戏设置里；
             // 资源包/光影归 `ResourcePacks`，不许混进来。
             return isGeneric && (group == FileGroup::Config || group == FileGroup::DefaultConfigs);
         case SectionKind::Custom:
@@ -321,7 +321,7 @@ bool sectionFitsCategory(PresetCategory category, const PresetSection &section) 
     case PresetCategory::Mods:
     case PresetCategory::DataPacks:
         // 模组引用不走段表（`PresetManifest::modReferences`），模组类允许空预设；
-        // 数据包载荷（P4）还没有对应的段种类。首版这两类先只放得下 `Custom`。
+        // 数据包载荷还没有对应的段种类。首版这两类先只放得下 `Custom`。
         return section.kind == SectionKind::Custom;
     case PresetCategory::Unset:
         break;
@@ -333,7 +333,7 @@ QString categoryMismatch(const PresetManifest &manifest) {
     if (manifest.category == PresetCategory::Unset) {
         return QString();
     }
-    // 模组引用只属于「模组」这一类。放进别的类别 = 串类别（§6.0 P0 那条验收），
+    // 模组引用只属于「模组」这一类。放进别的类别 = 串类别（一条验收），
     // 拼出来的安装计划会去改一类用户没选的东西。
     if (!manifest.modReferences.isEmpty() && manifest.category != PresetCategory::Mods) {
         return QStringLiteral("这一份的类别和内容对不上（模组引用只属于「模组」这一类）");
@@ -446,7 +446,7 @@ QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken) {
         QString reason;
         const PresetManifest manifest = loadManifest(root, id, &ok, &reason);
         if (!ok) {
-            // 坏的那一份**只进 broken**（不进 summary 列表）：这是 §6 P1 那条验收落成的
+            // 坏的那一份**只进 broken**（不进 summary 列表）：这是这一条验收落成的
             // 形状 —— 一份读不回来，别的照旧列出来、照旧能用。
             if (broken != nullptr) {
                 broken->append(BrokenPreset{id, reason});
@@ -519,8 +519,7 @@ PresetManifest create(const QString &root, const QString &name, const QString &d
     if (!saveManifest(root, manifest)) {
         // 建目录成、清单没写成 ⇒ 把这个 id 的目录整棵收掉。不收的话盘上
         // 留下一个**有目录没 manifest** 的 UUID：`list()` 会把它当成"坏预设"列出来，
-        // 用户看到一条自己没建过的坏条目，重试还会再留一个。`duplicate()` 那条路早就
-        // 是这么收的（下面），这里原来漏了。
+        // 用户看到一条自己没建过的坏条目，重试还会再留一个。`duplicate()` 那条路也是这么收的。
         const QString dir = presetDir(root, manifest.id);
         if (QFileInfo::exists(dir)) {
             removeTreeWithoutFollowingLinks(dir);

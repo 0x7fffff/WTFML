@@ -113,8 +113,8 @@ int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
         check(o.stats.skipped == kAssetObjects,
               "F1 冷批次: 只有已在盘上的 asset 对象被跳过（ExistsOnly）",
               QString("skipped=%1").arg(o.stats.skipped));
-        // 用户看进度条时读到的就是这两个数。从前 total 里塞着"跳过的 + 索引"，
-        // 两个数加不出登记总数；现在分母 + 跳过 = 登记的作业 - 索引那一格。
+        // 用户看进度条时读到的就是这两个数。分母 + 跳过 = 登记的作业 - 索引那一格，
+        // 两个数要对得上。
         check(o.stats.total + o.stats.skipped == kRegisteredJobs - 1,
               "★ F1 冷批次: 分母 + 跳过 = 登记总数 - 索引那一格（两个数终于对得上）",
               QString("%1 + %2 vs %3").arg(o.stats.total).arg(o.stats.skipped).arg(kRegisteredJobs));
@@ -140,8 +140,7 @@ int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
               "F2 暖批次: 6 个已存在文件被跳过（索引永远重取）",
               QString("skipped=%1").arg(o.stats.skipped));
         check(o.stats.total == 0 && o.stats.done == 0,
-              "★ F2 暖批次: 一个都不用下 ⇒ 分母是 0（改动前 total == done == 7："
-              "分母里塞着 6 个跳过的 + 1 个索引）",
+              "★ F2 暖批次: 一个都不用下 ⇒ 分母是 0（分母里不能塞着 6 个跳过的 + 1 个索引）",
               QString("%1/%2").arg(o.stats.done).arg(o.stats.total));
         check(!o.busyAfter, "F2 暖批次: 结束后 isBusy() 为假");
     }
@@ -153,7 +152,7 @@ int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
     {
         QFile::remove(sandbox + "/assets/indexes/synthidx.json");
         const BatchObservation o = runBatch(app, startGood(warmBase));
-        check(o.emissions == 1, "F3 只刷新索引: 仍然发射 1 次（改动前一次都不发）",
+        check(o.emissions == 1, "F3 只刷新索引: 仍然发射 1 次（不能一次都不发）",
               QString::number(o.emissions));
         check(o.success, "F3 只刷新索引: success == true");
         check(o.stats.skipped == kWarmSkipped, "F3 只刷新索引: 其余 6 个跳过",
@@ -185,7 +184,7 @@ int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
             out() << "        失败路径: " << p << "\n";
         }
         check(o.emissions == 1, "F4 失败: 仍然恰好发射 1 次", QString::number(o.emissions));
-        check(!o.success, "F4 失败: success == false（改动前硬编码 true，失败报不出来）");
+        check(!o.success, "F4 失败: success == false（硬编码 true 的话失败报不出来）");
         check(o.stats.failed == 1, "F4 失败: failed == 1",
               QString::number(o.stats.failed));
         check(o.stats.failedPaths.contains(failBase + "/versions/synth-1/synth-1.jar"),
@@ -245,10 +244,10 @@ int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
         check(!mgr.isBusy(), "F5 连跑两批: 结束后 isBusy() 为假");
     }
 
-    // F6 索引 SHA1 校验：把 assetIndex.sha1 故意写错。改动前这条路径写完文件就
-    // success = true（expectedSha1s 里登记了却没人读），镜像源拼错索引时会拿一份
-    // **内容不对的索引**去下几千个资源，而且要等资源层面才炸、看不出根因。
-    // 改了之后：整批失败、坏索引删掉、后面的解析根本不跑。
+    // F6 索引 SHA1 校验：把 assetIndex.sha1 故意写错。索引写完不能直接 success = true
+    // （expectedSha1s 里登记了就得有人读），否则镜像源拼错索引时会拿一份**内容不对的
+    // 索引**去下几千个资源，还要等资源层面才炸、看不出根因。判据：整批失败、坏索引
+    // 删掉、后面的解析根本不跑。
     {
         QJsonObject badIndexJson = goodJson;
         QJsonObject ai = badIndexJson[QStringLiteral("assetIndex")].toObject();
@@ -272,7 +271,7 @@ int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
         });
         out() << "        索引 SHA1: emissions=" << o.emissions << " success=" << o.success
               << " failed=" << o.stats.failed << " total=" << o.stats.total << "\n";
-        check(!o.success, "F6 索引 SHA1 不对: 整批报失败（改动前 success == true）");
+        check(!o.success, "F6 索引 SHA1 不对: 整批报失败（success 不能是 true）");
         check(o.stats.failed == 1, "F6 索引 SHA1 不对: 只有索引这一项算失败",
               QString::number(o.stats.failed));
         check(o.stats.failedPaths.contains(indexPath),
@@ -319,7 +318,7 @@ int runPipelineTests(QCoreApplication &app, const QString &sandbox) {
         });
         out() << "        索引不是索引: emissions=" << o.emissions << " success=" << o.success
               << " failed=" << o.stats.failed << " total=" << o.stats.total << "\n";
-        check(!o.success, "★ F6b 索引是合法 JSON 但不是资源索引: 整批报失败（改动前 success == true）");
+        check(!o.success, "★ F6b 索引是合法 JSON 但不是资源索引: 整批报失败（success 不能是 true）");
         check(o.stats.failed == 1 && o.stats.failedPaths.contains(indexPath),
               "F6b 失败清单里是索引文件本身（不是 5000 个资源对象）",
               QStringLiteral("failed=%1 contains=%2")

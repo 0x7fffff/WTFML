@@ -7,8 +7,8 @@
  *
  * 【为什么是一个独立的窗，而不是主页上的一块面板】
  *
- * 界面里**本来就没有日志面板**： 分选项卡时去掉了（那些话改走 Qt 的日志系统，
- * 落在 <数据目录>/logs/wtfml.log）。那件事对一个启动器是对的 —— 99% 的时间里日志是噪音。
+ * 界面里**没有日志面板**：日志走 Qt 的日志系统，落在 <数据目录>/logs/wtfml.log。
+ * 那对一个启动器是对的 —— 99% 的时间里日志是噪音。
  * 但"游戏起不来、想知道为什么"是真实需求，而那时候用户要的是**那一份游戏自己的**输出，
  * 不是启动器的。所以做成"按需开一个窗"，而不是把噪音请回主页。
  *
@@ -22,13 +22,12 @@
  * 什么都不发生：这只是个看输出的窗，游戏进程照跑（和「停止」按钮是两回事）。
  * 关掉之后**这一份会话**不再自动重开（见 `GameSessionController` 里那一份"用户关过"的表）。
  *
- * 【按级别染底色 + 顶上一排筛选（ 加）】
+ * 【按级别染底色 + 顶上一排筛选】
  *
- * 游戏自己打的日志本来就带级别（`[main/INFO]` 那一格），只是以前一律当纯文本铺出来 ——
- * 于是"崩在哪一条"要靠眼睛在一屏灰字里找。现在按严重程度给**整行**染底色
+ * 游戏自己打的日志本来就带级别（`[main/INFO]` 那一格）。按严重程度给**整行**染底色
  * （Debug 灰蓝 / Info 不染 / Warn 黄 / Error 红 / Fatal 深红配白字，见 levelBackground），
  * 顶上再摆一排带计数的开关：**开着的那颗就是这一档的颜色**（和正文那一行同一个色，不用读字
- * 就知道哪几档开着），点一下就只隐藏那一档、那颗也跟着回到原来那个灰。
+ * 就知道哪几档开着），点一下就只隐藏那一档、那颗也跟着回到那档灰。
  *
  * 四件事值得先说清：
  *
@@ -48,26 +47,24 @@
  * - **一次摆一整段，不是一行一次**（见 .cpp 里 insertRun）：文档操作是按**次数**收钱的，
  * 一份两万行的日志一行一次要半秒，攒成一段一次只要几十毫秒。
  *
- * 【 用户又提的四条】
+ * 【四个细节】
  *
- * ① 「日志行与行之间加一条细线分隔一下」→ 见 .cpp 里 LogView（**得是自己画的**：
- * QTextDocument 里没有"块的下边框"这一项）。② 「字号稍微大一点」→ logFont()，比系统那个
- * 等宽字体大 kLogFontPointDelta 号。③ 「允许这个窗口最大化最小化」→ 构造函数里那两行
- * window flags（QDialog 默认只给一个关闭钮）。④ 「游戏正常以 0 退出就自动关闭日志界面」
- * → autoCloseOnExit()，接线在 MainWindow::onGameFinished()。
+ * ① 行与行之间有一条细线（见 .cpp 里 LogView；**得是自己画的**：
+ * QTextDocument 里没有"块的下边框"这一项）。② logFont() 比系统那个等宽字体大
+ * kLogFontPointDelta 号。③ 窗口可最大化最小化（构造函数里那两行 window flags；
+ * QDialog 默认只给一个关闭钮）。④ 游戏正常以 0 退出就自动关闭日志界面
+ * （autoCloseOnExit()，接线在 MainWindow::onGameFinished()）。
  *
- * 【 的第二批：顶上那一排的右边】
+ * 【顶上那一排的右边】
  *
- * 要求：「日志栏右侧那个显示全部改成像主页实例/用户那里的下拉框，显示 500/1k/2k/25/10k/all
- * 条，把清除放到这个的旁边，关闭按钮改成右对齐」。三件事：
+ * 三件事：
  *
- * - **那颗「显示全部」按钮没有了**，原位换成 `QComboBox`（行数上限：500 / 1000 / 2000 /
- * 5000 / 10000 / 全部，见 lineLimitChoices()），默认「全部」= 改之前的行为。
- * NOTE: 原话里那个「25」是打错了的，用户随后订正成 5000（见 lineLimitChoices() 里那段）。
- * - 「清空」从底下那一排挪到**它旁边**（顶上那一排的最右）；底下那一排只剩「关闭」，右对齐。
+ * - **「显示全部」是一颗 `QComboBox`**（行数上限：500 / 1000 / 2000 / 5000 / 10000 /
+ * 全部，见 lineLimitChoices()），默认「全部」。
+ * - 「清空」在**它旁边**（顶上那一排的最右）；底下那一排只剩「关闭」，右对齐。
  * - 代价说清楚：**五档全关之后没有"一键全勾回来"了**。回退的路是那句占位本身
  * （filteredOutPlaceholderText() 写的就是"上面勾回来就看得见"）。这个取舍是刻意的 ——
- * 用户点名要把那颗按钮"改成下拉框"，而"五档全关"本来就是个少见状态，勾回五下不算事。
+ * "五档全关"本来就是个少见状态，勾回五下不算事。
  *
  * 【行数上限是"显示"的上限，不是"留多少"的上限】
  *
@@ -77,7 +74,7 @@
  *
  * 选了 500 之后模型里那两万行**一行都没少**：切回 10000 当场又多出九千五百行。这正是这个
  * 控件该有的手感 —— "少看点"是临时的视角，不是"把日志扔了"。所以那条上限走的是**视图的
- * maximumBlockCount**（这里原来那个数喂的是 maxLogBlocks()），重建视图就能变。
+ * maximumBlockCount**，重建视图就能变。
  *
  * 【导出】
  * 底部工具栏右侧提供导出入口。
@@ -119,7 +116,7 @@ public:
      */
     enum class LogLevel { Debug, Info, Warn, Error, Fatal };
 
-    // coding plan §9.8：真正管"哪一档、几行、怎么筛"的是 `RuntimeOutputModel`（服务端控制台
+    // 真正管"哪一档、几行、怎么筛"的是 `RuntimeOutputModel`（服务端控制台
     // 那一页也在用同一份）。这一层保留自己的枚举只是为了不惊动已有的调用点与验证工程 ——
     // 两套枚举**必须逐项对齐**（下面这几个 static_assert 就是那条约定的钉子）。
     static_assert(int(LogLevel::Debug) == int(RuntimeOutputModel::Level::Debug));
@@ -144,14 +141,13 @@ public:
      * 文本**（最多 maxLogBlocks() 行），藏起来不销毁的话，开过十个实例就白占十份
      * 内存。销毁之后由调用方那边把指针摘掉（见 MainWindow 里接 finished 的那一段）。
      *
-     * 【为什么**不要**父窗口（ 改）】
+     * 【为什么**不要**父窗口】
      *
-     * 原来是 `new GameLogWindow(name, this)`（parent = 启动器主窗）。在 Windows 上，
-     * "有主的窗"（owned window）**永远压在自己的主窗上面** —— 用户点启动器也翻不上来，
-     * 于是日志窗等于把启动器挡死了（要求：「日志一定会显示在启动器前面，会遮挡」）。
-     * 那是平台规则，不是可以调的风格，所以父窗口这件事本身就是病根。
+     * 在 Windows 上，"有主的窗"（owned window）**永远压在自己的主窗上面** —— 用户点
+     * 启动器也翻不上来，于是日志窗等于把启动器挡死了。那是平台规则，不是可以调的风格，
+     * 所以父窗口这件事本身就是病根。
      *
-     * 去掉父窗口换来三件事：能点到后面去、能自己最小化、任务栏上有自己一格。代价是
+     * 不要父窗口换来三件事：能点到后面去、能自己最小化、任务栏上有自己一格。代价是
      * "跟着启动器一起关掉"要自己接（见 MainWindow 析构里那一段）。
      */
     explicit GameLogWindow(const QString &instanceName, QWidget *parent = nullptr);
@@ -180,7 +176,7 @@ public:
      * @param crashed 是不是异常终止（`QProcess::ExitStatus == CrashExit`）。
      * @return 正常退出**且**退出码为 0 时为真。
      *
-     * 要求：「如果游戏正常以0退出就自动关闭日志界面」。那一趟没有任何可看的东西
+     * 游戏正常以 0 退出就自动关闭日志界面。那一趟没有任何可看的东西
      * （真出了事不会给 0），留着一扇只写着一行"已退出"的窗等于替用户留了个垃圾。
      *
      * NOTE: **崩溃（CrashExit）一律不关**，哪怕拿到的码正好是 0：崩溃那一趟正是用户要
@@ -258,9 +254,9 @@ public:
     static QVector<int> lineLimitChoices();
     /// 下拉框上那一档写什么。`0`（全部）写「全部」，其余写成数字 + 「条」。
     ///
-    /// NOTE: 数字**写全**（1000，不是 1k）—— 用户 的原话是「直接写数字」。
+    /// NOTE: 数字**写全**（1000，不是 1k）—— 直接写数字，不做 k 缩写。
     static QString lineLimitText(int limit);
-    /// 开窗时的默认档：全部（= 改之前的行为，进来就看得见全部日志）。
+    /// 开窗时的默认档：全部（进来就看得见全部日志）。
     static int defaultLineLimit() { return 0; }
     /// 那一档在数据里存什么（`QComboBox::itemData`）。校验工程按它认条目。
     static int lineLimitOfIndex(int index);
@@ -275,13 +271,13 @@ public:
     /**
      * @brief 认一行的级别；**认不出来时回 fallback**（调用方传"上一行的级别"）。
      *
-     * 规则只有一处实现（`RuntimeOutputModel::classifyLine`，§9.8 抽出去的那一层）；
+     * 规则只有一处实现（`RuntimeOutputModel::classifyLine`）；
      * 这里保留同名转发是为了不惊动已有的调用点和验证工程。
      */
     static LogLevel classifyLine(const QString &line, LogLevel fallback);
     static int levelScanHead() { return RuntimeOutputModel::levelScanHead(); }
 
-    // ---------- 搜索（§9.8 抽出来的共用那一半） ----------
+    // ---------- 搜索（抽出来的共用那一半） ----------
 
     /// 搜索框里那一格（验证工程拿它打字、也拿它量"有没有这一格"）。
     QLineEdit *getSearchEdit() const { return m_searchEdit; }
@@ -306,7 +302,7 @@ public:
     static QString droppedHintText(int dropped, int capacity);
     static QString clearButtonText();
     static QString closeButtonText();
-    /// 底下那两颗导出键（ 加的，要求见文件头）。两颗都写成"带省略号"那种
+    /// 底下那两颗导出键（说明见文件头）。两颗都写成"带省略号"那种
     /// （点下去还会再问一次存哪儿）。
     static QString exportLogButtonText();
     static QString exportReportButtonText();
@@ -331,8 +327,8 @@ public:
 
     /// 这一档的文字染什么底色。**Info 故意返回无效颜色**（= 不染，用窗口自己的底色）。
     ///
-    /// （coding plan §8.3 开放深浅色入口那一天）：**两套底**。原来那一组
-    /// 字面量是照着"白纸"挑的（下面那几个 `k*Bg`），深色预设下浅墨压在上面等于没字。
+    /// 深浅色两套底：浅色那组是照着"白纸"
+    /// 挑的（下面那几个 `k*Bg`），深色预设下浅墨压在上面等于没字。
     /// 所以多了一组深底版（`k*BgDark`），走哪一组由 `Theme::isDarkPalette()` 说了算
     /// （**唯一判据**，和别处"深底上用亮的那一档"是同一个）。Fatal 那个深红两套相同。
     /// 带调色板那一版是**给它自己用的**；不带的那一版问的是应用调色板（验证工程用）。
@@ -347,30 +343,28 @@ public:
      *
      * 「开着」那一格就是 levelBackground —— **开关的颜色和正文那一行是同一个色**，不用读字
      * 就知道哪几档开着。Info 例外：它的正文底色就是我们自己的窗口底色（`levelBackground`
-     * 返回无效色），没有颜色可借，于是一律用那个"原生的开态灰"（见 .cpp 里 kSwitchOnRgb）——
+     * 返回无效色），没有颜色可借，于是一律用那个兜底的开态灰（见 .cpp 里 kSwitchOnRgb）——
      * 硬编一个日志里不存在的颜色反而会让人以为"Info 是蓝的"。**开关的两种状态都由我们自己
      * 画**（理由见 .cpp 里 filterButtonStyle），所以这两个值必须有个确定的出处。
      *
      * 验证工程量的是**按钮上真画出来的像素**，比的就是这里。
      *
-     * NOTE: 用户说「info 的按钮再亮一点」，于是 Info 那一档不用 kSwitchOnRgb
-     * 那个灰了，改用**正文区自己的底色**（量出来是 `#ffffff`，见 .cpp 里 kInfoOnRgb）
-     * —— 那既是最亮的一档，也正好是"Info 这一档的颜色"（它的整行底色就是这个）。
+     * NOTE: Info 那一档用**正文区自己的底色**（量出来是 `#ffffff`，见 .cpp 里
+     * kInfoOnRgb），不用 kSwitchOnRgb 那个兜底灰 —— 那既是最亮的一档，也正好是
+     * "Info 这一档的颜色"（它的整行底色就是这个）。
      */
     static QColor filterButtonBackground(LogLevel level, bool on);
     static QColor filterButtonBackground(LogLevel level, bool on, const QPalette &palette);
     /// 合成开关上那几个字的墨色：Fatal 那档是白的，其余**跟着这块地方的墨走**
-    /// （浅色下是纯黑 —— 就是原来写死的那一支；深色下是调色板里的浅墨）。
+    /// （浅色下是纯黑；深色下是调色板里的浅墨）。
     static QColor filterButtonForeground(LogLevel level);
     static QColor filterButtonForeground(LogLevel level, const QPalette &palette);
 
     /**
-     * @brief 那排开关**关着**时的底色 / 那一圈边（ 从写死的字面量挪过来）。
+     * @brief 那排开关**关着**时的底色 / 那一圈边。
      *
-     * 原来这两样是 `#ababab` / `#9f9f9f` 两个常量（"改成自己画之前量到的原生 Fusion 值"）。
-     * 深浅色入口一开，同一批灰压在深底上就站不住了 ⇒ 改成**从这一块地方的底色往它的墨色
-     * 混一档**（`Theme::neutralFill()`，29% / 34%）。浅色下算出来的和原来那两个字面量
-     * 只差 1，屏幕上分不出来；深色下自动是深灰。
+     * 它们**从这一块地方的底色往它的墨色混一档**（`Theme::neutralFill()`，29% / 34%）。
+     * 浅色下是 `#aa` / `#d9`，屏幕上和 `#ababab` / `#9f9f9f` 分不出来；深色下自动是深灰。
      */
     static QColor switchOffColor(const QPalette &palette);
     static QColor switchEdgeColor(const QPalette &palette);
@@ -381,7 +375,7 @@ public:
      * @brief 正文用的字体：系统那个等宽字体，**再大一号**。
      *
      * 等宽是必须的（日志里有缩进、有对齐的模组列表，比例字体读起来是散的，见构造函数里
-     * 那一段）；大一号是用户 说的「字号稍微大一点」—— 日志一屏三十行、
+     * 那一段）；大一号是因为日志一屏三十行、
      * 每行几十个字符，小一号的时候找关键字全靠凑近看。
      *
      * NOTE: 唯一出处。构造函数拿它 `setFont`，验证工程拿它跟**系统那个等宽字体**比
@@ -394,7 +388,7 @@ public:
     /**
      * @brief 行与行之间那条细线的颜色。
      *
-     * 要求：「日志行与行之间加一条细线分隔一下」。**底色本身分不开相邻的两条 INFO**
+     * 日志行与行之间要有一条细线分隔。**底色本身分不开相邻的两条 INFO**
      * （它们都不染），所以这条线的主要去处就是那里 —— 它得在白底上看得见（和白差 39*√3 ≈ 67），
      * 也得在 Debug 那个 `#eef2f6` 上看得见（差 45），同时不能深到像一条框线。
      */
@@ -450,7 +444,7 @@ private:
     /**
      * @brief 把**同一档连续的几行**一次摆到末尾（末尾永远留一格空的当光标行）。
      *
-     * **成片写**是这个窗快不快的关键：文档操作按**次数**收钱（量过，见 .cpp），所以
+     * **成片写**是这个窗快不快的关键：文档操作按**次数**收钱（见 .cpp），所以
      * "一行一次"在长日志上就是"点一下卡半秒"。底色也一次盖一片（跨块选区的
      * `setBlockFormat` 是一次调用）。
      */
@@ -473,7 +467,7 @@ private:
 
     QLabel *m_hintLabel = nullptr;
     QPlainTextEdit *m_view = nullptr;
-    /// 正文区上面那一行搜索框（§9.8）。
+    /// 正文区上面那一行搜索框。
     QLineEdit *m_searchEdit = nullptr;
     QPushButton *m_clearButton = nullptr;
     QPushButton *m_closeButton = nullptr;
@@ -487,8 +481,8 @@ private:
     // 在窗口打开时确定，切换设置不触发已有海量日志重绘。
     bool m_logColors = true;
 
-    /// 记账那一半（§9.8）：行、计数、档位可见、搜索词、显示上限都在这里，和服务端控制台共用。
-    /// **注意显示上限是模型里的 `displayLimit()`** —— 原来那格 `m_displayLineLimit` 没了。
+    /// 记账那一半：行、计数、档位可见、搜索词、显示上限都在这里，和服务端控制台共用。
+    /// **注意显示上限是模型里的 `displayLimit()`**。
     RuntimeOutputModel m_model;
     /// 还没等到换行的那半行（不属于任何一条；模型只收完整行）。
     QString m_pending;

@@ -76,7 +76,7 @@ QString header(const Facts &facts, const QDateTime &now) {
     if (!facts.accountName.isEmpty()) {
         lines.append(field(QStringLiteral("账号"), facts.accountName));
     }
-    // 加载器 / Java / 内存这三行只有「游戏异常退出」那一项会填（§4.3 点名要收的就是这几样）。
+    // 加载器 / Java / 内存这三行只有「游戏异常退出」那一项会填（要求收的就是这几样）。
     // 空着一律不写 —— 那一路手上确实没有这些值，编一个填上去最误导人。
     if (!facts.loaderVersion.isEmpty()) {
         lines.append(field(QStringLiteral("加载器"), facts.loaderVersion));

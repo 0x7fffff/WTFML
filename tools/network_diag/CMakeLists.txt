@@ -1,6 +1,6 @@
 add_library(wtfml_network_diag_core STATIC
     ../../src/download/DownloadManager.cpp ../../src/download/DownloadManager.hpp
-    # 「从别的游戏文件夹里借文件」（2026-10-20）：DownloadManager 现在会调它。
+    # 「从别的游戏文件夹里借文件」：DownloadManager 会调它。
     ../../src/download/LocalFileReuse.cpp ../../src/download/LocalFileReuse.hpp
     ../../src/download/ResumableDownload.cpp ../../src/download/ResumableDownload.hpp
     ../../src/util/DownloadDiagnostics.cpp)

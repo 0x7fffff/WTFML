@@ -1,7 +1,7 @@
 #include "Support.hpp"
 
 void runServerRunTests() {
-    section("ZZ. 服务端跑起来 / 停下来：命令怎么拼、起来没有、宽限多久（§6.2 / §6.3 / M4-3）");
+    section("ZZ. 服务端跑起来 / 停下来：命令怎么拼、起来没有、宽限多久");
 
     // ---------- ZZ0. 那条启动命令怎么拼 ----------
     {
@@ -23,7 +23,7 @@ void runServerRunTests() {
               "★ ZZ0 原来那串 token 原样跟在后面、一个不差", withMem.join(QLatin1Char(' ')));
 
         // `<= 0` 就一项都不发（"不限制"是 java 的默认档；编一个数出来比不发更危险 ——
-        // 同实例设置那条老规矩）。
+        // 同实例设置那条规则）。
         for (const int memory : {0, -1, -4096}) {
             const QStringList none = ServerRun::launchArguments(vanilla, memory);
             bool hasXmx = false;
@@ -302,7 +302,7 @@ void runServerRunTests() {
         check(!ServerRun::eulaLinkText().isEmpty()
                   && ServerRun::eulaLinkText().contains(QStringLiteral("许可协议"))
                   && ServerRun::eulaLinkText().contains(QStringLiteral("打开")),
-              "★★ ZZ4 那一行可点链接的文字（用户 2026-10-13 点名要的）—— 是一句「打开…」，"
+              "★★ ZZ4 那一行可点链接的文字（用户点名要的）—— 是一句「打开…」，"
               "不是一个光秃秃的网址",
               ServerRun::eulaLinkText());
 
@@ -314,7 +314,7 @@ void runServerRunTests() {
         check(text.contains(QStringLiteral("eula=true")),
               "★★ ZZ4 EULA 那道闸说清楚它到底会写什么", text);
         check(text.contains(QStringLiteral("不会替你同意")),
-              "★★ ZZ4 而且说清楚**不自动接受**（coding plan §6.4 明写不做）", text);
+              "★★ ZZ4 而且说清楚**不自动接受**", text);
         check(!ServerRun::eulaPromptTitle().isEmpty(), "★ ZZ4 那道闸有标题");
 
         for (const QString &s : {ServerRun::eulaPromptTitle(), ServerRun::eulaPromptText(),

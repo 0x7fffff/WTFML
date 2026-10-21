@@ -242,7 +242,7 @@ void InstanceIconController::onInstanceIconLookupFinished(const InstanceIconLook
                        .arg(result.unreadable));
     }
     pushInstanceFileIcons();
-    // 为什么非补不可：换页那次请求撞在 `active` 闸上直接 return 了（见
+    // 为什么非补不可：换页那一发请求撞在 `active` 闸上直接 return 了（见
     // startInstanceFileIconLookup 那条早退），而这里刚从回来的这一趟是**上一页**的 ——
     // 没有人替新那页问的话，它的图标要等用户再进一次文件管理页才出现。
     // 判据看的是**趟**（runVersionId）而不是 `m_instanceIcons.paths` 变没变：同一个实例

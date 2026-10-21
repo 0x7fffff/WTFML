@@ -138,7 +138,7 @@ const QList<Field> &commonFields() {
         Field{QStringLiteral("level-seed"), QStringLiteral("地图种子"),
               QStringLiteral("世界第一次生成时用；已经生成好的世界改它没有用"),
               Kind::Text, QString(), 0, 0, {}, false},
-        // ---------- 资源包（§9.7：选本地 zip、算 SHA-1；地址得用户自己托管）----------
+        // ---------- 资源包（选本地 zip、算 SHA-1；地址得用户自己托管） ----------
         Field{QStringLiteral("resource-pack"), QStringLiteral("资源包地址"),
               QStringLiteral("别人连得到的一个 http(s) 链接；本机文件路径别人打不开"),
               Kind::Text, QString(), 0, 0, {}, false},

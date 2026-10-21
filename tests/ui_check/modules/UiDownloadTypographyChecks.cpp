@@ -200,7 +200,7 @@ int UiDownloadTypographyChecks(QMainWindow &window, MainWindowUI &ui) {
             };
             const QRect refreshRow = probe.visualItemRect(probe.item(1));
             // NOTE: 名字里带 Rect —— 下面"悬停提示"那一段自己有一个 `plainRow`（那是行矩形，
-            // 这里是同一个东西，但两个块各写各的）。（ 加这一段时撞过一次。）
+            // 这里是同一个东西，但两个块各写各的）。两个名字必须带区分。
             const QRect plainRowRect = probe.visualItemRect(probe.item(2));
             // ① 光标在挂着标记的那一行上：格子里的字画出来了。格子比字形大一圈（四周各 3 px），
             // 所以"有墨"的像素数远小于格子面积。
@@ -216,10 +216,10 @@ int UiDownloadTypographyChecks(QMainWindow &window, MainWindowUI &ui) {
                   "光标一挪到别的行，刚才那一行的刷新按钮就没了（「悬停才显示」就是这一条）",
                   QString("这一格里的异色像素 = %1").arg(markGone));
             // ③ 光标底下这一行自己：它挂着 resourceKindRole()（资源表每一行的身份）、**没挂**
-            // 刷新角色 ⇒ 哪怕正悬停着，这一格也必须一个异色像素都没有。这就是当年那个
-            // "号码撞了"回归的守卫 —— 而且现在它比从前更严：这一行是**悬停**着的，底下
-            // 那层悬停底色被代理抹掉了（见 VersionTreeDelegate::paint 开头那段），
-            // 所以量到的墨只可能是"我们自己画上去的那个字形"。
+            // 刷新角色 ⇒ 哪怕正悬停着，这一格也必须一个异色像素都没有 —— 这是"号码撞了"
+            // 那条回归的守卫。这一行是**悬停**着的，底下那层悬停底色被代理抹掉了
+            // （见 VersionTreeDelegate::paint 开头那段），所以量到的墨只可能是"我们自己
+            // 画上去的那个字形"。
             const int withoutMark =
                 inkIn(hoverElsewhere, VersionTreeDelegate::refreshRect(plainRowRect));
             check(withoutMark == 0,
@@ -381,16 +381,14 @@ int UiDownloadTypographyChecks(QMainWindow &window, MainWindowUI &ui) {
                       ringImage != VersionIcons::cross(side, color).toImage(),
                   "刷新字形和 chevron / cross 不是同一张图（不是抄来的）");
 
-            // 箭头**看得见地有多大**（ 要求：「刷新键的"箭头"太小，调大点」）
+            // 箭头**看得见地有多大**（要求：「刷新键的"箭头"太小，调大点」）
             // —— 上面那几条量的是"有没有画"，量不到大小：谁把 length / halfBase 改回
             // 0.22 / 0.13，它们照样全绿。
             //
-            // NOTE: 把三角**转了 60°** 之后，原来那把尺子（"离圆心 0.45×边长以外
-            // 有多少像素"）就废了：转完它的远角不再顺着切向往外顶，最远只到 0.480
-            // （转之前 0.528），0.45 以外只剩 6 个像素 —— 那是**朝向变了**，不是
-            // "箭头变小了"，量法得跟着换。换之前试过两种，都卡不住：「总墨迹」
-            // 1087 对 962（差 13%，大头是环身那 970）、「最远那一点」0.480 对 0.425
-            // （同样 13%）。**跟着面积走的量才分得开**（78 对 40 差不多是两倍）。
+            // NOTE: 尺子要**跟着面积走**：三角转了 60° 之后，"离圆心 0.45×边长以外有多少
+            // 像素"那把尺子量不出大小（转完最远只到 0.480，0.45 以外只剩 6 个像素，
+            // 那是**朝向变了**，不是"箭头变小了"）。「总墨迹」和「最远那一点」同样分不开
+            // （都差 13%）。面积这一把分得开（78 对 40 差不多是两倍）。
             // NOTE: 拿 64 px 那一档量，不拿界面上那个 20 px —— 小尺寸下差的像素太少，
             // 抗不住抗锯齿的抖动。形状的比例和字号无关。
             const int measureSide = 64;
@@ -424,7 +422,7 @@ int UiDownloadTypographyChecks(QMainWindow &window, MainWindowUI &ui) {
                   "顺带：圆心那一格是空的（伸出去的是箭头，不是一大坨实心）");
 
             // 放大之后**不许被画布裁掉**：箭头是顺切向画的，它的远角是整张图里最靠边
-            // 的那一点，调剂得稍微歪一点就会顶出格子上沿（ 起笔从 55° 挪到
+            // 的那一点，调剂得稍微歪一点就会顶出格子上沿（箭头从 55° 挪到
             // 30° 就是为了让开这个地方，见 VersionIcons.cpp 里那段算账）。裁掉的那一角
             // 在界面上就是"箭头缺个口"，而上面那几条全绿 —— 它们只管笔画在不在。
             int borderInk = 0;
@@ -440,7 +438,7 @@ int UiDownloadTypographyChecks(QMainWindow &window, MainWindowUI &ui) {
             check(borderInk == 0, "箭头和环都在画布里面，一个像素都没被裁掉",
                   QString("最外一圈上有 %1 个有色像素").arg(borderInk));
 
-            // 箭头**得和环连在一起**（ 要求：「三角形由于带一点点白边会使得圆圈
+            // 箭头**得和环连在一起**（要求：「三角形由于带一点点白边会使得圆圈
             // 和三角形连接处有点白色像断开了」）。这一条抓的是**真的断开**：把"实心"那一档
             // （alpha ≥ 128）取出来做四连通，从环上取一个籽、看走不走得到三角里面。
             // 断口那 1~2 px 全是半透明甚至空的，所以在这一档上会走不过去。

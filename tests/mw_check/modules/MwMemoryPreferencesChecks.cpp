@@ -268,11 +268,11 @@ int MwMemoryPreferencesChecks(const bool settingsWired, const QString &kDecorate
                   "存的是字符串（换源要重下几个 GB，把 old 值读歪的代价太大）",
                   raw.value(QStringLiteral("Download/Source")).toString());
         }
-        // NOTE: 这条改动的最后一跳（VersionManager::setUseMirror → DownloadManager 真的
+        // NOTE: 这个开关的最后一跳（VersionManager::setUseMirror → DownloadManager 真的
         // 换掉 URL 主机）在这里**看不到**：VersionManager 不往回暴露这个开关。
-        // 而且这一跳**目前没有任何断言覆盖** —— 原先设想的那组
-        // mirrorUrl()/mirrorVersionJsonUrl() 静态断言从来没写。这里只钉
-        // "下拉框 → 盘"这一跳，以及下面 N 节"盘 → 新窗口的下拉框"那一跳。
+        // 而且这一跳**目前没有任何断言覆盖** —— mirrorUrl()/mirrorVersionJsonUrl()
+        // 那一组静态断言并不存在。这里只钉"下拉框 → 盘"这一跳，以及下面 N 节
+        // "盘 → 新窗口的下拉框"那一跳。
 
         // ---- 版本名格式：改一个开关，两张版本列表立刻重拼 ----
         {

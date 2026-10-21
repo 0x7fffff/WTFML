@@ -383,10 +383,9 @@ void runModpackExportTests() {
                 QJsonDocument::fromJson(cfBody).object().value(QStringLiteral("fingerprints")).toArray();
             bool sentOk = sent.size() == 3;
             for (const QJsonValue &value : sent) {
-                // **数字**，不是字符串。这一条从前写的是 `value.isString()`
-                // —— 而字符串那一支实测回 400（`invalid type: string "…"，expected i64`），
-                // 于是 CurseForge 那边**一条都认不出来**、还不吭声（唯一会说话的是 400
-                // 的正文）。见 ModpackExport.cpp 里 curseForgeFingerprintsRequestBody()。
+                // **数字**，不是字符串。发字符串的话实测回 400（`invalid type: string "…"，
+                // expected i64`），CurseForge 那边**一条都认不出来**、还不吭声（唯一会说话
+                // 的是 400 的正文）。见 ModpackExport.cpp 里 curseForgeFingerprintsRequestBody()。
                 sentOk = sentOk && value.isDouble();
             }
             check(sentOk && cfBody.contains(QByteArray::number(fingerprintKnown)),

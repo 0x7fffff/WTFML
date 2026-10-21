@@ -9,7 +9,7 @@ void runDefaultSkinTests(const QString &sandbox) {
     check(AppPaths::minecraftDir() == sandbox, "ZF0 前提：数据根目录就是本工程的沙箱",
           AppPaths::minecraftDir());
 
-    // 名字 | uuid（去横线的 32 位） | Java 的 hashCode | 老规矩走 alex 吗 | 18 元表下标
+    // 名字 | uuid（去横线的 32 位） | Java 的 hashCode | 旧版布局走 alex 吗 | 18 元表下标
     struct Truth {
         const char *name;
         const char *uuid;
@@ -125,7 +125,7 @@ void runDefaultSkinTests(const QString &sandbox) {
               "ZF3 没定下规矩（Unknown）时不算 —— 不当成「随便挑一套」");
     }
 
-    // ---- ZF4 老规矩：只有两张，按哈希的最低位 ----
+    // ---- ZF4 旧版布局：只有两张，按哈希的最低位 ----
     {
         QString wrong;
         for (const Truth &t : truths) {
@@ -218,9 +218,9 @@ void runDefaultSkinTests(const QString &sandbox) {
         }
     }
 
-    // ---- ZF7 真 JAR：老规矩命中，而且换版本**不会**拿上一份缓存顶上 ----
+    // ---- ZF7 真 JAR：旧版布局命中，而且换版本**不会**拿上一份缓存顶上 ----
     {
-        const QString playerName = QStringLiteral("Mine");  // 老规矩：哈希偶数 → steve（宽）
+        const QString playerName = QStringLiteral("Mine");  // 旧版布局：哈希偶数 → steve（宽）
         const QString versionId = QStringLiteral("1.18.2");
         const QString jar = sandbox + QStringLiteral("/versions/") + versionId + QLatin1Char('/') +
                             versionId + QStringLiteral(".jar");
@@ -301,7 +301,7 @@ void runDefaultSkinTests(const QString &sandbox) {
         // 那句话**不许是空的**：它最后会落成日志里那行「算离线默认皮肤失败：…」，而这句话
         // 的全部意义就是"怎么老是随机那张"有个交代。NotAnArchive 这一档 ZipUtil 不给
         // 原因（退出码 4 就是终点，连异常文字都没有），照抄就把那行日志留成一个悬空的冒号
-        // —— 这一条正是为它写的（改之前这里 reason 就是空串）。
+        // —— 这一条正是为它写的（不兜底时 reason 就是空串）。
         check(broken != DefaultSkin::Result::Failed || !reason.trimmed().isEmpty(),
               "ZF8 而且 Failed 那句原因不能是空的（日志那行不许是个悬空的冒号）",
               QStringLiteral("「%1」").arg(reason));

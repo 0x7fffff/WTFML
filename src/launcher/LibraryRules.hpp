@@ -129,8 +129,7 @@ inline bool ruleMatches(const QJsonObject &rule, const QSet<QString> &features =
  * 这一段和 Mojang 那套（起手 lastAction = DISALLOW，逐条命中的覆盖它）逐字一致。
  *
  * NOTE: **唯一一处和 Mojang 不一样**：`"rules": []`（键在、但是个空数组）这里算**允许**，
- * 官方那套算**不允许**（它没有"空数组就放行"这条早退）。这条注释以前写的是笼统的
- * "语义与 Mojang 一致"，把这个差别盖过去了。
+ * 官方那套算**不允许**（它没有"空数组就放行"这条早退）。
  * 为什么朝着"允许"这边偏：这两种解释在现实中几乎不会碰上（真实版本 json 里没见过
  * 空数组），而万一碰上，两种错的代价差得很远 —— 多带一个库上 classpath 顶多是重复，
  * 少一个库是游戏起来时一句 NoClassDefFoundError（这个项目已经为这一类症状查过好几次）。
@@ -244,10 +243,9 @@ inline QString mavenPathForName(const QString &name) {
  * `"path": "../../../x.jar"`，库就落到 `libraries/` 外面去了（Windows 上那就是一个
  * DLL 劫持面）。所以同一把尺子量到底。
  *
- * NOTE: **实测过真实数据**：本机 `E:\MC\.minecraft\versions` 下 66 份
- * version.json、6596 条 path（872 条去重，含 Forge/NeoForge/OptiFine/Fabric 装出来的
- * 那些）逐段喂进来，**一条都过不了白名单的都没有**；出现过的字符只有
- * `+ - . / 0-9 F J M S _ a-z`。所以这条判据不会把任何一个正经库挡在外面。
+ * NOTE: 真实数据里形态是安全的：各种加载器装出来的 version.json 里那些 path 逐段喂进来，
+ * **没有一条过不了白名单**；出现过的字符只有 `+ - . / 0-9 F J M S _ a-z`。所以这条判据
+ * 不会把任何一个正经库挡在外面。
  *
  * NOTE: 判据比 maven 那条多两样（那边是逐段拼、这里的字符串是整条路径）：
  * - **反斜杠一律拒** —— 它按 `/` 切是一整段，逐段看起来完全正常（`..\..\x.jar`），
@@ -331,8 +329,8 @@ inline Artifact artifactFor(const QJsonObject &libObj) {
     result.size = artifact.value(QStringLiteral("size")).toVariant().toLongLong();
 
     // 这个 path 是**原样收下、原样拼**的（:233 那句就是它），所以先过一遍白名单。
-    // NOTE()：这里原来**没有**这道闸 —— 白名单只做在下面那条"没有 downloads
-    // 块、按 maven 名字拼"的回退路上，而两条路的字符串是同一个来路、同一个用途。
+    // NOTE()：不能只在下面那条"没有 downloads
+    // 块、按 maven 名字拼"的回退路上做白名单 —— 两条路的字符串是同一个来路、同一个用途。
     // 给一句 `"path":"../../../x.jar"` 就够了，库会落到 libraries/ 外面。
     // 拒掉之后**不算完**：把 path 清掉，让下面那条 maven 回退路照样有机会把这个库
     // 装对（名字干净的话它拼出来的路径是安全的）；名字也拼不出来才真的少一个库 ——
@@ -360,7 +358,7 @@ inline Artifact artifactFor(const QJsonObject &libObj) {
         result.sha1 = libObj.value(QStringLiteral("sha1")).toString();
         result.size = libObj.value(QStringLiteral("size")).toVariant().toLongLong();
     } else if (!mavenPath.isEmpty()) {
-        // 第 3 种写法：**只有 name，连 url 都没有**。实测 OptiFine 的安装器写出来的就是
+        // 第 3 种写法：**只有 name，连 url 都没有**。OptiFine 的安装器写出来的就是
         // 这样（两个库：它自己 + launchwrapper-of），因为那两个 jar 是它**自己**放进
         // libraries/ 的，根本没有仓库地址可写。
         //
@@ -419,7 +417,7 @@ inline NativeClassifier nativeClassifier(const QJsonObject &libObj) {
         return result;
     }
     // 少数更老的版本会用 natives-windows-${arch} 这种占位符写法。
-    // 实测 1.18.2 / 1.19 / 1.12.2 都不需要，这里留着以防更早的版本。
+    // 1.18.2 / 1.19 / 1.12.2 都不需要，这里留着以防更早的版本。
     if (classifierKey.contains(QLatin1String("${arch}"))) {
         classifierKey.replace(QLatin1String("${arch}"),
                               platformArch() == QLatin1String("x86") ? QStringLiteral("32")

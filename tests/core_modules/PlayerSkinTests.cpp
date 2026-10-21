@@ -193,12 +193,12 @@ void runPlayerSkinTests(const QString &sandbox) {
               "T5 只有签名、后面截断了 → 不认（不能读越界）");
     }
 
-    // ---- T6 贴图地址认不认（官方给的就是 http://，这条 折在真机上） ----
+    // ---- T6 贴图地址认不认（官方给的就是 http://） ----
     {
         // 下面这个 URL 是**真档案里的形状**，不是编的：官方 sessionserver 返回的
         // SKIN.url / CAPE.url 都是 `http://textures.minecraft.net/texture/<sha>`。
-        // 原先那条"不是 https 就拒"的规矩把**每一份真档案**都拒了 —— 表现就是右栏永远
-        // 画默认外观、缓存目录里只躺着一份 profile-*.json、一张 .png 都没有。
+        // 规矩不能写成"不是 https 就拒"——官方给的每一份真档案都是 http://，那样右栏
+        // 永远画默认外观、缓存目录里只躺着一份 profile-*.json、一张 .png 都没有。
         const QUrl upgraded = PlayerSkinStore::textureRequestUrl(
             QStringLiteral("http://textures.minecraft.net/texture/cfa1f1c5ca1e"));
         check(upgraded.isValid() && upgraded.scheme() == QStringLiteral("https"),
@@ -293,8 +293,8 @@ void runPlayerSkinTests(const QString &sandbox) {
         check(PlayerSkinStore::classifyProfileResponse(204, QByteArray()) ==
                   Outcome::NoSuchPlayer,
               "T7 204 → 「查不到这个人」（sessionserver 也用 204 表达软限流），**不是错误**");
-        // 429 以前钉的是 Failed（理由是"限流走 204 那条路"）—— 真机上撞到它
-        // 之后这条理由不成立了：它确实是限流，而且是**明说**的那种。
+        // 429 必须和 204 分开：它确实是限流，而且是**明说**的那种（204 是"查不到 / 软
+        // 限流"那条路），要退避。
         check(PlayerSkinStore::classifyProfileResponse(429, QByteArray()) == Outcome::Throttled,
               "T7 429 → 限流（也不是错误，但和 204 不同：它明说问得太勤，要退避）");
 

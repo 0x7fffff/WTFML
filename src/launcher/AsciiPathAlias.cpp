@@ -262,9 +262,8 @@ bool sameFile(const QString &left, const QString &right) {
 /// **必须**先问 `junctionTarget()`。我们建的是 `mklink /J` 那种目录联接
 /// （IO_REPARSE_TAG_MOUNT_POINT），而 Qt 6.10.1 把这两种 reparse 分得很清：
 /// `isSymLink()` 对目录联接近恒为 false，`symLinkTarget()` 读的也是符号链接那一份，
-/// 对目录联接回**空串**。原来这里（以及 `linkUsable()`）只用 `symLinkTarget()`，注释还
-/// 写着"悬空时也读得到"—— 那条只对符号链接成立。症状不是报错，是**静默**：
-/// `liveTargetOfAlias()` 恒回空 ⇒ 每一趟 `ensure()` 都把兄弟目录里**正在跑的那个实例**
+/// 对目录联接回**空串**。只用 `symLinkTarget()`（`linkUsable()` 同理）时症状不是报错，是
+/// **静默**：`liveTargetOfAlias()` 恒回空 ⇒ 每一趟 `ensure()` 都把兄弟目录里**正在跑的那个实例**
 /// 的别名当过期删掉，正在跑的那场游戏之后每写一个文件都失败（存档、日志轮转、
 /// 还没加载过的类）。
 QString targetOfAlias(const QString &link) {
@@ -283,7 +282,7 @@ QString targetOfAlias(const QString &link) {
 /// `junctionTarget()`）。
 ///
 /// 读不出目标名字时**不能**只按"通不通"算，还得确认它真是个链接。
-/// 原来那句 `actual.isEmpty() || samePath(...)` 把**普通目录**也算成了可用：`createJunction()`
+/// 只判 `actual.isEmpty() || samePath(...)` 会把**普通目录**也算成可用：`createJunction()`
 /// 是"先 `mkpath` 再 `mklink /J`"，中间那一步失败（或者用户/杀软在位置上手建了一个空
 /// 目录）留下的正是一个同名普通目录 —— 于是这一套别名被判"可用"，`--gameDir` 指向
 /// `cache/ascii/<hash>/game` 这个空壳，游戏把存档、截图、logs 全写进缓存目录，
@@ -308,7 +307,7 @@ bool linkUsable(const QString &link, const QString &target) {
 ///
 /// 判据是"**game 那个联结读出来的目标目录**还在不在"，不是"那个联结在不在"：实例被删掉
 /// 之后，它的联结在 Windows 上**仍然是一个目录项**——`QFileInfo::isDir()` 那种问法会给
-/// true（第一版就是按它判的，真机上过期的那几套一套都清不掉，ZM6 那条断言钉的就是这里）。
+/// true，过期的那几套一套都清不掉。
 QString liveTargetOfAlias(const QString &aliasRoot) {
     const QString game = aliasRoot + QStringLiteral("/game");
     const QString target = targetOfAlias(game);
@@ -356,7 +355,7 @@ AsciiPathAlias::Paths AsciiPathAlias::pathsFor(const QString &versionId) {
 bool AsciiPathAlias::needed(int javaMajorVersion, const QStringList &realPaths) {
     // 0 = 调用方没探到 Java 版本：维持原样。判错的另一边代价不对称 —— "Java 9+ 也换了别名"
     // 只是多一层没用的目录，而"Java 8 该换没换"就是启动失败，可"该换的判据本身依赖
-    // javaMajorVersion"，所以这里只能按"不换"处理，让原来那句 JVM 报错照旧。
+    // javaMajorVersion"，所以这里只能按"不换"处理，让 JVM 报错照旧。
     if (javaMajorVersion <= 0 || javaMajorVersion > 8) {
         return false;
     }

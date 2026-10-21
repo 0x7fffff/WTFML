@@ -396,9 +396,9 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // 必须看新值。下面那些 lambda 也是同一个理由全都按引用捕获它。
     QString targetId = versionId;
     const auto refreshInstanceDirs = [this, &dialog, &targetId](const QString &id) {
-        // 这一段"算"的活全在 `InstancePagesController` 里了（哪几页用得上、
-        // 那几页指向哪个目录、有结构的存档是哪几个 —— 原来一百来行判断就夹在这儿）。
-        // 这一层剩下的**只有摆**：把那一份事实挨个 `set` 到对话框上。
+        // 这一段"算"的活全在 `InstancePagesController` 里（哪几页用得上、
+        // 那几页指向哪个目录、有结构的存档是哪几个）。这一层剩下的**只有摆**：
+        // 把那一份事实挨个 `set` 到对话框上。
         const QHash<QString, QString> fileDirs = InstancePagesController::fileDirs(id);
         dialog.setInstanceDir(AppPaths::versionDir(id));
         QHash<QString, QString> shortcutDirs = fileDirs;
@@ -422,9 +422,9 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         // NOTE: 「模组」的判据是 `modsUsable()`（有模组加载器 **或** mods/ 里有 jar）
         // ⇒ **OptiFine 也算**，装 OptiFine 的实例会多一条「模组」。这是有意的：
         // OptiFine 从 1.13 起就是塞进 mods/ 的，那一页在那样的实例上真的用得上。
-        // 原来这里写的是 `displayParts().loaderName` 非空，而那一格
-        // 只有我们自己的安装器会写 ⇒ 用户盘上 70 个实例里 67 个（全是 PCL 装的）
-        // 被误判成"没有模组加载器"。判据与理由见那个函数那段说明。
+        // 判据**不是** `displayParts().loaderName` 非空 —— 那一格
+        // 只有我们自己的安装器会写，用户盘上 PCL 装的实例会被误判成"没有模组加载器"。
+        // 判据与理由见那个函数那段说明。
         const InstancePagesController::Usability usable =
             InstancePagesController::usability(m_owner->m_versionManager, id);
         dialog.setModUsable(usable.mods);
@@ -433,7 +433,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         if (InstanceFilesPage *schematics = dialog.filesPage(QStringLiteral("schematic"))) {
             // 原理图与原版结构已拆为独立页面；原理图只列实例级 schematics 目录。
             schematics->setStructureSources({});
-            // （coding plan §9.5）：在列表里选中一份投影 ⇒ 底下那一格给出
+            // 在列表里选中一份投影 ⇒ 底下那一格给出
             // 元数据、方块统计和那句版本兼容提示。**算的活全在 `SchematicInfo`**（读
             // gzip NBT、认 Litematica 的位打包都是 src/ 的事，ui/ 够不着）；这一页只
             // 负责说"选中的换了"，然后把算好的话摆上去。
@@ -503,7 +503,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     };
     refreshInstanceDirs(targetId);
 
-    // （coding plan §9.5）：「Replay」和「结构」那两页，选中一行之后底下
+    // 「Replay」和「结构」那两页，选中一行之后底下
     // 那一格要说这一条是什么（录了多久 / 多大的结构 / 和这个实例的版本兼不兼容）。
     // 和原理图那一页同一条分层：读盘与统计在 src/（`ReplayInfo` / `SchematicInfo`），
     // 这一层只把"用户选的是哪一条"和"这个实例是哪个版本"接起来；ui/ 只管摆字。
@@ -587,7 +587,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 dialog.setDiagnosisText(StartupDiagnosis::analyze(inputs).toText());
             });
 
-    // ---------- 「迁移」/「升级」那两页（，coding plan §9.9 第 15 项）----------
+    // ---------- 「迁移」/「升级」那两页 ----------
     //
     // 用户在这一页做的只有三步：挑目标 → 看计划 / 勾范围 → 按动手。这一层负责把三样东西
     // 接起来：
@@ -830,7 +830,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     }
                 }
 
-                // ---------- 长操作进任务中心（§9.9 bullet 5）----------
+                // ---------- 长操作进任务中心 ----------
                 //
                 // 一块勾选 = 一步。升级那一档前面再加一步「造出新的那一份」，因为它比后面
                 // 每一块都慢，而且它是唯一可能"整件事没开始"的一步。
@@ -852,7 +852,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     stepIndexOf.insert(item.key, steps.size());
                     steps << Tasks::TaskStep{item.label, Tasks::TaskStepState::Pending, {}};
                 }
-                // 收尾校验（§9.9 bullet 3）——搬完对一遍账：目标里是不是点点名的那几个
+                // 收尾校验——搬完对一遍账：目标里是不是点名的那几个
                 // 文件**都在**。它不重读内容，只比文件数与大小，所以比搬本身快得多。
                 steps << Tasks::TaskStep{tr("校验"), Tasks::TaskStepState::Pending, {}};
                 const int verifyIndex = steps.size() - 1;
@@ -883,10 +883,10 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
 
                 // ---------- 真正搬的那一段放在后台线程 ----------
                 //
-                // 这里以前是**同步**跑在 UI 线程上的 —— 升级副本先整棵
-                // 复制实例目录、再逐个文件搬、最后再递归校验一遍；一份多 GB 的实例能让
-                // 整扇窗几分钟不重绘（Windows 挂「无响应」），而同一页上的「复制实例」
-                // 早在 `copyInstanceInBackground()` 里走后台了。这一条是唯一漏掉的。
+                // 这一段**必须在后台线程**跑：升级副本先整棵
+                // 复制实例目录、再逐个文件搬、最后再递归校验一遍；一份多 GB 的实例若同步跑在
+                // UI 线程上，整扇窗会几分钟不重绘（Windows 挂「无响应」）。同一页上的
+                // 「复制实例」也走后台（`copyInstanceInBackground()`）。
                 //
                 // 规矩和 `transferMods` 那条一样：
                 // · 后台线程只碰盘和 `MigrationProgressState`（锁住的小账本），**不碰
@@ -901,9 +901,9 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 // 升级副本的"底"是**用户挑的那个目标版本**，而 `targetDir`
                 // 是这一趟要造出来的**新副本目录**（`versionDir(newName)`）—— 两回事。
                 // worker 里那句 `copyInstanceFrom()` 要的是"从哪拷"，不是"拷到哪"；
-                // 后台化那一版把 `targetDir` 当源传了进去，于是每次升级都在拷一个
-                // 还不存在的目录：复制失败、只弹三句（确认 / 新名字 / 报错），
-                // 连新副本都不会出现。源目录同样必须在主线程取好（理由同上）。
+                // 把 `targetDir` 当源传进去的话每次升级都在拷一个还不存在的目录：
+                // 复制失败、只弹三句（确认 / 新名字 / 报错），连新副本都不会出现。
+                // 源目录同样必须在主线程取好（理由同上）。
                 const QString upgradeBaseDir =
                     upgrade ? AppPaths::versionDir(targetIdCopy) : QString();
                 const qint64 totalUnits = stepIndexOf.size();
@@ -981,8 +981,8 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                             if (upgrade && !newName.isEmpty()) {
                                 m_owner->releaseFileOperationBusy(newName);
                             }
-                            // 刷新跟着摘标记走。原来只在"升级副本复制成功"
-                            // 那一条路上刷（下面原来那一句），于是复制失败 / 搬文件失败 /
+                            // 刷新跟着摘标记走：只在"升级副本复制成功"
+                            // 那一条路上刷的话，复制失败 / 搬文件失败 /
                             // 普通迁移这几条早退之后，被 `installingVersionIds()` 滤掉的
                             // 那一行就留在"不在"的状态里，直到下一次碰巧有东西再刷新。
                             m_owner->refreshInstalledVersions();
@@ -1039,7 +1039,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                                 return;
                             }
 
-                            // ---------- 校验（§9.9 bullet 3 的最后一步）----------
+                            // ---------- 校验（最后一步） ----------
                             //
                             // 只看"点名搬的那些文件，目标里在不在"：`TransferApply` 只增
                             // 不覆盖，所以目标里原有的同名文件（大小不同也算）**不是
@@ -1075,10 +1075,10 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                                 InlineMessage::information(overlay, title, text);
                             }
 
-                            // ---------- 收尾那一问（§9.9 bullet 6）----------
+                            // ---------- 收尾那一问 ----------
                             //
                             // 「快速启动」在这一版就是主页的收藏区（`pinInstance()` 把它
-                            // 移进置顶组，主页快速启动区读的就是这一组；§2.8「不新增第三份
+                            // 移进置顶组，主页快速启动区读的就是这一组；「不新增第三份
                             // 快速启动数据」）。三档都由用户点头：
                             // · 保留原入口（默认）—— 什么都不动；
                             // · 创建新入口 —— 把新的那一份收藏进来；
@@ -1121,11 +1121,11 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 timer->start(100);
                 // 游戏目录必须在**主线程**取好再交给 worker：用户可以在这趟跑着的时候
                 // 换游戏文件夹（见 AppPaths::minecraftDir() 的注释），而 `QString` 的
-                // 隐式共享对象在两个线程里一读一写就是数据竞争。早先这里在 worker 里
-                // 现调 `AppPaths::minecraftDir()`，正是踩在那一枪上。
+                // 隐式共享对象在两个线程里一读一写就是数据竞争。在 worker 里
+                // 现调 `AppPaths::minecraftDir()` 正是这一枪。
                 const QString gameDir = AppPaths::minecraftDir();
-                // 这一趟在后台写盘，可它原先**没在任何"忙"名单上**。
-                // 于是这段时间里源码实例照样能被启动（读到的是一份拷到一半的目录）、
+                // 这一趟在后台写盘，必须在"忙"名单上：
+                // 否则这段时间里源码实例照样能被启动（读到的是一份拷到一半的目录）、
                 // 能被删、还能再开一趟迁移 —— 和模组迁移那条路的闸不对称。
                 // `installingVersionIds()` 就是"谁不许启动/删除"的唯一出处，
                 // 这里把三个真正会被碰到的 id 都记进去（读源码、写目标、造新副本）。
@@ -1144,7 +1144,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                             // （同 `InstanceTransferController::copyInstanceInBackground`）。
                             // 拷的是**用户挑的那个目标版本**（`targetIdCopy`），不是当前
                             // 实例 —— 升级副本的意思就是"拿新版本当底、把这一份里的东西
-                            // 搬过去"。后台化那一版一开始错写成 `sourceId`，结果造出来的
+                            // 搬过去"。源传成 `sourceId` 的话造出来的
                             // 是一份当前实例的克隆，版本号根本没变。
                             // 源目录 `targetDir` 也是在**主线程**取好的（见上面那两处
                             // `AppPaths::versionDir()`）：worker 里现算就是和"切换游戏
@@ -1207,7 +1207,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     connect(&dialog, &InstanceSettingsDialog::exportModpackRequested, m_owner,
             [this, &targetId](const QString &path) { m_owner->exportModpack(targetId, path); });
 
-    // 第四条同类：概览那一栏的「检查更新」（，要求「实例设置那里做一个更新
+    // 第四条同类：概览那一栏的「检查更新」（要求「实例设置那里做一个更新
     // 检测」）。**结果是一个弹框**（Prompt 那一档），所以这一发是**异步**的：反查要读几十兆
     // jar（后台线程），每个项目还要各问一发版本列表 —— 那几发回来的时候这一页可能还开着
     // （正常），也可能已经被用户收掉了（那时候 `m_owner->m_ui->overlay()` 上摆着的是别的页面）。
@@ -1283,7 +1283,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                                                 tr("当前资源没有可用的项目网址。"));
             });
 
-    // 「更新中心」（coding plan §7.1，）：紧挨着「检查更新」的那一颗。
+    // 「更新中心」：紧挨着「检查更新」的那一颗。
     //
     // **和上面那一条相反，这一颗不收页**：它开的那一页（更新中心）自己就是盖在内容区上
     // 的一整页，而这一颗要先把当前这一页**收掉**才开得进去（`m_owner->runWhenOverlayFree()` 会
@@ -1297,7 +1297,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 m_owner->runWhenOverlayFree([this, id] { m_owner->openUpdateCenter(id); });
             });
 
-    // 「检查并修复」（coding plan §4.1，）：概览栏那颗按钮。**和「检查更新」不是
+    // 「检查并修复」：概览栏那颗按钮。**和「检查更新」不是
     // 一回事** —— 那个查的是模组有没有新版本（联网），这个查的是游戏文件齐不齐（只读盘）。
     //
     // 收页再起：点下这一颗就说明用户要看的是"体检结果"，而结果会开成**另一整页**（报告页）。
@@ -1311,7 +1311,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 QTimer::singleShot(0, m_owner, [this, id] { m_owner->submitIntegrityCheck(id); });
             });
 
-    // ---------- §4.4：概览那一栏那两颗「快照」----------
+    // ---------- 概览那一栏那两颗「快照」 ----------
     //
     // NOTE: 「创建快照…」那一问（默认排除还是完整）在 `m_owner->snapshotInstance()` 里 —— 弹话要
     // OverlayHost，那玩意儿在 MainWindow 手里，这一层连读都没有读。
@@ -1357,7 +1357,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 // 行尾那颗 `ToggleSwitch` 是可 check 的 `QAbstractButton` —— Qt 在发出
                 // `clicked` **之前**就把它翻过去了，而这一层的约定是"改完盘再回头摆状态、
                 // 真生效了没有看下一轮刷新"（ToggleSwitch.hpp 那段）。失败那条路（同名
-                // `.disabled` 已存在 / 文件被游戏占着 / 权限）原来直接不刷新 ⇒ 开关停在
+                // `.disabled` 已存在 / 文件被游戏占着 / 权限）不刷新的话，开关会停在
                 // "翻过去"的位置，盘上名字一个字节没变，界面和盘正好相反；用户对着这份
                 // 假现状按下一次，以为自己在"启用"一个其实早就启用着的文件。
                 m_owner->toggleInstanceFile(path);
@@ -1633,11 +1633,11 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 if (!ok) {
                     return;
                 }
-                // 后台版（coding plan §9.9「不在 UI 线程直接复制整个目录」）：拷一整个
-                // 实例动辄几十秒，以前这一按会把整扇窗按住。四道闸还是同一套，只是拷树
+                // 后台版（「不在 UI 线程直接复制整个目录」）：拷一整个
+                // 实例动辄几十秒，放在 UI 线程上会把整扇窗按住。四道闸还是同一套，只是拷树
                 // 挪到后台，进度和结果落在任务中心。
                 //
-                // 拷树跑着的这段时间，原来这一页**还能点**。用户能在这儿
+                // 拷树跑着的这段时间这一页**必须禁用**：用户能在这儿
                 // 改设置（写的就是正在被拷的那份目录 ⇒ 副本里是一个前后不一致的中间态），
                 // 也能按「从快照恢复」把源目录整个换掉。和上面「移动替换模组文件」那一趟
                 // 同一个做法：期间禁用这一页，收尾（成功 / 失败 / 被挡下）再解冻。
@@ -1691,17 +1691,11 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // NOTE: 三条都接在 execPage **之前**，理由和上面那一整批逐字相同（那一下会阻塞在
     // 嵌套事件循环里，接晚了就一辈子收不到）。
     if (InstanceFilesPage *saves = dialog.filesPage(QStringLiteral("save"))) {
-        // 那支笔 = **直接进「世界设置」那一页**（ 改）。
+        // 那支笔 = **直接进「世界设置」那一页**：三件事（重命名 / 打开文件夹 /
+        // 删除世界）都搬进页里当按钮了，所以这一支笔点下去只剩一件事可做。
         //
-        // 改之前是一个四项小菜单（世界设置… / 重命名… / 打开文件夹 / 取消），现在那个
-        // 菜单**没有了**：要求「世界设置换成点开是一个额外的页面，改文件的设置上方是
-        // 重命名 打开文件夹 删除世界（弹窗确认）」—— 三件事都搬进页里当按钮了，所以这
-        // 一支笔点下去只剩一件事可做。
-        //
-        // NOTE: 点下去**一句话都不问，直接进页**（ 用户点名的第二件事：「点击笔的
-        // 时候不要弹备份提示了」）。原来这里先弹一问「打开 / 先备份一份 / 取消」，现在
-        // 那一问没有了 —— 备份是**页里**那颗「备份一份」，以及展开「修改存档文件」那个
-        // 折叠框时那一句警告（要求要的就是那一句，见 `fileEditingRequested` 那一段）。
+        // NOTE: 点下去**一句话都不问，直接进页**：备份是**页里**那颗「备份一份」，以及
+        // 展开「修改存档文件」那个折叠框时那一句警告（见 `fileEditingRequested` 那一段）。
         connect(saves, &InstanceFilesPage::editRequested, m_owner,
                 [this, &dialog](const QString &path) { m_owner->showWorldSettingsPage(&dialog, path); });
 
@@ -1805,7 +1799,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         connect(world, &WorldSettingsPage::backRequested, m_owner,
                 [this, &dialog]() { m_owner->leaveWorldSettings(&dialog); });
 
-        // ---------- §4.4：整份存档的备份 / 还原 / 打开备份目录 ----------
+        // ---------- 整份存档的备份 / 还原 / 打开备份目录 ----------
         //
         // 三颗都**只做、只报**（和上面那颗「备份一份」一个形状）：它们不动页面上任何一格，
         // 也不切页。还原那一颗例外 —— 它会把这一页上摆着的值全换掉（那些值就是 level.dat
@@ -1817,8 +1811,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         connect(world, &WorldSettingsPage::restoreBackupRequested, m_owner,
                 [this, &dialog]() { m_owner->m_backupController->restoreWorld(m_owner->m_worldDir, &dialog); });
 
-        // 「重命名…」（：原来在那一支笔的四项小菜单里，现在搬到页里当按钮）。
-        // 整件事和原来那一条**逐字相同**，只多了一步：改完之后**页面上那个名字也得换**
+        // 「重命名…」在页里当按钮。改完之后**页面上那个名字也得换**
         // （`setDirName()`），而且这一层记着的那条路径（`m_owner->m_worldDir`）跟着变 —— 不换的
         // 话，用户改完名接着按「保存」，`m_owner->saveWorldSettings()` 会对着一个已经不在了的
         // 目录报"这个存档不见了"，而屏幕上刚显示完"改好了"。
@@ -1852,11 +1845,11 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     m_owner->m_worldDir = renamed;
                     world->setDirName(wanted.trimmed());
                     // 重列一遍存档页：目录名变了，行上那行小字和那支笔挂的路径**全都得跟着
-                    // 换**（和原来那个菜单里同一条理由）。
+                    // 换**。
                     dialog.refreshFilePages();
                 });
 
-        // 「删除世界…」（ 新加的那一颗）。做法照着 `m_owner->deleteInstanceFile()` 那
+        // 「删除世界…」的做法照着 `m_owner->deleteInstanceFile()` 那
         // 一条：**先问一句**（红的那一档）、再用 junction 安全的 `removeTreeWithoutFollowingLinks()`
         // 删、删不掉时把"多半是被游戏占着"说出来。
         //
@@ -2089,9 +2082,8 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 m_owner->openDownloadCategory(categoryKey, targetId);
             });
 
-    // 行上的名字点得动（，要求「除了模组以外的几个都是点击模组名称自动
-    // 进入下载界面（前提是匹配上了，模组的待会再说）」）：**进的是那个资源自己的那一页**
-    // （和下载页里点一行开的是同一页）—— 「前提是匹配上了」那句话只有这样才说得通，
+    // 行上的名字点得动：**进的是那个资源自己的那一页**
+    // （和下载页里点一行开的是同一页）—— 前提是名字匹配上了，
     // 换成"切到下载页"就跟匹配不匹配没关系了。
     // 路径 → 它是哪个资源，是上面那趟反查认出来的（见 m_owner->m_instanceFileIdentities）；页面
     // 那边只会为**记过名字**的那几条发这一发（没认出来的名字压根点不动）。
@@ -2120,7 +2112,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 m_owner->openInstanceFileResource(targetId, pageKey, path);
             });
 
-    // 地址那一格右键 ⇒ 把**完整的**地址放进剪贴板（，要求「ip地址右键可以
+    // 地址那一格右键 ⇒ 把**完整的**地址放进剪贴板（要求「ip地址右键可以
     // 复制」）。复制完**不弹话**：这一下是用户自己按的，粘一下就看得见 —— 和资源详情页
     // 那条「复制名称」逐字同一个路数（那边进日志留个痕就够）。
     connect(&dialog, &InstanceSettingsDialog::copyServerAddressRequested, m_owner,
@@ -2238,10 +2230,8 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
 
     // ---------- 「改了就写」那两条----------
     //
-    // 要求：「实例设置里面的那个取消和确定删了，修改了的设置实时写入」。从前收尾那
-    // 一段（`execPage` 返回之后读对话框、改名、写设置）**整个搬到这两条 lambda 里** ——
-    // 写什么、按什么顺序写，一个字没变，只是时机从"点确定"变成了"值真的变了"
-    // （对话框那边保证：值没变不发，见 notifyEdited()）。
+    // 这一页没有「取消 / 确定」：写设置全在这两条 lambda 里，
+    // 时机是"值真的变了"（对话框那边保证：值没变不发，见 notifyEdited()）。
     //
     // NOTE: `targetId` 是**活到 execPage 结束**的那个局部变量（上面算目录时就摆好了；
     // 下面 execPage 会阻塞在嵌套事件循环里，这一层的栈一直站着），改名成功之后它
@@ -2251,7 +2241,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     connect(&dialog, &InstanceSettingsDialog::settingsEdited, m_owner,
             [this, &dialog, &targetId]() { m_owner->applyInstanceSettings(targetId, dialog); });
 
-    // 改名：**排在写设置之外自己一条**（要求「重命名进实例设置」）。
+    // 改名：**排在写设置之外自己一条**。
     // 两件事不能合成一条 —— 改名的副作用是**整个实例换了个目录**，写设置必须发生在它
     // 之后（顺序反了就是上面那个空壳实例）。对话框那边也把这两件事分成了两条信号：
     // 那一格走 `editingFinished`（回车 / 失焦），正好是"这次改名想清楚了"的那一刻。
@@ -2289,7 +2279,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 m_owner->m_ui->overlay()->setPageTitle(dialog.titleText());
             });
 
-    // ---------- 停在哪一页（，要求「从模组点进去，返回也在模组而非概览」）----------
+    // ---------- 停在哪一页 ----------
     //
     // 摆在这一段**最后、execPage 之前**有两条理由：
     // ① `showPage()` 换不了"左栏里没有的那几页"（被用户勾掉的、以及「配置文件」那种没
@@ -2297,8 +2287,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // ② `execPage()` 是**阻塞**的（下面那一句会卡在嵌套事件循环里转到用户点返回），
     // 再往后的代码这一趟根本执行不到。
     // 认不出来的键 `showPage()` 自己判 -1 什么都不做（停「概览」）—— 不静默出错。
-    // **从资源详情页返回**时把那一页的滚动位置塞回去（要求：
-    // 「点进模组详情以后退出来保留刚才的滚动位置」）。位置是离开那一刻量的
+    // **从资源详情页返回**时把那一页的滚动位置塞回去。位置是离开那一刻量的
     // （见 fileResourceRequested 那一条接线）。
     //
     // 必须排在下面那句 `showPage()` **之前**：`showPage()` 会把那一页列出来，而
@@ -2330,14 +2319,14 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     //
     // NOTE: "让位"那一段（收掉占着的那一层、静默继续）在 `m_owner->openInstanceSettings()` 里、
     // 这一半之前 —— 走到这儿时这一层**一定是空的**，所以切选项卡不会顺手把用户翻到
-    // 别的选项卡上去（从前那颗闸会弹话，弹话时就不该翻页）。
+    // 别的选项卡上去（那颗闸弹话的时候就不该翻页）。
     if (QTabWidget *tabs = m_owner->m_ui->getTabWidget()) {
         if (settingsTab >= 0 && settingsTab < tabs->count()) {
             tabs->setCurrentIndex(settingsTab);
         }
     }
 
-    // 拖进来的文件（ 用户点名要的那一条）：这一页**认不出**一个 jar 是什么、
+    // 拖进来的文件：这一页**认不出**一个 jar 是什么、
     // 也够不着盘 —— `ui/` 不 include `src/`（那条分层约定见 InstanceSettingsDialog.hpp
     // 里 dragEnterEvent 那段）。所以它只发一句"拖进来这几个路径"，认类型、问那一句
     // "是否继续"、把文件复制进目录，**全在 MainWindow 这一层**（见 handleInstanceSettingsDrop）。

@@ -212,10 +212,10 @@ GameLogWindow *GameSessionController::ensureGameLogWindow(int sessionId, bool us
     // 上一个空窗都不会冒出来，而"进程真的起来了"那一句（startGame 内部同步发的第一条
     // processOutput）正好在建窗这一刻被写上 —— 用户看到的第一行就是"游戏已启动"。
     const QString name = m_launcherManager->session(sessionId).displayName;
-    // **父窗口传 nullptr**（ 改，原来传的是主窗口）。在 Windows 上"有主的窗"
-    // 永远压在自己的主窗上面，用户点启动器也翻不上来 —— 那正是用户说的「日志一定会
-    // 显示在启动器前面，会遮挡」。这是平台规则，不是能调的风格，所以只能不给它主。
-    // 代价是"跟着启动器一起关掉"要自己接（见 closeAllGameLogWindows()）。
+    // **父窗口传 nullptr**：在 Windows 上"有主的窗"永远压在自己的主窗上面，
+    // 用户点启动器也翻不上来 —— 日志窗会一直遮住启动器。这是平台规则，不是能调的
+    // 风格，所以只能不给它主。代价是"跟着启动器一起关掉"要自己接
+    // （见 closeAllGameLogWindows()）。
     window = new GameLogWindow(name, nullptr);
     // 错开的位置数**在插进去之前**取：开第二扇时那是 1（往下错一点，不盖住第一扇）。
     const int cascade = m_gameLogWindows.size();
@@ -351,7 +351,7 @@ void GameSessionController::onGameFinished(int sessionId, int exitCode, QProcess
     // 不清的话这个集合会随着开过的实例数一直长。
     m_gameLogDismissedSessions.remove(sessionId);
 
-    // ---------- §5.1：这一趟的结局写回「上一次启动」那本账 ----------
+    // ---------- 这一趟的结局写回「上一次启动」那本账 ----------
     //
     // 位置有三处讲究，全都要在这一段之前：
     // · `m_launchingSessions` 那一格判的是"游戏**连第一行日志都没打出来**就结束了"
@@ -381,7 +381,7 @@ void GameSessionController::onGameFinished(int sessionId, int exitCode, QProcess
     const auto finishingLaunchTask = m_launchTaskIds.take(sessionId);
     const bool launchSucceeded = exitCode == 0 && exitStatus != QProcess::CrashExit;
     // 用户自己按的「停止游戏」不是失败。`kill()` 在 Windows 上报的是
-    // CrashExit / 非零退出码，从前这一段不看 `userStopped`，于是一次**主动取消**会以
+    // CrashExit / 非零退出码，不看 `userStopped` 的话，一次**主动取消**会以
     // 「游戏进程没等到能打日志就结束了，退出码 1」收尾 —— 任务中心多一行红色失败、
     // 底栏亮起红点，说的全是用户自己刚做的事。按 `Cancelled` 收才对得上他的操作
     // （和任务中心里手动取消一件任务同一个终态、同样不点红点）。
@@ -393,7 +393,7 @@ void GameSessionController::onGameFinished(int sessionId, int exitCode, QProcess
                                 tr("游戏进程没等到能打日志就结束了，退出码 %1。").arg(exitCode));
     }
 
-    // ---------- §4.3：异常退出 → 账本上补一项「游戏异常退出」 ----------
+    // ---------- 异常退出 → 账本上补一项「游戏异常退出」 ----------
     //
     // 位置有两处讲究：
     // · 排在**日志窗那一趟之后** —— 下面要读的就是那一窗里现在这份内容（末尾那行
@@ -402,7 +402,7 @@ void GameSessionController::onGameFinished(int sessionId, int exitCode, QProcess
     // Java 路径、内存、加载器）是这一项唯一的来源。
     // 判据是 `GameExitDiagnosis::isAbnormal()`（崩溃，或者非 0 退出码；崩了但码正好是 0 的
     // 也算 —— 那种"0"什么都不能证明），和那一层说的必须是同一条。
-    // NOTE: `abnormalExit` 在上面（§5.1 记账那一段）就算好了，这一支读的就是同一个值。
+    // NOTE: `abnormalExit` 在上面（记账那一段）就算好了，这一支读的就是同一个值。
     if (abnormalExit) {
         m_host.reportGameCrash(sessionId, exitCode, exitStatus == QProcess::CrashExit);
     }
@@ -462,10 +462,9 @@ bool GameSessionController::confirmStopGame(const QString &displayName, int sess
     // 「停」在 Windows 上就是 TerminateProcess（见 LauncherManager::stopGame()），游戏
     // 来不及存档。**这件事必须在这里说清楚**，默认那一边是"别停"（回车 = 取消）。
     //
-    // NOTE: 之前就**只有**底栏左面板里那行电源走这儿了（实例页那颗「停」连同
-    // applyStopGame() 一起删了，见 MainWindowUI.cpp 里那段）。所以 `sessions > 1`
-    // 那半句现在是**死支**—— stopGameSession() 恒传 1。留着它是因为它是这个函数
-    // 的一部分（"一次停几份"这件事问话里要说清），不是因为还有人在用。
+    // NOTE: 停游戏只有底栏左面板那行电源走这儿（`stopGameSession()` 恒传 1），所以
+    // `sessions > 1` 那半句是**死支**；留着它是因为它是这个函数的一部分
+    // （"一次停几份"这件事问话里要说清），不是因为还有人在用。
     const QString text =
         sessions > 1
             ? tr("「%1」正在运行（共 %2 个游戏进程，这一下全部停止）。\n\n停止会"

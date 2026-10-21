@@ -14,7 +14,7 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
               "打开就停在主页（即『启动界面』）", QString::number(tabs->currentIndex()));
         check(ui.isHomeTabCurrent(), "isHomeTabCurrent() 与停在主页一致");
 
-        // 那四个下标常量**逐个对着标签文字核一遍**（ 补 instances 那一个）：
+        // 那四个下标常量**逐个对着标签文字核一遍**（包括 instances 那一个）：
         // 它们是"界面第几页"这件事在代码里的唯一说法（`openInstanceSettings` 就靠
         // `instancesTabIndex()` 钉住"实例设置这一页归谁"，钉错了的症状是"点来点去点多了
         // 进不去实例设置、还会被拽到下载页" —— 用户 报的那个）。
@@ -61,7 +61,7 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
               "四页都能按 objectName 找回来");
 
         // 两个下拉框分家：一个在主页（启动用），一个在下载页（下载用）。
-        // 它们本来就是两个互不相干的数据源，以前并排放着只是因为都叫"版本"。
+        // 它们本来就是两个互不相干的数据源，只是都叫"版本"，不能混成一个。
         const auto isAncestor = [](QWidget *ancestor, QWidget *child) {
             return isDescendantOf(child, ancestor);
         };
@@ -71,7 +71,7 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
                   isAncestor(downloadPage, versionTree) && isAncestor(downloadPage, installNameEdit) &&
                   isAncestor(downloadPage, installBtn),
               "版本树和安装页那一套控件都在下载页");
-        // 下载页左栏那棵「模组加载器」树（ 起是**树**：五个顶层条目 +
+        // 下载页左栏那棵「模组加载器」树**是树**：五个顶层条目 +
         // 点开某一条才出现的版本号，用户要的"和上一页的版本选择相同的模式"）。
         {
             const QStringList texts = MainWindowUI::modLoaderOptionTexts();
@@ -235,10 +235,9 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
         check(instancePage != nullptr && isAncestor(instancePage, folderList) &&
                   isAncestor(instancePage, instanceList) &&
                   instancePage->findChildren<QPushButton *>().size() == 11,
-              // 十一个 = 下面那三颗 + 搜索行那四颗筛选 chip（§7.2）+ 模式行那三颗
-              // （客户端实例 / 服务端 / 预设）+ 右下那颗「新建服务端…」（§6.1 / M4）。
-              // 模式行 从两颗变三颗：预设管理从「设置」里搬了过来（coding
-              // plan §10.1 presets P0），这一颗是三颗里的第三颗。
+              // 十一个 = 下面那三颗 + 搜索行那四颗筛选 chip + 模式行那三颗
+              // （客户端实例 / 服务端 / 预设）+ 右下那颗「新建服务端…」（M4）。
+              // 模式行 从两颗变三颗：预设管理从「设置」里搬了过来，这一颗是三颗里的第三颗。
               // 三个 = 左栏「游戏文件夹」那一组的两个（「添加文件夹…」+「导入整合包…」）
               // + 「分组设置…」那一颗（它在「实例列表」那个框外面的右上角）。
               // 这个数字是**故意**钉死的：往这一页加控件时，要么它是这里数得着的一个，
@@ -248,13 +247,13 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
               // 搬进了「实例设置」页和"点这一条实例行"（要求「删掉实例页面右侧三个
               // 按钮（因为都已经分别有入口了），顺便把下面的文本干掉」）—— 「分组设置…」
               // 留下来挪到框外右上角（追加答复「分组设置先放右上角框外不删了」）。
-              // 从 3 变 7：正文面上方那一行**搜索与筛选**（coding plan §7.2）——
+              // 从 3 变 7：正文面上方那一行**搜索与筛选** ——
               // 一个搜索框（QLineEdit，不是按钮）+ 四颗筛选 chip（是按钮）。四颗为什么是
               // 按钮：它们要"亮着/不亮"这个状态（和资源详情页那排游戏版本、文件页那四颗
               // 筛子同一档控件），拿 QCheckBox 来摆是另一套观感。四颗的名字 / 文字 / 互斥
               // 在下面 U32 那一段，这一条数的就是"这一页上到底有几颗 QPushButton"。
               // 从 7 又到 10：实例页顶部多了**模式切换**（客户端实例 | 服务端）
-              // 与服务端那半页（coding plan §6.1 / M4）。三颗新的：模式行那两颗 chip
+              // 与服务端那半页（M4）。三颗新的：模式行那两颗 chip
               // （要"亮着/不亮"这个状态，理由同上面那四颗筛选 chip）+「新建服务端…」
               // （用户答"服务端根目录 = 一个自己的 Servers/ 文件夹"之后，服务端那半页的
               // 建入口）。
@@ -274,13 +273,11 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
                   instancePage->findChild<QPushButton *>(
                       QStringLiteral("stopGameButton")) == nullptr,
               "「停止游戏…」那个按钮真的不在了（按 objectName 找不到）");
-        // 右栏那一排按钮 傍晚剩下**一颗**（「分组设置…」），另外两颗各自的
-        // 新家见下面两条"反着找"。
+        // 右栏那一排按钮只剩**一颗**（「分组设置…」），另外两颗各自的新家见下面两条
+        // "反着找"。
         //
-        // NOTE: 从前那一排三颗一律可点（没选中实例时由 MainWindow 的槽弹一句话说清原因，
-        // 而不是让按钮变灰）—— 这条口径对留下来的那一颗照旧：它**不读**选中的实例，
-        // 所以没有"没选中"这回事。
-        // 原来是四个（多一个「停止游戏…」）， 删成三个，傍晚只剩一个。
+        // NOTE: 这一颗**不读**选中的实例，所以没有"没选中"这回事，也就不用变灰；
+        // 它照旧一律可点。
         {
             const auto *groupBtn = instancePage->findChild<QPushButton *>(
                 MainWindowUI::groupInstanceButtonName());
@@ -330,7 +327,7 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
             check(importBtn != nullptr && importBtn->isEnabled() && importBtn->toolTip().isEmpty(),
                   "「导入整合包…」是能点的，也不挂提示",
                   importBtn != nullptr ? importBtn->toolTip() : QStringLiteral("<null>"));
-            // 宽度策略**不再是 Fixed**（上一版在右栏，怕把列表挤窄）—— 挪到左栏之后它和
+            // 宽度策略**不再是 Fixed**（在右栏时怕把列表挤窄）—— 挪到左栏之后它和
             // 「添加文件夹…」一样顶满这一栏，那两颗才看着是一组。这条钉的就是"别再有人
             // 把它改回 Fixed"（改回去在界面上是一颗短按钮，不报错，只有这条能看出来）。
             check(importBtn != nullptr &&
@@ -371,15 +368,15 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
               settingsPage != nullptr && ui.getAccountSkinSettingsButton() != nullptr
                   ? ui.getAccountSkinSettingsButton()->text()
                   : QStringLiteral("<找不到>"));
-        // 反面：那格原来摆的是个「微软登录」按钮（登录过叫「重新登录」），它只会登录
-        // 一件事，加离线账号/切换/删除一件都做不到 —— 已经并进那个窗里了。
+        // 反面：那格**不再**摆「微软登录」按钮（登录过叫「重新登录」那种）—— 它只会登录
+        // 一件事，加离线账号/切换/删除一件都做不到，这些并进那个窗里了。
         check(window.findChild<QWidget *>(QStringLiteral("loginButton")) == nullptr,
               "设置页那格原来的「微软登录」按钮已经拿掉了（它做不了账号管理那几件事）");
 
-        // 原来那对「可安装版本 下拉框 + 版本下载 列表」 整组去掉了（要求
-        // "点击具体版本后进入一个新页面"）。反过来钉一句：下载页里**只剩**那四个加载器
-        // 版本组合框（它们现在排在安装页每条加载器右边），一个多余的都别再摆回来。
-        // 那几个常量本身也已经删了，所以这里只能按名字找 —— 名字就是当年的契约。
+        // 那对「可安装版本 下拉框 + 版本下载 列表」**不许**回来（要求
+        // "点击具体版本后进入一个新页面"）。下载页里**只剩**那四个加载器
+        // 版本组合框（它们排在安装页每条加载器右边），一个多余的都别再摆回来。
+        // 控件只能按名字找 —— 名字就是契约。
         check(window.findChild<QComboBox *>(QStringLiteral("availableVersionCombo")) == nullptr &&
                   window.findChild<QListWidget *>(QStringLiteral("availableVersionList")) == nullptr &&
                   window.findChild<QPushButton *>(QStringLiteral("downloadButton")) == nullptr,

@@ -66,7 +66,7 @@ int runRenameInstanceTests(const QString &sandbox) {
         }
     }
     {
-        // 反过来那一侧：**不是**保留名的不能被误判（ 补）。COM0 / LPT0 看着像
+        // 反过来那一侧：**不是**保留名的不能被误判。COM0 / LPT0 看着像
         // 设备名，实测**不是**（GetFullPathName 不把它们映射进设备命名空间，建目录照建）；
         // 上标那一族里只有 ¹²³ 三个算设备名，`COM´`（U+00B4，重音符）不算。
         // 判据要是写成"以 COM 开头就拒"，用户给实例起名 COM0 会收到一句"这个名字不能用"
@@ -157,7 +157,7 @@ int runRenameInstanceTests(const QString &sandbox) {
     }
 
     // ---------- P4 jar 名和目录名本来就不一致的实例 ----------
-    // 判据放松之后这种目录是"认得出"的，改名时顺带把它**规范**回 <目录名>.jar。
+    // 判据认得出这种目录，改名时顺带把它**规范**回 <目录名>.jar。
     {
         const QString oldId = QStringLiteral("P4-改过名的");
         const QString newId = QStringLiteral("P4-规范了");

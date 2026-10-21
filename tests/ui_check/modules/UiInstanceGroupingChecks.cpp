@@ -91,7 +91,7 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                       QStringLiteral("1.20.1"),
               "实例条目没有组 id 那个 role，实例 id 在 instanceIdRole 里");
 
-        // ---- 组行行尾那两格的几何（ 加的：用户「右侧有个箭头和齿轮」） ----
+        // ---- 组行行尾那两格的几何（用户「右侧有个箭头和齿轮」） ----
         //
         // NOTE: 拿**合成出来的行**量，不靠树上那一行 —— 这台机器上 offscreen 的字体库是空的
         // （行高只有十几像素），"行够高时齿轮不缩"那一档在这儿永远走不到，而那一档
@@ -127,7 +127,7 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                   "两档里齿轮都排在箭头左边（行尾那两格，和版本树那几个行内按钮一样靠右）");
         }
 
-        // ---- 组行行尾**只剩那颗齿轮**了（ 傍晚） ----
+        // ---- 组行行尾**只剩那颗齿轮** ----
         //
         // 要求：「这个点击一下就同时展开和调整了，其次这个箭头不应该在这里，而应该在
         // 分组设置里面，这里的删了，去分组设置里面加上，设置那个框下方的上移下移的按钮就
@@ -157,13 +157,11 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             paintProbe.resize(400, tallH);
             paintProbe.show();
             QApplication::processEvents();
-            // 量下面那些"墨"之前，必须先把**当前项摘掉**（ 深夜，这一条红过）。
+            // 量下面那些"墨"之前，必须先把**当前项摘掉**。
             //
-            // **这不是产品回归**：把产品那一侧退回上一版（`a60a1ba`）重编，这一条照样红、
-            // 数字一模一样（同一份探针、同一份代理，产品改了什么它看不见）。所以修的是
-            // 判据的前提，不是产品那几行。（同一个坑 早些时候在 N 节那条
-            // "量像素的基线要按画出来的那一块取"里已经踩过一次了：Fusion 的当前项是渐变，
-            // 单点取样必然错。）
+            // 不摘的话量出来的是 Fusion 当前项那一块渐变，单点取样必然错（同一个坑在
+            // "量像素的基线要按画出来的那一块取"那条里也踩过）。这是判据的前提，不是
+            // 产品的事：探针和代理都不看产品改了什么。
             paintProbe.clearSelection();
             paintProbe.setCurrentItem(nullptr);
             QApplication::processEvents();
@@ -198,8 +196,8 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                 return n;
             };
             const QRect gearCell = InstanceGroupDelegate::gearGlyphRect(paintRow);
-            // 旧那两颗三角占的正是齿轮左边那一带：两个 18 px 宽的命中格、紧挨着齿轮
-            // （见 之前那一版的 moveDownRect() —— `box = 箭头边长 + 6`）。
+            // 那两颗三角原本占的正是齿轮左边那一带：两个 18 px 宽的命中格、紧挨着齿轮
+            // （`box = 箭头边长 + 6`）。
             // 取齿轮命中格左边 54 px 起、48 px 宽的一段，刚好把那一带整个盖住。
             const QRect oldArrowBand(InstanceGroupDelegate::gearRect(paintRow).left() - 54,
                                      paintRow.top(), 48, paintRow.height());
@@ -265,8 +263,8 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             }
             // 量的是那一带**落在卡片里**的那一块：悬停之后行的底色只在 `cardRect()` 里
             // （上下各收掉半道空），拿整条 58 px 去比的话，上下那两道空自己就是"不是悬停色"
-            // —— 量出来 144 px 全是那两条缝，和"箭头回没回来"一点关系都没有（ 改版
-            // 加悬停那一层之后当场踩到）。两道空里本来也没人画箭头。
+            // —— 量出来 144 px 全是那两条缝，和"箭头回没回来"一点关系都没有（加悬停
+            // 那一层之后当场踩到）。两道空里本来也没人画箭头。
             const QRect arrowBandInCard = oldArrowBand.intersected(hoverCardRect);
             check(inkIn(arrowBandInCard) == 0,
                   "★ 组行行尾那两颗上下移箭头搬走之后，齿轮**左边**那一带一个像素的墨都没有"
@@ -595,8 +593,8 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             // 选中那一档从 Fusion 那个蓝**换成了我们自己画的一块灰**（要求
             // 「选中的时候那个蓝色的换成深灰色」，随后「再浅一点，#cccccc」）⇒ 这里的
             // "选中色"不再是 `palette().color(Highlight)`，而是 `Theme::selectionFill()`
-            // （唯一出处见 ui/Theme.hpp）。原来那条"Fusion 画当前项是**竖渐变**、所以不能写
-            // `== highlight`"的经验**还在**，所以仍然判"离选中色近得多、且绝不是悬停色"。
+            // （唯一出处见 ui/Theme.hpp）。Fusion 画当前项是**竖渐变**，所以不能写
+            // `== highlight` —— 仍然判"离选中色近得多、且绝不是悬停色"。
             const QColor selectionGray = Theme::selectionFill();
             const QColor highlight = instanceProbe.palette().color(QPalette::Highlight);
             const int distToSelection = rgbDist(selectedPixel, selectionGray);
@@ -716,7 +714,7 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             // 这是**真鼠标**那一档唯一的守卫：上面所有断言都是手动发事件的，开不开
             // mouseTracking 都量得动。而用户用真鼠标 —— 少一句 setMouseTracking(true)，
             // 屏幕上的症状是"悬停没反应"，不报错、上面每条断言还照样绿的。
-            // （ 之前全仓只有实例列表和下载页左栏那份列表开了。）
+            // （这两个视图都必须显式开这一位。）
             const auto viewTracksMouse = [](QAbstractScrollArea *view) {
                 return view != nullptr && view->viewport()->hasMouseTracking();
             };
@@ -725,11 +723,11 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             check(viewTracksMouse(ui.getDownloadCategoryList()),
                   "★ 产品·下载页左栏那份分类列表开着 mouseTracking");
             check(viewTracksMouse(ui.getVersionTree()),
-                  "★ 产品·版本树开着 mouseTracking（2026-09-29 补的）");
+                  "★ 产品·版本树开着 mouseTracking");
             check(viewTracksMouse(ui.getLoaderTree()),
-                  "★ 产品·加载器那棵树开着 mouseTracking（2026-09-29 补的）");
+                  "★ 产品·加载器那棵树开着 mouseTracking");
             check(viewTracksMouse(ui.getSettingsCategoryList()),
-                  "★ 产品·设置页左栏那份分类列表开着 mouseTracking（2026-09-29 补的）");
+                  "★ 产品·设置页左栏那份分类列表开着 mouseTracking");
             // 第 0 个「游戏」那一页**没有资源表**（`getDownloadResourceTree("game")`
             // 回 nullptr —— 它有它自己那棵树），所以这里按"四个资源页"来数，跳过它。
             const QStringList allCategoryKeys = MainWindowUI::downloadCategoryKeys();
@@ -749,7 +747,7 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             }
             check(resourceTreesTracked == resourceTreesExpected && resourceTreesExpected > 0,
                   "★ 产品·下载页那几张资源表（整合包/模组/数据包/资源包/光影）每一张都开着 "
-                  "mouseTracking（2026-09-29 补的）",
+                  "mouseTracking",
                   QStringLiteral("开着的有 %1 / 一共 %2")
                       .arg(resourceTreesTracked).arg(resourceTreesExpected));
 
@@ -815,10 +813,10 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
 
             // ---- ⑫b 墨：浅底上必须是**暗**字，深底上必须是**亮**字 ----
             //
-            // 方向是这一节的要害：第一版那块底是**暗**的（`#4a4a4a`）、墨得是亮的；用户
+            // 方向是这一节的要害：这块底是**暗**的（`#4a4a4a`）、墨得是亮的；用户
             // 把底色改浅之后，墨必须**跟着翻过去** —— 亮墨压浅底 = 等于没字。所以这里不只
             // 量"差得够远"，还钉住"底是亮的、墨是暗的"这两条方向。
-            // 底改成"跟这一行自己的底色走"之后，方向**还得会翻回来**：
+            // 底**跟这一行自己的底色走**，方向**还得会翻回来**：
             // 深色预设下那一片底是暗的，墨必须换回亮的那一支（见 .cpp 里那两档）。
             const QColor selectionInk = Theme::selectionInk();
             const QColor selectionSubInk = Theme::selectionSubInk();
@@ -891,15 +889,15 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             const QColor probeSelection = Theme::selectionFill();
             const QColor probeHighlight = selectProbe.palette().color(QPalette::Highlight);
             // **判据扫一片取多数，别拿单点逐字节比**：这一行是"当前项"，样式会在条目边界上
-            // 描焦点框、边上还有几个抗锯齿的像素 —— 贴着边界取样量到的是混色。 这
-            // 一条连着栽了两次：取 `top()+1` 量到 `#4c4c4c`（该有 `#4a4a4a`）、改成竖直正中
-            // 又量到 `#cdcdcd`（该有 `#cccccc`）—— 每次都只差一两个数位，判"接近"就混过去了，
+            // 描焦点框、边上还有几个抗锯齿的像素 —— 贴着边界取样量到的是混色。
+            // 取 `top()+1` 会量到 `#4c4c4c`（该有 `#4a4a4a`）、取竖直正中
+            // 会量到 `#cdcdcd`（该有 `#cccccc`）—— 每次都只差一两个数位，判"接近"就混过去了，
             // 判"相等"当场红。所以扫**一整片**（左边那圈留白里、够不着正文和图标），数
             // "有多少个像素就是我们这一档、有几个还是那个蓝"。
             check(selectRowRect.left() > 2, "哨兵：这一行真的被缩进了（不缩进就谈不上「左边那一截」）",
                   QStringLiteral("左边 = %1").arg(selectRowRect.left()));
             // 为什么不是"某一点逐字节等于我们那一档"：**当前项**那一行的底是 Fusion 自己
-            // 画的**竖渐变**（ 把这一列逐行打印出来看过：上沿一条 `#b8b8b8`、
+            // 画的**竖渐变**（把这一列逐行打印出来看：上沿一条 `#b8b8b8`、
             // 紧跟着 `#d2d2d2`、往下平滑收到下沿那条 `#b4b4b4`），我们换掉的只是它用的那份
             // 调色板 —— 整条渐变**就是**我们这一档底调制出来的，但只有中间几行逐字节等于
             // 它。所以判据是"这一列**平均**下来就是这一档、最偏的一个像素也在同一族里" +
@@ -957,15 +955,14 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                       .arg(bodyTint)
                       .arg(bodyBlue)
                       .arg(probeHighlight.name(), probeBase.name()));
-            // 最左边那一列（x = 0..2）现在是**那根 3 px 的主题色指示条**（§9.3 点名要的
+            // 最左边那一列（x = 0..2）现在是**那根 3 px 的主题色指示条**（点名要的
             // 那一根）：样式早在画选中底的时候就把它铺上了，而代理紧接着又把左边那一截
             // 分支区**整段**补了一遍底色（上面那段代码）—— 补的时候正好把它盖掉，所以
             // 代理在那之后还得**再补一次指示条**。这条判据量到的是后者。
             const QPoint railSpot(2, selectRowRect.top() + 1);
             const QColor railPixel = selectShot.pixelColor(railSpot);
             check(railPixel.rgb() == Theme::selectionBar().rgb(),
-                  "★ 选中那一行最左边是那根 3 px 的主题色指示条（和侧栏导航同一根 —— "
-                  "§9.3 点名、用户答复「完全照 §9.3（和侧栏导航同款）」）",
+                  "★ 选中那一行最左边是那根 3 px 的主题色指示条（和侧栏导航同款）",
                   QStringLiteral("x=2 那一列量到 %1（该是主题色 %2）")
                       .arg(railPixel.name(), Theme::selectionBar().name()));
             const QPoint selectStripSpot(selectRowRect.left() - 2, selectRowRect.top() + 1);
@@ -999,7 +996,7 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
 
             // ---- ⑫e 那条闸：`Highlight` 被换过的表**不许**被接管 ----
             //
-            // 下拉框弹出层里的选中色是**主题色**（ 用户点名，走 QSS
+            // 下拉框弹出层里的选中色是**主题色**（用户点名，走 QSS
             // `QComboBox QAbstractItemView { selection-background-color: … }`）。那条 QSS 是
             // 逐控件的，我们这份样式看不到是哪张表在画，只能看 `option.palette`：这一份的
             // `Highlight` 跟应用调色板里那个不一样 ⇒ 不是"我们自己的选中带" ⇒ 原样交回去。

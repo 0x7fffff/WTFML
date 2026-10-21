@@ -40,7 +40,7 @@ namespace {
 // `InstanceFiles::pathIsSameOrInside()` 会解 junction / 8.3 短名 / 符号链接
 // （`canonicalFilePath()` 自己**不解 junction**，见 InstanceFiles.cpp 里那一大段），
 // 所以拿它**两头各问一次**就是"同一个文件夹"。解不出来 / 两边只有大小写写法不同时
-// 退回原来那句字面量比较 —— 那正是这条判据从前的全部行为，不丢。
+// 退回字面量比较 —— 那是这条判据的兜底，不能省。
 bool isCurrentGameFolder(const QString &folder) {
     if (folder.isEmpty()) {
         return false;
@@ -211,7 +211,7 @@ void InstanceTransferController::copyInstanceInBackground(
     }
     log(tr("开始复制实例 %1 → %2 …").arg(displayName(sourceId), name));
     m_copyBusy = true;
-    // 拷树在后台跑，可这段时间原先**没有任何"忙"标记**。源实例照样能被
+    // 拷树在后台跑，这段时间必须有"忙"标记：否则源实例照样能被
     // 启动（游戏一边写存档、这一边读 ⇒ 副本里是半截世界）、能被删、能再改设置。
     // 开始前的 `isVersionRunning` / `isBeingModified` 两道闸只管"按下去那一刻"。
     // **源**必须记；**目标**在"目标游戏文件夹就是当前游戏文件夹"时也得分两说：
@@ -466,7 +466,7 @@ void InstanceTransferController::deleteWorldInBackground(
             const auto result = watcher->result();
             watcher->deleteLater();
             if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(instanceId, false);
-            // 删不干净时的说法沿用原来那一句：用户要的是"为什么没删掉 + 接下来做什么"。
+            // 删不干净时的说法要回答"为什么没删掉 + 接下来做什么"。
             const QString error =
                 result.ok
                     ? QString()

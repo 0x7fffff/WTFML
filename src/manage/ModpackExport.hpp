@@ -236,8 +236,7 @@ QByteArray modrinthVersionFilesRequestBody(const QStringList &sha1s);
 /**
  * @brief CurseForge 的批量反查请求体：`{"fingerprints":[1234567890, …]}`。
  *
- * NOTE(）：数组里是 **JSON 数字**（int64），**不是**字符串。
- * 这条 NOTE 从前写的是反的（"必须是字符串"），而那一面正是洞 —— 实测：
+ * NOTE: 数组里是 **JSON 数字**（int64），**不是**字符串。
  * `["3816865428"]` 回 400（`invalid type: string … expected i64`），`[3816865428]` 回 200。
  * 发成字符串的代价不是"报个错"，是 **CurseForge 那一支整支不出声**：屏幕上只是那几格
  * 没有图标，而"这个资源本来就没传图标"长得一模一样（详见 .cpp 里那段）。

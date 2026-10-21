@@ -66,7 +66,7 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                   VersionManager::loaderInstallSupported(LoaderKind::Forge) &&
                   VersionManager::loaderInstallSupported(LoaderKind::NeoForge) &&
                   VersionManager::loaderInstallSupported(LoaderKind::OptiFine),
-              "四个加载器都接通了（2026-09-22 起 OptiFine 也能装）");
+              "四个加载器都接通了（OptiFine 也能装）");
 
         // Y2. 真窗口上那棵加载器树：五条顶层条目、每条的身份就是下标、**点一下真的会
         // 改掉"要装哪一个"**（要求："做成和上一页的版本选择相同的模式，点击以后
@@ -249,7 +249,7 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                   installNameHint->text());
             check(installBtn->isEnabled(), "默认名合法，「安装」是亮的");
 
-            // 实例预设那一行（，coding plan §10.1 P1「OptiFine 下预设行、
+            // 实例预设那一行（「OptiFine 下预设行、
             // 紧凑弹窗、四类切换及本次安装选择」）。它现在**是加载器树上的第六行**，
             // 不再是卡片里那三件控件（老的下拉框 / 查看 / 勾选框已经整块退场）。
             // 这一行的身份是负数（`installPresetRowRole()`），所以加载器那张下标表
@@ -463,8 +463,8 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                       "★ 再点一下那一条，它**收起来**（用户原话：「点一下，展开，再点一下 关闭」）",
                       QString("展开=%1").arg(row->isExpanded() ? 1 : 0));
                 // 选中 = 点底下那两档里的一档。这里点「下载稳定版」——
-                // 它就是改动前那条「自动（推荐）」那一档（老规矩挑的就是正式版），
-                // userData 从空串换成了 `@stable`（见 LoaderMeta::loaderChannelKey）。
+                // 它就是「自动（推荐）」那一档挑的东西（正式版），userData 是 `@stable`
+                // （见 LoaderMeta::loaderChannelKey）。
                 clickRow(loaderTree, row);
                 clickRow(loaderTree, row->child(1));
                 check(!row->isExpanded(),
@@ -592,7 +592,7 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                 // 这一条就是用户报的那个"点不开了"（选中之后仍然来回都能开）。
                 clickRow(loaderTree, row);
                 check(row->isExpanded(),
-                      "★ 选中的那一条再点还是能展开（2026-09-23 的「点不开了」正是这一条）",
+                      "★ 选中的那一条再点还是能展开（「点不开了」正是这一条）",
                       QString("展开=%1 子条目=%2")
                           .arg(row->isExpanded() ? 1 : 0)
                           .arg(row->childCount()));
@@ -917,9 +917,8 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                       "日志里也留了一句");
 
                 // 收拾：翻回「自动」那一档。**路径本身清不掉**（产品有意不让"自动"这一档
-                // 顺手抹掉上次挑中的路径 —— onJavaUseAuto() 里那句注释，从前那个下拉框
-                // 是同一条语义），所以盘上还留着那条不存在的路径；后面只剩 Y4 的原版那条路
-                // 和 O 节的清理，都不读 Java。
+                // 顺手抹掉上次挑中的路径 —— 见 onJavaUseAuto() 里那句注释），所以盘上还
+                // 留着那条不存在的路径；后面只剩 Y4 的原版那条路和 O 节的清理，都不读 Java。
                 unpinGlobalJava();
                 QApplication::processEvents();
                 check(windowJava->autoSelectJava() &&

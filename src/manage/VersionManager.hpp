@@ -181,7 +181,7 @@ public:
                             const QStringList &flaggedPaths = QStringList());
 
     // ------------------------------------------------------------------
-    // 取消 / 重试（coding plan §4.2）
+    // 取消 / 重试
     // ------------------------------------------------------------------
 
     /// 现在有一批下载在跑、**而且用户可以取消它**（= 界面那颗「取消」露不露的唯一判据）。
@@ -197,7 +197,7 @@ public:
     /// 原子提交过的那几个留在原处（下一趟重下会按 sha1 跳过），只是这一批到此为止、
     /// 该收的状态机都收掉。
     ///
-    /// @return false = 当时没有可取消的批次（信号竞争、或者已经被别的东西收掉了）。
+    /// @return false = 当前没有可取消的批次（信号竞争、或者已经被别的东西收掉了）。
     bool cancelActiveDownload();
 
     /// 上一次失败的那一批**能不能重做**（界面上那颗「重试」露不露的唯一判据）。
@@ -253,10 +253,10 @@ public:
     /// **什么时候必须用它**：从异步回调里往回接续的时候 —— 网络回复的槽、安装器进程的信号、
     /// DownloadManager 的 allDownloadsFinished。这些回调都是 Qt 在**它自己的分发栈里同步**
     /// 调过来的，在里面直接起下一个下载批次就等于"在上一批的状态机上重入"：新批次整个跑在
-    /// 上一批的栈里。 那次无日志崩溃正是这个形状 —— Fabric 那一批的原版文件下完
+    /// 上一批的栈里。这个形状会崩：Fabric 那一批的原版文件下完
     /// → allDownloadsFinished → 同步起"加载器自己的库"那一批 → extractAssetIndex()
     /// → Qt 内部一把 QReadWriteLock 的 unlock() 抛了没接住的 std::system_error
-    /// → std::terminate → abort()（取证的工具和结论在 build/tools/crashdump/）。
+    /// → std::terminate → abort()。
     /// 排到下一轮之后，这一步是在事件循环上从零开始的栈里跑的，外面一把 Qt 的锁都没有。
     ///
     /// **什么算"下一步"**（要排队的）：起一个下载批次、起一个子进程、动磁盘上的文件。
@@ -276,7 +276,7 @@ public:
     /// 下载页那四个单选钮对应的加载器。
     enum class LoaderKind { Fabric, Forge, NeoForge, OptiFine };
 
-    /// 这个加载器现在接通了没有。**四个都接通了**（OptiFine 是 接上的）。
+    /// 这个加载器现在接通了没有。**四个都接通了**。
     ///
     /// 为什么四个都能装之后还留着这个函数：它回答的是"勾了这个钮会发生什么"，而界面要据此
     /// 决定"点了下载之后弹哪一种话"（能做 / 还没做）—— 两边各写一份 switch 的话，接通一个
@@ -304,7 +304,7 @@ public:
      * @param out 成功时写入；失败时不碰
      * @return 这个下标对应一个加载器吗（-1「一个都没勾」、以及「不装」那个下标都是 false）
      *
-     * 为什么要有这么一层：界面上"勾了哪个"是个下标，而"装什么"是个枚举，中间那次翻译
+     * 为什么要有这么一层：界面上"勾了哪个"是个下标，而"装什么"是个枚举，中间这层翻译
      * 要是各写各的 switch，多一个加载器时漏改一处就是"勾了 Fabric 装出 Forge" —— 不报错，
      * 装完才发现。所以翻译只有这一处，verify 里按名字逐项对过。
      */
@@ -343,7 +343,7 @@ public:
      * （异步 QProcess + 心跳 + 硬超时，见 runInstaller）；
      * 4. 核对它留下的那份版本 json（目录名与 inheritsFrom，见 checkInstallerResult）；
      * 5. 安装器**不下资源文件**，所以再走一遍 `downloadVersion(原版)` 把原版补齐
-     * （json / 客户端 jar / 库 / 资源，已有的按老规矩校验后跳过）；
+     * （json / 客户端 jar / 库 / 资源，已有的按现有规矩校验后跳过）；
      * 6. 写 wtfml.meta，发完成信号。
      * 它的前置条件只有一条：游戏目录里得有 `launcher_profiles.json`（安装器拿它认目录），
      * 没有就补一份最小的（见 ensureLauncherProfiles）。
@@ -379,7 +379,7 @@ public:
      * 整合包导入走的就是这条路：它的依赖表里写着 `fabric-loader: 0.16.14`，而包里
      * 那些模组正是按这个版本配的，装"最新那个"是另一回事（多半也能跑，但那是猜）；
      * * `@latest` / `@stable` —— 按这一档挑（最新档连 alpha/beta/预览版一起算）；
-     * * **空串** —— 老行为（Fabric 挑"最新的正式版"、Forge/NeoForge 挑官方推荐版、
+     * * **空串** —— 默认行为（Fabric 挑"最新的正式版"、Forge/NeoForge 挑官方推荐版、
      * OptiFine 挑官方页那一行），也就是稳定档。
      * NOTE: 纯原版整合包不调这个函数（没有加载器要装），见 importModpack()。
      */
@@ -410,7 +410,7 @@ public:
      * **父版本那批文件本来就得在盘上**（客户端 jar 在 `versions/<原版号>/`、库和资源是全局
      * 共享的），所以这永远是两个目录、不是"把文件搬过去"。
      *
-     * 名字撞上盘上已有的东西时**不在这儿拦**：调用方先问过用户（老规矩那问句："已经装过了，
+     * 名字撞上盘上已有的东西时**不在这儿拦**：调用方先问过用户（既有那句问话："已经装过了，
      * 要不要校验并修复？"），这里只负责"已有的文件按 sha1 校验后跳过"——也就是「重下=校验
      * 跳过」那条产品级约束。薄 json 是每次覆盖重写的（它就是一行字，没有"半旧"的问题）。
      *
@@ -423,7 +423,7 @@ public:
      * @param instanceId 同 installNamedVanilla()。
      * @param gameVersion 它基于的**原版**版本号。
      * @param kind 装哪一种加载器。
-     * @param pinnedLoaderVersion 钉死加载器版本（安装页上点开加载器选的那个）。空 = 老行为
+     * @param pinnedLoaderVersion 钉死加载器版本（安装页上点开加载器选的那个）。空 = 按默认档挑
      * （"最新的正式版" / 官方推荐版）。
      * @param javaPath 同 installLoaderVersion()：跑外部安装器用哪个 Java。
      *
@@ -448,19 +448,18 @@ public:
     /**
      * @brief 问某个加载器在某个游戏版本上有哪些版本可选（安装页那个展开的列表用）。
      *
-     * **一个加载器一份请求，四个可以同时在飞**（ 改）。同一个加载器上再来一发
+     * **一个加载器一份请求，四个可以同时在飞**。同一个加载器上再来一发
      * 才把上一发 abort 掉（同一个游戏版本重新问、或者换了游戏版本）—— 换局之后旧那一发
      * 回来会填错地方，那是"选了 Fabric 却看到 Forge 的版本号"。
      *
-     * NOTE: 以前是"总共只认一份、再来一发就掐上一发"。那是在"界面上只有一处选择器"的年代
-     * 定的（点开另一个加载器 = 换一份列表）。现在安装页上四条加载器是并列的四行、
+     * NOTE: 不能只留一份、再来一发就掐上一发：安装页上四条加载器是并列的四行、
      * 一进去就四条一起问，只有一格的话后三发会把前一发掐死 —— 前三条底下永远停在
-     * 「正在获取…」。改成一格一个加载器之后，"换一份列表"这件事由调用方换游戏版本时
+     * 「正在获取…」。每个加载器各占一格，"换一份列表"这件事由调用方换游戏版本时
      * 重新问一遍来表达。
      *
      * 四条路的数据源（都是实测过的）：
      * * Fabric `/v2/versions/loader/<mc>`（253 条 / 589 KB，接口本来就是新到旧）
-     * * Forge maven 清单 5048 条 / 211 KB（**新开的源**：promotions 那张表只回答"推荐哪个"，
+     * * Forge maven 清单 5048 条 / 211 KB（**maven 清单**：promotions 那张表只回答"推荐哪个"，
      * 里面根本没有"总共有哪些" —— 1.20.1 那对键是 47.4.10 / 47.4.23，而它底下有 132 个）
      * * NeoForge maven 清单 63 KB
      * * OptiFine 跟着**下载源**走：镜像源问镜像那条 JSON，否则读官方那 200 KB 的下载页 ——
@@ -479,12 +478,10 @@ public:
     /// 有整合包正在导入（含"先装加载器"和"最后解压覆盖文件"那两段）。
     /// UI 用它和 isLoaderInstalling() 一起兜"能不能点启动" —— 判据只有
     /// MainWindow::onStartButtonClicked() 一处，别在别处再判一遍。
-    /// NOTE: 这里以前写的是 updateBottomBar()，**不是** —— 底栏那格中间那一句看的是
+    /// NOTE: 这里不是 updateBottomBar() —— 底栏那格中间那一句看的是
     /// **任务账本**（`MainWindow::updateBottomBarTaskSummary()`：哪一件该被看见由
     /// `Tasks::collapsedSummary()` 定，再加上 `m_syncWaitStatus` 那一层压倒），
     /// 和这几个 "isXxx" 无关。
-    /// （ 任务中心那一次之前，这里引的是 `MainWindowUI::bottomBarShowsProgress`
-    /// —— 那个函数连同它背后那套"谁借这一格"的优先级已经整个撤掉了。）
     bool isModpackImporting() const;
 
     /**
@@ -564,7 +561,7 @@ public:
     // 在下载期间并没有被禁用。
     void setUseMirror(bool useMirror);
 
-    /// 同时最多下几个文件（设置 → 下载 → 并发数，coding plan §9.2）。**和 setUseMirror 同一个
+    /// 同时最多下几个文件（设置 → 下载 → 并发数）。**和 setUseMirror 同一个
     /// 形状**：数据层看不见 LauncherSettings（那是界面那一层的），设置要由 MainWindow 推过来。
     ///
     /// 改完立刻生效，但和"改道"不一样：这条线每一拍都重读，所以**正在下的那一批也跟着变**
@@ -573,7 +570,7 @@ public:
     /// 那一侧，见 `DownloadConcurrency.hpp`。
     void setDownloadConcurrency(int count);
 
-    /// 下载速度上限（字节/秒，0 = 不限；设置 → 下载 → 速度上限，coding plan §9.2）。
+    /// 下载速度上限（字节/秒，0 = 不限；设置 → 下载 → 速度上限）。
     /// 和上面那条同一个形状：数据层看不见 LauncherSettings，值由 MainWindow 推过来。
     /// 归一化（0 / 越界回 0）与那几档在 `DownloadSpeedLimit.hpp`。
     void setDownloadSpeedLimit(qint64 bytesPerSecond);
@@ -590,7 +587,7 @@ public:
      *
      * 存在的理由只有一个：**"一份批次状态"这条规矩要能被外面接上**。下载器的镜像降级、
      * 按主机的并发守卫、看门狗、失败清单全挂在同一份对象上，所以谁要下东西都得拿**这一份**，
-     * 而不是自己 new 一个（同时开两批会让两边的收尾互相算错，见 coding plan §2.3）。
+     * 而不是自己 new 一个（同时开两批会让两边的收尾互相算错）。
      * 目前唯一的消费者是服务端安装（`ServerInstallController::setDownloadManager()`）。
      *
      * NOTE: **只借出去下文件**，别拿它去发"问一句就完事"的元数据请求 —— 那些回复会和
@@ -674,7 +671,7 @@ public:
      * 目录"的实例（真机上绝大多数都是）—— 那些实例的 id 是用户起的名字、没有
      * `inheritsFrom`，第 1 条从头到尾问不出东西。判据的取舍写在 loaderEvidenceFromJson()。
      * 3. 拿不到就看 `wtfml.meta` 里的 `loaderName` / `loaderVersion`（我们自己写进去的，
-     * 见 updateVersionMeta）。那一段本来是给界面看的显示名，所以这张反查表是照着
+     * 见 updateVersionMeta）。那一段是给界面看的显示名，所以这张反查表是照着
      * loaderDisplayName() 拼出来的，不可能和写进去的那一份漂。它罩的是"链上没有、
      * 但 meta 里记着"的那一类（比如用户手写过一个 meta）。
      *
@@ -779,9 +776,9 @@ public:
      *
      * NOTE: 第 2 条**先看 OptiFine**（和导出那条路的顺序一致，见 loaderEvidenceFromJson）。
      * 所以一个"既装了 Fabric、又装了 OptiFine"的实例在这里报的是 `OptiFine` ——
-     * 对它装 Fabric 模组时那句提示会说得不准。真机上**没有这种实例**（ 把
-     * 70 个实例的 json 扫了一遍：OptiFine 那两个实例只有 OptiFine），所以顺序照旧；
-     * 真要修就得动 loaderEvidenceFromJson 那个顺序，而它管着导出，别为了这一格动它。
+     * 对它装 Fabric 模组时那句提示会说得不准。真机上那两个 OptiFine 实例只有 OptiFine，
+     * 所以顺序照旧；真要修就得动 loaderEvidenceFromJson 那个顺序，而它管着导出，
+     * 别为了这一格动它。
      */
     bool instanceModLoader(const QString &instanceId, QString *nameOut,
                            QString *versionOut = nullptr) const;
@@ -836,15 +833,15 @@ public:
     /// `--installClient` 这条路 —— 拿真机日志里的 1.8.9-11.15.1.1722 实测，
     /// 它的 `--help` 只有 `--extract` / `-h` / `--installServer` / `--offline`（545 B），
     /// 把 `--installClient` 喂过去，它当场 joptsimple.UnrecognizedOptionException 退出码 1，
-    /// 用户看到的是一段 Java 堆栈（那次失败的日志就是这么写的）。所以跑安装器之前先
+    /// 用户看到的是一段 Java 堆栈。所以跑安装器之前先
     /// 问一句它认什么。
     ///
-    /// 一个一个探下来的边界（ 实测，每个都下了 4~5 MB 的安装器跑
+    /// 一个一个探下来的边界（实测，每个都下了 4~5 MB 的安装器跑
     /// `java -jar <安装器> --help`）：**1.7.10 / 1.8.9（11.15.1.1722 和 11.15.1.2318
     /// 两个都试了）/ 1.9.4 / 1.10.2 / 1.11.2 都不认**；1.12.2（14.23.5.2859）和
     /// 26.2（65.1.0）都认。所以这不是"某个版本坏了"，是整整一代安装器都只有图形界面。
     ///
-    /// 默认值全是"宁可信其有"：探不出来（进程起不来、超时、输出是空的）就按老样子往下走，
+    /// 默认值全是"宁可信其有"：探不出来（进程起不来、超时、输出是空的）就按默认值往下走，
     /// 让真正那一次安装去撞、去报它自己的错 —— 探针的意义是"少一次莫名其妙的报错"，
     /// 不能变成"多一道把本来能装的版本拦下来的关"。
     struct InstallerOptions {
@@ -870,7 +867,7 @@ public:
 
     // 把上面说的那**两个按 id 缓存的表**一起丢掉（`versionJsons` / `mergedVersionJsons`）。
     //
-    // 加：这两张表的键**只有版本 id**（= 目录名），而目录名在"换了一整份
+    // 这两张表的键**只有版本 id**（= 目录名），而目录名在"换了一整份
     // .minecraft"之后不再是唯一的 —— 两份目录里各有一个 `1.20.1` 是常态。所以
     // **换当前游戏文件夹那一路必须喊这一句**（`MainWindow` 里
     // `FolderManager::currentFolderChanged` 那个 lambda），和 m_javaListScanned 那几件
@@ -884,7 +881,7 @@ public:
     //
     // 为什么单独一个函数：`getVersionJson()` 遇到父版本缺失时只能给出"合不完整的那一份"，
     // 而它的调用方（启动路径）分不出"这份 json 本来就长这样"和"父版本没装" —— 后者
-    // 必须弹窗说清楚（要用户去装原版），照抄原来那句"请重新下载该版本"会把人引到死路上。
+    // 必须弹窗说清楚（要用户去装原版），套用「请重新下载该版本」那句话会把人引到死路上。
     //
     // NOTE: 只读，不写盘。它在启动路径上被调用。
     QString inheritanceProblem(const QString &versionId) const;
@@ -922,7 +919,7 @@ public:
     // "skipJavaVersionWarning"）。字段缺失、读到坏文件、类型不对，全都是 false = **要提醒**。
     //
     // NOTE: 默认为什么是"提醒"而不是"免打扰"：这个键只有用户点过「以后不再提醒这个实例」
-    // 才会被写下，没写过就是"没表过态"；而"没表态"在加这个功能之前等于一律报错拦下。
+    // 才会被写下，没写过就是"没表过态"；而"没表态"的语义是一律报错拦下。
     // 反过来默认（缺省即免打扰）会让老实例一升级就静默放行一个版本不对的 Java，
     // 而静默选错 Java 正是这一层最怕的错。
     // NOTE: 类型不对（写成字符串、写成数字）也按"没表态"处理，但要 qWarning 一声 ——
@@ -953,7 +950,7 @@ public:
     // meta 里那个图标字段名。公开的理由和 jvmArgsField() 一样：写侧在 MainWindow 里。
     static QString iconField();
 
-    // meta 里"这个实例的左栏显示哪几页"那个字段名（ 新加）。公开的理由和
+    // meta 里"这个实例的左栏显示哪几页"那个字段名。公开的理由和
     // jvmArgsField() 一样：写侧在 MainWindow 里。
     //
     // 形状：`"settingsPages": { "mod": false, "shader": false }` —— **只装用户显式勾掉的
@@ -980,9 +977,9 @@ public:
 
     // ---- wtfml.meta 的写侧 ----
     //
-    // 这个文件以前只有读侧（上面那些）。重命名 / 分组 / 每实例设置三件事都要写它，
-    // 写侧放在同一个类里，是因为"什么算坏文件、坏了要不要吭声、类型不对怎么办"
-    // 这套判断已经在 readVersionMeta 里成文了，另立一处必然要抄第二遍、然后慢慢抄歪。
+    // 重命名 / 分组 / 每实例设置三件事都要写它。写侧放在同一个类里，是因为"什么算坏文件、
+    // 坏了要不要吭声、类型不对怎么办"这套判断已经在 readVersionMeta 里成文了，
+    // 另立一处必然要抄第二遍、然后慢慢抄歪。
 
     // 把一批字段**合并**写进 <id>/wtfml.meta，其余字段原样保留。
     //
@@ -1040,7 +1037,7 @@ public:
 
     /// 把一个实例**整个删掉**：`versions/<id>` 那一棵（jar、json、wtfml.meta、以及里面
     /// 的一切）连同目录一起从盘上抹掉。要求：「删除前需要弹窗提示」（那句
-    /// 提示在 MainWindow::confirmDeleteInstance()，这一层**不弹窗**，这是本类的老规矩）。
+    /// 提示在 MainWindow::confirmDeleteInstance()，这一层**不弹窗**，这是本类的规矩）。
     ///
     /// 只做这一件事，别的都不管：
     /// - **不碰分组归属**（wtfml.folders 里可能还留着一条指向它的记录，见调用点那段）；
@@ -1087,7 +1084,7 @@ public:
      * MainWindow，见 renameInstance() 的同一条）。跑着的时候拷出来的是**那一刻的
      * 一份快照** —— 本来也没什么可抱怨的，但用户以为自己在做备份时得知道这一点，
      * 所以那句话由调用点在动手之前说。
-     * NOTE: **目标不能落在源实例目录里面**（ 补）。挑目标的是个普通目录选择框，
+     * NOTE: **目标不能落在源实例目录里面**。挑目标的是个普通目录选择框，
      * 用户完全可以点进 `versions/<这一份自己>` 再按确定 —— 那时"先 mkpath 目标、再列
      * 源目录"这两步会把自己刚造出来的那一层也列进来，**自己抄自己、每层再深一层**，
      * 一路写到盘满。判据是 InstanceFiles::pathIsSameOrInside()（比规范化之后的真路径，
@@ -1187,7 +1184,7 @@ signals:
     void versionDetailsFetched(const QString &versionId, const QJsonObject &versionJson);
     // 进度只走这个信号，UI 把它显示成进度条，不再往日志里写。
     void versionDownloadStats(int done, int total, int failed, const QString &currentFile);
-    // 语义是"整批结束"，一次下载只会发一次（改动前是每完成一个文件发一次）。
+    // 语义是"整批结束"，一次下载只会发一次。
     // errorMessage 在成功时是给用户看的汇总，失败时是失败文件清单。
     void versionDownloadFinished(const QString &versionId, bool success,
                                  const QString &errorMessage = QString());
@@ -1205,11 +1202,9 @@ signals:
      * 「测试版」、也靠它决定「下载稳定版（release）」那一行能不能点。空 = 一个都没有。
      * @param errorMessage 失败时说明原因（界面按它弹窗）；成功时是空串。
      *
-     * NOTE: 这里曾经只传 QStringList，注释里写着"列表里没有哪个是推荐的、这是刻意留白"——
-     * 用户拍板要把 alpha/beta 也列出来、并且把「自动（推荐）」换成
-     * 「下载最新版（alpha/beta）」/「下载稳定版（release）」两行，所以那一份留白
-     * 至此填上了：`stable` 现在**从列表里一路带到界面上**（四个加载器的判据见
-     * LoaderVersionEntry::stable 的注释）。
+     * NOTE: 列表里每一条的 `stable` **从数据层一路带到界面上**（四个加载器的判据见
+     * LoaderVersionEntry::stable 的注释）：界面靠它标「测试版」、也靠它决定
+     * 「下载稳定版（release）」那一行能不能点。
      */
     void loaderVersionsFetched(const QString &gameVersion, LoaderKind kind, bool success,
                                const LoaderMeta::LoaderVersionList &versions,
@@ -1242,7 +1237,7 @@ signals:
                                   const QString &errorMessage = QString());
 
     /**
-     * @brief 「往实例里下一个资源文件」那一批里**单个文件**的结果（coding plan §7.1：更新任务
+     * @brief 「往实例里下一个资源文件」那一批里**单个文件**的结果（更新任务
      * 要显示每个资源的结果，不只显示总数）。
      *
      * @param label 就是 `downloadResourceFiles()` 收的那一个（和 `resourceDownloadFinished`
@@ -1255,8 +1250,7 @@ signals:
      * 只在这一批是**资源那一批**的时候发（`m_resourceDownload.running`）。加载器安装 /
      * 整合包导入 / 带名字的实例那三条路上，界面拿这些逐条结果没有用处（那几件事的收尾是
      * "装好了没有"，不是"哪几个文件好了"），而每一条都转出去等于把 5000 个 asset 逐个
-     * 报一遍 —— 那正是上面那条 `downloadFinished -> onDownloadFinished` 的转发被删掉时
-     * 说过的毛病（见构造函数里那段注释）。
+     * 报一遍 —— 几千行一模一样的话（见构造函数里那段注释）。
      *
      * NOTE: 和 `versionDownloadStats` 那一发**不是一回事**：那一发是"进度"（会丢、有节流、
      * 给进度条用），这一发是"结果"（一条不漏、给账本里那一步用）。
@@ -1287,7 +1281,7 @@ private:
     // ---- 加载器安装的内部状态机 ----
 
     // 一次加载器安装走到哪一步了。Idle 之外的任何值都意味着"这件事还没结束" ——
-    // 两个地方靠它做判断：onVersionJsonFetched（拦下"原版"那次取 json 的回复，别让
+    // 两个地方靠它做判断：onVersionJsonFetched（拦下"原版"取 json 的回复，别让
     // UI 再发一次下载）和 onAllDownloadsFinished（那一批结束时是收尾还是接着下一段）。
     struct LoaderInstall {
         enum class Phase {
@@ -1312,7 +1306,7 @@ private:
         QString loaderName;     ///< wtfml.meta 的 loaderName
         QString loaderVersion;  ///< wtfml.meta 的 loaderVersion
         QString loaderId;       ///< 版本目录名，也是最终 finished 信号里的 id
-        /// 整合包指定的加载器版本（空 = 老行为：拉版本表挑一个）。
+        /// 整合包指定的加载器版本（空 = 默认行为：拉版本表挑一个）。
         /// NOTE: 它一非空就连"拉版本表"那一步都不走 —— 挑出来的和钉死的必须泾渭分明，
         /// 否则镜像那份旧表挑不出 1.16 之后的版本时，会把整合包要的版本悄悄换掉。
         QString pinnedVersion;
@@ -1321,7 +1315,7 @@ private:
         ///
         /// NOTE: 它是**界面那一格**（`@latest` / `@stable` / 空串）在数据层这边解码出来的
         /// （LoaderMeta::loaderRequestFromChoice），空串解出来就是 Stable —— 也就是
-        /// 改动前"让安装器按老规矩挑"那个行为，一个字没变。
+        /// "让安装器按默认规矩挑"。
         LoaderMeta::LoaderChannel channel = LoaderMeta::LoaderChannel::Stable;
         /// 跑外部安装器用哪个 Java（空 = PATH 上的 `java`）。Fabric 用不上。
         QString javaPath;
@@ -1567,11 +1561,10 @@ private:
     // @param minecraftDir 补到哪个 .minecraft 里。**是个参数、不是 AppPaths::minecraftDir()**：
     // OptiFine 那一份是补给我们自己的临时工作目录的（它的安装器只认 APPDATA）。
     // @param createdOut 非空时回填"这次是不是我们新建的"（只有新建才值得跟用户说一声）。
-    // NOTE: 非 const（ 去掉的）—— 它 mkpath + QSaveFile，真往磁盘上写东西，
-    // 原来那个 const 是假的，而这一份头文件里为别的写侧函数专门立过规矩
-    // （见 updateVersionMeta / renameInstance 那两条 "非 const —— 它真的改磁盘"）。
-    // 假 const 会诱使人在只读路径（扫描、刷新列表）上调用它，那些路径一次会话要跑
-    // 很多遍、绝不能带副作用。
+    // NOTE: 非 const —— 它 mkpath + QSaveFile，真往磁盘上写东西；这一份头文件里
+    // 为别的写侧函数专门立过规矩（见 updateVersionMeta / renameInstance 那两条
+    // "非 const —— 它真的改磁盘"）。假 const 会诱使人在只读路径（扫描、刷新列表）上
+    // 调用它，那些路径一次会话要跑很多遍、绝不能带副作用。
     bool ensureLauncherProfiles(const QString &minecraftDir, bool *createdOut, QString *errorOut);
 
     // 把 realVersion / loaderName / loaderVersion 合并写进 <id>/wtfml.meta。
@@ -1638,12 +1631,9 @@ private:
 
     /// `loaderNetwork` 的**唯一出处**（没有就建，建一次就一直用）。
     ///
-    /// NOTE: 以前是每个 `fetch*` 自己在函数开头写一遍「nullptr 就 new」。那 4 处全在
-    /// `fetchLoaderVersions` / `fetchFabricLoaderList` / `fetchInstallerList` /
-    /// `fetchOptifineVersionList` 里，而它们只有 `requestAllLoaderVersions()`
-    /// 一个调用者（= 打开安装页那一下）。可**另有两条路直接从"发请求"开始**：
-    /// `fetchFabricProfile()` 和 `fetchOptifineDownloadToken()` —— 走这两条的
-    /// 时候它还是 nullptr，解引用当场崩。最要紧的一条入口是整合包导入：
+    /// NOTE: 每个 `fetch*` 自己写「nullptr 就 new」的话，会漏掉直接从"发请求"开始的两条路：
+    /// `fetchFabricProfile()` 和 `fetchOptifineDownloadToken()` —— 走这两条的时候它还是
+    /// nullptr，解引用当场崩。最要紧的一条入口是整合包导入：
     /// `importModpack()` → `installLoaderVersion(..., 包里钉死的版本)` →
     /// Fabric 那条「钉死了就别去问版本表」的分支直接调 `fetchFabricProfile()`。
     /// 所以在"全新启动 → 从没点过安装页 → 导入一个 Fabric 整合包"这条路上，
@@ -1680,7 +1670,7 @@ private:
     };
     ResourceDownload m_resourceDownload;
 
-    /// 上一次**失败**的那一批里，失败的那几个文件（§4.2 的「重试只重做失败项」）。
+    /// 上一次**失败**的那一批里，失败的那几个文件（「重试只重做失败项」）。
     ///
     /// `valid` = 这一批**值得**重试。只有"纯下文件"的批次才算数：加载器安装、整合包导入、
     /// 带名字的实例那三条路上，重下几个文件补不回来（加载器的安装器得再跑一次、导入还得解压
@@ -1704,15 +1694,14 @@ private:
     // 挨个点开看看，一次安装都还没发生。混进去的话，点开一个加载器就会把 m_loaderInstall
     // 弄成"正在装"的样子，isLoaderInstalling() 当场变 true，底栏和按钮全跟着错。
     //
-    // **每个加载器各占一格，四个可以同时在飞**（ 改）。以前只有一格，
-    // 新的一发会把上一发 abort 掉 —— 那是在"界面上只有一处选择器"的年代定的。现在
-    // 四个加载器在安装页上是四条并列的行，一进那一页四条一起问（要求："获取列表
-    // 不能点开了再获取，得全获取完"），只有一格的话后三发会把前一发掐死，
-    // 前三条底下就永远停在「正在获取…」。
+    // **每个加载器各占一格，四个可以同时在飞**。只留一格的话，
+    // 新的一发会把上一发 abort 掉 —— 四个加载器在安装页上是四条并列的行，一进那一页
+    // 四条一起问（要求："获取列表不能点开了再获取，得全获取完"），只有一格的话后三发
+    // 会把前一发掐死，前三条底下就永远停在「正在获取…」。
     struct LoaderVersionRequest {
         QString gameVersion;
         // 这一发是走**镜像**那条路问出去的吗。**随请求钉住**，不在回复回来时再读一遍
-        // downloadManager->useMirror()（ 修）。
+        // downloadManager->useMirror()。
         //
         // NOTE: OptiFine 两条路回来的正文**格式不一样**（镜像是 JSON 数组，官方是广告页
         // HTML），而"用不用镜像"是用户可以随时点的开关。问出去到回来之间那几百毫秒
@@ -1736,7 +1725,7 @@ private:
     // 官方那条地址问不通时该换哪个镜像地址；没得换返回空串。
     //
     // 只有 NeoForge 一支成立：它的 maven-metadata.xml 在 BMCLAPI 上是**同一份**
-    // （ 实测全量），而官方 host 在国内**直接连不上**。Forge 那个同名文件
+    // （实测全量），而官方 host 在国内**直接连不上**。Forge 那个同名文件
     // 镜像上是旧的，换过去会得出"没有 Forge"的假结论。理由全文在 .cpp 里。
     QString loaderVersionsMirrorFallback(LoaderKind kind, const QString &officialUrl) const;
     // 发那一发 GET，回复交给 onLoaderVersionsReply()。@p fromMirror 跟着这一发钉住
@@ -1771,7 +1760,7 @@ private:
     QByteArray m_probeOutput;
     /// 这个安装器认哪些命令行开关（探完 `--help` 才有结论；没探到时按"宁可信其有"）。
     InstallerOptions m_installerOptions;
-    // OptiFine 那次安装的临时工作目录（APPDATA 指过去的那一份）。懒建 —— 只有真去装
+    // OptiFine 安装的临时工作目录（APPDATA 指过去的那一份）。懒建 —— 只有真去装
     // OptiFine 时才存在，装完（成功或失败）立刻删掉。
     //
     // NOTE: 它**必须**是系统临时目录里的一份真目录。删它是递归删（QTemporaryDir 的

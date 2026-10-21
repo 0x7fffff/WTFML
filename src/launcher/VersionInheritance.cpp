@@ -99,7 +99,7 @@ QString coordinateKey(const QString &name) {
 /// "没有一条规则命中 ⇒ 不允许"（`LibraryRules::libraryAllowed` 的语义），于是 lwjgl 从
 /// classpath 上整个消失 —— 真机上 `1.8` 就是这个下场：
 /// java.lang.NoClassDefFoundError: org/lwjgl/LWJGLException
-/// （ 实测，`20w14∞` 里那 9 对 LWJGL 3.2.1/3.2.2 是同一个形状。）
+/// （`20w14∞` 里那 9 对 LWJGL 3.2.1/3.2.2 是同一个形状。）
 ///
 /// NOTE: 判据是"逐字相同"（只认字面，不去理解 `os`/`features` 里写了什么）。宁可**少合并**
 /// 几条（退化成改动前的行为：两条都在 classpath 上），也不要按自己的理解去挑一条 ——
@@ -172,8 +172,8 @@ int maxDepth() {
 QJsonObject merge(const QJsonObject &child, const QJsonObject &parent) {
     QJsonObject out = parent;
 
-    // 父那份的 inheritsFrom **也要去掉**（ 修）。这里原来只跳了**子**的
-    // （见下面那个循环），而 `out = parent` 已经把父那份的抄进来了 —— 于是三层链
+    // 父那份的 inheritsFrom **也要去掉**：下面那个循环只跳了**子**的，
+    // 而 `out = parent` 已经把父那份的抄进来了 —— 于是三层链
     // （OptiFine → Forge → 原版这种真的存在：OptiFine 的 json 继承的是它打过补丁那一层）
     // 合完之后，结果里还留着一个 `inheritsFrom`（指着中间那一层），而 .hpp 里那句
     // "结果里刻意丢掉 inheritsFrom"就成了一句**看着像真话的假话**。

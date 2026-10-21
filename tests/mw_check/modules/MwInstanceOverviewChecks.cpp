@@ -2,7 +2,7 @@
 int MwInstanceOverviewChecks(const QDir &root, const QDir &versionsDir) {
     // ------------------------------------------------------------------
     // 要求：「第一行 图标 名称 / 第二行 更改图标 分组… / 第三行 显示在置顶组
-    // 中 / 第四行 导出」（这一版之前是「概览（版本名、图标，分组，置顶/取消置顶）」）。
+    // 中 / 第四行 导出」。
     //
     // 控件那一半（预览 + 八颗候选 + 两个浮层 + 勾选框的形状与初值）在 ui_check 的 U0h 里
     // 逐条验过；这里验**接线那一半**：页面上摆成什么样 → 磁盘上（wtfml.meta / wtfml.folders）
@@ -12,7 +12,7 @@ int MwInstanceOverviewChecks(const QDir &root, const QDir &versionsDir) {
     // 不能取"文件里存的那一格"（InstanceGroupStore::groupIdOf）—— 一个从来没表过态的
     // 实例，前者是它此刻显示在的那一组、后者是空的。取错的表现：用户点进设置页什么都
     // 不动就收页，它就被写进「未分组」，从此再也不会被自动归类。
-    // · 置顶：勾上 / 取消那两条（ 起是**两边都显示**：老家那一条不动、置顶组里
+    // · 置顶：勾上 / 取消那两条（**两边都显示**：老家那一条不动、置顶组里
     // 多一条同名的），以及"这一份 .minecraft 里根本没有置顶组"那一档 —— 那一档里勾选
     // **什么也不该发生**，尤其不该把用户明确选的那个组一起吞掉。
     // · 图标：三种形态（默认 / 内置候选 / 本地那张）在树上画的是不是同一张。判据一律拿
@@ -135,10 +135,9 @@ int MwInstanceOverviewChecks(const QDir &root, const QDir &versionsDir) {
         // 要点就写 `click()`。S2b 那一条（改一格 → 恰好一发 settingsEdited）钉的就是
         // 这层因果。
         //
-        // NOTE: 之前这一格是一个 **QComboBox**，所以助手收的是 `QComboBox *`；
-        // 换成「一颗按钮 + 一个浮层」之后，读初值走 `chosenGroupId()`、改值走
-        // **点浮层里那一行**（按名字找行，见 clickGroupRow）。收 QWidget* 是因为
-        // 那一页在 OverlayHost 里是 `QWidget *`，要往下转型才问得出这两件事。
+        // NOTE: 这一格是**一颗按钮 + 一个浮层**，读初值走 `chosenGroupId()`、改值走
+        // **点浮层里那一行**（按名字找行，见 clickGroupRow）。那一页在 OverlayHost 里
+        // 是 `QWidget *`，要往下转型才问得出这两件事。
         bool sawPage = false;
         QString comboValue;
         bool pinChecked = false;

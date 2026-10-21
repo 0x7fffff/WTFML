@@ -73,8 +73,8 @@ GameWindowOverride gameWindowOverrideFromJson(const QJsonObject &meta) {
     GameWindowOverride out;
 
     // 模式：串认不出来就当没写（不猜）。**注意这里不看大小写**也不是刻意宽容 ——
-    // 盘上这个串是我们自己写下去的，认不出来只有两种可能：手改过、或者是以后改过
-    // 名字的老版本。两种都该退回"跟随全局"。
+    // 盘上这个串是我们自己写下去的，认不出来只有两种可能：手改过、或者是字段名改过
+    // 之后留下的值。两种都该退回"跟随全局"。
     const QJsonValue modeValue = meta.value(QLatin1String(kModeField));
     if (modeValue.isString()) {
         GameWindowMode parsed = GameWindowMode::Windowed;
@@ -176,7 +176,7 @@ QStringList gameWindowArguments(const GameWindowSettings &settings, const Screen
         }
     }
 
-    // 两格不是正数就一条都不发（老规矩）。全屏那一档**照样发**这两个数 —— 见 .hpp 里
+    // 两格不是正数就一条都不发（规则）。全屏那一档**照样发**这两个数 —— 见 .hpp 里
     // 「按 F11 退出全屏之后回到多大」那一段。
     if (width > 0 && height > 0) {
         args << QStringLiteral("--width") << QString::number(width) << QStringLiteral("--height")

@@ -3,9 +3,9 @@ int UiTaskActionsChecks(QMainWindow &window, MainWindowUI &ui) {
 
     {
         // 这一节管两件事：
-        // ① 面板里那一行**行尾那颗「取消」**（§3.2 的行内快捷动作）—— 只在能力位说可以、
+        // ① 面板里那一行**行尾那颗「取消」**（行内快捷动作）—— 只在能力位说可以、
         // 而且外面真挂了处理器的时候才长；
-        // ② **任务详情页**上那一排按钮（§3.4「失败能看到失败阶段、简短原因和
+        // ② **任务详情页**上那一排按钮（「失败能看到失败阶段、简短原因和
         // 『查看日志/重试』」）—— 露与不露**只读能力位**，界面这边一步都不推。
         QPushButton *cell = ui.getTaskSummaryButton();
         if (cell != nullptr) {
@@ -37,7 +37,7 @@ int UiTaskActionsChecks(QMainWindow &window, MainWindowUI &ui) {
             QWidget *panel = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
             check(panel != nullptr && panel->isVisible(), "I6 任务中心页面再次打开（喂了一件在跑的）");
             if (panel != nullptr) {
-                // 面板里那一行那根条也是**自绘的那一支**（§3.3 三处之一）。测得出百分比
+                // 面板里那一行那根条也是**自绘的那一支**（三处之一）。测得出百分比
                 // 的行才有它（上面 I2 量的是"测不出就不摆"那一侧）。
                 auto *rowBar = panel->findChild<QProgressBar *>(
                     MainWindowUI::taskCenterPanelRowBarName(0));
@@ -135,7 +135,7 @@ int UiTaskActionsChecks(QMainWindow &window, MainWindowUI &ui) {
         check(detailBar != nullptr && detailBar->isVisible() && detailBar->value() == 62,
               "I6 测得出百分比 ⇒ 那根条在，而且摆的是**确定态**的那个值",
               detailBar != nullptr ? QString::number(detailBar->value()) : QStringLiteral("<没找到>"));
-        // 详情页那根条同样是**自绘的那一支**（§3.3 三处里的最后一处），而且高度和
+        // 详情页那根条同样是**自绘的那一支**（三处里的最后一处），而且高度和
         // 另外两处**同一个出处** —— 三处各写一个数的话，同一根条在这三页上会长短不一。
         check(qobject_cast<TaskProgressBar *>(detailBar) != nullptr,
               "★★ I6 详情页那根条也是**自绘的**（TaskProgressBar），不是原生 QProgressBar",

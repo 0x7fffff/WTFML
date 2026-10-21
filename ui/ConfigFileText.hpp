@@ -4,8 +4,7 @@
  * 两个都是纯函数，一个字节的盘都不碰。
  * @note 这一层存在的唯一理由：**「当文本处理」这件事本身不是免费的**。
  *
- * 用户的判断是对的 —— 盘上那些 config 文件**全部**是文本（实测除了两个本来就没人
- * 会去改的，见下面 BOM 那段旁边那个数字）。所以「按文本处理」是唯一一条能把所有
+ * 盘上那些 config 文件基本都是文本，所以「按文本处理」是唯一一条能把所有
  * 格式一个不漏全包住的路。但它有一个**会静默改坏东西**的地方，而且不在读、在写：
  *
  * 三条纪律就落在这儿：**原字节留着（没改就逐字节写回）、行尾按原样还回去、
@@ -134,7 +133,7 @@ struct Stamp {
 /// 这一次备份该用哪个文件夹名：`20260927-143012` 这种。
 ///
 /// NOTE: 格式是**为了按名字排序 == 按时间排序**（挑最新那一份、清理旧的那批都靠它）——
-/// 所以别改成"好看"的那种（`2026年9月27日` 排不了序）。
+/// 所以别改成"好看"的那种（中文年月日那种排不了序）。
 /// @param existing 那一层底下**已经有**的文件夹名。撞上了（同一秒里存了两次）就在后面
 /// 加 `-002`、`-003`…（**补零到三位**：不补的话 `-10` 会排到 `-2` 前面，"最新那一份"
 /// 就认错了 —— 见 .cpp 里那段）
@@ -152,7 +151,7 @@ QStringList backupFoldersToRemove(const QStringList &names, int keep);
 /// 一份文件的备份落在哪儿：`<备份根>/<实例id>/<时间戳>/<这个文件相对 config/ 的路径>`。
 ///
 /// NOTE: 保留相对路径那一截是**故意的**：`config/ftbquests/quests.toml` 备份出来还是
-/// `.wtfml…/ftbquests/quests.toml`，于是"这份备份原先是哪儿的"一眼看得出，还原回去
+/// `.wtfml…/ftbquests/quests.toml`，于是"这份备份是从哪儿来的"一眼看得出，还原回去
 /// 也不用另记一张表。@param filePath 不在 @param configDir 底下时退化成文件名。
 QString backupPathFor(const QString &backupRoot, const QString &instanceId,
                       const QString &configDir, const QString &filePath,

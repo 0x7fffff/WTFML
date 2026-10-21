@@ -122,7 +122,7 @@ void runDownloadFilterTests() {
         check(loaderCombo->currentIndex() == 0 && typeCombo->currentIndex() == 0,
               "ZI2 两项都退回「全部」（拿 A 家的号去问 B 家会搜出个空的，而且不报错）");
         // NOTE: 这一下是**程序**改的（`setCurrentIndex`），不是用户在框里挑的。用户真挑一项时
-        // Qt 还会再发一发 `activated`，而那一发**要搜**（ 起，见 ZI10）——
+        // Qt 还会再发一发 `activated`，而那一发**要搜**（见 ZI10）——
         // 所以这一条量的是"中间态不搜"，不是"换来源不搜"。
         check(api.requests.isEmpty() && searchLogs() == searchesBeforeSource,
               "ZI2 程序改（setCurrentIndex）**不发请求** —— 换选项这类「改到一半」的中间态不搜",
@@ -161,8 +161,8 @@ void runDownloadFilterTests() {
         // NOTE: 判据不能只看「树里有 1 行」—— 按下那一刻 MainWindow 会先 `tree->clear()`
         // 再摆一行灰的「正在搜索「xx」…」（见 searchResourceKind 开头那段），而
         // **占位行也是一个顶层条目**（MainWindow 自己那句注释：「占位行（「正在搜索…」
-        // 那几行）没有这一位」）。结果还没回来时那一行就是树里的唯一一行，于是以前这条
-        // 判据会在"结果还没到"的时候立刻成立，紧接着那条读来源角色的断言就读到一个
+        // 那几行）没有这一位」）。结果还没回来时那一行就是树里的唯一一行 ⇒ 只判"树里有
+        // 1 行"会在"结果还没到"的时候立刻成立，紧接着那条读来源角色的断言就读到一个
         // 空串 —— 假接口答复快就绿、慢就红（实测同一条命令跑 5 次红 1 次）。
         // 真正要等的是**结果行**：它带着 source 角色，占位行不带。
         const auto isResultRow = [tree] {
@@ -192,7 +192,7 @@ void runDownloadFilterTests() {
 
         // ---- ZI5. 「清空条件」：框都回默认，**并且立刻重搜一发** ----
         // 要求：「修改任何内容（不论是来源网站还是…）都刷新一下」。
-        // 从前这里是"清完不动"，于是清完的界面和列表对不上：六个框全空着，底下还摆着
+        // 清完必须再搜一发：清完不动的话，界面和列表对不上 —— 六个框全空着，底下还摆着
         // 上一批按老条件筛出来的结果 —— 而那正是用户点这颗键要摆脱的东西。
         const int searchesBeforeReset = searchLogs();
         api.requests.clear();

@@ -2,7 +2,7 @@
  * @file ServerResourcePack.hpp
  * @brief 服务端资源包（`server.properties` 里的 `resource-pack` / `resource-pack-sha1`）：
  * 选一份本地 zip、看它像不像资源包、算出 SHA-1。
- * @note coding plan §9.7 那一句：「MOTD 提供格式化预览；服务端资源包选择本地 zip、计算 SHA-1，
+ * @note 要求：「MOTD 提供格式化预览；服务端资源包选择本地 zip、计算 SHA-1，
  * 并明确 URL 托管仍需用户提供，**启动器不假装本地路径能被其他玩家访问**」。
  *
  * 【为什么这里只算 SHA-1，不替用户填地址】

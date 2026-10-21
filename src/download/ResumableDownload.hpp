@@ -37,7 +37,7 @@ public:
     /// 而不是把文件判成源站失败。
     bool networkAttempted() const { return m_networkAttempted; }
 
-    /// 下载速度上限（字节/秒，0 = 不限；，§9.2 限速）。
+    /// 下载速度上限（字节/秒，0 = 不限）。
     ///
     /// 协调器内部那几段 Range 请求走的是它自己那个 `DownloadManager`（`m_files`），所以
     /// **光给外面那个下载器设限是不够的**：大于 4 MiB 的文件会被升级成分段作业，绕到这儿
@@ -75,7 +75,7 @@ private:
     /// 最后一层兜底：探测/分段阶段**长时间一点进展都没有**时，先补一次缺的段，再不行就
     /// 报错收尾。每条回复自己的看门狗（DownloadManager）已经把"单条链路"管住了；这一条
     /// 管的是记账层面的死角 —— 比如哪次批次信号没来、pending 没归零。没有它，那类问题
-    /// 的表现就是"进度条永远停着、没有错误"，用户只能重启（ 那次二十分钟）。
+    /// 的表现就是"进度条永远停着、没有错误"，用户只能重启（实测卡死过二十分钟）。
     void checkStuck();
     static constexpr qint64 kStuckGiveUpMs = 5 * 60 * 1000;
     QElapsedTimer m_progressClock;

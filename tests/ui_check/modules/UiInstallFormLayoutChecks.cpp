@@ -3,10 +3,9 @@ int UiInstallFormLayoutChecks(MainWindowUI &ui, QLineEdit * &installNameEdit, QL
 
     {
         const QRect rTree = rectInPage(loaderTree);
-        // 这一节原来是一个 `QGroupBox("模组加载器")`，现在换成了设置页那种
-        // 「标题 + 小节卡片」（用户那份改版文档：「右侧只有一个主要内容表面，不再用多个
+        // 这一节是设置页那种「标题 + 小节卡片」（「右侧只有一个主要内容表面，不再用多个
         // QGroupBox 套起来」）。**这是产品界面上最后一个 QGroupBox**，所以第一条钉的
-        // 就是"这里再也没有组了" —— 判据从"组在名称框下面"改成"那张卡片在名称框下面"。
+        // 就是"这里再也没有组了" —— 判据是"那张卡片在名称框下面"。
         loaderCard = loaderTree != nullptr ? qobject_cast<QFrame *>(loaderTree->parentWidget())
                                           : nullptr;
         const QString cardSurface =
@@ -51,7 +50,7 @@ int UiInstallFormLayoutChecks(MainWindowUI &ui, QLineEdit * &installNameEdit, QL
               loaderTree != nullptr ? QString::number(int(loaderTree->frameShape()))
                                     : QStringLiteral("<null>"));
         // 树的高度是**按现在展开了几条**算出来的（收着的时候 = 四条加载器 + 预设行，
-        // 共五行；「不装（纯原版）」只留内部状态、不画成重复选项，见 coding plan）。
+        // 共五行；「不装（纯原版）」只留内部状态、不画成重复选项）。
         // 写死成"铺满整页"的话，收着的时候底下空一大片、安装按钮还被顶到窗口最底下。
         const int expectedRows = 5;  // 刚搭好时五行全收着（见上面那节）
         check(!rTree.isNull() &&
@@ -80,14 +79,12 @@ int UiInstallFormLayoutChecks(MainWindowUI &ui, QLineEdit * &installNameEdit, QL
         check(installFooter != nullptr && installBtn != nullptr &&
                   installFooter->isAncestorOf(installBtn) && !installFooter->isAncestorOf(installNameEdit),
               "「安装」长在这条底栏里（名称框不在里面 —— 底栏只管确认那一颗）");
-        // 中间那一层现在是**滚动区**（用户报「下载页（选择模组加载器的页）
-        // 那个遮挡」—— 这一页原来一个能滚的地方都没有，内容比正文面高的时候底下几条
-        // 加载器被卡片的下沿裁掉了）。于是"底栏在卡片下面"这条从 `footer.y >=
-        // card.bottom` 改成 **"底栏在滚动区下面"**：
+        // 中间那一层是**滚动区**：内容比正文面高的时候，底下几条加载器不能被卡片的
+        // 下沿裁掉。于是判据是 **"底栏在滚动区下面"**：
         // · 名称框和卡片住在滚动区**里面**（内容再长也只是在里面滚）；
-        // · 底栏钉在**页面最底下**（滚动区吃掉全部剩余高度），不会再被内容顶走。
-        // NOTE: 卡片未裁剪的几何在内容溢出时会伸到底栏下面去 —— 那不是回归，正是这一
-        // 版要有的样子（`rectInPage()` 不会裁剪，所以不能再拿 card.bottom 当界线）。
+        // · 底栏钉在**页面最底下**（滚动区吃掉全部剩余高度），不会被内容顶走。
+        // NOTE: 卡片未裁剪的几何在内容溢出时会伸到底栏下面去 —— 那不是回归，正是这里
+        // 要的样子（`rectInPage()` 不会裁剪，所以不能拿 card.bottom 当界线）。
         QScrollArea *installScroll = ui.getInstallScroll();
         const QRect rScroll = rectInPage(installScroll);
         check(installScroll != nullptr &&
@@ -121,9 +118,9 @@ int UiInstallFormLayoutChecks(MainWindowUI &ui, QLineEdit * &installNameEdit, QL
         check(!rInstall.isNull() && rInstall.width() < downloadPage->width() / 2,
               "「安装」只吃自己那点宽度（没被拉满一整行）",
               QString("btn=%1 page=%2").arg(rInstall.width()).arg(downloadPage->width()));
-        // 要求"安装键做大点在右侧居中" → 改版文档「确认操作放右下角或固定
-        // 底栏，不悬浮在页面中间」：**居中改成了靠右**。居中那一版正是"悬浮"——上面是表单、
-        // 下面是深浅不定的一截空白，这颗键落在哪儿全看那一栏当时多高。
+        // 「确认操作放右下角或固定底栏，不悬浮在页面中间」：**靠右**，不居中。
+        // 居中会让上面是表单、下面是深浅不定的一截空白，这颗键落在哪儿全看那一栏
+        // 当时多高。
         // 大 —— 字比同页那些控件大（字号加了两档）而且给了最小高度。
         QWidget *installPage = installBtn;
         while (installPage != nullptr &&
@@ -228,7 +225,7 @@ int UiInstallFormLayoutChecks(MainWindowUI &ui, QLineEdit * &installNameEdit, QL
         // NOTE: 这一段**放在这一节的最末**：它会临时多显出来一行，把名称框底下那些控件
         // 整体往下推，插在中间量出来的几何就不是"平时那个样子"了（试过：放在名称框
         // 那一段后面，「安装」在加载器那一组下面那条当场红）。
-        // 名字里有非法字符时底下新起的那一行**红字**（，要求："如果版本名字存在
+        // 名字里有非法字符时底下新起的那一行**红字**（要求："如果版本名字存在
         // 非法字符，不要替换掉那个「装好后在实例...」，而是在下面添加一行红色字"）。
         //
         // 钉四件事：①它自己是谁（objectName，别处 findChild 靠它）；②位置 —— 在**灰字那句
@@ -284,12 +281,12 @@ int UiInstallFormLayoutChecks(MainWindowUI &ui, QLineEdit * &installNameEdit, QL
                   .arg(installNameError->palette()
                            .color(QPalette::WindowText)
                            .rgb() & 0xffffff, 6, 16, QLatin1Char('0')));
-        // 这个红**跟着调色板分两档**。原来它是个写死的 #c0392b —— 给人眼
-        // 在浅底上配的值，落到深色主题的底上只剩 2.26:1（WCAG 正文那条是 4.5:1），"名字
-        // 写错了"那行原因就成了一团糊在底色里的暗影，用户只会以为界面坏了。
+        // 这个红**跟着调色板分两档**。写死一个值不行：浅底上配的红落到深色主题的底上
+        // 只剩 2.26:1（WCAG 正文那条是 4.5:1），"名字写错了"那行原因就成了一团糊在
+        // 底色里的暗影，用户只会以为界面坏了。
         // 判据和「删除」那一项、底栏那颗方块同出一处（MainWindowUI::paletteIsDark()），
-        // 所以这里量两件事：①两档**真的不一样**；②浅底那一档**还是原来那个色**（深色那
-        // 一档的修法不该顺手改掉用户已经看过的那一版外观）。
+        // 所以这里量两件事：①两档**真的不一样**；②浅底那一档**仍是那个红**（深色那一
+        // 档的分档不该改掉浅底的外观）。
         {
             QPalette light;
             light.setColor(QPalette::Window, QColor(0xf0, 0xf0, 0xf0));
@@ -353,12 +350,11 @@ int UiInstallFormLayoutChecks(MainWindowUI &ui, QLineEdit * &installNameEdit, QL
 
         // 「没话可说的时候那一行要**连行一起收掉**」在布局这一层的落点：上面那句灰字
         // 藏起来之后（产品在名字空着的时候就是这么做的），底下的红字要**顶上那一行**，
-        // 正好落在灰字原来的 y 上。不收的话红字上面会凭空多出一个空行 —— 用户
-        // 报的就是这个（"把名字弄空了以后上面那行消失了但是下面那一行空提示
-        // 会换行怪怪的"）。这条量的是**布局**这一层；"产品什么时候收、收到什么程度"在
-        // mw_check 那两条里。
+        // 正好落在灰字原来的 y 上。不收的话红字上面会凭空多出一个空行（"名字弄空了
+        // 以后上面那行消失、下面那行空提示换行怪怪的"）。这条量的是**布局**这一层；
+        // "产品什么时候收、收到什么程度"在 mw_check 那两条里。
         // 量的是**输入框跟红字之间的距离**（两个标签同在一个容器里，盒子整体挪不挪
-        // 都不影响这个量 —— 一开始拿绝对 y 比过，盒子会跟着缩，差出来 8 px 的假红）。
+        // 都不影响这个量 —— 拿绝对 y 比不行，盒子会跟着缩，差出来 8 px 的假红）。
         const int gapWithGray = rError.y() - (rEdit.y() + rEdit.height());
         installNameHint->setVisible(false);
         QApplication::processEvents();

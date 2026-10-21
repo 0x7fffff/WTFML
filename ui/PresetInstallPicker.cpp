@@ -92,7 +92,7 @@ QWidget *PresetInstallPicker::buildPage(int index, const Category &category, Pag
             label = option.id;
         }
         if (!option.available) {
-            // §7.1「已删除/损坏的所选项明确提示，不静默换为另一项」：那一项**留在原地**，
+            // 「已删除/损坏的所选项明确提示，不静默换为另一项」：那一项**留在原地**，
             // 名字后面直说它不在了 —— 换成别的项的话，用户下一次看到的不是他选的那一份。
             label += tr("（已不在盘上）");
         }

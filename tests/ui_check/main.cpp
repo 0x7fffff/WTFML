@@ -99,7 +99,7 @@ int main(int argc, char *argv[]) {
     QTreeWidget *versionTree = ui.getVersionTree();
     QLineEdit *installNameEdit = ui.getInstallNameEdit();
     QLabel *installNameHint = ui.getInstallNameHint();
-    // 名字不能用时那行**红字**（ 加）：它紧接着灰字那一句，说原因。
+    // 名字不能用时那行**红字**：它紧接着灰字那一句，说原因。
     QLabel *installNameError = ui.getInstallNameError();
     QLabel *installTargetLabel = ui.getInstallTargetLabel();
     QPushButton *installBtn = ui.getInstallButton();
@@ -117,9 +117,9 @@ int main(int argc, char *argv[]) {
 
     std::printf("===== A. 选项卡结构 =====\n");
     check(installed != nullptr, "「已安装版本」那个下拉框还在");
-    // objectName 是**给验证工程的接口**：mw_check 靠它认控件。以前它按占位文案
-    // 「暂无已安装版本」认，而那个文案正好要改成随上下文在两种之间切换 ——
-    // 那种测试会在产品改动时以"控件找不到、后面全不跑"的方式挂掉。
+    // objectName 是**给验证工程的接口**：mw_check 靠它认控件。按占位文案
+    // 「暂无已安装版本」认不行 —— 那个文案会随上下文在两种之间切换，那种测试会在
+    // 产品改动时以"控件找不到、后面全不跑"的方式挂掉。
     check(installed->objectName() == MainWindowUI::installedVersionComboName(),
           "已安装下拉框的 objectName 是约定的那个", installed->objectName());
     // 下载页那一组新控件：名字找得回来，才谈得上后面的结构断言。
@@ -366,10 +366,8 @@ int main(int argc, char *argv[]) {
               inSurface(ui.getImportModpackButton(), Theme::sidebarSurfaceValue()),
           "「导入整合包…」在左栏侧栏面上（不在正文面那一支里）",
           surfaceValueOf(ui.getImportModpackButton()));
-    // NOTE: 这条以前顺带钉了「离线模式」那个勾选框 —— 它 去掉了（要求：
-    // 「现在不要启动界面那个离线登录勾选框了，在添加账户那里选择添加离线账号」），
-    // 离线身份现在由"当前账号是什么"决定（MainWindow::offlineIdentity()）。
-    // 所以这里改成钉主页左栏剩下的那两件。
+    // NOTE: 主页左栏只有那两件 —— 离线身份由"当前账号是什么"决定
+    // （MainWindow::offlineIdentity()），没有「离线模式」勾选框。
     check(nearestGroupBox(startBtn) == nullptr &&
               nearestGroupBox(ui.getInstalledVersionCombo()) == nullptr,
           "启动按钮和版本下拉框都不在组里（主页是裸的）");
@@ -605,7 +603,7 @@ int main(int argc, char *argv[]) {
                        alphaAt(image, 55, 50) > 0;
             };
             check(emptyAt(fabric),
-                  "Fabric 那张是透明底（2026-09-29 换的那张像素画叶子自带透明）",
+                  "Fabric 那张是透明底（像素画叶子自带透明）",
                   QStringLiteral("左上 %1 / 左下 %2 / 右下 %3")
                       .arg(alphaAt(fabric, 10, 10))
                       .arg(alphaAt(fabric, 10, 55))
@@ -614,7 +612,7 @@ int main(int argc, char *argv[]) {
                   "★ Fabric 的叶子本身还在（抠底别把整张图抠没了）",
                   QStringLiteral("正中 alpha %1").arg(alphaAt(fabric, 32, 32)));
             check(emptyAt(forge),
-                  "Forge 那张也是透明底（2026-09-29：白底那张铁砧把白抠掉了）",
+                  "Forge 那张也是透明底（白底那张的铁砧白会被抠掉）",
                   QStringLiteral("左上 %1 / 左下 %2 / 右下 %3")
                       .arg(alphaAt(forge, 10, 10))
                       .arg(alphaAt(forge, 10, 55))
@@ -701,8 +699,8 @@ int main(int argc, char *argv[]) {
         // · 底色得"偏黄"（红的比蓝的高出一大截）；
         // · 问号认**蓝通道高的那一簇**。金的那几档蓝都很低（0x4c / 0x2a / 0x16），
         // 整个底图上没有第二个地方会是高蓝 —— 所以这条就把"问号画上去了没有"
-        // 和"底色画对没画对"两件事分开了。（顺带：我第一版写的是"三个通道都
-        // >= 0xf0"，而那个奶油色是 0xf8f2d2、蓝只有 0xd2 —— 一条永远红的断言。）
+        // 和"底色画对没画对"两件事分开了。（顺带：写成"三个通道都
+        // >= 0xf0"是不对的，而那个奶油色是 0xf8f2d2、蓝只有 0xd2 —— 一条永远红的断言。）
         long sumR = 0;
         long sumB = 0;
         int inkCells = 0;
@@ -997,7 +995,7 @@ int main(int argc, char *argv[]) {
 
     if (const int result = UiDownloadCategoriesChecks(ui, gameStack, downloadPage, rectInPage); result != 0) return result;
 
-    std::printf("===== C2b. 左栏那五条「做大点 + 行尾一个刷新按钮」（2026-09-23） =====\n");
+    std::printf("===== C2b. 左栏那五条「做大点 + 行尾一个刷新按钮」 =====\n");
     // 要求："下载界面左边栏每一项做大点，每一项的右边放一个刷新按钮"。
     // 这一节钉三件事：
     // ① **做大**真的发生了 —— 行高和字号都比"没动过的列表"大一档，量的是数值不是代码；
@@ -1365,7 +1363,7 @@ int main(int argc, char *argv[]) {
         check(fired.isEmpty(), "E3 自动重复的回车不算又一次操作",
               QStringLiteral("进来 %1 次").arg(fired.size()));
 
-        // 没有当前条目时按回车：什么都不该发生（它以前是当前条目为空就崩的那种写法）。
+        // 没有当前条目时按回车：什么都不该发生（当前条目为空时也不许崩）。
         fired.clear();
         probe.setCurrentItem(nullptr);
         QApplication::processEvents();
@@ -1375,7 +1373,7 @@ int main(int argc, char *argv[]) {
         check(fired.isEmpty(), "E3 没选中任何条目时按回车不炸也不乱调");
 
         // 上面这一整段用的是**缺省**判据（isToggleRow 没给）：那就一行都不算"开关行"，
-        // 于是双击的第二发被 Qt 压掉，一次手势只来一发 —— 这是老行为，也就是下面
+        // 于是双击的第二发被 Qt 压掉，一次手势只来一发 —— 这是现有行为，也就是下面
         // E3b 要区别对待的那一档的"反面"。这里先用顶层那一行把它钉住。
         fired.clear();
         doubleClick(category);
@@ -1470,7 +1468,7 @@ int main(int argc, char *argv[]) {
         check(!category->isExpanded(), "E3b 连点五下之后：翻了五次（不是三次、也不是一次）");
     }
 
-    std::printf("===== E4. 底栏中间那格：任务摘要（2026-10-12 任务中心那一版） =====\n");
+    std::printf("===== E4. 底栏中间那格：任务摘要 =====\n");
 
     if (const int result = UiTaskSummaryChecks(ui); result != 0) return result;
 
@@ -1531,11 +1529,8 @@ int main(int argc, char *argv[]) {
                   .arg(status->sizeHint().width())
                   .arg(MainWindowUI::bottomBarStatusTextWidth()));
         // NOTE: 这一条量的**不只是**底栏那一格 —— 整窗的 sizeHint 是各页里所有控件一起
-        // 顶出来的。 实测（做齿轮菜单那一轮）：当时左栏「游戏文件夹」下面
-        // 还有一段折行的提示文字，把它加长到 1260 px 宽之后，它自己的 sizeHint 从
-        // 240 跳到 480、**整窗**就从 818 顶到 1042 —— 于是这条红，而底下的文件名
-        // 一个字都没动。那段提示当天晚些时候被删掉了（要求「下面那个文本也删了」），
-        // 所以现在这一条比那次宽裕得多。
+        // 顶出来的：一段折行的提示文字加长到 1260 px 宽，它自己的 sizeHint 从 240
+        // 跳到 480、**整窗**从 818 顶到 1042，而底下的文件名一个字都没动。
         // 要留下的是**这件事本身**：**折行 QLabel 的 sizeHint 宽度是横向 advance
         // 的分档（1/4），不是线性的** —— 随便写长一句话就可能把整窗顶过 900。红了
         // 先去看实例页有没有新加的折行文字，别去查下载那条路。
@@ -1623,8 +1618,8 @@ int main(int argc, char *argv[]) {
 
     std::printf("===== F2. 在两个非空占位文案之间来回切换（本次新引入的 Qt 依赖） =====\n");
     {
-        // MainWindow::refreshInstalledVersions() 现在会按"有没有可选版本"在两个
-        // 占位串之间切换。这条 Qt 依赖以前一条断言都没盖。
+        // MainWindow::refreshInstalledVersions() 会按"有没有可选版本"在两个
+        // 占位串之间切换。这条 Qt 依赖本身要有断言盖着。
         QComboBox probe;
         probe.setPlaceholderText(MainWindowUI::noInstalledVersionPlaceholder());
         probe.addItems({QStringLiteral("1.18.2"), QStringLiteral("26.3")});
@@ -1801,19 +1796,19 @@ int main(int argc, char *argv[]) {
     }
 
     std::printf("===== I. 底栏两格（左：运行状态，中：任务摘要/进度；右：工具箱。账号那格"
-                "2026-10-16 收进主页卡片） =====\n");
+                "收进主页卡片） =====\n");
 
     if (const int result = UiBottomBarGeometryChecks(ui, bar); result != 0) return result;
 
-    std::printf("===== I2. 底栏中间那颗按钮 = 任务中心的入口（2026-10-12） =====\n");
+    std::printf("===== I2. 底栏中间那颗按钮 = 任务中心的入口 =====\n");
 
     if (const int result = UiTaskCenterChecks(window, ui, tabs); result != 0) return result;
 
-    std::printf("===== I5. 取消 / 重试那两个入口 + 任务详情页（2026-10-12，coding plan §3.4） =====\n");
+    std::printf("===== I5. 取消 / 重试那两个入口 + 任务详情页 =====\n");
 
     if (const int result = UiTaskActionsChecks(window, ui); result != 0) return result;
 
-    std::printf("===== I3. 多开时那几行字（2026-09-23 多账户多实例） =====\n");
+    std::printf("===== I3. 多开时那几行字（多账户多实例） =====\n");
     {
         // 同时开着好几份时，底栏左下角那格不能再说「实例运行中」（跑着三个却说一个，
         // 是那种没人看得出错的错）。三句话都放在 MainWindowUI 里当唯一出处。
@@ -1836,7 +1831,7 @@ int main(int argc, char *argv[]) {
                       MainWindowUI::runStateRunningCountText(2),
               "「没有在跑」和「运行中」是两句不同的话");
         check(MainWindowUI::runStateNotRunningText() != QStringLiteral("实例未运行"),
-              "（2026-09-24 改过的那句：不再是「实例未运行」）",
+              "（不再是「实例未运行」）",
               MainWindowUI::runStateNotRunningText());
 
         // 第四句（ 用户加的）：「有实例异常退出」。要求就是这五个字。
@@ -1888,12 +1883,12 @@ int main(int argc, char *argv[]) {
               MainWindowUI::instanceRunningSuffixText());
     }
 
-    std::printf("===== I4. 底栏两头那两颗按钮：点一下**向上**弹一块面板（2026-09-23 补，"
-                "2026-09-24 换成真行） =====\n");
+    std::printf("===== I4. 底栏两头那两颗按钮：点一下**向上**弹一块面板"
+                " =====\n");
 
     if (const int result = UiBottomBarPopoversChecks(window, ui, tabs); result != 0) return result;
 
-    std::printf("===== I5. 两颗按钮的高度、中间那根条的宽度（2026-09-23 用户第二次报的） =====\n");
+    std::printf("===== I5. 两颗按钮的高度、中间那根条的宽度 =====\n");
     {
         // 要求：「左右那个…只有一行的高度 文字和图像只能挤着（显示不全）」
         // 「中间进度条现在奇小无比」，还猜了一句「估计是控件类型的问题」——
@@ -2022,7 +2017,7 @@ int main(int argc, char *argv[]) {
               "正在启动时第二行**一律不显示**（名字在第一行那句话里）");
     }
 
-    std::printf("===== J2. 底栏那颗状态方块的四档（2026-09-24 补，2026-10-15 改成四档） =====\n");
+    std::printf("===== J2. 底栏那颗状态方块的四档 =====\n");
 
     if (const int result = UiRunStateColorsChecks(); result != 0) return result;
 
@@ -2173,8 +2168,8 @@ int main(int argc, char *argv[]) {
 
     // ---- V. JavaMismatchDialog：启动前那个三岔口 ----
     // **直接构造**它，不走 exec()：产品路径上它是模态的，离屏驱动不了（会一直等），
-    // 于是"按钮点下去落到哪个分支"这段判断就永远没有断言盯着。C5 那次
-    // InstanceSettingsDialog 每次构造都崩，就是这么发现的。
+    // 于是"按钮点下去落到哪个分支"这段判断就永远没有断言盯着 —— 构造就崩的
+    // 问题只有直接构造才量得到。
     {
         using Dlg2 = JavaMismatchDialog;
 
@@ -2398,10 +2393,10 @@ int main(int argc, char *argv[]) {
         QApplication::processEvents();
     }
 
-    std::printf("\n===== Z2. 设置页「启动选项」那一组（2026-09-24 加的） =====\n");
+    std::printf("\n===== Z2. 设置页「启动选项」那一组 =====\n");
     if (const int result = UiWindowPreferencesChecks(tabs); result != 0) return result;
 
-    std::printf("\n===== Z3. 「游戏日志」窗（ui/GameLogWindow，2026-09-24 加的） =====\n");
+    std::printf("\n===== Z3. 「游戏日志」窗（ui/GameLogWindow） =====\n");
     if (const int result = UiGameLogActionsChecks(bar); result != 0) return result;
 
     std::printf("\n===== Z3b. 新窗摆哪儿：不许遮住启动器（喂假矩形，纯几何） =====\n");
@@ -2601,10 +2596,10 @@ int main(int argc, char *argv[]) {
         // 这一条盯的是「确实远小于行数」。十段夹具下量到的是三十几次。
         check(changesBig * 20 < 20000,
               "Z8 那几次改动远少于行数（两万行是三十几次，不是两万次）", detail);
-        check(msBig < 250, "Z8 两万行点一下不超过 250 ms（改之前是 559 ms）", detail);
+        check(msBig < 250, "Z8 两万行点一下不超过 250 ms", detail);
     }
 
-    std::printf("\n===== Z10. 行数上限那颗下拉框 + 清空/关闭摆哪儿（2026-09-24） =====\n");
+    std::printf("\n===== Z10. 行数上限那颗下拉框 + 清空/关闭摆哪儿 =====\n");
     if (const int result = UiLogRetentionChecks(); result != 0) return result;
 
     std::printf("===== V. 游戏文件夹那一列：两行式的行 + 行尾齿轮那五项 =====\n");
@@ -2665,17 +2660,17 @@ int main(int argc, char *argv[]) {
     std::printf("\n===== Z11. 顶上那一条自己画的标题栏（外框那一份的「脸」） =====\n");
     if (const int result = UiTitleBarChecks(window, ui); result != 0) return result;
 
-    std::printf("\n===== Z13. 实例行行尾那三颗按钮（2026-09-25） =====\n");
+    std::printf("\n===== Z13. 实例行行尾那三颗按钮 =====\n");
     if (const int result = UiInstanceRowActionsChecks(); result != 0) return result;
 
     std::printf("\n===== Z14. 资源详情页（下载页点开一个资源之后那一整页） =====\n");
     if (const int result = UiInstanceRowPaintingChecks(); result != 0) return result;
 
     std::printf("\n===== Z15. 「启用 / 禁用」那枚开关 + MOTD 照游戏的样子 + 行首那枚资源图标"
-                "（2026-09-27） =====\n");
+                "=====\n");
     if (const int result = UiContentRowsChecks(); result != 0) return result;
 
-    std::printf("\n===== Z16. 「世界设置」那一页（点存档行尾那支笔之后，2026-09-28） =====\n");
+    std::printf("\n===== Z16. 「世界设置」那一页（点存档行尾那支笔之后） =====\n");
     if (const int result = UiWorldEditorChecks(); result != 0) return result;
 
     // =====================================================================
@@ -2702,17 +2697,17 @@ int main(int argc, char *argv[]) {
     std::printf("\n===== U28. 完整性检查报告页（「检查并修复」跑完之后那整页）=====\n");
     if (const int result = UiIntegrityReportChecks(); result != 0) return result;
 
-    std::printf("\n===== U29. 「游戏异常退出」那一项在详情页上多露什么（§4.3）=====\n");
+    std::printf("\n===== U29. 「游戏异常退出」那一项在详情页上多露什么 =====\n");
     if (const int result = UiCrashReportChecks(); result != 0) return result;
 
-    std::printf("\n===== U30. 世界与实例备份那几颗按钮（§4.4）=====\n");
+    std::printf("\n===== U30. 世界与实例备份那几颗按钮 =====\n");
     if (const int result = UiBackupActionsChecks(); result != 0) return result;
 
     if (const int result = UiInstanceSnapshotsChecks(); result != 0) return result;
 
 #if 0
     // 退役：旧的单张「上次游玩」卡。新主页由下面 U31b 的收藏/最近两排覆盖。
-    // ---------- U31 主页那张「上次游玩」卡（coding plan §5.1）----------
+    // ---------- U31 主页那张「上次游玩」卡 ----------
     //
     // 这一节量的是**屏幕上那一张卡长什么样**：它在主页左栏落哪儿、三行字怎么摆、那一行
     // 灰字空着的时候卡片是不是**真的矮一截**（不摆空壳）、两颗按钮哪一颗是主题色那一档。
@@ -2746,7 +2741,7 @@ int main(int argc, char *argv[]) {
               "U31.0 它就是同一栏（主页左栏）里的一张卡，不是另开在别处的");
         if (recentCard != nullptr && launchCard != nullptr &&
             recentCard->parentWidget() == launchCard->parentWidget()) {
-            // ① 一次都没启动过：**整张卡收起来**（§9.2：不摆一张空的等数据）。
+            // ① 一次都没启动过：**整张卡收起来**（不摆一张空的等数据）。
             check(!recentCard->isVisibleTo(recentCard->parentWidget()),
                   "★★ U31.1 一次都没启动过 ⇒ 整张卡收起来（这一节开头 nobody 调过 "
                   "setHomeRecent）");
@@ -2777,9 +2772,9 @@ int main(int argc, char *argv[]) {
                   "U31.2 旁边那颗永远写「实例设置」", recentSettings->text());
 
             // ③ 摆在哪儿：**启动卡下面**，和它一样宽（同一栏里两张卡，7:3 那份宽度是共用
-            // 的）；名字在标题下面、详情在名字下面 —— 那一份次序是 §5.1 那张草图的。
+            // 的）；名字在标题下面、详情在名字下面 —— 那一份次序是那张草图的。
             check(recentCard->y() >= launchCard->y() + launchCard->height(),
-                  "★★ U31.3 那张卡在**启动卡下面**（§9.5：主页左栏是「启动 + 最近活动」两"
+                  "★★ U31.3 那张卡在**启动卡下面**（主页左栏是「启动 + 最近活动」两"
                   "件事，次序就是它们的重要程度）",
                   QStringLiteral("启动卡底 %1 / 这张卡顶 %2")
                       .arg(launchCard->y() + launchCard->height())
@@ -2796,12 +2791,12 @@ int main(int argc, char *argv[]) {
                       .arg(recentDetail->y())
                       .arg(recentGo->y()));
             check(recentWhen->x() > recentCard->width() / 2,
-                  "★★ U31.3 那句「昨天 22:14」在**右上角**（§5.1 那张草图里它不是单独一行，"
+                  "★★ U31.3 那句「昨天 22:14」在**右上角**（那张草图里它不是单独一行，"
                   "是这一行的右端）",
                   QStringLiteral("x %1 / 卡片宽 %2").arg(recentWhen->x()).arg(recentCard->width()));
 
             // ④ 灰字那一行空着时**整行收起来**，卡片跟着矮一截：空 QLabel 照样占一行字高，
-            // 留着就是白留一块（§9.2 那条"不摆空壳"落到了行这一级）。
+            // 留着就是白留一块（那条"不摆空壳"落到了行这一级）。
             const int withDetail = recentCard->sizeHint().height();
             // 还原那一发要用**同一句**：灰字那行是会折行的（这一句在卡片宽度下正好两行），
             // 换一句短的回来高度当然对不上 —— 那不是"收起来不可逆"。
@@ -2830,7 +2825,7 @@ int main(int argc, char *argv[]) {
             recent.whenLine = QStringLiteral("昨天 22:14");
 
             // ⑤ 降级那一档：目标 / 那一份实例没了 ⇒ 字变成「启动实例」，但**按钮不消失**
-            // （§5.1：目标被删了不该让这张卡变成死路一条）。
+            // （目标被删了不该让这张卡变成死路一条）。
             recent.canContinue = false;
             ui.setHomeRecent(recent);
             QApplication::processEvents();
@@ -2916,16 +2911,16 @@ int main(int argc, char *argv[]) {
                 check(colorDistance(settingsFill, QColor(Qt::white)) <= 6 && settingsPure == 0 &&
                           settingsNeutral > 0,
                       "★★ U31.7 「实例设置」是**一般性**那一档：白底黑字黑边，主题色一个像素"
-                      "都不沾（用户 2026-09-28 点名的分档：启动那种确认性的走主题色，设置"
+                      "都不沾（点名的分档：启动那种确认性的走主题色，设置"
                       "那种一般性的走黑）",
                       QStringLiteral("多数色 %1 / 本色 %2 个 / 中性墨 %3 个")
                           .arg(settingsFill.name())
                           .arg(settingsPure)
                           .arg(settingsNeutral));
 
-                // 两档的**高度**也真的差一档（§9.1：主动作 38 / 一般 34）。
+                // 两档的**高度**也真的差一档（主动作 38 / 一般 34）。
                 check(recentGo->height() > recentSettings->height(),
-                      "★★ U31.7 §9.1 的两档高度落在屏幕上：主动作比一般性那一颗高",
+                      "★★ U31.7 两档高度落在屏幕上：主动作比一般性那一颗高",
                       QStringLiteral("主动作 %1px / 一般 %2px")
                           .arg(recentGo->height())
                           .arg(recentSettings->height()));
@@ -2995,25 +2990,25 @@ int main(int argc, char *argv[]) {
 
     if (const int result = UiInstanceFiltersChecks(window, ui, tabs); result != 0) return result;
 
-    std::printf("\n===== U33. 更新中心（「检查更新」查出来的结论摊成能动手的一页，§7.1）=====\n");
+    std::printf("\n===== U33. 更新中心（「检查更新」查出来的结论摊成能动手的一页）=====\n");
     if (const int result = UiUpdateCenterChecks(); result != 0) return result;
 
     if (const int result = UiServerModeChecks(window, ui, tabs); result != 0) return result;
 
     if (const int result = UiServerSettingsChecks(); result != 0) return result;
 
-    std::printf("\n===== U38. §3.3 键盘焦点与 Tab 顺序（2026-10-14） =====\n");
+    std::printf("\n===== U38. 键盘焦点与 Tab 顺序 =====\n");
     if (const int result = UiAccessibilityChecks(window); result != 0) return result;
 
-    std::printf("\n===== U39. 工具箱：信标计算 / 酿造助手（§9.11） =====\n");
+    std::printf("\n===== U39. 工具箱：信标计算 / 酿造助手 =====\n");
     if (const int result = UiBeaconBrewingChecks(); result != 0) return result;
 
-    std::printf("\n===== U40. 工具箱：旗帜设计 / 纹饰搭配（§9.11） =====\n");
+    std::printf("\n===== U40. 工具箱：旗帜设计 / 纹饰搭配 =====\n");
     if (const int result = UiBannerArmorChecks(); result != 0) return result;
 
     std::printf("\n===== U40b. 文本那一片的自定颜色 / motd，旗帜的「复制指令」 =====\n");
     // ------------------------------------------------------------------
-    // §9.11 第 2 项补的两块：1.16 起那份 `#RRGGBB` 自定颜色（`§x…` 那串由 `TextFormat`
+    // 补的两块：1.16 起那份 `#RRGGBB` 自定颜色（`§x…` 那串由 `TextFormat`
     // 算，判据在 verify 的 ZAA7），以及 `server.properties` 的 `motd=` 那一行（ZAA8）。
     // 这里只钉页面：两格在、按下去发的是用户敲的那串原文、插进去落在光标处。
     // ------------------------------------------------------------------
@@ -3139,7 +3134,7 @@ int main(int argc, char *argv[]) {
 
     std::printf("\n===== U41. 哈希那一件：算完之后文件变过的提醒 =====\n");
     // ------------------------------------------------------------------
-    // §9.11 第 1 项那条「文件变化使结果失效」：盯文件的那一半在 controller（`QFileSystemWatcher`
+    // 那条「文件变化使结果失效」：盯文件的那一半在 controller（`QFileSystemWatcher`
     // + `FileHash::stampOf`，判据在 verify 的 ZAK 一节）；这里只钉**页面上那句提醒**：
     // 平时收着、有话说就露出来、没事了又收回去。
     // ------------------------------------------------------------------
@@ -3160,7 +3155,7 @@ int main(int argc, char *argv[]) {
         QApplication::processEvents();
     }
 
-    std::printf("\n===== U42. 哈希那一件：多文件 + 复制全部 / 导出（§9.11 第 1 项） =====\n");
+    std::printf("\n===== U42. 哈希那一件：多文件 + 复制全部 / 导出 =====\n");
     // ------------------------------------------------------------------
     // 那一条「补多文件、复制/导出列表」落在页面上就是三颗钮 + 一张清单。
     // 这里钉的是：清单怎么摆、导出/复制的**纯文本**长什么样、两档（单文件 / 批量）互相收掉。
@@ -3234,7 +3229,7 @@ int main(int argc, char *argv[]) {
         QApplication::processEvents();
     }
 
-    std::printf("\n===== U43. 版本树上面的筛选框（§9「版本树没有过滤/搜索」） =====\n");
+    std::printf("\n===== U43. 版本树上面的筛选框（「版本树没有过滤/搜索」） =====\n");
     // ------------------------------------------------------------------
     // 过滤住在界面这一层（MainWindowUI::applyVersionFilter）：它只藏/露条目、撑开命中的
     // 分类，一个字节的数据都不碰。清单重灌那一半在 MainWindow（refreshAvailableVersions

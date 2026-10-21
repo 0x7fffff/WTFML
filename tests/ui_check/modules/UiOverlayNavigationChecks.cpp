@@ -129,7 +129,7 @@ int UiOverlayNavigationChecks() {
 
         // ---------- 底下压着一页、而那一页正收在别的选项卡上 ----------
         // 用户切走之后后台冒出来一条提示：要变暗的是**用户正看着的那一页**，而提示收掉之后
-        // 回到的是那一页（它只是收着）。这一条以前会把整页那一层掀出来盖在别人头上。
+        // 回到的是那一页（它只是收着）。这一段钉的就是整页那一层不许被掀出来盖在别人头上。
         QWidget *areaAgain = host.openPage(QStringLiteral("甲页"));
         if (areaAgain != nullptr) {
             auto *probeAgain = new QWidget;

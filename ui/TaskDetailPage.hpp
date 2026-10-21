@@ -1,6 +1,6 @@
 /**
  * @file TaskDetailPage.hpp
- * @brief 任务详情页（coding plan §3.2 / §3.4）：点任务中心里的一行，在内容区整块开出来的那一页。
+ * @brief 任务详情页：点任务中心里的一行，在内容区整块开出来的那一页。
  *
  * 【它是"页"，不是窗口】
  *
@@ -18,11 +18,11 @@
  *
  * 上面那一排的露与不露**只读 `Item::capabilities`**（那是账本在收尾那一刻记下来的"当时允许
  * 什么"）。这一页要是自己按状态再推一遍，推出来的和账本记的迟早会漂开，而漂开的表现是
- * "界面上有一颗点了没反应的按钮" —— 正是 §3.4 想避免的那种。
+ * "界面上有一颗点了没反应的按钮" —— 正是这一页要避免的那种。
  *
  * 【为什么"失败"要专门留一块地方写原因】
  *
- * §3.4：「任务失败能看到失败阶段、简短原因和'查看日志/重试'」。失败阶段 = 步骤那一栏里那个
+ * 「任务失败能看到失败阶段、简短原因和'查看日志/重试'」。失败阶段 = 步骤那一栏里那个
  * `✗`；简短原因 = `Item::errorSummary` 那一块。两样都要**在页上一眼看得见**，不能只留在日志里
  * —— 日志是给"还想往下查"的人看的。
  */
@@ -37,7 +37,7 @@
 class QLabel;
 class QPushButton;
 class QVBoxLayout;
-/// 自绘的进度条（`ui/TaskProgressBar`，coding plan §3.3）。这一页那一根和底栏、面板是同一个。
+/// 自绘的进度条（`ui/TaskProgressBar`）。这一页那一根和底栏、面板是同一个。
 class TaskProgressBar;
 
 class TaskDetailPage : public QDialog {
@@ -51,8 +51,8 @@ public:
         OpenLog,      ///< 「打开日志」：开日志窗（那一个是全仓唯一允许另开窗口的东西）。
         OpenTarget,   ///< 「打开目标位置」：在文件管理器里打开这一项的目标（实例目录 / 落点目录）。
         CopySummary,  ///< 「复制摘要」：把这一项的摘要（含错因）放进剪贴板。
-        ExportReport, ///< 「导出错误报告」：把这一趟的事实 + 日志写成一份能发出去的文本（§4.3）。
-        OpenCrashDir, ///< 「打开崩溃报告目录」：在文件管理器里打开 `crash-reports/`（§4.3）。
+        ExportReport, ///< 「导出错误报告」：把这一趟的事实 + 日志写成一份能发出去的文本。
+        OpenCrashDir, ///< 「打开崩溃报告目录」：在文件管理器里打开 `crash-reports/`。
     };
 
     explicit TaskDetailPage(QWidget *parent = nullptr);

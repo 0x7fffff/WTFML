@@ -760,7 +760,7 @@ QStringList pathParts(const QString &path) {
 
 }  // namespace
 
-// NOTE: `const` 与不 `const` 这两份是**分开写的两个循环**，没有合成一个模板。试过，
+// NOTE: `const` 与不 `const` 这两份是**分开写的两个循环**，没有合成一个模板：
 // `field()` 那对重载在模板里过不了（模板里 `current` 是 `T *`，两个重载得靠
 // `const` 限定去分，而 GCC 在这条路上只挑得中不带 `const` 的那个）。八行代码，
 // 不值得为它绕一圈。

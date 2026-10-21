@@ -220,9 +220,9 @@ void ActivityCenterController::setTransferSpeed(Tasks::TaskId id, qint64 bytesPe
 
 bool ActivityCenterController::markViewed(const QString &key) {
     bool ok = false;
-    // 行钥匙是 `QString::number(TaskId)`，而 `TaskId` 是 64 位 —— 这里原来
-    // 用 `toInt()`：号一旦越过 INT_MAX（手工改过的历史文件就能造出来，见
-    // `TaskManager::loadHistory()`），解析直接失败 ⇒ 这一行的「已看过」永远落不下去，
+    // 行钥匙是 `QString::number(TaskId)`，而 `TaskId` 是 64 位 —— 用 `toInt()`
+    // 解析会在号越过 INT_MAX 时失败（手工改过的历史文件就能造出来，见
+    // `TaskManager::loadHistory()`）⇒ 这一行的「已看过」永远落不下去，
     // 底栏那颗红点到重启都在。同一个钥匙在 `itemForKey()` / 详情页两个动作 /
     // `retryTaskFromDetail()` 里也有，全部按 64 位读。
     const auto id = key.toULongLong(&ok);
@@ -339,11 +339,10 @@ QList<TaskCenter::Item> ActivityCenterController::items(
         if (rank(a) != rank(b)) return rank(a) < rank(b);
         return a.state == TaskCenter::State::Queued && b.state == TaskCenter::State::Queued && a.queueOrder < b.queueOrder;
     });
-    // 这里**不再**顺手把"没看过的失败"整批标成看过。
-    // 从前这一笔在这里（`markAllViewed()`），可这一发发生在**面板筛子和搜索之前**：
-    // 用户把面板停在「进行中」（或者输了搜索词）时，失败那几行根本没露脸，红点却已经
-    // 灭了 —— 一次失败就这样被"悄悄看过"了。现在由面板在**真建出那一行**之后，按行
-    // 发 `RowAction::Viewed`（见 TaskCenterPanel::rebuild）。
+    // 这里**不**顺手把"没看过的失败"整批标成看过：`markAllViewed()` 这一发发生在
+    // **面板筛子和搜索之前**，用户把面板停在「进行中」（或者输了搜索词）时，失败那几行
+    // 根本没露脸，红点却已经灭了 —— 一次失败就这样被"悄悄看过"了。这一类标记由面板在
+    // **真建出那一行**之后按行发 `RowAction::Viewed`（见 TaskCenterPanel::rebuild）。
     if (viewStateChanged != nullptr) {
         *viewStateChanged = false;
     }

@@ -119,7 +119,7 @@ void runGameCrashTests() {
 
         // ---------- ② 以 0 正常退出：一项都不补 ----------
         //
-        // §4.3 要的是「游戏**异常**退出后…」—— 跑得好好的退出一项都不该冒出来。
+        // 要求的是「游戏**异常**退出后…」—— 跑得好好的退出一项都不该冒出来。
         QMetaObject::invokeMethod(&w, "onGameFinished", Qt::DirectConnection,
                                   Q_ARG(int, 4243), Q_ARG(int, 0),
                                   Q_ARG(QProcess::ExitStatus, QProcess::NormalExit));

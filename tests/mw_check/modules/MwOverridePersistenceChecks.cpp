@@ -10,16 +10,15 @@ int MwOverridePersistenceChecks(const QDir &root, const QString &settingsDir, co
     // NOTE: 覆盖生效之后"这次启动到底用哪套值"由 verify 的 R 段逐条钉住
     // （resolveJavaSettings 六项 × 跟随/覆盖 + 钳位）；这里验的是它**没有副作用**。
     //
-    // NOTE: 以前这里写着"`resolveMemoryForLaunch()` 里那条「实例要的自动档 → 结果不写回
-    // 全局」证不到，因为让 Java 那一步成功要真的起一个 JVM"。现在证得到了 ——
-    // U4～U7 用"空文件 + release 文件"造的假运行时把 Java 那一步走通，全程不起进程，
-    // 于是那条分支也跟着被跑到了（U6 那条"别的项一个都没丢"就是它）。
+    // NOTE: "`resolveMemoryForLaunch()` 里那条「实例要的自动档 → 结果不写回
+    // 全局」"由 U4～U7 证到 —— 那里用"空文件 + release 文件"造的假运行时把 Java
+    // 那一步走通，全程不起进程，于是那条分支也跟着被跑到了（U6 那条"别的项一个
+    // 都没丢"就是它）。
     {
         // U 段每一步都要点启动，而启动那条路的第一道门是**凭据**（onStartButtonClicked
-        // 在拿不到令牌时弹窗返回，Java 那一步根本走不到）。 之前这里是在每个
-        // 窗口里勾一下主页那个「离线模式」勾选框；那个勾选框去掉了（要求：「不要启动
-        // 界面那个离线登录勾选框了，在添加账户那里选择添加离线账号」），于是"这一趟走
-        // 离线"只剩一个出处：**当前账号本身是不是离线账号**（MainWindow::offlineIdentity()）。
+        // 在拿不到令牌时弹窗返回，Java 那一步根本走不到）。"这一趟走离线"只有一个出处：
+        // **当前账号本身是不是离线账号**（MainWindow::offlineIdentity()）—— 启动界面上
+        // 没有离线登录勾选框。
         //
         // 所以这里照产品那条路摆一次现场（MainWindow::onOfflineAccountRequested 落到的
         // 就是 AccountStore::addOffline），整段都在离线身份下跑 —— 不联网、不要凭据。
@@ -147,9 +146,8 @@ int MwOverridePersistenceChecks(const QDir &root, const QString &settingsDir, co
 
         // ---- U4～U7 「实例钉的 Java 和版本要求对不上」那个三岔口 ----
         //
-        // 这一段以前**证不到**（U 段开头那条 NOTE 说的就是它）：要让 Java 那一步成功，
-        // 机器上得真装着一个匹配的运行时，还得真的起一个 JVM。有"假运行时"这个办法之后
-        // 就不用付那个代价了：
+        // 这一段用"假运行时"证到（U 段开头那条 NOTE 说的就是它）：要让 Java 那一步成功，
+        // 机器上不必真装着一个匹配的运行时，也不用真的起一个 JVM。
         //
         // 一个**空文件**当 java.exe，旁边一个 release 文件写着 JAVA_VERSION。
         // GlobalJavaSettings::probeJavaMajorVersion() 走的是"先读 release、读到就 return"
@@ -227,11 +225,10 @@ int MwOverridePersistenceChecks(const QDir &root, const QString &settingsDir, co
             QMetaObject::invokeMethod(&w, "onStartButtonClicked", Qt::DirectConnection);
             QApplication::processEvents();
 
-            // 这里原来断言"一个框都没弹"，因为进程起不来那条路以前只写日志。
-            // 现在产品会**弹一条「无法启动」**（见 LaunchController 里那份 processError 的
-            // 接法）—— 假的 java.exe 是个**空文件**，CreateProcess 当然起不来，所以说的是
-            // 「不是有效的 Win32 应用程序」。这一节真正要钉住的是"**不该**落到
-            // `Java 运行时缺失` 那条硬错误上"，不是"一个框都不许有"。
+            // 进程起不来那条路产品会**弹一条「无法启动」**（见 LaunchController 里那份
+            // processError 的接法）—— 假的 java.exe 是个**空文件**，CreateProcess 当然
+            // 起不来，所以说的是「不是有效的 Win32 应用程序」。这一节真正要钉住的是
+            // "**不该**落到 `Java 运行时缺失` 那条硬错误上"，不是"一个框都不许有"。
             check(!g_modalText.contains(QStringLiteral("Java 运行时"))
                       && !g_modalText.contains(QStringLiteral("请手动指定 Java 路径")),
                   "U4 没有弹「Java 运行时缺失」（走了新那条路，不该再落到硬错误上）",

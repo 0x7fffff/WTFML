@@ -105,7 +105,7 @@ void BackupController::pickZip(BackupFiles::Kind kind, const QString &label, con
         if (!entry.fileName().startsWith(prefix, Qt::CaseInsensitive)) {
             continue;
         }
-        // 原来这里只比名字前缀 ⇒ 三件事都能漏进来：从别处拷进备份目录、恰好叫得
+        // 只比名字前缀不够 ⇒ 三件事都能漏进来：从别处拷进备份目录、恰好叫得
         // 像模像样的 zip；改了名/换过实例之后留下来的旧包；以及**世界备份**被挪到
         // `instances/` 目录里（前缀碰巧一样时）。还原的最后一步是拿 `manifest.root`
         // 拼落点、把那个目录**整个换掉**，所以"名字对不对"必须在**列出来之前**问，
@@ -154,10 +154,10 @@ void BackupController::pickZip(BackupFiles::Kind kind, const QString &label, con
                 .arg(what, QDir::toNativeSeparators(dir)));
         return;
     }
-    // 原来这里是把文件名**从大到小**排（`std::greater<QString>`）。可是
-    // 自动留下的「恢复前-」安全快照在名字里多插了一段汉字，而汉字的码位在数字之后
-    // ⇒ 每一份安全快照都排到了**最新的常规备份前面**。刚还原过一次，列表最上面就是
-    // 刚才自动留的那一份，"越上面越新"当场不成立，点下去还原的其实是很久以前那份。
+    // 文件名不能按字典序排（`std::greater<QString>`）：自动留下的「恢复前-」
+    // 安全快照在名字里多插了一段汉字，而汉字的码位在数字之后 ⇒ 每一份安全快照都会
+    // 排到**最新的常规备份前面**。刚还原过一次，列表最上面就是刚才自动留的那一份，
+    // "越上面越新"当场不成立，点下去还原的其实是很久以前那份。
     // 排序挪进 `BackupFiles::sortBackupsNewestFirst()`（纯函数，verify 里有一条钉子）。
     zips = BackupFiles::sortBackupsNewestFirst(zips, prefix);
     QStringList items;
@@ -404,8 +404,8 @@ Tasks::TaskId BackupController::startWrite(const BackupFiles::Manifest &manifest
     m_taskId = m_activity->begin(Tasks::TaskKind::Backup, title, targetId, steps);
     m_refreshServerId = refreshServerId;
     // 服务端世界的那一趟（备份 / 还原）读 / 换的是**这一个服务端**的目录。
-    // 跑着的时候它不能启动、不能删 —— 原来只有实例那一侧记了"动不得"，服务端这条
-    // 路一个标记都没有（见 MainWindow::startServer() / removeServer() 那两道闸）。
+    // 跑着的时候它不能启动、不能删 —— 实例那一侧和这条服务端路都必须记"动不得"
+    // （见 MainWindow::startServer() / removeServer() 那两道闸）。
     m_busyServerId = refreshServerId;
     if (!m_busyServerId.isEmpty() && m_host.setServerFileOperationBusy) {
         m_host.setServerFileOperationBusy(m_busyServerId, true);
@@ -533,8 +533,8 @@ void BackupController::writeFinished(const BackupFiles::WriteResult &result,
                                        .arg(result.manifest.fileCount())
                                        .arg(sizeText(result.manifest.totalBytes)));
     } else {
-        // 失败这一路原来拿**成功标题**去弹（「备份完成」下面的正文说
-        // "没打成"）。标题和正文自相矛盾，用户扫一眼标题就当成功了。
+        // 失败这一路必须用失败标题：拿**成功标题**去弹，「备份完成」下面的正文却说
+        // "没打成"。标题和正文自相矛盾，用户扫一眼标题就当成功了。
         const QString title = failureTitle.isEmpty() ? tr("没有完成") : failureTitle;
         log(tr("%1：%2").arg(title, result.problem));
         InlineMessage::warning(m_overlay, title, result.problem);

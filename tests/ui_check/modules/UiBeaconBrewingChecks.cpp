@@ -59,7 +59,7 @@ int UiBeaconBrewingChecks() {
                   "★ U39 用户把目标改成 4 ⇒ 发一发，带的是两格的当前值",
                   QStringLiteral("%1 发（%2→%3）").arg(beaconSignals).arg(lastFrom).arg(lastLevel));
 
-            // §9.11 第 9 项后补的两格：底座方块（材质）与共用底座的颗数。
+            // 后补的两格：底座方块（材质）与共用底座的颗数。
             auto *beaconMaterial =
                 page.findChild<QComboBox *>(ToolboxPage::beaconMaterialComboName());
             auto *beaconCount = page.findChild<QSpinBox *>(ToolboxPage::beaconCountSpinName());
@@ -140,7 +140,7 @@ int UiBeaconBrewingChecks() {
                   "★ U39 形态换成滞留型 ⇒ 发的下标是 2（controller 靠它补火药 + 龙息两步）",
                   QString::number(lastForm));
 
-            // §9.11 第 7 项补的「瓶数」那一格。
+            // 补的「瓶数」那一格。
             auto *brewingBottles =
                 page.findChild<QSpinBox *>(ToolboxPage::brewingBottlesSpinName());
             check(brewingBottles != nullptr && brewingBottles->minimum() == 1

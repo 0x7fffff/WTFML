@@ -41,7 +41,7 @@ protected:
         if (!m_drag) return;
         const auto delta = event->position() - m_last; m_last = event->position();
         // 和 SkinViewer 同一个方向：抓住模型拧 —— 往右拖，正面往右滑，于是转到它的右侧。
-        // yaw 正数是相机绕到玩家左侧，所以要**减**； 之前这里是加号，拖起来是反的。
+        // yaw 正数是相机绕到玩家左侧，所以要**减**。
         m_scene.yaw -= delta.x() * .7;
         m_scene.pitch = qBound(-70.0, m_scene.pitch + delta.y() * .5, 70.0); update();
     }

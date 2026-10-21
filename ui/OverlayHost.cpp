@@ -5,7 +5,7 @@
  */
 
 #include "OverlayHost.hpp"
-#include "Animations.hpp"  // 整块覆盖这一层的淡入（2026-09-29）
+#include "Animations.hpp"  // 整块覆盖这一层的淡入
 #include "Theme.hpp"   // 顶上那颗「← 返回」的身份（一般性 = 黑字黑边）
 
 #include <QApplication>
@@ -132,7 +132,7 @@ OverlayHost::OverlayHost(QWidget *anchor, QWidget *parent) : QWidget(parent), m_
     card->setObjectName(overlayPromptHostName());
     card->setFrameShape(QFrame::StyledPanel);
     card->setAutoFillBackground(true);
-    // 卡片底色出厂是 `Base`（和输入框/列表里那层一样）， 起归
+    // 卡片底色出厂是 `Base`（和输入框/列表里那层一样），归
     // `Theme::Part::Card` 管（用户能把卡片单独换一个色）。
     // NOTE: 基色取**应用调色板**而不是卡片自己的：卡片身上就写着算好的那一份，
     // 第二次进来再取一次就是"在改过的基色上再算一遍"（TitleBar 那边同一个坑）。
@@ -228,8 +228,8 @@ bool OverlayHost::parked() const {
 
 void OverlayHost::applyVisibility() {
     // 整页那一档**只在开它的那颗选项卡上露面**。切到别的选项卡上就"收着"：不关、不销毁
-    // —— 这一页正卡在 `execPage()` 的嵌套事件循环里，收掉了调用方会一直等下去，而用户要的
-    // 「再点回来还是那一个界面（连滚到哪儿都在）」也就没了（见头文件那段）。
+    // —— 这一页正卡在 `execPage()` 的嵌套事件循环里，收掉了调用方会一直等下去，而"切回来
+    // 还是原来那一页（连滚到哪儿都在）"也就没了（见头文件那段）。
     const bool pageShown = (m_mode == Mode::Page) && onOwnersTab();
     // 提示那一档不跟着选项卡走：它是要人回答的一句话，收起来 = 让调用方在用户看不见的
     // 地方干等。切页时它换的只是底图（见 refreshBackdrop）。
@@ -279,10 +279,9 @@ QPixmap OverlayHost::captureBackdrop() const {
     // 要变暗的那一块**现在**是谁：整页那一档**正摆在眼前**时是那一层自己（它才是盖在
     // 底下那些内容上面的东西），其余情况都是当前选项卡那一页。
     //
-    // NOTE: 判据里那半句 `onOwnersTab()` 不能少。在这之前 refreshBackdrop() 写的是
-    // `if (m_overPage) return;` —— 它把"底下压着一页"和"那一页正铺在屏幕上"当成
-    // 了同一件事，而页面**收着**（用户在别的选项卡上逛）恰恰把这两件事分开了：
-    // 用户在新选项卡上看到的会是一张**上一个选项卡那一页**的变暗快照。
+    // NOTE: 判据里那半句 `onOwnersTab()` 不能少：它把"底下压着一页"和"那一页正铺在屏幕上"
+    // 分开。页面**收着**（用户在别的选项卡上逛）时这两件事不同：少了这半句，用户在新选项卡
+    // 上看到的会是一张**上一个选项卡那一页**的变暗快照。
     if (m_overPage && onOwnersTab() && m_pageFrame != nullptr) {
         return snapshot(m_pageFrame);
     }
@@ -293,10 +292,9 @@ QPixmap OverlayHost::captureBackdrop() const {
 void OverlayHost::refreshBackdrop() {
     // 换选项卡 / 那一页收起来 / 又摆出来 —— 底下那一块**换了**，重拍一张。
     //
-    // NOTE: 这里以前是一句 `if (m_overPage) return;`，理由是"底下那一页一直没动过"。
-    // 那个理由在"页摆在眼前"时成立，在"页收着"时不成立：**收着**的意思是那一页
-    // 此刻不在屏幕上（见头文件那段），底下压着的是当前选项卡自己的内容。所以现在
-    // 和 openPrompt() 共用同一个判据（captureBackdrop）。
+    // NOTE: 不能只判 `m_overPage`：页面**收着**的时候它此刻不在屏幕上（见头文件那段），
+    // 底下压着的是当前选项卡自己的内容，所以得重拍。这里和 openPrompt() 共用同一个
+    // 判据（captureBackdrop）。
     m_backdrop = captureBackdrop();
     update();
 }
@@ -451,7 +449,7 @@ void OverlayHost::closeOverlay() {
             // 回到那一页（它可能是收在别的选项卡上的 —— 那就还是收着，见 applyVisibility）。
             applyVisibility();
             // 焦点：优先摆回"提示盖上来之前那一格"（applyVisibility 已经做过一遍），
-            // 没有记录在案的就按老规矩把它摆到返回箭头上（键盘一进来就归页眉管）。
+            // 没有记录在案的就摆到返回箭头上（键盘一进来就归页眉管）。
             if (m_pageFocus == nullptr && m_backButton != nullptr && !parked()) {
                 m_backButton->setFocus();
             }
@@ -544,8 +542,7 @@ bool OverlayHost::closeTopLayer(bool evenWhenParked) {
         // 页面那一档：和"点返回箭头"**同一发**。★ 这里**绝不能改成 `closeOverlay()`** ——
         // 用 `execPage()` 开出来的那一页正卡在自己的嵌套事件循环里，`closeOverlay()` 只把
         // 外壳收了、一个信号都不发 ⇒ 调用方一直等下去（`MainWindow::openResourceDetailPage`
-        // 那一段的 `m_resourcePage.open` 永远归不了 false）。mw_check 里那句"收的必须是
-        // 返回箭头（= reject），不能是 closeOverlay()"说的就是这一件事。
+        // 那一段的 `m_resourcePage.open` 永远归不了 false）。
         emit backPressed();
         return true;
     }
@@ -560,7 +557,7 @@ void OverlayHost::relayout() {
     if (m_promptCard == nullptr) {
         return;
     }
-    // 宽度**恒定**、只夹高度：用户要的那句「不会让界面出现尺寸不一样的弹窗」就是这一条。
+    // 宽度**恒定**、只夹高度：所有提示一样宽，不允许出现尺寸不一样的弹窗。
     // 窄一点就成了另一种弹窗，矮一点只是内容滚。
     const int width = qMin(promptWidth(), qMax(0, this->width() - 2 * promptMargin()));
     const int available = qMax(0, height() - 2 * promptMargin());
@@ -607,7 +604,7 @@ int OverlayHost::execEmbedded(QDialog *dialog, const QString &title, bool asPage
 
     // ① 先摘掉"窗口"身份。QDialog 只要带着 Qt::Dialog 就是**顶层窗口** —— 构造时给个
     // parent 只是"属于谁"（Windows 上的 owner），不是"画在谁里面"。塞进布局之前必须
-    // 先把它降级成普通子控件，否则它照旧另开一个窗，那正是这一整轮要消掉的东西。
+    // 先把它降级成普通子控件，否则它照旧另开一个窗，覆盖层就白搭了。
     dialog->hide();
     dialog->setParent(m_parking, Qt::Widget);
 
@@ -622,9 +619,8 @@ int OverlayHost::execEmbedded(QDialog *dialog, const QString &title, bool asPage
     // 内容到位了，卡片按真实内容再量一次（`openPrompt()` 那一次量的时候里面还是空的）。
     relayout();
 
-    // ③ 卡住调用方，形状和 `dialog.exec()` 一模一样 —— 一百来个调用点一行一行换过去时
-    // 语义一个字不变（QMessageBox::exec() 本来就是嵌套事件循环，可重入性的风险面
-    // 和以前完全相同，没有变差）。
+    // ③ 卡住调用方，形状和 `dialog.exec()` 一模一样（语义一个字不变：QMessageBox::exec()
+    // 本来就是嵌套事件循环，可重入性的风险面也一样）。
     QEventLoop loop;
     const QPointer<OverlayHost> hostGuard(this);
     const QPointer<QDialog> dialogGuard(dialog);
@@ -641,7 +637,7 @@ int OverlayHost::execEmbedded(QDialog *dialog, const QString &title, bool asPage
     // 也只在 `m_mode == Mode::Prompt` 时才发它 —— 页面那层永远等不到这一发，接了就是接了个
     // 不该有的东西。
     //
-    // 原来的形状是**两层都接**，症状是"点一下提示框外面，底下那一页跟着一起没了"：
+    // 两层都接的症状是"点一下提示框外面，底下那一页跟着一起没了"：
     // 提示叠在页上的时候，页那一次的 `execEmbedded` 还卡在 `loop.exec()` 里、它那条连接
     // 还活着 ⇒ 这一发 `emit` 让两条 lambda 同时跑，页的对话框被 `reject()`。
     // `QDialog::done()` 里**没有可见性判断**（只有一层 `QPointer` 保护），所以哪怕
@@ -700,8 +696,7 @@ bool OverlayHost::eventFilter(QObject *watched, QEvent *event) {
         // NOTE: 这一条**必须自己发**。QScrollArea 只在 `QEvent::LayoutRequest` **送到它
         // 自己身上**的时候才重算滚动条（`QScrollArea::event`），而内容容器的
         // `updateGeometry()` 是发给它**父亲**的（视口）—— 那一步之后就没有下文了。
-        // 不补这一发的话，症状是"设置页比内容区高，页脚那排按钮永远滚不到"
-        // （ui_check 的 O 段量得到：容器高 == 视口高、可滚 0）。
+        // 不补这一发的话，症状是"设置页比内容区高，页脚那排按钮永远滚不到"。
         if (m_pageScroll != nullptr && !m_pageScroll->isVisible()) {
             return QWidget::eventFilter(watched, event);  // 没在显示，不用算
         }
@@ -711,8 +706,7 @@ bool OverlayHost::eventFilter(QObject *watched, QEvent *event) {
             // 而调用方给的多半正是"上次关掉时被 hide 过"的那个对话框（「账号与外观」
             // 就是长驻的那一个）。不翻出来的症状是**页面开了、里面是空的，而且不报错** ——
             // 更阴的是布局里那个 `QWidgetItem::isEmpty()` 会因此返回 true（Qt 认的就是
-            // `isHidden()` 这一位），于是这个控件连"有多高"都不算数：ui_check 的 O 段
-            // 就是这么量到"容器高 494 = 视口高 494、可滚 0"的。
+            // `isHidden()` 这一位），于是这个控件连"有多高"都不算数。
             //
             // 必须**排队**再 show()，不能当场调 —— 这一发 ChildAdded 是在
             // `QWidget::setParent()` 肚子里发出来的，setParent 收尾时会把"调用方显式

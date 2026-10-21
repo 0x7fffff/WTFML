@@ -1,8 +1,8 @@
 #include "Support.hpp"
 int UiInstanceFiltersChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs) {
-    // ---------- U32 实例页那一行「搜索 + 四颗筛选 chip」（coding plan §7.2）----------
+    // ---------- U32 实例页那一行「搜索 + 四颗筛选 chip」 ----------
     //
-    // §7.2 落到界面上的那一份：树**上面**一行 —— 左边一个搜索框，右边四颗筛子，再下面是
+    // 落到界面上的那一份：树**上面**一行 —— 左边一个搜索框，右边四颗筛子，再下面是
     // 一句「没有符合筛选条件的实例」（平时收着）。这一节量的是**看得见的那一份**：五样东西
     // 在不在、摆在哪一栏、谁占宽度、chip 有多高、那句话平时收不收着。
     //
@@ -45,7 +45,7 @@ int UiInstanceFiltersChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * 
             check(column != nullptr && filterRow->parentWidget() == tree->parentWidget() &&
                       rowAt >= 0 && rowAt < noteAt && noteAt < treeAt,
                   "★★ U32.1 那一行和树**同一栏、在树上面**，那句「没有符合筛选条件的实例」"
-                  "夹在两者中间（§9.2：这是「下面这棵树怎么摆」，不是另一块面板）",
+                  "夹在两者中间（这是「下面这棵树怎么摆」，不是另一块面板）",
                   QStringLiteral("同一栏=%1 次序 %2/%3/%4")
                       .arg(filterRow->parentWidget() == tree->parentWidget() ? 1 : 0)
                       .arg(rowAt)
@@ -58,7 +58,7 @@ int UiInstanceFiltersChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * 
             // 它（那个 ✕）—— 再摆一颗「清空」按钮是同一件事说两遍。
             check(search->placeholderText() == MainWindowUI::instanceSearchPlaceholder() &&
                       search->text().isEmpty(),
-                  "U32.2 搜索框平时是空的、占位那句是约定的那一句（§7.2 点名的三样：实例名、"
+                  "U32.2 搜索框平时是空的、占位那句是约定的那一句（点名的三样：实例名、"
                   "版本号、加载器）",
                   search->placeholderText());
             check(search->isClearButtonEnabled(),
@@ -118,9 +118,9 @@ int UiInstanceFiltersChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * 
             }
             check(chipHeightOk == 4 &&
                       search->height() == Theme::chipHeight(),
-                  "★★ U32.4 四颗都是 §9.1 那一档高度（`Theme::chipHeight()`）—— 全局那条 "
+                  "★★ U32.4 四颗都是那一档高度（`Theme::chipHeight()`）—— 全局那条 "
                   "min-height 顶不动它们（`markIconButton()` 挡在前面）；**搜索框也钉在同一"
-                  "档**（它自然高度是字号算出来的，和旁边差 1px —— 真屏上量到过 23 对 24，"
+                  "档**（它自然高度是字号算出来的，和旁边差 1px —— 真屏上就是 23 对 24，"
                   "见 ui_shot 9d）",
                   QStringLiteral("对上 %1/4 颗（各高 %2/%3/%4/%5），搜索框 %6")
                       .arg(chipHeightOk)

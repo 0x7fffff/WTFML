@@ -141,7 +141,7 @@ int MwLoginCompletionChecks() {
                 // 「未登录」——写「离线登录」是骗人（那种状态点启动会被"请先登录"挡回来）。
                 check(accountType->text() == MainWindowUI::accountTypeNotLoggedInText(),
                       "没登录过时底栏第二行照实说「未登录」", accountType->text());
-                // 设置页那格现在是「账号与外观…」的入口（原来是那个只能登录的按钮）。
+                // 设置页那格是「账号与外观…」的入口。
                 check(entry->text() == MainWindowUI::accountSkinButtonText() && entry->isEnabled(),
                       "设置页那格是「账号与外观…」的入口，一直点得动", entry->text());
 
@@ -179,7 +179,7 @@ int MwLoginCompletionChecks() {
                       "界面不拿信号参数去改底栏（那两行只认 AuthManager 自己的状态）",
                       account->text() + QStringLiteral(" / ") + accountType->text());
 
-                // 失败：这条以前**没有任何接收方** —— 用户在启动器上一个字都看不到，
+                // 失败：必须让用户看见 —— 没有接收方时用户在启动器上一个字都看不到，
                 // 只有浏览器里那个页面说了句"登录失败"。
                 dismissNextPrompt();
                 QMetaObject::invokeMethod(auth, "loginFailed", Qt::DirectConnection,

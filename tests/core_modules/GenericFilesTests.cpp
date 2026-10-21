@@ -1,7 +1,7 @@
 #include "Support.hpp"
 
 void runGenericFilesTests() {
-    section("PD. 通用文件组：config / defaultconfigs / 资源包 / 光影（§6 P3 后半）");
+    section("PD. 通用文件组：config / defaultconfigs / 资源包 / 光影");
 
     section("PD0. 四个落点与路径归属（纯值）");
     {
@@ -112,7 +112,7 @@ void runGenericFilesTests() {
           QString::number(items.at(2).sizeBytes));
     check(items.at(0).copyOnly && Presets::genericItemIsCopyOnly(Presets::FileGroup::Config,
                                                                  items.at(0).relativePath),
-          "★★ PD2 每一项都带着「只能复制/覆盖」那个记号（§6 P3 最后一条；今天这一组里"
+          "★★ PD2 每一项都带着「只能复制/覆盖」那个记号（这一组里"
           "全都不是 `false`）");
 
     {
@@ -157,7 +157,7 @@ void runGenericFilesTests() {
               "★★ PD3「合并」：一坨字节谈不上合并 ⇒ **四项全是要你选、一个字节都不写**"
               "（悄悄按复制做的话，用户以为合并过的那份配置里其实有几格是旧的）");
         check(plan.items.at(0).reason.contains(QStringLiteral("复制和覆盖")),
-              "★★ PD3 而且理由说的是「只有复制和覆盖两种做法」（§6 P3 那条的界面版本）",
+              "★★ PD3 而且理由说的是「只有复制和覆盖两种做法」",
               plan.items.at(0).reason);
 
         plan = Presets::planFileGroup(sourceRoot, items, targetRoot, Presets::ApplyMode::Append);

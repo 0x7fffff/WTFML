@@ -179,8 +179,8 @@ void CrashReportController::exportReport(const QString &key) {
     facts.exitCode = record.facts.exitCode;
     facts.errorLines = record.errorLines;
     facts.totalLines = record.totalLines;
-    // 截了多少要**告诉报告**。下面递过去的是末尾 200 / 500 行，而标题原来
-    // 照样写「共 N 行」—— 玩家把一份 8000 行的日志导出、发给别人排查时，前面真正的起因
+    // 截了多少要**告诉报告**。下面递过去的是末尾 200 / 500 行，标题若照样写
+    // 「共 N 行」，玩家把一份 8000 行的日志导出、发给别人排查时，前面真正的起因
     // 已经不在文件里，而文件自己说它是完整的。（用户按「导出错误报告」可能是很久以后，
     // 那时会话底账早就删了 —— 这一份内存里的记录是唯一还能说明"截过"的地方，所以判据
     // 留在这里、从记录里那两个总数和实际留下来的行数比出来。）

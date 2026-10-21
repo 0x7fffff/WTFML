@@ -1,6 +1,6 @@
 /**
  * @file TransferApply.hpp
- * @brief 按 `TransferPlanner::Plan` 把选中的那几块**搬进目标实例**（coding plan §9.9 第 15 项）。
+ * @brief 按 `TransferPlanner::Plan` 把选中的那几块**搬进目标实例**。
  *
  * 这一层负责写盘，规矩只有四条，每一条都是"失败时用户还能收场"：
  * ① **只增不删、不覆盖**：目标里已经有同名的文件就跳过并计数，绝不改它；
@@ -78,13 +78,13 @@ using ProgressCallback = std::function<void(const QString &key, bool ok)>;
  * 这一层按 `relativePath` 直接落在它底下。
  *
  * NOTE: 这一层天然**可续**：中断之后再跑一遍，已经搬过去的按「目标里已经有」跳过，
- * 只有没搬完的那些真正写盘（§9.9 bullet 5「可恢复中断」）。
+ * 只有没搬完的那些真正写盘（「可恢复中断」）。
  */
 Result apply(const QString &sourceDir, const QString &targetDir,
              const QList<TransferPlanner::Item> &items, const QStringList &keys,
              const ProgressCallback &progress = ProgressCallback());
 
-/// 迁移 / 升级副本**收尾校验**的结论（coding plan §9.9 bullet 3「…→ 迁移 → 校验」）。
+/// 迁移 / 升级副本**收尾校验**的结论（「…→ 迁移 → 校验」）。
 struct VerifySummary {
     bool ok = false;
     QString problem;          ///< `ok == false` 时的一句话（目录 / 路径不可用）

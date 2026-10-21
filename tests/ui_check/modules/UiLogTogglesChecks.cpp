@@ -1,11 +1,10 @@
 #include "Support.hpp"
 int UiLogTogglesChecks() {
     {
-        // 「开着的那颗染成这一档的颜色、关掉之后变回原来那个灰」——这是用户提的那件事。
+        // 「开着的那颗染成这一档的颜色、关掉之后变回原来那个灰」—— 这一节钉的就是这个。
         //
-        // 关态那个灰**是量出来的**：改成自己画之前，原生 Fusion 给这一排五颗
-        // 关着时画的就是 `#ababab`。钉成常量写在这里，是因为用户的原话就是「按下关闭以后
-        // 变成现在的灰色」—— 哪天这个数字变了，先问一句"是不是又换了画法"，别顺手改断言。
+        // 关态那个灰**是量出来的**：原生 Fusion 给这一排五颗关着时画的就是 `#ababab`。
+        // 钉成常量写在这里：哪天这个数字变了，先问一句"是不是又换了画法"，别顺手改断言。
         const QColor kOffGray(0xab, 0xab, 0xab);
 
         auto *log = new GameLogWindow(QStringLiteral("开关染色这一节"));
@@ -66,7 +65,7 @@ int UiLogTogglesChecks() {
                                                   offColor[i].name());
         }
 
-        // ① 关掉之后**五颗都是同一个灰**，而且就是改之前那个灰。
+        // ① 关掉之后**五颗都是同一个灰**，而且就是那个固定的灰。
         int worstOff = -1;
         for (int i = 0; i < GameLogWindow::levelCount(); ++i) {
             worstOff = qMax(worstOff, colorDistance(offColor[i], kOffGray));
@@ -174,9 +173,8 @@ int UiLogTogglesChecks() {
         // （它们的底都是浅的）。字形是抗锯齿画的，没有"确定的那一个像素"，所以数的是
         // **一块里有几个接近白 / 接近黑的点**。
         //
-        // NOTE: 原来是"数白点，除了 FATAL 一颗都不许有"。INFO 那颗的底改成纯白之后
-        // 那条就不成立了 —— 它的底**就是**白，白点分不出是字还是底（量出来 1677 个，
-        // 全是底）。改成反过来数黑点：黑字那四颗一定有，FATAL 那颗一个都不该有。
+        // NOTE: 这里数反过来的黑点：INFO 那颗的底**就是**白，白点分不出是字还是底；
+        // 黑字那四颗一定有，FATAL 那颗一个都不该有。
         const auto pixelsNear = [](const QImage &image, bool white) {
             int count = 0;
             for (int y = 0; y < image.height(); ++y) {

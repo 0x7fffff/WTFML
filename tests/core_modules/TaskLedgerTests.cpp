@@ -1,7 +1,7 @@
 #include "Support.hpp"
 
 void runTaskLedgerTests() {
-    section("AL1. percentOf：测不出就回 -1，绝不编一个百分比（§3.4）");
+    section("AL1. percentOf：测不出就回 -1，绝不编一个百分比");
     {
         const auto make = [](qint64 done, qint64 total) {
             Tasks::TaskSnapshot task;
@@ -28,7 +28,7 @@ void runTaskLedgerTests() {
               QString::number(Tasks::percentOf(make(-5, 100))));
     }
 
-    section("AL2. summaryPriority：收起态那一格的先后（§3.1 那一串逐条对上）");
+    section("AL2. summaryPriority：收起态那一格的先后（那一串逐条对上）");
     {
         const auto p = [](Tasks::TaskKind kind, Tasks::TaskState state, bool unread = false) {
             Tasks::TaskSnapshot task;
@@ -196,7 +196,7 @@ void runTaskLedgerTests() {
         }
     }
 
-    section("AL4. retryOffered：那颗「重试」露不露（§3.1① 逐任务能力表的重试那一半）");
+    section("AL4. retryOffered：那颗「重试」露不露（逐任务能力表的重试那一半）");
     // 三样缺一不可（`capabilities.canRetry` ∧ 已收尾 ∧ **那一格失败清单还是它的、还在**）。
     // 最要紧的是最后那两样：账本里的 `canRetry` 是**失败那一刻**钉下的、会跨重启留在盘上，
     // 而真那份失败清单只在内存里、只有一格 —— 少了它俩，上一件失败任务的详情页会露着一颗
@@ -252,7 +252,7 @@ void runTaskLedgerTests() {
         }
     }
 
-    section("AM1. TaskManager：终态只落一次（§3.4「重复信号不生成重复完成」）");
+    section("AM1. TaskManager：终态只落一次（「重复信号不生成重复完成」）");
     {
         QTemporaryDir dir;
         check(dir.isValid(), "AM1 建得出一个临时目录来放历史文件");
@@ -367,13 +367,13 @@ void runTaskLedgerTests() {
         check(!manager.succeed(Tasks::invalidTaskId()), "AM2 无效号收尾 ⇒ false");
         check(!manager.cancel(999999), "AM2 压根不存在的号 ⇒ false");
 
-        check(!manager.setSessionId(a, 0), "AM2 §9.8 会话号 0 ⇒ false");
-        check(!manager.setSessionId(Tasks::invalidTaskId(), 7), "AM2 §9.8 无效任务号 ⇒ false");
-        check(manager.setSessionId(a, 7), "AM2 §9.8 第一次对上 ⇒ true");
-        check(manager.snapshot(a).sessionId == 7, "AM2 §9.8 快照里读得出来那个号");
-        check(!manager.setSessionId(a, 7), "AM2 §9.8 同一个号再来一次 ⇒ false（不白喊）");
+        check(!manager.setSessionId(a, 0), "AM2 会话号 0 ⇒ false");
+        check(!manager.setSessionId(Tasks::invalidTaskId(), 7), "AM2 无效任务号 ⇒ false");
+        check(manager.setSessionId(a, 7), "AM2 第一次对上 ⇒ true");
+        check(manager.snapshot(a).sessionId == 7, "AM2 快照里读得出来那个号");
+        check(!manager.setSessionId(a, 7), "AM2 同一个号再来一次 ⇒ false（不白喊）");
         check(!manager.setSessionId(a, 8) && manager.snapshot(a).sessionId == 7,
-              "AM2 §9.8 已经对上过的不许改口（一项任务只属于一份会话）");
+              "AM2 已经对上过的不许改口（一项任务只属于一份会话）");
     }
 
     section("AM3. 落盘 / 读回：盘上只有摘要，号从盘上续，没跑完的算已中断");
@@ -751,9 +751,9 @@ void runTaskLedgerTests() {
         // 顺序：最近的在前；同一毫秒并列时号大的在前 —— 这条不靠运气，靠比较器里那个
         // 第二把尺（批量操作就是几十项挤在同一毫秒里收尾的）。
         //
-        // 内存里也只留最近 `finishedHistoryLimit()` 条（ 起和落盘同一把尺子）：
-        // 以前是"这一趟会话攒多少留多少、只有落盘才截断" —— 跑一天下来任务中心那一栏
-        // 能堆几千行，重启之后又只剩 50 条，同一份账本自己跟自己说的不一样。
+        // 内存里也只留最近 `finishedHistoryLimit()` 条（和落盘同一把尺子）：
+        // 攒一整趟会话再只在落盘时截断的话，任务中心那一栏能堆几千行，重启之后又只剩
+        // 50 条，同一份账本自己跟自己说的不一样。
         const int runtimeLimit = Tasks::finishedHistoryLimit();
         const int expectedFinished = qMin(kCount / 2, runtimeLimit);
         const QList<Tasks::TaskSnapshot> finished = manager.finished();

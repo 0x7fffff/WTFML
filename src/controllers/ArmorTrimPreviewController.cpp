@@ -98,7 +98,7 @@ ArmorTrimPreviewController::ArmorTrimPreviewController(ToolboxPage *page, Overla
 ArmorTrimPreviewController::~ArmorTrimPreviewController() {
     shutdown();
     // 等多久必须跟工人自己的上限**对齐**。工人那段循环的判据是
-    // `timer.elapsed() > kLoadBudgetMs`（90 秒），这里原来只等 40 秒 —— 关掉工具箱
+    // `timer.elapsed() > kLoadBudgetMs`（90 秒），等待时长比它短的话，关掉工具箱
     // 时如果正好卡在最后一份归档的读取上，析构会在工人还在跑的时候返回，QThread
     // 对象随后被 deleteLater 掉（或者进程退出时被丢掉），那句
     // "Destroyed while thread is still running" 就是这么来的。

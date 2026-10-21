@@ -1,12 +1,12 @@
 #include "Support.hpp"
 
 void runServerSettingsTests() {
-    section("ZV. 服务端设置：那十几张表的表 / 收不收 / 合回文件 / 体检（§6.3 / M4-4）");
+    section("ZV. 服务端设置：那十几张表的表 / 收不收 / 合回文件 / 体检");
 
     // ---------- ZV0. 表本身 ----------
     {
         const QList<ServerPropertiesForm::Field> &fields = ServerPropertiesForm::commonFields();
-        check(fields.size() == 21, "ZV0 常用字段一共 21 项（§6.3 说的「那十几个旋钮」+ §9.7 资源包两项）",
+        check(fields.size() == 21, "ZV0 常用字段一共 21 项（「那十几个旋钮」+ 资源包两项）",
               QString::number(fields.size()));
 
         // 键唯一、每项该有的字都有。
@@ -25,7 +25,7 @@ void runServerSettingsTests() {
         check(!dupKey, "★★ ZV0 十九个键互不相同（键是身份，重了界面上就摆两行同一个东西）");
         check(!blankText, "★★ ZV0 每一项都有键、行首那个中文名、和那行小字");
 
-        // 只有 `motd` 那一项挂"游戏里长什么样"的预览（§9.7）：挂错一项就是那一行下面
+        // 只有 `motd` 那一项挂"游戏里长什么样"的预览：挂错一项就是那一行下面
         // 多出一块画着 `§` 码的深色框；一项都不挂就是"格式化预览"又没了。
         QStringList previewKeys;
         for (const ServerPropertiesForm::Field &field : fields) {

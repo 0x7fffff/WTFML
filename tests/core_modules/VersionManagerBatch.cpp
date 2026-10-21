@@ -100,7 +100,7 @@ int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox) {
     }
     out() << "        第一批: emissions=" << emissions << " statsSignals=" << statsSignals
           << " done/total=" << lastDone << "/" << lastTotal << "\n";
-    check(emissions == 1, "G1 冷批次: versionDownloadFinished 恰好 1 次（改动前每个文件一次）",
+    check(emissions == 1, "G1 冷批次: versionDownloadFinished 恰好 1 次（不是每个文件一次）",
           QString::number(emissions));
     check(lastSuccess, "G1 冷批次: success == true");
     check(statsSignals > 0, "G1 冷批次: 进度通过 versionDownloadStats 发出（不再进日志）",
@@ -136,15 +136,15 @@ int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox) {
           "G3 没有 version.json 时: 立刻回一个失败终态（UI 不会卡在下载中）",
           QString::number(emissions));
 
-    // --- G4：从信号里往回接续（ 那次无日志崩溃的修复）-------------------
+    // --- G4：从信号里往回接续（不可以在上一批的栈里同步起）-------------------
     //
-    // 那次是：原版那一批下完 -> allDownloadsFinished -> **在上一批的栈里**同步起了"加载器
-    // 自己的库"那个批次 -> extractAssetIndex() -> Qt 内部一把 QReadWriteLock 的 unlock()
-    // 抛了没接住的 std::system_error -> std::terminate -> abort()（启动器静默消失、
-    // 一句日志都没有，取证工具在 build/tools/crashdump/）。
+    // 批次不可以在上一批的栈里同步起：原版那一批下完 -> allDownloadsFinished -> **在上一批
+    // 的栈里**同步起了"加载器自己的库"那个批次 -> extractAssetIndex() -> Qt 内部一把
+    // QReadWriteLock 的 unlock() 会抛没接住的 std::system_error -> std::terminate -> abort()
+    // （启动器静默消失、一句日志都没有，取证工具在 build/tools/crashdump/）。
     //
-    // 修法是把"接着干下一件事"排到下一轮事件循环（VersionManager::deferNextStep），
-    // 并给排队的那一步套一层兜底：真抛了异常就翻成失败终态，别再穿到 terminate。
+    // 所以"接着干下一件事"排到下一轮事件循环（VersionManager::deferNextStep），并给排队的
+    // 那一步套一层兜底：真抛了异常就翻成失败终态，别再穿到 terminate。
     // 下面这几条钉的就是这两件事 —— 它们不依赖网络，也不会真崩（崩了就是验证进程没了）。
     section("G4. 接续排到下一轮 + 兜底不 terminate");
 
@@ -161,7 +161,7 @@ int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox) {
     vm.deferNextStep([] { throw std::runtime_error("验证工程故意抛的异常"); });
     QCoreApplication::processEvents();
     check(emissions == 1 && !lastSuccess,
-          "G4.3 排队那一步抛异常 -> 翻成一个失败终态（改动前是 terminate/abort）",
+          "G4.3 排队那一步抛异常 -> 翻成一个失败终态（不是 terminate/abort）",
           QString("emissions=%1 success=%2").arg(emissions).arg(lastSuccess));
     check(lastMessage.contains(QStringLiteral("内部错误")),
           "G4.4 那句话里说明了是内部错误（用户看得懂、也照旧弹窗）", lastMessage);
@@ -224,9 +224,8 @@ int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox) {
           << lastTotal << "\n";
     check(emissions == 1 && lastSuccess, "G5.1 补全: 恰好一个成功终态",
           QString("emissions=%1 success=%2").arg(emissions).arg(lastSuccess));
-    // 用户 报的就是这一对数：他点一次补全，看到的分母是"这个实例一共有几个
-    // 文件"。现在分母只剩**缺的和坏的**（这里 = 内容不对的 jar + 被删掉的那个库），
-    // 本来就好的那个库和每次都重取的索引都不在里头。
+    // 补全的分母只剩**缺的和坏的**（这里 = 内容不对的 jar + 被删掉的那个库），本来就好的
+    // 那个库和每次都重取的索引都不在里头 —— 不是"这个实例一共有几个文件"。
     check(lastDone == 2 && lastTotal == 2,
           "★ G5.1 补全: 分母 == 缺的 + 坏的 == 2（好的那个库、索引都不进分母）",
           QString("%1/%2").arg(lastDone).arg(lastTotal));
@@ -238,10 +237,8 @@ int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox) {
           "G5.4 本来就是好的那个库一个字节都没动（校验通过就跳过，不是全量重写）");
     check(lastMessage.contains(QStringLiteral("跳过")),
           "G5.5 汇总里说明了有几个是本来就存在的", lastMessage);
-    // 逐字钉住那句话的形状：从前写的是「%1 个文件已全部就绪（**其中** %2 个本来就存在，
-    // 已跳过）」——而 %2 当时是包含在 %1 里的，于是"13 个已全部就绪（其中 12 个本来就
-    // 存在）"被读成"只下了 1 个"。改完之后两个数是**并列**的（另有），而且分母本身
-    // 就只剩缺的那几个。
+    // 逐字钉住那句话的形状：两个数是**并列**的（另有），不是包含关系 —— "其中 %2 个本来
+    // 就存在"叠在分母上会被读成"只下了 1 个"；分母本身也只剩缺的那几个。
     check(lastMessage.contains(
               QStringLiteral("2 个文件已全部就绪（另有 2 个本来就存在，已跳过）。")),
           "★ G5.5 汇总: 下了 2 个，另有 2 个（库和预置资源对象）并列计为跳过", lastMessage);

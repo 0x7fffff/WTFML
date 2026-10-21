@@ -11,11 +11,10 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                                                              : QString());
 
         // 下面这一段钉的就是那条对应关系，以及"每一栏**各自**套一层滚动区"这件事 ——
-        // 从前整页只有一层滚动区，现在滚动归栏管（整页一层的话，左栏那五条分类会跟着
-        // 右栏的内容一起滚走，而那五条是导航）。
+        // 滚动归栏管（整页一层的话，左栏那五条分类会跟着右栏的内容一起滚走，
+        // 而那五条是导航）。
         //
-        // NOTE: 从前这里量的是"整页一个 scroll + 一个 form + 一张 3:7 的 grid"。
-        // 那张 3:7 的表**还在**，只是每栏各有一张了（管的是栏内那一层）。
+        // NOTE: 每栏各有一张 3:7 的表（管的是栏内那一层）。
         auto *categoryList =
             settingsPage->findChild<QListWidget *>(MainWindowUI::settingsCategoryListName());
         auto *categoryStack =
@@ -150,8 +149,8 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                     auto *cardLayout = qobject_cast<QVBoxLayout *>(card->layout());
                     // 卡片自己那一圈内边距 / 行距是视觉规格（16,16,16,16 / 10）——
                     // 它决定"这一节里的项离卡片边多远"，改了看起来只是松紧，只有断言能钉。
-                    // （coding plan §9.1）：原来是（18,17,18,18 / 13），
-                    // 随"页面外边距 9→20、区块间距 12→16"那一次整批收进 16 / 10 这一档。
+                    // 规格是（16,16,16,16 / 10），
+                    // 随"页面外边距 20、区块间距 16"那一档一起。
                     const QMargins want(16, 16, 16, 16);
                     if (!isSection || cardLayout == nullptr ||
                         cardLayout->contentsMargins() != want || cardLayout->spacing() != 10) {
@@ -251,7 +250,7 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
             MainWindowUI::launcherBehaviourComboName(), MainWindowUI::extraJvmArgsEditName(),
             MainWindowUI::applyExtraJvmArgsButtonName(),
             MainWindowUI::downloadSourceComboName(),
-            // 「同时最多下几个」（，§9.2）：和「下载源」同一组（这一批文件怎么走）。
+            // 「同时最多下几个」：和「下载源」同一组（这一批文件怎么走）。
             MainWindowUI::downloadConcurrencyComboName(),
             // CurseForge 的 API key：和「下载源」同一组，可留空。
             MainWindowUI::curseForgeApiKeyEditName(),
@@ -276,7 +275,7 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
         }
         check(missing.isEmpty(), "二十六个设置控件都能按 objectName 找回来", missing.join(", "));
 
-        // 「CurseForge API key」那一格（ 加的，摆在下拉框那一组里）。它和别处
+        // 「CurseForge API key」那一格（摆在下拉框那一组里）。它和别处
         // 不同的地方有两条，都值得单独钉住：
         // - 它是**明文**（不是 QLineEdit::Password）。理由是贴错了要能一眼看见：它本来
         // 就明文躺在配置文件里，用户看不见的输入框只会让他把 key 贴错两次，
@@ -335,7 +334,7 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
             check(false, "找得到「下载新模组」那颗勾选框");
         }
 
-        // 「同时最多下几个」那颗下拉框（，§9.2）。界面层这里只钉一件**界面层管得着**
+        // 「同时最多下几个」那颗下拉框。界面层这里只钉一件**界面层管得着**
         // 的事：**刚搭好时是一个空框**。四档那个表在 src/ 的 `DownloadConcurrency.hpp` 里
         // （唯一出处），界面层不许 include src/ ⇒ 项只能由 MainWindow 灌（和「下载源」
         // 「窗口模式」同一个形状）。在这一层断言"四档都在"等于要求界面层自己抄一份表出来。
@@ -365,7 +364,7 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                   MainWindowUI::curseForgeApiKeyRowText());
         }
 
-        // 「外观」那一格那个文本框（ 加的）。**长度上限那两边各写一遍**
+        // 「外观」那一格那个文本框。**长度上限那两边各写一遍**
         // （ui/ 不许 include src/），所以这条等号是唯一盯着它们的地方 —— 和上面那对窗口
         // 大小的范围同一个约定。不一致的症状是"打上去的字自己少了几个"。
         if (auto *titleEdit =
@@ -383,7 +382,7 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                   titleEdit->text());
         }
 
-        // 「提示」栏里那两条启动前的确认（ 加的， 分栏时并到一栏）。
+        // 「提示」栏里那两条启动前的确认（分栏时并到一栏）。
         // 这里钉的是**这一组特有的东西** —— 两句文案各自只此一处、行标题是用户点名的
         // 那两个词（「重复启动」/「进度提醒」，提示框上那句小字就是照着它们指路的，
         // 所以这两个词一改，小字就指错地方了）。控件本身能不能找回来在上面那条
@@ -411,10 +410,8 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
         // 那三个词得真在表单上画着：行标题由 `addSettingRow()` 落成一个 QLabel，
         // 这里按文字去找 —— 改行标题的人会当场看到这条红。
         //
-        // NOTE: 分栏之后这三条并进了「提示」栏（原来前两条挤在「启动选项」那一组
-        // 里、第三条挂在 Java 那一节底下），组标题也从「启动提醒」改成「启动前提醒」
-        // —— 三条管的是同一件事（"启动那一下要不要再问一句"），"启动提醒"这个名字
-        // 反倒说不清它和「启动选项」有什么分别。
+        // NOTE: 分栏之后这三条并进「提示」栏，组标题也随之改名 —— 三条管的是同一件事
+        // （"启动那一下要不要再问一句"）。
         auto *warnForm = settingsPage->findChild<QWidget *>(
             MainWindowUI::settingsFormName(QStringLiteral("warn")));
         check(warnForm != nullptr, "「提示」栏那张表单找得到",

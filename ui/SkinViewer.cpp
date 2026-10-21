@@ -236,7 +236,7 @@ void SkinViewer::mouseMoveEvent(QMouseEvent *event) {
     // 画面上就是往**左**滑（正面那一点在 yaw=+30° 时的屏幕横坐标是负的），
     // 所以"正面跟着鼠标往右走"要的是 yaw **减小**。俯仰那边正好相反：pitch 正数
     // = 相机升高、从上往下看，正面对着的那一块因此往**下**走，跟"往下拖"同向，
-    // 于是那里是加。 之前这里是加号 —— 拖起来是反的（往左拖、小人往右转）。
+    // 于是那里是加。
     setView(m_yaw - delta.x() * kDegreesPerPixel, m_pitch + delta.y() * kDegreesPerPixel, m_zoom);
     event->accept();
 }

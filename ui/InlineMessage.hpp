@@ -3,20 +3,18 @@
  * @brief `QMessageBox` 的替身：提示开在**主窗口内容区中间**（四周变暗），不再另开一个窗。
  *
  * 【为什么要有这一层】
- * 全仓原来有 90 来处 `QMessageBox`（`src/MainWindow.cpp` 86 处 + `ui/GroupDialog.cpp` 4 处）。
- * 用户给的方向是"最终不出现独立窗口"，而"说一句""问一句"正是最碎、最常出现的那一类。
- * 所以这里给出一组**和 QMessageBox 同名同义**的封装：
+ * "说一句""问一句"是界面里最碎、最常出现的一类，统一走这里，保证**不出现独立窗口**。
+ * 这里给出一组**和 QMessageBox 同名同义**的封装：
  *
  * QMessageBox::warning(this, t, x); → InlineMessage::warning(m_ui->overlay(), t, x);
  *
- * 换过去时**语义一个字不变**（同步返回、按钮含义、默认按钮），于是九十来处可以一处一处
- * 地换、每次都能单独编过、单独验，而不是先炸掉一大片。
+ * 语义一个字不变（同步返回、按钮含义、默认按钮），调用点可以单独编过、单独验。
  *
  * 【尺寸只有一套】
- * 面板宽度 = `OverlayHost::promptContentWidth()`（唯一出处）。用户点名要的
- * 「不会让界面出现尺寸不一样的弹窗」就是这一条：所有提示一样宽，只有高矮随字数走。
+ * 面板宽度 = `OverlayHost::promptContentWidth()`（唯一出处）。所有提示一样宽，
+ * 只有高矮随字数走 —— 不允许出现尺寸不一样的弹窗。
  *
- * NOTE: v1 **不画图标**。QMessageBox 那个感叹号/问号这里没有替代品 —— 标题已经把那句话
+ * NOTE: **不画图标**。QMessageBox 那个感叹号/问号这里没有替代品 —— 标题已经把那句话
  * 的性质说清楚了（「下载失败」「删除账号」），加一个自己画的图标反而是新开销。
  * 要加的话加在这里，别在调用点各画各的。
  */
@@ -73,9 +71,8 @@ public:
     /// 被点中的按钮下标。**关掉 / 按 Esc / 点外面都停在 -1**（= 什么都没选）。
     int clickedIndex() const { return m_clicked; }
 
-    /// 这一句是哪一类。**给验证工程用的**：以前那条路量的是
-    /// `QMessageBox::icon() == QMessageBox::Warning`（"这是出错还是一句报信"），
-    /// 换过来之后对应的就是这一格 —— 只占一行的公开访问器，比让测试去猜标题的颜色结实。
+    /// 这一句是哪一类。**给验证工程用的**：验证想知道"这是出错还是一句报信"，读的就是
+    /// 这一格 —— 只占一行的公开访问器，比让测试去猜标题的颜色结实。
     MessageKind kind() const { return m_kind; }
 
     /**
@@ -138,7 +135,7 @@ public:
     /**
      * @brief 在正文（和附注）下面、按钮行上面补一个**勾选框**，返回它。
      *
-     * 这是"我确认过了"那一档（ 为服务端首次启动的 EULA 闸加的）。之所以长在这个
+     * 这是"我确认过了"那一档（服务端首次启动的 EULA 闸用它）。之所以长在这个
      * 类上而不是另写一个框：卡片、宽度、按钮行、Esc/回车的规矩这里全都有了 —— 同
      * `setLineEdit()` / `setList()` 那两条的理由。
      *
@@ -180,8 +177,8 @@ public:
     /**
      * @brief 在正文下面补一行**可点的链接**，返回那个标签。
      *
-     * 用户 点名：「要提供通向 eula 的链接，且可以点击跳转」—— 让人把"同意"两个字
-     * 打在屏幕上之前，得能真看见他同意的是什么。
+     * 正文下面这一行可点的链接让"同意"两个字有出处：让人把它打在屏幕上之前，
+     * 得能真看见他同意的是什么。
      *
      * @param text 显示的字（**不是**网址本身：一个光秃秃的 https://… 摆在提示里没人会读）。
      * @param url 点了之后去哪。
@@ -252,7 +249,7 @@ private:
      * @brief 按**屏幕上看到的顺序**（先上后下、同一行先左后右）把这一窗里的 Tab 顺序重排一遍。
      *
      * 为什么非要有这一下：焦点链默认跟的是**创建顺序**，而这个类里「输入框 / 列表 /
-     * 小字那一行 / 那个勾 / 那行链接 / 调用方自己那块」全是 `setXxx()` **后来才插**进来的
+     * 小字那一行 / 那个勾 / 那行链接 / 调用方自己那块」全是 `setXxx()` 插进来的
      * —— 它们创建得比**按钮行还晚**（ctor 里那一排按钮建完之后才轮到它们）。照默认走，
      * Tab 从输入框出发会**往回跳**到下面那排按钮上，再按一下又跳回输入框：眼睛看着的顺序
      * 和键盘走的顺序正好拧着。每一处"插了一行"之后都调它一次，位置变了就重排。
@@ -284,8 +281,8 @@ void critical(OverlayHost *host, const QString &title, const QString &text);
 /**
  * @brief 问一句（`QMessageBox::question(..., Yes | No, default)` 的替身）。
  * @param destructive "是"那一颗是不是**不可撤销**的（删除那一类）。**默认 false**。
- * 起它真的会染色：`true` ⇒ 那颗按红（`ButtonKind::Danger`）、另一颗按
- * 黑（`Neutral`）。在此之前这一档只是一句记账。
+ * 它真的会染色：`true` ⇒ 那颗按红（`ButtonKind::Danger`）、另一颗按
+ * 黑（`Neutral`）。
  *
  * **标错比不标更糟**：标成 `true` 而其实能撤销，用户学会的是"红不代表什么"；
  * 真不可撤销的没标，红就白设了。判据只有一条 —— **点下去之后盘上少了一样
@@ -294,7 +291,7 @@ void critical(OverlayHost *host, const QString &title, const QString &text);
  * @return 用户点了"是"那一颗。
  *
  * NOTE: 关掉 / 按 Esc / 点外面一律按**"否"**算 —— 和 QMessageBox 一样（Esc 走的是
- * "escape button"）。调用点原来写的 `!= QMessageBox::Yes` 那半句要保留同样的方向。
+ * "escape button"）。调用点用 `!= QMessageBox::Yes` 判断时方向要一致。
  */
 bool question(OverlayHost *host, const QString &title, const QString &text, const QString &yesText,
               const QString &noText, bool defaultYes, bool destructive = false);
@@ -306,7 +303,7 @@ bool question(OverlayHost *host, const QString &title, const QString &text, cons
  * @param initial 输框里预填的内容。
  * @param ok 用户在不在"确定"那一颗上。**取消 / Esc / 点外面都是 false**（和 QInputDialog 一样）。
  * @return 输框里现在的内容。**`ok` 为 false 时也有值** —— 和 `QInputDialog::getText` 一样，
- * 调用点按老写法先看 `ok` 就行了。
+ * 调用点先看 `ok` 就行了。
  *
  * NOTE: 这一档和 `information()` 一样是**同步**的（内部一个嵌套事件循环），所以调用点
  * `const QString x = getText(...)` 那一行的形状一个字没变。
@@ -333,7 +330,7 @@ bool pickFromList(OverlayHost *host, const QString &title, const QString &text,
 /**
  * @brief 挑一个颜色（`QColorDialog` 的替身）。
  *
- * 用户 给的方向是「最终不出现独立窗口」，而"挑一个颜色"正是那种一句话就能问完
+ * 颜色选择也不该另开一个系统对话框，而"挑一个颜色"正是那种一句话就能问完
  * 的小事 —— 所以它开成**内容区中间那一块卡片**（和别的提示一模一样宽），不是系统那个
  * 颜色对话框。卡片里是一张**色板**（4 行 × 8 块，点一下就填进右边那一格）+ 一行十六进制
  * 输入框（能手打、能手改别人给的色号）。
@@ -362,12 +359,11 @@ QString colorPreviewName();
 int colorSwatchCount();
 
 /**
- * @brief 按钮表自己定的那种问话（原来手工拼 `QMessageBox box(this)` + `addButton` 那两处）。
+ * @brief 按钮表自己定的那种问话。
  * @param kind 哪一类（只影响标题颜色）。
  * @param buttons 按钮文字，从左到右。**空的话补一颗「确定」**。
  * @param defaultIndex 默认按钮下标，-1 = 没有（危险动作那两颗一律给 -1：误按回车不该把事办了）。
- * @param destructiveIndex 危险动作那一颗，-1 = 没有。**它会按红**（ 起 ——
- * 在这之前它只记账不上色，写在这儿的那句"v1 只记账"就是这么过期掉的）。
+ * @param destructiveIndex 危险动作那一颗，-1 = 没有。**它会按红**。
  * 判据只有一条：**点下去之后盘上少了一样用户自己找不回来的东西**；其余按位置分档
  * （默认那一颗 = 主题色，剩下的 = 黑），见 `InlineMessageBox` 的 ctor。
  * @param dismissOnOutsideClick 点框外面算不算"关掉它"。**默认 false**。

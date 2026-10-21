@@ -1,6 +1,6 @@
 /**
  * @file ServerInstallController.cpp
- * @brief 服务端安装那四段真的跑起来（coding plan §6.2 / 里程碑 M4-2）。
+ * @brief 服务端安装那四段真的跑起来。
  *
  * 四段是一条直线的状态机（见头文件那张图）。**每一段都只有一个入口、一个收尾**：
  *
@@ -78,7 +78,7 @@ void ServerInstallController::start(const ServerInstall::Request &request,
         emit finished(Outcome::Failed, m_plan.problem);
         return;
     }
-    // §2.3：先单任务聚合。下载那一层只有一份批次状态（镜像降级 / 按主机守卫 / 看门狗都在
+    // 先单任务聚合。下载那一层只有一份批次状态（镜像降级 / 按主机守卫 / 看门狗都在
     // 它身上），同时开两批会让两边的收尾互相算错 —— 所以忙的时候**拒掉**，并说清楚。
     if (m_downloads->isBusy()) {
         emit finished(Outcome::Failed,
@@ -311,7 +311,7 @@ void ServerInstallController::beginDownloads() {
             Qt::UniqueConnection);
 
     m_downloadNames.clear();
-    // 这一趟**必须自己开一批**（ 修的）。下载器是共用的，那几个计数器
+    // 这一趟**必须自己开一批**。下载器是共用的，那几个计数器
     // （`m_totalJobs` / `m_doneJobs` / `m_failedJobs`）只有 `beginBatch()` 会清 ——
     // 不在这儿开的话，这一趟拿到的是**上一批留下的**那几个数：`stats()` 报出来的总数和
     // 失败数都是别人的（`m_failedJobs` 非零时整批还会被判成"有文件没下下来"）。

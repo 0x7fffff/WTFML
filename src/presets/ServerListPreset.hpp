@@ -1,18 +1,18 @@
 /**
  * @file ServerListPreset.hpp
  * @brief 服务器列表那一段（`servers.dat`）的**判据层**：地址怎么算同一台、Append / Replace /
- * Skip 各是什么意思、这一趟会动哪几条（coding plan §6 P3）。
+ * Skip 各是什么意思、这一趟会动哪几条。
  *
  * 【这一段和「原版设置」那一段最大的不同：这是一个**列表**，不是一张表】
  *
- * `options.txt` 是一张"键 → 值"的表，所以 P2 那边每一格天然只有一个正确值，"合并"就是逐条
+ * `options.txt` 是一张"键 → 值"的表，所以原版设置那边每一格天然只有一个正确值，"合并"就是逐条
  * 改。`servers.dat` 是一串**顺序有意义**的条目（用户在游戏里排过的顺序），所以：
  *
  * · 追加 **不许重排已有的**（新条目一律接在表尾 —— 原版在游戏里点"添加服务器"也是接在
  * 尾巴上，见 `ServerListFile::addEntry()`）；
  * · 「同一台服务器」这件事**得先判**（不然追加第二遍就得到两张一模一样的行）；
  * · 而"覆盖"对这一份来说是**把整张表换掉**，比 `options.txt` 那一档狠得多 —— 所以它
- * 同样必须用户明确确认过（§6 P2 那条规矩在这一段照旧）。
+ * 同样必须用户明确确认过（那条规矩在这一段照旧）。
  *
  * 【怎么算"同一台服务器"】
  *
@@ -142,12 +142,12 @@ ServerListPlan planServerList(const QList<NbtUtil::ServerEntry> &target, int tar
 
 /**
  * 几个计数的名字和 `VanillaOptions::OptionsApplyReport` 是**故意对齐的**（`written` /
- * `added` / `removed` / `skipped` / `untouchable`）——§7 那张计划表要拿同一段代码把各段念
+ * `added` / `removed` / `skipped` / `untouchable`）—— 计划表要拿同一段代码把各段念
  * 出来。类型上还没有合成一个（两段的"冲突"那一格形状不同），等应用引擎那一层落地时再说。
  */
 struct ServerListReport {
     bool ok = false;
-    /// 走到「覆盖」而用户还没明确确认过（§6 P2 那条规矩在这一段照旧）。
+    /// 走到「覆盖」而用户还没明确确认过（那条规矩在这一段照旧）。
     bool needsConfirm = false;
     /// 人话（`ok = false` 时才有）。**原样能显示**，界面不再加工。
     QString problem;

@@ -30,7 +30,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
         // 判据故意分成两截，因为"深浅那一档从哪儿来"是**平台决定**的：
         //
         // ① 「请平台把深色那一档给我」+「照着它算一份基色」—— `QStyleHints::setColorScheme()`
-        // 在 **offscreen 那个平台插件上是空操作**（ 用探针实测：调完之后
+        // 在 **offscreen 那个平台插件上是空操作**（用探针实测：调完之后
         // `colorScheme()` 恒 Unknown、`standardPalette()` 一次都没变过），而本工程正是
         // offscreen 跑的。所以这儿的写法是"平台认这一档时窗口底色必须真的是深的；平台
         // 不认时调色板必须**一个字节不动**" —— 两种情况都有话说，不会因为"这台机器上
@@ -133,7 +133,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
 
         // ---------- W5 每一块骨架的出厂值 = 今天各处那一句 ----------
         // 这一拨（标题栏 / 底栏 / 浮层面板 / 卡片 / 四周变暗）在调色板里**没有位置**，它们的
-        // 出厂值是"从窗口底色推出来的"。所以判据是"和从前那一句算出来的是不是同一个色"。
+        // 出厂值是"从窗口底色推出来的"。所以判据是"和窗口底色推出来的那个色一致"。
         Theme::setSpec(Theme::defaultSpec());
         Theme::apply(app);
         const QPalette plain = app.palette();
@@ -167,7 +167,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
               "★ W5 卡片 = `Base`（压在内容区上那张卡片和列表底同一档）",
               Theme::partBackground(Theme::Part::Card).name());
         check(sameColor(Theme::partBackground(Theme::Part::Scrim), QColor(0, 0, 0, 96)),
-              "★★ W5 四周变暗那一层 = rgba(0, 0, 0, 96)（和覆盖层从前的字面量一字不差）",
+              "★★ W5 四周变暗那一层 = rgba(0, 0, 0, 96)（和覆盖层那一层一字不差）",
               Theme::partBackground(Theme::Part::Scrim).name(QColor::HexArgb));
         check(sameColor(OverlayHost::scrimColor(), Theme::partBackground(Theme::Part::Scrim)),
               "★★ W5 覆盖层问到的「四周变暗」和这一层是**同一个**色（不是两份各写一遍）");
@@ -260,7 +260,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
 
         Theme::Spec written = Theme::presetSpec(QStringLiteral("dark"));
         written.textOpacity = 70;
-        written.accent = QColor(0x33, 0x66, 0x99);   // 主题色也过一趟盘（2026-09-28 新加的一位）
+        written.accent = QColor(0x33, 0x66, 0x99);   // 主题色也过一趟盘
         written.roles.insert(int(Theme::Role::Window), QColor(0x0a, 0x0b, 0x0c));
         Theme::PartStyle panelStyle;
         panelStyle.hasBackground = true;
@@ -413,7 +413,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
               "（四周变暗的深浅是能单独调的）",
               Theme::partBackground(Theme::Part::Scrim).name(QColor::HexArgb));
 
-        // ---------- W11 背景图（ 加的：主页左栏 / 页面背景能铺一张图） ----------
+        // ---------- W11 背景图（主页左栏 / 页面背景能铺一张图） ----------
         // 要求是「能给主页左侧自定义图像吗？其他页面的背景能换图吗」。这一节量五件事：
         // ① 四种摆法的键 / 名字 / 认回来；
         // ② `normalize()` 对"路径 / 摆法 / 不透明度"这三位怎么收拾；
@@ -538,7 +538,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                   "★ W11 不透明度调到 0 ⇒ 图上不来，底下那一层原样透出来");
 
             // ⑥ ★ ：换了一张图之后要**当场**重画。
-            // 修之前这是个真实症状：在设置页换图 / 清除 / 改摆法 / 改不透明度，屏幕上还是
+            // 不然在设置页换图 / 清除 / 改摆法 / 改不透明度，屏幕上还是
             // 旧图 —— 得切到别的选项卡再切回来、或者拖一下窗口改尺寸，才看得见新的。
             // 根子：`ThemeBackground` 只靠 `Theme::follow()` 那条"调色板变了"重算，而
             // `apply()` 在调色板**没变**的时候（只换了图 / 摆法 / 不透明度 / 底色，
@@ -771,10 +771,10 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             check(!keepButton.property("wtfmlButtonKind").isValid(),
                   "★ W12 把一颗按钮改回普通那一档 = 把那一位**抹掉**（不是写一个 'accent'）");
 
-            // ---------- §9.1 动作高度那一档 ----------
+            // ---------- 动作高度那一档 ----------
             // 量的是**整颗控件**的高度，不是样式表里那个数：QSS 的 `min-height` 量的是
             // **内容**那一格 —— 这一套样式（6px 内边距 + 1px 边）配 `min-height: 32px`
-            // 整颗量出来是 **46**（ 探针实测）。所以样式表里写的是
+            // 整颗量出来是 **46**（探针实测）。所以样式表里写的是
             // `actionHeight()` 减掉那一圈，而这一条盯的是最后那个数。
             // 三条一起量：普通 32 / 主动作 36 / **图标按钮按自己那一档**（写死 22 的那颗
             // 在 `min-height: 18px` 下会量成 32 —— `setFixedSize()` 拦不住 QSS 的
@@ -797,7 +797,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 check(tallPlain->height() == Theme::actionHeight() &&
                           tallPrimary->height() == Theme::primaryActionHeight() &&
                           tallIcon->height() == 22,
-                      "★★ §9.1 动作按钮 `actionHeight()` / 主动作 `primaryActionHeight()`"
+                      "★★ 动作按钮 `actionHeight()` / 主动作 `primaryActionHeight()`"
                       "（量整颗高度）/ 图标按钮按自己钉死的边长来",
                       QStringLiteral("普通 %1px（要 %2）/ 主动作 %3px（要 %4）/ 图标 %5px（要 22）")
                           .arg(tallPlain->height())
@@ -807,7 +807,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                           .arg(tallIcon->height()));
                 check(tallIcon->property("wtfmlButtonSize").toString() ==
                           Theme::iconButtonSizeValue(),
-                      "★ §9.1 `markIconButton()` 挂上去的属性名和样式表里那条复位规则用的是"
+                      "★ `markIconButton()` 挂上去的属性名和样式表里那条复位规则用的是"
                       "**同一个**");
             }
 
@@ -873,7 +873,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
 
             // ---------- 按钮状态体系：Ghost 那一档 + 「灰掉」那一档 ----------
             //
-            // coding plan §3.3「统一按钮视觉层级 / 单独设计 Disabled 状态」。前三档是用户
+            // 「统一按钮视觉层级 / 单独设计 Disabled 状态」。前三档是用户
             // 点名的那三句（确认性 = 主题色 / 一般性 = 黑 / 不可撤销 = 红），
             // 这一轮补的是第四档 `Ghost`（**低频辅助动作**）和「灰掉」那一档的收口。
             //
@@ -888,7 +888,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                           ghostKey != Theme::buttonKindKey(Theme::ButtonKind::Danger) &&
                           ghostKey != Theme::buttonKindKey(Theme::ButtonKind::Neutral) &&
                           ghostKey != Theme::buttonKindKey(Theme::ButtonKind::Accent),
-                      "★ §3.3 「Ghost」（低频辅助动作）是**独立的一档**：属性和另外三档都不同",
+                      "★ 「Ghost」（低频辅助动作）是**独立的一档**：属性和另外三档都不同",
                       ghostKey);
 
                 // ① 几何：换一档 kind，**整颗按钮一寸都不动**。
@@ -911,7 +911,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 check(ghostButton->sizeHint() == kindPeer->sizeHint() &&
                           ghostButton->height() == kindPeer->height() &&
                           ghostButton->height() == Theme::actionHeight(),
-                      "★★ §3.3 Ghost 的**几何和普通那档一模一样**（同一行字、同一个高度和宽度）："
+                      "★★ Ghost 的**几何和普通那档一模一样**（同一行字、同一个高度和宽度）："
                       "差别只在画出来的底和边 —— 边是留成透明的，不是删掉",
                       QStringLiteral("Ghost %1×%2 / 普通 %3×%4（要 %5 高）")
                           .arg(ghostButton->sizeHint().width()).arg(ghostButton->height())
@@ -945,7 +945,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 check(sameColor(ghostArea, boardColor) &&
                           !sameColor(boardColor, QColor(Qt::white)) &&
                           sameColor(solidArea, QColor(Qt::white)),
-                      "★★ §3.3 Ghost 那一格**透出底下的东西**（中心跟板子同一个色），旁边那颗普通"
+                      "★★ Ghost 那一格**透出底下的东西**（中心跟板子同一个色），旁边那颗普通"
                       "按钮是白的 —— 「不抢眼」在屏幕上就是这个样子",
                       QStringLiteral("板 %1 / Ghost %2 / 普通 %3")
                           .arg(boardColor.name(), ghostArea.name(), solidArea.name()));
@@ -962,7 +962,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                     }
                 }
                 check(ghostInkHits > 0,
-                      "★ §3.3 Ghost 只是没有底和边，**那行字照旧铺上**（黑色那档）——"
+                      "★ Ghost 只是没有底和边，**那行字照旧铺上**（黑色那档）——"
                       "「没底」不等于「没字」",
                       QStringLiteral("那一格上 %1 个深像素").arg(ghostInkHits));
 
@@ -973,14 +973,14 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 const double disabledContrast =
                     contrast(Theme::disabledInkColor(), Theme::disabledFillColor());
                 check(disabledContrast >= 3.0,
-                      "★★ §3.3 灰掉那一档的字对底 ≥ 3:1（灰归灰，「这颗按钮叫什么」还得读得出来）",
+                      "★★ 灰掉那一档的字对底 ≥ 3:1（灰归灰，「这颗按钮叫什么」还得读得出来）",
                       QStringLiteral("%1 对 %2 = %3:1")
                           .arg(Theme::disabledInkColor().name(), Theme::disabledFillColor().name())
                           .arg(disabledContrast, 0, 'f', 2));
                 // 而它和「一般性（黑）」那一档**不是同一个色**：同色的话，一颗"不能按"的
                 // 按钮和一颗"能按、只是没那么要紧"的按钮，屏幕上分不出来。
                 check(colorDistance(Theme::disabledInkColor(), Theme::neutralInkColor()) > 100,
-                      "★ §3.3 「灰掉」和「一般性」是**两档两色**：灰的是「这颗不能按」，"
+                      "★ 「灰掉」和「一般性」是**两档两色**：灰的是「这颗不能按」，"
                       "黑的是「这颗能按、只是没那么要紧」",
                       QStringLiteral("灰 %1 / 黑 %2")
                           .arg(Theme::disabledInkColor().name(), Theme::neutralInkColor().name()));
@@ -988,9 +988,9 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 paintHost.hide();
             }
 
-            // ---------- §8.3 焦点环 ----------
+            // ---------- 焦点环 ----------
             //
-            // coding plan §8.3：「全部关键操作具备键盘焦点、**可见焦点环**和合理 Tab 顺序」。
+            // 「全部关键操作具备键盘焦点、**可见焦点环**和合理 Tab 顺序」。
             // 环是 `WtfmlProxyStyle` 在 `PE_FrameFocusRect` 上自己画的 —— 基样式（Fusion）
             // 画的是**一圈虚线**，我们的按钮挂了应用级样式表之后它上屏看不见，等于"按 Tab
             // 跳到哪儿了"说不出口。这里量的是**真的画出来了、而且是那一档色**：只比
@@ -1015,7 +1015,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 QApplication::processEvents();
                 check(ringButton->hasFocus() &&
                           ringButton->property("wtfmlKeyboardFocus").toBool(),
-                      "★★ §8.3 键盘焦点进来了 ⇒ `wtfmlKeyboardFocus` 属性摆上"
+                      "★★ 键盘焦点进来了 ⇒ `wtfmlKeyboardFocus` 属性摆上"
                       "（环画不画就看它这一格）",
                       QStringLiteral("焦点 %1 / 属性 %2")
                           .arg(ringButton->hasFocus() ? QStringLiteral("有")
@@ -1035,7 +1035,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                     }
                 }
                 check(ringButton->hasFocus() && ringInk.isValid() && ringHits > 0,
-                      "★★ §8.3 拿着键盘焦点的控件四周真画了一圈主题色（基样式那圈虚线上屏之后"
+                      "★★ 拿着键盘焦点的控件四周真画了一圈主题色（基样式那圈虚线上屏之后"
                       "看不见，等于没有）",
                       QStringLiteral("环 %1 个像素 / 要的是 %2").arg(ringHits).arg(ringInk.name()));
 
@@ -1046,7 +1046,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 const QColor lightRing = Theme::focusRingColor(ringButton->palette());
                 const QColor darkRing = Theme::focusRingColor(darkPalette);
                 check(darkRing != lightRing && lightRing.isValid() && darkRing.isValid(),
-                      "★★ §8.3 焦点环深浅两档是**两支**（浅底用深的那一档、深底用浅的那一档）",
+                      "★★ 焦点环深浅两档是**两支**（浅底用深的那一档、深底用浅的那一档）",
                       QStringLiteral("浅底 %1 / 深底 %2").arg(lightRing.name(), darkRing.name()));
 
                 {
@@ -1057,7 +1057,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                                            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
                     QApplication::sendEvent(ringButton, &mousePress);
                     check(!ringButton->property("wtfmlKeyboardFocus").toBool(),
-                          "★ §8.3 鼠标按下就把键盘那一档收掉（上面那一圈环是给键盘的）");
+                          "★ 鼠标按下就把键盘那一档收掉（上面那一圈环是给键盘的）");
 
                     // ② 切页交接过来的焦点：理由写着 TabFocusReason，前面**没有任何按键**。
                     QFocusEvent handoff(QEvent::FocusIn, Qt::TabFocusReason);
@@ -1075,7 +1075,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 }
             }
 
-            // ---------- W12 灰掉那一档：**中性 / 危险那两种也得跟着灰**（ 真机揪出来的） ----------
+            // ---------- W12 灰掉那一档：**中性 / 危险那两种也得跟着灰** ----------
             //
             // 症状（真机像素实测）：一颗**禁用着**的中性按钮，底确实是 `#F7F7F7`（说明
             // disabled 那一档生效了），**字和边却还是 `#202020`** —— 屏幕上看着就是一颗
@@ -1084,8 +1084,8 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             //
             // 根子：样式表里 `QPushButton:disabled` 和
             // `QPushButton[wtfmlButtonKind="neutral"]` **优先级一模一样**（都是"元素 +
-            // 一个属性/伪类"），平手时**后写的赢** —— 而那条 `:disabled` 原来写在最前面。
-            // 修法 = 把它挪到两种 kind 后面追加（见 `Theme::widgetStyleSheet()` 里那段）。
+            // 一个属性/伪类"），平手时**后写的赢** —— 所以 `:disabled` 必须写在两种 kind
+            // 后面（见 `Theme::widgetStyleSheet()` 里那段）。
             //
             // 量法：**数深像素**。禁用那一档的那几个色（底 `disabledFillColor()` /
             // 字 `disabledInkColor()` / 边 `disabledBorderColor()`）一个都不比 `#808080`
@@ -1138,7 +1138,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                       .arg(dangerDisabledDark)
                       .arg(dangerDisabledRed));
 
-            // 灰掉那一档对 **Ghost** 一视同仁（，§3.3）：它是一档**四档共用**的
+            // 灰掉那一档对 **Ghost** 一视同仁：它是一档**四档共用**的
             // 状态，不是"主题色那一颗才有"。容易漏掉的原因很实在 —— Ghost 平时没有底，
             // 灰掉的时候那条 `:disabled` 才第一次给它铺上底，用同一把尺子量一遍。
             // NOTE: "勾着又灰掉"的 Ghost 是**淡底 + 灰字**（`[ghost]:checked` 那条的优先级
@@ -1161,7 +1161,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 const int ghostDisabledDark =
                     countPixelsIn(ghostDisabledShot, QColor(0, 0, 0), 0x80);
                 check(ghostDisabledGrey > 0 && ghostDisabledDark == 0,
-                      "★★ §3.3 Ghost 灰掉之后那行字也跟着灰（`disabledInkColor()` 那一档，"
+                      "★★ Ghost 灰掉之后那行字也跟着灰（`disabledInkColor()` 那一档，"
                       "深像素一个都不剩）—— 灰掉是四档共用的一件事",
                       QStringLiteral("灰 %1 个 / 深像素 %2 个")
                           .arg(ghostDisabledGrey).arg(ghostDisabledDark));
@@ -1342,7 +1342,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                       sheet.contains(QLatin1String("border: none")),
                   "★★ W13 数字框/下拉框里那颗输入框被**复位**掉了（不给它们套第二圈边）");
 
-            // ---------- 按钮状态体系：四档 × 状态，一条条点名（，§3.3） ----------
+            // ---------- 按钮状态体系：四档 × 状态，一条条点名 ----------
             //
             // 上面那一段量的是**像素**（真按钮、真渲染），这一段量的是**表**：四档层级各自
             // 把状态写全了没有。两样都要 —— 像素那条钉的是"照这个样子画出来了"，这一条钉的
@@ -1371,7 +1371,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                     }
                 }
                 check(missingStates.isEmpty(),
-                      "★★ §3.3 四档层级（主动作 / 危险 / 一般性 / Ghost）各自把**悬停 + 按下**"
+                      "★★ 四档层级（主动作 / 危险 / 一般性 / Ghost）各自把**悬停 + 按下**"
                       "两个状态都写全了（而且都带 `:enabled` —— 不带的话灰掉的按钮悬停时底色"
                       "会翻上来）",
                       missingStates.isEmpty() ? QStringLiteral("四档齐全")
@@ -1389,23 +1389,22 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                           ghostBody.contains(QLatin1String("background-color: transparent")) &&
                           ghostBody.contains(QLatin1String("border-color: transparent")) &&
                           !ghostBody.contains(QLatin1String("border: none")),
-                      "★★ §3.3 Ghost 那一档的写法：底和边**都是透明的**，边那 1px **还在**"
+                      "★★ Ghost 那一档的写法：底和边**都是透明的**，边那 1px **还在**"
                       "（写成 `border: none` 就矮 2px 窄 2px，换一档整行挪位）");
                 // 勾上那一档也要有：一颗 checkable 的 Ghost（"只看选中的"那种小开关）得让人
                 // 看出它现在是亮着的。
                 check(sheet.contains(ghostRule.left(ghostRule.size() - 2) +
                                      QStringLiteral(":checked")),
-                      "★ §3.3 Ghost 多一条**勾上**那一档（否则一颗 checkable 的 Ghost 勾上之后"
+                      "★ Ghost 多一条**勾上**那一档（否则一颗 checkable 的 Ghost 勾上之后"
                       "屏幕上什么都不变）");
 
-                // 那条共用的 `QPushButton:disabled` 必须摆在**四档之后**（ 真机
-                // 踩到的坑）：它和 `[wtfmlButtonKind="..."]` 优先级一样，平手时**后写的赢** ——
+                // 那条共用的 `QPushButton:disabled` 必须摆在**四档之后**（坑在这里）：它和 `[wtfmlButtonKind="..."]` 优先级一样，平手时**后写的赢** ——
                 // 摆在前面的话，灰掉的按钮底灰了、字和边却还是原来那一档。
                 // 上面那几条像素断言量的是"中性 / 危险真的灰了"，这一条量的是**位置**：
                 // 后面新加一档（Ghost 就是新加的）时，这条规矩得跟着守住。
                 const int disabledAt = sheet.indexOf(QLatin1String("QPushButton:disabled"));
                 check(disabledAt > ghostAt && ghostAt >= 0,
-                      "★★ §3.3 那条共用的 `QPushButton:disabled` 摆在**四档之后**（Ghost 也在它"
+                      "★★ 那条共用的 `QPushButton:disabled` 摆在**四档之后**（Ghost 也在它"
                       "前面）—— 平手时后写的赢，摆在前面的话新加的那一档灰不干净",
                       QStringLiteral("`:disabled` 在第 %1 个字符 / Ghost 那一档在第 %2 个")
                           .arg(disabledAt).arg(ghostAt));
@@ -1446,10 +1445,10 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                       .arg(sheet.contains(QLatin1String("QComboBox::drop-down { border: none")) ? 1 : 0)
                       .arg(sheet.contains(spinHeightRule) ? 1 : 0));
 
-            // 高度：改之前三样是 20 / 20 / 19（并排摆着差 1px 就看得出来），现在**一样高**。
+            // 高度：三样**一样高**（并排摆着差 1px 就看得出来）。
             //
             // 量的是**摆进布局之后的高度**（`QWidget::height()`），**不是 `sizeHint()`**。
-            // 这一条第一版就是只量 `sizeHint()`，三个数都报 24 —— 可数字框实际占的是 27：
+            // 只量 `sizeHint()` 的话三个数都报 24 —— 可数字框实际占的是 27：
             // 竖向 `Fixed` 的控件过布局时还要取一次"最小高度"（`min-height` 那位设的就是
             // 它），而数字框偏偏只有这一个数能动。**屏幕上那个高度才是判据。**
             QWidget sizeHost;
@@ -1614,9 +1613,9 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                   QStringLiteral("0=%1 / 1=%2").arg(plainKindOf(0), plainKindOf(1)));
         }
 
-        // ---------- W14 §8.3 颜色入口 / 无障碍 ----------
+        // ---------- W14 颜色入口 / 无障碍 ----------
         //
-        // §8.3 逐字：「浅色/深色/跟随系统、主题色、文字不透明度、语义色的**实时预览**、
+        // 要求逐字：「浅色/深色/跟随系统、主题色、文字不透明度、语义色的**实时预览**、
         // **恢复默认**、**导入/导出**；……全部关键操作具备键盘焦点、**可见焦点环**和合理
         // Tab 顺序；动画总开关继续保留，并尊重系统'减少动态效果'」。
         {
@@ -1846,7 +1845,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                     swatch->height() == MainWindowUI::themeSwatchHeight()) {
                     ++swatchesShaped;
                 }
-                // §8.3 那一句「全部关键操作具备**键盘焦点**」落到色板上就是"Tab 够得着"：
+                // 那一句「全部关键操作具备**键盘焦点**」落到色板上就是"Tab 够得着"：
                 // 色块是 QPushButton（不用自绘控件就是为了白拿焦点 / 回车 / Tab）。
                 if (swatch->focusPolicy() & Qt::TabFocus) {
                     ++swatchesFocusable;
@@ -1876,11 +1875,11 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 qobject_cast<QCheckBox *>(byName(MainWindowUI::animationsCheckName()));
             check(animationsCheck != nullptr &&
                       animationsCheck->text() == MainWindowUI::animationsCheckText(),
-                  "★ W14 「动效」那一节里那个总开关在设置页上（§8.3 明说要继续保留）",
+                  "★ W14 「动效」那一节里那个总开关在设置页上（明说要继续保留）",
                   animationsCheck != nullptr ? animationsCheck->text()
                                              : QStringLiteral("<没找到>"));
 
-            // ⑧ §8.3 那一句「合理 Tab 顺序」：这一节从上到下、从左到右走一遍。
+            // ⑧ 那一句「合理 Tab 顺序」：这一节从上到下、从左到右走一遍。
             //
             // 走的是**真的那条焦点链**（`nextInFocusChain()`），不是"我们以为的列表" ——
             // `MainWindowUI::setupSettingsLookPanel()` 末尾那一段 `setTabOrder()` 改的就是

@@ -22,9 +22,9 @@
 
 namespace {
 
-/// 新规矩那 18 条所在的目录（数组前 9 条在 slim/ 底下、后 9 条在 wide/ 底下）。
+/// 新布局那 18 条所在的目录（数组前 9 条在 slim/ 底下、后 9 条在 wide/ 底下）。
 constexpr char kPlayerDir[] = "assets/minecraft/textures/entity/player/";
-/// 老规矩那两张所在的目录。
+/// 旧版布局那两张所在的目录。
 constexpr char kEntityDir[] = "assets/minecraft/textures/entity/";
 
 /// PNG 头那 8 个字节。**落盘之前必须过这一道**：条目坏了/不是图的时候，写成文件之后
@@ -165,7 +165,7 @@ DefaultSkin::Prediction DefaultSkin::predict(const QString &uuid, Rule rule) {
         return result;
     }
 
-    // 老规矩：`c(UUID)` 那个私有谓词返回真走 alex（= slim），假走 steve（= 宽）。
+    // 旧版布局：`c(UUID)` 那个私有谓词返回真走 alex（= slim），假走 steve（= 宽）。
     // 真值取自 hash 的最低位 —— 字节码里就是 `(hashCode & 1) == 1`。
     result.slim = (hash & 1) == 1;
     result.name = result.slim ? QStringLiteral("alex") : QStringLiteral("steve");

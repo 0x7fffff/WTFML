@@ -1,17 +1,17 @@
 /**
  * @file ServerSettingsPage.hpp
- * @brief 「服务端设置」那一整页（coding plan §6.3 第二阶段 / 里程碑 M4-4）：常用设置那张表单、
+ * @brief 「服务端设置」那一整页：常用设置那张表单、
  * 原始文本编辑、世界备份、玩家名单、体检。
  *
  * 【它是干什么的】
  *
  * 一个服务端装好、跑起来之后，日常要动的东西全在这一页上：`server.properties` 里那十几个
- * 旋钮（§6.3 点名的"常用字段表单 + 原始文本编辑"）、世界备份（"世界备份和定时备份"里的前
+ * 旋钮（"常用字段表单 + 原始文本编辑"）、世界备份（"世界备份和定时备份"里的前
  * 一半）、体检（"这也对不对劲"那一遍）。
  *
  * 【为什么这一页有**两种**编辑方式，它们怎么不打起来】
  *
- * §6.3 两句是并列的：**表单**（`server-port` 那一格只收 1~65535）和**原始文本**（整份文件
+ * 两种编辑方式是并列的：**表单**（`server-port` 那一格只收 1~65535）和**原始文本**（整份文件
  * 一个字节不少地摆出来）。两种都要能原地往返，于是"以谁为准"必须只有一条规矩 ——
  *
  * * 这一页手里**始终有一份原文**（`rawText()`），它是**唯一**会被写回盘上的东西；
@@ -42,7 +42,7 @@
  *
  * 【这一层只摆控件，判据一条都不在这儿】
  *
- * `ui/` **不 include `src/`**（见 `GroupDialog.hpp` 文件头那段老规矩）：哪几个字段、值域
+ * `ui/` **不 include `src/`**（见 `GroupDialog.hpp` 文件头那段规矩）：哪几个字段、值域
  * 多少、哪些值是合法的、体检该报哪几条，全由 `MainWindow` 从那几张表翻好喂进来
  * （`setFields()` / `setCheckRows()`）。这一页做到最后只有一个职责：把用户改了什么原样报
  * 出去（`changedOnly()` / `rawText()` / 各种 `*Requested` 信号）。
@@ -79,7 +79,7 @@ public:
     enum class Section {
         Common = 0,  ///< 常用设置（表单）
         RawText,     ///< 原始文本（整份 `server.properties`）
-        Content,     ///< 内容（模组 / 数据包，§9.7）
+        Content,     ///< 内容（模组 / 数据包）
         Backups,     ///< 世界备份
         Players,     ///< 玩家名单（白名单 / 管理员 / 封禁两个）
         Check,       ///< 体检
@@ -118,7 +118,7 @@ public:
     /// 读一份备份的清单要起一次 PowerShell，所以那一趟不在这一页里做（见 `BackupFiles`）。
     struct BackupRow {
         QString path;   ///< 这一份的 zip 路径（身份）
-        QString when;   ///< "2026-10-13 14:08"
+        QString when;   ///< "YYYY-MM-DD hh:mm"
         QString size;   ///< "12.4 MB"
         QString scope;  ///< "含安全快照" / "这个存档的整个文件夹" 那一句
         bool safety = false;  ///< 是还原之前自动做的那一份（行上要看得出来）
@@ -320,7 +320,7 @@ private:
 
     QScrollArea *m_formScroll = nullptr;
     QWidget *m_formBody = nullptr;
-    /// 表单那一竖排（弹簧在**收尾**，新加的行走它前面 —— 同实例设置那条老规矩）。
+    /// 表单那一竖排（弹簧在**收尾**，新加的行走它前面 —— 同实例设置那条规矩）。
     QVBoxLayout *m_formLayout = nullptr;
 
     /// 「服务器简介」那一格下面那块"游戏里长什么样"（`FieldView::preview` 为真的那一行才有；

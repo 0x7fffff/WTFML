@@ -3,23 +3,12 @@
  * @brief 集中定义启动器数据目录的路径，作为"我们用的是哪个 .minecraft"的唯一出处。
  * @note header-only：只有 inline 函数，不需要加 .cpp，也不用碰链接。
  *
- * 改造前 `QCoreApplication::applicationDirPath() + "/.minecraft"` 这句拼接散在 5 个文件
- * 15 处，各自再往后缀 "/versions"、"/assets"、"/java"…… 后果不是炸，而是：
- *
- * 1. 【**已用**】"切换 .minecraft 文件夹"这个功能没有落点。要让启动器改用另一个
- * 游戏目录，得改 15 处，漏一处就是"版本列表来自 A、下载写进 B"这种只在一半功能上
- * 生效的错位，而且两条路径长得几乎一样，看日志也未必看得出。这个功能做出来了：
- * 落点就是本文件（setMinecraftDir() 一处切换），见 FolderManager。
- * 2. 【**已修**】当时 startGame() 自己拼了一份 versions/<id> 的绝对路径给
- * ensureInitialOptions 用，而 --gameDir 传的却是相对路径、靠 QProcess 的工作目录
- * 去解析 —— 两份值"恰好相等"，靠的是调用顺序而不是代码。现在这两处取的是
- * **同一个表达式** AppPaths::versionDir(versionId)，不再有第二份值。
- * 3. 【**已收**】"同一个目录算两遍"这一类也清了：原来这里还有一个 gameDir()（和
- * versionDir() 同义、没有任何调用点），另外 DownloadManager::downloadAssets() 收了
- * 一个 basePath 参数、而它调用的 parseAndDownloadAssets() 无视该参数直接读
- * AppPaths::assetsDir() —— 同一个"资源在哪儿"存了两份。两处都删了：gameDir() 没有
- * 调用方可以直接删，downloadAssets() 的那个参数则是**并到了 assetsDir() 这一份**上
- * （索引和 objects 从此必然同源，游戏按 --assetsDir 找 indexes/<id>.json 不会扑空）。
+ * 所有路径都从**一处**数据根目录推出来，调用方不许再自己拼：
+ * - "切换 .minecraft 文件夹"的落点就是本文件（setMinecraftDir() 一处切换），见 FolderManager；
+ * - `--gameDir` 与 ensureInitialOptions 取的是**同一个表达式** AppPaths::versionDir(versionId)，
+ *   不再有第二份值，也不靠调用顺序；
+ * - 资源位置只有 AppPaths::assetsDir() 这一份，索引和 objects 必然同源，
+ *   游戏按 `--assetsDir` 找 indexes/<id>.json 不会扑空。
  *
  * NOTE: 这里**只存一样东西** —— 用户选中的那个数据根目录（见 setMinecraftDir()），
  * 而且它是"被显式设定、要求所有调用方都看见"的状态，不是缓存。其余的一律现算：
@@ -76,7 +65,7 @@ inline QString minecraftDir() {
 /// 已安装版本的根目录：<数据目录>/versions
 inline QString versionsDir() { return minecraftDir() + QStringLiteral("/versions"); }
 
-/// 服务端工作区的根目录：<数据目录>/Servers。**一个服务端一个子目录**（coding plan §6.1）。
+/// 服务端工作区的根目录：<数据目录>/Servers。**一个服务端一个子目录**。
 ///
 /// 为什么**不**复用 `versions/`（这是最容易顺手做的一个选择，也是错的）：`versions/`
 /// 底下每一个子目录都会被当成一个**客户端实例**（版本列表、图标、分组、`--version` 全按
@@ -117,7 +106,7 @@ inline QString crashReportsDir() {
 ///
 /// NOTE: 目录名是**那个模组定的**（ReplayMod 从 1.x 起就叫这个），改不了；同样是
 /// "游戏/模组自己写、我们只读"，所以跟 crashReportsDir() 摆在一起。不按实例分
-/// （理由同上）。§5.3 那排常用目录拿 `QDir(...).exists()` 当"这一路现在有没有东西"，
+/// （理由同上）。那排常用目录拿 `QDir(...).exists()` 当"这一路现在有没有东西"，
 /// 「录像」那一路还多一条判据（这个实例装没装 ReplayMod，见 instanceCommonFolderKeys）。
 inline QString replayRecordingsDir() {
     return minecraftDir() + QStringLiteral("/replay_recordings");
@@ -263,13 +252,13 @@ inline QString serverCacheDir() {
 /// 「配置文件」那一页**每存一次就留一份原来那份**的落脚处：
 /// <数据目录>/cache/config-backups/<实例id>/<时间戳>/<相对 config/ 的路径>。
 ///
-/// 为什么要有：这是一个能改坏用户配置的编辑器（改错了原来没有撤销），而配置是用户调了
+/// 为什么要有：这是一个能改坏用户配置的编辑器（改错了没有撤销），而配置是用户调了
 /// 几个月的。写之前把盘上那份原样留一份，用户就能回去。
 ///
 /// 为什么**不能**放在 `<实例>/config/.wtfml-backups/`（这是最自然、也最容易做错的那一
-/// 个选择）：模组配置是**按目录树认的，不是只认 config/ 那一层** —— 实测盘上 1343 个
-/// `.toml` 里有 **392 个住在 config/ 的子目录里**（`config/ars_nouveau/xxx.toml` 166 个、
-/// `config/Mekanism/` 15 个…），也就是说有一整套按子目录布局的配置正在被正常加载。我们
+/// 个选择）：模组配置是**按目录树认的，不是只认 config/ 那一层** —— 盘上大量
+/// `.toml` 住在 config/ 的子目录里（`config/ars_nouveau/xxx.toml`、
+/// `config/Mekanism/`…），也就是说有一整套按子目录布局的配置正在被正常加载。我们
 /// 塞进去的那些 `.toml` 备份会顺着同一条发现逻辑被当成**活的配置** —— 一份配置读两遍、
 /// 模组读到自己上一次的样子，而且屏幕上什么都看不出来。放 cache/ 底下没有这个问题：那是
 /// 数据根目录底下、和 config/ 平级、游戏不认的一个目录。
@@ -344,7 +333,7 @@ inline QString worldBackupDir() {
     return minecraftDir() + QStringLiteral("/cache/world-backups");
 }
 
-/// 用户自己点出来的备份（存档 / 实例快照，coding plan §4.4）落在哪儿：
+/// 用户自己点出来的备份（存档 / 实例快照）落在哪儿：
 /// <数据目录>/cache/backups/{worlds,instances}。
 ///
 /// 和上面两份**差在"谁产生的"**：那两份是**我们**动用户的文件之前顺手留的（用户没点过，

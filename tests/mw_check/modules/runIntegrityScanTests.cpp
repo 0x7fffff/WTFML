@@ -169,7 +169,7 @@ void runIntegrityScanTests() {
                                               Q_RETURN_ARG(bool, renamed), Q_ARG(QString, idScan),
                                               Q_ARG(QString, QStringLiteral("1.199.1-改名")));
                 check(invoked && !renamed,
-                      "★ T33.2 正在体检的实例**不许改名**（§4.1 同一实例不允许同时扫描和改名）");
+                      "★ T33.2 正在体检的实例**不许改名**（同一实例不允许同时扫描和改名）");
                 check(QDir(versionsDir.filePath(idScan)).exists(),
                       "T33.2 被拒绝时磁盘一个字节都没动（老目录还在）");
 

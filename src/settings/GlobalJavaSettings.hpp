@@ -44,7 +44,7 @@ public:
 
     /**
      * @brief 是否让启动器自己按版本要求挑 Java。
-     * @return true = 自动（默认，也是加这一项之前的行为）；
+     * @return true = 自动（默认）；
      * false = 手动指定 —— 路径不匹配时**不换一个**，直接失败。
      */
     bool autoSelectJava() const { return m_autoSelectJava; }
@@ -79,9 +79,9 @@ public:
      * 只有全局档该调它。实例档挑中的路径要写回那个实例的 wtfml.meta（见
      * MainWindow::onStartButtonClicked()），写到这里就是跨作用域污染。
      *
-     * NOTE: 老代码里这段逻辑长在 ensureJavaForVersion(int, QString) 里面（那个签名
-     * 只能改自己，所以它别无选择）。拆出来是为了让值版和它共用同一份
-     * "全局档怎么存"的定义，而不是在两处各写一遍 setJavaPath + save。
+     * NOTE: 这段逻辑独立于 ensureJavaForVersion(int, QString)：那个签名只能改自己，
+     * 装不下"全局档怎么存"。拆出来是为了让值版和它共用同一份定义，
+     * 而不是在两处各写一遍 setJavaPath + save。
      */
     void adoptJavaPath(const QString &path);
 
@@ -137,10 +137,10 @@ public:
      * 是有意的：那个函数总是冷启一个 JVM（几十上百毫秒），而这个口子开的理由是
      * "用户已经在框里表过态了"，没有理由再探一次。也正因为它在前，一个**压根不存在**
      * 的路径也能从这里返回 true —— 这是这个参数唯一可能的来源是"用户点的"的结构性
-     * 证据（验证工程 S3 那条断言钉的就是这一点）。
+     * 证据。
      *
      * NOTE: 这个函数**不碰** m_javaPath、**不落盘**、**不改任何成员** —— 挑中的路径
-     * 落在哪个作用域由调用方决定：全局档写回注册表（老行为），实例档写回那个
+     * 落在哪个作用域由调用方决定：全局档写回注册表，实例档写回那个
      * 实例的 wtfml.meta。这正是"跨作用域污染"在结构上不可能发生的原因：
      * 实例 A 自动挑中的 Java 绝不会写进全局配置，也就不会覆盖用户手填的全局路径。
      *
@@ -221,7 +221,7 @@ public:
      * 是启动的语义，只该用在启动上）。
      * NOTE: 不下载新运行时。downloadJavaRuntime() / downloadJavaFromMojang() 都是**同步**的
      * （QEventLoop + 阻塞式写盘），在下载页同步跑一次就是把界面冻住好几分钟 ——
-     * 这一版专门把安装器做成异步的，不能再在这儿开一个同步的重活。挑不到就报清楚。
+     * 安装器是异步的，不能再在这儿开一个同步的重活。挑不到就报清楚。
      *
      * NOTE: static 是**有意的**，而且和上面那条"不改任何成员"是同一件事：它要用的东西
      * 全部从参数和这台机器上取，谁也没法通过它碰到这个对象的设置。编译期钉住。
@@ -249,12 +249,12 @@ public:
      * @param javaPathOut 非空时写入下载并解压出来的 java.exe 路径。
      * @return True if the download succeeded.
      *
-     * NOTE: 名字里的 "FromMojang" 是历史遗留，**实际来源是 Adoptium**（api.adoptium.net
+     * NOTE: 名字里的 "FromMojang" 与实际不符：**实际来源是 Adoptium**（api.adoptium.net
      * 的 v3 assets/latest API），不是 Mojang 的服务器。函数名先不改 —— 改名要动
      * 调用点，收益只是好看。
-     * NOTE: 它**不**写 m_javaPath、**不**落盘 —— 这条是加实例覆盖时改的。以前它自己
-     * 把路径存进全局配置，于是"给某个实例下载一个运行时"会顺手改掉全局的 Java
-     * 路径；现在下载归下载、存哪由调用方决定（见 ensureJavaForVersion 的值版）。
+     * NOTE: 它**不**写 m_javaPath、**不**落盘：下载归下载、存哪由调用方决定（见
+     * ensureJavaForVersion 的值版）。它若自己存进全局配置，"给某个实例下载一个运行时"
+     * 就会顺手改掉全局的 Java 路径。
      */
     static bool downloadJavaFromMojang(int majorVersion, QString *javaPathOut = nullptr);
 
@@ -288,7 +288,7 @@ public:
     // 所以 LauncherManager 生成命令行之前会再算一次（见 MainWindow 里那处调用）。
 
     /// 自动档是不是开着。设置页那颗「自动分配 / 手动分配」下拉框读写的就是它；
-    /// 老配置没有这个键时默认手动（保持加这个入口之前的行为）。
+    /// 老配置没有这个键时默认手动。
     bool autoMemory() const { return m_memoryAuto; }
 
     /// 设置自动档并立刻落盘。**不动** m_xmx/m_xms —— 值由 refreshSuggestedMemory() 管。
@@ -319,8 +319,8 @@ public:
      * @brief 建议的最大内存（MB）。
      * @param totalMb 系统物理内存总量；<= 0 表示读不到。
      * @param availableMb 当前可用内存；<= 0 表示读不到。
-     * @param modCount 这个实例装了多个模组；<= 0（默认）表示"不知道 / 原版"，也就是加这一档
-     * 之前的行为。**全局那一档恒传默认值** —— 全局设置没有"哪个实例"这个概念，
+     * @param modCount 这个实例装了多个模组；<= 0（默认）表示"不知道 / 原版"。
+     * **全局那一档恒传默认值** —— 全局设置没有"哪个实例"这个概念，
      * 能给这个数的只有实例那一层（见 MainWindow::resolveMemoryForLaunch()）。
      *
      * 规则（纯函数，验证工程直接钉这张表，不用去问真的系统），按这个先后顺序：
@@ -390,11 +390,10 @@ private:
     int m_xmx;
     int m_xms;
     QString m_extraJvmArgs;
-    /// 「Java 版本」选的是不是自动档。默认 true —— 这就是加这一项之前的唯一行为，
-    /// 所以老配置文件（没有这个键）读回来仍然是老行为。
+    /// 「Java 版本」选的是不是自动档。默认 true —— 老配置文件（没有这个键）读回来也是自动。
     bool m_autoSelectJava = true;
-    /// 「实例指定的 Java 版本不符时提醒」这个总闸。默认 true —— 这也是加这个开关之前
-    /// 的行为（那时候一律报错拦下），所以老配置读回来仍然是"该提醒就提醒"。
+    /// 「实例指定的 Java 版本不符时提醒」这个总闸。默认 true —— 该提醒就提醒；
+    /// 老配置读回来同样如此。
     bool m_warnVersionMismatch = true;
     /// 「内存分配」选的是不是自动档（按系统内存算）。默认手动 —— 老配置没有这个键。
     bool m_memoryAuto = false;

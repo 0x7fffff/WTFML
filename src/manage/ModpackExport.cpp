@@ -248,25 +248,18 @@ QByteArray modrinthVersionFilesRequestBody(const QStringList &sha1s) {
 QByteArray curseForgeFingerprintsRequestBody(const QList<quint32> &fingerprints) {
     QJsonArray list;
     for (quint32 value : fingerprints) {
-        // 这里从前发的是 `QString::number(value)`，还挂着一条"必须发字符串、发数字那边回
-        // 400"的 NOTE —— **那条注释把因果说反了**，而反过来那一面正是洞所在的那一面。
-        // 实测（这一趟是拿用户真实例里的文件问的）：
-        // · `{"fingerprints":["3816865428"]}` → **HTTP 400**，正文
-        // `Json deserialize error: invalid type: string "3816865428", expected i64`；
-        // · `{"fingerprints":[3816865428]}` → **HTTP 200**。
-        // 现在这台镜像（`mod.mcimirror.top/curseforge/v1`，见 curseForgeApiBase 那段）
+        // 这一格必须发**数字**，不能发 `QString::number(value)` 那样的字符串：
+        // `{"fingerprints":["3816865428"]}` 会回 HTTP 400（`invalid type: string …,
+        // expected i64`），`{"fingerprints":[3816865428]}` 才是 HTTP 200。
+        // 这台镜像（`mod.mcimirror.top/curseforge/v1`，见 curseForgeApiBase 那段）
         // 是照官方那份做的，规矩就是官方的规矩：这一格是 **int64**。
         //
-        // 症状为什么一直没被看出来：CurseForge 那一支**整支**发不出去，可是屏幕上只有
-        // 「有一格没图」——而"这个资源本来就没传图标"长得一模一样。唯一会说话的地方是
-        // 日志里那句「资源图标没查完：CurseForge 反查回了 HTTP 400。」，而 400 的正文
-        // （上面那句 invalid type）**从来没被读过**。于是所有"只在 CurseForge 上有"的
-        // 资源（以及从 CurseForge 下下来的那些文件）全部停在占位图上。
+        // 发错了的症状只有「有一格没图」—— 和"这个资源本来就没传图标"长得一模一样；
+        // 唯一会说话的是日志里那句「资源图标没查完：CurseForge 反查回了 HTTP 400。」
+        // 而 400 的正文不会被读出来。于是所有"只在 CurseForge 上有"的资源都停在占位图上。
         //
-        // NOTE: `idListRequestBody()`（`{"modIds":[…]}` / `{"fileIds":[…]}`）发的一直是
-        // **数字**，那一段的注释里甚至写着"号是数字不是字符串"—— 两处相反，而错的是
-        // 指纹这一处。（ 核：那个函数在 `src/manage/ModpackImport.cpp` 里，
-        // 不在本文件 —— 原来这句写的是"同一个文件里"，跟着找会找不到。）
+        // NOTE: `idListRequestBody()`（`{"modIds":[…]}` / `{"fileIds":[…]}`）发的也是
+        // **数字**，见 `src/manage/ModpackImport.cpp`。
         list.append(static_cast<qint64>(value));
     }
     if (list.isEmpty()) {
@@ -502,8 +495,7 @@ namespace {
 /// 这个目录项是不是一个"指到别处去"的链接（Windows 的 junction / 符号链接、Unix 的符号
 /// 链接）。
 ///
-/// 加：主枚举和 countFilesUnder() 原来只挂了个 `QDir::NoSymLinks`，而**那挡
-/// 不住 junction** —— 这条不是推测，是本仓自己量过的：见 `src/manage/FolderManager.cpp`
+/// `QDir::NoSymLinks` **挡不住 junction**：见 `src/manage/FolderManager.cpp`
 /// 里 `isLinkToElsewhere()` 上面那段（`mklink /J` 造出来的 junction，`isSymLink()` 是
 /// **false**、`canonicalFilePath()` 也原样返回字面路径，只有 `isJunction()` 认得出）。
 /// 那个函数在 FolderManager.cpp 的匿名 namespace 里，取不到，所以这里照抄一份 ——
@@ -595,8 +587,8 @@ CollectResult collectInstanceFiles(const QString &instanceDir, const IncludeOpti
         for (const QFileInfo &entry : dirs) {
             const QString prefix = frame.prefix + entry.fileName() + QLatin1Char('/');
             // 链接目录（junction / 符号链接）**一个都不进去**。
-            // 判据不能只靠上面那个 `QDir::NoSymLinks`（它挡不住 junction —— 这是本仓
-            // 实测过的，见 isLinkToElsewhere() 那段）：一个指回祖先的 junction 能让下面
+            // 判据不能只靠上面那个 `QDir::NoSymLinks`（它挡不住 junction —— 见
+            // isLinkToElsewhere() 那段）：一个指回祖先的 junction 能让下面
             // 这圈栈式枚举无限往下走，而一个指向实例外面的 junction 会把别人的文件打进包。
             // 如实记进 skippedDirs（报告里那句「没进包：…」会带上它的名字与文件数），
             // 不静默少东西。
@@ -611,11 +603,10 @@ CollectResult collectInstanceFiles(const QString &instanceDir, const IncludeOpti
             const QString reason = instanceExclusionReason(prefix, instanceId, options);
             if (!reason.isEmpty()) {
                 const QString shown = prefix.left(prefix.size() - 1);
-                // **这个目录里那些文件也要数进去**。从前这里只有一句
-                // `continue` —— 目录不进去，里面有几个文件从来没人问过，于是报告里
-                // 「没进包：存档、截图（共 N 个文件）」的 N 只数得到"被排除的**文件**"，
-                // 而 logs / saves / screenshots 这一档整个是目录 —— 那句话几乎永远是
-                // 「共 0 个文件」。数的口径见上面 countFilesUnder() 那段。
+                // **这个目录里那些文件也要数进去**：目录不进去时，里面有几个文件也得问，
+                // 否则报告里「没进包：存档、截图（共 N 个文件）」的 N 只数得到"被排除的
+                // **文件**"，而 logs / saves / screenshots 这一档整个是目录 —— 那句话
+                // 几乎永远是「共 0 个文件」。数的口径见上面 countFilesUnder() 那段。
                 // 去重和 skippedDirs 同一处：同一个目录只数一次（重复 append 的那一路
                 // 连数都不该数）。
                 if (!result.skippedDirs.contains(shown)) {
@@ -721,8 +712,8 @@ QList<ZipUtil::ZipSource> archiveEntries(const ExportPlan &plan, const QString &
 }
 
 bool reimportable(const Spec &spec) {
-    // 两种格式的判据是同一条：清单里得有东西。CF 那边进清单的是 `refs`（那次"拿号换文件"
-    // 的路），Modrinth 那边是 `files`。
+    // 两种格式的判据是同一条：清单里得有东西。CF 那边进清单的是 `refs`（「拿号换文件」
+    // 那条路），Modrinth 那边是 `files`。
     return !spec.files.isEmpty() || !spec.refs.isEmpty();
 }
 
@@ -731,10 +722,10 @@ bool writableAsIndexFile(const MatchedFile &file) {
         return false;  // 没路径的条目导入方会直接跳过（等于没这条）
     }
     // **路径必须过得了读侧那条判据**，判据本身从读侧那一处来（不在这儿
-    // 抄第二份数字）。从前这一条漏了：`files[].path` 是写进清单的，而读侧对清单里的
-    // 每一条路径都跑 isSafeRelativePath()，**不过就是整包拒绝**（ModpackImport.cpp 里
-    // 那句"所以整个包都没有导入"）。于是"实例里有个名字特别长的文件"（整条相对路径
-    // >240 —— 段名没超，是嵌套拼起来超的）能让我们导出一个人家装不进去的包，
+    // 抄第二份数字）。`files[].path` 是写进清单的，而读侧对清单里的每一条路径都跑
+    // isSafeRelativePath()，**不过就是整包拒绝**（ModpackImport.cpp 里那句"所以整个包
+    // 都没有导入"）。不在这里先拦，"实例里有个名字特别长的文件"（整条相对路径
+    // >240 —— 段名没超，是嵌套拼起来超的）就能让我们导出一个人家装不进去的包，
     // 而且**当场看不出来**：包打得出来、我们自己（写的那一半）也不读它。
     // 退回 overrides 就没事：overrides 里那条路不经过这条判据（那些文件是照名字
     // 原样解出来的），文件一个不少，包也装得进去。
@@ -1056,13 +1047,12 @@ ExportPlan buildExportPlan(const ExportRequest &request, const ModrinthQuery &qu
     QString lookupProblem;
     QHash<QString, ModrinthHit> modrinthHits;
     QHash<quint32, CurseForgeHit> curseForgeHits;
-    // `plan.queried` **只在真的要发出去那一处**赋值（见下面两个分支）。
-    // 从前它在进这一节之前就赋好了，于是接口**没接上**的时候（`queryModrinth` /
-    // `queryCurseForge` 是空函数，`lookupProblem` 那句"没有接上查询接口"就是说这个）
-    // 我们一个字节都没发出去，报告里却写着「问过 12 个文件，认出来 0 个」——
-    // 用户拿着这句话去查网络、查限流、等着重试，而真相是"这一趟根本没联网"。
-    // 这个数的含义钉死成：**真的发出去问过的文件个数**（发出去了但没答话的也算，
-    // 那是"问了没回"，和"没问"不是一回事）。
+    // `plan.queried` **只在真的要发出去那一处**赋值（见下面两个分支）。接口**没接上**
+    // 的时候（`queryModrinth` / `queryCurseForge` 是空函数，`lookupProblem` 那句
+    // "没有接上查询接口"就是说这个），一个字节都没发出去，报告里不能写
+    // 「问过 12 个文件，认出来 0 个」—— 用户会拿着这句话去查网络、查限流、等着重试，
+    // 而真相是"这一趟根本没联网"。这个数的含义钉死成：**真的发出去问过的文件个数**
+    // （发出去了但没答话的也算，那是"问了没回"，和"没问"不是一回事）。
     const int toAsk = needFingerprint ? fingerprintOfPath.size() : sha1OfPath.size();
     if (toAsk > 0) {
         if (progress) {

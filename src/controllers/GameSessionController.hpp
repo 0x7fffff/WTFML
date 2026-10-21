@@ -29,9 +29,8 @@ class VersionManager;
 /// 启动」的结局、异常退出补一项、收掉启动进度、把窗口叫回来；
 /// ④ **停止**：问一句（强杀不存档）、记"用户停的"、kill、收尾。
 ///
-/// 这些状态**从前都摆在 `MainWindow` 里**（九个私有成员 + 一句 `friend class`），于是
-/// 这一段每挪一行都得先拿到 `MainWindow *`。搬进来之后方向倒过来：主窗口只递几样
-/// "只有它说得出来"的东西（见 Host），**判断和记账全在这一层**。
+/// 这些状态**全在这一层**（不再散在 `MainWindow` 的九个私有成员 + 一句 `friend class`
+/// 里）：主窗口只递几样"只有它说得出来"的东西（见 Host），**判断和记账全在这一层**。
 ///
 /// 唯一一个仍然写这一份账本的外人是 `LaunchController` —— 它在"进程真的起来了"那一刻
 /// 调 `beginSession()`（那是这一层唯一说得出口的开端）。除此之外谁也不许碰这九个成员。
@@ -85,7 +84,7 @@ public:
         std::function<void(Tasks::TaskId id, bool success, const QString &errorSummary)> finishLaunchTask;
         /// 把那件任务按**用户取消**收尾（`TaskState::Cancelled`，不记失败、不点红点）。
         /// 用户自己按「停止游戏」停在一行日志都没出的时候，那一次启动**不是
-        /// 失败** —— 从前它走 `finishLaunchTask(..., false, ...)`，任务中心于是多出一条
+        /// 失败** —— 走 `finishLaunchTask(..., false, ...)` 的话，任务中心会多出一条
         /// 红色的「启动 X 失败」外加底栏那颗红点，全是用户自己点出来的。
         std::function<void(Tasks::TaskId id)> cancelLaunchTask;
         /// 底栏按当前状态重画一遍（左下角那颗三态方块 + 中间那格）。

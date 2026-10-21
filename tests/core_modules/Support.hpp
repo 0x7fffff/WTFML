@@ -8,7 +8,7 @@
  * - LauncherManager::prepareNatives -> 证明解压链路通、且有守卫
  * - LauncherManager::generateJvmArguments -> 证明 java.library.path / 选项过滤
  * - GlobalJavaSettings::ensureJavaForVersion -> 证明 Java 25 选得到
- * 最后再和"改动前的 classpath 算法"逐字节对比，证明 1.19+ 零回归。
+ * 最后再和参照用的 classpath 算法逐字节对比，证明 1.19+ 零回归。
  *
  * F/G/H 三节（pipeline / vm-batch / vm-fetch-fail 模式）验证下载批次的记账：
  * 完成信号只发一次、失败能报出来、已存在的文件被跳过、UI 不会被永久禁用。
@@ -87,43 +87,43 @@
 // 删一棵目录那两个自由函数（`removeTreeWithoutFollowingLinks` / 只读文件那一手）。见 ZAN 节
 // —— 那两条**必须真动盘**才验得出来（只读位是盘上的属性、junction 更是）。
 #include "manage/FolderManager.hpp"
-// 「上一次启动」那本账（coding plan §5.1，）：主页那张卡唯一的数据源。见 ZR 节 ——
+// 「上一次启动」那本账：主页那张卡唯一的数据源。见 ZR 节 ——
 // 那一节全是**纯函数**（给值、出字符串 / 一段字节），连时钟都不问（`whenText()` 的"现在"
 // 是参数），所以它不需要临时游戏文件夹，只有"落在哪个文件上"那一条要换一下数据根目录。
 #include "manage/LaunchHistory.hpp"
-// 实例页搜索与筛选的判据层（coding plan §7.2，）。见 ZS 节 —— 纯函数：
+// 实例页搜索与筛选的判据层。见 ZS 节 —— 纯函数：
 // 「这一条算不算匹配」全在这儿，树那一侧一条都不必真的建出来。
 #include "manage/InstanceFilter.hpp"
-// 实例预设（coding plan §5–§6 / P1，）。见 PA 节 —— 值那一层和盘那一层都收一个
+// 实例预设。见 PA 节 —— 值那一层和盘那一层都收一个
 // `root` 参数，所以整节在一个 `QTemporaryDir` 里真存真读，连界面都不用起。
 #include "presets/PresetStore.hpp"
-// 原版设置那一段（，coding plan §6 P2）。见 PB 节 —— 全是纯函数（字节进、字节出），
+// 原版设置那一段。见 PB 节 —— 全是纯函数（字节进、字节出），
 // 两份假 `options.txt` 一喂就能逐格念，不碰盘、不联网、不开界面。
 #include "presets/VanillaOptions.hpp"
-// 服务器列表那一段（，coding plan §6 P3）。见 PC 节 —— 判据那几条是纯值，落盘那几条
+// 服务器列表那一段。见 PC 节 —— 判据那几条是纯值，落盘那几条
 // **真的动盘**（在 `QTemporaryDir` 里造一份真 `servers.dat`，读回来逐格看），不碰共享沙箱。
 #include "presets/ServerListPreset.hpp"
-// 通用文件组那一段（，coding plan §6 P3 后半）。见 PD 节 —— 和 PC 一样**真的动盘**
+// 通用文件组那一段。见 PD 节 —— 和 PC 一样**真的动盘**
 // （两个临时目录之间真拷真比字节），另外还**真造 junction** 来验那两道逃逸闸。
 #include "presets/GenericFiles.hpp"
-// 应用计划那一层（，coding plan §5 / §7）。见 PE 节 —— 一段一行地算这一趟会发生
+// 应用计划那一层。见 PE 节 —— 一段一行地算这一趟会发生
 // 什么（除了通用文件组的干跑，全是纯值）。
 #include "presets/PresetPlanner.hpp"
-// 提取与落到实例上（，coding plan §6 P1 / §7 / §8.1）。见 PG 节 —— 在两个临时
+// 提取与落到实例上。见 PG 节 —— 在两个临时
 // 实例目录之间真收真落，覆盖那几样**真去备份目录里看**，游戏在跑时**真去比字节**。
 #include "presets/PresetApply.hpp"
 #include "presets/PresetCapture.hpp"
 #include "presets/PresetCompatibility.hpp"
-// 资源包次序 / 启用 + 存档数据包（，coding plan §6 P4）。见 PL 节 —— 在临时实例里
+// 资源包次序 / 启用 + 存档数据包。见 PL 节 —— 在临时实例里
 // 真造 `options.txt` / `saves/<世界>/datapacks/`，验"部署"与"启用"分开报、没世界只记账。
 #include "presets/DataPackPreset.hpp"
 #include "presets/ResourcePackPreset.hpp"
-// 模组「真正去下」之前的判据层（，coding plan §10.1 第 7 项 / P5）。见 PM 节 ——
+// 模组「真正去下」之前的判据层。见 PM 节 ——
 // 必要/可选失败分开、依赖按 `平台:项目号` 去重展开、optional 只列不下、embedded 无视、
 // incompatible 挡住、替代项目不确认就不换、落盘大小/sha1 校验。全拿手搭的假答复逐格念。
 #include "presets/ModInstallPlan.hpp"
 #include "presets/InstalledModInventory.hpp"
-// 工具箱那四件小工具的判据层（，coding plan §9.11）。见 ZAA–ZAD 四节 —— 全是
+// 工具箱那四件小工具的判据层。见 ZAA–ZAD 四节 —— 全是
 // **纯函数**（哈希那一节要真读一个文件，它在一个 QTemporaryDir 里读），不联网、不开界面。
 #include "tools/AnvilPlanner.hpp"
 #include "tools/Beacon.hpp"
@@ -141,7 +141,7 @@
 #include "manage/ModpackImport.hpp"
 #include "manage/ModpackExport.hpp"
 #include "manage/PlayerSkinStore.hpp"
-// 离线账号「换一张」那条路上的数据层（coding plan §1.4）。见 ZFa 节。
+// 离线账号「换一张」那条路上的数据层。见 ZFa 节。
 #include "manage/OfflineSkin.hpp"
 #include "manage/RandomSkinStore.hpp"
 #include "manage/VersionDisplay.hpp"
@@ -149,7 +149,7 @@
 // 体检那一层（plan / check / Report 三个纯值进出的口子）。见 ZN 节 —— 那一节全在一个临时
 // 游戏文件夹里跑：它要造 jar / 库 / 资源索引 / 资源对象四档文件，不碰共享沙箱。
 #include "manage/VersionIntegrity.hpp"
-// 更新中心那两件（coding plan §7.1，）：「忽略这一版 / 固定这一版」那本账
+// 更新中心那两件：「忽略这一版 / 固定这一版」那本账
 // （见 ZT 节）和更新前那份轻量回滚点（见 ZU 节）。两节都是**纯值 + 一次文件读写**，
 // 各在一个 QTemporaryDir 里真存真读 —— 不碰共享沙箱、不联网。
 #include "manage/UpdatePolicy.hpp"
@@ -159,31 +159,31 @@
 #include "manage/WorldFiles.hpp"
 #include "util/DirectorySessionLock.hpp"
 #include "manage/WorldMap.hpp"
-// §9.8 的运行输出共用模型：只依赖 QtCore，所以验证工程直接驱动它（ZAM 那一节）。
+// 运行输出共用模型：只依赖 QtCore，所以验证工程直接驱动它（ZAM 那一节）。
 #include "RuntimeOutputModel.hpp"
 #include "net/HttpClient.hpp"
-// 服务端工作区（coding plan §6 / 里程碑 M4）：判据层（状态那七档 / `eula.txt` 算不算接受 /
+// 服务端工作区：判据层（状态那七档 / `eula.txt` 算不算接受 /
 // `server.properties` 解与写 / 我们记的那一份 —— 见 ZW 节）和扫盘那一层（`<数据目录>/Servers`
 // 底下谁在住、真建真读真删 —— 见 ZX 节）。两样都离线钉死，一节都不联网、不碰 ui/。
 #include "server/ServerModel.hpp"
 #include "server/ServerRegistry.hpp"
-// 服务端安装那条路的判据层（coding plan §6.2 / M4-2）：纯头，见下面 ZY 一节。
+// 服务端安装那条路的判据层：纯头，见下面 ZY 一节。
 #include "server/ServerInstallRun.hpp"
-// 服务端"跑起来 / 停下来"那条路的判据层（coding plan §6.2 的操作 + §6.3 的停止时序 / M4-3）：
+// 服务端"跑起来 / 停下来"那条路的判据层：
 // 纯头，见下面 ZZ 一节。真起进程的那一半（`ServerProcess`）归 mw_check 的 T41。
 #include "server/ServerRun.hpp"
-// 「服务端设置」那一页底下那两层判据（coding plan §6.3 / M4-4）：常用字段那张表 + 值域
+// 「服务端设置」那一页底下那两层判据：常用字段那张表 + 值域
 // （`ServerPropertiesForm`）、体检（`ServerCheck`）、以及"这个端口有人占着吗"那一次真监听
 // （`ServerPortCheck`）。见下面 ZV 一节。
 #include "server/ServerCheck.hpp"
-// 服务端那四份玩家名单（coding plan §9.7「玩家管理」）：纯解析 / 纯拼 JSON，见下面 ZAE 一节。
+// 服务端那四份玩家名单：纯解析 / 纯拼 JSON，见下面 ZAE 一节。
 // 读文件 / 写文件那一半在 `ServerSettingsController`（mw_check 那边接得到）。
 #include "server/ServerPlayers.hpp"
-// 崩溃自动重启那条策略（coding plan §9.7）：纯判据，见下面 ZAF 一节。
+// 崩溃自动重启那条策略：纯判据，见下面 ZAF 一节。
 #include "server/ServerRestart.hpp"
-// 服务端资源包那一份本地 zip 的判据（§9.7）：条目表纯判、SHA-1 借 FileHash。
+// 服务端资源包那一份本地 zip 的判据：条目表纯判、SHA-1 借 FileHash。
 #include "server/ServerResourcePack.hpp"
-// 服务端内容（模组 / 数据包）的名字与分类判据（§9.7）：纯函数，ZAH 一节钉它。
+// 服务端内容（模组 / 数据包）的名字与分类判据：纯函数，ZAH 一节钉它。
 #include "server/ServerContent.hpp"
 #include "server/ServerPortCheck.hpp"
 #include "server/ServerPropertiesForm.hpp"
@@ -191,7 +191,7 @@
 #include "settings/GameWindowSettings.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/LauncherSettings.hpp"
-// 结构 / 原理图的元数据与方块统计（，coding plan §9.5）。见 SG 节 —— 三种格式
+// 结构 / 原理图的元数据与方块统计。见 SG 节 —— 三种格式
 // 的树都是这里手搭的（`NbtTree::serialize()`），gzip 那一份拿 `ZipUtil` 真压。
 #include "schematic/SchematicInfo.hpp"
 #include "replay/ReplayInfo.hpp"
@@ -221,9 +221,8 @@
 // servers.dat 的**写侧**（改一条服务器的名字/地址）。读那一半仍旧走 NbtUtil —— 只读那条
 // 设计决定没被推翻，写入端长在另一个文件里。见 ZK 节。
 #include "manage/ServerListFile.hpp"
-// 上面那三个写入口**谁在指挥**（改 / 加 / 删那三条链路上的四道闸， 从
-// MainWindow 搬出来）。见 ZK13 起那一节 —— 它收成一个假 Host 就能驱动的形状，所以这一层
-// 现在验得了。**一个 QWidget 都不碰**。
+// 上面那三个写入口**谁在指挥**（改 / 加 / 删那三条链路上的四道闸）。见 ZK13 起那一节 ——
+// 它收成一个假 Host 就能驱动的形状，所以这一层现在验得了。**一个 QWidget 都不碰**。
 #include "controllers/ServerListController.hpp"
 // 实例配置 / 世界 level.dat 的世代备份（ZQ9 那一节量"格子按哪个实例的哪个世界分"）。
 // 那一层只碰 `AppPaths::worldBackupDir()` 和传进来的 worldDir，所以整节在临时数据根里跑。
@@ -231,13 +230,13 @@
 // 「开游戏直接进某个存档 / 直接连某台服务器」那一对参数（--quickPlaySingleplayer /
 // --quickPlayMultiplayer）的判据层。见 ZL 节。
 #include "launcher/QuickPlay.hpp"
-// 任务账本那一套（，coding plan §2 / §3）：形状 + 几条纯规则（AL 节）、
+// 任务账本那一套：形状 + 几条纯规则（AL 节）、
 // 账本自己的语义与落盘/读回（AM 节）。**这一层一个 QWidget 都不碰、一个网络都不开**，
 // 所以能直接 new 出来喂假任务。
 #include "tasks/TaskHistory.hpp"
 #include "tasks/TaskManager.hpp"
 #include "tasks/TaskSnapshot.hpp"
-// 游戏异常退出那几句话（coding plan §4.3）：纯规则一张表，见下面 ZP 节。
+// 游戏异常退出那几句话：纯规则一张表，见下面 ZP 节。
 #include "diag/GameExitDiagnosis.hpp"
 
 inline int g_failures = 0;
@@ -328,7 +327,7 @@ static QJsonObject loadJson(const QString &path) {
 }
 
 // ---------------------------------------------------------------------------
-// 改动前的 classpath 算法（原样抄自 LauncherManager.cpp 修改前的内容），
+// 参照用的 classpath 算法（1.19 之前的拼接规则），
 // 用来和现在的输出做对比，证明 1.19+ 零回归。
 // ---------------------------------------------------------------------------
 // / 把一条"相对数据目录"的路径变成产品现在发出去的那种绝对路径。
@@ -374,7 +373,7 @@ static bool allowed(const QJsonObject &libObj) {
     return ok;
 }
 
-/// 改动前那条 classpath 算法（"零回归"那条断言拿它当参照）。
+/// 参照用的 classpath 算法（"零回归"那条断言拿它当参照）。
 static QStringList classpath(const QJsonObject &versionJson, const QString &versionId) {
     QStringList cp;
     const QString root = AppPaths::minecraftDir();
@@ -446,7 +445,7 @@ static void prepareSandbox(const QString &sandbox, const QString &versionId) {
 //
 // 全部离线：把 file:// 当"远端"用，可以精确控制哪些文件存在、哪个 URL 会失败，
 // 不依赖 Mojang 在线。asset 对象的 URL 在代码里是写死到
-// resources.download.minecraft.net 的，所以这里改成"对象已经在 objects/ 里"——
+// resources.download.minecraft.net 的，所以这里只要求"对象已经在 objects/ 里"——
 // 走 ExistsOnly 的跳过分支，一个网络请求都不会发出去。
 // ---------------------------------------------------------------------------
 
@@ -564,7 +563,7 @@ int runVersionJvmArgsTests(const QString &sandbox);
 int runInstanceFileTests(const QString &sandbox);
 
 // wtfml.meta 的写侧：合并写、坏文件拒绝写、稳定 id 幂等。
-// 这个文件以前只有读侧，重命名 / 分组 / 每实例设置三件事都靠这一层。
+// 重命名 / 分组 / 每实例设置三件事都靠这一层。
 int runVersionMetaWriteTests(const QString &sandbox);
 
 // 重命名：名字校验的真值表 + 真改磁盘目录名（含失败路径）。
@@ -580,13 +579,12 @@ int runRenameInstanceTests(const QString &sandbox);
 // 这是设计如此 —— 一份 .minecraft 里的文件不会被别人改，能改它的只有启动器自己。
 int runInstanceGroupTests(const QString &sandbox);
 
-// 判据在 放松过：以前要求 <id>/<id>.jar（目录名和 jar 名必须一致），
-// 现在只要求"认得出哪个是客户端 jar"（<id>.jar 优先，否则顶层恰好一个 jar 就是它）。
+// 判据只要求"认得出哪个是客户端 jar"（<id>.jar 优先，否则顶层恰好一个 jar 就是它），
+// 不要求 <id>/<id>.jar（目录名和 jar 名不必一致）。
 //
-// NOTE: J1 那几条**是有意翻转的**，不是"顺手改坏又被改回来"。旧断言写着"判据没有放松"，
-// 而它当初存在的唯一目的就是钉住那个行为。翻转的理由：用户自己在资源管理器里改了
-// 目录名、没改里面 jar 名的实例，旧判据下会从列表里**静默消失**（真机上 388 MB 和
-// 851 MB 的整合包各一个），本轮要消灭的正是这种静默。
+// NOTE: J1 那几条**有意钉住"放松后的判据"**，不是"顺手改坏"。用户自己在资源管理器里
+// 改了目录名、没改里面 jar 名的实例，按"目录名和 jar 名必须一致"的判据会从列表里
+// **静默消失**（真机上 388 MB 和 851 MB 的整合包各一个），本轮要消灭的正是这种静默。
 int runInstalledScanTests(const QString &sandbox);
 
 // 内存建议值：纯函数真值表 + 自动/手动档的落盘行为。
@@ -608,8 +606,8 @@ void runEffectiveJavaSettingsTests(const QString &sandbox);
 // ---------------------------------------------------------------------------
 // S. 实例 Java 版本不符时的提醒开关
 //
-// 为什么值得单开一段：两处的默认值都必须是"提醒" —— 那是加这个功能之前的行为
-// （一律报错拦下，等于总是提醒）。默认值写反，老配置一升级就变成"悄悄放行一个版本
+// 为什么值得单开一段：两处的默认值都必须是"提醒"（一律报错拦下，等于总是提醒）。
+// 默认值写反，老配置一升级就变成"悄悄放行一个版本
 // 不对的 Java"，而静默选错 Java 正是这一层最怕的错。
 // ---------------------------------------------------------------------------
 void runJavaWarnMismatchTests(const QString &sandbox);
@@ -659,7 +657,7 @@ void runPlayerSkinTests(const QString &sandbox);
 void runRandomSkinTests(const QString &sandbox);
 
 // ---------------------------------------------------------------------------
-// ZF 节：离线账号**自己挑的**那张皮肤（coding plan §1.4 那条「换一张」缺口的落点）
+// ZF 节：离线账号**自己挑的**那张皮肤（「换一张」这条路的落点）
 // ---------------------------------------------------------------------------
 //
 // 这一节只验数据层：存在哪、模型那一行怎么归一化、撤掉之后是不是真的一张都不剩。
@@ -971,9 +969,9 @@ void runResourceDetailTests();
 // 而那个域名连不上。于是"盘上那份缓存"就变成用户还能看到图的唯一来源，它拼错路径，
 // 症状只是"图标又变慢了"，没有任何东西会报错。
 //
-// 所以这一节现在钉的是三件事：那份字节读得回来、那条**凭据**存得住读得回、以及**那一发
-// 请求到底带不带条件头**（真值表在 ZB3）。第二、三件是这次改动最要紧的两个地方 ——
-// 凭据读没了 = "核对"退化成每次整张重下（用户那句"如果严重占用网络就不做了"正好踩在这）；
+// 所以这一节钉的是三件事：那份字节读得回来、那条**凭据**存得住读得回、以及**那一发
+// 请求到底带不带条件头**（真值表在 ZB3）。第二、三件事最要紧 —— 凭据读没了 =
+// "核对"退化成每次整张重下（用户那句"如果严重占用网络就不做了"正好踩在这）；
 // 条件头发错了（比如两个空头也照发）= 主机怎么答都不好说，而这**不会报任何错**。
 // =========================================================================
 
@@ -993,7 +991,7 @@ static QByteArray solidPngBytes(const QColor &color, int side = 32) {
 ///
 /// 记着"来问过几次"和"那一发带了哪些条件头"—— ZB8 要验的东西全在这两件事上。用它的
 /// 理由和 V6f 那个假镜像一样：**不碰外网**，在哪台机器上跑都是同一个结果；而"核对那一发"
-/// 是这次改动最要紧的那条路，光靠真网络那条探针（mw_check icon-live，只报数不断言）
+/// 是"核对那一发"最要紧的那条路，光靠真网络那条探针（mw_check icon-live，只报数不断言）
 /// 是钉不住的。
 struct FakeIconServer {
     QTcpServer server;
@@ -1269,7 +1267,7 @@ private:
 ///
 /// NOTE: **必须等**。一个还在跑的 QThread 被析构掉（"QThread: Destroyed while thread is
 /// still running"）会直接把进程带崩，而这儿崩掉的话后面那些节一条都跑不到 —— 看
-/// 起来会像是"这次改动把别的东西弄坏了"。run() 里每一段都有上限，所以正常情况下
+/// 起来会像是"别的东西被弄坏了"。run() 里每一段都有上限，所以正常情况下
 /// 这里一定等得到。
 static void waitFakeServer(FakeStatusServer &server) {
     if (!server.wait(12000)) {
@@ -1560,10 +1558,9 @@ void runServerListEditTests();
 // ZK17 节起：上面那三个写入口**谁在指挥**（`ServerListController`）。
 //
 // ZK1–ZK16 钉的是数据层本身（`ServerListFile`）。可是"什么时候该写、什么时候一个字都不该
-// 动"是另一层的事，它原来夹在 `MainWindow::openInstanceSettingsNow()` 那一千行的接线台里
-// —— 夹在 `connect` 和 `InlineMessage::getText()` 中间的那四道闸（两样都没变就别写 / 地址
-// 必填 / 认值不认下标 / 改完重读重测）**一条都没被直接钉过**，要验就得开真窗口、过
-// `OverlayHost`（mw_check 那几条只能钉对话框的信号，钉不到"有没有落盘"）。
+// 动"是另一层的事，落在 `ServerListController`。那四道闸（两样都没变就别写 / 地址
+// 必填 / 认值不认下标 / 改完重读重测）**一条都得直接钉住** —— 只钉对话框信号
+// （mw_check 那几条）验不到"有没有落盘"。
 //
 // 假 Host 记四本账：问过哪几句（连预填一起）、弹过什么、记过哪几行日志、喊过几次"重读重测"。
 // ---------------------------------------------------------------------------
@@ -1692,12 +1689,12 @@ void runNativesMarkerTests();
 void runVersionIntegrityTests();
 
 // ============================================================================
-// ZP. 游戏异常退出那几句话（，coding plan §4.3）
+// ZP. 游戏异常退出那几句话
 //
 // 这一节盯的是**规则本身**：`src/diag/GameExitDiagnosis` 是个纯函数（值进、字符串出，
 // 不看时钟、不读盘、不开进程），所以那张表能在这里逐格念一遍。
 //
-// 为什么非要单独验它：§4.3 的原话是「仅做规则明确的提示…不做不透明的『AI 猜错』」。
+// 为什么非要单独验它：那条规矩是「仅做规则明确的提示…不做不透明的『AI 猜错』」。
 // "规则明确"这件事唯一能证明的方式，就是**每一条提示都能指着某个字段说"因为它这样"**
 // —— 而这条链路在真机上要真起一次游戏、真崩一次才走得到，在这里喂一组值就走完了。
 //
@@ -1707,7 +1704,7 @@ void runVersionIntegrityTests();
 void runGameExitDiagnosisTests();
 
 /**
- * @brief 世界与实例备份（，coding plan §4.4）：清单 / 打包 / 还原。
+ * @brief 世界与实例备份：清单 / 打包 / 还原。
  *
  * 这一节**真打 zip**（走产品那条 PowerShell / .NET 的路）、**真删目录**、**真还原**，
  * 所以它在一个 `QTemporaryDir` 里换一次 `AppPaths::setMinecraftDir()`（备份落点就是
@@ -1722,7 +1719,7 @@ void runGameExitDiagnosisTests();
 void runBackupTests();
 
 // ---------------------------------------------------------------------------
-// ZR. 「上一次启动」那本账（coding plan §5.1）
+// ZR. 「上一次启动」那本账
 //
 // 这一节里最要紧的两条，都不是"能不能跑"，而是**这句规矩有没有被写歪**：
 // · 「上一次」以成功创建游戏进程为准 ⇒ `latestPlayable()` 跳过"没起来"那一档；
@@ -1731,9 +1728,9 @@ void runBackupTests();
 void runLaunchHistoryTests();
 
 // ---------------------------------------------------------------------------
-// PA. 实例预设：值那一层 + 盘那一层（coding plan §5–§6 / P1）
+// PA. 实例预设：值那一层 + 盘那一层
 //
-// §6 的 P1 原话是「PresetStore CRUD、排序与唯一默认项；schema 校验、损坏项隔离和原子写入；
+// 这一层的要求原话是「PresetStore CRUD、排序与唯一默认项；schema 校验、损坏项隔离和原子写入；
 // 新建、复制、重命名、删除和从实例提取；管理页；ID 使用 UUID，显示名不作为磁盘路径」，两条
 // 验收是「损坏单个预设不阻止其他预设加载」和「非法名称无法逃逸目录」。
 //
@@ -1749,7 +1746,7 @@ void runLaunchHistoryTests();
 // 整节纯函数 + 一个 QTemporaryDir 里的真存真读：不联网、不碰共享沙箱、不碰 ui/。
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// 模组预设的兼容检查（，coding plan §6.0 P2 / §7.2），见下面 PH 节。
+// 模组预设的兼容检查，见下面 PH 节。
 //
 // 这一节**一条网络都不碰**：`CompatibilityProvider` 就是为这件事留的口子，四个替身
 // 分别代表"立刻答"、"慢答"、"等我们手动放行"、"永远不答"。要验的也正是那几句规矩：
@@ -1836,7 +1833,7 @@ Presets::ModReference makeRef(const QString &platform, const QString &projectId,
 
 void runPresetCompatibilityTests();
 
-// §10.1 第 8 项 / P6：「大量预设、限流、切版本/关闭弹窗/取消与回归」。验收原话是
+// 「大量预设、限流、切版本/关闭弹窗/取消与回归」这几条的要求原话是
 // 「无过期回调、失控并发或主线程假死」—— 这一节里最值钱的三条：
 // · 一次性几百条引用，检查器的在途数**绝不越过上限**，而且真的收得了尾；
 // · 连着换几十代（用户来回切版本），旧一代的迟到回调**一个字都不许改**新结果；
@@ -1848,9 +1845,9 @@ void runPresetStressTests();
 void runPresetStoreTests();
 
 // ---------------------------------------------------------------------------
-// PB. 原版设置那一段：`options.txt` 的保序模型（coding plan §6 P2）
+// PB. 原版设置那一段：`options.txt` 的保序模型
 //
-// §6 P2 原话：「建立保序的 `options.txt` 模型；保留未知行和目标版本新增字段；基础设置与
+// 这一层的要求原话：「建立保序的 `options.txt` 模型；保留未知行和目标版本新增字段；基础设置与
 // `key_` 按键分组选择；默认 Merge，Replace 必须明确确认；检测标准按键的精确重复；显示器、
 // 全屏分辨率等硬件相关项默认不选」，外加那两句「不要简单用 `QMap` 重写整个文件，也不要把
 // 缺失字段当空值写回」。
@@ -1865,9 +1862,9 @@ void runPresetStoreTests();
 void runVanillaOptionsTests();
 
 // ---------------------------------------------------------------------------
-// PC. 服务器列表那一段：`servers.dat` 的计划与落盘（coding plan §6 P3）
+// PC. 服务器列表那一段：`servers.dat` 的计划与落盘
 //
-// §6 P3 原话：「`servers.dat` 支持 Append / Replace / Skip；按规范化地址去重并保留顺序」。
+// 这一层的要求原话：「`servers.dat` 支持 Append / Replace / Skip；按规范化地址去重并保留顺序」。
 //
 // 这一节和 PB 那一节最大的不同：这一层**真的动盘**（PB 是字节进字节出）。所以夹具是
 // 真的 `servers.dat`（用 ZK 那一节那套 NBT 组字节的帮手造出来的），跑完再读回来逐格看。
@@ -1885,9 +1882,9 @@ void runVanillaOptionsTests();
 void runServerListPresetTests();
 
 // ---------------------------------------------------------------------------
-// PD. 通用文件组那一段：`config/` / `defaultconfigs/` / 资源包 / 光影（coding plan §6 P3 后半）
+// PD. 通用文件组那一段：`config/` / `defaultconfigs/` / 资源包 / 光影
 //
-// §6 P3 后半原话：「GenericFileAdapter 支持 `config/`、`defaultconfigs/`、资源包和光影包；
+// 这一层的要求原话：「GenericFileAdapter 支持 `config/`、`defaultconfigs/`、资源包和光影包；
 // 每项支持 Replace / CopyIfMissing / Skip；路径穿越、绝对路径和符号链接逃逸检查；未知配置
 // 明确标记为"只能复制/覆盖"」。
 //
@@ -1904,9 +1901,9 @@ void runServerListPresetTests();
 void runGenericFilesTests();
 
 // ---------------------------------------------------------------------------
-// PE. 把一份预设落到一个实例上这件事的**计划**（coding plan §5 的 `PresetPlanner` / §7）
+// PE. 把一份预设落到一个实例上这件事的**计划**
 //
-// 这一层只回答一件事：**"你按下应用之后会发生什么"**。§7 那张表就是它的全部输出：
+// 这一层只回答一件事：**"你按下应用之后会发生什么"**。下面那张表就是它的全部输出：
 //
 // 游戏设置 合并 18 项
 // 原版按键 合并 23 项，冲突 1 项
@@ -1925,9 +1922,9 @@ void runPresetPlannerTests();
 
 
 // ---------------------------------------------------------------------------
-// PF. MaLiLib 那一族的热键（coding plan §6 P4 / §10 第 12 条）
+// PF. MaLiLib 那一族的热键
 //
-// §6 P4 那几句原话：「首批识别 malilib.json、litematica.json、tweakeroo.json、minihud.json、
+// 这一层的要求原话：「首批识别 malilib.json、litematica.json、tweakeroo.json、minihud.json、
 // itemscroller.json，并通过结构识别 TweakerMore、Masa Gadget、OMMC 等扩展；默认仅合并热键；
 // 可选合并全部已知设置、完整覆盖、缺失时复制；热键连同触发、上下文、额外键、顺序、独占和取消
 // 行为保存；身份使用 modId/groupId/optionName，不使用翻译名和行号；目标字段缺失时跳过并报告，
@@ -1949,7 +1946,7 @@ void runMalilibKeysTests();
 
 
 // ---------------------------------------------------------------------------
-// PG. 提取与落到实例上：收一份 → 落回另一个实例 → 备份 / 两趟确认 / 游戏在跑（§6 P1 / §7）
+// PG. 提取与落到实例上：收一份 → 落回另一个实例 → 备份 / 两趟确认 / 游戏在跑
 // ---------------------------------------------------------------------------
 //
 // 这一节和 PE 那一节的分界：PE 只算"会怎么样"（一个字节都不写）；这一节**真的在两个临时
@@ -1963,7 +1960,7 @@ void runPresetCaptureApplyTests();
 
 void runResourceAndDataPackTests();
 
-// §10.1 第 7 项 / P5：「模组平台身份、依赖/冲突、必要可选失败与下载校验」。验收原话是
+// 模组平台身份、依赖/冲突、必要可选失败与下载校验 —— 这几条的要求原话是
 // 「不错装不兼容文件；替代项目需确认；落盘校验」—— 这一节的三条红线：
 // · 本地先筛：版本自己的 `gameVersions` / `loaders` 对不上就不许下（"接口筛过"不算数）；
 // · 替代项目**绝不自己挑**：没有用户确认就只报「等你确认」，确认了也要它自己过兼容关；
@@ -1972,7 +1969,7 @@ void runResourceAndDataPackTests();
 // ---------------------------------------------------------------------------
 void runModInstallPlanTests();
 
-// §7.2 原话：「搜索实例名、版本号、加载器；筛选原版/模组实例、可更新、最近运行；搜索不
+// 这一层的要求原话：「搜索实例名、版本号、加载器；筛选原版/模组实例、可更新、最近运行；搜索不
 // 改变分组归属；清空搜索恢复原展开状态」。四句里只有**前两句**是这一节的事（纯判据：
 // 一条实例算不算匹配）；后两句说的是"重灌树时别动别的状态"，那是接线，在 mw_check 的 T37。
 //
@@ -1984,7 +1981,7 @@ void runModInstallPlanTests();
 void runInstanceFilterTests();
 
 // ---------------------------------------------------------------------------
-// ZT. 更新中心的「忽略这一版 / 固定这一版」：一本账 + 两条判据（coding plan §7.1）
+// ZT. 更新中心的「忽略这一版 / 固定这一版」：一本账 + 两条判据
 //
 // 这一节盯的是"**什么时候它自己就回来了**"这件事 —— 那两档"别再提示我"最怕的不是记不住，
 // 是**记死了**（用户按一下就把这个资源永远钉在原地，作者再发新版本也不提示了）：
@@ -1998,7 +1995,7 @@ void runInstanceFilterTests();
 void runUpdatePolicyTests();
 
 // ---------------------------------------------------------------------------
-// ZU. 更新前那份轻量回滚点：抄一份 / 退回去 / 撤干净（coding plan §7.1）
+// ZU. 更新前那份轻量回滚点：抄一份 / 退回去 / 撤干净
 //
 // 这一节要**真动盘**（在一个临时游戏文件夹里造实例目录），因为这一层整个存在的意义就是
 // "动手之前手上有一份旧的"：抄得对不对、退回来的**是内容是字节**、更新新添的那个文件撤回
@@ -2012,7 +2009,7 @@ void runUpdatePolicyTests();
 void runUpdateRollbackTests();
 
 // ---------------------------------------------------------------------------
-// ZW. 服务端判据层：状态 / EULA / server.properties / 我们记的那一份（coding plan §6 / M4）
+// ZW. 服务端判据层：状态 / EULA / server.properties / 我们记的那一份
 //
 // 这一节全是**纯函数**（值进、结构出）：一个服务端目录都不必真的存在、一个进程都不必起。
 // 盯的是几处"错了不会报错、只会静默丢东西"的地方：
@@ -2025,7 +2022,7 @@ void runUpdateRollbackTests();
 void runServerModelTests();
 
 // ---------------------------------------------------------------------------
-// ZX. 服务端工作区：`<数据目录>/Servers` 底下谁在住（coding plan §6 / M4）
+// ZX. 服务端工作区：`<数据目录>/Servers` 底下谁在住
 //
 // 这一节**真动盘**：在一个 QTemporaryDir（当成临时数据根目录）里真建目录、真写文件、真删。
 // 盯的是这一层唯一一件本事 —— "把盘上那个目录读成一行事实"：
@@ -2036,7 +2033,7 @@ void runServerModelTests();
 void runServerRegistryTests();
 
 // ---------------------------------------------------------------------------
-// ZY. 服务端安装那四段的**判据层**（coding plan §6.2 / M4-2）
+// ZY. 服务端安装那四段的**判据层**
 //
 // `ServerInstallRun.hpp` 那个头整个是纯函数：喂一份 `Plan` + 一份字节进去，回一个结论出来。
 // 所以这一节**不联网、不建目录、不起 java** —— 那三件事是驱动层（`ServerInstallController`）
@@ -2044,24 +2041,21 @@ void runServerRegistryTests();
 void runServerInstallRunTests();
 
 // ---------------------------------------------------------------------------
-// ZZ. 服务端「跑起来 / 停下来」那一层的**判据层**（coding plan §6.2 的操作 + §6.3 的停止时序 /
-// 里程碑 M4-3）
+// ZZ. 服务端「跑起来 / 停下来」那一层的**判据层**
 //
 // `ServerRun.hpp` 和 `ServerInstallRun.hpp` 同一个形状：纯头、全 inline、不联网、不起进程、
 // 不看时钟 —— 喂几个数进来、回一个结论出去。所以这一节能把它整片钉死。真的 `QProcess` /
 // `QTimer`（`ServerProcess`）在 mw_check 的 T41，那儿拿本工程自己的 exe 当"服务端"跑整趟。
 //
 // 这一层里最要紧的一条是 **内存那几项插在第几位**（`Plan::launchJvmArgsIndex`）：
-// `ServerInstall.hpp` 里原来的注释把方向说反了（"接在这几个 token **后面**"），照着实现
-// 出来是 `java @user_jvm_args.txt @…/win_args.txt nogui -Xmx4G` —— 那张 win_args.txt
-// **自带主类**，`-Xmx` 落在它后面会被 java 当成给服务端的**程序参数**，一个字都不生效、
-// 也不报错（界面上那根内存滑杆成了摆设）。所以 ZZ0 里那几条不是在测"顺序对不对"，是在
-// 钉死"那个坑不会再回来"。
+// `-Xmx` 这类参数必须插在 `@user_jvm_args.txt` / `win_args.txt` **之前** —— 那张
+// win_args.txt **自带主类**，`-Xmx` 落在它后面会被 java 当成给服务端的**程序参数**，
+// 一个字都不生效、也不报错（界面上那根内存滑杆成了摆设）。ZZ0 里那几条钉的是这个顺序。
 // ---------------------------------------------------------------------------
 void runServerRunTests();
 
 // ---------------------------------------------------------------------------
-// ZV. 「服务端设置」那两层判据（coding plan §6.3 / 里程碑 M4-4）
+// ZV. 「服务端设置」那两层判据
 //
 // 这一页上有四样东西，其中三样背后各有一层**纯判据**：
 // · `ServerPropertiesForm`（哪几项、值域多少、收不收、合回文件）—— 见 ZV0 ~ ZV4；
@@ -2077,7 +2071,7 @@ void runServerRunTests();
 void runServerSettingsTests();
 
 // ---------------------------------------------------------------------------
-// ZAE. 服务端那四份玩家名单（coding plan §9.7「玩家管理」）
+// ZAE. 服务端那四份玩家名单
 //
 // 白名单 / 管理员 / 封禁的玩家 / 封禁的 IP —— 四份文件都由服务端自己写，格式是 Gson 的漂亮
 // JSON。这一节钉的是判据层 `ServerPlayers`（全纯函数，不碰盘）：
@@ -2091,7 +2085,7 @@ void runServerSettingsTests();
 void runServerPlayersTests();
 
 // ---------------------------------------------------------------------------
-// ZAF. 服务端异常退出后要不要自动拉起（coding plan §9.7「重启策略 + 上限」）
+// ZAF. 服务端异常退出后要不要自动拉起
 //
 // 这一节钉的是 `ServerRestart` 那几条纯判据。最要紧的三条：
 //
@@ -2105,9 +2099,9 @@ void runServerPlayersTests();
 void runServerRestartTests();
 
 // ---------------------------------------------------------------------------
-// ZAG. 服务端资源包：这份本地 zip 能不能用 / SHA-1 对不对（coding plan §9.7）
+// ZAG. 服务端资源包：这份本地 zip 能不能用 / SHA-1 对不对
 //
-// §9.7 那一句是：「服务端资源包选择本地 zip、计算 SHA-1，并明确 URL 托管仍需用户提供，
+// 要求那一句是：「服务端资源包选择本地 zip、计算 SHA-1，并明确 URL 托管仍需用户提供，
 // 启动器不假装本地路径能被其他玩家访问」。这一节钉**判据那一半**：
 //
 // · 游戏只认**最外层**那一份 `pack.mcmeta` —— "整个文件夹一起压"是最常见的错；
@@ -2120,7 +2114,7 @@ void runServerRestartTests();
 void runServerResourcePackTests();
 
 // ---------------------------------------------------------------------------
-// ZAH. 服务端内容：模组 / 数据包的名字与分类（coding plan §9.7「内容管理」）
+// ZAH. 服务端内容：模组 / 数据包的名字与分类
 //
 // 内容那一页只认两种文件（`mods/*.jar`、`<世界>/datapacks/*.zip`），禁用 = 加 `.disabled`
 // 尾巴。这一层不碰盘，所以这里钉的全是"名字上的规矩"：
@@ -2133,7 +2127,7 @@ void runServerResourcePackTests();
 void runServerContentTests();
 
 // ---------------------------------------------------------------------------
-// ZAI. 工具箱那两件：信标计算 / 酿造助手（coding plan §9.11，）
+// ZAI. 工具箱那两件：信标计算 / 酿造助手
 //
 // 两件都是纯算术 + 一张表，所以这里直接钉数字和路线：
 //
@@ -2158,12 +2152,11 @@ void runFolderRemovalTests();
 void runToolboxExtraTests();
 
 // ---------------------------------------------------------------------------
-// ZA. 回调地址 → 监听端口（coding plan §9.4「客户端 ID 和回调地址通过构建配置注入」）
+// ZA. 回调地址 → 监听端口（客户端 ID 和回调地址通过构建配置注入）
 //
-// 这两个常数从前是 AuthManager.cpp 里手写的两个字面量，而且**端口还是第三个数**：地址里
-// 写 38226、`kCallbackPort` 也写 38226，靠人眼对齐。改成随构建配置注入之后（CMake 那两条
-// `-DWTFML_CLIENT_ID` / `-DWTFML_REDIRECT_URI`），地址是谁给的就不一定了 —— 所以端口
-// **从地址里算**（`OAuthEndpoints::callbackPort()`，唯一出处）。这里钉的就是那个算法。
+// 这两个常数随构建配置注入（CMake 那两条 `-DWTFML_CLIENT_ID` / `-DWTFML_REDIRECT_URI`），
+// 地址是谁给的就不一定了 —— 所以端口**从地址里算**（`OAuthEndpoints::callbackPort()`，
+// 唯一出处）。这里钉的就是那个算法。
 //
 // 这一节最要紧的两条：
 // · "地址里没写端口"**不等于**读不出来 —— 浏览器那时会连协议默认端口（http 80 /
@@ -2175,10 +2168,10 @@ void runToolboxExtraTests();
 void runOAuthEndpointTests();
 
 // ---------------------------------------------------------------------------
-// ZO. 「同时最多下几个」那几档（coding plan §9.2 并发数预设）
+// ZO. 「同时最多下几个」那几档（并发数预设）
 //
-// 从前这个数是 DownloadManager 里一个字面量（24），现在它变成了"出厂默认那一档"，用户能在
-// 设置 → 下载 → 并发数里挑 6/12/24/48。判据层是 `DownloadConcurrency`（唯一出处：四档、
+// 24 是"出厂默认那一档"，用户能在设置 → 下载 → 并发数里挑 6/12/24/48。判据层是
+// `DownloadConcurrency`（唯一出处：四档、
 // 上下限、越界的值怎么办）；这里钉的就是它 + 那条线在 DownloadManager 上真的被用上了。
 //
 // 这一节最要紧的两条：
@@ -2189,7 +2182,7 @@ void runOAuthEndpointTests();
 void runDownloadConcurrencyTests();
 
 // ---------------------------------------------------------------------------
-// ZP. 「下载速度上限」那几档（，coding plan §9.2 下载限速）
+// ZP. 「下载速度上限」那几档（下载限速）
 //
 // 判据层是 `DownloadSpeedLimit`（唯一出处：几档、上下限、归一化、令牌桶容量）；这里钉的
 // 就是它 + 那条线在 DownloadManager 上真的被用上了。
@@ -2201,7 +2194,7 @@ void runDownloadConcurrencyTests();
 void runDownloadSpeedLimitTests();
 
 // ===========================================================================
-// ZQ. 代理：三档 + 手动地址解析（，coding plan §9.2）
+// ZQ. 代理：三档 + 手动地址解析
 //
 // 这一节只碰纯判据（`DownloadProxy`）和 `LauncherSettings` 的存取；"装到进程上"那一下
 // （`QNetworkProxy::setApplicationProxy`）在 mw_check 的冷启动那一节里核。
@@ -2209,7 +2202,7 @@ void runDownloadSpeedLimitTests();
 void runDownloadProxyTests();
 
 // ===========================================================================
-// 工具箱那四层（，coding plan §9.11；用户那天点名的那一批小工具）
+// 工具箱那四层（用户点名的那一批小工具）
 //
 // 这一批的共同形状：**纯函数**（除了哈希要读一个真文件 —— 它在临时目录里读）。
 // 界面那一侧（`ui/ToolboxPage.cpp` + `src/controllers/ToolboxController.cpp`）一条断言都不在
@@ -2325,7 +2318,7 @@ static int toolboxBruteForceMinCostFor(const QList<ToolboxBruteUnit> &units,
 void runAnvilPlannerTests();
 
 // ---------------------------------------------------------------------------
-// 结构 / 原理图的元数据与方块统计（，coding plan §9.5）
+// 结构 / 原理图的元数据与方块统计
 // ---------------------------------------------------------------------------
 //
 // 三种格式各造一份**真形状**的 NBT（用 `NbtTree::serialize()` 手搭，不依赖任何外部文件）：

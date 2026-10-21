@@ -100,7 +100,7 @@ int UiConfigEditorChecks() {
             check(!ConfigFileText::decode(QByteArray(limit, 'x')).tooBig,
                   "★ U11a 边界：**正好到上限**还是给改的（判的是「大于」不是「大于等于」）");
 
-            // ---- ★ 尾巴上被截断的那半个字（ 补）----
+            // ---- ★ 尾巴上被截断的那半个字 ----
             //
             // 这一位是 `hasError()` **一位不够**的地方：它只数"认出来的非法字节"
             // （`qstringconverter_base.h:157`），而**末尾那半截多字节序列不算非法** ——
@@ -1083,7 +1083,7 @@ int UiConfigEditorChecks() {
                 // ---- ② 逗号按方言分派 ----
                 //
                 // `.properties` / `.cfg` 那一族没有容器语法，逗号就是值里的一个字符；
-                // JSON/JSON5/TOML 里它是元素分隔符（老行为，不能一起改）。
+                // JSON/JSON5/TOML 里它是元素分隔符（现有行为，不能一起改）。
                 const QString commaLine =
                     QStringLiteral("particle$noCulling=com.lowdragmc.x,com.brandon3055.y\n");
                 const QList<Entry> kvComma = scan(commaLine, Dialect::KeyValue);
@@ -1091,11 +1091,11 @@ int UiConfigEditorChecks() {
                           kvComma.at(0).value ==
                               QStringLiteral("com.lowdragmc.x,com.brandon3055.y"),
                       "★★ U11w `.properties` 的值**一路读到行尾**（盘上那条 "
-                      "`particle$noCulling=…,…` 修之前只剩第一个逗号前面那半截）",
+                      "`particle$noCulling=…,…` 否则只剩第一个逗号前面那半截）",
                       kvComma.isEmpty() ? QStringLiteral("0 条") : kvComma.at(0).value);
                 const QList<Entry> jsComma = scan(QStringLiteral("list = 1,2,3\n"), Dialect::Jsonish);
                 check(jsComma.size() == 1 && jsComma.at(0).value == QStringLiteral("1"),
-                      "★ U11w JSON 那一族逗号照旧是元素分隔符（老行为一个字节没变）",
+                      "★ U11w JSON 那一族逗号照旧是元素分隔符",
                       jsComma.isEmpty() ? QStringLiteral("0 条") : jsComma.at(0).value);
 
                 // ---- 后缀 → 方言（只看字符串，不碰盘）----
@@ -1111,11 +1111,11 @@ int UiConfigEditorChecks() {
                           dialectForPath(QStringLiteral("C:/mc/config/a.json5")) == Dialect::Jsonish &&
                           dialectForPath(QStringLiteral("C:/mc/config/a.jsonc")) == Dialect::Jsonish,
                       "U11w `.toml` / `.json5` / `.jsonc` 是结构化那一族（逗号是分隔符）");
-                // 拿不准的走**老行为**：这一条是"这次改动不许改变没预料到的文件的读法"。
+                // 拿不准的走**现有行为**：这一条是"这次改动不许改变没预料到的文件的读法"。
                 check(dialectForPath(QStringLiteral("C:/mc/config/a.txt")) == Dialect::Jsonish &&
                           dialectForPath(QStringLiteral("C:/mc/config/a.config")) == Dialect::Jsonish,
-                      "★ U11w 认不出来的后缀（`.txt` / `.config`）走老行为 —— 宁可那样，也不要"
-                      "让一份没人预料到的文件因为这次改动换一种读法");
+                      "★ U11w 认不出来的后缀（`.txt` / `.config`）走现有行为 —— 宁可那样，也不要"
+                      "让一份没人预料到的文件换一种读法");
                 check(dialectForPath(QStringLiteral("C:/mc/1.20.1/config/foo")) == Dialect::Jsonish &&
                           dialectForPath(QStringLiteral("C:/mc/1.20.1/config/foo.json")) ==
                               Dialect::Jsonish,

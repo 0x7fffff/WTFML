@@ -124,10 +124,11 @@ void runAsciiAliasTests() {
 
     // --- ZM6'. ★ 反方向：**还活着**的那一套不许被当成过期的清掉（ 修的那条） ---
     //
-    // 判据 `liveTargetOfAlias()` 原来只读 `QFileInfo::symLinkTarget()`。我们建的是
+    // 判据 `liveTargetOfAlias()` 不能只读 `QFileInfo::symLinkTarget()`。我们建的是
     // `mklink /J` 那种目录联接（IO_REPARSE_TAG_MOUNT_POINT），Qt 对它的 `isSymLink()`
-    // 恒为 false、`symLinkTarget()` 恒为空（读目标要用 `junctionTarget()`）—— 于是那个
-    // 判据恒回空，每一趟 `ensure()` 都把兄弟目录里**正在跑的那个实例**的别名当过期删掉。
+    // 恒为 false、`symLinkTarget()` 恒为空（读目标要用 `junctionTarget()`）—— 只读前者
+    // 判据就恒回空，每一趟 `ensure()` 都会把兄弟目录里**正在跑的那个实例**的别名当过期
+    // 删掉。
     // 后果不是报错：那场游戏之后每写一个文件（存档 / 日志轮转 / 还没加载过的类）都失败。
     // 这里用"目标目录还在"当"还活着"的替身（产品侧那一条判据就是这么写的）。
     {
@@ -147,7 +148,7 @@ void runAsciiAliasTests() {
                   .arg(QFileInfo(liveAlias.root).isDir() ? 1 : 0)
                   .arg(QFileInfo(liveAlias.gameDir).isDir() ? 1 : 0));
         // junctionTarget() 读得出目标（symLinkTarget() 对目录联接读不出来）—— 这条钉的是
-        // 上面那个修复所依赖的 Qt 行为，Qt 那边分类一变就得回来改。
+        // 清理目录联接所依赖的 Qt 行为，Qt 那边分类一变就得回来改。
         check(QDir::cleanPath(QFileInfo(liveAlias.gameDir).junctionTarget())
                       .compare(QDir::cleanPath(liveDir), Qt::CaseInsensitive) == 0,
               "★ ZM6' 目录联接的目标读得出来（`junctionTarget()`），而且是那个实例目录",
@@ -157,8 +158,9 @@ void runAsciiAliasTests() {
     // --- ZM6''. ★ 普通空目录不许当成"联接已经建好了"（ 修的那条） ---
     //
     // `createJunction()` 是"先 mkpath、再设 reparse 点"两步。中间那一步失败（杀软、权限、
-    // 盘突然没了）留下的正是一个同名普通目录。`linkUsable()` 原来在"读不出目标名字"时
-    // 只判"通不通"——普通目录当然通，于是这一套被判成可用：`--gameDir` 指向缓存里的空壳，
+    // 盘突然没了）留下的正是一个同名普通目录。`linkUsable()` 在"读不出目标名字"时
+    // 不能只判"通不通"——普通目录当然通，于是这一套会被判成可用：`--gameDir` 指向缓存里
+    // 的空壳，
     // 游戏把存档、截图、logs 全写进 `cache/ascii/<hash>/game`，实例目录里一份都没有，
     // 清一次缓存就全没了。natives 那一份同理（空的 java.library.path ⇒ UnsatisfiedLinkError）。
     {

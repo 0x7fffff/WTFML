@@ -241,22 +241,22 @@ int runVersionNameTests(const QString &sandbox) {
             VersionNameOptions allOn;
             allOn.showLoaderVersion = true;
             check(legacy.realVersion == QStringLiteral("1.20.1-Forge"),
-                  "★★ §2.6 旧 `realVersion` **原样读**（`1.20.1-Forge` 里的 `-Forge` 不切掉）",
+                  "★★ 旧 `realVersion` **原样读**（`1.20.1-Forge` 里的 `-Forge` 不切掉）",
                   legacy.realVersion);
             check(legacy.loaderName == QStringLiteral("NeoForge-Beta"),
-                  "★★ §2.6 旧 `loaderName` 原样读（`NeoForge-Beta` 不在连字符处断开）",
+                  "★★ 旧 `loaderName` 原样读（`NeoForge-Beta` 不在连字符处断开）",
                   legacy.loaderName);
             check(legacy.loaderVersion == QStringLiteral("21.1.0-beta"),
-                  "★★ §2.6 旧 `loaderVersion` 原样读（`-beta` 那截留着）",
+                  "★★ 旧 `loaderVersion` 原样读（`-beta` 那截留着）",
                   legacy.loaderVersion);
             check(legacy.customName == QStringLiteral("  我的整合包  "),
-                  "★★ §2.6 旧 `name` 原样读（**两头那几个空格不许 trim**）",
+                  "★★ 旧 `name` 原样读（**两头那几个空格不许 trim**）",
                   QStringLiteral("[%1]").arg(legacy.customName));
             const QString shown = formatVersionName(legacy, allOn);
             check(shown.contains(QStringLiteral("1.20.1-Forge")) &&
                       shown.contains(QStringLiteral("NeoForge-Beta")) &&
                       shown.contains(QStringLiteral("21.1.0-beta")),
-                  "★★ §2.6 拼出来的那一串里这三段**逐字可见**（读原样、拼也用它原样）",
+                  "★★ 拼出来的那一串里这三段**逐字可见**（读原样、拼也用它原样）",
                   shown);
         }
 
@@ -348,7 +348,7 @@ int runVersionNameTests(const QString &sandbox) {
         check(reopened.versionNameOptions().showLoaderVersion,
               "I5 四个开关跨实例读得回来");
 
-        // 「缺失前置提醒」（，需求一里那个勾）。它有两件事要钉死：
+        // 「缺失前置提醒」（界面上那个勾）。它有两件事要钉死：
         // ① 全新沙盒里**默认开着**（用户要的那个弹窗默认就弹）；
         // ② 关掉之后**跨实例读得回来** —— 也就是说读的是盘上 `Download/WarnMissingDependencies`
         // 那个键，不是留在某个成员变量里（留在内存里的话换一个实例就"自己又打开了"）。
@@ -505,9 +505,9 @@ int runVersionNameTests(const QString &sandbox) {
               "I7 realVersion 为空时用目录名兜底（和 formatVersionName 同一处退化）",
               launchStatusName(noReal));
         // ⑤b realVersion **非空、但清洗完为空**（只有空白 / 控制字符 —— wtfml.meta 是能手改
-        // 的文本文件）⇒ 必须和上面那一档给同一个答案。 之前这一格两边是分开的：
-        // formatVersionName() 先清洗再判空，而 launchStatusName() 先判空再清洗 ⇒
-        // 列表里显示目录名、底栏"启动中"那句显示加载器名 —— "两处必须一致"当时是假的。
+        // 的文本文件）⇒ 必须和上面那一档给同一个答案。两边判空的顺序必须一致：
+        // formatVersionName() 先清洗再判空，launchStatusName() 也先清洗再判空，否则
+        // 列表里显示目录名、底栏"启动中"那句显示加载器名。
         VersionDisplayParts blankReal;
         blankReal.id = QStringLiteral("26.2-Fabric 0.19.5");
         blankReal.realVersion = QStringLiteral("   ");

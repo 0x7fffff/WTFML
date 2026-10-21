@@ -74,7 +74,7 @@ QString CompatibilitySummary::text() const {
     } else if (missing == 0 && unknown == 0 && invalid == 0) {
         parts.append(QStringLiteral("全部匹配（%1）").arg(matched));
     } else {
-        // 「缺失」与「暂无法确认」**分开说**（§7.2 那条验收：API 失败不算缺失）。
+        // 「缺失」与「暂无法确认」**分开说**（验收：API 失败不算缺失）。
         if (missing > 0) {
             parts.append(QStringLiteral("缺失 %1").arg(missing));
         }
@@ -330,7 +330,7 @@ void CompatibilityChecker::beginQuery(int index) {
     const ModReference reference = item.reference;
     // 检查器可能比提供方先没（关闭那一页 / 换一份预设时整个弹窗拆掉）。提供方手里
     // 那发 `Reply` 之后还可能被调用 —— 直接 `invokeMethod(this, …)` 就是对已析构对象的
-    // 一次跳转（P6「关闭弹窗」那一格）。`QPointer` 在对象析构时自动置空，晚到的那一发
+    // 一次跳转（「关闭弹窗」那一格）。`QPointer` 在对象析构时自动置空，晚到的那一发
     // 到这里就只是一次空判断。
     const QPointer<CompatibilityChecker> guard(this);
     m_provider->query(reference, m_context,

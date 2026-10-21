@@ -37,8 +37,8 @@ struct JavaSettingsOverride {
     std::optional<bool> autoMemory;
     std::optional<QString> extraJvmArgs;
 
-    /// 五项一个都没覆盖（= 这个实例完全跟随全局）。启动路径拿它走"和没有覆盖层
-    /// 之前逐字节一致"的那条路。
+    /// 五项一个都没覆盖（= 这个实例完全跟随全局）。启动路径拿它走"与无覆盖层
+    /// 逐字节一致"的那条路。
     bool isEmpty() const {
         return !javaPath.has_value() && !xmx.has_value() && !xms.has_value() &&
                !autoMemory.has_value() && !extraJvmArgs.has_value();

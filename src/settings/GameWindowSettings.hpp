@@ -46,8 +46,8 @@ enum class GameWindowMode {
 /// 这一次要用的那一组值（全局 + 实例覆盖合成之后的结果）。
 struct GameWindowSettings {
     GameWindowMode mode = GameWindowMode::Windowed;
-    /// 分辨率（像素）。默认的 854×480 就是原版的默认窗口大小 —— 没动过这一项时和
-    /// 加这个功能之前一模一样。
+    /// 分辨率（像素）。默认的 854×480 就是原版的默认窗口大小 —— 没动过这一项时
+    /// 命令行与游戏默认一致。
     int width = 854;
     int height = 480;
 };
@@ -110,7 +110,7 @@ bool gameWindowModeFromToken(const QString &token, GameWindowMode *out);
 /// 这一次启动要发的那几个参数（原样可以拼进命令行）。
 ///
 /// 顺序：`--fullscreen`（全屏那一档才有）在前，然后 `--width W --height H`。两格不是正数
-/// 时**一条都不发**（老规矩：宁可不发，也不发一个 0 出去）。
+/// 时**一条都不发**（规则：宁可不发，也不发一个 0 出去）。
 QStringList gameWindowArguments(const GameWindowSettings &settings, const ScreenWorkArea &screen);
 
 /**

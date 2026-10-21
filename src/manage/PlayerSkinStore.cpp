@@ -140,10 +140,10 @@ PlayerSkinStore::ProfileFetchOutcome PlayerSkinStore::classifyProfileResponse(in
     if (httpStatus == 204) {
         return ProfileFetchOutcome::NoSuchPlayer;
     }
-    // 429 是**明说**的限流（HTTP 语义就是"请求太频繁"）。它以前跟着下面那条"别的状态码
-    // 一律失败"走，于是真机上限流一次就变成日志里一句"取档案失败（HTTP 429）"—— 而那
-    // 句话还会**每次刷新都再添一行**（每次刷新都重新去问）。204 那条路的降级方式对，
-    // 差别只在"要不要退避"：204 含糊，429 说的是"你问得太勤"，所以要退避。
+    // 429 是**明说**的限流（HTTP 语义就是"请求太频繁"）。它不能跟着下面那条"别的状态码
+    // 一律失败"走，否则限流一次就变成日志里一句"取档案失败（HTTP 429）"，而且那句话
+    // 还会**每次刷新都再添一行**。204 那条路的降级方式对，差别只在"要不要退避"：
+    // 204 含糊，429 说的是"你问得太勤"，所以要退避。
     if (httpStatus == 429) {
         return ProfileFetchOutcome::Throttled;
     }
@@ -176,12 +176,11 @@ QUrl PlayerSkinStore::textureRequestUrl(const QString &url) {
         return QUrl();
     }
 
-    // NOTE: **官方档案里的贴图地址就是 http:// 的**（ 真机上取的档案，
-    // skin 和 cape 两条都是，存下来的 profile-*.json 里白纸黑字）。
+    // NOTE: **官方档案里的贴图地址就是 http:// 的**（skin 和 cape 两条都是，
+    // 存下来的 profile-*.json 里白纸黑字）。
     // 所以"不是 https 就拒"那条规矩的后果不是"挡掉被改过的档案"，而是**每一份真
     // 档案都被挡掉**：右栏永远画着默认外观、那句话永远说"取不到 <名字> 的皮肤"，
-    // 而缓存目录里只躺着一份 profile-*.json、一张 .png 都没有（真机上看到的就是
-    // 这个样子 —— 那一张 .png 的缺席就是这条 bug 的指纹）。
+    // 而缓存目录里只躺着一份 profile-*.json、一张 .png 都没有。
     // 同一个内容寻址的地址，https 拿到的字节和 http 一模一样，所以这里升级掉它。
     QUrl target = raw;
     target.setScheme(QStringLiteral("https"));

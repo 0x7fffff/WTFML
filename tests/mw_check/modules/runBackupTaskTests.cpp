@@ -139,7 +139,7 @@ void runBackupTaskTests() {
     };
     // 「这一趟真打完了」那一问才算数：`现在做不了` 是 busy 守卫弹的（下面**故意**在同一
     // 时刻再撞一发），它会先被答掉 —— 拿"答了几问"当"跑完了"，第一问一到手就早退，
-    // 后面每一节都跟着红（ 撞出来的：账本上那一项当时还读成 "interrupted"）。
+    // 后面每一节都跟着红（账本上那一项会读成 "interrupted"）。
     const auto wroteBack = [](const PromptAnswerer &answerer) {
         for (const PromptAnswerer::Answered &one : answerer.answered) {
             // 开跑之前那两句不算：`创建快照` 是分岔那一问，`现在做不了` 是 busy 守卫弹的
@@ -248,7 +248,7 @@ void runBackupTaskTests() {
             check(manifestOk, "★★ T35.1 拿产品的读侧把这个包读得回来", manifestProblem);
             check(manifest.kind == BackupFiles::Kind::Instance && manifest.root == id &&
                       manifest.sourceInstanceId == id && manifest.createdAt.isValid(),
-                  "★★ T35.1 清单记着来源实例 id 和时间（§4.4 点名要的那几样）",
+                  "★★ T35.1 清单记着来源实例 id 和时间（点名要的那几样）",
                   manifest.createdAt.toString(Qt::ISODate));
             check(!manifest.gameVersion.isEmpty(),
                   "★★ T35.1 游戏版本那一格也记下来了（实例自己那份 json 上认出来的）",
@@ -260,7 +260,7 @@ void runBackupTaskTests() {
                   manifest.excluded.join(QLatin1Char('|')));
             check(fileAt(manifest.files, QStringLiteral("assets/不该进包.bin")).path.isEmpty() &&
                       fileAt(manifest.files, QStringLiteral("libraries/不该进包.jar")).path.isEmpty(),
-                  "★★ T35.1 实例根下面那两份**没进包**（§4.4「默认排除能重新下回来的」）",
+                  "★★ T35.1 实例根下面那两份**没进包**（「默认排除能重新下回来的」）",
                   QString::number(manifest.fileCount()));
             check(fileAt(manifest.files, QStringLiteral("mods/示例模组.jar")).size == 8 &&
                       !fileAt(manifest.files, QStringLiteral("saves/基地周目/level.dat"))
@@ -311,7 +311,7 @@ void runBackupTaskTests() {
                   manifest.root);
             check(manifest.excluded.isEmpty(),
                   "★ T35.2 存档没有「能重新下回来的部分」这一说 ⇒ 排除表是空的"
-                  "（§4.4 那个分岔只对实例快照问）");
+                  "（那个分岔只对实例快照问）");
         }
 
         // ---------- ②b 实例正被别的作业占着时，世界不许改名 ----------

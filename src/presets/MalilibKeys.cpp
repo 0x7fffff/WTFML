@@ -8,7 +8,7 @@
  * `applyCell()` 是**唯一**一处改用户配置的地方，它对一格做四件事，顺序不许颠倒：
  *
  * 1. **先判类型**（这一格是对象吗？`hotkey` 是对象吗？`enabled` 是布尔吗？）—— 判完才动手。
- * 边判边改的话，一个走到一半被判死的格子已经在盘上留了半截（§8.1 那条"不许带半截"）。
+ * 边判边改的话，一个走到一半被判死的格子已经在盘上留了半截（"不许带半截"）。
  * **值那一档是这条规矩的例外**：它的格子天生是个标量（`"RenderLines": true`），
  * "整格必须是对象"只对热键那两档成立 —— 见 `applyCell()` 里那一处注释（套上去了的话
  * 每一个**已经存在**的值都会被判成"类型对不上"，永远搬不动）。
@@ -24,9 +24,9 @@
  * 【二、写回去的文件长什么样（别指望和原来逐字节一样）】
  *
  * 一份真被改了的配置文件是**整个重写**的：Qt 那把 `QJsonDocument` 的缩进和键序（`QJsonObject`
- * 自己的次序，实测和 MaLiLib 那一族写出来的字典序一样）落地，源文件里的注释、空行、缩进风格
+ * 自己的次序，和 MaLiLib 那一族写出来的字典序一样）落地，源文件里的注释、空行、缩进风格
  * 一概不留。这一取舍是故意的：这一族读配置是按**键名**读的，缩进和次序对它没有意义，而模组
- * 自己**下一次退出游戏时会把整份文件按它自己的样子重写一遍**（实测），这点差别留不住。
+ * 自己**下一次退出游戏时会把整份文件按它自己的样子重写一遍**，这点差别留不住。
  * 而"一个字都没改"的那些文件**根本不写**（见 `MalilibFileResult::changed`）：重写会动它的
  * mtime，而这一族有按 mtime 判"要不要重读"的用法。
  *
@@ -264,7 +264,7 @@ CellApply applyCell(QJsonObject &root, const MalilibEntry &entry, ApplyMode mode
     const QJsonValue cellValue = group.value(optionKey);
 
     // 「缺了才写」这一档按**格**算（和原版设置那一层同一把尺子：目标上已经有这一格就一个字
-    // 不动）—— 要"整份配置在目标上还没有的时候照搬一份"是通用文件组（P3）的活，不是这一层。
+    // 不动）—— 要"整份配置在目标上还没有的时候照搬一份"是通用文件组的活，不是这一层。
     if (mode == ApplyMode::CopyIfMissing && cellPresent) {
         result.skipped = true;
         return result;
@@ -549,11 +549,11 @@ MalilibFileFacts malilibInspect(const QByteArray &bytes) {
 bool malilibLooksLikeConfig(const QByteArray &bytes) { return malilibInspect(bytes).recognized; }
 
 // ---------------------------------------------------------------------------
-// 键位那一张（§6 P4 的 DTO）
+// 键位那一张（DTO）
 // ---------------------------------------------------------------------------
 
 QString KeyGesture::toKeysString() const {
-    // 拼法只有这一处：逗号分隔、不加空格（实测真数据就是这么写的）。
+    // 拼法只有这一处：逗号分隔、不加空格（真数据就是这么写的）。
     return keys.join(QLatin1Char(','));
 }
 
@@ -653,7 +653,7 @@ MalilibSourceVersions MalilibSourceVersions::fromJson(const QJsonObject &object)
 }
 
 QString MalilibEntry::label() const {
-    // 身份那三样的拼法只有这一处（§6 P4：不用翻译名、不用行号）。
+    // 身份那三样的拼法只有这一处（不用翻译名、不用行号）。
     return modId + QLatin1Char('/') + groupId + QLatin1Char('/') + optionName;
 }
 
@@ -1058,7 +1058,7 @@ MalilibApplyResult applyMalilibEntries(const QList<MalilibEntry> &entries,
     MalilibApplyResult result;
     MalilibApplyReport &report = result.report;
 
-    // ---- ① 「覆盖」要用户明确确认过才动手（§6 P2 那条，和原版设置那一层同一个形状）----
+    // ---- ① 「覆盖」要用户明确确认过才动手（和原版设置那一层同一个形状）----
     if (mode == ApplyMode::Replace && !replaceConfirmed) {
         report.needsConfirm = true;
         report.problem = presetText("「覆盖」会把目标上其余的热键整个解绑，需要先确认过才动手。");
