@@ -141,7 +141,7 @@ void InstanceTransferController::announceCopySuccess(const QString &sourceId,
 
 void InstanceTransferController::copyInstanceInBackground(
     const QString &sourceId, const QString &destGameFolder, const QString &newName,
-    std::function<void(bool, const QString &)> whenDone) {
+    std::function<void(bool, const QString &)> whenDone, bool announce) {
     const auto done = [whenDone](bool ok, const QString &error) {
         if (whenDone) whenDone(ok, error);
     };
@@ -233,7 +233,7 @@ void InstanceTransferController::copyInstanceInBackground(
     // 数据竞争。导出那一层（`ModpackExportController`）用的是同一条写法。
     auto *watcher = new QFutureWatcher<CopyOutcome>(this);
     connect(watcher, &QFutureWatcher<CopyOutcome>::finished, this,
-            [this, watcher, sourceId, sourceDir, destGameFolder, name, markCopyTarget, done] {
+            [this, watcher, sourceId, sourceDir, destGameFolder, name, markCopyTarget, done, announce] {
                 const CopyOutcome outcome = watcher->result();
                 watcher->deleteLater();
                 m_copyBusy = false;
@@ -304,7 +304,7 @@ void InstanceTransferController::copyInstanceInBackground(
                     if (m_host.setTaskProgress) m_host.setTaskProgress(m_copyTaskId, 3, 3);
                 }
                 finishTask(true, {});
-                announceCopySuccess(sourceId, destGameFolder, name);
+                if (announce) announceCopySuccess(sourceId, destGameFolder, name);
                 done(true, {});
             });
     // sourceDir 在**主线程**算好再捕进来（上面 `const QString sourceDir`）。

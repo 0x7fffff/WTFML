@@ -15,123 +15,47 @@
 #include <QJsonObject>
 #include <QMainWindow>
 #include <QPixmap>
-// std::function —— `runWhenOverlayFree()` 收的是"要开的那一整段"（见它那段）。它是个
-// 模板类，前置声明不够用，非得 include。
 #include <functional>
-// QPointer<InstanceSettingsDialog> —— 那一趟测速里对"设置页还在不在"的那一份弱引用
-// （见 ServerPingRun）。用裸指针的话，用户把设置页关掉之后回来的那些结果会往一个已经
-// 析构了的对话框上写：那是 **use-after-free**，不是"多画一笔"。
 #include <QPointer>
 #include <QProcess>
 #include <QSet>
 
-// PlayerSkinStore::PlayerSkinProfile —— 那个"档案到了"的薄壳槽按它收（见
-// onSkinProfileReady）。★ ：按值存一份的那个人（m_skinProfile）住进
-// PlayerSkinController 了，所以这里其实退化成"只按 const 引用用"（前置声明也够）——
-// 但这个头还带着 PlayerSkinStore 自己的声明，而 `m_skinStore` 就在下面，所以照样 include。
-// 它是 Core+Network 的头，拖进来的东西不多。
 #include "manage/PlayerSkinStore.hpp"
-// SavedAccount —— accountFacePixmap() 收的就是它（底栏账号面板里那一行是谁）。
-// 这个头是**纯数据 + 静态函数**（QList/QString，连 QtGui 都不碰），所以按值用就 include。
 #include "auth/AccountStore.hpp"
-// LoaderMeta::LoaderVersionList —— 下面那个槽和 fillLoaderVersionItems() 都按它收
-// （每一条带着 stable 标记，"哪一条是测试版""稳定那一档有没有货"都要靠它，见
-// MainWindow::fillLoaderVersionItems）。这是个**纯数据的头**（只有 QString/QList/QJson
-// 那些 QtCore 的东西，不拖 QtWidgets），所以按值用就 include，不去走前置声明那一套。
 #include "download/LoaderMeta.hpp"
 #include "download/ModDependencies.hpp"
 #include "download/ResourceCatalog.hpp"
-// ServerStatusCache::Entry / ServerPing::Status —— 「服务器列表」那一趟测速的状态里
-// 两样都按值存一份（见 m_serverPing）。两个头都很轻（QByteArray/QString 那一档），
-// 所以按值用就 include，不去走"前置声明 + 指针"那一套。
 #include "manage/ServerStatusCache.hpp"
-// 只为了 applyModpackImport() 签名里那个 ModpackImport::Format（两种整合包清单）。
-// 那个枚举没有固定的底层类型，前置声明不了，所以这里带进来。
 #include "manage/ModpackImport.hpp"
-// InstanceIconLookup::Result —— 「文件管理」那几页的图标反查结果按值收一份（见
-// requestInstanceFileIcons）。这个头只碰 QtCore + ResourceCatalog 那个枚举。
 #include "manage/InstanceIconLookup.hpp"
-// ServerPing::Status / ServerPing::Pinger —— 上面那个"一趟测速"的状态，以及跑它的那件
-// 东西（见 pingServers()）。这个头只碰 QtCore（QObject/QByteArray/QJsonValue），很轻。
 #include "launcher/QuickPlay.hpp"
 #include "util/ServerPing.hpp"
-// TaskManager / TaskSnapshot / TaskStep —— 底栏那格的"任务摘要"和任务中心那几行都按值用
-// （见 ActivityCenterController 那一段）。这个头只碰 QtCore（QObject/QDateTime/QList/QString），
-// 和上面那几个同一个理由：按值用就 include，不走"前置声明 + 指针"那一套。
 #include "tasks/TaskManager.hpp"
-// TaskCenter::Item —— taskCenterItems() 按值回一串（那是给任务中心面板的一份**纯显示**
-// DTO，见 ui/TaskCenterPanel.hpp 文件头）。同样是因为按值用它才 include 到这里。
 #include "..\ui\TaskCenterPanel.hpp"
-// TaskDetailPage::Action —— onTaskDetailAction() 的参数类型。理由同上：**按值/按枚举用它
-// 就得 include**（前置声明说得出 `TaskDetailPage *`，说不出它的嵌套枚举）。
 #include "..\ui\TaskDetailPage.hpp"
-// IntegrityReportPage::Report / ::Action —— integrityReportForPage() 按值回一份，动作枚举
-// 也按值传。理由同上：按值用就得 include。
 #include "..\ui\IntegrityReportPage.hpp"
 #include "manage/VersionIntegrity.hpp"
-// 世界 / 实例的备份与还原（coding plan §4.4，）：那几颗按钮起的那一趟后台活
-// 直接调它，界面上挑备份 / 弹结果也读它的 `Manifest` / `WriteResult` / `RestoreResult`。
 #include "manage/BackupFiles.hpp"
 #include "diag/GameExitDiagnosis.hpp"
-// 启动历史账本（coding plan §5.1，）：主页“最近游玩”排按值持有记录
-// `Record`（`latestPlayable()` 的返回值、`LaunchHistoryController::records()` 的元素类型），
-// 所以得 include 而不是前置声明。
 #include "manage/LaunchHistory.hpp"
-// 「上一次启动」那本账的**驱动层**（ 从本类搬出去的那一片）。下面那三个给验证工程
-// 摆现场的 inline 入口直接调它的静态函数和成员函数，按值用 ⇒ 得 include（同 ServerInstallController
-// 那一条的理由）。这个头不 include MainWindow.hpp，不构成环。
-// 一次游戏会话的那一整块（ 从本类搬出去的那一片）：**那几本账和"进程信号进来
-// 之后干什么"都在它那儿**（九个私有成员 + 一句 friend 一起走的）。上面那几个给验证工程
-// 摆现场的 inline 入口按值用它的嵌套类型 `GameSessionFacts`，按值用 ⇒ 得 include。
-// 这个头只碰 QtCore / QtGui 的几个类型，不 include MainWindow.hpp，不构成环。
 #include "controllers/GameSessionController.hpp"
 #include "controllers/LaunchHistoryController.hpp"
-// 「实例设置」写侧那一套（ 从本类搬出去的那一片）：`showInstanceSettingsNotice()`
-// 的签名里按 const 引用用它的嵌套类型 `Notice`，前置声明说不出那么细的名字 ⇒ 得 include。
-// 这个头只碰 QtCore（QObject/QString/functional），不 include MainWindow.hpp，不构成环。
 #include "controllers/InstanceSettingsController.hpp"
-// 「服务器列表」那一页上会写盘的那三件事（ 从本类搬出去的那一片）：理由同上
-// （`showServerListNotice()` 的签名按 const 引用用它的嵌套类型 `Notice`）。这个头只碰
-// QtCore，不 include MainWindow.hpp，不构成环。
 #include "controllers/ServerListController.hpp"
-// 实例页的搜索与筛选（coding plan §7.2，）：`Query` / `Facts` 都是按值传的小
-// 结构（`instanceFilterQuery()` / `instanceFilterFacts()` 的返回值），所以得 include。
 #include "manage/InstanceFilter.hpp"
-// 「忽略这一版」「固定这一版」那一本账（coding plan §7.1，）：按值持有一份
-// `Store`（见 m_updatePolicy）。这个头只碰 QtCore + 一次文件读写。
 #include "manage/UpdatePolicy.hpp"
-// 更新中心那一页（coding plan §7.1）：`Report` / `Row` 按值造（updateCenterReportForPage()
-// 的返回值），所以得 include 而不是前置声明 —— 同 IntegrityReportPage 那一条。
 #include "..\ui\UpdateCenterPage.hpp"
-// 「新建服务端」那一页（coding plan §6.2 / M4）：`m_newServerPage` 是个指针（前置声明就
-// 够），但 `updateNewServerSummary()` 的签名里按指针用它 —— 一并 include，省得再想
-// "哪一份要前置声明哪一份要 include"。
 #include "..\ui\NewServerPage.hpp"
-// 服务端安装那四段真的跑起来（coding plan §6.2 / M4-2）：`Request` 是按值传的小结构
-// （`installServer()` 的签名里有它），而 `ServerInstallController` 是**成员指针** ——
-// 前置声明说得出指针，但 `installServer()` 的参数类型要完整定义，所以一并 include。
-// （`ServerInstallRun.hpp` 里那几个纯函数在这个头里用不到，在 .cpp 里才 include。）
 #include "server/ServerInstallController.hpp"
-// 服务端控制台那一页（coding plan §6.2 / M4-3）**整个搬进 `ServerConsoleController` 了**
-// 页对象和"这一页现在说的是谁"都在那边，这一层只留一条转手的口子 ——
-// 于是 `ui/ServerConsolePage.hpp` 这个头不再需要（前置声明那个控制器就够）。
-// 「服务端设置」那一页（coding plan §6.3 / M4-4）：`m_serverSettingsPage` 是个指针，同
-// 上面那条的理由一并进来。
 #include "..\ui\ServerSettingsPage.hpp"
-// 服务端设置底下那三层判据：`ServerCheck::Facts` 在私有函数的返回值里**按值**出现，所以
-// 这个头必须看得见它的定义（`ServerCheck.hpp` 自己就把另外两张表带进来了）。
 #include "server/ServerCheck.hpp"
 
-// MainWindowUI —— `InstanceMode` 是**按值**存在成员里的（`m_instanceMode`），而前置声明
-// 说得出 `MainWindowUI *`、说不出它里面的嵌套枚举，所以这里得 include（同 TaskDetailPage /
-// IntegrityReportPage 那条老规矩）。这个头自己不 include MainWindow.hpp，不构成环。
 #include "..\ui\MainWindowUI.hpp"
-// 安装页那棵加载器树上的一个条目（loaderItem()）。这里只在私有函数的参数/返回值里按
-// 指针用，前置声明就够 —— 不值得为了一个参数类型让每个 include 了 MainWindow.hpp 的
-// 地方都把 QtWidgets 里那个大块头拖进来。
 class QDragEnterEvent;  // 拖进来的文件（只用指针，所以前置声明够）
 class QDropEvent;
 class ServerSettingsController;
+class ServerManagementActions;
+class InstanceUpdateFlow;
 class ThemeSettingsController;
 class JavaSettingsController;
 class PresetController;
@@ -1371,6 +1295,8 @@ protected:
 
 private:
     friend class InstanceDialogController;
+    friend class ServerManagementActions;
+    friend class InstanceUpdateFlow;
     friend class InstanceEditorController;
     friend class ImportController;
     friend class LaunchController;

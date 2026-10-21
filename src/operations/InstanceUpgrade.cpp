@@ -308,6 +308,8 @@ static Result prepareAndCommitImpl(Request r, const Core &core, const std::funct
         while (it.hasNext()) {
             const QString path = it.next();
             if (!path.endsWith(".jar", Qt::CaseInsensitive)) continue;
+              const QString relative = QDir(candidate + "/mods").relativeFilePath(path);
+              if (core.keepOldMods.contains(relative)) continue;
             if (QFileInfo::exists(path + ".disabled") || !QFile::rename(path, path + ".disabled")) {
                 result.problem = QStringLiteral("无法禁用尚未验证兼容性的旧模组，原实例未改变。"); return result;
             }

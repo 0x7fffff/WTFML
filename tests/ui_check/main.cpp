@@ -1,6 +1,6 @@
 /**
  * @file main.cpp
- * @brief 一次性 UI 验证：offscreen 搭出 MainWindowUI，断言布局几何与下拉框行为。
+ * @brief UI 回归测试入口：使用 offscreen 验证控件交互、布局和主题。
  *
  * 主验证工程（tests/）只链 Qt6::Core/Network、不编译任何 UI 代码，所以
  * "两个下拉框"这次改动的界面部分在这里验。用 offscreen 平台插件跑，不需要真屏幕。
@@ -756,6 +756,37 @@ int main(int argc, char *argv[]) {
         auto *serverColumns = dialog.findChild<QTreeWidget *>(Dlg::serverTreeName());
         expect(serverColumns && serverColumns->columnWidth(1) == 120 && serverColumns->columnWidth(2) == 144,
                "server address and status have bounded default widths instead of following long error text");
+        dialog.setUpgradeContext(QStringLiteral("当前实例：测试实例 · Minecraft 1.20.1 · Fabric"));
+        dialog.setTransferTargets(QStringLiteral("upgrade"), {{QStringLiteral("1.21 尚未准备"), QStringLiteral("@download:1.21")},
+                                                              {QStringLiteral("1.21 Fabric 核心已准备"), QStringLiteral("ready-core")}});
+        dialog.showPage(QStringLiteral("upgrade"));
+        auto *upgradeTarget = dialog.findChild<QComboBox *>(Dlg::transferTargetComboName(QStringLiteral("upgrade")));
+        auto *upgradeApply = dialog.findChild<QPushButton *>(Dlg::transferApplyButtonName(QStringLiteral("upgrade")));
+        auto *inPlace = dialog.findChild<QPushButton *>(QStringLiteral("instanceUpgradeInPlaceButton"));
+        auto *prepare = dialog.findChild<QPushButton *>(QStringLiteral("instanceUpgradePrepareTarget"));
+        expect(upgradeTarget && dialog.transferTarget(QStringLiteral("upgrade")).isEmpty() && !upgradeApply->isEnabled() && !inPlace->isEnabled(),
+               "upgrade never silently chooses a different instance as a target");
+        QString preparedVersion;
+        QObject::connect(&dialog, &Dlg::prepareUpgradeTargetRequested, &dialog, [&](const QString &version) { preparedVersion = version; });
+        upgradeTarget->setCurrentIndex(1);
+        expect(prepare->isVisibleTo(&dialog) && !inPlace->isEnabled(), "unprepared core cannot trigger an in-place update");
+        prepare->click();
+        expect(preparedVersion == QStringLiteral("1.21"), "preparing an update carries the exact selected game version");
+        upgradeTarget->setCurrentIndex(2);
+        dialog.setTransferItems(QStringLiteral("upgrade"), {{QStringLiteral("存档"), QStringLiteral("saves")}}, {QStringLiteral("saves")});
+        expect(upgradeApply->isEnabled() && inPlace->isEnabled() && !prepare->isVisibleTo(&dialog), "prepared target enables the existing protected update actions");
+        upgradeTarget->setEditText(QStringLiteral("1.99 输入但未选中"));
+        expect(!inPlace->isEnabled() && !upgradeApply->isEnabled(), "typing a search cannot execute the previously selected target");
+        dialog.setUpgradeModChecks({{QStringLiteral("示例模组"), QStringLiteral("平台未找到目标发行版\n本地 Minecraft 声明符合"), QStringLiteral(">=1.20 <1.22")}}, QStringLiteral("声明不是运行保证"));
+        auto *modChecks = dialog.findChild<QTreeWidget *>(QStringLiteral("instanceUpgradeModChecks"));
+        expect(modChecks && modChecks->topLevelItemCount() == 1 && modChecks->topLevelItem(0)->text(1).contains(QStringLiteral("声明符合")),
+               "platform release absence and local declaration support can be displayed together");
+        if (app.arguments().contains(QStringLiteral("--lifecycle-preview"))) {
+            upgradeTarget->setCurrentIndex(2);
+            dialog.setTransferPlan(QStringLiteral("upgrade"), QStringLiteral("示例评估（测试数据）\nMinecraft 1.20.1 → 1.21\n游戏版本发生变化；请检查存档、模组与配置。\n原地更新需要完整快照；创建副本不会修改原实例。"));
+            dialog.resize(1100, 650); app.processEvents();
+            dialog.grab().save(QStringLiteral("build/upgrade-layout-preview.png"));
+        }
         {
             InstanceFilesPage details;
             details.setDirectory(dirs.value(QStringLiteral("logs")));

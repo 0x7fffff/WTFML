@@ -13,10 +13,20 @@
 
 #include <QByteArray>
 #include <QList>
+#include <QHash>
 #include <QString>
 #include <QStringList>
 
 namespace ZipUtil {
+struct ArchiveMetadata {
+    QHash<QString, QByteArray> entries;
+    QHash<QString, QString> entryProblems;
+    QString problem;
+};
+/// One bounded worker process for the whole batch; never extracts to archive paths.
+QHash<QString, ArchiveMetadata> readMetadataBatch(const QStringList &archives,
+    const QStringList &entryNames, QString *problem = nullptr,
+    const std::function<bool()> &cancelled = {});
 
 /// 打包时的一条：归档里叫什么（`/` 分隔）↔ 盘上哪一份文件。
 struct ZipSource {
@@ -84,6 +94,9 @@ bool extractArchives(const QStringList &archives, const QString &targetDir,
 EntryStatus readEntry(const QString &archive, const QString &entryName, QByteArray *out,
                       QString *errorOut = nullptr,
                       const QString &what = QStringLiteral("读压缩包条目"));
+/// Metadata-only overload: bound both declared and actually decompressed bytes.
+EntryStatus readEntry(const QString &archive, const QString &entryName, QByteArray *out,
+                      QString *errorOut, const QString &what, qint64 maximumBytes);
 
 /**
  * @brief 列出压缩包里所有条目的名字（`/` 分隔，**原样**：不排序、不去重、不改大小写）。

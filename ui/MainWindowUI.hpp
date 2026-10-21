@@ -1,11 +1,12 @@
 /**
  * @file MainWindowUI.hpp
- * @brief 主窗口界面构建器：创建选项卡、侧栏、正文面、底栏和所有设置控件。
- * @note 只负责界面结构与显隐；业务值、落盘和后台动作由 MainWindow/controller 注入。
+ * @brief 声明 UI 构建器类，负责创建主窗口的所有控件和布局。
+ * @note 实现界面与业务逻辑的分离，提高代码可维护性。
  *
- * 四个主选项卡（主页 / 管理 / 下载 / 设置）都是左右两栏，比例由
- * leftColumnStretch()/rightColumnStretch() 决定。设置页每栏内部再用上下结构的设置行。
+ * 顶部为主页、管理、下载、设置导航，底部提供运行状态、任务中心和工具箱入口。
+ * 各页独立构建布局；本类只负责控件与交互信号，业务操作由控制器处理。
  */
+
 #pragma once
 
 #include <QCoreApplication>

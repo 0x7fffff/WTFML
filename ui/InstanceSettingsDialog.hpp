@@ -704,6 +704,10 @@ public:
     void setTransferTargets(const QString &key, const QList<QPair<QString, QString>> &targets);
     /// 摆计划正文（`TransferPlanner::Plan::detailText()` 那一份）。
     void setTransferPlan(const QString &key, const QString &text);
+    void setUpgradeContext(const QString &text);
+    QStringList upgradeKeptMods() const;
+    int upgradePendingModCount() const;
+    void setUpgradeModChecks(const QList<QStringList> &rows, const QString &summary);
     /// 摆可勾选的范围表（(显示名, 键) 对 + 默认勾选的键）。
     void setTransferItems(const QString &key, const QList<QPair<QString, QString>> &items,
                           const QStringList &defaultKeys);
@@ -1780,6 +1784,9 @@ signals:
     /// 接的人按"源实例 + 这个目标"重算一份计划，拿 `setTransferPlan()` /
     /// `setTransferItems()` 摆回来。**这一层不读盘**，换目标时也不会自己发第二发。
     void transferTargetChosen(const QString &key, const QString &targetId);
+    void prepareUpgradeTargetRequested(const QString &gameVersion);
+    void updateWizardRequested();
+    void stopUpgradeQueryRequested();
 
     /// 用户按了「搬过去…」/「创建升级副本…」。**只发意图，不写盘**：路径闸、运不运
     /// 行、要不要问名字都在 controller 那一层。

@@ -117,6 +117,8 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/controllers/InstanceTransferController.cpp
     ${REPO_ROOT}/src/controllers/InstanceUpgradeController.cpp
     ${REPO_ROOT}/src/controllers/InstanceDialogController.cpp
+    ${REPO_ROOT}/src/controllers/UpgradeAssessment.cpp
+    ${REPO_ROOT}/src/controllers/InstanceUpdateFlow.cpp
     ${REPO_ROOT}/src/controllers/InstanceEditorController.cpp
     ${REPO_ROOT}/src/controllers/ImportController.cpp
     ${REPO_ROOT}/src/controllers/GameSessionController.cpp
@@ -130,6 +132,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/controllers/ServerWorkspaceController.cpp
     ${REPO_ROOT}/src/controllers/ServerConsoleController.cpp
     ${REPO_ROOT}/src/controllers/ServerSettingsController.cpp
+    ${REPO_ROOT}/src/controllers/ServerManagementActions.cpp
     ${REPO_ROOT}/src/controllers/ThemeSettingsController.cpp
     ${REPO_ROOT}/src/controllers/PlayerSkinController.cpp
     # 「上一次启动」那本账的驱动层（同上）：少了这一个文件会在链接那一步报一串
@@ -290,6 +293,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/ui/GroupDialog.cpp
     ${REPO_ROOT}/ui/GroupListDelegate.cpp
     ${REPO_ROOT}/ui/InstanceSettingsDialog.cpp
+    ${REPO_ROOT}/ui/InstanceUpdateWizard.cpp
     ${REPO_ROOT}/ui/InstanceFilesPage.cpp
     ${REPO_ROOT}/ui/ResourcePackPage.cpp
     # 「配置文件」那一页（2026-09-27）：编辑器那一格和它那套纯函数（认 BOM / 认行尾 /
