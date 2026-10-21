@@ -1,9 +1,12 @@
 #Requires -Version 7.0
 [CmdletBinding()]
 param(
-    [ValidateSet('quick', 'full', 'core', 'window', 'java', 'mods', 'upgrade', 'network', 'visual',
+    [ValidateSet('affected', 'quick', 'full', 'core', 'window', 'java', 'mods', 'upgrade', 'network', 'visual',
                  'ci-app', 'ci-core', 'ci-ui', 'ci-integration')]
-    [string]$Suite = 'quick',
+    [string]$Suite = 'affected',
+    [string]$BaseRef = 'origin/main',
+    [string[]]$ChangedPath,
+    [string]$Modules,
     [string]$BuildDir = 'build/verification-mingw13',
     [string]$ConfigurePreset = 'verification',
     [string]$ReportRoot = 'build/test-runs',
@@ -75,28 +78,67 @@ try {
     $env:TMP = $env:TEMP
     $cmake = (Get-Command cmake -ErrorAction Stop).Source
     $ctest = (Get-Command ctest -ErrorAction Stop).Source
+    . (Join-Path $PSScriptRoot 'test-impact.ps1')
+    . (Join-Path $PSScriptRoot 'test-build-plan.ps1')
+    $impact = $null
+    if ($Suite -eq 'affected') {
+        $paths = if ($PSBoundParameters.ContainsKey('ChangedPath')) { $ChangedPath } else { @(Get-ChangedTestPaths $BaseRef) }
+        $impact = Get-TestImpact $paths
+        $impact | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $run 'impact.json') -Encoding utf8
+        $Modules = if ($impact.full) { '' } else { $impact.modules -join ',' }
+        Write-Host "Affected modules: $Modules"
+    }
+    $moduleTests = @()
+    if ($Modules) {
+        if ($Suite -ne 'affected' -and $Suite -notlike 'ci-*') { throw '-Modules requires -Suite affected or a CI partition.' }
+        $catalog = (Get-TestImpact @() $true).testMap
+        foreach ($module in $Modules.Split(',', [StringSplitOptions]::RemoveEmptyEntries)) {
+            if (-not $catalog.Contains($module)) { throw "Unknown test module: $module" }
+            $moduleTests += $catalog[$module]
+        }
+        $moduleTests = @($moduleTests | Sort-Object -Unique)
+    }
+    $skip = $Suite -eq 'affected' -and $impact.suites.Count -eq 0
+    if ($skip) { Write-Host 'No build/tests required: documentation-only changes or no changes.'; $result = 0; exit 0 }
+    $selection = switch ($Suite) {
+        'affected' { @('-LE', 'visual') }
+        { $_ -in @('ci-app', 'ci-core', 'ci-ui', 'ci-integration') } { @('-L', "^$Suite$", '-LE', 'visual') }
+        'quick' { @('-R', '^wtfml\.(test-runner|test-modules|java-manage|mod-action-panel|workspace|activity-selection|theme|ui-refresh|install-layout|lifecycle|toolbox-polish|armor-trim)$') }
+        'core' { @('-R', '^wtfml\.core(-|$)') }
+        'java' { @('-R', '^wtfml\.java-manage$') }
+        'window' { @('-R', '^wtfml\.main-window$') }
+        'mods' { @('-R', '^wtfml\.mod-action-panel$') }
+        'upgrade' { @('-R', '^wtfml\.instance-upgrade$') }
+        'network' { @('-R', '^wtfml\.(download-retry|high-speed-download|segmented-download|segment-install|preset-install)$') }
+        'visual' { @('-L', 'visual') }
+        'full' { @('-LE', 'visual') }
+    }
+    if ($Modules) {
+        $pattern = '^wtfml\.(' + (($moduleTests | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')$'
+        $selection += @('-R', $pattern)
+    }
     if (-not $NoBuild -and -not $ListOnly) {
         Get-Process WTFMinecraftLauncher -ErrorAction SilentlyContinue | Stop-Process -Force
         if (-not (Test-Path -LiteralPath (Join-Path $build 'CMakeCache.txt'))) {
             Invoke-Stage 'configure' $cmake @('--preset', $ConfigurePreset, '-B', $build) $BuildTimeoutSeconds
         }
-        $targets = switch ($Suite) {
-            'ci-app' { @('WTFMinecraftLauncher', 'WTFMLNetworkDiag') }
-            'ci-core' { @('verify') }
-            'ci-ui' { @('ui_check') }
-            'ci-integration' { @('mw_check') }
-            'core' { @('verify') }
-            'java' { @('mw_check') }
-            'window' { @('mw_check') }
-            'mods' { @('mw_check') }
-            'upgrade' { @('WTFMinecraftLauncher', 'mw_check') }
-            'network' { @('mw_check') }
-            'visual' { @('ui_check') }
-            'quick' { @('ui_check', 'mw_check') }
-            default { @('WTFMinecraftLauncher', 'verify', 'ui_check', 'mw_check') }
+        # CTest is the source of truth for selection, including future registered tests.
+        Invoke-Stage 'refresh-test-graph' $cmake @('-S', $repo, '-B', $build) $BuildTimeoutSeconds
+        Invoke-Stage 'selected-tests' $ctest (@('--test-dir', $build, '--show-only=json-v1') + $selection) 60
+        $registered = (Get-Content -LiteralPath (Join-Path $run 'selected-tests.stdout.log') -Raw | ConvertFrom-Json).tests
+        $targetList = [Collections.Generic.HashSet[string]]::new()
+        $manifest = Get-Content -LiteralPath (Join-Path $build 'test-targets.txt') | ConvertFrom-Csv -Delimiter '|'
+        foreach ($target in @(Get-TestBuildTargets $registered $manifest)) { $null = $targetList.Add($target) }
+        if ($Suite -eq 'ci-app' -or ($Suite -eq 'affected' -and 'app' -in $impact.modules) -or $Suite -eq 'full') {
+            $null = $targetList.Add('WTFMinecraftLauncher')
+            $null = $targetList.Add('WTFMLNetworkDiag')
+        }
+        $targets = @($targetList | Sort-Object)
+        foreach ($runtime in @(Get-TestRuntimeTargets $targets)) {
+            Invoke-Stage "build-$runtime" $cmake @('--build', $build, '--target', $runtime, '--parallel', "$BuildJobs") $BuildTimeoutSeconds
         }
         foreach ($target in $targets) {
-            if ($Suite -eq 'ci-app' -and $target -eq 'WTFMinecraftLauncher') {
+            if ($Suite -in @('ci-app', 'affected', 'full') -and $target -eq 'WTFMinecraftLauncher') {
                 # Cold launcher compilation can exceed one 900s stage. Build explicit,
                 # non-overlapping object batches first, then let CMake link the full target.
                 # Dependencies (including Qt autogen) remain managed by Ninja itself.
@@ -121,22 +163,6 @@ try {
             }
             Invoke-Stage "build-$target" $cmake @('--build', $build, '--target', $target, '--parallel', "$BuildJobs") $BuildTimeoutSeconds
         }
-        if ($Suite -eq 'full') {
-            # Build optional/default targets too (e.g. network diagnostics and future registered tools).
-            Invoke-Stage 'build-remaining' $cmake @('--build', $build, '--parallel', "$BuildJobs") $BuildTimeoutSeconds
-        }
-    }
-    $selection = switch ($Suite) {
-        { $_ -in @('ci-app', 'ci-core', 'ci-ui', 'ci-integration') } { @('-L', "^$Suite$", '-LE', 'visual') }
-        'quick' { @('-R', '^wtfml\.(test-runner|java-manage|mod-action-panel|workspace|activity-selection|theme|ui-refresh|install-layout|lifecycle|toolbox-polish|armor-trim)$') }
-        'core' { @('-R', '^wtfml\.core$') }
-        'java' { @('-R', '^wtfml\.java-manage$') }
-        'window' { @('-R', '^wtfml\.main-window$') }
-        'mods' { @('-R', '^wtfml\.mod-action-panel$') }
-        'upgrade' { @('-R', '^wtfml\.instance-upgrade$') }
-        'network' { @('-R', '^wtfml\.(download-retry|high-speed-download|segmented-download|segment-install|preset-install)$') }
-        'visual' { @('-L', 'visual') }
-        'full' { @('-LE', 'visual') }
     }
     $testArgs = @('--test-dir', $build, '--no-tests=error', '--output-on-failure', '--parallel', '1', '--timeout', '900') + $selection
     if ($ListOnly) { $testArgs += @('--show-only=json-v1') }

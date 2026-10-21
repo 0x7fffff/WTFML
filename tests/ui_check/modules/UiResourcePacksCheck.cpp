@@ -1,0 +1,119 @@
+#include "Support.hpp"
+int UiResourcePacksCheck(QApplication &app) {
+
+        const int fontId = QFontDatabase::addApplicationFont(QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc")));
+        const auto families = QFontDatabase::applicationFontFamilies(fontId);
+        if (!families.isEmpty()) app.setFont(QFont(families.first(), 9));
+        app.setStyle(Theme::createStyle());
+        Theme::setSpec(Theme::defaultSpec());
+        Theme::apply(app);
+        int failures = 0;
+        const auto expect = [&failures](bool ok, const char *message) {
+            printf("%s %s\n", ok ? "PASS" : "FAIL", message);
+            if (!ok) ++failures;
+        };
+        using namespace ResourcePackOptions;
+        const QByteArray original = QByteArray("\xef\xbb\xbf")
+            + "fov:0.5\r\nresourcePacks:[\"vanilla\"]\r\nunknown:keep:me\r\n"
+              "resourcePacks:[\"vanilla\",\"file/a.zip\"]\r\nincompatibleResourcePacks:[\"file/a.zip\"]";
+        const auto document = parse(original);
+        expect(document.problem.isEmpty() && document.selected == QStringList{"vanilla", "file/a.zip"},
+               "parse final resourcePacks line, keep builtin ids");
+        QByteArray output;
+        QString problem;
+        expect(rewrite(document, document.selected, &output, &problem) && output == original,
+               "no-op preserves every byte including BOM and CRLF");
+        expect(rewrite(document, {"vanilla", "file/b.zip", "file/a.zip"}, &output, &problem)
+                   && output.startsWith(QByteArray("\xef\xbb\xbf") + "fov:0.5\r\nresourcePacks:[\"vanilla\"]\r\nunknown:keep:me\r\n")
+                   && output.endsWith("\r\nincompatibleResourcePacks:[\"file/a.zip\"]")
+                   && parse(output).selected == QStringList{"vanilla", "file/b.zip", "file/a.zip"},
+               "rewrite only last resourcePacks value, preserve other settings");
+        expect(!rewrite(document, {"file/a.zip"}, &output, &problem), "cannot remove builtin packs");
+        expect(!rewrite(document, {"vanilla", "file/a.zip", "file/a.zip"}, &output, &problem), "reject duplicate ids");
+        expect(!parse("resourcePacks:[123]").problem.isEmpty()
+                   && !parse("resourcePacks:broken").problem.isEmpty(), "malformed lists are read-only");
+        expect(!safeLocal("file/../evil.zip") && !safeLocal("file/C:evil.zip")
+                   && !safeLocal("file/a/b.zip") && safeLocal("file/中文包.zip"), "local identifiers cannot escape directory");
+        expect(rewrite(parse("fov:0.7"), {"file/a.zip"}, &output, &problem)
+                   && output == "fov:0.7\nresourcePacks:[\"file/a.zip\"]\n", "missing key appends without damaging final line");
+        QTemporaryDir scratch(QDir::current().filePath(QStringLiteral(".resource-packs-XXXXXX")));
+        if (!scratch.isValid()) return 1;
+        const QString path = scratch.path() + QStringLiteral("/options.txt");
+        const QString backups = scratch.path() + QStringLiteral("/backups");
+        const auto write = [&](const QByteArray &bytes) { QFile file(path); return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size(); };
+        const auto bytesAt = [](const QString &filePath) { QFile file(filePath); return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray(); };
+        expect(write(original), "create options fixture");
+        expect(save(path, original, true, {"vanilla", "file/a.zip", "file/b.zip"}, {"file/a.zip", "file/b.zip"}, backups, &problem),
+               "save enabled order with atomic backup");
+        const auto copies = QDir(backups).entryList(QDir::Files);
+        expect(copies.size() == 1 && bytesAt(backups + QLatin1Char('/') + copies.value(0)) == original,
+               "backup contains exact previous bytes");
+        const QByteArray saved = bytesAt(path);
+        expect(!save(path, original, true, document.selected, {"file/a.zip"}, backups, &problem) && bytesAt(path) == saved,
+               "stale snapshot cannot overwrite external changes");
+        expect(!save(path, saved, true, {"vanilla", "file/missing.zip"}, {}, backups, &problem) && bytesAt(path) == saved,
+               "cannot enable a vanished pack");
+        const QString blockedBackup = scratch.path() + QStringLiteral("/not-a-directory");
+        { QFile blocker(blockedBackup); expect(blocker.open(QIODevice::WriteOnly), "create blocked backup fixture"); }
+        expect(!save(path, saved, true, {"vanilla"}, {}, blockedBackup, &problem) && bytesAt(path) == saved,
+               "backup failure leaves original options intact");
+        {
+            QLockFile lock(path + QStringLiteral(".wtfml.lock"));
+            expect(lock.tryLock(0) && !save(path, saved, true, {"vanilla"}, {}, backups, &problem),
+                   "another writer blocks concurrent save");
+        }
+        ResourcePackPage page;
+        const QList<ResourcePackPage::Pack> packs{{"file/a.zip", "Alpha", "green"}, {"file/b.zip", "Beta", "blue"}};
+        page.setPacks(packs, {"vanilla", "file/a.zip"}, original, true);
+        auto *available = page.findChild<QListWidget *>(QStringLiteral("resourcePackAvailable"));
+        auto *selected = page.findChild<QListWidget *>(QStringLiteral("resourcePackSelected"));
+        auto *enable = page.findChild<QPushButton *>(QStringLiteral("resourcePackEnable"));
+        auto *disable = page.findChild<QPushButton *>(QStringLiteral("resourcePackDisable"));
+        auto *down = page.findChild<QPushButton *>(QStringLiteral("resourcePackDown"));
+        QStringList requested;
+        int requests = 0;
+        QObject::connect(&page, &ResourcePackPage::selectionRequested, &page,
+            [&](const QStringList &ids, const QByteArray &token, bool exists) {
+                requested = ids; ++requests;
+                expect(token == original && exists, "selection carries original conflict token");
+            });
+        expect(available->count() == 1 && selected->item(0)->text() == QStringLiteral("Alpha"),
+               "two columns exclude active files from available, high priority first");
+        available->setCurrentRow(0);
+        enable->click();
+        expect(requested == QStringList{"vanilla", "file/a.zip", "file/b.zip"}, "enable appends highest priority without file rename");
+        down->click();
+        expect(requested == QStringList{"vanilla", "file/b.zip", "file/a.zip"}, "priority button maps correctly to persisted order");
+        page.setPacks(packs, {"vanilla", "file/a.zip", "file/b.zip"}, original, true);
+        const bool moved = selected->model()->moveRows(QModelIndex(), 0, 1, QModelIndex(), 2);
+        app.processEvents();
+        expect(moved && requested == QStringList{"vanilla", "file/b.zip", "file/a.zip"},
+               "internal drag reorder submits after model finishes moving rows");
+        selected->setCurrentRow(selected->count() - 1);
+        expect(!disable->isEnabled(), "builtin pack cannot be disabled");
+        selected->setCurrentRow(0);
+        disable->click();
+        expect(requested == QStringList{"vanilla", "file/b.zip"}, "disable removes only selected local identifier");
+        page.setPacks(packs, {"vanilla", "file/missing.zip"}, original, true);
+        expect(selected->item(0)->text().contains(QStringLiteral("缺失")), "missing active file remains visible");
+        selected->setCurrentRow(0);
+        disable->click();
+        expect(requested == QStringList{"vanilla"} && available->count() == 2, "missing file can be removed but cannot become available");
+        page.setPacks(packs, {"vanilla"}, original, true, QStringLiteral("running"));
+        available->setCurrentRow(0);
+        const int before = requests;
+        enable->click();
+        expect(!enable->isEnabled() && requests == before, "read-only state blocks all selection changes");
+        if (app.arguments().contains(QStringLiteral("--resource-packs-preview"))) {
+            page.setPacks(packs, {"vanilla", "file/a.zip"}, original, true);
+            page.resize(820, 480);
+            page.show();
+            app.processEvents();
+            expect(page.grab().save(QDir::current().filePath(QStringLiteral("build/resource-packs-preview.png"))),
+                   "resource pack preview saved");
+        }
+        return failures == 0 ? 0 : 1;
+    
+ return 0;
+}
+

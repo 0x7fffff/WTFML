@@ -1,0 +1,1949 @@
+#include "Support.hpp"
+int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
+    {
+        // 比色一律拿 `name(HexArgb)` 比字符串，不用 `QColor::operator==` —— 后者在 Qt 6 里
+        // 比的是内部那 16 位分量（同一个八位色名构造两次也可能因为路径不同而不相等），
+        // 这条坑 在别处踩过（见「启动提醒」那一段）。
+        const auto sameColor = [](const QColor &a, const QColor &b) {
+            return a.isValid() && b.isValid() && a.name(QColor::HexArgb) == b.name(QColor::HexArgb);
+        };
+
+        // ---------- W1 出厂那一份 = 今天的界面，一个字节都不碰 ----------
+        // 拿"铺之前那一刻应用身上挂着的那一份"当基准：**跟着系统**那一档的全部意义就是
+        // "我们还是平台给的那一份"（不是"我们算出来的那一份"—— 这两份在真机上差着一档，
+        // 见 `Theme::platformPalette()` 那段说明）。
+        const QPalette platformBefore = app.palette();
+        Theme::setSpec(Theme::defaultSpec());
+        Theme::apply(app);
+        check(app.palette() == platformBefore,
+              "★★ W1 出厂那一份铺下去 = 应用调色板还是原来那一份（一个字节都没碰）",
+              QStringLiteral("量到 %1，铺之前是 %2")
+                  .arg(app.palette().color(QPalette::Window).name(),
+                       platformBefore.color(QPalette::Window).name()));
+        check(Theme::current().presetId == QStringLiteral("system") &&
+                  Theme::current().roles.isEmpty() && Theme::current().parts.isEmpty() &&
+                  Theme::current().textOpacity == 100,
+              "★ W1 出厂那一份就是「跟着系统 + 一项覆盖都没有」（跟着系统深浅走这件事才没被钉死）",
+              Theme::current().presetId);
+
+        // ---------- W2 深色 / 浅色两个预设 ----------
+        // 判据故意分成两截，因为"深浅那一档从哪儿来"是**平台决定**的：
+        //
+        // ① 「请平台把深色那一档给我」+「照着它算一份基色」—— `QStyleHints::setColorScheme()`
+        // 在 **offscreen 那个平台插件上是空操作**（ 用探针实测：调完之后
+        // `colorScheme()` 恒 Unknown、`standardPalette()` 一次都没变过），而本工程正是
+        // offscreen 跑的。所以这儿的写法是"平台认这一档时窗口底色必须真的是深的；平台
+        // 不认时调色板必须**一个字节不动**" —— 两种情况都有话说，不会因为"这台机器上
+        // 测不了"就假装通过。**真机那一趟在 ui_shot 的 30) 里量**（那边是原生的）。
+        // 「平台认不认」这一判据从 `colorScheme()` **换成了 `standardPalette()`**
+        // —— 见下面那段实测（真机上那个 getter 不回报刚设进去的那一档）。
+        // ② 「语义色按当前这一档现推」是**纯函数**（`isDarkPalette()` 只看窗口底色的明度），
+        // 所以拿两个自己捏的调色板量，在哪儿跑都成立。
+        Theme::setSpec(Theme::presetSpec(QStringLiteral("dark")));
+        Theme::apply(app);
+        const QPalette darkPalette = app.palette();
+        Theme::setSpec(Theme::presetSpec(QStringLiteral("light")));
+        Theme::apply(app);
+        const QPalette lightPalette = app.palette();
+        app.styleHints()->setColorScheme(Qt::ColorScheme::Dark);
+        const QPalette platformDark = app.style()->standardPalette();
+        app.styleHints()->setColorScheme(Qt::ColorScheme::Light);
+        const QPalette platformLight = app.style()->standardPalette();
+        const bool schemeHonoured = platformDark != platformLight;
+        if (schemeHonoured) {
+            check(Theme::isDarkPalette(darkPalette) && !Theme::isDarkPalette(lightPalette),
+                  "★★ W2 深色 / 浅色两个预设铺出来的窗口底色真的一深一浅",
+                  QStringLiteral("深 %1（明度 %2）/ 浅 %3（明度 %4）")
+                      .arg(darkPalette.color(QPalette::Window).name())
+                      .arg(darkPalette.color(QPalette::Window).lightness())
+                      .arg(lightPalette.color(QPalette::Window).name())
+                      .arg(lightPalette.color(QPalette::Window).lightness()));
+        } else {
+            check(darkPalette == lightPalette,
+                  "★★ W2 这个平台插件不认 ColorScheme（offscreen 就是不认）⇒ 深浅两个预设铺出来"
+                  "的调色板**一个字节都不差**（不出「半深半浅」那种更糟的东西）",
+                  QStringLiteral("深 %1 / 浅 %2")
+                      .arg(darkPalette.color(QPalette::Window).name(),
+                           lightPalette.color(QPalette::Window).name()));
+        }
+
+        // 语义色**按当前这一档现推**（用户没点名要一个色的时候）：深底上用浅红，不然那处红
+        // 会糊在深底里。两个调色板是自己捏的 —— 要量的就是"它看的是底色的明度"，不是
+        // "系统这一档叫什么"。
+        QPalette artificialDark;
+        artificialDark.setColor(QPalette::Window, QColor(0x20, 0x20, 0x20));
+        QPalette artificialLight;
+        artificialLight.setColor(QPalette::Window, QColor(0xef, 0xef, 0xef));
+        const QColor darkDanger = Theme::dangerColor(artificialDark);
+        const QColor lightDanger = Theme::dangerColor(artificialLight);
+        check(Theme::isDarkPalette(artificialDark) && !Theme::isDarkPalette(artificialLight) &&
+                  colorDistance(darkDanger, lightDanger) > 0 &&
+                  darkDanger.lightness() > lightDanger.lightness(),
+              "★★ W2 「算不算深色」看的是窗口底色的**明度**（不是哪个标志位），语义色按它现推："
+              "深底上用浅红、浅底上用深红",
+              QStringLiteral("深 %1 / 浅 %2").arg(darkDanger.name(), lightDanger.name()));
+
+        // 用户点名要一个语义色时，一律用他那个（预设怎么推都不管）。
+        Theme::Spec accentSpec = Theme::presetSpec(QStringLiteral("dark"));
+        accentSpec.danger = QColor(0x00, 0x88, 0xff);
+        Theme::setSpec(accentSpec);
+        check(sameColor(Theme::dangerColor(artificialDark), QColor(0x00, 0x88, 0xff)) &&
+                  sameColor(Theme::dangerColor(artificialLight), QColor(0x00, 0x88, 0xff)),
+              "★ W2 单独指定过一个语义色之后，深浅两档用的都是**他指定的那个**",
+              Theme::dangerColor(artificialLight).name());
+
+        // ---------- W3 角色覆盖落到应用调色板上 ----------
+        // 这一拨是"调色板里本来就有位置"的那些，所以判据就是"应用调色板上那个角色变了没有"
+        // —— 界面里所有读 `palette()` 的地方自动跟着走，不用挨个去改。
+        Theme::Spec roleSpec = Theme::presetSpec(QStringLiteral("light"));
+        roleSpec.roles.insert(int(Theme::Role::Window), QColor(0x12, 0x34, 0x56));
+        roleSpec.roles.insert(int(Theme::Role::Highlight), QColor(0x65, 0x43, 0x21));
+        Theme::setSpec(roleSpec);
+        Theme::apply(app);
+        check(app.palette().color(QPalette::Window).name() == QLatin1String("#123456") &&
+                  app.palette().color(QPalette::Highlight).name() == QLatin1String("#654321"),
+              "★★ W3 单独改一个**角色**（内容区底色 / 选中那一块）落到应用调色板上",
+              QStringLiteral("底色 %1，选中色 %2")
+                  .arg(app.palette().color(QPalette::Window).name(),
+                       app.palette().color(QPalette::Highlight).name()));
+
+        // ---------- W4 文字不透明度是**乘**上去的 ----------
+        Theme::Spec opaqueSpec = Theme::presetSpec(QStringLiteral("light"));
+        Theme::setSpec(opaqueSpec);
+        Theme::apply(app);
+        const QColor textFull = app.palette().color(QPalette::WindowText);
+        const QColor placeholderFull = app.palette().color(QPalette::PlaceholderText);
+        Theme::Spec halfSpec = opaqueSpec;
+        halfSpec.textOpacity = 50;
+        Theme::setSpec(halfSpec);
+        Theme::apply(app);
+        const QColor textHalf = app.palette().color(QPalette::WindowText);
+        const QColor placeholderHalf = app.palette().color(QPalette::PlaceholderText);
+        check(textFull.alpha() == 255 && textHalf.alpha() > 0 && textHalf.alpha() < textFull.alpha(),
+              "★★ W4 「文字透明度 50」真的把正文压淡了（不是只写在规格里）",
+              QStringLiteral("正文 alpha %1 → %2").arg(textFull.alpha()).arg(textHalf.alpha()));
+        // 这一条是"乘"和"盖"的分界：`PlaceholderText` 出厂就带一点透明度，直接赋值等于把
+        // 它从"次要文字"变成"和正文一样清楚"。
+        check(placeholderFull.alpha() < 255 && placeholderHalf.alpha() < placeholderFull.alpha(),
+              "★★ W4 不透明度是**乘**上去的：本来就半透明的次要文字跟着一起变淡"
+              "（直接赋值会把它变得和正文一样清楚）",
+              QStringLiteral("次要文字 alpha %1 → %2")
+                  .arg(placeholderFull.alpha())
+                  .arg(placeholderHalf.alpha()));
+
+        // ---------- W5 每一块骨架的出厂值 = 今天各处那一句 ----------
+        // 这一拨（标题栏 / 底栏 / 浮层面板 / 卡片 / 四周变暗）在调色板里**没有位置**，它们的
+        // 出厂值是"从窗口底色推出来的"。所以判据是"和从前那一句算出来的是不是同一个色"。
+        Theme::setSpec(Theme::defaultSpec());
+        Theme::apply(app);
+        const QPalette plain = app.palette();
+        check(sameColor(Theme::partBackground(Theme::Part::TitleBar),
+                        Theme::accentShade(Theme::AccentShade::Pure)),
+              "★★ W5 标题栏底色（没覆盖过）= **主题色那一支**（用户点名的那支绿）",
+              Theme::partBackground(Theme::Part::TitleBar).name());
+        check(sameColor(Theme::partBackground(Theme::Part::BottomBar),
+                        plain.color(QPalette::Window).darker(105)),
+              "★ W5 底栏照旧是中性色（窗口底色 darker(105)）—— 它装的是启动/日志那一排控件",
+              Theme::partBackground(Theme::Part::BottomBar).name());
+        check(!sameColor(Theme::partBackground(Theme::Part::TitleBar),
+                         Theme::partBackground(Theme::Part::BottomBar)),
+              "★ W5 所以上下两条**不再是同一个色**（这一条钉的是「改一处不会被另一处悄悄跟走」）");
+        check(Theme::partLightInk(Theme::Part::TitleBar) &&
+                  !Theme::partLightInk(Theme::Part::BottomBar),
+              "★★ W5 只有标题栏的出厂字色是**白墨**（绿底上只有白读得出来；底栏还是中性底，"
+              "字色跟调色板走）");
+        check(sameColor(Theme::partForeground(Theme::Part::TitleBar, QColor(0x11, 0x22, 0x33)),
+                        QColor(Qt::white)),
+              "★★ W5 没人覆盖过时标题栏的字色就是白的（递进去那个兜底色**被忽略**）",
+              Theme::partForeground(Theme::Part::TitleBar, QColor(0x11, 0x22, 0x33)).name());
+        check(sameColor(Theme::partForeground(Theme::Part::BottomBar, QColor(0x11, 0x22, 0x33)),
+                        QColor(0x11, 0x22, 0x33)),
+              "★ W5 别的块照旧：没人覆盖过时就是调用方递进来那个兜底色");
+        check(sameColor(Theme::partBackground(Theme::Part::Panel),
+                        plain.color(QPalette::Window).darker(112)),
+              "★ W5 浮层面板 = 窗口底色 darker(112)",
+              Theme::partBackground(Theme::Part::Panel).name());
+        check(sameColor(Theme::partBackground(Theme::Part::Card), plain.color(QPalette::Base)),
+              "★ W5 卡片 = `Base`（压在内容区上那张卡片和列表底同一档）",
+              Theme::partBackground(Theme::Part::Card).name());
+        check(sameColor(Theme::partBackground(Theme::Part::Scrim), QColor(0, 0, 0, 96)),
+              "★★ W5 四周变暗那一层 = rgba(0, 0, 0, 96)（和覆盖层从前的字面量一字不差）",
+              Theme::partBackground(Theme::Part::Scrim).name(QColor::HexArgb));
+        check(sameColor(OverlayHost::scrimColor(), Theme::partBackground(Theme::Part::Scrim)),
+              "★★ W5 覆盖层问到的「四周变暗」和这一层是**同一个**色（不是两份各写一遍）");
+
+        // ---------- W5b 一个**已经立着的**真控件会不会自己重算 ----------
+        // 这一条才是这一层真正的难点：条自己持有一份算好的色（`setPalette()`），"应用调色板
+        // 变了"这件事不会自动改它 —— 得靠 `changeEvent()` 里那一挂。不挂就是"换了主题之后
+        // 顶上那一条还停在旧色上"，而那正是这个功能最容易被骂的地方。
+        TitleBar bar;
+        bar.setFixedSize(600, TitleBar::buttonSize() + 2 * TitleBar::buttonInset());
+        bar.show();
+        QApplication::processEvents();
+        check(sameColor(bar.palette().color(QPalette::Window),
+                        Theme::accentShade(Theme::AccentShade::Pure)),
+              "★ W5b 标题栏立起来时底色就是**主题色那一支**",
+              bar.palette().color(QPalette::Window).name());
+        // 这一条才是这一节的重点：换一个**主题色**（不是换预设）之后，已经立着的那条
+        // 得自己把底色重算一遍。它是新加的一位，正好拿来把"重算"这件事
+        // 从"换个预设试试"升级成"换一个色也管用"。
+        Theme::Spec recolor = Theme::defaultSpec();
+        recolor.accent = QColor(0x33, 0x66, 0x99);
+        Theme::setSpec(recolor);
+        Theme::apply(app);
+        QApplication::processEvents();
+        check(sameColor(bar.palette().color(QPalette::Window), QColor(0x33, 0x66, 0x99)) &&
+                  sameColor(bar.palette().color(QPalette::WindowText), QColor(Qt::white)),
+              "★★ W5b 换一个**主题色**之后，已经立着的标题栏连底带字一起重算了"
+              "（底下绿、字上白，两样都得跟着走）",
+              QStringLiteral("条 %1 / 字 %2")
+                  .arg(bar.palette().color(QPalette::Window).name(),
+                       bar.palette().color(QPalette::WindowText).name()));
+        Theme::setSpec(Theme::presetSpec(QStringLiteral("dark")));
+        Theme::apply(app);
+        QApplication::processEvents();
+        check(sameColor(bar.palette().color(QPalette::Window),
+                        Theme::accentShade(Theme::AccentShade::Pure)),
+              "★★ W5b 换主题（预设）之后**已经立着的**标题栏自己把底色重算了一遍"
+              "（它持有一份算好的色，不重算就停在旧色上）",
+              QStringLiteral("条 %1，该是 %2")
+                  .arg(bar.palette().color(QPalette::Window).name(),
+                       Theme::accentShade(Theme::AccentShade::Pure).name()));
+        bar.hide();
+        // 回出厂那一份：上面那一段是**改过主题色**的，不还回去的话后面每一条量的都是
+        // 那个 #336699（这一节的收尾处也会铺回出厂那一份，但中间那些断言量的是"当前这一份"）。
+        Theme::setSpec(Theme::defaultSpec());
+        Theme::apply(app);
+        QApplication::processEvents();
+
+        // ---------- W6 `follow()` 只跑一遍，而且不会自己咬自己 ----------
+        QWidget probe;
+        int hits = 0;
+        Theme::follow(&probe, [&hits]() { ++hits; });
+        QEvent paletteEvent(QEvent::PaletteChange);
+        QApplication::sendEvent(&probe, &paletteEvent);
+        check(hits == 1, "★★ W6 `follow()` 登记之后收到「调色板变了」就跑一遍", QString::number(hits));
+        QEvent styleEvent(QEvent::StyleChange);
+        QApplication::sendEvent(&probe, &styleEvent);
+        check(hits == 2,
+              "★ W6 `StyleChange` 也算数（QSS 里嵌死的颜色是跟着样式重新解析的）",
+              QString::number(hits));
+
+        // 防自咬那一位（`PaletteFollower::m_running`）：回调里那句 `setPalette()` 自己也会
+        // 发一次 `PaletteChange`，没有那一位就是"重算 → 又收到 → 再重算"。
+        // NOTE: 兜底那一句（跑过 5 趟就不设了）是给"这一位失效"这种情况留的：真失效时这里
+        // 会是一条 FAIL，而不是把这个一万九千行的验证跑成栈溢出、什么都查不出来。
+        QWidget biter;
+        int bites = 0;
+        QPalette altPalette = QApplication::palette();
+        altPalette.setColor(QPalette::Window, QColor(1, 2, 3));
+        Theme::follow(&biter, [&bites, &biter, &altPalette]() {
+            if (++bites > 5) {
+                return;
+            }
+            biter.setPalette(altPalette);
+        });
+        QApplication::sendEvent(&biter, &paletteEvent);
+        check(bites == 1,
+              "★★ W6 回调里再 `setPalette()` 不会把这一条自己再咬起来（防自咬那一位真的在挡）",
+              QStringLiteral("跑了几趟 %1").arg(bites));
+
+        // ---------- W7 落盘往返 ----------
+        // NOTE: 这一段**要写盘**，所以先把这个进程的 QSettings 窝换成一对专供验证的名字，
+        // 量完清干净再换回来 —— 绝不能碰产品那一份（`WTFML/WTFML` 底下是用户真在用的
+        // 设置，验证跑一趟把主题改了是绝对不能出的错）。
+        const QString savedOrg = QCoreApplication::organizationName();
+        const QString savedAppName = QCoreApplication::applicationName();
+        QCoreApplication::setOrganizationName(QStringLiteral("WTFML-verify"));
+        QCoreApplication::setApplicationName(QStringLiteral("ui_check"));
+        QSettings().clear();
+
+        Theme::Spec written = Theme::presetSpec(QStringLiteral("dark"));
+        written.textOpacity = 70;
+        written.accent = QColor(0x33, 0x66, 0x99);   // 主题色也过一趟盘（2026-09-28 新加的一位）
+        written.roles.insert(int(Theme::Role::Window), QColor(0x0a, 0x0b, 0x0c));
+        Theme::PartStyle panelStyle;
+        panelStyle.hasBackground = true;
+        panelStyle.background = QColor(0x11, 0x22, 0x33);
+        panelStyle.hasForeground = true;
+        panelStyle.foreground = QColor(0x44, 0x55, 0x66);
+        panelStyle.textOpacity = 40;
+        written.parts.insert(int(Theme::Part::Panel), panelStyle);
+        written.danger = QColor(0xaa, 0x00, 0x11);
+        Theme::save(written);
+        const Theme::Spec readBack = Theme::load();
+        const Theme::PartStyle panelBack = readBack.parts.value(int(Theme::Part::Panel));
+        check(readBack.presetId == written.presetId && readBack.textOpacity == 70 &&
+                  sameColor(readBack.roles.value(int(Theme::Role::Window)),
+                            written.roles.value(int(Theme::Role::Window))) &&
+                  panelBack.hasBackground && sameColor(panelBack.background, panelStyle.background) &&
+                  panelBack.hasForeground && sameColor(panelBack.foreground, panelStyle.foreground) &&
+                  panelBack.textOpacity == 40 && readBack.danger.isValid() &&
+                  sameColor(readBack.danger, written.danger) &&
+                  sameColor(readBack.accent, written.accent),
+              "★★ W7 写进盘上再读回来是同一份（预设 / 不透明度 / 主题色 / 角色 / 骨架三项 / 语义色）",
+              QStringLiteral("预设 %1，不透明度 %2，角色 %3 项，骨架 %4 项")
+                  .arg(readBack.presetId)
+                  .arg(readBack.textOpacity)
+                  .arg(readBack.roles.size())
+                  .arg(readBack.parts.size()));
+
+        // 第二次存的是一份**没有覆盖项**的：上一次那几项不许"复活"（`save()` 先把整组
+        // `Theme` 清掉再写）。不这么做的话用户"把标题栏改回默认"重开一次又变回去。
+        Theme::save(Theme::presetSpec(QStringLiteral("light")));
+        const Theme::Spec afterClear = Theme::load();
+        check(afterClear.roles.isEmpty() && afterClear.parts.isEmpty() &&
+                  !afterClear.danger.isValid() &&
+                  afterClear.presetId == QStringLiteral("light"),
+              "★★ W7 第二次存一份**没有覆盖项**的，上一次那几项不会复活"
+              "（不然「改回默认」重开一次又变回去）",
+              QStringLiteral("角色 %1 项，骨架 %2 项")
+                  .arg(afterClear.roles.size())
+                  .arg(afterClear.parts.size()));
+
+        // ---------- W8 盘上是垃圾（注册表能手改）⇒ 一律退回出厂 ----------
+        QSettings raw;
+        raw.setValue(QStringLiteral("Theme/Preset"), QStringLiteral("no-such-preset"));
+        raw.setValue(QStringLiteral("Theme/TextOpacity"), 999);
+        raw.setValue(QStringLiteral("Theme/Roles/window"), QStringLiteral("not-a-color"));
+        raw.setValue(QStringLiteral("Theme/Parts/panel/Background"), QStringLiteral("also-not-a-color"));
+        raw.setValue(QStringLiteral("Theme/Parts/titleBar/TextOpacity"), -7);
+        raw.sync();
+        const Theme::Spec salvaged = Theme::load();
+        check(salvaged.presetId == QStringLiteral("system") && salvaged.textOpacity == 100 &&
+                  salvaged.roles.isEmpty() && salvaged.parts.isEmpty(),
+              "★★ W8 盘上手改出来的垃圾一律退回出厂那一档"
+              "（认不出的预设 / 越界的不透明度 / 不是颜色的字符串 / 负数的不透明度）",
+              QStringLiteral("预设 %1，不透明度 %2，角色 %3 项，骨架 %4 项")
+                  .arg(salvaged.presetId)
+                  .arg(salvaged.textOpacity)
+                  .arg(salvaged.roles.size())
+                  .arg(salvaged.parts.size()));
+
+        {
+            QSettings().clear();
+            QSettings junk;
+            junk.setValue(QStringLiteral("Theme/TextOpacity"), QStringLiteral("abc"));
+            junk.setValue(QStringLiteral("Theme/Parts/panel/Image"), QStringLiteral("C:/tmp/pic.png"));
+            junk.setValue(QStringLiteral("Theme/Parts/panel/ImageOpacity"), QStringLiteral("abc"));
+            junk.setValue(QStringLiteral("Theme/Parts/panel/TextOpacity"), QStringLiteral("oops"));
+            junk.sync();
+            const Theme::Spec salvagedNumbers = Theme::load();
+            const Theme::PartStyle panelNumbers =
+                salvagedNumbers.parts.value(int(Theme::Part::Panel));
+            check(salvagedNumbers.textOpacity == 100 && panelNumbers.imageOpacity == 100 &&
+                      panelNumbers.textOpacity < 0,
+                  "★★ W8 手改出来的「不是数字」的不透明度不许被读成 0"
+                  "（0% 的文字 = 界面一片空白、0% 的图 = 看不见的背景；认不出就退回出厂那一档）",
+                  QStringLiteral("全局 %1，图 %2，这一块的字 %3")
+                      .arg(salvagedNumbers.textOpacity)
+                      .arg(panelNumbers.imageOpacity)
+                      .arg(panelNumbers.textOpacity));
+        }
+
+        QSettings().clear();
+        QCoreApplication::setOrganizationName(savedOrg);
+        QCoreApplication::setApplicationName(savedAppName);
+
+        // ---------- W9 每一块的键唯一、存下去能认回来 ----------
+        // 这就是"复制粘贴出来的重复键"的照妖镜：两张表里键一模一样的话，盘上那一项会被后来
+        // 那个盖掉，而界面上是"改了这一块、那一块跟着变"。
+        QSet<QString> partKeys;
+        bool partsRoundTrip = true;
+        for (int i = 0; i < Theme::partCount(); ++i) {
+            const Theme::Part part = static_cast<Theme::Part>(i);
+            const QString key = Theme::partKey(part);
+            Theme::Part back = Theme::Part::Count;
+            if (key.isEmpty() || partKeys.contains(key) || !Theme::partFromKey(key, &back) ||
+                back != part) {
+                partsRoundTrip = false;
+            }
+            partKeys.insert(key);
+        }
+        Theme::Part bogus;
+        check(partsRoundTrip && partKeys.size() == Theme::partCount() &&
+                  !Theme::partFromKey(QStringLiteral("no-such-part"), &bogus),
+              "★★ W9 每一块骨架的存盘键唯一、且存下去能原样认回来（认不出的返回假）",
+              QStringLiteral("%1 块 / %2 个键").arg(Theme::partCount()).arg(partKeys.size()));
+
+        QSet<QString> roleKeys;
+        bool rolesRoundTrip = true;
+        for (int i = 0; i < Theme::roleCount(); ++i) {
+            const Theme::Role role = static_cast<Theme::Role>(i);
+            const QString key = Theme::roleKey(role);
+            Theme::Role back = Theme::Role::Count;
+            if (key.isEmpty() || roleKeys.contains(key) || !Theme::roleFromKey(key, &back) ||
+                back != role) {
+                rolesRoundTrip = false;
+            }
+            roleKeys.insert(key);
+        }
+        Theme::Role bogusRole;
+        check(rolesRoundTrip && roleKeys.size() == Theme::roleCount() &&
+                  !Theme::roleFromKey(QStringLiteral("no-such-role"), &bogusRole),
+              "★★ W9 每一个能改的角色的存盘键唯一、且存下去能原样认回来",
+              QStringLiteral("%1 个角色 / %2 个键").arg(Theme::roleCount()).arg(roleKeys.size()));
+
+        check(Theme::presetIds().size() == 3 && Theme::isPresetId(QStringLiteral("system")) &&
+                  Theme::isPresetId(QStringLiteral("light")) &&
+                  Theme::isPresetId(QStringLiteral("dark")) &&
+                  !Theme::isPresetId(QStringLiteral("custom")) &&
+                  !Theme::presetName(QStringLiteral("dark")).isEmpty(),
+              "★ W9 三个预设就是「跟着系统 / 浅色 / 深色」三个（**故意没有『自定义』**："
+              "覆盖项是叠在预设上面的，换了覆盖项预设还是那一个）",
+              Theme::presetIds().join(QLatin1Char('/')));
+
+        // ---------- W10 只改一块骨架 ⇒ 不碰应用调色板 ----------
+        Theme::setSpec(Theme::defaultSpec());
+        Theme::apply(app);
+        const QPalette beforePartOnly = app.palette();
+        Theme::Spec scrimSpec = Theme::defaultSpec();
+        Theme::PartStyle scrimStyle;
+        scrimStyle.hasBackground = true;
+        scrimStyle.background = QColor(0, 0, 0, 200);
+        scrimSpec.parts.insert(int(Theme::Part::Scrim), scrimStyle);
+        Theme::setSpec(scrimSpec);
+        Theme::apply(app);
+        check(app.palette() == beforePartOnly,
+              "★★ W10 只改一块骨架时**不碰调色板**（只有那一块重算，其余一个字节不动）",
+              QStringLiteral("窗口底色 %1").arg(app.palette().color(QPalette::Window).name()));
+        check(sameColor(Theme::partBackground(Theme::Part::Scrim), QColor(0, 0, 0, 200)) &&
+                  sameColor(OverlayHost::scrimColor(), QColor(0, 0, 0, 200)),
+              "★★ W10 四周变暗那一层单独改过之后，覆盖层问到的就是改过的那个"
+              "（四周变暗的深浅是能单独调的）",
+              Theme::partBackground(Theme::Part::Scrim).name(QColor::HexArgb));
+
+        // ---------- W11 背景图（ 加的：主页左栏 / 页面背景能铺一张图） ----------
+        // 要求是「能给主页左侧自定义图像吗？其他页面的背景能换图吗」。这一节量五件事：
+        // ① 四种摆法的键 / 名字 / 认回来；
+        // ② `normalize()` 对"路径 / 摆法 / 不透明度"这三位怎么收拾；
+        // ③ 存盘往返（含注册表里那串是 `\`、读回来是 `/` 这一层故意的来回）；
+        // ④ `partHasBackground()` —— 这两块出厂时**一项都没设过**；
+        // ⑤ ★ **没设图时那一块一个像素都不画**。
+        QSet<QString> fitKeys;
+        bool fitsRoundTrip = true;
+        for (int i = 0; i < Theme::imageFitCount(); ++i) {
+            const auto fit = static_cast<Theme::ImageFit>(i);
+            const QString key = Theme::imageFitKey(fit);
+            Theme::ImageFit back = Theme::ImageFit::Count;
+            if (key.isEmpty() || fitKeys.contains(key) || !Theme::imageFitFromKey(key, &back) ||
+                back != fit) {
+                fitsRoundTrip = false;
+            }
+            fitKeys.insert(key);
+        }
+        Theme::ImageFit bogusFit;
+        check(fitsRoundTrip && fitKeys.size() == Theme::imageFitCount() &&
+                  !Theme::imageFitFromKey(QStringLiteral("no-such-fit"), &bogusFit),
+              "★★ W11 四种摆法的存盘键唯一、且存下去能原样认回来（认不出的返回假）",
+              QStringLiteral("%1 种 / %2 个键").arg(Theme::imageFitCount()).arg(fitKeys.size()));
+
+        Theme::Spec messy = Theme::defaultSpec();
+        Theme::PartStyle messyStyle;
+        messyStyle.imagePath = QStringLiteral("  C:/tmp/pic.png  ");
+        messyStyle.fit = static_cast<Theme::ImageFit>(99);  // 盘上手改歪了的那种
+        messyStyle.imageOpacity = 250;
+        messy.parts.insert(int(Theme::Part::PageBackground), messyStyle);
+        const Theme::PartStyle tidy = Theme::normalize(messy).parts.value(
+            int(Theme::Part::PageBackground));
+        check(tidy.hasImage && tidy.imagePath == QStringLiteral("C:/tmp/pic.png") &&
+                  tidy.fit == Theme::ImageFit::Cover && tidy.imageOpacity == 100,
+              "★★ W11 路径去两头空白、摆法认不出退回「铺满」、不透明度钳到 0~100"
+              "（**图还在**，只是那两位回到默认档 —— 为了一个摆法把用户挑的图整个忽略掉更糟）",
+              QStringLiteral("路径 %1，摆法 %2，不透明度 %3")
+                  .arg(tidy.imagePath)
+                  .arg(static_cast<int>(tidy.fit))
+                  .arg(tidy.imageOpacity));
+
+        Theme::Spec blank = Theme::defaultSpec();
+        Theme::PartStyle blankStyle;
+        blankStyle.imagePath = QStringLiteral("   ");
+        blank.parts.insert(int(Theme::Part::HomeLeft), blankStyle);
+        check(Theme::normalize(blank).parts.isEmpty(),
+              "★★ W11 只设过图、而路径是空白 ⇒ 这一块整条丢掉"
+              "（「这一块设过」在盘上不许是假的，见 Theme.cpp 里那段）");
+
+        // ④ 出厂那一份里这两块**一项都没设过**。这一位就是"没东西可画"的判据。
+        Theme::setSpec(Theme::defaultSpec());
+        check(!Theme::partHasBackground(Theme::Part::HomeLeft) &&
+                  !Theme::partHasBackground(Theme::Part::PageBackground) &&
+                  !Theme::partImage(Theme::Part::HomeLeft).isSet() &&
+                  !Theme::partImage(Theme::Part::PageBackground).isSet(),
+              "★★ W11 出厂那一份里主页左栏和页面背景**一项都没设过**"
+              "（`partHasBackground()` 为假 ⇒ `ThemeBackground` 一笔都不画）",
+              QStringLiteral("设过底色：主页左栏 %1 / 页面背景 %2")
+                  .arg(Theme::partHasBackground(Theme::Part::HomeLeft) ? 1 : 0)
+                  .arg(Theme::partHasBackground(Theme::Part::PageBackground) ? 1 : 0));
+
+        // ⑤ 一像素一像素地量"画不画"。父控件刷成一个一眼认得出的色，子控件那一块就靠它判。
+        {
+            QTemporaryDir scratch;
+            const QString picturePath = scratch.filePath(QStringLiteral("pic.png"));
+            QImage picture(8, 4, QImage::Format_ARGB32);
+            picture.fill(QColor(0xff, 0x00, 0xff));  // 洋红：界面上一个像素都不会有它
+            const bool pictureWritten = picture.save(picturePath, "PNG");
+
+            QWidget host;
+            host.resize(40, 40);
+            QPalette hostPalette = host.palette();
+            const QColor hostColor(0x12, 0x34, 0x56);
+            hostPalette.setColor(QPalette::Window, hostColor);
+            host.setPalette(hostPalette);
+            host.setAutoFillBackground(true);  // 父控件那一层得真的刷上去，不然量的是别的
+            auto *background = new ThemeBackground(Theme::Part::PageBackground, &host);
+            background->setGeometry(0, 0, 40, 40);
+
+            const QImage untouched = host.grab().toImage();
+            const QColor cornerPlain = untouched.pixelColor(20, 20);
+            check(pictureWritten && cornerPlain == hostColor,
+                  "★★ W11 没设图的那一块**一个像素都不画**：整块原样透出底下那一层"
+                  "（画一层「窗口底色」上去的话，选项卡那层底就被顶掉了 —— 屏幕上颜色悄悄变一档）",
+                  QStringLiteral("里头那一点量到 %1，该是父控件那个 %2")
+                      .arg(cornerPlain.name(), hostColor.name()));
+
+            Theme::Spec withPicture = Theme::defaultSpec();
+            Theme::PartStyle stretchStyle;
+            stretchStyle.imagePath = picturePath;
+            stretchStyle.fit = Theme::ImageFit::Stretch;
+            stretchStyle.imageOpacity = 100;
+            withPicture.parts.insert(int(Theme::Part::PageBackground), stretchStyle);
+            Theme::setSpec(withPicture);
+            const QImage stretched = host.grab().toImage();
+            check(stretched.pixelColor(20, 20) == QColor(0xff, 0x00, 0xff) &&
+                      stretched.pixelColor(1, 1) == QColor(0xff, 0x00, 0xff),
+              "★★ W11 设了图之后那一块真的铺满了（拉伸这种摆法连四个角都是图）",
+              QStringLiteral("中间量到 %1").arg(stretched.pixelColor(20, 20).name()));
+
+            // 「完整放下」：8×4 的图放进 40×40 的块里 ⇒ 上下各留一条底，中间那条才是图。
+            Theme::PartStyle containStyle = stretchStyle;
+            containStyle.fit = Theme::ImageFit::Contain;
+            Theme::Spec withContain = Theme::defaultSpec();
+            withContain.parts.insert(int(Theme::Part::PageBackground), containStyle);
+            Theme::setSpec(withContain);
+            const QImage contained = host.grab().toImage();
+            check(contained.pixelColor(20, 20) == QColor(0xff, 0x00, 0xff) &&
+                      contained.pixelColor(20, 2) == hostColor,
+              "★★ W11 「完整放下」四周留的是**底下那一层的底色**（不是我们替它算的一个色）",
+              QStringLiteral("中间 %1 / 上边 %2")
+                  .arg(contained.pixelColor(20, 20).name(),
+                       contained.pixelColor(20, 2).name()));
+
+            // 不透明度 0 = 一点都看不见 ⇒ 又回到"底下那一层"（这一位是用户让字读得清的旋钮）。
+            Theme::PartStyle invisible = stretchStyle;
+            invisible.imageOpacity = 0;
+            Theme::Spec withInvisible = Theme::defaultSpec();
+            withInvisible.parts.insert(int(Theme::Part::PageBackground), invisible);
+            Theme::setSpec(withInvisible);
+            check(host.grab().toImage().pixelColor(20, 20) == hostColor,
+                  "★ W11 不透明度调到 0 ⇒ 图上不来，底下那一层原样透出来");
+
+            // ⑥ ★ ：换了一张图之后要**当场**重画。
+            // 修之前这是个真实症状：在设置页换图 / 清除 / 改摆法 / 改不透明度，屏幕上还是
+            // 旧图 —— 得切到别的选项卡再切回来、或者拖一下窗口改尺寸，才看得见新的。
+            // 根子：`ThemeBackground` 只靠 `Theme::follow()` 那条"调色板变了"重算，而
+            // `apply()` 在调色板**没变**的时候（只换了图 / 摆法 / 不透明度 / 底色，
+            // 这几样都不在 `buildPalette()` 里）一个通知都不发。
+            // 这里用一份"碰调色板"的预设（emerald）走两趟：第一趟铺预设，第二趟只换摆法。
+            host.show();
+            QApplication::processEvents();
+
+            class PaintCounter : public QObject {
+            public:
+                int paints = 0;
+                bool eventFilter(QObject *, QEvent *event) override {
+                    if (event->type() == QEvent::Paint) {
+                        ++paints;
+                    }
+                    return false;
+                }
+            };
+            PaintCounter counter;
+            background->installEventFilter(&counter);
+
+            Theme::PartStyle counterStyle = stretchStyle;
+            Theme::Spec emeraldPicture = Theme::presetSpec(QStringLiteral("emerald"));
+            emeraldPicture.parts.insert(int(Theme::Part::PageBackground), counterStyle);
+            Theme::setSpec(emeraldPicture);
+            Theme::apply(*qApp);
+            QApplication::processEvents();
+            const int baselinePaints = counter.paints;
+
+            // 第二趟：只把摆法从「拉伸」换成「完整放下」。调色板一个字节都不变。
+            counterStyle.fit = Theme::ImageFit::Contain;
+            Theme::Spec emeraldContain = emeraldPicture;
+            emeraldContain.parts.insert(int(Theme::Part::PageBackground), counterStyle);
+            Theme::setSpec(emeraldContain);
+            Theme::apply(*qApp);
+            QApplication::processEvents();
+            check(counter.paints > baselinePaints,
+                  "★★ W11 只换图 / 摆法 / 不透明度（调色板没有变）也要**当场**重画，"
+                  "不许等用户切选项卡或拖窗口才生效",
+                  QStringLiteral("第二趟画了 %1 次（第一趟为止 %2 次）")
+                      .arg(counter.paints - baselinePaints)
+                      .arg(baselinePaints));
+
+            background->removeEventFilter(&counter);
+            Theme::setSpec(Theme::defaultSpec());
+            Theme::apply(*qApp);
+            QApplication::processEvents();
+        }
+
+        // ③ 存盘往返。和 W7 一样的规矩：这一段要写盘，先把 QSettings 窝换成一对专供验证的
+        // 名字，量完清干净再换回来（绝不能碰产品那一份）。
+        {
+            const QString imageOrg = QCoreApplication::organizationName();
+            const QString imageAppName = QCoreApplication::applicationName();
+            QCoreApplication::setOrganizationName(QStringLiteral("WTFML-verify"));
+            QCoreApplication::setApplicationName(QStringLiteral("ui_check"));
+            QSettings().clear();
+
+            Theme::Spec pictureSpec = Theme::defaultSpec();
+            Theme::PartStyle style;
+            style.imagePath = QStringLiteral("C:/tmp/pic.png");
+            // 用户挑的那张原来叫什么（盘上那份叫 `homeLeft.png`，是槽位名）——设置页那一行
+            // 「现在铺的是：…」写的就是这一位，所以它必须跟着图一起存回来。
+            style.imageName = QStringLiteral("我挑的那张.png");
+            style.fit = Theme::ImageFit::Tile;
+            style.imageOpacity = 45;
+            pictureSpec.parts.insert(int(Theme::Part::HomeLeft), style);
+            Theme::save(pictureSpec);
+            // 读回来那一步得**真的走一趟盘**：`save()` 只写盘，不碰内存里那一份
+            // （产品里那一条路是 save 完再 apply）。拿内存里那份量就成了"自己问自己"。
+            Theme::setSpec(Theme::load());
+
+            const Theme::PartImage back = Theme::partImage(Theme::Part::HomeLeft);
+            // 注册表里那一串**得是反斜杠**（用户在 regedit 里一眼认得出那是自己盘上的哪一条），
+            // 读回来一律是 `/`（内部只认这一种）。这一来一回是故意的，见 `Theme::save()`。
+            const QString onDisk = QSettings()
+                                       .value(QStringLiteral("Theme/Parts/homeLeft/Image"))
+                                       .toString();
+            check(back.isSet() && back.path == QStringLiteral("C:/tmp/pic.png") &&
+                      back.fit == Theme::ImageFit::Tile && back.opacity == 45 &&
+                      onDisk == QDir::toNativeSeparators(QStringLiteral("C:/tmp/pic.png")),
+                  "★★ W11 存进盘上再读回来是同一张图（路径 / 摆法 / 不透明度三位都回来了）",
+                  QStringLiteral("注册表里是 %1，读回来是 %2").arg(onDisk, back.path));
+            check(back.name == QStringLiteral("我挑的那张.png"),
+                  "★★ W11 「用户挑的那张原来叫什么」也回来了（设置页那一行写的是它，"
+                  "不是盘上那个槽位名）",
+                  back.name);
+
+            // 清掉（空路径）之后再存一遍：上一次那条**不许复活**（`save()` 先整组清掉再写）。
+            Theme::Spec cleared = Theme::defaultSpec();
+            Theme::PartStyle clearedStyle;
+            clearedStyle.imagePath = QString();
+            cleared.parts.insert(int(Theme::Part::HomeLeft), clearedStyle);
+            Theme::save(cleared);
+            Theme::setSpec(Theme::load());
+            check(!Theme::partImage(Theme::Part::HomeLeft).isSet() &&
+                      !Theme::load().parts.contains(int(Theme::Part::HomeLeft)),
+                  "★★ W11 清了图再存 ⇒ 这一块整条没了（旧的那条不会自己复活）",
+                  QStringLiteral("读回来还有 %1 块").arg(Theme::load().parts.size()));
+
+            // 名字那一位**可以不在盘上**（手改注册表删掉了、或者以后降级回退留下的）：
+            // 读回来是空的，界面那一侧退回落盘那个文件的名字（见 refreshThemeImageRows()）
+            // —— 不许因为少一位就读不出话。
+            {
+                Theme::Spec nameless = Theme::defaultSpec();
+                Theme::PartStyle namelessStyle;
+                namelessStyle.imagePath = QStringLiteral("C:/tmp/pic.png");
+                nameless.parts.insert(int(Theme::Part::HomeLeft), namelessStyle);
+                Theme::save(nameless);
+                Theme::setSpec(Theme::load());
+                const Theme::PartImage back = Theme::partImage(Theme::Part::HomeLeft);
+                check(back.isSet() && back.name.isEmpty(),
+                      "★ W11 盘上没有那个名字时读回来是空的（界面那一侧要退回盘上那个名字）",
+                      back.name);
+            }
+            // 反过来：**只有名字、没有图**的那一块不留（`normalize()` 在没图那一档把名字
+            // 一起清掉，整块就没有"一项覆盖"了）。
+            {
+                Theme::Spec orphan = Theme::defaultSpec();
+                Theme::PartStyle orphanStyle;
+                orphanStyle.imageName = QStringLiteral("孤儿名字.png");
+                orphan.parts.insert(int(Theme::Part::HomeLeft), orphanStyle);
+                check(!Theme::normalize(orphan).parts.contains(int(Theme::Part::HomeLeft)),
+                      "★ W11 只留着一个名字、没有图的那一块整条丢掉（名字不是一项覆盖）");
+            }
+
+            QSettings().clear();
+            QCoreApplication::setOrganizationName(imageOrg);
+            QCoreApplication::setApplicationName(imageAppName);
+        }
+
+        // ---------- W12 主题色那一支 + 按钮那一套外观 ----------
+        // 要求：「使用 #56eb6c 作为默认主题颜色（顶栏用，顺便那个最小化和 x 都换成白的，
+        // 合适的地方可以放稍微深/浅一点，按钮中心白色，按钮文本和边框使用这个（或者深一点
+        // 浅一点）的颜色/黑色/红色）」。这一节量的是：
+        //
+        // ① 那几个"深一点浅一点"的档**各自是什么**（它们是算出来的，不是各写一遍）；
+        // ② 按钮那一套外观**真的铺到了**一颗真按钮上（不是只写在样式表字符串里）；
+        // ③ 主题色是**一位**（换一个色，顶栏 + 按钮 + 那几档一起跟着走）。
+        Theme::setSpec(Theme::defaultSpec());
+        Theme::apply(app);
+        {
+            // WCAG 的相对亮度 / 对比度 —— 那几档"深一点浅一点"存在的理由就是它，
+            // 所以这儿自己算一遍，别拿"看着挺深"当判据。
+            const auto luminance = [](const QColor &c) {
+                const auto channel = [](double v) {
+                    v /= 255.0;
+                    return v <= 0.03928 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4);
+                };
+                return 0.2126 * channel(c.red()) + 0.7152 * channel(c.green()) +
+                       0.0722 * channel(c.blue());
+            };
+            const auto contrast = [&luminance](const QColor &a, const QColor &b) {
+                const double la = luminance(a);
+                const double lb = luminance(b);
+                return (qMax(la, lb) + 0.05) / (qMin(la, lb) + 0.05);
+            };
+            const QColor pure = Theme::accentShade(Theme::AccentShade::Pure);
+            const QColor ink = Theme::accentShade(Theme::AccentShade::Ink);
+            const QColor edge = Theme::accentShade(Theme::AccentShade::Border);
+            const QColor hover = Theme::accentShade(Theme::AccentShade::Hover);
+            const QColor pressed = Theme::accentShade(Theme::AccentShade::Pressed);
+
+            check(sameColor(pure, Theme::defaultAccentColor()) &&
+                      pure.name() == QLatin1String("#3d8068"),
+                  "★★ W12 出厂主题色是沉稳的绿（#3d8068，全仓只有一处写它）",
+                  pure.name());
+            check(sameColor(Theme::partBackground(Theme::Part::TitleBar), pure),
+                  "★★ W12 顶栏铺的就是**纯的那一支**（不是深一档的）");
+            check(ink.value() < pure.value() && edge.value() < pure.value() &&
+                      edge.value() > ink.value(),
+                  "★★ W12 「深一点」那两档真的更深、而且**边比字浅**（边只要看得见，字要读得清）",
+                  QStringLiteral("纯 %1 / 边 %2 / 字 %3")
+                      .arg(pure.value()).arg(edge.value()).arg(ink.value()));
+            check(contrast(ink, QColor(Qt::white)) >= 4.5,
+                  "★★ W12 按钮上那行字对白底够 WCAG 正文那条 4.5:1",
+                  QStringLiteral("%1 对白 %2:1")
+                      .arg(ink.name())
+                      .arg(contrast(ink, QColor(Qt::white)), 0, 'f', 2));
+            check(contrast(edge, QColor(Qt::white)) >= 3.0 &&
+                      contrast(pure, QColor(Qt::white)) >= 4.5,
+                  "★★ W12 描边对白底够界面部件 3:1，纯色对白字也够正文 4.5:1"
+                  "（顶栏和实心主按钮都能直接使用）",
+                  QStringLiteral("边 %1:1 / 纯 %2:1")
+                      .arg(contrast(edge, QColor(Qt::white)), 0, 'f', 2)
+                      .arg(contrast(pure, QColor(Qt::white)), 0, 'f', 2));
+            check(hover.value() > pressed.value() && pressed.value() > edge.value() &&
+                      contrast(ink, hover) >= 4.5 && contrast(ink, pressed) >= 4.5,
+                  "★★ W12 悬停/按下那两层底**一直在浅的那一头**（按下比悬停深一档，可都比边浅）"
+                  "—— 那样上面那行深绿的字才一直读得清",
+                  QStringLiteral("悬停 %1 / 按下 %2 / 字 %3")
+                      .arg(hover.name(), pressed.name(), ink.name()));
+
+            // 换一个主题色 ⇒ 几档**一起**跟着走（唯一出处）。这一条钉的是"别把这几个色
+            // 各自写死在按钮样式表里"。
+            Theme::Spec other = Theme::defaultSpec();
+            other.accent = QColor(0x88, 0x44, 0xcc);
+            Theme::setSpec(other);
+            const QColor otherInk = Theme::accentShade(Theme::AccentShade::Ink);
+            check(!sameColor(Theme::partBackground(Theme::Part::TitleBar), pure) &&
+                      !sameColor(otherInk, ink) && otherInk.value() < 0x88,
+                  "★★ W12 换一个主题色：顶栏和那几档**一起**跟着走（不是各自写死一份）",
+                  QStringLiteral("顶栏 %1 / 字 %2")
+                      .arg(Theme::partBackground(Theme::Part::TitleBar).name(), otherInk.name()));
+
+            // 盘上那个主题色认不出来（手改歪了）⇒ 退回出厂那一支。它没有"空"这个状态：
+            // 界面上随时都有顶栏那一块要画。
+            Theme::Spec broken = Theme::defaultSpec();
+            broken.accent = QColor();
+            check(sameColor(Theme::normalize(broken).accent, Theme::defaultAccentColor()),
+                  "★★ W12 主题色认不出（无效色）⇒ 退回出厂那一支（顶栏不会画成空白）");
+
+            Theme::setSpec(Theme::defaultSpec());
+            Theme::apply(app);
+
+            // ---------- 按钮：属性 + 真的铺到那颗按钮上 ----------
+            check(Theme::buttonKindKey(Theme::ButtonKind::Accent).isEmpty() &&
+                      !Theme::buttonKindKey(Theme::ButtonKind::Primary).isEmpty() &&
+                      !Theme::buttonKindKey(Theme::ButtonKind::Danger).isEmpty() &&
+                      !Theme::buttonKindKey(Theme::ButtonKind::Neutral).isEmpty(),
+                  "★ W12 普通按钮**不挂属性**（挂一个恒真的值只是让每颗按钮都带一位垃圾）");
+            QPushButton plainButton;
+            Theme::markButton(&plainButton, Theme::ButtonKind::Danger);
+            check(plainButton.property("wtfmlButtonKind").toString() ==
+                      Theme::buttonKindKey(Theme::ButtonKind::Danger),
+                  "★ W12 markButton() 挂上去的属性名和样式表里选择器用的是**同一个**",
+                  plainButton.property("wtfmlButtonKind").toString());
+            QPushButton keepButton;
+            Theme::markButton(&keepButton, Theme::ButtonKind::Accent);
+            check(!keepButton.property("wtfmlButtonKind").isValid(),
+                  "★ W12 把一颗按钮改回普通那一档 = 把那一位**抹掉**（不是写一个 'accent'）");
+
+            // ---------- §9.1 动作高度那一档 ----------
+            // 量的是**整颗控件**的高度，不是样式表里那个数：QSS 的 `min-height` 量的是
+            // **内容**那一格 —— 这一套样式（6px 内边距 + 1px 边）配 `min-height: 32px`
+            // 整颗量出来是 **46**（ 探针实测）。所以样式表里写的是
+            // `actionHeight()` 减掉那一圈，而这一条盯的是最后那个数。
+            // 三条一起量：普通 32 / 主动作 36 / **图标按钮按自己那一档**（写死 22 的那颗
+            // 在 `min-height: 18px` 下会量成 32 —— `setFixedSize()` 拦不住 QSS 的
+            // `min-height`，只有 `markIconButton()` 那一句能把它按回去）。
+            {
+                QWidget heightHost;
+                auto *heightLayout = new QVBoxLayout(&heightHost);
+                heightLayout->setContentsMargins(0, 0, 0, 0);
+                auto *tallPlain = new QPushButton(QStringLiteral("确定"), &heightHost);
+                auto *tallPrimary = new QPushButton(QStringLiteral("启动游戏"), &heightHost);
+                Theme::markButton(tallPrimary, Theme::ButtonKind::Primary);
+                auto *tallIcon = new QPushButton(&heightHost);
+                tallIcon->setFixedSize(22, 22);
+                Theme::markIconButton(tallIcon);
+                heightLayout->addWidget(tallPlain);
+                heightLayout->addWidget(tallPrimary);
+                heightLayout->addWidget(tallIcon);
+                heightHost.show();
+                QApplication::processEvents();
+                check(tallPlain->height() == Theme::actionHeight() &&
+                          tallPrimary->height() == Theme::primaryActionHeight() &&
+                          tallIcon->height() == 22,
+                      "★★ §9.1 动作按钮 `actionHeight()` / 主动作 `primaryActionHeight()`"
+                      "（量整颗高度）/ 图标按钮按自己钉死的边长来",
+                      QStringLiteral("普通 %1px（要 %2）/ 主动作 %3px（要 %4）/ 图标 %5px（要 22）")
+                          .arg(tallPlain->height())
+                          .arg(Theme::actionHeight())
+                          .arg(tallPrimary->height())
+                          .arg(Theme::primaryActionHeight())
+                          .arg(tallIcon->height()));
+                check(tallIcon->property("wtfmlButtonSize").toString() ==
+                          Theme::iconButtonSizeValue(),
+                      "★ §9.1 `markIconButton()` 挂上去的属性名和样式表里那条复位规则用的是"
+                      "**同一个**");
+            }
+
+            // 真按钮真渲染：中心是轻主题填充、四周是边那一档、字是字那一档。
+            // 这一条是"样式表写出来了"和"样式表生效了"的分界 —— 只比字符串的话，
+            // 选择器写错一个字母照样通过。
+            QWidget buttonHost;
+            buttonHost.resize(240, 80);
+            auto *realButton = new QPushButton(QStringLiteral("启动游戏"), &buttonHost);
+            realButton->setGeometry(20, 20, 160, 40);
+            realButton->setFocusPolicy(Qt::NoFocus);
+            buttonHost.show();
+            QApplication::processEvents();
+            const QImage buttonShot = captureWidget(realButton);
+            const QColor buttonFill = dominantColor(buttonShot, realButton->rect());
+            int borderHits = 0;
+            int inkHits = 0;
+            for (int y = 0; y < buttonShot.height(); ++y) {
+                for (int x = 0; x < buttonShot.width(); ++x) {
+                    const QColor c = buttonShot.pixelColor(x, y);
+                    if (colorDistance(c, edge) <= 6) {
+                        ++borderHits;
+                    }
+                    if (colorDistance(c, ink) <= 30) {
+                        ++inkHits;
+                    }
+                }
+            }
+            const QColor neutralFill(0xf3, 0xf4, 0xf3);
+            check(sameColor(buttonFill, neutralFill),
+                  "★★ W12 一般按钮中心是轻主题填充", buttonFill.name());
+            check(borderHits > 0 && inkHits > 0,
+                  "★★ W12 那一圈边和那行字都铺上了主题色那两档",
+                  QStringLiteral("边 %1 个像素 / 字 %2 个").arg(borderHits).arg(inkHits));
+
+            // 危险那一档：同一颗按钮挂上属性之后，字和边换成红的。
+            Theme::markButton(realButton, Theme::ButtonKind::Danger);
+            // 动态属性是**下一次 polish 时**才被选择器看见的，改完得手动让它重来一趟
+            // （Qt 不会因为属性变了就自己重算样式）。
+            realButton->style()->unpolish(realButton);
+            realButton->style()->polish(realButton);
+            QApplication::processEvents();
+            const QImage dangerShot = captureWidget(realButton);
+            const QColor dangerInk(0xc0, 0x28, 0x28);
+            int dangerHits = 0;
+            int dangerInkHits = 0;
+            for (int y = 0; y < dangerShot.height(); ++y) {
+                for (int x = 0; x < dangerShot.width(); ++x) {
+                    const QColor c = dangerShot.pixelColor(x, y);
+                    if (colorDistance(c, dangerInk) <= 30) {
+                        ++dangerHits;
+                    }
+                    if (colorDistance(c, ink) <= 6) {
+                        ++dangerInkHits;
+                    }
+                }
+            }
+            const QColor dangerFill(0xfd, 0xf1, 0xf1);
+            check(sameColor(dominantColor(dangerShot, realButton->rect()), dangerFill) &&
+                      dangerHits > 0 && dangerInkHits == 0,
+                  "★★ W12 挂上「危险」后：浅红底、红字红边（绿的一个像素都不剩）",
+                  QStringLiteral("红 %1 个 / 绿边 %2 个").arg(dangerHits).arg(dangerInkHits));
+
+            // ---------- 按钮状态体系：Ghost 那一档 + 「灰掉」那一档 ----------
+            //
+            // coding plan §3.3「统一按钮视觉层级 / 单独设计 Disabled 状态」。前三档是用户
+            // 点名的那三句（确认性 = 主题色 / 一般性 = 黑 / 不可撤销 = 红），
+            // 这一轮补的是第四档 `Ghost`（**低频辅助动作**）和「灰掉」那一档的收口。
+            //
+            // Ghost 和 `Neutral` 的分别**不在颜色，在形状**：它没底、没边，于是能贴在
+            // 卡片角上不抢眼（"复制到剪贴板"那种一年按不了几次的动作）。这一段量三样：
+            // ① 它是不是真的一档（属性值不和别档撞）；② 它的**几何和普通那档一模一样**
+            // （最容易写坏的地方）；③ 屏幕上真的**透出底下的东西**。
+            {
+                const QString ghostKey = Theme::buttonKindKey(Theme::ButtonKind::Ghost);
+                check(!ghostKey.isEmpty() &&
+                          ghostKey != Theme::buttonKindKey(Theme::ButtonKind::Primary) &&
+                          ghostKey != Theme::buttonKindKey(Theme::ButtonKind::Danger) &&
+                          ghostKey != Theme::buttonKindKey(Theme::ButtonKind::Neutral) &&
+                          ghostKey != Theme::buttonKindKey(Theme::ButtonKind::Accent),
+                      "★ §3.3 「Ghost」（低频辅助动作）是**独立的一档**：属性和另外三档都不同",
+                      ghostKey);
+
+                // ① 几何：换一档 kind，**整颗按钮一寸都不动**。
+                // 这一条钉的是这一档最容易写坏的那一处：把 Ghost 写成 `border: none`
+                // （看着"更干净"）会让控件**矮 2px、窄 2px** —— 于是同一个布局里换一档
+                // kind，行里所有东西都跟着挪一格。边是**留成透明的**，不是删掉。
+                QWidget kindHost;
+                auto *kindLayout = new QHBoxLayout(&kindHost);
+                kindLayout->setContentsMargins(0, 0, 0, 0);
+                kindLayout->setSpacing(0);
+                const QString kindText = QStringLiteral("复制到剪贴板");
+                auto *ghostButton = new QPushButton(kindText, &kindHost);
+                Theme::markButton(ghostButton, Theme::ButtonKind::Ghost);
+                auto *kindPeer = new QPushButton(kindText, &kindHost);
+                Theme::markButton(kindPeer, Theme::ButtonKind::Neutral);
+                kindLayout->addWidget(ghostButton);
+                kindLayout->addWidget(kindPeer);
+                kindHost.show();
+                QApplication::processEvents();
+                check(ghostButton->sizeHint() == kindPeer->sizeHint() &&
+                          ghostButton->height() == kindPeer->height() &&
+                          ghostButton->height() == Theme::actionHeight(),
+                      "★★ §3.3 Ghost 的**几何和普通那档一模一样**（同一行字、同一个高度和宽度）："
+                      "差别只在画出来的底和边 —— 边是留成透明的，不是删掉",
+                      QStringLiteral("Ghost %1×%2 / 普通 %3×%4（要 %5 高）")
+                          .arg(ghostButton->sizeHint().width()).arg(ghostButton->height())
+                          .arg(kindPeer->sizeHint().width()).arg(kindPeer->height())
+                          .arg(Theme::actionHeight()));
+
+                // ② 真渲染：把一颗 Ghost 和一颗普通按钮摆在一块**底色明确不是白**的板上，
+                // 抓整块板。Ghost 那一格的中心跟**板子的底色是同一个色**（它就是"看不见
+                // 那块底"），普通那一格的中心是白的 —— 两条一起量才排得掉"整块板都白"
+                // 这种假绿（只量"Ghost 那儿不是白"，把按钮画成一个黑洞也照样过）。
+                QWidget paintHost;
+                paintHost.resize(240, 104);
+                paintHost.setAutoFillBackground(true);
+                QPalette paintPalette = paintHost.palette();
+                paintPalette.setColor(QPalette::Window, QColor(0xd0, 0xd0, 0xd0));
+                paintHost.setPalette(paintPalette);
+                auto *paintGhost = new QPushButton(kindText, &paintHost);
+                Theme::markButton(paintGhost, Theme::ButtonKind::Ghost);
+                paintGhost->setFocusPolicy(Qt::NoFocus);
+                paintGhost->setGeometry(20, 8, 160, Theme::actionHeight());
+                auto *paintSolid = new QPushButton(kindText, &paintHost);
+                Theme::markButton(paintSolid, Theme::ButtonKind::Neutral);
+                paintSolid->setFocusPolicy(Qt::NoFocus);
+                paintSolid->setGeometry(20, 58, 160, Theme::actionHeight());
+                paintHost.show();
+                QApplication::processEvents();
+                const QImage paintShot = captureWidget(&paintHost);
+                const QColor boardColor = QColor(paintShot.pixel(228, 4));
+                const QColor ghostArea = dominantColor(paintShot, paintGhost->geometry());
+                const QColor solidArea = dominantColor(paintShot, paintSolid->geometry());
+                check(sameColor(ghostArea, boardColor) &&
+                          !sameColor(boardColor, QColor(Qt::white)) &&
+                          sameColor(solidArea, QColor(Qt::white)),
+                      "★★ §3.3 Ghost 那一格**透出底下的东西**（中心跟板子同一个色），旁边那颗普通"
+                      "按钮是白的 —— 「不抢眼」在屏幕上就是这个样子",
+                      QStringLiteral("板 %1 / Ghost %2 / 普通 %3")
+                          .arg(boardColor.name(), ghostArea.name(), solidArea.name()));
+                // 那行字照旧铺上（只是没有底和边）—— "没底"不等于"没字"。
+                int ghostInkHits = 0;
+                const QRect ghostBox = paintGhost->geometry();
+                for (int y = ghostBox.top(); y <= ghostBox.bottom(); ++y) {
+                    for (int x = ghostBox.left(); x <= ghostBox.right(); ++x) {
+                        // 深像素那一档：那行字是 `#202020`（对黑的差 = 96 ≤ 0x80），
+                        // 板子的 `#d0d0d0`（624）和任何浅灰都不算。
+                        if (colorDistance(QColor(paintShot.pixel(x, y)), QColor(0, 0, 0)) <= 0x80) {
+                            ++ghostInkHits;
+                        }
+                    }
+                }
+                check(ghostInkHits > 0,
+                      "★ §3.3 Ghost 只是没有底和边，**那行字照旧铺上**（黑色那档）——"
+                      "「没底」不等于「没字」",
+                      QStringLiteral("那一格上 %1 个深像素").arg(ghostInkHits));
+
+                // ③ 灰掉那一档**还得读得出来**。它是最容易被做成"淡淡的"的那一档：用户要
+                // 看出"这颗不能按"，但字的内容仍然要说出口（"启用"两个字灰到看不见，
+                // 用户就不知道这颗按钮是干什么的）。判据取 WCAG 那 3:1（次要信息那一档），
+                // 对的是**禁用时真正的底** `disabledFillColor()`。
+                const double disabledContrast =
+                    contrast(Theme::disabledInkColor(), Theme::disabledFillColor());
+                check(disabledContrast >= 3.0,
+                      "★★ §3.3 灰掉那一档的字对底 ≥ 3:1（灰归灰，「这颗按钮叫什么」还得读得出来）",
+                      QStringLiteral("%1 对 %2 = %3:1")
+                          .arg(Theme::disabledInkColor().name(), Theme::disabledFillColor().name())
+                          .arg(disabledContrast, 0, 'f', 2));
+                // 而它和「一般性（黑）」那一档**不是同一个色**：同色的话，一颗"不能按"的
+                // 按钮和一颗"能按、只是没那么要紧"的按钮，屏幕上分不出来。
+                check(colorDistance(Theme::disabledInkColor(), Theme::neutralInkColor()) > 100,
+                      "★ §3.3 「灰掉」和「一般性」是**两档两色**：灰的是「这颗不能按」，"
+                      "黑的是「这颗能按、只是没那么要紧」",
+                      QStringLiteral("灰 %1 / 黑 %2")
+                          .arg(Theme::disabledInkColor().name(), Theme::neutralInkColor().name()));
+                kindHost.hide();
+                paintHost.hide();
+            }
+
+            // ---------- §8.3 焦点环 ----------
+            //
+            // coding plan §8.3：「全部关键操作具备键盘焦点、**可见焦点环**和合理 Tab 顺序」。
+            // 环是 `WtfmlProxyStyle` 在 `PE_FrameFocusRect` 上自己画的 —— 基样式（Fusion）
+            // 画的是**一圈虚线**，我们的按钮挂了应用级样式表之后它上屏看不见，等于"按 Tab
+            // 跳到哪儿了"说不出口。这里量的是**真的画出来了、而且是那一档色**：只比
+            // `focusRingColor()` 的返回值是不够的（环根本没上屏照样过）。
+            {
+                QWidget ringHost;
+                ringHost.resize(160, 72);
+                auto *ringButton = new QPushButton(QStringLiteral("确定"), &ringHost);
+                ringButton->setGeometry(24, 18, 112, 36);
+                ringHost.show();
+                // 用 Tab 进来的焦点（真按 Tab 键也是这一档）——`setFocusPolicy` 没动过，
+                // 所以这一句同时也盯着"按钮默认可聚焦"这件事。
+                ringButton->setFocus(Qt::TabFocusReason);
+                ringHost.activateWindow();
+                // 这一档现在只认**真的按键**（藏起焦点控件时 Qt 交接焦点也报
+                // TabFocusReason ⇒ 不能拿那个理由当"用户按了 Tab"，见 Theme.cpp 那段）。
+                // 所以照真路先送一发普通按键，再送 FocusIn。
+                QKeyEvent keyboardInput(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier);
+                QApplication::sendEvent(ringButton, &keyboardInput);
+                QFocusEvent keyboardFocus(QEvent::FocusIn, Qt::TabFocusReason);
+                QApplication::sendEvent(ringButton, &keyboardFocus);
+                QApplication::processEvents();
+                check(ringButton->hasFocus() &&
+                          ringButton->property("wtfmlKeyboardFocus").toBool(),
+                      "★★ §8.3 键盘焦点进来了 ⇒ `wtfmlKeyboardFocus` 属性摆上"
+                      "（环画不画就看它这一格）",
+                      QStringLiteral("焦点 %1 / 属性 %2")
+                          .arg(ringButton->hasFocus() ? QStringLiteral("有")
+                                                      : QStringLiteral("无"),
+                               ringButton->property("wtfmlKeyboardFocus").toBool()
+                                   ? QStringLiteral("开")
+                                   : QStringLiteral("关")));
+
+                const QImage ringShot = captureWidget(ringButton);
+                const QColor ringInk = Theme::focusRingColor(ringButton->palette());
+                int ringHits = 0;
+                for (int y = 0; y < ringShot.height(); ++y) {
+                    for (int x = 0; x < ringShot.width(); ++x) {
+                        if (colorDistance(ringShot.pixelColor(x, y), ringInk) <= 40) {
+                            ++ringHits;
+                        }
+                    }
+                }
+                check(ringButton->hasFocus() && ringInk.isValid() && ringHits > 0,
+                      "★★ §8.3 拿着键盘焦点的控件四周真画了一圈主题色（基样式那圈虚线上屏之后"
+                      "看不见，等于没有）",
+                      QStringLiteral("环 %1 个像素 / 要的是 %2").arg(ringHits).arg(ringInk.name()));
+
+                // 两档深浅各一支：环压在底色上得看得见，深底上用那一支深绿就是"跟底色糊在
+                // 一起"。判据是 `isDarkPalette()`（窗口底色的明度），所以这里换的是 Window。
+                QPalette darkPalette = ringButton->palette();
+                darkPalette.setColor(QPalette::Window, QColor(0x1e, 0x1e, 0x1e));
+                const QColor lightRing = Theme::focusRingColor(ringButton->palette());
+                const QColor darkRing = Theme::focusRingColor(darkPalette);
+                check(darkRing != lightRing && lightRing.isValid() && darkRing.isValid(),
+                      "★★ §8.3 焦点环深浅两档是**两支**（浅底用深的那一档、深底用浅的那一档）",
+                      QStringLiteral("浅底 %1 / 深底 %2").arg(lightRing.name(), darkRing.name()));
+
+                {
+                    // ① 鼠标按下先到（真点击就是这一路）：键盘那一档收掉。
+                    const QPoint center = ringButton->rect().center();
+                    QMouseEvent mousePress(QEvent::MouseButtonPress, QPointF(center),
+                                           QPointF(ringButton->mapToGlobal(center)),
+                                           Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                    QApplication::sendEvent(ringButton, &mousePress);
+                    check(!ringButton->property("wtfmlKeyboardFocus").toBool(),
+                          "★ §8.3 鼠标按下就把键盘那一档收掉（上面那一圈环是给键盘的）");
+
+                    // ② 切页交接过来的焦点：理由写着 TabFocusReason，前面**没有任何按键**。
+                    QFocusEvent handoff(QEvent::FocusIn, Qt::TabFocusReason);
+                    QApplication::sendEvent(ringButton, &handoff);
+                    check(!ringButton->property("wtfmlKeyboardFocus").toBool(),
+                          "★★ 切页时 Qt 交接焦点（`TabFocusReason`）**不算键盘操作** —— "
+                          "新页面上那颗页面级按钮不会凭空亮一圈绿框（用户报的那一幕）");
+
+                    // ③ 反方向：真按键之后那一发照旧点亮（别把键盘用户一起挡了）。
+                    QKeyEvent realKey(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier);
+                    QApplication::sendEvent(ringButton, &realKey);
+                    QApplication::sendEvent(ringButton, &handoff);
+                    check(ringButton->property("wtfmlKeyboardFocus").toBool(),
+                          "★★ 真按键之后焦点进来照旧点亮（键盘那一档没被一起挡掉）");
+                }
+            }
+
+            // ---------- W12 灰掉那一档：**中性 / 危险那两种也得跟着灰**（ 真机揪出来的） ----------
+            //
+            // 症状（真机像素实测）：一颗**禁用着**的中性按钮，底确实是 `#F7F7F7`（说明
+            // disabled 那一档生效了），**字和边却还是 `#202020`** —— 屏幕上看着就是一颗
+            // 按得动的按钮。主题色那一颗（Accent，不挂 kind 属性、不参与下面这场平手）
+            // 灰得是对的，所以只有这两种"看着没灰"。
+            //
+            // 根子：样式表里 `QPushButton:disabled` 和
+            // `QPushButton[wtfmlButtonKind="neutral"]` **优先级一模一样**（都是"元素 +
+            // 一个属性/伪类"），平手时**后写的赢** —— 而那条 `:disabled` 原来写在最前面。
+            // 修法 = 把它挪到两种 kind 后面追加（见 `Theme::widgetStyleSheet()` 里那段）。
+            //
+            // 量法：**数深像素**。禁用那一档的那几个色（底 `disabledFillColor()` /
+            // 字 `disabledInkColor()` / 边 `disabledBorderColor()`）一个都不比 `#808080`
+            // 深；带病那一版字是 `#202020`，一数就是一大片。**量的是渲染出来的像素**，
+            // 不是样式表字符串 —— 字符串那一条会跟着同一个错误一起写错（那正是这个 bug
+            // 当初能过掉的原因）。
+            const auto disabledShot = [](QPushButton *button) {
+                button->setEnabled(false);
+                button->style()->unpolish(button);
+                button->style()->polish(button);
+                QApplication::processEvents();
+                const QImage shot = captureWidget(button);
+                button->setEnabled(true);
+                button->style()->unpolish(button);
+                button->style()->polish(button);
+                return shot;
+            };
+            const auto countPixelsIn = [](const QImage &image, const QColor &want, int tolerance) {
+                int hits = 0;
+                for (int y = 0; y < image.height(); ++y) {
+                    for (int x = 0; x < image.width(); ++x) {
+                        if (colorDistance(image.pixelColor(x, y), want) <= tolerance) {
+                            ++hits;
+                        }
+                    }
+                }
+                return hits;
+            };
+            // 此刻挂着「危险」⟶ 先量它，再换成「中性」量第二趟。
+            const QImage dangerDisabledShot = disabledShot(realButton);
+            Theme::markButton(realButton, Theme::ButtonKind::Neutral);
+            realButton->style()->unpolish(realButton);
+            realButton->style()->polish(realButton);
+            const QImage neutralDisabledShot = disabledShot(realButton);
+            // 两样都要为 0：
+            // · **深像素** —— 带病那版中性按钮的字和边是 `#202020`，一数就是一大片；
+            // · **那一档自己的色** —— 带病那版危险按钮的字和边还是红的（`#c02828`），
+            // 它单看**不深**（HSV 明度 192，比 0x80 亮），所以光数深像素量不到它。
+            // 这正是"危险那一档也得单独量一笔"的理由。
+            const int neutraDisabeldDark = countPixelsIn(neutralDisabledShot, QColor(0, 0, 0), 0x80);
+            const int dangerDisabledDark = countPixelsIn(dangerDisabledShot, QColor(0, 0, 0), 0x80);
+            const int dangerDisabledRed = countPixelsIn(dangerDisabledShot, dangerInk, 30);
+            check(neutraDisabeldDark == 0 && dangerDisabledDark == 0 && dangerDisabledRed == 0,
+                  "★★ W12 灰掉那一档把**中性 / 危险**那两种也按下去（字和边一起换成 "
+                  "`disabledInkColor()` / `disabledBorderColor()`：深像素一个都不剩、"
+                  "危险那一档的**红也一起下去**）—— 平手时"
+                  "后写的赢，所以那条 `:disabled` 必须摆在两种 kind 之后",
+                  QStringLiteral("中性档深像素 %1 个 / 危险档深像素 %2 个 / 危险档红 %3 个")
+                      .arg(neutraDisabeldDark)
+                      .arg(dangerDisabledDark)
+                      .arg(dangerDisabledRed));
+
+            // 灰掉那一档对 **Ghost** 一视同仁（，§3.3）：它是一档**四档共用**的
+            // 状态，不是"主题色那一颗才有"。容易漏掉的原因很实在 —— Ghost 平时没有底，
+            // 灰掉的时候那条 `:disabled` 才第一次给它铺上底，用同一把尺子量一遍。
+            // NOTE: "勾着又灰掉"的 Ghost 是**淡底 + 灰字**（`[ghost]:checked` 那条的优先级
+            // 比 `QPushButton:disabled` 高一位，只吃底不吃字）：这是故意的 ——
+            // 一颗灰掉的开关也得说得出自己是开是关。字色归 `:disabled` 管。
+            {
+                QWidget ghostDisabledHost;
+                auto *ghostDisabledButton =
+                    new QPushButton(QStringLiteral("查看报告"), &ghostDisabledHost);
+                Theme::markButton(ghostDisabledButton, Theme::ButtonKind::Ghost);
+                ghostDisabledButton->setFocusPolicy(Qt::NoFocus);
+                auto *ghostDisabledRow = new QVBoxLayout(&ghostDisabledHost);
+                ghostDisabledRow->setContentsMargins(0, 0, 0, 0);
+                ghostDisabledRow->addWidget(ghostDisabledButton);
+                ghostDisabledHost.show();
+                QApplication::processEvents();
+                const QImage ghostDisabledShot = disabledShot(ghostDisabledButton);
+                const int ghostDisabledGrey =
+                    countPixelsIn(ghostDisabledShot, Theme::disabledInkColor(), 100);
+                const int ghostDisabledDark =
+                    countPixelsIn(ghostDisabledShot, QColor(0, 0, 0), 0x80);
+                check(ghostDisabledGrey > 0 && ghostDisabledDark == 0,
+                      "★★ §3.3 Ghost 灰掉之后那行字也跟着灰（`disabledInkColor()` 那一档，"
+                      "深像素一个都不剩）—— 灰掉是四档共用的一件事",
+                      QStringLiteral("灰 %1 个 / 深像素 %2 个")
+                          .arg(ghostDisabledGrey).arg(ghostDisabledDark));
+                ghostDisabledHost.hide();
+            }
+            buttonHost.hide();
+            Theme::setSpec(Theme::defaultSpec());
+            Theme::apply(app);
+
+            Theme::setSpec(Theme::defaultSpec());
+            Theme::apply(app);
+
+            // ---------- W13 按钮分三档 / 输入框 + 勾选框那一套 ----------
+            // 要求：「对于按钮，一些确认性的（如启动，下载，搜索）做成主题色，一些一般性的
+            // （设置，清空搜索）做成黑色，一些不可撤销（如修改存档，删除实例）做成红色
+            // …… 输入文本的搜索框的框框跟随主题色，文本保留黑色，勾选框未勾选的时候框和文本
+            // 做成黑色，勾选了两者都变成主题色」。
+            //
+            // 这一节量的是"**屏幕上的样子**"，不是"样式表字符串里有那几个词"：
+            // ① 「一般性」那一档的黑**不是纯黑**（理由和数在下面那条断言里）；
+            // ② 三档底色/字色**两两看得出不一样**（不然"分了三档"是句空话）；
+            // ③ 一颗真 QLineEdit：中心白、字黑、那一圈边 = 主题色的「边」那一档；
+            // ④ 一颗真 QCheckBox：没勾时框和字都是那一档黑，勾上之后**两样都**变成主题色
+            // （这一条最容易写成"只变了一样"，用户那句原话是"两者都"）。
+            const QColor neutralInk = Theme::neutralInkColor();
+            const QColor accentPure2 = Theme::accentShade(Theme::AccentShade::Pure);
+            const QColor accentInk2 = Theme::accentShade(Theme::AccentShade::Ink);
+            const QColor accentEdge2 = Theme::accentShade(Theme::AccentShade::Border);
+
+            // 「一般性」那一档为什么**不是纯黑**：纯黑压在白底上是 21:1，比正文（也是纯黑）
+            // 还抢眼 —— 一颗"取消"不该比它旁边那颗"确定"更重。所以取一档近黑，但**对白底仍然
+            // 够 WCAG 正文那条 4.5:1**（读不清的黑比灰还糟）。
+            check(!sameColor(neutralInk, QColor(Qt::black)) && neutralInk.value() <= 0x40 &&
+                      contrast(neutralInk, QColor(Qt::white)) >= 4.5,
+                  "★★ W13 「一般性」那一档的黑**不是纯黑**（纯黑比正文还重，一颗「取消」不该比"
+                  "旁边的「确定」抢眼），但对白底仍然够 4.5:1",
+                  QStringLiteral("%1 对白 %2:1")
+                      .arg(neutralInk.name())
+                      .arg(contrast(neutralInk, QColor(Qt::white)), 0, 'f', 2));
+            check(colorDistance(accentEdge2, neutralInk) > 60 &&
+                      colorDistance(accentInk2, neutralInk) > 60 &&
+                      colorDistance(accentEdge2, QColor(0xc0, 0x28, 0x28)) > 60,
+                  "★★ W13 三档真的看得出不一样（主题色那两档 / 一般性那一档黑 / 不可撤销那一档红）",
+                  QStringLiteral("边 %1 / 黑 %2 / 字 %3")
+                      .arg(accentEdge2.name(), neutralInk.name(), accentInk2.name()));
+
+            // 输入框 / 勾选框 / 下拉框都长在一层白底上，量的是"这一块里某个色出现了多少像素"。
+            QWidget formHost;
+            formHost.resize(320, 170);
+            auto *searchEdit = new QLineEdit(QStringLiteral("搜索"), &formHost);
+            searchEdit->setGeometry(12, 12, 200, 28);
+            // 焦点策略钉成 NoFocus：`QLineEdit:focus` 那一档量到的边是**字**那一档（更深），
+            // 不钉的话这一条量到哪一档取决于"这一刻谁拿着焦点"，是一条看运气的断言。
+            searchEdit->setFocusPolicy(Qt::NoFocus);
+            auto *uncheckedBox = new QCheckBox(QStringLiteral("启用"), &formHost);
+            uncheckedBox->setGeometry(12, 52, 160, 24);
+            uncheckedBox->setFocusPolicy(Qt::NoFocus);
+            auto *checkedBox = new QCheckBox(QStringLiteral("启用"), &formHost);
+            checkedBox->setGeometry(12, 84, 160, 24);
+            checkedBox->setFocusPolicy(Qt::NoFocus);
+            checkedBox->setChecked(true);
+            // 加的下拉框（要求「所有单选框换成下拉的」带来的那一套样式）：
+            // 两项，量和上面那颗 QLineEdit **用同一把尺子**（"和输入框一样"这句话只有
+            // 同样量法才说得清）。焦点策略同样钉成 NoFocus，理由和那颗输入框一字不差
+            // （`:focus` 那一档的边更深，不钉就看运气）。
+            auto *plainCombo = new QComboBox(&formHost);
+            plainCombo->setGeometry(12, 120, 220, 30);
+            plainCombo->addItem(QStringLiteral("跟随全局"));
+            plainCombo->addItem(QStringLiteral("自定义"));
+            plainCombo->setFocusPolicy(Qt::NoFocus);
+            formHost.show();
+            QApplication::processEvents();
+
+            // 数一个色在某一块里有多少个像素（三个控件共用这一套）。
+            const auto countColorIn = [](const QImage &image, const QRect &area,
+                                         const QColor &want, int tolerance) {
+                int hits = 0;
+                for (int y = area.top(); y <= area.bottom(); ++y) {
+                    for (int x = area.left(); x <= area.right(); ++x) {
+                        if (colorDistance(QColor(image.pixel(x, y)), want) <= tolerance) {
+                            ++hits;
+                        }
+                    }
+                }
+                return hits;
+            };
+
+            const QImage editShot = captureWidget(searchEdit);
+            check(sameColor(dominantColor(editShot, searchEdit->rect()), QColor(Qt::white)) &&
+                      countColorIn(editShot, searchEdit->rect(), QColor(Qt::black), 0) > 0,
+                  "★★ W13 输入框：框里面是白的、字是**纯黑**（用户原话「文本保留黑色」）",
+                  QStringLiteral("底色 %1")
+                      .arg(dominantColor(editShot, searchEdit->rect()).name()));
+            const int editBorderHits =
+                countColorIn(editShot, searchEdit->rect(), accentEdge2, 6);
+            check(editBorderHits >= searchEdit->width(),
+                  "★★ W13 输入框那一圈框跟着**主题色的「边」那一档**（上下两条加起来至少一整个"
+                  "宽度那么多个像素）",
+                  QStringLiteral("边那一档 %1 个像素").arg(editBorderHits));
+
+            // 勾选框没勾：框和字**都是**那一档黑；勾上：**两样都**变成主题色。
+            // 「两样都」是这一条的重点 —— 只写 `QCheckBox::indicator` 的话字还是黑的。
+            const QImage uncheckedShot = captureWidget(uncheckedBox);
+            const int uncheckedBlack = countColorIn(uncheckedShot, uncheckedBox->rect(),
+                                                     neutralInk, 30);
+            const int uncheckedGreen = countColorIn(uncheckedShot, uncheckedBox->rect(),
+                                                     accentInk2, 30);
+            check(uncheckedBlack > 0 && uncheckedGreen == 0,
+                  "★★ W13 勾选框没勾：那一圈框和那行字**都是**「一般性」那一档黑（一个绿像素都"
+                  "没有）",
+                  QStringLiteral("黑 %1 个 / 绿 %2 个").arg(uncheckedBlack).arg(uncheckedGreen));
+
+            const QImage checkedShot = captureWidget(checkedBox);
+            const int checkedBlack = countColorIn(checkedShot, checkedBox->rect(), neutralInk, 30);
+            const int checkedGreen = countColorIn(checkedShot, checkedBox->rect(), accentInk2, 30);
+            const int checkedPure = countColorIn(checkedShot, checkedBox->rect(), accentPure2, 6);
+            check(checkedGreen > 0 && checkedPure > 0 && checkedBlack == 0,
+                  "★★ W13 勾选框勾上：**框和字一起**变成主题色（方框被纯的那一支填满、字是「字」"
+                  "那一档，黑的一个像素都不剩）",
+                  QStringLiteral("字 %1 个 / 方框 %2 个 / 黑 %3 个")
+                      .arg(checkedGreen).arg(checkedPure).arg(checkedBlack));
+
+            // 下拉框：**照抄上面那颗输入框的断言形态**，同一把尺子（同样的容差、同样的
+            // 阈值）—— 用户那句要求是"下拉框和输入框那一套同一组颜色"，两种控件各量一套
+            // 数字的话，"一样"这个词就说不清了。
+            const QImage comboShot = captureWidget(plainCombo);
+            check(sameColor(dominantColor(comboShot, plainCombo->rect()), QColor(Qt::white)) &&
+                      countColorIn(comboShot, plainCombo->rect(), QColor(Qt::black), 0) > 0,
+                  "★★ W13 下拉框：框里面是白的、字是**纯黑**（和输入框同一组颜色）",
+                  QStringLiteral("底色 %1")
+                      .arg(dominantColor(comboShot, plainCombo->rect()).name()));
+            const int comboBorderHits =
+                countColorIn(comboShot, plainCombo->rect(), accentEdge2, 6);
+            check(comboBorderHits >= plainCombo->width(),
+                  "★★ W13 下拉框那一圈框也是**主题色的「边」那一档**（判据和阈值跟输入框一模一样："
+                  "上下两条加起来至少一整个宽度那么多个像素）",
+                  QStringLiteral("边那一档 %1 个像素（输入框 %2 个 / 宽度 %3）")
+                      .arg(comboBorderHits)
+                      .arg(editBorderHits)
+                      .arg(plainCombo->width()));
+            formHost.hide();
+
+            // 数字框 / 下拉框里面**也**有一颗 QLineEdit（`QAbstractSpinBox` 的编辑区、
+            // `QComboBox` 可编辑时那一格）。上面 `QLineEdit {...}` 那条不加限定就是通配，
+            // 会给它们**套上第二圈边**（外面已经有自己的框了）—— 这一条钉的就是那句复位
+            // 规则还在。为什么量字符串不量像素：那一圈边只有 1px，又压在同样的白底上，
+            // "多了一圈"在像素上和一个正常的框分不开；选择器在不在是能直接读的。
+            const QString sheet = Theme::widgetStyleSheet();
+            check(sheet.contains(QLatin1String("QFrame[wtfmlSurface=\"workspace\"]")) &&
+                      sheet.contains(QLatin1String("QFrame[wtfmlSurface=\"footer\"]")) &&
+                      !sheet.contains(QLatin1String("border-top: 1px")),
+                  "★★ 页面工作区和页脚不再画装饰性分隔线（层级只靠底色与留白）");
+            {
+                // 真机回归：去掉 workspace 的边框后，格式串跳过了 `%4`，
+                // 但参数表仍把 QPalette::Mid 塞在第 4 位。QString::arg() 会按“下一个现存
+                // 占位符”顺延，于是 Mid（Windows 浅色下恰好约 #a0a0a0）误填给 section，
+                // 设置页和下载安装页的卡片整块变成深灰。这里不只搜选择器，而是真画一张
+                // section，盯住它不能再退回分隔线色。
+                QFrame sectionProbe;
+                sectionProbe.setProperty("wtfmlSurface", Theme::sectionSurfaceValue());
+                sectionProbe.setFixedSize(80, 48);
+                sectionProbe.show();
+                QApplication::processEvents();
+                const QImage sectionShot = captureWidget(&sectionProbe);
+                const QColor sectionCenter(sectionShot.pixel(sectionShot.width() / 2,
+                                                              sectionShot.height() / 2));
+                const QColor mid = QApplication::palette().color(QPalette::Mid);
+                check(!sameColor(sectionCenter, mid),
+                      "★★ 小节卡片没有被 QPalette::Mid（Windows 浅色下的 #a0a0a0）误填",
+                      QStringLiteral("卡片 %1 / Mid %2").arg(sectionCenter.name(), mid.name()));
+            }
+            check(sheet.contains(QLatin1String("QPushButton { background-color:")) &&
+                      sheet.contains(QLatin1String("border: 1px solid transparent")) &&
+                      sheet.contains(QLatin1String("QPushButton[wtfmlKeyboardFocus=\"true\"]:focus { border-color:")),
+                  "★★ 普通按钮默认没有深色框，透明边保住几何，只有键盘焦点显示主题色边界");
+            check(sheet.contains(QLatin1String("QAbstractSpinBox QLineEdit")) &&
+                      sheet.contains(QLatin1String("QComboBox QLineEdit")) &&
+                      sheet.contains(QLatin1String("border: none")),
+                  "★★ W13 数字框/下拉框里那颗输入框被**复位**掉了（不给它们套第二圈边）");
+
+            // ---------- 按钮状态体系：四档 × 状态，一条条点名（，§3.3） ----------
+            //
+            // 上面那一段量的是**像素**（真按钮、真渲染），这一段量的是**表**：四档层级各自
+            // 把状态写全了没有。两样都要 —— 像素那条钉的是"照这个样子画出来了"，这一条钉的
+            // 是"四档是**一整套**"：漏写一个状态，屏幕上就是"按下去什么都不动"，而那种毛病
+            // 单看任何一颗按钮都是"看起来正常"。
+            {
+                const struct {
+                    Theme::ButtonKind kind;
+                    const char *key;
+                } tiers[] = {
+                    {Theme::ButtonKind::Primary, "primary"},
+                    {Theme::ButtonKind::Danger, "danger"},
+                    {Theme::ButtonKind::Neutral, "neutral"},
+                    {Theme::ButtonKind::Ghost, "ghost"},
+                };
+                QString missingStates;
+                for (const auto &tier : tiers) {
+                    const QString selector =
+                        QStringLiteral("QPushButton[wtfmlButtonKind=\"%1\"]")
+                            .arg(QLatin1String(tier.key));
+                    // 悬停 / 按下那两条**都带 `:enabled`**：不带的话，一颗**禁用着**的按钮
+                    // 鼠标划过去底色照样翻上来（`:hover` 是"鼠标在不在上面"，不问能不能按）。
+                    if (!sheet.contains(selector + QStringLiteral(":hover:enabled")) ||
+                        !sheet.contains(selector + QStringLiteral(":pressed:enabled"))) {
+                        missingStates += QLatin1String(tier.key) + QLatin1Char(' ');
+                    }
+                }
+                check(missingStates.isEmpty(),
+                      "★★ §3.3 四档层级（主动作 / 危险 / 一般性 / Ghost）各自把**悬停 + 按下**"
+                      "两个状态都写全了（而且都带 `:enabled` —— 不带的话灰掉的按钮悬停时底色"
+                      "会翻上来）",
+                      missingStates.isEmpty() ? QStringLiteral("四档齐全")
+                                              : QStringLiteral("缺状态的是：%1").arg(missingStates));
+
+                // 那一档的写法：底和边**都是透明的**，而边那 1px **还在**。
+                // 写 `border: none` 看着"更干净"，可它会让控件矮 2px、窄 2px —— 于是同一个
+                // 布局里换一档 kind，行里所有东西都跟着挪一格（上面那段量的就是它）。
+                const QString ghostRule =
+                    QStringLiteral("QPushButton[wtfmlButtonKind=\"ghost\"] {");
+                const int ghostAt = sheet.indexOf(ghostRule);
+                const QString ghostBody =
+                    ghostAt < 0 ? QString() : sheet.mid(ghostAt, ghostRule.size() + 90);
+                check(ghostAt >= 0 &&
+                          ghostBody.contains(QLatin1String("background-color: transparent")) &&
+                          ghostBody.contains(QLatin1String("border-color: transparent")) &&
+                          !ghostBody.contains(QLatin1String("border: none")),
+                      "★★ §3.3 Ghost 那一档的写法：底和边**都是透明的**，边那 1px **还在**"
+                      "（写成 `border: none` 就矮 2px 窄 2px，换一档整行挪位）");
+                // 勾上那一档也要有：一颗 checkable 的 Ghost（"只看选中的"那种小开关）得让人
+                // 看出它现在是亮着的。
+                check(sheet.contains(ghostRule.left(ghostRule.size() - 2) +
+                                     QStringLiteral(":checked")),
+                      "★ §3.3 Ghost 多一条**勾上**那一档（否则一颗 checkable 的 Ghost 勾上之后"
+                      "屏幕上什么都不变）");
+
+                // 那条共用的 `QPushButton:disabled` 必须摆在**四档之后**（ 真机
+                // 踩到的坑）：它和 `[wtfmlButtonKind="..."]` 优先级一样，平手时**后写的赢** ——
+                // 摆在前面的话，灰掉的按钮底灰了、字和边却还是原来那一档。
+                // 上面那几条像素断言量的是"中性 / 危险真的灰了"，这一条量的是**位置**：
+                // 后面新加一档（Ghost 就是新加的）时，这条规矩得跟着守住。
+                const int disabledAt = sheet.indexOf(QLatin1String("QPushButton:disabled"));
+                check(disabledAt > ghostAt && ghostAt >= 0,
+                      "★★ §3.3 那条共用的 `QPushButton:disabled` 摆在**四档之后**（Ghost 也在它"
+                      "前面）—— 平手时后写的赢，摆在前面的话新加的那一档灰不干净",
+                      QStringLiteral("`:disabled` 在第 %1 个字符 / Ghost 那一档在第 %2 个")
+                          .arg(disabledAt).arg(ghostAt));
+            }
+
+            check(sheet.contains(QLatin1String("QComboBox {")) &&
+                      sheet.contains(QLatin1String("QComboBox:focus")) &&
+                      sheet.contains(QLatin1String("QComboBox::drop-down")) &&
+                      sheet.contains(QLatin1String("QComboBox QAbstractItemView")),
+                  "★★ W13 下拉框那一套样式是**完整的一份**（本体 / 聚焦那一档 / 那颗箭头 / "
+                  "弹出来的那张表，四条都在）",
+                  QStringLiteral("本体 %1 / 聚焦 %2 / 箭头 %3 / 那张表 %4")
+                      .arg(sheet.contains(QLatin1String("QComboBox {")) ? 1 : 0)
+                      .arg(sheet.contains(QLatin1String("QComboBox:focus")) ? 1 : 0)
+                      .arg(sheet.contains(QLatin1String("QComboBox::drop-down")) ? 1 : 0)
+                      .arg(sheet.contains(QLatin1String("QComboBox QAbstractItemView")) ? 1 : 0));
+
+            // ---------- 「下拉框右边那个 V 箭头」那一对是不是原样对上的 ----------
+            //
+            // 要求：「下拉框和所有输入框的高度略微改高点，下拉框最右边放一个 V 箭头」。
+            //
+            // 这一条量的是**字符串**，钉的却是"那一对选择器还在不在"：箭头是
+            // `Theme::createStyle()` 里那个 `QProxyStyle` 画的，而它**只有在样式表里那句
+            // `QComboBox::drop-down` 不带 `border: none` 时才会被调到**（带着的话 Qt 走另一条
+            // 分支、一个箭头都不画，见 `Theme.cpp` 那段长注释）。所以"`::drop-down` 里那句
+            // `border: none` 被谁顺手加回来"这件事，症状是**箭头整个消失**（屏幕上静悄悄少
+            // 一样东西），得在这儿拦住。
+            const QString dropDownRule = QStringLiteral("QComboBox::drop-down { width: 20px; }");
+            const QString spinHeightRule =
+                QStringLiteral("QAbstractSpinBox { min-height: 18px; }");
+            check(sheet.contains(dropDownRule) &&
+                      !sheet.contains(QLatin1String("QComboBox::drop-down { border: none")) &&
+                      sheet.contains(spinHeightRule),
+                  "★★ W13 下拉框那一格：`::drop-down` 里**不许有 `border: none`**（有它 Qt 就把"
+                  "箭头整个吃掉），数字框那一档高度（min + max）也钉着",
+                  QStringLiteral("规则 %1 / 带 border:none 的旧写法 %2 / 数字框那条 %3")
+                      .arg(sheet.contains(dropDownRule) ? 1 : 0)
+                      .arg(sheet.contains(QLatin1String("QComboBox::drop-down { border: none")) ? 1 : 0)
+                      .arg(sheet.contains(spinHeightRule) ? 1 : 0));
+
+            // 高度：改之前三样是 20 / 20 / 19（并排摆着差 1px 就看得出来），现在**一样高**。
+            //
+            // 量的是**摆进布局之后的高度**（`QWidget::height()`），**不是 `sizeHint()`**。
+            // 这一条第一版就是只量 `sizeHint()`，三个数都报 24 —— 可数字框实际占的是 27：
+            // 竖向 `Fixed` 的控件过布局时还要取一次"最小高度"（`min-height` 那位设的就是
+            // 它），而数字框偏偏只有这一个数能动。**屏幕上那个高度才是判据。**
+            QWidget sizeHost;
+            sizeHost.resize(320, 60);
+            auto *sizeEdit = new QLineEdit(QStringLiteral("1280"), &sizeHost);
+            sizeEdit->setFocusPolicy(Qt::NoFocus);
+            auto *sizeCombo = new QComboBox(&sizeHost);
+            sizeCombo->addItem(QStringLiteral("跟随全局"));
+            sizeCombo->addItem(QStringLiteral("自定义"));
+            sizeCombo->setFocusPolicy(Qt::NoFocus);
+            auto *sizeSpin = new QSpinBox(&sizeHost);
+            sizeSpin->setValue(6144);
+            sizeSpin->setFocusPolicy(Qt::NoFocus);
+            auto *sizeRow = new QHBoxLayout(&sizeHost);
+            sizeRow->setContentsMargins(8, 8, 8, 8);
+            sizeRow->addWidget(sizeEdit);
+            sizeRow->addWidget(sizeCombo);
+            sizeRow->addWidget(sizeSpin);
+            sizeHost.show();
+            QApplication::processEvents();
+            const int editHeight = sizeEdit->height();
+            const int comboHeight = sizeCombo->height();
+            const int spinHeight = sizeSpin->height();
+            check(editHeight == comboHeight && comboHeight == spinHeight && editHeight == 24,
+                  "★★ W13 输入框 / 下拉框 / 数字框**三个一样高**，而且比改之前高（改之前 "
+                  "20 / 20 / 19，现在 24）",
+                  QStringLiteral("输入框 %1 / 下拉框 %2 / 数字框 %3（`sizeHint()` 分别是 %4 / %5 / %6）")
+                      .arg(editHeight).arg(comboHeight).arg(spinHeight)
+                      .arg(sizeEdit->sizeHint().height()).arg(sizeCombo->sizeHint().height())
+                      .arg(sizeSpin->sizeHint().height()));
+            QApplication::processEvents();
+            // 落成图上也得是这么高（`sizeHint()` 是"算出来的"，这一条是"画出来的"）：数每一行
+            // 上那一圈主题色的边有多少个像素，取上下各一条最长的 —— 中间隔着的就是控件的高度。
+            const auto hasInk = [](const QImage &image, int x, int y) {
+                return colorDistance(QColor(image.pixel(x, y)), Qt::white) > 200;
+            };
+            const QImage comboSizeShot = captureWidget(sizeCombo);
+            int borderTop = -1;
+            int borderBottom = -1;
+            for (int y = 0; y < comboSizeShot.height(); ++y) {
+                int hits = 0;
+                for (int x = 0; x < comboSizeShot.width(); ++x) {
+                    if (colorDistance(QColor(comboSizeShot.pixel(x, y)), accentEdge2) <= 6) {
+                        ++hits;
+                    }
+                }
+                if (hits >= comboSizeShot.width() / 2) {
+                    if (borderTop < 0) {
+                        borderTop = y;
+                    }
+                    borderBottom = y;
+                }
+            }
+            check(borderTop >= 0 && borderBottom - borderTop + 1 == comboHeight,
+                  "★★ W13 那个高度**真的画出来了**（量的是图上那一圈主题色的边，上下两条之间"
+                  "就是控件的高度）",
+                  QStringLiteral("边在第 %1 行到第 %2 行（%3 高，`sizeHint()` 说 %4）")
+                      .arg(borderTop).arg(borderBottom).arg(borderBottom - borderTop + 1)
+                      .arg(comboHeight));
+
+            // 箭头那一格里的形状：用户要的是一个 `∨`（两笔），不是实心三角。判据落在
+            // "最上面那一行的**正中间**是不是空的"上 —— 实心 `▼` 那一行是**连着**的，
+            // `∧` 又是反过来的（中间有、两头没有），两头 + 中间这两条一起看才认得出 `∨`。
+            const QRect comboInner = sizeCombo->rect().adjusted(1, 1, -1, -1);
+            const QRect arrowCell(comboInner.right() - 19, comboInner.top(), 20,
+                                  comboInner.height());
+            QRect inkBox;
+            for (int y = arrowCell.top(); y <= arrowCell.bottom(); ++y) {
+                for (int x = arrowCell.left(); x <= arrowCell.right(); ++x) {
+                    if (!hasInk(comboSizeShot, x, y)) {
+                        continue;
+                    }
+                    inkBox = inkBox.isNull() ? QRect(x, y, 1, 1) : inkBox.united(QRect(x, y, 1, 1));
+                }
+            }
+            const int inkCentre = inkBox.isNull() ? 0 : inkBox.center().x();
+            check(!inkBox.isNull() && inkBox.width() >= 6 && inkBox.height() >= 3 &&
+                      !hasInk(comboSizeShot, inkCentre, inkBox.top()) &&
+                      hasInk(comboSizeShot, inkCentre, inkBox.bottom()),
+                  "★★ W13 下拉框最右边那个箭头是个 **V**（两笔，不是实心三角）：最上面那一行的"
+                  "**正中间是空的**、最下面那一行的中间有墨",
+                  QStringLiteral("墨迹 %1×%2（那一格里 %3 个像素有墨），中间那列上端 %4 / 下端 %5")
+                      .arg(inkBox.width()).arg(inkBox.height())
+                      .arg(countColorIn(comboSizeShot, arrowCell, QColor(Qt::black), 200))
+                      .arg(hasInk(comboSizeShot, inkCentre, inkBox.top()) ? 1 : 0)
+                      .arg(hasInk(comboSizeShot, inkCentre, inkBox.bottom()) ? 1 : 0));
+
+            // 基样式那圈 95 风格的立体边（`qDrawWinButton`）有没有漏出来：我们靠"先擦一格
+            // 再画 V"把它盖掉，擦歪一点点就是右边缘里头躺着一条 `#555555` 的竖线 —— 那一条
+            // 在屏幕上是"白框里一根灰线"，不特意找根本不会注意。
+            const auto bevelHits = [&comboSizeShot, sizeCombo, &comboInner]() {
+                int hits = 0;
+                for (int y = comboInner.top(); y <= comboInner.bottom(); ++y) {
+                    if (colorDistance(QColor(comboSizeShot.pixel(sizeCombo->width() - 2, y)),
+                                      QColor(0x55, 0x55, 0x55)) <= 30) {
+                        ++hits;
+                    }
+                }
+                return hits;
+            }();
+            check(bevelHits == 0,
+                  "★★ W13 箭头那一格**擦干净了**（基样式那圈立体边一个像素都没漏在右边缘里）",
+                  QStringLiteral("那一列上 %1 个 #555555").arg(bevelHits));
+
+            // 禁用那一档：V 的墨色跟着 `color:` 走（禁用 = `Theme::disabledInkColor()`），
+            // **不许还是黑的**。这一条钉的是"箭头跟着调色板走"（换深浅主题 / 换禁用态都
+            // 跟着变），而不是一张贴死的图 —— 贴图那种做法在这条断言下会红。
+            // NOTE: 起那个色**不问字面量、问 `disabledInkColor()`**：这一轮
+            // 它从 `#9a9a9a` 提到了 `#8a8a8a`（对比度那条判据要 ≥ 3:1），写死字面量
+            // 的话这种"改一档色"的收口会连着红两个文件，而红的那一处什么也没错。
+            sizeCombo->setEnabled(false);
+            QApplication::processEvents();
+            const QImage comboDisabledShot = captureWidget(sizeCombo);
+            const int disabledInkHits =
+                countColorIn(comboDisabledShot, arrowCell, Theme::disabledInkColor(), 100);
+            const int disabledBlackHits =
+                countColorIn(comboDisabledShot, arrowCell, QColor(Qt::black), 30);
+            check(disabledInkHits > 0 && disabledBlackHits == 0,
+                  "★★ W13 下拉框禁用时那个 V 跟着变灰（墨色跟着 `color:` 走，不是写死的黑）",
+                  QStringLiteral("灰 %1 个 / 黑 %2 个").arg(disabledInkHits).arg(disabledBlackHits));
+            sizeCombo->setEnabled(true);
+            sizeHost.hide();
+
+            // ---------- 「问一句」那三颗按钮按位置分档（不是按文字） ----------
+            // 这一段钉的是 `InlineMessageBox` 的 ctor：`destructiveIndex` 那颗按红、默认那颗
+            // 是主题色（**不挂属性**）、剩下的按黑。`InlineMessage::question(destructive:true)`
+            // 走的就是同一条路（它只是把客户给的那一位转手递给 ctor）。
+            // NOTE: 为什么按位置不按文字 —— 按钮表是调用方给的，同一张表里可能出现四颗都叫
+            // "做什么"的（世界编辑菜单那张就是），认文字是认不住的。
+            InlineMessageBox triBox(
+                MessageKind::Question, QStringLiteral("删除实例"),
+                QStringLiteral("实例目录和里面的存档都会没。"),
+                QStringList{QStringLiteral("删除"), QStringLiteral("导出备份"),
+                            QStringLiteral("取消")},
+                1, 0);
+            const auto kindOf = [&triBox](int index) {
+                auto *button = triBox.findChild<QPushButton *>(InlineMessageBox::buttonName(index));
+                return button == nullptr ? QStringLiteral("<没有这颗按钮>")
+                                         : button->property("wtfmlButtonKind").toString();
+            };
+            check(kindOf(0) == Theme::buttonKindKey(Theme::ButtonKind::Danger) &&
+                      kindOf(1).isEmpty() &&
+                      kindOf(2) == Theme::buttonKindKey(Theme::ButtonKind::Neutral),
+                  "★★ W13 三颗按钮的分档：危险那一颗按红、**默认那一颗照旧是主题色**（不挂属性）、"
+                  "剩下那颗（既不是默认也不是危险）才是黑的",
+                  QStringLiteral("0=%1 / 1=%2 / 2=%3").arg(kindOf(0), kindOf(1), kindOf(2)));
+
+            InlineMessageBox plainBox(
+                MessageKind::Question, QStringLiteral("清空搜索"),
+                QStringLiteral("把搜索框里的字去掉。"),
+                QStringList{QStringLiteral("清空"), QStringLiteral("取消")}, 1, -1);
+            const auto plainKindOf = [&plainBox](int index) {
+                auto *button =
+                    plainBox.findChild<QPushButton *>(InlineMessageBox::buttonName(index));
+                return button == nullptr ? QStringLiteral("<没有这颗按钮>")
+                                         : button->property("wtfmlButtonKind").toString();
+            };
+            check(plainKindOf(1).isEmpty() &&
+                      plainKindOf(0) == Theme::buttonKindKey(Theme::ButtonKind::Neutral),
+                  "★★ W13 没有危险动作时（`destructiveIndex = -1`）：默认那颗照旧是主题色，"
+                  "另一颗是黑的",
+                  QStringLiteral("0=%1 / 1=%2").arg(plainKindOf(0), plainKindOf(1)));
+        }
+
+        // ---------- W14 §8.3 颜色入口 / 无障碍 ----------
+        //
+        // §8.3 逐字：「浅色/深色/跟随系统、主题色、文字不透明度、语义色的**实时预览**、
+        // **恢复默认**、**导入/导出**；……全部关键操作具备键盘焦点、**可见焦点环**和合理
+        // Tab 顺序；动画总开关继续保留，并尊重系统'减少动态效果'」。
+        {
+            // ① 导入/导出：一份主题进得去、出得来。
+            //
+            // 这里量的**不是"JSON 写得对不对"**，而是"往返一趟会不会掉东西" —— 掉一样就是
+            // "换台机器导进来之后某个地方悄悄变了"，而屏幕上只是那个地方颜色不对。
+            Theme::Spec round = Theme::defaultSpec();
+            round.presetId = QStringLiteral("dark");
+            round.textOpacity = 72;
+            round.accent = QColor(0x11, 0x22, 0x33);
+            round.danger = QColor(0xaa, 0x00, 0x00);
+            round.roles.insert(int(Theme::Role::Window), QColor(0x12, 0x34, 0x56));
+            Theme::PartStyle roundPart;
+            roundPart.background = QColor(0x0a, 0x0b, 0x0c);
+            roundPart.hasBackground = true;
+            roundPart.foreground = QColor(0xee, 0xee, 0xee);
+            roundPart.hasForeground = true;
+            roundPart.textOpacity = 80;
+            roundPart.imagePath = QStringLiteral("C:/tmp/wtfml-round.png");
+            roundPart.imageName = QStringLiteral("我的图.png");
+            roundPart.hasImage = true;
+            roundPart.fit = Theme::ImageFit::Contain;
+            roundPart.imageOpacity = 40;
+            round.parts.insert(int(Theme::Part::HomeLeft), roundPart);
+
+            const QJsonObject roundJson = Theme::specToJson(round);
+            Theme::Spec back;
+            QString roundError;
+            const bool roundOk = Theme::specFromJson(roundJson, &back, &roundError);
+            const Theme::Spec cleanRound = Theme::normalize(round);
+            const Theme::PartStyle backPart =
+                back.parts.value(int(Theme::Part::HomeLeft));
+            check(roundOk && back.presetId == cleanRound.presetId &&
+                      back.textOpacity == cleanRound.textOpacity &&
+                      sameColor(back.accent, cleanRound.accent) &&
+                      sameColor(back.danger, cleanRound.danger) &&
+                      back.roles.size() == cleanRound.roles.size() &&
+                      sameColor(back.roles.value(int(Theme::Role::Window)),
+                                cleanRound.roles.value(int(Theme::Role::Window))) &&
+                      back.parts.size() == cleanRound.parts.size() &&
+                      sameColor(backPart.background, roundPart.background) &&
+                      backPart.hasBackground && backPart.hasForeground &&
+                      sameColor(backPart.foreground, roundPart.foreground) &&
+                      backPart.textOpacity == roundPart.textOpacity &&
+                      backPart.imagePath == roundPart.imagePath &&
+                      backPart.imageName == roundPart.imageName &&
+                      backPart.fit == roundPart.fit &&
+                      backPart.imageOpacity == roundPart.imageOpacity,
+                  "★★ W14 一份主题导出再导入，**一样东西都不掉**（配色 / 主题色 / 语义色 / "
+                  "角色覆盖 / 骨架覆盖带图带摆法带不透明度）",
+                  QStringLiteral("往返 %1；预设 %2→%3，不透明度 %4→%5，骨架 %6→%7")
+                      .arg(roundOk ? QStringLiteral("成功") : QStringLiteral("**失败**"))
+                      .arg(cleanRound.presetId, back.presetId)
+                      .arg(cleanRound.textOpacity)
+                      .arg(back.textOpacity)
+                      .arg(cleanRound.parts.size())
+                      .arg(back.parts.size()));
+
+            // ② 认不出来的一份文件要**被拒**，而且不许把外面那一份改坏（"导入了别的
+            // JSON"这件事必须在颜色铺上界面之前就挡下来）。
+            Theme::Spec rejected = Theme::defaultSpec();
+            rejected.accent = QColor(0x99, 0x88, 0x77);
+            const QColor beforeReject = rejected.accent;
+            QString rejectError;
+            const bool rejectEmpty =
+                !Theme::specFromJson(QJsonObject(), &rejected, &rejectError);
+            const QString firstError = rejectError;
+            rejectError.clear();
+            QJsonObject alien;
+            alien.insert(QStringLiteral("hello"), QStringLiteral("world"));
+            const bool rejectAlien = !Theme::specFromJson(alien, &rejected, &rejectError);
+            check(rejectEmpty && rejectAlien && !firstError.isEmpty() &&
+                      !rejectError.isEmpty() && sameColor(rejected.accent, beforeReject),
+                  "★★ W14 不是一份主题文件（没有 preset / accent / roles 里的任何一条）⇒ "
+                  "拒收、说一句为什么、**外面那一份原样不动**",
+                  QStringLiteral("空对象 %1 / 别的 JSON %2；accent 现在是 %3")
+                      .arg(rejectEmpty ? QStringLiteral("拒了") : QStringLiteral("**收了**"))
+                      .arg(rejectAlien ? QStringLiteral("拒了") : QStringLiteral("**收了**"))
+                      .arg(rejected.accent.name()));
+
+            // ③ 只写一样也得能用（手写一份 `{"accent": "…"}` 是这一层的设计用法），
+            // 缺的那几项是**出厂**而不是"没有"。
+            QJsonObject minimal;
+            minimal.insert(QStringLiteral("accent"), QStringLiteral("#ff3d8068"));
+            Theme::Spec fromMinimal;
+            QString minimalError;
+            const bool minimalOk = Theme::specFromJson(minimal, &fromMinimal, &minimalError);
+            const Theme::Spec factory = Theme::defaultSpec();
+            check(minimalOk && sameColor(fromMinimal.accent, QColor(0x3d, 0x80, 0x68)) &&
+                      fromMinimal.presetId == factory.presetId &&
+                      fromMinimal.textOpacity == factory.textOpacity &&
+                      fromMinimal.roles.isEmpty() && fromMinimal.parts.isEmpty(),
+                  "★★ W14 手写一份只写主题色的 JSON 收得下：缺的那几项 = **出厂那一份**"
+                  "（不是「没有」、也不是「上一次导入留下的」）",
+                  QStringLiteral("预设 %1 / 不透明度 %2 / 覆盖 %3+%4")
+                      .arg(fromMinimal.presetId)
+                      .arg(fromMinimal.textOpacity)
+                      .arg(fromMinimal.roles.size())
+                      .arg(fromMinimal.parts.size()));
+
+            // ④ 色块那一圈边：深色块给白边、浅色块给黑边。判据取的是**这块色自己的明度**
+            // （不跟主题走）—— 一块近黑的主题色搁在浅色页面上，跟着主题走照样是"一个没有
+            // 形状的洞"。
+            const QColor darkEdge = Theme::swatchBorder(QColor(0x10, 0x10, 0x10));
+            const QColor lightEdge = Theme::swatchBorder(QColor(0xf0, 0xf0, 0xf0));
+            check(darkEdge.isValid() && lightEdge.isValid() && darkEdge.lightness() > 128 &&
+                      lightEdge.lightness() < 128 && darkEdge != lightEdge,
+                  "★★ W14 色块那一圈边按**块自己的明度**给（深色块白边 / 浅色块黑边）",
+                  QStringLiteral("深块 %1 / 浅块 %2")
+                      .arg(darkEdge.name(QColor::HexArgb), lightEdge.name(QColor::HexArgb)));
+
+            // ⑤ 取色卡片里那张色板：块数、名字唯一、而且和预览块 / 输入框**不是同一个名字**
+            // （重名的话验证工程与将来的调用点都会认错人）。
+            QSet<QString> swatchNames;
+            bool swatchNamesOk = InlineMessage::colorSwatchCount() > 0;
+            for (int i = 0; i < InlineMessage::colorSwatchCount(); ++i) {
+                const QString name = InlineMessage::colorSwatchName(i);
+                swatchNamesOk = swatchNamesOk && !name.isEmpty();
+                swatchNames.insert(name);
+            }
+            check(swatchNamesOk && swatchNames.size() == InlineMessage::colorSwatchCount() &&
+                      !InlineMessage::colorEditName().isEmpty() &&
+                      !InlineMessage::colorPreviewName().isEmpty() &&
+                      !swatchNames.contains(InlineMessage::colorEditName()) &&
+                      !swatchNames.contains(InlineMessage::colorPreviewName()) &&
+                      InlineMessage::colorEditName() != InlineMessage::colorPreviewName(),
+                  "★★ W14 取色卡片：色板每一块的名字唯一、和那行十六进制输入框 / 预览块都不重名"
+                  "（重名 = 验证工程和调用点都会认错人）",
+                  QStringLiteral("%1 块 / 唯一 %2 个")
+                      .arg(InlineMessage::colorSwatchCount())
+                      .arg(swatchNames.size()));
+
+            // ⑥ 系统那一档「减少动态效果」：系统说不要动的时候**一个效果都不装**，而用户
+            // 自己那把开关**不许被悄悄改掉**（他换个系统设置回来会发现自己那一格被动过）。
+            //
+            // NOTE: 这一条**只**在验证工程里摆这一位（`setPlatformReducedMotion()`），产品
+            // 那边只有 `src/main.cpp` 去问真系统 —— 把"这台机器的辅助功能怎么设的"
+            // 变成判据的一部分，会让同一份代码在两台机器上跑出两种结果。
+            const bool userWas = Anim::userEnabled();
+            // 存盘那一趟要**换一个窝**（和 W7 落盘往返同一招）：这个进程平时那对
+            // 组织/应用名是空的，`QSettings` 写下去会静默失败 —— 那样量到的"读回来"
+            // 其实是"出厂那一份"，看着像 `load()` 坏了。绝不能碰产品那一份
+            // （`WTFML/WTFML` 底下是用户真在用的设置）。
+            const QString animOrg = QCoreApplication::organizationName();
+            const QString animAppName = QCoreApplication::applicationName();
+            QCoreApplication::setOrganizationName(QStringLiteral("WTFML-verify"));
+            QCoreApplication::setApplicationName(QStringLiteral("ui_check"));
+            QSettings().clear();
+
+            Anim::setEnabled(true);
+            Anim::setPlatformReducedMotion(true);
+            const bool systemWins = !Anim::enabled() && Anim::userEnabled();
+            Anim::setPlatformReducedMotion(false);
+            const bool recovers = Anim::enabled();
+            // 用户那把存盘那一趟（键 `Look/Animations`，**不在 `Theme/` 底下** —— 那下面
+            // 会被 `Theme::save()` 整组抹掉）。
+            Anim::setEnabled(false);
+            Anim::save();
+            Anim::setEnabled(true);
+            Anim::load();
+            const bool loadedBack = !Anim::userEnabled();
+
+            QSettings().clear();
+            QCoreApplication::setOrganizationName(animOrg);
+            QCoreApplication::setApplicationName(animAppName);
+            Anim::setPlatformReducedMotion(false);
+            Anim::setEnabled(userWas);
+            check(systemWins && recovers && loadedBack,
+                  "★★ W14 系统那一档说了算（`enabled()` 假、而 `userEnabled()` 照旧是用户自己"
+                  "那份）；把这一位摆回去又恢复；用户那把开关**存得下也读得回来**",
+                  QStringLiteral("系统拦下 %1 / 摆回去恢复 %2 / 存读往返 %3")
+                      .arg(systemWins ? QStringLiteral("对") : QStringLiteral("**不对**"))
+                      .arg(recovers ? QStringLiteral("对") : QStringLiteral("**不对**"))
+                      .arg(loadedBack ? QStringLiteral("对") : QStringLiteral("**不对**")));
+
+            // ⑦ 设置页「个性化」那一栏里，这一节该有的控件**都在、都挂对了名字**。
+            //
+            // 这里量的是"摆出来了"（objectName / 下拉框里那三项 / 滑块的范围）：真按下去
+            // 之后发生什么由 `MainWindow` 那十个槽管，在 mw_check。
+            QWidget *settingsPage = tabs->widget(MainWindowUI::settingsTabIndex());
+            const auto byName = [settingsPage](const QString &name) {
+                return settingsPage == nullptr ? nullptr : settingsPage->findChild<QWidget *>(name);
+            };
+            auto *presetCombo =
+                qobject_cast<QComboBox *>(byName(MainWindowUI::themePresetComboName()));
+            const QStringList presetIds = Theme::presetIds();
+            bool presetItemsOk = presetCombo != nullptr && presetCombo->count() == presetIds.size();
+            for (int i = 0; presetItemsOk && i < presetIds.size(); ++i) {
+                presetItemsOk = presetCombo->itemData(i).toString() == presetIds.at(i) &&
+                                !presetCombo->itemText(i).isEmpty();
+            }
+            check(presetItemsOk,
+                  "★★ W14 「配色」那一格就是 `Theme::presetIds()` 那三档（认的是 itemData 里"
+                  "那个 id，不是那行字）",
+                  QStringLiteral("%1 项 / 表里 %2 项")
+                      .arg(presetCombo != nullptr ? presetCombo->count() : -1)
+                      .arg(presetIds.size()));
+
+            auto *opacitySlider =
+                qobject_cast<QSlider *>(byName(MainWindowUI::themeTextOpacitySliderName()));
+            auto *opacityPercent = qobject_cast<QLabel *>(
+                byName(MainWindowUI::themeTextOpacityPercentName()));
+            check(opacitySlider != nullptr && opacityPercent != nullptr &&
+                      opacitySlider->minimum() == 0 && opacitySlider->maximum() == 100 &&
+                      opacityPercent->text() == MainWindowUI::themePercentText(
+                                                    opacitySlider->value()),
+                  "★★ W14 「文字不透明度」那根条是 0~100，右边那个百分比**照着条子上的数写**"
+                  "（不是另算一遍）",
+                  QStringLiteral("%1~%2 / 「%3」")
+                      .arg(opacitySlider != nullptr ? opacitySlider->minimum() : -1)
+                      .arg(opacitySlider != nullptr ? opacitySlider->maximum() : -1)
+                      .arg(opacityPercent != nullptr ? opacityPercent->text() : QString()));
+
+            int swatchesFound = 0;
+            int swatchesShaped = 0;
+            int swatchesFocusable = 0;
+            for (int i = 0; i < MainWindowUI::themeSemanticCount(); ++i) {
+                auto *swatch = qobject_cast<QPushButton *>(
+                    byName(MainWindowUI::themeSemanticButtonName(i)));
+                if (swatch == nullptr) {
+                    continue;
+                }
+                ++swatchesFound;
+                // 尺寸是唯一出处给的那一对（四个色块一块大小，而且比一颗普通按钮矮得多）。
+                if (swatch->width() == MainWindowUI::themeSwatchWidth() &&
+                    swatch->height() == MainWindowUI::themeSwatchHeight()) {
+                    ++swatchesShaped;
+                }
+                // §8.3 那一句「全部关键操作具备**键盘焦点**」落到色板上就是"Tab 够得着"：
+                // 色块是 QPushButton（不用自绘控件就是为了白拿焦点 / 回车 / Tab）。
+                if (swatch->focusPolicy() & Qt::TabFocus) {
+                    ++swatchesFocusable;
+                }
+            }
+            auto *accentButton =
+                qobject_cast<QPushButton *>(byName(MainWindowUI::themeAccentButtonName()));
+            check(swatchesFound == MainWindowUI::themeSemanticCount() &&
+                      swatchesShaped == MainWindowUI::themeSemanticCount() &&
+                      swatchesFocusable == MainWindowUI::themeSemanticCount() &&
+                      accentButton != nullptr &&
+                      // 主题色那一块**在这一层就涂好了**（它不需要 MainWindow 那一路推语义色），
+                      // 所以这里量得到"面是那个色"：块自己的色存在这条动态属性上。
+                      accentButton->property("wtfmlSwatchColor").value<QColor>().isValid() &&
+                      byName(MainWindowUI::themeSemanticResetName()) != nullptr &&
+                      byName(MainWindowUI::themeResetAllButtonName()) != nullptr &&
+                      byName(MainWindowUI::themeExportButtonName()) != nullptr &&
+                      byName(MainWindowUI::themeImportButtonName()) != nullptr,
+                  "★★ W14 那一节摆齐了：四个语义色块（大小一致、**Tab 够得着**）+ 主题色那块"
+                  "（这一层就涂上了色）+ 「跟随预设」+ 「恢复全部默认」+ 导入 / 导出",
+                  QStringLiteral("语义块 %1 个（对尺寸 %2 / 可聚焦 %3）")
+                      .arg(swatchesFound)
+                      .arg(swatchesShaped)
+                      .arg(swatchesFocusable));
+
+            auto *animationsCheck =
+                qobject_cast<QCheckBox *>(byName(MainWindowUI::animationsCheckName()));
+            check(animationsCheck != nullptr &&
+                      animationsCheck->text() == MainWindowUI::animationsCheckText(),
+                  "★ W14 「动效」那一节里那个总开关在设置页上（§8.3 明说要继续保留）",
+                  animationsCheck != nullptr ? animationsCheck->text()
+                                             : QStringLiteral("<没找到>"));
+
+            // ⑧ §8.3 那一句「合理 Tab 顺序」：这一节从上到下、从左到右走一遍。
+            //
+            // 走的是**真的那条焦点链**（`nextInFocusChain()`），不是"我们以为的列表" ——
+            // `MainWindowUI::setupSettingsLookPanel()` 末尾那一段 `setTabOrder()` 改的就是
+            // 它。只挑**能 Tab 到的**那些（链上还夹着每行那个说明标签，它们不参与 Tab）。
+            //
+            // NOTE: 这一条**不挑可见性**：链上有几颗在别的分类页上，屏幕上此刻是哪一页都不
+            // 该影响"顺序对不对"这件事（真正按 Tab 时 Qt 自己会跳掉不显示的那些）。
+            {
+                QWidget *cursor = presetCombo;
+                QVector<QWidget *> reached;
+                for (int step = 0; cursor != nullptr && step < 64 && reached.size() < 12; ++step) {
+                    cursor = cursor->nextInFocusChain();
+                    if (cursor == nullptr || cursor == presetCombo) {
+                        break;
+                    }
+                    if (cursor->focusPolicy() & Qt::TabFocus) {
+                        reached.append(cursor);
+                    }
+                }
+                const QVector<QWidget *> expected = {
+                    byName(MainWindowUI::themeAccentButtonName()),
+                    byName(MainWindowUI::themeAccentResetName()),
+                    byName(MainWindowUI::themeTextOpacitySliderName()),
+                    byName(MainWindowUI::themeSemanticButtonName(0)),
+                    byName(MainWindowUI::themeSemanticButtonName(1)),
+                    byName(MainWindowUI::themeSemanticButtonName(2)),
+                    byName(MainWindowUI::themeSemanticButtonName(3)),
+                    byName(MainWindowUI::themeSemanticResetName()),
+                    byName(MainWindowUI::themeResetAllButtonName()),
+                    byName(MainWindowUI::themeExportButtonName()),
+                    byName(MainWindowUI::themeImportButtonName()),
+                };
+                int firstWrong = -1;
+                for (int i = 0; i < expected.size(); ++i) {
+                    if (firstWrong < 0 && reached.value(i) != expected.at(i)) {
+                        firstWrong = i;
+                    }
+                }
+                check(firstWrong < 0 && reached.size() >= expected.size(),
+                      "★★ W14 Tab 顺序：按 Tab 从「配色」那格出发，依次是主题色那块 → "
+                      "「恢复默认」→ 不透明度那根条 → 四个语义色块 → 「跟随预设」→ "
+                      "「恢复全部默认」→ 导出 → 导入（从上到下、从左到右）",
+                      QStringLiteral("走到第 %1 颗对不上（走到 %2 颗，该有 %3 颗）")
+                          .arg(firstWrong < 0 ? QStringLiteral("没有") : QString::number(firstWrong))
+                          .arg(reached.size())
+                          .arg(expected.size()));
+            }
+        }
+
+        // ---------- 收尾：铺回出厂那一份 ----------
+        // 这一段动过全局主题，收尾要铺回去：一是"跟着系统"那一档**得能原样收回来**（铺过
+        // 深色预设之后光"什么都不做"是收不回的，深色那份还挂在应用上 —— 这条断言量的就是
+        // 那个收回的岔路）；二是别让这个进程停在一个半路的状态上。
+        Theme::setSpec(Theme::defaultSpec());
+        Theme::apply(app);
+        check(app.palette() == platformBefore,
+              "★★ W 收尾 从深色预设铺回出厂那一份之后，调色板又回到**原来那一份**"
+              "（「跟着系统」这一档收得回来，而且是原样收回来的）",
+              QStringLiteral("量到 %1，该是 %2")
+                  .arg(app.palette().color(QPalette::Window).name(),
+                       platformBefore.color(QPalette::Window).name()));
+    }
+    return 0;
+}
+
+

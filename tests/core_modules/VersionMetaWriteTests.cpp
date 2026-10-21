@@ -1,0 +1,149 @@
+#include "Support.hpp"
+
+int runVersionMetaWriteTests(const QString &sandbox) {
+    section("O. wtfml.meta 写侧（合并写、坏文件拒写、稳定 id）");
+
+    const QString versionsRoot = sandbox + "/versions";
+    const QString id = QStringLiteral("O段-元数据");
+    const QString metaPath = versionsRoot + "/" + id + "/wtfml.meta";
+    writeFileAt(versionsRoot + "/" + id + "/" + id + ".jar", "dummy");
+
+    const auto readMetaFile = [&]() {
+        QFile f(metaPath);
+        if (!f.open(QIODevice::ReadOnly)) {
+            return QJsonObject();
+        }
+        return QJsonDocument::fromJson(f.readAll()).object();
+    };
+    const auto writeMetaFile = [&](const QByteArray &bytes) { writeFileAt(metaPath, bytes); };
+
+    VersionManager vm;
+
+    // ---- 合并写：只动点名要改的键，用户手写的那几个原样留着 ----
+    // 用真字段名（name / loaderName / …）。NOTE: 显示名在文件里叫 `name`，
+    // 而 VersionDisplayParts 里那个成员叫 `customName` —— 这一段的重点之一就是
+    // "写进去的东西读侧真的看得见"，两边用不同的名字正是最容易写错的地方。
+    writeMetaFile(R"({"name":"我的整合包","loaderName":"Forge","loaderVersion":"47.2.0",
+                      "jvmArgs":["-Dfoo=bar baz"],"realVersion":"1.20.1"})");
+    {
+        QJsonObject fields;
+        fields.insert(QStringLiteral("name"), QStringLiteral("改过的名字"));
+        QString error;
+        check(vm.updateVersionMeta(id, fields, &error), "O1 合并写成功", error);
+    }
+    {
+        const QJsonObject after = readMetaFile();
+        check(after.value(QStringLiteral("name")).toString() == QStringLiteral("改过的名字"),
+              "O1 点名的那个键被改掉了");
+        // 写侧 → 读侧的往返：displayParts() 是这套字段真正的消费者，它读得到才算数。
+        check(vm.displayParts(id).customName == QStringLiteral("改过的名字"),
+              "O1 写进去的显示名，读侧（displayParts）真的看得见",
+              vm.displayParts(id).customName);
+        check(vm.displayParts(id).loaderName == QStringLiteral("Forge") &&
+                  vm.displayParts(id).loaderVersion == QStringLiteral("47.2.0"),
+              "O1 读侧看到的加载器字段还是老样子");
+        check(after.value(QStringLiteral("loaderName")).toString() == QStringLiteral("Forge") &&
+                  after.value(QStringLiteral("loaderVersion")).toString() ==
+                      QStringLiteral("47.2.0"),
+              "O1 没点名的加载器字段原样保留（没被整体覆盖）");
+        check(after.value(QStringLiteral("realVersion")).toString() == QStringLiteral("1.20.1"),
+              "O1 realVersion 也留着");
+        const QJsonArray jvm = after.value(QStringLiteral("jvmArgs")).toArray();
+        check(jvm.size() == 1 && jvm.first().toString() == QStringLiteral("-Dfoo=bar baz"),
+              "O1 用户手写的 jvmArgs 逐字保留（含空格那条）");
+    }
+
+    // ---- 传 null 是"删掉这个键"，不是"写成 null" ----
+    {
+        QJsonObject fields;
+        fields.insert(QStringLiteral("loaderName"), QJsonValue::Null);
+        QString error;
+        check(vm.updateVersionMeta(id, fields, &error), "O2 传 null 删字段成功", error);
+        const QJsonObject after = readMetaFile();
+        check(!after.contains(QStringLiteral("loaderName")),
+              "O2 那个键真的不在了（不是留了个 null）");
+        check(after.contains(QStringLiteral("loaderVersion")),
+              "O2 旁边的键没被牵连");
+    }
+
+    // ---- 坏文件：拒绝写，且一个字节都不动 ----
+    writeMetaFile("{ 这不是 JSON");
+    {
+        QByteArray before;
+        {
+            QFile f(metaPath);
+            if (f.open(QIODevice::ReadOnly)) {
+                before = f.readAll();
+            }
+        }
+        QJsonObject fields;
+        fields.insert(QStringLiteral("name"), QStringLiteral("不该写进去"));
+        QString error;
+        check(!vm.updateVersionMeta(id, fields, &error), "O3 坏文件时拒绝写");
+        check(!error.isEmpty(), "O3 拒绝写时给出了能看懂的原因", error);
+        QByteArray after;
+        {
+            QFile f(metaPath);
+            if (f.open(QIODevice::ReadOnly)) {
+                after = f.readAll();
+            }
+        }
+        check(after == before, "O3 被拒绝时原文件逐字节不变（用户写坏的内容还在，没被吞掉）");
+    }
+
+    // ---- 没有这个文件时可以新建 ----
+    QFile::remove(metaPath);
+    {
+        QJsonObject fields;
+        fields.insert(QStringLiteral("name"), QStringLiteral("新建的"));
+        QString error;
+        check(vm.updateVersionMeta(id, fields, &error), "O4 文件不存在时能建出来", error);
+        check(vm.displayParts(id).customName == QStringLiteral("新建的"),
+              "O4 建出来的内容对（读侧看得见）", vm.displayParts(id).customName);
+    }
+
+    // ---- 稳定 id：只生成一次，第二次读回来的必须是同一个 ----
+    QFile::remove(metaPath);
+    {
+        check(vm.instanceId(id).isEmpty(), "O5 没写过时没有稳定 id（读侧不生成）");
+        check(vm.instanceId(id).isEmpty(), "O5 再读一次还是没有（没有偷偷写盘）");
+        check(!QFile::exists(metaPath), "O5 只读不会把文件造出来");
+
+        const QString first = vm.ensureInstanceId(id);
+        check(!first.isEmpty(), "O5 ensureInstanceId 拿到了一个 id", first);
+        check(QFile::exists(metaPath), "O5 这时文件真的落盘了");
+        check(vm.instanceId(id) == first, "O5 从盘上读得回来（不是只在内存里）");
+        check(vm.ensureInstanceId(id) == first, "O5 再 ensure 一次是同一个 id（幂等）");
+
+        // 换一个 VersionManager 读：它不知道内存里的任何东西，只能靠盘上的文件。
+        VersionManager other;
+        check(other.instanceId(id) == first, "O5 换一个对象读到的还是同一个（真的落盘了）");
+    }
+    {
+        // 稳定 id 和显示名能共存，互不干扰。
+        QJsonObject fields;
+        fields.insert(QStringLiteral("name"), QStringLiteral("带 id 的实例"));
+        check(vm.updateVersionMeta(id, fields), "O6 有 id 之后再写别的字段照样成功");
+        check(!vm.instanceId(id).isEmpty(), "O6 稳定 id 没被后续写入挤掉");
+        check(vm.displayParts(id).customName == QStringLiteral("带 id 的实例"),
+              "O6 显示名也写进去了（读侧看得见）", vm.displayParts(id).customName);
+    }
+    {
+        // 手改坏的 instanceId（类型不对）当没有处理 —— 下次 ensure 会生成一个新的覆盖它。
+        writeMetaFile(R"({"instanceId": 12345, "name":"id 被写坏了"})");
+        check(vm.instanceId(id).isEmpty(), "O7 instanceId 不是字符串时当没有（不返回垃圾）");
+        const QString regenerated = vm.ensureInstanceId(id);
+        check(!regenerated.isEmpty() && !regenerated.contains(QStringLiteral("12345")),
+              "O7 坏值被一个新的 UUID 顶掉", regenerated);
+        check(vm.instanceId(id) == regenerated, "O7 换回来的新 id 读得回来");
+        check(readMetaFile().value(QStringLiteral("name")).toString() ==
+                  QStringLiteral("id 被写坏了"),
+              "O7 顶掉坏 id 时没把旁边的显示名一起抹掉");
+    }
+
+    const bool cleaned = QDir(versionsRoot + "/" + id).removeRecursively();
+    check(cleaned && !QDir(versionsRoot + "/" + id).exists(),
+          "O8 用完的沙盒目录删干净了（句柄没被自己攥着）");
+    return 0;
+}
+

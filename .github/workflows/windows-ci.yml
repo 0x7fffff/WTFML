@@ -22,19 +22,49 @@ permissions:
   contents: read
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      suites: ${{ steps.impact.outputs.suites }}
+      modules: ${{ steps.impact.outputs.modules }}
+      run_tests: ${{ steps.impact.outputs.run_tests }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Select affected modules
+        id: impact
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          $full = $env:EVENT_NAME -notin @('push', 'pull_request') -or $env:REF_TYPE -eq 'tag' -or $env:BASE_SHA -match '^0+$'
+          if (-not $full) {
+            git cat-file -e "$($env:BASE_SHA)^{commit}"
+            if ($LASTEXITCODE -ne 0) { $full = $true }
+          }
+          $global:LASTEXITCODE = 0
+          ./tools/test-impact.ps1 -BaseRef $env:BASE_SHA -Full:$full -GitHubOutput
+
   verify:
+    needs: plan
+    if: ${{ needs.plan.outputs.run_tests == 'true' }}
     name: ${{ matrix.suite }}
     runs-on: windows-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        suite: [ci-app, ci-core, ci-ui, ci-integration]
+        suite: ${{ fromJSON(needs.plan.outputs.suites) }}
     env:
       SCCACHE_GHA_ENABLED: "true"
       SCCACHE_GHA_VERSION: wtfml-qt6101-mingw1310-ci-v1
       SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
       CMAKE_CXX_COMPILER_LAUNCHER: sccache
+      TEST_MODULES: ${{ needs.plan.outputs.modules }}
 
     steps:
       - uses: actions/checkout@v4
@@ -59,11 +89,11 @@ jobs:
           & sccache --show-stats
 
       - name: Build and test
-        run: ./tools/test.ps1 -Suite ${{ matrix.suite }} -BuildDir build/ci -ConfigurePreset ci-verification -BuildTimeoutSeconds 900 -BuildJobs 2
+        run: ./tools/test.ps1 -Suite ${{ matrix.suite }} -Modules $env:TEST_MODULES -BuildDir build/ci -ConfigurePreset ci-verification -BuildTimeoutSeconds 900 -BuildJobs 2
 
       - name: Full UI verification
         if: ${{ success() && matrix.suite == 'ci-ui' && (github.event_name == 'schedule' || inputs.visual == true) }}
-        run: ./tools/test.ps1 -Suite visual -BuildDir build/ci -NoBuild
+        run: ./tools/test.ps1 -Suite visual -BuildDir build/ci -BuildTimeoutSeconds 900
 
       - name: Upload verification reports
         if: ${{ always() }}
@@ -76,6 +106,7 @@ jobs:
             build/test-runs/**/summary.json
             build/test-runs/**/*.log
             build/test-runs/**/results.xml
+            build/ci/test-targets.txt
             build/test-runner-selfchecks/**/*.output.log
             build/test-runner-selfchecks/**/summary.json
             build/ci-partition-checks/**
@@ -85,14 +116,24 @@ jobs:
   # Keep the existing aggregate check name for branch-protection rules.
   build-and-test:
     if: ${{ always() }}
-    needs: verify
+    needs: [plan, verify]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Require every verification partition
         env:
           RESULT: ${{ needs.verify.result }}
+          PLAN_RESULT: ${{ needs.plan.result }}
+          RUN_TESTS: ${{ needs.plan.outputs.run_tests }}
         run: |
+          if [ "$PLAN_RESULT" != "success" ]; then
+            echo "Test planning failed: $PLAN_RESULT"
+            exit 1
+          fi
+          if [ "$RUN_TESTS" = "false" ] && [ "$RESULT" = "skipped" ]; then
+            echo "Documentation-only change: no compiled tests required"
+            exit 0
+          fi
           if [ "$RESULT" != "success" ]; then
             echo "Verification partitions did not all succeed: $RESULT"
             exit 1

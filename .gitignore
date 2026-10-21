@@ -4,6 +4,7 @@ CMakeFiles/
 CMakeCache.txt
 Makefile
 *.cmake
+!/tests/core_modules.cmake
 !/tests/test_runner/RunnerFixture.cmake
 !/tests/test_runner/PartitionFixture.cmake
 *.pro.user*

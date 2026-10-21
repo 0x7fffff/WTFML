@@ -17,6 +17,48 @@ function Check([bool]$Ok, [string]$Text) {
 }
 
 try {
+    . (Join-Path $PSScriptRoot 'test-impact.ps1')
+    . (Join-Path $PSScriptRoot 'test-build-plan.ps1')
+    $owners = @([pscustomobject]@{test='one'; target='ui_check_theme'}, [pscustomobject]@{test='runner'; target='-'})
+    $picked = @(Get-TestBuildTargets @([pscustomobject]@{name='one'}, [pscustomobject]@{name='one'}) $owners)
+    Check ($picked.Count -eq 1 -and $picked[0] -eq 'ui_check_theme') 'test build plan deduplicates independent executable targets'
+    Check (@(Get-TestBuildTargets @([pscustomobject]@{name='runner'}) $owners).Count -eq 0) 'tooling tests require no C++ target'
+    foreach ($invalidOwners in @(@(), @($owners[0], $owners[0]))) {
+        $rejected = $false
+        try { $null = Get-TestBuildTargets @([pscustomobject]@{name='one'}) $invalidOwners } catch { $rejected = $true }
+        Check $rejected 'missing/duplicate build owner fails closed'
+    }
+    Check (@(Get-TestRuntimeTargets @('mw_check_instance_upgrade')).Count -eq 3) 'cold integration builds have three bounded shared-layer stages'
+    Check (@(Get-TestRuntimeTargets @()).Count -eq 0) 'runner-only changes do not build a shared runtime'
+    $docs = Get-TestImpact @('docs/INSTANCE_UPGRADE.md', 'README.md')
+    Check ($docs.suites.Count -eq 0) 'documentation-only changes skip compiled CI partitions'
+    $javaCase = Get-TestImpact @('tests/core_modules/AsciiAliasTests.cpp')
+    Check (-not $javaCase.full -and $javaCase.modules.Count -eq 1 -and $javaCase.modules[0] -eq 'core-java') 'one core case selects only its owning executable'
+    Check ($javaCase.suites.Count -eq 1 -and $javaCase.suites[0] -eq 'ci-core') 'individual core domains remain in the core CI partition'
+    $historyCase = Get-TestImpact @('tests/ui_check/modules/UiContentPagesChecks.cpp')
+    Check (-not $historyCase.full -and 'ui-bootstrap' -in $historyCase.tests -and 'ci-ui' -in $historyCase.suites) 'historical UI assertions are still compiled when their module changes'
+    $upgradeTest = Get-TestImpact @('tests/mw_check/InstanceUpgradeChecks.cpp')
+    Check ($upgradeTest.modules.Count -eq 1 -and $upgradeTest.modules[0] -eq 'upgrade') 'editing an upgrade assertion file does not select unrelated production modules'
+    $themeTest = Get-TestImpact @('tests/ui_check/modules/UiThemeCheck.cpp')
+    Check ($themeTest.modules.Count -eq 1 -and $themeTest.modules[0] -eq 'theme') 'editing a theme assertion file selects only the theme executable'
+    $windowTest = Get-TestImpact @('tests/mw_check/modules/MwMemoryPreferencesChecks.cpp')
+    Check ($windowTest.modules.Count -eq 1 -and $windowTest.modules[0] -eq 'window') 'historical main-window assertion changes retain their integration owner'
+    $upgrade = Get-TestImpact @('src/controllers/UpgradeAssessment.cpp')
+    Check ('upgrade' -in $upgrade.modules -and 'window' -notin $upgrade.modules -and -not $upgrade.full) 'upgrade changes select their module without the monolithic window suite'
+    Check ('ci-app' -in $upgrade.suites -and 'upgrade' -in $upgrade.modules -and 'core' -notin $upgrade.modules) 'upgrade controller changes build the application without unrelated core monolith'
+    Check ('core' -in (Get-TestImpact @('src/operations/ModVersionDeclaration.hpp')).modules) 'shared version declaration changes retain core coverage'
+    $shared = Get-TestImpact @('src/MainWindow.hpp')
+    Check ($shared.full -and $shared.suites.Count -eq 4) 'shared headers expand to all CI partitions'
+    Check ((Get-TestImpact @('src/new-unmapped-feature.cpp')).full) 'unclassified paths fail closed to full verification'
+    Check ((Get-TestImpact @('assets/icons.qrc')).full) 'resource assets are not mistaken for documentation'
+    $tooling = Get-TestImpact @('tools/test.ps1')
+    Check ($tooling.suites.Count -eq 1 -and $tooling.suites[0] -eq 'ci-core' -and 'core' -notin $tooling.modules) 'runner-only changes do not build C++ test executables'
+    & (Join-Path $PSScriptRoot 'test.ps1') -Suite affected -ChangedPath 'src/controllers/ModActionPanelChecks.cpp' `
+        -BuildDir $fixture -NoBuild -ListOnly -ReportRoot (Join-Path $work 'impact-reports') *> (Join-Path $work 'impact.output.log')
+    Check ($LASTEXITCODE -eq 0) 'affected command accepts explicit paths without losing them during import'
+    $impactReport = Get-ChildItem (Join-Path $work 'impact-reports') -Filter impact.json -Recurse | Select-Object -First 1
+    $record = Get-Content -LiteralPath $impactReport.FullName -Raw | ConvertFrom-Json
+    Check ('mods' -in $record.modules -and -not $record.full) 'affected command records the expected module selection'
     . (Join-Path $PSScriptRoot 'ci-object-batches.ps1')
     $objectFixture = @(
         'CMakeFiles/WTFMinecraftLauncher.dir/src/one.cpp.obj: CXX_COMPILER__WTFMinecraftLauncher_unscanned_Release',

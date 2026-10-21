@@ -1,0 +1,1112 @@
+#include "Support.hpp"
+void runBottomBarPanelTests() {
+    const QString originalDir = AppPaths::minecraftDir();
+    QTemporaryDir root;
+    check(root.isValid(), "AH0 临时数据根目录建出来了");
+    if (!root.isValid()) {
+        return;
+    }
+
+    // 数据根目录**两头都要改**（理由见 ZG0 那段：MainWindow 构造里会拿盘上那个「当前游戏
+    // 文件夹」再把 AppPaths 改一次）。
+    QSettings sandbox;
+    const QVariant foldersBefore = sandbox.value(QStringLiteral("Launcher/Folders"));
+    const QVariant currentBefore = sandbox.value(QStringLiteral("Launcher/CurrentFolder"));
+    sandbox.setValue(QStringLiteral("Launcher/Folders"), QStringList({root.path()}));
+    sandbox.setValue(QStringLiteral("Launcher/CurrentFolder"), root.path());
+    sandbox.sync();
+    AppPaths::setMinecraftDir(root.path());
+    QDir().mkpath(root.path() + QStringLiteral("/libraries"));
+    QDir().mkpath(root.path() + QStringLiteral("/assets"));
+    const QDir versionsDir(root.path() + QStringLiteral("/versions"));
+
+    // 两个实例：一个正式版、一个远古版。**分类从 meta 的 type 读**（产品那条路也是，
+    // 见 MainWindow.cpp 里 versionChannelIndexOf()），所以这里按它写。
+    const QString releaseId = QStringLiteral("1.20.1");
+    const QString oldId = QStringLiteral("a1.2.6");
+    makeInstalledVersion(versionsDir, releaseId);
+    makeInstalledVersion(versionsDir, oldId);
+    makeVersionMeta(versionsDir, releaseId, QByteArrayLiteral("{\"type\":\"release\"}"));
+    makeVersionMeta(versionsDir, oldId, QByteArrayLiteral("{\"type\":\"old_alpha\"}"));
+
+    // ---- AH0 五个账号：只有最后三个该出现在右面板里 ----
+    // 列表整份由这一节自己写（**只有 saved_at 是手挑的**：产品的写方用的是秒级的
+    // QDateTime::currentDateTimeUtc()，同一个 run 里连着写几个会撞在同一秒上，那样
+    // "最近三个"这件事就没法验了）。Bob 那一项走产品的写方（putCredentials +
+    // captureActive），拿的是**真的两份凭据副本** —— 后面点他那一行的「登录」要真的
+    // 切过去，副本是假的就切不动。
+    TokenStore::clear(TokenStore::microsoftKey());
+    TokenStore::clear(TokenStore::minecraftKey());
+    TokenStore::clear(TokenStore::accountsKey());
+    TokenStore::clear(TokenStore::currentUuidKey());
+
+    const QString aliceUuid = QStringLiteral("11111111111111111111111111111111");
+    const QString carolUuid = QStringLiteral("22222222222222222222222222222222");
+    const QString bobUuid = QStringLiteral("33333333333333333333333333333333");
+    // Dave：列表里那种**不完整**的项（只有名字，没有两份凭据副本）—— AH11 拿它试"切不过去"。
+    const QString daveUuid = QStringLiteral("44444444444444444444444444444444");
+    const QString daveName = QStringLiteral("Dave");
+    const QString alexName = QStringLiteral("Alex");
+    const QString steveName = QStringLiteral("Steve");
+    const QString alexUuid = AccountStore::offlineUuidFor(alexName);
+    const QString steveUuid = AccountStore::offlineUuidFor(steveName);
+
+    // 两个到期时刻都**按"现在"算**（不写死日期）：写死的话，"剩得多"和"剩不到 6 小时"
+    // 这两档就跟着测试机器上的时钟走 —— 哪天（比如跑在 2027 年）它们会自己换个位置，
+    // 于是"该刷新的没刷新""不该刷新的却发了个包"这种假红/假绿就冒出来了。
+    const QString longExpiry = QDateTime::currentDateTimeUtc().addDays(30).toString(Qt::ISODate);
+    const QString shortExpiry = QDateTime::currentDateTimeUtc().addSecs(60 * 60).toString(Qt::ISODate);
+
+    {
+        QJsonObject microsoft;
+        microsoft.insert(QStringLiteral("access_token"), QStringLiteral("ms-at-Bob"));
+        microsoft.insert(QStringLiteral("refresh_token"), QStringLiteral("rt-bob"));
+        QJsonObject minecraft;
+        minecraft.insert(QStringLiteral("access_token"), QStringLiteral("at-Bob"));
+        // 还有 30 天：令牌**够用**（剩 ≥6 小时那一档，点「登录」不该去换新的）。
+        minecraft.insert(QStringLiteral("expires_at"), longExpiry);
+        minecraft.insert(QStringLiteral("name"), QStringLiteral("Bob"));
+        minecraft.insert(QStringLiteral("uuid"), bobUuid);
+        check(TokenStore::writeJson(TokenStore::microsoftKey(), microsoft) &&
+                  TokenStore::writeJson(TokenStore::minecraftKey(), minecraft),
+              "AH0 Bob 的两份凭据按产品那套格式写进活动槽了");
+        check(AccountStore::captureActive(),
+              "AH0 收进账号列表（列表里那一项带着真的可用副本）");
+    }
+
+    // 一份"离线账号"的列表项（没有凭据，只有一个名字和那个推出来的 uuid）。
+    const auto offlineEntry = [](const QString &uuid, const QString &name,
+                                 const QString &savedAt) {
+        QJsonObject item;
+        item.insert(QStringLiteral("uuid"), uuid);
+        item.insert(QStringLiteral("name"), name);
+        item.insert(QStringLiteral("saved_at"), savedAt);
+        item.insert(QStringLiteral("offline"), true);
+        return item;
+    };
+    // 一份"正版账号"的列表项。@param refreshToken 空 = 微软那份里**没有** refresh_token
+    // （= 换不出新令牌那一档，见 AuthManager::refreshMinecraftToken() 第一道判据）。
+    const auto onlineEntry = [](const QString &uuid, const QString &name, const QString &savedAt,
+                                const QString &refreshToken, const QString &minecraftExpiry) {
+        QJsonObject microsoft;
+        microsoft.insert(QStringLiteral("access_token"), QStringLiteral("ms-at-") + name);
+        if (!refreshToken.isEmpty()) {
+            microsoft.insert(QStringLiteral("refresh_token"), refreshToken);
+        }
+        QJsonObject minecraft;
+        minecraft.insert(QStringLiteral("access_token"), QStringLiteral("at-") + name);
+        minecraft.insert(QStringLiteral("expires_at"), minecraftExpiry);
+        minecraft.insert(QStringLiteral("name"), name);
+        minecraft.insert(QStringLiteral("uuid"), uuid);
+        QJsonObject item;
+        item.insert(QStringLiteral("uuid"), uuid);
+        item.insert(QStringLiteral("name"), name);
+        item.insert(QStringLiteral("saved_at"), savedAt);
+        item.insert(QStringLiteral("microsoft"), microsoft);
+        item.insert(QStringLiteral("minecraft"), minecraft);
+        return item;
+    };
+
+    // 先让 Alex 成为**当前账号**（产品那条路：addOffline 加完顺手切过去）。此刻列表里
+    // 只有 Bob 和 Alex，而 Alex 没有凭据 —— 底栏第二行该写「离线登录」。
+    seedOfflineRandomSkin(alexName, kSeededSkinUrl, QColor(0x30, 0x90, 0xD0));
+    QString offlineError;
+    check(AccountStore::addOffline(alexName, &offlineError) &&
+              AccountStore::activeUuid() == alexUuid,
+          "AH0 加一个离线账号 Alex 并切过去（当前身份 = 离线账号）", offlineError);
+
+    // 再按上面那套时间把整份列表重写一遍。**顺序是刻意的**：saved_at 最新的是 Bob
+    // （手写的 ，故意不用"现在"——这样"最近三个"这条判据跟测试机器上的时钟
+    // 一点关系都没有），然后是 Carol / Alex / Steve / Alice。于是右面板该出的是
+    // Bob、Carol、Alex 这三行，Alice 和 Steve 不出现。
+    {
+        QJsonArray array;
+        array.append(offlineEntry(alexUuid, alexName, QStringLiteral("2026-09-20T00:00:00Z")));
+        array.append(offlineEntry(steveUuid, steveName, QStringLiteral("2026-09-10T00:00:00Z")));
+        array.append(onlineEntry(aliceUuid, QStringLiteral("Alice"),
+                                 QStringLiteral("2026-09-01T00:00:00Z"),
+                                 QStringLiteral("rt-alice"),
+                                 QStringLiteral("2999-01-01T00:00:00Z")));
+        // Carol：微软那份只有 access_token（换不出新令牌），而 Minecraft 那张只剩一小时
+        // —— 正好的"剩不到 6 小时"那一档，而刷新会在第一道判据上停下（不发请求）。
+        array.append(onlineEntry(carolUuid, QStringLiteral("Carol"),
+                                 QStringLiteral("2026-09-23T00:00:00Z"), QString(),
+                                 shortExpiry));
+        QJsonArray all = TokenStore::readJson(TokenStore::accountsKey())
+                             .value(QStringLiteral("accounts"))
+                             .toArray();
+        QJsonObject bobEntry;
+        for (const QJsonValue &value : all) {
+            if (value.toObject().value(QStringLiteral("uuid")).toString() == bobUuid) {
+                bobEntry = value.toObject();
+            }
+        }
+        check(!bobEntry.isEmpty(),
+              "AH0 Bob 那一项找得回来（下面这几个账号要跟它摆在同一个列表里）");
+        bobEntry.insert(QStringLiteral("saved_at"), QStringLiteral("2026-12-31T00:00:00Z"));
+        array.append(bobEntry);
+
+        QJsonObject rootObject;
+        rootObject.insert(QStringLiteral("accounts"), array);
+        check(TokenStore::writeJson(TokenStore::accountsKey(), rootObject),
+              "AH0 五个账号按挑好的时间写进列表");
+        check(AccountStore::accounts().size() == 5 &&
+                  AccountStore::activeUuid() == alexUuid,
+              "AH0 列表里五个账号，当前还是 Alex（重写列表没把身份搅掉）",
+              QStringLiteral("%1 个 / 当前 %2")
+                  .arg(AccountStore::accounts().size())
+                  .arg(AccountStore::activeUuid()));
+    }
+
+    MainWindow w;
+    w.show();
+    QApplication::processEvents();
+    QPushButton *instancesButton =
+        byObjectName<QPushButton>(&w, MainWindowUI::runStateButtonName());
+    QPushButton *accountsButton =
+        byObjectName<QPushButton>(&w, MainWindowUI::accountSkinButtonName());
+    LauncherManager *manager = w.findChild<LauncherManager *>();
+    AuthManager *auth = w.findChild<AuthManager *>();
+    check(instancesButton != nullptr && accountsButton != nullptr && manager != nullptr &&
+              auth != nullptr,
+          "AH0 底栏那颗运行状态按钮、主页那张账号卡片、LauncherManager、AuthManager 都找得到");
+
+    // 面板每次点开都是**新的一个**（关掉就 deleteLater），所以每开一次都重新捞一遍。
+    //
+    // NOTE: 开之前先把已经开着的那块收掉。那两颗按钮是**开关**（点同一颗 = 收回，见
+    // MainWindowUI 里 togglePanel 那段），开着的时候再点一下是"只收不开" ——
+    // 不收掉就点，捞回来的是那块正在被删的旧面板（findChild 在本轮里还找得到它，
+    // 下一轮就是空的），断言会红在一个和产品无关的地方。
+    const auto openPanel = [&](QPushButton *button) -> QWidget * {
+        if (QWidget *open = w.findChild<QWidget *>(MainWindowUI::bottomBarPanelName())) {
+            open->close();
+            QApplication::processEvents();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        }
+        w.raise();
+        w.activateWindow();
+        QApplication::processEvents();
+        button->click();
+        QApplication::processEvents();
+        return w.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
+    };
+    const auto rowTitle = [](QWidget *panel, int index) {
+        QLabel *label = panel == nullptr
+                            ? nullptr
+                            : panel->findChild<QLabel *>(
+                                  MainWindowUI::bottomBarPanelRowTitleName(index));
+        return label == nullptr ? QString() : label->text();
+    };
+    const auto rowSubtitle = [](QWidget *panel, int index) {
+        QLabel *label = panel == nullptr
+                            ? nullptr
+                            : panel->findChild<QLabel *>(
+                                  MainWindowUI::bottomBarPanelRowSubtitleName(index));
+        return label == nullptr ? QString() : label->text();
+    };
+    const auto rowIcon = [](QWidget *panel, int index) -> QPixmap {
+        QLabel *label = panel == nullptr
+                            ? nullptr
+                            : panel->findChild<QLabel *>(
+                                  MainWindowUI::bottomBarPanelRowIconName(index));
+        return label == nullptr ? QPixmap() : label->pixmap();
+    };
+    const auto rowAction = [](QWidget *panel, int index, int action) -> QPushButton * {
+        return panel == nullptr
+                   ? nullptr
+                   : panel->findChild<QPushButton *>(
+                         MainWindowUI::bottomBarPanelRowActionName(index, action));
+    };
+    // 按行标题找那一行（找不到 -1）。
+    //
+    // NOTE: 从 AH11 起，"第 0 行是谁"就不再由 AH7 那套 fixture 决定了 —— AH11 刻意把账号
+    // 列表**整个换掉**（它要造一个"副本不完整"的项，那一项还得排在前面）。写死下标的
+    // 那条断言就是这么红的：点的是"第 0 行"，落到了 Dave 身上，报出来却像"登出没生效"。
+    // 凡是要点某一个具体账号的行，一律先按名字找行号。
+    const auto rowIndexOf = [&rowTitle](QWidget *panel, const QString &title) {
+        for (int row = 0; row < 16; ++row) {
+            if (rowTitle(panel, row) == title) {
+                return row;
+            }
+        }
+        return -1;
+    };
+    const auto stopAllSessions = [&manager] {
+        for (const LauncherManager::GameSession &game : manager->runningGames()) {
+            manager->stopGame(game.sessionId);
+        }
+    };
+
+    // ---- AH1 三份会话（同一个实例开两份 + 另一个实例一份）----
+    EffectiveJavaSettings holderSettings;
+    // javaPath = **这个 exe 自己**，argv 里那一个词让它睡够四分钟（见 main() 开头）。
+    holderSettings.javaPath = QCoreApplication::applicationFilePath();
+    const QStringList holderArgs{QStringLiteral("session-holder")};
+    const int s1 = manager->startGame(holderArgs, holderSettings, releaseId,
+                                      QStringLiteral("1.20.1"));
+    const int s2 = manager->startGame(holderArgs, holderSettings, releaseId,
+                                      QStringLiteral("1.20.1"));
+    const int s3 = manager->startGame(holderArgs, holderSettings, oldId,
+                                      QStringLiteral("a1.2.6"));
+    check(s1 > 0 && s2 > 0 && s3 > 0 && manager->runningGames().size() == 3,
+          "AH1 三份会话真的起来了（1.20.1 开两份 + a1.2.6 一份）",
+          QStringLiteral("会话 %1/%2/%3 · 在跑 %4 份")
+              .arg(s1)
+              .arg(s2)
+              .arg(s3)
+              .arg(manager->runningGames().size()));
+    if (s1 <= 0 || s2 <= 0 || s3 <= 0) {
+        stopAllSessions();
+        AppPaths::setMinecraftDir(originalDir);
+        return;
+    }
+
+    // ---- AH2 左面板：一行一个会话 ----
+    {
+        // 先让底栏**重画一次**再断言"点得开"。
+        //
+        // NOTE: 这一步是必须的：AH1 那三份会话是**直接调 manager->startGame() 起的**，
+        // 绕过了 MainWindow 这条启动路 —— MainWindow 只连了 LauncherManager 的
+        // processOutput / processError / gameFinished 三条信号（见 setupConnections()），
+        // **没有「会话开始了」这一条**。所以"有会话在跑"这件事本身不会让底栏重画，
+        // 左下那一格的点开状态还停在"上一回算出来的那一档"。AH6 那条要量的正是
+        // "产品算出来了没有"，所以这里得先走一遍真路（扳机见 repaintBottomBar()，
+        // 它一行状态都不改）。
+        repaintBottomBar(&w);
+
+        // 再钉一句"有会话在跑时那一格是点得开的"（ 加的那条判据的另一半）：
+        // 会话是**直接调 manager->startGame() 起的**，所以这句同时是"产品真的在那条路上
+        // 重画过底栏"的证人 —— 少了它，下面 AH6 那条"停光了点不开"改成"永远点不开"
+        // 也能绿。
+        QLabel *ah2Chevron = instancesButton != nullptr
+                                 ? instancesButton->findChild<QLabel *>(
+                                       MainWindowUI::bottomBarChevronName())
+                                 : nullptr;
+        check(instancesButton != nullptr && ah2Chevron != nullptr &&
+                  ah2Chevron->isVisibleTo(instancesButton) &&
+                  !instancesButton->testAttribute(Qt::WA_TransparentForMouseEvents),
+              "AH2 有会话在跑时，左下那一格点得开（箭头在、鼠标收得到）",
+              instancesButton == nullptr
+                  ? QStringLiteral("<没找到那颗按钮>")
+                  : QStringLiteral("箭头 %1 / 收鼠标 %2")
+                        .arg(ah2Chevron == nullptr
+                                 ? QStringLiteral("<没找到>")
+                                 : (ah2Chevron->isVisibleTo(instancesButton)
+                                        ? QStringLiteral("在")
+                                        : QStringLiteral("藏了")))
+                        .arg(instancesButton->testAttribute(Qt::WA_TransparentForMouseEvents)
+                                 ? QStringLiteral("是")
+                                 : QStringLiteral("不是")));
+        QWidget *panel = openPanel(instancesButton);
+        check(panel != nullptr && panel->isVisible(), "AH2 点底栏左边那颗按钮弹出了左面板");
+        if (panel != nullptr) {
+            check(rowTitle(panel, 0) == QStringLiteral("1.20.1") &&
+                      rowTitle(panel, 1) == QStringLiteral("1.20.1") &&
+                      rowTitle(panel, 2) == QStringLiteral("a1.2.6"),
+                  "AH2 三份会话就是三行（同一个实例那两份是**两行**、名字一样）",
+                  QStringLiteral("[%1] [%2] [%3]")
+                      .arg(rowTitle(panel, 0), rowTitle(panel, 1), rowTitle(panel, 2)));
+            check(panel->findChild<QLabel *>(MainWindowUI::bottomBarPanelRowTitleName(3)) ==
+                      nullptr,
+                  "AH2 不会有第四行（行数按 runningGames() 来，不是写死的）");
+            const QString fresh = MainWindowUI::runningDurationText(
+                QDateTime::currentMSecsSinceEpoch(), QDateTime::currentMSecsSinceEpoch());
+            check(rowSubtitle(panel, 0) == rowSubtitle(panel, 1) &&
+                      rowSubtitle(panel, 0) == rowSubtitle(panel, 2) &&
+                      rowSubtitle(panel, 0) == fresh,
+                  "AH2 每一行都写了这一份跑了多久（用户要的「有时长」）",
+                  QStringLiteral("[%1] [%2] [%3] 期望 [%4]")
+                      .arg(rowSubtitle(panel, 0), rowSubtitle(panel, 1), rowSubtitle(panel, 2),
+                           fresh));
+            // 行首那个方块按**分类**给：正式版（草方块）和远古版（土块）不是同一张图，
+            // 而同一类的两份是同一张。分类那一套判据和产品是同一个出处（VersionCategory）。
+            check(!rowIcon(panel, 0).isNull() && !rowIcon(panel, 2).isNull() &&
+                      rowIcon(panel, 0).toImage() == rowIcon(panel, 1).toImage() &&
+                      rowIcon(panel, 0).toImage() != rowIcon(panel, 2).toImage(),
+                  "AH2 行首那块的图按实例分类给（两个正式版一样、远古版不一样）");
+            // 行尾前两颗按钮：电源 + 齿轮，都得有图形和一句能看懂的说明。
+            int missing = 0;
+            for (int row = 0; row < 3; ++row) {
+                for (int action = 0; action < 2; ++action) {
+                    QPushButton *button = rowAction(panel, row, action);
+                    if (button == nullptr || button->icon().isNull() ||
+                        button->toolTip().isEmpty() || !button->text().isEmpty()) {
+                        ++missing;
+                    }
+                }
+            }
+            check(missing == 0,
+                  "AH2 每一行行尾都有那两颗图标按钮（电源/齿轮，各带一句 tooltip）",
+                  QStringLiteral("不合格 %1 颗").arg(missing));
+            // 第三颗（ 加的那颗「日志」）：**字的**、带 tooltip、三行都有。
+            // 和上面那两颗的判据正好相反（那两颗不许有 text，这颗不许有 icon）——
+            // 合起来钉的是"PanelAction 的两种形态各走各的那一支"。
+            int textMissing = 0;
+            for (int row = 0; row < 3; ++row) {
+                QPushButton *button = rowAction(panel, row, 2);
+                if (button == nullptr || !button->icon().isNull() ||
+                    button->text() != MainWindowUI::bottomBarPanelLogText() ||
+                    button->toolTip().isEmpty()) {
+                    ++textMissing;
+                }
+            }
+            check(textMissing == 0,
+                  "AH2 每一行行尾第三颗是那句「日志」（文字按钮，带一句 tooltip）",
+                  QStringLiteral("不合格 %1 颗").arg(textMissing));
+            check(rowAction(panel, 0, 3) == nullptr,
+                  "AH2 行尾就三颗（多一颗说明编号和产品对不上了）");
+        }
+    }
+
+    // ---- AH3 齿轮：开的是**这一行那个实例**的设置 ----
+    // 点的是最后一行（a1.2.6），而"当前选中的实例"是另一个 —— 标题里写的是哪一个，
+    // 就说明它认的是行里带的版本号，不是下拉框里那个。
+    {
+        QWidget *panel = openPanel(instancesButton);
+        // 行尾那颗齿轮是**第 1 颗**（第 0 颗是电源）—— 这两个号数是产品那边的约定
+        // （MainWindow.cpp 里 kRunningPanelStopAction / kRunningPanelSettingsAction），
+        // 这里刻意写死：真把两颗换了位置，这一节会红（点成电源 → 弹的是「停止游戏」）。
+        QPushButton *gear = rowAction(panel, 2, 1);
+        QString dialogTitle;
+        check(gear != nullptr, "AH3 最后一行那颗齿轮找得到");
+        if (gear != nullptr) {
+            closeInstanceSettingsPage(&dialogTitle);
+            gear->click();
+            // 面板先收、动作排到下一轮（见 MainWindowUI 里 dispatch 那段），所以要转事件循环。
+            QApplication::processEvents();
+            check(dialogTitle.contains(oldId),
+                  "AH3 开的是那一行那个实例的设置（不是下拉框里选中的那个）", dialogTitle);
+            check(g_modalTitle.isEmpty(),
+                  "AH3 也没有别的框冒出来（齿轮只开设置窗）", g_modalTitle);
+        }
+    }
+
+    // ---- AH3b 第三颗「日志」：点一下就把**这一行那份会话**的日志窗开出来 ----
+    // 加（coding plan §3.3「运行中实例弹层优先展示实例名、运行时长和
+    // 『打开日志/停止』等可用动作」）。这一颗走的是**另一条路**：`openGameLogForSession()`
+    // —— "用户点名要看"，它必须能跨过两道闸：
+    // · 「显示游戏日志」那个开关（默认是**关**的：它拦的是"自动冒出来的窗"）；
+    // · `m_gameLogDismissedSessions`（用户关过这一扇就不再自动开）。
+    // 所以这一节四段：① 点一下开出一扇（而且那时候盘上这个开关确实是关的）；
+    // ② 同一个会话再点一下还是那一扇（抬到前面，不重开）；③ 用户关掉它、再点 → **又开
+    // 出来**（"关过就不再开"那条闸对点名要看的那一发不成立）；④ 收尾关掉。
+    {
+        const auto logWindowsNow = []() {
+            QList<GameLogWindow *> found;
+            for (QWidget *top : QApplication::topLevelWidgets()) {
+                if (auto *log = qobject_cast<GameLogWindow *>(top)) {
+                    found.append(log);
+                }
+            }
+            return found;
+        };
+        const auto dropLogWindows = [&logWindowsNow]() {
+            for (GameLogWindow *left : logWindowsNow()) {
+                left->close();
+            }
+            QApplication::processEvents();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            QApplication::processEvents();
+        };
+        dropLogWindows();
+        check(logWindowsNow().isEmpty(), "AH3b 前提：动手之前一扇日志窗都没有");
+
+        // 前提②：盘上那个开关现在是**关**的 —— 少了这一条，下面那几条量的就成了"开着的时候
+        // 建不建窗"，而那件事 AE 节已经量过了。
+        LauncherSettings ah3bSettings;
+        check(!ah3bSettings.showGameLog(),
+              "AH3b 前提：盘上「显示游戏日志」是关着的（这一颗点出来才算跨过了那道闸）");
+
+        QWidget *panel = openPanel(instancesButton);
+        // 第 2 颗 = 「日志」（第 0 = 电源 / 第 1 = 齿轮，见 MainWindow.cpp 里那三个
+        // kRunningPanel*Action）。点的是**最后一行**（a1.2.6）—— 和 AH3 同一行，于是
+        // "标题里那个名字"只可能是那一行带下来的，不是当前选中的那个实例。
+        QPushButton *logButton = rowAction(panel, 2, 2);
+        check(logButton != nullptr, "AH3b 最后一行那颗「日志」找得到");
+        if (logButton != nullptr) {
+            logButton->click();
+            // 面板先收、动作排到下一轮（见 MainWindowUI 里 dispatch 那段）。
+            QApplication::processEvents();
+            const QList<GameLogWindow *> opened = logWindowsNow();
+            check(opened.size() == 1,
+                  "AH3b 点「日志」开出一扇窗（开关关着也开 —— 这是用户点名要的那一发）",
+                  QStringLiteral("开出来 %1 扇").arg(opened.size()));
+            check(opened.value(0) != nullptr &&
+                      opened.value(0)->windowTitle().contains(oldId),
+                  "AH3b 那一扇的标题是**这一行**那个实例（不是当前选中的那个）",
+                  opened.value(0) != nullptr ? opened.value(0)->windowTitle() : QString());
+            const QString manualLine = QStringLiteral("[AH3b] 手动打开后的输出");
+            const bool delivered = QMetaObject::invokeMethod(
+                &w, "onProcessOutput", Qt::DirectConnection, Q_ARG(int, s3),
+                Q_ARG(QString, manualLine));
+            QApplication::processEvents();
+            check(delivered && opened.value(0) != nullptr &&
+                      opened.value(0)->allLogText().contains(manualLine),
+                  "★★ AH3b 自动显示关着时，手动打开的日志窗照样继续收到后续输出",
+                  opened.value(0) != nullptr ? opened.value(0)->allLogText()
+                                             : QStringLiteral("<没有窗>"));
+
+            // ② 同一个会话再点一次：还是那一扇（已经开着就抬到前面，一个字都不重开）。
+            QWidget *panelAgain = openPanel(instancesButton);
+            QPushButton *logAgain = rowAction(panelAgain, 2, 2);
+            check(logAgain != nullptr, "AH3b 再点开面板，那颗「日志」还在原位");
+            if (logAgain != nullptr) {
+                logAgain->click();
+                QApplication::processEvents();
+                check(logWindowsNow().size() == 1,
+                      "AH3b 同一个会话再点一次：还是那一扇（抬到前面，不重开一扇）",
+                      QString::number(logWindowsNow().size()));
+            }
+
+            // ③ 用户把它关了（= 走 finished，记进"关过就不再自动开"），再点「日志」——
+            // 必须**又开出来**。这一条是"点名要看"和"自动冒出来"两条路的**分界**：
+            // 少了它，把 openGameLogForSession 写成"照 showGameLogLine 那套闸走"也绿。
+            dropLogWindows();
+            check(logWindowsNow().isEmpty(), "AH3b 用户把那一扇关掉了（关掉就销毁）");
+            QWidget *panelThird = openPanel(instancesButton);
+            QPushButton *logThird = rowAction(panelThird, 2, 2);
+            if (logThird != nullptr) {
+                logThird->click();
+                QApplication::processEvents();
+                check(logWindowsNow().size() == 1,
+                      "AH3b 关掉之后再点一次：**又开出来**（「关过就不再自动开」拦的是自动那一发）",
+                      QStringLiteral("开出来 %1 扇").arg(logWindowsNow().size()));
+            } else {
+                check(false, "AH3b 第三次点开面板，那颗「日志」找不到了");
+            }
+            dropLogWindows();
+        }
+    }
+
+    // ---- AH4 面板是**快照**：开着的这几秒里列表变了，回来时按 key 认人 ----
+    // 这一条是这个设计（行里带 key 而不是行号）唯一的照妖镜：把面板开着，从**外面**
+    // 停掉第一份会话，然后再点原来第 1 行那颗电源。按行号认人的实现会去停"现在排第 1 的
+    // 那一份"（= a1.2.6 那一份），于是红的会是"停错了人"；按 key 认的停的是当初那行
+    // 对应的那一份（= 第二份 1.20.1）。
+    {
+        QWidget *panel = openPanel(instancesButton);
+        check(manager->runningGames().size() == 3, "AH4 前提：面板开着的时候还是三份会话",
+              QString::number(manager->runningGames().size()));
+        check(manager->stopGame(s1),
+              "AH4 从外面把第一份会话停掉（模拟「它自己退出了」）");
+        const bool gone = pumpUntil([&manager, s1] { return manager->session(s1).sessionId == 0; },
+                                    5000);
+        check(gone, "AH4 那一份真的从会话表里收掉了（不是只 kill 了进程）");
+
+        QPushButton *power = rowAction(panel, 1, 0);
+        check(power != nullptr, "AH4 面板上那一行的电源还在（面板不会自己重画，这是快照）");
+        if (power != nullptr) {
+            answerStopGamePrompt();
+            power->click();
+            QApplication::processEvents();
+            check(g_modalTitle == QStringLiteral("停止游戏") && g_modalWasWarning,
+                  "AH4 点电源会先问一句（那是强杀，游戏不会存档）",
+                  g_modalTitle + QStringLiteral(" / ") + g_modalText);
+            check(g_modalText.contains(QStringLiteral("1.20.1")) &&
+                      g_modalText.contains(QStringLiteral("不会存档")),
+                  "AH4 那一问里点了实例名、也说清了会丢进度", g_modalText);
+            const bool s2Gone = pumpUntil([&manager, s2] { return manager->session(s2).sessionId == 0; },
+                                          5000);
+            check(s2Gone && manager->session(s3).sessionId == s3,
+                  "AH4 停的是**那一行**那份会话（第二份 1.20.1），另一份 a1.2.6 一个字节没动",
+                  QStringLiteral("第二份 %1 / a1.2.6 %2")
+                      .arg(manager->session(s2).sessionId)
+                      .arg(manager->session(s3).sessionId));
+            check(manager->runningGames().size() == 1,
+                  "AH4 现在只剩一份在跑", QString::number(manager->runningGames().size()));
+        }
+    }
+
+    // ---- AH5 重新点开：现算一遍（剩下的那一份）----
+    {
+        QWidget *panel = openPanel(instancesButton);
+        check(rowTitle(panel, 0) == QStringLiteral("a1.2.6") &&
+                  panel->findChild<QLabel *>(MainWindowUI::bottomBarPanelRowTitleName(1)) ==
+                      nullptr,
+              "AH5 面板不缓存上一次那几行：再点开是现算的一份",
+              QStringLiteral("[%1]").arg(rowTitle(panel, 0)));
+        // 顺手用面板上那颗电源把最后一份也停掉 —— 那一行的 key 就是它。
+        QPushButton *power = rowAction(panel, 0, 0);
+        if (power != nullptr) {
+            answerStopGamePrompt();
+            power->click();
+            QApplication::processEvents();
+        }
+        const bool allGone =
+            pumpUntil([&manager] { return manager->runningGames().isEmpty(); }, 5000);
+        check(allGone, "AH5 面板上那颗电源把最后一份也停了（会话全清，不会留着锁住这个 exe）",
+              QString::number(manager->runningGames().size()));
+    }
+
+    // ---- AH6 一份都没在跑：左下那一格**点不开**（ 要求：「没有运行中的
+    // 实例时让那个实例栏点不开，箭头隐藏」）----
+    //
+    // 上面 AH2 量的是另一半（有会话时点得开、箭头在），两条合起来才是"它会**变**"的证人。
+    // 这一步的触发走的是**真产品路径**：AH5 用面板上那颗电源停了最后一份 → LauncherManager
+    // 发 gameFinished → MainWindow 重画底栏 → setRunPanelAvailable(false)。
+    {
+        QLabel *ah6Chevron = instancesButton != nullptr
+                                 ? instancesButton->findChild<QLabel *>(
+                                       MainWindowUI::bottomBarChevronName())
+                                 : nullptr;
+        check(instancesButton != nullptr && ah6Chevron != nullptr &&
+                  !ah6Chevron->isVisibleTo(instancesButton) &&
+                  instancesButton->testAttribute(Qt::WA_TransparentForMouseEvents),
+              "AH6 一份会话都没在跑时，左下那一格点不开了（箭头收起来、鼠标也收不到）",
+              instancesButton == nullptr
+                  ? QStringLiteral("<没找到那颗按钮>")
+                  : QStringLiteral("箭头 %1 / 收鼠标 %2")
+                        .arg(ah6Chevron == nullptr
+                                 ? QStringLiteral("<没找到>")
+                                 : (ah6Chevron->isVisibleTo(instancesButton)
+                                        ? QStringLiteral("在")
+                                        : QStringLiteral("藏了")))
+                        .arg(instancesButton->testAttribute(Qt::WA_TransparentForMouseEvents)
+                                 ? QStringLiteral("是")
+                                 : QStringLiteral("不是")));
+        if (instancesButton != nullptr) {
+            instancesButton->click();
+            QApplication::processEvents();
+            check(w.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()) == nullptr,
+                  "AH6 点它**什么都不弹**（不是弹一块只有那句空话的面板）");
+        }
+    }
+
+    // ---- AH7 右面板：最近登录的三个账户（缓存里拿）----
+    const int refreshFailedBefore = countOccurrences(g_messages, QStringLiteral("没能刷新"));
+    const int refreshedOnceBefore =
+        countOccurrences(g_messages, QStringLiteral("已经顺手换了一张新的"));
+    {
+        QWidget *panel = openPanel(accountsButton);
+        check(panel != nullptr && panel->isVisible(), "AH7 点底栏右边那颗按钮弹出了右面板");
+        if (panel != nullptr) {
+            check(rowTitle(panel, 0) == QStringLiteral("Bob") &&
+                      rowTitle(panel, 1) == QStringLiteral("Carol") &&
+                      rowTitle(panel, 2) == QStringLiteral("Alex"),
+                  "AH7 三行 = 按 saved_at 倒序的**最后三个**（Bob 最新，然后是 Carol、Alex）",
+                  QStringLiteral("[%1] [%2] [%3]")
+                      .arg(rowTitle(panel, 0), rowTitle(panel, 1), rowTitle(panel, 2)));
+            check(rowTitle(panel, 3) == MainWindowUI::accountSkinButtonText() &&
+                      panel->findChild<QLabel *>(
+                          MainWindowUI::bottomBarPanelRowTitleName(4)) == nullptr,
+                  "AH7 三个最近账号之后只有一行「账号与外观…」入口（Alice 和 Steve 不在"
+                  "最近账号列表里）");
+            check(rowSubtitle(panel, 0) == MainWindowUI::bottomBarPanelOnlineAccountText() &&
+                      rowSubtitle(panel, 1) == MainWindowUI::bottomBarPanelOnlineAccountText() &&
+                      rowSubtitle(panel, 2) == MainWindowUI::bottomBarPanelOfflineAccountText(),
+                  "AH7 每一行第二句说的是「这是个什么账号」（离线那行写「离线账号」）",
+                  QStringLiteral("[%1] [%2] [%3]")
+                      .arg(rowSubtitle(panel, 0), rowSubtitle(panel, 1), rowSubtitle(panel, 2)));
+            // ---- AH7b 行首那张脸（ 要求：「在右下角那个上拉框里名字左边
+            // 加一个头像（因为选择/登录过，所以肯定会有缓存，应该不会遇到丢失的情况）」）----
+            //
+            // 这一条**只认缓存**：点开面板不许联网、不许换令牌、也不许读客户端 JAR
+            // （读 JAR 要起一次 PowerShell，几百毫秒挂在"点开"这一下上是不行的，见
+            // accountFacePixmap() 那段）。所以三行都得当场有图，而且三张图分别是谁，
+            // 下面这几条各钉一处：
+            // · 当前账号（Alex）那一行必须**就是底栏那颗头像**缩下来的 —— 同一个窗口里
+            // 同一个人不可能有两张脸（这条是那个保证本身）；
+            // · 另外两个正版账号这一节的 fixture **一个字节的档案缓存都没写过**，
+            // 所以走的是"自己画的首字母方块"那条兜底：逐像素等于 letterAvatar(名字)。
+            const int iconSize = MainWindowUI::bottomBarPanelIconSize();
+            check(!rowIcon(panel, 0).isNull() && !rowIcon(panel, 1).isNull() &&
+                      !rowIcon(panel, 2).isNull() &&
+                      rowIcon(panel, 0).size() == QSize(iconSize, iconSize),
+                  "AH7b 三行行首各有一张脸（尺寸 = bottomBarPanelIconSize()）",
+                  QStringLiteral("%1x%2 / %3x%4 / %5x%6")
+                      .arg(rowIcon(panel, 0).width())
+                      .arg(rowIcon(panel, 0).height())
+                      .arg(rowIcon(panel, 1).width())
+                      .arg(rowIcon(panel, 1).height())
+                      .arg(rowIcon(panel, 2).width())
+                      .arg(rowIcon(panel, 2).height()));
+            {
+                QLabel *barAvatar = byObjectName<QLabel>(&w, MainWindowUI::avatarLabelName());
+                check(barAvatar != nullptr && !barAvatar->pixmap().isNull() &&
+                          rowIcon(panel, 2).toImage() ==
+                              barAvatar->pixmap()
+                                  .scaled(iconSize, iconSize, Qt::IgnoreAspectRatio,
+                                          Qt::FastTransformation)
+                                  .toImage(),
+                      "AH7b 当前账号（Alex）那一行 = 底栏那颗头像缩到 24（同一个人只有一张脸）",
+                      barAvatar != nullptr
+                          ? QStringLiteral("底栏 %1x%2")
+                                .arg(barAvatar->pixmap().width())
+                                .arg(barAvatar->pixmap().height())
+                          : QStringLiteral("<底栏那颗头像没找到>"));
+            }
+            check(rowIcon(panel, 0).toImage() ==
+                          QPixmap::fromImage(
+                              SkinModel::letterAvatar(QStringLiteral("Bob"), iconSize))
+                              .toImage() &&
+                      rowIcon(panel, 1).toImage() ==
+                          QPixmap::fromImage(
+                              SkinModel::letterAvatar(QStringLiteral("Carol"), iconSize))
+                              .toImage(),
+                  "AH7b 盘上没有档案缓存的两个正版账号退回自己画的首字母方块（按名字画的）");
+            // 兜底那张的底色是**算出来的**（qHash(名字) 取色相）。这条断言非有不可：
+            // 不量它的话，"每个人都是同一个灰方块"也能让上面那条绿。
+            // 底色是**算出来的**（qHash(名字) 取色相），所以这两条缺一不可：只量"两个人
+            // 不一样"的话，"每个人都是同一个灰方块"也能绿；只量"等于自己那个色"的话，
+            // 写死一个常量也能绿。
+            //
+            // NOTE: 这里敢拿 `QColor::operator==` 直接比，是因为 avatarFallbackColor()
+            // 交出来的是**按 8 位量化过的**色（见那边那段：Qt 6 的色值是 16 位的，
+            // fromHsv() 直接比会假不相等 —— 名字/rgba/redF 全一样，只有 == 说不一样）。
+            check(SkinModel::avatarFallbackColor(QStringLiteral("Bob")) !=
+                      SkinModel::avatarFallbackColor(QStringLiteral("Carol")),
+                  "AH7b 兜底那块的底色按名字算（Bob 和 Carol 不是同一个色）",
+                  QStringLiteral("Bob %1 / Carol %2")
+                      .arg(SkinModel::avatarFallbackColor(QStringLiteral("Bob")).name())
+                      .arg(SkinModel::avatarFallbackColor(QStringLiteral("Carol")).name()));
+            check(rowIcon(panel, 0).toImage().pixelColor(0, 0) ==
+                          SkinModel::avatarFallbackColor(QStringLiteral("Bob")) &&
+                      rowIcon(panel, 1).toImage().pixelColor(0, 0) ==
+                          SkinModel::avatarFallbackColor(QStringLiteral("Carol")),
+                  "AH7b 而每一块的底色就是他自己名字算出来的那个色",
+                  QStringLiteral("Bob 期望 %1 量到 %2 / Carol 期望 %3 量到 %4")
+                      .arg(SkinModel::avatarFallbackColor(QStringLiteral("Bob")).name())
+                      .arg(rowIcon(panel, 0).toImage().pixelColor(0, 0).name())
+                      .arg(SkinModel::avatarFallbackColor(QStringLiteral("Carol")).name())
+                      .arg(rowIcon(panel, 1).toImage().pixelColor(0, 0).name()));
+            // 当前账号（Alex）那颗写「登出」并且**能点**；正版那两颗写「登录」。
+            QPushButton *current = rowAction(panel, 2, 0);
+            check(current != nullptr &&
+                      current->text() == MainWindowUI::bottomBarPanelLogoutText() &&
+                      current->isEnabled(),
+                  "AH7 当前账号那一行写「登出」且能点（2026-09-24 之前是「当前」+ 灰掉）",
+                  current != nullptr ? current->text() : QStringLiteral("<没找到>"));
+            check(rowAction(panel, 0, 0) != nullptr &&
+                      rowAction(panel, 0, 0)->text() == MainWindowUI::bottomBarPanelLoginText() &&
+                      rowAction(panel, 1, 0) != nullptr &&
+                      rowAction(panel, 1, 0)->text() == MainWindowUI::bottomBarPanelLoginText(),
+                  "AH7 正版账号写「登录」（用户原话：正版的右侧写 登录）");
+
+            // ---- AH8 点一个**过期**的正版账号：切过去 + 令牌换不出来要说清楚 ----
+            QPushButton *carolButton = rowAction(panel, 1, 0);
+            dismissNextPrompt();
+            carolButton->click();
+            QApplication::processEvents();
+            check(AccountStore::activeUuid() == carolUuid,
+                  "AH8 切到那个账号了（令牌没换到也不该把这次切换一起作废）",
+                  AccountStore::activeUuid());
+            check(g_modalTitle == QStringLiteral("登录令牌没能刷新") && g_modalWasWarning,
+                  "AH8 令牌换不出来**要弹窗**（产品级约束：错误要弹窗，不能只写日志）",
+                  g_modalTitle + QStringLiteral(" / ") + g_modalText);
+            check(g_modalText.contains(QStringLiteral("已经切到账号「Carol」")) &&
+                      g_modalText.contains(QStringLiteral("重新登录一次")),
+                  "AH8 弹窗把「切过去了」和「令牌没换到」分开说，并指出下一步", g_modalText);
+            check(countOccurrences(g_messages, QStringLiteral("没能刷新")) ==
+                      refreshFailedBefore + 1,
+                  "AH8 日志里也留了一行（命令行那一路看得见）");
+            check(countOccurrences(g_messages, QStringLiteral("已经顺手换了一张新的")) ==
+                      refreshedOnceBefore,
+                  "AH8 这一发**没有**刷新成功（Carol 那份微软 payload 里没有 refresh_token，"
+                  "第一道判据就拦下了，一个包都没发）");
+        }
+    }
+
+    // ---- AH9 再点开：Carol 成了「当前」，离线那条写「选择」----
+    {
+        QWidget *panel = openPanel(accountsButton);
+        check(rowTitle(panel, 0) == QStringLiteral("Bob") &&
+                  rowTitle(panel, 2) == QStringLiteral("Alex"),
+              "AH9 三行还是那三个账号（切账号不改 saved_at，顺序不变）",
+              QStringLiteral("[%1] [%2] [%3]")
+                  .arg(rowTitle(panel, 0), rowTitle(panel, 1), rowTitle(panel, 2)));
+        QPushButton *carolButton = rowAction(panel, 1, 0);
+        check(carolButton != nullptr &&
+                  carolButton->text() == MainWindowUI::bottomBarPanelLogoutText() &&
+                  carolButton->isEnabled(),
+              "AH9 刚切过去的 Carol 那一行变成「登出」（判据是活动槽，不是列表里记的那个键）",
+              carolButton != nullptr ? carolButton->text() : QStringLiteral("<没找到>"));
+        QPushButton *alexButton = rowAction(panel, 2, 0);
+        check(alexButton != nullptr &&
+                  alexButton->text() == MainWindowUI::bottomBarPanelSelectText() &&
+                  alexButton->isEnabled(),
+              "AH9 离线账号那颗写「选择」（用户原话：离线的右侧按钮写 选择）",
+              alexButton != nullptr ? alexButton->text() : QStringLiteral("<没找到>"));
+
+        // 点「选择」：离线账号没有令牌这回事，切过去就完事 —— 不弹窗、不发请求。
+        if (alexButton != nullptr) {
+            dismissNextPrompt();
+            alexButton->click();
+            QApplication::processEvents();
+            check(AccountStore::activeUuid() == alexUuid, "AH9 切到那个离线账号了",
+                  AccountStore::activeUuid());
+            check(g_modalTitle.isEmpty(),
+                  "AH9 切离线账号**什么都不弹**（它没有令牌可换）", g_modalTitle);
+            QLabel *accountType =
+                byObjectName<QLabel>(&w, MainWindowUI::accountTypeLabelName());
+            check(accountType != nullptr &&
+                      accountType->text() == MainWindowUI::accountTypeOfflineText() &&
+                      auth->playerName() == alexName,
+                  "AH9 底栏也跟着换了（第二行「离线登录」、名字是这个人）",
+                  accountType != nullptr
+                      ? accountType->text() + QStringLiteral(" / ") + auth->playerName()
+                      : QStringLiteral("<没找到>"));
+        }
+    }
+
+    // ---- AH10 令牌**够用**那一档：一个包都不发 ----
+    // Bob 那张到 2999 年（剩得远远不止 6 小时），所以点他那一行的「登录」不该去换新的。
+    // 判据有三条：不弹窗、"顺手换了一张"那条日志没有增加、而且此刻剩的时间确实 ≥6 小时
+    // （把"为什么可以不换"这条依据也钉住 —— 少了它，这条断言在"两边都不换"的实现下也绿）。
+    {
+        QWidget *panel = openPanel(accountsButton);
+        QPushButton *bobButton = rowAction(panel, 0, 0);
+        check(bobButton != nullptr &&
+                  bobButton->text() == MainWindowUI::bottomBarPanelLoginText(),
+              "AH10 Bob 那一行写「登录」",
+              bobButton != nullptr ? bobButton->text() : QStringLiteral("<没找到>"));
+        if (bobButton != nullptr) {
+            dismissNextPrompt();
+            bobButton->click();
+            QApplication::processEvents();
+            check(AccountStore::activeUuid() == bobUuid, "AH10 切到 Bob 了",
+                  AccountStore::activeUuid());
+            check(g_modalTitle.isEmpty(), "AH10 没有弹任何框（够用就不换，一个包都不发）",
+                  g_modalTitle + QStringLiteral(" / ") + g_modalText);
+            check(countOccurrences(g_messages, QStringLiteral("已经顺手换了一张新的")) ==
+                      refreshedOnceBefore,
+                  "AH10 也没有「顺手换了一张」那一行日志");
+            check(auth->tokenSecondsLeft() >= AuthManager::tokenRefreshWindowSecs,
+                  "AH10 依据：此刻这张令牌剩得 ≥6 小时（所以上面那条不是漏做了）",
+                  QStringLiteral("剩 %1 秒 / 门槛 %2 秒")
+                      .arg(auth->tokenSecondsLeft())
+                      .arg(AuthManager::tokenRefreshWindowSecs));
+            QLabel *accountType =
+                byObjectName<QLabel>(&w, MainWindowUI::accountTypeLabelName());
+            check(accountType != nullptr &&
+                      accountType->text() == MainWindowUI::accountTypeOnlineText(),
+                  "AH10 底栏第二行换成「正版登录」", accountType != nullptr ? accountType->text()
+                                                                        : QStringLiteral("<没找到>"));
+        }
+    }
+
+    // ---- AH11 切不过去那一档：**不能拿上一个人的令牌接着往下走** ----
+    // 列表里那一项可能**不完整**（用户换过 Windows 账户、或者某一版写坏过，会留下这种
+    // "只有名字没有副本"的项）。activate() 会拒绝它、框也弹了 —— 这一节钉住的是拒绝之后
+    // **不再往下走**：活动槽里还是 Bob，而 Bob 这张令牌**偏偏只剩不到 6 小时**。缺了那道守卫
+    // 的实现会接着拿 Bob 的令牌去换一张新的，还会把弹窗里的名字写成点的那一行（Dave）。
+    //
+    // NOTE: 这里**同时**把活动槽里微软那份的 refresh_token 拿掉，是刻意的：缺守卫的那一版
+    // 真会走到 refreshMinecraftToken()，而带着一个假的 refresh_token 去请求就是
+    // **真联网**（这一套断言必须离线跑，见文件头）。没有它就停在第一道判据上，所以
+    // 那条路即使被走通了也一个包都不发。
+    {
+        QJsonObject shortMinecraft;
+        shortMinecraft.insert(QStringLiteral("access_token"), QStringLiteral("at-Bob"));
+        shortMinecraft.insert(QStringLiteral("expires_at"), shortExpiry);
+        shortMinecraft.insert(QStringLiteral("name"), QStringLiteral("Bob"));
+        shortMinecraft.insert(QStringLiteral("uuid"), bobUuid);
+        QJsonObject noRefreshMicrosoft;
+        noRefreshMicrosoft.insert(QStringLiteral("access_token"), QStringLiteral("ms-at-Bob"));
+        check(TokenStore::writeJson(TokenStore::minecraftKey(), shortMinecraft) &&
+                  TokenStore::writeJson(TokenStore::microsoftKey(), noRefreshMicrosoft),
+              "AH11 活动槽换成「Bob 的令牌只剩不到 6 小时」（微软那份没有 refresh_token）");
+        // 内存里那一份也得跟着换 —— tokenSecondsLeft() 读的是它，不是盘上。
+        QString reloadReason;
+        check(!auth->loadSavedToken(&reloadReason).isEmpty(),
+              "AH11 这一份按产品那条路读回内存", reloadReason);
+        // NOTE: 认人用 playerName() 而**不是** playerUuid()：后者是带连字符的那个形状
+        // （dashedUuid()），和列表里那个 32 位十六进制不是一串字。
+        check(auth->playerName() == QStringLiteral("Bob") &&
+                  auth->tokenSecondsLeft() < AuthManager::tokenRefreshWindowSecs &&
+                  auth->tokenSecondsLeft() > 0,
+              "AH11 前提：内存里现在是 Bob、令牌剩得到但不到 6 小时（少了这一条，下面那几条在"
+              "「两边都不刷」的实现下也会绿）",
+              QStringLiteral("%1 / 剩 %2 秒 / 门槛 %3 秒")
+                  .arg(auth->playerName())
+                  .arg(auth->tokenSecondsLeft())
+                  .arg(AuthManager::tokenRefreshWindowSecs));
+
+        {
+            QJsonArray array;
+            QJsonObject dave;
+            dave.insert(QStringLiteral("uuid"), daveUuid);
+            dave.insert(QStringLiteral("name"), daveName);
+            dave.insert(QStringLiteral("saved_at"), QStringLiteral("2026-12-31T00:00:00Z"));
+            // **刻意不给** microsoft / minecraft 两份副本 —— 就是上面说的"不完整"那一项。
+            array.append(dave);
+            QJsonObject bobEntry;
+            for (const QJsonValue &value : TokenStore::readJson(TokenStore::accountsKey())
+                                               .value(QStringLiteral("accounts"))
+                                               .toArray()) {
+                if (value.toObject().value(QStringLiteral("uuid")).toString() == bobUuid) {
+                    bobEntry = value.toObject();
+                }
+            }
+            bobEntry.insert(QStringLiteral("saved_at"), QStringLiteral("2026-09-30T00:00:00Z"));
+            array.append(bobEntry);
+            QJsonObject rootObject;
+            rootObject.insert(QStringLiteral("accounts"), array);
+            check(!bobEntry.isEmpty() && TokenStore::writeJson(TokenStore::accountsKey(), rootObject) &&
+                      AccountStore::accounts().size() == 2 &&
+                      AccountStore::activeUuid() == bobUuid,
+                  "AH11 列表换成两项：Dave（副本不完整）在前 + Bob（当前）在后",
+                  QStringLiteral("%1 个 / 当前 %2")
+                      .arg(AccountStore::accounts().size())
+                      .arg(AccountStore::activeUuid()));
+        }
+
+        const int noRefreshBefore = countOccurrences(g_messages, QStringLiteral("没能刷新"));
+        const int noExtraTokenBefore =
+            countOccurrences(g_messages, QStringLiteral("已经顺手换了一张新的"));
+        QWidget *panel = openPanel(accountsButton);
+        check(panel != nullptr, "AH11 右面板弹出来了");
+        check(rowTitle(panel, 0) == daveName && rowTitle(panel, 1) == QStringLiteral("Bob"),
+              "AH11 两行就是这两个账号（Dave 的 saved_at 更新）",
+              QStringLiteral("[%1] [%2]").arg(rowTitle(panel, 0), rowTitle(panel, 1)));
+        QPushButton *daveButton = rowAction(panel, 0, 0);
+        check(daveButton != nullptr && daveButton->isEnabled() &&
+                  daveButton->text() == MainWindowUI::bottomBarPanelLoginText(),
+              "AH11 Dave 那一行写「登录」且点得动（列表里看着就是个正版账号）",
+              daveButton != nullptr ? daveButton->text() : QStringLiteral("<没找到>"));
+        if (daveButton != nullptr) {
+            dismissNextPrompt();
+            // **兜住第二个框**：缺了那道守卫的那一版会接着去换 Bob 的令牌，换不出来于是**又弹
+            // 一个**「登录令牌没能刷新」。只认一个框的助手（dismissNextModal）在第二个框上
+            // 会一直等它 —— 那是**测试卡死**，不是红。再排一发（它自己也会重排 0/300 两发），
+            // 顺序上第二个框的标题会覆盖第一个，所以下面那几条断言的判据就是"最后一个框"。
+            QTimer::singleShot(250, [] { dismissNextPrompt(); });
+            daveButton->click();
+            QApplication::processEvents();
+            check(g_modalTitle == QStringLiteral("切换账号失败") && g_modalWasWarning,
+                  "AH11 点它弹的是「切换账号失败」（那一项没有副本，切不过去）", g_modalTitle);
+            check(g_modalText.contains(QStringLiteral("凭据不完整")),
+                  "AH11 框里说清是那份凭据不完整", g_modalText);
+            check(!g_modalText.contains(QStringLiteral("已经切到账号")),
+                  "AH11 框里**没有**「已经切到账号…」那半句（那是另一个框的话，写在这儿就是假的）",
+                  g_modalText);
+            check(AccountStore::activeUuid() == bobUuid &&
+                      auth->playerName() == QStringLiteral("Bob"),
+                  "AH11 没换人：活动槽和内存里都还是 Bob",
+                  QStringLiteral("%1 / %2").arg(AccountStore::activeUuid(), auth->playerName()));
+            check(countOccurrences(g_messages, QStringLiteral("没能刷新")) == noRefreshBefore,
+                  "AH11 也没有拿 Bob 的令牌去换（点的是别人的那一行，这条缺了守卫就会红）");
+            check(countOccurrences(g_messages, QStringLiteral("已经顺手换了一张新的")) ==
+                      noExtraTokenBefore,
+                  "AH11 更没有「顺手换了一张新的」那一行（Bob 的令牌只剩不到 6 小时，"
+                  "所以「没发生」不是侥幸）");
+        }
+    }
+
+    // ---- AH11b 点当前账号那一行的「登出」：清掉登录状态，账号留下来 ----
+    //
+    // 要求：「把那个账户管理里的当前改成登出」—— 那一行原先写「当前」
+    // 并且是**灰的**，于是这一行除了告诉用户"你就是你"之外没有别的用处。
+    //
+    // 这一节要钉的是三个**分开**的事实，少一条这个功能就不成立：
+    // ① 盘上的登录状态真没了（活动槽那两份凭据被抹掉，不是只把界面换个字）；
+    // ② **账号还留在列表里**（登出 ≠ 删除）—— 所以点那一行的「登录」还能回来；
+    // ③ 内存里那一份也清了（不然底栏和启动参数拿到的还是上一个人的名字，
+    // 等于"看着登出了、手里还攥着他的状态"）。
+    {
+        // 先把状态摆回正常的"Bob 是当前、活动槽里是他那份好凭据"：AH11 是**故意**把活动槽
+        // 写坏的（它要验"切不过去之后不许拿上一个人的令牌接着走"），别让这一节从那种状态
+        // 开始 —— 那样量的就不是"登出"了。activate() 会把 Bob 列表里那份副本（rt-bob、
+        // 还有 30 天）写回活动槽。
+        check(AccountStore::activate(bobUuid),
+              "AH11b 前提：切回 Bob，活动槽里放他列表里那份好凭据");
+        check(AccountStore::activeUuid() == bobUuid,
+              "AH11b 前提：此刻的当前账号是 Bob（少这一条，下面那句「登出之后没当前账号了」"
+              "在压根没登录的实现下也是绿的）",
+              AccountStore::activeUuid());
+
+        QWidget *panel = openPanel(accountsButton);
+        // AH11 把列表换成了 Dave + Bob（Dave 的 saved_at 更新，排在前面）—— 所以"第 0 行"
+        // 现在是 Dave。按名字找 Bob 那一行。
+        const int bobRow = rowIndexOf(panel, QStringLiteral("Bob"));
+        check(bobRow >= 0,
+              "AH11b 右面板上有 Bob 那一行（AH11 换过列表，行号不许再写死）",
+              QString::number(bobRow));
+        QPushButton *bobLogout = bobRow >= 0 ? rowAction(panel, bobRow, 0) : nullptr;
+        check(bobLogout != nullptr &&
+                  bobLogout->text() == MainWindowUI::bottomBarPanelLogoutText() &&
+                  bobLogout->isEnabled(),
+              "AH11b Bob 那一行的按钮写着「登出」、能点（他就是当前账号）",
+              bobLogout != nullptr
+                  ? QStringLiteral("%1 / enabled=%2")
+                        .arg(bobLogout->text())
+                        .arg(bobLogout->isEnabled())
+                  : QStringLiteral("<没找到>"));
+
+        const int logoutLogBefore = countOccurrences(g_messages, QStringLiteral("已退出账号"));
+        if (bobLogout != nullptr) {
+            dismissNextPrompt();
+            bobLogout->click();
+            QApplication::processEvents();
+            // 登出是**可逆**的一步（账号还在列表里，点一下就回来），所以不拦一下 ——
+            // 和「删除所选」正相反，那一条是删盘的、要确认。
+            check(g_modalTitle.isEmpty(), "AH11b 登出**不弹窗**",
+                  g_modalTitle + QStringLiteral(" / ") + g_modalText);
+            check(AccountStore::activeUuid().isEmpty(),
+                  "AH11b 盘上没有当前账号了（是「没登录」，不是「换成了另一个人」）",
+                  AccountStore::activeUuid());
+            check(AccountStore::contains(bobUuid) &&
+                      AccountStore::nameOf(bobUuid) == QStringLiteral("Bob"),
+                  "AH11b **账号还在列表里** —— 这一条就是「登出」和「删除」的分界");
+            check(TokenStore::readJson(TokenStore::minecraftKey()).isEmpty() &&
+                      TokenStore::readJson(TokenStore::microsoftKey()).isEmpty(),
+                  "AH11b 活动槽那两份凭据真从盘上抹掉了（只把界面换个字不算登出）");
+            check(!auth->loggedIn() && auth->playerName() != QStringLiteral("Bob"),
+                  "AH11b 内存里那一份也清了（不然底栏还挂着上一个人的名字）",
+                  auth->playerName());
+            QLabel *accountType =
+                byObjectName<QLabel>(&w, MainWindowUI::accountTypeLabelName());
+            check(accountType != nullptr &&
+                      accountType->text() == MainWindowUI::accountTypeNotLoggedInText(),
+                  "AH11b 底栏第二行退回「未登录」那一档",
+                  accountType != nullptr ? accountType->text()
+                                         : QStringLiteral("<没找到>"));
+            check(countOccurrences(g_messages, QStringLiteral("已退出账号")) ==
+                      logoutLogBefore + 1,
+                  "AH11b 日志里留了一行（命令行那一路看得见）");
+        }
+
+        // 再点开：**没有任何一行**写「登出」了（没有当前账号了），Bob 那行写回「登录」。
+        panel = openPanel(accountsButton);
+        const int bobRowAgain = rowIndexOf(panel, QStringLiteral("Bob"));
+        QPushButton *bobLogin = bobRowAgain >= 0 ? rowAction(panel, bobRowAgain, 0) : nullptr;
+        check(bobRowAgain >= 0, "AH11b 再点开：Bob 那一行还在（登出没把他从列表里删掉）",
+              QString::number(bobRowAgain));
+        check(bobLogin != nullptr &&
+                  bobLogin->text() == MainWindowUI::bottomBarPanelLoginText(),
+              "AH11b 再点开：Bob 那一行写回「登录」（他不再是当前账号了）",
+              bobLogin != nullptr ? bobLogin->text() : QStringLiteral("<没找到>"));
+        for (int row = 0; row < 3; ++row) {
+            check(rowAction(panel, row, 0) == nullptr ||
+                      rowAction(panel, row, 0)->text() !=
+                          MainWindowUI::bottomBarPanelLogoutText(),
+                  "AH11b 三行里没有一行写「登出」（登出之后没有当前账号）",
+                  QStringLiteral("第 %1 行").arg(row));
+        }
+
+        // 点那一行的「登录」就回来了 —— 这一条才是"登出没删账号"在**界面**上的样子
+        // （前面那条 contains() 说的是盘上，这条说的是用户看得到的东西）。
+        if (bobLogin != nullptr) {
+            dismissNextPrompt();
+            bobLogin->click();
+            QApplication::processEvents();
+            check(AccountStore::activeUuid() == bobUuid,
+                  "AH11b 点那一行的「登录」就回来了（账号没丢）",
+                  AccountStore::activeUuid());
+            // Bob 那份副本里是 30 天后到期 → 够用，所以这一下不该联网、也不该弹窗。
+            check(g_modalTitle.isEmpty(), "AH11b 回来这一下不弹窗（副本里的令牌够用）",
+                  g_modalTitle);
+        }
+    }
+
+    // ---- AH12b 从「未登录」点那一行的「选择」切到离线账号：**主页那张脸得跟着换** ----
+    //
+    // 用户 报的 bug，原话：「现在从未登录切换到选择离线账号不会随机给皮肤了」。
+    //
+    // 根因在 `refreshAccountSkin()` 最前面那句「窗还没建就直接 return」：主页那个小人、
+    // 底栏头像、那个窗里的 3D 预览**都只在 `startPlayerSkinLoad()` → `applyPlayerSkin()`
+    // 里更新**，所以没点开过「账号与外观…」的会话里，切账号这条路上的换脸整个被那句吞了
+    // —— 从"未登录"切过去时，屏幕上一直停着未登录那张兜底占位图。
+    //
+    // 为什么以前没人发现：切账号原来只能从「账号与外观…」里点（那个窗开着，那句 return
+    // 进不去）；09-23 把切换搬到右面板之后，这条路才第一次被走到。
+    //
+    // 这一节的形状就是用户那两下，一步都不自己造：**建一个离线账号 → 用那一行的「登出」
+    // 退回未登录 → 再点那一行的「选择」**。判据落在"屏幕上那张图变没变"上，不是"某个
+    // 函数被调过"—— 用户看的也是前者。
+    {
+        const QString lenaName = QStringLiteral("Lena");
+        const QString lenaUuid = AccountStore::offlineUuidFor(lenaName);
+        const QColor lenaTint(0x40, 0xA0, 0x60);
+        // 外观**先**预置好（理由见 seedOfflineRandomSkin 那段）：下面那一下会走到
+        // "离线账号要随机皮肤"那条路，不预置就真去问 MineSkin 了。
+        seedOfflineRandomSkin(lenaName, kSeededSkinUrl, lenaTint);
+        // 名字进 AuthManager 由产品那条路自己做（onOfflineAccountRequested 里那句
+        // setOfflinePlayer），所以这儿只按产品那条路把它加出来。
+        QMetaObject::invokeMethod(&w, "onOfflineAccountRequested", Qt::DirectConnection,
+                                  Q_ARG(QString, lenaName));
+        QApplication::processEvents();
+        SkinViewer *viewer = byObjectName<SkinViewer>(&w, MainWindowUI::skinViewerName());
+        QLabel *hint = byObjectName<QLabel>(&w, MainWindowUI::skinHintLabelName());
+        check(viewer != nullptr && hint != nullptr,
+              "AH12b 前提：主页那个预览和那句话说外观的话都找得到");
+        check(AccountStore::activeUuid() == lenaUuid,
+              "AH12b 前提：加出来的离线账号成了当前账号", AccountStore::activeUuid());
+        // 这一条现在就该绿 —— 它同时也是"加账号那一路的换脸"（和下面切账号那一路是同一
+        // 句 return 挡的）。**兜底那张占位图是黑底白问号**，和 Lena 那张纯色差得远。
+        check(viewer != nullptr && viewer->skin().pixelColor(0, 0) == lenaTint,
+              "AH12b 加完它就画上了那张预置的随机皮肤（不是兜底占位图）",
+              viewer != nullptr ? viewer->skin().pixelColor(0, 0).name()
+                                : QStringLiteral("<没找到>"));
+
+        // ---- 第一下：点那一行的「登出」，退回未登录 ----
+        QWidget *panel = openPanel(accountsButton);
+        const int row = rowIndexOf(panel, lenaName);
+        check(row >= 0, "AH12b 右面板上有 Lena 那一行", QString::number(row));
+        QPushButton *logout = row >= 0 ? rowAction(panel, row, 0) : nullptr;
+        check(logout != nullptr &&
+                  logout->text() == MainWindowUI::bottomBarPanelLogoutText(),
+              "AH12b 她是当前账号 → 那一行写「登出」",
+              logout != nullptr ? logout->text() : QStringLiteral("<没找到>"));
+        if (logout != nullptr) {
+            dismissNextPrompt();
+            logout->click();
+            QApplication::processEvents();
+            check(AccountStore::activeUuid().isEmpty(),
+                  "AH12b 登出之后没有当前账号了（未登录）", AccountStore::activeUuid());
+            const QImage placeholder = SkinModel::defaultSteveSkin();
+            check(viewer->skin() == placeholder,
+                  "AH12b 登出之后主页退回那张兜底占位图（下面那条才有得比）");
+            // 这一条是**判据的前提**，不是装饰：下面"切过去之后脸换了"如果成立、而这一条
+            // 不成立（登出之后没退回占位图），那说明"变了"是碰巧的、和这次切换没关系。
+            check(hint->text() == MainWindowUI::skinHintNotLoggedInText(),
+                  "AH12b 那句话也说未登录", hint->text());
+
+            // ---- 第二下：点那一行的「选择」切过去 ----
+            panel = openPanel(accountsButton);
+            const int row2 = rowIndexOf(panel, lenaName);
+            QPushButton *select = row2 >= 0 ? rowAction(panel, row2, 0) : nullptr;
+            check(select != nullptr &&
+                      select->text() == MainWindowUI::bottomBarPanelSelectText(),
+                  "AH12b 不再是当前账号 → 那一行写「选择」",
+                  select != nullptr ? select->text() : QStringLiteral("<没找到>"));
+            if (select != nullptr) {
+                dismissNextPrompt();
+                select->click();
+                QApplication::processEvents();
+                check(AccountStore::activeUuid() == lenaUuid,
+                      "AH12b 切到 Lena 了", AccountStore::activeUuid());
+                // **这一条就是用户报的那件事**：屏幕上那张脸必须真的换掉。
+                check(viewer->skin().pixelColor(0, 0) == lenaTint && viewer->skin() != placeholder,
+                      "AH12b **主页那张脸跟着换了**（从兜底占位图换成她那句话那张随机皮肤）",
+                      QStringLiteral("%1 → %2")
+                          .arg(placeholder.pixelColor(0, 0).name())
+                          .arg(viewer->skin().pixelColor(0, 0).name()));
+                check(hint->text() == MainWindowUI::skinHintOfflineLoadedText(lenaName),
+                      "AH12b 那句话也跟着换成离线那一档", hint->text());
+            }
+        }
+    }
+
+    // ---- AH12 收尾：会话一份不剩、账号清掉、目录换回来 ----
+    stopAllSessions();
+    const bool empty = pumpUntil([&manager] { return manager->runningGames().isEmpty(); }, 5000);
+    check(empty, "AH12 会话全停（留一个 holder 会锁住这个 exe，下次构建写不进去）",
+          QString::number(manager->runningGames().size()));
+
+    // NOTE: "会话全停之后那一格点不开"这条钉在 AH6（最后一份会话停下来的那一刻就量），
+    // 这里不再抄一遍 —— 同一个判据写两处，改一处忘一处就只剩一条是绿的。
+
+    TokenStore::clear(TokenStore::microsoftKey());
+    TokenStore::clear(TokenStore::minecraftKey());
+    TokenStore::clear(TokenStore::accountsKey());
+    TokenStore::clear(TokenStore::currentUuidKey());
+    check(AccountStore::accounts().isEmpty() && AccountStore::activeUuid().isEmpty(),
+          "AH12 这一节写的那些账号清干净了（后面不该知道它们存在过）");
+
+    sandbox.setValue(QStringLiteral("Launcher/Folders"), foldersBefore);
+    sandbox.setValue(QStringLiteral("Launcher/CurrentFolder"), currentBefore);
+    sandbox.sync();
+    AppPaths::setMinecraftDir(originalDir);
+    check(AppPaths::minecraftDir() == originalDir, "AH12 数据根目录换回来了");
+}
+

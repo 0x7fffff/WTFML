@@ -416,48 +416,86 @@ if(EXISTS ${REPO_ROOT}/src/download/LoaderMeta.hpp)
 endif()
 
 
-add_executable(mw_check main.cpp
-    JavaManageChecks.cpp
-    ModActionPanelChecks.cpp
-    RangeChecks.cpp
-    SegmentInstallChecks.cpp
-    ToolFeatureChecks.cpp
-    PresetInstallChecks.cpp
-    InstanceUpgradeChecks.cpp
-    ${SOURCE_FILES})
+add_library(wtfml_mw_runtime STATIC ${SOURCE_FILES})
 
 if(MINGW)
-    target_compile_options(mw_check PRIVATE -Wa,-mbig-obj)
+    target_compile_options(wtfml_mw_runtime PRIVATE -Wa,-mbig-obj)
 endif()
 
-target_include_directories(mw_check PRIVATE ${REPO_ROOT}/src ${REPO_ROOT}/ui)
-target_link_libraries(mw_check PRIVATE Qt6::Widgets Qt6::Network Qt6::Core Qt6::Gui Qt6::Concurrent)
-# The integration driver is another very large assertion table; compiling it
-# without optimization keeps verification builds practical on MinGW.
+target_include_directories(wtfml_mw_runtime PRIVATE ${REPO_ROOT}/src ${REPO_ROOT}/ui)
+target_link_libraries(wtfml_mw_runtime PRIVATE Qt6::Widgets Qt6::Network Qt6::Core Qt6::Gui Qt6::Concurrent)
+# This shared runtime is for correctness checks, not product performance baselines.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(mw_check PRIVATE -O0)
+    target_compile_options(wtfml_mw_runtime PRIVATE -O0)
 endif()
 # AuthManager.cpp 落盘走 DPAPI，验证工程也编译它，所以同样要链 crypt32。
 # 后面三个是 ImageDecode.cpp 要的（起 COM / SHCreateMemStream / WIC 本体），
 # 见主工程 CMakeLists.txt 里同一段。
-target_link_libraries(mw_check PRIVATE crypt32 ole32 shlwapi windowscodecs dwmapi)
+target_link_libraries(wtfml_mw_runtime PRIVATE crypt32 ole32 shlwapi windowscodecs dwmapi)
 
-add_test(NAME wtfml.main-window COMMAND mw_check)
-add_test(NAME wtfml.workspace COMMAND mw_check workspace-check)
-add_test(NAME wtfml.activity-selection COMMAND mw_check activity-selection-check)
-add_test(NAME wtfml.download-retry COMMAND mw_check download-retry-check)
-add_test(NAME wtfml.high-speed-download COMMAND mw_check high-speed-download-check)
-add_test(NAME wtfml.segmented-download COMMAND mw_check segmented-download-check)
-add_test(NAME wtfml.segment-install COMMAND mw_check segment-install-check)
-add_test(NAME wtfml.tool-features COMMAND mw_check tool-features-check)
-add_test(NAME wtfml.java-manage COMMAND mw_check java-manage-check)
-add_test(NAME wtfml.instance-upgrade COMMAND mw_check instance-upgrade-check)
+
+# Production code is shared by independently buildable test executables.
+wtfml_exclude_shared_sources(wtfml_mw_runtime wtfml_core_runtime wtfml_ui_runtime)
+target_link_libraries(wtfml_mw_runtime PUBLIC wtfml_ui_runtime Qt6::Widgets)
+target_include_directories(wtfml_mw_runtime PUBLIC ${REPO_ROOT}/src ${REPO_ROOT}/ui ${REPO_ROOT}/tests ${CMAKE_CURRENT_SOURCE_DIR})
+add_library(wtfml_mw_fixture STATIC modules/Support.cpp modules/Support.hpp)
+target_link_libraries(wtfml_mw_fixture PUBLIC wtfml_mw_runtime)
+file(GLOB _cases CONFIGURE_DEPENDS modules/*.cpp)
+list(REMOVE_ITEM _cases "${CMAKE_CURRENT_SOURCE_DIR}/modules/Support.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/modules/ModuleMain.cpp")
+list(FILTER _cases EXCLUDE REGEX "/Mw[^/]*Check\\.cpp$")
+add_library(mw_legacy_cases STATIC ${_cases})
+target_link_libraries(mw_legacy_cases PUBLIC wtfml_mw_fixture)
+add_executable(mw_check main.cpp)
+target_link_libraries(mw_check PRIVATE mw_legacy_cases)
+function(add_mw_module target source)
+ if(source MATCHES "\\.hpp$")
+  add_executable(${target} modules/ModuleMain.cpp ${source})
+ else()
+  add_library(${target}_case OBJECT ${source})
+  target_link_libraries(${target}_case PRIVATE wtfml_mw_fixture)
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+   target_compile_options(${target}_case PRIVATE -O0 -Wa,-mbig-obj)
+  endif()
+  add_executable(${target} modules/ModuleMain.cpp $<TARGET_OBJECTS:${target}_case>)
+  target_sources(mw_legacy_cases PRIVATE $<TARGET_OBJECTS:${target}_case>)
+ endif()
+ target_compile_definitions(${target} PRIVATE WTFML_MODULE_ENTRY=${ARGN})
+ target_link_libraries(${target} PRIVATE wtfml_mw_fixture)
+endfunction()
+add_mw_module(mw_check_high_speed_download modules/MwHighSpeedDownloadCheck.cpp MwHighSpeedDownloadCheck)
+add_mw_module(mw_check_download_retry modules/MwDownloadRetryCheck.cpp MwDownloadRetryCheck)
+add_mw_module(mw_check_activity_selection modules/MwActivitySelectionCheck.cpp MwActivitySelectionCheck)
+add_mw_module(mw_check_workspace modules/MwWorkspaceCheck.cpp MwWorkspaceCheck)
+add_mw_module(mw_check_java_manage JavaManageChecks.cpp runJavaManageChecks)
+add_mw_module(mw_check_mod_action_panel ModActionPanelChecks.cpp runModActionPanelChecks)
+add_mw_module(mw_check_segmented_download RangeChecks.cpp runRangeChecks)
+target_compile_definitions(mw_check_segmented_download PRIVATE WTFML_RANGE_MODULE)
+add_mw_module(mw_check_segment_install SegmentInstallChecks.cpp runSegmentInstallChecks)
+add_mw_module(mw_check_tool_features ToolFeatureChecks.cpp runToolFeatureChecks)
+add_mw_module(mw_check_preset_install PresetInstallChecks.cpp runPresetInstallChecks)
+add_mw_module(mw_check_instance_upgrade InstanceUpgradeChecks.cpp runInstanceUpgradeChecks)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+ foreach(_target wtfml_mw_fixture mw_legacy_cases mw_check)
+  target_compile_options(${_target} PRIVATE -O0 -Wa,-mbig-obj)
+ endforeach()
+endif()
+
+wtfml_add_test(NAME wtfml.main-window COMMAND mw_check)
+wtfml_add_test(NAME wtfml.workspace COMMAND mw_check_workspace)
+wtfml_add_test(NAME wtfml.activity-selection COMMAND mw_check_activity_selection)
+wtfml_add_test(NAME wtfml.download-retry COMMAND mw_check_download_retry)
+wtfml_add_test(NAME wtfml.high-speed-download COMMAND mw_check_high_speed_download)
+wtfml_add_test(NAME wtfml.segmented-download COMMAND mw_check_segmented_download)
+wtfml_add_test(NAME wtfml.segment-install COMMAND mw_check_segment_install)
+wtfml_add_test(NAME wtfml.tool-features COMMAND mw_check_tool_features)
+wtfml_add_test(NAME wtfml.java-manage COMMAND mw_check_java_manage)
+wtfml_add_test(NAME wtfml.instance-upgrade COMMAND mw_check_instance_upgrade)
 set_tests_properties(wtfml.instance-upgrade PROPERTIES
     LABELS "integration;upgrade;files"
     TIMEOUT 180
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
-add_test(NAME wtfml.mod-action-panel COMMAND mw_check mod-action-panel-check)
+wtfml_add_test(NAME wtfml.mod-action-panel COMMAND mw_check_mod_action_panel)
 set_tests_properties(wtfml.mod-action-panel PROPERTIES
     LABELS "ui;mods;integration"
     TIMEOUT 90
@@ -473,7 +511,7 @@ set_tests_properties(wtfml.tool-features PROPERTIES
     TIMEOUT 90
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
-add_test(NAME wtfml.preset-install COMMAND mw_check preset-install-check)
+wtfml_add_test(NAME wtfml.preset-install COMMAND mw_check_preset_install)
 set_tests_properties(wtfml.preset-install PROPERTIES TIMEOUT 90
     LABELS "presets;network;integration"
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}")

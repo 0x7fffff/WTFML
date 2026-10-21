@@ -1,0 +1,193 @@
+#include "Support.hpp"
+int UiThemeCheck(QApplication &app) {
+
+        Anim::setEnabled(false);
+        QTemporaryDir settingsDir(QDir::current().filePath(QStringLiteral(".theme-check-XXXXXX")));
+        if (!settingsDir.isValid()) return 2;
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir.path());
+        app.setOrganizationName(QStringLiteral("WTFMLThemeCheck"));
+        app.setApplicationName(QStringLiteral("ThemeCheck"));
+        app.setStyle(Theme::createStyle());
+        const QString fontPath = QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc"));
+        const int fontId = QFile::exists(fontPath) ? QFontDatabase::addApplicationFont(fontPath) : -1;
+        const QStringList fontFamilies = QFontDatabase::applicationFontFamilies(fontId);
+        app.setFont(QFont(fontFamilies.isEmpty() ? QStringLiteral("Microsoft YaHei UI") : fontFamilies.first(), 9));
+        int failures = 0;
+        auto expect = [&failures](bool ok, const char *name) {
+            printf("%s %s\n", ok ? "PASS" : "FAIL", name);
+            if (!ok) ++failures;
+        };
+        // 换配色不再重挂整份应用样式表 —— 样式表字符串必须与主题无关。
+        // 这一条直接钉住那个代价（6800 个控件重挂一次要 1.9 秒）：三套预设铺完，
+        // 应用身上挂的那一份必须还是同一串。
+        const QString themeIndependentSheet = Theme::widgetStyleSheet();
+        QString installedSheet;
+        for (const QString &id : {QStringLiteral("emerald"), QStringLiteral("ocean"), QStringLiteral("dark")}) {
+            Theme::setSpec(Theme::presetSpec(id));
+            Theme::apply(app);
+            if (installedSheet.isEmpty()) {
+                installedSheet = app.styleSheet();
+            }
+            expect(app.styleSheet() == installedSheet, "theme switch does not reinstall the app stylesheet");
+            expect(Theme::widgetStyleSheet() == themeIndependentSheet,
+                   "widget style sheet is independent of the current preset");
+            const auto t = Theme::tokens();
+            expect(app.palette().color(QPalette::Window) == t.page, "page palette follows preset");
+            expect(Theme::current().accent == t.primary, "brand follows preset");
+            expect(Theme::partBackground(Theme::Part::TitleBar) == t.deep, "title uses deep brand");
+            expect(Theme::partBackground(Theme::Part::BottomBar) == t.subtle, "bottom bar uses subtle surface");
+            expect(Theme::selectionFill(t.card) == t.selected, "selection uses specified color");
+            expect(Theme::widgetStyleSheet().contains(QStringLiteral("palette(base)")) &&
+                       app.palette().color(QPalette::Base).name() == t.input.name(),
+                   "inputs use theme colors");
+            {
+                QWidget focusHost;
+                focusHost.resize(180, 80);
+                QPushButton button(QStringLiteral("任务中心"), &focusHost);
+                button.setGeometry(20, 20, 140, 40);
+                Theme::markButton(&button, Theme::ButtonKind::Neutral);
+                focusHost.show();
+                focusHost.activateWindow();
+                app.processEvents();
+                button.setFocus(Qt::TabFocusReason);
+                // 「键盘在用」这一档现在只认**真的按键**（见 Theme.cpp 里
+                // `ButtonFocusVisibility` 那段 —— 藏起焦点控件时 Qt 也报 TabFocusReason，
+                // 不能拿它当"用户按了 Tab"）。这里先送一发普通按键把这一档摆上；
+                // 不送 Tab 键：那一发会真的触发焦点链移动，把被测按钮换掉。
+                QKeyEvent keyboardInput(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier);
+                QApplication::sendEvent(&button, &keyboardInput);
+                QFocusEvent keyboardFocus(QEvent::FocusIn, Qt::TabFocusReason);
+                QApplication::sendEvent(&button, &keyboardFocus);
+                expect(button.property("wtfmlKeyboardFocus").toBool(), "keyboard focus shows button focus ring");
+                const QImage keyboardShot = button.grab().toImage();
+                const QPointF position(button.rect().center());
+                const QPointF global(button.mapToGlobal(button.rect().center()));
+                QMouseEvent press(QEvent::MouseButtonPress, position, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QMouseEvent release(QEvent::MouseButtonRelease, position, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                QApplication::sendEvent(&button, &press);
+                QApplication::sendEvent(&button, &release);
+                const QImage mouseShot = button.grab().toImage();
+                expect(!button.property("wtfmlKeyboardFocus").toBool(), "mouse activation clears focus ring even on an already focused button");
+                expect(keyboardShot.pixelColor(0, keyboardShot.height() / 2) !=
+                           mouseShot.pixelColor(0, mouseShot.height() / 2),
+                       "mouse click removes the rendered focus border");
+                expect(button.hasFocus() && (button.focusPolicy() & Qt::TabFocus),
+                       "hiding mouse focus ring preserves real focus and keyboard accessibility");
+                QKeyEvent tab(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier);
+                QApplication::sendEvent(&button, &tab);
+                expect(button.property("wtfmlKeyboardFocus").toBool(), "Tab restores keyboard focus feedback after mouse use");
+            }
+            ToggleSwitch toggle;
+            toggle.resize(toggle.sizeHint());
+            toggle.setChecked(true);
+            toggle.show();
+            app.processEvents();
+            QEvent leave(QEvent::Leave);
+            QApplication::sendEvent(&toggle, &leave);
+            const QPoint trackPoint(3, toggle.height() / 2);
+            expect(toggle.grab().toImage().pixelColor(trackPoint) ==
+                       (id == QLatin1String("emerald") ? t.primary : toggle.palette().color(QPalette::Highlight)),
+                   "emerald switch uses stronger brand, other themes retain their switch colors");
+            if (id == QLatin1String("emerald")) {
+                QEnterEvent enter(QPointF(3, 3), QPointF(3, 3), QPointF(3, 3));
+                QApplication::sendEvent(&toggle, &enter);
+                expect(toggle.grab().toImage().pixelColor(trackPoint) == t.primaryHover,
+                       "emerald switch hover uses palette brand hover");
+            }
+            toggle.hide();
+            QSettings().setValue(QStringLiteral("Look/LogColors"), true);
+            GameLogWindow log(QStringLiteral("Theme check"));
+            log.appendText(QStringLiteral("[main/INFO]: info\n[main/WARN]: warn\n[main/ERROR]: error\n[main/FATAL]: fatal\n"));
+            auto *view = log.findChild<QPlainTextEdit *>();
+            expect(view != nullptr && view->palette().color(QPalette::Base) == t.logBase, "log body follows preset");
+            if (view) {
+                QTextCursor cursor(view->document()->firstBlock());
+                cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
+                expect(cursor.charFormat().foreground().color() ==
+                       (id == QLatin1String("dark") ? QColor("#79D4A5") : QColor("#202020")), "INFO text color");
+                const QTextBlock warning = view->document()->firstBlock().next();
+                expect(warning.blockFormat().background().color() ==
+                       (id == QLatin1String("dark") ? QColor("#171E23") : QColor("#FFF0BF")), "WARN background color");
+                QTextCursor error(warning.next());
+                error.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
+                expect(error.charFormat().foreground().color() ==
+                       (id == QLatin1String("dark") ? QColor("#FFB8BD") : QColor("#202020")), "ERROR text color");
+                QTextCursor fatal(warning.next().next());
+                fatal.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
+                expect(fatal.charFormat().foreground().color() ==
+                       (id == QLatin1String("dark") ? QColor("#FF858B") : QColor("#202020")), "FATAL text color");
+            }
+            QSettings().setValue(QStringLiteral("Look/LogColors"), false);
+            GameLogWindow mono(QStringLiteral("Monochrome"));
+            mono.appendText(QStringLiteral("[main/ERROR]: error\n"));
+            auto *monoView = mono.findChild<QPlainTextEdit *>();
+            if (monoView) {
+                QTextCursor cursor(monoView->document()->firstBlock());
+                cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
+                expect(cursor.charFormat().foreground().color() ==
+                       (id == QLatin1String("dark") ? QColor("#D5DEE3") : QColor("#202020")), "monochrome text color");
+                expect(monoView->document()->firstBlock().blockFormat().background().style() == Qt::NoBrush,
+                       "monochrome clears level backgrounds");
+            } else expect(false, "monochrome log view exists");
+            Theme::save(Theme::current());
+            expect(!QSettings().value(QStringLiteral("Look/LogColors"), true).toBool(),
+                   "saving theme preserves log color preference");
+            expect(Theme::load().presetId == id, "theme selection survives save/load");
+            if (app.arguments().contains(QStringLiteral("--theme-preview"))) {
+                const QString directory = QDir::current().filePath(QStringLiteral("build/theme-preview"));
+                QDir().mkpath(directory);
+                QMainWindow preview;
+                MainWindowUI previewUi(&preview);
+                MainWindowUI::FolderRow currentFolder;
+                currentFolder.path = QStringLiteral("D:/Games/Minecraft");
+                currentFolder.title = QStringLiteral("当前文件夹");
+                currentFolder.subtitle = currentFolder.path;
+                currentFolder.assistant = true;
+                currentFolder.current = true;
+                MainWindowUI::FolderRow moddedFolder;
+                moddedFolder.path = QStringLiteral("E:/Minecraft/Modpacks");
+                moddedFolder.title = QStringLiteral("模组整合包");
+                moddedFolder.subtitle = moddedFolder.path;
+                previewUi.setFolderRows({currentFolder, moddedFolder});
+                preview.resize(1000, 650);
+                preview.show();
+                app.processEvents();
+                expect(preview.grab().save(directory + QLatin1Char('/') + id + QStringLiteral("-home.png")),
+                       "save home preview");
+                previewUi.getTabWidget()->setCurrentIndex(3);
+                app.processEvents();
+                expect(preview.grab().save(directory + QLatin1Char('/') + id + QStringLiteral("-settings.png")),
+                       "save settings preview");
+                auto *settingsList = preview.findChild<QListWidget *>(MainWindowUI::settingsCategoryListName());
+                auto *settingsRail = preview.findChild<QFrame *>(QStringLiteral("settingsSidebarSurface"));
+                expect(settingsList && settingsList->frameShape() == QFrame::NoFrame &&
+                           settingsList->palette().color(QPalette::Base) == t.main &&
+                           settingsRail && settingsRail->property("wtfmlSidebarRail").toBool(),
+                       "settings sidebar uses the same seamless surface as management and downloads");
+                for (const auto &entry : {qMakePair(MainWindowUI::instancesTabIndex(), QStringLiteral("-management.png")),
+                                          qMakePair(MainWindowUI::downloadTabIndex(), QStringLiteral("-download.png"))}) {
+                    previewUi.getTabWidget()->setCurrentIndex(entry.first);
+                    app.processEvents();
+                    for (auto *list : {preview.findChild<QListWidget *>(MainWindowUI::folderListName()),
+                                       preview.findChild<QListWidget *>(MainWindowUI::downloadCategoryListName())}) {
+                        expect(list && list->frameShape() == QFrame::NoFrame
+                                   && list->palette().color(QPalette::Base) == t.main,
+                               "sidebar list uses seamless theme surface without inner frame");
+                    }
+                    expect(preview.grab().save(directory + QLatin1Char('/') + id + entry.second), "save sidebar preview");
+                }
+                log.show();
+                app.processEvents();
+                expect(view && view->viewport()->palette().color(QPalette::Base) == t.logBase,
+                       "visible log viewport keeps specified background");
+                expect(log.grab().save(directory + QLatin1Char('/') + id + QStringLiteral("-log.png")),
+                       "save log preview");
+            }
+        }
+        printf("Theme check: %d failure(s)\n", failures);
+        return failures == 0 ? 0 : 1;
+    
+ return 0;
+}
+
