@@ -30121,6 +30121,13 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                     if (dialog != nullptr) {
                         QLabel *status =
                             dialog->findChild<QLabel *>(AccountSkinDialog::statusLabelName());
+                        // 嵌入覆盖层时 showEvent() 会把 headerBar（状态行在里面）交给
+                        // OverlayHost 的页眉，它不再是 dialog 的子对象：单独构造那一档
+                        // 按对话框找，嵌入那一档再问覆盖层。
+                        if (status == nullptr && host != nullptr) {
+                            status = host->findChild<QLabel *>(
+                                AccountSkinDialog::statusLabelName());
+                        }
                         check(status != nullptr, "Z2 那一页顶上的状态行按 objectName 找得到");
                         if (status != nullptr) {
                             // 这里**不能**断言它等于 notLoggedInNote()：那一页一开出来
@@ -30441,6 +30448,12 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                             if (dialog != nullptr) {
                                 QLabel *status = dialog->findChild<QLabel *>(
                                     AccountSkinDialog::statusLabelName());
+                                // 嵌进覆盖层之后状态行跟着 headerBar 搬到了页眉，
+                                // 不在 dialog 子树里了 —— 理由见 Z2 那一段。
+                                if (status == nullptr && host != nullptr) {
+                                    status = host->findChild<QLabel *>(
+                                        AccountSkinDialog::statusLabelName());
+                                }
                                 check(status != nullptr, "Z9 状态行找得到");
                                 if (status != nullptr) {
                                     // 当前是离线账号时 refreshAccountSkin() 在第 4 步（读令牌、
