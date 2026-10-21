@@ -255,6 +255,8 @@ set(SOURCE_FILES
     src/controllers/InstanceTransferController.cpp
     src/controllers/InstanceUpgradeController.cpp
     src/controllers/InstanceDialogController.cpp
+    src/controllers/UpgradeAssessment.cpp
+    src/controllers/InstanceUpdateFlow.cpp
     src/controllers/InstanceEditorController.cpp
     src/controllers/ImportController.cpp
     src/controllers/GameSessionController.cpp
@@ -268,6 +270,7 @@ set(SOURCE_FILES
     src/controllers/ServerWorkspaceController.cpp
     src/controllers/ServerConsoleController.cpp
     src/controllers/ServerSettingsController.cpp
+    src/controllers/ServerManagementActions.cpp
     src/controllers/ThemeSettingsController.cpp
     src/controllers/PlayerSkinController.cpp
     src/controllers/LaunchHistoryController.cpp
@@ -415,6 +418,7 @@ set(SOURCE_FILES
     ui/GroupDialog.cpp
     ui/GroupListDelegate.cpp
     ui/InstanceSettingsDialog.cpp
+    ui/InstanceUpdateWizard.cpp
     ui/InstanceFilesPage.cpp
     ui/ResourcePackPage.cpp
     ui/ConfigFileText.cpp

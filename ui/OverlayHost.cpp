@@ -598,6 +598,10 @@ QString OverlayHost::pageTitle() const {
 }
 
 int OverlayHost::execPrompt(QDialog *dialog, bool dismissOnOutsideClick) {
+    if (auto *modal = QApplication::activeModalWidget(); modal && modal->objectName() == QStringLiteral("instanceUpdateWizard")) {
+        if (auto *local = modal->findChild<OverlayHost *>(QStringLiteral("instanceUpdatePromptHost")); local && local != this)
+            return local->execPrompt(dialog, dismissOnOutsideClick);
+    }
     return execEmbedded(dialog, QString(), false, dismissOnOutsideClick);
 }
 

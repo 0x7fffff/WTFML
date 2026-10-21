@@ -17,6 +17,7 @@
  */
 #include "InstanceSettingsDialog.hpp"
 #include "ResourcePackPage.hpp"
+#include "WheelSafeComboBox.hpp"
 
 #include "Animations.hpp"
 #include "Theme.hpp"   // 浮层的底色（Theme::Part::Panel）
@@ -24,6 +25,7 @@
 #include <QAbstractItemView>  // eventFilter()：那两件导航控件共同的兜底（focusInEvent 替人挑第一条）
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCompleter>
 #include <QDir>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -2431,7 +2433,7 @@ void InstanceSettingsDialog::applyPageKey(const QString &key) {
     //   着的时候往盘上加了文件（或反过来），而这两页的"搬多少"就是按盘上现算的。
     if (key == QStringLiteral("migration") || key == QStringLiteral("upgrade")) {
         const QString targetId = transferTarget(key);
-        if (!targetId.isEmpty()) emit transferTargetChosen(key, targetId);
+        if (key == QStringLiteral("upgrade") || !targetId.isEmpty()) emit transferTargetChosen(key, targetId);
     }
     if (key == QStringLiteral("resourcepack") && m_resourcePackPage != nullptr) {
         auto *stack = qobject_cast<QStackedWidget *>(m_resourcePackPage->parentWidget());
@@ -2474,6 +2476,7 @@ void InstanceSettingsDialog::applyPageKey(const QString &key) {
     if (key == serverPageKey() && !alreadyHere) {
         emit serverPageEntered();
     }
+    if (key == QStringLiteral("upgrade") && property("modernUpgradeWizard").toBool()) emit updateWizardRequested();
 }
 
 void InstanceSettingsDialog::rebuildEntryList() {
@@ -3879,8 +3882,15 @@ void InstanceSettingsDialog::setupLifecyclePages() {
         if (key == QStringLiteral("integrity") || key == QStringLiteral("repair")) parentMenu = QStringLiteral("integritymenu");
         if (key == QStringLiteral("logs") || key == QStringLiteral("crash") || key == QStringLiteral("diagnosis")) parentMenu = QStringLiteral("diagnosticsmenu");
         if (key == QStringLiteral("export") || key == QStringLiteral("migration") || key == QStringLiteral("upgrade")) parentMenu = QStringLiteral("operationsmenu");
-        if (!parentMenu.isEmpty())
-            action(tr("返回%1").arg(pageText(parentMenu)), [this, parentMenu]() { showPage(parentMenu); });
+        if (!parentMenu.isEmpty()) {
+            auto *back = action(tr("返回%1").arg(pageText(parentMenu)), [this, parentMenu]() { showPage(parentMenu); });
+            if (key == QStringLiteral("upgrade")) {
+                layout->removeWidget(title); layout->removeWidget(back);
+                auto *heading = new QHBoxLayout;
+                heading->addWidget(title, 1); heading->addWidget(back);
+                layout->insertLayout(0, heading);
+            }
+        }
         const bool browse = key == QStringLiteral("screenshots") || key == QStringLiteral("replay")
                             || key == QStringLiteral("logs") || key == QStringLiteral("crash")
                             || key == QStringLiteral("structure");
@@ -4006,10 +4016,12 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             //         装好的那一份。要装新版本走下载页（这里只说清这一条，不假装能装）。
             const bool upgrade = key == QStringLiteral("upgrade");
             if (upgrade) {
-                hint(tr("升级副本：按下方勾选范围创建新实例，原实例不动。\n"
-                        "原地升级：忽略下方迁移勾选，保留全部用户文件，仅替换核心；先完整快照并验证，"
-                        "保留原目录以便回滚，旧模组另行确认是否禁用。\n"
-                        "目标版本仍须先在下载页装好，这里不自动安装或适配模组。"));
+                auto *context = new QLabel(page);
+                context->setObjectName(QStringLiteral("instanceUpgradeContext"));
+                context->setWordWrap(true);
+                context->setTextInteractionFlags(Qt::TextSelectableByMouse);
+                layout->addWidget(context);
+                hint(tr("选择目标版本，检查当前实例后再更新。模组声明符合不保证能运行；原地更新必须先完成完整快照。"));
             } else {
                 hint(tr("把这一份实例的内容搬进这个游戏文件夹里的另一份实例。"
                         "只增加文件，不删除、不覆盖目标里已有的同名文件；这一份实例原样保留。"
@@ -4020,10 +4032,29 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             auto *combo = new QComboBox(page);
             combo->setObjectName(transferTargetComboName(key));
             combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+            if (upgrade) {
+                combo->setEditable(true);
+                combo->setInsertPolicy(QComboBox::NoInsert);
+                combo->lineEdit()->setPlaceholderText(tr("搜索目标版本或加载器"));
+                combo->completer()->setFilterMode(Qt::MatchContains);
+                combo->completer()->setCompletionMode(QCompleter::PopupCompletion);
+            }
             targetLine->addWidget(targetLabel);
             targetLine->addWidget(combo, 1);
             layout->addLayout(targetLine);
             m_transferTargets.insert(key, combo);
+            if (upgrade) {
+                auto *prepare = new QPushButton(tr("准备此版本的核心与加载器…"), page);
+                prepare->setObjectName(QStringLiteral("instanceUpgradePrepareTarget"));
+                prepare->setAutoDefault(false);
+                Theme::markButton(prepare, Theme::ButtonKind::Primary);
+                layout->addWidget(prepare, 0, Qt::AlignLeft);
+                prepare->hide();
+                connect(prepare, &QPushButton::clicked, this, [this] {
+                    const QString selected = transferTarget(QStringLiteral("upgrade"));
+                    if (selected.startsWith(QStringLiteral("@download:"))) emit prepareUpgradeTargetRequested(selected.mid(10));
+                });
+            }
 
             // 计划正文：只读、可选中复制（用户想把这份范围说明贴到别处就用得上）。
             auto *plan = new QPlainTextEdit(page);
@@ -4041,6 +4072,49 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             items->setSelectionMode(QAbstractItemView::NoSelection);
             layout->addWidget(items, 3);
             m_transferItems.insert(key, items);
+            if (upgrade) {
+                layout->removeWidget(plan); layout->removeWidget(items);
+                auto *columns = new QHBoxLayout;
+                auto *assessment = new QWidget(page);
+                auto *assessmentLayout = new QVBoxLayout(assessment);
+                assessmentLayout->setContentsMargins(0, 0, 0, 0);
+                assessmentLayout->addWidget(new QLabel(tr("版本与迁移评估"), assessment));
+                plan->setFixedHeight(104);
+                assessmentLayout->addWidget(plan);
+                auto *summary = new QLabel(tr("模组声明：正在读取…"), assessment);
+                summary->setObjectName(QStringLiteral("instanceUpgradeModSummary"));
+                summary->setWordWrap(true);
+                auto *checkRow = new QHBoxLayout;
+                checkRow->addWidget(summary, 1);
+                auto *refreshCheck = new QPushButton(tr("重新检查"), assessment);
+                refreshCheck->setObjectName(QStringLiteral("instanceUpgradeRecheck"));
+                refreshCheck->setAutoDefault(false);
+                Theme::markButton(refreshCheck, Theme::ButtonKind::Neutral);
+                checkRow->addWidget(refreshCheck);
+                assessmentLayout->addLayout(checkRow);
+                auto *mods = new QTreeWidget(assessment);
+                mods->setObjectName(QStringLiteral("instanceUpgradeModChecks"));
+                mods->setHeaderLabels({tr("当前模组"), tr("状态"), tr("依据")});
+                mods->setRootIsDecorated(false);
+                mods->setAlternatingRowColors(false);
+                mods->setMinimumHeight(80);
+                items->setMinimumHeight(80);
+                mods->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+                mods->header()->setSectionResizeMode(1, QHeaderView::Interactive);
+                mods->setColumnWidth(1, 240);
+                mods->header()->setSectionResizeMode(2, QHeaderView::Stretch);
+                assessmentLayout->addWidget(mods, 1);
+                auto *scope = new QWidget(page);
+                scope->setMaximumWidth(290);
+                auto *scopeLayout = new QVBoxLayout(scope);
+                scopeLayout->setContentsMargins(0, 0, 0, 0);
+                auto *scopeHint = new QLabel(tr("副本保留内容\n仅用于创建副本；原地更新保留全部用户文件。"), scope);
+                scopeHint->setWordWrap(true);
+                scopeLayout->addWidget(scopeHint);
+                scopeLayout->addWidget(items, 1);
+                columns->addWidget(assessment, 3); columns->addWidget(scope, 1);
+                layout->addLayout(columns, 1);
+            }
             connect(items, &QListWidget::itemChanged, this,
                     [this, key] { updateTransferApplyState(key); });
 
@@ -4053,19 +4127,29 @@ void InstanceSettingsDialog::setupLifecyclePages() {
                     emit upgradeInPlaceRequested(transferTarget(key));
                 });
                 inPlace->setObjectName(QStringLiteral("instanceUpgradeInPlaceButton"));
-                action(tr("回滚最近一次原地升级…"), [this] { emit rollbackUpgradeRequested(); })
-                    ->setObjectName(QStringLiteral("instanceUpgradeRollbackButton"));
+                auto *rollback = action(tr("回滚最近一次更新…"), [this] { emit rollbackUpgradeRequested(); });
+                rollback->setObjectName(QStringLiteral("instanceUpgradeRollbackButton"));
+                layout->removeWidget(apply); layout->removeWidget(inPlace); layout->removeWidget(rollback);
+                auto *actions = new QHBoxLayout;
+                Theme::markButton(apply, Theme::ButtonKind::Primary);
+                Theme::markButton(inPlace, Theme::ButtonKind::Danger);
+                actions->addWidget(apply); actions->addWidget(inPlace); actions->addStretch(); actions->addWidget(rollback);
+                layout->addLayout(actions);
             }
 
             // 换目标 ⇒ 只发"选的是谁"，计划由接的人算好再递回来（和选一行读元数据同一套）。
             connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
                     [this, key, combo] {
                         const QString id = combo->currentData().toString();
-                        if (!id.isEmpty()) emit transferTargetChosen(key, id);
+                        emit transferTargetChosen(key, id);
                     });
+            if (upgrade) connect(combo, &QComboBox::editTextChanged, this, [this, key] {
+                updateTransferApplyState(key);
+                emit transferTargetChosen(key, transferTarget(key));
+            });
             updateTransferApplyState(key);
         }
-        layout->addStretch(1);
+        if (key != QStringLiteral("upgrade")) layout->addStretch(1);
     }
 }
 
@@ -4221,10 +4305,14 @@ void InstanceSettingsDialog::setTransferTargets(const QString &key,
     // ★ 这一发**不出声**：灌列表是 controller 在开页时做的，它紧接着会自己算第一份计划；
     //   这里要是发 currentIndexChanged，controller 会在同一次调用里再算一遍（白扫一次盘）。
     const QSignalBlocker blocker(combo);
+    const QString previous = transferTarget(key);
     combo->clear();
+    if (key == QStringLiteral("upgrade")) combo->addItem(tr("请选择目标版本"), QString());
     for (const QPair<QString, QString> &target : targets) {
         combo->addItem(target.first, target.second);
     }
+    const int keep = combo->findData(previous);
+    if (keep >= 0) combo->setCurrentIndex(keep);
     updateTransferApplyState(key);
 }
 
@@ -4232,6 +4320,98 @@ void InstanceSettingsDialog::setTransferPlan(const QString &key, const QString &
     auto *plan = m_transferPlans.value(key);
     if (plan == nullptr) return;
     plan->setPlainText(text);
+}
+
+void InstanceSettingsDialog::setUpgradeContext(const QString &text) {
+    if (auto *label = findChild<QLabel *>(QStringLiteral("instanceUpgradeContext"))) label->setText(text);
+}
+
+void InstanceSettingsDialog::setUpgradeModChecks(const QList<QStringList> &rows, const QString &summary) {
+    if (auto *tree = findChild<QTreeWidget *>(QStringLiteral("instanceUpgradeModChecks"))) {
+        const int scroll = tree->verticalScrollBar()->value();
+        const QString selected = tree->currentItem() ? tree->currentItem()->text(0) : QString();
+        bool expanded = false;
+        for (int i = 0; i < tree->topLevelItemCount(); ++i)
+            if (tree->topLevelItem(i)->data(0, Qt::UserRole + 1).toBool()) expanded = tree->topLevelItem(i)->isExpanded();
+        tree->setUpdatesEnabled(false);
+        tree->clear();
+        tree->setProperty("upgradeModCount", rows.size());
+        QTreeWidgetItem *compatible = nullptr;
+        QList<QStringList> ordered;
+        if (property("modernUpgradeWizard").toBool()) {
+            for (const auto &row : rows) if (row.value(5) != QStringLiteral("compatible")) ordered.append(row);
+            for (const auto &row : rows) if (row.value(5) == QStringLiteral("compatible")) ordered.append(row);
+        } else ordered = rows;
+        for (const auto &row : ordered) {
+            QTreeWidgetItem *item = nullptr;
+            if (property("modernUpgradeWizard").toBool() && row.value(5) == QStringLiteral("compatible")) {
+                if (!compatible) {
+                    compatible = new QTreeWidgetItem(tree);
+                    compatible->setData(0, Qt::UserRole + 1, true);
+                    compatible->setFlags(Qt::ItemIsEnabled);
+                }
+                item = new QTreeWidgetItem(compatible, row.mid(0, 3));
+            } else item = new QTreeWidgetItem(tree, row.mid(0, 3));
+            if (property("modernUpgradeFlow").toBool() && !row.value(3).isEmpty()) {
+                item->setData(0, Qt::UserRole, row.value(3));
+                auto *choice = new WheelSafeComboBox(tree);
+                choice->addItem(tr("请选择处理方式"), QVariant());
+                choice->addItem(tr("禁用，保留文件"), false);
+                choice->addItem(tr("保留启用"), true);
+                const QVariantMap overrides = property("upgradeModOverrides").toMap();
+                const bool keep = overrides.contains(row.value(3)) ? overrides.value(row.value(3)).toBool()
+                    : row.value(4) == QStringLiteral("keep");
+                choice->setCurrentIndex(overrides.contains(row.value(3)) ? (keep ? 2 : 1)
+                    : row.value(4) == QStringLiteral("review") ? 0 : keep ? 2 : 1);
+                choice->setProperty("upgradeModFile", row.value(3));
+                connect(choice, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, choice] {
+                    auto overrides = property("upgradeModOverrides").toMap();
+                    const QString file = choice->property("upgradeModFile").toString();
+                    if (choice->currentData().isValid()) overrides.insert(file, choice->currentData());
+                    else overrides.remove(file);
+                    setProperty("upgradeModOverrides", overrides);
+                });
+                tree->setItemWidget(item, 3, choice);
+            }
+            for (int column = 0; column < qMin(3, row.size()); ++column) item->setToolTip(column, row.at(column));
+            if (!selected.isEmpty() && row.value(0) == selected) tree->setCurrentItem(item);
+        }
+        if (compatible) {
+            compatible->setText(0, tr("正常兼容（%1）").arg(compatible->childCount()));
+            compatible->setExpanded(expanded);
+        }
+        tree->setRootIsDecorated(compatible != nullptr);
+        tree->doItemsLayout();
+        tree->verticalScrollBar()->setValue(scroll);
+        tree->setUpdatesEnabled(true);
+    }
+    if (auto *label = findChild<QLabel *>(QStringLiteral("instanceUpgradeModSummary"))) label->setText(summary);
+    updateTransferApplyState(QStringLiteral("upgrade"));
+}
+
+QStringList InstanceSettingsDialog::upgradeKeptMods() const {
+    QStringList files;
+    if (auto *tree = findChild<QTreeWidget *>(QStringLiteral("instanceUpgradeModChecks"))) {
+        for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+            auto *item = *it;
+            if (item->data(0, Qt::UserRole + 1).toBool()) continue;
+            auto *choice = qobject_cast<QComboBox *>(tree->itemWidget(item, 3));
+            if (choice && choice->currentData().toBool()) files.append(item->data(0, Qt::UserRole).toString());
+        }
+    }
+    return files;
+}
+
+int InstanceSettingsDialog::upgradePendingModCount() const {
+    int pending = 0;
+    if (auto *tree = findChild<QTreeWidget *>(QStringLiteral("instanceUpgradeModChecks"))) {
+        for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+            if ((*it)->data(0, Qt::UserRole + 1).toBool()) continue;
+            auto *choice = qobject_cast<QComboBox *>(tree->itemWidget(*it, 3));
+            if (!choice || !choice->currentData().isValid()) ++pending;
+        }
+    }
+    return pending;
 }
 
 void InstanceSettingsDialog::setTransferItems(const QString &key,
@@ -4254,7 +4434,8 @@ void InstanceSettingsDialog::setTransferItems(const QString &key,
 
 QString InstanceSettingsDialog::transferTarget(const QString &key) const {
     auto *combo = m_transferTargets.value(key);
-    return combo == nullptr ? QString() : combo->currentData().toString();
+    if (combo == nullptr || (combo->isEditable() && combo->currentText() != combo->itemText(combo->currentIndex()))) return {};
+    return combo->currentData().toString();
 }
 
 QStringList InstanceSettingsDialog::transferSelectedKeys(const QString &key) const {
@@ -4274,10 +4455,14 @@ void InstanceSettingsDialog::updateTransferApplyState(const QString &key) {
     auto *apply = findChild<QPushButton *>(transferApplyButtonName(key));
     if (apply == nullptr) return;
     // 两样都得有：选了目标、而且至少勾了一项。少了哪一样，按下去都只会弹一句错话。
-    const bool hasTarget = !transferTarget(key).isEmpty();
+    const QString selected = transferTarget(key);
+    const bool needsDownload = selected.startsWith(QStringLiteral("@download:"));
+    const bool hasTarget = !selected.isEmpty() && !needsDownload &&
+        (key != QStringLiteral("upgrade") || !property("upgradeAssessmentReading").toBool());
     const bool hasSelection = !transferSelectedKeys(key).isEmpty();
     apply->setEnabled(hasTarget && hasSelection);
     if (key == QStringLiteral("upgrade")) {
+        if (auto *prepare = findChild<QPushButton *>(QStringLiteral("instanceUpgradePrepareTarget"))) prepare->setVisible(needsDownload && !property("modernUpgradeFlow").toBool());
         if (auto *inPlace = findChild<QPushButton *>(QStringLiteral("instanceUpgradeInPlaceButton")))
             inPlace->setEnabled(hasTarget);
     }

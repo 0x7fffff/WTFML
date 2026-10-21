@@ -33,6 +33,7 @@ add_executable(ui_check main.cpp
                                 ${REPO_ROOT}/ui/OverlayHost.cpp
                                 ${REPO_ROOT}/ui/InlineMessage.cpp
                                 ${REPO_ROOT}/ui/InstanceSettingsDialog.cpp
+                                ${REPO_ROOT}/ui/InstanceUpdateWizard.cpp
     ${REPO_ROOT}/ui/InstanceFilesPage.cpp
     ${REPO_ROOT}/ui/ResourcePackPage.cpp
     # 「配置文件」那一页（2026-09-27）：编辑器那一格和它那套纯函数（认 BOM / 认行尾 /

@@ -34,6 +34,8 @@ struct Core {
     QString loaderName;
     QString loaderVersion;
     bool disableOldMods = true;
+    // Relative paths under mods/ explicitly retained by the reviewed update plan.
+    QStringList keepOldMods;
 };
 QString transactionDir(const Request &request);
 QString candidateDir(const Request &request);

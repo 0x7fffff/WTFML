@@ -1,4 +1,7 @@
 #include "InstanceDialogController.hpp"
+#include "UpgradeAssessment.hpp"
+#include "InstanceUpdateFlow.hpp"
+#include "download/ResourceStore.hpp"
 
 #include "MainWindow.hpp"
 #include "ConfigFileEditorPage.hpp"
@@ -673,18 +676,57 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     };
     const auto refreshTransferPage = [this, &dialog, transferTargetsFor, buildTransferPlan,
                                       pushTransferPlan](const QString &key) {
-        dialog.setTransferTargets(key, transferTargetsFor());
+        if (key == QStringLiteral("upgrade") && dialog.property("modernUpgradeFlow").toBool()) return;
+        auto targets = transferTargetsFor();
+        if (key == QStringLiteral("upgrade")) {
+            QSet<QString> prepared;
+            for (auto &entry : targets) {
+                const auto parts = m_owner->m_versionManager->displayParts(entry.second);
+                const QString game = parts.realVersion.isEmpty() ? parts.id : parts.realVersion;
+                prepared.insert(game);
+                entry.first = game + QStringLiteral(" · ") + (parts.loaderName.isEmpty() ? tr("原版") : parts.loaderName + QLatin1Char(' ') + parts.loaderVersion)
+                    + tr("（核心已准备：%1）").arg(m_owner->instanceDisplayName(entry.second));
+            }
+            for (const auto &version : m_owner->m_versionManager->availableVersions()) if (!prepared.contains(version))
+                targets.append({version + tr("（选择并准备目标核心 / 加载器）"), QStringLiteral("@download:") + version});
+        }
+        dialog.setTransferTargets(key, targets);
         const QString targetIdNow = dialog.transferTarget(key);
+        if (key == QStringLiteral("upgrade")) emit dialog.transferTargetChosen(key, targetIdNow);
         if (targetIdNow.isEmpty()) {
-            dialog.setTransferPlan(key, tr("这个游戏文件夹里还没有别的版本。"
-                                           "升级副本要先把目标版本装好（下载页）。"));
+            dialog.setTransferPlan(key, key == QStringLiteral("upgrade")
+                ? tr("请先选择目标版本。当前实例始终作为更新来源；尚未准备的版本可先准备核心与加载器。")
+                : tr("此游戏文件夹里没有其它可迁移的实例。"));
             dialog.setTransferItems(key, {}, {});
             return;
         }
-        pushTransferPlan(key, buildTransferPlan(key, targetIdNow));
+        if (targetIdNow.startsWith(QStringLiteral("@download:"))) {
+            dialog.setTransferPlan(key, tr("目标 Minecraft %1 尚未准备。先选择并安装目标核心与加载器，再返回本实例检查更新；此时不会写入当前实例。").arg(targetIdNow.mid(10)));
+            dialog.setTransferItems(key, {}, {});
+        } else pushTransferPlan(key, buildTransferPlan(key, targetIdNow));
     };
     refreshTransferPage(QStringLiteral("migration"));
-    refreshTransferPage(QStringLiteral("upgrade"));
+    const auto sourceParts = m_owner->m_versionManager->displayParts(targetId);
+    dialog.setUpgradeContext(tr("当前实例：%1\nMinecraft %2 · %3 %4")
+        .arg(m_owner->instanceDisplayName(targetId), sourceParts.realVersion.isEmpty() ? sourceParts.id : sourceParts.realVersion,
+             sourceParts.loaderName.isEmpty() ? tr("原版") : sourceParts.loaderName, sourceParts.loaderVersion));
+    auto *upgradeStore = new ResourceStore(&dialog);
+    upgradeStore->setCurseForgeApiKey(m_owner->m_settings->curseForgeApiKey());
+    upgradeStore->setCurseForgeApiBaseOverride(m_owner->m_settings->curseForgeApiBaseOverride());
+    upgradeStore->setModrinthApiBaseOverride(m_owner->m_settings->modrinthApiBaseOverride());
+    UpgradeAssessment::attach(&dialog, m_owner->m_versionManager, upgradeStore, targetId, AppPaths::versionDir(targetId), AppPaths::instanceIconCacheDir());
+    InstanceUpdateFlow::attach(m_owner, &dialog, targetId);
+    connect(m_owner->m_versionManager, &VersionManager::versionsFetched, &dialog, [refreshTransferPage](const QStringList &) { refreshTransferPage(QStringLiteral("upgrade")); });
+    if (m_owner->m_versionManager->availableVersions().isEmpty()) m_owner->m_versionManager->fetchAvailableVersions();
+    connect(&dialog, &InstanceSettingsDialog::prepareUpgradeTargetRequested, &dialog, [this, &dialog, targetId](const QString &version) {
+        dialog.reject();
+        QTimer::singleShot(0, m_owner, [owner = QPointer<MainWindow>(m_owner), targetId, version] {
+            if (!owner) return;
+            owner->openDownloadCategory(QStringLiteral("game"), targetId);
+            owner->m_downloadFromPageKey = QStringLiteral("upgrade");
+            owner->openInstallPage(version);
+        });
+    });
 
     const auto finishUpgradePage = [guard = QPointer<InstanceSettingsDialog>(&dialog)]
         (bool changed, const QString &) {
@@ -704,7 +746,13 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         });
 
     connect(&dialog, &InstanceSettingsDialog::transferTargetChosen, &dialog,
-            [buildTransferPlan, pushTransferPlan](const QString &key, const QString &otherId) {
+            [&dialog, buildTransferPlan, pushTransferPlan](const QString &key, const QString &otherId) {
+                if (key == QStringLiteral("upgrade") && dialog.property("modernUpgradeFlow").toBool()) return;
+                if (otherId.isEmpty() || otherId.startsWith(QStringLiteral("@download:"))) {
+                    dialog.setTransferPlan(key, otherId.isEmpty() ? tr("请选择目标版本。")
+                        : tr("目标 Minecraft %1 尚未准备；完成核心与加载器安装后才能执行更新。本地模组声明与平台发行版状态分别检查。").arg(otherId.mid(10)));
+                    dialog.setTransferItems(key, {}, {}); return;
+                }
                 pushTransferPlan(key, buildTransferPlan(key, otherId));
             });
     connect(&dialog, &InstanceSettingsDialog::transferApplyRequested, &dialog,

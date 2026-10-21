@@ -53,12 +53,14 @@ public:
     /// 任务中心那一项会把「规划 → 执行 → 验证」三步走完。
     void copyInstanceInBackground(const QString &sourceId, const QString &destGameFolder,
                                   const QString &newName,
-                                  std::function<void(bool, const QString &)> whenDone = {});
+                                  std::function<void(bool, const QString &)> whenDone = {},
+                                  bool announce = true);
 
     /// 后台那一份还在拷吗（再按一次「复制实例」会被挡下来）。
     bool copying() const { return m_copyBusy; }
     void upgradeInPlace(QString sourceId, QString targetId,
-                        std::function<void(bool, const QString &)> whenDone = {});
+                        std::function<void(bool, const QString &)> whenDone = {},
+                        const QStringList &reviewedKeptMods = {}, bool reviewedModPlan = false);
     void rollbackUpgrade(QString sourceId,
                          std::function<void(bool, const QString &)> whenDone = {});
 

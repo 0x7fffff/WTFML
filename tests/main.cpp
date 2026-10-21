@@ -1,6 +1,6 @@
 ﻿/**
  * @file main.cpp
- * @brief natives / Java 选择的控制台验证入口（一次性，不属于仓库）。
+ * @brief 核心回归测试入口，覆盖下载、安装、启动与数据保护。
  *
  * 直接调用生产代码而不是复刻逻辑：
  *   - DownloadManager::extractLibraries   -> 证明 classifier 会被下载
@@ -196,6 +196,7 @@
 #include "replay/ReplayInfo.hpp"
 #include "diagnose/StartupDiagnosis.hpp"
 #include "operations/TransferPlanner.hpp"
+#include "operations/ModVersionDeclaration.hpp"
 #include "operations/TransferApply.hpp"
 #include "util/AppPaths.hpp"
 // NbtTree：世界设置那条路的判据层（2026-09-28）。放进 ZL 那一节是为了能**拿手工拼的字节
@@ -37954,6 +37955,18 @@ static void runStartupDiagnosisTests() {
 
 static void runTransferPlannerTests() {
     section("TR. 迁移 / 升级副本：计划判据与只增不删的落盘（coding plan §9.9 第 15 项）");
+    using DeclarationMatch = ModVersionDeclaration::Match;
+    check(ModVersionDeclaration::matches(QJsonValue(QStringLiteral(">=1.20 <1.22")), QStringLiteral("1.21.1")) == DeclarationMatch::Yes, "TR 声明范围支持目标版本");
+    check(ModVersionDeclaration::matches(QJsonValue(QStringLiteral("[1.20,1.21)")), QStringLiteral("1.21")) == DeclarationMatch::No, "TR Maven 排他上界不能当作兼容");
+    check(ModVersionDeclaration::matches(QJsonValue(QStringLiteral("1.21.x")), QStringLiteral("1.21.4")) == DeclarationMatch::Yes, "TR Fabric 通配范围");
+    check(ModVersionDeclaration::matches(QJsonValue(QStringLiteral("~1.21.1")), QStringLiteral("1.22")) == DeclarationMatch::No, "TR tilde 不越过次版本上界");
+    check(ModVersionDeclaration::matches(QJsonValue(QStringLiteral("^0.2.1")), QStringLiteral("0.3")) == DeclarationMatch::No, "TR 零主版本 caret 上界");
+    check(ModVersionDeclaration::matches(QJsonValue(QJsonArray{QStringLiteral("1.20"), QStringLiteral("1.21")}), QStringLiteral("1.21")) == DeclarationMatch::Yes, "TR 数组声明是或关系");
+    check(ModVersionDeclaration::matches(QJsonValue(QStringLiteral("${minecraft_version}")), QStringLiteral("1.21")) == DeclarationMatch::Unknown, "TR 未展开声明保持未知");
+    check(ModVersionDeclaration::matches(QJsonValue(QStringLiteral(">=1.20")), QStringLiteral("24w01a")) == DeclarationMatch::Unknown, "TR 非数字快照不猜兼容");
+    check(ModVersionDeclaration::matches(QJsonValue(QStringLiteral("999999999999999999999")), QStringLiteral("1.21")) == DeclarationMatch::Unknown, "TR 超范围版本号不截断比较");
+    check(ModVersionDeclaration::matches(QJsonValue(QStringLiteral("1.20 || 1.21")), QStringLiteral("1.21")) == DeclarationMatch::Unknown, "TR 未支持的逻辑语法不能误报不兼容");
+    check(ModVersionDeclaration::matches(QJsonValue(QStringLiteral("24w01a")), QStringLiteral("24w01a")) == DeclarationMatch::Yes, "TR 完全相同的快照声明可精确匹配");
 
     QTemporaryDir dir;
     check(dir.isValid(), "TR0 临时目录");

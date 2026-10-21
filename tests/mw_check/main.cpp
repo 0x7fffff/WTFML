@@ -30,6 +30,7 @@
  */
 
 #include <QApplication>
+#include <QWizard>
 #include "RangeChecks.hpp"
 #include "SegmentInstallChecks.hpp"
 #include "ToolFeatureChecks.hpp"
@@ -6986,8 +6987,20 @@ static void runInstanceFilesPagesTests() {
                         InstanceSettingsDialog::transferPlanTextName(
                             QStringLiteral("upgrade")))) {
                     upgradePlanText = upgradePlan->toPlainText();
-                    upgradeFilled =
-                        upgradePlanText.contains(QStringLiteral("升级副本计划："));
+                    auto *game = page->findChild<QComboBox *>(QStringLiteral("instanceUpdateGame"));
+                    auto *loader = page->findChild<QComboBox *>(QStringLiteral("instanceUpdateLoader"));
+                    auto *mode = page->findChild<QComboBox *>(QStringLiteral("instanceUpdateMode"));
+                    auto *start = page->findChild<QPushButton *>(QStringLiteral("instanceUpdateStart"));
+                    auto *wizard = page->findChild<QWizard *>(QStringLiteral("instanceUpdateWizard"));
+                    upgradeFilled = game && loader && mode && start && wizard && wizard->isWindow() && wizard->isVisible()
+                        && game->currentIndex() == 0 && !start->isEnabled()
+                        && !mode->currentData().toBool();
+                    const QString preview = qEnvironmentVariable("WTFML_UPDATE_PREVIEW");
+                    if (!preview.isEmpty()) {
+                        QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/msyh.ttc"));
+                        wizard->setFont(QFont(QStringLiteral("Microsoft YaHei"), 10));
+                        QApplication::processEvents(); wizard->grab().save(preview);
+                    }
                 }
 
                 if (auto *back =
@@ -7014,7 +7027,7 @@ static void runInstanceFilesPagesTests() {
             check(applyGate,
                   "★ T20.14 动手那颗听勾选：一项不勾就灰、勾回来又亮");
             check(upgradeFilled,
-                  "★ T20.14 「升级」页同一个构建器，顶上是「升级副本计划：」",
+                  "★ T20.14 更新页按游戏和加载器选择目标，默认创建副本，未选版本不能开始",
                   upgradePlanText.left(160));
         }
 
@@ -24535,6 +24548,8 @@ int main(int argc, char *argv[]) {
             //   —— 是行内的一条操作条，和"删掉那两颗"那件事没关系。所以扫的时候要把它那一棵
             //   整个跳过去（判据是那个 objectName，见 InstanceFilesPage::selectionBarName()）。
             for (QPushButton *button : host->findChildren<QPushButton *>()) {
+                // An owned native wizard is a separate window, not a page footer.
+                if (button->window() != host->window()) continue;
                 bool insideSelectionBar = false;
                 for (QObject *o = button; o != nullptr; o = o->parent()) {
                     if (o->objectName() == InstanceFilesPage::selectionBarName()) {

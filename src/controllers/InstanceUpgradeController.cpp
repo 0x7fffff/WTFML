@@ -18,7 +18,8 @@
 #include <memory>
 
 void InstanceTransferController::upgradeInPlace(QString sourceId, QString targetId,
-    std::function<void(bool, const QString &)> whenDone) {
+    std::function<void(bool, const QString &)> whenDone,
+    const QStringList &reviewedKeptMods, bool reviewedModPlan) {
     const auto fail = [&](const QString &problem) {
         InlineMessage::warning(m_overlay, tr("原地升级"), problem);
         if (whenDone) whenDone(false, problem);
@@ -65,7 +66,10 @@ void InstanceTransferController::upgradeInPlace(QString sourceId, QString target
     const bool contextChanged = m_versions->instanceGameVersion(sourceId) != core.gameVersion
         || sourceLoader.compare(core.loaderName, Qt::CaseInsensitive) != 0
         || sourceLoaderVersion != core.loaderVersion;
-    if (contextChanged && QFileInfo(AppPaths::versionDir(sourceId) + "/mods").isDir()) {
+    if (reviewedModPlan) {
+        core.disableOldMods = true;
+        core.keepOldMods = reviewedKeptMods;
+    } else if (contextChanged && QFileInfo(AppPaths::versionDir(sourceId) + "/mods").isDir()) {
         const int choice = InlineMessage::ask(m_overlay, MessageKind::Question, tr("旧模组处理"),
             tr("游戏版本或加载器将变化，旧模组尚未验证适配。\n\n"
                "建议先禁用旧模组（文件保留，后缀改为 .disabled）。保留启用状态可能导致游戏无法启动。"),

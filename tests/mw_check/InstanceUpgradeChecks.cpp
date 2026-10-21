@@ -1,5 +1,12 @@
 #include "InstanceUpgradeChecks.hpp"
 #include "operations/InstanceUpgrade.hpp"
+#include "operations/FabricVersionDeclaration.hpp"
+#include "InstanceUpdateWizard.hpp"
+#include <QAbstractButton>
+#include <QWheelEvent>
+#include <QVBoxLayout>
+#include <QElapsedTimer>
+#include <QRegularExpression>
 #include "manage/BackupFiles.hpp"
 #include "InstanceSettingsDialog.hpp"
 #include "controllers/InstanceTransferController.hpp"
@@ -8,6 +15,17 @@
 #include "OverlayHost.hpp"
 #include "InlineMessage.hpp"
 #include "util/AppPaths.hpp"
+#include "util/ZipUtil.hpp"
+#include "controllers/UpgradeAssessment.hpp"
+#include "manage/InstanceIconLookup.hpp"
+#include "download/ResourceStore.hpp"
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QComboBox>
+#include <QTreeWidget>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QDateTime>
 #include <QApplication>
 #include <QEventLoop>
 #include <QTimer>
@@ -40,8 +58,235 @@ int runInstanceUpgradeChecks() {
         std::printf("%s %s\n", ok ? "PASS" : "FAIL", what);
         if (!ok) ++failures;
     };
+    {
+        using namespace FabricVersionDeclaration;
+        check(predicate(QStringLiteral("~26.2-"), QStringLiteral("26.2")) == Match::Yes,
+              "Fabric empty prerelease lower bound accepts the stable release");
+        check(predicate(QStringLiteral("~26.2-"), QStringLiteral("26.3-alpha.1")) == Match::No,
+              "Fabric tilde upper bound excludes the next minor prereleases");
+        check(predicate(QStringLiteral(">=26.2 <26.3-alpha.3"), QStringLiteral("26.3-alpha.2")) == Match::Yes,
+              "Fabric prerelease ordering and compound constraints");
+        check(predicate(QStringLiteral("^0.2"), QStringLiteral("0.8")) == Match::Yes,
+              "Fabric caret does not use the npm zero-major exception");
+        check(predicate(QStringLiteral("26.2.x.x"), QStringLiteral("26.2.4+local")) == Match::Yes,
+              "Fabric repeated trailing wildcard and build metadata");
+        check(predicate(QStringLiteral(">=99999999999999999"), QStringLiteral("26.2")) == Match::Unknown,
+              "overflow declarations remain unconfirmed");
+        check(matches(QJsonArray{QStringLiteral("*"), 1}, QStringLiteral("26.2")) == Match::Unknown,
+              "malformed OR arrays are not silently accepted");
+        auto *target = new QWidget; auto *targetLayout = new QVBoxLayout(target);
+        auto *combo = new QComboBox(target); combo->addItems({QStringLiteral("one"), QStringLiteral("two")});
+        targetLayout->addWidget(combo);
+        InstanceUpdateWizard wizard(target, new QWidget, new QWidget, new QWidget);
+        wizard.show(); QApplication::processEvents();
+        check(!wizard.button(QWizard::NextButton)->isEnabled(), "wizard blocks an incomplete target step");
+        wizard.setStepReady(0, true); wizard.next();
+        check(wizard.currentId() == 1 && !wizard.button(QWizard::NextButton)->isEnabled(),
+              "wizard waits for mod review before confirmation");
+        wizard.back();
+        QWheelEvent wheel(QPointF(3, 3), QPointF(combo->mapToGlobal(QPoint(3, 3))), QPoint(), QPoint(0, -120),
+            Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        QApplication::sendEvent(combo, &wheel);
+        check(combo->currentIndex() == 0, "closed wizard dropdown ignores wheel input");
+        wizard.setStepReady(1, true); wizard.next(); wizard.next();
+        check(wizard.currentId() == 2, "wizard preserves review readiness when going back");
+        wizard.setStepReady(2, true); wizard.next();
+        check(wizard.currentId() == 3 && !wizard.button(QWizard::FinishButton)->isEnabled(),
+              "wizard cannot finish before the transaction has a result");
+        wizard.setStepReady(3, true);
+        check(wizard.button(QWizard::FinishButton)->isEnabled(), "wizard enables finish after a terminal result");
+        QWidget background;
+        OverlayHost outer(&background, &background);
+        QDialog prompt;
+        bool routed = false;
+        QTimer::singleShot(0, &prompt, [&] {
+            routed = wizard.promptHost()->promptOpen() && !outer.promptOpen(); prompt.accept();
+        });
+        check(outer.execPrompt(&prompt) == QDialog::Accepted && routed,
+              "transaction questions route inside the modal wizard rather than the blocked main window");
+        QDialog closePrompt;
+        QTimer::singleShot(0, &wizard, [&] { wizard.close(); });
+        check(outer.execPrompt(&closePrompt) == QDialog::Rejected && wizard.isVisible(),
+              "closing during a question dismisses the question without hiding the wizard or hanging");
+    }
+    const QString inspect = qEnvironmentVariable("WTFML_UPGRADE_INSPECT_MODS");
+    if (!inspect.isEmpty()) {
+        QStringList jars;
+        for (const auto &file : QDir(inspect).entryInfoList({QStringLiteral("*.jar")}, QDir::Files | QDir::NoSymLinks))
+            jars.append(file.absoluteFilePath());
+        QElapsedTimer clock; clock.start(); QString problem;
+        const auto metadata = ZipUtil::readMetadataBatch(jars, {QStringLiteral("fabric.mod.json"), QStringLiteral("META-INF/mods.toml"), QStringLiteral("META-INF/neoforge.mods.toml")}, &problem);
+        int fabric = 0, declared = 0, supported = 0, unknown = 0;
+        for (const auto &entry : metadata) {
+            if (!entry.entries.contains(QStringLiteral("fabric.mod.json"))) continue;
+            ++fabric;
+            const auto rule = QJsonDocument::fromJson(entry.entries.value(QStringLiteral("fabric.mod.json"))).object()
+                .value(QStringLiteral("depends")).toObject().value(QStringLiteral("minecraft"));
+            if (rule.isUndefined()) continue;
+            ++declared;
+            const auto match = FabricVersionDeclaration::matches(rule, QStringLiteral("26.2"));
+            supported += match == FabricVersionDeclaration::Match::Yes;
+            unknown += match == FabricVersionDeclaration::Match::Unknown;
+        }
+        std::printf("READONLY METADATA jars=%lld returned=%lld fabric=%d declared=%d supports26.2=%d unknown=%d elapsedMs=%lld problem=%s\n",
+            static_cast<long long>(jars.size()), static_cast<long long>(metadata.size()), fabric, declared, supported, unknown,
+            static_cast<long long>(clock.elapsed()), problem.toUtf8().constData());
+        check(problem.isEmpty() && metadata.size() == jars.size(), "readonly real-instance batch returns every requested archive");
+    }
     QTemporaryDir scratch;
     if (!scratch.isValid()) return 1;
+    {
+        const QString game = scratch.filePath(QStringLiteral("assessment-game"));
+        const QString source = game + QStringLiteral("/versions/Source");
+        const QString jar = source + QStringLiteral("/mods/example.jar");
+        const QString declaration = scratch.filePath(QStringLiteral("fabric-declaration.json"));
+        const QString forgeDeclaration = scratch.filePath(QStringLiteral("mods.toml"));
+        const QString neoDeclaration = scratch.filePath(QStringLiteral("neoforge.mods.toml"));
+        check(write(forgeDeclaration, "[[dependencies.example]]\nmodId=\"minecraft\"\nmandatory=true\nversionRange=\"[1.21,1.22)\"\n") &&
+              write(neoDeclaration, "[[dependencies.example]]\nmodId=\"minecraft\"\ntype=\"required\"\nversionRange=\"[1.20,1.21)\"\n"),
+              "prepare Forge and NeoForge dependency declarations");
+        check(write(declaration, R"({"schemaVersion":1,"id":"example","name":"Local Example","version":"1.0","depends":{"minecraft":">=1.20 <1.23"},"breaks":{"minecraft":"1.22.2"}})")
+            && QDir().mkpath(source + QStringLiteral("/mods")) && ZipUtil::createZip(jar, {{QStringLiteral("fabric.mod.json"), declaration},
+                {QStringLiteral("META-INF/mods.toml"), forgeDeclaration}, {QStringLiteral("META-INF/neoforge.mods.toml"), neoDeclaration}}),
+            "create real JAR containing a local compatibility declaration");
+        QByteArray bounded; QString boundedProblem;
+        check(ZipUtil::readEntry(jar, QStringLiteral("fabric.mod.json"), &bounded, &boundedProblem, QStringLiteral("metadata fixture"), 8) == ZipUtil::EntryStatus::Failed
+              && bounded.isEmpty() && !boundedProblem.isEmpty(), "oversized declarations are rejected before extraction");
+        check(ZipUtil::readEntry(jar, QStringLiteral("fabric.mod.json"), &bounded, &boundedProblem, QStringLiteral("metadata fixture"), 4096) == ZipUtil::EntryStatus::Ok
+              && bounded == read(declaration), "bounded metadata reader preserves the original bytes");
+        const QString broken = scratch.filePath(QStringLiteral("broken.jar"));
+        check(write(broken, "not a zip"), "prepare independent corrupt archive");
+        QString batchProblem;
+        const auto batch = ZipUtil::readMetadataBatch({broken, jar}, {QStringLiteral("fabric.mod.json"), QStringLiteral("META-INF/mods.toml")}, &batchProblem);
+        check(!batch.value(broken).problem.isEmpty() && batch.value(jar).entries.value(QStringLiteral("fabric.mod.json")) == read(declaration)
+              && batch.value(jar).entries.value(QStringLiteral("META-INF/mods.toml")) == read(forgeDeclaration),
+              "batch metadata reads all loaders and isolates corrupt archives");
+        check(write(source + QStringLiteral("/wtfml.meta"), R"({"realVersion":"1.20.1","loaderName":"Fabric"})") &&
+              write(game + QStringLiteral("/versions/Target/wtfml.meta"), R"({"realVersion":"1.21.1","loaderName":"Fabric","loaderVersion":"0.16"})") &&
+              write(game + QStringLiteral("/versions/Other/wtfml.meta"), R"({"realVersion":"1.22.1","loaderName":"Fabric","loaderVersion":"0.16"})") &&
+              write(game + QStringLiteral("/versions/Excluded/wtfml.meta"), R"({"realVersion":"1.22.2","loaderName":"Fabric","loaderVersion":"0.16"})"),
+              "prepare target metadata without modifying the source instance");
+        check(write(game + QStringLiteral("/versions/ForgeTarget/wtfml.meta"), R"({"realVersion":"1.21.1","loaderName":"Forge"})") &&
+              write(game + QStringLiteral("/versions/NeoTarget/wtfml.meta"), R"({"realVersion":"1.21.1","loaderName":"NeoForge"})"),
+              "prepare targets for loader-specific declaration checks");
+        InstanceIconLookup::Options options; options.cacheDir = scratch.filePath(QStringLiteral("identity-cache")); options.cacheKey = QStringLiteral("Source");
+        ResourceCatalog::Hit hit; hit.projectId = QStringLiteral("known-project"); hit.title = QStringLiteral("Known Example");
+        QJsonObject record{{"size", double(QFileInfo(jar).size())}, {"mtime", double(QFileInfo(jar).lastModified().toMSecsSinceEpoch())},
+            {"sha1", QString::fromLatin1(QCryptographicHash::hash(read(jar), QCryptographicHash::Sha1).toHex())}, {"hit", ResourceCatalog::hitToJson(hit)}};
+        check(write(InstanceIconLookup::cachePath(options), QJsonDocument(QJsonObject{{"files", QJsonObject{{jar, record}}}}).toJson()),
+              "cache a platform identity verified against the actual JAR hash");
+        QTcpServer server; bool failPlatform = false, fallbackMode = false, delayed = false;
+        int inFlight = 0, maxInFlight = 0, fallbackLookups = 0;
+        check(server.listen(QHostAddress::LocalHost, 0), "assessment platform fixture listens on loopback");
+        QObject::connect(&server, &QTcpServer::newConnection, &server, [&] {
+            while (auto *socket = server.nextPendingConnection()) {
+                QObject::connect(socket, &QTcpSocket::readyRead, socket, [&, socket] {
+                    if (socket->property("replied").toBool()) return;
+                    const QByteArray request = socket->property("request").toByteArray() + socket->readAll(); socket->setProperty("request", request);
+                    if (!request.contains("\r\n\r\n")) return;
+                    if (request.startsWith("POST ")) {
+                        const auto header = request.left(request.indexOf("\r\n\r\n"));
+                        const auto length = QRegularExpression(QStringLiteral("(?i)Content-Length: (\\d+)")).match(QString::fromLatin1(header));
+                        if (length.hasMatch() && request.size() - header.size() - 4 < length.captured(1).toInt()) return;
+                    }
+                    socket->setProperty("replied", true);
+                    QByteArray body = "[]"; int status = failPlatform ? 403 : 200;
+                    if (fallbackMode && request.startsWith("GET /mods/")) status = 503;
+                    if (fallbackMode && request.startsWith("POST /version_files")) {
+                        ++fallbackLookups;
+                        const QString sha = record.value("sha1").toString();
+                        const QJsonObject file{{"filename", "example.jar"}, {"url", "https://example.invalid/file.jar"},
+                            {"hashes", QJsonObject{{"sha1", sha}}}};
+                        const QJsonObject version{{"id", "file-version"}, {"project_id", "fallback-project"},
+                            {"version_number", "1.0"}, {"files", QJsonArray{file}}};
+                        body = QJsonDocument(QJsonObject{{sha, version}}).toJson(QJsonDocument::Compact);
+                    }
+                    ++inFlight; maxInFlight = qMax(maxInFlight, inFlight);
+                    const QByteArray response = "HTTP/1.1 " + QByteArray::number(status) + " Fixture\r\nContent-Type: application/json\r\nContent-Length: "
+                        + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body;
+                    QTimer::singleShot(delayed ? 120 : 0, socket, [&, socket, response] {
+                        --inFlight; socket->write(response); socket->disconnectFromHost();
+                    });
+                });
+                QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            }
+        });
+        const QString oldRoot = AppPaths::minecraftDir(); AppPaths::setMinecraftDir(game);
+        {
+            VersionManager versions;
+            InstanceSettingsDialog page(QStringLiteral("Source"), QStringLiteral("Source"), {}, {}, {}, true);
+            ResourceStore store;
+            store.setModrinthApiBaseOverride(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort()));
+            page.setTransferTargets(QStringLiteral("upgrade"), {{QStringLiteral("Target"), QStringLiteral("Target")}, {QStringLiteral("Other"), QStringLiteral("Other")},
+                {QStringLiteral("Excluded"), QStringLiteral("Excluded")}, {QStringLiteral("Forge"), QStringLiteral("ForgeTarget")}, {QStringLiteral("NeoForge"), QStringLiteral("NeoTarget")},
+                {QStringLiteral("Unprepared"), QStringLiteral("@download:1.21.2")}});
+            UpgradeAssessment::attach(&page, &versions, &store, QStringLiteral("Source"), source, options.cacheDir);
+            auto *combo = page.findChild<QComboBox *>(InstanceSettingsDialog::transferTargetComboName(QStringLiteral("upgrade")));
+            auto *tree = page.findChild<QTreeWidget *>(QStringLiteral("instanceUpgradeModChecks"));
+            const auto waitFor = [&](const QString &text) {
+                QEventLoop loop; QTimer poll, timeout;
+                QObject::connect(&poll, &QTimer::timeout, &loop, [&] { if (tree->topLevelItemCount() && tree->topLevelItem(0)->text(1).contains(text)) loop.quit(); });
+                timeout.setSingleShot(true); QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
+                poll.start(10); timeout.start(30000); loop.exec();
+                return tree->topLevelItemCount() && tree->topLevelItem(0)->text(1).contains(text);
+            };
+            combo->setCurrentIndex(1);
+            check(!page.findChild<QPushButton *>(QStringLiteral("instanceUpgradeInPlaceButton"))->isEnabled(),
+                  "in-place update waits for local archive reads to release their file handles");
+            check(waitFor(QStringLiteral("平台未找到目标发行版")) && tree->topLevelItem(0)->text(1).contains(QStringLiteral("本地 Minecraft 声明符合")),
+                  "known mod with no platform release still displays its compatible local declaration");
+            failPlatform = true; combo->setCurrentIndex(2);
+            check(waitFor(QStringLiteral("平台查询失败")) && tree->topLevelItem(0)->text(1).contains(QStringLiteral("本地 Minecraft 声明符合")),
+                  "network failure is not reported as absent release and does not erase local support");
+            combo->setCurrentIndex(3);
+            check(waitFor(QStringLiteral("本地明确排除此版本")), "Fabric breaks.minecraft overrides a matching depends range");
+            combo->setCurrentIndex(4);
+            check(waitFor(QStringLiteral("本地 Minecraft 声明符合")), "Forge TOML dependency range supports the target version");
+            combo->setCurrentIndex(5);
+            check(waitFor(QStringLiteral("本地声明不支持")), "NeoForge TOML exclusive upper bound rejects the target version");
+            failPlatform = false; combo->setCurrentIndex(6);
+            check(waitFor(QStringLiteral("平台未找到目标发行版")) && tree->topLevelItem(0)->text(1).contains(QStringLiteral("本地 Minecraft 声明符合")),
+                  "unprepared target is assessed using the explicitly stated current-loader assumption");
+            check(write(InstanceIconLookup::cachePath(options), "{\"files\":{}}"), "remove only the fixture's platform identity");
+            page.findChild<QPushButton *>(QStringLiteral("instanceUpgradeRecheck"))->click();
+            check(waitFor(QStringLiteral("未识别平台项目")) && tree->topLevelItem(0)->text(1).contains(QStringLiteral("本地 Minecraft 声明符合")),
+                  "unknown platform identity still retains the local compatibility declaration after recheck");
+            const QJsonObject installed{{"filename", QStringLiteral("example.jar")}, {"sha1", record.value(QStringLiteral("sha1"))}, {"project", QStringLiteral("modrinth:known-project")}};
+            check(write(source + QStringLiteral("/wtfml.preset-mod-install.json"), QJsonDocument(QJsonObject{
+                {"format", QStringLiteral("wtfml-preset-mod-result/1")}, {"plannedFiles", QJsonArray{installed}}}).toJson()), "prepare a hash-verifiable preset install identity");
+            page.findChild<QPushButton *>(QStringLiteral("instanceUpgradeRecheck"))->click();
+            check(waitFor(QStringLiteral("平台未找到目标发行版")) && tree->topLevelItem(0)->text(1).contains(QStringLiteral("本地 Minecraft 声明符合")),
+                  "identified preset-installed mods are assessed even without an icon lookup cache");
+            hit.source = ResourceCatalog::Source::CurseForge;
+            record.insert("hit", ResourceCatalog::hitToJson(hit));
+            check(write(InstanceIconLookup::cachePath(options), QJsonDocument(QJsonObject{{"files", QJsonObject{{jar, record}}}}).toJson()),
+                "prepare a CurseForge identity for outage fallback");
+            fallbackMode = true;
+            store.setCurseForgeApiBaseOverride(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort()));
+            page.findChild<QPushButton *>(QStringLiteral("instanceUpgradeRecheck"))->click();
+            check(waitFor(QStringLiteral("平台未找到目标发行版")) && fallbackLookups == 1,
+                "CurseForge 503 uses exact file hash identity before querying Modrinth fallback");
+            fallbackMode = false; delayed = true; maxInFlight = 0;
+            hit.source = ResourceCatalog::Source::Modrinth; record.insert("hit", ResourceCatalog::hitToJson(hit));
+            QJsonObject records{{jar, record}};
+            for (int i = 0; i < 5; ++i) {
+                const QString copy = source + QStringLiteral("/mods/copy-%1.jar").arg(i);
+                check(QFile::copy(jar, copy), "prepare a parallel-query fixture JAR");
+                auto copyRecord = record; copyRecord.insert("mtime", double(QFileInfo(copy).lastModified().toMSecsSinceEpoch()));
+                records.insert(copy, copyRecord);
+            }
+            check(write(InstanceIconLookup::cachePath(options), QJsonDocument(QJsonObject{{"files", records}}).toJson()), "cache six valid fixture identities");
+            page.findChild<QPushButton *>(QStringLiteral("instanceUpgradeRecheck"))->click();
+            QElapsedTimer parallelClock; parallelClock.start();
+            while (parallelClock.elapsed() < 10000 && (page.property("upgradeAssessmentReading").toBool()
+                || page.property("upgradeAssessmentQuerying").toBool() || tree->topLevelItemCount() != 6)) {
+                QApplication::processEvents(QEventLoop::AllEvents, 10);
+            }
+            check(maxInFlight == 4 && !page.property("upgradeAssessmentQuerying").toBool(),
+                "platform queries overlap with a hard four-request concurrency limit");
+        }
+        AppPaths::setMinecraftDir(oldRoot);
+    }
     {
         const QString source = scratch.filePath("world-source");
         const QString saves = scratch.filePath("saves");
@@ -187,10 +432,36 @@ int runInstanceUpgradeChecks() {
                          [&] { rollback = true; });
         auto *apply = page.findChild<QPushButton *>("instanceUpgradeInPlaceButton");
         auto *restore = page.findChild<QPushButton *>("instanceUpgradeRollbackButton");
+        check(apply && !apply->isEnabled(), "upgrade requires an explicit target selection instead of silently choosing the first core");
+        page.findChild<QComboBox *>(InstanceSettingsDialog::transferTargetComboName(QStringLiteral("upgrade")))->setCurrentIndex(1);
         check(apply && apply->isEnabled() && restore, "upgrade controls exist without migration selection");
         if (apply) apply->click();
         if (restore) restore->click();
         check(upgrade && rollback, "in-place upgrade and rollback emit distinct actions");
+        page.setProperty("modernUpgradeFlow", true);
+        auto *tree = page.findChild<QTreeWidget *>(QStringLiteral("instanceUpgradeModChecks"));
+        tree->setColumnCount(4);
+        page.setUpgradeModChecks({{"Compatible", "local compatible", "range", "keep.jar", "keep"},
+                                  {"Unknown", "unknown", "", "unknown.jar", "review"}}, "review");
+        check(page.upgradeKeptMods() == QStringList{"keep.jar"} && page.upgradePendingModCount() == 1,
+              "review retains compatible files but requires an explicit decision for unknown files");
+        auto *choice = qobject_cast<QComboBox *>(tree->itemWidget(tree->topLevelItem(1), 3));
+        choice->setCurrentIndex(2);
+        check(page.upgradePendingModCount() == 0, "explicit per-file choice clears the unresolved count");
+        page.setUpgradeModChecks({{"Compatible", "query updated", "range", "keep.jar", "keep"},
+                                  {"Unknown", "query failed", "", "unknown.jar", "disable"}}, "updated");
+        check(page.upgradeKeptMods().contains("unknown.jar"), "platform updates do not discard explicit per-file decisions");
+        page.setProperty("modernUpgradeWizard", true);
+        const QList<QStringList> grouped{{"Compatible", "compatible", "range", "keep.jar", "keep", "compatible"},
+            {"Needs review", "query failed", "", "review.jar", "review", ""}};
+        page.setUpgradeModChecks(grouped, "grouped");
+        auto *group = tree->topLevelItem(1);
+        check(tree->topLevelItemCount() == 2 && tree->topLevelItem(0)->text(0) == "Needs review"
+            && group->childCount() == 1 && !group->isExpanded(), "compatible mods move to a collapsed group after problem rows");
+        check(page.upgradeKeptMods().contains("keep.jar") && page.upgradePendingModCount() == 1,
+            "collapsed compatible rows retain real choice controls and correct counts");
+        group->setExpanded(true); page.setUpgradeModChecks(grouped, "refreshed");
+        check(tree->topLevelItem(1)->isExpanded(), "query refresh preserves the user's expanded compatible group");
     }
     {
         InstanceUpgrade::Request r{scratch.path() + "/prepare", "Instance", "prepare-core", "Original"};
@@ -202,6 +473,7 @@ int runInstanceUpgradeChecks() {
               && write(old + "/screenshots/picture.png", "picture")
               && write(old + "/saves/World/level.dat", "world")
               && write(old + "/mods/old-mod.jar", "mod")
+              && write(old + "/mods/compatible.jar", "compatible-mod")
               && write(r.gameDir + "/versions/Target/Target.jar", "new-core")
               && write(r.gameDir + "/versions/Target/saves/Unwanted/level.dat", "must-not-copy"),
               "prepare full preservation fixture");
@@ -210,11 +482,15 @@ int runInstanceUpgradeChecks() {
         core.gameVersion = "1.21.1";
         core.loaderName = "Fabric";
         core.loaderVersion = "0.16.0";
+        core.keepOldMods = {QStringLiteral("compatible.jar")};
         core.mergedJson = QJsonObject{{"id", "Target"}, {"inheritsFrom", "Instance"}, {"jar", "Instance"},
             {"mainClass", "ExampleMain"}, {"downloads", QJsonObject{{"client", QJsonObject{{"sha1",
                 QString::fromLatin1(QCryptographicHash::hash("new-core", QCryptographicHash::Sha1).toHex())}}}}}};
         const auto result = InstanceUpgrade::prepareAndCommit(r, core);
         check(result.ok && result.disabledMods == 1, "prepare and commit disables unverified old mods");
+        check(read(old + "/mods/compatible.jar") == "compatible-mod"
+              && !QFileInfo::exists(old + "/mods/compatible.jar.disabled"),
+              "reviewed compatible mod remains enabled inside the snapshot-protected transaction");
         const auto meta = QJsonDocument::fromJson(read(old + "/wtfml.meta")).object();
         const auto json = QJsonDocument::fromJson(read(old + "/Instance.json")).object();
         check(meta.value("instanceId") == "stable-id" && meta.value("name") == "User name"

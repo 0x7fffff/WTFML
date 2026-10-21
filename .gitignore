@@ -31,3 +31,13 @@ wtfml-token-tool/
 # 本地临时目录：只放部署暂存（windeployqt 拷出来的 Qt 运行时，给"双击就能跑"用），
 # 以及跑真机测试的沙盒。里面的东西一律不入库。
 /tmp/
+
+# Local diagnostics and editor/cache leftovers; keep fixtures and design documents tracked.
+*.log
+*.dmp
+*.stackdump
+*.bak
+*.orig
+*.rej
+__pycache__/
+*.pyc

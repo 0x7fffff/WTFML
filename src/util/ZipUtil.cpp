@@ -22,6 +22,8 @@
 #include <QProcess>
 #include <QUuid>
 #include <QElapsedTimer>
+#include <QTemporaryDir>
+#include <QSet>
 
 namespace {
 
@@ -326,8 +328,94 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
     return true;
 }
 
+QHash<QString, ZipUtil::ArchiveMetadata> ZipUtil::readMetadataBatch(
+    const QStringList &archives, const QStringList &entryNames, QString *problem,
+    const std::function<bool()> &cancelled) {
+    QHash<QString, ArchiveMetadata> result;
+    if (problem) problem->clear();
+    if (archives.isEmpty()) return result;
+    if (archives.size() > 10000 || entryNames.size() > 16) {
+        if (problem) *problem = QStringLiteral("元数据批次过大，未读取。");
+        return result;
+    }
+    QTemporaryDir scratch;
+    const QString input = scratch.filePath("input.json"), output = scratch.filePath("output.jsonl");
+    QFile manifest(input);
+    const QByteArray bytes = QJsonDocument(QJsonObject{{"archives", QJsonArray::fromStringList(archives)},
+        {"entries", QJsonArray::fromStringList(entryNames)}}).toJson(QJsonDocument::Compact);
+    if (!scratch.isValid() || !manifest.open(QIODevice::WriteOnly) || manifest.write(bytes) != bytes.size()) {
+        if (problem) *problem = QStringLiteral("无法准备批量元数据读取。");
+        return result;
+    }
+    manifest.close();
+    const QString script = QStringLiteral(R"PS(
+$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$inputData=Get-Content -LiteralPath %1 -Raw -Encoding UTF8 | ConvertFrom-Json
+$writer=[IO.StreamWriter]::new(%2,$false,[Text.UTF8Encoding]::new($false))
+$watch=[Diagnostics.Stopwatch]::StartNew(); [long]$total=0
+try {
+ foreach($path in $inputData.archives) {
+  $row=@{path=$path; entries=@{}; problems=@{}; problem=''}; $zip=$null
+  if($watch.Elapsed.TotalSeconds -gt 55) {$row.problem='未检查：本轮读取预算已用完'}
+  else {
+   try {
+    $zip=[IO.Compression.ZipFile]::OpenRead($path)
+    foreach($name in $inputData.entries) {
+     $entry=$zip.GetEntry($name); if($null -eq $entry){continue}
+     $stream=$null; $memory=$null
+     try {
+      if($entry.Length -gt 1048576){throw '声明超过 1 MiB 限制'}
+      $stream=$entry.Open(); $memory=[IO.MemoryStream]::new(); $buffer=New-Object byte[] 65536
+      while(($count=$stream.Read($buffer,0,$buffer.Length)) -gt 0) {
+       if(($memory.Length+$count) -gt 1048576 -or ($total+$count) -gt 16777216){throw '声明超过批量读取限制'}
+       $memory.Write($buffer,0,$count); $total+=$count
+      }
+      $row.entries[$name]=[Convert]::ToBase64String($memory.ToArray())
+     } catch {$row.problems[$name]=$_.Exception.Message}
+     finally {if($stream){$stream.Dispose()}; if($memory){$memory.Dispose()}}
+    }
+   } catch {$row.problem=$_.Exception.Message}
+   finally {if($zip){$zip.Dispose()}}
+  }
+  $writer.WriteLine((ConvertTo-Json -InputObject $row -Depth 5 -Compress)); $writer.Flush()
+ }
+} finally {$writer.Dispose()}
+)PS").arg(psQuote(QDir::toNativeSeparators(input)), psQuote(QDir::toNativeSeparators(output)));
+    QByteArray ignored;
+    runPowershell(script, 60000, &ignored, problem, QStringLiteral("批量读取模组声明"), cancelled);
+    QFile file(output);
+    if (!file.open(QIODevice::ReadOnly) || file.size() > 32 * 1024 * 1024) return result;
+    const QSet<QString> requested(archives.cbegin(), archives.cend());
+    while (!file.atEnd()) {
+        QJsonParseError error;
+        const auto object = QJsonDocument::fromJson(file.readLine(32 * 1024 * 1024), &error).object();
+        const QString path = object.value("path").toString();
+        if (error.error != QJsonParseError::NoError || !requested.contains(path)) continue;
+        ArchiveMetadata metadata;
+        metadata.problem = object.value("problem").toString();
+        const auto entries = object.value("entries").toObject();
+        const auto problems = object.value("problems").toObject();
+        for (const auto &name : entryNames) {
+            if (entries.contains(name)) {
+                const auto decoded = QByteArray::fromBase64(entries.value(name).toString().toLatin1());
+                if (decoded.size() <= 1024 * 1024) metadata.entries.insert(name, decoded);
+                else metadata.entryProblems.insert(name, QStringLiteral("声明超过 1 MiB 限制"));
+            }
+            if (problems.contains(name)) metadata.entryProblems.insert(name, problems.value(name).toString());
+        }
+        result.insert(path, metadata);
+    }
+    return result;
+}
+
 ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &entryName,
                                         QByteArray *out, QString *errorOut, const QString &what) {
+    return readEntry(archive, entryName, out, errorOut, what, -1);
+}
+
+ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &entryName,
+                                        QByteArray *out, QString *errorOut, const QString &what, qint64 maximumBytes) {
     if (out != nullptr) {
         out->clear();
     }
@@ -358,11 +446,19 @@ ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &e
                        "    }\n"
                        "  }\n"
                        "  if($e -eq $null){ exit 3 }\n"
-                       "  [System.IO.Compression.ZipFileExtensions]::ExtractToFile"
-                       "($e,%3,$true)\n"
+                       "  $limit=%4\n"
+                       "  if($limit -gt 0){\n"
+                       "    if($e.Length -gt $limit){ exit 5 }\n"
+                       "    $inputStream=$e.Open(); $outputStream=[System.IO.File]::Create(%3)\n"
+                       "    try{ $buffer=New-Object byte[] 65536; $total=0L\n"
+                       "      while(($n=$inputStream.Read($buffer,0,$buffer.Length)) -gt 0){\n"
+                       "        $total+=$n; if($total -gt $limit){ exit 5 }; $outputStream.Write($buffer,0,$n)\n"
+                       "      }\n"
+                       "    } finally { $inputStream.Dispose(); $outputStream.Dispose() }\n"
+                       "  } else { [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e,%3,$true) }\n"
                        "} finally { $zip.Dispose() }\n")
             .arg(psQuote(entryName), psQuote(QDir::toNativeSeparators(archive)),
-                 psQuote(QFile::decodeName(temp)));
+                 psQuote(QFile::decodeName(temp))).arg(maximumBytes);
 
     QProcess process;
     process.start(QStringLiteral("powershell"),
@@ -397,6 +493,11 @@ ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &e
     if (code == 4) {
         QFile::remove(tempPath);
         return EntryStatus::NotAnArchive;
+    }
+    if (code == 5) {
+        QFile::remove(tempPath);
+        if (errorOut) *errorOut = QStringLiteral("%1：声明超过读取大小上限，未采用。").arg(what);
+        return EntryStatus::Failed;
     }
     if (code != 0) {
         QFile::remove(tempPath);
