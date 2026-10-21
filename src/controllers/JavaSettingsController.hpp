@@ -9,6 +9,7 @@ class GlobalJavaSettings;
 class JavaManageDialog;
 class JavaRuntimeController;
 class MainWindowUI;
+class QTimer;
 class QWidget;
 
 class JavaSettingsController final : public QObject {
@@ -36,6 +37,7 @@ public:
     void setWarnMismatchFromUi();
     void commitMemoryFromSpin();
     void syncMemorySlider();
+    void setMemoryModeFromUi();
     void applyMemoryLimits(qint64 totalMb);
     bool clampXmsToXmx(int xmxMb);
     void applyDetected(const QMap<int, QString> &versions);
@@ -43,6 +45,7 @@ public:
 private:
     void pushRows();
     void log(const QString &message) const;
+    bool memoryPageVisible() const;
 
     MainWindowUI *m_ui = nullptr;
     GlobalJavaSettings *m_settings = nullptr;
@@ -50,6 +53,7 @@ private:
     QWidget *m_dialogParent = nullptr;
     Host m_host;
     JavaManageDialog *m_page = nullptr;
+    QTimer *m_memoryRefreshTimer = nullptr;
     bool m_scanned = false;
     QMap<int, QString> m_versions;
 };

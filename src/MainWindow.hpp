@@ -1994,6 +1994,8 @@ private:
     void onMemoryChanged();
     /// 「最大内存」那根条动了（见 .cpp 里那段：拖动中只跟着走数字、落盘留给松手那一下）。
     void onMemorySliderMoved();
+    /// 「内存分配」那颗下拉框（自动分配 / 手动分配）。
+    void onMemoryModeChanged();
     void onLauncherBehaviourChanged();
     void onDownloadSourceChanged();
     /// 「下载源」那一组里那颗「并发数」下拉框（2026-10-13，§9.2）。

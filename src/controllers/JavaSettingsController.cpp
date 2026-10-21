@@ -10,11 +10,13 @@
 #include "util/SystemMemory.hpp"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDir>
 #include <QLabel>
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTabWidget>
+#include <QTimer>
 
 #include <utility>
 
@@ -60,6 +62,26 @@ JavaSettingsController::JavaSettingsController(MainWindowUI *ui, GlobalJavaSetti
                    "可以隔一会儿再点一次，或者自己装好之后按「检测已有 Java」。")
                     .arg(okCount).arg(failCount));
     });
+
+    // 自动分配要"随系统可用内存更新"：设置页露着的时候每 2 秒重读一次并刷新展示。
+    // ★ 只在自动档 + 设置页可见时跑（见 refreshMemory() 末尾）—— 手动档下读系统内存
+    //   没有任何意义，页不在眼前时更新也没人看。
+    m_memoryRefreshTimer = new QTimer(this);
+    m_memoryRefreshTimer->setInterval(2000);
+    connect(m_memoryRefreshTimer, &QTimer::timeout, this, [this]() {
+        if (!m_settings->autoMemory() || !memoryPageVisible()) {
+            m_memoryRefreshTimer->stop();
+            return;
+        }
+        refreshMemory();
+    });
+}
+
+bool JavaSettingsController::memoryPageVisible() const {
+    QTabWidget *tabs = m_ui->getTabWidget();
+    QComboBox *mode = m_ui->getMemoryModeCombo();
+    return tabs != nullptr && mode != nullptr &&
+           tabs->currentIndex() == MainWindowUI::settingsTabIndex() && mode->isVisible();
 }
 
 void JavaSettingsController::log(const QString &message) const {
@@ -172,45 +194,105 @@ bool JavaSettingsController::clampXmsToXmx(int xmx) {
     return true;
 }
 
+void JavaSettingsController::setMemoryModeFromUi() {
+    QComboBox *mode = m_ui->getMemoryModeCombo();
+    if (mode == nullptr) return;
+    const bool wantAuto = mode->currentData().toBool();
+    if (wantAuto == m_settings->autoMemory()) {
+        refreshMemory();
+        return;
+    }
+    if (wantAuto) {
+        // 这一句里面把当前 Xmx/Xms 记成"上次手动档的现场"并落盘。之后 refreshMemory()
+        // 才按系统内存重算 —— 顺序不能反，反了记下的就是自动值。
+        m_settings->setAutoMemory(true);
+    } else {
+        m_settings->restoreManualMemory();
+    }
+    refreshMemory();
+}
+
 void JavaSettingsController::refreshMemory() {
-    // ★ 2026-10-18：「自动（按系统内存）」那一档的界面撤掉了（用户原话「内存分配和最大
-    //   内存这玩意完全就是重复的，只保留那个拖动的」），所以这里**只读系统内存写说明**，
-    //   不再走 `refreshSuggestedMemory()`（那是自动档的"按可用内存重算并落盘"）。读它
-    //   只是为了让下面那句说明能说清这台机器有多少内存。
-    const SystemMemory::Usage usage = SystemMemory::read();
+    const bool autoMode = m_settings->autoMemory();
+    const int beforeXmx = m_settings->xmx();
+    const int beforeXms = m_settings->xms();
+
+    // 自动档：**现算**（`refreshSuggestedMemory()` 会读系统内存并改写 Xmx/Xms）；
+    // 手动档：只读一次系统内存写说明，**一个数字都不许动**。
+    const SystemMemory::Usage usage =
+        autoMode ? m_settings->refreshSuggestedMemory() : SystemMemory::read();
     applyMemoryLimits(usage.totalMb);
+
     const int cap = m_ui->getMemoryMaxSpin()->maximum();
     int xmx = m_settings->xmx();
-    bool clamped = false;
     if (xmx > cap) {
-        log(tr("内存：盘上记的最大内存 %1 MB 超过这台机器的物理内存，已降到 %2 MB。")
-                .arg(xmx).arg(cap));
+        log(tr("内存：%1 %2 MB 超过这台机器的物理内存上限，已降到 %3 MB。")
+                .arg(autoMode ? tr("自动给出的最大内存") : tr("盘上记的最大内存"))
+                .arg(xmx)
+                .arg(cap));
         m_settings->setXmx(cap);
         xmx = cap;
-        clamped = true;
     }
     if (clampXmsToXmx(xmx)) {
         log(tr("内存：最小内存不能超过最大内存，已跟着降到 %1 MB。").arg(xmx));
-        clamped = true;
     }
-    if (clamped) m_settings->save();
+    if (m_settings->xmx() != beforeXmx || m_settings->xms() != beforeXms) {
+        // 自动值变了才落盘（定时器每 2 秒跑一次，不能每趟都写注册表）。
+        m_settings->save();
+    }
+
     const QSignalBlocker blockSpin(m_ui->getMemoryMaxSpin());
     const QSignalBlocker blockSlider(m_ui->getMemoryMaxSlider());
+    const QSignalBlocker blockMode(m_ui->getMemoryModeCombo());
+    if (QComboBox *mode = m_ui->getMemoryModeCombo()) {
+        const int index = mode->findData(autoMode);
+        if (index >= 0) mode->setCurrentIndex(index);
+    }
     m_ui->getMemoryMaxSpin()->setValue(xmx);
-    m_ui->getMemoryMaxSlider()->setValueMb(xmx);
-    // 条和数字框**永远是活的**：能改的口子只剩这一个，再灰掉就没有地方能给 -Xmx 了。
-    m_ui->getMemoryMaxSpin()->setEnabled(true);
-    m_ui->getMemoryMaxSlider()->setEnabled(true);
+    m_ui->getMemoryMaxSpin()->setEnabled(!autoMode);
+    m_ui->getMemoryMaxSlider()->setEnabled(!autoMode);
+    if (autoMode) {
+        // 把手停在"上次手动档"的位置，进度条（虚条）跟着自动值走 —— 见 MemorySlider.hpp。
+        m_ui->getMemoryMaxSlider()->setValueMb(m_settings->manualXmx());
+        m_ui->getMemoryMaxSlider()->setAutoValueMb(xmx);
+    } else {
+        m_ui->getMemoryMaxSlider()->clearAutoValue();
+        m_ui->getMemoryMaxSlider()->setValueMb(xmx);
+    }
+
     QString hint;
-    if (usage.totalMb <= 0)
+    if (autoMode) {
+        if (usage.totalMb <= 0) {
+            hint = tr("自动分配：读不到系统内存，先用内置值 %1 MB。切回「手动分配」"
+                      "会恢复你上次手动设的 %2 MB。")
+                       .arg(xmx)
+                       .arg(m_settings->manualXmx());
+        } else {
+            hint = tr("自动分配：系统总内存 %1、当前可用 %2；自动给到最大内存 %3 MB"
+                      "（最小内存 %4 MB）。这个数会随系统可用内存自动更新；切回「手动分配」"
+                      "会恢复你上次手动设的 %5 MB。")
+                       .arg(memoryText(usage.totalMb), memoryText(usage.availableMb))
+                       .arg(xmx)
+                       .arg(m_settings->xms())
+                       .arg(m_settings->manualXmx());
+        }
+    } else if (usage.totalMb <= 0) {
         hint = tr("读不到系统内存，最大内存直接用右边的数字框填。最小内存由启动器定（%1 MB），不用管它。")
                    .arg(m_settings->xms());
-    else
+    } else {
         hint = tr("系统总内存 %1、当前可用 %2；现在最多给到 %3 MB。左边拖着改，也可以直接填数字。"
                   "最小内存由启动器定（%4 MB），不用管它。")
                    .arg(memoryText(usage.totalMb), memoryText(usage.availableMb))
                    .arg(m_settings->xmx()).arg(m_settings->xms());
+    }
     m_ui->getMemoryHint()->setText(hint);
+
+    // 自动档在设置页露着的时候才需要每 2 秒刷新一次；其他情况立刻停掉。
+    if (autoMode && memoryPageVisible()) {
+        m_memoryRefreshTimer->start();
+    } else {
+        m_memoryRefreshTimer->stop();
+    }
 }
 
 void JavaSettingsController::setWarnMismatchFromUi() {
@@ -221,6 +303,9 @@ void JavaSettingsController::setWarnMismatchFromUi() {
 }
 
 void JavaSettingsController::commitMemoryFromSpin() {
+    // 自动档下这两个控件是禁用的，值由 refreshMemory() 写；万一有谁绕过程序改了信号，
+    // 也不能把自动算出来的值当成用户手填的写回盘。
+    if (m_settings->autoMemory()) return;
     const int value = m_ui->getMemoryMaxSpin()->value();
     if (m_ui->getMemoryMaxSlider()->valueMb() != value) {
         const QSignalBlocker block(m_ui->getMemoryMaxSlider());
@@ -233,6 +318,7 @@ void JavaSettingsController::commitMemoryFromSpin() {
 }
 
 void JavaSettingsController::syncMemorySlider() {
+    if (m_settings->autoMemory()) return;
     const int value = m_ui->getMemoryMaxSlider()->valueMb();
     if (m_ui->getMemoryMaxSpin()->value() != value) {
         const QSignalBlocker block(m_ui->getMemoryMaxSpin());

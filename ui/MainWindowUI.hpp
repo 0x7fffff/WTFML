@@ -2955,14 +2955,15 @@ public:
     static QString javaWarnMismatchRowText() { return QStringLiteral("Java 版本"); }
     static QString memoryHintName() { return QStringLiteral("memoryHint"); }
     /// 「最大内存」那一行下面那句说明。文字随系统内存变（可用内存不是一个定值），
-    /// 所以它是这个设置页里唯一一个要 MainWindow 反复改文字的 QLabel，得能按名字取回来。
-    /// ★ 2026-10-18：原来挂在「分配方式」那一行下面（叫 memoryAutoHint），那行撤掉之后
-    ///   并到了「最大内存」这一行。
+    /// 所以它是这个设置页里少数几个要 MainWindow 反复改文字的 QLabel 之一，得能按名字
+    /// 取回来。自动档 / 手动档两套说明都写在 JavaSettingsController::refreshMemory()。
     static QString memoryMaxSpinName() { return QStringLiteral("memoryMaxSpin"); }
     /// 「最大内存」这一行是**一根条 + 一个数字框**（两件东西说的是同一件事）。★ 2026-09-26：
     /// 条是这一笔加的（用户要 PCL 那种拖着改的），数字框留着 —— 精细那几下还是打字快，
     /// 而且验证工程一直是按 objectName 找它、拿它的范围当"上限真是本机物理内存"的凭据。
     static QString memoryMaxSliderName() { return QStringLiteral("memoryMaxSlider"); }
+    /// 「内存分配」那一行最右边那颗下拉框（自动分配 / 手动分配）。
+    static QString memoryModeComboName() { return QStringLiteral("memoryModeCombo"); }
     // NOTE: 「最小内存」（-Xms）那个数字框**没有了**（2026-09-26）—— 用户原话是「不要 xms 了
     // （或者隐藏起来），按照默认值」。值仍然存在设置里、命令行照发 -Xms（见
     // LauncherManager 里那两行），少的只是界面上那一格。
@@ -3740,6 +3741,7 @@ public:
     QSpinBox *getHomeFavoriteCountSpin() const { return homeFavoriteCountSpin; }
     QSpinBox *getHomeRecentCountSpin() const { return homeRecentCountSpin; }
     MemorySlider *getMemoryMaxSlider() const { return memoryMaxSlider; }
+    QComboBox *getMemoryModeCombo() const { return memoryModeCombo; }
     QComboBox *getLauncherBehaviourCombo() const { return launcherBehaviourCombo; }
     QPlainTextEdit *getExtraJvmArgsEdit() const { return extraJvmArgsEdit; }
     QPushButton *getApplyExtraJvmArgsButton() const { return applyExtraJvmArgsButton; }
@@ -4075,6 +4077,7 @@ private:
     QSpinBox *homeFavoriteCountSpin = nullptr;
     QSpinBox *homeRecentCountSpin = nullptr;
     MemorySlider *memoryMaxSlider = nullptr;
+    QComboBox *memoryModeCombo = nullptr;
     QComboBox *launcherBehaviourCombo = nullptr;
     QPlainTextEdit *extraJvmArgsEdit = nullptr;
     QPushButton *applyExtraJvmArgsButton = nullptr;

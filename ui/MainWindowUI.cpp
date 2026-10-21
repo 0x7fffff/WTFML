@@ -608,6 +608,9 @@ constexpr int kMemorySpinWidth = 130;
 /// 260 px 摊下来一格才 5 px 上下（够点得着），再窄就要靠键盘挪档了。
 constexpr int kMemorySliderMinWidth = 260;
 
+/// 「内存分配」那一行最右边那颗下拉框的宽度：装得下「手动分配」四个字 + 一对箭头。
+constexpr int kMemoryModeComboWidth = 116;
+
 /// 「游戏窗口」那一行两个数字框的宽度：装得下「7680」（上限）加一对箭头就够了 ——
 /// 它没有后缀，比 kMemorySpinWidth 窄一些才不像两个空盒子。
 constexpr int kWindowSizeSpinWidth = 90;
@@ -2751,11 +2754,10 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
     // ---------- 内存分配 ----------
     // ---- 第 2 节：标题 + 一张小节卡片（见 addSettingsSection()）----
     //
-    // ★ 2026-10-18：原来这一节还有一行「分配方式」（自动（按系统内存）那个勾选框）。
-    //   用户原话：「内存分配和最大内存这玩意完全就是重复的，只保留那个拖动的」——
-    //   于是这一节只剩「最大内存」这一行，自动 / 手动那条路整个从界面上撤掉了
-    //   （`MemorySlider` 永远是唯一入口）。那句"这台机器有多少内存"的说明并到这一行
-    //   下面，改由 `JavaSettingsController::refreshMemory()` 写。
+    // ★ 2026-10-20：自动分配重新有入口了，但不再是 2026-10-18 撤掉的那颗独立勾选框 ——
+    //   它就是「最大内存」这一行**最右边**那颗下拉框（自动分配 / 手动分配）。自动档下
+    //   条和数字框禁用，但仍然显示自动算出来的值；切回手动会恢复开启自动之前那一对。
+    //   那句"这台机器有多少内存"的说明由 `JavaSettingsController::refreshMemory()` 写。
     const SettingsSection section2 = addSettingsSection(grid, row, QStringLiteral("内存分配"), form);
     {
         // 「最大内存」这一行是**一根条 + 一个数字框**（两件东西说的是同一件事）。
@@ -2792,6 +2794,18 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         WheelGuard::install(memoryMaxSpin);
         memoryMaxSpin->setMinimumWidth(kMemorySpinWidth);
         lineLayout->addWidget(memoryMaxSpin, 0);
+
+        // 最右边那颗「自动分配 / 手动分配」。由 `JavaSettingsController` 灌当前档位；
+        // 这里只把两项摆好，默认选「手动分配」（和 `GlobalJavaSettings` 的默认一致 ——
+        // 老用户打开设置页看到的还是他们自己定的那个数）。
+        memoryModeCombo = new QComboBox(line);
+        memoryModeCombo->setObjectName(memoryModeComboName());
+        memoryModeCombo->addItem(QStringLiteral("自动分配"), true);
+        memoryModeCombo->addItem(QStringLiteral("手动分配"), false);
+        memoryModeCombo->setCurrentIndex(1);
+        memoryModeCombo->setMinimumWidth(kMemoryModeComboWidth);
+        WheelGuard::install(memoryModeCombo);
+        lineLayout->addWidget(memoryModeCombo, 0);
 
         // 这一行要**撑满整格**（不是 addInlineControl 那种"按 sizeHint 靠左"）：条的长度
         // 就是它的精度，短了拖不准。

@@ -302,13 +302,23 @@ public:
     //       开着浏览器和什么都没开，可用内存能差好几 GB，而 JVM 只认启动那一刻的机器状态。
     //       所以 LauncherManager 生成命令行之前会再算一次（见 MainWindow 里那处调用）。
 
-    /// 自动档是不是开着。★ 2026-10-18：「自动（按系统内存）」那一档的界面撤掉了，
-    /// 所以**构造 / load() 之后它永远是 false**；这个访问器和 `setAutoMemory()` 留着是
-    /// 为了老数据与验证工程还能读这个键，产品里已经没有任何一处会在界面打开它。
+    /// 自动档是不是开着。设置页那颗「自动分配 / 手动分配」下拉框读写的就是它；
+    /// 老配置没有这个键时默认手动（保持加这个入口之前的行为）。
     bool autoMemory() const { return m_memoryAuto; }
 
     /// 设置自动档并立刻落盘。**不动** m_xmx/m_xms —— 值由 refreshSuggestedMemory() 管。
+    ///
+    /// ★ 从手动切到自动的那一下会把当时的 Xmx/Xms 记成「上次手动档的现场」，
+    ///   供 `restoreManualMemory()` 在切回手动档时原样还回去。
     void setAutoMemory(bool autoMemory);
+
+    /// 上次开启自动分配之前的最大 / 最小内存（MB）。
+    /// 切回手动档时恢复的就是这一对；盘上单独存着，重启之后也还在。
+    int manualXmx() const { return m_manualXmx; }
+    int manualXms() const { return m_manualXms; }
+
+    /// 切回手动档：把 Xmx/Xms 还原成 `setAutoMemory(true)` 那一刻记下的值并落盘。
+    void restoreManualMemory();
 
     /**
      * @brief 自动档下按当前系统内存重算一次 Xmx/Xms。
@@ -401,7 +411,10 @@ private:
     /// 「实例指定的 Java 版本不符时提醒」这个总闸。默认 true —— 这也是加这个开关之前
     /// 的行为（那时候一律报错拦下），所以老配置读回来仍然是"该提醒就提醒"。
     bool m_warnVersionMismatch = true;
-    /// 「内存分配」选的是不是自动档（按系统内存算）。
-    /// ★ 2026-10-18：界面撤掉了，默认值与 load() 都是 false —— 见 load() 里那段。
+    /// 「内存分配」选的是不是自动档（按系统内存算）。默认手动 —— 老配置没有这个键。
     bool m_memoryAuto = false;
+    /// 上次开启自动分配之前那一对手动值（切回手动档时原样还回去）。
+    /// 初值和 `.cpp` 里的内置默认一致（4 GB / 1 GB）；load() 会按盘上那份覆盖。
+    int m_manualXmx = 4096;
+    int m_manualXms = 1024;
 };

@@ -4988,7 +4988,7 @@ int main(int argc, char *argv[]) {
     std::printf("===== E2b. 滚轮防护的**前提**：焦点策略（真滚轮那条路） =====\n");
     {
         // 上面 E2 是行为验证，但它用的是合成事件 —— 照不出"真滚轮先抢焦点"这个病
-        // （理由见 wheelGuardProblem() 上面那段）。这里把**装过防护的那 9 个控件**逐个
+        // （理由见 wheelGuardProblem() 上面那段）。这里把**装过防护的那 10 个控件**逐个
         // 按前提验一遍：焦点策略里不许含 WheelFocus，且 Tab / 点选照常。
         struct Guarded {
             QWidget *widget;
@@ -4998,7 +4998,8 @@ int main(int argc, char *argv[]) {
             {installed, "主页那个「已安装版本」下拉框"},
             // ★ 2026-09-28：设置页那个「Java 运行时」下拉框换成了「Java 管理…」那颗
             //   **按钮**（用户点名的改法），所以这一条从名单里去掉了 —— 滚轮落在按钮上
-            //   什么都不会发生，不用防护。名单从 9 变 8。
+            //   什么都不会发生，不用防护。2026-10-20 又加回了「内存分配」下拉框，名单
+            //   现在是 10 个。
             {window.findChild<QSpinBox *>(MainWindowUI::memoryMaxSpinName()),
              "设置页「最大内存」数字框"},
             // ★ 2026-09-26：「最小内存」那个数字框从这一页撤掉了，换上了新出现的这根条
@@ -5006,6 +5007,8 @@ int main(int argc, char *argv[]) {
             //   界面上一样看不出来（数字跟着走，但用户没在看的时候不会知道）。
             {window.findChild<QSlider *>(MainWindowUI::memoryMaxSliderName()),
              "设置页「最大内存」那根条"},
+            {window.findChild<QComboBox *>(MainWindowUI::memoryModeComboName()),
+             "设置页「内存分配」下拉框"},
             {window.findChild<QComboBox *>(MainWindowUI::launcherBehaviourComboName()),
              "设置页「启动后」下拉框"},
             {window.findChild<QComboBox *>(MainWindowUI::downloadSourceComboName()),
@@ -5024,7 +5027,7 @@ int main(int argc, char *argv[]) {
             {window.findChild<QComboBox *>(MainWindowUI::gameWindowModeComboName()),
              "设置页「窗口模式」下拉框"},
         };
-        constexpr int kGuardedCount = 9;
+        constexpr int kGuardedCount = 10;
         int guardedCount = 0;
         for (const Guarded &item : guarded) {
             const QString problem = wheelGuardProblem(item.widget);
@@ -8043,6 +8046,7 @@ int main(int argc, char *argv[]) {
             MainWindowUI::javaWarnMismatchCheckName(),
             MainWindowUI::memoryHintName(),
             MainWindowUI::memoryMaxSpinName(),         MainWindowUI::memoryMaxSliderName(),
+            MainWindowUI::memoryModeComboName(),
             MainWindowUI::launcherBehaviourComboName(), MainWindowUI::extraJvmArgsEditName(),
             MainWindowUI::applyExtraJvmArgsButtonName(),
             MainWindowUI::downloadSourceComboName(),
@@ -8424,6 +8428,17 @@ int main(int argc, char *argv[]) {
         check(ui.getMemoryMaxSpin()->singleStep() == MainWindowUI::memoryStepMb(),
               "步长是 256（拖一格不会拖出个奇怪的值）",
               QString::number(ui.getMemoryMaxSpin()->singleStep()));
+        check(ui.getMemoryModeCombo() != nullptr &&
+                  ui.getMemoryModeCombo()->count() == 2 &&
+                  ui.getMemoryModeCombo()->itemText(0) == QStringLiteral("自动分配") &&
+                  ui.getMemoryModeCombo()->itemText(1) == QStringLiteral("手动分配") &&
+                  !ui.getMemoryModeCombo()->currentData().toBool(),
+              "「内存分配」最右边那颗下拉框只有自动 / 手动两项，默认手动",
+              ui.getMemoryModeCombo() != nullptr
+                  ? QString("%1 项 / 当前 %2")
+                        .arg(ui.getMemoryModeCombo()->count())
+                        .arg(ui.getMemoryModeCombo()->currentText())
+                  : QStringLiteral("<没有下拉框>"));
 
         // 档位表本身（纯函数，不用真去点一根条 —— 点条只能验到"拖动是通的"，验不到
         // "每一格都是该有的那个数"）。见 MemorySlider.hpp 里那段。
@@ -8474,6 +8489,22 @@ int main(int argc, char *argv[]) {
                   QString("%1 格").arg(narrow.size()));
         }
 
+        // 自动档展示值：进度条跟着自动值走，圆圈（valueMb）不许跟着动。
+        {
+            MemorySlider autoProbe;
+            autoProbe.setRangeMb(256, 16384);
+            autoProbe.setValueMb(4096);
+            autoProbe.setAutoValueMb(8192);
+            check(autoProbe.valueMb() == 4096 && autoProbe.hasAutoValue() &&
+                      autoProbe.autoValueMb() == 8192,
+                  "自动展示值不挪圆圈：valueMb 仍是手动位置，autoValueMb 是自动值",
+                  QString("圆圈 %1 / 自动 %2").arg(autoProbe.valueMb()).arg(autoProbe.autoValueMb()));
+            autoProbe.clearAutoValue();
+            check(!autoProbe.hasAutoValue() && autoProbe.valueMb() == 4096,
+                  "清掉自动展示值之后回到手动画法，圆圈位置不变",
+                  QString("圆圈 %1 / 自动 %2").arg(autoProbe.valueMb()).arg(autoProbe.autoValueMb()));
+        }
+
         // JVM 参数那一格是 QPlainTextEdit 而不是 QLineEdit：参数列表天然是多行的。
         check(ui.getExtraJvmArgsEdit() != nullptr &&
                   ui.getExtraJvmArgsEdit()->parentWidget() != nullptr,
@@ -8498,11 +8529,15 @@ int main(int argc, char *argv[]) {
                   .arg(ui.getLauncherBehaviourCombo()->count())
                   .arg(ui.getDownloadSourceCombo()->count())
                   .arg(ui.getProcessPriorityCombo()->count()));
-        // ★ 2026-10-18：「分配方式」（自动（按系统内存））那一行连同勾选框一起撤掉了 ——
-        //   用户说它和「最大内存」完全重复，只保留那根拖动的条。这里反过来钉一句"它不在"，
-        //   免得哪天有人把那一行又搭回来、界面上重新出现两套说法。
-        check(settingsPage->findChild<QCheckBox *>(QStringLiteral("memoryAutoCheck")) == nullptr,
-              "设置页上不再有「自动（按系统内存）」那个勾选框（只剩一根拖动的条）");
+        // 2026-10-20：自动分配重新有入口了，但它是**最右边那颗下拉框**（自动分配 /
+        // 手动分配），不是 2026-10-18 撤掉的那个旧勾选框 —— 旧对象名不该再出现。
+        check(settingsPage->findChild<QCheckBox *>(QStringLiteral("memoryAutoCheck")) == nullptr &&
+                  ui.getMemoryModeCombo() != nullptr &&
+                  ui.getMemoryModeCombo()->count() == 2,
+              "设置页的自动/手动是最右边那颗两项下拉框（不是旧勾选框）",
+              ui.getMemoryModeCombo() != nullptr
+                  ? QString("%1 项").arg(ui.getMemoryModeCombo()->count())
+                  : QStringLiteral("<没有下拉框>"));
         // 同一个形状，另一项：「实例指定的 Java 版本不符时提醒」这个总闸同样只搭壳。
         // NOTE: 产品里的默认值是"提醒"（true），但那条是**产品逻辑**、不是界面的事 ——
         //       界面层自己默认打开的话，MainWindow 万一忘了灌值就会显示一个假的"开"。

@@ -22239,18 +22239,17 @@ int main(int argc, char *argv[]) {
     QLabel *javaLabel = window.findChild<QLabel *>(MainWindowUI::javaPathLabelName());
     QCheckBox *javaWarn =
         byObjectName<QCheckBox>(&window, MainWindowUI::javaWarnMismatchCheckName());
-    // ★ 2026-10-18：「内存分配」那一行从设置页撤掉了（用户原话「内存分配和最大内存这玩意
-    //   完全就是重复的，只保留那个拖动的」）⇒ 这一格现在一个字节都不该有。说明文字归
-    //   「最大内存」那一行，对象名是 memoryHint。这里刻意还留着一个"找它"的动作：
-    //   哪天有人把那个勾选框加回来，`memoryAuto != nullptr` 会让 L 节直接判红。
-    QCheckBox *memoryAuto =
-        window.findChild<QCheckBox *>(QStringLiteral("memoryAutoCheck"));
+    // ★ 2026-10-20：「内存分配」那一行现在有一根条 + 一个数字框 + 最右边那颗
+    //   「自动分配 / 手动分配」下拉框。说明文字归「最大内存」那一行，对象名是 memoryHint。
+    QComboBox *memoryMode =
+        byObjectName<QComboBox>(&window, MainWindowUI::memoryModeComboName());
     QLabel *memoryHint = window.findChild<QLabel *>(MainWindowUI::memoryHintName());
     QSpinBox *maxSpin = byObjectName<QSpinBox>(&window, MainWindowUI::memoryMaxSpinName());
     // ★ 2026-09-26：「最大内存」那一行是一根条 + 一个数字框（用户要的 PCL 那种拖着改），
     //   「最小内存」那一格整格撤掉了。替它把门的是 onMemoryChanged() 里那道 Xms ≤ Xmx 的
     //   夹子 —— 下面 M 节量的就是那道夹子，而不是某一格上的字。
-    QSlider *maxSlider = byObjectName<QSlider>(&window, MainWindowUI::memoryMaxSliderName());
+    auto *maxSlider = static_cast<MemorySlider *>(
+        byObjectName<QSlider>(&window, MainWindowUI::memoryMaxSliderName()));
     QComboBox *behaviourCombo =
         byObjectName<QComboBox>(&window, MainWindowUI::launcherBehaviourComboName());
     QComboBox *sourceCombo =
@@ -22288,7 +22287,7 @@ int main(int argc, char *argv[]) {
     QLineEdit *titleEdit = byObjectName<QLineEdit>(&window, MainWindowUI::titleTextEditName());
     const bool settingsWired = javaManageButton != nullptr && javaLabel != nullptr &&
                                javaWarn != nullptr &&
-                               memoryAuto == nullptr && memoryHint != nullptr &&
+                               memoryMode != nullptr && memoryHint != nullptr &&
                                maxSpin != nullptr && maxSlider != nullptr &&
                                behaviourCombo != nullptr && sourceCombo != nullptr &&
                                jvmEdit != nullptr && applyJvm != nullptr &&
@@ -22370,15 +22369,19 @@ int main(int argc, char *argv[]) {
             off.setWarnVersionMismatch(true);
         }
 
-        // ---- 内存：只有「最大内存」那一根拖动的条 ----
-        // ★ 2026-10-18：「内存分配」（自动 / 手动）和「最大内存」在界面上是重复的，用户
-        //   点名只留拖动的那个。所以现在开窗时：没有那个勾选框、条和数字框**直接能改**、
-        //   显示的就是盘上那个数（不再按本机内存重算）。下面既断言"和盘上一致"，也断言
-        //   几条与机器无关的不变量 —— 具体给多少 MB 随盘上变，这里刻意不写死。
-        check(memoryAuto == nullptr,
-              "设置页里没有「自动（按系统内存）」这个勾选框（和「最大内存」重复，已撤掉）");
+        // ---- 内存：一根条 + 一个数字框 + 自动/手动下拉框 ----
+        // 开窗默认是盘上那个档位（新配置 = 手动档）：条和数字框能改，显示的就是盘上
+        // 那个数。下面既断言"和盘上一致"，也断言几条与机器无关的不变量 —— 具体给多少
+        // MB 随盘上变，这里刻意不写死。自动档那一路在 M 节单独量。
+        check(memoryMode->count() == 2 &&
+                  memoryMode->itemText(0) == QStringLiteral("自动分配") &&
+                  memoryMode->itemText(1) == QStringLiteral("手动分配"),
+              "「内存分配」最右边那颗下拉框只有自动分配 / 手动分配两项",
+              QString("%1 项").arg(memoryMode->count()));
+        check(!memoryMode->currentData().toBool(),
+              "没存过时默认是手动分配（老用户的行为不变）");
         check(maxSpin->isEnabled() && maxSlider->isEnabled(),
-              "条和数字框开窗就是能改的（能给 -Xmx 的口子只剩这一个，灰掉就没地方给了）");
+              "手动档下条和数字框开窗就是能改的");
         // ★ 2026-09-26：上限收到**这台机器真有那么多**上（用户原话「上限=本机物理内存」）。
         //   界面层那个 65536 只是"单独搭出来时"的天花板，真跑起来由 MainWindow 按物理内存
         //   再收一次口 —— 一台 16 GB 的机器上让它拖到 65536，用户拖到那儿只会在启动时拿到
@@ -22414,12 +22417,10 @@ int main(int argc, char *argv[]) {
                       QString("条 %1 / 框 %2").arg(sliderMb(maxSlider)).arg(maxSpin->value()));
             }
         }
-        check(!javaProbe.autoMemory(), "盘上记的是手动档（自动档那一档已经没有了）");
-        // ★ 2026-10-18：自动档撤掉之后，开窗**不再重算**这个数 ⇒ 界面和盘上必须是逐位
-        //   相同的同一个数。以前这里允许一档漂移（自动档按"开窗那一刻"的系统内存现算），
-        //   现在没有任何现算的时机了，再漂一格就是"界面上拖了、下次打开却变了"。
+        check(!javaProbe.autoMemory(), "盘上记的是手动档（默认档）");
+        // 手动档下开窗**不重算**这个数 ⇒ 界面和盘上必须是逐位相同的同一个数。
         check(maxSpin->value() == javaProbe.xmx(),
-              "最大内存框显示的就是盘上存的那一个数（开窗不重算）",
+              "手动档下最大内存框显示的就是盘上存的那一个数（开窗不重算）",
               QString("界面 %1，盘上 %2").arg(maxSpin->value()).arg(javaProbe.xmx()));
         check(maxSpin->value() >= maxSpin->minimum() && maxSpin->value() <= maxSpin->maximum() &&
                   maxSpin->value() % 256 == 0,
@@ -22438,9 +22439,8 @@ int main(int argc, char *argv[]) {
               QString("%1/%2").arg(javaProbe.xms()).arg(javaProbe.xmx()));
         check(memoryHint->text().contains(QStringLiteral("系统总内存")) &&
                   memoryHint->text().contains(QStringLiteral("可用")) &&
-                  memoryHint->text().contains(QStringLiteral("拖着改")) &&
-                  !memoryHint->text().contains(QStringLiteral("自动")),
-              "说明文字讲清了这台机器有多少内存、并说明这个数怎么改（再没有「自动」那一档）",
+                  memoryHint->text().contains(QStringLiteral("拖着改")),
+              "手动档说明文字讲清了这台机器有多少内存、并说明这个数怎么改",
               memoryHint->text());
         check(memoryHint->text().contains(QStringLiteral("最小内存由启动器定")) &&
                   memoryHint->text().contains(QStringLiteral("不用管")),
@@ -22526,17 +22526,17 @@ int main(int argc, char *argv[]) {
     // ------------------------------------------------------------------
     if (settingsWired) {
         // ---- 内存：改一个数就落盘 ----
-        // ★ 2026-10-18 起没有"先取消自动档"这一步了：条和数字框开窗就是手动、就能改。
-        //   这里量的第一件事是"它开窗时确实已经能改"，然后才是改一下立刻落盘。
+        // 默认是手动档：条和数字框开窗就能改。这里量的第一件事是"它开窗时确实已经能改"，
+        // 然后才是改一下立刻落盘。
         {
             GlobalJavaSettings probe;
-            check(!probe.autoMemory(), "盘上记的是手动档（自动档那一档已经没有了）");
-            check(maxSpin->isEnabled() && maxSlider->isEnabled(), "条和数字框开窗就能编辑");
+            check(!probe.autoMemory(), "盘上记的是手动档（默认档）");
+            check(maxSpin->isEnabled() && maxSlider->isEnabled(), "手动档下条和数字框开窗就能编辑");
             check(maxSpin->value() == probe.xmx(),
                   "开窗时框里就是盘上那个数，没有退回内置默认值",
                   QString("界面 %1，盘上 %2").arg(maxSpin->value()).arg(probe.xmx()));
-            check(!memoryHint->text().contains(QStringLiteral("自动")),
-                  "说明文字里不再提「自动档」", memoryHint->text());
+            check(!memoryHint->text().contains(QStringLiteral("自动分配")),
+                  "手动档说明文字里不提「自动分配」", memoryHint->text());
         }
 
         // ★ 2026-10-17：上限是按**本机物理内存**收过口的（见 applyMemoryLimits）——
@@ -22641,32 +22641,122 @@ int main(int argc, char *argv[]) {
                   QString("框 %1 / 条下标 %2").arg(maxSpin->value()).arg(maxSlider->value()));
         }
 
-        // ---- 内存：拖出来的数开窗不被重算（自动档撤掉之后的回归钉子） ----
-        // ★ 2026-10-18：以前这一节量的是"切回自动 = 按系统内存重算、条和框又禁用"。那条
-        //   路连同勾选框一起撤掉了，替它钉的是**相反**的一件事：用户拖到哪儿，下一次开窗
-        //   还是哪儿。自动档会在每次开窗时按当前可用内存重算，而这台机器上可用内存一动，
-        //   用户拖出来的数就会被换掉 —— 界面上又再没有关掉它的入口。
-        // ★ 2026-09-26：上限被**本机物理内存**夹过一道（applyMemoryLimits()），所以
-        //   "填个大数"最多只能填到 maxSpin->maximum()，这里用一个 qMin 兜住小机器。
+        // ---- 自动分配：展示自动值、禁用输入、切回手动时回滚 ----
+        // ★ 2026-10-20：用户点名的那条路 —— 抓「自动分配 / 手动分配」那颗下拉框。
+        //   自动档下条和数字框禁用，但仍然展示自动算出来的内存；进度条（虚条）跟着
+        //   自动值走，圆圈停在自动之前的手动位置。切回手动时把那一对原样还回去。
         const int manualTargetMb = qMin(5120, maxSpin->maximum());
         maxSpin->setValue(manualTargetMb);
         QApplication::processEvents();
+        int manualTargetXms = 0;
         {
             GlobalJavaSettings probe;
+            manualTargetXms = probe.xms();
             check(probe.xmx() == manualTargetMb && !probe.autoMemory(),
-                  "那个数存下去了，盘上记的是手动档",
+                  "手动档那个数存下去了，盘上记的是手动档",
                   QString("%1 / %2").arg(probe.xmx()).arg(probe.autoMemory()));
         }
+
+        int autoDisplayedXmx = 0;
+        memoryMode->setCurrentIndex(memoryMode->findData(true));
+        QApplication::processEvents();
+        {
+            GlobalJavaSettings probe;
+            autoDisplayedXmx = probe.xmx();
+            check(probe.autoMemory(), "切到自动分配后立刻落盘");
+            check(probe.manualXmx() == manualTargetMb && probe.manualXms() == manualTargetXms,
+                  "自动之前的现场（Xmx/Xms）记下来了",
+                  QString("%1/%2").arg(probe.manualXmx()).arg(probe.manualXms()));
+            check(autoDisplayedXmx >= 256 && autoDisplayedXmx <= maxSpin->maximum(),
+                  "自动档给出了一个在界面范围内的建议值",
+                  QString::number(autoDisplayedXmx));
+            check(!maxSpin->isEnabled() && !maxSlider->isEnabled(),
+                  "自动档下最大内存数字框和条都禁用");
+            check(maxSpin->value() == autoDisplayedXmx,
+                  "数字框里显示的是自动值（虽然禁用着，但仍然要能看见）",
+                  QString("框 %1 / 自动 %2").arg(maxSpin->value()).arg(autoDisplayedXmx));
+            check(maxSlider->hasAutoValue() &&
+                      maxSlider->autoValueMb() == autoDisplayedXmx,
+                  "条上的虚条展示自动值",
+                  QString("虚条 %1 / 自动 %2")
+                      .arg(maxSlider->autoValueMb()).arg(autoDisplayedXmx));
+            check(maxSlider->valueMb() == manualTargetMb,
+                  "圆圈不跟着自动值走，仍停在开启自动之前的手动位置",
+                  QString("圆圈 %1 / 手动 %2").arg(maxSlider->valueMb()).arg(manualTargetMb));
+            check(memoryHint->text().contains(QStringLiteral("自动分配")) &&
+                      memoryHint->text().contains(QStringLiteral("恢复")),
+                  "说明文字讲清了这是自动值、以及切回手动会恢复原值",
+                  memoryHint->text());
+        }
+
+        // 自动档下再开一扇窗：档位、禁用状态、自动展示值、手动圆圈都得跟现在一致。
         {
             MainWindow again;
             again.show();
             QApplication::processEvents();
+            QComboBox *reopenedMode =
+                byObjectName<QComboBox>(&again, MainWindowUI::memoryModeComboName());
+            QSpinBox *reopenedSpin =
+                byObjectName<QSpinBox>(&again, MainWindowUI::memoryMaxSpinName());
+            auto *reopenedSlider = static_cast<MemorySlider *>(
+                byObjectName<QSlider>(&again, MainWindowUI::memoryMaxSliderName()));
+            GlobalJavaSettings reopenedProbe;
+            check(reopenedMode != nullptr && reopenedMode->currentData().toBool(),
+                  "自动档跨开窗保留（下拉框还停在自动分配）");
+            check(reopenedProbe.autoMemory(), "新窗口读到的盘上也是自动档");
+            check(reopenedSpin != nullptr && !reopenedSpin->isEnabled() &&
+                      reopenedSpin->value() == reopenedProbe.xmx(),
+                  "新窗口里数字框仍禁用、显示自动值",
+                  reopenedSpin != nullptr ? QString::number(reopenedSpin->value()) : QString());
+            check(reopenedSlider != nullptr && !reopenedSlider->isEnabled() &&
+                      reopenedSlider->hasAutoValue() &&
+                      reopenedSlider->autoValueMb() == reopenedProbe.xmx() &&
+                      reopenedSlider->valueMb() == manualTargetMb,
+                  "新窗口的条也画着自动虚条，圆圈停在手动位置",
+                  reopenedSlider != nullptr
+                      ? QString("虚条 %1 / 圆圈 %2")
+                            .arg(reopenedSlider->autoValueMb())
+                            .arg(reopenedSlider->valueMb())
+                      : QString());
+        }
+
+        // 切回手动分配：恢复开启自动之前的那一对，控件重新可用。
+        memoryMode->setCurrentIndex(memoryMode->findData(false));
+        QApplication::processEvents();
+        {
+            GlobalJavaSettings probe;
+            check(!probe.autoMemory(), "切回手动分配后盘上记的是手动档");
+            check(probe.xmx() == manualTargetMb && probe.xms() == manualTargetXms,
+                  "Xmx/Xms 回滚到开启自动之前的那一对",
+                  QString("现在 %1/%2 / 期望 %3/%4")
+                      .arg(probe.xmx()).arg(probe.xms())
+                      .arg(manualTargetMb).arg(manualTargetXms));
+            check(maxSpin->isEnabled() && maxSlider->isEnabled(),
+                  "切回手动之后数字框和条重新可用");
+            check(maxSpin->value() == manualTargetMb &&
+                      !maxSlider->hasAutoValue() && maxSlider->valueMb() == manualTargetMb,
+                  "数字框和圆圈都回到手动现场，虚条清掉",
+                  QString("框 %1 / 圆圈 %2 / 虚条 %3")
+                      .arg(maxSpin->value()).arg(maxSlider->valueMb())
+                      .arg(maxSlider->hasAutoValue() ? QStringLiteral("有")
+                                                     : QStringLiteral("无")));
+            check(!memoryHint->text().contains(QStringLiteral("自动分配")),
+                  "说明文字回到手动档那一句", memoryHint->text());
+        }
+
+        // 手动档再开窗：显示的还是用户那个数（不重算）。
+        {
+            MainWindow again;
+            again.show();
+            QApplication::processEvents();
+            QComboBox *reopenedMode =
+                byObjectName<QComboBox>(&again, MainWindowUI::memoryModeComboName());
             QSpinBox *spin = byObjectName<QSpinBox>(&again, MainWindowUI::memoryMaxSpinName());
             QSlider *reopenedSlider =
                 byObjectName<QSlider>(&again, MainWindowUI::memoryMaxSliderName());
-            QCheckBox *autoBox =
-                again.findChild<QCheckBox *>(QStringLiteral("memoryAutoCheck"));
-            check(spin != nullptr && spin->value() == manualTargetMb,
+            check(reopenedMode != nullptr && !reopenedMode->currentData().toBool(),
+                  "手动档跨开窗保留（下拉框停在手动分配）");
+            check(spin != nullptr && spin->isEnabled() && spin->value() == manualTargetMb,
                   "新开一扇设置窗，框里还是用户拖出来的那个数（开窗不重算）",
                   spin != nullptr ? QString::number(spin->value()) : QString());
             check(spin != nullptr && reopenedSlider != nullptr &&
@@ -22675,7 +22765,6 @@ int main(int argc, char *argv[]) {
                   "那根条也停在同一格上",
                   reopenedSlider != nullptr ? QString::number(reopenedSlider->value())
                                             : QString());
-            check(autoBox == nullptr, "新窗口里同样没有「自动」勾选框");
         }
         // 到这里盘上和界面都停在 manualTargetMb，后面几节接着跑时起点是确定的。
 

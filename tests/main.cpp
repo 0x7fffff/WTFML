@@ -4013,11 +4013,9 @@ static int runMemorySuggestionTests(const QString &sandbox) {
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir);
 
-        section("L3 手动档：值原样读回、重算不动、老「自动」键不再被认");
+        section("L3 自动/手动档：读回、重算、快照与回滚");
 
-        // ★ 2026-10-18：「自动（按系统内存）」那一档从界面上撤掉了（用户原话「内存分配和
-        //   最大内存这玩意完全就是重复的，只保留那个拖动的」）⇒ 读侧一律手动档。
-        //   老配置（没有 Java/MemoryAuto 这个键）照旧原样读回那两个数。
+        // 老配置（没有 Java/MemoryAuto 这个键）默认手动档，照旧原样读回那两个数。
         {
             QSettings raw;
             raw.clear();
@@ -4027,12 +4025,12 @@ static int runMemorySuggestionTests(const QString &sandbox) {
         }
         {
             GlobalJavaSettings old;
-            check(!old.autoMemory(), "L3 老配置读成手动档（自动档那一档已经没有了）");
+            check(!old.autoMemory(), "L3 老配置默认手动档");
             check(old.xmx() == 4096 && old.xms() == 1024, "L3 老配置的值原样读回",
                   QStringLiteral("%1/%2").arg(old.xmx()).arg(old.xms()));
         }
 
-        // 老配置但用户自己调过 → 当手动档，绝不静默改掉他定好的内存
+        // 手动档：重算**一个数字都不许动**，但仍然读系统内存给界面写说明。
         {
             QSettings raw;
             raw.clear();
@@ -4040,10 +4038,9 @@ static int runMemorySuggestionTests(const QString &sandbox) {
             raw.setValue(QStringLiteral("Java/Xms"), 2048);
             raw.sync();
             GlobalJavaSettings custom;
-            check(!custom.autoMemory(), "L3 老配置里是用户自己调过的值 → 当手动档");
+            check(!custom.autoMemory(), "L3 没有自动键的配置是手动档");
             check(custom.xmx() == 8192 && custom.xms() == 2048, "L3 手动档的值原样读回",
                   QStringLiteral("%1/%2").arg(custom.xmx()).arg(custom.xms()));
-            // 手动档下重算**一个数字都不许动**：这是自动档最容易踩的坑
             const SystemMemory::Usage usage = custom.refreshSuggestedMemory();
             check(custom.xmx() == 8192 && custom.xms() == 2048,
                   "L3 手动档下重算不动用户的数字",
@@ -4052,8 +4049,8 @@ static int runMemorySuggestionTests(const QString &sandbox) {
                   QString::number(usage.totalMb));
         }
 
-        // 盘上写着 Java/MemoryAuto=true 的老配置：**不再认**（界面上没有能关掉它的入口，
-        // 认了就等于"用户拖出来的数每次开窗被重算一次"）。那个键照旧读得懂，只是不生效。
+        // 盘上写着 Java/MemoryAuto=true：自动档重新有入口了，读回来就应该是自动。
+        // 自动档下 refreshSuggestedMemory() 按当前系统内存重算 Xmx/Xms。
         {
             QSettings raw;
             raw.clear();
@@ -4062,28 +4059,74 @@ static int runMemorySuggestionTests(const QString &sandbox) {
             raw.setValue(QStringLiteral("Java/Xms"), 1536);
             raw.sync();
             GlobalJavaSettings flagged;
-            check(!flagged.autoMemory(), "L3 盘上写着「自动」也读成手动档");
-            check(flagged.xmx() == 5120 && flagged.xms() == 1536,
-                  "L3 而且那两个数一个都不许被重算掉",
-                  QStringLiteral("%1/%2").arg(flagged.xmx()).arg(flagged.xms()));
+            check(flagged.autoMemory(), "L3 盘上写着「自动」就读成自动档");
+            check(flagged.manualXmx() == 5120 && flagged.manualXms() == 1536,
+                  "L3 没有手动快照时，读回来的当前值就是回滚快照",
+                  QStringLiteral("%1/%2").arg(flagged.manualXmx()).arg(flagged.manualXms()));
 
             const SystemMemory::Usage usage = flagged.refreshSuggestedMemory();
-            check(usage.totalMb > 0, "L3 手动档下也照样读了系统内存（界面拿它写说明）",
-                  QString::number(usage.totalMb));
-            check(flagged.xmx() == 5120 && flagged.xms() == 1536,
-                  "L3 老「自动」键不再触发重算（用户拖出来的数必须原地不动）",
+            check(usage.totalMb > 0, "L3 自动档读到了系统内存", QString::number(usage.totalMb));
+            check(flagged.xmx() ==
+                      GlobalJavaSettings::suggestXmxMb(usage.totalMb, usage.availableMb) &&
+                      flagged.xms() == GlobalJavaSettings::suggestXmsMb(flagged.xmx()),
+                  "L3 自动档下重算落到 suggestXmxMb()/suggestXmsMb() 那一对上",
                   QStringLiteral("%1/%2").arg(flagged.xmx()).arg(flagged.xms()));
+            check(flagged.manualXmx() == 5120 && flagged.manualXms() == 1536,
+                  "L3 重算不会把回滚快照改成自动值",
+                  QStringLiteral("%1/%2").arg(flagged.manualXmx()).arg(flagged.manualXms()));
+        }
 
-            // setAutoMemory() 这个 API 还在（老版本、老数据都读得懂这个键），但新版本
-            // 读它的时候一律当手动——跨实例读回来必须还是手动档。
-            flagged.setAutoMemory(true);  // 这一句内部就落盘了
-            check(!QSettings().value(QStringLiteral("Java/MemoryAuto"), QVariant()).isNull(),
-                  "L3 Java/MemoryAuto 这个键仍然写进了盘（数据格式没变）");
+        // 手动 → 自动时记现场；自动 → 手动时原样回滚。快照落盘，重启之后还在。
+        {
+            QSettings raw;
+            raw.clear();
+            raw.sync();
+            GlobalJavaSettings manual;
+            manual.setXmx(3072);
+            manual.setXms(768);
+            manual.save();
+            check(!manual.autoMemory(), "L3 起点是手动档");
+            manual.setAutoMemory(true);
+            check(manual.autoMemory() && manual.manualXmx() == 3072 && manual.manualXms() == 768,
+                  "L3 切到自动档的一瞬间记下手动现场",
+                  QStringLiteral("%1/%2").arg(manual.manualXmx()).arg(manual.manualXms()));
+            check(manual.xmx() == 3072 && manual.xms() == 768,
+                  "L3 setAutoMemory() 自己不动 Xmx/Xms（重算由 refreshSuggestedMemory() 负责）",
+                  QStringLiteral("%1/%2").arg(manual.xmx()).arg(manual.xms()));
+            manual.refreshSuggestedMemory();
+            // 再调一次 true 不能把快照改成自动算出来的数。
+            manual.setAutoMemory(true);
+            check(manual.manualXmx() == 3072 && manual.manualXms() == 768,
+                  "L3 已经在自动档上再调 setAutoMemory(true) 不覆盖手动静照",
+                  QStringLiteral("%1/%2").arg(manual.manualXmx()).arg(manual.manualXms()));
+
             GlobalJavaSettings reopened;
-            check(!reopened.autoMemory(), "L3 但新版本读这个键一律当手动档");
-            check(reopened.xmx() == 5120 && reopened.xms() == 1536,
-                  "L3 重启读回来的还是那两个数", QStringLiteral("%1/%2")
-                      .arg(reopened.xmx()).arg(reopened.xms()));
+            check(reopened.autoMemory(), "L3 重启后仍然是自动档");
+            check(reopened.manualXmx() == 3072 && reopened.manualXms() == 768,
+                  "L3 回滚快照跟着落盘、跨重启还在",
+                  QStringLiteral("%1/%2").arg(reopened.manualXmx()).arg(reopened.manualXms()));
+
+            reopened.restoreManualMemory();
+            GlobalJavaSettings afterRestore;
+            check(!afterRestore.autoMemory() && afterRestore.xmx() == 3072 &&
+                      afterRestore.xms() == 768,
+                  "L3 切回手动档恢复的是开启自动之前那一对",
+                  QStringLiteral("%1/%2 auto=%3")
+                      .arg(afterRestore.xmx()).arg(afterRestore.xms())
+                      .arg(afterRestore.autoMemory()));
+        }
+
+        // 老键仍然写得进去、读得出来（数据格式没变）。
+        {
+            QSettings raw;
+            raw.clear();
+            raw.sync();
+            GlobalJavaSettings s;
+            s.setAutoMemory(true);
+            check(!QSettings().value(QStringLiteral("Java/MemoryAuto"), QVariant()).isNull(),
+                  "L3 Java/MemoryAuto 这个键照旧写进盘");
+            GlobalJavaSettings reopened;
+            check(reopened.autoMemory(), "L3 新版本读回来就是自动档");
         }
 
         QSettings::setDefaultFormat(QSettings::NativeFormat);

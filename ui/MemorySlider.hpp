@@ -25,6 +25,13 @@
  * 这一层只认 MB，不认识"物理内存"也不读任何设置（ui/ 不依赖业务层那条老规矩）：上限由
  * 调用方 setRangeMb() 决定 —— 设置页那边是 MainWindow 按本机物理内存给的（见
  * MainWindow::applyMemoryLimits），实例设置那边给的是同一个数。
+ *
+ * 【自动档只影响"怎么画"，不影响"停在哪儿"】
+ *
+ * 设置页那颗「自动分配 / 手动分配」下拉框选中自动时，会调 `setAutoValueMb()`：进度条
+ * 画成半透明的虚条、走到自动算出来的那一格；把手仍然停在 `valueMb()`（上次手动档的
+ * 位置）。切回手动档时调用方 `clearAutoValue()`，再 `setValueMb()` 回滚现场 —— 这一层
+ * 不替调用方保存任何"上一次"的值。
  */
 #pragma once
 
@@ -56,6 +63,20 @@ public:
     /// 停在离 @p mb 最近的那一格上。**不发出信号的那一路也走它**（调用方自己挡）。
     void setValueMb(int mb);
 
+    /// 「自动分配」档的**展示值**（MB）。
+    ///
+    /// ★ 它和 `setValueMb()` 是两件事：`valueMb()` 仍然是**上次手动档停的位置**，而这一位
+    ///   是自动档算出来的建议值。paintEvent 在自动档下把**进度条画到这一位**，把手仍留在
+    ///   `valueMb()` 上 —— 用户看到的是"自动给了多少" + "我上次手动设的是多少"。
+    ///   >= 0 表示自动档；< 0（默认）就是原来的手动档画法。
+    void setAutoValueMb(int mb);
+    /// 清掉自动档展示值，回到手动档画法。
+    void clearAutoValue();
+    /// 现在有没有自动档展示值。
+    bool hasAutoValue() const { return m_autoValueMb >= 0; }
+    /// 自动档展示值（没有时回 -1）。
+    int autoValueMb() const { return m_autoValueMb; }
+
 protected:
     /// 2026-10-18（用户原话「这个拖动的条做成和底栏那个进度条一个样式」）：
     /// 自绘成底栏那条进度条的样子 —— 圆角细轨道 + 主题色的填充，右端一个圆形把手。
@@ -71,4 +92,6 @@ protected:
 private:
     /// "第几格"。空表 = 还没 setRangeMb() 过（构造函数到第一次设范围之间只有一瞬）。
     QList<int> m_steps;
+    /// 自动档的展示值（MB，-1 = 手动档）。见 setAutoValueMb() 那段。
+    int m_autoValueMb = -1;
 };
