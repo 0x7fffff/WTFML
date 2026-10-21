@@ -38,6 +38,9 @@ static constexpr const char kExtraArgs[] = "Java/ExtraArgs";
 static constexpr const char kAutoSelect[] = "Java/AutoSelect";
 /// 「内存分配」是不是自动档（按系统内存算）。老配置没有这个键，见 load() 的处理。
 static constexpr const char kMemoryAuto[] = "Java/MemoryAuto";
+/// 上次开启自动分配之前的那一对手动值（切回手动档时恢复它们）。
+static constexpr const char kManualXmx[] = "Java/ManualXmx";
+static constexpr const char kManualXms[] = "Java/ManualXms";
 /// 实例指定的 Java 与版本要求不符时要不要提醒。老配置没有这个键 = 提醒（默认值）。
 static constexpr const char kWarnVersionMismatch[] = "Java/WarnVersionMismatch";
 
@@ -663,12 +666,20 @@ void GlobalJavaSettings::load() {
     // 也就是加这个开关之前的行为。
     m_autoSelectJava = settings.value(kAutoSelect, m_autoSelectJava).toBool();
 
-    // ★ 2026-10-18：内存「自动档」从界面上撤掉了（设置页 / 实例设置都只剩「最大内存」
-    //   那一根拖动的条 —— 用户原话「内存分配和最大内存这玩意完全就是重复的，只保留那个
-    //   拖动的」）。于是这里**不再听 Java/MemoryAuto 那个键**：盘上写着 true 的老配置
-    //   也按手动档读，避免出现"界面上没有开关、拖出来的数却每次启动被重算掉"。
-    //   那个键下次 save() 时会被写成 false，数据不删（老版本还能读回去）。
-    m_memoryAuto = false;
+    // 「内存分配」自动档（2026-10-20 恢复入口）：老配置没有这个键 = 手动档，读回 false。
+    m_memoryAuto = settings.value(kMemoryAuto, m_memoryAuto).toBool();
+
+    // 自动档之前的现场：没有这两个键（老配置 / 从没开过自动）就拿刚刚读回来的 Xmx/Xms
+    // 当现场 —— 那是用户当前真正在用的值，切回手动时至少不会凭空改成内置默认值。
+    bool okManualXmx = false;
+    bool okManualXms = false;
+    const int rawManualXmx = settings.value(kManualXmx, m_xmx).toInt(&okManualXmx);
+    const int rawManualXms = settings.value(kManualXms, m_xms).toInt(&okManualXms);
+    m_manualXmx = okManualXmx ? qMax(256, rawManualXmx) : m_xmx;
+    m_manualXms = okManualXms ? qMax(128, rawManualXms) : m_xms;
+    if (m_manualXms > m_manualXmx) {
+        m_manualXms = m_manualXmx;
+    }
 
     // 提醒总闸：没有这个键（加它之前存下来的老配置）就落到成员默认值 true，
     // 也就是老行为 —— 那时候这类不匹配是一律报错拦下的，等于"总是提醒"。
@@ -683,6 +694,8 @@ void GlobalJavaSettings::save() const {
     settings.setValue(kExtraArgs, m_extraJvmArgs);
     settings.setValue(kAutoSelect, m_autoSelectJava);
     settings.setValue(kMemoryAuto, m_memoryAuto);
+    settings.setValue(kManualXmx, m_manualXmx);
+    settings.setValue(kManualXms, m_manualXms);
     settings.setValue(kWarnVersionMismatch, m_warnVersionMismatch);
 }
 
@@ -693,10 +706,25 @@ void GlobalJavaSettings::setWarnVersionMismatch(bool warn) {
 }
 
 void GlobalJavaSettings::setAutoMemory(bool autoMemory) {
+    // 只有"手动 → 自动"这一下要记现场。已经在自动档上再调一次 true 不能把现场覆盖成
+    // 自动算出来的那个数 —— 用户切回手动时想拿回的是**开自动之前**的值。
+    if (autoMemory && !m_memoryAuto) {
+        m_manualXmx = m_xmx;
+        m_manualXms = m_xms;
+    }
     m_memoryAuto = autoMemory;
     // 和 setLauncherBehaviour() 一样：改完立刻落盘。注意**不在这里重算** Xmx/Xms ——
-    // 从手动切回自动时由 refreshSuggestedMemory() 算，从自动切到手动时两个框里留着
-    // 刚才的建议值当起点（用户是想微调，不是想从默认值重来）。
+    // 从手动切到自动时由 refreshSuggestedMemory() 算；切回手动走 restoreManualMemory()。
+    save();
+}
+
+void GlobalJavaSettings::restoreManualMemory() {
+    m_memoryAuto = false;
+    setXmx(m_manualXmx);
+    setXms(m_manualXms);
+    if (m_xms > m_xmx) {
+        m_xms = m_xmx;
+    }
     save();
 }
 

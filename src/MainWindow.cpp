@@ -9817,9 +9817,9 @@ void MainWindow::applySettingsToUi() {
     }
 
     // ---------- 内存 ----------
-    // 交给 refreshMemoryUi()：开窗时把盘上那个数灌进条和数字框（★ 2026-10-18 起**不重算**
-    // —— 自动档撤掉了）、把上限收到本机物理内存、写那句说明。两个控件的信号在那边自己挡
-    // （这里的局部 blocker 就不再重复了）。
+    // 交给 refreshMemoryUi()：开窗时把盘上那个档位 / 数值灌进下拉框、条和数字框
+    // （手动档不重算；自动档按系统内存现算），把上限收到本机物理内存、写那句说明。
+    // 那几个控件的信号在那边自己挡（这里的局部 blocker 就不再重复了）。
     refreshMemoryUi();
 
     // ---------- 启动后 ----------
@@ -10057,6 +10057,11 @@ void MainWindow::onMemoryChanged() {
 void MainWindow::onMemorySliderMoved() {
     m_javaSettingsController->syncMemorySlider();
 }
+
+void MainWindow::onMemoryModeChanged() {
+    m_javaSettingsController->setMemoryModeFromUi();
+}
+
 void MainWindow::onLauncherBehaviourChanged() {
     m_launcherPreferences->launcherBehaviourChanged();
 }
@@ -13444,8 +13449,9 @@ void MainWindow::resolveMemoryForLaunch(const QString &versionId, EffectiveJavaS
     //       谁也说不清的数字。对话框那边是同一件事的另一半 —— 自动档下那两行整行
     //       禁用，点确定时也不把它们写进 meta。
     if (!override.autoMemory.has_value()) {
-        // 自动这一档来自**全局**：走老路径。refreshSuggestedMemory() 会重算、落盘
-        // （注册表）、并按全局档更新自己的值 —— 和加实例覆盖之前逐字节一致。
+        // 自动这一档来自**全局**：走老路径。refreshSuggestedMemory() 会按当前系统内存
+        // 重算并更新全局那份值（落盘由设置页 / 下次 save() 负责）—— 和加实例覆盖之前
+        // 的行为一致。
         m_javaSettings->refreshSuggestedMemory();
         io.xmx = m_javaSettings->xmx();
         io.xms = m_javaSettings->xms();

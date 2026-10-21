@@ -4371,12 +4371,10 @@ QHBoxLayout *InstanceSettingsDialog::choiceRowOf(const QString &field) const {
 }
 
 bool InstanceSettingsDialog::effectiveAutoMemory() const {
-    // 2026-10-18：这一页和设置页都**没有**「内存分配」（自动 / 手动）那一档了 —— 用户
-    // 原话「内存分配和最大内存这玩意完全就是重复的，只保留那个拖动的」。所以有效值只看
-    // 全局那份；而 `GlobalJavaSettings::load()` 现在一律读成手动，产品里这个值恒为 false
-    // （界面上的条和数字框因此永远是可用的）。盘上老实例存着的 autoMemory 覆盖也不再生效
-    // （`resolveJavaSettings` 读侧忽略它），留着这个判据只是为了让"万一有人从代码里把
-    // 全局改成自动"时那两行仍然知道给自己灰掉。
+    // 这一页自己没有「内存分配」（自动 / 手动）的入口 —— 那个开关在设置页最右边那颗
+    // 下拉框上（2026-10-20 恢复的）。所以有效值只看**全局**那份；全局是自动档时，
+    // 这一页的条和数字框跟着禁用，并显示「自动档下按系统内存现算」那句提示。
+    // 盘上老实例存着的 autoMemory 覆盖仍然不生效（`resolveJavaSettings` 读侧忽略它）。
     return m_global.autoMemory;
 }
 

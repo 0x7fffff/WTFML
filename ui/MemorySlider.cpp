@@ -105,6 +105,23 @@ void MemorySlider::setValueMb(int mb) {
     }
 }
 
+void MemorySlider::setAutoValueMb(int mb) {
+    if (mb < 0) {
+        clearAutoValue();
+        return;
+    }
+    m_autoValueMb = mb;
+    update();
+}
+
+void MemorySlider::clearAutoValue() {
+    if (m_autoValueMb < 0) {
+        return;
+    }
+    m_autoValueMb = -1;
+    update();
+}
+
 void MemorySlider::paintEvent(QPaintEvent *) {
     if (height() <= 0 || width() <= 0) {
         return;
@@ -145,10 +162,40 @@ void MemorySlider::paintEvent(QPaintEvent *) {
     painter.setBrush(track);
     painter.drawRoundedRect(rail, radius, radius);
 
-    // 填充到把手中心：左端贴住轨道（整圆角），右端是把手下面那半截。
+    // 填充到"该到的那一格"：手动档 = 把手中心；自动档 = 自动算出来那一格。
+    //
+    // ★ 自动档的**把手留在原地**（= 上次手动档停的位置），只有进度条跟着自动值走：
+    //   用户一眼能看出"自动现在给这么多、我原来手动设的是那么多"。条本身画成半透明的
+    //   虚条，和可拖的手动档区分开（用户 2026-10-20 点名要的"虚条，圆圈不跟着走"）。
     const qreal centerX = qBound(rail.left(), qreal(handle.center().x()), rail.right());
-    const qreal filledWidth = centerX - rail.left();
-    if (filledWidth > 0.0) {
+    const bool autoMode = m_autoValueMb >= 0;
+    const int autoIndex = autoMode ? nearestIndex(m_steps, m_autoValueMb) : -1;
+    qreal fillCenterX = centerX;
+    if (autoMode && autoIndex >= 0) {
+        QStyleOptionSlider autoOption;
+        initStyleOption(&autoOption);
+        autoOption.sliderPosition = autoIndex;
+        autoOption.sliderValue = autoIndex;
+        const QRect autoHandle = style()->subControlRect(
+            QStyle::CC_Slider, &autoOption, QStyle::SC_SliderHandle, this);
+        fillCenterX = qBound(rail.left(), qreal(autoHandle.center().x()), rail.right());
+    }
+    const qreal filledWidth = fillCenterX - rail.left();
+    if (autoMode) {
+        if (filledWidth > 0.0) {
+            QColor ghostFill = fill;
+            ghostFill.setAlphaF(ghostFill.alphaF() * 0.55);
+            const QRectF ghostRect(rail.left(), rail.top(),
+                                   qMax(filledWidth, radius * 2.0), railHeight);
+            QPen ghostPen(fill);
+            ghostPen.setStyle(Qt::DashLine);
+            ghostPen.setWidthF(1.0);
+            painter.setPen(ghostPen);
+            painter.setBrush(ghostFill);
+            painter.drawRoundedRect(ghostRect, radius, radius);
+            painter.setPen(Qt::NoPen);
+        }
+    } else if (filledWidth > 0.0) {
         painter.setBrush(fill);
         painter.drawRoundedRect(
             QRectF(rail.left(), rail.top(), qMax(filledWidth, radius * 2.0), railHeight), radius,
@@ -162,9 +209,21 @@ void MemorySlider::paintEvent(QPaintEvent *) {
         const qreal outer = knobDiameter / 2.0;
         const qreal inner = qMax(1.5, outer - 3.0);
         const QPointF knobCenter(centerX, height() / 2.0);
-        painter.setBrush(fill);
+        // 自动档下这颗圆**不跟着自动值走**，只当"上次手动的位置"的标记。控件已经
+        // disabled（上面 fill/track 各降过一档 alpha），这里不再额外压淡 —— 再淡一档
+        // 就只剩一个看不清的点，反而不知道圆圈停在哪儿。
+        //
+        // ★ 自动档把外圈**再压深一档**：它正好压在那条半透明的自动虚条上时，原来的
+        //   外圈和虚条是同一个色，圆就"看不见"了 —— 用户会以为把手跟着自动值走了。
+        //   深一档的环压在虚条 / 轨道上都看得见，中间还是原来那枚轨道色的芯。
+        QColor knobOuter = fill;
+        if (autoMode) {
+            knobOuter = fill.darker(135);
+        }
+        const QColor knobInnerColor = knobInner;
+        painter.setBrush(knobOuter);
         painter.drawEllipse(knobCenter, outer, outer);
-        painter.setBrush(knobInner);
+        painter.setBrush(knobInnerColor);
         painter.drawEllipse(knobCenter, inner, inner);
     }
 }

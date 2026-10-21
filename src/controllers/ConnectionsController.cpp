@@ -736,12 +736,14 @@ void ConnectionsController::setup() {
     // （onStartButtonClicked 里问的那一次），不是这一页的显示。
     connect(m_owner->m_ui->getJavaWarnMismatchCheck(), &QCheckBox::toggled, m_owner,
             &MainWindow::onJavaWarnMismatchChanged);
-    // 内存：只剩「最大内存」那一行的**一根条 + 一个数字框**。
-    // ★ 2026-10-18：上面原来还有一颗「自动（按系统内存）」总开关，用户说它和「最大内存」
-    //   完全重复（「只保留那个拖动的」）—— 那颗连同它的槽一起撤掉了，条和数字框永远是活的。
+    // 内存：「最大内存」那一行的**一根条 + 一个数字框 + 一颗自动/手动下拉框**。
+    // ★ 2026-10-20：自动分配重新有入口了。那颗下拉框只读不写数值，真正的重算 / 回滚
+    //   在 JavaSettingsController 里（`setMemoryModeFromUi()`）。
     // 条和数字框说的是同一件事 ⇒ 走同一个槽，谁改的在那儿看当前值就知道（见 onMemoryChanged：
     // "另一个还停在旧值上"的那一侧会被挪过去）。条多走一道 onMemorySliderMoved 只是为了把
     // **拖动中**（还没松手）那一串 valueChanged 和"松手了、该落盘了"分开。
+    connect(m_owner->m_ui->getMemoryModeCombo(), &QComboBox::currentIndexChanged, m_owner,
+            &MainWindow::onMemoryModeChanged);
     connect(m_owner->m_ui->getMemoryMaxSpin(), &QSpinBox::valueChanged, m_owner,
             &MainWindow::onMemoryChanged);
     connect(m_owner->m_ui->getMemoryMaxSlider(), &QSlider::valueChanged, m_owner,
