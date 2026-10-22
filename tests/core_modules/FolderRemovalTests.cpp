@@ -90,5 +90,95 @@ void runFolderRemovalTests() {
         }
         QDir(outside).removeRecursively();
     }
+
+    // ==================================================================
+    // ZAO. 用户点「删除」走的那一条：移进回收站（不是永久删除）
+    // ==================================================================
+    section("ZAO. 删除走回收站（moveToRecycleBin）：过得去、找不到就失败、链接不追");
+
+    // ---------- ZAO1. 一件普通文件 ----------
+    {
+        const QString path = temp.filePath(QStringLiteral("回收站-文件.txt"));
+        const bool written = writeBytesAt(path, QByteArrayLiteral("recycle me"));
+        QString problem = QStringLiteral("还没开始");
+        const bool moved = written && moveToRecycleBin(path, &problem);
+        check(moved && !QFile::exists(path),
+              "★★ ZAO1 单件文件移进回收站：调用成功，盘上那一件已经不在",
+              problem);
+        check(problem.isEmpty(), "★ ZAO1 成功时不带错误话术", problem);
+    }
+
+    // ---------- ZAO2. 一整棵目录（中间躺着一件只读文件）----------
+    {
+        const QString root = temp.filePath(QStringLiteral("回收站-实例"));
+        const QString nested = root + QStringLiteral("/mods/子目录");
+        const bool made = QDir().mkpath(nested);
+        const bool wrote = writeBytesAt(nested + QStringLiteral("/只读.jar"),
+                                        QByteArrayLiteral("ro"));
+        QFile::setPermissions(nested + QStringLiteral("/只读.jar"),
+                              QFileDevice::ReadOwner | QFileDevice::ReadUser);
+        QString problem;
+        const bool moved = made && wrote && moveToRecycleBin(root, &problem);
+        check(moved && !QDir(root).exists(),
+              "★★ ZAO2 整棵目录（含只读文件）一起进回收站 —— 盘上那个目录不见了",
+              QStringLiteral("前提=%1 错误=%2").arg(made && wrote).arg(problem));
+    }
+
+    // ---------- ZAO3. 本来就不在：算成功（和 removeTree 同一条约定）----------
+    {
+        const QString gone = temp.filePath(QStringLiteral("压根没有/也没有.txt"));
+        check(moveToRecycleBin(gone),
+              "★ ZAO3 对一个本来就不存在的东西回 true —— 调用方问的是「它还在不在」");
+    }
+
+    // ---------- ZAO4. 树里那根 junction：先剥掉壳子，那一头一个字节都不动 ----------
+    {
+        const QString outside = temp.filePath(QStringLiteral("回收站-外面那一块盘"));
+        const QString victim = temp.filePath(QStringLiteral("回收站-受害"));
+        QDir().mkpath(outside);
+        QDir().mkpath(victim);
+        const bool outsideWritten =
+            writeBytesAt(outside + QStringLiteral("/别人的存档.dat"), QByteArrayLiteral("别删我"));
+        const bool victimWritten =
+            writeBytesAt(victim + QStringLiteral("/自己的.txt"), QByteArrayLiteral("可以删"));
+        const QString link = victim + QStringLiteral("/挂过来的目录");
+        const bool madeLink =
+            QProcess::execute(QStringLiteral("cmd"),
+                              {QStringLiteral("/c"), QStringLiteral("mklink"), QStringLiteral("/J"),
+                               QDir::toNativeSeparators(link),
+                               QDir::toNativeSeparators(outside)}) == 0 &&
+            QFileInfo(link).isJunction();
+        check(outsideWritten && victimWritten && madeLink,
+              "★ ZAO4 前提：真造出一根 junction（mklink /J）");
+        if (madeLink) {
+            QString problem;
+            const bool moved = moveToRecycleBin(victim, &problem);
+            check(moved && !QDir(victim).exists(),
+                  "★★ ZAO4 这一棵进了回收站（盘上没了）", problem);
+            check(QFile::exists(outside + QStringLiteral("/别人的存档.dat")) &&
+                      QDir(outside).exists(),
+                  "★★ ZAO4 链接那一头**一个字节都不动** —— 回收站那一趟不许顺着 junction "
+                  "把别人那块盘上的东西搬走");
+        }
+        QDir(outside).removeRecursively();
+    }
+
+    // ---------- ZAO5. 一棵全是链接的壳子：只摘壳子（不进回收站也没有关系）----------
+    {
+        const QString outside = temp.filePath(QStringLiteral("回收站-链接目标"));
+        QDir().mkpath(outside);
+        const QString link = temp.filePath(QStringLiteral("回收站-链接本身"));
+        const bool made = QProcess::execute(QStringLiteral("cmd"),
+                                            {QStringLiteral("/c"), QStringLiteral("mklink"),
+                                             QStringLiteral("/J"), QDir::toNativeSeparators(link),
+                                             QDir::toNativeSeparators(outside)}) == 0
+                          && QFileInfo(link).isJunction();
+        check(made, "★ ZAO5 前提：真造出一根 junction");
+        if (made) {
+            check(moveToRecycleBin(link) && !QFileInfo(link).exists() && QDir(outside).exists(),
+                  "★★ ZAO5 链接本身只摘壳子：链接没了、目标目录还在");
+        }
+        QDir(outside).removeRecursively();
+    }
 }
 

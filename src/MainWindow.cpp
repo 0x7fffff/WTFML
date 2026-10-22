@@ -6360,8 +6360,8 @@ void MainWindow::removeServer(const QString &serverId) {
     // 一边是「取消」（`defaultYes = false`，回车不会把它删掉）、那颗按钮按危险档染红。
     const bool go = InlineMessage::question(
         m_ui->overlay(), tr("删掉这个服务端"),
-        tr("「%1」这一整个目录会被删掉 —— 里面的世界（world/）、模组、配置**一起没**，"
-           "删了找不回来。\n\n确定要删吗？")
+        tr("「%1」这一整个目录会被删掉 —— 里面的世界（world/）、模组、配置**一起没**。\n\n"
+           "删掉的东西会进回收站，要恢复可以从那里找回来。\n\n确定要删吗？")
             .arg(shown),
         tr("删掉它"), tr("取消"), false, true);
     if (!go) {
@@ -10421,13 +10421,13 @@ bool MainWindow::confirmDeleteInstance(const QString &versionId) {
         return false;
     }
 
-    // 这一趟**不可逆**，所以先问一句。正文里把目录的
+    // 这一趟会动用户的东西（虽然进回收站可还原），所以先问一句。正文里把目录的
     // 完整路径写出来：用户要能看清删的是哪一个目录、它长在哪，而不是只知道"某个实例"。
     const auto answer = InlineMessage::question(
         m_ui->overlay(), tr("删除实例"),
         tr("要删除实例「%1」吗？\n\n"
-           "会把 %2 这整个目录删掉（jar、json、以及这个实例自己的设置都在里面），"
-           "删掉之后找不回来。\n\n"
+           "会把 %2 这整个目录删掉（jar、json、以及这个实例自己的设置都在里面）。\n\n"
+           "删掉的东西会进回收站，要恢复可以从那里找回来。\n\n"
            "它所在的游戏文件夹、以及别的实例都不受影响。")
             .arg(name, QDir::toNativeSeparators(AppPaths::versionDir(versionId))),
         tr("删除"), tr("取消"), false, /*destructive=*/true);

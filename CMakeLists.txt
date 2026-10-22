@@ -561,8 +561,12 @@ endif()
 #
 # dwmapi 是外框那一份要的（ui/WindowChrome.cpp 里的 DwmSetWindowAttribute，把圆角明说一遍）。
 # 同样是系统 DLL（Vista 起就有）。
+#
+# shell32 + uuid 是「删除走回收站」那一份要的（FolderManager.cpp 的 moveToRecycleBin：
+# IFileOperation / SHCreateItemFromParsingName / IID_IFileOperation 这些符号）。
+# 两个都是系统库，**不发任何东西**。
 if(WIN32)
-    target_link_libraries(WTFMinecraftLauncher PRIVATE crypt32 ole32 shlwapi windowscodecs dwmapi)
+    target_link_libraries(WTFMinecraftLauncher PRIVATE crypt32 ole32 shlwapi windowscodecs dwmapi shell32 uuid)
 endif()
 
 if(WTFML_BUILD_TESTS)

@@ -13,6 +13,7 @@
 #include "controllers/ServerWorkspaceController.hpp"
 #include "controllers/ServerConsoleController.hpp"
 #include "controllers/BackupController.hpp"
+#include "manage/FolderManager.hpp"
 #include "server/ServerContent.hpp"
 #include "server/ServerResourcePack.hpp"
 #include "server/ServerRegistry.hpp"
@@ -706,10 +707,11 @@ void ServerManagementActions::deleteServerBackup(MainWindow *owner, const QStrin
         owner->refreshServerSettingsPage();
         return;
     }
-    // 删了就拿不回来 ⇒ 默认那一边是「取消」（和删服务端 / 删世界同一档）。
+    // 这一份进**回收站**（不是永久删除）：备份就是留着以防万一的，手滑删掉更该有退路。
+    // 默认那一边仍然是「取消」（和删服务端 / 删世界同一档）。
     if (!InlineMessage::question(
             owner->m_ui->overlay(), MainWindow::tr("删掉这一份备份"),
-            MainWindow::tr("这一份会被删掉，删了找不回来：\n%1\n\n要删吗？")
+            MainWindow::tr("这一份会被删掉（会进回收站，可以还原）：\n%1\n\n要删吗？")
                 .arg(QDir::toNativeSeparators(zipPath)),
             MainWindow::tr("删掉它"), MainWindow::tr("取消"), /*defaultYes=*/false, /*destructive=*/true)) {
         return;
@@ -719,10 +721,11 @@ void ServerManagementActions::deleteServerBackup(MainWindow *owner, const QStrin
         InlineMessage::warning(owner->m_ui->overlay(), MainWindow::tr("删不掉"), lockProblem);
         return;
     }
-    if (!QFile::remove(zipPath)) {
+    QString recycleProblem;
+    if (!moveToRecycleBin(zipPath, &recycleProblem)) {
         InlineMessage::critical(owner->m_ui->overlay(), MainWindow::tr("删不掉"),
-                                MainWindow::tr("这一份删不掉（可能被别的程序占着）：\n%1")
-                                    .arg(QDir::toNativeSeparators(zipPath)));
+                                MainWindow::tr("这一份没能移进回收站：%1\n%2")
+                                    .arg(QDir::toNativeSeparators(zipPath), recycleProblem));
         return;
     }
     owner->appendLog(MainWindow::tr("已删除一份备份：%1").arg(QDir::toNativeSeparators(zipPath)));

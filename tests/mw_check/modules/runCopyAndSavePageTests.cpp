@@ -108,19 +108,20 @@ void runCopyAndSavePageTests() {
             check(remove->text() == InstanceSettingsDialog::deleteText(),
                   "T27.1 按钮上那几个字来自唯一出处", remove->text());
             check(remove->isVisible(), "T27.1 实例操作页开着时删除入口可见");
-            // 它是**红的**（`ButtonKind::Danger`）：用户给的规矩是「不可撤销（如修改存档，
+            // 它是**红的**（`ButtonKind::Danger`）：用户给的规矩是「危险操作（如修改存档，
             // 删除实例）做成红色」，而这一页上它是唯一一颗真会丢东西的按钮。
             check(remove->property("wtfmlButtonKind").toString() ==
                       Theme::buttonKindKey(Theme::ButtonKind::Danger),
-                  "★★ T27.1 那一颗是「不可撤销」那一档（红的）—— 同一页上紧挨着的「复制实例」"
+                  "★★ T27.1 那一颗是「危险」那一档（红的）—— 同一页上紧挨着的「复制实例」"
                   "是绿的",
                   remove->property("wtfmlButtonKind").toString());
-            // 字里必须有"删了找不回来"：颜色只是提醒，真正让人停下来的是字。
-            check(InstanceSettingsDialog::deleteHint().contains(QStringLiteral("找不回来")),
-                  "★★ T27.1 解释里写着「删掉之后找不回来」（用户点名这一档是「不可撤销」）",
+            // 字里必须说清"进回收站"：颜色只是提醒，真正让人停下来的是字；而删掉的东西
+            // 其实能还原，不能写成"找不回来"。
+            check(InstanceSettingsDialog::deleteHint().contains(QStringLiteral("回收站")),
+                  "★★ T27.1 解释里写着「删掉的东西会进回收站」（删除走回收站，别写成永久删）",
                   InstanceSettingsDialog::deleteHint());
-            check(remove->toolTip().contains(QStringLiteral("不可撤销")),
-                  "★ T27.1 tooltip 也标了「不可撤销」", remove->toolTip().left(40));
+            check(remove->toolTip().contains(QStringLiteral("回收站")),
+                  "★ T27.1 tooltip 也标了「回收站」", remove->toolTip().left(40));
         }
         dialog.hide();
     }

@@ -12,9 +12,27 @@
 #include <QFileInfo>
 #include <QUuid>
 
+#include <string>
+
 #include "../settings/LauncherSettings.hpp"
 #include "../util/AppPaths.hpp"
 #include "util/DirectorySessionLock.hpp"
+
+#if defined(Q_OS_WIN)
+// NOTE: 放在所有 Qt 头之后（windows.h 定义的东西太多，先于 Qt 包含容易撞名）。这一套和
+// LauncherManager.cpp 里那段同一个写法。
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <objbase.h>
+#include <shellapi.h>  // FOF_ALLOWUNDO / FOF_SILENT 这一族（WIN32_LEAN_AND_MEAN 不自动拉）
+#include <shlobj.h>
+#include <shobjidl.h>
+#include <windows.h>
+#endif
 
 namespace {
 
@@ -104,7 +122,225 @@ bool removeTreeWithoutFollowingLinks(const QString &path) {
     return QDir().rmdir(path);
 }
 
-/// 把 @p from 这一棵原样拷到 @p to（@p to 必须还不存在），一个链接都不追进去。
+#if defined(Q_OS_WIN)
+namespace {
+
+/// 一个 HRESULT 的**人话**版本（`FormatMessageW` 那套；系统没给话时退回十六进制）。
+QString systemMessage(HRESULT hr) {
+    wchar_t *buffer = nullptr;
+    const DWORD length = FormatMessageW(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM
+            | FORMAT_MESSAGE_IGNORE_INSERTS,
+        nullptr, static_cast<DWORD>(hr), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        reinterpret_cast<LPWSTR>(&buffer), 0, nullptr);
+    QString text;
+    if (length != 0 && buffer != nullptr) {
+        text = QString::fromWCharArray(buffer, static_cast<int>(length)).trimmed();
+        LocalFree(buffer);
+    }
+    if (text.isEmpty()) {
+        text = QStringLiteral("0x%1").arg(static_cast<quint32>(hr), 8, 16, QLatin1Char('0'));
+    }
+    return text;
+}
+
+/// 把 COM 起起来（工人线程多半还没起过）。Qt 自己的线程池不会替我们做这件事，而
+/// `IFileOperation` 是 COM 对象 —— 不起就是 "CoInitialize has not been called"。
+///
+/// NOTE: 主线程上 Qt 已经用 `OleInitialize`（STA）起过了，这时 `CoInitializeEx` 回 S_FALSE，
+/// **不能**再配对一次 `CoUninitialize`（会替 Qt 把它撤掉）。所以只有本次真的起成功才收尾。
+class ComApartment {
+public:
+    ComApartment() {
+        const HRESULT hr =
+            CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        m_initialize = SUCCEEDED(hr);
+        // RPC_E_CHANGED_MODE = 这一根线程已经是别的套间（MTA）了：不重起，但可以接着试
+        // —— 拿得到就干活，拿不到由调用方照实报错。
+        m_usable = SUCCEEDED(hr) || hr == RPC_E_CHANGED_MODE;
+    }
+    ~ComApartment() {
+        if (m_initialize) {
+            CoUninitialize();
+        }
+    }
+    ComApartment(const ComApartment &) = delete;
+    ComApartment &operator=(const ComApartment &) = delete;
+
+    bool usable() const { return m_usable; }
+
+private:
+    bool m_initialize = false;
+    bool m_usable = false;
+};
+
+/// 把 @p root 底下（**不含 root 自己**）的链接一个个摘掉，只摘壳子，那一头一个字节都不动。
+///
+/// NOTE: 为什么要先剥。回收站那一趟是 shell 在搬东西，而 shell 面对 junction 的行为不值得
+/// 这一次冒险：一旦它顺着链接走进去，进的回收站里就是**别人那块盘上的东西**。这里先用和
+/// `removeTreeWithoutFollowingLinks()` 同一条判据把链接摘掉，剩下的才是纯数据。
+/// 链接本身没有回收价值（两个字节的壳子，一条 mklink 就回来了）。
+bool stripLinksBelow(const QString &root, QString *problem) {
+    const QDir dir(root);
+    const QStringList entries =
+        dir.entryList(QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
+    for (const QString &entry : entries) {
+        const QString path = dir.absoluteFilePath(entry);
+        const QFileInfo info(path);
+        if (isLinkToElsewhere(info)) {
+            const bool removed =
+                info.isDir() ? QDir().rmdir(path) : removeFileAllowingReadOnly(path);
+            if (!removed) {
+                if (problem != nullptr) {
+                    *problem = FolderManager::tr("「%1」这个链接摘不掉（可能正被别的程序占着）。")
+                                   .arg(QDir::toNativeSeparators(path));
+                }
+                return false;
+            }
+            continue;
+        }
+        if (info.isDir() && !stripLinksBelow(path, problem)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+}  // namespace
+#endif
+
+/// 把 @p path 移进回收站（文件 / 目录 / 整棵树）。详见头文件那段约定。
+///
+/// NOTE: 用的是 **`IFileOperation` + `FOFX_RECYCLEONDELETE`**，不是旧的 `SHFileOperation`。
+/// 差别在失败时的行为：旧 API 在"回收站放不进去"时（U 盘、网络盘、配额满了、关了回收站）
+/// 会**悄悄**改成永久删除，正好是我们最不想要的那一种；`FOFX_RECYCLEONDELETE` 明确要求
+/// "必须进回收站"，放不进去就报错 —— 删不掉比悄悄删掉强。
+bool moveToRecycleBin(const QString &path, QString *error) {
+    const auto fail = [error](const QString &text) {
+        if (error != nullptr) {
+            *error = text;
+        }
+        return false;
+    };
+    const auto succeed = [error] {
+        if (error != nullptr) {
+            error->clear();
+        }
+        return true;
+    };
+
+    if (path.trimmed().isEmpty()) {
+        return fail(FolderManager::tr("没有指定要删除的东西。"));
+    }
+    const QFileInfo info(path);
+
+    // 链接本身：只摘壳子（头文件里那条约定）。回收一个链接没有任何意义。
+    if (isLinkToElsewhere(info)) {
+        const bool removed = info.isDir() ? QDir().rmdir(path) : removeFileAllowingReadOnly(path);
+        return removed ? succeed()
+                       : fail(FolderManager::tr("没能把链接「%1」删掉（可能正被别的程序占着）。")
+                                  .arg(QDir::toNativeSeparators(path)));
+    }
+    if (!info.exists()) {
+        return succeed();  // 已经不在了 = 调用方要的结果已经达成
+    }
+
+    const QString target = QDir::cleanPath(info.absoluteFilePath());
+    if (QDir(target).isRoot()) {
+        // 整块盘不是"一样东西"：真移进回收站等于把盘清空。
+        return fail(FolderManager::tr("「%1」是整块盘的根目录，不能整个删。").arg(target));
+    }
+
+#if defined(Q_OS_WIN)
+    // shell 那一套只认反斜杠：`QDir::cleanPath()` 给的是正斜杠，直接喂
+    // `SHCreateItemFromParsingName()` 会回 0x80070057（E_INVALIDARG，一句"参数错误"）。
+    // 内部比对仍然用带正斜杠的 `target`（Qt 那边全程都认这一种）。
+    const QString nativePath = QDir::toNativeSeparators(target);
+    const std::wstring wide = nativePath.toStdWString();
+
+    // 网络位置没有回收站。与其让 IFileOperation 报一句看不懂的错，不如先说清楚"是这儿
+    // 没有回收站、所以什么都没动"。
+    wchar_t volume[MAX_PATH + 1] = {};
+    if (GetVolumePathNameW(wide.c_str(), volume, MAX_PATH + 1) != 0) {
+        const UINT type = GetDriveTypeW(volume);
+        if (type == DRIVE_REMOTE || type == DRIVE_CDROM || type == DRIVE_NO_ROOT_DIR) {
+            return fail(FolderManager::tr("「%1」在 %2 上，那里没有回收站。\n\n"
+                                          "为了不永久删掉，这一项没有动。")
+                            .arg(target, QString::fromWCharArray(volume)));
+        }
+    }
+
+    // 一棵树里的链接先剥掉（理由见 stripLinksBelow()）。
+    if (info.isDir()) {
+        QString linkProblem;
+        if (!stripLinksBelow(target, &linkProblem)) {
+            return fail(FolderManager::tr("「%1」没有往回收站移：里面有一个链接没能摘掉。\n\n%2")
+                            .arg(QDir::toNativeSeparators(target), linkProblem));
+        }
+    }
+
+    ComApartment com;
+    if (!com.usable()) {
+        return fail(FolderManager::tr("这台机器上起不了回收站那一套组件，为了不永久删掉，"
+                                      "「%1」没有动。")
+                        .arg(QDir::toNativeSeparators(target)));
+    }
+
+    IFileOperation *operation = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL, IID_IFileOperation,
+                                  reinterpret_cast<void **>(&operation));
+    if (FAILED(hr) || operation == nullptr) {
+        if (operation != nullptr) operation->Release();
+        return fail(FolderManager::tr("打不开回收站：%1\n\n为了不永久删掉，「%2」没有动。")
+                        .arg(systemMessage(hr), QDir::toNativeSeparators(target)));
+    }
+
+    // FOFX_EARLYFAILURE：碰到第一个删不动的就停，尽量少动 —— 回收站那一趟默认会跳过
+    // 失败项继续搬，最后只给一句"有的没成功"，用户已经分不清哪些进了回收站。
+    hr = operation->SetOperationFlags(FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT
+                                      | FOF_NOERRORUI | FOFX_EARLYFAILURE
+                                      | FOFX_RECYCLEONDELETE);
+    IShellItem *item = nullptr;
+    if (SUCCEEDED(hr)) {
+        hr = SHCreateItemFromParsingName(wide.c_str(), nullptr, IID_IShellItem,
+                                         reinterpret_cast<void **>(&item));
+    }
+    if (SUCCEEDED(hr) && item != nullptr) {
+        hr = operation->DeleteItem(item, nullptr);
+    }
+    if (SUCCEEDED(hr)) {
+        hr = operation->PerformOperations();
+    }
+    BOOL aborted = FALSE;
+    operation->GetAnyOperationsAborted(&aborted);
+    if (item != nullptr) item->Release();
+    operation->Release();
+
+    if (FAILED(hr)) {
+        return fail(FolderManager::tr("没能把「%1」移进回收站：%2\n\n"
+                                      "（回收站不可用、放不下这么大的东西、或者里面的文件正被"
+                                      "别的程序占着 —— 先把游戏关掉再试。）")
+                        .arg(QDir::toNativeSeparators(target), systemMessage(hr)));
+    }
+    if (aborted != FALSE) {
+        return fail(FolderManager::tr("「%1」移进回收站的过程被打断了，盘上可能剩了一部分 —— "
+                                      "看一眼回收站和原目录再决定下一步。")
+                        .arg(QDir::toNativeSeparators(target)));
+    }
+    if (QFileInfo::exists(target)) {
+        // 没报错、也没打断，东西却还在：不能当作删成功（调用方会照实说"还在"）。
+        return fail(FolderManager::tr("「%1」还在盘上 —— 回收站那一趟没有生效。")
+                        .arg(QDir::toNativeSeparators(target)));
+    }
+    return succeed();
+#else
+    // 非 Windows 平台没有"回收站"这个概念。这里**不**退回永久删除（那就是这一整套要防的
+    // 事）；调用方会看到一句明确的失败。当前产品只发 Windows 版。
+    return fail(FolderManager::tr("这个平台没有回收站，「%1」没有动。")
+                    .arg(QDir::toNativeSeparators(target)));
+#endif
+}
+
 ///
 /// NOTE: 目录必须**先建再进**：`QFile::copy()` 不会替你造父目录，mkdir 和拷文件分两步
 /// 是必须的（先拷文件再建目录这条最常见的写法在这里会失败）。
@@ -461,15 +697,20 @@ bool FolderManager::deleteFolder(const QString &path, QString *error) {
         return false;
     }
     // 盘上那个目录不存在（U 盘没插、已经被手工删掉）不算失败：列表里那一条照样要清掉。
-    if (QFileInfo(target).exists() && !removeTreeWithoutFollowingLinks(target)) {
-        if (error != nullptr) {
-            // 失败原因照实说：删到一半失败时目录是**半截**的（前面那些文件已经没了），
-            // 而用户需要知道现在盘上到底是什么状态。
-            *error = tr("「%1」没能删干净，可能是里面的文件正被别的程序占用"
-                                 "（比如游戏还开着）。")
-                         .arg(QDir::toNativeSeparators(target));
+    // 存在的话**移进回收站**（不是永久删除）—— 这一颗按钮就在存档目录旁边，误点一次不该
+    // 把几百 GB 的整合包彻底抹掉。
+    if (QFileInfo::exists(target)) {
+        QString recycleProblem;
+        if (!moveToRecycleBin(target, &recycleProblem)) {
+            if (error != nullptr) {
+                // 失败原因照实说：移到一半失败时目录是**半截**的（前面那些已经进了回收站），
+                // 而用户需要知道现在盘上和回收站里到底是什么状态。
+                *error = tr("「%1」没能整个移进回收站：%2\n\n"
+                            "已经移走的那部分在回收站里，可以还原。")
+                             .arg(QDir::toNativeSeparators(target), recycleProblem);
+            }
+            return false;
         }
-        return false;
     }
     forgetFolder(target);
     return true;

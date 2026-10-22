@@ -154,7 +154,8 @@ void PresetManagePage::buildUi() {
     m_deleteButton->setObjectName(deleteButtonName());
     m_deleteButton->setAutoDefault(false);
     Theme::markButton(m_deleteButton, Theme::ButtonKind::Danger);
-    m_deleteButton->setToolTip(QStringLiteral("连这一份的目录一起删掉，删了找不回来。"));
+    m_deleteButton->setToolTip(
+        QStringLiteral("连这一份的目录一起删掉，删掉的东西会进回收站，可以从那里还原。"));
     m_moveUpButton = new QPushButton(QStringLiteral("上移"), left);
     m_moveUpButton->setObjectName(moveUpButtonName());
     m_moveUpButton->setAutoDefault(false);

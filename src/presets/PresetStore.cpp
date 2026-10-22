@@ -632,7 +632,9 @@ bool remove(const QString &root, const QString &id) {
     if (!WriteDirectoryGuard::acquire(dir)) {
         return false;
     }
-    if (QFileInfo::exists(dir) && !removeTreeWithoutFollowingLinks(dir)) {
+    // 整棵目录**移进回收站**（用户亲手配出来的预设，删错了得能捞回来）；不追链接的规矩
+    // 由 moveToRecycleBin() 接着守。第三段的事务暂存仍然走永久删除（那里面没有用户内容）。
+    if (QFileInfo::exists(dir) && !moveToRecycleBin(dir)) {
         return false;
     }
     bool indexReadable = true;

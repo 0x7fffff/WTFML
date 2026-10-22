@@ -436,10 +436,13 @@ bool removeServer(const QString &serverId, QString *problemOut) {
         }
         return false;
     }
-    // 服务端里的世界或内容目录可能是 junction；这里只摘链接本身，绝不删除链接目标。
-    if (!removeTreeWithoutFollowingLinks(dir)) {
+    // 进**回收站**（用户几个月的心血，点错一次得有地方捞回来）。服务端里的世界或内容
+    // 目录可能是 junction；`moveToRecycleBin()` 只摘链接本身，绝不删除链接目标。
+    QString recycleProblem;
+    if (!moveToRecycleBin(dir, &recycleProblem)) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("删不掉：%1").arg(QDir::toNativeSeparators(dir));
+            *problemOut = QStringLiteral("删不掉：%1\n%2")
+                              .arg(QDir::toNativeSeparators(dir), recycleProblem);
         }
         return false;
     }

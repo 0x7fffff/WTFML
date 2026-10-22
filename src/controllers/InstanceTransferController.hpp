@@ -72,11 +72,11 @@ public:
     void importWorldInBackground(const QString &instanceId, const QString &worldDir,
                                  const QString &name,
                                  std::function<void(bool, const QString &)> whenDone = {});
-    /// 「删除世界」那一趟：确认过了才进来，整棵目录树在工作线程里删。
+    /// 「删除世界」那一趟：确认过了才进来，整棵目录树在工作线程里**移进回收站**。
     ///
     /// NOTE: 删除**不提供取消**。删到一半停下留下的是"半截世界"，比删完更难收拾；
     /// 账本按 `TaskKind::Other` 记账，并且明写「不能取消」的原因（见 `beginTask` 之后那一发）。
-    /// 删不干净时照实报失败（`removeTreeWithoutFollowingLinks()` 会尽力删完剩下的）。
+    /// 移不进去时照实报失败，并把原因（`moveToRecycleBin()` 给的那一句）一起带出去。
     void deleteWorldInBackground(const QString &instanceId, const QString &worldDir,
                                  std::function<void(bool, const QString &)> whenDone = {});
     /// 任务中心那一项此刻按「取消」真的停得下来吗（那一颗按钮的唯一判据）。

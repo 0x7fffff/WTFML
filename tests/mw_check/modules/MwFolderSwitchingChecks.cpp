@@ -832,9 +832,9 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
                 QWidget *deleteMenu = openMenuOf(gearOf(vanishedTitle));
                 clickAction(deleteMenu, MainWindowUI::FolderActionDelete);
                 check(g_modalTitle == QStringLiteral("删除游戏文件夹") &&
-                          g_modalText.contains(QStringLiteral("恢复不了")) &&
+                          g_modalText.contains(QStringLiteral("回收站")) &&
                           g_modalText.contains(QStringLiteral("用「移除」")),
-                      "P2 确认框把「不可恢复」和「想留着就用移除」都写死了",
+                      "P2 确认框把「会进回收站」和「想留着就用移除」都写死了",
                       g_modalTitle + QStringLiteral(" / ") + g_modalText);
                 check(g_modalWasWarning == false, "P2 它不是警告框（要答的那一下才是重点）");
                 check(folderListView->count() == 2,

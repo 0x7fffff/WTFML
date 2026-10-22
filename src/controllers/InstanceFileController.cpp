@@ -21,7 +21,7 @@ bool isLinkEntry(const QFileInfo &info) {
 }
 
 /// 单条删除那一问。★ ：链接**不能**按文件夹写 —— `removeUnasked()` 对目录走
-/// `removeTreeWithoutFollowingLinks()`，它碰到链接只摘掉链接本身、指向的东西一个字节都不动；
+/// `moveToRecycleBin()`，它碰到链接只摘掉链接本身、指向的东西一个字节都不动；
 /// 而 `QFileInfo::isDir()` 对 junction 是 `true`。照着 `isDir()` 写这一问，用户看到的是
 /// 「连同里面的东西一起删掉」，实际删掉的是个两字节的壳子 —— 反过来更糟：用户以为链接背后
 /// 那棵大树还在、其实（如果他自己以为是删文件）也没有。说什么就得做什么。
@@ -32,9 +32,11 @@ QString removalQuestionFor(const QFileInfo &info) {
             .arg(name);
     }
     if (info.isDir()) {
-        return QObject::tr("把文件夹「%1」连同里面的东西一起删掉？删了就没了。").arg(name);
+        return QObject::tr("把文件夹「%1」连同里面的东西一起删掉？它们会进回收站，"
+                           "要恢复可以从那里找回来。")
+            .arg(name);
     }
-    return QObject::tr("把「%1」从盘上删掉？删了就没了。").arg(name);
+    return QObject::tr("把「%1」删掉？它会进回收站，要恢复可以从那里找回来。").arg(name);
 }
 
 }  // namespace
@@ -100,20 +102,13 @@ bool InstanceFileController::removeUnasked(const QString &path, QString *problem
         return fail(tr("「%1」现在不在盘上。").arg(QDir::toNativeSeparators(path)));
     QString lockProblem;
     if (!WriteDirectoryGuard::acquire(path, &lockProblem)) return fail(lockProblem);
-    // 两条路都走 `removeTreeWithoutFollowingLinks()`。它对**文件**多做了
-    // 一件 `QFile::remove()` 不做的事：失败时先摘掉只读位再试一次（见 FolderManager.cpp
-    // 里那段）—— 从只读介质拷来的 jar、被网盘/别的启动器标成只读的整合包，不然永远删不掉，
-    // 而下面那句提示还把人往"游戏占着"引，关掉游戏也删不掉。
-    // 目录那条路本来就是它（连里面一起删、不追链接）。
-    const bool wasDirectory = info.isDir() && !isLinkEntry(info);
-    const bool removed = removeTreeWithoutFollowingLinks(path);
-    if (!removed)
-        return fail(wasDirectory
-            ? tr("没能把「%1」删干净：多半是里面的某个文件正被游戏占着。\n\n"
-                 "已经删掉的那部分找不回来了，剩下的还在原处。先把游戏关掉，再删一次。")
-                  .arg(QDir::toNativeSeparators(path))
-            : tr("没能删掉「%1」：多半是它正被游戏占着。先把游戏关掉再试。")
-                  .arg(QDir::toNativeSeparators(path)));
+    // 进**回收站**：文件页上的东西（模组、资源包、存档里的一份文件）都是用户自己攒的，
+    // 点错了得有地方捞回来。目录那条路连同里面一起移，链接只摘壳子 —— 两条约定都在
+    // `moveToRecycleBin()` 里（见 FolderManager.hpp）。
+    QString recycleProblem;
+    if (!moveToRecycleBin(path, &recycleProblem))
+        return fail(tr("没能把「%1」移进回收站：%2\n\n先把游戏关掉再试。")
+                        .arg(QDir::toNativeSeparators(path), recycleProblem));
     log(tr("删除文件：%1").arg(QDir::toNativeSeparators(path)));
     return true;
 }
@@ -143,7 +138,7 @@ void InstanceFileController::removeMany(const QStringList &paths) {
     if (paths.isEmpty()) return;
     // 这一批里**可能有文件夹**。资源包 / 数据包 / 光影包那三页连目录一起列
     // （未压缩的目录包正是游戏认可的一种形态），而 `removeUnasked()` 对目录是**连里面的
-    // 东西一起递归删**（`removeTreeWithoutFollowingLinks`）。这一问若无论收到什么都
+    // 东西一起递归移**（`moveToRecycleBin`）。这一问若无论收到什么都
     // 写「这 N 个文件」，唯一的确认框就把实际破坏范围说小了，用户以为只删一个壳子。
     // 单条那条路（`remove()`）是分开写的，批量这条路也要照办。
     // 链接单独数：它们**不**是"里面的东西一起删"，只摘壳子（见 `removalQuestionFor()`）。
@@ -160,13 +155,15 @@ void InstanceFileController::removeMany(const QStringList &paths) {
                ? tr("把这 %1 个链接删掉？只删链接本身，它们指向的东西一个都不会动。")
                      .arg(paths.size())
                : (dirCount == 0 && linkCount == 0
-                      ? tr("把这 %1 个文件从盘上删掉？删了就没了。").arg(paths.size())
+                      ? tr("把这 %1 个文件删掉？它们会进回收站，要恢复可以从那里找回来。")
+                            .arg(paths.size())
                       : (linkCount == 0 && dirCount == paths.size()
-                             ? tr("把这 %1 个文件夹连同里面的东西一起删掉？删了就没了。")
+                             ? tr("把这 %1 个文件夹连同里面的东西一起删掉？"
+                                  "它们会进回收站，要恢复可以从那里找回来。")
                                    .arg(paths.size())
                              : [&] {
                                    QString text =
-                                       tr("把这 %1 项从盘上删掉？").arg(paths.size());
+                                       tr("把这 %1 项删掉？").arg(paths.size());
                                    if (dirCount > 0)
                                        text += tr("其中 %1 个是文件夹（连同里面的东西一起删）")
                                                    .arg(dirCount);
@@ -175,7 +172,8 @@ void InstanceFileController::removeMany(const QStringList &paths) {
                                        text += tr("%1 个是链接（只删链接本身，指向的东西不动）")
                                                    .arg(linkCount);
                                    }
-                                   return text + tr("。删了就没了。");
+                                   return text + tr("。它们会进回收站，"
+                                                    "要恢复可以从那里找回来。");
                                }())));
     if (InlineMessage::ask(m_overlay, MessageKind::Question, tr("删除文件"), question,
                            {tr("删除"), tr("取消")}, 1, 0) != 0) return;

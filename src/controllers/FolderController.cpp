@@ -135,10 +135,11 @@ void FolderController::removeFromDisk(const QString &path) {
     if (m_launcher->hasRunningGame()) {
         InlineMessage::warning(m_ui->overlay(), tr("删除游戏文件夹"),
                                tr("现在有游戏正在运行，先关掉游戏再删。\n"
-                                  "删的时候游戏正开着，里面的文件会删不干净。"));
+                                  "游戏正开着的时候，它占着的文件移不进回收站。"));
         return;
     }
-    QString question = tr("「%1」这个文件夹和**里面的全部文件**都会被删掉，删了恢复不了。\n\n"
+    QString question = tr("「%1」这个文件夹和**里面的全部文件**都会被删掉"
+                          "（会进回收站，可以从那里还原）。\n\n"
                           "存档、截图、自己放的模组都在这份目录里。\n"
                           "只想把它从列表里拿掉、盘上的东西留着的话，用「移除」。")
                            .arg(QDir::toNativeSeparators(path));

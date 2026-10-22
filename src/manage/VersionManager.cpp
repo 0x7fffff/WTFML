@@ -4284,12 +4284,14 @@ bool VersionManager::deleteInstance(const QString &versionId, QString *errorOut)
         return false;
     }
 
-    // 走 FolderManager 那支"不追链接"的删树（理由见头文件那条 NOTE）。
-    if (!removeTreeWithoutFollowingLinks(dir)) {
+    // 进**回收站**而不是永久删除：删实例是用户最容易手滑的一步，删掉之后得有退路。
+    // 不追链接的规矩由 moveToRecycleBin() 接着守（见 FolderManager.hpp）。
+    QString recycleProblem;
+    if (!moveToRecycleBin(dir, &recycleProblem)) {
         if (errorOut != nullptr) {
-            *errorOut = tr("没能把 %1 整个删掉（可能还有程序开着里面的文件）。\n"
-                           "已经删掉的那部分不会恢复。")
-                            .arg(QDir::toNativeSeparators(dir));
+            *errorOut = tr("没能把 %1 整个删掉：%2\n"
+                           "已经移进回收站的那部分可以还原。")
+                            .arg(QDir::toNativeSeparators(dir), recycleProblem);
         }
         return false;
     }

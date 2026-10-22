@@ -1858,8 +1858,8 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 });
 
         // 「删除世界…」的做法照着 `m_owner->deleteInstanceFile()` 那
-        // 一条：**先问一句**（红的那一档）、再用 junction 安全的 `removeTreeWithoutFollowingLinks()`
-        // 删、删不掉时把"多半是被游戏占着"说出来。
+        // 一条：**先问一句**（红的那一档）、再由控制器把它**移进回收站**（junction 安全）、
+        // 删不掉时把"多半是被游戏占着"说出来。
         //
         // NOTE: 这里不比 `m_owner->deleteInstanceFile()` 多判一条"游戏在跑"就删 —— 多判的那一条
         // 是有用的：游戏手里那份存档是它自己读进去的，它退出（或者在游戏里存一次）
@@ -1891,7 +1891,9 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     // 用户几百 MB 的游玩记录删掉（和 `m_owner->deleteInstanceFile()` 一个方向）。
                     if (!InlineMessage::question(
                             m_owner->m_ui->overlay(), tr("删除世界"),
-                            tr("把「%1」连同里面的东西从盘上删掉？删了就没了。").arg(worldName),
+                            tr("把「%1」连同里面的东西一起删掉？它们会进回收站，"
+                               "要恢复可以从那里找回来。")
+                                .arg(worldName),
                             tr("删除"), tr("取消"), /*defaultYes=*/false,
                             /*destructive=*/true)) {
                         return;

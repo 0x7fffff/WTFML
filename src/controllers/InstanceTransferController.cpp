@@ -498,9 +498,9 @@ void InstanceTransferController::deleteWorldInBackground(
             const QString error =
                 result.ok
                     ? QString()
-                    : tr("没能删掉「%1」：多半是它正被游戏（或者别的程序）占着。"
+                    : tr("没能把「%1」移进回收站：%2\n\n"
                          "先把游戏关掉再试。")
-                          .arg(QDir::toNativeSeparators(worldDir));
+                          .arg(QDir::toNativeSeparators(worldDir), result.error);
             if (m_host.setTaskStepState) m_host.setTaskStepState(task, 0,
                 result.ok ? Tasks::TaskStepState::Done : Tasks::TaskStepState::Failed);
             if (m_host.finishTask) m_host.finishTask(task, result.ok, error);
@@ -513,9 +513,10 @@ void InstanceTransferController::deleteWorldInBackground(
     // 工人只碰路径：不读 AppPaths、不碰当前实例选择、不捕获控制器或页面。
     watcher->setFuture(QtConcurrent::run([worldDir] {
         CopyOutcome result;
-        // 不能换成 `QDir::removeRecursively()`：它会跟着 junction / 符号链接走进目标目录
-        // （见 FolderManager.cpp 里那段）。
-        result.ok = removeTreeWithoutFollowingLinks(worldDir);
+        // 走回收站（不是永久删除），并且不追 junction / 符号链接 —— 两条都收在
+        // `moveToRecycleBin()` 里（见 FolderManager.hpp）。它自己会在这个线程上补一次
+        // COM 初始化。
+        result.ok = moveToRecycleBin(worldDir, &result.error);
         return result;
     }));
 }
