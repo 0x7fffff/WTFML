@@ -2,16 +2,16 @@
 int UiLogTogglesChecks() {
     {
         // 「开着的那颗染成这一档的颜色、关掉之后变回原来那个灰」—— 这一节钉的就是这个。
-        //
-        // 关态那个灰**是量出来的**：原生 Fusion 给这一排五颗关着时画的就是 `#ababab`。
-        // 钉成常量写在这里：哪天这个数字变了，先问一句"是不是又换了画法"，别顺手改断言。
-        const QColor kOffGray(0xab, 0xab, 0xab);
-
         auto *log = new GameLogWindow(QStringLiteral("开关染色这一节"));
         QPointer<GameLogWindow> guard(log);
         log->show();
         QApplication::processEvents();
         using L = GameLogWindow::LogLevel;
+
+        // 关态那个灰**是算出来的**：`GameLogWindow::switchOffColor()`（从窗口底色往窗口
+        // 墨色混 `kSwitchOffPercent`；浅色下约 `#aa`，深色下自动变深灰）。量的时候拿
+        // **这一窗自己的调色板** —— 日志窗的颜色不跟应用调色板走（见 .cpp 里那段）。
+        const QColor kOffGray = GameLogWindow::switchOffColor(log->palette());
 
         // 开态那一张必须在**点之前**量：五颗开局全是勾着的（默认就是"全看"）。
         QToolButton *buttons[GameLogWindow::levelCount()] = {};
@@ -71,7 +71,7 @@ int UiLogTogglesChecks() {
             worstOff = qMax(worstOff, colorDistance(offColor[i], kOffGray));
         }
         check(worstOff >= 0 && worstOff <= 6,
-              "Z7 关掉之后变回**原来那个灰**（五颗一律 #ababab，改之前量的就是它）",
+              "Z7 关掉之后变回**那个中性灰**（五颗一律 `switchOffColor()` 算出来的那支）",
               QStringLiteral("%1 | 最远的一颗差 %2")
                   .arg(offText.join(QStringLiteral(" ")))
                   .arg(worstOff));
@@ -81,7 +81,8 @@ int UiLogTogglesChecks() {
         QString onDetail;
         for (int i = 0; i < GameLogWindow::levelCount(); ++i) {
             const L level = GameLogWindow::levelAt(i);
-            const QColor want = GameLogWindow::filterButtonBackground(level, /*on=*/true);
+            const QColor want =
+                GameLogWindow::filterButtonBackground(level, /*on=*/true, log->palette());
             const int distance = colorDistance(onColor[i], want);
             if (distance > worstOn) {
                 worstOn = distance;
@@ -98,28 +99,32 @@ int UiLogTogglesChecks() {
         check(worstOn >= 0 && worstOn <= 6,
               "Z7 开着那颗填的就是这一档的颜色（和正文那一行同一个色）",
               QStringLiteral("%1 | 最远 %2").arg(onText.join(QStringLiteral(" ")), onDetail));
-        check(GameLogWindow::filterButtonBackground(L::Warn, true) ==
-                      GameLogWindow::levelBackground(L::Warn) &&
-                  !GameLogWindow::levelBackground(L::Info).isValid() &&
-                  GameLogWindow::filterButtonBackground(L::Info, true).isValid(),
-              "Z7 「开着填什么色」也是唯一出处说了算（四档借正文的色，Info 借正文区的底色）",
+        check(GameLogWindow::filterButtonBackground(L::Warn, true, log->palette()) ==
+                      GameLogWindow::levelBackground(L::Warn, log->palette()) &&
+                  !GameLogWindow::levelBackground(L::Info, log->palette()).isValid() &&
+                  GameLogWindow::filterButtonBackground(L::Info, true, log->palette()).isValid(),
+              "Z7 「开着填什么色」也是唯一出处说了算（三档借正文的色，Info 借正文区的底色）",
               QStringLiteral("WARN=%1 INFO=%2")
-                  .arg(GameLogWindow::filterButtonBackground(L::Warn, true).name(),
-                       GameLogWindow::filterButtonBackground(L::Info, true).name()));
+                  .arg(GameLogWindow::filterButtonBackground(L::Warn, true, log->palette()).name(),
+                       GameLogWindow::filterButtonBackground(L::Info, true, log->palette()).name()));
 
         // ②b Info 那颗**开着比关着亮** —— 这是用户那句话本身（「info 的按钮再亮一点」）。
         // 别的档不适用这一条：Fatal 那个深红比关态那个灰还暗，而那是对的（它要的是"醒目"
         // 不是"亮"）。所以这条只管 Info 那一档，判据用三通道之和（比"亮"这个词具体）。
         {
             const auto luminance = [](const QColor &c) { return c.red() + c.green() + c.blue(); };
-            const int onLum = luminance(GameLogWindow::filterButtonBackground(L::Info, true));
-            const int offLum = luminance(GameLogWindow::filterButtonBackground(L::Info, false));
+            const int onLum =
+                luminance(GameLogWindow::filterButtonBackground(L::Info, true, log->palette()));
+            const int offLum =
+                luminance(GameLogWindow::filterButtonBackground(L::Info, false, log->palette()));
             check(onLum >= offLum + 60,
                   "Z7 Info 那颗开着的时候比关着**亮**（用户要的「再亮一点」）",
                   QStringLiteral("开=%1(和 %2) 关=%3(和 %4)")
-                      .arg(GameLogWindow::filterButtonBackground(L::Info, true).name())
+                      .arg(GameLogWindow::filterButtonBackground(L::Info, true, log->palette())
+                               .name())
                       .arg(onLum)
-                      .arg(GameLogWindow::filterButtonBackground(L::Info, false).name())
+                      .arg(GameLogWindow::filterButtonBackground(L::Info, false, log->palette())
+                               .name())
                       .arg(offLum));
         }
 
@@ -169,12 +174,13 @@ int UiLogTogglesChecks() {
               "Z7 点一下按钮自己不变大变小（开关上的字不随开关状态变，整排不会挪）",
               QStringLiteral("%1x%2").arg(onSize[0].width()).arg(onSize[0].height()));
 
-        // ⑥ 字和底得**分得开**：FATAL 那颗是白字（深红底上黑字读不清），其余四颗是黑字
-        // （它们的底都是浅的）。字形是抗锯齿画的，没有"确定的那一个像素"，所以数的是
+        // ⑥ 字和底得**分得开**：浅色那一套里五颗的字都是那支深灰墨（`#202020`）——
+        // FATAL 那颗的底是浅红（`#edb5bd`），深灰压上去读得清；白字是**深色那一套**
+        // （深红 `#d32f2f` 底）才换的。字形是抗锯齿画的，没有"确定的那一个像素"，所以数的是
         // **一块里有几个接近白 / 接近黑的点**。
         //
-        // NOTE: 这里数反过来的黑点：INFO 那颗的底**就是**白，白点分不出是字还是底；
-        // 黑字那四颗一定有，FATAL 那颗一个都不该有。
+        // NOTE: 这里数黑点：INFO 那颗的底**接近**白，但白点分不出是字还是底（那支墨是
+        // `#202020`，黑点一定来自字）；五颗都该有黑点、也都不该出现白点。
         const auto pixelsNear = [](const QImage &image, bool white) {
             int count = 0;
             for (int y = 0; y < image.height(); ++y) {
@@ -190,9 +196,8 @@ int UiLogTogglesChecks() {
             return count;
         };
         QStringList inkText;
-        int fatalWhite = 0;
-        int fatalBlack = 0;
-        bool othersBlack = true;
+        bool allBlack = true;
+        bool noWhiteInk = true;
         for (int i = 0; i < GameLogWindow::levelCount(); ++i) {
             const L level = GameLogWindow::levelAt(i);
             const int white = pixelsNear(onShot[i], /*white=*/true);
@@ -201,18 +206,18 @@ int UiLogTogglesChecks() {
                            .arg(GameLogWindow::levelName(level))
                            .arg(white)
                            .arg(black);
-            if (level == L::Fatal) {
-                fatalWhite = white;
-                fatalBlack = black;
-            } else if (black <= 0) {
-                othersBlack = false;
+            allBlack = allBlack && black > 0;
+            // INFO 那一颗的底**就是**近白（正文区的底色），白点分不出是字还是底 ——
+            // 别的几颗的底都是浅彩色，出现一片白就是"字换成白墨了"。
+            const QColor onBg = GameLogWindow::filterButtonBackground(level, true, log->palette());
+            const bool nearWhiteBase = onBg.red() >= 0xf0 && onBg.green() >= 0xf0 &&
+                                       onBg.blue() >= 0xf0;
+            if (!nearWhiteBase && white > 0) {
+                noWhiteInk = false;
             }
         }
-        check(fatalWhite > 0 && fatalBlack == 0,
-              "Z7 FATAL 那颗的字是**白**的（深红底上黑字读不清；反过来一个黑点都不该有）",
-              inkText.join(QStringLiteral(" ")));
-        check(othersBlack,
-              "Z7 其余四颗的字是**黑**的（含 INFO：它的底现在是白的，更得是黑字）",
+        check(allBlack && noWhiteInk,
+              "Z7 五颗的字都铺着那支深灰墨（浅色那一套；浅彩色底上一个白点都不该有）",
               inkText.join(QStringLiteral(" ")));
 
         log->close();

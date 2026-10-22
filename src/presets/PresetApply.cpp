@@ -74,6 +74,15 @@ bool writeWholeFile(const QString &path, const QByteArray &bytes, QString *probl
  * 同一秒里撞上同名目录时往后加 `-2` / `-3`：覆盖掉上一份备份等于这一趟没备份。
  */
 QString makeBackupDir(const QString &presetsRoot, const QString &instanceId) {
+    // 备份落在**预设库**那一头（通常是默认数据根），可能不在调用方持有的实例根里。
+    // 单独再取一次根锁：另一份启动器持着预设库时也不写备份，返回空串让调用方停下
+    // （它的话术是"不敢在没有备份的情况下动这个实例"）。
+    {
+        QString lockProblem;
+        if (!WriteDirectoryGuard::acquire(presetsRoot, &lockProblem)) {
+            return QString();
+        }
+    }
     const QString base = presetsRoot + QStringLiteral("/backups/") +
                          (instanceId.isEmpty() ? QStringLiteral("instance") : instanceId) +
                          QLatin1Char('/') +

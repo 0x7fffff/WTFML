@@ -141,7 +141,9 @@ int UiScrollBarsChecks(QApplication &app, QFrame * &bar) {
                   .arg(grooveRect.height())
                   .arg(bar->width())
                   .arg(bar->height()));
-        // 把手得是支**灰**（r=g=b），比底下那一层深，而且就是主题那一支（拿混色算一遍对一下）。
+        // 把手得是**主题那一支**（`scrollHandleColor()`：认得出的预设是自家 `thumb`，
+        // 默认这一档是翡翠的浅绿灰 —— 不是 Fusion 那种中性灰），拿混色算一遍对一下；
+        // 并且和底下那一层明度差得开（看得见才叫把手）。
         const QColor handleInk = at((firstInk + lastInk) / 2, probeY);
         const QColor want = Theme::scrollHandleColor();
         const auto blend = [](const QColor &over, const QColor &under) {
@@ -152,10 +154,10 @@ int UiScrollBarsChecks(QApplication &app, QFrame * &bar) {
         };
         const QColor expected = blend(want, behind);
         const auto near = [](int a, int b) { return qAbs(a - b) <= 2; };
-        check(handleInk.red() == handleInk.green() && handleInk.green() == handleInk.blue() &&
-                  handleInk.value() < behind.value() && near(handleInk.red(), expected.red()) &&
+        check(qAbs(handleInk.value() - behind.value()) >= 20 &&
+                  near(handleInk.red(), expected.red()) &&
                   near(handleInk.green(), expected.green()) && near(handleInk.blue(), expected.blue()),
-              "★★ ⑭ 把手是一支中性灰、比它底下那一层深，而且就是主题那一支（混色算得出来）",
+              "★★ ⑭ 把手是主题那一支、和它底下那一层分得开（混色算得出来）",
               QStringLiteral("把手 %1（明度 %2）/ 期望 %3 / 底 %4（明度 %5）")
                   .arg(handleInk.name())
                   .arg(handleInk.value())

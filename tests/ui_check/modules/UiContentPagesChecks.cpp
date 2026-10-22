@@ -2141,25 +2141,40 @@ int UiContentPagesChecks(QFrame * &bar) {
                           buttonOf(InstanceFilesPage::SelectionAction::Delete)->isEnabled(),
                       "★★ U10Q 全选 / 反选 / 取消 / 删除**恒可用**（它们不该跟着灰化规则走）");
 
-                // 那七颗的顺序就是用户点名的那个顺序（更新 禁用 启用 全选 反选 取消 删除）。
+                // 模组页开了「操作面板」那一档（`setActionPanelEnabled(true)`）：
+                // 七颗按钮一个都没少（`selectionActionCount()` 仍是 7，选择/灰化规则不变），
+                // 但**摆放换了地方**——
+                // · 更新 / 删除在右侧那块操作面板里（名字也换成了「更新选中项 / 删除选中项」）；
+                // · 全选 / 反选 / 清除选择在顶上那排工具里（面板外面）；
+                // · 启用 / 禁用**收进「启用 / 禁用…」菜单**，不再并排两颗
+                //   （菜单里两项各自按 `selectedTogglePaths()` 现算灰不灰 —— 见 U10R）。
+                // 用户当初点名的并排顺序只在**没开面板**的那几页（资源包 / 数据包 / 光影）上
+                // 还是原样；面板这一档是后来照用户要求改的，不是顺序丢失。
+                // 判据用 `isAncestorOf()` 而不是 `isVisibleTo()`：后者只顺着**自己**那条
+                // 可见链往上走，走到给定控件为止 —— 给它的那个控件根本不是祖先时，它照样
+                // 可能回 true（"看不见"这件事它答不出来）。
+                const auto inPanel = [bar](QPushButton *button) {
+                    return button != nullptr && bar->isAncestorOf(button) && button->isVisible();
+                };
+                const auto outOfPanel = [bar](QPushButton *button) {
+                    return button != nullptr && !bar->isAncestorOf(button);
+                };
                 check(InstanceFilesPage::selectionActionCount() == 7 &&
-                          buttonOf(InstanceFilesPage::SelectionAction::Update) != nullptr &&
-                          buttonOf(InstanceFilesPage::SelectionAction::Disable) != nullptr &&
-                          buttonOf(InstanceFilesPage::SelectionAction::Enable) != nullptr &&
-                          buttonOf(InstanceFilesPage::SelectionAction::Update)
-                                  ->mapTo(bar, QPoint(0, 0))
-                                  .x() <
-                              buttonOf(InstanceFilesPage::SelectionAction::Disable)
-                                  ->mapTo(bar, QPoint(0, 0))
-                                  .x() &&
-                          buttonOf(InstanceFilesPage::SelectionAction::Disable)
-                                  ->mapTo(bar, QPoint(0, 0))
-                                  .x() <
-                              buttonOf(InstanceFilesPage::SelectionAction::Enable)
-                                  ->mapTo(bar, QPoint(0, 0))
-                                  .x(),
-                      "★★ U10Q 条上七颗、而且顺序就是用户点名的「更新 禁用 启用 全选 反选 取消 删除」",
+                          inPanel(buttonOf(InstanceFilesPage::SelectionAction::Update)) &&
+                          inPanel(buttonOf(InstanceFilesPage::SelectionAction::Delete)),
+                      "★★ U10Q 开了操作面板：七颗都还在，「更新」「删除」在右侧面板里",
                       QString::number(InstanceFilesPage::selectionActionCount()));
+                check(buttonOf(InstanceFilesPage::SelectionAction::Enable) != nullptr &&
+                          buttonOf(InstanceFilesPage::SelectionAction::Disable) != nullptr &&
+                          !buttonOf(InstanceFilesPage::SelectionAction::Enable)->isVisible() &&
+                          !buttonOf(InstanceFilesPage::SelectionAction::Disable)->isVisible() &&
+                          outOfPanel(buttonOf(InstanceFilesPage::SelectionAction::SelectAll)) &&
+                          outOfPanel(buttonOf(InstanceFilesPage::SelectionAction::InvertAll)) &&
+                          outOfPanel(buttonOf(InstanceFilesPage::SelectionAction::ClearAll)),
+                      "★★ U10Q 启用/禁用收进「启用 / 禁用…」菜单；全选/反选/清除选择在顶部工具行"
+                      "（都不再挤在面板里）");
+                check(mods->findChild<QPushButton *>(QStringLiteral("modStateAction")) != nullptr,
+                      "★★ U10Q 面板上有那颗「启用 / 禁用…」（这一档的两颗开关就在它菜单里）");
 
                 // ---- ⑤ 「更新」这一颗按下去报的**是选中那些的路径** ----
                 QStringList reportedPaths;
@@ -2306,20 +2321,26 @@ int UiContentPagesChecks(QFrame * &bar) {
                     }
                 };
                 // 够多行，才滚得动（每行 46，视口就那么高，给 60 条稳稳溢出）。
+                //
+                // NOTE: 这一节**故意用光影页**，不用模组页。模组页开了「操作面板」那一档
+                // （setActionPanelEnabled(true)，见下面的 U10R 那一批），操作条被换爹到
+                // 内容区里、还常驻着；而这一节要量的正是**没换爹**的那个形状 ——
+                // 「浮在列表下缘、挂 list 底下、滚轮搬不动」。光影页是同一套批量管理，
+                // 没有面板那一档，正好是这条判据该落的地方。
                 for (int i = 0; i < 60; ++i) {
                     mkfileS(sRoot +
-                            QStringLiteral("/mods/模组%1.jar").arg(i, 3, 10, QLatin1Char('0')));
+                            QStringLiteral("/shaderpacks/光影%1.zip").arg(i, 3, 10, QLatin1Char('0')));
                 }
                 QHash<QString, QString> sDirs;
-                sDirs.insert(QStringLiteral("mod"), sRoot + QStringLiteral("/mods"));
+                sDirs.insert(QStringLiteral("shader"), sRoot + QStringLiteral("/shaderpacks"));
                 Dlg sc(instanceDisplayName, instanceDirName, Dlg::Override(), global, QStringList(),
                        true);
                 sc.setInstanceDir(sRoot);
                 sc.setFileDirs(sDirs);
                 sc.resize(900, 620);
-                sc.showPage(QStringLiteral("mod"));
+                sc.showPage(QStringLiteral("shader"));
                 sc.show();
-                InstanceFilesPage *sp = sc.filesPage(QStringLiteral("mod"));
+                InstanceFilesPage *sp = sc.filesPage(QStringLiteral("shader"));
                 check(sp != nullptr && sp->list() != nullptr && sp->selectionBar() != nullptr,
                       "U10Q 前提：滚轮那一节的页 / 列表 / 那条操作条都在");
                 if (sp != nullptr && sp->list() != nullptr && sp->selectionBar() != nullptr) {
@@ -2561,51 +2582,58 @@ int UiContentPagesChecks(QFrame * &bar) {
                       rightClicked.join(QStringLiteral(" | ")));
                 QObject::disconnect(rcConn);
 
-                // ---- ④ 两颗**一样恒露**，不适用的那一颗灰掉（ 用户收回旧规矩）----
+                // ---- ④ 两颗开关收进「启用 / 禁用…」菜单（灰化规则不变）----
                 //
-                // 要求：「同时下方那个框在禁用旁边增加启用」。旧规矩（没有禁用就**收起**
-                // 启用）已经退场 —— 现在只要这一页能开关，两颗都摆着，「按下去无事可做」只用
-                // **灰**来说，不再用**藏**来说。
+                // 用户当初的要求是「在禁用旁边增加启用」；模组页后来改成了右侧操作面板，
+                // 那两颗并排按钮被收进一颗「启用 / 禁用…」菜单（用户后一轮点名的改法，
+                // 见 U10Q 那一段）。菜单里两项的灰化规则和原来并排两颗**逐字相同**：
+                // 选中里一条禁用着的都没有 ⇒「全部启用」灰；全是禁用 ⇒「全部禁用」灰；
+                // 两种都有 ⇒ 两项都亮。判据仍然挂在两颗按钮的 enabled 上
+                // （`updateSelectionBar()` 每趟现算），所以这里验的是那一半；
+                // 可见性那一半反过来验：**两颗都不在面板里**（再并排摆着就是和菜单重复）。
                 const auto enableButton = [&barButton] {
                     return barButton(InstanceFilesPage::SelectionAction::Enable);
                 };
                 const auto disableButton = [&barButton] {
                     return barButton(InstanceFilesPage::SelectionAction::Disable);
                 };
-                const auto barSays = [&](const QString &name, QPushButton *button) {
-                    return QStringLiteral("%1 可见=%2 亮着=%3")
+                const auto stateSays = [&](const QString &name, QPushButton *button) {
+                    return QStringLiteral("%1 在面板里=%2 可用于本次=%3")
                         .arg(name)
                         .arg(button != nullptr && button->isVisibleTo(bar) ? 1 : 0)
                         .arg(button != nullptr && button->isEnabled() ? 1 : 0);
                 };
                 const auto bothButtonsSaid = [&] {
-                    return barSays(QStringLiteral("启用"), enableButton()) +
+                    return stateSays(QStringLiteral("启用"), enableButton()) +
                            QStringLiteral(" / ") +
-                           barSays(QStringLiteral("禁用"), disableButton());
+                           stateSays(QStringLiteral("禁用"), disableButton());
+                };
+                const auto hiddenInPanel = [&] {
+                    return enableButton() != nullptr && disableButton() != nullptr &&
+                           !enableButton()->isVisibleTo(bar) && !disableButton()->isVisibleTo(bar);
                 };
                 selectOnly(modA);  // 只选那条**启用着**的
-                check(bar != nullptr && bar->isVisible() && enableButton() != nullptr &&
-                          enableButton()->isVisibleTo(bar) && !enableButton()->isEnabled() &&
-                          disableButton() != nullptr && disableButton()->isVisibleTo(bar) &&
-                          disableButton()->isEnabled(),
-                      "★★ U10R 选中的里面**一条禁用着的都没有** ⇒ 「启用」**照样摆在禁用旁边**"
-                      "（用户原话「在禁用旁边增加启用」）—— 只是**灰着**，因为按下去本来就"
-                      "无事可做；「禁用」照常亮着",
+                check(bar != nullptr && bar->isVisible() && hiddenInPanel() &&
+                          enableButton() != nullptr && !enableButton()->isEnabled() &&
+                          disableButton() != nullptr && disableButton()->isEnabled(),
+                      "★★ U10R 选中的里面**一条禁用着的都没有** ⇒ 菜单里「全部启用」灰、"
+                      "「全部禁用」亮（两颗并排按钮本身收在菜单后面，不在面板里重复摆）",
                       bothButtonsSaid());
                 selectOnly(modC);  // 只选那条**禁用着**的（全是禁用）
-                check(enableButton() != nullptr && enableButton()->isVisibleTo(bar) &&
+                check(hiddenInPanel() && enableButton() != nullptr &&
                           enableButton()->isEnabled() && disableButton() != nullptr &&
-                          disableButton()->isVisibleTo(bar) && !disableButton()->isEnabled(),
-                      "★★ U10R 选中的**全是禁用着的** ⇒ 「禁用」**仍旧摆着**（只是灰着，不"
-                      "收）—— 这一半是原来那半句，没变");
+                          !disableButton()->isEnabled(),
+                      "★★ U10R 选中的**全是禁用着的** ⇒ 菜单里「全部禁用」灰、"
+                      "「全部启用」亮（同一套规则反过来）",
+                      bothButtonsSaid());
                 selectOnly(modB);
                 if (rowOf(modC) >= 0) {
                     list->item(rowOf(modC))->setSelected(true);  // 一条启用 + 一条禁用
                 }
-                check(enableButton() != nullptr && enableButton()->isVisibleTo(bar) &&
+                check(hiddenInPanel() && enableButton() != nullptr &&
                           enableButton()->isEnabled() && disableButton() != nullptr &&
-                          disableButton()->isVisibleTo(bar) && disableButton()->isEnabled(),
-                      "U10R 选中里两种都有 ⇒ 两颗都在，而且**两颗都亮着**（这一档谁都不该灰）",
+                          disableButton()->isEnabled(),
+                      "U10R 选中里两种都有 ⇒ 菜单两项都亮着（这一档谁都不该灰）",
                       bothButtonsSaid());
                 list->clearSelection();
 
@@ -3511,8 +3539,13 @@ int UiContentPagesChecks(QFrame * &bar) {
                     check(joinWorld->objectName() == InstanceFilesPage::joinButtonName(),
                           "★ U10S 那颗挂的是唯一出处里的 objectName",
                           joinWorld->objectName());
-                    check(joinWorld->isHidden() && joinWorld->text().isEmpty(),
-                          "★ U10S 没接文字时它藏着、身上也没字（判据同服务器那一颗）",
+                    // 没接文字 ⇒ 藏着（露不露只看这一句）。身上那个字是存档页的固定叫法
+                    // 「加入世界」—— `setWorldLayout()` 在搭这一页时就挂好了，不是"接文字"
+                    // 那一路写进去的（所以它虽然写着字，用户也看不到；这一点和服务器那一颗
+                    // 的判据不同，别拿"身上有没有字"当可见性）。
+                    check(joinWorld->isHidden() &&
+                              joinWorld->text() == QStringLiteral("加入世界"),
+                          "★ U10S 没接文字时它藏着（身上挂着存档页那档的固定叫法「加入世界」）",
                           QStringLiteral("hidden=%1「%2」")
                               .arg(joinWorld->isHidden() ? 1 : 0).arg(joinWorld->text()));
 
@@ -3531,10 +3564,12 @@ int UiContentPagesChecks(QFrame * &bar) {
 
                     saves->setJoinText(InstanceFilesPage::joinText(),
                                        InstanceFilesPage::joinTip());
+                    // 存档页那一档的字是**固定的「加入世界」**（`setWorldLayout()` 定的，
+                    // 见上面那条）：`setJoinText()` 递进来的那句只决定"露不露"和悬停提示，
+                    // 不换按钮上的字（服务器那一页才按递进来的文字写）。
                     check(!joinWorld->isHidden() &&
-                              joinWorld->text() == InstanceFilesPage::joinText(),
-                          "★ U10S 递了文字之后它露出来、字也挂上了"
-                          "（这个版本认 `--quickPlaySingleplayer`）",
+                              joinWorld->text() == QStringLiteral("加入世界"),
+                          "★ U10S 递了文字之后它露出来（这个版本认 `--quickPlaySingleplayer`）",
                           QStringLiteral("hidden=%1「%2」")
                               .arg(joinWorld->isHidden() ? 1 : 0).arg(joinWorld->text()));
                     check(saveList->count() == 1 && !joinWorld->isEnabled(),

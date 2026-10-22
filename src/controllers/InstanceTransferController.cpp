@@ -208,6 +208,14 @@ void InstanceTransferController::copyInstanceInBackground(
         if (m_host.setTaskDetail) {
             m_host.setTaskDetail(m_copyTaskId, tr("正在后台复制实例目录…"));
         }
+        // 复制**不提供取消**：拷到一半停下，目标目录里是半份实例，而实例识别只看
+        // 主 jar 在不在 —— 那一份半截目录下一次刷新就能被启动。说清原因，别只藏按钮。
+        if (m_host.setTaskCapabilities) {
+            Tasks::TaskCapabilities caps;
+            caps.cancelBlockedReason =
+                tr("复制要保证副本是一整份，中途停下会留下半份实例目录；这一项不支持取消。");
+            m_host.setTaskCapabilities(m_copyTaskId, caps);
+        }
     }
     log(tr("开始复制实例 %1 → %2 …").arg(displayName(sourceId), name));
     m_copyBusy = true;
@@ -373,8 +381,8 @@ void InstanceTransferController::importWorldInBackground(
         ? m_host.beginTask(Tasks::TaskKind::Import, tr("导入世界：%1").arg(name), instanceId,
             {{tr("复制并验证世界"), Tasks::TaskStepState::Running, {}}})
         : Tasks::invalidTaskId();
-    const auto state = std::make_shared<ImportState>();
-    if (task != Tasks::invalidTaskId()) m_importStates.insert(task, state);
+    const auto state = std::make_shared<CancelState>();
+    if (task != Tasks::invalidTaskId()) m_cancelStates.insert(task, state);
     if (m_host.setTaskDetail) m_host.setTaskDetail(task, tr("正在后台导入存档，请勿修改源世界。"));
     if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(instanceId, true);
     auto *watcher = new QFutureWatcher<CopyOutcome>(this);
@@ -383,7 +391,7 @@ void InstanceTransferController::importWorldInBackground(
          whenDone = std::move(whenDone)] {
             const auto result = watcher->result();
             watcher->deleteLater();
-            if (task != Tasks::invalidTaskId()) m_importStates.remove(task);
+            if (task != Tasks::invalidTaskId()) m_cancelStates.remove(task);
             if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(instanceId, false);
             // 「用户按了取消」只在**真的没做成**时才算数：复制已经完整跑完、发布也成功了，
             // 那一下点晚了 —— 该报成功（存档确实在那儿），不能把它记成取消。
@@ -470,6 +478,14 @@ void InstanceTransferController::deleteWorldInBackground(
         ? m_host.beginTask(Tasks::TaskKind::Other, tr("删除世界：%1").arg(worldName), instanceId,
             {{tr("删除世界文件"), Tasks::TaskStepState::Running, {}}})
         : Tasks::invalidTaskId();
+    // 删除**不提供取消**：删到一半停下留下的是半截世界，比删完更难收拾。原因写进
+    // 能力位，详情页会摆出来 —— 用户至少知道"不是我点不了，是这一项不支持"。
+    if (m_host.setTaskCapabilities) {
+        Tasks::TaskCapabilities caps;
+        caps.cancelBlockedReason =
+            tr("删除到一半停下会留下不完整的世界，比删完更难收拾；这一项不支持取消。");
+        m_host.setTaskCapabilities(task, caps);
+    }
     if (m_host.setTaskDetail) m_host.setTaskDetail(task, tr("正在删除世界文件。"));
     if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(instanceId, true);
     auto *watcher = new QFutureWatcher<CopyOutcome>(this);
@@ -505,17 +521,19 @@ void InstanceTransferController::deleteWorldInBackground(
 }
 
 bool InstanceTransferController::canCancelTask(Tasks::TaskId id) const {
-    return id != Tasks::invalidTaskId() && m_importStates.contains(id);
+    return id != Tasks::invalidTaskId() && m_cancelStates.contains(id);
 }
 
 bool InstanceTransferController::cancelTask(Tasks::TaskId id) {
-    const auto it = m_importStates.constFind(id);
-    if (it == m_importStates.cend()) {
+    const auto it = m_cancelStates.constFind(id);
+    if (it == m_cancelStates.cend()) {
         return false;
     }
     // cancelledByUser 先落：工人看到 abort 就返回，收尾那一格读的就是这两位的先后。
     (*it)->cancelledByUser.store(true, std::memory_order_relaxed);
     (*it)->abort.store(true, std::memory_order_release);
+    // 说清"取消之后会怎样"：导入是没拷完的不发布，升级 / 回滚是原实例不变。
+    log(tr("已请求取消后台任务；正在进行的那一份会停在最近的安全点，没做完的暂存不会发布。"));
     return true;
 }
 

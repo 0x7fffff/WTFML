@@ -9,6 +9,26 @@ int main(int argc, char *argv[]) {
 
     QApplication app(argc, argv);
     Q_INIT_RESOURCE(icons);
+
+    // ---------- 设置沙盒：必须在**第一个 QSettings 对象出现之前**重定向 ----------
+    // 这个工程量的是"出厂那套外观"（主题色 #3d8068、跟着系统、一项覆盖都没有），
+    // 而 Theme / 样式表那一层读的正是 QSettings。不重定向的话，跑这一趟的人自己在启动器里
+    // 挑过的主题（预设 / 主题色 / 背景图）会原样灌进来 —— 于是同一个 HEAD 在开发机上
+    // 一片红、在 CI 上全绿，红的还偏偏是"出厂色对不对"那一类断言（见 W1 / W12 / Z11）。
+    // org/app 两个都要设：INI 后端也会因 org 为空而 setStatus(AccessError)。
+    {
+        const QDir root(QCoreApplication::applicationDirPath());
+        const QString settingsDir = root.filePath(QStringLiteral("ui-check-settings"));
+        QDir(settingsDir).removeRecursively();
+        QDir().mkpath(settingsDir);
+        QApplication::setOrganizationName(QStringLiteral("WTFML-check"));
+        QApplication::setApplicationName(QStringLiteral("ui_check"));
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir);
+        // 每趟都从"从没打开过启动器"开始（和 mw_check 那份沙盒同一个形状）：
+        // 上一趟 W 段自己存进去的预设不许活到这一趟，否则第二次跑就又是一片红。
+        QFile::remove(settingsDir + QStringLiteral("/WTFML-check/ui_check.ini"));
+    }
     if (app.arguments().contains(QStringLiteral("--bootstrap-check"))) {
         const QStringList icons{QStringLiteral("fabric"), QStringLiteral("forge"),
                                 QStringLiteral("neoforge"), QStringLiteral("optifine")};
@@ -1199,6 +1219,14 @@ int main(int argc, char *argv[]) {
         installed->addItems({QStringLiteral("1.18.2"), QStringLiteral("26.3")});
         installed->setCurrentIndex(0);
 
+        // NOTE: 这个下拉框在主页上是**藏着的**（挑实例改从底栏那块面板进，见
+        // MainWindowUI 里 `installedVersionCombo->hide()`）。藏着的控件 `setFocus()`
+        // 不生效、`hasFocus()` 永远是 false —— 下面"有焦点时照常切换"那一条会以
+        // `hasFocus=0` 的样子红，而产品那条路是好的。这一节量的是 WheelGuard 的判断
+        // 本身，所以先把它摆出来（它没进布局，`show()` 只是让它可聚焦），量完收回去。
+        installed->show();
+        QApplication::processEvents();
+
         const auto sendWheel = [](QWidget *target) {
             QWheelEvent event(QPointF(5, 5), QPointF(5, 5), QPoint(0, 0), QPoint(0, -120),
                               Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
@@ -1206,6 +1234,12 @@ int main(int argc, char *argv[]) {
         };
 
         // 焦点放到别的控件上，模拟"鼠标划过下拉框但没点它"
+        // NOTE: offscreen 平台不保证窗口一 show 就是**活动窗口**，而 `hasFocus()` 只在
+        // 活动窗口里才为真。这一节量的正是产品那个"看 hasFocus"的滚轮过滤器，所以先把
+        // 窗口真的叫到前面来（真机上是用户点一下窗口这回事）。
+        window.activateWindow();
+        window.raise();
+        QApplication::processEvents();
         startBtn->setFocus();
         QApplication::processEvents();
         const bool focusedBefore = installed->hasFocus();
@@ -1230,6 +1264,8 @@ int main(int argc, char *argv[]) {
 
         installed->clear();
         check(installed->currentIndex() < 0, "测试用的条目已清干净");
+        installed->hide();
+        QApplication::processEvents();
     }
 
     std::printf("===== E2b. 滚轮防护的**前提**：焦点策略（真滚轮那条路） =====\n");
@@ -2318,7 +2354,12 @@ int main(int argc, char *argv[]) {
                       .arg(accountName->font().pointSize()));
             check(accountType->palette().color(QPalette::WindowText) ==
                       accountType->palette().color(QPalette::PlaceholderText),
-                  "颜色是 PlaceholderText（和登录页那几句、说明行一个口径）");
+                  "颜色是 PlaceholderText（和登录页那几句、说明行一个口径）",
+                  QStringLiteral("字 %1 / 占位 %2")
+                      .arg(accountType->palette().color(QPalette::WindowText).name(QColor::HexArgb),
+                           accountType->palette()
+                               .color(QPalette::PlaceholderText)
+                               .name(QColor::HexArgb)));
         }
     }
 

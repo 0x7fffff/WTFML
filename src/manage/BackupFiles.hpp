@@ -177,6 +177,7 @@ struct RestoreResult {
 
     bool ok = false;
     Stage stage = Stage::Ok;
+    bool recoveryFailed = false; ///< 自动归位失败，必须报告错误，不能以用户取消掩盖。
     QString problem;      ///< 失败原因（人话，直接摆给用户）
     QString safetyZip;    ///< 这一趟自动做出来的安全快照（没做 = 空）
     QString retainedPath; ///< 发布成功但旧目录清理失败时的保留路径（应向用户提示）。

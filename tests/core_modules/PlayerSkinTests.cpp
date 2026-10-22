@@ -232,6 +232,17 @@ void runPlayerSkinTests(const QString &sandbox) {
               "T6 别的协议 / 别人家的 host / 空串 / 一句废话 → 一律认不出来", firstAccepted);
     }
 
+    {
+        PlayerSkinStore::setEndpointOverrides({}, QStringLiteral("http://127.0.0.1:12345"));
+        const QString local = QStringLiteral("http://127.0.0.1:12345/texture/example");
+        check(PlayerSkinStore::textureRequestUrl(local) == QUrl(local),
+              "T6 本地 HTTP 贴图夹具不被错误升级为 TLS");
+        check(!PlayerSkinStore::textureRequestUrl(QStringLiteral("http://127.0.0.1:12346/x")).isValid()
+                  && !PlayerSkinStore::textureRequestUrl(QStringLiteral("https://127.0.0.1:12345/x")).isValid(),
+              "T6 贴图覆盖不放行不同端口或协议");
+        PlayerSkinStore::setEndpointOverrides({}, {});
+    }
+
     // ---- T6b 命中缓存 → 同步发信号（一个请求都没发） ----
     {
         const QString url = QStringLiteral("https://textures.minecraft.net/texture/cached-one");

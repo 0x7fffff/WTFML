@@ -14,6 +14,7 @@
 #include "manage/VersionManager.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "util/AppPaths.hpp"
+#include "util/WriteDirectoryGuard.hpp"
 #include <QDir>
 #include <QEventLoop>
 #include <QFileDialog>
@@ -450,6 +451,11 @@ bool ImportController::installLocalResourceFile(const QString &versionId,
         }
     }
 
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(AppPaths::versionDir(versionId), &lockProblem)) {
+        if (problemOut != nullptr) *problemOut = lockProblem;
+        return false;
+    }
     const QString dir = AppPaths::versionDir(versionId) + QLatin1Char('/') + folder;
     if (!QDir().mkpath(dir)) {
         if (problemOut != nullptr) {

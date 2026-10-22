@@ -17,6 +17,7 @@
 #include "manage/WorldMap.hpp"
 #include "tools/FileHash.hpp"
 #include "util/AppPaths.hpp"
+#include "util/WriteDirectoryGuard.hpp"
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -343,6 +344,23 @@ void InstanceEditorController::saveConfigFile(InstanceSettingsDialog *dialog, co
             }
             // picked == 0（盖掉它）：往下走。**这一趟照样给盘上那一份留备份** —— 所以"盖掉"
             // 也不是不可逆的，这正是这一整套东西的用处。
+        }
+    }
+
+    // ---------- 闸 ②b：这个数据目录现在归我们写吗 ----------
+    //
+    // 写的是实例里的配置文件，备份落在数据目录的 cache/ 下 —— 和目录里其它写入口是同一把
+    // 生命周期锁。另一份启动器持着这个根时一个字节都不写（理由见
+    // docs/DIRECTORY_SESSION_LOCK.md：两个进程交错写配置和缓存，谁最后一次写进去就是谁的，
+    // 而用户看到的是"我改的那份没了"）。放在两道问话之后：问完用户已经决定要写了，
+    // 这时才去拿锁，不把弹窗期间的时间算成持锁。
+    {
+        QString lockProblem;
+        if (!WriteDirectoryGuard::acquire(path, &lockProblem)) {
+            InlineMessage::warning(
+                m_owner->m_ui->overlay(),
+                m_owner->tr("这个数据目录已被另一份启动器占用"), lockProblem);
+            return;
         }
     }
 

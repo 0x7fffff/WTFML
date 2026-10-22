@@ -2,6 +2,7 @@
 
 #include "controllers/InstanceMaintenanceController.hpp"
 #include "util/AppPaths.hpp"
+#include "util/WriteDirectoryGuard.hpp"
 #include "manage/InstanceFiles.hpp"
 #include "manage/InstanceGroupStore.hpp"
 #include "manage/VersionManager.hpp"
@@ -46,6 +47,11 @@ bool writeInstanceIcon(const QString &versionId, const QString &sourcePath, QStr
                                     "（它可能不是图片格式，也可能已经不在那儿了。）")
                             .arg(QDir::toNativeSeparators(sourcePath));
         }
+        return false;
+    }
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(AppPaths::versionDir(versionId), &lockProblem)) {
+        if (errorOut != nullptr) *errorOut = lockProblem;
         return false;
     }
     QSaveFile file(AppPaths::versionIconPath(versionId));
@@ -372,7 +378,11 @@ bool InstanceSettingsController::apply(const QString &versionId, const Edit &edi
     if (!m_versions->updateVersionMeta(versionId, fields, &error)) {
         if (iconWritten) {
             bool restored = false;
-            if (iconBackupValid) {
+            QString lockProblem;
+            if (!WriteDirectoryGuard::acquire(AppPaths::versionDir(versionId), &lockProblem)) {
+                qWarning() << "InstanceSettingsController: cannot lock" << versionId
+                           << "to restore" << iconPath << lockProblem;
+            } else if (iconBackupValid) {
                 QSaveFile restore(iconPath);
                 restored = restore.open(QIODevice::WriteOnly)
                            && restore.write(iconBackup) == iconBackup.size()

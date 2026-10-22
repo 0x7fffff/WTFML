@@ -16,6 +16,16 @@ void runCopyInstanceAndWorldTests() {
           "ZJ0 三个临时目录建出来了");
 
     AppPaths::setMinecraftDir(sourceRoot.path());
+    {
+        const QString source = scratch.filePath(QStringLiteral("short-source.bin"));
+        const QString target = scratch.filePath(QString(220, QLatin1Char('x')) + QStringLiteral(".bin"));
+        writeFileAt(source, QByteArrayLiteral("LONG-NAME"));
+        check(copyTreeWithoutFollowingLinks(source, target),
+              "长文件名复制：临时名不追加到目标全名，避免超过单文件名长度上限");
+        QFile copied(target);
+        check(copied.open(QIODevice::ReadOnly) && copied.readAll() == "LONG-NAME",
+              "长文件名复制后的内容完整");
+    }
 
     // Use real processes: an in-process QLockFile cannot exercise stale PID recovery.
     {

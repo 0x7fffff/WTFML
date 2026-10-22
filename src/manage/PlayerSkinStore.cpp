@@ -42,6 +42,15 @@ constexpr int kCacheVersion = 1;
 /// 官方贴图那个 host。档案里解出来的地址**必须**指着它才去取（理由见 textureRequestUrl）。
 constexpr char kTextureHost[] = "textures.minecraft.net";
 
+/// 验证工程的地址覆盖（见 setEndpointOverrides）。空 = 官方地址。
+QString g_profileBaseOverride;
+QString g_textureBaseOverride;
+
+QString withTrailingSlash(QString base) {
+    if (!base.isEmpty() && !base.endsWith(QLatin1Char('/'))) base += QLatin1Char('/');
+    return base;
+}
+
 /// 缓存文件里的键名。写成常量是为了和读侧共用同一个出处，不会一边改了另一边没跟。
 const QString kVersionField = QStringLiteral("version");
 const QString kSkinField = QStringLiteral("skin");
@@ -168,12 +177,25 @@ QUrl PlayerSkinStore::textureRequestUrl(const QString &url) {
     const QUrl raw(url);
     // 只认官方那个 host。协议光看 scheme 是不够的 —— `https://<别人家>/x.png` 一样是
     // https，而地址是**外面**（我们解出来的档案）给的。host 不认得就当"这个地址不能取"。
-    if (!raw.isValid() || raw.host() != QLatin1String(kTextureHost)) {
+    const QString expectedHost = g_textureBaseOverride.isEmpty()
+                                     ? QLatin1String(kTextureHost)
+                                     : QUrl(g_textureBaseOverride).host();
+    if (!raw.isValid() || expectedHost.isEmpty() || raw.host() != expectedHost) {
         return QUrl();
     }
     const QString scheme = raw.scheme().toLower();
     if (scheme != QLatin1String("http") && scheme != QLatin1String("https")) {
         return QUrl();
+    }
+    if (!g_textureBaseOverride.isEmpty()) {
+        const QUrl base(g_textureBaseOverride);
+        const auto port = [](const QUrl &url) {
+            return url.port(url.scheme() == QLatin1String("https") ? 443 : 80);
+        };
+        // 本地夹具可能只提供 HTTP；不能强制升级成不存在的 TLS 服务。
+        // 同时限定完整来源，避免仅比较 host 却放行其他端口。
+        if (raw.scheme() != base.scheme() || port(raw) != port(base)) return {};
+        return raw;
     }
 
     // NOTE: **官方档案里的贴图地址就是 http:// 的**（skin 和 cape 两条都是，
@@ -185,6 +207,12 @@ QUrl PlayerSkinStore::textureRequestUrl(const QString &url) {
     QUrl target = raw;
     target.setScheme(QStringLiteral("https"));
     return target;
+}
+
+void PlayerSkinStore::setEndpointOverrides(const QString &profileBase,
+                                           const QString &textureBase) {
+    g_profileBaseOverride = profileBase.trimmed();
+    g_textureBaseOverride = textureBase.trimmed();
 }
 
 QString PlayerSkinStore::textureUrlForHash(const QString &hash) {
@@ -200,6 +228,8 @@ QString PlayerSkinStore::textureUrlForHash(const QString &hash) {
             return QString();
         }
     }
+    if (!g_textureBaseOverride.isEmpty())
+        return withTrailingSlash(g_textureBaseOverride) + QStringLiteral("texture/") + hash;
     return QStringLiteral("https://") + QLatin1String(kTextureHost) +
            QStringLiteral("/texture/") + hash;
 }
@@ -358,7 +388,8 @@ void PlayerSkinStore::refreshForUuid(const QString &uuid) {
         return;
     }
 
-    const QUrl url(QLatin1String(kProfileEndpoint) + key);
+    const QUrl url(g_profileBaseOverride.isEmpty() ? QLatin1String(kProfileEndpoint)
+                                                   : withTrailingSlash(g_profileBaseOverride) + key);
     QNetworkRequest request(url);
     request.setTransferTimeout(kTransferTimeoutMs);
     QNetworkReply *reply = m_network->get(request);

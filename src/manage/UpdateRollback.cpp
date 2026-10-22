@@ -19,6 +19,7 @@
 
 #include "manage/FolderManager.hpp"
 #include "util/AppPaths.hpp"
+#include "util/WriteDirectoryGuard.hpp"
 
 namespace UpdateRollback {
 
@@ -195,6 +196,11 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
         }
         return snapshot;
     }
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(instanceDir, &lockProblem)) {
+        if (problemOut != nullptr) *problemOut = lockProblem;
+        return snapshot;
+    }
     // 去重（同一条路径来两次 = 抄两遍、清单里两条），并挡掉不合法的。
     QStringList wanted;
     for (const QString &path : relativePaths) {
@@ -245,8 +251,12 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
     }
     const auto restorePrevious = [&] {
         removeTreeWithoutFollowingLinks(dir);  // 这一趟抄的半份不要
-        if (keepPrevious && QFileInfo::exists(previous)) {
-            QDir().rename(previous, dir);
+        if (keepPrevious && QFileInfo::exists(previous) && !QDir().rename(previous, dir)
+            && problemOut != nullptr) {
+            // 半份已清掉、旧回滚点却没能搬回来：两份都还在盘上，必须说清楚旧的在哪儿，
+            // 否则用户只看到"没创建新快照"，下一次更新又会把 `.previous` 清掉。
+            problemOut->append(QObject::tr(" 上一次的回滚点仍保留在 %1，但没能恢复原位。")
+                                   .arg(QDir::toNativeSeparators(previous)));
         }
     };
     if (keepPrevious) {
@@ -272,9 +282,7 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
             *problemOut = QObject::tr("清不掉上一次的回滚点（%1），它可能正被别的程序占着。")
                               .arg(QDir::toNativeSeparators(dir));
         }
-        if (keepPrevious && QFileInfo::exists(previous)) {
-            QDir().rename(previous, dir);
-        }
+        restorePrevious();
         return Snapshot{};
     }
     if (!QDir().mkpath(filesDirOf(dir))) {
@@ -301,8 +309,7 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
                     *problemOut = QObject::tr("建不了回滚点里的目录（%1）。")
                                       .arg(QDir::toNativeSeparators(QFileInfo(target).absolutePath()));
                 }
-                removeTreeWithoutFollowingLinks(dir);  // 半份也不要留
-                if (keepPrevious && QFileInfo::exists(previous)) QDir().rename(previous, dir);
+                restorePrevious();
                 return Snapshot{};
             }
             if (!QFile::copy(source, target)) {
@@ -333,19 +340,16 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
     }
 
     // 清单最后写（**它在了才算这一份真的成了**：读的时候没有清单就当没有这一份）。
-    QFile manifest(dir + QLatin1Char('/') + manifestName());
-    if (!manifest.open(QIODevice::WriteOnly)) {
-        if (problemOut != nullptr) {
-            *problemOut = QObject::tr("回滚点的清单写不出去（%1）。")
-                              .arg(QDir::toNativeSeparators(manifest.fileName()));
-        }
-        restorePrevious();
-        return Snapshot{};
-    }
+    //
+    // 用 QSaveFile（先写同目录临时文件、commit 时原子改名），**不能直接 QFile 写**：
+    // 进程在写清单途中被杀掉时，直接写会留下一个截断的清单 —— `read()` 解析失败就
+    // 当作"没有这一份"，而 `read()` 里那条"主清单不在就退到 `.previous`"的兜底又要求
+    // **主清单整个不存在**，于是那一趟之前的回滚点明明还在、用户却看不到（"撤销上一次
+    // 更新"凭空消失）。QSaveFile 中途被杀时盘上只有临时文件，主清单不存在，兜底照旧成立。
+    QSaveFile manifest(dir + QLatin1Char('/') + manifestName());
     const QByteArray bytes = manifestToJson(snapshot);
-    const bool written = manifest.write(bytes) == bytes.size();
-    manifest.close();
-    if (!written) {
+    if (!manifest.open(QIODevice::WriteOnly) || manifest.write(bytes) != bytes.size()
+        || !manifest.commit()) {
         if (problemOut != nullptr) {
             *problemOut = QObject::tr("回滚点的清单没写完（%1）。")
                               .arg(QDir::toNativeSeparators(manifest.fileName()));
@@ -398,6 +402,7 @@ Snapshot read(const QString &instanceId, bool *ok, QString *problemOut) {
 }
 
 bool discard(const QString &instanceId) {
+    if (!WriteDirectoryGuard::acquire(AppPaths::minecraftDir())) return false;
     const QString dir = snapshotDir(instanceId);
     const QString previous = dir + QStringLiteral(".previous");
     if (QFileInfo::exists(previous)) {
@@ -413,6 +418,7 @@ bool discard(const QString &instanceId) {
 }
 
 bool commit(const QString &instanceId) {
+    if (!WriteDirectoryGuard::acquire(AppPaths::minecraftDir())) return false;
     const QString previous = snapshotDir(instanceId) + QStringLiteral(".previous");
     if (!QFileInfo::exists(previous)) {
         return true;
@@ -422,6 +428,12 @@ bool commit(const QString &instanceId) {
 
 RestoreResult restore(const Snapshot &snapshot, const QString &instanceDir) {
     RestoreResult result;
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(instanceDir, &lockProblem)) {
+        result.failed = 1;
+        result.problems.append(lockProblem);
+        return result;
+    }
     if (!snapshot.isValid() || !QFileInfo(instanceDir).isDir()) {
         result.failed = 1;
         result.problems.append(QObject::tr("这一份回滚点用不了（清单不全或者实例目录没了）。"));

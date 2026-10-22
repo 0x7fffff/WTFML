@@ -13,6 +13,8 @@
 #include <QUuid>
 
 namespace {
+
+QString g_baseUrlOverride;
 // NOTE: 档案那条路径不在这里 —— 它是公开的 SkinApi::profilePath()（见 .hpp 那段说明：
 // 披风列表就在档案那份响应里；单独一条披风列表路由不存在）。
 constexpr const char kActiveCapePath[] = "/minecraft/profile/capes/active";
@@ -36,6 +38,15 @@ QString bodyDetail(const QByteArray &body) {
     return QString();
 }
 }  // namespace
+
+QString SkinApi::baseUrl() {
+    return g_baseUrlOverride.isEmpty() ? QStringLiteral("https://api.minecraftservices.com")
+                                       : g_baseUrlOverride;
+}
+
+void SkinApi::setBaseUrlOverride(const QString &base) {
+    g_baseUrlOverride = base.trimmed();
+}
 
 SkinApi::SkinApi(QObject *parent)
     : QObject(parent), m_network(new QNetworkAccessManager(this)) {}

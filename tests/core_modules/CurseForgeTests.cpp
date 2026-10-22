@@ -524,23 +524,28 @@ void runCurseForgeTests() {
                 check(api.filesHits == 1 && api.modsHits == 1,
                       "ZG7a 两发都发出去了（号→文件 一发，类目 一发）",
                       QStringLiteral("files %1 / mods %2").arg(api.filesHits).arg(api.modsHits));
-                check(api.paths.value(0) == QStringLiteral("/v1/mods/files") &&
-                          api.paths.value(1) == QStringLiteral("/v1/mods"),
+                // 两发是并着跑的。判据按**请求目标**查（不按下标）：谁先回来由网络定，
+                // 拿 `paths.value(0)` 当"文件那一发"在这一台上碰巧成立，换台机器就可能反。
+                check(api.paths.contains(QStringLiteral("/v1/mods/files")) &&
+                          api.paths.contains(QStringLiteral("/v1/mods")),
                       "ZG7a 两条路径拼对了（少一个斜杠就是 404，那看着像「这个包坏了」）",
                       api.paths.join(QStringLiteral(", ")));
-                const QJsonArray fileIds = jsonOf(api.bodies.value(0))
-                                               .value(QStringLiteral("fileIds")).toArray();
-                const QJsonArray modIds = jsonOf(api.bodies.value(1))
-                                              .value(QStringLiteral("modIds")).toArray();
+                const QByteArray filesBody = api.bodyForPath(QStringLiteral("/v1/mods/files"));
+                const QByteArray modsBody = api.bodyForPath(QStringLiteral("/v1/mods"));
+                const QJsonArray fileIds =
+                    jsonOf(filesBody).value(QStringLiteral("fileIds")).toArray();
+                const QJsonArray modIds =
+                    jsonOf(modsBody).value(QStringLiteral("modIds")).toArray();
                 check(fileIds.size() == 2 && fileIds.at(0).toInt() == 8971390 &&
                           fileIds.at(1).toInt() == 55,
-                      "ZG7a 早一发问的就是清单里那两个 fileID（按清单的次序）",
-                      QString::fromUtf8(api.bodies.value(0)));
+                      "ZG7a 问的就是清单里那两个 fileID（按清单的次序）",
+                      QString::fromUtf8(filesBody));
                 check(modIds.size() == 2 && modIds.at(0).toInt() == 238222,
-                      "ZG7a 后一发问的是那两个 projectID", QString::fromUtf8(api.bodies.value(1)));
-                check(api.apiKeys.value(0).isEmpty() && api.apiKeys.value(1).isEmpty(),
+                      "ZG7a 类目那一发问的是那两个 projectID", QString::fromUtf8(modsBody));
+                check(api.apiKeyForPath(QStringLiteral("/v1/mods/files")).isEmpty() &&
+                          api.apiKeyForPath(QStringLiteral("/v1/mods")).isEmpty(),
                       "ZG7a 没填 key 时**不发** x-api-key 那个头（社区反代不看它）",
-                      api.apiKeys.value(0));
+                      api.apiKeyForPath(QStringLiteral("/v1/mods/files")));
 
                 check(pack.files.size() == 2 && pack.pendingRefs.isEmpty(),
                       "ZG7a 换回来的两条落到 files 里、号清空了",
@@ -594,10 +599,11 @@ void runCurseForgeTests() {
                     const QString problem = manager.resolveCurseForgeFiles(&pack);
                     check(problem.isEmpty() && keyed.filesHits == 1,
                           "ZG7b 带了 key 的那一发照旧问得成", problem);
-                    check(keyed.apiKeys.value(0) == QStringLiteral("只有这一份的 key"),
+                    check(keyed.apiKeyForPath(QStringLiteral("/v1/mods/files")) ==
+                              QStringLiteral("只有这一份的 key"),
                           "ZG7b 发出去的 x-api-key 就是用户填的那一份（一个字都不能变，"
                           "多一个空格就是 403）",
-                          keyed.apiKeys.value(0));
+                          keyed.apiKeyForPath(QStringLiteral("/v1/mods/files")));
                 }
             }
 

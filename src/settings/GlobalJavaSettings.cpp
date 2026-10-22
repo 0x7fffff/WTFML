@@ -23,6 +23,7 @@
 #include <QTemporaryFile>
 
 #include "../util/AppPaths.hpp"
+#include "../util/WriteDirectoryGuard.hpp"
 
 namespace {
 static constexpr const char kJavaPath[] = "Java/Path";
@@ -386,6 +387,8 @@ QString findExtractedJava(const QString &rootDir) {
  * 与 scanLocalJavaVersions() 的目录约定一致。
  */
 bool flattenSingleRootDir(const QString &dir) {
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(dir, &lockProblem)) return false;
     QDir root(dir);
     if (!root.exists()) {
         return false;
@@ -426,6 +429,9 @@ bool flattenSingleRootDir(const QString &dir) {
 }
 
 bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(QFileInfo(destinationPath).absolutePath(), &lockProblem))
+        return false;
     QSaveFile file(destinationPath);
     if (!file.open(QIODevice::WriteOnly)) {
         return false;
@@ -531,6 +537,15 @@ bool downloadJavaRuntime(const QString &destinationDir, const QString &component
 
     // 以 component 名为子文件夹，下载和解压内容都放进去
     const QString subDir = QDir(destinationDir).absoluteFilePath(component);
+    // 这一路要建目录、往里解压几百 MB 的运行时。和其余写入口同一把数据根锁：另一份启动器
+    // 持着这个目录时一个字节都不写 —— 半套运行时留在那儿，`findExtractedJava` 下一次还会
+    // 把它当成可用的一份，比"这次没装上"更难收拾。
+    {
+        QString lockProblem;
+        if (!WriteDirectoryGuard::acquire(subDir, &lockProblem)) {
+            return false;
+        }
+    }
     QDir().mkpath(subDir);
     const QString tempZip = QDir(subDir).absoluteFilePath("java_runtime.zip");
 
@@ -958,6 +973,14 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion, QString *javaP
     // Download the zip
     const QString downloadDir = AppPaths::javaVersionDir(majorVersion);
     qDebug() << "Download directory:" << downloadDir;
+    // 同 downloadJavaRuntime()：建目录 + 解压是一整趟写，先取数据根锁。
+    {
+        QString lockProblem;
+        if (!WriteDirectoryGuard::acquire(downloadDir, &lockProblem)) {
+            qDebug() << "Java directory is locked:" << lockProblem;
+            return false;
+        }
+    }
     QDir().mkpath(downloadDir);
     QString tempZip = QDir(downloadDir).absoluteFilePath("java_runtime.zip");
     qDebug() << "Temp ZIP path:" << tempZip;

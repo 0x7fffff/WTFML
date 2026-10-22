@@ -7,6 +7,7 @@
 #include <QObject>
 #include <QPointer>
 
+#include <atomic>
 #include <functional>
 
 class ActivityCenterController;
@@ -68,6 +69,12 @@ public:
                                const QString &successTitle,
                                const QString &refreshServerId = QString(),
                                const QString &failureTitle = QString());
+    /// 任务中心那一项此刻按「取消」停不停得下来（那一颗按钮的唯一判据）。
+    /// 只认**正在跑的这一趟**：`m_taskId` 之外的一律 false。
+    bool canCancelTask(Tasks::TaskId id) const;
+    /// 用户按的取消。引擎在快照 / 解压 / 校验与提交前检查处停下；仅最终改名那一段
+    /// 不可中断。停下之后暂存由引擎自己清，盘上不会留下半成品。
+    bool cancelTask(Tasks::TaskId id);
 
 private:
     static QString sizeText(qint64 bytes);
@@ -89,6 +96,9 @@ private:
     Tasks::TaskId m_taskId = Tasks::invalidTaskId();
     QThread *m_thread = nullptr;
     QAtomicInt m_abort{0};
+    /// 「用户按的取消」和「启动器要关了（`m_abort` 只由 `shutdown()` 置）」是两回事：
+    /// 前者要照常收尾（摘忙标记、账本记 Cancelled、不弹失败框），后者一个字都不许碰界面。
+    std::atomic_bool m_userCancelled{false};
     QString m_refreshWorldDir;
     QString m_refreshServerId;
     /// 这一趟记下的"哪个服务端的世界正在被读写"（服务端备份 / 世界还原）。

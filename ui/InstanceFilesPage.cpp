@@ -728,6 +728,7 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
         m_actionPanelDismissed = true; updateSelectionBar();
     });
     m_stateAction = new QPushButton(tr("启用 / 禁用…"), m_selectionBar);
+    m_stateAction->setObjectName(QStringLiteral("modStateAction"));
     Theme::markButton(m_stateAction, Theme::ButtonKind::Neutral);
     panel->addWidget(m_stateAction);
     connect(m_stateAction, &QPushButton::clicked, this, [this] {

@@ -48,6 +48,7 @@
 #include "../manage/InstanceFiles.hpp"
 #include "../settings/EffectiveJavaSettings.hpp"
 #include "../util/AppPaths.hpp"
+#include "../util/WriteDirectoryGuard.hpp"
 #include "../util/ZipUtil.hpp"
 #include "AsciiPathAlias.hpp"
 #include "LibraryRules.hpp"
@@ -143,6 +144,11 @@ bool nativesExtractionComplete(const QString &dir) {
 void ensureInitialOptions(const QString &gameDir) {
     const QString optionsPath = QDir(gameDir).absoluteFilePath(QStringLiteral("options.txt"));
     if (QFileInfo::exists(optionsPath)) {
+        return;
+    }
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(gameDir, &lockProblem)) {
+        qWarning() << "Cannot write initial options.txt:" << lockProblem;
         return;
     }
     if (!QDir().mkpath(gameDir)) {
@@ -348,6 +354,11 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
     }
 
     const QString nativesDir = nativesDirectory(versionId);
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(AppPaths::versionDir(versionId), &lockProblem)) {
+        if (errors) errors->append(lockProblem);
+        return QString();
+    }
     // 守卫：上一次**整套**解压过就直接复用。除第一次启动外，这里几乎是零开销。
     // 判据是标记文件（见 `nativesExtractionComplete()`），不是"有一个 DLL 了"。
     if (nativesExtractionComplete(nativesDir)) {

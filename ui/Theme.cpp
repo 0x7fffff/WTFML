@@ -482,8 +482,9 @@ public:
         //
         // 基样式（Fusion）画的是**一圈虚线**，而我们的按钮挂了应用级样式表之后那圈虚线
         // 常常被自己的边盖掉/看不见 —— "按 Tab 键跳到哪儿了"就成了一个说不出口的状态。
-        // 这里把它接过来画成**两像素的主题色圆圈**：浅底上用 `AccentShade::Ink`（深绿）、
-        // 深底上用 `AccentShade::Hover`（浅绿），判据只有一处（`focusRingColor()`）。
+        // 这里把它接过来画成**两像素的主题色圆圈**，颜色只问一处（`focusRingColor()`）：
+        // 固定预设用自家 `tokens().focus`（那一支本来就是照着自家底色挑的）；只有
+        // `system` 要同时活在两种底上，才按深浅分两支（浅底 `Ink`、深底 `Hover`）。
         //
         // **条目视图（列表 / 树 / 表格）不接管、而且是"一笔都不画"**：
         // 交回基样式的话，Fusion 就在"当前项"那一格外面套一圈**浅色细框**
@@ -1259,6 +1260,10 @@ QString widgetStyleSheet() {
     const QString ink = paletteRef("button-text");
     const QString border = paletteRef("link");
     const QString pure = paletteRef("accent");
+    // 主题色写出来的那一档字（勾上那一格）。取 `link`：各预设都把它备成
+    // 「压在自家底色上读得清的主题色」—— 浅色预设是深绿（对白底 5.3:1），深色预设是
+    // 浅蓝。`accent`（纯色）在深色预设的深底上会糊，所以不能拿它写字。
+    const QString accentInk = paletteRef("link");
     const QString hover = paletteRef("light");
     const QString pressed = paletteRef("highlight");
     // 次要 / 危险那两档的色。红**故意不取 `dangerColor()`**：那一支是"按深浅现推"的；
@@ -1496,7 +1501,8 @@ QString widgetStyleSheet() {
     //
     // 勾选框未勾选的时候框和文本做成黑色，勾选了两者都变成主题色。
     // 所以这里**成对**地换色：未勾选 = 黑框 + 黑字（`neutralInkColor()`）；勾上 = 主题色
-    // 的**实心**框 + 主题色的字（用 `Ink` 那一档写字，9.5:1，`Pure` 只有 1.56:1）。
+    // 的**实心**框 + 主题色的字（用 `link` 那一档写字：各预设都把它备成"压在自家底色上
+    // 读得清"的主题色墨，浅底深绿、深底浅蓝）。
     //
     // 勾上那一格画的是**实心块**、不是"白底 + 一个勾"：样式表画勾要一张图，而图是死的
     // —— 主题色是能换的（`Theme/Accent`），贴一张绿勾上去等于把"换一个主题色"这件事
@@ -1510,7 +1516,7 @@ QString widgetStyleSheet() {
                " border-radius: %6px; }"
                "QCheckBox::indicator:checked { background-color: %4; border-color: %2; }"
                "QCheckBox::indicator:disabled { background-color: %5; border-color: %3; }")
-               .arg(black, ink, disabledInk, pure, disabledFill)
+               .arg(black, accentInk, disabledInk, pure, disabledFill)
                .arg(controlRadius());
 
     // -----------------------------------------------------------------------

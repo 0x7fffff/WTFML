@@ -34,6 +34,21 @@ bool BackupController::busy() const {
     return m_scanning || m_taskId != Tasks::invalidTaskId();
 }
 
+bool BackupController::canCancelTask(Tasks::TaskId id) const {
+    return id != Tasks::invalidTaskId() && id == m_taskId && m_thread != nullptr;
+}
+
+bool BackupController::cancelTask(Tasks::TaskId id) {
+    if (!canCancelTask(id)) {
+        return false;
+    }
+    // 先记"是用户按的"：工人看到 `m_abort` 就会停，收尾那一格靠这一位决定
+    // 是记 Cancelled 还是照常报失败。
+    m_userCancelled.store(true, std::memory_order_relaxed);
+    m_abort.storeRelaxed(1);
+    return true;
+}
+
 void BackupController::shutdown() {
     m_abort.storeRelaxed(1);
     if (m_thread != nullptr) {
@@ -445,8 +460,15 @@ Tasks::TaskId BackupController::startWrite(const BackupFiles::Manifest &manifest
     QList<Tasks::TaskStep> steps{{tr("统计并核对文件"), Tasks::TaskStepState::Running, {}},
                                  {tr("打包"), Tasks::TaskStepState::Pending, {}}};
     m_taskId = m_activity->begin(Tasks::TaskKind::Backup, title, targetId, steps);
-    m_refreshServerId = refreshServerId;
+    // 备份 / 还原都能在安全点停下（见 BackupFiles 里那两个停止条件），所以把「取消」开出来：
+    // `Backup` 的默认能力位是关的。
+    if (m_taskId != Tasks::invalidTaskId()) {
+        Tasks::TaskCapabilities caps = m_activity->tasks()->snapshot(m_taskId).capabilities;
+        caps.canCancel = true;
+        m_activity->tasks()->setCapabilities(m_taskId, caps);
+    }
     // 服务端世界的那一趟（备份 / 还原）读 / 换的是**这一个服务端**的目录。
+    m_refreshServerId = refreshServerId;
     // 跑着的时候它不能启动、不能删 —— 实例那一侧和这条服务端路都必须记"动不得"
     // （见 MainWindow::startServer() / removeServer() 那两道闸）。
     m_busyServerId = refreshServerId;
@@ -456,6 +478,7 @@ Tasks::TaskId BackupController::startWrite(const BackupFiles::Manifest &manifest
     log(tr("%1：%2 → %3").arg(title, QDir::toNativeSeparators(sourceDir),
                               QDir::toNativeSeparators(targetZip)));
     m_abort.storeRelaxed(0);
+    m_userCancelled.store(false, std::memory_order_relaxed);
     if (m_thread != nullptr) {
         // **不能**在这里对旧的那条调 deleteLater()。能走到这儿，是因为上一趟的
         // 收尾函数已经跑过了（任务号收了、忙态放了）—— 但那一条 `QThread` 这会儿往往还差
@@ -471,7 +494,8 @@ Tasks::TaskId BackupController::startWrite(const BackupFiles::Manifest &manifest
         elapsed.start();
         const auto result = BackupFiles::writeBackup(manifest, sourceDir, targetZip,
             [this, &elapsed] { return m_abort.loadRelaxed() != 0 || elapsed.elapsed() >= 600000; });
-        if (m_abort.loadRelaxed() == 0) {
+        // 关窗（`shutdown()` 只置 `m_abort`）时**不许**再碰界面；用户按的取消要照常收尾。
+        if (m_abort.loadRelaxed() == 0 || m_userCancelled.load(std::memory_order_relaxed)) {
             QMetaObject::invokeMethod(this, [this, result, successTitle, failureTitle] {
                 writeFinished(result, successTitle, failureTitle);
             }, Qt::QueuedConnection);
@@ -498,6 +522,11 @@ Tasks::TaskId BackupController::startRestore(const QString &zipPath,
                                  {tr("解出备份里的文件"), Tasks::TaskStepState::Pending, {}},
                                  {tr("核对并替换目录"), Tasks::TaskStepState::Pending, {}}};
     m_taskId = m_activity->begin(Tasks::TaskKind::Backup, title, targetId, steps);
+    if (m_taskId != Tasks::invalidTaskId()) {
+        Tasks::TaskCapabilities caps = m_activity->tasks()->snapshot(m_taskId).capabilities;
+        caps.canCancel = true;
+        m_activity->tasks()->setCapabilities(m_taskId, caps);
+    }
     m_refreshServerId = refreshServerId;
     m_busyServerId = refreshServerId;
     if (!m_busyServerId.isEmpty() && m_host.setServerFileOperationBusy) {
@@ -506,6 +535,7 @@ Tasks::TaskId BackupController::startRestore(const QString &zipPath,
     log(tr("%1：%2 → %3").arg(title, QDir::toNativeSeparators(zipPath),
                               QDir::toNativeSeparators(targetParentDir)));
     m_abort.storeRelaxed(0);
+    m_userCancelled.store(false, std::memory_order_relaxed);
     if (m_thread != nullptr) {
         // 只放指针，不 deleteLater（理由逐字同 startWrite() 里那一段）。
         m_thread = nullptr;
@@ -519,7 +549,8 @@ Tasks::TaskId BackupController::startRestore(const QString &zipPath,
             zipPath, targetParentDir, [this, &elapsed] {
                 return m_abort.loadRelaxed() != 0 || elapsed.elapsed() >= 600000;
             });
-        if (m_abort.loadRelaxed() == 0) {
+        // 同 startWrite()：关窗不发，用户取消照常收尾。
+        if (m_abort.loadRelaxed() == 0 || m_userCancelled.load(std::memory_order_relaxed)) {
             QMetaObject::invokeMethod(this, [this, result, successTitle, failureTitle] {
                 restoreFinished(result, successTitle, failureTitle);
             }, Qt::QueuedConnection);
@@ -550,6 +581,9 @@ void BackupController::writeFinished(const BackupFiles::WriteResult &result,
     }
     const Tasks::TaskId id = m_taskId;
     m_taskId = Tasks::invalidTaskId();
+    // 「用户按了取消」只在**真的没做成**时才算数：按下的那一瞬间引擎可能正好走完，
+    // 包已经发布出去了 —— 那时该报成功。
+    const bool cancelled = m_userCancelled.exchange(false, std::memory_order_relaxed) && !result.ok;
     if (id != Tasks::invalidTaskId() && m_activity->tasks()->has(id)) {
         if (result.ok) {
             m_activity->tasks()->setStepState(id, 0, Tasks::TaskStepState::Done);
@@ -558,6 +592,9 @@ void BackupController::writeFinished(const BackupFiles::WriteResult &result,
                                                    .arg(result.manifest.fileCount())
                                                    .arg(sizeText(result.manifest.totalBytes)));
             m_activity->finish(id, true, {}, false);
+        } else if (cancelled) {
+            // 取消不是失败：收成 Cancelled（不亮红点），也不写失败原因。
+            m_activity->tasks()->cancel(id);
         } else {
             const int failedStep = result.manifest.files.isEmpty() ? 0 : 1;
             m_activity->tasks()->setStepState(id, failedStep, Tasks::TaskStepState::Failed,
@@ -574,6 +611,8 @@ void BackupController::writeFinished(const BackupFiles::WriteResult &result,
                                        .arg(QDir::toNativeSeparators(result.zipPath))
                                        .arg(result.manifest.fileCount())
                                        .arg(sizeText(result.manifest.totalBytes)));
+    } else if (cancelled) {
+        log(tr("%1：已取消，没有留下半成品。").arg(successTitle));
     } else {
         // 失败这一路必须用失败标题：拿**成功标题**去弹，「备份完成」下面的正文却说
         // "没打成"。标题和正文自相矛盾，用户扫一眼标题就当成功了。
@@ -596,6 +635,9 @@ void BackupController::restoreFinished(const BackupFiles::RestoreResult &result,
                                        const QString &failureTitle) {
     const Tasks::TaskId id = m_taskId;
     m_taskId = Tasks::invalidTaskId();
+    // 同 writeFinished()：只有"真的没做成"才记成取消；已经发布出去的那一份该报成功。
+    const bool cancelled = m_userCancelled.exchange(false, std::memory_order_relaxed)
+        && !result.ok && !result.recoveryFailed;
     // 先摘忙标记、再把那一页解冻 —— 下面 `refreshInstances()` 里 `installingVersionIds()`
     // 还判这一位（顺序反了的话，刚还原好的那一份会在列表里被滤掉一帧）。
     const QString restoredId = m_restoreInstanceId;
@@ -623,6 +665,9 @@ void BackupController::restoreFinished(const BackupFiles::RestoreResult &result,
             for (int i = 0; i < 4; ++i) m_activity->tasks()->setStepState(id, i, Tasks::TaskStepState::Done);
             m_activity->tasks()->setDetail(id, tr("核对过 %1 个文件，全都对得上").arg(result.checked));
             m_activity->finish(id, true, {}, false);
+        } else if (cancelled) {
+            // 取消不是失败：账本收成 Cancelled，不把"停下"写成一次失败。
+            m_activity->tasks()->cancel(id);
         } else {
             const int failed = stepOf(result.stage);
             for (int i = 0; i < 4; ++i) {
@@ -649,6 +694,8 @@ void BackupController::restoreFinished(const BackupFiles::RestoreResult &result,
         }
         log(tr("%1：%2").arg(successTitle, tr("核对过 %1 个文件").arg(result.checked)));
         InlineMessage::information(m_overlay, successTitle, text);
+    } else if (cancelled) {
+        log(tr("%1：已取消。").arg(failureTitle.isEmpty() ? tr("还原") : failureTitle));
     } else {
         const QString title = failureTitle.isEmpty() ? tr("没有完成") : failureTitle;
         log(tr("%1：%2").arg(title, result.problem));

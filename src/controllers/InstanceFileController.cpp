@@ -4,6 +4,7 @@
 #include "InstanceFilesPage.hpp"
 #include "OverlayHost.hpp"
 #include "manage/FolderManager.hpp"
+#include "util/WriteDirectoryGuard.hpp"
 
 #include <QDir>
 #include <QFile>
@@ -54,6 +55,8 @@ bool InstanceFileController::toggle(const QString &path, QString *problem) {
     const QFileInfo info(path);
     if (!info.exists())
         return fail(tr("「%1」现在不在盘上。").arg(QDir::toNativeSeparators(path)));
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(path, &lockProblem)) return fail(lockProblem);
     if (info.isDir())
         return fail(tr("「%1」是一个文件夹，不能启用 / 禁用。\n\n"
                        "（把一个文件夹改了名，它里面的东西会一起从游戏眼里消失。）")
@@ -95,6 +98,8 @@ bool InstanceFileController::removeUnasked(const QString &path, QString *problem
     const QFileInfo info(path);
     if (!info.exists())
         return fail(tr("「%1」现在不在盘上。").arg(QDir::toNativeSeparators(path)));
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(path, &lockProblem)) return fail(lockProblem);
     // 两条路都走 `removeTreeWithoutFollowingLinks()`。它对**文件**多做了
     // 一件 `QFile::remove()` 不做的事：失败时先摘掉只读位再试一次（见 FolderManager.cpp
     // 里那段）—— 从只读介质拷来的 jar、被网盘/别的启动器标成只读的整合包，不然永远删不掉，

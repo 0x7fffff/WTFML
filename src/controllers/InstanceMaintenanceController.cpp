@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSaveFile>
 
 #include <algorithm>
 #include <functional>
@@ -17,6 +18,7 @@
 #include "manage/WorldFiles.hpp"
 #include "ConfigFileText.hpp"
 #include "util/AppPaths.hpp"
+#include "util/WriteDirectoryGuard.hpp"
 
 namespace {
 
@@ -108,6 +110,9 @@ void InstanceMaintenanceController::pruneConfigBackups(const QString &instanceId
     if (instanceId.isEmpty()) {
         return;
     }
+    if (!WriteDirectoryGuard::acquire(AppPaths::minecraftDir())) {
+        return;
+    }
     const QString dir = AppPaths::configBackupDir() + QLatin1Char('/') + instanceId;
     const QStringList names = QDir(dir).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
     for (const QString &name : ConfigFileText::backupFoldersToRemove(names, keep)) {
@@ -126,6 +131,10 @@ bool InstanceMaintenanceController::backupWorldLevelData(const QString &worldDir
         }
         return false;
     };
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(worldDir, &lockProblem)) {
+        return fail(lockProblem);
+    }
     const QString path = WorldFiles::levelDataPath(worldDir);
     if (!QFileInfo::exists(path)) {
         return fail(QStringLiteral("这个存档里没有 level.dat。"));
@@ -141,7 +150,27 @@ bool InstanceMaintenanceController::backupWorldLevelData(const QString &worldDir
     if (!QDir().mkpath(QFileInfo(target).absolutePath())) {
         return fail(QStringLiteral("建不出备份目录：%1").arg(QDir::toNativeSeparators(target)));
     }
-    if (!QFile::copy(path, target)) {
+    // 用 QSaveFile（目标旁写临时文件、commit 时原子改名），**不用 `QFile::copy`**：
+    // 这一步抄出来的东西是"改世界设置之前的那一份"，而 `latestWorldBackup()` 认的是
+    // 目录里那个 `level.dat` 在不在。直接 copy 到一半被杀掉（关窗、断电、磁盘满）会留下
+    // 一个截断的 `level.dat`，下一次"恢复上一次的存档设置"就会拿它去盖现在那份好的 ——
+    // 半截的备份比没有备份更坏，因为它看着像一份备份。
+    QFile source(path);
+    QSaveFile backup(target);
+    if (!source.open(QIODevice::ReadOnly) || !backup.open(QIODevice::WriteOnly)) {
+        return fail(QStringLiteral("没能把 level.dat 抄到 %1（磁盘满了？还是那个文件打不开？）")
+                        .arg(QDir::toNativeSeparators(target)));
+    }
+    bool copied = true;
+    QByteArray buffer(256 * 1024, Qt::Uninitialized);
+    while (!source.atEnd()) {
+        const qint64 got = source.read(buffer.data(), buffer.size());
+        if (got <= 0 || backup.write(buffer.constData(), got) != got) {
+            copied = false;
+            break;
+        }
+    }
+    if (!copied || !backup.commit()) {
         return fail(QStringLiteral("没能把 level.dat 抄到 %1（磁盘满了？还是那个文件打不开？）")
                         .arg(QDir::toNativeSeparators(target)));
     }
@@ -178,6 +207,11 @@ QStringList InstanceMaintenanceController::migrateWorldBackupSlots(
     }
     QStringList problems;
     if (oldInstanceDir.trimmed().isEmpty() || newInstanceDir.trimmed().isEmpty()) {
+        return problems;
+    }
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(newInstanceDir, &lockProblem)) {
+        problems.append(lockProblem);
         return problems;
     }
     // 列的是**新**目录：这一条在改名成功之后才调，旧目录已经不在了。世界目录相对

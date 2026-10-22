@@ -17,6 +17,7 @@
 
 #include "../manage/InstanceFiles.hpp"
 #include "../util/AppPaths.hpp"
+#include "../util/WriteDirectoryGuard.hpp"
 
 #if defined(Q_OS_WIN)
 // NOTE: 放在所有 Qt 头之后 —— windows.h 定义的东西太多（min/max 宏……），先于 Qt 包含
@@ -379,6 +380,8 @@ bool AsciiPathAlias::isReady(const Paths &paths) {
 QString AsciiPathAlias::ensure(const Paths &paths, const QString &versionId,
                                const QString &realNativesPath) {
     const QString realGameDir = AppPaths::versionDir(versionId);
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(realGameDir, &lockProblem)) return lockProblem;
     const QString rootDir = QDir::toNativeSeparators(paths.root);
 
     // 别名根**自己**必须是 ASCII 的。它挂在数据目录底下，而数据目录的路径是用户自己选的

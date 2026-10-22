@@ -6,6 +6,7 @@
 #include "DataPackPreset.hpp"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -198,6 +199,23 @@ bool removeTreeNoLinks(const QString &path, QString *problem) {
     return true;
 }
 
+/// 未登记的旧目录/暂存只能人工检查，文件名前缀不是所有权证明。
+/// 不自动删除，也不把一个恰好同名的用户目录当作原件改名。
+bool recoverInterruptedReplace(const QString &parent, const QString &base, QString *problem) {
+    const QString token = dataPackReplaceToken(base);
+    const auto leftovers = QDir(parent).entryList(
+        {QStringLiteral(".wtfml-old-") + token + QStringLiteral("-*"),
+         QStringLiteral(".wtfml-copy-") + token + QStringLiteral("-*")},
+        QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot, QDir::Name);
+    if (leftovers.isEmpty()) return true;
+    if (problem != nullptr) {
+        *problem = dataPackText("「%1」旁有未登记的旧内容或暂存，无法确认归属；已全部保留，"
+                               "请先人工检查目录：%2")
+                       .arg(base, QDir::toNativeSeparators(parent));
+    }
+    return false;
+}
+
 /// 把一份文件/一棵目录拷到目标上（**换掉目标上已有的那一份**）。目标上一根链接都不跟。
 ///
 /// 次序**先拷到旁边、再换过去**，不能"先删目标、再拷"：拷到一半失败（盘满、源在
@@ -212,7 +230,17 @@ bool copyOverwrite(const QString &source, const QString &target, QString *proble
         return false;
     }
 
-    const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    // 上一趟崩在半路留下的残骸先收拾掉（见 recoverInterruptedReplace 文件头）：
+    // "目标不见了"那种情况在这里有机会恢复，不能等下一次拷同一份时才发现。
+    const QString base = QFileInfo(target).fileName();
+    QString problemText;
+    if (!recoverInterruptedReplace(parent, base, &problemText)) {
+        *problem = problemText;
+        return false;
+    }
+
+    const QString token = dataPackReplaceToken(base) + QLatin1Char('-') +
+                          QUuid::createUuid().toString(QUuid::WithoutBraces);
     const QString staging = parent + QStringLiteral("/.wtfml-copy-") + token;
     QString scratch;
     if (!copyTreeWithoutFollowingLinks(source, staging)) {
@@ -235,8 +263,10 @@ bool copyOverwrite(const QString &source, const QString &target, QString *proble
     }
     if (!QDir().rename(staging, target)) {
         removeTreeNoLinks(staging, &scratch);
-        if (existed) {
-            QDir().rename(displaced, target);  // 换不上去 ⇒ 原来那一份放回去
+        if (existed && !QDir().rename(displaced, target)) {
+            *problem = dataPackText("发布失败，原内容未能归位，仍完整保留在：%1")
+                           .arg(QDir::toNativeSeparators(displaced));
+            return false;
         }
         *problem = dataPackText("换不掉目标上已有的「%1」（它可能正被占用）。").arg(target);
         return false;
@@ -297,6 +327,13 @@ QString targetPathFor(const QString &instanceRoot, const QString &world, const Q
 }
 
 }  // namespace
+
+QString dataPackReplaceToken(const QString &base) {
+    // 名字里**不直接嵌文件名**：暂存和备份就在同一个目录里，长文件名再拼一截会顶到
+    // Windows 的路径上限（而那时源文件是好端端的，失败纯属自找）。
+    return QString::fromLatin1(
+        QCryptographicHash::hash(base.toUtf8(), QCryptographicHash::Sha1).toHex().left(12));
+}
 
 QString dataPackSectionId() {
     return sectionIdFor(SectionKind::Custom, QStringLiteral("dataPacks"));

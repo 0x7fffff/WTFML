@@ -52,6 +52,8 @@
 // `openWorldSettings()` 的进参是 `WorldSettingsPage::WorldView` —— **嵌套类型**，
 // 前置声明一个 `class WorldSettingsPage;` 是说不清它的，得把定义拿进来。
 #include "WorldSettingsPage.hpp"
+// `actionButtonHeight()` 报的是全应用动作按钮那一档（见那条注释）。
+#include "Theme.hpp"
 
 class ConfigFileEditorPage;
 class InstanceFilesPage;
@@ -887,7 +889,10 @@ public:
     //
     // NOTE: **宽度不在这儿** —— 它不是钉死的像素，是"三列各一份 + 铺满整幅"算出来的
     // （见 .cpp 里 layoutActionCells() 那段）。这两个数只是"排几列"和"至少多宽"。
-    static constexpr int actionButtonHeight() { return 32; }
+    /// 高度**不另立一个数**：这一排是普通的动作按钮，全局 QSS 那条
+    /// `min-height: actionHeight() - 14` 本来就把它们钉在全应用那一档上
+    /// （`setFixedHeight()` 写小了只会被 QSS 顶回来，量到的仍是大数）。
+    static constexpr int actionButtonHeight() { return Theme::actionHeight(); }
     static constexpr int actionButtonsPerRow() { return 3; }
     static constexpr int actionButtonSpacing() { return 10; }
     static constexpr int actionButtonMinWidth() { return 110; }

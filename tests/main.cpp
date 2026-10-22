@@ -4,6 +4,10 @@ int main(int argc, char *argv[]) {
     QCoreApplication app(argc, argv);
     app.setApplicationName("WTFML");
     app.setOrganizationName("WTFML");
+    // ZJ0 的目录锁用例会把**自己**再起一份来抢锁，兼容入口也得认那个参数（见 Support.hpp）。
+    if (const int probe = runDirectoryLockProbeIfRequested(app.arguments()); probe >= 0) {
+        return probe;
+    }
     if (app.arguments().contains(QStringLiteral("--bootstrap-check"))) {
         out() << "PASS compatibility driver links and starts\n";
         return 0;

@@ -312,6 +312,14 @@ TaskCenter::Item ActivityCenterController::item(const Tasks::TaskSnapshot &task,
     result.capabilities.exportReport = task.capabilities.canExportReport
                                        && crashRecordAvailable;
     result.capabilities.openCrashDir = task.capabilities.canOpenCrashDir;
+    // 「为什么没有取消」：账本那边明写的优先；「这一类本来允许取消、只是这一段停不得」
+    // （加载器安装器在跑、整合包解压…）由这里补一句通用说法 —— 那是执行器的临时状态，
+    // 没必要让每个执行器都自己拼一遍。
+    result.cancelBlockedReason = task.capabilities.cancelBlockedReason;
+    if (Tasks::isActiveState(task.state) && !result.capabilities.cancel
+        && result.cancelBlockedReason.isEmpty() && task.capabilities.canCancel) {
+        result.cancelBlockedReason = tr("当前这一步停不得（停下来会留下半成品），等它走完这一段再取消。");
+    }
 
     result.steps.reserve(task.steps.size());
     for (const Tasks::TaskStep &step : task.steps) {
@@ -373,10 +381,21 @@ Tasks::TaskCapabilities ActivityCenterController::defaultCapabilities(Tasks::Tas
         caps.canCancel = true;
         break;
     case Tasks::TaskKind::Launch:
+        caps.cancelBlockedReason = tr("启动已经开始，要停下来请关掉游戏窗口。");
+        break;
     case Tasks::TaskKind::Export:
+        caps.cancelBlockedReason =
+            tr("导出是把已经盘点好的文件打成一个压缩包，中途停下会留下半个包；这一项不支持取消。");
+        break;
     case Tasks::TaskKind::Backup:
+        caps.cancelBlockedReason = tr("这一项在收尾时会发布结果，发布那一步不能打断。");
+        break;
     case Tasks::TaskKind::Java:
+        caps.cancelBlockedReason = tr("正在准备 Java 运行环境，完成后会自动继续；这一项不支持取消。");
+        break;
     case Tasks::TaskKind::Integrity:
+        caps.cancelBlockedReason = tr("完整性检查在后台只读扫描，不会改动任何文件；它停不了，跑完会统一报结果。");
+        break;
     case Tasks::TaskKind::Crash:
     case Tasks::TaskKind::Other:
         break;

@@ -1,18 +1,7 @@
 #include "Support.hpp"
-#include "util/DirectorySessionLock.hpp"
-#include <cstdio>
-#include <QThread>
 int main(int argc, char **argv) {
  QCoreApplication app(argc, argv);
- if (app.arguments().size() >= 3 && app.arguments().at(1) == QStringLiteral("--directory-lock-probe")) {
-     DirectorySessionLock::enabled = true;
-     if (!DirectorySessionLock::acquire(app.arguments().at(2))) return 73;
-     if (app.arguments().contains(QStringLiteral("--hold"))) {
-         std::puts("LOCKED"); std::fflush(stdout);
-         QThread::sleep(60); // Parent kills this fixture; bounded even if the parent dies.
-     }
-     return 0;
- }
+ if (const int probe = runDirectoryLockProbeIfRequested(app.arguments()); probe >= 0) return probe;
  int moduleStatus = 0;
  app.setOrganizationName("WTFML"); app.setApplicationName("WTFML");
  QTemporaryDir fixture; if (!fixture.isValid()) return 2;

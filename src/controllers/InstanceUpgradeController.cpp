@@ -142,6 +142,16 @@ void InstanceTransferController::runUpgradeJob(const InstanceUpgrade::Request &r
     const int stepCount = steps.size();
     const auto task = m_host.beginTask ? m_host.beginTask(Tasks::TaskKind::Other, title, request.instanceId, steps)
                                      : Tasks::invalidTaskId();
+    // 升级 / 回滚在引擎里每一步之间都看取消位（准备、快照、校验、发布前后），所以
+    // 这里把「取消」开出来。`Other` 的默认能力位是关的 —— 光靠种类判断，这一项
+    // 永远长不出那颗按钮。
+    const auto state = std::make_shared<CancelState>();
+    if (task != Tasks::invalidTaskId()) m_cancelStates.insert(task, state);
+    if (m_host.setTaskCapabilities) {
+        Tasks::TaskCapabilities caps;
+        caps.canCancel = true;
+        m_host.setTaskCapabilities(task, caps);
+    }
     const auto stage = std::make_shared<std::atomic<int>>(0);
     auto *watcher = new QFutureWatcher<InstanceUpgrade::Result>(this);
     auto *timer = new QTimer(watcher);
@@ -160,38 +170,61 @@ void InstanceTransferController::runUpgradeJob(const InstanceUpgrade::Request &r
             timer->stop();
             const auto result = watcher->result();
             watcher->deleteLater();
+            if (task != Tasks::invalidTaskId()) m_cancelStates.remove(task);
             for (const auto &id : lockedIds) if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(id, false);
             m_copyBusy = false;
             m_versions->clearVersionJsonCache();
             if (m_host.refreshInstances) m_host.refreshInstances();
+            // 「用户按了取消」只在**真的没做成**时才算数：按下的那一瞬间引擎可能正好
+            // 走完了最后一个安全点、升级已经成功 —— 该报成功（盘上确实换好了）。
+            // 按过取消不代表引擎安全取消；并发 I/O 失败或回滚失败不能被它掩盖。
+            const bool cancelled = result.cancelled && !result.ok;
             QString detail = result.problem;
             if (result.ok) detail = tr("已完成。禁用旧模组 %1 个。恢复材料：%2")
                 .arg(result.disabledMods).arg(InstanceUpgrade::transactionDir(request));
+            if (cancelled && detail.isEmpty()) {
+                detail = tr("已取消：原实例没有发布新核心（已经动过的那部分会自动恢复）。");
+            }
             if (!result.snapshotZip.isEmpty()) detail += tr("\n完整快照：%1").arg(result.snapshotZip);
             if (m_host.setTaskDetail) m_host.setTaskDetail(task, detail);
-            if (m_host.setTaskStepState) {
+            if (!cancelled && m_host.setTaskStepState) {
                 if (result.ok) for (int i = 0; i < stepCount; ++i) m_host.setTaskStepState(task, i, Tasks::TaskStepState::Done);
                 else m_host.setTaskStepState(task, stage->load(), Tasks::TaskStepState::Failed);
             }
             if (m_host.setTaskProgress && result.ok) m_host.setTaskProgress(task, stepCount, stepCount);
-            if (m_host.finishTask) m_host.finishTask(task, result.ok, detail);
-            log(title + '\n' + detail);
+            if (cancelled) {
+                // 取消不是失败：账本收成 Cancelled（不亮红点），也不弹失败提示。
+                if (m_host.markTaskCancelled) m_host.markTaskCancelled(task);
+                else if (m_host.finishTask) m_host.finishTask(task, false, detail);
+                log(title + '\n' + detail);
+            } else {
+                if (m_host.finishTask) m_host.finishTask(task, result.ok, detail);
+                log(title + '\n' + detail);
+            }
             // Close stale settings before showing results, so it cannot write old fields back.
             const QPointer<InstanceTransferController> guard(this);
-            if (whenDone) whenDone(result.ok || result.rolledBack || result.rollbackAvailable || result.requiresReload, result.problem);
+            if (whenDone) {
+                whenDone(result.requiresReload || result.rolledBack || result.ok
+                             || (!cancelled && result.rollbackAvailable),
+                         detail);
+            }
             if (!guard) return;
             if (m_overlay && !m_overlay->promptOpen()) {
                 if (result.ok) InlineMessage::information(m_overlay, title, detail);
+                else if (cancelled) InlineMessage::information(m_overlay, title, detail);
                 else InlineMessage::critical(m_overlay, title, detail);
             }
         });
     timer->start(100);
-    watcher->setFuture(QtConcurrent::run([request, core, restore, stage] {
+    watcher->setFuture(QtConcurrent::run([request, core, restore, stage, state] {
+        const auto cancelled = [state] {
+            return state->abort.load(std::memory_order_relaxed);
+        };
         try {
-            if (restore) return InstanceUpgrade::rollback(request);
+            if (restore) return InstanceUpgrade::rollback(request, cancelled);
             return InstanceUpgrade::prepareAndCommit(request, core, [stage](InstanceUpgrade::Stage value) {
                 stage->store(static_cast<int>(value));
-            });
+            }, cancelled);
         } catch (...) {
             InstanceUpgrade::Result result;
             result.requiresReload = true;

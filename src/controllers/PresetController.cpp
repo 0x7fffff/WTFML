@@ -24,6 +24,7 @@
 #include "presets/PresetCompatibility.hpp"
 #include "presets/PresetPlanner.hpp"
 #include "presets/PresetStore.hpp"
+#include "download/ResourceCatalog.hpp"
 #include "util/AppPaths.hpp"
 
 #include <QComboBox>
@@ -125,8 +126,14 @@ PresetController::PresetController(VersionManager *versions, QWidget *hostPage, 
     : QObject(parent), m_versions(versions), m_hostPage(hostPage), m_host(std::move(host)) {
     // 兼容检查那一套：真网络提供方 + 共享缓存 + 检查器。★ 缓存与 checker 都活到这一层
     // 结束，所以"同一批模组在两个弹窗里连着看两次"第二趟是缓存结论（「共享缓存」）。
-    m_modProvider = new Presets::PlatformCompatibilityProvider(
-        QUrl(QStringLiteral("https://api.modrinth.com/v2")), this);
+    //
+    // 根地址问 VersionManager（它认 `Launcher/ModrinthApiBase`）—— 原来这里写死了一份
+    // 官方地址，夹具换不掉它：将来任何用 PresetController 的兼容检查测试都会静默打到真
+    // Modrinth，而断言是全绿的。
+    const QString modrinthRoot =
+        m_versions != nullptr ? m_versions->modrinthApiRoot()
+                              : ResourceCatalog::modrinthApiRoot();
+    m_modProvider = new Presets::PlatformCompatibilityProvider(QUrl(modrinthRoot), this);
     m_modChecker = new Presets::CompatibilityChecker(&m_modCache, this);
     m_modChecker->setProvider(m_modProvider);
     const auto push = [this](const QList<Presets::CompatibilityResult> &results,

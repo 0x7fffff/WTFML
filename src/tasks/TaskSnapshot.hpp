@@ -81,6 +81,9 @@ struct TaskStep {
 /// 就得把"什么时候不能取消"再推一遍，而那个知识只在下命令的那一层手上有。
 struct TaskCapabilities {
     bool canCancel = false;
+    /// 「为什么不能取消」。只有 `canCancel == false` 时才有意义，详情页原样摆给用户。
+    /// 空地留空 = 这一项不需要解释（比如已经收尾）。**不落盘**：它不是摘要的一部分。
+    QString cancelBlockedReason;
     bool canPause = false;   // 恒 false
     bool canRetry = false;   // 恒 false（取消/重试还没做）
     bool canOpenTarget = false;

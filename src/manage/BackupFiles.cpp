@@ -1046,6 +1046,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
     if (!QDir().rename(candidate, target)) {
         result.stage = RestoreResult::Stage::RemoveOld;
         const bool recovered = !existing.exists() || QDir().rename(retained, target);
+        result.recoveryFailed = !recovered;
         if (managed && recovered) QFile::remove(journalPath);
         result.problem = recovered ? QObject::tr("无法发布还原目录，已保留或恢复原目录。")
             : QObject::tr("无法发布且原目录未能自动归位；原文件完整保留在：%1").arg(retained);

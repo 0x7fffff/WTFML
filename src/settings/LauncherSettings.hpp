@@ -281,6 +281,13 @@ public:
     /// 而 Modrinth 那条反查（`POST /v2/version_files`）没有别的办法离线跑。
     QString modrinthApiBaseOverride() const { return m_modrinthApiBaseOverride; }
 
+    /// 版本清单 / 免鉴权皮肤档案 / 贴图 / Minecraft Services 的地址覆盖。四条都是
+    /// **只读不写**、只有验证工程会填；空串 = 官方地址。产品路径永远不写它们。
+    QString versionManifestUrlOverride() const { return m_versionManifestUrlOverride; }
+    QString sessionServerBaseOverride() const { return m_sessionServerBaseOverride; }
+    QString textureBaseOverride() const { return m_textureBaseOverride; }
+    QString minecraftServicesBaseOverride() const { return m_minecraftServicesBaseOverride; }
+
     // ------------------------------------------------------------------
     // 「启动选项」那三项（设置页「游戏」栏里那一组）
     // ------------------------------------------------------------------
@@ -450,4 +457,8 @@ private:
     QString m_curseForgeApiBaseOverride;
     /// Modrinth 那条路的地址覆盖（见 `modrinthApiBaseOverride()`）。同样是「空 = 默认档」。
     QString m_modrinthApiBaseOverride;
+    QString m_versionManifestUrlOverride;
+    QString m_sessionServerBaseOverride;
+    QString m_textureBaseOverride;
+    QString m_minecraftServicesBaseOverride;
 };

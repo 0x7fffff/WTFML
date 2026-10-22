@@ -10,6 +10,7 @@
 #include <QFileInfo>
 #include <QStringList>
 #include <QTemporaryFile>
+#include <QUuid>
 #include <QCryptographicHash>
 #include <QElapsedTimer>
 
@@ -169,8 +170,25 @@ void copyOneFile(const QString &sourceFile, const QString &targetFile, Result *r
         noteFailure(result, targetFile);
         return;
     }
-    if (!QFile::copy(sourceFile, targetFile)) {
+    // 先写**同目录**的临时名，再改名发布：`QFile::copy()` 写到一半失败（磁盘满、
+    // 杀软扫描、移动盘被拔）会留下半截目标文件，而"目标已存在就跳过"下一次会把这
+    // 半截当成已经搬好的一份，从此再也不重试。同卷改名是原子的；失败时临时文件删掉。
+    // 名字带 UUID：`QFile::copy()` 遇到已存在的目标会直接失败，不会覆盖别人的东西。
+    const QString stagingPath = QFileInfo(targetFile).absoluteDir().filePath(
+        QStringLiteral(".wtfml-part-") + QUuid::createUuid().toString(QUuid::WithoutBraces));
+    if (!QFile::copy(sourceFile, stagingPath)) {
+        QFile::remove(stagingPath);
         noteFailure(result, sourceFile);
+        return;
+    }
+    // 复制期间目标可能被别人建出来了（另一个启动器、同步盘）：仍然按"不覆盖"处理。
+    if (QFileInfo::exists(targetFile) || !QFile::rename(stagingPath, targetFile)) {
+        QFile::remove(stagingPath);
+        if (QFileInfo::exists(targetFile)) {
+            ++result->skippedFiles;
+            return;
+        }
+        noteFailure(result, targetFile);
         return;
     }
     ++result->copiedFiles;

@@ -198,6 +198,10 @@ public:
         return installingVersionIds().contains(versionId);
     }
 
+    /// **给验证工程用**：任务中心那一项此刻翻成界面样子是什么（只读）。
+    /// 和 `taskCenterItems()` 同一个翻译点，所以验的就是产品真正会画的那一份。
+    QList<TaskCenter::Item> taskCenterItemsForTest() { return taskCenterItems(); }
+
     /**
      * @brief **给验证工程用**：直接压 / 放一次"这一份实例正在搬文件"的计数。
      *

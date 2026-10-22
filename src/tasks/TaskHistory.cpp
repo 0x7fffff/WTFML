@@ -250,8 +250,12 @@ QList<TaskSnapshot> load(const QString &path) {
     // 原文件**一个字节都不动**，只在旁边留一份 `<账本>.corrupt`（已经有了就不覆盖，
     // 留最早那一份）；正常流程照走 —— 读出来是空的，照样开得起来。
     if (!parsed && !bytes.trimmed().isEmpty()) {
+        // 留证据也是**写**：和 `save()` 同一把目录锁。另一份启动器持着这个数据根时
+        // 连 `.corrupt` 也不写（它自己会照常启动，那份坏账本在原处一个字节没动）。
         const QString evidencePath = path + QStringLiteral(".corrupt");
-        if (!QFile::exists(evidencePath) && QFile::copy(path, evidencePath)) {
+        if (!WriteDirectoryGuard::acquire(path)) {
+            qWarning() << "Task history is not valid JSON and the directory is locked:" << path;
+        } else if (!QFile::exists(evidencePath) && QFile::copy(path, evidencePath)) {
             qWarning() << "Task history is not valid JSON; kept a copy at" << evidencePath;
         } else {
             qWarning() << "Task history is not valid JSON and the copy could not be kept:" << path;

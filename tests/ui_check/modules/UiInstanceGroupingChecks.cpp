@@ -478,30 +478,49 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
         {
             // ---- ⑪a 色本身：一档只有一个出处 ----
             const QColor white(0xff, 0xff, 0xff);
-            const QColor hoverOnWhite = Theme::rowHoverFill(white);
-            const QColor buttonHover = Theme::accentShade(Theme::AccentShade::Hover);
-            check(hoverOnWhite == buttonHover,
-                  "★ 白底上的行悬停色 == 按钮 `:hover` 那一档（逐字节）——「悬停全应用只有"
-                  "一种深浅」就是靠这一条",
-                  QStringLiteral("行 %1 / 按钮 %2").arg(hoverOnWhite.name(), buttonHover.name()));
-            check(hoverOnWhite != white,
-                  "★ 而且它真的和白底不一样（一样的话等于「加了悬停」但屏幕上什么都没发生）",
-                  hoverOnWhite.name());
             const auto rgbDist = [](const QColor &a, const QColor &b) {
                 return qAbs(a.red() - b.red()) + qAbs(a.green() - b.green())
                        + qAbs(a.blue() - b.blue());
             };
-            // 深色预设下 `QPalette::Base` 是 `#323232`：那一档必须**从自己的底色出发**，
-            // 不能照抄"罩在白上"的那个近白色 —— 照抄的话深色主题下整行悬停会闪成一片白。
+            // 认得出的预设（默认就是翡翠）**一档只有一个色**：不管这一行自己的底是什么，
+            // 悬停都铺 `tokens().hover` ——「悬停全应用只有一种深浅」就是靠这一条。
             const QColor darkBase(0x32, 0x32, 0x32);
-            const QColor hoverOnDark = Theme::rowHoverFill(darkBase);
-            check(rgbDist(hoverOnDark, darkBase) < rgbDist(buttonHover, darkBase),
-                  "★ 深底上它是「从自己的底色加深一档」，离底色**比**按钮那个近白色更近 ——"
-                  " 直接返回按钮那一档的话，深色主题下每一行悬停都会闪成近白",
-                  QStringLiteral("从底色出发 %1（距离 %2）/ 近白那一档 距离 %3")
-                      .arg(hoverOnDark.name())
-                      .arg(rgbDist(hoverOnDark, darkBase))
-                      .arg(rgbDist(buttonHover, darkBase)));
+            const QColor presetHover = Theme::tokens().hover;
+            check(Theme::rowHoverFill(white) == presetHover &&
+                      Theme::rowHoverFill(darkBase) == presetHover,
+                  "★ 预设自带的悬停档：底换了一种，铺的还是 `tokens().hover`（一档一个色）",
+                  QStringLiteral("白底 %1 / 深底 %2 / 该是 %3")
+                      .arg(Theme::rowHoverFill(white).name(),
+                           Theme::rowHoverFill(darkBase).name(), presetHover.name()));
+            check(presetHover != white,
+                  "★ 而且它真的和白底不一样（一样的话等于「加了悬停」但屏幕上什么都没发生）",
+                  presetHover.name());
+            // 主题色被用户改过（不再等于预设的 `primary`）时走**混色**那一支：从这一行
+            // 自己的底色出发往主题色那头混。浅色下底就是白 ⇒ 和按钮 `:hover` 逐字节相等；
+            // 深色底上必须**从自己的底色出发**，不能照抄"罩在白上"的那个近白色 ——
+            // 照抄的话深色主题下整行悬停会闪成一片白。
+            // 这一段临时换一份自定义主题色，量完逐字还原（后面的节假设默认那身）。
+            {
+                const Theme::Spec savedSpec = Theme::current();
+                Theme::Spec custom = Theme::presetSpec(QStringLiteral("emerald"));
+                custom.accent = QColor(QStringLiteral("#336699"));
+                Theme::setSpec(custom);
+                Theme::apply(*qApp);
+                const QColor hoverOnWhite = Theme::rowHoverFill(white);
+                const QColor buttonHover = Theme::accentShade(Theme::AccentShade::Hover);
+                check(hoverOnWhite == buttonHover,
+                      "★ 自定义主题色下白底的行悬停色 == 按钮 `:hover` 那一档（逐字节）",
+                      QStringLiteral("行 %1 / 按钮 %2").arg(hoverOnWhite.name(), buttonHover.name()));
+                const QColor hoverOnDark = Theme::rowHoverFill(darkBase);
+                check(rgbDist(hoverOnDark, darkBase) < rgbDist(buttonHover, darkBase),
+                      "★ 深底上它是「从自己的底色加深一档」，离底色**比**按钮那个近白色更近",
+                      QStringLiteral("从底色出发 %1（距离 %2）/ 近白那一档 距离 %3")
+                          .arg(hoverOnDark.name())
+                          .arg(rgbDist(hoverOnDark, darkBase))
+                          .arg(rgbDist(buttonHover, darkBase)));
+                Theme::setSpec(savedSpec);
+                Theme::apply(*qApp);
+            }
             check(Theme::rowHoverAccentPercent() > 0 && Theme::rowHoverAccentPercent() < 100,
                   "★「加深一档」那个数落在 0~100 之间（0 = 没效果，100 = 整行变成纯主题色）",
                   QString::number(Theme::rowHoverAccentPercent()));
@@ -607,13 +626,11 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                       .arg(distToSelection)
                       .arg(distToHover)
                       .arg(selectionGray.name(), hoverFill.name()));
-            check(rgbDist(selectedPixel, highlight) > distToSelection,
-                  "★ 而且量到的**不是**调色板里那个蓝（`Highlight`）—— 这一条才是"
-                  "「蓝色的换成深灰色」这句话在屏幕上的守卫",
-                  QStringLiteral("离老那个蓝 %1 / 离深灰 %2（老那个蓝 = %3）")
-                      .arg(rgbDist(selectedPixel, highlight))
-                      .arg(distToSelection)
-                      .arg(highlight.name()));
+            check(rgbDist(highlight, selectionGray) == 0,
+                  "★ 调色板里的 `Highlight` 就是我们这一档（Fusion 那个蓝在应用调色板里"
+                  "已经不在了）",
+                  QStringLiteral("调色板 Highlight %1 / 我们这一档 %2")
+                      .arg(highlight.name(), selectionGray.name()));
             // 左边那一截分支区**还是白的**（196b5cf 专门补的）：实例行选中时的带子只有
             // 卡片那一圈，不跟着那根竖条走 —— 顺手把它涂灰就不再是"卡片"了。
             // 这一条钉在**又选中又悬停**那一刻：两种底色都铺上的时候才量得出"谁没被涂"。
@@ -780,10 +797,12 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             // 手画正文的三个代理（VersionTreeDelegate / InstanceGroupDelegate /
             // GroupListDelegate）读的是 `selectionPalette()` —— 它们抄不到样式那一半。
 
-            // ---- ⑫a 那一档底：由**这一行自己的底色**混一档主题色，不是写死的色号 ----
+            // ---- ⑫a 那一档底：预设自带一档；自定义主题色时由**这一行自己的底色**混出来 ----
             const QColor selectionFill = Theme::selectionFill();
-            check(selectionFill == Theme::selectionFill(QColor(Qt::white)),
-                  "★ 不传底色 = 白底（默认那身浅色主题上每一张表的底都是白，判据拿到的就是它）",
+            check(selectionFill == Theme::selectionFill(QColor(Qt::white)) &&
+                      selectionFill == Theme::selectionFill(QColor(0x32, 0x32, 0x32)) &&
+                      selectionFill == Theme::tokens().selected,
+                  "★ 预设自带的选中档：底换了一种，铺的还是 `tokens().selected`（一档一个色）",
                   selectionFill.name());
             check(selectionFill.lightness() > 200 && selectionFill.hsvSaturation() < 40 &&
                       selectionFill.green() > selectionFill.red(),
@@ -794,30 +813,41 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                       .arg(selectionFill.lightness())
                       .arg(selectionFill.hsvSaturation()));
             const QColor selectionDarkBase(0x32, 0x32, 0x32);
-            const QColor onDarkBase = Theme::selectionFill(selectionDarkBase);
-            check(onDarkBase.lightness() < selectionFill.lightness() &&
-                      onDarkBase.lightness() > selectionDarkBase.lightness() &&
-                      onDarkBase.green() > onDarkBase.red(),
-                  "★ 底**跟着这一行自己的底色走**：深色主题的底 `#323232` 混出来仍然是"
-                  "「底色上浮一点、还是这一支主题色的方向」，不会闪成一片近白"
-                  "（这条就是行悬停那一档的同一把尺）",
-                  QStringLiteral("白底混出 %1 / 深底混出 %2 / 深底本色 %3")
-                      .arg(selectionFill.name(), onDarkBase.name(), selectionDarkBase.name()));
+            // 自定义主题色那一支（主题色不再等于预设的 `primary`）：底由**这一行自己的
+            // 底色**混一档主题色，不是写死的色号 —— 深色主题的底混出来仍然是「底色上浮
+            // 一点、方向跟着这一支主题色」，不会闪成一片近白。量完逐字还原。
+            {
+                const Theme::Spec savedSpec = Theme::current();
+                Theme::Spec custom = Theme::presetSpec(QStringLiteral("emerald"));
+                custom.accent = QColor(QStringLiteral("#336699"));
+                Theme::setSpec(custom);
+                Theme::apply(*qApp);
+                const QColor onWhite = Theme::selectionFill(QColor(Qt::white));
+                const QColor onDarkBase = Theme::selectionFill(selectionDarkBase);
+                check(onWhite != onDarkBase &&
+                          onDarkBase.lightness() < onWhite.lightness() &&
+                          onDarkBase.lightness() > selectionDarkBase.lightness() &&
+                          onDarkBase.blue() > onDarkBase.red(),
+                      "★ 自定义主题色下底**跟着这一行自己的底色走**：深底混出来是「底色上浮"
+                      "一点、方向跟着这一支主题色」，不会闪成一片近白",
+                      QStringLiteral("白底混出 %1 / 深底混出 %2 / 深底本色 %3")
+                          .arg(onWhite.name(), onDarkBase.name(), selectionDarkBase.name()));
+                Theme::setSpec(savedSpec);
+                Theme::apply(*qApp);
+            }
             const QColor appHighlight =
                 QGuiApplication::palette().color(QPalette::Active, QPalette::Highlight);
-            check(selectionFill.rgb() != appHighlight.rgb(),
-                  "★ 这一档**不是**调色板里那个 `Highlight`（Fusion 那个蓝）—— "
-                  "「蓝色的换成深灰色」那句话的最小守卫",
+            check(selectionFill.rgb() == appHighlight.rgb(),
+                  "★ 调色板里的 `Highlight` 也换成了**我们这一档**（Fusion 那个蓝在整个应用上"
+                  "已经不在了）—— 凡是从调色板取选中色的地方都不会再长回蓝色",
                   QStringLiteral("我们这一档 %1 / 调色板 Highlight %2")
                       .arg(selectionFill.name(), appHighlight.name()));
 
             // ---- ⑫b 墨：浅底上必须是**暗**字，深底上必须是**亮**字 ----
             //
-            // 方向是这一节的要害：这块底是**暗**的（`#4a4a4a`）、墨得是亮的；用户
-            // 把底色改浅之后，墨必须**跟着翻过去** —— 亮墨压浅底 = 等于没字。所以这里不只
-            // 量"差得够远"，还钉住"底是亮的、墨是暗的"这两条方向。
-            // 底**跟这一行自己的底色走**，方向**还得会翻回来**：
-            // 深色预设下那一片底是暗的，墨必须换回亮的那一支（见 .cpp 里那两档）。
+            // 方向是这一节的要害：亮墨压浅底 = 等于没字，反过来暗墨压深底也一样。
+            // 所以这里不只量"差得够远"，还钉住"底是亮的、墨是暗的"这两条方向；底
+            // **跟着这一行自己的底色走**的那一支上，方向**还得会翻回来**（深底换亮墨）。
             const QColor selectionInk = Theme::selectionInk();
             const QColor selectionSubInk = Theme::selectionSubInk();
             check(Theme::selectionFill().lightness() > 128 && selectionInk.lightness() < 128,
@@ -836,18 +866,29 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                   QStringLiteral("次要墨 %1 / 差 %2")
                       .arg(selectionSubInk.name())
                       .arg(rgbDist(selectionSubInk, Theme::selectionFill())));
-            const QColor inkOnDark = Theme::selectionInk(selectionDarkBase);
-            const QColor subInkOnDark = Theme::selectionSubInk(selectionDarkBase);
-            check(inkOnDark.lightness() > 128 && subInkOnDark.lightness() > 128 &&
-                      inkOnDark.lightness() > subInkOnDark.lightness() &&
-                      rgbDist(inkOnDark, Theme::selectionFill(selectionDarkBase)) > 300,
-                  "★ 底一暗下去，墨**自己翻回亮的那一支**（这一档底是跟着这一行的底色走的，"
-                  "写死一支暗墨的话深色预设上整行就是「没有字」）",
-                  QStringLiteral("深底上的墨 %1（明度 %2）/ 次要墨 %3（明度 %4）")
-                      .arg(inkOnDark.name())
-                      .arg(inkOnDark.lightness())
-                      .arg(subInkOnDark.name())
-                      .arg(subInkOnDark.lightness()));
+            // 「底一暗、墨翻亮」这一条只在底**跟着这一行走**的那一支上成立（自定义主题色 /
+            // 跟着系统）。预设自带一档的时候深浅由预设定，换底不换墨 —— 也就不用翻。
+            {
+                const Theme::Spec savedSpec = Theme::current();
+                Theme::Spec custom = Theme::presetSpec(QStringLiteral("emerald"));
+                custom.accent = QColor(QStringLiteral("#336699"));
+                Theme::setSpec(custom);
+                Theme::apply(*qApp);
+                const QColor inkOnDark = Theme::selectionInk(selectionDarkBase);
+                const QColor subInkOnDark = Theme::selectionSubInk(selectionDarkBase);
+                check(inkOnDark.lightness() > 128 && subInkOnDark.lightness() > 128 &&
+                          inkOnDark.lightness() > subInkOnDark.lightness() &&
+                          rgbDist(inkOnDark, Theme::selectionFill(selectionDarkBase)) > 300,
+                      "★ 底一暗下去，墨**自己翻回亮的那一支**（写死一支暗墨的话深底上"
+                      "整行就是「没有字」）",
+                      QStringLiteral("深底上的墨 %1（明度 %2）/ 次要墨 %3（明度 %4）")
+                          .arg(inkOnDark.name())
+                          .arg(inkOnDark.lightness())
+                          .arg(subInkOnDark.name())
+                          .arg(subInkOnDark.lightness()));
+                Theme::setSpec(savedSpec);
+                Theme::apply(*qApp);
+            }
             const QPalette unselectedPalette = QGuiApplication::palette();
             check(Theme::selectionPalette(unselectedPalette, /*selected=*/false) == unselectedPalette,
                   "★ 没选中时 `selectionPalette()` **一个字都不动**（是不是选中只看调用方传进来"
@@ -905,7 +946,6 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             // 得到）、以及不在焦点上的那些选中行（走 `PE_PanelItemViewItem`，是我们自己
             // `fillRect` 的）。
             int bodyPixels = 0;
-            int bodyBlue = 0;
             int bodyWorst = 0;
             int bodyTint = 0;
             int sumR = 0;
@@ -918,9 +958,6 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                 sumR += px.red();
                 sumG += px.green();
                 sumB += px.blue();
-                if (px.rgb() == probeHighlight.rgb()) {
-                    ++bodyBlue;
-                }
                 // 这一档底是**带方向**的（这一支主题色是绿的）：渐变再怎么调，绿的通道
                 // 都得最高。写死"逐字节等于某一档"是不行的（当前项那层渐变），而"
                 // 整列平均下来对得上"又太松（从绿退回灰也能凑出同一个平均）—— 这两条
@@ -940,20 +977,20 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             const QColor bodyAverage(bodyPixels > 0 ? sumR / bodyPixels : 0,
                                      bodyPixels > 0 ? sumG / bodyPixels : 0,
                                      bodyPixels > 0 ? sumB / bodyPixels : 0);
-            check(bodyPixels > 0 && bodyBlue == 0 && bodyTint == 0 &&
-                      rgbDist(bodyAverage, probeSelection) <= 12 && bodyWorst <= 120,
+            check(bodyPixels > 0 && bodyTint == 0 &&
+                      rgbDist(bodyAverage, probeSelection) <= 12 && bodyWorst <= 120 &&
+                      probeHighlight.rgb() == probeSelection.rgb(),
                   "★ 选中一行：屏幕上铺的就是我们这一档（这一列**平均**下来正落在它上面、"
                   "**每一个**像素都还带着这一支主题色的方向、最偏的那个也还在同一族里，"
-                  "而调色板那个蓝一个都没有）",
+                  "调色板里的 `Highlight` 也是这一档）",
                   QStringLiteral("这一列 %1 个像素：平均 %2（离目标 %3）/ 最差 %4 那个像素是 %5"
-                                 " / 方向不对的 %6 个 / %7 个是蓝 / 底色 %8")
+                                 " / 方向不对的 %6 个 / 调色板 Highlight %7 / 底色 %8")
                       .arg(bodyPixels)
                       .arg(bodyAverage.name())
                       .arg(rgbDist(bodyAverage, probeSelection))
                       .arg(bodyWorst)
                       .arg(bodyWorstPixel.name())
                       .arg(bodyTint)
-                      .arg(bodyBlue)
                       .arg(probeHighlight.name(), probeBase.name()));
             // 最左边那一列（x = 0..2）现在是**那根 3 px 的主题色指示条**（点名要的
             // 那一根）：样式早在画选中底的时候就把它铺上了，而代理紧接着又把左边那一截
@@ -985,13 +1022,16 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             QApplication::processEvents();
             const QRect plainRect = plainProbe.visualItemRect(plainProbe.item(0));
             const QImage plainShot = captureWidget(plainProbe.viewport());
-            const QColor plainInkPixel = plainShot.pixelColor(
-                plainRect.left() + 1, plainRect.top() + plainRect.height() - 2);
-            check(plainInkPixel.rgb() != probeHighlight.rgb(),
-                  "★ 裸列表里选中一行：量到的**不是**调色板那个蓝（那一档底、最左边那根指示条、"
-                  "或者底色都行，反正蓝色在这一层没了）",
-                  QStringLiteral("量到 %1（蓝 = %2）")
-                      .arg(plainInkPixel.name(), probeHighlight.name()));
+            // 裸表（没挂我们那三个代理）铺的是 Fusion 自己画的竖渐变 —— 取正中那一格，
+            // 它应当正落在**调色板里的选中色**上（那一份已经是我们这一档，Fusion 那个蓝
+            // 在应用上不存在了）。
+            const QColor plainInkPixel = plainShot.pixelColor(plainRect.center());
+            check(rgbDist(plainInkPixel, probeHighlight) <= 60,
+                  "★ 裸列表里选中一行铺的就是调色板里那一档（它已经是我们这一档，"
+                  "Fusion 那个蓝在应用上不存在了）",
+                  QStringLiteral("量到 %1（调色板选中色 = %2，差 %3）")
+                      .arg(plainInkPixel.name(), probeHighlight.name())
+                      .arg(rgbDist(plainInkPixel, probeHighlight)));
             plainProbe.hide();
 
             // ---- ⑫e 那条闸：`Highlight` 被换过的表**不许**被接管 ----

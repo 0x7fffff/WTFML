@@ -193,6 +193,40 @@ void runResourceAndDataPackTests() {
     check(writeBytes(dpFiles + QStringLiteral("/saves/W2/datapacks/pack1.zip"), packOne),
           "PL4 夹具：预设里 W2 那一份也摆好了（用来验「待应用」）");
 
+    section("PL4b. 未登记的中断目录不能仅凭前缀自动清理或归位");
+    {
+        const auto put = [&writeBytes](const QString &path, const QByteArray &bytes) {
+            return QDir().mkpath(QFileInfo(path).absolutePath()) && writeBytes(path, bytes);
+        };
+        const QString source = scratch.filePath(QStringLiteral("dpCrashSource"));
+        const QString root = scratch.filePath(QStringLiteral("dpCrashRoot"));
+        const QString relative = QStringLiteral("/saves/W9/datapacks/");
+        check(put(source + relative + QStringLiteral("dirpack/pack.mcmeta"), "original"),
+              "PL4b 源数据包创建成功");
+        const auto first = Presets::captureDataPacks(source, root);
+        const QString live = root + relative + QStringLiteral("dirpack");
+        check(first.ok, "PL4b 首次采集成功", first.problem);
+        const QString token = Presets::dataPackReplaceToken(QStringLiteral("dirpack"));
+        const QString old = root + relative + QStringLiteral(".wtfml-old-") + token
+            + QStringLiteral("-00000000-0000-0000-0000-000000000000");
+        const QString unknown = root + relative + QStringLiteral(".wtfml-copy-") + token
+            + QStringLiteral("-user-not-a-uuid");
+        check(QDir().rename(live, old) && put(unknown + "/keep.txt", "USER"),
+              "PL4b 摆出缺失目标、未登记旧目录和相似前缀用户目录");
+        const auto missing = Presets::captureDataPacks(source, root);
+        check(!missing.problems.isEmpty() && !QFileInfo::exists(live)
+                  && readBytes(old + "/pack.mcmeta") == "original"
+                  && readBytes(unknown + "/keep.txt") == "USER",
+              "PL4b 缺失目标时不猜测归属，原件和相似前缀目录均完整保留");
+        check(put(live + "/pack.mcmeta", "CURRENT"), "PL4b 创建另一份当前内容");
+        const auto present = Presets::captureDataPacks(source, root);
+        check(!present.problems.isEmpty()
+                  && readBytes(live + "/pack.mcmeta") == "CURRENT"
+                  && readBytes(old + "/pack.mcmeta") == "original"
+                  && readBytes(unknown + "/keep.txt") == "USER",
+              "PL4b 目标存在也不自动删除旧目录或同前缀用户数据");
+    }
+
     section("PL5. 数据包：有同名世界就部署，没有就记「待应用」且不建世界");
     const QString dpTarget = scratch.filePath(QStringLiteral("dpTarget"));
     QDir().mkpath(dpTarget + QStringLiteral("/saves/W1"));

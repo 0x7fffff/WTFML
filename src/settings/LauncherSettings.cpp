@@ -61,6 +61,12 @@ static constexpr const char kCurseForgeApiBase[] = "Launcher/CurseForgeApiBase";
 /// Modrinth 接口（`api.modrinth.com/v2`）的地址覆盖，同上：只有验证工程会写它。
 /// 导出整合包那条路要把它指到本机的假服务器上跑（导入那半走的是 CurseForge 那个口子）。
 static constexpr const char kModrinthApiBase[] = "Launcher/ModrinthApiBase";
+/// 版本清单、免鉴权皮肤档案、贴图和 Minecraft Services 的地址覆盖。和上面两条同一个
+/// 来路：**只有验证工程会写**，`save()` 刻意不写 —— 产品永远走官方地址。
+static constexpr const char kVersionManifestUrl[] = "Launcher/VersionManifestUrl";
+static constexpr const char kSessionServerBase[] = "Launcher/SessionServerBase";
+static constexpr const char kTextureBase[] = "Launcher/TextureBase";
+static constexpr const char kMinecraftServicesBase[] = "Launcher/MinecraftServicesBase";
 
 // 枚举存进 QSettings 的字符串。这几个串是**持久化格式的一部分**，不是内部标识：
 // 改掉它们，用户盘上已经存好的值就会被当成"认不出来"、静默退回默认档。
@@ -467,6 +473,14 @@ void LauncherSettings::load() {
         settings.value(kCurseForgeApiBase, m_curseForgeApiBaseOverride).toString().trimmed();
     m_modrinthApiBaseOverride =
         settings.value(kModrinthApiBase, m_modrinthApiBaseOverride).toString().trimmed();
+    m_versionManifestUrlOverride =
+        settings.value(kVersionManifestUrl, m_versionManifestUrlOverride).toString().trimmed();
+    m_sessionServerBaseOverride =
+        settings.value(kSessionServerBase, m_sessionServerBaseOverride).toString().trimmed();
+    m_textureBaseOverride =
+        settings.value(kTextureBase, m_textureBaseOverride).toString().trimmed();
+    m_minecraftServicesBaseOverride =
+        settings.value(kMinecraftServicesBase, m_minecraftServicesBaseOverride).toString().trimmed();
 
     // 和 GlobalJavaSettings::load() 用 m_xmx 当默认值是同一个写法。取成员而不是新造一个
     // struct：万一 load() 被调第二次而注册表是空的，值应该留着，而不是被重置回默认。

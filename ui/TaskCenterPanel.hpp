@@ -104,6 +104,10 @@ struct Item {
     /// 失败/中断的简短原因（账本里的 `errorSummary`）。空 = 没出过错。
     /// 「任务失败能看到失败阶段、简短原因和'查看日志/重试'」——这是"简短原因"那一半。
     QString errorSummary;
+    /// 「这一项为什么不能取消」。空 = 不解释；非空且还在跑 = 详情页摆一行小字。
+    /// 有这一格的用处：没有它，用户只能看见"取消按钮不见了"，猜不出是"做完了"还是
+    /// "这一段停不得"。
+    QString cancelBlockedReason;
     QList<Step> steps;
     Capabilities capabilities;
 };

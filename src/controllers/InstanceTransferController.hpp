@@ -34,6 +34,9 @@ public:
         std::function<void(Tasks::TaskId, const QString &)> setTaskDetail;
         std::function<void(Tasks::TaskId, qint64, qint64)> setTaskProgress;
         std::function<void(Tasks::TaskId, int, Tasks::TaskStepState)> setTaskStepState;
+        /// 改某一项**允许**什么操作。目前只用来开「取消」和写「为什么不能取消」——
+        /// `beginTask` 没有能力位参数，而账本的默认位是**按种类**给的。
+        std::function<void(Tasks::TaskId, const Tasks::TaskCapabilities &)> setTaskCapabilities;
         std::function<void(Tasks::TaskId, bool, const QString &)> finishTask;
         /// 用户按了「取消」、工人随即停下之后，把账本里那一项收成 Cancelled
         /// （**不是** Failed：取消不算失败，不该亮红点、也不该弹失败提示）。
@@ -72,14 +75,16 @@ public:
     /// 「删除世界」那一趟：确认过了才进来，整棵目录树在工作线程里删。
     ///
     /// NOTE: 删除**不提供取消**。删到一半停下留下的是"半截世界"，比删完更难收拾；
-    /// 账本按 `TaskKind::Other` 记账，默认能力位里本来就没有「取消」。
+    /// 账本按 `TaskKind::Other` 记账，并且明写「不能取消」的原因（见 `beginTask` 之后那一发）。
     /// 删不干净时照实报失败（`removeTreeWithoutFollowingLinks()` 会尽力删完剩下的）。
     void deleteWorldInBackground(const QString &instanceId, const QString &worldDir,
                                  std::function<void(bool, const QString &)> whenDone = {});
     /// 任务中心那一项此刻按「取消」真的停得下来吗（那一颗按钮的唯一判据）。
     bool canCancelTask(Tasks::TaskId id) const;
-    /// 掐掉一次后台导入。复制是**协作式**取消：工人每 1 MiB 看一次取消位；
-    /// 已经发布到 saves 的正式世界不会因为"取消得晚了一点"被删掉。
+    /// 掐掉一次后台导入 / 原地升级 / 回滚。三处都是**协作式**取消：
+    /// · 导入：工人每 1 MiB 看一次取消位；已经发布到 saves 的正式世界不会被删。
+    /// · 原地升级：引擎在每个安全点看取消位，停下时原实例未改变（或已自动恢复）；
+    ///   仅最终改名那一下不可中断，按下之后最多晚到这个阶段末尾。
     bool cancelTask(Tasks::TaskId id);
     bool renameWorld(const QString &instanceId, const QString &worldDir, const QString &newName);
 
@@ -92,8 +97,9 @@ private:
     void announceCopySuccess(const QString &sourceId, const QString &destGameFolder,
                              const QString &name);
 
-    /// 一次后台导入的取消状态（工人只碰这两个原子位，主线程管这张表）。
-    struct ImportState {
+    /// 一次后台长活（导入世界 / 原地升级 / 回滚）的取消状态。
+    /// 工人只碰这两个原子位，主线程管这张表。
+    struct CancelState {
         std::atomic_bool abort{false};
         /// 「是用户按的取消」和「启动器要关了 / 超时」是两回事：前者收成 Cancelled、
         /// 不弹失败提示；后者照旧按失败说清楚。
@@ -106,5 +112,5 @@ private:
     Host m_host;
     bool m_copyBusy = false;
     Tasks::TaskId m_copyTaskId = Tasks::invalidTaskId();
-    QHash<Tasks::TaskId, std::shared_ptr<ImportState>> m_importStates;
+    QHash<Tasks::TaskId, std::shared_ptr<CancelState>> m_cancelStates;
 };

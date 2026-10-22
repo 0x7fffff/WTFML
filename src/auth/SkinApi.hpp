@@ -154,7 +154,11 @@ public:
                     QString *errorOut = nullptr);
 
     /// 这几条接口的根地址。做成函数是为了验证工程能拿它跟别处的常量对齐。
-    static QString baseUrl() { return QStringLiteral("https://api.minecraftservices.com"); }
+    static QString baseUrl();
+
+    /// 把根地址指到本机假服务器（**只有验证工程会调**）。空串 = 官方地址。
+    /// 测试在构造任何窗口之前设置一次，之后只读。
+    static void setBaseUrlOverride(const QString &base);
 
     /// **档案**那条路径。皮肤的当前状态和**披风列表**都在这一份响应里（见文件头）。
     ///

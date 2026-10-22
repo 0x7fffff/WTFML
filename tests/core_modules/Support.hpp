@@ -830,6 +830,19 @@ struct FakeCurseForgeApi {
     QList<QByteArray> bodies;
     QStringList apiKeys;  ///< 每一发带的 x-api-key（**没带 = 空串**，这一档要能分出来）
 
+    /// 按**请求目标**取那一发的东西。两发是并着发出去的（`resolveCurseForgeFiles` 里
+    /// 文件那一发和类目那一发各自 QNetworkReply），谁先回来不该被断言 —— 所以判据一律
+    /// 按路径查，不按到达次序取下标。
+    int indexOfPath(const QString &path) const { return paths.indexOf(path); }
+    QByteArray bodyForPath(const QString &path) const {
+        const int index = indexOfPath(path);
+        return index < 0 ? QByteArray() : bodies.value(index);
+    }
+    QString apiKeyForPath(const QString &path) const {
+        const int index = indexOfPath(path);
+        return index < 0 ? QString() : apiKeys.value(index);
+    }
+
     bool start() {
         QObject::connect(&server, &QTcpServer::newConnection, &server, [this]() {
             while (QTcpSocket *socket = server.nextPendingConnection()) {
@@ -1643,6 +1656,17 @@ static QJsonObject readMetaAt(const QString &dir) {
 void runTaskLedgerTests();
 
 void runCopyInstanceAndWorldTests();
+
+/// `--directory-lock-probe <目录> [--hold]`：另起一个**真进程**去抢数据目录锁。
+///
+/// 放在共用夹具里的原因：ZJ0 那条用例拿 `QCoreApplication::applicationFilePath()` 把**自己**
+/// 再起一份，所以每个装了这套断言的入口都得认这个参数。原来只有 `verify_instances` 的 main 认，
+/// `verify`（兼容入口）跑整套时子进程会掉进"直接跑全部断言"，父进程读不到 `LOCKED`，
+/// 两条锁断言假红 —— 红的是夹具，不是锁。
+///
+/// 返回值：不是探针模式返回 -1（调用方接着跑自己的断言）；是探针模式返回进程退出码
+/// （抢不到锁 73，其它 0），调用方直接 `return` 它。
+int runDirectoryLockProbeIfRequested(const QStringList &arguments);
 
 // ============================================================================
 // ZM. Java 8 的 ASCII 别名（"路径里有非 ASCII 字符就起不来"那个坑）

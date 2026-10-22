@@ -376,9 +376,14 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
         QFont hintFont = m_hintLabel->font();
         hintFont.setPointSize(qMax(1, hintFont.pointSize() - 1));
         m_hintLabel->setFont(hintFont);
+        // 灰的那一支取**这一窗自己的**（窗的调色板把 `PlaceholderText` 摆成了 `logHint`）。
+        // ★ 两个角色**一起写**：`QLabel` 不吃 `PlaceholderText`，要把它抄进 `WindowText`；
+        // 而只写 `WindowText` 的话，这份局部调色板里没标的 `PlaceholderText` 装上之后会
+        // 退回应用那一支 —— 两个角色从此各说各的（量出来 `#64776d` 与 `#607c70`）。
         QPalette hintPalette = m_hintLabel->palette();
-        hintPalette.setColor(QPalette::WindowText,
-                             hintPalette.color(QPalette::PlaceholderText));
+        const QColor hintInk = logPalette.color(QPalette::PlaceholderText);
+        hintPalette.setColor(QPalette::PlaceholderText, hintInk);
+        hintPalette.setColor(QPalette::WindowText, hintInk);
         m_hintLabel->setPalette(hintPalette);
     }
     layout->addWidget(m_hintLabel);

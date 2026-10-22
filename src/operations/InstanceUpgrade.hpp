@@ -22,6 +22,9 @@ struct Result {
     bool ok = false;
     bool rolledBack = false;
     bool rollbackAvailable = false;
+    /// 用户按了取消、引擎在安全点停下（原实例未改变，或已自动恢复）。
+    /// 和 `problem` 分开：取消不是失败，调用方不该亮红点、也不该弹失败提示。
+    bool cancelled = false;
     QString problem;
     QString snapshotZip;
     int disabledMods = 0;
@@ -50,7 +53,10 @@ Result commitPrepared(const Request &request,
                       const std::function<bool()> &cancelled = {});
 // Restores the retained original by renaming; preserves the replaced version as
 // well. Never deletes an existing directory to make a rollback succeed.
-Result rollback(const Request &request);
+// Cancellation is only honoured during the verification phase; the final renames
+// are a short, atomic critical section and are deliberately not interruptible.
+Result rollback(const Request &request,
+                const std::function<bool()> &cancelled = {});
 // Only returns journals in this game's private transaction directory for this id.
 QStringList recoverableTransactions(const QString &gameDir, const QString &instanceId);
 QStringList recoverInterrupted(const QString &gameDir);

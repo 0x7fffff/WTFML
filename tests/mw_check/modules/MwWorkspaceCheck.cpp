@@ -25,10 +25,28 @@ int MwWorkspaceCheck(QApplication &app) {
         seedOfflineRandomSkin(QStringLiteral("WorkspaceCheck"), kSeededSkinUrl, QColor("#4080c0"));
         QString accountError;
         AccountStore::addOffline(QStringLiteral("WorkspaceCheck"), &accountError);
+        // 这一条也会构造 MainWindow ⇒ 一构造就发版本清单。不装夹具的话这一跑实际打的是
+        // 真 Mojang：断网机器上卡满 10 秒超时、连得上时把当天官方清单塞进树里，
+        // 而断言照样全绿 —— 于是它被当成"全量非 visual"的一部分，却从来不是离线的。
+        // 夹具起不来就停：接着跑等于把"离线"偷偷换成真网络。
+        FakeNetwork fakeNet;
+        if (!fakeNet.start()) {
+            check(false, "workspace 的假外网起来了（起不来就不往下跑：会打到真地址上）");
+            return 2;
+        }
+        installFakeNetworkSettings(fakeNet);
         MainWindow window;
         window.resize(1100, 700);
         window.show();
         app.processEvents();
+        pumpUntil([&fakeNet]() {
+            return fakeNet.count(QStringLiteral("/version_manifest_v2.json")) >= 1;
+        }, 5000);
+        check(fakeNet.count(QStringLiteral("/version_manifest_v2.json")) == 1,
+              "workspace 冷启动那一发版本清单打到了夹具上（正好一发）",
+              QStringLiteral("次数=%1 最先几条=%2")
+                  .arg(fakeNet.count(QStringLiteral("/version_manifest_v2.json")))
+                  .arg(fakeNet.paths.mid(0, 4).join(QStringLiteral(", "))));
         auto *tabs = window.findChild<QTabWidget *>(MainWindowUI::tabWidgetName());
         auto *host = window.findChild<OverlayHost *>();
         check(tabs && host, "workspace navigation widgets exist");
@@ -103,6 +121,10 @@ int MwWorkspaceCheck(QApplication &app) {
                       "running pane toggle stays inside collapsed header");
             }
         }
+        check(fakeNet.notFound == 0, "workspace 的假外网没有收到没路由的请求",
+              QStringLiteral("404 了 %1 发：%2")
+                  .arg(fakeNet.notFound)
+                  .arg(fakeNet.unrouted.mid(0, 8).join(QStringLiteral(", "))));
         printf("Workspace check: %d/%d passed\n", g_pass, g_pass + g_fail);
         return g_fail == 0 ? 0 : 1;
     

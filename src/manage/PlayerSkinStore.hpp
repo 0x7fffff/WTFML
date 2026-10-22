@@ -142,6 +142,10 @@ public:
     /// 它来自外面，不能拿它拼出一个野地址。
     static QString textureUrlForHash(const QString &hash);
 
+    /// 把免鉴权档案端点和贴图根地址指到本机假服务器（**只有验证工程会调**）。
+    /// 空串 = 官方地址。必须在发出任何请求之前设置；之后只读。
+    static void setEndpointOverrides(const QString &profileBase, const QString &textureBase);
+
     /// 档案缓存的文件名用的键：去掉横线、转小写（32 位十六进制）。
     ///
     /// 两个地方必须用同一个形式，否则会各存一份：**URL** 里官方只认这个没有横线的形式，

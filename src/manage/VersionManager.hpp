@@ -615,6 +615,17 @@ public:
     /// 没有这个口子，那一整趟就只能对着真接口跑，验证工程里没法验。产品自己从不写它。
     void setModrinthApiBaseOverride(const QString &base);
 
+    /// 此刻该用的 Modrinth 接口根（不带结尾斜杠）：覆盖优先，否则官方那一份。
+    ///
+    /// 需要直连 Modrinth 的地方（导出反查、预设兼容检查）统一问这里。别在构造里再写死
+    /// 一份 `https://api.modrinth.com/v2` —— 那样 `Launcher/ModrinthApiBase` 换不掉它，
+    /// 验证工程里那一跑就会静默打真网络。
+    QString modrinthApiRoot() const;
+
+    /// 版本清单地址覆盖（`Launcher/VersionManifestUrl`，**只有验证工程会写**）。
+    /// 空 = 官方地址；非空 = 原样请求那一条，不套镜像。
+    void setVersionManifestUrlOverride(const QString &url);
+
     /**
      * @brief 把 CurseForge 清单里那些号（`projectID` / `fileID`）换成能下的文件。
      * @param pack 解析出来的清单，**就地改**：`pendingRefs` 清空、`files` 填好，
@@ -815,7 +826,8 @@ public:
      * 是一个 `xxx.mrpack.part`，而不是一个能双击、打不开的"整合包"。清单本身也先写进那个
      * 暂存目录，再从那儿打进去（打包那一步只认盘上的文件，见 ZipUtil::createZip）。
      */
-    QString writePackArchive(const ModpackExport::ExportPlan &plan, const QString &targetZip);
+    QString writePackArchive(const ModpackExport::ExportPlan &plan, const QString &targetZip,
+                             const std::function<bool()> &cancelled = {});
 
     /// Forge / NeoForge 安装器的命令行（**纯函数**，就是为了能钉住 `--mirror` 那一条）。
     /// @param installerPath 安装器 jar 在盘上的路径。

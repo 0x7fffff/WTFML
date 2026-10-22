@@ -20,6 +20,7 @@
 #include "GenericFiles.hpp"
 #include "manage/FolderManager.hpp"
 #include "util/AppPaths.hpp"
+#include "util/WriteDirectoryGuard.hpp"
 
 namespace Presets {
 namespace {
@@ -35,6 +36,12 @@ constexpr int kDescriptionLimit = 400;
 
 /// 写盘：临时文件 + 原子改名（和任务账本 / 启动历史同一套）。
 bool writeBytesAtomic(const QString &path, const QByteArray &bytes) {
+    // 锁要落在**真正被写的那个数据根**上。预设住在启动器自己的数据根
+    // （`presetsRoot()` = `defaultMinecraftDir()/presets`），不是当前游戏文件夹
+    // （`minecraftDir()`）—— 换一个游戏文件夹之后预设不跟着走，锁要是还认旧的那一格，
+    // 两个启动器进程（各自开着不同的游戏文件夹、却共用同一份预设）就谁也没挡住谁。
+    // `WriteDirectoryGuard::rootFor()` 正好就是"按这个路径往上找它属于哪个数据根"。
+    if (!WriteDirectoryGuard::acquire(path)) return false;
     const QFileInfo info(path);
     if (!info.absoluteDir().exists() && !QDir().mkpath(info.absolutePath())) {
         return false;
@@ -513,6 +520,11 @@ PresetManifest create(const QString &root, const QString &name, const QString &d
     manifest.updatedAt = manifest.createdAt;
     manifest.category = category;
 
+    // mkpath 就是**这一份新预设的第一笔写入**：和 `duplicate()` 一样，先把所属数据根
+    // 的生命周期锁取上（另一份启动器持着时连目录都不建）。
+    if (!WriteDirectoryGuard::acquire(presetDir(root, manifest.id))) {
+        return PresetManifest();
+    }
     if (!QDir().mkpath(filesDir(root, manifest.id))) {
         return PresetManifest();
     }
@@ -558,6 +570,8 @@ PresetManifest duplicate(const QString &root, const QString &id, const QString &
     copy.createdAt = QDateTime::currentDateTime();
     copy.updatedAt = copy.createdAt;
 
+    // 同上：锁落在这一份副本真正住的那个数据根上（不是当前游戏文件夹）。
+    if (!WriteDirectoryGuard::acquire(presetDir(root, copy.id))) return PresetManifest();
     const QString newDir = presetDir(root, copy.id);
     if (!QDir().mkpath(newDir)) {
         return PresetManifest();
@@ -611,6 +625,11 @@ bool remove(const QString &root, const QString &id) {
     }
     const QString dir = presetDir(root, id);
     if (!pathIsInsideRoot(root, dir)) {
+        return false;
+    }
+    // 删整棵目录是这一份的第一笔写入：先取所属数据根的生命周期锁（和 `create()` /
+    // `duplicate()` 同一条），另一份启动器持着时不删。
+    if (!WriteDirectoryGuard::acquire(dir)) {
         return false;
     }
     if (QFileInfo::exists(dir) && !removeTreeWithoutFollowingLinks(dir)) {

@@ -65,11 +65,17 @@ int UiAccountSkinChecks() {
                       removeBtn->text() == AccountSkinDialog::removeButtonText() &&
                       refreshBtn->text() == AccountSkinDialog::refreshButtonText(),
                   "左边四个按钮的文字都是产品文案");
+            // 披风那两颗**露出来的字是短的那两个**（「应用」/「隐藏」），长的那两句是
+            // tooltip（按钮并排摆在一张 132 px 高的披风卡片里，长句会把两颗挤到换行）。
             check(uploadBtn->text() == AccountSkinDialog::uploadButtonText() &&
-                      applyCapeBtn->text() == AccountSkinDialog::applyCapeButtonText() &&
-                      hideCapeBtn->text() == AccountSkinDialog::hideCapeButtonText() &&
+                      applyCapeBtn->text() == QStringLiteral("应用") &&
+                      applyCapeBtn->toolTip() == AccountSkinDialog::applyCapeButtonText() &&
+                      hideCapeBtn->text() == QStringLiteral("隐藏") &&
+                      hideCapeBtn->toolTip() == AccountSkinDialog::hideCapeButtonText() &&
                       closeBtn->text() == AccountSkinDialog::closeButtonText(),
-                  "右边三个 + 底的「关闭」也都是产品文案");
+                  "右边三个 + 底的「关闭」也都是产品文案",
+                  QStringLiteral("应用=%1 / 隐藏=%2 / 关闭=%3")
+                      .arg(applyCapeBtn->text(), hideCapeBtn->text(), closeBtn->text()));
             check(offlineEdit->placeholderText() == AccountSkinDialog::offlineNamePlaceholder() &&
                       offlineEdit->text().isEmpty(),
                   "离线名字那个框一开始是空的，占位文字说明这里填什么",

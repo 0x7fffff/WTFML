@@ -107,6 +107,7 @@
 #include <QDropEvent>
 #include <QMimeData>
 #include <QUrl>  // P2 段：拦 QDesktopServices::openUrl 的那个插槽收的就是它
+#include <QHash>
 #include <QUrlQuery>  // T22.4b：`ids` 那一段要拆出来看（Qt 6 里 QUrl 自己没有 queryItemValue）
 #include <QVector>
 
@@ -1319,6 +1320,224 @@ struct OneShotCfErrorApi {
 void runIconRevalidateTests();
 
 // ---------------------------------------------------------------------------
+// 默认那一跑的**假外网**：Mojang 清单 / 皮肤档案 / Minecraft Services /
+// Modrinth / CurseForge 全部指到这一台 127.0.0.1 上。
+//
+// 为什么非要它：默认那一跑里第一个 MainWindow 一构造就发版本清单，下载页那四页切过去
+// 又各发一次搜索，账号那几节还会问皮肤档案。真实网络在场时它们的**耗时和结果**都不
+// 归这一跑管 —— 断网机器上每次都要等满 15 秒超时，整跑时长跟着网络抖；反过来，连得上
+// 的机器上又会把真清单塞进树里，断言读到多少条全看那天官方发了什么版本。
+//
+// 所以这里**按请求目标路由**：路径认得出就答一份最小正文，认不出就 404（真服务器上
+// "没有这个路由"也是这个样子）。每一发都记进 `hits`，断言看的是**请求次数**，不是
+// 响应回到的次序 —— 顺序在并发下本来就不该被断言。
+//
+// 覆盖从哪来：`LauncherSettings` 的四条新键 + 已有的两条目录接口地址，在第一个
+// MainWindow 构造之前写进沙盒 INI（见 main.cpp）。产品侧永远是空串、走官方地址。
+struct FakeNetwork {
+    QTcpServer server;
+    /// 请求路径（去掉查询串）→ 次数。
+    QHash<QString, int> hits;
+    QStringList paths;  ///< 每一发的路径（带查询串），排查用
+    /// 没有路由、被 404 掉的请求数。夹具没演到的路由会落在这里 —— 它比"某条断言
+    /// 意外地没红"更早说明这一跑其实没测到东西。
+    int notFound = 0;
+    /// 被 404 的那几条路径（带查询串）。排查"为什么有 404"时直接看这个，别去翻整个 `paths`。
+    QStringList unrouted;
+
+    bool start() {
+        QObject::connect(&server, &QTcpServer::newConnection, &server, [this]() {
+            while (QTcpSocket *socket = server.nextPendingConnection()) {
+                socket->setParent(&server);
+                QObject::connect(socket, &QTcpSocket::readyRead, socket,
+                                 [this, socket]() { answer(socket); });
+            }
+        });
+        return server.listen(QHostAddress::LocalHost, 0);
+    }
+
+    QString base() const {
+        return QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
+    }
+    QString versionManifestUrl() const {
+        return base() + QStringLiteral("/version_manifest_v2.json");
+    }
+    /// 皮肤档案端点的**完整前缀**（`…/session/minecraft/profile`）。产品那边
+    /// `PlayerSkinStore::setEndpointOverrides()` 拿到的就是这个前缀，然后直接拼 32 位 uuid ——
+    /// 少写 `/minecraft/profile` 的话请求会变成 `/session/<uuid>`（真实 sessionserver 上没有
+    /// 这条路由），夹具这边只会回 404，而界面看起来和"这个人没有皮肤"一模一样。
+    QString sessionServerBase() const {
+        return base() + QStringLiteral("/session/minecraft/profile");
+    }
+    QString minecraftServicesBase() const { return base(); }
+    QString modrinthBase() const { return base() + QStringLiteral("/v2"); }
+    QString curseForgeBase() const { return base() + QStringLiteral("/v1"); }
+
+    /// 某条路径（不带查询串）被打了几次。**断言只认这个**，不认 `paths` 的下标。
+    int count(const QString &path) const { return hits.value(path, 0); }
+
+    void answer(QTcpSocket *socket) {
+        if (socket->property("answered").toBool()) {
+            return;
+        }
+        const QByteArray buffer = socket->property("buffer").toByteArray() + socket->readAll();
+        const int headerEnd = buffer.indexOf("\r\n\r\n");
+        if (headerEnd < 0) {
+            socket->setProperty("buffer", buffer);  // 头还没到齐
+            return;
+        }
+        socket->setProperty("buffer", QByteArray());
+        socket->setProperty("answered", true);
+
+        QString target;
+        for (const QByteArray &line : buffer.left(headerEnd).split('\n')) {
+            const QList<QByteArray> parts = line.trimmed().split(' ');
+            if (parts.size() >= 2 && parts.at(1).startsWith('/')) {
+                target = QString::fromUtf8(parts.at(1));
+                break;
+            }
+        }
+        paths << target;
+        const int query = target.indexOf(QLatin1Char('?'));
+        const QString path = query < 0 ? target : target.left(query);
+        ++hits[path];
+
+        const auto send = [socket](int status, const QByteArray &body,
+                                   const QByteArray &contentType = QByteArrayLiteral(
+                                       "application/json")) {
+            socket->write(QByteArrayLiteral("HTTP/1.1 ") + QByteArray::number(status) + ' ' +
+                          (status == 200 ? QByteArrayLiteral("OK")
+                                         : QByteArrayLiteral("Not Found")) +
+                          QByteArrayLiteral("\r\nContent-Type: ") + contentType +
+                          QByteArrayLiteral("\r\nContent-Length: ") +
+                          QByteArray::number(body.size()) +
+                          QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + body);
+            socket->flush();
+            socket->disconnectFromHost();
+        };
+
+        // ---- 版本清单（`Launcher/VersionManifestUrl`）----
+        if (path == QLatin1String("/version_manifest_v2.json")) {
+            const QString versions =
+                QStringLiteral(
+                    R"([{"id":"1.21.4","type":"release","url":"%1/versions/1.21.4.json",)"
+                    R"("time":"2024-12-03T10:12:00+00:00","releaseTime":"2024-12-03T10:12:00+00:00"},)"
+                    R"({"id":"26.3","type":"snapshot","url":"%1/versions/26.3.json",)"
+                    R"("time":"2026-03-01T10:00:00+00:00","releaseTime":"2026-03-01T10:00:00+00:00"},)"
+                    R"({"id":"1.20.1","type":"release","url":"%1/versions/1.20.1.json",)"
+                    R"("time":"2023-06-12T10:00:00+00:00","releaseTime":"2023-06-12T10:00:00+00:00"}])")
+                    .arg(base());
+            send(200, QStringLiteral(R"({"latest":{"release":"1.21.4","snapshot":"26.3"},)"
+                                     R"("versions":%1})")
+                          .arg(versions)
+                          .toUtf8());
+            return;
+        }
+        if (path.startsWith(QLatin1String("/versions/")) &&
+            path.endsWith(QLatin1String(".json"))) {
+            const QString id =
+                path.mid(10, path.size() - 10 - 5);  // 去掉 `/versions/` 和 `.json`
+            send(200, QStringLiteral(R"({"id":"%1","type":"release",)"
+                                     R"("mainClass":"net.minecraft.client.main.Main",)"
+                                     R"("assets":"1.20","libraries":[],)"
+                                     R"("arguments":{"game":[],"jvm":[]}})")
+                          .arg(id)
+                          .toUtf8());
+            return;
+        }
+
+        // ---- 皮肤档案（`Launcher/SessionServerBase`）与 Minecraft Services ----
+        // 只给一份**没有贴图**的档案：`PlayerSkinStore` 会当场判"这份不算数"并退回默认
+        // 外观。这里的目的是**不联网、不挂 15 秒**，不是演一份真外观（真外观那几条在
+        // MwPlayerSkinChecks 里直接喂信号，不经过这条路）。
+        if (path.startsWith(QLatin1String("/session/minecraft/profile/")) ||
+            path == QLatin1String("/minecraft/profile")) {
+            send(200, QByteArrayLiteral(
+                          R"({"id":"0123456789abcdef0123456789abcdef","name":"Fixture",)"
+                          R"("skins":[],"capes":[],"properties":[]})"));
+            return;
+        }
+
+        // ---- Modrinth 目录（`Launcher/ModrinthApiBase`）----
+        if (path == QLatin1String("/v2/search")) {
+            send(200, QByteArrayLiteral(
+                          R"({"hits":[],"offset":0,"limit":20,"total_hits":0})"));
+            return;
+        }
+        if (path.startsWith(QLatin1String("/v2/project/")) &&
+            path.endsWith(QLatin1String("/version"))) {
+            send(200, QByteArrayLiteral("[]"));
+            return;
+        }
+        if (path == QLatin1String("/v2/projects")) {
+            send(200, QByteArrayLiteral("[]"));
+            return;
+        }
+        if (path == QLatin1String("/v2/version_files") ||
+            path == QLatin1String("/v2/version_files/update")) {
+            send(200, QByteArrayLiteral("{}"));
+            return;
+        }
+        if (path.startsWith(QLatin1String("/v2/project/"))) {
+            send(200, QByteArrayLiteral(R"({"id":"fixture","title":"Fixture"})"));
+            return;
+        }
+
+        // ---- CurseForge 目录（`Launcher/CurseForgeApiBase`）----
+        if (path == QLatin1String("/v1/mods/search")) {
+            send(200, QByteArrayLiteral(
+                          R"({"data":[],"pagination":{"index":0,"pageSize":20,)"
+                          R"("resultCount":0,"totalCount":0}})"));
+            return;
+        }
+        if (path == QLatin1String("/v1/mods/files") ||
+            path == QLatin1String("/v1/mods") ||
+            path == QLatin1String("/v1/fingerprints")) {
+            send(200, QByteArrayLiteral(R"({"data":[]})"));
+            return;
+        }
+        if (path.startsWith(QLatin1String("/v1/mods/")) &&
+            path.endsWith(QLatin1String("/files"))) {
+            send(200, QByteArrayLiteral(R"({"data":[]})"));
+            return;
+        }
+        if (path.startsWith(QLatin1String("/v1/mods/"))) {
+            send(200, QByteArrayLiteral(R"({"data":{}})"));
+            return;
+        }
+
+        ++notFound;
+        unrouted << target;
+        send(404, QByteArrayLiteral(R"({"error":"fixture: no route"})"));
+    }
+};
+
+/// 把假外网的五条地址写进**当前沙盒 INI**。必须在构造任何产品对象之前调 ——
+/// `MainWindow` 一构造就发版本清单，地址读的是那一刻的设置。
+///
+/// 以前只有默认那一跑（`tests/mw_check/main.cpp`）这么写，独立构建的专项
+/// （例如 `wtfml.workspace`）各自构造 `MainWindow` 却什么都没装 ⇒ 那一跑实际打的是
+/// 真 Mojang：断网机器上等满超时，连得上时把当天官方清单塞进树里，而断言全绿。
+/// 凡是 ctest 里会构造 `MainWindow` 的入口都走这里。
+static void installFakeNetworkSettings(const FakeNetwork &fakeNet) {
+    QSettings sandbox;
+    sandbox.setValue(QStringLiteral("Launcher/VersionManifestUrl"),
+                     fakeNet.versionManifestUrl());
+    sandbox.setValue(QStringLiteral("Launcher/SessionServerBase"),
+                     fakeNet.sessionServerBase());
+    // NOTE: **不设 `Launcher/TextureBase`**。贴图地址那条路（PlayerSkinStore::
+    // textureRequestUrl）把 scheme 强制升级成 https，也按覆盖后的 host 校验地址；
+    // 指到一个明文 http 的 127.0.0.1 夹具上会让"官方贴图地址"一律判成不合法 ——
+    // 预置皮肤那几节（AF）读回来的盘上那一行会变成空串。而假档案里 `skins`/`capes`
+    // 都是空的，本来就不会去取任何贴图；真要去取也还是官方 host，不会打到别的什么地方。
+    sandbox.setValue(QStringLiteral("Launcher/MinecraftServicesBase"),
+                     fakeNet.minecraftServicesBase());
+    sandbox.setValue(QStringLiteral("Launcher/ModrinthApiBase"), fakeNet.modrinthBase());
+    sandbox.setValue(QStringLiteral("Launcher/CurseForgeApiBase"), fakeNet.curseForgeBase());
+    sandbox.sync();
+}
+
+// ---------------------------------------------------------------------------
 // ZH. 下载页第二取数源：ResourceStore 按来源发请求（本地假服务器，不碰外网）
 //
 // 这是 "搜索加上来源"那件事的**接线**那一半。地址怎么拼、正文怎么读是
@@ -1347,6 +1566,9 @@ struct FakeResourceApi {
     int filesStatus = 200;
     QStringList requests;    ///< 每一发的请求行（`GET /v1/mods/search?… HTTP/1.1`）
     QStringList apiKeys;     ///< 每一发带的 x-api-key（**没带 = 空串**）
+    /// 按**请求目标**数的次数（不按下标、不依赖回答次序 —— 并发下先后本来就不定）。
+    int searchHits = 0;      ///< `/mods/search` 那一发
+    int filesHits = 0;       ///< `/mods/{id}/files` 那一发
 
     bool start() {
         QObject::connect(&server, &QTcpServer::newConnection, &server, [this]() {
@@ -1393,6 +1615,11 @@ struct FakeResourceApi {
         apiKeys << apiKey;
 
         const bool isSearch = target.contains(QStringLiteral("/mods/search"));
+        if (isSearch) {
+            ++searchHits;
+        } else {
+            ++filesHits;
+        }
         const int status = isSearch ? searchStatus : filesStatus;
         const QByteArray payload = isSearch ? searchBody : filesBody;
         socket->write(QByteArrayLiteral("HTTP/1.1 ") + QByteArray::number(status) + ' ' +
@@ -1670,6 +1897,11 @@ struct FakeLookupApi {
     int curseForgeVersionListStatus = 200;
     QStringList requests;       ///< 每一发的请求行（`GET`/`POST` 都在，target 带着查询串）
     QList<QByteArray> bodies;   ///< 每一发的正文（GET 是空的，仍然占一位，和 requests 对齐）
+    /// **按请求目标**数的次数。断言不该看 `requests` 的下标 —— 单发和批量是并着跑的，
+    /// 谁先回来由网络定（T32 那条延迟就是为了把"某个坏次序"变成每次都发生才存在的）。
+    QHash<QString, int> routeHits;
+
+    int count(const QString &route) const { return routeHits.value(route, 0); }
 
     bool start() {
         QObject::connect(&server, &QTcpServer::newConnection, &server, [this]() {
@@ -1755,6 +1987,21 @@ struct FakeLookupApi {
         const bool known = isModrinth || isModrinthUpdate || isModrinthProjects ||
                            isModrinthVersionList || isCurseForge || isCurseForgeMods ||
                            isCurseForgeVersionList;
+        if (isModrinth) {
+            ++routeHits[QStringLiteral("modrinth-version-files")];
+        } else if (isModrinthUpdate) {
+            ++routeHits[QStringLiteral("modrinth-version-files-update")];
+        } else if (isModrinthProjects) {
+            ++routeHits[QStringLiteral("modrinth-projects")];
+        } else if (isModrinthVersionList) {
+            ++routeHits[QStringLiteral("modrinth-project-version")];
+        } else if (isCurseForgeVersionList) {
+            ++routeHits[QStringLiteral("curseforge-mod-files")];
+        } else if (isCurseForge) {
+            ++routeHits[QStringLiteral("curseforge-fingerprints")];
+        } else if (isCurseForgeMods) {
+            ++routeHits[QStringLiteral("curseforge-mods")];
+        }
         int status = 404;
         if (known) {
             status = isModrinthUpdate

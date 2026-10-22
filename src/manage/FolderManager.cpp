@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QUuid>
 
 #include "../settings/LauncherSettings.hpp"
 #include "../util/AppPaths.hpp"
@@ -111,6 +112,8 @@ bool removeTreeWithoutFollowingLinks(const QString &path) {
 /// NOTE: 顺序上**先把目标目录建出来**再往里灌。中途失败时盘上会留下一个"拷了一半"的
 /// 目录 —— 这是故意的：调用方（复制实例、导入世界）拿到的 from/to 都是它自己算
 /// 出来的，它比这里更清楚该不该收拾，而"留一半"比"悄悄删掉用户别的东西"安全。
+/// 但**单个文件**永远要么完整、要么不在（临时名 + 改名，见下面那个 publish），
+/// 不会出现"名字在、内容缺一截"的那种半截文件。
 bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to,
                                    const std::function<bool()> &cancelled) {
     if (cancelled && cancelled()) return false;
@@ -152,24 +155,56 @@ bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to,
         qWarning() << "copyTreeWithoutFollowingLinks: target already exists:" << to;
         return false;
     }
-    if (cancelled) {
-        QFile input(from), output(to);
-        if (!input.open(QIODevice::ReadOnly) ||
-            !output.open(QIODevice::WriteOnly | QIODevice::NewOnly)) return false;
-        while (!input.atEnd()) {
-            if (cancelled()) return false;
-            const auto bytes = input.read(1024 * 1024);
-            if (bytes.isEmpty() || output.write(bytes) != bytes.size()) return false;
+    // 先写**同目录**的临时名，再改名发布（和 `operations/TransferApply.cpp` 里那份
+    // 单文件拷贝同一规矩）：直接往 to 上写，进程被杀 / 盘满 / 杀软扫描中断时盘上会留下
+    // 一个**截断的半截文件** —— 它和"拷好了"长得一模一样，下一次"目标已存在"就再也
+    // 不会重试。同卷改名是原子的：目标要么完整，要么根本不存在。失败/取消时临时名删掉。
+    // 名字带 UUID：并发拷同一个目标时彼此不会撞上（`NewOnly` 也会挡）。
+    // 临时名不拼完整目标文件名，避免合法长文件名加后缀后超过文件系统的单名长度上限。
+    const QString staging = QFileInfo(to).absoluteDir().filePath(QStringLiteral(".wtfml-part-")
+                            + QUuid::createUuid().toString(QUuid::WithoutBraces));
+    const auto publish = [&staging, &to]() {
+        if (!QFile::rename(staging, to)) {
+            QFile::remove(staging);
+            return false;
         }
-        if (input.error() != QFile::NoError || !output.flush() || cancelled()) return false;
-        output.setPermissions(input.permissions());
         return true;
+    };
+    if (cancelled) {
+        QFile input(from), output(staging);
+        if (!input.open(QIODevice::ReadOnly) ||
+            !output.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
+            QFile::remove(staging);
+            return false;
+        }
+        while (!input.atEnd()) {
+            if (cancelled()) {
+                output.close();
+                QFile::remove(staging);
+                return false;
+            }
+            const auto bytes = input.read(1024 * 1024);
+            if (bytes.isEmpty() || output.write(bytes) != bytes.size()) {
+                output.close();
+                QFile::remove(staging);
+                return false;
+            }
+        }
+        if (input.error() != QFile::NoError || !output.flush() || cancelled()) {
+            output.close();
+            QFile::remove(staging);
+            return false;
+        }
+        output.setPermissions(input.permissions());
+        output.close();
+        return publish();
     }
-    if (!QFile::copy(from, to)) {
+    if (!QFile::copy(from, staging)) {
         qWarning() << "copyTreeWithoutFollowingLinks: cannot copy" << from << "to" << to;
+        QFile::remove(staging);
         return false;
     }
-    return true;
+    return publish();
 }
 
 FolderManager::FolderManager(LauncherSettings *settings, QObject *parent)

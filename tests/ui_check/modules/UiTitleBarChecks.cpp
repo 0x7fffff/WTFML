@@ -358,26 +358,26 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
             check(soloHost.isVisible(), "★ Z11 条自己不动窗（点了「×」父控件照旧在）");
 
             // ---------- 颜色：量渲染出来的多数色 ----------
-            // 条底色**就是主题色那一支**（要求：「使用 #56eb6c 作为默认主题颜色
-            // （顶栏用）」）；底下那条留着中性色（它装的是启动/日志那一排控件）。
-            // 量的是"各自都铺着它该铺的那一支"，比的是"上下两条框同色"要细一层。
-            // NOTE: 比的是 `.rgb()`，不是 `QColor` 直接比 —— `darker()` 给的是 Hsv spec，
-            // 而量出来的是 Rgb（这条坑本文件里踩过一次，见下面最小化那颗的注释）。
+            // 两条各自铺的是 `Theme::partBackground()` 给的那一支（唯一出处：产品的
+            // 「面」表）。默认预设下顶栏是主题色的深一档、底栏是 `subtle`（装的是
+            // 启动/日志那一排控件）—— 上下两条**故意不一样**。
+            // NOTE: 比的是 `.rgb()`，不是 `QColor` 直接比 —— 量出来的色是 Rgb spec，
+            // 算出来的那一支可能是 Hsv（`darker()` 那种），直接比会假红
+            // （这条坑本文件里踩过一次，见下面最小化那颗的注释）。
             QFrame *bottom = ui.getBottomBar();
             const QColor stripFill = dominantColor(captureWidget(strip), strip->rect());
             const QColor bottomFill =
                 bottom != nullptr ? dominantColor(captureWidget(bottom), bottom->rect()) : QColor();
-            const QColor accentPure = Theme::accentShade(Theme::AccentShade::Pure);
-            check(stripFill.isValid() && stripFill.rgb() == accentPure.rgb(),
-                  "★★ Z11 顶上那一条铺的就是**主题色**（用户点名的那一支绿）",
-                  QStringLiteral("条=%1 主题色=%2").arg(stripFill.name(), accentPure.name()));
-            const QColor windowFill = window.palette().color(QPalette::Window);
-            check(bottomFill.isValid() &&
-                      bottomFill.rgb() == windowFill.darker(105).rgb() &&
+            const QColor wantStrip = Theme::partBackground(Theme::Part::TitleBar);
+            const QColor wantBottom = Theme::partBackground(Theme::Part::BottomBar);
+            check(stripFill.isValid() && stripFill.rgb() == wantStrip.rgb(),
+                  "★★ Z11 顶上那一条铺的就是 `partBackground(TitleBar)` 那一支",
+                  QStringLiteral("条=%1 该是 %2").arg(stripFill.name(), wantStrip.name()));
+            check(bottomFill.isValid() && bottomFill.rgb() == wantBottom.rgb() &&
                       bottomFill.rgb() != stripFill.rgb(),
-                  "★ Z11 底下那条还是中性色（窗口底色压暗一档）—— 上下两条**故意不一样了**",
+                  "★ Z11 底下那条铺的是 `partBackground(BottomBar)` —— 上下两条**故意不一样了**",
                   QStringLiteral("底栏=%1 该是 %2 / 条=%3")
-                      .arg(bottomFill.name(), windowFill.darker(105).name(), stripFill.name()));
+                      .arg(bottomFill.name(), wantBottom.name(), stripFill.name()));
 
             // 悬停：关闭那颗红底白叉、最小化那颗只是压暗一档。
             // NOTE: 悬停那一位**默认没人填**（Qt 不会自己产生 HoverEnter），所以
@@ -395,32 +395,46 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
                 const QColor danger = MainWindowUI::folderDangerColor(strip->palette());
                 // 不悬停：底是全透（条底色透上来），所以图里只有那几笔字形。
                 // 条上那个墨色现在是**白的**（顶栏是主题色那一支绿，要求
-                // 「顺便那个最小化和 x 都换成白的」）—— 所以这里比的是"画出来的就是条上
-                // 那个墨色"，而"是不是白的"另有下面那一条明说，不再靠"白 0 个像素"。
-                const QImage plainShot = captureWidget(closeBtn);
-                int plainWhite = 0;
-                int plainInk = 0;
-                const QColor ink = closeBtn->palette().color(QPalette::WindowText);
-                for (int y = 0; y < plainShot.height(); ++y) {
-                    for (int x = 0; x < plainShot.width(); ++x) {
-                        const QColor c = plainShot.pixelColor(x, y);
-                        if (c == QColor(Qt::white)) {
-                            ++plainWhite;
-                        }
-                        if (c == ink) {
-                            ++plainInk;
+                // 「顺便那个最小化和 x 都换成白的」）。
+                //
+                // NOTE: 量的**不是** `button->palette()` —— 那颗按钮的墨色是
+                // `setInkColor()` 存进自己那一份、画的时候直接用的，**不经过子控件的
+                // 调色板**（Qt 只给条自己那一份 `setPalette()`，子控件继承这条路上
+                // `palette().color(WindowText)` 拿到的是应用那一支深墨）。拿调色板去比
+                // 就成了"比一个和画面上无关的值"：实测按钮画出来是白的、调色板读回来是
+                // `#20352e`。所以这里按**画出来的像素**数：白的几笔在、深的一个都没有。
+                const auto glyphInk = [](QWidget *button) {
+                    const QImage shot = captureWidget(button);
+                    int white = 0;
+                    int dark = 0;
+                    for (int y = 0; y < shot.height(); ++y) {
+                        for (int x = 0; x < shot.width(); ++x) {
+                            const QColor c = shot.pixelColor(x, y);
+                            if (c.alpha() != 255) {
+                                continue;
+                            }
+                            if (c.red() >= 0xf0 && c.green() >= 0xf0 && c.blue() >= 0xf0) {
+                                ++white;
+                            } else if (c.red() <= 0x60 && c.green() <= 0x60 && c.blue() <= 0x60) {
+                                ++dark;
+                            }
                         }
                     }
-                }
-                check(plainInk > 0 && plainWhite == (ink == QColor(Qt::white) ? plainInk : 0),
+                    return QSize(white, dark);
+                };
+                const QSize closeInk = glyphInk(closeBtn);
+                const QSize minInk = glyphInk(minBtn);
+                check(closeInk.width() > 0 && closeInk.height() == 0,
                       "Z11 不悬停时那颗「×」就是条上那个墨色的几笔、底是透的",
-                      QStringLiteral("墨色 %1 个像素 / 白 %2 个").arg(plainInk).arg(plainWhite));
-                check(ink == QColor(Qt::white) && minBtn->palette().color(QPalette::WindowText) ==
-                                                      QColor(Qt::white),
+                      QStringLiteral("白 %1 个像素 / 深 %2 个").arg(closeInk.width()).arg(closeInk.height()));
+                check(closeInk.width() > 0 && closeInk.height() == 0 && minInk.width() > 0 &&
+                          minInk.height() == 0 && strip->palette().color(QPalette::WindowText) ==
+                                                     QColor(Qt::white),
                       "★★ Z11 两颗窗口按钮**平时**就是白墨（绿条上只有白读得出来；红底那一套"
                       "是悬停时的，见下）",
-                      QStringLiteral("× %1 / — %2").arg(ink.name(),
-                                                        minBtn->palette().color(QPalette::WindowText).name()));
+                      QStringLiteral("× 白%1/深%2 · — 白%3/深%4")
+                          .arg(closeInk.width()).arg(closeInk.height())
+                          .arg(minInk.width()).arg(minInk.height()));
 
                 QHoverEvent enter(QEvent::HoverEnter, QPointF(2, 2), QPointF(2, 2),
                                   QPointF(2, 2));

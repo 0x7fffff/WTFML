@@ -40,6 +40,25 @@
  * 连"不算 auto-repeat"这种细节也一并接过来。空格**不是**激活键（Qt 那边它是
  * type-ahead 搜索），所以这里也不认它。
  *
+ * 【展开动画期间，开关行自己收这一下】
+ * `QTreeView::setAnimated(true)` 一开，展开/收起那 200 ms 里视图处于 AnimatingState。
+ * Qt 6.10 的 `QTreeView::mousePressEvent` 会先问
+ * `QTreeViewPrivate::expandOrCollapseItemAtPos()`，而它开头是：
+ *
+ *     if ((state != NoState && state != EditingState) || !viewport->rect().contains(pos))
+ *         return true;   // ← 交回去了**却没办任何事**
+ *
+ * 返回值 true ⇒ 连 `QAbstractItemView::mousePressEvent` 都不调 ⇒ `pressedIndex` 不落，
+ * 松开时 `clicked` 也发不出来。用户在那 200 ms 里点的**任何一行**都被吞掉（症状就是
+ * "点了一下没反应"）。开关行（组头）尤其明显：刚展开就想收起来，这一下必然落在动画里。
+ *
+ * 所以开关行不再等 `itemClicked`：视口上的**按下 + 松开**由这里自己认、自己算。
+ * 按下记住那一行（`QPersistentModelIndex`，重灌树时自动作废），松开时若还落在同一行
+ * 就补一发并吃掉两发 —— 视图根本看不到这次手势，动画状态也就左右不了它。点得快时那
+ * 几发双击事件同样**吃掉**（只补那一发）：视图的双击处理在 `pressedIndex` 没指着这一行
+ * 时会把它当"一次按下"补上，紧接着的松开又发一次 clicked，两下相抵。动作行
+ * （点实例进设置等等）**不接管**：那里两件事（选中 + 进设置）绑在一起，交给视图。
+ *
  * NOTE: 回车的处理**故意不吞事件**：视图自己还会发一发没人接的 activated，而回车照
  * 原样往上传播，父窗口上有默认按钮的场合行为不变。
  */
@@ -48,6 +67,7 @@
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QObject>
+#include <QPersistentModelIndex>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QWidget>
@@ -88,14 +108,50 @@ protected:
                 && (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter)) {
                 fire(m_tree->currentItem());
             }
+        } else if (watched == m_viewport && event->type() == QEvent::MouseButtonPress) {
+            // 开关行（组头）整条是"开/关"，不等视图发 clicked —— 展开/收起动画那 200 ms 里
+            // 视图会把手势整个吞掉（文件头那条 Qt 源码）。这里先记住按的是哪一行，
+            // 且**不放行**：视图没收到按下，松开时也就不会选别人、不会自己发 clicked。
+            auto *mouse = static_cast<QMouseEvent *>(event);
+            m_togglePress = QPersistentModelIndex();
+            if (mouse->button() == Qt::LeftButton) {
+                QTreeWidgetItem *item = m_tree->itemAt(mouse->position().toPoint());
+                if (isToggleRow(item)) {
+                    m_togglePress = QPersistentModelIndex(m_tree->indexFromItem(item));
+                    // 按下本来会把焦点交给视图；这一发被我们收走了，自己补上 —— 不然
+                    // "点一下分类、再按回车"会打在一个没有焦点的控件上（没反应）。
+                    m_tree->setFocus(Qt::MouseFocusReason);
+                    return true;
+                }
+            }
+        } else if (watched == m_viewport && event->type() == QEvent::MouseButtonRelease) {
+            if (m_togglePress.isValid()) {
+                const QPersistentModelIndex pressed = m_togglePress;
+                m_togglePress = QPersistentModelIndex();
+                auto *mouse = static_cast<QMouseEvent *>(event);
+                // 松开时还落在**同一行**才算一下点击；拖开了就当没按过（与 Qt 的 clicked 同判据）。
+                QTreeWidgetItem *item = m_tree->itemFromIndex(QModelIndex(pressed));
+                if (item != nullptr && mouse->button() == Qt::LeftButton
+                    && m_tree->itemAt(mouse->position().toPoint()) == item) {
+                    fire(item);
+                }
+                return true;
+            }
         } else if (watched == m_viewport && event->type() == QEvent::MouseButtonDblClick) {
             // 第二发（点得快的时候是后面每一发）走的是双击事件，而 itemClicked 不发它 ⇒
             // 补一发。**只补开关行**：动作行（进安装页、"下它"）仍然一次手势只办一次，
             // 双击不该办两遍（见文件头）。
+            //
+            // NOTE: 开关行这一发**吃掉**（不交给视图）。视图的 `mouseDoubleClickEvent` 在
+            // `pressedIndex != index` 时会把它**当成一次按下**补一遍（qabstractitemview.cpp
+            // 那段 fallback），于是紧跟着的那一发松开又能发一次 clicked —— 合起来正好翻
+            // 两次、净效果没动（"点得快的那一下没反应"，见下面 Y7 那种场景）。按下那一半
+            // 已经被我们收走了，这里也就没有"视图自己那次按下"可言。
             auto *mouse = static_cast<QMouseEvent *>(event);
             QTreeWidgetItem *item = m_tree->itemAt(mouse->position().toPoint());
-            if (isToggleRow(item)) {
+            if (mouse->button() == Qt::LeftButton && isToggleRow(item)) {
                 fire(item);
+                return true;
             }
         }
         return QObject::eventFilter(watched, event);
@@ -114,6 +170,8 @@ private:
 
     QTreeWidget *m_tree;
     QWidget *m_viewport = nullptr;
+    /// 上一次按下落在开关行上的那一行；松开时补一发。模型重灌时它会自动失效。
+    QPersistentModelIndex m_togglePress;
     Handler m_handler;
     ToggleRowPredicate m_isToggleRow;
 };

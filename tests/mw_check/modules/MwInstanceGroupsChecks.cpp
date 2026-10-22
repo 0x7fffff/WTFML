@@ -451,21 +451,47 @@ int MwInstanceGroupsChecks(const QDir &root, const QDir &versionsDir) {
             return -1;
         };
         // 点树里的一行（走产品里那条信号路：QTreeWidget::itemClicked → 接线口）。
+        //
+        // NOTE: **这里不 pump 事件循环**。条目的指针活在"重灌树"之前，而重灌随时可能
+        // 插进来（比如版本清单那一发网络回复一到，onVersionsFetched() 就会 refreshInstalled
+        // Versions() 重灌这张树，旧条目当场被删）。pump 一下等于给那一发开门，门开之后
+        // 手里这两个指针就是悬空的 —— 读它读到的是垃圾（本节曾因此把一条断言读红），
+        // 再拿它去 clickTreeRow 更可能撞进"实例行 ⇒ 开设置页"那条嵌套循环，整个测试
+        // 卡死在那儿。这条信号是 DirectConnection，处理是同步的，不 pump 也已经是最终态。
         const auto clickTreeRow = [](QTreeWidget *tree, QTreeWidgetItem *item) {
             QMetaObject::invokeMethod(tree, "itemClicked", Qt::DirectConnection,
                                       Q_ARG(QTreeWidgetItem *, item), Q_ARG(int, 0));
-            QApplication::processEvents();
+        };
+        // 按组 id 找回树上那一行。**每一次 pump 之后、再用条目指针之前都要重找** ——
+        // 在线版本清单那一发回复一到，`onVersionsFetched()` 就会
+        // `refreshInstalledVersions()` → `tree->clear()` 重灌整张树，旧条目当场被删。
+        const auto rowOfGroupId = [](QTreeWidget *tree,
+                                     const QString &groupId) -> QTreeWidgetItem * {
+            if (tree == nullptr) {
+                return nullptr;
+            }
+            for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+                QTreeWidgetItem *item = tree->topLevelItem(i);
+                if (item->data(0, MainWindowUI::groupIdRole()).toString() == groupId) {
+                    return item;
+                }
+            }
+            return nullptr;
         };
         // 往 viewport 上**真的**发一次鼠标按下。行里那颗齿轮是代理画的（没有控件可点），
         // 产品把它接在视口的事件过滤器上 —— 伪造 itemClicked 正好绕过要验的那一段。
         // 视口坐标 = 条目矩形的坐标系（visualItemRect() 也是视口的坐标）。
+        //
+        // NOTE: **这里不 pump 事件循环**（和上面 clickTreeRow 同一条教训）。产品处理按下
+        // 是同步的（eventFilter 里就把菜单弹出来了），pump 只会给"网络回复 ⇒ 重灌树"
+        // 开门；门一开，调用方手里那个条目指针就是野的（实测：读它读到 0 是轻的，
+        // 撞上释放过的内存直接 SEGFAULT）。要 pump 的调用方自己 pump，pump 完重找指针。
         const auto pressRowAt = [](QTreeWidget *tree, const QPoint &pos) {
             QWidget *viewport = tree->viewport();
             QMouseEvent press(QEvent::MouseButtonPress, QPointF(pos),
                               QPointF(viewport->mapToGlobal(pos)), Qt::LeftButton,
                               Qt::LeftButton, Qt::NoModifier);
             QApplication::sendEvent(viewport, &press);
-            QApplication::processEvents();
         };
         // 切到「实例」页。**量几何之前必须先切**：隐藏着的选项卡里的控件是不排布局的，
         // visualItemRect() 拿到的是一个退化的空矩形（这条 NOTE 在 MainWindowUI 的
@@ -516,6 +542,11 @@ int MwInstanceGroupsChecks(const QDir &root, const QDir &versionsDir) {
 
             // "这一行是组头"的唯一判据就是 rowGroupGearRole（能不能开/关、行尾有没有齿轮
             // 都靠它）。它同时也是"点得快时补不补那一发"的判据（见 RowActivation）。
+            //
+            // NOTE: 下面开关设置页那一趟会跑嵌套事件循环，期间网络回复可能重灌这张树。
+            // 所以每用一次指针之前都从树上现取（行序是文件里那三组），不复用旧指针。
+            folded = tree != nullptr ? tree->topLevelItem(0) : nullptr;
+            opened = tree != nullptr ? tree->topLevelItem(1) : nullptr;
             check(folded != nullptr &&
                       folded->data(0, MainWindowUI::rowGroupGearRole()).toBool() &&
                       folded->childCount() > 0 &&
@@ -534,6 +565,7 @@ int MwInstanceGroupsChecks(const QDir &root, const QDir &versionsDir) {
                       "是在这一页关掉之后量的）",
                       pageTitle);
             }
+            opened = tree != nullptr ? tree->topLevelItem(1) : nullptr;
             check(opened != nullptr && opened->isExpanded() &&
                       expandedInFile(QStringLiteral("g-展开的")) == 1,
                   "T10 点组里的实例：那一组不会被顺手翻过来（开关只挂在组头上）");
@@ -584,11 +616,17 @@ int MwInstanceGroupsChecks(const QDir &root, const QDir &versionsDir) {
                       .arg(rowRect.right())
                       .arg(rowRect.height()));
 
-pressRowAt(tree, gear.center());  // = 画出来那颗齿轮的正中心
+            pressRowAt(tree, gear.center());  // = 画出来那颗齿轮的正中心
+            // 按下这一发里产品会开菜单（同步），但重灌树也可能刚好在别的事件里发生 ——
+            // 用之前按 id 重找一次，别拿"按下之前"那个指针去读。
+            opened = rowOfGroupId(tree, QStringLiteral("g-展开的"));
             QWidget *menu = tree->findChild<QWidget *>(MainWindowUI::groupMenuName());
             check(menu != nullptr, "T11 点那一格齿轮：菜单弹出来了（那一格真的是齿轮）");
             check(opened != nullptr && opened->isExpanded(),
-                  "T11 而且那一下被齿轮吃掉了 —— 这一组没被顺手展开/收起");
+                  "T11 而且那一下被齿轮吃掉了 —— 这一组没被顺手展开/收起",
+                  QStringLiteral("isExpanded=%1 / 组行 %2")
+                      .arg(opened != nullptr ? (opened->isExpanded() ? 1 : 0) : -1)
+                      .arg(tree->topLevelItemCount()));
             const auto actionButton = [menu](int action) -> QPushButton * {
                 return menu != nullptr
                            ? menu->findChild<QPushButton *>(
@@ -619,7 +657,10 @@ pressRowAt(tree, gear.center());  // = 画出来那颗齿轮的正中心
             // 那块框是 WA_DeleteOnClose，close() 只排了个 deleteLater —— 催一下，
             // 免得下面按 objectName 又捞到它（和 P2 段那几块菜单同一条）。
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-            check(opened != nullptr && !opened->isExpanded(),
+            // 上面两发都会让事件循环转一圈（延时那一发要等它转起来才派发），所以条目
+            // 指针按 id 重找一次再用。
+            QTreeWidgetItem *afterToggle = rowOfGroupId(tree, QStringLiteral("g-展开的"));
+            check(afterToggle != nullptr && !afterToggle->isExpanded(),
                   "T11 菜单里那一项点了：这一组当场收起来（不是只改了下次打开的默认值）");
             check(expandedInFile(QStringLiteral("g-展开的")) == 0,
                   "T11 而且记进文件里了（和点组头那一下写的是同一格）");
@@ -833,31 +874,23 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 }
                 return ids;
             };
+            // 这张树每重灌一次（`refreshInstalledVersions()` → `tree->clear()`）就发一次
+            // modelReset。下面那一下点击的**两发之间不能有事件循环**：中间一转，
+            // 在线版本清单那一发网络回复就可能到，它一到就重灌整张树，视图手里的
+            // pressedIndex 当场作废、`itemClicked` 发不出来（症状就是"点了一下没翻"）。
+            // 量这三个数是为了红的时候一眼分出"产品没翻"和"点击被重灌拆开了"。
+            int treeResets = 0;
             // 往 viewport 上真的发一次鼠标事件。@param type Press / Release。
             // NOTE: 修饰键必须**挂在这一发事件上**（产品是从 `mouse->modifiers()` 取 Shift
             // 的）—— 走 QApplication::sendEvent 时合成事件里带的就是它。
+            // NOTE: **这里不 pump**（和上面 pressRowAt、T17 的 clickRowAt 同一条）：两发
+            // 要落在同一个事件循环回合里，pump 等于把"按下、松开"拆开交给网络回复。
             const auto sendRowMouse = [](QTreeWidget *tree, QEvent::Type type, const QPoint &pos,
                                          Qt::KeyboardModifiers mods) {
                 QWidget *viewport = tree->viewport();
                 QMouseEvent event(type, QPointF(pos), QPointF(viewport->mapToGlobal(pos)),
                                   Qt::LeftButton, Qt::LeftButton, mods);
                 QApplication::sendEvent(viewport, &event);
-                QApplication::processEvents();
-            };
-            // 按 id 找回树上的那一行。**每一次改动之后都要重找** —— 写盘成功会发
-            // groupsChanged，那条路是**重灌整张树**（tree->clear()），之前拿到的条目指针
-            // 已经是野的了。
-            const auto rowOfGroupId = [](QTreeWidget *tree, const QString &groupId) {
-                if (tree == nullptr) {
-                    return static_cast<QTreeWidgetItem *>(nullptr);
-                }
-                for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-                    if (tree->topLevelItem(i)->data(0, MainWindowUI::groupIdRole()).toString() ==
-                        groupId) {
-                        return tree->topLevelItem(i);
-                    }
-                }
-                return static_cast<QTreeWidgetItem *>(nullptr);
             };
 
             MainWindow w;
@@ -865,6 +898,18 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             QApplication::processEvents();
             showInstanceTab(&w);
             QTreeWidget *tree = byObjectName<QTreeWidget>(&w, MainWindowUI::instanceListName());
+            // 点这一行到底有没有走到"激活"那一层：QTreeWidget::itemClicked 是产品那条
+            // 信号路的入口（RowActivation 接的就是它）。红的时候这个数能分出"视图没发"
+            // 和"发了、产品没翻"。
+            int itemClickedHits = 0;
+            if (tree != nullptr) {
+                QObject::connect(tree, &QTreeWidget::itemClicked, tree,
+                                 [&itemClickedHits](QTreeWidgetItem *, int) {
+                                     ++itemClickedHits;
+                                 });
+                QObject::connect(tree->model(), &QAbstractItemModel::modelReset, tree,
+                                 [&treeResets]() { ++treeResets; });
+            }
             check(tree != nullptr &&
                       groupHeadersOf(tree) ==
                           QStringList({QStringLiteral("排序一 (1)"), QStringLiteral("排序二 (1)"),
@@ -960,22 +1005,36 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       .arg(firstRow.height())
                       .arg(InstanceGroupDelegate::gearRect(firstRow).left()));
 
-            // 发那一发：按下 + 松开（视图两个都到手才发 itemClicked，见 RowActivation.hpp）。
+            // 发那一发：按下 + 松开。组行是**开关行**，这一对手势由 RowActivation 那个
+            // 继电器自己认（展开动画那 200 ms 里视图会把按下整个吞掉，见 RowActivation.hpp），
+            // 所以这里不经过 itemClicked、也不依赖视图的点击状态。两发之间**不 pump**。
+            const int resetsBeforeClick = treeResets;
             sendRowMouse(tree, QEvent::MouseButtonPress, oldArrowPos, Qt::NoModifier);
+            const int resetsBetweenPressAndRelease = treeResets;
             sendRowMouse(tree, QEvent::MouseButtonRelease, oldArrowPos, Qt::NoModifier);
+            QApplication::processEvents();
             check(groupOrderInFile() == QStringList({kSortA, kSortEmpty, kSortB, kSortC}),
                   "★ 点那一格（那里不画任何东西）：盘上的组序一个字节都没动（那一格现在归这一行"
                   "自己，没有「挪一格」这件事了）",
                   groupOrderInFile().join(QLatin1Char('|')));
             QTreeWidgetItem *afterOldArrow = rowOfGroupId(tree, kSortA);
+            const bool clickLanded = afterOldArrow != nullptr &&
+                                     tree->itemAt(oldArrowPos) == afterOldArrow &&
+                                     tree->visualItemRect(afterOldArrow) == firstRow;
             check(afterOldArrow != nullptr && !afterOldArrow->isExpanded() &&
                       expandedInFile(kSortA) == 0,
                   "★ 而且它办的是这一行本来那件事：这一组收起来了（用户报的"
                   "「点击一下就同时展开和调整了」—— 那两件事不能挤在同一个格子上，这"
                   "一格只剩这一件）",
-                  QStringLiteral("树上 isExpanded=%1 / 文件 expanded=%2")
+                  QStringLiteral("树上 isExpanded=%1 / 文件 expanded=%2 / 重灌 %3→%4→%5 / "
+                                 "视图 clicked %6 次（组行走开关手势，正常不经过它）/ 点还落在这一行 %7")
                       .arg(afterOldArrow != nullptr ? (afterOldArrow->isExpanded() ? 1 : 0) : -1)
-                      .arg(expandedInFile(kSortA)));
+                      .arg(expandedInFile(kSortA))
+                      .arg(resetsBeforeClick)
+                      .arg(resetsBetweenPressAndRelease)
+                      .arg(treeResets)
+                      .arg(itemClickedHits)
+                      .arg(clickLanded ? 1 : 0));
 
             // ---- 另一半：「分组设置…」里摆好的顺序落盘、再长到树上 ----
             //

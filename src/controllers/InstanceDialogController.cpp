@@ -870,11 +870,17 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 // 升级副本这一条用的是 `TaskKind::Install`，它的默认能力位
                 // 里 `canCancel` 是真的（下载/安装/导入默认都能掐）。但这一条**没有**取消
                 // 的入口：搬文件那一段是一个没有取消令牌的 `QFuture`。能力位必须照实
-                // 写，否则界面会摆一颗按了没用的「取消」。
-                if (upgrade && ledger != nullptr) {
-                    Tasks::TaskCapabilities caps =
-                        ActivityCenterController::defaultCapabilities(Tasks::TaskKind::Install);
+                // 写，否则界面会摆一颗按了没用的「取消」；同时把原因写在账本上 ——
+                // 详情页就靠这一句回答"为什么这儿没有取消"。
+                if (ledger != nullptr) {
+                    Tasks::TaskCapabilities caps = ActivityCenterController::defaultCapabilities(
+                        upgrade ? Tasks::TaskKind::Install : Tasks::TaskKind::Other);
                     caps.canCancel = false;
+                    caps.cancelBlockedReason = upgrade
+                        ? tr("升级副本要先整棵复制、再逐文件搬并校验；中途停下会留下半份副本，"
+                             "这一项不支持取消。")
+                        : tr("迁移是一边搬一边记账的；中途停下会留下半搬的文件，"
+                             "这一项不支持取消（可以重新执行，已经搬过去的会跳过）。");
                     ledger->setCapabilities(taskId, caps);
                 }
                 const auto finishTask = [this, taskId](bool success, const QString &summary) {

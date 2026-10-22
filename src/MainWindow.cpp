@@ -1409,6 +1409,8 @@ MainWindow::MainWindow(QWidget *parent)
     // 「实例预设」那一页：页面、增删改、提取、计划、备份、落盘
     // 全在 PresetController 里；这儿只把"实例叫什么 / 在不在跑 / 日志往哪儿写"三样递过去，
     // 以及实例页第三档那个宿主（页面由 controller 自己塞进去）。
+    // 兼容性提供方在构造时就固定端点；不能等后面的 applySettingsToUi() 才注入。
+    m_versionManager->setModrinthApiBaseOverride(m_settings->modrinthApiBaseOverride());
     m_presetController = new PresetController(
         m_versionManager, m_ui->getInstancePresetPage(),
         PresetController::Host{
@@ -1588,6 +1590,9 @@ MainWindow::MainWindow(QWidget *parent)
             },
             [this](Tasks::TaskId id, int index, Tasks::TaskStepState state) {
                 m_activityCenter->tasks()->setStepState(id, index, state);
+            },
+            [this](Tasks::TaskId id, const Tasks::TaskCapabilities &caps) {
+                m_activityCenter->tasks()->setCapabilities(id, caps);
             },
             [this](Tasks::TaskId id, bool success, const QString &errorSummary) {
                 m_activityCenter->finish(id, success, errorSummary, false);
@@ -2508,10 +2513,15 @@ void MainWindow::updateBottomBarTaskSummary() {
 /// 本来就是 false，那一格自然就没有取消可点" —— **说的就是这里**。
 bool MainWindow::cancelWouldWork(const Tasks::TaskSnapshot &task) const {
     if (m_modTransferCancels.contains(task.id)) return true;
-    // ③ 后台导入世界：拷贝器每 1 MiB 看一次取消位，取消得动。
+    // ③ 后台导入世界 / 原地升级 / 回滚：工人和引擎都在安全点看这一位，取消得动。
     // 判据和 `cancelTaskFromDetail()` 里那一发逐字对齐。
     if (m_instanceTransferController != nullptr
         && m_instanceTransferController->canCancelTask(task.id)) {
+        return true;
+    }
+    // ④ 备份 / 快照 / 还原：引擎在快照、解压、校验与提交前检查处看取消位
+    // （仅最终改名那一下不可中断）。判据和 `cancelTaskFromDetail()` 同口径。
+    if (m_backupController != nullptr && m_backupController->canCancelTask(task.id)) {
         return true;
     }
     if (task.id == m_downloadTaskId && m_presetController && m_presetController->isInstallingMods()) return true;
@@ -2586,11 +2596,17 @@ void MainWindow::cancelTaskFromDetail(const QString &key) {
         m_modTransferCancels.value(transferId)();
         return;
     }
-    // ③ 后台导入世界：和 `cancelWouldWork()` 里那一问同口径 —— 只有这一趟导入自己的
-    // 取消位会被置上，不会顺手掐到别人的下载或别的实例的导入。
+    // ③ 后台导入世界 / 原地升级 / 回滚：和 `cancelWouldWork()` 里那一问同口径 ——
+    // 只有这一趟自己的取消位会被置上，不会顺手掐到别人的下载或别的实例的活。
+    // 「取消之后会怎样」那句话由控制器按任务种类写（见 `InstanceTransferController::cancelTask()`）。
     if (transferParsed && m_instanceTransferController != nullptr
         && m_instanceTransferController->cancelTask(transferId)) {
-        appendLog(tr("已请求取消后台导入世界；没拷完的这一份不会发布成存档。"));
+        return;
+    }
+    // ④ 备份 / 快照 / 还原：和 `cancelWouldWork()` 里那一问同口径 —— 只掐这一趟。
+    if (transferParsed && m_backupController != nullptr
+        && m_backupController->cancelTask(transferId)) {
+        appendLog(tr("已请求取消备份 / 还原；停下的那一趟不会发布半成品。"));
         return;
     }
     bool directKey = false;
@@ -8878,6 +8894,12 @@ static QString downloadProxyChoiceText(DownloadProxy::Mode mode) {
 }
 
 void MainWindow::applySettingsToUi() {
+    // 测试地址覆盖（**产品永远是空串**）：必须在第一次 fetchAvailableVersions() / 皮肤
+    // 刷新之前落到数据层，否则那一发已经打到官方地址上了。
+    m_versionManager->setVersionManifestUrlOverride(m_settings->versionManifestUrlOverride());
+    PlayerSkinStore::setEndpointOverrides(m_settings->sessionServerBaseOverride(),
+                                          m_settings->textureBaseOverride());
+    SkinApi::setBaseUrlOverride(m_settings->minecraftServicesBaseOverride());
     // 灌值时把信号全挡上：下面这些控件现在反映的是**盘上的值**，不是用户改的。
     // 不挡的话每条 currentIndexChanged/valueChanged 都会触发一遍"保存"，白写几次盘，
     // 更要紧的是那几条槽里还夹着真动作（改「版本名格式」会重刷实例列表）。

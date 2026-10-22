@@ -50,6 +50,9 @@ CI 产物不作为正式发布包或性能基准。已有 `build/ci` 若是 Make
 不缓存整个构建目录，不复用过期二进制跳过测试。缓存服务不可用时允许退回真实编译，
 真实编译失败不会吞掉。每个作业仍用 2 个编译进程，避免私有仓库 runner 内存不足。
 冷缓存首轮仍需完整编译；实际收益以远端耗时与缓存命中统计为准，不保证固定分钟数。
+每次构建后（无论成败）都会输出一次 `sccache --show-stats` 并打印 `CMakeCache.txt` 里的
+`CMAKE_CXX_COMPILER_LAUNCHER`，统计只记录、不判失败；缓存变量没生效时能在日志里直接看见，
+不用等到"为什么 CI 没变快"再猜。
 
 `ci-app` 在 Ninja 下先刷新已有配置的构建图，再枚举主程序对象，每 32 个编译单元为一个独立阶段，
 最后仍构建完整主程序目标（含资源及链接）和诊断工具并执行测试。每批沿用构建超时，
@@ -117,13 +120,19 @@ CTest 注册同时生成 test-targets.txt；运行器先选测试，再按归属
 
 ### 历史 UI 的验证边界
 
-2026-10-21 本机 Qt 6.10.1 / MinGW 13.1、offscreen、未设置跳过变量时：
-`./tools/test.ps1 -Suite visual -NoBuild -BuildDir build/ci-optimization-smoke`
-得到 3055/3108（53 条失败）。保留的拆分前二进制
-`build/verification-mingw13/tests/ui_check/ui_check.exe`（14:07:54 构建）在同一工作目录、同一 offscreen 环境下
-也是 3055/3108，53 个失败标签逐项一致。首次日志分别保留在
-`build/test-runs/20261021-190043-0beb72b5/` 和 `build/modular-ui-baseline.stdout.log`。
-这说明本次对照没有新增失败项，不表示旧主题/布局判据或历史生命周期问题已经解决；完整 visual 仍未通过。
+2026-10-22 本机 Qt 6.10.1 / MinGW 13.1、offscreen、未设置任何跳过变量时：
+`build/verification-mingw13/tests/ui_check/ui_check.exe` 得到 **3118/3118**，退出码 0；
+CTest 的 `wtfml.ui`（offscreen）同样通过（9.78 秒）。
+
+此前 2026-10-21 在同一构建目录得到 3055/3108（53 条失败，另有一份拆分前二进制 14:07:54
+逐项一致）。现在失败数降到 0、断言总数从 3108 涨到 3118（新增用例），说明那 51 条历史失败
+是在 10-21 之后（含当前工作区未提交改动）逐条修掉的，不是靠放宽断言换绿色。旧日志仍保留在
+`build/test-runs/20261021-190043-0beb72b5/` 和 `build/modular-ui-baseline.stdout.log`，
+用于回看当时的失败标签。
+
+offscreen 全绿仍不等于真机验收：多 DPI（100% / 125% / 150%）、透明背景、动效逐帧和真实
+滚轮/光标位置相关的判据不在这一跑里；它们要么直跑 `mw_check.exe`（真屏），要么仍是未完成的
+验收项（见 `CODING_PLAN_FULL.md` §2.1）。
 
 `wtfml.test-modules` 检查入口不超过 4000 行、职责模块不超过 5000 行，禁止入口 include `.cpp`，
 并检查核心用例的归属表。新增用例应放进相应模块，不通过抬高阈值继续堆积入口。
@@ -145,6 +154,13 @@ CTest 注册同时生成 test-targets.txt；运行器先选测试，再按归属
 - 同一构建目录使用命名互斥锁，第二份脚本直接报错，不与首份争用产物。
   这不能阻止绕过脚本的手动构建；运行脚本时不要另开构建。
 - 旧测试仍有固定数据目录，尚未完成逐测试隔离。因此不能擅自提高 CTest 并行度。
+  具体形状：`mw_check` 系的沙盒是 `applicationDirPath()/check-settings` 与
+  `applicationDirPath()/.minecraft`（后者是产品口径的"启动器级默认数据根"，
+  `TaskHistory` 等账本就落在那儿），同目录下的各专项 exe 共用这两个位置 ——
+  并行跑就会互删对方的设置与账本。要并行，得先让每个进程有独立的 applicationDirPath
+  （或让产品支持测试专用的默认根注入），这不是调一下 `-j` 能解决的。
+  2026-10-22 的 `-j2` 全量只作为观察：38/38 通过（246 s / 239 s），串行同样通过
+  （213.94 s），并行没有带来净收益，也不作为"已安全并行"的证据。
 
 GitHub 的 main 提交和 PR 按改动选择分片与测试；标签、定时和手动强制全量保留四路兜底。
 每周和手动勾选 visual 时另跑完整 UI，不自动跳过已知问题。
@@ -184,5 +200,18 @@ GitHub 的 main 提交和 PR 按改动选择分片与测试；标签、定时和
   夹具修正连续五轮通过（95.31 秒）；新增路由回归后重建，最终再连续三轮通过（57.09 秒）。
 - 本机沙箱里另有 H1 协议记录断言失败，允许回环通信后通过；与远端的过期节点断言不是同一问题。
 
-尚未完成：逐测试路径隔离、
-隔离后的安全并行、主窗口后台请求隔离、多 DPI 截图基线和内存诊断工具链。当前没有宣称已修复历史堆损坏。
+### 2026-10-22 假外网按请求目标路由
+
+`tests/mw_check/modules/Support.hpp` 的 `FakeNetwork` 现在按请求行路径（去掉查询串）路由，
+`hits`/`paths` 记每一发的次数与原文，`notFound` + `unrouted` 记没演到的请求并回 404。
+构造 `MainWindow` 的两个入口（`wtfml.main-window`、`wtfml.workspace`）都在构造前把五条
+`Launcher/*Base` 写进沙盒 INI，并在收尾断言 `notFound == 0`；断言只看次数，不看响应次序。
+
+这条断言第一次跑就抓到一处夹具合同错误：`sessionServerBase()` 回的是 `…/session`，而产品
+（`PlayerSkinStore::setEndpointOverrides()`）拿到的是完整档案前缀、之后直接拼 uuid，于是皮肤
+档案请求打到 `/session/<uuid>`（真实 sessionserver 没有这条路由）上，一直被夹具 404 ——
+界面表现只是"没有皮肤"，测试却全绿。夹具改为 `…/session/minecraft/profile` 后请求落回被
+演到的那条路由。以后新增的网络入口若没被演到，这条断言会直接变红。
+
+尚未完成：逐测试路径隔离、隔离后的安全并行、多 DPI 截图基线和内存诊断工具链。
+当前没有宣称已修复历史堆损坏。

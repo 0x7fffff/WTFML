@@ -318,6 +318,14 @@ QString DownloadManager::endpoint(const QString &officialUrl) const {
     return mirrorPreferred() ? mirrorUrl(officialUrl) : officialUrl;
 }
 
+QString DownloadManager::versionManifestUrl() const {
+    // 覆盖（验证工程）下不套镜像：那条地址就是测试自己的假服务器。
+    if (!m_versionManifestUrlOverride.isEmpty()) {
+        return m_versionManifestUrlOverride;
+    }
+    return mirrorUrl(officialVersionManifestUrl());
+}
+
 bool DownloadManager::mirrorPreferred() const {
     return m_useMirror && !isMirrorDemoted();
 }
@@ -758,9 +766,13 @@ DownloadManager::~DownloadManager() {
 }
 
 void DownloadManager::fetchVersionManifest() {
-    const QString officialUrl = officialVersionManifestUrl();
+    const QString officialUrl = m_versionManifestUrlOverride.isEmpty()
+                                    ? officialVersionManifestUrl()
+                                    : m_versionManifestUrlOverride;
     // 列表优先走镜像，与大文件的下载源/测速降级策略分开；失败仍走下方官方兜底。
-    QUrl url(mirrorUrl(officialUrl));
+    // 地址覆盖（验证工程）下**不套镜像**：那条地址就是测试自己的假服务器。规则只有
+    // `versionManifestUrl()` 一份（服务端安装那条冷路也问它）。
+    QUrl url(versionManifestUrl());
     QNetworkRequest request(url);
     configureHttp1(request);
     // 元数据请求也要有超时：下载期间 UI 会禁用按钮，卡死的连接会让它永远禁用下去。

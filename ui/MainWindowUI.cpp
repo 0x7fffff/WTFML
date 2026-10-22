@@ -3500,13 +3500,23 @@ void applyPanelActionStyle(QPushButton *button, const QPalette &panelPalette, bo
     hover.setAlpha(48);
     QColor pressed = panelPalette.color(QPalette::Highlight);
     pressed.setAlpha(96);
+    // 图标那一档**要把钉死的边长再说一遍**。应用级样式表里那条
+    // `QPushButton[wtfmlButtonSize="icon"] { min-height: 0px; }` 每次 polish 都会把
+    // 控件的最小高度复位成 0，而 `setFixedSize()` 钉的"最大"那一半救了它：
+    //   布局拿到的是 sizeHint（= 图标那么大，16），于是 24 的齿轮上屏是 24×16。
+    // 控件级规则优先级更高，在这颗按钮自己的样式表里把最小高度写回钉死的那个数
+    // （边长是调用方 `setFixedSize()` 时给的，这里现问，不另立第二个数）。
+    const bool pinnedSize = !hasText && button->minimumHeight() > 0 &&
+                            button->minimumHeight() == button->maximumHeight();
+    const QString sizeRule =
+        pinnedSize ? QStringLiteral(" min-height: %1px;").arg(button->minimumHeight())
+                   : QString();
     button->setStyleSheet(
-        QStringLiteral("QPushButton { border: none; background: transparent; padding: %1; }"
-                       "QPushButton:hover:enabled { background-color: %2; }"
-                       "QPushButton:pressed:enabled { background-color: %3; }")
-            .arg(hasText ? QStringLiteral("0 6px") : QStringLiteral("0"),
-                 hover.name(QColor::HexArgb))
-            .arg(pressed.name(QColor::HexArgb)));
+        QStringLiteral("QPushButton { border: none; background: transparent; padding: %1;%2 }"
+                       "QPushButton:hover:enabled { background-color: %3; }"
+                       "QPushButton:pressed:enabled { background-color: %4; }")
+            .arg(hasText ? QStringLiteral("0 6px") : QStringLiteral("0"))
+            .arg(sizeRule, hover.name(QColor::HexArgb), pressed.name(QColor::HexArgb)));
 }
 
 /**
@@ -4187,9 +4197,13 @@ private:
         // kFolderMenuPadding 上面那段）。
         // NOTE: 加粗走 QSS 的 `font-weight`（别去 setFont() 改控件的字体）—— 这条样式
         // 表的**每一档状态**都是这里出的，字重跟别的属性待在同一个地方才不会漏。
+        // NOTE: 那句 `min-height: 0px` 是**复位**，不是"这一项要更矮"。应用级
+        // `QPushButton { min-height: 20px }` 会把这一项的内容格撑到 20，图标（16）在
+        // 那一格里居中 ⇒ 上下的留白变成 6+2，用户要的"上下和左右一样宽"就差了 2 px。
+        // 复位之后内容格由那一行字自己定，图标离边正好 6。
         QString sheet = QStringLiteral("QPushButton { border: none; background: transparent;"
                                        " font-weight: bold;"
-                                       " text-align: left; padding: 6px 6px; }"
+                                       " text-align: left; padding: 6px 6px; min-height: 0px; }"
                                        "QPushButton:hover:enabled { background-color: %1; }"
                                        "QPushButton:pressed:enabled { background-color: %2; }")
                             .arg(hover.name(QColor::HexArgb), pressed.name(QColor::HexArgb));
@@ -4412,7 +4426,7 @@ private:
         pressed.setAlpha(96);
         QString sheet = QStringLiteral("QPushButton { border: none; background: transparent;"
                                        " font-weight: bold;"
-                                       " text-align: left; padding: 6px 6px; }"
+                                       " text-align: left; padding: 6px 6px; min-height: 0px; }"
                                        "QPushButton:hover:enabled { background-color: %1; }"
                                        "QPushButton:pressed:enabled { background-color: %2; }")
                             .arg(hover.name(QColor::HexArgb), pressed.name(QColor::HexArgb));
@@ -4720,10 +4734,19 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     QFont accountTypeFont = accountTypeLabel->font();
     accountTypeFont.setPointSize(qMax(1, accountTypeFont.pointSize() - 1));
     accountTypeLabel->setFont(accountTypeFont);
-    QPalette accountTypePalette = accountTypeLabel->palette();
-    accountTypePalette.setColor(QPalette::WindowText,
-                                accountTypePalette.color(QPalette::PlaceholderText));
-    accountTypeLabel->setPalette(accountTypePalette);
+    // `QLabel` 不吃 `PlaceholderText` 这个角色（那是输入框占位用的），要把那一支**抄进
+    // `WindowText`**。抄这一下不能只在构造里做一次：局部调色板里没标的角色在装上去之后
+    // 会退回应用那一支，**换主题时 `PlaceholderText` 跟着变、抄进去的 `WindowText` 不动**，
+    // 两行字从此一个旧色一个新色（量出来 `#64776d` 与 `#607c70` 各说各的）。所以和上面
+    // 那颗头像一样包成一个动作、挂 `Theme::follow()`。
+    const auto paintAccountType = [this]() {
+        QPalette typePalette = accountTypeLabel->palette();
+        typePalette.setColor(QPalette::WindowText,
+                             typePalette.color(QPalette::PlaceholderText));
+        accountTypeLabel->setPalette(typePalette);
+    };
+    paintAccountType();
+    Theme::follow(accountTypeLabel, [paintAccountType]() { paintAccountType(); });
 
     QVBoxLayout *accountTextLayout = new QVBoxLayout();
     accountTextLayout->setSpacing(0);

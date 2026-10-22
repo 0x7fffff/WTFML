@@ -12,6 +12,7 @@
 #include <QtConcurrent/QtConcurrentRun>
 #include "manage/InstanceIconLookup.hpp"
 #include "util/AppPaths.hpp"
+#include "util/DirectorySessionLock.hpp"
 
 namespace Presets {
 namespace {
@@ -417,6 +418,10 @@ void PresetModInstaller::commit() {
     if ((m_running && m_running()) || redirected(m_root) ||
         redirected(QDir(m_root).filePath(QStringLiteral("mods")))) {
         finish(tr("实例状态已变化，未写入模组。")); return;
+    }
+    QString lockProblem;
+    if (!DirectorySessionLock::acquire(AppPaths::minecraftDir(), &lockProblem)) {
+        finish(lockProblem); return;
     }
     QDir mods(QDir(m_root).filePath(QStringLiteral("mods")));
     if (!QDir().mkpath(mods.path())) { finish(tr("无法创建模组目录。")); return; }

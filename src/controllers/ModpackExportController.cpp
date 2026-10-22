@@ -247,6 +247,7 @@ void ModpackExportController::continueExport(const ModpackExport::ExportPlan &pl
     setTaskProgress(2, 4);
     setTaskDetail(tr("正在写入整合包…"));
     setStatus(tr("正在后台打包整合包…"));
+    const QPointer<ModpackExportController> self(this);
     auto *watcher = new QFutureWatcher<QString>(this);
     connect(watcher, &QFutureWatcher<QString>::finished, this,
             [this, watcher, plan, targetPath, format] {
@@ -325,8 +326,8 @@ void ModpackExportController::continueExport(const ModpackExport::ExportPlan &pl
                 InlineMessage::information(m_overlay, tr("导出完成"),
                                            lines.join(QStringLiteral("\n\n")));
             });
-    watcher->setFuture(QtConcurrent::run([plan, targetPath] {
+    watcher->setFuture(QtConcurrent::run([plan, targetPath, self] {
         VersionManager worker;
-        return worker.writePackArchive(plan, targetPath);
+        return worker.writePackArchive(plan, targetPath, [self] { return self.isNull(); });
     }));
 }

@@ -141,6 +141,11 @@ public:
     void setUseMirror(bool useMirror) { m_useMirror = useMirror; }
     bool useMirror() const { return m_useMirror; }
 
+    /// 版本清单的地址覆盖（**只有验证工程会填**）。空 = 官方地址；非空时**不再走镜像**。
+    void setVersionManifestUrlOverride(const QString &url) {
+        m_versionManifestUrlOverride = url.trimmed();
+    }
+
     /// 现在这一刻还该不该走镜像 = 用户选了镜像源，**而且**镜像没因为太慢被临时降级。
     /// 凡是"要不要换成镜像地址"的判断都问它，别直接读 m_useMirror —— 降级是运行期发生的，
     /// 直接读会绕过它。
@@ -402,6 +407,14 @@ public:
     /// （镜像被降级时给回官方那条）。按版本号/索引号拼的那几处走 mirrorVersionJsonUrl()
     /// 之类的函数，不经过这里。
     QString endpoint(const QString &officialUrl) const;
+
+    /// 此刻该请求的版本清单地址。覆盖优先（`setVersionManifestUrlOverride`，且覆盖时
+    /// **不套镜像**），否则官方地址按当前下载源换算。
+    ///
+    /// 凡是要"先拿清单再挑版本"的调用点都问这里。别再自己拼
+    /// `endpoint(officialVersionManifestUrl())` —— 那样绕过了覆盖口子，验证工程里
+    /// 那一跑换不掉地址，冷路会静默打到真 Mojang 上（`ServerInstallController` 就踩过）。
+    QString versionManifestUrl() const;
 
     // ------------------------------------------------------------------
     // 官方地址 → 镜像地址。**纯函数**，不碰成员、不发请求。
@@ -828,6 +841,7 @@ private:
     bool m_shuttingDown = false;
     // 下载源。false = 官方（默认）。
     bool m_useMirror = false;
+    QString m_versionManifestUrlOverride;
     bool m_allowOverwrite = true;
     bool m_segmentEnabled = true;
     /// 正在 `ResumableDownload::start()` 的调用栈里：它可能同步发 finished，

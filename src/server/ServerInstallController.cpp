@@ -186,7 +186,10 @@ void ServerInstallController::beginResolve() {
 
 void ServerInstallController::fetchVersionJson() {
     // 版本清单 -> 这个版本那条 -> 它的 json。两步，但只有"本地没有"这一条冷路上才会走到。
-    QNetworkRequest request{QUrl(m_downloads->endpoint(DownloadManager::officialVersionManifestUrl()))};
+    // 地址问 `DownloadManager::versionManifestUrl()`：它认 `Launcher/VersionManifestUrl`
+    // 那条覆盖。原来这里拼 `endpoint(officialVersionManifestUrl())`，覆盖被绕过 ——
+    // 没有预置本地版本 json 的测试会静默打真 Mojang/镜像。
+    QNetworkRequest request{QUrl(m_downloads->versionManifestUrl())};
     request.setTransferTimeout(HttpClient::kDefaultTimeoutMs);
     m_metadataReply = m_network->get(request);
     connect(m_metadataReply, &QNetworkReply::finished, this,
@@ -203,11 +206,23 @@ void ServerInstallController::onVersionManifest(QNetworkReply *reply) {
     const QByteArray payload = reply->readAll();
     const QString networkProblem = reply->errorString();
     const bool ok = reply->error() == QNetworkReply::NoError;
+    const QUrl attempted = reply->request().url();
     reply->deleteLater();
     if (m_cancelling) {
         return;
     }
     if (!ok) {
+        // 清单现在固定镜像优先，故冷安装也必须保留官方兜底。
+        // 只识别默认镜像地址，测试覆盖地址失败时不得偷偷访问公网。
+        const QString official = DownloadManager::officialVersionManifestUrl();
+        if (attempted == QUrl(DownloadManager::mirrorUrl(official))) {
+            QNetworkRequest fallback{QUrl(official)};
+            fallback.setTransferTimeout(HttpClient::kDefaultTimeoutMs);
+            m_metadataReply = m_network->get(fallback);
+            connect(m_metadataReply, &QNetworkReply::finished, this,
+                    [this]() { onVersionManifest(m_metadataReply); });
+            return;
+        }
         fail(QStringLiteral("取版本清单失败了：%1").arg(networkProblem));
         return;
     }

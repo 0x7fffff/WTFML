@@ -1231,6 +1231,14 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
     state->setObjectName(MainWindowUI::taskDetailStateName());
     applyMutedFont(state, 0);
     layout->addWidget(state);
+    // 「取消」这一颗不露脸时得说清为什么（不能取消的那一类 / 暂时停不得的那一段）。
+    if (isActive(item.state) && !item.capabilities.cancel && !item.cancelBlockedReason.isEmpty()) {
+        auto *blocked = new QLabel(item.cancelBlockedReason, m_detailContent);
+        blocked->setObjectName(QStringLiteral("taskCenterCancelBlockedReason"));
+        blocked->setWordWrap(true);
+        applyMutedFont(blocked, -1);
+        layout->addWidget(blocked);
+    }
     if (!item.detail.isEmpty()) {
         auto *detail = new QLabel(item.detail, m_detailContent);
         detail->setWordWrap(true);

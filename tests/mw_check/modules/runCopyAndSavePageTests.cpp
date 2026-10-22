@@ -305,6 +305,22 @@ void runCopyAndSavePageTests() {
         check(invoked,
               "T27.3a invokeMethod 认得后台复制那一发（不认得就是静默 false，下面全假绿）");
 
+        // 复制**不支持取消**，但账本必须说清为什么（详情页那一行小字）。
+        // 这一发是**同步**读完的：`beginTask` 在 `upgrade/拷贝` 真正起线程之前就记好了。
+        bool sawCopyTask = false, copyCancelExposed = true;
+        QString copyBlockedReason;
+        for (const TaskCenter::Item &item : window.taskCenterItemsForTest()) {
+            if (!item.title.contains(copyName)) continue;
+            if (item.state != TaskCenter::State::Running
+                && item.state != TaskCenter::State::Queued) continue;
+            sawCopyTask = true;
+            copyCancelExposed = item.capabilities.cancel;
+            copyBlockedReason = item.cancelBlockedReason;
+        }
+        check(sawCopyTask && !copyCancelExposed && !copyBlockedReason.isEmpty(),
+              "★ T27.3a 后台复制这一项在账本里明写「为什么不给取消」"
+              "（只把按钮藏起来，用户分不清是做完还是停不得）");
+
         // 忙标记是**同步**记上的（甚至可能还没进后台线程），所以这一发一定有东西挡着。
         QMetaObject::invokeMethod(&window, "openInstanceSettings", Qt::DirectConnection,
                                   Q_ARG(QString, id));

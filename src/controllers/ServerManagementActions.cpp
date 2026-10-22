@@ -19,6 +19,7 @@
 #include "server/ServerRun.hpp"
 #include "server/ServerPropertiesForm.hpp"
 #include "util/AppPaths.hpp"
+#include "server/ServerWriteGuard.hpp"
 #include <QDir>
 #include <QDesktopServices>
 #include <QUrl>
@@ -333,6 +334,11 @@ void ServerManagementActions::addServerContent(MainWindow *owner) {
     if (chosen.isEmpty()) {
         return;
     }
+    QString lockProblem;
+    if (!ServerWriteGuard::acquire(serverId, &lockProblem)) {
+        InlineMessage::warning(owner->m_ui->overlay(), MainWindow::tr("加不了"), lockProblem);
+        return;
+    }
     // 文件夹可能还不存在（服务端还没跑过）—— 这一次"要往里放东西"了，建出来。
     if (!QDir().mkpath(folder)) {
         InlineMessage::critical(owner->m_ui->overlay(), MainWindow::tr("加不了"),
@@ -409,6 +415,11 @@ void ServerManagementActions::toggleServerContent(MainWindow *owner, const QStri
         InlineMessage::warning(
             owner->m_ui->overlay(), MainWindow::tr("改不了"),
             MainWindow::tr("文件夹里已经有一份「%1」了 —— 先把那一份挪走，再改这一份的名字。").arg(target));
+        return;
+    }
+    QString lockProblem;
+    if (!ServerWriteGuard::acquire(serverId, &lockProblem)) {
+        InlineMessage::warning(owner->m_ui->overlay(), MainWindow::tr("改不了"), lockProblem);
         return;
     }
     QFile file(sourcePath);
@@ -701,6 +712,11 @@ void ServerManagementActions::deleteServerBackup(MainWindow *owner, const QStrin
             MainWindow::tr("这一份会被删掉，删了找不回来：\n%1\n\n要删吗？")
                 .arg(QDir::toNativeSeparators(zipPath)),
             MainWindow::tr("删掉它"), MainWindow::tr("取消"), /*defaultYes=*/false, /*destructive=*/true)) {
+        return;
+    }
+    QString lockProblem;
+    if (!ServerWriteGuard::acquire(owner->m_serverSettingsId, &lockProblem)) {
+        InlineMessage::warning(owner->m_ui->overlay(), MainWindow::tr("删不掉"), lockProblem);
         return;
     }
     if (!QFile::remove(zipPath)) {

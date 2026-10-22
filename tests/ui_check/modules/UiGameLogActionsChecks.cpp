@@ -152,7 +152,16 @@ int UiGameLogActionsChecks(QFrame * &bar) {
                           .arg(log->font().pointSize()));
                 check(log->getHintLabel()->palette().color(QPalette::WindowText) ==
                           log->getHintLabel()->palette().color(QPalette::PlaceholderText),
-                      "Z3 那句说明的颜色是 PlaceholderText（灰色注释那一档）");
+                      "Z3 那句说明的颜色是 PlaceholderText（灰色注释那一档）",
+                      QStringLiteral("字 %1 / 占位 %2")
+                          .arg(log->getHintLabel()
+                                   ->palette()
+                                   .color(QPalette::WindowText)
+                                   .name(QColor::HexArgb),
+                               log->getHintLabel()
+                                   ->palette()
+                                   .color(QPalette::PlaceholderText)
+                                   .name(QColor::HexArgb)));
             }
 
             // ---- (c) 写进去的就是原样那几行 ----

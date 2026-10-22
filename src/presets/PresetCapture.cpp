@@ -22,6 +22,7 @@
 #include "GenericFiles.hpp"
 #include "MalilibKeys.hpp"
 #include "ResourcePackPreset.hpp"
+#include "util/WriteDirectoryGuard.hpp"
 #include "ServerListPreset.hpp"
 #include "VanillaOptions.hpp"
 #include "manage/ServerListFile.hpp"
@@ -135,6 +136,16 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
     if (request.presetFilesRoot.trimmed().isEmpty()) {
         report.problem = captureText("没有指定这份预设的 files 目录。");
         return report;
+    }
+    // 这一趟会往预设库里那一份的 `files/` 底下写东西（下面第一件事就是建目录）。
+    // 和预设库自己的写入口同一把锁：另一份启动器持着这个数据根时一个字节都不写
+    // （不然两份启动器会往同一份预设里交错拷文件）。
+    {
+        QString lockProblem;
+        if (!WriteDirectoryGuard::acquire(request.presetFilesRoot, &lockProblem)) {
+            report.problem = lockProblem;
+            return report;
+        }
     }
     if (!QDir().mkpath(request.presetFilesRoot)) {
         report.problem = captureText("建不了预设的文件目录：%1").arg(request.presetFilesRoot);

@@ -4,10 +4,16 @@ int UiWindowPreferencesChecks(QTabWidget * &tabs) {
         // 这一组三件事：看不看游戏自己的输出（勾选框）、它占多少 CPU（下拉框）、窗口多大
         // （两个数字框）。控件的存在性和"落在右列"已经在 L / E2b 两节验过了，这里验的是
         // **这一组特有的东西**：文案、取值范围、以及那两个数字框的几何。
+        //
+        // NOTE: 「游戏日志」那一勾与「进程优先级」那颗下拉框在搭完页后会被
+        // `moveSetting(…, "运行与日志")` 按职责搬进**「启动」栏**（启动器行为/进程/日志
+        // 归启动，见 MainWindowUI::setupSettingsPage 里那段），只有窗口尺寸那两格留在
+        // 「游戏」栏。所以下面勾选框与行标题在「启动」栏那张表里找，尺寸/窗口模式才在
+        // 「游戏」栏找 —— 找错栏的症状就是"控件明明在、这里却报 nullptr"。
         QWidget *settingsPage = tabs->widget(MainWindowUI::settingsTabIndex());
         tabs->setCurrentIndex(MainWindowUI::settingsTabIndex());
         QApplication::processEvents();
-        // 设置页分栏了，这一组三项全在「游戏」栏里 —— 先把左栏切到那一条
+        // 先把左栏切到「游戏」栏
         // （几何断言要的是"这一页真的摆出来了"，切过去之前量到的是藏起来那一页的旧值），
         // 再按那一栏的键取表单。整页唯一的那张 settingsForm 已经没有了。
         if (auto *categoryList = settingsPage != nullptr
@@ -27,11 +33,19 @@ int UiWindowPreferencesChecks(QTabWidget * &tabs) {
                                 : nullptr;
         QWidget *form = panelScroll != nullptr ? panelScroll->widget() : nullptr;
         check(form != nullptr, "Z2 前提：找得到「游戏」栏那张设置表单");
+        // 日志那两格搬去了「启动」栏，按那一栏的键另取一张表（见本节开头的 NOTE）。
+        auto *launchScroll =
+            settingsPage != nullptr
+                ? settingsPage->findChild<QScrollArea *>(
+                      MainWindowUI::settingsPanelName(QStringLiteral("launch")))
+                : nullptr;
+        QWidget *launchForm = launchScroll != nullptr ? launchScroll->widget() : nullptr;
 
         // ---- (a) 「显示游戏日志」：这句话是要求，别被改写 ----
         {
-            auto *checkBox = form != nullptr
-                                 ? form->findChild<QCheckBox *>(MainWindowUI::showGameLogCheckName())
+            auto *checkBox = launchForm != nullptr
+                                 ? launchForm->findChild<QCheckBox *>(
+                                       MainWindowUI::showGameLogCheckName())
                                  : nullptr;
             check(checkBox != nullptr, "Z2 找得到「显示游戏日志」那个勾选框");
             if (checkBox != nullptr) {
@@ -40,9 +54,9 @@ int UiWindowPreferencesChecks(QTabWidget * &tabs) {
                 // 界面层不许自己默认打开：默认值是产品逻辑，由 MainWindow 从盘上灌。
                 check(!checkBox->isChecked(),
                       "Z2 刚搭好时未勾选（值由 MainWindow 灌，界面不自己猜）");
-                if (form != nullptr) {
+                if (launchForm != nullptr) {
                     bool hasRowTitle = false;
-                    const QList<QLabel *> labelsInForm = form->findChildren<QLabel *>();
+                    const QList<QLabel *> labelsInForm = launchForm->findChildren<QLabel *>();
                     for (const QLabel *label : labelsInForm) {
                         if (label->text() == MainWindowUI::showGameLogRowText()) {
                             hasRowTitle = true;
@@ -201,7 +215,7 @@ int UiWindowPreferencesChecks(QTabWidget * &tabs) {
             };
             // 一条 = 哪一栏 + 那个下拉框的 objectName。
             const QList<QPair<QString, QString>> combos = {
-                {QStringLiteral("game"), MainWindowUI::processPriorityComboName()},
+                {QStringLiteral("launch"), MainWindowUI::processPriorityComboName()},
                 {QStringLiteral("game"), MainWindowUI::gameWindowModeComboName()},
                 {QStringLiteral("launch"), MainWindowUI::launcherBehaviourComboName()},
                 {QStringLiteral("download"), MainWindowUI::downloadSourceComboName()},

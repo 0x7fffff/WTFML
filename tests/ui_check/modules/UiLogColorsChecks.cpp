@@ -89,8 +89,17 @@ int UiLogColorsChecks() {
             // 没照着格式画**（底色没设上、被窗口底色盖掉）；"颜色本身选对了"由下面
             // 那条两两不同 + INFO 与那半行同色来钉。两条一起才成一个闭环。
             check(worst >= 0 && worst <= 6,
-                  "Z6 四档染色的底色**就是**我们定的那个颜色（量的是行上真画出来的像素）",
+                  "Z6 三档染色的底色**就是**我们定的那个颜色（量的是行上真画出来的像素）",
                   QStringLiteral("%1 | 最远的一档差 %2").arg(gotText.join(QStringLiteral(" "))).arg(worst));
+            // DEBUG 与 INFO 两档**不染**（用正文区自己的底色）：日志里绝大多数是 INFO，
+            // 全染上就成了一张色纸；"没染色的那些"本身就是最自然的一档。
+            const QColor unstained = view->palette().color(QPalette::Base);
+            check(colorDistance(got[int(L::Debug)], unstained) <= 6 &&
+                      colorDistance(got[int(L::Info)], unstained) <= 6,
+                  "Z6 DEBUG / INFO 两档不染底（跟正文区自己那一支一个色）",
+                  QStringLiteral("DEBUG=%1 INFO=%2 底色=%3")
+                      .arg(got[int(L::Debug)].name(), got[int(L::Info)].name(),
+                           unstained.name()));
             // 末尾那半行按**上一行那一档**染（不是"不染底"）。
             //
             // 这条规则要两个点才算钉住，少一个都能被写死骗过去：上面这个夹具里它上一行是
@@ -102,13 +111,20 @@ int UiLogColorsChecks() {
             check(colorDistance(base, got[int(L::Fatal)]) <= 6,
                   "Z6 末尾那半行跟着**上一行那一档**染（上一行是 FATAL，它就是那个深红）",
                   QStringLiteral("半行=%1 FATAL=%2").arg(base.name(), got[int(L::Fatal)].name()));
-            // 五档两两分得开：拿**量出来的**值比（不是拿常量比常量）—— 上面那四条"等于常量"
-            // 加上这一条，才同时钉住"颜色对"和"五档真的不一样"。
-            // NOTE: 比的是**五档之间**（那半行不参与：它和 INFO 本来就该是一个色，见上一条）。
+            // 染了底的那三档两两分得开：拿**量出来的**值比（不是拿常量比常量）—— 上面
+            // 那几条"等于常量"加上这一条，才同时钉住"颜色对"和"三档真的不一样"。
+            // NOTE: DEBUG / INFO 不参与（它们本来就该是同一个"没染"的色，见上一条），
+            // 那半行也不参与（它和上一行本来就该是一个色）。
             int closest = 999;
             QString closestPair;
             for (int i = 0; i < GameLogWindow::levelCount(); ++i) {
+                if (!GameLogWindow::levelBackground(GameLogWindow::levelAt(i)).isValid()) {
+                    continue;
+                }
                 for (int j = i + 1; j < GameLogWindow::levelCount(); ++j) {
+                    if (!GameLogWindow::levelBackground(GameLogWindow::levelAt(j)).isValid()) {
+                        continue;
+                    }
                     const int distance = colorDistance(got[i], got[j]);
                     if (distance < closest) {
                         closest = distance;
@@ -119,27 +135,31 @@ int UiLogColorsChecks() {
                     }
                 }
             }
-            check(closest >= 20, "Z6 五档两两看得出来不一样（最近的一对也差得够远）",
+            check(closest >= 20, "Z6 染了底的那三档两两看得出来不一样（最近的一对也差得够远）",
                   QStringLiteral("最近的一对：%1，差 %2").arg(closestPair).arg(closest));
 
-            // FATAL 那一档换白墨（深红底上写深灰字读不清）。这一条量的是**文档里的格式**，
-            // 不是字形像素：字形是抗锯齿画出来的，没有"那一个确定的像素"可量；底色有，
-            // 所以底色走上面那几条像素、墨色走这一条。
+            // 墨：浅色那一套里**五档写的是同一支深灰**（`#202020`）。这一条量的是
+            // **文档里的格式**，不是字形像素：字形是抗锯齿画出来的，没有"那一个确定的
+            // 像素"可量；底色有，所以底色走上面那几条像素、墨色走这一条。
             //
-            // NOTE: 期望"别的档的墨**不是白的**"而不是"没有设墨" —— QTextBlock::charFormat()
-            // 给的是**合并过默认值**的那份格式（没设过也是黑的），所以"没设过"这个
-            // 状态在文档里查不出来。这一条要挡的是"给所有档都换了墨"那种错。
+            // NOTE: 不能期望"别的档没有设墨" —— QTextBlock::charFormat() 给的是**合并过
+            // 默认值**的那份格式，而且 `levelForeground()` 在浅色下对每一档都回同一支墨
+            // （`logInk()` 里那一句）。深色那一套才是每档一支亮墨（见 .cpp 那张表）。
             const QTextCursor fatalCursor(view->document()->findBlockByNumber(int(L::Fatal)));
             const QTextCursor errorCursor(view->document()->findBlockByNumber(int(L::Error)));
-            check(fatalCursor.charFormat().foreground().color() == QColor(0xff, 0xff, 0xff) &&
-                      errorCursor.charFormat().foreground().color() != QColor(0xff, 0xff, 0xff),
-                  "Z6 只有 FATAL 那一档换了白墨，别的档还是窗口默认的墨",
+            check(fatalCursor.charFormat().foreground().color() == QColor("#202020") &&
+                      errorCursor.charFormat().foreground().color() == QColor("#202020"),
+                  "Z6 浅色下五档写的是同一支深灰墨（FATAL / ERROR 都是 `#202020`）",
                   QStringLiteral("FATAL=%1 ERROR=%2")
                       .arg(fatalCursor.charFormat().foreground().color().name(),
                            errorCursor.charFormat().foreground().color().name()));
-            check(!GameLogWindow::levelForeground(L::Info).isValid() &&
-                      GameLogWindow::levelForeground(L::Fatal).isValid(),
-                  "Z6 「哪一档换墨」也是唯一出处说了算（不换的那几档返回无效色）");
+            check(GameLogWindow::levelForeground(L::Info).isValid() &&
+                      GameLogWindow::levelForeground(L::Info) ==
+                          GameLogWindow::levelForeground(L::Fatal),
+                  "Z6 「墨」也是唯一出处说了算（浅色下每一档都有效、并且是同一支）",
+                  QStringLiteral("INFO=%1 FATAL=%2")
+                      .arg(GameLogWindow::levelForeground(L::Info).name(),
+                           GameLogWindow::levelForeground(L::Fatal).name()));
         }
         log->close();
         QApplication::processEvents();

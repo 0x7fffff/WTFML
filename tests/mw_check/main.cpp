@@ -2031,6 +2031,13 @@ int main(int argc, char *argv[]) {
     }
 
     const QDir versionsDir(root.filePath(QStringLiteral(".minecraft/versions")));
+    // 沙盒里那一棵 versions/ 必须从"干净装一次"开始。`makeInstalledVersion()` 只补不删
+    // （缺 jar 就写一个），于是上一趟改过的东西会原样活到这一趟 —— S2b 就栽在这一格上：
+    // 上一趟把 wtfml.meta 里的 skipJavaVersionWarning 点成 true 之后，下一趟"那一格本来
+    // 勾着（缺省的那一侧）"就恒假，而它点下去反而把值改回"提醒"，后面"当场写进 meta"
+    // 也跟着假。这个沙盒是 exe 旁边的一次性目录（不是用户的数据），所以整棵删掉重来；
+    // 用链接安全的那一手（万一上一趟被强杀、里头留着 junction，不许顺着它删到外面去）。
+    removeTreeWithoutFollowingLinks(versionsDir.absolutePath());
     versionsDir.mkpath(QStringLiteral("."));
 
     // J 节用：「认不出哪个是客户端 jar」的那个目录 —— 顶层两个 jar、又没有和目录名同名的
@@ -2077,9 +2084,37 @@ int main(int argc, char *argv[]) {
     // 对不上就等于没注册，而 invokeMethod 只会**静默返回 false**（看着像"那条路没被拦住"）。
     qRegisterMetaType<ModpackImport::Format>("ModpackImport::Format");
 
+    // ---------- 默认那一跑：外网换成 127.0.0.1 上的一台假服务器 ----------
+    // 第一个 MainWindow 一构造就会发版本清单（还有账号那几节的皮肤档案、下载页四页的
+    // 首次搜索）。真实网络在场时，这一跑的时长和树里有什么都不归它管：断网机器上每次
+    // 都要等满 15 秒，连得上的机器上又会把当天官方那份清单塞进树里。
+    //
+    // 地址走**产品自己的设置键**（`LauncherSettings` 读、产品永不写），所以这里验的
+    // 也正是"这些键真的被用上了"。必须在 `MainWindow window;` **之前**落盘。
+    FakeNetwork fakeNet;
+    // 夹具起不来就**停**：原来只记一条失败然后照常构造 MainWindow，那一跑实际打的是
+    // 真 Mojang —— 断网机器上等满超时，连得上时把当天官方清单塞进树里，
+    // 而"离线套件"的名义一点没变。宁可红在夹具上。
+    if (!fakeNet.start()) {
+        check(false, "默认那一跑的假外网起来了（起不来就不往下跑：会打到真地址上）");
+        return 2;
+    }
+    installFakeNetworkSettings(fakeNet);
+
     MainWindow window;
     window.show();
     QApplication::processEvents();
+
+    // 冷启动那一发清单必须落在夹具上：没落到的话（键没读、或者读晚了）它打的是真地址，
+    // 这一跑就又回到"看网络脸色"的老样子 —— 而界面上完全看不出来区别。
+    pumpUntil([&fakeNet]() { return fakeNet.count(QStringLiteral("/version_manifest_v2.json")) >= 1; },
+              5000);
+    check(fakeNet.count(QStringLiteral("/version_manifest_v2.json")) == 1,
+          "冷启动那一发版本清单打到了夹具上（正好一发）",
+          QStringLiteral("次数=%1 最先几条=%2")
+              .arg(fakeNet.count(QStringLiteral("/version_manifest_v2.json")))
+              .arg(fakeNet.paths.mid(0, 4).join(QStringLiteral(", "))));
+
 
     // ---------- 找控件（按 objectName） ----------
     QComboBox *installed = comboByObjectName(&window, MainWindowUI::installedVersionComboName());
@@ -3361,8 +3396,20 @@ int main(int argc, char *argv[]) {
     header("T43. 关窗收尾：worker 线程 / 子进程 / 还在飞的下载（离线）");
     runShutdownTests();
 
+    // 夹具这一跑有没有"没演到的路由"：非零说明产品打了夹具没覆盖的地址，那一发拿到 404
+    // （和真服务器上"没有这个路由"同形）。它不是"这条断言意外地没红"的替代品，但能更早
+    // 说明这一跑其实没测到东西 —— 或者又开始悄悄依赖真实网络了。排查看 `unrouted`。
+    check(fakeNet.notFound == 0, "假外网没有收到没路由的请求（每一发都打在被演到的路径上）",
+          QStringLiteral("404 了 %1 发：%2")
+              .arg(fakeNet.notFound)
+              .arg(fakeNet.unrouted.mid(0, 8).join(QStringLiteral(", "))));
+
     std::printf("\n===== %s: %d/%d =====\n", g_fail == 0 ? "全部通过" : "有失败", g_pass,
                 g_pass + g_fail);
+    // 显式冲掉：这一行原来靠退出时的 stdio 收尾落盘，而**异常终止不冲缓冲**。2026-10-22
+    // 那次 SEGFAULT 的日志正好止在 T43.9 —— 单看日志分不清"汇总没来得及打"还是"汇总打了、
+    // 崩在退出路径上"。冲了这一下，以后两档一眼可辨（同 `check()` 里那一句的理由）。
+    std::fflush(stdout);
     return g_fail == 0 ? 0 : 1;
 }
 

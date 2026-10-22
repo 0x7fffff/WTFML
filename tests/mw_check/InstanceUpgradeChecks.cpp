@@ -389,19 +389,30 @@ int runInstanceUpgradeChecks() {
     }
     {
         // 后台删除世界：确认之后整棵树在工作线程里删，删完才回调。
-        const QString world = scratch.filePath("world-delete");
+        // 控制器只肯删「当前实例的 saves 直接子目录」，所以数据目录也摆成真实形状。
+        const QString deleteRoot = scratch.filePath("game-delete");
+        const QString previousDeleteRoot = AppPaths::minecraftDir();
+        AppPaths::setMinecraftDir(deleteRoot);
+        const QString world = AppPaths::versionDir(QStringLiteral("id")) + "/saves/world-delete";
         check(write(world + "/level.dat", "world")
                   && write(world + "/region/r.0.0.mca", QByteArray(2 * 1024 * 1024, 'y')),
               "prepare background world delete");
         bool busy = false, completed = false, success = false, returned = false;
         bool callbackWasAsync = false, taskFinished = false, finishSuccess = false;
         Tasks::TaskId deleteTask = Tasks::invalidTaskId();
+        bool deleteCapabilitiesSeen = false, deleteCancelExposed = true;
+        QString deleteBlockedReason;
         InstanceTransferController::Host host;
         host.isBeingModified = [&](const QString &) { return busy; };
         host.beginTask = [&](Tasks::TaskKind, const QString &, const QString &,
                              const QList<Tasks::TaskStep> &) {
             deleteTask = 4343;
             return deleteTask;
+        };
+        host.setTaskCapabilities = [&](Tasks::TaskId, const Tasks::TaskCapabilities &caps) {
+            deleteCapabilitiesSeen = true;
+            deleteCancelExposed = caps.canCancel;
+            deleteBlockedReason = caps.cancelBlockedReason;
         };
         host.setFileOperationBusy = [&](const QString &, bool value) { busy = value; };
         host.finishTask = [&](Tasks::TaskId id, bool ok, const QString &) {
@@ -426,6 +437,9 @@ int runInstanceUpgradeChecks() {
         check(!QFileInfo::exists(world), "background world delete removes the whole tree");
         check(taskFinished && finishSuccess,
               "background world delete closes its task as succeeded");
+        check(deleteCapabilitiesSeen && !deleteCancelExposed && !deleteBlockedReason.isEmpty(),
+              "world delete says why it has no cancel instead of only hiding the button");
+        AppPaths::setMinecraftDir(previousDeleteRoot);
     }
     {
         // 删除的闸：实例正被别的操作占着时一个字都不许动盘，当场拒绝。
@@ -601,6 +615,8 @@ int runInstanceUpgradeChecks() {
         QSet<QString> locks;
         int started = 0, refreshed = 0;
         bool succeeded = false, lockReleasedBeforeFinish = false;
+        bool upgradeCancelExposed = false, cancelledMarked = false;
+        QSet<Tasks::TaskId> cancelExposedTasks;
         InstanceTransferController::Host host;
         host.displayName = [](const QString &id) { return id; };
         host.isBeingModified = [&](const QString &id) { return locks.contains(id); };
@@ -610,6 +626,11 @@ int runInstanceUpgradeChecks() {
         host.beginTask = [&](Tasks::TaskKind, const QString &, const QString &, const QList<Tasks::TaskStep> &) {
             return Tasks::TaskId(++started);
         };
+        // Host 是按值交给控制器的：这两个观察点必须在构造之前挂上，之后再改就只剩本地副本。
+        host.setTaskCapabilities = [&](Tasks::TaskId id, const Tasks::TaskCapabilities &caps) {
+            if (caps.canCancel) cancelExposedTasks.insert(id); else cancelExposedTasks.remove(id);
+        };
+        host.markTaskCancelled = [&](Tasks::TaskId) { cancelledMarked = true; };
         host.refreshInstances = [&] { ++refreshed; };
         host.finishTask = [&](Tasks::TaskId, bool ok, const QString &) {
             succeeded = ok;
@@ -685,6 +706,33 @@ int runInstanceUpgradeChecks() {
         deadline.stop();
         check(done && !reload && started == 2 && read(game + "/versions/1.20.1/1.20.1.jar") == "base-core",
               "canonical vanilla directory cannot be repurposed as a different core");
+        // 后台原地升级**支持取消**：引擎在准备 / 快照 / 校验这些安全点看取消位。
+        // 源实例故意做一个 64 MiB 的存档，按下取消那一刻它必然还在准备阶段。
+        const QString cancelDir = game + "/versions/CancelMe";
+        check(write(cancelDir + "/CancelMe.json", R"({"id":"CancelMe","mainClass":"OldMain"})")
+              && write(cancelDir + "/CancelMe.jar", "old-core")
+              && write(cancelDir + "/wtfml.meta", R"({"realVersion":"1.20.1","instanceId":"cancel-stable"})")
+              && write(cancelDir + "/saves/Big/level.dat", QByteArray(64 * 1024 * 1024, 'c'))
+              && write(game + "/versions/Target3/Target3.json", R"({"id":"Target3","mainClass":"NewMain"})")
+              && write(game + "/versions/Target3/Target3.jar", "new-core")
+              && write(game + "/versions/Target3/wtfml.meta", R"({"realVersion":"1.21.1"})"),
+              "prepare cancellable controller upgrade fixture");
+        done = false; reload = false;
+        deadline.start(60000);
+        controller.upgradeInPlace("CancelMe", "Target3", completed);
+        const Tasks::TaskId cancelId(started);
+        check(controller.canCancelTask(cancelId),
+              "running in-place upgrade advertises a working cancel");
+        upgradeCancelExposed = cancelExposedTasks.contains(cancelId);
+        check(controller.cancelTask(cancelId), "in-place upgrade accepts cancellation");
+        if (!done) wait.exec();
+        deadline.stop();
+        check(!timedOut && done && !reload && cancelledMarked && upgradeCancelExposed
+                  && locks.isEmpty() && !controller.copying(),
+              "★★ cancelled upgrade ends as Cancelled (not Failed), releases locks, keeps the page");
+        check(read(cancelDir + "/CancelMe.jar") == "old-core"
+                  && read(cancelDir + "/saves/Big/level.dat").size() == 64 * 1024 * 1024,
+              "cancelled upgrade leaves the original instance byte-for-byte intact");
         answers.stop();
         AppPaths::setMinecraftDir(previousRoot);
     }
@@ -821,9 +869,26 @@ int runInstanceUpgradeChecks() {
         const auto result = InstanceUpgrade::commitPrepared(r, [&](InstanceUpgrade::Stage stage) {
             if (stage == InstanceUpgrade::Stage::Publish) cancelled = true;
         }, [&] { return cancelled; });
-        check(!result.ok && result.rolledBack
+        check(!result.ok && result.rolledBack && result.cancelled && result.requiresReload
               && read(r.gameDir + "/versions/Instance/Instance.jar") == "old-core",
               "interruption after retaining original automatically rolls back");
+    }
+    {
+        const auto r = fixture("cancel-rollback-blocked");
+        bool cancelled = false;
+        const auto result = InstanceUpgrade::commitPrepared(r, [&](InstanceUpgrade::Stage stage) {
+            if (stage == InstanceUpgrade::Stage::Publish) {
+                // Simulate external files occupying both rename destinations.
+                check(write(r.gameDir + "/versions/Instance/block.txt", "CURRENT")
+                      && write(InstanceUpgrade::transactionDir(r) + "/replaced/block.txt", "KEEP"),
+                      "prepare blocked rollback during cancellation");
+                cancelled = true;
+            }
+        }, [&] { return cancelled; });
+        check(!result.ok && !result.cancelled && !result.rolledBack && result.requiresReload
+                  && read(InstanceUpgrade::transactionDir(r) + "/original/Instance.jar") == "old-core"
+                  && read(r.gameDir + "/versions/Instance/block.txt") == "CURRENT",
+              "cancel request cannot hide rollback failure or delete retained user data");
     }
     {
         const auto r = fixture("corrupt-published");

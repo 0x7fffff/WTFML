@@ -167,6 +167,43 @@ bool renameOnto(const QString &from, const QString &to) {
     return QFile::rename(from, to);
 }
 
+/// 把 @p from **覆盖着**拷到 @p to：先写同目录临时文件、`commit()` 时原子改名。
+///
+/// 不能写成 `remove(to)` + `copy(from, to)`：两步之间进程被杀掉，用户手上这一份就
+/// **没了** —— 而调用方的源目录随后会被删掉（`copyTreeInto` 是"搬回来"），没有第二次
+/// 机会。QSaveFile 的 commit 走的是 `renameOverwriteFile()`（带 REPLACE_EXISTING，见
+/// 上面 `renameOnto()` 那段注释），目标要么还是旧的那份、要么已经是新的整份。
+bool copyFileReplacing(const QString &from, const QString &to) {
+    QFile input(from);
+    if (!input.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+    QSaveFile output(to);
+    if (!output.open(QIODevice::WriteOnly)) {
+        return false;
+    }
+    while (!input.atEnd()) {
+        const QByteArray chunk = input.read(1024 * 1024);
+        if (chunk.isEmpty()) {
+            if (input.error() != QFile::NoError) {
+                output.cancelWriting();
+                return false;
+            }
+            continue;
+        }
+        if (output.write(chunk) != chunk.size()) {
+            output.cancelWriting();
+            return false;
+        }
+    }
+    if (input.error() != QFile::NoError || !output.commit()) {
+        return false;
+    }
+    // 和 `QFile::copy()` 一样把权限带过去（它自己也会拷权限）；失败不影响内容已经落好。
+    QFile::setPermissions(to, QFileInfo(from).permissions());
+    return true;
+}
+
 /// 把 from 这棵树**覆盖着**拷进 to（to 不存在就建目录）。任何一步失败返回 false。
 ///
 /// 三条规矩都是为"搬进用户真实的游戏目录"这一件事定的：
@@ -174,9 +211,9 @@ bool renameOnto(const QString &from, const QString &to) {
 /// * **只覆盖同名文件，绝不删 to 底下任何东西。** to 里可能有用户自己放的东西，也可能
 /// 有别的版本/加载器的库 —— `<游戏目录>/libraries/` 就是全体版本共用的一份。所以这个
 /// 函数里没有一个 removeRecursively，删的只能是它马上要盖掉的那一个文件。
-/// * 目标已存在时**先删那个文件再拷**：QFile::copy() 目标存在时返回 false（不覆盖），
-/// 而重装同一个版本正是"目标已存在"的常态。删不掉（被别的进程占着）就当失败报出去，
-/// 不装作拷过了。
+/// * 目标已存在时**原地覆盖**（QSaveFile 的 commit 带 REPLACE_EXISTING）：重装同一个
+/// 版本正是"目标已存在"的常态，而先删再拷的话，删成功、拷失败（盘满 / 被杀掉）就让
+/// 用户**少了一个文件**。删不掉（被别的进程占着）同样当失败报出去，不装作拷过了。
 /// * 失败如实返回 false，由调用方报"没搬回来"。半途而废的复制**会被留下**（比如版本
 /// 目录搬了一半）—— 那种情况下调用方的话里要说清"再装一次能盖好"，而不是说装好了。
 ///
@@ -190,11 +227,7 @@ bool copyTreeInto(const QString &from, const QString &to) {
             qWarning() << "Cannot create directory" << parent;
             return false;
         }
-        if (QFile::exists(to) && !QFile::remove(to)) {
-            qWarning() << "Cannot overwrite" << to;
-            return false;
-        }
-        if (!QFile::copy(from, to)) {
+        if (!copyFileReplacing(from, to)) {
             qWarning() << "Cannot copy" << from << "to" << to;
             return false;
         }
@@ -650,6 +683,16 @@ void VersionManager::setModrinthApiBaseOverride(const QString &base) {
     m_modrinthApiBaseOverride = base.trimmed();
 }
 
+QString VersionManager::modrinthApiRoot() const {
+    // 官方那一份的唯一出处仍是 ResourceCatalog（见 `ResourceCatalog::modrinthApiRoot()`）。
+    return m_modrinthApiBaseOverride.isEmpty() ? ResourceCatalog::modrinthApiRoot()
+                                               : m_modrinthApiBaseOverride;
+}
+
+void VersionManager::setVersionManifestUrlOverride(const QString &url) {
+    downloadManager->setVersionManifestUrlOverride(url);
+}
+
 QString VersionManager::resolveCurseForgeFiles(ModpackImport::Pack *pack) {
     return resolveCurseForgeFiles(pack, curseForgeResolveSettings());
 }
@@ -864,6 +907,14 @@ void VersionManager::repairVersionFiles(const QString &versionId,
         emit versionDownloadFinished(versionId, false, tr("已有下载任务正在进行，请等它结束。"));
         return;
     }
+    // 这一批会覆盖 `versions/<id>/<id>.jar`，还会动**全体版本共用**的 `libraries/`
+    // 与 `assets/`。和 `downloadVersion()` / 资源下载那几个入口同一条：先取所属数据根的
+    // 生命周期锁，拿不到就发终态、一个字节都不写（不半截开始）。
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(AppPaths::minecraftDir(), &lockProblem)) {
+        emit versionDownloadFinished(versionId, false, lockProblem);
+        return;
+    }
 
     m_currentVersionDownloading = versionId;
     beginOwnBatch();
@@ -955,6 +1006,11 @@ bool VersionManager::downloadResourceFiles(const QString &destinationDir,
         // 正常走不到（能点的那条版本一定有个 primary 文件），但"这个版本一个文件都没有"
         // 是接口允许的状态 —— 那时候要当场说清，而不是开一个空批次等一个永远不来的收尾。
         emit resourceDownloadFinished(label, false, tr("这个版本没有可下载的文件。"));
+        return false;
+    }
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(destinationDir, &lockProblem)) {
+        emit resourceDownloadFinished(label, false, lockProblem);
         return false;
     }
 
@@ -1434,6 +1490,12 @@ void VersionManager::installNamedVanilla(const QString &instanceId, const QStrin
         return;
     }
 
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(AppPaths::versionDir(instanceId), &lockProblem)) {
+        emit instanceInstallMessage(lockProblem);
+        emit versionDownloadFinished(instanceId, false, lockProblem);
+        return;
+    }
     m_namedInstance = NamedInstance();
     m_namedInstance.instanceId = instanceId;
     m_namedInstance.parentId = gameVersion;
@@ -1861,6 +1923,11 @@ void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind
     }
     if (downloadManager->isBusy()) {
         emit loaderInstallMessage(tr("已有下载任务正在进行，请等它结束。"));
+        return;
+    }
+    QString lockProblem;
+    if (!DirectorySessionLock::acquire(AppPaths::minecraftDir(), &lockProblem)) {
+        emit loaderInstallMessage(lockProblem);
         return;
     }
 
@@ -5589,10 +5656,9 @@ QString VersionManager::lookupModrinthVersionFiles(
             continue;
         }
         // 根地址：验证工程的口子优先（见 setModrinthApiBaseOverride），否则官方那一份
-        // （唯一出处仍是 ResourceCatalog 里那个 apiRoot()）。
-        const QString root = m_modrinthApiBaseOverride.isEmpty()
-                                 ? ResourceCatalog::modrinthApiRoot()
-                                 : m_modrinthApiBaseOverride;
+        // （唯一出处仍是 ResourceCatalog 里那个 apiRoot()）。同一套算法在
+        // `modrinthApiRoot()` 里，预设兼容检查也问那里。
+        const QString root = modrinthApiRoot();
         const HttpClient::Reply reply = HttpClient::send(
             loaderNetworkManager(), QUrl(root + QStringLiteral("/version_files")),
             HttpClient::Verb::Post, body, QByteArrayLiteral("application/json"), QByteArray(),
@@ -5698,7 +5764,8 @@ ModpackExport::ExportPlan VersionManager::buildExportPlan(
 }
 
 QString VersionManager::writePackArchive(const ModpackExport::ExportPlan &plan,
-                                         const QString &targetZip) {
+                                         const QString &targetZip,
+                                         const std::function<bool()> &cancelled) {
     if (plan.cancelled) {
         // 用户叫停：整份 plan 都作废（overrides 里可能有半截的东西），什么都不写。
         return tr("导出已经取消了。");
@@ -5752,8 +5819,10 @@ QString VersionManager::writePackArchive(const ModpackExport::ExportPlan &plan,
     };
     const QString partPath = freshSidecar(targetZip, QStringLiteral(".part"));
     QString error;
-    if (!ZipUtil::createZip(partPath, ModpackExport::archiveEntries(plan, manifestPath), &error)) {
+    if (!ZipUtil::createZip(partPath, ModpackExport::archiveEntries(plan, manifestPath), &error,
+                            cancelled)) {
         QFile::remove(partPath);
+        if (cancelled && cancelled()) return tr("导出已经取消了。");
         return error.isEmpty() ? tr("打包失败。") : error;
     }
     // 收尾不能直接用 `QFile::rename(partPath, targetZip)`：Qt 6.10 的 QFile::rename 走的是

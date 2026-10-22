@@ -91,6 +91,27 @@ jobs:
       - name: Build and test
         run: ./tools/test.ps1 -Suite ${{ matrix.suite }} -Modules $env:TEST_MODULES -BuildDir build/ci -ConfigurePreset ci-verification -BuildTimeoutSeconds 900 -BuildJobs 2
 
+      # 编译器缓存没生效时构建照样是绿的；把命中统计写进步骤日志，
+      # 免得以后只能凭"CI 怎么还是这么慢"猜。缓存服务故障由 SCCACHE_IGNORE_SERVER_IO_ERROR
+      # 退回真实编译，所以这一步只看、不判失败。
+      - name: Record compiler cache usage
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          if (Get-Command sccache -ErrorAction SilentlyContinue) {
+            & sccache --show-stats
+          } else {
+            Write-Output 'sccache: not available'
+          }
+          $cacheFile = 'build/ci/CMakeCache.txt'
+          if (Test-Path $cacheFile) {
+            $line = Select-String -Path $cacheFile -Pattern '^CMAKE_CXX_COMPILER_LAUNCHER:'
+            if ($line) { Write-Output $line.Line } else { Write-Output 'CMAKE_CXX_COMPILER_LAUNCHER: missing from CMakeCache.txt' }
+          } else {
+            Write-Output "CMakeCache.txt not found at $cacheFile"
+          }
+
       - name: Full UI verification
         if: ${{ success() && matrix.suite == 'ci-ui' && (github.event_name == 'schedule' || inputs.visual == true) }}
         run: ./tools/test.ps1 -Suite visual -BuildDir build/ci -BuildTimeoutSeconds 900
