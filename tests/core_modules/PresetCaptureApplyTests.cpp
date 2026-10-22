@@ -93,6 +93,20 @@ void runPresetCaptureApplyTests() {
     Presets::PresetApplyRequest applyRequest;
     applyRequest.instanceId = QStringLiteral("instanceB");
     applyRequest.instanceRoot = instanceB;
+    {
+        const bool enabledBefore = DirectorySessionLock::enabled;
+        DirectorySessionLock::enabled = true;
+        const QString key = DirectorySessionLock::keyFor(instanceB);
+        QLockFile other(QDir::temp().filePath(QStringLiteral("wtfml-directory-%1.lock").arg(key)));
+        other.setStaleLockTime(0);
+        check(other.tryLock(0), "PG2 预设目录占用夹具取得锁");
+        const auto blocked = Presets::applyPresetToInstance(presetsRoot, saved, applyRequest);
+        DirectorySessionLock::enabled = enabledBefore;
+        check(!blocked.ok && !blocked.wroteAnything() && blocked.backupDir.isEmpty()
+                  && blocked.problem.contains(QStringLiteral("占用"))
+                  && readBytes(instanceB + QStringLiteral("/options.txt")) == optionsB,
+              "PG2 目录被其他启动器占用时应用预设不备份不写文件", blocked.problem);
+    }
     const Presets::PresetApplyResult applied =
         Presets::applyPresetToInstance(presetsRoot, saved, applyRequest);
 

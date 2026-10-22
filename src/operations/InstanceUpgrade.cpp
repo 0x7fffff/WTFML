@@ -14,6 +14,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLockFile>
+#include "util/DirectorySessionLock.hpp"
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QStorageInfo>
@@ -326,6 +327,10 @@ Result prepareAndCommit(Request r, const Core &core, const std::function<void(St
                         const std::function<bool()> &cancelled) {
     const QString invalid = validate(r);
     if (!invalid.isEmpty()) { Result result; result.problem = invalid; return result; }
+    QString lockProblem;
+    if (!DirectorySessionLock::acquire(r.gameDir, &lockProblem)) {
+        Result result; result.problem = lockProblem; return result;
+    }
     const QString parent = QFileInfo(transactionDir(r)).absolutePath();
     QDir().mkpath(parent);
     QLockFile lock(transactionDir(r) + QStringLiteral(".lock"));
@@ -395,7 +400,13 @@ static Result rollbackImpl(const Request &r, bool verifyRetained) {
     return result;
 }
 
-Result rollback(const Request &r) { return rollbackImpl(r, true); }
+Result rollback(const Request &r) {
+    QString problem;
+    if (!DirectorySessionLock::acquire(r.gameDir, &problem)) {
+        Result result; result.problem = problem; return result;
+    }
+    return rollbackImpl(r, true);
+}
 
 static Result commitPreparedImpl(const Request &r, const std::function<void(Stage)> &progress,
                                  const std::function<bool()> &cancelled) {
@@ -525,6 +536,10 @@ static Result commitPreparedImpl(const Request &r, const std::function<void(Stag
 
 Result commitPrepared(const Request &r, const std::function<void(Stage)> &progress,
                       const std::function<bool()> &cancelled) {
+    QString problem;
+    if (!DirectorySessionLock::acquire(r.gameDir, &problem)) {
+        Result result; result.problem = problem; return result;
+    }
     const auto result = commitPreparedImpl(r, progress, cancelled);
     if (!result.ok) discardUnpublishedStaging(r);
     return result;
@@ -543,6 +558,8 @@ QStringList recoverableTransactions(const QString &gameDir, const QString &insta
 
 QStringList recoverInterrupted(const QString &gameDir) {
     QStringList messages;
+    QString problem;
+    if (!DirectorySessionLock::acquire(gameDir, &problem)) return {problem};
     const QDir root(QDir(gameDir).filePath("cache/instance-upgrades"));
     if (redirected(root.absolutePath())) return {QStringLiteral("升级事务目录是链接，未自动恢复。")};
     for (const auto &id : root.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {

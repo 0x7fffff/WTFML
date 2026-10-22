@@ -63,7 +63,7 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
         const int dirsBefore =
             QDir(versionsDir).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size();
         const int importsBefore =
-            countOccurrences(g_messages, QStringLiteral("开始导入整合包"));
+            countOccurrences(messagesSnapshot(), QStringLiteral("开始导入整合包"));
 
         // ---- AA1 一串读不懂的字节 ----
         // 用户随手选了个不是整合包的压缩包，而里面的 modrinth.index.json 是坏的。
@@ -476,7 +476,7 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
         // 拖进来，走的是 dropEvent）。这里必须有一道闸：没有的话 `m_importingInstanceId`
         // 会被第二趟直接覆盖，第一趟收尾时按那个 id 收，两趟互相把对方的忙态/目录认错。
         {
-            const int startedBefore = countOccurrences(g_messages, QStringLiteral("开始导入整合包"));
+            const int startedBefore = countOccurrences(messagesSnapshot(), QStringLiteral("开始导入整合包"));
             window.seedDownloadInFlightForTest(true);
             const int dirsBeforeDrop =
                 QDir(versionsDir).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size();
@@ -493,7 +493,7 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
                   "AA11 那句话说的就是「已经有一件在跑」", g_modalText);
             check(!g_modalWasWarning,
                   "AA11 这是报信那一类（不是错误）");
-            check(countOccurrences(g_messages, QStringLiteral("开始导入整合包")) == startedBefore,
+            check(countOccurrences(messagesSnapshot(), QStringLiteral("开始导入整合包")) == startedBefore,
                   "★★ AA11 它一个导入流程都没起（按钮灰着不等于拖放也被挡住）");
             check(QDir(versionsDir).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size() ==
                       dirsBeforeDrop,
@@ -502,10 +502,10 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
         }
 
         // ---- 收尾：这一节一条导入都没真开始过 ----
-        check(countOccurrences(g_messages, QStringLiteral("开始导入整合包")) == importsBefore,
+        check(countOccurrences(messagesSnapshot(), QStringLiteral("开始导入整合包")) == importsBefore,
               "AA 收尾：日志里一次「开始导入整合包」都没有（全是被拦下的）",
               QString::number(importsBefore) + QStringLiteral(" → ") +
-                  QString::number(countOccurrences(g_messages,
+                  QString::number(countOccurrences(messagesSnapshot(),
                                                    QStringLiteral("开始导入整合包"))));
         check(importBtn != nullptr && importBtn->isEnabled(),
               "AA 收尾：导入按钮还是亮的（一次都没进忙态）");

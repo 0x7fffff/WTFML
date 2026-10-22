@@ -3,6 +3,7 @@
 #include "ActivityCenterController.hpp"
 #include "util/AppPaths.hpp"
 #include "manage/VersionManager.hpp"
+#include "manage/RecoveryReview.hpp"
 #include "InlineMessage.hpp"
 #include "InstanceSettingsDialog.hpp"
 #include "OverlayHost.hpp"
@@ -81,6 +82,48 @@ void BackupController::openFolder(BackupFiles::Kind kind) {
     const QString dir = BackupFiles::backupDir(kind);
     QDir().mkpath(dir);
     QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+}
+
+void BackupController::inspectRecovery() {
+    const QString root = AppPaths::minecraftDir();
+    const auto items = RecoveryReview::inspect(root);
+    QStringList labels{tr("浏览游戏目录（人工检查未登记残留）"), tr("浏览暂存登记（不自动删除）")};
+    for (const auto &item : items) labels.append(item.target.isEmpty()
+        ? QFileInfo(item.journal).fileName() + tr("（日志异常）") : QDir::toNativeSeparators(item.target));
+    int index = -1;
+    if (!InlineMessage::pickFromList(m_overlay, tr("中断恢复检查"),
+        tr("待检查还原事务：%1。历史未登记或标记异常目录需人工核对，不按名称自动删除。")
+            .arg(items.size()), labels, 0, &index)) return;
+    if (index == 0 || index == 1) {
+        QString directory = index == 0 ? root : QDir(root).filePath(QStringLiteral("cache/staging-records"));
+        if (!QFileInfo::exists(directory)) directory = root;
+        if (!RestoreJournal::ordinaryPath(InstanceFiles::canonicalPath(root), directory)
+            || !QDesktopServices::openUrl(QUrl::fromLocalFile(directory)))
+            InlineMessage::warning(m_overlay, tr("无法打开检查目录"), tr("目录不可访问或含链接，未打开。"));
+        return;
+    }
+    index -= 2;
+    if (index < 0 || index >= items.size()) return;
+    const auto item = items.at(index);
+    const QString text = item.problem.isEmpty()
+        ? tr("当前目录：\n%1\n\n还原前目录：\n%2\n\n标记已检查只归档日志，两份数据均保留；不会切换或删除目录。")
+              .arg(QDir::toNativeSeparators(item.target), QDir::toNativeSeparators(item.retained))
+        : item.problem + tr("\n\n日志：%1").arg(QDir::toNativeSeparators(item.journal));
+    InlineMessageBox box(MessageKind::Information, tr("检查还原事务"), text,
+        {tr("打开所在目录"), tr("保留两份，标记已检查"), tr("关闭")}, 2, -1);
+    m_overlay->execPrompt(&box);
+    if (box.clickedIndex() == 0) {
+        const QString directory = item.target.isEmpty() ? QFileInfo(item.journal).absolutePath()
+                                                       : QFileInfo(item.target).absolutePath();
+        if (!QDesktopServices::openUrl(QUrl::fromLocalFile(directory)))
+            InlineMessage::warning(m_overlay, tr("打开目录失败"), directory);
+    } else if (box.clickedIndex() == 1) {
+        QString problem;
+        if (!RecoveryReview::acknowledge(root, item, &problem))
+            InlineMessage::warning(m_overlay, tr("未标记已检查"), problem);
+        else InlineMessage::information(m_overlay, tr("已标记检查"),
+            tr("两份目录均未改动，日志已保存在 cache/restore-reviewed。"));
+    }
 }
 
 void BackupController::pickZip(BackupFiles::Kind kind, const QString &label, const QString &what,
@@ -453,7 +496,7 @@ Tasks::TaskId BackupController::startRestore(const QString &zipPath,
     QList<Tasks::TaskStep> steps{{tr("读清单"), Tasks::TaskStepState::Running, {}},
                                  {tr("把现在这一份收起来"), Tasks::TaskStepState::Pending, {}},
                                  {tr("解出备份里的文件"), Tasks::TaskStepState::Pending, {}},
-                                 {tr("逐文件核对"), Tasks::TaskStepState::Pending, {}}};
+                                 {tr("核对并替换目录"), Tasks::TaskStepState::Pending, {}}};
     m_taskId = m_activity->begin(Tasks::TaskKind::Backup, title, targetId, steps);
     m_refreshServerId = refreshServerId;
     m_busyServerId = refreshServerId;
@@ -469,8 +512,7 @@ Tasks::TaskId BackupController::startRestore(const QString &zipPath,
     }
     m_thread = QThread::create([this, zipPath, targetParentDir, successTitle, failureTitle] {
         // 还原也接上和创建备份同一条停止条件（关窗 / 整项 600 秒预算）。
-        // 它**只在挪走「现在这一份」之前**生效（判据在 restoreBackup 里）；一旦开始
-        // 替换目录就必须走完，停下会让用户既没有旧的也没有新的。
+        // 快照、暂存解压和校验均可停；仅最终改名发布/回滚的短临界区不可取消。
         QElapsedTimer elapsed;
         elapsed.start();
         const auto result = BackupFiles::restoreBackup(
@@ -568,9 +610,9 @@ void BackupController::restoreFinished(const BackupFiles::RestoreResult &result,
         switch (stage) {
         case BackupFiles::RestoreResult::Stage::ReadManifest: return 0;
         case BackupFiles::RestoreResult::Stage::Space:
-        case BackupFiles::RestoreResult::Stage::SafetySnapshot:
-        case BackupFiles::RestoreResult::Stage::RemoveOld: return 1;
+        case BackupFiles::RestoreResult::Stage::SafetySnapshot: return 1;
         case BackupFiles::RestoreResult::Stage::Extract: return 2;
+        case BackupFiles::RestoreResult::Stage::RemoveOld:
         case BackupFiles::RestoreResult::Stage::Verify:
         case BackupFiles::RestoreResult::Stage::Ok: return 3;
         }
@@ -595,6 +637,12 @@ void BackupController::restoreFinished(const BackupFiles::RestoreResult &result,
     }
     if (result.ok) {
         QString text = tr("已经还原好了。核对过 %1 个文件，全都对得上。").arg(result.checked);
+        if (!result.retainedPath.isEmpty()) {
+            const QString warning = tr("旧目录未能清理，已保留在：%1")
+                .arg(QDir::toNativeSeparators(result.retainedPath));
+            text += QStringLiteral("\n\n") + warning;
+            log(warning);
+        }
         if (!result.safetyZip.isEmpty()) {
             text += tr("\n\n还原之前的「现在这一份」也留着，在这儿：\n%1")
                         .arg(QDir::toNativeSeparators(result.safetyZip));

@@ -134,11 +134,11 @@ void runInstanceStartActionsTests() {
     const QString lastVersionBefore = LauncherSettings().lastLaunchedVersion();
     rememberLastVersion(idA);
 
-    // 只看得见"这一节开始之后"写的那几行日志（g_messages 是**整个会话**的全局）。
-    const int logMark = g_messages.size();
+    // 只看得见"这一节开始之后"写的那几行日志（messagesSnapshot() 是**整个会话**的全局）。
+    const int logMark = messagesSnapshot().size();
     const auto newLogContains = [&logMark](const QString &needle) {
-        for (int i = logMark; i < g_messages.size(); ++i) {
-            if (g_messages.at(i).contains(needle)) {
+        for (int i = logMark; i < messagesSnapshot().size(); ++i) {
+            if (messagesSnapshot().at(i).contains(needle)) {
                 return true;
             }
         }

@@ -13,6 +13,7 @@
 #include <QJsonValue>
 #include <QObject>
 #include <QSaveFile>
+#include "util/WriteDirectoryGuard.hpp"
 
 #include "util/AppPaths.hpp"
 
@@ -258,6 +259,7 @@ Store load(const QString &path, QString *problemOut) {
 }
 
 bool save(const Store &store, const QString &path, QString *problemOut) {
+    if (!WriteDirectoryGuard::acquire(path, problemOut)) return false;
     if (problemOut != nullptr) {
         problemOut->clear();
     }

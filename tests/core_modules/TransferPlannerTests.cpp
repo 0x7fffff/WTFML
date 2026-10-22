@@ -21,6 +21,30 @@ void runTransferPlannerTests() {
         return;
     }
     const QString root = dir.path();
+    {
+        const QString game = root + QStringLiteral("/locked-game");
+        const QString sourceInstance = game + QStringLiteral("/versions/source");
+        const QString targetInstance = game + QStringLiteral("/versions/target");
+        writeFileAt(sourceInstance + QStringLiteral("/mods/test.jar"), "MOD");
+        QDir().mkpath(targetInstance);
+        const bool enabledBefore = DirectorySessionLock::enabled;
+        DirectorySessionLock::enabled = true;
+        QLockFile other(QDir::temp().filePath(QStringLiteral("wtfml-directory-%1.lock")
+            .arg(DirectorySessionLock::keyFor(game))));
+        other.setStaleLockTime(0);
+        check(other.tryLock(0), "TR0 迁移目录占用夹具取得根目录锁");
+        const auto mods = TransferApply::transferMods(sourceInstance, targetInstance,
+            {sourceInstance + QStringLiteral("/mods/test.jar")}, true);
+        const auto files = TransferApply::apply(sourceInstance, targetInstance, {}, {});
+        DirectorySessionLock::enabled = enabledBefore;
+        check(mods.failed == 1 && mods.copied == 0 && mods.moved == 0
+                  && !mods.problems.isEmpty() && mods.problems.first().contains(QStringLiteral("占用"))
+                  && QFileInfo::exists(sourceInstance + QStringLiteral("/mods/test.jar"))
+                  && !QFileInfo::exists(targetInstance + QStringLiteral("/mods")),
+              "TR0 模组迁移使用游戏根锁且拒绝后不建目录、不删源文件");
+        check(!files.ok && files.copiedFiles == 0 && files.problem.contains(QStringLiteral("占用")),
+              "TR0 普通实例文件迁移同样拒绝占用目录");
+    }
     const QString source = root + QStringLiteral("/src-instance");
     writeFileAt(source + QStringLiteral("/saves/w1/level.dat"), QByteArrayLiteral("AAA"));
     writeFileAt(source + QStringLiteral("/saves/w2/level.dat"), QByteArrayLiteral("BBBBB"));

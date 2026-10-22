@@ -23,6 +23,7 @@
 #include "VanillaOptions.hpp"
 #include "manage/FolderManager.hpp"
 #include "manage/ServerListFile.hpp"
+#include "util/WriteDirectoryGuard.hpp"
 
 namespace Presets {
 
@@ -228,6 +229,8 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
         result.problem = applyText("这个实例的目录不在，没法把预设落到它上面。");
         return result;
     }
+
+    if (!WriteDirectoryGuard::acquire(request.instanceRoot, &result.problem)) return result;
 
     // ------------------------------------------------------------------
     // 1. 目标快照

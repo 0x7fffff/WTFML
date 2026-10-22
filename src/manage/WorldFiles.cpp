@@ -5,6 +5,7 @@
  */
 
 #include "WorldFiles.hpp"
+#include "util/WriteDirectoryGuard.hpp"
 
 #include <QDebug>
 #include <QDir>
@@ -123,6 +124,7 @@ QString nameProblem(const QString &rawName) {
 
 bool copyWorldInto(const QString &worldDir, const QString &savesDir, const QString &name,
                    QString *problemOut, const std::function<bool()> &cancelled) {
+    if (!WriteDirectoryGuard::acquire(savesDir, problemOut)) return false;
     const auto fail = [problemOut](const QString &reason) {
         if (problemOut != nullptr) {
             *problemOut = reason;
@@ -203,6 +205,7 @@ bool copyWorldInto(const QString &worldDir, const QString &savesDir, const QStri
 }
 
 bool renameWorld(const QString &worldDir, const QString &newName, QString *problemOut) {
+    if (!WriteDirectoryGuard::acquire(worldDir, problemOut)) return false;
     const auto fail = [problemOut](const QString &reason) {
         if (problemOut != nullptr) {
             *problemOut = reason;
@@ -593,6 +596,7 @@ bool readLevelData(const QString &worldDir, LevelData *out, QString *problemOut)
 }
 
 bool writeLevelData(const QString &worldDir, const LevelData &data, QString *problemOut) {
+    if (!WriteDirectoryGuard::acquire(worldDir, problemOut)) return false;
     if (problemOut != nullptr) {
         problemOut->clear();
     }

@@ -47,6 +47,7 @@ public:
     bool busy() const;
     void shutdown();
     void openFolder(BackupFiles::Kind kind);
+    void inspectRecovery();
     void backupWorld(const QString &worldDir);
     void restoreWorld(const QString &worldDir, InstanceSettingsDialog *dialog = nullptr);
     void snapshotInstance(const QString &versionId);

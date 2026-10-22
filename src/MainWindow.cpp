@@ -12547,6 +12547,8 @@ void MainWindow::applyCurrentFolderToPaths() {
     // 自带那份**不设覆盖**（传空串 = 用默认那份）：启动器被整个拷到别处之后，默认路径
     // 跟着 exe 走，而不是钉死在上次记下的那个老位置。
     AppPaths::setMinecraftDir(FolderManager::isDefaultFolder(root) ? QString() : root);
+    for (const QString &message : BackupFiles::recoverInterruptedRestores(AppPaths::minecraftDir()))
+        appendLog(message);
     appendLog(tr("当前游戏文件夹：%1").arg(QDir::toNativeSeparators(root)));
     // 借文件的来源跟着当前文件夹一起变（当前那一份由下载器自己跳过）。
     syncDownloadReuseSources();

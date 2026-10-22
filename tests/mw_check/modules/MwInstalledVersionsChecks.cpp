@@ -7,7 +7,7 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
         // 加载器安装开始时会打「开始安装 <加载器> <版本>」。下面 Y3/Y4 都要断言"这一段里
         // 一次都没开始过" —— 用**增量**而不是绝对条数：前面那些段有没有打过同一句是它们
         // 的事（某次真走了一趟下载就会打），不该混进这一条里。
-        const int installsBeforeY = countOccurrences(g_messages, QStringLiteral("开始安装"));
+        const int installsBeforeY = countOccurrences(messagesSnapshot(), QStringLiteral("开始安装"));
 
         // Y1. 界面上那张表和 VersionManager 认的加载器**同序同名**。这两张表一个摆控件、
         // 一个把下标翻成枚举，对不上的症状是「勾了 Fabric 装出 Forge」：不报错、
@@ -887,7 +887,7 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                           (probe.autoSelectJava() ? QStringLiteral("1") : QStringLiteral("0")));
 
                 const int installsBeforeJava =
-                    countOccurrences(g_messages, QStringLiteral("开始安装"));
+                    countOccurrences(messagesSnapshot(), QStringLiteral("开始安装"));
                 dismissNextPrompt();
                 installBtn->click();
                 QApplication::processEvents();
@@ -906,13 +906,13 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                 check(installNameEdit->text() ==
                           kPickedId + QStringLiteral("-") + QStringLiteral("Forge"),
                       "选的 Forge 还在（拒绝一次不该把选择改掉）", installNameEdit->text());
-                check(countOccurrences(g_messages, QStringLiteral("开始安装")) ==
+                check(countOccurrences(messagesSnapshot(), QStringLiteral("开始安装")) ==
                           installsBeforeJava,
                       "一次安装都没开始过（没拿着那份认不出来的 Java 硬上）",
                       QString::number(installsBeforeJava) + QStringLiteral(" → ") +
-                          QString::number(countOccurrences(g_messages,
+                          QString::number(countOccurrences(messagesSnapshot(),
                                                            QStringLiteral("开始安装"))));
-                check(countOccurrences(g_messages,
+                check(countOccurrences(messagesSnapshot(),
                                        QStringLiteral("这个版本要的 Java 拿不到")) >= 1,
                       "日志里也留了一句");
 
@@ -949,12 +949,12 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
             // NOTE: 这句话里**没有**「版本」两个字（"已取消对 1.21.4 的校验"）：安装页那
             // 一问对"装原版"和"装一个带名字的实例"是同一句话，名字可能是
             // `1.21.4-Forge_47.4.10` 这种 —— 加个「版本」反而说不通。
-            check(countOccurrences(g_messages,
+            check(countOccurrences(messagesSnapshot(),
                                    QStringLiteral("已取消对 1.21.4 的校验")) == 1,
                   "答「否」之后就地停下（没有开始任何下载）");
             check(installBtn->isEnabled() && installNameEdit->isEnabled(),
                   "界面同样没进忙态");
-            const int installsAfterY = countOccurrences(g_messages, QStringLiteral("开始安装"));
+            const int installsAfterY = countOccurrences(messagesSnapshot(), QStringLiteral("开始安装"));
             check(installsAfterY == installsBeforeY, "这一段里一次加载器安装都没开始过",
                   QString("%1 → %2").arg(installsBeforeY).arg(installsAfterY));
 

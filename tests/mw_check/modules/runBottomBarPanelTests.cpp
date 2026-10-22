@@ -573,9 +573,9 @@ void runBottomBarPanelTests() {
     }
 
     // ---- AH7 右面板：最近登录的三个账户（缓存里拿）----
-    const int refreshFailedBefore = countOccurrences(g_messages, QStringLiteral("没能刷新"));
+    const int refreshFailedBefore = countOccurrences(messagesSnapshot(), QStringLiteral("没能刷新"));
     const int refreshedOnceBefore =
-        countOccurrences(g_messages, QStringLiteral("已经顺手换了一张新的"));
+        countOccurrences(messagesSnapshot(), QStringLiteral("已经顺手换了一张新的"));
     {
         QWidget *panel = openPanel(accountsButton);
         check(panel != nullptr && panel->isVisible(), "AH7 点底栏右边那颗按钮弹出了右面板");
@@ -696,10 +696,10 @@ void runBottomBarPanelTests() {
             check(g_modalText.contains(QStringLiteral("已经切到账号「Carol」")) &&
                       g_modalText.contains(QStringLiteral("重新登录一次")),
                   "AH8 弹窗把「切过去了」和「令牌没换到」分开说，并指出下一步", g_modalText);
-            check(countOccurrences(g_messages, QStringLiteral("没能刷新")) ==
+            check(countOccurrences(messagesSnapshot(), QStringLiteral("没能刷新")) ==
                       refreshFailedBefore + 1,
                   "AH8 日志里也留了一行（命令行那一路看得见）");
-            check(countOccurrences(g_messages, QStringLiteral("已经顺手换了一张新的")) ==
+            check(countOccurrences(messagesSnapshot(), QStringLiteral("已经顺手换了一张新的")) ==
                       refreshedOnceBefore,
                   "AH8 这一发**没有**刷新成功（Carol 那份微软 payload 里没有 refresh_token，"
                   "第一道判据就拦下了，一个包都没发）");
@@ -767,7 +767,7 @@ void runBottomBarPanelTests() {
                   AccountStore::activeUuid());
             check(g_modalTitle.isEmpty(), "AH10 没有弹任何框（够用就不换，一个包都不发）",
                   g_modalTitle + QStringLiteral(" / ") + g_modalText);
-            check(countOccurrences(g_messages, QStringLiteral("已经顺手换了一张新的")) ==
+            check(countOccurrences(messagesSnapshot(), QStringLiteral("已经顺手换了一张新的")) ==
                       refreshedOnceBefore,
                   "AH10 也没有「顺手换了一张」那一行日志");
             check(auth->tokenSecondsLeft() >= AuthManager::tokenRefreshWindowSecs,
@@ -850,9 +850,9 @@ void runBottomBarPanelTests() {
                       .arg(AccountStore::activeUuid()));
         }
 
-        const int noRefreshBefore = countOccurrences(g_messages, QStringLiteral("没能刷新"));
+        const int noRefreshBefore = countOccurrences(messagesSnapshot(), QStringLiteral("没能刷新"));
         const int noExtraTokenBefore =
-            countOccurrences(g_messages, QStringLiteral("已经顺手换了一张新的"));
+            countOccurrences(messagesSnapshot(), QStringLiteral("已经顺手换了一张新的"));
         QWidget *panel = openPanel(accountsButton);
         check(panel != nullptr, "AH11 右面板弹出来了");
         check(rowTitle(panel, 0) == daveName && rowTitle(panel, 1) == QStringLiteral("Bob"),
@@ -883,9 +883,9 @@ void runBottomBarPanelTests() {
                       auth->playerName() == QStringLiteral("Bob"),
                   "AH11 没换人：活动槽和内存里都还是 Bob",
                   QStringLiteral("%1 / %2").arg(AccountStore::activeUuid(), auth->playerName()));
-            check(countOccurrences(g_messages, QStringLiteral("没能刷新")) == noRefreshBefore,
+            check(countOccurrences(messagesSnapshot(), QStringLiteral("没能刷新")) == noRefreshBefore,
                   "AH11 也没有拿 Bob 的令牌去换（点的是别人的那一行，这条缺了守卫就会红）");
-            check(countOccurrences(g_messages, QStringLiteral("已经顺手换了一张新的")) ==
+            check(countOccurrences(messagesSnapshot(), QStringLiteral("已经顺手换了一张新的")) ==
                       noExtraTokenBefore,
                   "AH11 更没有「顺手换了一张新的」那一行（Bob 的令牌只剩不到 6 小时，"
                   "所以「没发生」不是侥幸）");
@@ -932,7 +932,7 @@ void runBottomBarPanelTests() {
                         .arg(bobLogout->isEnabled())
                   : QStringLiteral("<没找到>"));
 
-        const int logoutLogBefore = countOccurrences(g_messages, QStringLiteral("已退出账号"));
+        const int logoutLogBefore = countOccurrences(messagesSnapshot(), QStringLiteral("已退出账号"));
         if (bobLogout != nullptr) {
             dismissNextPrompt();
             bobLogout->click();
@@ -960,7 +960,7 @@ void runBottomBarPanelTests() {
                   "AH11b 底栏第二行退回「未登录」那一档",
                   accountType != nullptr ? accountType->text()
                                          : QStringLiteral("<没找到>"));
-            check(countOccurrences(g_messages, QStringLiteral("已退出账号")) ==
+            check(countOccurrences(messagesSnapshot(), QStringLiteral("已退出账号")) ==
                       logoutLogBefore + 1,
                   "AH11b 日志里留了一行（命令行那一路看得见）");
         }

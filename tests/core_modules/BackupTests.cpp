@@ -1,4 +1,7 @@
 #include "Support.hpp"
+#include "manage/RecoveryReview.hpp"
+#include "manage/RestoreJournal.hpp"
+#include "manage/OwnedStaging.hpp"
 
 void runBackupTests() {
     section("ZQ. 世界与实例备份：清单 / 打包 / 还原");
@@ -238,6 +241,60 @@ void runBackupTests() {
         check(stopped && old.open(QIODevice::ReadOnly) && old.readAll() == QByteArray("preserved"),
               "ZQ3 取消打包不删除原有文件");
     }
+    {
+        const QString changedSource = work + QStringLiteral("/changing-source");
+        const QString changedOutput = work + QStringLiteral("/changing-output");
+        QDir().mkpath(changedOutput);
+        const QString input = changedSource + QStringLiteral("/level.dat");
+        writeFileAt(input, QByteArrayLiteral("before"));
+        bool changed = false;
+        const auto result = BackupFiles::writeBackup(spec, changedSource,
+            changedOutput + QStringLiteral("/backup.zip"), [&] {
+                if (!changed && !QDir(changedOutput).entryList(
+                        {QStringLiteral(".wtfml-backup-*")}, QDir::Dirs | QDir::Hidden
+                            | QDir::NoDotAndDotDot).isEmpty()) {
+                    changed = true;
+                    writeFileAt(input, QByteArrayLiteral("edited")); // same length, different hash
+                }
+                return false;
+            });
+        check(changed && !result.ok && result.problem.contains(QStringLiteral("变化")),
+              "ZQ3 扫描后同长度文件变化拒绝发布备份", result.problem);
+        check(QDir(changedOutput).entryList(QDir::Files | QDir::Dirs | QDir::Hidden
+                  | QDir::NoDotAndDotDot).isEmpty(), "ZQ3 失败后清除暂存目录及未发布归档");
+        const auto retry = BackupFiles::writeBackup(spec, changedSource,
+            changedOutput + QStringLiteral("/backup.zip"));
+        check(retry.ok && retry.manifest.files.size() == 1
+                  && retry.manifest.files.first().sha1 == sha1Of(QByteArrayLiteral("edited")),
+              "ZQ3 文件稳定后可重新备份且记录新哈希", retry.problem);
+        bool added = false;
+        const auto addition = BackupFiles::writeBackup(spec, changedSource,
+            changedOutput + QStringLiteral("/addition.zip"), [&] {
+                if (!added && !QDir(changedOutput).entryList(
+                        {QStringLiteral(".wtfml-backup-*")}, QDir::Dirs | QDir::Hidden
+                            | QDir::NoDotAndDotDot).isEmpty()) {
+                    added = true;
+                    writeFileAt(changedSource + QStringLiteral("/new.dat"), "new");
+                }
+                return false;
+            });
+        check(added && !addition.ok && addition.problem.contains(QStringLiteral("变化"))
+                  && !QFileInfo::exists(changedOutput + QStringLiteral("/addition.zip")),
+              "ZQ3 复制期间新增文件不发布缺项备份", addition.problem);
+        bool stoppedAtStaging = false;
+        const auto stop = BackupFiles::writeBackup(spec, changedSource,
+            changedOutput + QStringLiteral("/cancel-stage.zip"), [&] {
+                stoppedAtStaging = !QDir(changedOutput).entryList(
+                    {QStringLiteral(".wtfml-backup-*")}, QDir::Dirs | QDir::Hidden
+                        | QDir::NoDotAndDotDot).isEmpty();
+                return stoppedAtStaging;
+            });
+        check(stoppedAtStaging && !stop.ok
+                  && !QFileInfo::exists(changedOutput + QStringLiteral("/cancel-stage.zip"))
+                  && QDir(changedOutput).entryList({QStringLiteral(".wtfml-backup-*")},
+                       QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty(),
+              "ZQ3 暂存途中取消清理副本且不发布归档", stop.problem);
+    }
     const BackupFiles::WriteResult written = BackupFiles::writeBackup(spec, worldDir, worldZip);
     check(written.ok && QFile::exists(worldZip), "ZQ3 世界备份真打出来了", written.problem);
     check(written.manifest.fileCount() == 6 && written.manifest.createdAt.isValid() &&
@@ -355,6 +412,47 @@ void runBackupTests() {
           "ZQ4 旧的整个挪走了（备份里没有的那个文件跟着一起走）");
     check(readAll(restoredWorld + QStringLiteral("/level.dat")) == QByteArrayLiteral("LEVELDATA"),
           "ZQ4 手改过的那一份被备份里的内容盖回去了");
+
+    {
+        const QString atomicParent = work + QStringLiteral("/atomic-restore");
+        const QString atomicWorld = atomicParent + QStringLiteral("/基地周目");
+        const QString oldData = atomicWorld + QStringLiteral("/level.dat");
+        writeFileAt(oldData, "KEEP-ORIGINAL");
+        const auto hasStaging = [&] {
+            return !QDir(atomicParent).entryList({QStringLiteral(".wtfml-restore-*")},
+                QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty();
+        };
+        bool stoppedDuringExtract = false;
+        const auto cancelledExtract = BackupFiles::restoreBackup(worldZip, atomicParent, [&] {
+            stoppedDuringExtract = hasStaging();
+            return stoppedDuringExtract;
+        });
+        check(stoppedDuringExtract && !cancelledExtract.ok
+                  && cancelledExtract.stage == BackupFiles::RestoreResult::Stage::Extract
+                  && readAll(oldData) == QByteArrayLiteral("KEEP-ORIGINAL") && !hasStaging(),
+              "ZQ4 暂存解压取消保留原目录并清理半成品", cancelledExtract.problem);
+        bool changed = false;
+        const auto changedDuringExtract = BackupFiles::restoreBackup(worldZip, atomicParent, [&] {
+            if (!changed && hasStaging()) {
+                changed = true;
+                writeFileAt(oldData, "NEW-EXTERNAL-DATA");
+            }
+            return false;
+        });
+        check(changed && !changedDuringExtract.ok
+                  && changedDuringExtract.stage == BackupFiles::RestoreResult::Stage::RemoveOld
+                  && readAll(oldData) == QByteArrayLiteral("NEW-EXTERNAL-DATA") && !hasStaging(),
+              "ZQ4 解压期间外部修改原存档拒绝替换且保留新内容", changedDuringExtract.problem);
+        const auto success = BackupFiles::restoreBackup(worldZip, atomicParent);
+        check(success.ok && readAll(oldData) == QByteArrayLiteral("LEVELDATA") && !hasStaging(),
+              "ZQ4 稳定后可重试还原且清除旧目录和暂存", success.problem);
+        const QString fileParent = work + QStringLiteral("/same-name-file");
+        const QString fileTarget = fileParent + QStringLiteral("/基地周目");
+        writeFileAt(fileTarget, "DO-NOT-DELETE");
+        const auto fileBlocked = BackupFiles::restoreBackup(worldZip, fileParent);
+        check(!fileBlocked.ok && readAll(fileTarget) == QByteArrayLiteral("DO-NOT-DELETE"),
+              "ZQ4 同名普通文件不再被删除", fileBlocked.problem);
+    }
 
     // ③ 拿别人的包来还原：**在动盘之前**就停下，一个字节都不动。
     writeFileAt(restoredWorld + QStringLiteral("/level.dat"), QByteArrayLiteral("STILL-HERE"));
@@ -503,8 +601,17 @@ void runBackupTests() {
               "★★ ZQ4 解得开但对不上账 → 报出对不上的条数"
               "（「文件在那儿」和「文件是对的」是两件事）",
               mismatch.problem);
-        check(QFile::exists(work + QStringLiteral("/云存档/level.dat")),
-              "ZQ4 对不上账时解出来的那一份**留着**（用户手上有东西可救）");
+        check(!QFile::exists(work + QStringLiteral("/云存档")),
+              "ZQ4 对不上账不发布半成品到正式目录");
+        const QString oldFile = work + QStringLiteral("/云存档/level.dat");
+        writeFileAt(oldFile, QByteArrayLiteral("PRESERVE-ORIGINAL"));
+        const auto mismatchOver = BackupFiles::restoreBackup(lyingZip, work);
+        check(!mismatchOver.ok && mismatchOver.stage == BackupFiles::RestoreResult::Stage::Verify
+                  && readAll(oldFile) == QByteArrayLiteral("PRESERVE-ORIGINAL"),
+              "ZQ4 损坏备份还原失败后原存档逐字节保持不变", mismatchOver.problem);
+        check(QDir(work).entryList({QStringLiteral(".wtfml-restore-*")},
+                  QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty(),
+              "ZQ4 校验失败清理私有还原暂存");
     }
 
     // ⑤ **安全快照做不成就不许动** —— 这一整套里唯一不可接受的结果是"先把旧的删了、
@@ -621,6 +728,8 @@ void runBackupTests() {
         recordOf(QStringLiteral("b.txt"), QByteArrayLiteral("BBBBBB"));
     check(BackupFiles::verifyTree(checkDir, {goodA, goodB}) == 0,
           "ZQ7 全对上时 0 条对不上");
+    check(BackupFiles::verifyTree(checkDir, {goodA, goodB}, [] { return true; }) > 0,
+          "ZQ7 校验可取消且不能误报通过");
     check(BackupFiles::verifyTree(
               checkDir, {goodA, recordOf(QStringLiteral("没有这个.txt"), QByteArrayLiteral("x"))})
               == 1,
@@ -717,14 +826,16 @@ void runBackupTests() {
               "★★ ZQ8 停下时那地上**什么都没建**"
               "（看空间这一眼排在安全快照和解压之前，盘上一个字节都没动）");
 
-        // ③ 同一份包，落到**原地已经有一份**的地方：那一趟**不看**空间这一眼
-        // （把旧的挪走会把空间还回来，凭剩下的空间算会假报"放不下"）⇒ 得能走到解压。
+        // ③ 原地安全发布也需要同时容纳新旧目录；空间不足必须在快照/替换前拒绝。
         writeFileAt(hugeParent + QStringLiteral("/大实例/regions-先来的.txt"),
                     QByteArrayLiteral("OLD"));
         const BackupFiles::RestoreResult inPlace = BackupFiles::restoreBackup(hugeZip, hugeParent);
-        check(inPlace.stage != BackupFiles::RestoreResult::Stage::Space,
-              "★★ ZQ8 原地替换那一趟**不**因为「清单吹牛」就报空间不足"
-              "（旧那份挪走会把空间还回来，那一趟交给解压/对账如实报）",
+        check(!inPlace.ok && inPlace.stage == BackupFiles::RestoreResult::Stage::Space
+                  && inPlace.safetyZip.isEmpty()
+                  && readAll(hugeParent + QStringLiteral("/大实例/regions-先来的.txt")) == QByteArrayLiteral("OLD")
+                  && QDir(hugeParent).entryList({QStringLiteral(".wtfml-restore-*")},
+                       QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty(),
+              "★★ ZQ8 原地还原空间不足时提前拒绝、不做快照且原文件不变",
               inPlace.problem);
     }
 
@@ -811,6 +922,153 @@ void runBackupTests() {
                   + QString::fromLatin1(readAll(latestSmp2024)));
     }
 
+    section("ZQ10. 还原事务中断恢复：归位、冲突、锁与路径边界");
+    {
+        const QString root = work + QStringLiteral("/restore-journal-tests");
+        QDir().mkpath(RestoreJournal::directory(root));
+        const auto fixture = [&](const QString &name, const QString &state) {
+            const QString target = QDir(root).filePath(name);
+            const QString retained = QDir(root).filePath(QStringLiteral(".wtfml-restore-previous-")
+                + QUuid::createUuid().toString(QUuid::WithoutBraces));
+            auto json = RestoreJournal::record(target, retained, true);
+            json.insert(QStringLiteral("state"), state);
+            const QString path = QDir(RestoreJournal::directory(root)).filePath(
+                QUuid::createUuid().toString(QUuid::WithoutBraces) + QStringLiteral(".json"));
+            writeFileAt(retained + QStringLiteral("/level.dat"), "ORIGINAL");
+            check(RestoreJournal::write(path, json), "ZQ10 中断事务日志写入成功");
+            return QStringList{target, retained, path};
+        };
+        const auto interrupted = fixture(QStringLiteral("world"), QStringLiteral("prepared"));
+        const auto recovered = BackupFiles::recoverInterruptedRestores(root);
+        check(!recovered.isEmpty() && readAll(interrupted[0] + QStringLiteral("/level.dat")) == "ORIGINAL"
+                  && !QFileInfo::exists(interrupted[1]) && !QFileInfo::exists(interrupted[2]),
+              "ZQ10 两次改名之间中断可归位原目录并移除本事务日志");
+        check(BackupFiles::recoverInterruptedRestores(root).isEmpty(), "ZQ10 恢复操作幂等");
+        const auto active = fixture(QStringLiteral("active"), QStringLiteral("prepared"));
+        QLockFile busy(active[2] + QStringLiteral(".lock"));
+        busy.setStaleLockTime(0);
+        check(busy.tryLock(0), "ZQ10 活动事务持有独立锁");
+        BackupFiles::recoverInterruptedRestores(root);
+        check(!QFileInfo::exists(active[0]) && QFileInfo::exists(active[1]),
+              "ZQ10 活动事务不可被启动恢复抢占");
+        busy.unlock();
+        BackupFiles::recoverInterruptedRestores(root);
+        check(readAll(active[0] + QStringLiteral("/level.dat")) == "ORIGINAL",
+              "ZQ10 释放事务锁后可恢复");
+        const auto conflict = fixture(QStringLiteral("conflict"), QStringLiteral("prepared"));
+        writeFileAt(conflict[0] + QStringLiteral("/level.dat"), "NEW-TARGET");
+        BackupFiles::recoverInterruptedRestores(root);
+        check(readAll(conflict[0] + QStringLiteral("/level.dat")) == "NEW-TARGET"
+                  && readAll(conflict[1] + QStringLiteral("/level.dat")) == "ORIGINAL"
+                  && QFileInfo::exists(conflict[2]), "ZQ10 存在新目标时保留双方并留下日志待处理");
+        const auto reviews = RecoveryReview::inspect(root);
+        const auto review = RecoveryReview::read(root, conflict[2]);
+        QString reviewProblem;
+        check(!reviews.isEmpty() && review.problem.isEmpty()
+                  && review.target == conflict[0] && review.retained == conflict[1],
+              "ZQ10 人工检查可读取待处理事务的双方目录");
+        auto changedReview = review;
+        changedReview.target += QStringLiteral("-changed");
+        check(!RecoveryReview::acknowledge(root, changedReview, &reviewProblem)
+                  && QFileInfo::exists(conflict[2]), "ZQ10 过期检查结果不能归档日志");
+        QLockFile reviewLock(conflict[2] + QStringLiteral(".lock"));
+        reviewLock.setStaleLockTime(0);
+        check(reviewLock.tryLock(0) && !RecoveryReview::acknowledge(root, review, &reviewProblem),
+              "ZQ10 活动事务不能标记已检查");
+        reviewLock.unlock();
+        check(RecoveryReview::acknowledge(root, review, &reviewProblem)
+                  && !QFileInfo::exists(conflict[2])
+                  && QFileInfo::exists(root + QStringLiteral("/cache/restore-reviewed/")
+                                      + QFileInfo(conflict[2]).fileName())
+                  && readAll(conflict[0] + QStringLiteral("/level.dat")) == "NEW-TARGET"
+                  && readAll(conflict[1] + QStringLiteral("/level.dat")) == "ORIGINAL",
+              "ZQ10 标记已检查仅归档自己的日志，两份数据原样保留", reviewProblem);
+        const auto published = fixture(QStringLiteral("published"), QStringLiteral("published"));
+        writeFileAt(published[0] + QStringLiteral("/level.dat"), "PUBLISHED");
+        BackupFiles::recoverInterruptedRestores(root);
+        check(readAll(published[0] + QStringLiteral("/level.dat")) == "PUBLISHED"
+                  && QFileInfo::exists(published[1]), "ZQ10 已发布事务不回滚也不自动删旧目录");
+        const auto outside = fixture(QStringLiteral("unsafe"), QStringLiteral("prepared"));
+        auto forged = RestoreJournal::record(work + QStringLiteral("/outside-target"), outside[1], true);
+        check(RestoreJournal::write(outside[2], forged), "ZQ10 写入越界测试日志");
+        BackupFiles::recoverInterruptedRestores(root);
+        check(!QFileInfo::exists(work + QStringLiteral("/outside-target"))
+                  && QFileInfo::exists(outside[1]) && QFileInfo::exists(outside[2]),
+              "ZQ10 越界日志不能移动任何原数据");
+        const auto orphan = QDir(root).filePath(QStringLiteral(".wtfml-restore-previous-")
+            + QUuid::createUuid().toString(QUuid::WithoutBraces));
+        writeFileAt(orphan + QStringLiteral("/level.dat"), "UNREGISTERED");
+        BackupFiles::recoverInterruptedRestores(root);
+        check(readAll(orphan + QStringLiteral("/level.dat")) == "UNREGISTERED",
+              "ZQ10 未登记旧目录不按前缀盲删");
+    }
+    section("ZQ11. 崩溃暂存：所有权、活动锁与分批清理");
+    {
+        const QString root = work + QStringLiteral("/owned-staging-tests");
+        QDir().mkpath(root);
+        QString orphan;
+        {
+            OwnedStaging::Lease lease;
+            QTemporaryDir stage(QDir(root).filePath(QStringLiteral(".wtfml-backup-XXXXXX")));
+            check(stage.isValid() && lease.attach(root, stage.path(), QStringLiteral("backup")),
+                  "ZQ11 备份暂存所有权登记成功");
+            orphan = stage.path();
+            stage.setAutoRemove(false); // Simulate process exit without temporary cleanup.
+            writeFileAt(orphan + QStringLiteral("/data/file"), "PARTIAL");
+            OwnedStaging::cleanup(root);
+            check(QFileInfo::exists(orphan + QStringLiteral("/data/file")),
+                  "ZQ11 使用中的暂存受独立锁保护");
+        }
+        const auto cleared = OwnedStaging::cleanup(root);
+        check(!cleared.isEmpty() && !QFileInfo::exists(orphan), "ZQ11 退出后清理已确认归属的暂存");
+        check(QDir(OwnedStaging::directory(root)).entryList({QStringLiteral("*.json")}, QDir::Files).isEmpty(),
+              "ZQ11 清理完成移除对应登记记录");
+        check(OwnedStaging::cleanup(root).isEmpty(), "ZQ11 重复清理幂等");
+        QString untrusted;
+        {
+            OwnedStaging::Lease lease;
+            QTemporaryDir stage(QDir(root).filePath(QStringLiteral(".wtfml-restore-XXXXXX")));
+            check(stage.isValid() && lease.attach(root, stage.path(), QStringLiteral("restore")),
+                  "ZQ11 还原暂存所有权登记成功");
+            untrusted = stage.path();
+            stage.setAutoRemove(false);
+            writeFileAt(untrusted + QStringLiteral("/payload/file"), "KEEP");
+            writeFileAt(OwnedStaging::marker(untrusted), "{}");
+        }
+        OwnedStaging::cleanup(root);
+        check(readAll(untrusted + QStringLiteral("/payload/file")) == "KEEP",
+              "ZQ11 标记不一致不自动删除");
+        const QString legacy = root + QStringLiteral("/.wtfml-backup-LEGACY");
+        writeFileAt(legacy + QStringLiteral("/file"), "UNREGISTERED");
+        OwnedStaging::cleanup(root);
+        check(readAll(legacy + QStringLiteral("/file")) == "UNREGISTERED",
+              "ZQ11 相同前缀的未登记目录不清理");
+        QString large;
+        {
+            OwnedStaging::Lease lease;
+            QTemporaryDir stage(QDir(root).filePath(QStringLiteral(".wtfml-backup-XXXXXX")));
+            check(stage.isValid() && lease.attach(root, stage.path(), QStringLiteral("backup")),
+                  "ZQ11 多文件暂存登记成功");
+            large = stage.path();
+            stage.setAutoRemove(false);
+            for (int i = 0; i < 600; ++i) writeFileAt(large + QStringLiteral("/file-%1").arg(i), "x");
+        }
+        OwnedStaging::cleanup(root);
+        check(QFileInfo::exists(large) && QFileInfo::exists(OwnedStaging::marker(large)),
+              "ZQ11 清理有数量预算且保留所有权标记以便续扫");
+        for (int i = 0; i < 8 && QFileInfo::exists(large); ++i) OwnedStaging::cleanup(root);
+        check(!QFileInfo::exists(large), "ZQ11 后续批次可完成剩余清理");
+        const QString retained = root + QStringLiteral("/.wtfml-restore-previous-")
+            + QUuid::createUuid().toString(QUuid::WithoutBraces);
+        writeFileAt(retained + QStringLiteral("/level.dat"), "ORIGINAL");
+        const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        const QJsonObject forged{{"schema", 1}, {"token", token}, {"path", retained}, {"kind", "restore"}};
+        check(RestoreJournal::write(QDir(OwnedStaging::directory(root)).filePath(token + ".json"), forged),
+              "ZQ11 写入旧目录伪登记测试记录");
+        OwnedStaging::cleanup(root);
+        check(readAll(retained + QStringLiteral("/level.dat")) == "ORIGINAL",
+              "ZQ11 旧目录即使有伪登记也不在暂存清理范围内");
+    }
     AppPaths::setMinecraftDir(originalDir);
 }
 

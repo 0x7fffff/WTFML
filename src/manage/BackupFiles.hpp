@@ -137,6 +137,8 @@ QList<FileRecord> collectFiles(const QString &rootDir, const QStringList &exclud
                                const std::function<bool()> &cancelled = {});
 
 /// 打一份备份。
+/// 先在备份目标同卷创建私有暂存副本并校验，再复查源清单；变化时拒绝发布、提示重试。
+/// 压缩仅使用暂存副本，成功后才改名发布；需要暂存和归档两份空间，取消/失败自动清理。
 /// @param manifest 描述（`files` / `totalBytes` 由这一趟自己填，传进来的一律被覆盖）。
 /// @param sourceDir 盘上要打进去的那个目录。
 /// @param targetZip 落点（父目录会自动建）。
@@ -177,39 +179,34 @@ struct RestoreResult {
     Stage stage = Stage::Ok;
     QString problem;      ///< 失败原因（人话，直接摆给用户）
     QString safetyZip;    ///< 这一趟自动做出来的安全快照（没做 = 空）
+    QString retainedPath; ///< 发布成功但旧目录清理失败时的保留路径（应向用户提示）。
     int checked = 0;      ///< 还原之后逐文件对账对了几条
-    int mismatched = 0;   ///< 对不上的条数（> 0 时 `ok = false`，而且盘上那一份**留着**，
-                          /// < 好让用户手上有东西可救）
+    int mismatched = 0;   ///< 对不上的条数；>0 时不发布暂存内容，原目录保持不变。
     QString targetPath;   ///< 真正落回去的那个目录
 };
 
 /**
  * @brief 把 @p zipPath 里 `root/` 那一段还原到 @p targetParentDir 底下。
  *
- * 四件事按这个顺序做，**缺一不可**：
- * 1. 读清单。不是我们做的包 → 当场拒绝（**一个字节都不动**）；
- * 2. 落点是一块**空地**时，先看一眼这块盘放不放得下（`restoreSpaceNeeded()` 对着
- * `QStorageInfo::bytesAvailable()`）。放不下 → 停在 `Stage::Space`，**同样一个字节都不动**
- * —— 让用户看到一句"盘不够"，而不是解到一半留下满地半截文件。原地替换（落点上已经有
- * 一份）**不看这一眼**，理由见 .cpp 里那一处 NOTE；
- * 3. 现在那儿已经有一份 → **先给它做一份安全快照**（同样是一次 `writeBackup`，落进
- * 同一个备份目录），再把它整个挪走（`removeTreeWithoutFollowingLinks`，不跟链接）。
- * 目标树里只要有链接（junction / 符号链接）就**停在安全快照之前**、一个字节都不动：
- * 包里和安全快照里都记不住"这里是个链接"，解开就会被换成普通目录，这条路退不回来。
- * 安全快照**做不成就不往下走** —— "先把旧的删了、再告诉你备份没做出来"是这一整套里
- * 唯一不可接受的结果；
- * 4. 解压 + **逐文件对账**（`verifyTree()`）。对不上就把话说明白（那多半是解压被中途打断，
- * 或者盘满了）。
+ * 读清单和空间预检 → 原目录完整安全快照 → 同卷暂存解压及逐文件校验 →
+ * 复查原目录未被外部修改 → 将旧目录改名保留 → 发布已校验的新目录。
+ * 解压、校验、取消或发布失败不先删除原数据；发布失败尝试将旧目录归位。
+ * 归位失败时旧目录留在独立路径，错误信息给出位置，绝不由暂存清理删除。
+ * 发布后才清理旧目录；清理失败通过 retainedPath 提示。目标含链接或同名文件拒绝操作。
+ * 两次改名不是文件系统级原子交换；受管数据目录通过事务日志做保守的启动恢复。
+ * 外部目录不自动恢复；新旧目录并存时不覆盖任何一份，保留日志供人工检查。
  *
  * NOTE: 这里**不碰界面也不碰账本**：进度那几句由调用方（MainWindow）往任务中心写。
  *
- * @param cancelled 协作式停止（关窗 / 整项超时）。★ **只在 ③ 开始挪走「现在这一份」
- * *之前* 生效**：那之后停下来，用户手上就既没有旧的那一份、也没有新的这一份。
- * 停下来时返回 `ok = false` 且盘上原样（安全快照已经做出来的话会删掉它）；
- * `problem` 说清"取消或超时"，调用方照失败/取消如实报。
+ * @param cancelled 协作式停止，覆盖快照、解压、校验与提交前检查。
+ * 仅最终两次改名及必要回滚不响应取消，避免留下半次提交。
  */
 RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentDir,
                             const std::function<bool()> &cancelled = {});
+
+/// 启动/切换数据目录时在扫描实例之前调用；只恢复本数据目录内已验证的中断还原。
+/// 不覆盖新出现的目标，不按前缀删除目录，活动事务跳过。
+QStringList recoverInterruptedRestores(const QString &gameDir);
 
 /// 还原这一份备份大约要占多少字节 = 清单里各文件大小之和 + 一点余量（余量见 .cpp）。
 /// 纯函数（不碰盘）：`restoreBackup()` 拿它对着空闲空间判，验证工程拿它钉判据。
@@ -223,7 +220,8 @@ bool hasRoomFor(qint64 freeBytes, qint64 neededBytes);
 /// 对账：@p dir 底下那些文件跟 @p files 里记的名字/大小/sha1 对不对得上。
 /// @return 对不上的条数（0 = 全对上）。**多出来的文件不算**（备份是"至少恢复这些"），
 /// 缺一个或内容不一样都算。
-int verifyTree(const QString &dir, const QList<FileRecord> &files);
+int verifyTree(const QString &dir, const QList<FileRecord> &files,
+               const std::function<bool()> &cancelled = {});
 
 /// 那一句话（「包含范围」摆给用户看的那几句）拼好之后的形状：`saves/基地周目（1234 个文件）`。
 /// 世界备份和实例快照各拼各的，这里只提供"范围里那一条"怎么写的唯一出处。

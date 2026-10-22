@@ -9,6 +9,7 @@
  */
 
 #include "server/ServerRegistry.hpp"
+#include "server/ServerWriteGuard.hpp"
 
 #include <QDir>
 #include <QFile>
@@ -17,10 +18,17 @@
 
 #include "manage/FolderManager.hpp"
 #include "util/AppPaths.hpp"
+#include "util/DirectorySessionLock.hpp"
+#include "manage/InstanceFiles.hpp"
+#include "manage/RestoreJournal.hpp"
 
 namespace ServerRegistry {
 
 namespace {
+
+bool writableServer(const QString &id, QString *problem) {
+    return ServerWriteGuard::acquire(id, problem);
+}
 
 /// 相对服务端目录、`/` 分隔的一条路径（判据层认的形状，见 `ServerModel::isInstalled()`）。
 QString relPath(const QString &a, const QString &b, const QString &c = QString()) {
@@ -145,6 +153,7 @@ bool isStrictlyInside(const QString &rootPath, const QString &candidate) {
 QString rootDir() { return AppPaths::serversDir(); }
 
 bool ensureRoot(QString *problemOut) {
+    if (!DirectorySessionLock::acquire(AppPaths::minecraftDir(), problemOut)) return false;
     const QString root = rootDir();
     if (QDir(root).exists()) {
         return true;
@@ -285,6 +294,7 @@ ServerModel::Info readMeta(const QString &serverId, QString *problemOut) {
 }
 
 bool writeMeta(const QString &serverId, const ServerModel::Info &info, QString *problemOut) {
+    if (!ServerWriteGuard::acquireFile(serverId, AppPaths::serverMetaFileName(), problemOut)) return false;
     if (problemOut != nullptr) {
         problemOut->clear();
     }
@@ -384,6 +394,7 @@ QString defaultServerName(ServerInstall::Flavor flavor, const QString &gameVersi
 }
 
 bool createServer(const QString &serverId, const ServerModel::Info &info, QString *problemOut) {
+    if (!writableServer(serverId, problemOut)) return false;
     if (serverId.isEmpty()) {
         if (problemOut != nullptr) {
             *problemOut = QStringLiteral("要给这个服务端起个名字");
@@ -401,6 +412,7 @@ bool createServer(const QString &serverId, const ServerModel::Info &info, QStrin
 }
 
 bool removeServer(const QString &serverId, QString *problemOut) {
+    if (!writableServer(serverId, problemOut)) return false;
     if (problemOut != nullptr) {
         problemOut->clear();
     }
@@ -457,6 +469,7 @@ bool readEula(const QString &serverId) {
 }
 
 bool acceptEula(const QString &serverId, QString *problemOut) {
+    if (!ServerWriteGuard::acquireFile(serverId, QStringLiteral("eula.txt"), problemOut)) return false;
     if (problemOut != nullptr) {
         problemOut->clear();
     }
@@ -475,7 +488,12 @@ bool acceptEula(const QString &serverId, QString *problemOut) {
         }
         return false;
     }
-    file.write(ServerModel::eulaFileText(true).toUtf8());
+    const auto bytes = ServerModel::eulaFileText(true).toUtf8();
+    if (file.write(bytes) != bytes.size()) {
+        file.cancelWriting();
+        if (problemOut) *problemOut = QStringLiteral("eula.txt 写入不完整，原文件未替换。");
+        return false;
+    }
     if (!file.commit()) {
         if (problemOut != nullptr) {
             *problemOut = QStringLiteral("eula.txt 没落盘：%1").arg(file.errorString());
@@ -506,6 +524,7 @@ ServerModel::Properties readProperties(const QString &serverId, QString *problem
 
 bool writeProperties(const QString &serverId, const ServerModel::Properties &properties,
                      QString *problemOut) {
+    if (!ServerWriteGuard::acquireFile(serverId, QStringLiteral("server.properties"), problemOut)) return false;
     if (problemOut != nullptr) {
         problemOut->clear();
     }
@@ -524,7 +543,12 @@ bool writeProperties(const QString &serverId, const ServerModel::Properties &pro
         }
         return false;
     }
-    file.write(properties.toString().toUtf8());
+    const auto bytes = properties.toString().toUtf8();
+    if (file.write(bytes) != bytes.size()) {
+        file.cancelWriting();
+        if (problemOut) *problemOut = QStringLiteral("server.properties 写入不完整，原文件未替换。");
+        return false;
+    }
     if (!file.commit()) {
         if (problemOut != nullptr) {
             *problemOut = QStringLiteral("server.properties 没落盘：%1").arg(file.errorString());

@@ -85,6 +85,8 @@
 #include <QSettings>
 #include <QSpinBox>
 #include <QStringList>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QHostAddress>
 #include <QProcess>
 #include <QRandomGenerator>
@@ -272,10 +274,18 @@ inline int g_fail = 0;
 /// 仍然转发给原来的处理器，否则测试自己的输出（check 的 PASS/FAIL 走的是 printf，
 /// 但 Qt 自己的 qWarning 会看不见）就被吞了。
 inline QStringList g_messages;
+inline QMutex g_messageMutex;
+inline QStringList messagesSnapshot() {
+    QMutexLocker guard(&g_messageMutex);
+    return g_messages;
+}
 inline QtMessageHandler g_previousHandler = nullptr;
 
 inline void collectMessage(QtMsgType type, const QMessageLogContext &context, const QString &message) {
-    g_messages.append(message);
+    {
+        QMutexLocker guard(&g_messageMutex);
+        g_messages.append(message);
+    }
     if (g_previousHandler != nullptr) {
         g_previousHandler(type, context, message);
     }
@@ -564,8 +574,9 @@ template <typename F> inline bool pumpUntil(F done, qint64 timeoutMs, int *print
         // 50 毫秒一轮：processEvents() 带时限才不会在没有事件时一直憋着。
         QApplication::processEvents(QEventLoop::AllEvents, 50);
         if (printedOut != nullptr) {
-            for (; *printedOut < g_messages.size(); ++*printedOut) {
-                std::printf("        [日志] %s\n", qPrintable(g_messages.at(*printedOut)));
+            const auto messages = messagesSnapshot();
+            for (; *printedOut < messages.size(); ++*printedOut) {
+                std::printf("        [日志] %s\n", qPrintable(messages.at(*printedOut)));
             }
             std::fflush(stdout);
         }

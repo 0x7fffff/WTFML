@@ -358,6 +358,15 @@ void runModpackImportTests(const QString &sandbox) {
         const QString out = work + "/out";
         int extracted = 0;
         const QStringList roots = {QStringLiteral("overrides/"), QStringLiteral("client-overrides/")};
+        {
+            QElapsedTimer budget;
+            budget.start();
+            int checks = 0;
+            const bool cancelled = !ZipUtil::extractSubtrees({archive}, work + "/cancelled-overrides", roots,
+                nullptr, &error, [&] { return ++checks >= 2; });
+            check(cancelled && checks >= 2 && error.contains(QStringLiteral("取消")) && budget.elapsed() < 8000,
+                  "V5 覆盖文件解压启动后可快速取消，不等待完整解压超时", error);
+        }
         const bool extractedOk =
             ZipUtil::extractSubtrees({archive}, out, roots, &extracted, &error);
         check(extractedOk && extracted == 4,

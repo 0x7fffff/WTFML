@@ -71,7 +71,7 @@ void runOfflineDefaultSkinTests() {
               "ZG1 版本下拉框和右栏那三样都按 objectName 找得到");
         if (combo != nullptr && viewer != nullptr && hint != nullptr) {
             const int failedBefore =
-                countOccurrences(g_messages, QStringLiteral("算离线默认皮肤失败"));
+                countOccurrences(messagesSnapshot(), QStringLiteral("算离线默认皮肤失败"));
 
             // ---- ZG1 还没选版本：算不出默认皮肤，退回随机那张 ----
             // 起窗口时**一个版本都不该被选中**（fillVersionCombo 不替用户选），所以这一条
@@ -137,7 +137,7 @@ void runOfflineDefaultSkinTests() {
             // ---- ZG5 jar 打不开：记一行日志，然后照样退回随机 ----
             combo->setCurrentIndex(combo->findData(brokenId));
             QApplication::processEvents();
-            check(countOccurrences(g_messages, QStringLiteral("算离线默认皮肤失败")) >
+            check(countOccurrences(messagesSnapshot(), QStringLiteral("算离线默认皮肤失败")) >
                           failedBefore &&
                       viewer->skin().pixelColor(0, 0) == tintRandom2,
                   "ZG5 jar 不是 zip → 日志里留一行，屏幕上照样有脸（不是空白、不是内置 Steve）");
@@ -145,7 +145,7 @@ void runOfflineDefaultSkinTests() {
             // 就是「算离线默认皮肤失败：」后面什么都没有 —— 而那行日志的全部意义正是
             // "怎么老是随机那张"有个交代。
             QString lastFailedLine;
-            for (const QString &message : g_messages) {
+            for (const QString &message : messagesSnapshot()) {
                 if (message.contains(QStringLiteral("算离线默认皮肤失败"))) {
                     lastFailedLine = message;
                 }

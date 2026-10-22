@@ -15,6 +15,7 @@
 
 #include "manage/InstanceFiles.hpp"
 #include "tools/FileHash.hpp"
+#include "util/WriteDirectoryGuard.hpp"
 
 namespace TransferApply {
 
@@ -22,6 +23,13 @@ ModTransferResult transferMods(const QString &sourceRoot, const QString &targetR
                               const QStringList &paths, bool move, const ModProgress &progress,
                               const std::function<bool()> &cancelled) {
     ModTransferResult result;
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(sourceRoot, &lockProblem)
+        || !WriteDirectoryGuard::acquire(targetRoot, &lockProblem)) {
+        result.failed = qMax(1, int(paths.size()));
+        result.problems.append(lockProblem);
+        return result;
+    }
     QElapsedTimer elapsed; elapsed.start();
     const auto stopped = [&] { return (cancelled && cancelled()) || elapsed.elapsed() >= 600000; };
     const auto ordinaryDir = [](const QString &path) {
@@ -293,6 +301,8 @@ Result apply(const QString &sourceDir, const QString &targetDir,
                              .arg(QDir::toNativeSeparators(target));
         return result;
     }
+    if (!WriteDirectoryGuard::acquire(source, &result.problem)
+        || !WriteDirectoryGuard::acquire(target, &result.problem)) return result;
     // ② 源和目标不能是同一份、也不能互相嵌套。判据和「复制实例」那道闸是同一个函数
     // （它解 junction / 8.3 短名 —— 光比字面路径挡不住"拿一个指着源实例的 junction
     // 当目标"）。双向各问一次：往源里面搬 = 自己抄自己，往源外面搬进它的祖先也一样危险。

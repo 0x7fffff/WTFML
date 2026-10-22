@@ -93,6 +93,18 @@ int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox) {
     check(!loaded.isEmpty(), "G0 版本 JSON 从磁盘回读成功（缓存已填充）");
     check(!vm.isDownloading(), "G0 下载前 isDownloading() 为假");
 
+    const QString blockedDestination = work + "/blocked-destination";
+    writeFileAt(blockedDestination, QByteArray("keep"));
+    vm.downloadVersion(versionId, blockedDestination);
+    check(emissions == 1 && !lastSuccess && !lastMessage.isEmpty(),
+          "G0 JSON 保存失败立即给出一个失败终态");
+    check(!vm.isDownloading() && !vm.downloads()->isBusy() && statsSignals == 0,
+          "G0 JSON 保存失败不开下载批次、不发进度");
+    check(!QFileInfo::exists(blockedDestination + "/" + versionId + ".jar"),
+          "G0 JSON 保存失败不下载客户端文件");
+    emissions = 0;
+    finished = false;
+
     vm.downloadVersion(versionId, base);
     check(vm.isDownloading(), "G1 已开始下载：isDownloading() 为真（UI 据此禁用启动）");
     if (!finished) {

@@ -14,6 +14,7 @@
  */
 
 #include "ServerInstallController.hpp"
+#include "server/ServerWriteGuard.hpp"
 
 #include <QDir>
 #include <QFile>
@@ -62,6 +63,11 @@ void ServerInstallController::start(const ServerInstall::Request &request,
                                     const QString &serverId, const QString &javaPath) {
     if (m_running) {
         emit finished(Outcome::Failed, QStringLiteral("已经有一个服务端在装了，等它跑完。"));
+        return;
+    }
+    QString directoryProblem;
+    if (!ServerWriteGuard::acquire(serverId, &directoryProblem)) {
+        emit finished(Outcome::Failed, directoryProblem);
         return;
     }
     if (!ServerInstallRun::flavorSupported(request.flavor)) {

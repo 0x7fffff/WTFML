@@ -5,12 +5,15 @@
 #include <QDir>
 #include <QHash>
 #include <QLockFile>
+#include <QMutex>
+#include <QMutexLocker>
 #include <memory>
 
 /// 只在产品 main 中启用。持有到进程退出，避免切目录后仍在收尾的任务失去保护。
 namespace DirectorySessionLock {
 inline bool enabled = false;
 inline QHash<QString, std::shared_ptr<QLockFile>> held;
+inline QMutex mutex;
 
 inline QString keyFor(const QString &root) {
     QString path = QDir::fromNativeSeparators(InstanceFiles::canonicalPath(root));
@@ -21,8 +24,16 @@ inline QString keyFor(const QString &root) {
 }
 
 inline bool acquire(const QString &root, QString *problem = nullptr) {
+    if (problem) problem->clear();
     if (!enabled) return true;
+    if (root.trimmed().isEmpty()) {
+        if (problem) *problem = QStringLiteral("未指定数据目录，未继续操作。");
+        return false;
+    }
     const auto key = keyFor(root);
+    // Background import/backup/upgrade may enter together. Checking then inserting
+    // without a mutex both races the QHash and can reject our own second request.
+    QMutexLocker guard(&mutex);
     if (held.contains(key)) return true;
     auto lock = std::make_shared<QLockFile>(QDir::temp().filePath(
         QStringLiteral("wtfml-directory-%1.lock").arg(key)));

@@ -9,6 +9,7 @@
 #include <QJsonDocument>
 #include <QLockFile>
 #include <QSaveFile>
+#include "util/WriteDirectoryGuard.hpp"
 #include <QSet>
 #include <QStringList>
 #include <QUuid>
@@ -123,6 +124,7 @@ inline Snapshot read(const QString &path) {
 inline bool save(const QString &path, const QByteArray &expected, bool expectedExists,
                  const QStringList &ids, const QSet<QString> &available,
                  const QString &backupRoot, QString *problem) {
+    if (!WriteDirectoryGuard::acquire(path, problem)) return false;
     if (problem) problem->clear();
     const auto fail = [problem](const QString &why) { if (problem) *problem = why; return false; };
     QLockFile lock(path + QStringLiteral(".wtfml.lock"));

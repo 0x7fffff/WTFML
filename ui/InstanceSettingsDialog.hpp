@@ -1709,6 +1709,7 @@ signals:
      * 挑哪一份、确认、以及"还原之前先给现在这一份做安全快照"全在 MainWindow 那边。
      */
     void restoreSnapshotRequested();
+    void inspectRecoveryRequested();
 
     /**
      * @brief 用户在一个文件夹上按了「打开」（快捷方式那九颗按钮，或者某一页的「打开文件夹」）。

@@ -128,7 +128,8 @@ EntryStatus listEntries(const QString &archive, QStringList *out, QString *error
  */
 bool extractSubtrees(const QStringList &archives, const QString &targetDir,
                      const QStringList &roots, int *extractedOut = nullptr,
-                     QString *errorOut = nullptr);
+                      QString *errorOut = nullptr,
+                      const std::function<bool()> &cancelled = {});
 
 /**
  * @brief 把一个 gzip 文件解成普通文件（@p targetPath 会被覆盖写）。成功返回 true。

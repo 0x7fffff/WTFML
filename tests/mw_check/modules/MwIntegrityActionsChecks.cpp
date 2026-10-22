@@ -218,7 +218,7 @@ int MwIntegrityActionsChecks(const QDir &root) {
         // 这一节把产品自己写的那几行日志流出来（`pumpUntil` 的 `printedOut`）：一个卡住的
         // 安装和一个还没跑完的安装长得一模一样，而这四段走到哪儿只有那几行 message 说得清
         // （进度不进日志 —— 产品级硬约束）。游标从**这一节开始**算，别把前 39 节的日志倒一遍。
-        int logCursor = g_messages.size();
+        int logCursor = messagesSnapshot().size();
         const bool installDone = pumpUntil(
             [&] {
                 return started.id != Tasks::invalidTaskId() &&

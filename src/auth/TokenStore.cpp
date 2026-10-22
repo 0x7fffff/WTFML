@@ -4,6 +4,8 @@
  */
 
 #include "TokenStore.hpp"
+#include "util/AppPaths.hpp"
+#include "util/DirectorySessionLock.hpp"
 
 #include <QCryptographicHash>
 #include <QDebug>
@@ -122,6 +124,7 @@ QByteArray TokenStore::unprotect(const QByteArray &stored) {
 }
 
 bool TokenStore::writeJson(const QString &key, const QJsonObject &json, QString *errorOut) {
+    if (!DirectorySessionLock::acquire(AppPaths::defaultMinecraftDir(), errorOut)) return false;
     QSettings settings;
     const QByteArray rawData = QJsonDocument(json).toJson(QJsonDocument::Compact);
     settings.setValue(key, protect(rawData.toBase64()));
@@ -178,6 +181,11 @@ bool TokenStore::hasValue(const QString &key) {
 }
 
 void TokenStore::clear(const QString &key) {
+    QString problem;
+    if (!DirectorySessionLock::acquire(AppPaths::defaultMinecraftDir(), &problem)) {
+        qWarning() << problem;
+        return;
+    }
     QSettings settings;
     settings.remove(key);
     settings.sync();

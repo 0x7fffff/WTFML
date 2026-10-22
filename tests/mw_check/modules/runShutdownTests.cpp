@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "controllers/BackupController.hpp"
 void runShutdownTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -58,6 +59,15 @@ void runShutdownTests() {
         MainWindow w;
         w.show();
         QApplication::processEvents();
+
+        auto *backup = w.findChild<BackupController *>();
+        check(backup != nullptr, "T43.0 中断恢复检查控制器已接入主窗口");
+        if (backup != nullptr) {
+            dismissNextPrompt();
+            backup->inspectRecovery();
+            check(g_modalTitle == QStringLiteral("中断恢复检查"),
+                  "T43.0 无事务时仍可打开检查入口并安全取消");
+        }
 
         // ① 没有游戏也没有服务端：不弹任何东西，窗口直接关。
         g_modalTitle.clear();

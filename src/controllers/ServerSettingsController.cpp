@@ -4,6 +4,7 @@
 #include "manage/BackupFiles.hpp"
 #include "server/ServerPropertiesForm.hpp"
 #include "server/ServerRegistry.hpp"
+#include "server/ServerWriteGuard.hpp"
 
 #include <QDir>
 #include <QDirIterator>
@@ -193,6 +194,7 @@ ServerPlayers::Content ServerSettingsController::readPlayers(const QString &serv
 bool ServerSettingsController::writePlayers(const QString &serverId, ServerPlayers::List list,
                                             const QList<ServerPlayers::Entry> &entries,
                                             QString *problemOut) const {
+    if (!ServerWriteGuard::acquireFile(serverId, ServerPlayers::fileName(list), problemOut)) return false;
     const QString path = playersPath(serverId, list);
     if (path.isEmpty()) {
         if (problemOut != nullptr) *problemOut = QStringLiteral("找不到这个服务端的目录。");
@@ -207,7 +209,12 @@ bool ServerSettingsController::writePlayers(const QString &serverId, ServerPlaye
         }
         return false;
     }
-    file.write(ServerPlayers::serialize(list, entries));
+    const auto bytes = ServerPlayers::serialize(list, entries);
+    if (file.write(bytes) != bytes.size()) {
+        file.cancelWriting();
+        if (problemOut) *problemOut = QStringLiteral("玩家名单写入不完整，原文件未替换。");
+        return false;
+    }
     if (!file.commit()) {
         if (problemOut != nullptr) {
             *problemOut = QStringLiteral("%1 写不进去：%2")

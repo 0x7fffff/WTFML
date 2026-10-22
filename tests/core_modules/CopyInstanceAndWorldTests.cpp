@@ -1,4 +1,11 @@
 #include "Support.hpp"
+#include "util/WriteDirectoryGuard.hpp"
+#include "tasks/TaskHistory.hpp"
+#include "manage/LaunchHistory.hpp"
+#include <atomic>
+#include <thread>
+#include <vector>
+#include <QProcess>
 
 void runCopyInstanceAndWorldTests() {
     const QString originalDir = AppPaths::minecraftDir();
@@ -9,6 +16,32 @@ void runCopyInstanceAndWorldTests() {
           "ZJ0 三个临时目录建出来了");
 
     AppPaths::setMinecraftDir(sourceRoot.path());
+
+    // Use real processes: an in-process QLockFile cannot exercise stale PID recovery.
+    {
+        QProcess owner;
+        owner.start(QCoreApplication::applicationFilePath(),
+                    {QStringLiteral("--directory-lock-probe"), scratch.path(), QStringLiteral("--hold")});
+        const bool started = owner.waitForStarted(5000)
+            && (owner.bytesAvailable() > 0 || owner.waitForReadyRead(5000))
+            && owner.readAllStandardOutput().contains("LOCKED");
+        check(started, "ZJ0 独立进程取得数据目录锁");
+        auto probe = [](const QString &path) {
+            QProcess child;
+            child.start(QCoreApplication::applicationFilePath(),
+                        {QStringLiteral("--directory-lock-probe"), path});
+            const bool done = child.waitForStarted(5000) && child.waitForFinished(5000);
+            if (!done) { child.kill(); child.waitForFinished(5000); }
+            return done && child.exitStatus() == QProcess::NormalExit ? child.exitCode() : -1;
+        };
+        if (started) {
+            check(probe(scratch.path() + "/./") == 73,
+                  "ZJ0 第二进程通过路径别名访问同目录也安全拒绝");
+            check(probe(destRoot.path()) == 0, "ZJ0 不同数据目录允许独立进程取得锁");
+        }
+        owner.kill(); owner.waitForFinished(5000);
+        check(probe(scratch.path()) == 0, "ZJ0 持锁进程异常结束后可重新取得锁");
+    }
 
     section("ZJ1. looksLikeWorld：凭什么认一个目录是「世界」");
     {
@@ -59,8 +92,23 @@ void runCopyInstanceAndWorldTests() {
         const bool wasEnabled = enabled;
         enabled = true;
         QString problem;
+        check(!acquire(QString(), &problem) && !problem.isEmpty(),
+              "ZJ3 空目录不得被隐式转换为当前目录锁");
         check(acquire(saves, &problem) && acquire(saves, &problem),
               "ZJ3 同进程重复取得目录锁是幂等的", problem);
+        check(problem.isEmpty(), "ZJ3 取得锁成功清除之前的错误信息");
+        {
+            std::atomic<int> acquired{0};
+            std::vector<std::thread> workers;
+            const QString concurrentRoot = scratch.path() + QStringLiteral("/concurrent-lock");
+            for (int i = 0; i < 8; ++i) workers.emplace_back([&] {
+                if (acquire(concurrentRoot)) ++acquired;
+            });
+            for (auto &worker : workers) worker.join();
+            check(acquired == 8 && held.contains(keyFor(concurrentRoot)),
+                  "ZJ3 并发取得同目录锁不误报自身冲突且保留到退出");
+            held.remove(keyFor(concurrentRoot));
+        }
         QLockFile contender(QDir::temp().filePath(QStringLiteral("wtfml-directory-%1.lock").arg(key)));
         contender.setStaleLockTime(0);
         check(!contender.tryLock(0), "ZJ3 已持有的目录锁拒绝第二个锁持有者");
@@ -203,7 +251,42 @@ void runCopyInstanceAndWorldTests() {
     const QString srcDir = makeInstanceDir(sourceRoot.path() + QStringLiteral("/versions"), srcId,
                                            R"({"name":"源实例","instanceId":"source-uuid-1111","loaderName":"Fabric"})");
     const QString destRootPath = destRoot.path();
+    check(WriteDirectoryGuard::rootFor(sourceRoot.path() + QStringLiteral("/versions/Servers/saves/world"))
+              == InstanceFiles::canonicalPath(sourceRoot.path()),
+          "ZJ5 实例名与 Servers 同名时仍使用已选数据根锁");
     VersionManager vm;
+    {
+        const bool enabledBefore = DirectorySessionLock::enabled;
+        DirectorySessionLock::enabled = true;
+        QLockFile other(QDir::temp().filePath(QStringLiteral("wtfml-directory-%1.lock")
+            .arg(DirectorySessionLock::keyFor(sourceRoot.path()))));
+        other.setStaleLockTime(0);
+        check(other.tryLock(0), "ZJ5 写入口占用测试取得源数据根锁");
+        QString error;
+        const QString lockedLedger = sourceRoot.path() + QStringLiteral("/locked-ledger.json");
+        check(!Tasks::save(lockedLedger, {}) && !LaunchHistory::save(lockedLedger, {})
+                  && !QFileInfo::exists(lockedLedger),
+              "ZJ5 任务与启动历史账本拒绝占用目录且不创建文件");
+        check(!vm.copyInstance(srcId, destRootPath, QStringLiteral("locked-copy"), &error)
+                  && error.contains(QStringLiteral("占用")), "ZJ5 复制实例底层拒绝占用目录", error);
+        check(!vm.deleteInstance(srcId, &error) && error.contains(QStringLiteral("占用")),
+              "ZJ5 删除实例底层拒绝占用目录", error);
+        check(!vm.renameInstance(srcId, QStringLiteral("locked-name"), &error)
+                  && error.contains(QStringLiteral("占用")), "ZJ5 改名实例底层拒绝占用目录", error);
+        check(!vm.updateVersionMeta(srcId, {{QStringLiteral("name"), QStringLiteral("locked")}}, &error)
+                  && error.contains(QStringLiteral("占用")), "ZJ5 实例元数据底层拒绝占用目录", error);
+        const QString saves = srcDir + QStringLiteral("/saves");
+        check(!WorldFiles::copyWorldInto(worldSrc, saves, QStringLiteral("locked-world"), &error)
+                  && error.contains(QStringLiteral("占用")), "ZJ5 导入世界解析所属数据根锁", error);
+        check(!WorldFiles::renameWorld(saves + QStringLiteral("/我的世界"), QStringLiteral("locked-world"), &error)
+                  && error.contains(QStringLiteral("占用")), "ZJ5 世界改名解析所属数据根锁", error);
+        check(!WorldFiles::writeLevelData(saves + QStringLiteral("/我的世界"), {}, &error)
+                  && error.contains(QStringLiteral("占用")), "ZJ5 世界设定写入解析所属数据根锁", error);
+        DirectorySessionLock::enabled = enabledBefore;
+        check(QFileInfo::exists(srcDir) && !QFileInfo::exists(destRootPath + QStringLiteral("/versions/locked-copy"))
+                  && !QFileInfo::exists(saves + QStringLiteral("/locked-world")),
+              "ZJ5 拒绝后无副本半成品且源实例仍在");
+    }
     {
         QString error;
         check(vm.copyInstance(srcId, destRootPath, QStringLiteral("副本"), &error),

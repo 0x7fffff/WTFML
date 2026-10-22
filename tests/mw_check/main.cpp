@@ -1,4 +1,5 @@
 #include "modules/Support.hpp"
+#include <QScopeGuard>
 
 int main(int argc, char *argv[]) {
     // ---------- session-holder：给"真的有一份会话在跑"当替身 ----------
@@ -187,6 +188,25 @@ int main(int argc, char *argv[]) {
     if (app.arguments().contains(QStringLiteral("activity-selection-check"))) { return MwActivitySelectionCheck(); }
     if (app.arguments().contains(QStringLiteral("workspace-check"))) { return MwWorkspaceCheck(app); }
     g_previousHandler = qInstallMessageHandler(collectMessage);
+    const auto restoreLogHandler = qScopeGuard([] { qInstallMessageHandler(g_previousHandler); });
+    {
+        QList<QThread *> writers;
+        for (int i = 0; i < 8; ++i) {
+            auto *writer = QThread::create([] {
+                for (int n = 0; n < 500; ++n)
+                    collectMessage(QtDebugMsg, QMessageLogContext(), QStringLiteral("log-race-fixture"));
+            });
+            writers.append(writer);
+            writer->start();
+        }
+        // Read snapshots while writers append, not only after joining them.
+        for (auto *writer : writers) {
+            while (!writer->wait(1)) { const auto snapshot = messagesSnapshot(); Q_UNUSED(snapshot); }
+            delete writer;
+        }
+        check(countOccurrences(messagesSnapshot(), QStringLiteral("log-race-fixture")) == 4000,
+              "并发日志：八个工作线程写入与主线程读取不丢记录");
+    }
 
     // ---------- 沙盒：QSettings 必须在**第一个 QSettings 对象出现之前**重定向 ----------
     // MainWindow 构造里就有 LauncherSettings / GlobalJavaSettings 在读盘，晚一步就晚了。
@@ -334,8 +354,8 @@ int main(int argc, char *argv[]) {
                 std::fflush(stdout);
                 box->close();
             }
-            for (; printed < g_messages.size(); ++printed) {
-                const QString line = g_messages.at(printed);
+            for (; printed < messagesSnapshot().size(); ++printed) {
+                const QString line = messagesSnapshot().at(printed);
                 const bool done = line.contains(QStringLiteral("导入好了"));
                 const bool failed = line.contains(QStringLiteral("没有导入"));
                 std::printf("[%7.1fs] %s\n", clock.elapsed() / 1000.0, qPrintable(line));
@@ -786,8 +806,8 @@ int main(int argc, char *argv[]) {
         };
         // 把进程日志流出来（写到 printed 那一行为止）。
         const auto flushLogs = [&printed] {
-            for (; printed < g_messages.size(); ++printed) {
-                std::printf("        [日志] %s\n", qPrintable(g_messages.at(printed)));
+            for (; printed < messagesSnapshot().size(); ++printed) {
+                std::printf("        [日志] %s\n", qPrintable(messagesSnapshot().at(printed)));
             }
             std::fflush(stdout);
         };
@@ -2085,7 +2105,7 @@ int main(int argc, char *argv[]) {
     // 日志现在是进程级的一条流（不再是每个窗口自己一块面板），所以"报了没报、
     // 报了几次"只能在窗口刚建好这一刻记个基线。后面 G/H 两节还会再开三个 MainWindow，
     // 它们各自也会对同一个沙盒目录报一次 —— 那是另外几个窗口的事，不该混进这一条。
-    const int coldStartWarnings = countOccurrences(g_messages, kTwoJarsDir);
+    const int coldStartWarnings = countOccurrences(messagesSnapshot(), kTwoJarsDir);
 
     check(installed != nullptr, "找得到「已安装版本」下拉框（按 objectName）");
     check(startBtn != nullptr, "找得到「启动游戏」按钮");
@@ -2313,29 +2333,29 @@ int main(int argc, char *argv[]) {
         // NOTE: 收的是 Qt 的日志消息（MainWindow::appendLog 现在写 qDebug），不再是
         // 界面上的文本框 —— 那个面板 分选项卡时去掉了。这条通道正是
         // "从命令行启动才看得到"的那条，所以它必须继续有内容。
-        check(!g_messages.isEmpty(), "整个会话写出来过日志");
+        check(!messagesSnapshot().isEmpty(), "整个会话写出来过日志");
         check(window.findChild<QTextEdit *>() == nullptr,
               "窗口里确实没有日志面板了（日志只在命令行里）");
         check(coldStartWarnings == 1, "冷启动时对认不出的目录恰好写了一条日志",
               QString::number(coldStartWarnings));
-        check(countOccurrences(g_messages, kTwoJarsA) >= 1 &&
-                  countOccurrences(g_messages, kTwoJarsB) >= 1,
+        check(countOccurrences(messagesSnapshot(), kTwoJarsA) >= 1 &&
+                  countOccurrences(messagesSnapshot(), kTwoJarsB) >= 1,
               "那条日志把两个候选 jar 的名字都点了出来");
 
         // 再走两遍刷新（onVersionsFetched 和 onVersionDownloadFinished 都会调
         // refreshInstalledVersions()，一次会话里它至少被调三次）。这两遍必须
         // **一个字都不再写** —— 否则每次刷新都在日志里留一条同样的抱怨。
         // 比的是"这条消息的总数有没有变"，不是某个窗口自己的面板。
-        const int beforeRefresh = countOccurrences(g_messages, kTwoJarsDir);
+        const int beforeRefresh = countOccurrences(messagesSnapshot(), kTwoJarsDir);
         for (int i = 0; i < 2; ++i) {
             QMetaObject::invokeMethod(
                 &window, "onVersionsFetched", Qt::DirectConnection,
                 Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
             QApplication::processEvents();
         }
-        check(countOccurrences(g_messages, kTwoJarsDir) == beforeRefresh,
+        check(countOccurrences(messagesSnapshot(), kTwoJarsDir) == beforeRefresh,
               "又刷新两次之后一条都没有增加",
-              QString::number(countOccurrences(g_messages, kTwoJarsDir)));
+              QString::number(countOccurrences(messagesSnapshot(), kTwoJarsDir)));
 
         // 上报归上报，"不算已安装版本"这条判据没动：它不该出现在下拉框里。
         // （判据放松的是"jar 名和目录名必须一致"，不是"认不出也收进来"。）
@@ -2377,7 +2397,7 @@ int main(int argc, char *argv[]) {
                 file.close();
             }
         }
-        const int beforeRenameScan = countOccurrences(g_messages, renamedDir);
+        const int beforeRenameScan = countOccurrences(messagesSnapshot(), renamedDir);
         QMetaObject::invokeMethod(&window, "onVersionsFetched", Qt::DirectConnection,
                                   Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
         QApplication::processEvents();
@@ -2390,14 +2410,14 @@ int main(int argc, char *argv[]) {
         // 复现一遍才能知道是谁在抱怨（这一条只能看消息，消息本身就是被验的东西）。
         const auto messagesNaming = [](const QString &needle) {
             QStringList hits;
-            for (const QString &message : g_messages) {
+            for (const QString &message : messagesSnapshot()) {
                 if (message.contains(needle)) {
                     hits << message;
                 }
             }
             return hits.join(QStringLiteral(" ／ "));
         };
-        check(countOccurrences(g_messages, renamedDir) == beforeRenameScan,
+        check(countOccurrences(messagesSnapshot(), renamedDir) == beforeRenameScan,
               "认得出来的目录一条告警都不写",
               messagesNaming(renamedDir));
 

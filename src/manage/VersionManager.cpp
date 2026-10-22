@@ -5,6 +5,7 @@
  */
 
 #include "VersionManager.hpp"
+#include "util/WriteDirectoryGuard.hpp"
 #include "../download/DownloadRetryPolicy.hpp"
 #include "../download/InstallerFailure.hpp"
 #include "../settings/GlobalJavaSettings.hpp"
@@ -302,7 +303,9 @@ VersionManager::VersionManager(QObject *parent)
 
 VersionManager::~VersionManager() {
     // 工作线程只持有路径与结果值；退出前等它结束，避免程序退出后仍在写实例。
-    // ZipUtil 的外部进程自身有 600 秒硬超时。
+    // 先通知外部解压进程退出，避免析构时一直等完整解压超时。
+    if (m_modpackOverridesCancelled) m_modpackOverridesCancelled->store(true);
+    m_modpackOverridesWork.cancel();
     m_modpackOverridesWork.waitForFinished();
     // DownloadManager is automatically deleted as child
     if (installerProcess != nullptr && installerProcess->state() != QProcess::NotRunning) {
@@ -793,18 +796,20 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
         return;
     }
 
-    m_currentVersionDownloading = versionId;
-    beginOwnBatch();
-
     const QJsonObject &versionJson = versionJsons[versionId];
 
     // 把 version.json 落盘。缺了它，下一次启动时 getVersionJson() 取不到
     // javaVersion / assetIndex，会静默退回错误的 Java 版本和资产索引 ——
     // 26.1 需要 Java 25，退成 Java 21 就是 UnsupportedClassVersionError。
-    // NOTE: 写失败**不**中止这一批：这里只写一句日志 —— 版本 json 写不进去
-    // 的报错，用户看的是后面那批文件下完之后的收尾话。整合包那条路不一样，它要一个
-    // 明确的终态，所以那边看返回值（见 startModpackFiles）。
-    writeVersionJson(versionId, destinationPath, versionJson, nullptr);
+    // 保存失败必须在开批次前终止，避免下载成功却留下不能启动的实例。
+    QString writeProblem;
+    if (!writeVersionJson(versionId, destinationPath, versionJson, &writeProblem)) {
+        emit versionDownloadFinished(versionId, false, writeProblem);
+        return;
+    }
+
+    m_currentVersionDownloading = versionId;
+    beginOwnBatch();
 
     registerVersionFiles(versionJson, versionId, destinationPath + "/" + versionId + ".jar");
 
@@ -1101,6 +1106,11 @@ void VersionManager::importModpack(const QString &zipPath, const QString &instan
                                    const ModpackImport::Pack &pack,
                                    const QString &installerJavaPath,
                                    const QString &manifestFingerprint) {
+    QString lockProblem;
+    if (!DirectorySessionLock::acquire(AppPaths::minecraftDir(), &lockProblem)) {
+        emit versionDownloadFinished(instanceId, false, lockProblem);
+        return;
+    }
     // 三道闸和 installLoaderVersion() 的入口一样，理由也一样：一次只做一件事。不这么拦的话，
     // 两个状态机同时开着，谁先收到别人那批文件的信号就说不清了。
     if (m_modpackInstall.active() || m_loaderInstall.active() || downloadManager->isBusy()) {
@@ -1294,9 +1304,12 @@ void VersionManager::extractModpackOverrides() {
         m_modpackInstall.extractedEntries = result->extracted;
         finishModpackImport();
     });
-    m_modpackOverridesWork = QtConcurrent::run([result, archive, destination, layers] {
+    m_modpackOverridesCancelled = std::make_shared<std::atomic_bool>(false);
+    const auto cancelled = m_modpackOverridesCancelled;
+    m_modpackOverridesWork = QtConcurrent::run([result, archive, destination, layers, cancelled] {
         result->ok = ZipUtil::extractSubtrees({archive}, destination, layers,
-                                              &result->extracted, &result->error);
+                                              &result->extracted, &result->error,
+                                              [cancelled] { return cancelled->load(); });
     });
     watcher->setFuture(m_modpackOverridesWork);
 }
@@ -1381,6 +1394,7 @@ void VersionManager::failModpackImport(const QString &reason) {
     if (m_modpackOverridesWork.isRunning()) {
         // 还在写盘时不释放占用，避免第二趟安装与尚未结束的解压互相覆盖。
         m_modpackOverridesFailure = reason;
+        if (m_modpackOverridesCancelled) m_modpackOverridesCancelled->store(true);
         return;
     }
     // 先把加载器那半截收掉。LoaderInstall::reset() **不发**任何信号正是为了这里：整件事的
@@ -1552,6 +1566,9 @@ void VersionManager::failNamedInstance(const QString &reason) {
 
 bool VersionManager::writeVersionJson(const QString &versionId, const QString &destinationPath,
                                       const QJsonObject &json, QString *errorOut) {
+    const QString invalid = InstanceFiles::validatePathSegment(versionId);
+    if (!invalid.isEmpty()) { if (errorOut) *errorOut = invalid; return false; }
+    if (!WriteDirectoryGuard::acquire(destinationPath, errorOut)) return false;
     if (!QDir().mkpath(destinationPath)) {
         if (errorOut != nullptr) {
             *errorOut = tr("建不出目录 %1。").arg(destinationPath);
@@ -1571,7 +1588,12 @@ bool VersionManager::writeVersionJson(const QString &versionId, const QString &d
         qWarning() << "Failed to save version JSON to" << jsonPath << file.errorString();
         return false;
     }
-    file.write(QJsonDocument(json).toJson(QJsonDocument::Indented));
+    const auto bytes = QJsonDocument(json).toJson(QJsonDocument::Indented);
+    if (file.write(bytes) != bytes.size()) {
+        file.cancelWriting();
+        if (errorOut) *errorOut = tr("版本 JSON 写入不完整，原文件未替换。");
+        return false;
+    }
     if (!file.commit()) {
         if (errorOut != nullptr) {
             *errorOut = tr("写 %1 的时候失败了（%2）。").arg(jsonPath, file.errorString());
@@ -3723,8 +3745,11 @@ QJsonObject VersionManager::readVersionMeta(const QString &versionId, QString *m
 
 bool VersionManager::updateVersionMeta(const QString &versionId, const QJsonObject &fields,
                                        QString *errorOut) {
+    const QString invalid = InstanceFiles::validatePathSegment(versionId);
+    if (!invalid.isEmpty()) { if (errorOut) *errorOut = invalid; return false; }
     const QString metaPath = AppPaths::versionMetaPath(versionId);
 
+    if (!DirectorySessionLock::acquire(AppPaths::minecraftDir(), errorOut)) return false;
     // 先把现有的读进来当底，再往上盖要改的键 —— **合并**写，不整体替换。
     // 这个文件是用户可以手写的，里面可能已经有 jvmArgs / nameFormat / realVersion，
     // 整体覆盖会把它们悄悄抹掉。
@@ -3818,6 +3843,9 @@ bool VersionManager::renameInstance(const QString &oldId, const QString &newName
         return false;
     };
 
+    if (!DirectorySessionLock::acquire(AppPaths::minecraftDir(), errorOut)) return false;
+    const QString oldProblem = InstanceFiles::validatePathSegment(oldId);
+    if (!oldProblem.isEmpty()) return fail(oldProblem);
     const QString newId = newName.trimmed();
 
     // ---------- 第 1 步：全部前置检查，磁盘一个字节都不动 ----------
@@ -3978,6 +4006,8 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
     if (target.isEmpty()) {
         return fail(tr("没有指定要复制到哪个游戏文件夹。"));
     }
+    if (!WriteDirectoryGuard::acquire(sourceDir, errorOut)
+        || !DirectorySessionLock::acquire(target, errorOut)) return false;
 
     // 源 id 必须是"一个普通的目录名"。这一条和 deleteInstance() 开头那道闸**逐字同款**，
     // 而且同样不是形式主义：id 直接拼成一条路径，空串拼出来是 `versions/` **本身**
@@ -4163,6 +4193,7 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
 }
 
 bool VersionManager::deleteInstance(const QString &versionId, QString *errorOut) {
+    if (!DirectorySessionLock::acquire(AppPaths::minecraftDir(), errorOut)) return false;
     const QString id = versionId.trimmed();
 
     // 这个入参直接拼成一条**要删掉的路径**，所以校验不是形式主义：空串会拼出 versions/

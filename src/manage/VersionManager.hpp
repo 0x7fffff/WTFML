@@ -11,6 +11,8 @@
 #include <QStringList>
 
 #include <functional>
+#include <atomic>
+#include <memory>
 
 class QNetworkAccessManager;
 class QNetworkReply;
@@ -1643,6 +1645,7 @@ private:
     LoaderInstall m_loaderInstall;
     ModpackInstall m_modpackInstall;
     QFuture<void> m_modpackOverridesWork;
+    std::shared_ptr<std::atomic_bool> m_modpackOverridesCancelled;
     QString m_modpackOverridesFailure;
 
     /// CurseForge 那两发请求要用的设置（见 setCurseForgeApiKey 那一段）。

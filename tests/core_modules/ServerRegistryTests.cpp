@@ -10,6 +10,32 @@ void runServerRegistryTests() {
         return;
     }
     AppPaths::setMinecraftDir(temp.path());
+    {
+        const bool enabledBefore = DirectorySessionLock::enabled;
+        DirectorySessionLock::enabled = true;
+        QLockFile other(QDir::temp().filePath(QStringLiteral("wtfml-directory-%1.lock")
+            .arg(DirectorySessionLock::keyFor(temp.path()))));
+        other.setStaleLockTime(0);
+        check(other.tryLock(0), "ZX0 服务端写入口占用夹具取得数据根锁");
+        QString problem;
+        check(!ServerRegistry::ensureRoot(&problem) && problem.contains(QStringLiteral("占用")),
+              "ZX0 服务端根目录创建拒绝占用目录", problem);
+        check(!ServerRegistry::writeMeta(QStringLiteral("locked"), {}, &problem), "ZX0 服务端元数据拒绝占用目录");
+        check(!ServerRegistry::createServer(QStringLiteral("locked"), {}, &problem), "ZX0 创建服务端拒绝占用目录");
+        check(!ServerRegistry::removeServer(QStringLiteral("locked"), &problem), "ZX0 删除服务端拒绝占用目录");
+        check(!ServerRegistry::acceptEula(QStringLiteral("locked"), &problem), "ZX0 EULA 写入拒绝占用目录");
+        check(!ServerRegistry::writeProperties(QStringLiteral("locked"), {}, &problem), "ZX0 配置写入拒绝占用目录");
+        DirectorySessionLock::enabled = enabledBefore;
+        check(!QFileInfo::exists(ServerRegistry::rootDir()), "ZX0 拒绝后没有创建服务端半成品目录");
+    }
+    {
+        QString problem;
+        check(!ServerRegistry::writeMeta(QStringLiteral("../escape"), {}, &problem)
+                  && !ServerRegistry::acceptEula(QStringLiteral("../escape"), &problem)
+                  && !ServerRegistry::writeProperties(QStringLiteral("../escape"), {}, &problem)
+                  && !QFileInfo::exists(temp.path() + QStringLiteral("/escape")),
+              "ZX0 服务端所有写入口拒绝越界目录名");
+    }
 
     // ---------- ZX1. 根目录与空表 ----------
     check(ServerRegistry::rootDir() == temp.path() + QStringLiteral("/Servers"),

@@ -203,7 +203,7 @@ void runDependencyAndBatchTests() {
             bool done = false;
         };
 
-        int logCursor = g_messages.size();
+        int logCursor = messagesSnapshot().size();
         // 跑一趟：实例设置 → 模组 → 详情 → 点某一版 → 等提示 → 收页。
         //
         // @param tag 这一趟的标签（断言里那句人话的前缀）。
@@ -314,8 +314,8 @@ void runDependencyAndBatchTests() {
                     r.newRequests.append(line);
                 }
             }
-            r.newLogs = g_messages.mid(logCursor);
-            logCursor = g_messages.size();
+            r.newLogs = messagesSnapshot().mid(logCursor);
+            logCursor = messagesSnapshot().size();
             return r;
         };
 

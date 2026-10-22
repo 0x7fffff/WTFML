@@ -20,7 +20,7 @@ int MwRandomSkinChecks() {
         const QColor tintB(0xE0, 0x70, 0x20);
         // AF4 的对照：这一节**不许**凭空多出一条取随机皮肤失败的日志（下面 AF5 会故意
         // 造一条"记不下来"的，那是另一句话，不混在一起）。
-        const int afFailedBefore = countOccurrences(g_messages, QStringLiteral("取随机皮肤失败"));
+        const int afFailedBefore = countOccurrences(messagesSnapshot(), QStringLiteral("取随机皮肤失败"));
 
         // ---- AF1 前提：此刻**没有当前账号**，所以右栏是写死的那张内置 Steve ----
         // 这一条非有不可：没有它，"AF4 画的是预置那张"可能是恒真的（比如不管什么账号
@@ -91,11 +91,11 @@ int MwRandomSkinChecks() {
             // 10 秒超时，然后那句话变成"没要到"。
             check(hint->text() != MainWindowUI::skinHintLoadingText(name),
                   "AF4 没有一发请求在路上（预置命中缓存 → 整条路是同步的）", hint->text());
-            check(countOccurrences(g_messages, QStringLiteral("取随机皮肤失败")) ==
+            check(countOccurrences(messagesSnapshot(), QStringLiteral("取随机皮肤失败")) ==
                       afFailedBefore,
                   "AF4 也没有「取随机皮肤失败」那种日志",
                   QString::number(
-                      countOccurrences(g_messages, QStringLiteral("取随机皮肤失败"))));
+                      countOccurrences(messagesSnapshot(), QStringLiteral("取随机皮肤失败"))));
 
             // ---- AF5 「记不下来」不影响这一趟显示，但下次会重挑 ----
             // 怎么把"记不下来"摆出来：把那个文件的位置换成一个**目录**（QSaveFile 覆盖不了
@@ -104,7 +104,7 @@ int MwRandomSkinChecks() {
             QFile::remove(recordedPath);
             check(QDir().mkpath(recordedPath), "AF5 把记账那个位置换成一个目录（模拟写不下去）");
             {
-                const int before = countOccurrences(g_messages, QStringLiteral("记下随机皮肤失败"));
+                const int before = countOccurrences(messagesSnapshot(), QStringLiteral("记下随机皮肤失败"));
                 // AF6 那张图先塞进缓存，这样这一趟也是同步的（不然会变成"没要到"）。
                 QDir().mkpath(AppPaths::skinsDir());
                 QImage second(64, 64, QImage::Format_ARGB32_Premultiplied);
@@ -118,7 +118,7 @@ int MwRandomSkinChecks() {
                 check(viewer->skin().pixelColor(0, 0) == tintB,
                       "AF5 记不下来也**照样换上了**（显示不依赖记账这一步）",
                       viewer->skin().pixelColor(0, 0).name());
-                check(countOccurrences(g_messages, QStringLiteral("记下随机皮肤失败")) > before,
+                check(countOccurrences(messagesSnapshot(), QStringLiteral("记下随机皮肤失败")) > before,
                       "AF5 而且日志里留了一行（唯一的迹象，不弹窗）");
             }
 

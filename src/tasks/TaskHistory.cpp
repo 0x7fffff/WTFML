@@ -14,6 +14,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include "util/WriteDirectoryGuard.hpp"
 
 #include "util/AppPaths.hpp"
 
@@ -261,6 +262,7 @@ QList<TaskSnapshot> load(const QString &path) {
 }
 
 bool save(const QString &path, const QList<TaskSnapshot> &tasks) {
+    if (!WriteDirectoryGuard::acquire(path)) return false;
     const QFileInfo info(path);
     if (!info.absoluteDir().exists() && !QDir().mkpath(info.absolutePath())) {
         return false;

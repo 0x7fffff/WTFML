@@ -1317,6 +1317,8 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // OverlayHost，那玩意儿在 MainWindow 手里，这一层连读都没有读。
     connect(&dialog, &InstanceSettingsDialog::createSnapshotRequested, m_owner,
             [this, &targetId]() { m_owner->snapshotInstance(targetId); });
+    connect(&dialog, &InstanceSettingsDialog::inspectRecoveryRequested, m_owner,
+            [this] { m_owner->m_backupController->inspectRecovery(); });
     // 多捕一个 &dialog：还原会把整个实例目录换掉，那一页控件的值全是旧的 ——
     // BackupController 收尾时要能把它禁用 / 收掉（理由见 restoreInstance() 那段 ★）。
     connect(&dialog, &InstanceSettingsDialog::restoreSnapshotRequested, m_owner,

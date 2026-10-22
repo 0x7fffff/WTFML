@@ -16,6 +16,7 @@
 #include "InlineMessage.hpp"
 #include "util/AppPaths.hpp"
 #include "util/ZipUtil.hpp"
+#include "util/DirectorySessionLock.hpp"
 #include "controllers/UpgradeAssessment.hpp"
 #include "manage/InstanceIconLookup.hpp"
 #include "download/ResourceStore.hpp"
@@ -58,6 +59,35 @@ int runInstanceUpgradeChecks() {
         std::printf("%s %s\n", ok ? "PASS" : "FAIL", what);
         if (!ok) ++failures;
     };
+    {
+        QTemporaryDir root;
+        check(root.isValid(), "Directory lock fixture created");
+        if (root.isValid()) {
+            QLockFile contender(QDir::temp().filePath(QStringLiteral("wtfml-directory-%1.lock")
+                .arg(DirectorySessionLock::keyFor(root.path()))));
+            contender.setStaleLockTime(0);
+            const bool ownsLock = contender.tryLock(0);
+            check(ownsLock, "Other launcher directory lock acquired");
+            const bool wasEnabled = DirectorySessionLock::enabled;
+            DirectorySessionLock::enabled = true;
+            const InstanceUpgrade::Request request{root.path(), QStringLiteral("instance"),
+                                                   QStringLiteral("transaction"), {}};
+            const auto prepare = InstanceUpgrade::prepareAndCommit(request, {});
+            const auto commit = InstanceUpgrade::commitPrepared(request);
+            const auto rollback = InstanceUpgrade::rollback(request);
+            const auto recover = InstanceUpgrade::recoverInterrupted(root.path());
+            DirectorySessionLock::enabled = wasEnabled;
+            check(ownsLock && !prepare.ok && !commit.ok && !rollback.ok
+                      && prepare.problem.contains(QStringLiteral("占用"))
+                      && commit.problem.contains(QStringLiteral("占用"))
+                      && rollback.problem.contains(QStringLiteral("占用"))
+                      && recover.size() == 1 && recover.first().contains(QStringLiteral("占用")),
+                  "Upgrade prepare/commit/rollback/recovery reject another launcher's directory");
+            check(QDir(root.path()).entryList(QDir::AllEntries | QDir::Hidden
+                      | QDir::NoDotAndDotDot).isEmpty(),
+                  "Directory lock rejection leaves no transaction or backup files");
+        }
+    }
     {
         using namespace FabricVersionDeclaration;
         check(predicate(QStringLiteral("~26.2-"), QStringLiteral("26.2")) == Match::Yes,

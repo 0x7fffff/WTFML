@@ -4,6 +4,7 @@
  */
 
 #include "ServerProcess.hpp"
+#include "util/WriteDirectoryGuard.hpp"
 
 #include <QDir>
 #include <QTimer>
@@ -51,6 +52,14 @@ void ServerProcess::start(const QString &serverId, const QString &dir, const QSt
                           const QStringList &arguments, int gracefulMs) {
     if (isRunning()) {
         return;  // 同一个服务端已经在跑了 —— 调用方该先拦住（"重复运行提醒"）
+    }
+    QString problem;
+    if (!WriteDirectoryGuard::acquire(dir, &problem)) {
+        m_serverId = serverId;
+        setStatus(ServerModel::Status::Crashed);
+        emit message(problem);
+        emit exited(serverId, -1);
+        return;
     }
     if (m_process == nullptr) {
         m_process = new QProcess(this);

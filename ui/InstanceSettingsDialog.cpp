@@ -897,6 +897,11 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         auto *hint = new QLabel(restoreSnapshotHint(), cell);
         hint->setWordWrap(true);
         column->addWidget(hint);
+        auto *inspect = new QPushButton(tr("检查中断恢复…"), cell);
+        inspect->setObjectName(QStringLiteral("inspectRecoveryButton"));
+        Theme::markButton(inspect, Theme::ButtonKind::Neutral);
+        connect(inspect, &QPushButton::clicked, this, &InstanceSettingsDialog::inspectRecoveryRequested);
+        column->addWidget(inspect);
         actionCells.append(cell);
     }
 

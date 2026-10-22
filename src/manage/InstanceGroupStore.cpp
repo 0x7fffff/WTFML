@@ -14,6 +14,7 @@
 #include <QJsonParseError>
 #include <QJsonValue>
 #include <QSaveFile>
+#include "util/WriteDirectoryGuard.hpp"
 #include <QUuid>
 
 #include <algorithm>
@@ -791,6 +792,8 @@ bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObj
     candidate.insert(kPinOriginField, pinOrigin);
 
     const QString path = AppPaths::instanceGroupFilePath();
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(path, &lockProblem)) return fail(lockProblem);
     if (!QDir().mkpath(AppPaths::minecraftDir())) {
         return fail(tr("无法创建目录 %1。").arg(QDir::toNativeSeparators(AppPaths::minecraftDir())));
     }
@@ -803,7 +806,11 @@ bool InstanceGroupStore::writeThrough(const QList<Group> &groups, const QJsonObj
         return fail(tr("无法写入 %1。").arg(QDir::toNativeSeparators(path)));
     }
     // 缩进输出：这是用户可能拿记事本打开看的文件（里面是他自己起的分组名）。
-    file.write(QJsonDocument(candidate).toJson(QJsonDocument::Indented));
+    const auto bytes = QJsonDocument(candidate).toJson(QJsonDocument::Indented);
+    if (file.write(bytes) != bytes.size()) {
+        file.cancelWriting();
+        return fail(tr("写入 %1 不完整，原文件未替换。").arg(QDir::toNativeSeparators(path)));
+    }
     if (!file.commit()) {
         return fail(tr("写入 %1 失败。").arg(QDir::toNativeSeparators(path)));
     }

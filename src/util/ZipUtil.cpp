@@ -643,7 +643,8 @@ ZipUtil::EntryStatus ZipUtil::listEntries(const QString &archive, QStringList *o
 }
 
 bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &targetDir,
-                              const QStringList &roots, int *extractedOut, QString *errorOut) {
+                              const QStringList &roots, int *extractedOut, QString *errorOut,
+                              const std::function<bool()> &cancelled) {
     if (extractedOut != nullptr) {
         *extractedOut = 0;
     }
@@ -725,8 +726,8 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
 
     QByteArray stdoutBytes;
     QString failure;
-    if (!runPowershell(script, 1800 * 1000, &stdoutBytes, &failure,
-                       QStringLiteral("解压"))) {
+    if (!runPowershell(script, 900 * 1000, &stdoutBytes, &failure,
+                       QStringLiteral("解压"), cancelled)) {
         if (errorOut) {
             *errorOut = failure;
         }

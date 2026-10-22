@@ -436,6 +436,18 @@ void InstanceTransferController::deleteWorldInBackground(
         reject(tr("认不出要删除哪个世界。"));
         return;
     }
+    QString lockProblem;
+    if (!DirectorySessionLock::acquire(AppPaths::minecraftDir(), &lockProblem)) {
+        reject(lockProblem);
+        return;
+    }
+    const QString saves = AppPaths::versionDir(instanceId) + QStringLiteral("/saves");
+    if (instanceId.isEmpty() || instanceId.contains('/') || instanceId.contains('\\')
+        || instanceId == QLatin1String(".") || instanceId == QLatin1String("..")
+        || InstanceFiles::canonicalPath(QFileInfo(worldDir).absolutePath()) != InstanceFiles::canonicalPath(saves)) {
+        reject(tr("要删除的目录不是当前实例的直接存档目录，未执行删除。"));
+        return;
+    }
     // 用户确认那一问和真正开删之间隔着一次事件循环：这中间游戏可能刚被启动。
     // 游戏退出（或者在游戏里存一次）的时候会把整个世界重新写一遍，而那时目录已经
     // 没了 —— 所以和 `InstanceDialogController` 里那道闸同一条理由，这里**再查一次**。

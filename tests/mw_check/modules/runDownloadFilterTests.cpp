@@ -66,7 +66,7 @@ void runDownloadFilterTests() {
         // 在请求表里看起来和"搜了一发"一模一样。这一段好几条要判的正是"只搜一发"。
         const auto searchLogs = [] {
             int count = 0;
-            for (const QString &message : g_messages) {
+            for (const QString &message : messagesSnapshot()) {
                 if (message.contains(QStringLiteral("正在搜索")) ||
                     message.contains(QStringLiteral("正在获取最热门的"))) {
                     ++count;

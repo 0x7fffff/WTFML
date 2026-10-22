@@ -7,6 +7,7 @@
 
 #include <QCryptographicHash>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -18,11 +19,15 @@
 #include <QObject>
 #include <QSet>
 #include <QStorageInfo>
+#include <QTemporaryDir>
 #include <QUuid>
 
 #include <algorithm>
 
 #include "manage/FolderManager.hpp"
+#include "manage/RestoreJournal.hpp"
+#include "manage/OwnedStaging.hpp"
+#include "util/DirectorySessionLock.hpp"
 #include "util/AppPaths.hpp"
 #include "util/ZipUtil.hpp"
 
@@ -475,6 +480,8 @@ WriteResult writeBackup(const Manifest &manifest, const QString &sourceDir,
     WriteResult result;
     result.zipPath = targetZip;
     result.manifest = manifest;
+    const QString gameRoot = InstanceFiles::canonicalPath(AppPaths::minecraftDir());
+    if (!DirectorySessionLock::acquire(gameRoot, &result.problem)) return result;
 
     if (manifest.root.isEmpty()) {
         result.problem = QObject::tr("这一份没说清自己是什么（缺少顶层前缀），没有打包。");
@@ -503,6 +510,81 @@ WriteResult writeBackup(const Manifest &manifest, const QString &sourceDir,
         result.manifest.createdAt = QDateTime::currentDateTime();
     }
 
+    // Freeze the bytes before invoking the external archiver. Hashing the live source
+    // and then archiving it directly can publish a backup that cannot pass restore.
+    const QString outputParent = QFileInfo(targetZip).absolutePath();
+    if (!QDir().mkpath(outputParent)) {
+        result.problem = QObject::tr("无法创建备份目录：%1").arg(outputParent);
+        return result;
+    }
+    OwnedStaging::Lease stagingLease;
+    QTemporaryDir staged(QDir(outputParent).filePath(QStringLiteral(".wtfml-backup-XXXXXX")));
+    if (!staged.isValid()) {
+        result.problem = QObject::tr("无法创建备份暂存目录，请检查磁盘空间和写入权限。");
+        return result;
+    }
+    if (!stagingLease.attach(gameRoot, InstanceFiles::canonicalPath(staged.path()), QStringLiteral("backup"))) {
+        result.problem = QObject::tr("无法登记备份暂存的所有权，未继续打包。");
+        return result;
+    }
+    const QStorageInfo storage(outputParent);
+    if (!hasRoomFor(storage.isValid() && storage.isReady() ? storage.bytesAvailable() : -1,
+                    restoreSpaceNeeded(result.manifest) * 2)) {
+        result.problem = QObject::tr("备份磁盘空间不足，需要同时容纳暂存副本和压缩包。");
+        return result;
+    }
+    const QDir snapshot(QDir(staged.path()).filePath(QStringLiteral("data")));
+    for (const FileRecord &record : result.manifest.files) {
+        const QString dest = snapshot.filePath(record.path);
+        QFile input(QDir(sourceDir).filePath(record.path));
+        QFile output(dest);
+        if (!QDir().mkpath(QFileInfo(dest).absolutePath()) || !input.open(QIODevice::ReadOnly)
+            || !output.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
+            result.problem = QObject::tr("无法暂存备份文件：%1；请检查文件占用、权限和磁盘空间。")
+                                 .arg(record.path);
+            return result;
+        }
+        QCryptographicHash hash(QCryptographicHash::Sha1);
+        qint64 copied = 0;
+        while (!input.atEnd()) {
+            if (cancelled && cancelled()) {
+                result.problem = QObject::tr("备份暂存已取消或超时。");
+                return result;
+            }
+            const QByteArray bytes = input.read(1024 * 1024);
+            if (bytes.isEmpty() || output.write(bytes) != bytes.size()) {
+                result.problem = QObject::tr("备份文件读取或写入不完整：%1；请检查磁盘空间和文件占用。")
+                                     .arg(record.path);
+                return result;
+            }
+            copied += bytes.size();
+            hash.addData(bytes);
+        }
+        if (input.error() != QFile::NoError || !output.flush()) {
+            result.problem = QObject::tr("备份文件读写失败：%1").arg(record.path);
+            return result;
+        }
+        if (copied != record.size || QString::fromLatin1(hash.result().toHex()) != record.sha1) {
+            result.problem = QObject::tr("备份期间文件发生变化：%1。请暂停游戏或同步后重试，未发布备份。")
+                                 .arg(record.path);
+            return result;
+        }
+    }
+    // Also catch added/deleted files and edits to files already copied. The archive
+    // subsequently reads only the private snapshot, never the changing source.
+    const auto after = collectFiles(sourceDir, manifest.excluded, &problem, cancelled);
+    bool unchanged = problem.isEmpty() && after.size() == result.manifest.files.size();
+    for (qsizetype i = 0; unchanged && i < after.size(); ++i) {
+        const auto &before = result.manifest.files.at(i);
+        unchanged = after.at(i).path == before.path && after.at(i).size == before.size
+                    && after.at(i).sha1 == before.sha1;
+    }
+    if (!unchanged || (cancelled && cancelled())) {
+        result.problem = !problem.isEmpty() ? problem
+            : QObject::tr("备份期间目录发生变化或操作已取消，请暂停游戏或同步后重试，未发布备份。");
+        return result;
+    }
+
     // 清单先落一份**临时文件**：`ZipUtil::createZip` 的条目表只能指向盘上真实的文件
     // （整张表走临时文件递进 PowerShell，理由见 ZipUtil.hpp 里 createZip 那段 ——
     // Windows 一条命令行只有 32767 个字符）。
@@ -515,9 +597,7 @@ WriteResult writeBackup(const Manifest &manifest, const QString &sourceDir,
     // zip 一个条目都没有 ⇒ 用户在「立即备份」上看到的是一句和自己的盘毫无关系的话。
     // 用普通 QFile + 一个不会撞的名字（和 `ZipUtil::createZip` 递条目表那张临时文件
     // 同一个写法），写进一个作用域里让它在打包之前就关掉，成功失败都删掉那一份。
-    const QString manifestPath = QDir::tempPath() + QStringLiteral("/wtfml-backup-")
-                                 + QUuid::createUuid().toString(QUuid::WithoutBraces)
-                                 + QStringLiteral(".json");
+    const QString manifestPath = QDir(staged.path()).filePath(QStringLiteral("manifest.json"));
     const QByteArray manifestBytes = manifestToJson(result.manifest);
     {
         QFile manifestFile(manifestPath);
@@ -528,7 +608,7 @@ WriteResult writeBackup(const Manifest &manifest, const QString &sourceDir,
         }
         // 短写（盘刚好在半路满）也算失败：半截 JSON 装进包里，读回来时是"清单读不动"，
         // 而那句话说不到这个真因上。
-        if (manifestFile.write(manifestBytes) != manifestBytes.size()) {
+        if (manifestFile.write(manifestBytes) != manifestBytes.size() || !manifestFile.flush()) {
             result.problem = QObject::tr("没能写出这份备份的清单（临时文件写不完整）：%1")
                                  .arg(QDir::toNativeSeparators(manifestPath));
             manifestFile.close();
@@ -543,7 +623,7 @@ WriteResult writeBackup(const Manifest &manifest, const QString &sourceDir,
     manifestEntry.sourcePath = manifestPath;
     entries.append(manifestEntry);
 
-    const QDir source(sourceDir);
+    const QDir source(snapshot);
     for (const FileRecord &record : result.manifest.files) {
         ZipUtil::ZipSource entry;
         entry.entryName = result.manifest.root + QLatin1Char('/') + record.path;
@@ -572,15 +652,22 @@ WriteResult writeBackup(const Manifest &manifest, const QString &sourceDir,
         if (QFileInfo::exists(target)) {
             result.problem = QObject::tr("同名的备份太多了，换一个时间再试：%1")
                                  .arg(QDir::toNativeSeparators(targetZip));
+            QFile::remove(manifestPath);
             return result;
         }
     }
     result.zipPath = target;
-    const bool made = ZipUtil::createZip(target, entries, &error, cancelled);
-    // 成功失败都一样删：它躺在系统临时目录里，里面是这个实例 / 世界都有哪些文件。
+    const QString pending = QDir(staged.path()).filePath(QStringLiteral("archive.pending"));
+    const bool made = ZipUtil::createZip(pending, entries, &error, cancelled);
+    // 清单也放在已登记暂存内，崩溃后不在系统临时目录遗留文件清单。
     QFile::remove(manifestPath);
     if (!made) {
         result.problem = error.isEmpty() ? QObject::tr("打包没有成功。") : error;
+        return result;
+    }
+
+    if ((cancelled && cancelled()) || !QFile::rename(pending, target)) {
+        result.problem = QObject::tr("备份已取消，或无法发布备份文件（目标被占用、已存在或磁盘写入失败），未覆盖已有备份。");
         return result;
     }
 
@@ -660,7 +747,16 @@ bool hasRoomFor(qint64 freeBytes, qint64 neededBytes) {
 RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentDir,
                             const std::function<bool()> &cancelled) {
     RestoreResult result;
-    const auto stopped = [&cancelled] { return cancelled && cancelled(); };
+    const QString gameRoot = InstanceFiles::canonicalPath(AppPaths::minecraftDir());
+    QString directoryProblem;
+    if (!DirectorySessionLock::acquire(gameRoot, &directoryProblem)) {
+        result.stage = RestoreResult::Stage::ReadManifest;
+        result.problem = directoryProblem;
+        return result;
+    }
+    QElapsedTimer elapsed;
+    elapsed.start();
+    const auto stopped = [&] { return elapsed.elapsed() >= 900000 || (cancelled && cancelled()); };
     const QString stoppedText =
         QObject::tr("还原已取消或超时；盘上原有的东西没有动。");
 
@@ -682,7 +778,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
     const QString target = QDir(targetParentDir).filePath(manifest.root);
     // 双保险：落点必须正好是父目录底下的**那一层**。`Manifest::isValid()` 那一头已经
     // 把奇怪的名字挡住了，这里再问一遍拼出来的路径最后一段还是不是 `root` —— 下面几步
-    // 会**整个删掉**这个路径，拼错一层就是删掉别人的东西。
+    // 会替换这个路径，拼错一层就会动到别人的东西。
     if (QFileInfo(target).fileName().compare(manifest.root, Qt::CaseInsensitive) != 0) {
         result.stage = RestoreResult::Stage::ReadManifest;
         result.problem = QObject::tr("这份备份里记的落点（%1）不是一个能找到的目录名，"
@@ -692,23 +788,15 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
     }
     result.targetPath = target;
 
-    // ② 动盘之前先看一眼这块盘放不放得下 —— **只在落点是一块空地时**看。
-    //
-    // NOTE: 原地替换（落点上已经有一份）**不看这一眼**：把旧的挪走会把这部分空间还
-    // 回来，而我们手上没有"旧那份多大"这个数（算它得再走一遍目录），照剩下的
-    // 空间算会假报"放不下"。那一路交给解压 / 对账那两步如实报（安全快照在，
-    // 用户不会丢东西）。
-    //
-    // 这一眼**在安全快照之前**：判出放不下时盘上一共就动过零个字节 —— 和"读清单"
-    // 那一档一样干净。
-    // 读清单 / 拼路径都没动过盘 —— 这里停下照样是"一个字节都没动"。
+    // ② 新旧目录会同时存在，因此即使原地还原也必须预留解压空间。
+    // 预检在安全快照之前，不通过时不改动目标内容。
     if (stopped()) {
         result.stage = RestoreResult::Stage::Space;
         result.problem = stoppedText;
         return result;
     }
     const QFileInfo existing(target);
-    if (!existing.exists()) {
+    {
         const qint64 free = QStorageInfo(targetParentDir).bytesAvailable();
         const qint64 needed = restoreSpaceNeeded(manifest);
         if (!hasRoomFor(free, needed)) {
@@ -720,6 +808,12 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
                                       QLocale().formattedDataSize(free));
             return result;
         }
+    }
+
+    if (existing.exists() && !existing.isDir()) {
+        result.stage = RestoreResult::Stage::RemoveOld;
+        result.problem = QObject::tr("还原位置存在同名文件，未覆盖或删除：%1").arg(target);
+        return result;
     }
 
     // 落点树里**有链接**（junction / 符号链接）时拒绝还原。
@@ -751,6 +845,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
     //
     // 顺序不能反，而且安全快照**做不成就不往下走**：先删掉旧的、再回来告诉用户
     // "刚才想给你留一份但是没留成"，是这一整套里唯一不可接受的结果。
+    QList<FileRecord> originalFiles;
     if (existing.exists()) {
         if (existing.isDir()) {
             Manifest safety;
@@ -762,8 +857,8 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
             safety.gameVersion = manifest.gameVersion;
             safety.worldName = manifest.worldName;
             // 安全快照**必须完整**，不能把被还原那一份的 `excluded` /
-            // `complete` 原样抄过来。下面几步是把 `target` **整个**删掉再解开新的一份 ——
-            // 删的时候不分什么 assets / libraries。照抄的话，用户还原一份普通快照
+            // `complete` 原样抄过来。发布会替换整个 target，不分 assets / libraries。
+            // 照抄的话，用户还原一份普通快照
             // （excluded = assets、libraries）时，那两棵目录被删了、安全快照里也没有，
             // 而我们上一条还在跟用户说"这一步是能退回来的"。
             safety.complete = true;
@@ -779,7 +874,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
                 QDir(dir).filePath(backupFileName(safety.label, safety.createdAt, /*safety=*/true));
 
             // 取消传进安全快照那一趟：它本身支持协作式停止（扫描 / 分块读取 / 打包）。
-            const WriteResult snapshot = writeBackup(safety, target, safetyZip, cancelled);
+            const WriteResult snapshot = writeBackup(safety, target, safetyZip, stopped);
             if (!snapshot.ok) {
                 // 落点是个**空目录**（上一次解压被杀在第一份文件之前、或者
                 // 游戏 / 用户自己建了一个空存档目录）时没有"现在这一份"可留 ——
@@ -801,6 +896,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
                 // `zipPath` 才是**真正**落盘的那一个（同秒撞名时 `writeBackup()` 会换一个
                 // 名字，见那里），不是我们上面按时间戳拼出来的候选名。
                 result.safetyZip = snapshot.zipPath;
+                originalFiles = snapshot.manifest.files;
             }
             // 安全快照做完了、旧目录**还没**动：这里仍然可以安全地停下。刚做出来的
             // 那份快照是这一趟自己的产物、还原并没有发生 —— 删掉它，别在备份列表里
@@ -814,30 +910,10 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
                 result.problem = stoppedText;
                 return result;
             }
-        } else {
-            // 同名的**文件**（不是目录）：没有"快照"这一说，直接挪开。备份里那是一条
-            // 记录不了的东西 —— 走到这儿多半是用户自己在那儿放过一个同名文件。
-            if (!QFile::remove(target)) {
-                result.stage = RestoreResult::Stage::RemoveOld;
-                result.problem = QObject::tr("没能挪开原来的那个同名文件：%1")
-                                     .arg(QDir::toNativeSeparators(target));
-                return result;
-            }
-        }
-        if (existing.isDir() && !removeTreeWithoutFollowingLinks(target)) {
-            // 半截删掉了，也没法回退。**如实说**（安全快照在 `safetyZip` 里，用户手上
-            // 有东西可救），而不是假装没事继续往下解压。
-            result.stage = RestoreResult::Stage::RemoveOld;
-            result.problem = QObject::tr("没能把「现在这一份」整个挪开（删到一半失败了）：%1"
-                                         "\n还原前的安全快照在：%2")
-                                 .arg(QDir::toNativeSeparators(target),
-                                      QDir::toNativeSeparators(result.safetyZip));
-            return result;
         }
     }
 
-    // 落点本来是一块空地（没有旧数据可留、也没什么可删）：解压开始之前停下同样什么
-    // 都不会丢。旧的那一份**已经挪走**的这条路上不能停（上面那一段说得清楚）。
+    // 解压前最后一个安全停止点；原目录仍在原位。
     if (!existing.exists() && stopped()) {
         result.stage = RestoreResult::Stage::Extract;
         result.problem = stoppedText;
@@ -847,13 +923,29 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
     // ④ 解压。走 `extractSubtrees()` 是**故意的**：它把前缀剥掉，而且**不属于那个前缀的
     // 条目一个都不碰** —— zip 根上躺着的那份清单因此不会落到用户的世界目录里。
     //
-    // 落点必须是**那一层前缀那一份**（`target`），不是 `targetParentDir`：前缀是剥掉的，
-    // 所以它得由我们这边补回来。传 `targetParentDir` 的话（ verify ZQ4 撞到
-    // 的，产品级的错）`基地周目/region/x` 会被解成 `<父目录>/region/x` —— 也就是
-    // **把存档的文件倒在 saves/ 这一层**，而上面那一步刚把 `saves/基地周目` 删掉。
+    // 前缀剥掉后只写入私有 candidate，绝不直接向用户目录解压。
     QString error;
-    if (!ZipUtil::extractSubtrees(QStringList{zipPath}, target,
-                                  QStringList{manifest.root + QLatin1Char('/')}, nullptr, &error)) {
+    if (!QDir().mkpath(targetParentDir)) {
+        result.stage = RestoreResult::Stage::Extract;
+        result.problem = QObject::tr("无法创建还原父目录，原数据未改变。");
+        return result;
+    }
+    OwnedStaging::Lease stagingLease;
+    QTemporaryDir staging(QDir(targetParentDir).filePath(QStringLiteral(".wtfml-restore-XXXXXX")));
+    if (!staging.isValid()) {
+        result.stage = RestoreResult::Stage::Extract;
+        result.problem = QObject::tr("无法创建同卷还原暂存目录，原目录未改变。");
+        return result;
+    }
+    const QString candidate = QDir(staging.path()).filePath(QStringLiteral("payload"));
+    if (!stagingLease.attach(gameRoot, InstanceFiles::canonicalPath(staging.path()), QStringLiteral("restore"))) {
+        result.stage = RestoreResult::Stage::Extract;
+        result.problem = QObject::tr("无法登记还原暂存的所有权，原目录未替换。");
+        return result;
+    }
+    if (!ZipUtil::extractSubtrees(QStringList{zipPath}, candidate,
+                                  QStringList{manifest.root + QLatin1Char('/')}, nullptr, &error,
+                                  stopped)) {
         result.stage = RestoreResult::Stage::Extract;
         QString message = QObject::tr("解压没能完成：%1").arg(error);
         if (!result.safetyZip.isEmpty()) {
@@ -867,7 +959,12 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
     // ⑤ 逐文件对账。**"文件在那儿"和"文件是对的"是两件事** —— 解压到一半被打断、盘写满，
     // 留下的都是"在，但不对"的文件，只有这一趟认得出。
     result.checked = manifest.fileCount();
-    result.mismatched = verifyTree(target, manifest.files);
+    result.mismatched = verifyTree(candidate, manifest.files, stopped);
+    if (stopped()) {
+        result.stage = RestoreResult::Stage::Verify;
+        result.problem = stoppedText;
+        return result;
+    }
     result.ok = result.mismatched == 0;
     if (!result.ok) {
         result.stage = RestoreResult::Stage::Verify;
@@ -880,14 +977,148 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
                            .arg(QDir::toNativeSeparators(result.safetyZip));
         }
         result.problem = message;
+        return result;
     }
+    result.ok = false; // Validation alone is not a successful publication.
+    if (stopped()) {
+        result.stage = RestoreResult::Stage::Verify;
+        result.problem = stoppedText;
+        return result;
+    }
+    // The safety snapshot must still describe the live target before replacement.
+    // Never discard changes made by a game or sync client during extraction.
+    const QFileInfo current(target);
+    if (current.exists() != existing.exists() || current.isSymLink() || current.isJunction()
+        || (!firstLinkInside(target).isEmpty())) {
+        result.stage = RestoreResult::Stage::RemoveOld;
+        result.problem = QObject::tr("还原期间目标目录或链接发生变化，原目录未替换，请暂停游戏或同步后重试。");
+        return result;
+    }
+    if (existing.exists()) {
+        QString probeProblem;
+        const auto live = collectFiles(target, {}, &probeProblem, stopped);
+        bool same = probeProblem.isEmpty() && live.size() == originalFiles.size();
+        for (qsizetype i = 0; same && i < live.size(); ++i) {
+            same = live.at(i).path == originalFiles.at(i).path
+                   && live.at(i).size == originalFiles.at(i).size
+                   && live.at(i).sha1 == originalFiles.at(i).sha1;
+        }
+        if (!same || stopped()) {
+            result.stage = RestoreResult::Stage::RemoveOld;
+            result.problem = QObject::tr("还原期间原文件发生变化或操作取消，原目录未替换，请重试。");
+            return result;
+        }
+    }
+    // No cancellation between these renames: either publish, or put the original
+    // back. The retained tree is OUTSIDE auto-removing staging, also on a crash.
+    const QString normalizedTarget = InstanceFiles::canonicalPath(target);
+    const QString retained = QDir(QFileInfo(normalizedTarget).absolutePath()).filePath(QStringLiteral(".wtfml-restore-previous-")
+        + QUuid::createUuid().toString(QUuid::WithoutBraces));
+    const QString journalDir = RestoreJournal::directory(gameRoot);
+    auto journal = RestoreJournal::record(normalizedTarget, retained, existing.exists());
+    // Outside managed data roots, retain rename safety but do not authorize startup
+    // recovery to touch arbitrary external folders using a persisted path.
+    const bool managed = RestoreJournal::valid(gameRoot, journal);
+    if (!managed && InstanceFiles::pathIsSameOrInside(gameRoot, normalizedTarget)) {
+        result.stage = RestoreResult::Stage::RemoveOld;
+        result.problem = QObject::tr("还原路径不适合安全登记事务，原目录未替换。");
+        return result;
+    }
+    const QString journalPath = QDir(journalDir).filePath(
+        QUuid::createUuid().toString(QUuid::WithoutBraces) + QStringLiteral(".json"));
+    QLockFile transactionLock(journalPath + QStringLiteral(".lock"));
+    transactionLock.setStaleLockTime(0);
+    if (managed && (!RestoreJournal::ordinaryPath(gameRoot, journalDir)
+                    || !RestoreJournal::ordinaryPath(gameRoot, journalPath)
+                    || !RestoreJournal::ordinaryPath(gameRoot, journalPath + QStringLiteral(".lock"))
+                    || !QDir().mkpath(journalDir) || !transactionLock.tryLock(0)
+                    || !RestoreJournal::write(journalPath, journal))) {
+        result.stage = RestoreResult::Stage::RemoveOld;
+        result.problem = QObject::tr("无法安全写入还原事务日志，原目录未替换。");
+        return result;
+    }
+    if (existing.exists() && !QDir().rename(target, retained)) {
+        if (managed) QFile::remove(journalPath);
+        result.stage = RestoreResult::Stage::RemoveOld;
+        result.problem = QObject::tr("无法挪开原目录（可能正被游戏占用），原文件未删除。");
+        return result;
+    }
+    if (!QDir().rename(candidate, target)) {
+        result.stage = RestoreResult::Stage::RemoveOld;
+        const bool recovered = !existing.exists() || QDir().rename(retained, target);
+        if (managed && recovered) QFile::remove(journalPath);
+        result.problem = recovered ? QObject::tr("无法发布还原目录，已保留或恢复原目录。")
+            : QObject::tr("无法发布且原目录未能自动归位；原文件完整保留在：%1").arg(retained);
+        return result;
+    }
+    result.ok = true;
+    journal.insert(QStringLiteral("state"), QStringLiteral("published"));
+    if (managed && !RestoreJournal::write(journalPath, journal)) {
+        // Do not delete the original without a durable publication marker.
+        result.retainedPath = existing.exists() ? retained : QString();
+        return result;
+    }
+    if (existing.exists() && !removeTreeWithoutFollowingLinks(retained)) {
+        result.retainedPath = retained;
+    }
+    if (managed && result.retainedPath.isEmpty()) QFile::remove(journalPath);
     return result;
 }
 
-int verifyTree(const QString &dir, const QList<FileRecord> &files) {
+QStringList recoverInterruptedRestores(const QString &gameDir) {
+    QStringList messages;
+    QString problem;
+    const QString root = InstanceFiles::canonicalPath(gameDir);
+    if (root.isEmpty() || !QFileInfo(root).isDir()) return messages;
+    if (!DirectorySessionLock::acquire(root, &problem)) return {problem};
+    const QString directory = RestoreJournal::directory(root);
+    if (!RestoreJournal::ordinaryPath(root, directory))
+        return {QObject::tr("还原事务目录含链接，未自动恢复。")};
+    const QDir dir(directory);
+    const auto names = dir.entryList({QStringLiteral("*.json")}, QDir::Files, QDir::Name);
+    for (const auto &name : names.mid(0, 128)) {
+        if (QUuid(QFileInfo(name).completeBaseName()).isNull()) continue;
+        const QString path = dir.filePath(name);
+        if (!RestoreJournal::ordinaryPath(root, path)
+            || !RestoreJournal::ordinaryPath(root, path + QStringLiteral(".lock"))) continue;
+        QLockFile lock(path + QStringLiteral(".lock"));
+        lock.setStaleLockTime(0);
+        if (!lock.tryLock(0)) continue;
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly) || file.size() > 64 * 1024) continue;
+        const auto json = QJsonDocument::fromJson(file.readAll()).object();
+        file.close();
+        if (!RestoreJournal::valid(root, json)) {
+            messages.append(QObject::tr("还原日志无效或路径不安全，未改动文件：%1").arg(path));
+            continue;
+        }
+        const QString target = json.value(QStringLiteral("target")).toString();
+        const QString retained = json.value(QStringLiteral("retained")).toString();
+        const bool hasTarget = QFileInfo::exists(target);
+        const bool hasOriginal = QFileInfo::exists(retained);
+        if (json.value(QStringLiteral("state")).toString() == QLatin1String("prepared")
+            && json.value(QStringLiteral("hadOriginal")).toBool()
+            && !hasTarget && hasOriginal && QFileInfo(retained).isDir()) {
+            if (QDir().rename(retained, target)) {
+                QFile::remove(path);
+                messages.append(QObject::tr("中断的还原已恢复原目录：%1").arg(target));
+            } else messages.append(QObject::tr("原目录未能归位，仍完整保留在：%1").arg(retained));
+        } else if (hasOriginal) {
+            messages.append(QObject::tr("还原事务保留了旧目录，未覆盖现有内容，请检查：%1").arg(retained));
+        } else if (hasTarget || !json.value(QStringLiteral("hadOriginal")).toBool()) {
+            QFile::remove(path); // Own journal only; no directory deletion.
+        } else messages.append(QObject::tr("还原事务的目标和旧目录均缺失，请检查日志：%1").arg(path));
+    }
+    messages += OwnedStaging::cleanup(root);
+    return messages;
+}
+
+int verifyTree(const QString &dir, const QList<FileRecord> &files,
+               const std::function<bool()> &cancelled) {
     int mismatched = 0;
     const QDir root(dir);
     for (const FileRecord &record : files) {
+        if (cancelled && cancelled()) return qMax(1, int(files.size()));
         const QFileInfo info(root.filePath(record.path));
         if (!info.isFile()) {
             ++mismatched;  // 缺了
@@ -900,7 +1131,7 @@ int verifyTree(const QString &dir, const QList<FileRecord> &files) {
         if (record.sha1.isEmpty()) {
             continue;  // 清单里本来就没记校验值（手改过的清单）—— 查不了，不算它错
         }
-        if (sha1OfFile(info.absoluteFilePath()) != record.sha1) {
+        if (sha1OfFile(info.absoluteFilePath(), cancelled) != record.sha1) {
             ++mismatched;  // 长度一样但内容不一样
         }
     }

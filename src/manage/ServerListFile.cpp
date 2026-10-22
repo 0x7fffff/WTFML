@@ -10,6 +10,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
+#include "util/WriteDirectoryGuard.hpp"
 #include <QUuid>
 
 #include "util/AppPaths.hpp"
@@ -95,6 +96,7 @@ bool setStringField(NbtTree::Node *compound, const QString &name, const QString 
 
 /// 把整份文件（含 gzip 那一层）落回 @p target，走 QSaveFile 原子替换。
 bool commitBytes(const QString &target, const QByteArray &body, bool gzipped, QString *problem) {
+    if (!WriteDirectoryGuard::acquire(target, problem)) return false;
     // 原来压着的那一份要压回去：直接落裸 NBT 的话，游戏（它读的是
     // `NbtIo.readCompressed`）会把这个文件当成坏的。
     QString tempGz;
