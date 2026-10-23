@@ -1508,6 +1508,7 @@ runModpackImportTests(sandbox);
 
 #ifndef WTFML_CORE_BASELINE
 runCurseForgeTests();
+runModpackCompletionTests(sandbox);
 #endif
 
     // -----------------------------------------------------------------------

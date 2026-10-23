@@ -49,6 +49,8 @@ struct PackFile {
     QStringList urls;  ///< 按顺序试的地址（Modrinth 一般只给一个）
     QString sha1;      ///< 清单里的 sha1，落盘后按它校验
     qint64 size = -1;  ///< 清单里的字节数；-1 = 没写（那就只校验 sha1）
+    int curseForgeProjectId = 0;
+    int curseForgeFileId = 0;
 };
 
 /// CurseForge 清单里的一条：**它只给两个号**（`projectID` / `fileID`），文件名和地址
@@ -58,6 +60,16 @@ struct PackFile {
 struct PackRef {
     int projectId = 0;
     int fileId = 0;
+};
+
+/// 未能自动取得的清单文件。保留原编号，避免用户只能看到一个没有行动入口的计数。
+struct FileIssue {
+    PackRef ref;
+    QString fileName;
+    QString path;
+    QString sha1;
+    qint64 size = -1;
+    QString reason;
 };
 
 struct BundledLibrary {
@@ -78,15 +90,15 @@ struct Pack {
     /// CurseForge 专用：还没换成地址的那些（见 PackRef）。解析完 `manifest.json` 之后
     /// **`files` 是空的、它们全在这儿** —— 换成了才挪过去。其余格式恒为空。
     QList<PackRef> pendingRefs;
+    QList<FileIssue> fileIssues;
     /// 清单里**有、但我们不会下**的文件个数，三个原因：
     /// - `env.client` 写着 `unsupported`（只给服务端用的 mod，装到客户端上会崩）；
     /// - `downloads` 是空的（Modrinth 规定这种文件该出现在 overrides 里，让压缩包自己带）；
     /// - CurseForge 那边它是个**嵌套的整合包**（`fileID` 指着一个 .zip，我们不代装）。
     /// 单独计数是为了在确认框里**如实说出来**：不说的话，用户会以为整合包少装了东西。
     int filesSkipped = 0;
-    /// CurseForge 专用：接口**明确说"不许第三方代下"**的个数（`downloadUrl` 是 null，
-    /// 那是作者在项目设置里关掉了第三方分发）。这一档和上面那种"按规矩跳过"**不是一回事**：
-    /// 用户自己动手是能补齐的，所以那句话得说到"你怎么办"（见 finishModpackImport）。
+    /// CurseForge 专用：平台明确标记文件不可用的个数。保留旧字段名，但空下载链接
+    /// 不再等同于作者禁止分发；实际失败原因仍以接口和下载结果为准。
     int filesNotDistributable = 0;
     /// CurseForge 专用：接口里**查不到**（或者文件已被作者删除 / 没过审 / 名字拼不出安全
     /// 路径）的个数。这一档是"这个包本身有问题"，用户除了换包没法处理。
@@ -303,15 +315,17 @@ QByteArray curseForgeModsRequestBody(const QList<int> &projectIds);
 struct CurseForgeFile {
     PackFile file;
     int modId = 0;
+    int fileId = 0;
 };
 
 /// 一次批量问号的结果。**四条出路必须分得开**（这和"无可用版本 / 列表没取到"是同一课）：
 /// - `problem` 非空 ⇒ 这一发根本没成（网络、限流、正文读不懂）—— 整件事停下来报错；
 /// - 换到的进 `resolved`；
-/// - 换不到的**分两类计数**：作者关了第三方分发（`Pack::filesNotDistributable`）、
+/// - 换不到的**分两类计数**：平台明确标记不可用（`Pack::filesNotDistributable`）、
 /// 接口里查不到（`Pack::filesMissing`）。
 struct CurseForgeFiles {
     QList<CurseForgeFile> resolved;
+    QList<FileIssue> issues;
     QList<int> projectIds;   ///< 这批文件属于哪几个项目（去重后，拿它去问 classId）
     int notDistributable = 0;
     int missing = 0;
@@ -331,6 +345,10 @@ struct CurseForgeFiles {
  */
 CurseForgeFiles parseCurseForgeFileInfo(const QByteArray &json, const QList<PackRef> &asked);
 
+/// API 链接为空时生成官方 CDN 候选；只接受正的文件 ID 和安全的单个文件名。
+/// 候选地址不证明文件可用，也不表示取得再分发许可；下载仍须检查响应与完整性。
+QString curseForgeDownloadUrl(qint64 fileId, const QString &fileName, const QString &declaredUrl);
+
 /**
  * @brief 这个项目属于哪一类 → 文件该落到实例目录的哪个子目录。
  * @param classId CurseForge 的类目号（6 模组 / 12 资源包 / 6552 光影 / 6945 数据包 /
@@ -348,6 +366,7 @@ QString curseForgeFilePath(int classId);
 /// 把换回来的文件摆进目录。**这是"号 → 能下的文件"的最后一步**。
 struct CurseForgePlacement {
     QList<PackFile> files;   ///< 这一步之后 `path` 才是完整的、能直接下的相对路径
+    QList<FileIssue> issues;
     int skipped = 0;         ///< 类目是嵌套整合包（见 curseForgeFilePath 的空串那一档）
     int missing = 0;         ///< 拼出来的路径过不了 isSafeRelativePath()（多半是太长）
 };

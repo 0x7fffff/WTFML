@@ -17,6 +17,7 @@ public:
     void importDroppedModpack(const QString &zipPath, const QString &namePrefill);
     void handleWindowDrop(const QStringList &paths);
 private:
+    void repairFromReport(const QString &reportPath);
     /// 「已经解析好的包」那半截：加载器检查、CurseForge 换地址、重名复查、挑安装器 Java、
     /// 置忙态、交给数据层。界面上那一半（问名字、确认框）和验证工程那一半都落到这里。
     bool applyResolvedModpackImport(const QString &zipPath, const QString &instanceName,

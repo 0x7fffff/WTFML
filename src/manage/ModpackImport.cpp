@@ -1425,6 +1425,16 @@ QByteArray curseForgeModsRequestBody(const QList<int> &projectIds) {
     return idListRequestBody(QStringLiteral("modIds"), projectIds);
 }
 
+QString curseForgeDownloadUrl(qint64 fileId, const QString &fileName, const QString &declaredUrl) {
+    if (!declaredUrl.trimmed().isEmpty()) return declaredUrl;
+    if (fileId <= 0 || fileId > 9007199254740991LL || fileName.contains(QLatin1Char('/')) ||
+        fileName.contains(QLatin1Char('\\')) || !isSafeRelativePath(fileName)) return {};
+    // 文件 ID 以千为界拆分，不依赖 ID 长度；文件名单独编码，避免 #、?、% 改变 URL 语义。
+    return QStringLiteral("https://edge.forgecdn.net/files/%1/%2/%3")
+        .arg(fileId / 1000).arg(fileId % 1000)
+        .arg(QString::fromLatin1(QUrl::toPercentEncoding(fileName)));
+}
+
 CurseForgeFiles parseCurseForgeFileInfo(const QByteArray &json, const QList<PackRef> &asked) {
     CurseForgeFiles out;
 
@@ -1466,6 +1476,7 @@ CurseForgeFiles parseCurseForgeFileInfo(const QByteArray &json, const QList<Pack
         const auto it = byFileId.constFind(ref.fileId);
         if (it == byFileId.constEnd()) {
             ++out.missing;  // 接口里没有这一条：号写错了 / 已删 / 没过审
+            out.issues.append({ref, {}, {}, {}, -1, QObject::tr("接口未返回此文件")});
             continue;
         }
         const QJsonObject entry = it.value();
@@ -1477,19 +1488,32 @@ CurseForgeFiles parseCurseForgeFileInfo(const QByteArray &json, const QList<Pack
         const QString fileName = entry.value(QStringLiteral("fileName")).toString();
         if (fileName.isEmpty() || !isSafeRelativePath(fileName)) {
             ++out.missing;
+            out.issues.append({ref, fileName, {}, {}, -1, QObject::tr("文件名缺失或路径不安全")});
             continue;
         }
 
-        // 作者关了第三方分发：接口给的就是一条 null。**不代下**（理由写在 .hpp 里那条
-        // NOTE：CDN 上确实躺着，但"技术上能下"不是"该下"）。
-        const QJsonValue url = entry.value(QStringLiteral("downloadUrl"));
-        if (!url.isString() || url.toString().isEmpty()) {
+        // 空链接不单独推断作者意图；明确不可用则不构造候选，更不伪报已下载。
+        if (entry.value(QStringLiteral("isAvailable")).isBool() &&
+            !entry.value(QStringLiteral("isAvailable")).toBool()) {
             ++out.notDistributable;
+            const QJsonValue size = entry.value(QStringLiteral("fileLength"));
+            const double length = size.toDouble(-1);
+            out.issues.append({ref, fileName, {},
+                sha1FromCurseForgeHashes(entry.value(QStringLiteral("hashes")).toArray()),
+                length >= 0 && length < 9223372036854775808.0 ? static_cast<qint64>(length) : -1,
+                QObject::tr("平台将文件标记为不可用")});
+            continue;
+        }
+        const QString url = curseForgeDownloadUrl(ref.fileId, fileName,
+            entry.value(QStringLiteral("downloadUrl")).toString());
+        if (url.isEmpty()) {
+            ++out.missing;
+            out.issues.append({ref, fileName, {}, {}, -1, QObject::tr("无法生成安全下载地址")});
             continue;
         }
 
         CurseForgeFile file;
-        file.file.urls.append(url.toString());
+        file.file.urls.append(url);
         file.file.sha1 = sha1FromCurseForgeHashes(entry.value(QStringLiteral("hashes")).toArray());
         // `fileLength` 越界（或者干脆不是数）= 当"不知道字节数"（-1）。和 Modrinth 那边
         // 同一个取舍：越界的 double 转 qint64 是未定义行为，而负数会变成一个永远下不完的作业。
@@ -1502,6 +1526,9 @@ CurseForgeFiles parseCurseForgeFileInfo(const QByteArray &json, const QList<Pack
         // `path` 里此刻只有一个文件名 —— 目录要拿 modId 去问 classId，见 placeCurseForgeFiles()。
         file.file.path = fileName;
         file.modId = entry.value(QStringLiteral("modId")).toInt(0);
+        file.fileId = ref.fileId;
+        file.file.curseForgeProjectId = ref.projectId;
+        file.file.curseForgeFileId = ref.fileId;
         out.resolved.append(file);
 
         if (file.modId > 0 && !seenProjects.contains(file.modId)) {
@@ -1559,6 +1586,8 @@ CurseForgePlacement placeCurseForgeFiles(const QList<CurseForgeFile> &resolved,
         // （isSafeRelativePath 的长度上限是按整条路径算的）。
         if (!isSafeRelativePath(file.path)) {
             ++out.missing;
+            out.issues.append({{entry.modId, entry.fileId}, entry.file.path, {}, file.sha1,
+                file.size, QObject::tr("目标路径超长或不安全")});
             continue;
         }
 

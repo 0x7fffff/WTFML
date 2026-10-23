@@ -108,6 +108,7 @@ add_library(core_cases_resources OBJECT
  core_modules/ModpackImportTests.cpp
  core_modules/MultiMCPatchImportTests.cpp
  core_modules/CurseForgeTests.cpp
+ core_modules/ModpackCompletionTests.cpp
  core_modules/ResourceCatalogTests.cpp
  core_modules/ResourceDetailTests.cpp
 )

@@ -1594,9 +1594,7 @@ void runResourceCatalogTests() {
                       versions.last().datePublished);
         }
 
-        // `downloadUrl` 是 **null** = 作者关掉了第三方分发。这一条真响应里没有样本
-        // （JEI 开着），所以自己造一条 —— 它是**许可**，不是"技术上做不到"：
-        // 界面上必须说清"作者不让代下"，而不是"没有可下载的文件"（后者会让用户一遍遍重试）。
+        // 空链接不等于明确不可用；资源页和整合包导入使用相同 CDN 候选规则。
         const QByteArray notDistributable = QByteArrayLiteral(
             "{\"data\":[{\"id\":123,\"fileName\":\"secret.jar\",\"fileLength\":10,"
             "\"downloadUrl\":null,\"gameVersions\":[\"1.21.1\",\"Forge\"],"
@@ -1604,11 +1602,22 @@ void runResourceCatalogTests() {
         const QList<ResourceCatalog::VersionEntry> locked =
             ResourceCatalog::parseCurseForgeVersions(notDistributable);
         check(locked.size() == 1 && locked.first().primaryFile() != nullptr &&
-                  locked.first().primaryFile()->url.isEmpty() &&
-                  !locked.first().primaryFile()->unavailableNote.isEmpty(),
-              "Z7h downloadUrl 是 null：地址留空 + 带一句说得通的话",
+                  locked.first().primaryFile()->url == QStringLiteral("https://edge.forgecdn.net/files/0/123/secret.jar") &&
+                  locked.first().primaryFile()->unavailableNote.isEmpty(),
+              "Z7h downloadUrl 是 null：生成候选，不误称作者禁止分发",
               locked.isEmpty() ? QString()
                                : locked.first().primaryFile()->unavailableNote);
+        QJsonObject unavailable = QJsonDocument::fromJson(notDistributable).object();
+        QJsonArray unavailableFiles = unavailable.value(QStringLiteral("data")).toArray();
+        QJsonObject unavailableFile = unavailableFiles.first().toObject();
+        unavailableFile.insert(QStringLiteral("isAvailable"), false);
+        unavailableFiles[0] = unavailableFile;
+        unavailable.insert(QStringLiteral("data"), unavailableFiles);
+        const auto blocked = ResourceCatalog::parseCurseForgeVersions(QJsonDocument(unavailable).toJson());
+        check(blocked.size() == 1 && blocked.first().primaryFile() != nullptr &&
+                  blocked.first().primaryFile()->url.isEmpty() &&
+                  !blocked.first().primaryFile()->unavailableNote.isEmpty(),
+              "Z7h 平台明确不可用时不构造下载地址");
         // md5 那条**不能**当 sha1 用（algo 2 是 md5）。上面那份夹具两条都有，读对了才是
         // 40 位；这一份只有 md5，读出来必须是空的（不然下载校验会一路失败）。
         check(locked.size() == 1 && locked.first().primaryFile() != nullptr &&

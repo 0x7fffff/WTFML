@@ -9,6 +9,7 @@ int main(int argc, char **argv) {
  const QString metaDir=QStringLiteral(REPO_ROOT_PATH)+"/tests/meta";
     runModpackImportTests(sandbox);
     runCurseForgeTests();
+    runModpackCompletionTests(sandbox);
     runResourceCatalogTests();
     runResourceDetailTests();
  out()<<"resources: "<<g_checks-g_failures<<"/"<<g_checks<<"\n"; return g_failures==0 && moduleStatus==0 ? 0 : 1;

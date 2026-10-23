@@ -1804,7 +1804,10 @@ static QList<VersionEntry> parseCurseForgeDocument(const QJsonDocument &document
         // 那边**一条就是一个文件**（不是"一个版本里带几个文件"）：每条有自己的 id、文件名
         // 和自己的 `gameVersions`。所以一条直接变成一个 VersionEntry、`files` 里只有它自己
         // （Modrinth 那边是"一个版本带文件数组"，形状不同但到界面上的形状是同一个）。
-        const qint64 fileId = static_cast<qint64>(object.value(QStringLiteral("id")).toDouble());
+        const double rawFileId = object.value(QStringLiteral("id")).toDouble();
+        const qint64 fileId = rawFileId > 0 && rawFileId <= 9007199254740991.0 &&
+            rawFileId == static_cast<double>(static_cast<qint64>(rawFileId))
+                ? static_cast<qint64>(rawFileId) : 0;
         entry.id = QString::number(fileId);
         const QString fileName = object.value(QStringLiteral("fileName")).toString();
         entry.versionNumber = object.value(QStringLiteral("displayName")).toString();
@@ -1837,16 +1840,14 @@ static QList<VersionEntry> parseCurseForgeDocument(const QJsonDocument &document
         file.size = static_cast<qint64>(object.value(QStringLiteral("fileLength")).toDouble());
         file.sha1 = curseForgeSha1(object);
         file.primary = true;  // 一条就是一个文件，它就是这一版的那个主文件
-        // `downloadUrl` **可能是 null** = 作者在项目设置里关掉了第三方分发（那家的规矩，
-        // 见 ModpackImport 里那条许可闸）。那时候地址是空串，而这**不是**"这一版还没传
-        // 文件" —— 得给用户一句说得通的话，否则他会一遍遍重试（见 unavailableNote）。
-        // 实测：那条 CDN 地址其实点得开（`edge.forgecdn.net/files/<id/1000>/<id%1000>/<name>`），
-        // 但接口给 null 就是在说"不许你代下"，所以这里一个字都不拼。
-        file.url = object.value(QStringLiteral("downloadUrl")).toString();
+        const bool explicitlyUnavailable = object.value(QStringLiteral("isAvailable")).isBool() &&
+            !object.value(QStringLiteral("isAvailable")).toBool();
+        file.url = explicitlyUnavailable ? QString() : ModpackImport::curseForgeDownloadUrl(
+            fileId, fileName, object.value(QStringLiteral("downloadUrl")).toString());
         if (file.url.isEmpty()) {
-            file.unavailableNote =
-                QStringLiteral("作者关掉了这个文件的第三方分发，启动器不能替你下载。\n\n"
-                               "可以在浏览器里打开这个项目，从它的文件页手动下载。");
+            file.unavailableNote = explicitlyUnavailable
+                ? QStringLiteral("CurseForge 将此文件标记为不可用，请在项目文件页确认其状态。")
+                : QStringLiteral("无法确定这个文件的下载地址，请在项目文件页确认或手动补齐。");
         }
         entry.files.append(file);
 

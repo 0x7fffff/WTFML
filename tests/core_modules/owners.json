@@ -1,4 +1,5 @@
 {
+  "ModpackCompletionTests.cpp": "resources",
   "PipelineTests.cpp": "downloads",
   "DownloadConcurrencyTests.cpp": "downloads",
   "DownloadSpeedLimitTests.cpp": "downloads",

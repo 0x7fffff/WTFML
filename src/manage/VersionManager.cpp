@@ -49,6 +49,7 @@
 #include "../util/ZipUtil.hpp"
 #include "FolderManager.hpp"
 #include "InstanceFiles.hpp"
+#include "ModpackInstallReport.hpp"
 
 namespace {
 
@@ -759,6 +760,7 @@ QString VersionManager::resolveCurseForgeFiles(ModpackImport::Pack *pack,
             return part.problem;
         }
         files.resolved += part.resolved;
+        files.issues += part.issues;
         files.projectIds += part.projectIds;
         files.notDistributable += part.notDistributable;
         files.missing += part.missing;
@@ -770,6 +772,9 @@ QString VersionManager::resolveCurseForgeFiles(ModpackImport::Pack *pack,
     QList<int> projectIds;
     {
         QSet<int> seen;
+        for (const auto &issue : files.issues) {
+            if (issue.ref.projectId > 0) files.projectIds.append(issue.ref.projectId);
+        }
         for (const int projectId : files.projectIds) {
             if (!seen.contains(projectId)) {
                 seen.insert(projectId);
@@ -808,6 +813,15 @@ QString VersionManager::resolveCurseForgeFiles(ModpackImport::Pack *pack,
     const ModpackImport::CurseForgePlacement placement =
         ModpackImport::placeCurseForgeFiles(files.resolved, classIds);
     pack->files = placement.files;
+    pack->fileIssues = files.issues;
+    for (auto &issue : pack->fileIssues) {
+        // 不知道类目时不猜手动补齐位置；重新查询后再校验，避免把资源包误当模组。
+        const QString dir = classIds.contains(issue.ref.projectId)
+            ? ModpackImport::curseForgeFilePath(classIds.value(issue.ref.projectId)) : QString();
+        if (!issue.fileName.isEmpty() && !dir.isEmpty() &&
+            ModpackImport::isSafeRelativePath(dir + issue.fileName)) issue.path = dir + issue.fileName;
+    }
+    pack->fileIssues += placement.issues;
     pack->pendingRefs.clear();
     pack->filesNotDistributable = files.notDistributable;
     // 两类"没换到"合在一起：接口说没有的 + 拼不出安全路径的（多半是路径太长）。
@@ -1204,7 +1218,7 @@ void VersionManager::importModpack(const QString &zipPath, const QString &instan
     // 的包（整个 .minecraft 塞进压缩包、清单里 files 是空数组）就是要走"零下载、直接解"。
     // 判据看的是**清单点了几条**，不是解析之后还剩几条。
     if (pack.format == ModpackImport::Format::CurseForge && pack.files.isEmpty() &&
-        pack.declaredFileCount != 0) {
+        pack.declaredFileCount != 0 && (!pack.pendingRefs.isEmpty() || pack.fileIssues.isEmpty())) {
         emit versionDownloadFinished(
             instanceId, false,
             tr("这个 CurseForge 整合包的文件清单没有换成下载地址：那种清单里只有编号，"
@@ -1285,8 +1299,8 @@ void VersionManager::startModpackFiles() {
 
     QString error;
     // 导入开始的标记先落下（`isUnfinishedImport()` 靠它区分"我们没导完的"
-    // 和"别的启动器装好的加载器实例"，见那边的 ④）。写不进去也不算失败：那种老办法
-    // （看薄 json 的形状）仍然认得出这一份；它只是少一层最硬的证据。
+    // 和"别的启动器装好的加载器实例"，见那边的 ④）。原子写入失败就停止，
+    // 不继续产生缺少归属凭据的新文件。
     // 标记里顺手记下**这一份清单的指纹**：同名再导入时，`checkImportTargetName()` 靠它
     // 认出"上一次没导完的是这个包"还是"另一个包撞了名字"。标记里没有指纹（读侧解析
     // 不出来的当成"没有指纹"）时照常放行，盘上已有的半成品照样能接着导入。
@@ -1297,8 +1311,11 @@ void VersionManager::startModpackFiles() {
     if (!m_modpackInstall.manifestFingerprint.isEmpty()) {
         markerJson[QStringLiteral("manifestSha256")] = m_modpackInstall.manifestFingerprint;
     }
-    if (QFile marker(InstanceFiles::importMarkerPath(id)); marker.open(QIODevice::WriteOnly)) {
-        marker.write(QJsonDocument(markerJson).toJson(QJsonDocument::Compact));
+    const QByteArray markerBytes = QJsonDocument(markerJson).toJson(QJsonDocument::Compact);
+    QSaveFile marker(InstanceFiles::importMarkerPath(id));
+    if (!marker.open(QIODevice::WriteOnly) || marker.write(markerBytes) != markerBytes.size() || !marker.commit()) {
+        failModpackImport(tr("无法保存未完成导入标记，未继续写入实例：%1").arg(marker.errorString()));
+        return;
     }
     if (!writeVersionJson(id, AppPaths::versionDir(id), json, &error)) {
         failModpackImport(tr("实例的版本文件没能写进 %1：%2\n\n（这份文件是启动器认这个实例的"
@@ -1425,6 +1442,24 @@ void VersionManager::finishModpackImport() {
     const int missing = pack.filesMissing;
     const int extracted = m_modpackInstall.extractedEntries;
 
+    const auto issues = ModpackInstallReport::remaining(pack.fileIssues, AppPaths::versionDir(id));
+    const bool complete = issues.isEmpty() && notDistributable + missing <= pack.fileIssues.size();
+    QString reportProblem;
+    if (!ModpackInstallReport::write(AppPaths::versionDir(id), pack, issues, complete, &reportProblem)) {
+        failModpackImport(tr("无法保存导入结果，保留未完成状态：%1").arg(reportProblem));
+        return;
+    }
+    if (!complete) {
+        // 必须在写 meta、移除 importing 标记之前终止，否则缺文件也会变成正常实例。
+        QStringList details;
+        for (const auto &issue : issues) details.append(ModpackInstallReport::description(issue));
+        failModpackImport(tr("整合包仍不完整，已下载文件和覆盖内容均保留，没有标记为安装成功。\n\n%1"
+            "\n\n逐项清单：%2\n手动补齐后，重新导入同一个包并使用同一实例名，可重新校验并继续。")
+            .arg(details.join(QStringLiteral("\n\n")),
+                 QDir::toNativeSeparators(AppPaths::versionDir(id) + QStringLiteral("/wtfml.import-report.json"))));
+        return;
+    }
+
     // 自检：装完的东西得真的能被列表认出来。判据用**读侧那一份**（InstanceFiles::
     // resolveInstance），不自己再判一遍 —— "装是装了、列表里看不见"这个症状这个项目已经
     // 撞过两次（见 InstanceFiles.hpp 里 recognized() 那段），所以这里宁可多问一句。
@@ -1470,20 +1505,9 @@ void VersionManager::finishModpackImport() {
     if (extracted > 0) {
         extra += tr("（解开了 %1 个覆盖文件）").arg(extracted);
     }
-    // 那两种"没下成"要**分开说**（.hpp 里那两条 NOTE）：一种是作者不许代下（用户自己能补，
-    // 所以得说清"怎么办"），另一种是接口里查不到（用户补不了，只能换包或者认了）。
+    // 到这里已通过逐项校验；不要仍把用户手动补齐的内容称作缺失。
     if (notDistributable > 0) {
-        extra += tr("\n\n有 %1 个文件作者关了「允许第三方分发」，没有替你下。少了它们这个包"
-                    "多半进不去游戏：去 CurseForge 上那个整合包的页面把它们下下来，手动放进"
-                    "%2 里（模组放 mods/、资源包放 resourcepacks/、光影放 shaderpacks/ —— "
-                    "对照那个整合包页面上的文件列表。清单里只有它们的编号，没有名字）。")
-                     .arg(notDistributable)
-                     .arg(AppPaths::versionDir(id));
-    }
-    if (missing > 0) {
-        extra += tr("\n\n还有 %1 个文件在 CurseForge 上已经查不到了（作者删了、或者没过审）——"
-                    "这一部分没有办法补，这个整合包可能已经过期。")
-                     .arg(missing);
+        extra += tr("\n\n已校验通过 %1 个本地手动补齐文件。").arg(notDistributable);
     }
     // 这一种格式自带的话：MultiMC 实例导入了什么、没导入什么，lwjgl3ify 为什么会起不来。
     // 这条必须落在**终态**里 —— 用户装完就往下走，不会再翻日志。
@@ -1512,8 +1536,24 @@ void VersionManager::failModpackImport(const QString &reason) {
     abandonOwnBatch();
 
     const QString id = m_modpackInstall.instanceId;
+    QString finalReason = reason;
+    if (QFileInfo::exists(InstanceFiles::importMarkerPath(id))) {
+        QList<ModpackImport::FileIssue> candidates = m_modpackInstall.pack.fileIssues;
+        for (const auto &file : m_modpackInstall.pack.files) candidates.append({
+            {file.curseForgeProjectId, file.curseForgeFileId}, QFileInfo(file.path).fileName(),
+            file.path, file.sha1, file.size, tr("下载未完成或文件校验未通过")});
+        const auto issues = ModpackInstallReport::remaining(candidates, AppPaths::versionDir(id));
+        QString reportProblem;
+        if (!ModpackInstallReport::write(AppPaths::versionDir(id), m_modpackInstall.pack,
+                                         issues, false, &reportProblem, reason)) {
+            finalReason += tr("\n无法保存逐项报告：%1").arg(reportProblem);
+        } else {
+            finalReason += tr("\n逐项报告：%1").arg(QDir::toNativeSeparators(
+                AppPaths::versionDir(id) + QStringLiteral("/wtfml.import-report.json")));
+        }
+    }
     m_modpackInstall.reset();
-    emit versionDownloadFinished(id, false, reason);
+    emit versionDownloadFinished(id, false, finalReason);
 }
 
 // ---------------------------------------------------------------------------

@@ -11,20 +11,30 @@
 #include "manage/FolderManager.hpp"
 #include "manage/InstanceFiles.hpp"
 #include "manage/ModpackImport.hpp"
+#include "manage/ModpackInstallReport.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "util/AppPaths.hpp"
 #include "util/WriteDirectoryGuard.hpp"
 #include <QDir>
+#include <QDesktopServices>
 #include <QCryptographicHash>
 #include <QEventLoop>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QSaveFile>
+#include <QSet>
+#include <QListWidget>
+#include <QLabel>
 #include <QThread>
 #include <QTimer>
 #include <QUuid>
+#include <QFutureWatcher>
+#include <QElapsedTimer>
+#include <QtConcurrent/QtConcurrentRun>
+#include <atomic>
+#include <memory>
 
 ImportController::ImportController(MainWindow *owner) : QObject(owner), m_owner(owner) {
     // PCL 那种"压缩包里套一份 .mrpack"解出来的临时包：导入整段（成功、失败、取消）结束时
@@ -93,7 +103,7 @@ void ImportController::onImportModpackClicked() {
     // onAddFolderClicked() 上面那一段。
     const QString zipPath = QFileDialog::getOpenFileName(
         m_owner, m_owner->tr("选一个整合包"), QString(),
-        m_owner->tr("整合包 (*.zip *.mrpack);;所有文件 (*)"));
+        m_owner->tr("整合包 (*.zip *.mrpack);;继续补齐报告 (wtfml.import-report.json);;所有文件 (*)"));
     if (zipPath.isEmpty()) {
         return;  // 用户取消：什么都不做，也**不弹**任何提示
     }
@@ -126,6 +136,11 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
         return;
     }
     const FlowGuard flowGuard(m_importFlow);
+
+    if (QFileInfo(zipPath).fileName() == QStringLiteral("wtfml.import-report.json")) {
+        repairFromReport(zipPath);
+        return;
+    }
 
     // 先把**条目名**列一遍（不解压任何东西）。这一步代替了以前"按两个固定名字各读一次"：
     // 多花一个 PowerShell 进程，换来的是能认出没有固定清单的那几种包 —— MultiMC / Prism
@@ -476,7 +491,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
                                        pack.loaderVersion)
                    : m_owner->tr(" + %1 %2").arg(pack.loaderKey, pack.loaderVersion));
     // 判据是 fileCount()（= 要下的 + 还没换成地址的）：CurseForge 那一档走到这里已经换过了
-    // （上面那一发），两者相等；**万一**换完一条都不剩（接口说"一个都不许代下"），这里报出来
+    // （上面那一发），两者相等；**万一**换完一条都不剩（文件全不可用），这里报出来
     // 的就是 0 —— 那正是用户该看到的数。**全是 0 的时候要说清那不等于什么都没装**：
     // 这类包的内容全在压缩包里，接下来要做的是解开它。
     const int downloadCount = pack.fileCount();
@@ -486,7 +501,9 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
             : QString();
     const QString downloadText =
         downloadCount == 0
-            ? m_owner->tr("要下载的文件：0 个（内容都在压缩包里，直接解进实例）%1").arg(skippedText)
+            ? (pack.fileIssues.isEmpty()
+                ? m_owner->tr("要下载的文件：0 个（内容都在压缩包里，直接解进实例）%1").arg(skippedText)
+                : m_owner->tr("当前可自动下载：0 个；另有 %1 个文件需要补齐。").arg(pack.fileIssues.size()))
             : m_owner->tr("要下载的文件：%1 个%2").arg(downloadCount).arg(skippedText);
     // `supportNote` 是 MultiMC / 懒人包那几种格式自带的说明（导入了什么、没导入什么，
     // lwjgl3ify 为什么会起不来）—— 必须**在点确认之前**让用户看见。
@@ -502,17 +519,37 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
         m_owner->appendLog(m_owner->tr("已取消导入 %1。").arg(pack.name));
         return;
     }
-    // 作者不许第三方代下的那些**要在动手之前说**（换完才知道有几个，所以只能在这儿说）：
-    // 点下去之后那几十个文件里会少这几条，而"少装了东西"是这个流程里最容易到进游戏才
-    // 发现的。选「是」不是同意"接受少装"，只是知道了。
-    if (pack.filesNotDistributable > 0) {
-        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("有文件作者不许代下"),
-            m_owner->tr("这个整合包里有 %1 个文件，作者在 CurseForge 上关掉了「允许第三方分发」，"
-               "启动器不会替你下。\n\n装完之后你可能得自己去 CurseForge 上那个整合包的页面把"
-               "它们下下来，手动放进 %2 里（模组放 mods/、资源包放 resourcepacks/、光影放 "
-               "shaderpacks/）。收尾那句话里会再提醒一次。")
-                .arg(pack.filesNotDistributable)
-                .arg(QDir::toNativeSeparators(AppPaths::versionDir(name))));
+    if (!pack.fileIssues.isEmpty()) {
+        QStringList entries;
+        for (const auto &issue : pack.fileIssues) entries.append(QStringLiteral("%1 — %2").arg(
+            issue.fileName.isEmpty() ? m_owner->tr("文件 %1").arg(issue.ref.fileId) : issue.fileName.simplified(),
+            issue.reason.simplified()));
+        int selected = 0;
+        for (;;) {
+            InlineMessageBox box(MessageKind::Warning, m_owner->tr("有文件需要补齐"),
+                m_owner->tr("选中文件可打开对应网页。可以先安装其余内容，但文件未补齐时不会标记为成功。"
+                    "\n补齐位置：%1\n重新导入同一个包和实例名可重新校验。").arg(
+                    QDir::toNativeSeparators(AppPaths::versionDir(name))),
+                {m_owner->tr("继续安装其余内容"), m_owner->tr("打开所选文件网页"), m_owner->tr("取消")}, 2, -1);
+            auto *list = box.setList(entries, selected);
+            const auto updateDetails = [&](int row) {
+                if (row < 0 || row >= pack.fileIssues.size()) return;
+                box.setNote(ModpackInstallReport::description(pack.fileIssues.at(row)));
+                // 元数据来自外部，文件名中的标签也只能当普通文本显示。
+                if (auto *label = box.findChild<QLabel *>(InlineMessageBox::noteLabelName()))
+                    label->setTextFormat(Qt::PlainText);
+            };
+            updateDetails(selected);
+            QObject::connect(list, &QListWidget::currentRowChanged, &box, updateDetails);
+            m_owner->m_ui->overlay()->execPrompt(&box);
+            selected = box.listRow();
+            if (box.clickedIndex() == 0) break;
+            if (box.clickedIndex() != 1) return;
+            if (selected < 0 || selected >= pack.fileIssues.size()) continue;
+            const auto &ref = pack.fileIssues.at(selected).ref;
+            if (ref.projectId > 0 && ref.fileId > 0) QDesktopServices::openUrl(QUrl(
+                QStringLiteral("https://www.curseforge.com/projects/%1/files/%2").arg(ref.projectId).arg(ref.fileId)));
+        }
     }
 
     if (!tempArchive.isEmpty()) m_tempArchives.insert(name, tempArchive);
@@ -522,6 +559,92 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
         // 谁删：构造函数里接的 versionDownloadFinished（见 .hpp）。
         tempGuard.release();
     } else if (!started) m_tempArchives.remove(name);
+}
+
+void ImportController::repairFromReport(const QString &reportPath) {
+    const QString root = QFileInfo(reportPath).absolutePath();
+    const QString id = QFileInfo(root).fileName();
+    auto *overlay = m_owner->m_ui->overlay();
+    // 不把报告中声明的路径当作写入授权：只允许当前数据目录下的直接实例目录。
+    if (InstanceFiles::canonicalPath(root) != InstanceFiles::canonicalPath(AppPaths::versionDir(id))) {
+        InlineMessage::warning(overlay, tr("不能补齐"), tr("请先切换到这份报告所在的数据目录，再选择报告。"));
+        return;
+    }
+    ModpackInstallReport::Report report;
+    QString problem;
+    if (!ModpackInstallReport::read(root, &report, &problem)) {
+        InlineMessage::warning(overlay, tr("读不了补齐报告"), problem);
+        return;
+    }
+    QString lastResult;
+    QSet<int> checked;
+    int selected = 0;
+    for (;;) {
+        QStringList names;
+        for (int index = 0; index < report.issues.size(); ++index) {
+            const auto &issue = report.issues.at(index);
+            names.append((checked.contains(index) ? tr("✓ 已校验 · ") : QString()) +
+                (issue.fileName.isEmpty() ? tr("文件 %1").arg(issue.ref.fileId) : issue.fileName));
+        }
+        InlineMessageBox box(MessageKind::Information, tr("补齐：%1").arg(report.packName),
+            tr("选择缺项，再选择已下载的本地文件。校验通过后放入对应位置，不覆盖已有文件。"
+               "\n补齐不等于安装完成；最后仍需用原包、同一实例名继续导入。"),
+            {tr("选择本地文件"), tr("打开文件网页"), tr("关闭")}, 2, -1, m_owner);
+        auto *list = box.setList(names, selected);
+        auto show = [&](int row) {
+            QString note = lastResult;
+            if (row >= 0 && row < report.issues.size())
+                note += QLatin1Char('\n') + ModpackInstallReport::description(report.issues.at(row));
+            box.setNote(note);
+            if (auto *label = box.findChild<QLabel *>(InlineMessageBox::noteLabelName()))
+                label->setTextFormat(Qt::PlainText);
+        };
+        connect(list, &QListWidget::currentRowChanged, &box, show);
+        show(list->currentRow());
+        overlay->execPrompt(&box);
+        selected = box.listRow();
+        if (box.clickedIndex() < 0 || box.clickedIndex() == 2) return;
+        if (selected < 0 || selected >= report.issues.size()) continue;
+        const auto issue = report.issues.at(selected);
+        if (box.clickedIndex() == 1) {
+            if (issue.ref.projectId > 0 && issue.ref.fileId > 0)
+                QDesktopServices::openUrl(QUrl(QStringLiteral("https://www.curseforge.com/projects/%1/files/%2")
+                    .arg(issue.ref.projectId).arg(issue.ref.fileId)));
+            continue;
+        }
+        const QString source = QFileDialog::getOpenFileName(m_owner, tr("选择补齐文件"), {}, tr("所有文件 (*)"));
+        if (source.isEmpty()) continue;
+        if (m_owner->m_downloadInFlight || m_owner->m_launcherManager->isVersionRunning(id) ||
+            !WriteDirectoryGuard::acquire(root, &problem)) {
+            lastResult = tr("实例运行中、安装任务繁忙或无法取得写锁，未写入。\n%1").arg(problem);
+            continue;
+        }
+        auto cancelled = std::make_shared<std::atomic_bool>(false);
+        InlineMessageBox progress(MessageKind::Information, tr("正在校验并补齐"),
+            tr("%1\n核对大小与 SHA-1；最多运行 900 秒，可随时取消。").arg(issue.fileName),
+            {tr("取消")}, -1, -1, m_owner);
+        QFutureWatcher<QString> watcher;
+        connect(&watcher, &QFutureWatcher<QString>::finished, &progress, &QDialog::accept);
+        watcher.setFuture(QtConcurrent::run([root, issue, source, cancelled] {
+            QElapsedTimer timer; timer.start();
+            QString error;
+            const bool ok = ModpackInstallReport::supply(root, issue, source, &error,
+                [cancelled, &timer] { return cancelled->load() || timer.elapsed() >= 900000; });
+            return ok ? QString() : error;
+        }));
+        overlay->execPrompt(&progress);
+        if (!watcher.isFinished()) {
+            cancelled->store(true);
+            // 不销毁仍在访问的数据；继续重绘但暂不放行其它输入，等一个文件块返回。
+            QEventLoop wait;
+            connect(&watcher, &QFutureWatcher<QString>::finished, &wait, &QEventLoop::quit);
+            if (!watcher.isFinished()) wait.exec(QEventLoop::ExcludeUserInputEvents);
+        }
+        if (watcher.result().isEmpty()) checked.insert(selected);
+        lastResult = watcher.result().isEmpty()
+            ? tr("该文件已校验通过。全部补齐后，请用原包同名继续导入完成安装。") : watcher.result();
+        m_owner->appendLog(lastResult);
+    }
 }
 
 bool ImportController::applyModpackImport(const QString &zipPath, const QString &instanceName,

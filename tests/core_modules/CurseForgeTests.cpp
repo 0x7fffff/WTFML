@@ -1,6 +1,99 @@
 #include "Support.hpp"
+#include "manage/ModpackInstallReport.hpp"
 
 void runCurseForgeTests() {
+    {
+        QTemporaryDir temp;
+        const QString root = temp.path();
+        const QByteArray bytes("manual-mod");
+        ModpackImport::FileIssue issue{{123,456}, QStringLiteral("local.jar"),
+            QStringLiteral("mods/local.jar"), QString::fromLatin1(QCryptographicHash::hash(bytes,
+            QCryptographicHash::Sha1).toHex()), bytes.size(), QStringLiteral("平台标记不可用")};
+        check(ModpackInstallReport::remaining({issue}, root).size() == 1,
+              "ZG0 手动文件尚未补齐时保留缺项");
+        QDir().mkpath(root + QStringLiteral("/mods"));
+        QFile local(root + QStringLiteral("/mods/local.jar"));
+        check(local.open(QIODevice::WriteOnly) && local.write(QByteArray(bytes.size(),'x')) == bytes.size(),
+              "ZG0 写入同名同大小的错误文件");
+        local.close();
+        check(ModpackInstallReport::remaining({issue}, root).size() == 1,
+              "ZG0 同名且大小相同仍需 SHA-1，不误判补齐");
+        check(local.open(QIODevice::WriteOnly) && local.write(bytes) == bytes.size(), "ZG0 写入正确补齐文件");
+        local.close();
+        check(ModpackInstallReport::remaining({issue}, root).isEmpty(),
+              "ZG0 大小与 SHA-1 一致后才消除缺项");
+        auto bad = issue;
+        bad.sha1.clear();
+        check(ModpackInstallReport::remaining({bad}, root).size() == 1,
+              "ZG0 没有强校验信息时不能凭文件名确认补齐");
+        bad = issue; bad.path = QStringLiteral("../local.jar");
+        check(ModpackInstallReport::remaining({bad}, root).size() == 1,
+              "ZG0 越界路径不读取、不算补齐");
+        ModpackImport::Pack pack; pack.name = QStringLiteral("报告测试包");
+        QString error;
+        check(ModpackInstallReport::write(root, pack, {issue}, false, &error),
+              "ZG0 缺项报告原子写入", error);
+        QFile report(root + QStringLiteral("/wtfml.import-report.json"));
+        check(report.open(QIODevice::ReadOnly), "ZG0 持久报告可读取");
+        const auto json = QJsonDocument::fromJson(report.readAll()).object(); report.close();
+        const auto reportIssues = json.value(QStringLiteral("issues")).toArray();
+        const auto entry = reportIssues.isEmpty() ? QJsonObject() : reportIssues.first().toObject();
+        check(!json.value(QStringLiteral("complete")).toBool() &&
+                  entry.value(QStringLiteral("fileId")).toInt() == 456 &&
+                  entry.value(QStringLiteral("webUrl")).toString() == QStringLiteral(
+                      "https://www.curseforge.com/projects/123/files/456") &&
+                  entry.value(QStringLiteral("sha1")).toString() == issue.sha1,
+              "ZG0 报告保留缺项编号、固定官方网页和校验信息");
+        ModpackInstallReport::Report parsed;
+        check(ModpackInstallReport::read(root, &parsed, &error) && parsed.issues.size() == 1 &&
+                  parsed.issues.first().sha1 == issue.sha1 && !parsed.complete,
+              "ZG0 报告严格读取并保留强校验信息", error);
+        auto supplied = issue; supplied.path = QStringLiteral("mods/repaired.jar");
+        check(ModpackInstallReport::supply(root, supplied, local.fileName(), &error) &&
+                  ModpackInstallReport::remaining({supplied}, root).isEmpty(),
+              "ZG0 本地文件按校验部署到清单路径而非源文件名", error);
+        check(!ModpackInstallReport::supply(root, supplied, local.fileName(), &error),
+              "ZG0 不静默覆盖已存在的目标文件");
+        check(ModpackInstallReport::supply(root, supplied, root + QLatin1Char('/') + supplied.path, &error),
+              "ZG0 选择目标文件本身可安全重新校验", error);
+        supplied.path = QStringLiteral("mods/cancelled.jar");
+        int calls = 0;
+        check(!ModpackInstallReport::supply(root, supplied, local.fileName(), &error,
+                  [&calls] { return ++calls >= 3; }) &&
+                  !QFileInfo::exists(root + QLatin1Char('/') + supplied.path),
+              "ZG0 发布前取消不留下半个文件");
+        supplied.sha1 = QString(40, QLatin1Char('0'));
+        check(!ModpackInstallReport::supply(root, supplied, local.fileName(), &error) &&
+                  !QFileInfo::exists(root + QLatin1Char('/') + supplied.path),
+              "ZG0 同大小错误哈希不会发布文件");
+        supplied = issue; supplied.path = QStringLiteral("../escape.jar");
+        check(!ModpackInstallReport::supply(root, supplied, local.fileName(), &error),
+              "ZG0 本地补齐拒绝越界路径");
+        supplied = issue; supplied.sha1.clear();
+        check(!ModpackInstallReport::supply(root, supplied, local.fileName(), &error),
+              "ZG0 本地补齐缺少哈希不按名称猜测");
+        auto invalid = json;
+        invalid[QStringLiteral("schemaVersion")] = 99;
+        check(report.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
+                  report.write(QJsonDocument(invalid).toJson()) > 0, "ZG0 写入未知版本报告样本");
+        report.close();
+        check(!ModpackInstallReport::read(root, &parsed, &error) && parsed.issues.isEmpty(),
+              "ZG0 未知版本报告拒绝且不返回旧数据");
+        invalid = json;
+        auto invalidEntries = reportIssues;
+        auto invalidEntry = entry;
+        invalidEntry[QStringLiteral("path")] = QStringLiteral("../escape.jar");
+        invalidEntries[0] = invalidEntry;
+        invalid[QStringLiteral("issues")] = invalidEntries;
+        check(report.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
+                  report.write(QJsonDocument(invalid).toJson()) > 0, "ZG0 写入越界报告样本");
+        report.close();
+        check(!ModpackInstallReport::read(root, &parsed, &error), "ZG0 报告越界路径拒绝读取");
+        check(ModpackInstallReport::write(root, pack, {}, true, &error),
+              "ZG0 补齐后可更新报告为完成状态", error);
+        check(!ModpackInstallReport::write(root + QStringLiteral("/not-created"), pack, {}, false, &error) &&
+                  !error.isEmpty(), "ZG0 报告写入失败明确返回错误");
+    }
     section("ZG. CurseForge 的整合包：号 → 文件 → 落点（纯函数，全程不联网）");
 
     // ---------------------------------------------------------------------
@@ -219,11 +312,10 @@ void runCurseForgeTests() {
               "ZG3 问类目那一发的正文是 {\"modIds\":[数字…]}",
               QString::fromUtf8(QJsonDocument(modsBody).toJson(QJsonDocument::Compact)));
 
-        // 一份照真响应写的答复：**顺序和问的相反**，而且其中一个作者关了第三方分发
-        // （`downloadUrl` 是 null）、一个查不到。真响应里的 hashes 数组常常 md5 在前。
+        // 顺序和问的相反；空链接仍有 CDN 候选，明确不可用与查不到分别统计。
         const QByteArray reply = R"json({"data":[
             {"id":1000001,"modId":306612,"fileName":"b.jar","fileLength":2048,
-             "downloadUrl":null,
+             "downloadUrl":null,"isAvailable":false,
              "hashes":[{"value":"bbbb","algo":1},{"value":"cccc","algo":2}]},
             {"id":8971390,"modId":238222,"fileName":"a.jar","fileLength":1024,
              "downloadUrl":"https://edge.forgecdn.net/files/8971/390/a.jar",
@@ -236,13 +328,16 @@ void runCurseForgeTests() {
             ModpackImport::parseCurseForgeFileInfo(reply, asked);
         check(parsed.problem.isEmpty() && parsed.resolved.size() == 1 &&
                   parsed.notDistributable == 1 && parsed.missing == 1,
-              "ZG3 三条问出去：换到 1 条、1 条作者不许代下、1 条查不到（三类分得开）",
+              "ZG3 三条问出去：换到 1 条、1 条平台标记不可用、1 条查不到（三类分得开）",
               parsed.problem.isEmpty()
-                  ? QStringLiteral("换到 %1 / 不许 %2 / 查不到 %3")
+                  ? QStringLiteral("换到 %1 / 不可用 %2 / 查不到 %3")
                         .arg(parsed.resolved.size())
                         .arg(parsed.notDistributable)
                         .arg(parsed.missing)
                   : parsed.problem);
+        check(parsed.issues.size() == 2 && parsed.issues.first().ref.fileId == 1000001 &&
+                  parsed.issues.last().ref.fileId == 555,
+              "ZG3 不可用与接口未返回的条目保留原清单编号，不只统计数量");
         if (parsed.resolved.size() == 1) {
             const ModpackImport::CurseForgeFile &file = parsed.resolved.first();
             // **这一条是这一节里最值钱的**：正文的次序和问的次序相反，按位置取会把
@@ -258,8 +353,35 @@ void runCurseForgeTests() {
                   "ZG3 sha1 取的是 algo==1 那一条，不是数组的第 0 条", file.file.sha1);
         }
         check(parsed.projectIds.size() == 1 && parsed.projectIds.value(0) == 238222,
-              "ZG3 只有换到了的才需要去问类目（不许代下 / 查不到的那两个不用问）",
+              "ZG3 只有换到了的才需要去问类目（不可用 / 查不到的那两个不用问）",
               QStringLiteral("%1 个").arg(parsed.projectIds.size()));
+
+        const auto fallback = ModpackImport::parseCurseForgeFileInfo(
+            R"json({"data":[{"id":1000001,"modId":306612,"fileName":"a #%中文.jar",
+            "downloadUrl":null,"fileLength":12,"hashes":[{"algo":1,"value":"aaaa"}]}]})json",
+            {{306612, 1000001}});
+        check(fallback.resolved.size() == 1 && fallback.notDistributable == 0 &&
+                  fallback.missing == 0 && fallback.resolved.first().file.sha1 == QStringLiteral("aaaa") &&
+                  fallback.resolved.first().file.urls.first() == QStringLiteral(
+                      "https://edge.forgecdn.net/files/1000/1/a%20%23%25%E4%B8%AD%E6%96%87.jar"),
+              "ZG3 空链接生成官方 CDN 候选并保留校验信息，特殊字符仅作为文件名编码");
+        check(ModpackImport::curseForgeDownloadUrl(123, QStringLiteral("x.jar"), {}) ==
+                  QStringLiteral("https://edge.forgecdn.net/files/0/123/x.jar") &&
+                  ModpackImport::curseForgeDownloadUrl(123456789, QStringLiteral("x.jar"), {}) ==
+                  QStringLiteral("https://edge.forgecdn.net/files/123456/789/x.jar"),
+              "ZG3 CDN 文件 ID 不依赖固定位数");
+        check(ModpackImport::curseForgeDownloadUrl(0, QStringLiteral("x.jar"), {}).isEmpty() &&
+                  ModpackImport::curseForgeDownloadUrl(-1, QStringLiteral("x.jar"), {}).isEmpty() &&
+                  ModpackImport::curseForgeDownloadUrl(9007199254740992LL, QStringLiteral("x.jar"), {}).isEmpty() &&
+                  ModpackImport::curseForgeDownloadUrl(123, QStringLiteral("../x.jar"), {}).isEmpty() &&
+                  ModpackImport::curseForgeDownloadUrl(123, QStringLiteral("sub/x.jar"), {}).isEmpty() &&
+                  ModpackImport::curseForgeDownloadUrl(123, QStringLiteral("x?.jar"), {}).isEmpty() &&
+                  ModpackImport::curseForgeDownloadUrl(123, QStringLiteral("sub\\x.jar"), {}).isEmpty(),
+              "ZG3 不为非法 ID 或带目录的文件名构造 CDN 候选");
+        check(ModpackImport::curseForgeDownloadUrl(123, QStringLiteral("x.jar"),
+                  QStringLiteral("https://example.invalid/original.jar")) ==
+                  QStringLiteral("https://example.invalid/original.jar"),
+              "ZG3 接口已有地址保持不变");
 
         // 文件名是**外部输入**，它要拼进路径。往外跳的那两条当场算"查不到"，而
         // **整包不拒绝**（和 Modrinth 那份清单不同：那边路径是作者写在清单里的）。
