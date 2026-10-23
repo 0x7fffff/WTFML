@@ -1,7 +1,141 @@
 #include "Support.hpp"
+#include <QUuid>
+
+void runMultiMCPatchImportTests(const QString &sandbox);
 
 void runModpackImportTests(const QString &sandbox) {
     section("V. 整合包导入：清单解析 / 路径判据 / 按前缀解压");
+    runMultiMCPatchImportTests(sandbox);
+
+    // Archive layout and compatibility are production decisions, not filename guesses.
+    {
+        using namespace ModpackImport;
+        for (const QStringList &names : {
+                 QStringList{QStringLiteral("example.jar")},
+                 QStringList{QStringLiteral("mods/example.jar"), QStringLiteral("mods/other.jar")},
+                 QStringList{QStringLiteral("fabric.mod.json"), QStringLiteral("config/default.json")},
+                 QStringList{QStringLiteral("META-INF/mods.toml"), QStringLiteral("config/default.toml")}}) {
+            const auto layout = detectArchiveLayout(names);
+            check(layout.modsBundle && layout.format == Format::Unknown,
+                  "V0 单模组或模组合集不作为整合包", names.join(QLatin1Char(',')));
+        }
+        const QStringList nested{QStringLiteral("启动器.exe"),
+            QStringLiteral(".minecraft/config/example.json"),
+            QStringLiteral(".minecraft/mods/example.jar"),
+            QStringLiteral(".minecraft/versions/1.20.1-fabric/1.20.1-fabric.json")};
+        const auto nestedLayout = detectArchiveLayout(nested);
+        check(nestedLayout.format == Format::GameFolder &&
+                  nestedLayout.gameDirPrefix == QStringLiteral(".minecraft/") &&
+                  nestedLayout.versionJsonEntry.endsWith(QStringLiteral("1.20.1-fabric.json")),
+              "V0 懒人包忽略旁边启动器，仅选择明确的游戏目录");
+        const QByteArray version = R"({"id":"1.20.1-fabric","inheritsFrom":"1.20.1","libraries":[{"name":"net.fabricmc:fabric-loader:0.16.14"}]})";
+        const auto folder = parseGameFolderInstance(nested, version, nestedLayout.gameDirPrefix, "Example");
+        check(folder.ok && folder.pack.gameVersion == QStringLiteral("1.20.1") &&
+                  folder.pack.loaderVersion == QStringLiteral("0.16.14") &&
+                  folder.pack.overridesDir == QStringLiteral(".minecraft") &&
+                  folder.pack.extractExcludes.contains(QStringLiteral("launcher_accounts.json")),
+              "V0 懒人包按版本元数据导入并排除账号文件", folder.problem);
+        const QStringList ambiguous{QStringLiteral("config/a.json"),
+            QStringLiteral("versions/1.20.1-forge/1.20.1-forge.json"),
+            QStringLiteral("versions/1.21.1-fabric/1.21.1-fabric.json")};
+        check(detectArchiveLayout(ambiguous).versionJsonEntry.isEmpty() &&
+                  !parseGameFolderInstance(ambiguous, {}, {}, "Example").ok,
+              "V0 多个带加载器实例不按归档顺序随便选一个");
+        check(!parseGameFolderInstance(nested, R"({"id":"1.20.1-fabric","inheritsFrom":"1.20.1"})",
+                                      nestedLayout.gameDirPrefix, "Example").ok,
+              "V0 加载器缺明确版本时不自动装最新版代替");
+        check(detectArchiveLayout({QStringLiteral("server.properties"), QStringLiteral("mods/a.jar"),
+                                  QStringLiteral("config/a.json")}).serverPack,
+              "V0 服务端不误认客户端懒人包");
+        const QByteArray mmc = R"({"formatVersion":1,"components":[{"uid":"net.minecraftforge","version":"1.12.2-14.23.5.2860"},{"uid":"net.minecraft","version":"1.12.2"},{"uid":"org.lwjgl","version":"2.9.4"}]})";
+        const auto standard = parseMultiMCInstance(mmc, "name=Standard Pack\n", "Pack/.minecraft/", {});
+        check(standard.ok && standard.pack.name == QStringLiteral("Standard Pack") &&
+                  standard.pack.loaderVersion == QStringLiteral("14.23.5.2860") &&
+                  standard.pack.overridesDir == QStringLiteral("Pack/.minecraft"),
+              "V0 普通 MultiMC Forge 包可以解析，组件顺序无关", standard.problem);
+        for (const QByteArray &unsupported : {
+                 QByteArray(R"({"components":[{"uid":"net.minecraft","version":"1.7.10"},{"uid":"me.eigenraven.lwjgl3ify.launchargs","cachedVersion":"2.1.16"}]})"),
+                 QByteArray(R"({"components":[{"uid":"net.minecraft","version":"1.20.1"},{"uid":"net.minecraft","version":"1.21"}]})"),
+                 QByteArray(R"({"components":[{"uid":"net.minecraft","version":"1.20.1"},{"uid":"net.minecraftforge"}]})"),
+                 QByteArray(R"({"components":[{"uid":"net.minecraft","version":"1.20.1"},{"uid":"net.minecraftforge","version":"47.2.0"},{"uid":"net.fabricmc.fabric-loader","version":"0.16.14"}]})")}) {
+            const auto result = parseMultiMCInstance(unsupported, {}, ".minecraft/", "Example");
+            check(!result.ok && !result.problem.isEmpty(),
+                  "V0 自定义组件、重复组件、缺版本、多加载器安全拒绝", result.problem);
+        }
+        const auto wrapped = detectArchiveLayout({QStringLiteral("说明.txt"), QStringLiteral("pack.mrpack")});
+        check(wrapped.format == Format::Wrapper && wrapped.innerPackEntry == QStringLiteral("pack.mrpack"),
+              "V0 包装压缩包内的 mrpack 可识别");
+
+        const QString root = sandbox + QStringLiteral("/folder-import-fixture");
+        const QString source = root + QStringLiteral("/source");
+        writeFileAt(source + QStringLiteral("/config/example.json"), "configuration");
+        writeFileAt(source + QStringLiteral("/mods/example.jar"), "mod-bytes");
+        writeFileAt(source + QStringLiteral("/accounts.json"), "private-fixture");
+        writeFileAt(source + QStringLiteral("/versions/old.json"), "old-version");
+        const QString archive = root + QStringLiteral("/pack.zip");
+        QString error;
+        const bool zipped = ZipUtil::createZip(archive, {
+            {QStringLiteral(".minecraft/config/example.json"), source + QStringLiteral("/config/example.json")},
+            {QStringLiteral(".minecraft/mods/example.jar"), source + QStringLiteral("/mods/example.jar")},
+            {QStringLiteral(".minecraft/accounts.json"), source + QStringLiteral("/accounts.json")},
+            {QStringLiteral(".minecraft/versions/old.json"), source + QStringLiteral("/versions/old.json")}}, &error);
+        const QString destination = root + QStringLiteral("/imported");
+        int count = 0;
+        const bool extracted = zipped && ZipUtil::extractSubtrees({archive}, destination,
+            {QStringLiteral(".minecraft/")}, &count, &error, {}, folder.pack.extractExcludes);
+        check(extracted && count == 2 && QFile::exists(destination + QStringLiteral("/mods/example.jar")) &&
+                  QFile::exists(destination + QStringLiteral("/config/example.json")) &&
+                  !QFile::exists(destination + QStringLiteral("/accounts.json")) &&
+                  !QFile::exists(destination + QStringLiteral("/versions/old.json")),
+              "V0 实际导入游戏内容，排除来源账号与旧版本文件", error);
+    }
+
+    // Opt-in local samples: read metadata only; never writes into the original archive or game directory.
+    for (const QString &sample : qEnvironmentVariable("WTFML_TEST_PACK_ARCHIVES").split(QLatin1Char(';'), Qt::SkipEmptyParts)) {
+        QStringList names;
+        QString error;
+        const auto status = ZipUtil::listEntries(sample, &names, &error);
+        check(status == ZipUtil::EntryStatus::Ok, "V0 本地真实样本可读取条目", error);
+        if (status != ZipUtil::EntryStatus::Ok) continue;
+        const auto layout = ModpackImport::detectArchiveLayout(names);
+        out() << "        [真实包] " << QFileInfo(sample).fileName() << ": " << layout.detail << "\n";
+        if (layout.format == ModpackImport::Format::MultiMC) {
+            QByteArray bytes;
+            const auto readStatus = ZipUtil::readEntry(sample, layout.mmcPackEntry, &bytes, &error,
+                QStringLiteral("读取本地样本元数据"), 4 * 1024 * 1024);
+            check(readStatus == ZipUtil::EntryStatus::Ok, "V0 真实 MultiMC 元数据读取", error);
+            const auto parsed = ModpackImport::parseMultiMCInstance(bytes, {}, layout.gameDirPrefix, QFileInfo(sample).completeBaseName());
+            if (QFileInfo(sample).fileName().startsWith(QStringLiteral("GT_New_Horizons_"))) {
+                check(!parsed.ok && parsed.problem.contains(QStringLiteral("启动组件")),
+                      "V0 GTNH 特殊组件不被假装为普通 Forge 安装成功", parsed.problem);
+            }
+        } else if (QFileInfo(sample).fileName().contains(QStringLiteral("_Server_"))) {
+            check(layout.serverPack, "V0 GTNH 服务端包明确排除客户端导入");
+        } else if (layout.format == ModpackImport::Format::CurseForge ||
+                   layout.format == ModpackImport::Format::Modrinth) {
+            QByteArray bytes;
+            const auto readStatus = ZipUtil::readEntry(sample, layout.manifestEntry, &bytes, &error,
+                QStringLiteral("读取本地清单"), 16 * 1024 * 1024);
+            const auto parsed = layout.format == ModpackImport::Format::CurseForge
+                ? ModpackImport::parseCurseForgeManifest(bytes, true)
+                : ModpackImport::parseModrinthIndex(bytes, true);
+            check(readStatus == ZipUtil::EntryStatus::Ok && parsed.ok,
+                  "V0 本地标准包清单可解析", parsed.problem);
+        } else if (layout.format == ModpackImport::Format::Wrapper) {
+            const QString inner = sandbox + QStringLiteral("/sample-") +
+                QUuid::createUuid().toString(QUuid::WithoutBraces) + QStringLiteral(".mrpack");
+            const auto extracted = ZipUtil::extractEntryToFile(sample, layout.innerPackEntry, inner, &error);
+            QByteArray bytes;
+            const auto readStatus = extracted == ZipUtil::EntryStatus::Ok
+                ? ZipUtil::readEntry(inner, ModpackImport::modrinthIndexName(), &bytes, &error,
+                                    QStringLiteral("读取包装内清单"), 16 * 1024 * 1024)
+                : ZipUtil::EntryStatus::Failed;
+            const auto parsed = ModpackImport::parseModrinthIndex(bytes, true);
+            check(readStatus == ZipUtil::EntryStatus::Ok && parsed.ok,
+                  "V0 真包装解出到测试沙盒后可解析内层清单", parsed.problem);
+            QFile::remove(inner);
+        }
+    }
 
     // --- V1. 清单文件叫什么、认哪些加载器 -------------------------------------
     check(ModpackImport::modrinthIndexName() == QStringLiteral("modrinth.index.json"),

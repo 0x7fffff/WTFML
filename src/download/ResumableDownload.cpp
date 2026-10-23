@@ -257,7 +257,9 @@ void ResumableDownload::probe(int attempt) {
         const auto code = reply->error();
         const auto header = reply->rawHeader("Content-Range");
         const auto etag = reply->rawHeader("ETag");
-        const bool unsupported = reply->property("rangeUnsupported").toBool() || status == 200 || status == 400 || status == 405 || status == 416 || status == 501;
+        // 部分 CDN 对 Range 探测回 404，完整 GET 却能跳转到真实文件。
+        // 只回退一次普通下载，仍校验状态、大小和哈希，不会把真正的 404 当成功。
+        const bool unsupported = reply->property("rangeUnsupported").toBool() || status == 200 || status == 400 || status == 404 || status == 405 || status == 416 || status == 501;
         auto data = reply->property("probeBytes").toByteArray();
         if (data.isEmpty()) data = reply->read(2);
         const bool guardAbort = reply->property("wtfmlProbeGuardAbort").toBool();

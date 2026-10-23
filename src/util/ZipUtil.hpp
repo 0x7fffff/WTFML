@@ -99,6 +99,22 @@ EntryStatus readEntry(const QString &archive, const QString &entryName, QByteArr
                       QString *errorOut, const QString &what, qint64 maximumBytes);
 
 /**
+ * @brief 把压缩包里**一个条目**解成盘上的一份文件（覆盖已有文件）。
+ * @param archive 压缩包绝对路径。
+ * @param entryName 条目名，`/` 分隔的完整路径。找不到时**不区分大小写**再找一遍（同 readEntry）。
+ * @param targetPath 落点。父目录不存在时自动建，已存在的文件直接盖掉。
+ * @param errorOut 失败时的人类可读描述（NotAnArchive 时是空串，同 readEntry）。
+ * @param what 这次动作叫什么，拼进 errorOut 那几句话里。
+ * @return 同 readEntry（Ok / NotFound / NotAnArchive / Failed）。
+ *
+ * 和 readEntry 分开是因为**大小**：这一条要解的东西是完整的整合包（几十上百 MB），
+ * 读进内存再写回去没有意义；而且它没有大小上限。
+ */
+EntryStatus extractEntryToFile(const QString &archive, const QString &entryName,
+                               const QString &targetPath, QString *errorOut = nullptr,
+                               const QString &what = QStringLiteral("解压压缩包条目"));
+
+/**
  * @brief 列出压缩包里所有条目的名字（`/` 分隔，**原样**：不排序、不去重、不改大小写）。
  *
  * @param archive 压缩包绝对路径。
@@ -120,8 +136,15 @@ EntryStatus listEntries(const QString &archive, QStringList *out, QString *error
  * @param targetDir 目标目录，不存在则自动创建。
  * @param roots 前缀（`overrides/` / `client-overrides/` 这种），**顺序有意义**：
  * 排后面的**覆盖**排前面的 —— 整合包的规矩是 client-overrides 盖过 overrides。
+ * 传一个**空串**表示"整包解压"（前缀是空 ⇒ 条目名原样落进目标目录）—— 那是
+ * "把 .minecraft 目录直接压进来的懒人包"那一路用的；同时给了空串和其它前缀时只按空串算。
  * @param extractedOut 非空时回填真正写出去的条目数（给"解开了 N 个覆盖文件"那句话用）。
  * @param errorOut 失败时的描述。
+ * @param cancelled 取消判据（解大包时每半秒问一次）。
+ * @param excludePrefixes 要**跳过**的条目前缀（**剥完前缀之后**的名字，`/` 分隔）。
+ * 例如懒人包导入要跳过 `libraries/`、`versions/`、`logs/` —— 那些是本地运行产物，
+ * 不是用户配置，带进新实例只会弄脏目录。给 `foo/` 是"整个目录"，给 `foo.txt`
+ * 是"这一份文件"。
  * @return 全部成功返回 true。
  *
  * 不属于任何前缀的条目**一个都不碰**（清单文件、README 之类都不会落进实例目录）。
@@ -129,7 +152,8 @@ EntryStatus listEntries(const QString &archive, QStringList *out, QString *error
 bool extractSubtrees(const QStringList &archives, const QString &targetDir,
                      const QStringList &roots, int *extractedOut = nullptr,
                       QString *errorOut = nullptr,
-                      const std::function<bool()> &cancelled = {});
+                      const std::function<bool()> &cancelled = {},
+                      const QStringList &excludePrefixes = QStringList());
 
 /**
  * @brief 把一个 gzip 文件解成普通文件（@p targetPath 会被覆盖写）。成功返回 true。

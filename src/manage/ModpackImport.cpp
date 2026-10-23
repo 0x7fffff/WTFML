@@ -15,6 +15,7 @@
 #include <QJsonParseError>
 #include <QJsonValue>
 #include <QObject>
+#include <QRegularExpression>
 #include <QSet>
 #include <QStringList>
 #include <QUrl>
@@ -76,14 +77,16 @@ QString unsupportedLoaderText(const QString &loaderKey, const QString &loaderVer
 }
 
 QString unsupportedFormatText(Format format) {
-    // NOTE: 参数现在**用不上**了（CurseForge 那一支已经能装，两条路都不该走到这个函数）。
-    // 留着形状是为了调用点不用改，也留着"将来多一种格式时往哪儿加"的位置。
+    // NOTE: 参数现在**用不上**了 —— 每种认得的格式都有自己的入口，走到这里的一律是
+    // `Unknown`。留着形状是为了调用点不用改。
     Q_UNUSED(format);
     return QObject::tr(
         "这个压缩包里没有整合包清单，认不出它是什么格式。\n\n"
-        "Modrinth 格式的整合包，根目录有一份 modrinth.index.json；CurseForge 格式的，"
-        "有一份 manifest.json。两个都没有的话，它多半只是一个普通的压缩包"
-        "（比如别人打包好的 .minecraft 文件夹）。");
+        "认得的是这几种：Modrinth 格式（根目录有一份 modrinth.index.json）、CurseForge "
+        "格式（有一份 manifest.json）、MultiMC / Prism 导出的实例（有一份 mmc-pack.json）、"
+        "以及直接把 .minecraft 文件夹压进来的懒人包（里面有 mods/、config/ 或 options.txt）。\n\n"
+        "都对不上的话，它多半只是一个普通的压缩包 —— 比如资源包、光影包，或者只放了几份"
+        "说明文件的合集。");
 }
 
 bool isSafeRelativePath(const QString &path) {
@@ -211,7 +214,794 @@ QString suggestInstanceName(const QString &packName) {
     return name;
 }
 
-Result parseModrinthIndex(const QByteArray &json) {
+// ---------------------------------------------------------------------------
+// 压缩包形状：MultiMC / 普通 .minecraft / PCL 包装
+// ---------------------------------------------------------------------------
+
+namespace {
+
+QString slashedEntry(const QString &entry) {
+    QString name = entry;
+    name.replace(QLatin1Char('\\'), QLatin1Char('/'));
+    while (name.startsWith(QLatin1Char('/'))) {
+        name.remove(0, 1);
+    }
+    return name;
+}
+
+/// 打包工具/系统留下的垃圾条目。判断"最外层只有一层目录"时必须先剔掉它们，
+/// 否则 macOS 上打的包永远判不出根前缀（根上多一条 `__MACOSX/`）。
+bool isJunkEntry(const QString &lowerName) {
+    return lowerName.startsWith(QLatin1String("__macosx/")) ||
+           lowerName == QLatin1String(".ds_store") ||
+           lowerName.endsWith(QLatin1String("/.ds_store")) ||
+           lowerName == QLatin1String("thumbs.db") ||
+           lowerName.endsWith(QLatin1String("/thumbs.db")) ||
+           lowerName == QLatin1String("desktop.ini") ||
+           lowerName.endsWith(QLatin1String("/desktop.ini"));
+}
+
+QString commonRootPrefix(const QStringList &entries) {
+    QString root;
+    for (const QString &raw : entries) {
+        const QString name = slashedEntry(raw);
+        if (name.isEmpty()) {
+            continue;
+        }
+        const QString lower = name.toLower();
+        if (isJunkEntry(lower)) {
+            continue;
+        }
+        const int slash = name.indexOf(QLatin1Char('/'));
+        if (slash < 0) {
+            // 根目录直接躺着一个文件 ⇒ 没有"唯一一层目录"。
+            return QString();
+        }
+        const QString top = name.left(slash);
+        if (top.isEmpty()) {
+            continue;
+        }
+        if (root.isEmpty()) {
+            root = top;
+        } else if (root.compare(top, Qt::CaseInsensitive) != 0) {
+            return QString();
+        }
+    }
+    return root.isEmpty() ? QString() : root + QLatin1Char('/');
+}
+
+QString findRelativeEntry(const QStringList &entries, const QString &prefix,
+                          const QString &relative) {
+    const QString target = (prefix + relative).toLower();
+    for (const QString &raw : entries) {
+        const QString name = slashedEntry(raw);
+        if (name.endsWith(QLatin1Char('/'))) {
+            continue;  // 目录条目不算文件
+        }
+        if (name.toLower() == target) {
+            return name;
+        }
+    }
+    return QString();
+}
+
+bool hasRelativeDir(const QStringList &entries, const QString &prefix, const QString &dir) {
+    if (dir.isEmpty()) {
+        return false;
+    }
+    QString base = (prefix + dir).toLower();
+    while (base.endsWith(QLatin1Char('/'))) {
+        base.chop(1);
+    }
+    for (const QString &raw : entries) {
+        const QString name = slashedEntry(raw).toLower();
+        if (name == base || name.startsWith(base + QLatin1Char('/'))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool hasLoaderKeyword(const QString &lowerId) {
+    return lowerId.contains(QLatin1String("forge")) ||
+           lowerId.contains(QLatin1String("fabric")) ||
+           lowerId.contains(QLatin1String("neoforge")) ||
+           lowerId.contains(QLatin1String("quilt"));
+}
+
+QString pickVersionJsonEntry(const QStringList &entries, const QString &prefix) {
+    const QString versionsPrefix = (prefix + QStringLiteral("versions/")).toLower();
+    struct Candidate {
+        QString idLower;
+        QString entry;
+        bool strong = false;
+    };
+    QList<Candidate> candidates;
+    for (const QString &raw : entries) {
+        const QString name = slashedEntry(raw);
+        if (name.endsWith(QLatin1Char('/'))) {
+            continue;
+        }
+        const QString lower = name.toLower();
+        if (!lower.startsWith(versionsPrefix)) {
+            continue;
+        }
+        const QStringList parts = lower.mid(versionsPrefix.size()).split(QLatin1Char('/'));
+        if (parts.size() != 2 || !parts.at(1).endsWith(QLatin1String(".json"))) {
+            continue;
+        }
+        Candidate candidate;
+        candidate.idLower = parts.at(0);
+        candidate.entry = name;
+        candidate.strong = parts.at(1) == parts.at(0) + QLatin1String(".json");
+        candidates.append(candidate);
+    }
+    QList<Candidate> strong;
+    for (const Candidate &candidate : candidates) {
+        if (candidate.strong) {
+            strong.append(candidate);
+        }
+    }
+    const QList<Candidate> &pool = strong.isEmpty() ? candidates : strong;
+    QString loaderEntry;
+    int loaders = 0;
+    for (const Candidate &candidate : pool) {
+        if (hasLoaderKeyword(candidate.idLower)) {
+            loaderEntry = candidate.entry;
+            ++loaders;
+        }
+    }
+    // A base version plus one loader is unambiguous; two loader instances are not.
+    return loaders == 1 ? loaderEntry
+                        : (pool.size() == 1 ? pool.first().entry : QString());
+}
+
+QStringList versionIdsFromEntries(const QStringList &entries, const QString &prefix) {
+    const QString versionsPrefix = (prefix + QStringLiteral("versions/")).toLower();
+    QStringList ids;
+    QSet<QString> seen;
+    for (const QString &raw : entries) {
+        const QString name = slashedEntry(raw).toLower();
+        if (!name.startsWith(versionsPrefix)) {
+            continue;
+        }
+        const QStringList parts = name.mid(versionsPrefix.size()).split(QLatin1Char('/'));
+        if (parts.isEmpty() || parts.first().isEmpty()) {
+            continue;
+        }
+        if (seen.contains(parts.first())) {
+            continue;
+        }
+        seen.insert(parts.first());
+        ids.append(parts.first());
+    }
+    return ids;
+}
+
+bool looksLikeMinecraftVersion(const QString &text) {
+    const QString value = text.trimmed();
+    if (value.isEmpty()) {
+        return false;
+    }
+    static const QRegularExpression release(QStringLiteral("^\\d+\\.\\d+(?:\\.\\d+)?$"));
+    static const QRegularExpression snapshot(QStringLiteral("^\\d{2}w\\d{2}[a-z0-9]+$"),
+                                             QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression oldAlpha(QStringLiteral("^[ab]\\d+\\.\\d+(?:\\.\\d+)?$"),
+                                             QRegularExpression::CaseInsensitiveOption);
+    return release.match(value).hasMatch() || snapshot.match(value).hasMatch() ||
+           oldAlpha.match(value).hasMatch();
+}
+
+QString minecraftVersionFromId(const QString &id) {
+    const QString value = id.trimmed();
+    if (looksLikeMinecraftVersion(value)) {
+        return value;
+    }
+    static const QRegularExpression separators(QStringLiteral("[-_]"));
+    for (const QString &part : value.split(separators)) {
+        if (looksLikeMinecraftVersion(part)) {
+            return part;
+        }
+    }
+    return QString();
+}
+
+QString stripTrailingSlashes(QString path) {
+    while (path.endsWith(QLatin1Char('/'))) {
+        path.chop(1);
+    }
+    return path;
+}
+
+QString instanceCfgValue(const QByteArray &bytes, const QString &key) {
+    const QStringList lines = QString::fromUtf8(bytes).split(QLatin1Char('\n'));
+    for (QString line : lines) {
+        if (line.endsWith(QLatin1Char('\r'))) {
+            line.chop(1);
+        }
+        const QString trimmed = line.trimmed();
+        if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
+            continue;
+        }
+        const int equals = trimmed.indexOf(QLatin1Char('='));
+        if (equals <= 0) {
+            continue;
+        }
+        if (trimmed.left(equals).trimmed().compare(key, Qt::CaseInsensitive) == 0) {
+            return trimmed.mid(equals + 1).trimmed();
+        }
+    }
+    return QString();
+}
+
+QString normalizeForgeVersion(QString version, const QString &gameVersion) {
+    version = version.trimmed();
+    if (gameVersion.isEmpty()) {
+        return version;
+    }
+    if (version.startsWith(gameVersion + QLatin1Char('-'))) {
+        version = version.mid(gameVersion.size() + 1);
+    }
+    if (version.endsWith(QLatin1Char('-') + gameVersion)) {
+        version.chop(gameVersion.size() + 1);
+    }
+    return version;
+}
+
+struct LoaderGuess {
+    QString key;
+    QString version;
+};
+
+LoaderGuess loaderFromLibraries(const QStringList &names, const QString &gameVersion) {
+    LoaderGuess out;
+    QString fmlloaderVersion;
+    for (const QString &raw : names) {
+        const QStringList parts = raw.split(QLatin1Char(':'));
+        if (parts.size() < 3) {
+            continue;
+        }
+        const QString group = parts.at(0).toLower();
+        const QString artifact = parts.at(1).toLower();
+        const QString version = parts.at(2);
+        if (group == QLatin1String("net.fabricmc") &&
+            artifact == QLatin1String("fabric-loader")) {
+            return {fabricLoaderKey(), version};
+        }
+        if (group == QLatin1String("org.quiltmc") &&
+            artifact == QLatin1String("quilt-loader")) {
+            return {quiltLoaderKey(), version};
+        }
+        if (group == QLatin1String("net.neoforged") && artifact == QLatin1String("neoforge")) {
+            return {neoforgeLoaderKey(), version};
+        }
+        if (group == QLatin1String("net.minecraftforge") && artifact == QLatin1String("forge")) {
+            return {forgeLoaderKey(), normalizeForgeVersion(version, gameVersion)};
+        }
+        if (group == QLatin1String("net.minecraftforge") &&
+            artifact == QLatin1String("fmlloader") && fmlloaderVersion.isEmpty()) {
+            fmlloaderVersion = version;
+        }
+    }
+    // 只剩 FML loader 坐标（新的 Forge 偶尔这么写）时，那个版本号不等于 Forge 版本，
+    // 只当作"这是个 Forge 包"，版本留空 = 装的时候挑最新的。
+    if (!fmlloaderVersion.isEmpty()) {
+        return {forgeLoaderKey(), QString()};
+    }
+    return out;
+}
+
+LoaderGuess loaderFromId(const QString &id) {
+    const QString lower = id.toLower();
+    struct Keyword {
+        const char *word;
+        const char *key;
+    };
+    // neoforge 必须排在 forge 前面（它包含 "forge"）。
+    static const Keyword keywords[] = {
+        {"neoforge", "neoforge"}, {"fabric", "fabric-loader"},
+        {"forge", "forge"},       {"quilt", "quilt-loader"},
+    };
+    static const QRegularExpression versionPattern(QStringLiteral("(\\d+(?:\\.\\d+)+)"));
+    for (const Keyword &keyword : keywords) {
+        const QString word = QString::fromLatin1(keyword.word);
+        const int pos = lower.indexOf(word);
+        if (pos < 0) {
+            continue;
+        }
+        QString key = QString::fromLatin1(keyword.key);
+        if (key == QLatin1String("neoforge")) {
+            key = neoforgeLoaderKey();
+        } else if (key == QLatin1String("fabric-loader")) {
+            key = fabricLoaderKey();
+        } else if (key == QLatin1String("forge")) {
+            key = forgeLoaderKey();
+        } else {
+            key = quiltLoaderKey();
+        }
+        const QRegularExpressionMatch match =
+            versionPattern.match(lower.mid(pos + word.size()));
+        return {key, match.hasMatch() ? match.captured(1) : QString()};
+    }
+    return {};
+}
+
+QStringList gameFolderExtractExcludes() {
+    return {QStringLiteral("versions/"),
+            QStringLiteral("libraries/"),
+            QStringLiteral("assets/"),
+            QStringLiteral("logs/"),
+            QStringLiteral("crash-reports/"),
+            QStringLiteral("debug/"),
+            QStringLiteral(".mixin.out/"),
+            QStringLiteral("PCL/"),
+            QStringLiteral(".hmcl/"),
+            QStringLiteral("launcher_accounts.json"),
+            QStringLiteral("launcher_profiles.json"),
+            QStringLiteral("launcher_accounts_microsoft.json"),
+            QStringLiteral("accounts.json"),
+            QStringLiteral("credential.json"),
+            QStringLiteral("credentials.json"),
+            QStringLiteral("dev-login.json"),
+            QStringLiteral("usercache.json"),
+            QStringLiteral("usernamecache.json")};
+}
+
+}  // namespace
+
+ArchiveLayout detectArchiveLayout(const QStringList &entries) {
+    ArchiveLayout layout;
+    layout.rootPrefix = commonRootPrefix(entries);
+    const QString &prefix = layout.rootPrefix;
+
+    // ① 两份清单。它们在根上（或者唯一那层目录里）就是哪种格式 —— 和以前一样，
+    // 只是现在允许整个包被套在一层目录里。
+    layout.manifestEntry = findRelativeEntry(entries, prefix, modrinthIndexName());
+    if (!layout.manifestEntry.isEmpty()) {
+        layout.format = Format::Modrinth;
+        layout.gameDirPrefix = prefix;
+        layout.hasOverrides = hasRelativeDir(entries, prefix, QStringLiteral("overrides"));
+        layout.detail = QObject::tr("里面有一份 %1").arg(modrinthIndexName());
+        return layout;
+    }
+    layout.manifestEntry = findRelativeEntry(entries, prefix, curseForgeManifestName());
+    if (!layout.manifestEntry.isEmpty()) {
+        layout.format = Format::CurseForge;
+        layout.gameDirPrefix = prefix;
+        layout.hasOverrides = hasRelativeDir(entries, prefix, QStringLiteral("overrides"));
+        layout.detail = QObject::tr("里面有一份 %1").arg(curseForgeManifestName());
+        return layout;
+    }
+
+    // ② MultiMC / Prism：`mmc-pack.json` 是身份，`instance.cfg` 或 `.minecraft/` 是包装。
+    layout.mmcPackEntry = findRelativeEntry(entries, prefix, QStringLiteral("mmc-pack.json"));
+    layout.instanceCfgEntry = findRelativeEntry(entries, prefix, QStringLiteral("instance.cfg"));
+    const bool hasDotMinecraft = hasRelativeDir(entries, prefix, QStringLiteral(".minecraft"));
+    if (!layout.mmcPackEntry.isEmpty() && (!layout.instanceCfgEntry.isEmpty() || hasDotMinecraft)) {
+        layout.format = Format::MultiMC;
+        layout.gameDirPrefix =
+            hasDotMinecraft ? prefix + QStringLiteral(".minecraft/") : prefix;
+        layout.detail = QObject::tr("这是一个 MultiMC / Prism 导出的实例");
+        return layout;
+    }
+
+    // A zipped mod itself is not a game folder, even if it contains config/.
+    for (const QString &marker : {QStringLiteral("fabric.mod.json"),
+                                 QStringLiteral("quilt.mod.json"),
+                                 QStringLiteral("mcmod.info"),
+                                 QStringLiteral("META-INF/mods.toml"),
+                                 QStringLiteral("META-INF/neoforge.mods.toml")}) {
+        if (!findRelativeEntry(entries, prefix, marker).isEmpty()) {
+            layout.modsBundle = true;
+            layout.detail = QObject::tr("这是一个模组文件，不是整合包");
+            return layout;
+        }
+    }
+
+    // ③ PCL 那种包装：根上直接躺着 `modpack.mrpack`。
+    for (const QString &raw : entries) {
+        const QString name = slashedEntry(raw);
+        if (!name.toLower().startsWith(prefix.toLower())) {
+            continue;
+        }
+        const QString rest = name.mid(prefix.size());
+        if (rest.isEmpty() || rest.contains(QLatin1Char('/'))) {
+            continue;
+        }
+        if (rest.toLower().endsWith(QLatin1String(".mrpack"))) {
+            layout.format = Format::Wrapper;
+            layout.innerPackEntry = name;
+            layout.gameDirPrefix = prefix;
+            layout.detail = QObject::tr("这是一个 PCL 打包的整合包（里面有一份 %1）").arg(rest);
+            return layout;
+        }
+    }
+
+    // Ignore sibling launchers/readmes; only import the explicitly named game folder.
+    if (hasDotMinecraft) {
+        layout.rootPrefix += QStringLiteral(".minecraft/");
+    }
+
+    // ④ 服务端包。**必须排在游戏目录前面**：服务端包里同样有 `mods/` 和 `config/`，
+    // 按游戏目录认的话会把它当成客户端包导入。
+    static const QStringList kServerMarkers = {
+        QStringLiteral("server.properties"), QStringLiteral("eula.txt"),
+        QStringLiteral("bukkit.yml"),        QStringLiteral("spigot.yml"),
+        QStringLiteral("paper.yml"),         QStringLiteral("purpur.yml"),
+        QStringLiteral("server.jar"),
+    };
+    for (const QString &marker : kServerMarkers) {
+        if (!findRelativeEntry(entries, prefix, marker).isEmpty()) {
+            layout.serverPack = true;
+            layout.gameDirPrefix = prefix;
+            layout.detail = QObject::tr("这是一个服务端包（里面有 %1）").arg(marker);
+            return layout;
+        }
+    }
+
+    // ⑤ 世界存档：`level.dat` 就在这一层。
+    if (!findRelativeEntry(entries, prefix, QStringLiteral("level.dat")).isEmpty()) {
+        layout.worldSave = true;
+        layout.gameDirPrefix = prefix;
+        layout.detail = QObject::tr("这是一个世界存档（里面有 level.dat）");
+        return layout;
+    }
+
+    // ⑥ 普通 .minecraft 懒人包。判据是"游戏目录该有的东西"：`config/`、`options.txt`、
+    // `servers.dat`、资源包/光影目录——**光有 `mods/` 不算**（见下一条）。
+    const bool hasMods = hasRelativeDir(entries, prefix, QStringLiteral("mods"));
+    const bool hasConfig = hasRelativeDir(entries, prefix, QStringLiteral("config"));
+    const bool hasOptions = !findRelativeEntry(entries, prefix, QStringLiteral("options.txt")).isEmpty();
+    const bool hasServersDat =
+        !findRelativeEntry(entries, prefix, QStringLiteral("servers.dat")).isEmpty();
+    const bool hasPacks =
+        hasRelativeDir(entries, prefix, QStringLiteral("resourcepacks")) ||
+        hasRelativeDir(entries, prefix, QStringLiteral("shaderpacks"));
+    // `mods/` 单独出现不算（"一堆模组合集"就是这样）；但它**和 versions/ 一起**出现时
+    // 就是一个真 .minecraft 目录（只是没写 options.txt/config）。
+    const bool hasVersions = !versionIdsFromEntries(entries, prefix).isEmpty();
+    layout.gameFolderMarkers =
+        hasConfig || hasOptions || hasServersDat || hasPacks || (hasMods && hasVersions);
+    if (layout.gameFolderMarkers) {
+        layout.format = Format::GameFolder;
+        layout.gameDirPrefix = prefix;
+        layout.versionJsonEntry = pickVersionJsonEntry(entries, prefix);
+        layout.detail = QObject::tr("里面是一个 .minecraft 游戏目录");
+        return layout;
+    }
+
+    // ⑦ 只有一个 `mods/`，或者根上就摆着几份 `.jar`：这是"别人打包好的一堆模组"，
+    // **不是整合包**。按整合包导进去会建一个空实例（没有版本、没有加载器），
+    // 远不如直接告诉他"把 jar 拖到实例的模组页"。
+    int rootJars = 0;
+    bool rootOthers = false;
+    const QString prefixLower = prefix.toLower();
+    for (const QString &raw : entries) {
+        const QString name = slashedEntry(raw);
+        if (name.endsWith(QLatin1Char('/'))) {
+            continue;
+        }
+        const QString lower = name.toLower();
+        if (!lower.startsWith(prefixLower)) {
+            continue;
+        }
+        const QString rest = lower.mid(prefixLower.size());
+        if (rest.isEmpty() || isJunkEntry(lower)) {
+            continue;
+        }
+        if (!rest.contains(QLatin1Char('/')) && rest.endsWith(QLatin1String(".jar"))) {
+            ++rootJars;
+        } else {
+            rootOthers = true;
+        }
+    }
+    if ((hasMods && !layout.gameFolderMarkers) || (rootJars > 0 && !rootOthers)) {
+        layout.modsBundle = true;
+        layout.gameDirPrefix = prefix;
+        layout.detail = QObject::tr("里面只有一堆模组，没有整合包清单");
+    }
+    return layout;
+}
+
+bool archiveHasEntryPrefix(const QStringList &entries, const QString &prefix) {
+    QString target = slashedEntry(prefix).toLower();
+    while (target.endsWith(QLatin1Char('/'))) {
+        target.chop(1);
+    }
+    if (target.isEmpty()) {
+        return false;
+    }
+    for (const QString &raw : entries) {
+        QString name = slashedEntry(raw).toLower();
+        while (name.endsWith(QLatin1Char('/'))) {
+            name.chop(1);
+        }
+        if (name == target || name.startsWith(target + QLatin1Char('/'))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+Result parseMultiMCInstance(const QByteArray &mmcPackJson, const QByteArray &instanceCfg,
+                            const QString &gameDirPrefix, const QString &fallbackName) {
+    Result result;
+
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(mmcPackJson, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        result.problem = QObject::tr("这份 mmc-pack.json 读不懂（%1）。这个文件可能坏了。")
+                             .arg(parseError.errorString());
+        return result;
+    }
+
+    const QJsonArray components = doc.object().value(QStringLiteral("components")).toArray();
+    if (components.isEmpty()) {
+        result.problem = QObject::tr(
+            "这个 MultiMC / Prism 实例的 mmc-pack.json 里没有 components，认不出它要哪个 "
+            "Minecraft 版本。");
+        return result;
+    }
+
+    QString gameVersion;
+    QString loaderKey;
+    QString loaderVersion;
+    QSet<QString> seenComponents;
+    QStringList customComponents;
+    for (const QJsonValue &value : components) {
+        const QJsonObject component = value.toObject();
+        const QString uid = component.value(QStringLiteral("uid")).toString().trimmed();
+        if (uid.isEmpty()) {
+            continue;
+        }
+        QString version = component.value(QStringLiteral("version")).toString().trimmed();
+        if (version.isEmpty()) {
+            version = component.value(QStringLiteral("cachedVersion")).toString().trimmed();
+        }
+        const QString uidLower = uid.toLower();
+        if (seenComponents.contains(uidLower)) {
+            result.problem = QObject::tr("mmc-pack.json 有重复组件 %1，无法确定启动配置，没有导入。").arg(uid);
+            return result;
+        }
+        seenComponents.insert(uidLower);
+        const bool standard = uidLower == QLatin1String("net.minecraft") ||
+            uidLower == QLatin1String("org.lwjgl") ||
+            uidLower == QLatin1String("net.minecraftforge") ||
+            uidLower == QLatin1String("net.fabricmc.fabric-loader") ||
+            uidLower == QLatin1String("net.neoforged") ||
+            uidLower == QLatin1String("org.quiltmc.quilt-loader");
+        if (!standard) customComponents.append(uid);
+        if (standard && uidLower != QLatin1String("org.lwjgl") && version.isEmpty()) {
+            result.problem = QObject::tr("组件 %1 没有明确版本，不能自动选择最新版代替，没有导入。").arg(uid);
+            return result;
+        }
+        if (standard && uidLower != QLatin1String("net.minecraft") &&
+            uidLower != QLatin1String("org.lwjgl") && !loaderKey.isEmpty()) {
+            result.problem = QObject::tr("这个实例同时声明多个加载器，暂不支持，没有导入。");
+            return result;
+        }
+
+        if (uidLower == QLatin1String("net.minecraft")) {
+            if (gameVersion.isEmpty()) {
+                gameVersion = version;
+            }
+        } else if (uidLower == QLatin1String("net.minecraftforge")) {
+            if (loaderKey.isEmpty()) {
+                loaderKey = forgeLoaderKey();
+                loaderVersion = normalizeForgeVersion(version, gameVersion);
+            }
+        } else if (uidLower == QLatin1String("net.fabricmc.fabric-loader")) {
+            if (loaderKey.isEmpty()) {
+                loaderKey = fabricLoaderKey();
+                loaderVersion = version;
+            }
+        } else if (uidLower == QLatin1String("net.neoforged")) {
+            if (loaderKey.isEmpty()) {
+                loaderKey = neoforgeLoaderKey();
+                loaderVersion = version;
+            }
+        } else if (uidLower == QLatin1String("org.quiltmc.quilt-loader")) {
+            if (loaderKey.isEmpty()) {
+                loaderKey = quiltLoaderKey();
+                loaderVersion = version;
+            }
+        }
+    }
+
+    if (gameVersion.isEmpty()) {
+        // 有的 MultiMC 导出只在 instance.cfg 里留了 IntendedVersion。
+        gameVersion = instanceCfgValue(instanceCfg, QStringLiteral("IntendedVersion"));
+    }
+    if (gameVersion.isEmpty()) {
+        result.problem = QObject::tr(
+            "这是一个 MultiMC / Prism 的实例导出（有 mmc-pack.json），但里面没写它基于哪个 "
+            "Minecraft 版本（components 里没有 net.minecraft），装不了。");
+        return result;
+    }
+    if (!customComponents.isEmpty()) {
+        result.problem = QObject::tr(
+            "这个 MultiMC / Prism 包依赖自定义启动组件：%1。\n\n"
+            "目前不能转换它的 patches、专用库和 JVM 参数，因此没有导入，避免生成无法启动的实例。"
+            "GTNH Java 17+ 的 lwjgl3ify 包请暂用 Prism 导入；这不影响普通标准格式整合包。")
+                             .arg(customComponents.join(QStringLiteral("、")));
+        return result;
+    }
+
+    Pack pack;
+    pack.format = Format::MultiMC;
+    pack.gameVersion = gameVersion;
+    pack.loaderKey = loaderKey;
+    pack.loaderVersion = loaderVersion;
+    // GTNH 的 forge 组件在 net.minecraft 之前就出现了（components 的次序不保证），
+    // 所以上面 normalize 时 gameVersion 可能还是空的 —— 到这里再补一次。
+    if (pack.loaderKey == forgeLoaderKey() && !pack.loaderVersion.isEmpty()) {
+        pack.loaderVersion = normalizeForgeVersion(pack.loaderVersion, gameVersion);
+    }
+    pack.overridesDir = stripTrailingSlashes(gameDirPrefix);
+    pack.clientOverridesDir.clear();
+    pack.declaredFileCount = 0;
+    pack.extractExcludes = gameFolderExtractExcludes();
+
+    pack.name = instanceCfgValue(instanceCfg, QStringLiteral("name"));
+    if (pack.name.isEmpty()) {
+        pack.name = fallbackName.trimmed();
+    }
+    if (pack.name.isEmpty()) {
+        pack.name = QObject::tr("整合包");
+    }
+
+    QString note = QObject::tr(
+        "这个包是从 MultiMC / Prism 导出的实例。导入的是它 .minecraft 里的内容"
+        "（mods、config、资源包这些）；MultiMC 自己的 patches/、libraries/ 和启动设置"
+        "没有一起导入。");
+    pack.supportNote = note;
+
+    result.ok = true;
+    result.pack = pack;
+    return result;
+}
+
+Result parseGameFolderInstance(const QStringList &entries, const QByteArray &versionJson,
+                               const QString &rootPrefix, const QString &fallbackName) {
+    Result result;
+
+    QJsonObject versionObject;
+    if (!versionJson.isEmpty()) {
+        QJsonParseError parseError;
+        const QJsonDocument doc = QJsonDocument::fromJson(versionJson, &parseError);
+        if (parseError.error == QJsonParseError::NoError && doc.isObject()) {
+            versionObject = doc.object();
+        }
+        // 版本 json 读不懂**不在这里拒绝**：目录名里往往也写着版本，能推出来就照装。
+    }
+
+    const QString jsonId = versionObject.value(QStringLiteral("id")).toString().trimmed();
+    const QStringList versionIds = versionIdsFromEntries(entries, rootPrefix);
+
+    QString chosenId = jsonId;
+    int loaderCandidates = 0;
+    for (const QString &id : versionIds) {
+        if (hasLoaderKeyword(id)) ++loaderCandidates;
+    }
+    if (jsonId.isEmpty() && (loaderCandidates > 1 ||
+        (loaderCandidates == 0 && versionIds.size() > 1))) {
+        result.problem = QObject::tr("这个游戏目录包含多个候选实例，无法确定要导入哪一个。请分别打包后导入。");
+        return result;
+    }
+    if (chosenId.isEmpty()) {
+        for (const QString &id : versionIds) {
+            if (hasLoaderKeyword(id)) {
+                chosenId = id;
+                break;
+            }
+        }
+        if (chosenId.isEmpty() && versionIds.size() == 1) {
+            chosenId = versionIds.first();
+        }
+    }
+    if (chosenId.isEmpty() && versionIds.size() > 1) {
+        result.problem = QObject::tr(
+            "这个 .minecraft 里有 %1 个版本，但没有版本 json 能说明该导入哪一个（目录名里也"
+            "看不出带加载器的那一个）。\n\n没有导入 —— 猜一个装出来多半进不去游戏。把带加载器"
+            "的那个版本目录（连着里面的 json）单独打包，或者换 Modrinth / CurseForge 格式。")
+                             .arg(versionIds.size());
+        return result;
+    }
+
+    QString gameVersion;
+    const QStringList versionFields = {
+        versionObject.value(QStringLiteral("clientVersion")).toString().trimmed(),
+        versionObject.value(QStringLiteral("inheritsFrom")).toString().trimmed(),
+        jsonId,
+    };
+    for (const QString &field : versionFields) {
+        if (looksLikeMinecraftVersion(field)) {
+            gameVersion = field;
+            break;
+        }
+    }
+    if (gameVersion.isEmpty()) {
+        gameVersion = minecraftVersionFromId(chosenId);
+    }
+    if (gameVersion.isEmpty()) {
+        for (const QString &id : versionIds) {
+            gameVersion = minecraftVersionFromId(id);
+            if (!gameVersion.isEmpty()) {
+                break;
+            }
+        }
+    }
+    if (gameVersion.isEmpty()) {
+        result.problem = QObject::tr(
+            "认得出这是一个 .minecraft 目录（里面有 mods/ 或 config/），但推不出它基于哪个 "
+            "Minecraft 版本：versions/ 里没有版本 json，目录名里也看不出来。\n\n没有导入 —— "
+            "猜一个版本装出来多半进不去游戏。可以把 versions/ 里那份 json 一起打包再导入，"
+            "或者换 Modrinth / CurseForge 格式。");
+        return result;
+    }
+
+    QStringList libraries;
+    for (const QJsonValue &value :
+         versionObject.value(QStringLiteral("libraries")).toArray()) {
+        const QString name = value.toObject().value(QStringLiteral("name")).toString();
+        if (!name.isEmpty()) {
+            libraries.append(name);
+        }
+    }
+    LoaderGuess guess = loaderFromLibraries(libraries, gameVersion);
+    if (guess.key.isEmpty()) {
+        guess = loaderFromId(chosenId);
+        if (guess.key == forgeLoaderKey() && !guess.version.isEmpty()) {
+            guess.version = normalizeForgeVersion(guess.version, gameVersion);
+        }
+    }
+    if (guess.key.isEmpty()) {
+        for (const QString &id : versionIds) {
+            LoaderGuess candidate = loaderFromId(id);
+            if (!candidate.key.isEmpty()) {
+                if (candidate.key == forgeLoaderKey() && !candidate.version.isEmpty()) {
+                    candidate.version = normalizeForgeVersion(candidate.version, gameVersion);
+                }
+                guess = candidate;
+                break;
+            }
+        }
+    }
+    if (!guess.key.isEmpty() && guess.version.isEmpty()) {
+        result.problem = QObject::tr("认出了加载器，但包里没有明确的加载器版本。请提供完整版本 JSON，不能用最新版代替。");
+        return result;
+    }
+
+    Pack pack;
+    pack.format = Format::GameFolder;
+    pack.gameVersion = gameVersion;
+    pack.loaderKey = guess.key;
+    pack.loaderVersion = guess.version;
+    pack.overridesDir = stripTrailingSlashes(rootPrefix);
+    pack.clientOverridesDir.clear();
+    pack.declaredFileCount = 0;
+    pack.extractExcludes = gameFolderExtractExcludes();
+
+    pack.name = fallbackName.trimmed();
+    if (pack.name.isEmpty()) {
+        pack.name = chosenId;
+    }
+    if (pack.name.isEmpty()) {
+        pack.name = QObject::tr("整合包");
+    }
+
+    if (!versionIds.isEmpty() && !jsonId.isEmpty()) {
+        pack.supportNote = QObject::tr(
+            "这个包自带 versions/，导入时没有用它 —— 启动器会按包里的版本信息重新装一份"
+            "原版和加载器，再把 mods、config 这些解进实例里。");
+    }
+
+    result.ok = true;
+    result.pack = pack;
+    return result;
+}
+
+Result parseModrinthIndex(const QByteArray &json, bool allowEmptyFiles) {
     Result result;
 
     QJsonParseError parseError;
@@ -296,6 +1086,8 @@ Result parseModrinthIndex(const QByteArray &json) {
     }
 
     const QJsonArray files = root.value(QStringLiteral("files")).toArray();
+    // 和 CurseForge 那一侧同一个意思：记"清单里点了几条"，不是"解析出几条"。
+    pack.declaredFileCount = files.size();
     QHash<QString, int> indexesByPath;  // 路径 -> 它在 files 里的下标（去重用）
     for (const QJsonValue &value : files) {
         if (!value.isObject()) {
@@ -375,12 +1167,15 @@ Result parseModrinthIndex(const QByteArray &json) {
     }
 
     if (pack.files.isEmpty() && pack.filesSkipped == 0) {
-        // 清单里一条文件都没有。这**不是**错误（理论上可以有一个纯 overrides 的整合包），
-        // 但那种包里不该有 files 字段。到这里多半是清单被改坏了，如实说一句，让用户
-        // 自己去核对，而不是"装完了，什么都没有"。
-        result.problem = QObject::tr(
-            "这份整合包的文件清单是空的（一条要下载的文件都没有），没有导入。");
-        return result;
+        // 清单里一条文件都没有。**严格按格式说**这不是错误，「纯 overrides 的整合包」是
+        // 存在的 —— 但只有压缩包里**真的有** overrides 那一层时才算，而这里（纯逻辑层）
+        // 看不到压缩包。所以默认仍然拒；调用方确认过 overrides 有内容时传
+        // `allowEmptyFiles = true` 放行。
+        if (!allowEmptyFiles) {
+            result.problem = QObject::tr(
+                "这份整合包的文件清单是空的（一条要下载的文件都没有），没有导入。");
+            return result;
+        }
     }
 
     result.ok = true;
@@ -477,7 +1272,7 @@ bool curseForgeLoaderKey(const QString &rawId, QString *keyOut, QString *version
     return parsed.known;
 }
 
-Result parseCurseForgeManifest(const QByteArray &json) {
+Result parseCurseForgeManifest(const QByteArray &json, bool allowEmptyFiles) {
     Result result;
 
     QJsonParseError parseError;
@@ -563,8 +1358,13 @@ Result parseCurseForgeManifest(const QByteArray &json) {
     pack.clientOverridesDir.clear();
 
     // 文件清单。**这里一个地址都没有** —— 只有两个号，全都要去接口换（见 .hpp 顶上那段）。
+    const QJsonArray fileArray = root.value(QStringLiteral("files")).toArray();
+    // `declaredFileCount` 记的是**清单里点了几条**，不是解析出几条：解析不出（号缺失、
+    // 小于等于零）的条目会被剔掉，而"剔光了"和"本来就没写"必须分得开 —— 前者是坏包，
+    // 后者是纯 overrides 包（有的导出工具会写一个空数组）。
+    pack.declaredFileCount = fileArray.size();
     QSet<int> seenFileIds;
-    for (const QJsonValue &value : root.value(QStringLiteral("files")).toArray()) {
+    for (const QJsonValue &value : fileArray) {
         if (!value.isObject()) {
             continue;  // 不是对象的条目当没有：它连号都给不出，报也报不清
         }
@@ -591,9 +1391,17 @@ Result parseCurseForgeManifest(const QByteArray &json) {
         pack.pendingRefs.append(ref);
     }
 
-    if (pack.pendingRefs.isEmpty()) {
-        // 清单在，但一条文件都没有。CF 的包**一定**有 files（连纯 overrides 的包也得写个
-        // 空数组？没有 —— 那种包根本生成不出来），所以到这里多半是清单被改坏了。
+    if (pack.pendingRefs.isEmpty() && pack.declaredFileCount > 0) {
+        // 清单点了名，却一条都读不出号。这是坏清单，不是"纯 overrides 包"。
+        result.problem = QObject::tr(
+            "这份整合包的文件清单里有 %1 条，但没有一条写着能用的 projectID / fileID。"
+            "清单可能被改坏了，没有导入。")
+                             .arg(pack.declaredFileCount);
+        return result;
+    }
+    if (pack.pendingRefs.isEmpty() && !allowEmptyFiles) {
+        // 一个空数组本身是合法的「纯 overrides 包」，但只有压缩包里真有 overrides 那一层
+        // 时才成立 —— 这一层看不到压缩包，所以默认仍然拒（调用方确认过再放行）。
         result.problem = QObject::tr(
             "这份整合包的文件清单是空的（一条要下载的文件都没有），没有导入。");
         return result;

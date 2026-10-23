@@ -784,12 +784,25 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     placeholders[QStringLiteral("classpath_separator")] = QStringLiteral(";");
     placeholders[QStringLiteral("version_name")] = versionId;
 
-    const QStringList declared =
+    QStringList declared =
         VersionArguments::expand(versionJson.value(QStringLiteral("arguments"))
                                      .toObject()
                                      .value(QStringLiteral("jvm"))
                                      .toArray(),
                                  placeholders);
+
+    // BootstrapLauncher 构建转换后的 Minecraft 模块时须忽略原版客户端。
+    // 继承或改名实例的实际 JAR 不一定叫 <versionId>.jar；只补真实文件名，不改实例身份。
+    if (mainClass == QLatin1String("cpw.mods.bootstraplauncher.BootstrapLauncher")) {
+        const QString clientName = InstanceFiles::jarName(versionId);
+        const QString prefix = QStringLiteral("-DignoreList=");
+        for (QString &arg : declared) {
+            if (!arg.startsWith(prefix) || clientName.isEmpty()) continue;
+            QStringList names = arg.mid(prefix.size()).split(QLatin1Char(','), Qt::SkipEmptyParts);
+            if (!names.contains(clientName)) names.append(clientName);
+            arg = prefix + names.join(QLatin1Char(','));
+        }
+    }
 
     // 同一条属性只留一份：version.json 声明了就以它为准。值与我们完全相同时也归到
     // 这里，免得同一个 -D 在命令行上出现两次。
@@ -861,10 +874,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
     // 在两处各算一遍、其中一处依赖调用顺序，切换 cwd 时就会漂。绝对路径的解析结果
     // 逐字节相同，但不再依赖 cwd，也为"切换 .minecraft 文件夹"准备了条件。
     //
-    // NOTE: cwd **本身不动**，仍然是 .minecraft（见 startGame 里那条 NOTE：真机 61 个
-    // 实例里大量模组按 cwd 找相对路径）。classpath 已经是绝对路径，
-    // 所以"改 cwd"不再需要同时改 classpath —— 那条约束已经解开了，cwd 要不要换
-    // 是独立的另一件事。
+    // cwd 跟随隔离实例；共享 assets 与 classpath 使用绝对路径，不依赖 cwd。
     if (offlineMode) {
         // 离线模式：使用虚假登录证书
         // NOTE: 玩家名就是调用方给的那个（底栏上显示的名字）：名字就是账户的
@@ -1165,23 +1175,14 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     process->setProgram(program);
     process->setArguments(arguments);
 
-    // 将工作目录设为 .minecraft 文件夹以确保文件能够正确解析
-    //
-    // NOTE: MCEF 是按**相对路径** `mods/mcef-libraries`
-    // 找它那份本地库的（反编译 mcef-forge-2.1.6 确认），所以 cwd 指到根 .minecraft
-    // 时它去的是根 mods/ 底下，而 PCL 启动同一个实例时 cwd 是版本目录、它去的是
-    // versions/<id>/mods/ 底下那份完好的副本。**cwd 仍然不动**：classpath 现在是绝对
-    // 路径（"两处一起动"的约束已经解开），但换 cwd 会同时改变**所有**按相对路径
-    // 找文件的模组/加载器的行为，那是另一个题目 —— 要动就单独一批动，并且拿真机日志
-    // 一句一句对。
-    QString minecraftDir = AppPaths::minecraftDir();
-    QDir().mkpath(minecraftDir);
-    process->setWorkingDirectory(minecraftDir);
-    qDebug() << "Working directory:" << minecraftDir;
-
-    // 为这个版本创建独立的路径
+    // 相对配置和模组资源必须在 --gameDir 下解析，不能让 FancyMenu/MCEF 读共享根中的文件。
     QString isolatedPath = AppPaths::versionDir(versionId);
     QDir().mkpath(isolatedPath);
+    const int gameDirIndex = arguments.indexOf(QStringLiteral("--gameDir"));
+    const QString workingDirectory = gameDirIndex >= 0 && gameDirIndex + 1 < arguments.size()
+        ? arguments.at(gameDirIndex + 1) : isolatedPath;
+    process->setWorkingDirectory(workingDirectory);
+    qDebug() << "Working directory:" << workingDirectory;
     // 第一次启动这个版本时，让游戏界面语言跟随系统
     ensureInitialOptions(isolatedPath);
     qDebug() << "Isolated game directory:" << isolatedPath;

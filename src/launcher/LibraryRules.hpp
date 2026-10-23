@@ -345,6 +345,15 @@ inline Artifact artifactFor(const QJsonObject &libObj) {
         return result;
     }
 
+    // Explicit classifier-only metadata does not imply a local primary JAR.
+    // Keep the name-only OptiFine fallback below, but do not invent a classpath
+    // entry for Twitch/JInput platform DLL containers.
+    if (artifact.isEmpty() && !libObj.contains(QStringLiteral("url")) &&
+        !libObj.value(QStringLiteral("downloads")).toObject()
+             .value(QStringLiteral("classifiers")).toObject().isEmpty()) {
+        return {};
+    }
+
     const QString mavenBase = libObj.value(QStringLiteral("url")).toString();
     const QString mavenName = libObj.value(QStringLiteral("name")).toString();
     const QString mavenPath = mavenPathForName(mavenName);

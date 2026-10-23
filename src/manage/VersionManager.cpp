@@ -1200,7 +1200,11 @@ void VersionManager::importModpack(const QString &zipPath, const QString &instan
     // resolveCurseForgeFiles，见它的注释）。这里这第二道**不是多余的**：漏了它，
     // 走到 startModpackFiles() 就是一个只有加载器、一个 mod 都没有的实例，
     // 而用户看到的终态是"导入好了"。
-    if (pack.format == ModpackImport::Format::CurseForge && pack.files.isEmpty()) {
+    // **但"清单本来就一条没写"不能按这个拦**（`declaredFileCount == 0`）：纯 overrides
+    // 的包（整个 .minecraft 塞进压缩包、清单里 files 是空数组）就是要走"零下载、直接解"。
+    // 判据看的是**清单点了几条**，不是解析之后还剩几条。
+    if (pack.format == ModpackImport::Format::CurseForge && pack.files.isEmpty() &&
+        pack.declaredFileCount != 0) {
         emit versionDownloadFinished(
             instanceId, false,
             tr("这个 CurseForge 整合包的文件清单没有换成下载地址：那种清单里只有编号，"
@@ -1222,13 +1226,14 @@ void VersionManager::importModpack(const QString &zipPath, const QString &instan
     emit modpackImportMessage(tr("开始导入整合包「%1」：Minecraft %2%3。")
                                   .arg(pack.name, pack.gameVersion, loaderText));
 
-    if (!hasLoader) {
+    if (!hasLoader || !pack.patchedRuntime.isEmpty()) {
         // 纯原版的整合包：没有加载器要塞，父版本就是原版那一份。原版也得先装齐 ——
         // 实例那份 json 的 inheritsFrom 指着它，指着一个不存在的版本启动时会报
         // "版本信息缺失"（见继承链那一段的报错）。
         m_modpackInstall.phase = ModpackInstall::Phase::WaitingParentJson;
-        emit modpackImportMessage(tr("这个整合包没有模组加载器，先把原版 %1 装好...")
-                                      .arg(pack.gameVersion));
+        emit modpackImportMessage(pack.patchedRuntime.isEmpty()
+            ? tr("这个整合包没有模组加载器，先把原版 %1 装好...").arg(pack.gameVersion)
+            : tr("使用包内启动补丁，先补齐原版 %1，再安装专用运行库...").arg(pack.gameVersion));
         // 走的路和"装加载器时顺手补原版"完全一样（取 json → 下那一批），续接点分别在
         // onVersionJsonFetched 和 onAllDownloadsFinished 里，判据就是上面那个相位。
         fetchVersionDetails(pack.gameVersion);
@@ -1257,6 +1262,26 @@ void VersionManager::startModpackFiles() {
     json[QStringLiteral("id")] = id;
     json[QStringLiteral("inheritsFrom")] = m_modpackInstall.loaderId;
     json[QStringLiteral("type")] = QStringLiteral("release");
+
+    if (!m_modpackInstall.pack.patchedRuntime.isEmpty()) {
+        // Standalone runtime: inheriting the vanilla array would reintroduce LWJGL2.
+        json = m_modpackInstall.pack.patchedRuntime;
+        json[QStringLiteral("id")] = id;
+        json[QStringLiteral("type")] = QStringLiteral("release");
+        json.remove(QStringLiteral("inheritsFrom"));
+        const QJsonObject original = getVersionJson(m_modpackInstall.pack.gameVersion);
+        const QString originalHash = original.value(QStringLiteral("downloads")).toObject()
+            .value(QStringLiteral("client")).toObject().value(QStringLiteral("sha1")).toString();
+        const QString requestedHash = json.value(QStringLiteral("downloads")).toObject()
+            .value(QStringLiteral("client")).toObject().value(QStringLiteral("sha1")).toString();
+        if (originalHash.isEmpty() || originalHash.compare(requestedHash, Qt::CaseInsensitive) != 0) {
+            failModpackImport(tr("启动补丁引用的客户端与官方原版不一致，未安装修改过的客户端。")); return;
+        }
+        QString libraryProblem;
+        if (!ModpackImport::publishBundledLibraries(m_modpackInstall.pack, AppPaths::minecraftDir(), &libraryProblem)) {
+            failModpackImport(libraryProblem); return;
+        }
+    }
 
     QString error;
     // 导入开始的标记先落下（`isUnfinishedImport()` 靠它区分"我们没导完的"
@@ -1288,11 +1313,24 @@ void VersionManager::startModpackFiles() {
     const QList<ModpackImport::PackFile> files = m_modpackInstall.pack.files;
     m_modpackInstall.phase = ModpackInstall::Phase::DownloadingFiles;
     m_currentVersionDownloading = id;  // 这一批的"名字"（兜底终态那条路要用）
-    emit modpackImportMessage(tr("清单里 %1 个文件，开始下载（已经下好的会按 sha1 跳过）...")
-                                  .arg(files.size()));
+    if (!m_modpackInstall.pack.patchedRuntime.isEmpty()) {
+        emit modpackImportMessage(tr("正在补齐专用运行库和客户端文件，完成后解压整合包内容..."));
+    } else if (files.isEmpty()) {
+        // 零下载是合法的（纯 overrides 的包、MultiMC 实例、直接压进来的 .minecraft）。
+        // 这批作业一条都不发，直接走 endOwnBatch() → onAllDownloadsFinished() 那条路。
+        emit modpackImportMessage(
+            tr("这个整合包里没有要下载的文件，内容都在压缩包里，直接解开..."));
+    } else {
+        emit modpackImportMessage(tr("清单里 %1 个文件，开始下载（已经下好的会按 sha1 跳过）...")
+                                      .arg(files.size()));
+    }
 
     const QString base = AppPaths::versionDir(id);
     beginOwnBatch();
+    if (!m_modpackInstall.pack.patchedRuntime.isEmpty()) {
+        registerVersionFiles(json, m_modpackInstall.pack.gameVersion,
+            AppPaths::versionDir(id) + QLatin1Char('/') + id + QStringLiteral(".jar"));
+    }
     // NOTE: beginBatch() 与 endBatch() 之间**不允许**任何提前 return（见 downloadVersion
     // 顶部那段）：下面这个循环里一句早退都没有，就是为了这个。
     for (const ModpackImport::PackFile &file : files) {
@@ -1313,7 +1351,6 @@ void VersionManager::extractModpackOverrides() {
     }
     const QString id = m_modpackInstall.instanceId;
     m_modpackInstall.phase = ModpackInstall::Phase::ExtractingOverrides;
-    emit modpackImportMessage(tr("正在解开整合包里的覆盖文件（config、资源包、光影这些）..."));
 
     // 两个前缀一起解，顺序 = 优先级：Modrinth 的规矩是 client-overrides **盖过** overrides，
     // "谁在后谁赢"这一条是格式的一部分，不能调换。
@@ -1321,23 +1358,31 @@ void VersionManager::extractModpackOverrides() {
     //
     // NOTE: 这两个目录名来自清单，**不是写死的**：CurseForge 的清单里
     // `overrides` 那一项是自己写的（真包见过 `overrides` / `overrides-1.20.1` 这种），
-    // 而它**没有** client-overrides 这个规矩 —— 那种包的 clientOverridesDir 是空串，
-    // 下面那个判断会把它跳过（空串拼出来的前缀是 `/`，那是从压缩包根目录往下解，
-    // = 把整包的目录结构摊到实例里，正好是错的）。
-    const QStringList roots = {m_modpackInstall.pack.overridesDir + QLatin1Char('/'),
-                               m_modpackInstall.pack.clientOverridesDir.isEmpty()
-                                   ? QString()
-                                   : m_modpackInstall.pack.clientOverridesDir + QLatin1Char('/')};
+    // 而它**没有** client-overrides 这个规矩 —— 那种包的 clientOverridesDir 是空串。
+    //
+    // **主前缀是空串 = 整包解**：MultiMC 实例和"直接把 .minecraft 压进来"的懒人包里
+    // 没有 `overrides/` 这一层，要解的就是压缩包里那一棵树（前缀由 overridesDir 表达：
+    // 包被套在一层目录里时它是 `包名/.minecraft` 这类）。这一档下 clientOverridesDir
+    // 一定也是空的（那两种包没有这个概念），所以不用考虑"整包 + 再盖一层"。
+    const ModpackImport::Pack &pack = m_modpackInstall.pack;
     QStringList layers;
-    for (const QString &root : roots) {
-        if (!root.isEmpty()) {
-            layers.append(root);
+    if (pack.overridesDir.isEmpty()) {
+        layers.append(QString());  // 整包
+    } else {
+        layers.append(pack.overridesDir + QLatin1Char('/'));
+        if (!pack.clientOverridesDir.isEmpty()) {
+            layers.append(pack.clientOverridesDir + QLatin1Char('/'));
         }
     }
+    emit modpackImportMessage(
+        pack.overridesDir.isEmpty()
+            ? tr("正在把压缩包里的游戏目录解进实例（mods、config、资源包这些）...")
+            : tr("正在解开整合包里的覆盖文件（config、资源包、光影这些）..."));
     struct Result { bool ok = false; int extracted = 0; QString error; };
     const auto result = std::make_shared<Result>();
     const QString archive = m_modpackInstall.zipPath;
     const QString destination = AppPaths::versionDir(id);
+    const QStringList excludes = m_modpackInstall.pack.extractExcludes;
     m_modpackOverridesFailure.clear();
     auto *watcher = new QFutureWatcher<void>(this);
     connect(watcher, &QFutureWatcher<void>::finished, this,
@@ -1362,11 +1407,12 @@ void VersionManager::extractModpackOverrides() {
     });
     m_modpackOverridesCancelled = std::make_shared<std::atomic_bool>(false);
     const auto cancelled = m_modpackOverridesCancelled;
-    m_modpackOverridesWork = QtConcurrent::run([result, archive, destination, layers, cancelled] {
-        result->ok = ZipUtil::extractSubtrees({archive}, destination, layers,
-                                              &result->extracted, &result->error,
-                                              [cancelled] { return cancelled->load(); });
-    });
+    m_modpackOverridesWork = QtConcurrent::run(
+        [result, archive, destination, layers, excludes, cancelled] {
+            result->ok = ZipUtil::extractSubtrees(
+                {archive}, destination, layers, &result->extracted, &result->error,
+                [cancelled] { return cancelled->load(); }, excludes);
+        });
     watcher->setFuture(m_modpackOverridesWork);
 }
 
@@ -1438,6 +1484,11 @@ void VersionManager::finishModpackImport() {
         extra += tr("\n\n还有 %1 个文件在 CurseForge 上已经查不到了（作者删了、或者没过审）——"
                     "这一部分没有办法补，这个整合包可能已经过期。")
                      .arg(missing);
+    }
+    // 这一种格式自带的话：MultiMC 实例导入了什么、没导入什么，lwjgl3ify 为什么会起不来。
+    // 这条必须落在**终态**里 —— 用户装完就往下走，不会再翻日志。
+    if (!pack.supportNote.isEmpty()) {
+        extra += QStringLiteral("\n\n") + pack.supportNote;
     }
 
     m_modpackInstall.reset();

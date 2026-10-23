@@ -120,7 +120,7 @@ int runSegmentInstallChecks() {
                     } else {
                         ++signedHits;
                     }
-                } else if (path == "/missing") {
+                } else if (path == "/missing" || (path == "/probe404" && begin == 0 && end == 0)) {
                     response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n"
                                "Connection: close\r\n\r\n";
                 } else if (path == "/flaky" && ranged && !flakyFailed) {
@@ -300,6 +300,17 @@ int runSegmentInstallChecks() {
                "range-unsupported fallback is billed as one ordinary download");
     }
 
+    {
+        resetCounters();
+        const auto out = runOne(QStringLiteral("probe404.bin"), QStringLiteral("/probe404"), {}, cache, false);
+        expect(out.deadlineHeld && out.bytes == body,
+               "404 only on Range probe falls back to verified full GET");
+        expect(probes == 1 && parts == 0 && full == 1,
+               "404 probe fallback does not loop or retry range requests");
+        expect(out.batchSuccess && out.stats.failed == 0,
+               "404 probe does not incorrectly fail a downloadable file");
+    }
+
     // 4. 入口 302 到带令牌落点（BMCLAPI 形态）：**探测一次拿到落点，四条分段复用这一条**
     // （docs/HIGH_SPEED_DOWNLOAD.md「 现场日志修正」：避免每段重复入口、
     // 反复调度和 429）。令牌真过期的那一批会在补投前重新探测刷新。
@@ -343,12 +354,21 @@ int runSegmentInstallChecks() {
         const auto out = runOne(QStringLiteral("official.bin"), QStringLiteral("/missing"),
                                 QStringLiteral("/official"), cache, false);
         expect(out.deadlineHeld && out.bytes == body, "official fallback downloads the complete file");
-        expect(probes == 2 && parts == 4 && full == 0,
-               "official fallback probes again and then segments the official source");
+        expect(probes == 2 && parts == 4 && full == 1,
+               "real 404 gets one full GET check before probing and segmenting official fallback");
         expect(out.stats.total == 1 && out.stats.done == 1 && out.stats.failed == 0,
                "mirror-to-official retry is not counted as a failed job");
         expect(out.results == 1 && out.batchResults == 1 && out.batchSuccess,
                "official fallback reports one successful file and one batch result");
+    }
+
+    {
+        resetCounters();
+        const auto out = runOne(QStringLiteral("really-missing.bin"), QStringLiteral("/missing"), {}, cache, false);
+        expect(out.deadlineHeld && !out.exists && !out.batchSuccess && out.stats.failed == 1,
+               "real 404 without fallback remains a failure and publishes no file");
+        expect(probes == 1 && parts == 0 && full == 1,
+               "real 404 fallback is bounded to one ordinary GET");
     }
 
     // 7. 分段途中取消：不发布半成品，不误发完成信号，isBusy() 立刻归位。

@@ -41,11 +41,6 @@ bool hasSegment(const QStringList &folded, const QString &segment) {
     return false;
 }
 
-/// 这份表里有没有这一份文件（按整条名字比）。
-bool hasEntry(const QStringList &folded, const QString &name) {
-    return folded.contains(name);
-}
-
 /// 有没有一个**叫这个名字的文件**（允许它被套在一层目录里：`MyPack/pack.mcmeta`）。
 ///
 /// 为什么要放宽到"套一层也行"：用户手边那种包十有八九是"整个目录一起压"的
@@ -111,20 +106,22 @@ DroppedResource::Result DroppedResource::classify(const QString &path) {
         folded.append(normalized(entry));
     }
 
-    // ① 整合包：两份清单，谁在根上就是谁（名字只问 ModpackImport，不在这儿再抄一遍）。
-    const QString modrinthIndex = ModpackImport::modrinthIndexName().toLower();
-    const QString curseForgeManifest = ModpackImport::curseForgeManifestName().toLower();
-    if (hasEntry(folded, modrinthIndex)) {
-        result.known = true;
-        result.kind = ResourceCatalog::Kind::Modpack;
-        result.detail = QStringLiteral("里面有一份 %1").arg(ModpackImport::modrinthIndexName());
+    // ① 整合包：判据全在 ModpackImport::detectArchiveLayout()（清单、MultiMC 实例、直接
+    // 压进来的 .minecraft、PCL 那种套着 .mrpack 的壳，还有"只有一堆模组"的反判）。
+    // 概念只有一个出处，这里不再按文件名抄一遍。
+    //
+    // NOTE: 服务端包 / 世界存档 / "只有 mods/" 这三档 detect 会认出来并**明确排除**，
+    // 所以要先判它们，别让下面资源包那两条把它们接走（服务端包里也有 mods/，世界存档里
+    // 也有 data/）。
+    const ModpackImport::ArchiveLayout layout = ModpackImport::detectArchiveLayout(entries);
+    if (layout.serverPack || layout.worldSave || layout.modsBundle) {
+        result.detail = layout.detail;
         return result;
     }
-    if (hasEntry(folded, curseForgeManifest)) {
+    if (layout.format != ModpackImport::Format::Unknown) {
         result.known = true;
         result.kind = ResourceCatalog::Kind::Modpack;
-        result.detail =
-            QStringLiteral("里面有一份 %1").arg(ModpackImport::curseForgeManifestName());
+        result.detail = layout.detail;
         return result;
     }
 

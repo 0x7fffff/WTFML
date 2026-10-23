@@ -227,6 +227,124 @@ void runResourceAndDataPackTests() {
               "PL4b 目标存在也不自动删除旧目录或同前缀用户数据");
     }
 
+    section("PL4c. 有登记的中断换包按登记回滚（原件放回原位、暂存收掉）");
+    {
+        const auto put = [&writeBytes](const QString &path, const QByteArray &bytes) {
+            return QDir().mkpath(QFileInfo(path).absolutePath()) && writeBytes(path, bytes);
+        };
+        const QString source = scratch.filePath(QStringLiteral("dpTxnSource"));
+        const QString root = scratch.filePath(QStringLiteral("dpTxnRoot"));
+        const QString relative = QStringLiteral("/saves/W9/datapacks/");
+        check(put(source + relative + QStringLiteral("dirpack/pack.mcmeta"), "original"),
+              "PL4c 源数据包创建成功");
+        const auto first = Presets::captureDataPacks(source, root);
+        check(first.ok, "PL4c 首次采集成功", first.problem);
+
+        const QString token = Presets::dataPackReplaceToken(QStringLiteral("dirpack"));
+        const QString oldName = QStringLiteral(".wtfml-old-") + token
+            + QStringLiteral("-00000000-0000-0000-0000-000000000001");
+        const QString stagingName = QStringLiteral(".wtfml-copy-") + token
+            + QStringLiteral("-00000000-0000-0000-0000-000000000002");
+        const QString live = root + relative + QStringLiteral("dirpack");
+        const QString journalPath =
+            root + relative + QStringLiteral(".wtfml-txn-") + token + QStringLiteral(".json");
+        check(QDir().rename(live, root + relative + oldName)
+                  && put(root + relative + stagingName + QStringLiteral("/partial.txt"),
+                         "PARTIAL"),
+              "PL4c 摆出「目标已挪走、新内容还没发布」的现场");
+        const QByteArray journal = QByteArrayLiteral(
+            "{\"format\":\"wtfml-datapack-txn/1\",\"target\":\"dirpack\",\"staging\":\"")
+            + stagingName.toUtf8() + QByteArrayLiteral("\",\"displaced\":\"")
+            + oldName.toUtf8() + QByteArrayLiteral("\",\"state\":\"displaced\"}");
+        check(put(journalPath, journal), "PL4c 登记落盘");
+
+        const auto recovered = Presets::captureDataPacks(source, root);
+        check(recovered.ok && readBytes(live + QStringLiteral("/pack.mcmeta")) == "original",
+              "★★★ PL4c 登记在 ⇒ 原件按登记放回原位，采集照常",
+              recovered.problem + recovered.problems.join(QStringLiteral("；")));
+        check(!QFileInfo::exists(root + relative + oldName)
+                  && !QFileInfo::exists(root + relative + stagingName)
+                  && !QFileInfo::exists(journalPath),
+              "★★★ PL4c 暂存、旧内容、登记都收干净了");
+    }
+
+    section("PL4d. 登记读不懂 ⇒ 一个字节都不动，采集报问题");
+    {
+        const auto put = [&writeBytes](const QString &path, const QByteArray &bytes) {
+            return QDir().mkpath(QFileInfo(path).absolutePath()) && writeBytes(path, bytes);
+        };
+        const QString source = scratch.filePath(QStringLiteral("dpBadTxnSource"));
+        const QString root = scratch.filePath(QStringLiteral("dpBadTxnRoot"));
+        const QString relative = QStringLiteral("/saves/W9/datapacks/");
+        check(put(source + relative + QStringLiteral("dirpack/pack.mcmeta"), "original"),
+              "PL4d 源数据包创建成功");
+        const auto first = Presets::captureDataPacks(source, root);
+        check(first.ok, "PL4d 首次采集成功", first.problem);
+
+        const QString token = Presets::dataPackReplaceToken(QStringLiteral("dirpack"));
+        const QString oldName = QStringLiteral(".wtfml-old-") + token
+            + QStringLiteral("-00000000-0000-0000-0000-000000000003");
+        const QString stagingName = QStringLiteral(".wtfml-copy-") + token
+            + QStringLiteral("-00000000-0000-0000-0000-000000000004");
+        const QString live = root + relative + QStringLiteral("dirpack");
+        const QString journalPath =
+            root + relative + QStringLiteral(".wtfml-txn-") + token + QStringLiteral(".json");
+        check(QDir().rename(live, root + relative + oldName)
+                  && put(root + relative + stagingName + QStringLiteral("/keep.txt"), "PARTIAL"),
+              "PL4d 摆出现场");
+        check(put(journalPath,
+                  QByteArrayLiteral("{\"format\":\"some-other-app/1\",\"target\":\"dirpack\"}")),
+              "PL4d 摆一份读不懂的登记");
+
+        const auto refused = Presets::captureDataPacks(source, root);
+        check(!refused.problems.isEmpty() && !QFileInfo::exists(live)
+                  && readBytes(root + relative + oldName + QStringLiteral("/pack.mcmeta"))
+                         == "original"
+                  && readBytes(root + relative + stagingName + QStringLiteral("/keep.txt"))
+                         == "PARTIAL"
+                  && readBytes(journalPath).contains("some-other-app"),
+              "★★★ PL4d 读不懂的登记保留全部现场，不猜归属",
+              refused.problems.join(QStringLiteral("；")));
+    }
+
+    section("PL4e. 登记说「已发布」⇒ 收掉旧内容、保留新内容");
+    {
+        const auto put = [&writeBytes](const QString &path, const QByteArray &bytes) {
+            return QDir().mkpath(QFileInfo(path).absolutePath()) && writeBytes(path, bytes);
+        };
+        const QString source = scratch.filePath(QStringLiteral("dpPubTxnSource"));
+        const QString root = scratch.filePath(QStringLiteral("dpPubTxnRoot"));
+        const QString relative = QStringLiteral("/saves/W9/datapacks/");
+        // 源那一侧摆的是**另一个包**：采集会走同目录的 copyOverwrite（顺带扫登记），
+        // 但不会覆盖 `dirpack` 本身 —— 这样才能看到"新发布的那一份没有被回滚掉"。
+        check(put(source + relative + QStringLiteral("otherpack/pack.mcmeta"), "OTHER"),
+              "PL4e 源数据包创建成功");
+        const auto first = Presets::captureDataPacks(source, root);
+        check(first.ok, "PL4e 首次采集成功", first.problem);
+
+        const QString token = Presets::dataPackReplaceToken(QStringLiteral("dirpack"));
+        const QString oldName = QStringLiteral(".wtfml-old-") + token
+            + QStringLiteral("-00000000-0000-0000-0000-000000000005");
+        const QString live = root + relative + QStringLiteral("dirpack");
+        const QString journalPath =
+            root + relative + QStringLiteral(".wtfml-txn-") + token + QStringLiteral(".json");
+        check(put(live + QStringLiteral("/pack.mcmeta"), "NEW")
+                  && put(root + relative + oldName + QStringLiteral("/pack.mcmeta"), "original"),
+              "PL4e 摆出「新的已发布、旧的还没收」的现场");
+        check(put(journalPath,
+                  QByteArrayLiteral("{\"format\":\"wtfml-datapack-txn/1\","
+                                    "\"target\":\"dirpack\",\"staging\":\"\",\"displaced\":\"")
+                      + oldName.toUtf8()
+                      + QByteArrayLiteral("\",\"state\":\"published\"}")),
+              "PL4e 登记落盘");
+
+        const auto completed = Presets::captureDataPacks(source, root);
+        check(completed.ok && readBytes(live + QStringLiteral("/pack.mcmeta")) == "NEW",
+              "★★★ PL4e 已发布的那一份不动，采集照常", completed.problem);
+        check(!QFileInfo::exists(root + relative + oldName) && !QFileInfo::exists(journalPath),
+              "★★★ PL4e 旧内容与登记都收掉了");
+    }
+
     section("PL5. 数据包：有同名世界就部署，没有就记「待应用」且不建世界");
     const QString dpTarget = scratch.filePath(QStringLiteral("dpTarget"));
     QDir().mkpath(dpTarget + QStringLiteral("/saves/W1"));

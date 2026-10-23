@@ -514,6 +514,86 @@ ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &e
     return EntryStatus::Ok;
 }
 
+ZipUtil::EntryStatus ZipUtil::extractEntryToFile(const QString &archive, const QString &entryName,
+                                                 const QString &targetPath, QString *errorOut,
+                                                 const QString &what) {
+    if (errorOut != nullptr) {
+        errorOut->clear();
+    }
+
+    // 走文件通道而不是 stdout，理由和 readEntry 那段一样（二进制不过文本通道）。
+    // NOTE: 这里**没有**大小上限 —— 调用方（PCL 那种压缩包里套一份 .mrpack）要的是完整
+    // 解出来一份真文件，不是读进内存。上限那一路留给 readEntry。
+    // 退出码和 readEntry 同一套：3 = 没有这个条目，4 = 打不开。
+    const QString script =
+        QStringLiteral("$ErrorActionPreference='Stop'\n"
+                       "Add-Type -AssemblyName System.IO.Compression.FileSystem\n"
+                       "$target=%1\n"
+                       "try{ $zip=[System.IO.Compression.ZipFile]::OpenRead(%2) }"
+                       " catch { exit 4 }\n"
+                       "try{\n"
+                       "  $e=$zip.GetEntry($target)\n"
+                       "  if($e -eq $null){\n"
+                       "    $lower=$target.ToLowerInvariant()\n"
+                       "    foreach($c in $zip.Entries){\n"
+                       "      if($c.FullName.ToLowerInvariant() -eq $lower){ $e=$c; break }\n"
+                       "    }\n"
+                       "  }\n"
+                       "  if($e -eq $null){ exit 3 }\n"
+                       "  $dest=%3\n"
+                       "  $dir=[System.IO.Path]::GetDirectoryName($dest)\n"
+                       "  if(-not [string]::IsNullOrEmpty($dir)){"
+                       "[void][System.IO.Directory]::CreateDirectory($dir) }\n"
+                       "  [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e,$dest,$true)\n"
+                       "} catch {\n"
+                       "  $msg=$_.Exception.GetBaseException().Message\n"
+                       "  if([string]::IsNullOrEmpty($msg)){ $msg=$_.Exception.Message }\n"
+                       "  [Console]::Error.WriteLine($msg)\n"
+                       "  exit 1\n"
+                       "} finally { $zip.Dispose() }\n")
+            .arg(psQuote(entryName), psQuote(QDir::toNativeSeparators(archive)),
+                 psQuote(QDir::toNativeSeparators(targetPath)));
+
+    QProcess process;
+    process.start(QStringLiteral("powershell"),
+                  {QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
+                   QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
+                   QStringLiteral("-EncodedCommand"), encodeCommand(script)});
+    if (!process.waitForFinished(300000)) {
+        const QProcess::ProcessError failure = process.error();
+        const QString detail = process.errorString();
+        process.kill();
+        process.waitForFinished(5000);
+        if (errorOut != nullptr) {
+            *errorOut = describeProcessFailure(failure, detail, what);
+        }
+        return EntryStatus::Failed;
+    }
+    if (process.exitStatus() != QProcess::NormalExit) {
+        if (errorOut != nullptr) {
+            *errorOut = QStringLiteral("%1时 PowerShell 被强行结束了").arg(what);
+        }
+        return EntryStatus::Failed;
+    }
+    const int code = process.exitCode();
+    if (code == 3) {
+        return EntryStatus::NotFound;
+    }
+    if (code == 4) {
+        return EntryStatus::NotAnArchive;
+    }
+    if (code != 0) {
+        if (errorOut != nullptr) {
+            const QString err =
+                readProcessError(QString::fromLocal8Bit(process.readAllStandardError()));
+            *errorOut =
+                err.isEmpty() ? QStringLiteral("%1失败（退出码 %2）").arg(what).arg(code) : err;
+        }
+        return EntryStatus::Failed;
+    }
+    return EntryStatus::Ok;
+}
+
 ZipUtil::EntryStatus ZipUtil::listEntries(const QString &archive, QStringList *out,
                                           QString *errorOut, const QString &what) {
     if (out != nullptr) {
@@ -644,7 +724,8 @@ ZipUtil::EntryStatus ZipUtil::listEntries(const QString &archive, QStringList *o
 
 bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &targetDir,
                               const QStringList &roots, int *extractedOut, QString *errorOut,
-                              const std::function<bool()> &cancelled) {
+                              const std::function<bool()> &cancelled,
+                              const QStringList &excludePrefixes) {
     if (extractedOut != nullptr) {
         *extractedOut = 0;
     }
@@ -662,18 +743,36 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
     }
 
     // 前缀统一成"以 / 结尾"的形状：调用方写 `overrides` 还是 `overrides/` 都得认。
+    // **空串是合法的**：它表示"整包摘出来"（懒人包那种直接把 .minecraft 压进来的包）。
+    bool wholeArchive = false;
     QStringList normalized;
     for (const QString &root : roots) {
         if (root.isEmpty()) {
+            wholeArchive = true;
             continue;
         }
         normalized << (root.endsWith(QLatin1Char('/')) ? root : root + QLatin1Char('/'));
+    }
+    if (wholeArchive) {
+        // 整包 + 某个前缀同时给时，前缀那一支完全被整包包含 —— 只按整包算，
+        // 否则同一份文件会被写两遍（第二遍覆盖第一遍，白花一次 IO）。
+        normalized = QStringList{QString()};
     }
     if (normalized.isEmpty()) {
         if (errorOut) {
             *errorOut = QStringLiteral("没有需要解压的目录");
         }
         return false;
+    }
+
+    // 跳过的前缀同样归一：小写（PowerShell 那侧比的是小写）、目录形态以 `/` 结尾。
+    // 单独一份 `foo.txt` 不能变成 `foo.txt/`，所以"是不是目录"由调用方用自己的写法表达。
+    QStringList normalizedExcludes;
+    for (const QString &exclude : excludePrefixes) {
+        if (exclude.isEmpty()) {
+            continue;
+        }
+        normalizedExcludes << exclude.toLower();
     }
 
     // NOTE: 这一段是**剥掉前缀之后**的那几条守卫，和 extractArchives 里那三条是同一个口径
@@ -686,6 +785,7 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
                        "$out=%1\n"
                        "[void][System.IO.Directory]::CreateDirectory($out)\n"
                        "$roots=%2\n"
+                       "$excludes=%4\n"
                        "$count=0\n"
                        "foreach($z in %3){\n"
                        "  $zip=$null\n"
@@ -703,6 +803,15 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
                        // 都能折回父目录。剥完前缀之后同样得挡（`BackupFiles` 的还原走这条）。
                        "        if($rel -match '(^|/)([^/]*[. ])?(/|$)'){continue}\n"
                        "        if($rel.StartsWith('/') -or $rel.Contains(':')){continue}\n"
+                       // 跳过的前缀（剥完之后的名字，小写、`/` 分隔）。`libraries/` 这种
+                       // 是整层目录；`options.txt` 这种是单独一份文件。两边都已经小写。
+                       "        if($excludes.Count -gt 0){\n"
+                       "          $lowrel=$rel.ToLowerInvariant(); $skip=$false\n"
+                       "          foreach($x in $excludes){\n"
+                       "            if($lowrel -eq $x -or $lowrel.StartsWith($x)){ $skip=$true; break }\n"
+                       "          }\n"
+                       "          if($skip){continue}\n"
+                       "        }\n"
                        "        $dest=[System.IO.Path]::Combine($out,$rel)\n"
                        "        [void][System.IO.Directory]::CreateDirectory"
                        "([System.IO.Path]::GetDirectoryName($dest))\n"
@@ -722,7 +831,8 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
                        "  } finally { if($zip){ $zip.Dispose() } }\n"
                        "}\n"
                        "[Console]::Out.Write($count)\n")
-            .arg(psQuote(QDir(targetDir).absolutePath()), psArray(normalized), psArray(archives));
+            .arg(psQuote(QDir(targetDir).absolutePath()), psArray(normalized), psArray(archives),
+                 psArray(normalizedExcludes));
 
     QByteArray stdoutBytes;
     QString failure;

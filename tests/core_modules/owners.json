@@ -39,6 +39,7 @@
   "AccountSkinTests.cpp": "accounts",
   "OAuthEndpointTests.cpp": "accounts",
   "ModpackImportTests.cpp": "resources",
+  "MultiMCPatchImportTests.cpp": "resources",
   "CurseForgeTests.cpp": "resources",
   "ResourceCatalogTests.cpp": "resources",
   "ResourceDetailTests.cpp": "resources",

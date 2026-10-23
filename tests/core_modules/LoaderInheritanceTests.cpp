@@ -432,6 +432,29 @@ void runLoaderInheritanceTests(const QString &sandbox) {
               "U5 这条链本身没问题（inheritanceProblem 为空）", vm.inheritanceProblem(childId));
 
         // 加载器目录里没有 jar，客户端 jar 在原版那个（被改过名的）目录里
+        {
+            QJsonObject bootstrap = diskMerged;
+            bootstrap["mainClass"] = QStringLiteral("cpw.mods.bootstraplauncher.BootstrapLauncher");
+            bootstrap["arguments"] = QJsonObject{{"jvm", QJsonArray{
+                QStringLiteral("-DignoreList=client-extra,${version_name}.jar")}}};
+            GlobalJavaSettings settings;
+            LauncherManager launcher;
+            const auto args = launcher.generateJvmArguments({}, childId, "1", bootstrap, settings, true, 17);
+            check(args.contains(QStringLiteral("-DignoreList=client-extra,%1.jar,真名.jar").arg(childId)),
+                  "U5 Bootstrap ignoreList includes actual inherited/renamed client jar");
+            check(args.value(args.indexOf("-cp") + 1).contains("真名.jar"),
+                  "U5 ignored vanilla jar remains available on classpath");
+            bootstrap["arguments"] = QJsonObject{{"jvm", QJsonArray{
+                QStringLiteral("-DignoreList=client-extra,真名.jar")}}};
+            const auto dedup = launcher.generateJvmArguments({}, childId, "1", bootstrap, settings, true, 17);
+            check(dedup.contains(QStringLiteral("-DignoreList=client-extra,真名.jar")),
+                  "U5 existing client ignore entry is not duplicated");
+            bootstrap["mainClass"] = QStringLiteral("net.fabricmc.loader.impl.launch.knot.KnotClient");
+            bootstrap["arguments"] = QJsonObject{{"jvm", QJsonArray{QStringLiteral("-DignoreList=custom")}}};
+            check(launcher.generateJvmArguments({}, childId, "1", bootstrap, settings, true, 17)
+                      .contains(QStringLiteral("-DignoreList=custom")),
+                  "U5 non-Bootstrap launch leaves ignoreList unchanged");
+        }
         check(InstanceFiles::jarOwnerId(childId) == parentId,
               "U5 jar 归属找到父版本", InstanceFiles::jarOwnerId(childId));
         check(InstanceFiles::jarRelativePath(childId) ==

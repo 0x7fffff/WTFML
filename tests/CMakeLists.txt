@@ -107,6 +107,7 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/manage/InstanceGroupStore.hpp
     ${REPO_ROOT}/src/manage/DroppedResource.cpp
     ${REPO_ROOT}/src/manage/ModpackImport.cpp
+    ${REPO_ROOT}/src/manage/MultiMCPatchImport.cpp
     ${REPO_ROOT}/src/manage/DroppedResource.hpp
     ${REPO_ROOT}/src/manage/ModpackImport.hpp
     ${REPO_ROOT}/src/manage/ModpackExport.cpp

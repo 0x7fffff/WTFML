@@ -199,9 +199,293 @@ bool removeTreeNoLinks(const QString &path, QString *problem) {
     return true;
 }
 
-/// 未登记的旧目录/暂存只能人工检查，文件名前缀不是所有权证明。
+// ---------------------------------------------------------------------------
+// 换包事务登记
+//
+// 两段改名（目标 → `.wtfml-old-*`，暂存 → 目标）之间有一个**必然**的崩溃窗口：
+// 进程死在那儿时，盘上只有两坨名字带前缀的东西，凭名字判断归属是不够的 ——
+// 用户完全可能自己建了一个 `.wtfml-copy-<标记>-x` 的目录。
+//
+// 所以换包之前先在目标旁边落一份登记（`.wtfml-txn-<标记>.json`），每一步之前把
+// 接下来要做的事写进去。下一次碰同一个目标时：
+//   · 有登记、里面的名字与目标标记逐字对得上 ⇒ 按状态机把这一趟收尾（放回原件或收掉暂存）；
+//   · 没有登记、或者登记读不懂/对不上 ⇒ **一个字节都不动**，保留现场并让人工检查。
+//
+// 登记只证明"是我们写的"，不证明目录里的内容是谁的：恢复时只动登记里逐字记录的那几个
+// 名字，且链接一律不碰。
+// ---------------------------------------------------------------------------
+
+constexpr auto kTxnFormatTag = "wtfml-datapack-txn/1";
+constexpr auto kCopyPrefix = ".wtfml-copy-";
+constexpr auto kOldPrefix = ".wtfml-old-";
+constexpr auto kTxnPrefix = ".wtfml-txn-";
+
+QString manualCheckText(const QString &base, const QString &parent, const QString &why) {
+    return dataPackText("「%1」旁有一次没做完的换包，现场认不准（%2）；"
+                       "一个字节都没有动，请先人工检查目录：%3")
+        .arg(base, why, QDir::toNativeSeparators(parent));
+}
+
+bool pathExists(const QString &path) {
+    const QFileInfo info(path);
+    return info.exists() || info.isSymLink();
+}
+
+/// 单段名字（不能带分隔符、不能是 `.` / `..`）。登记里的名字先过这一关再拼路径。
+bool isPlainComponent(const QString &name) {
+    return !name.isEmpty() && name != QLatin1String(".") && name != QLatin1String("..") &&
+           !name.contains(QLatin1Char('/')) && !name.contains(QLatin1Char('\\')) &&
+           !name.contains(QLatin1Char(':'));
+}
+
+QString txnJournalPath(const QString &parent, const QString &base) {
+    return parent + QLatin1Char('/') + QLatin1String(kTxnPrefix) + dataPackReplaceToken(base) +
+           QStringLiteral(".json");
+}
+
+/// 删登记。删不掉时留着也无害：下一次按同一份登记再走一遍恢复。
+bool clearJournal(const QString &parent, const QString &base) {
+    const QString path = txnJournalPath(parent, base);
+    const QFileInfo info(path);
+    if (!pathExists(path)) return true;
+    if (isLink(info)) return false;
+    return QFile::remove(path);
+}
+
+/// 原子写登记。`staging` / `displaced` 是**裸文件名**（不是路径），空串表示这一步还没有。
+bool writeJournal(const QString &parent, const QString &base, const QString &staging,
+                  const QString &displaced, const QString &state, QString *problem) {
+    const QString path = txnJournalPath(parent, base);
+    if (isLink(QFileInfo(path))) {
+        *problem = manualCheckText(base, parent, dataPackText("登记文件本身是一根链接"));
+        return false;
+    }
+    QJsonObject root;
+    root.insert(QStringLiteral("format"), QLatin1String(kTxnFormatTag));
+    root.insert(QStringLiteral("target"), base);
+    root.insert(QStringLiteral("staging"), staging);
+    root.insert(QStringLiteral("displaced"), displaced);
+    root.insert(QStringLiteral("state"), state);
+    const QByteArray bytes = QJsonDocument(root).toJson(QJsonDocument::Compact);
+
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        *problem = dataPackText("写不下换包登记「%1」：%2").arg(path, file.errorString());
+        return false;
+    }
+    if (file.write(bytes) != bytes.size()) {
+        *problem = dataPackText("写换包登记「%1」写到一半出错了：%2").arg(path, file.errorString());
+        file.cancelWriting();
+        return false;
+    }
+    if (!file.commit()) {
+        *problem = dataPackText("换包登记「%1」替换失败：%2").arg(path, file.errorString());
+        return false;
+    }
+    return true;
+}
+
+struct ReplaceJournal {
+    QString target;
+    QString staging;
+    QString displaced;
+    QString state;
+};
+
+bool readJournal(const QString &path, const QString &base, const QString &parent,
+                 ReplaceJournal *out, QString *problem) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        *problem = manualCheckText(base, parent, dataPackText("登记文件读不动"));
+        return false;
+    }
+    const QByteArray bytes = file.readAll();
+    if (file.error() != QFileDevice::NoError) {
+        *problem = manualCheckText(base, parent, dataPackText("登记文件读到一半出错"));
+        return false;
+    }
+    QJsonParseError error{};
+    const QJsonDocument document = QJsonDocument::fromJson(bytes, &error);
+    if (error.error != QJsonParseError::NoError || !document.isObject()) {
+        *problem = manualCheckText(base, parent, dataPackText("登记文件不是能读的 JSON"));
+        return false;
+    }
+    const QJsonObject root = document.object();
+    if (root.value(QStringLiteral("format")).toString() != QLatin1String(kTxnFormatTag)) {
+        *problem = manualCheckText(base, parent, dataPackText("登记的格式不是这一版认得的"));
+        return false;
+    }
+    out->target = root.value(QStringLiteral("target")).toString();
+    out->staging = root.value(QStringLiteral("staging")).toString();
+    out->displaced = root.value(QStringLiteral("displaced")).toString();
+    out->state = root.value(QStringLiteral("state")).toString();
+    return true;
+}
+
+/// 收掉登记里点名的一棵暂存/旧内容。链接不碰（不受登记支配）。
+bool removeRegisteredTree(const QString &path, const QString &base, const QString &parent,
+                          QString *problem) {
+    if (!pathExists(path)) return true;
+    const QFileInfo info(path);
+    if (isLink(info)) {
+        *problem = manualCheckText(base, parent, dataPackText("登记点名的那一项是一根链接"));
+        return false;
+    }
+    return removeTreeNoLinks(path, problem);
+}
+
+/// 按登记把上一趟没做完的换包收尾。没有登记 ⇒ 什么都不做；登记不可信 ⇒ 保留现场并拒绝。
+bool recoverJournal(const QString &parent, const QString &base, QString *problem) {
+    const QString path = txnJournalPath(parent, base);
+    if (!pathExists(path)) return true;
+    if (isLink(QFileInfo(path))) {
+        *problem = manualCheckText(base, parent, dataPackText("登记文件本身是一根链接"));
+        return false;
+    }
+
+    ReplaceJournal journal;
+    if (!readJournal(path, base, parent, &journal, problem)) return false;
+
+    const QString token = dataPackReplaceToken(base);
+    const QString copyPrefix = QLatin1String(kCopyPrefix) + token + QLatin1Char('-');
+    const QString oldPrefix = QLatin1String(kOldPrefix) + token + QLatin1Char('-');
+    const auto namedOk = [](const QString &name, const QString &prefix) {
+        return name.isEmpty() ||
+               (isPlainComponent(name) && name.startsWith(prefix) && name.size() > prefix.size());
+    };
+    const bool knownState = journal.state == QLatin1String("staging") ||
+                            journal.state == QLatin1String("staged") ||
+                            journal.state == QLatin1String("displacing") ||
+                            journal.state == QLatin1String("displaced") ||
+                            journal.state == QLatin1String("publishing") ||
+                            journal.state == QLatin1String("published");
+    if (journal.target != base || !knownState || !namedOk(journal.staging, copyPrefix) ||
+        !namedOk(journal.displaced, oldPrefix)) {
+        *problem = manualCheckText(base, parent, dataPackText("登记里的名字或状态对不上"));
+        return false;
+    }
+
+    const QString target = parent + QLatin1Char('/') + base;
+    const QString staging = journal.staging.isEmpty()
+                                ? QString()
+                                : parent + QLatin1Char('/') + journal.staging;
+    const QString displaced = journal.displaced.isEmpty()
+                                  ? QString()
+                                  : parent + QLatin1Char('/') + journal.displaced;
+    const bool targetThere = pathExists(target);
+    const bool stagingThere = !staging.isEmpty() && pathExists(staging);
+    const bool displacedThere = !displaced.isEmpty() && pathExists(displaced);
+
+    const auto keepAll = [&](const QString &why) {
+        *problem = manualCheckText(base, parent, why);
+        return false;
+    };
+    const auto restoreDisplaced = [&]() -> bool {
+        if (!displacedThere) return false;
+        if (isLink(QFileInfo(displaced))) return false;
+        return QDir().rename(displaced, target);
+    };
+
+    if (journal.state == QLatin1String("staging") ||
+        journal.state == QLatin1String("staged")) {
+        // 目标还没动过：只收暂存。
+        if (stagingThere && !removeRegisteredTree(staging, base, parent, problem)) return false;
+        clearJournal(parent, base);
+        return true;
+    }
+    if (journal.state == QLatin1String("displacing")) {
+        // 登记说"正在把目标挪去旧位置"，实际两种都可能是：
+        if (targetThere && !displacedThere) {
+            // 改名没发生；目标原样，收掉暂存。
+            if (stagingThere && !removeRegisteredTree(staging, base, parent, problem)) return false;
+        } else if (!targetThere && displacedThere) {
+            // 改名发生了；把原件放回去。
+            if (!restoreDisplaced()) {
+                return keepAll(dataPackText("原件放不回原位"));
+            }
+            if (stagingThere && !removeRegisteredTree(staging, base, parent, problem)) return false;
+        } else {
+            return keepAll(dataPackText("目标和旧内容同时都在或同时都不在"));
+        }
+        clearJournal(parent, base);
+        return true;
+    }
+    if (journal.state == QLatin1String("displaced")) {
+        // 目标已经挪走、新内容还没发布：一律回滚，用户看到的是换包之前的样子。
+        if (targetThere || !displacedThere) {
+            return keepAll(dataPackText("目标和旧内容的实际状态与登记不符"));
+        }
+        if (!restoreDisplaced()) return keepAll(dataPackText("原件放不回原位"));
+        if (stagingThere && !removeRegisteredTree(staging, base, parent, problem)) return false;
+        clearJournal(parent, base);
+        return true;
+    }
+    if (journal.state == QLatin1String("publishing")) {
+        if (targetThere && !stagingThere) {
+            // 已经发布成功；旧内容可以收。
+            if (displacedThere && !removeRegisteredTree(displaced, base, parent, problem)) {
+                return false;
+            }
+        } else if (!targetThere && stagingThere) {
+            // 还没换过去：回滚。
+            if (displacedThere && !restoreDisplaced()) {
+                return keepAll(dataPackText("原件放不回原位"));
+            }
+            if (!removeRegisteredTree(staging, base, parent, problem)) return false;
+        } else {
+            return keepAll(dataPackText("目标和暂存的实际状态与登记不符"));
+        }
+        clearJournal(parent, base);
+        return true;
+    }
+    // published：新内容已经在目标上，只收残骸。
+    if (displacedThere && !removeRegisteredTree(displaced, base, parent, problem)) return false;
+    if (stagingThere && !removeRegisteredTree(staging, base, parent, problem)) return false;
+    clearJournal(parent, base);
+    return true;
+}
+
+/// 从一份登记文件本身读出它认领的目标，再按那一份登记恢复。
+/// 文件名必须与它自称的目标算出来的标记一致 —— 改个名字就想认领别人的目录，这一层不认。
+bool recoverJournalFile(const QString &parent, const QString &fileName, QString *problem) {
+    const QString path = parent + QLatin1Char('/') + fileName;
+    if (isLink(QFileInfo(path))) {
+        *problem = manualCheckText(fileName, parent, dataPackText("登记文件本身是一根链接"));
+        return false;
+    }
+    ReplaceJournal journal;
+    if (!readJournal(path, fileName, parent, &journal, problem)) return false;
+    if (!isPlainComponent(journal.target)) {
+        *problem = manualCheckText(fileName, parent, dataPackText("登记里的目标名不能当目录名"));
+        return false;
+    }
+    if (txnJournalPath(parent, journal.target) != path) {
+        *problem = manualCheckText(fileName, parent,
+                                   dataPackText("登记文件名与它自称的目标对不上"));
+        return false;
+    }
+    return recoverJournal(parent, journal.target, problem);
+}
+
+/// 把一个目录里**所有**登记都收尾。
+///
+/// 为什么不能只在 `copyOverwrite()` 里按目标恢复：换包崩在"目标已经挪走"那一步时，
+/// 目标本身是不在的。采集只枚举盘上还存在的项，根本轮不到那个目标调用 `copyOverwrite()`，
+/// 残骸就会一直留到用户手动处理。所以每碰一个 datapacks/ 目录，先把这一目录的登记全走一遍。
+bool recoverInterruptedReplacesIn(const QString &parent, QString *problem) {
+    const QStringList journals = QDir(parent).entryList(
+        {QStringLiteral(".wtfml-txn-*.json")},
+        QDir::Files | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot, QDir::Name);
+    for (const QString &name : journals) {
+        if (!recoverJournalFile(parent, name, problem)) return false;
+    }
+    return true;
+}
+
+/// 先按登记收尾；没有登记的残留只能人工检查，文件名前缀不是所有权证明。
 /// 不自动删除，也不把一个恰好同名的用户目录当作原件改名。
 bool recoverInterruptedReplace(const QString &parent, const QString &base, QString *problem) {
+    if (!recoverJournal(parent, base, problem)) return false;
     const QString token = dataPackReplaceToken(base);
     const auto leftovers = QDir(parent).entryList(
         {QStringLiteral(".wtfml-old-") + token + QStringLiteral("-*"),
@@ -232,6 +516,12 @@ bool copyOverwrite(const QString &source, const QString &target, QString *proble
 
     // 上一趟崩在半路留下的残骸先收拾掉（见 recoverInterruptedReplace 文件头）：
     // "目标不见了"那种情况在这里有机会恢复，不能等下一次拷同一份时才发现。
+    // 先扫整个目录的登记（可能牵连别的目标），再查这个目标有没有**未登记**的残骸。
+    QString sweepProblem;
+    if (!recoverInterruptedReplacesIn(parent, &sweepProblem)) {
+        *problem = sweepProblem;
+        return false;
+    }
     const QString base = QFileInfo(target).fileName();
     QString problemText;
     if (!recoverInterruptedReplace(parent, base, &problemText)) {
@@ -241,39 +531,95 @@ bool copyOverwrite(const QString &source, const QString &target, QString *proble
 
     const QString token = dataPackReplaceToken(base) + QLatin1Char('-') +
                           QUuid::createUuid().toString(QUuid::WithoutBraces);
-    const QString staging = parent + QStringLiteral("/.wtfml-copy-") + token;
+    const QString stagingName = QLatin1String(kCopyPrefix) + token;
+    const QString staging = parent + QLatin1Char('/') + stagingName;
+    const QString displacedName = QLatin1String(kOldPrefix) + token;
+    const QString displaced = parent + QLatin1Char('/') + displacedName;
+
+    // **先登记再动手**。登记落不下去就整趟不换：没有登记的话，崩在半路的残骸
+    // 谁也不敢判断归属，只能一直留给用户人工检查。
+    if (!writeJournal(parent, base, stagingName, QString(), QStringLiteral("staging"), problem)) {
+        return false;
+    }
     QString scratch;
     if (!copyTreeWithoutFollowingLinks(source, staging)) {
         removeTreeNoLinks(staging, &scratch);
+        clearJournal(parent, base);
         *problem = dataPackText("拷不进去「%1」（源那一侧也许是一根链接，或者目标建不出来）。")
                        .arg(target);
+        return false;
+    }
+    if (!writeJournal(parent, base, stagingName, QString(), QStringLiteral("staged"), problem)) {
+        removeTreeNoLinks(staging, &scratch);
+        clearJournal(parent, base);
         return false;
     }
 
     const QFileInfo targetInfo(target);
     const bool existed = targetInfo.exists() || targetInfo.isSymLink();
-    QString displaced;
     if (existed) {
-        displaced = parent + QStringLiteral("/.wtfml-old-") + token;
+        if (!writeJournal(parent, base, stagingName, displacedName,
+                          QStringLiteral("displacing"), problem)) {
+            removeTreeNoLinks(staging, &scratch);
+            clearJournal(parent, base);
+            return false;
+        }
         if (!QDir().rename(target, displaced)) {
             removeTreeNoLinks(staging, &scratch);
+            clearJournal(parent, base);
             *problem = dataPackText("换不掉目标上已有的「%1」（它可能正被占用）。").arg(target);
             return false;
         }
-    }
-    if (!QDir().rename(staging, target)) {
-        removeTreeNoLinks(staging, &scratch);
-        if (existed && !QDir().rename(displaced, target)) {
-            *problem = dataPackText("发布失败，原内容未能归位，仍完整保留在：%1")
-                           .arg(QDir::toNativeSeparators(displaced));
+        QString journalWhy;
+        if (!writeJournal(parent, base, stagingName, displacedName,
+                          QStringLiteral("displaced"), &journalWhy)) {
+            // 登记跟不上就不发布：把原件放回去，整趟作废。
+            if (QDir().rename(displaced, target)) {
+                removeTreeNoLinks(staging, &scratch);
+                clearJournal(parent, base);
+            }
+            *problem = dataPackText("换包登记写不下去，这一趟没有换「%1」：%2")
+                           .arg(target, journalWhy);
             return false;
         }
-        *problem = dataPackText("换不掉目标上已有的「%1」（它可能正被占用）。").arg(target);
+    }
+
+    QString publishWhy;
+    if (!writeJournal(parent, base, stagingName, existed ? displacedName : QString(),
+                      QStringLiteral("publishing"), &publishWhy)) {
+        if (existed && QDir().rename(displaced, target)) {
+            removeTreeNoLinks(staging, &scratch);
+            clearJournal(parent, base);
+        }
+        *problem = dataPackText("换包登记写不下去，这一趟没有换「%1」：%2")
+                       .arg(target, publishWhy);
         return false;
     }
-    if (existed) {
-        removeTreeNoLinks(displaced, &scratch);
+
+    if (!QDir().rename(staging, target)) {
+        // 发布失败：先把原件放回去；放不回去时把登记和暂存都留着，下一次按登记恢复。
+        if (existed && QDir().rename(displaced, target)) {
+            removeTreeNoLinks(staging, &scratch);
+            clearJournal(parent, base);
+            *problem = dataPackText("换不掉目标上已有的「%1」（它可能正被占用）。").arg(target);
+            return false;
+        }
+        *problem = existed
+                       ? dataPackText("发布失败，原内容未能归位，仍完整保留在：%1")
+                             .arg(QDir::toNativeSeparators(displaced))
+                       : dataPackText("发布失败，新内容仍完整保留在暂存里：%1")
+                             .arg(QDir::toNativeSeparators(staging));
+        return false;
     }
+
+    if (existed) {
+        // 新的已经在目标上；旧内容收不掉就留着登记（下一次按 `published` 那一档再收）。
+        QString cleanupWhy;
+        if (!removeRegisteredTree(displaced, base, parent, &cleanupWhy)) {
+            return true;
+        }
+    }
+    clearJournal(parent, base);
     return true;
 }
 
@@ -508,12 +854,28 @@ DataPackCaptureReport captureDataPacks(const QString &instanceRoot,
             continue;
         }
 
+        // 目标已经挪走那种中断里，现场一整项都"不在"，枚举根本看不到它 ——
+        // 先把这一目录的登记全收尾，再枚举。
+        QString sweepProblem;
+        if (!recoverInterruptedReplacesIn(packsPath, &sweepProblem)) {
+            report.problems.append(sweepProblem);
+            continue;  // 这个世界的换包现场没弄明白，这一趟不收它
+        }
         const QFileInfoList entries =
             QDir(packsPath).entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot |
                                               QDir::Hidden | QDir::System,
                                           QDir::Name);
         for (const QFileInfo &entry : entries) {
             const QString name = entry.fileName();
+            if (name.startsWith(QStringLiteral(".wtfml-"))) {
+                // 换包事务自己的东西（登记 / 暂存 / 上一趟的旧内容）。它们不是用户的
+                // 数据包，更不该被收进预设 —— 上一次换包崩在半路时它们才留在盘上。
+                report.problems.append(
+                    dataPackText("「%1」里有启动器换包留下的「%2」，没有收它；"
+                                 "下一次应用同一项时会按登记处理，没有登记的话请人工检查。")
+                        .arg(world, name));
+                continue;
+            }
             if (isLink(entry)) {
                 report.problems.append(dataPackText("「%1」里的「%2」是一根链接，没有收它。")
                                            .arg(world, name));

@@ -20,17 +20,27 @@
 #include <QHash>
 #include <QList>
 #include <QMetaType>
+#include <QJsonObject>
 #include <QString>
 #include <QStringList>
 
 namespace ModpackImport {
 
-/// 压缩包根目录下**有哪个文件**就说明它是哪种整合包。判据就是这两个名字
-/// （见 ZipUtil::readEntry：它能把"没这个条目"和"读失败"分开）。
+/// 压缩包根目录下**有哪个文件**就说明它是哪种整合包。判据见 detectArchiveLayout()。
 enum class Format {
     Unknown,
     Modrinth,   ///< 有 modrinth.index.json
-    CurseForge, ///< 有 manifest.json（**还没支持**，见 unsupportedFormatText()）
+    CurseForge, ///< 有 manifest.json
+    /// MultiMC / Prism 导出的实例：`instance.cfg` + `mmc-pack.json` + `.minecraft/`。
+    /// GTNH 那个包就是这个形状。它没有"待下载清单"，整个 `.minecraft/` 都在压缩包里。
+    MultiMC,
+    /// 普通 `.minecraft` 目录直接压出来的懒人包：根目录（或只有一层目录）里有
+    /// `mods/`、`config/`、`options.txt` 这些。版本和加载器从 `versions/` 里的 json
+    /// 或目录名推出来。
+    GameFolder,
+    /// 压缩包里又套了一个 `.mrpack`（PCL 那种"拖入启动器安装"的包装）。
+    /// 这个格式只活在检测阶段：导入前会把里面那份 `.mrpack` 解出来再认一次。
+    Wrapper,
 };
 
 /// 待下载的一条。`path` 已经过 isSafeRelativePath()，可以直接拼到实例目录底下。
@@ -48,6 +58,12 @@ struct PackFile {
 struct PackRef {
     int projectId = 0;
     int fileId = 0;
+};
+
+struct BundledLibrary {
+    QString path; ///< Safe Maven-relative destination under libraries/.
+    QByteArray bytes;
+    QString sha1;
 };
 
 /// 一份解析好的整合包清单。
@@ -75,6 +91,23 @@ struct Pack {
     /// CurseForge 专用：接口里**查不到**（或者文件已被作者删除 / 没过审 / 名字拼不出安全
     /// 路径）的个数。这一档是"这个包本身有问题"，用户除了换包没法处理。
     int filesMissing = 0;
+    /// 清单里**点名要文件**的条数（解析时定下来，之后不再变）。-1 = 这个格式没有清单
+    /// （MultiMC / GameFolder / 手工构造的包）。
+    ///
+    /// ★ 它和 `fileCount()` 不是一回事：CurseForge 那份空 `files: []` 的包（内容全在
+    /// `overrides/` 里，比如"永利"那一份）要能导入，而"清单里本来有文件、换地址时一个都
+    /// 没换回来"必须拦住。判据只能看**清单里写过几条**，不能看换完之后还剩几条。
+    int declaredFileCount = -1;
+    /// 导入完要如实说出来的"这个包还有哪些东西没导"（目前只有 MultiMC 那一档会写）。
+    /// 为空 = 没有额外的话。确认框和收尾那句话都会带上它。
+    QString supportNote;
+    /// Converted declarative MultiMC runtime. Empty for ordinary manifest packs.
+    QJsonObject patchedRuntime;
+    QList<BundledLibrary> bundledLibraries;
+    /// 解包时要跳过的**游戏目录内**前缀（MultiMC / GameFolder 用）：`versions/`、
+    /// `libraries/` 这些由启动器自己装，从包里解出来只会变成旧账。Modrinth / CurseForge
+    /// 恒为空（它们的覆盖目录里本来就不该有这些东西）。
+    QStringList extractExcludes;
     /// 压缩包里覆盖文件那一层目录名（Modrinth 固定 `overrides` / `client-overrides`；
     /// CurseForge 由清单里的 `overrides` 字段给，**后一个对 CF 恒为空** —— 它没有这个规矩）。
     QString overridesDir = QStringLiteral("overrides");
@@ -90,6 +123,101 @@ struct Result {
     QString problem;
     Pack pack;
 };
+
+/**
+ * @brief 一个压缩包的"形状"：它是哪种整合包、真正的游戏目录在哪一层。
+ *
+ * 这个结构只回答"条目表长什么样"，**一个字节都不读**（条目内容由调用方按这里的
+ * `*Entry` 名字去读）。所以它能在验证工程里用一份假条目表逐条钉住。
+ */
+struct ArchiveLayout {
+    Format format = Format::Unknown;
+    /// 压缩包最外层那一层唯一目录（`Foo/`）；根目录直接摊开时是空串。
+    /// 有的打包工具会多套一层（`GT New Horizons 2.8.4/`），判据不能只看根。
+    QString rootPrefix;
+    /// 真正的游戏目录（`.minecraft`）前缀，带结尾 `/`；空串 = 压缩包根就是游戏目录。
+    /// MultiMC 是 `<rootPrefix>.minecraft/`，普通懒人包通常就是 `rootPrefix`。
+    QString gameDirPrefix;
+    /// 清单文件的**完整条目名**（已带上 `rootPrefix`）。只有 Modrinth / CurseForge 有。
+    QString manifestEntry;
+    QString mmcPackEntry;     ///< MultiMC 的 `mmc-pack.json`
+    QString instanceCfgEntry; ///< MultiMC 的 `instance.cfg`
+    /// GameFolder 里最可能那一份 `versions/<id>/<id>.json`（挑不出来时为空 —— 解析器
+    /// 还会拿整份条目表再推一次）。
+    QString versionJsonEntry;
+    /// Wrapper：包里那个 `.mrpack` 的完整条目名。
+    QString innerPackEntry;
+    /// 压缩包里有没有 `overrides/`（判断"空清单的包"是不是还有内容可解）。
+    bool hasOverrides = false;
+    /// 服务端包的标记（`server.properties` / `eula.txt` / `server.jar` 这些）——
+    /// **排在游戏目录前面判**：服务端包里也有 `mods/`、`config/`。
+    bool serverPack = false;
+    /// 世界存档（`level.dat` 就在游戏目录那一层）。
+    bool worldSave = false;
+    /// 有 `.minecraft` 游戏目录的迹象（`mods/` / `config/` / `options.txt` 这些）。
+    /// 用于"这份 manifest.json 读不懂、但里面确实是个游戏目录"的退路。
+    bool gameFolderMarkers = false;
+    /// **不是整合包**：里面要么只有一个 `mods/` 目录，要么根上就摆着几份 `.jar`。
+    /// 那是"别人打包好的一堆模组"，不是整合包 —— 按整合包导进去只会建一个空实例。
+    bool modsBundle = false;
+    /// 给日志/拖放提示用的一句人话。
+    QString detail;
+};
+
+/**
+ * @brief 看一份条目表，判断它是哪种包、游戏目录在哪一层。
+ * @param entries `ZipUtil::listEntries()` 的原样输出（大小写、`\`、目录条目都不讲究，
+ * 这里自己归一）。
+ *
+ * 判定次序是**定死的**：清单（Modrinth → CurseForge）→ MultiMC → Wrapper →
+ * 服务端包 → 世界存档 → 普通 `.minecraft` 目录。服务端包必须排在游戏目录前面，
+ * 因为它同样有 `mods/` 和 `config/`。
+ *
+ * NOTE: `__MACOSX/`、`.DS_Store` 这类垃圾条目在判断"最外层只有一层目录"时要先剔掉，
+ * 否则 Mac 上打的包永远判不出根前缀。
+ */
+ArchiveLayout detectArchiveLayout(const QStringList &entries);
+
+/// 条目表里有没有这个**相对路径前缀**（目录以 `/` 结尾也行）。大小写不敏感、
+/// `\` 当 `/`。给"空清单的包到底有没有 overrides/"这一问用。
+bool archiveHasEntryPrefix(const QStringList &entries, const QString &prefix);
+
+/**
+ * @brief 解析 MultiMC / Prism 的 `mmc-pack.json`（+ 可选的 `instance.cfg`）。
+ * @param mmcPackJson `mmc-pack.json` 的原始字节。
+ * @param instanceCfg `instance.cfg` 的原始字节（没有就传空）。
+ * @param gameDirPrefix 游戏目录在压缩包里的前缀（由 detectArchiveLayout() 给）。
+ * @param fallbackName 实例名候选（`instance.cfg` 没写 `name` 时用它）。
+ *
+ * `components[]` 里 `net.minecraft` 给游戏版本，`net.minecraftforge` /
+ * `net.fabricmc.fabric-loader` / `net.neoforged` / `org.quiltmc.quilt-loader` 给加载器。
+ * 不认识的组件（如 lwjgl3ify、org.lwjgl3）拒绝导入；不能丢掉专用库或启动参数后报告成功。
+ * 自定义 patches 由调用方从归档条目表检查并拒绝。
+ */
+Result parseMultiMCInstance(const QByteArray &mmcPackJson, const QByteArray &instanceCfg,
+                            const QString &gameDirPrefix, const QString &fallbackName);
+
+/// Patches keyed by component UID; bundled files keyed by archive-relative entry.
+/// No scripts/commands or unimplemented patch operators are silently accepted.
+Result parsePatchedMultiMCInstance(const QByteArray &manifest, const QByteArray &config,
+    const QHash<QString, QByteArray> &patches, const QHash<QString, QByteArray> &bundledFiles,
+    const QString &gameDirPrefix, const QString &fallbackName);
+/// Publish archive-local libraries without replacing a different existing file.
+bool publishBundledLibraries(const Pack &pack, const QString &minecraftRoot, QString *problem);
+
+/**
+ * @brief 解析一个普通 `.minecraft` 懒人包。
+ * @param entries 整份条目表（用来找 `versions/` 下的版本 json）。
+ * @param versionJson 挑出来的那一份 `versions/<id>/<id>.json`；没有或读不动就传空。
+ * @param rootPrefix 游戏目录前缀（由 detectArchiveLayout() 给）。
+ * @param fallbackName 实例名候选（压缩包文件名）。
+ *
+ * 版本和加载器从三个地方推，按可靠程度排：版本 json 的 `inheritsFrom` / `id` /
+ * `clientVersion` → `versions/` 下的目录名 → `libraries/` 里的加载器坐标。
+ * **推不出来就拒绝**（并说清缺什么），不猜一个版本硬装。
+ */
+Result parseGameFolderInstance(const QStringList &entries, const QByteArray &versionJson,
+                               const QString &rootPrefix, const QString &fallbackName);
 
 /// 压缩包根目录下那份清单的名字。放这儿而不是让各个调用点各写一遍字面量：
 /// "这是不是整合包"、"读哪一条"、"去重"三处用的必须是同一个串。
@@ -107,8 +235,11 @@ QString curseForgeManifestName();
  * NOTE: **路径不安全的整包直接拒绝**（而不是跳过那一条）。整合包是从网上下来的压缩包，
  * 里面出现 `mods/../../x.jar` 这种路径只有两种可能：文件坏了，或者有人想往
  * 实例目录外面写东西。这两种情况都不该"照常装、只少一个文件"。
+ *
+ * @param allowEmptyFiles `files` 是空数组时放行。默认 false；调用方核过压缩包里确实有
+ * `overrides/` 那一层之后再传 true（和 parseCurseForgeManifest 同一个取舍）。
  */
-Result parseModrinthIndex(const QByteArray &json);
+Result parseModrinthIndex(const QByteArray &json, bool allowEmptyFiles = false);
 
 // ---------------------------------------------------------------------------
 // CurseForge：`manifest.json`
@@ -129,13 +260,19 @@ Result parseModrinthIndex(const QByteArray &json);
 /**
  * @brief 解析一份 CurseForge 的 `manifest.json`。
  * @param json 那个条目的原始字节。
+ * @param allowEmptyFiles `files` 是空数组时放行（见下面那条 NOTE）。默认 false。
  * @return 成功时 ok=true，`pack.files` **是空的** —— 那些号在 `pack.pendingRefs` 里等着换。
  *
  * 和 Modrinth 那一条一样，"读不懂"永远是一句用户看得懂的话（少了哪个字段、值是什么）。
  * 加载器那一行的写法两边**完全不同**：CurseForge 是 `{"id": "forge-47.2.0"}`，一个字符串
  * 把名字和版本拼在一起，见 curseForgeLoaderKey()。
+ *
+ * NOTE: `files: []` 可能是合法的"纯 overrides 包"（整个 .minecraft 被重新打包，清单只剩
+ * 骨架）。但那要**压缩包里真有** `overrides/` 那一层才算 —— 纯逻辑层看不到压缩包，所以
+ * 默认拒；调用方核过压缩包之后传 `allowEmptyFiles = true`。清单点名了却一条号都读不出的
+ * （`declaredFileCount > 0` 而 `pendingRefs` 空）**永远拒**，和这个开关无关。
  */
-Result parseCurseForgeManifest(const QByteArray &json);
+Result parseCurseForgeManifest(const QByteArray &json, bool allowEmptyFiles = false);
 
 /**
  * @brief CurseForge 那个 `modLoaders[].id` 拆成 Modrinth 那套键。
