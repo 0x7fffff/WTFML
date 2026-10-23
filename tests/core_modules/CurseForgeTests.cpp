@@ -69,6 +69,19 @@ void runCurseForgeTests() {
         supplied = issue; supplied.path = QStringLiteral("../escape.jar");
         check(!ModpackInstallReport::supply(root, supplied, local.fileName(), &error),
               "ZG0 本地补齐拒绝越界路径");
+        auto batchIssue = issue; batchIssue.path = QStringLiteral("mods/batch-renamed.jar");
+        const auto batch = ModpackInstallReport::supplyMatching(root, {batchIssue}, {local.fileName()});
+        check(batch.suppliedPaths == QStringList{batchIssue.path} && batch.problems.isEmpty() &&
+                  ModpackInstallReport::remaining({batchIssue}, root).isEmpty(),
+              "ZG0 批量按哈希匹配，不依赖本地文件名");
+        batchIssue.path = QStringLiteral("mods/batch-wrong.jar");
+        batchIssue.sha1 = QString(40, QLatin1Char('0'));
+        const auto mismatch = ModpackInstallReport::supplyMatching(root, {batchIssue}, {local.fileName()});
+        check(mismatch.suppliedPaths.isEmpty() && mismatch.problems.size() == 1 &&
+                  !QFileInfo::exists(root + QLatin1Char('/') + batchIssue.path),
+              "ZG0 批量同大小错误哈希不落盘");
+        const auto stopped = ModpackInstallReport::supplyMatching(root, {batchIssue}, {local.fileName()}, [] { return true; });
+        check(stopped.cancelled && stopped.suppliedPaths.isEmpty(), "ZG0 批量取消保留未完成状态");
         supplied = issue; supplied.sha1.clear();
         check(!ModpackInstallReport::supply(root, supplied, local.fileName(), &error),
               "ZG0 本地补齐缺少哈希不按名称猜测");

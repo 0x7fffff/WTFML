@@ -561,6 +561,16 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
     } else if (!started) m_tempArchives.remove(name);
 }
 
+void ImportController::openImportReport(const QString &instanceId) {
+    if (m_importFlow || m_owner->m_downloadInFlight) {
+        InlineMessage::information(m_owner->m_ui->overlay(), tr("现在正忙"), tr("请等当前导入或下载结束后再补齐文件。"));
+        return;
+    }
+    if (instanceId.isEmpty() || !InstanceFiles::validatePathSegment(instanceId).isEmpty()) return;
+    const FlowGuard flowGuard(m_importFlow);
+    repairFromReport(AppPaths::versionDir(instanceId) + QStringLiteral("/wtfml.import-report.json"));
+}
+
 void ImportController::repairFromReport(const QString &reportPath) {
     const QString root = QFileInfo(reportPath).absolutePath();
     const QString id = QFileInfo(root).fileName();
@@ -589,7 +599,7 @@ void ImportController::repairFromReport(const QString &reportPath) {
         InlineMessageBox box(MessageKind::Information, tr("补齐：%1").arg(report.packName),
             tr("选择缺项，再选择已下载的本地文件。校验通过后放入对应位置，不覆盖已有文件。"
                "\n补齐不等于安装完成；最后仍需用原包、同一实例名继续导入。"),
-            {tr("选择本地文件"), tr("打开文件网页"), tr("关闭")}, 2, -1, m_owner);
+            {tr("选择本地文件"), tr("批量匹配"), tr("打开文件网页"), tr("关闭")}, 3, -1, m_owner);
         auto *list = box.setList(names, selected);
         auto show = [&](int row) {
             QString note = lastResult;
@@ -603,17 +613,21 @@ void ImportController::repairFromReport(const QString &reportPath) {
         show(list->currentRow());
         overlay->execPrompt(&box);
         selected = box.listRow();
-        if (box.clickedIndex() < 0 || box.clickedIndex() == 2) return;
-        if (selected < 0 || selected >= report.issues.size()) continue;
-        const auto issue = report.issues.at(selected);
-        if (box.clickedIndex() == 1) {
+        if (box.clickedIndex() < 0 || box.clickedIndex() == 3) return;
+        const bool batch = box.clickedIndex() == 1;
+        if (!batch && (selected < 0 || selected >= report.issues.size())) continue;
+        const auto issue = selected >= 0 && selected < report.issues.size()
+            ? report.issues.at(selected) : ModpackImport::FileIssue{};
+        if (box.clickedIndex() == 2) {
             if (issue.ref.projectId > 0 && issue.ref.fileId > 0)
                 QDesktopServices::openUrl(QUrl(QStringLiteral("https://www.curseforge.com/projects/%1/files/%2")
                     .arg(issue.ref.projectId).arg(issue.ref.fileId)));
             continue;
         }
-        const QString source = QFileDialog::getOpenFileName(m_owner, tr("选择补齐文件"), {}, tr("所有文件 (*)"));
-        if (source.isEmpty()) continue;
+        const QStringList sources = batch
+            ? QFileDialog::getOpenFileNames(m_owner, tr("选择文件，按大小和 SHA-1 自动匹配缺项"), {}, tr("所有文件 (*)"))
+            : QStringList{QFileDialog::getOpenFileName(m_owner, tr("选择补齐文件"), {}, tr("所有文件 (*)"))};
+        if (sources.isEmpty() || sources.first().isEmpty()) continue;
         if (m_owner->m_downloadInFlight || m_owner->m_launcherManager->isVersionRunning(id) ||
             !WriteDirectoryGuard::acquire(root, &problem)) {
             lastResult = tr("实例运行中、安装任务繁忙或无法取得写锁，未写入。\n%1").arg(problem);
@@ -621,29 +635,41 @@ void ImportController::repairFromReport(const QString &reportPath) {
         }
         auto cancelled = std::make_shared<std::atomic_bool>(false);
         InlineMessageBox progress(MessageKind::Information, tr("正在校验并补齐"),
-            tr("%1\n核对大小与 SHA-1；最多运行 900 秒，可随时取消。").arg(issue.fileName),
+            tr("%1\n核对大小与 SHA-1；最多运行 900 秒，可随时取消。")
+                .arg(batch ? tr("批量匹配 %1 个文件").arg(sources.size()) : issue.fileName),
             {tr("取消")}, -1, -1, m_owner);
-        QFutureWatcher<QString> watcher;
-        connect(&watcher, &QFutureWatcher<QString>::finished, &progress, &QDialog::accept);
-        watcher.setFuture(QtConcurrent::run([root, issue, source, cancelled] {
+        QFutureWatcher<ModpackInstallReport::BatchResult> watcher;
+        connect(&watcher, &QFutureWatcher<ModpackInstallReport::BatchResult>::finished, &progress, &QDialog::accept);
+        const auto issues = batch ? report.issues : QList<ModpackImport::FileIssue>{issue};
+        watcher.setFuture(QtConcurrent::run([root, issues, sources, cancelled, batch] {
             QElapsedTimer timer; timer.start();
+            const auto stop = [cancelled, &timer] { return cancelled->load() || timer.elapsed() >= 900000; };
+            if (batch) return ModpackInstallReport::supplyMatching(root, issues, sources, stop);
+            ModpackInstallReport::BatchResult result;
             QString error;
-            const bool ok = ModpackInstallReport::supply(root, issue, source, &error,
-                [cancelled, &timer] { return cancelled->load() || timer.elapsed() >= 900000; });
-            return ok ? QString() : error;
+            if (ModpackInstallReport::supply(root, issues.first(), sources.first(), &error, stop))
+                result.suppliedPaths.append(issues.first().path);
+            else result.problems.append(error);
+            result.cancelled = stop();
+            return result;
         }));
         overlay->execPrompt(&progress);
         if (!watcher.isFinished()) {
             cancelled->store(true);
             // 不销毁仍在访问的数据；继续重绘但暂不放行其它输入，等一个文件块返回。
             QEventLoop wait;
-            connect(&watcher, &QFutureWatcher<QString>::finished, &wait, &QEventLoop::quit);
+            connect(&watcher, &QFutureWatcher<ModpackInstallReport::BatchResult>::finished, &wait, &QEventLoop::quit);
             if (!watcher.isFinished()) wait.exec(QEventLoop::ExcludeUserInputEvents);
         }
-        if (watcher.result().isEmpty()) checked.insert(selected);
-        lastResult = watcher.result().isEmpty()
-            ? tr("该文件已校验通过。全部补齐后，请用原包同名继续导入完成安装。") : watcher.result();
+        const auto result = watcher.result();
+        for (int index = 0; index < report.issues.size(); ++index)
+            if (result.suppliedPaths.contains(report.issues.at(index).path)) checked.insert(index);
+        lastResult = tr("本次校验通过 %1 项，未处理/失败 %2 项。%3\n全部补齐后请用原包同名继续导入。")
+            .arg(result.suppliedPaths.size()).arg(result.problems.size())
+            .arg(result.cancelled ? tr("已取消或超时，已成功补入的文件保留。") : QString());
+        if (!result.problems.isEmpty()) lastResult += QLatin1Char('\n') + result.problems.mid(0, 5).join(QLatin1Char('\n'));
         m_owner->appendLog(lastResult);
+        for (const auto &error : result.problems) m_owner->appendLog(error);
     }
 }
 

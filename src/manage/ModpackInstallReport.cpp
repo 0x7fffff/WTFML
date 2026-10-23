@@ -145,6 +145,49 @@ bool supply(const QString &instanceDir, const ModpackImport::FileIssue &issue,
         return fail(QObject::tr("目标发生变化或文件发布失败，未覆盖"));
     return true;
 }
+BatchResult supplyMatching(const QString &instanceDir,
+        const QList<ModpackImport::FileIssue> &issues, const QStringList &sources,
+        const std::function<bool()> &cancelled) {
+    BatchResult result;
+    for (const auto &source : sources) {
+        if (cancelled && cancelled()) { result.cancelled = true; break; }
+        QFile file(source);
+        const QString name = QFileInfo(source).fileName();
+        if (!QFileInfo(source).isFile() || !file.open(QIODevice::ReadOnly)) {
+            result.problems.append(QObject::tr("%1：无法读取").arg(name)); continue;
+        }
+        const qint64 size = file.size();
+        bool candidate = false;
+        for (const auto &issue : issues) if (issue.size == size && !issue.sha1.isEmpty()) candidate = true;
+        if (!candidate) { result.problems.append(QObject::tr("%1：没有大小匹配的缺项").arg(name)); continue; }
+        QCryptographicHash hash(QCryptographicHash::Sha1);
+        qint64 total = 0;
+        while (!file.atEnd()) {
+            if (cancelled && cancelled()) { result.cancelled = true; return result; }
+            const auto bytes = file.read(1 << 20);
+            if (bytes.isEmpty()) break;
+            total += bytes.size(); hash.addData(bytes);
+            if (total > size) break;
+        }
+        if (file.error() != QFileDevice::NoError || total != size) {
+            result.problems.append(QObject::tr("%1：读取失败或源文件发生变化").arg(name)); continue;
+        }
+        const QString digest = QString::fromLatin1(hash.result().toHex());
+        file.close();
+        bool matched = false;
+        for (const auto &issue : issues) {
+            if (issue.size != size || digest.compare(issue.sha1, Qt::CaseInsensitive) != 0) continue;
+            matched = true;
+            if (result.suppliedPaths.contains(issue.path)) continue;
+            QString error;
+            if (supply(instanceDir, issue, source, &error, cancelled)) result.suppliedPaths.append(issue.path);
+            else result.problems.append(QObject::tr("%1 → %2：%3").arg(name, issue.path, error));
+            if (cancelled && cancelled()) { result.cancelled = true; return result; }
+        }
+        if (!matched) result.problems.append(QObject::tr("%1：没有 SHA-1 匹配的缺项，未写入").arg(name));
+    }
+    return result;
+}
 QList<ModpackImport::FileIssue> remaining(
         const QList<ModpackImport::FileIssue> &issues, const QString &instanceDir) {
     QList<ModpackImport::FileIssue> out;

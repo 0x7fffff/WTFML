@@ -1670,7 +1670,8 @@ MainWindow::MainWindow(QWidget *parent)
             [this](const QString &text) { appendLog(text); },
             [this](const Tasks::TaskSnapshot &task) { return cancelWouldWork(task); },
             [this](const QString &key) { cancelTaskFromDetail(key); },
-            [this](const QString &key) { retryTaskFromDetail(key); }},
+            [this](const QString &key) { retryTaskFromDetail(key); },
+            [this](const QString &id) { m_importController->openImportReport(id); }},
         this);
     connect(m_serverWorkspace, &ServerWorkspaceController::message, this,
             [this](const QString &text) { appendLog(text); });
@@ -1781,6 +1782,9 @@ MainWindow::MainWindow(QWidget *parent)
                 break;
             case TaskCenter::RowAction::OpenTarget:
                 onTaskDetailAction(key, TaskDetailPage::Action::OpenTarget);
+                break;
+            case TaskCenter::RowAction::RepairImport:
+                onTaskDetailAction(key, TaskDetailPage::Action::RepairImport);
                 break;
             case TaskCenter::RowAction::OpenLog:
                 onTaskDetailAction(key, TaskDetailPage::Action::OpenLog);

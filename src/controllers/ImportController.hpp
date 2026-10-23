@@ -10,6 +10,7 @@ class ImportController final : public QObject {
 public:
     explicit ImportController(MainWindow *owner);
     void onImportModpackClicked();
+    void openImportReport(const QString &instanceId);
     void importModpackFromFile(const QString &zipPath, const QString &namePrefill);
     bool applyModpackImport(const QString &zipPath, const QString &instanceName, const QByteArray &manifestJson, ModpackImport::Format format);
     bool installLocalResourceFile(const QString &versionId, ResourceCatalog::Kind kind, const QString &path, QString *problemOut);

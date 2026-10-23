@@ -93,6 +93,14 @@ void TaskDetailController::open(const QString &key) {
 
 void TaskDetailController::action(const QString &key, TaskDetailPage::Action action) {
     switch (action) {
+    case TaskDetailPage::Action::RepairImport: {
+        TaskCenter::Item fresh;
+        if (fillItem(key, &fresh) && fresh.capabilities.repairImport && m_host.repairImport) {
+            const auto task = m_activity->tasks()->snapshot(key.toULongLong());
+            m_host.repairImport(task.targetId);
+        }
+        break;
+    }
     case TaskDetailPage::Action::Cancel:
         // 取消要**按这一项是谁**分派：服务端安装那一趟和版本/资源下载那一批不是同一份
         // 状态（一个自己跑 QProcess + 自己的元数据请求，一个走 `VersionManager` 的批次）。

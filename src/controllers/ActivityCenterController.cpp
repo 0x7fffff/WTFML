@@ -3,6 +3,9 @@
 #include <algorithm>
 
 #include "InstanceFilesPage.hpp"
+#include "manage/InstanceFiles.hpp"
+#include "util/AppPaths.hpp"
+#include <QFileInfo>
 
 namespace {
 
@@ -309,6 +312,12 @@ TaskCenter::Item ActivityCenterController::item(const Tasks::TaskSnapshot &task,
     result.capabilities.retry = retryWouldWork(task, retryPayloadAvailable);
     result.capabilities.openLog = task.capabilities.canOpenLog;
     result.capabilities.openTarget = task.capabilities.canOpenTarget;
+    result.capabilities.repairImport = task.kind == Tasks::TaskKind::Import
+        && (task.state == Tasks::TaskState::Failed || task.state == Tasks::TaskState::Interrupted)
+        && !task.targetId.isEmpty()
+        && InstanceFiles::validatePathSegment(task.targetId).isEmpty()
+        && QFileInfo::exists(InstanceFiles::importMarkerPath(task.targetId))
+        && QFileInfo::exists(AppPaths::versionDir(task.targetId) + QStringLiteral("/wtfml.import-report.json"));
     result.capabilities.exportReport = task.capabilities.canExportReport
                                        && crashRecordAvailable;
     result.capabilities.openCrashDir = task.capabilities.canOpenCrashDir;

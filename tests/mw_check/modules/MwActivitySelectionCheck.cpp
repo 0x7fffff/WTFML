@@ -1,13 +1,72 @@
 #include "Support.hpp"
+#include "TaskDetailPage.hpp"
 int MwActivitySelectionCheck() {
 
         QTemporaryDir fixture(QDir::current().filePath(QStringLiteral(".activity-check-XXXXXX")));
         if (!fixture.isValid()) return 2;
         int failures = 0;
         const auto expect = [&failures](bool ok, const char *message) {
-            printf("%s %s\n", ok ? "PASS" : "FAIL", message);
+            check(ok, message);
             if (!ok) ++failures;
         };
+        {
+            const QString previous = AppPaths::minecraftDir();
+            AppPaths::setMinecraftDir(fixture.filePath(QStringLiteral("repair-root")));
+            const QString id = QStringLiteral("RepairTest");
+            ActivityCenterController repairs;
+            const auto task = repairs.begin(Tasks::TaskKind::Import, QStringLiteral("Import"), id);
+            repairs.finish(task, false, QStringLiteral("missing"), false);
+            auto canRepair = [&] { return repairs.item(repairs.tasks()->snapshot(task), false, false, false)
+                .capabilities.repairImport; };
+            expect(!canRepair(), "missing report does not expose repair action");
+            writeFileAt(InstanceFiles::importMarkerPath(id), "{}");
+            writeFileAt(AppPaths::versionDir(id) + QStringLiteral("/wtfml.import-report.json"), "{}");
+            expect(canRepair(), "failed import with report and unfinished marker exposes repair action");
+            TaskDetailPage details;
+            auto item = repairs.item(repairs.tasks()->snapshot(task), false, false, false);
+            details.setTask(item);
+            auto *button = details.findChild<QPushButton *>(QStringLiteral("taskDetailRepairImport"));
+            expect(button && !button->isHidden(), "repair capability creates a visible detail action");
+            bool requested = false;
+            QObject::connect(&details, &TaskDetailPage::actionRequested, &details,
+                [&](const QString &key, TaskDetailPage::Action action) {
+                    requested = key == item.key && action == TaskDetailPage::Action::RepairImport;
+                });
+            if (button) button->click();
+            expect(requested, "repair detail button dispatches the original task key and explicit repair action");
+            TaskCenterPanel panel(nullptr, [&] { return QList<TaskCenter::Item>{item}; },
+                {}, {}, {}, {}, nullptr, true);
+            bool panelRequested = false;
+            panel.setRowActionHandler([&](const QString &key, TaskCenter::RowAction action) {
+                panelRequested = key == item.key && action == TaskCenter::RowAction::RepairImport;
+            });
+            panel.resize(1000, 500);
+            panel.showEmbedded();
+            auto *row = panel.findChild<QWidget *>(MainWindowUI::taskCenterPanelRowName(0));
+            if (row) {
+                const QPointF local(row->rect().center());
+                const QPointF global(row->mapToGlobal(local.toPoint()));
+                QMouseEvent press(QEvent::MouseButtonPress, local, global,
+                    Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(row, &press);
+            }
+            QPushButton *panelButton = nullptr;
+            for (auto *candidate : panel.findChildren<QPushButton *>())
+                if (candidate->text() == QStringLiteral("补齐文件")) panelButton = candidate;
+            expect(panelButton != nullptr, "selected task shows repair action in embedded task center");
+            if (panelButton) panelButton->click();
+            expect(panelRequested, "embedded repair action dispatches the selected task key");
+            const auto unrelated = repairs.begin(Tasks::TaskKind::Download, QStringLiteral("Download"), id);
+            repairs.finish(unrelated, false, QStringLiteral("error"), false);
+            expect(!repairs.item(repairs.tasks()->snapshot(unrelated), false, false, false).capabilities.repairImport,
+                "non-import task never borrows an instance repair action");
+            QFile::remove(InstanceFiles::importMarkerPath(id));
+            expect(!canRepair(), "finished import no longer exposes stale repair action");
+            details.setTask(repairs.item(repairs.tasks()->snapshot(task), false, false, false));
+            button = details.findChild<QPushButton *>(QStringLiteral("taskDetailRepairImport"));
+            expect(button && button->isHidden(), "repair button hides when unfinished marker disappears");
+            AppPaths::setMinecraftDir(previous);
+        }
         const QString path = fixture.filePath(QStringLiteral("tasks.json"));
         ActivityCenterController activity;
         activity.tasks()->setHistoryPath(path);

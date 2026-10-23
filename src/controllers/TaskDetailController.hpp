@@ -46,6 +46,7 @@ public:
         std::function<void(const QString &)> cancelTask;
         /// 页上那颗「重试」：同上。
         std::function<void(const QString &)> retryTask;
+        std::function<void(const QString &)> repairImport;
     };
 
     TaskDetailController(ActivityCenterController *activity, CrashReportController *crash,

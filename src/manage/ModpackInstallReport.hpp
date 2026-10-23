@@ -16,6 +16,15 @@ bool read(const QString &instanceDir, Report *report, QString *problem);
 bool supply(const QString &instanceDir, const ModpackImport::FileIssue &issue,
             const QString &source, QString *problem,
             const std::function<bool()> &cancelled = {});
+struct BatchResult {
+    QStringList suppliedPaths;
+    QStringList problems;
+    bool cancelled = false;
+};
+/// 本地文件按大小和哈希匹配，不猜名称；每个源只扫描一次以匹配所有缺项。
+BatchResult supplyMatching(const QString &instanceDir,
+    const QList<ModpackImport::FileIssue> &issues, const QStringList &sources,
+    const std::function<bool()> &cancelled = {});
 /// 只读核对手动补入的文件；缺少强校验、目录越界或链接文件一律保留缺项。
 QList<ModpackImport::FileIssue> remaining(
     const QList<ModpackImport::FileIssue> &issues, const QString &instanceDir);

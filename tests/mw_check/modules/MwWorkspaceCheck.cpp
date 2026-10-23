@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "controllers/TaskDetailController.hpp"
 int MwWorkspaceCheck(QApplication &app) {
 
         QTemporaryDir fixture(QDir::current().filePath(QStringLiteral(".workspace-check-XXXXXX")));
@@ -99,6 +100,40 @@ int MwWorkspaceCheck(QApplication &app) {
                 auto *search = window.findChild<QLineEdit *>(QStringLiteral("homePickerSearch"));
                 check(picker && picker->isVisible() && search && search->text() == QStringLiteral("remember-filter"),
                       "home instance list and search survive opening settings");
+            }
+        }
+        {
+            auto *activity = window.findChild<ActivityCenterController *>();
+            auto *details = window.findChild<TaskDetailController *>();
+            const QString repairId = QStringLiteral("repair-report-probe");
+            writeFileAt(InstanceFiles::importMarkerPath(repairId), "{}");
+            writeFileAt(AppPaths::versionDir(repairId) + QStringLiteral("/wtfml.import-report.json"),
+                R"({"schemaVersion":1,"packName":"Repair probe","complete":false,"issues":[]})");
+            check(activity && details, "repair report uses real window controllers");
+            if (activity && details) {
+                const auto task = activity->begin(Tasks::TaskKind::Import, QStringLiteral("Repair probe"), repairId);
+                activity->finish(task, false, QStringLiteral("missing files"), false);
+                host->openPage(QStringLiteral("活动中心"));
+                bool sawReport = false;
+                QTimer timeout;
+                timeout.setSingleShot(true);
+                QObject::connect(&timeout, &QTimer::timeout, &window, [&] {
+                    check(false, "repair report action completed within five seconds");
+                    for (auto *box : window.findChildren<InlineMessageBox *>()) box->reject();
+                });
+                timeout.start(5000);
+                QTimer::singleShot(0, &timeout, [&] {
+                    for (auto *box : window.findChildren<InlineMessageBox *>()) {
+                        auto *title = box->findChild<QLabel *>(InlineMessageBox::titleLabelName());
+                        if (title && title->text().contains(QStringLiteral("Repair probe"))) {
+                            sawReport = true; box->reject();
+                        }
+                    }
+                });
+                details->action(QString::number(task), TaskDetailPage::Action::RepairImport);
+                timeout.stop();
+                check(sawReport && host->pageOpen(), "task repair opens report over activity page and preserves page on close");
+                host->closeOverlay();
             }
         }
         TaskCenterPanel panel(nullptr, {}, {}, {}, {}, {}, nullptr, true);

@@ -53,6 +53,7 @@ public:
         CopySummary,  ///< 「复制摘要」：把这一项的摘要（含错因）放进剪贴板。
         ExportReport, ///< 「导出错误报告」：把这一趟的事实 + 日志写成一份能发出去的文本。
         OpenCrashDir, ///< 「打开崩溃报告目录」：在文件管理器里打开 `crash-reports/`。
+        RepairImport, ///< 打开未完成整合包的本地补齐报告。
     };
 
     explicit TaskDetailPage(QWidget *parent = nullptr);
@@ -108,4 +109,5 @@ private:
     QPushButton *m_reportButton = nullptr;
     QPushButton *m_crashDirButton = nullptr;
     QPushButton *m_copyButton = nullptr;
+    QPushButton *m_repairButton = nullptr;
 };

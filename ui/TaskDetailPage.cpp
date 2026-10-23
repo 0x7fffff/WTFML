@@ -151,6 +151,9 @@ TaskDetailPage::TaskDetailPage(QWidget *parent) : QDialog(parent) {
     m_targetButton = makeActionButton(MainWindowUI::taskDetailTargetText(), Action::OpenTarget,
                                       MainWindowUI::taskDetailTargetName());
     actions->addWidget(m_targetButton);
+    m_repairButton = makeActionButton(tr("补齐文件"), Action::RepairImport,
+                                      QStringLiteral("taskDetailRepairImport"));
+    actions->addWidget(m_repairButton);
     m_reportButton = makeActionButton(MainWindowUI::taskDetailReportText(), Action::ExportReport,
                                       MainWindowUI::taskDetailReportName());
     actions->addWidget(m_reportButton);
@@ -280,6 +283,7 @@ void TaskDetailPage::rebuild() {
     m_retryButton->setVisible(m_item.capabilities.retry);
     m_logButton->setVisible(m_item.capabilities.openLog);
     m_targetButton->setVisible(m_item.capabilities.openTarget);
+    m_repairButton->setVisible(m_item.capabilities.repairImport);
     m_reportButton->setVisible(m_item.capabilities.exportReport);
     m_crashDirButton->setVisible(m_item.capabilities.openCrashDir);
     // 「复制摘要」永远在（它不需要任何能力位 —— 摘要就是这一页上那几行字，任何时候都抄得走）。
