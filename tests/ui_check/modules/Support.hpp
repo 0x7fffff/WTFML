@@ -12,30 +12,24 @@
  * 那几档"只在真窗口下才量得出错值"的断言会跟着变红（`ColorScheme`、三个框的高度…）。
  * 实测：不带它 = 2276 PASS / 7 FAIL；带上它 = 全绿。
  *
- * 这个工程有一份**偶发**段错误（查过一轮）：**是布局 / 时序敏感的潜伏问题，
- * 不是产品逻辑，也不是那三条改动**。同一台机器上量到的全部事实：
- * * 同一份 exe 连着 42 趟**全部**崩在 986 PASS；也连着 8 趟 2281/2281 全绿。崩起来是
- * 连成一片的（不是五五开）—— 换一次链接、或者干脆什么都不做过一会儿再跑，都可能翻面；
- * * 崩点上那一串栈**只有 Qt 自己**：`QAccessibleEvent::accessibleInterface()` ←
- * `QAccessible::updateAccessibility` ← `QWidgetPrivate::hideChildren` ←
- * `QDialog::~QDialog` ← `InstanceSettingsDialog::~InstanceSettingsDialog()` ← `main()`，
- * **一行我们的代码都没有**（崩的是 `main()` 里某个栈上的对话框）；
- * * 把产品改动全 stash 回 pristine（只留一个 `constexpr` 桩子）照样 8/8 崩在同一个计数；
- * * 塞进 gdb（慢很多）跑得完：2280/2281，唯一那条 FAIL 是一条**性能**断言（Z8「两万行点一下
- * ≤250 ms」，gdb 下量出来 752 ms）—— 它只是踩不到那个时序；
- * * 调试堆报过 `Free Heap block … modified … after it was freed`：gdb 断在 `RtlFreeHeap`
- * 上等到那一块再下硬件观察点，写它的栈一路到 `InstanceSettingsDialog` 的析构，中间仍然
- * 只有 Qt6Widgets / Qt6Gui。
- * ⇒ 崩了**先重跑**；还崩就把 gdb 挂上去看它是不是又在这条路上（是的话直接再跑），
- * **别去改产品**。
- *
- * `main()` 里 `QAccessible::setActive(false)` 那一行留着，但它**不是"解药"**（没有证据能
- * 证明它治得了上面那条）：理由只是"这个环境里的 A11y 和产品真实情形不一样"—— offscreen
- * 插件下 A11y 恒开，而产品跑 windows 插件时只有读屏软件连着才开。这个工程量的是布局 /
- * 几何 / 颜色 / 话术，**没有一条和无障碍有关**（全仓 `QAccessible` 只有那一处）。
- *
- * `WTFML_SKIP_JUNCTION=1` 那个逃生口**也治不了它**（崩点在逃生口**之前**那一发
- * `processEvents()`）—— 别再拿它当解药。
+ * 这个工程有一份历史偶发 `c0000374`，2026-10-24 已定位到验证环境：
+ * * offscreen 插件下 Qt 的 A11y 是**恒开**的；这个工程反复建销
+ *   `InstanceSettingsDialog`，A11y 路径会在析构里碰已经释放的 `QString` 数据。
+ *   栈落在 `QArrayData::deref` ← `QHash<QString, QString>::~QHash` ←
+ *   `InstanceSettingsDialog::~InstanceSettingsDialog()`；
+ * * 对照实验（同一条 exe、同一台机器）：`main()` 里 `QAccessible::setActive(true)`
+ *   连续 10/10 崩在同一个位置；保持 `false` 连续 50/50 全绿（3119/3119）。
+ * * 所以 `main()` 里那一句 `QAccessible::setActive(false)` **就是隔离层**，不是
+ *   “靠重链接翻身”。产品跑 windows 插件、A11y 只有读屏软件连着才开，这一段属于
+ *   验证环境；它不表示产品的读屏/A11y 已验收。
+ * * **另一件事**（2026-10-24 收口）：PageHeap 下那条 `InstanceSettingsDialog::m_fileDirs`
+ *   的 use-after-free 不是 A11y，而是夹具里一条**上下文比被捕获变量活得久**的连接
+ *   （U10b 那一段，`&dialog` 做上下文、lambda 按引用捕获那一节栈上的 `lastPath`）；
+ *   悬空回调把「游戏目录」那份 `QString` 提前放掉，崩点却报在析构里。现在上下文换成
+ *   同作用域的 `QObject scopeGuard`。规则：这类连接/定时器的上下文不许活得比捕获的
+ *   栈变量久；证据与复验过程见 `docs/TESTING.md`「历史崩溃复核」。
+ * * `WTFML_SKIP_JUNCTION=1` 保留给 junction 相关的局部逃生口，但**不是**这条崩溃的
+ *   解药；默认仍然要跑那一段。
  */
 
 #include <QApplication>
@@ -231,6 +225,20 @@ inline void check(bool ok, const QString &what, const QString &detail = QString(
 inline QString g_modalTitle;
 inline QString g_modalText;
 
+/// 下一条内嵌提示的「票号」：只让**最近一次** `dismissNextInline()` 的两发定时器起作用，
+/// 而且**兑现一次就作废**。
+///
+/// NOTE: 不这么做就会串到**下一条**提示上：300 毫秒那一发是兜底，可它并不会因为 0 毫秒
+/// 那一发已经把这条答完而自己撤掉 —— 后面 300 毫秒内再开出来的下一条提示，会被这条
+/// 早先排着的兜底当成自己的「用户答了」，而且按的是**它自己**那一号按钮（默认第 0 颗 =「是」）。
+/// 实测症状：UiGroupEditorChecks 里「恢复默认分组设置…」那一条点的是第二颗（「否」），
+/// 磁盘上却真的换成了默认那五组（`答「否」的时候一个组都没换` 那条变红），
+/// 只有在 PageHeap 那种慢一档的环境里才看得到。
+inline int &dismissTicket() {
+    static int ticket = 0;
+    return ticket;
+}
+
 /// 让下一条**内嵌提示**自己点掉，并把它说了什么记下来。
 ///
 /// NOTE: 两条 timer 都必要：0 毫秒那条在嵌套事件循环一进去就触发；
@@ -244,14 +252,23 @@ inline QString g_modalText;
 inline void dismissNextInline(OverlayHost *host, int buttonIndex = 0) {
     g_modalTitle.clear();
     g_modalText.clear();
-    const auto dismiss = [host, buttonIndex] {
-        if (host == nullptr) {
+    // 300 毫秒那一发是兜底：它可能在主窗口/覆盖层已经析构之后才醒。捕获裸指针会在
+    // `host->findChild()` 上碰已经释放的 QWidget（历史 c0000374 的另一半就在这里）。
+    // 用 QPointer + host 作为定时器 context：宿主没了，两发都自动取消。
+    const QPointer<OverlayHost> guard(host);
+    const int ticket = ++dismissTicket();
+    const auto dismiss = [guard, buttonIndex, ticket] {
+        // 宿主没了 / 这一号已经作废（答过了，或者又被新的一次 `dismissNextInline()`
+        // 顶掉了）⇒ 一个键都不能按：按下去的是**别人**那条提示。
+        if (guard.isNull() || ticket != dismissTicket()) {
             return;
         }
-        auto *box = host->findChild<InlineMessageBox *>();
+        auto *box = guard->findChild<InlineMessageBox *>();
         if (box == nullptr) {
             return;
         }
+        // 兑现一次就把这一号作废（下面 300 毫秒那一发跑起来时就不再做第二遍）。
+        ++dismissTicket();
         if (auto *title = box->findChild<QLabel *>(InlineMessageBox::titleLabelName())) {
             g_modalTitle = title->text();
         }
@@ -264,8 +281,10 @@ inline void dismissNextInline(OverlayHost *host, int buttonIndex = 0) {
             box->close();
         }
     };
-    QTimer::singleShot(0, dismiss);
-    QTimer::singleShot(300, dismiss);
+    if (!guard.isNull()) {
+        QTimer::singleShot(0, guard, dismiss);
+        QTimer::singleShot(300, guard, dismiss);
+    }
 }
 
 /// 把控件"现在长什么样"抓成一张图 —— 抓出来的是**逻辑像素**，跟控件的坐标同一个尺度。
