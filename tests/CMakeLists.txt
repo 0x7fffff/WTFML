@@ -108,6 +108,7 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/manage/DroppedResource.cpp
     ${REPO_ROOT}/src/manage/ModpackImport.cpp
     ${REPO_ROOT}/src/manage/ModpackInstallReport.cpp
+    ${REPO_ROOT}/src/manage/ModpackCompletion.cpp
     ${REPO_ROOT}/src/manage/MultiMCPatchImport.cpp
     ${REPO_ROOT}/src/manage/DroppedResource.hpp
     ${REPO_ROOT}/src/manage/ModpackImport.hpp

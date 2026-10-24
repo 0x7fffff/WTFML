@@ -188,9 +188,9 @@ public:
 
     /// 现在有一批下载在跑、**而且用户可以取消它**（= 界面那颗「取消」露不露的唯一判据）。
     ///
-    /// NOTE: 判据就是 `downloadManager->isBusy()`。别在这里再加"什么阶段不能取消" ——
-    /// 加载器那几段（安装器进程正在跑）本来就不在批次里，`isBusy()` 那时候是 false，
-    /// 那一格自然就没有取消可点。多写一条只会和它漂开。
+    /// 下载批次及整合包后台解压/最终校验可取消；后台工作结束前保持实例占用。
+    /// 加载器安装器进程不属于这类合作式后台工作，仍不能由这里中断。
+    /// 历史上只有 `downloadManager->isBusy()`，会漏掉下载完成后的收尾阶段。
     bool canCancelDownload() const;
 
     /// 取消当前这一批（用户在任务详情页上点了「取消」）。
@@ -1402,6 +1402,7 @@ private:
             WritingVersionJson,  ///< 落实例自己那份薄 json（瞬时，但排在事件循环上）
             DownloadingFiles,    ///< 清单里那批文件正在下
             ExtractingOverrides, ///< 后台解压 overrides；完成前保持实例占用
+            VerifyingCompletion, ///< 后台校验与阶段凭据生成；保持占用，可取消
         };
 
         Phase phase = Phase::Idle;
@@ -1427,6 +1428,7 @@ private:
     void extractModpackOverrides();
     /// 成功收尾：写 wtfml.meta + 发**唯一**那个终态信号。
     void finishModpackImport();
+    void commitModpackImport(const QList<ModpackImport::FileIssue> &issues);
     /// 失败收尾。会把还在跑的加载器安装一起收掉（导入失败 = 整件事结束）。
     void failModpackImport(const QString &reason);
 

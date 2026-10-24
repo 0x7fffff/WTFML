@@ -2511,10 +2511,8 @@ void MainWindow::updateBottomBarTaskSummary() {
 ///
 /// 为什么非要现问一遍：账本里那位 `canCancel` 是 `begin()` 按**种类**记的（"这一类活
 /// **允许**取消"），可这一类活里有几段**就是取消不掉**的 —— 加载器的安装器进程正在跑
-/// 的时候（那是个 `QProcess`，不在下载批次里），还有整合包解压那一段。只读账本的话，
-/// 那两段时间里详情页/面板上会留一颗**点了没反应**的「取消」。
-/// `VersionManager::canCancelDownload()` 上头那句"别再加阶段判据，`isBusy()` 那时候
-/// 本来就是 false，那一格自然就没有取消可点" —— **说的就是这里**。
+/// 的时候（那是个 `QProcess`，不在下载批次里）。整合包后台解压和最终校验则已有合作式取消，
+/// 由 `VersionManager::canCancelDownload()` 现问工人状态，不再仅依赖下载器是否繁忙。
 bool MainWindow::cancelWouldWork(const Tasks::TaskSnapshot &task) const {
     if (m_modTransferCancels.contains(task.id)) return true;
     // ③ 后台导入世界 / 原地升级 / 回滚：工人和引擎都在安全点看这一位，取消得动。
@@ -2762,7 +2760,9 @@ void MainWindow::beginDownloadTask() {
         // 空标题的任务。种类给 `Download`（"把文件拿下来"）而不是 `Install`。
         title = tr("下载游戏文件");
     }
-    m_downloadTaskId = beginTask(kind, title);
+    const QString target = !m_importingInstanceId.isEmpty() ? m_importingInstanceId
+        : !m_installingInstanceId.isEmpty() ? m_installingInstanceId : m_repairingInstanceId;
+    m_downloadTaskId = beginTask(kind, title, target);
     // 这一批就是账本里这个号 —— 收尾时"重试"资格只认它（见 finishTask()）。
     m_downloadBatchOwnerTaskId = m_downloadTaskId;
 }

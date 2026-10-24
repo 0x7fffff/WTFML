@@ -3,12 +3,27 @@
 
 void runCurseForgeTests() {
     {
+        ModpackImport::FileIssue issue; issue.ref = {396246, 8769267};
+        issue.projectWebUrl = QStringLiteral("https://www.curseforge.com/minecraft/modpacks/fabulously-optimized");
+        check(ModpackImport::curseForgeFileWebUrl(issue) == issue.projectWebUrl + QStringLiteral("/files/8769267"),
+              "CF 网页使用平台规范项目路径而不是数字 projects 路由");
+        for (const auto &url : {QStringLiteral("https://evil.test/minecraft/modpacks/test"),
+                 QStringLiteral("https://www.curseforge.com@evil.test/minecraft/modpacks/test"),
+                 QStringLiteral("https://www.curseforge.com/minecraft/modpacks/test?redirect=evil"), QString()}) {
+            issue.projectWebUrl = url;
+            check(ModpackImport::curseForgeFileWebUrl(issue).isEmpty(), "CF 非规范或缺失网页不打开");
+        }
+        const auto urls = ModpackImport::parseCurseForgeProjectWebUrls(R"({"data":[{"id":396246,"links":{"websiteUrl":"https://www.curseforge.com/minecraft/modpacks/fabulously-optimized"}}]})");
+        check(urls.contains(396246), "CF 项目响应保留规范网页");
+    }
+    {
         QTemporaryDir temp;
         const QString root = temp.path();
         const QByteArray bytes("manual-mod");
         ModpackImport::FileIssue issue{{123,456}, QStringLiteral("local.jar"),
             QStringLiteral("mods/local.jar"), QString::fromLatin1(QCryptographicHash::hash(bytes,
             QCryptographicHash::Sha1).toHex()), bytes.size(), QStringLiteral("平台标记不可用")};
+        issue.projectWebUrl = QStringLiteral("https://www.curseforge.com/minecraft/mc-mods/example");
         check(ModpackInstallReport::remaining({issue}, root).size() == 1,
               "ZG0 手动文件尚未补齐时保留缺项");
         QDir().mkpath(root + QStringLiteral("/mods"));
@@ -41,13 +56,19 @@ void runCurseForgeTests() {
         check(!json.value(QStringLiteral("complete")).toBool() &&
                   entry.value(QStringLiteral("fileId")).toInt() == 456 &&
                   entry.value(QStringLiteral("webUrl")).toString() == QStringLiteral(
-                      "https://www.curseforge.com/projects/123/files/456") &&
+                      "https://www.curseforge.com/minecraft/mc-mods/example/files/456") &&
                   entry.value(QStringLiteral("sha1")).toString() == issue.sha1,
               "ZG0 报告保留缺项编号、固定官方网页和校验信息");
         ModpackInstallReport::Report parsed;
         check(ModpackInstallReport::read(root, &parsed, &error) && parsed.issues.size() == 1 &&
-                  parsed.issues.first().sha1 == issue.sha1 && !parsed.complete,
+                  parsed.issues.first().sha1 == issue.sha1 && !parsed.complete &&
+                  parsed.issues.first().projectWebUrl == issue.projectWebUrl,
               "ZG0 报告严格读取并保留强校验信息", error);
+        auto legacy = issue; legacy.projectWebUrl.clear();
+        check(ModpackInstallReport::write(root, pack, {legacy}, false, &error) &&
+                  ModpackInstallReport::read(root, &parsed, &error) && parsed.issues.size() == 1 &&
+                  ModpackImport::curseForgeFileWebUrl(parsed.issues.first()).isEmpty(),
+              "CF 旧式无规范网址报告仍可补齐，但不猜失效网页", error);
         auto supplied = issue; supplied.path = QStringLiteral("mods/repaired.jar");
         check(ModpackInstallReport::supply(root, supplied, local.fileName(), &error) &&
                   ModpackInstallReport::remaining({supplied}, root).isEmpty(),
@@ -82,6 +103,22 @@ void runCurseForgeTests() {
               "ZG0 批量同大小错误哈希不落盘");
         const auto stopped = ModpackInstallReport::supplyMatching(root, {batchIssue}, {local.fileName()}, [] { return true; });
         check(stopped.cancelled && stopped.suppliedPaths.isEmpty(), "ZG0 批量取消保留未完成状态");
+        const auto verified = ModpackInstallReport::verifyExisting(root, {issue});
+        check(verified.suppliedPaths == QStringList{issue.path} && verified.problems.isEmpty(),
+              "ZG0 只读重验报告全部条目，无需选择源文件");
+        auto absent = issue; absent.path = QStringLiteral("mods/absent.jar");
+        auto wrong = issue; wrong.sha1 = QString(40, QLatin1Char('0'));
+        auto unknown = issue; unknown.sha1.clear();
+        const auto mixed = ModpackInstallReport::verifyExisting(root, {issue, absent, wrong, unknown});
+        check(mixed.suppliedPaths.size() == 1 && mixed.problems.size() == 3 &&
+                  !QFileInfo::exists(root + QLatin1Char('/') + absent.path),
+              "ZG0 重验缺失、错误哈希、未知校验逐项报告，不补写缺失文件");
+        int verifyCalls = 0;
+        const auto interrupted = ModpackInstallReport::verifyExisting(root, {issue},
+            [&] { return ++verifyCalls >= 2; });
+        check(interrupted.cancelled && interrupted.suppliedPaths.isEmpty(),
+              "ZG0 文件块之间取消，不把未完成哈希计为校验成功");
+        check(ModpackInstallReport::remaining({issue}, root).isEmpty(), "ZG0 取消重验不改变原文件");
         supplied = issue; supplied.sha1.clear();
         check(!ModpackInstallReport::supply(root, supplied, local.fileName(), &error),
               "ZG0 本地补齐缺少哈希不按名称猜测");
@@ -643,6 +680,24 @@ void runCurseForgeTests() {
              "hashes":[{"value":"bb22","algo":1}]}
         ]})json";
         api.modsBody = R"json({"data":[{"id":238222,"classId":6},{"id":101,"classId":12}]})json";
+        {
+            FakeCurseForgeApi unavailable;
+            unavailable.filesBody = R"({"data":[{"id":55,"modId":101,"fileName":"pack.zip","isAvailable":false}]})";
+            unavailable.modsBody = R"({"data":[{"id":101,"classId":12,"links":{"websiteUrl":"https://www.curseforge.com/minecraft/texture-packs/example"}}]})";
+            check(unavailable.start(), "CF 缺项规范网页接口启动");
+            if (unavailable.server.isListening()) {
+                VersionManager manager;
+                manager.setCurseForgeApiBaseOverride(unavailable.baseUrl());
+                ModpackImport::Pack pack;
+                pack.format = ModpackImport::Format::CurseForge;
+                pack.pendingRefs = {{101,55}};
+                const auto problem = manager.resolveCurseForgeFiles(&pack);
+                check(problem.isEmpty() && pack.fileIssues.size() == 1 &&
+                      ModpackImport::curseForgeFileWebUrl(pack.fileIssues.first()) ==
+                          QStringLiteral("https://www.curseforge.com/minecraft/texture-packs/example/files/55"),
+                      "CF 真实解析接线将平台项目网页传到不可用文件缺项", problem);
+            }
+        }
         check(api.start(), "ZG7 本机假接口起来了（起不来这一节就没意义，直接算失败）");
         if (api.server.isListening()) {
             // ---- ZG7a 顺利的那一条：两发都发出去、两发都答回来、落地 ----

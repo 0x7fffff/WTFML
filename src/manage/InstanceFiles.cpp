@@ -188,7 +188,9 @@ bool isUnfinishedImport(const QString &id) {
     if (!QFileInfo(AppPaths::versionDir(id)).isDir()) {
         return false;
     }
-    // ① 启动器把这一份做完过就一定留了 meta（导入最后一步写、装加载器装完写、改名也补）。
+    // 标记是最后提交点：即使 meta 已写入，标记尚在就不能放行半成品。
+    if (QFileInfo::exists(importMarkerPath(id))) return true;
+    // ① 没有导入标记时，meta 表示这一份已经由启动器完成过。
     if (QFileInfo::exists(AppPaths::versionMetaPath(id))) {
         return false;
     }
@@ -202,10 +204,6 @@ bool isUnfinishedImport(const QString &id) {
         return false;
     }
     // ④ 光有 inheritsFrom 不够：别的启动器装出来的加载器版本也长这样（见 .hpp 那段）。
-    // 先看导入开始时亲手落的那枚标记 —— 那是最硬的证据。
-    if (QFileInfo::exists(importMarkerPath(id))) {
-        return true;
-    }
     // 没有标记的（老版本启动器留下的半成品）只能看那份 json 的形状：导入第一步写的
     // 只有 `id` / `inheritsFrom` / `type` 三格。第三方 profile 一律带 `mainClass` /
     // `libraries` 之类，不会这么薄 —— 那些是**正常实例**，认成半成品会让它们从列表里

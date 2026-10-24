@@ -70,6 +70,7 @@ struct FileIssue {
     QString sha1;
     qint64 size = -1;
     QString reason;
+    QString projectWebUrl = {}; ///< 平台返回的规范项目网页；不从数字项目 ID 猜测 slug。
 };
 
 struct BundledLibrary {
@@ -348,6 +349,8 @@ CurseForgeFiles parseCurseForgeFileInfo(const QByteArray &json, const QList<Pack
 /// API 链接为空时生成官方 CDN 候选；只接受正的文件 ID 和安全的单个文件名。
 /// 候选地址不证明文件可用，也不表示取得再分发许可；下载仍须检查响应与完整性。
 QString curseForgeDownloadUrl(qint64 fileId, const QString &fileName, const QString &declaredUrl);
+QString curseForgeFileWebUrl(const FileIssue &issue);
+QHash<int, QString> parseCurseForgeProjectWebUrls(const QByteArray &json);
 
 /**
  * @brief 这个项目属于哪一类 → 文件该落到实例目录的哪个子目录。

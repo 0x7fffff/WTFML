@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "manage/ModpackCompletion.hpp"
 
 void runModpackCompletionTests(const QString &sandbox) {
     section("ZG8. 缺项导入、手动补齐与继续安装（真实状态机，本地文件源）");
@@ -60,11 +61,35 @@ void runModpackCompletionTests(const QString &sandbox) {
         check(json.value(QStringLiteral("complete")).toBool() == (attempt == 2),
               "ZG8 报告完成状态与实际结果一致");
         check(QFileInfo::exists(target + "/config/test.txt"), "ZG8 缺项不删除已解压内容");
-        if (attempt < 2) {
+        if (attempt == 0) {
+            const auto finish = [&](const std::function<bool()> &stop = {}) {
+                return ModpackCompletion::finish(target, &error, stop);
+            };
+            check(QFileInfo::exists(target + "/wtfml.import-ready.json"), "ZG9 阶段完成后才持久化收尾凭据");
+            check(!finish(), "ZG9 未补齐不能凭阶段凭据直接放行", error);
+            writeFileAt(target + "/mods/manual.jar", modBytes);
+            check(!finish([] { return true; }) && InstanceFiles::isUnfinishedImport("completion-test"),
+                  "ZG9 校验取消保留未完成标记");
+            writeFileAt(target + "/config/test.txt", "changed-config");
+            check(!finish(), "ZG9 覆盖文件被改动时拒绝收尾", error);
+            writeFileAt(target + "/config/test.txt", "keep-config");
+            const auto markerPath = InstanceFiles::importMarkerPath("completion-test");
+            QFile marker(markerPath);
+            check(marker.open(QIODevice::ReadOnly), "ZG9 读取当前导入标记");
+            const auto markerBytes = marker.readAll(); marker.close();
+            writeFileAt(markerPath, "{}");
+            check(!finish(), "ZG9 凭据不匹配导入尝试时拒绝收尾", error);
+            writeFileAt(markerPath, markerBytes);
+            check(QFile::rename(archive, archive + ".away"), "ZG9 移开原包以验证无原包路径");
+            check(finish() && !InstanceFiles::isUnfinishedImport("completion-test") &&
+                      !QFileInfo::exists(markerPath), "ZG9 无原包校验后提交元数据并清除门禁", error);
+            check(!finish(), "ZG9 已提交凭据不能重复提交");
+            check(QFile::rename(archive + ".away", archive), "ZG9 恢复原包夹具");
+        }
+        if (attempt == 1) {
             check(QFileInfo::exists(InstanceFiles::importMarkerPath("completion-test")) &&
-                      !QFileInfo::exists(AppPaths::versionMetaPath("completion-test")) &&
                       InstanceFiles::isUnfinishedImport("completion-test"),
-                  "ZG8 未完成标记保留、不写成功 meta，读侧仍识别为半成品");
+                  "ZG8 重新导入失败仍保留标记，即使旧 meta 存在也阻止启动");
             check(InstanceFiles::checkImportTargetName("completion-test", &error, fingerprint) ==
                       InstanceFiles::ImportNameVerdict::OkResume,
                   "ZG8 同一包与同一实例名可继续导入", error);
@@ -73,6 +98,37 @@ void runModpackCompletionTests(const QString &sandbox) {
                       QFileInfo::exists(AppPaths::versionMetaPath("completion-test")),
                   "ZG8 真正补齐后才写成功 meta 并清除未完成标记");
         }
+    }
+    {
+        const QString id = QStringLiteral("completion-meta-failure");
+        const QString dir = AppPaths::versionDir(id);
+        writeFileAt(dir + "/mods/manual.jar", modBytes);
+        // 目录占住 meta 文件名，确定性模拟最后写入失败，不碰机器 ACL。
+        QDir().mkpath(AppPaths::versionMetaPath(id));
+        VersionManager manager;
+        manager.setUseMirror(false);
+        manager.setVersionManifestUrlOverride(QUrl::fromLocalFile(root + "/index.json").toString());
+        QEventLoop loop;
+        bool done = false, success = true;
+        QString message;
+        QObject::connect(&manager, &VersionManager::versionDownloadFinished, &loop,
+            [&](const QString &finished, bool ok, const QString &text) {
+                if (finished != id) return;
+                done = true; success = ok; message = text; loop.quit();
+            });
+        QTimer::singleShot(15000, &loop, &QEventLoop::quit);
+        QTimer::singleShot(0, &manager, [&] { manager.importModpack(archive, id, pack, {}, fingerprint); });
+        loop.exec();
+        check(done && !success && message.contains(QStringLiteral("元数据")) &&
+                  QFileInfo::exists(InstanceFiles::importMarkerPath(id)) &&
+                  InstanceFiles::isUnfinishedImport(id),
+              "ZG8 文件全齐但 meta 写入失败时，不报成功且仍拦截启动", message);
+        QFile report(dir + "/wtfml.import-report.json");
+        check(report.open(QIODevice::ReadOnly) &&
+                  !QJsonDocument::fromJson(report.readAll()).object().value("complete").toBool(),
+              "ZG8 元数据提交失败时持久报告也保留未完成");
+        check(QFileInfo::exists(dir + "/mods/manual.jar") && QFileInfo::exists(dir + "/config/test.txt"),
+              "ZG8 提交失败不删除已补齐文件和覆盖内容");
     }
     AppPaths::setMinecraftDir(previousRoot);
 }

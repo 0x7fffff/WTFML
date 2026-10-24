@@ -13,6 +13,7 @@
 #include "FolderManager.hpp"
 
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
@@ -50,6 +51,8 @@
 #include "FolderManager.hpp"
 #include "InstanceFiles.hpp"
 #include "ModpackInstallReport.hpp"
+#include "ModpackCompletion.hpp"
+#include <QUuid>
 
 namespace {
 
@@ -584,9 +587,15 @@ void VersionManager::unwindDownloadBatch(const QString &reason) {
     emit versionDownloadFinished(m_currentVersionDownloading, false, reason);
 }
 
-bool VersionManager::canCancelDownload() const { return downloadManager->isBusy(); }
+bool VersionManager::canCancelDownload() const {
+    return downloadManager->isBusy() || (m_modpackInstall.active() && m_modpackOverridesWork.isRunning());
+}
 
 bool VersionManager::cancelActiveDownload() {
+    if (m_modpackInstall.active() && m_modpackOverridesWork.isRunning()) {
+        failModpackImport(tr("已取消最终解压或校验。已安装文件保留，实例仍未完成。"));
+        return true;
+    }
     if (!downloadManager->isBusy()) {
         return false;
     }
@@ -783,6 +792,7 @@ QString VersionManager::resolveCurseForgeFiles(ModpackImport::Pack *pack,
         }
     }
     QHash<int, int> classIds;
+    QHash<int, QString> projectWebUrls;
     QString classIdProblem;
     for (int offset = 0; offset < projectIds.size(); offset += kChunk) {
         const QList<int> chunk = projectIds.mid(offset, kChunk);
@@ -800,6 +810,8 @@ QString VersionManager::resolveCurseForgeFiles(ModpackImport::Pack *pack,
         }
         QString problem;
         const QHash<int, int> part = ModpackImport::parseCurseForgeClassIds(reply.raw, &problem);
+        const auto urls = ModpackImport::parseCurseForgeProjectWebUrls(reply.raw);
+        for (const int id : chunk) if (urls.contains(id)) projectWebUrls.insert(id, urls.value(id));
         if (!problem.isEmpty()) {
             classIdProblem = problem;
             break;
@@ -822,6 +834,7 @@ QString VersionManager::resolveCurseForgeFiles(ModpackImport::Pack *pack,
             ModpackImport::isSafeRelativePath(dir + issue.fileName)) issue.path = dir + issue.fileName;
     }
     pack->fileIssues += placement.issues;
+    for (auto &issue : pack->fileIssues) issue.projectWebUrl = projectWebUrls.value(issue.ref.projectId);
     pack->pendingRefs.clear();
     pack->filesNotDistributable = files.notDistributable;
     // 两类"没换到"合在一起：接口说没有的 + 拼不出安全路径的（多半是路径太长）。
@@ -1306,6 +1319,7 @@ void VersionManager::startModpackFiles() {
     // 不出来的当成"没有指纹"）时照常放行，盘上已有的半成品照样能接着导入。
     QDir().mkpath(AppPaths::versionDir(id));
     QJsonObject markerJson;
+    markerJson[QStringLiteral("attempt")] = QUuid::createUuid().toString(QUuid::WithoutBraces);
     markerJson[QStringLiteral("startedAt")] =
         QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     if (!m_modpackInstall.manifestFingerprint.isEmpty()) {
@@ -1434,6 +1448,48 @@ void VersionManager::extractModpackOverrides() {
 }
 
 void VersionManager::finishModpackImport() {
+    const QString id = m_modpackInstall.instanceId;
+    const auto pack = m_modpackInstall.pack;
+    const auto fingerprint = m_modpackInstall.manifestFingerprint;
+    const auto destination = AppPaths::versionDir(id);
+    const auto dataRoot = AppPaths::minecraftDir();
+    QString planError;
+    const auto core = integrityPlan(id, &planError);
+    m_modpackInstall.phase = ModpackInstall::Phase::VerifyingCompletion;
+    m_modpackOverridesCancelled = std::make_shared<std::atomic_bool>(false);
+    m_modpackOverridesFailure.clear();
+    const auto cancelled = m_modpackOverridesCancelled;
+    struct Result { QList<ModpackImport::FileIssue> issues; QString error; };
+    const auto result = std::make_shared<Result>();
+    emit modpackImportMessage(tr("正在后台校验安装文件并保存收尾凭据（可取消，最多 900 秒）..."));
+    auto *watcher = new QFutureWatcher<void>(this);
+    connect(watcher, &QFutureWatcher<void>::finished, this, [this, watcher, result, id] {
+        watcher->deleteLater();
+        if (m_modpackInstall.phase != ModpackInstall::Phase::VerifyingCompletion || m_modpackInstall.instanceId != id) return;
+        if (!m_modpackOverridesFailure.isEmpty()) {
+            const auto reason = m_modpackOverridesFailure; m_modpackOverridesFailure.clear();
+            failModpackImport(reason); return;
+        }
+        if (!result->error.isEmpty()) { failModpackImport(result->error); return; }
+        commitModpackImport(result->issues);
+    });
+    m_modpackOverridesWork = QtConcurrent::run([=] {
+        QElapsedTimer timer; timer.start();
+        const auto stop = [&] { return cancelled->load() || timer.elapsed() >= 900000; };
+        if (!fingerprint.isEmpty() && (!planError.isEmpty() ||
+            !ModpackCompletion::capture(destination, dataRoot, pack, fingerprint, core, &result->error, stop))) {
+            if (result->error.isEmpty()) result->error = planError;
+            return;
+        }
+        const auto checked = ModpackInstallReport::verifyExisting(destination, pack.fileIssues, stop);
+        if (checked.cancelled || stop()) { result->error = tr("最终校验已取消或超时，安装保持未完成"); return; }
+        for (const auto &issue : pack.fileIssues)
+            if (!checked.suppliedPaths.contains(issue.path)) result->issues.append(issue);
+    });
+    watcher->setFuture(m_modpackOverridesWork);
+}
+
+void VersionManager::commitModpackImport(const QList<ModpackImport::FileIssue> &issues) {
     // 要用的字段先取出来：reset() 会把它们一起清掉（忘了取的表现是那句话里名字变空的）。
     const QString id = m_modpackInstall.instanceId;
     const ModpackImport::Pack pack = m_modpackInstall.pack;
@@ -1442,7 +1498,6 @@ void VersionManager::finishModpackImport() {
     const int missing = pack.filesMissing;
     const int extracted = m_modpackInstall.extractedEntries;
 
-    const auto issues = ModpackInstallReport::remaining(pack.fileIssues, AppPaths::versionDir(id));
     const bool complete = issues.isEmpty() && notDistributable + missing <= pack.fileIssues.size();
     QString reportProblem;
     if (!ModpackInstallReport::write(AppPaths::versionDir(id), pack, issues, complete, &reportProblem)) {
@@ -1454,7 +1509,7 @@ void VersionManager::finishModpackImport() {
         QStringList details;
         for (const auto &issue : issues) details.append(ModpackInstallReport::description(issue));
         failModpackImport(tr("整合包仍不完整，已下载文件和覆盖内容均保留，没有标记为安装成功。\n\n%1"
-            "\n\n逐项清单：%2\n手动补齐后，重新导入同一个包并使用同一实例名，可重新校验并继续。")
+            "\n\n逐项清单：%2\n补齐后可在报告中点击“完成安装”；缺少有效阶段凭据的旧安装仍需原包同名继续导入。")
             .arg(details.join(QStringLiteral("\n\n")),
                  QDir::toNativeSeparators(AppPaths::versionDir(id) + QStringLiteral("/wtfml.import-report.json"))));
         return;
@@ -1471,9 +1526,7 @@ void VersionManager::finishModpackImport() {
         return;
     }
 
-    // 显示名：realVersion 是"真实的游戏版本"，加载器那两段让「版本名」里多一句
-    // "Fabric 0.16.14"（读侧见 VersionDisplay::displayParts）。写不进去只是名字难看
-    // 一点，**不算失败** —— 版本本身是好的、能启动，别把用户吓一跳。
+    // meta 也是安装收尾的凭据；写入成功后才允许移除最后的导入标记。
     QJsonObject fields;
     fields[QStringLiteral("realVersion")] = pack.gameVersion;
     if (!pack.loaderKey.isEmpty()) {
@@ -1485,14 +1538,14 @@ void VersionManager::finishModpackImport() {
     }
     QString metaError;
     if (!updateVersionMeta(id, fields, &metaError)) {
-        qWarning() << "Failed to write wtfml.meta for" << id << ":" << metaError;
-        emit modpackImportMessage(tr("装好了，但没能写进 wtfml.meta（%1）——「版本名」里会少一段。")
-                                      .arg(metaError));
+        failModpackImport(tr("文件已保留，但实例元数据写入失败，安装尚未完成：%1").arg(metaError));
+        return;
     }
-    // 导入做完了：把"正在导入"的标记摘掉（判据见 InstanceFiles::isUnfinishedImport()）。
-    // 摘了也不会把"meta 没写成功"那一种变成正常实例：那份 json 还是薄的三格，形状判据
-    // 照样认得出它 —— 用户想再导一遍时仍然走"接着上次的导入"，不会丢那条路。
-    QFile::remove(InstanceFiles::importMarkerPath(id));
+    // 标记是最后提交点。失败时即使 meta 已写入，读侧也必须继续阻止启动。
+    if (!QFile::remove(InstanceFiles::importMarkerPath(id))) {
+        failModpackImport(tr("文件已保留，但未完成标记无法移除，没有报告安装成功。"));
+        return;
+    }
 
     // 少装了什么必须说出来（跳过的文件、解开的覆盖文件）—— 用户看不到的那部分最容易
     // 变成"进了游戏才发现少个 mod"。
@@ -1542,7 +1595,8 @@ void VersionManager::failModpackImport(const QString &reason) {
         for (const auto &file : m_modpackInstall.pack.files) candidates.append({
             {file.curseForgeProjectId, file.curseForgeFileId}, QFileInfo(file.path).fileName(),
             file.path, file.sha1, file.size, tr("下载未完成或文件校验未通过")});
-        const auto issues = ModpackInstallReport::remaining(candidates, AppPaths::versionDir(id));
+        // 失败路径不再在 UI 线程哈希几 GB 文件；报告保留候选，后台“重新校验”确认哪些已在盘上。
+        const auto issues = candidates;
         QString reportProblem;
         if (!ModpackInstallReport::write(AppPaths::versionDir(id), m_modpackInstall.pack,
                                          issues, false, &reportProblem, reason)) {

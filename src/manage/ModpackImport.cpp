@@ -1605,6 +1605,31 @@ CurseForgePlacement placeCurseForgeFiles(const QList<CurseForgeFile> &resolved,
     return out;
 }
 
+QString curseForgeFileWebUrl(const FileIssue &issue) {
+    const QUrl url(issue.projectWebUrl);
+    static const QRegularExpression path(QStringLiteral("^/minecraft/(mc-mods|modpacks|texture-packs|shaders|worlds|customization|data-packs)/[a-zA-Z0-9_-]+/?$"));
+    if (issue.ref.projectId <= 0 || issue.ref.fileId <= 0 || url.scheme() != QStringLiteral("https") ||
+        url.host() != QStringLiteral("www.curseforge.com") || url.port() != -1 ||
+        !url.userInfo().isEmpty() || url.hasQuery() || url.hasFragment() ||
+        !path.match(url.path()).hasMatch()) return {};
+    QString base = url.toString();
+    if (base.endsWith(QLatin1Char('/'))) base.chop(1);
+    return base + QStringLiteral("/files/%1").arg(issue.ref.fileId);
+}
+
+QHash<int, QString> parseCurseForgeProjectWebUrls(const QByteArray &json) {
+    QHash<int, QString> out;
+    const auto data = QJsonDocument::fromJson(json).object().value(QStringLiteral("data")).toArray();
+    for (const auto &value : data) {
+        const auto entry = value.toObject();
+        FileIssue probe;
+        probe.ref = {entry.value(QStringLiteral("id")).toInt(), 1};
+        probe.projectWebUrl = entry.value(QStringLiteral("links")).toObject().value(QStringLiteral("websiteUrl")).toString();
+        if (!curseForgeFileWebUrl(probe).isEmpty()) out.insert(probe.ref.projectId, probe.projectWebUrl);
+    }
+    return out;
+}
+
 QHash<int, int> parseCurseForgeClassIds(const QByteArray &json, QString *problem) {
     const auto fail = [problem](const QString &why) {
         if (problem != nullptr) {

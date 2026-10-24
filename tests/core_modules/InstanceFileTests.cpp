@@ -294,7 +294,15 @@ int runInstanceFileTests(const QString &sandbox) {
                         "\",\"inheritsFrom\":\"1.20.1\",\"type\":\"release\"}");
         writeFileAt(AppPaths::versionMetaPath(done), "{}");
         check(!InstanceFiles::isUnfinishedImport(done),
-              "N5 有 wtfml.meta 就永远不算半成品（哪怕 json 很薄）");
+              "N5 没有导入标记的 meta 实例不算半成品（哪怕 json 很薄）");
+        writeFileAt(InstanceFiles::importMarkerPath(done), "{}");
+        check(InstanceFiles::isUnfinishedImport(done),
+              "N5 meta 已写入但导入标记仍在时，不放行未提交安装");
+        writeFileAt(versionsRoot + "/" + done + "/" + done + ".jar", "client");
+        check(InstanceFiles::isUnfinishedImport(done),
+              "N5 即使客户端 jar 已存在，导入标记也优先于外观完整性");
+        QFile::remove(InstanceFiles::importMarkerPath(done));
+        check(!InstanceFiles::isUnfinishedImport(done), "N5 最后移除标记后才放行完成实例");
 
         for (const QString &id : {stub, foreign, marked, printed, done}) {
             QDir(versionsRoot + "/" + id).removeRecursively();

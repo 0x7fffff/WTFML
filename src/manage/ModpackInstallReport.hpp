@@ -21,6 +21,10 @@ struct BatchResult {
     QStringList problems;
     bool cancelled = false;
 };
+/// 只读重新核对报告全部条目；不复制文件，不改变安装完成状态。
+BatchResult verifyExisting(const QString &instanceDir,
+    const QList<ModpackImport::FileIssue> &issues,
+    const std::function<bool()> &cancelled = {});
 /// 本地文件按大小和哈希匹配，不猜名称；每个源只扫描一次以匹配所有缺项。
 BatchResult supplyMatching(const QString &instanceDir,
     const QList<ModpackImport::FileIssue> &issues, const QStringList &sources,

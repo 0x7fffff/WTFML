@@ -1,5 +1,8 @@
 #include "Support.hpp"
 #include "controllers/TaskDetailController.hpp"
+#include "manage/ModpackInstallReport.hpp"
+#include "manage/ModpackCompletion.hpp"
+#include "controllers/ImportController.hpp"
 int MwWorkspaceCheck(QApplication &app) {
 
         QTemporaryDir fixture(QDir::current().filePath(QStringLiteral(".workspace-check-XXXXXX")));
@@ -133,6 +136,76 @@ int MwWorkspaceCheck(QApplication &app) {
                 details->action(QString::number(task), TaskDetailPage::Action::RepairImport);
                 timeout.stop();
                 check(sawReport && host->pageOpen(), "task repair opens report over activity page and preserves page on close");
+                const QString repairRoot = AppPaths::versionDir(repairId);
+                const QByteArray probe("recheck-probe");
+                writeFileAt(repairRoot + QStringLiteral("/mods/probe.jar"), probe);
+                ModpackImport::Pack pack; pack.name = QStringLiteral("Repair probe");
+                const ModpackImport::FileIssue issue{{123,456}, QStringLiteral("probe.jar"),
+                    QStringLiteral("mods/probe.jar"), QString::fromLatin1(QCryptographicHash::hash(
+                    probe, QCryptographicHash::Sha1).toHex()), probe.size(), QStringLiteral("missing")};
+                QString reportError;
+                check(ModpackInstallReport::write(repairRoot, pack, {issue}, false, &reportError),
+                    "prepare report entry for real background recheck", reportError);
+                bool requestedRecheck = false, sawRechecked = false;
+                QTimer pulse;
+                QObject::connect(&pulse, &QTimer::timeout, &pulse, [&] {
+                    for (auto *box : window.findChildren<InlineMessageBox *>()) {
+                        if (!box->isVisible()) continue;
+                        auto *title = box->findChild<QLabel *>(InlineMessageBox::titleLabelName());
+                        if (!title || !title->text().contains(QStringLiteral("Repair probe"))) continue;
+                        if (!requestedRecheck) {
+                            requestedRecheck = true;
+                            if (auto *button = box->findChild<QPushButton *>(InlineMessageBox::buttonName(3))) button->click();
+                        } else {
+                            auto *note = box->findChild<QLabel *>(InlineMessageBox::noteLabelName());
+                            sawRechecked = note && note->text().contains(QStringLiteral("本次校验通过 1 项"));
+                            pulse.stop(); box->reject();
+                        }
+                        break;
+                    }
+                });
+                timeout.start(5000); pulse.start(10);
+                details->action(QString::number(task), TaskDetailPage::Action::RepairImport);
+                pulse.stop(); timeout.stop();
+                check(requestedRecheck && sawRechecked && host->pageOpen(),
+                    "report recheck runs in background without choosing archive or source file");
+                QFile persisted(repairRoot + QStringLiteral("/wtfml.import-report.json"));
+                check(persisted.open(QIODevice::ReadOnly) &&
+                    !QJsonDocument::fromJson(persisted.readAll()).object().value(QStringLiteral("complete")).toBool()
+                    && QFileInfo::exists(InstanceFiles::importMarkerPath(repairId))
+                    && !QFileInfo::exists(AppPaths::versionMetaPath(repairId)),
+                    "read-only recheck never publishes installation success or clears marker");
+                persisted.close();
+                makeInstalledVersion(QDir(gameRoot + QStringLiteral("/versions")), repairId);
+                const QString fingerprint(64, QLatin1Char('b'));
+                writeFileAt(InstanceFiles::importMarkerPath(repairId), QJsonDocument(QJsonObject{
+                    {QStringLiteral("manifestSha256"), fingerprint}, {QStringLiteral("attempt"), QStringLiteral("ui-finish")}}).toJson());
+                pack.fileIssues = {issue}; pack.gameVersion = QStringLiteral("1.20.1");
+                check(ModpackCompletion::capture(repairRoot, gameRoot, pack, fingerprint, {}, &reportError, {}),
+                      "prepare stage evidence for real report completion action", reportError);
+                bool requestedFinish = false, sawCompleted = false;
+                QObject::disconnect(&pulse, nullptr, nullptr, nullptr);
+                QObject::connect(&pulse, &QTimer::timeout, &pulse, [&] {
+                    for (auto *box : window.findChildren<InlineMessageBox *>()) {
+                        if (!box->isVisible()) continue;
+                        auto *title = box->findChild<QLabel *>(InlineMessageBox::titleLabelName());
+                        if (!title) continue;
+                        if (title->text() == QStringLiteral("安装完成")) {
+                            sawCompleted = true; pulse.stop(); box->reject(); break;
+                        }
+                        if (!requestedFinish && title->text().contains(QStringLiteral("Repair probe"))) {
+                            requestedFinish = true;
+                            if (auto *button = box->findChild<QPushButton *>(InlineMessageBox::buttonName(4))) button->click();
+                            break;
+                        }
+                    }
+                });
+                timeout.start(5000); pulse.start(10);
+                details->action(QString::number(task), TaskDetailPage::Action::RepairImport);
+                pulse.stop(); timeout.stop();
+                check(requestedFinish && sawCompleted && !QFileInfo::exists(InstanceFiles::importMarkerPath(repairId)) &&
+                      QFileInfo::exists(AppPaths::versionMetaPath(repairId)),
+                      "real report completion button verifies evidence and publishes without original archive");
                 host->closeOverlay();
             }
         }
@@ -160,6 +233,18 @@ int MwWorkspaceCheck(QApplication &app) {
               QStringLiteral("404 了 %1 发：%2")
                   .arg(fakeNet.notFound)
                   .arg(fakeNet.unrouted.mid(0, 8).join(QStringLiteral(", "))));
+        // 从真实执行入口建任务，不能手动 begin(..., target) 掩盖缺失的目标 ID 接线。
+        if (auto *imports = window.findChild<ImportController *>()) {
+            const QByteArray manifest = R"({"formatVersion":1,"game":"minecraft","name":"Target wiring","versionId":"1","dependencies":{"minecraft":"1.20.1"},"files":[{"path":"mods/probe.jar","hashes":{"sha1":"0000000000000000000000000000000000000000"},"downloads":["https://cdn.modrinth.com/data/test/versions/test/probe.jar"],"fileSize":1}]})";
+            const QString target = QStringLiteral("real-import-target");
+            const bool started = imports->applyModpackImport(fixture.filePath("target.zip"), target,
+                manifest, ModpackImport::Format::Modrinth);
+            auto *activity = window.findChild<ActivityCenterController *>();
+            bool bound = false;
+            if (activity) for (const auto &task : activity->tasks()->all())
+                if (task.kind == Tasks::TaskKind::Import && task.targetId == target) bound = true;
+            check(started && bound, "real import entry binds task target instance for repair action");
+        } else check(false, "real import controller exists for target wiring test");
         printf("Workspace check: %d/%d passed\n", g_pass, g_pass + g_fail);
         return g_fail == 0 ? 0 : 1;
     

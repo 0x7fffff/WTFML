@@ -12,6 +12,7 @@
 #include "manage/InstanceFiles.hpp"
 #include "manage/ModpackImport.hpp"
 #include "manage/ModpackInstallReport.hpp"
+#include "manage/ModpackCompletion.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "util/AppPaths.hpp"
@@ -546,9 +547,10 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
             if (box.clickedIndex() == 0) break;
             if (box.clickedIndex() != 1) return;
             if (selected < 0 || selected >= pack.fileIssues.size()) continue;
-            const auto &ref = pack.fileIssues.at(selected).ref;
-            if (ref.projectId > 0 && ref.fileId > 0) QDesktopServices::openUrl(QUrl(
-                QStringLiteral("https://www.curseforge.com/projects/%1/files/%2").arg(ref.projectId).arg(ref.fileId)));
+            const auto url = ModpackImport::curseForgeFileWebUrl(pack.fileIssues.at(selected));
+            if (!url.isEmpty()) QDesktopServices::openUrl(QUrl(url));
+            else InlineMessage::information(m_owner->m_ui->overlay(), tr("没有文件网页"),
+                tr("平台未提供规范项目网址，无法可靠打开文件页。请按报告中的项目和文件编号手动查找；这不代表文件已下架。"));
         }
     }
 
@@ -598,8 +600,8 @@ void ImportController::repairFromReport(const QString &reportPath) {
         }
         InlineMessageBox box(MessageKind::Information, tr("补齐：%1").arg(report.packName),
             tr("选择缺项，再选择已下载的本地文件。校验通过后放入对应位置，不覆盖已有文件。"
-               "\n补齐不等于安装完成；最后仍需用原包、同一实例名继续导入。"),
-            {tr("选择本地文件"), tr("批量匹配"), tr("打开文件网页"), tr("关闭")}, 3, -1, m_owner);
+               "\n补齐后点击“完成安装”：重新核对核心、加载器及覆盖文件。旧安装没有阶段凭据时仍需原包。"),
+            {tr("选择文件"), tr("批量匹配"), tr("文件网页"), tr("重新校验"), tr("完成安装"), tr("关闭")}, 5, -1, m_owner);
         auto *list = box.setList(names, selected);
         auto show = [&](int row) {
             QString note = lastResult;
@@ -613,21 +615,23 @@ void ImportController::repairFromReport(const QString &reportPath) {
         show(list->currentRow());
         overlay->execPrompt(&box);
         selected = box.listRow();
-        if (box.clickedIndex() < 0 || box.clickedIndex() == 3) return;
+        if (box.clickedIndex() < 0 || box.clickedIndex() == 5) return;
         const bool batch = box.clickedIndex() == 1;
-        if (!batch && (selected < 0 || selected >= report.issues.size())) continue;
+        const bool verify = box.clickedIndex() == 3;
+        const bool finish = box.clickedIndex() == 4;
+        if (!batch && !verify && !finish && (selected < 0 || selected >= report.issues.size())) continue;
         const auto issue = selected >= 0 && selected < report.issues.size()
             ? report.issues.at(selected) : ModpackImport::FileIssue{};
         if (box.clickedIndex() == 2) {
-            if (issue.ref.projectId > 0 && issue.ref.fileId > 0)
-                QDesktopServices::openUrl(QUrl(QStringLiteral("https://www.curseforge.com/projects/%1/files/%2")
-                    .arg(issue.ref.projectId).arg(issue.ref.fileId)));
+            const auto url = ModpackImport::curseForgeFileWebUrl(issue);
+            if (!url.isEmpty()) QDesktopServices::openUrl(QUrl(url));
+            else lastResult = tr("报告没有规范项目网址，不能可靠打开文件页。请按项目和文件编号手动查找，或重新导入原包刷新元数据；这不代表文件已下架。");
             continue;
         }
-        const QStringList sources = batch
+        const QStringList sources = verify || finish ? QStringList{} : batch
             ? QFileDialog::getOpenFileNames(m_owner, tr("选择文件，按大小和 SHA-1 自动匹配缺项"), {}, tr("所有文件 (*)"))
             : QStringList{QFileDialog::getOpenFileName(m_owner, tr("选择补齐文件"), {}, tr("所有文件 (*)"))};
-        if (sources.isEmpty() || sources.first().isEmpty()) continue;
+        if (!verify && !finish && (sources.isEmpty() || sources.first().isEmpty())) continue;
         if (m_owner->m_downloadInFlight || m_owner->m_launcherManager->isVersionRunning(id) ||
             !WriteDirectoryGuard::acquire(root, &problem)) {
             lastResult = tr("实例运行中、安装任务繁忙或无法取得写锁，未写入。\n%1").arg(problem);
@@ -636,14 +640,24 @@ void ImportController::repairFromReport(const QString &reportPath) {
         auto cancelled = std::make_shared<std::atomic_bool>(false);
         InlineMessageBox progress(MessageKind::Information, tr("正在校验并补齐"),
             tr("%1\n核对大小与 SHA-1；最多运行 900 秒，可随时取消。")
-                .arg(batch ? tr("批量匹配 %1 个文件").arg(sources.size()) : issue.fileName),
+                .arg(finish ? tr("核对阶段凭据并完成安装") : verify ? tr("只读核对报告中的全部 %1 项").arg(report.issues.size())
+                           : batch ? tr("批量匹配 %1 个文件").arg(sources.size()) : issue.fileName),
             {tr("取消")}, -1, -1, m_owner);
         QFutureWatcher<ModpackInstallReport::BatchResult> watcher;
         connect(&watcher, &QFutureWatcher<ModpackInstallReport::BatchResult>::finished, &progress, &QDialog::accept);
-        const auto issues = batch ? report.issues : QList<ModpackImport::FileIssue>{issue};
-        watcher.setFuture(QtConcurrent::run([root, issues, sources, cancelled, batch] {
+        const auto issues = batch || verify ? report.issues : QList<ModpackImport::FileIssue>{issue};
+        watcher.setFuture(QtConcurrent::run([root, issues, sources, cancelled, batch, verify, finish] {
             QElapsedTimer timer; timer.start();
             const auto stop = [cancelled, &timer] { return cancelled->load() || timer.elapsed() >= 900000; };
+            if (finish) {
+                ModpackInstallReport::BatchResult result;
+                QString error;
+                if (ModpackCompletion::finish(root, &error, stop)) result.suppliedPaths.append(QStringLiteral("installation-complete"));
+                else result.problems.append(error);
+                result.cancelled = stop();
+                return result;
+            }
+            if (verify) return ModpackInstallReport::verifyExisting(root, issues, stop);
             if (batch) return ModpackInstallReport::supplyMatching(root, issues, sources, stop);
             ModpackInstallReport::BatchResult result;
             QString error;
@@ -662,11 +676,18 @@ void ImportController::repairFromReport(const QString &reportPath) {
             if (!watcher.isFinished()) wait.exec(QEventLoop::ExcludeUserInputEvents);
         }
         const auto result = watcher.result();
+        if (finish && result.suppliedPaths.contains(QStringLiteral("installation-complete"))) {
+            m_owner->refreshInstalledVersions();
+            m_owner->appendLog(tr("%1 已完成安装，无需重新选择原包。").arg(id));
+            InlineMessage::information(overlay, tr("安装完成"), tr("所有阶段文件与补齐项已通过校验，现在可以启动 %1。").arg(id));
+            return;
+        }
+        if (verify) checked.clear(); // 外部删除/修改后，不沿用旧的已校验状态。
         for (int index = 0; index < report.issues.size(); ++index)
             if (result.suppliedPaths.contains(report.issues.at(index).path)) checked.insert(index);
-        lastResult = tr("本次校验通过 %1 项，未处理/失败 %2 项。%3\n全部补齐后请用原包同名继续导入。")
+        lastResult = tr("本次校验通过 %1 项，未处理/失败 %2 项。%3\n补齐后可点击“完成安装”；无阶段凭据的旧安装仍需原包。")
             .arg(result.suppliedPaths.size()).arg(result.problems.size())
-            .arg(result.cancelled ? tr("已取消或超时，已成功补入的文件保留。") : QString());
+            .arg(result.cancelled ? tr("已取消或超时，未改变安装状态。") : QString());
         if (!result.problems.isEmpty()) lastResult += QLatin1Char('\n') + result.problems.mid(0, 5).join(QLatin1Char('\n'));
         m_owner->appendLog(lastResult);
         for (const auto &error : result.problems) m_owner->appendLog(error);

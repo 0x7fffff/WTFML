@@ -29,7 +29,8 @@ bool safeTarget(const QString &root, const QString &relative) {
     }
     return true;
 }
-bool verified(const ModpackImport::FileIssue &issue, const QString &root) {
+bool verified(const ModpackImport::FileIssue &issue, const QString &root,
+              const std::function<bool()> &cancelled = {}) {
     static const QRegularExpression hash(QStringLiteral("^[0-9a-fA-F]{40}$"));
     if (!ModpackImport::isSafeRelativePath(issue.path) || issue.size < 0 ||
         !hash.match(issue.sha1).hasMatch() || !safeTarget(root, issue.path)) return false;
@@ -38,12 +39,21 @@ bool verified(const ModpackImport::FileIssue &issue, const QString &root) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) return false;
     QCryptographicHash digest(QCryptographicHash::Sha1);
-    return digest.addData(&file) && digest.result().toHex().compare(issue.sha1.toLatin1(), Qt::CaseInsensitive) == 0;
+    qint64 total = 0;
+    while (!file.atEnd()) {
+        if (cancelled && cancelled()) return false;
+        const auto bytes = file.read(1 << 20);
+        if (bytes.isEmpty()) return false;
+        total += bytes.size();
+        if (total > issue.size) return false;
+        digest.addData(bytes);
+    }
+    return file.error() == QFileDevice::NoError && total == issue.size
+        && !(cancelled && cancelled())
+        && digest.result().toHex().compare(issue.sha1.toLatin1(), Qt::CaseInsensitive) == 0;
 }
 QString page(const ModpackImport::FileIssue &issue) {
-    if (issue.ref.projectId <= 0 || issue.ref.fileId <= 0) return {};
-    return QStringLiteral("https://www.curseforge.com/projects/%1/files/%2")
-        .arg(issue.ref.projectId).arg(issue.ref.fileId);
+    return ModpackImport::curseForgeFileWebUrl(issue);
 }
 }
 bool read(const QString &instanceDir, Report *report, QString *problem) {
@@ -92,6 +102,8 @@ bool read(const QString &instanceDir, Report *report, QString *problem) {
         issue.path = entry.value(QStringLiteral("path")).toString();
         issue.sha1 = entry.value(QStringLiteral("sha1")).toString();
         issue.reason = entry.value(QStringLiteral("reason")).toString();
+        issue.projectWebUrl = entry.value(QStringLiteral("projectWebUrl")).toString();
+        if (page(issue).isEmpty()) issue.projectWebUrl.clear();
         bool sizeOk = false;
         issue.size = entry.value(QStringLiteral("size")).toString().toLongLong(&sizeOk);
         static const QRegularExpression hash(QStringLiteral("^[0-9a-fA-F]{40}$"));
@@ -188,6 +200,19 @@ BatchResult supplyMatching(const QString &instanceDir,
     }
     return result;
 }
+BatchResult verifyExisting(const QString &instanceDir,
+        const QList<ModpackImport::FileIssue> &issues, const std::function<bool()> &cancelled) {
+    BatchResult result;
+    for (const auto &issue : issues) {
+        if (cancelled && cancelled()) { result.cancelled = true; break; }
+        const bool ok = verified(issue, instanceDir, cancelled);
+        if (cancelled && cancelled()) { result.cancelled = true; break; }
+        if (ok) result.suppliedPaths.append(issue.path);
+        else result.problems.append(QObject::tr("%1：文件缺失、内容不符或缺少可信校验信息")
+            .arg(issue.path.isEmpty() ? issue.fileName : issue.path));
+    }
+    return result;
+}
 QList<ModpackImport::FileIssue> remaining(
         const QList<ModpackImport::FileIssue> &issues, const QString &instanceDir) {
     QList<ModpackImport::FileIssue> out;
@@ -197,9 +222,11 @@ QList<ModpackImport::FileIssue> remaining(
 QString description(const ModpackImport::FileIssue &issue) {
     if (issue.ref.projectId <= 0 || issue.ref.fileId <= 0)
         return QStringLiteral("%1\n%2\n%3").arg(issue.fileName, issue.reason, issue.path);
+    const auto url = page(issue);
     return QStringLiteral("%1\n项目 %2 · 文件 %3 · %4\n%5%6")
         .arg(issue.fileName.isEmpty() ? QObject::tr("文件名未知") : issue.fileName)
-        .arg(issue.ref.projectId).arg(issue.ref.fileId).arg(issue.reason, page(issue),
+        .arg(issue.ref.projectId).arg(issue.ref.fileId).arg(issue.reason,
+            url.isEmpty() ? QObject::tr("未取得规范网页地址；请按编号手动查找（不代表文件下架）") : url,
             issue.path.isEmpty() ? QString() : QObject::tr("\n补齐位置：%1").arg(issue.path));
 }
 bool write(const QString &instanceDir, const ModpackImport::Pack &pack,
@@ -215,7 +242,8 @@ bool write(const QString &instanceDir, const ModpackImport::Pack &pack,
         {QStringLiteral("projectId"), issue.ref.projectId}, {QStringLiteral("fileId"), issue.ref.fileId},
         {QStringLiteral("fileName"), issue.fileName}, {QStringLiteral("path"), issue.path},
         {QStringLiteral("sha1"), issue.sha1}, {QStringLiteral("size"), QString::number(issue.size)},
-        {QStringLiteral("reason"), issue.reason}, {QStringLiteral("webUrl"), page(issue)}});
+        {QStringLiteral("reason"), issue.reason}, {QStringLiteral("webUrl"), page(issue)},
+        {QStringLiteral("projectWebUrl"), page(issue).isEmpty() ? QString() : issue.projectWebUrl}});
     const QByteArray data = QJsonDocument(QJsonObject{
         {QStringLiteral("schemaVersion"), 1}, {QStringLiteral("packName"), pack.name},
         {QStringLiteral("complete"), complete}, {QStringLiteral("issues"), entries},

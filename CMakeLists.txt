@@ -290,6 +290,7 @@ set(SOURCE_FILES
     src/manage/InstanceGroupStore.cpp
     src/manage/ModpackImport.cpp
     src/manage/ModpackInstallReport.cpp
+    src/manage/ModpackCompletion.cpp
     src/manage/MultiMCPatchImport.cpp
     src/manage/ModpackExport.cpp
     src/manage/ServerStatusCache.cpp
