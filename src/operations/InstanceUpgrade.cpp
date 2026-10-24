@@ -80,9 +80,10 @@ bool writeJournal(const Request &r, const QString &state, const QString &snapsho
     const auto bytes = QJsonDocument(json).toJson();
     return f.open(QIODevice::WriteOnly) && f.write(bytes) == bytes.size() && f.commit();
 }
-bool sameFiles(const QString &root, const QList<BackupFiles::FileRecord> &expected) {
+bool sameFiles(const QString &root, const QList<BackupFiles::FileRecord> &expected,
+               const std::function<bool()> &cancelled = {}) {
     QString problem;
-    const auto actual = BackupFiles::collectFiles(root, {}, &problem);
+    const auto actual = BackupFiles::collectFiles(root, {}, &problem, cancelled);
     if (!problem.isEmpty() || actual.size() != expected.size()) return false;
     for (qsizetype i = 0; i < actual.size(); ++i)
         if (actual[i].path != expected[i].path || actual[i].size != expected[i].size
@@ -186,7 +187,12 @@ static Result prepareAndCommitImpl(Request r, const Core &core, const std::funct
     result.problem = checkTree(original);
     if (!result.problem.isEmpty()) return result;
     QString problem;
-    const auto files = BackupFiles::collectFiles(original, {}, &problem);
+    const auto files = BackupFiles::collectFiles(original, {}, &problem, cancelled);
+    if (cancelled && cancelled()) {
+        result.cancelled = true;
+        result.problem = QStringLiteral("已取消准备。");
+        return result;
+    }
     if (!problem.isEmpty() || files.isEmpty()) {
         result.problem = problem.isEmpty() ? QStringLiteral("原实例是空的。") : problem; return result;
     }
@@ -215,8 +221,14 @@ static Result prepareAndCommitImpl(Request r, const Core &core, const std::funct
         return result;
     }
     if (cancelled && cancelled()) { result.cancelled = true; result.problem = QStringLiteral("已取消准备。"); return result; }
-    if (!sameFiles(candidate, files)) {
-        result.problem = QStringLiteral("用户文件副本未通过完整校验，原实例未改变。"); return result;
+    if (!sameFiles(candidate, files, cancelled)) {
+        if (cancelled && cancelled()) {
+            result.cancelled = true;
+            result.problem = QStringLiteral("已取消准备。");
+        } else {
+            result.problem = QStringLiteral("用户文件副本未通过完整校验，原实例未改变。");
+        }
+        return result;
     }
     // Read identity/settings from the copied original, never from the target.
     QJsonObject meta;
@@ -386,12 +398,16 @@ static Result rollbackImpl(const Request &r, bool verifyRetained,
         QString problem;
         const auto manifest = BackupFiles::readManifest(result.snapshotZip, &ok, &problem);
         if (!ok || !manifest.complete || !manifest.excluded.isEmpty() || manifest.root != r.instanceId
-            || manifest.kind != BackupFiles::Kind::Instance || !checkTree(retained).isEmpty()
-            || !sameFiles(retained, manifest.files)) {
+            || manifest.kind != BackupFiles::Kind::Instance || !checkTree(retained).isEmpty()) {
             result.problem = QStringLiteral("保留的原目录未通过快照清单校验；未移动当前实例，请使用完整 ZIP 快照恢复。%1").arg(problem);
             return result;
         }
         if (stopped()) return stopResult();
+        if (!sameFiles(retained, manifest.files, cancelled)) {
+            if (stopped()) return stopResult();
+            result.problem = QStringLiteral("保留的原目录未通过快照清单校验；未移动当前实例，请使用完整 ZIP 快照恢复。%1").arg(problem);
+            return result;
+        }
     }
     const bool hadCurrent = QFileInfo::exists(original);
     if (hadCurrent && QFileInfo::exists(displaced)) {
@@ -463,12 +479,22 @@ static Result commitPreparedImpl(const Request &r, const std::function<void(Stag
     }
     version.close();
     QString problem;
-    const auto newFiles = BackupFiles::collectFiles(candidate, {}, &problem);
+    const auto newFiles = BackupFiles::collectFiles(candidate, {}, &problem, cancelled);
+    if (stopped()) {
+        result.cancelled = true;
+        result.problem = QStringLiteral("已取消，原实例未改变。");
+        return result;
+    }
     if (!problem.isEmpty() || newFiles.isEmpty()) {
         result.problem = problem.isEmpty() ? QStringLiteral("暂存版本没有文件。") : problem;
         return result;
     }
-    const auto oldFiles = BackupFiles::collectFiles(original, {}, &problem);
+    const auto oldFiles = BackupFiles::collectFiles(original, {}, &problem, cancelled);
+    if (stopped()) {
+        result.cancelled = true;
+        result.problem = QStringLiteral("已取消，原实例未改变。");
+        return result;
+    }
     if (!r.originalFingerprint.isEmpty() && fingerprint(oldFiles) != r.originalFingerprint) {
         result.problem = QStringLiteral("原实例在准备期间发生了变化，未替换实例。"); return result;
     }
@@ -519,9 +545,23 @@ static Result commitPreparedImpl(const Request &r, const std::function<void(Stag
     report(Stage::VerifySnapshot);
     {
         QTemporaryDir verify(transactionDir(r) + "/verify-XXXXXX");
-        if (!verify.isValid() || !ZipUtil::extractArchives({zip}, verify.path(), {}, &problem)
-            || !sameFiles(verify.path() + '/' + r.instanceId, snapshot.manifest.files)
-            || !sameFiles(original, snapshot.manifest.files) || !sameFiles(original, oldFiles)) {
+        if (!verify.isValid() || !ZipUtil::extractArchives({zip}, verify.path(), {}, &problem)) {
+            result.problem = QStringLiteral("完整快照校验失败，或原实例在备份期间发生变化，未替换。%1").arg(problem);
+            return result;
+        }
+        if (stopped()) {
+            result.cancelled = true;
+            result.problem = QStringLiteral("已取消，快照保留，原实例未改变。");
+            return result;
+        }
+        if (!sameFiles(verify.path() + '/' + r.instanceId, snapshot.manifest.files, cancelled)
+            || !sameFiles(original, snapshot.manifest.files, cancelled)
+            || !sameFiles(original, oldFiles, cancelled)) {
+            if (stopped()) {
+                result.cancelled = true;
+                result.problem = QStringLiteral("已取消，快照保留，原实例未改变。");
+                return result;
+            }
             result.problem = QStringLiteral("完整快照校验失败，或原实例在备份期间发生变化，未替换。%1").arg(problem);
             return result;
         }
@@ -529,8 +569,13 @@ static Result commitPreparedImpl(const Request &r, const std::function<void(Stag
     if (stopped()) { result.cancelled = true; result.problem = QStringLiteral("已取消，快照保留，原实例未改变。"); return result; }
     result.problem = checkTree(original);
     if (result.problem.isEmpty()) result.problem = checkTree(candidate);
-    if (!result.problem.isEmpty() || !sameFiles(candidate, newFiles)) {
-        if (result.problem.isEmpty()) result.problem = QStringLiteral("暂存版本在准备期间发生变化，未替换。");
+    if (!result.problem.isEmpty() || !sameFiles(candidate, newFiles, cancelled)) {
+        if (stopped()) {
+            result.cancelled = true;
+            result.problem = QStringLiteral("已取消，原实例未改变。");
+        } else if (result.problem.isEmpty()) {
+            result.problem = QStringLiteral("暂存版本在准备期间发生变化，未替换。");
+        }
         return result;
     }
     if (!writeJournal(r, "prepared", zip)) {
@@ -568,8 +613,10 @@ static Result commitPreparedImpl(const Request &r, const std::function<void(Stag
         result.cancelled = true;
         return failAndRestore(QStringLiteral("已取消发布后的校验。"));
     }
-    if (!checkTree(original).isEmpty() || !sameFiles(original, newFiles))
+    if (!checkTree(original).isEmpty() || !sameFiles(original, newFiles, cancelled)) {
+        if (stopped()) result.cancelled = true;
         return failAndRestore(QStringLiteral("发布后的实例校验失败。"));
+    }
     if (!writeJournal(r, "committed", zip))
         return failAndRestore(QStringLiteral("无法记录升级完成状态。"));
     result.ok = true;
