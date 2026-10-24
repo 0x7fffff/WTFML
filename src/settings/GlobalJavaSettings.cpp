@@ -729,6 +729,13 @@ void GlobalJavaSettings::save() const {
         return;
     }
     // QSettings 析构时会 sync()；这里保持原来的"函数返回即落盘"。
+    settings.sync();
+    if (settings.status() != QSettings::NoError) {
+        // 和 LauncherSettings::save() 同一条：失败时基线不推进，下一次保存会重试。
+        qWarning() << "GlobalJavaSettings: 写入 Java 设置失败，未推进已保存基线："
+                   << settings.fileName();
+        return;
+    }
     m_persisted = now;
 }
 

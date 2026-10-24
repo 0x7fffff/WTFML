@@ -216,6 +216,9 @@ public:
         releaseFileOperationBusy(versionId);
     }
 
+    /// **给验证工程用**：走真实的文件页启用 / 禁用入口（宿主闸也一起走）。
+    bool toggleInstanceFileForTest(const QString &path, QString *problem);
+
     /**
      * @brief **给验证工程摆现场用**：只压 `m_downloadInFlight` 这一位（不碰界面、不记账）。
      *

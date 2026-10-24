@@ -169,6 +169,7 @@ int runRangeChecks() {
         holdOthers = true; version2 = false;
         QProcess child;
         child.setProgram(QCoreApplication::applicationFilePath());
+        child.setWorkingDirectory(fixture.path());
         child.setArguments({QStringLiteral("range-resume-child"), url(QStringLiteral("range")).toString(), target, cache});
         child.start();
         expect(pump([&] { return child.state() == QProcess::NotRunning; }, 20000), "checkpoint child exits before deadline");

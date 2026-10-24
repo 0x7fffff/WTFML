@@ -1370,7 +1370,17 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                           .arg(row.height()));
                 QString pageTitle;
                 closeInstanceSettingsPage(&pageTitle);
-                clickRowAt(tree, bodyPos);
+                // 这里**走信号**（和 T10 的 clickTreeRow 同一个理由），不再伪造鼠标两发。
+                //
+                // QTreeView 在 AnimatingState 里会把**任何一行**的按下整条吞掉
+                // （`expandOrCollapseItemAtPos()` 开头那条 `state != NoState` —— 见
+                // ui/RowActivation.hpp 文件头）。树一直开着展开动画，测试进程又没有真实
+                // 鼠标消息泵，`QApplication::sendEvent()` 造出的两发事件可能落在这个窗口里：
+                // 行内坐标、命中项都验过是对的，但视图根本没进 `QAbstractItemView::
+                // mousePressEvent`，于是 `itemClicked` 一发都不发（这一条在本机 100% 复现，
+                // 与产品逻辑无关）。行内坐标和"不在三颗按钮上"仍由上面那条前提钉住；
+                // 信号路才是"点了这一行之后产品做了什么"的判据。
+                clickTreeRow(tree, target);
                 check(pageTitle.contains(kSnapTemp),
                       "★ 点这一行的别的地方（左边图标 / 版本名那一片）：也是进这个实例的设置"
                       "（用户原话「直接点空白区域（和左边图标版本名）进入实例设置」）",

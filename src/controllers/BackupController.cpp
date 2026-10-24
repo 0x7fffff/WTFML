@@ -246,6 +246,13 @@ void BackupController::backupWorld(const QString &worldDir) {
         return;
     }
     const QString instanceId = m_host.instanceIdOfPath ? m_host.instanceIdOfPath(worldDir) : QString();
+    if (!instanceId.isEmpty() && m_host.isBeingModified
+        && m_host.isBeingModified(instanceId)) {
+        InlineMessage::information(m_overlay, tr("现在做不了"),
+                                   tr("「%1」这会儿正在复制、备份、还原或安装。等它完了再备份这个世界。")
+                                       .arg(displayName(instanceId)));
+        return;
+    }
     if (!instanceId.isEmpty() && m_host.isRunning && m_host.isRunning(instanceId)) {
         InlineMessage::warning(m_overlay, tr("备份世界"),
                                tr("游戏正在运行。先关掉游戏再备份 —— 游戏开着的时候每隔几秒就在往存档里写，"
@@ -361,6 +368,17 @@ void BackupController::snapshotInstance(const QString &versionId) {
             .arg(displayName(versionId)),
         {tr("创建快照"), tr("完整快照（含可重新下载的部分）"), tr("取消")}, 0, -1, false);
     if (picked != 0 && picked != 1) return;
+    // 这一问可能开着很久。开头那两道闸只管"按下去那一刻"；问答期间另一份操作
+    // （备份 / 还原 / 复制 / 安装）完全可能已经开始。动盘之前按同一套判据再问一次，
+    // 不能拿旧结论去读一棵正在被改的树。
+    if (busy()
+        || (m_host.isBeingModified && m_host.isBeingModified(versionId))
+        || (m_host.isRunning && m_host.isRunning(versionId))) {
+        InlineMessage::information(m_overlay, tr("现在做不了"),
+                                   tr("刚才有另一项操作开始了（复制 / 备份 / 还原 / 安装 / 游戏启动）。"
+                                      "等它完成后再做快照。"));
+        return;
+    }
     const bool complete = picked == 1;
     const QString instanceDir = AppPaths::versionDir(versionId);
     if (!QFileInfo(instanceDir).isDir()) {

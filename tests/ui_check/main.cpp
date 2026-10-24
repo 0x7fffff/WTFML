@@ -56,9 +56,12 @@ int main(int argc, char *argv[]) {
     // 析构时都要走一趟 `QAccessible::updateAccessibility`，而这个工程建/销的控件比产品
     // 一整个会话还多。产品跑的是 windows 平台插件、A11y 只有读屏软件连着才开，所以这是
     // **验证环境专属**的一段路。
-    // NOTE: 这一句**不影响任何一条断言**（这个工程量的是布局 / 几何 / 颜色 / 话术，全仓
-    // `QAccessible` 只有这一处），也**不声称**治得了文件头写的那条段错误 ——
-    // 那条是布局敏感的，靠重链接翻身。
+    // 2026-10-24 复核：这**就是**历史 `c0000374` 的隔离层，不是“靠重链接翻身”。把这一句
+    // 改成 `setActive(true)`，同一条 exe 连续 10/10 崩在
+    // `InstanceSettingsDialog::~InstanceSettingsDialog()` 的 `QHash<QString, QString>`
+    // 释放（`QArrayData::deref()`）；保持 `false` 连跑 50/50 全绿。崩溃现场见
+    // `tests/ui_check/modules/Support.hpp` 文件头与 `tools/stress-ui-offscreen.ps1`。
+    // 这一句不影响任何一条断言（这个工程量的是布局 / 几何 / 颜色 / 话术）。
     QAccessible::setActive(false);
 
     // 动效：**先开着把界面搭出来**。理由是有一条判据只有这么量得到 ——

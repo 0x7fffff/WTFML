@@ -284,6 +284,13 @@ void runPresetStoreTests() {
     check(!Presets::indexFromJson(QByteArrayLiteral("这不是 json"), &badIndexOk).contains(idA)
               && !badIndexOk,
           "PA3 下标读不回来 ⇒ 空下标 + ok=false（调用方那一下要知道）");
+    for (const auto &fields : {QByteArray("\"order\":null"), QByteArray("\"order\":{}"),
+                              QByteArray("\"order\":[42]"), QByteArray("\"default\":false")}) {
+        bool typedOk = true;
+        const auto malformed = QByteArray("{\"format\":\"wtfml-presets-index/1\",\"schemaVersion\":1,") + fields + '}';
+        Presets::indexFromJson(malformed, &typedOk);
+        check(!typedOk, "PA3 已存在的排序/默认字段类型错误不能当空值", QString::fromUtf8(fields));
+    }
 
     // ---------- PA4. 落点 + 盘上那一趟 ----------
     const QString originalDir = AppPaths::minecraftDir();
@@ -651,6 +658,30 @@ void runPresetStoreTests() {
           listed.last().name);
 
     // ---------- PA11. 下标本身坏了：读不回来就不许写回去 ----------
+    {
+        const QString inaccessibleRoot = temp.path() + QStringLiteral("/unreadable-index");
+        QDir().mkpath(Presets::indexPath(inaccessibleRoot));
+        bool readable = true;
+        Presets::loadIndex(inaccessibleRoot, &readable);
+        check(!readable, "PA11 存在但不可读的索引不能冒充新用户空索引");
+        const QString oversizedRoot = temp.path() + QStringLiteral("/oversized-index");
+        QDir().mkpath(oversizedRoot);
+        writeFileAt(Presets::indexPath(oversizedRoot), QByteArray(4 * 1024 * 1024 + 1, ' '));
+        readable = true;
+        Presets::loadIndex(oversizedRoot, &readable);
+        check(!readable && !Presets::setDefault(oversizedRoot, created.id) &&
+                  QFileInfo(Presets::indexPath(oversizedRoot)).size() == 4 * 1024 * 1024 + 1,
+              "PA11 超大索引拒绝读取且默认项操作不覆盖原文件");
+        QDir().mkpath(Presets::presetDir(oversizedRoot, created.id));
+        const QString hugeManifest = Presets::manifestPath(oversizedRoot, created.id);
+        writeFileAt(hugeManifest, QByteArray(16 * 1024 * 1024 + 1, ' '));
+        QString reason;
+        readable = true;
+        Presets::loadManifest(oversizedRoot, created.id, &readable, &reason);
+        check(!readable && reason.contains(QStringLiteral("16 MiB")) &&
+                  QFileInfo(hugeManifest).size() == 16 * 1024 * 1024 + 1,
+              "PA11 超大预设清单给出大小限制且不修改原文件", reason);
+    }
     const QByteArray rottenIndex = QByteArrayLiteral("{\"format\":\"别人的/9\"}");
     writeFileAt(Presets::indexPath(root), rottenIndex);
     bool rottenOk = true;

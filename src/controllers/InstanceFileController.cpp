@@ -48,7 +48,42 @@ void InstanceFileController::log(const QString &text) const {
     if (m_host.log) m_host.log(text);
 }
 
+QString InstanceFileController::firstRefusal(const QStringList &paths) const {
+    if (!m_host.refuseReason) return QString();
+    for (const QString &path : paths) {
+        const QString why = m_host.refuseReason(path);
+        if (!why.isEmpty()) return why;
+    }
+    return QString();
+}
+
+QStringList InstanceFileController::beginFileOperation(const QStringList &paths) {
+    QStringList ids;
+    if (!m_host.instanceIdOfPath || !m_host.setFileOperationBusy) return ids;
+    for (const QString &path : paths) {
+        const QString id = m_host.instanceIdOfPath(path);
+        if (id.isEmpty() || ids.contains(id)) continue;
+        ids.append(id);
+        m_host.setFileOperationBusy(id, true);
+    }
+    return ids;
+}
+
+void InstanceFileController::endFileOperation(const QStringList &ids) {
+    if (!m_host.setFileOperationBusy) return;
+    for (const QString &id : ids) m_host.setFileOperationBusy(id, false);
+}
+
 bool InstanceFileController::toggle(const QString &path, QString *problem) {
+    if (const QString why = firstRefusal({path}); !why.isEmpty()) {
+        if (problem) *problem = why;
+        else InlineMessage::warning(m_overlay, tr("改动失败"), why);
+        return false;
+    }
+    return toggleUnchecked(path, problem);
+}
+
+bool InstanceFileController::toggleUnchecked(const QString &path, QString *problem) {
     const auto fail = [this, problem](const QString &text) {
         if (problem) *problem = text;
         else InlineMessage::warning(m_overlay, tr("改动失败"), text);
@@ -85,13 +120,36 @@ bool InstanceFileController::remove(const QString &path) {
                                tr("「%1」现在不在盘上。").arg(QDir::toNativeSeparators(path)));
         return false;
     }
+    if (const QString why = firstRefusal({path}); !why.isEmpty()) {
+        InlineMessage::warning(m_overlay, tr("删除失败"), why);
+        return false;
+    }
     const QString question = removalQuestionFor(info);
     if (!InlineMessage::question(m_overlay, tr("删除文件"), question, tr("删除"), tr("取消"),
                                  false, true)) return false;
-    return removeUnasked(path);
+    // 确认框可能开着很久。开头那道闸只管"按下去那一刻"，期间另一项文件操作或游戏
+    // 完全可能已经开始；动盘之前按同一套判据再问一次。
+    if (const QString why = firstRefusal({path}); !why.isEmpty()) {
+        InlineMessage::warning(m_overlay, tr("删除失败"), why);
+        return false;
+    }
+    // 目录删除可能递归很久，期间不能再让备份 / 快照开始读同一棵树。
+    const QStringList ids = beginFileOperation({path});
+    const bool ok = removeUnchecked(path, nullptr);
+    endFileOperation(ids);
+    return ok;
 }
 
 bool InstanceFileController::removeUnasked(const QString &path, QString *problem) {
+    if (const QString why = firstRefusal({path}); !why.isEmpty()) {
+        if (problem) *problem = why;
+        else InlineMessage::warning(m_overlay, tr("删除失败"), why);
+        return false;
+    }
+    return removeUnchecked(path, problem);
+}
+
+bool InstanceFileController::removeUnchecked(const QString &path, QString *problem) {
     const auto fail = [this, problem](const QString &text) {
         if (problem) *problem = text;
         else InlineMessage::warning(m_overlay, tr("删除失败"), text);
@@ -115,18 +173,24 @@ bool InstanceFileController::removeUnasked(const QString &path, QString *problem
 
 void InstanceFileController::toggleMany(const QStringList &paths, bool disable) {
     if (paths.isEmpty()) return;
+    if (const QString why = firstRefusal(paths); !why.isEmpty()) {
+        InlineMessage::warning(m_overlay, tr("改动失败"), why);
+        return;
+    }
     const QString suffix = InstanceFilesPage::disabledSuffix();
+    const QStringList ids = beginFileOperation(paths);
     int changed = 0, failed = 0;
     QStringList problems;
     for (const QString &path : paths) {
         if (path.endsWith(suffix, Qt::CaseInsensitive) == disable) continue;
         QString problem;
-        if (toggle(path, &problem)) ++changed;
+        if (toggleUnchecked(path, &problem)) ++changed;
         else {
             ++failed;
             if (!problem.isEmpty() && !problems.contains(problem)) problems.append(problem);
         }
     }
+    endFileOperation(ids);
     log(tr("%1：动了 %2 个文件。").arg(disable ? tr("批量禁用") : tr("批量启用")).arg(changed));
     if (failed > 0)
         InlineMessage::warning(m_overlay, tr("改动失败"),
@@ -136,6 +200,10 @@ void InstanceFileController::toggleMany(const QStringList &paths, bool disable) 
 
 void InstanceFileController::removeMany(const QStringList &paths) {
     if (paths.isEmpty()) return;
+    if (const QString why = firstRefusal(paths); !why.isEmpty()) {
+        InlineMessage::warning(m_overlay, tr("删除失败"), why);
+        return;
+    }
     // 这一批里**可能有文件夹**。资源包 / 数据包 / 光影包那三页连目录一起列
     // （未压缩的目录包正是游戏认可的一种形态），而 `removeUnasked()` 对目录是**连里面的
     // 东西一起递归移**（`moveToRecycleBin`）。这一问若无论收到什么都
@@ -177,16 +245,23 @@ void InstanceFileController::removeMany(const QStringList &paths) {
                                }())));
     if (InlineMessage::ask(m_overlay, MessageKind::Question, tr("删除文件"), question,
                            {tr("删除"), tr("取消")}, 1, 0) != 0) return;
+    // 和单条删除同一条理由：确认框期间可能已经有别的操作开始，动盘前再问一次。
+    if (const QString why = firstRefusal(paths); !why.isEmpty()) {
+        InlineMessage::warning(m_overlay, tr("删除失败"), why);
+        return;
+    }
     int removed = 0, failed = 0;
     QStringList problems;
+    const QStringList ids = beginFileOperation(paths);
     for (const QString &path : paths) {
         QString problem;
-        if (removeUnasked(path, &problem)) ++removed;
+        if (removeUnchecked(path, &problem)) ++removed;
         else {
             ++failed;
             if (!problem.isEmpty() && !problems.contains(problem)) problems.append(problem);
         }
     }
+    endFileOperation(ids);
     // 「项」而不是「个文件」：这一批里可能混着文件夹（见上面那一问）。
     log(tr("批量删除：删掉了 %1 项。").arg(removed));
     if (failed > 0)

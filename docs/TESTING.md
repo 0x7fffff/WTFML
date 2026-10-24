@@ -90,6 +90,32 @@ CI 的 `-Modules 'upgrade,ui,app'` 是测试名与所属分区的交集，不会
 CTest 注册同时生成 test-targets.txt；运行器先选测试，再按归属构建独立目标。
 脚本测试无需构建 C++；未知/共用改动仍扩大范围，不承诺未经远端测量的加速比例。
 
+## 人工验收探针（不进 CTest）
+
+这两个脚本需要真机环境，故意不登记到 CTest；常规回归仍以临时目录夹具为主。
+
+```powershell
+# 真实产品双进程：第二个窗口必须被拒绝（需要交互式 Windows 桌面）
+python tools/acceptance_directory_boundary.py `
+  --exe build/verify/WTFMinecraftLauncher.exe `
+  --qt-bin D:/Qt/6.10.1/mingw_64/bin
+
+# 大实例复制 / 文件占用 / 升级取消 / 异常退出恢复
+# 把 --work-dir 指到慢盘，并用真实杀毒软件实时扫描，才是完整慢盘验收。
+python tools/acceptance_large_instance.py `
+  --verify-exe build/verify/tests/verify_instances.exe `
+  --qt-bin D:/Qt/6.10.1/mingw_64/bin `
+  --work-dir E:/wtfml-acceptance --payload-mb 1024 --files 6000
+```
+
+`verify_instances` 的 `--large-copy` / `--large-upgrade-cancel` / `--upgrade-recover`
+是上面第二个脚本使用的探针入口；直接运行 `verify_instances` 不带参数仍然只跑常规回归。
+
+本机 2026-10-24 实跑（1 GiB 单文件 + 6000 个小文件，普通 NTFS，不是慢盘）：大复制 3.61 秒；
+文件独占（模拟杀毒/占用）失败 3.92 秒且不发布半成品；升级取消请求后 0.23 秒停下，原实例和
+用户文件完整；kill 后恢复 0.03 秒。全部断言通过。真实慢盘和杀毒实时扫描仍应在发布机复跑。
+真实双进程脚本同一天实跑 10/10 通过（第二个进程停在拒绝对话框、以 1 退出，日志未被截断）。
+
 ## 测试代码的模块边界
 
 - tests/core_modules/：81 个原命名用例函数，各一个 .cpp；按下载、安装、实例、Java、账号、资源、
@@ -213,5 +239,122 @@ GitHub 的 main 提交和 PR 按改动选择分片与测试；标签、定时和
 界面表现只是"没有皮肤"，测试却全绿。夹具改为 `…/session/minecraft/profile` 后请求落回被
 演到的那条路由。以后新增的网络入口若没被演到，这条断言会直接变红。
 
-尚未完成：逐测试路径隔离、隔离后的安全并行、多 DPI 截图基线和内存诊断工具链。
-当前没有宣称已修复历史堆损坏。
+尚未完成：所有模块路径审核、隔离后的安全并行、多 DPI 截图基线和内存诊断工具链。
+ui_check 那条历史堆损坏已收口（证据与复验见下面「历史崩溃复核」），不再算未完成项。
+
+### 世界导入空间预检与预设读取边界
+
+世界导入 ZJ7：通过只降低实际可用空间的预算参数，验证零空间、隐藏文件计入容量、
+32 MiB 余量及空间恢复后成功导入；拒绝发生在暂存目录创建前，源存档不变。
+`build/test-runs/20261024-231046-e2a4e5ac` 实例模块 1479/1479。
+这不是实际填满磁盘或写入过程中其它程序耗尽磁盘的验收；空间检查不能预留磁盘。
+
+预设索引现区分缺失与打开失败/读取失败，不再把已有不可读索引当新用户空索引。
+索引上限 4 MiB、清单上限 16 MiB，读写两侧一致；超限保留原文件。
+PA11 覆盖目录占用索引路径、超大索引和超大清单，不声称覆盖所有 ACL 场景。
+PA3 补充排序/default 字段 null、对象、非字符串数组项及布尔值拒绝判据，防止错误类型被
+当作空索引写回；缺字段仍兼容旧索引。
+最终组合验证：`build/test-runs/20261024-231403-01d8b009`，实例 1479/1479、预设 678/678，
+执行合计 22.29 秒。未进行真实磁盘写满、ACL 拒绝或大规模预设实机部署验收。
+
+### 主窗口测试默认根隔离
+
+`mw_check/main.cpp` 与共用的 `modules/ModuleMain.cpp` 在测试控制器初始化前建立每进程
+`QTemporaryDir`，注入 `wtfml.testDefaultMinecraftDir` 应用属性并重定向默认 INI 设置。
+这同时隔离默认游戏根及使用默认根的任务/历史账本；当前游戏根恢复为空时也只返回该沙盒。
+正式程序入口不设置该属性，便携式目录规则不变。模块入口检查默认根及默认设置文件均在
+独立目录内。各模块自行覆盖的固定路径、截图和子进程模式仍需审核，不能据此直接开启并行。
+
+高速下载截图已移入该测试夹具目录，只作本轮渲染验证，不再覆盖 exe 旁的固定截图。
+断点续传子进程同样先建立独立设置和默认数据根；其工作目录由父进程指定为本轮夹具，
+故意 `_Exit` 留下的子沙盒由父夹具回收。下载目标和续传缓存仍显式传递，未改变恢复协议。
+验证记录：`build/test-runs/20261024-213703-14906487`，下载重试、高速下载、分段续传、
+安装分段接管四个模块全部通过，执行合计 63.76 秒；含子进程硬退出后的续传恢复。
+
+工作区另起真实 `sandbox-probe` 子进程：父设置写哨兵，子进程确认读不到、写入自己的哨兵，
+父进程再确认原值保留且读不到子值；同时核对默认数据与设置路径属于子目录，以及正常退出后
+目录确已回收。探针不创建主窗口或联网，启动/结束等待分别限 5/15 秒，超时只结束该子进程。
+验证：`build/test-runs/20261024-214635-43b35350`，工作区 36/36、任务选择 36/36。
+
+2026-10-24 验证：工作区 32/32、任务选择 36/36
+（`build/test-runs/20261024-190936-7867d634`）；主窗口 2670/2670，执行 93.22 秒
+（`build/test-runs/20261024-191430-9e580103`）。均为串行运行，不是并发安全验收。
+
+### 整合包最后提交标记占用（2026-10-24）
+
+`ModpackCompletionTests.cpp` 的 ZG9 在 Windows 上使用允许读写共享、但不允许删除共享的
+原生文件句柄占住 `wtfml.importing`，实际调用生产收尾流程。断言最后删除失败时返回失败、
+报告退回未完成、启动门禁仍生效、安装文件和收尾凭据保留；关闭句柄后，同一凭据在没有
+原压缩包的情况下重试成功。这不是磁盘写满、断电或强制结束进程的模拟，后三者仍待验收。
+
+ZG9 另外在取消回调中观察完成报告，等完成报告实际落盘后才请求取消，验证发布门禁前
+仍检查取消、将报告退回未完成并保留标记；随后正常重试必须成功。生产流程增加写报告后
+的取消/标记绑定重检，避免慢盘写报告期间收到的取消被最后一步忽略。
+
+此前真机补齐流程已从实际启动器以离线 UIInstallTest 身份进入 Minecraft 1.21.11 / Fabric
+主菜单并正常退出（退出码 0），未打开存档。截图位于本地忽略目录
+`build/gtnh-install-probe/ui-completion/main-menu-after-completion.jpg`；该夹具不代表完整大型包验收。
+
+### 历史崩溃复核（2026-10-24）
+
+- **core / verify 的 WER 转储**：根因是 ZJ3 夹具用 `std::thread` 调 QtCore；已换 `QThread`，
+  当前 core 测试不再产生该转储。
+- **ui_check offscreen `c0000374`**：同一条 exe 把 `QAccessible::setActive(false)` 改成 `true`，
+  连续 **10/10** 崩在 `InstanceSettingsDialog::~InstanceSettingsDialog()` 的
+  `QHash<QString, QString>` 释放（`QArrayData::deref`）；保持 `false` 连续 **50/50** 通过
+  （3119/3119）。offscreen 插件下 A11y 恒开，而产品 windows 插件只有读屏软件连着才开，
+  所以这是验证环境隔离，不是产品读屏/A11y 验收。
+- **PageHeap 下那条 `m_fileDirs` use-after-free：已定位并修掉**（2026-10-24）。
+  用 `gflags /p /enable ui_check.exe /full` 跑完整 `ui_check`，会在
+  `InstanceSettingsDialog::~InstanceSettingsDialog()` 释放 `m_fileDirs` 时崩在
+  `QArrayData::deref()` 那句写上面 —— 那块 `QArrayData` 的页已经释放了。cdb 下抓到的
+  现场是：崩的那一块正是**「游戏目录」那条路径**（`root + "/game"`，54 个字符），
+  可它的释放点比崩点早一整节。
+
+  根因在 `UiContentPagesChecks.cpp` 的 U10b 那一段（量「那一排快捷方式开哪个目录」）：
+
+  ```cpp
+  QObject::connect(&dialog, &Dlg::openInstanceFolderRequested, &dialog,
+                   [&lastPath, &opens](const QString &path) { lastPath = path; ++opens; });
+  ```
+
+  上下文是 `&dialog`（活到整个 U10 块结束），`lastPath` / `opens` 却是**那一节栈上**的
+  变量 —— 这一节一结束它们就没了，连接还留着。而产品把每一页的 `openFolderRequested`
+  **信号接信号**转成 `InstanceSettingsDialog::openInstanceFolderRequested`
+  （`createFilePage()` 那一段），于是 U10e 点一下模组页的「打开文件夹」，
+  那一发就回到这个悬空 lambda：`lastPath = path` 的 `QString::operator=` 先释放旧值，
+  而旧值那份 `QArrayData` 正是「游戏目录」那条路径 —— 提前放掉，几分钟后在析构里再碰它。
+  正常入口下这一下只是悄悄把一块数据提前释放（**这就是那条“偶发 `c0000374`”的另一半**），
+  只有 PageHeap 会把它变成当场 AV。
+
+  修法：连接上下文改成**和被捕获变量同一个作用域**的栈上 `QObject`（`QObject scopeGuard;`
+  + `connect(..., &scopeGuard, ...)`），块一结束连接就断。**规则**：`ui_check` 里凡是
+  `[&]` 捕获栈变量的连接 / 定时器，上下文不许用活得比它久的对象（`&dialog`、`&window`、
+  `overlay`、`page`）；定时器那一侧同理（见 `Support.hpp` 的 `dismissNextInline()`）。
+
+- **顺手修掉一条夹具串扰**：`dismissNextInline()` 的 300 ms 兜底在 0 ms 那一发已经答完
+  之后并不会自己撤销，于是**下一条**提示（300 ms 内开出来的）会被它当成自己的“用户答了”，
+  按的还是它自己那一号按钮（默认第 0 颗 =「是」）。PageHeap 下能稳定看到
+  `UiGroupEditorChecks` 的「恢复默认分组设置… ⇒ 点『否』」真的把清单换成了默认五组。
+  现在按“票号”走：只有最近一次调用排下的两发有效，而且**兑现一次就作废**。
+
+- **mw_check T17**：合成鼠标两发点实例行空白区时，`QTreeView` 在 `AnimatingState` 会把
+  按下整条吞掉（`expandOrCollapseItemAtPos()` 开头那条 `state != NoState`，见
+  `ui/RowActivation.hpp` 文件头），`itemClicked` 一发都不发 —— 与产品逻辑无关。改成和
+  T10 同一条信号路（`clickTreeRow`），行内坐标与「不在三颗按钮上」仍由前提断言钉住。
+
+- **复验**：PageHeap 下完整 `ui_check` 连跑 6 趟全部跑完，只剩 Z8 那条
+  「两万行点一下 ≤ 250 ms」会红（252~300 ms —— PageHeap 的分配开销，正常入口 59~74 ms）；
+  关掉 PageHeap 后正常入口 **50/50** 通过（`tools/stress-ui-offscreen.ps1 -Runs 50
+  -StopOnFailure`），`wtfml.main-window`（全量 mw_check **2684/2684**）与
+  `wtfml.instance-upgrade` 通过，`ui_check` 每趟 **3119/3119**。诊断结束已执行
+  `gflags /p /disable ui_check.exe` —— PageHeap **不许**留在机器上
+  （它会把正常入口的 Z8 变成假红，也拖慢一切）。
+- 压力入口（不进 CTest）：
+
+```powershell
+./tools/stress-ui-offscreen.ps1 -Runs 50
+```
+
+它会逐趟保存日志，首失败保留在 `build/ui-stress/<时间>/` 并返回非零。
+真实读屏/A11y 仍未验收。

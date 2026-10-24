@@ -71,8 +71,11 @@ QString nameProblem(const QString &rawName);
  * 删不掉时返回的失败理由里会**附一句**"那一份也没能删掉"，不让用户以后自己撞上
  * 一个来路不明的目录还不知道是谁留的。
  */
+// 复制前扫描文件大小、检查目标卷并保留 32 MiB 余量；空间预检不保证复制期间空间不变。
+// spaceBudgetBytes 为可选上限（-1 不限），只会降低实际可用空间，供受控调用与测试使用。
 bool copyWorldInto(const QString &worldDir, const QString &savesDir, const QString &name,
-                   QString *problemOut = nullptr, const std::function<bool()> &cancelled = {});
+                   QString *problemOut = nullptr, const std::function<bool()> &cancelled = {},
+                   qint64 spaceBudgetBytes = -1);
 
 /**
  * @brief 把 `<某目录>/<老名字>` 改成同目录下的 `<新名字>`。

@@ -375,7 +375,31 @@ void runThemeControlsTests() {
                   "★★ T39.9 改回「跟随预设」⇒ 那个键真的从盘上删掉了（不是留着一个旧值）");
         }
 
+        {
+            auto local = Theme::load();
+            local.danger = QColor(QStringLiteral("#112233"));
+            Theme::save(local);
+            local = Theme::load();
+            QSettings other;
+            other.setValue(QStringLiteral("Theme/Accents/Danger"), QStringLiteral("#ff445566"));
+            other.sync();
+            local.danger = QColor();
+            Theme::save(local);
+            check(readKey(QStringLiteral("Theme/Accents/Danger")).toString() == QStringLiteral("#ff445566"),
+                  "T39.9 清除本地覆盖不删除外部刚修改的同键");
+        }
+
         // 收尾：这一块自己写过的东西一个都不留（`restore()` 已经跑过一遍，这里补第二遍）。
+        {
+            QSettings future;
+            future.setValue(QStringLiteral("Theme/Future/Option"), QStringLiteral("keep"));
+            future.sync();
+            auto known = Theme::load();
+            known.textOpacity = 73;
+            Theme::save(known);
+            check(readKey(QStringLiteral("Theme/Future/Option")).toString() == QStringLiteral("keep"),
+                  "T39.9 保存已知主题项不删除未来版本未知键");
+        }
         sandbox.remove(QStringLiteral("Theme"));
         sandbox.sync();
         Theme::setSpec(themeBefore);

@@ -239,6 +239,10 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/operations/TransferPlanner.hpp
     ${REPO_ROOT}/src/operations/TransferApply.cpp
     ${REPO_ROOT}/src/operations/TransferApply.hpp
+    # 原地升级事务：`verify_instances` 里那几条人工大实例探针直接调用
+    # prepareAndCommit / recoverInterrupted；普通测试仍然只跑临时目录夹具。
+    ${REPO_ROOT}/src/operations/InstanceUpgrade.cpp
+    ${REPO_ROOT}/src/operations/InstanceUpgrade.hpp
     ${REPO_ROOT}/src/settings/EffectiveJavaSettings.cpp
     ${REPO_ROOT}/src/settings/EffectiveJavaSettings.hpp
     ${REPO_ROOT}/src/settings/GlobalJavaSettings.cpp

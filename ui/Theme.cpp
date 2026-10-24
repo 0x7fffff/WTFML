@@ -2321,6 +2321,10 @@ void save(const Spec &spec) {
         // 上一次设过、这一次没设的项：真要删掉（否则"改回默认"重开一次又复活）。
         // 但只在盘上还是我们当初看到的那一份时才删 —— 别的进程刚改成另一个值就别插手。
         for (auto it = persisted.values.constBegin(); it != persisted.values.constEnd(); ++it) {
+            // 未识别的未来版本键不是本窗口编辑过的项，不能顺手清理。
+            if (!persisted.semantic.contains(it.key())) {
+                continue;
+            }
             if (desired.contains(it.key()) || !settings.contains(it.key())) {
                 continue;
             }
@@ -2329,18 +2333,22 @@ void save(const Spec &spec) {
             }
         }
     }
+    settings.sync();
+    if (settings.status() != QSettings::NoError) {
+        // 写盘失败不推进基线，下一次保存仍会重试本次改动。
+        return;
+    }
     // 记住本窗口已经提交过的意图；未改项的磁盘值可能属于另一个窗口，不能读回来当成本窗口意图。
     persisted.scope = scope;
     persisted.values = desired;
     persisted.semantic = desired;
-    settings.sync();
 }
 
 Spec load() {
     QSettings settings;
     // 记账：盘上**现在**是什么（只收 `Theme/` 这一组）。`save()` 靠它分辨"这一项我改过没有"，
-    // 从而只写改过的那几项（见那份结构上面的注释）。读不懂的项也照收 —— 它们同样属于
-    // "启动时就在盘上"的那一批，该删的时候才删得掉。
+    // 从而只写改过的那几项（见那份结构上面的注释）。原始值保留用于删除前的冲突比较；
+    // 未识别的键不进入语义基线，保存时不会删除。
     {
         PersistedThemeValues &persisted = persistedThemeValues();
         persisted.scope = settingsScope(settings);

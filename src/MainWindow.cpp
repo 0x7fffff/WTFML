@@ -1558,7 +1558,30 @@ MainWindow::MainWindow(QWidget *parent)
         this);
     m_instanceFileController = new InstanceFileController(
         m_ui->overlay(), InstanceFileController::Host{
-            [this](const QString &text) { appendLog(text); }}, this);
+            [this](const QString &text) { appendLog(text); },
+            [this](const QString &path) -> QString {
+                const QString id = instanceIdOfPath(path);
+                if (id.isEmpty()) return QString();
+                if (m_launcherManager != nullptr && m_launcherManager->isVersionRunning(id)) {
+                    return tr("「%1」正在运行。先关掉游戏，再动这里的文件。")
+                        .arg(instanceDisplayName(id));
+                }
+                if (installingVersionIds().contains(id)) {
+                    return tr("「%1」正在被另一项文件操作占用（复制 / 备份 / 还原 / 安装），"
+                              "等它完成后再动这里的文件。")
+                        .arg(instanceDisplayName(id));
+                }
+                return QString();
+            },
+            [this](const QString &path) { return instanceIdOfPath(path); },
+            [this](const QString &id, bool busy) {
+                if (busy) {
+                    markFileOperationBusy(id);
+                } else {
+                    releaseFileOperationBusy(id);
+                }
+            }},
+        this);
     m_instanceTransferController = new InstanceTransferController(
         m_versionManager, m_launcherManager, m_ui->overlay(),
         InstanceTransferController::Host{
@@ -7082,7 +7105,10 @@ void MainWindow::onServerExited(const QString &serverId, int exitCode) {
     // ---------- 这一次是怎么退的（重启策略）----------
     const bool userStopped = m_serverStopRequested.remove(serverId) > 0;
     const bool forceKilled = process != nullptr && process->wasForceKilled();
-    const ServerRestart::Why why = ServerRestart::whyFor(userStopped, forceKilled, exitCode);
+    const bool zeroStartupFailure = exitCode == 0 && process != nullptr
+        && process->status() == ServerModel::Status::Crashed;
+    const ServerRestart::Why why = zeroStartupFailure && !userStopped && !forceKilled
+        ? ServerRestart::Why::Crash : ServerRestart::whyFor(userStopped, forceKilled, exitCode);
     // 跑够久（`kResetAfterSeconds()`）再崩算新的一轮：一台"每周崩一次"的服务端不该在
     // 第三次之后永远不再自动起来。
     const QDateTime startedAt = m_serverStartedAt.take(serverId);
@@ -7097,7 +7123,7 @@ void MainWindow::onServerExited(const QString &serverId, int exitCode) {
     }
     updateServerRow(serverId);
     updateServerConsole();
-    if (exitCode == 0) {
+    if (exitCode == 0 && !zeroStartupFailure) {
         appendLog(tr("%1 已经退出。").arg(shown));
         return;
     }
@@ -7106,7 +7132,9 @@ void MainWindow::onServerExited(const QString &serverId, int exitCode) {
         appendLog(tr("%1 已经被强制结束。").arg(shown));
         return;
     }
-    appendLog(tr("%1 异常退出（退出码 %2）。").arg(shown).arg(exitCode));
+    const QString exitReason = zeroStartupFailure ? tr("未完成启动（进程退出码 0）")
+        : tr("异常退出（退出码 %1）").arg(exitCode);
+    appendLog(tr("%1：%2。").arg(shown, exitReason));
     // ---------- 崩了之后要不要自动拉起（重启策略 + 上限）----------
     //
     // 判据全在 `ServerRestart::decide()`（verify ZAF 一节钉死）。这一层只做两件事：
@@ -7141,10 +7169,9 @@ void MainWindow::onServerExited(const QString &serverId, int exitCode) {
     // 弹窗 —— 用户点了启动之后常常就去干别的了，不弹一下他看不见。
     InlineMessage::warning(
         m_ui->overlay(), tr("这个服务端退出了"),
-        tr("「%1」异常退出（退出码 %2）。\n\n控制台里最后那几行写着它退出之前在说什么 ——"
+        tr("「%1」%2。\n\n控制台里最后那几行写着它退出之前在说什么 ——"
            "右键这一行点「打开控制台」就能看见。")
-            .arg(shown)
-            .arg(exitCode));
+            .arg(shown, exitReason));
 }
 
 int MainWindow::countServerMods(const QString &dirPath) {
@@ -11491,6 +11518,10 @@ void MainWindow::pingServers(InstanceSettingsDialog *dialog, const QString &vers
 
 bool MainWindow::toggleInstanceFile(const QString &path, QString *problem) {
     return m_instanceFileController->toggle(path, problem);
+}
+
+bool MainWindow::toggleInstanceFileForTest(const QString &path, QString *problem) {
+    return toggleInstanceFile(path, problem);
 }
 
 bool MainWindow::overlayAcceptsNewPage() const {

@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "controllers/InstanceFileController.hpp"
 void runInstanceFilesPagesTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -118,6 +119,35 @@ void runInstanceFilesPagesTests() {
 
     check(QFile::exists(irisJar) && QFile::exists(sodiumOff) && QDir(subDir).exists(),
           "T20.0 夹具摆好了（含一份**只有 .disabled** 的模组和一个 mods/ 底下的目录）");
+
+    header("T20.10 文件页：宿主说正在运行 / 被占用时，一个字节都不动");
+    {
+        QTemporaryDir guard;
+        const QString guarded = guard.filePath(QStringLiteral("guarded.jar"));
+        writeFileAt(guarded, QByteArrayLiteral("KEEP"));
+        const QStringList allPaths{guarded};
+        bool refused = false;
+        InstanceFileController controller(
+            nullptr, InstanceFileController::Host{
+                [](const QString &) {},
+                [&refused, &allPaths](const QString &path) -> QString {
+                    if (!allPaths.contains(path)) return QString();
+                    refused = true;
+                    return QStringLiteral("这个实例正在运行，先关掉游戏再动文件。");
+                }});
+        QString problem;
+        check(!controller.toggle(guarded, &problem) && refused
+                  && problem.contains(QStringLiteral("正在运行")),
+              "★★ T20.10 正在运行的实例拒绝启用 / 禁用文件，并说清原因", problem);
+        check(QFileInfo::exists(guarded) && !QFileInfo::exists(guarded + QStringLiteral(".disabled")),
+              "★★ T20.10 拒绝之后文件名一个字节都没改");
+        refused = false;
+        problem.clear();
+        check(!controller.removeUnasked(guarded, &problem) && refused
+                  && problem.contains(QStringLiteral("正在运行")),
+              "★★ T20.10 正在运行的实例拒绝删除文件，并说清原因", problem);
+        check(QFileInfo::exists(guarded), "★★★ T20.10 拒绝之后文件仍在原处");
+    }
 
     TokenStore::clear(TokenStore::microsoftKey());
     TokenStore::clear(TokenStore::minecraftKey());
@@ -2779,6 +2809,27 @@ void runInstanceFilesPagesTests() {
                   QStringLiteral("行 %1 / 页 %2")
                       .arg(categories != nullptr ? categories->currentRow() : -1)
                       .arg(stack != nullptr ? stack->currentIndex() : -1));
+        }
+
+        // ---------- 文件页：实例被标记「文件操作中」时，真实 MainWindow 接线也要拒绝 ----------
+        {
+            const QString guarded = AppPaths::versionDir(idV) + QStringLiteral("/mods/gate.jar");
+            writeFileAt(guarded, QByteArrayLiteral("KEEP"));
+            w.markFileOperationBusyForTest(idV);
+            QString why;
+            check(!w.toggleInstanceFileForTest(guarded, &why)
+                      && why.contains(QStringLiteral("占用")),
+                  "★★ T20.10b 实例在「忙」名单上时，真实主窗口拒绝启用 / 禁用文件", why);
+            check(QFileInfo::exists(guarded)
+                      && !QFileInfo::exists(guarded + QStringLiteral(".disabled")),
+                  "★★★ T20.10b 拒绝之后文件一个字节都没动");
+            w.releaseFileOperationBusyForTest(idV);
+            why.clear();
+            check(w.toggleInstanceFileForTest(guarded, &why) && why.isEmpty(),
+                  "★ T20.10b 摘下忙碌标记后同一文件可以正常改动", why);
+            check(QFileInfo::exists(guarded + QStringLiteral(".disabled")),
+                  "★ T20.10b 正常路径确实改成了 .disabled");
+            QFile::remove(guarded + QStringLiteral(".disabled"));
         }
     }
 

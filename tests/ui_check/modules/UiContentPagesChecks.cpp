@@ -210,7 +210,24 @@ int UiContentPagesChecks(QFrame * &bar) {
 
             QString lastPath;
             int opens = 0;
-            QObject::connect(&dialog, &Dlg::openInstanceFolderRequested, &dialog,
+            // NOTE: 这条连接的**上下文必须是这一块里的东西**（一个栈上的 `QObject`），
+            // 不能是 `&dialog`。`lastPath` / `opens` 是这一块里的栈变量，块一结束它们就
+            // 没了，而 `&dialog` 活到整个 U10 块结束 —— 连接留着的话，后面任何一次
+            // `openInstanceFolderRequested` 都会回来写 `lastPath`。而那一发信号在
+            // `InstanceSettingsDialog` 里是**信号接信号**转出去的（每一页的
+            // `openFolderRequested` → `&InstanceSettingsDialog::openInstanceFolderRequested`，
+            // 见 `createFilePage()` 那一段），所以 U10e 点一下模组那一页的「打开文件夹」就
+            // 会把它带回这里 —— 往一块已经析构的栈槽里做 `QString::operator=`，旧值那份
+            // `QString` 的 `QArrayData` 早就被释放了。
+            //
+            // 症状很偏：PageHeap 下崩溃落在 `QArrayData::deref()` 写一页已释放的内存的
+            // 写指令上，可那一块数据是「游戏目录」那条路径，于是崩点被报成
+            // `InstanceSettingsDialog::~InstanceSettingsDialog()` 释放 `m_fileDirs` 那条
+            // （和真正的写入点隔着一整节）。正常入口下它只是悄悄把那一块提前放掉，什么
+            // 都不报 —— 这就是当年那条“偶发 `c0000374`”的另一半（见 docs/TESTING.md
+            // 「历史崩溃复核」）。
+            QObject scopeGuard;
+            QObject::connect(&dialog, &Dlg::openInstanceFolderRequested, &scopeGuard,
                              [&lastPath, &opens](const QString &path) {
                                  lastPath = path;
                                  ++opens;

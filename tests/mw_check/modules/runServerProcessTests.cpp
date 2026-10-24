@@ -6,6 +6,26 @@ void runServerProcessTests() {
 
     QTemporaryDir dir;
     check(dir.isValid(), "T41.0 一个临时工作目录建出来了");
+    {
+        ServerRun::ServerProcess process;
+        int exits = 0, code = -1;
+        QObject::connect(&process, &ServerRun::ServerProcess::exited, &process,
+                         [&](const QString &, int exitCode) { ++exits; code = exitCode; });
+        process.start(QStringLiteral("startup-zero"), dir.path(), exe,
+                      {QStringLiteral("--fake-server"), QStringLiteral("startup-zero")}, 4000);
+        check(pumpUntil([&] { return exits > 0; }, 10000) && exits == 1 && code == 0,
+              "T41.0b 启动失败但返回零的真实子进程只发一次终态");
+        check(process.status() == ServerModel::Status::Crashed && !process.isRunning(),
+              "T41.0b 未就绪也未主动停止时，退出零仍属于启动失败");
+        process.start(QStringLiteral("startup-wait"), dir.path(), exe,
+                      {QStringLiteral("--fake-server"), QStringLiteral("startup-wait")}, 4000);
+        check(pumpUntil([&] { return !process.logLines().isEmpty(); }, 10000) &&
+                  process.status() == ServerModel::Status::Starting && process.requestStop(),
+              "T41.0c 用户可在尚未就绪时请求停止");
+        check(pumpUntil([&] { return exits == 2; }, 10000) && code == 0 &&
+                  process.status() == ServerModel::Status::Stopped,
+              "T41.0c 启动中主动停止并干净退出，不误报启动失败");
+    }
 
     // ---- T41.1 起 → 读到 `Done (` → 运行中 ----
     {

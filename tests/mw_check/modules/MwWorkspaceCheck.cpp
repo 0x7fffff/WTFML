@@ -11,6 +11,42 @@ int MwWorkspaceCheck(QApplication &app) {
         app.setApplicationName(QStringLiteral("workspace-check"));
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, fixture.path());
+        {
+            QSettings parent(QStringLiteral("WTFML-check"), QStringLiteral("mw-module"));
+            parent.setValue(QStringLiteral("Sandbox/ParentSentinel"), QStringLiteral("keep-parent"));
+            parent.sync();
+            QProcess child;
+            child.setProgram(QCoreApplication::applicationFilePath());
+            child.setArguments({QStringLiteral("sandbox-probe")});
+            child.start();
+            const bool started = child.waitForStarted(5000);
+            const bool finished = started && child.waitForFinished(15000);
+            if (child.state() != QProcess::NotRunning) {
+                child.kill();
+                child.waitForFinished(3000);
+            }
+            check(finished && child.exitStatus() == QProcess::NormalExit && child.exitCode() == 0,
+                  "独立沙盒探针子进程在期限内正常退出");
+            QJsonObject report;
+            for (const auto &line : child.readAllStandardOutput().split('\n')) {
+                if (line.startsWith("SANDBOX_PROBE:"))
+                    report = QJsonDocument::fromJson(line.mid(14)).object();
+            }
+            const QString childRoot = report.value(QStringLiteral("root")).toString();
+            check(!childRoot.isEmpty() && childRoot != QFileInfo(AppPaths::defaultMinecraftDir()).absolutePath() &&
+                      !report.value(QStringLiteral("inheritedParent")).toBool(true) &&
+                      report.value(QStringLiteral("saved")).toBool(),
+                  "真实子进程使用另一份默认根且读不到父进程设置");
+            check(!childRoot.isEmpty() &&
+                      report.value(QStringLiteral("settingsFile")).toString().startsWith(childRoot + QLatin1Char('/')) &&
+                      report.value(QStringLiteral("dataRoot")).toString().startsWith(childRoot + QLatin1Char('/')) &&
+                      !QFileInfo::exists(childRoot),
+                  "子进程设置和账本归本进程目录所有且退出后回收");
+            parent.sync();
+            check(parent.value(QStringLiteral("Sandbox/ParentSentinel")).toString() == QStringLiteral("keep-parent") &&
+                      !parent.contains(QStringLiteral("Sandbox/ChildSentinel")),
+                  "子进程写入不污染父设置且不删除父设置");
+        }
         const QString gameRoot = fixture.filePath(QStringLiteral("minecraft"));
         const QString version = QStringLiteral("workspace-test");
         QDir().mkpath(gameRoot + QStringLiteral("/versions"));

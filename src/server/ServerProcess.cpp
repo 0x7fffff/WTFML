@@ -72,7 +72,11 @@ void ServerProcess::start(const QString &serverId, const QString &dir, const QSt
                     drainOutput();
                     m_gracefulTimer->stop();
                     m_forceKillAllowed = false;
-                    setStatus(statusAfterExit(exitCode, m_killed));
+                    // 原版端口绑定失败也可能返回 0；从未就绪且不是用户停止，不能伪装正常结束。
+                    const bool startupFailed = !m_started && !m_killed
+                        && m_status != ServerModel::Status::Stopping;
+                    setStatus(startupFailed ? ServerModel::Status::Crashed
+                                           : statusAfterExit(exitCode, m_killed));
                     emit exited(m_serverId, exitCode);
                 });
         connect(m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError code) {
