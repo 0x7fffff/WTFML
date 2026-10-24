@@ -100,21 +100,35 @@ python tools/acceptance_directory_boundary.py `
   --exe build/verify/WTFMinecraftLauncher.exe `
   --qt-bin D:/Qt/6.10.1/mingw_64/bin
 
-# 大实例复制 / 文件占用 / 升级取消 / 异常退出恢复
+# 大实例复制 / 文件占用 / 升级取消 / 指定阶段外部终止 + 重启恢复
+# --kill-stage 让探针停在生产事务的 publish 或 verify 阶段，再由脚本 TerminateProcess；
+# 不用固定 sleep（快盘会跑完、慢盘可能还没到那一阶段）。
+# --json-out 记录规模、每阶段耗时、卷类型和最长等待；恢复后脚本还会重跑一次完整升级。
 # 把 --work-dir 指到慢盘，并用真实杀毒软件实时扫描，才是完整慢盘验收。
 python tools/acceptance_large_instance.py `
   --verify-exe build/verify/tests/verify_instances.exe `
   --qt-bin D:/Qt/6.10.1/mingw_64/bin `
-  --work-dir E:/wtfml-acceptance --payload-mb 1024 --files 6000
+  --work-dir E:/wtfml-acceptance --payload-mb 1024 --files 6000 `
+  --kill-stage publish --json-out build/acceptance-large.json
 ```
 
-`verify_instances` 的 `--large-copy` / `--large-upgrade-cancel` / `--upgrade-recover`
-是上面第二个脚本使用的探针入口；直接运行 `verify_instances` 不带参数仍然只跑常规回归。
+`verify_instances` 的 `--large-copy` / `--large-upgrade-cancel` / `--large-upgrade-hold` /
+`--large-upgrade-complete` / `--upgrade-recover` 是上面第二个脚本使用的探针入口；
+`--large-upgrade-hold` 会先打印 `UPGRADE_STAGE`，到指定阶段再打印 `UPGRADE_HOLD` 并停住，
+父进程确认这一行后才杀。直接运行 `verify_instances` 不带参数仍然只跑常规回归。
 
 本机 2026-10-24 实跑（1 GiB 单文件 + 6000 个小文件，普通 NTFS，不是慢盘）：大复制 3.61 秒；
 文件独占（模拟杀毒/占用）失败 3.92 秒且不发布半成品；升级取消请求后 0.23 秒停下，原实例和
 用户文件完整；kill 后恢复 0.03 秒。全部断言通过。真实慢盘和杀毒实时扫描仍应在发布机复跑。
 真实双进程脚本同一天实跑 10/10 通过（第二个进程停在拒绝对话框、以 1 退出，日志未被截断）。
+
+2026-10-25 复跑（同为 1 GiB＋6000 文件；D: 固定 NTFS / NVMe，Defender 实时保护为 True，
+仍不是慢盘）：大复制 3.70 秒；文件独占失败 3.88 秒且不发布；取消 0.23 秒；外部终止落在
+`publish` 阶段（阶段推进到 publish 用了 50.74 秒，随后 TerminateProcess，进程没有自己退出）；
+重启恢复 `count=1`、0.04 秒，原 jar / 用户标记 / 1 GiB 载荷完整，未发布的新核心保留；
+随后完整升级重试 52.61 秒成功。最长单步等待 52.61 秒（不含人为挂住的时间）。
+`verify` 阶段用 16 MiB＋100 文件单独跑过同一条终止/恢复/重试路径。
+JSON 与日志在 `build/acceptance-20261025/`。物理慢盘上的同一矩阵仍未复跑。
 
 ## 测试代码的模块边界
 
