@@ -23,6 +23,7 @@
 #include <QDir>
 #include <QLatin1Char>
 #include <QString>
+#include <QVariant>
 
 namespace AppPaths {
 
@@ -34,6 +35,10 @@ namespace AppPaths {
 /// 它是「游戏文件夹」列表里永远排第一、也删不掉的那一项（见 FolderManager）：别的
 /// 目录被挪走、U 盘被拔掉的时候，启动器总得有一个能落的根目录。
 inline QString defaultMinecraftDir() {
+    // 测试入口可在创建任何控制器之前注入独立根；正式入口不设置此属性。
+    const auto app = QCoreApplication::instance();
+    const QString isolated = app ? app->property("wtfml.testDefaultMinecraftDir").toString() : QString();
+    if (!isolated.isEmpty()) return isolated;
     return QCoreApplication::applicationDirPath() + QStringLiteral("/.minecraft");
 }
 

@@ -1,5 +1,11 @@
 #include "Support.hpp"
 #include "manage/ModpackCompletion.hpp"
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 void runModpackCompletionTests(const QString &sandbox) {
     section("ZG8. 缺项导入、手动补齐与继续安装（真实状态机，本地文件源）");
@@ -81,6 +87,46 @@ void runModpackCompletionTests(const QString &sandbox) {
             check(!finish(), "ZG9 凭据不匹配导入尝试时拒绝收尾", error);
             writeFileAt(markerPath, markerBytes);
             check(QFile::rename(archive, archive + ".away"), "ZG9 移开原包以验证无原包路径");
+            // 在完成报告发布后才取消，不能仅依赖写报告之前的取消检查。
+            bool cancelledAtPublication = false;
+            const bool cancelledResult = finish([&] {
+                QFile published(target + "/wtfml.import-report.json");
+                if (!published.open(QIODevice::ReadOnly)) return false;
+                const bool complete = QJsonDocument::fromJson(published.readAll()).object()
+                                          .value("complete").toBool();
+                cancelledAtPublication |= complete;
+                return complete;
+            });
+            check(cancelledAtPublication && !cancelledResult && QFileInfo::exists(markerPath) &&
+                      InstanceFiles::isUnfinishedImport("completion-test"),
+                  "ZG9 完成报告发布后取消仍保留启动门禁", error);
+            {
+                QFile cancelledReport(target + "/wtfml.import-report.json");
+                check(cancelledReport.open(QIODevice::ReadOnly) &&
+                          !QJsonDocument::fromJson(cancelledReport.readAll()).object().value("complete").toBool(),
+                      "ZG9 发布边界取消将报告恢复为未完成");
+            }
+#ifdef Q_OS_WIN
+            // 允许读取凭据绑定，但拒绝删除：模拟杀毒软件占住最后发布标记。
+            const HANDLE heldMarker = CreateFileW(reinterpret_cast<LPCWSTR>(markerPath.utf16()),
+                GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL, nullptr);
+            check(heldMarker != INVALID_HANDLE_VALUE, "ZG9 创建禁止删除的标记占用句柄");
+            if (heldMarker != INVALID_HANDLE_VALUE) {
+                const bool finishedWhileHeld = finish();
+                CloseHandle(heldMarker);
+                check(!finishedWhileHeld && error.contains(QStringLiteral("无法移除")) &&
+                          QFileInfo::exists(markerPath) && InstanceFiles::isUnfinishedImport("completion-test"),
+                      "ZG9 最后删除失败不放行启动且提示可重试", error);
+                QFile blockedReport(target + "/wtfml.import-report.json");
+                check(blockedReport.open(QIODevice::ReadOnly) &&
+                          !QJsonDocument::fromJson(blockedReport.readAll()).object().value("complete").toBool(),
+                      "ZG9 最后删除失败将持久报告恢复为未完成");
+                check(QFileInfo::exists(target + "/mods/manual.jar") &&
+                          QFileInfo::exists(target + "/wtfml.import-ready.json"),
+                      "ZG9 标记占用不删除已安装文件与重试凭据");
+            }
+#endif
             check(finish() && !InstanceFiles::isUnfinishedImport("completion-test") &&
                       !QFileInfo::exists(markerPath), "ZG9 无原包校验后提交元数据并清除门禁", error);
             check(!finish(), "ZG9 已提交凭据不能重复提交");

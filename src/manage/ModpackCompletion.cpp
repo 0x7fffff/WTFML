@@ -212,6 +212,13 @@ bool finish(const QString &instance, QString *error, const Stop &stop) {
     if (!save(metaPath, meta)) return abort(QObject::tr("元数据写入失败，内容保留"));
     if ((stop && stop()) || !markerMatches(instance, proof)) return abort(QObject::tr("已取消或导入标记改变，保留未完成状态"));
     if (!ModpackInstallReport::write(instance, pack, {}, true, error)) return false;
+    // 报告写入也可能耗时；发布启动门禁前再检查取消和导入尝试绑定。
+    if ((stop && stop()) || !markerMatches(instance, proof)) {
+        QString ignored;
+        ModpackInstallReport::write(instance, pack, issues, false, &ignored,
+                                    QObject::tr("提交前已取消或导入标记改变"));
+        return abort(QObject::tr("已取消或导入标记改变，保留未完成状态"));
+    }
     if (!QFile::remove(instance + QStringLiteral("/wtfml.importing"))) {
         QString ignored;
         ModpackInstallReport::write(instance, pack, issues, false, &ignored, QObject::tr("最后提交失败"));

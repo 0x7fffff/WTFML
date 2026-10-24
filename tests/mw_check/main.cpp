@@ -212,7 +212,11 @@ int main(int argc, char *argv[]) {
     // MainWindow 构造里就有 LauncherSettings / GlobalJavaSettings 在读盘，晚一步就晚了。
     // org 和 app 两个都必须设：INI 后端也会因 org 为空而 setStatus(AccessError)
     // （qsettings.cpp:1069-1073），那样是个"写得进去但状态报错"的假沙盒。
-    const QDir root(QCoreApplication::applicationDirPath());
+    QTemporaryDir processSandbox(QCoreApplication::applicationDirPath() + QStringLiteral("/mw-check-XXXXXX"));
+    if (!processSandbox.isValid()) return 2;
+    app.setProperty("wtfml.testDefaultMinecraftDir", processSandbox.filePath(QStringLiteral(".minecraft")));
+    AppPaths::setMinecraftDir(QString());
+    const QDir root(processSandbox.path());
     const QString settingsDir = root.filePath(QStringLiteral("check-settings"));
     QDir(settingsDir).removeRecursively();
     QDir().mkpath(settingsDir);
@@ -220,12 +224,15 @@ int main(int argc, char *argv[]) {
     QApplication::setApplicationName(QStringLiteral("mw_check"));
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir);
+    check(AppPaths::defaultMinecraftDir() == root.filePath(QStringLiteral(".minecraft")) &&
+              AppPaths::minecraftDir() == AppPaths::defaultMinecraftDir(),
+          "主窗口测试默认数据根属于本进程临时目录");
     // 每个 run 都从"从没启动过任何版本"开始，否则上一轮留下的记录会让冷启动断言失效
     QFile::remove(settingsDir + QStringLiteral("/WTFML-check/mw_check.ini"));
 
     // ---------- 启动器级那几份账本：也不许跨趟（纳入稳定回归）----------
-    // 它们落在 `AppPaths::defaultMinecraftDir()`（= **<这个 exe 旁边>/.minecraft**），而那个
-    // 位置**故意不跟沙盒走**：`TaskHistory::filePath()` 读的就是它，因为任务历史是**启动器级**
+    // 它们落在 `AppPaths::defaultMinecraftDir()`，此测试入口已注入每进程独立根。
+    // 它不跟当前游戏文件夹走：`TaskHistory::filePath()` 读的就是它，因为任务历史是**启动器级**
     // 账本 —— 用户换游戏文件夹它也不该跟着搬（见 `src/tasks/TaskHistory.hpp` 文件头那段）。
     // 于是问题来了：上一趟收尾时写下的终态任务会被这一趟**恢复出来**，`collapsedSummary()`
     // 还在它那 8 秒窗内时就会占着底栏中间那一格 ⇒ 那几条"没有下载也没有启动时那一格写着

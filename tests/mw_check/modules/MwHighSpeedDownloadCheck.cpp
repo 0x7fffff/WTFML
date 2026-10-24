@@ -67,7 +67,7 @@ int MwHighSpeedDownloadCheck(QApplication &app) {
         QCoreApplication::processEvents();
         auto *dialog = qobject_cast<QDialog *>(QApplication::activeWindow());
         expect(dialog && dialog->objectName() == QStringLiteral("downloadToolDialog"), "download opens its own reusable tool window");
-        if (dialog) expect(dialog->grab().save(QCoreApplication::applicationDirPath() + QStringLiteral("/download-tool-preview.png")), "tool window preview renders successfully");
+        if (dialog) expect(dialog->grab().save(fixture.filePath(QStringLiteral("download-tool-preview.png"))), "tool window preview renders successfully in isolated fixture");
         expect(tool.start(ok, false, &error), "direct download starts asynchronously");
         const auto first = tool.taskId();
         if (dialog) dialog->close();
