@@ -1,5 +1,6 @@
 #include "Support.hpp"
 #include "manage/ModpackCompletion.hpp"
+#include "manage/ModpackInstallReport.hpp"
 
 void runModpackCompletionTests(const QString &sandbox) {
     section("ZG8. 缺项导入、手动补齐与继续安装（真实状态机，本地文件源）");
@@ -80,9 +81,19 @@ void runModpackCompletionTests(const QString &sandbox) {
             writeFileAt(markerPath, "{}");
             check(!finish(), "ZG9 凭据不匹配导入尝试时拒绝收尾", error);
             writeFileAt(markerPath, markerBytes);
+            // 模拟提交报告/meta 后、摘最后标记前进程中断；完成报告本身不解除门禁。
+            writeFileAt(AppPaths::versionMetaPath("completion-test"), R"({"jvmArgs":["-Dkeep=user-setting"]})");
+            check(ModpackInstallReport::write(target, pack, {}, true, &error) &&
+                      InstanceFiles::isUnfinishedImport("completion-test"),
+                  "ZG9 提交中断现场：即使 meta/报告都存在，最后标记仍阻止启动", error);
             check(QFile::rename(archive, archive + ".away"), "ZG9 移开原包以验证无原包路径");
             check(finish() && !InstanceFiles::isUnfinishedImport("completion-test") &&
                       !QFileInfo::exists(markerPath), "ZG9 无原包校验后提交元数据并清除门禁", error);
+            QFile recoveredMeta(AppPaths::versionMetaPath("completion-test"));
+            check(recoveredMeta.open(QIODevice::ReadOnly) &&
+                      QJsonDocument::fromJson(recoveredMeta.readAll()).object().value("jvmArgs").toArray().contains(QStringLiteral("-Dkeep=user-setting")),
+                  "ZG9 中断恢复合并元数据，保留已有用户启动参数");
+            recoveredMeta.close();
             check(!finish(), "ZG9 已提交凭据不能重复提交");
             check(QFile::rename(archive + ".away", archive), "ZG9 恢复原包夹具");
         }

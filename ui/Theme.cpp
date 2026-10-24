@@ -2221,6 +2221,7 @@ namespace {
 struct PersistedThemeValues {
     QString scope;
     QHash<QString, QVariant> values;
+    QHash<QString, QVariant> semantic;
 };
 
 PersistedThemeValues &persistedThemeValues() {
@@ -2238,9 +2239,8 @@ const char *const kThemeGroupPrefix = "Theme/";
 
 }  // namespace
 
-void save(const Spec &spec) {
+static QHash<QString, QVariant> themeSettingValues(const Spec &spec) {
     const Spec clean = normalize(spec);
-    QSettings settings;
 
     // 先算出"这一次该长什么样"，再和基线逐项比 —— 不再整组清掉重写。
     QHash<QString, QVariant> desired;
@@ -2290,6 +2290,12 @@ void save(const Spec &spec) {
     if (clean.errorText.isValid()) {
         desired.insert(accentSettingKey("ErrorText"), colorToString(clean.errorText));
     }
+    return desired;
+}
+
+void save(const Spec &spec) {
+    QSettings settings;
+    const auto desired = themeSettingValues(spec);
 
     PersistedThemeValues &persisted = persistedThemeValues();
     const QString scope = settingsScope(settings);
@@ -2303,11 +2309,11 @@ void save(const Spec &spec) {
         }
     } else {
         for (auto it = desired.constBegin(); it != desired.constEnd(); ++it) {
-            const auto prior = persisted.values.constFind(it.key());
-            const bool untouched = prior != persisted.values.constEnd() && prior.value() == it.value();
-            // 没改过的那一项：**盘上有就一个字节都不碰**（别把别的安装目录刚改的抹回去）；
-            // 盘上已经没了（有人整组删了）才补写回来 —— 和以前整组重写时一样。
-            if (untouched && settings.contains(it.key())) {
+            const auto prior = persisted.semantic.constFind(it.key());
+            const bool untouched = prior != persisted.semantic.constEnd() && prior.value() == it.value();
+            // 比较用户读到的语义值（包括未落盘的默认值）。未改项一律不写，
+            // 包括其它窗口刚删除的项：删除也是“恢复默认”的有效修改。
+            if (untouched) {
                 continue;
             }
             settings.setValue(it.key(), it.value());
@@ -2323,9 +2329,10 @@ void save(const Spec &spec) {
             }
         }
     }
-    // 盘上现在就是我们想要的样子：基线跟着走，下一次比的是这一份。
+    // 记住本窗口已经提交过的意图；未改项的磁盘值可能属于另一个窗口，不能读回来当成本窗口意图。
     persisted.scope = scope;
     persisted.values = desired;
+    persisted.semantic = desired;
     settings.sync();
 }
 
@@ -2415,7 +2422,9 @@ Spec load() {
     spec.errorText = colorFromString(settings.value(accentSettingKey("ErrorText")).toString());
     // 盘上那一份是能手改的、也可能是以后降级回退留下的：**认不出的一律退回出厂**，
     // 不猜也不报错（和 LauncherSettings::load() 那几处同一个路数）。
-    return normalize(spec);
+    const auto clean = normalize(spec);
+    persistedThemeValues().semantic = themeSettingValues(clean);
+    return clean;
 }
 
 // ---------------------------------------------------------------------------

@@ -293,6 +293,25 @@ void runThemeControlsTests() {
         sandbox.remove(QStringLiteral("Theme"));
         sandbox.sync();
 
+        {
+            auto initial = Theme::load();
+            QSettings other;
+            other.setValue(QStringLiteral("Theme/TextOpacity"), 37); other.sync();
+            initial.accent = QColor(QStringLiteral("#123456"));
+            Theme::save(initial);
+            QSettings reader;
+            check(reader.value(QStringLiteral("Theme/TextOpacity")).toInt() == 37,
+                  "T39.9 首次保存不把未落盘的默认值当作用户修改覆盖其它窗口");
+            auto beforeDelete = Theme::load();
+            other.remove(QStringLiteral("Theme/TextOpacity")); other.sync();
+            beforeDelete.accent = QColor(QStringLiteral("#654321"));
+            Theme::save(beforeDelete);
+            QSettings afterDelete;
+            check(!afterDelete.contains(QStringLiteral("Theme/TextOpacity")),
+                  "T39.9 其它窗口删除以恢复默认的未改项不被复活");
+            sandbox.remove(QStringLiteral("Theme")); sandbox.sync();
+        }
+
         Theme::Spec first = Theme::load();
         first.accent = QColor(QStringLiteral("#112233"));
         Theme::save(first);
