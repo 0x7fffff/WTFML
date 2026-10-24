@@ -369,8 +369,17 @@
   `renderWidget()` 或显式处理 `devicePixelRatio`。
 - `deleteLater()` 的延迟删除事件在嵌套事件循环/无事件循环时需要显式
   `sendPostedEvents(..., QEvent::DeferredDelete)`；否则 `findChild()` 可能拿到旧一代控件。
-- `ui_check` 存在历史偶发堆损坏和时序敏感失败；先保留首失败日志和崩溃证据，
-  定位后针对性复验，不能靠重跑通过或直接改产品掩盖。
+- `QObject::connect` / `QTimer::singleShot` 的**上下文**必须和被捕获的栈变量同作用域：
+  上下文用活得久的对象（`&dialog`、`&window`）而 lambda 按引用捕获块内变量，块结束后
+  就留下一条悬空回调 —— 它会回来往已经析构的栈槽里赋值（`QString::operator=` 先释放
+  旧值），把一块仍在用的 `QArrayData` 提前放掉。ui_check 历史堆损坏的另一半就是这个，
+  只有在 PageHeap 下才当场报（见 [docs/TESTING.md](docs/TESTING.md)）。
+- `ui_check` 的 offscreen 历史 `c0000374` 已定位到验证环境的 Qt A11y：offscreen 下
+  A11y 恒开，反复建销 `InstanceSettingsDialog` 时析构路径碰已释放的 `QString` 数据。
+  验证入口显式 `QAccessible::setActive(false)`；对照实验 active=true 连续 10/10 崩、
+  active=false 连续 50/50 全绿。压力入口 `tools/stress-ui-offscreen.ps1`。
+  PageHeap 下那条 `m_fileDirs` use-after-free 也已定位到上面那条悬空连接并修掉；
+  这不是产品读屏/A11y 已验收。
 - 网络夹具必须按请求目标路由，不能依赖请求顺序；未知/未确认的响应不得当作成功。
 - 主窗口测试的跨线程日志加锁收集，读取使用快照；结束前恢复原消息处理器，
   不允许工作线程直接修改主线程正在遍历的日志列表。
@@ -385,7 +394,9 @@
 以下不是“未实现所以随便”，而是已经确认的边界：
 
 - 微软正版登录依赖 Azure 应用审核；审核未通过时无法完成真实登录。
-- 完整视觉基线、多 DPI、真实平台公网下载和历史 `ui_check` 堆损坏仍需单独验收。
+- 完整视觉基线、多 DPI、真实平台公网下载和真实读屏/A11y 仍需单独验收；
+  offscreen `ui_check` 的历史堆损坏已定位到验证环境 A11y（测试入口隔离）与夹具一条
+  悬空连接（已修）两处，见 [docs/TESTING.md](docs/TESTING.md)「历史崩溃复核」。
 - 复杂模组依赖求解、CurseForge 仅发行版 ID 反查、自动替代确认仍未完成。
 - 世界区块分析/删除、服务器收藏落点、文件关联/智能导入明确暂缓。
 - 主题逐项 `Role`/`Part` 仍没有完整界面入口；主题色和主要语义色有入口。

@@ -240,7 +240,7 @@ GitHub 的 main 提交和 PR 按改动选择分片与测试；标签、定时和
 演到的那条路由。以后新增的网络入口若没被演到，这条断言会直接变红。
 
 尚未完成：所有模块路径审核、隔离后的安全并行、多 DPI 截图基线和内存诊断工具链。
-当前没有宣称已修复历史堆损坏。
+ui_check 那条历史堆损坏已收口（证据与复验见下面「历史崩溃复核」），不再算未完成项。
 
 ### 世界导入空间预检与预设读取边界
 
@@ -294,3 +294,67 @@ ZG9 另外在取消回调中观察完成报告，等完成报告实际落盘后�
 此前真机补齐流程已从实际启动器以离线 UIInstallTest 身份进入 Minecraft 1.21.11 / Fabric
 主菜单并正常退出（退出码 0），未打开存档。截图位于本地忽略目录
 `build/gtnh-install-probe/ui-completion/main-menu-after-completion.jpg`；该夹具不代表完整大型包验收。
+
+### 历史崩溃复核（2026-10-24）
+
+- **core / verify 的 WER 转储**：根因是 ZJ3 夹具用 `std::thread` 调 QtCore；已换 `QThread`，
+  当前 core 测试不再产生该转储。
+- **ui_check offscreen `c0000374`**：同一条 exe 把 `QAccessible::setActive(false)` 改成 `true`，
+  连续 **10/10** 崩在 `InstanceSettingsDialog::~InstanceSettingsDialog()` 的
+  `QHash<QString, QString>` 释放（`QArrayData::deref`）；保持 `false` 连续 **50/50** 通过
+  （3119/3119）。offscreen 插件下 A11y 恒开，而产品 windows 插件只有读屏软件连着才开，
+  所以这是验证环境隔离，不是产品读屏/A11y 验收。
+- **PageHeap 下那条 `m_fileDirs` use-after-free：已定位并修掉**（2026-10-24）。
+  用 `gflags /p /enable ui_check.exe /full` 跑完整 `ui_check`，会在
+  `InstanceSettingsDialog::~InstanceSettingsDialog()` 释放 `m_fileDirs` 时崩在
+  `QArrayData::deref()` 那句写上面 —— 那块 `QArrayData` 的页已经释放了。cdb 下抓到的
+  现场是：崩的那一块正是**「游戏目录」那条路径**（`root + "/game"`，54 个字符），
+  可它的释放点比崩点早一整节。
+
+  根因在 `UiContentPagesChecks.cpp` 的 U10b 那一段（量「那一排快捷方式开哪个目录」）：
+
+  ```cpp
+  QObject::connect(&dialog, &Dlg::openInstanceFolderRequested, &dialog,
+                   [&lastPath, &opens](const QString &path) { lastPath = path; ++opens; });
+  ```
+
+  上下文是 `&dialog`（活到整个 U10 块结束），`lastPath` / `opens` 却是**那一节栈上**的
+  变量 —— 这一节一结束它们就没了，连接还留着。而产品把每一页的 `openFolderRequested`
+  **信号接信号**转成 `InstanceSettingsDialog::openInstanceFolderRequested`
+  （`createFilePage()` 那一段），于是 U10e 点一下模组页的「打开文件夹」，
+  那一发就回到这个悬空 lambda：`lastPath = path` 的 `QString::operator=` 先释放旧值，
+  而旧值那份 `QArrayData` 正是「游戏目录」那条路径 —— 提前放掉，几分钟后在析构里再碰它。
+  正常入口下这一下只是悄悄把一块数据提前释放（**这就是那条“偶发 `c0000374`”的另一半**），
+  只有 PageHeap 会把它变成当场 AV。
+
+  修法：连接上下文改成**和被捕获变量同一个作用域**的栈上 `QObject`（`QObject scopeGuard;`
+  + `connect(..., &scopeGuard, ...)`），块一结束连接就断。**规则**：`ui_check` 里凡是
+  `[&]` 捕获栈变量的连接 / 定时器，上下文不许用活得比它久的对象（`&dialog`、`&window`、
+  `overlay`、`page`）；定时器那一侧同理（见 `Support.hpp` 的 `dismissNextInline()`）。
+
+- **顺手修掉一条夹具串扰**：`dismissNextInline()` 的 300 ms 兜底在 0 ms 那一发已经答完
+  之后并不会自己撤销，于是**下一条**提示（300 ms 内开出来的）会被它当成自己的“用户答了”，
+  按的还是它自己那一号按钮（默认第 0 颗 =「是」）。PageHeap 下能稳定看到
+  `UiGroupEditorChecks` 的「恢复默认分组设置… ⇒ 点『否』」真的把清单换成了默认五组。
+  现在按“票号”走：只有最近一次调用排下的两发有效，而且**兑现一次就作废**。
+
+- **mw_check T17**：合成鼠标两发点实例行空白区时，`QTreeView` 在 `AnimatingState` 会把
+  按下整条吞掉（`expandOrCollapseItemAtPos()` 开头那条 `state != NoState`，见
+  `ui/RowActivation.hpp` 文件头），`itemClicked` 一发都不发 —— 与产品逻辑无关。改成和
+  T10 同一条信号路（`clickTreeRow`），行内坐标与「不在三颗按钮上」仍由前提断言钉住。
+
+- **复验**：PageHeap 下完整 `ui_check` 连跑 6 趟全部跑完，只剩 Z8 那条
+  「两万行点一下 ≤ 250 ms」会红（252~300 ms —— PageHeap 的分配开销，正常入口 59~74 ms）；
+  关掉 PageHeap 后正常入口 **50/50** 通过（`tools/stress-ui-offscreen.ps1 -Runs 50
+  -StopOnFailure`），`wtfml.main-window`（全量 mw_check **2684/2684**）与
+  `wtfml.instance-upgrade` 通过，`ui_check` 每趟 **3119/3119**。诊断结束已执行
+  `gflags /p /disable ui_check.exe` —— PageHeap **不许**留在机器上
+  （它会把正常入口的 Z8 变成假红，也拖慢一切）。
+- 压力入口（不进 CTest）：
+
+```powershell
+./tools/stress-ui-offscreen.ps1 -Runs 50
+```
+
+它会逐趟保存日志，首失败保留在 `build/ui-stress/<时间>/` 并返回非零。
+真实读屏/A11y 仍未验收。
