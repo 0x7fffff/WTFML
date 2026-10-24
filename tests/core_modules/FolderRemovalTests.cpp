@@ -1,4 +1,11 @@
 #include "Support.hpp"
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>  // ZAO6：拿一个 `FileShare = 0` 的句柄当「游戏还开着」
 
 void runFolderRemovalTests() {
     section("ZAN. 删一棵目录（FolderManager）：只读文件删得掉，链接那一头一个字节都不动");
@@ -179,6 +186,51 @@ void runFolderRemovalTests() {
                   "★★ ZAO5 链接本身只摘壳子：链接没了、目标目录还在");
         }
         QDir(outside).removeRecursively();
+    }
+
+    // ---------- ZAO6. 树里有一件文件被别的进程占着（共享冲突）----------
+    {
+        // 这就是"游戏还开着去删世界/删实例"在本进程里的等价物（`QFile` 打不开这种锁，
+        // 所以走 Win32 的 `FileShare = 0`）。要验的是：删不干净就**照实报失败**，
+        // 不许回 true 让界面说"删掉了"。
+        const QString victim = temp.filePath(QStringLiteral("回收站-被占用"));
+        QDir().mkpath(victim);
+        const bool wrote = writeBytesAt(victim + QStringLiteral("/可以删.txt"),
+                                        QByteArrayLiteral("released")) &&
+                           writeBytesAt(victim + QStringLiteral("/占着的.dat"),
+                                        QByteArrayLiteral("held"));
+        const QString heldPath = victim + QStringLiteral("/占着的.dat");
+        const HANDLE held =
+            wrote ? CreateFileW(reinterpret_cast<LPCWSTR>(heldPath.utf16()),
+                                GENERIC_READ | GENERIC_WRITE, /*dwShareMode=*/0, nullptr,
+                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)
+                  : INVALID_HANDLE_VALUE;
+        check(wrote && held != INVALID_HANDLE_VALUE,
+              "★ ZAO6 前提：树里那件文件被 Win32 拿住了（不共享读写删）");
+        if (held != INVALID_HANDLE_VALUE) {
+            QString problem;
+            const bool moved = moveToRecycleBin(victim, &problem);
+            check(!moved && !problem.isEmpty(),
+                  "★★ ZAO6 被占着时整棵进不了回收站，而且回 false + 一句原因", problem);
+            // 内容这一趟读不了（我们自己那个句柄就是不共享读的，这正是"游戏开着"的样子）：
+            // 占着的时候只验"还在原处、大小没变"，等放开之后再逐字节比。
+            check(QFileInfo::exists(heldPath) && QFileInfo(heldPath).size() == 4,
+                  "★★★ ZAO6 被占着的那一件还在原处、大小没变",
+                  QStringLiteral("目录还在=%1 条目=[%2]")
+                      .arg(QDir(victim).exists())
+                      .arg(QDir(victim).entryList(QDir::AllEntries | QDir::NoDotAndDotDot)
+                               .join(QLatin1Char(','))));
+            CloseHandle(held);
+            check(readBytesAt(heldPath) == QByteArrayLiteral("held"),
+                  "★★★ ZAO6 放开之后逐字节读回来还是原来那四个字节（失败那一趟没改写它）");
+        }
+        // 放开之后同一棵必须过得去：证明挡住它的确实是那把共享锁。
+        {
+            QString problem;
+            const bool moved = moveToRecycleBin(victim, &problem);
+            check(moved && !QDir(victim).exists(),
+                  "★ ZAO6 放开之后那一棵照常进回收站", problem);
+        }
     }
 }
 

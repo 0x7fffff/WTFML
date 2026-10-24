@@ -6,6 +6,13 @@
 #include <vector>
 #include <QProcess>
 #include <QThread>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>  // ZJ6：拿一个 `FileShare = 0` 的句柄当「游戏还开着」（QFile 做不到）
 
 void runCopyInstanceAndWorldTests() {
     const QString originalDir = AppPaths::minecraftDir();
@@ -287,6 +294,61 @@ void runCopyInstanceAndWorldTests() {
                   .contains(QStringLiteral("caseonly")),
               "ZJ4 盘上那个名字的大小写真的变了",
               QDir(scratch.path()).entryList(QDir::Dirs | QDir::NoDotAndDotDot).join(QLatin1Char(',')));
+    }
+
+    section("ZJ6. 文件被别的进程占着（共享冲突）：照实失败，不留半截、不动旧的那一份");
+    {
+        // ★ 「文件被占用」那条话术（见 docs/DIRECTORY_SESSION_LOCK.md）背后得有这一条：
+        // 别的程序拿着 `level.dat` 且**不共享删改**时，改名 / 拷贝必须失败且旧的那一份原样在，
+        // 而不是让 Windows 抛在一半、留下一个名字已经改掉、内容却只挪了一半的目录。
+        //
+        // Qt 的 `QFile` 打不开这种锁（它自带共享标志），所以这一条借 Win32 的 `CreateFileW`
+        // 拿一个 `FileShare = 0` 的句柄 —— 这就是"游戏还开着"在本进程里的等价物。
+        const QString occRoot = scratch.filePath(QStringLiteral("占用夹具"));
+        QDir().mkpath(occRoot);
+        const QString worldDir = occRoot + QStringLiteral("/占着的世界");
+        QDir().mkpath(worldDir);
+        writeFileAt(worldDir + QStringLiteral("/level.dat"), QByteArrayLiteral("level-bytes"));
+        const QString savesDir = occRoot + QStringLiteral("/saves");
+        QDir().mkpath(savesDir);
+
+        const QString heldPath = worldDir + QStringLiteral("/level.dat");
+        const HANDLE held =
+            CreateFileW(reinterpret_cast<LPCWSTR>(heldPath.utf16()), GENERIC_READ | GENERIC_WRITE,
+                        /*dwShareMode=*/0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        check(held != INVALID_HANDLE_VALUE,
+              "★ ZJ6 前提：用 Win32 拿住 `level.dat`（不共享读写删）");
+        if (held != INVALID_HANDLE_VALUE) {
+            QString error;
+            check(!WorldFiles::renameWorld(worldDir, QStringLiteral("改过的"), &error) &&
+                      !error.isEmpty(),
+                  "★★ ZJ6 被占着时改名失败（不是假装成功）", error);
+            check(QFileInfo::exists(heldPath) && !QFileInfo::exists(occRoot + QStringLiteral("/改过的")),
+                  "★★★ ZJ6 世界还在老名字下、也没有多出半截的「改过的」");
+
+            // 拷贝那一头：源世界里有被占着的文件 ⇒ 整趟失败，saves 里不留半成品。
+            check(!WorldFiles::copyWorldInto(worldDir, savesDir, QStringLiteral("搬进来的"), &error) &&
+                      !error.isEmpty(),
+                  "★★ ZJ6 有文件被占着时导入世界也失败并说清楚", error);
+            check(!QFileInfo::exists(savesDir + QStringLiteral("/搬进来的")),
+                  "★★★ ZJ6 失败之后 saves 里没有半截的世界");
+            check(QDir(savesDir).entryList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden)
+                      .isEmpty(),
+                  "★★ ZJ6 本次的暂存目录也收拾干净了（一个条目都不剩）",
+                  QDir(savesDir).entryList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden)
+                      .join(QLatin1Char(',')));
+
+            CloseHandle(held);
+        }
+        // 放开之后同一趟必须成：证明挡住它的确实是那把共享锁，不是别的什么。
+        QString error;
+        check(WorldFiles::renameWorld(worldDir, QStringLiteral("改过的"), &error),
+              "★ ZJ6 放开之后改名成功（挡住的确实是共享锁）", error);
+        check(WorldFiles::copyWorldInto(occRoot + QStringLiteral("/改过的"), savesDir,
+                                        QStringLiteral("搬进来的"), &error),
+              "★ ZJ6 放开之后导入世界也成", error);
+        check(QFileInfo::exists(savesDir + QStringLiteral("/搬进来的/level.dat")),
+              "ZJ6 搬进来的那一份连 level.dat 都在");
     }
 
     section("ZJ5. VersionManager::copyInstance：多出一份实例");
