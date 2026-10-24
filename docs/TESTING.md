@@ -338,6 +338,17 @@ ZG9 另外在取消回调中观察完成报告，等完成报告实际落盘后�
   `UiGroupEditorChecks` 的「恢复默认分组设置… ⇒ 点『否』」真的把清单换成了默认五组。
   现在按“票号”走：只有最近一次调用排下的两发有效，而且**兑现一次就作废**。
 
+- **一条已排除的假设（2026-10-25）**：当年那条“约 25% 崩在 `InstanceSettingsDialog` 析构”
+  还被猜过是 `ScrollBarStyler` 在 `QEvent::Show` 里**同步** `QScrollBar::setStyleSheet()`
+  重入 style polish、让 `extra->style` 指向已释放的 `QStyleSheetStyle`（旧提交 `1a6ed8b`
+  为此改过一版 0 毫秒延后，那版从未进过 `main`）。用同形探针（应用级 QSS + Show 过滤器里
+  同步挂控件级样式 + 每轮改样式表 / 调色板逼 Qt 重建 `QStyleSheetStyle`，随后析构挂着
+  样式表的滚动条）在 **full PageHeap** 下跑了 500 轮，延后版再跑 500 轮作对照，均无 AV；
+  真实入口 PageHeap 6/6、正常入口 50/50 也都没事。所以**保持同步实现**、不改 0 毫秒延后
+  —— 那会让新滚动条晚一个事件循环才有样式（第一帧先按 `palette(...)` 近似值画），
+  换不到可测收益；真正的凶手是上面那条悬空连接与 A11y 路径。
+  探针源码与二进制留在 `build/theme-reentrancy-probe/`（不进仓库）。
+
 - **mw_check T17**：合成鼠标两发点实例行空白区时，`QTreeView` 在 `AnimatingState` 会把
   按下整条吞掉（`expandOrCollapseItemAtPos()` 开头那条 `state != NoState`，见
   `ui/RowActivation.hpp` 文件头），`itemClicked` 一发都不发 —— 与产品逻辑无关。改成和
