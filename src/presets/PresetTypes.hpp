@@ -714,8 +714,13 @@ inline PresetIndex indexFromJson(const QByteArray &bytes, bool *ok = nullptr) {
     index.schemaVersion = version;
 
     const QJsonValue order = root.value(QStringLiteral("order"));
+    // 缺字段兼容旧索引；存在但类型错不能悄悄变成空表再写回盘。
+    if ((root.contains(QStringLiteral("order")) && !order.isArray()) ||
+        (root.contains(QStringLiteral("default")) && !root.value(QStringLiteral("default")).isString()))
+        return PresetIndex();
     if (order.isArray()) {
         for (const QJsonValue &value : order.toArray()) {
+            if (!value.isString()) return PresetIndex();
             const QString id = value.toString();
             // 重复的 id 只留第一处（顺序表里同一个东西出现两遍，界面就会多出一行）。
             if (!id.isEmpty() && !index.order.contains(id)) {

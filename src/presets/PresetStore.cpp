@@ -33,9 +33,14 @@ constexpr int kDisplayNameLimit = 80;
 
 /// 说明那一栏的上限。比名字宽松得多 —— 说明本来就是一段话。
 constexpr int kDescriptionLimit = 400;
+constexpr qint64 kIndexLimit = 4 * 1024 * 1024;
+constexpr qint64 kManifestLimit = 16 * 1024 * 1024;
 
 /// 写盘：临时文件 + 原子改名（和任务账本 / 启动历史同一套）。
 bool writeBytesAtomic(const QString &path, const QByteArray &bytes) {
+    const qint64 limit = QFileInfo(path).fileName() == QLatin1String(kIndexFileName)
+        ? kIndexLimit : kManifestLimit;
+    if (bytes.size() > limit) return false;
     // 锁要落在**真正被写的那个数据根**上。预设住在启动器自己的数据根
     // （`presetsRoot()` = `defaultMinecraftDir()/presets`），不是当前游戏文件夹
     // （`minecraftDir()`）—— 换一个游戏文件夹之后预设不跟着走，锁要是还认旧的那一格，
@@ -244,10 +249,16 @@ PresetIndex loadIndex(const QString &root, bool *ok) {
     }
     QFile file(indexPath(root));
     if (!file.open(QIODevice::ReadOnly)) {
+        if (ok && QFileInfo::exists(file.fileName())) *ok = false;
         return PresetIndex();
     }
-    const QByteArray bytes = file.readAll();
+    const QByteArray bytes = file.size() <= kIndexLimit ? file.read(kIndexLimit + 1) : QByteArray();
+    const bool readOk = file.error() == QFileDevice::NoError && !bytes.isEmpty() && bytes.size() <= kIndexLimit;
     file.close();
+    if (!readOk) {
+        if (ok) *ok = false;
+        return PresetIndex();
+    }
 
     bool parsed = false;
     PresetIndex index = indexFromJson(bytes, &parsed);
@@ -391,7 +402,11 @@ PresetManifest loadManifest(const QString &root, const QString &id, bool *ok, QS
     if (!file.open(QIODevice::ReadOnly)) {
         return fail(faultAt(path, QStringLiteral("打不开")));
     }
-    const QByteArray bytes = file.readAll();
+    if (file.size() > kManifestLimit)
+        return fail(faultAt(path, QStringLiteral("清单超过 16 MiB，未读取")));
+    const QByteArray bytes = file.read(kManifestLimit + 1);
+    if (file.error() != QFileDevice::NoError || bytes.size() > kManifestLimit)
+        return fail(faultAt(path, QStringLiteral("读取清单失败或清单过大")));
     file.close();
 
     bool parsed = false;

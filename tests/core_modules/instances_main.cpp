@@ -6,6 +6,7 @@
 #include <QFileInfo>
 
 #include <cstdio>
+#include <cstdlib>
 
 namespace {
 
@@ -32,7 +33,8 @@ int runAcceptanceProbeIfRequested(const QStringList &arguments) {
         return ok ? 0 : 3;
     }
 
-    if (flag("--large-upgrade-cancel") && arguments.size() >= 7) {
+    if ((flag("--large-upgrade-cancel") || flag("--large-upgrade-abort-publish")) && arguments.size() >= 7) {
+        const bool abortAtPublish = flag("--large-upgrade-abort-publish");
         DirectorySessionLock::enabled = true;
         const QString game = arguments.at(2);
         const QString instanceId = arguments.at(3);
@@ -48,7 +50,14 @@ int runAcceptanceProbeIfRequested(const QStringList &arguments) {
         QElapsedTimer clock;
         clock.start();
         const auto result = InstanceUpgrade::prepareAndCommit(
-            request, core, {},
+            request, core, [abortAtPublish](InstanceUpgrade::Stage stage) {
+                if (abortAtPublish && stage == InstanceUpgrade::Stage::Publish) {
+                    // 真正走到原目录已保留、尚未发布的边界，再无析构退出。
+                    std::printf("ABORT_AT_PUBLISH\n");
+                    std::fflush(stdout);
+                    std::_Exit(86);
+                }
+            },
             [&clock, cancelMs] { return clock.elapsed() >= cancelMs; });
         std::printf("LARGE_UPGRADE cancelled=%d ok=%d elapsedMs=%lld problem=%s\n",
                     result.cancelled ? 1 : 0, result.ok ? 1 : 0,

@@ -76,7 +76,12 @@ int main(int argc, char *argv[]) {
         const std::string mode = argv[2];
         std::fprintf(stdout, "[12:00:00] [Server thread/INFO]: Starting minecraft server\n");
         std::fprintf(stdout, "[12:00:01] [Server thread/INFO]: Preparing level \"world\"\n");
-        std::fprintf(stdout, "Done (1.234s)! For help, type \"help\"\n");
+        if (mode == "startup-zero") {
+            std::fprintf(stdout, "[Server thread/WARN]: **** FAILED TO BIND TO PORT!\n");
+            return 0;
+        }
+        if (mode != "startup-wait")
+            std::fprintf(stdout, "Done (1.234s)! For help, type \"help\"\n");
         std::fflush(stdout);
         if (mode == "crash") {
             return 1;

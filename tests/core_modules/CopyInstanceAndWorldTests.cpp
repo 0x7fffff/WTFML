@@ -36,6 +36,27 @@ void runCopyInstanceAndWorldTests() {
 
     // Use real processes: an in-process QLockFile cannot exercise stale PID recovery.
     {
+        const QString source = scratch.filePath(QStringLiteral("space-world"));
+        const QString saves = scratch.filePath(QStringLiteral("space-saves"));
+        QDir().mkpath(source);
+        QDir().mkpath(saves);
+        writeFileAt(source + "/level.dat", "world-data");
+        writeFileAt(source + "/.hidden", "hidden-data");
+        QString problem;
+        check(!WorldFiles::copyWorldInto(source, saves, "low-space", &problem, {}, 0) &&
+                  problem.contains(QStringLiteral("空间不足")),
+              "ZJ7 世界导入低空间预算在复制前拒绝", problem);
+        check(QDir(saves).entryList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden).isEmpty() &&
+                  QFileInfo::exists(source + "/level.dat"),
+              "ZJ7 空间拒绝不留暂存与半份世界且保留源存档");
+        check(!WorldFiles::copyWorldInto(source, saves, "exact-short", &problem, {},
+                                       32 * 1024 * 1024 + 19),
+              "ZJ7 空间计算包含隐藏文件和安全余量", problem);
+        check(WorldFiles::copyWorldInto(source, saves, "enough-space", &problem, {}, 64 * 1024 * 1024) &&
+                  QFileInfo::exists(saves + "/enough-space/.hidden"),
+              "ZJ7 空间充足时正常导入并保留隐藏文件", problem);
+    }
+    {
         QProcess owner;
         owner.start(QCoreApplication::applicationFilePath(),
                     {QStringLiteral("--directory-lock-probe"), scratch.path(), QStringLiteral("--hold")});

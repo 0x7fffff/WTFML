@@ -16,8 +16,11 @@
 #include <QSet>
 #include <QUuid>
 #include <QTemporaryDir>
+#include <QDirIterator>
+#include <QStorageInfo>
 
 #include <algorithm>
+#include <limits>
 
 #include "FolderManager.hpp"
 #include "InstanceFiles.hpp"
@@ -123,7 +126,7 @@ QString nameProblem(const QString &rawName) {
 }
 
 bool copyWorldInto(const QString &worldDir, const QString &savesDir, const QString &name,
-                   QString *problemOut, const std::function<bool()> &cancelled) {
+                   QString *problemOut, const std::function<bool()> &cancelled, qint64 spaceBudgetBytes) {
     if (!WriteDirectoryGuard::acquire(savesDir, problemOut)) return false;
     const auto fail = [problemOut](const QString &reason) {
         if (problemOut != nullptr) {
@@ -182,6 +185,29 @@ bool copyWorldInto(const QString &worldDir, const QString &savesDir, const QStri
         return fail(QStringLiteral("不能把世界导入到它自己或其子目录中。"));
     }
     if (cancelled && cancelled()) return fail(QStringLiteral("导入世界已取消或超时。"));
+    // 暂存复制前检查目标卷。预算只可降低实际可用空间，不能绕过磁盘检查。
+    constexpr qint64 margin = 32 * 1024 * 1024;
+    qint64 required = margin;
+    QDirIterator sourceFiles(source, QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
+                             QDirIterator::Subdirectories);
+    while (sourceFiles.hasNext()) {
+        if (cancelled && cancelled()) return fail(QStringLiteral("导入世界已取消或超时。"));
+        sourceFiles.next();
+        const auto info = sourceFiles.fileInfo();
+        if (info.isSymLink() || info.isJunction())
+            return fail(QStringLiteral("世界包含链接，未开始导入。"));
+        if (!info.isFile()) continue;
+        const qint64 size = info.size();
+        if (size < 0 || size > std::numeric_limits<qint64>::max() - required)
+            return fail(QStringLiteral("无法安全计算世界大小，未开始导入。"));
+        required += size;
+    }
+    const QStorageInfo storage(target);
+    const qint64 available = spaceBudgetBytes >= 0
+        ? qMin(storage.bytesAvailable(), spaceBudgetBytes) : storage.bytesAvailable();
+    if (!storage.isValid() || !storage.isReady() || storage.isReadOnly() || available < required)
+        return fail(QStringLiteral("目标磁盘不可写或可用空间不足，未开始导入世界（需要至少 %1 字节，含安全余量）。")
+                        .arg(required));
     QTemporaryDir staging(QDir(target).filePath(QStringLiteral(".wtfml-world-import-XXXXXX")));
     if (!staging.isValid()) return fail(QStringLiteral("无法创建世界导入暂存目录。"));
     const QString candidate = staging.filePath(QStringLiteral("world"));

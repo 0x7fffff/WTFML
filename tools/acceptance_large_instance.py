@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -241,6 +242,9 @@ def main() -> int:
         )
         print(completed.stdout.strip())
         check(completed.returncode == 0, "startup recovery completes after an abnormal exit")
+        recovered = re.search(r"UPGRADE_RECOVER count=(\d+)", completed.stdout)
+        check(recovered is not None and int(recovered.group(1)) > 0,
+              "interruption reached a recoverable journal (zero is not recovery evidence)")
         marker = source / "config" / "user-marker.txt"
         check(marker.is_file() and marker.read_bytes() == b"USER",
               "recovery keeps the original instance and user files")
