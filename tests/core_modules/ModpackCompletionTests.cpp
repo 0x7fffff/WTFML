@@ -81,6 +81,27 @@ void runModpackCompletionTests(const QString &sandbox) {
             writeFileAt(markerPath, "{}");
             check(!finish(), "ZG9 凭据不匹配导入尝试时拒绝收尾", error);
             writeFileAt(markerPath, markerBytes);
+            const QString metaPath = AppPaths::versionMetaPath("completion-test");
+            check(QDir().mkpath(metaPath), "ZG10 目录占住元数据发布位置");
+            check(!finish() && QFileInfo::exists(markerPath) &&
+                      QFileInfo::exists(target + "/mods/manual.jar"),
+                  "ZG10 无原包收尾不能写 meta 时保留文件及启动门禁", error);
+            check(QDir().rmdir(metaPath), "ZG10 清除空元数据目录夹具");
+            const QString reportPath = target + QStringLiteral("/wtfml.import-report.json");
+            check(QFile::rename(reportPath, reportPath + ".held") && QDir().mkpath(reportPath),
+                  "ZG10 目录占住报告发布位置");
+            check(!finish() && QFileInfo::exists(markerPath) && InstanceFiles::isUnfinishedImport("completion-test"),
+                  "ZG10 meta 已发布而报告失败时仍不能启动", error);
+            check(QDir().rmdir(reportPath) && QFile::rename(reportPath + ".held", reportPath),
+                  "ZG10 恢复原报告，不丢缺项信息");
+            const QString proofPath = target + QStringLiteral("/wtfml.import-ready.json");
+            check(QFile::rename(proofPath, proofPath + ".held"), "ZG10 移开阶段凭据");
+            check(!finish() && QFileInfo::exists(markerPath), "ZG10 没有凭据不使用空/完成报告放行", error);
+            check(QDir().mkpath(proofPath), "ZG10 目录占住凭据发布位置");
+            check(!ModpackCompletion::capture(target, root, pack, fingerprint, {}, &error, {}) &&
+                      QFileInfo::exists(markerPath), "ZG10 无法发布凭据时保持未完成", error);
+            check(QDir().rmdir(proofPath) && QFile::rename(proofPath + ".held", proofPath),
+                  "ZG10 恢复原阶段凭据夹具");
             // 模拟提交报告/meta 后、摘最后标记前进程中断；完成报告本身不解除门禁。
             writeFileAt(AppPaths::versionMetaPath("completion-test"), R"({"jvmArgs":["-Dkeep=user-setting"]})");
             check(ModpackInstallReport::write(target, pack, {}, true, &error) &&
