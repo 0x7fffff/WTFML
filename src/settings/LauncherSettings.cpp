@@ -580,5 +580,12 @@ void LauncherSettings::save() const {
     // 立刻落盘。这几项都是"关掉启动器之前必须记住"的状态，不像 GlobalJavaSettings
     // 那样攒到下载 Java 时才写一次；启动器被强杀也不该丢掉上次启动的版本。
     settings.sync();
+    if (settings.status() != QSettings::NoError) {
+        // 基线不推进：下一次改同一项（或者用户再点一次）会重试。把“写失败”当成
+        // “已经写进去”才是更糟的那一种 —— 用户以为设置生效了，重启又变回去。
+        qWarning() << "LauncherSettings: 写入设置失败，未推进已保存基线："
+                   << settings.fileName();
+        return;
+    }
     m_persisted = now;
 }
