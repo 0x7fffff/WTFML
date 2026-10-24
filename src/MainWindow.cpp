@@ -1558,7 +1558,30 @@ MainWindow::MainWindow(QWidget *parent)
         this);
     m_instanceFileController = new InstanceFileController(
         m_ui->overlay(), InstanceFileController::Host{
-            [this](const QString &text) { appendLog(text); }}, this);
+            [this](const QString &text) { appendLog(text); },
+            [this](const QString &path) -> QString {
+                const QString id = instanceIdOfPath(path);
+                if (id.isEmpty()) return QString();
+                if (m_launcherManager != nullptr && m_launcherManager->isVersionRunning(id)) {
+                    return tr("「%1」正在运行。先关掉游戏，再动这里的文件。")
+                        .arg(instanceDisplayName(id));
+                }
+                if (installingVersionIds().contains(id)) {
+                    return tr("「%1」正在被另一项文件操作占用（复制 / 备份 / 还原 / 安装），"
+                              "等它完成后再动这里的文件。")
+                        .arg(instanceDisplayName(id));
+                }
+                return QString();
+            },
+            [this](const QString &path) { return instanceIdOfPath(path); },
+            [this](const QString &id, bool busy) {
+                if (busy) {
+                    markFileOperationBusy(id);
+                } else {
+                    releaseFileOperationBusy(id);
+                }
+            }},
+        this);
     m_instanceTransferController = new InstanceTransferController(
         m_versionManager, m_launcherManager, m_ui->overlay(),
         InstanceTransferController::Host{
@@ -11491,6 +11514,10 @@ void MainWindow::pingServers(InstanceSettingsDialog *dialog, const QString &vers
 
 bool MainWindow::toggleInstanceFile(const QString &path, QString *problem) {
     return m_instanceFileController->toggle(path, problem);
+}
+
+bool MainWindow::toggleInstanceFileForTest(const QString &path, QString *problem) {
+    return toggleInstanceFile(path, problem);
 }
 
 bool MainWindow::overlayAcceptsNewPage() const {
