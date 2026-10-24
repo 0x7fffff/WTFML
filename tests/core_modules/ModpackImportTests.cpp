@@ -66,6 +66,45 @@ void runModpackImportTests(const QString &sandbox) {
         check(wrapped.format == Format::Wrapper && wrapped.innerPackEntry == QStringLiteral("pack.mrpack"),
               "V0 包装压缩包内的 mrpack 可识别");
 
+        // 下面几条钉的是「别的形状被认成了什么」，不加进去的话改一个判据顺序不会有人喊。
+        // ① 世界存档：`level.dat` 就在这一层 ⇒ 是存档，不是懒人包、也不是一堆模组。
+        const auto world = detectArchiveLayout({QStringLiteral("level.dat"),
+                                                QStringLiteral("region/r.0.0.mca"),
+                                                QStringLiteral("session.lock")});
+        check(world.worldSave && !world.modsBundle && world.format == Format::Unknown,
+              "V0 世界存档（根上有 level.dat）认成存档", world.detail);
+        // ② 世界存档套在一层目录里也认得出（commonRootPrefix 那一趟）。
+        const auto wrappedWorld = detectArchiveLayout({QStringLiteral("我的世界/level.dat"),
+                                                       QStringLiteral("我的世界/region/r.0.0.mca")});
+        check(wrappedWorld.worldSave && wrappedWorld.rootPrefix == QStringLiteral("我的世界/"),
+              "V0 套在一层目录里的世界存档也认得出", wrappedWorld.rootPrefix);
+        // ③ `mods/` + `versions/` 一起出现 ⇒ 是真 .minecraft 目录；光有 `mods/` 才是模组合集。
+        const auto modsAndVersions = detectArchiveLayout({QStringLiteral("mods/a.jar"),
+                                                          QStringLiteral("versions/1.20.1/1.20.1.json"),
+                                                          QStringLiteral("versions/1.20.1/1.20.1.jar")});
+        check(modsAndVersions.format == Format::GameFolder && !modsAndVersions.modsBundle,
+              "V0 mods/ 和 versions/ 一起 ⇒ 游戏目录（不是模组合集）", modsAndVersions.detail);
+        // ④ 服务端包即便带着 `options.txt` 也先认成服务端：顺序反过来就会当成客户端懒人包。
+        const auto serverWithOptions = detectArchiveLayout({QStringLiteral("server.properties"),
+                                                            QStringLiteral("options.txt"),
+                                                            QStringLiteral("mods/a.jar")});
+        check(serverWithOptions.serverPack && serverWithOptions.format == Format::Unknown,
+              "V0 服务端包排在游戏目录前面（带 options.txt 也不改口）", serverWithOptions.detail);
+        // ⑤ PCL 那种包装套在一层目录里：根上躺着的 `.mrpack` 照样认得出来。
+        const auto wrappedInDir = detectArchiveLayout({QStringLiteral("整理包/pack.mrpack"),
+                                                       QStringLiteral("整理包/说明.txt")});
+        check(wrappedInDir.format == Format::Wrapper &&
+                  wrappedInDir.innerPackEntry == QStringLiteral("整理包/pack.mrpack"),
+              "V0 套在一层目录里的 PCL 包装也认得出", wrappedInDir.detail);
+        // ⑥ 空归档 / 只有杂项：什么都不认（不建一个空实例，也不说它是模组合集）。
+        for (const QStringList &nothing : {QStringList{}, QStringList{QStringLiteral("readme.txt")},
+             QStringList{QStringLiteral("__MACOSX/._x"), QStringLiteral(".DS_Store")}}) {
+            const auto empty = detectArchiveLayout(nothing);
+            check(!empty.worldSave && !empty.serverPack && !empty.modsBundle &&
+                      empty.format == Format::Unknown,
+                  "V0 认不出形状时什么都不认（不猜）", nothing.join(QLatin1Char(',')));
+        }
+
         const QString root = sandbox + QStringLiteral("/folder-import-fixture");
         const QString source = root + QStringLiteral("/source");
         writeFileAt(source + QStringLiteral("/config/example.json"), "configuration");

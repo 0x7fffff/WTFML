@@ -279,5 +279,88 @@ void runThemeControlsTests() {
               QStringLiteral("预设 %1（该是 %2）")
                   .arg(Theme::current().presetId, themeBefore.presetId));
     }
+
+    // ---------- ⑥ 两份启动器共用同一份主题设置：各改各的，谁也不把对方刚改的那一项打回去 ----------
+    //
+    // 主题以前是**整组清掉重写**（`remove("Theme")` 之后逐项写回）：装在两个目录、同时开着
+    // 的两份启动器各改一项时，后存的那个把对方刚改的抹回自己启动时看到的样子 ——
+    // 计划 P0-2 里记的那条已知边界。现在 `save()` 只写与 `load()` 快照不同的项。
+    //
+    // NOTE: 这里"两个进程"是这么造的 —— 甲用本进程的 `Theme::load()` 拿到快照、`save()`
+    // 落盘；乙那一趟直接用 `QSettings` 往同一个键写（另一份启动器保存时做的事就是这个）。
+    // 整组重写的话第三条必红（念出来是 100）。
+    {
+        sandbox.remove(QStringLiteral("Theme"));
+        sandbox.sync();
+
+        Theme::Spec first = Theme::load();
+        first.accent = QColor(QStringLiteral("#112233"));
+        Theme::save(first);
+        // 每次读都新建一个 `QSettings`（别拿一个对象一直读：它自己那份缓存可能还没刷）。
+        const auto readKey = [](const QString &key) {
+            QSettings reader;
+            return reader.value(key);
+        };
+        check(readKey(QStringLiteral("Theme/Accent")).toString() == QStringLiteral("#ff112233"),
+              "★★ T39.9 甲改的主题色落了盘（`#aarrggbb`）",
+              readKey(QStringLiteral("Theme/Accent")).toString());
+
+        // 乙：另一个安装目录里的那份启动器，它启动时读到的也是上面那一份，
+        // 之后只改「文字不透明度」并保存。
+        {
+            QSettings other;
+            other.setValue(QStringLiteral("Theme/TextOpacity"), 37);
+            other.sync();
+        }
+
+        // 甲再改一项（换预设）并保存：乙刚写的 37 **不许**被打回去。
+        Theme::Spec second = first;
+        second.presetId =
+            second.presetId == QStringLiteral("dark") ? QStringLiteral("light") : QStringLiteral("dark");
+        Theme::save(second);
+        check(readKey(QStringLiteral("Theme/TextOpacity")).toInt() == 37,
+              "★★★ T39.9 甲第二次保存没有把乙刚改的不透明度打回去",
+              readKey(QStringLiteral("Theme/TextOpacity")).toString());
+        check(readKey(QStringLiteral("Theme/Preset")).toString() == second.presetId,
+              "★★ T39.9 甲自己改的那一项照样落了盘（不覆盖 ≠ 不写）",
+              readKey(QStringLiteral("Theme/Preset")).toString());
+
+        // 反方向：乙改主题色、甲改不透明度 —— 两条对称。
+        {
+            QSettings other;
+            other.setValue(QStringLiteral("Theme/Accent"), QStringLiteral("#ff445566"));
+            other.sync();
+        }
+        Theme::Spec third = Theme::load();
+        third.textOpacity = 61;
+        Theme::save(third);
+        check(readKey(QStringLiteral("Theme/Accent")).toString() == QStringLiteral("#ff445566") &&
+                  readKey(QStringLiteral("Theme/TextOpacity")).toInt() == 61,
+              "★★ T39.9 反方向同样互不覆盖",
+              QStringLiteral("主题色=%1 不透明度=%2")
+                  .arg(readKey(QStringLiteral("Theme/Accent")).toString())
+                  .arg(readKey(QStringLiteral("Theme/TextOpacity")).toString()));
+
+        // 「改回默认」还得把那一项**删掉**：不删的话重开一次它又复活（这是原来整组
+        // `remove("Theme")` 干的那件事，逐项写之后得单独守住）。
+        {
+            Theme::Spec withDanger = Theme::load();
+            withDanger.danger = QColor(0x10, 0x20, 0x30);
+            Theme::save(withDanger);
+            check(readKey(QStringLiteral("Theme/Accents/Danger")).isValid(),
+                  "★ T39.9 点名过的语义色写进了 `Theme/Accents/Danger`");
+            Theme::Spec back = Theme::load();
+            back.danger = QColor();  // 用户点了「跟随预设」
+            Theme::save(back);
+            check(!readKey(QStringLiteral("Theme/Accents/Danger")).isValid(),
+                  "★★ T39.9 改回「跟随预设」⇒ 那个键真的从盘上删掉了（不是留着一个旧值）");
+        }
+
+        // 收尾：这一块自己写过的东西一个都不留（`restore()` 已经跑过一遍，这里补第二遍）。
+        sandbox.remove(QStringLiteral("Theme"));
+        sandbox.sync();
+        Theme::setSpec(themeBefore);
+        Theme::apply(*qApp);
+    }
 }
 

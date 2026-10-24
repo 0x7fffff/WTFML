@@ -2210,63 +2210,140 @@ QColor errorTextColor(const QPalette &palette) {
 // 落盘
 // ---------------------------------------------------------------------------
 
+namespace {
+
+/// `load()` 那一刻盘上是什么（只收 `Theme/` 这一组），外加那份配置文件的身份。
+///
+/// 有了它，`save()` 才能只写**这一次真改过的项**：两个安装目录各自改不同的项时，
+/// 后写的那个不会把对方刚改的那一项抹回自己启动时看到的样子（和
+/// `LauncherSettings` / `GlobalJavaSettings` 同一个路数，见
+/// docs/DIRECTORY_SESSION_LOCK.md）。
+struct PersistedThemeValues {
+    QString scope;
+    QHash<QString, QVariant> values;
+};
+
+PersistedThemeValues &persistedThemeValues() {
+    static PersistedThemeValues persisted;
+    return persisted;
+}
+
+/// 配置文件的身份：换了文件（测试换临时目录、`-settings`）基线就得作废。
+QString settingsScope(QSettings &settings) {
+    return settings.fileName() + QLatin1Char('|') + settings.organizationName() +
+           QLatin1Char('|') + settings.applicationName();
+}
+
+const char *const kThemeGroupPrefix = "Theme/";
+
+}  // namespace
+
 void save(const Spec &spec) {
     const Spec clean = normalize(spec);
     QSettings settings;
-    // 先整组清掉再写：上一次设过、这一次没设的那几项要是留着，读回来就会"复活"
-    // （否则把某一项改回默认之后，重开一次它又变回去）。
-    settings.remove(QStringLiteral("Theme"));
-    settings.setValue(QLatin1String(kPresetKey), clean.presetId);
-    settings.setValue(QLatin1String(kTextOpacityKey), clean.textOpacity);
-    settings.setValue(QLatin1String(kAccentKey), colorToString(clean.accent));
+
+    // 先算出"这一次该长什么样"，再和基线逐项比 —— 不再整组清掉重写。
+    QHash<QString, QVariant> desired;
+    desired.insert(QLatin1String(kPresetKey), clean.presetId);
+    desired.insert(QLatin1String(kTextOpacityKey), clean.textOpacity);
+    desired.insert(QLatin1String(kAccentKey), colorToString(clean.accent));
     for (auto it = clean.roles.constBegin(); it != clean.roles.constEnd(); ++it) {
-        settings.setValue(roleSettingKey(static_cast<Role>(it.key())), colorToString(it.value()));
+        desired.insert(roleSettingKey(static_cast<Role>(it.key())), colorToString(it.value()));
     }
     for (auto it = clean.parts.constBegin(); it != clean.parts.constEnd(); ++it) {
         const PartStyle &style = it.value();
         const Part part = static_cast<Part>(it.key());
         if (style.hasBackground) {
-            settings.setValue(partSettingKey(part, "Background"), colorToString(style.background));
+            desired.insert(partSettingKey(part, "Background"), colorToString(style.background));
         }
         if (style.hasForeground) {
-            settings.setValue(partSettingKey(part, "Foreground"), colorToString(style.foreground));
+            desired.insert(partSettingKey(part, "Foreground"), colorToString(style.foreground));
         }
         if (style.textOpacity >= 0) {
-            settings.setValue(partSettingKey(part, "TextOpacity"), style.textOpacity);
+            desired.insert(partSettingKey(part, "TextOpacity"), style.textOpacity);
         }
         if (style.hasImage) {
             // 路径按 `QDir::toNativeSeparators` 写（注册表里能手看）—— 读回来再统一成
             // `/`，见 `load()`。这一来一回是**故意的**：注册表里那串得是 `\`，用户在
             // regedit 里一眼认得出那是自己盘上的哪一条；而这一层内部一律用 `/`。
-            settings.setValue(partSettingKey(part, "Image"),
-                              QDir::toNativeSeparators(style.imagePath));
-            settings.setValue(partSettingKey(part, "ImageFit"), imageFitKey(style.fit));
-            settings.setValue(partSettingKey(part, "ImageOpacity"), style.imageOpacity);
+            desired.insert(partSettingKey(part, "Image"),
+                           QDir::toNativeSeparators(style.imagePath));
+            desired.insert(partSettingKey(part, "ImageFit"), imageFitKey(style.fit));
+            desired.insert(partSettingKey(part, "ImageOpacity"), style.imageOpacity);
             // 用户挑的那张**原来叫什么**：设置页那一行「现在铺的是：…」写的是它，不是我们
             // 存进来那个槽位名（见 `PartStyle::imageName`）。空的不写 —— 读回来是空的就
             // 退回落盘那个文件的名字。
             if (!style.imageName.isEmpty()) {
-                settings.setValue(partSettingKey(part, "ImageName"), style.imageName);
+                desired.insert(partSettingKey(part, "ImageName"), style.imageName);
             }
         }
     }
     if (clean.danger.isValid()) {
-        settings.setValue(accentSettingKey("Danger"), colorToString(clean.danger));
+        desired.insert(accentSettingKey("Danger"), colorToString(clean.danger));
     }
     if (clean.warning.isValid()) {
-        settings.setValue(accentSettingKey("Warning"), colorToString(clean.warning));
+        desired.insert(accentSettingKey("Warning"), colorToString(clean.warning));
     }
     if (clean.ok.isValid()) {
-        settings.setValue(accentSettingKey("Ok"), colorToString(clean.ok));
+        desired.insert(accentSettingKey("Ok"), colorToString(clean.ok));
     }
     if (clean.errorText.isValid()) {
-        settings.setValue(accentSettingKey("ErrorText"), colorToString(clean.errorText));
+        desired.insert(accentSettingKey("ErrorText"), colorToString(clean.errorText));
     }
+
+    PersistedThemeValues &persisted = persistedThemeValues();
+    const QString scope = settingsScope(settings);
+    if (persisted.scope != scope) {
+        // 没有基线（这个进程还没 `load()` 过，或者刚换了配置文件）：退回老规矩 ——
+        // 整组清掉再写，这样"上一次设过、这一次没设"的那几项不会在读回来时复活。
+        // 这一支只在启动早期/测试切文件时走，跨进程互不覆盖那条保证本来就无从谈起。
+        settings.remove(QStringLiteral("Theme"));
+        for (auto it = desired.constBegin(); it != desired.constEnd(); ++it) {
+            settings.setValue(it.key(), it.value());
+        }
+    } else {
+        for (auto it = desired.constBegin(); it != desired.constEnd(); ++it) {
+            const auto prior = persisted.values.constFind(it.key());
+            const bool untouched = prior != persisted.values.constEnd() && prior.value() == it.value();
+            // 没改过的那一项：**盘上有就一个字节都不碰**（别把别的安装目录刚改的抹回去）；
+            // 盘上已经没了（有人整组删了）才补写回来 —— 和以前整组重写时一样。
+            if (untouched && settings.contains(it.key())) {
+                continue;
+            }
+            settings.setValue(it.key(), it.value());
+        }
+        // 上一次设过、这一次没设的项：真要删掉（否则"改回默认"重开一次又复活）。
+        // 但只在盘上还是我们当初看到的那一份时才删 —— 别的进程刚改成另一个值就别插手。
+        for (auto it = persisted.values.constBegin(); it != persisted.values.constEnd(); ++it) {
+            if (desired.contains(it.key()) || !settings.contains(it.key())) {
+                continue;
+            }
+            if (settings.value(it.key()) == it.value()) {
+                settings.remove(it.key());
+            }
+        }
+    }
+    // 盘上现在就是我们想要的样子：基线跟着走，下一次比的是这一份。
+    persisted.scope = scope;
+    persisted.values = desired;
     settings.sync();
 }
 
 Spec load() {
     QSettings settings;
+    // 记账：盘上**现在**是什么（只收 `Theme/` 这一组）。`save()` 靠它分辨"这一项我改过没有"，
+    // 从而只写改过的那几项（见那份结构上面的注释）。读不懂的项也照收 —— 它们同样属于
+    // "启动时就在盘上"的那一批，该删的时候才删得掉。
+    {
+        PersistedThemeValues &persisted = persistedThemeValues();
+        persisted.scope = settingsScope(settings);
+        persisted.values.clear();
+        for (const QString &key : settings.allKeys()) {
+            if (key.startsWith(QLatin1String(kThemeGroupPrefix))) {
+                persisted.values.insert(key, settings.value(key));
+            }
+        }
+    }
     Spec spec = defaultSpec();
     spec.presetId = settings.value(QLatin1String(kPresetKey), spec.presetId).toString();
     spec.accent = tokens(spec.presetId).primary;
