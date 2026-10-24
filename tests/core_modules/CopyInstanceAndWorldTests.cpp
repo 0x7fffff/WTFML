@@ -423,6 +423,94 @@ void runCopyInstanceAndWorldTests() {
         check(readMetaAt(srcDir).value(QStringLiteral("instanceId")).toString() ==
                   QStringLiteral("source-uuid-1111"),
               "ZJ5 源那份 meta 也没被动过");
+        check(!existsAt(destRootPath + QStringLiteral("/versions/.wtfml-staging")),
+              "★★ ZJ5 正常复制完成后暂存层也收掉了（不留一个永远认不出的目录）");
+    }
+    {
+        // 慢盘 / 大半截失败时的底线：目标位置从来没有被写过，所以不存在“删掉用户刚放进去
+        // 的东西”这一步。这里用源里的 junction 让拷树中途必然失败。
+        const QString badId = QStringLiteral("坏源");
+        const QString badDir = makeInstanceDir(sourceRoot.path() + QStringLiteral("/versions"),
+                                               badId, R"({"name":"坏源","instanceId":"bad-uuid"})");
+        const QString outside = scratch.path() + QStringLiteral("/坏源链接那一头");
+        QDir().mkpath(outside);
+        writeFileAt(outside + QStringLiteral("/keep.txt"), QByteArrayLiteral("KEEP"));
+        const QString linkPath = badDir + QStringLiteral("/link");
+        const bool madeLink =
+            QProcess::execute(QStringLiteral("cmd"),
+                              {QStringLiteral("/c"), QStringLiteral("mklink"),
+                               QStringLiteral("/J"), QDir::toNativeSeparators(linkPath),
+                               QDir::toNativeSeparators(outside)}) == 0
+            && QFileInfo(linkPath).isJunction();
+        check(madeLink, "ZJ5 夹具：在坏源里造一根真 junction（mklink /J）");
+        if (madeLink) {
+            QString error;
+            check(!vm.copyInstance(badId, destRootPath, QStringLiteral("坏副本"), &error),
+                  "★★ ZJ5 源里有链接 ⇒ 复制失败", error);
+            check(!existsAt(destRootPath + QStringLiteral("/versions/坏副本")),
+                  "★★★ ZJ5 失败时 versions/ 下不出现半份实例");
+            check(!existsAt(destRootPath + QStringLiteral("/versions/.wtfml-staging")),
+                  "★★★ ZJ5 失败后本次暂存也清掉了");
+            QFile keep(outside + QStringLiteral("/keep.txt"));
+            check(keep.open(QIODevice::ReadOnly) && keep.readAll() == QByteArrayLiteral("KEEP"),
+                  "★★ ZJ5 链接那一头一个字节都没动");
+            QProcess::execute(QStringLiteral("cmd"),
+                              {QStringLiteral("/c"), QStringLiteral("rmdir"),
+                               QDir::toNativeSeparators(linkPath)});
+            QDir().rmdir(badDir);
+        }
+    }
+    {
+        // 慢盘上最危险的那个窗口：拷树跑了几分钟，用户（或另一份启动器）在同样的名字下
+        // 放了东西。旧写法会直接往目标目录里拷，失败时再把整个目录删掉 —— 那一下删的
+        // 就不只是我们的半成品。现在只拷到暂存，发布那一下发现目标已被占用就只清暂存。
+        const QString busyId = QStringLiteral("竞态源");
+        const QString busyDir = makeInstanceDir(sourceRoot.path() + QStringLiteral("/versions"),
+                                                busyId, R"({"name":"竞态源","instanceId":"race-uuid"})");
+        QDir().mkpath(busyDir + QStringLiteral("/data"));
+        for (int i = 0; i < 4000; ++i) {
+            writeFileAt(busyDir + QStringLiteral("/data/%1.bin").arg(i, 5, 10, QLatin1Char('0')),
+                        QByteArray(1024, 'x'));
+        }
+        const QString raceName = QStringLiteral("竞态副本");
+        const QString raceDest = destRootPath + QStringLiteral("/versions/") + raceName;
+        const QString stagingParent = destRootPath + QStringLiteral("/versions/.wtfml-staging");
+        bool sawStaging = false;
+        bool madeDest = false;
+        // 必须用 QThread：在非 Qt 线程里调 QtCore，线程退出时可能去解一个空的
+        // QThreadData TLS（见上面 ZJ3 的说明）。
+        QThread *racer = QThread::create([&] {
+            QElapsedTimer deadline;
+            deadline.start();
+            while (deadline.elapsed() < 10000) {
+                if (QFileInfo::exists(stagingParent)) {
+                    sawStaging = true;
+                    break;
+                }
+                QThread::msleep(1);
+            }
+            if (!sawStaging) return;
+            if (QDir().mkpath(raceDest)) {
+                writeFileAt(raceDest + QStringLiteral("/用户刚写的.txt"),
+                            QByteArrayLiteral("USER"));
+                madeDest = true;
+            }
+        });
+        racer->start();
+        QString error;
+        const bool copied = vm.copyInstance(busyId, destRootPath, raceName, &error);
+        racer->wait();
+        delete racer;
+        check(sawStaging, "ZJ5 夹具：拷树期间真看到了暂存层");
+        check(madeDest, "ZJ5 夹具：另一份确实在拷树期间创建了同名目录");
+        check(!copied && error.contains(QStringLiteral("已经有一个叫")),
+              "★★★ ZJ5 拷树期间目标名字被占用 ⇒ 发布失败、不报成功", error);
+        QFile userFile(raceDest + QStringLiteral("/用户刚写的.txt"));
+        check(userFile.open(QIODevice::ReadOnly) && userFile.readAll() == QByteArrayLiteral("USER"),
+              "★★★ ZJ5 失败清理只删自己的暂存，用户在目标目录里放的东西原样保留");
+        check(!existsAt(stagingParent), "★★ ZJ5 这次失败也没留下暂存层");
+        QDir(raceDest).removeRecursively();
+        QDir(busyDir).removeRecursively();
     }
     {
         // 目标文件夹里还没有 versions/ —— 要自己建出来（用户挑一个从没跑过游戏的新文件夹

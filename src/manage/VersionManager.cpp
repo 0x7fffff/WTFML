@@ -4284,20 +4284,38 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
         return fail(tr("建不出目录 %1。").arg(QDir::toNativeSeparators(versionsDir)));
     }
 
-    // ---------- 第 2 步：拷树 ----------
+    // ---------- 第 2 步：先拷到 versions/ 里的暂存，成功才发布 ----------
     //
-    // 失败时**把自己刚拷出去的那半份删掉**（见 .hpp 里那条 NOTE：为什么和整合包导入那条
-    // 「失败不删半成品」是相反的）。删的是 destDir 这一个我们刚建出来的目录，源一个字节
-    // 都没动过。删不掉也照实说 —— 那是一句"你得自己去删掉它"，不能算复制成功。
+    // 不能直接往 `versions/<新名字>` 里拷：大整合包在慢盘上要拷几分钟，这期间用户（或者
+    // 另一份启动器）可能在那个名字下放了东西；拷到一半失败时再把整个 destDir 删掉，就会
+    // 把不是我们写的东西一起删了。暂存放成 `versions/.wtfml-staging/<uuid>`：
+    // · 和 destDir 在同一卷（`versions/` 自己可能是 junction，挂到另一块盘上，所以
+    //   暂存不能放 cache/），发布是原子改名；
+    // · 那一层没有顶层 jar / json，`installedVersions()` 不会把它当成实例列出来。
+    // 失败只清暂存；destDir 从头到尾只由最后一次改名创建。
+    const QString stagingParent = versionsDir + QStringLiteral("/.wtfml-staging");
+    const QFileInfo stagingParentInfo(stagingParent);
+    if (stagingParentInfo.isJunction() || stagingParentInfo.isSymLink()) {
+        return fail(tr("暂存目录 %1 是一根链接，没有往那里拷副本。")
+                        .arg(QDir::toNativeSeparators(stagingParent)));
+    }
+    if (!QDir().mkpath(stagingParent)) {
+        return fail(tr("建不出暂存目录 %1。").arg(QDir::toNativeSeparators(stagingParent)));
+    }
+    const QString stagingDir = stagingParent + QLatin1Char('/') + newInstanceId();
+    // 删的只能是**本次自己刚建出来的暂存**（见 .hpp 里那条 NOTE：为什么和整合包导入那条
+    // 「失败不删半成品」是相反的）。目标位置一个字节都没动过。删不掉也照实说 ——
+    // 那是一句"你得自己去删掉它"，不能算复制成功。
     const auto removePartial = [&]() -> QString {
-        if (!removeTreeWithoutFollowingLinks(destDir)) {
-            return tr("\n（另外，那份没拷完的 %1 也没能删掉，你需要自己删掉它。）")
-                .arg(QDir::toNativeSeparators(destDir));
+        if (!removeTreeWithoutFollowingLinks(stagingDir)) {
+            return tr("\n（另外，那份没拷完的暂存 %1 也没能删掉，你需要自己删掉它。）")
+                .arg(QDir::toNativeSeparators(stagingDir));
         }
+        QDir().rmdir(stagingParent);  // 空了就一起收掉；还有别的拷贝在用时失败也无妨
         return QString();
     };
 
-    if (!copyTreeWithoutFollowingLinks(sourceDir, destDir)) {
+    if (!copyTreeWithoutFollowingLinks(sourceDir, stagingDir)) {
         return fail(tr("复制 %1 的时候中断了，这一份没有做出来。%2")
                         .arg(QDir::toNativeSeparators(sourceDir), removePartial()));
     }
@@ -4312,8 +4330,8 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
     // 同一个文件（Windows 的路径比较本来就不区分大小写），那种改名是合法的。
     // 这里的 renameOnto 落到的是**刚拷出来的那一份**里，不是源。
     const auto moveInCopy = [&](const QString &suffix, const QString &oldName) -> bool {
-        const QString from = destDir + QLatin1Char('/') + oldName;
-        const QString to = destDir + QLatin1Char('/') + name + suffix;
+        const QString from = stagingDir + QLatin1Char('/') + oldName;
+        const QString to = stagingDir + QLatin1Char('/') + name + suffix;
         if (from.compare(to, Qt::CaseSensitive) == 0 || !QFile::exists(from)) {
             // 名字一样（副本叫原来的名）或者这一份本来就没有那个文件（比如只有 json、
             // 没有 jar 的半成品）—— 都不是错误，什么都不用做。
@@ -4360,7 +4378,7 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
     // 目标在别的游戏文件夹里，所以这一句不能走 updateVersionMeta()（它算的是**当前**
     // 数据目录下的路径）—— 只有那个文件名从 AppPaths 问，其余自己拼。
     {
-        const QString metaPath = destDir + QLatin1Char('/') + AppPaths::versionMetaFileName();
+        const QString metaPath = stagingDir + QLatin1Char('/') + AppPaths::versionMetaFileName();
         bool unreadable = false;
         QJsonObject meta;
         QFile metaFile(metaPath);
@@ -4397,6 +4415,20 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
                             .arg(QDir::toNativeSeparators(metaPath), removePartial()));
         }
     }
+
+    // ---------- 第 5 步：发布 ----------
+    // 发布前再问一次盘：慢盘上拷了几分钟，这个名字可能已经被用户或另一份启动器占用了。
+    // 那时只清暂存，绝不碰对方那个目录。
+    if (QFileInfo::exists(destDir)) {
+        return fail(tr("复制完成时，那个游戏文件夹里已经有一个叫「%1」的实例了；"
+                       "这一份没有发布。%2")
+                        .arg(name, removePartial()));
+    }
+    if (!QDir().rename(stagingDir, destDir)) {
+        return fail(tr("复制完成，但没能把副本发布到 %1（它可能正被别人占着）。%2")
+                        .arg(QDir::toNativeSeparators(destDir), removePartial()));
+    }
+    QDir().rmdir(stagingParent);  // 空了就一起收掉；还有别的拷贝在用时失败也无妨
 
     // 新目录要是有缓存（同名的那一份刚刚被读过），那是**另一份**的缓存。
     versionJsons.remove(name);
