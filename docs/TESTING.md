@@ -90,6 +90,32 @@ CI 的 `-Modules 'upgrade,ui,app'` 是测试名与所属分区的交集，不会
 CTest 注册同时生成 test-targets.txt；运行器先选测试，再按归属构建独立目标。
 脚本测试无需构建 C++；未知/共用改动仍扩大范围，不承诺未经远端测量的加速比例。
 
+## 人工验收探针（不进 CTest）
+
+这两个脚本需要真机环境，故意不登记到 CTest；常规回归仍以临时目录夹具为主。
+
+```powershell
+# 真实产品双进程：第二个窗口必须被拒绝（需要交互式 Windows 桌面）
+python tools/acceptance_directory_boundary.py `
+  --exe build/verify/WTFMinecraftLauncher.exe `
+  --qt-bin D:/Qt/6.10.1/mingw_64/bin
+
+# 大实例复制 / 文件占用 / 升级取消 / 异常退出恢复
+# 把 --work-dir 指到慢盘，并用真实杀毒软件实时扫描，才是完整慢盘验收。
+python tools/acceptance_large_instance.py `
+  --verify-exe build/verify/tests/verify_instances.exe `
+  --qt-bin D:/Qt/6.10.1/mingw_64/bin `
+  --work-dir E:/wtfml-acceptance --payload-mb 1024 --files 6000
+```
+
+`verify_instances` 的 `--large-copy` / `--large-upgrade-cancel` / `--upgrade-recover`
+是上面第二个脚本使用的探针入口；直接运行 `verify_instances` 不带参数仍然只跑常规回归。
+
+本机 2026-10-24 实跑（1 GiB 单文件 + 6000 个小文件，普通 NTFS，不是慢盘）：大复制 3.61 秒；
+文件独占（模拟杀毒/占用）失败 3.92 秒且不发布半成品；升级取消请求后 0.23 秒停下，原实例和
+用户文件完整；kill 后恢复 0.03 秒。全部断言通过。真实慢盘和杀毒实时扫描仍应在发布机复跑。
+真实双进程脚本同一天实跑 10/10 通过（第二个进程停在拒绝对话框、以 1 退出，日志未被截断）。
+
 ## 测试代码的模块边界
 
 - tests/core_modules/：81 个原命名用例函数，各一个 .cpp；按下载、安装、实例、Java、账号、资源、

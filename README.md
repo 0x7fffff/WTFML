@@ -47,6 +47,9 @@ cmake --build build/static-release -j
 | 启动器状态、账户表 | `HKCU\Software\WTFML`（令牌是 DPAPI 加密后落盘的） |
 | 图标 / 主题图 / 备份等缓存 | `<数据目录>/cache/` |
 
+同一个数据目录同时只允许一个启动器窗口。第二个进程在写日志、开主窗口之前就会被拒绝并退出；
+边界细节见 [docs/DIRECTORY_SESSION_LOCK.md](docs/DIRECTORY_SESSION_LOCK.md)。
+
 GUI 子系统下面**没人看得见 stdout / stderr**，那份日志文件就是“当时到底发生了什么”的
 第一现场；想让日志同时进终端就设 `QT_FORCE_STDERR_LOGGING=1`。
 
