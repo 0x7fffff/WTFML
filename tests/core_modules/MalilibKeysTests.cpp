@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include <QProcess>
 
 void runMalilibKeysTests() {
     section("PF. MaLiLib 那一族的热键：认、合、覆盖");
@@ -726,6 +727,68 @@ void runMalilibKeysTests() {
               "★★ PF9 「合并」那一档对它的说法说的是人话：这一份的结构我们认得、要搬它的热键得"
               "用。模组热键。那一段 —— 而不是「我们认不出它的结构」（那句话在这一份上是假的）",
               malilibReason);
+    }
+
+    section("PF10. 路上有一层是链接（junction）：读说清楚、写一格都不穿透");
+    {
+        // ★ 这一条要的是 `pathHasLinkComponent()` 判的**中间那层**：目标上最后那一份
+        // `config/malilib.json` **自己不是链接**（`isLink(目标)` 看它完全正常），危险的是
+        // `config` 整根指着外面 —— `mkpath` 对着一根已经存在的 junction 回 true，`QSaveFile`
+        // 顺着它就把字节写到了链接那一头。名字那两道闸（逐段判字符）也看不出来。
+        //
+        // 用户真会这么摆：`config` 用 `mklink /J` 指到另一个盘上的共享目录（省空间、
+        // 或者几个实例共用一份配置）。这不是"用户搞坏了"，是常见摆法 —— 所以我们
+        // **不动它**、也不假装没看见（读那一趟要把它说成这一份自己的 problem）。
+        const QString linkRoot = scratch.filePath(QStringLiteral("链接实例"));
+        const QString outside = scratch.filePath(QStringLiteral("外面"));
+        QDir().mkpath(linkRoot);
+        QDir().mkpath(outside);
+        const QByteArray outsideBytes = QByteArrayLiteral(
+            "{\n  \"config_version\": 1,\n  \"GenericHotkeys\": {\n"
+            "    \"ToggleHud\": { \"keys\": \"M,N\" }\n"
+            "  },\n  \"Visuals\": { \"RenderLines\": true }\n}\n");
+        check(writeBytesAt(outside + QStringLiteral("/malilib.json"), outsideBytes),
+              "★ PF10 前提：链接那一头摆着一份真配置");
+        const QString linkConfig = linkRoot + QStringLiteral("/config");
+        const bool madeLink =
+            QProcess::execute(QStringLiteral("cmd"),
+                              {QStringLiteral("/c"), QStringLiteral("mklink"), QStringLiteral("/J"),
+                               QDir::toNativeSeparators(linkConfig),
+                               QDir::toNativeSeparators(outside)}) == 0
+            && QFileInfo(linkConfig).isJunction();
+        check(madeLink, "★ PF10 前提：真造出一根 junction（`<实例>/config` → 外面，mklink /J）");
+        if (madeLink) {
+            QString linkProblem;
+            // ① 读那一趟：这一份带着 problem、`present` 留 false —— 「说清楚」不是
+            // "当作这份文件不存在"（后者会走到"目标上没有，跳过"那条正常路上）。
+            const Presets::MalilibTarget linkTarget = Presets::malilibReadTarget(
+                linkRoot, QStringList{QStringLiteral("malilib")}, &linkProblem);
+            check(linkProblem.isEmpty() && linkTarget.files.size() == 1 &&
+                      !linkTarget.files.at(0).present &&
+                      linkTarget.files.at(0).problem.contains(QStringLiteral("链接")),
+                  "★★ PF10 读那一趟把「这条路中间有一层链接」说成这一份自己的 problem",
+                  linkTarget.files.isEmpty() ? linkProblem : linkTarget.files.at(0).problem);
+
+            // ② 写那一趟：一格都不写，而且链接那一头的字节一个字都不变。
+            const Presets::MalilibApplyReport through =
+                Presets::applyMalilibToInstance(linkRoot, presetEntries,
+                                                Presets::ApplyMode::Merge, false);
+            check(through.written == 0 && through.skipped == presetEntries.size() &&
+                      through.details.join(QLatin1Char('\n')).contains(QStringLiteral("链接")),
+                  "★★★ PF10 写那一趟：全会话一格没写（全算「跳过」），人话里点明是链接",
+                  QStringLiteral("写 %1 / 跳过 %2：%3")
+                      .arg(through.written)
+                      .arg(through.skipped)
+                      .arg(through.details.join(QLatin1Char('|'))));
+            check(readBytesAt(outside + QStringLiteral("/malilib.json")) == outsideBytes,
+                  "★★★ PF10 链接那一头**一个字节都没动**（穿透的话这一份会被改写成合并后的样子）");
+
+            // ③ 收尾：链接本体只能 rmdir（删除链接，不跟着删那一头）—— scratch 的
+            // `removeRecursively()` 会顺着 junction 往下走（见 ZJ3 那条 NOTE）。
+            QProcess::execute(QStringLiteral("cmd"),
+                              {QStringLiteral("/c"), QStringLiteral("rmdir"),
+                               QDir::toNativeSeparators(linkConfig)});
+        }
     }
 }
 

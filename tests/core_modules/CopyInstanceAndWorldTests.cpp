@@ -3,9 +3,9 @@
 #include "tasks/TaskHistory.hpp"
 #include "manage/LaunchHistory.hpp"
 #include <atomic>
-#include <thread>
 #include <vector>
 #include <QProcess>
+#include <QThread>
 
 void runCopyInstanceAndWorldTests() {
     const QString originalDir = AppPaths::minecraftDir();
@@ -108,13 +108,17 @@ void runCopyInstanceAndWorldTests() {
               "ZJ3 同进程重复取得目录锁是幂等的", problem);
         check(problem.isEmpty(), "ZJ3 取得锁成功清除之前的错误信息");
         {
+            // 必须是 QThread，不能换回 std::thread：非 Qt 线程里调 QtCore，线程退出时
+            // Qt6Core+0x255fbc 会去解一个空的 QThreadData TLS（0xC0000005，WER 落盘但进程
+            // 不终止）。实测同一段代码 std::thread 2400 个线程落 10 份转储、QThread 0 份。
             std::atomic<int> acquired{0};
-            std::vector<std::thread> workers;
+            std::vector<QThread *> workers;
             const QString concurrentRoot = scratch.path() + QStringLiteral("/concurrent-lock");
-            for (int i = 0; i < 8; ++i) workers.emplace_back([&] {
+            for (int i = 0; i < 8; ++i) workers.push_back(QThread::create([&] {
                 if (acquire(concurrentRoot)) ++acquired;
-            });
-            for (auto &worker : workers) worker.join();
+            }));
+            for (auto *worker : workers) worker->start();
+            for (auto *worker : workers) { worker->wait(); delete worker; }
             check(acquired == 8 && held.contains(keyFor(concurrentRoot)),
                   "ZJ3 并发取得同目录锁不误报自身冲突且保留到退出");
             held.remove(keyFor(concurrentRoot));
@@ -124,6 +128,36 @@ void runCopyInstanceAndWorldTests() {
         check(!contender.tryLock(0), "ZJ3 已持有的目录锁拒绝第二个锁持有者");
         check(keyFor(saves + QStringLiteral("/../saves/")) == key,
               "ZJ3 路径别名不能绕过目录锁");
+        // 大小写与盘符写法：Windows 上这就是同一个目录，别名不能变成第二把锁。
+        // （canonicalFilePath 解不解得掉大小写都不影响这一条：解不掉时 keyFor 自己
+        // 还会 toCaseFolded()。）
+        check(keyFor(saves.toUpper()) == key,
+              "★ ZJ3 全大写写法（盘符 + 路径）也是同一把锁",
+              keyFor(saves.toUpper()));
+        // junction：一根指着数据目录的目录联接。`canonicalFilePath()` **不**解 junction
+        // （见 ZJ5 的前置事实），keyFor 靠 InstanceFiles::canonicalPath() 里那一轮
+        // resolveJunctions() 才认得出"这是同一条路径"—— 否则从链接那头进来的第二份
+        // 启动器会以为目录没人占。
+        const QString lockAliasHost = scratch.path() + QStringLiteral("/锁别名宿主");
+        QDir().mkpath(lockAliasHost);
+        const QString lockAlias = lockAliasHost + QStringLiteral("/指到存档");
+        const bool madeLockAlias =
+            QProcess::execute(QStringLiteral("cmd"),
+                              {QStringLiteral("/c"), QStringLiteral("mklink"), QStringLiteral("/J"),
+                               QDir::toNativeSeparators(lockAlias),
+                               QDir::toNativeSeparators(saves)}) == 0
+            && QFileInfo(lockAlias).isJunction();
+        check(madeLockAlias, "★ ZJ3 先造出一根真 junction 指着数据目录（mklink /J）");
+        if (madeLockAlias) {
+            check(keyFor(lockAlias) == key,
+                  "★★ ZJ3 经 junction 走进来的同一条路径还是同一把锁（别名绕不过去）",
+                  keyFor(lockAlias));
+            // 链接本体必须用 rmdir 删：scratch 的 removeRecursively() 会**跟着**链接
+            // 往下删，那会把 saves 里刚造的世界也删掉（见 ZJ5 那条 NOTE）。
+            QProcess::execute(QStringLiteral("cmd"),
+                              {QStringLiteral("/c"), QStringLiteral("rmdir"),
+                               QDir::toNativeSeparators(lockAlias)});
+        }
         held.remove(key);
         check(contender.tryLock(0), "ZJ3 释放后目录锁可重新取得");
         enabled = wasEnabled;

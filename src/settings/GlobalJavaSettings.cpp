@@ -690,19 +690,46 @@ void GlobalJavaSettings::load() {
     // 提醒总闸：没有这个键（老配置）就落到成员默认值 true ——
     // 这类不匹配一律提醒。
     m_warnVersionMismatch = settings.value(kWarnVersionMismatch, m_warnVersionMismatch).toBool();
+
+    // 从这一刻起，"盘上该是什么"就是这一份。save() 只写与它不同的项 —— 全局设置
+    // 是几份启动器共用的注册表，整份写回会把别人刚改的一项打回去（见 .hpp 里那条 NOTE）。
+    // 放在最后：前面归一化（钳位、手改坏值的兜底）都已经落进成员了。
+    m_persisted = persistedValues();
+}
+
+QVariantMap GlobalJavaSettings::persistedValues() const {
+    // 键名 → 值，和以前 save() 里那张逐条 setValue 的表一一对应。
+    QVariantMap values;
+    values.insert(QString::fromLatin1(kJavaPath), m_javaPath);
+    values.insert(QString::fromLatin1(kXmx), QVariant(m_xmx));
+    values.insert(QString::fromLatin1(kXms), QVariant(m_xms));
+    values.insert(QString::fromLatin1(kExtraArgs), m_extraJvmArgs);
+    values.insert(QString::fromLatin1(kAutoSelect), QVariant(m_autoSelectJava));
+    values.insert(QString::fromLatin1(kMemoryAuto), QVariant(m_memoryAuto));
+    values.insert(QString::fromLatin1(kManualXmx), QVariant(m_manualXmx));
+    values.insert(QString::fromLatin1(kManualXms), QVariant(m_manualXms));
+    values.insert(QString::fromLatin1(kWarnVersionMismatch), QVariant(m_warnVersionMismatch));
+    return values;
 }
 
 void GlobalJavaSettings::save() const {
+    const QVariantMap now = persistedValues();
     QSettings settings;
-    settings.setValue(kJavaPath, m_javaPath);
-    settings.setValue(kXmx, m_xmx);
-    settings.setValue(kXms, m_xms);
-    settings.setValue(kExtraArgs, m_extraJvmArgs);
-    settings.setValue(kAutoSelect, m_autoSelectJava);
-    settings.setValue(kMemoryAuto, m_memoryAuto);
-    settings.setValue(kManualXmx, m_manualXmx);
-    settings.setValue(kManualXms, m_manualXms);
-    settings.setValue(kWarnVersionMismatch, m_warnVersionMismatch);
+    bool wroteAnything = false;
+    for (auto it = now.cbegin(); it != now.cend(); ++it) {
+        // 只写本进程真改过的那几项；没动过的一项都不碰盘（那一项可能是另一份启动器
+        // 刚改过的，见 .hpp 里那条 NOTE）。
+        if (m_persisted.value(it.key()) == it.value()) {
+            continue;
+        }
+        settings.setValue(it.key(), it.value());
+        wroteAnything = true;
+    }
+    if (!wroteAnything) {
+        return;
+    }
+    // QSettings 析构时会 sync()；这里保持原来的"函数返回即落盘"。
+    m_persisted = now;
 }
 
 void GlobalJavaSettings::setWarnVersionMismatch(bool warn) {

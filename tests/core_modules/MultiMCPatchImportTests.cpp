@@ -1,5 +1,6 @@
 #include "Support.hpp"
 #include "launcher/LibraryRules.hpp"
+#include <QProcess>
 
 void runMultiMCPatchImportTests(const QString &sandbox) {
     section("MultiMC declarative patches / bundled libraries");
@@ -51,6 +52,37 @@ void runMultiMCPatchImportTests(const QString &sandbox) {
     check(!convert(changed, files).ok, "Missing component patch blocks installation");
     auto bad = result.pack; bad.bundledLibraries[0].path = "../../outside.jar";
     check(!ModpackImport::publishBundledLibraries(bad, root, &error), "Local library cannot escape data directory");
+
+    // ★ 路径上**中间那一层**是链接：`<数据根>/libraries` 整根是一根 junction，指着外面。
+    // `isSafeRelativePath()` 与 `pathIsSameOrInside()` 判的都是字面那条路径（`libraries/...`
+    // 好得很），能让它停下的只有 `pathHasLinkComponent()`。用户把 `libraries/` 指到另一个盘
+    // 是常见摆法，但那不是"这一份整合包的库"，不能顺着它写进去。
+    {
+        const QString linkRoot = sandbox + QStringLiteral("/patched-runtime-link");
+        const QString outside = sandbox + QStringLiteral("/patched-runtime-outside");
+        QDir().mkpath(linkRoot);
+        QDir().mkpath(outside);
+        const QString linkLibraries = linkRoot + QStringLiteral("/libraries");
+        const bool madeLink =
+            QProcess::execute(QStringLiteral("cmd"),
+                              {QStringLiteral("/c"), QStringLiteral("mklink"), QStringLiteral("/J"),
+                               QDir::toNativeSeparators(linkLibraries),
+                               QDir::toNativeSeparators(outside)}) == 0
+            && QFileInfo(linkLibraries).isJunction();
+        check(madeLink, "Bundled library: a real junction is in place (`<root>/libraries` → outside)");
+        if (madeLink) {
+            QString linkError;
+            check(!ModpackImport::publishBundledLibraries(result.pack, linkRoot, &linkError) &&
+                      !linkError.isEmpty(),
+                  "Bundled library never writes through a junction on the way", linkError);
+            check(!QFileInfo::exists(outside + QStringLiteral("/test/runtime/1/runtime-1.jar")),
+                  "The junction target received nothing");
+            // 链接本体只能 rmdir（删除链接，不跟着删那一头）。
+            QProcess::execute(QStringLiteral("cmd"),
+                              {QStringLiteral("/c"), QStringLiteral("rmdir"),
+                               QDir::toNativeSeparators(linkLibraries)});
+        }
+    }
 
     // Exercise the real import state machine with file-backed original metadata,
     // including rejection of a patch that swaps the official client hash.

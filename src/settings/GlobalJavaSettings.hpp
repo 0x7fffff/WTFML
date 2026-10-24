@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QVariantMap>
 
 #include "../util/SystemMemory.hpp"
 #include "EffectiveJavaSettings.hpp"
@@ -382,10 +383,27 @@ public:
 
     /**
      * @brief Saves current Java settings persistently.
+     *
+     * NOTE: 和 `LauncherSettings::save()` 同一条规矩 —— **只写本进程改过的那几项**，
+     * 没动过的一项都不碰。全局设置那棵注册表是按机器共用的：装在两个不同目录的启动器
+     * 可以同时开着，整份写回会把另一份刚改的 Java 路径 / 内存打回自己启动时读到的旧值。
+     * 哪几项动过由 `load()` 留下的快照比出来（见 .cpp 里 `persistedValues()`）。
      */
     void save() const;
 
 private:
+    /**
+     * @brief 当前可持久化的那几项，**按写进 QSettings 的形态**摆成一份表。
+     *
+     * 键名 → 值映射的唯一出处：`load()` 用它记快照，`save()` 拿它逐项比、只写变了的。
+     * 两边共用一份表，就不会出现"save() 里漏一个键、那一项永远存不下来"。
+     */
+    QVariantMap persistedValues() const;
+
+    /// `load()` 读完之后（= 上次落盘）那一份值。`save()` 逐项与它比，只写不同项。
+    /// mutable：`save()` 是 const，但写完要把快照推进到新值。
+    mutable QVariantMap m_persisted;
+
     QString m_javaPath;
     int m_xmx;
     int m_xms;

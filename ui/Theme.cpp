@@ -28,6 +28,7 @@
 #include <QStyleFactory>
 #include <QStyleHints>
 #include <QStyleOptionComboBox>
+#include <QTimer>
 #include <QToolButton>
 #include <QWidget>
 
@@ -1137,11 +1138,73 @@ QString iconButtonSizeValue() {
     return QString::fromLatin1(kIconButtonValue);
 }
 
+namespace {
+const char kPinnedIconKeeperName[] = "wtfmlPinnedIconSizeKeeper";
+
+/**
+ * @brief 图标档按钮"钉死的边长"的补钉：`setFixedSize()` 钉好的最小高度会被应用级 QSS
+ *        的 `min-height`（polish 那一趟，content-box ⇒ 还要加 padding/border）改回 QSS
+ *        那一档，而 polish **不发** StyleChange，`follow()` 收不到 ⇒ 下一次布局就把
+ *        64x24 摆成 64x19（min 14 / max 24，ui_check W14 偶发就是这样）。
+ *
+ *        补钉分两步：事件上先钉一次（这一帧就摆正），再排一发 0 毫秒的定时器 ——
+ *        QSS 重铺是**同一趟里随后**发生的（Show 之后还会来一发 PolishRequest /
+ *        PaletteChange），当场钉好的那一下会被它再打回去。实测只钉事件不收尾的话
+ *        `processEvents()` 回来又变回 14。
+ *
+ *        没钉过（最大值仍是 QWIDGETSIZE_MAX）的按钮一概不动。
+ */
+class PinnedIconKeeper : public QObject {
+public:
+    explicit PinnedIconKeeper(QWidget *button) : QObject(button), m_button(button) {
+        setObjectName(QString::fromLatin1(kPinnedIconKeeperName));
+        button->installEventFilter(this);
+        m_rearm.setInterval(0);
+        m_rearm.setSingleShot(true);
+        connect(&m_rearm, &QTimer::timeout, this, [this]() { applyPinnedSize(); });
+    }
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        Q_UNUSED(watched);
+        switch (event->type()) {
+        case QEvent::Show:
+        case QEvent::StyleChange:
+        case QEvent::Polish:
+        case QEvent::PolishRequest:
+        case QEvent::PaletteChange:
+        case QEvent::ApplicationPaletteChange:
+            applyPinnedSize();
+            m_rearm.start();
+            break;
+        default:
+            break;
+        }
+        return false;
+    }
+
+private:
+    void applyPinnedSize() {
+        const QSize pinned = m_button->maximumSize();
+        if (pinned.width() < QWIDGETSIZE_MAX && pinned.height() < QWIDGETSIZE_MAX) {
+            m_button->setFixedSize(pinned);
+        }
+    }
+
+    QWidget *m_button;
+    QTimer m_rearm;
+};
+} // namespace
+
 void markIconButton(QWidget *button) {
     if (button == nullptr) {
         return;
     }
     button->setProperty(kButtonSizeProperty, QString::fromLatin1(kIconButtonValue));
+    if (button->findChild<QObject *>(QString::fromLatin1(kPinnedIconKeeperName),
+                                     Qt::FindDirectChildrenOnly) == nullptr) {
+        new PinnedIconKeeper(button);
+    }
 }
 
 QString chipStyleSheet(const QPalette &palette) {

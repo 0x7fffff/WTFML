@@ -273,6 +273,39 @@ int runMemorySuggestionTests(const QString &sandbox) {
             check(reopened.autoMemory(), "L3 新版本读回来就是自动档");
         }
 
+        // ---- L4: 两份启动器共用同一份全局 Java 设置：各改各的，互不覆盖 ----
+        // 和 ZD6 同一个场景（计划里 P0-2 那一半）：全局设置那棵注册表按机器共用，
+        // 各安装目录的两份启动器同时开着时，整份写回会把对方刚改的一项打回去。
+        // 这里甲只改 Java 路径、乙只改内存，两个方向各验一次。
+        section("L4 两份启动器共用全局设置：各改各的，谁也不把对方刚改的那一项打回去");
+        {
+            QSettings raw;
+            raw.clear();
+            raw.sync();
+
+            // 甲、乙都在**任何一次保存之前**读盘（两份快照都已经在内存里）。
+            GlobalJavaSettings first;
+            GlobalJavaSettings second;
+
+            first.setJavaPath(QStringLiteral("D:/Java/jdk21/bin/java.exe"));
+            first.save();
+            // 乙这时还不知道甲改了路径（它的快照还是启动时那份空的），只改内存。
+            second.setXmx(6144);
+            second.save();
+
+            GlobalJavaSettings probe;
+            check(probe.javaPath() == QStringLiteral("D:/Java/jdk21/bin/java.exe"),
+                  "★★ L4 乙保存它那一项时，没有把甲刚改的 Java 路径打回去",
+                  probe.javaPath());
+            check(probe.xmx() == 6144,
+                  "★★ L4 甲保存时也没有把乙的内存打回去",
+                  QString::number(probe.xmx()));
+
+            // 收尾：清成空配置，别给后面（或以后加的）断言留值。
+            raw.clear();
+            raw.sync();
+        }
+
         QSettings::setDefaultFormat(QSettings::NativeFormat);
         QDir(settingsDir).removeRecursively();
     }

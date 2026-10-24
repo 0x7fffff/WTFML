@@ -505,41 +505,80 @@ void LauncherSettings::load() {
         qWarning() << "LauncherSettings: QSettings 状态异常，设置可能存不下来（组织名/应用名没设？），"
                       "status =" << settings.status();
     }
+
+    // 从这一刻起，"盘上该是什么"就是这一份。save() 只写与它不同的项（见 .hpp 里那条
+    // NOTE：全局设置是几份启动器共用的，整份写回会把别人刚改的一项打回去）。
+    // 放在 load() 的**最后**：前面所有归一化（钳位、认不出来的档位退回默认）都已经
+    // 落进成员了，快照就该记"归一化之后的值"，不能记盘上那个原始串 —— 否则第一次
+    // save() 会把一个本进程没动过的项当成"改过了"重写一遍。
+    m_persisted = persistedValues();
+}
+
+QVariantMap LauncherSettings::persistedValues() const {
+    // 键名 → 值，**和 save() 以前那张逐条 setValue 的表一一对应**（顺序不同不要紧：
+    // QVariantMap 自带排序，而且写的是一次一项）。值都是写进 QSettings 的最终形态：
+    // 枚举已经翻成记号串、宽高与标题已经钳过 —— 比较的是"盘上该有的那份"，
+    // 不是成员里还没归一化的原始值。
+    QVariantMap values;
+    values.insert(QString::fromLatin1(kLastLaunched), m_lastLaunchedVersion);
+    values.insert(QString::fromLatin1(kHomeFavoriteCount), QVariant(m_homeFavoriteCount));
+    values.insert(QString::fromLatin1(kHomeRecentCount), QVariant(m_homeRecentCount));
+    values.insert(QString::fromLatin1(kFolders), m_folders);
+    values.insert(QString::fromLatin1(kCurrentFolder), m_currentFolder);
+    values.insert(QString::fromLatin1(kFolderNames), m_folderNames);
+    values.insert(QString::fromLatin1(kAfterLaunch), behaviourKey(m_launcherBehaviour));
+    values.insert(QString::fromLatin1(kDownloadSource), downloadSourceKey(m_downloadSource));
+    values.insert(QString::fromLatin1(kDownloadConcurrency), QVariant(m_downloadConcurrency));
+    values.insert(QString::fromLatin1(kDownloadSpeedLimit), QVariant(m_downloadSpeedLimit));
+    values.insert(QString::fromLatin1(kProxyMode), DownloadProxy::modeKey(m_proxyMode));
+    values.insert(QString::fromLatin1(kProxyManual), m_proxyManualText);
+    values.insert(QString::fromLatin1(kDownloadAutoIntoInstance),
+                  QVariant(m_downloadAutoIntoInstance));
+    values.insert(QString::fromLatin1(kWarnMissingDependencies),
+                  QVariant(m_warnMissingDependencies));
+    values.insert(QString::fromLatin1(kShowGameLog), QVariant(m_showGameLog));
+    values.insert(QString::fromLatin1(kGameWindowWidth), QVariant(clampWindowWidth(m_gameWindowWidth)));
+    values.insert(QString::fromLatin1(kGameWindowHeight),
+                  QVariant(clampWindowHeight(m_gameWindowHeight)));
+    values.insert(QString::fromLatin1(kGameWindowMode), gameWindowModeToken(m_gameWindowMode));
+    values.insert(QString::fromLatin1(kProcessPriority), processPriorityKey(m_processPriority));
+    values.insert(QString::fromLatin1(kTitleText), clampTitleText(m_titleText));
+    values.insert(QString::fromLatin1(kWarnDuplicateLaunch), QVariant(m_warnDuplicateLaunch));
+    values.insert(QString::fromLatin1(kWarnWorldLoss), QVariant(m_warnWorldLoss));
+    values.insert(QString::fromLatin1(kCurseForgeApiKey), m_curseForgeApiKey);
+    // NOTE: `kCurseForgeApiBase` / `kModrinthApiBase` / 那四个地址覆盖**刻意不在这里** ——
+    // 那几个键是验证工程的口子，产品一写就等于把用户自己指的地址抹掉（见 .hpp 里那条 NOTE）。
+    values.insert(QString::fromLatin1(kNameShowCustom),
+                  QVariant(m_versionNameOptions.showCustomName));
+    values.insert(QString::fromLatin1(kNameShowReal), QVariant(m_versionNameOptions.showRealVersion));
+    values.insert(QString::fromLatin1(kNameShowLoaderName),
+                  QVariant(m_versionNameOptions.showLoaderName));
+    values.insert(QString::fromLatin1(kNameShowLoaderVersion),
+                  QVariant(m_versionNameOptions.showLoaderVersion));
+    return values;
 }
 
 void LauncherSettings::save() const {
+    const QVariantMap now = persistedValues();
     QSettings settings;
-    settings.setValue(kLastLaunched, m_lastLaunchedVersion);
-    settings.setValue(kHomeFavoriteCount, m_homeFavoriteCount);
-    settings.setValue(kHomeRecentCount, m_homeRecentCount);
-    settings.setValue(kFolders, m_folders);
-    settings.setValue(kCurrentFolder, m_currentFolder);
-    settings.setValue(kFolderNames, m_folderNames);
-    settings.setValue(kAfterLaunch, behaviourKey(m_launcherBehaviour));
-    settings.setValue(kDownloadSource, downloadSourceKey(m_downloadSource));
-    settings.setValue(kDownloadConcurrency, m_downloadConcurrency);
-    settings.setValue(kDownloadSpeedLimit, m_downloadSpeedLimit);
-    settings.setValue(kProxyMode, DownloadProxy::modeKey(m_proxyMode));
-    settings.setValue(kProxyManual, m_proxyManualText);
-    settings.setValue(kDownloadAutoIntoInstance, m_downloadAutoIntoInstance);
-    settings.setValue(kWarnMissingDependencies, m_warnMissingDependencies);
-    settings.setValue(kShowGameLog, m_showGameLog);
-    settings.setValue(kGameWindowWidth, clampWindowWidth(m_gameWindowWidth));
-    settings.setValue(kGameWindowHeight, clampWindowHeight(m_gameWindowHeight));
-    settings.setValue(kGameWindowMode, gameWindowModeToken(m_gameWindowMode));
-    settings.setValue(kProcessPriority, processPriorityKey(m_processPriority));
-    settings.setValue(kTitleText, clampTitleText(m_titleText));
-    settings.setValue(kWarnDuplicateLaunch, m_warnDuplicateLaunch);
-    settings.setValue(kWarnWorldLoss, m_warnWorldLoss);
-    settings.setValue(kCurseForgeApiKey, m_curseForgeApiKey);
-    // NOTE: `kCurseForgeApiBase` / `kModrinthApiBase` **刻意不在这里** —— 那两个键是验证
-    // 工程的口子，产品一写就等于把用户自己指的地址抹掉（见 .hpp 里那条 NOTE）。
-    settings.setValue(kNameShowCustom, m_versionNameOptions.showCustomName);
-    settings.setValue(kNameShowReal, m_versionNameOptions.showRealVersion);
-    settings.setValue(kNameShowLoaderName, m_versionNameOptions.showLoaderName);
-    settings.setValue(kNameShowLoaderVersion, m_versionNameOptions.showLoaderVersion);
+    bool wroteAnything = false;
+    for (auto it = now.cbegin(); it != now.cend(); ++it) {
+        // **只写本进程真改过的那几项**。和 m_persisted 一样的不碰盘 —— 那一项可能是
+        // 另一份启动器刚改过的（全局设置按机器共用，见 .hpp 里那条 NOTE）。
+        if (m_persisted.value(it.key()) == it.value()) {
+            continue;
+        }
+        settings.setValue(it.key(), it.value());
+        wroteAnything = true;
+    }
+    // 一项都没变：不写、不 sync。`setXxx()` 里已经挡了一层"和成员相同就不 save"，
+    // 这里是第二道 —— 挡住"值本来就和盘上一样、但调用方还是叫了一趟 save()"。
+    if (!wroteAnything) {
+        return;
+    }
 
     // 立刻落盘。这几项都是"关掉启动器之前必须记住"的状态，不像 GlobalJavaSettings
     // 那样攒到下载 Java 时才写一次；启动器被强杀也不该丢掉上次启动的版本。
     settings.sync();
+    m_persisted = now;
 }

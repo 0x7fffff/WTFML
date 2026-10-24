@@ -554,6 +554,58 @@ void runLaunchOptionsTests(const QString &sandbox) {
         }
     }
 
+    // ---------- ZD6. 两份启动器共用同一份全局设置：各改各的，互不覆盖 ----------
+    //
+    // 场景（计划里 P0-2 那一半）：装在两个目录的启动器各有自己的数据目录、可以同时开着，
+    // 但 `HKCU\Software\WTFML\WTFML` 是同一份。两边启动时各读了一份快照，之后甲只改标题、
+    // 乙只改「显示游戏日志」。以前 save() 整份写回 ⇒ 谁后存谁赢，另一项被打回启动时读到
+    // 的旧值（用户看到的是"我改的那份没了"）。这里用两个对象造出"两个进程各持一份快照"，
+    // 逐项验"对方没动的那一项还在"——两个方向都验，不能只验先写的那一份。
+    //
+    // NOTE: 这一节靠的是 `LauncherSettings::save()` 只写与 load() 快照不同的项；
+    // 整份写回的话下面第一条就会红（probe 念出来是空串）。
+    section("ZD6. 两份启动器共用全局设置：各改各的，谁也不把对方刚改的那一项打回去");
+    {
+        // 先把这一节用到的那两项摆回默认（前面的节已经写过别的值）。
+        {
+            LauncherSettings reset;
+            reset.setTitleText(QString());
+            reset.setShowGameLog(false);
+        }
+
+        // 甲、乙都在**任何一次保存之前**读盘 —— 这是整个场景的关键：两份快照都已经
+        // 在内存里了，谁也看不见对方之后改的东西。
+        LauncherSettings first;    // 第一个安装目录里那份启动器
+        LauncherSettings second;   // 第二个安装目录里那份启动器
+
+        first.setTitleText(QStringLiteral("甲改的标题"));
+        second.setShowGameLog(true);
+
+        LauncherSettings probe;
+        check(probe.titleText() == QStringLiteral("甲改的标题"),
+              "★★ ZD6 乙保存它那一项时，没有把甲刚改的标题打回去",
+              QStringLiteral("盘上标题=[%1]").arg(probe.titleText()));
+        check(probe.showGameLog(),
+              "★★ ZD6 甲保存时也没有把乙那一项打回去（两条对称）");
+
+        // 反方向再来一次：甲改另一项、乙改标题。
+        first.setProcessPriority(ProcessPriority::High);
+        second.setTitleText(QStringLiteral("乙改的标题"));
+        LauncherSettings probe2;
+        check(probe2.processPriority() == ProcessPriority::High &&
+                  probe2.titleText() == QStringLiteral("乙改的标题"),
+              "★★ ZD6 反方向同样互不覆盖",
+              QStringLiteral("优先级=%1 标题=[%2]")
+                  .arg(static_cast<int>(probe2.processPriority()))
+                  .arg(probe2.titleText()));
+
+        // 收尾：这一节写过的三项也摆回默认，别给后面的节留值。
+        LauncherSettings cleanup;
+        cleanup.setTitleText(QString());
+        cleanup.setShowGameLog(false);
+        cleanup.setProcessPriority(ProcessPriority::Normal);
+    }
+
     // 收摊：换回原生形态并把沙盒删掉 —— 后面那些节读的还是真实注册表。
     QSettings::setDefaultFormat(QSettings::NativeFormat);
     QDir(settingsDir).removeRecursively();

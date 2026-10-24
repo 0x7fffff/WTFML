@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include <QProcess>
 
 void runResourceAndDataPackTests() {
     QTemporaryDir scratch;
@@ -530,5 +531,54 @@ void runResourceAndDataPackTests() {
     check(QFileInfo::exists(gateInstance + QStringLiteral("/saves/W1/datapacks/pack1.zip")) &&
               QFileInfo::exists(gateInstance + QStringLiteral("/datapacks-pending/W2/pack1.zip")),
           "★★ PL9 该部署的部署了、该待应用的摆好了");
+
+    section("PL10. 数据包：`saves/<世界>/datapacks` 是 junction ⇒ 一个字节都不往那儿写");
+    {
+        // ★ 这一条要的是 `pathHasLinkComponent()` 判的**中间那层**：世界目录本身是普通目录
+        // （`worldUsable()` 放行），危险的是它底下那个 `datapacks/` 整根指着别处 ——
+        // `removeTreeNoLinks()` / 拷贝会一路穿过去，删改的就不是"这个实例里的包"了。
+        // 用户这么摆不是搞坏了：存档放网盘、数据包放另一块盘都很常见。
+        const QString linkInstance = scratch.filePath(QStringLiteral("dpLinkInstance"));
+        const QString outside = scratch.filePath(QStringLiteral("dpOutside"));
+        QDir().mkpath(linkInstance + QStringLiteral("/saves/W1"));
+        QDir().mkpath(outside);
+        const QString linkPath = linkInstance + QStringLiteral("/saves/W1/datapacks");
+        const bool madeLink =
+            QProcess::execute(QStringLiteral("cmd"),
+                              {QStringLiteral("/c"), QStringLiteral("mklink"), QStringLiteral("/J"),
+                               QDir::toNativeSeparators(linkPath),
+                               QDir::toNativeSeparators(outside)}) == 0
+            && QFileInfo(linkPath).isJunction();
+        check(madeLink, "★ PL10 前提：真造出一根 junction（`saves/W1/datapacks` → 外面）");
+        if (madeLink) {
+            QList<Presets::DataPackItem> linkedWanted;
+            Presets::DataPackItem linkedItem;
+            linkedItem.world = QStringLiteral("W1");
+            linkedItem.name = QStringLiteral("pack1.zip");
+            linkedWanted.append(linkedItem);
+            QList<Presets::PresetSection> linkedSections;
+            QString linkedWhy;
+            check(Presets::sectionsFromDataPacks(linkedWanted, &linkedSections, &linkedWhy) &&
+                      linkedSections.size() == 1,
+                  "PL10 由一项做出一段", linkedWhy);
+
+            const Presets::DataPackApplyReport through =
+                Presets::applyDataPacks(dpFiles, linkInstance, linkedSections.first(),
+                                        Presets::ApplyMode::CopyIfMissing, false);
+            check(!through.ok && through.deployed == 0 &&
+                      through.problem.contains(QStringLiteral("链接")),
+                  "★★ PL10 落包那一趟 refuses（说清楚是链接，不冒充成功）", through.problem);
+            check(!QFileInfo::exists(outside + QStringLiteral("/pack1.zip")),
+                  "★★★ PL10 链接那一头**没有**多出包来（穿透的话它会出现在外面那个目录里）");
+            // 也不许"绕开"成待应用：世界明明在盘上，落 pending 等于给用户记一份假的「待应用」。
+            check(!QFileInfo::exists(linkInstance +
+                                     QStringLiteral("/datapacks-pending/W1/pack1.zip")),
+                  "★★ PL10 也没有改落到 `datapacks-pending/W1/`（世界是在的，那不是「待应用」）");
+            // 链接本体只能 rmdir（删除链接，不跟着删那一头）。
+            QProcess::execute(QStringLiteral("cmd"),
+                              {QStringLiteral("/c"), QStringLiteral("rmdir"),
+                               QDir::toNativeSeparators(linkPath)});
+        }
+    }
 }
 

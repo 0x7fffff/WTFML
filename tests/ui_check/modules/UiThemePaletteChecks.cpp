@@ -1879,6 +1879,46 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                       .arg(opacitySlider != nullptr ? opacitySlider->maximum() : -1)
                       .arg(opacityPercent != nullptr ? opacityPercent->text() : QString()));
 
+            // 色块那种"钉死的边长"要能在 QSS polish 之后自己回来。
+            //
+            // 这一条钉的是 W14 偶发（四个色块量到 64x19、min 14 / max 24）的机制：应用级
+            // QSS 的 `min-height` 在 polish（第一次 Show、换主题重铺）那一趟会把
+            // `setFixedSize()` 钉的最小高度改回 QSS 那一档，而 polish **不发** StyleChange
+            // ⇒ `Theme::follow()` 收不到，只能靠 `markIconButton()` 挂的那个补钉
+            // （Show / StyleChange / Polish / PolishRequest / 调色板变化 + 一发 0 毫秒收尾）。
+            // 这里摆两颗对照：一颗只挂属性（会被打回去）、一颗走 `markIconButton()`。
+            {
+                QWidget keeperHost;
+                const int swatchWidth = MainWindowUI::themeSwatchWidth();
+                const int swatchHeight = MainWindowUI::themeSwatchHeight();
+                // ① 只挂图标那一档属性、不走 `markIconButton()` 的那一颗：QSS 的
+                //    `min-height` 在 polish 里就把 `setFixedSize()` 钉的最小高度打回去。
+                QPushButton bare(&keeperHost);
+                bare.setProperty("wtfmlButtonSize", Theme::iconButtonSizeValue());
+                bare.setFixedSize(swatchWidth, swatchHeight);
+                bare.style()->polish(&bare);
+                const int clobberedMinimum = bare.minimumHeight();
+                // ② 走 `markIconButton()` 的同一颗：Show（QSS 重铺就走在它前后）之后
+                //    补钉自己把它钉回原来那一对。
+                auto *pinnedButton = new QPushButton(&keeperHost);
+                pinnedButton->setFixedSize(swatchWidth, swatchHeight);
+                Theme::markIconButton(pinnedButton);
+                pinnedButton->style()->polish(pinnedButton);
+                keeperHost.show();
+                QApplication::processEvents();
+                check(clobberedMinimum < swatchHeight &&
+                          pinnedButton->minimumHeight() == swatchHeight &&
+                          pinnedButton->maximumHeight() == swatchHeight,
+                      "★★ W14 色块那种「钉死的边长」被 QSS polish 打回去之后，Show 上会自己钉回来",
+                      QStringLiteral("没补钉那颗 polish 后 min %1 / 有补钉那颗 Show 后 min %2 max %3"
+                                     "（该是 %4）")
+                          .arg(clobberedMinimum)
+                          .arg(pinnedButton->minimumHeight())
+                          .arg(pinnedButton->maximumHeight())
+                          .arg(swatchHeight));
+                keeperHost.hide();
+            }
+
             int swatchesFound = 0;
             int swatchesShaped = 0;
             int swatchesFocusable = 0;

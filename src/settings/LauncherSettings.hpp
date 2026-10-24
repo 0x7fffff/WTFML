@@ -9,6 +9,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QVariantMap>
 
 #include "../download/DownloadConcurrency.hpp"
 #include "../download/DownloadProxy.hpp"
@@ -146,7 +147,16 @@ public:
     void load();
 
     /**
-     * @brief 把当前值写进 QSettings 并 sync()，立刻落盘。
+     * @brief 把这一趟**改过的**那几项写进 QSettings 并 sync()，立刻落盘。
+     *
+     * NOTE: 它**不再整份写回**。全局设置那一棵注册表（`HKCU\Software\WTFML\WTFML`）是按
+     * 机器共用的：装在两个不同目录的启动器各有自己的数据目录、可以同时开着，但盘上这份
+     * 设置是同一份。整份写回的后果是"最后存的那一份赢"—— 甲只改了标题，乙只改了内存，
+     * 谁后按保存，谁就把对方刚改的那一项打回自己启动时读到的旧值（用户看到的是"我改的
+     * 那份没了"）。现在只写本进程真动过的那几项，没动过的一项都不碰。
+     *
+     * 哪几项"动过"由这里和 `load()` 留下的那一份快照比出来（见 .cpp 里
+     * `persistedValues()`）：`load()` 之后一项都没改时，save() 一个字节都不写。
      */
     void save() const;
 
@@ -416,6 +426,19 @@ public:
     static ProcessPriority processPriorityFromKey(const QString &key);
 
 private:
+    /**
+     * @brief 当前全部可持久化项，**按写进 QSettings 的形态**摆成一份表。
+     *
+     * 这是键名 → 值映射的唯一出处：`load()` 用它记下"读回来的那一份"，
+     * `save()` 拿它和那份比、只写变了的。两处共用同一份表，就不会出现
+     * "save() 里漏了一个键、于是那一项永远存不下来"这种只在真机上才发现的错。
+     */
+    QVariantMap persistedValues() const;
+
+    /// `load()` 读完之后（= 上次落盘）那一份值。`save()` 逐项与它比，只写不同项。
+    /// mutable：`save()` 是 const，但写完要把这份快照推进到新值。
+    mutable QVariantMap m_persisted;
+
     QString m_lastLaunchedVersion;
     int m_homeFavoriteCount = 3;
     int m_homeRecentCount = 3;
