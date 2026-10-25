@@ -603,6 +603,24 @@ void DownloadManager::setSpeedLimitBytesPerSecond(qint64 bytesPerSecond) {
     }
 }
 
+qint64 DownloadManager::throttledReadBufferBytes() const {
+    // 一拍的总量 = limit × 0.1 s；平分给**当下真在飞**的每一路，再给两拍 —— 留一拍吸收
+    // 定时器迟到与"读走之后 QNAM 还没收到下一段"的空档，不会把速率拖到上限以下。
+    //
+    // NOTE: 分母是 activeDownloads.size()，不是 m_maxConcurrentDownloads 那一档。按上限
+    // 分的话，只开一两条作业时每条只能分到几 KB，速率会掉到远低于设定值（实测
+    // 2 × 5 MiB、限 8 MiB/s：1.2 MiB/s）。这条回复自己此刻还没进表，所以 +1。
+    const int lanes = qMax(1, int(activeDownloads.size()) + 1);
+    const qint64 tickBudget = m_speedBucket->limit / (1000 / kSpeedPumpMs);
+    const qint64 perLane = tickBudget / lanes * 2;
+    // 高水位还要**盖住这一条一拍该拿到的量**：一拍只读得到缓冲区里那点字节（下一拍才再读
+    // 一次），比它小的话速率就跟设定值脱钩了 —— 实测 2 × 5 MiB、限 8 MiB/s、每条封在
+    // 256 KiB，跑成 4.5 MiB/s。所以上限放到"整条带宽的 32 MiB"这一档：只有限速超过
+    // ~160 MiB/s（手改值、预设里没有）时它才会真的钳住。
+    const qint64 cap = qMax<qint64>(qint64(256) * 1024, qint64(32) * 1024 * 1024 / lanes);
+    return qBound<qint64>(qint64(8) * 1024, perLane, cap);
+}
+
 void DownloadManager::onSpeedPumpTick() {
     const qint64 limit = m_speedBucket->limit;
     if (m_shuttingDown || limit <= 0) {
@@ -615,10 +633,20 @@ void DownloadManager::onSpeedPumpTick() {
     m_speedBucket->tokens = qMin(
         capacity, m_speedBucket->tokens + double(limit) * double(elapsed) / 1000.0);
     if (m_throttledReplies.isEmpty()) {
-        // 没有人在等：余额也别攒（不然下一批一开始就会冲一个 burst）。
+        // 队列里还蓄着作业（欠账 / 限速拦下的那些）：余额就是给它们攒的，**别抹**，
+        // 先按余额发车。顺序反过来（先抹零再发车）会死锁：没有在飞的回复 ⇒ 每拍
+        // 余额刚补上就被抹掉 ⇒ 永远发不出第一条作业。
+        if (!m_pendingJobs.isEmpty()) {
+            pumpDownloadQueue();
+            return;
+        }
+        // 真没有人在等：余额也别攒（不然下一批一开始就会冲一个 burst）。
         // 桶是共用的时候**不许**抹 —— 这个下载器这一拍没人等，不代表共用它的
         // 那个（分段作业内部那个）也没人等；抹掉的话它那边的节奏会被这里每 100 ms 打回零。
-        if (m_speedBucket->sharers <= 0) {
+        //
+        // **只抹正的余额**：负数是已经写出去的字节（onDownloadReplyFinished 收尾那一口
+        // 记的账），不是"攒下的额度"—— 抹掉它等于把刚绕过桶的那一段直接赦免掉。
+        if (m_speedBucket->sharers <= 0 && m_speedBucket->tokens > 0) {
             m_speedBucket->tokens = 0;
         }
         return;
@@ -661,6 +689,8 @@ void DownloadManager::onSpeedPumpTick() {
             m_throttledReplies.remove(reply);
         }
     }
+    // 这一拍放出了一些字节 ⇒ 欠账可能还清了，把因为欠账停住的作业接着发。
+    pumpDownloadQueue();
 }
 
 bool DownloadManager::mayIssueAnotherDownloadToHost(int activeForHost, bool hostKnownHttp2) {
@@ -1168,6 +1198,13 @@ void DownloadManager::queueNetworkJob(const QString &url, const QString &destina
 }
 
 void DownloadManager::pumpDownloadQueue() {
+    // 限速欠账没还清之前不发新作业：小文件的身子大半在"结束那一刻一次性写完"的那一口里
+    // （见 throttledReadBufferBytes 的说明），不挡住新作业的话，缓冲里那些字节就等于
+    // 免费通过 —— 上限会被放大好几倍。负余额只表示"还欠多少字节"，不是错误；下一拍补到
+    // 1 字节以上就恢复发车（onSpeedPumpTick 末尾会再泵一次）。
+    if (m_speedBucket->limit > 0 && m_speedBucket->tokens < 1.0) {
+        return;
+    }
     // 判据用 activeDownloads.size() 而不是另开一个计数器：它是"当下真在飞的作业"
     // 的唯一事实 —— 别的下载（资源索引、客户端 jar）占着连接时这里自然少发几个。
     //
@@ -1621,7 +1658,9 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     reply->setProperty("rangeLast", range.last);
     reply->setProperty("rangeTotal", range.total);
     reply->setProperty("rangeValidator", range.validator);
-    reply->setReadBufferSize(256 * 1024);
+    // 限速时缓冲要小：256 KiB 会让"一次就到齐"的小文件整份躺在 QNAM 的缓冲里，收尾那一口
+    // 绕过令牌桶（见 throttledReadBufferBytes() 的说明）。
+    reply->setReadBufferSize(m_speedBucket->limit > 0 ? throttledReadBufferBytes() : 256 * 1024);
     // 这一发要是 302 转到一台**刚刚证明过是死的**落点上，别等首字节计时
     // 到期（12 秒）—— 当场 abort，让它去重新掷一台落点。代价只有一个往返。
     // 落点表见 noteDeadRedirectTarget()：那里记的是"接得上、一个字节都不给"的主机。
@@ -2224,6 +2263,8 @@ bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &
     request.setTransferTimeout(30000);
     QNetworkReply *retry = networkManager->get(request);
     retry->setProperty("wtfmlStartMs", m_clock.elapsed());
+    // 和 startDownload 同源：限速时缓冲要小，否则换路之后这一条又能把整份正文提前收进来。
+    retry->setReadBufferSize(m_speedBucket->limit > 0 ? throttledReadBufferBytes() : 256 * 1024);
     if (DownloadDiag::enabled()) {
         DownloadDiag::line(QStringLiteral("fallback resend: dest=%1 official=%2 "
                                           "previous=%3")
@@ -2728,6 +2769,14 @@ void DownloadManager::onDownloadReplyFinished() {
     } else if (!stream) {
         errorMessage = QStringLiteral("Download temporary file is unavailable");
     } else {
+        // 限速开着的时候，收尾这一口也要记账：QNAM 早就把正文收进了自己的缓冲，结束信号
+        // 到达时里面还剩多少，下面那句 drain() 就一次写多少 —— 不记账的话每个文件的尾巴
+        // 都绕过令牌桶（实测 1000 × 32 KiB、限 4 MiB/s：1.25 s 下完，≈6.25 倍于上限）。
+        // 为不丢数据仍然当场写完，把这笔字节记成**负余额**，由后面几拍的补充还上；
+        // 欠账没还清之前 pumpDownloadQueue() 不新开作业（见那里的说明），平均速率才回得去。
+        if (m_speedBucket->limit > 0) {
+            m_speedBucket->tokens -= double(reply->bytesAvailable());
+        }
         stream->drain(reply);
         errorMessage = stream->finish(expectedSha1s.value(reply), expectedSizes.value(reply, -1),
                                       !range.active() && shouldBeZipArchive(destPath));

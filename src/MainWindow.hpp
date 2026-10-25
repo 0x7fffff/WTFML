@@ -41,6 +41,8 @@ namespace BackupFiles { enum class Kind; }
 #include "controllers/GameSessionController.hpp"
 #include "controllers/LaunchHistoryController.hpp"
 #include "controllers/InstanceSettingsController.hpp"
+#include "controllers/DownloadFilterController.hpp"
+#include "controllers/ResourcePageController.hpp"
 #include "controllers/ServerListController.hpp"
 #include "manage/InstanceFilter.hpp"
 #include "manage/UpdatePolicy.hpp"
@@ -1287,6 +1289,8 @@ private:
     friend class ImportController;
     friend class LaunchController;
     friend class ConnectionsController;
+    friend class ResourcePageController;
+    friend class DownloadFilterController;
     void setupConnections();
 
     // ---------- 「世界设置」那两格状态----------
@@ -1376,7 +1380,7 @@ private:
     /// `execPage()` 从不让这个数当结果（它只回 `QDialog::Accepted/Rejected`），所以
     /// 拿它跟 `QDialog::Rejected` 比是安全的 —— 调用方**只能靠它**区分"用户把这一页
     /// 收掉了"和"压根没开"，见 `openFileResourcePage()`。
-    static constexpr int kResourcePageNotOpened = -1;
+    static constexpr int kResourcePageNotOpened = ResourcePageController::kResourcePageNotOpened;
     /// 进下载页那条路最多允许**再排几轮**去把实例设置那一页收干净（见
     /// `continueOpenDownloadCategory()`）。3 是个宽裕的上限：正常情况第一轮就已经收干净了
     /// （那一发 `dismiss()` 的收尾在下一轮事件循环之前就落定），只有"上面还压着一条提示"
@@ -1399,10 +1403,9 @@ private:
     /// 模组点进来的详情页和资源包差不多，但右上角「显示快照版」那里换成「模组设置」
     /// （先占位）；下载页那条路永远是 `Download`（照旧摆「显示快照版」），这一位不许
     /// 跟着种类走。
-    enum class DetailSource {
-        Download,      ///< 下载页点一行（那四张表 / 版本树）。
-        InstanceFiles  ///< 实例设置「文件管理」页点一条文件的名字。
-    };
+    /// 枚举本体在 `ResourcePageController` 里（那一页是唯一读它的地方）；这里留一个
+    /// 别名，主窗口里那两处调用点（`DetailSource::Download` / `InstanceFiles`）不用改。
+    using DetailSource = ResourcePageController::DetailSource;
     /// 打开这一条资源的详情页（`iconKey` / `kindKey` 是条子上那两个角色）。
     ///
     /// @return 用户是怎么把这一页收掉的（`execPage()` 那一发的结果）：**返回箭头和 Esc
@@ -1422,15 +1425,12 @@ private:
     /// 实例来的"，编译就过不去 —— 和上面 `DetailSource` 那条设计理由逐字相同。
     int openResourceDetailPage(const QString &iconKey, const QString &kindKey, DetailSource from,
                                const QString &instanceId);
-    /// 详情页上某一颗 chip 被按了（参数是那颗的 key，空串 = 「全部」）：重算筛 + 分组。
-    void onResourcePageChipChanged(const QString &gameVersion);
     /// 详情页上方那个「显示快照版」勾选框被拨了（点它、或者按 Alt 键）。
     ///
     /// 它换的是**那一排 chip 的表**（折着的那一份 ↔ 原样那一份），所以三件事一起做：
     /// 存下这一位、把 chip 那一排整个换一份（按着的那一颗换算成同一大版本在另一档里的
     /// 说法）、再按新的这一份重算筛 + 分组。**不发请求** —— 版本列表是开页时就整份取回来
     /// 的，折与不折都是在本地的这一份上算。
-    void onResourcePageShowSnapshotsChanged(bool showSnapshots);
     /// 把那一排 chip 摆成「这一份声明表 + 这一档（折 / 不折）」该有的样子：第一颗是
     /// 「全部」，其余按 `gameVersionChoices` 摆；@p wanted 是要按下去的那一颗（表里没有、
     /// 或者给的是空串，页面自己会挑「全部」）。
@@ -1438,8 +1438,6 @@ private:
     /// **两个调用点**（开页、拨勾选框）共用这一份，免得两处各拼一遍、拼出两种表来。
     /// NOTE: 做成"摆到页面上去"而不是"返回一份表"，是为了让这个头**一个 ui/ 的类型都不用
     /// 带进来**（这一整个头对 ui/ 那边只按指针持有，见上面那几行前置声明）。
-    void applyResourcePageChips(const QStringList &declaredGameVersions, bool showSnapshots,
-                                const QString &wanted);
     /// 按当下这颗 chip 从**全量**那份清单里筛出来、分组、摆进页面（空的那一对也走它）。
     void fillResourcePageGroups();
     /// 摆 chip 与版本列表中间那一行（"这一版要装的前置"）。
@@ -1447,13 +1445,9 @@ private:
     /// **不是**拿参数进来算，而是读 `m_resourcePage.dependencies` 那一份 —— 名字那一发回来
     /// 的时候"最上面那一版"可能已经换了，这里要填的始终是**当前这一页当下那一份**。
     /// 名字不全时**先摆"有几条"那句、再去问名字**（问完回来再进一次这个函数）。
-    void updateResourcePageDependencies();
     /// 详情页要的那几个前置**叫什么**（`ModDependencies::projectsKeyFor("detail", …)`）回来了。
     /// 和 `onDependencyProjectsFinished`（前置那一趟）**分开两个槽**：两件事的生命周期不
     /// 一样，而各自按自己的钥匙认人（见 setupConnections 里那段 ★）。
-    void onResourceProjectsFinished(const QString &requestKey,
-                                    const QList<ResourceCatalog::Hit> &hits,
-                                    const QString &problem);
     /// `m_projectTitles` 那把键（`Hit::iconCacheId()` 那个拼法 —— `<来源>-<项目号>`，
     /// **唯一出处是它**，别在这儿再拼一遍字符串）。
     static QString projectTitleKey(ResourceCatalog::Source source, const QString &projectId);
@@ -1462,7 +1456,6 @@ private:
     void rememberProjectTitles(const QList<ResourceCatalog::Hit> &hits,
                                ResourceCatalog::Source source);
     /// 详情页上点了某一个具体版本（`Row::key` = `VersionEntry::id`）= 下它。
-    void downloadResourcePageVersion(const QString &versionId);
 
     // ---------- 前置模组：装一个模组时带上它要的那几个----------
     //
@@ -3044,70 +3037,13 @@ private:
     /// 得先知道"哪几条属于上一批"，而那件事现在没有出处 —— 靠"清空整张表"会在重搜
     /// 另一页时把别的页正在用的条目一起清掉（那四页各有一棵树，搜索是分开发起的）。
     QHash<QString, ResourceCatalog::Hit> m_resourceHits;
-    /// 「资源详情」那一页**这次开着的时候**说的是哪个资源、列的是哪一份版本。
-    ///
-    /// 一个 struct 装在一起而不是散成六个成员：这六样是**同一份状态**，散开之后
-    /// "开页/关页"要记得挨个改，漏一个的症状（比如 open 忘了落下去）很难认。
-    struct ResourcePageState {
-        bool open = false;
-        /// 这一条是从哪一栏点开的。拼网址（`projectPageUrl` 要 kind）、下载时判
-        /// "要不要过加载器那道闸"都要它。
-        ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
-        ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
-        QString projectId;
-        /// 在 m_resourceHits 里的那把钥匙（`iconCacheId()`）。**同时也是"这一发版本列表
-        /// 回来时该不该填进页面"的判据** —— 和树那条路的请求钥匙不是一套（那边带游戏版本）。
-        QString iconKey;
-        /// 问版本的**请求钥匙**：游戏版本和加载器都空（= 不筛，整份列表）。
-        QString requestKey;
-        /// 现在按着哪一颗 chip（空 = 「全部」）。筛和分组都由 MainWindow 重算
-        /// （`ResourceCatalog::groupVersions` 是那一份规则）。
-        QString chip;
-        /// 上方右侧那个「显示快照版」勾选框（**默认不勾**）。一位同时管三件事 ——
-        /// 那一排 chip 摆哪几颗、chip 怎么筛、组头写什么（见 ResourceCatalog 那三个函数的
-        /// 文件注释）；三处传的必须是**同一个值**，不然症状是「点了 26.2 少了几个版本」。
-        bool showSnapshots = false;
-        /// 头卡上那个资源名。下载时拼 label 的前半截要用它。
-        QString title;
-        /// 开页时**是从哪个实例进来的**（空 = 不是从某个实例进来的）。`from` 是
-        /// `InstanceFiles` 时就是那个实例的目录名，`Download` 时是"用户上一次是从哪个
-        /// 实例进下载页的"（`m_downloadFromInstanceId`）。
-        ///
-        /// 它只喂两件事：开页那一下 chip 预选到**哪个**游戏版本、以及哪个加载器的组排前面
-        /// （见 openResourceDetailPage 里那两句）。**存下来**而不是开页时用一次就扔：
-        /// 勾「显示快照版」那一下会把 chip 那一排整个重摆（`onResourcePageShowSnapshotsChanged`），
-        /// 那时还得知道"预选的是哪一个"—— 否则用户拨一下勾选框，按着的那一颗就被甩回
-        /// 「全部」了。
-        QString instanceId;
-        /// 上面那个实例的加载器，**换算成小写那一套**（`VersionGroup::loader` 的写法，
-        /// 见 ResourceCatalog::groupVersions 的 preferredLoader）。
-        QString preferredLoader;
-        /// 开页时接口给的那一串**声明过的游戏版本**（`Hit::gameVersions`，旧的在前）。
-        ///
-        /// 留着它只为一件事：勾「显示快照版」那一下要把 chip 那一排整个换一份，而那时候
-        /// 手上只有这一份声明表（`Hit` 存在 m_resourceHits 里，但那一份会被后面的重搜
-        /// 换掉，而这一页还开着）。
-        QStringList declaredGameVersions;
-        /// **全量**那份版本清单（chip 只是从它里面筛）。
-        QList<ResourceCatalog::VersionEntry> versions;
-        /// 那份清单**回来过**了（哪怕回来的是空的）。
-        ///
-        /// 为什么要单记这一位："还没回来"和"这个资源一个版本都没发过"都表现为 versions
-        /// 是空的，而这两件事在界面上是**两句不一样的话**（「正在读版本列表…」和
-        /// 「这个资源一个版本都没发过」）。靠 versions.isEmpty() 分不开。
-        bool loaded = false;
-        /// chip 那一排和版本列表中间那一行说的是"哪几条前置"。
-        ///
-        /// 来源是**这一页当下摆在最上面那一版**的 `dependencies`（见 fillResourcePageGroups）
-        /// —— 存下来而不是每次重算，是因为名字那一发是异步的：回来的时候"最上面那一版"
-        /// 可能已经跟着 chip 换掉了，而这一发回来该填的是**发出去时那一份**。名字一到就往
-        /// 这儿这一份上填（`m_projectTitles` 是先按号查、再拼字的）。
-        QList<ResourceCatalog::Dependency> dependencies;
-        /// 问那几个前置**叫什么**的那一发（`ModDependencies::projectsKeyFor("detail", …)`）。
-        /// 空串 = 这一页这会儿没有在问名字。
-        QString dependencyRequestKey;
-    };
-    ResourcePageState m_resourcePage;
+    /// 「资源详情」那一页的全部状态与那几条函数都在 `ResourcePageController` 里
+    /// （`controllers/ResourcePageController.*`）。这一位是**懒建**的：点过那一页才有。
+    /// 状态本身用 `m_resourcePage->state()` 读，页面对象用 `m_resourcePage->page()`。
+    ResourcePageController *m_resourcePage = nullptr;
+    /// 下载页每一页顶上那一行筛子的灌与读（`controllers/DownloadFilterController.*`）。
+    /// 和上面那个一样**构造里就建**：主窗口一启动就要灌筛子（`fillDownloadFilters()`）。
+    DownloadFilterController *m_downloadFilter = nullptr;
     /// 每一页上一次**真的发出去**的搜索词（键 = 分类键）。
     ///
     /// 只为一件事：结果回来时那句「没有搜到「xx」」里的 xx 要是**那一次**的词。读编辑框里
@@ -3163,9 +3099,6 @@ private:
     // setupAccountSkinDialog()）。它是 this 的子对象、也没开 WA_DeleteOnClose，所以关掉
     // 之后指针照样有效 —— 再点一次是把它 show 回来，不是重建。
     AccountSkinDialog *m_accountSkinDialog = nullptr;
-    /// 「资源详情」那一整页（下载页点一个资源进去）。和上面那个一样：懒建、是 this 的子对象、
-    /// 没开 WA_DeleteOnClose —— 关掉之后指针照样有效（见 setupResourceDetailPage）。
-    ResourceDetailPage *m_resourceDetailPage = nullptr;
     // 底栏头像那块图。**不能**在 updateBottomBar() 里现算：那个函数每次进度刷新
     // （几百毫秒一次）都会被调，现算等于一直在重渲染同一张 8×8 的皮肤。
     // NOTE: 这一格只属于"底栏要的那张图"，不是外观那条路上的状态：外观说

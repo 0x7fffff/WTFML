@@ -462,6 +462,114 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // 两栏吃掉整页剩下的竖直空间（底下那排按钮按自己的高排）。
     outer->addLayout(columns, 1);
 
+
+    // ---------- 概览（四行）----------
+    setupOverviewPage(instanceId);
+
+    // ---------- 启动（Java 选项 / 内存 / 高级选项）----------
+    setupLaunchPage(global, appendJvmArgs, warnJavaMismatch, windowModes);
+
+    // ---------- 文件那八页（见 .hpp 里 filePageKeys() 那一段）----------
+    setupFilePages();
+
+    // ---------- 左栏那一列的接线 ----------
+    //
+    // 左栏一变：换页。就这一件事（见 .hpp 里 pinnedPageKeys() 那一段）。
+    //
+    // NOTE: 越界保护的理由和设置页那条一样 —— 左栏的条目和堆叠页要是对不上，宁可停在原来
+    // 那页，也不要 setCurrentIndex(-1) 把右栏整片清空（"点一下界面就空了"用户只会
+    // 当成崩了）。
+    setupLifecyclePages();
+    connect(m_pageList, &QListWidget::currentRowChanged, this,
+            [this](int row) { applyEntry(row); });
+    // 打开就是第一条（概览）—— 左栏亮着哪一条、右栏就是哪一页，两边不能各说各的。
+    // 那一列的内容和这一发都由构造末尾的 rebuildEntryList() 办（它是**算出来的**，
+    // 见 .hpp 里 pinnedPageKeys() 那一段）。
+
+    // ---------- 灌值 ----------
+    // 「有值 = 自定义，没值 = 跟随全局」这一条两边都要对上：磁盘上有一项覆盖时，
+    // 重开这个对话框必须停在「自定义」上，否则用户会以为自己的设置丢了。
+    setChoiceCustom(javaPathField(), current.javaPath.has_value());
+    m_javaPathEdit->setText(current.javaPath.value_or(global.javaPath));
+
+    setChoiceCustom(xmxField(), current.xmx.has_value());
+    m_memoryMaxSpin->setValue(current.xmx.value_or(global.xmx));
+    // 条那半边也要摆过来：数字框本来就已经是这个值时上面那一句不发信号，光靠同步那条线
+    // 等不到（条会停在上一次那一格上）—— 一进这一页看见的条和数字框就不是一个数。
+    // 挡信号：这一发是**灌值**，不是用户改的 —— 不挡的话它会顺手报一次"值变了"
+    // （条自己接的那条线，见上面那段），而那时候 `m_lastSignature` 还是空的，
+    // 于是打开这一页本身就等于替用户写了一次盘。
+    {
+        const QSignalBlocker blockSlider(m_memoryMaxSlider);
+        m_memoryMaxSlider->setValueMb(m_memoryMaxSpin->value());
+    }
+
+    setChoiceCustom(xmsField(), current.xms.has_value());
+    m_memoryMinSpin->setValue(current.xms.value_or(global.xms));
+
+    setChoiceCustom(extraJvmArgsField(), current.extraJvmArgs.has_value());
+    m_extraJvmArgsEdit->setText(current.extraJvmArgs.value_or(global.extraJvmArgs));
+
+    // ---------- 窗口模式 / 窗口大小 ----------
+    if (m_windowModeCombo != nullptr) {
+        // 档位：有覆盖就用覆盖那一档、没有就摆**全局那一档**（那一档这时是禁用的，摆出来的
+        // 意义是"你跟随的是这一档"）。认不出来的代号（手改过 meta、或者别处写进去的名字）
+        // 就退回第 0 项 —— 和 `GlobalValues::windowModeLabel` 那边同一个态度：看不懂的值
+        // 不猜它是什么档，摆最保守的那一档（调用方喂进来的第 0 项就是「小窗」，见
+        // MainWindow 构造这张表的地方）。
+        const QString token = current.windowMode.value_or(global.windowMode);
+        const int index = m_windowModeCombo->findData(token);
+        {
+            // 挡信号：这一发是**灌值**不是用户改的（和上面那条注释同一个理由 —— 不挡的话
+            // 打开这一页本身就等于替用户写一次盘，见 notifyEdited() 那条路）。
+            const QSignalBlocker block(m_windowModeCombo);
+            m_windowModeCombo->setCurrentIndex(index >= 0 ? index : 0);
+        }
+        setChoiceCustom(windowModeField(), current.windowMode.has_value());
+    }
+    if (m_windowWidthSpin != nullptr) {
+        // 分辨率那两格：**以窗口宽那一格有没有值为准**（它们是同一个决定的两半，见 .hpp
+        // 里 override() 那段），值本身各自取覆盖或全局那一份。
+        setChoiceCustom(windowWidthField(), current.windowWidth.has_value());
+        m_windowWidthSpin->setValue(current.windowWidth.value_or(global.windowWidth));
+        m_windowHeightSpin->setValue(current.windowHeight.value_or(global.windowHeight));
+    }
+
+    // 每一行下面那句话要等值灌完才刷（它写的是"当前是什么"）。
+    //
+    // NOTE: 上面那一串是 `setChoiceCustom()`，它**自己挡着信号**（档位下拉框的
+    // `currentIndexChanged` 既接 refreshHints 也接写盘那条线，灌值的时候一条都不该
+    // 响）—— 所以这一发是这个函数里**唯一**一次算提示的时机，不是"再刷一遍"。
+    refreshHints();
+
+    // 图标那一行的初值走 setIcon()（调用方在后头调，见 .hpp 里那段"为什么用 setter"）。
+    // 这里先按"默认"画一遍：没被 setIcon() 叫过的时候（验证工程里那些只验结构的构造点）
+    // 八颗按钮也得是**八颗都没勾**的样子，而不是停在某个随机状态上。
+    refreshIconRow();
+
+    // ---------- 「改了就写」那套 ----------
+    //
+    // NOTE: 有一个例外：**「配置文件」那一格里改过还没保存的时候**，
+    // `reject()` 会把这一关挡下来先问一句（见那边）。那一格是这一页上唯一一处
+    // "改动没有实时落盘"的地方（它的「保存」是一颗按钮），所以也只有它需要问。
+    //
+    // NOTE: **这个对话框自己从不 accept**（没有「确定」那一类默认按钮）。
+    // `execPage` 那边判的是 Accepted / Rejected，这里永远是后者 —— 而那正是"这一页关掉了"
+    // 的意思，它不看返回值做什么（见 MainWindow::openInstanceSettings() 收尾那一段）。
+    watchEditors();
+    // 左栏那一列灌第一遍（内容和第一页都归它管）。**排在 watchEditors() 之后**：它会在
+    // 那一列上挑一条（程序化 setCurrentRow()），接上接线之后才走"选中 → 换页"那条正常路。
+    rebuildEntryList();
+    // 起点 = 现在这一份（灌值那一串 setChecked/setText 都已经跑完）。不记这一笔的话，
+    // 打开页面之后的第一次交互会把"整份值"当成一次改动写一遍盘。
+    m_lastSignature = valueSignature();
+}
+
+/// 概览那一栏（四行：图标+实例名 / 两颗按钮 / 置顶勾选框 / 导出）与它底下的维护入口。
+///
+/// 从构造函数里按"一栏一摊"搬出来的第一摊。这几栏原来挤在同一个函数里、**共用一份 `grid`**
+/// （换一栏就重新赋值、行号从 0 数），现在每摊自己 `addForm()` 一份，谁也不再借谁的表格。
+void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
     // ---------- 概览（四行）----------
     //
     // 概览四行：第一行 图标 + 名称（可编辑文本）；第二行 更改图标（按钮）+ 分组…（按钮）；
@@ -472,9 +580,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // 勾选框上的字、第四行那颗占位按钮 —— 名字都在控件自己身上。这也是这一栏和别的那几栏
     // 长得不一样的原因，是刻意的。
     //
-    // NOTE: `grid` 与 `row` 在这几栏之间**是复用的**：换一栏就是"换一份表格、行号从 0 数"。
-    // 每一栏各自一张表格（各自的 objectName），互不干扰 —— 只是在同一个函数里搭，
-    // 没必要给每一栏各起一个名字。
+    // NOTE: 每一栏**各自**一张表格（各自的 objectName）、行号各从 0 数。原来这几栏挤在
+    // 同一个构造函数里，共用一份 `grid`、换一栏就重新赋值；按栏拆开之后各摊自己
+    // `addForm()` 一份，"这一行算在哪一栏里"不再靠"上一句把 row 清零了没有"。
     QGridLayout *grid = addForm(overviewCategoryKey(), addPage(overviewCategoryKey()));
     int row = 0;
 
@@ -1055,9 +1163,15 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         grid->addWidget(cell, row++, 0, 1, 2);
     }
 
+}
+
+/// 「启动」那一栏（Java 路径 / 内存 / 窗口 / 高级选项 / 两颗按钮）。
+void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const QStringList &appendJvmArgs,
+                                             bool warnJavaMismatch,
+                                             const QList<WindowModeChoice> &windowModes) {
     // ---------- 启动（Java 选项 / 内存 / 高级选项）----------
-    grid = addForm(launchCategoryKey(), addPage(launchCategoryKey()));
-    row = 0;
+    QGridLayout *grid = addForm(launchCategoryKey(), addPage(launchCategoryKey()));
+    int row = 0;
 
     // 这一句解释的是**这几项**的属性（「跟随全局 / 自定义」），所以它摆在「启动」栏里、
     // 紧挨着那五项，而不是整页顶上 —— 摆在顶上会让「文件管理」那几栏也像有这么一对档位。
@@ -1470,6 +1584,12 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         grid->addWidget(cell, row++, 0, 1, 2);
     }
 
+}
+
+/// 「文件管理」那八页（服务器列表 + 七份同一个 `InstanceFilesPage`）。
+///
+/// 目录一律由调用方算好递进来（见这一摊开头那段），这里只搭壳。
+void InstanceSettingsDialog::setupFilePages() {
     // ---------- 文件那八页（见 .hpp 里 filePageKeys() 那一段）----------
     //
     // 这八页说的是**这个实例自己的目录**：`--gameDir` 就是 `versions/<实例名>/`，所以
@@ -1902,98 +2022,8 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
         }
     }
 
-    // ---------- 左栏那一列的接线 ----------
-    //
-    // 左栏一变：换页。就这一件事（见 .hpp 里 pinnedPageKeys() 那一段）。
-    //
-    // NOTE: 越界保护的理由和设置页那条一样 —— 左栏的条目和堆叠页要是对不上，宁可停在原来
-    // 那页，也不要 setCurrentIndex(-1) 把右栏整片清空（"点一下界面就空了"用户只会
-    // 当成崩了）。
-    setupLifecyclePages();
-    connect(m_pageList, &QListWidget::currentRowChanged, this,
-            [this](int row) { applyEntry(row); });
-    // 打开就是第一条（概览）—— 左栏亮着哪一条、右栏就是哪一页，两边不能各说各的。
-    // 那一列的内容和这一发都由构造末尾的 rebuildEntryList() 办（它是**算出来的**，
-    // 见 .hpp 里 pinnedPageKeys() 那一段）。
-
-    // ---------- 灌值 ----------
-    // 「有值 = 自定义，没值 = 跟随全局」这一条两边都要对上：磁盘上有一项覆盖时，
-    // 重开这个对话框必须停在「自定义」上，否则用户会以为自己的设置丢了。
-    setChoiceCustom(javaPathField(), current.javaPath.has_value());
-    m_javaPathEdit->setText(current.javaPath.value_or(global.javaPath));
-
-    setChoiceCustom(xmxField(), current.xmx.has_value());
-    m_memoryMaxSpin->setValue(current.xmx.value_or(global.xmx));
-    // 条那半边也要摆过来：数字框本来就已经是这个值时上面那一句不发信号，光靠同步那条线
-    // 等不到（条会停在上一次那一格上）—— 一进这一页看见的条和数字框就不是一个数。
-    // 挡信号：这一发是**灌值**，不是用户改的 —— 不挡的话它会顺手报一次"值变了"
-    // （条自己接的那条线，见上面那段），而那时候 `m_lastSignature` 还是空的，
-    // 于是打开这一页本身就等于替用户写了一次盘。
-    {
-        const QSignalBlocker blockSlider(m_memoryMaxSlider);
-        m_memoryMaxSlider->setValueMb(m_memoryMaxSpin->value());
-    }
-
-    setChoiceCustom(xmsField(), current.xms.has_value());
-    m_memoryMinSpin->setValue(current.xms.value_or(global.xms));
-
-    setChoiceCustom(extraJvmArgsField(), current.extraJvmArgs.has_value());
-    m_extraJvmArgsEdit->setText(current.extraJvmArgs.value_or(global.extraJvmArgs));
-
-    // ---------- 窗口模式 / 窗口大小 ----------
-    if (m_windowModeCombo != nullptr) {
-        // 档位：有覆盖就用覆盖那一档、没有就摆**全局那一档**（那一档这时是禁用的，摆出来的
-        // 意义是"你跟随的是这一档"）。认不出来的代号（手改过 meta、或者别处写进去的名字）
-        // 就退回第 0 项 —— 和 `GlobalValues::windowModeLabel` 那边同一个态度：看不懂的值
-        // 不猜它是什么档，摆最保守的那一档（调用方喂进来的第 0 项就是「小窗」，见
-        // MainWindow 构造这张表的地方）。
-        const QString token = current.windowMode.value_or(global.windowMode);
-        const int index = m_windowModeCombo->findData(token);
-        {
-            // 挡信号：这一发是**灌值**不是用户改的（和上面那条注释同一个理由 —— 不挡的话
-            // 打开这一页本身就等于替用户写一次盘，见 notifyEdited() 那条路）。
-            const QSignalBlocker block(m_windowModeCombo);
-            m_windowModeCombo->setCurrentIndex(index >= 0 ? index : 0);
-        }
-        setChoiceCustom(windowModeField(), current.windowMode.has_value());
-    }
-    if (m_windowWidthSpin != nullptr) {
-        // 分辨率那两格：**以窗口宽那一格有没有值为准**（它们是同一个决定的两半，见 .hpp
-        // 里 override() 那段），值本身各自取覆盖或全局那一份。
-        setChoiceCustom(windowWidthField(), current.windowWidth.has_value());
-        m_windowWidthSpin->setValue(current.windowWidth.value_or(global.windowWidth));
-        m_windowHeightSpin->setValue(current.windowHeight.value_or(global.windowHeight));
-    }
-
-    // 每一行下面那句话要等值灌完才刷（它写的是"当前是什么"）。
-    //
-    // NOTE: 上面那一串是 `setChoiceCustom()`，它**自己挡着信号**（档位下拉框的
-    // `currentIndexChanged` 既接 refreshHints 也接写盘那条线，灌值的时候一条都不该
-    // 响）—— 所以这一发是这个函数里**唯一**一次算提示的时机，不是"再刷一遍"。
-    refreshHints();
-
-    // 图标那一行的初值走 setIcon()（调用方在后头调，见 .hpp 里那段"为什么用 setter"）。
-    // 这里先按"默认"画一遍：没被 setIcon() 叫过的时候（验证工程里那些只验结构的构造点）
-    // 八颗按钮也得是**八颗都没勾**的样子，而不是停在某个随机状态上。
-    refreshIconRow();
-
-    // ---------- 「改了就写」那套 ----------
-    //
-    // NOTE: 有一个例外：**「配置文件」那一格里改过还没保存的时候**，
-    // `reject()` 会把这一关挡下来先问一句（见那边）。那一格是这一页上唯一一处
-    // "改动没有实时落盘"的地方（它的「保存」是一颗按钮），所以也只有它需要问。
-    //
-    // NOTE: **这个对话框自己从不 accept**（没有「确定」那一类默认按钮）。
-    // `execPage` 那边判的是 Accepted / Rejected，这里永远是后者 —— 而那正是"这一页关掉了"
-    // 的意思，它不看返回值做什么（见 MainWindow::openInstanceSettings() 收尾那一段）。
-    watchEditors();
-    // 左栏那一列灌第一遍（内容和第一页都归它管）。**排在 watchEditors() 之后**：它会在
-    // 那一列上挑一条（程序化 setCurrentRow()），接上接线之后才走"选中 → 换页"那条正常路。
-    rebuildEntryList();
-    // 起点 = 现在这一份（灌值那一串 setChecked/setText 都已经跑完）。不记这一笔的话，
-    // 打开页面之后的第一次交互会把"整份值"当成一次改动写一遍盘。
-    m_lastSignature = valueSignature();
 }
+
 
 bool InstanceSettingsDialog::leaveBlockedByUnsavedEdits() const {
     // 这两条**就是** reject() 里那两道闸，一个字的第二种写法都不许有（见 .hpp）。

@@ -2138,6 +2138,15 @@ private:
     QHash<QString, QPlainTextEdit *> m_transferPlans;
     QHash<QString, QListWidget *> m_transferItems;
     void updateTransferApplyState(const QString &key);
+    /// 构造函数里那三摊（原来是同一个函数里换着用一份 `grid`，现在各自 `addForm()` 一份）：
+    /// 概览那一栏、启动那一栏、文件管理那八页。拆的依据是"一栏一摊"，不是按行数切。
+    /// 概览那一栏只认构造时递进来的目录名（名称框的初值就是它）。
+    void setupOverviewPage(const QString &instanceId);
+    /// 「启动」那一栏要用到四样只有调用方才知道的：全局值、追加 JVM 参数、提醒开关、
+    /// 可选的窗口档位。它们本来就只是"这一次打开对话框的现场"，不存成员。
+    void setupLaunchPage(const GlobalValues &global, const QStringList &appendJvmArgs,
+                         bool warnJavaMismatch, const QList<WindowModeChoice> &windowModes);
+    void setupFilePages();
     void setupLifecyclePages();
     void rebuildNavigationTree();
     void refreshLifecycleFiles(const QString &key);

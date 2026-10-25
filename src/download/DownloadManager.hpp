@@ -991,6 +991,16 @@ private:
     /// mayIssueAnotherDownloadToHost()）。
     void pumpDownloadQueue();
 
+    /// 限速开着时每条回复最多预读多少字节（不限速时**不用**这个数，仍是 256 KiB）。
+    ///
+    /// 为什么不能继续用 256 KiB：QNAM 会把正文一口气读进自己的缓冲，而 `finished` 那一刻
+    /// 缓冲区里剩下的字节是被 `stream->drain(reply)` **一次写完**的 —— 也就是说这一段天然
+    /// 绕过令牌桶。文件比缓冲小的时候整份都在这一段里：实测 2000 × 32 KiB、限 4 MiB/s，
+    /// 3.0 s 就下完了（≈5 倍于上限）。限速时按"一拍里这一路能分到多少"给缓冲，
+    /// 让 TCP 在源头上就被按住（配合收尾那一口记账 + 欠账没还清时不发新作业，
+    /// 见 onSpeedPumpTick / pumpDownloadQueue / onDownloadReplyFinished）。
+    qint64 throttledReadBufferBytes() const;
+
     /// 把一条作业真正交给网络：计进 m_totalJobs、算出主机与"要不要分段"，排进
     /// m_pendingJobs，再泵一次。
     ///

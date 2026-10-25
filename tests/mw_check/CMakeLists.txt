@@ -145,6 +145,15 @@ set(SOURCE_FILES
     # 「实例设置」那几页要的那几格事实（同上）。它只要 AppPaths / ResourceCatalog /
     # VersionManager —— 下面都已经在清单里了。
     ${REPO_ROOT}/src/controllers/InstancePagesController.cpp
+    # 主窗口那些"控件认的形状"（实例树 / 分组行 / 底栏面板行 / 版本下拉框）。它只碰
+    # MainWindowUI / VersionManager / InstanceGroupStore 这几份数据，下面都已经在清单里了。
+    # 下载页每一页顶上那一行筛子（灌选项 / 拼搜索请求的筛）。只要 MainWindowUI 与
+    # ResourceCatalog，两个都已经在清单里了。
+    ${REPO_ROOT}/src/controllers/DownloadFilterController.cpp
+    # 「资源详情」那一页的状态与那几条函数（开页 / 拨勾选框 / 筛分组 / 收尾）。
+    # 它引 ui/ResourceDetailPage 与 ResourceCatalog，两个都已经在清单里了。
+    ${REPO_ROOT}/src/controllers/ResourcePageController.cpp
+    ${REPO_ROOT}/src/controllers/MainWindowViewData.cpp
     # 「服务器列表」那一页上会写盘的那三件事（同上）。它只要 ServerListFile ——
     # 那个已经在清单里了。
     ${REPO_ROOT}/src/controllers/ServerListController.cpp

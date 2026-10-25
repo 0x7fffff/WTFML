@@ -146,8 +146,14 @@
   （工具 `tools/perf-build.ps1`、`tools/perf-startup.ps1`、`tools/perf-ci.ps1`，探针 `-DWTFML_PERF_PROBE=ON`）。
   结论：带测试的增量耗时大头是重链 34 个验证 exe（叶子 .cpp 95.3 s / 只编产品 5.2 s）；CI 因账号计费从未真正跑过，
   分片/缓存暂无可测对象；界面最贵的一下是首次进设置页 86–90 ms，其中 73 ms 是本地 Java 扫描。
-  仍未量：并发下载及主线程卡顿的精确调用栈归因；已补1000预设视图/真实临时文件读取和卡顿步骤跨度。
+  仍未量：主线程卡顿的精确调用栈归因；已补1000预设视图/真实临时文件读取和卡顿步骤跨度。
   任务中心使用合成视图负载，不等同真实下载执行器测量。
+  并发下载已补本机 HTTP 基准（`tools/perf_download/` + `tools/perf-download.ps1`，`-DWTFML_PERF_DOWNLOAD=ON`，
+  默认 OFF、不进 ctest）：真 `DownloadManager`、11 个用例、Release、n=3 中位，结果见 `docs/PERFORMANCE.md` 第九节。
+  基准顺带查出「限速」两处真问题：小文件被放大 6.25 倍（1000 × 32 KiB 限 4 MiB/s 跑出 25.0 MiB/s）；
+  只开一两条作业时反过来掉到上限的 15%（2 × 5 MiB 限 8 MiB/s 跑出 1.2 MiB/s）。
+  已在 `DownloadManager` 修掉（限速时预读缓冲按"一拍份额 ÷ 当下真在飞的条数"给、收尾那一口记账为负余额、
+  欠账未还不发新作业），两跑分别回到 4.0 与 7.6 MiB/s；不限速路径未改，38/38 回归通过。
   首次设置页扫描已移到后台；同一 Release 探针三次中位 actionMs 从 110.9 降至 18.5，
   输入/旧结果/销毁保护及回归按 `docs/PERFORMANCE.md` 记录。其余运行热点和构建重链问题仍保留，不据此整体收口。
   任务中心已复用未变化任务行，200 行中单条进度更新的 Release 中位数约 61.0 → 1.8 ms；
@@ -156,6 +162,39 @@
   临时1000份元数据读取仍约2.5s，后台读取期间GUI心跳最大间隔41–45ms；不称磁盘本身加速，见性能文档第八节。
 - [ ] **重构｜大文件职责**：按控制器/页面/纯逻辑拆 MainWindow、MainWindowUI、VersionManager、InstanceSettingsDialog 和大测试模块。
   当前约 758/381/342/274 KB，仅为维护热点线索，不是性能结论；保持行为及测试归属，不做纯机械拆分。
+  2026-10-25 已在 `MainWindow` 上拆出两片（都是"按职责"、不是按行数切），`MainWindow.cpp`
+  13,949 → 11,505 行、38/38 全绿、`mw_check` 2701/2701：
+  ① `controllers/MainWindowViewData`：各控件的**视图模型**（实例树 / 分组行 / 底栏面板行 / 版本下拉框），
+  纯函数、不碰网络与盘，顺手删掉九条早已没人调的重名助手；
+  ② `controllers/ResourcePageController`：「资源详情」那一页的**全部状态**（`ResourcePageState`
+  整个搬过去）与开页 / 拨勾选框 / 筛分组 / 收尾那几条；主窗口只留四条薄壳
+  （`onResourceDownloadFinished` 被 `ConnectionsController` 按名字接走，另三条别处直接叫）。
+  控制器**构造里就建**、页面对象仍懒建 —— 图标与版本列表那两发会比"开过页"早到，
+  状态里没有"还没建"这一档。
+  ③ `controllers/DownloadFilterController`：下载页每一页顶上那一行筛子的**灌与读**
+  （来源 / 版本 / 加载器 / 类型 + 左栏分类那一行 + "这一页空着才搜"）。那一行"内容全在这儿灌、
+  读也只从这几个访问器读"的规矩现在有了唯一的门；搜索本身（请求钥匙、结果怎么摆行）仍留主窗口。
+  两次搬运后 `MainWindow.cpp` 13,949 → 11,306 行，`mw_check` 2701/2701、38/38 全绿。
+  2026-10-26 ④ `ui/MainWindowUI`：`setupUi()` 里那 1,590 行按**一页一摊**拆成
+  `setupHomePage()` / `setupInstancePage()` / `setupDownloadPage()` / `setupSettingsTab()`
+  四个函数（只共享已经挂好的 `tabWidget`，各自的局部变量谁也不外流）。`setupUi()` 现在
+  219 行，只剩"窗口与标题栏、按契约顺序摆四页、导航接线、底栏、覆盖层、外框"。
+  实测那份"一直排第一"的热点其实看错了口径：`setupSettingsDownloadPanel` 只 136 行。
+  ⑤ 再把 `setupDownloadPage` 那一页里真正不同的三摊拆开：分类列表/页头/堆叠页外壳留在
+  `setupDownloadPage`，第 0 页「游戏」进 `setupDownloadGamePage()`（版本树 + 安装页 + 页头
+  显隐那两条 connect），其余几页那段循环进 `setupDownloadResourcePages()`。
+  三摊之间只共享已经挂好的 `downloadStack` / `gameStack` / `downloadHeader`，没有局部变量要传；
+  "第 0 页先加、其余按表顺序往后加"这条下标契约就落在 `setupDownloadPage` 里那两行调用上。
+  现在 `ui/MainWindowUI.cpp` 里最长的是 `setupSettingsLookPanel()`（434 行）、其次
+  `setupDownloadGamePage()`（370）与 `setupInstancePage()`（364）。
+  ⑥ `ui/InstanceSettingsDialog`：构造函数那 1,631 行按"一栏一摊"搬出三摊 ——
+  `setupOverviewPage()`（595）、`setupLaunchPage()`（419）、`setupFilePages()`（434），
+  构造函数只剩"两栏外壳 + 三行调用 + 接线/灌值"。原来那三摊是**同一个函数里换着用一份
+  `grid`、`row` 从 0 数起**（注释里就写着这条），现在每摊自己 `addForm()` 一份；
+  只有五样"这一次打开对话框的现场"要传进去（目录名、全局值、追加 JVM 参数、提醒开关、窗口档位），
+  不存成成员。
+  接下来仍要按同样口径动 `VersionManager`（6,086 行、146 个成员函数，但单函数最长 238 行
+  ⇒ 是聚合大、不是局部烂，要按职责找缝合线而不是按行数切）。
 - [ ] **优化｜大列表/预设渲染**：审核 model/view、按需创建、局部更新，避免一次堆积复杂 Widget，依实测选方案。
   任务行局部复用、预设模型筛选及首次目录后台读取已落地；仍需更大预设体量/复杂内容、
   增删改后的同步重扫、单份大清单读取/兼容预览、初次创建/滚动及真实多任务负载，不当作完整虚拟列表已完成。
@@ -163,12 +202,26 @@
   剩余是低速择源、不同执行器统一预算和多网络验收，单次校园网/代理实测不代表全部环境。
 - [ ] **验收｜分段来源规则**：精确 Range、强 ETag/完整 SHA-1、大小限制、整文件校验和回退已有实现，不再列为未实现。
   补直链/Modrinth/CurseForge 无备用源、签名 URL 过期、无强校验、表示变化与重启恢复矩阵，不拼接无法确认一致的表示。
+  2026-10-25 已把"该不该拆段"的判据逐条钉在本机夹具的请求次数上（5 条新用例，共 65 条断言全绿）：
+  源站不给 ETag、只给弱 ETag、正文低于 4 MiB 下限、探测总长超过 `kMaximumBytes`（32 GiB）
+  一律只发一条普通 GET；分段请求撞上预签名地址过期的 403 则报错收尾，既不整包重下也不落半截目标。
+  余下的是**真实网络**那一段（Modrinth/CurseForge 线上无备用源的实际退避）与 CurseForge 官方源过期实测。
   见 [高速下载](docs/HIGH_SPEED_DOWNLOAD.md)。
-- [ ] **实现｜正式更新通道**：版本说明、SHA-256/签名、独立 updater、原子替换/回滚，自动检查/仅提醒/关闭，
+- [ ] **暂缓（用户决定，正版登录流程完成后再做）｜正式更新通道**：版本说明、SHA-256/签名、独立 updater、原子替换/回滚，自动检查/仅提醒/关闭，
   不静默安装，启用前验收完整性与恢复。
 - [ ] **收口｜文件与服务器列表**：剩余批量/详情/迁移反馈、长路径/权限错误、大列表、MOTD/状态未知与长错误文本；
   服务器收藏独立于 servers.dat 并定义同步边界；server.properties 非常用字段继续校验。
+  2026-10-26 长路径那一条先落了一半：exe 现在绑了一份清单（`res/wtfml.rc` → `res/wtfml.manifest`），
+  里面只有 `longPathAware=true` 与 `asInvoker`。要注意它只是"允许"——系统那一侧还得打开
+  `LongPathsEnabled`，没打开时是空操作。DPI 感知**不写进清单**（Qt 6 启动时自己设，写两处会打架）。
+  剩下的是逐入口验证 >260 字符路径的实际行为，以及权限错误那句话。
 - [ ] **收口｜局部主题布局**：底栏弹层、任务面板、预设编辑器硬编码样式及设置分组间距，DPI 验收统一归 §3。
+  2026-10-26 复核（只读扫，没改代码）：底栏弹层与任务面板的样式表里**一个写死的颜色都没有**
+  （全走 `Theme::partBackground` / 调色板角色）；四份预设编辑器（`PresetManagePage` /
+  `PresetModEditor` / `PresetOptionsEditor` / `PresetInstallPicker`）也没有颜色字面量。
+  剩下的真活儿只有两处：`ui/ServerSettingsPage.cpp` 里那块深色「图标底板」（`#202020` / `#3a3a3a`，
+  要看它在浅色主题下是不是有意为之）和 MOTD 那句灰色 `<span>`；以及设置各栏的内边距/行距常量
+  要不要跟着缩放 —— 后者与 DPI 绑在一起，仍然归 §3。
 
 ## 5. P3：高级能力与按需适配
 

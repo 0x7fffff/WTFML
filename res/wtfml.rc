@@ -1,0 +1,3 @@
+// 只做一件事：把 res/wtfml.manifest 绑到 exe 上（资源类型 24 = RT_MANIFEST，
+// 编号**必须是 1**，那是 Windows 认的那一个）。
+1 24 "wtfml.manifest"
