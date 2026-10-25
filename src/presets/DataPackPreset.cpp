@@ -542,11 +542,11 @@ bool copyOverwrite(const QString &source, const QString &target, QString *proble
         return false;
     }
     QString scratch;
-    if (!copyTreeWithoutFollowingLinks(source, staging)) {
+    QString copyProblem;
+    if (!copyTreeWithoutFollowingLinks(source, staging, {}, &copyProblem)) {
         removeTreeNoLinks(staging, &scratch);
         clearJournal(parent, base);
-        *problem = dataPackText("拷不进去「%1」（源那一侧也许是一根链接，或者目标建不出来）。")
-                       .arg(target);
+        *problem = dataPackText("拷不进去「%1」：%2").arg(target, copyProblem);
         return false;
     }
     if (!writeJournal(parent, base, stagingName, QString(), QStringLiteral("staged"), problem)) {

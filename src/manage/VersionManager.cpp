@@ -4315,9 +4315,10 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
         return QString();
     };
 
-    if (!copyTreeWithoutFollowingLinks(sourceDir, stagingDir)) {
-        return fail(tr("复制 %1 的时候中断了，这一份没有做出来。%2")
-                        .arg(QDir::toNativeSeparators(sourceDir), removePartial()));
+    QString copyProblem;
+    if (!copyTreeWithoutFollowingLinks(sourceDir, stagingDir, {}, &copyProblem)) {
+        return fail(tr("复制 %1 的时候中断了，这一份没有做出来。\n原因：%2%3")
+                        .arg(QDir::toNativeSeparators(sourceDir), copyProblem, removePartial()));
     }
 
     // ---------- 第 3 步：jar / json 跟着目录名改 ----------

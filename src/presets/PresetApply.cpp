@@ -118,8 +118,9 @@ bool backupOne(const QString &instanceRoot, const QString &backupDir, const QStr
         *problem = applyText("建不了备份目录「%1」。").arg(parent);
         return false;
     }
-    if (!copyTreeWithoutFollowingLinks(source, target)) {
-        *problem = applyText("备份「%1」失败（这一趟什么都没写）。").arg(relative);
+    QString copyProblem;
+    if (!copyTreeWithoutFollowingLinks(source, target, {}, &copyProblem)) {
+        *problem = applyText("备份「%1」失败（这一趟什么都没写）：%2").arg(relative, copyProblem);
         return false;
     }
     return true;

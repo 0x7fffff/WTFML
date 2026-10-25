@@ -212,16 +212,18 @@ bool copyWorldInto(const QString &worldDir, const QString &savesDir, const QStri
     QTemporaryDir staging(QDir(target).filePath(QStringLiteral(".wtfml-world-import-XXXXXX")));
     if (!staging.isValid()) return fail(QStringLiteral("无法创建世界导入暂存目录。"));
     const QString candidate = staging.filePath(QStringLiteral("world"));
-    if (!copyTreeWithoutFollowingLinks(source, candidate, cancelled)) {
+    QString copyProblem;
+    if (!copyTreeWithoutFollowingLinks(source, candidate, cancelled, &copyProblem)) {
+        const QString reason = QStringLiteral("\n原因：%1").arg(copyProblem);
         // 半成品自己收拾掉（理由见头文件）：世界是几百 MB 一坨，没有"接着拷"这回事。
         if (!removeTreeWithoutFollowingLinks(candidate)) {
             staging.setAutoRemove(false);
-            return fail(QStringLiteral("导入「%1」的时候中断了，这一份没有做出来。\n"
-                                       "（另外，那份没拷完的 %2 也没能删掉，你需要自己"
+            return fail(QStringLiteral("导入「%1」的时候中断了，这一份没有做出来。%2\n"
+                                       "（另外，那份没拷完的 %3 也没能删掉，你需要自己"
                                        "删掉它。）")
-                            .arg(dirName, staging.path()));
+                            .arg(dirName, reason, staging.path()));
         }
-        return fail(QStringLiteral("导入「%1」的时候中断了，这一份没有做出来。").arg(dirName));
+        return fail(QStringLiteral("导入「%1」的时候中断了，这一份没有做出来。%2").arg(dirName, reason));
     }
     if ((cancelled && cancelled()) || !looksLikeWorld(candidate))
         return fail(QStringLiteral("导入已取消、超时或源世界在复制期间发生变化，未发布存档。"));

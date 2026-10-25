@@ -11,6 +11,7 @@
 
 #include "PresetStore.hpp"
 
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -593,8 +594,11 @@ PresetManifest duplicate(const QString &root, const QString &id, const QString &
     }
     const QString fromFiles = filesDir(root, id);
     if (QFileInfo::exists(fromFiles)) {
-        if (!copyTreeWithoutFollowingLinks(fromFiles, filesDir(root, copy.id))) {
+        QString copyProblem;
+        if (!copyTreeWithoutFollowingLinks(fromFiles, filesDir(root, copy.id), {}, &copyProblem)) {
             // 拷了一半：把这一份的新目录整棵收掉，别在预设列表里留一个半成品。
+            // 这个入口的回调只有"成功/空清单"两种答案，首因至少留在日志里（P0 取证用）。
+            qWarning() << "PresetStore: cannot duplicate preset files:" << copyProblem;
             removeTreeWithoutFollowingLinks(newDir);
             return PresetManifest();
         }

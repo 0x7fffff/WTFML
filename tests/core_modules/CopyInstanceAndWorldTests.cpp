@@ -440,6 +440,69 @@ void runCopyInstanceAndWorldTests() {
         icacls({nativeSaves, QStringLiteral("/remove:d"), user});  // 兜底：别把拒绝项留给下一轮
     }
 
+    section("ZJ8. 源里那一件读不了（ACL 拒绝 RD）：失败要说得出是哪个文件、卡在哪一步");
+    {
+        // 和 ZJ7 配成一对：ZJ7 是"目标不让写"，这里是"源不让读"。复制失败的首因现在从
+        // `copyTreeWithoutFollowingLinks()` 的 `problemOut` 一路带到界面话术里 —— P0 要的是
+        // 「可检测的 I/O 失败要能查清」，不是只回一句「中断了」。
+        const QString user = qEnvironmentVariable("USERNAME");
+        const auto icacls = [](const QStringList &args) {
+            return QProcess::execute(QStringLiteral("cmd"),
+                                     QStringList{QStringLiteral("/c"), QStringLiteral("icacls")} +
+                                         args) == 0;
+        };
+        const QString root = scratch.filePath(QStringLiteral("读权限夹具"));
+        const QString worldDir = root + QStringLiteral("/读不了的世界");
+        const QString savesDir = root + QStringLiteral("/saves");
+        QDir().mkpath(worldDir);
+        QDir().mkpath(savesDir);
+        writeFileAt(worldDir + QStringLiteral("/level.dat"), QByteArrayLiteral("level-bytes"));
+        const QString blocked = worldDir + QStringLiteral("/读不了.dat");
+        writeFileAt(blocked, QByteArrayLiteral("秘密"));
+        const QString nativeBlocked = QDir::toNativeSeparators(blocked);
+        const bool denied = !user.isEmpty() &&
+                            icacls({nativeBlocked, QStringLiteral("/deny"),
+                                    user + QStringLiteral(":(RD)")});
+        check(denied, "★ ZJ8 前提：给源里那一件挂了拒绝读的 ACL（icacls /deny RD）", user);
+        if (denied) {
+            QFile probe(blocked);
+            const bool unreadable = !probe.open(QIODevice::ReadOnly);
+            if (!unreadable) {
+                probe.close();
+            }
+            check(unreadable, "★ ZJ8 前提：那一条拒绝项真的挡得住读");
+            QString error;
+            const bool imported = WorldFiles::copyWorldInto(worldDir, savesDir,
+                                                            QStringLiteral("搬进来的"), &error);
+            // 两句话都认：整文件那条路给的是「文件复制失败」，分块那条路给的是
+            // 「无法打开源或临时文件」；这里钉的是"说得出哪一件、卡在哪一步"，
+            // 不是把某一条内部实现路径焊死。
+            check(!imported && error.contains(QStringLiteral("原因：")) &&
+                      error.contains(QStringLiteral("读不了.dat")) &&
+                      (error.contains(QStringLiteral("文件复制失败")) ||
+                       error.contains(QStringLiteral("无法打开源或临时文件"))),
+                  "★★ ZJ8 复制失败的原因说到「哪一步、哪一件」（不是只说中断了）", error);
+            check(!QFileInfo::exists(savesDir + QStringLiteral("/搬进来的")) &&
+                      QDir(savesDir)
+                          .entryList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden)
+                          .isEmpty(),
+                  "★★ ZJ8 失败后不发布、暂存也收拾干净了",
+                  QDir(savesDir).entryList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden)
+                      .join(QLatin1Char(',')));
+            const bool restored = icacls({nativeBlocked, QStringLiteral("/remove:d"), user});
+            check(restored, "★ ZJ8 收尾：拒绝项摘掉了");
+            check(restored && readBytesAt(blocked) == QByteArrayLiteral("秘密"),
+                  "★★ ZJ8 源那一件一个字节都没被动过（失败那一趟只读源）");
+            QString after;
+            check(restored && WorldFiles::copyWorldInto(worldDir, savesDir,
+                                                        QStringLiteral("搬进来的"), &after),
+                  "★ ZJ8 权限放开之后同一趟照常成功", after);
+            check(QFileInfo::exists(savesDir + QStringLiteral("/搬进来的/读不了.dat")),
+                  "ZJ8 搬进来的那一份连刚才被拒绝的那件都在");
+        }
+        icacls({nativeBlocked, QStringLiteral("/remove:d"), user});  // 兜底
+    }
+
     section("ZJ5. VersionManager::copyInstance：多出一份实例");
     AppPaths::setMinecraftDir(sourceRoot.path());
     const QString srcId = QStringLiteral("源实例");
@@ -536,6 +599,8 @@ void runCopyInstanceAndWorldTests() {
             QString error;
             check(!vm.copyInstance(badId, destRootPath, QStringLiteral("坏副本"), &error),
                   "★★ ZJ5 源里有链接 ⇒ 复制失败", error);
+            check(error.contains(QStringLiteral("链接")),
+                  "★★ ZJ5 失败原因说到那根链接（不是只回一句「中断了」）", error);
             check(!existsAt(destRootPath + QStringLiteral("/versions/坏副本")),
                   "★★★ ZJ5 失败时 versions/ 下不出现半份实例");
             check(!existsAt(destRootPath + QStringLiteral("/versions/.wtfml-staging")),
