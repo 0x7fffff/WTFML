@@ -86,6 +86,12 @@ struct TaskCapabilities {
     QString cancelBlockedReason;
     bool canPause = false;   // 恒 false
     bool canRetry = false;   // 恒 false（取消/重试还没做）
+    /// 「继续未完成操作」：这一项留下了一份可以接着做的文件操作报告（见
+    /// `OperationReport`）。只在这一次会话里成立 —— 报告本身在盘上，但账本读回来时
+    /// 不带能力位（见 `TaskHistory::toJson()`），所以重启后不露出这颗按钮。
+    bool canRecover = false;
+    /// 「为什么不能继续」。只有 `canRecover == false` 时才有意义的解释（可空）。
+    QString recoverBlockedReason;
     bool canOpenTarget = false;
     bool canOpenLog = false;
     /// 「导出错误报告」。**只有游戏异常退出那一项**为真 —— 报告要的是一份会话事实
@@ -103,6 +109,15 @@ struct TaskSnapshot {
     QString title;       // 「安装 1.21.4 Fabric」
     QString detail;      // 「正在下载资源对象…」
     QString targetId;    // 实例 id / 服务端 id，可空
+    /// 父任务（0 = 自己是父任务或独立任务）。**子任务不进任务中心**：它们是同一个用户
+    /// 意图里的几步（准备核心 / 复制 / 快照），面板和总进度只认父任务（见
+    /// `TaskManager::beginChild()`）。**不落盘**：盘上只留父任务那一行。
+    TaskId parentId = invalidTaskId();
+    /// 这个子任务对应父任务第几步（`-1` = 不映射）。子任务收尾时只改那一步的状态。
+    int parentStep = -1;
+    /// 「继续未完成操作」认的那份报告（`OperationReport::Report::id`）。
+    /// **不落盘**：它指向的是一份这次操作留下的现场，重启后由报告自己说话。
+    QString recoveryToken;
     /// **只活在内存里，不落盘**：会话号是每次启动器运行从 1 开始的，重启之后同一个号
     /// 指的是另一趟。读回来的历史一律是 0（`TaskHistory` 也不写它）。
     int sessionId = 0;

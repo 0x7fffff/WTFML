@@ -126,19 +126,223 @@ QString nameProblem(const QString &rawName) {
     return InstanceFiles::validateDirName(rawName);
 }
 
-bool copyWorldInto(const QString &worldDir, const QString &savesDir, const QString &name,
-                   QString *problemOut, const std::function<bool()> &cancelled, qint64 spaceBudgetBytes) {
-    if (!WriteDirectoryGuard::acquire(savesDir, problemOut)) return false;
-    const auto fail = [problemOut](const QString &reason) {
-        if (problemOut != nullptr) {
-            *problemOut = reason;
+namespace {
+
+/// 把源世界逐个文件复制到暂存候选里，遇到中断 / 取消立刻停。
+/// 已存在且内容一致的候选文件会被跳过（续做复用），其它情况一律重写目标文件。
+struct CopyTreeOutcome {
+    bool ok = false;
+    bool cancelled = false;
+    int totalFiles = 0;
+    int copiedFiles = 0;
+    int skippedFiles = 0;
+    int failedFiles = 0;
+    qint64 totalBytes = 0;
+    qint64 copiedBytes = 0;
+    QStringList failures;
+    QString problem;
+};
+
+bool sameFileContent(const QString &left, const QString &right,
+                     const std::function<bool()> &cancelled) {
+    QFile a(left), b(right);
+    if (!a.open(QIODevice::ReadOnly) || !b.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+    QCryptographicHash hashA(QCryptographicHash::Sha1), hashB(QCryptographicHash::Sha1);
+    while (!a.atEnd()) {
+        if (cancelled && cancelled()) {
+            return false;
+        }
+        const QByteArray chunk = a.read(1 << 20);
+        if (chunk.isEmpty()) {
+            break;
+        }
+        hashA.addData(chunk);
+    }
+    while (!b.atEnd()) {
+        if (cancelled && cancelled()) {
+            return false;
+        }
+        const QByteArray chunk = b.read(1 << 20);
+        if (chunk.isEmpty()) {
+            break;
+        }
+        hashB.addData(chunk);
+    }
+    return hashA.result() == hashB.result();
+}
+
+/// 单个文件：QSaveFile 临时文件 + 原子改名。失败时目标那一份保持原样或不存在。
+bool copyOneFile(const QString &source, const QString &target,
+                 const std::function<bool()> &cancelled, QString *problem) {
+    QFile in(source);
+    if (!in.open(QIODevice::ReadOnly)) {
+        if (problem != nullptr) {
+            *problem = QStringLiteral("读不了 %1（%2）")
+                           .arg(QDir::toNativeSeparators(source), in.errorString());
         }
         return false;
-    };
-    if (problemOut != nullptr) {
-        problemOut->clear();
     }
+    const QFileInfo targetInfo(target);
+    if (!QDir().mkpath(targetInfo.absolutePath())) {
+        if (problem != nullptr) {
+            *problem = QStringLiteral("建不出目录 %1").arg(targetInfo.absolutePath());
+        }
+        return false;
+    }
+    QSaveFile out(target);
+    if (!out.open(QIODevice::WriteOnly)) {
+        if (problem != nullptr) {
+            *problem = QStringLiteral("写不进 %1（%2）")
+                           .arg(QDir::toNativeSeparators(target), out.errorString());
+        }
+        return false;
+    }
+    while (!in.atEnd()) {
+        if (cancelled && cancelled()) {
+            if (problem != nullptr) {
+                *problem = QStringLiteral("已取消");
+            }
+            return false;  // 析构扔掉临时文件
+        }
+        const QByteArray chunk = in.read(1 << 20);
+        if (chunk.isEmpty()) {
+            if (problem != nullptr) {
+                *problem = QStringLiteral("读不了 %1（%2）")
+                               .arg(QDir::toNativeSeparators(source), in.errorString());
+            }
+            return false;
+        }
+        if (out.write(chunk) != chunk.size()) {
+            if (problem != nullptr) {
+                *problem = QStringLiteral("写不进 %1（%2）")
+                               .arg(QDir::toNativeSeparators(target), out.errorString());
+            }
+            return false;
+        }
+    }
+    if (!out.commit()) {
+        if (problem != nullptr) {
+            *problem = QStringLiteral("发布不了 %1（%2）")
+                           .arg(QDir::toNativeSeparators(target), out.errorString());
+        }
+        return false;
+    }
+    return true;
+}
 
+CopyTreeOutcome copyWorldTree(const QString &source, const QString &candidate,
+                              const std::function<bool()> &cancelled,
+                              const ImportProgress &progress) {
+    CopyTreeOutcome outcome;
+    QSet<QString> failedPaths;
+    // 先收一份清单（相对路径 + 大小）：空间预检、进度总数和续做核对都读它。
+    QList<QPair<QString, qint64>> files;
+    QDirIterator it(source, QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden
+                                | QDir::System, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        if (cancelled && cancelled()) {
+            outcome.cancelled = true;
+            outcome.problem = QStringLiteral("导入世界已取消或超时。");
+            return outcome;
+        }
+        it.next();
+        const QFileInfo info = it.fileInfo();
+        if (info.isSymLink() || info.isJunction()) {
+            outcome.problem = QStringLiteral("世界包含链接，未开始导入。");
+            return outcome;
+        }
+        if (info.isDir()) {
+            continue;
+        }
+        if (!info.isFile()) {
+            outcome.problem = QStringLiteral("世界里有不是普通文件的内容：%1")
+                                  .arg(QDir::toNativeSeparators(info.absoluteFilePath()));
+            return outcome;
+        }
+        const QString relative = QDir(source).relativeFilePath(info.absoluteFilePath());
+        files.append({relative, info.size()});
+        outcome.totalFiles += 1;
+        outcome.totalBytes += info.size();
+    }
+    for (const auto &file : files) {
+        if (cancelled && cancelled()) {
+            outcome.cancelled = true;
+            outcome.problem = QStringLiteral("导入世界已取消或超时。");
+            return outcome;
+        }
+        const QString sourceFile = QDir(source).filePath(file.first);
+        const QString targetFile = QDir(candidate).filePath(file.first);
+        const QFileInfo existing(targetFile);
+        if (existing.isFile() && existing.size() == file.second
+            && sameFileContent(sourceFile, targetFile, cancelled)) {
+            ++outcome.skippedFiles;
+            outcome.copiedBytes += file.second;
+            if (progress) {
+                progress(outcome.skippedFiles + outcome.copiedFiles, outcome.totalFiles,
+                         outcome.copiedBytes, outcome.totalBytes);
+            }
+            continue;
+        }
+        QString problem;
+        if (!copyOneFile(sourceFile, targetFile, cancelled, &problem)) {
+            if (cancelled && cancelled()) {
+                outcome.cancelled = true;
+                outcome.problem = QStringLiteral("导入世界已取消或超时。");
+                return outcome;
+            }
+            ++outcome.failedFiles;
+            failedPaths.insert(file.first);
+            if (outcome.failures.size() < 20) {
+                outcome.failures.append(QStringLiteral("%1：%2").arg(file.first, problem));
+            }
+            outcome.problem = QStringLiteral("文件复制失败：%1（原因：%2）")
+                                  .arg(file.first, problem);
+            continue;
+        }
+        ++outcome.copiedFiles;
+        outcome.copiedBytes += file.second;
+        if (progress) {
+            progress(outcome.skippedFiles + outcome.copiedFiles, outcome.totalFiles,
+                     outcome.copiedBytes, outcome.totalBytes);
+        }
+    }
+    // 复制完后按清单再核一遍（路径 + 大小）；续做跳过的文件已经在上面比过内容。
+    // 已经在复制那一步记过失败的项不再重复计数（否则“失败 1 个”会变成 2 个）。
+    for (const auto &file : files) {
+        if (failedPaths.contains(file.first)) {
+            continue;
+        }
+        const QFileInfo target(QDir(candidate).filePath(file.first));
+        if (!target.isFile() || target.size() != file.second) {
+            ++outcome.failedFiles;
+            failedPaths.insert(file.first);
+            if (outcome.failures.size() < 20) {
+                outcome.failures.append(QStringLiteral("%1：暂存副本不完整").arg(file.first));
+            }
+        }
+    }
+    outcome.ok = outcome.failedFiles == 0;
+    if (!outcome.ok && outcome.problem.isEmpty()) {
+        outcome.problem = QStringLiteral("有文件没能复制到暂存副本。");
+    }
+    return outcome;
+}
+
+}  // namespace
+
+ImportResult importWorld(const QString &worldDir, const QString &savesDir, const QString &name,
+                         const ImportOptions &options, const std::function<bool()> &cancelled,
+                         const ImportProgress &progress) {
+    ImportResult result;
+    const auto fail = [&result](const QString &reason) {
+        result.problem = reason;
+        return result;
+    };
+    if (!WriteDirectoryGuard::acquire(savesDir, &result.problem)) {
+        return result;
+    }
     const QString source = worldDir.trimmed();
     const QString target = savesDir.trimmed();
     if (source.isEmpty()) {
@@ -147,17 +351,11 @@ bool copyWorldInto(const QString &worldDir, const QString &savesDir, const QStri
     if (target.isEmpty()) {
         return fail(QStringLiteral("不知道要导入到哪个实例里去。"));
     }
-
-    // ① 名字。**先判名字再查盘**：名字本身就不合法时拼出来的路径不可信，拿它去盘上问
-    // "有没有重名"没有意义（和 InstanceFiles::checkImportTargetName 那一路同一顺序）。
     const QString nameProblemText = nameProblem(name);
     if (!nameProblemText.isEmpty()) {
         return fail(nameProblemText);
     }
     const QString dirName = name.trimmed();
-
-    // ② 源。`QDir(...).exists()` 对**文件**也说 true，所以再走一遍 looksLikeWorld() ——
-    // 用户把 `saves/xxx/level.dat`（单个文件）选进来的话，只判 isDir 是拦不住的。
     if (!QFileInfo(source).isDir()) {
         return fail(QStringLiteral("「%1」不是一个目录。").arg(source));
     }
@@ -166,71 +364,144 @@ bool copyWorldInto(const QString &worldDir, const QString &savesDir, const QStri
                                    "（是不是选错了上一层的文件夹？）")
                         .arg(QDir(source).dirName()));
     }
-
-    // ③ 目的地。saves 目录**必须已经存在**：mkpath 出来一个空的 saves/ 也能用，但那说明
-    // 这一份实例根本没被游戏跑过，这时候"导入世界"多半是用户点错了实例 —— 宁可让他
-    // 自己先跑一次游戏，也不要在这里替他造一个目录出来（造出来的那个目录在游戏那边
-    // 和在文件管理页那边都是"凭空多出来的一格"，用户没法解释它哪来的）。
     if (!QFileInfo(target).isDir()) {
         return fail(QStringLiteral("这个实例里还没有 saves 文件夹（先启动一次游戏，"
                                    "或者手动建一个）。"));
     }
-
     const QString destDir = target + QLatin1Char('/') + dirName;
     if (QFileInfo::exists(destDir)) {
-        return fail(QStringLiteral("这个实例里已经有一个叫「%1」的世界了，换个名字再导入。")
-                        .arg(dirName));
+        result.conflict = true;
+        switch (options.conflictPolicy) {
+        case OperationReport::ConflictPolicy::SkipExisting:
+            result.ok = true;
+            result.skipped = true;
+            result.problem = QStringLiteral("已经有一个叫「%1」的世界了，按选择跳过了这一份。")
+                                 .arg(dirName);
+            return result;
+        case OperationReport::ConflictPolicy::Overwrite:
+        case OperationReport::ConflictPolicy::Cancel:
+            // 世界存档**从不覆盖**：覆盖一个世界等于把用户的进度静默换掉。
+            return fail(QStringLiteral("这个实例里已经有一个叫「%1」的世界了，换个名字再导入。")
+                            .arg(dirName));
+        }
     }
-
     if (InstanceFiles::pathIsSameOrInside(source, target)) {
         return fail(QStringLiteral("不能把世界导入到它自己或其子目录中。"));
     }
-    if (cancelled && cancelled()) return fail(QStringLiteral("导入世界已取消或超时。"));
-    // 暂存复制前检查目标卷。预算只可降低实际可用空间，不能绕过磁盘检查。
+    if (cancelled && cancelled()) {
+        result.cancelled = true;
+        return fail(QStringLiteral("导入世界已取消或超时。"));
+    }
+
+    // 暂存：调用方给了可续目录就复用它（里面已有的文件按内容跳过），否则用系统临时目录。
+    QTemporaryDir temporary;
+    QString stagingRoot;
+    bool keepStaging = false;
+    if (!options.stagingDir.isEmpty()) {
+        stagingRoot = options.stagingDir;
+        if (!QDir().mkpath(stagingRoot)) {
+            return fail(QStringLiteral("无法创建世界导入暂存目录：%1").arg(stagingRoot));
+        }
+        keepStaging = true;
+    } else {
+        if (!temporary.isValid()) {
+            return fail(QStringLiteral("无法创建世界导入暂存目录。"));
+        }
+        stagingRoot = temporary.path();
+    }
+    result.stagingDir = keepStaging ? stagingRoot : QString();
+    const QString candidate = QDir(stagingRoot).filePath(QStringLiteral("world"));
+
+    // 空间：按整份世界算（续做时已有的文件也算进去 —— 少算是会真写满盘的）。
     constexpr qint64 margin = 32 * 1024 * 1024;
     qint64 required = margin;
-    QDirIterator sourceFiles(source, QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
-                             QDirIterator::Subdirectories);
-    while (sourceFiles.hasNext()) {
-        if (cancelled && cancelled()) return fail(QStringLiteral("导入世界已取消或超时。"));
-        sourceFiles.next();
-        const auto info = sourceFiles.fileInfo();
-        if (info.isSymLink() || info.isJunction())
+    QDirIterator sizes(source, QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden
+                                  | QDir::System, QDirIterator::Subdirectories);
+    while (sizes.hasNext()) {
+        if (cancelled && cancelled()) {
+            result.cancelled = true;
+            return fail(QStringLiteral("导入世界已取消或超时。"));
+        }
+        sizes.next();
+        const auto info = sizes.fileInfo();
+        if (info.isSymLink() || info.isJunction()) {
             return fail(QStringLiteral("世界包含链接，未开始导入。"));
-        if (!info.isFile()) continue;
+        }
+        if (!info.isFile()) {
+            continue;
+        }
         const qint64 size = info.size();
-        if (size < 0 || size > std::numeric_limits<qint64>::max() - required)
+        result.totalBytes += size;
+        result.totalFiles += 1;
+        if (size < 0 || size > std::numeric_limits<qint64>::max() - required) {
             return fail(QStringLiteral("无法安全计算世界大小，未开始导入。"));
+        }
         required += size;
     }
     const QStorageInfo storage(target);
-    const qint64 available = spaceBudgetBytes >= 0
-        ? qMin(storage.bytesAvailable(), spaceBudgetBytes) : storage.bytesAvailable();
-    if (!storage.isValid() || !storage.isReady() || storage.isReadOnly() || available < required)
+    const qint64 available = options.spaceBudgetBytes >= 0
+        ? qMin(storage.bytesAvailable(), options.spaceBudgetBytes) : storage.bytesAvailable();
+    if (!storage.isValid() || !storage.isReady() || storage.isReadOnly() || available < required) {
         return fail(QStringLiteral("目标磁盘不可写或可用空间不足，未开始导入世界（需要至少 %1 字节，含安全余量）。")
                         .arg(required));
-    QTemporaryDir staging(QDir(target).filePath(QStringLiteral(".wtfml-world-import-XXXXXX")));
-    if (!staging.isValid()) return fail(QStringLiteral("无法创建世界导入暂存目录。"));
-    const QString candidate = staging.filePath(QStringLiteral("world"));
-    QString copyProblem;
-    if (!copyTreeWithoutFollowingLinks(source, candidate, cancelled, &copyProblem)) {
-        const QString reason = QStringLiteral("\n原因：%1").arg(copyProblem);
-        // 半成品自己收拾掉（理由见头文件）：世界是几百 MB 一坨，没有"接着拷"这回事。
-        if (!removeTreeWithoutFollowingLinks(candidate)) {
-            staging.setAutoRemove(false);
-            return fail(QStringLiteral("导入「%1」的时候中断了，这一份没有做出来。%2\n"
-                                       "（另外，那份没拷完的 %3 也没能删掉，你需要自己"
-                                       "删掉它。）")
-                            .arg(dirName, reason, staging.path()));
-        }
-        return fail(QStringLiteral("导入「%1」的时候中断了，这一份没有做出来。%2").arg(dirName, reason));
     }
-    if ((cancelled && cancelled()) || !looksLikeWorld(candidate))
-        return fail(QStringLiteral("导入已取消、超时或源世界在复制期间发生变化，未发布存档。"));
-    // 同卷改名发布，游戏和存档列表不会看到半份正式世界；重名绝不覆盖。
-    if (!QDir().rename(candidate, destDir))
-        return fail(QStringLiteral("无法发布导入的世界，目标可能已被其它程序创建，未覆盖。"));
-    return true;
+
+    const CopyTreeOutcome copied = copyWorldTree(source, candidate, cancelled, progress);
+    result.copiedFiles = copied.copiedFiles;
+    result.skippedFiles = copied.skippedFiles;
+    result.failedFiles = copied.failedFiles;
+    result.copiedBytes = copied.copiedBytes;
+    result.failures = copied.failures;
+    if (copied.cancelled || (cancelled && cancelled())) {
+        result.cancelled = true;
+        result.problem = QStringLiteral("导入世界已取消或超时。");
+        if (!keepStaging) {
+            removeTreeWithoutFollowingLinks(stagingRoot);
+        }
+        return result;
+    }
+    if (!copied.ok) {
+        result.problem = copied.problem.isEmpty()
+            ? QStringLiteral("导入「%1」的时候有些文件没拷成。").arg(dirName)
+            : copied.problem;
+        if (!keepStaging) {
+            removeTreeWithoutFollowingLinks(stagingRoot);
+        }
+        return result;
+    }
+    if (!looksLikeWorld(candidate)) {
+        result.problem = QStringLiteral("导入已取消、超时或源世界在复制期间发生变化，未发布存档。");
+        if (!keepStaging) {
+            removeTreeWithoutFollowingLinks(stagingRoot);
+        }
+        return result;
+    }
+    if (!QDir().rename(candidate, destDir)) {
+        result.problem = QStringLiteral("无法发布导入的世界，目标可能已被其它程序创建，未覆盖。");
+        if (!keepStaging) {
+            removeTreeWithoutFollowingLinks(stagingRoot);
+        }
+        return result;
+    }
+    // 发布成功：可续暂存到此没有价值（目标已经在了），连同那份报告一起收掉。
+    if (keepStaging) {
+        removeTreeWithoutFollowingLinks(stagingRoot);
+    }
+    result.ok = true;
+    result.stagingDir.clear();
+    return result;
+}
+
+bool copyWorldInto(const QString &worldDir, const QString &savesDir, const QString &name,
+                   QString *problemOut, const std::function<bool()> &cancelled, qint64 spaceBudgetBytes) {
+    ImportOptions options;
+    options.conflictPolicy = OperationReport::ConflictPolicy::Cancel;
+    options.spaceBudgetBytes = spaceBudgetBytes;
+    const ImportResult result = importWorld(worldDir, savesDir, name, options, cancelled);
+    if (problemOut != nullptr) {
+        *problemOut = result.problem;
+    }
+    return result.ok && !result.skipped;
 }
 
 bool renameWorld(const QString &worldDir, const QString &newName, QString *problemOut) {

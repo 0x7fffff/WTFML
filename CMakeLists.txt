@@ -50,6 +50,8 @@ set(HEADER_FILES
     src/controllers/ModpackExportController.hpp
     src/controllers/InstanceFileController.hpp
     src/controllers/InstanceTransferController.hpp
+    # 「继续未完成操作」：按 OperationReport 把没做完的文件操作补完。
+    src/controllers/FileOperationRecoveryController.hpp
     src/controllers/InstanceDialogController.hpp
     src/controllers/InstanceEditorController.hpp
     src/controllers/ImportController.hpp
@@ -148,6 +150,8 @@ set(HEADER_FILES
     # TransferApply。目标版本 / 加载器不一致时如实说不一致，不替用户猜。
     src/operations/TransferPlanner.hpp
     src/operations/TransferApply.hpp
+    # 一次文件操作的统一报告（逐项结果 / 冲突策略 / 可续暂存 / 失败原因）。
+    src/operations/OperationReport.hpp
     src/settings/GlobalJavaSettings.hpp
     src/settings/GameWindowSettings.hpp
     src/settings/LauncherSettings.hpp
@@ -362,6 +366,8 @@ set(SOURCE_FILES
     src/operations/TransferPlanner.cpp
     src/operations/TransferApply.cpp
     src/operations/InstanceUpgrade.cpp
+    src/operations/OperationReport.cpp
+    src/controllers/FileOperationRecoveryController.cpp
     src/settings/EffectiveJavaSettings.cpp
     src/settings/GlobalJavaSettings.cpp
     src/settings/GameWindowSettings.cpp

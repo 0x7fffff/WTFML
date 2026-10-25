@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "manage/ModpackImport.hpp"
 
 void runLoaderInstallTests() {
     section("V. 加载器安装（纯函数：地址 / 挑版本 / profile 检查 / 下标翻译）");
@@ -2115,6 +2116,59 @@ void runLoaderInstallTests() {
                       id.mid(prefix.size()) == QStringLiteral("HD_U_H9"),
                   "V8.7 安装器装出来的目录名能当版本 id，切出来就是 HD_U_H9");
         }
+    }
+
+    // --- V9. Quilt：meta 地址 / 版本排序 / 稳定档 / profile 检查 / 安装支持 ---------
+    {
+        check(LoaderMeta::quiltLoaderListUrl(QStringLiteral("1.21.1")) ==
+                  QStringLiteral("https://meta.quiltmc.org/v3/versions/loader/1.21.1"),
+              "V9 Quilt 版本列表地址", LoaderMeta::quiltLoaderListUrl(QStringLiteral("1.21.1")));
+        check(LoaderMeta::quiltProfileUrl(QStringLiteral("1.21.1"), QStringLiteral("0.26.4")) ==
+                  QStringLiteral("https://meta.quiltmc.org/v3/versions/loader/1.21.1/0.26.4/profile/json"),
+              "V9 Quilt profile 地址");
+        check(LoaderMeta::quiltLoaderId(QStringLiteral("1.21.1"), QStringLiteral("0.26.4")) ==
+                  QStringLiteral("quilt-loader-0.26.4-1.21.1"),
+              "V9 Quilt 版本 id 形状");
+
+        const auto quiltEntry = [](const QString &version) {
+            return QJsonObject{{QStringLiteral("loader"),
+                                QJsonObject{{QStringLiteral("version"), version}}}};
+        };
+        // 实测列表不是按版本号排的（0.20.0-beta.9 会排在 0.26.4 前面），所以这里必须
+        // 自己按点分数字排序；stable 按“没有 - / + 后缀”判。
+        const QJsonArray quiltList{quiltEntry(QStringLiteral("0.20.0-beta.9")),
+                                   quiltEntry(QStringLiteral("0.26.4")),
+                                   quiltEntry(QStringLiteral("0.24.0")),
+                                   quiltEntry(QStringLiteral("0.23.0"))};
+        const auto sorted = LoaderMeta::listQuiltLoaderVersions(quiltList);
+        const auto stable = LoaderMeta::pickQuiltLoader(quiltList, LoaderMeta::LoaderChannel::Stable);
+        const auto newest = LoaderMeta::pickQuiltLoader(quiltList, LoaderMeta::LoaderChannel::Newest);
+        check(sorted.size() == 4 && sorted.first().version == QStringLiteral("0.26.4")
+                  && stable.ok() && stable.version == QStringLiteral("0.26.4") && stable.stable
+                  && newest.ok() && newest.version == QStringLiteral("0.26.4"),
+              "V9 Quilt 列表按版本号新到旧排；稳定档挑最高的正式版",
+              sorted.isEmpty() ? QString() : sorted.first().version);
+        const QJsonArray betaOnly{quiltEntry(QStringLiteral("0.20.0-beta.9"))};
+        check(!LoaderMeta::pickQuiltLoader(betaOnly, LoaderMeta::LoaderChannel::Stable).ok()
+                  && LoaderMeta::pickQuiltLoader(betaOnly, LoaderMeta::LoaderChannel::Newest).ok(),
+              "V9 只有测试版时稳定档挑不出来（不把 beta 伪装成正式版），最新档仍可选");
+
+        VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
+        check(VersionManager::loaderKindForDependencyKey(ModpackImport::quiltLoaderKey(), &kind)
+                  && kind == VersionManager::LoaderKind::Quilt
+                  && VersionManager::loaderDisplayName(kind) == QStringLiteral("Quilt")
+                  && VersionManager::loaderInstallSupported(kind),
+              "V9 quilt-loader 键映射到 Quilt，且安装路径已接通");
+        check(ModpackImport::unsupportedLoaderText(ModpackImport::quiltLoaderKey(),
+                                                   QStringLiteral("0.26.4")).isEmpty(),
+              "V9 Quilt 不再是整合包导入的“不支持”加载器");
+
+        const QJsonObject profile{{QStringLiteral("id"), QStringLiteral("quilt-loader-0.26.4-1.21.1")},
+                                  {QStringLiteral("inheritsFrom"), QStringLiteral("1.21.1")},
+                                  {QStringLiteral("mainClass"), QStringLiteral("org.quiltmc.loader.impl.launch.knot.KnotClient")}};
+        check(LoaderMeta::checkFabricProfile(profile, QStringLiteral("1.21.1")).ok()
+                  && !LoaderMeta::checkFabricProfile(profile, QStringLiteral("1.20.1")).ok(),
+              "V9 Quilt profile 复用同一套 id/父版本检查");
     }
 }
 

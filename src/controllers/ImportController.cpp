@@ -770,7 +770,8 @@ bool ImportController::applyResolvedModpackImport(const QString &zipPath,
     const bool hasLoader =
         !pack.loaderKey.isEmpty() &&
         VersionManager::loaderKindForDependencyKey(pack.loaderKey, &kind);
-    if (hasLoader && kind != VersionManager::LoaderKind::Fabric && pack.patchedRuntime.isEmpty()) {
+    if (hasLoader && kind != VersionManager::LoaderKind::Fabric
+        && kind != VersionManager::LoaderKind::Quilt && pack.patchedRuntime.isEmpty()) {
         int requiredJavaMajor = 0;
         const QJsonObject gameJson = m_owner->m_versionManager->getVersionJson(pack.gameVersion);
         if (!gameJson.isEmpty()) {
@@ -827,8 +828,10 @@ bool ImportController::installLocalResourceFile(const QString &versionId,
     const QString target = AppPaths::versionDir(versionId) + QLatin1Char('/') + folder +
                            QLatin1Char('/') + QFileInfo(path).fileName();
 
-    // 同名文件：**问一句**（不静默盖）。用户拖进来的东西，谁也不知道那一份是不是
-    // 他手改过的 —— 而"顺手拖一下就把改过的那份盖掉了"是这个功能最糟的失败方式。
+    // 同名文件：**问一句**（不静默盖）。2.1.2 起这一问统一成三档：
+    // 「取消」/「跳过已有项」（两者都不动目标，前者顺带停掉这一批）/「盖掉」。
+    OperationReport::ConflictPolicy policy = OperationReport::ConflictPolicy::Overwrite;
+    bool skippedExisting = false;
     if (QFileInfo::exists(target)) {
         // 先看一眼"拖进来的这一份**就是**这一格自己"：从实例自己的
         // `mods/` 里把文件再拖回启动器是最容易中的一路，而往下走的话，答完「盖掉」就会
@@ -840,14 +843,29 @@ bool ImportController::installLocalResourceFile(const QString &versionId,
         if (!dropped.isEmpty() && dropped == QFileInfo(target).canonicalFilePath()) {
             return true;  // 它本来就在那儿了，一个字都不用动
         }
-        const bool overwrite = InlineMessage::question(
-            m_owner->m_ui->overlay(), m_owner->tr("已经有一个同名的"),
-            m_owner->tr("%1 里已经有一个「%2」了。\n\n用新拖进来的这一份盖掉它吗？")
+        const int choice = InlineMessage::ask(
+            m_owner->m_ui->overlay(), MessageKind::Question,
+            m_owner->tr("已经有一个同名的"),
+            m_owner->tr("%1 里已经有一个「%2」了。\n\n"
+                        "「跳过已有项」保留现在那一份、不装这一份；"
+                        "「取消」会停掉这一批剩下的文件。")
                 .arg(QDir::toNativeSeparators(AppPaths::versionDir(versionId) +
                                               QLatin1Char('/') + folder),
                      QFileInfo(path).fileName()),
-            m_owner->tr("盖掉"), m_owner->tr("不盖"), /*defaultYes=*/false, /*destructive=*/true);
-        if (!overwrite) {
+            {m_owner->tr("取消"), m_owner->tr("跳过已有项"), m_owner->tr("盖掉")},
+            /*defaultIndex=*/0, /*destructiveIndex=*/2, false);
+        if (choice == 0) {
+            m_batchCancelled = true;
+            if (problemOut != nullptr) problemOut->clear();
+            return false;
+        }
+        if (choice != 2) {
+            // 「跳过已有项」= 用户明确不要这一份；**不是错误**（调用方按“用户没要”处理，
+            // 不弹失败框、也不打断同一批里剩下的文件）。
+            skippedExisting = true;
+            policy = OperationReport::ConflictPolicy::SkipExisting;
+            if (problemOut != nullptr) problemOut->clear();
+            recordFileCopyReport(versionId, path, target, policy, true, false, QString());
             return false;
         }
     }
@@ -855,6 +873,7 @@ bool ImportController::installLocalResourceFile(const QString &versionId,
     QString lockProblem;
     if (!WriteDirectoryGuard::acquire(AppPaths::versionDir(versionId), &lockProblem)) {
         if (problemOut != nullptr) *problemOut = lockProblem;
+        recordFileCopyReport(versionId, path, target, policy, false, false, lockProblem);
         return false;
     }
     const QString dir = AppPaths::versionDir(versionId) + QLatin1Char('/') + folder;
@@ -862,6 +881,8 @@ bool ImportController::installLocalResourceFile(const QString &versionId,
         if (problemOut != nullptr) {
             *problemOut = m_owner->tr("建不出 %1。").arg(QDir::toNativeSeparators(dir));
         }
+        recordFileCopyReport(versionId, path, target, policy, false, false,
+                             m_owner->tr("建不出目录。"));
         return false;
     }
     // 写盘这一步走 `QSaveFile`：它先写到旁边那个临时文件、`commit()`
@@ -875,6 +896,7 @@ bool ImportController::installLocalResourceFile(const QString &versionId,
             *problemOut = m_owner->tr("写不进 %1：%2")
                               .arg(QDir::toNativeSeparators(target), out.errorString());
         }
+        recordFileCopyReport(versionId, path, target, policy, false, false, out.errorString());
         return false;
     }
     QFile in(path);
@@ -883,6 +905,8 @@ bool ImportController::installLocalResourceFile(const QString &versionId,
             *problemOut = m_owner->tr("读不了拖进来的那一份 %1。")
                               .arg(QDir::toNativeSeparators(path));
         }
+        recordFileCopyReport(versionId, path, target, policy, false, false,
+                             m_owner->tr("读不了源文件。"));
         return false;
     }
     while (!in.atEnd()) {
@@ -893,6 +917,7 @@ bool ImportController::installLocalResourceFile(const QString &versionId,
                 *problemOut = m_owner->tr("读不了拖进来的那一份 %1（%2）。")
                                   .arg(QDir::toNativeSeparators(path), in.errorString());
             }
+            recordFileCopyReport(versionId, path, target, policy, false, false, in.errorString());
             return false;  // 析构会把临时文件收掉，盘上原来那一份还在
         }
         if (out.write(chunk) != chunk.size()) {
@@ -901,6 +926,7 @@ bool ImportController::installLocalResourceFile(const QString &versionId,
                                   .arg(QDir::toNativeSeparators(path),
                                        QDir::toNativeSeparators(target), out.errorString());
             }
+            recordFileCopyReport(versionId, path, target, policy, false, false, out.errorString());
             return false;
         }
     }
@@ -910,9 +936,60 @@ bool ImportController::installLocalResourceFile(const QString &versionId,
                               .arg(QDir::toNativeSeparators(path),
                                    QDir::toNativeSeparators(target), out.errorString());
         }
+        recordFileCopyReport(versionId, path, target, policy, false, false, out.errorString());
         return false;
     }
+    recordFileCopyReport(versionId, path, target, policy, false, true, QString());
+    Q_UNUSED(skippedExisting);
     return true;
+}
+
+void ImportController::recordFileCopyReport(const QString &versionId, const QString &sourcePath,
+                                            const QString &targetPath,
+                                            OperationReport::ConflictPolicy policy,
+                                            bool skipped, bool done, const QString &problem) {
+    OperationReport::Report report;
+    report.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    report.kind = OperationReport::Kind::FileCopy;
+    const QString fileName = QFileInfo(targetPath).fileName();
+    report.title = m_owner->tr("复制文件：%1").arg(fileName);
+    report.instanceId = versionId;
+    report.sourceRoot = sourcePath;
+    report.targetRoot = QFileInfo(targetPath).absolutePath();
+    report.conflictPolicy = policy;
+    report.totalFiles = 1;
+    report.doneFiles = done ? 1 : 0;
+    report.skippedFiles = skipped ? 1 : 0;
+    report.failedFiles = done || skipped ? 0 : 1;
+    report.complete = done || skipped;
+    report.failureReason = problem;
+    report.startedAt = QDateTime::currentDateTime();
+    report.updatedAt = report.startedAt;
+    report.context = QJsonObject{
+        {QStringLiteral("dataRoot"), AppPaths::minecraftDir()},
+        {QStringLiteral("sourcePath"), sourcePath},
+        {QStringLiteral("targetPath"), targetPath}};
+    report.entries.append(OperationReport::Entry{
+        fileName, QFileInfo(sourcePath).size(),
+        done ? OperationReport::EntryState::Done
+             : (skipped ? OperationReport::EntryState::Skipped
+                        : OperationReport::EntryState::Failed),
+        problem});
+    QString saveProblem;
+    const QString path = OperationReport::reportPath(AppPaths::minecraftDir(), report.id);
+    if (!OperationReport::saveReport(path, report, &saveProblem)) {
+        m_owner->appendLog(m_owner->tr("文件复制报告没能保存：%1").arg(saveProblem));
+        return;
+    }
+    if (!report.complete) {
+        // 单文件复制没有任务中心那一行，所以把“为什么做不完 + 怎么办”直接写成一份文本，
+        // 由调用方把路径带进提示里（和任务中心那颗「继续未完成操作」读的是同一套说明）。
+        m_lastFileCopyFailureReport = OperationReport::writeFailureText(path, report);
+        if (!m_lastFileCopyFailureReport.isEmpty()) {
+            m_owner->appendLog(m_owner->tr("文件复制未完成，原因报告：%1")
+                                   .arg(m_lastFileCopyFailureReport));
+        }
+    }
 }
 
 void ImportController::handleInstanceSettingsDrop(QWidget *page, const QString &versionId,
@@ -1023,16 +1100,22 @@ void ImportController::handleInstanceSettingsDrop(QWidget *page, const QString &
         }
         int done = 0;
         QStringList problems;
+        m_batchCancelled = false;
+        m_lastFileCopyFailureReport.clear();
         for (const QString &path : entry.second) {
+            if (m_batchCancelled) break;
             QString problem;
             if (m_owner->installLocalResourceFile(versionId, kind, path, &problem)) {
                 ++done;
             } else if (!problem.isEmpty()) {
                 problems.append(problem);
-                // NOTE: `m_owner->installLocalResourceFile()` 返回 false 而 problem 为空 = 用户
-                // 自己答了"不盖" —— 那不是错，不进这一张表（也不打断剩下几个文件：
-                // 同一类里别的文件该照装）。
+                // NOTE: 返回 false 而 problem 为空 = 用户自己答了"取消 / 跳过已有项" ——
+                // 那不是错，不进这一张表。
             }
+        }
+        if (!m_lastFileCopyFailureReport.isEmpty()) {
+            problems.append(m_owner->tr("未能完成的文件操作原因报告：%1")
+                                .arg(QDir::toNativeSeparators(m_lastFileCopyFailureReport)));
         }
         if (done > 0) {
             installedAnything = true;

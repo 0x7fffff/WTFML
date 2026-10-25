@@ -312,6 +312,8 @@ TaskCenter::Item ActivityCenterController::item(const Tasks::TaskSnapshot &task,
     result.capabilities.retry = retryWouldWork(task, retryPayloadAvailable);
     result.capabilities.openLog = task.capabilities.canOpenLog;
     result.capabilities.openTarget = task.capabilities.canOpenTarget;
+    result.capabilities.recover = task.capabilities.canRecover
+        && Tasks::isTerminalState(task.state) && !task.recoveryToken.isEmpty();
     result.capabilities.repairImport = task.kind == Tasks::TaskKind::Import
         && (task.state == Tasks::TaskState::Failed || task.state == Tasks::TaskState::Interrupted)
         && !task.targetId.isEmpty()

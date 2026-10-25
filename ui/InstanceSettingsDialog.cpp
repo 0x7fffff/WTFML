@@ -4177,11 +4177,29 @@ void InstanceSettingsDialog::setUpgradeModChecks(const QList<QStringList> &rows,
                 choice->addItem(tr("请选择处理方式"), QVariant());
                 choice->addItem(tr("禁用，保留文件"), false);
                 choice->addItem(tr("保留启用"), true);
+                const bool canReplace = !row.value(6).isEmpty();
+                if (canReplace) {
+                    choice->addItem(tr("替换为平台适配版 %1").arg(row.value(6)),
+                                    QStringLiteral("replace"));
+                }
                 const QVariantMap overrides = property("upgradeModOverrides").toMap();
-                const bool keep = overrides.contains(row.value(3)) ? overrides.value(row.value(3)).toBool()
-                    : row.value(4) == QStringLiteral("keep");
-                choice->setCurrentIndex(overrides.contains(row.value(3)) ? (keep ? 2 : 1)
-                    : row.value(4) == QStringLiteral("review") ? 0 : keep ? 2 : 1);
+                const QVariant previous = overrides.value(row.value(3));
+                int index = 0;
+                if (previous.isValid()) {
+                    if (previous.typeId() == QMetaType::QString
+                        && previous.toString() == QStringLiteral("replace")) {
+                        index = canReplace ? 3 : 0;
+                    } else {
+                        index = previous.toBool() ? 2 : 1;
+                    }
+                } else if (row.value(4) == QStringLiteral("replace") && canReplace) {
+                    index = 3;
+                } else if (row.value(4) == QStringLiteral("keep")) {
+                    index = 2;
+                } else if (row.value(4) == QStringLiteral("disable")) {
+                    index = 1;
+                }
+                choice->setCurrentIndex(index);
                 choice->setProperty("upgradeModFile", row.value(3));
                 connect(choice, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, choice] {
                     auto overrides = property("upgradeModOverrides").toMap();
@@ -4215,10 +4233,33 @@ QStringList InstanceSettingsDialog::upgradeKeptMods() const {
             auto *item = *it;
             if (item->data(0, Qt::UserRole + 1).toBool()) continue;
             auto *choice = qobject_cast<QComboBox *>(tree->itemWidget(item, 3));
-            if (choice && choice->currentData().toBool()) files.append(item->data(0, Qt::UserRole).toString());
+            if (choice && choice->currentData().typeId() == QMetaType::Bool
+                && choice->currentData().toBool()) {
+                files.append(item->data(0, Qt::UserRole).toString());
+            }
         }
     }
     return files;
+}
+
+QStringList InstanceSettingsDialog::upgradeReplaceMods() const {
+    QStringList files;
+    if (auto *tree = findChild<QTreeWidget *>(QStringLiteral("instanceUpgradeModChecks"))) {
+        for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+            auto *item = *it;
+            if (item->data(0, Qt::UserRole + 1).toBool()) continue;
+            auto *choice = qobject_cast<QComboBox *>(tree->itemWidget(item, 3));
+            if (choice && choice->currentData().typeId() == QMetaType::QString
+                && choice->currentData().toString() == QStringLiteral("replace")) {
+                files.append(item->data(0, Qt::UserRole).toString());
+            }
+        }
+    }
+    return files;
+}
+
+QVariantMap InstanceSettingsDialog::upgradeModReplacements() const {
+    return property("upgradeModReplacements").toMap();
 }
 
 int InstanceSettingsDialog::upgradePendingModCount() const {

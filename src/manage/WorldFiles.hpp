@@ -18,6 +18,7 @@
 #include <functional>
 
 #include "util/NbtTree.hpp"
+#include "operations/OperationReport.hpp"
 
 namespace WorldFiles {
 
@@ -76,6 +77,48 @@ QString nameProblem(const QString &rawName);
 bool copyWorldInto(const QString &worldDir, const QString &savesDir, const QString &name,
                    QString *problemOut = nullptr, const std::function<bool()> &cancelled = {},
                    qint64 spaceBudgetBytes = -1);
+
+/// 导入世界那一趟的完整结果（2.1.2 的统一报告/恢复入口用）。
+struct ImportOptions {
+    /// 同名时怎么办。世界**永远不允许覆盖**：`Overwrite` 会被当成 `Cancel`。
+    OperationReport::ConflictPolicy conflictPolicy = OperationReport::ConflictPolicy::Cancel;
+    qint64 spaceBudgetBytes = -1;
+    /// 可续的暂存目录（`OperationReport::stagingDirectory()` 给的）。空 = 用系统临时目录，
+    /// 失败/取消就收掉（旧行为，没有“接着拷”这回事）。
+    /// 非空时失败/取消**保留**暂存：续做时已有的文件按内容核对后跳过。
+    QString stagingDir;
+};
+
+struct ImportResult {
+    bool ok = false;
+    bool cancelled = false;
+    bool conflict = false;   ///< 同名目标已经存在（按当时的策略处理）
+    bool skipped = false;    ///< 按「跳过已有项」跳过了整份导入
+    QString problem;
+    QString stagingDir;      ///< 这一趟实际用的暂存（失败时可续）
+    int totalFiles = 0;
+    int copiedFiles = 0;
+    int skippedFiles = 0;
+    int failedFiles = 0;
+    qint64 totalBytes = 0;
+    qint64 copiedBytes = 0;
+    QStringList failures;    ///< 「相对路径：原因」，最多前 20 条
+};
+
+/// @param progress (已完成文件数, 总文件数, 已复制字节, 总字节)。每拷完一个文件调一次。
+using ImportProgress = std::function<void(int, int, qint64, qint64)>;
+
+/// 带报告/冲突策略/可续暂存的导入。`copyWorldInto()` 是它的一条保守调用。
+///
+/// 规矩和 `copyWorldInto()` 相同（不跟链接、不覆盖同名、先暂存后改名发布），另外：
+/// · 「跳过已有项」= 目标已经有同一个世界目录时**什么都不写**，回 `skipped = true`；
+/// · 暂存在 `ImportOptions::stagingDir` 时，失败/取消不清暂存，续做按“目标文件已存在且
+///   内容一致”跳过（内容比一遍 SHA-1，不只比大小）；
+/// · 发布仍然是同卷改名：盘上不会出现半个正式世界。
+ImportResult importWorld(const QString &worldDir, const QString &savesDir, const QString &name,
+                         const ImportOptions &options = {},
+                         const std::function<bool()> &cancelled = {},
+                         const ImportProgress &progress = {});
 
 /**
  * @brief 把 `<某目录>/<老名字>` 改成同目录下的 `<新名字>`。

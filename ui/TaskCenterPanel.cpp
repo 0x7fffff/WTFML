@@ -1404,6 +1404,9 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
     if (item.capabilities.repairImport) {
         addAction(tr("补齐文件"), TaskCenter::RowAction::RepairImport, Theme::ButtonKind::Accent);
     }
+    if (item.capabilities.recover) {
+        addAction(tr("继续未完成操作"), TaskCenter::RowAction::Recover, Theme::ButtonKind::Accent);
+    }
     if (item.capabilities.openTarget) {
         addAction(tr("打开目标位置"), TaskCenter::RowAction::OpenTarget,
                   Theme::ButtonKind::Ghost);

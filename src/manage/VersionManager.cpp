@@ -1133,6 +1133,7 @@ bool VersionManager::loaderInstallSupported(LoaderKind kind) {
     case LoaderKind::Forge:
     case LoaderKind::NeoForge:
     case LoaderKind::OptiFine:
+    case LoaderKind::Quilt:
         return true;
     }
     return false;
@@ -1148,6 +1149,8 @@ QString VersionManager::loaderDisplayName(LoaderKind kind) {
         return QStringLiteral("NeoForge");
     case LoaderKind::OptiFine:
         return QStringLiteral("OptiFine");
+    case LoaderKind::Quilt:
+        return QStringLiteral("Quilt");
     }
     return QString();
 }
@@ -1194,8 +1197,9 @@ bool VersionManager::isModpackImporting() const { return m_modpackInstall.active
 
 bool VersionManager::loaderKindForDependencyKey(const QString &key, LoaderKind *out) {
     // 逐条列出来（不是遍历比较）：将来加载器多一个时，编译器会替你盯一眼"这里该跟着改"。
-    // Quilt 和没见过的键落到最后那个 return false，是**正常路径的一部分** —— 界面在更早
-    // 一步就用 ModpackImport::unsupportedLoaderText() 把原因说清楚了。
+    // 没见过的键落到最后那个 return false，是**正常路径的一部分** —— 界面在更早
+    // 一步就用 ModpackImport::unsupportedLoaderText() 把原因说清楚了。Quilt 自 2.1.4
+    // 起走 profile + 库的安装路径，所以这里也认 quilt-loader。
     if (key == ModpackImport::fabricLoaderKey()) {
         if (out != nullptr) {
             *out = LoaderKind::Fabric;
@@ -1211,6 +1215,12 @@ bool VersionManager::loaderKindForDependencyKey(const QString &key, LoaderKind *
     if (key == ModpackImport::neoforgeLoaderKey()) {
         if (out != nullptr) {
             *out = LoaderKind::NeoForge;
+        }
+        return true;
+    }
+    if (key == ModpackImport::quiltLoaderKey()) {
+        if (out != nullptr) {
+            *out = LoaderKind::Quilt;
         }
         return true;
     }
@@ -1924,6 +1934,9 @@ void VersionManager::requestLoaderVersions(const QString &gameVersion, LoaderKin
     case LoaderKind::Fabric:
         url = LoaderMeta::fabricLoaderListUrl(wanted);
         break;
+    case LoaderKind::Quilt:
+        url = LoaderMeta::quiltLoaderListUrl(wanted);
+        break;
     case LoaderKind::Forge:
         url = LoaderMeta::forgeMavenMetadataUrl();
         break;
@@ -2046,6 +2059,16 @@ VersionManager::LoaderVersionParse VersionManager::parseLoaderVersions(
         entries = LoaderMeta::listFabricLoaderVersions(doc.array());
         break;
     }
+    case LoaderKind::Quilt: {
+        QJsonParseError parseError;
+        const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
+        if (!doc.isArray()) {
+            result.error = tr("Quilt 的版本列表读不懂（%1）。").arg(parseError.errorString());
+            return result;
+        }
+        entries = LoaderMeta::listQuiltLoaderVersions(doc.array());
+        break;
+    }
     case LoaderKind::Forge:
         entries = LoaderMeta::listForgeVersions(body, gameVersion);
         break;
@@ -2131,7 +2154,7 @@ void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind
     // 第一步就分开了：Fabric 拉的是"加载器版本列表"，Forge/NeoForge 拉的是"安装器该用
     // 哪个版本"，OptiFine 连"版本表"都和前三个不是一回事（镜像一条 JSON、官方一张 203 KB
     // 的网页），接口完全不是一回事（见 LoaderMeta.hpp 顶部那段）。
-    if (kind == LoaderKind::Fabric) {
+    if (kind == LoaderKind::Fabric || kind == LoaderKind::Quilt) {
         // 版本被钉死了就别去问版本表了 —— 直接拉那个版本的 profile。
         // NOTE: 这一步对整合包是**必须**的：它的依赖表里写着 `fabric-loader: 0.16.14`，
         // 包里那些模组正是按这个版本配的，换成"最新的正式版"是另一回事（多半也能跑，
@@ -2139,7 +2162,9 @@ void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind
         if (!m_loaderInstall.pinnedVersion.isEmpty()) {
             m_loaderInstall.loaderVersion = m_loaderInstall.pinnedVersion;
             m_loaderInstall.loaderId =
-                LoaderMeta::fabricLoaderId(gameVersion, m_loaderInstall.pinnedVersion);
+                kind == LoaderKind::Quilt
+                    ? LoaderMeta::quiltLoaderId(gameVersion, m_loaderInstall.pinnedVersion)
+                    : LoaderMeta::fabricLoaderId(gameVersion, m_loaderInstall.pinnedVersion);
             m_loaderInstall.phase = LoaderInstall::Phase::FetchingProfile;
             emit loaderInstallMessage(tr("正在装指定的 %1 %2（不去问版本列表了）...")
                                           .arg(m_loaderInstall.loaderName,
@@ -2192,7 +2217,9 @@ void VersionManager::installLoaderVersion(const QString &gameVersion, LoaderKind
 }
 
 void VersionManager::fetchFabricLoaderList() {
-    const QUrl url(LoaderMeta::fabricLoaderListUrl(m_loaderInstall.gameVersion));
+    const QUrl url(m_loaderInstall.kind == LoaderKind::Quilt
+                       ? LoaderMeta::quiltLoaderListUrl(m_loaderInstall.gameVersion)
+                       : LoaderMeta::fabricLoaderListUrl(m_loaderInstall.gameVersion));
     QNetworkRequest request(url);
     // 和 DownloadManager 那几处元数据请求同一个超时：卡死的连接会让界面永远停在
     // "下载中"（按钮是禁用的），而这个请求没有别的兜底。
@@ -2231,20 +2258,32 @@ void VersionManager::onFabricLoaderListReply(QNetworkReply *reply) {
     }
 
     const LoaderMeta::LoaderPick pick =
-        LoaderMeta::pickFabricLoader(doc.array(), m_loaderInstall.channel);
+        m_loaderInstall.kind == LoaderKind::Quilt
+            ? LoaderMeta::pickQuiltLoader(doc.array(), m_loaderInstall.channel)
+            : LoaderMeta::pickFabricLoader(doc.array(), m_loaderInstall.channel);
     if (!pick.ok()) {
         // 快照、或者比 Fabric 还支持的最老那一档（1.14）更早的版本（1.12.2 就是）：接口
         // 回一个 `[]`（**而且带 400**，所以上一道门不能拿 `reply->error()` 判，见上面那条
         // NOTE）。这不是网络问题，也不能退回"装原版"——用户要的是带加载器的版本，装出来
         // 一个纯原版是骗人。
-        failLoaderInstall(tr("Fabric 还没有支持 %1 的加载器（拿到的列表是空的）。")
-                              .arg(m_loaderInstall.gameVersion));
+        // 列表非空但没有稳定版（Quilt 的 beta 列表就是这种）不能说成“还没支持”：
+        // 用户会以为这个游戏版本一个都装不了。分开说清“只有测试版”。
+        if (m_loaderInstall.kind == LoaderKind::Quilt && !doc.array().isEmpty()) {
+            failLoaderInstall(tr("%1 还没有给 %2 发正式版加载器（列表里只有测试版）。"
+                                 "可以选「最新版」或具体版本再装。")
+                                  .arg(m_loaderInstall.loaderName, m_loaderInstall.gameVersion));
+            return;
+        }
+        failLoaderInstall(tr("%1 还没有支持 %2 的加载器（拿到的列表是空的）。")
+                              .arg(m_loaderInstall.loaderName, m_loaderInstall.gameVersion));
         return;
     }
 
     m_loaderInstall.loaderVersion = pick.version;
     m_loaderInstall.loaderId =
-        LoaderMeta::fabricLoaderId(m_loaderInstall.gameVersion, pick.version);
+        m_loaderInstall.kind == LoaderKind::Quilt
+            ? LoaderMeta::quiltLoaderId(m_loaderInstall.gameVersion, pick.version)
+            : LoaderMeta::fabricLoaderId(m_loaderInstall.gameVersion, pick.version);
     emit loaderInstallMessage(tr("挑中 %1 %2（%3）。")
                                   .arg(m_loaderInstall.loaderName, pick.version,
                                        pickChannelDetail(m_loaderInstall.channel, pick.stable)));
@@ -2253,8 +2292,11 @@ void VersionManager::onFabricLoaderListReply(QNetworkReply *reply) {
 }
 
 void VersionManager::fetchFabricProfile() {
-    const QUrl url(LoaderMeta::fabricProfileUrl(m_loaderInstall.gameVersion,
-                                                m_loaderInstall.loaderVersion));
+    const QUrl url(m_loaderInstall.kind == LoaderKind::Quilt
+                       ? LoaderMeta::quiltProfileUrl(m_loaderInstall.gameVersion,
+                                                     m_loaderInstall.loaderVersion)
+                       : LoaderMeta::fabricProfileUrl(m_loaderInstall.gameVersion,
+                                                      m_loaderInstall.loaderVersion));
     QNetworkRequest request(url);
     request.setTransferTimeout(30000);
     QNetworkReply *reply = loaderNetworkManager()->get(request);
@@ -2287,19 +2329,21 @@ void VersionManager::onFabricProfileReply(QNetworkReply *reply) {
     if (!check.ok()) {
         switch (check.problem) {
         case LoaderMeta::ProfileProblem::BadId:
-            failLoaderInstall(tr("Fabric %1 的 profile 里的版本 id 不能用（%2），没有安装。")
-                                  .arg(m_loaderInstall.loaderVersion, check.id));
+            failLoaderInstall(tr("%1 %2 的 profile 里的版本 id 不能用（%3），没有安装。")
+                                  .arg(m_loaderInstall.loaderName,
+                                       m_loaderInstall.loaderVersion, check.id));
             return;
         case LoaderMeta::ProfileProblem::WrongParent:
-            failLoaderInstall(tr("Fabric %1 的 profile 是基于「%2」的，不是「%3」，没有安装。")
-                                  .arg(m_loaderInstall.loaderVersion, check.parent,
+            failLoaderInstall(tr("%1 %2 的 profile 是基于「%3」的，不是「%4」，没有安装。")
+                                  .arg(m_loaderInstall.loaderName,
+                                       m_loaderInstall.loaderVersion, check.parent,
                                        m_loaderInstall.gameVersion));
             return;
         case LoaderMeta::ProfileProblem::None:
             break;  // ok() 已经是 true，到不了这里
         }
-        failLoaderInstall(tr("Fabric %1 的 profile 没通过检查，没有安装。")
-                              .arg(m_loaderInstall.loaderVersion));
+        failLoaderInstall(tr("%1 %2 的 profile 没通过检查，没有安装。")
+                              .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion));
         return;
     }
     const QString id = check.id;
@@ -5002,7 +5046,9 @@ void VersionManager::onAllDownloadsFinished(bool success) {
             // Fabric 那条路是"加载器自己那份 json 在内存里、库还没下"，所以这里接着下；
             // 老 Forge（legacySelfInstall）这条**也是** —— 那个年代的安装器本来会替我们把那
             // 十几个库摆好，我们没让它跑，所以一样得下（那份 json 和 universal jar 已经摆好了）。
-            if (m_loaderInstall.kind == LoaderKind::Fabric || m_loaderInstall.legacySelfInstall) {
+            if (m_loaderInstall.kind == LoaderKind::Fabric
+                || m_loaderInstall.kind == LoaderKind::Quilt
+                || m_loaderInstall.legacySelfInstall) {
                 emit loaderInstallMessage(tr("原版 %1 就绪，接着装 %2 自己的文件...")
                                               .arg(m_loaderInstall.gameVersion,
                                                    m_loaderInstall.loaderName));
@@ -5117,6 +5163,8 @@ QString dependencyKeyForLoaderKind(VersionManager::LoaderKind kind) {
         return ModpackImport::forgeLoaderKey();
     case VersionManager::LoaderKind::NeoForge:
         return ModpackImport::neoforgeLoaderKey();
+    case VersionManager::LoaderKind::Quilt:
+        return ModpackImport::quiltLoaderKey();
     case VersionManager::LoaderKind::OptiFine:
         // 两种清单格式里都没有它那一格。**这一档由调用方在进这个函数之前就拦掉了**
         // （见 optifineExportProblem），这里回空串只是"没有可以写进清单的键"这个事实。
@@ -5234,21 +5282,17 @@ QString optifineExportProblem(const QString &version) {
 /// 认出来的加载器键能不能写进清单。空串 = 能写（**包括"压根没有加载器"这一档**，
 /// 那是正常的：纯原版实例导出来就是纯原版包）。
 ///
-/// NOTE: 传进来的键**不会是空串以外的 OptiFine**（那一档在进这里之前就拦了）。
+/// NOTE: 传进来的键**不会是空串以外的 OptiFine**（那一档在进这里之前就拦了）；
+/// Quilt 现在有合法的清单键（quilt-loader），可以照写。
 QString loaderKeyExportProblem(const QString &key, const QString &version) {
     if (key.isEmpty() || key == ModpackImport::fabricLoaderKey() ||
-        key == ModpackImport::forgeLoaderKey() || key == ModpackImport::neoforgeLoaderKey()) {
+        key == ModpackImport::forgeLoaderKey() || key == ModpackImport::neoforgeLoaderKey()
+        || key == ModpackImport::quiltLoaderKey()) {
+        // 2.1.4 起 Quilt 也能装了：清单里的 quilt-loader 键可以照写，导回来能装。
         return QString();
     }
     const QString shown =
         version.trimmed().isEmpty() ? QString() : QStringLiteral(" %1").arg(version.trimmed());
-    if (key == ModpackImport::quiltLoaderKey()) {
-        return QObject::tr(
-                   "这个实例是 Quilt%1 装的。清单格式倒写得下 Quilt（Modrinth 的依赖表里有 "
-                   "quilt-loader 这一项），但本启动器装不了 Quilt —— 导出来的包我们自己也装"
-                   "不回来，所以没有导出。")
-            .arg(shown);
-    }
     return QObject::tr("这个实例的加载器是「%1」（%2），本启动器不认识它，不敢往外导。")
         .arg(key, shown.trimmed().isEmpty() ? QObject::tr("没有版本号") : shown.trimmed());
 }
@@ -5620,6 +5664,13 @@ QString VersionManager::instanceLoaderInfo(const QString &instanceId, QString *k
     // 大小写不敏感：这一段是给界面看的显示名，用户手写过的 meta 里写 "fabric" 也认。
     if (metaName.compare(loaderDisplayName(LoaderKind::OptiFine), Qt::CaseInsensitive) == 0) {
         return optifineExportProblem(metaVersion);
+    }
+    if (metaName.compare(loaderDisplayName(LoaderKind::Quilt), Qt::CaseInsensitive) == 0) {
+        // Quilt 不在安装页那张 0..3 的索引表里（见 loaderKindCount），但导出时它
+        // 有完整的清单键 —— 不能因为"索引表里没有"就把它当认不出来。
+        if (keyOut != nullptr) *keyOut = ModpackImport::quiltLoaderKey();
+        if (versionOut != nullptr) *versionOut = metaVersion;
+        return QString();
     }
     for (int index = 0; index < loaderKindCount(); ++index) {
         LoaderKind kind = LoaderKind::Fabric;

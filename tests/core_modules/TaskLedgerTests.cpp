@@ -1,5 +1,7 @@
 #include "Support.hpp"
 
+#include <QTemporaryDir>
+
 void runTaskLedgerTests() {
     section("AL1. percentOf：测不出就回 -1，绝不编一个百分比");
     {
@@ -818,6 +820,103 @@ void runTaskLedgerTests() {
             reloaded.begin(Tasks::TaskKind::Download, QStringLiteral("压力之后的新项"));
         check(nextId > ids.constLast(), "AM5 新号从盘上最大的那个之后续（不撞号）",
               QStringLiteral("new=%1（压力里最大 %2）").arg(nextId).arg(ids.constLast()));
+    }
+
+    section("AN. 父任务与子任务：一次用户意图只露一行（2.1.1）");
+    {
+        QTemporaryDir temp;
+        check(temp.isValid(), "AN0 临时账本目录建出来了");
+        if (!temp.isValid()) {
+            return;
+        }
+        const QString path = temp.filePath(QStringLiteral("tasks.json"));
+        Tasks::TaskManager manager;
+        manager.setHistoryPath(path);
+        const Tasks::TaskId parent = manager.begin(
+            Tasks::TaskKind::Install, QStringLiteral("更新实例 A → 1.21.4 Fabric"),
+            QStringLiteral("A"),
+            {{QStringLiteral("准备目标核心与加载器"), Tasks::TaskStepState::Running, {}},
+             {QStringLiteral("准备用户文件副本"), Tasks::TaskStepState::Pending, {}},
+             {QStringLiteral("替换核心并发布"), Tasks::TaskStepState::Pending, {}},
+             {QStringLiteral("完成"), Tasks::TaskStepState::Pending, {}}});
+        const Tasks::TaskId child = manager.beginChild(
+            parent, Tasks::TaskKind::Download, QStringLiteral("安装 1.21.4 Fabric"),
+            QStringLiteral("A"), {{QStringLiteral("下载核心文件"), Tasks::TaskStepState::Running, {}}},
+            Tasks::TaskCapabilities(), 0);
+        check(child != Tasks::invalidTaskId() && manager.has(child) && manager.has(parent),
+              "AN1 子任务发到了号，而且账本里认得出它");
+        check(manager.active().size() == 1 && manager.active().constFirst().id == parent
+                  && manager.all().size() == 1,
+              "★★ AN1 任务中心只露父任务：子任务不进 active()/all()",
+              QStringLiteral("active=%1 all=%2").arg(manager.active().size()).arg(manager.all().size()));
+        check(manager.childrenOf(parent).size() == 1
+                  && manager.childrenOf(parent).constFirst().id == child,
+              "AN1 childrenOf() 能拿到那一项（流程和验证用）");
+        check(manager.snapshot(parent).steps.at(0).state == Tasks::TaskStepState::Running,
+              "AN1 挂子任务时父任务那一步自动变成 Running");
+        manager.setDetail(child, QStringLiteral("正在下载资源对象…"));
+        manager.setBytes(child, 12, 100);
+        check(manager.snapshot(parent).detail == QStringLiteral("正在下载资源对象…")
+                  && manager.snapshot(parent).bytesTotal == 100,
+              "AN2 子任务的进度/字节镜像到父任务（底栏那一行说的是同一件事）");
+        manager.setProgress(parent, 0, 4);
+
+        // 子任务失败：只改父任务那一步，**不把父任务收尾** —— 这一趟可能还要回滚/收材料。
+        manager.fail(child, QStringLiteral("磁盘空间不足"));
+        check(manager.snapshot(parent).steps.at(0).state == Tasks::TaskStepState::Failed,
+              "AN3 子任务失败 ⇒ 父任务对应那一步记 Failed");
+        check(Tasks::isActiveState(manager.snapshot(parent).state),
+              "★★ AN3 子任务失败不会偷偷把父任务收成终态（由串流程的那一层决定）",
+              QString::number(int(manager.snapshot(parent).state)));
+        manager.fail(parent, QStringLiteral("准备核心失败"));
+        check(manager.snapshot(parent).state == Tasks::TaskState::Failed,
+              "AN3 父任务按整趟结果收成 Failed（不是 Succeeded）");
+
+        // 取消：子任务取消不算失败，也不许把父任务显示成成功。
+        const Tasks::TaskId parent2 = manager.begin(
+            Tasks::TaskKind::Install, QStringLiteral("更新实例 B → 1.21.4"), QString(),
+            {{QStringLiteral("准备目标核心与加载器"), Tasks::TaskStepState::Running, {}},
+             {QStringLiteral("完成"), Tasks::TaskStepState::Pending, {}}});
+        const Tasks::TaskId child2 = manager.beginChild(
+            parent2, Tasks::TaskKind::Download, QStringLiteral("安装 1.21.4"),
+            QString(), {{QStringLiteral("下载核心文件"), Tasks::TaskStepState::Running, {}}},
+            Tasks::TaskCapabilities(), 0);
+        manager.cancel(child2);
+        check(manager.snapshot(child2).state == Tasks::TaskState::Cancelled,
+              "AN4 子任务取消 ⇒ Cancelled");
+        check(manager.snapshot(parent2).steps.at(0).state == Tasks::TaskStepState::Running,
+              "AN4 取消不在父任务那一步上打 ✗（那一步没做错）");
+        manager.cancel(parent2);
+        check(manager.snapshot(parent2).state == Tasks::TaskState::Cancelled,
+              "★★ AN4 父任务收成 Cancelled，不是 Succeeded");
+
+        // 「继续未完成操作」只挂在**已经收尾**的那一项上；还在跑的不该有这一颗。
+        const Tasks::TaskId stillRunning =
+            manager.begin(Tasks::TaskKind::Import, QStringLiteral("还在导入"));
+        check(!manager.setRecovery(stillRunning, QStringLiteral("report-running"), true),
+              "AN4b 还在跑的任务不能挂「继续未完成操作」");
+        check(manager.setRecovery(parent2, QStringLiteral("report-2"), true)
+                  && manager.snapshot(parent2).capabilities.canRecover
+                  && manager.snapshot(parent2).recoveryToken == QStringLiteral("report-2"),
+              "AN4b 收尾之后挂上报告钥匙，那颗「继续未完成操作」才露得出来");
+        manager.cancel(stillRunning);
+
+        // 落盘：子任务不写盘，读回来只有父任务。
+        manager.setRecovery(parent, QStringLiteral("report-1"), true);
+        check(manager.saveHistory(), "AN5 账本落盘成功", path);
+        const QList<Tasks::TaskSnapshot> onDisk = Tasks::load(path);
+        bool onlyParents = !onDisk.isEmpty();
+        for (const Tasks::TaskSnapshot &task : onDisk) {
+            if (task.parentId != Tasks::invalidTaskId()) onlyParents = false;
+        }
+        check(onlyParents, "★★ AN5 盘上只有父任务：子任务只是这一趟的步骤，不是历史",
+              QStringLiteral("盘上 %1 条").arg(onDisk.size()));
+
+        // 清除已完成：父任务和它的子任务一起走，不留看不见的孤儿。
+        manager.clearFinished();
+        check(manager.childrenOf(parent).isEmpty() && manager.childrenOf(parent2).isEmpty()
+                  && manager.finished().isEmpty(),
+              "AN6 「清除已完成」连子任务一起清掉");
     }
 }
 

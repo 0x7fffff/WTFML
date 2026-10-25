@@ -3,6 +3,7 @@
 #include <QObject>
 #include "download/ResourceCatalog.hpp"
 #include "manage/ModpackImport.hpp"
+#include "operations/OperationReport.hpp"
 class MainWindow;
 class QWidget;
 class ImportController final : public QObject {
@@ -14,11 +15,20 @@ public:
     void importModpackFromFile(const QString &zipPath, const QString &namePrefill);
     bool applyModpackImport(const QString &zipPath, const QString &instanceName, const QByteArray &manifestJson, ModpackImport::Format format);
     bool installLocalResourceFile(const QString &versionId, ResourceCatalog::Kind kind, const QString &path, QString *problemOut);
+    /// 这一批同类文件里用户按了「取消」：剩下的不再逐个问，直接停。
+    bool batchCancelled() const { return m_batchCancelled; }
+    /// 上一份没做成的单文件复制报告（`<报告>.failure.txt`）；空 = 没有。
+    QString lastFileCopyFailureReport() const { return m_lastFileCopyFailureReport; }
     void handleInstanceSettingsDrop(QWidget *page, const QString &versionId, const QStringList &paths);
     void importDroppedModpack(const QString &zipPath, const QString &namePrefill);
     void handleWindowDrop(const QStringList &paths);
 private:
     void repairFromReport(const QString &reportPath);
+    /// 单文件复制也走统一的 `OperationReport`：逐项结果 + 不可覆盖时的原因报告。
+    void recordFileCopyReport(const QString &versionId, const QString &sourcePath,
+                              const QString &targetPath,
+                              OperationReport::ConflictPolicy policy, bool skipped, bool done,
+                              const QString &problem);
     /// 「已经解析好的包」那半截：加载器检查、CurseForge 换地址、重名复查、挑安装器 Java、
     /// 置忙态、交给数据层。界面上那一半（问名字、确认框）和验证工程那一半都落到这里。
     bool applyResolvedModpackImport(const QString &zipPath, const QString &instanceName,
@@ -36,5 +46,7 @@ private:
     /// 导入真的开始了才登记（提前退出那些路当场就删），结束（`versionDownloadFinished`，
     /// 成功失败都算）时删掉 —— 数据层在整段导入里还要读它。
     QHash<QString, QString> m_tempArchives;
+    bool m_batchCancelled = false;
+    QString m_lastFileCopyFailureReport;
 };
 

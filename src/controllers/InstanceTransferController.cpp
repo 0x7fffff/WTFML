@@ -13,6 +13,8 @@
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrentRun>
+#include <QTimer>
+#include <QJsonObject>
 #include <QElapsedTimer>
 #include <atomic>
 #include <memory>
@@ -375,20 +377,63 @@ void InstanceTransferController::importWorldInBackground(
         reject(tr("认不出这个实例的存档目录。"));
         return;
     }
+    // 同名冲突（2.1.2）：默认「取消」，另一个选项是「跳过已有项」。
+    // 世界存档**没有“覆盖”**这一档 —— 覆盖一个世界等于把用户进度静默换掉。
+    OperationReport::ConflictPolicy policy = OperationReport::ConflictPolicy::Cancel;
+    if (QFileInfo::exists(savesDir + QLatin1Char('/') + name.trimmed())) {
+        const int choice = InlineMessage::ask(
+            m_overlay, MessageKind::Question, tr("已经有一个同名的世界"),
+            tr("这个实例里已经有一个叫「%1」的世界了。\n\n"
+               "「跳过已有项」不会动那一份，也不会再拷一遍。")
+                .arg(name.trimmed()),
+            {tr("取消"), tr("跳过已有项")}, 0, -1, false);
+        if (choice != 1) {
+            if (whenDone) whenDone(false, tr("已取消导入世界。"));
+            return;
+        }
+        policy = OperationReport::ConflictPolicy::SkipExisting;
+    }
+    const QString dataRoot = AppPaths::minecraftDir();
+    const QString reportId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    // 暂存必须和目标在**同一个卷**上：发布是 `QDir::rename()`（同卷改名），
+    // 跨卷会失败 —— 而数据根和 saves 在正常产品里本来就在一起，测试/换根时才可能分开。
+    const QString stagingDir = savesDir + QStringLiteral("/.wtfml-world-staging/") + reportId;
     // Kind::Import 而不是 Other：账本按种类给的默认能力位里只有三类能取消，
     // 「导入世界」本来就是其中的一类 —— 手动取消那颗按钮（见 cancelTask()）靠它才露出来。
     const auto task = m_host.beginTask
         ? m_host.beginTask(Tasks::TaskKind::Import, tr("导入世界：%1").arg(name), instanceId,
-            {{tr("复制并验证世界"), Tasks::TaskStepState::Running, {}}})
+            {{tr("复制世界文件到暂存"), Tasks::TaskStepState::Running, {}},
+             {tr("校验并发布世界"), Tasks::TaskStepState::Pending, {}}})
         : Tasks::invalidTaskId();
     const auto state = std::make_shared<CancelState>();
     if (task != Tasks::invalidTaskId()) m_cancelStates.insert(task, state);
     if (m_host.setTaskDetail) m_host.setTaskDetail(task, tr("正在后台导入存档，请勿修改源世界。"));
     if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(instanceId, true);
-    auto *watcher = new QFutureWatcher<CopyOutcome>(this);
-    connect(watcher, &QFutureWatcher<CopyOutcome>::finished, this,
-        [this, watcher, instanceId, savesDir, worldDir, name, task, state,
-         whenDone = std::move(whenDone)] {
+    struct Progress {
+        std::atomic<int> done{0};
+        std::atomic<int> total{0};
+        std::atomic<qint64> copiedBytes{0};
+        std::atomic<qint64> totalBytes{0};
+    };
+    const auto progress = std::make_shared<Progress>();
+    auto *timer = new QTimer(this);
+    timer->setInterval(150);
+    connect(timer, &QTimer::timeout, this, [this, task, progress] {
+        if (m_host.setTaskProgress) {
+            m_host.setTaskProgress(task, progress->done.load(), progress->total.load());
+        }
+        if (m_host.setTaskBytes) {
+            m_host.setTaskBytes(task, progress->copiedBytes.load(),
+                                progress->totalBytes.load());
+        }
+    });
+    timer->start();
+    auto *watcher = new QFutureWatcher<WorldFiles::ImportResult>(this);
+    connect(watcher, &QFutureWatcher<WorldFiles::ImportResult>::finished, this,
+        [this, watcher, timer, instanceId, savesDir, worldDir, name, task, state, progress,
+         dataRoot, reportId, stagingDir, policy, whenDone = std::move(whenDone)] {
+            timer->stop();
+            timer->deleteLater();
             const auto result = watcher->result();
             watcher->deleteLater();
             if (task != Tasks::invalidTaskId()) m_cancelStates.remove(task);
@@ -397,41 +442,127 @@ void InstanceTransferController::importWorldInBackground(
             // 那一下点晚了 —— 该报成功（存档确实在那儿），不能把它记成取消。
             const bool cancelledByUser =
                 state->cancelledByUser.load(std::memory_order_relaxed) && !result.ok;
+            // ---------- 统一报告 + 恢复入口（2.1.2） ----------
+            OperationReport::Report report;
+            report.id = reportId;
+            report.kind = OperationReport::Kind::WorldImport;
+            report.title = tr("导入世界：%1").arg(name);
+            report.instanceId = instanceId;
+            report.targetRoot = savesDir;
+            report.sourceRoot = worldDir;
+            report.stagingDir = result.stagingDir;
+            report.conflictPolicy = policy;
+            report.totalFiles = result.totalFiles;
+            report.totalBytes = result.totalBytes;
+            report.doneFiles = result.copiedFiles + result.skippedFiles;
+            report.doneBytes = result.copiedBytes;
+            report.skippedFiles = result.skippedFiles;
+            report.failedFiles = result.failedFiles;
+            report.complete = result.ok;
+            report.cancelled = cancelledByUser || result.cancelled;
+            report.failureReason = result.problem;
+            report.startedAt = QDateTime::currentDateTime();
+            report.updatedAt = report.startedAt;
+            report.context = QJsonObject{
+                {QStringLiteral("dataRoot"), dataRoot},
+                {QStringLiteral("worldDir"), worldDir},
+                {QStringLiteral("savesDir"), savesDir},
+                {QStringLiteral("name"), name},
+            };
+            report.entries.append(OperationReport::Entry{
+                name, result.totalBytes,
+                result.ok ? (result.skipped ? OperationReport::EntryState::Skipped
+                                            : OperationReport::EntryState::Done)
+                          : (cancelledByUser || result.cancelled
+                                 ? OperationReport::EntryState::Pending
+                                 : OperationReport::EntryState::Failed),
+                result.problem});
+            for (const QString &failure : result.failures) {
+                const int split = failure.indexOf(QStringLiteral("："));
+                report.entries.append(OperationReport::Entry{
+                    split > 0 ? failure.left(split) : failure, 0,
+                    OperationReport::EntryState::Failed,
+                    split > 0 ? failure.mid(split + 1) : QString()});
+            }
+            QString recoveryToken;
+            QString failureReport;
+            const bool unfinished = !result.ok || result.cancelled || cancelledByUser;
+            if (unfinished && m_host.registerRecovery && m_host.registerRecovery(report)) {
+                recoveryToken = reportId;
+                // 一开始就知道做不完时也留一份“为什么 + 怎么办”，不必等用户去按
+                // 「继续未完成操作」才发现原因。
+                failureReport = OperationReport::writeFailureText(
+                    OperationReport::reportPath(dataRoot, reportId), report);
+            }
+            const QString recoveryTokenFinal = recoveryToken;
+            const QString failureReportFinal = failureReport;
+            if (m_host.setTaskStepState) {
+                const bool copyDone = result.copiedFiles + result.skippedFiles > 0
+                                      || result.totalFiles == 0;
+                m_host.setTaskStepState(task, 0, copyDone ? Tasks::TaskStepState::Done
+                                                          : Tasks::TaskStepState::Failed);
+                if (result.ok) {
+                    m_host.setTaskStepState(task, 1, Tasks::TaskStepState::Done);
+                }
+            }
             if (cancelledByUser) {
                 // 取消不是失败：账本收成 Cancelled（不亮红点），也不弹失败提示。
                 if (m_host.markTaskCancelled) m_host.markTaskCancelled(task);
-                log(tr("导入世界已取消：%1").arg(name));
+                log(tr("导入世界已取消：%1（已拷好的暂存保留，可继续）").arg(name));
             } else {
-                if (m_host.setTaskStepState) m_host.setTaskStepState(task, 0,
-                    result.ok ? Tasks::TaskStepState::Done : Tasks::TaskStepState::Failed);
-                if (m_host.finishTask) m_host.finishTask(task, result.ok, result.error);
+                if (m_host.finishTask) m_host.finishTask(task, result.ok, result.problem);
+                log(result.ok ? tr("导入世界：%1 → %2（%3）")
+                                    .arg(worldDir, savesDir, report.summaryText())
+                              : tr("导入世界未完成：%1（%2）").arg(name, result.problem));
+            }
+            // 「继续未完成操作」只能挂在**已经收尾**的那一项上 —— 必须排在收尾之后。
+            if (m_host.setTaskRecovery) m_host.setTaskRecovery(task, recoveryTokenFinal);
+            if (m_host.setTaskDetail && task != Tasks::invalidTaskId()) {
+                QString detailText = report.summaryText();
+                if (!result.problem.isEmpty()) detailText += QStringLiteral("\n") + result.problem;
+                if (!failureReportFinal.isEmpty()) {
+                    detailText += QStringLiteral("\n") + tr("原因报告：%1").arg(failureReportFinal);
+                }
+                m_host.setTaskDetail(task, detailText);
             }
             if (m_host.refreshInstances) m_host.refreshInstances();
-            if (result.ok) log(tr("导入世界：%1 → %2").arg(worldDir, savesDir));
-            if (whenDone) whenDone(result.ok, cancelledByUser ? tr("已取消，未发布存档。")
-                                                              : result.error);
-            if (!result.ok && !cancelledByUser)
-                InlineMessage::warning(m_overlay, tr("导入世界失败"), result.error);
+            if (whenDone) {
+                whenDone(result.ok, cancelledByUser ? tr("已取消，未发布的暂存保留着（可以继续）。")
+                                                    : result.problem);
+            }
+            if (!result.ok && !cancelledByUser) {
+                InlineMessage::warning(m_overlay, tr("导入世界失败"), result.problem);
+            }
         });
     // 不在 worker 读取 AppPaths / 当前实例选择，也不捕获控制器或页面。
     const auto destroyed = connect(this, &QObject::destroyed, [state] {
         state->abort.store(true, std::memory_order_relaxed);
     });
-    connect(watcher, &QFutureWatcher<CopyOutcome>::finished, watcher, [destroyed] {
+    connect(watcher, &QFutureWatcher<WorldFiles::ImportResult>::finished, watcher, [destroyed] {
         QObject::disconnect(destroyed);
     });
-    watcher->setFuture(QtConcurrent::run([worldDir, savesDir, name, state] {
-        CopyOutcome result;
-        QElapsedTimer elapsed;
-        elapsed.start();
-        result.ok = WorldFiles::copyWorldInto(worldDir, savesDir, name, &result.error,
-            [&] {
-                return state->abort.load(std::memory_order_relaxed)
-                       || elapsed.elapsed() >= 600000;
-            });
-        return result;
-    }));
+    WorldFiles::ImportOptions options;
+    options.conflictPolicy = policy;
+    options.stagingDir = stagingDir;
+    watcher->setFuture(QtConcurrent::run(
+        [worldDir, savesDir, name, options, state, progress] {
+            QElapsedTimer elapsed;
+            elapsed.start();
+            return WorldFiles::importWorld(
+                worldDir, savesDir, name, options,
+                [&] {
+                    return state->abort.load(std::memory_order_relaxed)
+                           || elapsed.elapsed() >= 600000;
+                },
+                [progress](int done, int total, qint64 bytes, qint64 totalBytes) {
+                    progress->done.store(done);
+                    progress->total.store(total);
+                    progress->copiedBytes.store(bytes);
+                    progress->totalBytes.store(totalBytes);
+                });
+        }));
 }
+
 
 void InstanceTransferController::deleteWorldInBackground(
     const QString &instanceId, const QString &worldDir,

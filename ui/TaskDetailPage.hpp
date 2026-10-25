@@ -54,6 +54,7 @@ public:
         ExportReport, ///< 「导出错误报告」：把这一趟的事实 + 日志写成一份能发出去的文本。
         OpenCrashDir, ///< 「打开崩溃报告目录」：在文件管理器里打开 `crash-reports/`。
         RepairImport, ///< 打开未完成整合包的本地补齐报告。
+        Recover,      ///< 「继续未完成操作」：接着做完那份报告里还没做完的文件操作。
     };
 
     explicit TaskDetailPage(QWidget *parent = nullptr);
@@ -110,4 +111,5 @@ private:
     QPushButton *m_crashDirButton = nullptr;
     QPushButton *m_copyButton = nullptr;
     QPushButton *m_repairButton = nullptr;
+    QPushButton *m_recoverButton = nullptr;
 };

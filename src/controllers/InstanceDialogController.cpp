@@ -126,6 +126,9 @@ void showSchematicDetails(OverlayHost *overlay, QWidget *parent, const QString &
 #include "replay/ReplayInfo.hpp"
 #include "diagnose/StartupDiagnosis.hpp"
 #include "operations/TransferApply.hpp"
+#include "operations/OperationReport.hpp"
+#include "controllers/FileOperationRecoveryController.hpp"
+#include <QUuid>
 #include "operations/TransferPlanner.hpp"
 #include "download/DependencyInspection.hpp"
 #include "manage/InstanceIconLookup.hpp"
@@ -858,6 +861,9 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 steps << Tasks::TaskStep{tr("校验"), Tasks::TaskStepState::Pending, {}};
                 const int verifyIndex = steps.size() - 1;
                 const bool upgrade = key == QStringLiteral("upgrade");
+                // 2.1.2：这一趟也留一份统一报告（逐项结果 / 失败原因 / 可续入口）。
+                // 编号在**搬之前**就定下来：报告、暂存和恢复入口认的是同一个号。
+                const QString reportId = QUuid::createUuid().toString(QUuid::WithoutBraces);
                 const QString taskTargetId = upgrade ? newName : targetIdCopy;
                 const Tasks::TaskId taskId = m_owner->m_activityCenter->begin(
                     upgrade ? Tasks::TaskKind::Install : Tasks::TaskKind::Other,
@@ -980,7 +986,8 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                          progress, appliedSteps, dialogGuard, title, ledger, taskId,
                          verifyIndex, stepIndexOf, totalUnits, upgrade, newName, key,
                          sourceId, targetIdCopy, plan, keys, refreshTransferPage,
-                         pushTransferPlan, buildTransferPlan, finishTask] {
+                         pushTransferPlan, buildTransferPlan, finishTask, reportId,
+                         sourceDir, targetDir, taskTargetId] {
                             // 先摘"忙"标记，再走下面任何一条早退路径（复制失败 / 搬失败 /
                             // 对话框已经没了）。挂在里面的话每加一条 return 就漏一次。
                             m_owner->releaseFileOperationBusy(sourceId);
@@ -1003,6 +1010,62 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                                 dialogGuard->setEnabled(true);
                             }
                             const MigrationOutcome outcome = watcher->result();
+                            // ---------- 统一报告 + 恢复入口（2.1.2） ----------
+                            // 迁移 / 升级副本的搬文件本来就是「只增不删」、可以重跑；
+                            // 报告里记下源 / 目标 / 勾选的块，续做就是再跑一遍 apply+verify。
+                            const auto recordReport = [&](bool complete, const QString &problem) {
+                                OperationReport::Report report;
+                                report.id = reportId;
+                                report.kind = OperationReport::Kind::InstanceTransfer;
+                                report.title = upgrade
+                                    ? tr("升级副本：%1 → %2").arg(m_owner->instanceDisplayName(sourceId), newName)
+                                    : tr("迁移：%1 → %2").arg(m_owner->instanceDisplayName(sourceId),
+                                                              m_owner->instanceDisplayName(targetIdCopy));
+                                report.instanceId = taskTargetId;
+                                report.sourceRoot = sourceDir;
+                                report.targetRoot = targetDir;
+                                report.conflictPolicy = OperationReport::ConflictPolicy::SkipExisting;
+                                report.totalFiles = outcome.apply.copiedFiles
+                                    + outcome.apply.skippedFiles + outcome.apply.failedFiles;
+                                report.doneFiles = outcome.apply.copiedFiles;
+                                report.skippedFiles = outcome.apply.skippedFiles;
+                                report.failedFiles = outcome.apply.failedFiles;
+                                report.complete = complete;
+                                report.failureReason = problem;
+                                report.startedAt = QDateTime::currentDateTime();
+                                report.updatedAt = report.startedAt;
+                                QJsonArray itemArray;
+                                for (const TransferPlanner::Item &item : plan.items) {
+                                    if (!keys.contains(item.key) || !item.exists) continue;
+                                    report.entries.append(OperationReport::Entry{
+                                        item.relativePath, item.bytes,
+                                        complete ? OperationReport::EntryState::Done
+                                                 : OperationReport::EntryState::Pending,
+                                        complete ? QString()
+                                                 : tr("上一趟没搬完，可以继续（已搬过去的会跳过）")});
+                                    itemArray.append(QJsonObject{
+                                        {QStringLiteral("key"), item.key},
+                                        {QStringLiteral("relativePath"), item.relativePath},
+                                        {QStringLiteral("isDirectory"), item.isDirectory}});
+                                }
+                                QJsonArray keyArray;
+                                for (const QString &one : keys) keyArray.append(one);
+                                report.context = QJsonObject{
+                                    {QStringLiteral("dataRoot"), AppPaths::minecraftDir()},
+                                    {QStringLiteral("sourceDir"), sourceDir},
+                                    {QStringLiteral("targetDir"), targetDir},
+                                    {QStringLiteral("keys"), keyArray},
+                                    {QStringLiteral("items"), itemArray}};
+                                QString token;
+                                if (!complete && m_owner->m_fileRecovery
+                                    && m_owner->m_fileRecovery->registerReport(report)) {
+                                    token = reportId;
+                                }
+                                if (ledger != nullptr) {
+                                    ledger->setRecovery(taskId, token, !token.isEmpty(), QString());
+                                }
+                                return token;
+                            };
                             // 定时器那一拍可能还没来得及把最后几块抄进账本。
                             {
                                 QHash<QString, int> states;
@@ -1030,6 +1093,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                                     ledger->setStepState(taskId, 0, Tasks::TaskStepState::Failed,
                                                          outcome.copyError);
                                     finishTask(false, tr("复制实例没成"));
+                                    recordReport(false, outcome.copyError);
                                     InlineMessage::critical(overlay, title, outcome.copyError);
                                     return;
                                 }
@@ -1042,6 +1106,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
 
                             if (!outcome.apply.ok) {
                                 finishTask(false, outcome.apply.problem);
+                                recordReport(false, outcome.apply.problem);
                                 InlineMessage::critical(overlay, title, outcome.apply.problem);
                                 return;
                             }
@@ -1062,10 +1127,13 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                             ledger->setDetail(taskId,
                                               outcome.apply.text() + QStringLiteral("\n\n")
                                                   + checks.text());
-                            finishTask(outcome.apply.failedFiles == 0 && verified,
-                                       outcome.apply.failedFiles == 0 && verified
-                                           ? QString()
-                                           : tr("有文件没搬成，或者搬完校验没对上"));
+                            const bool allGood = outcome.apply.failedFiles == 0 && verified;
+                            finishTask(allGood,
+                                       allGood ? QString()
+                                               : tr("有文件没搬成，或者搬完校验没对上"));
+                            // 恢复入口只挂在终态上：先收尾，再登记报告钥匙。
+                            recordReport(allGood, allGood ? QString()
+                                                          : tr("有文件没搬成，或者搬完校验没对上"));
 
                             QString text =
                                 outcome.apply.text() + QStringLiteral("\n\n") + checks.text();

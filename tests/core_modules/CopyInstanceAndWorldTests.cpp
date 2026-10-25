@@ -2576,5 +2576,66 @@ void runCopyInstanceAndWorldTests() {
                   rawBack.info.levelName == QStringLiteral("不压缩的世界改过"),
               "ZL6 再把不压缩的那份读回来，改的地方在");
     }
+#ifdef Q_OS_WIN
+    {
+        // 2.1.2 补失败证据：发布那一步被占用（杀毒实时扫描 / 游戏开着这个世界）。
+        // QSaveFile 的 commit 是原子替换，被拒绝时盘上原来那一份必须**一个字节不变**，
+        // 世界里也不许留下任何临时文件。
+        const QString dirName = QStringLiteral("世界-发布失败");
+        const QString dir = scratch.path() + QStringLiteral("/") + dirName;
+        QDir().mkpath(dir);
+        NbtTree::Document document;
+        document.root.type = NbtTree::Type::Compound;
+        NbtTree::Field data;
+        data.first = QStringLiteral("Data");
+        data.second.type = NbtTree::Type::Compound;
+        NbtTree::Node nameNode;
+        nameNode.type = NbtTree::Type::String;
+        nameNode.text = QStringLiteral("原名字");
+        NbtTree::Field nameField;
+        nameField.first = QStringLiteral("LevelName");
+        nameField.second = nameNode;
+        data.second.fields = NbtTree::FieldList{nameField};
+        document.root.fields = NbtTree::FieldList{data};
+        const QString plain = dir + QStringLiteral("/plain.nbt.tmp");
+        writeFileAt(plain, NbtTree::serialize(document));
+        QString why;
+        check(ZipUtil::gzipFrom(plain, WorldFiles::levelDataPath(dir), &why),
+              "ZL7 造一个 gzip 的 level.dat", why);
+        QFile::remove(plain);
+        QByteArray originalBytes;
+        {
+            QFile file(WorldFiles::levelDataPath(dir));
+            check(file.open(QIODevice::ReadOnly), "ZL7 记下原来那份的字节");
+            originalBytes = file.readAll();
+        }
+        WorldFiles::LevelData loaded;
+        check(WorldFiles::readLevelData(dir, &loaded, &why), "ZL7 读得动", why);
+        loaded.info.levelName = QStringLiteral("新名字");
+        WorldFiles::applyWorldInfo(&loaded.document, loaded.info, &why);
+        const HANDLE held = CreateFileW(
+            reinterpret_cast<LPCWSTR>(WorldFiles::levelDataPath(dir).utf16()),
+            GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL, nullptr);
+        check(held != INVALID_HANDLE_VALUE, "ZL7 占住 level.dat（允许读写、拒绝替换）");
+        if (held != INVALID_HANDLE_VALUE) {
+            const bool saved = WorldFiles::writeLevelData(dir, loaded, &why);
+            CloseHandle(held);
+            check(!saved && !why.isEmpty(),
+                  "★★ ZL7 发布被占用时保存失败，而且说得出一句话", why);
+            QFile preserved(WorldFiles::levelDataPath(dir));
+            check(preserved.open(QIODevice::ReadOnly) && preserved.readAll() == originalBytes,
+                  "★★ ZL7 失败时原来那份 level.dat 一个字节不变");
+            preserved.close();
+            check(QDir(dir).entryList(QDir::Files | QDir::Hidden).size() == 1,
+                  "★★ ZL7 世界里没有留下临时文件（只有 level.dat）",
+                  QDir(dir).entryList(QDir::Files | QDir::Hidden).join(QLatin1Char(',')));
+            WorldFiles::LevelData after;
+            check(WorldFiles::readLevelData(dir, &after, &why) &&
+                      after.info.levelName == QStringLiteral("原名字"),
+                  "ZL7 重新打开还是原来那份（下次可以再试）");
+        }
+    }
+#endif
 }
 

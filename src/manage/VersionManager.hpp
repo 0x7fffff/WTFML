@@ -276,7 +276,7 @@ public:
     // ---- 带模组加载器的版本 ----
 
     /// 下载页那四个单选钮对应的加载器。
-    enum class LoaderKind { Fabric, Forge, NeoForge, OptiFine };
+    enum class LoaderKind { Fabric, Forge, NeoForge, OptiFine, Quilt };
 
     /// 这个加载器现在接通了没有。**四个都接通了**。
     ///

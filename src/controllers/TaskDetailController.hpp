@@ -47,6 +47,8 @@ public:
         /// 页上那颗「重试」：同上。
         std::function<void(const QString &)> retryTask;
         std::function<void(const QString &)> repairImport;
+        /// 「继续未完成操作」：主窗口按报告钥匙把那趟文件操作接着做完。
+        std::function<void(const QString &)> recoverOperation;
     };
 
     TaskDetailController(ActivityCenterController *activity, CrashReportController *crash,
