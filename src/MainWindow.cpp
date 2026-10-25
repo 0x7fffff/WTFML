@@ -2596,8 +2596,8 @@ bool MainWindow::cancelWouldWork(const Tasks::TaskSnapshot &task) const {
     // ⓪ 「实例更新」父任务：准备核心那一段可以取消（文件事务那一段由流程自己
     // 把能力位关掉，这里也问同一份入口）。
     if (m_updateFlowTask != Tasks::invalidTaskId() && task.id == m_updateFlowTask
-        && m_updateFlowCancel && m_downloadTaskId != Tasks::invalidTaskId()
-        && m_versionManager != nullptr && m_versionManager->canCancelDownload()) {
+        && m_updateFlowCancel && m_updateFlowCancelAvailable
+        && m_updateFlowCancelAvailable()) {
         return true;
     }
     // ③ 后台导入世界 / 原地升级 / 回滚：工人和引擎都在安全点看这一位，取消得动。
@@ -2876,15 +2876,18 @@ void MainWindow::setDownloadTaskParent(Tasks::TaskId parent, int step) {
     m_downloadParentStep = step;
 }
 
-void MainWindow::setUpdateFlowCancel(Tasks::TaskId task, std::function<bool()> cancel) {
+void MainWindow::setUpdateFlowCancel(Tasks::TaskId task, std::function<bool()> cancel,
+                                     std::function<bool()> available) {
     m_updateFlowTask = task;
     m_updateFlowCancel = std::move(cancel);
+    m_updateFlowCancelAvailable = std::move(available);
 }
 
 void MainWindow::clearUpdateFlowCancel(Tasks::TaskId task) {
     if (task == Tasks::invalidTaskId() || m_updateFlowTask == task) {
         m_updateFlowTask = Tasks::invalidTaskId();
         m_updateFlowCancel = nullptr;
+        m_updateFlowCancelAvailable = nullptr;
     }
     if (task == Tasks::invalidTaskId() || task == m_downloadParentTask) {
         m_downloadParentTask = Tasks::invalidTaskId();

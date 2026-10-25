@@ -1,6 +1,7 @@
 #pragma once
 
 #include "operations/OperationReport.hpp"
+#include "operations/InstanceUpgrade.hpp"
 #include "tasks/TaskId.hpp"
 #include "tasks/TaskSnapshot.hpp"
 
@@ -13,7 +14,6 @@
 class LauncherManager;
 class OverlayHost;
 class VersionManager;
-namespace InstanceUpgrade { struct Request; struct Core; }
 
 class InstanceTransferController final : public QObject {
     Q_OBJECT
@@ -81,7 +81,8 @@ public:
                         const QStringList &reviewedKeptMods = {}, bool reviewedModPlan = false,
                         Tasks::TaskId parentTask = Tasks::invalidTaskId(),
                         const QHash<int, int> &stageParentSteps = {},
-                        std::function<void(bool ok, bool cancelled)> whenSettled = {});
+                        std::function<void(bool ok, bool cancelled)> whenSettled = {},
+                        const QList<InstanceUpgrade::ModReplacement> &replacements = {});
     /// 「创建更新副本」：**源实例保持不动**，只复制一次候选目录、完整校验后换核心并发布。
     ///
     /// 这是 2.1.1 的空间优化：不再为副本另做整份 ZIP 快照（源实例本身可回滚），
@@ -92,7 +93,8 @@ public:
                        const QStringList &reviewedKeptMods = {}, bool reviewedModPlan = false,
                        Tasks::TaskId parentTask = Tasks::invalidTaskId(),
                        const QHash<int, int> &stageParentSteps = {},
-                       std::function<void(bool ok, bool cancelled)> whenSettled = {});
+                       std::function<void(bool ok, bool cancelled)> whenSettled = {},
+                       const QList<InstanceUpgrade::ModReplacement> &replacements = {});
     void rollbackUpgrade(QString sourceId,
                          std::function<void(bool, const QString &)> whenDone = {});
 

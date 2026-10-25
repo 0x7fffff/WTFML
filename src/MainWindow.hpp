@@ -2154,7 +2154,8 @@ private:
     /// 父任务收尾由调用方负责 —— 这一批只是那件意图里的一步。
     void setDownloadTaskParent(Tasks::TaskId parent, int step);
     /// 「实例更新」父任务在准备阶段可以被取消：这一对登记 / 摘除那条取消入口。
-    void setUpdateFlowCancel(Tasks::TaskId task, std::function<bool()> cancel);
+    void setUpdateFlowCancel(Tasks::TaskId task, std::function<bool()> cancel,
+                             std::function<bool()> available = {});
     void clearUpdateFlowCancel(Tasks::TaskId task);
 
     // ---------- 底栏那两块上拉面板（左：正在跑的实例 · 右：最近用过的账号） ----------
@@ -3265,6 +3266,8 @@ private:
     /// `cancelTaskFromDetail()` 都按它把父任务那一颗按钮接到真的那一批下载上。
     Tasks::TaskId m_updateFlowTask = Tasks::invalidTaskId();
     std::function<bool()> m_updateFlowCancel;
+    /// 只用于「露不露按钮」：不能拿 m_updateFlowCancel 当查询（那一个调用会真的取消）。
+    std::function<bool()> m_updateFlowCancelAvailable;
     /// 那一格失败清单**归账本里的哪一件任务**（"重试"资格的出处，见 finishTask()）。
     ///
     /// 绝大多数时候它就等于 `m_downloadTaskId`；两处不能现读的地方靠它：

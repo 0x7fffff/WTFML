@@ -54,6 +54,7 @@ QString kindKey(Kind kind) {
     case Kind::InstanceTransfer: return QStringLiteral("instance-transfer");
     case Kind::FileCopy: return QStringLiteral("file-copy");
     case Kind::Batch: return QStringLiteral("batch");
+    case Kind::ModReplacement: return QStringLiteral("mod-replacement");
     }
     return QStringLiteral("batch");
 }
@@ -62,6 +63,7 @@ Kind kindFromKey(const QString &key) {
     if (key == QLatin1String("world-import")) return Kind::WorldImport;
     if (key == QLatin1String("instance-transfer")) return Kind::InstanceTransfer;
     if (key == QLatin1String("file-copy")) return Kind::FileCopy;
+    if (key == QLatin1String("mod-replacement")) return Kind::ModReplacement;
     return Kind::Batch;
 }
 

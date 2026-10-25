@@ -19,6 +19,7 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QTimer>
+#include <QUrl>
 #include <QUuid>
 #include <QtConcurrent/QtConcurrentRun>
 #include <atomic>
@@ -27,7 +28,18 @@
 
 namespace {
 struct Declaration { QString loader; QJsonValue game; QString basis; QJsonValue breaks; QString problem; };
-struct Mod { QString path, name, sha1; QList<Declaration> declarations; QString problem, identityProblem; ResourceCatalog::Hit identity; bool identified = false; };
+struct Mod {
+    QString path, name, sha1;
+    QList<Declaration> declarations;
+    QString problem, identityProblem;
+    ResourceCatalog::Hit identity;
+    bool identified = false;
+    QString localVersion;
+    QStringList nested;
+    bool nestedIncomplete = false;
+    bool replacementAvailable = false;
+    ResourceCatalog::VersionEntry replacement;
+};
 struct Scan { QList<Mod> mods; QString note; };
 QJsonValue tomlGame(const QByteArray &bytes) {
     const QString text = QString::fromUtf8(bytes);
@@ -99,6 +111,7 @@ Scan scan(const QString &root, const QString &sourceId, const QString &cache, co
                 mod.declarations.append({entry.second, rule, entry.first + QStringLiteral(" / depends.minecraft"),
                     object.value(QStringLiteral("breaks")).toObject().value(QStringLiteral("minecraft")), {}});
                 if (!object.value(QStringLiteral("name")).toString().isEmpty()) mod.name = object.value(QStringLiteral("name")).toString();
+                mod.localVersion = object.value(QStringLiteral("version")).toString();
             } else mod.declarations.append({entry.second, tomlGame(bytes), entry.first + QStringLiteral(" / minecraft.versionRange"), {}, {}});
         }
         const auto identity = identities.constFind(path);
@@ -129,7 +142,33 @@ Scan scan(const QString &root, const QString &sourceId, const QString &cache, co
         }
         result.mods.append(mod);
     }
-    result.note += QObject::tr("仅检查顶层启用 JAR；按包内声明判断 Minecraft 范围，加载器版本、Java、嵌套模组及前置尚未完整验证。");
+    // 嵌套 JAR：只做**有界**枚举（每个 JAR 一次 PowerShell 列条目，几千个会让这一趟变成
+    // 几分钟）。超过预算时明确写“未完整枚举”，不假装都看过了。
+    QElapsedTimer nestedClock; nestedClock.start();
+    int nestedBudget = 200;
+    for (Mod &mod : result.mods) {
+        if (stop->load()) break;
+        if (nestedBudget <= 0 || nestedClock.elapsed() > 10000) {
+            mod.nestedIncomplete = true;
+            continue;
+        }
+        --nestedBudget;
+        QStringList entries;
+        QString nestedProblem;
+        const auto status = ZipUtil::listEntries(mod.path, &entries, &nestedProblem,
+                                                 QObject::tr("读取模组嵌套 JAR 列表"));
+        if (status != ZipUtil::EntryStatus::Ok) {
+            mod.nestedIncomplete = true;
+            continue;
+        }
+        for (const QString &entry : entries) {
+            if (entry.endsWith(QStringLiteral(".jar"), Qt::CaseInsensitive)) {
+                mod.nested.append(entry);
+            }
+        }
+    }
+    result.note += QObject::tr("仅检查顶层启用 JAR；按包内声明判断 Minecraft 范围，加载器版本、Java "
+                               "和前置在本轮由适配替换再核对。嵌套 JAR 只随父 JAR 替换，不单独替换。");
     return result;
 }
 struct State {
@@ -175,19 +214,72 @@ void UpgradeAssessment::attach(InstanceSettingsDialog *dialog, VersionManager *v
     QObject::connect(dialog, &QObject::destroyed, [stop] { stop->store(true); });
     const auto render = [dialog, state] {
         QList<QStringList> rows;
+        QVariantMap replacements;
+        QStringList changes;
         if (state->ready) for (const auto &mod : state->scan.mods) {
             QString basis; const QString local = localState(mod, state->game, state->loader, &basis);
             const QString platform = state->platform.value(mod.path, mod.identified ? QObject::tr("平台项目已识别，等待查询")
                 : mod.identityProblem.isEmpty() ? QObject::tr("未识别平台项目（无有效识别记录）") : mod.identityProblem);
             const QString filename = QFileInfo(mod.path).fileName();
             const QString title = mod.name == filename ? mod.name : mod.name + QStringLiteral("（%1）").arg(filename);
-            rows.append({title, platform + QLatin1Char('\n') + local, basis, filename,
-                local == QObject::tr("本地 Minecraft 声明符合") ? QStringLiteral("keep")
-                : (local == QObject::tr("本地声明不支持") || local == QObject::tr("本地明确排除此版本")
-                   || local == QObject::tr("目标不使用模组加载器")) ? QStringLiteral("disable") : QStringLiteral("review"),
+            QString replacementLabel;
+            QString replacementDefault;
+            if (mod.replacementAvailable) {
+                const auto file = mod.replacement.primaryFile();
+                const QString version = mod.replacement.versionNumber.isEmpty()
+                    ? mod.replacement.id : mod.replacement.versionNumber;
+                replacementLabel = version;
+                replacementDefault = QStringLiteral("replace");
+                if (file != nullptr) {
+                    const QString platformName = mod.identity.source == ResourceCatalog::Source::CurseForge
+                        ? QStringLiteral("curseforge") : QStringLiteral("modrinth");
+                    replacements.insert(filename, QVariantMap{
+                        {QStringLiteral("title"), mod.name},
+                        {QStringLiteral("oldFile"), filename},
+                        {QStringLiteral("platform"), platformName},
+                        {QStringLiteral("projectId"), mod.identity.projectId},
+                        {QStringLiteral("projectKey"), platformName + QLatin1Char(':') + mod.identity.projectId},
+                        {QStringLiteral("versionId"), mod.replacement.id},
+                        {QStringLiteral("versionNumber"), version},
+                        {QStringLiteral("fileName"), file->filename},
+                        {QStringLiteral("sha1"), file->sha1},
+                        {QStringLiteral("size"), file->size},
+                        {QStringLiteral("url"), file->url},
+                        {QStringLiteral("fromVersion"), mod.localVersion},
+                        {QStringLiteral("nestedCount"), mod.nested.size()},
+                        {QStringLiteral("nestedNames"), mod.nested.mid(0, 5)},
+                    });
+                    changes.append(QObject::tr("替换：mods/%1 → %2（%3 %4，SHA-1 %5…）")
+                                       .arg(filename, file->filename, mod.name, version,
+                                            file->sha1.left(12)));
+                }
+            }
+            QString nestedNote;
+            if (!mod.nested.isEmpty()) {
+                nestedNote = QObject::tr("\n含 %1 个嵌套 JAR（随父 JAR 替换，不单独替换）")
+                                 .arg(mod.nested.size());
+            } else if (mod.nestedIncomplete) {
+                nestedNote = QObject::tr("\n嵌套 JAR 未完整枚举");
+            }
+            rows.append({title, platform + QLatin1Char('\n') + local, basis + nestedNote, filename,
+                replacementDefault.isEmpty()
+                    ? (local == QObject::tr("本地 Minecraft 声明符合") ? QStringLiteral("keep")
+                       : (local == QObject::tr("本地声明不支持") || local == QObject::tr("本地明确排除此版本")
+                          || local == QObject::tr("目标不使用模组加载器")) ? QStringLiteral("disable")
+                                                                          : QStringLiteral("review"))
+                    : replacementDefault,
                 local == QObject::tr("本地 Minecraft 声明符合") && platform.startsWith(QObject::tr("平台有目标发行版"))
-                    ? QStringLiteral("compatible") : QString()});
+                    ? QStringLiteral("compatible") : QString(),
+                replacementLabel});
         }
+        dialog->setProperty("upgradeModReplacements", replacements);
+        if (changes.isEmpty()) {
+            changes.append(QObject::tr("本次不替换模组文件（按逐项选择保留/禁用）。"));
+        } else {
+            changes.append(QObject::tr("必要前置会在下载阶段自动补齐，并在替换前再次列出实际文件。"));
+            changes.append(QObject::tr("替换失败或必要前置失败时整趟回滚，并写出原因报告。"));
+        }
+        dialog->setProperty("upgradeFileChanges", changes);
         const QString assumption = state->target.startsWith(QStringLiteral("@download:"))
             ? (dialog->property("modernUpgradeFlow").toBool()
                 ? QObject::tr("按所选加载器 %1 检查。 ") : QObject::tr("目标核心未准备，暂按当前加载器 %1 评估；安装时仍须确认。 "))
@@ -216,13 +308,44 @@ void UpgradeAssessment::attach(InstanceSettingsDialog *dialog, VersionManager *v
             if (!state->active.contains(key)) return;
             const int index = state->active.take(key);
             const auto &mod = state->scan.mods.at(index);
-            bool matching = false, incomplete = false;
+            bool incomplete = false;
+            ResourceCatalog::VersionEntry selected;
             for (const auto &entry : entries) {
                 if (entry.gameVersions.isEmpty() || entry.loaders.isEmpty()) { incomplete = true; continue; }
-                if (entry.gameVersions.contains(state->game) && entry.loaders.contains(state->loader, Qt::CaseInsensitive)) matching = true;
+                if (!entry.gameVersions.contains(state->game)
+                    || !entry.loaders.contains(state->loader, Qt::CaseInsensitive)) continue;
+                // 只接受**能安全下载并校验**的那一条：地址、文件名、大小、SHA-1 齐了才算
+                // “有目标发行版”。否则界面只能说“元数据不完整”，不能假装可以替换。
+                const ResourceCatalog::FileEntry *file = entry.primaryFile();
+                if (file == nullptr) continue;
+                const QUrl url(file->url);
+                if (!url.isValid() || (url.scheme() != QStringLiteral("https")
+                                       && url.scheme() != QStringLiteral("http"))
+                    || !url.userInfo().isEmpty()
+                    || file->filename != QFileInfo(file->filename).fileName()
+                    || file->filename.contains(QLatin1Char('\\'))
+                    || file->filename.contains(QLatin1Char(':'))
+                    || !file->filename.endsWith(QStringLiteral(".jar"), Qt::CaseInsensitive)
+                    || file->size < 0
+                    || !QRegularExpression(QStringLiteral("^[0-9a-fA-F]{40}$"))
+                            .match(file->sha1).hasMatch()) {
+                    incomplete = true;
+                    continue;
+                }
+                selected = entry;
+                break;
+            }
+            auto &mutableMod = state->scan.mods[index];
+            mutableMod.replacementAvailable = !selected.id.isEmpty();
+            if (mutableMod.replacementAvailable) {
+                mutableMod.replacement = selected;
             }
             state->platform[mod.path] = !problem.isEmpty() ? QObject::tr("平台查询失败：%1").arg(problem)
-                : matching ? QObject::tr("平台有目标发行版") : incomplete ? QObject::tr("平台发行元数据不完整，无法确定") : QObject::tr("平台未找到目标发行版");
+                : selected.id.isEmpty() ? (incomplete ? QObject::tr("平台发行元数据不完整，无法确定")
+                                                      : QObject::tr("平台未找到目标发行版"))
+                                        : QObject::tr("平台有目标发行版 %1")
+                                              .arg(selected.versionNumber.isEmpty() ? selected.id
+                                                                                    : selected.versionNumber);
             if (problem.isEmpty() && state->fallbackProjects.contains(index)) state->platform[mod.path] += QObject::tr("（Modrinth 后备）");
             // Retry one transient failure; permanent authentication/permission errors are not retried.
             if (!problem.isEmpty()) {

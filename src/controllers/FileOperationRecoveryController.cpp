@@ -222,6 +222,11 @@ void FileOperationRecoveryController::runResume(const Job &job, Tasks::TaskId ta
     case OperationReport::Kind::Batch:
         started = resumeFileCopy(job, task, &problem);
         break;
+    case OperationReport::Kind::ModReplacement:
+        // 适配替换的续做入口是重新开始那次实例更新（下载结果与预览版本必须一致）；
+        // 这里只负责把原因说清楚，不假装能单独补下。
+        problem = tr("模组适配替换不能单独续做；请重新打开实例更新向导，重新检查后执行。");
+        break;
     }
     if (!started) {
         // 连"开始补做"都做不到：照实收失败，并把原因写进报告文件。

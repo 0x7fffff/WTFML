@@ -187,7 +187,7 @@ A 阶段两项的自动化证据。运行方式：`cmake --build build/verify --
 | `verify_activity` | 148/148 | 子任务不进任务中心；父任务步骤/取消/失败语义；`setRecovery` 只挂终态；历史只落父任务 |
 | `verify_instances` | 1535/1535 | 报告 JSON 边界；暂存续做；同名「跳过已有项」；世界导入冲突；世界设置发布被占用 |
 | `verify_resources` | 824/824 | 整合包收尾任一次提前退出都把持久报告退回未完成（含完成报告发布后取消） |
-| `mw_check_instance_upgrade` | 188 PASS / 0 FAIL | 副本模式只复制一次、无 ZIP 快照、源实例不动；父任务只收一个子任务；恢复入口补完/写失败报告 |
+| `mw_check_instance_upgrade` | 206 PASS / 0 FAIL | 副本模式只复制一次、无 ZIP 快照、源实例不动；父任务只收一个子任务；恢复入口补完/写失败报告；2.1.3 适配替换（平台发行版选择、变更预览、嵌套 JAR 随父替换、失败整趟回滚、变更日志） |
 | `mw_check` | 2684/2684 | 主窗口完整集成（含三档同名冲突与任务中心接线） |
 | `ui_check` | 3119/3119 | 历史 UI 全量（`QT_QPA_PLATFORM=offscreen`） |
 | `ctest -R …` | 7/7 | lifecycle / resource-packs / theme / workspace / activity-selection / tool-features / mod-action-panel |
@@ -203,6 +203,14 @@ A 阶段两项的自动化证据。运行方式：`cmake --build build/verify --
 - 世界导入：同名时「跳过已有项」不写目标；取消保留暂存、不发布半份；续做按内容
   （SHA-1，不只大小）跳过已拷好的文件。
 - 世界设置：`level.dat` 被占用时发布失败、原文件一个字节不变、世界里不留临时文件。
+- 2.1.3 适配替换（临时目录夹具）：平台发行版带安全文件/SHA-1 时逐项出现「替换为平台适配版」；
+  预览列表包含旧文件 → 新文件、版本与哈希；选保留会退出替换计划。嵌套 JAR 不单独替换，
+  父 JAR 换掉后嵌套内容随之更新。替换哈希不符时 `prepareAndCommit` 整趟失败：原实例
+  `mods/old-mod.jar` 不变、不产生新文件/变更日志、事务暂存被清掉。成功后实例内
+  `wtfml.update-changes.json` 有 `replace` 记录和嵌套说明；同名替换（新文件名与旧文件相同）
+  同样先移除旧文件再写入校验过的新文件。
+  真实的平台下载/必要前置解析由 `PresetModInstaller` 既有 40+ 场景覆盖；本轮未做真实
+  平台冷缓存下载、真实游戏组合和慢盘验收（仍归 2.1.5）。
 
 这些是临时目录 / 受控句柄夹具，不等于真实慢盘、杀毒实时扫描、断电或真实游戏组合验收；
 真正游戏/加载器组合仍归 2.1.5。

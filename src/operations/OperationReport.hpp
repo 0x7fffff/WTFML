@@ -34,6 +34,8 @@ enum class Kind {
     InstanceTransfer,
     FileCopy,
     Batch,
+    /// 升级里的「平台适配模组」下载/替换（2.1.3）；失败时整趟更新回滚。
+    ModReplacement,
 };
 
 QString kindKey(Kind kind);

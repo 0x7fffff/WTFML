@@ -695,6 +695,10 @@ public:
     void setTransferPlan(const QString &key, const QString &text);
     void setUpgradeContext(const QString &text);
     QStringList upgradeKeptMods() const;
+    /// 用户逐项选了「替换为平台适配版」的那些文件名。
+    QStringList upgradeReplaceMods() const;
+    /// 文件名 ⇒ 替换信息（`upgradeModReplacements`）。评估层填，执行层读。
+    QVariantMap upgradeModReplacements() const;
     int upgradePendingModCount() const;
     void setUpgradeModChecks(const QList<QStringList> &rows, const QString &summary);
     /// 摆可勾选的范围表（显示名, 键 对 + 默认勾选的键）。

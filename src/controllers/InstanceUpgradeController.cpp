@@ -22,7 +22,8 @@ void InstanceTransferController::upgradeInPlace(QString sourceId, QString target
     std::function<void(bool, const QString &)> whenDone,
     const QStringList &reviewedKeptMods, bool reviewedModPlan,
     Tasks::TaskId parentTask, const QHash<int, int> &stageParentSteps,
-    std::function<void(bool, bool)> whenSettled) {
+    std::function<void(bool, bool)> whenSettled,
+    const QList<InstanceUpgrade::ModReplacement> &replacements) {
     const auto fail = [&](const QString &problem) {
         InlineMessage::warning(m_overlay, tr("原地升级"), problem);
         if (whenSettled) whenSettled(false, false);
@@ -70,6 +71,7 @@ void InstanceTransferController::upgradeInPlace(QString sourceId, QString target
     const bool contextChanged = m_versions->instanceGameVersion(sourceId) != core.gameVersion
         || sourceLoader.compare(core.loaderName, Qt::CaseInsensitive) != 0
         || sourceLoaderVersion != core.loaderVersion;
+    core.replacements = replacements;
     if (reviewedModPlan) {
         core.disableOldMods = true;
         core.keepOldMods = reviewedKeptMods;
@@ -113,7 +115,8 @@ void InstanceTransferController::upgradeToCopy(const QString &sourceId, const QS
     std::function<void(bool, const QString &)> whenDone,
     const QStringList &reviewedKeptMods, bool reviewedModPlan,
     Tasks::TaskId parentTask, const QHash<int, int> &stageParentSteps,
-    std::function<void(bool, bool)> whenSettled) {
+    std::function<void(bool, bool)> whenSettled,
+    const QList<InstanceUpgrade::ModReplacement> &replacements) {
     const auto fail = [&](const QString &problem) {
         InlineMessage::warning(m_overlay, tr("创建更新副本"), problem);
         if (whenSettled) whenSettled(false, false);
@@ -155,6 +158,7 @@ void InstanceTransferController::upgradeToCopy(const QString &sourceId, const QS
         fail(tr("目标核心不完整，请先安装或修复目标版本。"));
         return;
     }
+    core.replacements = replacements;
     if (reviewedModPlan) {
         core.disableOldMods = true;
         core.keepOldMods = reviewedKeptMods;
@@ -305,8 +309,13 @@ void InstanceTransferController::runUpgradeJob(const InstanceUpgrade::Request &r
             // 按过取消不代表引擎安全取消；并发 I/O 失败或回滚失败不能被它掩盖。
             const bool cancelled = result.cancelled && !result.ok;
             QString detail = result.problem;
-            if (result.ok) detail = tr("已完成。禁用旧模组 %1 个。恢复材料：%2")
-                .arg(result.disabledMods).arg(InstanceUpgrade::transactionDir(request));
+            if (result.ok) {
+                detail = tr("已完成。禁用旧模组 %1 个。恢复材料：%2")
+                             .arg(result.disabledMods).arg(InstanceUpgrade::transactionDir(request));
+                if (!result.changes.isEmpty()) {
+                    detail += QStringLiteral("\n文件变更：\n") + result.changes.join("\n");
+                }
+            }
             if (cancelled && detail.isEmpty()) {
                 detail = tr("已取消：原实例没有发布新核心（已经动过的那部分会自动恢复）。");
             }

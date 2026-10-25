@@ -41,7 +41,28 @@ struct Result {
     QString snapshotZip;
     int disabledMods = 0;
     bool requiresReload = false;
+    /// 实际写进候选目录的替换/新增（任务详情与变更日志共用一套说法）。
+    QStringList changes;
 };
+/// 一份“平台适配版”模组文件：已经在暂存里下好并校验过，等事务把它放进候选目录。
+///
+/// 2.1.3 的替换语义：**只改候选目录**（副本的候选或原地升级的暂存），因此任何一步失败
+/// 都能整趟回滚 —— 源实例/原目录一个字节都没动。嵌套 JAR 不单独成项：它们跟着父 JAR
+/// 一起替换（`replaces` 是父 JAR 的文件名）。
+struct ModReplacement {
+    QString stagedPath;      ///< 暂存里的源文件（绝对路径，必须是普通文件）
+    QString fileName;        ///< 目标 `mods/<name>`（只是文件名，不含路径）
+    QString sha1;            ///< 期望 SHA-1（40 位十六进制）
+    qint64 size = -1;        ///< 期望大小；-1 = 不判
+    QString replaces;        ///< 要移除的旧文件名（可为空 = 只新增）
+    QString projectKey;      ///< `平台:项目号`（写进变更日志）
+    QString versionId;       ///< 平台发行版 ID（写进变更日志，也用于确认与预览一致）
+    QString title;           ///< 给用户看的名字
+    QString fromVersion;     ///< 旧版本号（可空）
+    QString toVersion;       ///< 新版本号（可空）
+    bool fromDependency = false; ///< 必要前置（不是用户逐项点选的模组）
+};
+
 struct Core {
     QJsonObject mergedJson;
     QString clientJar;
@@ -51,6 +72,8 @@ struct Core {
     bool disableOldMods = true;
     // Relative paths under mods/ explicitly retained by the reviewed update plan.
     QStringList keepOldMods;
+    /// 平台适配版替换（已下载并校验）。空 = 这一趟只换核心。
+    QList<ModReplacement> replacements;
 };
 QString transactionDir(const Request &request);
 QString candidateDir(const Request &request);

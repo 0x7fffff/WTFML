@@ -13,9 +13,13 @@
 #include "controllers/ActivityCenterController.hpp"
 #include "manage/VersionManager.hpp"
 #include "operations/InstanceUpgrade.hpp"
+#include "operations/OperationReport.hpp"
+#include "presets/PresetModInstaller.hpp"
+#include "manage/FolderManager.hpp"
 #include "manage/InstanceFiles.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "settings/GlobalJavaSettings.hpp"
+#include "settings/LauncherSettings.hpp"
 #include "util/AppPaths.hpp"
 #include <QComboBox>
 #include <QCompleter>
@@ -50,6 +54,14 @@ struct Selection {
     Tasks::TaskId parent = 0;
     /// 准备阶段用户按了取消（与"失败"分开收尾）。
     bool prepCancelled = false;
+    /// 正在下载平台适配模组（这一段可取消，取消后整趟回滚）。
+    bool downloading = false;
+    QPointer<Presets::PresetModInstaller> modInstaller;
+    QString modStageDir;
+    /// 替换阶段的报告编号与实际文件清单：引擎在**应用阶段**失败时也要写同一种原因报告。
+    QString replacementReportId;
+    QStringList replacementPreview;
+    bool engineCancelled = false;
 };
 VersionManager::LoaderKind loaderKind(const QString &id) {
     if (id == QStringLiteral("forge")) return VersionManager::LoaderKind::Forge;
@@ -125,7 +137,9 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     copyName->setObjectName("instanceUpdateCopyName"); copyName->setPlaceholderText(QObject::tr("更新副本名称"));
     modeRow->addWidget(new QLabel(QObject::tr("2. 更新方式"), selectors)); modeRow->addWidget(mode, 1); modeRow->addWidget(copyName, 1);
     auto *modePanel = new QWidget(page); modePanel->setLayout(modeRow);
-    auto *note = new QLabel(QObject::tr("兼容声明不是运行保证。未知项必须明确选择处理方式，不会自动禁用；本轮不自动下载适配模组。"), page);
+    auto *note = new QLabel(QObject::tr("兼容声明不是运行保证。未知项必须明确选择处理方式，不会自动禁用；"
+                                     "只有平台明确给出目标发行版的模组才提供「替换为平台适配版」，"
+                                     "必要前置会自动补齐，替换失败会整趟回滚。"), page);
     note->setWordWrap(true);
     auto *status = new QLabel(page); status->setObjectName("instanceUpdateStatus"); status->setWordWrap(true);
     auto *start = new QPushButton(QObject::tr("开始更新"), page); start->setObjectName("instanceUpdateStart");
@@ -158,6 +172,12 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     auto *confirmation = new QWidget;
     auto *confirmLayout = new QVBoxLayout(confirmation);
     confirmLayout->addWidget(modePanel);
+    auto *changes = new QPlainTextEdit(confirmation);
+    changes->setObjectName("instanceUpdateChanges");
+    changes->setReadOnly(true);
+    changes->setFixedHeight(132);
+    confirmLayout->addWidget(new QLabel(QObject::tr("执行前的文件变更（模组适配替换）："), confirmation));
+    confirmLayout->addWidget(changes);
     auto *summary = new QLabel(confirmation); summary->setObjectName("instanceUpdateConfirmation"); summary->setWordWrap(true);
     confirmLayout->addWidget(summary); confirmLayout->addStretch();
     auto *progress = new QWidget;
@@ -201,6 +221,11 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
             status->setText(requested ? QObject::tr("已请求取消核心准备，原实例未改变。")
                 : QObject::tr("当前安装阶段暂不能取消，请等待阶段结束。")); return false;
         }
+        if (state->downloading) {
+            if (state->modInstaller) state->modInstaller->cancel();
+            status->setText(QObject::tr("已请求取消下载适配模组；停下后整趟更新不会执行。"));
+            return false;
+        }
         if (state->executing) { status->setText(QObject::tr("正在进行文件事务，不能中途关闭；请等待完成或失败结果。")); return false; }
         return true;
     };
@@ -220,7 +245,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
             });
     });
 
-    const auto refreshEnabled = [owner, dialog, state, wizard, start, game, loaderVersion, copyName, mode, status, summary, steps, stopQuery, retryFlow, tree] {
+    const auto refreshEnabled = [owner, dialog, state, wizard, start, game, loaderVersion, copyName, mode, status, summary, steps, stopQuery, retryFlow, tree, changes] {
         const bool selectedGame = game->currentIndex() > 0 && game->currentText() == game->itemText(game->currentIndex());
         const bool ready = selectedGame && (state->loader.isEmpty() || !state->loaderVersion.isEmpty());
         const bool named = mode->currentData().toBool() || !copyName->text().trimmed().isEmpty();
@@ -237,16 +262,27 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
         wizard->setStepReady(3, state->finished);
         wizard->setRunning(state->preparing || state->executing);
         stopQuery->setEnabled(dialog->property("upgradeAssessmentQuerying").toBool());
-        const int kept = dialog->upgradeKeptMods().size(), pending = dialog->upgradePendingModCount();
-        summary->setText(QObject::tr("当前实例：%1\n目标：Minecraft %2 · %3 %4\n\n保留启用：%5　禁用但保留文件：%6　待确认：%7\n\n%8\n\n存档跨版本后可能无法降级；执行前会检查磁盘空间。%10\n平台查询失败不等于没有适配版；本轮不会自动下载适配模组。%9")
+        const int kept = dialog->upgradeKeptMods().size();
+        const int replaced = dialog->upgradeReplaceMods().size();
+        const int pending = dialog->upgradePendingModCount();
+        QString summaryText = QObject::tr("当前实例：%1\n目标：Minecraft %2 · %3 %4\n\n保留启用：%5　替换适配版：%6　禁用但保留文件：%7　待确认：%8\n\n%9\n\n存档跨版本后可能无法降级；执行前会检查磁盘空间。%11\n平台查询失败不等于没有适配版；适配替换只使用平台明确给出的目标发行版。%10")
             .arg(state->source, state->game, state->loader.isEmpty() ? QObject::tr("纯原版") : state->loader, state->loaderVersion)
-            .arg(kept).arg(qMax(0, tree->property("upgradeModCount").toInt() - kept - pending)).arg(pending)
+            .arg(kept).arg(replaced)
+            .arg(qMax(0, tree->property("upgradeModCount").toInt() - kept - pending - replaced))
+            .arg(pending)
             .arg(mode->currentData().toBool() ? QObject::tr("更新当前实例：完整快照并校验后替换，保留回滚。")
                 : QObject::tr("创建更新副本：%1，原实例保持不变。").arg(name))
             .arg(!copyValid ? QObject::tr("\n副本名称无效或已经存在，请修改。") : !correctRoot ? QObject::tr("\n游戏目录已改变，请关闭向导重新进入。") : QString())
             .arg(mode->currentData().toBool()
                 ? QObject::tr("更新当前实例：先创建并逐文件校验完整 ZIP 快照（约需 2 倍实例空间），原目录另行保留，可用「回滚上次更新」恢复。")
-                : QObject::tr("创建更新副本：只复制一份用户文件并逐文件校验，不再为副本另做 ZIP 快照（约需 1 份实例空间）；源实例一个字节都不会被改，它本身就是回滚材料。")));
+                : QObject::tr("创建更新副本：只复制一份用户文件并逐文件校验，不再为副本另做 ZIP 快照（约需 1 份实例空间）；源实例一个字节都不会被改，它本身就是回滚材料。"));
+        if (replaced > 0) {
+            summaryText += QObject::tr("\n\n将下载并替换 %1 个模组；必要前置失败或任一替换失败时整趟回滚，并写出原因报告。")
+                               .arg(replaced);
+        }
+        summary->setText(summaryText);
+        const QString changeText = dialog->property("upgradeFileChanges").toStringList().join(QLatin1Char('\n'));
+        if (changes->toPlainText() != changeText) changes->setPlainText(changeText);
         if (state->preparing || state->executing || state->finished) {
             QStringList lines;
             const auto appendSteps = [&lines](const QList<Tasks::TaskStep> &steps) {
@@ -362,10 +398,11 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
         const bool inPlace = mode->currentData().toBool();
         QList<Tasks::TaskStep> steps{
             {QObject::tr("准备目标核心与加载器"), Tasks::TaskStepState::Running, {}},
+            {QObject::tr("下载并校验平台适配模组"), Tasks::TaskStepState::Pending, {}},
             {inPlace ? QObject::tr("准备并校验用户文件副本")
                      : QObject::tr("复制并校验更新副本"),
              Tasks::TaskStepState::Pending, {}},
-            {QObject::tr("替换核心并发布"), Tasks::TaskStepState::Pending, {}},
+            {QObject::tr("替换核心、应用模组并发布"), Tasks::TaskStepState::Pending, {}},
             {QObject::tr("完成"), Tasks::TaskStepState::Pending, {}}};
         const QString title = inPlace
             ? QObject::tr("更新实例 %1 → Minecraft %2 · %3")
@@ -385,32 +422,71 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     const auto execute = [owner, dialog = QPointer<InstanceSettingsDialog>(dialog), state, mode, copyName, refreshEnabled, status] {
         if (!dialog || AppPaths::minecraftDir() != state->root) return;
         state->executing = true; state->finished = false;
-        status->setText(mode->currentData().toBool()
-            ? QObject::tr("正在执行完整快照更新，请等待事务结果…")
-            : QObject::tr("正在复制更新副本并校验，请等待事务结果…"));
         const QStringList keep = dialog->upgradeKeptMods();
-        // 文件事务这一段停不得：把父任务的「取消」关掉并写清原因（准备阶段那一颗是
-        // 另一段状态，见开始更新那一支）。
-        if (state->parent != 0) {
-            Tasks::TaskCapabilities caps;
-            caps.canCancel = false;
-            caps.cancelBlockedReason = QObject::tr(
-                "文件事务已经开始：复制、校验和发布要保证副本/原目录是一整份，中途停下会留下半份；"
-                "这一段不支持取消。");
-            owner->m_activityCenter->tasks()->setCapabilities(state->parent, caps);
-            owner->m_activityCenter->tasks()->setDetail(state->parent,
-                QObject::tr("正在执行文件事务…"));
-        }
+        const QStringList replaceFiles = dialog->upgradeReplaceMods();
+        const QVariantMap replaceInfo = dialog->upgradeModReplacements();
+        const bool inPlace = mode->currentData().toBool();
+        const QString name = copyName->text().trimmed();
         const auto completed = [owner, state, refreshEnabled, status](bool changed, const QString &problem) {
+            // 引擎一收尾就把下载暂存收掉：成功时它已经复制进候选目录，失败时更不该再占空间。
+            if (!state->modStageDir.isEmpty()) {
+                removeTreeWithoutFollowingLinks(state->modStageDir);
+                state->modStageDir.clear();
+            }
+            // 替换已经在候选目录里试过了，但事务在发布前失败：也写一份统一原因报告，
+            // 说明是哪一步、哪个文件失败（引擎的 problem 已点名）。
+            QString applyFailurePath;
+            if (!changed && !problem.isEmpty() && !state->replacementReportId.isEmpty()
+                && !state->engineCancelled) {
+                OperationReport::Report report;
+                report.id = state->replacementReportId;
+                report.kind = OperationReport::Kind::ModReplacement;
+                report.title = QObject::tr("模组适配替换：%1")
+                                   .arg(owner->instanceDisplayName(state->source));
+                report.instanceId = state->source;
+                report.sourceRoot = AppPaths::versionDir(state->source);
+                report.totalFiles = qMax(1, int(state->replacementPreview.size()));
+                report.failedFiles = report.totalFiles;
+                report.complete = false;
+                report.failureReason = problem;
+                report.startedAt = QDateTime::currentDateTime();
+                report.updatedAt = report.startedAt;
+                report.context = QJsonObject{
+                    {QStringLiteral("dataRoot"), AppPaths::minecraftDir()},
+                    {QStringLiteral("instanceId"), state->source}};
+                int index = 0;
+                for (const QString &line : state->replacementPreview.isEmpty()
+                                               ? QStringList{problem}
+                                               : state->replacementPreview) {
+                    report.entries.append(OperationReport::Entry{
+                        QObject::tr("替换文件 %1").arg(++index), 0,
+                        OperationReport::EntryState::Failed, problem + QStringLiteral("\n") + line});
+                }
+                const QString reportPath = OperationReport::reportPath(
+                    AppPaths::minecraftDir(), report.id);
+                QString saveProblem;
+                if (OperationReport::saveReport(reportPath, report, &saveProblem)) {
+                    applyFailurePath = OperationReport::writeFailureText(reportPath, report);
+                }
+            }
+            state->replacementReportId.clear();
+            state->replacementPreview.clear();
+            state->engineCancelled = false;
+            state->modInstaller = nullptr;
+            state->downloading = false;
             state->executing = false;
             state->finished = true; state->requiresReload = changed;
             state->problem = !problem.isEmpty() ? problem : changed ? QObject::tr("更新已完成。点击完成返回；实例设置将重新读取新版本。")
                 : QObject::tr("本次更新未执行或已取消，原实例没有发布新核心。");
+            if (!applyFailurePath.isEmpty()) {
+                state->problem += QObject::tr("\n\n替换失败原因报告：\n%1")
+                                      .arg(QDir::toNativeSeparators(applyFailurePath));
+                owner->appendLog(state->problem);
+            }
             if (state->parent != 0) {
-                Tasks::TaskCapabilities caps;
                 if (changed && problem.isEmpty()) {
                     owner->m_activityCenter->tasks()->setStepState(
-                        state->parent, 3, Tasks::TaskStepState::Done);
+                        state->parent, 4, Tasks::TaskStepState::Done);
                     owner->m_activityCenter->finish(state->parent, true, {}, false);
                 } else {
                     owner->m_activityCenter->finish(state->parent, false, state->problem, false);
@@ -424,39 +500,333 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
         };
         // 引擎的精确结局（成功 / 用户取消 / 失败）：`completed` 只拿到"要不要重新读设置"，
         // 拿不到"这是取消还是失败" —— 而取消不该亮红点、失败不该被说成成功。
-        const auto settled = [owner, state, completed](bool ok, bool cancelled) {
-            Q_UNUSED(completed);
+        const auto settled = [owner, state](bool ok, bool cancelled) {
+            if (cancelled) state->engineCancelled = true;
             if (state->parent == 0) return;
             if (ok) return;  // 成功由 `completed(true, …)` 那一支收尾。
-            if (cancelled) {
-                owner->m_activityCenter->tasks()->cancel(state->parent);
-            }
+            if (cancelled) owner->m_activityCenter->tasks()->cancel(state->parent);
         };
         // 父任务的粗粒度步骤 ⇒ 引擎阶段。原地升级与副本模式各自一套。
-        const QHash<int, int> parentSteps = mode->currentData().toBool()
-            ? QHash<int, int>{{int(InstanceUpgrade::Stage::Checking), 1},
-                              {int(InstanceUpgrade::Stage::Snapshot), 1},
-                              {int(InstanceUpgrade::Stage::VerifySnapshot), 1},
-                              {int(InstanceUpgrade::Stage::RetainOriginal), 2},
-                              {int(InstanceUpgrade::Stage::Publish), 2},
-                              {int(InstanceUpgrade::Stage::Verify), 2}}
-            : QHash<int, int>{{int(InstanceUpgrade::Stage::Checking), 1},
-                              {int(InstanceUpgrade::Stage::Copy), 1},
-                              {int(InstanceUpgrade::Stage::VerifyCopy), 1},
-                              {int(InstanceUpgrade::Stage::Publish), 2},
-                              {int(InstanceUpgrade::Stage::Verify), 2}};
-        if (mode->currentData().toBool()) {
-            owner->m_instanceTransferController->upgradeInPlace(
-                state->source, state->core, completed, keep, true, state->parent, parentSteps,
-                settled);
+        const QHash<int, int> parentSteps = inPlace
+            ? QHash<int, int>{{int(InstanceUpgrade::Stage::Checking), 2},
+                              {int(InstanceUpgrade::Stage::Snapshot), 2},
+                              {int(InstanceUpgrade::Stage::VerifySnapshot), 2},
+                              {int(InstanceUpgrade::Stage::RetainOriginal), 3},
+                              {int(InstanceUpgrade::Stage::Publish), 3},
+                              {int(InstanceUpgrade::Stage::Verify), 3}}
+            : QHash<int, int>{{int(InstanceUpgrade::Stage::Checking), 2},
+                              {int(InstanceUpgrade::Stage::Copy), 2},
+                              {int(InstanceUpgrade::Stage::VerifyCopy), 2},
+                              {int(InstanceUpgrade::Stage::Publish), 3},
+                              {int(InstanceUpgrade::Stage::Verify), 3}};
+        const auto runUpgrade = [owner, state, completed, settled, parentSteps, inPlace, name](
+                                    const QList<InstanceUpgrade::ModReplacement> &replacements,
+                                    const QStringList &keep) {
+            // 文件事务这一段停不得：把父任务的「取消」关掉并写清原因。
+            if (state->parent != 0) {
+                Tasks::TaskCapabilities caps;
+                caps.canCancel = false;
+                caps.cancelBlockedReason = QObject::tr(
+                    "文件事务已经开始：复制、校验和发布要保证副本/原目录是一整份，中途停下会留下半份；"
+                    "这一段不支持取消。");
+                owner->m_activityCenter->tasks()->setCapabilities(state->parent, caps);
+                owner->m_activityCenter->tasks()->setDetail(state->parent,
+                    QObject::tr("正在执行文件事务…"));
+            }
+            if (inPlace) {
+                owner->m_instanceTransferController->upgradeInPlace(
+                    state->source, state->core, completed, keep, true, state->parent, parentSteps,
+                    settled, replacements);
+            } else {
+                owner->m_instanceTransferController->upgradeToCopy(
+                    state->source, name, state->core, completed, keep, true, state->parent,
+                    parentSteps, settled, replacements);
+            }
+        };
+        // 没有勾选任何适配替换：直接进文件事务。
+        if (replaceFiles.isEmpty()) {
+            if (state->parent != 0) {
+                owner->m_activityCenter->tasks()->setStepState(
+                    state->parent, 1, Tasks::TaskStepState::Done,
+                    QObject::tr("本次没有勾选替换，按保留/禁用处理。"));
+            }
+            status->setText(inPlace ? QObject::tr("正在执行完整快照更新，请等待事务结果…")
+                                    : QObject::tr("正在复制更新副本并校验，请等待事务结果…"));
+            runUpgrade({}, keep);
             return;
         }
-        // 副本模式：源实例保持不动，复制一次候选并完整校验后发布（2.1.1 的空间优化）。
-        // 不再先整棵复制、再为副本另做一份 ZIP 快照。
-        const QString name = copyName->text().trimmed();
-        owner->m_instanceTransferController->upgradeToCopy(
-            state->source, name, state->core, completed, keep, true, state->parent, parentSteps,
-            settled);
+
+        // ---------- 2.1.3 下载并校验平台适配模组 ----------
+        // 这一段的产物只落在 `cache/operation-staging/<uuid>`：替换失败/前置失败时
+        // 整趟回滚，源实例、原目录和候选目录都还没有被改过。
+        const QString reportId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        const QString stageDir = OperationReport::stagingDirectory(AppPaths::minecraftDir(), reportId);
+        state->modStageDir = stageDir;
+        QList<Presets::ModReference> references;
+        QHash<QString, QVariantMap> selectedByProject;
+        for (const QString &file : replaceFiles) {
+            const QVariantMap info = replaceInfo.value(file).toMap();
+            const QString projectKey = info.value(QStringLiteral("projectKey")).toString();
+            if (projectKey.isEmpty() || info.value(QStringLiteral("platform")).toString().isEmpty()
+                || info.value(QStringLiteral("projectId")).toString().isEmpty()) {
+                completed(false, QObject::tr("「%1」的适配信息不完整，未开始替换。").arg(file));
+                return;
+            }
+            Presets::ModReference reference;
+            reference.platform = info.value(QStringLiteral("platform")).toString();
+            reference.projectId = info.value(QStringLiteral("projectId")).toString();
+            reference.name = info.value(QStringLiteral("title")).toString();
+            reference.required = true;
+            references.append(reference);
+            selectedByProject.insert(projectKey, info);
+        }
+        if (state->parent != 0) {
+            state->downloading = true;
+            owner->m_activityCenter->tasks()->setStepState(
+                state->parent, 1, Tasks::TaskStepState::Running);
+            Tasks::TaskCapabilities caps;
+            caps.canCancel = true;
+            caps.canOpenLog = true;
+            caps.canOpenTarget = true;
+            owner->m_activityCenter->tasks()->setCapabilities(state->parent, caps);
+            owner->m_activityCenter->tasks()->setDetail(
+                state->parent, QObject::tr("正在下载并校验平台适配模组…"));
+        }
+        status->setText(QObject::tr("正在下载并校验 %1 个平台适配模组（必要前置会自动补齐）…")
+                            .arg(replaceFiles.size()));
+        auto *installer = new Presets::PresetModInstaller(owner, owner->m_resourceStore);
+        state->modInstaller = installer;
+        if (state->parent != 0) {
+            owner->setUpdateFlowCancel(state->parent, [installer] {
+                installer->cancel();
+                return true;
+            }, [] { return true; });
+        }
+        QObject::connect(installer, &QObject::destroyed, owner, [state] {
+            if (state->modInstaller == nullptr) return;
+        });
+        installer->start(references, stageDir, state->game,
+                         state->loader.isEmpty() ? QStringLiteral("vanilla") : state->loader,
+                         owner->m_settings->curseForgeApiKey(),
+                         [owner, state] {
+                             return state->prepCancelled
+                                    || (owner->m_launcherManager != nullptr
+                                        && owner->m_launcherManager->isVersionRunning(state->source));
+                         },
+                         [owner, state, dialog, stageDir, reportId, references, selectedByProject,
+                          keep, runUpgrade, completed, status, refreshEnabled, inPlace](Presets::PresetModInstaller::Result result) {
+                             state->downloading = false;
+                             state->modInstaller = nullptr;
+                             if (state->parent != 0) owner->clearUpdateFlowCancel(state->parent);
+                             // 失败（含取消、必要前置失败、下载/校验失败）：写统一报告 +
+                             // 原因报告，整趟回滚（此时盘上还没有任何实例改动）。
+                             const auto failReplacement = [&](const QString &why,
+                                                              const QStringList &details,
+                                                              bool cancelled = false) {
+                                 if (!state->modStageDir.isEmpty()) {
+                                     removeTreeWithoutFollowingLinks(state->modStageDir);
+                                     state->modStageDir.clear();
+                                 }
+                                 OperationReport::Report report;
+                                 report.id = reportId;
+                                 report.kind = OperationReport::Kind::ModReplacement;
+                                 report.title = QObject::tr("模组适配替换：%1")
+                                                    .arg(owner->instanceDisplayName(state->source));
+                                 report.instanceId = state->source;
+                                 report.targetRoot = stageDir;
+                                 report.sourceRoot = AppPaths::versionDir(state->source);
+                                 report.stagingDir.clear();
+                                 report.conflictPolicy = OperationReport::ConflictPolicy::SkipExisting;
+                                 report.totalFiles = qMax(1, references.size());
+                                 report.failedFiles = qMax(1, details.size());
+                                 report.complete = false;
+                                 report.failureReason = why;
+                                 report.startedAt = QDateTime::currentDateTime();
+                                 report.updatedAt = report.startedAt;
+                                 report.context = QJsonObject{
+                                     {QStringLiteral("dataRoot"), AppPaths::minecraftDir()},
+                                     {QStringLiteral("instanceId"), state->source}};
+                                 int index = 0;
+                                 for (const QString &line : details.isEmpty() ? QStringList{why} : details) {
+                                     report.entries.append(OperationReport::Entry{
+                                         QObject::tr("适配替换 %1").arg(++index), 0,
+                                         OperationReport::EntryState::Failed, line});
+                                 }
+                                 const QString path = OperationReport::reportPath(
+                                     AppPaths::minecraftDir(), report.id);
+                                 QString saveProblem;
+                                 QString failurePath;
+                                 if (OperationReport::saveReport(path, report, &saveProblem)) {
+                                     failurePath = OperationReport::writeFailureText(path, report);
+                                 }
+                                 const QString text = why
+                                     + (failurePath.isEmpty()
+                                            ? QString()
+                                            : QObject::tr("\n\n原因报告：\n%1").arg(
+                                                  QDir::toNativeSeparators(failurePath)));
+                                 state->executing = false;
+                                 state->finished = true;
+                                 state->requiresReload = false;
+                                 state->problem = text;
+                                 if (state->parent != 0) {
+                                     if (cancelled) {
+                                         owner->m_activityCenter->tasks()->cancel(state->parent);
+                                     } else {
+                                         owner->m_activityCenter->tasks()->setStepState(
+                                             state->parent, 1, Tasks::TaskStepState::Failed, why);
+                                         owner->m_activityCenter->finish(
+                                             state->parent, false, text, false);
+                                     }
+                                     state->parent = 0;
+                                 }
+                                 if (status) status->setText(text);
+                                 owner->appendLog(text);
+                                 if (cancelled) {
+                                     InlineMessage::information(owner->m_ui->overlay(),
+                                                                QObject::tr("已取消模组适配替换"),
+                                                                text);
+                                 } else {
+                                     InlineMessage::critical(owner->m_ui->overlay(),
+                                                             QObject::tr("模组适配替换失败"), text);
+                                 }
+                                 refreshEnabled();
+                             };
+                             if (result.cancelled) {
+                                 failReplacement(QObject::tr("已取消下载适配模组；整趟更新未执行，"
+                                                             "源实例没有任何改动。"),
+                                                 {}, true);
+                                 return;
+                             }
+                             if (!result.ok) {
+                                 QStringList details = result.lines;
+                                 if (details.isEmpty()) {
+                                     details.append(QObject::tr("必要前置或适配文件缺失/校验失败。"));
+                                 }
+                                 failReplacement(QObject::tr("模组适配下载或必要前置失败；"
+                                                             "整趟更新已回滚，源实例没有任何改动。"),
+                                                 details);
+                                 return;
+                             }
+                             // 读回安装器留下的审计表：里面是**真正下好并校验过**的文件。
+                             QFile audit(QDir(stageDir).filePath(
+                                 QStringLiteral("wtfml.preset-mod-install.json")));
+                             if (!audit.open(QIODevice::ReadOnly) || audit.size() > 8 * 1024 * 1024) {
+                                 failReplacement(QObject::tr("读不到适配模组的下载清单，整趟更新未执行。"),
+                                                 {});
+                                 return;
+                             }
+                             const auto auditObject = QJsonDocument::fromJson(audit.readAll()).object();
+                             audit.close();
+                             QList<InstanceUpgrade::ModReplacement> replacements;
+                             QStringList actualChanges;
+                             QSet<QString> seenProjects;
+                             for (const QJsonValue &value : auditObject.value(
+                                      QStringLiteral("plannedFiles")).toArray()) {
+                                 const QJsonObject entry = value.toObject();
+                                 const QString project = entry.value(QStringLiteral("project")).toString();
+                                 const QString versionId = entry.value(QStringLiteral("versionId")).toString();
+                                 const QString filename = entry.value(QStringLiteral("filename")).toString();
+                                 const QString sha1 = entry.value(QStringLiteral("sha1")).toString();
+                                 if (!filename.endsWith(QStringLiteral(".jar"), Qt::CaseInsensitive)
+                                     || sha1.size() != 40) {
+                                     continue;
+                                 }
+                                 const QString staged = QDir(stageDir).filePath(
+                                     QStringLiteral("mods/") + filename);
+                                 if (!QFileInfo(staged).isFile()) continue;
+                                 InstanceUpgrade::ModReplacement one;
+                                 one.stagedPath = staged;
+                                 one.fileName = filename;
+                                 one.sha1 = sha1;
+                                 one.size = QFileInfo(staged).size();
+                                 one.projectKey = project;
+                                 one.versionId = versionId;
+                                 const auto selected = selectedByProject.constFind(project);
+                                 if (selected != selectedByProject.cend()) {
+                                     const QVariantMap info = selected.value();
+                                     if (versionId != info.value(QStringLiteral("versionId")).toString()) {
+                                         failReplacement(
+                                             QObject::tr("平台发行版在确认后发生变化（预览 %1，实际 %2）；"
+                                                         "整趟更新已回滚，请重新检查后再试。")
+                                                 .arg(info.value(QStringLiteral("versionId")).toString(),
+                                                      versionId),
+                                             {QObject::tr("项目 %1：预览与下载结果不一致").arg(project)});
+                                         return;
+                                     }
+                                     seenProjects.insert(project);
+                                     one.replaces = info.value(QStringLiteral("oldFile")).toString();
+                                     one.title = info.value(QStringLiteral("title")).toString();
+                                     one.fromVersion = info.value(QStringLiteral("fromVersion")).toString();
+                                     one.toVersion = info.value(QStringLiteral("versionNumber")).toString();
+                                     one.fromDependency = false;
+                                     actualChanges.append(
+                                         one.replaces.isEmpty()
+                                             ? QObject::tr("新增：%1（%2 %3）")
+                                                   .arg(filename, one.title, one.toVersion)
+                                             : QObject::tr("替换：%1 → %2（%3 %4 → %5）")
+                                                   .arg(one.replaces, filename, one.title,
+                                                        one.fromVersion, one.toVersion));
+                                 } else {
+                                     one.replaces.clear();
+                                     one.title = project;
+                                     one.fromDependency = true;
+                                     actualChanges.append(
+                                         QObject::tr("新增必要前置：%1（%2）").arg(filename, project));
+                                 }
+                                 replacements.append(one);
+                             }
+                             for (auto it = selectedByProject.cbegin(); it != selectedByProject.cend(); ++it) {
+                                 if (!seenProjects.contains(it.key())) {
+                                     failReplacement(
+                                         QObject::tr("没有从平台拿到「%1」的适配文件；整趟更新已回滚。")
+                                             .arg(it.value().value(QStringLiteral("title")).toString()),
+                                         {QObject::tr("项目 %1 没有可下载的适配文件").arg(it.key())});
+                                     return;
+                                 }
+                             }
+                             if (replacements.isEmpty()) {
+                                 failReplacement(QObject::tr("适配下载完成但没有可用的文件；整趟更新未执行。"),
+                                                 {});
+                                 return;
+                             }
+                             // ---------- 替换前再列一次实际文件清单 ----------
+                             QStringList preview = actualChanges;
+                             while (preview.size() > 80) preview.removeLast();
+                             const QString extraFiles =
+                                 actualChanges.size() > preview.size()
+                                     ? QObject::tr("\n…（还有 %1 个文件）")
+                                           .arg(int(actualChanges.size() - preview.size()))
+                                     : QString();
+                             const QString question = QObject::tr(
+                                 "将要替换/新增以下 %1 个模组文件；嵌套 JAR 随父 JAR 一起替换。\n\n%2%3\n\n"
+                                 "替换失败或必要前置失败时整趟回滚，并写出原因报告。")
+                                 .arg(int(replacements.size()))
+                                 .arg(preview.join(QLatin1Char('\n')))
+                                 .arg(extraFiles);
+                             if (!InlineMessage::question(owner->m_ui->overlay(),
+                                                          QObject::tr("确认替换模组"),
+                                                          question,
+                                                          QObject::tr("执行替换"),
+                                                          QObject::tr("取消并回滚"), false)) {
+                                 failReplacement(QObject::tr("用户取消了替换；整趟更新未执行，"
+                                                             "源实例没有任何改动。"),
+                                                 {}, true);
+                                 return;
+                             }
+                             state->replacementReportId = reportId;
+                             state->replacementPreview = actualChanges;
+                             if (state->parent != 0) {
+                                 owner->m_activityCenter->tasks()->setStepState(
+                                     state->parent, 1, Tasks::TaskStepState::Done,
+                                     QObject::tr("已下载并校验 %1 个文件。").arg(replacements.size()));
+                                 owner->m_activityCenter->tasks()->setStepState(
+                                     state->parent, 2, Tasks::TaskStepState::Running);
+                             }
+                             status->setText(inPlace
+                                 ? QObject::tr("正在执行完整快照更新，请等待事务结果…")
+                                 : QObject::tr("正在复制更新副本并校验，请等待事务结果…"));
+                             runUpgrade(replacements, keep);
+                         });
     };
     QObject::connect(start, &QPushButton::clicked, dialog,
         [owner, dialog, state, mode, copyName, status, selectors, start, refreshEnabled, execute,
@@ -493,7 +863,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
             if (!state->loader.isEmpty() && !owner->pickInstallerJava(state->game,
                 VersionManager::loaderIndexForKind(loaderKind(state->loader)), &installerJava)) return;
             if (!InlineMessage::question(owner->m_ui->overlay(), QObject::tr("确认实例更新"),
-                    QObject::tr("更新到 Minecraft %1 · %2 %3。\n\n模组按列表逐项保留或禁用，不会自动下载适配模组。无法确认兼容性的模组必须先选择处理方式。\n存档跨版本后可能无法降级；请勿同时运行实例。\n\n下一步自动准备核心，之后执行副本或完整快照更新。")
+                    QObject::tr("更新到 Minecraft %1 · %2 %3。\n\n平台有目标发行版的模组可按列表替换为适配版（必要前置自动补齐）；其余按保留或禁用处理，无法确认兼容性的模组必须先选择处理方式。\n替换失败或必要前置失败会整趟回滚，并写出原因报告。\n存档跨版本后可能无法降级；请勿同时运行实例。\n\n下一步自动准备核心，之后执行副本或完整快照更新。")
                         .arg(state->game, state->loader.isEmpty() ? QObject::tr("纯原版") : state->loader, state->loaderVersion),
                     QObject::tr("准备并继续"), QObject::tr("取消"), false)) return;
             // Confirmation runs a nested event loop: recheck ownership before any write.
@@ -516,6 +886,9 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
                 }
                 state->prepCancelled = true;
                 return true;
+            }, [owner] {
+                return owner->m_versionManager != nullptr
+                       && owner->m_versionManager->canCancelDownload();
             });
             state->preparing = true; selectors->setEnabled(false); start->setEnabled(false);
             status->setText(QObject::tr("正在准备目标核心与加载器，完成后自动继续…"));
