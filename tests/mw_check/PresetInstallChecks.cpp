@@ -141,6 +141,18 @@ int runPresetInstallChecks() {
               "catalog completion restores preset actions");
         gate->done = false;
         (void)gate->entered.tryAcquire(gate->entered.available());
+        controller.refreshList();
+        page->showStatus(QStringLiteral("保存了。"));
+        uiEvent = false;
+        QTimer::singleShot(0, &host, [&] { uiEvent = true; });
+        check(pump([&] { return uiEvent && gate->entered.available() > 0; }) &&
+                  page->isBusy() && !gate->done,
+              "mutation catalog refresh keeps GUI responsive while reading storage");
+        gate->release.release();
+        check(pump([&] { return !page->isBusy(); }) && status->text() == QStringLiteral("保存了。"),
+              "mutation refresh restores actions without erasing operation feedback");
+        gate->done = false;
+        (void)gate->entered.tryAcquire(gate->entered.available());
         controller.open();
         check(pump([&] { return gate->entered.available() > 0; }), "page destruction fixture is running");
         delete page;

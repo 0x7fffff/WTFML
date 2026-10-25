@@ -480,10 +480,18 @@ void PresetController::refreshList(const QString &selectId) {
 }
 
 void PresetController::pushListAndSelect(const QString &selectId) {
-    const bool wasLoading = m_catalogLoader->isLoading();
     m_catalogLoader->invalidate();
-    if (wasLoading) m_page->setBusy(false);
-    pushCatalog(Presets::readCatalog(presetsRoot()), selectId);
+    m_page->setBusy(true);
+    m_catalogLoader->load(presetsRoot(), [this, selectId](const Presets::CatalogSnapshot &snapshot) {
+        if (!m_page) return;
+        if (snapshot.root != presetsRoot()) {
+            pushListAndSelect(selectId);
+            return;
+        }
+        m_page->setBusy(false);
+        // A mutation may already have shown a success/warning message. Keep it.
+        pushCatalog(snapshot, selectId);
+    });
 }
 
 void PresetController::pushCatalog(const Presets::CatalogSnapshot &snapshot, const QString &selectId) {

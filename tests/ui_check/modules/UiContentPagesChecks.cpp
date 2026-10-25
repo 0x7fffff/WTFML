@@ -391,22 +391,18 @@ int UiContentPagesChecks(QFrame * &bar) {
                   "★ U10P 开了批量的这一页上**那个下拉框和那个「显示」标签收着**（文字还是走"
                   "唯一出处 stateLabelText() —— 没开批量的那几页照样看得到它）");
 
-            // ---- U10P-1 位置：搜索在**那排按钮之上**、状态在**按钮之下**、列表在更下面 ----
-            // 拿 y 坐标量而不是"控件是谁的孩子"：那两排各自裹了一个 QWidget，父子关系只说得出
-            // "它们属于这一页"，说得出上下的只有几何（而且是用户点名要的那两处）。
+            // Compact mod header: search/maintenance share a row, filters below,
+            // list below filters. The old dedicated directory toolbar is retired.
             const int searchY = search != nullptr ? search->mapTo(page, QPoint(0, 0)).y() : -1;
-            const int buttonsY =
-                page->refreshButton() != nullptr
-                    ? page->refreshButton()->mapTo(page, QPoint(0, 0)).y()
-                    : -1;
+            auto *headerMore = page->findChild<QPushButton *>(QStringLiteral("modHeaderMore"));
             const int stateY = state != nullptr ? state->mapTo(page, QPoint(0, 0)).y() : -1;
             const int listY = page->list()->mapTo(page, QPoint(0, 0)).y();
-            check(searchY >= 0 && searchY < buttonsY && buttonsY < stateY && stateY < listY,
-                  "★★ U10P 摆的正是用户点名的那两处：搜索在**那排按钮上方**、状态在**按钮下方**、"
-                  "列表在它下面",
-                  QStringLiteral("搜索 y=%1 / 按钮 y=%2 / 状态 y=%3 / 列表 y=%4")
+            check(searchY >= 0 && searchY < stateY && stateY < listY && headerMore &&
+                      headerMore->isVisibleTo(page) && headerMore->parentWidget() == search->parentWidget() &&
+                      !page->refreshButton()->isVisibleTo(page),
+                  "★★ U10P 搜索和维护菜单同排，筛选在下方，列表不被顶部工具覆盖",
+                  QStringLiteral("搜索 y=%1 / 状态 y=%2 / 列表 y=%3")
                       .arg(searchY)
-                      .arg(buttonsY)
                       .arg(stateY)
                       .arg(listY));
 
@@ -510,9 +506,8 @@ int UiContentPagesChecks(QFrame * &bar) {
                   "本来就空那句（「这个文件夹还是空的。」）**不是同一句**",
                   page->noticeLabel()->text());
             check(search->isVisibleTo(page) && state->isVisibleTo(page) &&
-                      page->refreshButton()->isVisibleTo(page),
-                  "★★ U10P 而且那两排**还露着**（连那排按钮也在）—— 用户正要靠它们把条件改"
-                  "回来。这时候把筛选收起来是最糟的一刻");
+                      headerMore && headerMore->isVisibleTo(page),
+                  "★★ U10P 筛选为空时搜索、状态和维护菜单仍可访问，能清除条件和刷新");
             // 清搜索词（状态栏这会儿还停在上面选的「启用」上 ⇒ 回来的是那两条，不是三条 ——
             // 这正是"两样同时生效"的另一面）。
             search->clear();
