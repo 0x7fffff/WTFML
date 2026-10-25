@@ -107,6 +107,45 @@ int MwDownloadRetryCheck() {
                    InstallerFailure::certificateFailure(QStringLiteral("Failed to validate certificates for https://launchermeta.mojang.com/")) &&
                    !InstallerFailure::certificateFailure(QStringLiteral("HTTP 404: not found")),
                "installer certificate diagnosis recognizes Java trust errors without misclassifying HTTP errors");
+        {
+            const QByteArray payload(32, 'x');
+            int requests = 0, results = 0, successes = 0;
+            QTemporaryDir root;
+            QTcpServer server;
+            expect(root.isValid() && server.listen(QHostAddress::LocalHost, 0), "speed debt fixture starts");
+            QObject::connect(&server, &QTcpServer::newConnection, &server, [&] {
+                while (auto *socket = server.nextPendingConnection()) {
+                    QObject::connect(socket, &QTcpSocket::readyRead, &server, [&, socket] {
+                        const auto bytes = socket->property("request").toByteArray() + socket->readAll();
+                        socket->setProperty("request", bytes);
+                        if (!bytes.contains("\r\n\r\n") || socket->property("sent").toBool()) return;
+                        socket->setProperty("sent", true);
+                        ++requests;
+                        socket->write("HTTP/1.1 200 OK\r\nContent-Length: 32\r\nConnection: close\r\n\r\n" + payload);
+                        socket->disconnectFromHost();
+                    });
+                }
+            });
+            DownloadManager manager;
+            manager.setSpeedLimitBytesPerSecond(64);
+            const QString url = QStringLiteral("http://127.0.0.1:%1/file").arg(server.serverPort());
+            QObject::connect(&manager, &DownloadManager::downloadFinished, &manager,
+                             [&](const QString &, bool ok, const QString &) {
+                ++results;
+                successes += ok ? 1 : 0;
+                if (results == 1 && ok) {
+                    manager.downloadFile(url, root.filePath(QStringLiteral("second.dat")), {}, payload.size());
+                    QTimer::singleShot(0, &manager, [&] { manager.setSpeedLimitBytesPerSecond(0); });
+                }
+            });
+            manager.downloadFile(url, root.filePath(QStringLiteral("first.dat")), {}, payload.size());
+            QElapsedTimer deadline;
+            deadline.start();
+            while (results < 2 && deadline.elapsed() < 2500) QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            expect(results == 2 && successes == 2 && requests == 2,
+                   "disabling speed limit wakes a queue paused on final-buffer token debt");
+            manager.cancelBatch();
+        }
         return failures == 0 ? 0 : 1;
     
     return 0;

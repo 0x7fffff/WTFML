@@ -192,8 +192,23 @@
   `grid`、`row` 从 0 数起**（注释里就写着这条），现在每摊自己 `addForm()` 一份；
   只有五样"这一次打开对话框的现场"要传进去（目录名、全局值、追加 JVM 参数、提醒开关、窗口档位），
   不存成成员。
-  接下来仍要按同样口径动 `VersionManager`（6,086 行、146 个成员函数，但单函数最长 238 行
-  ⇒ 是聚合大、不是局部烂，要按职责找缝合线而不是按行数切）。
+  ⑦ `manage/VersionManager`：146 个成员函数、单函数最长 238 行 ⇒ 是聚合大、不是局部烂，
+  于是按"一份状态机一摊"把 6,137 行拆成四份 .cpp + 一份内部头：
+  核心（`VersionManager.cpp` 2,197 行：版本清单 / 版本 json / 下载编排 / 批次收尾 / 实例元数据）、
+  加载器安装（`VersionManagerLoaderInstall.cpp` 2,101）、整合包导入（`VersionManagerModpack.cpp` 742）、
+  实例识别与导出（`VersionManagerExport.cpp` 1,046）。**类没动**（同一个类，定义分散在四个
+  翻译单元），所以断言一条都不用改：38/38 全绿、`verify` 5954/5954。
+  原来住在本文件顶上匿名命名空间里的 17 个助手（`copyTreeInto()` / `installerOutputTail()` /
+  `readVersionJsonAt()` 等）搬进 `VersionManagerInternals.hpp`：匿名命名空间是**内部链接**，
+  拆完另外三份根本看不见它们；各抄一份的话"只改一处"就是静默不一致（`copyTreeInto()` 自己
+  那段注释写的正是这件事）。两个写法上的坑：头文件里的函数必须 `inline`，那两个
+  `const QString` 也得写 `inline` —— 不写不在编译期报错，是链接期一串 duplicate symbol。
+  缝合线挑的是**状态机的归属**（`LoaderInstall` 只在安装那一份里走动，`ModpackInstall` /
+  `NamedInstance` 只在导入那一份里），不是行数；唯一横跨几摊的是批次收尾那个岔口
+  `onAllDownloadsFinished()`，它留在核心这一份里，谁要接下去都在那一处一眼看全。
+  这三份 .cpp 要同时进三张源文件表（主目标、`tests/CMakeLists.txt` 的 `wtfml_core_runtime`、
+  `tests/mw_check/CMakeLists.txt`）—— 漏一张不在编译期报错，是链接期一串
+  `VersionManager::…` 的 undefined reference。
 - [ ] **优化｜大列表/预设渲染**：审核 model/view、按需创建、局部更新，避免一次堆积复杂 Widget，依实测选方案。
   任务行局部复用、预设模型筛选及首次目录后台读取已落地；仍需更大预设体量/复杂内容、
   增删改后的同步重扫、单份大清单读取/兼容预览、初次创建/滚动及真实多任务负载，不当作完整虚拟列表已完成。

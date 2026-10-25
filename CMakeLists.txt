@@ -91,6 +91,7 @@ set(HEADER_FILES
     src/manage/ServerListFile.hpp
     src/manage/ServerStatusCache.hpp
     src/manage/VersionManager.hpp
+    src/manage/VersionManagerInternals.hpp
     src/manage/VersionDisplay.hpp
     src/manage/VersionIntegrity.hpp
     src/manage/UpdatePolicy.hpp
@@ -320,6 +321,10 @@ set(SOURCE_FILES
     # 离线账号自己挑的那张皮肤。
     src/manage/OfflineSkin.cpp
     src/manage/VersionManager.cpp
+    # 这四份是同一个类的实现，按职责分文件（理由见各自文件头与 VersionManagerInternals.hpp）。
+    src/manage/VersionManagerLoaderInstall.cpp
+    src/manage/VersionManagerModpack.cpp
+    src/manage/VersionManagerExport.cpp
     src/manage/VersionDisplay.cpp
     src/manage/VersionIntegrity.cpp
     src/manage/UpdatePolicy.cpp

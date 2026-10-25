@@ -211,6 +211,11 @@ set(SOURCE_FILES
     # 少了这一个文件会在链接那一步报一串 `OfflineSkin::…` 的 undefined reference。
     ${REPO_ROOT}/src/manage/OfflineSkin.cpp
     ${REPO_ROOT}/src/manage/VersionManager.cpp
+    # 同一个类按职责分开的那三份（核心那一份就在上面；理由见各文件头）。
+    # 少一份不会在编译期报错，只在链接期报一串 `VersionManager::…` 的 undefined reference。
+    ${REPO_ROOT}/src/manage/VersionManagerLoaderInstall.cpp
+    ${REPO_ROOT}/src/manage/VersionManagerModpack.cpp
+    ${REPO_ROOT}/src/manage/VersionManagerExport.cpp
     ${REPO_ROOT}/src/manage/VersionDisplay.cpp
     # 体检那一层：VersionManager::checkInstanceIntegrity() 直接调它，少了这一个文件会在
     # 链接那一步报一串 `VersionIntegrity::…` 的 undefined reference。

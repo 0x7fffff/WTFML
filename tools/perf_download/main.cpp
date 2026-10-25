@@ -39,6 +39,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <limits>
 
 namespace {
 
@@ -124,8 +125,8 @@ qint64 parseBytes(const QString &text, bool *ok) {
     }
     bool parsed = false;
     const qint64 number = value.trimmed().toLongLong(&parsed);
-    *ok = parsed && number > 0;
-    return parsed ? number * multiplier : 0;
+    *ok = parsed && number > 0 && number <= std::numeric_limits<qint64>::max() / multiplier;
+    return *ok ? number * multiplier : 0;
 }
 
 QByteArray makePayload(qint64 size) {
@@ -341,34 +342,44 @@ int main(int argc, char **argv) {
 
     Config config;
     bool ok = true;
+    const auto parseInt = [&](const QCommandLineOption &option, int &target) {
+        bool parsed = false;
+        target = parser.value(option).toInt(&parsed);
+        ok = ok && parsed;
+    };
     if (parser.isSet(filesOption)) {
-        config.files = parser.value(filesOption).toInt(&ok);
+        parseInt(filesOption, config.files);
     }
     if (parser.isSet(sizeOption)) {
-        config.fileSize = parseBytes(parser.value(sizeOption), &ok);
+        bool parsed = false;
+        config.fileSize = parseBytes(parser.value(sizeOption), &parsed);
+        ok = ok && parsed;
     }
     if (parser.isSet(concurrencyOption)) {
-        config.concurrency = parser.value(concurrencyOption).toInt(&ok);
+        parseInt(concurrencyOption, config.concurrency);
     }
     if (parser.isSet(speedOption)) {
         const QString text = parser.value(speedOption).trimmed();
-        config.speedLimit = text == QStringLiteral("0") ? 0 : parseBytes(text, &ok);
+        bool parsed = true;
+        config.speedLimit = text == QStringLiteral("0") ? 0 : parseBytes(text, &parsed);
+        ok = ok && parsed;
     }
     if (parser.isSet(roundsOption)) {
-        config.rounds = parser.value(roundsOption).toInt(&ok);
+        parseInt(roundsOption, config.rounds);
     }
     if (parser.isSet(warmupOption)) {
-        config.warmup = parser.value(warmupOption).toInt(&ok);
+        parseInt(warmupOption, config.warmup);
     }
     if (parser.isSet(timeoutOption)) {
-        config.timeoutMs = parser.value(timeoutOption).toInt(&ok);
+        parseInt(timeoutOption, config.timeoutMs);
     }
     config.segmented = parser.isSet(segmentedOption);
     config.label = parser.value(labelOption);
     config.jsonPath = parser.value(jsonOption);
     config.workDir = parser.value(workOption);
     config.keepWorkDir = parser.isSet(keepOption);
-    if (!ok || config.files < 1 || config.fileSize < 1 || config.rounds < 1
+    if (!ok || config.files < 1 || config.fileSize < 1 || config.fileSize > 512LL * 1024 * 1024 || config.rounds < 1
+        || config.warmup < 0 || config.warmup > 10 || config.timeoutMs < 1 || config.timeoutMs > 900000
         || config.concurrency < DownloadConcurrency::kMin
         || config.concurrency > DownloadConcurrency::kMax) {
         std::fprintf(stderr, "parameter error; see --help\n");

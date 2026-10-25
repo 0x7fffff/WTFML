@@ -601,6 +601,9 @@ void DownloadManager::setSpeedLimitBytesPerSecond(qint64 bytesPerSecond) {
                                .arg(activeDownloads.size())
                                .arg(m_throttledReplies.size()));
     }
+    // Turning the limit off also stops its timer. Jobs waiting on token debt
+    // must be woken here even when no reply is still active to wake the queue.
+    pumpDownloadQueue();
 }
 
 qint64 DownloadManager::throttledReadBufferBytes() const {

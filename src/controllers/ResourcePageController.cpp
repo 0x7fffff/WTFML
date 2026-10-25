@@ -501,4 +501,3 @@ void ResourcePageController::onDownloadFinished(const QString &label, bool succe
     InlineMessage::information(m_owner.m_ui->overlay(), tr("下载完成"),
                              tr("%1 已经装进实例里了。\n\n%2").arg(label, errorMessage));
 }
-
