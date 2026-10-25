@@ -367,29 +367,34 @@ bool moveToRecycleBin(const QString &path, QString *error) {
 /// 但**单个文件**永远要么完整、要么不在（临时名 + 改名，见下面那个 publish），
 /// 不会出现"名字在、内容缺一截"的那种半截文件。
 bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to,
-                                   const std::function<bool()> &cancelled) {
+                                   const std::function<bool()> &cancelled, QString *problemOut) {
+    if (problemOut) problemOut->clear();
+    const auto failCopy = [&](const QString &reason) {
+        if (problemOut) *problemOut = QStringLiteral("%1 → %2：%3").arg(from, to, reason);
+        return false;
+    };
     if (cancelled && cancelled()) return false;
     const QFileInfo source(from);
     if (isLinkToElsewhere(source)) {
         // 链接照拷的话，会在新位置复制出**那一头**的一整棵 —— 用户挂到别的盘上的东西
         // 会被无声无息地抄一份进来（可能几百 GB）。所以这里直接判失败，不是"跳过"。
         qWarning() << "copyTreeWithoutFollowingLinks: refusing to follow a link:" << from;
-        return false;
+        return failCopy(QStringLiteral("源路径包含链接"));
     }
     if (source.isDir()) {
         if (QFileInfo::exists(to)) {
             qWarning() << "copyTreeWithoutFollowingLinks: target already exists:" << to;
-            return false;
+            return failCopy(QStringLiteral("目标目录已存在"));
         }
         if (!QDir().mkpath(to)) {
             qWarning() << "copyTreeWithoutFollowingLinks: cannot create directory" << to;
-            return false;
+            return failCopy(QStringLiteral("无法创建目标目录"));
         }
         const QFileInfoList entries = QDir(from).entryInfoList(
             QDir::Files | QDir::Dirs | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
         for (const QFileInfo &entry : entries) {
             if (!copyTreeWithoutFollowingLinks(entry.absoluteFilePath(),
-                                               to + QLatin1Char('/') + entry.fileName(), cancelled)) {
+                                               to + QLatin1Char('/') + entry.fileName(), cancelled, problemOut)) {
                 return false;
             }
         }
@@ -399,13 +404,13 @@ bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to,
         // 既不是目录也不是文件：设备文件、坏掉的链接、或者这一瞬间被别的东西拿走了。
         // 报失败而不是跳过 —— 拷出来的一份"少了点东西"是最难发现的那种坏。
         qWarning() << "copyTreeWithoutFollowingLinks: cannot copy a non-file entry:" << from;
-        return false;
+        return failCopy(QStringLiteral("源路径不是普通文件"));
     }
     if (QFileInfo::exists(to)) {
         // QFile::copy() 遇到已存在的目标**直接返回 false**（Qt 不肯覆盖），所以这一句
         // 其实只是把"为什么会失败"说清楚一点，真正挡住覆盖的是 copy() 自己。
         qWarning() << "copyTreeWithoutFollowingLinks: target already exists:" << to;
-        return false;
+        return failCopy(QStringLiteral("目标文件已存在"));
     }
     // 先写**同目录**的临时名，再改名发布（和 `operations/TransferApply.cpp` 里那份
     // 单文件拷贝同一规矩）：直接往 to 上写，进程被杀 / 盘满 / 杀软扫描中断时盘上会留下
@@ -415,10 +420,12 @@ bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to,
     // 临时名不拼完整目标文件名，避免合法长文件名加后缀后超过文件系统的单名长度上限。
     const QString staging = QFileInfo(to).absoluteDir().filePath(QStringLiteral(".wtfml-part-")
                             + QUuid::createUuid().toString(QUuid::WithoutBraces));
-    const auto publish = [&staging, &to]() {
-        if (!QFile::rename(staging, to)) {
+    const auto publish = [&]() {
+        QFile staged(staging);
+        if (!staged.rename(to)) {
+            const QString reason = staged.errorString();
             QFile::remove(staging);
-            return false;
+            return failCopy(QStringLiteral("无法发布完整临时文件：%1").arg(reason));
         }
         return true;
     };
@@ -427,7 +434,7 @@ bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to,
         if (!input.open(QIODevice::ReadOnly) ||
             !output.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
             QFile::remove(staging);
-            return false;
+            return failCopy(QStringLiteral("无法打开源或临时文件：%1；%2").arg(input.errorString(), output.errorString()));
         }
         while (!input.atEnd()) {
             if (cancelled()) {
@@ -437,24 +444,28 @@ bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to,
             }
             const auto bytes = input.read(1024 * 1024);
             if (bytes.isEmpty() || output.write(bytes) != bytes.size()) {
+                const QString reason = QStringLiteral("%1；%2").arg(input.errorString(), output.errorString());
                 output.close();
                 QFile::remove(staging);
-                return false;
+                return failCopy(QStringLiteral("分块读写失败：%1").arg(reason));
             }
         }
         if (input.error() != QFile::NoError || !output.flush() || cancelled()) {
+            const QString reason = QStringLiteral("%1；%2").arg(input.errorString(), output.errorString());
             output.close();
             QFile::remove(staging);
-            return false;
+            return failCopy(QStringLiteral("刷新临时文件失败或操作取消：%1").arg(reason));
         }
         output.setPermissions(input.permissions());
         output.close();
         return publish();
     }
-    if (!QFile::copy(from, staging)) {
+    QFile input(from);
+    if (!input.copy(staging)) {
+        const QString reason = input.errorString();
         qWarning() << "copyTreeWithoutFollowingLinks: cannot copy" << from << "to" << to;
         QFile::remove(staging);
-        return false;
+        return failCopy(QStringLiteral("文件复制失败：%1").arg(reason));
     }
     return publish();
 }

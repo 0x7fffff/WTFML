@@ -77,12 +77,14 @@ bool moveToRecycleBin(const QString &path, QString *error = nullptr);
 ///
 /// @return 整棵都拷过去了没有。任何一步失败就**立刻收手**返回 false，已经拷出来的那半棵
 /// **留在盘上**（由调用方决定删不删 —— 复制实例和导入世界都选择删掉它）。
+/// `problemOut` 可选：保留首个失败文件/阶段和系统原因；调用方应区分复制失败与后续内容校验失败。
 ///
 /// NOTE: 和 removeTreeWithoutFollowingLinks 一样，它声明在头文件里、实现留在 .cpp（那边
 /// 有更细的注释）。两个调用者（VersionManager::copyInstance、WorldFiles 那条路）
 /// 都只想要"把一棵目录树拷成新的一份"，和文件夹列表没关系。
 bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to,
-                                   const std::function<bool()> &cancelled = {});
+                                   const std::function<bool()> &cancelled = {},
+                                   QString *problemOut = nullptr);
 
 class FolderManager : public QObject {
     Q_OBJECT

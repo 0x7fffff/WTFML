@@ -24,6 +24,14 @@ void runCopyInstanceAndWorldTests() {
 
     AppPaths::setMinecraftDir(sourceRoot.path());
     {
+        QString problem;
+        const QString missing = scratch.filePath("missing-copy-source.bin");
+        const QString target = scratch.filePath("missing-copy-target.bin");
+        check(!copyTreeWithoutFollowingLinks(missing, target, {}, &problem) &&
+                  problem.contains(missing) && !QFileInfo::exists(target),
+              "复制失败保留具体文件首因，不发布空目标", problem);
+    }
+    {
         const QString source = scratch.filePath(QStringLiteral("short-source.bin"));
         const QString target = scratch.filePath(QString(220, QLatin1Char('x')) + QStringLiteral(".bin"));
         writeFileAt(source, QByteArrayLiteral("LONG-NAME"));

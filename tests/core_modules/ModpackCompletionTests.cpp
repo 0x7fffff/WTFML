@@ -115,6 +115,10 @@ void runModpackCompletionTests(const QString &sandbox) {
                       InstanceFiles::isUnfinishedImport("completion-test"),
                   "ZG9 提交中断现场：即使 meta/报告都存在，最后标记仍阻止启动", error);
             check(QFile::rename(archive, archive + ".away"), "ZG9 移开原包以验证无原包路径");
+            // 上一段故意留下 complete=true 的中断现场；不能把旧报告误当作本次发布。
+            // 先回到未完成，再由 stop 回调观察本次 finish 真正发布完成报告的边界。
+            check(ModpackInstallReport::write(target, pack, pack.fileIssues, false, &error),
+                  "ZG9 取消夹具先清除上一段的完成报告，避免校验阶段提前触发", error);
             // 在完成报告发布后才取消，不能仅依赖写报告之前的取消检查。
             bool cancelledAtPublication = false;
             const bool cancelledResult = finish([&] {

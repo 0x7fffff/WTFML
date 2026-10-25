@@ -128,6 +128,20 @@ int runAcceptanceProbeIfRequested(const QStringList &arguments) {
         return held ? 4 : (result.ok ? 0 : 3);
     }
 
+    if (flag("--large-upgrade-copy-audit") && arguments.size() >= 6) {
+        DirectorySessionLock::enabled = true;
+        InstanceUpgrade::Request request{arguments.at(2), arguments.at(3), arguments.at(5),
+                                         QStringLiteral("Acceptance")};
+        auto core = acceptanceCore(arguments.at(4));
+        // Deliberately reject the new client AFTER copying/verifying user files.
+        // This audits a failed fixture without publishing over its original instance.
+        core.mergedJson.insert("downloads", QJsonObject{{"client", QJsonObject{{"sha1", QString(40, '0')}}}});
+        const auto result = InstanceUpgrade::prepareAndCommit(request, core);
+        const bool copied = !result.ok && result.problem == QStringLiteral("目标客户端文件未通过校验，原实例未改变。");
+        std::printf("COPY_AUDIT copied=%d problem=%s\n", copied ? 1 : 0, qPrintable(result.problem));
+        return copied ? 0 : 3;
+    }
+
     if (flag("--large-upgrade-complete") && arguments.size() >= 6) {
         DirectorySessionLock::enabled = true;
         InstanceUpgrade::Request request{arguments.at(2), arguments.at(3), arguments.at(5),
@@ -163,6 +177,10 @@ int main(int argc, char **argv) {
  if (const int probe = runP0AcceptanceProbe(app.arguments()); probe >= 0) return probe;
  if (const int probe = runDirectoryLockProbeIfRequested(app.arguments()); probe >= 0) return probe;
  if (const int probe = runAcceptanceProbeIfRequested(app.arguments()); probe >= 0) return probe;
+ if (app.arguments().size() > 1) {
+     std::fprintf(stderr, "Unknown acceptance probe argument; refusing to run unrelated regression tests.\n");
+     return 2;
+ }
  int moduleStatus = 0;
  app.setOrganizationName("WTFML"); app.setApplicationName("WTFML");
  QTemporaryDir fixture; if (!fixture.isValid()) return 2;

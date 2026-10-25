@@ -109,6 +109,24 @@ def main():
         check((target / "level.dat").read_bytes() == b"CURRENT", "collision removed: original recoverable")
         run("--p0-restore", case)
 
+        case, target = prepare("restore-journal-lock")
+        run("--p0-restore-journal-lock", case)
+        result = json.loads((case / 'restore-result.json').read_text(encoding='utf-8'))
+        check(result['journalLocked'], 'commit journal was exclusively held during the actual publication update')
+        retained = Path(result['retainedPath'])
+        check(result['ok'] and retained.is_relative_to(case/'versions') and
+              (retained/'level.dat').read_bytes() == b'CURRENT' and
+              (target/'level.dat').read_bytes() == b'BACKUP',
+              'journal commit failure retains both published backup and original, with explicit retained path')
+        journals = list((case/'cache/restore-transactions').glob('*.json'))
+        check(len(journals) == 1 and json.loads(journals[0].read_text(encoding='utf-8'))['state'] != 'published',
+              'failed publication journal remains in pre-commit state, never falsely records a durable commit')
+        run('--p0-recover', case)
+        check((retained/'level.dat').read_bytes() == b'CURRENT' and
+              (target/'level.dat').read_bytes() == b'BACKUP',
+              'fresh recovery after journal failure never overwrites either complete directory')
+        run('--p0-restore', case)
+
         case, _ = prepare("completion-report")
         instance = case / "versions/CompletionTest"
         run("--p0-completion-hold", case, hold="completion-report")

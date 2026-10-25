@@ -81,13 +81,21 @@ bool writeJournal(const Request &r, const QString &state, const QString &snapsho
     return f.open(QIODevice::WriteOnly) && f.write(bytes) == bytes.size() && f.commit();
 }
 bool sameFiles(const QString &root, const QList<BackupFiles::FileRecord> &expected,
-               const std::function<bool()> &cancelled = {}) {
+               const std::function<bool()> &cancelled = {}, QString *reason = nullptr) {
     QString problem;
     const auto actual = BackupFiles::collectFiles(root, {}, &problem, cancelled);
-    if (!problem.isEmpty() || actual.size() != expected.size()) return false;
+    if (!problem.isEmpty() || actual.size() != expected.size()) {
+        if (reason) *reason = problem.isEmpty()
+            ? QStringLiteral("副本文件数 %1，预期 %2").arg(actual.size()).arg(expected.size()) : problem;
+        return false;
+    }
     for (qsizetype i = 0; i < actual.size(); ++i)
         if (actual[i].path != expected[i].path || actual[i].size != expected[i].size
-            || actual[i].sha1 != expected[i].sha1) return false;
+            || actual[i].sha1 != expected[i].sha1) {
+            if (reason) *reason = QStringLiteral("副本不一致：%1（预期 %2；大小 %3/%4）")
+                .arg(actual[i].path, expected[i].path).arg(actual[i].size).arg(expected[i].size);
+            return false;
+        }
     return true;
 }
 QByteArray fingerprint(const QList<BackupFiles::FileRecord> &files) {
@@ -211,22 +219,23 @@ static Result prepareAndCommitImpl(Request r, const Core &core, const std::funct
         result.problem = QStringLiteral("空间不足以准备副本和完整快照，原实例未改变。"); return result;
     }
     if (cancelled && cancelled()) { result.cancelled = true; result.problem = QStringLiteral("已取消准备。"); return result; }
-    if (!copyTreeWithoutFollowingLinks(original, candidate, cancelled)) {
+    QString copyProblem;
+    if (!copyTreeWithoutFollowingLinks(original, candidate, cancelled, &copyProblem)) {
         if (cancelled && cancelled()) {
             result.cancelled = true;
             result.problem = QStringLiteral("已取消准备。");
         } else {
-            result.problem = QStringLiteral("用户文件副本未通过完整校验，原实例未改变。");
+            result.problem = QStringLiteral("无法完整复制用户文件，原实例未改变。\n%1").arg(copyProblem);
         }
         return result;
     }
     if (cancelled && cancelled()) { result.cancelled = true; result.problem = QStringLiteral("已取消准备。"); return result; }
-    if (!sameFiles(candidate, files, cancelled)) {
+    if (!sameFiles(candidate, files, cancelled, &copyProblem)) {
         if (cancelled && cancelled()) {
             result.cancelled = true;
             result.problem = QStringLiteral("已取消准备。");
         } else {
-            result.problem = QStringLiteral("用户文件副本未通过完整校验，原实例未改变。");
+            result.problem = QStringLiteral("用户文件副本未通过完整校验，原实例未改变。\n%1").arg(copyProblem);
         }
         return result;
     }

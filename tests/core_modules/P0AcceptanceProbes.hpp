@@ -9,6 +9,9 @@
 #include <QSaveFile>
 #include <QJsonDocument>
 #include <QThread>
+#include <QStorageInfo>
+#include <qt_windows.h>
+#include <io.h>
 #include <cstdio>
 #include <cstdlib>
 
@@ -75,10 +78,22 @@ inline int runP0AcceptanceProbe(const QStringList &args) {
         return 0;
     }
     if (command == "--p0-restore" || command == "--p0-restore-hold" ||
-        command == "--p0-restore-collision") {
+        command == "--p0-restore-collision" || command == "--p0-restore-journal-lock") {
         const QString stage = args.value(3);
+        HANDLE journalHandle = INVALID_HANDLE_VALUE;
+        bool journalLocked = false;
         const auto result = BackupFiles::restoreBackup(root + "/restore.zip", root + "/versions", {},
             [&](BackupFiles::RestorePhase phase) {
+                if (command == "--p0-restore-journal-lock" && phase == BackupFiles::RestorePhase::Published) {
+                    const QDir journals(root + "/cache/restore-transactions");
+                    const auto files = journals.entryList({"*.json"}, QDir::Files);
+                    if (files.size() == 1) {
+                        const auto path = QDir::toNativeSeparators(journals.filePath(files.first())).toStdWString();
+                        journalHandle = CreateFileW(path.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING,
+                                                    FILE_ATTRIBUTE_NORMAL, nullptr);
+                        journalLocked = journalHandle != INVALID_HANDLE_VALUE;
+                    }
+                }
                 if (command == "--p0-restore-hold") {
                     if (stage == "retained" && phase == BackupFiles::RestorePhase::OriginalRetained) p0Hold("restore-retained");
                     if (stage == "published" && phase == BackupFiles::RestorePhase::Published) p0Hold("restore-published");
@@ -86,8 +101,10 @@ inline int runP0AcceptanceProbe(const QStringList &args) {
                 if (command == "--p0-restore-collision" && phase == BackupFiles::RestorePhase::OriginalRetained)
                     p0Put(target + "/external.txt", "EXTERNAL");
             });
-        const QJsonObject record{{"ok", result.ok}, {"recoveryFailed", result.recoveryFailed},
+        if (journalHandle != INVALID_HANDLE_VALUE) CloseHandle(journalHandle);
+        const QJsonObject record{{"ok", result.ok}, {"journalLocked", journalLocked}, {"recoveryFailed", result.recoveryFailed},
             {"problem", result.problem}, {"retainedPath", result.retainedPath}};
+        std::fprintf(stdout, "P0_RESULT %s\n", QJsonDocument(record).toJson(QJsonDocument::Compact).constData());
         p0Put(root + "/restore-result.json", QJsonDocument(record).toJson());
         return result.ok ? 0 : 4;
     }
@@ -126,12 +143,64 @@ inline int runP0AcceptanceProbe(const QStringList &args) {
         } else if (operation == "copy") {
             VersionManager manager;
             ok = manager.copyInstanceFrom(instance, "CompletionTest", root + "/copy-target", "Copied", &error);
-        } else if (operation == "snapshot") {
+        } else if (operation == "snapshot" || operation == "snapshot-midfull" || operation == "snapshot-zipfull") {
             BackupFiles::Manifest manifest;
             manifest.kind = BackupFiles::Kind::Instance; manifest.complete = true;
             manifest.root = "RestoreTest"; manifest.label = "RestoreTest";
             manifest.sourceInstanceId = "RestoreTest"; manifest.createdAt = QDateTime::currentDateTime();
-            const auto result = BackupFiles::writeBackup(manifest, target, root + "/snapshot-target/snapshot.zip");
+            bool filled = false;
+            const auto midWrite = [&] {
+                if ((operation != "snapshot-midfull" && operation != "snapshot-zipfull") || filled) return false;
+                const QDir output(root + "/snapshot-target");
+                for (const auto &folder : output.entryList({".wtfml-backup-*"},
+                         QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot)) {
+                    const bool zipPhase = operation == "snapshot-zipfull";
+                    const QFileInfo partial(output.filePath(folder + (zipPhase ? "/archive.pending" : "/data/config/payload.bin")));
+                    const qint64 already = partial.size();
+                    const qint64 sourceSize = QFileInfo(target + "/config/payload.bin").size();
+                    if (already <= 0 || already >= sourceSize) continue;
+                    // Manual CLI probe only: the parent has verified the isolated VHD.
+                    // Require its marker and capacity again before intentionally consuming space.
+                    QStorageInfo volume(root); volume.refresh();
+                    const QString markerPath = QDir(volume.rootPath()).filePath(".wtfml-p0-volume");
+                    QFile marker(markerPath);
+                    if (!marker.open(QIODevice::ReadOnly) ||
+                        marker.readAll().trimmed() != "WTFML-P0-ISOLATED-VHD-1" ||
+                        volume.bytesTotal() < 240LL*1024*1024 || volume.bytesTotal() > 256LL*1024*1024 ||
+                        volume.name() != "WTFML_P0_ONLY") {
+                        std::fprintf(stderr, "P0_MIDFULL_GUARD_FAILED\n");
+                        return true;
+                    }
+                    filled = true;
+                    QFile filler(root + "/mid-write-filler.bin");
+                    qint64 written = 0;
+                    if (!filler.open(QIODevice::WriteOnly | QIODevice::NewOnly)) return true;
+                    const QByteArray block(4096, 'X');
+                    const HANDLE handle = reinterpret_cast<HANDLE>(_get_osfhandle(filler.handle()));
+                    DWORD nativeError = ERROR_SUCCESS;
+                    while (written <= 256LL*1024*1024) {
+                        DWORD count = 0;
+                        if (!WriteFile(handle, block.constData(), DWORD(block.size()), &count, nullptr)) {
+                            nativeError = GetLastError();
+                            break;
+                        }
+                        if (count != DWORD(block.size())) break;
+                        written += count;
+                    }
+                    const bool flushed = FlushFileBuffers(handle);
+                    filler.close();
+                    volume.refresh();
+                    const QJsonObject event{{"alreadyWritten", already}, {"sourceSize", sourceSize},
+                        {"phase", zipPhase ? "zip" : "staging"},
+                        {"fillerBytes", written}, {"freeBytes", volume.bytesAvailable()},
+                        {"nativeError", int(nativeError)}, {"flushed", flushed}};
+                    std::fprintf(stdout, "P0_MIDFULL %s\n", QJsonDocument(event).toJson(QJsonDocument::Compact).constData());
+                    std::fflush(stdout);
+                    return false; // Not cancellation: resume the real write into the now-full volume.
+                }
+                return false;
+            };
+            const auto result = BackupFiles::writeBackup(manifest, target, root + "/snapshot-target/snapshot.zip", midWrite);
             ok = result.ok; error = result.problem;
         } else if (operation == "preset") {
             const auto result = Presets::applyFileGroup(root + "/preset-source", root + "/preset-target",
@@ -145,8 +214,10 @@ inline int runP0AcceptanceProbe(const QStringList &args) {
             ok = removeTreeWithoutFollowingLinks(root + "/delete-target");
             if (!ok) error = "Deletion denied or incomplete";
         } else return 2;
-        p0Put(root + "/write-result.json", QJsonDocument(QJsonObject{
-            {"operation", operation}, {"ok", ok}, {"problem", error}}).toJson());
+        const QJsonObject record{{"operation", operation}, {"ok", ok}, {"problem", error}};
+        // 满盘时盘内报告也可能无法保存；父进程从 stdout 收集到另一卷。
+        std::fprintf(stdout, "P0_RESULT %s\n", QJsonDocument(record).toJson(QJsonDocument::Compact).constData());
+        p0Put(root + "/write-result.json", QJsonDocument(record).toJson());
         return ok ? 0 : 4;
     }
     if (command == "--p0-completion" || command == "--p0-completion-hold") {
