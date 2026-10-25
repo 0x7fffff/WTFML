@@ -253,6 +253,9 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/settings/LauncherSettings.hpp
     ${REPO_ROOT}/src/util/AppPaths.hpp
     ${REPO_ROOT}/src/util/SystemMemory.cpp
+    # 「这块盘还在不在」：启动点、启动前检查、下载入口都要问一句。
+    ${REPO_ROOT}/src/util/StorageAvailability.cpp
+    ${REPO_ROOT}/src/util/StorageAvailability.hpp
     # ServerPing：服务器列表那个"连上去问一句"（状态协议）。ZH 节**真起一台假服务器**
     # 连一次 —— 纯函数那半只证明"我按我写的规则拆了包"，协议那头对不对得看那一趟。
     ${REPO_ROOT}/src/util/ServerPing.cpp

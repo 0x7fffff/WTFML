@@ -127,6 +127,7 @@ add_library(core_cases_launch OBJECT
  core_modules/GameExitDiagnosisTests.cpp
  core_modules/LaunchHistoryTests.cpp
  core_modules/StartupDiagnosisTests.cpp
+ core_modules/StorageAvailabilityTests.cpp
 )
 wtfml_core_compile(core_cases_launch)
 list(APPEND WTFML_CORE_CASE_OBJECTS $<TARGET_OBJECTS:core_cases_launch>)

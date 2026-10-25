@@ -51,6 +51,7 @@
   "GameExitDiagnosisTests.cpp": "launch",
   "LaunchHistoryTests.cpp": "launch",
   "StartupDiagnosisTests.cpp": "launch",
+  "StorageAvailabilityTests.cpp": "launch",
   "ServerPingTests.cpp": "servers",
   "ServerListEditTests.cpp": "servers",
   "ServerListControllerTests.cpp": "servers",

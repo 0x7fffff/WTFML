@@ -2360,6 +2360,9 @@ void runReplayInfoTests();
 
 void runStartupDiagnosisTests();
 
+// 「这块盘还在不在」那一句判据：正常卷不许误报，盘没了必须说得出话。
+void runStorageAvailabilityTests();
+
 void runTransferPlannerTests();
 
 // ---------------------------------------------------------------------------

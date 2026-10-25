@@ -25,6 +25,8 @@
 #include <QUuid>
 #include <QRegularExpression>
 
+#include "util/StorageAvailability.hpp"
+
 #include <algorithm>
 
 #if defined(Q_OS_WIN)
@@ -266,7 +268,26 @@ bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *erro
     const QFileInfo info(basePath);
     if (!info.exists() && !QDir().mkpath(basePath)) {
         if (errors) {
-            errors->append(tr("无法创建 Minecraft 目录：%1").arg(basePath));
+            // 盘被拔掉时 `mkpath()` 只会回一个 false。原话「无法创建」听着像权限问题，
+            // 用户会去改盘符/权限；能判断是卷没了就直说卷没了。
+            const QString storageProblem = StorageAvailability::unavailableReason(basePath);
+            errors->append(storageProblem.isEmpty()
+                               ? tr("无法创建 Minecraft 目录：%1").arg(basePath)
+                               : tr("游戏文件夹所在的磁盘现在不可用：%1\n%2")
+                                     .arg(QDir::toNativeSeparators(basePath), storageProblem));
+        }
+        return false;
+    }
+
+    // 盘是在上面那几行之后才被拔掉的（或者网络盘半断不断）：下面每一句都会说
+    // "缺少客户端 JAR"/"libraries 文件夹为空"，用户照着去找，会以为文件真被删了。
+    // 问一次卷，盘不在就直接说盘不在、别的都别猜。
+    // NOTE: 代价是每次启动多一次卷查询，不碰盘上的任何文件。
+    const QString storageProblem = StorageAvailability::unavailableReason(basePath);
+    if (!storageProblem.isEmpty()) {
+        if (errors) {
+            errors->append(tr("游戏文件夹所在的磁盘现在不可用：%1\n%2")
+                               .arg(QDir::toNativeSeparators(basePath), storageProblem));
         }
         return false;
     }

@@ -14,6 +14,7 @@
 #include "settings/LauncherSettings.hpp"
 #include "tasks/TaskManager.hpp"
 #include "util/AppPaths.hpp"
+#include "util/StorageAvailability.hpp"
 #include <QComboBox>
 #include <QDateTime>
 #include <QEventLoop>
@@ -275,6 +276,21 @@ void LaunchController::onStartButtonClicked() {
     if (versionId.isEmpty()) {
         InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("未选择版本"),
                              m_owner->tr("请先在「已安装版本」下拉框中选择一个版本。"));
+        return;
+    }
+
+    // 游戏文件夹那块盘不在（移动硬盘拔了、网络盘断了）：再往下走，`checkPreLaunch()`
+    // 会在 `mkpath()` 上失败，报出来的是一句「无法创建 Minecraft 目录」——
+    // 用户会以为是权限或者名字的问题，照着去改设置。先问一次卷，直说盘没了。
+    // 这是"能不能启动"的门，不影响别的实例：换个游戏文件夹里的实例照常能起。
+    const QString storageProblem =
+        StorageAvailability::unavailableReason(AppPaths::minecraftDir());
+    if (!storageProblem.isEmpty()) {
+        InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("游戏文件夹不可用"),
+                             m_owner->tr("游戏文件夹所在的磁盘现在读不到：\n%1\n\n"
+                                "如果是移动硬盘或网络盘，接好之后再点启动；"
+                                "也可以先在「设置」里换一个游戏文件夹。")
+                                 .arg(storageProblem));
         return;
     }
 

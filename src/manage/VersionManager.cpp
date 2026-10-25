@@ -5,6 +5,7 @@
  */
 
 #include "VersionManager.hpp"
+#include "util/StorageAvailability.hpp"
 #include "util/WriteDirectoryGuard.hpp"
 #include "../download/DownloadRetryPolicy.hpp"
 #include "../download/InstallerFailure.hpp"
@@ -866,6 +867,18 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
         return;
     }
 
+    // 落点那块盘不在（移动硬盘拔了 / 网络盘断了）：这时候开批次，只会让每一个文件各自
+    // 报一次 I/O 失败 —— 失败清单上是一串路径，用户看不出是盘没了。先问一次卷，
+    // 一个字节都不写；提示里点名"要装到的那块盘"，而不是某个具体文件。
+    const QString storageProblem = StorageAvailability::unavailableReason(
+        destinationPath.isEmpty() ? AppPaths::minecraftDir() : destinationPath);
+    if (!storageProblem.isEmpty()) {
+        emit versionDownloadFinished(
+            versionId, false,
+            tr("要装到的那块盘现在不可用，这一趟什么都没下：\n%1").arg(storageProblem));
+        return;
+    }
+
     const QJsonObject &versionJson = versionJsons[versionId];
 
     // 把 version.json 落盘。缺了它，下一次启动时 getVersionJson() 取不到
@@ -921,7 +934,17 @@ void VersionManager::registerVersionFiles(const QJsonObject &versionJson,
 
 void VersionManager::repairVersionFiles(const QString &versionId,
                                         const QStringList &flaggedPaths) {
-    // 两道早退都在 beginBatch() 之前，而且都要发终态（理由见 downloadVersion() 顶部那段 NOTE）。
+    // 盘不在时，下面那句 `getVersionJson()` 只会回一个空对象，报"读不出 version.json"——
+    // 用户会以为这个实例的 json 坏了，去别处找修法。先问一次卷，直说盘没了。
+    const QString storageProblem =
+        StorageAvailability::unavailableReason(AppPaths::minecraftDir());
+    if (!storageProblem.isEmpty()) {
+        emit versionDownloadFinished(
+            versionId, false,
+            tr("游戏文件夹所在的磁盘现在不可用，这一趟什么都没做：\n%1").arg(storageProblem));
+        return;
+    }
+    // 这几道早退都在 beginBatch() 之前，而且都要发终态（理由见 downloadVersion() 顶部那段 NOTE）。
     const QJsonObject versionJson = getVersionJson(versionId);
     if (versionJson.isEmpty()) {
         qWarning() << "No version json on disk for" << versionId << ". Cannot repair.";
@@ -1033,6 +1056,15 @@ bool VersionManager::downloadResourceFiles(const QString &destinationDir,
         // 正常走不到（能点的那条版本一定有个 primary 文件），但"这个版本一个文件都没有"
         // 是接口允许的状态 —— 那时候要当场说清，而不是开一个空批次等一个永远不来的收尾。
         emit resourceDownloadFinished(label, false, tr("这个版本没有可下载的文件。"));
+        return false;
+    }
+    // 落点那块盘不在：同 downloadVersion() 里那一段。资源下载的目的地可能是
+    // mods/、resourcepacks/、shaderpacks/，各自跟着实例走 —— 问的就是这一个。
+    const QString storageProblem = StorageAvailability::unavailableReason(destinationDir);
+    if (!storageProblem.isEmpty()) {
+        emit resourceDownloadFinished(
+            label, false,
+            tr("要装到的那块盘现在不可用，这一趟什么都没下：\n%1").arg(storageProblem));
         return false;
     }
     QString lockProblem;
@@ -4883,6 +4915,17 @@ void VersionManager::onAllDownloadsFinished(bool success) {
                     tr("……还有 %1 个").arg(stats.failedPaths.size() - shown.size());
         }
         message = tr("%1 个文件下载失败：").arg(stats.failed) + QLatin1Char('\n') + list;
+
+        // 用户从那份清单里看不出「盘被拔了」和「网站挂了」的区别：前者接回去再试就好，
+        // 后者得换源/等一会儿。失败时探一次卷，盘不在就把这句话补在后面 ——
+        // 上面那份清单一个字节都不动，那是这一批的证据。
+        // NOTE: 只在失败时探；成功批次多探一次卷没有意义。
+        const QString storageProblem =
+            StorageAvailability::unavailableReason(AppPaths::minecraftDir());
+        if (!storageProblem.isEmpty()) {
+            message += QLatin1String("\n\n")
+                       + tr("目标磁盘现在不可用：%1\n接回去之后再试。").arg(storageProblem);
+        }
     }
 
     // 「失败任务保存失败文件列表和原始 URL 来源，重试只重做失败项」：在这里把那一份

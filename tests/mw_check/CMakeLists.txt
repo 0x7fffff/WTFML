@@ -238,6 +238,10 @@ set(SOURCE_FILES
     # icon-live 那条真网络探针要验的那条路（见 main.cpp）。
     ${REPO_ROOT}/src/util/ImageDecode.cpp
     ${REPO_ROOT}/src/util/SystemMemory.cpp
+    # 「这块盘还在不在」：MainWindow 链着 LaunchController / LauncherManager / VersionManager，
+    # 少这一个文件链接期报的是一串 `StorageAvailability::…` 的 undefined reference。
+    ${REPO_ROOT}/src/util/StorageAvailability.cpp
+    ${REPO_ROOT}/src/util/StorageAvailability.hpp
     ${REPO_ROOT}/src/util/ZipUtil.cpp
     # 实例设置「文件管理」里的服务器列表读 servers.dat。MainWindow.cpp 直接
     # 调 NbtUtil::readServerList()。

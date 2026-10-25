@@ -187,6 +187,8 @@ set(HEADER_FILES
     src/util/ThemeImage.hpp
     src/util/ImageDecode.hpp
     src/util/SystemMemory.hpp
+    # 掉盘时那句话：卷认得出来且已就绪才算可用（见头文件）。
+    src/util/StorageAvailability.hpp
     src/util/ZipUtil.hpp
     src/util/NbtUtil.hpp
     src/util/NbtTree.hpp
@@ -384,6 +386,7 @@ set(SOURCE_FILES
     src/util/ImageDecode.cpp
     src/util/ThemeImage.cpp
     src/util/SystemMemory.cpp
+    src/util/StorageAvailability.cpp
     src/util/ZipUtil.cpp
     src/util/NbtUtil.cpp
     src/util/NbtTree.cpp
