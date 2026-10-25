@@ -48,31 +48,20 @@ QString unsupportedLoaderText(const QString &loaderKey, const QString &loaderVer
         return QString();
     }
     if (loaderKey == fabricLoaderKey() || loaderKey == forgeLoaderKey() ||
-        loaderKey == neoforgeLoaderKey()) {
+        loaderKey == neoforgeLoaderKey() || loaderKey == quiltLoaderKey()) {
         return QString();
     }
 
     const QString version =
         loaderVersion.isEmpty() ? QString() : QStringLiteral(" %1").arg(loaderVersion);
-    // 两句话都得说清"哪一条路认得什么"：不能写"能装的是 Fabric / Forge / NeoForge /
-    // OptiFine"—— 那说的是**安装页**那条路（那边四个加载器都能装，见
-    // VersionManager::loaderInstallSupported）。这里判的是**整合包导入**这条路，它只认
-    // 三个加载器键（fabric-loader / forge / neoforge）—— 写成四个的话，
-    // `dependencies` 里写着 "optifine" 的包会被拒绝，而拒绝的话里却说 OptiFine 能装：
-    // 用户按那句话去安装页一看确实能装，就会以为"这个包应该也行，是启动器抽了"。
-    if (loaderKey == quiltLoaderKey()) {
-        return QObject::tr(
-                   "这个整合包要 Quilt%1，而整合包导入这条路只认得 fabric-loader / forge / "
-                   "neoforge 三个加载器键，没有 Quilt。\n\n"
-                   "所以**没有**导入 —— 装出一个进不去的整合包比不装更糟。")
-            .arg(version);
-    }
+    // 整合包导入现在认得 fabric-loader / forge / neoforge / quilt-loader 四个键。
+    // OptiFine 在整合包依赖表里没有标准键，仍然拒绝；不能因为安装页能装 OptiFine 就
+    // 把这种包当成能装 —— 那会装出一个进不去的实例。
     return QObject::tr(
                "这个整合包要「%1」%2，而整合包导入这条路只认得 fabric-loader / forge / "
-               "neoforge 三个加载器键。\n\n"
-               "所以没有导入。（安装页里能直接装 Fabric / Forge / NeoForge / OptiFine "
-               "四个加载器，那是另一条路 —— OptiFine 在整合包的依赖表里没有对应的键，"
-               "所以这样写的包不会按 OptiFine 装上。）")
+               "neoforge / quilt-loader 四个加载器键。\n\n"
+               "所以没有导入。（安装页里能直接装 Fabric / Forge / NeoForge / OptiFine，"
+               "那是另一条路；OptiFine 在整合包的依赖表里没有对应的键。）")
         .arg(loaderKey, version);
 }
 

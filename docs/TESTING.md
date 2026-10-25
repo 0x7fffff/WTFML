@@ -177,18 +177,19 @@ offscreen 全绿仍不等于真机验收：多 DPI（100% / 125% / 150%）、透
 `wtfml.test-modules` 检查入口不超过 4000 行、职责模块不超过 5000 行，禁止入口 include `.cpp`，
 并检查核心用例的归属表。新增用例应放进相应模块，不通过抬高阈值继续堆积入口。
 
-## P1 2.1.1 / 2.1.2 验证（2026-10-25）
+## P1 2.1.1–2.1.4 验证（2026-10-25）
 
-A 阶段两项的自动化证据。运行方式：`cmake --build build/verify --target <target>`
+A/B 阶段四项的自动化证据。运行方式：`cmake --build build/verify --target <target>`
 后直接跑对应 exe（本机 Qt 6.10.1 / MinGW 13.1，离屏，串行）：
 
 | 入口 | 结果 | 覆盖 |
 | --- | --- | --- |
+| `verify_install` | 378/378 | Quilt 列表排序/稳定档/profile 检查、键映射与导入支持 |
 | `verify_activity` | 148/148 | 子任务不进任务中心；父任务步骤/取消/失败语义；`setRecovery` 只挂终态；历史只落父任务 |
 | `verify_instances` | 1535/1535 | 报告 JSON 边界；暂存续做；同名「跳过已有项」；世界导入冲突；世界设置发布被占用 |
-| `verify_resources` | 824/824 | 整合包收尾任一次提前退出都把持久报告退回未完成（含完成报告发布后取消） |
-| `mw_check_instance_upgrade` | 206 PASS / 0 FAIL | 副本模式只复制一次、无 ZIP 快照、源实例不动；父任务只收一个子任务；恢复入口补完/写失败报告；2.1.3 适配替换（平台发行版选择、变更预览、嵌套 JAR 随父替换、失败整趟回滚、变更日志） |
-| `mw_check` | 2684/2684 | 主窗口完整集成（含三档同名冲突与任务中心接线） |
+| `verify_resources` | 824/824 | 整合包收尾任一次提前退出都把持久报告退回未完成（含完成报告发布后取消）；Quilt 不再被导入/导出拒绝 |
+| `mw_check_instance_upgrade` | 220 PASS / 0 FAIL | 副本模式只复制一次、无 ZIP 快照、源实例不动；父任务只收一个子任务；恢复入口补完/写失败报告；2.1.3 适配替换（平台发行版选择、变更预览、嵌套 JAR 随父替换、失败整趟回滚、变更日志） |
+| `mw_check` | 2679/2679 | 主窗口完整集成（含三档同名冲突、任务中心接线、Quilt 导入判据更新） |
 | `ui_check` | 3119/3119 | 历史 UI 全量（`QT_QPA_PLATFORM=offscreen`） |
 | `ctest -R …` | 7/7 | lifecycle / resource-packs / theme / workspace / activity-selection / tool-features / mod-action-panel |
 
@@ -203,6 +204,11 @@ A 阶段两项的自动化证据。运行方式：`cmake --build build/verify --
 - 世界导入：同名时「跳过已有项」不写目标；取消保留暂存、不发布半份；续做按内容
   （SHA-1，不只大小）跳过已拷好的文件。
 - 世界设置：`level.dat` 被占用时发布失败、原文件一个字节不变、世界里不留临时文件。
+- 2.1.4 声明覆盖：Quilt 目标（`quilt.mod.json` 的 minecraft/quilt_loader/java 范围）符合、
+  quilt_loader 版本不满足时给出原因；旧 Forge `mcmod.info` 与 `@Mod` 注解（常量池解析）在
+  Forge 目标下符合；嵌套 JAR 声明解析失败 → 未知且默认“请选择处理方式”；Java 要求高于当前
+  Java 时默认禁用；加载器版本范围不满足时给出原因。未知原因可从 `upgradeUnknownMods` 取得并
+  进入启动器日志。
 - 2.1.3 适配替换（临时目录夹具）：平台发行版带安全文件/SHA-1 时逐项出现「替换为平台适配版」；
   预览列表包含旧文件 → 新文件、版本与哈希；选保留会退出替换计划。嵌套 JAR 不单独替换，
   父 JAR 换掉后嵌套内容随之更新。替换哈希不符时 `prepareAndCommit` 整趟失败：原实例
@@ -211,6 +217,12 @@ A 阶段两项的自动化证据。运行方式：`cmake --build build/verify --
   同样先移除旧文件再写入校验过的新文件。
   真实的平台下载/必要前置解析由 `PresetModInstaller` 既有 40+ 场景覆盖；本轮未做真实
   平台冷缓存下载、真实游戏组合和慢盘验收（仍归 2.1.5）。
+- 2.1.4 声明覆盖（临时目录夹具）：Quilt 版本列表排序/稳定档/profile 检查；`quilt-loader`
+  键映射到 Quilt 且整合包导入不再拒绝；Quilt 声明（含 `quilt_loader`/`java` 范围）在 Quilt
+  目标下符合、版本不满足时给出原因；旧 Forge `mcmod.info` 与 `@Mod` 注解在 Forge 目标下符合；
+  嵌套 JAR 声明解析失败 → 未知且默认“请选择处理方式”；Java 要求高于当前 Java 时默认禁用；
+  加载器版本范围不满足时给出原因。未真实联网安装 Quilt，也未在真实 Quilt/Fabric 混合模组集
+  上验证运行兼容。
 
 这些是临时目录 / 受控句柄夹具，不等于真实慢盘、杀毒实时扫描、断电或真实游戏组合验收；
 真正游戏/加载器组合仍归 2.1.5。

@@ -67,6 +67,7 @@ VersionManager::LoaderKind loaderKind(const QString &id) {
     if (id == QStringLiteral("forge")) return VersionManager::LoaderKind::Forge;
     if (id == QStringLiteral("neoforge")) return VersionManager::LoaderKind::NeoForge;
     if (id == QStringLiteral("optifine")) return VersionManager::LoaderKind::OptiFine;
+    if (id == QStringLiteral("quilt")) return VersionManager::LoaderKind::Quilt;
     return VersionManager::LoaderKind::Fabric;
 }
 }
@@ -102,6 +103,10 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
 
     auto state = std::make_shared<Selection>();
     state->root = AppPaths::minecraftDir(); state->source = sourceId;
+    // 目标 Java 主版本只问一次：模组的 Java 要求要和**真正会跑游戏的这份 Java** 比，
+    // 而不是和"这个版本最低要哪一版"比。拿不到时记 0，评估层会把它写成"未确认"。
+    dialog->setProperty("upgradeRuntimeJavaMajor",
+                        GlobalJavaSettings::probeJavaMajorVersion(owner->m_javaSettings->javaPath()));
     const auto source = owner->m_versionManager->displayParts(sourceId);
     for (const auto &task : owner->m_activityCenter->tasks()->all()) state->firstTask = qMax(state->firstTask, task.id);
     auto *selectors = new QWidget(page);
@@ -119,7 +124,9 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     game->completer()->setCompletionMode(QCompleter::PopupCompletion);
     game->lineEdit()->setPlaceholderText(QObject::tr("搜索 Minecraft 版本"));
     auto *loader = new QComboBox(selectors); loader->setObjectName("instanceUpdateLoader");
-    for (const auto &id : {QString(), QStringLiteral("fabric"), QStringLiteral("forge"), QStringLiteral("neoforge"), QStringLiteral("optifine")})
+    for (const auto &id : {QString(), QStringLiteral("fabric"), QStringLiteral("forge"),
+                           QStringLiteral("neoforge"), QStringLiteral("optifine"),
+                           QStringLiteral("quilt")})
         loader->addItem(id.isEmpty() ? QObject::tr("纯原版") : id, id);
     loader->setCurrentIndex(qMax(0, loader->findData(source.loaderName.toLower())));
     auto *loaderVersion = new QComboBox(selectors); loaderVersion->setObjectName("instanceUpdateLoaderVersion");
@@ -330,6 +337,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
         state->core.clear();
         state->problem.clear();
         dialog->setProperty("upgradeTargetLoader", state->loader);
+        dialog->setProperty("upgradeTargetLoaderVersion", state->loaderVersion);
         if (changedCompatibility) dialog->setProperty("upgradeModOverrides", QVariantMap());
         const QString target = state->game.isEmpty() ? QString() : QStringLiteral("@download:") + state->game;
         dialog->setTransferTargets("upgrade", {{state->game, target}});
@@ -858,6 +866,14 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
                 owner->m_activityCenter->tasks()->setStepState(state->parent, 1,
                     Tasks::TaskStepState::Running);
                 execute(); return;
+            }
+            {
+                const QStringList unknown = dialog->property("upgradeUnknownMods").toStringList();
+                if (!unknown.isEmpty()) {
+                    owner->appendLog(QObject::tr("实例更新声明检查：%1 项未知/需确认（必须逐项选择）\n%2")
+                                         .arg(unknown.size())
+                                         .arg(unknown.join(QLatin1Char('\n'))));
+                }
             }
             QString installerJava = owner->m_javaSettings->javaPath();
             if (!state->loader.isEmpty() && !owner->pickInstallerJava(state->game,

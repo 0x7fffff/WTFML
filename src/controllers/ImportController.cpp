@@ -770,7 +770,8 @@ bool ImportController::applyResolvedModpackImport(const QString &zipPath,
     const bool hasLoader =
         !pack.loaderKey.isEmpty() &&
         VersionManager::loaderKindForDependencyKey(pack.loaderKey, &kind);
-    if (hasLoader && kind != VersionManager::LoaderKind::Fabric && pack.patchedRuntime.isEmpty()) {
+    if (hasLoader && kind != VersionManager::LoaderKind::Fabric
+        && kind != VersionManager::LoaderKind::Quilt && pack.patchedRuntime.isEmpty()) {
         int requiredJavaMajor = 0;
         const QJsonObject gameJson = m_owner->m_versionManager->getVersionJson(pack.gameVersion);
         if (!gameJson.isEmpty()) {

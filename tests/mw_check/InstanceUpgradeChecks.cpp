@@ -178,8 +178,11 @@ int runInstanceUpgradeChecks() {
               write(neoDeclaration, "[[dependencies.example]]\nmodId=\"minecraft\"\ntype=\"required\"\nversionRange=\"[1.20,1.21)\"\n"),
               "prepare Forge and NeoForge dependency declarations");
         const QString nestedSource = scratch.filePath("nested-source.jar");
-        check(write(declaration, R"({"schemaVersion":1,"id":"example","name":"Local Example","version":"1.0","depends":{"minecraft":">=1.20 <1.23"},"breaks":{"minecraft":"1.22.2"}})")
-            && write(nestedSource, "embedded-jar-bytes")
+        const QString nestedDeclaration = scratch.filePath("nested-declaration.json");
+        check(write(nestedDeclaration, R"({"schemaVersion":1,"id":"embedded","name":"Embedded","version":"1.0","depends":{"minecraft":">=1.20 <1.23"}})")
+            && ZipUtil::createZip(nestedSource, {{QStringLiteral("fabric.mod.json"), nestedDeclaration}})
+            && write(declaration, R"({"schemaVersion":1,"id":"example","name":"Local Example","version":"1.0","depends":{"minecraft":">=1.20 <1.23"},"breaks":{"minecraft":"1.22.2"}})")
+            && true
             && QDir().mkpath(source + QStringLiteral("/mods")) && ZipUtil::createZip(jar, {{QStringLiteral("fabric.mod.json"), declaration},
                 {QStringLiteral("META-INF/mods.toml"), forgeDeclaration}, {QStringLiteral("META-INF/neoforge.mods.toml"), neoDeclaration},
                 {QStringLiteral("META-INF/jars/embedded.jar"), nestedSource}}),
@@ -398,6 +401,159 @@ int runInstanceUpgradeChecks() {
             check(maxInFlight == 4 && !page.property("upgradeAssessmentQuerying").toBool(),
                 "platform queries overlap with a hard four-request concurrency limit");
         }
+        AppPaths::setMinecraftDir(oldRoot);
+    }
+    {
+        // 2.1.4：Quilt / 旧 Forge（mcmod.info 与 @Mod 注解）/ 嵌套 JAR / 加载器版本 / Java。
+        const QString game = scratch.filePath("decl-game");
+        const QString source = game + QStringLiteral("/versions/DeclSource");
+        QDir().mkpath(source + QStringLiteral("/mods"));
+        const auto meta = [&](const QString &id, const QString &version, const QString &loader,
+                              const QString &loaderVersion = QString()) {
+            return write(game + "/versions/" + id + "/wtfml.meta",
+                         QJsonDocument(QJsonObject{{"realVersion", version},
+                                                   {"loaderName", loader},
+                                                   {"loaderVersion", loaderVersion}}).toJson());
+        };
+        check(write(source + "/wtfml.meta", R"({"realVersion":"1.20.1","loaderName":"Fabric"})")
+                  && meta("DeclFabric", "1.21.1", "Fabric", "0.16.0")
+                  && meta("DeclQuilt", "1.21.1", "Quilt", "0.26.4")
+                  && meta("DeclForge", "1.21.1", "Forge", "47.2.0"),
+              "prepare declaration-extension targets");
+        const auto jar = [&](const QString &name, const QList<ZipUtil::ZipSource> &entries) {
+            return ZipUtil::createZip(source + "/mods/" + name, entries);
+        };
+        const QString quiltDecl = scratch.filePath("quilt-decl.json");
+        const QString quiltOldDecl = scratch.filePath("quilt-old-decl.json");
+        const QString fabricJava = scratch.filePath("fabric-java.json");
+        const QString fabricLoader = scratch.filePath("fabric-loader.json");
+        const QString fabricNested = scratch.filePath("fabric-nested.json");
+        const QString legacyInfo = scratch.filePath("mcmod.info");
+        const QString nestedGarbage = scratch.filePath("nested-garbage.bin");
+        check(write(quiltDecl, R"({"schema_version":1,"quilt_loader":{"id":"example","version":"2.0","metadata":{"name":"Quilt Example"}},"depends":[{"id":"minecraft","versions":">=1.20 <1.23"},{"id":"quilt_loader","versions":">=0.20"},{"id":"java","versions":">=17"}],"breaks":[]})")
+                  && write(quiltOldDecl, R"({"schema_version":1,"quilt_loader":{"id":"old","version":"1.0"},"depends":[{"id":"minecraft","versions":">=1.20 <1.23"},{"id":"quilt_loader","versions":">=0.99"}]})")
+                  && write(fabricJava, R"({"schemaVersion":1,"id":"java","version":"1.0","depends":{"minecraft":">=1.20 <1.23","java":">=99"}})")
+                  && write(fabricLoader, R"({"schemaVersion":1,"id":"loader","version":"1.0","depends":{"minecraft":">=1.20 <1.23","fabricloader":">=99"}})")
+                  && write(fabricNested, R"({"schemaVersion":1,"id":"nested-parent","version":"1.0","depends":{"minecraft":">=1.20 <1.23"}})")
+                  && write(legacyInfo, R"json([{"modid":"legacy","name":"Legacy Mod","version":"1.0","acceptedMinecraftVersions":"[1.20,1.23)"}])json")
+                  && write(nestedGarbage, "this-is-not-a-jar"),
+              "prepare declaration fixtures");
+        // 旧 Forge @Mod 注解：只造常量池（解析器只需要这一段），值是 acceptedMinecraftVersions 后面的范围。
+        const auto fakeForgeClass = [] {
+            QByteArray bytes;
+            bytes.append('\xCA');
+            bytes.append('\xFE');
+            bytes.append('\xBA');
+            bytes.append('\xBE');
+            bytes.append('\x00');
+            bytes.append('\x00');
+            bytes.append('\x00');
+            bytes.append('\x34');
+            const QList<QByteArray> strings{
+                QByteArray("Lnet/minecraftforge/fml/common/Mod;"),
+                QByteArray("acceptedMinecraftVersions"),
+                QByteArray("[1.20,1.23)")};
+            bytes.append('\x00');
+            bytes.append(char(strings.size() + 1));
+            for (const QByteArray &text : strings) {
+                bytes.append('\x01');
+                bytes.append(char(text.size() >> 8));
+                bytes.append(char(text.size() & 0xFF));
+                bytes.append(text);
+            }
+            return bytes;
+        };
+        const QString forgeClass = scratch.filePath("forge-mod.class");
+        check(write(forgeClass, fakeForgeClass()), "prepare old Forge annotation class fixture");
+        check(jar("quilt.jar", {{QStringLiteral("quilt.mod.json"), quiltDecl}})
+                  && jar("quilt-old.jar", {{QStringLiteral("quilt.mod.json"), quiltOldDecl}})
+                  && jar("java.jar", {{QStringLiteral("fabric.mod.json"), fabricJava}})
+                  && jar("loader.jar", {{QStringLiteral("fabric.mod.json"), fabricLoader}})
+                  && jar("legacy.jar", {{QStringLiteral("mcmod.info"), legacyInfo}})
+                  && jar("legacy-annotation.jar", {{QStringLiteral("x/mod/Main.class"), forgeClass}})
+                  && jar("nested-bad.jar", {{QStringLiteral("fabric.mod.json"), fabricNested},
+                                             {QStringLiteral("META-INF/jars/bad.jar"), nestedGarbage}}),
+              "create declaration-extension JARs");
+        const QString oldRoot = AppPaths::minecraftDir();
+        AppPaths::setMinecraftDir(game);
+        VersionManager versions;
+        ResourceStore store;
+        InstanceSettingsDialog page(QStringLiteral("DeclSource"), QStringLiteral("DeclSource"),
+                                    {}, {}, {}, true);
+        page.setProperty("modernUpgradeFlow", true);
+        page.setProperty("upgradeRuntimeJavaMajor", 21);
+        page.setTransferTargets(QStringLiteral("upgrade"),
+                                {{QStringLiteral("FabricTarget"), QStringLiteral("DeclFabric")},
+                                 {QStringLiteral("QuiltTarget"), QStringLiteral("DeclQuilt")},
+                                 {QStringLiteral("ForgeTarget"), QStringLiteral("DeclForge")}});
+        UpgradeAssessment::attach(&page, &versions, &store, QStringLiteral("DeclSource"), source,
+                                  scratch.filePath("decl-identity"));
+        auto *combo = page.findChild<QComboBox *>(
+            InstanceSettingsDialog::transferTargetComboName(QStringLiteral("upgrade")));
+        auto *tree = page.findChild<QTreeWidget *>(QStringLiteral("instanceUpgradeModChecks"));
+        const auto settle = [&] {
+            QElapsedTimer clock; clock.start();
+            while (clock.elapsed() < 30000
+                   && (page.property("upgradeAssessmentReading").toBool()
+                       || page.property("upgradeAssessmentQuerying").toBool())) {
+                QApplication::processEvents(QEventLoop::AllEvents, 10);
+            }
+            QApplication::processEvents(QEventLoop::AllEvents, 10);
+        };
+        const auto rowFor = [tree](const QString &file) -> QTreeWidgetItem * {
+            for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+                auto *top = tree->topLevelItem(i);
+                if (top->data(0, Qt::UserRole).toString() == file) return top;
+                for (int j = 0; j < top->childCount(); ++j) {
+                    auto *child = top->child(j);
+                    if (child->data(0, Qt::UserRole).toString() == file) return child;
+                }
+            }
+            return nullptr;
+        };
+        const auto localText = [&](const QString &file) {
+            auto *row = rowFor(file);
+            return row == nullptr ? QString() : row->text(1);
+        };
+        const auto defaultIndex = [&](const QString &file) {
+            auto *row = rowFor(file);
+            auto *choice = row == nullptr ? nullptr
+                                          : qobject_cast<QComboBox *>(tree->itemWidget(row, 3));
+            return choice == nullptr ? -1 : choice->currentIndex();
+        };
+        combo->setCurrentIndex(1);
+        settle();
+        check(localText(QStringLiteral("quilt.jar")).contains(QStringLiteral("缺少目标加载器声明")),
+              "Quilt 模组在 Fabric 目标下不冒充兼容");
+        check(localText(QStringLiteral("nested-bad.jar"))
+                      .contains(QStringLiteral("嵌套 JAR 声明无法解析"))
+                  && defaultIndex(QStringLiteral("nested-bad.jar")) == 0,
+              "★★ nested JAR parse failure is unknown and forces an explicit choice");
+        check(localText(QStringLiteral("java.jar")).contains(QStringLiteral("需要 Java"))
+                  && defaultIndex(QStringLiteral("java.jar")) == 1,
+              "★★ mod Java requirement above the runtime Java is reported and defaults to disable");
+        check(localText(QStringLiteral("loader.jar")).contains(QStringLiteral("加载器版本不满足")),
+              "★★ declared loader version range is checked against the selected loader version");
+        check(page.property("upgradeUnknownMods").toStringList().join(QLatin1Char('\n'))
+                  .contains(QStringLiteral("嵌套 JAR 声明无法解析")),
+              "unknown declaration reasons are available for the log/report");
+
+        combo->setCurrentIndex(2);
+        settle();
+        check(localText(QStringLiteral("quilt.jar")).contains(QStringLiteral("本地 Minecraft 声明符合")),
+              "Quilt 声明（含 quilt_loader/java 范围）在 Quilt 目标下被接受");
+        check(localText(QStringLiteral("quilt-old.jar")).contains(QStringLiteral("加载器版本不满足")),
+              "Quilt 模组要求的 quilt_loader 版本不满足时给出原因");
+        check(localText(QStringLiteral("legacy.jar")).contains(QStringLiteral("缺少目标加载器声明")),
+              "旧 Forge mcmod.info 不会在 Quilt 目标下被当成兼容");
+
+        combo->setCurrentIndex(3);
+        settle();
+        check(localText(QStringLiteral("legacy.jar")).contains(QStringLiteral("本地 Minecraft 声明符合")),
+              "★★ old Forge mcmod.info acceptedMinecraftVersions is parsed for a Forge target");
+        check(localText(QStringLiteral("legacy-annotation.jar"))
+                      .contains(QStringLiteral("本地 Minecraft 声明符合")),
+              "★★ old Forge @Mod annotation acceptedMinecraftVersions is parsed from the class file");
         AppPaths::setMinecraftDir(oldRoot);
     }
     {

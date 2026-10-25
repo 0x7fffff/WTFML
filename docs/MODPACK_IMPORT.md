@@ -7,7 +7,8 @@
 - Modrinth：modrinth.index.json、下载文件和 overrides/client-overrides，客户端覆盖层后应用。
 - CurseForge：manifest.json、项目/文件 ID 解析与指定覆盖目录；平台明确不可用及未返回的文件单独说明。
 - 简单 MultiMC / Prism：mmc-pack.json、instance.cfg 与游戏目录；明确 Minecraft 和受支持加载器版本后重新安装核心。
-  当前组件白名单为 net.minecraft、org.lwjgl 和 Forge/Fabric/NeoForge/Quilt；Quilt 仍由现有安装能力检查拒绝。
+  当前组件白名单为 net.minecraft、org.lwjgl 和 Forge/Fabric/NeoForge/Quilt；Quilt 自 2.1.4 起
+  和 Fabric 同一条 profile + 库安装路径，可导入、可导出清单。
   有完整本地声明式 patches 的包可转换额外组件，见下节；缺少补丁时仍不猜测专用启动配置。
 - PCL 等包装 ZIP：内含一份 MRPACK 时解出后按同一套流程导入，不运行随包附带的启动器或脚本。
 - 简单懒人包：直接游戏目录、单层包装目录，或启动器旁的 .minecraft；必须有可确认的版本及加载器版本。

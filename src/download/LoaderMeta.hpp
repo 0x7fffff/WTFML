@@ -730,6 +730,63 @@ inline QString neoforgeInstallerUrl(const QString &loaderVersion) {
         .arg(loaderVersion);
 }
 
+// ---------------------------------------------------------------------------
+// Quilt：meta 的形状和 Fabric 很像（loader / hashed / intermediary / launcherMeta），
+// 但**没有 stable 字段**，而且列表不是按版本号排的。所以这里自己按点分数字排，
+// 稳定档按"版本号没有 - / + 后缀"判（和 NeoForge 同一条口径）。
+// ---------------------------------------------------------------------------
+
+inline QString quiltMetaBase() {
+    return QStringLiteral("https://meta.quiltmc.org");
+}
+
+inline QString quiltLoaderListUrl(const QString &gameVersion) {
+    return quiltMetaBase() + QStringLiteral("/v3/versions/loader/") + gameVersion;
+}
+
+inline QString quiltProfileUrl(const QString &gameVersion, const QString &loaderVersion) {
+    return quiltLoaderListUrl(gameVersion) + QLatin1Char('/') + loaderVersion +
+           QStringLiteral("/profile/json");
+}
+
+/// Quilt 装出来的版本 id（profile 里的 id 才是权威；这个用于钉版本时的预填与日志）。
+inline QString quiltLoaderId(const QString &gameVersion, const QString &loaderVersion) {
+    return QStringLiteral("quilt-loader-%1-%2").arg(loaderVersion, gameVersion);
+}
+
+/// `/v3/versions/loader/<mc>` 的回复 -> 能列给用户挑的全部 Quilt 加载器版本（新到旧）。
+inline LoaderVersionList listQuiltLoaderVersions(const QJsonArray &list) {
+    LoaderVersionList entries;
+    entries.reserve(list.size());
+    QSet<QString> seen;
+    for (const QJsonValue &value : list) {
+        const QJsonObject loader = value.toObject().value(QStringLiteral("loader")).toObject();
+        const QString version = loader.value(QStringLiteral("version")).toString();
+        if (version.isEmpty() || seen.contains(version)) {
+            continue;
+        }
+        seen.insert(version);
+        entries.append(LoaderVersionEntry{version, isStableLoaderVersion(version)});
+    }
+    sortLoaderVersionsNewestFirst(entries);
+    return entries;
+}
+
+/// 从 Quilt 列表里挑一个版本：稳定档 = 第一条 stable（没有就回空，让调用方说清
+/// “这个游戏版本只有测试版”）；最新档 = 排序后的第一条。
+inline LoaderPick pickQuiltLoader(const QJsonArray &list, LoaderChannel channel) {
+    const LoaderVersionList entries = listQuiltLoaderVersions(list);
+    if (entries.isEmpty()) {
+        return LoaderPick{};
+    }
+    for (const LoaderVersionEntry &entry : entries) {
+        if (channel == LoaderChannel::Newest || entry.stable) {
+            return LoaderPick{entry.version, entry.stable};
+        }
+    }
+    return LoaderPick{};
+}
+
 /// NeoForge 装出来的版本目录名。
 ///
 /// 和 Forge **不一样**：它不带游戏版本前缀，直接就是 `neoforge-<版本>`

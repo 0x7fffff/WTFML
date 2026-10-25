@@ -8950,7 +8950,9 @@ bool MainWindow::pickInstallerJava(const QString &gameVersion, int loaderIndex, 
     if (!VersionManager::loaderKindFromIndex(loaderIndex, &kind)) {
         return true;
     }
-    if (kind == VersionManager::LoaderKind::Fabric) {
+    if (kind == VersionManager::LoaderKind::Fabric
+        || kind == VersionManager::LoaderKind::Quilt) {
+        // 这两条都只拉 profile json + maven 库，一个外部安装器进程都不起。
         return true;
     }
     const QString configuredJava = m_javaSettings->javaPath();
