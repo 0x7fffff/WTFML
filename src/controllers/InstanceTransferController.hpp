@@ -1,5 +1,7 @@
 #pragma once
 
+#include "operations/OperationReport.hpp"
+#include "operations/InstanceUpgrade.hpp"
 #include "tasks/TaskId.hpp"
 #include "tasks/TaskSnapshot.hpp"
 
@@ -12,7 +14,6 @@
 class LauncherManager;
 class OverlayHost;
 class VersionManager;
-namespace InstanceUpgrade { struct Request; struct Core; }
 
 class InstanceTransferController final : public QObject {
     Q_OBJECT
@@ -31,13 +32,24 @@ public:
         std::function<Tasks::TaskId(Tasks::TaskKind, const QString &, const QString &,
                                     const QList<Tasks::TaskStep> &)>
             beginTask;
+        /// 在父任务的第 N 步底下记一件**子任务**（任务中心只出现父任务）。
+        /// 父任务认不出来时回 `invalidTaskId()`，控制器会退回 `beginTask`。
+        std::function<Tasks::TaskId(Tasks::TaskId, Tasks::TaskKind, const QString &,
+                                    const QString &, const QList<Tasks::TaskStep> &)>
+            beginChildTask;
         std::function<void(Tasks::TaskId, const QString &)> setTaskDetail;
         std::function<void(Tasks::TaskId, qint64, qint64)> setTaskProgress;
+        std::function<void(Tasks::TaskId, qint64, qint64)> setTaskBytes;
         std::function<void(Tasks::TaskId, int, Tasks::TaskStepState)> setTaskStepState;
         /// 改某一项**允许**什么操作。目前只用来开「取消」和写「为什么不能取消」——
         /// `beginTask` 没有能力位参数，而账本的默认位是**按种类**给的。
         std::function<void(Tasks::TaskId, const Tasks::TaskCapabilities &)> setTaskCapabilities;
         std::function<void(Tasks::TaskId, bool, const QString &)> finishTask;
+        /// 收尾后挂上「继续未完成操作」（报告钥匙）。没有未完成项时传空串摘掉入口。
+        std::function<void(Tasks::TaskId, const QString &)> setTaskRecovery;
+        /// 登记一份 `OperationReport`（写盘 + 进恢复表）。回 false = 没登记上（只影响恢复入口，
+        /// 不影响这一次操作本身的结果）。
+        std::function<bool(const OperationReport::Report &)> registerRecovery;
         /// 用户按了「取消」、工人随即停下之后，把账本里那一项收成 Cancelled
         /// （**不是** Failed：取消不算失败，不该亮红点、也不该弹失败提示）。
         std::function<void(Tasks::TaskId)> markTaskCancelled;
@@ -61,9 +73,28 @@ public:
 
     /// 后台那一份还在拷吗（再按一次「复制实例」会被挡下来）。
     bool copying() const { return m_copyBusy; }
+    /// 原地升级：完整 ZIP 快照 → 校验 → 保留原目录 → 发布 → 校验。
+    /// @param parentTask 非 0 时把执行的子任务挂到那一项任务底下（任务中心只露父任务）。
+    /// @param stageParentSteps 引擎阶段 ⇒ 父任务第几步（可空）。
     void upgradeInPlace(QString sourceId, QString targetId,
                         std::function<void(bool, const QString &)> whenDone = {},
-                        const QStringList &reviewedKeptMods = {}, bool reviewedModPlan = false);
+                        const QStringList &reviewedKeptMods = {}, bool reviewedModPlan = false,
+                        Tasks::TaskId parentTask = Tasks::invalidTaskId(),
+                        const QHash<int, int> &stageParentSteps = {},
+                        std::function<void(bool ok, bool cancelled)> whenSettled = {},
+                        const QList<InstanceUpgrade::ModReplacement> &replacements = {});
+    /// 「创建更新副本」：**源实例保持不动**，只复制一次候选目录、完整校验后换核心并发布。
+    ///
+    /// 这是 2.1.1 的空间优化：不再为副本另做整份 ZIP 快照（源实例本身可回滚），
+    /// 但复制后与发布后的逐文件校验都保留。失败/取消时暂存会被收掉，源实例不受影响。
+    void upgradeToCopy(const QString &sourceId, const QString &newName,
+                       const QString &targetCoreId,
+                       std::function<void(bool, const QString &)> whenDone = {},
+                       const QStringList &reviewedKeptMods = {}, bool reviewedModPlan = false,
+                       Tasks::TaskId parentTask = Tasks::invalidTaskId(),
+                       const QHash<int, int> &stageParentSteps = {},
+                       std::function<void(bool ok, bool cancelled)> whenSettled = {},
+                       const QList<InstanceUpgrade::ModReplacement> &replacements = {});
     void rollbackUpgrade(QString sourceId,
                          std::function<void(bool, const QString &)> whenDone = {});
 
@@ -91,7 +122,11 @@ public:
 private:
     void runUpgradeJob(const InstanceUpgrade::Request &request, const InstanceUpgrade::Core &core,
                        const QStringList &lockedIds, bool restore,
-                       std::function<void(bool, const QString &)> whenDone);
+                       std::function<void(bool, const QString &)> whenDone,
+                       Tasks::TaskId parentTask = Tasks::invalidTaskId(),
+                       const QHash<int, int> &stageParentSteps = {},
+                       const QString &copySourceDir = QString(),
+                       std::function<void(bool ok, bool cancelled)> whenSettled = {});
     QString displayName(const QString &id) const;
     void log(const QString &text) const;
     void announceCopySuccess(const QString &sourceId, const QString &destGameFolder,

@@ -80,10 +80,14 @@ int TaskManager::loadHistory() {
 
 bool TaskManager::saveHistory() const {
     // 已完成的按上限截断：**留最近的**（列表已经按时间排过，这里自己数一遍，不依赖顺序）。
+    // 子任务**不落盘**：盘上那一份是"用户意图"的账（父任务），子任务只是这一趟里的几步。
     QList<TaskSnapshot> keep;
     keep.reserve(m_tasks.size());
     QList<TaskSnapshot> finishedTasks;
     for (const TaskSnapshot &task : m_tasks) {
+        if (task.parentId != invalidTaskId()) {
+            continue;
+        }
         if (isTerminalState(task.state)) {
             finishedTasks.append(task);
         } else {
@@ -106,6 +110,25 @@ bool TaskManager::saveHistory() const {
 
 TaskId TaskManager::begin(TaskKind kind, const QString &title, const QString &targetId,
                           const QList<TaskStep> &steps, const TaskCapabilities &capabilities, bool queued) {
+    const TaskId id = allocateId();
+    if (id == invalidTaskId()) {
+        return id;
+    }
+    TaskSnapshot task;
+    task.id = id;
+    task.kind = kind;
+    task.state = queued ? TaskState::Queued : TaskState::Running;
+    task.title = title;
+    task.targetId = targetId;
+    task.steps = steps;
+    task.capabilities = capabilities;
+    if (!queued) task.startedAt = QDateTime::currentDateTime();
+    m_tasks.append(task);
+    touch(task.id, /*persist=*/true);
+    return task.id;
+}
+
+TaskId TaskManager::allocateId() {
     constexpr TaskId kMaxTaskId = std::numeric_limits<TaskId>::max();
     TaskId id = m_nextId;
     if (id == invalidTaskId() || id == kMaxTaskId) {
@@ -121,18 +144,43 @@ TaskId TaskManager::begin(TaskKind kind, const QString &title, const QString &ta
         ++id;
     }
     m_nextId = id + 1;
+    return id;
+}
+
+TaskId TaskManager::beginChild(TaskId parent, TaskKind kind, const QString &title,
+                               const QString &targetId, const QList<TaskStep> &steps,
+                               const TaskCapabilities &capabilities, int parentStep) {
+    TaskSnapshot *owner = find(parent);
+    // 父任务不在或已经收尾时不能挂子任务：那一行不会再有人更新，子任务会变成
+    // "跑完了但界面上什么都没有"。调用方应退回 `begin()`。
+    if (owner == nullptr || owner->parentId != invalidTaskId()
+        || !isActiveState(owner->state)) {
+        return invalidTaskId();
+    }
+    if (parentStep >= 0 && parentStep < owner->steps.size()) {
+        owner->steps[parentStep].state = TaskStepState::Running;
+        owner->steps[parentStep].note.clear();
+    }
+    owner->detail = title;
+    const TaskId id = allocateId();
+    if (id == invalidTaskId()) {
+        return id;
+    }
     TaskSnapshot task;
     task.id = id;
+    task.parentId = parent;
+    task.parentStep = parentStep >= 0 && parentStep < owner->steps.size() ? parentStep : -1;
     task.kind = kind;
-    task.state = queued ? TaskState::Queued : TaskState::Running;
+    task.state = TaskState::Running;
     task.title = title;
     task.targetId = targetId;
     task.steps = steps;
     task.capabilities = capabilities;
-    if (!queued) task.startedAt = QDateTime::currentDateTime();
+    task.startedAt = QDateTime::currentDateTime();
     m_tasks.append(task);
-    touch(task.id, /*persist=*/true);
-    return task.id;
+    // 子任务不落盘；父任务那一步刚变了，但它也不落盘（步骤/进度不在摘要里）。
+    touch(parent, /*persist=*/false);
+    return id;
 }
 
 bool TaskManager::startQueued(TaskId id) {
@@ -207,13 +255,66 @@ bool TaskManager::finish(TaskId id, TaskState state, const QString &errorSummary
     // 再按状态挡一道），收尾时清掉它们是这里唯一该做的事。
     task->capabilities.canCancel = false;
     task->capabilities.canPause = false;
-    task->doneUnits = (state == TaskState::Succeeded) ? task->totalUnits : task->doneUnits;
+    if (state == TaskState::Succeeded) {
+        task->doneUnits = task->totalUnits;
+        task->detail.clear();
+    }
+    const TaskSnapshot finishedChild = *task;
+    propagateChild(finishedChild);
     pruneFinished();
-    saveHistory();
+    // 子任务只在这一次会话里存在：它的收尾不需要重写盘上那份历史。
+    if (finishedChild.parentId == invalidTaskId()) {
+        saveHistory();
+    }
     emit taskChanged(id);
     emit taskFinished(id, state == TaskState::Succeeded);
     emit historyChanged();
     return true;
+}
+
+void TaskManager::propagateChild(const TaskSnapshot &child) {
+    if (child.parentId == invalidTaskId()) {
+        return;
+    }
+    TaskSnapshot *owner = find(child.parentId);
+    if (owner == nullptr) {
+        return;
+    }
+    // 详情跟着「现在在做什么」走；字节进度也一样（准备核心那一截子任务是下载）。
+    if (isActiveState(child.state)) {
+        owner->detail = child.detail;
+        owner->bytesDone = child.bytesDone;
+        owner->bytesTotal = child.bytesTotal;
+    }
+    if (child.parentStep >= 0 && child.parentStep < owner->steps.size()) {
+        TaskStep &step = owner->steps[child.parentStep];
+        switch (child.state) {
+        case TaskState::Succeeded:
+            step.state = TaskStepState::Done;
+            if (!child.errorSummary.isEmpty()) step.note = child.errorSummary;
+            break;
+        case TaskState::Failed:
+            step.state = TaskStepState::Failed;
+            step.note = child.errorSummary;
+            break;
+        case TaskState::Interrupted:
+            step.state = TaskStepState::Failed;
+            break;
+        case TaskState::Cancelled:
+            // 取消不是那一步做错了：保持原状，由串起这些步骤的流程决定父任务怎么收尾。
+            break;
+        case TaskState::Queued:
+        case TaskState::Running:
+        case TaskState::WaitingUser:
+        case TaskState::Paused:
+            step.state = TaskStepState::Running;
+            break;
+        }
+    }
+    if (isActiveState(child.state)) {
+        owner->detail = child.detail;
+    }
+    touch(owner->id, /*persist=*/false);
 }
 
 void TaskManager::pruneFinished() {
@@ -223,24 +324,33 @@ void TaskManager::pruneFinished() {
     QList<TaskSnapshot> finishedTasks;
     finishedTasks.reserve(m_tasks.size());
     for (const TaskSnapshot &task : m_tasks) {
-        if (isTerminalState(task.state)) {
+        // 只有父任务占「已完成」那一栏；子任务随父任务一起生灭。
+        if (task.parentId == invalidTaskId() && isTerminalState(task.state)) {
             finishedTasks.append(task);
         }
     }
     const int limit = finishedHistoryLimit();
-    if (finishedTasks.size() <= limit) {
-        return;
+    if (finishedTasks.size() > limit) {
+        std::sort(finishedTasks.begin(), finishedTasks.end(), finishedNewerFirst);
+        QSet<TaskId> drop;
+        for (int i = limit; i < finishedTasks.size(); ++i) {
+            drop.insert(finishedTasks.at(i).id);
+        }
+        m_tasks.erase(std::remove_if(m_tasks.begin(), m_tasks.end(),
+                                     [&drop](const TaskSnapshot &task) {
+                                         return drop.contains(task.id);
+                                     }),
+                      m_tasks.end());
     }
-    std::sort(finishedTasks.begin(), finishedTasks.end(), finishedNewerFirst);
-    QSet<TaskId> drop;
-    for (int i = limit; i < finishedTasks.size(); ++i) {
-        drop.insert(finishedTasks.at(i).id);
+    // 父任务已经不在的子任务没有任何出口（它们从不单独列出）——一并清掉，
+    // 不然账本会随「清除已完成 / 截断」一点点漏下看不见的行。
+    QSet<TaskId> live;
+    for (const TaskSnapshot &task : m_tasks) {
+        if (task.parentId == invalidTaskId()) live.insert(task.id);
     }
-    m_tasks.erase(std::remove_if(m_tasks.begin(), m_tasks.end(),
-                                 [&drop](const TaskSnapshot &task) {
-                                     return drop.contains(task.id);
-                                 }),
-                  m_tasks.end());
+    m_tasks.removeIf([&live](const TaskSnapshot &task) {
+        return task.parentId != invalidTaskId() && !live.contains(task.parentId);
+    });
 }
 
 bool TaskManager::succeed(TaskId id) {
@@ -271,6 +381,8 @@ bool TaskManager::setDetail(TaskId id, const QString &detail) {
     }
     task->detail = detail;
     // **不落盘**：详情是"此刻在干什么"，盘上那一份是摘要（见 TaskHistory.hpp）。
+    const TaskSnapshot mirrored = *task;
+    propagateChild(mirrored);
     touch(id, /*persist=*/false);
     return true;
 }
@@ -319,6 +431,8 @@ bool TaskManager::setProgress(TaskId id, qint64 doneUnits, qint64 totalUnits) {
     }
     task->doneUnits = doneUnits;
     task->totalUnits = totalUnits;
+    const TaskSnapshot mirrored = *task;
+    propagateChild(mirrored);
     touch(id, /*persist=*/false);
     return true;
 }
@@ -333,6 +447,8 @@ bool TaskManager::setBytes(TaskId id, qint64 bytesDone, qint64 bytesTotal) {
     }
     task->bytesDone = bytesDone;
     task->bytesTotal = bytesTotal;
+    const TaskSnapshot mirrored = *task;
+    propagateChild(mirrored);
     touch(id, /*persist=*/false);
     return true;
 }
@@ -347,9 +463,30 @@ bool TaskManager::setCapabilities(TaskId id, const TaskCapabilities &capabilitie
     return true;
 }
 
+bool TaskManager::setRecovery(TaskId id, const QString &recoveryToken, bool canRecover,
+                              const QString &blockedReason) {
+    TaskSnapshot *task = find(id);
+    if (task == nullptr || !isTerminalState(task->state)) {
+        return false;
+    }
+    task->recoveryToken = recoveryToken;
+    task->capabilities.canRecover = canRecover;
+    task->capabilities.recoverBlockedReason = canRecover ? QString() : blockedReason;
+    touch(id, /*persist=*/false);
+    return true;
+}
+
 void TaskManager::clearFinished() {
     const int before = m_tasks.size();
-    m_tasks.removeIf([](const TaskSnapshot &task) { return isTerminalState(task.state); });
+    QSet<TaskId> removedParents;
+    for (const TaskSnapshot &task : m_tasks) {
+        if (task.parentId == invalidTaskId() && isTerminalState(task.state)) {
+            removedParents.insert(task.id);
+        }
+    }
+    m_tasks.removeIf([&removedParents](const TaskSnapshot &task) {
+        return isTerminalState(task.state) || removedParents.contains(task.parentId);
+    });
     if (m_tasks.size() == before) {
         return;  // 本来就没有已完成的东西：不落盘也不发信号
     }
@@ -360,7 +497,8 @@ void TaskManager::clearFinished() {
 QList<TaskSnapshot> TaskManager::active() const {
     QList<TaskSnapshot> result;
     for (const TaskSnapshot &task : m_tasks) {
-        if (isActiveState(task.state)) {
+        // 子任务不进任务中心：一次用户意图只露一个父任务。
+        if (task.parentId == invalidTaskId() && isActiveState(task.state)) {
             result.append(task);
         }
     }
@@ -371,7 +509,7 @@ QList<TaskSnapshot> TaskManager::active() const {
 QList<TaskSnapshot> TaskManager::finished() const {
     QList<TaskSnapshot> result;
     for (const TaskSnapshot &task : m_tasks) {
-        if (isTerminalState(task.state)) {
+        if (task.parentId == invalidTaskId() && isTerminalState(task.state)) {
             result.append(task);
         }
     }
@@ -382,6 +520,16 @@ QList<TaskSnapshot> TaskManager::finished() const {
 QList<TaskSnapshot> TaskManager::all() const {
     QList<TaskSnapshot> result = active();
     result.append(finished());
+    return result;
+}
+
+QList<TaskSnapshot> TaskManager::childrenOf(TaskId parent) const {
+    QList<TaskSnapshot> result;
+    for (const TaskSnapshot &task : m_tasks) {
+        if (task.parentId == parent) {
+            result.append(task);
+        }
+    }
     return result;
 }
 

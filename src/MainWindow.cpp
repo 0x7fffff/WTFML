@@ -153,6 +153,7 @@
 #include "controllers/ModpackExportController.hpp"
 #include "controllers/InstanceFileController.hpp"
 #include "controllers/InstanceTransferController.hpp"
+#include "controllers/FileOperationRecoveryController.hpp"
 #include "controllers/InstanceDialogController.hpp"
 #include "controllers/InstanceEditorController.hpp"
 #include "controllers/ImportController.hpp"
@@ -1608,11 +1609,20 @@ MainWindow::MainWindow(QWidget *parent)
                    const QList<Tasks::TaskStep> &steps) {
                 return m_activityCenter->begin(kind, title, targetId, steps);
             },
+            // 升级父任务底下的子任务：源实例更新这一趟的"复制 / 快照"不该各占一行。
+            [this](Tasks::TaskId parent, Tasks::TaskKind kind, const QString &title,
+                   const QString &targetId, const QList<Tasks::TaskStep> &steps) {
+                return m_activityCenter->tasks()->beginChild(parent, kind, title, targetId,
+                                                              steps, Tasks::TaskCapabilities());
+            },
             [this](Tasks::TaskId id, const QString &detail) {
                 m_activityCenter->tasks()->setDetail(id, detail);
             },
             [this](Tasks::TaskId id, qint64 done, qint64 total) {
                 m_activityCenter->tasks()->setProgress(id, done, total);
+            },
+            [this](Tasks::TaskId id, qint64 bytesDone, qint64 bytesTotal) {
+                m_activityCenter->tasks()->setBytes(id, bytesDone, bytesTotal);
             },
             [this](Tasks::TaskId id, int index, Tasks::TaskStepState state) {
                 m_activityCenter->tasks()->setStepState(id, index, state);
@@ -1623,10 +1633,45 @@ MainWindow::MainWindow(QWidget *parent)
             [this](Tasks::TaskId id, bool success, const QString &errorSummary) {
                 m_activityCenter->finish(id, success, errorSummary, false);
             },
+            [this](Tasks::TaskId id, const QString &token) {
+                m_activityCenter->tasks()->setRecovery(id, token, !token.isEmpty(), QString());
+            },
+            [this](const OperationReport::Report &report) {
+                return m_fileRecovery != nullptr && m_fileRecovery->registerReport(report);
+            },
             // 用户按了「取消」、后台导入真的停下来之后：收成 Cancelled 而不是 Failed
             // （取消不是失败，底栏不该亮红点）。
             [this](Tasks::TaskId id) { m_activityCenter->tasks()->cancel(id); }},
         this);
+    m_fileRecovery = new FileOperationRecoveryController(
+        m_ui->overlay(),
+        FileOperationRecoveryController::Host{
+            [this](const QString &id) { return instanceDisplayName(id); },
+            [this](const QString &id) {
+                return (m_launcherManager != nullptr && m_launcherManager->isVersionRunning(id))
+                       || installingVersionIds().contains(id);
+            },
+            [this] { refreshInstalledVersions(); },
+            [this](const QString &text) { appendLog(text); },
+            [this](Tasks::TaskKind kind, const QString &title, const QString &targetId,
+                   const QList<Tasks::TaskStep> &steps) {
+                return m_activityCenter->begin(kind, title, targetId, steps);
+            },
+            [this](Tasks::TaskId id, const QString &detail) {
+                m_activityCenter->tasks()->setDetail(id, detail);
+            },
+            [this](Tasks::TaskId id, int index, Tasks::TaskStepState state) {
+                m_activityCenter->tasks()->setStepState(id, index, state);
+            },
+            [this](Tasks::TaskId id, bool ok, const QString &error) {
+                m_activityCenter->finish(id, ok, error, false);
+            },
+            [this](Tasks::TaskId id, const QString &token) {
+                m_activityCenter->tasks()->setRecovery(id, token, !token.isEmpty(), QString());
+            }},
+        this);
+    // 上一次会话留下的、已经没有报告在用的本模块暂存，启动时收掉（只碰自己的目录名）。
+    m_fileRecovery->cleanupStaleStaging(AppPaths::minecraftDir());
     m_instanceDialogController = new InstanceDialogController(this);
     m_instanceEditorController = new InstanceEditorController(this);
     m_importController = new ImportController(this);
@@ -1697,7 +1742,14 @@ MainWindow::MainWindow(QWidget *parent)
             [this](const Tasks::TaskSnapshot &task) { return cancelWouldWork(task); },
             [this](const QString &key) { cancelTaskFromDetail(key); },
             [this](const QString &key) { retryTaskFromDetail(key); },
-            [this](const QString &id) { m_importController->openImportReport(id); }},
+            [this](const QString &id) { m_importController->openImportReport(id); },
+            [this](const QString &key) {
+                bool ok = false;
+                const Tasks::TaskId id = key.toULongLong(&ok);
+                if (!ok || m_fileRecovery == nullptr) return;
+                const Tasks::TaskSnapshot task = m_activityCenter->tasks()->snapshot(id);
+                if (!task.recoveryToken.isEmpty()) m_fileRecovery->resume(task.recoveryToken);
+            }},
         this);
     connect(m_serverWorkspace, &ServerWorkspaceController::message, this,
             [this](const QString &text) { appendLog(text); });
@@ -1811,6 +1863,9 @@ MainWindow::MainWindow(QWidget *parent)
                 break;
             case TaskCenter::RowAction::RepairImport:
                 onTaskDetailAction(key, TaskDetailPage::Action::RepairImport);
+                break;
+            case TaskCenter::RowAction::Recover:
+                onTaskDetailAction(key, TaskDetailPage::Action::Recover);
                 break;
             case TaskCenter::RowAction::OpenLog:
                 onTaskDetailAction(key, TaskDetailPage::Action::OpenLog);
@@ -2541,6 +2596,13 @@ void MainWindow::updateBottomBarTaskSummary() {
 /// 由 `VersionManager::canCancelDownload()` 现问工人状态，不再仅依赖下载器是否繁忙。
 bool MainWindow::cancelWouldWork(const Tasks::TaskSnapshot &task) const {
     if (m_modTransferCancels.contains(task.id)) return true;
+    // ⓪ 「实例更新」父任务：准备核心那一段可以取消（文件事务那一段由流程自己
+    // 把能力位关掉，这里也问同一份入口）。
+    if (m_updateFlowTask != Tasks::invalidTaskId() && task.id == m_updateFlowTask
+        && m_updateFlowCancel && m_updateFlowCancelAvailable
+        && m_updateFlowCancelAvailable()) {
+        return true;
+    }
     // ③ 后台导入世界 / 原地升级 / 回滚：工人和引擎都在安全点看这一位，取消得动。
     // 判据和 `cancelTaskFromDetail()` 里那一发逐字对齐。
     if (m_instanceTransferController != nullptr
@@ -2620,6 +2682,12 @@ void MainWindow::onTaskDetailAction(const QString &key, TaskDetailPage::Action a
 void MainWindow::cancelTaskFromDetail(const QString &key) {
     bool transferParsed = false;
     const auto transferId = key.toULongLong(&transferParsed);
+    // 「实例更新」父任务：准备阶段这一颗接到真的那一批下载上（文件事务阶段流程会把
+    // 能力位关掉，所以这里不会把提交中的副本/快照打断）。
+    if (transferParsed && m_updateFlowTask != Tasks::invalidTaskId()
+        && transferId == m_updateFlowTask && m_updateFlowCancel && m_updateFlowCancel()) {
+        return;
+    }
     if (transferParsed && m_modTransferCancels.contains(transferId)) {
         m_modTransferCancels.value(transferId)();
         return;
@@ -2788,9 +2856,46 @@ void MainWindow::beginDownloadTask() {
     }
     const QString target = !m_importingInstanceId.isEmpty() ? m_importingInstanceId
         : !m_installingInstanceId.isEmpty() ? m_installingInstanceId : m_repairingInstanceId;
-    m_downloadTaskId = beginTask(kind, title, target);
+    // 父任务那一支：先把这一批挂到父任务的某一步底下。父任务认不出来（已被收尾 /
+    // 被清除）时退回独立成行 —— 宁可在任务中心多一行，也不能让这批下载没有账。
+    Tasks::TaskId child = Tasks::invalidTaskId();
+    if (m_downloadParentTask != Tasks::invalidTaskId()) {
+        child = m_activityCenter->tasks()->beginChild(
+            m_downloadParentTask, kind, title, target, {}, Tasks::TaskCapabilities(),
+            m_downloadParentStep);
+        if (child != Tasks::invalidTaskId()) {
+            m_downloadTaskId = child;
+        }
+    }
+    if (child == Tasks::invalidTaskId()) {
+        m_downloadTaskId = beginTask(kind, title, target);
+    }
     // 这一批就是账本里这个号 —— 收尾时"重试"资格只认它（见 finishTask()）。
     m_downloadBatchOwnerTaskId = m_downloadTaskId;
+}
+
+void MainWindow::setDownloadTaskParent(Tasks::TaskId parent, int step) {
+    m_downloadParentTask = parent;
+    m_downloadParentStep = step;
+}
+
+void MainWindow::setUpdateFlowCancel(Tasks::TaskId task, std::function<bool()> cancel,
+                                     std::function<bool()> available) {
+    m_updateFlowTask = task;
+    m_updateFlowCancel = std::move(cancel);
+    m_updateFlowCancelAvailable = std::move(available);
+}
+
+void MainWindow::clearUpdateFlowCancel(Tasks::TaskId task) {
+    if (task == Tasks::invalidTaskId() || m_updateFlowTask == task) {
+        m_updateFlowTask = Tasks::invalidTaskId();
+        m_updateFlowCancel = nullptr;
+        m_updateFlowCancelAvailable = nullptr;
+    }
+    if (task == Tasks::invalidTaskId() || task == m_downloadParentTask) {
+        m_downloadParentTask = Tasks::invalidTaskId();
+        m_downloadParentStep = -1;
+    }
 }
 
 void MainWindow::startPlayerSkinLoad() {
@@ -8848,7 +8953,9 @@ bool MainWindow::pickInstallerJava(const QString &gameVersion, int loaderIndex, 
     if (!VersionManager::loaderKindFromIndex(loaderIndex, &kind)) {
         return true;
     }
-    if (kind == VersionManager::LoaderKind::Fabric) {
+    if (kind == VersionManager::LoaderKind::Fabric
+        || kind == VersionManager::LoaderKind::Quilt) {
+        // 这两条都只拉 profile json + maven 库，一个外部安装器进程都不起。
         return true;
     }
     const QString configuredJava = m_javaSettings->javaPath();

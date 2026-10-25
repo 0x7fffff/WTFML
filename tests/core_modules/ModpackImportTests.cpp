@@ -200,10 +200,8 @@ void runModpackImportTests(const QString &sandbox) {
           "V1 纯原版 / Fabric / Forge 都算能用，没有一句拦人的话");
     const QString quiltText = ModpackImport::unsupportedLoaderText(
         QStringLiteral("quilt-loader"), QStringLiteral("0.20.0"));
-    check(quiltText.contains(QStringLiteral("Quilt")) &&
-              quiltText.contains(QStringLiteral("没有")) &&
-              quiltText.contains(QStringLiteral("0.20.0")),
-          "V1 Quilt 拦下来，而且说清了是哪个加载器、哪个版本、没有导入", quiltText);
+    check(quiltText.isEmpty(),
+          "V1 Quilt 不再被整合包导入拒绝（2.1.4 起客户端可安装/可升级）", quiltText);
     // NOTE: 这个函数只回答一件事：**两个清单都没有** ⇒ 认不出它是什么格式。所以钉的是
     // "把两个名字都写出来"，以及它替用户猜了一句"多半是个普通压缩包"（不说这一句，
     // 用户只能自己猜要不要放弃）。
@@ -2259,8 +2257,9 @@ void runModpackImportTests(const QString &sandbox) {
             QString key;
             QString version;
             const QString problem = ask(idQuilt, &key, &version);
-            check(!problem.isEmpty() && key.isEmpty(),
-                  "V5m Quilt 也拒绝导出（清单写得下，我们装不了）", problem);
+            check(problem.isEmpty() && key == QStringLiteral("quilt-loader")
+                      && version == QStringLiteral("0.20.0"),
+                  "V5m Quilt 实例可以导出（键是 quilt-loader，版本取盘上那一份）", problem);
         }
         {
             QString key;
@@ -2488,9 +2487,9 @@ void runModpackImportTests(const QString &sandbox) {
             QString key;
             QString version;
             const QString problem = loaderOf(idQuilt, &key, &version);
-            check(!problem.isEmpty() && key.isEmpty() &&
-                      problem.contains(QStringLiteral("Quilt")),
-                  "V5o 合过的 json 里装了 Quilt：也拒绝导出（清单写得下、我们装不了）", problem);
+            check(problem.isEmpty() && key == QStringLiteral("quilt-loader")
+                      && version == QStringLiteral("0.20.0"),
+                  "V5o 合过的 json 里装了 Quilt：现在可以导出（键/版本都对）", problem);
         }
 
         // 两种都装（Fabric + OptiFine 是真机上很常见的一种）：OptiFine 那一档优先，

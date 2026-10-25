@@ -13,6 +13,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QLockFile>
 #include "util/DirectorySessionLock.hpp"
 #include <QRegularExpression>
@@ -178,6 +179,333 @@ QString dependentInstanceProblem(const QString &gameDir, const QString &instance
     return {};
 }
 
+/// 把新核心、元数据与逐文件模组决定落到**候选目录**上（原地升级与副本模式共用）。
+///
+/// 调用前候选目录必须已经是一份通过完整校验的用户文件副本：这里只改核心那几样
+/// （旧 jar/json / natives / 模组后缀 / 新 jar+json+meta），失败时一律原实例未改变。
+namespace {
+
+/// 流式核对一个文件的 SHA-1 与大小（不把 jar 读进内存）。
+bool verifyFileDigest(const QString &path, qint64 expectedSize, const QString &expectedSha1,
+                      QString *problem) {
+    const QFileInfo info(path);
+    if (!info.isFile() || info.isSymLink() || info.isJunction()) {
+        if (problem != nullptr) *problem = QStringLiteral("文件不存在或是链接：%1").arg(path);
+        return false;
+    }
+    if (expectedSize >= 0 && info.size() != expectedSize) {
+        if (problem != nullptr) {
+            *problem = QStringLiteral("文件大小不符：%1（期望 %2，实际 %3）")
+                           .arg(QFileInfo(path).fileName()).arg(expectedSize).arg(info.size());
+        }
+        return false;
+    }
+    if (expectedSha1.trimmed().isEmpty()) {
+        return true;  // 平台没给哈希：不假装校验过
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        if (problem != nullptr) *problem = QStringLiteral("读不了：%1").arg(path);
+        return false;
+    }
+    QCryptographicHash hash(QCryptographicHash::Sha1);
+    while (!file.atEnd()) {
+        const QByteArray chunk = file.read(1024 * 1024);
+        if (chunk.isEmpty()) break;
+        hash.addData(chunk);
+    }
+    const QString actual = QString::fromLatin1(hash.result().toHex());
+    if (actual.compare(expectedSha1.trimmed(), Qt::CaseInsensitive) != 0) {
+        if (problem != nullptr) {
+            *problem = QStringLiteral("SHA-1 不符：%1（期望 %2，实际 %3）")
+                           .arg(QFileInfo(path).fileName(), expectedSha1, actual);
+        }
+        return false;
+    }
+    return true;
+}
+
+/// 把一份平台适配版从暂存写进候选目录。目标已存在且内容一致时跳过（可重入）。
+bool copyReplacementIntoCandidate(const ModReplacement &one, const QString &modsPath,
+                                  QString *problem) {
+    const QString target = QDir(modsPath).filePath(one.fileName);
+    if (QFileInfo(target).exists()) {
+        if (verifyFileDigest(target, one.size, one.sha1, nullptr)) {
+            return true;
+        }
+        if (problem != nullptr) {
+            *problem = QStringLiteral("同名模组已存在且内容不同，未覆盖：%1").arg(one.fileName);
+        }
+        return false;
+    }
+    QFile input(one.stagedPath);
+    QSaveFile output(target);
+    if (!input.open(QIODevice::ReadOnly) || !output.open(QIODevice::WriteOnly)) {
+        if (problem != nullptr) {
+            *problem = QStringLiteral("无法写入适配模组：%1").arg(one.fileName);
+        }
+        return false;
+    }
+    while (!input.atEnd()) {
+        const QByteArray chunk = input.read(1024 * 1024);
+        if (chunk.isEmpty() || output.write(chunk) != chunk.size()) {
+            output.cancelWriting();
+            if (problem != nullptr) {
+                *problem = QStringLiteral("适配模组写入失败：%1").arg(one.fileName);
+            }
+            return false;
+        }
+    }
+    if (!output.commit() || !verifyFileDigest(target, one.size, one.sha1, problem)) {
+        if (problem != nullptr && problem->isEmpty()) {
+            *problem = QStringLiteral("适配模组提交后校验失败：%1").arg(one.fileName);
+        }
+        return false;
+    }
+    return true;
+}
+
+/// 文件变更日志：跟着事务候选目录一起发布，所以失败时它也不会留下。
+///
+/// 格式是 `wtfml-update-changes/1`，只追加最近 20 趟。嵌套 JAR 不单独成项 —— 它们随
+/// 父 JAR 一起替换，这里用一句 note 说清，避免让人误以为漏了。
+bool writeUpdateChangeLog(const Request &r, const Core &core, const QString &candidate,
+                          Result *result) {
+    const QString path = candidate + QStringLiteral("/wtfml.update-changes.json");
+    QJsonArray runs;
+    QFile previous(path);
+    if (!QFileInfo(path).isSymLink() && previous.open(QIODevice::ReadOnly)
+        && previous.size() <= 4 * 1024 * 1024) {
+        const auto object = QJsonDocument::fromJson(previous.readAll()).object();
+        if (object.value(QStringLiteral("format")).toString()
+            == QStringLiteral("wtfml-update-changes/1")) {
+            runs = object.value(QStringLiteral("runs")).toArray();
+        }
+    }
+    previous.close();
+    QJsonArray changes;
+    for (const ModReplacement &one : core.replacements) {
+        changes.append(QJsonObject{
+            {QStringLiteral("action"),
+             one.replaces.isEmpty() ? QStringLiteral("add") : QStringLiteral("replace")},
+            {QStringLiteral("file"), one.fileName},
+            {QStringLiteral("replacedFile"), one.replaces},
+            {QStringLiteral("project"), one.projectKey},
+            {QStringLiteral("versionId"), one.versionId},
+            {QStringLiteral("title"), one.title},
+            {QStringLiteral("fromVersion"), one.fromVersion},
+            {QStringLiteral("toVersion"), one.toVersion},
+            {QStringLiteral("sha1"), one.sha1},
+            {QStringLiteral("size"), QString::number(one.size)},
+            {QStringLiteral("fromDependency"), one.fromDependency},
+        });
+    }
+    runs.append(QJsonObject{
+        {QStringLiteral("transactionId"), r.transactionId},
+        {QStringLiteral("updatedAt"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate)},
+        {QStringLiteral("targetGameVersion"), core.gameVersion},
+        {QStringLiteral("loaderName"), core.loaderName},
+        {QStringLiteral("loaderVersion"), core.loaderVersion},
+        {QStringLiteral("coreJar"), r.instanceId + QStringLiteral(".jar")},
+        {QStringLiteral("coreJson"), r.instanceId + QStringLiteral(".json")},
+        {QStringLiteral("disabledMods"), result->disabledMods},
+        {QStringLiteral("changes"), changes},
+        {QStringLiteral("nestedNote"),
+         QStringLiteral("嵌套 JAR 随父 JAR 一起替换，不单独列出或替换。")},
+    });
+    while (runs.size() > 20) runs.removeFirst();
+    const QByteArray bytes = QJsonDocument(QJsonObject{
+        {QStringLiteral("format"), QStringLiteral("wtfml-update-changes/1")},
+        {QStringLiteral("schemaVersion"), 1},
+        {QStringLiteral("runs"), runs},
+    }).toJson(QJsonDocument::Indented);
+    QSaveFile out(path);
+    if (!out.open(QIODevice::WriteOnly) || out.write(bytes) != bytes.size() || !out.commit()) {
+        result->problem = QStringLiteral("无法写入文件变更日志，本次更新未发布。");
+        return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+bool applyCoreToCandidate(const Request &r, const Core &core, const QString &candidate,
+                          Result *result) {
+    // Read identity/settings from the copied original, never from the target.
+    QJsonObject meta;
+    const QString metaPath = candidate + "/wtfml.meta";
+    QFile metaFile(metaPath);
+    if (metaFile.exists()) {
+        if (!metaFile.open(QIODevice::ReadOnly) || metaFile.size() > 16 * 1024 * 1024) {
+            result->problem = QStringLiteral("无法读取原实例设置，未继续升级。"); return false;
+        }
+        const auto document = QJsonDocument::fromJson(metaFile.readAll());
+        if (!document.isObject()) { result->problem = QStringLiteral("原实例设置不是有效 JSON，未继续升级。"); return false; }
+        meta = document.object();
+        metaFile.close();
+    }
+    auto json = core.mergedJson;
+    json.insert("id", r.instanceId);
+    json.remove("inheritsFrom"); // Flattening prevents inheritance through the id being replaced.
+    json.remove("jar");
+    meta.insert("realVersion", core.gameVersion);
+    meta.insert("loaderName", core.loaderName);
+    meta.insert("loaderVersion", core.loaderVersion);
+    meta.insert("upgradeTransactionId", r.transactionId);
+    QFile jar(core.clientJar);
+    QCryptographicHash hash(QCryptographicHash::Sha1);
+    const QString expected = json.value("downloads").toObject().value("client").toObject().value("sha1").toString();
+    if (!jar.open(QIODevice::ReadOnly) || !hash.addData(&jar)
+        || (!expected.isEmpty() && QString::fromLatin1(hash.result().toHex()).compare(expected, Qt::CaseInsensitive) != 0)) {
+        result->problem = QStringLiteral("目标客户端文件未通过校验，原实例未改变。"); return false;
+    }
+    jar.close();
+    // Remove the previous core's jar/json pair before writing the new one.
+    //
+    // A directory that was renamed outside the launcher (or whose rename failed halfway)
+    // still holds a jar/json named after the *old* name. Leaving them beside the new pair
+    // is not cosmetic: the launcher adds any top-level jar that contains the main class to
+    // the classpath, and the stale client jar of course does — so the old and new cores
+    // end up on one classpath.
+    //
+    // Only these two names count as the previous core (other jars in a version directory,
+    // e.g. `lwjgl3ify-forgePatches.jar`, are required at runtime and must not be touched):
+    // · `<json id>.jar` (both vanilla and instances the launcher created), and
+    // · `<json stem>.jar` (the leftover half of a rename).
+    // NOTE: the json's own `jar` field is *not* used — in a version json it names another
+    // *version id*, not a file in this directory, so deleting by it could hit an
+    // unrelated jar.
+    const QString oldJsonName = InstanceFiles::jsonName(r.instanceId);
+    if (oldJsonName.contains('/') || oldJsonName.contains('\\') || oldJsonName.contains(':')) {
+        result->problem = QStringLiteral("旧版本信息文件名不安全，原实例未改变。"); return false;
+    }
+    const QString newJarName = r.instanceId + QStringLiteral(".jar");
+    const QString newJsonName = r.instanceId + QStringLiteral(".json");
+    QJsonObject oldJson;
+    {
+        QFile oldJsonFile(candidate + '/' + oldJsonName);
+        if (oldJsonFile.open(QIODevice::ReadOnly) && oldJsonFile.size() <= 16 * 1024 * 1024) {
+            const auto document = QJsonDocument::fromJson(oldJsonFile.readAll());
+            if (document.isObject()) oldJson = document.object();
+        }
+    }
+    const QStringList staleJars{oldJson.value(QStringLiteral("id")).toString() + QStringLiteral(".jar"),
+                                QFileInfo(oldJsonName).completeBaseName() + QStringLiteral(".jar")};
+    for (const QString &name : staleJars) {
+        if (name.contains('/') || name.contains('\\') || name.contains(':')
+            || !InstanceFiles::validateDirName(name).isEmpty()) {
+            result->problem = QStringLiteral("旧版本信息包含不安全的客户端文件名，原实例未改变。");
+            return false;
+        }
+        if (name.isEmpty() || name.compare(newJarName, Qt::CaseInsensitive) == 0) continue;
+        const QString stale = candidate + '/' + name;
+        if (QFileInfo::exists(stale) && !QFile::remove(stale)) {
+            result->problem = QStringLiteral("无法清理暂存副本中的旧客户端文件，原实例未改变。");
+            return false;
+        }
+    }
+    if (oldJsonName.compare(newJsonName, Qt::CaseInsensitive) != 0) {
+        const QString stale = candidate + '/' + oldJsonName;
+        if (QFileInfo::exists(stale) && !QFile::remove(stale)) {
+            result->problem = QStringLiteral("无法清理暂存副本中的旧版本信息，原实例未改变。");
+            return false;
+        }
+    }
+    const QString client = candidate + '/' + r.instanceId + ".jar";
+    if ((QFileInfo::exists(client) && !QFile::remove(client)) || !QFile::copy(core.clientJar, client)
+        || !saveObject(candidate + '/' + r.instanceId + ".json", json) || !saveObject(metaPath, meta)) {
+        result->problem = QStringLiteral("无法准备新核心或设置，原实例未改变。"); return false;
+    }
+    QFile copiedJar(client);
+    QCryptographicHash copiedHash(QCryptographicHash::Sha1);
+    if (!copiedJar.open(QIODevice::ReadOnly) || !copiedHash.addData(&copiedJar)
+        || copiedHash.result() != hash.result()) {
+        result->problem = QStringLiteral("目标客户端在复制期间发生变化，未发布新版本。"); return false;
+    }
+    copiedJar.close();
+    const QString natives = candidate + "/natives";
+    if (QFileInfo::exists(natives) && !removeTreeWithoutFollowingLinks(natives)) {
+        result->problem = QStringLiteral("无法清理暂存副本中的旧原生库，原实例未改变。"); return false;
+    }
+    // ---------- 2.1.3 平台适配版替换 ----------
+    // 全部落在**候选目录**里：任何一步失败都让整趟回滚，源实例/原目录不受影响。
+    QSet<QString> replacementNames;
+    if (!core.replacements.isEmpty()) {
+        const QString modsPath = candidate + QStringLiteral("/mods");
+        if (redirected(modsPath) || (QFileInfo::exists(modsPath) && !QFileInfo(modsPath).isDir())) {
+            result->problem = QStringLiteral("候选模组目录不可用，本次更新未发布。");
+            return false;
+        }
+        if (!QFileInfo::exists(modsPath) && !QDir().mkpath(modsPath)) {
+            result->problem = QStringLiteral("无法创建候选模组目录，本次更新未发布。");
+            return false;
+        }
+        for (const ModReplacement &one : core.replacements) {
+            if (one.fileName.isEmpty() || one.fileName != QFileInfo(one.fileName).fileName()
+                || one.fileName.contains(QLatin1Char('\\'))
+                || one.fileName.contains(QLatin1Char(':'))
+                || !one.fileName.endsWith(QStringLiteral(".jar"), Qt::CaseInsensitive)
+                || (!one.replaces.isEmpty()
+                    && (one.replaces != QFileInfo(one.replaces).fileName()
+                        || one.replaces.contains(QLatin1Char('\\'))
+                        || one.replaces.contains(QLatin1Char(':'))))) {
+                result->problem = QStringLiteral("适配模组文件名不安全，本次更新未发布：%1")
+                                      .arg(one.fileName);
+                return false;
+            }
+            QString problem;
+            if (!verifyFileDigest(one.stagedPath, one.size, one.sha1, &problem)) {
+                result->problem = QStringLiteral("适配模组未通过校验，整趟更新已回滚：%1")
+                                      .arg(problem);
+                return false;
+            }
+            if (!one.replaces.isEmpty()) {
+                const QString oldPath = QDir(modsPath).filePath(one.replaces);
+                if (redirected(oldPath)) {
+                    result->problem = QStringLiteral("要替换的旧模组是链接，未动它：%1").arg(one.replaces);
+                    return false;
+                }
+                if (QFileInfo::exists(oldPath) && !QFile::remove(oldPath)) {
+                    result->problem = QStringLiteral("无法移除旧模组，本次更新未发布：%1")
+                                          .arg(one.replaces);
+                    return false;
+                }
+            }
+            if (!copyReplacementIntoCandidate(one, modsPath, &problem)) {
+                result->problem = QStringLiteral("适配模组写入失败，整趟更新已回滚：%1").arg(problem);
+                return false;
+            }
+            replacementNames.insert(one.fileName);
+            if (one.replaces.isEmpty()) {
+                result->changes.append(QObject::tr("新增前置：%1（%2 %3）")
+                                           .arg(one.fileName, one.title, one.toVersion));
+            } else {
+                result->changes.append(QObject::tr("替换：%1 → %2（%3 %4 → %5）")
+                                           .arg(one.replaces, one.fileName, one.title,
+                                                one.fromVersion, one.toVersion));
+            }
+        }
+    }
+    if (core.disableOldMods) {
+        QDirIterator it(candidate + "/mods", QDir::Files | QDir::Hidden, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            const QString path = it.next();
+            if (!path.endsWith(".jar", Qt::CaseInsensitive)) continue;
+              const QString relative = QDir(candidate + "/mods").relativeFilePath(path);
+              if (core.keepOldMods.contains(relative) || replacementNames.contains(relative)) continue;
+            if (QFileInfo::exists(path + ".disabled") || !QFile::rename(path, path + ".disabled")) {
+                result->problem = QStringLiteral("无法禁用尚未验证兼容性的旧模组，原实例未改变。"); return false;
+            }
+            ++result->disabledMods;
+        }
+    }
+    if (result->disabledMods > 0) {
+        result->changes.append(QObject::tr("禁用未验证兼容性的旧模组 %1 个（文件保留为 .disabled）")
+                                   .arg(result->disabledMods));
+    }
+    if (!writeUpdateChangeLog(r, core, candidate, result)) return false;
+    return true;
+}
 static Result prepareAndCommitImpl(Request r, const Core &core, const std::function<void(Stage)> &progress,
                                    const std::function<bool()> &cancelled) {
     Result result;
@@ -239,118 +567,12 @@ static Result prepareAndCommitImpl(Request r, const Core &core, const std::funct
         }
         return result;
     }
-    // Read identity/settings from the copied original, never from the target.
-    QJsonObject meta;
-    const QString metaPath = candidate + "/wtfml.meta";
-    QFile metaFile(metaPath);
-    if (metaFile.exists()) {
-        if (!metaFile.open(QIODevice::ReadOnly) || metaFile.size() > 16 * 1024 * 1024) {
-            result.problem = QStringLiteral("无法读取原实例设置，未继续升级。"); return result;
-        }
-        const auto document = QJsonDocument::fromJson(metaFile.readAll());
-        if (!document.isObject()) { result.problem = QStringLiteral("原实例设置不是有效 JSON，未继续升级。"); return result; }
-        meta = document.object();
-        metaFile.close();
-    }
-    auto json = core.mergedJson;
-    json.insert("id", r.instanceId);
-    json.remove("inheritsFrom"); // Flattening prevents inheritance through the id being replaced.
-    json.remove("jar");
-    meta.insert("realVersion", core.gameVersion);
-    meta.insert("loaderName", core.loaderName);
-    meta.insert("loaderVersion", core.loaderVersion);
-    meta.insert("upgradeTransactionId", r.transactionId);
-    QFile jar(core.clientJar);
-    QCryptographicHash hash(QCryptographicHash::Sha1);
-    const QString expected = json.value("downloads").toObject().value("client").toObject().value("sha1").toString();
-    if (!jar.open(QIODevice::ReadOnly) || !hash.addData(&jar)
-        || (!expected.isEmpty() && QString::fromLatin1(hash.result().toHex()).compare(expected, Qt::CaseInsensitive) != 0)) {
-        result.problem = QStringLiteral("目标客户端文件未通过校验，原实例未改变。"); return result;
-    }
-    jar.close();
-    // Remove the previous core's jar/json pair before writing the new one.
-    //
-    // A directory that was renamed outside the launcher (or whose rename failed halfway)
-    // still holds a jar/json named after the *old* name. Leaving them beside the new pair
-    // is not cosmetic: the launcher adds any top-level jar that contains the main class to
-    // the classpath, and the stale client jar of course does — so the old and new cores
-    // end up on one classpath.
-    //
-    // Only these two names count as the previous core (other jars in a version directory,
-    // e.g. `lwjgl3ify-forgePatches.jar`, are required at runtime and must not be touched):
-    // · `<json id>.jar` (both vanilla and instances the launcher created), and
-    // · `<json stem>.jar` (the leftover half of a rename).
-    // NOTE: the json's own `jar` field is *not* used — in a version json it names another
-    // *version id*, not a file in this directory, so deleting by it could hit an
-    // unrelated jar.
-    const QString oldJsonName = InstanceFiles::jsonName(r.instanceId);
-    if (oldJsonName.contains('/') || oldJsonName.contains('\\') || oldJsonName.contains(':')) {
-        result.problem = QStringLiteral("旧版本信息文件名不安全，原实例未改变。"); return result;
-    }
-    const QString newJarName = r.instanceId + QStringLiteral(".jar");
-    const QString newJsonName = r.instanceId + QStringLiteral(".json");
-    QJsonObject oldJson;
-    {
-        QFile oldJsonFile(candidate + '/' + oldJsonName);
-        if (oldJsonFile.open(QIODevice::ReadOnly) && oldJsonFile.size() <= 16 * 1024 * 1024) {
-            const auto document = QJsonDocument::fromJson(oldJsonFile.readAll());
-            if (document.isObject()) oldJson = document.object();
-        }
-    }
-    const QStringList staleJars{oldJson.value(QStringLiteral("id")).toString() + QStringLiteral(".jar"),
-                                QFileInfo(oldJsonName).completeBaseName() + QStringLiteral(".jar")};
-    for (const QString &name : staleJars) {
-        if (name.contains('/') || name.contains('\\') || name.contains(':')
-            || !InstanceFiles::validateDirName(name).isEmpty()) {
-            result.problem = QStringLiteral("旧版本信息包含不安全的客户端文件名，原实例未改变。");
-            return result;
-        }
-        if (name.isEmpty() || name.compare(newJarName, Qt::CaseInsensitive) == 0) continue;
-        const QString stale = candidate + '/' + name;
-        if (QFileInfo::exists(stale) && !QFile::remove(stale)) {
-            result.problem = QStringLiteral("无法清理暂存副本中的旧客户端文件，原实例未改变。");
-            return result;
-        }
-    }
-    if (oldJsonName.compare(newJsonName, Qt::CaseInsensitive) != 0) {
-        const QString stale = candidate + '/' + oldJsonName;
-        if (QFileInfo::exists(stale) && !QFile::remove(stale)) {
-            result.problem = QStringLiteral("无法清理暂存副本中的旧版本信息，原实例未改变。");
-            return result;
-        }
-    }
-    const QString client = candidate + '/' + r.instanceId + ".jar";
-    if ((QFileInfo::exists(client) && !QFile::remove(client)) || !QFile::copy(core.clientJar, client)
-        || !saveObject(candidate + '/' + r.instanceId + ".json", json) || !saveObject(metaPath, meta)) {
-        result.problem = QStringLiteral("无法准备新核心或设置，原实例未改变。"); return result;
-    }
-    QFile copiedJar(client);
-    QCryptographicHash copiedHash(QCryptographicHash::Sha1);
-    if (!copiedJar.open(QIODevice::ReadOnly) || !copiedHash.addData(&copiedJar)
-        || copiedHash.result() != hash.result()) {
-        result.problem = QStringLiteral("目标客户端在复制期间发生变化，未发布新版本。"); return result;
-    }
-    copiedJar.close();
-    const QString natives = candidate + "/natives";
-    if (QFileInfo::exists(natives) && !removeTreeWithoutFollowingLinks(natives)) {
-        result.problem = QStringLiteral("无法清理暂存副本中的旧原生库，原实例未改变。"); return result;
-    }
-    if (core.disableOldMods) {
-        QDirIterator it(candidate + "/mods", QDir::Files | QDir::Hidden, QDirIterator::Subdirectories);
-        while (it.hasNext()) {
-            const QString path = it.next();
-            if (!path.endsWith(".jar", Qt::CaseInsensitive)) continue;
-              const QString relative = QDir(candidate + "/mods").relativeFilePath(path);
-              if (core.keepOldMods.contains(relative)) continue;
-            if (QFileInfo::exists(path + ".disabled") || !QFile::rename(path, path + ".disabled")) {
-                result.problem = QStringLiteral("无法禁用尚未验证兼容性的旧模组，原实例未改变。"); return result;
-            }
-            ++result.disabledMods;
-        }
-    }
+    if (!applyCoreToCandidate(r, core, candidate, &result)) return result;
     const int disabled = result.disabledMods;
+    const QStringList appliedChanges = result.changes;
     result = commitPrepared(r, progress, cancelled);
     result.disabledMods = disabled;
+    result.changes = appliedChanges;
     return result;
 }
 
@@ -370,6 +592,164 @@ Result prepareAndCommit(Request r, const Core &core, const std::function<void(St
         Result result; result.problem = QStringLiteral("升级事务正在使用，未修改实例。"); return result;
     }
     const auto result = prepareAndCommitImpl(r, core, progress, cancelled);
+    if (!result.ok) discardUnpublishedStaging(r);
+    return result;
+}
+
+namespace {
+/// 副本模式：源实例只读，候选目录是唯一会被写的东西。
+///
+/// 和原地升级的取舍（见头文件）：**不做 ZIP 快照**。理由是源实例一个字节都不动 ——
+/// 它就是回滚材料；再为副本打一份完整 ZIP 只是把同一份内容第五次写进磁盘。
+/// 反过来，校验必须一样严：复制后、发布前、发布后各对一遍路径/大小/SHA-1。
+static Result prepareCopyAndCommitImpl(Request r, const Core &core, const QString &sourceDir,
+                                       const std::function<void(Stage)> &progress,
+                                       const std::function<bool()> &cancelled) {
+    Result result;
+    const auto stopped = [&] { return cancelled && cancelled(); };
+    const auto cancelResult = [&](const QString &note) {
+        result.cancelled = true;
+        result.problem = note;
+        return result;
+    };
+    result.problem = validate(r);
+    if (!result.problem.isEmpty()) return result;
+    // 源在同一个游戏目录里、必须是目录、不能是链接；目标名字不能已经存在。
+    const QString original = originalDir(r), candidate = candidateDir(r);
+    if (QDir::cleanPath(sourceDir) == QDir::cleanPath(original)
+        || !QFileInfo(sourceDir).isDir() || redirected(sourceDir)
+        || InstanceFiles::pathIsSameOrInside(original, sourceDir)
+        || InstanceFiles::pathIsSameOrInside(candidate, sourceDir)) {
+        result.problem = QStringLiteral("副本的源实例或目标目录不安全，未复制任何文件。");
+        return result;
+    }
+    if (QFileInfo::exists(original) || QFileInfo::exists(candidate)) {
+        result.problem = QStringLiteral("目标实例名已经存在，未覆盖任何文件。");
+        return result;
+    }
+    if (core.mergedJson.value("mainClass").toString().isEmpty() || core.gameVersion.isEmpty()
+        || !QDir::isAbsolutePath(core.clientJar) || !QFileInfo(core.clientJar).isFile()
+        || redirected(core.clientJar)) {
+        result.problem = QStringLiteral("目标核心或客户端文件无效，未执行副本更新。");
+        return result;
+    }
+    if (progress) progress(Stage::Checking);
+    result.problem = checkTree(sourceDir);
+    if (!result.problem.isEmpty()) return result;
+    QString problem;
+    const auto files = BackupFiles::collectFiles(sourceDir, {}, &problem, cancelled);
+    if (stopped()) return cancelResult(QStringLiteral("已取消复制。"));
+    if (!problem.isEmpty() || files.isEmpty()) {
+        result.problem = problem.isEmpty() ? QStringLiteral("源实例是空的。") : problem;
+        return result;
+    }
+    r.originalFingerprint = fingerprint(files);
+    qint64 size = 0;
+    for (const auto &file : files) {
+        if (file.size < 0 || size > std::numeric_limits<qint64>::max() - file.size) {
+            result.problem = QStringLiteral("实例大小溢出，未开始复制。");
+            return result;
+        }
+        size += file.size;
+    }
+    // 只有一次复制：源 → 暂存候选。校验是读一遍比对，不再另占一份空间。
+    const qint64 margin = 64 * 1024 * 1024;
+    const qint64 available = QStorageInfo(r.gameDir).bytesAvailable();
+    const qint64 budget = r.spaceBudgetBytes >= 0
+        ? qMin(available, r.spaceBudgetBytes) : available;
+    if (available < 0 || size > std::numeric_limits<qint64>::max() - margin
+        || budget < size + margin) {
+        result.problem = QStringLiteral("空间不足以复制更新副本（只需一份用户文件的体积），未复制任何文件。");
+        return result;
+    }
+    if (stopped()) return cancelResult(QStringLiteral("已取消复制。"));
+    if (progress) progress(Stage::Copy);
+    if (!copyTreeWithoutFollowingLinks(sourceDir, candidate, cancelled)) {
+        if (stopped()) return cancelResult(QStringLiteral("已取消复制。"));
+        result.problem = QStringLiteral("更新副本复制失败，原实例未改变。");
+        return result;
+    }
+    if (progress) progress(Stage::VerifyCopy);
+    if (!sameFiles(candidate, files, cancelled)) {
+        if (stopped()) return cancelResult(QStringLiteral("已取消复制。"));
+        result.problem = QStringLiteral("更新副本未通过完整校验，原实例未改变。");
+        return result;
+    }
+    if (!applyCoreToCandidate(r, core, candidate, &result)) return result;
+    if (stopped()) return cancelResult(QStringLiteral("已取消，更新副本未发布。"));
+    const int disabled = result.disabledMods;
+    const auto newFiles = BackupFiles::collectFiles(candidate, {}, &problem, cancelled);
+    if (stopped()) return cancelResult(QStringLiteral("已取消，更新副本未发布。"));
+    if (!problem.isEmpty() || newFiles.isEmpty()) {
+        result.problem = problem.isEmpty() ? QStringLiteral("更新副本没有文件。") : problem;
+        return result;
+    }
+    result.problem = checkTree(candidate);
+    if (result.problem.isEmpty() && !sameFiles(candidate, newFiles, cancelled)) {
+        result.problem = stopped() ? QString() : QStringLiteral("更新副本在准备期间发生变化，未发布。");
+        if (result.problem.isEmpty()) return cancelResult(QStringLiteral("已取消，更新副本未发布。"));
+        return result;
+    }
+    if (!result.problem.isEmpty()) return result;
+    const QString journalState = QStringLiteral("copy_prepared");
+    if (!writeJournal(r, journalState, QString())) {
+        result.problem = QStringLiteral("无法写入副本事务记录，未发布。");
+        return result;
+    }
+    if (progress) progress(Stage::Publish);
+    if (stopped()) return cancelResult(QStringLiteral("已取消发布。"));
+    if (QFileInfo::exists(original)) {
+        result.problem = QStringLiteral("目标实例名在复制期间被创建，未覆盖。");
+        return result;
+    }
+    if (!QDir().rename(candidate, original)) {
+        result.problem = QStringLiteral("无法发布更新副本，原实例未改变。");
+        return result;
+    }
+    if (progress) progress(Stage::Verify);
+    if (checkTree(original).isEmpty() && sameFiles(original, newFiles, cancelled)) {
+        result.disabledMods = disabled;
+        result.requiresReload = true;
+        result.ok = writeJournal(r, QStringLiteral("committed"), QString());
+        if (!result.ok) {
+            result.problem = QStringLiteral("副本已发布，但事务记录未能更新；没有删除任何文件。");
+        }
+        if (progress && result.ok) progress(Stage::Done);
+        return result;
+    }
+    // 发布后的校验没过：不删这份副本，但也不把它留在实例名上（那一份会被当成能启动）。
+    // 换成 rejected 名字，并在记录里说清它是哪一次、为什么被拒。
+    const QString rejected = transactionDir(r) + QStringLiteral("/rejected");
+    result.requiresReload = true;
+    if (!QFileInfo::exists(rejected) && QDir().rename(original, rejected)
+        && writeJournal(r, QStringLiteral("copy_rejected"), QString())) {
+        result.problem = QStringLiteral("更新副本发布后校验失败，已保留在被拒绝目录：")
+            + rejected;
+    } else {
+        result.problem = QStringLiteral("更新副本发布后校验失败，且自动撤回失败；请手动检查：")
+            + original;
+    }
+    return result;
+}
+} // namespace
+
+Result prepareCopyAndCommit(Request r, const Core &core, const QString &sourceDir,
+                            const std::function<void(Stage)> &progress,
+                            const std::function<bool()> &cancelled) {
+    const QString invalid = validate(r);
+    if (!invalid.isEmpty()) { Result result; result.problem = invalid; return result; }
+    QString lockProblem;
+    if (!DirectorySessionLock::acquire(r.gameDir, &lockProblem)) {
+        Result result; result.problem = lockProblem; return result;
+    }
+    const QString parent = QFileInfo(transactionDir(r)).absolutePath();
+    QDir().mkpath(parent);
+    QLockFile lock(transactionDir(r) + QStringLiteral(".lock"));
+    lock.setStaleLockTime(0);
+    if (!lock.tryLock()) {
+        Result result; result.problem = QStringLiteral("副本事务正在使用，未修改实例。"); return result;
+    }
+    const auto result = prepareCopyAndCommitImpl(r, core, sourceDir, progress, cancelled);
     if (!result.ok) discardUnpublishedStaging(r);
     return result;
 }
@@ -710,6 +1090,31 @@ QStringList recoverInterrupted(const QString &gameDir) {
         const Request r{gameDir, json.value("instanceId").toString(), id, {}};
         if (!validate(r).isEmpty() || readJournal(r).isEmpty()) continue;
         const QString state = json.value("state").toString();
+        // 副本模式（2.1.1）：源实例没被动过，所以**没有**回滚材料；这里只负责
+        // 识别并收掉自己留下的暂存。不认识的目录一律不碰。
+        if (state == QLatin1String("copy_prepared")) {
+            const bool published = QFileInfo(originalDir(r)).isDir();
+            const bool cleaned = removeTreeWithoutFollowingLinks(transactionDir(r));
+            messages.append(published
+                ? QStringLiteral("上次的更新副本已发布（事务记录未更新），已清理暂存：%1").arg(r.instanceId)
+                : QStringLiteral("已清理未发布的更新副本暂存：%1%2")
+                      .arg(r.instanceId, cleaned ? QString() : QStringLiteral("（暂存未能删除，请手动检查）")));
+            continue;
+        }
+        if (state == QLatin1String("copy_rejected")) {
+            messages.append(QStringLiteral("更新副本发布后校验失败，材料保留在：%1")
+                                .arg(transactionDir(r) + QStringLiteral("/rejected")));
+            continue;
+        }
+        if (state == QLatin1String("committed")
+            && !QFileInfo(transactionDir(r) + "/original").isDir()
+            && !QFileInfo(transactionDir(r) + "/replaced").isDir()) {
+            // 副本模式那次已成功提交：没有回滚材料，事务目录只剩一份记录，不必再留。
+            if (removeTreeWithoutFollowingLinks(transactionDir(r))) {
+                messages.append(QStringLiteral("已清理副本升级记录：%1").arg(r.instanceId));
+            }
+            continue;
+        }
         if (state != "prepared" && state != "original_retained" && state != "rollback_pending") continue;
         if (state == "prepared" && !QFileInfo(transactionDir(r) + "/original").isDir()) {
             // Crash before the original was retained: nothing under versions/ was

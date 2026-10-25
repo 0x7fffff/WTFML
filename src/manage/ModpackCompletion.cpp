@@ -151,8 +151,8 @@ bool capture(const QString &instance, const QString &dataRoot, const ModpackImpo
 
 bool finish(const QString &instance, QString *error, const Stop &stop) {
     if (error) error->clear();
-    const auto abort = [&](const QString &message) { return fail(error, message); };
-    if (!safe(instance, proofName)) return abort(QObject::tr("收尾凭据路径不安全"));
+    const auto failFast = [&](const QString &message) { return fail(error, message); };
+    if (!safe(instance, proofName)) return failFast(QObject::tr("收尾凭据路径不安全"));
     const auto proof = QJsonDocument::fromJson(bounded(instance + '/' + proofName)).object();
     const QString dataRoot = proof.value("dataRoot").toString();
     const auto id = QFileInfo(instance).fileName();
@@ -162,7 +162,34 @@ bool finish(const QString &instance, QString *error, const Stop &stop) {
         InstanceFiles::canonicalPath(instance) != InstanceFiles::canonicalPath(QDir(dataRoot).filePath("versions/" + id)) ||
         !markerMatches(instance, proof) || !proof.value("files").isArray() ||
         proof.value("files").toArray().isEmpty() || !proof.value("issues").isArray())
-        return abort(QObject::tr("缺少有效阶段凭据或实例/清单已改变，请使用原包继续导入"));
+        return failFast(QObject::tr("缺少有效阶段凭据或实例/清单已改变，请使用原包继续导入"));
+    QList<ModpackImport::FileIssue> issues;
+    for (const auto &value : proof.value("issues").toArray()) {
+        const auto entry = value.toObject();
+        ModpackImport::FileIssue issue;
+        issue.ref = {entry.value("projectId").toInt(), entry.value("fileId").toInt()};
+        issue.fileName = entry.value("fileName").toString(); issue.path = entry.value("path").toString();
+        issue.sha1 = entry.value("sha1").toString(); issue.reason = entry.value("reason").toString();
+        issue.projectWebUrl = entry.value("projectWebUrl").toString();
+        bool ok = false; issue.size = entry.value("size").toString().toLongLong(&ok);
+        if (!ok) return failFast(QObject::tr("缺项凭据损坏"));
+        issues.append(issue);
+    }
+    ModpackImport::Pack pack;
+    pack.name = proof.value("packName").toString();
+    // 任何一次提前退出都不能把盘上那份**完成报告**留在原处：这个函数的任务就是
+    // “要么真正收尾（移除 importing 标记），要么让报告如实说没完成”。收尾中途取消
+    // （包括在完成报告已发布之后才收到取消）都要把报告退回未完成；否则用户和补齐全流程
+    // 都会看到一份 complete=true 却仍然无法启动的实例。
+    const auto abort = [&](const QString &message) {
+        const QString reportName = QStringLiteral("wtfml.import-report.json");
+        if (safe(instance, reportName)
+            && QFileInfo::exists(instance + QLatin1Char('/') + reportName)) {
+            QString ignored;
+            ModpackInstallReport::write(instance, pack, issues, false, &ignored, message);
+        }
+        return fail(error, message);
+    };
     for (const auto &value : proof.value("files").toArray()) {
         const auto entry = value.toObject();
         const auto scope = entry.value("scope").toString();
@@ -177,18 +204,6 @@ bool finish(const QString &instance, QString *error, const Stop &stop) {
             !QRegularExpression(QStringLiteral("^[a-f0-9]{40}$")).match(expected).hasMatch() ||
             digest(path, stop) != expected)
             return abort(QObject::tr("文件已改变、缺失或校验被取消：%1").arg(relative));
-    }
-    QList<ModpackImport::FileIssue> issues;
-    for (const auto &value : proof.value("issues").toArray()) {
-        const auto entry = value.toObject();
-        ModpackImport::FileIssue issue;
-        issue.ref = {entry.value("projectId").toInt(), entry.value("fileId").toInt()};
-        issue.fileName = entry.value("fileName").toString(); issue.path = entry.value("path").toString();
-        issue.sha1 = entry.value("sha1").toString(); issue.reason = entry.value("reason").toString();
-        issue.projectWebUrl = entry.value("projectWebUrl").toString();
-        bool ok = false; issue.size = entry.value("size").toString().toLongLong(&ok);
-        if (!ok) return abort(QObject::tr("缺项凭据损坏"));
-        issues.append(issue);
     }
     const auto verified = ModpackInstallReport::verifyExisting(instance, issues, stop);
     if (verified.cancelled || !verified.problems.isEmpty() || verified.suppliedPaths.size() != issues.size())
@@ -208,20 +223,14 @@ bool finish(const QString &instance, QString *error, const Stop &stop) {
     const auto key = proof.value("loaderKey").toString();
     const QHash<QString, QString> names{{"fabric-loader", "Fabric"}, {"forge", "Forge"}, {"neoforge", "NeoForge"}, {"quilt-loader", "Quilt"}};
     if (!key.isEmpty()) { meta["loaderName"] = names.value(key, key); meta["loaderVersion"] = proof.value("loaderVersion"); }
-    ModpackImport::Pack pack; pack.name = proof.value("packName").toString();
     if (!save(metaPath, meta)) return abort(QObject::tr("元数据写入失败，内容保留"));
     if ((stop && stop()) || !markerMatches(instance, proof)) return abort(QObject::tr("已取消或导入标记改变，保留未完成状态"));
     if (!ModpackInstallReport::write(instance, pack, {}, true, error)) return false;
     // 报告写入也可能耗时；发布启动门禁前再检查取消和导入尝试绑定。
     if ((stop && stop()) || !markerMatches(instance, proof)) {
-        QString ignored;
-        ModpackInstallReport::write(instance, pack, issues, false, &ignored,
-                                    QObject::tr("提交前已取消或导入标记改变"));
         return abort(QObject::tr("已取消或导入标记改变，保留未完成状态"));
     }
     if (!QFile::remove(instance + QStringLiteral("/wtfml.importing"))) {
-        QString ignored;
-        ModpackInstallReport::write(instance, pack, issues, false, &ignored, QObject::tr("最后提交失败"));
         return abort(QObject::tr("无法移除未完成标记，请重试；文件均已保留"));
     }
     // 成功后凭据留作审计，但没有匹配的 importing 标记就不能重复提交。

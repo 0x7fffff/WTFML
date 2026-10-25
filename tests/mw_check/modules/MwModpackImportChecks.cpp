@@ -108,25 +108,11 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
                        "fileSize": 1234}]
         })");
 
-        // ---- AA4 Quilt：认得出来，但这个启动器装不了 ----
-        // 这一条是"能装出一个进不去的整合包"和"不装"之间那个选择：产品选的是**不装**，
-        // 而且要说清为什么。所以它必须在这里被拦下，而不是下完 150 个模组之后才说。
-        dismissNextPrompt();
-        check(!tryImport(QByteArrayLiteral(R"({
-                  "formatVersion": 1, "game": "minecraft", "versionId": "1.0.0",
-                  "name": "Quilt 包",
-                  "dependencies": {"minecraft": "1.20.1", "quilt-loader": "0.20.0"},
-                  "files": [{"path": "mods/a.jar", "downloads": ["https://example.invalid/a.jar"],
-                             "hashes": {"sha1": "0000"}}]})"),
-                         QStringLiteral("新实例")),
-              "AA4 要 Quilt 的包 → 拒绝");
-        check(g_modalTitle == QStringLiteral("这个整合包装不了"),
-              "AA4 弹的是「这个整合包装不了」",
-              g_modalTitle + QStringLiteral(" / ") + g_modalText);
-        check(!g_modalWasWarning, "AA4 是提示框不是警告框（这不是「出错」，是「装不了」）");
-        check(g_modalText.contains(QStringLiteral("Quilt")) &&
-                  g_modalText.contains(QStringLiteral("没有")) ,
-              "AA4 弹窗点名了 Quilt、也说清了没有导", g_modalText);
+        // ---- AA4 Quilt：2.1.4 起客户端可安装/可升级，不再在加载器那一关被拒 ----
+        // 这里只钉数据层的判据，不真去下 Quilt：安装链路由 core 的 V9 和实例更新专项覆盖。
+        check(ModpackImport::unsupportedLoaderText(ModpackImport::quiltLoaderKey(),
+                                                   QStringLiteral("0.20.0")).isEmpty(),
+              "AA4 要 Quilt 的包不再被加载器闸门拒绝");
 
         // ---- AA5 名字建不出目录来（Windows 保留设备名）----
         // 走到这一步说明清单、加载器都过了 —— 这是"只剩名字不对"那条路。
@@ -375,19 +361,17 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
             check(g_modalText.contains(QStringLiteral("文件清单是空的")),
                   "AA9 说清了是清单空的", g_modalText);
 
-            // ③ 加载器那一关照旧认 CF 那个写法：`quilt-0.20.0` 翻译成 `quilt-loader` 之后，
-            // 下游那几句拦人的话一个字都不用改。
-            dismissNextPrompt();
-            check(!tryImport(cfManifest("quilt-0.20.0"), QStringLiteral("新实例"),
-                             ModpackImport::Format::CurseForge),
-                  "AA9 quilt 的 CF 包 → 拒");
-            check(g_modalTitle == QStringLiteral("这个整合包装不了") &&
-                      g_modalText.contains(QStringLiteral("Quilt")) &&
-                      g_modalText.contains(QStringLiteral("0.20.0")),
-                  "AA9 加载器那一关认出的是 CF 写法里带的那个版本（拆串拆对了）",
-                  g_modalTitle + QStringLiteral(" / ") + g_modalText);
-            check(!g_modalWasWarning,
-                  "AA9 「这个整合包装不了」是一句报信（不是出错，颜色也跟着是那一档）");
+            // ③ 加载器那一关认得 CF 那个写法：`quilt-0.20.0` 翻译成 `quilt-loader`。
+            // 2.1.4 起 Quilt 已接通，所以这里的结论是"键/版本拆对了、不再拒绝"。
+            QString quiltKey;
+            QString quiltVersion;
+            check(ModpackImport::curseForgeLoaderKey(QStringLiteral("quilt-0.20.0"), &quiltKey,
+                                                     &quiltVersion)
+                      && quiltKey == ModpackImport::quiltLoaderKey()
+                      && quiltVersion == QStringLiteral("0.20.0")
+                      && ModpackImport::unsupportedLoaderText(quiltKey, quiltVersion).isEmpty(),
+                  "AA9 quilt 的 CF 写法拆成 quilt-loader / 0.20.0，且不再拒绝",
+                  quiltKey + QStringLiteral(" / ") + quiltVersion);
 
             // ④ **认不出来的加载器**：`liteloader` 在 CF 那边是合法的写法。这里最要紧的是
             // 它**不许**被当成"纯原版包"放行 —— 键给了空的 key 就会一路装出一个进得去但

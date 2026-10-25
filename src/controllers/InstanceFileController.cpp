@@ -5,10 +5,14 @@
 #include "OverlayHost.hpp"
 #include "manage/FolderManager.hpp"
 #include "util/WriteDirectoryGuard.hpp"
+#include "util/AppPaths.hpp"
+#include "operations/OperationReport.hpp"
+#include <QUuid>
 
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSaveFile>
 
 #include <utility>
 
@@ -171,6 +175,38 @@ bool InstanceFileController::removeUnchecked(const QString &path, QString *probl
     return true;
 }
 
+namespace {
+/// 批量文件操作也走统一的 `OperationReport`（2.1.2）：逐项结果与“为什么没做完”只有一套说法。
+void recordBatchReport(const QString &instanceId, const QString &title,
+                       const QList<OperationReport::Entry> &entries) {
+    if (title.isEmpty() || entries.isEmpty()) return;
+    OperationReport::Report report;
+    report.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    report.kind = OperationReport::Kind::Batch;
+    report.title = title;
+    report.instanceId = instanceId;
+    report.targetRoot = instanceId.isEmpty() ? QString() : AppPaths::versionDir(instanceId);
+    report.totalFiles = entries.size();
+    report.startedAt = QDateTime::currentDateTime();
+    report.updatedAt = report.startedAt;
+    for (const auto &entry : entries) {
+        report.entries.append(entry);
+        if (entry.state == OperationReport::EntryState::Done) ++report.doneFiles;
+        else if (entry.state == OperationReport::EntryState::Skipped) ++report.skippedFiles;
+        else if (entry.state == OperationReport::EntryState::Failed) ++report.failedFiles;
+    }
+    report.complete = report.failedFiles == 0;
+    if (!report.complete) {
+        report.failureReason = QObject::tr("有 %1 项没有完成。").arg(report.failedFiles);
+    }
+    const QString path = OperationReport::reportPath(AppPaths::minecraftDir(), report.id);
+    QString problem;
+    if (OperationReport::saveReport(path, report, &problem) && !report.complete) {
+        OperationReport::writeFailureText(path, report);
+    }
+}
+}  // namespace
+
 void InstanceFileController::toggleMany(const QStringList &paths, bool disable) {
     if (paths.isEmpty()) return;
     if (const QString why = firstRefusal(paths); !why.isEmpty()) {
@@ -181,16 +217,33 @@ void InstanceFileController::toggleMany(const QStringList &paths, bool disable) 
     const QStringList ids = beginFileOperation(paths);
     int changed = 0, failed = 0;
     QStringList problems;
+    QList<OperationReport::Entry> entries;
     for (const QString &path : paths) {
-        if (path.endsWith(suffix, Qt::CaseInsensitive) == disable) continue;
+        if (path.endsWith(suffix, Qt::CaseInsensitive) == disable) {
+            entries.append(OperationReport::Entry{
+                QFileInfo(path).fileName(), QFileInfo(path).size(),
+                OperationReport::EntryState::Skipped, QObject::tr("本来就已是目标状态")});
+            continue;
+        }
         QString problem;
-        if (toggleUnchecked(path, &problem)) ++changed;
-        else {
+        if (toggleUnchecked(path, &problem)) {
+            ++changed;
+            entries.append(OperationReport::Entry{
+                QFileInfo(path).fileName(), QFileInfo(path).size(),
+                OperationReport::EntryState::Done, QString()});
+        } else {
             ++failed;
             if (!problem.isEmpty() && !problems.contains(problem)) problems.append(problem);
+            entries.append(OperationReport::Entry{
+                QFileInfo(path).fileName(), QFileInfo(path).size(),
+                OperationReport::EntryState::Failed, problem});
         }
     }
     endFileOperation(ids);
+    recordBatchReport(ids.isEmpty() ? QString() : ids.constFirst(),
+                      disable ? tr("批量禁用 %1 项").arg(paths.size())
+                              : tr("批量启用 %1 项").arg(paths.size()),
+                      entries);
     log(tr("%1：动了 %2 个文件。").arg(disable ? tr("批量禁用") : tr("批量启用")).arg(changed));
     if (failed > 0)
         InlineMessage::warning(m_overlay, tr("改动失败"),
@@ -252,16 +305,26 @@ void InstanceFileController::removeMany(const QStringList &paths) {
     }
     int removed = 0, failed = 0;
     QStringList problems;
+    QList<OperationReport::Entry> entries;
     const QStringList ids = beginFileOperation(paths);
     for (const QString &path : paths) {
         QString problem;
-        if (removeUnchecked(path, &problem)) ++removed;
-        else {
+        if (removeUnchecked(path, &problem)) {
+            ++removed;
+            entries.append(OperationReport::Entry{
+                QFileInfo(path).fileName(), QFileInfo(path).size(),
+                OperationReport::EntryState::Done, QString()});
+        } else {
             ++failed;
             if (!problem.isEmpty() && !problems.contains(problem)) problems.append(problem);
+            entries.append(OperationReport::Entry{
+                QFileInfo(path).fileName(), QFileInfo(path).size(),
+                OperationReport::EntryState::Failed, problem});
         }
     }
     endFileOperation(ids);
+    recordBatchReport(ids.isEmpty() ? QString() : ids.constFirst(),
+                      tr("批量删除 %1 项").arg(paths.size()), entries);
     // 「项」而不是「个文件」：这一批里可能混着文件夹（见上面那一问）。
     log(tr("批量删除：删掉了 %1 项。").arg(removed));
     if (failed > 0)
