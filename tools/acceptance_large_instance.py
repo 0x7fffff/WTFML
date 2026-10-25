@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import hashlib
 import json
 import os
 import platform
@@ -184,6 +185,11 @@ def parse_stages(output: str) -> list[dict]:
     ]
 
 
+def digest(path: Path) -> str:
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 def run_probe(exe: Path, args: list[str], env: dict, timeout: float):
     started = time.monotonic()
     completed = subprocess.run(
@@ -277,6 +283,8 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=600.0)
     parser.add_argument("--keep", action="store_true", help="keep the fixture")
     args = parser.parse_args()
+    if args.payload_mb < 0 or args.files < 0 or not 0 < args.timeout <= 900:
+        parser.error("payload/files must be nonnegative and timeout must be in (0, 900]")
 
     verify_exe = Path(args.verify_exe).resolve()
     if not verify_exe.is_file():
@@ -291,6 +299,8 @@ def main() -> int:
         else Path(tempfile.mkdtemp(prefix="wtfml-accept-large-"))
     )
     work.mkdir(parents=True, exist_ok=True)
+    if any(work.iterdir()):
+        raise SystemExit(f"work directory must be empty; existing files are never reused or deleted: {work}")
     game = work / "game"
     dest_root = work / "dest-game"
     source = game / "versions" / "Acceptance"
@@ -310,6 +320,7 @@ def main() -> int:
     write_bytes(target / "Target.jar", b"new-core")
     write_bytes(target / "Target.json", b'{"id":"Target"}')
     core_jar = target / "Target.jar"
+    original_hash = digest(source / "saves/World/region/large.bin")
 
     volume = volume_info(work)
     defender = defender_realtime()
@@ -363,7 +374,7 @@ def main() -> int:
         copied_payload = dest_root / "versions" / "大副本" / "saves/World/region/large.bin"
         check(
             copied_payload.is_file()
-            and copied_payload.stat().st_size == args.payload_mb * 1024 * 1024,
+            and digest(copied_payload) == original_hash,
             "large payload copied byte-for-byte",
         )
         print(f"      large copy elapsed: {elapsed:.2f}s")
@@ -396,7 +407,7 @@ def main() -> int:
         source_payload = source / "saves" / "World" / "region" / "large.bin"
         check(
             source_payload.is_file()
-            and source_payload.stat().st_size == args.payload_mb * 1024 * 1024,
+            and digest(source_payload) == original_hash,
             "source payload is untouched after the failure",
         )
         print(f"      locked-copy elapsed: {elapsed:.2f}s")
@@ -509,7 +520,7 @@ def main() -> int:
         payload_after = source / "saves" / "World" / "region" / "large.bin"
         payload_ok = (
             payload_after.is_file()
-            and payload_after.stat().st_size == args.payload_mb * 1024 * 1024
+            and digest(payload_after) == original_hash
         )
         check(payload_ok, "recovery keeps the large payload readable")
         jar_ok = (
@@ -557,7 +568,7 @@ def main() -> int:
             and marker.is_file()
             and marker.read_bytes() == b"USER"
             and payload_after.is_file()
-            and payload_after.stat().st_size == args.payload_mb * 1024 * 1024
+            and digest(payload_after) == original_hash
         )
         check(retry_ok, "a fresh upgrade completes after kill and recovery")
         check(
@@ -574,8 +585,11 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001 - the harness must still emit its report
         failures.append(f"unhandled error: {exc!r}")
         print(f"ERROR {exc!r}")
+    except BaseException:
+        args.keep = True
+        raise
     finally:
-        if not args.keep:
+        if not args.keep and not failures:
             shutil.rmtree(work, ignore_errors=True)
         else:
             print(f"kept: {work}")
