@@ -1,4 +1,6 @@
 #include "Support.hpp"
+#include <thread>
+#include <chrono>
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -14,6 +16,35 @@ void runFolderRemovalTests() {
     check(temp.isValid(), "ZAN1 前提：临时目录建出来了", temp.errorString());
     if (!temp.isValid()) {
         return;
+    }
+
+    // 已空目录的临时共享句柄不能让本次复制暂存永久遗留；持续占用仍须失败。
+    {
+        const QString dir = temp.filePath(QStringLiteral("brief-directory-hold"));
+        QDir().mkpath(dir);
+        HANDLE handle = CreateFileW(reinterpret_cast<LPCWSTR>(dir.utf16()), GENERIC_READ,
+                                   FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                                   FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+        check(handle != INVALID_HANDLE_VALUE, "ZAN0 取得短暂阻止目录删除的共享句柄");
+        if (handle != INVALID_HANDLE_VALUE) {
+            std::thread release([handle] {
+                std::this_thread::sleep_for(std::chrono::milliseconds(40));
+                CloseHandle(handle);
+            });
+            const bool removed = removeTreeWithoutFollowingLinks(dir);
+            release.join();
+            check(removed && !QFileInfo::exists(dir), "ZAN0 短暂句柄释放后有界清理空目录");
+        }
+        QDir().mkpath(dir);
+        handle = CreateFileW(reinterpret_cast<LPCWSTR>(dir.utf16()), GENERIC_READ,
+                             FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                             FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+        if (handle != INVALID_HANDLE_VALUE) {
+            check(!removeTreeWithoutFollowingLinks(dir) && QFileInfo::exists(dir),
+                  "ZAN0 持续占用不误报删除成功");
+            CloseHandle(handle);
+            check(removeTreeWithoutFollowingLinks(dir), "ZAN0 持续占用释放后仍可重试");
+        }
     }
 
     // ---------- ZAN1. 只读的**单件文件** ----------

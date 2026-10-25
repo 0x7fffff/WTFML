@@ -244,6 +244,7 @@ bool applyWorldInfo(NbtTree::Document *document, const WorldInfo &info,
 struct LevelData {
     NbtTree::Document document;  ///< 整棵树（改完之后原样写回去的就是它）
     WorldInfo info;              ///< 从这棵树里读出来的那几项（只读的展示值）
+    QByteArray sourceSha256;     ///< 读取的原始文件指纹；防止覆盖外部修改，保存后应重新读取
 };
 
 /**
@@ -274,6 +275,8 @@ bool readLevelData(const QString &worldDir, LevelData *out, QString *problemOut 
  * **一个文件都不摆** —— `QSaveFile` 自己会在 `level.dat` 那个目录里开临时文件，
  * 那是它的事，成功失败都由它收拾。
  * NOTE: 写回去的**形状跟着读进来时那一份**（原来是 gzip 就还是 gzip）。见 .cpp 里那段。
+ * readLevelData 生成的指纹在发布前核对，拒绝覆盖读取后的外部修改；成功后再次保存须重新读取。
+ * 这是乐观冲突检查，不保证核对与替换之间的外部写入互斥。
  */
 bool writeLevelData(const QString &worldDir, const LevelData &data,
                     QString *problemOut = nullptr);
