@@ -2423,6 +2423,19 @@ void runCopyInstanceAndWorldTests() {
         }
         check(!rawBytes.startsWith("\x1f\x8b"), "★★ ZL6 写回去的那份**没有**被硬套上 gzip（形状跟着原来那份）");
         WorldFiles::LevelData rawBack;
+        check(!WorldFiles::writeLevelData(rawDir, raw, &why) && why.contains(QStringLiteral("修改")),
+              "ZL6 旧读取快照不能覆盖已经保存的新文件", why);
+        rawFile.close();
+        check(WorldFiles::readLevelData(rawDir, &rawBack, &why), "ZL6 重新读取建立新基线", why);
+        const QByteArray external = rawBytes + QByteArray("external");
+        writeFileAt(WorldFiles::levelDataPath(rawDir), external);
+        check(!WorldFiles::writeLevelData(rawDir, rawBack, &why),
+              "ZL6 外部修改后拒绝保存旧设置", why);
+        QFile preserved(WorldFiles::levelDataPath(rawDir));
+        check(preserved.open(QIODevice::ReadOnly) && preserved.readAll() == external,
+              "ZL6 冲突拒绝完整保留外部文件");
+        preserved.close();
+        writeFileAt(WorldFiles::levelDataPath(rawDir), rawBytes);
         check(WorldFiles::readLevelData(rawDir, &rawBack, &why) &&
                   rawBack.info.levelName == QStringLiteral("不压缩的世界改过"),
               "ZL6 再把不压缩的那份读回来，改的地方在");

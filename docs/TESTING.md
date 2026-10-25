@@ -294,3 +294,18 @@ ZG9 另外在取消回调中观察完成报告，等完成报告实际落盘后�
 此前真机补齐流程已从实际启动器以离线 UIInstallTest 身份进入 Minecraft 1.21.11 / Fabric
 主菜单并正常退出（退出码 0），未打开存档。截图位于本地忽略目录
 `build/gtnh-install-probe/ui-completion/main-menu-after-completion.jpg`；该夹具不代表完整大型包验收。
+
+### P0 世界写入与恢复探针（2026-10-25）
+
+`WorldFiles::readLevelData` 确认读取期间文件一致，并记录原始 SHA-256；写入临时文件后、原子发布前
+核对指纹，拒绝覆盖外部修改。此检查不是对任意外部写入者的事务锁。
+实例模块 1483/1483：`build/test-runs/20261025-113734-2c8e0b97`。
+
+`acceptance_large_instance.py` 要求空工作目录，失败/异常保留现场；载荷以 SHA-256 校验。
+恢复探针使用生产 Publish 回调 `_Exit(86)`，要求 marker 和恢复 count>0，不再按固定时间杀进程。
+16 MiB＋100 文件隔离复测通过，恢复 1 条事务，夹具保留在 `build/acceptance-p0-20261025-publish`。
+这是流程回归，不是慢盘或断电验收；USB HDD 的独立记录见 `ACCEPTANCE_20261025.md`。
+
+完整 UI 重建后 3119/3119（`build/test-runs/20261025-113931-d670e02a`）；再用 CTest
+`--repeat until-fail:5 --timeout 60` 连续运行 5 次，48.28 秒全部通过，未启用 U10O/junction 跳过。
+日志 `build/acceptance-p0-ui-repeat-20261025.log`。本轮没有复现历史堆损坏，不能据此认定根因已修。

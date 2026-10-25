@@ -5,6 +5,7 @@
  */
 
 #include "FolderManager.hpp"
+#include <QThread>
 
 #include <QDebug>
 #include <QDir>
@@ -119,7 +120,22 @@ bool removeTreeWithoutFollowingLinks(const QString &path) {
         // 里面有东西没删掉，这一层（多半）也就空不了，别再多试一次 rmdir 掩盖原因。
         return false;
     }
-    return QDir().rmdir(path);
+    if (QDir().rmdir(path)) return true;
+#if defined(Q_OS_WIN)
+    // Windows 已接受 DeleteFile 的文件仍可能因其它共享句柄尚未关闭而处于
+    // delete-pending；目录看起来已空，但第一次 RemoveDirectory 仍失败。
+    // 只重试删除空目录本身，不重新递归，不碰此期间新增的文件，也不改 ACL。
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        QThread::msleep(25);
+        const QFileInfo remaining(path);
+        if (!remaining.exists()) return true;
+        if (isLinkToElsewhere(remaining) || !remaining.isDir()) return false;
+        if (!QDir(path).entryList(QDir::AllEntries | QDir::Hidden | QDir::System |
+                                 QDir::NoDotAndDotDot).isEmpty()) return false;
+        if (QDir().rmdir(path)) return true;
+    }
+#endif
+    return false;
 }
 
 #if defined(Q_OS_WIN)

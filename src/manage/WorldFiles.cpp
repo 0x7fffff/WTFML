@@ -8,6 +8,7 @@
 #include "util/WriteDirectoryGuard.hpp"
 
 #include <QDebug>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -573,6 +574,9 @@ bool readLevelData(const QString &worldDir, LevelData *out, QString *problemOut)
         return fail(QStringLiteral("读不动 level.dat：%1").arg(file.errorString()));
     }
     const QByteArray raw = file.readAll();
+    if (file.error() != QFileDevice::NoError) {
+        return fail(QStringLiteral("level.dat 没能完整读取：%1").arg(file.errorString()));
+    }
     file.close();
 
     // 先闻一下头两字节，**不是**一律当 gzip 解：`level.dat` 里那份 NBT 通常是 gzip
@@ -616,6 +620,12 @@ bool readLevelData(const QString &worldDir, LevelData *out, QString *problemOut)
         return fail(QStringLiteral("level.dat 的根不是一张表（这个存档可能坏了）。"));
     }
 
+    QFile current(path);
+    if (!current.open(QIODevice::ReadOnly) || current.readAll() != raw ||
+        current.error() != QFileDevice::NoError) {
+        return fail(QStringLiteral("读取期间 level.dat 已变化或无法重读，请重新打开世界设置。"));
+    }
+    out->sourceSha256 = QCryptographicHash::hash(raw, QCryptographicHash::Sha256);
     out->document = document;
     readWorldInfo(document, gzipped, &out->info);
     return true;
@@ -739,6 +749,17 @@ bool writeLevelData(const QString &worldDir, const LevelData &data, QString *pro
         return fail(QStringLiteral("临时文件没写全（盘满了？）"));
     }
 
+    // 压缩/写临时文件期间外部程序仍可能修改原文件，发布前再检查，失败不覆盖。
+    // 这是乐观并发保护，不能替代游戏运行门禁，也不是跨程序文件系统事务。
+    if (!data.sourceSha256.isEmpty()) {
+        QFile original(target);
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        if (!original.open(QIODevice::ReadOnly) || !hash.addData(&original) ||
+            hash.result() != data.sourceSha256) {
+            out.cancelWriting();
+            return fail(QStringLiteral("level.dat 已被其它程序修改或无法读取，未覆盖；请重新打开世界设置。"));
+        }
+    }
     if (!out.commit()) {
         return fail(QStringLiteral("换掉 level.dat 失败了：%1").arg(out.errorString()));
     }
