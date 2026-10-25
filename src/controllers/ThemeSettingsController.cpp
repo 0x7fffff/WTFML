@@ -4,6 +4,7 @@
 #include "Animations.hpp"
 #include "InlineMessage.hpp"
 #include "TitleBar.hpp"
+#include "ThemeAdvancedEditor.hpp"
 #include "settings/LauncherSettings.hpp"
 #include "util/ThemeImage.hpp"
 
@@ -52,7 +53,28 @@ void setSemanticColor(Theme::Spec *spec, int index, const QColor &color) {
 
 ThemeSettingsController::ThemeSettingsController(MainWindowUI *ui, LauncherSettings *settings,
                                                  QWidget *dialogParent, QObject *parent)
-    : QObject(parent), m_ui(ui), m_settings(settings), m_dialogParent(dialogParent) {}
+    : QObject(parent), m_ui(ui), m_settings(settings), m_dialogParent(dialogParent) {
+    if (auto *editor = m_ui->getThemeAdvancedEditor()) {
+        connect(editor, &ThemeAdvancedEditor::specEdited, this, &ThemeSettingsController::applySpec);
+        connect(editor, &ThemeAdvancedEditor::roleColorRequested, this, [this, editor](int role) {
+            if (role < 0 || role >= Theme::roleCount()) return;
+            const auto key = Theme::Role(role);
+            const QColor before = Theme::buildPalette(Theme::current(), QApplication::palette()).color(Theme::qtRole(key));
+            const auto picked = InlineMessage::pickColor(m_ui->overlay(), Theme::roleName(key),
+                tr("只覆盖这一类控件颜色；可随时恢复跟随主题。"), before);
+            if (picked.isValid()) editor->setRoleColor(role, picked);
+        });
+        connect(editor, &ThemeAdvancedEditor::partColorRequested, this, [this, editor](int part, bool foreground) {
+            if (part < 0 || part >= Theme::partCount()) return;
+            const auto key = Theme::Part(part);
+            const auto before = foreground ? Theme::partForeground(key, QApplication::palette().color(QPalette::WindowText))
+                                           : Theme::partBackground(key);
+            const auto picked = InlineMessage::pickColor(m_ui->overlay(), Theme::partName(key),
+                foreground ? tr("调整此区域文字，不改变背景图。") : tr("调整此区域底色，不改变背景图。"), before);
+            if (picked.isValid()) editor->setPartColor(part, foreground, picked);
+        });
+    }
+}
 
 void ThemeSettingsController::chooseImage(int index) {
     const MainWindowUI::ThemeImageRow &row = m_ui->getThemeImageRow(index);
@@ -154,6 +176,7 @@ void ThemeSettingsController::refreshImages() {
 
 void ThemeSettingsController::refresh() {
     const Theme::Spec &spec = Theme::current();
+    if (auto *editor = m_ui->getThemeAdvancedEditor()) editor->setSpec(spec);
     if (QComboBox *combo = m_ui->getThemePresetCombo()) {
         const QSignalBlocker block(combo);
         const int index = combo->findData(spec.presetId);
@@ -224,7 +247,7 @@ void ThemeSettingsController::resetSemantic() {
 void ThemeSettingsController::resetAll() {
     if (!InlineMessage::question(
             m_ui->overlay(), tr("恢复全部默认"),
-            tr("配色、主题色、文字不透明度、四个语义色、以及这两块背景图，都会回到出厂那一份。\n"
+            tr("配色、区域与控件覆盖、文字不透明度、语义色和背景图，都会回到出厂那一份。\n"
                "你自己改的那些不会留着。"),
             tr("恢复"), tr("取消"), false, true)) return;
     for (int i = 0; i < MainWindowUI::themeImageRowCount(); ++i) {

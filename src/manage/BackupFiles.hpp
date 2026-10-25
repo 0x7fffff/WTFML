@@ -202,8 +202,12 @@ struct RestoreResult {
  * @param cancelled 协作式停止，覆盖快照、解压、校验与提交前检查。
  * 仅最终两次改名及必要回滚不响应取消，避免留下半次提交。
  */
+/// 同步进度通知；提交区间不接受取消，观察者不得抛出异常或修改用户目录。
+enum class RestorePhase { Prepared, OriginalRetained, Published, Committed };
+using RestoreObserver = std::function<void(RestorePhase)>;
 RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentDir,
-                            const std::function<bool()> &cancelled = {});
+                            const std::function<bool()> &cancelled = {},
+                            const RestoreObserver &observer = {});
 
 /// 启动/切换数据目录时在扫描实例之前调用；只恢复本数据目录内已验证的中断还原。
 /// 不覆盖新出现的目标，不按前缀删除目录，活动事务跳过。

@@ -8,6 +8,7 @@
  */
 
 #include "MainWindow.hpp"
+#include "manage/BackupFiles.hpp"
 #include "operations/InstanceUpgrade.hpp"
 
 #include "..\ui\Animations.hpp"  // 换游戏文件夹时那一栏淡一下

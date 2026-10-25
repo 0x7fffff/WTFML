@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "ThemeAdvancedEditor.hpp"
 void runThemeControlsTests() {
     const QString originalDir = AppPaths::minecraftDir();
     const Theme::Spec themeBefore = Theme::current();
@@ -268,6 +269,21 @@ void runThemeControlsTests() {
                   QStringLiteral("拨过去 %1 / 拨回来 %2")
                       .arg(flipped ? QStringLiteral("对") : QStringLiteral("**不对**"))
                       .arg(backOk ? QStringLiteral("对") : QStringLiteral("**不对**")));
+        }
+
+        auto *advanced = ui->getThemeAdvancedEditor();
+        check(advanced != nullptr, "T39.7a 高级配色入口已接入设置页");
+        if (advanced) {
+            const int role = int(Theme::Role::Base);
+            const QColor custom(QStringLiteral("#dce9e3"));
+            advanced->setRoleColor(role, custom);
+            check(Theme::current().roles.value(role) == custom &&
+                      Theme::load().roles.value(role) == custom,
+                  "T39.7b 高级配色通过真实控制器生效并保存");
+            advanced->setRoleColor(role, QColor());
+            check(!Theme::current().roles.contains(role) &&
+                      !Theme::load().roles.contains(role),
+                  "T39.7c 跟随主题会清除自定义角色颜色并保存");
         }
 
         restore();

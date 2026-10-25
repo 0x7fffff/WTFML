@@ -1,4 +1,5 @@
 #include "BackupController.hpp"
+#include "manage/BackupFiles.hpp"
 
 #include "ActivityCenterController.hpp"
 #include "util/AppPaths.hpp"

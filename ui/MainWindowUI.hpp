@@ -135,6 +135,7 @@ protected:
 // 要调 SkinViewer::viewerName()，而那是个要在头文件里内联展开的静态函数。
 #include "SkinViewer.hpp"
 
+class ThemeAdvancedEditor;
 class MainWindowUI {
 public:
     explicit MainWindowUI(QMainWindow *parent);
@@ -3592,6 +3593,7 @@ public:
 
     /// 「主题」那一节那几颗（见上面那一节的说明）。色块都允许返回 nullptr（没建出来时）。
     QComboBox *getThemePresetCombo() const { return themePresetCombo; }
+    ThemeAdvancedEditor *getThemeAdvancedEditor() const { return m_themeAdvancedEditor; }
     QPushButton *getThemeAccentButton() const { return themeAccentButton; }
     QPushButton *getThemeAccentResetButton() const { return themeAccentResetButton; }
     QSlider *getThemeTextOpacitySlider() const { return themeTextOpacitySlider; }
@@ -3903,6 +3905,7 @@ private:
     QLineEdit *titleTextEdit = nullptr;
     /// 「背景图」那一节的各行控件，按 `ThemeImageRow::partKey` 认（见这一节在头文件里那段）。
     QVector<ThemeImageRow> m_themeImageRows;
+    ThemeAdvancedEditor *m_themeAdvancedEditor = nullptr;
     /// 「主题」那一节。顺序按 `themeSemanticKey()` 那四个来。
     QComboBox *themePresetCombo = nullptr;
     QPushButton *themeAccentButton = nullptr;

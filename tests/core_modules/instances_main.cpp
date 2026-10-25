@@ -1,6 +1,7 @@
 #include "Support.hpp"
 
 #include "operations/InstanceUpgrade.hpp"
+#include "P0AcceptanceProbes.hpp"
 
 #include <QElapsedTimer>
 #include <QFileInfo>
@@ -118,6 +119,7 @@ int runAcceptanceProbeIfRequested(const QStringList &arguments) {
                 while (wait.elapsed() < 600000) QThread::msleep(100);
                 std::printf("UPGRADE_HOLD_TIMEOUT name=%s\n", stageName(stage));
                 std::fflush(stdout);
+                std::_Exit(87); // 失联时留待恢复，不在超时后继续发布。
             },
             [] { return false; });
         std::printf("LARGE_UPGRADE held=%d ok=%d elapsedMs=%lld problem=%s\n", held ? 1 : 0,
@@ -158,6 +160,7 @@ int runAcceptanceProbeIfRequested(const QStringList &arguments) {
 
 int main(int argc, char **argv) {
  QCoreApplication app(argc, argv);
+ if (const int probe = runP0AcceptanceProbe(app.arguments()); probe >= 0) return probe;
  if (const int probe = runDirectoryLockProbeIfRequested(app.arguments()); probe >= 0) return probe;
  if (const int probe = runAcceptanceProbeIfRequested(app.arguments()); probe >= 0) return probe;
  int moduleStatus = 0;

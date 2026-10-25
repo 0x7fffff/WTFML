@@ -4,6 +4,7 @@
 #include "download/ResourceStore.hpp"
 
 #include "MainWindow.hpp"
+#include "manage/BackupFiles.hpp"
 #include "ConfigFileEditorPage.hpp"
 #include "ResourcePackPage.hpp"
 #include "InlineMessage.hpp"

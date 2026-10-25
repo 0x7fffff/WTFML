@@ -1,4 +1,7 @@
 #include "Support.hpp"
+#include "ThemeAdvancedEditor.hpp"
+#include <QToolButton>
+#include <QSpinBox>
 int UiThemeCheck(QApplication &app) {
 
         Anim::setEnabled(false);
@@ -184,6 +187,49 @@ int UiThemeCheck(QApplication &app) {
                 expect(log.grab().save(directory + QLatin1Char('/') + id + QStringLiteral("-log.png")),
                        "save log preview");
             }
+        }
+        {
+            Theme::Spec edited;
+            int emitted = 0;
+            ThemeAdvancedEditor editor;
+            QObject::connect(&editor, &ThemeAdvancedEditor::specEdited, &editor,
+                [&](const Theme::Spec &spec) { edited = spec; ++emitted; });
+            auto *roles = editor.findChild<QComboBox *>("themeRoleCombo");
+            auto *parts = editor.findChild<QComboBox *>("themePartCombo");
+            auto *opacity = editor.findChild<QSpinBox *>("themePartTextOpacity");
+            auto *body = editor.findChild<QWidget *>("themeAdvancedBody");
+            expect(roles && roles->count() == Theme::roleCount() && parts && parts->count() == Theme::partCount(),
+                   "advanced editor exposes every supported role and part");
+            expect(body && body->isHidden(), "advanced editor starts collapsed");
+            editor.findChild<QToolButton *>("themeAdvancedToggle")->click();
+            expect(!body->isHidden(), "advanced editor expands without opening a new page");
+            editor.setSpec(Theme::defaultSpec());
+            expect(emitted == 0, "refreshing advanced editor never writes theme settings");
+            editor.setRoleColor(int(Theme::Role::Base), QColor("#123456"));
+            expect(edited.roles.value(int(Theme::Role::Base)) == QColor("#123456"), "advanced role color edited");
+            editor.setRoleColor(int(Theme::Role::Base), {});
+            expect(!edited.roles.contains(int(Theme::Role::Base)), "role follows preset after reset");
+            auto spec = Theme::defaultSpec();
+            auto &style = spec.parts[int(Theme::Part::PageBackground)];
+            style.hasImage = true; style.imagePath = "C:/preview/background.png";
+            style.imageName = "background.png"; style.imageOpacity = 61;
+            editor.setSpec(spec);
+            parts->setCurrentIndex(parts->findData(int(Theme::Part::PageBackground)));
+            editor.setPartColor(int(Theme::Part::PageBackground), false, QColor("#abcdef"));
+            opacity->setValue(42);
+            expect(edited.parts.value(int(Theme::Part::PageBackground)).textOpacity == 42, "part text opacity edited");
+            editor.resetPart(int(Theme::Part::PageBackground));
+            const auto preserved = edited.parts.value(int(Theme::Part::PageBackground));
+            expect(!preserved.hasBackground && !preserved.hasForeground && preserved.textOpacity == -1 &&
+                       preserved.hasImage && preserved.imageOpacity == 61 && preserved.imageName == "background.png",
+                   "resetting part colors preserves background image and image opacity");
+            parts->setCurrentIndex(parts->findData(int(Theme::Part::Scrim)));
+            expect(!opacity->isEnabled() && !editor.findChild<QPushButton *>("themePartForeground")->isEnabled(),
+                   "scrim has no misleading text controls");
+            const int before = emitted;
+            editor.setRoleColor(-1, Qt::red);
+            editor.setPartColor(Theme::partCount(), false, Qt::red);
+            expect(emitted == before, "invalid role and part cannot alter spec");
         }
         printf("Theme check: %d failure(s)\n", failures);
         return failures == 0 ? 0 : 1;

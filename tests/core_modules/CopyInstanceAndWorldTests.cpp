@@ -2329,6 +2329,7 @@ void runCopyInstanceAndWorldTests() {
     section("ZL6. readLevelData / writeLevelData：盘上那一趟（gzip 进、gzip 出）");
     {
         // ---- 先把一棵树写成一个"真"的 level.dat（走 gzip，和盘上那份一样）----
+        QString fixtureProblem;
         const auto makeWorldWith = [&](const QString &dirName) {
             const QString dir = scratch.path() + QStringLiteral("/") + dirName;
             QDir().mkpath(dir);
@@ -2366,14 +2367,16 @@ void runCopyInstanceAndWorldTests() {
 
             const QString plain = dir + QStringLiteral("/plain.nbt.tmp");
             writeFileAt(plain, NbtTree::serialize(document));
-            QString why;
-            const bool ok = ZipUtil::gzipFrom(plain, dir + QStringLiteral("/level.dat"), &why);
+            const bool ok = ZipUtil::gzipFrom(plain, dir + QStringLiteral("/level.dat"), &fixtureProblem);
             QFile::remove(plain);
             return ok;
         };
 
         const QString dirName = QStringLiteral("世界A");
-        check(makeWorldWith(dirName), "ZL6 造了一个真存档（level.dat 是 gzip 的）");
+        const bool fixtureReady = makeWorldWith(dirName);
+        check(fixtureReady, "ZL6 造了一个真存档（level.dat 是 gzip 的）", fixtureProblem);
+        // 夹具准备失败应保留首个错误，不继续索引空规则数组制造级联段错。
+        if (!fixtureReady) return;
         const QString worldDir = scratch.path() + QStringLiteral("/") + dirName;
         check(QFileInfo(WorldFiles::levelDataPath(worldDir)).exists(), "ZL6 level.dat 就在那个位置");
 

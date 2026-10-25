@@ -100,6 +100,7 @@ add_library(wtfml_ui_runtime STATIC
                                 ${REPO_ROOT}/ui/SkinViewer.cpp
                                 ${REPO_ROOT}/ui/TitleBar.cpp
                                 ${REPO_ROOT}/ui/Theme.cpp
+                                ${REPO_ROOT}/ui/ThemeAdvancedEditor.cpp
                                 # 动效那一层：按钮按下 / 换页 / 展开折叠。
                                 # MainWindowUI.cpp 和 OverlayHost.cpp 都直接调它。
                                 ${REPO_ROOT}/ui/Animations.cpp

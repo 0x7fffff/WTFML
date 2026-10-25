@@ -35,7 +35,7 @@
 #include "..\ui\TaskDetailPage.hpp"
 #include "..\ui\IntegrityReportPage.hpp"
 #include "manage/VersionIntegrity.hpp"
-#include "manage/BackupFiles.hpp"
+namespace BackupFiles { enum class Kind; }
 #include "diag/GameExitDiagnosis.hpp"
 #include "manage/LaunchHistory.hpp"
 #include "controllers/GameSessionController.hpp"

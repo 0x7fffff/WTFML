@@ -5,6 +5,7 @@
 
 #include "ServerManagementActions.hpp"
 #include "MainWindow.hpp"
+#include "manage/BackupFiles.hpp"
 #include "MainWindowUI.hpp"
 #include "ServerSettingsPage.hpp"
 #include "InlineMessage.hpp"

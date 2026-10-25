@@ -745,7 +745,8 @@ bool hasRoomFor(qint64 freeBytes, qint64 neededBytes) {
 }
 
 RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentDir,
-                            const std::function<bool()> &cancelled) {
+                            const std::function<bool()> &cancelled,
+                            const RestoreObserver &observer) {
     RestoreResult result;
     const QString gameRoot = InstanceFiles::canonicalPath(AppPaths::minecraftDir());
     QString directoryProblem;
@@ -1037,12 +1038,14 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
         result.problem = QObject::tr("无法安全写入还原事务日志，原目录未替换。");
         return result;
     }
+    if (observer) observer(RestorePhase::Prepared);
     if (existing.exists() && !QDir().rename(target, retained)) {
         if (managed) QFile::remove(journalPath);
         result.stage = RestoreResult::Stage::RemoveOld;
         result.problem = QObject::tr("无法挪开原目录（可能正被游戏占用），原文件未删除。");
         return result;
     }
+    if (observer) observer(RestorePhase::OriginalRetained);
     if (!QDir().rename(candidate, target)) {
         result.stage = RestoreResult::Stage::RemoveOld;
         const bool recovered = !existing.exists() || QDir().rename(retained, target);
@@ -1052,6 +1055,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
             : QObject::tr("无法发布且原目录未能自动归位；原文件完整保留在：%1").arg(retained);
         return result;
     }
+    if (observer) observer(RestorePhase::Published);
     result.ok = true;
     journal.insert(QStringLiteral("state"), QStringLiteral("published"));
     if (managed && !RestoreJournal::write(journalPath, journal)) {
@@ -1063,6 +1067,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
         result.retainedPath = retained;
     }
     if (managed && result.retainedPath.isEmpty()) QFile::remove(journalPath);
+    if (observer) observer(RestorePhase::Committed);
     return result;
 }
 

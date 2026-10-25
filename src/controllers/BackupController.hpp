@@ -1,6 +1,5 @@
 #pragma once
 
-#include "manage/BackupFiles.hpp"
 #include "tasks/TaskId.hpp"
 
 #include <QAtomicInt>
@@ -15,6 +14,12 @@ class InstanceSettingsDialog;
 class OverlayHost;
 class QThread;
 class VersionManager;
+namespace BackupFiles {
+enum class Kind;
+struct Manifest;
+struct WriteResult;
+struct RestoreResult;
+}
 
 class BackupController final : public QObject {
     Q_OBJECT

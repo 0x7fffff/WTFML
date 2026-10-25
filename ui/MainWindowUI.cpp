@@ -15,6 +15,7 @@
 #include "SkinModel.hpp"
 #include "TaskProgressBar.hpp"
 #include "Theme.hpp"
+#include "ThemeAdvancedEditor.hpp"
 #include "ThemeBackground.hpp"
 #include "TitleBar.hpp"
 #include "ToolboxPage.hpp"  // 工具箱那张表的键与名字（底栏面板那六颗按钮按 tools() 摆）
@@ -3076,6 +3077,9 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
                     form);
             addSettingItem(section2, themeSemanticRowText(), box, form);
         }
+
+        m_themeAdvancedEditor = new ThemeAdvancedEditor(form);
+        addSettingItem(section2, QStringLiteral("高级配色"), m_themeAdvancedEditor, form);
 
         // ---- 整份主题：恢复全部默认 + 导出 / 导入 ----
         {

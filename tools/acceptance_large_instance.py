@@ -37,6 +37,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 from ctypes import wintypes
 from datetime import datetime, timezone
 from pathlib import Path
@@ -230,28 +231,37 @@ def kill_while_holding(
         )
         deadline = time.monotonic() + timeout
         held = False
-        while time.monotonic() < deadline:
-            if process.poll() is not None:
-                break
-            try:
-                text = log_path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                text = ""
-            if f"UPGRADE_HOLD name={stage}" in text:
-                held = True
-                break
-            time.sleep(0.05)
+        terminated = False
         started_kill = time.monotonic()
-        if process.poll() is None:
-            process.kill()
         try:
+            while time.monotonic() < deadline:
+                if process.poll() is not None:
+                    break
+                try:
+                    text = log_path.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    text = ""
+                if f"UPGRADE_HOLD name={stage}" in text:
+                    held = True
+                    break
+                time.sleep(0.05)
+            started_kill = time.monotonic()
+            if process.poll() is None:
+                try:
+                    process.kill()
+                    terminated = True
+                except OSError:
+                    # 子进程可能在 poll 与 kill 间已退出；不把它算作外部终止成功。
+                    if process.poll() is None:
+                        raise
             process.wait(timeout=15)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=15)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=15)
         kill_seconds = time.monotonic() - started_kill
     output = log_path.read_text(encoding="utf-8", errors="replace")
-    return process.returncode, output, held, kill_seconds
+    return process.returncode, output, held and terminated, kill_seconds
 
 
 def main() -> int:
@@ -281,10 +291,19 @@ def main() -> int:
         help="write scale, stage timings and the longest wait to this JSON file",
     )
     parser.add_argument("--timeout", type=float, default=600.0)
+    parser.add_argument("--total-timeout", type=float, default=840.0,
+                        help="overall process budget, at most 900 seconds")
     parser.add_argument("--keep", action="store_true", help="keep the fixture")
     args = parser.parse_args()
-    if args.payload_mb < 0 or args.files < 0 or not 0 < args.timeout <= 900:
+    if args.payload_mb < 0 or args.files < 0 or not 0 < args.timeout <= 900 or not 0 < args.total_timeout <= 900:
         parser.error("payload/files must be nonnegative and timeout must be in (0, 900]")
+    overall_deadline = time.monotonic() + args.total_timeout
+
+    def remaining():
+        budget = overall_deadline - time.monotonic()
+        if budget <= 0:
+            raise TimeoutError("overall acceptance deadline exceeded; fixture retained")
+        return min(args.timeout, budget)
 
     verify_exe = Path(args.verify_exe).resolve()
     if not verify_exe.is_file():
@@ -357,7 +376,7 @@ def main() -> int:
             verify_exe,
             ["--large-copy", str(source), str(dest_root), "大副本"],
             env,
-            args.timeout,
+            remaining(),
         )
         print(completed.stdout.strip())
         copy_ok = (
@@ -388,7 +407,7 @@ def main() -> int:
                 verify_exe,
                 ["--large-copy", str(source), str(dest_root), "被占用副本"],
                 env,
-                args.timeout,
+                remaining(),
             )
         finally:
             release(kernel32, handle)
@@ -424,7 +443,7 @@ def main() -> int:
                 "cancel-txn",
             ],
             env,
-            args.timeout,
+            remaining(),
         )
         print(completed.stdout.strip())
         cancel_ok = completed.returncode == 0 and "cancelled=1" in completed.stdout
@@ -460,7 +479,7 @@ def main() -> int:
             ],
             env,
             args.kill_stage,
-            args.timeout,
+            remaining(),
             kill_log,
         )
         print(kill_output.strip())
@@ -502,7 +521,7 @@ def main() -> int:
         )
 
         completed, elapsed = run_probe(
-            verify_exe, ["--upgrade-recover", str(game)], env, args.timeout
+            verify_exe, ["--upgrade-recover", str(game)], env, remaining()
         )
         print(completed.stdout.strip())
         recovered = RECOVER_RE.search(completed.stdout)
@@ -559,7 +578,7 @@ def main() -> int:
                 f"retry-{args.kill_stage}",
             ],
             env,
-            args.timeout,
+            remaining(),
         )
         print(completed.stdout.strip())
         retry_ok = (
@@ -585,6 +604,7 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001 - the harness must still emit its report
         failures.append(f"unhandled error: {exc!r}")
         print(f"ERROR {exc!r}")
+        traceback.print_exc()
     except BaseException:
         args.keep = True
         raise
@@ -594,9 +614,11 @@ def main() -> int:
         else:
             print(f"kept: {work}")
 
-    # The artificial hold time is not a wait the product imposed; leave it out of
-    # the longest-wait figure so a parked probe cannot look like slow I/O.
+    # Exclude artificial hold time, but include the genuine preparation time up
+    # to the held stage. Otherwise a 76s preparation + 48s retry reports only 48s.
     measured = [step["elapsedS"] for step in steps if not step["name"].startswith("kill-at-")]
+    measured.extend(stage["elapsedMs"] / 1000 for step in steps
+                    if step["name"].startswith("kill-at-") for stage in step["stages"])
     longest_wait = max(measured) if measured else 0.0
     summary = {
         "schema": 1,
@@ -607,6 +629,7 @@ def main() -> int:
         "verifyExe": str(verify_exe),
         "workDir": str(work),
         "volume": volume,
+        "timeouts": {"stepSeconds": args.timeout, "totalSeconds": args.total_timeout},
         "defenderRealTimeProtection": defender,
         "scale": {
             "payloadMb": args.payload_mb,
