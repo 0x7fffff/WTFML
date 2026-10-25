@@ -100,21 +100,35 @@ python tools/acceptance_directory_boundary.py `
   --exe build/verify/WTFMinecraftLauncher.exe `
   --qt-bin D:/Qt/6.10.1/mingw_64/bin
 
-# 大实例复制 / 文件占用 / 升级取消 / 异常退出恢复
+# 大实例复制 / 文件占用 / 升级取消 / 指定阶段外部终止 + 重启恢复
+# --kill-stage 让探针停在生产事务的 publish 或 verify 阶段，再由脚本 TerminateProcess；
+# 不用固定 sleep（快盘会跑完、慢盘可能还没到那一阶段）。
+# --json-out 记录规模、每阶段耗时、卷类型和最长等待；恢复后脚本还会重跑一次完整升级。
 # 把 --work-dir 指到慢盘，并用真实杀毒软件实时扫描，才是完整慢盘验收。
 python tools/acceptance_large_instance.py `
   --verify-exe build/verify/tests/verify_instances.exe `
   --qt-bin D:/Qt/6.10.1/mingw_64/bin `
-  --work-dir E:/wtfml-acceptance --payload-mb 1024 --files 6000
+  --work-dir E:/wtfml-acceptance --payload-mb 1024 --files 6000 `
+  --kill-stage publish --json-out build/acceptance-large.json
 ```
 
-`verify_instances` 的 `--large-copy` / `--large-upgrade-cancel` / `--upgrade-recover`
-是上面第二个脚本使用的探针入口；直接运行 `verify_instances` 不带参数仍然只跑常规回归。
+`verify_instances` 的 `--large-copy` / `--large-upgrade-cancel` / `--large-upgrade-hold` /
+`--large-upgrade-complete` / `--upgrade-recover` 是上面第二个脚本使用的探针入口；
+`--large-upgrade-hold` 会先打印 `UPGRADE_STAGE`，到指定阶段再打印 `UPGRADE_HOLD` 并停住，
+父进程确认这一行后才杀。直接运行 `verify_instances` 不带参数仍然只跑常规回归。
 
 本机 2026-10-24 实跑（1 GiB 单文件 + 6000 个小文件，普通 NTFS，不是慢盘）：大复制 3.61 秒；
 文件独占（模拟杀毒/占用）失败 3.92 秒且不发布半成品；升级取消请求后 0.23 秒停下，原实例和
 用户文件完整；kill 后恢复 0.03 秒。全部断言通过。真实慢盘和杀毒实时扫描仍应在发布机复跑。
 真实双进程脚本同一天实跑 10/10 通过（第二个进程停在拒绝对话框、以 1 退出，日志未被截断）。
+
+2026-10-25 复跑（同为 1 GiB＋6000 文件；D: 固定 NTFS / NVMe，Defender 实时保护为 True，
+仍不是慢盘）：大复制 3.70 秒；文件独占失败 3.88 秒且不发布；取消 0.23 秒；外部终止落在
+`publish` 阶段（阶段推进到 publish 用了 50.74 秒，随后 TerminateProcess，进程没有自己退出）；
+重启恢复 `count=1`、0.04 秒，原 jar / 用户标记 / 1 GiB 载荷完整，未发布的新核心保留；
+随后完整升级重试 52.61 秒成功。最长单步等待 52.61 秒（不含人为挂住的时间）。
+`verify` 阶段用 16 MiB＋100 文件单独跑过同一条终止/恢复/重试路径。
+JSON 与日志在 `build/acceptance-20261025/`。物理慢盘上的同一矩阵仍未复跑。
 
 ## 测试代码的模块边界
 
@@ -240,7 +254,7 @@ GitHub 的 main 提交和 PR 按改动选择分片与测试；标签、定时和
 演到的那条路由。以后新增的网络入口若没被演到，这条断言会直接变红。
 
 尚未完成：所有模块路径审核、隔离后的安全并行、多 DPI 截图基线和内存诊断工具链。
-当前没有宣称已修复历史堆损坏。
+ui_check 那条历史堆损坏已收口（证据与复验见下面「历史崩溃复核」），不再算未完成项。
 
 ### 世界导入空间预检与预设读取边界
 
@@ -309,3 +323,78 @@ ZG9 另外在取消回调中观察完成报告，等完成报告实际落盘后�
 完整 UI 重建后 3119/3119（`build/test-runs/20261025-113931-d670e02a`）；再用 CTest
 `--repeat until-fail:5 --timeout 60` 连续运行 5 次，48.28 秒全部通过，未启用 U10O/junction 跳过。
 日志 `build/acceptance-p0-ui-repeat-20261025.log`。本轮没有复现历史堆损坏，不能据此认定根因已修。
+
+### 历史崩溃复核（2026-10-24）
+
+- **core / verify 的 WER 转储**：根因是 ZJ3 夹具用 `std::thread` 调 QtCore；已换 `QThread`，
+  当前 core 测试不再产生该转储。
+- **ui_check offscreen `c0000374`**：同一条 exe 把 `QAccessible::setActive(false)` 改成 `true`，
+  连续 **10/10** 崩在 `InstanceSettingsDialog::~InstanceSettingsDialog()` 的
+  `QHash<QString, QString>` 释放（`QArrayData::deref`）；保持 `false` 连续 **50/50** 通过
+  （3119/3119）。offscreen 插件下 A11y 恒开，而产品 windows 插件只有读屏软件连着才开，
+  所以这是验证环境隔离，不是产品读屏/A11y 验收。
+- **PageHeap 下那条 `m_fileDirs` use-after-free：已定位并修掉**（2026-10-24）。
+  用 `gflags /p /enable ui_check.exe /full` 跑完整 `ui_check`，会在
+  `InstanceSettingsDialog::~InstanceSettingsDialog()` 释放 `m_fileDirs` 时崩在
+  `QArrayData::deref()` 那句写上面 —— 那块 `QArrayData` 的页已经释放了。cdb 下抓到的
+  现场是：崩的那一块正是**「游戏目录」那条路径**（`root + "/game"`，54 个字符），
+  可它的释放点比崩点早一整节。
+
+  根因在 `UiContentPagesChecks.cpp` 的 U10b 那一段（量「那一排快捷方式开哪个目录」）：
+
+  ```cpp
+  QObject::connect(&dialog, &Dlg::openInstanceFolderRequested, &dialog,
+                   [&lastPath, &opens](const QString &path) { lastPath = path; ++opens; });
+  ```
+
+  上下文是 `&dialog`（活到整个 U10 块结束），`lastPath` / `opens` 却是**那一节栈上**的
+  变量 —— 这一节一结束它们就没了，连接还留着。而产品把每一页的 `openFolderRequested`
+  **信号接信号**转成 `InstanceSettingsDialog::openInstanceFolderRequested`
+  （`createFilePage()` 那一段），于是 U10e 点一下模组页的「打开文件夹」，
+  那一发就回到这个悬空 lambda：`lastPath = path` 的 `QString::operator=` 先释放旧值，
+  而旧值那份 `QArrayData` 正是「游戏目录」那条路径 —— 提前放掉，几分钟后在析构里再碰它。
+  正常入口下这一下只是悄悄把一块数据提前释放（**这就是那条“偶发 `c0000374`”的另一半**），
+  只有 PageHeap 会把它变成当场 AV。
+
+  修法：连接上下文改成**和被捕获变量同一个作用域**的栈上 `QObject`（`QObject scopeGuard;`
+  + `connect(..., &scopeGuard, ...)`），块一结束连接就断。**规则**：`ui_check` 里凡是
+  `[&]` 捕获栈变量的连接 / 定时器，上下文不许用活得比它久的对象（`&dialog`、`&window`、
+  `overlay`、`page`）；定时器那一侧同理（见 `Support.hpp` 的 `dismissNextInline()`）。
+
+- **顺手修掉一条夹具串扰**：`dismissNextInline()` 的 300 ms 兜底在 0 ms 那一发已经答完
+  之后并不会自己撤销，于是**下一条**提示（300 ms 内开出来的）会被它当成自己的“用户答了”，
+  按的还是它自己那一号按钮（默认第 0 颗 =「是」）。PageHeap 下能稳定看到
+  `UiGroupEditorChecks` 的「恢复默认分组设置… ⇒ 点『否』」真的把清单换成了默认五组。
+  现在按“票号”走：只有最近一次调用排下的两发有效，而且**兑现一次就作废**。
+
+- **一条已排除的假设（2026-10-25）**：当年那条“约 25% 崩在 `InstanceSettingsDialog` 析构”
+  还被猜过是 `ScrollBarStyler` 在 `QEvent::Show` 里**同步** `QScrollBar::setStyleSheet()`
+  重入 style polish、让 `extra->style` 指向已释放的 `QStyleSheetStyle`（旧提交 `1a6ed8b`
+  为此改过一版 0 毫秒延后，那版从未进过 `main`）。用同形探针（应用级 QSS + Show 过滤器里
+  同步挂控件级样式 + 每轮改样式表 / 调色板逼 Qt 重建 `QStyleSheetStyle`，随后析构挂着
+  样式表的滚动条）在 **full PageHeap** 下跑了 500 轮，延后版再跑 500 轮作对照，均无 AV；
+  真实入口 PageHeap 6/6、正常入口 50/50 也都没事。所以**保持同步实现**、不改 0 毫秒延后
+  —— 那会让新滚动条晚一个事件循环才有样式（第一帧先按 `palette(...)` 近似值画），
+  换不到可测收益；真正的凶手是上面那条悬空连接与 A11y 路径。
+  探针源码与二进制留在 `build/theme-reentrancy-probe/`（不进仓库）。
+
+- **mw_check T17**：合成鼠标两发点实例行空白区时，`QTreeView` 在 `AnimatingState` 会把
+  按下整条吞掉（`expandOrCollapseItemAtPos()` 开头那条 `state != NoState`，见
+  `ui/RowActivation.hpp` 文件头），`itemClicked` 一发都不发 —— 与产品逻辑无关。改成和
+  T10 同一条信号路（`clickTreeRow`），行内坐标与「不在三颗按钮上」仍由前提断言钉住。
+
+- **复验**：PageHeap 下完整 `ui_check` 连跑 6 趟全部跑完，只剩 Z8 那条
+  「两万行点一下 ≤ 250 ms」会红（252~300 ms —— PageHeap 的分配开销，正常入口 59~74 ms）；
+  关掉 PageHeap 后正常入口 **50/50** 通过（`tools/stress-ui-offscreen.ps1 -Runs 50
+  -StopOnFailure`），`wtfml.main-window`（全量 mw_check **2684/2684**）与
+  `wtfml.instance-upgrade` 通过，`ui_check` 每趟 **3119/3119**。诊断结束已执行
+  `gflags /p /disable ui_check.exe` —— PageHeap **不许**留在机器上
+  （它会把正常入口的 Z8 变成假红，也拖慢一切）。
+- 压力入口（不进 CTest）：
+
+```powershell
+./tools/stress-ui-offscreen.ps1 -Runs 50
+```
+
+它会逐趟保存日志，首失败保留在 `build/ui-stress/<时间>/` 并返回非零。
+真实读屏/A11y 仍未验收。

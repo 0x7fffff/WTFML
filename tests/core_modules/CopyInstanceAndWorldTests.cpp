@@ -372,6 +372,66 @@ void runCopyInstanceAndWorldTests() {
               "ZJ6 搬进来的那一份连 level.dat 都在");
     }
 
+    section("ZJ7. 目标目录没有写权限（ACL 拒绝 WD/AD）：导入照实失败，不留半截");
+    {
+        // 和 ZJ6 是同一族「操作做不成时不许留半截」的另一类原因：不是有人占着，而是那一格
+        // 根本不许写（`icacls /deny …:(WD,AD)` —— 拒绝项压过允许项，管理员身份也绕不过）。
+        // `QFile::setPermissions()` 表达不出 ACL，所以借 icacls。
+        const QString user = qEnvironmentVariable("USERNAME");
+        const auto icacls = [](const QStringList &args) {
+            return QProcess::execute(QStringLiteral("cmd"),
+                                     QStringList{QStringLiteral("/c"), QStringLiteral("icacls")} +
+                                         args) == 0;
+        };
+        const QString aclRoot = scratch.filePath(QStringLiteral("权限夹具"));
+        const QString worldDir = aclRoot + QStringLiteral("/好好的世界");
+        const QString savesDir = aclRoot + QStringLiteral("/saves");
+        QDir().mkpath(worldDir);
+        QDir().mkpath(savesDir);
+        writeFileAt(worldDir + QStringLiteral("/level.dat"), QByteArrayLiteral("level-bytes"));
+        const QString nativeSaves = QDir::toNativeSeparators(savesDir);
+        const bool denied = !user.isEmpty() &&
+                            icacls({nativeSaves, QStringLiteral("/deny"),
+                                    user + QStringLiteral(":(WD,AD)")});
+        check(denied, "★ ZJ7 前提：给 `saves/` 挂了拒绝写/追加的 ACL", user);
+        if (denied) {
+            // 前提：这一条拒绝项真的挡住了"在它里面造东西"（造出来了就顺手拆掉，
+            // 别让下面"一个条目都不剩"那条验的变成自己造的东西）。
+            const QString probeDir = savesDir + QStringLiteral("/前提探针");
+            const bool mkdirBlocked = !QDir().mkpath(probeDir);
+            if (!mkdirBlocked) {
+                QDir().rmdir(probeDir);
+            }
+            check(mkdirBlocked, "★ ZJ7 前提：拒绝项真的挡得住往 `saves/` 里造目录");
+
+            QString error;
+            const bool imported =
+                WorldFiles::copyWorldInto(worldDir, savesDir, QStringLiteral("搬进来的"), &error);
+            check(!imported && !error.isEmpty(),
+                  "★★ ZJ7 没有写权限时导入世界失败，而且说得出一句话", error);
+            check(!QFileInfo::exists(savesDir + QStringLiteral("/搬进来的")),
+                  "★★★ ZJ7 失败之后 `saves/` 里没有半截的世界");
+            check(QDir(savesDir).entryList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden)
+                      .isEmpty(),
+                  "★★★ ZJ7 暂存也没留下（一个条目都不剩）",
+                  QDir(savesDir).entryList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden)
+                      .join(QLatin1Char(',')));
+            check(readBytesAt(worldDir + QStringLiteral("/level.dat")) ==
+                      QByteArrayLiteral("level-bytes"),
+                  "★★ ZJ7 源世界一个字节都没被动过（失败那一趟只读源）");
+
+            const bool restored = icacls({nativeSaves, QStringLiteral("/remove:d"), user});
+            check(restored, "★ ZJ7 收尾：拒绝项摘掉了");
+            QString after;
+            check(restored && WorldFiles::copyWorldInto(worldDir, savesDir,
+                                                        QStringLiteral("搬进来的"), &after),
+                  "★ ZJ7 权限放开之后同一趟照常成功（挡住的确实是权限）", after);
+            check(QFileInfo::exists(savesDir + QStringLiteral("/搬进来的/level.dat")),
+                  "ZJ7 搬进来的那一份连 level.dat 都在");
+        }
+        icacls({nativeSaves, QStringLiteral("/remove:d"), user});  // 兜底：别把拒绝项留给下一轮
+    }
+
     section("ZJ5. VersionManager::copyInstance：多出一份实例");
     AppPaths::setMinecraftDir(sourceRoot.path());
     const QString srcId = QStringLiteral("源实例");

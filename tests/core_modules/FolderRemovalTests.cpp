@@ -263,5 +263,49 @@ void runFolderRemovalTests() {
                   "★ ZAO6 放开之后那一棵照常进回收站", problem);
         }
     }
+
+    // ---------- ZAO7. 那一件没有「写」权限（ACL 拒绝 WD/AD）：删除照样过得去 ----------
+    {
+        // 和 ZAO6 配成一对，钉住「删不掉 ≠ 权限不够」这个方向：`QFile::setPermissions()`
+        // 表达不出 ACL，这里借 `icacls /deny …:(WD,AD)` 给当前用户挂一条拒绝项（拒绝项
+        // 压过允许项，有没有管理员身份都绕不过去）。删除只需要 `DELETE`，不需要往那一件里写，
+        // 所以这一棵**应该照常进回收站** —— 界面上那句「删不掉，多半是游戏占着」
+        // 因此不该被"文件是只读的/目录不许写"带偏。
+        const QString user = qEnvironmentVariable("USERNAME");
+        const QString victim = temp.filePath(QStringLiteral("回收站-不许写"));
+        QDir().mkpath(victim);
+        const QString blocked = victim + QStringLiteral("/只读住的.dat");
+        const QString sibling = victim + QStringLiteral("/旁边那件.txt");
+        const bool wrote = writeBytesAt(blocked, QByteArrayLiteral("keep")) &&
+                           writeBytesAt(sibling, QByteArrayLiteral("also"));
+        const auto icacls = [](const QStringList &args) {
+            return QProcess::execute(QStringLiteral("cmd"),
+                                     QStringList{QStringLiteral("/c"), QStringLiteral("icacls")} +
+                                         args) == 0;
+        };
+        const QString nativeBlocked = QDir::toNativeSeparators(blocked);
+        const bool denied = wrote && !user.isEmpty() &&
+                            icacls({nativeBlocked, QStringLiteral("/deny"),
+                                    user + QStringLiteral(":(WD,AD)")});
+        check(wrote && denied, "★ ZAO7 前提：给那一件挂了拒绝写的 ACL（icacls /deny WD,AD）",
+              QStringLiteral("写=%1 挂上=%2 用户=%3").arg(wrote).arg(denied).arg(user));
+        if (denied) {
+            // 前提：这一条拒绝项真的挡住了"往它里面写"（挡不住的话下面那一条就等于没验）。
+            QFile probe(blocked);
+            const bool canOpenForWrite = probe.open(QIODevice::WriteOnly | QIODevice::Append);
+            if (canOpenForWrite) {
+                probe.close();
+            }
+            check(!canOpenForWrite, "★ ZAO7 前提：那一条拒绝项真的挡得住写入（打不开写句柄）");
+            QString problem;
+            const bool moved = moveToRecycleBin(victim, &problem);
+            check(moved && !QDir(victim).exists(),
+                  "★★ ZAO7 没有写权限不妨碍删除：整棵照常进回收站（删除只需要 DELETE）",
+                  problem);
+            // 收尾：拒绝项跟着那一件进了回收站，原路径已经不存在；万一没进去，
+            // 也要把它摘掉，别把临时目录留给下一轮。
+            icacls({nativeBlocked, QStringLiteral("/remove:d"), user});
+        }
+    }
 }
 
