@@ -2361,6 +2361,7 @@ void runReplayInfoTests();
 void runStartupDiagnosisTests();
 
 void runTransferPlannerTests();
+void runOperationReportTests();
 
 // ---------------------------------------------------------------------------
 // 「从别的游戏文件夹里借文件」

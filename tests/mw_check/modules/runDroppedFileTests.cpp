@@ -243,25 +243,27 @@ void runDroppedFileTests() {
                   !exists(instanceDir + QStringLiteral("/resourcepacks/说明.txt")),
               "T30.8 而且它一个目录都没进去");
 
-        // ---- (f) 同名文件：问一句，答「不盖」⇒ 旧那份一个字节没动 ----
+        // ---- (f) 同名文件：问一句（取消 / 跳过已有项 / 盖掉），答「跳过已有项」⇒ 旧那份一个字节没动 ----
         const QString oldFile = instanceDir + QStringLiteral("/mods/本来就有的.jar");
         const QString beforeOld = readText(oldFile);
         withPage(QStringLiteral("mod"), [&](InstanceSettingsDialog *page) {
-            answerNextPrompt(1);  // 「不盖」
+            answerNextPrompt(1);  // 「跳过已有项」（2.1.2 起第 0 颗是「取消」）
             dropFilesOn(page, {sameName});
             QApplication::processEvents();
         });
         check(g_modalTitle.contains(QStringLiteral("已经有一个同名的")) &&
-                  g_modalText.contains(QStringLiteral("本来就有的.jar")),
-              "★★ T30.9 同名文件**问一句**（不静默盖），而且说的是哪一个名字",
+                  g_modalText.contains(QStringLiteral("本来就有的.jar")) &&
+                  g_modalText.contains(QStringLiteral("跳过已有项")) &&
+                  g_modalText.contains(QStringLiteral("取消")),
+              "★★ T30.9 同名文件**问一句**（不静默盖），同时给出「取消」和「跳过已有项」",
               g_modalTitle + QStringLiteral(" / ") + g_modalText);
         check(readText(oldFile) == beforeOld && beforeOld == QStringLiteral("原本就在的那一个"),
-              "★★ T30.9 答「不盖」⇒ 旧那份**一个字节没动**（顺手拖一下就把手改过的那份"
+              "★★ T30.9 答「跳过已有项」⇒ 旧那份**一个字节没动**（顺手拖一下就把手改过的那份"
               "盖掉，是这条路最糟的失败方式）");
 
         // ---- (g) 同名文件答「盖掉」⇒ 真的换上新的 ----
         withPage(QStringLiteral("mod"), [&](InstanceSettingsDialog *page) {
-            answerNextPrompt(0);  // 「盖掉」（这一颗才是那一问的第 0 颗）
+            answerNextPrompt(2);  // 「盖掉」（2.1.2 起三颗：取消 / 跳过已有项 / 盖掉）
             dropFilesOn(page, {sameName});
             QApplication::processEvents();
         });

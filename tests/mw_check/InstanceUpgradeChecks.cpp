@@ -10,6 +10,8 @@
 #include "manage/BackupFiles.hpp"
 #include "InstanceSettingsDialog.hpp"
 #include "controllers/InstanceTransferController.hpp"
+#include "controllers/FileOperationRecoveryController.hpp"
+#include "operations/OperationReport.hpp"
 #include "manage/VersionManager.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "OverlayHost.hpp"
@@ -329,7 +331,7 @@ int runInstanceUpgradeChecks() {
         host.setFileOperationBusy = [&](const QString &, bool value) { busy = value; };
         InstanceTransferController controller(nullptr, nullptr, nullptr, host);
         QEventLoop loop;
-        controller.importWorldInBackground("id", source, "Imported", [&](bool ok, const QString &) {
+        controller.importWorldInBackground("id", source, "Imported", [&](bool ok, const QString &problem) {
             callbackWasAsync = returned;
             completed = true;
             success = ok;
@@ -367,6 +369,14 @@ int runInstanceUpgradeChecks() {
         };
         host.finishTask = [&](Tasks::TaskId, bool, const QString &) { finishCalled = true; };
         host.markTaskCancelled = [&](Tasks::TaskId id) { markedCancelled = id == importTask; };
+        QString recoveryToken;
+        host.registerRecovery = [](const OperationReport::Report &report) {
+            return !report.id.isEmpty() && !report.context.isEmpty();
+        };
+        // 恢复入口必须挂在**终态之后**：这里顺便钉住那个顺序。
+        host.setTaskRecovery = [&](Tasks::TaskId id, const QString &token) {
+            if (id == importTask) recoveryToken = token;
+        };
         InstanceTransferController controller(nullptr, nullptr, nullptr, host);
         QEventLoop loop;
         controller.importWorldInBackground("id", source, "Cancelled", [&](bool ok, const QString &) {
@@ -383,6 +393,8 @@ int runInstanceUpgradeChecks() {
         loop.exec();
         check(completed && !success && markedCancelled && !finishCalled && !busy,
               "cancelled world import ends as cancelled, not failed, and releases instance");
+        check(!recoveryToken.isEmpty(),
+              "★★ cancelled world import offers 「继续未完成操作」 after the task is terminal");
         check(!QFileInfo::exists(saves + "/Cancelled"),
               "cancelled world import publishes nothing");
         check(read(source + "/level.dat") == "world", "cancelled world import leaves source intact");
@@ -546,6 +558,126 @@ int runInstanceUpgradeChecks() {
               && read(old + "/saves/World/level.dat") == "world" && read(old + "/mods/old-mod.jar.disabled") == "mod"
               && !QFileInfo::exists(old + "/saves/Unwanted"),
               "all original user content stays and target user content is not imported");
+    }
+    {
+        // 2.1.1 副本模式：源实例保持不动，只复制一份候选并完整校验；
+        // **不再为副本另做整份 ZIP 快照**（空间从四次写盘降到一次复制）。
+        InstanceUpgrade::Request r{scratch.path() + "/copy-mode", "CopyName", "copy-ok", "Source"};
+        const QString source = r.gameDir + "/versions/Source";
+        check(write(source + "/Source.json", R"({"id":"Source"})")
+              && write(source + "/Source.jar", "old-core")
+              && write(source + "/wtfml.meta", R"({"instanceId":"copy-stable","name":"User name"})")
+              && write(source + "/config/custom.cfg", "user-settings")
+              && write(source + "/saves/World/level.dat", "world")
+              && write(source + "/mods/old-mod.jar", "mod")
+              && write(r.gameDir + "/versions/Target/Target.jar", "new-core")
+              && write(r.gameDir + "/versions/Target/Target.json", R"({"id":"Target","mainClass":"ExampleMain"})"),
+              "prepare copy-mode fixture");
+        InstanceUpgrade::Core core;
+        core.clientJar = r.gameDir + "/versions/Target/Target.jar";
+        core.gameVersion = "1.21.1";
+        core.loaderName = "Fabric";
+        core.mergedJson = QJsonObject{{"id", "Target"},
+            {"mainClass", "ExampleMain"},
+            {"downloads", QJsonObject{{"client", QJsonObject{{"sha1",
+                QString::fromLatin1(QCryptographicHash::hash("new-core", QCryptographicHash::Sha1).toHex())}}}}}};
+        const auto result = InstanceUpgrade::prepareCopyAndCommit(r, core, source);
+        const QString copyDir = r.gameDir + "/versions/CopyName";
+        check(result.ok && result.requiresReload && result.snapshotZip.isEmpty(),
+              "★ copy mode publishes a verified copy without a ZIP snapshot");
+        check(read(source + "/Source.jar") == "old-core" && read(source + "/Source.json") == R"({"id":"Source"})"
+              && read(source + "/mods/old-mod.jar") == "mod",
+              "★★ copy mode leaves the source instance byte-for-byte intact");
+        check(read(copyDir + "/CopyName.jar") == "new-core" && read(copyDir + "/mods/old-mod.jar.disabled") == "mod"
+              && read(copyDir + "/saves/World/level.dat") == "world"
+              && read(copyDir + "/config/custom.cfg") == "user-settings",
+              "copy mode replaces only the core and archives unverified mods");
+        const auto copyMeta = QJsonDocument::fromJson(read(copyDir + "/wtfml.meta")).object();
+        check(copyMeta.value("instanceId") == "copy-stable" && copyMeta.value("realVersion") == "1.21.1",
+              "copy mode keeps stable identity and records the new game version");
+        check(QDir(r.gameDir + "/cache/backups/instances").entryList({"*.zip"}, QDir::Files).isEmpty(),
+              "★★ no full ZIP snapshot is made for a copy (source instance is the rollback material)");
+        check(InstanceUpgrade::recoverableTransactions(r.gameDir, "CopyName").isEmpty(),
+              "copy mode offers no in-place rollback entry");
+        const auto recoverMessages = InstanceUpgrade::recoverInterrupted(r.gameDir);
+        check(!recoverMessages.isEmpty() && !QFileInfo::exists(InstanceUpgrade::transactionDir(r))
+                  && read(copyDir + "/CopyName.jar") == "new-core",
+              "startup recovery clears a committed copy transaction and keeps the published copy");
+    }
+    {
+        // 副本模式失败：源实例不动、目标名不出、暂存自己收掉。
+        InstanceUpgrade::Request r{scratch.path() + "/copy-fail", "CopyFail", "copy-fail", "Source"};
+        const QString source = r.gameDir + "/versions/Source";
+        check(write(source + "/Source.json", R"({"id":"Source"})")
+              && write(source + "/Source.jar", "old-core")
+              && write(source + "/wtfml.meta", "{not json")
+              && write(r.gameDir + "/versions/Target/Target.jar", "new-core"),
+              "prepare failing copy-mode fixture");
+        InstanceUpgrade::Core core;
+        core.clientJar = r.gameDir + "/versions/Target/Target.jar";
+        core.gameVersion = "1.21.1";
+        core.mergedJson = QJsonObject{{"mainClass", "ExampleMain"}};
+        const auto result = InstanceUpgrade::prepareCopyAndCommit(r, core, source);
+        check(!result.ok && !QFileInfo::exists(r.gameDir + "/versions/CopyFail")
+                  && read(source + "/Source.jar") == "old-core",
+              "failed copy mode publishes nothing and leaves the source intact");
+        check(!QFileInfo::exists(InstanceUpgrade::transactionDir(r)),
+              "failed copy mode removes its staging copy");
+    }
+    {
+        // 副本模式取消：停在复制阶段，源实例不动、暂存不会漏。
+        InstanceUpgrade::Request r{scratch.path() + "/copy-cancel", "CopyCancel", "copy-cancel", "Source"};
+        const QString source = r.gameDir + "/versions/Source";
+        check(write(source + "/Source.json", R"({"id":"Source"})")
+              && write(source + "/Source.jar", "old-core")
+              && write(source + "/saves/Big/level.dat", QByteArray(8 * 1024 * 1024, 'c'))
+              && write(r.gameDir + "/versions/Target/Target.jar", "new-core"),
+              "prepare cancellable copy-mode fixture");
+        InstanceUpgrade::Core core;
+        core.clientJar = r.gameDir + "/versions/Target/Target.jar";
+        core.gameVersion = "1.21.1";
+        core.mergedJson = QJsonObject{{"mainClass", "ExampleMain"}};
+        bool cancel = false;
+        const auto result = InstanceUpgrade::prepareCopyAndCommit(r, core, source,
+            [&](InstanceUpgrade::Stage stage) {
+                if (stage == InstanceUpgrade::Stage::Copy) cancel = true;
+            },
+            [&] { return cancel; });
+        check(!result.ok && result.cancelled
+                  && !QFileInfo::exists(r.gameDir + "/versions/CopyCancel")
+                  && read(source + "/Source.jar") == "old-core",
+              "cancelled copy mode publishes nothing and keeps the source intact");
+        check(!QFileInfo::exists(InstanceUpgrade::transactionDir(r)),
+              "cancelled copy mode removes its staging copy");
+    }
+    {
+        // 副本模式在发布阶段被外部打断（这里用异常模拟"进程没走完"）：
+        // 重启恢复只收自己那份未发布暂存，不碰版本目录。
+        InstanceUpgrade::Request r{scratch.path() + "/copy-crash", "CopyCrash", "copy-crash", "Source"};
+        const QString source = r.gameDir + "/versions/Source";
+        check(write(source + "/Source.json", R"({"id":"Source"})")
+              && write(source + "/Source.jar", "old-core")
+              && write(r.gameDir + "/versions/Target/Target.jar", "new-core"),
+              "prepare copy-mode crash fixture");
+        InstanceUpgrade::Core core;
+        core.clientJar = r.gameDir + "/versions/Target/Target.jar";
+        core.gameVersion = "1.21.1";
+        core.mergedJson = QJsonObject{{"mainClass", "ExampleMain"}};
+        bool interrupted = false;
+        try {
+            InstanceUpgrade::prepareCopyAndCommit(r, core, source,
+                [](InstanceUpgrade::Stage stage) {
+                    if (stage == InstanceUpgrade::Stage::Publish) throw std::runtime_error("simulated crash");
+                });
+        } catch (const std::runtime_error &) { interrupted = true; }
+        check(interrupted && QFileInfo::exists(InstanceUpgrade::transactionDir(r) + "/prepared")
+                  && !QFileInfo::exists(r.gameDir + "/versions/CopyCrash"),
+              "crash before publish leaves a copy staging directory");
+        const auto messages = InstanceUpgrade::recoverInterrupted(r.gameDir);
+        check(!messages.isEmpty() && !QFileInfo::exists(InstanceUpgrade::transactionDir(r))
+                  && read(source + "/Source.jar") == "old-core"
+                  && !QFileInfo::exists(r.gameDir + "/versions/CopyCrash"),
+              "startup recovery removes unpublished copy staging without touching the source");
     }
     {
         InstanceUpgrade::Request r{scratch.path() + "/unsafe", "Instance", "unsafe-id", "Original"};
@@ -737,6 +869,107 @@ int runInstanceUpgradeChecks() {
         AppPaths::setMinecraftDir(previousRoot);
     }
     {
+        // 2.1.1 副本模式 + 父任务：任务中心只出现一个父任务（复制/校验/发布是它的步骤），
+        // 源实例一个字节都不动，而且**不再为副本另做一份 ZIP 快照**。
+        const QString game = scratch.path() + "/copy-controller";
+        const QString source = game + "/versions/Source";
+        check(write(source + "/Source.json", R"({"id":"Source","mainClass":"OldMain"})")
+              && write(source + "/Source.jar", "old-core")
+              && write(source + "/wtfml.meta", R"({"realVersion":"1.20.1","instanceId":"copy-controller"})")
+              && write(source + "/saves/World/level.dat", "world")
+              && write(source + "/mods/old.jar", "old-mod")
+              && write(game + "/versions/Target/Target.json", R"({"id":"Target","mainClass":"NewMain"})")
+              && write(game + "/versions/Target/Target.jar", "new-core")
+              && write(game + "/versions/Target/wtfml.meta", R"({"realVersion":"1.21.1"})"),
+              "prepare copy-mode controller fixture");
+        const QString previousRoot = AppPaths::minecraftDir();
+        AppPaths::setMinecraftDir(game);
+        QWidget anchor;
+        QWidget home(&anchor);
+        OverlayHost overlay(&anchor, &home);
+        VersionManager versions;
+        LauncherManager launcher;
+        bool childStarted = false, standaloneStarted = false, finished = false, success = false;
+        bool parentStepDone = false, settledOk = false, settledCancelled = false;
+        Tasks::TaskId seenParent = 0;
+        int seenParentStep = -1;
+        InstanceTransferController::Host host;
+        host.displayName = [](const QString &id) { return id; };
+        host.isBeingModified = [](const QString &) { return false; };
+        host.setFileOperationBusy = [](const QString &, bool) {};
+        host.beginTask = [&](Tasks::TaskKind, const QString &, const QString &,
+                             const QList<Tasks::TaskStep> &) {
+            standaloneStarted = true;
+            return Tasks::TaskId(900);
+        };
+        host.beginChildTask = [&](Tasks::TaskId parent, Tasks::TaskKind, const QString &,
+                                  const QString &, const QList<Tasks::TaskStep> &) {
+            childStarted = true;
+            seenParent = parent;
+            return Tasks::TaskId(901);
+        };
+        host.setTaskStepState = [&](Tasks::TaskId id, int index, Tasks::TaskStepState state) {
+            if (id == Tasks::TaskId(77) && index == 2 && state == Tasks::TaskStepState::Done) {
+                parentStepDone = true;
+            }
+        };
+        host.setTaskCapabilities = [](Tasks::TaskId, const Tasks::TaskCapabilities &) {};
+        host.setTaskDetail = [](Tasks::TaskId, const QString &) {};
+        host.setTaskProgress = [](Tasks::TaskId, qint64, qint64) {};
+        host.finishTask = [&](Tasks::TaskId, bool ok, const QString &) {
+            finished = true;
+            success = ok;
+        };
+        host.markTaskCancelled = [](Tasks::TaskId) {};
+        host.refreshInstances = [] {};
+        InstanceTransferController controller(&versions, &launcher, &overlay, host);
+        // 收尾那一发会弹一句结果（成功/失败都弹）：这里只负责按掉它，免得挂住事件循环。
+        QTimer answers;
+        QObject::connect(&answers, &QTimer::timeout, &overlay, [&] {
+            if (auto *box = overlay.findChild<InlineMessageBox *>()) {
+                if (auto *button = box->findChild<QPushButton *>(InlineMessageBox::buttonName(0))) {
+                    button->click();
+                } else {
+                    box->reject();
+                }
+            }
+        });
+        answers.start(10);
+        QEventLoop wait;
+        QTimer deadline;
+        deadline.setSingleShot(true);
+        bool timedOut = false;
+        QObject::connect(&deadline, &QTimer::timeout, &wait, [&] { timedOut = true; wait.quit(); });
+        const QHash<int, int> parentSteps{
+            {int(InstanceUpgrade::Stage::Checking), 1},
+            {int(InstanceUpgrade::Stage::Copy), 1},
+            {int(InstanceUpgrade::Stage::VerifyCopy), 1},
+            {int(InstanceUpgrade::Stage::Publish), 2},
+            {int(InstanceUpgrade::Stage::Verify), 2}};
+        controller.upgradeToCopy("Source", "CopyOut", "Target",
+            [&](bool ok, const QString &) { finished = true; success = ok; wait.quit(); },
+            {}, true, Tasks::TaskId(77), parentSteps,
+            [&](bool ok, bool cancelled) { settledOk = ok; settledCancelled = cancelled; });
+        deadline.start(30000);
+        if (!finished) wait.exec();
+        deadline.stop();
+        check(!timedOut && finished && success && childStarted && !standaloneStarted
+                  && seenParent == Tasks::TaskId(77) && parentStepDone,
+              "★★ copy-mode upgrade is one child of the update parent task (no extra task row)");
+        check(settledOk && !settledCancelled, "copy-mode reports the exact settled outcome");
+        check(read(source + "/Source.jar") == "old-core"
+                  && read(source + "/mods/old.jar") == "old-mod",
+              "★★ copy-mode leaves the source instance untouched");
+        check(read(game + "/versions/CopyOut/CopyOut.jar") == "new-core"
+                  && read(game + "/versions/CopyOut/saves/World/level.dat") == "world"
+                  && read(game + "/versions/CopyOut/mods/old.jar.disabled") == "old-mod",
+              "copy-mode publishes the new core with the copied user files");
+        check(QDir(game + "/cache/backups/instances").entryList({"*.zip"}, QDir::Files).isEmpty(),
+              "★★ copy-mode makes no extra ZIP snapshot (space optimization)");
+        answers.stop();
+        AppPaths::setMinecraftDir(previousRoot);
+    }
+    {
         const auto r = fixture("success");
         const auto result = InstanceUpgrade::commitPrepared(r);
         check(result.ok && result.rollbackAvailable && !result.rolledBack, "commit retains rollback material");
@@ -900,6 +1133,119 @@ int runInstanceUpgradeChecks() {
               && read(r.gameDir + "/versions/Instance/Instance.jar") == "old-core"
               && read(InstanceUpgrade::transactionDir(r) + "/replaced/Instance.jar") == "bad-core",
               "hash mismatch triggers rollback without deleting failed version");
+    }
+    {
+        // 2.1.2「继续未完成操作」：报告登记 → 任务中心那一颗 → 补完并收尾。
+        const QString game = scratch.path() + "/recovery-game";
+        const QString world = game + "/source-world";
+        const QString saves = game + "/versions/Recovery/saves";
+        check(write(world + "/level.dat", "level-bytes")
+                  && write(world + "/region/r.0.0.mca", QByteArray(2048, 'r'))
+                  && QDir().mkpath(saves),
+              "prepare recovery fixture");
+        const QString previousRoot = AppPaths::minecraftDir();
+        AppPaths::setMinecraftDir(game);
+        QWidget anchor;
+        QWidget home(&anchor);
+        OverlayHost overlay(&anchor, &home);
+        int started = 0;
+        bool finished = false, success = false;
+        QString finishedProblem, recoveryToken;
+        FileOperationRecoveryController::Host host;
+        host.displayName = [](const QString &id) { return id; };
+        host.isInstanceBusy = [](const QString &) { return false; };
+        host.log = [](const QString &) {};
+        host.beginTask = [&](Tasks::TaskKind, const QString &, const QString &,
+                             const QList<Tasks::TaskStep> &) {
+            return Tasks::TaskId(++started);
+        };
+        host.setTaskDetail = [](Tasks::TaskId, const QString &) {};
+        host.setTaskStepState = [](Tasks::TaskId, int, Tasks::TaskStepState) {};
+        host.finishTask = [&](Tasks::TaskId, bool ok, const QString &problem) {
+            finished = true;
+            success = ok;
+            finishedProblem = problem;
+        };
+        host.setTaskRecovery = [&](Tasks::TaskId, const QString &token) { recoveryToken = token; };
+        FileOperationRecoveryController controller(&overlay, host);
+
+        const QString reportId = QStringLiteral("aaaaaaaa-1111-2222-3333-444444444444");
+        OperationReport::Report report;
+        report.id = reportId;
+        report.kind = OperationReport::Kind::WorldImport;
+        report.title = QStringLiteral("导入世界：Recovery");
+        report.instanceId = QStringLiteral("Recovery");
+        report.sourceRoot = world;
+        report.targetRoot = saves;
+        report.stagingDir = OperationReport::stagingDirectory(game, reportId);
+        report.conflictPolicy = OperationReport::ConflictPolicy::SkipExisting;
+        report.totalFiles = 2;
+        report.complete = false;
+        report.startedAt = QDateTime::currentDateTime();
+        report.updatedAt = report.startedAt;
+        report.context = QJsonObject{{QStringLiteral("dataRoot"), game},
+                                     {QStringLiteral("worldDir"), world},
+                                     {QStringLiteral("savesDir"), saves},
+                                     {QStringLiteral("name"), QStringLiteral("Recovered")}};
+        report.entries.append(OperationReport::Entry{
+            QStringLiteral("Recovered"), 0, OperationReport::EntryState::Pending, {}});
+        check(controller.registerReport(report) && controller.has(reportId)
+                  && QFileInfo::exists(OperationReport::reportPath(game, reportId)),
+              "★ recovery report registers with its on-disk report");
+        check(controller.resume(reportId) && started == 1,
+              "★ task center's resume starts one operation task");
+        QEventLoop wait;
+        QTimer deadline;
+        deadline.setSingleShot(true);
+        bool timedOut = false;
+        QObject::connect(&deadline, &QTimer::timeout, &wait, [&] { timedOut = true; wait.quit(); });
+        const auto poll = new QTimer(&wait);
+        QObject::connect(poll, &QTimer::timeout, &wait, [&] {
+            if (finished) wait.quit();
+        });
+        poll->start(20);
+        deadline.start(30000);
+        if (!finished) wait.exec();
+        poll->stop();
+        deadline.stop();
+        check(!timedOut && finished && success && recoveryToken.isEmpty(),
+              "★★ resume completes the world import and leaves no recovery entry");
+        check(read(saves + "/Recovered/level.dat") == "level-bytes"
+                  && read(saves + "/Recovered/region/r.0.0.mca") == QByteArray(2048, 'r'),
+              "★★ resumed import publishes the complete world");
+        check(!QFileInfo::exists(OperationReport::reportPath(game, reportId))
+                  && !controller.has(reportId) && !QFileInfo::exists(report.stagingDir),
+              "resume clears the report and staging once everything is done");
+
+        // 做不完时：收失败、重新挂上恢复入口、并写出“为什么做不完”的报告。
+        const QString blockedId = QStringLiteral("bbbbbbbb-1111-2222-3333-444444444444");
+        OperationReport::Report blocked = report;
+        blocked.id = blockedId;
+        blocked.stagingDir = OperationReport::stagingDirectory(game, blockedId);
+        blocked.context = QJsonObject{{QStringLiteral("dataRoot"), game},
+                                      {QStringLiteral("worldDir"), game + "/missing-world"},
+                                      {QStringLiteral("savesDir"), saves},
+                                      {QStringLiteral("name"), QStringLiteral("Blocked")}};
+        blocked.entries = {OperationReport::Entry{
+            QStringLiteral("Blocked"), 0, OperationReport::EntryState::Pending, {}}};
+        check(controller.registerReport(blocked) && controller.resume(blockedId),
+              "register and resume a world import whose source is gone");
+        finished = false;
+        success = true;
+        poll->start(20);
+        deadline.start(30000);
+        if (!finished) wait.exec();
+        poll->stop();
+        deadline.stop();
+        const QString failurePath =
+            OperationReport::reportPath(game, blockedId) + QStringLiteral(".failure.txt");
+        check(!timedOut && finished && !success && recoveryToken == blockedId
+                  && QFileInfo::exists(failurePath),
+              "★★ an impossible resume fails honestly, keeps the entry and writes a failure report");
+        check(QString::fromUtf8(read(failurePath)).contains(QStringLiteral("继续未完成操作"))
+                  && QString::fromUtf8(read(failurePath)).contains(QStringLiteral("未完成")),
+              "failure report explains what is unfinished and what the user can do next");
+        AppPaths::setMinecraftDir(previousRoot);
     }
     return failures == 0 ? 0 : 1;
 }

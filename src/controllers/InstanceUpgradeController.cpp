@@ -11,6 +11,7 @@
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QPointer>
+#include <QSet>
 #include <QTimer>
 #include <QUuid>
 #include <QtConcurrent/QtConcurrentRun>
@@ -19,9 +20,12 @@
 
 void InstanceTransferController::upgradeInPlace(QString sourceId, QString targetId,
     std::function<void(bool, const QString &)> whenDone,
-    const QStringList &reviewedKeptMods, bool reviewedModPlan) {
+    const QStringList &reviewedKeptMods, bool reviewedModPlan,
+    Tasks::TaskId parentTask, const QHash<int, int> &stageParentSteps,
+    std::function<void(bool, bool)> whenSettled) {
     const auto fail = [&](const QString &problem) {
         InlineMessage::warning(m_overlay, tr("原地升级"), problem);
+        if (whenSettled) whenSettled(false, false);
         if (whenDone) whenDone(false, problem);
     };
     if (m_copyBusy || sourceId == targetId
@@ -74,7 +78,11 @@ void InstanceTransferController::upgradeInPlace(QString sourceId, QString target
             tr("游戏版本或加载器将变化，旧模组尚未验证适配。\n\n"
                "建议先禁用旧模组（文件保留，后缀改为 .disabled）。保留启用状态可能导致游戏无法启动。"),
             {tr("禁用旧模组"), tr("保持原状"), tr("取消升级")}, 0, -1, false);
-        if (choice != 0 && choice != 1) { if (whenDone) whenDone(false, {}); return; }
+        if (choice != 0 && choice != 1) {
+            if (whenSettled) whenSettled(false, true);
+            if (whenDone) whenDone(false, {});
+            return;
+        }
         core.disableOldMods = choice == 0;
     } else {
         core.disableOldMods = false;
@@ -86,6 +94,7 @@ void InstanceTransferController::upgradeInPlace(QString sourceId, QString target
            "替换后会关闭当前设置页。这不会自动适配或下载模组。继续吗？")
             .arg(displayName(sourceId), core.gameVersion, core.loaderName.isEmpty() ? tr("原版") : core.loaderName),
         tr("备份并升级"), tr("取消"), false, true)) {
+        if (whenSettled) whenSettled(false, true);
         if (whenDone) whenDone(false, {});
         return;
     }
@@ -93,7 +102,85 @@ void InstanceTransferController::upgradeInPlace(QString sourceId, QString target
     if (unavailable() || AppPaths::minecraftDir() != game) { fail(tr("实例或游戏目录状态已变化，没有开始升级。")); return; }
     const InstanceUpgrade::Request request{game, sourceId,
         QUuid::createUuid().toString(QUuid::WithoutBraces), displayName(sourceId)};
-    runUpgradeJob(request, core, locked, false, std::move(whenDone));
+    // 引擎阶段（`Stage` 的枚举值）⇒ 子任务第几步。原地升级那七步与枚举前七个
+    // 一一对应，所以不传也能用；父任务那一份由调用方给（它自己的步骤更粗）。
+    runUpgradeJob(request, core, locked, false, std::move(whenDone), parentTask,
+                  stageParentSteps, QString(), std::move(whenSettled));
+}
+
+void InstanceTransferController::upgradeToCopy(const QString &sourceId, const QString &newName,
+    const QString &targetCoreId,
+    std::function<void(bool, const QString &)> whenDone,
+    const QStringList &reviewedKeptMods, bool reviewedModPlan,
+    Tasks::TaskId parentTask, const QHash<int, int> &stageParentSteps,
+    std::function<void(bool, bool)> whenSettled) {
+    const auto fail = [&](const QString &problem) {
+        InlineMessage::warning(m_overlay, tr("创建更新副本"), problem);
+        if (whenSettled) whenSettled(false, false);
+        if (whenDone) whenDone(false, problem);
+    };
+    const QString name = newName.trimmed();
+    if (m_copyBusy || !InstanceFiles::validateDirName(sourceId).isEmpty()
+        || !InstanceFiles::validateDirName(name).isEmpty()
+        || sourceId.compare(name, Qt::CaseInsensitive) == 0) {
+        fail(tr("实例名无效、副本名与原实例相同，或已有文件任务正在运行。"));
+        return;
+    }
+    if (QFileInfo::exists(AppPaths::versionDir(name))) {
+        fail(tr("已经存在同名实例，未覆盖任何文件。请换一个副本名字。"));
+        return;
+    }
+    const QString game = AppPaths::minecraftDir();
+    if (sourceId.compare(m_versions->instanceGameVersion(sourceId), Qt::CaseInsensitive) == 0) {
+        // 共享原版核心不能原地替换；副本这条路本来安全（源不动），但为了让副本不继续
+        // 继承"目录名就是原版版本号"的身份，这里仍要求先复制成自定义名称的独立实例。
+        fail(tr("当前目录名是共享的原版版本号。请先复制为自定义名称的独立实例，再创建更新副本。"));
+        return;
+    }
+    if ((m_launcher && m_launcher->isVersionRunning(sourceId))
+        || (m_host.isBeingModified && m_host.isBeingModified(sourceId))) {
+        fail(tr("源实例正在运行、安装或处理文件，完成后再试。"));
+        return;
+    }
+    m_versions->clearVersionJsonCache();
+    const QString inheritance = m_versions->inheritanceProblem(targetCoreId);
+    if (!inheritance.isEmpty()) { fail(inheritance); return; }
+    InstanceUpgrade::Core core;
+    core.mergedJson = m_versions->getVersionJson(targetCoreId);
+    core.clientJar = InstanceFiles::jarPath(targetCoreId);
+    core.gameVersion = m_versions->instanceGameVersion(targetCoreId);
+    const auto target = m_versions->displayParts(targetCoreId);
+    core.loaderName = InstancePagesController::loaderName(target, m_versions, &core.loaderVersion);
+    if (core.mergedJson.isEmpty() || core.gameVersion.isEmpty() || !QFileInfo(core.clientJar).isFile()) {
+        fail(tr("目标核心不完整，请先安装或修复目标版本。"));
+        return;
+    }
+    if (reviewedModPlan) {
+        core.disableOldMods = true;
+        core.keepOldMods = reviewedKeptMods;
+    } else {
+        // 未经过逐文件确认的调用（兼容入口）只能保守处理：旧模组一律禁用、保留文件。
+        core.disableOldMods = true;
+    }
+    const auto unavailable = [&] {
+        if (m_copyBusy) return true;
+        for (const auto &id : QStringList{sourceId, targetCoreId, InstanceFiles::jarOwnerId(targetCoreId)})
+            if (!id.isEmpty()
+                && ((m_launcher && m_launcher->isVersionRunning(id))
+                    || (m_host.isBeingModified && m_host.isBeingModified(id)))) return true;
+        return false;
+    };
+    if (unavailable() || AppPaths::minecraftDir() != game) {
+        fail(tr("实例或游戏目录状态已变化，没有开始创建副本。"));
+        return;
+    }
+    const InstanceUpgrade::Request request{game, name,
+        QUuid::createUuid().toString(QUuid::WithoutBraces), displayName(sourceId)};
+    const QString sourceDir = AppPaths::versionDir(sourceId);
+    runUpgradeJob(request, core,
+                  QStringList{sourceId, targetCoreId, InstanceFiles::jarOwnerId(targetCoreId)},
+                  false, std::move(whenDone), parentTask, stageParentSteps, sourceDir,
+                  std::move(whenSettled));
 }
 
 void InstanceTransferController::rollbackUpgrade(QString sourceId,
@@ -127,21 +214,48 @@ void InstanceTransferController::rollbackUpgrade(QString sourceId,
 
 void InstanceTransferController::runUpgradeJob(const InstanceUpgrade::Request &request,
     const InstanceUpgrade::Core &core, const QStringList &lockedIds, bool restore,
-    std::function<void(bool, const QString &)> whenDone) {
+    std::function<void(bool, const QString &)> whenDone, Tasks::TaskId parentTask,
+    const QHash<int, int> &stageParentSteps, const QString &copySourceDir,
+    std::function<void(bool, bool)> whenSettled) {
     m_copyBusy = true;
     for (const auto &id : lockedIds) if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(id, true);
+    const bool copyMode = !copySourceDir.isEmpty();
     const QString title = restore ? tr("回滚原地升级 %1").arg(displayName(request.instanceId))
-                                 : tr("原地升级 %1").arg(displayName(request.instanceId));
+        : copyMode ? tr("创建更新副本 %1").arg(request.instanceId)
+                   : tr("原地升级 %1").arg(displayName(request.instanceId));
     QList<Tasks::TaskStep> steps;
     const QStringList names = restore
         ? QStringList{tr("验证保留的原目录"), tr("保留当前版本并恢复原实例"), tr("完成")}
+        : copyMode
+        ? QStringList{tr("复制源实例到暂存副本"), tr("逐文件校验暂存副本"),
+                      tr("应用新核心并发布"), tr("发布后逐文件校验"), tr("完成")}
         : QStringList{tr("准备并校验用户文件副本"), tr("创建完整快照"), tr("验证完整快照"),
                       tr("保留原目录"), tr("替换核心"), tr("逐文件校验"), tr("完成")};
     for (const QString &name : names)
         steps.append({name, Tasks::TaskStepState::Pending, {}});
     const int stepCount = steps.size();
-    const auto task = m_host.beginTask ? m_host.beginTask(Tasks::TaskKind::Other, title, request.instanceId, steps)
-                                     : Tasks::invalidTaskId();
+    // 引擎阶段（`Stage` 的枚举值）⇒ 子任务第几步。默认那份是按原地升级那七步写的；
+    // 副本模式只有五步，顺序也不同（见上）。
+    QHash<int, int> stageSteps = restore
+        ? QHash<int, int>{{int(InstanceUpgrade::Stage::Checking), 0}}
+        : copyMode
+        ? QHash<int, int>{{int(InstanceUpgrade::Stage::Checking), 0},
+                          {int(InstanceUpgrade::Stage::Copy), 0},
+                          {int(InstanceUpgrade::Stage::VerifyCopy), 1},
+                          {int(InstanceUpgrade::Stage::Publish), 2},
+                          {int(InstanceUpgrade::Stage::Verify), 3},
+                          {int(InstanceUpgrade::Stage::Done), 3}}
+        : QHash<int, int>{{int(InstanceUpgrade::Stage::Checking), 0},
+                          {int(InstanceUpgrade::Stage::Snapshot), 1},
+                          {int(InstanceUpgrade::Stage::VerifySnapshot), 2},
+                          {int(InstanceUpgrade::Stage::RetainOriginal), 3},
+                          {int(InstanceUpgrade::Stage::Publish), 4},
+                          {int(InstanceUpgrade::Stage::Verify), 5},
+                          {int(InstanceUpgrade::Stage::Done), 6}};
+    const auto task = m_host.beginChildTask && parentTask != Tasks::invalidTaskId()
+        ? m_host.beginChildTask(parentTask, Tasks::TaskKind::Other, title, request.instanceId, steps)
+        : m_host.beginTask ? m_host.beginTask(Tasks::TaskKind::Other, title, request.instanceId, steps)
+                           : Tasks::invalidTaskId();
     // 升级 / 回滚在引擎里每一步之间都看取消位（准备、快照、校验、发布前后），所以
     // 这里把「取消」开出来。`Other` 的默认能力位是关的 —— 光靠种类判断，这一项
     // 永远长不出那颗按钮。
@@ -155,18 +269,29 @@ void InstanceTransferController::runUpgradeJob(const InstanceUpgrade::Request &r
     const auto stage = std::make_shared<std::atomic<int>>(0);
     auto *watcher = new QFutureWatcher<InstanceUpgrade::Result>(this);
     auto *timer = new QTimer(watcher);
-    connect(timer, &QTimer::timeout, watcher, [this, stage, task, restore, stepCount] {
+    connect(timer, &QTimer::timeout, watcher, [this, stage, task, restore, stepCount, stageSteps,
+                                               parentTask, stageParentSteps, copyMode] {
         const int current = stage->load();
-        if (m_host.setTaskDetail) m_host.setTaskDetail(task, restore ? tr("正在恢复保留的原目录…")
-                                                                 : tr("原地升级：阶段 %1 / %2").arg(current + 1).arg(stepCount));
-        if (m_host.setTaskProgress) m_host.setTaskProgress(task, current, stepCount);
+        const int step = stageSteps.value(current, -1);
+        if (m_host.setTaskDetail) m_host.setTaskDetail(task,
+            restore ? tr("正在恢复保留的原目录…")
+                    : copyMode ? tr("创建更新副本：阶段 %1 / %2").arg(qMax(0, step) + 1).arg(stepCount)
+                               : tr("原地升级：阶段 %1 / %2").arg(qMax(0, step) + 1).arg(stepCount));
+        if (m_host.setTaskProgress) m_host.setTaskProgress(task, qMax(0, step), stepCount);
         if (m_host.setTaskStepState) {
-            for (int i = 0; i < current; ++i) m_host.setTaskStepState(task, i, Tasks::TaskStepState::Done);
-            m_host.setTaskStepState(task, current, Tasks::TaskStepState::Running);
+            for (int i = 0; i < qMax(0, step); ++i) m_host.setTaskStepState(task, i, Tasks::TaskStepState::Done);
+            if (step >= 0) m_host.setTaskStepState(task, step, Tasks::TaskStepState::Running);
+        }
+        // 父任务那一条线：只改它自己那几步的记号（任务的终态由串起这些步骤的流程决定）。
+        const int parentStep = stageParentSteps.value(current, -1);
+        if (parentTask != Tasks::invalidTaskId() && parentStep >= 0 && m_host.setTaskStepState) {
+            m_host.setTaskStepState(parentTask, parentStep, Tasks::TaskStepState::Running);
         }
     });
     connect(watcher, &QFutureWatcher<InstanceUpgrade::Result>::finished, this,
-        [this, watcher, timer, lockedIds, task, stage, title, request, whenDone, stepCount] {
+        [this, watcher, timer, lockedIds, task, stage, title, request, whenDone, stepCount,
+         stageSteps, parentTask, stageParentSteps, copyMode,
+         whenSettled = std::move(whenSettled)] {
             timer->stop();
             const auto result = watcher->result();
             watcher->deleteLater();
@@ -189,9 +314,32 @@ void InstanceTransferController::runUpgradeJob(const InstanceUpgrade::Request &r
             if (m_host.setTaskDetail) m_host.setTaskDetail(task, detail);
             if (!cancelled && m_host.setTaskStepState) {
                 if (result.ok) for (int i = 0; i < stepCount; ++i) m_host.setTaskStepState(task, i, Tasks::TaskStepState::Done);
-                else m_host.setTaskStepState(task, stage->load(), Tasks::TaskStepState::Failed);
+                else {
+                    const int failed = stageSteps.value(stage->load(), -1);
+                    if (failed >= 0) {
+                        m_host.setTaskStepState(task, failed, Tasks::TaskStepState::Failed);
+                    }
+                }
             }
             if (m_host.setTaskProgress && result.ok) m_host.setTaskProgress(task, stepCount, stepCount);
+            // 父任务：这一步的记号 + 那句进度说明。**不在这儿收尾** —— 父任务还可能有
+            // 下一步（副本模式准备完核心还要继续），由调用方按整趟结果决定成败。
+            if (parentTask != Tasks::invalidTaskId() && m_host.setTaskStepState) {
+                const int parentStep = stageParentSteps.value(stage->load(), -1);
+                if (result.ok) {
+                    QSet<int> done;
+                    for (auto it = stageParentSteps.cbegin(); it != stageParentSteps.cend(); ++it) {
+                        if (it.value() >= 0) done.insert(it.value());
+                    }
+                    for (const int parentDoneStep : done) {
+                        m_host.setTaskStepState(parentTask, parentDoneStep,
+                                                Tasks::TaskStepState::Done);
+                    }
+                } else if (!cancelled && parentStep >= 0) {
+                    m_host.setTaskStepState(parentTask, parentStep, Tasks::TaskStepState::Failed);
+                }
+                if (m_host.setTaskDetail) m_host.setTaskDetail(parentTask, detail);
+            }
             if (cancelled) {
                 // 取消不是失败：账本收成 Cancelled（不亮红点），也不弹失败提示。
                 if (m_host.markTaskCancelled) m_host.markTaskCancelled(task);
@@ -202,6 +350,7 @@ void InstanceTransferController::runUpgradeJob(const InstanceUpgrade::Request &r
                 log(title + '\n' + detail);
             }
             // Close stale settings before showing results, so it cannot write old fields back.
+            if (whenSettled) whenSettled(result.ok, cancelled);
             const QPointer<InstanceTransferController> guard(this);
             if (whenDone) {
                 whenDone(result.requiresReload || result.rolledBack || result.ok
@@ -216,12 +365,19 @@ void InstanceTransferController::runUpgradeJob(const InstanceUpgrade::Request &r
             }
         });
     timer->start(100);
-    watcher->setFuture(QtConcurrent::run([request, core, restore, stage, state] {
+    watcher->setFuture(QtConcurrent::run([request, core, restore, stage, state, copySourceDir] {
         const auto cancelled = [state] {
             return state->abort.load(std::memory_order_relaxed);
         };
         try {
             if (restore) return InstanceUpgrade::rollback(request, cancelled);
+            if (!copySourceDir.isEmpty()) {
+                return InstanceUpgrade::prepareCopyAndCommit(
+                    request, core, copySourceDir,
+                    [stage](InstanceUpgrade::Stage value) {
+                        stage->store(static_cast<int>(value));
+                    }, cancelled);
+            }
             return InstanceUpgrade::prepareAndCommit(request, core, [stage](InstanceUpgrade::Stage value) {
                 stage->store(static_cast<int>(value));
             }, cancelled);

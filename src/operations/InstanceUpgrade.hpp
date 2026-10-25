@@ -8,7 +8,19 @@
 namespace InstanceUpgrade {
 // Worker-only disk transaction. The caller locks both instances and prepares
 // candidateDir() with core files already named for instanceId.
-enum class Stage { Checking, Snapshot, VerifySnapshot, RetainOriginal, Publish, Verify, Done };
+enum class Stage {
+    Checking,
+    Snapshot,
+    VerifySnapshot,
+    RetainOriginal,
+    Publish,
+    Verify,
+    Done,
+    /// 副本模式专有：把源实例整棵拷进暂存，或校验那份暂存。
+    /// 原地升级**不经过**这两档（它走 Snapshot / VerifySnapshot 那条 ZIP 快照的路）。
+    Copy,
+    VerifyCopy,
+};
 struct Request {
     QString gameDir;
     QString instanceId;
@@ -48,6 +60,19 @@ QString dependentInstanceProblem(const QString &gameDir, const QString &instance
 Result prepareAndCommit(Request request, const Core &core,
                         const std::function<void(Stage)> &progress = {},
                         const std::function<bool()> &cancelled = {});
+/// 副本模式（2.1.1 的空间优化）：**源实例保持不动**，只把源目录逐文件复制成
+/// `versions/<新名字>` 的候选、逐文件完整校验候选，再换核心并发布。
+///
+/// 和 `prepareAndCommit()` 的差别只有一处，而且是用户确认过的取舍：**不再为副本另做
+/// 一整份 ZIP 快照**（源实例本身就是回滚材料，它一个字节都不会被改），所以空间占用从
+/// 「复制 + 快照 + 快照校验解压 + 候选副本」四次降到一次复制。校验一点没少：
+/// 复制后按路径/大小/SHA-1 对一遍，发布后再对一遍。
+///
+/// @param sourceDir 源实例目录（`<gameDir>/versions/<源 id>`）；只读。
+/// @param request.instanceId 是**新副本**的名字，它不能已经存在。
+Result prepareCopyAndCommit(Request request, const Core &core, const QString &sourceDir,
+                            const std::function<void(Stage)> &progress = {},
+                            const std::function<bool()> &cancelled = {});
 Result commitPrepared(const Request &request,
                       const std::function<void(Stage)> &progress = {},
                       const std::function<bool()> &cancelled = {});

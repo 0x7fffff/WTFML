@@ -22,6 +22,8 @@ const char *stageName(InstanceUpgrade::Stage stage) {
     case InstanceUpgrade::Stage::Publish: return "publish";
     case InstanceUpgrade::Stage::Verify: return "verify";
     case InstanceUpgrade::Stage::Done: return "done";
+    case InstanceUpgrade::Stage::Copy: return "copy";
+    case InstanceUpgrade::Stage::VerifyCopy: return "verify-copy";
     }
     return "unknown";
 }
@@ -184,6 +186,7 @@ int main(int argc, char **argv) {
     runUpdateRollbackTests();
     runFolderRemovalTests();
     runTransferPlannerTests();
+    runOperationReportTests();
  out()<<"instances: "<<g_checks-g_failures<<"/"<<g_checks<<"\n"; return g_failures==0 && moduleStatus==0 ? 0 : 1;
 }
 

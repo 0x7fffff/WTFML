@@ -243,6 +243,8 @@ set(PROJECT_SOURCES
     # prepareAndCommit / recoverInterrupted；普通测试仍然只跑临时目录夹具。
     ${REPO_ROOT}/src/operations/InstanceUpgrade.cpp
     ${REPO_ROOT}/src/operations/InstanceUpgrade.hpp
+    ${REPO_ROOT}/src/operations/OperationReport.cpp
+    ${REPO_ROOT}/src/operations/OperationReport.hpp
     ${REPO_ROOT}/src/settings/EffectiveJavaSettings.cpp
     ${REPO_ROOT}/src/settings/EffectiveJavaSettings.hpp
     ${REPO_ROOT}/src/settings/GlobalJavaSettings.cpp

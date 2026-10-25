@@ -191,6 +191,8 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/operations/TransferPlanner.cpp
     ${REPO_ROOT}/src/operations/TransferApply.cpp
     ${REPO_ROOT}/src/operations/InstanceUpgrade.cpp
+    ${REPO_ROOT}/src/operations/OperationReport.cpp
+    ${REPO_ROOT}/src/controllers/FileOperationRecoveryController.cpp
 
     ${REPO_ROOT}/src/manage/InstanceGroupStore.cpp
     ${REPO_ROOT}/src/manage/PlayerSkinStore.cpp

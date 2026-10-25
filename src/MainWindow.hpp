@@ -69,6 +69,7 @@ class FolderController;
 class ModpackExportController;
 class InstanceFileController;
 class InstanceTransferController;
+class FileOperationRecoveryController;
 class InstanceDialogController;
 class InstanceEditorController;
 class ImportController;
@@ -2149,6 +2150,12 @@ private:
     /// `m_importingInstanceId` 那三个"界面上自己记的" —— 收尾那几条路（
     /// onVersionDownloadFinished）用的也是它们，所以两头的分档**天然一致**。
     void beginDownloadTask();
+    /// 让接下来那一批下载挂到 @p parent 的第 @p step 步底下（`beginDownloadTask()` 读它）。
+    /// 父任务收尾由调用方负责 —— 这一批只是那件意图里的一步。
+    void setDownloadTaskParent(Tasks::TaskId parent, int step);
+    /// 「实例更新」父任务在准备阶段可以被取消：这一对登记 / 摘除那条取消入口。
+    void setUpdateFlowCancel(Tasks::TaskId task, std::function<bool()> cancel);
+    void clearUpdateFlowCancel(Tasks::TaskId task);
 
     // ---------- 底栏那两块上拉面板（左：正在跑的实例 · 右：最近用过的账号） ----------
     //
@@ -2917,6 +2924,8 @@ private:
     ModpackExportController *m_modpackExportController = nullptr;
     InstanceFileController *m_instanceFileController = nullptr;
     InstanceTransferController *m_instanceTransferController = nullptr;
+    /// 「继续未完成操作」：按 OperationReport 把没做完的文件操作补完。
+    FileOperationRecoveryController *m_fileRecovery = nullptr;
     InstanceDialogController *m_instanceDialogController = nullptr;
     InstanceEditorController *m_instanceEditorController = nullptr;
     ImportController *m_importController = nullptr;
@@ -3248,6 +3257,14 @@ private:
     /// retryTaskFromDetail()）—— 它们同样进任务中心：下大文件时用户看得到进度，
     /// 失败了也有地方能点「重试」。
     Tasks::TaskId m_downloadTaskId = Tasks::invalidTaskId();
+    /// 这一批下载/安装要挂到哪个父任务底下（0 = 独立成行）。
+    /// 「实例更新」把核心准备并进同一个用户意图：源实例更新只该在任务中心出现一行。
+    Tasks::TaskId m_downloadParentTask = Tasks::invalidTaskId();
+    int m_downloadParentStep = -1;
+    /// 「实例更新」父任务的取消入口（准备阶段才给）。`cancelWouldWork()` 和
+    /// `cancelTaskFromDetail()` 都按它把父任务那一颗按钮接到真的那一批下载上。
+    Tasks::TaskId m_updateFlowTask = Tasks::invalidTaskId();
+    std::function<bool()> m_updateFlowCancel;
     /// 那一格失败清单**归账本里的哪一件任务**（"重试"资格的出处，见 finishTask()）。
     ///
     /// 绝大多数时候它就等于 `m_downloadTaskId`；两处不能现读的地方靠它：

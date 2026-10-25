@@ -71,6 +71,21 @@ public:
     TaskId begin(TaskKind kind, const QString &title, const QString &targetId = QString(),
                  const QList<TaskStep> &steps = QList<TaskStep>(),
                  const TaskCapabilities &capabilities = TaskCapabilities(), bool queued = false);
+    /// 以 @p parent 的第 @p parentStep 步为归属记一件**子任务**。
+    ///
+    /// 子任务**不进** `active()` / `finished()` / `all()`：任务中心只应出现一个父任务
+    /// （一次"升级实例"里准备核心、复制、快照都是它的步骤，不是另外三件事）。子任务的
+    /// 细节和字节进度会镜像到父任务上，收尾时也只改父任务那一步的状态 —— 父任务自己
+    /// 什么时候收尾由串起这些子任务的流程决定（子任务失败不等于父任务已经收完尾：那一边
+    /// 可能还要回滚或保留恢复材料）。
+    ///
+    /// @param parent 必须是一个活着的父任务；认不出来时返回 `invalidTaskId()`，
+    /// 调用方该退回 `begin()` 而不是把这次操作丢掉。
+    TaskId beginChild(TaskId parent, TaskKind kind, const QString &title,
+                      const QString &targetId = QString(),
+                      const QList<TaskStep> &steps = QList<TaskStep>(),
+                      const TaskCapabilities &capabilities = TaskCapabilities(),
+                      int parentStep = -1);
     bool startQueued(TaskId id);
 
     /// 换一句"现在在干什么"（面板里标题下面那行小字）。
@@ -95,8 +110,13 @@ public:
     /// 记字节进度。下载那一类两样都记：百分比按单位算，详情里那句"2.8 MB / 18 MB"按字节。
     bool setBytes(TaskId id, qint64 bytesDone, qint64 bytesTotal);
 
-    /// 改能力位（装上加载器之后中途变成"不能取消了"就是这么来的）。
+    /// 改某一项**允许**什么操作。装上加载器之后中途变成"不能取消了"就是这么来的）。
     bool setCapabilities(TaskId id, const TaskCapabilities &capabilities);
+
+    /// 给一项已经收尾的任务挂上"继续未完成操作"的入口，以及那份报告的钥匙。
+    /// 只对**已收尾**的任务有效：还在跑的那一项没有"继续"这回事。
+    bool setRecovery(TaskId id, const QString &recoveryToken, bool canRecover,
+                     const QString &blockedReason = QString());
 
     /// 收尾三兄弟。**终态只落一次**：第二次调用回 false 且一个信号都不发。
     bool succeed(TaskId id);
@@ -114,6 +134,8 @@ public:
     QList<TaskSnapshot> finished() const;
     /// 全部（活动在前、收尾的在后，各自内部有序）——给"两个都要"的读者。
     QList<TaskSnapshot> all() const;
+    /// 挂在 @p parent 底下的子任务（按发起先后）。**不进任务中心**，只给流程和验证用。
+    QList<TaskSnapshot> childrenOf(TaskId parent) const;
 
     TaskSnapshot snapshot(TaskId id) const;
     bool has(TaskId id) const;
@@ -132,8 +154,13 @@ private:
     QString resolvedHistoryPath() const;
     /// 按号找一项。找不到回 nullptr。
     TaskSnapshot *find(TaskId id);
+    /// 发一个新号（推进 `m_nextId`，并避开盘上已经有的号）。号用尽时回 `invalidTaskId()`。
+    TaskId allocateId();
     /// 收尾的公共部分（三个入口都走它）。
     bool finish(TaskId id, TaskState state, const QString &errorSummary);
+    /// 子任务的状态变化往父任务那一格上镜（详情 / 字节 / 那一步的状态）。
+    /// NOTE: **不改父任务的终态** —— 子任务失败不等于这一件意图已经收完尾。
+    void propagateChild(const TaskSnapshot &child);
     /// 把内存里超量的终态项按**落盘那份口径**丢掉（留最近的 `finishedHistoryLimit()` 条）。
     ///
     /// NOTE: 不剪的话面板会一直长（跑一天的批量下载能攒几百条），而重启之后只剩 50 条 ——

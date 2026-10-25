@@ -12,6 +12,7 @@
 #include "controllers/InstanceTransferController.hpp"
 #include "controllers/ActivityCenterController.hpp"
 #include "manage/VersionManager.hpp"
+#include "operations/InstanceUpgrade.hpp"
 #include "manage/InstanceFiles.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "settings/GlobalJavaSettings.hpp"
@@ -44,6 +45,11 @@ struct Selection {
     bool requiresReload = false;
     bool evaluated = false;
     Tasks::TaskId firstTask = 0;
+    /// 这一趟「更新实例」的父任务：准备核心 / 复制 / 快照 / 发布都只是它的步骤。
+    /// 任务中心只露这一行（子任务由 `TaskManager::beginChild()` 收在它底下）。
+    Tasks::TaskId parent = 0;
+    /// 准备阶段用户按了取消（与"失败"分开收尾）。
+    bool prepCancelled = false;
 };
 VersionManager::LoaderKind loaderKind(const QString &id) {
     if (id == QStringLiteral("forge")) return VersionManager::LoaderKind::Forge;
@@ -177,7 +183,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     rollback->show(); layout->addWidget(rollback, 0, Qt::AlignLeft); layout->addStretch();
     const auto showWizard = [wizard, dialog, state] {
         if (state->requiresReload) return;
-        if (!wizard->isVisible()) { wizard->restart(); wizard->show(); }
+        if (!wizard->isVisible()) { state->parent = 0; wizard->restart(); wizard->show(); }
         wizard->raise(); wizard->activateWindow();
         Q_UNUSED(dialog);
     };
@@ -191,6 +197,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
             owner->m_downloadCancelInFlight = true;
             const bool requested = owner->m_versionManager->cancelActiveDownload();
             if (!requested) owner->m_downloadCancelInFlight = false;
+            else state->prepCancelled = true;
             status->setText(requested ? QObject::tr("已请求取消核心准备，原实例未改变。")
                 : QObject::tr("当前安装阶段暂不能取消，请等待阶段结束。")); return false;
         }
@@ -198,7 +205,8 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
         return true;
     };
     QObject::connect(retryFlow, &QPushButton::clicked, wizard, [wizard, state, retryFlow] {
-        state->finished = false; state->problem.clear(); retryFlow->hide(); wizard->restart();
+        state->finished = false; state->problem.clear(); state->parent = 0;
+        retryFlow->hide(); wizard->restart();
     });
     QObject::connect(wizard, &QWizard::currentIdChanged, wizard, [wizard, start, state](int id) {
         if (id == 3 && !state->preparing && !state->executing && !state->finished)
@@ -230,23 +238,34 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
         wizard->setRunning(state->preparing || state->executing);
         stopQuery->setEnabled(dialog->property("upgradeAssessmentQuerying").toBool());
         const int kept = dialog->upgradeKeptMods().size(), pending = dialog->upgradePendingModCount();
-        summary->setText(QObject::tr("当前实例：%1\n目标：Minecraft %2 · %3 %4\n\n保留启用：%5　禁用但保留文件：%6　待确认：%7\n\n%8\n\n存档跨版本后可能无法降级；执行前会检查磁盘空间。副本目前也使用完整快照事务，可能需要数倍空间。\n平台查询失败不等于没有适配版；本轮不会自动下载适配模组。%9")
+        summary->setText(QObject::tr("当前实例：%1\n目标：Minecraft %2 · %3 %4\n\n保留启用：%5　禁用但保留文件：%6　待确认：%7\n\n%8\n\n存档跨版本后可能无法降级；执行前会检查磁盘空间。%10\n平台查询失败不等于没有适配版；本轮不会自动下载适配模组。%9")
             .arg(state->source, state->game, state->loader.isEmpty() ? QObject::tr("纯原版") : state->loader, state->loaderVersion)
             .arg(kept).arg(qMax(0, tree->property("upgradeModCount").toInt() - kept - pending)).arg(pending)
             .arg(mode->currentData().toBool() ? QObject::tr("更新当前实例：完整快照并校验后替换，保留回滚。")
                 : QObject::tr("创建更新副本：%1，原实例保持不变。").arg(name))
-            .arg(!copyValid ? QObject::tr("\n副本名称无效或已经存在，请修改。") : !correctRoot ? QObject::tr("\n游戏目录已改变，请关闭向导重新进入。") : QString()));
+            .arg(!copyValid ? QObject::tr("\n副本名称无效或已经存在，请修改。") : !correctRoot ? QObject::tr("\n游戏目录已改变，请关闭向导重新进入。") : QString())
+            .arg(mode->currentData().toBool()
+                ? QObject::tr("更新当前实例：先创建并逐文件校验完整 ZIP 快照（约需 2 倍实例空间），原目录另行保留，可用「回滚上次更新」恢复。")
+                : QObject::tr("创建更新副本：只复制一份用户文件并逐文件校验，不再为副本另做 ZIP 快照（约需 1 份实例空间）；源实例一个字节都不会被改，它本身就是回滚材料。")));
         if (state->preparing || state->executing || state->finished) {
             QStringList lines;
-            for (const auto &task : owner->m_activityCenter->tasks()->all()) {
-                if (task.id <= state->firstTask) continue;
-                if (task.targetId != state->source && task.targetId != state->core && task.targetId != name) continue;
-                lines.append(task.title);
-                for (const auto &step : task.steps) {
+            const auto appendSteps = [&lines](const QList<Tasks::TaskStep> &steps) {
+                for (const auto &step : steps) {
                     const QString mark = step.state == Tasks::TaskStepState::Done ? QStringLiteral("✓ ")
                         : step.state == Tasks::TaskStepState::Running ? QStringLiteral("→ ")
                         : step.state == Tasks::TaskStepState::Failed ? QStringLiteral("× ") : QStringLiteral("· ");
                     lines.append(mark + step.name + (step.note.isEmpty() ? QString() : QStringLiteral(" — ") + step.note));
+                }
+            };
+            for (const auto &task : owner->m_activityCenter->tasks()->all()) {
+                if (task.id <= state->firstTask) continue;
+                if (task.targetId != state->source && task.targetId != state->core && task.targetId != name) continue;
+                lines.append(task.title);
+                appendSteps(task.steps);
+                // 子任务（准备核心 / 复制 / 快照的执行细节）不进任务中心，但向导这一页
+                // 要让人看见它们走到了哪一步。
+                for (const auto &child : owner->m_activityCenter->tasks()->childrenOf(task.id)) {
+                    appendSteps(child.steps);
                 }
                 if (!task.detail.isEmpty()) lines.append(task.detail);
             }
@@ -336,30 +355,112 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
         copyName->setVisible(!mode->currentData().toBool()); refreshEnabled();
     });
     QObject::connect(copyName, &QLineEdit::textChanged, dialog, refreshEnabled);
+    // 一次「更新实例」= 一个父任务。准备核心、复制、校验、发布都挂在它底下，
+    // 任务中心只出现这一行；子任务的失败/取消只改父任务那一步的记号，终态由这里收。
+    const auto beginParentTask = [owner, state, mode, copyName]() -> Tasks::TaskId {
+        if (state->parent != 0) return state->parent;
+        const bool inPlace = mode->currentData().toBool();
+        QList<Tasks::TaskStep> steps{
+            {QObject::tr("准备目标核心与加载器"), Tasks::TaskStepState::Running, {}},
+            {inPlace ? QObject::tr("准备并校验用户文件副本")
+                     : QObject::tr("复制并校验更新副本"),
+             Tasks::TaskStepState::Pending, {}},
+            {QObject::tr("替换核心并发布"), Tasks::TaskStepState::Pending, {}},
+            {QObject::tr("完成"), Tasks::TaskStepState::Pending, {}}};
+        const QString title = inPlace
+            ? QObject::tr("更新实例 %1 → Minecraft %2 · %3")
+                  .arg(owner->instanceDisplayName(state->source), state->game,
+                       state->loader.isEmpty() ? QObject::tr("纯原版") : state->loader)
+            : QObject::tr("创建更新副本 %1 → %2")
+                  .arg(owner->instanceDisplayName(state->source), copyName->text().trimmed());
+        state->parent = owner->m_activityCenter->begin(
+            Tasks::TaskKind::Install, title, state->source, steps);
+        Tasks::TaskCapabilities caps;
+        caps.canCancel = true;
+        caps.canOpenLog = true;
+        caps.canOpenTarget = true;
+        owner->m_activityCenter->tasks()->setCapabilities(state->parent, caps);
+        return state->parent;
+    };
     const auto execute = [owner, dialog = QPointer<InstanceSettingsDialog>(dialog), state, mode, copyName, refreshEnabled, status] {
         if (!dialog || AppPaths::minecraftDir() != state->root) return;
         state->executing = true; state->finished = false;
-        status->setText(QObject::tr("正在复制或执行完整快照更新，请等待事务结果…"));
+        status->setText(mode->currentData().toBool()
+            ? QObject::tr("正在执行完整快照更新，请等待事务结果…")
+            : QObject::tr("正在复制更新副本并校验，请等待事务结果…"));
         const QStringList keep = dialog->upgradeKeptMods();
-        const auto completed = [dialog, state, refreshEnabled, status](bool changed, const QString &problem) {
+        // 文件事务这一段停不得：把父任务的「取消」关掉并写清原因（准备阶段那一颗是
+        // 另一段状态，见开始更新那一支）。
+        if (state->parent != 0) {
+            Tasks::TaskCapabilities caps;
+            caps.canCancel = false;
+            caps.cancelBlockedReason = QObject::tr(
+                "文件事务已经开始：复制、校验和发布要保证副本/原目录是一整份，中途停下会留下半份；"
+                "这一段不支持取消。");
+            owner->m_activityCenter->tasks()->setCapabilities(state->parent, caps);
+            owner->m_activityCenter->tasks()->setDetail(state->parent,
+                QObject::tr("正在执行文件事务…"));
+        }
+        const auto completed = [owner, state, refreshEnabled, status](bool changed, const QString &problem) {
             state->executing = false;
             state->finished = true; state->requiresReload = changed;
             state->problem = !problem.isEmpty() ? problem : changed ? QObject::tr("更新已完成。点击完成返回；实例设置将重新读取新版本。")
                 : QObject::tr("本次更新未执行或已取消，原实例没有发布新核心。");
-            if (dialog) { status->setText(state->problem); refreshEnabled(); }
+            if (state->parent != 0) {
+                Tasks::TaskCapabilities caps;
+                if (changed && problem.isEmpty()) {
+                    owner->m_activityCenter->tasks()->setStepState(
+                        state->parent, 3, Tasks::TaskStepState::Done);
+                    owner->m_activityCenter->finish(state->parent, true, {}, false);
+                } else {
+                    owner->m_activityCenter->finish(state->parent, false, state->problem, false);
+                }
+            }
+            if (status) status->setText(state->problem);
+            // 这一趟的父任务到此为止；下一次「开始更新」要重新开一行（复用旧的终态号会
+            // 让新的子任务挂不上去，也会把旧步骤画到新一趟上）。
+            state->parent = 0;
+            refreshEnabled();
         };
-        if (mode->currentData().toBool()) owner->m_instanceTransferController->upgradeInPlace(state->source, state->core, completed, keep, true);
-        else {
-            const QString name = copyName->text().trimmed();
-            owner->m_instanceTransferController->copyInstanceInBackground(state->source, state->root, name,
-                [owner, dialog, state, name, keep, completed](bool ok, const QString &problem) {
-                    if (!ok || !dialog || AppPaths::minecraftDir() != state->root) { completed(false, problem); return; }
-                    owner->m_instanceTransferController->upgradeInPlace(name, state->core, completed, keep, true);
-                }, false);
+        // 引擎的精确结局（成功 / 用户取消 / 失败）：`completed` 只拿到"要不要重新读设置"，
+        // 拿不到"这是取消还是失败" —— 而取消不该亮红点、失败不该被说成成功。
+        const auto settled = [owner, state, completed](bool ok, bool cancelled) {
+            Q_UNUSED(completed);
+            if (state->parent == 0) return;
+            if (ok) return;  // 成功由 `completed(true, …)` 那一支收尾。
+            if (cancelled) {
+                owner->m_activityCenter->tasks()->cancel(state->parent);
+            }
+        };
+        // 父任务的粗粒度步骤 ⇒ 引擎阶段。原地升级与副本模式各自一套。
+        const QHash<int, int> parentSteps = mode->currentData().toBool()
+            ? QHash<int, int>{{int(InstanceUpgrade::Stage::Checking), 1},
+                              {int(InstanceUpgrade::Stage::Snapshot), 1},
+                              {int(InstanceUpgrade::Stage::VerifySnapshot), 1},
+                              {int(InstanceUpgrade::Stage::RetainOriginal), 2},
+                              {int(InstanceUpgrade::Stage::Publish), 2},
+                              {int(InstanceUpgrade::Stage::Verify), 2}}
+            : QHash<int, int>{{int(InstanceUpgrade::Stage::Checking), 1},
+                              {int(InstanceUpgrade::Stage::Copy), 1},
+                              {int(InstanceUpgrade::Stage::VerifyCopy), 1},
+                              {int(InstanceUpgrade::Stage::Publish), 2},
+                              {int(InstanceUpgrade::Stage::Verify), 2}};
+        if (mode->currentData().toBool()) {
+            owner->m_instanceTransferController->upgradeInPlace(
+                state->source, state->core, completed, keep, true, state->parent, parentSteps,
+                settled);
+            return;
         }
+        // 副本模式：源实例保持不动，复制一次候选并完整校验后发布（2.1.1 的空间优化）。
+        // 不再先整棵复制、再为副本另做一份 ZIP 快照。
+        const QString name = copyName->text().trimmed();
+        owner->m_instanceTransferController->upgradeToCopy(
+            state->source, name, state->core, completed, keep, true, state->parent, parentSteps,
+            settled);
     };
     QObject::connect(start, &QPushButton::clicked, dialog,
-        [owner, dialog, state, mode, copyName, status, selectors, start, refreshEnabled, execute] {
+        [owner, dialog, state, mode, copyName, status, selectors, start, refreshEnabled, execute,
+         beginParentTask] {
             if (state->preparing || state->executing || dialog->property("upgradeAssessmentReading").toBool()
                 || dialog->property("upgradeAssessmentQuerying").toBool() || dialog->upgradePendingModCount() != 0) return;
             state->finished = false; state->problem.clear();
@@ -381,6 +482,11 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
                     QObject::tr("当前实例是共享的原版核心，不能直接替换。选择创建更新副本即可保留原版和用户文件。")); return;
             }
             if (!state->core.isEmpty() && QFileInfo::exists(AppPaths::versionDir(state->core) + '/' + state->core + ".json")) {
+                beginParentTask();
+                owner->m_activityCenter->tasks()->setStepState(state->parent, 0,
+                    Tasks::TaskStepState::Done);
+                owner->m_activityCenter->tasks()->setStepState(state->parent, 1,
+                    Tasks::TaskStepState::Running);
                 execute(); return;
             }
             QString installerJava = owner->m_javaSettings->javaPath();
@@ -395,6 +501,22 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
                 || owner->m_instanceTransferController->copying() || owner->installingVersionIds().contains(state->source)
                 || owner->m_launcherManager->isVersionRunning(state->source)) return;
             state->core = QStringLiteral("wtfml-update-") + QUuid::createUuid().toString(QUuid::WithoutBraces);
+            state->prepCancelled = false;
+            // 父任务必须在 `setDownloadUiBusy(true)` **之前**建好：那一下会调
+            // `beginDownloadTask()`，它按 `m_downloadParentTask` 决定核心准备是挂在这一步底下
+            // 还是另起一行。
+            beginParentTask();
+            owner->setDownloadTaskParent(state->parent, 0);
+            owner->setUpdateFlowCancel(state->parent, [owner, state] {
+                owner->m_downloadCancelInFlight = true;
+                const bool requested = owner->m_versionManager->cancelActiveDownload();
+                if (!requested) {
+                    owner->m_downloadCancelInFlight = false;
+                    return false;
+                }
+                state->prepCancelled = true;
+                return true;
+            });
             state->preparing = true; selectors->setEnabled(false); start->setEnabled(false);
             status->setText(QObject::tr("正在准备目标核心与加载器，完成后自动继续…"));
             auto *vm = owner->m_versionManager;
@@ -412,16 +534,45 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
                     if (!state->preparing || id != core) return;
                     state->preparing = false; owner->releaseFileOperationBusy(state->source);
                     owner->m_versionManager->setProperty("instanceUpdatePreparedId", QVariant());
-                    if (!guard) return;
+                    const Tasks::TaskId parent = state->parent;
+                    state->parent = 0;
+                    // 准备这一段的取消入口到此为止：后面是文件事务，由 `execute()` 另摆能力位。
+                    owner->clearUpdateFlowCancel(parent);
+                    const bool cancelled = state->prepCancelled && !ok;
+                    state->prepCancelled = false;
+                    const auto failParent = [owner, parent](bool cancel, const QString &detail) {
+                        if (parent == 0) return;
+                        if (cancel) {
+                            owner->m_activityCenter->tasks()->cancel(parent);
+                        } else {
+                            owner->m_activityCenter->tasks()->setStepState(
+                                parent, 0, Tasks::TaskStepState::Failed, detail);
+                            owner->m_activityCenter->finish(parent, false, detail, false);
+                        }
+                    };
+                    if (!guard) {
+                        failParent(cancelled, problem);
+                        return;
+                    }
                     if (selectors) selectors->setEnabled(true);
                     if (!ok || AppPaths::minecraftDir() != state->root) {
                         if (!ok) state->core.clear();
                         state->finished = true;
-                        state->problem = ok ? QObject::tr("游戏目录已改变，未继续更新。") : problem;
+                        state->problem = ok ? QObject::tr("游戏目录已改变，未继续更新。")
+                            : cancelled ? QObject::tr("已取消准备核心，原实例没有改变。")
+                                        : problem;
+                        failParent(cancelled, state->problem);
                         if (status) status->setText(state->problem);
                         refreshEnabled(); return;
                     }
+                    state->parent = parent;  // 准备成功：后面的文件事务还挂在同一行上。
                     owner->m_versionManager->clearVersionJsonCache();
+                    if (state->parent != 0) {
+                        owner->m_activityCenter->tasks()->setStepState(
+                            state->parent, 0, Tasks::TaskStepState::Done);
+                        owner->m_activityCenter->tasks()->setStepState(
+                            state->parent, 1, Tasks::TaskStepState::Running);
+                    }
                     if (guard->property("upgradeAssessmentReading").toBool()) {
                         state->finished = true;
                         state->problem = QObject::tr("核心已准备。模组检查完成后，点击开始更新继续。");
