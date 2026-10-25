@@ -835,10 +835,13 @@ int GlobalJavaSettings::majorVersionFromReleaseFile(const QString &releaseText) 
 }
 
 QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions() {
+    return scanLocalJavaVersions(AppPaths::javaDir());
+}
+
+QMap<int, QString> GlobalJavaSettings::scanLocalJavaVersions(const QString &javaDir) {
     // NOTE: 定义处按 C++ 的规矩不写 static（.hpp 里那一声才作数）。它是 static 的：
     // 扫的是这台机器上有什么，不读也不写这个对象的任何状态。
     QMap<int, QString> versions;
-    const QString javaDir = AppPaths::javaDir();
 
     QDir dir(javaDir);
     if (dir.exists()) {

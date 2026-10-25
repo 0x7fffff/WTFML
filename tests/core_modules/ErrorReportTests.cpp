@@ -1,6 +1,54 @@
 #include "Support.hpp"
+#include "util/SecretRedactor.hpp"
+#include "util/LaunchScriptCredentials.hpp"
 
 void runErrorReportTests() {
+    section("日志凭据保护：完整值、跨块与导出");
+    const QString credential = QStringLiteral("__MC_SECURITY_TEST_ABC123456789__");
+    SecretRedactor::rememberArguments({QStringLiteral("--accessToken"), credential});
+    const QString masked = SecretRedactor::replacement();
+    check(SecretRedactor::redact(credential + credential) == masked + masked,
+          "重复凭据全部遮盖");
+    bool splitsSafe = true;
+    for (qsizetype split = 0; split <= credential.size(); ++split) {
+        SecretRedactor::Stream stream;
+        QString result = stream.push(QStringLiteral("log:") + credential.left(split));
+        result += stream.push(credential.mid(split) + QLatin1Char('\n'));
+        result += stream.push({}, true);
+        splitsSafe &= result == QStringLiteral("log:") + masked + QLatin1Char('\n');
+    }
+    check(splitsSafe, "所有分块边界均不泄露凭据且保留普通文本");
+    SecretRedactor::Stream bytes;
+    QString byteResult;
+    for (QChar ch : credential) byteResult += bytes.push(QString(ch));
+    byteResult += bytes.push({}, true);
+    check(byteResult == masked, "逐字符输出仍遮盖");
+    SecretRedactor::Stream incomplete;
+    QString fragment = incomplete.push(QStringLiteral("end:") + credential.left(14));
+    fragment += incomplete.push({}, true);
+    check(fragment == QStringLiteral("end:") + masked, "退出时未完成的凭据片段也遮盖");
+    SecretRedactor::Stream plain;
+    check(plain.push(QStringLiteral("ordinary log\n")) == QStringLiteral("ordinary log\n"),
+          "普通日志不延迟");
+    const QString longer = credential + QStringLiteral("EXT");
+    SecretRedactor::remember(longer);
+    SecretRedactor::Stream overlap;
+    QString overlapResult = overlap.push(credential);
+    overlapResult += overlap.push(QStringLiteral("EXT\n"), true);
+    check(overlapResult == masked + QLatin1Char('\n'), "重叠凭据优先匹配长值");
+    ErrorReport::Facts secretFacts;
+    secretFacts.instanceName = credential;
+    const QString report = ErrorReport::text(secretFacts, QDateTime::currentDateTime(), credential, credential);
+    check(!report.contains(credential) && report.contains(masked), "报告头部与日志统一遮盖");
+    const QString scriptArg = LaunchScriptCredentials::argument(
+        QStringLiteral("-Dminecraft.accessToken=") + LaunchScriptCredentials::placeholder());
+    check(scriptArg == QStringLiteral("\"-Dminecraft.accessToken=%WTFML_MC_ACCESS_TOKEN%\""),
+          "在线脚本只保存运行时环境变量引用");
+    check(LaunchScriptCredentials::preamble().contains(QStringLiteral("if not defined WTFML_MC_ACCESS_TOKEN")) &&
+              LaunchScriptCredentials::preamble().contains(QStringLiteral("-notmatch")),
+          "脚本拒绝缺失或不安全的运行时凭据");
+    check(LaunchScriptCredentials::argument(QStringLiteral("offline")) == QStringLiteral("offline"),
+          "普通脚本参数保持不变");
     section("ZI1. 头部那几行（顺序、形状、哪些空着就不写）");
     const QDateTime now = QDateTime::fromString(QStringLiteral("2026-09-28 21:03:11"),
                                                 QStringLiteral("yyyy-MM-dd HH:mm:ss"));

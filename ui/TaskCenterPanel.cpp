@@ -10,6 +10,8 @@
 #include <QDropEvent>
 #include <QApplication>
 #include <QPointer>
+#include <QHash>
+#include <QSignalBlocker>
 
 #include <algorithm>
 
@@ -148,8 +150,11 @@ public:
     TaskCenterRowWidget(const TaskCenter::Item &item, int index,
                         const std::function<void()> &onActivate, QWidget *parent,
                         const TaskCenter::RowActionHandler &onRowAction,
+                        quint64 handlerRevision,
                         std::function<void(const QString &, bool)> onDrop = {})
-        : QWidget(parent), m_onActivate(onActivate), m_onDrop(std::move(onDrop)), m_queueGroup(item.queueGroup) {
+        : QWidget(parent), m_onActivate(onActivate), m_onDrop(std::move(onDrop)), m_queueGroup(item.queueGroup),
+          m_item(item), m_index(index), m_handlerRevision(handlerRevision),
+          m_parentPalette(parent->palette()), m_parentFont(parent->font()) {
         setAcceptDrops(!item.queueGroup.isEmpty() && item.state == TaskCenter::State::Queued && bool(m_onDrop));
         if (m_onActivate) {
             setCursor(Qt::PointingHandCursor);
@@ -300,6 +305,24 @@ public:
         }
     }
 
+    bool matches(const TaskCenter::Item &item, int index, quint64 revision) const {
+        // Only row presentation matters here. Detail-only fields are still refreshed
+        // from the latest provider snapshot by rebuildDetail(), never from this cache.
+        if (m_index != index || m_handlerRevision != revision ||
+            m_parentPalette != parentWidget()->palette() || m_parentFont != parentWidget()->font() ||
+            m_item.key != item.key || m_item.title != item.title || m_item.detail != item.detail ||
+            m_item.state != item.state || m_item.percent != item.percent ||
+            m_item.unreadFailure != item.unreadFailure || m_item.finishedAt != item.finishedAt ||
+            m_item.queueGroup != item.queueGroup || m_item.capabilities.cancel != item.capabilities.cancel ||
+            m_item.steps.size() != item.steps.size()) return false;
+        for (qsizetype i = 0; i < item.steps.size(); ++i) {
+            const auto &before = m_item.steps.at(i);
+            const auto &after = item.steps.at(i);
+            if (before.name != after.name || before.state != after.state || before.note != after.note) return false;
+        }
+        return true;
+    }
+
 protected:
     bool acceptsTask(const QMimeData *mime, QObject *source) const {
         if (!acceptDrops() || source != qApp || !mime->hasFormat(taskMime)) return false;
@@ -359,6 +382,11 @@ private:
     std::function<void()> m_onActivate;
     std::function<void(const QString &, bool)> m_onDrop;
     QString m_queueGroup;
+    TaskCenter::Item m_item;
+    int m_index;
+    quint64 m_handlerRevision;
+    QPalette m_parentPalette;
+    QFont m_parentFont;
     bool m_dropHover = false, m_dropAfter = false;
 };
 
@@ -861,13 +889,25 @@ void TaskCenterPanel::rebuild() {
     if (layout == nullptr) {
         return;
     }
-    // 清空（末尾那个 stretch 也一起拿走，重建时再补）。
+    // Keep unchanged rows; a single progress tick must not destroy every completed
+    // task's widgets. Index, callbacks and palette/font changes invalidate a row.
+    auto *scrollBar = m_scroll->verticalScrollBar();
+    const int scrollTop = scrollBar->value();
+    const QSignalBlocker blockScroll(scrollBar);
+    QHash<QString, TaskCenterRowWidget *> reusable;
     // NOTE: 这里用的是 delete（不是 deleteLater）：下面马上要往同一个布局里摆新行，
     // 留着一批"待删"的老行只会让一帧里看到新旧两套。这个函数**不许**被某一行的
     // 信号处理器直接调到（「清除已完成」那颗按钮走 QTimer 排下一轮，见下面），
     // 所以删到自己脚底下这种可能不存在。
     while (QLayoutItem *item = layout->takeAt(0)) {
-        delete item->widget();
+        if (auto *row = dynamic_cast<TaskCenterRowWidget *>(item->widget())) {
+            const QString key = row->property(MainWindowUI::taskCenterPanelRowKeyProperty()).toString();
+            // Providers normally guarantee unique keys. Do not leak duplicate rows.
+            delete reusable.take(key);
+            reusable.insert(key, row);
+        } else {
+            delete item->widget();
+        }
         delete item;
     }
 
@@ -921,6 +961,14 @@ void TaskCenterPanel::rebuild() {
     // 行的编号**两栏接着数**（不各从 0 开始）：行的名字是按号找的（验证工程靠它量），
     // 两栏各从 0 开始的话「当前工作」第 0 行和「已完成」第 0 行会撞成一个名字。
     int index = 0;
+    const auto reuseRow = [&](const TaskCenter::Item &item) -> TaskCenterRowWidget * {
+        auto *row = reusable.take(item.key);
+        if (row != nullptr && !row->matches(item, index, m_rowHandlerRevision)) {
+            delete row;
+            row = nullptr;
+        }
+        return row;
+    };
     const auto addSectionTitle = [&](const QString &text) {
         auto *label = new QLabel(text, m_content);
         applyMutedFont(label, -1);
@@ -938,8 +986,9 @@ void TaskCenterPanel::rebuild() {
     if (!active.isEmpty()) {
         addSectionTitle(MainWindowUI::taskCenterPanelActiveSectionText());
         for (const TaskCenter::Item &item : active) {
-            layout->addWidget(new TaskCenterRowWidget(
-                item, index, rowActivate(item.key), m_content, m_onRowAction,
+            auto *row = reuseRow(item);
+            if (row == nullptr) row = new TaskCenterRowWidget(
+                item, index, rowActivate(item.key), m_content, m_onRowAction, m_rowHandlerRevision,
                 [this, target = item.key](const QString &source, bool after) {
                     // 下一轮重取真实快照：拖动期间某项可能已经开跑/取消，不按旧行号改队列。
                     QTimer::singleShot(0, this, [this, source, target, after] {
@@ -956,7 +1005,8 @@ void TaskCenterPanel::rebuild() {
                         for (int i = 0; i < qAbs(destination - from); ++i) m_onRowAction(source, action);
                         requestRefresh();
                     });
-                }));
+                });
+            layout->addWidget(row);
             ++index;
         }
     }
@@ -966,11 +1016,14 @@ void TaskCenterPanel::rebuild() {
         }
         addSectionTitle(MainWindowUI::taskCenterPanelDoneSectionText());
         for (const TaskCenter::Item &item : finished) {
-            layout->addWidget(new TaskCenterRowWidget(
-                item, index, rowActivate(item.key), m_content, m_onRowAction));
+            auto *row = reuseRow(item);
+            if (row == nullptr) row = new TaskCenterRowWidget(
+                item, index, rowActivate(item.key), m_content, m_onRowAction, m_rowHandlerRevision);
+            layout->addWidget(row);
             ++index;
         }
     }
+    qDeleteAll(reusable);
     // 内容比上限矮的时候，行堆在上面而不是被摊开（stretch 吃掉下面的空）。
     layout->addStretch(1);
     rebuildDetail(items);
@@ -981,6 +1034,10 @@ void TaskCenterPanel::rebuild() {
     revealBuiltChildren(m_content);
     revealBuiltChildren(m_runningContent);
     revealBuiltChildren(m_detailContent);
+    // A top-aligned list needs no synchronous layout. Only settle geometry when
+    // restoring an actual scroll offset; forcing it on first open delays the page.
+    if (scrollTop > 0) layout->activate();
+    scrollBar->setValue(scrollTop);
 }
 
 void TaskCenterPanel::acknowledgeVisibleFailures() {

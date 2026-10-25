@@ -1,5 +1,69 @@
 #include "Support.hpp"
+#include "controllers/JavaSettingsController.hpp"
+#include "controllers/JavaRuntimeController.hpp"
+#include <QSemaphore>
+#include <atomic>
+#include <memory>
 void runJavaManageTests() {
+    {
+        struct ScanState { QSemaphore started, release; std::atomic<int> calls{0}, done{0}; };
+        const auto state = std::make_shared<ScanState>();
+        QMainWindow window;
+        MainWindowUI ui(&window);
+        GlobalJavaSettings settings;
+        settings.setJavaPath(QString());
+        JavaRuntimeController runtime;
+        JavaSettingsController::Host host;
+        host.scanJava = [state](const QString &) {
+            ++state->calls;
+            state->started.release();
+            state->release.tryAcquire(1, 3000);
+            ++state->done;
+            return QMap<int, QString>{{17, QStringLiteral("fixture-java")}};
+        };
+        int finished = 0;
+        bool heartbeat = false;
+        auto controller = std::make_unique<JavaSettingsController>(&ui, &settings, &runtime, &window, host);
+        QObject::connect(controller.get(), &JavaSettingsController::discoveryFinished, &window, [&] { ++finished; });
+        controller->refreshList();
+        check(controller->discoveryPending() && state->started.tryAcquire(1, 1000),
+              "T26.async 首次扫描已排到后台，刷新立即返回");
+        QTimer::singleShot(0, &window, [&] { heartbeat = true; });
+        QApplication::processEvents();
+        check(heartbeat && finished == 0, "T26.async 扫描尚未返回时界面事件仍可处理");
+        controller->refreshList();
+        controller->refreshList();
+        check(state->calls == 1, "T26.async 重复刷新不重复扫描");
+        controller->resetDiscovery();
+        state->release.release();
+        const auto waitForWorker = [&](int count) {
+            QElapsedTimer timer; timer.start();
+            while (state->done < count && timer.elapsed() < 3000) {
+                QApplication::processEvents(); QThread::msleep(1);
+            }
+            return state->done >= count;
+        };
+        check(waitForWorker(1), "T26.async 作废扫描正常退出");
+        QApplication::processEvents();
+        check(finished == 0 && !controller->discoveryPending(), "T26.async 换目录作废后旧回调不发布结果");
+        state->release.release();
+        controller->refreshList();
+        QElapsedTimer wait;
+        wait.start();
+        while (controller->discoveryPending() && wait.elapsed() < 3000) {
+            QApplication::processEvents(); QThread::msleep(1);
+        }
+        check(finished == 1 && state->calls == 2, "T26.async 重置后的新扫描可以发布并缓存");
+        state->started.tryAcquire(); // 清掉第二轮通知。
+        controller->resetDiscovery();
+        controller->refreshList();
+        check(state->started.tryAcquire(1, 1000), "T26.async 析构验收的扫描正在后台运行");
+        controller.reset();
+        state->release.release();
+        check(waitForWorker(3), "T26.async 控制器销毁后工人可安全结束");
+        QApplication::processEvents();
+        check(finished == 1, "T26.async 销毁后不向旧页面发布回调");
+    }
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
     check(root.isValid(), "T26.0 临时数据根目录建出来了");

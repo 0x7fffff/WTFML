@@ -24,6 +24,7 @@
 #include "presets/PresetCompatibility.hpp"
 #include "presets/PresetPlanner.hpp"
 #include "presets/PresetStore.hpp"
+#include "presets/PresetCatalog.hpp"
 #include "download/ResourceCatalog.hpp"
 #include "util/AppPaths.hpp"
 
@@ -124,6 +125,7 @@ QString sectionKindText(const Presets::PresetSection &section) {
 PresetController::PresetController(VersionManager *versions, QWidget *hostPage, Host host,
                                    QObject *parent)
     : QObject(parent), m_versions(versions), m_hostPage(hostPage), m_host(std::move(host)) {
+    m_catalogLoader = new Presets::CatalogLoader(this, m_host.readCatalog);
     // 兼容检查那一套：真网络提供方 + 共享缓存 + 检查器。★ 缓存与 checker 都活到这一层
     // 结束，所以"同一批模组在两个弹窗里连着看两次"第二趟是缓存结论（「共享缓存」）。
     //
@@ -170,8 +172,22 @@ void PresetController::open() {
     }
     buildPage();
     pushInstances();
-    pushListAndSelect(m_currentId.isEmpty() ? Presets::defaultPresetId(presetsRoot())
-                                            : m_currentId);
+    m_page->setBusy(true);
+    m_page->showStatus(tr("正在读取预设…"));
+    m_catalogLoader->load(presetsRoot(), [this](const Presets::CatalogSnapshot &snapshot) {
+        if (!m_page) return;
+        if (snapshot.root != presetsRoot()) {
+            open();
+            return;
+        }
+        m_page->setBusy(false);
+        m_page->showStatus(QString());
+        pushCatalog(snapshot, m_currentId);
+    });
+}
+
+bool PresetController::catalogLoading() const {
+    return m_catalogLoader->isLoading();
 }
 
 void PresetController::buildPage() {
@@ -464,9 +480,14 @@ void PresetController::refreshList(const QString &selectId) {
 }
 
 void PresetController::pushListAndSelect(const QString &selectId) {
-    const QString root = presetsRoot();
-    QList<Presets::BrokenPreset> broken;
-    const QList<Presets::PresetSummary> summaries = Presets::list(root, &broken);
+    const bool wasLoading = m_catalogLoader->isLoading();
+    m_catalogLoader->invalidate();
+    if (wasLoading) m_page->setBusy(false);
+    pushCatalog(Presets::readCatalog(presetsRoot()), selectId);
+}
+
+void PresetController::pushCatalog(const Presets::CatalogSnapshot &snapshot, const QString &selectId) {
+    const auto &summaries = snapshot.presets;
 
     QList<PresetManagePage::PresetItem> items;
     for (const Presets::PresetSummary &summary : summaries) {
@@ -487,14 +508,19 @@ void PresetController::pushListAndSelect(const QString &selectId) {
     }
 
     QList<PresetManagePage::BrokenItem> brokenItems;
-    for (const Presets::BrokenPreset &one : broken) {
+    for (const Presets::BrokenPreset &one : snapshot.broken) {
         PresetManagePage::BrokenItem item;
         item.id = one.id;
         item.reason = one.reason;
         brokenItems.append(item);
     }
 
-    const QString keep = selectId.isEmpty() ? Presets::defaultPresetId(root) : selectId;
+    QString keep = selectId;
+    if (keep.isEmpty()) {
+        for (const auto &item : items) {
+            if (item.isDefault) { keep = item.id; break; }
+        }
+    }
     QString chosen;
     for (const PresetManagePage::PresetItem &item : items) {
         if (item.id == keep) {
@@ -507,6 +533,9 @@ void PresetController::pushListAndSelect(const QString &selectId) {
     }
 
     m_page->setPresets(items, brokenItems, chosen);
+    // Search/category filtering may hide the requested id. Actions and details
+    // must follow the actual visible selection, not an invisible fallback.
+    chosen = m_page->currentPresetId();
     if (chosen.isEmpty()) {
         m_currentId.clear();
         return;

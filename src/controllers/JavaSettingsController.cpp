@@ -8,6 +8,7 @@
 #include "OverlayHost.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "util/SystemMemory.hpp"
+#include "util/AppPaths.hpp"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -17,6 +18,8 @@
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QTimer>
+#include <QFutureWatcher>
+#include <QtConcurrent/QtConcurrentRun>
 
 #include <utility>
 
@@ -114,6 +117,8 @@ void JavaSettingsController::openManagePage() {
 }
 
 void JavaSettingsController::resetDiscovery() {
+    ++m_discoveryGeneration;
+    m_discoveryPending = false;
     m_scanned = false;
     m_versions.clear();
 }
@@ -121,17 +126,57 @@ void JavaSettingsController::resetDiscovery() {
 void JavaSettingsController::refreshList() {
     if (m_scanned) return;
     m_scanned = true;
-    applyDetected(GlobalJavaSettings::scanLocalJavaVersions());
+    const QString root = AppPaths::javaDir();
+    const auto provider = m_host.scanJava;
+    queueDiscovery([root, provider] {
+        return provider ? provider(root) : GlobalJavaSettings::scanLocalJavaVersions(root);
+    });
 }
 
 void JavaSettingsController::applyDetected(const QMap<int, QString> &versions) {
-    m_versions = versions;
+    // 显式检测/下载结果优先于先前自动扫描；自定义 Java 探测也不放回 GUI 线程。
+    m_scanned = true;
     const QString pinned = m_settings->javaPath();
-    if (!pinned.isEmpty()) {
-        const int major = GlobalJavaSettings::probeJavaMajorVersion(pinned);
-        if (major > 0 && !m_versions.contains(major)) m_versions.insert(major, pinned);
+    if (pinned.isEmpty() || versions.values().contains(pinned)) {
+        ++m_discoveryGeneration;
+        m_discoveryPending = false;
+        m_versions = versions;
+        pushRows();
+        emit discoveryFinished();
+        return;
     }
-    pushRows();
+    queueDiscovery([versions] { return versions; });
+}
+
+void JavaSettingsController::queueDiscovery(std::function<QMap<int, QString>()> scan) {
+    const quint64 generation = ++m_discoveryGeneration;
+    const QString root = AppPaths::javaDir();
+    const QString pinned = m_settings->javaPath();
+    m_discoveryPending = true;
+    auto *watcher = new QFutureWatcher<QMap<int, QString>>(this);
+    connect(watcher, &QFutureWatcher<QMap<int, QString>>::finished, this,
+            [this, watcher, generation, root, pinned] {
+        const auto versions = watcher->result();
+        watcher->deleteLater();
+        if (generation != m_discoveryGeneration) return;
+        m_discoveryPending = false;
+        if (root != AppPaths::javaDir() || pinned != m_settings->javaPath()) {
+            m_scanned = false;
+            refreshList();
+            return;
+        }
+        m_versions = versions;
+        pushRows();
+        emit discoveryFinished();
+    });
+    watcher->setFuture(QtConcurrent::run([scan = std::move(scan), pinned] {
+        auto versions = scan();
+        if (!pinned.isEmpty() && !versions.values().contains(pinned)) {
+            const int major = GlobalJavaSettings::probeJavaMajorVersion(pinned);
+            if (major > 0 && !versions.contains(major)) versions.insert(major, pinned);
+        }
+        return versions;
+    }));
 }
 
 void JavaSettingsController::pushRows() {

@@ -226,6 +226,7 @@ public:
     /// 挂上了才会给那几行手型光标 —— "看着能点、点了没反应"比不给更糟。
     void setRowActivatedHandler(const std::function<void(const QString &key)> &handler) {
         m_onRowActivated = handler;
+        ++m_rowHandlerRevision;
     }
 
     /// 面板里某一行**行尾那颗小按钮**被点了要告诉谁（见 `RowActionHandler`）。
@@ -234,6 +235,7 @@ public:
     /// 那一排按钮，所以取消这件事不会变得够不着）。
     void setRowActionHandler(const TaskCenter::RowActionHandler &handler) {
         m_onRowAction = handler;
+        ++m_rowHandlerRevision;
     }
 
 protected:
@@ -246,6 +248,7 @@ protected:
     void showEvent(QShowEvent *event) override;
 
 private:
+    quint64 m_rowHandlerRevision = 0;
     bool m_dragRefreshPending = false;
     /// 把内容整块重建（两栏 + 那个「清除已完成」）。调用方负责随后摆位置。
     void rebuild();

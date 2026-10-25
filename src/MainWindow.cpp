@@ -8,6 +8,8 @@
  */
 
 #include "MainWindow.hpp"
+#include "util/SecretRedactor.hpp"
+#include "util/LaunchScriptCredentials.hpp"
 #include "manage/BackupFiles.hpp"
 #include "operations/InstanceUpgrade.hpp"
 
@@ -3060,7 +3062,7 @@ void MainWindow::appendLog(const QString &text) {
     // 的消息（缺 Java、下载失败、未选版本、找不到 version.json）一律走
     // `InlineMessage`（`ui/InlineMessage.hpp`，全仓已无一处 `QMessageBox`）挡住
     // 操作，绝不能只写这里。
-    qDebug().noquote() << QStringLiteral("[WTFML]") << text;
+    qDebug().noquote() << QStringLiteral("[WTFML]") << SecretRedactor::redact(text);
 }
 
 void MainWindow::markFileOperationBusy(const QString &versionId) {
@@ -11944,7 +11946,7 @@ int lineCountOf(const QString &text) {
 QString writeExportFile(const QString &path, const QString &text) {
     // 换行写成 CRLF：这两份文件的主要用途是在 Windows 上双击打开（记事本）——
     // 纯 LF 在旧一点的记事本里是一整坨。**不改内存里那一份**，只改写出去的那一份。
-    QString body = text;
+    QString body = SecretRedactor::redact(text);
     body.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
     body.replace(QStringLiteral("\n"), QStringLiteral("\r\n"));
     const QByteArray bytes = body.toUtf8();
@@ -12170,7 +12172,8 @@ void MainWindow::exportLaunchScript(const QString &versionId, const QString &pat
                                 ? QStringLiteral("java")
                                 : QDir::toNativeSeparators(javaSettings.javaPath);
     const QStringList args =
-        launchArguments(versionId, versionJson, javaSettings, token, offlineMode);
+        launchArguments(versionId, versionJson, javaSettings,
+                        offlineMode ? token : LaunchScriptCredentials::placeholder(), offlineMode);
 
     // ---------- 拼那个 .bat ----------
     //
@@ -12194,18 +12197,25 @@ void MainWindow::exportLaunchScript(const QString &versionId, const QString &pat
         QStringLiteral("rem 由 WTFML 导出：按这个实例现在的参数启动。\r\n"),
         QStringLiteral("rem Exported by WTFML: starts with this instance's current arguments.\r\n"));
     if (!offlineMode) {
-        script += localOrAscii(
-            QStringLiteral("rem 这个脚本里带着你的登录令牌，别发给别人。\r\n"),
-            QStringLiteral("rem This script contains your login token. Do not share it.\r\n"));
+        script += LaunchScriptCredentials::preamble();
     }
     script += QStringLiteral("cd /d ") +
               batchQuote(QDir::toNativeSeparators(AppPaths::minecraftDir())) +
               QStringLiteral("\r\n");
     script += batchQuote(program);
     for (const QString &arg : args) {
-        script += QLatin1Char(' ') + batchQuote(arg);
+        QString safeArgument = arg;
+        if (!offlineMode) safeArgument.replace(token, LaunchScriptCredentials::placeholder());
+        script += QLatin1Char(' ') + (offlineMode ? batchQuote(safeArgument)
+            : LaunchScriptCredentials::argument(batchQuote(safeArgument)));
     }
     script += QStringLiteral("\r\n");
+
+    if (SecretRedactor::redact(script) != script) {
+        InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
+            tr("启动参数中仍包含已知登录凭据，未写入脚本。请移除自定义参数中的凭据后重试。"));
+        return;
+    }
 
     // QSaveFile：写不下去时**不会留下一个半截的 .bat**（那个东西双击起来的行为是随机的，
     // 而用户会以为"导出的就是用不了的"）。和写版本 json 那边同一个理由。
@@ -12231,7 +12241,7 @@ void MainWindow::exportLaunchScript(const QString &versionId, const QString &pat
     appendLog(tr("✓ 启动脚本已导出：%1").arg(shown));
     QStringList notes;
     notes.append(offlineMode ? tr("这一份用的是离线身份（游戏里就是这个名字）。")
-                             : tr("★ 这份脚本里带着你的登录令牌：别发给别人，也别传网盘。"));
+                             : tr("脚本不保存登录令牌。正版建议从启动器启动；高级用法需在运行环境中提供 WTFML_MC_ACCESS_TOKEN。"));
     if (javaSettings.javaPath.isEmpty()) {
         notes.append(tr("脚本里写的是 PATH 上的 java（这个实例还没挑过 Java）。"));
     }

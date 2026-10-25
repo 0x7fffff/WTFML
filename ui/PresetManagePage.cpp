@@ -20,11 +20,39 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QListWidgetItem>
+#include <QListView>
+#include <QItemSelectionModel>
+#include <QStandardItemModel>
+#include <QSortFilterProxyModel>
 #include <QPalette>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QTimer>
 #include <QVBoxLayout>
+
+// Source rows are built only when data changes. Search/category changes filter
+// indices without allocating new items or rewriting their names/tooltips.
+class PresetFilterProxy final : public QSortFilterProxyModel {
+public:
+    explicit PresetFilterProxy(QObject *parent) : QSortFilterProxyModel(parent) {}
+    void setFilters(const QString &category, const QString &query) {
+        if (m_category == category && m_query == query) return;
+        m_category = category;
+        m_query = query;
+        invalidate();
+    }
+protected:
+    bool filterAcceptsRow(int row, const QModelIndex &parent) const override {
+        const auto index = sourceModel()->index(row, 0, parent);
+        // Broken presets remain visible in All even during a text search, as before.
+        if (index.data(Qt::UserRole + 1).toBool()) return m_category.isEmpty();
+        return (m_category.isEmpty() || index.data(Qt::UserRole + 3).toString() == m_category) &&
+            (m_query.isEmpty() || index.data(Qt::UserRole + 4).toString().contains(m_query, Qt::CaseInsensitive));
+    }
+private:
+    QString m_category;
+    QString m_query;
+};
 
 namespace {
 
@@ -60,8 +88,8 @@ QLabel *makeSectionTitle(const QString &text, QWidget *parent) {
     return label;
 }
 
-bool itemIsBroken(const QListWidgetItem *item) {
-    return item != nullptr && item->data(Qt::UserRole + 1).toBool();
+bool itemIsBroken(const QModelIndex &item) {
+    return item.isValid() && item.data(Qt::UserRole + 1).toBool();
 }
 
 }  // namespace
@@ -112,12 +140,18 @@ void PresetManagePage::buildUi() {
     leftLayout->addWidget(m_searchEdit);
     connect(m_searchEdit, &QLineEdit::textChanged, this, [this] { rebuildPresetList(QString(), true); });
 
-    m_presetList = new QListWidget(left);
+    m_presetList = new QListView(left);
+    m_presetModel = new QStandardItemModel(this);
+    m_presetProxy = new PresetFilterProxy(this);
+    m_presetProxy->setSourceModel(m_presetModel);
+    m_presetList->setModel(m_presetProxy);
+    m_presetList->setUniformItemSizes(true);
+    m_presetList->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_presetList->setObjectName(presetListName());
     m_presetList->setSelectionMode(QAbstractItemView::SingleSelection);
     m_presetList->setAlternatingRowColors(false);
     leftLayout->addWidget(m_presetList, 1);
-    connect(m_presetList, &QListWidget::currentItemChanged, this,
+    connect(m_presetList->selectionModel(), &QItemSelectionModel::currentChanged, this,
             &PresetManagePage::onCurrentPresetChanged);
 
     // 「新建」建出来的是哪一类：★ 必须四类里选一个 —— 跨类总预设不在产品里。
@@ -192,8 +226,8 @@ void PresetManagePage::buildUi() {
     connect(m_defaultButton, &QPushButton::clicked, this, [this] {
         const QString id = currentPresetId();
         if (id.isEmpty()) return;
-        QListWidgetItem *item = m_presetList->currentItem();
-        const bool nowDefault = item != nullptr && item->data(Qt::UserRole + 2).toBool();
+        const auto item = m_presetList->currentIndex();
+        const bool nowDefault = item.data(Qt::UserRole + 2).toBool();
         emit defaultRequested(id, !nowDefault);
     });
     connect(m_moveUpButton, &QPushButton::clicked, this, [this] {
@@ -468,11 +502,13 @@ void PresetManagePage::buildUi() {
         emit applyRequested(presetId, instanceId, confirmed);
     });
 
-    m_statusLabel = new QLabel(right);
+    m_statusLabel = new QLabel(this);
     m_statusLabel->setObjectName(statusLabelName());
     m_statusLabel->setWordWrap(true);
     m_statusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    rightLayout->addWidget(m_statusLabel);
+    m_statusLabel->hide();
+    // Loading/errors must remain visible without scrolling through the editor.
+    outer->addWidget(m_statusLabel);
 
     // 收尾的弹簧：多出来的高度归它，别把每一块均匀撑开。
     rightLayout->addStretch(1);
@@ -490,32 +526,21 @@ void PresetManagePage::setPresets(const QList<PresetItem> &presets,
                                   const QList<BrokenItem> &broken, const QString &selectId) {
     m_presets = presets;
     m_broken = broken;
-    rebuildPresetList(selectId, false);
-}
-
-void PresetManagePage::rebuildPresetList(const QString &selectId, bool emitSelection) {
-    const QString keep = selectId.isEmpty() ? m_currentId : selectId;
-
     m_fillingList = true;
-    m_presetList->clear();
-    int selectRow = -1;
-    int firstSelectable = -1;
+    auto *model = new QStandardItemModel(this);
     for (const PresetItem &preset : m_presets) {
-        // 本地筛：只认类别钥匙逐字相等；「全部」那一档不筛。
-        if ((!m_filterKey.isEmpty() && preset.categoryKey != m_filterKey) ||
-            (!m_searchEdit->text().trimmed().isEmpty() &&
-             !(preset.name + QLatin1Char(' ') + preset.description).contains(m_searchEdit->text().trimmed(), Qt::CaseInsensitive))) {
-            continue;
-        }
-        auto *item = new QListWidgetItem(m_presetList);
+        auto *item = new QStandardItem;
+        item->setEditable(false);
         QString text = preset.name;
         if (preset.isDefault) {
             text += QStringLiteral("（默认）");
         }
         item->setText(text);
-        item->setData(Qt::UserRole, preset.id);
-        item->setData(Qt::UserRole + 1, false);
-        item->setData(Qt::UserRole + 2, preset.isDefault);
+        item->setData(preset.id, Qt::UserRole);
+        item->setData(false, Qt::UserRole + 1);
+        item->setData(preset.isDefault, Qt::UserRole + 2);
+        item->setData(preset.categoryKey, Qt::UserRole + 3);
+        item->setData(preset.name + QLatin1Char(' ') + preset.description, Qt::UserRole + 4);
         QString tip = preset.description;
         if (!preset.categoryText.isEmpty()) {
             if (!tip.isEmpty()) tip += QLatin1Char('\n');
@@ -527,32 +552,45 @@ void PresetManagePage::rebuildPresetList(const QString &selectId, bool emitSelec
         }
         tip += QStringLiteral("\n%1 段").arg(preset.sectionCount);
         item->setToolTip(tip);
-        if (firstSelectable < 0) firstSelectable = m_presetList->count() - 1;
-        if (preset.id == keep) {
-            selectRow = m_presetList->count() - 1;
-        }
+        model->appendRow(item);
     }
     // 读不回来的那几份**只在「全部」那一档列出来**：它们没写类别，硬塞进某一类里
     // 等于替它们猜一个身份。
-    if (m_filterKey.isEmpty()) {
-        for (const BrokenItem &one : m_broken) {
-            // 读不回来的那些**照样列出来**，但不可选：用户至少知道"它还在，只是读不动"。
-            auto *item = new QListWidgetItem(m_presetList);
-            QString name = one.id;
-            if (name.size() > 12) name = name.left(12) + QStringLiteral("…");
-            item->setText(QStringLiteral("⚠ 读不出来：%1").arg(name));
-            item->setData(Qt::UserRole, one.id);
-            item->setData(Qt::UserRole + 1, true);
-            item->setFlags(Qt::NoItemFlags);
-            item->setToolTip(one.reason);
-        }
+    for (const BrokenItem &one : m_broken) {
+        // 读不回来的那些**照样列出来**，但不可选：用户至少知道"它还在，只是读不动"。
+        auto *item = new QStandardItem;
+        QString name = one.id;
+        if (name.size() > 12) name = name.left(12) + QStringLiteral("…");
+        item->setText(QStringLiteral("⚠ 读不出来：%1").arg(name));
+        item->setData(one.id, Qt::UserRole);
+        item->setData(true, Qt::UserRole + 1);
+        item->setFlags(Qt::NoItemFlags);
+        item->setToolTip(one.reason);
+        model->appendRow(item);
+    }
+    m_presetProxy->setSourceModel(model);
+    delete m_presetModel;
+    m_presetModel = model;
+    m_fillingList = false;
+    rebuildPresetList(selectId, false);
+    m_currentId = currentPresetId();
+}
+
+void PresetManagePage::rebuildPresetList(const QString &selectId, bool emitSelection) {
+    const QString keep = selectId.isEmpty() ? m_currentId : selectId;
+    m_fillingList = true;
+    m_presetProxy->setFilters(m_filterKey, m_searchEdit->text().trimmed());
+    int selectRow = -1;
+    int firstSelectable = -1;
+    for (int row = 0; row < m_presetProxy->rowCount(); ++row) {
+        if (rowIsBroken(row)) continue;
+        if (firstSelectable < 0) firstSelectable = row;
+        if (presetIdAt(row) == keep) selectRow = row;
     }
     if (selectRow < 0) {
         selectRow = firstSelectable;
     }
-    if (selectRow >= 0) {
-        m_presetList->setCurrentRow(selectRow);
-    }
+    m_presetList->setCurrentIndex(selectRow >= 0 ? m_presetProxy->index(selectRow, 0) : QModelIndex());
     m_fillingList = false;
 
     if (currentPresetId().isEmpty()) {
@@ -845,6 +883,7 @@ void PresetManagePage::showApplyResult(const ApplyView &result) {
 
 void PresetManagePage::showStatus(const QString &text) {
     m_statusLabel->setText(text);
+    m_statusLabel->setVisible(!text.isEmpty());
 }
 
 void PresetManagePage::clearPlan() {
@@ -870,11 +909,11 @@ void PresetManagePage::setBusy(bool busy) {
 }
 
 QString PresetManagePage::currentPresetId() const {
-    const QListWidgetItem *item = m_presetList->currentItem();
-    if (item == nullptr || itemIsBroken(item)) {
+    const auto item = m_presetList->currentIndex();
+    if (!item.isValid() || itemIsBroken(item)) {
         return QString();
     }
-    return item->data(Qt::UserRole).toString();
+    return item.data(Qt::UserRole).toString();
 }
 
 QString PresetManagePage::selectedApplyInstanceId() const {
@@ -915,7 +954,7 @@ void PresetManagePage::refreshActions() {
     // 上移 / 下移：列表里只有**读得回来的**那些能挪（坏的那几份不在下标里）。
     int firstValid = -1;
     int lastValid = -1;
-    for (int i = 0; i < m_presetList->count(); ++i) {
+    for (int i = 0; i < m_presetProxy->rowCount(); ++i) {
         if (!rowIsBroken(i)) {
             if (firstValid < 0) firstValid = i;
             lastValid = i;
@@ -924,8 +963,8 @@ void PresetManagePage::refreshActions() {
     m_moveUpButton->setEnabled(editable && row > firstValid);
     m_moveDownButton->setEnabled(editable && row >= 0 && row < lastValid);
 
-    QListWidgetItem *item = m_presetList->currentItem();
-    const bool isDefault = item != nullptr && item->data(Qt::UserRole + 2).toBool();
+    const auto item = m_presetList->currentIndex();
+    const bool isDefault = item.data(Qt::UserRole + 2).toBool();
     m_defaultButton->setText(isDefault ? QStringLiteral("取消默认")
                                        : QStringLiteral("设为默认"));
 
@@ -1021,34 +1060,33 @@ void PresetManagePage::disarmApply() {
 // 列表
 // ---------------------------------------------------------------------------
 
-void PresetManagePage::onCurrentPresetChanged(QListWidgetItem *current,
-                                              QListWidgetItem *previous) {
+void PresetManagePage::onCurrentPresetChanged(const QModelIndex &current,
+                                              const QModelIndex &previous) {
     Q_UNUSED(previous);
     if (m_fillingList) {
         return;
     }
     refreshActions();
-    if (current == nullptr || itemIsBroken(current)) {
+    if (!current.isValid() || itemIsBroken(current)) {
         m_currentId.clear();
         return;
     }
-    const QString id = current->data(Qt::UserRole).toString();
+    const QString id = current.data(Qt::UserRole).toString();
     m_currentId = id;
     clearPlan();
     emit presetSelected(id);
 }
 
 int PresetManagePage::currentPresetRow() const {
-    return m_presetList->currentRow();
+    return m_presetList->currentIndex().row();
 }
 
 QString PresetManagePage::presetIdAt(int row) const {
-    const QListWidgetItem *item = m_presetList->item(row);
-    return item == nullptr ? QString() : item->data(Qt::UserRole).toString();
+    return m_presetProxy->index(row, 0).data(Qt::UserRole).toString();
 }
 
 bool PresetManagePage::rowIsBroken(int row) const {
-    return itemIsBroken(m_presetList->item(row));
+    return itemIsBroken(m_presetProxy->index(row, 0));
 }
 
 QString PresetManagePage::comboInstanceId(const QComboBox *combo) {

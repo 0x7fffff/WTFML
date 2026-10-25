@@ -245,6 +245,7 @@ function Invoke-OneRun {
         # 探针自己按脚本跑完就 quit()；这里只等它退出、把结果收回来。
         $ok = $proc.WaitForExit(120000)
         if (-not $ok) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+        $exitCode = if ($ok) { $proc.Refresh(); $proc.ExitCode } else { $null }
         $script:current = $null
         Start-Sleep -Milliseconds 300
 
@@ -263,7 +264,8 @@ function Invoke-OneRun {
             $runResults.Add([pscustomobject][ordered]@{
                 index     = $Index
                 visibleMs = [math]::Round($visibleMs, 1)
-                cleanExit = $ok
+                cleanExit = $ok -and $exitCode -eq 0
+                exitCode  = $exitCode
                 probeFile = if ($probeCopy) { [IO.Path]::GetRelativePath($repo, $probeCopy) } else { $null }
                 appLog    = if ($logCopy) { [IO.Path]::GetRelativePath($repo, $logCopy) } else { $null }
             })
@@ -271,6 +273,7 @@ function Invoke-OneRun {
                     $Index, $visibleMs, $ok, $(if ($probeCopy) { '有' } else { '没有' }))
         }
         if (-not $ok) { throw ("第 {0} 次探针运行没有在 120 s 内退出。" -f $Index) }
+        if ($exitCode -ne 0) { throw ("第 {0} 次探针异常退出：exitCode={1}。日志保留在报告目录。" -f $Index, $exitCode) }
         if (-not $probeCopy) { throw ("第 {0} 次探针没有产出 perf-probe.json（exe 是不是没带 WTFML_PERF_PROBE=ON？）。" -f $Index) }
         Start-Sleep -Milliseconds 300
         return $probeCopy
@@ -440,7 +443,7 @@ $report = [ordered]@{
     instances         = $Instances
     sandbox           = [IO.Path]::GetRelativePath($repo, $Sandbox)
     measurement       = if ($Probe) {
-        '产品内探针（WTFML_PERF_PROBE=1，Release）：先单独跑一遍本地 Java 扫描，再按真实入口翻四个选项卡、换主题；每步量动作 + 整窗 repaint；20 ms 看门狗记主线程最长空档。'
+        '产品内探针（WTFML_PERF_PROBE=1，Release）：Java/导航/主题、200条合成任务、1000条预设视图、临时预设元数据同步/后台读取；每步量动作+整窗repaint；20ms看门狗标记卡顿跨度。造数及故意同步读取不代表产品界面路径。'
     } else {
         '外部测量：进程创建 → 标题为 "WTF Minecraft Launcher" 的顶层窗口可见 → 应答 WM_NULL；窗口出现后观察主线程最长阻塞。'
     }

@@ -18,6 +18,8 @@ class JavaSettingsController final : public QObject {
 public:
     struct Host {
         std::function<void(const QString &)> log;
+        /// 可选扫描提供方，在工作线程执行；必须只捕获可独立存活的值。
+        std::function<QMap<int, QString>(const QString &)> scanJava = {};
     };
 
     JavaSettingsController(MainWindowUI *ui, GlobalJavaSettings *settings,
@@ -41,8 +43,13 @@ public:
     void applyMemoryLimits(qint64 totalMb);
     bool clampXmsToXmx(int xmxMb);
     void applyDetected(const QMap<int, QString> &versions);
+    bool discoveryPending() const { return m_discoveryPending; }
+
+signals:
+    void discoveryFinished();
 
 private:
+    void queueDiscovery(std::function<QMap<int, QString>()> scan);
     void pushRows();
     void log(const QString &message) const;
     bool memoryPageVisible() const;
@@ -55,5 +62,7 @@ private:
     JavaManageDialog *m_page = nullptr;
     QTimer *m_memoryRefreshTimer = nullptr;
     bool m_scanned = false;
+    bool m_discoveryPending = false;
+    quint64 m_discoveryGeneration = 0;
     QMap<int, QString> m_versions;
 };

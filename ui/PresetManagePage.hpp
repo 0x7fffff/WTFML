@@ -37,7 +37,10 @@ class QGridLayout;
 class QLabel;
 class QLineEdit;
 class QListWidget;
-class QListWidgetItem;
+class QListView;
+class QModelIndex;
+class QStandardItemModel;
+class PresetFilterProxy;
 class QPushButton;
 
 class PresetManagePage : public QDialog {
@@ -260,7 +263,7 @@ private:
     void disarmDelete();
     void armApply();
     void disarmApply();
-    void onCurrentPresetChanged(QListWidgetItem *current, QListWidgetItem *previous);
+    void onCurrentPresetChanged(const QModelIndex &current, const QModelIndex &previous);
     int currentPresetRow() const;
     QString presetIdAt(int row) const;
     bool rowIsBroken(int row) const;
@@ -268,7 +271,9 @@ private:
                        const QString &selectId);
     static QString comboInstanceId(const QComboBox *combo);
 
-    QListWidget *m_presetList = nullptr;
+    QListView *m_presetList = nullptr;
+    QStandardItemModel *m_presetModel = nullptr;
+    PresetFilterProxy *m_presetProxy = nullptr;
     QLineEdit *m_searchEdit = nullptr;
     /// 类别筛选那一排 chip 所在的那一格（每次 `setCategories()` 整片重建）。
     QWidget *m_filterRow = nullptr;

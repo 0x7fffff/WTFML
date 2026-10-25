@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "TaskCenterPanel.hpp"
 int UiUiRefreshCheck(QApplication &app) {
 
         const int fontId = QFontDatabase::addApplicationFont(QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc")));
@@ -456,6 +457,83 @@ int UiUiRefreshCheck(QApplication &app) {
         settle();
         expect(curtainCount() == 0, "window resizing leaves no stale transition snapshot");
         Anim::setEnabled(false);
+        {
+            QWidget host;
+            host.resize(1100, 680);
+            host.show();
+            QList<TaskCenter::Item> tasks;
+            for (int i = 0; i < 120; ++i) {
+                TaskCenter::Item item;
+                item.key = QString::number(i);
+                item.title = QStringLiteral("Task %1").arg(i);
+                item.state = i < 5 ? TaskCenter::State::Running : TaskCenter::State::Succeeded;
+                item.percent = i < 5 ? 10 : 100;
+                item.capabilities.cancel = i < 5;
+                tasks.append(item);
+            }
+            int originalActions = 0, replacementActions = 0;
+            TaskCenterPanel panel(&host, [&] { return tasks; }, {}, {}, {}, {}, &host, true);
+            panel.setGeometry(host.rect());
+            panel.setRowActivatedHandler([](const QString &) {});
+            panel.setRowActionHandler([&](const QString &, TaskCenter::RowAction action) {
+                if (action == TaskCenter::RowAction::Cancel) ++originalActions;
+            });
+            panel.showEmbedded();
+            app.processEvents();
+            QPointer<QWidget> stable = panel.findChild<QWidget *>(MainWindowUI::taskCenterPanelRowName(80));
+            QPointer<QWidget> changed = panel.findChild<QWidget *>(MainWindowUI::taskCenterPanelRowName(0));
+            QScrollBar *scrollBar = nullptr;
+            for (auto *area : panel.findChildren<QScrollArea *>())
+                if (stable && area->widget() == stable->parentWidget()) scrollBar = area->verticalScrollBar();
+            expect(stable && changed && scrollBar && scrollBar->maximum() > 500,
+                   "task refresh fixture has real scrollable rows");
+            if (scrollBar) scrollBar->setValue(450);
+            for (int frame = 0; frame < 20; ++frame) {
+                tasks[0].percent = 20 + frame;
+                panel.refresh();
+                app.processEvents();
+            }
+            expect(stable && stable == panel.findChild<QWidget *>(MainWindowUI::taskCenterPanelRowName(80)),
+                   "progress ticks preserve unchanged completed rows");
+            auto *bar = panel.findChild<QProgressBar *>(MainWindowUI::taskCenterPanelRowBarName(0));
+            expect(changed.isNull() && bar && bar->value() == 39,
+                   "changed task updates progress without stale widgets");
+            expect(scrollBar && scrollBar->value() == 450, "task progress preserves scroll position");
+            if (stable) {
+                const QPoint local = stable->rect().center();
+                QMouseEvent press(QEvent::MouseButtonPress, QPointF(local),
+                                  QPointF(stable->mapToGlobal(local)), Qt::LeftButton,
+                                  Qt::LeftButton, Qt::NoModifier);
+                app.sendEvent(stable, &press);
+                tasks[80].bytesText = QStringLiteral("detail-only-fresh-bytes");
+                panel.refresh();
+                bool fresh = false;
+                for (auto *label : panel.findChildren<QLabel *>())
+                    fresh |= label->text() == tasks[80].bytesText;
+                expect(stable && fresh, "reused row still shows latest selected task details");
+            }
+            QPointer<QWidget> beforeHandler = panel.findChild<QWidget *>(MainWindowUI::taskCenterPanelRowName(0));
+            panel.setRowActionHandler([&](const QString &, TaskCenter::RowAction action) {
+                if (action == TaskCenter::RowAction::Cancel) ++replacementActions;
+            });
+            panel.refresh();
+            if (auto *cancel = panel.findChild<QPushButton *>(MainWindowUI::taskCenterPanelRowCancelName(0))) cancel->click();
+            expect(beforeHandler.isNull() && originalActions == 0 && replacementActions == 1,
+                   "replacing callbacks invalidates cached buttons");
+            QPointer<QWidget> beforePalette = panel.findChild<QWidget *>(MainWindowUI::taskCenterPanelRowName(0));
+            if (beforePalette) {
+                QPalette next = beforePalette->parentWidget()->palette();
+                next.setColor(QPalette::PlaceholderText, QColor(80, 60, 120));
+                beforePalette->parentWidget()->setPalette(next);
+                panel.refresh();
+                expect(beforePalette.isNull(), "theme palette changes invalidate row presentation");
+            }
+            stable = panel.findChild<QWidget *>(MainWindowUI::taskCenterPanelRowName(80));
+            expect(!stable.isNull(), "task still exists before removal");
+            tasks.removeAt(80);
+            panel.refresh();
+            expect(stable.isNull(), "removed task releases cached row");
+        }
         printf("UI refresh check: %d failure(s)\n", failures);
         return failures == 0 ? 0 : 1;
     

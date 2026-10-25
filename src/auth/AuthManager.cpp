@@ -38,6 +38,7 @@
 #include <QUrlQuery>
 
 #include <limits>  // tokenSecondsLeft() 那个夹取（int 的上界）
+#include "util/SecretRedactor.hpp"
 
 namespace {
 // 正版登录那两格随构建配置走的常数。
@@ -1046,6 +1047,7 @@ bool AuthManager::applyMinecraftTokenData(const QJsonObject &tokenData) {
                               Qt::ISODate);
     // 提前 30 秒算过期：正好在过期那一刻发出去启动，游戏那边会拿到一张已经失效的令牌
     m_tokenExpiry = expiry.isValid() ? expiry.addSecs(-30) : QDateTime();
+    SecretRedactor::remember(accessToken);
     m_accessToken = accessToken;
     m_playerName = name;
     m_uuid = uuid;

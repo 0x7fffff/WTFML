@@ -1,4 +1,5 @@
 #include "GameSessionController.hpp"
+#include "util/SecretRedactor.hpp"
 
 #include "GameLogWindow.hpp"
 #include "InlineMessage.hpp"
@@ -60,7 +61,8 @@ void GameSessionController::closeAllGameLogWindows() {
     }
 }
 
-void GameSessionController::onProcessOutput(int sessionId, const QString &text) {
+void GameSessionController::onProcessOutput(int sessionId, const QString &rawText) {
+    const QString text = SecretRedactor::redact(rawText);
     m_host.log(tr("[游戏输出] %1%2").arg(sessionLogTag(m_launcherManager->session(sessionId)), text));
     rememberSessionLogText(sessionId, text);
     // 「显示游戏日志」开着时，同一段字也进那一份的游戏日志窗。**放在 appendLog 之后**是
@@ -82,7 +84,8 @@ void GameSessionController::onProcessOutput(int sessionId, const QString &text) 
     }
 }
 
-void GameSessionController::onProcessError(int sessionId, const QString &text) {
+void GameSessionController::onProcessError(int sessionId, const QString &rawText) {
+    const QString text = SecretRedactor::redact(rawText);
     m_host.log(tr("[游戏错误] %1%2").arg(sessionLogTag(m_launcherManager->session(sessionId)), text));
     // stderr 也进底账（和 stdout 同一个去处）—— 很多版本把日志整个写在 stderr 上。
     rememberSessionLogText(sessionId, text);

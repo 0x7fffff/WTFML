@@ -2,6 +2,20 @@
 #include <QScopeGuard>
 
 int main(int argc, char *argv[]) {
+    if (argc >= 4 && std::strcmp(argv[1], "token-echo") == 0) {
+        const std::string secret(argv[3]);
+        const auto half = secret.size() / 2;
+        std::fwrite(secret.data(), 1, half, stdout);
+        std::fwrite(secret.data(), 1, half, stderr);
+        std::fflush(stdout); std::fflush(stderr);
+        Sleep(60);
+        std::fwrite(secret.data() + half, 1, secret.size() - half, stdout);
+        std::fwrite(secret.data() + half, 1, secret.size() - half, stderr);
+        std::fputs("\n", stdout); std::fputs("\n", stderr);
+        std::fwrite(secret.data(), 1, half, stdout);
+        std::fflush(stdout); std::fflush(stderr);
+        return 0;
+    }
     // ---------- session-holder：给"真的有一份会话在跑"当替身 ----------
     // mw_check.exe session-holder
     //

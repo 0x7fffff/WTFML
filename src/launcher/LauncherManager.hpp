@@ -4,6 +4,7 @@
  * @note 负责 Minecraft 启动参数构建和进程生命周期管理。
  */
 #pragma once
+#include "util/SecretRedactor.hpp"
 
 #include <QHash>
 #include <QJsonObject>
@@ -288,6 +289,8 @@ private:
         /// 末尾那半个字节留着等下一块拼上。
         std::shared_ptr<QStringDecoder> stdoutDecoder;
         std::shared_ptr<QStringDecoder> stderrDecoder;
+        SecretRedactor::Stream stdoutSecrets;
+        SecretRedactor::Stream stderrSecrets;
     };
 
     /// 按某份会话**实际使用的**输出编码解码它的 stdout/stderr。

@@ -22,6 +22,10 @@
 #include "MainWindowUI.hpp"
 #include "Theme.hpp"
 #include "TitleBar.hpp"
+#include "TaskCenterPanel.hpp"
+#include "PresetManagePage.hpp"
+#include "presets/PresetStore.hpp"
+#include "presets/PresetCatalog.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "util/AppPaths.hpp"
 
@@ -34,11 +38,16 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QList>
+#include <QLineEdit>
+#include <QPointer>
 #include <QTimer>
+#include <QTemporaryDir>
+#include <QUuid>
 #include <QWidget>
 
 #include <cmath>
 #include <functional>
+#include <memory>
 #include <utility>
 
 namespace {
@@ -100,9 +109,20 @@ public:
             const qint64 gap = now - m_lastTickMs;
             m_lastTickMs = now;
             ++m_ticks;
-            m_maxGapMs = std::max(m_maxGapMs, gap);
+            if (gap > m_maxGapMs) {
+                m_maxGapMs = gap;
+                m_maxGapFrom = m_lastTickStep;
+                m_maxGapAt = m_currentStep;
+            }
             if (gap > 50) {
                 ++m_overFiftyMs;
+                m_slowSpans.append(QJsonObject{{QStringLiteral("gapMs"), gap},
+                    {QStringLiteral("fromStep"), m_lastTickStep}, {QStringLiteral("atStep"), m_currentStep}});
+            }
+            m_lastTickStep = m_currentStep;
+            if (m_asyncCatalogPending) {
+                ++m_asyncCatalogTicks;
+                m_asyncCatalogMaxGap = std::max(m_asyncCatalogMaxGap, gap);
             }
         });
         m_watchdog->start();
@@ -114,10 +134,9 @@ public:
 private:
     void buildSteps()
     {
-        // 「点设置那一下到底贵在哪」的一半：`onMainTabChanged()` → `refreshList()` 会跑
-        // 一次本地 Java 扫描。这里**头一个**就单独跑一遍同一个函数，把扫描那笔钱量出来；
-        // 代价是后面第一次进设置页时扫描已经是热的 —— 所以 `nav:settings` 这一行量到的
-        // 是"首次铺开（扫描已热）"，两次跑的数一减就是扫描的价（表里两行都在）。
+        // 单独测扫描成本，保留优化前后相同的探针步骤。设置页现已后台扫描，下面这条
+        // 刻意同步的测量不代表产品翻页路径；它会预热文件缓存，也会进入总看门狗峰值。
+        // 不把 scan:java 的耗时或总峰值误当成优化后的设置页同步阻塞。
         m_steps.push_back({QStringLiteral("scan:java"),
                            [] { (void)GlobalJavaSettings::scanLocalJavaVersions(); }});
 
@@ -159,6 +178,108 @@ private:
                            [this] { clickNav(MainWindowUI::settingsTabIndex()); }});
         m_steps.push_back({QStringLiteral("nav:home-final"),
                            [this] { clickNav(MainWindowUI::homeTabIndex()); }});
+
+        // Synthetic view workload: real task widgets, no network/jobs/accounts.
+        // Seed outside timed actions, then change just one running task per tick.
+        for (int i = 0; i < 200; ++i) {
+            TaskCenter::Item item;
+            item.key = QStringLiteral("perf-task-%1").arg(i);
+            item.title = QStringLiteral("性能测量任务 %1").arg(i);
+            item.state = i < 20 ? TaskCenter::State::Running : TaskCenter::State::Succeeded;
+            item.percent = i < 20 ? 10 : 100;
+            item.detail = QStringLiteral("文件校验与资源准备");
+            item.finishedAt = QDateTime::fromSecsSinceEpoch(1700000000 + i);
+            item.capabilities.cancel = i < 20;
+            item.steps = {{QStringLiteral("检查文件"), TaskCenter::StepState::Done, {}},
+                          {QStringLiteral("准备资源"), i < 20 ? TaskCenter::StepState::Running : TaskCenter::StepState::Done, {}}};
+            m_tasks.append(item);
+        }
+        m_steps.push_back({QStringLiteral("tasks:open-200"), [this] {
+            m_taskPanel = new TaskCenterPanel(&m_window, [this] { return m_tasks; }, {}, {}, {}, {}, &m_window, true);
+            m_taskPanel->setGeometry(m_window.rect().adjusted(12, 80, -12, -72));
+            m_taskPanel->setRowActionHandler([](const QString &, TaskCenter::RowAction) {});
+            m_taskPanel->setRowActivatedHandler([](const QString &) {});
+            m_taskPanel->showEmbedded();
+            m_taskPanel->raise();
+        }});
+        for (int tick = 0; tick < 20; ++tick) {
+            m_steps.push_back({QStringLiteral("tasks:update-%1").arg(tick + 1, 2, 10, QLatin1Char('0')),
+                               [this, tick] {
+                m_tasks[tick].percent = 20 + tick;
+                m_tasks[tick].detail = QStringLiteral("正在下载资源 · %1 MB/s").arg(tick + 1);
+                if (m_taskPanel) m_taskPanel->refresh();
+            }});
+        }
+        m_steps.push_back({QStringLiteral("tasks:close"), [this] { delete m_taskPanel.data(); }});
+
+        for (int i = 0; i < 1000; ++i) {
+            PresetManagePage::PresetItem item;
+            item.id = QStringLiteral("perf-preset-%1").arg(i);
+            item.name = QStringLiteral("%1预设 %2").arg(i % 2 ? QStringLiteral("生存") : QStringLiteral("建筑")).arg(i, 4, 10, QLatin1Char('0'));
+            item.description = QStringLiteral("游戏设置与按键说明 %1").arg(i);
+            item.categoryKey = i % 2 ? QStringLiteral("mods") : QStringLiteral("settings");
+            item.categoryText = i % 2 ? QStringLiteral("模组") : QStringLiteral("游戏设置");
+            item.sectionCount = 2;
+            item.isDefault = i == 0;
+            m_presets.append(item);
+        }
+        m_steps.push_back({QStringLiteral("presets:open-1000"), [this] {
+            m_presetPage = new PresetManagePage(&m_window);
+            m_presetPage->setWindowFlags(Qt::Widget);
+            m_presetPage->setGeometry(m_window.rect().adjusted(12, 80, -12, -72));
+            m_presetPage->setCategories({{QString(), QStringLiteral("全部"), true},
+                                          {QStringLiteral("settings"), QStringLiteral("游戏设置"), false},
+                                          {QStringLiteral("mods"), QStringLiteral("模组"), false}});
+            m_presetPage->setPresets(m_presets, {}, m_presets.first().id);
+            m_presetPage->show();
+            m_presetPage->raise();
+        }});
+        const QStringList queries{QStringLiteral("预设"), QStringLiteral("生存"), QString(),
+                                  QStringLiteral("002"), QStringLiteral("说明"), QStringLiteral("不匹配"), QString()};
+        for (int i = 0; i < queries.size(); ++i) {
+            m_steps.push_back({QStringLiteral("presets:search-%1").arg(i + 1), [this, query = queries.at(i)] {
+                if (m_presetPage) {
+                    auto *search = m_presetPage->findChild<QLineEdit *>(QStringLiteral("presetSearchEdit"));
+                    if (search) search->setText(query);
+                }
+            }});
+        }
+        m_steps.push_back({QStringLiteral("presets:close"), [this] { delete m_presetPage.data(); }});
+        m_steps.push_back({QStringLiteral("presets:prepare-store-1000"), [this] {
+            m_storeDir = std::make_unique<QTemporaryDir>(AppPaths::minecraftDir() + QStringLiteral("/perf-presets-XXXXXX"));
+            if (!m_storeDir->isValid()) { m_storeFailed = true; return; }
+            Presets::PresetIndex index;
+            for (const auto &item : m_presets) {
+                Presets::PresetManifest manifest;
+                manifest.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+                manifest.name = item.name;
+                manifest.description = item.description;
+                manifest.category = Presets::PresetCategory::GameSettings;
+                if (!Presets::saveManifest(m_storeDir->path(), manifest)) { m_storeFailed = true; return; }
+                index.order.append(manifest.id);
+            }
+            m_storeFailed = !Presets::saveIndex(m_storeDir->path(), index);
+        }});
+        for (int i = 0; i < 3; ++i) {
+            m_steps.push_back({QStringLiteral("presets:read-store-%1").arg(i + 1), [this] {
+                if (m_storeFailed || !m_storeDir) { m_storeFailed = true; return; }
+                QList<Presets::BrokenPreset> broken;
+                m_storeRows = Presets::list(m_storeDir->path(), &broken).size();
+                m_storeFailed = m_storeRows != 1000 || !broken.isEmpty();
+            }});
+        }
+        m_steps.push_back({QStringLiteral("presets:start-background-store"), [this] {
+            if (m_storeFailed || !m_storeDir) { m_storeFailed = true; return; }
+            m_asyncCatalogPending = true;
+            m_asyncCatalogClock.start();
+            m_catalogLoader = new Presets::CatalogLoader(this);
+            m_catalogLoader->load(m_storeDir->path(), [this](const Presets::CatalogSnapshot &snapshot) {
+                m_asyncCatalogElapsed = m_asyncCatalogClock.elapsed();
+                m_asyncCatalogRows = snapshot.presets.size();
+                m_storeFailed = m_asyncCatalogRows != 1000 || !snapshot.broken.isEmpty();
+                m_asyncCatalogPending = false;
+            });
+        }});
     }
 
     QComboBox *themeCombo() const
@@ -193,12 +314,25 @@ private:
 
     void runNext()
     {
+        // Let the ordinary event loop run while the production catalog worker reads.
+        // Keep the measurement bounded without synchronously waiting on its future.
+        if (m_asyncCatalogPending) {
+            if (m_asyncCatalogClock.elapsed() > 30000) {
+                m_catalogLoader->invalidate();
+                m_storeFailed = true;
+                m_asyncCatalogPending = false;
+            } else {
+                QTimer::singleShot(10, this, [this] { runNext(); });
+                return;
+            }
+        }
         if (m_next >= m_steps.size()) {
             QTimer::singleShot(kFinalSettleMs, this, [this] { finish(); });
             return;
         }
 
         const Step &step = m_steps[static_cast<int>(m_next)];
+        m_currentStep = step.name;
         StepResult result;
         result.name = step.name;
 
@@ -237,6 +371,9 @@ private:
         stalls.insert(QStringLiteral("maxStallMs"),
                       std::max<qint64>(0, m_maxGapMs - kStallTickMs));
         stalls.insert(QStringLiteral("over50ms"), m_overFiftyMs);
+        stalls.insert(QStringLiteral("maxGapFromStep"), m_maxGapFrom);
+        stalls.insert(QStringLiteral("maxGapAtStep"), m_maxGapAt);
+        stalls.insert(QStringLiteral("slowSpans"), m_slowSpans);
 
         QJsonObject root;
         root.insert(QStringLiteral("schema"), 1);
@@ -247,6 +384,22 @@ private:
         root.insert(QStringLiteral("qt"), QString::fromLatin1(qVersion()));
         root.insert(QStringLiteral("themeBefore"), m_themeBefore);
         root.insert(QStringLiteral("steps"), steps);
+        root.insert(QStringLiteral("taskWorkload"), QJsonObject{
+            {QStringLiteral("source"), QStringLiteral("synthetic-view-only")},
+            {QStringLiteral("rows"), 200}, {QStringLiteral("running"), 20},
+            {QStringLiteral("updates"), 20}, {QStringLiteral("changedPerUpdate"), 1}});
+        root.insert(QStringLiteral("presetWorkload"), QJsonObject{
+            {QStringLiteral("source"), QStringLiteral("synthetic-view-only")},
+            {QStringLiteral("rows"), 1000}, {QStringLiteral("queries"), 7}});
+        root.insert(QStringLiteral("presetStoreWorkload"), QJsonObject{
+            {QStringLiteral("source"), QStringLiteral("synthetic-disk-metadata-only")},
+            {QStringLiteral("expectedRows"), 1000}, {QStringLiteral("actualRows"), m_storeRows},
+            {QStringLiteral("ok"), !m_storeFailed}, {QStringLiteral("reads"), 3}});
+        root.insert(QStringLiteral("backgroundPresetStore"), QJsonObject{
+            {QStringLiteral("rows"), m_asyncCatalogRows},
+            {QStringLiteral("elapsedMs"), m_asyncCatalogElapsed},
+            {QStringLiteral("guiTicks"), m_asyncCatalogTicks},
+            {QStringLiteral("maxGuiGapMs"), m_asyncCatalogMaxGap}});
         root.insert(QStringLiteral("stalls"), stalls);
 
         QJsonObject window;
@@ -260,7 +413,7 @@ private:
             file.close();
         }
 
-        m_app.quit();
+        m_app.exit(m_storeFailed ? 1 : 0);
     }
 
     struct Step {
@@ -276,6 +429,25 @@ private:
     QElapsedTimer m_clock;
     QTimer *m_watchdog = nullptr;
     QString m_themeBefore;
+    QList<TaskCenter::Item> m_tasks;
+    QPointer<TaskCenterPanel> m_taskPanel;
+    QList<PresetManagePage::PresetItem> m_presets;
+    QPointer<PresetManagePage> m_presetPage;
+    std::unique_ptr<QTemporaryDir> m_storeDir;
+    qsizetype m_storeRows = 0;
+    bool m_storeFailed = false;
+    QString m_currentStep = QStringLiteral("startup");
+    QString m_lastTickStep = QStringLiteral("startup");
+    QString m_maxGapFrom;
+    QString m_maxGapAt;
+    QJsonArray m_slowSpans;
+    Presets::CatalogLoader *m_catalogLoader = nullptr;
+    bool m_asyncCatalogPending = false;
+    QElapsedTimer m_asyncCatalogClock;
+    qint64 m_asyncCatalogElapsed = 0;
+    qsizetype m_asyncCatalogRows = 0;
+    qint64 m_asyncCatalogTicks = 0;
+    qint64 m_asyncCatalogMaxGap = 0;
     qint64 m_lastTickMs = 0;
     qint64 m_maxGapMs = 0;
     qint64 m_ticks = 0;

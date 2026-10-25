@@ -7,10 +7,16 @@
 #include "PresetOptionsEditor.hpp"
 #include "PresetManagePage.hpp"
 #include <QLineEdit>
+#include <QLabel>
+#include <QListView>
+#include <QSortFilterProxyModel>
+#include <QPersistentModelIndex>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QStyledItemDelegate>
 #include "presets/PresetStore.hpp"
+#include "presets/PresetCatalog.hpp"
+#include "controllers/PresetController.hpp"
 #include "presets/PresetApply.hpp"
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -27,10 +33,121 @@
 #include <QApplication>
 #include <QPointer>
 #include <cstdio>
+#include <QSemaphore>
+#include <QElapsedTimer>
+#include <QThread>
+#include <atomic>
+#include <memory>
 
 int runPresetInstallChecks() {
     int failures = 0;
     auto check = [&](bool ok, const char *name) { std::printf("%s %s\n", ok ? "PASS" : "FAIL", name); if (!ok) ++failures; };
+    const auto pump = [](const std::function<bool()> &done) {
+        QElapsedTimer deadline;
+        deadline.start();
+        while (!done() && deadline.elapsed() < 4000) {
+            QApplication::processEvents();
+            QThread::msleep(1);
+        }
+        QApplication::processEvents();
+        return done();
+    };
+    struct CatalogGate {
+        QSemaphore entered, release;
+        std::atomic<int> calls{0};
+        std::atomic<bool> done{false};
+    };
+    const auto scanGate = [](const std::shared_ptr<CatalogGate> &gate, const QString &root) {
+        ++gate->calls;
+        gate->entered.release();
+        (void)gate->release.tryAcquire(1, 3000); // A failing test cannot leave a worker stuck.
+        gate->done = true;
+        Presets::CatalogSnapshot snapshot;
+        snapshot.root = root;
+        return snapshot;
+    };
+    {
+        const auto first = std::make_shared<CatalogGate>();
+        const auto second = std::make_shared<CatalogGate>();
+        int deliveries = 0;
+        QString deliveredRoot;
+        bool onGuiThread = false;
+        Presets::CatalogLoader loader(nullptr, [=](const QString &root) {
+            return scanGate(root == QLatin1String("A") ? first : second, root);
+        });
+        const auto completed = [&](const Presets::CatalogSnapshot &snapshot) {
+            ++deliveries;
+            deliveredRoot = snapshot.root;
+            onGuiThread = QThread::currentThread() == qApp->thread();
+        };
+        loader.load(QStringLiteral("A"), completed);
+        loader.load(QStringLiteral("A"), completed);
+        check(pump([&] { return first->entered.available() > 0; }) && loader.isLoading() && !first->done && first->calls == 1,
+              "catalog reader runs in background and repeated opens share one request");
+        loader.load(QStringLiteral("B"), completed);
+        check(pump([&] { return second->entered.available() > 0; }), "new catalog root starts a new generation");
+        first->release.release();
+        check(pump([&] { return first->done.load(); }) && deliveries == 0 && loader.isLoading(),
+              "old root completion cannot replace a newer in-flight catalog");
+        second->release.release();
+        check(pump([&] { return !loader.isLoading(); }) && deliveries == 1 &&
+                  deliveredRoot == QLatin1String("B") && onGuiThread,
+              "only current catalog is delivered on the GUI thread");
+    }
+    {
+        const auto gate = std::make_shared<CatalogGate>();
+        int deliveries = 0;
+        auto loader = std::make_unique<Presets::CatalogLoader>(nullptr, [=](const QString &root) { return scanGate(gate, root); });
+        loader->load(QStringLiteral("cancelled"), [&](const auto &) { ++deliveries; });
+        check(pump([&] { return gate->entered.available() > 0; }), "invalidated catalog fixture is running");
+        loader->invalidate();
+        gate->release.release();
+        check(pump([&] { return gate->done.load(); }) && !loader->isLoading() && deliveries == 0,
+              "explicit refresh invalidates older asynchronous results");
+        loader.reset();
+    }
+    {
+        const auto gate = std::make_shared<CatalogGate>();
+        int deliveries = 0;
+        auto loader = std::make_unique<Presets::CatalogLoader>(nullptr, [=](const QString &root) { return scanGate(gate, root); });
+        loader->load(QStringLiteral("destroyed"), [&](const auto &) { ++deliveries; });
+        check(pump([&] { return gate->entered.available() > 0; }), "destroyed loader fixture is running");
+        loader.reset();
+        gate->release.release();
+        check(pump([&] { return gate->done.load(); }) && deliveries == 0,
+              "destroying loader never calls back into deleted UI");
+    }
+    {
+        const auto gate = std::make_shared<CatalogGate>();
+        QWidget host;
+        PresetController::Host callbacks;
+        callbacks.readCatalog = [=](const QString &root) { return scanGate(gate, root); };
+        PresetController controller(nullptr, &host, callbacks);
+        controller.open();
+        controller.open();
+        auto *page = host.findChild<PresetManagePage *>();
+        bool uiEvent = false;
+        QTimer::singleShot(0, &host, [&] { uiEvent = true; });
+        check(pump([&] { return uiEvent && gate->entered.available() > 0; }) &&
+                  page && page->isBusy() && !gate->done && gate->calls == 1,
+              "real preset page opens and processes input before catalog I/O finishes");
+        auto *status = page ? page->findChild<QLabel *>(PresetManagePage::statusLabelName()) : nullptr;
+        check(status && !status->isHidden() && status->parentWidget() == page &&
+                  status->text().contains(QStringLiteral("读取")),
+              "catalog loading feedback stays outside the scrolling editor");
+        gate->release.release();
+        check(pump([&] { return page && !page->isBusy(); }) &&
+                  page->findChild<QPushButton *>(PresetManagePage::newButtonName())->isEnabled(),
+              "catalog completion restores preset actions");
+        gate->done = false;
+        (void)gate->entered.tryAcquire(gate->entered.available());
+        controller.open();
+        check(pump([&] { return gate->entered.available() > 0; }), "page destruction fixture is running");
+        delete page;
+        gate->release.release();
+        check(pump([&] { return !controller.catalogLoading(); }) && gate->done && !host.findChild<PresetManagePage *>(),
+              "catalog completion tolerates page deletion while controller remains alive");
+    }
     QTemporaryDir scratch;
     QTcpServer server;
     check(scratch.isValid() && server.listen(QHostAddress::LocalHost, 0), "local preset fixture starts");
@@ -350,6 +467,62 @@ int runPresetInstallChecks() {
         auto *toggle = manage.findChild<QPushButton *>(QStringLiteral("presetCaptureToggle"));
         check(body && body->isHidden(), "advanced extraction starts collapsed");
         toggle->click(); check(!body->isHidden(), "extraction remains accessible with one click");
+    }
+    {
+        int selectedCalls = 0;
+        QString defaultId;
+        bool makeDefault = true;
+        PresetManagePage manage;
+        manage.setCategories({{QString(), QStringLiteral("全部"), true},
+                              {QStringLiteral("settings"), QStringLiteral("设置"), false},
+                              {QStringLiteral("mods"), QStringLiteral("模组"), false}});
+        QList<PresetManagePage::PresetItem> items;
+        for (int i = 0; i < 1000; ++i) {
+            PresetManagePage::PresetItem item;
+            item.id = QString::number(i);
+            item.name = QStringLiteral("Preset %1").arg(i);
+            item.description = QStringLiteral("creative keys");
+            item.categoryKey = i % 2 ? QStringLiteral("mods") : QStringLiteral("settings");
+            item.isDefault = i == 0;
+            items.append(item);
+        }
+        manage.setPresets(items, {{QStringLiteral("broken"), QStringLiteral("bad manifest")}}, QStringLiteral("700"));
+        auto *view = manage.findChild<QListView *>(PresetManagePage::presetListName());
+        auto *proxy = view ? qobject_cast<QSortFilterProxyModel *>(view->model()) : nullptr;
+        auto *search = manage.findChild<QLineEdit *>(QStringLiteral("presetSearchEdit"));
+        check(proxy && proxy->rowCount() == 1001 && manage.currentPresetId() == QStringLiteral("700"),
+              "large preset view preserves source order and requested identity");
+        if (proxy && search) {
+            const QPersistentModelIndex sourceFirst(proxy->sourceModel()->index(0, 0));
+            QObject::connect(&manage, &PresetManagePage::presetSelected, &manage,
+                             [&](const QString &) { ++selectedCalls; });
+            search->setText(QStringLiteral("  CREATIVE  "));
+            check(sourceFirst.isValid() && proxy->rowCount() == 1001 && selectedCalls == 0 &&
+                      manage.currentPresetId() == QStringLiteral("700"),
+                  "search reuses source rows, trims input and keeps matching selection without duplicate callbacks");
+            search->setText(QStringLiteral("no matches"));
+            check(proxy->rowCount() == 1 && !proxy->index(0, 0).flags().testFlag(Qt::ItemIsSelectable) &&
+                      manage.currentPresetId().isEmpty() &&
+                      !manage.findChild<QPushButton *>(PresetManagePage::deleteButtonName())->isEnabled(),
+                  "broken presets remain visible but cannot become a stale actionable selection");
+            manage.findChild<QPushButton *>(PresetManagePage::categoryFilterName(2))->click();
+            check(proxy->rowCount() == 0, "category filter excludes unclassified broken presets");
+            search->clear();
+            check(proxy->rowCount() == 500 && manage.currentPresetId() == QStringLiteral("1") && selectedCalls == 1,
+                  "combined category and search choose first visible valid preset once");
+            manage.setPresets(items, {}, QStringLiteral("700"));
+            check(!sourceFirst.isValid() && proxy->rowCount() == 500 &&
+                      manage.currentPresetId() == QStringLiteral("1"),
+                  "data refresh respects active category when requested id is hidden");
+            manage.findChild<QPushButton *>(PresetManagePage::categoryFilterName(0))->click();
+            view->setCurrentIndex(proxy->index(0, 0));
+            QObject::connect(&manage, &PresetManagePage::defaultRequested, &manage,
+                             [&](const QString &id, bool enabled) { defaultId = id; makeDefault = enabled; });
+            manage.findChild<QPushButton *>(PresetManagePage::defaultButtonName())->click();
+            check(defaultId == QStringLiteral("0") && !makeDefault &&
+                      proxy->index(0, 0).data().toString().contains(QStringLiteral("默认")),
+                  "default indicator and toggle refer to the visible preset's source identity");
+        }
     }
     const auto presetRoot = scratch.filePath(QStringLiteral("presets"));
     auto manifest = Presets::create(presetRoot, QStringLiteral("settings"), {}, Presets::PresetCategory::GameSettings);

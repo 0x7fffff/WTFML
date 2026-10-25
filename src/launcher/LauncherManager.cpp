@@ -491,6 +491,7 @@ QStringList LauncherManager::generateJvmArguments(const QString &token, const QS
                                                   const GameWindowSettings &window,
                                                   const ScreenWorkArea &screen,
                                                   const QuickPlay::Target &quickPlay) const {
+    if (!offlineMode) SecretRedactor::remember(token);
     // 分辨率那两个数**这一层不再自己判**：哪些数要发、发不发，全在 gameWindowArguments()
     // 那个纯函数里 —— 它是纯的，验证工程能直接把三档 + 屏幕尺寸喂进去看发出来什么。
     //
@@ -1094,6 +1095,7 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     }
     const int sessionId = m_nextSessionId++;
 
+    SecretRedactor::rememberArguments(arguments);
     // 防手滑的阀门，不是性能上限（见头里的说明）。这一支**不登记会话**：它连一行日志
     // 都不该挂在某个实例名下（被拦下的是"又开一个"这件事本身，不是某个实例）。
     if (runningCount() >= maxConcurrentSessions()) {
@@ -1179,13 +1181,14 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
                 qDebug() << "  " << kAccessTokenProperty + QStringLiteral("<省略，长度 %1>")
                                                   .arg(arg.length() - kAccessTokenProperty.length());
             } else {
-                qDebug() << "  " << arg.left(50) << (arg.length() > 50 ? "..." : "");
+                const QString safe = SecretRedactor::redact(arg);
+                qDebug() << "  " << safe.left(50) << (safe.length() > 50 ? "..." : "");
             }
         } else if (arg == "-cp" || arg == "-classpath") {
             qDebug() << "  " << arg;
             if (static_cast<int>(i + 1) < arguments.length()) {
                 ++i;
-                qDebug() << "    " << arguments.at(i);
+                qDebug() << "    " << SecretRedactor::redact(arguments.at(i));
             }
         }
     }
@@ -1416,8 +1419,8 @@ void LauncherManager::handleReadyReadStandardOutput(int sessionId) {
     // 而 `.trimmed()` 削掉的**正是每一块结尾那个 `\n`** —— 于是"已经写完的最后一行"被当成
     // 半行挂住，和下一块的头一行粘成 `CD` 这种**伪行**（级别颜色跟着认错，导出的日志也一样
     // 是错的），每个分块边界中一次。空块本来就由下面那句 isEmpty() 拦住。
-    const QString output = decodeGameOutput(it->outputIsUtf8, it->stdoutDecoder,
-                                            it->process->readAllStandardOutput());
+    const QString output = it->stdoutSecrets.push(decodeGameOutput(it->outputIsUtf8, it->stdoutDecoder,
+                                            it->process->readAllStandardOutput()));
     if (!output.isEmpty()) {
         qDebug().noquote() << "[Game Output]" << it->info.displayName << output;
         emit processOutput(sessionId, output);
@@ -1430,8 +1433,8 @@ void LauncherManager::handleReadyReadStandardError(int sessionId) {
         return;
     }
     // 和上面 stdout 那一支逐字同一个理由：**不 trim**（那个 `\n` 是行与行之间的分界）。
-    const QString error = decodeGameOutput(it->outputIsUtf8, it->stderrDecoder,
-                                           it->process->readAllStandardError());
+    const QString error = it->stderrSecrets.push(decodeGameOutput(it->outputIsUtf8, it->stderrDecoder,
+                                           it->process->readAllStandardError()));
     if (!error.isEmpty()) {
         qWarning().noquote() << "[Game Error]" << it->info.displayName << error;
         emit processError(sessionId, error);
@@ -1457,22 +1460,26 @@ void LauncherManager::handleProcessFinished(int sessionId, int exitCode,
     const QByteArray remainingOutput = process->readAllStandardOutput();
     const QByteArray remainingError = process->readAllStandardError();
 
-    if (!remainingOutput.isEmpty()) {
+    {
         // NOTE: 走**同一个解码器**（不是新起一个）：这是同一条流的最后一段，前面那一块
         // 可能正停在半个汉字上 —— 新起一个的话那半个字永远补不回来。
         // 同样**不 trim**（见 handleReadyReadStandardOutput 里那段 ★）：这一份是整条流的
         // 最后一段，它结尾那个 `\n` 就是最后一行"写完了"的凭据。
         const QString output =
-            decodeGameOutput(outputIsUtf8, it->stdoutDecoder, remainingOutput);
-        qDebug() << "Remaining output:" << output;
-        emit processOutput(sessionId, output);
+            it->stdoutSecrets.push(decodeGameOutput(outputIsUtf8, it->stdoutDecoder, remainingOutput), true);
+        if (!output.isEmpty()) {
+            qDebug() << "Remaining output:" << output;
+            emit processOutput(sessionId, output);
+        }
     }
 
-    if (!remainingError.isEmpty()) {
+    {
         const QString error =
-            decodeGameOutput(outputIsUtf8, it->stderrDecoder, remainingError);
-        qDebug() << "Remaining error:" << error;
-        emit processError(sessionId, error);
+            it->stderrSecrets.push(decodeGameOutput(outputIsUtf8, it->stderrDecoder, remainingError), true);
+        if (!error.isEmpty()) {
+            qDebug() << "Remaining error:" << error;
+            emit processError(sessionId, error);
+        }
     }
 
     // 摘在 emit 之前：接 gameFinished 的槽会去读 runningGames() 刷新底栏，反过来的话

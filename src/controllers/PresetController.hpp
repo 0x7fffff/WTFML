@@ -45,6 +45,8 @@ class QWidget;
 
 namespace Presets {
 class PlatformCompatibilityProvider;
+class CatalogLoader;
+struct CatalogSnapshot;
 }
 
 class PresetController final : public QObject {
@@ -83,6 +85,8 @@ public:
         /// 实例**整份滤掉** —— 万一这期间别的事（下载收尾、改设置）已经刷过一次，用户看到
         /// 的就是"实例没了"，不重刷它就一直不在列表里。
         std::function<void()> refreshInstances;
+        /// Optional thread-safe reader for isolated tests; production reads PresetStore.
+        std::function<Presets::CatalogSnapshot(const QString &)> readCatalog = {};
     };
 
     PresetController(VersionManager *versions, QWidget *hostPage, Host host,
@@ -91,6 +95,7 @@ public:
 
     /// 刷新管理页（实例页切到「预设」那一档时调用；页面是常驻的，这里只重新灌数据）。
     void open();
+    bool catalogLoading() const;
     /// 实例清单变了（后台装完一份 / 删掉一份 / 换了游戏文件夹）⇒ 重灌那两个实例下拉框。
     ///
     /// 页面还没建出来（用户从没切到过「预设」那一档）时什么都不做；建过的话
@@ -260,6 +265,7 @@ private:
     void pushInstances();
     void pushPresetToPage(const QString &id);
     void pushListAndSelect(const QString &selectId);
+    void pushCatalog(const Presets::CatalogSnapshot &snapshot, const QString &selectId);
     /// 这一类的预设允许收哪几样（`PresetManagePage::CaptureBit` 那九位）。
     static quint32 captureMaskFor(Presets::PresetCategory category);
     /// 掩码对应的"为什么这一类不收那几样"（挂到界面上被禁掉那几格的工具提示里）。
@@ -281,9 +287,10 @@ private:
 
     VersionManager *m_versions = nullptr;
     /// 页面落进的那个宿主要器（实例页第三页，`getInstancePresetPage()`）。
-    QWidget *m_hostPage = nullptr;
+    QPointer<QWidget> m_hostPage;
     Host m_host;
-    PresetManagePage *m_page = nullptr;
+    QPointer<PresetManagePage> m_page;
+    Presets::CatalogLoader *m_catalogLoader = nullptr;
     /// 正在显示的那一份（应用/提取都带着它出门）。
     QString m_currentId;
     /// 兼容检查那一套（缓存跨弹窗共享；checker / provider 都归这一层所有）。

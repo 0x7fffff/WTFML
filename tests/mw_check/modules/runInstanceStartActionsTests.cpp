@@ -1,10 +1,43 @@
 #include "Support.hpp"
+#include "util/SecretRedactor.hpp"
 void runInstanceStartActionsTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
     check(root.isValid(), "T19.0 临时数据根目录建出来了");
     if (!root.isValid()) {
         return;
+    }
+    {
+        AppPaths::setMinecraftDir(root.path());
+        const QString secret = QStringLiteral("__PROCESS_CREDENTIAL_TEST_987654321__");
+        QString output, errors;
+        bool finished = false;
+        LauncherManager manager;
+        QObject::connect(&manager, &LauncherManager::processOutput, &manager,
+                         [&](int, const QString &text) { output += text; });
+        QObject::connect(&manager, &LauncherManager::processError, &manager,
+                         [&](int, const QString &text) { errors += text; });
+        QObject::connect(&manager, &LauncherManager::gameFinished, &manager,
+                         [&](int, int, QProcess::ExitStatus) { finished = true; });
+        EffectiveJavaSettings java;
+        java.javaPath = QCoreApplication::applicationFilePath();
+        const auto before = messagesSnapshot().size();
+        const int session = manager.startGame(
+            {QStringLiteral("token-echo"), QStringLiteral("--accessToken"), secret}, java,
+            QStringLiteral("credential-test"));
+        check(session > 0 && pumpUntil([&] { return finished; }, 5000),
+              "凭据测试子进程正常结束");
+        const QString mask = SecretRedactor::replacement();
+        // Windows CRT text streams expand LF to CRLF; the launcher preserves it.
+        output.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+        errors.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+        check(output.endsWith(mask + QLatin1Char('\n') + mask) &&
+                  !output.contains(secret) && errors == mask + QLatin1Char('\n'),
+              "stdout/stderr 分块和退出残片均在信号发出前遮盖");
+        const QString logs = messagesSnapshot().mid(before).join(QLatin1Char('\n'));
+        check(!logs.contains(secret) && !logs.contains(secret.left(secret.size() / 2)),
+              "进程输出调试日志不含完整凭据或分块片段");
+        AppPaths::setMinecraftDir(originalDir);
     }
 
     // 数据根目录**两头都要改**（理由见 AH0：MainWindow 构造里会拿盘上那个「当前游戏
@@ -554,6 +587,29 @@ void runInstanceStartActionsTests() {
                       "起不来的脚本，所以宁可一份都不导）",
                       answerer7.answered.isEmpty() ? QString() : answerer7.answered.at(0).text);
                 check(!QFile::exists(onlinePath), "★ T19.12 一份都没写出去");
+            }
+            {
+                const QString secret = QStringLiteral("__ONLINE_SCRIPT_TEST_123456789__");
+                const QJsonObject token{{QStringLiteral("access_token"), secret},
+                                        {QStringLiteral("expires_at"), QStringLiteral("2999-01-01T00:00:00Z")},
+                                        {QStringLiteral("name"), QStringLiteral("ScriptTest")},
+                                        {QStringLiteral("uuid"), QStringLiteral("12345678901234567890123456789012")}};
+                check(TokenStore::writeJson(TokenStore::minecraftKey(), token),
+                      "写入隔离的在线脚本测试身份");
+                PromptAnswerer answerer({0});
+                answerer.start();
+                QMetaObject::invokeMethod(&w, "exportLaunchScript", Qt::DirectConnection,
+                                          Q_ARG(QString, idA), Q_ARG(QString, onlinePath));
+                pumpUntil([&] { return !answerer.answered.isEmpty(); }, 10000);
+                answerer.stop();
+                QFile exported(onlinePath);
+                const bool opened = exported.open(QIODevice::ReadOnly);
+                const QString body = opened ? QString::fromUtf8(exported.readAll()) : QString();
+                check(opened && !body.contains(secret) &&
+                          body.contains(QStringLiteral("%WTFML_MC_ACCESS_TOKEN%")) &&
+                          body.contains(QStringLiteral("if not defined WTFML_MC_ACCESS_TOKEN")) &&
+                          !body.contains(QStringLiteral("__WTFML_RUNTIME_MC_TOKEN_7E41__")),
+                      "真实在线脚本导出不落盘令牌并提供缺失凭据门禁");
             }
         }
     }

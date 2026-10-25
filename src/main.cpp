@@ -17,6 +17,7 @@
 #include "../ui/Animations.hpp"  // 按下按钮那一份动效（见下面那段 NOTE）
 #include "../ui/Theme.hpp"   // 主题从盘上读回来、铺开（见下面那段 NOTE）
 #include "util/AppPaths.hpp"
+#include "util/SecretRedactor.hpp"
 #include "util/DownloadDiagnostics.hpp"
 #include "util/DirectorySessionLock.hpp"
 #include "manage/FolderManager.hpp"
@@ -65,7 +66,7 @@ bool g_logFileGaveUp = false;
 void installFileLog() {
     qInstallMessageHandler([](QtMsgType type, const QMessageLogContext &context,
                               const QString &text) {
-        const QString line = qFormatLogMessage(type, context, text);
+        const QString line = qFormatLogMessage(type, context, SecretRedactor::redact(text));
         if (g_logFile.isOpen()) {
             // 进程结束时由系统收这个句柄 —— 这里没有可挂的析构点，而且最后那几行往往
             // 正是"要退出"那些话，早收反而丢东西。

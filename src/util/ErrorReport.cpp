@@ -5,6 +5,7 @@
  */
 
 #include "ErrorReport.hpp"
+#include "SecretRedactor.hpp"
 
 #include <QStringList>
 #include <QSysInfo>
@@ -173,7 +174,7 @@ QString text(const Facts &facts, const QDateTime &now, const QString &errors, co
     if (!out.endsWith(QLatin1Char('\n'))) {
         out += QLatin1Char('\n');
     }
-    return out;
+    return SecretRedactor::redact(out);
 }
 
 QString suggestedFileName(const QString &instanceName, const QDateTime &now) {
