@@ -21,12 +21,18 @@ option(WTFML_WARNINGS_AS_ERRORS "Treat launcher warnings as build errors" OFF)
 # `<数据目录>/logs/wtfml-download.log`（见 src/util/DownloadDiagnostics.hpp）。
 # 默认关：普通构建一行都不多写（enabled() 缓存成常量 false）。
 option(WTFML_DIAG_DOWNLOAD "Always-on verbose download diagnostics (special diagnostic build)" OFF)
+# 测量构建：只用来量界面的真实耗时（真 Release）。默认 OFF —— 普通构建里
+# `PerfProbe::attach()` 是内联空函数，`src/perf/PerfProbe.cpp` 不参与编译。
+# 为什么不能拿验证工程量：那几个工程按设计是 -O0（见 tests/mw_check/CMakeLists.txt），
+# 数字不能代表产品。量法与既有基线见 docs/PERFORMANCE.md。
+option(WTFML_PERF_PROBE "Build the UI perf probe (measurement-only Release build)" OFF)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
 set(HEADER_FILES
     src/MainWindow.hpp
+    src/perf/PerfProbe.hpp
     src/controllers/JavaRuntimeController.hpp
     src/controllers/JavaSettingsController.hpp
     # 实例预设管理页的胶水。
@@ -461,6 +467,14 @@ set(SOURCE_FILES
 qt_add_executable(WTFMinecraftLauncher
     ${SOURCE_FILES}
 )
+
+# 测量构建（-DWTFML_PERF_PROBE=ON）：只给真 Release 量界面耗时用。
+# 默认不加进来 —— 普通构建里连这个 .cpp 都不编，`PerfProbe::attach()` 是内联空函数。
+# 只给主程序挂宏，验证工程不受影响（它们本来也不该跑探针）。
+if(WTFML_PERF_PROBE)
+    target_sources(WTFMinecraftLauncher PRIVATE src/perf/PerfProbe.cpp)
+    target_compile_definitions(WTFMinecraftLauncher PRIVATE WTFML_PERF_PROBE=1)
+endif()
 
 # GUI 子系统（**不弹控制台窗口**）。
 #

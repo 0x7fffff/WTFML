@@ -13,6 +13,7 @@
 #include <QMessageBox>
 
 #include "MainWindow.hpp"
+#include "perf/PerfProbe.hpp"  // 测量构建专用；普通构建里 attach() 是内联空函数
 #include "../ui/Animations.hpp"  // 按下按钮那一份动效（见下面那段 NOTE）
 #include "../ui/Theme.hpp"   // 主题从盘上读回来、铺开（见下面那段 NOTE）
 #include "util/AppPaths.hpp"
@@ -188,6 +189,10 @@ int main(int argc, char *argv[]) {
     // "这一次启动"。普通构建里 enabled() 是编译期常量 false，这两句什么都不做。
     DownloadDiag::init(AppPaths::minecraftDir() + QStringLiteral("/logs"));
     DownloadDiag::logEnvironment();
+
+    // 测量构建（-DWTFML_PERF_PROBE=ON）的界面探针：argv 里没有
+    // `--wtfml-perf-probe=<文件>` 就立即返回。普通构建里这一句什么都不做。
+    PerfProbe::attach(app, window);
 
     return app.exec();
 }
