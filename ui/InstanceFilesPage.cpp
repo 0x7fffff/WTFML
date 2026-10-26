@@ -704,7 +704,13 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
     // Opt-in only: the other file-management pages retain their existing controls.
     if (!enabled || m_actionPanelEnabled) return;
     m_actionPanelEnabled = true;
-    m_selectionBar->setParent(m_contentHost);
+    m_actionScroll = new Theme::GutterScrollArea(m_contentHost);
+    m_actionScroll->setObjectName(QStringLiteral("modActionScroll"));
+    m_actionScroll->setFrameShape(QFrame::NoFrame);
+    m_actionScroll->setWidgetResizable(true);
+    m_actionScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_actionScroll->setWidget(m_selectionBar);
+    m_actionScroll->hide();
     delete m_selectionBar->layout();
     auto *panel = new QVBoxLayout(m_selectionBar);
     panel->setContentsMargins(16, 16, 16, 16);
@@ -830,6 +836,27 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
     hint->setWordWrap(true);
     makeSecondary(hint);
     panel->addWidget(hint);
+    // Keep search and installation together; directory maintenance belongs in a menu.
+    auto *header = qobject_cast<QHBoxLayout *>(m_searchRow->layout());
+    m_pathRow->layout()->removeWidget(m_download);
+    const bool downloadVisible = !m_download->isHidden();
+    header->addWidget(m_download);
+    m_download->setVisible(downloadVisible);
+    auto *headerMore = new QPushButton(tr("更多…"), m_searchRow);
+    headerMore->setObjectName(QStringLiteral("modHeaderMore"));
+    Theme::markButton(headerMore, Theme::ButtonKind::Neutral);
+    header->addWidget(headerMore);
+    connect(headerMore, &QPushButton::clicked, this, [this, headerMore] {
+        QMenu menu(this);
+        menu.addAction(tr("刷新列表"), m_refresh, &QPushButton::click);
+        menu.addAction(tr("打开模组文件夹"), m_openFolder, &QPushButton::click);
+        auto *copy = menu.addAction(tr("复制文件夹路径"));
+        connect(copy, &QAction::triggered, this, [this] {
+            QApplication::clipboard()->setText(m_directory);
+        });
+        menu.exec(headerMore->mapToGlobal(QPoint(0, headerMore->height())));
+    });
+    m_pathRow->hide();
     m_selectionTools->show();
     updateSelectionBar();
 }
@@ -2108,7 +2135,9 @@ void InstanceFilesPage::applyState() {
     // 靠它们把条件改回来，这时候把它们收掉是最糟的一刻。
     const bool filtersUseful = !unavailable && !m_empty;
     if (m_searchRow != nullptr) {
-        m_searchRow->setVisible(filtersUseful);
+        // The mod header also owns installation/maintenance actions, useful even
+        // before the first mod is installed.
+        m_searchRow->setVisible(filtersUseful || (m_actionPanelEnabled && !unavailable));
     }
     if (m_stateRow != nullptr) {
         const bool choice = stateFilterVisible(StateFilter::Enabled) ||
@@ -2128,7 +2157,7 @@ void InstanceFilesPage::applyState() {
         m_stateButtonsRow->setVisible(m_batchMode);
     }
 
-    m_pathRow->setVisible(!unavailable);
+    m_pathRow->setVisible(!unavailable && !m_actionPanelEnabled);
     if (m_structureRows != nullptr) {
         m_structureRows->setVisible(!unavailable && !m_structureSources.isEmpty());
     }
@@ -2305,6 +2334,7 @@ void InstanceFilesPage::updateSelectionBar() {
         if (targetVisible != !m_selectionBar->isHidden()) {
             Anim::layoutTransition(m_contentHost, [this, targetVisible] {
                 m_selectionBar->setVisible(targetVisible);
+                m_actionScroll->setVisible(targetVisible);
                 repositionSelectionBar();
             }, targetVisible);
         } else repositionSelectionBar();
@@ -2319,14 +2349,30 @@ void InstanceFilesPage::updateSelectionBar() {
 
 void InstanceFilesPage::repositionSelectionBar() {
     if (m_actionPanelEnabled) {
+        // Share a row only when both groups fit at the current font/DPI.
+        // Narrow windows retain a separate selection row without wrapping controls.
+        const int headerWidth = m_stateButtonsRow->sizeHint().width()
+                              + m_selectionTools->sizeHint().width() + 24;
+        const bool inlineTools = m_contentHost->width() >= headerWidth;
+        if (inlineTools != (m_selectionTools->parentWidget() == m_stateRow)) {
+            if (inlineTools) {
+                layout()->removeWidget(m_selectionTools);
+                qobject_cast<QHBoxLayout *>(m_stateRow->layout())->addWidget(m_selectionTools);
+            } else {
+                m_stateRow->layout()->removeWidget(m_selectionTools);
+                auto *outer = qobject_cast<QVBoxLayout *>(layout());
+                outer->insertWidget(outer->indexOf(m_contentHost), m_selectionTools);
+            }
+            m_selectionTools->show();
+        }
         const int panelWidth = qMin(260, m_contentHost->width());
         const bool visible = !m_selectionBar->isHidden();
         // Narrow windows use a drawer; wide windows reserve space beside the list.
         m_contentHost->layout()->setContentsMargins(0, 0,
             visible && m_contentHost->width() >= 740 ? panelWidth + 12 : 0, 0);
-        m_selectionBar->setGeometry(m_contentHost->width() - panelWidth, 0,
+        m_actionScroll->setGeometry(m_contentHost->width() - panelWidth, 0,
                                     panelWidth, m_contentHost->height());
-        m_selectionBar->raise();
+        m_actionScroll->raise();
         return;
     }
     if (m_selectionBar == nullptr || m_list == nullptr) {

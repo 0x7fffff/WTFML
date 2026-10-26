@@ -7,6 +7,7 @@ param(
     [string]$BaseRef = 'origin/main',
     [string[]]$ChangedPath,
     [string]$Modules,
+    [ValidateSet('Auto', 'Compact', 'Standalone')][string]$RunnerMode = 'Auto',
     [string]$BuildDir = 'build/verification-mingw13',
     [string]$ConfigurePreset = 'verification',
     [string]$ReportRoot = 'build/test-runs',
@@ -118,12 +119,14 @@ try {
         $selection += @('-R', $pattern)
     }
     if (-not $NoBuild -and -not $ListOnly) {
+        $compact = Get-CompactTestRunnerMode $RunnerMode $Suite ([bool]$Modules)
+        $runnerOption = "-DWTFML_COMPACT_TEST_RUNNERS=$compact"
         Get-Process WTFMinecraftLauncher -ErrorAction SilentlyContinue | Stop-Process -Force
         if (-not (Test-Path -LiteralPath (Join-Path $build 'CMakeCache.txt'))) {
-            Invoke-Stage 'configure' $cmake @('--preset', $ConfigurePreset, '-B', $build) $BuildTimeoutSeconds
+            Invoke-Stage 'configure' $cmake @('--preset', $ConfigurePreset, '-B', $build, $runnerOption) $BuildTimeoutSeconds
         }
         # CTest is the source of truth for selection, including future registered tests.
-        Invoke-Stage 'refresh-test-graph' $cmake @('-S', $repo, '-B', $build) $BuildTimeoutSeconds
+        Invoke-Stage 'refresh-test-graph' $cmake @('-S', $repo, '-B', $build, $runnerOption) $BuildTimeoutSeconds
         Invoke-Stage 'selected-tests' $ctest (@('--test-dir', $build, '--show-only=json-v1') + $selection) 60
         $registered = (Get-Content -LiteralPath (Join-Path $run 'selected-tests.stdout.log') -Raw | ConvertFrom-Json).tests
         $targetList = [Collections.Generic.HashSet[string]]::new()

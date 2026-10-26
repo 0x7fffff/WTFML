@@ -102,6 +102,7 @@ class QAbstractButton;
 class ElidedLabel;
 class QComboBox;
 class QLabel;
+class QScrollArea;
 class QLineEdit;
 class QListWidget;
 class QListWidgetItem;
@@ -1333,6 +1334,7 @@ private:
     /// **不进任何布局**（进了布局就变成"列表下面另起一行"，不是浮在列表上）—— 位置由
     /// repositionSelectionBar() 算（算出来的是 viewport 坐标系，摆的时候加 viewport->pos()）。
     QWidget *m_selectionBar = nullptr;
+    QScrollArea *m_actionScroll = nullptr;
     bool m_actionPanelEnabled = false;
     bool m_actionPanelDismissed = false;
     QWidget *m_selectionTools = nullptr;

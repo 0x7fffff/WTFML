@@ -22,6 +22,8 @@
 #include <QEventLoop>
 #include <QTimer>
 #include <QThread>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <cstdio>
 
 int runModActionPanelChecks() {
@@ -45,6 +47,7 @@ int runModActionPanelChecks() {
     InstanceFilesPage page;
     page.setBatchMode(true); page.setCanToggle(true); page.setCanDelete(true);
     page.setActionPanelEnabled(true); page.setMode(InstanceFilesPage::Mode::FilesOnly);
+    page.setDownloadText(QStringLiteral("下载新模组"), QStringLiteral("安装更多模组"));
     page.resize(1000, 640); page.show(); page.setDirectory(dir.path()); page.refresh();
     QApplication::processEvents();
     auto *list = page.findChild<QListWidget *>();
@@ -74,7 +77,13 @@ int runModActionPanelChecks() {
     page.findChild<QPushButton *>(QStringLiteral("modCheckSelectedUpdates"))->click();
     check(checkedPaths.size() == 2, "update check forwards selected paths only");
     check(list->selectedItems().size() == 2 && !panel->isHidden(), "multi-selection opens panel");
-    check(panel->width() == 260 && list->width() < 740, "wide layout reserves panel space");
+    auto *actionScroll = page.findChild<QScrollArea *>(QStringLiteral("modActionScroll"));
+    check(actionScroll && actionScroll->width() == 260 && list->width() < 740,
+          "wide layout reserves panel space");
+    check(all->parentWidget()->parentWidget() != &page,
+          "wide header shares filter and selection tools row");
+    check(page.downloadButton()->isVisible() && page.findChild<QPushButton *>(QStringLiteral("modHeaderMore"))->isVisible()
+          && !page.openFolderButton()->isVisible(), "compact mod header retains install and maintenance menu");
     page.findChild<QPushButton *>(QStringLiteral("modActionPanelClose"))->click();
     check(panel->isHidden() && list->selectedItems().size() == 2, "close preserves selection");
     page.findChild<QPushButton *>(QStringLiteral("modSelectedCount"))->click();
@@ -92,8 +101,17 @@ int runModActionPanelChecks() {
     const auto preview = qEnvironmentVariable("WTFML_MOD_PREVIEW_DIR");
     if (!preview.isEmpty()) { QDir().mkpath(preview); page.grab().save(preview + QStringLiteral("/mods-wide.png")); }
     page.resize(560, 640); QApplication::processEvents();
-    check(page.width() == 560 && list->width() > 500 && panel->geometry().right() < page.width(), "narrow drawer does not force minimum width");
+    check(page.width() == 560 && list->width() > 500 && actionScroll->geometry().right() < page.width(), "narrow drawer does not force minimum width");
     if (!preview.isEmpty()) page.grab().save(preview + QStringLiteral("/mods-narrow.png"));
+    page.resize(560, 420); QApplication::processEvents();
+    check(page.height() == 420 && actionScroll->verticalScrollBar()->maximum() > 0,
+          "short window scrolls action panel instead of clipping commands");
+    auto *moreActions = page.findChild<QPushButton *>(QStringLiteral("modMoreActions"));
+    actionScroll->ensureWidgetVisible(moreActions); QApplication::processEvents();
+    check(actionScroll->viewport()->rect().contains(moreActions->mapTo(actionScroll->viewport(), moreActions->rect().center())),
+          "last action remains reachable in short window");
+    if (!preview.isEmpty()) page.grab().save(preview + QStringLiteral("/mods-short.png"));
+    page.resize(560, 640); QApplication::processEvents();
     QFile::remove(renamed);
     page.refresh(); QApplication::processEvents();
     check(list->selectedItems().size() == 1 && !panel->isHidden(), "partial removal retains remaining selection");
@@ -102,6 +120,11 @@ int runModActionPanelChecks() {
     page.setSearchText(QString()); all->click();
     clear->click();
     check(list->selectedItems().isEmpty() && panel->isHidden(), "clear selection closes panel");
+    const auto emptyDirectory = dir.filePath(QStringLiteral("empty-mods"));
+    QDir().mkpath(emptyDirectory);
+    page.setDirectory(emptyDirectory); page.refresh(); QApplication::processEvents();
+    check(page.downloadButton()->isVisible() && page.findChild<QPushButton *>(QStringLiteral("modHeaderMore"))->isVisible(),
+          "empty mod directory retains install and folder maintenance actions");
     ModDependencies::UpdateVerdict oldA, oldB, newA;
     oldA.item.path = QStringLiteral("a.jar"); oldA.latestVersionId = QStringLiteral("old");
     oldB.item.path = QStringLiteral("b.jar"); newA = oldA; newA.latestVersionId = QStringLiteral("new");

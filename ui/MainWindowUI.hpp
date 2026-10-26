@@ -3678,6 +3678,18 @@ public:
 
 private:
     void setupUi(QMainWindow *parent);
+    /// 四页**各自**搭在自己的函数里（`setupUi()` 只按契约顺序把它们摆出来并接线）。
+    /// 拆的依据是"一页一摊"：每一页几百行、彼此不共享局部变量（只共享已经挂好的
+    /// `tabWidget`），谁改哪一页就只看哪一个函数。
+    QWidget *setupHomePage();
+    QWidget *setupInstancePage();
+    QWidget *setupDownloadPage();
+    /// 下载页第 0 页「游戏」（版本树 / 安装页两层）与其余那几页（一行筛子 + 三层树）。
+    /// 两摊之间只共享已经挂好的 `downloadStack` / `gameStack` / `downloadHeader`。
+    void setupDownloadGamePage();
+    void setupDownloadResourcePages();
+    /// 设置页的外壳（左栏分类 + 右栏堆叠页），内容仍归 `setupSettingsPage()`。
+    QWidget *setupSettingsTab();
     /// 搭设置页：左栏一列分类（启动/游戏/提示/个性化/下载）、右栏一份堆叠页，两边下标
     /// 一一对应（见头文件上面「设置页：左栏那几条分类」那段）。每个分栏里才是那张 grid
     /// （3:7，行是上下结构），见 addSettingsPanel()。

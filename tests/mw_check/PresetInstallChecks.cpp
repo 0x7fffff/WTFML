@@ -1,4 +1,6 @@
 #include "PresetInstallChecks.hpp"
+#include "PresetManifestChecks.hpp"
+#include "PresetPreviewChecks.hpp"
 #include "Theme.hpp"
 #include <QJsonObject>
 #include "presets/PresetModInstaller.hpp"
@@ -141,12 +143,62 @@ int runPresetInstallChecks() {
               "catalog completion restores preset actions");
         gate->done = false;
         (void)gate->entered.tryAcquire(gate->entered.available());
+        controller.refreshList();
+        page->showStatus(QStringLiteral("保存了。"));
+        uiEvent = false;
+        QTimer::singleShot(0, &host, [&] { uiEvent = true; });
+        check(pump([&] { return uiEvent && gate->entered.available() > 0; }) &&
+                  page->isBusy() && !gate->done,
+              "mutation catalog refresh keeps GUI responsive while reading storage");
+        gate->release.release();
+        check(pump([&] { return !page->isBusy(); }) && status->text() == QStringLiteral("保存了。"),
+              "mutation refresh restores actions without erasing operation feedback");
+        gate->done = false;
+        (void)gate->entered.tryAcquire(gate->entered.available());
         controller.open();
         check(pump([&] { return gate->entered.available() > 0; }), "page destruction fixture is running");
         delete page;
         gate->release.release();
         check(pump([&] { return !controller.catalogLoading(); }) && gate->done && !host.findChild<PresetManagePage *>(),
               "catalog completion tolerates page deletion while controller remains alive");
+    }
+    {
+        QTemporaryDir root;
+        check(root.isValid(), "large preset naming fixture has an isolated data root");
+        if (root.isValid()) {
+            const auto previousRoot = qApp->property("wtfml.testDefaultMinecraftDir");
+            qApp->setProperty("wtfml.testDefaultMinecraftDir", root.path());
+            {
+                Presets::CatalogSnapshot catalog;
+                for (int i = 1; i <= 1000; ++i) {
+                    Presets::PresetSummary summary;
+                    summary.id = Presets::newPresetId();
+                    summary.name = i == 1 ? QStringLiteral("新预设") : QStringLiteral("新预设 %1").arg(i);
+                    summary.category = Presets::PresetCategory::GameSettings;
+                    catalog.presets.append(summary);
+                }
+                const auto calls = std::make_shared<std::atomic<int>>(0);
+                PresetController::Host callbacks;
+                callbacks.readCatalog = [catalog, calls](const QString &path) {
+                    return ++*calls == 1 ? catalog : Presets::readCatalog(path);
+                };
+                QWidget host;
+                PresetController controller(nullptr, &host, callbacks);
+                controller.open();
+                check(pump([&] { return !controller.catalogLoading() && !controller.detailsLoading(); }), "large preset naming catalog loads");
+                controller.createPreset(Presets::presetCategoryKey(Presets::PresetCategory::GameSettings));
+                check(pump([&] { return !controller.catalogLoading() && !controller.detailsLoading(); }), "new preset refresh completes");
+                auto *page = host.findChild<PresetManagePage *>();
+                bool ok = false;
+                const auto created = Presets::loadManifest(PresetController::presetsRoot(), page ? page->currentPresetId() : QString(), &ok);
+                // The 1000 catalog names deliberately have no files on disk. A
+                // synchronous disk rescan would lose them and choose the base name.
+                check(ok && created.name == QStringLiteral("新预设 1001") && *calls == 2,
+                      "new preset uses loaded names beyond 999 without rescanning manifests");
+                if (ok) Presets::remove(PresetController::presetsRoot(), created.id);
+            }
+            qApp->setProperty("wtfml.testDefaultMinecraftDir", previousRoot);
+        }
     }
     QTemporaryDir scratch;
     QTcpServer server;
@@ -470,6 +522,7 @@ int runPresetInstallChecks() {
     }
     {
         int selectedCalls = 0;
+        int clearedCalls = 0;
         QString defaultId;
         bool makeDefault = true;
         PresetManagePage manage;
@@ -495,14 +548,14 @@ int runPresetInstallChecks() {
         if (proxy && search) {
             const QPersistentModelIndex sourceFirst(proxy->sourceModel()->index(0, 0));
             QObject::connect(&manage, &PresetManagePage::presetSelected, &manage,
-                             [&](const QString &) { ++selectedCalls; });
+                             [&](const QString &id) { if (id.isEmpty()) ++clearedCalls; else ++selectedCalls; });
             search->setText(QStringLiteral("  CREATIVE  "));
             check(sourceFirst.isValid() && proxy->rowCount() == 1001 && selectedCalls == 0 &&
                       manage.currentPresetId() == QStringLiteral("700"),
                   "search reuses source rows, trims input and keeps matching selection without duplicate callbacks");
             search->setText(QStringLiteral("no matches"));
             check(proxy->rowCount() == 1 && !proxy->index(0, 0).flags().testFlag(Qt::ItemIsSelectable) &&
-                      manage.currentPresetId().isEmpty() &&
+                      manage.currentPresetId().isEmpty() && clearedCalls == 1 &&
                       !manage.findChild<QPushButton *>(PresetManagePage::deleteButtonName())->isEnabled(),
                   "broken presets remain visible but cannot become a stale actionable selection");
             manage.findChild<QPushButton *>(PresetManagePage::categoryFilterName(2))->click();
@@ -556,5 +609,7 @@ int runPresetInstallChecks() {
         check(options.grab().save(QDir(preview).filePath(QStringLiteral("preset-options-editor.png"))), "settings editor preview renders");
         options.hide();
     }
+    failures += runPresetManifestChecks();
+    failures += runPresetPreviewChecks();
     return failures ? 1 : 0;
 }

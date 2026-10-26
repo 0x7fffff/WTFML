@@ -145,6 +145,17 @@ set(SOURCE_FILES
     # 「实例设置」那几页要的那几格事实（同上）。它只要 AppPaths / ResourceCatalog /
     # VersionManager —— 下面都已经在清单里了。
     ${REPO_ROOT}/src/controllers/InstancePagesController.cpp
+    # 主窗口那些"控件认的形状"（实例树 / 分组行 / 底栏面板行 / 版本下拉框）。它只碰
+    # MainWindowUI / VersionManager / InstanceGroupStore 这几份数据，下面都已经在清单里了。
+    # 下载页每一页顶上那一行筛子（灌选项 / 拼搜索请求的筛）。只要 MainWindowUI 与
+    # ResourceCatalog，两个都已经在清单里了。
+    ${REPO_ROOT}/src/controllers/DownloadFilterController.cpp
+    # 「资源详情」那一页的状态与那几条函数（开页 / 拨勾选框 / 筛分组 / 收尾）。
+    # 它引 ui/ResourceDetailPage 与 ResourceCatalog，两个都已经在清单里了。
+    ${REPO_ROOT}/src/controllers/ResourcePageController.cpp
+    ${REPO_ROOT}/src/controllers/MainWindowViewData.cpp
+    ${REPO_ROOT}/src/controllers/ResourceSearchController.cpp
+    ${REPO_ROOT}/src/controllers/InstanceUpdateCheckController.cpp
     # 「服务器列表」那一页上会写盘的那三件事（同上）。它只要 ServerListFile ——
     # 那个已经在清单里了。
     ${REPO_ROOT}/src/controllers/ServerListController.cpp
@@ -202,6 +213,11 @@ set(SOURCE_FILES
     # 少了这一个文件会在链接那一步报一串 `OfflineSkin::…` 的 undefined reference。
     ${REPO_ROOT}/src/manage/OfflineSkin.cpp
     ${REPO_ROOT}/src/manage/VersionManager.cpp
+    # 同一个类按职责分开的那三份（核心那一份就在上面；理由见各文件头）。
+    # 少一份不会在编译期报错，只在链接期报一串 `VersionManager::…` 的 undefined reference。
+    ${REPO_ROOT}/src/manage/VersionManagerLoaderInstall.cpp
+    ${REPO_ROOT}/src/manage/VersionManagerModpack.cpp
+    ${REPO_ROOT}/src/manage/VersionManagerExport.cpp
     ${REPO_ROOT}/src/manage/VersionDisplay.cpp
     # 体检那一层：VersionManager::checkInstanceIntegrity() 直接调它，少了这一个文件会在
     # 链接那一步报一串 `VersionIntegrity::…` 的 undefined reference。
@@ -291,6 +307,7 @@ set(SOURCE_FILES
     # 运行输出共用模型：GameLogWindow / ServerConsolePage 都直接用它。
     ${REPO_ROOT}/ui/RuntimeOutputModel.cpp
     ${REPO_ROOT}/ui/MainWindowUI.cpp
+    ${WTFML_UI_PAGE_SOURCES}
     # 「最大内存」那一行那根条：MainWindowUI.cpp 和
     # InstanceSettingsDialog.cpp 都直接 new 它，少了这一个文件会在链接那一步报一串
     # undefined reference to MemorySlider::…。
@@ -444,15 +461,21 @@ target_link_libraries(wtfml_mw_runtime PRIVATE crypt32 ole32 shlwapi windowscode
 wtfml_exclude_shared_sources(wtfml_mw_runtime wtfml_core_runtime wtfml_ui_runtime)
 target_link_libraries(wtfml_mw_runtime PUBLIC wtfml_ui_runtime Qt6::Widgets)
 target_include_directories(wtfml_mw_runtime PUBLIC ${REPO_ROOT}/src ${REPO_ROOT}/ui ${REPO_ROOT}/tests ${CMAKE_CURRENT_SOURCE_DIR})
-add_library(wtfml_mw_fixture STATIC modules/Support.cpp modules/Support.hpp)
+add_library(wtfml_mw_fixture STATIC modules/Support.cpp modules/Support.hpp modules/PromptProbe.cpp)
 target_link_libraries(wtfml_mw_fixture PUBLIC wtfml_mw_runtime)
 file(GLOB _cases CONFIGURE_DEPENDS modules/*.cpp)
-list(REMOVE_ITEM _cases "${CMAKE_CURRENT_SOURCE_DIR}/modules/Support.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/modules/ModuleMain.cpp")
+list(REMOVE_ITEM _cases "${CMAKE_CURRENT_SOURCE_DIR}/modules/Support.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/modules/ModuleMain.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/modules/PromptProbe.cpp")
 list(FILTER _cases EXCLUDE REGEX "/Mw[^/]*Check\\.cpp$")
 add_library(mw_legacy_cases STATIC ${_cases})
 target_link_libraries(mw_legacy_cases PUBLIC wtfml_mw_fixture)
 add_executable(mw_check main.cpp)
 target_link_libraries(mw_check PRIVATE mw_legacy_cases)
+if(WTFML_COMPACT_TEST_RUNNERS)
+ add_executable(mw_check_modules modules/ModuleMain.cpp)
+ target_link_libraries(mw_check_modules PRIVATE wtfml_mw_fixture)
+ target_include_directories(mw_check_modules PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+ target_compile_definitions(mw_check_modules PRIVATE WTFML_COMPACT_RUNNER WTFML_RANGE_MODULE)
+endif()
 function(add_mw_module target source)
  if(source MATCHES "\\.hpp$")
   add_executable(${target} modules/ModuleMain.cpp ${source})
@@ -462,24 +485,37 @@ function(add_mw_module target source)
   if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
    target_compile_options(${target}_case PRIVATE -O0 -Wa,-mbig-obj)
   endif()
-  add_executable(${target} modules/ModuleMain.cpp $<TARGET_OBJECTS:${target}_case>)
+  if(WTFML_COMPACT_TEST_RUNNERS)
+   wtfml_compact_module(${target} ${ARGN} mw_check_modules)
+  else()
+   add_executable(${target} modules/ModuleMain.cpp $<TARGET_OBJECTS:${target}_case>)
+  endif()
   target_sources(mw_legacy_cases PRIVATE $<TARGET_OBJECTS:${target}_case>)
  endif()
- target_compile_definitions(${target} PRIVATE WTFML_MODULE_ENTRY=${ARGN})
- target_link_libraries(${target} PRIVATE wtfml_mw_fixture)
+ if(NOT WTFML_COMPACT_TEST_RUNNERS)
+  target_compile_definitions(${target} PRIVATE WTFML_MODULE_ENTRY=${ARGN})
+  target_link_libraries(${target} PRIVATE wtfml_mw_fixture)
+ endif()
+ add_dependencies(wtfml_specialist_modules ${target})
 endfunction()
 add_mw_module(mw_check_high_speed_download modules/MwHighSpeedDownloadCheck.cpp MwHighSpeedDownloadCheck)
 add_mw_module(mw_check_download_retry modules/MwDownloadRetryCheck.cpp MwDownloadRetryCheck)
+target_sources(mw_check_download_retry_case PRIVATE RequestBudgetChecks.cpp)
 add_mw_module(mw_check_activity_selection modules/MwActivitySelectionCheck.cpp MwActivitySelectionCheck)
 add_mw_module(mw_check_workspace modules/MwWorkspaceCheck.cpp MwWorkspaceCheck)
 add_mw_module(mw_check_java_manage JavaManageChecks.cpp runJavaManageChecks)
 add_mw_module(mw_check_mod_action_panel ModActionPanelChecks.cpp runModActionPanelChecks)
 add_mw_module(mw_check_segmented_download RangeChecks.cpp runRangeChecks)
-target_compile_definitions(mw_check_segmented_download PRIVATE WTFML_RANGE_MODULE)
+if(NOT WTFML_COMPACT_TEST_RUNNERS)
+ target_compile_definitions(mw_check_segmented_download PRIVATE WTFML_RANGE_MODULE)
+endif()
 add_mw_module(mw_check_segment_install SegmentInstallChecks.cpp runSegmentInstallChecks)
 add_mw_module(mw_check_tool_features ToolFeatureChecks.cpp runToolFeatureChecks)
 add_mw_module(mw_check_preset_install PresetInstallChecks.cpp runPresetInstallChecks)
+target_sources(mw_check_preset_install_case PRIVATE PresetManifestChecks.cpp)
+target_sources(mw_check_preset_install_case PRIVATE PresetPreviewChecks.cpp)
 add_mw_module(mw_check_instance_upgrade InstanceUpgradeChecks.cpp runInstanceUpgradeChecks)
+wtfml_write_compact_entries()
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
  foreach(_target wtfml_mw_fixture mw_legacy_cases mw_check)
   target_compile_options(${_target} PRIVATE -O0 -Wa,-mbig-obj)

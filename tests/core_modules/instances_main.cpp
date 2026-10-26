@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "LongPathTests.hpp"
 
 #include "operations/InstanceUpgrade.hpp"
 #include "launcher/LauncherManager.hpp"
@@ -549,6 +550,7 @@ int main(int argc, char **argv) {
     runFolderRemovalTests();
     runTransferPlannerTests();
     runOperationReportTests();
+    runLongPathTests();
  out()<<"instances: "<<g_checks-g_failures<<"/"<<g_checks<<"\n"; return g_failures==0 && moduleStatus==0 ? 0 : 1;
 }
 

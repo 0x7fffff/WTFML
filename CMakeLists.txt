@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 project(WTFMinecraftLauncher VERSION 0.4.2 LANGUAGES CXX)
+include(${CMAKE_CURRENT_SOURCE_DIR}/ui/MainWindowPages.cmake)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -26,6 +27,10 @@ option(WTFML_DIAG_DOWNLOAD "Always-on verbose download diagnostics (special diag
 # 为什么不能拿验证工程量：那几个工程按设计是 -O0（见 tests/mw_check/CMakeLists.txt），
 # 数字不能代表产品。量法与既有基线见 docs/PERFORMANCE.md。
 option(WTFML_PERF_PROBE "Build the UI perf probe (measurement-only Release build)" OFF)
+# 并发下载基准：本机起 HTTP 服务器，用真的 DownloadManager 下一批文件，量调度/写盘/
+# 主线程空档。和上面那条一样**只做测量**：默认 OFF、不进 ctest、不进发布物。
+# （产品 exe 没有假网络注入点，验证工程又是 -O0 —— 所以另开一个只含下载引擎的 Release 工具。）
+option(WTFML_PERF_DOWNLOAD "Build the concurrent-download benchmark tool (measurement-only)" OFF)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -87,6 +92,7 @@ set(HEADER_FILES
     src/manage/ServerListFile.hpp
     src/manage/ServerStatusCache.hpp
     src/manage/VersionManager.hpp
+    src/manage/VersionManagerInternals.hpp
     src/manage/VersionDisplay.hpp
     src/manage/VersionIntegrity.hpp
     src/manage/UpdatePolicy.hpp
@@ -286,6 +292,11 @@ set(SOURCE_FILES
     src/controllers/PlayerSkinController.cpp
     src/controllers/LaunchHistoryController.cpp
     src/controllers/InstanceSettingsController.cpp
+    src/controllers/MainWindowViewData.cpp
+    src/controllers/ResourceSearchController.cpp
+    src/controllers/InstanceUpdateCheckController.cpp
+    src/controllers/DownloadFilterController.cpp
+    src/controllers/ResourcePageController.cpp
     src/controllers/InstancePagesController.cpp
     src/controllers/ServerListController.cpp
     src/launcher/LauncherManager.cpp
@@ -314,6 +325,10 @@ set(SOURCE_FILES
     # 离线账号自己挑的那张皮肤。
     src/manage/OfflineSkin.cpp
     src/manage/VersionManager.cpp
+    # 这四份是同一个类的实现，按职责分文件（理由见各自文件头与 VersionManagerInternals.hpp）。
+    src/manage/VersionManagerLoaderInstall.cpp
+    src/manage/VersionManagerModpack.cpp
+    src/manage/VersionManagerExport.cpp
     src/manage/VersionDisplay.cpp
     src/manage/VersionIntegrity.cpp
     src/manage/UpdatePolicy.cpp
@@ -422,6 +437,7 @@ set(SOURCE_FILES
     # 运行输出共用模型：上面那一窗和 ServerConsolePage 都直接用它。
     ui/RuntimeOutputModel.cpp
     ui/MainWindowUI.cpp
+    ${WTFML_UI_PAGE_SOURCES}
     ui/MemorySlider.cpp
     ui/MotdText.cpp
     ui/ToolboxPage.cpp
@@ -475,6 +491,9 @@ set(SOURCE_FILES
 
 qt_add_executable(WTFMinecraftLauncher
     ${SOURCE_FILES}
+    # 清单里只有一条：longPathAware（>260 字符的路径）。由 windres 编成 RT_MANIFEST 资源，
+    # 见 res/wtfml.rc 与 res/wtfml.manifest 的注释。
+    $<$<PLATFORM_ID:Windows>:${CMAKE_CURRENT_SOURCE_DIR}/res/wtfml.rc>
 )
 
 # 测量构建（-DWTFML_PERF_PROBE=ON）：只给真 Release 量界面耗时用。
@@ -607,4 +626,8 @@ endif()
 option(WTFML_BUILD_NETWORK_DIAG "Build the standalone network diagnostic tool" ON)
 if(WTFML_BUILD_NETWORK_DIAG)
     add_subdirectory(tools/network_diag)
+endif()
+
+if(WTFML_PERF_DOWNLOAD)
+    add_subdirectory(tools/perf_download)
 endif()

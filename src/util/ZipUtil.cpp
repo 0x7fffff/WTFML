@@ -37,6 +37,29 @@ QString psQuote(const QString &value) {
     return QLatin1Char('\'') + escaped + QLatin1Char('\'');
 }
 
+// PowerShell/.NET does not inherit our exe's longPathAware manifest.
+// Use an absolute device path for filesystem I/O, never for ZIP entry names.
+QString processIoPath(const QString &path) {
+    const QString native = QDir::toNativeSeparators(path);
+#ifdef Q_OS_WIN
+    if (native.startsWith(QStringLiteral("\\\\?\\"))) return native;
+    const QString full = QDir::toNativeSeparators(QFileInfo(path).absoluteFilePath());
+    return full.startsWith(QStringLiteral("\\\\"))
+        ? QStringLiteral("\\\\?\\UNC\\") + full.mid(2) : QStringLiteral("\\\\?\\") + full;
+#else
+    return native;
+#endif
+}
+
+QString psFilePath(const QString &path) { return psQuote(processIoPath(path)); }
+
+QStringList processIoPaths(const QStringList &paths) {
+    QStringList result;
+    result.reserve(paths.size());
+    for (const auto &path : paths) result.append(processIoPath(path));
+    return result;
+}
+
 /**
  * @brief 把字符串列表转成 PowerShell 数组字面量。
  * @param values 原始字符串列表。
@@ -57,10 +80,14 @@ QString psArray(const QStringList &values) {
  * @return 返回 UTF-16LE + Base64 的字符串。
  */
 QString encodeCommand(const QString &script) {
+    // Catch setup failures too (e.g. destination-directory creation before the
+    // operation's own try). Otherwise CLIXML filtering hides the actual cause.
+    const QString guarded = QStringLiteral("$ErrorActionPreference='Stop'\ntry {\n") + script +
+        QStringLiteral("\n} catch { [Console]::Error.WriteLine($_.Exception.GetBaseException().Message); exit 1 }\n");
     // -EncodedCommand 要求 Base64(UTF-16LE)，这里手工拼一遍，不依赖主机字节序
     QByteArray utf16le;
-    utf16le.reserve(script.size() * 2);
-    for (const QChar ch : script) {
+    utf16le.reserve(guarded.size() * 2);
+    for (const QChar ch : guarded) {
         utf16le.append(static_cast<char>(ch.unicode() & 0xFF));
         utf16le.append(static_cast<char>((ch.unicode() >> 8) & 0xFF));
     }
@@ -120,7 +147,10 @@ QString readProcessError(const QString &raw) {
             text.startsWith(QLatin1String("<Objs"))) {
             continue;
         }
-        return text;
+        QString human = text;
+        human.replace(QStringLiteral("\\\\?\\UNC\\"), QStringLiteral("\\\\"), Qt::CaseInsensitive);
+        human.replace(QStringLiteral("\\\\?\\"), QString());
+        return human;
     }
     return QString();
 }
@@ -280,7 +310,7 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
                        "      if([string]::IsNullOrEmpty($e.Name)){continue}\n"
                        "      $full=$e.FullName.Replace('\\','/')\n"
                        "      if(%3){continue}\n"
-                       "      $dest=[System.IO.Path]::Combine($out,$full)\n"
+                       "      $dest=[System.IO.Path]::Combine($out,$full).Replace('/','\\')\n"
                        "      [void][System.IO.Directory]::CreateDirectory"
                        "([System.IO.Path]::GetDirectoryName($dest))\n"
                        "      [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e,$dest,$true)\n"
@@ -301,7 +331,7 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
                        "    exit 3\n"
                        "  } finally { if($zip){ $zip.Dispose() } }\n"
                        "}\n")
-            .arg(psQuote(QDir(targetDir).absolutePath()), psArray(archives),
+            .arg(psFilePath(QDir(targetDir).absolutePath()), psArray(processIoPaths(archives)),
                  QStringLiteral("(") + skipConditions.join(QStringLiteral(" -or ")) + QLatin1Char(')'));
 
     QString failure;
@@ -329,7 +359,10 @@ QHash<QString, ZipUtil::ArchiveMetadata> ZipUtil::readMetadataBatch(
     QTemporaryDir scratch;
     const QString input = scratch.filePath("input.json"), output = scratch.filePath("output.jsonl");
     QFile manifest(input);
-    const QByteArray bytes = QJsonDocument(QJsonObject{{"archives", QJsonArray::fromStringList(archives)},
+    QJsonArray archivePaths;
+    for (const auto &path : archives)
+        archivePaths.append(QJsonObject{{QStringLiteral("path"), path}, {QStringLiteral("ioPath"), processIoPath(path)}});
+    const QByteArray bytes = QJsonDocument(QJsonObject{{"archives", archivePaths},
         {"entries", QJsonArray::fromStringList(entryNames)}}).toJson(QJsonDocument::Compact);
     if (!scratch.isValid() || !manifest.open(QIODevice::WriteOnly) || manifest.write(bytes) != bytes.size()) {
         if (problem) *problem = QStringLiteral("无法准备批量元数据读取。");
@@ -339,16 +372,17 @@ QHash<QString, ZipUtil::ArchiveMetadata> ZipUtil::readMetadataBatch(
     const QString script = QStringLiteral(R"PS(
 $ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$inputData=Get-Content -LiteralPath %1 -Raw -Encoding UTF8 | ConvertFrom-Json
+$inputData=[IO.File]::ReadAllText(%1,[Text.Encoding]::UTF8) | ConvertFrom-Json
 $writer=[IO.StreamWriter]::new(%2,$false,[Text.UTF8Encoding]::new($false))
 $watch=[Diagnostics.Stopwatch]::StartNew(); [long]$total=0
 try {
- foreach($path in $inputData.archives) {
+ foreach($archivePath in $inputData.archives) {
+  $path=$archivePath.path
   $row=@{path=$path; entries=@{}; problems=@{}; problem=''}; $zip=$null
   if($watch.Elapsed.TotalSeconds -gt 55) {$row.problem='未检查：本轮读取预算已用完'}
   else {
    try {
-    $zip=[IO.Compression.ZipFile]::OpenRead($path)
+    $zip=[IO.Compression.ZipFile]::OpenRead($archivePath.ioPath)
     foreach($name in $inputData.entries) {
      $entry=$zip.GetEntry($name); if($null -eq $entry){continue}
      $stream=$null; $memory=$null
@@ -369,7 +403,7 @@ try {
   $writer.WriteLine((ConvertTo-Json -InputObject $row -Depth 5 -Compress)); $writer.Flush()
  }
 } finally {$writer.Dispose()}
-)PS").arg(psQuote(QDir::toNativeSeparators(input)), psQuote(QDir::toNativeSeparators(output)));
+)PS").arg(psFilePath(input), psFilePath(output));
     QByteArray ignored;
     runPowershell(script, 60000, &ignored, problem, QStringLiteral("批量读取模组声明"), cancelled);
     QFile file(output);
@@ -445,8 +479,8 @@ ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &e
                        "    } finally { $inputStream.Dispose(); $outputStream.Dispose() }\n"
                        "  } else { [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e,%3,$true) }\n"
                        "} finally { $zip.Dispose() }\n")
-            .arg(psQuote(entryName), psQuote(QDir::toNativeSeparators(archive)),
-                 psQuote(QFile::decodeName(temp))).arg(maximumBytes);
+            .arg(psQuote(entryName), psFilePath(archive),
+                 psFilePath(QFile::decodeName(temp))).arg(maximumBytes);
 
     QProcess process;
     process.start(QStringLiteral("powershell"),
@@ -551,8 +585,7 @@ ZipUtil::EntryStatus ZipUtil::extractEntryToFile(const QString &archive, const Q
                        "  [Console]::Error.WriteLine($msg)\n"
                        "  exit 1\n"
                        "} finally { $zip.Dispose() }\n")
-            .arg(psQuote(entryName), psQuote(QDir::toNativeSeparators(archive)),
-                 psQuote(QDir::toNativeSeparators(targetPath)));
+            .arg(psQuote(entryName), psFilePath(archive), psFilePath(targetPath));
 
     QProcess process;
     process.start(QStringLiteral("powershell"),
@@ -634,7 +667,7 @@ ZipUtil::EntryStatus ZipUtil::listEntries(const QString &archive, QStringList *o
                        "  [System.IO.File]::WriteAllText(%2,$json,"
                        "(New-Object System.Text.UTF8Encoding($false)))\n"
                        "} finally { $zip.Dispose() }\n")
-            .arg(psQuote(QDir::toNativeSeparators(archive)), psQuote(QFile::decodeName(temp)));
+            .arg(psFilePath(archive), psFilePath(QFile::decodeName(temp)));
 
     QProcess process;
     process.start(QStringLiteral("powershell"),
@@ -812,7 +845,7 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
                        "          }\n"
                        "          if($skip){continue}\n"
                        "        }\n"
-                       "        $dest=[System.IO.Path]::Combine($out,$rel)\n"
+                       "        $dest=[System.IO.Path]::Combine($out,$rel).Replace('/','\\')\n"
                        "        [void][System.IO.Directory]::CreateDirectory"
                        "([System.IO.Path]::GetDirectoryName($dest))\n"
                        "        [System.IO.Compression.ZipFileExtensions]::ExtractToFile"
@@ -831,7 +864,7 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
                        "  } finally { if($zip){ $zip.Dispose() } }\n"
                        "}\n"
                        "[Console]::Out.Write($count)\n")
-            .arg(psQuote(QDir(targetDir).absolutePath()), psArray(normalized), psArray(archives),
+            .arg(psFilePath(QDir(targetDir).absolutePath()), psArray(normalized), psArray(processIoPaths(archives)),
                  psArray(normalizedExcludes));
 
     QByteArray stdoutBytes;
@@ -897,8 +930,7 @@ bool ZipUtil::gunzipTo(const QString &sourceGz, const QString &targetPath, QStri
                        "  [Console]::Error.WriteLine($msg)\n"
                        "  exit 3\n"
                        "}\n")
-            .arg(psQuote(QDir::toNativeSeparators(targetPath)),
-                 psQuote(QDir::toNativeSeparators(sourceGz)));
+            .arg(psFilePath(targetPath), psFilePath(sourceGz));
 
     // 15 秒。这个数不是随便定的：真机上 servers.dat 是几百字节，连起进程算上也就
     // 一秒出头；给它 15 秒是为了"机器正忙"时别误判，同时"没装 PowerShell / 被安全
@@ -955,8 +987,7 @@ bool ZipUtil::gzipFrom(const QString &sourcePath, const QString &targetGz, QStri
                        "  [Console]::Error.WriteLine($msg)\n"
                        "  exit 3\n"
                        "}\n")
-            .arg(psQuote(QDir::toNativeSeparators(targetGz)),
-                 psQuote(QDir::toNativeSeparators(sourcePath)));
+            .arg(psFilePath(targetGz), psFilePath(sourcePath));
 
     QString failure;
     if (!runPowershell(script, 15000, nullptr, &failure, QStringLiteral("压缩 gzip"))) {
@@ -1019,7 +1050,7 @@ bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entrie
         for (const ZipSource &entry : entries) {
             QJsonObject item;
             item.insert(QStringLiteral("name"), entry.entryName);
-            item.insert(QStringLiteral("src"), QDir::toNativeSeparators(entry.sourcePath));
+            item.insert(QStringLiteral("src"), processIoPath(entry.sourcePath));
             table.append(item);
         }
         QFile tableFile(tablePath);
@@ -1087,7 +1118,7 @@ bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entrie
                        "  [Console]::Error.WriteLine(('打包「' + $current + '」时出错：' + $msg))\n"
                        "  exit 3\n"
                        "}\n")
-            .arg(psQuote(QDir::toNativeSeparators(targetZip)), psQuote(tablePath));
+            .arg(psFilePath(targetZip), psFilePath(tablePath));
 
     QString failure;
     // **开工之前**就问一眼目标在不在。下面失败那一路会把目标删掉（"半成品

@@ -1,5 +1,15 @@
 #Requires -Version 7.0
 
+function Get-CompactTestRunnerMode([string]$Mode, [string]$Suite, [bool]$HasModules) {
+    if ($Mode -eq 'Compact') { return 'ON' }
+    if ($Mode -eq 'Standalone') { return 'OFF' }
+    # Partial selections keep independent compilation. The shared runner needs
+    # all specialist case objects, so enabling it for just a few changed modules
+    # would increase cold CI work even though it saves links on a warm build.
+    if (-not $HasModules -and $Suite -in @('full', 'ci-ui', 'ci-integration', 'visual', 'affected')) { return 'ON' }
+    return 'OFF'
+}
+
 function Get-TestBuildTargets([object[]]$Tests, [object[]]$Owners) {
     $targets = [Collections.Generic.HashSet[string]]::new()
     foreach ($test in $Tests) {

@@ -4,6 +4,7 @@
 #include "manage/ModpackCompletion.hpp"
 #include "controllers/ImportController.hpp"
 int MwWorkspaceCheck(QApplication &app) {
+        runPromptProbeChecks();
 
         QTemporaryDir fixture(QDir::current().filePath(QStringLiteral(".workspace-check-XXXXXX")));
         if (!fixture.isValid()) return 2;

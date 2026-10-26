@@ -1247,6 +1247,11 @@ int runInstanceUpgradeChecks() {
         replacement.toVersion = "2.0";
         core.replacements = {replacement};
         const auto result = InstanceUpgrade::prepareAndCommit(r, core);
+        if (!result.ok) {
+            scratch.setAutoRemove(false);
+            std::printf("Replacement failure: %s; fixture retained: %s\n",
+                        result.problem.toUtf8().constData(), scratch.path().toUtf8().constData());
+        }
         check(result.ok && !result.changes.isEmpty()
                   && result.changes.join(QLatin1Char('\n')).contains(QStringLiteral("替换")),
               "★★ replacement is applied inside the transaction and reported");

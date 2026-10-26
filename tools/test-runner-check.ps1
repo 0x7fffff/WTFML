@@ -30,6 +30,13 @@ try {
     }
     Check (@(Get-TestRuntimeTargets @('mw_check_instance_upgrade')).Count -eq 3) 'cold integration builds have three bounded shared-layer stages'
     Check (@(Get-TestRuntimeTargets @()).Count -eq 0) 'runner-only changes do not build a shared runtime'
+    Check ((Get-CompactTestRunnerMode Auto ci-integration $false) -eq 'ON') 'full integration partition shares specialist link outputs'
+    Check ((Get-CompactTestRunnerMode Auto ci-integration $true) -eq 'OFF') 'partial CI avoids compiling unrelated case objects'
+    Check ((Get-CompactTestRunnerMode Auto affected $true) -eq 'OFF') 'single module retains independent compilation'
+    Check ((Get-CompactTestRunnerMode Auto full $false) -eq 'ON') 'full runs use compact specialist runners'
+    Check ((Get-CompactTestRunnerMode Standalone full $false) -eq 'OFF') 'explicit standalone fallback is available'
+    $compactOwners = @([pscustomobject]@{test='one';target='mw_check_modules'}, [pscustomobject]@{test='two';target='mw_check_modules'})
+    Check (@(Get-TestBuildTargets @([pscustomobject]@{name='one'}, [pscustomobject]@{name='two'}) $compactOwners).Count -eq 1) 'compact owner registry links selected runner only once'
     $docs = Get-TestImpact @('docs/INSTANCE_UPGRADE.md', 'README.md')
     Check ($docs.suites.Count -eq 0) 'documentation-only changes skip compiled CI partitions'
     $javaCase = Get-TestImpact @('tests/core_modules/AsciiAliasTests.cpp')
@@ -43,6 +50,14 @@ try {
     Check ($themeTest.modules.Count -eq 1 -and $themeTest.modules[0] -eq 'theme') 'editing a theme assertion file selects only the theme executable'
     $windowTest = Get-TestImpact @('tests/mw_check/modules/MwMemoryPreferencesChecks.cpp')
     Check ($windowTest.modules.Count -eq 1 -and $windowTest.modules[0] -eq 'window') 'historical main-window assertion changes retain their integration owner'
+    foreach ($controller in @('ResourceSearchController', 'InstanceUpdateCheckController')) {
+        $workflow = Get-TestImpact @("src/controllers/$controller.cpp")
+        Check (-not $workflow.full -and 'main-window' -in $workflow.tests -and 'mod-action-panel' -in $workflow.tests) 'extracted resource workflows retain main-window and mod integration coverage'
+    }
+    $promptCase = Get-TestImpact @('tests/mw_check/modules/PromptProbe.cpp')
+    Check ($promptCase.modules.Count -eq 1 -and $promptCase.modules[0] -eq 'window') 'prompt fixture implementation has a focused integration owner'
+    $exportCase = Get-TestImpact @('tests/core_modules/ModpackExportPipelineTests.cpp')
+    Check ($exportCase.modules.Count -eq 1 -and $exportCase.modules[0] -eq 'core-resources') 'split export assertions keep their existing core resource owner'
     $upgrade = Get-TestImpact @('src/controllers/UpgradeAssessment.cpp')
     Check ('upgrade' -in $upgrade.modules -and 'window' -notin $upgrade.modules -and -not $upgrade.full) 'upgrade changes select their module without the monolithic window suite'
     Check ('ci-app' -in $upgrade.suites -and 'upgrade' -in $upgrade.modules -and 'core' -notin $upgrade.modules) 'upgrade controller changes build the application without unrelated core monolith'

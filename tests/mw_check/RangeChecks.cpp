@@ -91,18 +91,33 @@ int runRangeChecks() {
                 const bool probing = begin == 0 && end == 0;
                 if (begin >= 0 && !probing) ranges.append({begin, end});
                 if (begin < 0) ++full;
-                const auto data = version2 || (!probing && endpoint == "/changing") ? second : body;
-                const auto etag = version2 || (!probing && endpoint == "/changing") ? QByteArray("\"v2\"") : QByteArray("\"v1\"");
+                QByteArray data = version2 || (!probing && endpoint == "/changing") ? second : body;
+                QByteArray etag = version2 || (!probing && endpoint == "/changing") ? QByteArray("\"v2\"") : QByteArray("\"v1\"");
+                // 「来源规则」那几行（见 docs/HIGH_SPEED_DOWNLOAD.md 的验收矩阵）：
+                // · /small     ：正文小于分段下限（4 MiB）⇒ 不该拆段。
+                // · /no-etag   ：一个校验凭据都不给 ⇒ 不该跨请求拼接。
+                // · /weak-etag ：只有弱 ETag（W/"…"）⇒ 等于没有强校验。
+                // · /huge      ：探测回来的总长（40 GiB）超过分段上限（kMaximumBytes = 32 GiB）⇒ 不该拆段。
+                // · /expired   ：分段请求撞上"预签名地址过期"那种 403 ⇒ 报错，不悄悄整包重下。
+                if (endpoint == "/small") data = body.left(2 * 1024 * 1024);
+                if (endpoint == "/no-etag") etag.clear();
+                if (endpoint == "/weak-etag") etag = QByteArray("W/\"v1\"");
+                const QByteArray etagHeader = etag.isEmpty() ? QByteArray()
+                                                             : "ETag: " + etag + "\r\n";
                 QByteArray response;
-                if (begin < 0 || endpoint == "/ignore") {
-                    response = "HTTP/1.1 200 OK\r\nContent-Length: " + QByteArray::number(data.size()) + "\r\nETag: " + etag + "\r\nConnection: close\r\n\r\n" + data;
+                if (probing && endpoint == "/huge") {
+                    response = "HTTP/1.1 206 Partial Content\r\nContent-Length: 1\r\nContent-Range: bytes 0-0/42949672960\r\nETag: \"huge\"\r\nConnection: close\r\n\r\n" + data.left(1);
+                } else if (begin < 0 || endpoint == "/ignore") {
+                    response = "HTTP/1.1 200 OK\r\nContent-Length: " + QByteArray::number(data.size()) + "\r\n" + etagHeader + "Connection: close\r\n\r\n" + data;
+                } else if (!probing && endpoint == "/expired") {
+                    response = "HTTP/1.1 403 Forbidden\r\nContent-Length: 9\r\nConnection: close\r\n\r\nexpired!!";
                 } else if (!probing && endpoint == "/416") {
                     response = "HTTP/1.1 416 Invalid\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                 } else {
                     const auto contentStart = endpoint == "/bad-range" && !probing ? begin + 1 : begin;
                     response = "HTTP/1.1 206 Partial Content\r\nContent-Length: " + QByteArray::number(end - begin + 1) +
                         "\r\nContent-Range: bytes " + QByteArray::number(contentStart) + "-" + QByteArray::number(end) + "/" + QByteArray::number(data.size()) +
-                        "\r\nETag: " + etag + "\r\nConnection: close\r\n\r\n" + data.mid(begin, end - begin + 1);
+                        "\r\n" + etagHeader + "Connection: close\r\n\r\n" + data.mid(begin, end - begin + 1);
                 }
                 if (!probing && begin >= 0) {
                     ++active; peak = qMax(peak, active); socket->setProperty("activePart", true);
@@ -164,6 +179,30 @@ int runRangeChecks() {
     runRejected(QStringLiteral("changing"), fixture.filePath(QStringLiteral("changed.bin")));
     expect(full == 0 && ranges.size() == 8,
            "ETag change mid-download never mixes representations and never silently re-downloads the whole file");
+
+    full = 0; ranges.clear();
+    run(QStringLiteral("no-etag"), fixture.filePath(QStringLiteral("no-etag.bin")), body);
+    expect(full == 1 && ranges.isEmpty(),
+           "no strong validator means no cross-request stitching: one ordinary GET");
+
+    full = 0; ranges.clear();
+    run(QStringLiteral("weak-etag"), fixture.filePath(QStringLiteral("weak-etag.bin")), body);
+    expect(full == 1 && ranges.isEmpty(), "a weak ETag is not a strong validator: one ordinary GET");
+
+    full = 0; ranges.clear();
+    run(QStringLiteral("small"), fixture.filePath(QStringLiteral("small.bin")),
+        body.left(2 * 1024 * 1024));
+    expect(full == 1 && ranges.isEmpty(), "a file below the segment floor is downloaded whole");
+
+    full = 0; ranges.clear();
+    run(QStringLiteral("huge"), fixture.filePath(QStringLiteral("huge.bin")), body);
+    expect(full == 1 && ranges.isEmpty(),
+           "a declared total above the segment ceiling is downloaded whole");
+
+    full = 0; ranges.clear();
+    runRejected(QStringLiteral("expired"), fixture.filePath(QStringLiteral("expired.bin")));
+    expect(full == 0 && !ranges.isEmpty(),
+           "an expired signed URL on a part fails loudly without silently re-downloading the whole file");
 
     const auto crashCheckpoint = [&](const QString &target) {
         holdOthers = true; version2 = false;

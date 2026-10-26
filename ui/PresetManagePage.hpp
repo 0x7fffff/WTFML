@@ -175,10 +175,13 @@ public:
     /// 右栏"这一份是什么"。
     void showPreset(const QString &id, const QString &name, const QString &description,
                     const QString &categoryText, const QList<SectionItem> &sections);
+    void showPresetLoading(const QString &id);
+    void showPresetReadError(const QString &reason);
     /// 两个下拉框里的实例列表。@param selectId 空则保留各自原来的选择。
     void setInstances(const QList<InstanceItem> &instances, const QString &selectId = QString());
     /// 计划表。`canApply` 决定「应用」亮不亮；`needsConfirm` 决定它是不是要走"点两次"。
     void showPlan(const PlanView &plan);
+    void setPlanLoading(bool loading);
     void showApplyResult(const ApplyView &result);
     /// 底下那行状态（提取结果、保存成功之类）。
     void showStatus(const QString &text);
@@ -226,6 +229,8 @@ signals:
     void editOptionsRequested(const QString &id);
     /// 用户在左栏选了一份。
     void presetSelected(const QString &id);
+    void applyTargetChanged(const QString &id);
+    void previewCancelRequested();
 
     // ---------- 增删改 ----------
     // / @param categoryKey 用户在「新建为」下拉框里选的那一类（不透明钥匙，外面翻成枚举）。
@@ -326,6 +331,8 @@ private:
     QLabel *m_statusLabel = nullptr;
 
     bool m_busy = false;
+    bool m_planLoading = false;
+    bool m_detailsAvailable = true;
     bool m_deleteArmed = false;
     int m_deleteToken = 0;
     bool m_applyArmed = false;

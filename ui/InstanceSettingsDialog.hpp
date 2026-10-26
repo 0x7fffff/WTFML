@@ -44,6 +44,7 @@
 #include <QPixmap>
 #include <QString>
 #include <QStringList>
+#include <QSet>
 #include <optional>
 
 // `openConfigEditor()` 那个进参是**按值**要一份 `ConfigFileText::Loaded`（见 .cpp 里
@@ -482,6 +483,8 @@ public:
     /// NOTE: 这个函数**把每一行的"现在什么样"清空**（图标、MOTD、状态那一格都回到
     /// 「还没测」）—— 它换掉的是整张表，旧的那些状态配的是旧的那些行。
     void setServerList(const QList<QPair<QString, QString>> &servers, const QString &problem);
+    void setServerFavorites(const QStringList &addresses);
+    QStringList serverAddresses() const;
 
     /// 一台服务器**现在**什么样（一次 ping 的结果）。
     ///
@@ -1909,6 +1912,7 @@ signals:
      * 复制出去的东西进哪儿由调用方说了算，而且这一层够不着 MainWindow 的日志。
      */
     void copyServerAddressRequested(const QString &address);
+    void serverFavoriteRequested(const QString &address, bool favorite);
 
     /**
      * @brief 用户按了服务器列表那一页的「编辑」。
@@ -1983,6 +1987,7 @@ private:
     /// NOTE: 三个地方要喊它 —— 建完那棵树（初值）、`setServerList()`（整张表换掉 ⇒ 选中
     /// 没了）、以及 `itemSelectionChanged`（用户点了一行）。
     void updateServerSelectionActions();
+    void refreshServerFavorites();
 
     /// 服务器列表里**现在选中的那一行**（没选中 = nullptr）。
     ///
@@ -2142,6 +2147,15 @@ private:
     QHash<QString, QPlainTextEdit *> m_transferPlans;
     QHash<QString, QListWidget *> m_transferItems;
     void updateTransferApplyState(const QString &key);
+    /// 构造函数里那三摊（原来是同一个函数里换着用一份 `grid`，现在各自 `addForm()` 一份）：
+    /// 概览那一栏、启动那一栏、文件管理那八页。拆的依据是"一栏一摊"，不是按行数切。
+    /// 概览那一栏只认构造时递进来的目录名（名称框的初值就是它）。
+    void setupOverviewPage(const QString &instanceId);
+    /// 「启动」那一栏要用到四样只有调用方才知道的：全局值、追加 JVM 参数、提醒开关、
+    /// 可选的窗口档位。它们本来就只是"这一次打开对话框的现场"，不存成员。
+    void setupLaunchPage(const GlobalValues &global, const QStringList &appendJvmArgs,
+                         bool warnJavaMismatch, const QList<WindowModeChoice> &windowModes);
+    void setupFilePages();
     void setupLifecyclePages();
     void rebuildNavigationTree();
     void refreshLifecycleFiles(const QString &key);
@@ -2214,6 +2228,10 @@ private:
     /// 第 1 格那个世界设置（**建一次留着**，同上）。
     WorldSettingsPage *m_worldSettings = nullptr;
     QTreeWidget *m_serverTree = nullptr;
+    QPushButton *m_serverFavorite = nullptr;
+    QCheckBox *m_serverFavoritesOnly = nullptr;
+    QSet<QString> m_serverFavorites;
+    bool m_serverListReadable = true;
     QLabel *m_serverNotice = nullptr;
     /// 「刷新」（见 refreshServerListRequested()）。**正在重读 + 重测时**文字换成
     /// 「刷新中…」并按下不动（见 setServerPinging()）。

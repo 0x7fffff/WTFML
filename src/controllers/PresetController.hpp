@@ -29,6 +29,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QSet>
 
 #include <functional>
 #include <QPointer>
@@ -45,6 +46,11 @@ class QWidget;
 
 namespace Presets {
 class PlatformCompatibilityProvider;
+class ManifestLoader;
+struct ManifestSnapshot;
+class PreviewLoader;
+struct PreviewSnapshot;
+struct PreviewRequest;
 class CatalogLoader;
 struct CatalogSnapshot;
 }
@@ -87,6 +93,8 @@ public:
         std::function<void()> refreshInstances;
         /// Optional thread-safe reader for isolated tests; production reads PresetStore.
         std::function<Presets::CatalogSnapshot(const QString &)> readCatalog = {};
+        std::function<Presets::ManifestSnapshot(const QString &, const QString &)> readManifest = {};
+        std::function<Presets::PreviewSnapshot(const Presets::PreviewRequest &)> readPreview = {};
     };
 
     PresetController(VersionManager *versions, QWidget *hostPage, Host host,
@@ -96,6 +104,8 @@ public:
     /// 刷新管理页（实例页切到「预设」那一档时调用；页面是常驻的，这里只重新灌数据）。
     void open();
     bool catalogLoading() const;
+    bool detailsLoading() const;
+    bool previewLoading() const;
     /// 实例清单变了（后台装完一份 / 删掉一份 / 换了游戏文件夹）⇒ 重灌那两个实例下拉框。
     ///
     /// 页面还没建出来（用户从没切到过「预设」那一档）时什么都不做；建过的话
@@ -264,6 +274,9 @@ private:
     void pushCategories();
     void pushInstances();
     void pushPresetToPage(const QString &id);
+    void updatePageBusy();
+    void invalidatePreview();
+    void showPreview(const Presets::PreviewSnapshot &snapshot);
     void pushListAndSelect(const QString &selectId);
     void pushCatalog(const Presets::CatalogSnapshot &snapshot, const QString &selectId);
     /// 这一类的预设允许收哪几样（`PresetManagePage::CaptureBit` 那九位）。
@@ -291,8 +304,11 @@ private:
     Host m_host;
     QPointer<PresetManagePage> m_page;
     Presets::CatalogLoader *m_catalogLoader = nullptr;
+    Presets::ManifestLoader *m_manifestLoader = nullptr;
+    Presets::PreviewLoader *m_previewLoader = nullptr;
     /// 正在显示的那一份（应用/提取都带着它出门）。
     QString m_currentId;
+    QSet<QString> m_catalogNames;
     /// 兼容检查那一套（缓存跨弹窗共享；checker / provider 都归这一层所有）。
     Presets::CompatibilityCache m_modCache;
     Presets::CompatibilityChecker *m_modChecker = nullptr;

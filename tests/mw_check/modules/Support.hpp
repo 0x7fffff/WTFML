@@ -618,113 +618,29 @@ inline int g_modalHandlerGeneration = 0;
 /// NOTE: 判据是 `isWindow() && isVisible()` 而不是只数 `topLevelWidgets().size()` ——
 /// Qt 里"没有父控件的 QWidget 就是窗口"，覆盖层自己那个 `m_parking`（寄存还回去的
 /// 内容用的空控件，见 OverlayHost.hpp）也算一个，可它从来没显示过，不该算"多了一个窗"。
-inline int topLevelWindowCount() {
-    int n = 0;
-    for (QWidget *w : QApplication::topLevelWidgets()) {
-        if (w->isWindow() && w->isVisible()) {
-            ++n;
-        }
-    }
-    return n;
-}
+void runPromptProbeChecks();
+int topLevelWindowCount();
 
 /// 现在开着的那一层覆盖层（设置页和各种提示都开在它里面）。找不到返回 nullptr。
-inline OverlayHost *currentOverlay() {
-    for (QWidget *w : QApplication::allWidgets()) {
-        if (auto *host = qobject_cast<OverlayHost *>(w)) {
-            if (host->isOpen()) {
-                return host;
-            }
-        }
-    }
-    return nullptr;
-}
+OverlayHost *currentOverlay();
 
 /// 现在开着的**整页**那一层（「实例设置」这种）。找不到返回 nullptr。
-inline OverlayHost *currentPageOverlay() {
-    OverlayHost *host = currentOverlay();
-    return host != nullptr && host->pageOpen() ? host : nullptr;
-}
+OverlayHost *currentPageOverlay();
 
 /// 现在开着的那一条**提示**。找不到返回 nullptr（= 这一发根本没弹东西）。
-inline InlineMessageBox *currentPrompt() {
-    OverlayHost *host = currentOverlay();
-    if (host == nullptr || !host->promptOpen()) {
-        return nullptr;
-    }
-    return host->findChild<InlineMessageBox *>();
-}
+InlineMessageBox *currentPrompt();
 
 /// 把这一条说了什么记进 g_modal* 那几个全局里（断言读的就是它们）。
-inline void recordPrompt(InlineMessageBox *box) {
-    g_modalTitle.clear();
-    g_modalText.clear();
-    g_modalWasWarning = false;
-    if (box == nullptr) {
-        return;
-    }
-    if (auto *title = box->findChild<QLabel *>(InlineMessageBox::titleLabelName())) {
-        g_modalTitle = title->text();
-    }
-    if (auto *text = box->findChild<QLabel *>(InlineMessageBox::textLabelName())) {
-        g_modalText = text->text();
-    }
-    // 这一格量的是"这是出错，还是一句报信"（`MessageKind::Warning`），只影响标题的颜色。
-    g_modalWasWarning = box->kind() == MessageKind::Warning;
-}
+void recordPrompt(InlineMessageBox *box);
 
 /// 点这一条提示上的第 index 颗按钮。点不着就把它整块收掉（等于"没选"，见 InlineMessage）。
-inline void clickPromptButton(int index) {
-    InlineMessageBox *box = currentPrompt();
-    // 框不在了就**什么都不做** —— 包括不把上一次记下来的话抹掉。
-    // `recordPrompt(nullptr)` 会先把 `g_modal*` 清空（它要给"真的没弹东西"一个空记录），
-    // 所以**落空的**那一发不能顺手调它：`answerNextPrompt()` 那一族除了排 0 毫秒那一发，
-    // 还会排一发 300 毫秒的兜底（防"框还没摆上来"），而兜底那一发是在**答案已经点完、
-    // 框已经收掉之后**才醒的（它只按 `g_modalHandlerGeneration` 认过期，而那一格要到
-    // `withPage` 的收尾才 ++，正好晚于 act() 里那一发 `processEvents()`）。于是
-    // "答得够快 + 后面那一节干得够慢（>300 毫秒）"时，真正记下来的那一句话会被这一发
-    // 抹成空 —— 断言读到的就是"什么都没弹"，而盘上文件明明装进去了（实测：
-    // T30.7 三次里红一次，红的正是这一句）。
-    if (box == nullptr) {
-        return;
-    }
-    recordPrompt(box);
-    if (auto *button = box->findChild<QPushButton *>(InlineMessageBox::buttonName(index))) {
-        button->click();
-        return;
-    }
-    box->close();
-}
+void clickPromptButton(int index);
 
 /// `dismissNextPrompt()` 的语义是**不选**（不是把框 `close()` 掉）。
 /// 在这一层里"没选"就是 `clickedIndex()` 停在 -1。映射过来的那些问句里**最后一颗恒是
 /// 「否 / 取消」**（`InlineMessage::question` 的按钮表就是 `{是要问的那件事, 否}`），
 /// 所以点最后一颗得到的是同一个结果 —— 这也是为什么这里要数到最后一颗，而不是点第一颗。
-inline void dismissNextPrompt() {
-    g_modalTitle.clear();
-    g_modalText.clear();
-    g_modalWasWarning = false;
-    const int gen = ++g_modalHandlerGeneration;
-    const auto dismiss = [gen] {
-        if (gen != g_modalHandlerGeneration) {
-            return; // 这一发过期了（后面某一段已经排了新的）
-        }
-        InlineMessageBox *box = currentPrompt();
-        if (box == nullptr) {
-            recordPrompt(nullptr);
-            return;
-        }
-        int last = 0;
-        while (box->findChild<QPushButton *>(InlineMessageBox::buttonName(last + 1)) != nullptr) {
-            ++last;
-        }
-        clickPromptButton(last);
-    };
-    QTimer::singleShot(0, dismiss);
-    // 兜底：0 毫秒那条要是响得比提示摆出来还早，这一条保证它最后还是会被点掉，测试不会
-    // 卡死。两条都响时后一条找不到东西，直接返回。
-    QTimer::singleShot(300, dismiss);
-}
+void dismissNextPrompt();
 
 /// 点**一颗具体的按钮**（不是"不选"）。
 ///
@@ -732,21 +648,7 @@ inline void dismissNextPrompt() {
 /// "框被关了"在断言里必须是两件不同的事。位置按**下标**认（不是按
 /// QMessageBox::StandardButton 认）：映射过来时按钮表就是 `{是, 否}`，所以
 /// `QMessageBox::Yes` → 下标 0、`QMessageBox::No` → 下标 1。
-inline void answerNextPrompt(int index) {
-    g_modalTitle.clear();
-    g_modalText.clear();
-    g_modalWasWarning = false;
-    const int gen = ++g_modalHandlerGeneration;
-    const auto answer = [index, gen] {
-        if (gen != g_modalHandlerGeneration) {
-            return; // 这一发过期了（理由见 g_modalHandlerGeneration）
-        }
-        clickPromptButton(index);
-    };
-    QTimer::singleShot(0, answer);
-    // 兜底那一条的理由和 dismissNextPrompt() 一样。
-    QTimer::singleShot(300, answer);
-}
+void answerNextPrompt(int index);
 
 /// 底栏左面板里那颗电源点出来的「停止游戏」那一问：**点那颗"停止"**。
 ///
@@ -754,33 +656,7 @@ inline void answerNextPrompt(int index) {
 /// 这一层里没有角色这一说："哪一颗是危险动作"是按**下标**给的（`destructiveIndex`，
 /// 它还顺带决定那颗按钮染不染红，见 InlineMessageBox 的 ctor），所以只能按下标认。
 /// **两颗的字都断言一遍**：光按下标点，将来按钮顺序换了也照样绿。
-inline void answerStopGamePrompt() {
-    g_modalTitle.clear();
-    g_modalText.clear();
-    g_modalWasWarning = false;
-    const int gen = ++g_modalHandlerGeneration;
-    const auto answer = [gen] {
-        if (gen != g_modalHandlerGeneration) {
-            return; // 这一发过期了（理由见 g_modalHandlerGeneration）
-        }
-        InlineMessageBox *box = currentPrompt();
-        recordPrompt(box);
-        if (box == nullptr) {
-            return;
-        }
-        auto *stop = box->findChild<QPushButton *>(InlineMessageBox::buttonName(0));
-        auto *cancel = box->findChild<QPushButton *>(InlineMessageBox::buttonName(1));
-        if (stop != nullptr && cancel != nullptr &&
-            stop->text() == QStringLiteral("停止游戏") &&
-            cancel->text() == QStringLiteral("取消")) {
-            stop->click();
-            return;
-        }
-        box->close();  // 按钮表对不上：至少别让测试挂在这儿（断言会从"没停掉"那边红）
-    };
-    QTimer::singleShot(0, answer);
-    QTimer::singleShot(300, answer);
-}
+void answerStopGamePrompt();
 
 /// @param instanceOut 页眉那句话（调用方在 processEvents() 之后读它 —— 这个助手只是把
 /// 定时器排上去，**不**在这里等）。
@@ -788,101 +664,13 @@ inline void answerStopGamePrompt() {
 /// NOTE: 判据还是"页眉上那句话"，不是"有没有这一页" —— 那样的话"开错了实例"这条断言
 /// 就永远绿。弹出的是别的东西时，这里也会把它记进 g_modalTitle/g_modalText 再收掉，
 /// 于是断言看到的是"多弹了一个"。
-inline void closeInstanceSettingsPage(QString *instanceOut) {
-    // 三样**先清掉**（和上面那几个助手一样）：它们记的是"这一发弹了什么"，不清的话
-    // 断言读到的是上一次调用留下的旧值 —— 那正是"多弹了一个"这条断言恒真的来路。
-    g_modalTitle.clear();
-    g_modalText.clear();
-    g_modalWasWarning = false;
-    const int gen = ++g_modalHandlerGeneration;
-    const auto handle = [instanceOut, gen] {
-        if (gen != g_modalHandlerGeneration) {
-            return; // 这一发过期了（理由见 g_modalHandlerGeneration）
-        }
-        OverlayHost *host = currentOverlay();
-        if (host == nullptr) {
-            return;
-        }
-        if (auto *title = host->findChild<QLabel *>(OverlayHost::overlayTitleLabelName())) {
-            *instanceOut = title->text();
-        } else {
-            // 不是那一页：按一条提示记下来（断言会看到"多弹了一个"）。
-            recordPrompt(host->findChild<InlineMessageBox *>());
-        }
-        if (auto *back = host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
-            back->click();  // 返回箭头 = reject（见 OverlayHost::execPage）
-            return;
-        }
-        host->closeOverlay();  // 兜底：至少别让测试卡在这一层上
-    };
-    QTimer::singleShot(0, handle);
-    QTimer::singleShot(300, handle);
-}
+void closeInstanceSettingsPage(QString *instanceOut);
 
 /// 那个「Java 版本对不上」的三岔口上**点具体的按钮**：不同的按钮通向三条不同的路，
 /// 而光把它收掉只能得到"不启动"那一条。
 inline QString g_mismatchLabel;
 
-inline void answerJavaMismatchDialog(const QString &buttonName, bool checkDontRemind) {
-    g_modalTitle.clear();
-    g_modalText.clear();
-    g_modalWasWarning = false;
-    g_mismatchLabel.clear();
-    const int gen = ++g_modalHandlerGeneration;
-    const auto handle = [buttonName, checkDontRemind, gen] {
-        if (gen != g_modalHandlerGeneration) {
-            return; // 这一发过期了（理由见 g_modalHandlerGeneration）
-        }
-        OverlayHost *host = currentOverlay();
-        if (host == nullptr) {
-            return;
-        }
-        auto *label = host->findChild<QLabel *>(JavaMismatchDialog::textLabelName());
-        if (label == nullptr) {
-            // 不是那个三岔口：按一条提示记下来（断言会看到"多弹了一个"）。
-            InlineMessageBox *box = host->findChild<InlineMessageBox *>();
-            recordPrompt(box);
-            if (box != nullptr) {
-                box->close();
-            } else {
-                host->closeOverlay();
-            }
-            return;
-        }
-        g_mismatchLabel = label->text();
-        if (checkDontRemind) {
-            if (auto *check =
-                    host->findChild<QCheckBox *>(JavaMismatchDialog::dontRemindCheckName())) {
-                check->setChecked(true);
-            }
-        }
-        if (auto *button = host->findChild<QPushButton *>(buttonName)) {
-            button->click();
-            return;
-        }
-        host->closeOverlay();
-    };
-    QTimer::singleShot(0, handle);
-    // 兜底那一条的理由和 dismissNextPrompt() 一样。
-    //
-    // 点启动那一下的失败（进程起不来）也会弹一条提示，而那条提示排在**三岔口之后** ——
-    // 单发定时器很容易在"三岔口已经收了、提示还没摆上来"的那段空档里醒过来，
-    // 什么都不做就走了，于是那条提示没人收、测试挂死在嵌套事件循环里。
-    // 所以这里**盯着看**：每 50 毫秒看一眼，直到后面某个助手换掉这一发（gen 变了）
-    // 或者 15 秒到头。
-    auto *watcher = new QTimer;
-    watcher->setInterval(50);
-    QObject::connect(watcher, &QTimer::timeout, watcher,
-                     [watcher, gen, handle, ticks = 0]() mutable {
-                         if (gen != g_modalHandlerGeneration || ++ticks > 300) {
-                             watcher->stop();
-                             watcher->deleteLater();
-                             return;
-                         }
-                         handle();
-                     });
-    watcher->start();
-}
+void answerJavaMismatchDialog(const QString &buttonName, bool checkDontRemind);
 
 /// 「连着答几条提示」的那台小答话器（AJ 那一节用）。
 ///

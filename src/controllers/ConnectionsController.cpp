@@ -699,7 +699,14 @@ void ConnectionsController::setup() {
     // 详情页那一行前置要的名字。**和上面那一趟分开两个槽**，理由同 `versionsFinished`
     // 那三条 —— 两件事各有各的钥匙，各自认人（见 :: 后面那段 ★）。
     connect(m_owner->m_resourceStore, &ResourceStore::projectsFinished, m_owner,
-            &MainWindow::onResourceProjectsFinished);
+            [owner = m_owner](const QString &requestKey, const QList<ResourceCatalog::Hit> &hits,
+                              const QString &problem) {
+                // 那一页的状态在控制器里，而控制器是**懒建**的（点过详情页才有）——
+                // 没建出来就等于这一页没开，这一发没人要。
+                if (owner->m_resourcePage != nullptr) {
+                    owner->m_resourcePage->onProjectsFinished(requestKey, hits, problem);
+                }
+            });
     // ---------- 设置页 ----------
     // 「Java 版本」那一格现在是一颗按钮：点开「Java 管理」那一页去看/去装。
     // 那一页自己只发信号（它不认识 Java），点哪一行、点哪颗按钮都在下面这几个槽里落地。

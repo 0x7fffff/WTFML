@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <!--
+    Windows 的「长路径」开关：**这个进程**允许超过 260 个字符的路径。
+
+    两件事要分清：
+    * 这一条是"允许"，不是"魔法"。系统那一侧还得打开
+      `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled`（Windows 10 1607 起
+      才有这个键）。没打开时这一条是空操作 —— 行为和加它之前一模一样，不会更差。
+    * 打开之后，`QFile`/`QSaveFile` 那些宽字符 API 才真能走 >MAX_PATH 的路径。不加这一条时，
+      一个"实例目录套得深一点 + 整合包解出来的资源包名长一点"就能撞上
+      「文件名或扩展名太长。」，而那是**用户改不了**的一句话。
+
+    DPI 感知**不写在这里**：Qt 6 启动时自己调 SetProcessDpiAwarenessContext（见
+    `src/main.cpp` 里那段），写进清单反而会和它在两条路上各说一次。
+  -->
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+    </windowsSettings>
+  </application>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+</assembly>

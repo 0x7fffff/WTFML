@@ -4,8 +4,11 @@
  */
 
 #include "HttpClient.hpp"
+#include "RequestBudget.hpp"
 
 #include <QEventLoop>
+#include <QElapsedTimer>
+#include <QPointer>
 #include <QJsonDocument>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -17,6 +20,26 @@ HttpClient::Reply HttpClient::send(QNetworkAccessManager *manager, const QUrl &u
                                    const QByteArray &bearer, int timeoutMs,
                                    const QList<QPair<QByteArray, QByteArray>> &extraHeaders) {
     Reply result;
+    QElapsedTimer elapsed;
+    elapsed.start();
+    QPointer<QNetworkAccessManager> alive(manager);
+    auto lease = RequestBudget::tryAcquire(RequestBudget::Lane::Control);
+    if (!lease && alive && timeoutMs > 0) {
+        QEventLoop waiting;
+        QTimer poll;
+        poll.setInterval(25);
+        QObject::connect(&poll, &QTimer::timeout, &waiting, [&] {
+            lease = RequestBudget::tryAcquire(RequestBudget::Lane::Control);
+            if (lease || !alive || elapsed.elapsed() >= timeoutMs) waiting.quit();
+        });
+        QObject::connect(manager, &QObject::destroyed, &waiting, &QEventLoop::quit);
+        poll.start();
+        waiting.exec();
+    }
+    if (!alive || !lease || elapsed.elapsed() >= timeoutMs) {
+        result.networkError = QObject::tr("等待网络请求超时或请求已取消。");
+        return result;
+    }
     QNetworkRequest request{url};
     if (!contentType.isEmpty()) {
         request.setHeader(QNetworkRequest::ContentTypeHeader, QString::fromLatin1(contentType));
@@ -47,13 +70,14 @@ HttpClient::Reply HttpClient::send(QNetworkAccessManager *manager, const QUrl &u
             break;
     }
 
+    RequestBudget::attach(reply, lease);
     QEventLoop loop;
     QTimer timeoutTimer;
     timeoutTimer.setSingleShot(true);
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     QObject::connect(&timeoutTimer, &QTimer::timeout, &loop, &QEventLoop::quit);
-    timeoutTimer.start(timeoutMs);
-    loop.exec();
+    timeoutTimer.start(qMax(1, timeoutMs - int(elapsed.elapsed())));
+    if (!reply->isFinished()) loop.exec();
 
     if (!reply->isFinished()) {
         // 超时：abort 之后这个 reply 上什么都没有了，别再去读它的正文

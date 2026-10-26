@@ -84,6 +84,11 @@
   "FileHashTests.cpp": "toolbox",
   "AnvilPlannerTests.cpp": "toolbox",
   "SchematicInfoTests.cpp": "toolbox",
-  "ReplayInfoTests.cpp": "toolbox"
+  "ReplayInfoTests.cpp": "toolbox",
+  "OperationReportTests.cpp": "instances",
+  "LongPathTests.cpp": "instances",
+  "ModpackExportFormatTests.cpp": "resources",
+  "ModpackExportLookupTests.cpp": "resources",
+  "ModpackExportPipelineTests.cpp": "resources",
+  "ThemeImageTests.cpp": "resources"
 }
-

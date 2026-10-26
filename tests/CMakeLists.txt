@@ -1,13 +1,42 @@
-# Every registered test records its independent build owner; tooling tests use '-'.
+# Every test records its build owner; isolated processes may share a runner.
+# Tooling tests use '-'.
 set_property(GLOBAL PROPERTY WTFML_TEST_BUILD_OWNERS "test|target\n")
+option(WTFML_COMPACT_TEST_RUNNERS "Share specialist runners while keeping separate CTest processes" OFF)
+add_custom_target(wtfml_specialist_modules)
 function(wtfml_add_test)
  cmake_parse_arguments(T "" "NAME" "COMMAND" ${ARGN})
- add_test(${ARGN})
  list(GET T_COMMAND 0 owner)
+ if(TARGET "${owner}")
+  get_target_property(runner ${owner} WTFML_COMPACT_RUNNER)
+  if(runner)
+   set(command ${T_COMMAND})
+   list(REMOVE_AT command 0)
+   list(PREPEND command ${runner} ${owner})
+   add_test(NAME ${T_NAME} COMMAND ${command})
+   set(owner ${runner})
+  else()
+   add_test(${ARGN})
+  endif()
+ else()
+  add_test(${ARGN})
+ endif()
  if(NOT TARGET "${owner}")
   set(owner "-")
  endif()
  set_property(GLOBAL APPEND_STRING PROPERTY WTFML_TEST_BUILD_OWNERS "${T_NAME}|${owner}\n")
+endfunction()
+function(wtfml_compact_module target entry runner)
+ add_custom_target(${target} DEPENDS ${runner})
+ set_property(TARGET ${target} PROPERTY WTFML_COMPACT_RUNNER ${runner})
+ target_sources(${runner} PRIVATE $<TARGET_OBJECTS:${target}_case>)
+ set_property(DIRECTORY APPEND_STRING PROPERTY WTFML_COMPACT_ENTRIES
+  "if (name == QStringLiteral(\"${target}\")) return invoke(${entry}, app);\n")
+endfunction()
+function(wtfml_write_compact_entries)
+ if(WTFML_COMPACT_TEST_RUNNERS)
+  get_property(entries DIRECTORY PROPERTY WTFML_COMPACT_ENTRIES)
+  file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/CompactEntries.inc" CONTENT "${entries}")
+ endif()
 endfunction()
 function(wtfml_write_test_owners)
  get_property(owners GLOBAL PROPERTY WTFML_TEST_BUILD_OWNERS)
@@ -131,6 +160,11 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/manage/OfflineSkin.cpp
     ${REPO_ROOT}/src/manage/OfflineSkin.hpp
     ${REPO_ROOT}/src/manage/VersionManager.cpp
+    # 同一个类按职责分开的那三份（核心那一份就在上面；理由见各文件头）。
+    # 少一份不会在编译期报错，只在链接期报一串 `VersionManager::…` 的 undefined reference。
+    ${REPO_ROOT}/src/manage/VersionManagerLoaderInstall.cpp
+    ${REPO_ROOT}/src/manage/VersionManagerModpack.cpp
+    ${REPO_ROOT}/src/manage/VersionManagerExport.cpp
     ${REPO_ROOT}/src/manage/VersionManager.hpp
     ${REPO_ROOT}/src/manage/VersionDisplay.cpp
     ${REPO_ROOT}/src/manage/VersionDisplay.hpp

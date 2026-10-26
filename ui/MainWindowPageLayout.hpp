@@ -1,0 +1,211 @@
+#pragma once
+// Private page scaffold and shared form primitives, not a public UI contract.
+#include "MainWindowUI.hpp"
+#include <QHBoxLayout>
+#include <QVBoxLayout>
+#include <QGridLayout>
+
+namespace MainWindowPageLayout {
+QLabel *makeHomeTitle(const QString &text, QWidget *parent);
+QLabel *makeHomeHint(const QString &text, QWidget *parent);
+/// 每个选项卡页面共用的边距：贴着选项卡内容区留一圈呼吸空间。
+/// **值本身在 MainWindowUI::pageMargin()** —— 内容区那个覆盖层（OverlayHost）也是一整个
+/// "页面"，它留白得和别的页面一样，所以那一边读的是同一个出处。
+inline const int kPageMargin = MainWindowUI::pageMargin();
+
+/// 左右两栏之间的间距（= 令牌里的"区块间距"那一档）。
+inline constexpr int kColumnSpacing = 16;
+
+/// 宽屏下“选择/导航”侧栏按比例无限长大是不允许的。默认 900 px 窗口里各栏还没碰到这些上限，
+/// 所以 7:3 / 3:7 / 2:8 的比例完全保留；只有窗口明显拉宽后，多出来的空间才全部交给
+/// 真正承载内容的那一栏。
+inline constexpr int kNarrowSideMaxWidth = 260;
+
+inline constexpr int kRichSideMaxWidth = 420;
+
+// ---------- 各处手调的尺寸 ----------
+// 集中放这里是为了"改外观只需看这一处"：这些数值是照着当前样式（Fusion）的控件度量
+// 调出来的，换背景色/字体/控件高度时就是这一组要重估。散在各自的构建代码里每次都得
+// 全文件搜一遍。
+//
+// NOTE: 设置页那个数字框的宽度（kMemorySpinWidth）不在这里 —— 它只服务
+// addInlineControl() 一个调用点，留在它旁边更好找。
+
+/// 底栏整条的高度。给固定值：栏里三格的内容高度都是自己定的，跟着窗口高变没有意义。
+inline constexpr int kBottomBarHeight = 62;
+
+/// 进度文字那格（"已下载 1234 / 3580 xxx.jar"）的宽度下限，免得**文件名一换整条就左右跳**。
+/// 它管的是底栏**中间那一格自己**的宽度，不是左右两格的 —— 左右那两格用的是
+/// MainWindowUI::bottomBarRunStateColumnWidth() / bottomBarAccountColumnWidth()。
+inline constexpr int kStatusLabelMinWidth = 260;
+
+/// 左下角头像的边长（正方形）。**值本身不在这里** —— 它和"主窗口拿什么尺寸去裁头像"
+/// 必须是同一个数，所以唯一的出处是 MainWindowUI::avatarSize()（见头文件）。
+inline const int kAvatarSize = MainWindowUI::avatarSize();
+
+/// 「启动游戏」按钮的高度。两行文字仍有足够呼吸空间，但不占掉启动卡近一半高度。
+inline constexpr int kStartButtonMinHeight = 76;
+
+/// 主窗口竖直方向的明确下限。540px 能容纳主页约 368px 的比例角色卡，以及标题栏、
+/// 页面边距和底栏；也不会缩到人物预览被压坏。
+inline constexpr int kMainWindowMinHeight = 620;
+
+/// 主页角色预览使用稳定的展示规格。窗口变宽时人物不应跟着无限放大；220px 是默认
+/// 900px 窗口下实际量到的画布宽度，按 SkinViewer 的比例对应约 311px 高。
+inline constexpr int kHomeProfileHorizontalPadding = 8 * 2;
+
+/// 人物预览画布宽度（160）= 右栏宽度（唯一出处 `MainWindowUI::homeRightColumnWidth()`）
+/// 减掉卡片左右内边距 —— 两者必须是同一个数推出来的，不然卡片会跟右栏错开。
+inline constexpr int kHomeSkinViewerWidth =
+    MainWindowUI::homeRightColumnWidth() - kHomeProfileHorizontalPadding;
+
+/// 主页左栏两张卡之间的竖直留白（「开始游戏」和「上次游玩」）。
+///
+/// 不走 `layout->setSpacing()`：那只管"相邻两项之间"，而这一栏里还有两段 `addStretch`，
+/// 它们和卡片之间也会按 spacing 拉开 —— 那两段留白是这一栏"居中"的算法本身，动不得。
+/// 主页快速区是一组连续操作，不应像两张互不相干的大卡片那样隔开。
+/// 外层布局本身已有 spacing，不额外塞空白，让「收藏 / 上次游玩」视觉上连成一组。
+inline constexpr int kHomeCardGap = 0;
+
+/// 「额外 JVM 参数」多行输入框的高度，约三四行的样子；再高会把下面那几项挤出可视区。
+inline constexpr int kJvmArgsEditHeight = 72;
+
+/// 几个按钮的宽度下限：文案长短差得多（「安装」/「应用」这种），
+/// 不给下限就会各自缩成一小块、排在一起长短不齐。
+inline constexpr int kDownloadButtonMinWidth = 96;
+
+/// 「账号与外观…」那个入口按钮的最小宽度。文案固定，但给一个下限，免得以后换文案时
+/// 按钮缩成一小块。**主页那个和设置页那个共用这一个值** —— 它们说的是同一件事。
+inline constexpr int kAccountSkinButtonMinWidth = 140;
+
+inline constexpr int kApplyJvmArgsButtonMinWidth = 72;
+
+/// 下载页每一页顶上那一行筛子里，控件之间（以及那一行里两行之间）的间距
+/// = 令牌里的"控件间距"那一档（见 `ui/Theme.hpp` 的尺寸令牌那一节）。
+/// 比 kColumnSpacing（16）小一档：这一行里的东西是一组，挨着摆才像一组。
+inline constexpr int kFilterRowSpacing = 8;
+
+/// 侧栏那一列的宽度。**唯一出处**（`MainWindowUI::sidebarWidth()`）—— 规格是
+/// 208~220 px，取中间那个整数。
+///
+/// NOTE: 导航那一列不按份数分宽：它本来就不是"和正文抢宽度"的东西，按比例分的话
+/// 窗口一拉宽它也跟着长，多出来的全成了空白（这正是"左侧导航 / 右侧正文
+/// 缺少主次关系"那条）。主页**不**走这一档 —— 它左边是"选版本 + 启动"，那是正文，
+/// 仍然是 7:3 的份数。
+inline const int kSidebarWidth = MainWindowUI::sidebarWidth();
+
+/// 正文面（`wtfmlSurface="workspace"`）里那一圈内边距 = 令牌里的"区块间距"那一档。
+///
+/// 与页面外边距保持接近但略小：面内紧凑，面与窗口之间留出更明确的呼吸空间。
+inline constexpr int kSurfacePadding = 18;
+
+/// 页头两行之间的间距。
+inline constexpr int kHeaderSpacing = 3;
+
+/// 设置页里数字框的宽度（够写「65536 MB」再加一对上下箭头）。
+inline constexpr int kMemorySpinWidth = 130;
+
+/// 内存那根条的最短宽度。太短就拖不准：32 GB 的机器上那张档位表有五十多格，
+/// 260 px 摊下来一格才 5 px 上下（够点得着），再窄就要靠键盘挪档了。
+inline constexpr int kMemorySliderMinWidth = 260;
+
+/// 「内存分配」那一行最右边那颗下拉框的宽度：装得下「手动分配」四个字 + 一对箭头。
+inline constexpr int kMemoryModeComboWidth = 116;
+
+/// 「游戏窗口」那一行两个数字框的宽度：装得下「7680」（上限）加一对箭头就够了 ——
+/// 它没有后缀，比 kMemorySpinWidth 窄一些才不像两个空盒子。
+inline constexpr int kWindowSizeSpinWidth = 90;
+
+/// 「游戏窗口」那一行中间那个「×」。
+inline constexpr int kWindowSizeRowSpacing = 8;
+
+/// 「外观」那一行那个文本框的宽。装得下 `titleTextMaxLength()` 个字（16 个汉字约 224 px）
+/// 就够 —— 再宽就是在暗示"这里可以写很长"，而条上那一格是量的。
+inline constexpr int kTitleTextEditWidth = 220;
+
+/// 一栏：控件本身 + 它自己的竖排布局 + 这一栏那个"面"，右栏还多一个页头。
+struct Column {
+    QWidget *widget = nullptr;
+    QVBoxLayout *layout = nullptr;
+    /// 这一栏那个"面"（侧栏是 `wtfmlSurface="sidebar"`，正文是 `"workspace"`）。
+    QFrame *surface = nullptr;
+    /// 页头（**只有正文那一栏有**，侧栏是 nullptr）。里面是标题 + 说明 + 右上角操作。
+    QWidget *header = nullptr;
+    /// 页头里那两行字。
+    QLabel *title = nullptr;
+    QLabel *subtitle = nullptr;
+    /// 页头右上角那一条（页面级操作塞这儿）。
+    QHBoxLayout *actions = nullptr;
+};
+
+/// 一个页面的左右两栏（= 统一页面骨架 `PageScaffold`）。
+struct TwoColumns {
+    Column left;
+    Column right;
+};
+
+/// 设置页里一个小节：**一个标题 + 一张内容卡片**。
+///
+/// 小节用"标题 + 内容卡片"，不用传统
+/// `QGroupBox` 的缺口式标题。一节 = 一张 `wtfmlSurface="section"` 的卡片
+/// （浅一档的底 + 10 px 圆角，**不画边**），标题和这一节所有的项**都在卡片里面**。
+///
+/// 为什么不用「一行粗体标题横跨两列、下面接着几行设置项」那种排法：标题横跨整幅、
+/// 项也横跨整幅，两者之间只有"挨着"这一层关系 —— 一项到底是哪一节的，得靠"往上找
+/// 最近那个粗体行"去猜；一节一张卡则是**装在里面**的关系，一眼就是。顺带卡片自己还会把内容收进一圈内边距里
+/// （18/17/18/18），"说明文字一行跨得太长"那件事也跟着好一档（另有 820 的宽度上限，
+/// 见 `settingsFormMaxWidth()`）。
+struct SettingsSection {
+    QString title;
+    /// 这一节的卡片（`wtfmlSurface="section"`）。**它就是项们的父窗**。
+    QFrame *card = nullptr;
+    /// 卡片里那条竖排布局。项按顺序往里加（见 `addSettingItem()`）。
+    QVBoxLayout *layout = nullptr;
+};
+
+/// `makeHintedControl()` 的"控件 + 它那层竖排布局"一起拿：设置页里 29 处都是这两样
+/// 一起用，分开写就要在每一处再 qobject_cast 一次。
+struct HintedControlWithLayout {
+    QWidget *widget = nullptr;
+    QVBoxLayout *layout = nullptr;
+};
+
+/// 一行"无外边距的横排"：设置页里那些「条 + 数字框 + 下拉框」和主题色块行共用。
+struct InlineRow {
+    QWidget *widget = nullptr;
+    QHBoxLayout *layout = nullptr;
+};
+
+void stabilizeDownloadTree(QTreeWidget *tree);
+
+void markSurface(QWidget *widget, const QString &value);
+
+void markTextRole(QWidget *label, const QString &value);
+
+void styleSidebarList(QListWidget *list);
+
+TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab);
+
+void fillPageHeader(Column &column, const QString &title, const QString &subtitle);
+
+SettingsSection addSettingsSection(QGridLayout *grid, int &row, const QString &title,
+                                   QWidget *parent);
+
+void addSettingItem(const SettingsSection &section, const QString &labelText, QWidget *control,
+                    QWidget *parent);
+
+QWidget *makeHintedControl(QWidget *parent);
+
+HintedControlWithLayout makeHintedControlWithLayout(QWidget *parent);
+
+InlineRow makeInlineRow(QWidget *parent);
+
+QLabel *addDynamicHint(QWidget *box, const QString &text, QWidget *parent);
+
+QLabel *addDynamicErrorHint(QWidget *box, QWidget *parent);
+
+void addHint(QWidget *box, const QString &text, QWidget *parent);
+
+void syncDownloadHeaderVisibility(QWidget *header, QStackedWidget *downloadStack,
+                                  QStackedWidget *gameStack);
+}

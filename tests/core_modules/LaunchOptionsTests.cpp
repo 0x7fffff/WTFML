@@ -606,6 +606,36 @@ void runLaunchOptionsTests(const QString &sandbox) {
         cleanup.setProcessPriority(ProcessPriority::Normal);
     }
 
+    section("ZD server favorites: independent persistence and endpoint identity");
+    {
+        LauncherSettings settings;
+        check(settings.setServerFavorite(QStringLiteral(" Play.Example.COM "), true), "favorite address saves");
+        LauncherSettings reopened;
+        check(reopened.isServerFavorite(QStringLiteral("play.example.com")), "favorite survives settings reopen and host case changes");
+        check(!reopened.isServerFavorite(QStringLiteral("play.example.com:25565")), "explicit default port retains distinct SRV semantics");
+        check(settings.setServerFavorite(QStringLiteral("[2001:0db8:0:0:0:0:0:1]:25566"), true) &&
+              settings.isServerFavorite(QStringLiteral("[2001:db8::1]:25566")), "IPv6 notation variants share favorite identity");
+        check(!settings.setServerFavorite(QStringLiteral("example.com:0"), true) &&
+              !settings.isServerFavorite(QString()), "invalid endpoints cannot become favorites");
+        check(!settings.setServerFavorite(QStringLiteral("example.com:"), true) &&
+              !settings.setServerFavorite(QStringLiteral("bad host"), true), "malformed address is not silently normalized into a favorite");
+        check(settings.setServerFavorite(QStringLiteral("PLAY.EXAMPLE.COM"), false) &&
+              settings.setServerFavorite(QStringLiteral("[2001:db8::1]:25566"), false), "favorites can be removed independently");
+        LauncherSettings cleared;
+        check(!cleared.isServerFavorite(QStringLiteral("play.example.com")) &&
+              !cleared.isServerFavorite(QStringLiteral("[2001:db8::1]:25566")), "favorite removal survives reopen");
+    }
+    {
+        const QString blocked = settingsDir + QStringLiteral("/blocked");
+        QDir().mkpath(blocked + QStringLiteral("/WTFML/WTFML.ini"));
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, blocked);
+        LauncherSettings settings;
+        check(!settings.setServerFavorite(QStringLiteral("write-failure.example.com"), true) &&
+              !settings.isServerFavorite(QStringLiteral("write-failure.example.com")),
+              "failed favorite persistence is rejected without claiming saved state");
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir);
+    }
+
     // 收摊：换回原生形态并把沙盒删掉 —— 后面那些节读的还是真实注册表。
     QSettings::setDefaultFormat(QSettings::NativeFormat);
     QDir(settingsDir).removeRecursively();

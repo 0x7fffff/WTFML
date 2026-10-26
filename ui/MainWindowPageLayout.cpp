@@ -1,0 +1,414 @@
+// Shared layout primitives are compiled once; page modules do not duplicate them.
+#include "MainWindowUI.hpp"
+
+#include "Animations.hpp"  // 换页 / 展开折叠 / 上拉面板那几段动效
+#include "ElidedLabel.hpp"
+#include "InstanceGroupDelegate.hpp"
+#include "MemorySlider.hpp"
+#include "OverlayHost.hpp"
+#include "PopupPlacement.hpp"
+#include "SkinModel.hpp"
+#include "TaskProgressBar.hpp"
+#include "Theme.hpp"
+#include "ThemeAdvancedEditor.hpp"
+#include "ThemeBackground.hpp"
+#include "TitleBar.hpp"
+#include "ToolboxPage.hpp"  // 工具箱那张表的键与名字（底栏面板那六颗按钮按 tools() 摆）
+#include "VersionIcons.hpp"
+#include "VersionTreeDelegate.hpp"
+#include "WindowChrome.hpp"
+
+#include <QColor>
+#include <QEvent>
+#include <QFont>
+#include <QGridLayout>
+#include <QGuiApplication>
+#include <QHeaderView>
+#include <QHBoxLayout>
+#include <QIcon>
+#include <QScreen>
+#include <QShortcut>
+#include <QSignalBlocker>
+#include <QSettings>
+#include <QStyle>
+#include <QMouseEvent>
+#include <QPainter>
+#include <QPalette>
+#include <QResizeEvent>
+#include <QRegularExpression>
+#include <QScrollArea>
+#include <QSet>
+#include <QTimer>
+#include <QVBoxLayout>
+#include <algorithm>
+
+#include "MainWindowPageLayout.hpp"
+
+namespace MainWindowPageLayout {
+QLabel *makeHomeTitle(const QString &text, QWidget *parent) {
+    auto *label = new QLabel(text, parent);
+    QFont font = label->font();
+    font.setBold(true);
+    font.setPointSizeF(font.pointSizeF() + 2.0);
+    label->setFont(font);
+    return label;
+}
+
+QLabel *makeHomeHint(const QString &text, QWidget *parent) {
+    auto *label = new QLabel(text, parent);
+    label->setWordWrap(true);
+    label->setForegroundRole(QPalette::PlaceholderText);
+    label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    return label;
+}
+// Always reserve the scrollbar gutter: expanding a category must not move the
+// right-aligned arrow/clear targets or change the width available to row text.
+void stabilizeDownloadTree(QTreeWidget *tree) {
+    tree->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    tree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    auto *bar = tree->verticalScrollBar();
+    const auto syncIdle = [bar] {
+        const bool idle = bar->maximum() <= bar->minimum();
+        if (bar->property("wtfmlIdle").isValid() && bar->property("wtfmlIdle").toBool() == idle) return;
+        bar->setProperty("wtfmlIdle", idle);
+        bar->style()->unpolish(bar);
+        bar->style()->polish(bar);
+        bar->update();
+    };
+    QObject::connect(bar, &QScrollBar::rangeChanged, tree, syncIdle);
+    syncIdle();
+}
+
+/// 给 @p widget 挂一个"面"（`wtfmlSurface`）。名字与值都从 Theme 那一组**唯一出处**来，
+/// 这里只是把 `const char *` 那一下收成一行（属性名要 `QByteArray` 活得比这一次调用长）。
+void markSurface(QWidget *widget, const QString &value) {
+    const QByteArray name = Theme::surfacePropertyName().toUtf8();
+    widget->setProperty(name.constData(), value);
+}
+
+/// 给 @p label 挂一个"文字角色"（`wtfmlTextRole`）。同上。
+void markTextRole(QWidget *label, const QString &value) {
+    const QByteArray name = Theme::textRolePropertyName().toUtf8();
+    label->setProperty(name.constData(), value);
+}
+
+// 侧栏列表与容器共用一层底色；代理绘制选中/悬停时也拿相同的 Base，避免白色内框。
+void styleSidebarList(QListWidget *list) {
+    list->setProperty("wtfmlSidebarRail", true);
+    list->setFrameShape(QFrame::NoFrame);
+    const auto apply = [list] {
+        QPalette palette = QApplication::palette();
+        palette.setColor(QPalette::Base, Theme::tokens().main);
+        palette.setColor(QPalette::Window, Theme::tokens().main);
+        list->setPalette(palette);
+        list->viewport()->setPalette(palette);
+        list->setAutoFillBackground(false);
+        list->viewport()->setAutoFillBackground(false);
+        list->viewport()->update();
+    };
+    apply();
+    Theme::follow(list, apply);
+}
+
+/**
+ * @brief 把页面搭成那套统一骨架（`PageScaffold`）。
+ * @param page 选项卡页面。
+ * @param tab 页面代号（"home" / "instance" / "download" / "settings"），进 objectName，
+ * **也决定份数**。
+ * @return 两栏的控件与布局；调用方往 `layout` 里塞东西即可。
+ *
+ * 【这套骨架长什么样】（那张 ASCII）
+ *
+ * ┌──────────────────────────────────────────────────┐
+ * │ 侧栏 216px │ 页面标题 操作 │
+ * │ │ 页面说明 / 路径 / 当前状态 │
+ * │ 导航或列表 ├───────────────────────────────────┤
+ * │ │ 主内容区（一个"正文面"） │
+ * └──────────────────────────────────────────────────┘
+ *
+ * 四条规则落在代码里就是：
+ * ① **页面本身不画边框**：整页只有两个面（侧栏 + 正文），别的层一律透明；
+ * ② **侧栏只用一个轻微底色**（`wtfmlSurface="sidebar"`）区分，不画矩形边框；
+ * ③ **正文只有一个面**（`wtfmlSurface="workspace"`），小节走"标题 + 小节卡片"
+ * （`wtfmlSurface="section"`）；
+ * ④ **页面级操作永远在右上角**：塞进 `columns.right.actions`（页头那一行的最右），
+ * 确认操作由调用方摆在自己的"底栏"上（`wtfmlSurface="footer"`）。
+ *
+ * 【哪些页走哪一档】主页那一栏是"选实例 + 启动"、那是**正文**，所以它不套侧栏面；
+ * 它的右栏（「我的角色」）是**定宽**的一栏（`homeRightColumnWidth()`），
+ * 左栏吃剩下的全部（份额见头文件里 `homeLeftColumnStretch()` 那段）。另外三页的左栏是
+ * **导航**（一列分类 / 一列文件夹），走固定宽度的侧栏面。
+ *
+ * 【`layout` 落在哪儿】正文那一栏：`widget`（透明外框）→ 页头 → `surface`（正文面）→
+ * `layout`。也就是说调用方 `columns.right.layout->addWidget(...)` 塞进去的东西**都在
+ * 页头下面、正文面里面** —— 这正是"主内容区"该在的位置。侧栏那一栏没有页头，
+ * `surface == widget`、`layout` 就是它自己的布局。
+ *
+ * 【只带名字的栏才是验证工程要的】栏做成真控件而不是裸布局，是为了验证工程能按
+ * objectName 找回来量几何；页头里那两行字与操作那一条也各有名字（见
+ * `pageHeaderName()` / `pageTitleName()` / `pageSubtitleName()` / `pageActionsName()`）。
+ */
+TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
+    auto *row = new QHBoxLayout(page);
+    row->setContentsMargins(kPageMargin, kPageMargin, kPageMargin, kPageMargin);
+    row->setSpacing(kColumnSpacing);
+
+    const bool home = tab == QLatin1String("home");
+
+    // 栏本身是个控件（不是裸布局），而且**主页那一条左栏要能铺图**：「主页左侧自定义图像」
+    // 就铺在这一格（`Theme::Part::HomeLeft`，见 Theme.hpp）。
+    //
+    // NOTE: 栏本身在"没设图"时**什么都不画**（`ThemeBackground::paintEvent` 直接 return，
+    // 见那个文件头），所以这一栏用它**一个像素都不差** ——
+    // 看到的都是底下那一层（页面 / 选项卡自己画的底）。
+    const auto makeColumn = [page](const QString &name, bool themed) {
+        Column column;
+        column.widget = themed ? static_cast<QWidget *>(
+                                     new ThemeBackground(Theme::Part::HomeLeft, page))
+                               : new QWidget(page);
+        column.widget->setObjectName(name);
+        column.layout = new QVBoxLayout(column.widget);
+        // 栏本身不留边距：页面那一层已经留过 kPageMargin 了，再留一层就是双层边距
+        column.layout->setContentsMargins(0, 0, 0, 0);
+        column.layout->setSpacing(10);
+        return column;
+    };
+
+    TwoColumns columns;
+    columns.left = makeColumn(MainWindowUI::leftColumnName(tab), home);
+    columns.right = makeColumn(MainWindowUI::rightColumnName(tab), false);
+    if (home) {
+        // 右栏**钉死**在人物预览那一栏的宽度上（唯一出处见头文件
+        // `homeRightColumnWidth()`）—— 主页不按份数分宽，左栏吃剩下的全部。
+        columns.right.widget->setFixedWidth(MainWindowUI::homeRightColumnWidth());
+        columns.right.widget->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    } else {
+        // ---- 侧栏那一栏：固定宽度 + 一个轻微底色 ----
+        //
+        // 固定宽度取代了"按份数分宽"（见 kSidebarWidth 那段）。
+        // 面是 QFrame 而不是裸 QWidget：样式表给的底色只对 QFrame 这一族生效
+        // （裸 QWidget 得自己画）。
+        auto *sidebar = new QFrame(columns.left.widget);
+        const bool rail = tab == QLatin1String("instance") || tab == QLatin1String("download")
+                          || tab == QLatin1String("settings");
+        sidebar->setObjectName(tab + QStringLiteral("SidebarSurface"));
+        sidebar->setProperty("wtfmlSidebarRail", rail);
+        sidebar->setFrameShape(QFrame::NoFrame);
+        markSurface(sidebar, Theme::sidebarSurfaceValue());
+        auto *sidebarLayout = new QVBoxLayout(sidebar);
+        const int padding = rail ? 12 : kSurfacePadding;
+        sidebarLayout->setContentsMargins(padding, padding, padding, padding);
+        sidebarLayout->setSpacing(10);
+        columns.left.surface = sidebar;
+        // 侧栏里那些东西落在**面**里（侧栏没有页头，面就是这一栏的全部）
+        columns.left.layout->addWidget(sidebar, 1);
+        columns.left.layout = sidebarLayout;
+
+        // ---- 正文那一栏：页头 + 一个"正文面" ----
+        //
+        // 页头**在面外面**（面里只有内容）：标题和说明是"这一页是什么"，内容面是
+        // "这一页有什么" —— 把标题装进面里的话，那一圈边就同时框住了标题和内容，
+        // 又回到了"框套框"的观感（"减少框"第一条要减掉的就是它）。
+        auto *header = new QWidget(columns.right.widget);
+        header->setObjectName(MainWindowUI::pageHeaderName(tab));
+        auto *headerLayout = new QVBoxLayout(header);
+        headerLayout->setContentsMargins(kSurfacePadding, 2, kSurfacePadding, 0);
+        headerLayout->setSpacing(kHeaderSpacing);
+
+        auto *titleRow = new QHBoxLayout;
+        titleRow->setSpacing(kColumnSpacing);
+        columns.right.title = new QLabel(header);
+        columns.right.title->setObjectName(MainWindowUI::pageTitleName(tab));
+        markTextRole(columns.right.title, Theme::pageTitleTextRoleValue());
+        {   // 标题的字：比正文大两档、加粗（和主页那几张卡片的标题同一档）。
+            QFont titleFont = columns.right.title->font();
+            titleFont.setBold(true);
+            // 页面标题要比卡片标题再高一档：只高 +2 时在默认 900px 窗口里只比正文
+            // 大一点点，右边有「刷新 / 分组设置」时尤其容易被按钮抢走视觉重心。
+            titleFont.setPointSizeF(titleFont.pointSizeF() + 3.0);
+            columns.right.title->setFont(titleFont);
+        }
+        titleRow->addWidget(columns.right.title);
+        titleRow->addStretch(1);
+        columns.right.actions = new QHBoxLayout;
+        columns.right.actions->setSpacing(kFilterRowSpacing);
+        titleRow->addLayout(columns.right.actions);
+        headerLayout->addLayout(titleRow);
+
+        columns.right.subtitle = new QLabel(header);
+        columns.right.subtitle->setObjectName(MainWindowUI::pageSubtitleName(tab));
+        markTextRole(columns.right.subtitle, Theme::secondaryTextRoleValue());
+        columns.right.subtitle->setWordWrap(true);
+        // 和主页那行说明同一条规矩：纯说明文字**不许**参与横向度量（折行 QLabel 报出来的
+        // sizeHint 是"整句排成一行"的宽度，让它决定这一栏多宽是本末倒置）。
+        columns.right.subtitle->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        columns.right.subtitle->setVisible(false);
+        headerLayout->addWidget(columns.right.subtitle);
+
+        auto *workspace = new QFrame(columns.right.widget);
+        markSurface(workspace, Theme::workspaceSurfaceValue());
+        auto *workspaceLayout = new QVBoxLayout(workspace);
+        workspaceLayout->setContentsMargins(kSurfacePadding, kSurfacePadding, kSurfacePadding,
+                                            kSurfacePadding);
+        workspaceLayout->setSpacing(10);
+        columns.right.surface = workspace;
+
+        columns.right.header = header;
+        columns.right.layout->addWidget(header);
+        columns.right.layout->addWidget(workspace, 1);
+        columns.right.layout = workspaceLayout;
+    }
+    // 主页那一栏左宽右窄，靠份数（见上面那段）；另几页的侧栏是**固定宽度**，
+    // 份数给它 0（它自己那一位由 `setFixedWidth()` 定死），多出来的宽度全归正文那一栏。
+    // NOTE: 这两句直接读 `leftColumnStretch(tab)`/`rightColumnStretch(tab)` —— 那一对
+    // 函数**自己**就编码了"只有主页按份数、另三页是 0:1"（见头文件里那段），
+    // 所以这里没有三元表达式，改份数还是只有那一处。
+    row->addWidget(columns.left.widget, MainWindowUI::leftColumnStretch(tab));
+    row->addWidget(columns.right.widget, MainWindowUI::rightColumnStretch(tab));
+    if (!home) {
+        columns.left.widget->setFixedWidth(kSidebarWidth);
+        // 尺寸策略也要一起钉：`setFixedWidth()` 只写死了 min/max，策略留在
+        // Preferred —— 屏幕上看着一样，但"这一栏跟不跟窗口长"这件事的判据是策略
+        // （按份数分宽那一版是 Preferred/Expanding，两者只在策略上分得开）。ui_check 那条
+        // "左栏的横向尺寸策略是 Fixed"量的是这一句；少它的话，将来谁把 setFixedWidth 挪走
+        // 换成 setMinimumWidth，屏幕上要到某个窗口宽度才看得出走样。
+        columns.left.widget->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    }
+    return columns;
+}
+
+/// 给正文那一栏的页头填标题与说明（`subtitle` 传空串就整行收起来，连位置都不占）。
+void fillPageHeader(Column &column, const QString &title, const QString &subtitle) {
+    if (column.title != nullptr) {
+        column.title->setText(title);
+    }
+    if (column.subtitle != nullptr) {
+        column.subtitle->setText(subtitle);
+        column.subtitle->setVisible(!subtitle.isEmpty());
+    }
+}
+
+/// 起一节（标题 + 一张空的内容卡片），并在 @p row 那一行把它摆进 @p grid。
+/// @param row 按引用收：卡片占掉一行，函数自己推进 —— 忘不掉了。
+SettingsSection addSettingsSection(QGridLayout *grid, int &row, const QString &title,
+                                   QWidget *parent) {
+    SettingsSection section;
+    section.title = title;
+    section.card = new QFrame(parent);
+    // 面挂在**属性**上（不是 objectName）：一页里这样的卡片有好几张，名字只能靠它认
+    // （产品、样式表、验证工程三方共用这一对字符串，见 Theme::surfacePropertyName()）。
+    markSurface(section.card, Theme::sectionSurfaceValue());
+    section.card->setProperty("settingsSectionTitle", title);
+    auto *layout = new QVBoxLayout(section.card);
+    // 内边距 **16 四面**、行距 **10**。
+    // 两个数都落进令牌那三档（区块间距 16 / 控件间距 10）：卡片自己那一圈属于"区块"，
+    // 卡里"行名 → 控件"那种成对的间距属于"控件"。这一档统一走令牌的三档节奏
+    // （两边都是"松紧"，只有断言能钉住 —— ui_check 的 K2 量的是这两个数）。
+    layout->setContentsMargins(16, 16, 16, 16);
+    layout->setSpacing(10);
+    auto *titleLabel = new QLabel(title, section.card);
+    markTextRole(titleLabel, Theme::sectionTitleTextRoleValue());
+    {
+        QFont titleFont = titleLabel->font();
+        titleFont.setBold(true);
+        titleFont.setPointSizeF(titleFont.pointSizeF() + 1.0);
+        titleLabel->setFont(titleFont);
+    }
+    layout->addWidget(titleLabel);
+    grid->addWidget(section.card, row, 0, 1, 2);
+    ++row;
+    section.layout = layout;
+    return section;
+}
+
+/// 往一节里加一项：**行名独占一行、内容在下一行** —— 实例设置那边也是这个上下结构
+/// （见 InstanceSettingsDialog.cpp 里的 addTitledRow()）。
+void addSettingItem(const SettingsSection &section, const QString &labelText, QWidget *control,
+                    QWidget *parent) {
+    if (labelText != section.title) {
+        QLabel *label = new QLabel(labelText, parent);
+        label->setProperty("settingsItemLabel", true);
+        label->setAlignment(Qt::AlignLeft);
+        section.layout->addWidget(label);
+    }
+    section.layout->addWidget(control);
+}
+
+/// 给设置页里的一行控件套一层"控件 + 说明文字"的容器（说明统一小一号、灰色）。
+/// @return 容器；调用方再往它的 layout 里塞真控件 —— 说明文字在**最后**加，
+/// 所以这里只把空布局还回去。
+QWidget *makeHintedControl(QWidget *parent) {
+    QWidget *box = new QWidget(parent);
+    QVBoxLayout *layout = new QVBoxLayout(box);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(4);
+    return box;
+}
+
+HintedControlWithLayout makeHintedControlWithLayout(QWidget *parent) {
+    QWidget *widget = makeHintedControl(parent);
+    return {widget, qobject_cast<QVBoxLayout *>(widget->layout())};
+}
+
+InlineRow makeInlineRow(QWidget *parent) {
+    auto *widget = new QWidget(parent);
+    auto *layout = new QHBoxLayout(widget);
+    layout->setContentsMargins(0, 0, 0, 0);
+    return {widget, layout};
+}
+
+/// 往 makeHintedControl() 造出来的容器里加一句说明，并把标签还回去。
+/// 文字会随情况变的那几句用它（比如「内存分配」下面那句要说系统现在有多少内存）。
+QLabel *addDynamicHint(QWidget *box, const QString &text, QWidget *parent) {
+    QLabel *hint = new QLabel(text, parent);
+    hint->setWordWrap(true);
+    QFont hintFont = hint->font();
+    hintFont.setPointSize(qMax(1, hintFont.pointSize() - 1));
+    hint->setFont(hintFont);
+    QPalette hintPalette = hint->palette();
+    hintPalette.setColor(QPalette::WindowText, hintPalette.color(QPalette::PlaceholderText));
+    hint->setPalette(hintPalette);
+    qobject_cast<QVBoxLayout *>(box->layout())->addWidget(hint);
+    return hint;
+}
+
+/// 和 addDynamicHint() 同一个形状，但字是**红的** —— 名字框底下那行"名字不能用"的原因
+/// 用的就是它（大小、换行、摆放都和旁边那行灰字一套）。
+QLabel *addDynamicErrorHint(QWidget *box, QWidget *parent) {
+    QLabel *hint = addDynamicHint(box, QString(), parent);
+    QPalette errorPalette = hint->palette();
+    // 拿的正是这个标签当下这块调色板（深色主题下它就是深的那一块），所以下面那行红字
+    // 自己会跟着主题换档 —— 不用再去问"现在是什么主题"。
+    errorPalette.setColor(QPalette::WindowText,
+                          MainWindowUI::installNameErrorColor(errorPalette));
+    hint->setPalette(errorPalette);
+    return hint;
+}
+
+/// 往 makeHintedControl() 造出来的容器里加一句说明。
+void addHint(QWidget *box, const QString &text, QWidget *parent) {
+    addDynamicHint(box, text, parent);
+}
+
+/// 下载页页头该不该露着 —— **唯一出处**。
+///
+/// 安装页的顶上大标题和刷新键**点进去就隐藏、外面还保留**。「那页」是「下载 → 游戏」
+/// 里面第二层那页**安装页**（挑加载器、填名字、按安装）；外面（版本树那一层、以及别的分类）
+/// 页头照旧露着。
+///
+/// NOTE: 只接收传进来的指针、**不捕获 MainWindowUI 自己** —— 它不是一个 QObject
+/// （见类声明），而这两发 `currentChanged` 的 context 是那两个堆叠页本身。
+/// 判据读的是两个堆叠页**此刻**的下标，所以"先翻分类、后翻内层"哪一发先到、
+/// 或者中间多来一发，结果都一样。
+void syncDownloadHeaderVisibility(QWidget *header, QStackedWidget *downloadStack,
+                                  QStackedWidget *gameStack) {
+    if (header == nullptr || downloadStack == nullptr || gameStack == nullptr) {
+        return;
+    }
+    const bool onInstallPage =
+        downloadStack->currentIndex() == MainWindowUI::downloadCategoryGameIndex() &&
+        gameStack->currentIndex() == MainWindowUI::downloadGameInstallIndex();
+    header->setVisible(!onInstallPage);
+}
+}

@@ -1,5 +1,7 @@
 #include "Support.hpp"
 #include "controllers/BackupController.hpp"
+#include "controllers/DownloadFilterController.hpp"
+#include "controllers/ResourcePageController.hpp"
 void runShutdownTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -144,6 +146,10 @@ void runShutdownTests() {
         // 晚，掐出来的数就永远是 `close()` 那一发（16 ms）。`delete w;`
         // 就是拆窗口那一下，表掐在它两边。
         auto *w = new MainWindow();
+        QPointer<DownloadFilterController> filters = w->findChild<DownloadFilterController *>();
+        QPointer<ResourcePageController> resources = w->findChild<ResourcePageController *>();
+        check(filters && resources && filters->parent() == w && resources->parent() == w,
+              "T43 extracted download/resource controllers belong to their main window");
         w->show();
         QApplication::processEvents();
 
@@ -199,6 +205,7 @@ void runShutdownTests() {
         QElapsedTimer clock;
         clock.start();
         delete w;
+        check(filters.isNull() && resources.isNull(), "T43 extracted controllers are destroyed with their window");
         closingMs = clock.elapsed();
     }
     // 门槛取 1500：`delete` 本身（线程都闲着的那一档）实测是十几毫秒，而反查那一趟卡在

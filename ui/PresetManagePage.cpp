@@ -457,6 +457,10 @@ void PresetManagePage::buildUi() {
     applyRow->addWidget(m_previewButton);
     rightLayout->addLayout(applyRow);
     connect(m_previewButton, &QPushButton::clicked, this, [this] {
+        if (m_planLoading) {
+            emit previewCancelRequested();
+            return;
+        }
         const QString presetId = currentPresetId();
         const QString instanceId = comboInstanceId(m_applyInstanceCombo);
         if (presetId.isEmpty() || instanceId.isEmpty()) return;
@@ -466,6 +470,7 @@ void PresetManagePage::buildUi() {
     // 换实例 / 换预设都会让上一份计划作废（计划是"对着那个实例那一刻"算出来的）。
     connect(m_applyInstanceCombo, &QComboBox::currentIndexChanged, this, [this] {
         clearPlan();
+        emit applyTargetChanged(comboInstanceId(m_applyInstanceCombo));
         refreshActions();
     });
 
@@ -577,6 +582,7 @@ void PresetManagePage::setPresets(const QList<PresetItem> &presets,
 }
 
 void PresetManagePage::rebuildPresetList(const QString &selectId, bool emitSelection) {
+    const QString previousId = m_currentId;
     const QString keep = selectId.isEmpty() ? m_currentId : selectId;
     m_fillingList = true;
     m_presetProxy->setFilters(m_filterKey, m_searchEdit->text().trimmed());
@@ -607,7 +613,7 @@ void PresetManagePage::rebuildPresetList(const QString &selectId, bool emitSelec
 
     // 用户自己换了筛选项：新选中的那一份要跟着刷新右栏（外面靠这个信号知道"现在看的是谁"）。
     const QString nowId = currentPresetId();
-    if (emitSelection && !nowId.isEmpty() && nowId != m_currentId) {
+    if (emitSelection && nowId != previousId) {
         m_currentId = nowId;
         clearPlan();
         emit presetSelected(nowId);
@@ -693,7 +699,7 @@ void PresetManagePage::setCaptureCheckEnabled(QCheckBox *box, quint32 bit, quint
     if (!allowed) {
         box->setChecked(false);
     }
-    box->setEnabled(allowed && !m_busy);
+    box->setEnabled(allowed && !m_busy && m_detailsAvailable);
     box->setVisible(allowed);
     QString tip = m_captureTips.value(box, box->toolTip());
     if (!allowed && !note.isEmpty()) {
@@ -726,6 +732,7 @@ void PresetManagePage::setCaptureAvailability(quint32 mask, const QString &note)
 void PresetManagePage::showPreset(const QString &id, const QString &name,
                                   const QString &description, const QString &categoryText,
                                   const QList<SectionItem> &sections) {
+    m_detailsAvailable = true;
     m_currentId = id;
     m_nameEdit->setText(name);
     m_descriptionEdit->setText(description);
@@ -787,11 +794,26 @@ void PresetManagePage::setInstances(const QList<InstanceItem> &instances,
                                     const QString &selectId) {
     fillInstances(m_captureInstanceCombo, instances, selectId);
     fillInstances(m_applyInstanceCombo, instances, selectId);
+    // The same instance id may now refer to another game root or run state.
+    clearPlan();
+    emit applyTargetChanged(selectedApplyInstanceId());
     refreshCaptureEnabled();
     refreshActions();
 }
 
+void PresetManagePage::setPlanLoading(bool loading) {
+    if (m_planLoading == loading) return;
+    m_planLoading = loading;
+    clearPlan();
+    m_previewButton->setText(loading ? tr("取消预览") : tr("预览计划"));
+    m_previewButton->setToolTip(loading ? tr("取消本次预览，不会修改实例。")
+        : tr("先说清楚会动哪几段、写几项、删几项、有哪些冲突；这一步一个字节都不写。"));
+    m_planHint->setText(loading ? tr("正在读取实例并生成计划…") : QString());
+    refreshActions();
+}
+
 void PresetManagePage::showPlan(const PlanView &plan) {
+    setPlanLoading(false);
     m_planList->clear();
     m_planCanApply = plan.canApply;
     m_planNeedsConfirm = plan.needsConfirm;
@@ -902,6 +924,26 @@ void PresetManagePage::clearPlan() {
 // 状态
 // ---------------------------------------------------------------------------
 
+void PresetManagePage::showPresetLoading(const QString &id) {
+    m_detailsAvailable = false;
+    m_currentId = id;
+    m_nameEdit->clear();
+    m_descriptionEdit->clear();
+    m_sectionList->clear();
+    m_presetMeta->setText(tr("正在读取预设内容…"));
+    clearPlan();
+    for (const auto &name : {QStringLiteral("presetEditModsButton"), QStringLiteral("presetEditOptionsButton")})
+        if (auto *button = findChild<QPushButton *>(name)) button->hide();
+    refreshActions();
+}
+
+void PresetManagePage::showPresetReadError(const QString &reason) {
+    m_detailsAvailable = false;
+    m_presetMeta->setText(tr("无法读取预设内容"));
+    showStatus(tr("这一份读不出来：%1").arg(reason));
+    refreshActions();
+}
+
 void PresetManagePage::setBusy(bool busy) {
     m_busy = busy;
     refreshActions();
@@ -939,7 +981,9 @@ PresetManagePage::CaptureChoice PresetManagePage::captureChoice() const {
 void PresetManagePage::refreshActions() {
     const int row = currentPresetRow();
     const bool valid = row >= 0 && !rowIsBroken(row);
-    const bool editable = valid && !m_busy;
+    const bool editable = valid && !m_busy && m_detailsAvailable;
+    for (const auto &name : {QStringLiteral("presetEditModsButton"), QStringLiteral("presetEditOptionsButton")})
+        if (auto *button = findChild<QPushButton *>(name)) button->setEnabled(editable);
 
     m_newButton->setEnabled(!m_busy);
     m_duplicateButton->setEnabled(editable);
@@ -972,8 +1016,8 @@ void PresetManagePage::refreshActions() {
         m_deleteButton->setText(QStringLiteral("删除"));
     }
 
-    m_previewButton->setEnabled(editable && !comboInstanceId(m_applyInstanceCombo).isEmpty());
-    m_applyButton->setEnabled(!m_busy && m_planCanApply && valid);
+    m_previewButton->setEnabled(m_planLoading || (editable && !comboInstanceId(m_applyInstanceCombo).isEmpty()));
+    m_applyButton->setEnabled(!m_busy && m_detailsAvailable && m_planCanApply && valid);
     if (!m_applyArmed) {
         m_applyButton->setText(QStringLiteral("应用"));
     }
@@ -991,7 +1035,7 @@ void PresetManagePage::refreshCaptureEnabled() {
     const quint32 mask = m_captureMask;
     auto enable = [this, mask](QCheckBox *box, quint32 bit, bool extra = true) {
         if (box != nullptr) {
-            box->setEnabled((mask & bit) != 0 && !m_busy && extra);
+            box->setEnabled((mask & bit) != 0 && !m_busy && m_detailsAvailable && extra);
         }
     };
     enable(m_captureOptions, CaptureVanillaOptions);
@@ -1018,8 +1062,8 @@ void PresetManagePage::refreshCaptureEnabled() {
     const bool hasPreset = !currentPresetId().isEmpty();
     const bool hasInstance = !comboInstanceId(m_captureInstanceCombo).isEmpty();
     const bool any = !captureChoice().isEmpty();
-    m_captureButton->setEnabled(!m_busy && hasPreset && hasInstance && any);
-    m_captureAsNewButton->setEnabled(!m_busy && hasInstance && any);
+    m_captureButton->setEnabled(!m_busy && m_detailsAvailable && hasPreset && hasInstance && any);
+    m_captureAsNewButton->setEnabled(!m_busy && m_detailsAvailable && hasInstance && any);
 }
 
 void PresetManagePage::armDelete() {
@@ -1069,6 +1113,13 @@ void PresetManagePage::onCurrentPresetChanged(const QModelIndex &current,
     refreshActions();
     if (!current.isValid() || itemIsBroken(current)) {
         m_currentId.clear();
+        m_nameEdit->clear();
+        m_descriptionEdit->clear();
+        m_sectionList->clear();
+        m_presetMeta->setText(tr("未选择预设"));
+        clearPlan();
+        refreshActions();
+        emit presetSelected(QString());
         return;
     }
     const QString id = current.data(Qt::UserRole).toString();

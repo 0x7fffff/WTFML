@@ -11,6 +11,8 @@
 #include "DownloadRetryPolicy.hpp"
 #include "ResumableDownload.hpp"
 #include "StreamedFile.hpp"
+#include "SlowSourcePolicy.hpp"
+#include "../net/RequestBudget.hpp"
 
 #include <QDebug>
 #include <QElapsedTimer>
@@ -436,11 +438,14 @@ void DownloadManager::probeOfficialRoute(const QString &mirrorHost) {
     if (now < m_officialProbeFailedUntilMs) {
         return;  // 刚探过、没通：两分钟之内不再拿真实请求去撞
     }
+    auto lease = RequestBudget::tryAcquire(RequestBudget::Lane::Control);
+    if (!lease) return;
     m_officialProbeInFlight = true;
     QNetworkRequest request{QUrl(m_officialProbeUrl)};
     configureHttp1(request);
     request.setTransferTimeout(10000);
     QNetworkReply *probe = networkManager->head(request);
+    RequestBudget::attach(probe, lease);
     if (DownloadDiag::enabled()) {
         DownloadDiag::line(QStringLiteral("official probe send url=%1 for mirror=%2")
                                .arg(DownloadDiag::safeUrl(m_officialProbeUrl), mirrorHost));
@@ -601,6 +606,27 @@ void DownloadManager::setSpeedLimitBytesPerSecond(qint64 bytesPerSecond) {
                                .arg(activeDownloads.size())
                                .arg(m_throttledReplies.size()));
     }
+    // Turning the limit off also stops its timer. Jobs waiting on token debt
+    // must be woken here even when no reply is still active to wake the queue.
+    pumpDownloadQueue();
+}
+
+qint64 DownloadManager::throttledReadBufferBytes() const {
+    // 一拍的总量 = limit × 0.1 s；平分给**当下真在飞**的每一路，再给两拍 —— 留一拍吸收
+    // 定时器迟到与"读走之后 QNAM 还没收到下一段"的空档，不会把速率拖到上限以下。
+    //
+    // NOTE: 分母是 activeDownloads.size()，不是 m_maxConcurrentDownloads 那一档。按上限
+    // 分的话，只开一两条作业时每条只能分到几 KB，速率会掉到远低于设定值（实测
+    // 2 × 5 MiB、限 8 MiB/s：1.2 MiB/s）。这条回复自己此刻还没进表，所以 +1。
+    const int lanes = qMax(1, int(activeDownloads.size()) + 1);
+    const qint64 tickBudget = m_speedBucket->limit / (1000 / kSpeedPumpMs);
+    const qint64 perLane = tickBudget / lanes * 2;
+    // 高水位还要**盖住这一条一拍该拿到的量**：一拍只读得到缓冲区里那点字节（下一拍才再读
+    // 一次），比它小的话速率就跟设定值脱钩了 —— 实测 2 × 5 MiB、限 8 MiB/s、每条封在
+    // 256 KiB，跑成 4.5 MiB/s。所以上限放到"整条带宽的 32 MiB"这一档：只有限速超过
+    // ~160 MiB/s（手改值、预设里没有）时它才会真的钳住。
+    const qint64 cap = qMax<qint64>(qint64(256) * 1024, qint64(32) * 1024 * 1024 / lanes);
+    return qBound<qint64>(qint64(8) * 1024, perLane, cap);
 }
 
 void DownloadManager::onSpeedPumpTick() {
@@ -615,10 +641,20 @@ void DownloadManager::onSpeedPumpTick() {
     m_speedBucket->tokens = qMin(
         capacity, m_speedBucket->tokens + double(limit) * double(elapsed) / 1000.0);
     if (m_throttledReplies.isEmpty()) {
-        // 没有人在等：余额也别攒（不然下一批一开始就会冲一个 burst）。
+        // 队列里还蓄着作业（欠账 / 限速拦下的那些）：余额就是给它们攒的，**别抹**，
+        // 先按余额发车。顺序反过来（先抹零再发车）会死锁：没有在飞的回复 ⇒ 每拍
+        // 余额刚补上就被抹掉 ⇒ 永远发不出第一条作业。
+        if (!m_pendingJobs.isEmpty()) {
+            pumpDownloadQueue();
+            return;
+        }
+        // 真没有人在等：余额也别攒（不然下一批一开始就会冲一个 burst）。
         // 桶是共用的时候**不许**抹 —— 这个下载器这一拍没人等，不代表共用它的
         // 那个（分段作业内部那个）也没人等；抹掉的话它那边的节奏会被这里每 100 ms 打回零。
-        if (m_speedBucket->sharers <= 0) {
+        //
+        // **只抹正的余额**：负数是已经写出去的字节（onDownloadReplyFinished 收尾那一口
+        // 记的账），不是"攒下的额度"—— 抹掉它等于把刚绕过桶的那一段直接赦免掉。
+        if (m_speedBucket->sharers <= 0 && m_speedBucket->tokens > 0) {
             m_speedBucket->tokens = 0;
         }
         return;
@@ -661,6 +697,8 @@ void DownloadManager::onSpeedPumpTick() {
             m_throttledReplies.remove(reply);
         }
     }
+    // 这一拍放出了一些字节 ⇒ 欠账可能还清了，把因为欠账停住的作业接着发。
+    pumpDownloadQueue();
 }
 
 bool DownloadManager::mayIssueAnotherDownloadToHost(int activeForHost, bool hostKnownHttp2) {
@@ -921,6 +959,7 @@ void DownloadManager::endBatch() {
 }
 
 void DownloadManager::abandonBatch() {
+    if (m_speedProbe) m_speedProbe->abort();
     if (DownloadDiag::enabled()) {
         DownloadDiag::line(QStringLiteral("batch abandoned gen=%1 total=%2 done=%3 failed=%4 "
                                           "skipped=%5 reused=%6 inflight=%7 queued=%8")
@@ -952,6 +991,7 @@ void DownloadManager::abandonBatch() {
 }
 
 void DownloadManager::cancelBatch() {
+    if (m_speedProbe) m_speedProbe->abort();
     if (DownloadDiag::enabled()) {
         DownloadDiag::line(QStringLiteral("batch cancelled gen=%1 oldGen=%2 total=%3 done=%4 "
                                           "failed=%5 skipped=%6 reused=%7 inflight=%8 queued=%9")
@@ -1168,6 +1208,13 @@ void DownloadManager::queueNetworkJob(const QString &url, const QString &destina
 }
 
 void DownloadManager::pumpDownloadQueue() {
+    // 限速欠账没还清之前不发新作业：小文件的身子大半在"结束那一刻一次性写完"的那一口里
+    // （见 throttledReadBufferBytes 的说明），不挡住新作业的话，缓冲里那些字节就等于
+    // 免费通过 —— 上限会被放大好几倍。负余额只表示"还欠多少字节"，不是错误；下一拍补到
+    // 1 字节以上就恢复发车（onSpeedPumpTick 末尾会再泵一次）。
+    if (m_speedBucket->limit > 0 && m_speedBucket->tokens < 1.0) {
+        return;
+    }
     // 判据用 activeDownloads.size() 而不是另开一个计数器：它是"当下真在飞的作业"
     // 的唯一事实 —— 别的下载（资源索引、客户端 jar）占着连接时这里自然少发几个。
     //
@@ -1182,6 +1229,11 @@ void DownloadManager::pumpDownloadQueue() {
     // 不丢作业、也不改变谁先谁后之外的任何事。
     int i = 0;
     while (i < m_pendingJobs.size()) {
+        const auto shared = RequestBudget::snapshot();
+        if (shared.bulk >= shared.limit) {
+            wakeForRequestBudget();
+            break;
+        }
         // 分段作业内部有 4 条连接，按真实连接数占全局额度；它不是 QNetworkReply，
         // 所以 activeDownloads 里看不到，必须单独加回来。
         const int streamActive = activeDownloads.size() + segmentConnections();
@@ -1235,6 +1287,69 @@ void DownloadManager::pumpDownloadQueue() {
                           job.officialUrl, job.retryAttempts, job.range);
         }
     }
+}
+
+void DownloadManager::probeFasterSource(QNetworkReply *source, qint64 currentRate) {
+    if (m_speedProbeInFlight || m_clock.elapsed() < m_nextSpeedProbeMs ||
+        source->property("wtfmlSpeedProbeAttempted").toBool() ||
+        !m_officialFallbacks.contains(source) || rangeOf(source).active()) return;
+    auto lease = RequestBudget::tryAcquire(RequestBudget::Lane::Bulk);
+    if (!lease) return;
+    source->setProperty("wtfmlSpeedProbeAttempted", true);
+    m_speedProbeInFlight = true;
+    m_nextSpeedProbeMs = m_clock.elapsed() + 60000;
+    const QPointer<QNetworkReply> original(source);
+    const QString fallback = m_officialFallbacks.value(source);
+    const auto generation = m_batchGeneration;
+    QNetworkRequest request{QUrl(fallback)};
+    configureHttp1(request);
+    request.setRawHeader("Range", "bytes=0-65535");
+    request.setRawHeader("Accept-Encoding", "identity");
+    request.setTransferTimeout(6000);
+    auto *probe = networkManager->get(request);
+    m_speedProbe = probe;
+    RequestBudget::attach(probe, lease);
+    probe->setReadBufferSize(64 * 1024);
+    auto clock = std::make_shared<QElapsedTimer>();
+    clock->start();
+    auto bytes = std::make_shared<qint64>(0);
+    connect(probe, &QIODevice::readyRead, probe, [probe, bytes] {
+        *bytes += probe->read(qMax<qint64>(0, 65536 - *bytes)).size();
+        if (*bytes >= 65536) {
+            probe->setProperty("wtfmlSampleComplete", true);
+            probe->abort(); // A server ignoring Range cannot stream the whole file.
+        }
+    });
+    QTimer::singleShot(6000, probe, [probe] { if (!probe->isFinished()) probe->abort(); });
+    connect(probe, &QNetworkReply::finished, this,
+            [this, probe, original, fallback, generation, currentRate, clock, bytes] {
+        m_speedProbeInFlight = false;
+        const int status = probe->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const bool sampled = (status == 200 || status == 206) &&
+            (probe->error() == QNetworkReply::NoError ||
+             probe->property("wtfmlSampleComplete").toBool());
+        const bool switchSource = sampled && SlowSourcePolicy::better(currentRate, *bytes, qMax<qint64>(1, clock->elapsed()));
+        if (DownloadDiag::enabled()) DownloadDiag::line(
+            QStringLiteral("source comparison: bytes=%1 elapsedMs=%2 currentBps=%3 switch=%4")
+                .arg(*bytes).arg(clock->elapsed()).arg(currentRate).arg(switchSource));
+        probe->deleteLater();
+        if (!switchSource || m_shuttingDown || generation != m_batchGeneration ||
+            m_speedBucket->limit > 0 || !original || original->isFinished() ||
+            m_officialFallbacks.value(original) != fallback) return;
+        // The existing fallback path restarts this file and verifies its complete
+        // hash/size. Probe bytes are discarded, never appended to another source.
+        original->setProperty("wtfmlRetryAttempts", 1);
+        original->abort();
+    });
+}
+
+void DownloadManager::wakeForRequestBudget() {
+    if (m_budgetWakePending || m_shuttingDown) return;
+    m_budgetWakePending = true;
+    QTimer::singleShot(25, this, [this] {
+        m_budgetWakePending = false;
+        pumpDownloadQueue();
+    });
 }
 
 void DownloadManager::requeueDownloadJob(const PendingJob &job) {
@@ -1570,6 +1685,13 @@ void DownloadManager::noteReplyProtocol(QNetworkReply *reply) {
 void DownloadManager::startDownload(const QUrl &url, const QString &destinationPath,
                                     const QString &expectedSha1, qint64 expectedSize,
                                     const QString &officialUrl, int retryAttempts, const DownloadRange &range) {
+    auto lease = RequestBudget::tryAcquire(RequestBudget::Lane::Bulk);
+    if (!lease) {
+        requeueDownloadJob(PendingJob{url.toString(), destinationPath, expectedSha1,
+                                    expectedSize, officialUrl, url.host(), retryAttempts, 0, range});
+        wakeForRequestBudget();
+        return;
+    }
     // 这条作业的**首选地址那个主机**正被降级、而它还知道备用地址：**直接改道**，别等它慢
     // 10 秒再退。这条判断必须在这里、不能只在"挑地址"的地方：资源对象是几千个一次性排进
     // 队列的，它们身上的镜像地址在排队那一刻就拼好了（见 PendingJob），等它们一个个撞上慢
@@ -1605,6 +1727,7 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     request.setTransferTimeout(30000);
     QNetworkReply *reply = networkManager->get(request);
     reply->setProperty("wtfmlRetryAttempts", retryAttempts);
+    RequestBudget::attach(reply, lease);
     reply->setProperty("wtfmlStartMs", m_clock.elapsed());
     // 把**发出去的那个入口地址**记在回复身上。`reply->url()` 在 302 之后
     // 已经变成落点地址了，拿它去记失败清单（见 handleDownloadError）等于把"下一次该
@@ -1621,7 +1744,9 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
     reply->setProperty("rangeLast", range.last);
     reply->setProperty("rangeTotal", range.total);
     reply->setProperty("rangeValidator", range.validator);
-    reply->setReadBufferSize(256 * 1024);
+    // 限速时缓冲要小：256 KiB 会让"一次就到齐"的小文件整份躺在 QNAM 的缓冲里，收尾那一口
+    // 绕过令牌桶（见 throttledReadBufferBytes() 的说明）。
+    reply->setReadBufferSize(m_speedBucket->limit > 0 ? throttledReadBufferBytes() : 256 * 1024);
     // 这一发要是 302 转到一台**刚刚证明过是死的**落点上，别等首字节计时
     // 到期（12 秒）—— 当场 abort，让它去重新掷一台落点。代价只有一个往返。
     // 落点表见 noteDeadRedirectTarget()：那里记的是"接得上、一个字节都不给"的主机。
@@ -2224,6 +2349,8 @@ bool DownloadManager::retryWithOfficialUrl(QNetworkReply *reply, const QString &
     request.setTransferTimeout(30000);
     QNetworkReply *retry = networkManager->get(request);
     retry->setProperty("wtfmlStartMs", m_clock.elapsed());
+    // 和 startDownload 同源：限速时缓冲要小，否则换路之后这一条又能把整份正文提前收进来。
+    retry->setReadBufferSize(m_speedBucket->limit > 0 ? throttledReadBufferBytes() : 256 * 1024);
     if (DownloadDiag::enabled()) {
         DownloadDiag::line(QStringLiteral("fallback resend: dest=%1 official=%2 "
                                           "previous=%3")
@@ -2728,6 +2855,14 @@ void DownloadManager::onDownloadReplyFinished() {
     } else if (!stream) {
         errorMessage = QStringLiteral("Download temporary file is unavailable");
     } else {
+        // 限速开着的时候，收尾这一口也要记账：QNAM 早就把正文收进了自己的缓冲，结束信号
+        // 到达时里面还剩多少，下面那句 drain() 就一次写多少 —— 不记账的话每个文件的尾巴
+        // 都绕过令牌桶（实测 1000 × 32 KiB、限 4 MiB/s：1.25 s 下完，≈6.25 倍于上限）。
+        // 为不丢数据仍然当场写完，把这笔字节记成**负余额**，由后面几拍的补充还上；
+        // 欠账没还清之前 pumpDownloadQueue() 不新开作业（见那里的说明），平均速率才回得去。
+        if (m_speedBucket->limit > 0) {
+            m_speedBucket->tokens -= double(reply->bytesAvailable());
+        }
         stream->drain(reply);
         errorMessage = stream->finish(expectedSha1s.value(reply), expectedSizes.value(reply, -1),
                                       !range.active() && shouldBeZipArchive(destPath));
@@ -2905,6 +3040,12 @@ void DownloadManager::onStallWatchdogTick() {
             }
         }
         meter.lastTickBytes = meter.bytesSeen;
+        const qint64 elapsed = now - reply->property("wtfmlStartMs").toLongLong();
+        const qint64 total = expectedSizes.value(reply, -1);
+        if (!stalled.contains(reply) && SlowSourcePolicy::shouldProbe(
+                elapsed, meter.bytesSeen, total, m_speedBucket->limit > 0)) {
+            probeFasterSource(reply, meter.bytesSeen * 1000 / qMax<qint64>(1, elapsed));
+        }
     }
     if (!stalled.isEmpty()) {
         // 先降级再 abort：abort 出来的失败会走 onDownloadReplyFinished，那里面退回官方时

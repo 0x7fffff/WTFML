@@ -126,6 +126,7 @@ int main(int argc, char *argv[]) {
     // 动效全关。这个工程量的是界面本身长什么样，不是它在动的时候长什么样；
     // 半路飞进来一段动画只会让判据时灵时不灵。规矩见 ui/Animations.hpp。
     Anim::setEnabled(false);
+    runPromptProbeChecks();
     // ---------- auth-live：**真注册表 + 真网络** 的一次性探针 ----------
     // 只为回答"盘上那份令牌现在到底还能不能换出会话"。它读的必须是产品自己那份 QSettings
     // （HKCU\Software\WTFML\WTFML），所以**必须在沙盒重定向之前**分派出去 —— 晚了读到的

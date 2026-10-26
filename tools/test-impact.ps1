@@ -38,6 +38,8 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         'tests/ui_check/modules/UiThemeCheck.cpp' = 'theme'
         'tests/mw_check/modules/MwHighSpeedDownloadCheck.cpp' = 'network'
         'tests/mw_check/modules/MwDownloadRetryCheck.cpp' = 'network'
+        'tests/mw_check/RequestBudgetChecks.cpp' = 'network'
+        'tests/mw_check/modules/PromptProbe.cpp' = 'window'
         'tests/mw_check/modules/MwActivitySelectionCheck.cpp' = 'workspace'
         'tests/mw_check/modules/MwWorkspaceCheck.cpp' = 'workspace'
         'tests/mw_check/JavaManageChecks.cpp' = 'java'
@@ -46,6 +48,8 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         'tests/mw_check/SegmentInstallChecks.cpp' = 'network'
         'tests/mw_check/ToolFeatureChecks.cpp' = 'toolbox'
         'tests/mw_check/PresetInstallChecks.cpp' = 'presets'
+        'tests/mw_check/PresetManifestChecks.cpp' = 'presets'
+        'tests/mw_check/PresetPreviewChecks.cpp' = 'presets'
         'tests/mw_check/InstanceUpgradeChecks.cpp' = 'upgrade'
         'tests/ui_check/ArmorTrimChecks.cpp' = 'toolbox'
     }
@@ -72,6 +76,7 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         }
         $selected = switch -Regex ($path) {
             '(?i)VersionDeclaration' { @('core','upgrade'); break }
+            '(?i)(ResourceSearchController|InstanceUpdateCheckController)' { @('window','mods','resources'); break }
             '(?i)(InstanceUpdate|InstanceUpgrade|UpgradeAssessment|InstanceTransfer)' { @('upgrade','ui'); break }
             '(?i)(Preset|Modpack)' { @('core','presets','network','mods','ui'); break }
             '(?i)(Theme|ToggleSwitch|MemorySlider|JavaSettings|JavaManage|GlobalJava|EffectiveJava)' { @('core','java','theme','ui','window'); break }
