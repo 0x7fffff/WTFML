@@ -35,6 +35,89 @@ FTB、Technic 等专用清单没有独立适配器；仅在实际包含上述标
 游戏目录导入跳过 versions、libraries、assets、日志及已知启动器账号文件；核心及加载器走现有安装器。
 不继承来源启动器的账号、任意 Java 路径和执行命令。压缩包路径检查、覆盖文件排除及目录锁仍生效。
 
+## MCLib AssetDirector 首启资源（GTNH，2.1.6a spike 结论）
+
+GTNH 2.8.4 首次启动会停在 MCLib 的 AssetDirector 资源下载（包内 Et Futurum Requiem
+2.6.2.25-GTNH 把 MCLib 0.3.7.7 打进 jar）。以下是 2026-10-26 的核对结论：请求集合从哪来、
+能不能稳定拿到、体积多大、产品若要预取该写在哪。本次只做核对，**产品行为没有变化**；
+2.1.6b 的写入位置/体积上限和 2.1.6c 的真实首启验收仍待人工确认后才进入实现。
+
+### 它要什么、怎么下、写在哪
+
+依据 MCLib 0.3.7.7 的 `AssetDirector.java` / `AssetFetcher.java` / `ADConfig.java`
+（与包内版本一致；0.3.7.8、0.4 的增补另注）。
+
+- 请求集合**来自模组代码**：模组在 FMLConstructionEvent 里注册 `ADConfig`
+  （`addObject` / `addSoundEvent` / `addJar`），资产名与声音事件名都是 Java 字面量，MCLib 只把它
+  按 modid 存在内存（`AssetDirectorAPI.jsons`）。**不落盘，也不在包的清单里。**
+- 解析：对每个声明的 MC 版本下载版本 JSON（launchermeta）→ 取 `assetIndex.url` → 用索引的
+  name→hash 表。`addObject` 的名字原样查表；`addSoundEvent` 先取索引里的 `minecraft/sounds.json`
+  （它本身也是一个资源对象），把事件展开成 `minecraft/sounds/<name>.ogg`。索引里查不到的名字、
+  sounds.json 里没有的事件只记一条 warn，不算失败。
+- 下载：对象走 `https://resources.download.minecraft.net/<hash[0:2]>/<hash>`，每次尝试后校验 SHA-1
+  （3 次尝试、连接/读取各 10 秒超时、`.part` 临时文件后改名）；版本 JSON 与资源索引 JSON 各存
+  自己一份，这两样**不走 overlay 复用**，缺了就自己下。0.3.7.7 是**单线程**逐个下，卡在大清单时
+  会长时间停在进度条上；并发与 `-DassetDirector.downloadThreads` 是 0.4 才有的。
+- 目录：`-Dminecraft.sharedDataDir/asset_director` → `$MINECRAFT_SHARED_DATA_DIR/asset_director`
+  → 否则 `<--assetsDir>/asset_director`（只有老官方启动器才退回 `<assets>/../asset_director`）。
+  本启动器传 `--assetsDir <数据目录>/assets`，不传 `minecraft.sharedDataDir`（补丁 `+jvmArgs` 是
+  白名单：两个固定 `-D`、`--enable-native-access` 和受限的 `--add-opens` / `--add-exports`），
+  数据根里的 `launcher_profiles.json` 也没有 `launcherVersion` 段，所以落点是
+  `<数据目录>/assets/asset_director`，**所有实例共用一份**。
+  （要按实例隔离只能用 `MINECRAFT_SHARED_DATA_DIR` 环境变量，那是另一条产品改动，本次不涉及。）
+- 复用与信任边界：读对象时先找 `<ad>/assets/objects`，再找启动器的 `<assets>/objects`；写只写 `<ad>`。
+  **它只判“文件存在”，不重算哈希**；索引/版本 JSON 在 0.3.7.7 里损坏后也没有重取路径
+  （0.3.7.8 才加）。所以预取方必须自己按官方大小/SHA-1 校验后再发布，否则一个坏对象会被长期
+  当成好的用。
+
+### 请求集合能不能稳定得到
+
+| 来源 | 结论 | 依据 |
+| --- | --- | --- |
+| 包内声明 | 不行 | MultiMC patches 只声明 `net.minecraft` 的 `assetIndex`（1.7.10）；ADConfig 在模组 jar 里，运行时才注册，包里没有可读清单。 |
+| 资源索引 | 得不到子集 | 索引只给“某个 MC 版本的全集”（1.21 索引 3911 个对象/787.8 MiB，只取 sounds/ 也有 3727 个/686.5 MiB）；而且“取哪个版本的索引”同样来自模组代码。 |
+| 已校验缓存 | 可以 | 一次成功启动后 `<ad>` 里就是实际集合；再逐项按官方索引的 size/SHA-1 复核即可固定成“已知集合”。 |
+| 模组源码 | 可以（本次走这条） | EFR 的 `addObject` / `addSoundEvent` 是静态字面量，配上该版本索引里的 sounds.json 能离线算出完整集合。 |
+
+结论：没有“只靠包清单、离线、通用”的推导路径；可行的是**按整合包＋模组版本固定一份已知集合
+清单**，每项用官方 HTTPS 索引的大小/SHA-1 校验，再由启动器预取。“从已校验缓存记录一份”和
+“从消费者源码静态生成”在 GTNH 2.8.4 上应当得到同一份集合（本次只实测了后者）。
+
+### 实测体积（2026-10-26）
+
+| 项目 | GTNH 2.8.4（EFR 2.6.2.25-GTNH，资产版本 1.21，索引 id 17） | 2.9.0-RC-2 侧（EFR 2.6.60-GTNH，资产版本 1.21.10，索引 id 27） |
+| --- | --- | --- |
+| 声明 sound event / 对象 | 243 / 6 | 250 / 6 |
+| 解析出的对象（去重） | 755 个，115,427,181 B（110.08 MiB） | 763 个，59,315,112 B（56.57 MiB） |
+| 索引里查不到的 | 0 | 0（2 个事件在 sounds.json 里不存在，只 warn） |
+| 已在 1.7.10 索引里的 | 12 个 / 10.3 MiB | 0 |
+| 加 AD 自己要的 sounds.json | 110.57 MiB | 57.11 MiB |
+| 加版本 JSON＋索引 JSON（冷启动总量） | **111.04 MiB**（116,429,155 B） | 57.63 MiB（60,432,550 B） |
+
+1.21 索引共 3911 个对象 826,115,023 B（787.8 MiB），1.21.10 共 4403 个 449,113,996 B；
+整索引（或其中的整 sounds 子集）是已知集合的 6–7 倍，因此不采用整索引。
+本包自己的 1.7.10 资产索引（686 个对象 112,396,854 B，sha1 `1863782e…`）与已知集合只有 12 个
+哈希相同，同名 ogg 的哈希全不同（重编码过），所以“复用已有 assets/objects”在这套包上只省 10.3 MiB。
+前文 3213 个对象那次是“本机有就铺一遍”的夹具补法，不等于这份 755 个的清单，两者不能互相代替。
+
+### 若进入 2.1.6b 的候选方案（待确认）
+
+- 只写 `<数据目录>/assets/asset_director/` 下的 `versions/<v>/<v>.json`、`assets/indexes/<id>.json`、
+  `assets/objects/<xx>/<hash>`；不写共享 `assets/objects`，不写游戏目录，不改模组文件。
+  AD 自己也不往共享 objects 写，两边的边界一致。
+- 每个文件先落同目录临时文件，按已知集合里的 size＋SHA-1 校验通过后原子改名；盘上已有但不是
+  本模块校验过的文件不直接信任，重算大小/哈希后再决定复用。
+- 分批下载并报“复用 X 个 / 待下载 Y 个 / 失败 Z 个”；失败可重试、取消保留已完成项；
+  预取失败不阻断启动（AD 会自己下，只是回到今天的体验）。
+- 写入前对总量做上限检查并记日志；GTNH 2.8.4 的已知集合是 111.04 MiB，上限建议 256 MiB。
+
+待人工确认：**2.1.6a** 是否接受“GTNH 已知集合”方案（通用方案不可行，见上表）；
+**2.1.6b** 是否允许自动下载（本包 111.04 MiB、上限另定）、是否只写上述 overlay。
+
+复算方法：EFR 的 `build.gradle`（`injectedTags` 里的 `MC_ASSET_VER`）、`EtFuturum.getSounds()`
+字面量、`dependencies.gradle` 里的 MCLib 版本，加上 launchermeta 的版本清单/版本 JSON/资源索引，
+即可离线重算；本次用的命令与未验证边界见[测试与验证](TESTING.md)。
+
 ## 验证
 
 常规回归：tools/test.ps1 -Suite ci-core -Modules core-resources；主窗口导入接线在
@@ -52,7 +135,8 @@ GTNH 2.8.4 已在独立工作区走通生产 VersionManager 的真实安装流�
 线程栈在 HTTPS 文件读取，不能仅凭加载画面不变判定死锁。只读核对本机已有官方资源，
 按资源索引的大小和 SHA-1 复制 3213 个音频/声音索引对象到隔离测试根的 assets/objects 后，
 重启即可越过下载并进入世界。共复用 614557694 字节，未改写原游戏目录或替换模组。
-此操作是测试夹具补齐缓存，不是产品已支持模组资源自动预取；无缓存下载、进度与重试仍待完善。
+此操作是测试夹具补齐缓存，不是产品已支持模组资源自动预取；无缓存下载、进度与重试仍待完善，
+请求集合的来源与实测体积见上文“MCLib AssetDirector 首启资源”。
 旧版游戏在本次电脑控制中出现点击位置不一致，未把鼠标操作全流程计为通过；最终经退出确认框
 正常关闭，未强杀已进入世界的进程，也未开启局域网或连接服务器。
 

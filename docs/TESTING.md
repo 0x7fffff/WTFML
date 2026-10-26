@@ -13,6 +13,20 @@
 备份头依赖以正式目标的 `*.obj.d` 中 `BackupFiles.hpp` 命中数量核对：调整前 14，调整后 8。
 这是依赖范围缩减，不是冷/增量速度对比，也不是运行性能结论。主计划保留相应测量余项。
 
+2026-10-26 2.1.6a（GTNH 首启 MCLib AssetDirector 资源）是核对项，**不改产品代码**：
+结论与体积实测见[整合包导入](MODPACK_IMPORT.md)的“MCLib AssetDirector 首启资源”一节。
+本次没有新增/修改 CTest 用例。本机 PowerShell 7 不在 PATH（只有 5.1，而入口脚本要求 7.0），
+所以**没有**跑 `./tools/test.ps1 -Suite affected`；改用 `tools/test-impact.ps1` 里同一套映射函数
+（去掉 `#Requires` 行后 dot-source）核对本次三处改动：`full=false`、模块/测试/套件均为空，
+按入口的判据属于文档改动，应直接报“No build/tests required”——这不代表任何模块回归通过，
+也不构成预取能力的证据。
+数字来自 Mojang 官方 launchermeta 与资源索引，加上 EFR 2.6.2.25-GTNH 与 2.6.60-GTNH 的
+`Reference`/`EtFuturum`/`build.gradle`/`dependencies.gradle`（资产版本分别取 `minecraft_1.21`
+与 `minecraft_1.21.10`），用一次性脚本按 `AssetDirector` 的解析规则（sounds.json 展开
+`addSoundEvent`、索引查 name→hash）重算；脚本不入库，重算方法写在文档里。
+未验收：GTNH 2.8.4 的真实已校验缓存记录、无缓存联网首启（2.1.6c）、预取写入、失败重试与取消——
+本机没有 GTNH 2.8.4 原包与 Java 21 的隔离测试根，静态推导不等于产品已会预取。
+
 ## 统一入口（Windows / PowerShell 7）
 
 P2 Java 扫描后台化：`20261025-195745-67ed6c08` 主窗口 2696/2696 和 Java 管理专项通过。
