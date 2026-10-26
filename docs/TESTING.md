@@ -13,46 +13,55 @@
 备份头依赖以正式目标的 `*.obj.d` 中 `BackupFiles.hpp` 命中数量核对：调整前 14，调整后 8。
 这是依赖范围缩减，不是冷/增量速度对比，也不是运行性能结论。主计划保留相应测量余项。
 
-2026-10-26 2.1.6a/2.1.6b（GTNH 首启 MCLib AssetDirector 资源）：spike 结论 + 预取实现。
-行为、写入位置、上限与未验收边界见[整合包导入](MODPACK_IMPORT.md)的“MCLib AssetDirector
-首启资源”与“2.1.6b 落地”两节。
+2026-10-26 2.1.6a/2.1.6b/2.1.6c（GTNH 首启 MCLib AssetDirector 资源）：spike 结论 + 预取实现 +
+真机冷缓存首启。行为、写入位置、上限与实测细节见[整合包导入](MODPACK_IMPORT.md)的
+“MCLib AssetDirector 首启资源”与“2.1.6c 实测”两节。
 
-新增/改动的代码：`src/download/AssetDirectorKnownSet.{hpp,cpp}`（清单校验、消费者识别、
-复用判据与计划）、`src/download/AssetDirectorKnownSetData.cpp`（生成的嵌入数据，
-与 `assets/assetdirector/known-sets.json` 逐字节一致）、`VersionManager::assetDirectorPrefetchPlan()`
-/`prefetchAssetDirectorResources()`、`MainWindow::maybePrefetchAssetDirector()`（导入成功后接线）。
-断言放在 `wtfml.core-resources`（AD1–AD7）与 `wtfml.main-window`（AA12 接线）里。
+新增/改动的代码：`src/download/AssetDirectorKnownSet.{hpp,cpp}`（清单校验、消费者识别、复用判据与
+计划）、`src/download/AssetDirectorKnownSetData.cpp`（生成的嵌入数据，与
+`assets/assetdirector/known-sets.json` 逐字节一致）、`VersionManager::assetDirectorPrefetchPlan()`
+/`prefetchAssetDirectorResources()`、`MainWindow::maybePrefetchAssetDirector()`（导入成功后接线）、
+`tools/assetdirector-knownset.py`（`--from-cache` 为主、字面量解析为交叉核对）。
+断言在 `wtfml.core-resources`（AD1–AD7）与 `wtfml.main-window`（AA12 接线）。
 
-本轮跑过的（`build/verification-mingw13`，MinGW 13.1 / Qt 6.10.1 / Release，严格警告 +
-`-Werror`；该目录是本轮新建的 `cmake -DCMAKE_CXX_COMPILER=D:/Qt/Tools/mingw1310_64/bin/g++.exe`，
-因为 `CMakePresets.json` 里写死的编译器路径在本机是错的 —— `D:/Qt/Qt/Tools/...` 多了一层 Qt）：
+### 离线回归（`build/verification-mingw13`，MinGW 13.1 / Qt 6.10.1 / Release / `-Werror`）
 
-- `pwsh ./tools/test.ps1 -Suite ci-integration -Modules window` → `wtfml.main-window` 2700/2700，
-  报告 `20261026-153039-787ed5a8`（其中 AA12 四条是本次新增的预取接线断言）。
-- `ctest -L ^ci-core$` → 16/16 通过（143.6 s），含 `wtfml.core-resources` 898/898。
-- `WTFMinecraftLauncher`（正式目标）在本轮源码上构建通过。
-- 单独跑的模块计数：`verify_downloads` 182/182、`verify_install` 378/378、
-  `verify_instances` 1545/1545、`verify_launch` 300/300、`verify_baseline` 195/195。
+- `wtfml.core-resources` **899/899**、`wtfml.main-window` **2700/2700**（含 AA12）。
+- `ctest -L ^ci-core$` 16/16；`verify_downloads 182`、`verify_install 378`、`verify_instances 1545`、
+  `verify_launch 300`、`verify_baseline 195` 全通过；正式目标 `WTFMinecraftLauncher` 构建通过。
+- 首次 ci-core 是**红的**并保留：`20261026-151824-5e875573` 的 `wtfml.test-modules` 报
+  `Core assertion file has no domain owner: OperationReportTests.cpp`（2.1.1/2.1.2 留下的工具链
+  缺口，与本次无关）。补 `"OperationReportTests.cpp": "instances"` 后重跑才全绿。
+- 入口把这一组改动判成 `full`（`src/manage/VersionManager.cpp` 没有分类映射、`src/MainWindow.cpp`
+  算共享）—— 本轮没跑完整 full/visual，只按受影响面跑了 ci-core 全量与 ci-integration 的 window
+  分片；`ui_check` 那套没重跑（没动 `ui/`）。给 `assets/assetdirector/` 与
+  `tools/assetdirector-knownset.py` 补了映射到 `core-resources` 的规则。
 
-入口把这一组改动判成 `full`（`src/manage/VersionManager.cpp` 没有分类映射，
-`src/MainWindow.cpp` 算共享）—— 本轮**没有**跑完整 full/visual，只按受影响面跑了 ci-core
-全量与 ci-integration 的 window 分片；`ui_check` 那一套没重跑（本次没动 `ui/`）。
-另给 `assets/assetdirector/` 与 `tools/assetdirector-knownset.py` 补了映射到 `core-resources`
-的规则，免得清单改动落进 default 直接判 full。
+### 真机（2.1.6c，本机）
 
-首次 ci-core 是**红的**，保留：`20261026-151824-5e875573` 里 `wtfml.test-modules` 报
-`Core assertion file has no domain owner: OperationReportTests.cpp`。这是 2.1.1/2.1.2 那次改动
-留下的工具链缺口（该文件编在 `core_cases_instances` 里，`owners.json` 漏了它），与本次预取无关；
-补上 `"OperationReportTests.cpp": "instances"` 之后重跑才全绿。原始失败报告与日志留在该目录，
-不能用"重跑通过"抹掉。
+环境 `D:\WTFtest\wtfml-216c-clean`：空数据根、只有启动器自己下的 Temurin 21.0.12.1
+（`mw_check.exe java-self-managed`，走 `GlobalJavaSettings::downloadJavaFromMojang`）、
+官方 `GT_New_Horizons_2.8.4_Java_17-25.zip`（595,584,698 B）。导入走
+`mw_check.exe multimc-import-live`（产品 `MainWindow::importModpackFromFile()`，两问按默认答），
+启动走 `verify_instances.exe --launch-main-menu`（产品 `LauncherManager`）。
 
-没跑的（不作通过）：
-- **2.1.6c 无缓存联网首启**：本机没有 GTNH 2.8.4 原包与隔离数据根，111.04 MiB 的真实下载
-  一个字节都没走，主菜单也没验。要跑需要 `GT_New_Horizons_2.8.4_Java_17-25.zip`、空数据根
-  （无 `assets/objects`、无 `asset_director`）、Java 21；步骤写在整合包导入文档里。
-- 预取失败/取消后的现场（部分文件、下次跳过）没有在真实磁盘上演练；`tools/assetdirector-knownset.py`
-  只跑了 `--embed` 分支，整套重新生成（要网络 + EFR 检出）没跑。
-- 多 DPI、慢盘、杀毒实时扫描仍归 §3 与 §1 的验收。
+- 导入 42.7 s（1.7.10 原版/库/资产 + 解开 11972 个覆盖文件）；导入成功后产品**自己预取**
+  1356 个对象 + 两份 JSON = 112.6 MiB 下载、复用 12 个，用时 20.5 s。
+- 首启 `LAUNCH_MAIN_MENU ok=1 reason=sound-marker elapsedMs=36566`（36.6 s 到主菜单）。
+- **启动期间 `assets/asset_director` 1358 个文件 / 118,056,787 B / 最新 mtime 17:03:47 一个都没变**，
+  游戏日志里 **0** 条 `AssetDirector`/`Downloading resources`。
+- 对照：只预取静态字面量集合的那一趟，AD 启动时又下 612 个对象（+12.5 MB）、到主菜单 152.1 s。
+  清单因此改成以“已校验缓存”为准（1368 个对象 / 128,399,283 B）。
+
+本轮同时改了两个验收探针（都是探针自身的问题，不是产品的）：
+`verify_instances --launch-main-menu` 改成先 `prepareNatives()` 再 `checkPreLaunch()`（和产品启动路
+一致，否则 1.7.10 第一次启动根本没有 natives 目录）；`mw_check` 新增 `multimc-import-live`
+与 `java-self-managed` 两个一次性探针，并且**不能**用 `DirectConnection` 直接调
+`importModpackFromFile()`（那两问是同步嵌套事件循环，定时器起不来会卡死）。
+
+没跑的（不作通过）：进世界、多 Java 版本、多 DPI、慢盘/杀毒矩阵；预取失败与取消的真实磁盘现场
+（只在离线夹具里验过：取消不删文件、下次跳过）；`tools/assetdirector-knownset.py` 的
+`--efr-java` 静态分支本次没重跑（只用了 `--from-cache` 与 `--embed`）。
 
 ## 统一入口（Windows / PowerShell 7）
 

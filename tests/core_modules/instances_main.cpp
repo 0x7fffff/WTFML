@@ -130,14 +130,19 @@ int runLaunchProbeIfRequested(const QStringList &arguments) {
     }
     QStringList errors;
     LauncherManager launcher;
-    if (!launcher.checkPreLaunch(versionId, &errors, json)) {
-        std::printf("LAUNCH_MAIN_MENU ok=0 reason=prelaunch %s\n",
-                    errors.join(QStringLiteral(" | ")).toUtf8().constData());
-        return 4;
-    }
+    // **顺序要和产品一致**：MainWindow 那条启动路上是 prepareNatives() 先、checkPreLaunch()
+    // 后（见 LaunchController 里"旧格式（1.18.2 及以下）的 natives 必须先落地"那句）。
+    // 倒过来会用一个**第一次启动本来就不存在**的 natives 目录去判，1.7.10 的包（GTNH 2.8.4
+    // 就是）当场被拦成 "该版本需要 natives 组件，但 …/natives 里没有解压出 DLL" ——
+    // 那是探针自己的顺序错，不是实例缺东西。
     launcher.prepareNatives(json, versionId, &errors);
     if (!errors.isEmpty()) {
         std::printf("LAUNCH_MAIN_MENU ok=0 reason=natives %s\n",
+                    errors.join(QStringLiteral(" | ")).toUtf8().constData());
+        return 4;
+    }
+    if (!launcher.checkPreLaunch(versionId, &errors, json)) {
+        std::printf("LAUNCH_MAIN_MENU ok=0 reason=prelaunch %s\n",
                     errors.join(QStringLiteral(" | ")).toUtf8().constData());
         return 4;
     }

@@ -77,13 +77,16 @@ GTNH 2.8.4 首次启动会停在 MCLib 的 AssetDirector 资源下载（包内 E
 | 包内声明 | 不行 | MultiMC patches 只声明 `net.minecraft` 的 `assetIndex`（1.7.10）；ADConfig 在模组 jar 里，运行时才注册，包里没有可读清单。 |
 | 资源索引 | 得不到子集 | 索引只给“某个 MC 版本的全集”（1.21 索引 3911 个对象/787.8 MiB，只取 sounds/ 也有 3727 个/686.5 MiB）；而且“取哪个版本的索引”同样来自模组代码。 |
 | 已校验缓存 | 可以 | 一次成功启动后 `<ad>` 里就是实际集合；再逐项按官方索引的 size/SHA-1 复核即可固定成“已知集合”。 |
-| 模组源码 | 可以（本次走这条） | EFR 的 `addObject` / `addSoundEvent` 是静态字面量，配上该版本索引里的 sounds.json 能离线算出完整集合。 |
+| 模组源码 | 只得到**下界** | EFR 的 `addObject` / `addSoundEvent` 字面量能离线算一遍，但 `getSounds()` 末尾还有一段按方块注册表循环注册的事件（见下文实测），静态正则看不见。 |
 
 结论：没有“只靠包清单、离线、通用”的推导路径；可行的是**按整合包＋模组版本固定一份已知集合
-清单**，每项用官方 HTTPS 索引的大小/SHA-1 校验，再由启动器预取。“从已校验缓存记录一份”和
-“从消费者源码静态生成”在 GTNH 2.8.4 上应当得到同一份集合（本次只实测了后者）。
+清单**，每项用官方 HTTPS 索引的大小/SHA-1 校验，再由启动器预取。清单的权威来源是
+**跑过一次的 AD 目录（已校验缓存）** —— 静态解析只当交叉核对，2026-10-26 的实测证明它比真实集合
+少 612 个对象。
 
 ### 实测体积（2026-10-26）
+
+先看**静态解析的下界**：只数 `EtFuturum.getSounds()` 里的字面量。
 
 | 项目 | GTNH 2.8.4（EFR 2.6.2.25-GTNH，资产版本 1.21，索引 id 17） | 2.9.0-RC-2 侧（EFR 2.6.60-GTNH，资产版本 1.21.10，索引 id 27） |
 | --- | --- | --- |
@@ -94,11 +97,19 @@ GTNH 2.8.4 首次启动会停在 MCLib 的 AssetDirector 资源下载（包内 E
 | 加 AD 自己要的 sounds.json | 110.57 MiB | 57.11 MiB |
 | 加版本 JSON＋索引 JSON（冷启动总量） | **111.04 MiB**（116,429,155 B） | 57.63 MiB（60,432,550 B） |
 
+**这个 755 是被真机打回来的**：2026-10-26 的 2.1.6c 实跑里，AD 在启动时又下了 **612 个对象**
+（EFR 的 `getSounds()` 末尾有一段 `for (ModSounds.CustomSound sound : ModSounds.getSounds())`，
+按方块注册表动态注册 step/place/break 声音事件 —— 静态正则只数 `config.addSoundEvent(ver, "…")`
+那一族字面量，看不见循环里的）。所以**清单以“跑过一次的 AD 目录”为准**，静态解析只当交叉核对：
+GTNH 2.8.4 的真实集合是 **1368 个对象 / 128,399,283 B（122.45 MiB）**，也全部能在索引 17 里
+按名字、大小、SHA-1 核对上。加两份 JSON 后冷启动总量 122.92 MiB；减掉 1.7.10 资产里能复用的
+12 个（10.3 MiB）后，实际要下 112.6 MiB。
+
 1.21 索引共 3911 个对象 826,115,023 B（787.8 MiB），1.21.10 共 4403 个 449,113,996 B；
 整索引（或其中的整 sounds 子集）是已知集合的 6–7 倍，因此不采用整索引。
 本包自己的 1.7.10 资产索引（686 个对象 112,396,854 B，sha1 `1863782e…`）与已知集合只有 12 个
 哈希相同，同名 ogg 的哈希全不同（重编码过），所以“复用已有 assets/objects”在这套包上只省 10.3 MiB。
-前文 3213 个对象那次是“本机有就铺一遍”的夹具补法，不等于这份 755 个的清单，两者不能互相代替。
+前文 3213 个对象那次是“本机有就铺一遍”的夹具补法，不等于这份清单，两者不能互相代替。
 
 ## 2.1.6b 落地：导入成功后预取（已实现）
 
@@ -132,7 +143,8 @@ asset_director/assets/objects/<hash 前两位>/<hash>
 半成品不会出现在目标路径上；批次前后取数据根的生命周期锁，拿不到就一个字节都不写。
 
 **体积上限。** 单套已知集合上限 256 MiB（`AssetDirectorKnownSet::kMaxKnownSetBytes`）。
-超了就**不下**，界面直说是哪套、多大。GTNH 2.8.4 实测 111.04 MiB，离上限还有余量。
+超了就**不下**，界面直说是哪套、多大。GTNH 2.8.4 的实际集合是 122.45 MiB（冷启动要下
+112.6 MiB，其余从 1.7.10 资产里复用），离上限还有余量。
 
 **进度 / 取消 / 重试。** 走公共的下载批次：任务中心一条“预取 <实例> 的首启资源”（可取消），
 底栏进度条报的是**真要下的那几个**；`stats.skipped` 那种“盘上本来就有”的不算进分母。
@@ -149,33 +161,54 @@ asset_director/assets/objects/<hash 前两位>/<hash>
   版本 JSON/资源索引的 URL/sha1/size + 每个对象的 name/hash/size + 总量）。
 - 编进产品的那一份：`src/download/AssetDirectorKnownSetData.cpp`（同样字节，chunk 拼接）。
   两份**必须逐字节一致**，`AssetDirectorKnownSetTests.cpp` 会断言。
-- 重新生成：`python tools/assetdirector-knownset.py --efr-java <EtFuturum.java> --tag <EFR tag>
-  --mc-version <MC asset version>` 再 `--embed`。参数从 EFR 的 `build.gradle`
-  （`injectedTags` 的 `MC_ASSET_VER`）和 `dependencies.gradle`（MCLib 版本）里读。
-  清单是**按整合包＋模组版本钉死**的：换 GTNH 版本、换 EFR 版本、换资产版本都要重新生成一套，
-  不能沿用旧的那份“凑合用”。
+- 重新生成（**首选**）：跑一次真包，然后拿那次跑出来的 AD 目录反推：
+  `python tools/assetdirector-knownset.py --from-cache --ad-dir <数据根>/assets/asset_director
+  --assets-root <数据根>/assets --tag <EFR tag> --mc-version <MC asset version>` 再 `--embed`。
+  它枚举 AD 目录里的对象（逐个按官方索引的字节数＋SHA-1 核过），加上"上一份清单里、被 AD
+  从共享 `assets/objects` 复用因而没进它自己目录"的那几个；两份 JSON 的地址/哈希取自
+  launchermeta，并核对盘上那两份与官方逐字节一致。这条路**看到的就是 AD 真正要的东西** ——
+  静态解析只是下界（见上文 `ModSounds` 循环那段）。
+- 静态解析（交叉核对用）：`--efr-java <EtFuturum.java> --tag <EFR tag> --mc-version <MC>`
+  从 `EtFuturum.getSounds()` 的字面量算一遍，结果必须是缓存反推集合的**子集**。
+  参数从 EFR 的 `build.gradle`（`injectedTags` 的 `MC_ASSET_VER`）和 `dependencies.gradle`
+  （MCLib 版本）里读。
+- 清单是**按整合包＋模组版本钉死**的：换 GTNH 版本、换 EFR 版本、换资产版本都要重新生成一套，
+  不能沿用旧的那份"凑合用"。一次真机跑就能看出清单够不够（AD 又下东西了）：启动日志里的
+  `Downloading resources` 和 AD 目录的文件数就是判据。
 - 校验规则（`AssetDirectorKnownSet::parse()`）：只认 `formatVersion: 1`；地址必须是 Mojang
   官方的 HTTPS 主机（`piston-meta` / `launchermeta` / `resources.download`）；哈希 40 位十六进制；
   对象名不许 `..`、不许绝对路径；同一套里哈希不许重复；声明的 `totalBytes` 必须等于逐项之和。
   任何一条不对就整份拒用，不“尽量读”。
 
-### 还没验收的部分（2.1.6c）
+### 2.1.6c 实测（2026-10-26，本机）
 
-隔离空缓存根 + 真 GTNH 2.8.4 包 + Java 21、产品自己下完 111.04 MiB 并**启动到主菜单**，
-这一趟**没跑**：本机没有 GTNH 原包，也没有那套隔离测试根。能说的只有：
+环境：Windows `D:\WTFtest\wtfml-216c-clean`（**空的**数据根，只有产品自己下的 `java/21` =
+Temurin 21.0.12.1，由 `GlobalJavaSettings::downloadJavaFromMojang` 下载）、
+`GT_New_Horizons_2.8.4_Java_17-25.zip`（595,584,698 B，官方 MultiMC 导出包）。
+导入用产品自己的 `MainWindow::importModpackFromFile()`（`mw_check.exe multimc-import-live`，
+两问按产品默认值答掉），启动用产品 `LauncherManager`（`verify_instances --launch-main-menu`）。
 
-- 离线回归覆盖清单校验、消费者识别、复用判据、上限拒绝、路径拼装，以及主窗口“认不出消费者
-  时什么都不做”的接线（`wtfml.core-resources`、`wtfml.main-window`）；
-- 真实下载路径（官方 CDN、HTTP 状态、公司/校园网）**一个字节都没在本轮走过**，所以
-  “预取能下完 111 MiB”目前是设计而不是观测；
-- 首启效果（游戏不再停在 AssetDirector）要等 2.1.6c 真跑；预取失败/取消后的现场也只是
-  “保留已校验文件、下次跳过”，没在真实磁盘上演练过。
+| 步骤 | 结果 |
+| --- | --- |
+| 导入（1.7.10 原版＋库＋资产＋解开 11972 个覆盖文件） | 42.7 s |
+| 预取（1.7.10 资产已在盘上） | 1358 个文件（1356 对象 + 两份 JSON）/ **112.6 MiB 下载**、复用 12 个；42.9 s → 63.4 s（**20.5 s**） |
+| 首启到主菜单 | `LAUNCH_MAIN_MENU ok=1 reason=sound-marker elapsedMs=36566`（**36.6 s**） |
+| 启动期间 AD 的写入 | **0**：`assets/asset_director` 1358 个文件 / 118,056,787 B，最新 mtime 17:03:47 与启动前一致 |
+| 启动日志里的 AD 行 | **0** 行（对照：未预取那一次有 `Downloading resources, this may take a while...`） |
 
-验收要准备的东西：GTNH 2.8.4 的 `GT_New_Horizons_2.8.4_Java_17-25.zip`、一个空的数据根
-（里面没有 `assets/object*`、没有 `asset_director`）、Java 21（或让启动器自己下），
-用 `mw_check.exe modpack-import-live <包.zip> <实例名> <游戏根目录>` 走生产导入，
-之后再走生产 LauncherManager 启动到主菜单；判据是**启动期间 AssetDirector 不再从网上取对象**
-（AD 目录的 mtime/文件数在启动前后不变）且主菜单真的起来了。
+对照（同一天、同一台机器、**只预取了静态集合**的那一趟）：启动时 AD 又下了 612 个对象
+（+12.5 MB，AD 目录 746 → 1358 个文件），到主菜单 **152.1 s**。两趟的差别就是"预取是否覆盖
+真实集合"，这也是本次把清单改成"以已校验缓存为准"的直接原因。
+
+总结：**产品自己下完 122.45 MiB 的首启资源、启动到主菜单，而且启动期间 AD 一个对象都没再取。**
+这不代表所有 GTNH/Java 组合通过（只跑了 Java 21、8 GiB 堆、一次冷缓存），也没进世界、
+没做多 DPI/慢盘；失败与取消的现场只在离线夹具里验过。
+
+复现方法：`mw_check.exe multimc-import-live <包.zip> <实例名> <空数据根>` →
+`verify_instances.exe --launch-main-menu <数据根> <实例名> <数据根>/java/21/bin/java.exe 8192 780 <日志>`，
+判据看 AD 目录的文件数/mtime 有没有变、日志里有没有 `Downloading resources`。
+（`--launch-main-menu` 的顺序在 2026-10-26 修过：必须先 `prepareNatives()` 再 `checkPreLaunch()`，
+和产品的启动路一致；否则 1.7.10 那种第一次启动还没有 natives 目录的实例会被探针自己拦下。）
 
 ## 验证
 

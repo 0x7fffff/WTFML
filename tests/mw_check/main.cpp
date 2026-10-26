@@ -462,6 +462,161 @@ int main(int argc, char *argv[]) {
         return succeeded ? 0 : 1;
     }
 
+    // ---------- multimc-import-live：**真网络**导入一个 MultiMC/Prism 实例包 ----------
+    // mw_check.exe multimc-import-live "<包.zip>" "<实例名>" "<游戏根目录>"
+    //
+    // 为什么另开一个：modpack-import-live 只认 Modrinth / CurseForge 那两份清单，
+    // 而 GTNH 2.8.4 那种包是 MultiMC 导出的（mmc-pack.json + patches/ + .minecraft/）。
+    // 它的导入入口在 MainWindow::importModpackFromFile()，路上有两问（实例名、开始导入），
+    // 这里用定时器把这两问**按产品给的默认值答掉**（名字填 argv 那个），其余提示
+    // （失败原因）只记录、点掉。走的是和界面完全同一条栈：applyModpackImport 那一段
+    // 之后的一切（含导入成功后的首启资源预取）都会真的跑。
+    //
+    // 2.1.6c 用它：真 GTNH 包、空数据根、产品自己下 Java、产品自己预取首启资源。
+    if (argc >= 5 && QString::fromLocal8Bit(argv[1]) == QLatin1String("multimc-import-live")) {
+        const QString zipPath = QString::fromLocal8Bit(argv[2]);
+        const QString instanceName = QString::fromLocal8Bit(argv[3]);
+        const QString gameRoot =
+            QDir::cleanPath(QFileInfo(QString::fromLocal8Bit(argv[4])).absoluteFilePath());
+        std::printf("整合包：%s\n实例名：%s\n游戏根目录：%s\n", qPrintable(zipPath),
+                    qPrintable(instanceName), qPrintable(gameRoot));
+        std::fflush(stdout);
+        if (!QFileInfo::exists(zipPath)) {
+            std::printf("!! 压缩包不在：%s\n", qPrintable(zipPath));
+            return 3;
+        }
+        {
+            QSettings sandbox;
+            sandbox.setValue(QStringLiteral("Launcher/Folders"), QStringList({gameRoot}));
+            sandbox.setValue(QStringLiteral("Launcher/CurrentFolder"), gameRoot);
+            sandbox.sync();
+            std::printf("沙盒设置：%s\n", qPrintable(sandbox.fileName()));
+        }
+        MainWindow liveWindow;
+        liveWindow.show();
+        QApplication::processEvents();
+        std::printf("AppPaths 认的游戏根目录：%s\n", qPrintable(AppPaths::minecraftDir()));
+
+        QElapsedTimer clock;
+        clock.start();
+        int printed = 0;
+        bool finished = false;
+        bool succeeded = false;
+        bool invoked = false;
+        bool imported_ok = false;
+        const qint64 kDeadlineMs = qint64(8) * 3600 * 1000;  // 真导入：下载 + 解压
+        QTimer poll;
+        QObject::connect(&poll, &QTimer::timeout, [&] {
+            // 两问按产品默认值答掉：名字那一问把输入框填成 argv 给的名字，其余点第一颗
+            // （「是」/「确定」）。警告框只有一颗，点掉就是"我知道了"。
+            if (InlineMessageBox *box = currentPrompt()) {
+                recordPrompt(box);
+                std::printf("[%7.1fs][弹窗] %s\n        %s\n", clock.elapsed() / 1000.0,
+                            qPrintable(g_modalTitle), qPrintable(g_modalText));
+                std::fflush(stdout);
+                if (auto *edit = box->findChild<QLineEdit *>()) {
+                    edit->setText(instanceName);
+                }
+                // 首启资源那两问（"没预取完，再试一次吗？"）点**最后一颗**（知道了）：
+                // 探针要的是记录现场，不是在这一跑里无限重试。
+                int index = 0;
+                if (g_modalText.contains(QStringLiteral("首启资源"))) {
+                    index = qMax(0, box->findChildren<QPushButton *>().size() - 1);
+                }
+                if (auto *button = box->findChild<QPushButton *>(InlineMessageBox::buttonName(index))) {
+                    button->click();
+                } else {
+                    box->close();
+                }
+            }
+            for (; printed < messagesSnapshot().size(); ++printed) {
+                const QString line = messagesSnapshot().at(printed);
+                const bool imported = line.contains(QStringLiteral("导入好了"));
+                const bool failed = line.contains(QStringLiteral("没有导入"));
+                // 首启资源预取在"导入完成"那一问关掉之后才开始，所以不能一见「导入好了」
+                // 就退 —— 那正是它会被漏掉的地方。预取有它自己那几句终态话。
+                const bool prefetchDone = line.contains(QStringLiteral("首启资源已预取"))
+                                          || line.contains(QStringLiteral("首启资源没预取完"))
+                                          || line.contains(QStringLiteral("首启资源本来就齐了"))
+                                          || line.contains(QStringLiteral("这次没有预取"))
+                                          || line.contains(QStringLiteral("没有预取"));
+                std::printf("[%7.1fs] %s\n", clock.elapsed() / 1000.0, qPrintable(line));
+                std::fflush(stdout);
+                if (imported) {
+                    imported_ok = true;
+                }
+                if (failed) {
+                    finished = true;
+                    succeeded = false;
+                }
+                if (imported_ok && prefetchDone) {
+                    finished = true;
+                    succeeded = true;
+                }
+            }
+            if (!finished && clock.elapsed() % 30000 < 1000) {
+                int done = -1;
+                int total = -1;
+                if (auto *bar = liveWindow.findChild<QProgressBar *>()) {
+                    done = bar->value();
+                    total = bar->maximum();
+                }
+                std::printf("[%7.1fs] 进度 %d/%d\n", clock.elapsed() / 1000.0, done, total);
+                std::fflush(stdout);
+            }
+            if (finished || clock.elapsed() > kDeadlineMs) {
+                poll.stop();
+                QCoreApplication::quit();
+            }
+        });
+        poll.start(200);
+        // **必须排到事件循环里再调**：importModpackFromFile() 在"问名字""点确认"那两问上
+        // 是**同步**的（进嵌套事件循环），DirectConnection 直接调会把这条栈钉死在第一问上，
+        // 定时器根本没机会起来 —— 实测就是那样卡住的（进程活着、一行日志都没有）。
+        QTimer::singleShot(0, &liveWindow, [&] {
+            invoked = QMetaObject::invokeMethod(
+                &liveWindow, "importModpackFromFile", Qt::DirectConnection,
+                Q_ARG(QString, zipPath), Q_ARG(QString, instanceName));
+            std::printf("importModpackFromFile：invoked=%d\n", invoked ? 1 : 0);
+            std::fflush(stdout);
+            if (!invoked) {
+                poll.stop();
+                QCoreApplication::quit();
+            }
+        });
+        QCoreApplication::exec();
+        std::printf("RESULT ok=%d elapsed=%llds\n", succeeded ? 1 : 0,
+                    static_cast<long long>(clock.elapsed() / 1000));
+        return succeeded ? 0 : 1;
+    }
+
+    // ---------- java-self-managed：用产品自己的代码下一份自管 Java ----------
+    // mw_check.exe java-self-managed "<游戏根目录>" <主版本>
+    //
+    // 2.1.6c 要的是"启动器自己管的那份运行时"（<数据目录>/java/<主版本>/bin/java.exe），
+    // 而不是本机装的 JDK。产品里这条下载只出现在 Java 管理页那四颗按钮和启动前那段同步
+    // 等待里（`GlobalJavaSettings::downloadJavaFromMojang`），验证工程够不着 —— 所以留这
+    // 一个一次性探针：**落点、解压、`java.exe -version` 自检全走产品代码**，这里只负责
+    // 把数据根指过去、把拿到的路径打出来。不进 CTest（要联网、几百 MB）。
+    if (argc >= 4 && QString::fromLocal8Bit(argv[1]) == QLatin1String("java-self-managed")) {
+        const QString gameDir =
+            QDir::cleanPath(QFileInfo(QString::fromLocal8Bit(argv[2])).absoluteFilePath());
+        const int major = QString::fromLocal8Bit(argv[3]).toInt();
+        if (gameDir.isEmpty() || major <= 0) {
+            std::printf("!! 用法：mw_check.exe java-self-managed <游戏根目录> <主版本>\n");
+            return 3;
+        }
+        QDir().mkpath(gameDir);
+        AppPaths::setMinecraftDir(gameDir);
+        std::printf("游戏根目录：%s\nJava 主版本：%d\n自管落点：%s\n", qPrintable(gameDir), major,
+                    qPrintable(AppPaths::javaVersionDir(major)));
+        std::fflush(stdout);
+        QString javaPath;
+        const bool ok = GlobalJavaSettings::downloadJavaFromMojang(major, &javaPath);
+        std::printf("RESULT ok=%d java=%s\n", ok ? 1 : 0, qPrintable(javaPath));
+        return ok ? 0 : 1;
+    }
+
     // ---------- instance-scan：**只读**扫一遍真实例，看导出那两格读出来是什么 ----------
     // mw_check.exe instance-scan <数据目录>
     //

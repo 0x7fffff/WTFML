@@ -57,9 +57,9 @@ void runAssetDirectorKnownSetTests(const QString &sandbox) {
             const Set &set = manifest.sets.first();
             check(set.id == QLatin1String("gtnh-2.8.4-etfuturum"), "AD1 集合 id", set.id);
             check(set.minecraftVersion == QLatin1String("1.21"), "AD1 资产版本", set.minecraftVersion);
-            check(set.objects.size() == 756, "AD1 对象数 756（755 个请求项 + sounds.json）",
+            check(set.objects.size() == 1368, "AD1 对象数 1368（静态字面量 756 + ModSounds 循环注册的 612）",
                   QString::number(set.objects.size()));
-            check(set.totalBytes == 115941197, "AD1 声明总量与实测一致（115,941,197 B）",
+            check(set.totalBytes == 128399283, "AD1 声明总量与实测一致（128,399,283 B / 122.45 MiB）",
                   QString::number(set.totalBytes));
             qint64 sum = 0;
             QSet<QString> hashes;
@@ -101,8 +101,11 @@ void runAssetDirectorKnownSetTests(const QString &sandbox) {
 
         Manifest shipped;
         parse(embeddedManifest(), &shipped, &error);
+        // GTNH 2.8.4 实包里那个 jar 就叫这个名字（z 里 229 个 jar，只有它用 MCLib）。
+        check(matchConsumer(shipped, {QStringLiteral("etfuturum-2.6.2.25-GTNH.jar")}) != nullptr,
+              "AD2 GTNH 2.8.4 实包里的 etfuturum-2.6.2.25-GTNH.jar 命中");
         check(matchConsumer(shipped, {QStringLiteral("Et-Futurum-Requiem-2.6.2.25-GTNH.jar")}) != nullptr,
-              "AD2 GTNH 2.8.4 的 EFR jar 名命中随产品发布的那一套");
+              "AD2 仓库名那种写法也命中（第二条件）");
         check(matchConsumer(shipped, {QStringLiteral("etfuturum-2.6.2.25-GTNH.jar")}) != nullptr,
               "AD2 全小写的别名也认（第二条件）");
         check(matchConsumer(shipped, {QStringLiteral("Et-Futurum-Requiem-2.6.2.26-GTNH.jar")}) == nullptr,
@@ -267,18 +270,18 @@ void runAssetDirectorKnownSetTests(const QString &sandbox) {
         check(!plan.applicable, "AD6 没有消费者模组时不适用（连任务行都不该有）");
         check(plan.toDownload == 0 && plan.refusal.isEmpty(), "AD6 不适用时计划是空的");
 
-        writeFileAt(AppPaths::versionDir(instance) + QStringLiteral("/mods/Et-Futurum-Requiem-2.6.2.25-GTNH.jar"),
+        writeFileAt(AppPaths::versionDir(instance) + QStringLiteral("/mods/etfuturum-2.6.2.25-GTNH.jar"),
                     QByteArrayLiteral("not-really-a-jar"));
         plan = manager.assetDirectorPrefetchPlan(instance);
         check(plan.applicable, "AD6 认出了 EFR 2.6.2.25-GTNH");
         check(plan.setId == QLatin1String("gtnh-2.8.4-etfuturum"), "AD6 认到的是 GTNH 2.8.4 那一套", plan.setId);
-        check(plan.objects == 756, "AD6 计划里的对象数", QString::number(plan.objects));
-        check(plan.refusal.isEmpty(), "AD6 111 MiB 低于 256 MiB 上限，不拒绝", plan.refusal);
+        check(plan.objects == 1368, "AD6 计划里的对象数", QString::number(plan.objects));
+        check(plan.refusal.isEmpty(), "AD6 122.45 MiB 低于 256 MiB 上限，不拒绝", plan.refusal);
         check(!plan.upToDate, "AD6 空缓存根上不是'已齐'");
-        check(plan.toDownload == 756, "AD6 空缓存根上全都要下", QString::number(plan.toDownload));
-        check(plan.bytesToDownload == 115941197 + 38401 + 449557,
+        check(plan.toDownload == 1368, "AD6 空缓存根上全都要下", QString::number(plan.toDownload));
+        check(plan.bytesToDownload == 128399283 + 38401 + 449557,
               "AD6 待下载字节数 = 对象 + 版本 JSON + 索引", QString::number(plan.bytesToDownload));
-        check(plan.bytesTotal == 115941197, "AD6 集合总量", QString::number(plan.bytesTotal));
+        check(plan.bytesTotal == 128399283, "AD6 集合总量", QString::number(plan.bytesTotal));
 
         // 共享 assets/objects 里放一份**内容正确**的（这一个是 sounds.json 那种小文件，
         // 内容是编的但哈希按编的算不出来 —— 所以直接用真实集合里那件已知对象的字节数 +
@@ -287,7 +290,7 @@ void runAssetDirectorKnownSetTests(const QString &sandbox) {
         writeFileAt(bogus, QByteArray(16, 'x'));
         const VersionManager::AssetDirectorPrefetchPlan afterBogus = manager.assetDirectorPrefetchPlan(instance);
         check(afterBogus.reuseAssets == 0, "AD6 共享 assets/objects 里对不上的文件不算复用");
-        check(afterBogus.toDownload == 756, "AD6 仍然全都要下");
+        check(afterBogus.toDownload == 1368, "AD6 仍然全都要下");
 
         // 不适用/已经齐了这两条路**不发终态、不写盘**：这里直接调数据层确认它返回 false，
         // 而且没有在 overlay 里留下任何东西。

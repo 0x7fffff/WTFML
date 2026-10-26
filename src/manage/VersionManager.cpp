@@ -1044,8 +1044,12 @@ bool VersionManager::prefetchAssetDirectorResources(const QString &versionId) {
         return false;
     }
     // 一次只有一批：别的下载/安装正在跑就不插队（预取只是省时间，不值得抢夺批次状态）。
+    // NOTE: 判据只问"现在有没有一批在跑"，**不问** `m_currentVersionDownloading` ——
+    // 那个成员是"上一次这一批叫什么"，收尾后**故意不清空**（busyVersionId() 那道门控要用它），
+    // 拿它当"还有批次在跑"会把导入刚结束之后的预取永远挡在外面（实测就是这样：
+    // 导入成功、日志里连一句"正在预取"都没有）。
     if (downloadManager->isBusy() || m_loaderInstall.active() || m_modpackInstall.active()
-        || m_namedInstance.active() || !m_currentVersionDownloading.isEmpty()) {
+        || m_namedInstance.active()) {
         qInfo() << "Skipping AssetDirector prefetch: another download batch is running.";
         return false;
     }

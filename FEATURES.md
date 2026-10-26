@@ -212,10 +212,11 @@
 
 - GTNH 2.8.4（Et Futurum Requiem 2.6.2.25-GTNH）那种会在首启里跑 MCLib AssetDirector 的包，
   导入成功后自动预取首启资源：按随产品发布的“已知集合”清单（`assets/assetdirector/known-sets.json`）
-  补齐 756 个对象约 111 MiB 加上版本 JSON 与资源索引，只写 `<数据目录>/assets/asset_director`，
+  补齐 1368 个对象约 122 MiB 加上版本 JSON 与资源索引，只写 `<数据目录>/assets/asset_director`，
   共享 `assets/objects` 只读复用；每件都按官方大小/SHA-1 校验，单套上限 256 MiB，可取消、
   失败可再试、已校验文件下次跳过。认不出消费者模组的实例一条都不做。
-  首启效果与真实冷缓存下载尚未验收，见 [整合包导入](docs/MODPACK_IMPORT.md)。
+  2026-10-26 真机冷缓存实测：导入后 20.5 秒预取完 112.6 MiB，启动 36.6 秒到主菜单，
+  启动期间 AssetDirector 一个对象都没再下载（见 [整合包导入](docs/MODPACK_IMPORT.md)）。
 
 格式、补齐与收尾边界见 [整合包导入](docs/MODPACK_IMPORT.md)。
 
