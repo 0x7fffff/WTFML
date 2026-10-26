@@ -184,7 +184,8 @@ asset_director/assets/objects/<hash 前两位>/<hash>
 
 环境：一个**空的**数据根（本轮的现场在 `D:\WTFtest\wtfml-216c-clean`，只有产品自己下的
 `java/21` = Temurin 21.0.12.1，由 `GlobalJavaSettings::downloadJavaFromMojang` 下载）+
-`GT_New_Horizons_2.8.4_Java_17-25.zip`（595,584,698 B，官方 MultiMC 导出包）。
+`GT_New_Horizons_2.8.4_Java_17-25.zip`（595,584,698 B，sha1 `fa8a5a93…`，官方 MultiMC
+导出包）。
 导入用产品自己的 `MainWindow::importModpackFromFile()`（`mw_check.exe multimc-import-live`，
 两问按产品默认值答掉），启动用产品 `LauncherManager`（`verify_instances --launch-main-menu`）。
 

@@ -42,9 +42,11 @@
 环境：空数据根（本轮现场 `D:\WTFtest\wtfml-216c-clean`）、只有启动器自己下的
 Temurin 21.0.12.1（`mw_check.exe java-self-managed`，走
 `GlobalJavaSettings::downloadJavaFromMojang`）、官方
-`GT_New_Horizons_2.8.4_Java_17-25.zip`（595,584,698 B）。启动日志与导入/探针输出留在
+`GT_New_Horizons_2.8.4_Java_17-25.zip`（595,584,698 B，sha1
+`fa8a5a934e9a432b885055822c5453304baca005` / sha256 `8fecdf56…67828`，来源
+`https://downloads.gtnewhorizons.com/Multi_mc_downloads/`）。启动日志与导入/探针输出留在
 `build/gtnh-216c-evidence/`（两趟各一份，不随仓库发布）；原包与两套测试根是临时现场，清掉
-不影响任何构建或测试，只是重跑要重新下载。导入走
+不影响任何构建或测试，只是重跑要重新下载（按上面的哈希核对一下再开始）。导入走
 `mw_check.exe multimc-import-live`（产品 `MainWindow::importModpackFromFile()`，两问按默认答），
 启动走 `verify_instances.exe --launch-main-menu`（产品 `LauncherManager`）。
 
