@@ -114,6 +114,11 @@ public:
     /// 全部自定义名字，原始形态（见上）。**拆开是 FolderManager 的事**。
     QStringList folderNames() const;
 
+    /// Launcher-only server favorites; implicit default ports retain SRV semantics.
+    static QString serverFavoriteKey(const QString &address);
+    bool isServerFavorite(const QString &address) const;
+    bool setServerFavorite(const QString &address, bool favorite);
+
     /// 覆盖整份自定义名字表并立刻落盘。
     void setFolderNames(const QStringList &names);
 
@@ -445,6 +450,7 @@ private:
     QStringList m_folders;
     QString m_currentFolder;
     QStringList m_folderNames;
+    QStringList m_serverFavorites;
     VersionNameOptions m_versionNameOptions;
     LauncherBehaviour m_launcherBehaviour = LauncherBehaviour::Unchanged;
     DownloadSource m_downloadSource = DownloadSource::Official;

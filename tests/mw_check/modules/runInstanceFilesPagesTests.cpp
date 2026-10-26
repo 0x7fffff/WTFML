@@ -2811,6 +2811,66 @@ void runInstanceFilesPagesTests() {
                       .arg(stack != nullptr ? stack->currentIndex() : -1));
         }
 
+        // Favorites use launcher settings, never rewriting the game's list.
+        {
+            const QString address = QStringLiteral("127.0.0.1:1");
+            const auto bytes = buildServersDat({qMakePair(QStringLiteral("Favorite fixture"), address),
+                qMakePair(QStringLiteral("Other fixture"), QStringLiteral("127.0.0.1:2"))});
+            const QString datPath = dirV + QStringLiteral("/servers.dat");
+            writeFileAt(datPath, bytes);
+            const auto modified = QFileInfo(datPath).lastModified();
+            int visits = 0;
+            for (int visit = 0; visit < 2; ++visit) {
+                QTimer::singleShot(0, &w, [&, visit] {
+                    auto *host = w.ui()->overlay();
+                    auto *page = host->findChild<InstanceSettingsDialog *>();
+                    if (page && page->serverTree()->topLevelItemCount() == 2 &&
+                        page->findChild<QPushButton *>(QStringLiteral("serverFavorite")) &&
+                        page->findChild<QCheckBox *>(QStringLiteral("serverFavoritesOnly"))) {
+                        ++visits;
+                        auto *tree = page->serverTree();
+                        auto *favorite = page->findChild<QPushButton *>(QStringLiteral("serverFavorite"));
+                        auto *only = page->findChild<QCheckBox *>(QStringLiteral("serverFavoritesOnly"));
+                        auto *first = tree->topLevelItem(0);
+                        auto *second = tree->topLevelItem(1);
+                        tree->setCurrentItem(first);
+                        if (visit == 0) {
+                            favorite->click();
+                            check(favorite->isChecked() && first->text(0).startsWith(QStringLiteral("★ ")) &&
+                                  LauncherSettings().isServerFavorite(address), "server favorite is acknowledged and persisted by real window wiring");
+                            tree->setCurrentItem(second);
+                            only->setChecked(true);
+                            check(!first->isHidden() && second->isHidden() && tree->currentItem() == nullptr &&
+                                  !page->serverJoinButton()->isEnabled(), "favorite filter clears hidden current selection and disables join");
+                            QList<InstanceSettingsDialog::ServerRowStatus> statuses(2);
+                            statuses[0].tested = true; statuses[0].online = true; statuses[0].latencyMs = 11;
+                            statuses[1].tested = true; statuses[1].online = true; statuses[1].latencyMs = 22;
+                            page->setServerStatuses(statuses);
+                            check(first->text(2).contains(QStringLiteral("11 ms")) && second->text(2).contains(QStringLiteral("22 ms")) &&
+                                  tree->topLevelItem(0) == first && tree->topLevelItem(1) == second,
+                                  "favorite filtering preserves ping result indices and row identity");
+                        } else {
+                            check(favorite->isChecked(), "reopened instance page restores server favorite");
+                            only->setChecked(true);
+                            favorite->click();
+                            check(!favorite->isChecked() && !favorite->isEnabled() && first->isHidden() &&
+                                  !page->serverNotice()->isHidden() && !LauncherSettings().isServerFavorite(address),
+                                  "unfavorite under active filter clears selection and shows empty-favorites notice");
+                            only->setChecked(false);
+                            check(!first->isHidden() && !second->isHidden(), "clearing favorite filter restores all servers");
+                        }
+                    }
+                    if (auto *back = host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) back->click();
+                });
+                QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection, Q_ARG(QString, idV));
+            }
+            check(visits == 2, "server favorites real page exercised twice");
+            QFile dat(datPath);
+            check(dat.open(QIODevice::ReadOnly) && dat.readAll() == bytes && QFileInfo(datPath).lastModified() == modified,
+                  "favorite operations leave servers.dat bytes and timestamp untouched");
+            LauncherSettings().setServerFavorite(address, false);
+        }
+
         // ---------- 文件页：实例被标记「文件操作中」时，真实 MainWindow 接线也要拒绝 ----------
         {
             const QString guarded = AppPaths::versionDir(idV) + QStringLiteral("/mods/gate.jar");

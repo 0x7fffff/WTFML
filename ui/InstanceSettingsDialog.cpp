@@ -1927,6 +1927,30 @@ void InstanceSettingsDialog::setupFilePages() {
                 m_serverNotice->setWordWrap(true);
                 layout->addWidget(m_serverNotice);
 
+                auto *favoriteTools = new QHBoxLayout;
+                m_serverFavoritesOnly = new QCheckBox(tr("仅看收藏"), page);
+                m_serverFavoritesOnly->setObjectName(QStringLiteral("serverFavoritesOnly"));
+                favoriteTools->addWidget(m_serverFavoritesOnly);
+                favoriteTools->addStretch();
+                m_serverFavorite = new QPushButton(tr("收藏服务器"), page);
+                m_serverFavorite->setObjectName(QStringLiteral("serverFavorite"));
+                m_serverFavorite->setCheckable(true);
+                Theme::markButton(m_serverFavorite, Theme::ButtonKind::Neutral);
+                m_serverFavorite->setToolTip(tr("收藏保存在启动器中，不修改游戏的服务器列表。"));
+                favoriteTools->addWidget(m_serverFavorite);
+                layout->addLayout(favoriteTools);
+                connect(m_serverFavoritesOnly, &QCheckBox::toggled, this,
+                        &InstanceSettingsDialog::refreshServerFavorites);
+                connect(m_serverFavorite, &QPushButton::clicked, this, [this] {
+                    auto *item = selectedServerItem();
+                    if (item) {
+                        const auto address = item->data(1, MainWindowUI::serverAddressRole()).toString();
+                        emit serverFavoriteRequested(address, !m_serverFavorites.contains(address));
+                    }
+                    // The host acknowledges persistence through setServerFavorites.
+                    updateServerSelectionActions();
+                });
+
                 m_serverTree = new QTreeWidget(page);
                 m_serverTree->setObjectName(serverTreeName());
                 m_serverTree->setHeaderLabels({serverNameColumnText(), serverAddressColumnText(),
@@ -2982,10 +3006,10 @@ QTreeWidgetItem *InstanceSettingsDialog::selectedServerItem() const {
     if (m_serverTree == nullptr) {
         return nullptr;
     }
-    // 单选（`setSelectionMode(SingleSelection)`，见构造里那一句）⇒ currentItem() 就是那一条。
-    // 走 currentItem() 而不是 selectedItems().first()：前者在"选中了又取消"之后**会自己
-    // 回空**，后者拿到的是一个空表 —— 用一个空表的 first() 是越界。
-    return m_serverTree->currentItem();
+    // Current index can outlive selection. Hidden or deselected rows must not
+    // remain actionable after switching the favorites filter.
+    auto *item = m_serverTree->currentItem();
+    return item && item->isSelected() && !item->isHidden() ? item : nullptr;
 }
 
 void InstanceSettingsDialog::updateServerSelectionActions() {
@@ -2993,6 +3017,13 @@ void InstanceSettingsDialog::updateServerSelectionActions() {
         return;
     }
     const bool hasRow = selectedServerItem() != nullptr;
+    if (m_serverFavorite) {
+        const bool favorite = hasRow && m_serverFavorites.contains(
+            selectedServerItem()->data(1, MainWindowUI::serverAddressRole()).toString());
+        m_serverFavorite->setEnabled(hasRow);
+        m_serverFavorite->setChecked(favorite);
+        m_serverFavorite->setText(favorite ? tr("取消收藏") : tr("收藏服务器"));
+    }
     // 「添加」**不在这儿** —— 它不依赖选中行（要加的那一台还没出现在表里），常亮。
     m_serverEdit->setEnabled(hasRow);
     m_serverDelete->setEnabled(hasRow);
@@ -3024,6 +3055,7 @@ void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> 
     if (m_serverTree == nullptr) {
         return;
     }
+    m_serverListReadable = problem.isEmpty();
     // 这一份是**换掉整张表**：那些"现在什么样"配的是旧的行，一起清掉（见 .hpp 那条 NOTE）。
     m_serverStatuses.clear();
     m_serverStatuses.resize(servers.size());
@@ -3071,6 +3103,45 @@ void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> 
     // 换掉整张表 ⇒ 选中没了 ⇒ 「编辑 / 加入」那两颗回到灰的（见 updateServerSelectionActions()）。
     // `clear()` 会发一次 itemSelectionChanged，但那一发**不能指望**：表本来就是空的时候
     // （第一次灌）clear() 什么都不发。所以在这儿明喊一次。
+    updateServerSelectionActions();
+    refreshServerFavorites();
+}
+
+void InstanceSettingsDialog::setServerFavorites(const QStringList &addresses) {
+    m_serverFavorites = QSet<QString>(addresses.begin(), addresses.end());
+    refreshServerFavorites();
+}
+
+QStringList InstanceSettingsDialog::serverAddresses() const {
+    QStringList addresses;
+    if (m_serverTree) {
+        for (int i = 0; i < m_serverTree->topLevelItemCount(); ++i)
+            addresses.append(m_serverTree->topLevelItem(i)->data(1, MainWindowUI::serverAddressRole()).toString());
+    }
+    return addresses;
+}
+
+void InstanceSettingsDialog::refreshServerFavorites() {
+    if (!m_serverTree || !m_serverFavoritesOnly || !m_serverListReadable) return;
+    int visible = 0;
+    for (int i = 0; i < m_serverTree->topLevelItemCount(); ++i) {
+        auto *item = m_serverTree->topLevelItem(i);
+        const bool favorite = m_serverFavorites.contains(item->data(1, MainWindowUI::serverAddressRole()).toString());
+        const auto name = item->data(0, MainWindowUI::serverNameRole()).toString();
+        item->setText(0, (favorite ? QStringLiteral("★ ") : QString()) + (name.isEmpty() ? unnamedMark() : name));
+        item->setHidden(m_serverFavoritesOnly->isChecked() && !favorite);
+        if (!item->isHidden()) ++visible;
+        if (item->isHidden() && item->isSelected()) {
+            m_serverTree->clearSelection();
+            m_serverTree->setCurrentItem(nullptr);
+        }
+    }
+    // Never reorder rows: ping results refer to the original servers.dat order.
+    if (m_serverTree->topLevelItemCount() > 0) {
+        m_serverTree->setVisible(visible > 0);
+        m_serverNotice->setVisible(visible == 0);
+        if (visible == 0) m_serverNotice->setText(tr("这个实例还没有收藏的服务器。"));
+    }
     updateServerSelectionActions();
 }
 

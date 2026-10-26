@@ -2140,6 +2140,18 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 m_owner->loadServerList(&dialog, targetId);
                 m_owner->pingServers(&dialog, targetId);
             });
+    connect(&dialog, &InstanceSettingsDialog::serverFavoriteRequested, &dialog,
+            [this, &dialog](const QString &address, bool favorite) {
+                if (!m_owner->m_settings->setServerFavorite(address, favorite)) {
+                    InlineMessage::warning(m_owner->m_ui->overlay(), tr("收藏未保存"),
+                        tr("无法保存服务器收藏，请检查服务器地址和启动器设置的写入权限。"));
+                    return;
+                }
+                QStringList favorites;
+                for (const auto &entry : dialog.serverAddresses())
+                    if (m_owner->m_settings->isServerFavorite(entry)) favorites.append(entry);
+                dialog.setServerFavorites(favorites);
+            });
     // 「点进去就自动测速」（要求）。这一发是**切到那一页**发出来的
     // （见 InstanceSettingsDialog::applyPageKey），和上面那两条"用户按了某颗按钮"不是
     // 一回事。它每一页都会发一次 —— 用户切走再切回来就又测一遍，而"已经在跑"那一趟

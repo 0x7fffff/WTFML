@@ -9855,6 +9855,10 @@ void MainWindow::loadServerList(InstanceSettingsDialog *dialog, const QString &v
     // 「文件不在盘上」（Missing）不算 problem：那一页会说「这个实例还没有加过服务器。」
     // —— 那正是实话。只有"文件在但是读不动"才把原因递过去。
     dialog->setServerList(serverListOf(versionId), serverListProblem(versionId));
+    QStringList favorites;
+    for (const auto &address : dialog->serverAddresses())
+        if (m_settings->isServerFavorite(address)) favorites.append(address);
+    dialog->setServerFavorites(favorites);
 }
 
 QList<QPair<QString, QString>> MainWindow::serverListOf(const QString &versionId) const {

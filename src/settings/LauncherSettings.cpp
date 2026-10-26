@@ -5,6 +5,8 @@
  */
 
 #include "LauncherSettings.hpp"
+#include "util/ServerPing.hpp"
+#include <QHostAddress>
 
 #include <QDebug>
 #include <QSettings>
@@ -24,6 +26,7 @@ static constexpr const char kAfterLaunch[] = "Launcher/AfterLaunch";
 static constexpr const char kFolders[] = "Launcher/Folders";
 static constexpr const char kCurrentFolder[] = "Launcher/CurrentFolder";
 static constexpr const char kFolderNames[] = "Launcher/FolderNames";
+static constexpr const char kServerFavorites[] = "Servers/Favorites";
 static constexpr const char kDownloadSource[] = "Download/Source";
 // 「同时最多下几个」（并发数预设）。同一个前缀：它也是"下载怎么走"。
 // 存的是**整数**，不是 `Download/Source` 那种记号 —— 那四档要有第五档"自定义"的位置
@@ -154,6 +157,36 @@ void LauncherSettings::setCurrentFolder(const QString &dir) {
 }
 
 QStringList LauncherSettings::folderNames() const { return m_folderNames; }
+
+QString LauncherSettings::serverFavoriteKey(const QString &address) {
+    const auto parsed = ServerPing::splitAddress(address);
+    if (!parsed.valid || address.trimmed().endsWith(QLatin1Char(':'))) return {};
+    for (const auto ch : parsed.host)
+        if (ch.isSpace() || QStringLiteral("/\\?#@").contains(ch)) return {};
+    QHostAddress ip;
+    QString host = ip.setAddress(parsed.host) ? ip.toString().toLower() : parsed.host.toLower();
+    if (host.contains(QLatin1Char(':'))) host = QLatin1Char('[') + host + QLatin1Char(']');
+    // An explicit :25565 suppresses SRV lookup, so it is a distinct endpoint.
+    return parsed.portExplicit ? host + QLatin1Char(':') + QString::number(parsed.port) : host;
+}
+
+bool LauncherSettings::isServerFavorite(const QString &address) const {
+    const auto key = serverFavoriteKey(address);
+    return !key.isEmpty() && m_serverFavorites.contains(key);
+}
+
+bool LauncherSettings::setServerFavorite(const QString &address, bool favorite) {
+    const auto key = serverFavoriteKey(address);
+    if (key.isEmpty()) return false;
+    const auto before = m_serverFavorites;
+    if (favorite && !m_serverFavorites.contains(key)) m_serverFavorites.append(key);
+    if (!favorite) m_serverFavorites.removeAll(key);
+    m_serverFavorites.sort();
+    save();
+    const bool saved = m_persisted.value(QString::fromLatin1(kServerFavorites)).toStringList() == m_serverFavorites;
+    if (!saved) m_serverFavorites = before;
+    return saved;
+}
 
 void LauncherSettings::setFolderNames(const QStringList &names) {
     if (m_folderNames == names) {
@@ -413,6 +446,12 @@ void LauncherSettings::load() {
     m_homeRecentCount = qBound(0, settings.value(kHomeRecentCount, 3).toInt(), 5);
     // 默认值同样取当前成员：load() 被调第二次而盘上是空的时，值应该留着而不是被抹掉。
     m_folders = settings.value(kFolders, m_folders).toStringList();
+    m_serverFavorites.clear();
+    for (const auto &address : settings.value(kServerFavorites).toStringList()) {
+        const auto key = serverFavoriteKey(address);
+        if (!key.isEmpty() && !m_serverFavorites.contains(key)) m_serverFavorites.append(key);
+    }
+    m_serverFavorites.sort();
     m_currentFolder = settings.value(kCurrentFolder, m_currentFolder).toString();
     m_folderNames = settings.value(kFolderNames, m_folderNames).toStringList();
     m_launcherBehaviour = behaviourFromKey(
@@ -521,6 +560,7 @@ QVariantMap LauncherSettings::persistedValues() const {
     // 不是成员里还没归一化的原始值。
     QVariantMap values;
     values.insert(QString::fromLatin1(kLastLaunched), m_lastLaunchedVersion);
+    values.insert(QString::fromLatin1(kServerFavorites), m_serverFavorites);
     values.insert(QString::fromLatin1(kHomeFavoriteCount), QVariant(m_homeFavoriteCount));
     values.insert(QString::fromLatin1(kHomeRecentCount), QVariant(m_homeRecentCount));
     values.insert(QString::fromLatin1(kFolders), m_folders);
