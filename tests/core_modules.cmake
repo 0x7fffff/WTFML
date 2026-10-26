@@ -108,6 +108,10 @@ wtfml_add_test(NAME wtfml.core-accounts COMMAND verify_accounts)
 set_tests_properties(wtfml.core-accounts PROPERTIES LABELS "core;core-accounts;ci-core" TIMEOUT 900 RUN_SERIAL TRUE)
 add_library(core_cases_resources OBJECT
  core_modules/ModpackImportTests.cpp
+ core_modules/ModpackExportFormatTests.cpp
+ core_modules/ModpackExportLookupTests.cpp
+ core_modules/ModpackExportPipelineTests.cpp
+ core_modules/ThemeImageTests.cpp
  core_modules/MultiMCPatchImportTests.cpp
  core_modules/CurseForgeTests.cpp
  core_modules/ModpackCompletionTests.cpp

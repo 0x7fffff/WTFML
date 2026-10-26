@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 project(WTFMinecraftLauncher VERSION 0.4.2 LANGUAGES CXX)
+include(${CMAKE_CURRENT_SOURCE_DIR}/ui/MainWindowPages.cmake)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -291,6 +292,8 @@ set(SOURCE_FILES
     src/controllers/LaunchHistoryController.cpp
     src/controllers/InstanceSettingsController.cpp
     src/controllers/MainWindowViewData.cpp
+    src/controllers/ResourceSearchController.cpp
+    src/controllers/InstanceUpdateCheckController.cpp
     src/controllers/DownloadFilterController.cpp
     src/controllers/ResourcePageController.cpp
     src/controllers/InstancePagesController.cpp
@@ -431,6 +434,7 @@ set(SOURCE_FILES
     # 运行输出共用模型：上面那一窗和 ServerConsolePage 都直接用它。
     ui/RuntimeOutputModel.cpp
     ui/MainWindowUI.cpp
+    ${WTFML_UI_PAGE_SOURCES}
     ui/MemorySlider.cpp
     ui/MotdText.cpp
     ui/ToolboxPage.cpp

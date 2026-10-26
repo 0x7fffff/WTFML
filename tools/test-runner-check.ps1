@@ -50,6 +50,14 @@ try {
     Check ($themeTest.modules.Count -eq 1 -and $themeTest.modules[0] -eq 'theme') 'editing a theme assertion file selects only the theme executable'
     $windowTest = Get-TestImpact @('tests/mw_check/modules/MwMemoryPreferencesChecks.cpp')
     Check ($windowTest.modules.Count -eq 1 -and $windowTest.modules[0] -eq 'window') 'historical main-window assertion changes retain their integration owner'
+    foreach ($controller in @('ResourceSearchController', 'InstanceUpdateCheckController')) {
+        $workflow = Get-TestImpact @("src/controllers/$controller.cpp")
+        Check (-not $workflow.full -and 'main-window' -in $workflow.tests -and 'mod-action-panel' -in $workflow.tests) 'extracted resource workflows retain main-window and mod integration coverage'
+    }
+    $promptCase = Get-TestImpact @('tests/mw_check/modules/PromptProbe.cpp')
+    Check ($promptCase.modules.Count -eq 1 -and $promptCase.modules[0] -eq 'window') 'prompt fixture implementation has a focused integration owner'
+    $exportCase = Get-TestImpact @('tests/core_modules/ModpackExportPipelineTests.cpp')
+    Check ($exportCase.modules.Count -eq 1 -and $exportCase.modules[0] -eq 'core-resources') 'split export assertions keep their existing core resource owner'
     $upgrade = Get-TestImpact @('src/controllers/UpgradeAssessment.cpp')
     Check ('upgrade' -in $upgrade.modules -and 'window' -notin $upgrade.modules -and -not $upgrade.full) 'upgrade changes select their module without the monolithic window suite'
     Check ('ci-app' -in $upgrade.suites -and 'upgrade' -in $upgrade.modules -and 'core' -notin $upgrade.modules) 'upgrade controller changes build the application without unrelated core monolith'

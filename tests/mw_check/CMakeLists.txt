@@ -154,6 +154,8 @@ set(SOURCE_FILES
     # 它引 ui/ResourceDetailPage 与 ResourceCatalog，两个都已经在清单里了。
     ${REPO_ROOT}/src/controllers/ResourcePageController.cpp
     ${REPO_ROOT}/src/controllers/MainWindowViewData.cpp
+    ${REPO_ROOT}/src/controllers/ResourceSearchController.cpp
+    ${REPO_ROOT}/src/controllers/InstanceUpdateCheckController.cpp
     # 「服务器列表」那一页上会写盘的那三件事（同上）。它只要 ServerListFile ——
     # 那个已经在清单里了。
     ${REPO_ROOT}/src/controllers/ServerListController.cpp
@@ -305,6 +307,7 @@ set(SOURCE_FILES
     # 运行输出共用模型：GameLogWindow / ServerConsolePage 都直接用它。
     ${REPO_ROOT}/ui/RuntimeOutputModel.cpp
     ${REPO_ROOT}/ui/MainWindowUI.cpp
+    ${WTFML_UI_PAGE_SOURCES}
     # 「最大内存」那一行那根条：MainWindowUI.cpp 和
     # InstanceSettingsDialog.cpp 都直接 new 它，少了这一个文件会在链接那一步报一串
     # undefined reference to MemorySlider::…。
@@ -458,10 +461,10 @@ target_link_libraries(wtfml_mw_runtime PRIVATE crypt32 ole32 shlwapi windowscode
 wtfml_exclude_shared_sources(wtfml_mw_runtime wtfml_core_runtime wtfml_ui_runtime)
 target_link_libraries(wtfml_mw_runtime PUBLIC wtfml_ui_runtime Qt6::Widgets)
 target_include_directories(wtfml_mw_runtime PUBLIC ${REPO_ROOT}/src ${REPO_ROOT}/ui ${REPO_ROOT}/tests ${CMAKE_CURRENT_SOURCE_DIR})
-add_library(wtfml_mw_fixture STATIC modules/Support.cpp modules/Support.hpp)
+add_library(wtfml_mw_fixture STATIC modules/Support.cpp modules/Support.hpp modules/PromptProbe.cpp)
 target_link_libraries(wtfml_mw_fixture PUBLIC wtfml_mw_runtime)
 file(GLOB _cases CONFIGURE_DEPENDS modules/*.cpp)
-list(REMOVE_ITEM _cases "${CMAKE_CURRENT_SOURCE_DIR}/modules/Support.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/modules/ModuleMain.cpp")
+list(REMOVE_ITEM _cases "${CMAKE_CURRENT_SOURCE_DIR}/modules/Support.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/modules/ModuleMain.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/modules/PromptProbe.cpp")
 list(FILTER _cases EXCLUDE REGEX "/Mw[^/]*Check\\.cpp$")
 add_library(mw_legacy_cases STATIC ${_cases})
 target_link_libraries(mw_legacy_cases PUBLIC wtfml_mw_fixture)

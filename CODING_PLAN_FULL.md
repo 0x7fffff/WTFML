@@ -165,56 +165,14 @@
   首次展开约 80 ms 未增加，滚动/详情/回调/主题保护见性能文档。一趟探针提前退出未产出报告，原因未定，保留原始失败，不能以重跑通过抹去。
   1000条预设搜索中位约5.9→0.6ms；首次进入管理页的目录扫描已后台化，重复打开合并、失效/销毁结果丢弃。
   临时1000份元数据读取仍约2.5s，后台读取期间GUI心跳最大间隔41–45ms；不称磁盘本身加速，见性能文档第八节。
-- [ ] **重构｜大文件职责**：按控制器/页面/纯逻辑拆 MainWindow、MainWindowUI、VersionManager、InstanceSettingsDialog 和大测试模块。
-  当前约 758/381/342/274 KB，仅为维护热点线索，不是性能结论；保持行为及测试归属，不做纯机械拆分。
-  2026-10-25 已在 `MainWindow` 上拆出两片（都是"按职责"、不是按行数切），`MainWindow.cpp`
-  13,949 → 11,505 行、38/38 全绿、`mw_check` 2701/2701：
-  ① `controllers/MainWindowViewData`：各控件的**视图模型**（实例树 / 分组行 / 底栏面板行 / 版本下拉框），
-  纯函数、不碰网络与盘，顺手删掉九条早已没人调的重名助手；
-  ② `controllers/ResourcePageController`：「资源详情」那一页的**全部状态**（`ResourcePageState`
-  整个搬过去）与开页 / 拨勾选框 / 筛分组 / 收尾那几条；主窗口只留四条薄壳
-  （`onResourceDownloadFinished` 被 `ConnectionsController` 按名字接走，另三条别处直接叫）。
-  控制器**构造里就建**、页面对象仍懒建 —— 图标与版本列表那两发会比"开过页"早到，
-  状态里没有"还没建"这一档。
-  ③ `controllers/DownloadFilterController`：下载页每一页顶上那一行筛子的**灌与读**
-  （来源 / 版本 / 加载器 / 类型 + 左栏分类那一行 + "这一页空着才搜"）。那一行"内容全在这儿灌、
-  读也只从这几个访问器读"的规矩现在有了唯一的门；搜索本身（请求钥匙、结果怎么摆行）仍留主窗口。
-  两次搬运后 `MainWindow.cpp` 13,949 → 11,306 行，`mw_check` 2701/2701、38/38 全绿。
-  2026-10-26 ④ `ui/MainWindowUI`：`setupUi()` 里那 1,590 行按**一页一摊**拆成
-  `setupHomePage()` / `setupInstancePage()` / `setupDownloadPage()` / `setupSettingsTab()`
-  四个函数（只共享已经挂好的 `tabWidget`，各自的局部变量谁也不外流）。`setupUi()` 现在
-  219 行，只剩"窗口与标题栏、按契约顺序摆四页、导航接线、底栏、覆盖层、外框"。
-  实测那份"一直排第一"的热点其实看错了口径：`setupSettingsDownloadPanel` 只 136 行。
-  ⑤ 再把 `setupDownloadPage` 那一页里真正不同的三摊拆开：分类列表/页头/堆叠页外壳留在
-  `setupDownloadPage`，第 0 页「游戏」进 `setupDownloadGamePage()`（版本树 + 安装页 + 页头
-  显隐那两条 connect），其余几页那段循环进 `setupDownloadResourcePages()`。
-  三摊之间只共享已经挂好的 `downloadStack` / `gameStack` / `downloadHeader`，没有局部变量要传；
-  "第 0 页先加、其余按表顺序往后加"这条下标契约就落在 `setupDownloadPage` 里那两行调用上。
-  现在 `ui/MainWindowUI.cpp` 里最长的是 `setupSettingsLookPanel()`（434 行）、其次
-  `setupDownloadGamePage()`（370）与 `setupInstancePage()`（364）。
-  ⑥ `ui/InstanceSettingsDialog`：构造函数那 1,631 行按"一栏一摊"搬出三摊 ——
-  `setupOverviewPage()`（595）、`setupLaunchPage()`（419）、`setupFilePages()`（434），
-  构造函数只剩"两栏外壳 + 三行调用 + 接线/灌值"。原来那三摊是**同一个函数里换着用一份
-  `grid`、`row` 从 0 数起**（注释里就写着这条），现在每摊自己 `addForm()` 一份；
-  只有五样"这一次打开对话框的现场"要传进去（目录名、全局值、追加 JVM 参数、提醒开关、窗口档位），
-  不存成成员。
-  ⑦ `manage/VersionManager`：146 个成员函数、单函数最长 238 行 ⇒ 是聚合大、不是局部烂，
-  于是按"一份状态机一摊"把 6,137 行拆成四份 .cpp + 一份内部头：
-  核心（`VersionManager.cpp` 2,197 行：版本清单 / 版本 json / 下载编排 / 批次收尾 / 实例元数据）、
-  加载器安装（`VersionManagerLoaderInstall.cpp` 2,101）、整合包导入（`VersionManagerModpack.cpp` 742）、
-  实例识别与导出（`VersionManagerExport.cpp` 1,046）。**类没动**（同一个类，定义分散在四个
-  翻译单元），所以断言一条都不用改：38/38 全绿、`verify` 5954/5954。
-  原来住在本文件顶上匿名命名空间里的 17 个助手（`copyTreeInto()` / `installerOutputTail()` /
-  `readVersionJsonAt()` 等）搬进 `VersionManagerInternals.hpp`：匿名命名空间是**内部链接**，
-  拆完另外三份根本看不见它们；各抄一份的话"只改一处"就是静默不一致（`copyTreeInto()` 自己
-  那段注释写的正是这件事）。两个写法上的坑：头文件里的函数必须 `inline`，那两个
-  `const QString` 也得写 `inline` —— 不写不在编译期报错，是链接期一串 duplicate symbol。
-  缝合线挑的是**状态机的归属**（`LoaderInstall` 只在安装那一份里走动，`ModpackInstall` /
-  `NamedInstance` 只在导入那一份里），不是行数；唯一横跨几摊的是批次收尾那个岔口
-  `onAllDownloadsFinished()`，它留在核心这一份里，谁要接下去都在那一处一眼看全。
-  这三份 .cpp 要同时进三张源文件表（主目标、`tests/CMakeLists.txt` 的 `wtfml_core_runtime`、
-  `tests/mw_check/CMakeLists.txt`）—— 漏一张不在编译期报错，是链接期一串
-  `VersionManager::…` 的 undefined reference。
+- [ ] **重构｜剩余大文件职责（部分完成）**：本轮已拆出资源搜索/更新检测控制器、主窗口设置/下载/面板、
+  实例设置服务器/维护页，并按职责拆开整合包大测试；尺寸、状态归属及历史记录见 [拆分记录](docs/REFACTORING.md)。
+  MainWindow.cpp 11417→10576行，MainWindowUI.cpp 6256→1602行，InstanceSettingsDialog.cpp 4802→3812行，
+  ModpackImportTests.cpp 3272→926行；控制器持有各自运行状态，保留原接线及测试归属。
+  验证：主窗口2707/2707、完整UI3119/3119、core-resources825/825及正式构建通过；
+  9个相关专用集成分片8个通过，升级保留原目录的既有4条失败仍单列，不记为全绿。
+  剩余：MainWindow 的安装/服务端/更新中心协调与大头文件；实例设置概览/启动与编辑状态；
+  共享长寿命夹具的大UI测试。VersionManager 已按状态机拆过，不再重复作为未做项，也不将本条整体勾完。
 - [ ] **优化｜大列表/预设渲染**：审核 model/view、按需创建、局部更新，避免一次堆积复杂 Widget，依实测选方案。
   任务行局部复用、预设模型筛选及目录后台读取（含增删改后刷新）已落地；新建默认名称复用完整目录缓存，
   不再同步重读全部清单，超过999份仍能分配名称，目录排重改用哈希集合。选中清单和应用计划的

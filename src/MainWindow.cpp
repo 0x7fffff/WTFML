@@ -8,6 +8,8 @@
  */
 
 #include "MainWindow.hpp"
+#include "controllers/ResourceSearchController.hpp"
+#include "controllers/InstanceUpdateCheckController.hpp"
 #include "util/SecretRedactor.hpp"
 #include "util/LaunchScriptCredentials.hpp"
 #include "manage/BackupFiles.hpp"
@@ -300,6 +302,8 @@ MainWindow::MainWindow(QWidget *parent)
     // 而它们按 `m_resourcePage->state().open` 认人 —— 那一位没有"还没建"这一档。
     m_resourcePage = new ResourcePageController(this);
     m_downloadFilter = new DownloadFilterController(this);
+    m_instanceUpdateCheck = new InstanceUpdateCheckController(this);
+    m_resourceSearch = new ResourceSearchController(this);
     // ---------- 任务账本 ----------
     // **唯一**记录"现在有哪些事在跑、各自跑到哪儿了"的地方。它自己一个网络都不开、一个
     // 进程都不起（执行者照旧是 DownloadManager / VersionManager / LauncherManager）——
@@ -964,8 +968,8 @@ MainWindow::~MainWindow() {
     //
     // 这一段的规矩**照着这张单子来**：**这一层（或者这一层的子控制器）**起了的线程，
     // 析构里必须**一个一个等过来**。眼下是四条（体检 / 备份 / 图标反查 / 检查更新）——
-    // 再加一趟就得多一条，加的时候连同这句一起改。四条里三条已经把"等"收进了各自的
-    // 控制器（`shutdown()` / `waitForLookup()`），检查更新那一趟还在这段里直接等。
+    // 再加一趟就得多一条，加的时候连同这句一起改。四条都把"等"收进了各自的
+    // 控制器（`shutdown()` / `waitForLookup()`），这里在 UI 析构前统一调用。
     // （`ServerPing::Pinger` 那八条不在这张单子上：它们的父对象是 Pinger，
     // 而 `~Pinger()` 自己就 abort+wait，见那边。）
     //
@@ -976,9 +980,7 @@ MainWindow::~MainWindow() {
     // 和"父对象是 this"是同一个坑（控制器也是 this 的子对象，一样要散），所以这一
     // 条照样得留：等的活儿在控制器里，等这一下得在这一层发。
     m_instanceIconController->waitForLookup();
-    if (m_updateCheck.thread != nullptr) {
-        m_updateCheck.thread->wait();
-    }
+    m_instanceUpdateCheck->waitForLookup();
     delete m_ui;
 }
 
@@ -3408,466 +3410,41 @@ void MainWindow::resetDownloadFilters(ResourceCatalog::Kind kind) {
 
 
 void MainWindow::startResourceSearch(ResourceCatalog::Kind kind) {
-    const QString key = ResourceCatalog::kindKey(kind);
-    QTreeWidget *tree = m_ui->getDownloadResourceTree(key);
-    if (tree == nullptr) {
-        return;
-    }
-    const QLineEdit *edit = m_ui->getDownloadSearchEdit(key);
-    const QString query = edit == nullptr ? QString() : edit->text().trimmed();
-
-    // 上一批结果连同展开状态一起清掉，换上一行灰的「正在…」。不摆这一行的话，用户按回车
-    // 之后界面**完全没有反应**（请求一秒上下才回来），而"点了没反应"是用户唯一会当成
-    // 启动器坏了的情况。
-    tree->clear();
-    addResourcePlaceholderRow(tree,
-                             query.isEmpty()
-                                 ? tr("正在获取最热门的%1…").arg(ResourceCatalog::kindLabel(kind))
-                                 : tr("正在搜索「%1」…").arg(query));
-    // 记下**这一发真的问了什么**：回来时那句「没有搜到「xx」」里的 xx 要是那一次的词。
-    // 读编辑框里现在的字是错的 —— 用户完全可能在等结果的时候又敲了几个字（那几下还没发出去，
-    // 回车才算一发）。
-    m_resourceQueries.insert(key, query);
-
-    // 另外四个筛子（版本 / 加载器 / 类型 / 来源）在这儿一次读完。读法全在 downloadFilterXxx()
-    // 那四个访问器里（**唯一出处**），这里只负责把它们递给 store —— 空串一律 = 不筛，
-    // 所以"没选"和"没有这一栏"在这里是同一件事，不用分岔。
-    const ResourceCatalog::Source source = downloadFilterSource(kind);
-    const QString gameVersion = downloadFilterGameVersion(kind);
-    const QString loader = downloadFilterLoader(kind);
-    const QString category = downloadFilterCategory(kind);
-
-    appendLog(query.isEmpty() ? tr("正在获取最热门的%1…").arg(ResourceCatalog::kindLabel(kind))
-                              : tr("正在搜索%1「%2」…")
-                                    .arg(ResourceCatalog::kindLabel(kind), query));
-    // 日志里把这一发**带了哪些条件**说全（那两格的值写的是框里显示的字，不是键 ——
-    // CurseForge 的类型键是 `6814` 这种号，写进日志没人看得懂）。搜出来"怎么是这么几条"，
-    // 十有八九就是某个筛子在起作用；不写下来的话只能对着结果猜。
-    QStringList conditions;
-    conditions.append(tr("来源 %1").arg(ResourceCatalog::sourceLabel(source)));
-    if (!gameVersion.isEmpty()) {
-        conditions.append(tr("版本 %1").arg(gameVersion));
-    }
-    const auto shownText = [this, &key](QComboBox *combo) {
-        return combo == nullptr ? QString() : combo->currentText();
-    };
-    if (!loader.isEmpty()) {
-        conditions.append(
-            tr("模组加载器 %1").arg(shownText(m_ui->getDownloadFilterLoaderCombo(key))));
-    }
-    if (!category.isEmpty()) {
-        conditions.append(tr("类型 %1").arg(shownText(m_ui->getDownloadFilterTypeCombo(key))));
-    }
-    appendLog(tr("搜索条件：%1").arg(conditions.join(QStringLiteral(" · "))));
-
-    // 钥匙里要带来源（见 ResourceCatalog::searchRequestKey 那段）：用户刚点完 Modrinth 又
-    // 切成 CurseForge 时，前一趟回来的结果不该被当成"我现在等的那一发"填进树里。
-    m_resourceStore->search(ResourceCatalog::searchRequestKey(kind, source), kind, source, query,
-                            gameVersion, loader, category);
+    m_resourceSearch->startResourceSearch(kind);
 }
 
 void MainWindow::fillResourceHitRows(QTreeWidget *tree, ResourceCatalog::Kind kind,
                                      const ResourceCatalog::SearchResult &result) {
-    if (tree == nullptr) {
-        return;
-    }
-    const int column = MainWindowUI::versionTreeKeyColumn();
-    for (const ResourceCatalog::Hit &hit : result.hits) {
-        auto *item = new QTreeWidgetItem(tree);
-        // 身份 = project_id：图标回来时按它在树里找回这一行、点开游戏版本时按它拼版本请求。
-        item->setData(column, Qt::UserRole, hit.projectId);
-        // 这一条是哪一类。点最底下那一层要按它算"下到哪儿去"（见 resourceKindRole()）——
-        // 存的是**分类键**（不是枚举的整数值），回来时走 kindFromCategoryKey 认，
-        // 认不出来就是"这一行不是我们建的"。
-        item->setData(column, MainWindowUI::resourceKindRole(), ResourceCatalog::kindKey(kind));
-        // 这一条是从哪个来源搜出来的（点第二层要问对那一侧，见 resourceSourceRole()）。
-        item->setData(column, MainWindowUI::resourceSourceRole(),
-                      ResourceCatalog::sourceKey(hit.source));
-        // 图标那一格的**身份**（带来源前缀，见 resourceIconIdRole()）：图标回来时按它认行。
-        item->setData(column, MainWindowUI::resourceIconIdRole(), hit.iconCacheId());
-        item->setText(column, hit.title);
-
-        // 第二行小字：「作者 · 下载量」。下载量那串字只有一处出处（formatDownloads），
-        // 界面上别处显示下载量也要读它。作者缺了就少一段。
-        QStringList bits;
-        if (!hit.author.isEmpty()) {
-            bits.append(hit.author);
-        }
-        bits.append(ResourceCatalog::formatDownloads(hit.downloads));
-        item->setData(column, MainWindowUI::rowSubTextRole(), bits.join(QStringLiteral(" · ")));
-
-        // 简介一行放不下（代理只画一行、超了截断），鼠标停上去看全文。
-        // 空简介不挂 tooltip —— 挂一个空的等于鼠标一停就冒一个空框。
-        if (!hit.description.isEmpty()) {
-            item->setToolTip(column, hit.description);
-        }
-
-        // 第二层：游戏版本。**不用再问接口** —— 搜索响应里本来就带着"这个资源支持哪些
-        // 游戏版本"（Hit::gameVersions）。顺序由 gameVersionChoices() 统一成"新的在前"。
-        // 第二层**一律折**（`false`）：那枚「显示快照版」勾选框在详情页顶上，这一棵树
-        // 没有它 —— 要的是"快照版归到对应的大版本里"，这一层就是那句话的落点。
-        const QStringList choices = ResourceCatalog::gameVersionChoices(hit.gameVersions, false);
-        if (choices.isEmpty()) {
-            // 一个游戏版本都没列（数据包那类）。摆一行灰的说清楚 —— 不然这一行看着能展开、
-            // 点开却是空的。
-            addResourcePlaceholderChild(item, tr("这个%1没有列出支持的游戏版本。")
-                                                  .arg(ResourceCatalog::kindLabel(kind)));
-        }
-        for (const QString &gameVersion : choices) {
-            auto *gameItem = new QTreeWidgetItem(item);
-            // 身份 = 游戏版本号。第三层还不建（点开这一条才去问，见 onResourceItemActivated）。
-            gameItem->setData(column, Qt::UserRole, gameVersion);
-            gameItem->setText(column, gameVersion);
-        }
-
-        // 整条 hit 存一份（键就是上面那个图标身份，也是"这一行是哪个资源"的钥匙）。
-        // 条目上那四个角色装不下简介 / slug / 更新时间，而点开详情页三样都要
-        // （见 m_resourceHits 那段 NOTE）。
-        m_resourceHits.insert(hit.iconCacheId(), hit);
-        // 图标**最后**要：ResourceStore 命中内存缓存时是同步发 iconReady 的，那一行得先在
-        // 那儿（见 requestIcon 的 NOTE）—— 所以这一句必须排在最后。
-        // 收的是整条 hit 不是 id：要挑地址（能用 webp 就走那条小 7 倍的，见 requestIcon）。
-        m_resourceStore->requestIcon(hit);
-    }
+    m_resourceSearch->fillResourceHitRows(tree, kind, result);
 }
 
 void MainWindow::onResourceSearchFinished(const QString &requestKey,
                                          const ResourceCatalog::SearchResult &result) {
-    ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
-    ResourceCatalog::Source fromSource = ResourceCatalog::Source::Modrinth;
-    if (!kindForSearchRequestKey(requestKey, &kind, &fromSource)) {
-        // 不是我们认得的那几页发的（别的东西也用这个 store 时才会走到）。
-        return;
-    }
-    // 这一发回来的时候，用户可能已经把来源换成另一个了 —— 两个来源的请求是**各自飞的**
-    // （钥匙不同，store 不会互相掐掉）。不是这一页**现在**选的那个来源就丢掉：留着会把
-    // 上一家那批结果摆在一个写着另一家的页面上，而页面上那句"来源 CurseForge"就成了假话。
-    if (fromSource != downloadFilterSource(kind)) {
-        return;
-    }
-    const QString key = ResourceCatalog::kindKey(kind);
-    QTreeWidget *tree = m_ui->getDownloadResourceTree(key);
-    if (tree == nullptr) {
-        return;
-    }
-    // 「正在搜索…」那一行先撤掉（下面每一条分支都会摆上自己那一行/那一批）。
-    tree->clear();
-
-    if (!result.ok) {
-        // 「没搜成」和「没搜到」是**两句不同的话**（加载器树那边「无可用版本」和
-        // 「列表没取到」也是这么分的）。这里说的是前一句。
-        //
-        // NOTE: 这里**不弹窗**。产品那条"错误要弹窗"管的是"必须让用户看见的东西不能只写
-        // 日志"（日志面板不存在，写进去等于没写）；这一句**不是**那种：那一行就
-        // 摆在用户刚点的那一页上、就是他正在看的地方，而且话是接口/网络自己说的
-        // （超时 / 连不上 / 还是"你问得太勤了，过一分钟再试" —— 最后那种正是最该
-        // 看清、又最不该用一个模态框打断他的）。回车再按一次就是重试。
-        // 这一条和加载器树那条「列表没取到」是同一种形状，所以做法也一样。
-        // 真要弹窗的是那些**没有别的地方能显示**的错（见 onResourceDownloadFinished）。
-        appendLog(tr("✗ 搜索%1失败：%2").arg(ResourceCatalog::kindLabel(kind), result.problem));
-        addResourcePlaceholderRow(tree, result.problem);
-        return;
-    }
-    if (result.hits.isEmpty()) {
-        // **问到了、就是没有** —— 不算错，也**不弹窗**（一个"什么都没发生"的弹窗比没有
-        // 更烦人）。用记下来的那个搜索词，别读编辑框里现在的字（理由见 startResourceSearch）。
-        const QString query = m_resourceQueries.value(key);
-        appendLog(tr("%1 一条也没有搜到（%2）。")
-                      .arg(ResourceCatalog::kindLabel(kind), query.isEmpty() ? tr("空搜索词") : query));
-        addResourcePlaceholderRow(tree, query.isEmpty()
-                                            ? tr("这一类里一条都没有。")
-                                            : tr("没有搜到「%1」。").arg(query));
-        return;
-    }
-    fillResourceHitRows(tree, kind, result);
+    m_resourceSearch->onResourceSearchFinished(requestKey, result);
 }
 
 void MainWindow::onResourceIconReady(const QString &iconId, const QPixmap &icon) {
-    // 没有图标（作者没传过 / 这次没取到 / 被限流）也**要**给这一行挂上东西：一个全透明的
-    // 方块。为什么：代理是"条目给了图标，文字才让出前面那一格"的（见 VersionTreeDelegate
-    // 里 iconRect 那段），什么都不挂的话这一行的字会顶到最左边，和上下那些有图标的行
-    // 参差不齐 —— 而"这一列没对齐"在用户眼里是"这软件做得很糙"，不是"这个模组没图标"。
-    // 全透明是为了不再多画一个"没有图标"的形状（那个形状本身也是要设计的东西）。
-    // NOTE: **不是错误**、不弹窗：项目没上传过图标是完全正常的一件事。
-    QPixmap mark = icon;
-    if (mark.isNull()) {
-        mark = QPixmap(MainWindowUI::resourceTreeIconSize(), MainWindowUI::resourceTreeIconSize());
-        mark.fill(Qt::transparent);
-    }
-    const int column = MainWindowUI::versionTreeKeyColumn();
-    // 按**图标身份**（`Hit::iconCacheId()`，见 resourceIconIdRole）找回**现在**树上那一行 ——
-    // 不按裸 project_id：两个来源的 id 空间会撞，撞上就是把另一个来源同号那个资源的图标
-    // 画到这一行上（而且不报错）。也不存条目指针：重搜会把整棵树清掉，存下来的指针就是
-    // 悬空的 —— 按身份找，找得到才画，找不到就什么都不做。
-    for (ResourceCatalog::Kind kind : ResourceCatalog::allKinds()) {
-        QTreeWidget *tree = m_ui->getDownloadResourceTree(ResourceCatalog::kindKey(kind));
-        if (tree == nullptr) {
-            continue;
-        }
-        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-            QTreeWidgetItem *item = tree->topLevelItem(i);
-            if (item->data(column, MainWindowUI::resourceIconIdRole()).toString() != iconId) {
-                continue;
-            }
-            item->setData(column, MainWindowUI::rowIconRole(), mark);
-        }
-    }
-    // 详情页正开着、回来的又正好是它那一张 → 换上头卡那一格。
-    //
-    // NOTE: 判据是**图标身份**而不是"页开着"就换：图标是一条一条回来的，页上那一格只该
-    // 认自己这一条（换个说法：这是同一套"按身份认行"的规矩，只不过这儿认的是那一页）。
-    // 头卡那一格比列表大（64 vs 32），缩放由那一页自己做（见 setIcon）。
-    const auto &pageState = m_resourcePage->state();
-    if (pageState.open && iconId == pageState.iconKey
-        && m_resourcePage->page() != nullptr) {
-        m_resourcePage->page()->setIcon(icon);
-    }
-
-    // ---------- 「文件管理」那几页----------
-    //
-    // 同一个身份也可能是**实例里某个文件**换来的那一个（见 requestInstanceFileIcons）——
-    // 这一格和上面那棵树是两回事（那边是"搜出来的资源"，这边是"盘上躺着的文件"），
-    // 所以两条路都要走一遍，谁都不抢谁。
-    //
-    // 这一句**必须排在 m_resourceStore->requestIcon() 之后**（也就是"图标回来时"）：
-    // 盘上已经有缓存的话 requestIcon() 是**同步**发 iconReady 的（见它那条 NOTE），
-    // 所以这里是"记了账、立刻就用上"，而记账那一步在 requestIcon 之前就写完了。
-    m_instanceIconController->rememberResourceIcon(iconId, icon);
+    m_resourceSearch->onResourceIconReady(iconId, icon);
 }
 
 void MainWindow::onResourceItemActivated(QTreeWidgetItem *item) {
-    if (item == nullptr) {
-        return;
-    }
-    // 灰的那些（「正在搜索…」「没有搜到…」「正在获取…」「这个游戏版本上没有…」）不是能点的
-    // 东西：点它什么都不该发生。放在最前面 —— "点不动"这件事对三层是同一个道理。
-    if (item->isDisabled()) {
-        return;
-    }
-    const int depth = resourceRowDepth(item);
-    if (depth == 0 || depth == 1) {
-        // 第一层（一个资源）和第二层（一个游戏版本）都是**只展开 / 收起**：
-        // "点开"是"看看有什么"，看一眼不等于选了它。
-        const bool expand = !item->isExpanded();
-        item->setExpanded(expand);
-        if (depth != 1 || !expand || item->childCount() > 0) {
-            return;
-        }
-        // 第二层**第一次**被点开：这时才去问"这个资源在这个游戏版本上，哪些版本可下"。
-        // 判据是"底下一条都没有" —— 这一层点开之前一定是空的，问过之后无论有没有结果都会
-        // 留下至少一行（版本号、或者一句灰的"没有"），所以"空"就等于"还没问过"。
-        // 这也顺带成了"再点一次重试"那条路：没取到时底下留着一行灰的，把那一条删掉
-        // （重搜/重新点开）就会再问一次。
-        const QTreeWidgetItem *resourceItem = item->parent();
-        const QString projectId = resourceItem == nullptr
-                                      ? QString()
-                                      : resourceItem->data(MainWindowUI::versionTreeKeyColumn(),
-                                                           Qt::UserRole).toString();
-        // 这一条是从哪个来源搜出来的（见 resourceSourceRole()）：**必须问对那一侧** ——
-        // 两个来源的 id 空间会撞，问错了不报错，只会显示另一个资源的版本列表。
-        // 认不出来（那一行不是我们建的）就当 Modrinth，和"没选来源"的默认一致。
-        ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
-        if (resourceItem != nullptr) {
-            ResourceCatalog::sourceFromKey(
-                resourceItem->data(MainWindowUI::versionTreeKeyColumn(),
-                                   MainWindowUI::resourceSourceRole()).toString(),
-                &source);
-        }
-        const QString gameVersion =
-            item->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString();
-        if (projectId.isEmpty() || gameVersion.isEmpty()) {
-            return;
-        }
-        addResourcePlaceholderChild(item, tr("正在获取…"));
-        // NOTE: **不按加载器筛**（loader 传空）。为什么：这一层的游戏版本是从**搜索响应**
-        // 来的，而那份响应里没有"这个资源的哪个游戏版本属于哪个加载器"这份对应关系
-        // （categories 是整个资源的标签，不是某个版本的）。要按加载器筛就得先知道
-        // 用户在给哪个实例装 —— 那件事在点版本号那一下才定（见
-        // downloadResourceVersion 里那道加载器对不上的闸口）。
-        m_resourceStore->fetchVersions(
-            ResourceCatalog::versionsRequestKey(projectId, gameVersion, QString(), source),
-            projectId, source, gameVersion);
-        return;
-    }
-    if (depth == 2) {
-        // 第三层（一个版本号）：**这一下就是"下它"**。
-        downloadResourceVersion(item);
-    }
+    m_resourceSearch->onResourceItemActivated(item);
 }
 
 void MainWindow::fillResourceVersionRows(QTreeWidgetItem *gameItem,
                                         const QList<ResourceCatalog::VersionEntry> &versions,
                                         const QString &problem) {
-    if (gameItem == nullptr) {
-        return;
-    }
-    // 先撤掉「正在获取…」。这一层点开之前一定是空的，所以这里清掉的只有那一行占位。
-    while (gameItem->childCount() > 0) {
-        delete gameItem->takeChild(0);
-    }
-    const int column = MainWindowUI::versionTreeKeyColumn();
-
-    if (!problem.isEmpty()) {
-        // 「没取到」（超时 / 限流 / 那条资源被作者删了）。**不弹窗**：要的是"展开看看"，
-        // 进来已经有话说了；而且这一层再点一次（收起再展开）就是重新问一次。
-        addResourcePlaceholderChild(gameItem, problem);
-        return;
-    }
-    if (versions.isEmpty()) {
-        addResourcePlaceholderChild(gameItem, tr("这个游戏版本上没有可下载的版本。"));
-        return;
-    }
-
-    // 三层行前面那个图标：跟着它所属的那个资源（同一列里三个草方块会让人以为是三个
-    // Minecraft 版本）。资源那条的图标是异步回来的，这里读到的可能还是空的 —— 那就
-    // 按默认规矩留给代理（空的等于没给）。
-    const QVariant resourceIcon =
-        gameItem->parent() == nullptr
-            ? QVariant()
-            : gameItem->parent()->data(column, MainWindowUI::rowIconRole());
-
-    for (const ResourceCatalog::VersionEntry &version : versions) {
-        auto *item = new QTreeWidgetItem(gameItem);
-        // 身份 = 版本 **id**（不是版本号）：点它那一下要拿它回 m_resourceVersions 里换
-        // "这一版的文件是哪几个"，而文件清单是按 id 找的。
-        item->setData(column, Qt::UserRole, version.id);
-        // 正文写**文件名**：接下来要落到 mods/ 里的就是这个名字（作者给这一版起的名字
-        // 常常已经在文件名里写全了，两个都写一行放不下）。
-        const ResourceCatalog::FileEntry *file = version.primaryFile();
-        item->setText(column, file == nullptr ? version.versionNumber : file->filename);
-        // 第二行小字：release/beta/alpha · 加载器 · 发布日期（各缺各的就不补）。
-        QStringList bits;
-        if (!version.versionType.isEmpty()) {
-            bits.append(version.versionType);
-        }
-        if (!version.loaders.isEmpty()) {
-            bits.append(version.loaders.join(QLatin1Char('/')));
-        }
-        if (!version.datePublished.isEmpty()) {
-            // ISO 8601（`T…`）只取日期那一段。
-            bits.append(version.datePublished.left(10));
-        }
-        item->setData(column, MainWindowUI::rowSubTextRole(), bits.join(QStringLiteral(" · ")));
-        if (resourceIcon.isValid()) {
-            item->setData(column, MainWindowUI::rowIconRole(), resourceIcon);
-        }
-    }
+    m_resourceSearch->fillResourceVersionRows(gameItem, versions, problem);
 }
 
 void MainWindow::onResourceVersionsFinished(const QString &requestKey,
                                            const QList<ResourceCatalog::VersionEntry> &versions,
                                            const QString &problem) {
-    const int column = MainWindowUI::versionTreeKeyColumn();
-    // 先看是不是**详情页**那一发（钥匙里游戏版本、加载器都是空的，和树上那些一定带一个
-    // 游戏版本的钥匙不会撞，见 openResourceDetailPage）。
-    auto &resourcePage = m_resourcePage->state();
-    if (resourcePage.open && requestKey == resourcePage.requestKey) {
-        if (!problem.isEmpty()) {
-            // 「没取到」（超时 / 限流 / 那条资源被作者删了）。**不弹窗**：用户是点进这一页
-            // 来看东西的，页上已经有话说了；再点一次这个资源就是重新问一次。
-            resourcePage.versions.clear();
-            resourcePage.loaded = true;   // 回来过了（回的是"没取到"）
-            m_resourcePage->page()->setPlaceholder(problem);
-            return;
-        }
-        resourcePage.versions = versions;
-        resourcePage.loaded = true;
-        // 摆哪一份由 chip 决定（这一步同时也处理"筛完一条都不剩"和"一条都没发过"两种空）。
-        fillResourcePageGroups();
-        return;
-    }
-    // 不解析那把钥匙（钥匙的格式只有 ResourceCatalog 知道）。而是**按内容重算**：把树上
-    // 每一个"资源 × 游戏版本"重算一次钥匙，和回来的这一把比。几页加起来也就几十对，
-    // 一次线性扫描。这样钥匙的拼法只有一处（versionsRequestKey），而且不必在条目上存
-    // "这一发是谁发的"（那个指针在重搜时会被整个清掉，留着就是悬空的）。
-    for (ResourceCatalog::Kind kind : ResourceCatalog::allKinds()) {
-        QTreeWidget *tree = m_ui->getDownloadResourceTree(ResourceCatalog::kindKey(kind));
-        if (tree == nullptr) {
-            continue;
-        }
-        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-            QTreeWidgetItem *resourceItem = tree->topLevelItem(i);
-            const QString projectId = resourceItem->data(column, Qt::UserRole).toString();
-            if (projectId.isEmpty()) {
-                continue;
-            }
-            // 这一条是从哪个来源搜出来的：**必须跟着它算钥匙**。钥匙里带来源（见
-            // versionsRequestKey 那段），拿默认那一档去比的话，CurseForge 那条路上一把都
-            // 对不上 —— 症状是"展开游戏版本，一直停在「正在获取…」"，而请求其实已经回来了。
-            ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
-            ResourceCatalog::sourceFromKey(
-                resourceItem->data(column, MainWindowUI::resourceSourceRole()).toString(), &source);
-            for (int j = 0; j < resourceItem->childCount(); ++j) {
-                QTreeWidgetItem *gameItem = resourceItem->child(j);
-                const QString gameVersion = gameItem->data(column, Qt::UserRole).toString();
-                if (gameVersion.isEmpty()
-                    || ResourceCatalog::versionsRequestKey(projectId, gameVersion, QString(), source)
-                           != requestKey) {
-                    continue;
-                }
-                // 就是它。清单存下来（点第三层那一下要用 URL / sha1 / 大小），再摆第三层。
-                // NOTE: 这张表只往里放、不清理（键是"资源 × 游戏版本"，值是一份纯数据的
-                // 小清单）。不清理不会读到旧数据：第三层那些行只在问过之后才存在，
-                // 而问过就一定覆盖过同一个键。
-                m_resourceVersions.insert(requestKey, versions);
-                fillResourceVersionRows(gameItem, versions, problem);
-                return;
-            }
-        }
-    }
-    // 树里找不到对应的行 = 用户重搜过了，这一发的结果已经不是现在这棵树上的东西了。
-    // 丢掉是对的 —— 把旧结果填进新列表比丢掉糟得多。
+    m_resourceSearch->onResourceVersionsFinished(requestKey, versions, problem);
 }
 
 void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
-    if (item == nullptr) {
-        return;
-    }
-    const int column = MainWindowUI::versionTreeKeyColumn();
-    QTreeWidgetItem *gameItem = item->parent();
-    QTreeWidgetItem *resourceItem = gameItem == nullptr ? nullptr : gameItem->parent();
-    if (gameItem == nullptr || resourceItem == nullptr) {
-        return;
-    }
-    const QString versionId = item->data(column, Qt::UserRole).toString();
-    const QString gameVersion = gameItem->data(column, Qt::UserRole).toString();
-    const QString projectId = resourceItem->data(column, Qt::UserRole).toString();
-    ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
-    if (!ResourceCatalog::kindFromCategoryKey(
-            resourceItem->data(column, MainWindowUI::resourceKindRole()).toString(), &kind)) {
-        return;  // 这一行不是我们建的（正常走不到）
-    }
-    // 这一版的文件清单：随"点开游戏版本"那一发回来的。没有它就下不了（正常走不到 ——
-    // 有第三层这些行就说明那一发回来过）。说清楚，别静静地什么都不做。
-    //
-    // 钥匙里的来源要**从这一行自己读**（和点开时那把一模一样，见 onResourceItemActivated）：
-    // 少带来源的话，CurseForge 那一页上每一版都查不到自己的清单 —— 用户按下去拿到的是
-    // 一句「这一版的下载信息还没取到」，可它明明就摆在眼前。
-    ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
-    ResourceCatalog::sourceFromKey(
-        resourceItem->data(column, MainWindowUI::resourceSourceRole()).toString(), &source);
-    const QString requestKey =
-        ResourceCatalog::versionsRequestKey(projectId, gameVersion, QString(), source);
-    const auto cached = m_resourceVersions.constFind(requestKey);
-    if (cached == m_resourceVersions.constEnd()) {
-        InlineMessage::warning(m_ui->overlay(), tr("下载失败"),
-            tr("这一版的下载信息还没取到。把上面那个游戏版本收起再点开一次，然后重试。"));
-        return;
-    }
-    const ResourceCatalog::VersionEntry *chosen = nullptr;
-    for (const ResourceCatalog::VersionEntry &entry : *cached) {
-        if (entry.id == versionId) {
-            chosen = &entry;
-            break;
-        }
-    }
-    if (chosen == nullptr) {
-        // 行在、清单里没有它 = 这一行是上一次搜索留下的（重搜过）。用户没做错什么，不弹窗。
-        return;
-    }
-    // 剩下的（选哪个实例、落到哪个目录、文件清单、加载器那道闸）详情页那条路也要走一遍，
-    // 全在 installResourceVersion 里 —— **这一条路不自己再算一份**。
-    installResourceVersion(kind, resourceItem->text(column), *chosen, source);
+    m_resourceSearch->downloadResourceVersion(item);
 }
 
 void MainWindow::installResourceVersion(ResourceCatalog::Kind kind, const QString &displayTitle,
@@ -4171,198 +3748,12 @@ void MainWindow::finishDependencyCheck() {
 
 void MainWindow::checkInstanceUpdates(const QString &instanceId, InstanceSettingsDialog *dialog,
                                      const QStringList &selectedPaths) {
-    if (instanceId.isEmpty()) {
-        return;
-    }
-    if (m_updateCheck.thread != nullptr) {
-        appendLog(tr("更新检测已经在跑了，等它出结果。"));
-        return;
-    }
-
-    // ① 候选文件（四个"能下载的资源"目录，不含存档/原理图 —— 那两样没有"更新"这回事）。
-    QStringList paths;
-    const QSet<QString> selectedScope(selectedPaths.begin(), selectedPaths.end());
-    QHash<QString, ResourceCatalog::Kind> pathKinds;
-    const QHash<QString, QString> dirs = instanceFileDirs(instanceId);
-    const QStringList wantedDirs = {QStringLiteral("mod"), QStringLiteral("resourcepack"),
-                                    QStringLiteral("datapack"), QStringLiteral("shader")};
-    for (const QString &kindKey : wantedDirs) {
-        ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
-        if (!ResourceCatalog::kindFromCategoryKey(kindKey, &kind)) {
-            continue;  // 页键认不回类别 = 这张表改了名，那一类这一趟不查（宁可少一类）
-        }
-        const QString dir = dirs.value(kindKey);
-        if (dir.isEmpty()) {
-            continue;
-        }
-        QDir folder(dir);
-        const QFileInfoList entries =
-            folder.entryInfoList(QDir::Files | QDir::NoSymLinks, QDir::Name);
-        for (const QFileInfo &info : entries) {
-            if (!selectedScope.isEmpty() && !selectedScope.contains(info.absoluteFilePath())) continue;
-            // 禁用中的文件（`X.jar.disabled`）这一趟跳过 —— 不是因为认不出（后缀不改
-            // 文件内容，sha1 照样能判），而是：那一行在屏幕上是被**划掉**的（名字一道
-            // 删除线、开关关着，见 InstanceFilesPage::makeRow），游戏根本不加载它 ⇒ 替它
-            // 问一趟"有没有新版本"是替一个**用不到的东西**问：真答了也只是让那一行多出
-            // 一个 ↑，而用户按不下去（更新那一发是要**装进这个实例**的，装一个被禁用的
-            // 文件没有意义）。
-            // 顺带这一趟也小一截（少读几个 jar、少发几发反查）。
-            //
-            // NOTE: 判据就是盘上那个名字的后缀 —— 和文件页"这一条是不是禁用着"**逐字同一
-            // 个**（`disabledSuffix()`，大小写不敏感，和 InstanceFilesPage 里那处一样）。
-            // NOTE: **不是**用 `identityPath()` 去重 —— 被跳过的那一条压根不进这份名单。
-            if (info.fileName().endsWith(InstanceFilesPage::disabledSuffix(),
-                                         Qt::CaseInsensitive)) {
-                continue;
-            }
-            paths.append(info.absoluteFilePath());
-            pathKinds.insert(info.absoluteFilePath(), kind);
-        }
-    }
-    if (paths.isEmpty()) {
-        InlineMessage::information(m_ui->overlay(), tr("更新检测"),
-                                 tr("这个实例里没有可以查更新的文件。"));
-        return;
-    }
-
-    m_updateCheck = UpdateCheckRun{};
-    m_updateCheck.selectedScope = selectedScope;
-    m_updateCheck.instanceId = instanceId;
-    m_updateCheck.pathKinds = pathKinds;
-    // 结果回来时要递给**同一页**（见 UpdateCheckRun::dialog 那段）。弱引用：收页了就不递。
-    m_updateCheck.dialog = dialog;
-    appendLog(tr("正在检查「%1」里的资源有没有新版本（%2 个文件）...")
-                  .arg(instanceDisplayName(instanceId))
-                  .arg(paths.size()));
-
-    InstanceIconLookup::Options options;
-    // 三个口子和 ResourceStore / VersionManager / 文件管理页那三处**同一份设置**。
-    options.curseForgeApiKey = m_settings->curseForgeApiKey();
-    options.modrinthApiBaseOverride = m_settings->modrinthApiBaseOverride();
-    options.curseForgeApiBaseOverride = m_settings->curseForgeApiBaseOverride();
-    options.cacheDir = AppPaths::instanceIconCacheDir();
-    options.cacheKey = instanceId;
-    options.requireVersionMetadata = true;
-
-    // NOTE: 线程对象由 `finishUpdateCheck()` 自己收（见那一段 ★）—— 走到这里时
-    // 上一趟要么已经跑完、要么被上面那道 `m_updateCheck.thread != nullptr` 挡回去了。
-    m_updateCheck.thread = QThread::create([this, paths, options, instanceId]() {
-        const InstanceIconLookup::Result result = InstanceIconLookup::lookup(paths, options);
-        QMetaObject::invokeMethod(
-            this,
-            [this, result, instanceId]() { onUpdateCheckLookupFinished(result, instanceId); },
-            Qt::QueuedConnection);
-    });
-    m_updateCheck.thread->setParent(this);
-    m_updateCheck.thread->start();
+    m_instanceUpdateCheck->checkInstanceUpdates(instanceId, dialog, selectedPaths);
 }
 
 void MainWindow::onUpdateCheckLookupFinished(const InstanceIconLookup::Result &result,
                                             const QString &instanceId) {
-    // 回来看的这一趟是不是**现在**要的那一趟（用户完全可能又点了一次检查、或者换了实例）。
-    if (m_updateCheck.instanceId != instanceId) {
-        return;
-    }
-    // 反查那一趟自己的毛病（读不动几个文件 / 整趟没跑完）——报告末尾照实说一句。
-    // **不算失败**：认出来的那些照样判（那是真的）。
-    if (!result.problem.isEmpty()) {
-        m_updateCheck.lookupNote = result.problem;
-    } else if (result.unreadable > 0) {
-        m_updateCheck.lookupNote =
-            tr("有 %1 个文件读不动（多半被别的程序占着），这一批里没有它们。")
-                .arg(result.unreadable);
-    }
-
-    const ModDependencies::Target target =
-        dependencyTargetFor(instanceId, ResourceCatalog::Source::Modrinth);
-
-    // **一个文件只查一家**（缘由见 `UpdateCheckRun::fallbackItems` 那段）。
-    // 先量一遍"哪几个文件 Modrinth 认出来了" —— 同一个文件在两家都认出来时，
-    // 下面那两条记录（路径逐字同一个）只有**第一条**该往下走。
-    // 必须**单独走一趟**：`result.found` 的顺序不定（两份回复都是哈希表），
-    // 边遍历边攒的话，"CurseForge 那条"完全可能排在"Modrinth 那条"前面。
-    QSet<QString> modrinthPaths;
-    for (const InstanceIconLookup::Found &found : result.found) {
-        if (found.hit.projectId.isEmpty()) {
-            continue;
-        }
-        if (found.hit.source == ResourceCatalog::Source::Modrinth) {
-            modrinthPaths.insert(found.path);
-        }
-    }
-
-    for (const InstanceIconLookup::Found &found : result.found) {
-        if (found.hit.projectId.isEmpty()) {
-            continue;
-        }
-        ModDependencies::InstalledItem item;
-        item.path = found.path;
-        item.iconKey = found.hit.iconCacheId();
-        item.title = found.hit.title;
-        item.sha1 = found.sha1;
-        item.currentVersion = found.currentVersion;
-        item.projectId = found.hit.projectId;
-        item.source = found.hit.source;
-        item.loaderApplies = ModDependencies::kindUsesLoader(
-            m_updateCheck.pathKinds.value(found.path, ResourceCatalog::Kind::Mod));
-        // NOTE: 只有 Modrinth 有这个接口 —— CurseForge 那些照旧一项目一发（它们通常
-        // 只占一小撮，几发不成气候；而"两家的号不是一套"这件事在下面那把钥匙上
-        // 已经带着来源了）。
-        // 这一条该带的加载器（`item.loaderApplies` 那一位的用法，
-        // 见 `ModDependencies::kindUsesLoader()` 那段）。**每一处拼钥匙 / 发请求都得
-        // 走它** —— 直接递 `target.loader` 的话，资源包那几类又带上「fabric」了。
-        const QString itemLoader = item.loaderApplies ? target.loader : QString();
-        if (found.hit.source == ResourceCatalog::Source::Modrinth && !found.sha1.isEmpty()) {
-            // 批量那一发**按钥匙分组**（加载器不同的两拨不能合成一发 —— 见
-            // `UpdateCheckRun::batchItems` 那段）。
-            const QString batchKey =
-                ModDependencies::latestVersionsKeyFor(QStringLiteral("update"), target.gameVersion,
-                                                      itemLoader);
-            m_updateCheck.batchItems[batchKey][found.sha1.toLower()].append(item);
-            m_updateCheck.batchLoader.insert(batchKey, itemLoader);
-            continue;
-        }
-        // 钥匙跟着**这一条自己的来源**走（两家的 id 空间不是一套，问错边问出来的是
-        // 另一个项目）。来源在 hit 上，不在 target 上。
-        const QString key = ModDependencies::versionsKeyFor(
-            QStringLiteral("update"), found.hit.projectId, target.gameVersion, itemLoader,
-            found.hit.source);
-        // 同一个文件 Modrinth 那边也认出来了 ⇒ **押着**（它已经在 `batchItems` 里了，
-        // 而两家的答案在这里同义）。等批量那一发回来看它有没有这个 sha1 的答案：有就
-        // 到此为止（这一条已经被判过），没有才退回问 CurseForge。
-        if (found.hit.source != ResourceCatalog::Source::Modrinth &&
-            modrinthPaths.contains(found.path)) {
-            m_updateCheck.fallbackItems[key].append(item);
-            continue;
-        }
-        m_updateCheck.itemsByKey[key].append(item);
-    }
-
-    m_updateCheck.waitingKeys.clear();
-    for (auto it = m_updateCheck.itemsByKey.constBegin();
-         it != m_updateCheck.itemsByKey.constEnd(); ++it) {
-        m_updateCheck.waitingKeys.insert(it.key());
-    }
-    // 批量那几发（Modrinth 那一拨）：**一把钥匙一发**（模组那拨带加载器、资源包那拨不带
-    // —— 见 `UpdateCheckRun::batchItems` 那段）。空表就整个不发（"一个都不用问"也是走完了）。
-    for (auto it = m_updateCheck.batchItems.constBegin();
-         it != m_updateCheck.batchItems.constEnd(); ++it) {
-        m_updateCheck.pendingBatchKeys.insert(it.key());
-        m_resourceStore->fetchLatestVersions(it.key(), it.value().keys(), target.gameVersion,
-                                             m_updateCheck.batchLoader.value(it.key()));
-    }
-    if (m_updateCheck.waitingKeys.isEmpty() && m_updateCheck.pendingBatchKeys.isEmpty()) {
-        // 一个都没认出来（新实例、或者全是自己改过的 jar）——**照样出一份报告**：
-        // "一个都认不出来"正是用户需要知道的事，闷着不说是最坏的。
-        finishUpdateCheck(instanceId);
-        return;
-    }
-
-    // 逐个项目问版本列表。**一把钥匙一发**，互相不撞。
-    for (auto it = m_updateCheck.itemsByKey.constBegin();
-         it != m_updateCheck.itemsByKey.constEnd(); ++it) {
-        requestUpdateCheckVersions(it.key());
-    }
+    m_instanceUpdateCheck->onUpdateCheckLookupFinished(result, instanceId);
 }
 
 // 更新检测：**按钥匙发那一发"问这个项目的版本列表"**（一把钥匙一发）。
@@ -4371,152 +3762,19 @@ void MainWindow::onUpdateCheckLookupFinished(const InstanceIconLookup::Result &r
 // 以及批量那一发回来时给"退回问 CurseForge"的那些补发（见 `onUpdateCheckLatestFinished()`）。
 // 两处要发的东西是**逐字同一句**，抄第二份的话迟早有一边忘了带上来源。
 void MainWindow::requestUpdateCheckVersions(const QString &requestKey) {
-    const QList<ModDependencies::InstalledItem> items = m_updateCheck.itemsByKey.value(requestKey);
-    if (items.isEmpty()) {
-        return; // 这一把底下没人 = 不是这一趟的钥匙，不发
-    }
-    // 目标（游戏版本 / 加载器）每次现算：它读的是实例自己那几份文件，而这一趟的实例
-    // 就在 `m_updateCheck.instanceId` 上。
-    const ModDependencies::Target target =
-        dependencyTargetFor(m_updateCheck.instanceId, ResourceCatalog::Source::Modrinth);
-    // 项目号从钥匙里读不出来（钥匙是拼出来的一串），所以从这一组里那一条自己的 `iconKey`
-    // （`<来源>-<项目号>`）上取。
-    const ModDependencies::InstalledItem &any = items.first();
-    ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
-    const int dash = any.iconKey.indexOf(QLatin1Char('-'));
-    if (dash > 0) {
-        ResourceCatalog::sourceFromKey(any.iconKey.left(dash), &source);
-    }
-    const QString projectId = dash > 0 ? any.iconKey.mid(dash + 1) : any.iconKey;
-    const QString itemLoader = any.loaderApplies ? target.loader : QString();
-    // 先记账再发：答案回来时按 `waitingKeys` 认"是不是这一趟等的"，漏记就是"判了不算"。
-    m_updateCheck.waitingKeys.insert(requestKey);
-    m_resourceStore->fetchVersions(requestKey, projectId, source, target.gameVersion, itemLoader);
+    m_instanceUpdateCheck->requestUpdateCheckVersions(requestKey);
 }
 
 void MainWindow::onUpdateCheckLatestFinished(
     const QString &requestKey, const QHash<QString, ResourceCatalog::VersionEntry> &latest,
     const QString &problem) {
-    // 不是这一趟等的那一发就丢掉（这一把钥匙只有更新检测在用，但"是不是我这一趟"这件事
-    // 还是得问一句 —— 用户完全可能刚又点了一次检查）。
-    if (!m_updateCheck.pendingBatchKeys.contains(requestKey)) {
-        return;
-    }
-    m_updateCheck.pendingBatchKeys.remove(requestKey);
-    for (auto it = latest.constBegin(); it != latest.constEnd(); ++it) {
-        m_updateCheck.batchAnswered.insert(it.key());
-    }
-
-    QSet<QString> heldPaths;
-    for (auto it = m_updateCheck.fallbackItems.constBegin();
-         it != m_updateCheck.fallbackItems.constEnd(); ++it) {
-        for (const ModDependencies::InstalledItem &item : it.value()) {
-            heldPaths.insert(item.path);
-        }
-    }
-
-    // 只判**这一发**问回来的那一拨（`batchItems` 现在按钥匙分层，别的钥匙底下那些不归它）。
-    const QHash<QString, QList<ModDependencies::InstalledItem>> answeredItems =
-        m_updateCheck.batchItems.value(requestKey);
-    for (auto it = answeredItems.constBegin(); it != answeredItems.constEnd(); ++it) {
-        const ResourceCatalog::VersionEntry found = latest.value(it.key());
-        for (const ModDependencies::InstalledItem &item : it.value()) {
-            if (found.id.isEmpty() && heldPaths.contains(item.path)) {
-                continue; // 交给退回的那一发（上面那段）
-            }
-            const ModDependencies::UpdateVerdict verdict =
-                ModDependencies::judgeUpdateAgainstLatest(item, found, problem);
-            m_updateCheck.verdicts.append(verdict);
-            // "这条可更新"的那一瞬间把它该换成的那一版留一份（和单发那条路同一个规矩，
-            // 见 UpdateCheckRun::latestByPath）。
-            if (verdict.state == ModDependencies::UpdateState::Outdated && !found.id.isEmpty()) {
-                m_updateCheck.latestByPath.insert(item.path, found);
-            }
-        }
-    }
-
-    if (!m_updateCheck.pendingBatchKeys.isEmpty()) {
-        return;
-    }
-
-    // NOTE: 判据是**这一趟攒下来的那一份**（`batchAnswered`，跨所有批量钥匙），
-    // 不是这一发的回复 —— 批量现在分几发，只看这一发的话另一把钥匙答过的那些
-    // 会被当成"没答"再问一遍（见上面那段）。
-    //
-    // 分流必须**逐条**做，不能"这一把钥匙底下只要有一条答过就整组跳过"。
-    // 一把钥匙 = 一个项目，而同一个项目完全可能对应盘上**两个文件**（比如它发过一个
-    // 本体包和一个附加包，用户两个都装了；或者同一个 jar 放过两份不同版本）。那种
-    // 情况下 Modrinth 完全可能只答得出其中一个 sha1：整组跳过的写法会把另一个文件
-    // **一条结论都不给** —— 它既不在 `itemsByKey`（不会被问、不会被判），也不在
-    // `verdicts` 里 ⇒ 报告里凭空少一行、`checked` 数也比盘上的文件少。屏幕上完全
-    // 看不出来（其余几条都正常），正是这一套最怕的那种"安静地少一条"。
-    QStringList refire;
-    for (auto it = m_updateCheck.fallbackItems.constBegin();
-         it != m_updateCheck.fallbackItems.constEnd(); ++it) {
-        QList<ModDependencies::InstalledItem> unanswered;
-        for (const ModDependencies::InstalledItem &item : it.value()) {
-            if (!item.sha1.isEmpty() && m_updateCheck.batchAnswered.contains(item.sha1)) {
-                continue; // Modrinth 答过这一条，上面那个循环已经把它判过了
-            }
-            unanswered.append(item);
-        }
-        if (unanswered.isEmpty()) {
-            continue;
-        }
-        // 挪进 `itemsByKey` —— **这一挪同时把它算进收尾判据**（那把钥匙发出去之后
-        // `onUpdateCheckVersionsFinished()` 判的就是这儿这一组）。只挪**没答过的那几条**：
-        // 答过的已经在上面判过了，再挪一遍就是同一个文件两条结论。
-        m_updateCheck.itemsByKey[it.key()].append(unanswered);
-        // 同一个项目的**另一条**（比如它底下还有一个只有 CurseForge 认出来的文件）如果
-        // 已经发出去过了，就不再发第二发 —— 答案本来就是同一份（版本列表是按项目问的），
-        // 而 `onUpdateCheckVersionsFinished()` 是按**答案回来时**那一组来判的，照样判得到。
-        if (!m_updateCheck.waitingKeys.contains(it.key())) {
-            refire.append(it.key());
-        }
-    }
-    // 先清空再发：`requestUpdateCheckVersions()` 会往 `waitingKeys` 里加，而这两件事的顺序
-    // 反过来就是"刚记上的账又被这一句抹掉"（也免得一边遍历 `fallbackItems` 一边动它）。
-    m_updateCheck.fallbackItems.clear();
-    for (const QString &key : refire) {
-        requestUpdateCheckVersions(key);
-    }
-
-    if (m_updateCheck.waitingKeys.isEmpty()) {
-        finishUpdateCheck(m_updateCheck.instanceId);
-    }
+    m_instanceUpdateCheck->onUpdateCheckLatestFinished(requestKey, latest, problem);
 }
 
 void MainWindow::onUpdateCheckVersionsFinished(const QString &requestKey,
                                               const QList<ResourceCatalog::VersionEntry> &versions,
                                               const QString &problem) {
-    if (!m_updateCheck.waitingKeys.contains(requestKey)) {
-        return; // 不是这一趟等的（详情页那一发 / 前置那一趟 / 已经判过的那把）
-    }
-    m_updateCheck.waitingKeys.remove(requestKey);
-
-    const QList<ResourceCatalog::VersionEntry> &answer =
-        problem.isEmpty() ? versions : QList<ResourceCatalog::VersionEntry>();
-    for (const ModDependencies::InstalledItem &item : m_updateCheck.itemsByKey.value(requestKey)) {
-        const ModDependencies::UpdateVerdict verdict =
-            ModDependencies::judgeUpdate(item, answer, problem);
-        m_updateCheck.verdicts.append(verdict);
-        if (verdict.state == ModDependencies::UpdateState::Outdated && !answer.isEmpty()) {
-            m_updateCheck.latestByPath.insert(item.path, answer.first());
-        }
-    }
-    // 这一节手上这两样是两条**互相独立**的线：`waitingKeys` 是"一项目一发"那一拨
-    // （CurseForge 那些），`pendingBatchKeys` 是 Modrinth 那一拨的批量那几发。只看
-    // `waitingKeys` 的话，一个**两家都有**的实例上（一部分走批量、一部分走单发）
-    // 只要单发里**任意一发**先回来、而它正好是最后一把没还的钥匙，
-    // 这一趟就当场收尾了 —— 批量那一发回来时它自己那一句闸（见上面）直接 return：
-    // **批量那一拨一条都不会进报告**，退回问 CurseForge 的那一拨（`fallbackItems`）
-    // 也一辈子不会发出去。屏幕上是一份"检查了 80 个资源"的正常报告，日志也干干净净
-    // —— 用户看到的就是「无法正常获取更新」。
-    // 收尾判据必须和 `checkInstanceUpdates()` / `onUpdateCheckLatestFinished()` 那两句
-    // （"空表 + 没有批量"）**逐字同一条**。
-    if (m_updateCheck.waitingKeys.isEmpty() && m_updateCheck.pendingBatchKeys.isEmpty()) {
-        finishUpdateCheck(m_updateCheck.instanceId);
-    }
+    m_instanceUpdateCheck->onUpdateCheckVersionsFinished(requestKey, versions, problem);
 }
 
 // 参数**按值收**（别改回 `const QString &`）：下面那句 `m_updateCheck =
@@ -4528,106 +3786,7 @@ void MainWindow::onUpdateCheckVersionsFinished(const QString &requestKey,
 // 更新」—— 而那一趟明明刚跑完。屏幕上看不出任何异常，日志也是干净的。
 // QString 是隐式共享的，按值收不多拷一个字节的正文。
 void MainWindow::finishUpdateCheck(QString instanceId) {
-    const UpdateCheckRun run = m_updateCheck;
-    if (run.thread != nullptr) {
-        if (!run.thread->isFinished()) {
-            run.thread->wait();
-        }
-        run.thread->deleteLater();
-    }
-    m_updateCheck = UpdateCheckRun{};
-
-    QList<ModDependencies::UpdateVerdict> outdated;
-    QList<ModDependencies::UpdateVerdict> unknown;
-    QList<ModDependencies::UpdateVerdict> current;
-    for (const ModDependencies::UpdateVerdict &verdict : run.verdicts) {
-        switch (verdict.state) {
-        case ModDependencies::UpdateState::Outdated:
-            outdated.append(verdict);
-            break;
-        case ModDependencies::UpdateState::UpToDate:
-            current.append(verdict);
-            break;
-        case ModDependencies::UpdateState::Unknown:
-            unknown.append(verdict);
-            break;
-        }
-    }
-
-    // 这一趟查出来的"哪几条有新版本"**必须留下来**：文件管理那几页状态栏里那一格
-    // 「可更新」要的就是它 —— 不留的话，那趟检测只在弹框里活了几秒钟，
-    // "筛出可更新的那几条"一次都做不到。
-    UpdateCheckResult raw;
-    raw.verdicts = ModDependencies::mergeScopedUpdates(
-        m_instanceUpdateResults.value(instanceId).verdicts, run.verdicts, run.selectedScope);
-    raw.lookupNote = run.lookupNote;
-    m_instanceUpdateResults.insert(instanceId, raw);
-    auto targets = run.selectedScope.isEmpty()
-        ? QHash<QString, ResourceCatalog::VersionEntry>() : m_instanceUpdateTargets.value(instanceId);
-    for (const auto &path : run.selectedScope) targets.remove(path);
-    for (auto it = run.latestByPath.cbegin(); it != run.latestByPath.cend(); ++it)
-        targets.insert(it.key(), it.value());
-    m_instanceUpdateTargets.insert(instanceId, targets);
-    {
-        QHash<QString, QString> sha1ByKey;
-        const QString instanceDirForPolicy = AppPaths::versionDir(instanceId);
-        for (const ModDependencies::UpdateVerdict &verdict : run.verdicts) {
-            const QString key = UpdatePolicy::storeKey(
-                instanceDirForPolicy, InstanceFilesPage::identityPath(verdict.item.path));
-            if (!key.isEmpty()) {
-                sha1ByKey.insert(key, verdict.item.sha1);
-            }
-        }
-        // Missing keys in a partial scan are not evidence of removed files.
-        if (run.selectedScope.isEmpty() && UpdatePolicy::dropStalePins(m_updatePolicy, instanceId, sha1ByKey) > 0) {
-            saveUpdatePolicy();
-        }
-    }
-    // 名单由**唯一那一处**按现在这本账算（见 rebuildInstanceOutdatedPaths）。
-    rebuildInstanceOutdatedPaths(instanceId);
-    // **先记账再递**：递出去的那一份是上面这一行写的（不是从这里临时拼的），于是"这一页
-    // 现在筛得出来的"和"下一次开这一页筛得出来的"永远是同一份。
-    pushInstanceFileUpdates(run.dialog, instanceId);
-    const auto byName = [](const ModDependencies::UpdateVerdict &a,
-                           const ModDependencies::UpdateVerdict &b) {
-        return a.item.title < b.item.title;
-    };
-    std::sort(outdated.begin(), outdated.end(), byName);
-    std::sort(unknown.begin(), unknown.end(), byName);
-    std::sort(current.begin(), current.end(), byName);
-
-    const auto displayName = [](const ModDependencies::UpdateVerdict &verdict) {
-        if (!verdict.item.title.isEmpty()) {
-            return verdict.item.title;
-        }
-        // 名字取不到就用文件名 —— 那是**盘上那一条**的名字，用户能照它找到文件。
-        return QFileInfo(verdict.item.path).fileName();
-    };
-
-    QStringList lines;
-    for (const ModDependencies::UpdateVerdict &verdict : outdated) {
-        lines.append(QStringLiteral("· %1 —— %2 %3")
-                         .arg(displayName(verdict), ModDependencies::updateOutdatedText(),
-                              verdict.latestVersionNumber));
-    }
-    for (const ModDependencies::UpdateVerdict &verdict : unknown) {
-        lines.append(QStringLiteral("· %1 —— %2：%3")
-                         .arg(displayName(verdict), ModDependencies::updateUnknownText(),
-                              verdict.reason));
-    }
-    for (const ModDependencies::UpdateVerdict &verdict : current) {
-        lines.append(QStringLiteral("· %1 —— %2")
-                         .arg(displayName(verdict), ModDependencies::updateUpToDateText()));
-    }
-
-    const int checked = run.verdicts.size();
-    const QString summary = ModDependencies::updateSummaryText(checked, outdated.size());
-
-    appendLog(tr("更新检测（%1）：%2").arg(instanceDisplayName(instanceId), summary));
-    for (const QString &line : lines) {
-        appendLog(QStringLiteral("  ") + line);
-    }
-    runWhenOverlayFree([this, instanceId] { openUpdateCenter(instanceId); });
+    m_instanceUpdateCheck->finishUpdateCheck(instanceId);
 }
 
 // ===========================================================================
