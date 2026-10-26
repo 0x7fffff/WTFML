@@ -16,6 +16,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
+#include <QSet>
 #include <QUuid>
 
 #include "GenericFiles.hpp"
@@ -487,9 +488,9 @@ QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken) {
         summaries.append(summary);
     };
 
-    QStringList seen;
+    QSet<QString> seen;
     for (const QString &id : index.order) {
-        seen.append(id);
+        seen.insert(id);
         addOne(id);
     }
 

@@ -160,6 +160,44 @@ int runPresetInstallChecks() {
         check(pump([&] { return !controller.catalogLoading(); }) && gate->done && !host.findChild<PresetManagePage *>(),
               "catalog completion tolerates page deletion while controller remains alive");
     }
+    {
+        QTemporaryDir root;
+        check(root.isValid(), "large preset naming fixture has an isolated data root");
+        if (root.isValid()) {
+            const auto previousRoot = qApp->property("wtfml.testDefaultMinecraftDir");
+            qApp->setProperty("wtfml.testDefaultMinecraftDir", root.path());
+            {
+                Presets::CatalogSnapshot catalog;
+                for (int i = 1; i <= 1000; ++i) {
+                    Presets::PresetSummary summary;
+                    summary.id = Presets::newPresetId();
+                    summary.name = i == 1 ? QStringLiteral("新预设") : QStringLiteral("新预设 %1").arg(i);
+                    summary.category = Presets::PresetCategory::GameSettings;
+                    catalog.presets.append(summary);
+                }
+                const auto calls = std::make_shared<std::atomic<int>>(0);
+                PresetController::Host callbacks;
+                callbacks.readCatalog = [catalog, calls](const QString &path) {
+                    return ++*calls == 1 ? catalog : Presets::readCatalog(path);
+                };
+                QWidget host;
+                PresetController controller(nullptr, &host, callbacks);
+                controller.open();
+                check(pump([&] { return !controller.catalogLoading(); }), "large preset naming catalog loads");
+                controller.createPreset(Presets::presetCategoryKey(Presets::PresetCategory::GameSettings));
+                check(pump([&] { return !controller.catalogLoading(); }), "new preset refresh completes");
+                auto *page = host.findChild<PresetManagePage *>();
+                bool ok = false;
+                const auto created = Presets::loadManifest(PresetController::presetsRoot(), page ? page->currentPresetId() : QString(), &ok);
+                // The 1000 catalog names deliberately have no files on disk. A
+                // synchronous disk rescan would lose them and choose the base name.
+                check(ok && created.name == QStringLiteral("新预设 1001") && *calls == 2,
+                      "new preset uses loaded names beyond 999 without rescanning manifests");
+                if (ok) Presets::remove(PresetController::presetsRoot(), created.id);
+            }
+            qApp->setProperty("wtfml.testDefaultMinecraftDir", previousRoot);
+        }
+    }
     QTemporaryDir scratch;
     QTcpServer server;
     check(scratch.isValid() && server.listen(QHostAddress::LocalHost, 0), "local preset fixture starts");

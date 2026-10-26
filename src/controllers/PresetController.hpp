@@ -29,6 +29,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QSet>
 
 #include <functional>
 #include <QPointer>
@@ -293,6 +294,7 @@ private:
     Presets::CatalogLoader *m_catalogLoader = nullptr;
     /// 正在显示的那一份（应用/提取都带着它出门）。
     QString m_currentId;
+    QSet<QString> m_catalogNames;
     /// 兼容检查那一套（缓存跨弹窗共享；checker / provider 都归这一层所有）。
     Presets::CompatibilityCache m_modCache;
     Presets::CompatibilityChecker *m_modChecker = nullptr;

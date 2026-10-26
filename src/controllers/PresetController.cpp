@@ -496,6 +496,8 @@ void PresetController::pushListAndSelect(const QString &selectId) {
 
 void PresetController::pushCatalog(const Presets::CatalogSnapshot &snapshot, const QString &selectId) {
     const auto &summaries = snapshot.presets;
+    m_catalogNames.clear();
+    for (const auto &summary : summaries) m_catalogNames.insert(summary.name);
 
     QList<PresetManagePage::PresetItem> items;
     for (const Presets::PresetSummary &summary : summaries) {
@@ -611,22 +613,18 @@ QString PresetController::kindText(const Presets::PresetSection &section) {
 }
 
 QString PresetController::newPresetName() const {
-    const QString root = presetsRoot();
-    QStringList taken;
-    for (const Presets::PresetSummary &summary : Presets::list(root)) {
-        taken.append(summary.name);
-    }
+    // Use the complete loaded catalog, including entries hidden by UI filters.
+    // Reopening/refreshing the page updates it after external edits.
     const QString base = QStringLiteral("新预设");
-    if (!taken.contains(base)) {
+    if (!m_catalogNames.contains(base)) {
         return base;
     }
-    for (int index = 2; index < 1000; ++index) {
+    for (qsizetype index = 2; ; ++index) {
         const QString candidate = QStringLiteral("%1 %2").arg(base).arg(index);
-        if (!taken.contains(candidate)) {
+        if (!m_catalogNames.contains(candidate)) {
             return candidate;
         }
     }
-    return base;
 }
 
 // ---------------------------------------------------------------------------
