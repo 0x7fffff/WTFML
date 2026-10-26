@@ -21,17 +21,66 @@
 #include <QSaveFile>
 #include <QStorageInfo>
 #include <QTemporaryDir>
+#include <QLibrary>
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
+#include <restartmanager.h>
 #include <QThread>
 #include <QElapsedTimer>
 #endif
 #include <limits>
+#include <vector>
 
 namespace InstanceUpgrade {
 namespace {
 QString originalDir(const Request &r) { return QDir(r.gameDir).filePath("versions/" + r.instanceId); }
 QString journalPath(const Request &r) { return transactionDir(r) + "/journal.json"; }
+#ifdef Q_OS_WIN
+// Failure-only diagnostics. Never stop another application or treat an owner
+// lookup failure as permission to publish. Bound both traversal and result size.
+QString directoryLockOwners(const QString &source) {
+    QLibrary library(QStringLiteral("rstrtmgr"));
+    if (!library.load()) return {};
+    const auto start = reinterpret_cast<decltype(&RmStartSession)>(library.resolve("RmStartSession"));
+    const auto add = reinterpret_cast<decltype(&RmRegisterResources)>(library.resolve("RmRegisterResources"));
+    const auto list = reinterpret_cast<decltype(&RmGetList)>(library.resolve("RmGetList"));
+    const auto end = reinterpret_cast<decltype(&RmEndSession)>(library.resolve("RmEndSession"));
+    if (!start || !add || !list || !end) return {};
+    DWORD session = 0;
+    WCHAR key[CCH_RM_SESSION_KEY + 1]{};
+    if (start(&session, 0, key) != ERROR_SUCCESS) return {};
+    struct SessionGuard {
+        DWORD session;
+        decltype(end) close;
+        ~SessionGuard() { close(session); }
+    } guard{session, end};
+    std::vector<std::wstring> paths;
+    // Do not recursively scan worlds or caches merely to explain a refusal.
+    // Unlisted/deep owners may remain unknown; the original error still stands.
+    for (const auto &root : {source, source + QStringLiteral("/mods")}) {
+        QDirIterator entries(root, QDir::Files | QDir::Hidden | QDir::NoSymLinks);
+        while (paths.size() < 128 && entries.hasNext())
+            paths.push_back(QDir::toNativeSeparators(entries.next()).toStdWString());
+        if (paths.size() >= 128) break;
+    }
+    if (paths.empty()) return {};
+    std::vector<LPCWSTR> names;
+    for (const auto &path : paths) names.push_back(path.c_str());
+    if (add(session, DWORD(names.size()), names.data(), 0, nullptr, 0, nullptr) != ERROR_SUCCESS) return {};
+    UINT needed = 0, count = 32;
+    DWORD reason = 0;
+    RM_PROCESS_INFO owners[32]{};
+    if (list(session, &needed, &count, owners, &reason) != ERROR_SUCCESS) return {};
+    QStringList labels;
+    for (UINT i = 0; i < count; ++i) {
+        labels.append(QStringLiteral("%1（PID %2）")
+            .arg(QString::fromWCharArray(owners[i].strAppName))
+            .arg(owners[i].Process.dwProcessId));
+    }
+    labels.removeDuplicates();
+    return labels.join(QStringLiteral("、"));
+}
+#endif
 bool retainDirectory(const QString &source, const QString &target, QString *problem) {
 #ifdef Q_OS_WIN
     const auto nativePath = [](const QString &path) {
@@ -56,6 +105,11 @@ bool retainDirectory(const QString &source, const QString &target, QString *prob
         QThread::msleep(50);
     } while (true);
     *problem = QStringLiteral("无法保留原目录，未替换实例（Windows 错误 %1）。").arg(error);
+    if (error == ERROR_ACCESS_DENIED || error == ERROR_SHARING_VIOLATION || error == ERROR_LOCK_VIOLATION) {
+        const QString owners = directoryLockOwners(source);
+        if (!owners.isEmpty())
+            *problem += QStringLiteral(" 请先关闭占用实例文件的程序：%1，然后重试。原实例和完整快照均保留。").arg(owners);
+    }
     return false;
 #else
     if (QDir().rename(source, target)) return true;

@@ -37,6 +37,10 @@
 #include <QCryptographicHash>
 #include <QJsonDocument>
 #include <QDir>
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#endif
+#include <QStandardPaths>
 #include <QFile>
 #include <QFileInfo>
 #include <QTemporaryDir>
@@ -1208,10 +1212,19 @@ int runInstanceUpgradeChecks() {
     }
     {
         // 2.1.3 适配替换：只改候选目录，成功后发布；文件变更日志跟着事务一起落地。
-        InstanceUpgrade::Request r{scratch.path() + "/replace-ok", "Instance", "replace-ok", "Original"};
+        // Editor archive extensions watch build/ and can keep real JARs open.
+        // Use a disposable user-cache fixture outside the watched checkout;
+        // controlled lock rejection is tested separately below.
+        const QString fixtureRoot = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation)
+                                    + QStringLiteral("/WTFML-tests");
+        check(QDir().mkpath(fixtureRoot), "create isolated replacement fixture parent");
+        QTemporaryDir replacementScratch(fixtureRoot + QStringLiteral("/upgrade-XXXXXX"));
+        check(replacementScratch.isValid(), "create replacement fixture outside editor archive watchers");
+        if (!replacementScratch.isValid()) return failures;
+        InstanceUpgrade::Request r{replacementScratch.path() + "/replace-ok", "Instance", "replace-ok", "Original"};
         const QString old = r.gameDir + "/versions/Instance";
-        const QString oldNested = scratch.path() + "/old-nested.jar";
-        const QString newNested = scratch.path() + "/new-nested.jar";
+        const QString oldNested = replacementScratch.path() + "/old-nested.jar";
+        const QString newNested = replacementScratch.path() + "/new-nested.jar";
         check(write(oldNested, "old-nested-content") && write(newNested, "new-nested-content")
                   && write(old + "/Instance.json", R"({"id":"Instance"})")
                   && write(old + "/Instance.jar", "old-core")
@@ -1219,12 +1232,12 @@ int runInstanceUpgradeChecks() {
                   && QDir().mkpath(old + "/mods")
                   && ZipUtil::createZip(old + "/mods/old-mod.jar",
                                         {{QStringLiteral("META-INF/jars/embedded.jar"), oldNested}})
-                  && ZipUtil::createZip(scratch.path() + "/new-mod.jar",
+                  && ZipUtil::createZip(replacementScratch.path() + "/new-mod.jar",
                                         {{QStringLiteral("META-INF/jars/embedded.jar"), newNested}})
                   && write(r.gameDir + "/versions/Target/Target.jar", "new-core"),
               "prepare mod replacement fixture with a nested JAR");
-        const QByteArray newJarBytes = read(scratch.path() + "/new-mod.jar");
-        const QString staged = scratch.path() + "/staged-new-mod.jar";
+        const QByteArray newJarBytes = read(replacementScratch.path() + "/new-mod.jar");
+        const QString staged = replacementScratch.path() + "/staged-new-mod.jar";
         check(write(staged, newJarBytes), "stage a verified replacement JAR");
         InstanceUpgrade::Core core;
         core.clientJar = r.gameDir + "/versions/Target/Target.jar";
@@ -1246,11 +1259,31 @@ int runInstanceUpgradeChecks() {
         replacement.fromVersion = "1.0";
         replacement.toVersion = "2.0";
         core.replacements = {replacement};
+#ifdef Q_OS_WIN
+        const auto originalJarBytes = read(old + "/mods/old-mod.jar");
+        const auto lockedPath = QDir::toNativeSeparators(old + "/mods/old-mod.jar").toStdWString();
+        HANDLE blocker = CreateFileW(lockedPath.c_str(), GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+        check(blocker != INVALID_HANDLE_VALUE, "hold a real JAR without delete sharing");
+        if (blocker != INVALID_HANDLE_VALUE) {
+            auto lockedRequest = r;
+            lockedRequest.transactionId = QStringLiteral("replace-locked");
+            const auto blocked = InstanceUpgrade::prepareAndCommit(lockedRequest, core);
+            CloseHandle(blocker);
+            check(!blocked.ok && !blocked.snapshotZip.isEmpty()
+                      && QFileInfo::exists(blocked.snapshotZip)
+                      && blocked.problem.contains(QStringLiteral("PID %1").arg(GetCurrentProcessId()))
+                      && read(old + "/mods/old-mod.jar") == originalJarBytes
+                      && read(old + "/Instance.jar") == "old-core"
+                      && !QFileInfo::exists(old + "/mods/new-mod.jar"),
+                  "locked upgrade identifies the owner and preserves original files and snapshot");
+        }
+#endif
         const auto result = InstanceUpgrade::prepareAndCommit(r, core);
         if (!result.ok) {
-            scratch.setAutoRemove(false);
+            replacementScratch.setAutoRemove(false);
             std::printf("Replacement failure: %s; fixture retained: %s\n",
-                        result.problem.toUtf8().constData(), scratch.path().toUtf8().constData());
+                        result.problem.toUtf8().constData(), replacementScratch.path().toUtf8().constData());
         }
         check(result.ok && !result.changes.isEmpty()
                   && result.changes.join(QLatin1Char('\n')).contains(QStringLiteral("替换")),
