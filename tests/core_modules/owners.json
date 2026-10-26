@@ -83,6 +83,7 @@
   "AnvilPlannerTests.cpp": "toolbox",
   "SchematicInfoTests.cpp": "toolbox",
   "ReplayInfoTests.cpp": "toolbox",
-  "OperationReportTests.cpp": "instances"
+  "OperationReportTests.cpp": "instances",
+  "LongPathTests.cpp": "instances"
 }
 

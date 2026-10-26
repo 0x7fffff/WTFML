@@ -68,6 +68,7 @@ add_library(core_cases_instances OBJECT
  core_modules/FolderRemovalTests.cpp
  core_modules/TransferPlannerTests.cpp
  core_modules/OperationReportTests.cpp
+ core_modules/LongPathTests.cpp
 )
 wtfml_core_compile(core_cases_instances)
 list(APPEND WTFML_CORE_CASE_OBJECTS $<TARGET_OBJECTS:core_cases_instances>)

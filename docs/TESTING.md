@@ -549,3 +549,12 @@ P2 大量预设：`20261025-213510-15e5e224` preset-install通过（1.15s），�
 默认准备器用真实临时预设与 options.txt 生成计划，并核对内容、修改时间及目录树均未变化，
 没有备份或暂存写入。`20261026-121924-72fabf0f` 正式构建及 network-diag 通过。
 测试模块大小与归属检查通过，新检查仍在 presets 分片内；本轮未重新测量端到端 Release 性能。
+
+2026-10-26 P2 Windows 长路径：`20261026-134526-d7250a6f` 的 core-instances、core-resources、
+core-presets、core-toolbox 四分片全部通过（50.74s）。新增 LongPathTests 归 core-instances，
+仅 Windows 执行，临时目录中验证超过260字符的模组/世界操作、真实独占句柄占用失败，以及
+超过600字符目标的 ZIP 整包/子树解压、打包/条目读取/批量元数据/GZip；恶意条目不越界。
+本机 LongPathsEnabled=0，未修改注册表；PowerShell5.1 后端普通长路径失败、扩展路径成功的探针
+保存在 build/zip-long-path-probe.ps1。该结论仅覆盖这些入口，不代表外部 Java 或真实 ACL 验收。
+首次132350发现 ZIP 准备失败只报退出码；133637新增用例误传参数导致编译失败；134222发现
+扩展路径拼接 ZIP 的正斜杠会导致解压失败，统一物理分隔符后通过。失败报告均保留。

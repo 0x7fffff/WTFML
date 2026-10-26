@@ -1,4 +1,5 @@
 #include "core_modules/Support.hpp"
+#include "core_modules/LongPathTests.hpp"
 
 int main(int argc, char *argv[]) {
     QCoreApplication app(argc, argv);
@@ -1927,6 +1928,7 @@ runStartupDiagnosisTests();
 
 #ifndef WTFML_CORE_BASELINE
 runTransferPlannerTests();
+runLongPathTests();
 #endif
 
     out() << "\n===== " << (g_failures == 0 ? "全部通过" : "有失败项") << ": "
