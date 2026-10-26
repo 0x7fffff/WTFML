@@ -600,6 +600,16 @@ private slots:
     /// 界面成什么样"：三道守卫（这个实例自己在忙 / 别的批次在跑 / 继承链不完整），
     /// 置 m_repairingInstanceId + 界面忙态，收尾在 onVersionDownloadFinished() 里。
     void repairInstanceFiles(const QString &versionId);
+    /// 导入成功后给这个实例预取 GTNH 首启资源（MCLib AssetDirector）。
+    ///
+    /// 什么都不做的四种情况：认不出消费者模组（绝大多数实例）、已经全在盘上、体积超上限、
+    /// 另一个批次正在跑。真开一批时就置 m_assetPrefetchInstanceId + 界面忙态，
+    /// 收尾在 onVersionDownloadFinished() 里（它也会给失败那颗「再试一次」）。
+    ///
+    /// 为什么挂在"导入成功之后"而不是启动前：启动那条路是同步的（里面还有嵌套事件循环），
+    /// 往里塞一个几十 MB 的下载会把取消、关窗、重复点击那几道闸全部重排；而导入刚结束时
+    /// 正好有一件已完成的父任务作参照，界面也能直接说"这一批在干嘛"。
+    void maybePrefetchAssetDirector(const QString &versionId);
 
     // ------------------------------------------------------------------
     // 完整性检查与修复
@@ -3200,6 +3210,10 @@ private:
     // 普通的一次版本下载"，好把那句「版本 X 的文件已全部就绪」换成"都齐了 / 缺哪几个"。
     // 它也进 installingVersionIds()（见那边），所以补全期间这个实例不在启动列表里。
     QString m_repairingInstanceId;
+    // 正在**预取 GTNH 首启资源**的那个实例（空 = 没有在跑）。和上面两个同一个来路：
+    // 它也是一批下载、也走公共的 versionDownloadFinished(id, ok, msg)。收尾话术不一样：
+    // 这里不能说"版本文件已全部就绪"，也不能说"校验完成"。
+    QString m_assetPrefetchInstanceId;
     // ---------- 安装页（版本树的下一层）----------
     // 安装页现在正对着哪个原版号（空 = 没进过安装页）。四个加载器各自能挑哪些版本、
     // 默认名怎么拼，都以它为准。

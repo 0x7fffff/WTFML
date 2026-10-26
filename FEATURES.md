@@ -210,6 +210,13 @@
 - 报告内可“重新校验”全部条目，后台只读、可取消，不需要再选择原包或源文件；外部改动会撤销旧校验标记。
   导入标记存在时即使已有 meta/jar 也不能启动；meta 写入或标记移除失败不再报安装成功。
 
+- GTNH 2.8.4（Et Futurum Requiem 2.6.2.25-GTNH）那种会在首启里跑 MCLib AssetDirector 的包，
+  导入成功后自动预取首启资源：按随产品发布的“已知集合”清单（`assets/assetdirector/known-sets.json`）
+  补齐 756 个对象约 111 MiB 加上版本 JSON 与资源索引，只写 `<数据目录>/assets/asset_director`，
+  共享 `assets/objects` 只读复用；每件都按官方大小/SHA-1 校验，单套上限 256 MiB，可取消、
+  失败可再试、已校验文件下次跳过。认不出消费者模组的实例一条都不做。
+  首启效果与真实冷缓存下载尚未验收，见 [整合包导入](docs/MODPACK_IMPORT.md)。
+
 格式、补齐与收尾边界见 [整合包导入](docs/MODPACK_IMPORT.md)。
 
 ---

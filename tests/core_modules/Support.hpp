@@ -916,6 +916,7 @@ struct FakeCurseForgeApi {
 
 void runCurseForgeTests();
 void runModpackCompletionTests(const QString &sandbox);
+void runAssetDirectorKnownSetTests(const QString &sandbox);
 
 // =========================================================================
 // Z 节：下载页「模组 / 整合包 / 资源包 / 光影」那一层（ResourceCatalog）。

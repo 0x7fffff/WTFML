@@ -78,6 +78,11 @@ set(PROJECT_SOURCES
     # （来源为空 = 一个文件都不看）。纯值进结论出那一层直接编进 verify 逐格念。
     ${REPO_ROOT}/src/download/LocalFileReuse.cpp
     ${REPO_ROOT}/src/download/LocalFileReuse.hpp
+    # GTNH 首启资源：AssetDirector 的已知集合清单、复用判据与下载计划（2.1.6a/2.1.6b）。
+    # 生成的那份 Data.cpp 只提供嵌入的字节，判据全在 KnownSet.cpp 里。
+    ${REPO_ROOT}/src/download/AssetDirectorKnownSet.cpp
+    ${REPO_ROOT}/src/download/AssetDirectorKnownSet.hpp
+    ${REPO_ROOT}/src/download/AssetDirectorKnownSetData.cpp
     ${REPO_ROOT}/src/download/ResumableDownload.cpp
     ${REPO_ROOT}/src/download/ResumableDownload.hpp
     ${REPO_ROOT}/src/download/DownloadManager.hpp

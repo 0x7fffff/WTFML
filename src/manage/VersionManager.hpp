@@ -182,6 +182,52 @@ public:
     void repairVersionFiles(const QString &versionId,
                             const QStringList &flaggedPaths = QStringList());
 
+    /**
+     * @brief 预取 GTNH 首启 MCLib / AssetDirector 要的资源（2.1.6b）。
+     *
+     * 请求集合不在整合包里（见 docs/MODPACK_IMPORT.md 的 2.1.6a 结论），所以这里用的是
+     * **随产品发布的一份已知集合清单**（`AssetDirectorKnownSet`）：按实例 `mods/` 里的
+     * 文件名认出消费者模组（今天只有 Et-Futurum-Requiem 2.6.2.25-GTNH），再按官方索引的
+     * 字节数 + SHA-1 补齐对象。
+     *
+     * 写哪里：**只写** `<数据目录>/assets/asset_director`（AD 自己的目录）。共享
+     * `assets/objects` 只读复用、一个字节都不写；游戏目录、模组文件不碰。为什么是那里、
+     * 以及 AD 只判存在不重算哈希这条信任边界，见文档。
+     *
+     * 语义：
+     * - 认不出消费者、实例还没导完、盘不可用 → 直接返回（调用方当“不适用”）；
+     * - 体积超过 `kMaxKnownSetBytes`（256 MiB）→ 发一次失败终态，**一个字节都不写**；
+     * - 已在盘上且校验通过的（AD 目录优先，其次共享 objects）不下；其余走
+     *   `DownloadManager` 那一套：字节数 + SHA-1 校验、失败重试、看门狗、原子落盘；
+     * - 取消不删文件：已经校验过的留在原处，下一次预取会跳过。
+     *
+     * 终态走**公共**的 `versionDownloadFinished(id, ok, msg)`（和补全、安装、导入同一条），
+     * 界面那边靠自己记的实例名分档。message 为空 = 无需打扰用户（全都在盘上了）。
+     *
+     * @return 是否真的开了一批下载（`false` = 不适用 / 被拒，终态已经发过或一个字节都不动）。
+     */
+    bool prefetchAssetDirectorResources(const QString &versionId);
+
+    /// 「这个实例要不要/能不能预取」的一次只读核算。**不写盘、不发信号**。
+    ///
+    /// 界面在决定"要不要为它开一批下载、建一件任务"之前得先知道答案：不适用（绝大多数实例）
+    /// 与"已经齐了"两种情况下不该凭空多出一条任务行。
+    struct AssetDirectorPrefetchPlan {
+        bool applicable = false;   ///< 认出了已知集合的消费者模组
+        bool upToDate = false;     ///< 认出来了，但一个字节都不用取
+        QString setId;
+        QString note;              ///< 清单里给人看的那句话（超上限时用来说"是哪套"）
+        QString minecraftVersion;
+        QString refusal;           ///< 非空 = 不执行（超上限 / 清单坏了）
+        int objects = 0;
+        int reuseOverlay = 0;
+        int reuseAssets = 0;
+        int toDownload = 0;
+        qint64 bytesToDownload = 0;
+        qint64 bytesTotal = 0;
+    };
+    AssetDirectorPrefetchPlan assetDirectorPrefetchPlan(const QString &versionId) const;
+
     // ------------------------------------------------------------------
     // 取消 / 重试
     // ------------------------------------------------------------------
@@ -1703,6 +1749,24 @@ private:
         void reset() { *this = FailedBatch(); }
     };
     FailedBatch m_failedBatch;
+
+    /// 正在跑的那一趟「GTNH 首启资源预取」。同一时刻只可能有一趟（开批次前就问过
+    /// `downloadManager->isBusy()`），所以一格就够。
+    ///
+    /// 收尾它在 `onAllDownloadsFinished()` 里**排在最前面**：这一批不是版本文件、也不是
+    /// 加载器安装，落到下面那几条分支里会报出「版本 X 的文件已全部就绪」这种错话。
+    struct AssetDirectorPrefetch {
+        bool active = false;
+        QString versionId;
+        QString setId;            ///< 日志/收尾话术用（「哪一份已知集合」）
+        int objects = 0;          ///< 清单里的对象总数
+        int reuseOverlay = 0;     ///< `<ad>` 里已有且校验通过的
+        int reuseAssets = 0;      ///< 共享 `assets/objects` 里已有且校验通过的
+        int toDownload = 0;       ///< 这一趟交给下载器的对象数
+        qint64 bytesToDownload = 0;
+        void reset() { *this = AssetDirectorPrefetch(); }
+    };
+    AssetDirectorPrefetch m_assetDirectorPrefetch;
 
     // ---- "这个加载器有哪些版本可选"那几发 GET 的状态 ----
     //

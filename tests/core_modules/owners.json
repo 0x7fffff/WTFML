@@ -1,5 +1,6 @@
 {
   "ModpackCompletionTests.cpp": "resources",
+  "AssetDirectorKnownSetTests.cpp": "resources",
   "PipelineTests.cpp": "downloads",
   "DownloadConcurrencyTests.cpp": "downloads",
   "DownloadSpeedLimitTests.cpp": "downloads",
@@ -28,6 +29,7 @@
   "UpdateRollbackTests.cpp": "instances",
   "FolderRemovalTests.cpp": "instances",
   "TransferPlannerTests.cpp": "instances",
+  "OperationReportTests.cpp": "instances",
   "MemorySuggestionTests.cpp": "java",
   "EffectiveJavaSettingsTests.cpp": "java",
   "JavaWarnMismatchTests.cpp": "java",

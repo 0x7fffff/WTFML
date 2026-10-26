@@ -493,6 +493,32 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
                                                    QStringLiteral("开始导入整合包"))));
         check(importBtn != nullptr && importBtn->isEnabled(),
               "AA 收尾：导入按钮还是亮的（一次都没进忙态）");
+        // AA12 GTNH 首启资源预取（2.1.6b）的接线：这几条包都不是已知集合的消费者，
+        // 所以预取一条都不该起 —— 既不该凭空多出一条任务，也不该把界面顶进忙态、
+        // 更不该在共享 assets 里建出 asset_director。
+        {
+            const QString overlay = AppPaths::assetsDir() + QStringLiteral("/asset_director");
+            const bool overlayBefore = QFileInfo::exists(overlay);
+            const int imports = countOccurrences(messagesSnapshot(), QStringLiteral("正在预取"));
+            // 它是私有槽（和 repairInstanceFiles 同一条规矩）：验证工程按名字 invoke，
+            // 这样接线断了会当场露出来（invokeMethod 返回 false），而不是编译期换一种写法。
+            const bool invokedMissing = QMetaObject::invokeMethod(
+                &window, "maybePrefetchAssetDirector", Qt::DirectConnection,
+                Q_ARG(QString, QStringLiteral("no-such-instance")));
+            check(invokedMissing, "AA12 maybePrefetchAssetDirector 接得上（一个 QString 参数）");
+            const QStringList existing =
+                QDir(versionsDir).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+            if (!existing.isEmpty()) {
+                QMetaObject::invokeMethod(&window, "maybePrefetchAssetDirector", Qt::DirectConnection,
+                                          Q_ARG(QString, existing.first()));
+            }
+            check(importBtn != nullptr && importBtn->isEnabled(),
+                  "AA12 预取不适用于这个实例时不把界面顶进忙态");
+            check(!QFileInfo::exists(overlay) || overlayBefore,
+                  "AA12 不适用时连 assets/asset_director 都不会被建出来", overlay);
+            check(countOccurrences(messagesSnapshot(), QStringLiteral("正在预取")) == imports,
+                  "AA12 不适用时一条“正在预取”的日志都不会写");
+        }
         check(QDir(versionsDir).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size() == dirsBefore,
               "AA 收尾：沙盒里没多出目录（被拦下的导入不在盘上留东西）",
               QString::number(dirsBefore) + QStringLiteral(" → ") +

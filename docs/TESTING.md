@@ -13,19 +13,46 @@
 备份头依赖以正式目标的 `*.obj.d` 中 `BackupFiles.hpp` 命中数量核对：调整前 14，调整后 8。
 这是依赖范围缩减，不是冷/增量速度对比，也不是运行性能结论。主计划保留相应测量余项。
 
-2026-10-26 2.1.6a（GTNH 首启 MCLib AssetDirector 资源）是核对项，**不改产品代码**：
-结论与体积实测见[整合包导入](MODPACK_IMPORT.md)的“MCLib AssetDirector 首启资源”一节。
-本次没有新增/修改 CTest 用例。本机 PowerShell 7 不在 PATH（只有 5.1，而入口脚本要求 7.0），
-所以**没有**跑 `./tools/test.ps1 -Suite affected`；改用 `tools/test-impact.ps1` 里同一套映射函数
-（去掉 `#Requires` 行后 dot-source）核对本次三处改动：`full=false`、模块/测试/套件均为空，
-按入口的判据属于文档改动，应直接报“No build/tests required”——这不代表任何模块回归通过，
-也不构成预取能力的证据。
-数字来自 Mojang 官方 launchermeta 与资源索引，加上 EFR 2.6.2.25-GTNH 与 2.6.60-GTNH 的
-`Reference`/`EtFuturum`/`build.gradle`/`dependencies.gradle`（资产版本分别取 `minecraft_1.21`
-与 `minecraft_1.21.10`），用一次性脚本按 `AssetDirector` 的解析规则（sounds.json 展开
-`addSoundEvent`、索引查 name→hash）重算；脚本不入库，重算方法写在文档里。
-未验收：GTNH 2.8.4 的真实已校验缓存记录、无缓存联网首启（2.1.6c）、预取写入、失败重试与取消——
-本机没有 GTNH 2.8.4 原包与 Java 21 的隔离测试根，静态推导不等于产品已会预取。
+2026-10-26 2.1.6a/2.1.6b（GTNH 首启 MCLib AssetDirector 资源）：spike 结论 + 预取实现。
+行为、写入位置、上限与未验收边界见[整合包导入](MODPACK_IMPORT.md)的“MCLib AssetDirector
+首启资源”与“2.1.6b 落地”两节。
+
+新增/改动的代码：`src/download/AssetDirectorKnownSet.{hpp,cpp}`（清单校验、消费者识别、
+复用判据与计划）、`src/download/AssetDirectorKnownSetData.cpp`（生成的嵌入数据，
+与 `assets/assetdirector/known-sets.json` 逐字节一致）、`VersionManager::assetDirectorPrefetchPlan()`
+/`prefetchAssetDirectorResources()`、`MainWindow::maybePrefetchAssetDirector()`（导入成功后接线）。
+断言放在 `wtfml.core-resources`（AD1–AD7）与 `wtfml.main-window`（AA12 接线）里。
+
+本轮跑过的（`build/verification-mingw13`，MinGW 13.1 / Qt 6.10.1 / Release，严格警告 +
+`-Werror`；该目录是本轮新建的 `cmake -DCMAKE_CXX_COMPILER=D:/Qt/Tools/mingw1310_64/bin/g++.exe`，
+因为 `CMakePresets.json` 里写死的编译器路径在本机是错的 —— `D:/Qt/Qt/Tools/...` 多了一层 Qt）：
+
+- `pwsh ./tools/test.ps1 -Suite ci-integration -Modules window` → `wtfml.main-window` 2700/2700，
+  报告 `20261026-153039-787ed5a8`（其中 AA12 四条是本次新增的预取接线断言）。
+- `ctest -L ^ci-core$` → 16/16 通过（143.6 s），含 `wtfml.core-resources` 898/898。
+- `WTFMinecraftLauncher`（正式目标）在本轮源码上构建通过。
+- 单独跑的模块计数：`verify_downloads` 182/182、`verify_install` 378/378、
+  `verify_instances` 1545/1545、`verify_launch` 300/300、`verify_baseline` 195/195。
+
+入口把这一组改动判成 `full`（`src/manage/VersionManager.cpp` 没有分类映射，
+`src/MainWindow.cpp` 算共享）—— 本轮**没有**跑完整 full/visual，只按受影响面跑了 ci-core
+全量与 ci-integration 的 window 分片；`ui_check` 那一套没重跑（本次没动 `ui/`）。
+另给 `assets/assetdirector/` 与 `tools/assetdirector-knownset.py` 补了映射到 `core-resources`
+的规则，免得清单改动落进 default 直接判 full。
+
+首次 ci-core 是**红的**，保留：`20261026-151824-5e875573` 里 `wtfml.test-modules` 报
+`Core assertion file has no domain owner: OperationReportTests.cpp`。这是 2.1.1/2.1.2 那次改动
+留下的工具链缺口（该文件编在 `core_cases_instances` 里，`owners.json` 漏了它），与本次预取无关；
+补上 `"OperationReportTests.cpp": "instances"` 之后重跑才全绿。原始失败报告与日志留在该目录，
+不能用"重跑通过"抹掉。
+
+没跑的（不作通过）：
+- **2.1.6c 无缓存联网首启**：本机没有 GTNH 2.8.4 原包与隔离数据根，111.04 MiB 的真实下载
+  一个字节都没走，主菜单也没验。要跑需要 `GT_New_Horizons_2.8.4_Java_17-25.zip`、空数据根
+  （无 `assets/objects`、无 `asset_director`）、Java 21；步骤写在整合包导入文档里。
+- 预取失败/取消后的现场（部分文件、下次跳过）没有在真实磁盘上演练；`tools/assetdirector-knownset.py`
+  只跑了 `--embed` 分支，整套重新生成（要网络 + EFR 检出）没跑。
+- 多 DPI、慢盘、杀毒实时扫描仍归 §3 与 §1 的验收。
 
 ## 统一入口（Windows / PowerShell 7）
 

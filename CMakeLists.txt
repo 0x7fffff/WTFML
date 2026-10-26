@@ -153,6 +153,7 @@ set(HEADER_FILES
     src/settings/LauncherSettings.hpp
     src/download/DownloadManager.hpp
     src/download/LocalFileReuse.hpp
+    src/download/AssetDirectorKnownSet.hpp
     src/download/DownloadSpeedLimit.hpp
     src/download/DownloadProxy.hpp
     src/download/LoaderMeta.hpp
@@ -367,6 +368,8 @@ set(SOURCE_FILES
     src/settings/LauncherSettings.cpp
     src/download/DownloadManager.cpp
     src/download/LocalFileReuse.cpp
+    src/download/AssetDirectorKnownSet.cpp
+    src/download/AssetDirectorKnownSetData.cpp
     src/download/ResumableDownload.cpp
     src/download/ResumableDownload.hpp
     src/download/ResourceCatalog.cpp

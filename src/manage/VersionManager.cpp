@@ -7,6 +7,7 @@
 #include "VersionManager.hpp"
 #include "util/StorageAvailability.hpp"
 #include "util/WriteDirectoryGuard.hpp"
+#include "../download/AssetDirectorKnownSet.hpp"
 #include "../download/DownloadRetryPolicy.hpp"
 #include "../download/InstallerFailure.hpp"
 #include "../settings/GlobalJavaSettings.hpp"
@@ -56,6 +57,22 @@
 #include <QUuid>
 
 namespace {
+
+/// 实例 `mods/` 下的 jar **文件名**（不含路径）。预取的消费者识别只看这一层：
+/// 读 jar 里的 `mcmod.info` 要为一次检查解几百个包，不值得。
+QStringList modJarNames(const QString &versionId) {
+    QStringList names;
+    const QDir modsDir(AppPaths::versionDir(versionId) + QStringLiteral("/mods"));
+    if (!modsDir.exists()) {
+        return names;
+    }
+    for (const QFileInfo &info : modsDir.entryInfoList(QDir::Files)) {
+        if (info.suffix().compare(QStringLiteral("jar"), Qt::CaseInsensitive) == 0) {
+            names.append(info.fileName());
+        }
+    }
+    return names;
+}
 
 /// wtfml.meta 里那个"从生到死都跟着这个实例"的 id 的字段名。
 ///
@@ -979,6 +996,143 @@ void VersionManager::repairVersionFiles(const QString &versionId,
                          InstanceFiles::jarPath(versionId));
 
     endOwnBatch();
+}
+
+VersionManager::AssetDirectorPrefetchPlan
+VersionManager::assetDirectorPrefetchPlan(const QString &versionId) const {
+    AssetDirectorPrefetchPlan summary;
+    AssetDirectorKnownSet::Manifest manifest;
+    QString manifestProblem;
+    if (!AssetDirectorKnownSet::loadEmbedded(&manifest, &manifestProblem)) {
+        summary.refusal = tr("启动器自带的 AssetDirector 已知集合清单读不出来（%1）。")
+                             .arg(manifestProblem);
+        return summary;
+    }
+    // 消费者靠 `mods/` 下的**文件名**认（不读 jar：那要为一次检查解几百个包）。
+    const AssetDirectorKnownSet::Set *set =
+        AssetDirectorKnownSet::matchConsumer(manifest, modJarNames(versionId));
+    if (set == nullptr) {
+        return summary;  // applicable = false：这个实例不是已知集合的消费者
+    }
+    const AssetDirectorKnownSet::Plan plan =
+        AssetDirectorKnownSet::plan(*set, AppPaths::assetsDir());
+    summary.applicable = true;
+    summary.setId = set->id;
+    summary.note = set->note;
+    summary.minecraftVersion = set->minecraftVersion;
+    summary.objects = plan.objects;
+    summary.reuseOverlay = plan.reuseOverlay;
+    summary.reuseAssets = plan.reuseAssets;
+    summary.toDownload = plan.toDownload;
+    summary.bytesToDownload = plan.bytesToDownload;
+    summary.bytesTotal = plan.bytesTotal;
+    summary.refusal = plan.refusal;
+    summary.upToDate = plan.refusal.isEmpty() && plan.toDownload == 0 && !plan.needVersionJson
+                       && !plan.needAssetIndex;
+    return summary;
+}
+
+bool VersionManager::prefetchAssetDirectorResources(const QString &versionId) {
+    // 盘不在时一个字节都别写（和 repairVersionFiles() 同一条）。这里**不发终态**：
+    // 调用方只把它当"这次没做"，不该弹一个框说盘没了。
+    if (!StorageAvailability::unavailableReason(AppPaths::minecraftDir()).isEmpty()) {
+        qWarning() << "Skipping AssetDirector prefetch: game storage is unavailable.";
+        return false;
+    }
+    // 还没导完的实例连游戏目录都不完整，读 mods/ 没有意义。
+    if (InstanceFiles::isUnfinishedImport(versionId)) {
+        return false;
+    }
+    // 一次只有一批：别的下载/安装正在跑就不插队（预取只是省时间，不值得抢夺批次状态）。
+    if (downloadManager->isBusy() || m_loaderInstall.active() || m_modpackInstall.active()
+        || m_namedInstance.active() || !m_currentVersionDownloading.isEmpty()) {
+        qInfo() << "Skipping AssetDirector prefetch: another download batch is running.";
+        return false;
+    }
+
+    const AssetDirectorPrefetchPlan summary = assetDirectorPrefetchPlan(versionId);
+    if (!summary.applicable) {
+        qInfo() << "No AssetDirector known set matches" << versionId << "; nothing to prefetch.";
+        return false;
+    }
+    if (!summary.refusal.isEmpty()) {
+        // 超上限：**一个字节都不写**，而且要说清是哪套、多大。
+        emit versionDownloadFinished(versionId, false,
+                                     tr("「%1」没有预取：%2").arg(summary.note, summary.refusal));
+        return false;
+    }
+    if (summary.upToDate) {
+        qInfo() << "AssetDirector resources already complete for" << versionId
+                << "; no download needed.";
+        return false;  // 全都在盘上：不需要惊动用户
+    }
+
+    AssetDirectorKnownSet::Manifest manifest;
+    QString manifestProblem;
+    if (!AssetDirectorKnownSet::loadEmbedded(&manifest, &manifestProblem)) {
+        // 上面那一次已经读过一遍，能走到这里说明这份清单在这两次之间变不了 —— 兜底报错。
+        emit versionDownloadFinished(versionId, false, manifestProblem);
+        return false;
+    }
+    const AssetDirectorKnownSet::Set *set =
+        AssetDirectorKnownSet::matchConsumer(manifest, modJarNames(versionId));
+    if (set == nullptr) {
+        return false;  // 两次之间用户删掉了那个模组：不适用
+    }
+    const QString assetsRoot = AppPaths::assetsDir();
+    const AssetDirectorKnownSet::Plan plan = AssetDirectorKnownSet::plan(*set, assetsRoot);
+    if (!plan.refusal.isEmpty()) {
+        emit versionDownloadFinished(versionId, false,
+                                     tr("「%1」没有预取：%2").arg(set->note, plan.refusal));
+        return false;
+    }
+
+    qInfo().nospace() << "AssetDirector known set " << set->id << " (" << set->minecraftVersion
+                      << "): objects=" << plan.objects << " reuseOverlay=" << plan.reuseOverlay
+                      << " reuseAssets=" << plan.reuseAssets << " toDownload=" << plan.toDownload
+                      << " bytesToDownload=" << plan.bytesToDownload;
+
+    // 写的是**全体实例共用**的 `<数据目录>/assets/asset_director`，和写共享 assets/ 同一条
+    // 规矩：取数据根的生命周期锁，拿不到就一个字节都不写。
+    QString lockProblem;
+    if (!WriteDirectoryGuard::acquire(AppPaths::minecraftDir(), &lockProblem)) {
+        emit versionDownloadFinished(versionId, false, lockProblem);
+        return false;
+    }
+
+    m_assetDirectorPrefetch.active = true;
+    m_assetDirectorPrefetch.versionId = versionId;
+    m_assetDirectorPrefetch.setId = set->id;
+    m_assetDirectorPrefetch.objects = plan.objects;
+    m_assetDirectorPrefetch.reuseOverlay = plan.reuseOverlay;
+    m_assetDirectorPrefetch.reuseAssets = plan.reuseAssets;
+    m_assetDirectorPrefetch.toDownload = plan.toDownload;
+    m_assetDirectorPrefetch.bytesToDownload = plan.bytesToDownload;
+    m_currentVersionDownloading = versionId;
+
+    beginOwnBatch();
+    // 两份 JSON 是 AD **自己**的副本（它不走 overlay 复用）：落在它读的那两条路径上，
+    // 校验不过就重下。
+    if (plan.needVersionJson) {
+        downloadManager->downloadFile(
+            set->versionJson.url,
+            AssetDirectorKnownSet::overlayVersionJsonPath(assetsRoot, set->minecraftVersion),
+            set->versionJson.sha1, set->versionJson.size);
+    }
+    if (plan.needAssetIndex) {
+        downloadManager->downloadFile(
+            set->assetIndex.url,
+            AssetDirectorKnownSet::overlayAssetIndexPath(assetsRoot, set->assetIndexId),
+            set->assetIndex.sha1, set->assetIndex.size);
+    }
+    for (const AssetDirectorKnownSet::Object &object : plan.missing) {
+        downloadManager->downloadFile(
+            AssetDirectorKnownSet::objectUrl(object.hash),
+            AssetDirectorKnownSet::overlayObjectPath(assetsRoot, object.hash), object.hash,
+            object.size);
+    }
+    endOwnBatch();
+    return true;
 }
 
 QList<VersionIntegrity::ExpectedFile> VersionManager::integrityPlan(const QString &versionId,
@@ -4915,6 +5069,51 @@ void VersionManager::onAllDownloadsFinished(bool success) {
     m_ownBatchOpen = false;
 
     const DownloadStats stats = downloadManager->stats();
+
+    // 「GTNH 首启资源预取」那一批：**排在最前**。它不是版本文件、也不是加载器安装，
+    // 落到下面任何一条分支里都会报出「版本 X 的文件已全部就绪」这种错话，而且没有
+    // “重试那颗按钮”的语义（重试 = 界面重新发起一次预取，见 MainWindow）。
+    if (m_assetDirectorPrefetch.active) {
+        const AssetDirectorPrefetch prefetch = m_assetDirectorPrefetch;
+        m_assetDirectorPrefetch.reset();
+        m_failedBatch.reset();
+        QString prefetchMessage;
+        if (success) {
+            if (stats.total > 0) {
+                prefetchMessage =
+                    tr("首启资源已预取：下载 %1 个文件（%2 MiB），复用 %3 个（其中启动器共享 assets/objects 里 %4 个）。")
+                        .arg(stats.total)
+                        .arg(prefetch.bytesToDownload / (1024.0 * 1024.0), 0, 'f', 1)
+                        .arg(prefetch.reuseOverlay + prefetch.reuseAssets)
+                        .arg(prefetch.reuseAssets);
+            }
+            // stats.total == 0：一个字节都没下、也没有要补的 JSON —— 不用惊动用户。
+        } else {
+            const QStringList shown = stats.failedPaths.mid(0, 10);
+            QString list = shown.join(QLatin1Char('\n'));
+            if (stats.failedPaths.size() > shown.size()) {
+                list += QLatin1Char('\n')
+                        + tr("……还有 %1 个").arg(stats.failedPaths.size() - shown.size());
+            }
+            prefetchMessage =
+                stats.failed > 0
+                    ? tr("%1 个文件没下下来；已下好的留在 %2，下次预取会跳过校验通过的部分。"
+                         "游戏首启时 AssetDirector 会自己继续下。\n%3")
+                          .arg(stats.failed)
+                          .arg(QDir::toNativeSeparators(
+                              AssetDirectorKnownSet::overlayDir(AppPaths::assetsDir())))
+                          .arg(list)
+                    : tr("预取已中止；已下好的留在 %1，下次预取会跳过校验通过的部分。")
+                          .arg(QDir::toNativeSeparators(
+                              AssetDirectorKnownSet::overlayDir(AppPaths::assetsDir())));
+        }
+        qInfo().noquote() << "AssetDirector prefetch finished (" << prefetch.setId
+                          << "): downloaded=" << stats.total << " reuseOverlay="
+                          << prefetch.reuseOverlay << " reuseAssets=" << prefetch.reuseAssets
+                          << " failed=" << stats.failed << " success=" << success;
+        emit versionDownloadFinished(prefetch.versionId, success, prefetchMessage);
+        return;
+    }
 
     QString message;
     if (success) {

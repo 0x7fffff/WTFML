@@ -35,12 +35,12 @@ FTB、Technic 等专用清单没有独立适配器；仅在实际包含上述标
 游戏目录导入跳过 versions、libraries、assets、日志及已知启动器账号文件；核心及加载器走现有安装器。
 不继承来源启动器的账号、任意 Java 路径和执行命令。压缩包路径检查、覆盖文件排除及目录锁仍生效。
 
-## MCLib AssetDirector 首启资源（GTNH，2.1.6a spike 结论）
+## MCLib AssetDirector 首启资源（GTNH，2.1.6a/2.1.6b）
 
 GTNH 2.8.4 首次启动会停在 MCLib 的 AssetDirector 资源下载（包内 Et Futurum Requiem
-2.6.2.25-GTNH 把 MCLib 0.3.7.7 打进 jar）。以下是 2026-10-26 的核对结论：请求集合从哪来、
-能不能稳定拿到、体积多大、产品若要预取该写在哪。本次只做核对，**产品行为没有变化**；
-2.1.6b 的写入位置/体积上限和 2.1.6c 的真实首启验收仍待人工确认后才进入实现。
+2.6.2.25-GTNH 把 MCLib 0.3.7.7 打进 jar）。本节分两半：先说 2026-10-26 spike 核对的
+“请求集合从哪来、能不能稳定拿到、体积多大”，再说 2.1.6b 落地的预取行为。
+真机无缓存首启验收（2.1.6c）**还没跑**，边界写在最后。
 
 ### 它要什么、怎么下、写在哪
 
@@ -100,23 +100,82 @@ GTNH 2.8.4 首次启动会停在 MCLib 的 AssetDirector 资源下载（包内 E
 哈希相同，同名 ogg 的哈希全不同（重编码过），所以“复用已有 assets/objects”在这套包上只省 10.3 MiB。
 前文 3213 个对象那次是“本机有就铺一遍”的夹具补法，不等于这份 755 个的清单，两者不能互相代替。
 
-### 若进入 2.1.6b 的候选方案（待确认）
+## 2.1.6b 落地：导入成功后预取（已实现）
 
-- 只写 `<数据目录>/assets/asset_director/` 下的 `versions/<v>/<v>.json`、`assets/indexes/<id>.json`、
-  `assets/objects/<xx>/<hash>`；不写共享 `assets/objects`，不写游戏目录，不改模组文件。
-  AD 自己也不往共享 objects 写，两边的边界一致。
-- 每个文件先落同目录临时文件，按已知集合里的 size＋SHA-1 校验通过后原子改名；盘上已有但不是
-  本模块校验过的文件不直接信任，重算大小/哈希后再决定复用。
-- 分批下载并报“复用 X 个 / 待下载 Y 个 / 失败 Z 个”；失败可重试、取消保留已完成项；
-  预取失败不阻断启动（AD 会自己下，只是回到今天的体验）。
-- 写入前对总量做上限检查并记日志；GTNH 2.8.4 的已知集合是 111.04 MiB，上限建议 256 MiB。
+人工确认过的三条就是下面这些行为的边界：接受“已知集合”方案、允许自动下载、只写启动器
+管理的 overlay。
 
-待人工确认：**2.1.6a** 是否接受“GTNH 已知集合”方案（通用方案不可行，见上表）；
-**2.1.6b** 是否允许自动下载（本包 111.04 MiB、上限另定）、是否只写上述 overlay。
+**什么时候跑。** 整合包**导入成功之后**（`MainWindow::maybePrefetchAssetDirector()`；
+提示“导入完成”关掉之后才开始）。不挂在启动前那一条路上：启动是同步的、里面还有嵌套事件
+循环，往里塞一个几十 MB 的下载会把取消/关窗/重复点击那几道闸全部重排。
 
-复算方法：EFR 的 `build.gradle`（`injectedTags` 里的 `MC_ASSET_VER`）、`EtFuturum.getSounds()`
-字面量、`dependencies.gradle` 里的 MCLib 版本，加上 launchermeta 的版本清单/版本 JSON/资源索引，
-即可离线重算；本次用的命令与未验证边界见[测试与验证](TESTING.md)。
+**认不认这个实例。** 只看 `versions/<实例>/mods/` 里的**文件名**，按清单里的正则对
+（今天只有 `Et-Futurum-Requiem-2.6.2.25-GTNH.jar` 及其小写/下划线别名）。认不出来就
+**什么都不做**（不建任务、不置忙、不建目录）—— 不读 jar 的 `mcmod.info`，不为一次检查解
+几百个包，也不做“看起来像就猜”的推断。其它 GTNH 版本、其它 MCLib 消费者要各自新增一套。
+
+**下什么、跳什么。** 对象先看 `<数据目录>/assets/asset_director/assets/objects/<xx>/<hash>`
+（AD 自己的目录），再看启动器共享的 `<数据目录>/assets/objects/<xx>/<hash>`（AD 只读复用
+那一份）；命中都要过“字节数 + SHA-1”，**只判存在不算数**（AD 自己不校验，一份坏缓存会被
+它一直用）。两份 JSON（版本 JSON、资源索引）也落在 AD 读的那两条路径上，同样校验。
+
+**写在哪。** 只写 `<数据目录>/assets/asset_director/` 下：
+
+```
+asset_director/versions/1.21/1.21.json
+asset_director/assets/indexes/17.json
+asset_director/assets/objects/<hash 前两位>/<hash>
+```
+
+不写共享 `assets/objects`（AD 自己也不往里写），不写游戏目录，不改模组文件。写入走
+`DownloadManager` 那一套：字节数 + SHA-1 校验、失败重试与看门狗、`QSaveFile` 原子提交，
+半成品不会出现在目标路径上；批次前后取数据根的生命周期锁，拿不到就一个字节都不写。
+
+**体积上限。** 单套已知集合上限 256 MiB（`AssetDirectorKnownSet::kMaxKnownSetBytes`）。
+超了就**不下**，界面直说是哪套、多大。GTNH 2.8.4 实测 111.04 MiB，离上限还有余量。
+
+**进度 / 取消 / 重试。** 走公共的下载批次：任务中心一条“预取 <实例> 的首启资源”（可取消），
+底栏进度条报的是**真要下的那几个**；`stats.skipped` 那种“盘上本来就有”的不算进分母。
+取消不删文件，已校验的留在原处，下一次预取按 SHA-1 跳过。失败时界面给一颗「再试一次」
+（重新发起一次预取，不是重下整份清单），并直说“不影响启动：AssetDirector 会自己继续下”。
+
+**结果话术。** 成功且有下载 → 「首启资源已预取：下载 N 个文件（X MiB），复用 M 个（其中共享
+`assets/objects` K 个）」；全都已就绪 → 只写日志、不弹框；取消 → 只写日志；失败 → 警告框 +
+重试入口，附失败清单（前 10 条）。
+
+### 清单从哪来、怎么重新生成
+
+- 人读的那一份：`assets/assetdirector/known-sets.json`（一套 = 消费者文件名正则 + MC 版本 +
+  版本 JSON/资源索引的 URL/sha1/size + 每个对象的 name/hash/size + 总量）。
+- 编进产品的那一份：`src/download/AssetDirectorKnownSetData.cpp`（同样字节，chunk 拼接）。
+  两份**必须逐字节一致**，`AssetDirectorKnownSetTests.cpp` 会断言。
+- 重新生成：`python tools/assetdirector-knownset.py --efr-java <EtFuturum.java> --tag <EFR tag>
+  --mc-version <MC asset version>` 再 `--embed`。参数从 EFR 的 `build.gradle`
+  （`injectedTags` 的 `MC_ASSET_VER`）和 `dependencies.gradle`（MCLib 版本）里读。
+  清单是**按整合包＋模组版本钉死**的：换 GTNH 版本、换 EFR 版本、换资产版本都要重新生成一套，
+  不能沿用旧的那份“凑合用”。
+- 校验规则（`AssetDirectorKnownSet::parse()`）：只认 `formatVersion: 1`；地址必须是 Mojang
+  官方的 HTTPS 主机（`piston-meta` / `launchermeta` / `resources.download`）；哈希 40 位十六进制；
+  对象名不许 `..`、不许绝对路径；同一套里哈希不许重复；声明的 `totalBytes` 必须等于逐项之和。
+  任何一条不对就整份拒用，不“尽量读”。
+
+### 还没验收的部分（2.1.6c）
+
+隔离空缓存根 + 真 GTNH 2.8.4 包 + Java 21、产品自己下完 111.04 MiB 并**启动到主菜单**，
+这一趟**没跑**：本机没有 GTNH 原包，也没有那套隔离测试根。能说的只有：
+
+- 离线回归覆盖清单校验、消费者识别、复用判据、上限拒绝、路径拼装，以及主窗口“认不出消费者
+  时什么都不做”的接线（`wtfml.core-resources`、`wtfml.main-window`）；
+- 真实下载路径（官方 CDN、HTTP 状态、公司/校园网）**一个字节都没在本轮走过**，所以
+  “预取能下完 111 MiB”目前是设计而不是观测；
+- 首启效果（游戏不再停在 AssetDirector）要等 2.1.6c 真跑；预取失败/取消后的现场也只是
+  “保留已校验文件、下次跳过”，没在真实磁盘上演练过。
+
+验收要准备的东西：GTNH 2.8.4 的 `GT_New_Horizons_2.8.4_Java_17-25.zip`、一个空的数据根
+（里面没有 `assets/object*`、没有 `asset_director`）、Java 21（或让启动器自己下），
+用 `mw_check.exe modpack-import-live <包.zip> <实例名> <游戏根目录>` 走生产导入，
+之后再走生产 LauncherManager 启动到主菜单；判据是**启动期间 AssetDirector 不再从网上取对象**
+（AD 目录的 mtime/文件数在启动前后不变）且主菜单真的起来了。
 
 ## 验证
 
@@ -135,8 +194,9 @@ GTNH 2.8.4 已在独立工作区走通生产 VersionManager 的真实安装流�
 线程栈在 HTTPS 文件读取，不能仅凭加载画面不变判定死锁。只读核对本机已有官方资源，
 按资源索引的大小和 SHA-1 复制 3213 个音频/声音索引对象到隔离测试根的 assets/objects 后，
 重启即可越过下载并进入世界。共复用 614557694 字节，未改写原游戏目录或替换模组。
-此操作是测试夹具补齐缓存，不是产品已支持模组资源自动预取；无缓存下载、进度与重试仍待完善，
-请求集合的来源与实测体积见上文“MCLib AssetDirector 首启资源”。
+此操作是测试夹具补齐缓存。产品侧的预取已在 2.1.6b 落地（导入成功后按已知集合下到
+`assets/asset_director`，带进度、取消与重试，见上文“2.1.6b 落地”），但**无缓存真机首启
+（2.1.6c）还没跑**，所以这里仍然不能说“首启已经不需要 AD 下载”。
 旧版游戏在本次电脑控制中出现点击位置不一致，未把鼠标操作全流程计为通过；最终经退出确认框
 正常关闭，未强杀已进入世界的进程，也未开启局域网或连接服务器。
 

@@ -2855,6 +2855,10 @@ void MainWindow::beginDownloadTask() {
     } else if (!m_repairingInstanceId.isEmpty()) {
         kind = Tasks::TaskKind::Install;
         title = tr("校验并补全 %1").arg(instanceDisplayName(m_repairingInstanceId));
+    } else if (!m_assetPrefetchInstanceId.isEmpty()) {
+        // 预取 = "把这些文件拿下来"，不是装东西；它下的是共享的 assets/asset_director。
+        kind = Tasks::TaskKind::Download;
+        title = tr("预取 %1 的首启资源").arg(instanceDisplayName(m_assetPrefetchInstanceId));
     } else {
         // 兜底那一支：今天从界面上**走不到**（能置忙的三条路都会先写上那三个 id 之一 ——
         // 版本下载没有单独的入口，它是那三条路里的一段）。留着是因为它是个安全的默认：
@@ -2863,7 +2867,8 @@ void MainWindow::beginDownloadTask() {
         title = tr("下载游戏文件");
     }
     const QString target = !m_importingInstanceId.isEmpty() ? m_importingInstanceId
-        : !m_installingInstanceId.isEmpty() ? m_installingInstanceId : m_repairingInstanceId;
+        : !m_installingInstanceId.isEmpty() ? m_installingInstanceId
+        : !m_repairingInstanceId.isEmpty() ? m_repairingInstanceId : m_assetPrefetchInstanceId;
     // 父任务那一支：先把这一批挂到父任务的某一步底下。父任务认不出来（已被收尾 /
     // 被清除）时退回独立成行 —— 宁可在任务中心多一行，也不能让这批下载没有账。
     Tasks::TaskId child = Tasks::invalidTaskId();
@@ -3225,6 +3230,12 @@ QSet<QString> MainWindow::installingVersionIds() const {
     // 通常已经盖住它了；记这一笔是给"点下去、批次还没起来"那一小段兜底（见头文件）。
     if (!m_repairingInstanceId.isEmpty()) {
         ids.insert(m_repairingInstanceId);
+    }
+    // 首启资源预取：它同样在往共享的 assets/asset_director 里写文件，期间不让这个实例
+    // 启动（AD 那时也会往同一个目录写）。批次真起来之后 busyVersionId() 已经盖住它，
+    // 这一笔盖的是"点下去、批次还没起来"那一小段。
+    if (!m_assetPrefetchInstanceId.isEmpty()) {
+        ids.insert(m_assetPrefetchInstanceId);
     }
     return ids;
 }
@@ -12424,6 +12435,59 @@ void MainWindow::repairInstanceFiles(const QString &versionId) {
     m_versionManager->repairVersionFiles(versionId, flagged);
 }
 
+void MainWindow::maybePrefetchAssetDirector(const QString &versionId) {
+    if (versionId.isEmpty() || m_versionManager == nullptr) {
+        return;
+    }
+    // 先问一句"要不要做"：绝大多数实例认不出消费者模组，那一支**连任务行都不该有**。
+    // 这一步只读盘（`mods/` 文件名 + 盘上已有的对象），不发信号、不写盘。
+    const VersionManager::AssetDirectorPrefetchPlan plan =
+        m_versionManager->assetDirectorPrefetchPlan(versionId);
+    if (!plan.applicable) {
+        return;
+    }
+    if (!plan.refusal.isEmpty()) {
+        // 超上限：说清是哪套、多大，一个字节都不下。这条只在真的点了导入时出现。
+        appendLog(tr("✗ 「%1」的首启资源没有预取：%2")
+                      .arg(instanceDisplayName(versionId), plan.refusal));
+        InlineMessage::warning(m_ui->overlay(), tr("首启资源没有预取"),
+                               tr("「%1」的首启资源没有预取：\n\n%2\n\n"
+                                  "不影响启动：游戏第一次启动时 AssetDirector 会自己下。")
+                                   .arg(instanceDisplayName(versionId), plan.refusal));
+        return;
+    }
+    if (plan.upToDate) {
+        appendLog(tr("「%1」的首启资源本来就齐了（%2 个对象），没有下载。")
+                      .arg(instanceDisplayName(versionId))
+                      .arg(plan.objects));
+        return;
+    }
+    // 三道守卫：这个实例（或别的批次）正忙就不抢批次状态。数据层那边还会再挡一次。
+    if (m_downloadInFlight || m_versionManager->isDownloading()
+        || !m_repairingInstanceId.isEmpty() || !m_importingInstanceId.isEmpty()
+        || !m_installingInstanceId.isEmpty()) {
+        appendLog(tr("「%1」的首启资源这次没有预取（有别的下载或安装正在进行）。")
+                      .arg(instanceDisplayName(versionId)));
+        return;
+    }
+    // 顺序：**先记名字再置忙**（beginDownloadTask() 的判据就是这几个 id）。
+    m_assetPrefetchInstanceId = versionId;
+    setDownloadUiBusy(true);
+    appendLog(tr("正在预取「%1」的 GTNH 首启资源（%2 个对象，预计 %3 MiB，写入 %4）…")
+                  .arg(instanceDisplayName(versionId))
+                  .arg(plan.objects)
+                  .arg(plan.bytesToDownload / (1024.0 * 1024.0), 0, 'f', 1)
+                  .arg(QDir::toNativeSeparators(AppPaths::assetsDir() + QStringLiteral("/asset_director"))));
+    if (!m_versionManager->prefetchAssetDirectorResources(versionId)) {
+        // 数据层一个字节都没动（不适用 / 被拒 / 已齐）：它可能已经同步发过终态（那时上面那个
+        // 分支已经收完尾了），也可能什么都没发 —— 后者要在这里把忙态和任务收回来。
+        if (m_assetPrefetchInstanceId == versionId) {
+            m_assetPrefetchInstanceId.clear();
+            setDownloadUiBusy(false);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 完整性检查与修复
 // ---------------------------------------------------------------------------
@@ -12915,6 +12979,12 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
     if (wasRepairing) {
         m_repairingInstanceId.clear();
     }
+    // 首启资源预取（见 maybePrefetchAssetDirector）：同一条公共终态信号，同一个清场时机。
+    const bool wasPrefetching =
+        !m_assetPrefetchInstanceId.isEmpty() && versionId == m_assetPrefetchInstanceId;
+    if (wasPrefetching) {
+        m_assetPrefetchInstanceId.clear();
+    }
     // 这一发是不是**用户自己按的取消**（判据见 `m_downloadCancelInFlight`）。
     // `cancelActiveDownload()` 走的是和"真失败"同一条终态信号，下面每一个分支都必须
     // 分开说：账本记 Cancelled、底栏不点红点、也不弹「失败」那个框。
@@ -13035,6 +13105,10 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
             }
             updateStartButtonText();
             InlineMessage::information(m_ui->overlay(), tr("导入完成"), errorMessage);
+            // 这次导入的东西要是 GTNH 那种会在首启里跑 MCLib AssetDirector 的包，
+            // 趁热把那几十 MB 资源预取掉（体积、写入位置见 docs/MODPACK_IMPORT.md）。
+            // 放在提示之后：那几个提示是"导入成了"的收尾，先让用户看见它。
+            maybePrefetchAssetDirector(versionId);
         } else if (userCancelled) {
             // 用户自己按的取消：日志照写，但**不弹「导入失败」**（那不是失败）。
             appendLog(tr("✗ 整合包导入已由用户取消。"));
@@ -13106,6 +13180,42 @@ void MainWindow::onVersionDownloadFinished(const QString &versionId, bool succes
             InlineMessage::warning(m_ui->overlay(), tr("文件没补齐"),
                                    tr("实例「%1」有文件没能拿到。\n\n%2")
                                        .arg(displayName, errorMessage));
+        }
+        return;
+    }
+
+    // GTNH 首启资源预取（2.1.6b）。走的是公共终态信号，但话术是另一件事：
+    // 既不是"版本文件就绪"，也不是"校验完成" —— 它下的是共享的 assets/asset_director。
+    // success + 空 message = 这一趟其实没什么要下的（数据层那边有意不打扰用户）。
+    if (wasPrefetching) {
+        const QString displayName = instanceDisplayName(versionId);
+        if (success) {
+            if (errorMessage.isEmpty()) {
+                appendLog(tr("「%1」的首启资源本来就齐了，这一趟没有下载。").arg(displayName));
+            } else {
+                appendLog(tr("✓ 「%1」的首启资源已预取：%2").arg(displayName, errorMessage));
+                InlineMessage::information(
+                    m_ui->overlay(), tr("首启资源已预取"),
+                    tr("「%1」的 GTNH 首启资源已经准备好了，第一次启动不会再卡在 AssetDirector 的下载上。\n\n%2")
+                        .arg(displayName, errorMessage));
+            }
+        } else if (userCancelled) {
+            appendLog(tr("✗ 「%1」的首启资源预取已由用户取消（已下好的文件留在原处）。")
+                          .arg(displayName));
+        } else {
+            appendLog(tr("✗ 「%1」的首启资源没预取完：%2").arg(displayName, errorMessage));
+            // 重试 = 再发起一次预取（数据层那边会跳过校验通过的部分，不会从头再来）。
+            // 这条不走账本里那颗"重试"：那一颗是给"失败清单"用的，而预取失败之后
+            // 最该做的事是"再核一遍盘上那些、把缺的补上"，不是"把这份清单重下一遍"。
+            const bool retry = InlineMessage::question(
+                m_ui->overlay(), tr("首启资源没预取完"),
+                tr("「%1」的 GTNH 首启资源没能全部拿到。\n\n%2\n\n"
+                   "这不影响启动：游戏第一次启动时 AssetDirector 会自己继续下。要现在再试一次吗？")
+                    .arg(displayName, errorMessage),
+                tr("再试一次"), tr("知道了"), true);
+            if (retry) {
+                maybePrefetchAssetDirector(versionId);
+            }
         }
         return;
     }

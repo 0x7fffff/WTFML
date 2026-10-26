@@ -78,6 +78,9 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
             '(?i)(ArmorTrim|Toolbox|ToolFeature|Banner|Beacon|Enchantment)' { @('core','toolbox','ui'); break }
             '(?i)(TaskCenter|TaskDetail|Activity|Workspace|HomeQuick)' { @('workspace','ui','window'); break }
             '(?i)(ModAction|ModDepend|ResourceStore|ResourceCatalog|InstanceFile|ResourcePack)' { @('core','mods','resources','upgrade','presets','ui'); break }
+            # 首启资源的已知集合清单与它的生成脚本：改的是 core-resources 那一套断言
+            # （清单校验/嵌入字节一致）。不加这一条会落进 default ⇒ 整个 full。
+            '^assets/assetdirector/|^tools/assetdirector-knownset\.py$' { @('core-resources'); break }
             '^(src/download/|tools/network_diag/)|(?i:Download|RangeChecks|SegmentInstall)' { @('core','network','presets'); break }
             '^(tools/.*\.ps1|tests/test_runner/)' { @('runner'); break }
             '^ui/' { @('ui','theme','window'); break }
