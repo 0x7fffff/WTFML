@@ -182,8 +182,8 @@ asset_director/assets/objects/<hash 前两位>/<hash>
 
 ### 2.1.6c 实测（2026-10-26，本机）
 
-环境：Windows `D:\WTFtest\wtfml-216c-clean`（**空的**数据根，只有产品自己下的 `java/21` =
-Temurin 21.0.12.1，由 `GlobalJavaSettings::downloadJavaFromMojang` 下载）、
+环境：一个**空的**数据根（本轮的现场在 `D:\WTFtest\wtfml-216c-clean`，只有产品自己下的
+`java/21` = Temurin 21.0.12.1，由 `GlobalJavaSettings::downloadJavaFromMojang` 下载）+
 `GT_New_Horizons_2.8.4_Java_17-25.zip`（595,584,698 B，官方 MultiMC 导出包）。
 导入用产品自己的 `MainWindow::importModpackFromFile()`（`mw_check.exe multimc-import-live`，
 两问按产品默认值答掉），启动用产品 `LauncherManager`（`verify_instances --launch-main-menu`）。
@@ -207,6 +207,8 @@ Temurin 21.0.12.1，由 `GlobalJavaSettings::downloadJavaFromMojang` 下载）�
 复现方法：`mw_check.exe multimc-import-live <包.zip> <实例名> <空数据根>` →
 `verify_instances.exe --launch-main-menu <数据根> <实例名> <数据根>/java/21/bin/java.exe 8192 780 <日志>`，
 判据看 AD 目录的文件数/mtime 有没有变、日志里有没有 `Downloading resources`。
+两趟的启动日志与导入/探针输出留在 `build/gtnh-216c-evidence/`（不随仓库发布）；原包与两套
+测试根只是临时现场（可以清掉），重跑时按上面的命令重新准备——包与 Java 都能重下。
 （`--launch-main-menu` 的顺序在 2026-10-26 修过：必须先 `prepareNatives()` 再 `checkPreLaunch()`，
 和产品的启动路一致；否则 1.7.10 那种第一次启动还没有 natives 目录的实例会被探针自己拦下。）
 

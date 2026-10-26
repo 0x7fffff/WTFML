@@ -215,8 +215,8 @@
   补齐 1368 个对象约 122 MiB 加上版本 JSON 与资源索引，只写 `<数据目录>/assets/asset_director`，
   共享 `assets/objects` 只读复用；每件都按官方大小/SHA-1 校验，单套上限 256 MiB，可取消、
   失败可再试、已校验文件下次跳过。认不出消费者模组的实例一条都不做。
-  2026-10-26 真机冷缓存实测：导入后 20.5 秒预取完 112.6 MiB，启动 36.6 秒到主菜单，
-  启动期间 AssetDirector 一个对象都没再下载（见 [整合包导入](docs/MODPACK_IMPORT.md)）。
+  预取完成后首启不再由 AssetDirector 联网取对象（真机冷缓存验收见
+  [测试与验证](docs/TESTING.md)）。
 
 格式、补齐与收尾边界见 [整合包导入](docs/MODPACK_IMPORT.md)。
 
