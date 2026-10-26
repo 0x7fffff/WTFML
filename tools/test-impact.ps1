@@ -38,6 +38,7 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         'tests/ui_check/modules/UiThemeCheck.cpp' = 'theme'
         'tests/mw_check/modules/MwHighSpeedDownloadCheck.cpp' = 'network'
         'tests/mw_check/modules/MwDownloadRetryCheck.cpp' = 'network'
+        'tests/mw_check/RequestBudgetChecks.cpp' = 'network'
         'tests/mw_check/modules/MwActivitySelectionCheck.cpp' = 'workspace'
         'tests/mw_check/modules/MwWorkspaceCheck.cpp' = 'workspace'
         'tests/mw_check/JavaManageChecks.cpp' = 'java'

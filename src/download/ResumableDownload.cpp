@@ -1,4 +1,5 @@
 #include "ResumableDownload.hpp"
+#include "../net/RequestBudget.hpp"
 #include "DownloadManager.hpp"
 #include "DownloadRetryPolicy.hpp"
 #include "../util/DownloadDiagnostics.hpp"
@@ -217,11 +218,20 @@ void ResumableDownload::probe(int attempt) {
         });
         return;
     }
+    auto lease = RequestBudget::tryAcquire(RequestBudget::Lane::Bulk);
+    if (!lease) {
+        const auto generation = m_generation;
+        QTimer::singleShot(25, this, [this, generation, attempt] {
+            if (m_running && generation == m_generation) probe(attempt);
+        });
+        return;
+    }
     m_networkAttempted = true;
     QNetworkRequest request(m_url);
     request.setRawHeader("Range", "bytes=0-0"); request.setRawHeader("Accept-Encoding", "identity");
     request.setTransferTimeout(15000);
     auto *reply = m_files->networkAccess()->get(request);
+    RequestBudget::attach(reply, lease);
     m_probe = reply;
     if (DownloadDiag::enabled()) {
         DownloadDiag::line(QStringLiteral("probe send attempt=%1 url=%2 range=bytes=0-0 timeout=15000")

@@ -1,9 +1,10 @@
 #include "Support.hpp"
+int runRequestBudgetChecks();
 int MwDownloadRetryCheck() {
 
         QTemporaryDir fixture;
         if (!fixture.isValid()) return 2;
-        int failures = 0;
+        int failures = runRequestBudgetChecks();
         const auto expect = [&failures](bool ok, const char *text) {
             printf("%s %s\n", ok ? "PASS" : "FAIL", text);
             if (!ok) ++failures;

@@ -25,6 +25,8 @@
 #include "util/WriteDirectoryGuard.hpp"
 #include "../download/DownloadRetryPolicy.hpp"
 #include "../download/InstallerFailure.hpp"
+#include "../net/RequestBudget.hpp"
+#include "../download/DownloadConcurrency.hpp"
 #include "../settings/GlobalJavaSettings.hpp"
 
 #include "FolderManager.hpp"
@@ -443,6 +445,7 @@ QString VersionManager::busyVersionId() const {
 void VersionManager::setUseMirror(bool useMirror) { downloadManager->setUseMirror(useMirror); }
 
 void VersionManager::setDownloadConcurrency(int count) {
+    RequestBudget::setBulkLimit(DownloadConcurrency::normalize(count));
     downloadManager->setMaxConcurrentDownloads(count);
 }
 

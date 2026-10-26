@@ -23,6 +23,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 #include <QUrl>
@@ -759,6 +760,12 @@ private:
         bool plainRetried = false;
     };
     QQueue<PendingJob> m_pendingJobs;
+    bool m_budgetWakePending = false;
+    void wakeForRequestBudget();
+    void probeFasterSource(QNetworkReply *source, qint64 currentRate);
+    bool m_speedProbeInFlight = false;
+    QPointer<QNetworkReply> m_speedProbe;
+    qint64 m_nextSpeedProbeMs = 0;
 
     // ------------------------------------------------------------------
     // 「从别的游戏文件夹里借文件」（见 setReuseSourceFolders()）
