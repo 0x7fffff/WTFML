@@ -493,6 +493,7 @@ target_compile_definitions(mw_check_segmented_download PRIVATE WTFML_RANGE_MODUL
 add_mw_module(mw_check_segment_install SegmentInstallChecks.cpp runSegmentInstallChecks)
 add_mw_module(mw_check_tool_features ToolFeatureChecks.cpp runToolFeatureChecks)
 add_mw_module(mw_check_preset_install PresetInstallChecks.cpp runPresetInstallChecks)
+target_sources(mw_check_preset_install_case PRIVATE PresetManifestChecks.cpp)
 add_mw_module(mw_check_instance_upgrade InstanceUpgradeChecks.cpp runInstanceUpgradeChecks)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
  foreach(_target wtfml_mw_fixture mw_legacy_cases mw_check)

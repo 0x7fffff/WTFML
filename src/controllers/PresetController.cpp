@@ -13,6 +13,7 @@
 #include "PresetModEditor.hpp"
 #include "PresetOptionsEditor.hpp"
 #include "presets/PresetModInstaller.hpp"
+#include "presets/PresetManifestLoader.hpp"
 #include <QPushButton>
 #include <QCryptographicHash>
 #include "manage/VersionManager.hpp"
@@ -126,6 +127,7 @@ PresetController::PresetController(VersionManager *versions, QWidget *hostPage, 
                                    QObject *parent)
     : QObject(parent), m_versions(versions), m_hostPage(hostPage), m_host(std::move(host)) {
     m_catalogLoader = new Presets::CatalogLoader(this, m_host.readCatalog);
+    m_manifestLoader = new Presets::ManifestLoader(this, m_host.readManifest);
     // 兼容检查那一套：真网络提供方 + 共享缓存 + 检查器。★ 缓存与 checker 都活到这一层
     // 结束，所以"同一批模组在两个弹窗里连着看两次"第二趟是缓存结论（「共享缓存」）。
     //
@@ -172,6 +174,7 @@ void PresetController::open() {
     }
     buildPage();
     pushInstances();
+    m_manifestLoader->invalidate();
     m_page->setBusy(true);
     m_page->showStatus(tr("正在读取预设…"));
     m_catalogLoader->load(presetsRoot(), [this](const Presets::CatalogSnapshot &snapshot) {
@@ -180,7 +183,7 @@ void PresetController::open() {
             open();
             return;
         }
-        m_page->setBusy(false);
+        m_page->setBusy(m_manifestLoader->isLoading());
         m_page->showStatus(QString());
         pushCatalog(snapshot, m_currentId);
     });
@@ -188,6 +191,10 @@ void PresetController::open() {
 
 bool PresetController::catalogLoading() const {
     return m_catalogLoader->isLoading();
+}
+
+bool PresetController::detailsLoading() const {
+    return m_manifestLoader->isLoading() || m_manifestLoader->isReading();
 }
 
 void PresetController::buildPage() {
@@ -481,6 +488,7 @@ void PresetController::refreshList(const QString &selectId) {
 
 void PresetController::pushListAndSelect(const QString &selectId) {
     m_catalogLoader->invalidate();
+    m_manifestLoader->invalidate();
     m_page->setBusy(true);
     m_catalogLoader->load(presetsRoot(), [this, selectId](const Presets::CatalogSnapshot &snapshot) {
         if (!m_page) return;
@@ -488,7 +496,7 @@ void PresetController::pushListAndSelect(const QString &selectId) {
             pushListAndSelect(selectId);
             return;
         }
-        m_page->setBusy(false);
+        m_page->setBusy(m_manifestLoader->isLoading());
         // A mutation may already have shown a success/warning message. Keep it.
         pushCatalog(snapshot, selectId);
     });
@@ -547,38 +555,51 @@ void PresetController::pushCatalog(const Presets::CatalogSnapshot &snapshot, con
     // must follow the actual visible selection, not an invisible fallback.
     chosen = m_page->currentPresetId();
     if (chosen.isEmpty()) {
-        m_currentId.clear();
+        selectPreset(QString());
         return;
     }
     selectPreset(chosen);
 }
 
 void PresetController::selectPreset(const QString &id) {
-    if (m_page == nullptr || id.isEmpty()) {
+    if (m_page == nullptr) {
         return;
     }
     m_currentId = id;
+    if (id.isEmpty()) {
+        m_manifestLoader->invalidate();
+        m_page->setBusy(m_catalogLoader->isLoading());
+        return;
+    }
     pushPresetToPage(id);
 }
 
 void PresetController::pushPresetToPage(const QString &id) {
-    bool ok = false;
-    QString reason;
-    const Presets::PresetManifest manifest =
-        Presets::loadManifest(presetsRoot(), id, &ok, &reason);
-    if (!ok) {
-        m_page->showStatus(QStringLiteral("这一份读不出来：%1").arg(reason));
-        m_page->clearPlan();
-        return;
-    }
-    m_page->showPreset(id, manifest.name, manifest.description, categoryText(manifest.category),
+    const QPointer<PresetManagePage> page = m_page;
+    page->setBusy(true);
+    page->showPresetLoading(id);
+    m_manifestLoader->load(presetsRoot(), id, [this, page](const Presets::ManifestSnapshot &snapshot) {
+        if (!page || page != m_page) return;
+        if (snapshot.root != presetsRoot()) {
+            open();
+            return;
+        }
+        page->setBusy(m_catalogLoader->isLoading());
+        if (snapshot.id != m_currentId || snapshot.id != page->currentPresetId()) return;
+        if (!snapshot.ok) {
+            page->showPresetReadError(snapshot.problem);
+            return;
+        }
+        const auto &manifest = snapshot.manifest;
+        page->showPreset(snapshot.id, manifest.name, manifest.description, categoryText(manifest.category),
                        sectionItems(manifest));
-    if (auto *edit = m_page->findChild<QPushButton *>(QStringLiteral("presetEditModsButton")))
-        edit->setVisible(manifest.category == Presets::PresetCategory::Mods);
-    if (auto *edit = m_page->findChild<QPushButton *>(QStringLiteral("presetEditOptionsButton")))
-        edit->setVisible(manifest.category == Presets::PresetCategory::GameSettings);
-    m_page->setCaptureAvailability(captureMaskFor(manifest.category),
+        if (auto *edit = page->findChild<QPushButton *>(QStringLiteral("presetEditModsButton")))
+            edit->setVisible(manifest.category == Presets::PresetCategory::Mods);
+        if (auto *edit = page->findChild<QPushButton *>(QStringLiteral("presetEditOptionsButton")))
+            edit->setVisible(manifest.category == Presets::PresetCategory::GameSettings);
+        page->setCaptureAvailability(captureMaskFor(manifest.category),
                                    captureNoteFor(manifest.category));
+    });
 }
 
 QList<PresetManagePage::SectionItem> PresetController::sectionItems(

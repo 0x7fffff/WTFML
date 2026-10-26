@@ -1,4 +1,5 @@
 #include "PresetInstallChecks.hpp"
+#include "PresetManifestChecks.hpp"
 #include "Theme.hpp"
 #include <QJsonObject>
 #include "presets/PresetModInstaller.hpp"
@@ -183,9 +184,9 @@ int runPresetInstallChecks() {
                 QWidget host;
                 PresetController controller(nullptr, &host, callbacks);
                 controller.open();
-                check(pump([&] { return !controller.catalogLoading(); }), "large preset naming catalog loads");
+                check(pump([&] { return !controller.catalogLoading() && !controller.detailsLoading(); }), "large preset naming catalog loads");
                 controller.createPreset(Presets::presetCategoryKey(Presets::PresetCategory::GameSettings));
-                check(pump([&] { return !controller.catalogLoading(); }), "new preset refresh completes");
+                check(pump([&] { return !controller.catalogLoading() && !controller.detailsLoading(); }), "new preset refresh completes");
                 auto *page = host.findChild<PresetManagePage *>();
                 bool ok = false;
                 const auto created = Presets::loadManifest(PresetController::presetsRoot(), page ? page->currentPresetId() : QString(), &ok);
@@ -520,6 +521,7 @@ int runPresetInstallChecks() {
     }
     {
         int selectedCalls = 0;
+        int clearedCalls = 0;
         QString defaultId;
         bool makeDefault = true;
         PresetManagePage manage;
@@ -545,14 +547,14 @@ int runPresetInstallChecks() {
         if (proxy && search) {
             const QPersistentModelIndex sourceFirst(proxy->sourceModel()->index(0, 0));
             QObject::connect(&manage, &PresetManagePage::presetSelected, &manage,
-                             [&](const QString &) { ++selectedCalls; });
+                             [&](const QString &id) { if (id.isEmpty()) ++clearedCalls; else ++selectedCalls; });
             search->setText(QStringLiteral("  CREATIVE  "));
             check(sourceFirst.isValid() && proxy->rowCount() == 1001 && selectedCalls == 0 &&
                       manage.currentPresetId() == QStringLiteral("700"),
                   "search reuses source rows, trims input and keeps matching selection without duplicate callbacks");
             search->setText(QStringLiteral("no matches"));
             check(proxy->rowCount() == 1 && !proxy->index(0, 0).flags().testFlag(Qt::ItemIsSelectable) &&
-                      manage.currentPresetId().isEmpty() &&
+                      manage.currentPresetId().isEmpty() && clearedCalls == 1 &&
                       !manage.findChild<QPushButton *>(PresetManagePage::deleteButtonName())->isEnabled(),
                   "broken presets remain visible but cannot become a stale actionable selection");
             manage.findChild<QPushButton *>(PresetManagePage::categoryFilterName(2))->click();
@@ -606,5 +608,6 @@ int runPresetInstallChecks() {
         check(options.grab().save(QDir(preview).filePath(QStringLiteral("preset-options-editor.png"))), "settings editor preview renders");
         options.hide();
     }
+    failures += runPresetManifestChecks();
     return failures ? 1 : 0;
 }

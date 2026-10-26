@@ -175,6 +175,8 @@ public:
     /// 右栏"这一份是什么"。
     void showPreset(const QString &id, const QString &name, const QString &description,
                     const QString &categoryText, const QList<SectionItem> &sections);
+    void showPresetLoading(const QString &id);
+    void showPresetReadError(const QString &reason);
     /// 两个下拉框里的实例列表。@param selectId 空则保留各自原来的选择。
     void setInstances(const QList<InstanceItem> &instances, const QString &selectId = QString());
     /// 计划表。`canApply` 决定「应用」亮不亮；`needsConfirm` 决定它是不是要走"点两次"。
@@ -326,6 +328,7 @@ private:
     QLabel *m_statusLabel = nullptr;
 
     bool m_busy = false;
+    bool m_detailsAvailable = true;
     bool m_deleteArmed = false;
     int m_deleteToken = 0;
     bool m_applyArmed = false;
