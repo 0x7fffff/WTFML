@@ -205,8 +205,8 @@ A/B 阶段四项的自动化证据。运行方式：`cmake --build build/verify 
 | `verify_activity` | 148/148 | 子任务不进任务中心；父任务步骤/取消/失败语义；`setRecovery` 只挂终态；历史只落父任务 |
 | `verify_instances` | 1535/1535 | 报告 JSON 边界；暂存续做；同名「跳过已有项」；世界导入冲突；世界设置发布被占用 |
 | `verify_resources` | 824/824 | 整合包收尾任一次提前退出都把持久报告退回未完成（含完成报告发布后取消）；Quilt 不再被导入/导出拒绝 |
-| `mw_check_instance_upgrade` | 220 PASS / 0 FAIL | 副本模式只复制一次、无 ZIP 快照、源实例不动；父任务只收一个子任务；恢复入口补完/写失败报告；2.1.3 适配替换（平台发行版选择、变更预览、嵌套 JAR 随父替换、失败整趟回滚、变更日志） |
-| `mw_check` | 2679/2679 | 主窗口完整集成（含三档同名冲突、任务中心接线、Quilt 导入判据更新） |
+| `mw_check_instance_upgrade` | 232 PASS / 0 FAIL | 副本模式只复制一次、无 ZIP 快照、源实例不动；父任务只收一个子任务；恢复入口补完/写失败报告；2.1.3 适配替换（平台发行版选择、变更预览、嵌套 JAR 随父替换、失败整趟回滚、变更日志） |
+| `mw_check` | 2696/2696 | 主窗口完整集成（含三档同名冲突、任务中心接线、Quilt 导入判据更新） |
 | `ui_check` | 3119/3119 | 历史 UI 全量（`QT_QPA_PLATFORM=offscreen`） |
 | `ctest -R …` | 7/7 | lifecycle / resource-packs / theme / workspace / activity-selection / tool-features / mod-action-panel |
 
@@ -243,6 +243,63 @@ A/B 阶段四项的自动化证据。运行方式：`cmake --build build/verify 
 
 这些是临时目录 / 受控句柄夹具，不等于真实慢盘、杀毒实时扫描、断电或真实游戏组合验收；
 真正游戏/加载器组合仍归 2.1.5。
+
+## P1 2.1.5 真实升级、回滚与主菜单验收（2026-10-26）
+
+本机 Windows 11 10.0.26200、D: 固定 NTFS（NVMe，Defender 实时保护 True），
+使用既有真实版本目录的**干净副本**（未加载用户模组），离线身份启动到主菜单。
+不是慢盘、杀毒实时扫描、断电或全部模组组合证据。
+
+### 真实升级 / 回滚 / 主菜单
+
+四个加载器都在临时根里跑生产事务（`InstanceUpgrade::prepareCopyAndCommit` /
+`prepareAndCommit` / `rollback`），再用生产 `LauncherManager::generateJvmArguments` +
+`startGame` 启动。主菜单判据是 `Sound engine started` / `OpenAL initialized`；Forge/NeoForge
+只到主菜单（按人工确认，不强求进世界）。结果（秒）：
+
+| 加载器 | Java | 复制更新 / 启动 | 原地更新 / 启动 | 回滚 / 启动 |
+| --- | --- | --- | --- | --- |
+| 原版 26.3 | 25 | 0.58 / 15.07 | 8.65 / 16.10 | 0.43 / 10.61 |
+| Fabric 0.19.5 + 26.3 | 25 | 1.37 / 16.15 | 7.83 / 16.42 | 0.44 / 10.55 |
+| Forge 47.4.10 + 1.20.1 | 17 | 0.36 / 13.91 | 3.09 / 14.67 | 0.40 / 13.96 |
+| NeoForge 21.11.13-beta + 1.21.11 | 21 | 1.05 / 11.69 | 5.19 / 11.29 | 0.41 / 11.31 |
+
+四种都以 `sound-marker` 结束。升级后写入的 `saves/AfterUpgrade/level.dat` 在回滚后
+保留在 `cache/instance-upgrades/<txn>/replaced/`，原进度恢复。证据：
+`build/acceptance-215/evidence.json` 与 `build/acceptance-215/launch-*.log`。
+
+### 游戏目录改名后的恢复（2.1.5a）
+
+Forge 实例在 `publish` 阶段模拟中断后，整个游戏根从 `forge` 改名为 `forge-moved`；
+`recoverInterruptedInRoots` 0.04 秒完成恢复（2 条消息），原 jar 与用户进度完整，
+随后启动到主菜单 14.07 秒。journal 中 `rootFingerprint` / `rootRelative` / `rootName` 已断言；
+指纹被篡改时不动盘、输出“找不到匹配，请使用完整 ZIP 快照”提示。
+
+探针入口（`verify_instances`，不进 CTest）：
+
+```powershell
+verify_instances --upgrade-copy <gameDir> <sourceId> <newId> <targetCoreId>
+verify_instances --upgrade-inplace <gameDir> <instanceId> <targetCoreId>
+verify_instances --upgrade-rollback <gameDir> <instanceId> <transactionId>
+verify_instances --upgrade-inplace-crash <gameDir> <instanceId> <targetCoreId>
+verify_instances --upgrade-recover <gameDir>
+verify_instances --launch-main-menu <gameDir> <versionId> <javaPath> <xmx> <timeoutSec> <log>
+```
+
+`--launch-main-menu` 先看声音/资源强标记；否则要求游戏窗口出现且进程继续存活 20 秒。
+这不是 UI 点击路径，但参数、Java、natives 和进程管理走生产 `LauncherManager`。
+
+### 取消 / 发布阶段外部终止
+
+同一轮用 `tools/acceptance_large_instance.py`（16 MiB＋100 文件，`--kill-stage publish`）
+复跑：大复制 0.10 秒、占用失败 0.10 秒、取消 0.23 秒、publish 阶段外部终止后恢复 0.04 秒、
+重试完整升级 1.48 秒，JSON 见 `build/acceptance-215/large.json`。物理慢盘/杀毒仍缺。
+
+### 边界
+
+- 实例是干净副本，未加载用户模组；主菜单通过不等于所有模组组合、进世界或长期玩法通过。
+- 未做真实公网下载；启动使用本机既有 assets/libraries 和 Java 运行时。
+- 大实例脚本本轮只有 16 MiB/100 文件；1 GiB/6000 文件与物理慢盘记录仍见前节和验收记录。
 
 ## 超时、日志和失败
 

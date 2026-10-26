@@ -108,4 +108,11 @@ Result rollback(const Request &request,
 // Only returns journals in this game's private transaction directory for this id.
 QStringList recoverableTransactions(const QString &gameDir, const QString &instanceId);
 QStringList recoverInterrupted(const QString &gameDir);
+/// 在**已知的候选游戏根**里发现并恢复中断事务（2.1.5a）。
+///
+/// 整个游戏目录被改名/搬走之后，journal 还在根目录里，但里面记的绝对 `gameDir`
+/// 已经对不上。每个根自己的 journal 用 `rootFingerprint` 验证；验证不过的不动盘，
+/// 只留一句“请使用完整 ZIP 快照恢复”。只扫调用方给的根（启动器文件夹列表），
+/// 不全盘搜索，也不删除任何未知目录。
+QStringList recoverInterruptedInRoots(const QStringList &gameDirs);
 } // namespace InstanceUpgrade

@@ -17,6 +17,7 @@
 #include <QLockFile>
 #include "util/DirectorySessionLock.hpp"
 #include <QRegularExpression>
+#include <QSet>
 #include <QSaveFile>
 #include <QStorageInfo>
 #include <QTemporaryDir>
@@ -63,19 +64,97 @@ QString checkTree(const QString &root) {
     }
     return {};
 }
+/// 游戏根相对它所在卷的路径（`D:/Games/MC` → `Games/MC`）。
+///
+/// 这不是判据，只是给日志/人看的提示：整个游戏目录被改名或搬走之后它会变。真正用来
+/// 认出“这份事务还是不是同一个游戏根”的是 `rootFingerprint`。
+QString rootRelativePath(const QString &gameDir) {
+    const QFileInfo info(QDir::cleanPath(gameDir));
+    const QString path = info.absoluteFilePath();
+    if (path.size() >= 2 && path.at(1) == QLatin1Char(':')) {
+        return QDir(path.left(2) + QStringLiteral("/")).relativeFilePath(path);
+    }
+    return info.fileName();
+}
+
+/// 根指纹：只由**事务自己携带的材料**算出来，所以整个游戏目录被改名/搬到别的盘之后
+/// 仍然能验证。
+///
+/// 为什么不用绝对路径：那正是改名/迁移会变的東西。为什么不用卷序列号：换盘就失效，
+/// 而用户的“迁移”经常就是换盘。事务编号 + 实例名 + 快照文件名 + 原始文件指纹都在
+/// 事务目录里，跟着目录走；同目录里如果没有这几样，rollback 也做不成。
+QString rootFingerprintFor(const QString &instanceId, const QString &transactionId,
+                           const QString &snapshotName, const QString &originalFingerprint) {
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    hash.addData(QByteArrayLiteral("wtfml-upgrade-root/1\n"));
+    hash.addData(instanceId.toUtf8());
+    hash.addData(QByteArrayLiteral("\n"));
+    hash.addData(transactionId.toUtf8());
+    hash.addData(QByteArrayLiteral("\n"));
+    hash.addData(QFileInfo(snapshotName).fileName().toUtf8());
+    hash.addData(QByteArrayLiteral("\n"));
+    hash.addData(originalFingerprint.toUtf8());
+    return QString::fromLatin1(hash.result().toHex());
+}
+
 QJsonObject readJournal(const Request &r) {
     QFile f(journalPath(r));
     if (!f.open(QIODevice::ReadOnly) || f.size() > 64 * 1024) return {};
     const auto json = QJsonDocument::fromJson(f.readAll()).object();
-    if (json.value("schema").toInt() != 1 || json.value("instanceId").toString() != r.instanceId
-        || json.value("transactionId").toString() != r.transactionId
-        || QDir::cleanPath(json.value("gameDir").toString()) != QDir::cleanPath(r.gameDir)) return {};
+    if (json.value("schema").toInt() != 1
+        || json.value("instanceId").toString() != r.instanceId
+        || json.value("transactionId").toString() != r.transactionId) {
+        return {};
+    }
+    if (QDir::cleanPath(json.value("gameDir").toString()) == QDir::cleanPath(r.gameDir)) {
+        return json;
+    }
+    // 游戏目录被改名/搬走：按事务自带的根指纹验证。没有指纹的旧事务（或指纹不符）
+    // 一律不认 —— 宁可让用户用完整 ZIP 快照恢复，也不在错误目录上做回滚。
+    const QString stored = json.value("rootFingerprint").toString();
+    if (stored.isEmpty()) return {};
+    const QString expected = rootFingerprintFor(
+        json.value("instanceId").toString(), json.value("transactionId").toString(),
+        json.value("snapshotZip").toString(), json.value("originalFingerprint").toString());
+    if (stored != expected) return {};
     return json;
 }
+
 bool writeJournal(const Request &r, const QString &state, const QString &snapshot) {
+    // 先读旧记录：回滚那几笔写进 journal 时 Request 里没有原始指纹，不能因此把
+    // 根指纹改掉 —— 改掉之后下一次“改名后恢复”就认不出自己了。
+    QJsonObject previous;
+    {
+        QFile f(journalPath(r));
+        if (f.open(QIODevice::ReadOnly) && f.size() <= 64 * 1024) {
+            previous = QJsonDocument::fromJson(f.readAll()).object();
+        }
+    }
+    const QString originalFingerprint = r.originalFingerprint.isEmpty()
+        ? previous.value("originalFingerprint").toString()
+        : QString::fromLatin1(r.originalFingerprint.toHex());
+    // 根被搬走之后，旧 journal 里的快照是旧绝对路径。同名快照跟着根一起搬过来了的话，
+    // 把它改写成新根下的路径；没搬过来就原样保留（只影响显示，不用于回滚）。
+    QString snapshotPath = snapshot;
+    if (!snapshotPath.isEmpty() && !QFileInfo::exists(snapshotPath)) {
+        const QString rebased = QDir(r.gameDir).filePath(
+            QStringLiteral("cache/backups/instances/") + QFileInfo(snapshotPath).fileName());
+        if (QFileInfo::exists(rebased)) snapshotPath = rebased;
+    }
+    const QString snapshotName = QFileInfo(snapshotPath).fileName();
+    QString rootFingerprint = previous.value("rootFingerprint").toString();
+    if (rootFingerprint.isEmpty()) {
+        rootFingerprint = rootFingerprintFor(r.instanceId, r.transactionId, snapshotName,
+                                             originalFingerprint);
+    }
     const QJsonObject json{{"schema", 1}, {"instanceId", r.instanceId},
         {"transactionId", r.transactionId}, {"gameDir", QDir::cleanPath(r.gameDir)},
-        {"state", state}, {"snapshotZip", snapshot},
+        {"rootName", QFileInfo(QDir::cleanPath(r.gameDir)).fileName()},
+        {"rootRelative", rootRelativePath(r.gameDir)},
+        {"rootFingerprint", rootFingerprint},
+        {"originalFingerprint", originalFingerprint},
+        {"snapshotName", snapshotName},
+        {"state", state}, {"snapshotZip", snapshotPath},
         {"updatedAt", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)}};
     QSaveFile f(journalPath(r));
     const auto bytes = QJsonDocument(json).toJson();
@@ -774,6 +853,11 @@ static Result rollbackImpl(const Request &r, bool verifyRetained,
         return result;
     }
     result.snapshotZip = journal.value("snapshotZip").toString();
+    if (!result.snapshotZip.isEmpty() && !QFileInfo::exists(result.snapshotZip)) {
+        const QString rebased = QDir(r.gameDir).filePath(
+            QStringLiteral("cache/backups/instances/") + QFileInfo(result.snapshotZip).fileName());
+        if (QFileInfo::exists(rebased)) result.snapshotZip = rebased;
+    }
     result.rollbackAvailable = true;
     if (stopped()) return stopResult();
     if (verifyRetained) {
@@ -1088,7 +1172,23 @@ QStringList recoverInterrupted(const QString &gameDir) {
         const auto json = QJsonDocument::fromJson(f.readAll()).object();
         f.close();
         const Request r{gameDir, json.value("instanceId").toString(), id, {}};
-        if (!validate(r).isEmpty() || readJournal(r).isEmpty()) continue;
+        if (!validate(r).isEmpty()) continue;
+        if (readJournal(r).isEmpty()) {
+            // 记录在、但这一个游戏根不是它当初写下的那一个（或被改坏）：不自动动盘，
+            // 把事务与快照位置说清楚，让用户用完整 ZIP 快照恢复。
+            if (!json.value("instanceId").toString().isEmpty()
+                && json.value("transactionId").toString() == id) {
+                const QString snapshot = json.value("snapshotZip").toString();
+                messages.append(
+                    QStringLiteral("升级事务 %1（实例 %2）找不到匹配的游戏根指纹，未自动恢复；"
+                                   "请使用完整 ZIP 快照%3恢复。")
+                        .arg(id, json.value("instanceId").toString(),
+                             snapshot.isEmpty()
+                                 ? QString()
+                                 : QStringLiteral(" %1 ").arg(QFileInfo(snapshot).fileName())));
+            }
+            continue;
+        }
         const QString state = json.value("state").toString();
         // 副本模式（2.1.1）：源实例没被动过，所以**没有**回滚材料；这里只负责
         // 识别并收掉自己留下的暂存。不认识的目录一律不碰。
@@ -1129,6 +1229,27 @@ QStringList recoverInterrupted(const QString &gameDir) {
         const auto result = rollbackImpl(r, false);
         messages.append(result.rolledBack ? QStringLiteral("中断的升级已恢复原实例：%1").arg(r.instanceId)
             : QStringLiteral("升级恢复需要处理：%1；%2").arg(r.instanceId, result.problem));
+    }
+    return messages;
+}
+
+QStringList recoverInterruptedInRoots(const QStringList &gameDirs) {
+    QStringList messages;
+    QSet<QString> seen;
+    for (const QString &raw : gameDirs) {
+        const QString dir = QDir::cleanPath(QFileInfo(raw).absoluteFilePath());
+        const QString key = InstanceFiles::canonicalPath(dir).toLower();
+        if (dir.isEmpty() || key.isEmpty() || seen.contains(key) || !QFileInfo(dir).isDir()) {
+            continue;
+        }
+        seen.insert(key);
+        const QStringList one = recoverInterrupted(dir);
+        for (const QString &message : one) {
+            // 多个根一起扫时带上根名，否则“已恢复原实例”看不出是哪一份。
+            messages.append(gameDirs.size() > 1
+                                ? QStringLiteral("[%1] %2").arg(QFileInfo(dir).fileName(), message)
+                                : message);
+        }
     }
     return messages;
 }

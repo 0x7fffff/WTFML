@@ -1336,6 +1336,72 @@ int runInstanceUpgradeChecks() {
               "failed replacement removes its staging copy");
     }
     {
+        // 2.1.5a：整个游戏目录改名/搬走之后，用 journal 里的根指纹在候选根发现并恢复。
+        const auto r = fixture("moved-root");
+        bool interrupted = false;
+        try {
+            InstanceUpgrade::commitPrepared(r, [](InstanceUpgrade::Stage stage) {
+                if (stage == InstanceUpgrade::Stage::Publish) throw std::runtime_error("crash");
+            });
+        } catch (const std::runtime_error &) {
+            interrupted = true;
+        }
+        check(interrupted && QFileInfo::exists(InstanceUpgrade::transactionDir(r) + "/original")
+                  && !QFileInfo::exists(r.gameDir + "/versions/Instance"),
+              "prepare a crash state with retained original before moving the game root");
+        QJsonObject journal;
+        {
+            QFile file(InstanceUpgrade::transactionDir(r) + "/journal.json");
+            if (file.open(QIODevice::ReadOnly)) {
+                journal = QJsonDocument::fromJson(file.readAll()).object();
+            }
+        }
+        check(!journal.value("rootFingerprint").toString().isEmpty()
+                  && !journal.value("rootRelative").toString().isEmpty()
+                  && journal.value("rootName").toString() == QStringLiteral("moved-root"),
+              "journal records root fingerprint / relative path / root name");
+        const QString moved = scratch.path() + "/moved-root-renamed";
+        check(QDir().rename(r.gameDir, moved), "move the whole game root to a new name");
+        const auto messages = InstanceUpgrade::recoverInterruptedInRoots({moved});
+        check(!messages.isEmpty()
+                  && read(moved + "/versions/Instance/Instance.jar") == "old-core"
+                  && read(moved + "/versions/Instance/saves/World/level.dat") == "world-bytes",
+              "★★ renamed game root is discovered and the interrupted upgrade is rolled back");
+        check(InstanceUpgrade::recoverInterruptedInRoots({moved}).isEmpty()
+                  || InstanceUpgrade::recoverInterruptedInRoots({moved}).join(QString())
+                         .contains(QStringLiteral("已恢复")),
+              "recovery after a moved root is idempotent");
+    }
+    {
+        // 指纹不符：不自动动盘，明确回退到完整 ZIP 快照。
+        const auto r = fixture("moved-bad");
+        bool interrupted = false;
+        try {
+            InstanceUpgrade::commitPrepared(r, [](InstanceUpgrade::Stage stage) {
+                if (stage == InstanceUpgrade::Stage::Publish) throw std::runtime_error("crash");
+            });
+        } catch (const std::runtime_error &) {
+            interrupted = true;
+        }
+        const QString journalPath = InstanceUpgrade::transactionDir(r) + "/journal.json";
+        QJsonObject journal;
+        {
+            QFile file(journalPath);
+            if (file.open(QIODevice::ReadOnly)) journal = QJsonDocument::fromJson(file.readAll()).object();
+        }
+        journal.insert(QStringLiteral("rootFingerprint"), QStringLiteral("deadbeef"));
+        check(interrupted && write(journalPath, QJsonDocument(journal).toJson()),
+              "tamper the root fingerprint fixture");
+        const QString moved = scratch.path() + "/moved-bad-new";
+        check(QDir().rename(r.gameDir, moved), "move the tampered game root");
+        const auto messages = InstanceUpgrade::recoverInterruptedInRoots({moved});
+        check(!messages.isEmpty()
+                  && messages.join(QLatin1Char('\n')).contains(QStringLiteral("找不到匹配"))
+                  && !QFileInfo::exists(moved + "/versions/Instance")
+                  && QFileInfo::exists(moved + "/cache/instance-upgrades/tx-test/original/Instance.jar"),
+              "★★ mismatched root fingerprint is not recovered and points to the ZIP fallback");
+    }
+    {
         const auto r = fixture("success");
         const auto result = InstanceUpgrade::commitPrepared(r);
         check(result.ok && result.rollbackAvailable && !result.rolledBack, "commit retains rollback material");

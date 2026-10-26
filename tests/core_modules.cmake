@@ -2,7 +2,7 @@
 # Assertion objects belong to one domain; a targeted build never builds other domains.
 add_library(wtfml_core_runtime STATIC ${PROJECT_SOURCES})
 target_include_directories(wtfml_core_runtime PUBLIC ${REPO_ROOT}/src ${REPO_ROOT}/ui ${REPO_ROOT}/tests)
-target_link_libraries(wtfml_core_runtime PUBLIC Qt6::Core Qt6::Network Qt6::Gui Qt6::Concurrent crypt32 ole32 shlwapi windowscodecs shell32 uuid)
+target_link_libraries(wtfml_core_runtime PUBLIC Qt6::Core Qt6::Network Qt6::Gui Qt6::Concurrent crypt32 ole32 shlwapi windowscodecs shell32 user32 uuid)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
  target_compile_options(wtfml_core_runtime PRIVATE -O0)
 endif()

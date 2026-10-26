@@ -1953,8 +1953,16 @@ MainWindow::MainWindow(QWidget *parent)
     // 本地已安装的先填上（同步扫盘）；在线清单是异步拉的，回来之后由
     // onVersionsFetched() 填"可安装"下拉框 —— 在那之前它显示占位文案。
     // Pending upgrade journals use rename-only recovery, before scanning installed instances.
-    for (const QString &message : InstanceUpgrade::recoverInterrupted(AppPaths::minecraftDir()))
-        appendLog(message);
+    // 2.1.5a：游戏根可能被改名/搬走，所以扫描**已配置的游戏根**，每个根用 journal 里的
+    // 根指纹验证。只扫文件夹列表，不全盘搜索；指纹对不上的事务不动盘。
+    {
+        QStringList upgradeRoots = m_folderManager != nullptr ? m_folderManager->folders()
+                                                              : QStringList();
+        upgradeRoots.append(AppPaths::minecraftDir());
+        for (const QString &message : InstanceUpgrade::recoverInterruptedInRoots(upgradeRoots)) {
+            appendLog(message);
+        }
+    }
     refreshInstalledVersions();
     // 顺序要紧：必须在 refreshInstalledVersions() **之后**（下拉框里得先有条目可选），
     // 并且在 fetchAvailableVersions() 之前（免得用户在等待网络期间就手选了一个，
@@ -12723,6 +12731,9 @@ void MainWindow::applyCurrentFolderToPaths() {
     // 跟着 exe 走，而不是钉死在上次记下的那个老位置。
     AppPaths::setMinecraftDir(FolderManager::isDefaultFolder(root) ? QString() : root);
     for (const QString &message : BackupFiles::recoverInterruptedRestores(AppPaths::minecraftDir()))
+        appendLog(message);
+    // 切到一个“之后才被搬过来”的游戏根时也补一次；启动时已经扫过全部根，这里是幂等的。
+    for (const QString &message : InstanceUpgrade::recoverInterruptedInRoots({root}))
         appendLog(message);
     appendLog(tr("当前游戏文件夹：%1").arg(QDir::toNativeSeparators(root)));
     // 借文件的来源跟着当前文件夹一起变（当前那一份由下载器自己跳过）。
