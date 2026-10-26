@@ -1,10 +1,7 @@
 #pragma once
 
 #include "PresetStore.hpp"
-#include <QFutureWatcher>
-#include <QObject>
-#include <QtConcurrent/QtConcurrentRun>
-#include <functional>
+#include "util/LatestReadLoader.hpp"
 
 namespace Presets {
 struct ManifestSnapshot {
@@ -23,63 +20,25 @@ inline ManifestSnapshot readManifestSnapshot(const QString &root, const QString 
     return snapshot;
 }
 
-// One physical read at a time. Rapid selection changes replace the pending read
-// instead of queuing obsolete manifests behind a slow disk.
-class ManifestLoader final : public QObject {
+struct ManifestReadRequest {
+    QString root;
+    QString id;
+    bool operator==(const ManifestReadRequest &) const = default;
+};
+
+class ManifestLoader final : public LatestReadLoader<ManifestReadRequest, ManifestSnapshot> {
+    using Base = LatestReadLoader<ManifestReadRequest, ManifestSnapshot>;
 public:
     using Reader = std::function<ManifestSnapshot(const QString &, const QString &)>;
-    using Completed = std::function<void(const ManifestSnapshot &)>;
     explicit ManifestLoader(QObject *parent, Reader reader = {})
-        : QObject(parent), m_reader(reader ? std::move(reader) : Reader(readManifestSnapshot)) {}
-
-    bool isLoading() const { return m_pending; }
-    bool isReading() const { return m_active; }
-    void invalidate() {
-        ++m_generation;
-        m_pending = false;
-        m_completed = {};
-    }
-    void load(const QString &root, const QString &id, Completed completed) {
-        if (m_pending && m_root == root && m_id == id) return;
-        ++m_generation;
-        m_pending = true;
-        m_root = root;
-        m_id = id;
-        m_completed = std::move(completed);
-        if (!m_active) start();
-    }
-
-private:
-    void start() {
-        m_active = true;
-        const auto generation = m_generation;
-        auto *watcher = new QFutureWatcher<ManifestSnapshot>(this);
-        connect(watcher, &QFutureWatcher<ManifestSnapshot>::finished, this,
-                [this, watcher, generation] {
-            const auto snapshot = watcher->result();
-            watcher->deleteLater();
-            m_active = false;
-            if (generation != m_generation) {
-                if (m_pending) start();
-                return;
-            }
-            m_pending = false;
-            auto completed = std::move(m_completed);
-            if (completed) completed(snapshot);
-        });
-        watcher->setFuture(QtConcurrent::run([root = m_root, id = m_id, reader = m_reader] {
-            auto snapshot = reader(root, id);
-            snapshot.root = root;
-            snapshot.id = id;
+        : Base(parent, [reader = reader ? std::move(reader) : Reader(readManifestSnapshot)](const ManifestReadRequest &request) {
+            auto snapshot = reader(request.root, request.id);
+            snapshot.root = request.root;
+            snapshot.id = request.id;
             return snapshot;
-        }));
+        }) {}
+    void load(const QString &root, const QString &id, Completed completed) {
+        Base::load({root, id}, std::move(completed));
     }
-    Reader m_reader;
-    Completed m_completed;
-    QString m_root;
-    QString m_id;
-    quint64 m_generation = 0;
-    bool m_active = false;
-    bool m_pending = false;
 };
 } // namespace Presets

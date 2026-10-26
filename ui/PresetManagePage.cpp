@@ -457,6 +457,10 @@ void PresetManagePage::buildUi() {
     applyRow->addWidget(m_previewButton);
     rightLayout->addLayout(applyRow);
     connect(m_previewButton, &QPushButton::clicked, this, [this] {
+        if (m_planLoading) {
+            emit previewCancelRequested();
+            return;
+        }
         const QString presetId = currentPresetId();
         const QString instanceId = comboInstanceId(m_applyInstanceCombo);
         if (presetId.isEmpty() || instanceId.isEmpty()) return;
@@ -466,6 +470,7 @@ void PresetManagePage::buildUi() {
     // 换实例 / 换预设都会让上一份计划作废（计划是"对着那个实例那一刻"算出来的）。
     connect(m_applyInstanceCombo, &QComboBox::currentIndexChanged, this, [this] {
         clearPlan();
+        emit applyTargetChanged(comboInstanceId(m_applyInstanceCombo));
         refreshActions();
     });
 
@@ -789,11 +794,26 @@ void PresetManagePage::setInstances(const QList<InstanceItem> &instances,
                                     const QString &selectId) {
     fillInstances(m_captureInstanceCombo, instances, selectId);
     fillInstances(m_applyInstanceCombo, instances, selectId);
+    // The same instance id may now refer to another game root or run state.
+    clearPlan();
+    emit applyTargetChanged(selectedApplyInstanceId());
     refreshCaptureEnabled();
     refreshActions();
 }
 
+void PresetManagePage::setPlanLoading(bool loading) {
+    if (m_planLoading == loading) return;
+    m_planLoading = loading;
+    clearPlan();
+    m_previewButton->setText(loading ? tr("取消预览") : tr("预览计划"));
+    m_previewButton->setToolTip(loading ? tr("取消本次预览，不会修改实例。")
+        : tr("先说清楚会动哪几段、写几项、删几项、有哪些冲突；这一步一个字节都不写。"));
+    m_planHint->setText(loading ? tr("正在读取实例并生成计划…") : QString());
+    refreshActions();
+}
+
 void PresetManagePage::showPlan(const PlanView &plan) {
+    setPlanLoading(false);
     m_planList->clear();
     m_planCanApply = plan.canApply;
     m_planNeedsConfirm = plan.needsConfirm;
@@ -996,7 +1016,7 @@ void PresetManagePage::refreshActions() {
         m_deleteButton->setText(QStringLiteral("删除"));
     }
 
-    m_previewButton->setEnabled(editable && !comboInstanceId(m_applyInstanceCombo).isEmpty());
+    m_previewButton->setEnabled(m_planLoading || (editable && !comboInstanceId(m_applyInstanceCombo).isEmpty()));
     m_applyButton->setEnabled(!m_busy && m_detailsAvailable && m_planCanApply && valid);
     if (!m_applyArmed) {
         m_applyButton->setText(QStringLiteral("应用"));

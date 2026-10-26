@@ -494,6 +494,7 @@ add_mw_module(mw_check_segment_install SegmentInstallChecks.cpp runSegmentInstal
 add_mw_module(mw_check_tool_features ToolFeatureChecks.cpp runToolFeatureChecks)
 add_mw_module(mw_check_preset_install PresetInstallChecks.cpp runPresetInstallChecks)
 target_sources(mw_check_preset_install_case PRIVATE PresetManifestChecks.cpp)
+target_sources(mw_check_preset_install_case PRIVATE PresetPreviewChecks.cpp)
 add_mw_module(mw_check_instance_upgrade InstanceUpgradeChecks.cpp runInstanceUpgradeChecks)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
  foreach(_target wtfml_mw_fixture mw_legacy_cases mw_check)

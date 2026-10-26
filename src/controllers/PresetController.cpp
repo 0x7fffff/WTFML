@@ -14,6 +14,7 @@
 #include "PresetOptionsEditor.hpp"
 #include "presets/PresetModInstaller.hpp"
 #include "presets/PresetManifestLoader.hpp"
+#include "presets/PresetPreviewLoader.hpp"
 #include <QPushButton>
 #include <QCryptographicHash>
 #include "manage/VersionManager.hpp"
@@ -128,6 +129,7 @@ PresetController::PresetController(VersionManager *versions, QWidget *hostPage, 
     : QObject(parent), m_versions(versions), m_hostPage(hostPage), m_host(std::move(host)) {
     m_catalogLoader = new Presets::CatalogLoader(this, m_host.readCatalog);
     m_manifestLoader = new Presets::ManifestLoader(this, m_host.readManifest);
+    m_previewLoader = new Presets::PreviewLoader(this, m_host.readPreview);
     // 兼容检查那一套：真网络提供方 + 共享缓存 + 检查器。★ 缓存与 checker 都活到这一层
     // 结束，所以"同一批模组在两个弹窗里连着看两次"第二趟是缓存结论（「共享缓存」）。
     //
@@ -175,6 +177,7 @@ void PresetController::open() {
     buildPage();
     pushInstances();
     m_manifestLoader->invalidate();
+    invalidatePreview();
     m_page->setBusy(true);
     m_page->showStatus(tr("正在读取预设…"));
     m_catalogLoader->load(presetsRoot(), [this](const Presets::CatalogSnapshot &snapshot) {
@@ -183,7 +186,7 @@ void PresetController::open() {
             open();
             return;
         }
-        m_page->setBusy(m_manifestLoader->isLoading());
+        updatePageBusy();
         m_page->showStatus(QString());
         pushCatalog(snapshot, m_currentId);
     });
@@ -195,6 +198,20 @@ bool PresetController::catalogLoading() const {
 
 bool PresetController::detailsLoading() const {
     return m_manifestLoader->isLoading() || m_manifestLoader->isReading();
+}
+
+bool PresetController::previewLoading() const {
+    return m_previewLoader->isLoading() || m_previewLoader->isReading();
+}
+
+void PresetController::updatePageBusy() {
+    if (m_page) m_page->setBusy(m_catalogLoader->isLoading() || m_manifestLoader->isLoading() || m_previewLoader->isLoading());
+}
+
+void PresetController::invalidatePreview() {
+    m_previewLoader->invalidate();
+    if (m_page) m_page->setPlanLoading(false);
+    updatePageBusy();
 }
 
 void PresetController::buildPage() {
@@ -313,6 +330,11 @@ void PresetController::buildPage() {
                 captureAsNew(instanceId, name, categoryKey, choice);
             });
     connect(m_page, &PresetManagePage::planRequested, this, &PresetController::previewPlan);
+    connect(m_page, &PresetManagePage::applyTargetChanged, this, [this] { invalidatePreview(); });
+    connect(m_page, &PresetManagePage::previewCancelRequested, this, [this] {
+        invalidatePreview();
+        if (m_page) m_page->showStatus(tr("已取消预览，实例未修改。"));
+    });
     connect(m_page, &PresetManagePage::applyRequested, this, &PresetController::applyPlan);
 }
 
@@ -489,6 +511,7 @@ void PresetController::refreshList(const QString &selectId) {
 void PresetController::pushListAndSelect(const QString &selectId) {
     m_catalogLoader->invalidate();
     m_manifestLoader->invalidate();
+    invalidatePreview();
     m_page->setBusy(true);
     m_catalogLoader->load(presetsRoot(), [this, selectId](const Presets::CatalogSnapshot &snapshot) {
         if (!m_page) return;
@@ -496,7 +519,7 @@ void PresetController::pushListAndSelect(const QString &selectId) {
             pushListAndSelect(selectId);
             return;
         }
-        m_page->setBusy(m_manifestLoader->isLoading());
+        updatePageBusy();
         // A mutation may already have shown a success/warning message. Keep it.
         pushCatalog(snapshot, selectId);
     });
@@ -566,9 +589,10 @@ void PresetController::selectPreset(const QString &id) {
         return;
     }
     m_currentId = id;
+    invalidatePreview();
     if (id.isEmpty()) {
         m_manifestLoader->invalidate();
-        m_page->setBusy(m_catalogLoader->isLoading());
+        updatePageBusy();
         return;
     }
     pushPresetToPage(id);
@@ -584,7 +608,7 @@ void PresetController::pushPresetToPage(const QString &id) {
             open();
             return;
         }
-        page->setBusy(m_catalogLoader->isLoading());
+        updatePageBusy();
         if (snapshot.id != m_currentId || snapshot.id != page->currentPresetId()) return;
         if (!snapshot.ok) {
             page->showPresetReadError(snapshot.problem);
@@ -994,42 +1018,52 @@ QString PresetController::rowText(const Presets::ApplyPlanRow &row) const {
 }
 
 void PresetController::previewPlan(const QString &presetId, const QString &instanceId) {
-    if (m_page == nullptr) {
-        return;
-    }
-    PresetManagePage::PlanView view;
-
-    bool ok = false;
-    QString reason;
-    const Presets::PresetManifest manifest =
-        Presets::loadManifest(presetsRoot(), presetId, &ok, &reason);
-    if (!ok) {
-        view.problem = QStringLiteral("这一份读不出来：%1").arg(reason);
+    if (!m_page || presetId.isEmpty() || instanceId.isEmpty() ||
+        presetId != m_page->currentPresetId() || instanceId != m_page->selectedApplyInstanceId()) return;
+    if (m_host.isInstanceBusy && m_host.isInstanceBusy(instanceId)) {
+        invalidatePreview();
+        PresetManagePage::PlanView view;
+        view.problem = tr("这个实例正在处理文件，请等它收尾后重新预览。");
         m_page->showPlan(view);
         return;
     }
-
-    QString snapshotProblem;
-    Presets::TargetSnapshot snapshot =
-        Presets::readTargetSnapshot(instanceRoot(instanceId), &snapshotProblem);
-    if (!snapshotProblem.isEmpty()) {
-        view.problem = snapshotProblem;
-        m_page->showPlan(view);
-        return;
-    }
-    // 数据包从 17w43a 才有：老版本实例上那一段该报"做不了"，不是记成待应用。
-    snapshot.supportsDataPacks =
-        m_versions != nullptr && m_versions->instanceSupportsDatapacks(instanceId);
-
-    Presets::PlanRequest request;
-    request.presetFilesRoot = Presets::filesDir(presetsRoot(), presetId);
-    request.sections = manifest.sections;
-    request.target = snapshot;
-    request.replaceConfirmed = false;
+    Presets::PreviewRequest request;
+    request.root = presetsRoot();
+    request.presetId = presetId;
+    request.instanceId = instanceId;
+    request.instanceRoot = instanceRoot(instanceId);
+    request.supportsDataPacks = m_versions && m_versions->instanceSupportsDatapacks(instanceId);
     request.gameRunning = m_host.isRunning ? m_host.isRunning(instanceId) : false;
+    const QPointer<PresetManagePage> page = m_page;
+    page->setPlanLoading(true);
+    m_previewLoader->load(request, [this, page](const Presets::PreviewSnapshot &result) {
+        if (!page || page != m_page) return;
+        page->setPlanLoading(false);
+        updatePageBusy();
+        const auto &key = result.request;
+        if (key.root != presetsRoot() || key.instanceRoot != instanceRoot(key.instanceId) ||
+            key.presetId != page->currentPresetId() || key.instanceId != page->selectedApplyInstanceId()) return;
+        const bool runningNow = m_host.isRunning ? m_host.isRunning(key.instanceId) : false;
+        if (runningNow != key.gameRunning || (m_host.isInstanceBusy && m_host.isInstanceBusy(key.instanceId))) {
+            PresetManagePage::PlanView changed;
+            changed.problem = tr("实例运行或文件操作状态已改变，请重新预览。");
+            page->showPlan(changed);
+            return;
+        }
+        showPreview(result);
+    });
+    updatePageBusy();
+}
 
-    const Presets::ApplyPlan plan = Presets::planPresetApplication(request);
-
+void PresetController::showPreview(const Presets::PreviewSnapshot &snapshot) {
+    PresetManagePage::PlanView view;
+    if (!snapshot.ok) {
+        view.problem = snapshot.problem;
+        m_page->showPlan(view);
+        return;
+    }
+    const auto &manifest = snapshot.manifest;
+    const auto &plan = snapshot.plan;
     view.ok = plan.ok;
     view.problem = plan.problem;
     view.blockedReason = plan.blockedReason;
@@ -1037,7 +1071,7 @@ void PresetController::previewPlan(const QString &presetId, const QString &insta
     view.replaceConfirmed = false;
     view.canApply = plan.canApply() && plan.writesAnything();
     if (manifest.category == Presets::PresetCategory::Mods && !manifest.modReferences.isEmpty() &&
-        !request.gameRunning && plan.ok) {
+        !snapshot.request.gameRunning && plan.ok) {
         view.canApply = true;
         view.rows.append({tr("平台模组 %1 项；应用时联网检查发行版本、依赖和冲突，必要项无法确认则不安装。")
                           .arg(manifest.modReferences.size()), false});

@@ -1,5 +1,6 @@
 #include "PresetInstallChecks.hpp"
 #include "PresetManifestChecks.hpp"
+#include "PresetPreviewChecks.hpp"
 #include "Theme.hpp"
 #include <QJsonObject>
 #include "presets/PresetModInstaller.hpp"
@@ -609,5 +610,6 @@ int runPresetInstallChecks() {
         options.hide();
     }
     failures += runPresetManifestChecks();
+    failures += runPresetPreviewChecks();
     return failures ? 1 : 0;
 }
