@@ -20,12 +20,48 @@
 #include <QSaveFile>
 #include <QStorageInfo>
 #include <QTemporaryDir>
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#include <QThread>
+#include <QElapsedTimer>
+#endif
 #include <limits>
 
 namespace InstanceUpgrade {
 namespace {
 QString originalDir(const Request &r) { return QDir(r.gameDir).filePath("versions/" + r.instanceId); }
 QString journalPath(const Request &r) { return transactionDir(r) + "/journal.json"; }
+bool retainDirectory(const QString &source, const QString &target, QString *problem) {
+#ifdef Q_OS_WIN
+    const auto nativePath = [](const QString &path) {
+        const QString full = QDir::toNativeSeparators(QFileInfo(path).absoluteFilePath());
+        if (full.startsWith(QStringLiteral("\\\\?\\"))) return full.toStdWString();
+        return (full.startsWith(QStringLiteral("\\\\"))
+            ? QStringLiteral("\\\\?\\UNC\\") + full.mid(2)
+            : QStringLiteral("\\\\?\\") + full).toStdWString();
+    };
+    const auto from = nativePath(source), to = nativePath(target);
+    QElapsedTimer clock; clock.start();
+    DWORD error = ERROR_SUCCESS;
+    do {
+        // No replacement flag: a pre-existing recovery directory is never overwritten.
+        if (MoveFileExW(from.c_str(), to.c_str(), 0)) return true;
+        error = GetLastError();
+        if (error != ERROR_SHARING_VIOLATION && error != ERROR_LOCK_VIOLATION &&
+            error != ERROR_ACCESS_DENIED) break;
+        if (clock.elapsed() >= 1000) break;
+        // Retry a brief Windows refusal without pumping GUI events. The upgrade
+        // worker must still report persistent denial and leave the source intact.
+        QThread::msleep(50);
+    } while (true);
+    *problem = QStringLiteral("无法保留原目录，未替换实例（Windows 错误 %1）。").arg(error);
+    return false;
+#else
+    if (QDir().rename(source, target)) return true;
+    *problem = QStringLiteral("无法保留原目录，未替换实例。");
+    return false;
+#endif
+}
 bool redirected(const QString &path) {
     const QFileInfo f(path);
     return f.isSymLink() || f.isJunction();
@@ -1002,9 +1038,7 @@ static Result commitPreparedImpl(const Request &r, const std::function<void(Stag
     report(Stage::RetainOriginal);
     result.problem = dependentInstanceProblem(r.gameDir, r.instanceId);
     if (!result.problem.isEmpty()) return result;
-    if (!QDir().rename(original, transactionDir(r) + "/original")) {
-        result.problem = QStringLiteral("无法保留原目录，未替换实例。"); return result;
-    }
+    if (!retainDirectory(original, transactionDir(r) + "/original", &result.problem)) return result;
     if (!writeJournal(r, "original_retained", zip))
         return failAndRestore(QStringLiteral("无法记录原目录位置。"));
     report(Stage::Publish);

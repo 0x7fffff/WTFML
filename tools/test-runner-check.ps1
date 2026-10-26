@@ -30,6 +30,13 @@ try {
     }
     Check (@(Get-TestRuntimeTargets @('mw_check_instance_upgrade')).Count -eq 3) 'cold integration builds have three bounded shared-layer stages'
     Check (@(Get-TestRuntimeTargets @()).Count -eq 0) 'runner-only changes do not build a shared runtime'
+    Check ((Get-CompactTestRunnerMode Auto ci-integration $false) -eq 'ON') 'full integration partition shares specialist link outputs'
+    Check ((Get-CompactTestRunnerMode Auto ci-integration $true) -eq 'OFF') 'partial CI avoids compiling unrelated case objects'
+    Check ((Get-CompactTestRunnerMode Auto affected $true) -eq 'OFF') 'single module retains independent compilation'
+    Check ((Get-CompactTestRunnerMode Auto full $false) -eq 'ON') 'full runs use compact specialist runners'
+    Check ((Get-CompactTestRunnerMode Standalone full $false) -eq 'OFF') 'explicit standalone fallback is available'
+    $compactOwners = @([pscustomobject]@{test='one';target='mw_check_modules'}, [pscustomobject]@{test='two';target='mw_check_modules'})
+    Check (@(Get-TestBuildTargets @([pscustomobject]@{name='one'}, [pscustomobject]@{name='two'}) $compactOwners).Count -eq 1) 'compact owner registry links selected runner only once'
     $docs = Get-TestImpact @('docs/INSTANCE_UPGRADE.md', 'README.md')
     Check ($docs.suites.Count -eq 0) 'documentation-only changes skip compiled CI partitions'
     $javaCase = Get-TestImpact @('tests/core_modules/AsciiAliasTests.cpp')
