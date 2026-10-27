@@ -59,6 +59,9 @@ struct CompatibilityContext {
     QString gameVersion;  ///< 例：`1.21.1`。★ 空 = 不知道，查询会变成 `Unknown`。
     QString loader;       ///< `fabric` / `forge` / `neoforge` / `quilt`；空 = 原版。
     bool clientSide = true; ///< 运行侧（服务端专用模组不该按客户端那套判）。
+    QString releaseFilter = QStringLiteral("all");
+    int dataVersion = 1;
+    QString providerScope;
 
     /// 缓存 / 去重用的键。**唯一出处**：别处不要自己拼这几格。
     QString cacheKey() const;
@@ -137,9 +140,13 @@ CompatibilityState localCompatibilityCheck(const ModReference &reference,
 class CompatibilityProvider {
 public:
     using Reply = std::function<void(CompatibilityState, const QString &)>;
+    using Cancel = std::function<void()>;
     virtual ~CompatibilityProvider() = default;
+    virtual QString cacheScope() const { return {}; }
     virtual void query(const ModReference &reference, const CompatibilityContext &context,
                        Reply reply) = 0;
+    virtual Cancel queryCancelable(const ModReference &reference, const CompatibilityContext &context,
+                                   Reply reply) { query(reference, context, std::move(reply)); return {}; }
 };
 
 // ---------------------------------------------------------------------------
@@ -204,11 +211,13 @@ public:
         int timeoutMs = 12000;
         /// 缓存有效期（毫秒）。0 = 不读也不写缓存。
         qint64 cacheTtlMs = 10 * 60 * 1000;
+        int totalTimeoutMs = 600000;
     };
 
     /// @param cache 共享缓存（**不拥有**；空 = 不用缓存）。
     explicit CompatibilityChecker(CompatibilityCache *cache = nullptr,
                                   QObject *parent = nullptr);
+    ~CompatibilityChecker() override;
 
     /// 平台查询实现（**不拥有**；空 = 每一项直接 `Unknown`）。
     void setProvider(CompatibilityProvider *provider);
@@ -263,6 +272,7 @@ private:
     QHash<QString, int> m_indexByKey;
     QQueue<int> m_queue;
     QSet<int> m_liveQueries;
+    QHash<int, CompatibilityProvider::Cancel> m_cancellations;
     int m_nextQueryId = 1;
     int m_inFlight = 0;
     int m_generation = 0;

@@ -459,6 +459,41 @@ void ResourceStore::fetchModrinthVersion(const QString &requestKey, const QStrin
     });
 }
 
+void ResourceStore::fetchCurseForgeVersion(const QString &requestKey, const QString &fileId) {
+    bool valid = false;
+    const qint64 id = fileId.toLongLong(&valid);
+    if (!valid || id <= 0 || id > 9007199254740991LL || QString::number(id) != fileId) {
+        emit curseForgeVersionFinished(requestKey, {}, {}, QStringLiteral("CurseForge 文件 ID 无效。"));
+        return;
+    }
+    if (auto *previous = m_replies.take(requestKey)) previous->abort();
+    auto request = resourceRequest(curseForgeApiBase() + QStringLiteral("/mods/files"), apiKeyHeaders(m_curseForgeApiKey));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    auto *reply = m_net->post(request, QJsonDocument(QJsonObject{
+        {"fileIds", QJsonArray{QJsonValue(id)}}}).toJson(QJsonDocument::Compact));
+    m_replies.insert(requestKey, reply);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, requestKey, fileId] {
+        reply->deleteLater();
+        if (m_replies.value(requestKey) != reply) return;
+        m_replies.remove(requestKey);
+        const auto body = reply->readAll();
+        if (!okStatus(statusOf(reply))) {
+            emit curseForgeVersionFinished(requestKey, {}, {}, failureText(reply, body,
+                QStringLiteral("读取精确前置文件"), ResourceCatalog::Source::CurseForge, !m_curseForgeApiKey.isEmpty()));
+            return;
+        }
+        const auto document = QJsonDocument::fromJson(body);
+        const auto data = document.object().value(QStringLiteral("data")).toArray();
+        const auto parsed = ResourceCatalog::parseCurseForgeVersions(body);
+        const qint64 project = data.size() == 1 ? data.first().toObject().value(QStringLiteral("modId")).toInteger(-1) : -1;
+        if (project <= 0 || project > 9007199254740991LL || parsed.size() != 1 || parsed.first().id != fileId) {
+            emit curseForgeVersionFinished(requestKey, {}, {}, QStringLiteral("精确前置文件响应缺少项目身份或文件 ID 不匹配。"));
+            return;
+        }
+        emit curseForgeVersionFinished(requestKey, QString::number(project), parsed.first(), {});
+    });
+}
+
 void ResourceStore::fetchVersions(const QString &requestKey, const QString &projectId,
                                   ResourceCatalog::Source source, const QString &gameVersion,
                                   const QString &loader) {

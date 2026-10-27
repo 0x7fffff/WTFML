@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "presets/ModrinthCompatibility.hpp"
 
 void runPresetCompatibilityTests() {
     section("PH1. 状态行那句话：缺失与「暂无法确认」分开说");
@@ -84,7 +85,7 @@ void runPresetCompatibilityTests() {
         check(Presets::CompatibilityContext{QStringLiteral("1.21.1"), QStringLiteral("NeoForge"),
                                             true}
                       .cacheKey() ==
-                  QStringLiteral("1.21.1|neoforge|client"),
+                  QStringLiteral("1.21.1|neoforge|client|all|1|"),
               "PH2 缓存键的格式固定（上下文 + 运行侧）");
     }
 
@@ -296,6 +297,84 @@ void runPresetCompatibilityTests() {
         check(cache.size() == before, "★★ PH4 Unknown 不进缓存（断网不许变成十分钟的假结论）");
         check(!cache.lookup(QStringLiteral("1.21.1||client#modrinth:u"), &entry, nullptr),
               "PH4 拒收的条目真的不在表里");
+    }
+
+    section("PH4b. 查询取消、总截止和缓存上下文");
+    {
+        struct CancellableProvider : Presets::CompatibilityProvider {
+            int started = 0, stopped = 0;
+            void query(const Presets::ModReference &, const Presets::CompatibilityContext &, Reply) override {}
+            Cancel queryCancelable(const Presets::ModReference &, const Presets::CompatibilityContext &, Reply) override {
+                ++started; return [this] { ++stopped; };
+            }
+        } provider;
+        Presets::CompatibilityContext context{QStringLiteral("1.21.1"), QStringLiteral("fabric"), true};
+        {
+            Presets::CompatibilityChecker checker;
+            checker.setProvider(&provider);
+            checker.setOptions({1, 5000, 0, 40});
+            checker.start({makeRef("modrinth", "one"), makeRef("modrinth", "two")}, context);
+            check(waitForChecker(checker) && checker.summary().unknown == 2 && provider.started == 1
+                      && provider.stopped == 1 && checker.summary().requiredMissing == 0,
+                  "total deadline cancels active work and marks queued items unknown without starting them");
+            checker.start({makeRef("modrinth", "three")}, context);
+        }
+        check(provider.started == 2 && provider.stopped == 2,
+              "destroying the checker cancels its outstanding provider work");
+        const auto key = context.cacheKey();
+        context.releaseFilter = "release";
+        check(context.cacheKey() != key, "release filter isolates compatibility cache entries");
+        const auto releaseKey = context.cacheKey();
+        ++context.dataVersion;
+        check(context.cacheKey() != releaseKey, "metadata schema version isolates compatibility cache entries");
+        Presets::PlatformCompatibilityProvider network(QUrl("http://127.0.0.1:1"));
+        network.setCurseForge(QUrl("http://127.0.0.1:2"), "first-test-key");
+        const auto scope = network.cacheScope();
+        network.setCurseForge(QUrl("http://127.0.0.1:2"), "second-test-key");
+        check(scope != network.cacheScope() && !scope.contains("first-test-key"),
+              "changing API credentials invalidates provider cache scope without embedding the credential");
+    }
+    {
+        QTcpServer server;
+        check(server.listen(QHostAddress::LocalHost), "compatibility retry cancellation fixture listens");
+        int requests = 0, replies = 0, responseMode = 0;
+        QObject::connect(&server, &QTcpServer::newConnection, &server, [&] {
+            while (auto *socket = server.nextPendingConnection()) {
+                QObject::connect(socket, &QTcpSocket::readyRead, socket, [socket, &requests, &responseMode] {
+                    socket->readAll();
+                    if (socket->property("answered").toBool()) return;
+                    socket->setProperty("answered", true); ++requests;
+                    const QByteArray body = responseMode == 1 ? "[{}]" : responseMode == 2 ? "{\"data\":{}}" : "";
+                    socket->write(QByteArray(responseMode == 0 ? "HTTP/1.1 503 Unavailable" : "HTTP/1.1 200 OK")
+                        + "\r\nContent-Length: " + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+                    socket->disconnectFromHost();
+                });
+                QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            }
+        });
+        Presets::PlatformCompatibilityProvider provider(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
+        const auto cancel = provider.queryCancelable(makeRef("modrinth", "retry"),
+            {QStringLiteral("1.21.1"), QStringLiteral("fabric"), true},
+            [&](auto, const QString &) { ++replies; });
+        QEventLoop first;
+        QTimer::singleShot(100, &first, &QEventLoop::quit); first.exec();
+        cancel();
+        QEventLoop retry;
+        QTimer::singleShot(650, &retry, &QEventLoop::quit); retry.exec();
+        check(requests == 1 && replies == 0,
+              "cancelling during real HTTP 503 backoff prevents both retry traffic and completion callback");
+        const QUrl base(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort()));
+        provider.setCurseForge(base, "fixture-key");
+        for (responseMode = 1; responseMode <= 2; ++responseMode) {
+            QEventLoop loop; bool answered = false;
+            Presets::CompatibilityState state = Presets::CompatibilityState::Pending;
+            auto stop = provider.queryCancelable(makeRef(responseMode == 1 ? "modrinth" : "curseforge", "123"),
+                {QStringLiteral("1.21.1"), QStringLiteral("fabric"), true},
+                [&](auto value, const QString &) { state = value; answered = true; loop.quit(); });
+            QTimer::singleShot(1000, &loop, &QEventLoop::quit); loop.exec(); stop();
+            check(answered && state == Presets::CompatibilityState::Unknown,
+                  "malformed nonempty version metadata is unknown, never matched or cached as missing");
+        }
     }
 
     section("PH5. 模组引用进 manifest：往返 / 旧版仍读得回 / 类别对不上");

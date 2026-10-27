@@ -10,12 +10,12 @@
  *
  * 【结论的口径】
  *
- * · 200 + 非空发行版列表 ⇒ `Matched`；
- * · 200 + 空列表 / 404 ⇒ `Missing`（平台**明确**说没有）；
- * · 429 / 5xx / 网络错误 / 超时 ⇒ `Unknown` —— ★ 一律不报缺失（验收）。
+ * · 结构有效、上下文与发布筛选匹配的发行版 ⇒ `Matched`；
+ * · 完整有效答复中没有匹配 / 404 ⇒ `Missing`；
+ * · 格式损坏、分页不完整、429 / 5xx / 网络错误 / 超时 ⇒ `Unknown`。
  *
- * CurseForge 官方接口要 `x-api-key`。没配置时这一侧一律 `Unknown`
- * （"没有配置 CurseForge 接口"），**不**拿别的接口猜。
+ * CurseForge 官方接口需要用户自己的 key；控制器与资源页共用来源规则，
+ * 未配置 key 时可用显式配置的公共镜像，来源及凭据摘要均进入缓存范围。
  */
 
 #pragma once
@@ -24,10 +24,13 @@
 #include <QObject>
 #include <QString>
 #include <QUrl>
+#include <QPointer>
+#include <memory>
 
 #include "PresetCompatibility.hpp"
 
 class QNetworkAccessManager;
+class QNetworkReply;
 
 namespace Presets {
 
@@ -41,22 +44,26 @@ public:
         QObject *parent = nullptr);
     ~PlatformCompatibilityProvider() override;
 
-    /// CurseForge 那一侧（官方接口 + 用户自己填的 key）。@param base 空 = 这一侧不可用。
+    /// CurseForge 官方接口需用户key；显式配置的公共镜像允许无key。base空表示不可用。
     void setCurseForge(const QUrl &base, const QByteArray &apiKey);
     bool curseForgeAvailable() const { return m_curseForgeAvailable; }
+    QString cacheScope() const override;
 
     void query(const ModReference &reference, const CompatibilityContext &context,
                Reply reply) override;
+    Cancel queryCancelable(const ModReference &reference, const CompatibilityContext &context,
+                           Reply reply) override;
 
     /// 版本查询单发超时。★ 和 `CompatibilityChecker::Options::timeoutMs` 是两层：
     /// 检查器那一层是"这一项多久没结论就报 Unknown"的兜底，这里是让网络请求自己收手。
     void setTransferTimeoutMs(int ms) { m_transferTimeoutMs = ms; }
 
 private:
+    struct QueryState { bool cancelled = false; QPointer<QNetworkReply> reply; };
     void queryModrinth(const ModReference &reference, const CompatibilityContext &context,
-                       const Reply &reply, int attempt = 0);
+                       const Reply &reply, int attempt, const std::shared_ptr<QueryState> &state);
     void queryCurseForge(const ModReference &reference, const CompatibilityContext &context,
-                         const Reply &reply, int attempt = 0);
+                         const Reply &reply, int attempt, const std::shared_ptr<QueryState> &state);
 
     /// 瞬态失败（连不上 / 5xx）的退避间隔；429 不退避（那会越退越糟），直接记一段时间限流。
     static int retryDelayMs(int attempt);

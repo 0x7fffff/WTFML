@@ -231,6 +231,7 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/presets/PresetCapture.cpp
     ${REPO_ROOT}/src/presets/PresetCapture.hpp
     ${REPO_ROOT}/src/presets/PresetApply.cpp
+    ${REPO_ROOT}/src/presets/PresetExecutionReport.cpp
     ${REPO_ROOT}/src/presets/PresetApply.hpp
     # 资源包次序 / 启用 + 存档数据包：`verify` 的 **PL**
     # 一节 —— 资源包按 options.txt 那一行摆启用与次序（内置包不动）、数据包落进真存档 /
@@ -251,6 +252,8 @@ set(PROJECT_SOURCES
     # 逐格念，**一条都不用联网**。`verify` 的 **PH** 一节。
     ${REPO_ROOT}/src/presets/PresetCompatibility.cpp
     ${REPO_ROOT}/src/presets/PresetCompatibility.hpp
+    ${REPO_ROOT}/src/presets/ModrinthCompatibility.cpp
+    ${REPO_ROOT}/src/presets/ModrinthCompatibility.hpp
     # MaLiLib 那一族的热键：按**结构**认这一族
     # （不看文件名）、一格一格地读/写（认三档：整格是热键 / 一格装开关+热键 / 别的值）、
     # 冲突分析、以及在两份真形状的 `config/*.json` 之间真写一遍。`verify` 的 **PF** 一节拿
@@ -605,5 +608,7 @@ get_property(WTFML_CORE_TESTS DIRECTORY PROPERTY TESTS)
 set_property(TEST ${WTFML_CORE_TESTS} APPEND PROPERTY LABELS ci-core)
 
 add_subdirectory(ui_check)
+add_executable(wtfml_modpack_boundary EXCLUDE_FROM_ALL ${REPO_ROOT}/tools/modpack_boundary/main.cpp)
+target_link_libraries(wtfml_modpack_boundary PRIVATE wtfml_core_runtime Qt6::Network)
 add_subdirectory(mw_check)
 

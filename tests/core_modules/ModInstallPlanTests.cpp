@@ -485,6 +485,39 @@ void runModInstallPlanTests() {
               "PM-PIN 只有发行版 ID 的必要前置不得静默忽略");
     }
 
+    {
+        Presets::ModInstallRequest request = base;
+        auto pin = makeDependency("SHARED", "required"); pin.versionId = "old-compatible";
+        request.references.append(makeInput(makeReference("PARENT-A", "A"),
+            {makeVersion("parent-a", {"1.20.1"}, {"fabric"}, {pin})}));
+        request.references.append(makeInput(makeReference("PARENT-B", "B"),
+            {makeVersion("parent-b", {"1.20.1"}, {"fabric"}, {pin})}));
+        request.dependencyAnswers["modrinth:SHARED"] = {
+            makeVersion("newest", {"1.20.1"}, {"fabric"}),
+            makeVersion("old-compatible", {"1.20.1"}, {"fabric"})};
+        const auto plan = Presets::planModInstall(request);
+        QString selected;
+        for (const auto &row : plan.rows) if (row.key == "modrinth:SHARED") selected = row.version.id;
+        check(plan.ok && plan.download == 3 && selected == "old-compatible",
+              "shared planner merges two parent pins and chooses the exact compatible release rather than latest");
+        request.references.clear(); request.dependencyAnswers.clear();
+        request.references.append(makeInput(makeReference("CYCLE-A", "A"),
+            {makeVersion("a", {"1.20.1"}, {"fabric"}, {makeDependency("CYCLE-B", "required")})}));
+        request.dependencyAnswers["modrinth:CYCLE-B"] = {
+            makeVersion("b", {"1.20.1"}, {"fabric"}, {makeDependency("CYCLE-A", "required")})};
+        const auto cycle = Presets::planModInstall(request);
+        check(cycle.ok && cycle.download == 2 && cycle.rows.size() == 2,
+              "valid dependency cycle is finite and installs each project once");
+        request.references.clear(); request.dependencyAnswers.clear();
+        request.references.append(makeInput(makeReference("OPTIONAL-PARENT", "Optional", false),
+            {makeVersion("optional", {"1.20.1"}, {"fabric"}, {makeDependency("ABSENT", "required")})}));
+        request.references.append(makeInput(makeReference("INDEPENDENT", "Independent", false),
+            {makeVersion("independent", {"1.20.1"}, {"fabric"})}));
+        const auto optional = Presets::planModInstall(request);
+        check(optional.ok && optional.download == 1 && optional.optionalFailures() == 2,
+              "failed necessary child blocks its optional parent while preserving an unrelated optional component");
+    }
+
     // ---------- PM12 落盘校验 ----------
     {
         const QByteArray payload = QByteArrayLiteral("wtfml-verify-download");

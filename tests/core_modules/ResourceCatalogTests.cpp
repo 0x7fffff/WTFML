@@ -475,6 +475,14 @@ void runResourceCatalogTests() {
     // 读不动就回空列表：界面那边是"这个资源在 1.21.1 上没有版本"，不是崩。
     check(ResourceCatalog::parseVersions(QByteArray("not json")).isEmpty(),
           "Z6b 版本列表读不动时回空列表");
+    {
+        const auto parsed = ResourceCatalog::parseCurseForgeVersions(R"({"data":[{"id":1,"fileName":"a.jar","fileLength":1,"downloadUrl":"https://example.invalid/a.jar","dependencies":[{"modId":42,"fileId":0,"relationType":3},{"fileId":999,"relationType":3},{"modId":-5,"fileId":0,"relationType":3}]}]})");
+        check(parsed.size() == 1 && parsed.first().dependencies.size() == 3
+            && parsed.first().dependencies[0].projectId == QStringLiteral("42") && parsed.first().dependencies[0].versionId.isEmpty()
+            && parsed.first().dependencies[1].projectId.isEmpty() && parsed.first().dependencies[1].versionId == QStringLiteral("999")
+            && parsed.first().dependencies[2].projectId.isEmpty() && parsed.first().dependencies[2].versionId.isEmpty(),
+            "CF dependency identities preserve explicit file pins, never interpret zero as latest, and reject negative project IDs");
+    }
 
     // primaryFile 的两条兜底：都没有 primary 时回第一条，空清单回 nullptr。
     {

@@ -1,5 +1,32 @@
 # 整合包导入：支持范围与安全边界
 
+## 2.1.7 实网与指定样本复核（2026-10-27）
+
+验收工具见 `tools/modpack_boundary/README.md`。实际现场位于
+`H:/WTFML-Acceptance-20261025/modpack-boundary-20261027-0050`，不随仓库分发游戏文件。
+CurseForge 项目1121856、文件5813216的实网元数据明确 `allowModDistribution=false`、
+`downloadUrl=null`；官方无key请求返回403。生产解析器和下载器实际取得5637字节JAR，
+SHA-1为 `64a0a20074c17998442dcb52eae13794a07f8bd3`，不是合成文件。
+`report.json` 记录真实文件下载校验、USB HDD目标上慢速回放取消、强制结束及新进程恢复通过。
+回放只保证命中中断点，不代表公网或物理盘吞吐基准；没有借用其它启动器密钥。
+
+完整生产导入另有 `import-*.json`：先取消、再活跃下载中直接终止进程、再以新进程导入。
+最初工具漏传清单指纹，虽安装成功但没有阶段凭据，因此未作为完整通过；修正后使用
+`RestrictedBoundaryVerified` 独立实例补验，不覆盖前一次实例。修正后取消2747ms通过，
+强制终止时 importing=true/meta=false；新进程80541ms完成，`import-complete.json` 中
+ok/success/realFileVerified/stageProof/completeReport/meta均为true、marker=false。
+首次漏传指纹结果保存在 `import-complete-first-missing-fingerprint.json`；取消早于目标建立的
+首次错误判据保存在 `import-cancel-first-oracle.json`。它们是工具问题，未删除或改写为产品通过。
+
+用户确认本轮样本为GTNH 2.8.4和Fabulously Optimized。现有隔离GTNH实例使用Microsoft Java17，
+FO使用Java21；两者均由生产启动链启动，等待声音初始化后确认真实主菜单并保存截图：
+`build/acceptance-2.1.7-20261027/gtnh-java17-main-menu.jpg`、`fo-java21-main-menu.jpg`。
+最终启动日志分别为 `gtnh-java17-final.log`、`fo-java21-final.log`，未打开存档。
+本轮是已有隔离实例的补充组合验收，不重写为所有来源或全冷缓存验收。
+
+首次电脑控制无法激活窗口、只有加载画面，后经用户要求重新启动才取得主菜单截图；
+旧失败不删除，也不以日志的声音标记冒充当时已有画面证据。
+
 入口为管理/下载页的“导入整合包”，或拖放 ZIP / MRPACK；导入创建或恢复自己的未完成实例，不覆盖现有正常实例。
 
 ## 当前支持
@@ -40,7 +67,7 @@ FTB、Technic 等专用清单没有独立适配器；仅在实际包含上述标
 GTNH 2.8.4 首次启动会停在 MCLib 的 AssetDirector 资源下载（包内 Et Futurum Requiem
 2.6.2.25-GTNH 把 MCLib 0.3.7.7 打进 jar）。本节分两半：先说 2026-10-26 spike 核对的
 “请求集合从哪来、能不能稳定拿到、体积多大”，再说 2.1.6b 落地的预取行为。
-真机无缓存首启验收（2.1.6c）**还没跑**，边界写在最后。
+真机无缓存首启验收（2.1.6c）已完成，证据及边界见下文对应实测节。
 
 ### 它要什么、怎么下、写在哪
 
@@ -231,8 +258,8 @@ GTNH 2.8.4 已在独立工作区走通生产 VersionManager 的真实安装流�
 按资源索引的大小和 SHA-1 复制 3213 个音频/声音索引对象到隔离测试根的 assets/objects 后，
 重启即可越过下载并进入世界。共复用 614557694 字节，未改写原游戏目录或替换模组。
 此操作是测试夹具补齐缓存。产品侧的预取已在 2.1.6b 落地（导入成功后按已知集合下到
-`assets/asset_director`，带进度、取消与重试，见上文“2.1.6b 落地”），但**无缓存真机首启
-（2.1.6c）还没跑**，所以这里仍然不能说“首启已经不需要 AD 下载”。
+`assets/asset_director`，带进度、取消与重试，见上文“2.1.6b 落地”）。后续无缓存真机首启
+（2.1.6c）的结果见上文实测节；本段保留的是早期手动补缓存的历史记录。
 旧版游戏在本次电脑控制中出现点击位置不一致，未把鼠标操作全流程计为通过；最终经退出确认框
 正常关闭，未强杀已进入世界的进程，也未开启局域网或连接服务器。
 

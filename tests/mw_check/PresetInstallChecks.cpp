@@ -1,4 +1,5 @@
 #include "PresetInstallChecks.hpp"
+#include "PresetDependencyChecks.hpp"
 #include "PresetManifestChecks.hpp"
 #include "PresetPreviewChecks.hpp"
 #include "Theme.hpp"
@@ -43,7 +44,11 @@
 
 int runPresetInstallChecks() {
     int failures = 0;
-    auto check = [&](bool ok, const char *name) { std::printf("%s %s\n", ok ? "PASS" : "FAIL", name); if (!ok) ++failures; };
+    auto check = [&](bool ok, const char *name, const QString &detail = QString()) {
+        std::printf("%s %s%s\n", ok ? "PASS" : "FAIL", name,
+            !ok && !detail.isEmpty() ? (" [" + detail + "]").toUtf8().constData() : "");
+        if (!ok) ++failures;
+    };
     const auto pump = [](const std::function<bool()> &done) {
         QElapsedTimer deadline;
         deadline.start();
@@ -228,6 +233,7 @@ int runPresetInstallChecks() {
                 if (scenario == 5) return;
                 QByteArray body = payload;
                 if (scenario == 29 && request.contains("/file.jar") && !mutatedInventory) {
+                    QFile::remove(activeRoot + QStringLiteral("/wtfml.preset-mod-install.json"));
                     mutatedInventory = QDir().rmdir(activeRoot); // Empty fixture directory only.
                 }
                 if (scenario == 25 && request.contains("/file.jar") && !mutatedInventory) {
@@ -391,7 +397,7 @@ int runPresetInstallChecks() {
         if (!completed) loop.exec();
         check(completed && result.ok == (scenario == 0 || scenario == 8 || scenario == 11 || scenario == 16 || scenario == 18
                                          || scenario == 20 || scenario == 22 || scenario == 24 || scenario == 30
-                                         || (scenario >= 33 && scenario <= 37) || scenario == 40), "preset resolves/downloads or reports an explicit partial/failure result");
+                                         || (scenario >= 33 && scenario <= 37) || scenario == 40), "preset resolves/downloads or reports an explicit partial/failure result", QString::number(scenario) + ": " + result.lines.join("; "));
         if (scenario >= 30) {
             check(validHashRequests && hashQueries == (scenario == 40 ? 2 : 1),
                   "exact installed hash requests are deduplicated, bounded to 100 and contain only hashes/algorithm");
@@ -611,5 +617,6 @@ int runPresetInstallChecks() {
     }
     failures += runPresetManifestChecks();
     failures += runPresetPreviewChecks();
+    failures += runPresetDependencyChecks();
     return failures ? 1 : 0;
 }

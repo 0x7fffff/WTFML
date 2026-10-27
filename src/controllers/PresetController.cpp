@@ -11,6 +11,7 @@
 
 #include "PresetManagePage.hpp"
 #include "PresetModEditor.hpp"
+#include "PresetModReview.hpp"
 #include "PresetOptionsEditor.hpp"
 #include "presets/PresetModInstaller.hpp"
 #include "presets/PresetManifestLoader.hpp"
@@ -23,6 +24,7 @@
 #include "presets/MalilibKeys.hpp"
 #include "presets/ModrinthCompatibility.hpp"
 #include "presets/PresetApply.hpp"
+#include "presets/PresetExecutionReport.hpp"
 #include "presets/PresetCompatibility.hpp"
 #include "presets/PresetPlanner.hpp"
 #include "presets/PresetStore.hpp"
@@ -34,6 +36,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QFile>
 #include <QLayout>
 #include <QSignalBlocker>
 #include <QUrl>
@@ -233,6 +236,11 @@ void PresetController::buildPage() {
     pushCategories();
 
     connect(m_page, &PresetManagePage::presetSelected, this, &PresetController::selectPreset);
+    connect(m_page, &QObject::destroyed, this, [this] { cancelModCheck(); });
+    connect(m_page, &PresetManagePage::executionReportRequested, this, &PresetController::showExecutionReport);
+    connect(m_page, &PresetManagePage::resumeRequested, this, [this](const QString &preset, const QString &instance) {
+        applyPlanImpl(preset, instance, true, true);
+    });
     connect(m_page, &PresetManagePage::createRequested, this,
             &PresetController::createPreset);
     connect(m_page, &PresetManagePage::duplicateRequested, this,
@@ -1141,8 +1149,44 @@ QString PresetController::applyRowText(const Presets::PresetApplyRow &row) const
     return QStringLiteral("%1  %2").arg(head, state);
 }
 
+void PresetController::showExecutionReport(const QString &presetId, const QString &instanceId) {
+    if (!m_page || presetId.isEmpty() || instanceId.isEmpty()) return;
+    bool loaded = false;
+    const auto manifest = Presets::loadManifest(presetsRoot(), presetId, &loaded);
+    if (!loaded) { m_page->showStatus(tr("预设不可读，无法核对执行报告。")); return; }
+    const bool mods = manifest.category == Presets::PresetCategory::Mods;
+    const QString path = mods ? instanceRoot(instanceId) + QStringLiteral("/wtfml.preset-mod-install.json")
+        : Presets::presetExecutionReportPath(instanceRoot(instanceId));
+    QFile file(path);
+    if (QFileInfo(path).isSymLink() || !file.open(QIODevice::ReadOnly) || file.size() > 8 * 1024 * 1024) {
+        m_page->showStatus(tr("没有可读的执行报告。")); return;
+    }
+    const auto object = QJsonDocument::fromJson(file.readAll()).object();
+    PresetManagePage::ApplyView view;
+    view.ok = object.value("success").toBool();
+    view.backupDir = object.value("backupDir").toString();
+    view.problem = object.value("problem").toString();
+    const auto rows = object.value(mods ? "execution" : "rows").toArray();
+    const QHash<QString, QString> states{{"planned", tr("计划中 / 尚未完成")}, {"downloaded", tr("已下载，未部署")},
+        {"enabled", tr("已部署并启用")}, {"done", tr("已完成")}, {"failed", tr("失败")},
+        {"blocked", tr("未解决")}, {"skipped", tr("已跳过")}, {"pending-world", tr("待应用：等待目标世界")}};
+    for (const auto &value : rows) {
+        const auto row = value.toObject(); const QString state = row.value("state").toString();
+        view.lines.append(QStringLiteral("%1：%2；写入 %3 项 %4")
+            .arg(row.value(mods ? "filename" : "title").toString(), states.value(state, tr("状态无法确认")))
+            .arg(row.value("written").toInt()).arg(row.value("reason").toString()));
+    }
+    view.lines.append(tr("已完成项保留；继续时重新核对预设和实际文件，只重试未完成部分。不会宣称整趟回滚。"));
+    m_page->showApplyResult(view);
+}
+
 void PresetController::applyPlan(const QString &presetId, const QString &instanceId,
                                  bool replaceConfirmed) {
+    applyPlanImpl(presetId, instanceId, replaceConfirmed, false);
+}
+
+void PresetController::applyPlanImpl(const QString &presetId, const QString &instanceId,
+                                 bool replaceConfirmed, bool resume) {
     if (m_page == nullptr) {
         return;
     }
@@ -1165,8 +1209,32 @@ void PresetController::applyPlan(const QString &presetId, const QString &instanc
         return;
     }
     if (manifest.category == Presets::PresetCategory::Mods && !manifest.modReferences.isEmpty()) {
+        QStringList selected{presetId};
+        if (resume) {
+            const QString path = instanceRoot(instanceId) + QStringLiteral("/wtfml.preset-mod-install.json");
+            QFile file(path);
+            if (QFileInfo(path).isSymLink() || !file.open(QIODevice::ReadOnly) || file.size() > 8 * 1024 * 1024) {
+                m_page->showStatus(tr("没有可读的模组执行报告，请重新预览。")); return;
+            }
+            const auto report = QJsonDocument::fromJson(file.readAll()).object();
+            if (report.value("format").toString() != QStringLiteral("wtfml-preset-mod-result/1")) {
+                m_page->showStatus(tr("报告格式不支持，未自动继续。")); return;
+            }
+            selected.clear();
+            for (const auto &value : report.value("selection").toArray()) {
+                const auto old = value.toObject(); const auto id = old.value("id").toString();
+                bool loaded = false; const auto current = Presets::loadManifest(presetsRoot(), id, &loaded);
+                if (!loaded || Presets::manifestToJson(current) != old) {
+                    m_page->showStatus(tr("预设已变化或缺失，请重新预览；未沿用旧报告写入。")); return;
+                }
+                selected.append(id);
+            }
+            if (selected.isEmpty() || !selected.contains(presetId)) {
+                m_page->showStatus(tr("报告不属于当前所选预设，未继续。")); return;
+            }
+        }
         m_page->showStatus(tr("正在检查并安装模组预设，必要前置将一并解析…"));
-        installModsAfterInstall({presetId}, instanceId, [this](bool success, const QString &message) {
+        installModsAfterInstall(selected, instanceId, [this](bool success, const QString &message) {
             if (!m_page) return;
             PresetManagePage::ApplyView report;
             report.ok = success;
@@ -1182,6 +1250,7 @@ void PresetController::applyPlan(const QString &presetId, const QString &instanc
     request.instanceRoot = instanceRoot(instanceId);
     request.gameRunning = m_host.isRunning ? m_host.isRunning(instanceId) : false;
     request.replaceConfirmed = replaceConfirmed;
+    request.resumeUnfinished = resume;
     request.supportsDataPacks =
         m_versions != nullptr && m_versions->instanceSupportsDatapacks(instanceId);
 
@@ -1580,7 +1649,8 @@ void PresetController::setCurseForgeApiKey(const QString &apiKey) {
     if (m_modProvider == nullptr) {
         return;
     }
-    m_modProvider->setCurseForge(QUrl(QStringLiteral("https://api.curseforge.com/v1")),
+    m_modProvider->setCurseForge(QUrl(ModpackImport::curseForgeApiBase(apiKey,
+        m_versions ? m_versions->curseForgeResolveSettings().apiBaseOverride : QString())),
                                  apiKey.toUtf8());
 }
 
@@ -1621,6 +1691,27 @@ void PresetController::installModsAfterInstall(const QStringList &presetIds, con
     auto *task = new Presets::PresetModInstaller(this);
     task->setSelectionSnapshot(snapshot);
     task->setInstanceIdentityKey(instanceId);
+    QHash<QString, QString> fingerprints;
+    for (const auto &id : presetIds) fingerprints.insert(id, presetFingerprint(id));
+    const QString requestedRoot = instanceRoot(instanceId);
+    const QPointer<PresetController> guard(this);
+    task->setPlanCurrent([guard, fingerprints, requestedRoot, instanceId] {
+        if (!guard || guard->instanceRoot(instanceId) != requestedRoot) return false;
+        for (auto it = fingerprints.cbegin(); it != fingerprints.cend(); ++it)
+            if (it.value().isEmpty() || guard->presetFingerprint(it.key()) != it.value()) return false;
+        return true;
+    });
+    task->setReviewHandler([this, task](const Presets::ModInstallPlan &plan,
+                                      std::function<void(Presets::PresetModInstaller::ReviewDecision)> finish) {
+        auto *dialog = new PresetModReview(plan, m_hostPage);
+        connect(task, &QObject::destroyed, dialog, &QDialog::reject);
+        connect(dialog, &QDialog::finished, this, [dialog, finish](int result) {
+            auto decision = dialog->decision();
+            decision.accepted = decision.accepted && result == QDialog::Accepted;
+            finish(decision);
+        });
+        dialog->open();
+    });
     m_modInstallTask = task;
     // 必须在 `start()` **之前**记：`start()` 在"没有版本 / 加载器对不上"那几条路上
     // 会**同步**回调 completed，先记后清才是对的顺序。

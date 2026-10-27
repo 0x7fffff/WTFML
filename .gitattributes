@@ -1,0 +1,2 @@
+# This manifest is embedded verbatim in C++; keep checkout bytes deterministic.
+assets/assetdirector/known-sets.json text eol=lf

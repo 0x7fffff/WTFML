@@ -255,6 +255,8 @@ signals:
     /// @param replaceConfirmed 第二趟（用户已经点过一次"确认覆盖"）为 true。
     void applyRequested(const QString &presetId, const QString &instanceId,
                         bool replaceConfirmed);
+    void executionReportRequested(const QString &presetId, const QString &instanceId);
+    void resumeRequested(const QString &presetId, const QString &instanceId);
 
 private:
     void buildUi();

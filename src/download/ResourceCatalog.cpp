@@ -4,6 +4,7 @@
  * （这个文件里没有 QNetworkAccessManager，将来也不会加 —— 发请求是 ResourceStore 的事）。
  */
 #include "ResourceCatalog.hpp"
+#include <cmath>
 
 #include "manage/ModpackImport.hpp"  // curseForgeApiBase() —— CurseForge 那张接口根地址的唯一出处
 
@@ -1859,8 +1860,15 @@ static QList<VersionEntry> parseCurseForgeDocument(const QJsonDocument &document
         for (const QJsonValue &dependency : dependencies) {
             const QJsonObject dependencyObject = dependency.toObject();
             Dependency entryDependency;
-            entryDependency.projectId = QString::number(
-                static_cast<qint64>(dependencyObject.value(QStringLiteral("modId")).toDouble()));
+            const auto identity = [](const QJsonValue &value) {
+                const double raw = value.toDouble(-1);
+                return raw > 0 && raw <= 9007199254740991.0 && std::floor(raw) == raw
+                    ? QString::number(static_cast<qint64>(raw)) : QString();
+            };
+            entryDependency.projectId = identity(dependencyObject.value(QStringLiteral("modId")));
+            // Some API/SDK dependency responses additionally pin a file. Zero
+            // means no exact pin; it must never be sent as a "latest" install.
+            entryDependency.versionId = identity(dependencyObject.value(QStringLiteral("fileId")));
             // CurseForge FileRelationType: docs.curseforge.com/rest-api/
             switch (dependencyObject.value(QStringLiteral("relationType")).toInt()) {
             case 1: entryDependency.type = QStringLiteral("embedded"); break;

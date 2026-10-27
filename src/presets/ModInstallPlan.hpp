@@ -120,6 +120,7 @@ struct ModInstallRow {
 
     bool substituted = false;    ///< 这一行最后用的是替代项目
     QString substitutedKey;
+    QStringList replacesKeys;
 
     bool isDownload() const { return status == ModInstallStatus::Download; }
     /// 这一行算不算失败（缺 / 说不清 / 不兼容 / 认不出来 / 等确认）。

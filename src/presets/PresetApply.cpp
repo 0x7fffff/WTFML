@@ -4,6 +4,8 @@
  */
 
 #include "PresetApply.hpp"
+#include "PresetWriteLock.hpp"
+#include "PresetExecutionReport.hpp"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -226,21 +228,52 @@ TargetSnapshot readTargetSnapshot(const QString &instanceRoot, QString *problemO
     return snapshot;
 }
 
-PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const PresetManifest &manifest,
+PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const PresetManifest &sourceManifest,
                                         const PresetApplyRequest &request) {
     PresetApplyResult result;
+    PresetManifest manifest = sourceManifest;
+    QJsonObject previous;
+    bool reportStarted = false;
+    bool reportHealthy = true;
+    const auto checkpoint = [&](bool finished) {
+        if (!reportStarted) return;
+        QString problem;
+        if (!writePresetExecutionReport(request.instanceRoot, sourceManifest, result, finished, previous, &problem)) {
+            result.ok = false; result.problem = problem; reportHealthy = false;
+        }
+    };
+    const auto finish = [&]() { checkpoint(true); return result; };
 
     if (!isValidPresetId(manifest.id)) {
         result.problem = applyText("这份预设的 id 不合法，没法应用。");
-        return result;
+        return finish();
     }
     if (request.instanceRoot.trimmed().isEmpty() ||
         !QFileInfo(request.instanceRoot).isDir()) {
         result.problem = applyText("这个实例的目录不在，没法把预设落到它上面。");
-        return result;
+        return finish();
     }
 
-    if (!WriteDirectoryGuard::acquire(request.instanceRoot, &result.problem)) return result;
+    if (!WriteDirectoryGuard::acquire(request.instanceRoot, &result.problem)) return finish();
+    const auto writeLock = acquirePresetWrite(request.instanceRoot, &result.problem);
+    if (!writeLock) return finish();
+    if (request.resumeUnfinished) {
+        previous = readPresetExecutionReport(request.instanceRoot, sourceManifest, &result.problem);
+        if (previous.isEmpty()) return finish();
+        QSet<QString> done;
+        for (const auto &value : previous.value("rows").toArray()) {
+            const auto row = value.toObject();
+            const QString state = row.value("state").toString();
+            if (state == QStringLiteral("done"))
+                done.insert(row.value("sectionId").toString());
+        }
+        for (int i = manifest.sections.size() - 1; i >= 0; --i)
+            if (done.contains(manifest.sections[i].id)) manifest.sections.removeAt(i);
+        if (manifest.sections.isEmpty()) {
+            result.ok = true; result.details.append(applyText("没有未完成的预设段；待应用数据包仍等待目标世界。"));
+            return finish();
+        }
+    }
 
     // ------------------------------------------------------------------
     // 1. 目标快照
@@ -249,7 +282,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
     TargetSnapshot snapshot = readTargetSnapshot(request.instanceRoot, &snapshotProblem);
     if (!snapshotProblem.isEmpty()) {
         result.problem = snapshotProblem;
-        return result;
+        return finish();
     }
     // 版本那一格由调用方（它认识 `VersionManager`）递进来；默认 true。
     snapshot.supportsDataPacks = request.supportsDataPacks;
@@ -267,7 +300,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
     const ApplyPlan plan = planPresetApplication(planRequest);
     if (!plan.ok) {
         result.problem = plan.problem;
-        return result;
+        return finish();
     }
     result.keyConflicts = plan.keyConflicts;
 
@@ -278,7 +311,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
         for (const ApplyPlanRow &one : plan.rows) {
             result.rows.append(rowFromPlan(one));
         }
-        return result;
+        return finish();
     }
 
     if (plan.needsConfirm() && !request.replaceConfirmed) {
@@ -288,7 +321,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
         for (const ApplyPlanRow &one : plan.rows) {
             result.rows.append(rowFromPlan(one));
         }
-        return result;
+        return finish();
     }
 
     // ------------------------------------------------------------------
@@ -297,6 +330,9 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
     //
     // 这一趟算的是"哪些会被动"，和下面第 4 步用的是**同一套判据**（适配器自己的
     // 计划函数）。不重算写出来的那一份，只重算"目标上现在有没有"。
+    if (!writePresetExecutionReport(request.instanceRoot, sourceManifest, result, false, previous, &result.problem))
+        return finish();
+    reportStarted = true;
     QSet<QString> backupPaths;
     const QString optionsPath = request.instanceRoot + QStringLiteral("/options.txt");
     const QString serversPath = request.instanceRoot + QStringLiteral("/servers.dat");
@@ -472,7 +508,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
         if (backupDir.isEmpty()) {
             result.problem = applyText("建不了备份目录，这一趟什么都没写（不敢在没有备份的情况下动"
                                        "这个实例）。");
-            return result;
+            return finish();
         }
         QStringList ordered = backupPaths.values();
         ordered.sort();
@@ -480,7 +516,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             QString why;
             if (!backupOne(request.instanceRoot, backupDir, relative, &why)) {
                 result.problem = why;
-                return result;
+                return finish();
             }
         }
         result.backupDir = backupDir;
@@ -499,6 +535,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
 
     for (const PresetSection &section : manifest.sections) {
         PresetApplyRow row;
+        if (!reportHealthy) return finish();
         row.sectionId = section.id;
         row.kind = section.kind;
         row.mode = section.mode;
@@ -507,7 +544,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
         if (section.mode == ApplyMode::Skip) {
             row.ok = true;
             row.skipped = true;
-            result.rows.append(row);
+            result.rows.append(row); checkpoint(false);
             continue;
         }
 
@@ -517,7 +554,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             if (!readable) {
                 row.blocked = true;
                 row.problem = applyText("这一段读不回来（载荷不是这一层认得的那样），这一趟不动它。");
-                result.rows.append(row);
+                result.rows.append(row); checkpoint(false);
                 continue;
             }
             QSet<QString> selected;
@@ -531,7 +568,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             if (!applied.report.ok) {
                 row.blocked = true;
                 row.problem = applied.report.problem;
-                result.rows.append(row);
+                result.rows.append(row); checkpoint(false);
                 continue;
             }
             optionsTarget = parseOptions(applied.bytes);
@@ -547,7 +584,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
                                        .arg(conflict.binding)
                                        .arg(conflict.claimedBy()));
             }
-            result.rows.append(row);
+            result.rows.append(row); checkpoint(false);
             continue;
         }
 
@@ -557,7 +594,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             if (!serverListFromSection(section, &source, &why)) {
                 row.blocked = true;
                 row.problem = why;
-                result.rows.append(row);
+                result.rows.append(row); checkpoint(false);
                 continue;
             }
             const ServerListReport applied = applyServerListToInstance(
@@ -573,7 +610,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
                 row.details.append(applyText("这几台已经在列表里了：%1")
                                        .arg(applied.skippedAddresses.join(QStringLiteral("、"))));
             }
-            result.rows.append(row);
+            result.rows.append(row); checkpoint(false);
             continue;
         }
 
@@ -583,7 +620,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             if (!fileGroupFromSection(section, &items, &why)) {
                 row.blocked = true;
                 row.problem = why;
-                result.rows.append(row);
+                result.rows.append(row); checkpoint(false);
                 continue;
             }
             FileGroup group = FileGroup::Config;
@@ -591,14 +628,14 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
                 if (items.isEmpty()) {
                     row.blocked = true;
                     row.problem = applyText("认不出这一段是哪一组文件，这一趟不动它。");
-                    result.rows.append(row);
+                    result.rows.append(row); checkpoint(false);
                     continue;
                 }
                 // 路径自己说了算（`fileGroupOfPath()` 已经有那一口；这里按第一项推）。
                 if (!fileGroupOfPath(items.at(0).relativePath, &group)) {
                     row.blocked = true;
                     row.problem = applyText("这一段里的路径不属于那四个文件组，这一趟不动它。");
-                    result.rows.append(row);
+                    result.rows.append(row); checkpoint(false);
                     continue;
                 }
             }
@@ -624,7 +661,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
                 // 留到**最后**再动：`options.txt` 那几段也在内存里叠着，谁先写谁被盖。
                 resourcePackRows.append(qMakePair(static_cast<int>(result.rows.size()), section));
             }
-            result.rows.append(row);
+            result.rows.append(row); checkpoint(false);
             continue;
         }
 
@@ -636,7 +673,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
                 row.blocked = true;
                 row.problem = applyText("这个实例的游戏版本还没有数据包（17w43a 之前），"
                                         "这一段这一趟不动。");
-                result.rows.append(row);
+                result.rows.append(row); checkpoint(false);
                 continue;
             }
             const DataPackApplyReport applied = applyDataPacks(
@@ -652,7 +689,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             if (applied.needsChoice > 0) {
                 row.skippedItems += applied.needsChoice;
             }
-            result.rows.append(row);
+            result.rows.append(row); checkpoint(false);
             continue;
         }
 
@@ -662,7 +699,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             if (!malilibEntriesFromSections({section}, &entries, &why)) {
                 row.blocked = true;
                 row.problem = why;
-                result.rows.append(row);
+                result.rows.append(row); checkpoint(false);
                 continue;
             }
             const MalilibApplyReport applied = applyMalilibToInstance(
@@ -683,16 +720,17 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
                 row.details.append(applyText("有 %1 格因为类型对不上被拒绝转换。")
                                        .arg(applied.typeMismatch));
             }
-            result.rows.append(row);
+            result.rows.append(row); checkpoint(false);
             continue;
         }
 
         row.blocked = true;
         row.problem = applyText("这一段没有任何适配器接手，这一趟不动它。");
-        result.rows.append(row);
+        result.rows.append(row); checkpoint(false);
     }
 
     // ---------- options.txt：最后写一次 ----------
+    if (!reportHealthy) return finish();
     if (optionsTouched) {
         const QByteArray bytes = optionsTarget.toBytes();
         if (bytes != snapshot.options.toBytes()) {
@@ -764,7 +802,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             break;
         }
     }
-    return result;
+    return finish();
 }
 
 }  // namespace Presets

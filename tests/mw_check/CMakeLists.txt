@@ -104,6 +104,7 @@ set(SOURCE_FILES
     # `src/presets/` 那一层在下面（`PresetStore` / 四个适配器 / 计划 / 提取 / 应用）。
     ${REPO_ROOT}/src/controllers/PresetController.cpp
     ${REPO_ROOT}/src/presets/PresetModInstaller.cpp
+    ${REPO_ROOT}/src/presets/PresetModDeployment.cpp
     ${REPO_ROOT}/src/presets/ModInstallPlan.cpp
     ${REPO_ROOT}/src/presets/InstalledModInventory.cpp
     ${REPO_ROOT}/src/controllers/LauncherPreferencesController.cpp
@@ -514,6 +515,7 @@ add_mw_module(mw_check_tool_features ToolFeatureChecks.cpp runToolFeatureChecks)
 add_mw_module(mw_check_preset_install PresetInstallChecks.cpp runPresetInstallChecks)
 target_sources(mw_check_preset_install_case PRIVATE PresetManifestChecks.cpp)
 target_sources(mw_check_preset_install_case PRIVATE PresetPreviewChecks.cpp)
+target_sources(mw_check_preset_install_case PRIVATE PresetDependencyChecks.cpp)
 add_mw_module(mw_check_instance_upgrade InstanceUpgradeChecks.cpp runInstanceUpgradeChecks)
 wtfml_write_compact_entries()
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")

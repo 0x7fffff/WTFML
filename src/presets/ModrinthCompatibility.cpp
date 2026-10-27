@@ -4,8 +4,10 @@
  */
 
 #include "ModrinthCompatibility.hpp"
+#include "download/ResourceCatalog.hpp"
 
 #include <QDateTime>
+#include <QCryptographicHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -59,6 +61,25 @@ QString throttleText(qint64 untilMs) {
     return QStringLiteral("平台正在限流（大约还要 %1 秒），暂时无法确认。").arg(seconds);
 }
 
+CompatibilityState classifyVersions(const QList<ResourceCatalog::VersionEntry> &versions,
+    const CompatibilityContext &context, bool incomplete, QString *detail) {
+    bool unknown = incomplete;
+    for (const auto &version : versions) {
+        if (context.releaseFilter != QStringLiteral("all") && context.releaseFilter != version.versionType) continue;
+        if ((!context.gameVersion.isEmpty() && version.gameVersions.isEmpty()) ||
+            (!normalizeCompatibilityLoader(context.loader).isEmpty() && version.loaders.isEmpty())) { unknown = true; continue; }
+        if (!context.gameVersion.isEmpty() && !version.gameVersions.contains(context.gameVersion)) continue;
+        QStringList loaders;
+        for (const auto &loader : version.loaders) loaders.append(normalizeCompatibilityLoader(loader));
+        if (!normalizeCompatibilityLoader(context.loader).isEmpty() &&
+            !loaders.contains(normalizeCompatibilityLoader(context.loader))) continue;
+        return CompatibilityState::Matched;
+    }
+    *detail = unknown ? QStringLiteral("版本信息不完整，暂时无法确认；没有将其判断为缺失。")
+        : QStringLiteral("平台没有兼容当前游戏、加载器和发布筛选的发行版。");
+    return unknown ? CompatibilityState::Unknown : CompatibilityState::Missing;
+}
+
 }  // namespace
 
 PlatformCompatibilityProvider::PlatformCompatibilityProvider(const QUrl &modrinthRoot,
@@ -81,8 +102,9 @@ void PlatformCompatibilityProvider::setCurseForge(const QUrl &base, const QByteA
     }
     m_curseForgeBase = QUrl(root);
     m_curseForgeKey = apiKey.trimmed();
-    // 两样都得有：没有 key 的官方接口是 403，拿它去问只会把"没配置"报成"查询失败"。
-    m_curseForgeAvailable = !root.isEmpty() && !m_curseForgeKey.isEmpty();
+    // Official API requires the user's key; the configured public mirror does not.
+    m_curseForgeAvailable = !root.isEmpty() && (!m_curseForgeKey.isEmpty()
+        || base.host().compare(QStringLiteral("api.curseforge.com"), Qt::CaseInsensitive) != 0);
 }
 
 int PlatformCompatibilityProvider::retryDelayMs(int attempt) {
@@ -90,27 +112,42 @@ int PlatformCompatibilityProvider::retryDelayMs(int attempt) {
     return 400 * (attempt + 1);
 }
 
+QString PlatformCompatibilityProvider::cacheScope() const {
+    return m_modrinthRoot.toString() + QLatin1Char('|') + m_curseForgeBase.toString()
+        + QLatin1Char('|') + QString::fromLatin1(QCryptographicHash::hash(
+            m_curseForgeKey, QCryptographicHash::Sha256).toHex());
+}
+
 void PlatformCompatibilityProvider::query(const ModReference &reference,
                                           const CompatibilityContext &context, Reply reply) {
+    queryCancelable(reference, context, std::move(reply));
+}
+
+CompatibilityProvider::Cancel PlatformCompatibilityProvider::queryCancelable(
+    const ModReference &reference, const CompatibilityContext &context, Reply reply) {
     if (!reply) {
-        return;
+        return {};
     }
+    const auto state = std::make_shared<QueryState>();
     const QString platform = normalizeModPlatform(reference.platform);
     if (platform == QLatin1String("modrinth")) {
-        queryModrinth(reference, context, reply);
-        return;
+        queryModrinth(reference, context, reply, 0, state);
+    } else if (platform == QLatin1String("curseforge")) {
+        queryCurseForge(reference, context, reply, 0, state);
+    } else {
+        reply(CompatibilityState::Invalid, QStringLiteral("平台认不出来。"));
     }
-    if (platform == QLatin1String("curseforge")) {
-        queryCurseForge(reference, context, reply);
-        return;
-    }
-    // 走到这儿说明上游没做本地筛选（检查器会做）。仍然按"不知道"报，不猜。
-    reply(CompatibilityState::Invalid, QStringLiteral("平台认不出来。"));
+    return [state] {
+        state->cancelled = true;
+        if (state->reply && !state->reply->isFinished()) state->reply->abort();
+    };
 }
 
 void PlatformCompatibilityProvider::queryModrinth(const ModReference &reference,
                                                   const CompatibilityContext &context,
-                                                  const Reply &reply, int attempt) {
+                                                  const Reply &reply, int attempt,
+                                                  const std::shared_ptr<QueryState> &state) {
+    if (state->cancelled) return;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (m_modrinthThrottledUntilMs > now) {
         reply(CompatibilityState::Unknown, throttleText(m_modrinthThrottledUntilMs));
@@ -136,6 +173,7 @@ void PlatformCompatibilityProvider::queryModrinth(const ModReference &reference,
     request.setRawHeader("User-Agent", "WTFML (Minecraft launcher)");
     request.setRawHeader("Accept", "application/json");
     QNetworkReply *networkReply = m_network->get(request);
+    state->reply = networkReply;
 
     QTimer::singleShot(m_transferTimeoutMs, networkReply, [networkReply]() {
         if (networkReply->isFinished()) {
@@ -145,17 +183,18 @@ void PlatformCompatibilityProvider::queryModrinth(const ModReference &reference,
         networkReply->abort();
     });
 
-    QObject::connect(networkReply, &QNetworkReply::finished, networkReply,
-                     [this, networkReply, reply, context, reference, attempt]() {
+    QObject::connect(networkReply, &QNetworkReply::finished, this,
+                     [this, networkReply, reply, context, reference, attempt, state]() {
                          networkReply->deleteLater();
+                         if (state->cancelled) return;
                          // 瞬态失败：还有名额就退避一会儿再来一发；名额用完才报「暂无法确认」。
                          const auto retryOrUnknown = [this, networkReply, reply, context,
-                                                      reference, attempt](const QString &why) {
+                                                      reference, attempt, state](const QString &why) {
                              if (attempt + 1 < m_maxAttempts) {
                                  QTimer::singleShot(
                                      retryDelayMs(attempt), this,
-                                     [this, reference, context, reply, attempt]() {
-                                         queryModrinth(reference, context, reply, attempt + 1);
+                                     [this, reference, context, reply, attempt, state]() {
+                                         queryModrinth(reference, context, reply, attempt + 1, state);
                                      });
                                  return;
                              }
@@ -220,13 +259,18 @@ void PlatformCompatibilityProvider::queryModrinth(const ModReference &reference,
                                                 : QStringLiteral(" / ") + context.loader));
                              return;
                          }
-                         reply(CompatibilityState::Matched, QString());
+                         const auto parsed = ResourceCatalog::parseVersions(document.toJson());
+                         QString detail;
+                         const auto state = classifyVersions(parsed, context, parsed.size() != versions.size(), &detail);
+                         reply(state, detail);
                      });
 }
 
 void PlatformCompatibilityProvider::queryCurseForge(const ModReference &reference,
                                                     const CompatibilityContext &context,
-                                                    const Reply &reply, int attempt) {
+                                                    const Reply &reply, int attempt,
+                                                    const std::shared_ptr<QueryState> &state) {
+    if (state->cancelled) return;
     if (!m_curseForgeAvailable) {
         reply(CompatibilityState::Unknown,
               QStringLiteral("没有配置 CurseForge 接口，暂时无法确认。"));
@@ -256,6 +300,7 @@ void PlatformCompatibilityProvider::queryCurseForge(const ModReference &referenc
     request.setRawHeader("Accept", "application/json");
     request.setRawHeader("x-api-key", m_curseForgeKey);
     QNetworkReply *networkReply = m_network->get(request);
+    state->reply = networkReply;
 
     QTimer::singleShot(m_transferTimeoutMs, networkReply, [networkReply]() {
         if (networkReply->isFinished()) {
@@ -265,16 +310,17 @@ void PlatformCompatibilityProvider::queryCurseForge(const ModReference &referenc
         networkReply->abort();
     });
 
-    QObject::connect(networkReply, &QNetworkReply::finished, networkReply,
-                     [this, networkReply, reply, context, reference, attempt]() {
+    QObject::connect(networkReply, &QNetworkReply::finished, this,
+                     [this, networkReply, reply, context, reference, attempt, state]() {
                          networkReply->deleteLater();
+                         if (state->cancelled) return;
                          const auto retryOrUnknown = [this, networkReply, reply, context,
-                                                      reference, attempt](const QString &why) {
+                                                      reference, attempt, state](const QString &why) {
                              if (attempt + 1 < m_maxAttempts) {
                                  QTimer::singleShot(
                                      retryDelayMs(attempt), this,
-                                     [this, reference, context, reply, attempt]() {
-                                         queryCurseForge(reference, context, reply, attempt + 1);
+                                     [this, reference, context, reply, attempt, state]() {
+                                         queryCurseForge(reference, context, reply, attempt + 1, state);
                                      });
                                  return;
                              }
@@ -323,6 +369,9 @@ void PlatformCompatibilityProvider::queryCurseForge(const ModReference &referenc
                                    QStringLiteral("接口返回的内容看不懂，暂时无法确认。"));
                              return;
                          }
+                         if (!document.object().value(QStringLiteral("data")).isArray()) {
+                             reply(CompatibilityState::Unknown, QStringLiteral("接口没有返回文件清单，暂时无法确认。")); return;
+                         }
                          const QJsonArray files =
                              document.object().value(QStringLiteral("data")).toArray();
                          if (files.isEmpty()) {
@@ -336,7 +385,13 @@ void PlatformCompatibilityProvider::queryCurseForge(const ModReference &referenc
                                                 : QStringLiteral(" / ") + context.loader));
                              return;
                          }
-                         reply(CompatibilityState::Matched, QString());
+                         const auto parsed = ResourceCatalog::parseCurseForgeVersions(document.toJson());
+                         const auto pagination = document.object().value(QStringLiteral("pagination")).toObject();
+                         const bool incomplete = parsed.size() != files.size() ||
+                             pagination.value(QStringLiteral("totalCount")).toInteger() > files.size();
+                         QString detail;
+                         const auto state = classifyVersions(parsed, context, incomplete, &detail);
+                         reply(state, detail);
                      });
 }
 

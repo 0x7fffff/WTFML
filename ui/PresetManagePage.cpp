@@ -492,6 +492,30 @@ void PresetManagePage::buildUi() {
     m_applyButton->setAutoDefault(false);
     Theme::markButton(m_applyButton, Theme::ButtonKind::Primary);
     applyButtons->addWidget(m_applyButton);
+    auto *reportButton = new QPushButton(tr("执行报告"), right);
+    reportButton->setObjectName("presetExecutionReportButton");
+    Theme::markButton(reportButton, Theme::ButtonKind::Neutral); applyButtons->addWidget(reportButton);
+    auto *resumeButton = new QPushButton(tr("继续未完成"), right);
+    resumeButton->setObjectName("presetResumeButton");
+    Theme::markButton(resumeButton, Theme::ButtonKind::Neutral); applyButtons->addWidget(resumeButton);
+    connect(reportButton, &QPushButton::clicked, this, [this] {
+        if (!m_busy) emit executionReportRequested(currentPresetId(), comboInstanceId(m_applyInstanceCombo));
+    });
+    connect(resumeButton, &QPushButton::clicked, this, [this, resumeButton] {
+        if (m_busy || currentPresetId().isEmpty() || comboInstanceId(m_applyInstanceCombo).isEmpty()) return;
+        const QString selection = currentPresetId() + QLatin1Char(':') + comboInstanceId(m_applyInstanceCombo);
+        if (resumeButton->property("armedSelection").toString() != selection) {
+            emit executionReportRequested(currentPresetId(), comboInstanceId(m_applyInstanceCombo));
+            resumeButton->setProperty("armedSelection", selection);
+            resumeButton->setText(tr("再点一次继续未完成"));
+            QTimer::singleShot(4000, resumeButton, [resumeButton] {
+                resumeButton->setProperty("armedSelection", QString()); resumeButton->setText(tr("继续未完成"));
+            });
+            return;
+        }
+        resumeButton->setProperty("armedSelection", QString()); resumeButton->setText(tr("继续未完成"));
+        emit resumeRequested(currentPresetId(), comboInstanceId(m_applyInstanceCombo));
+    });
     rightLayout->addLayout(applyButtons);
     connect(m_applyButton, &QPushButton::clicked, this, [this] {
         if (!m_planCanApply || m_busy) return;

@@ -79,6 +79,7 @@ struct PresetApplyRequest {
     bool replaceConfirmed = false;
     /// 这个实例的游戏版本有没有数据包（默认 true，见 `TargetSnapshot::supportsDataPacks`）。
     bool supportsDataPacks = true;
+    bool resumeUnfinished = false;
 };
 
 /// 每一段这一趟怎么样（= 计划表右边那一列的"实际版"）。

@@ -50,6 +50,7 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         'tests/mw_check/PresetInstallChecks.cpp' = 'presets'
         'tests/mw_check/PresetManifestChecks.cpp' = 'presets'
         'tests/mw_check/PresetPreviewChecks.cpp' = 'presets'
+        'tests/mw_check/PresetDependencyChecks.cpp' = 'presets'
         'tests/mw_check/InstanceUpgradeChecks.cpp' = 'upgrade'
         'tests/ui_check/ArmorTrimChecks.cpp' = 'toolbox'
     }

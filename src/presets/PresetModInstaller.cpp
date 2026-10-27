@@ -1,4 +1,5 @@
 #include "PresetModInstaller.hpp"
+#include "PresetWriteLock.hpp"
 #include "download/DownloadManager.hpp"
 #include "download/ResourceStore.hpp"
 #include <QDir>
@@ -20,6 +21,20 @@ bool redirected(const QString &path) {
     const QFileInfo info(path);
     return info.isSymLink() || info.isJunction();
 }
+QSet<QString> failingParents(const QList<ModInstallRow> &rows, QSet<QString> failed) {
+    for (int pass = 0; pass < rows.size(); ++pass) {
+        bool changed = false;
+        for (const auto &row : rows) {
+            if (failed.contains(row.key)) continue;
+            for (const auto &dependency : row.version.dependencies)
+                if (dependency.required() && failed.contains(row.reference.platform + QLatin1Char(':') + dependency.projectId)) {
+                    failed.insert(row.key); changed = true; break;
+                }
+        }
+        if (!changed) break;
+    }
+    return failed;
+}
 }
 PresetModInstaller::PresetModInstaller(QObject *parent, ResourceStore *store) : QObject(parent), m_store(store) {}
 PresetModInstaller::~PresetModInstaller() {
@@ -32,6 +47,15 @@ void PresetModInstaller::start(const QList<ModReference> &references, const QStr
     m_root = root;
     m_running = std::move(running);
     m_completed = std::move(completed);
+    if (!QDir::isAbsolutePath(root) || !QFileInfo(root).isDir() || redirected(root)) {
+        finish(tr("目标实例目录不可用，未开始应用。")); return;
+    }
+    QString writeProblem;
+    m_writeLock = acquirePresetWrite(root, &writeProblem);
+    if (!m_writeLock) {
+        // The owning run's report must not be overwritten by a rejected contender.
+        m_root.clear(); finish(writeProblem); return;
+    }
     m_request.gameVersion = gameVersion;
     m_request.loader = loader;
     for (const auto &ref : references) {
@@ -77,16 +101,16 @@ void PresetModInstaller::start(const QList<ModReference> &references, const QStr
             }
             QTimer::singleShot(0, this, [this] { resolveNext(); });
         });
-    connect(m_store, &ResourceStore::modrinthVersionFinished, this,
-        [this](const QString &key, const QString &project, const ResourceCatalog::VersionEntry &version,
+    const auto exactVersionFinished = [this](const QString &key, const QString &project, const ResourceCatalog::VersionEntry &version,
                const QString &problem) {
             if (m_done || key != m_waiting) return;
-            const QString releaseId = key.mid(QStringLiteral("preset-version:").size());
+            const QString platform = key.section(QLatin1Char(':'), 1, 1);
+            const QString releaseId = key.section(QLatin1Char(':'), 2);
             m_waiting.clear();
             if (!problem.isEmpty()) {
                 m_result.lines.append(tr("无法确认前置发行版 %1：%2").arg(releaseId, problem));
             } else {
-                const QString projectKey = QStringLiteral("modrinth:") + project;
+                const QString projectKey = platform + QLatin1Char(':') + project;
                 if (!m_answers.contains(projectKey) && m_answers.size() >= 256) {
                     finish(tr("模组依赖超过本次安全检查上限（256 项）。")); return;
                 }
@@ -95,19 +119,19 @@ void PresetModInstaller::start(const QList<ModReference> &references, const QStr
                 for (auto &answer : m_answers) {
                     for (auto &entry : answer.versions) {
                         for (auto &dependency : entry.dependencies) {
-                            if (answer.reference.platform == QStringLiteral("modrinth")
+                            if (answer.reference.platform == platform
                                 && dependency.projectId.isEmpty() && dependency.versionId == releaseId)
                                 dependency.projectId = project;
                         }
                     }
                 }
                 for (auto &file : m_inventory.files) {
-                    if (!file.projectKey.startsWith(QStringLiteral("modrinth:"))) continue;
+                    if (!file.projectKey.startsWith(platform + QLatin1Char(':'))) continue;
                     for (auto &dependency : file.version.dependencies)
                         if (dependency.projectId.isEmpty() && dependency.versionId == releaseId) dependency.projectId = project;
                 }
                 auto &resolved = m_answers[projectKey];
-                resolved.reference.platform = QStringLiteral("modrinth");
+                resolved.reference.platform = platform;
                 resolved.reference.projectId = project;
                 resolved.queried = true;
                 resolved.queryFailed = false;
@@ -117,7 +141,9 @@ void PresetModInstaller::start(const QList<ModReference> &references, const QStr
                 if (!found) resolved.versions.append(version);
             }
             QTimer::singleShot(0, this, [this] { resolveNext(); });
-        });
+        };
+    connect(m_store, &ResourceStore::modrinthVersionFinished, this, exactVersionFinished);
+    connect(m_store, &ResourceStore::curseForgeVersionFinished, this, exactVersionFinished);
     connect(m_store, &ResourceStore::versionsFinished, this,
         [this](const QString &key, const QList<ResourceCatalog::VersionEntry> &versions, const QString &problem) {
             if (m_done || key != m_waiting) return;
@@ -229,7 +255,8 @@ void PresetModInstaller::updateInstalledIdentities() {
 }
 
 void PresetModInstaller::resolveNext() {
-    if (m_done) return;
+    if (m_done || m_reviewPending) return;
+    if (m_planCurrent && !m_planCurrent()) { finish(tr("所选预设内容已变化，请重新预览和确认；未继续应用。")); return; }
     if (m_running && m_running()) { finish(tr("游戏正在运行，已停止应用模组预设。")); return; }
     // Recalculate dependency closure after each answer. Only one platform request is in flight.
     for (auto &input : m_request.references) {
@@ -245,16 +272,18 @@ void PresetModInstaller::resolveNext() {
     // Version-only dependencies are valid Modrinth metadata. Resolve the identity
     // before treating the planner's provisional Unknown as a final failure.
     for (const auto &row : m_plan.rows) {
-        if (row.reference.platform != QStringLiteral("modrinth")) continue;
+        const QString platform = row.reference.platform;
+        if (platform != QStringLiteral("modrinth") && platform != QStringLiteral("curseforge")) continue;
         for (const auto &dependency : row.version.dependencies) {
             if (!dependency.required() || !dependency.projectId.isEmpty() || dependency.versionId.isEmpty()
-                || m_versionLookups.contains(dependency.versionId)) continue;
+                || m_versionLookups.contains(platform + QLatin1Char(':') + dependency.versionId)) continue;
             if (m_versionLookups.size() >= 256) {
                 finish(tr("精确前置身份查询超过安全上限（256 项），未安装模组。")); return;
             }
-            m_versionLookups.insert(dependency.versionId);
-            m_waiting = QStringLiteral("preset-version:") + dependency.versionId;
-            m_store->fetchModrinthVersion(m_waiting, dependency.versionId);
+            m_versionLookups.insert(platform + QLatin1Char(':') + dependency.versionId);
+            m_waiting = QStringLiteral("preset-version:") + platform + QLatin1Char(':') + dependency.versionId;
+            if (platform == QStringLiteral("curseforge")) m_store->fetchCurseForgeVersion(m_waiting, dependency.versionId);
+            else m_store->fetchModrinthVersion(m_waiting, dependency.versionId);
             return;
         }
     }
@@ -308,6 +337,68 @@ void PresetModInstaller::resolveNext() {
         return;
     }
     if (queryUnidentifiedFiles()) return;
+    // Show unresolved installed identities in the review itself, rather than
+    // presenting an all-green plan and refusing only after the user confirms it.
+    const auto markUnknown = [&](ModInstallRow &row, const QString &problem) {
+        if (row.isFailure()) return;
+        if (row.isDownload()) --m_plan.download;
+        else if (row.status == ModInstallStatus::AlreadyInstalled) --m_plan.alreadyInstalled;
+        row.status = ModInstallStatus::Unknown; row.problem = problem; ++m_plan.unknown;
+    };
+    for (auto &row : m_plan.rows) {
+        if (m_ambiguousInstalledProjects.contains(row.key) || m_duplicateInstalled.contains(row.key))
+            markUnknown(row, tr("已有文件的项目 / 发行版身份存在歧义或重复，未自动覆盖。"));
+        else if (row.status == ModInstallStatus::AlreadyInstalled && !row.version.dependencyMetadataKnown)
+            markUnknown(row, tr("已安装发行版的依赖身份尚未确认，不能当作前置已满足。"));
+    }
+    for (int pass = 0; pass < m_plan.rows.size(); ++pass) {
+        QHash<QString, QString> failures;
+        for (const auto &row : m_plan.rows) if (row.isFailure()) failures.insert(row.key, row.problem);
+        bool changed = false;
+        for (auto &row : m_plan.rows) {
+            if (row.isFailure()) continue;
+            for (const auto &dependency : row.version.dependencies) {
+                const QString key = row.reference.platform + QLatin1Char(':') + dependency.projectId;
+                if (dependency.required() && failures.contains(key)) {
+                    markUnknown(row, tr("必要前置未解决：%1；%2").arg(key, failures.value(key)));
+                    changed = true; break;
+                }
+            }
+        }
+        if (!changed) break;
+    }
+    m_plan.ok = !m_plan.hasRequiredFailure();
+    if (m_review && !m_reviewApproved) {
+        m_reviewPending = true;
+        const QPointer<PresetModInstaller> guard(this);
+        m_review(m_plan, [guard](ReviewDecision decision) {
+            if (!guard || guard->m_done || !guard->m_reviewPending) return;
+            auto *self = guard.data(); self->m_reviewPending = false;
+            if (!decision.accepted) { self->cancel(); return; }
+            for (auto it = decision.alternatives.cbegin(); it != decision.alternatives.cend(); ++it) {
+                auto candidate = it.value();
+                bool eligible = false;
+                for (const auto &row : self->m_plan.rows) if (row.key == it.key() &&
+                    (row.status == ModInstallStatus::Missing || row.status == ModInstallStatus::AlternativeNeedsConfirm)) {
+                    candidate.required = row.required; eligible = true;
+                }
+                if (!eligible || candidate.key().isEmpty() || candidate.key() == it.key()) {
+                    self->finish(tr("替代项目无效或原项状态不允许替代，未继续应用。")); return;
+                }
+                self->m_request.alternativesByKey[it.key()] = {candidate};
+                self->m_request.confirmedAlternatives.insert(candidate.key());
+                bool exists = false;
+                for (const auto &input : self->m_request.references) if (input.reference.key() == candidate.key()) exists = true;
+                if (!exists) { ModResolveInput input; input.reference = candidate; self->m_request.references.append(input); }
+            }
+            self->m_reviewApproved = decision.alternatives.isEmpty() && self->m_plan.ok;
+            if (!self->m_reviewApproved && decision.alternatives.isEmpty()) {
+                self->finish(tr("必要模组或前置尚未解决，未允许下载。")); return;
+            }
+            QTimer::singleShot(0, self, [self] { self->resolveNext(); });
+        });
+        return;
+    }
     for (const auto &row : m_plan.rows) if (row.isFailure()) m_result.lines.append(row.title + QStringLiteral("：") + row.problem);
     const int unidentified = static_cast<int>(m_inventory.files.size() - m_identifiedFiles.size());
     if (unidentified > 0) m_result.lines.append(tr("%1 个启用模组的项目身份尚未确认，未将它们当作前置已满足。") .arg(unidentified));
@@ -329,10 +420,13 @@ void PresetModInstaller::resolveNext() {
             m_result.lines.append(problem);
         }
     }
+    const auto unsafeComponents = failingParents(m_plan.rows, unsafeOptional);
     for (const auto &row : m_plan.downloads()) {
-        // Never deploy an optional parent whose necessary dependency failed. Until
-        // component-level attribution is available, conservatively skip optional rows.
-        if (!row.required && m_result.optionalFailures > 0) continue;
+        if (unsafeComponents.contains(row.key)) {
+            if (row.required) { finish(tr("必要前置的已有文件身份不安全，未允许安装。")); return; }
+            if (!unsafeOptional.contains(row.key)) ++m_result.optionalFailures;
+            continue;
+        }
         for (const auto &dependency : row.version.dependencies) {
             if (dependency.required() && !dependency.versionId.isEmpty()) {
                 const QString dependencyKey = row.reference.platform + QLatin1Char(':') + dependency.projectId;
@@ -348,6 +442,25 @@ void PresetModInstaller::resolveNext() {
         }
         m_downloadRows.append(row);
     }
+    // Deploy dependencies before their parents, so cancelling between complete
+    // files does not normally leave a parent installed without its necessary child.
+    const auto selected = m_downloadRows;
+    QHash<QString, int> byKey;
+    for (int i = 0; i < selected.size(); ++i) byKey.insert(selected[i].key, i);
+    QSet<QString> visited;
+    QList<ModInstallRow> ordered;
+    std::function<void(int)> visit = [&](int index) {
+        const auto &row = selected.at(index);
+        if (visited.contains(row.key)) return;
+        visited.insert(row.key);
+        for (const auto &dependency : row.version.dependencies) {
+            const QString key = row.reference.platform + QLatin1Char(':') + dependency.projectId;
+            if (dependency.required() && byKey.contains(key)) visit(byKey.value(key));
+        }
+        ordered.append(row);
+    };
+    for (int i = 0; i < selected.size(); ++i) visit(i);
+    m_downloadRows = ordered;
     download();
 }
 
@@ -371,6 +484,8 @@ bool PresetModInstaller::queryUnidentifiedFiles() {
 }
 
 void PresetModInstaller::download() {
+    m_phase = QStringLiteral("download");
+    if (!saveExecutionRecord()) { finish(tr("无法保存下载前执行报告，未开始下载。")); return; }
     if (!QDir::isAbsolutePath(m_root) || redirected(m_root) ||
         redirected(QDir(m_root).filePath(QStringLiteral("mods")))) {
         finish(tr("实例或模组目录不安全，未写入文件。")); return;
@@ -400,8 +515,10 @@ void PresetModInstaller::download() {
 }
 
 void PresetModInstaller::commit() {
+    if (m_planCurrent && !m_planCurrent()) { finish(tr("所选预设内容已变化，未部署下载文件。")); return; }
+    m_phase = QStringLiteral("verify");
     const auto rows = m_downloadRows;
-    bool skipOptional = false;
+    QSet<QString> skipOptional;
     // Necessary downloads must all verify before any staged file is installed.
     for (int i = 0; i < rows.size(); ++i) {
         const auto &row = rows[i];
@@ -409,11 +526,14 @@ void PresetModInstaller::commit() {
         if ((!verified.ok || verified.unverified) && row.required) {
             finish(tr("必要模组「%1」未通过下载校验，未写入模组文件。保存文件名或校验信息也可能无效。").arg(row.title)); return;
         }
-        if ((!verified.ok || verified.unverified) && !row.required) skipOptional = true;
+        if ((!verified.ok || verified.unverified) && !row.required) skipOptional.insert(row.key);
+        else if (verified.ok && !verified.unverified) m_fileStates[row.key] = QStringLiteral("downloaded");
     }
-    if (skipOptional) {
-        for (const auto &row : rows) if (!row.required) ++m_result.optionalFailures;
-        m_result.lines.append(tr("部分可选文件下载失败；为避免缺少前置，本次可选模组与可选前置一并跳过。"));
+    skipOptional = failingParents(rows, skipOptional);
+    if (!skipOptional.isEmpty()) {
+        m_result.optionalFailures += skipOptional.size();
+        m_result.lines.append(tr("可选文件下载失败，跳过对应模组及依赖它的父项：%1；其它独立项继续。")
+            .arg(QStringList(skipOptional.values()).join(QStringLiteral("、"))));
     }
     if ((m_running && m_running()) || redirected(m_root) ||
         redirected(QDir(m_root).filePath(QStringLiteral("mods")))) {
@@ -428,7 +548,7 @@ void PresetModInstaller::commit() {
     QHash<QString, QString> names;
     for (int i = 0; i < rows.size(); ++i) {
         const auto &row = rows[i];
-        if (skipOptional && !row.required) continue;
+        if (skipOptional.contains(row.key)) continue;
         if (!QFile::exists(m_stage->filePath(QString::number(i)))) continue;
         const QString name = row.file.filename.toCaseFolded();
         if (names.contains(name) && names.value(name) != row.file.sha1.toLower()) {
@@ -441,35 +561,10 @@ void PresetModInstaller::commit() {
             finish(tr("同名模组已存在且内容不同，未覆盖：%1").arg(row.file.filename)); return;
         }
     }
-    for (int i = 0; i < rows.size(); ++i) {
-        const auto &row = rows[i];
-        if (skipOptional && !row.required) continue;
-        const auto path = m_stage->filePath(QString::number(i));
-        const auto verified = verifyDownloadedFile(path, row.file.size, row.file.sha1);
-        if (!verified.ok || verified.unverified) { ++m_result.optionalFailures; continue; }
-        const auto target = mods.filePath(row.file.filename);
-        if (QFileInfo::exists(target) || QFileInfo(target).isSymLink()) {
-            if (verifyDownloadedFile(target, row.file.size, row.file.sha1).ok) continue;
-            finish(tr("同名模组已存在且内容不同，未覆盖：%1").arg(row.file.filename)); return;
-        }
-        QFile input(path);
-        QSaveFile output(target);
-        if (!input.open(QIODevice::ReadOnly) || !output.open(QIODevice::WriteOnly)) {
-            finish(tr("无法写入模组：%1").arg(row.file.filename)); return;
-        }
-        while (!input.atEnd()) {
-            const auto bytes = input.read(65536);
-            if (bytes.isEmpty() || output.write(bytes) != bytes.size()) {
-                output.cancelWriting(); finish(tr("模组写入失败：%1").arg(row.file.filename)); return;
-            }
-        }
-        if (!output.commit()) { finish(tr("无法提交模组文件：%1").arg(row.file.filename)); return; }
-        ++m_result.installed;
-    }
-    m_result.ok = m_result.optionalFailures == 0;
-    m_result.lines.prepend(tr("模组预设：安装 %1 项，可选项失败/跳过 %2 项。")
-                          .arg(m_result.installed).arg(m_result.optionalFailures));
-    finish();
+    m_phase = QStringLiteral("deploy");
+    if (!saveExecutionRecord()) { finish(tr("无法保存部署阶段报告，未写入模组。")); return; }
+    m_skippedDownloads = skipOptional;
+    QTimer::singleShot(0, this, [this] { deployOne(0); });
 }
 
 void PresetModInstaller::cancel() {
@@ -477,18 +572,18 @@ void PresetModInstaller::cancel() {
     m_result.cancelled = true;
     finish(tr("模组预设应用已取消或超时；基础实例保留。"));
 }
-void PresetModInstaller::finish(const QString &problem) {
-    if (m_done) return;
-    m_done = true;
-    m_scanCancel->store(true, std::memory_order_relaxed);
-    if (!problem.isEmpty()) { m_result.ok = false; m_result.lines.prepend(problem); }
-    if (!problem.isEmpty() && m_result.installed > 0)
-        m_result.lines.append(tr("失败前已写入 %1 个模组；基础实例和已写入文件保留。").arg(m_result.installed));
-    if (m_download) m_download->cancelBatch();
+bool PresetModInstaller::saveExecutionRecord() {
     // Local audit record only: no launch-time enforcement or automatic reapplication.
     if (QDir::isAbsolutePath(m_root) && QDir(m_root).exists() && !redirected(m_root)) {
         const QString path = QDir(m_root).filePath(QStringLiteral("wtfml.preset-mod-install.json"));
-        QJsonArray references, files, lines;
+        QJsonArray references, files, lines, execution;
+        for (const auto &row : m_plan.rows) execution.append(QJsonObject{
+            {"project", row.key}, {"versionId", row.version.id}, {"filename", row.file.filename},
+            {"state", row.status == ModInstallStatus::AlreadyInstalled ? QStringLiteral("enabled")
+                : m_fileStates.value(row.key, row.isFailure() ? QStringLiteral("blocked") : QStringLiteral("planned"))},
+            {"required", row.required}, {"reason", row.problem}, {"sha1", row.file.sha1},
+            {"replacesProjects", QJsonArray::fromStringList(row.replacesKeys)},
+            {"details", QJsonArray::fromStringList(row.details)}});
         for (const auto &input : m_request.references) references.append(modReferenceToJson(input.reference));
         for (const auto &row : m_downloadRows) files.append(QJsonObject{
             {"project", row.key}, {"versionId", row.version.id}, {"filename", row.file.filename}, {"sha1", row.file.sha1}});
@@ -514,17 +609,34 @@ void PresetModInstaller::finish(const QString &problem) {
         previous.close();
         for (const auto &line : m_result.lines) lines.append(line);
         const QByteArray bytes = QJsonDocument(QJsonObject{{"format", "wtfml-preset-mod-result/1"},
-            {"finishedAt", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)}, {"gameVersion", m_request.gameVersion},
+            {"updatedAt", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)},
+            {"finishedAt", m_done ? QDateTime::currentDateTimeUtc().toString(Qt::ISODate) : QString()}, {"gameVersion", m_request.gameVersion},
             {"loader", m_request.loader}, {"selection", m_selectionSnapshot}, {"references", references},
-            {"plannedFiles", files}, {"success", m_result.ok}, {"cancelled", m_result.cancelled},
+            {"plannedFiles", files}, {"execution", execution},
+            {"phase", m_result.ok ? QStringLiteral("complete") : m_phase},
+            {"success", m_done && m_result.ok}, {"cancelled", m_result.cancelled},
             {"installed", m_result.installed}, {"optionalFailures", m_result.optionalFailures}, {"lines", lines}}).toJson();
         QSaveFile record(path);
-        if (QFileInfo(path).isSymLink() || !record.open(QIODevice::WriteOnly) ||
+        if (bytes.size() > 8 * 1024 * 1024 || QFileInfo(path).isSymLink() || !record.open(QIODevice::WriteOnly) ||
             record.write(bytes) != bytes.size() || !record.commit()) {
             m_result.ok = false;
             m_result.lines.append(tr("预设执行记录保存失败；请保留本次任务报告。"));
+            return false;
         }
     }
+    return true;
+}
+
+void PresetModInstaller::finish(const QString &problem) {
+    if (m_done) return;
+    m_done = true;
+    m_scanCancel->store(true, std::memory_order_relaxed);
+    if (!problem.isEmpty()) { m_result.ok = false; m_result.lines.prepend(problem); }
+    if (!problem.isEmpty() && m_result.installed > 0)
+        m_result.lines.append(tr("失败前已写入 %1 个模组；基础实例和已写入文件保留。").arg(m_result.installed));
+    if (m_download) m_download->cancelBatch();
+    saveExecutionRecord();
+    m_writeLock.reset();
     if (m_completed) m_completed(m_result);
     deleteLater();
 }

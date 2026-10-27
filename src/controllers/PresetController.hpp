@@ -136,6 +136,8 @@ public:
 
     void previewPlan(const QString &presetId, const QString &instanceId);
     void applyPlan(const QString &presetId, const QString &instanceId, bool replaceConfirmed);
+    void applyPlanImpl(const QString &presetId, const QString &instanceId, bool replaceConfirmed, bool resume);
+    void showExecutionReport(const QString &presetId, const QString &instanceId);
 
     // ---------- 给安装流程的只读入口 ----------
     // / 可用的预设（读得回来的那些，按下标次序）。

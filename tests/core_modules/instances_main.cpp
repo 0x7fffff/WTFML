@@ -215,6 +215,9 @@ int runLaunchProbeIfRequested(const QStringList &arguments) {
     QTimer poll;
     bool success = false;
     QString reason;
+    const bool requireSound = qEnvironmentVariableIsSet("WTFML_ACCEPT_REQUIRE_SOUND");
+    const int holdMs = qBound(0, qEnvironmentVariableIntValue("WTFML_ACCEPT_HOLD_MS"), 60000);
+    qint64 soundSeenAt = -1;
     QObject::connect(&poll, &QTimer::timeout, &loop, [&] {
         if (finished) {
             reason = QStringLiteral("process-exited");
@@ -222,6 +225,8 @@ int runLaunchProbeIfRequested(const QStringList &arguments) {
             return;
         }
         if (soundMarker) {
+            if (soundSeenAt < 0) soundSeenAt = clock.elapsed();
+            if (clock.elapsed() - soundSeenAt < holdMs) return;
             success = true;
             reason = QStringLiteral("sound-marker");
             loop.quit();
@@ -232,7 +237,7 @@ int runLaunchProbeIfRequested(const QStringList &arguments) {
             windowFound = true;
             windowSeenAt = clock.elapsed();
         }
-        if (windowFound && clock.elapsed() - windowSeenAt >= 20000) {
+        if (!requireSound && windowFound && clock.elapsed() - windowSeenAt >= 20000) {
             success = true;
             reason = QStringLiteral("window-alive-20s");
             loop.quit();
@@ -248,7 +253,7 @@ int runLaunchProbeIfRequested(const QStringList &arguments) {
     loop.exec();
     poll.stop();
     const qint64 elapsed = clock.elapsed();
-    if (success) {
+    if (launcher.runningCount() > 0) {
         launcher.stopGame(sessionId);
         for (int i = 0; i < 20 && launcher.runningCount() > 0; ++i) QThread::msleep(100);
     }

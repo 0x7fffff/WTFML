@@ -109,6 +109,7 @@ public:
     /// Resolve a Modrinth release whose dependency supplies no project identity.
     /// Uses the same request-key cancellation and bounded transport as version lists.
     void fetchModrinthVersion(const QString &requestKey, const QString &versionId);
+    void fetchCurseForgeVersion(const QString &requestKey, const QString &fileId);
     // Exact installed files, not latest updates. At most 100 unique SHA-1s per call.
     void fetchModrinthFiles(const QString &requestKey, const QStringList &sha1s);
     void fetchVersions(const QString &requestKey, const QString &projectId,
@@ -362,6 +363,8 @@ signals:
     /// 版本列表回来了。problem 非空 = 没取到；problem 空 + versions 空 = 问到了、就是没有。
     void modrinthVersionFinished(const QString &requestKey, const QString &projectId,
                                 const ResourceCatalog::VersionEntry &version, const QString &problem);
+    void curseForgeVersionFinished(const QString &requestKey, const QString &projectId,
+                                  const ResourceCatalog::VersionEntry &version, const QString &problem);
     void modrinthFilesFinished(const QString &requestKey, const QHash<QString, QString> &projects,
                               const QHash<QString, ResourceCatalog::VersionEntry> &versions,
                               const QString &problem);

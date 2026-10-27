@@ -1,4 +1,6 @@
 #include "Support.hpp"
+#include "presets/PresetExecutionReport.hpp"
+#include "presets/PresetWriteLock.hpp"
 
 void runPresetCaptureApplyTests() {
     QTemporaryDir scratch;
@@ -181,6 +183,45 @@ void runPresetCaptureApplyTests() {
           snapshotProblem);
     check(fresh.instanceRoot == instanceC || !fresh.instanceRoot.isEmpty(),
           "PG7 快照带着实例根");
+
+    {
+        const QString root = scratch.filePath(QStringLiteral("resume-instance"));
+        QDir().mkpath(root);
+        writeBytes(root + "/options.txt", "fov:0.91\nkey_attack:key.keyboard.z\n");
+        Presets::PresetManifest resumeManifest = saved;
+        resumeManifest.sections.clear();
+        for (const auto &section : saved.sections)
+            if (Presets::optionsHandlesSection(section.kind)) resumeManifest.sections.append(section);
+        check(resumeManifest.sections.size() == 2, "recovery fixture has separate options and key sections");
+        if (resumeManifest.sections.size() == 2) {
+            Presets::PresetApplyResult partial;
+            for (const auto &section : resumeManifest.sections) {
+                Presets::PresetApplyRow row;
+                row.sectionId = section.id; row.kind = section.kind;
+                row.ok = section.kind == Presets::SectionKind::VanillaOptions;
+                row.blocked = !row.ok; row.written = row.ok ? 1 : 0;
+                partial.rows.append(row);
+            }
+            QString problem;
+            check(Presets::writePresetExecutionReport(root, resumeManifest, partial, true, {}, &problem),
+                  "partial application report persists completed and unfinished sections", problem);
+            Presets::PresetApplyRequest resume;
+            resume.instanceId = "resume-instance"; resume.instanceRoot = root; resume.resumeUnfinished = true;
+            const auto resumed = Presets::applyPresetToInstance(presetsRoot, resumeManifest, resume);
+            check(resumed.ok && readBytes(root + "/options.txt").contains("fov:0.91")
+                      && readBytes(root + "/options.txt").contains("key_attack:key.keyboard.a"),
+                  "resume only applies unfinished keys and preserves later edits to the completed settings section");
+            auto changed = resumeManifest; changed.name += " changed";
+            const auto before = readBytes(root + "/options.txt");
+            const auto refused = Presets::applyPresetToInstance(presetsRoot, changed, resume);
+            check(!refused.ok && readBytes(root + "/options.txt") == before,
+                  "changed preset fingerprint refuses recovery before writing target files");
+            auto held = Presets::acquirePresetWrite(root, &problem);
+            const auto busy = Presets::applyPresetToInstance(presetsRoot, resumeManifest, resume);
+            check(held && !busy.ok && readBytes(root + "/options.txt") == before,
+                  "a second preset writer is refused while the instance write lock is held");
+        }
+    }
 
     // 名字是 options.txt、其实是**目录** ⇒ 读不动（不能当成"空的那一份"去铺预设）。
     QDir().mkpath(instanceC + QStringLiteral("/options.txt"));

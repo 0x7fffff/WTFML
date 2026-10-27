@@ -161,7 +161,7 @@ QList<ModInstallRow> ModInstallPlan::downloads() const {
     return out;
 }
 
-ModInstallPlan planModInstall(const ModInstallRequest &request) {
+static ModInstallPlan planModInstallPass(const ModInstallRequest &request) {
     ModInstallPlan plan;
 
     QSet<QString> seen;
@@ -333,6 +333,9 @@ ModInstallPlan planModInstall(const ModInstallRequest &request) {
                     }
                     candidate.substituted = true;
                     candidate.substitutedKey = confirmed.key();
+                    candidate.replacesKeys.append(key);
+                    candidate.replacesKeys.removeDuplicates();
+                    candidate.details.append(planText("本次替代：%1 → %2。").arg(key, candidate.key));
                     candidate.details.append(modInstallSubstitutedText(altTitle));
                     marked = true;
                     break;
@@ -448,7 +451,12 @@ ModInstallPlan planModInstall(const ModInstallRequest &request) {
     for (auto &row : plan.rows) {
         if (row.status != ModInstallStatus::Download && row.status != ModInstallStatus::AlreadyInstalled) continue;
         for (const auto &dependency : row.version.dependencies) {
-            if (!dependency.required() || dependency.versionId.trimmed().isEmpty()) continue;
+            if (!dependency.required()) continue;
+            if (dependency.projectId.trimmed().isEmpty() && dependency.versionId.trimmed().isEmpty()) {
+                row.status = ModInstallStatus::Unknown;
+                row.problem = planText("必要前置缺少有效的项目 / 发行版身份，未允许安装。"); break;
+            }
+            if (dependency.versionId.trimmed().isEmpty()) continue;
             if (dependency.projectId.trimmed().isEmpty()) {
                 row.status = ModInstallStatus::Unknown;
                 row.problem = planText("必要前置只提供发行版 ID（%1），尚无法确认所属项目，未允许安装。")
@@ -477,6 +485,29 @@ ModInstallPlan planModInstall(const ModInstallRequest &request) {
             if (!installed.isEmpty()) plan.conflicts.append(row.problem);
             break;
         }
+    }
+
+    // A dependency failure belongs to every parent that needs it, including
+    // optional roots. Resolve the graph to a fixed point; valid cycles remain valid.
+    QHash<QString, int> rowByKey;
+    for (int i = 0; i < plan.rows.size(); ++i) rowByKey.insert(plan.rows[i].key, i);
+    for (int pass = 0; pass < plan.rows.size(); ++pass) {
+        bool changed = false;
+        for (auto &row : plan.rows) {
+            if (row.status != ModInstallStatus::Download && row.status != ModInstallStatus::AlreadyInstalled) continue;
+            for (const auto &dependency : row.version.dependencies) {
+                if (!dependency.required() || dependency.projectId.isEmpty()) continue;
+                const QString key = platformOfKey(row.key) + QLatin1Char(':') + dependency.projectId;
+                if (!rowByKey.contains(key)) continue;
+                const auto child = plan.rows.at(rowByKey.value(key));
+                if (!child.isFailure()) continue;
+                row.status = child.status == ModInstallStatus::Incompatible
+                    ? ModInstallStatus::Incompatible : ModInstallStatus::Unknown;
+                row.problem = planText("必要前置「%1」未解决：%2").arg(child.title, child.problem);
+                changed = true; break;
+            }
+        }
+        if (!changed) break;
     }
 
     // ---------- 总账 ----------
@@ -509,6 +540,52 @@ ModInstallPlan planModInstall(const ModInstallRequest &request) {
         }
     }
     plan.ok = !plan.hasRequiredFailure();
+    return plan;
+}
+
+ModInstallPlan planModInstall(const ModInstallRequest &request) {
+    ModInstallRequest constrained = request;
+    QSet<QString> seen;
+    ModInstallPlan plan;
+    for (int pass = 0; pass < 256; ++pass) {
+        plan = planModInstallPass(constrained);
+        if (!plan.conflicts.isEmpty()) return plan;
+        QHash<QString, QString> pins;
+        for (const auto &row : plan.rows) for (const auto &dependency : row.version.dependencies) {
+            if (!dependency.required() || dependency.versionId.isEmpty() || dependency.projectId.isEmpty()) continue;
+            const QString key = platformOfKey(row.key) + QLatin1Char(':') + dependency.projectId;
+            if (pins.contains(key) && pins.value(key) != dependency.versionId) return plan;
+            pins.insert(key, dependency.versionId);
+        }
+        bool changed = false;
+        for (const auto &row : plan.rows)
+            if (row.isDownload() && pins.contains(row.key) && row.version.id != pins.value(row.key)) changed = true;
+        if (!changed) return plan;
+        QStringList signature;
+        for (const auto &row : plan.rows) signature.append(row.key + QLatin1Char('=') + row.version.id);
+        signature.sort();
+        const QString state = signature.join(QLatin1Char('\n'));
+        if (seen.contains(state)) break;
+        seen.insert(state);
+        // Always filter the original candidate sets. A later pin may legitimately
+        // select a different version; do not permanently discard that candidate.
+        constrained = request;
+        const auto filter = [&](const QString &key, QList<ResourceCatalog::VersionEntry> &versions) {
+            if (!pins.contains(key)) return;
+            for (int i = versions.size() - 1; i >= 0; --i)
+                if (versions[i].id != pins.value(key)) versions.removeAt(i);
+        };
+        for (auto &input : constrained.references) filter(input.reference.key(), input.versions);
+        for (auto it = constrained.dependencyAnswers.begin(); it != constrained.dependencyAnswers.end(); ++it)
+            filter(it.key(), it.value());
+    }
+    plan.ok = false;
+    plan.conflicts.append(planText("精确前置约束循环变化，无法生成稳定计划；未允许安装。"));
+    for (auto &row : plan.rows) if (row.isDownload()) {
+        row.status = ModInstallStatus::Unknown;
+        row.problem = plan.conflicts.last();
+        --plan.download; ++plan.unknown;
+    }
     return plan;
 }
 

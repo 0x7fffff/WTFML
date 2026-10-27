@@ -4,6 +4,7 @@
  */
 
 #include "PresetCompatibility.hpp"
+#include <utility>
 
 #include <QDateTime>
 #include <QMetaObject>
@@ -30,10 +31,11 @@ QString normalizeCompatibilityLoader(const QString &raw) {
 
 QString CompatibilityContext::cacheKey() const {
     // 次序和分隔符都是格式的一部分（缓存键只在本进程里用，但验证工程会读它）。
-    return QStringLiteral("%1|%2|%3")
+    return QStringLiteral("%1|%2|%3|%4|%5|%6")
         .arg(gameVersion.trimmed().toLower(),
              normalizeCompatibilityLoader(loader),
-             clientSide ? QStringLiteral("client") : QStringLiteral("server"));
+             clientSide ? QStringLiteral("client") : QStringLiteral("server"),
+             releaseFilter.trimmed().toLower(), QString::number(dataVersion), providerScope);
 }
 
 QString compatibilityStateKey(CompatibilityState state) {
@@ -181,23 +183,31 @@ CompatibilityChecker::CompatibilityChecker(CompatibilityCache *cache, QObject *p
 }
 
 void CompatibilityChecker::setProvider(CompatibilityProvider *provider) {
+    cancel();
     m_provider = provider;
 }
 
+CompatibilityChecker::~CompatibilityChecker() { cancel(); }
+
 void CompatibilityChecker::setOptions(const Options &options) {
     m_options = options;
+    m_options.maxInFlight = qBound(1, options.maxInFlight, 16);
+    m_options.timeoutMs = qBound(1, options.timeoutMs, 600000);
+    m_options.totalTimeoutMs = qBound(1, options.totalTimeoutMs, 600000);
     if (m_cache != nullptr) {
         m_cache->setTtlMs(options.cacheTtlMs);
     }
 }
 
 void CompatibilityChecker::dropLiveQueries() {
+    const auto cancellations = std::exchange(m_cancellations, {});
     m_liveQueries.clear();
     m_inFlight = 0;
     for (Item &item : m_items) {
         item.queued = false;
     }
     m_queue.clear();
+    for (const auto &cancel : cancellations) if (cancel) cancel();
 }
 
 void CompatibilityChecker::start(const QList<ModReference> &references,
@@ -208,13 +218,27 @@ void CompatibilityChecker::start(const QList<ModReference> &references,
     m_items.clear();
     m_indexByKey.clear();
     m_context = context;
+    m_context.releaseFilter = context.releaseFilter.trimmed().toLower();
+    if (m_provider) m_context.providerScope = m_provider->cacheScope();
     m_running = true;
     m_finishedEmitted = false;
 
-    resolveLocalAndQueue(references, context);
+    resolveLocalAndQueue(references, m_context);
     emitUpdate();
     pump();
     finishIfDone();
+    const int generation = m_generation;
+    QTimer::singleShot(m_options.totalTimeoutMs, this, [this, generation] {
+        if (generation != m_generation || !m_running) return;
+        dropLiveQueries();
+        for (auto &item : m_items) {
+            if (item.state != CompatibilityState::Pending && item.state != CompatibilityState::Checking) continue;
+            item.state = CompatibilityState::Unknown;
+            item.detail = QStringLiteral("本轮检查已到截止时间，暂时无法确认；请重试未完成项。");
+        }
+        emitUpdate();
+        finishIfDone();
+    });
 }
 
 void CompatibilityChecker::resolveLocalAndQueue(const QList<ModReference> &references,
@@ -321,6 +345,8 @@ void CompatibilityChecker::beginQuery(int index) {
         }
         m_liveQueries.remove(queryId);
         --m_inFlight;
+        const auto cancel = m_cancellations.take(queryId);
+        if (cancel) cancel();
         applyResult(index, CompatibilityState::Unknown,
                     QStringLiteral("查询超时（%1 秒），暂时无法确认。")
                         .arg(std::max(1, m_options.timeoutMs / 1000)),
@@ -333,7 +359,7 @@ void CompatibilityChecker::beginQuery(int index) {
     // 一次跳转（「关闭弹窗」那一格）。`QPointer` 在对象析构时自动置空，晚到的那一发
     // 到这里就只是一次空判断。
     const QPointer<CompatibilityChecker> guard(this);
-    m_provider->query(reference, m_context,
+    auto cancel = m_provider->queryCancelable(reference, m_context,
                       [this, guard, generation, queryId, index](CompatibilityState state,
                                                                 const QString &detail) {
                           if (guard.isNull()) {
@@ -348,6 +374,7 @@ void CompatibilityChecker::beginQuery(int index) {
                                       return;
                                   }
                                   m_liveQueries.remove(queryId);
+                                  m_cancellations.remove(queryId);
                                   --m_inFlight;
                                   // 提供方只该回那三种；真回了别的，按 `Unknown` 算 ——
                                   // 既不是"匹配"也不是"缺失"，不能拿去下结论。
@@ -360,6 +387,7 @@ void CompatibilityChecker::beginQuery(int index) {
                               },
                               Qt::QueuedConnection);
                       });
+    if (cancel) m_cancellations.insert(queryId, std::move(cancel));
 }
 
 void CompatibilityChecker::applyResult(int index, CompatibilityState state,

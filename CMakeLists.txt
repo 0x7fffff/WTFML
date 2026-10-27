@@ -352,7 +352,9 @@ set(SOURCE_FILES
     # 提取与落到实例上。
     src/presets/PresetCapture.cpp
     src/presets/PresetApply.cpp
+    src/presets/PresetExecutionReport.cpp
     src/presets/PresetModInstaller.cpp
+    src/presets/PresetModDeployment.cpp
     # 资源包次序 / 启用 + 存档数据包：见头文件那两位。
     src/presets/ResourcePackPreset.cpp
     src/presets/DataPackPreset.cpp
