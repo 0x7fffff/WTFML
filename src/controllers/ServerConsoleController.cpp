@@ -1,4 +1,5 @@
 #include "controllers/ServerConsoleController.hpp"
+#include "util/SecretRedactor.hpp"
 
 #include "InlineMessage.hpp"
 #include "MainWindowUI.hpp"
@@ -119,7 +120,7 @@ void ServerConsoleController::exportLog() {
         return;
     }
     OverlayHost *overlay = m_ui == nullptr ? nullptr : m_ui->overlay();
-    const QString text = m_page->allLogText();
+    const QString text = SecretRedactor::redact(m_page->allLogText());
     if (text.isEmpty()) {
         InlineMessage::warning(overlay, tr("还没有日志"),
                                tr("这个控制台还没有收到任何输出，导出来会是一个空文件。"));
@@ -142,9 +143,10 @@ void ServerConsoleController::exportLog() {
     if (path.isEmpty()) {
         return;
     }
+    const auto bytes = text.toUtf8();
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly) ||
-        file.write(text.toUtf8()) < 0 || !file.commit()) {
+        file.write(bytes) != bytes.size() || !file.commit()) {
         const QString error = file.errorString();
         if (m_host.log) {
             m_host.log(tr("导出服务端日志失败：%1").arg(error));

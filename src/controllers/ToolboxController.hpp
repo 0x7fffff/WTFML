@@ -82,6 +82,8 @@ public:
     bool ownsDownloadTask(quint64 id) const;
     bool canCancelDownloadTask(quint64 id) const;
     bool cancelDownloadTask(quint64 id);
+    bool pauseDownloadTask(quint64 id);
+    bool resumeDownloadTask(quint64 id);
 
 private:
     QHash<QString, QImage> m_bannerTextures;

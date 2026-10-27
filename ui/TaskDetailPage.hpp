@@ -55,6 +55,7 @@ public:
         OpenCrashDir, ///< 「打开崩溃报告目录」：在文件管理器里打开 `crash-reports/`。
         RepairImport, ///< 打开未完成整合包的本地补齐报告。
         Recover,      ///< 「继续未完成操作」：接着做完那份报告里还没做完的文件操作。
+        Pause,
     };
 
     explicit TaskDetailPage(QWidget *parent = nullptr);
@@ -112,4 +113,5 @@ private:
     QPushButton *m_copyButton = nullptr;
     QPushButton *m_repairButton = nullptr;
     QPushButton *m_recoverButton = nullptr;
+    QPushButton *m_pauseButton = nullptr;
 };

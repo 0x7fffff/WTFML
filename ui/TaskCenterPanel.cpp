@@ -1395,6 +1395,9 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
         });
         layout->addWidget(button);
     };
+    if (item.capabilities.pause) {
+        addAction(tr("暂停下载"), TaskCenter::RowAction::Pause, Theme::ButtonKind::Neutral);
+    }
     if (item.capabilities.cancel) {
         addAction(tr("取消任务"), TaskCenter::RowAction::Cancel, Theme::ButtonKind::Neutral);
     }

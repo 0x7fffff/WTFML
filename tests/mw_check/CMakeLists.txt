@@ -276,6 +276,7 @@ set(SOURCE_FILES
     # 链接那一步报一串 undefined reference。
     ${REPO_ROOT}/src/controllers/ToolboxController.cpp
     ${REPO_ROOT}/src/controllers/DirectDownloadController.cpp
+    ${REPO_ROOT}/src/controllers/DirectDownloadRecovery.cpp
     ${REPO_ROOT}/src/controllers/ToolboxController.hpp
     ${REPO_ROOT}/ui/ToolboxPage.cpp
     ${REPO_ROOT}/ui/ToolboxPage.hpp
@@ -441,6 +442,9 @@ endif()
 
 
 add_library(wtfml_mw_runtime STATIC ${SOURCE_FILES})
+add_executable(wtfml_server_boundary EXCLUDE_FROM_ALL ${REPO_ROOT}/tools/server_boundary/main.cpp)
+target_sources(wtfml_server_boundary PRIVATE ${REPO_ROOT}/tools/server_boundary/ui.cpp)
+target_link_libraries(wtfml_server_boundary PRIVATE wtfml_mw_runtime wtfml_core_runtime Qt6::Network)
 
 if(MINGW)
     target_compile_options(wtfml_mw_runtime PRIVATE -Wa,-mbig-obj)

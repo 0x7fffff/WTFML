@@ -38,6 +38,7 @@
 #include <QNetworkAccessManager>
 #include <QObject>
 #include <QSet>
+#include <QElapsedTimer>
 #include <QString>
 #include <QStringList>
 
@@ -48,6 +49,7 @@
 class DownloadManager;
 class QNetworkReply;
 class QProcess;
+class QTimer;
 
 namespace ServerInstallRun {
 
@@ -144,6 +146,10 @@ private:
     std::function<QJsonObject(const QString &)> m_localVersionJson;
     QNetworkAccessManager *m_network = nullptr;
     QProcess *m_process = nullptr;
+    QTimer *m_installerWatchdog = nullptr;
+    QElapsedTimer m_installerProgress, m_installerTotal;
+    int m_installerRetries = 0;
+    bool m_installerRestartPending = false;
     QNetworkReply *m_metadataReply = nullptr;
 
     bool m_running = false;

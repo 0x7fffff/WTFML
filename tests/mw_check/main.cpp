@@ -94,7 +94,9 @@ int main(int argc, char *argv[]) {
             std::fprintf(stdout, "[Server thread/WARN]: **** FAILED TO BIND TO PORT!\n");
             return 0;
         }
-        if (mode != "startup-wait")
+        if (mode == "wrongjava-hang")
+            std::fprintf(stdout, "Caused by: java.lang.UnsupportedClassVersionError: incompatible runtime\n");
+        if (mode != "startup-wait" && mode != "wrongjava-hang")
             std::fprintf(stdout, "Done (1.234s)! For help, type \"help\"\n");
         std::fflush(stdout);
         if (mode == "crash") {

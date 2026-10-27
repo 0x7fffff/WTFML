@@ -52,7 +52,7 @@ enum class TaskState {
     Queued,       // 排着队，还没轮到（当前只有单批次，这个状态基本只在盘上那半出现）
     Running,      // 正在跑
     WaitingUser,  // **卡在等用户**（弹了个提示、要用户选一下）。收起态里它排第一
-    Paused,       // 暂停。**没有实现**（不做暂停），枚举先留着
+    Paused,       // 执行器已释放网络活动，明确等待用户继续。
     Succeeded,    // 成功
     Failed,       // 失败（带 `TaskSnapshot::errorSummary` 那句原因）
     Cancelled,    // 用户取消的
@@ -84,7 +84,7 @@ struct TaskCapabilities {
     /// 「为什么不能取消」。只有 `canCancel == false` 时才有意义，详情页原样摆给用户。
     /// 空地留空 = 这一项不需要解释（比如已经收尾）。**不落盘**：它不是摘要的一部分。
     QString cancelBlockedReason;
-    bool canPause = false;   // 恒 false
+    bool canPause = false;   // 由支持安全暂停的执行器动态提供。
     bool canRetry = false;   // 恒 false（取消/重试还没做）
     /// 「继续未完成操作」：这一项留下了一份可以接着做的文件操作报告（见
     /// `OperationReport`）。只在这一次会话里成立 —— 报告本身在盘上，但账本读回来时

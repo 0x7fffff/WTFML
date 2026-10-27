@@ -93,6 +93,11 @@ void TaskDetailController::open(const QString &key) {
 
 void TaskDetailController::action(const QString &key, TaskDetailPage::Action action) {
     switch (action) {
+    case TaskDetailPage::Action::Pause: {
+        TaskCenter::Item fresh;
+        if (fillItem(key, &fresh) && fresh.capabilities.pause && m_host.pauseTask) m_host.pauseTask(key);
+        break;
+    }
     case TaskDetailPage::Action::RepairImport: {
         TaskCenter::Item fresh;
         if (fillItem(key, &fresh) && fresh.capabilities.repairImport && m_host.repairImport) {

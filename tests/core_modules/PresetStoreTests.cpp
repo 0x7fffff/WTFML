@@ -1,6 +1,37 @@
 #include "Support.hpp"
 
 void runPresetStoreTests() {
+    {
+        Presets::PresetManifest good; good.id = Presets::newPresetId(); good.name = QStringLiteral("边界");
+        const auto json = Presets::manifestToJson(good);
+        for (const auto *field : {"id", "name", "description", "createdAt", "updatedAt", "sourceInstanceId", "category"}) {
+            for (const auto &value : {QJsonValue(QJsonValue::Null), QJsonValue(true), QJsonValue(42), QJsonValue(QJsonArray{}), QJsonValue(QJsonObject{})}) {
+                auto malformed = json; malformed.insert(QLatin1String(field), value); bool ok = true;
+                Presets::manifestFromJson(QJsonDocument(malformed).toJson(), &ok);
+                check(!ok, "manifest scalar null/wrong type is rejected instead of silently becoming a legacy mixed preset", QLatin1String(field));
+            }
+        }
+        auto legacy = json; legacy.remove("category"); bool ok = false;
+        const auto restored = Presets::manifestFromJson(QJsonDocument(legacy).toJson(), &ok);
+        check(ok && restored.category == Presets::PresetCategory::Unset, "missing category still preserves legitimate legacy mixed presets");
+        const QString big = QStringLiteral("9007199254740993");
+        auto ref = Presets::modReferenceFromJson(QJsonObject{{"platform", "curseforge"}, {"projectId", big}});
+        check(ref.projectId == big && Presets::modReferenceToJson(ref).value("projectId").toString() == big,
+            "large platform string identity round-trips without double rounding");
+        ref = Presets::modReferenceFromJson(QJsonObject{{"platform", "curseforge"}, {"projectId", 9007199254740992.0}});
+        check(ref.key().isEmpty(), "numeric platform identity is rejected rather than rounded into a different project");
+        QTemporaryDir corruptRoot;
+        auto corrupt = Presets::create(corruptRoot.path(), QStringLiteral("损坏样本"));
+        QFile damaged(Presets::manifestPath(corruptRoot.path(), corrupt.id));
+        const QByteArray broken("{\"id\": ]");
+        check(damaged.open(QIODevice::WriteOnly) && damaged.write(broken) == broken.size(), "malformed JSON byte-position fixture is written");
+        damaged.close(); QString reason; bool readable = true;
+        Presets::loadManifest(corruptRoot.path(), corrupt.id, &readable, &reason);
+        check(!readable && reason.contains(QStringLiteral("字节位置")), "malformed manifest reports parser byte offset");
+        check(Presets::duplicate(corruptRoot.path(), corrupt.id).id.isEmpty() &&
+            damaged.open(QIODevice::ReadOnly) && damaged.readAll() == broken,
+            "corrupt manifest cannot be duplicated and original evidence is preserved byte-for-byte");
+    }
     section("PA. 实例预设：UUID 当目录名 / 一份坏了不连坐 / 那五件增删改");
 
     QTemporaryDir temp;

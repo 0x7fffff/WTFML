@@ -87,6 +87,8 @@ public:
                       const TaskCapabilities &capabilities = TaskCapabilities(),
                       int parentStep = -1);
     bool startQueued(TaskId id);
+    bool pause(TaskId id);
+    bool queueRecovery(TaskId id);
 
     /// 换一句"现在在干什么"（面板里标题下面那行小字）。
     bool setDetail(TaskId id, const QString &detail);

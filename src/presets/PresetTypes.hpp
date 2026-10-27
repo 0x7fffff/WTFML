@@ -595,6 +595,10 @@ inline PresetManifest manifestFromJson(const QByteArray &bytes, bool *ok = nullp
         return manifest;
     }
     const QJsonObject root = document.object();
+    for (const auto *field : {"id", "name", "description", "createdAt", "updatedAt", "sourceInstanceId", "category"}) {
+        const auto key = QLatin1String(field);
+        if (root.contains(key) && !root.value(key).isString()) return manifest;
+    }
     if (root.value(QStringLiteral("format")).toString() != manifestFormatTag()) {
         return manifest;
     }

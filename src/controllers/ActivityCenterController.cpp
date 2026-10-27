@@ -136,6 +136,19 @@ void ActivityCenterController::scheduleDispatch() {
     m_dispatchPending = true;
     QTimer::singleShot(0, this, [this] { m_dispatchPending = false; dispatch(); });
 }
+
+void ActivityCenterController::releaseLane(Tasks::TaskId id) {
+    for (auto it = m_runningLanes.begin(); it != m_runningLanes.end();)
+        if (it.value() == id) it = m_runningLanes.erase(it); else ++it;
+    scheduleDispatch();
+}
+
+bool ActivityCenterController::queueRecovery(Tasks::TaskId id, QObject *owner, std::function<void(Tasks::TaskId)> start) {
+    if (!owner || !start || m_queue.size() >= 64 || isQueued(id) || !m_tasks.queueRecovery(id)) return false;
+    m_queue.append({id, QStringLiteral("direct-download"), owner, std::move(start)});
+    scheduleDispatch();
+    return true;
+}
 void ActivityCenterController::dispatch() {
     // 启动前先摘出回调，执行器可以同步完成/取消甚至排入下一项，不能保留容器迭代器。
     for (;;) {
@@ -313,7 +326,7 @@ TaskCenter::Item ActivityCenterController::item(const Tasks::TaskSnapshot &task,
     result.capabilities.openLog = task.capabilities.canOpenLog;
     result.capabilities.openTarget = task.capabilities.canOpenTarget;
     result.capabilities.recover = task.capabilities.canRecover
-        && Tasks::isTerminalState(task.state) && !task.recoveryToken.isEmpty();
+        && (Tasks::isTerminalState(task.state) || task.state == Tasks::TaskState::Paused) && !task.recoveryToken.isEmpty();
     result.capabilities.repairImport = task.kind == Tasks::TaskKind::Import
         && (task.state == Tasks::TaskState::Failed || task.state == Tasks::TaskState::Interrupted)
         && !task.targetId.isEmpty()

@@ -6,6 +6,7 @@
 #include "server/ServerPortCheck.hpp"
 
 #include <QString>
+#include <QHash>
 
 class ServerWorkspaceController;
 
@@ -50,6 +51,7 @@ public:
                       QString *problemOut = nullptr) const;
 
 private:
+    mutable QHash<QString, QByteArray> m_propertySnapshots;
     static qint64 directoryBytes(const QString &dirPath);
 
     const ServerWorkspaceController *m_workspace = nullptr;

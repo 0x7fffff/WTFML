@@ -14,6 +14,7 @@
  */
 
 #include "ServerInstallController.hpp"
+#include <QTimer>
 #include "server/ServerWriteGuard.hpp"
 
 #include <QDir>
@@ -53,6 +54,20 @@ ServerInstallController::ServerInstallController(QObject *parent) : QObject(pare
     // 自己的 network manager（理由见头文件那段 NOTE）：元数据那几次 GET 是"问一句就完事"的，
     // 混进下载器那张回复表里会让两边的收尾互相算错。
     m_network = new QNetworkAccessManager(this);
+    m_installerWatchdog = new QTimer(this);
+    m_installerWatchdog->setInterval(1000);
+    connect(m_installerWatchdog, &QTimer::timeout, this, [this] {
+        if (!m_running || m_cancelling || !m_process || m_process->state() == QProcess::NotRunning) return;
+        if (m_installerTotal.elapsed() >= 600000) {
+            fail(QStringLiteral("服务端安装器已达到10分钟截止，半成品保留，请检查网络后修复。")); return;
+        }
+        if (m_installerProgress.elapsed() < 180000) return;
+        if (m_installerRetries == 0) {
+            ++m_installerRetries; m_installerRestartPending = true;
+            emit message(QStringLiteral("服务端安装器连续3分钟无输出，可能卡在内部下载；保留文件并重启安装器一次。"));
+            m_process->kill();
+        } else fail(QStringLiteral("服务端安装器重试后仍连续3分钟无输出，已停止；半成品保留。\n%1").arg(m_installerTail));
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -65,6 +80,7 @@ void ServerInstallController::start(const ServerInstall::Request &request,
         emit finished(Outcome::Failed, QStringLiteral("已经有一个服务端在装了，等它跑完。"));
         return;
     }
+    m_installerRetries = 0; m_installerRestartPending = false; m_installerTotal.invalidate();
     QString directoryProblem;
     if (!ServerWriteGuard::acquire(serverId, &directoryProblem)) {
         emit finished(Outcome::Failed, directoryProblem);
@@ -413,6 +429,8 @@ void ServerInstallController::beginInstaller() {
     }
 
     m_process = new QProcess(this);
+    if (!m_installerTotal.isValid()) m_installerTotal.start();
+    m_installerProgress.start(); m_installerWatchdog->start();
     m_process->setProgram(m_javaPath);
     m_process->setArguments(ServerInstallRun::toolCommand(m_plan, jarPath));
     m_process->setWorkingDirectory(m_dir);
@@ -443,6 +461,7 @@ void ServerInstallController::onInstallerOutput() {
         return;
     }
     const QString text = QString::fromLocal8Bit(m_process->readAllStandardOutput());
+    if (!text.isEmpty()) m_installerProgress.restart();
     // 日志那一头收到全的；失败时并进那句话里的只留尾巴（整篇塞进去没人读得下去）。
     emit message(text.trimmed());
     m_installerTail.append(text);
@@ -455,6 +474,12 @@ void ServerInstallController::onInstallerFinished(int exitCode) {
     if (!m_running || m_cancelling) {
         return;
     }
+    if (m_installerRestartPending) {
+        m_installerRestartPending = false;
+        m_process->disconnect(this); m_process->deleteLater(); m_process = nullptr;
+        beginInstaller(); return;
+    }
+    m_installerWatchdog->stop();
     if (exitCode != 0) {
         QString problem = QStringLiteral("安装器退出码是 %1，没装成。").arg(exitCode);
         const QString tail = m_installerTail.trimmed();
@@ -502,6 +527,7 @@ void ServerInstallController::fail(const QString &problem) {
 }
 
 void ServerInstallController::finishWith(Outcome outcome, const QString &errorSummary) {
+    m_installerWatchdog->stop(); m_installerRestartPending = false;
     if (!m_running) {
         return;  // 已经收过尾了（终态只落一次，和 TaskManager 那边同一条规矩）
     }

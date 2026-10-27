@@ -1,6 +1,62 @@
 #include "Support.hpp"
 
+namespace {
+void scaleOnRequestedVolume() {
+    const QString root = qEnvironmentVariable("WTFML_PRESET_SCALE_ROOT");
+    if (root.isEmpty()) return;
+    // Opt-in real filesystem evidence; never clean or reuse a pre-existing root.
+    if (!QDir::isAbsolutePath(root) || QFileInfo::exists(root) || !QDir().mkpath(root + "/source/config")) {
+        check(false, "scale acceptance requires a new absolute isolated root", root); return;
+    }
+    const auto write = [](const QString &path, const QByteArray &bytes) {
+        QFile f(path); return f.open(QIODevice::WriteOnly) && f.write(bytes) == bytes.size();
+    };
+    QElapsedTimer clock; clock.start();
+    QJsonObject report{{"scope", "150 stored presets, 1000 real files captured and applied to 5 isolated instances"}};
+    const QString presets = root + "/presets";
+    bool ok = true;
+    for (int i = 0; i < 150; ++i) ok = !Presets::create(presets, QString::number(i)).id.isEmpty() && ok;
+    ok = Presets::list(presets).size() == 150 && ok;
+    for (int i = 0; i < 1000; ++i)
+        ok = write(root + "/source/config/" + QString::number(i) + ".txt", QByteArray::number(i) + QByteArray(4096, 'x')) && ok;
+    auto manifest = Presets::create(presets, QStringLiteral("实际文件规模"));
+    Presets::CaptureRequest capture;
+    capture.instanceRoot = root + "/source";
+    capture.presetFilesRoot = Presets::filesDir(presets, manifest.id);
+    capture.selection = {false, false, false, true, false, false, false, false, false, false};
+    const auto captured = Presets::captureFromInstance(capture);
+    manifest.sections = captured.sections;
+    ok = captured.ok && captured.configItems == 1000 && Presets::saveManifest(presets, manifest) && ok;
+    QJsonArray instances;
+    for (int n = 0; n < 5; ++n) {
+        const QString target = root + "/instance-" + QString::number(n);
+        QDir().mkpath(target);
+        const QByteArray sentinel("unrelated-preserved");
+        ok = write(target + "/untouched.txt", sentinel) && ok;
+        Presets::PresetApplyRequest request;
+        request.instanceId = QString::number(n); request.instanceRoot = target;
+        const auto applied = Presets::applyPresetToInstance(presets, manifest, request);
+        bool bytesMatch = true;
+        for (int i = 0; i < 1000; ++i) {
+            QFile f(target + "/config/" + QString::number(i) + ".txt");
+            bytesMatch = f.open(QIODevice::ReadOnly) && f.readAll() == QByteArray::number(i) + QByteArray(4096, 'x') && bytesMatch;
+        }
+        QFile untouched(target + "/untouched.txt");
+        bytesMatch = untouched.open(QIODevice::ReadOnly) && untouched.readAll() == sentinel && bytesMatch;
+        const bool passed = applied.ok && applied.written >= 1000 && bytesMatch;
+        ok = passed && ok;
+        instances.append(QJsonObject{{"root", target}, {"ok", passed}, {"written", applied.written}, {"problem", applied.problem}});
+        check(passed, "scale application verifies 1000 actual target files and preserves unrelated bytes", target);
+        if (clock.elapsed() > 540000) { ok = false; break; }
+    }
+    report["ok"] = ok; report["elapsedMs"] = clock.elapsed(); report["instances"] = instances;
+    const bool saved = write(root + "/report.json", QJsonDocument(report).toJson());
+    check(ok && saved, "real volume preset scale acceptance completed and evidence retained", root);
+}
+}
+
 void runPresetStressTests() {
+    scaleOnRequestedVolume();
     // ---------- PN1 大量预设：建得出来、列得回来、次序就是下标那一次序 ----------
     {
         QTemporaryDir root;

@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "controllers/ServerSettingsController.hpp"
 void runServerSettingsPageTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -58,6 +59,18 @@ void runServerSettingsPageTests() {
         }
         return QString::fromUtf8(file.readAll());
     };
+    {
+        ServerSettingsController controller;
+        const auto before = controller.readRaw(serverId);
+        const auto external = before + QStringLiteral("#external-change\n");
+        QFile file(ServerRegistry::propertiesPath(serverId));
+        check(file.open(QIODevice::WriteOnly) && file.write(external.toUtf8()) == external.toUtf8().size(), "T42 external properties fixture is written");
+        file.close();
+        const auto refused = controller.save(serverId, before, {{"motd", "should-not-overwrite"}});
+        check(!refused.ok && propsTextOnDisk() == external && refused.problem.contains(QStringLiteral("其它程序")),
+            "T42 stale properties editor refuses to overwrite external changes");
+        check(file.open(QIODevice::WriteOnly) && file.write(originalProps.toUtf8()) == originalProps.toUtf8().size(), "T42 original properties restored for subsequent UI checks");
+    }
 
     MainWindow w;
     w.show();

@@ -11,10 +11,18 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
+#include <QCryptographicHash>
 
 QString ServerSettingsController::readRaw(const QString &serverId) const {
     QFile file(ServerRegistry::propertiesPath(serverId));
-    return file.open(QIODevice::ReadOnly) ? QString::fromUtf8(file.readAll()) : QString();
+    if (!QFileInfo::exists(file.fileName())) { m_propertySnapshots[serverId] = QByteArray("absent"); return {}; }
+    if (!file.open(QIODevice::ReadOnly) || file.size() > 4 * 1024 * 1024) {
+        m_propertySnapshots.remove(serverId); return {};
+    }
+    const auto bytes = file.readAll();
+    if (file.error() != QFileDevice::NoError) { m_propertySnapshots.remove(serverId); return {}; }
+    m_propertySnapshots[serverId] = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256);
+    return QString::fromUtf8(bytes);
 }
 
 ServerSettingsController::Values ServerSettingsController::valuesFromRaw(
@@ -33,6 +41,16 @@ QString ServerSettingsController::mergeIntoRaw(const QString &raw,
 ServerSettingsController::SaveResult ServerSettingsController::save(
     const QString &serverId, const QString &raw, const Values &edits) const {
     SaveResult result;
+    QFile current(ServerRegistry::propertiesPath(serverId));
+    const bool absent = m_propertySnapshots.value(serverId) == QByteArray("absent") && !QFileInfo::exists(current.fileName());
+    if (!m_propertySnapshots.contains(serverId) || (!absent && (!current.open(QIODevice::ReadOnly) || current.size() > 4 * 1024 * 1024))) {
+        result.problem = QStringLiteral("无法确认原属性文件，请重新加载后再保存；未覆盖。"); return result;
+    }
+    const auto currentBytes = absent ? QByteArray() : current.readAll();
+    if (!absent && (current.error() != QFileDevice::NoError || QCryptographicHash::hash(currentBytes, QCryptographicHash::Sha256) != m_propertySnapshots.value(serverId))) {
+        result.problem = QStringLiteral("server.properties 已被服务端或其它程序修改，请重新加载后再编辑；未覆盖。"); return result;
+    }
+    current.close();
     ServerModel::Properties properties = ServerModel::parseProperties(raw);
     Values accepted;
     for (const QPair<QString, QString> &edit : edits) {
@@ -58,6 +76,7 @@ ServerSettingsController::SaveResult ServerSettingsController::save(
     const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
     result.serverName = entry.name.isEmpty() ? serverId : entry.name;
     result.ok = true;
+    m_propertySnapshots[serverId] = QCryptographicHash::hash(properties.toString().toUtf8(), QCryptographicHash::Sha256);
     return result;
 }
 

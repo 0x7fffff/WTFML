@@ -651,10 +651,14 @@ MainWindow::MainWindow(QWidget *parent)
             [this](const QString &key) {
                 bool ok = false;
                 const Tasks::TaskId id = key.toULongLong(&ok);
+                if (ok && m_toolboxController && m_toolboxController->ownsDownloadTask(id)) {
+                    m_toolboxController->resumeDownloadTask(id); return;
+                }
                 if (!ok || m_fileRecovery == nullptr) return;
                 const Tasks::TaskSnapshot task = m_activityCenter->tasks()->snapshot(id);
                 if (!task.recoveryToken.isEmpty()) m_fileRecovery->resume(task.recoveryToken);
-            }},
+            },
+            [this](const QString &key) { if (m_toolboxController) m_toolboxController->pauseDownloadTask(key.toULongLong()); }},
         this);
     connect(m_serverWorkspace, &ServerWorkspaceController::message, this,
             [this](const QString &text) { appendLog(text); });
@@ -747,6 +751,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_ui->setTaskCenterRowActionHandler(
         [this](const QString &key, TaskCenter::RowAction action) {
             switch (action) {
+            case TaskCenter::RowAction::Pause:
+                onTaskDetailAction(key, TaskDetailPage::Action::Pause);
+                break;
             case TaskCenter::RowAction::MoveUp:
             case TaskCenter::RowAction::MoveDown:
                 m_activityCenter->moveQueued(key.toULongLong(), action == TaskCenter::RowAction::MoveUp ? -1 : 1);

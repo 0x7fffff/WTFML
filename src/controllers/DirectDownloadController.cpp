@@ -3,6 +3,9 @@
 #include "download/ResumableDownload.hpp"
 #include "DownloadToolDialog.hpp"
 #include "download/DownloadCache.hpp"
+#include "util/AppPaths.hpp"
+#include <QUuid>
+#include <QLockFile>
 #include <QSettings>
 #include <QThread>
 #include <QFileInfo>
@@ -13,6 +16,10 @@
 
 DirectDownloadController::DirectDownloadController(ActivityCenterController *activity, QWidget *window, QObject *parent)
     : QObject(parent), m_activity(activity), m_window(window) {
+    // Follow the launcher's stable task ledger, not the currently selected game folder.
+    m_recoveryPath = (m_activity ? QFileInfo(m_activity->tasks()->historyPath()).absolutePath()
+                                : AppPaths::defaultMinecraftDir()) + QStringLiteral("/wtfml.download-recovery");
+    QTimer::singleShot(0, this, [this] { loadRecovery(); });
     auto *rateTimer = new QTimer(this);
     rateTimer->setInterval(1000);
     connect(rateTimer, &QTimer::timeout, this, [this] {
@@ -95,12 +102,29 @@ bool DirectDownloadController::start(const DirectDownloadRequest &request, bool 
     const auto reject = [error](const QString &text) { if (error) *error = text; return false; };
     if (m_stopping) return reject(tr("启动器正在关闭，不能新增下载。"));
     if (!m_activity) return reject(tr("任务中心尚未就绪。"));
+    loadRecovery();
+    if (!allowOverwrite && m_recoveries.size() >= 64) return reject(tr("待恢复下载已达64项，请先继续或取消已有任务。"));
     if (!QDir::isAbsolutePath(request.path)) return reject(tr("目标文件必须是绝对路径。"));
     DirectDownloadRequest validated;
     if (!DirectDownloadRequest::parse(request.url.toString(), QFileInfo(request.path).absolutePath(), QFileInfo(request.path).fileName(), &validated, error)) return false;
     if (!allowOverwrite && QFileInfo::exists(validated.path)) return reject(tr("目标文件已存在，请确认覆盖或更换文件名。"));
     const auto samePath = [&](const QString &path) { return QDir::cleanPath(path).compare(QDir::cleanPath(validated.path), Qt::CaseInsensitive) == 0; };
-    if ((m_running && samePath(m_path)) || std::any_of(m_pendingPaths.cbegin(), m_pendingPaths.cend(), samePath))
+    for (auto it = m_recoveries.begin(); it != m_recoveries.end(); ++it) {
+        const auto state = m_activity->tasks()->snapshot(it.key()).state;
+        if (samePath(it->request.path) && it->request.url != validated.url &&
+            (state == Tasks::TaskState::Paused || Tasks::isTerminalState(state)) && !allowOverwrite) {
+            const auto previous = it->request.url; it->request.url = validated.url;
+            if (!saveRecovery()) { it->request.url = previous; return reject(tr("无法保存新的下载地址，未继续。")); }
+            const auto id = it.key();
+            if (!resume(id)) return reject(tr("目标已变化或任务无法继续，请检查任务中心提示。"));
+            m_lastSubmitted = id;
+            if (error) error->clear();
+            return true;
+        }
+    }
+    const bool reserved = std::any_of(m_recoveries.cbegin(), m_recoveries.cend(),
+        [&](const Recovery &r) { return samePath(r.request.path); });
+    if (reserved || (m_running && samePath(m_path)) || std::any_of(m_pendingPaths.cbegin(), m_pendingPaths.cend(), samePath))
         return reject(tr("该保存路径已有进行中或排队的下载，请更换文件名。"));
     const auto id = m_activity->enqueue(Tasks::TaskKind::Download,
         tr("直链下载 · %1").arg(QFileInfo(validated.path).fileName()), QFileInfo(validated.path).absolutePath(),
@@ -108,6 +132,15 @@ bool DirectDownloadController::start(const DirectDownloadRequest &request, bool 
         QStringLiteral("direct-download"), this, [this, validated, allowOverwrite](Tasks::TaskId job) { startJob(job, validated, allowOverwrite); });
     if (id == Tasks::invalidTaskId()) return reject(tr("等待队列已满，请稍后再添加。"));
     m_lastSubmitted = id; m_ownedTasks.insert(id); m_pendingPaths.insert(id, validated.path);
+    // Replacing an existing original needs a separate immutable backup contract.
+    // Only absent-target jobs are recoverable; never silently bless changed originals.
+    if (!allowOverwrite && m_recoveryReadable) {
+        m_recoveries.insert(id, {validated, QUuid::createUuid().toString(QUuid::WithoutBraces)});
+        if (!saveRecovery()) {
+            m_recoveries.remove(id); m_activity->tasks()->cancel(id);
+            return reject(tr("无法保存下载恢复记录，未开始下载。"));
+        }
+    }
     auto caps = m_activity->tasks()->snapshot(id).capabilities; caps.canOpenLog = false;
     m_activity->tasks()->setCapabilities(id, caps);
     if (!m_running) m_activity->startReady();
@@ -124,7 +157,9 @@ void DirectDownloadController::startJob(Tasks::TaskId id, const DirectDownloadRe
     m_path = validated.path;
     m_running = true;
     m_activity->tasks()->setStepState(id, 0, Tasks::TaskStepState::Running);
+    m_activity->tasks()->setStepState(id, 1, Tasks::TaskStepState::Pending);
     m_status = tr("正在连接；进度可在任务中心查看。关闭工具窗口后下载继续。");
+    if (!m_recoveryReadable) m_status += tr("恢复记录不可用或被占用，原件已保留；本次下载不提供暂停和跨重启恢复。");
     m_activity->tasks()->setDetail(m_task, m_status);
     m_rateClock.start(); m_rate.reset(); m_transferred = 0; m_lastRateUi = -1000;
     m_lastDone = 0; m_lastTotal = -1; m_showTransferTelemetry = false;
@@ -143,17 +178,20 @@ void DirectDownloadController::startJob(Tasks::TaskId id, const DirectDownloadRe
         if (!m_running) return;
         m_showTransferTelemetry = false; // Preserve connection/checksum/commit phase messages.
         m_status = message;
+        syncPauseCapability();
         m_activity->tasks()->setDetail(m_task, message);
         if (m_dialog) m_dialog->status->setText(message);
     });
     connect(m_download, &ResumableDownload::finished, this, [this](bool success, const QString &message) { finish(success, message); });
     m_download->start(validated.url, validated.path, {}, -1, allowOverwrite);
+    syncPauseCapability();
     manageCache(1);
 }
 
 void DirectDownloadController::updateProgress(qint64 done, qint64 total) {
     if (!m_running || m_activity == nullptr) return;
     m_lastDone = done; m_lastTotal = total;
+    syncPauseCapability();
     m_activity->tasks()->setBytes(m_task, done, total);
     m_activity->tasks()->setProgress(m_task, done, total);
     const qint64 now = m_rateClock.elapsed();
@@ -181,27 +219,39 @@ void DirectDownloadController::updateProgress(qint64 done, qint64 total) {
 
 void DirectDownloadController::finish(bool success, const QString &error) {
     if (!m_running) return;
+    const auto finishedTask = m_task;
+    const auto finishedPath = m_path;
     m_running = false;
-    m_status = success ? tr("下载完成：%1").arg(QDir::toNativeSeparators(m_path)) : tr("下载失败：%1").arg(error);
-    m_activity->tasks()->setStepState(m_task, 0, success ? Tasks::TaskStepState::Done : Tasks::TaskStepState::Failed, error);
-    m_activity->tasks()->setStepState(m_task, 1, success ? Tasks::TaskStepState::Done : Tasks::TaskStepState::Failed, error);
+    const auto status = success ? tr("下载完成：%1").arg(QDir::toNativeSeparators(finishedPath)) : tr("下载失败：%1").arg(error);
+    m_status = status;
+    m_activity->tasks()->setStepState(finishedTask, 0, success ? Tasks::TaskStepState::Done : Tasks::TaskStepState::Failed, error);
+    m_activity->tasks()->setStepState(finishedTask, 1, success ? Tasks::TaskStepState::Done : Tasks::TaskStepState::Failed, error);
     if (success) {
-        const auto bytes = QFileInfo(m_path).size();
-        m_activity->tasks()->setBytes(m_task, bytes, bytes);
-        m_activity->tasks()->setProgress(m_task, bytes, bytes);
+        const auto bytes = QFileInfo(finishedPath).size();
+        m_activity->tasks()->setBytes(finishedTask, bytes, bytes);
+        m_activity->tasks()->setProgress(finishedTask, bytes, bytes);
     }
-    m_activity->tasks()->setDetail(m_task, m_status);
-    m_activity->finish(m_task, success, error, false);
-    if (m_dialog) { m_dialog->setBusy(false); m_dialog->showProgress(success ? 1 : 0, 1, m_status); }
+    m_activity->tasks()->setDetail(finishedTask, status);
+    m_activity->finish(finishedTask, success, error, false);
+    if (success) { m_recoveries.remove(finishedTask); saveRecovery(); }
+    else if (m_recoveries.contains(finishedTask))
+        m_activity->tasks()->setRecovery(finishedTask, m_recoveries.value(finishedTask).token, true);
+    if (m_dialog && m_task == finishedTask && !m_running) { m_dialog->setBusy(false); m_dialog->showProgress(success ? 1 : 0, 1, status); }
 }
 
 bool DirectDownloadController::owns(Tasks::TaskId id) const { return m_ownedTasks.contains(id); }
 bool DirectDownloadController::canCancel(Tasks::TaskId id) const {
-    return m_activity != nullptr && owns(id) && (m_activity->isQueued(id) || (id == m_task && m_running && m_download && m_download->canCancel()));
+    return m_activity != nullptr && owns(id) && (m_activity->isQueued(id) ||
+        m_activity->tasks()->snapshot(id).state == Tasks::TaskState::Paused ||
+        (id == m_task && m_running && m_download && m_download->canCancel()));
 }
 bool DirectDownloadController::cancel(Tasks::TaskId id) {
     if (!owns(id)) return false;
-    if (m_activity != nullptr && m_activity->isQueued(id)) { m_pendingPaths.remove(id); m_activity->tasks()->cancel(id); return true; }
+    if (m_activity != nullptr && (m_activity->isQueued(id) || m_activity->tasks()->snapshot(id).state == Tasks::TaskState::Paused)) {
+        m_pendingPaths.remove(id); m_recoveries.remove(id); saveRecovery(); m_activity->tasks()->cancel(id);
+        m_activity->tasks()->setRecovery(id, {}, false);
+        return true;
+    }
     if (id != m_task || !m_running || m_download == nullptr) return true;
     const auto reportUnstoppable = [this]() {
         m_status = tr("已经进入收尾（校验 / 写盘），这一步停不下来，等它写完。");
@@ -217,6 +267,7 @@ bool DirectDownloadController::cancel(Tasks::TaskId id) {
         return true;
     }
     m_running = false;
+    m_recoveries.remove(id); saveRecovery();
     m_activity->tasks()->cancel(m_task);
     m_status = tr("已取消，原文件未替换；完整分段已保留，重开程序后用同一链接和目标可继续。");
     if (m_dialog) { m_dialog->setBusy(false); m_dialog->showProgress(0, 1, m_status); }
@@ -226,6 +277,7 @@ void DirectDownloadController::shutdown() {
     if (m_stopping) return;
     m_stopping = true;
     const auto waiting = m_pendingPaths.keys();
-    for (auto id : waiting) cancel(id);
-    if (m_running) cancel(m_task);
+    for (auto id : waiting) if (!m_recoveries.contains(id)) cancel(id);
+    if (m_running && !pause(m_task)) cancel(m_task);
+    if (!m_running) m_recoveryLock.reset();
 }

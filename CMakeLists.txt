@@ -264,6 +264,7 @@ set(SOURCE_FILES
     src/controllers/IntegrityController.cpp
     src/controllers/ToolboxController.cpp
     src/controllers/DirectDownloadController.cpp
+    src/controllers/DirectDownloadRecovery.cpp
     src/controllers/BackupController.cpp
     src/controllers/ServerPingController.cpp
     src/controllers/FolderController.cpp

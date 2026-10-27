@@ -178,6 +178,11 @@ int UiServerModeChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
                           .arg(loaderEdit->isVisible() ? 1 : 0)
                           .arg(installerEdit->isVisible() ? 1 : 0)
                           .arg(buildEdit->isVisible() ? 1 : 0));
+                loaderEdit->setText("0.16.14"); installerEdit->setText("1.0.1");
+                page.hide();
+                check(page.loaderVersion() == QStringLiteral("0.16.14") && page.installerVersion() == QStringLiteral("1.0.1"),
+                    "U34 closing the whole wizard preserves applicable loader/installer values for installation");
+                page.show(); QApplication::processEvents();
                 // 换成 Paper（只要构建号）⇒ 反过来，而且**收着的那一行读回去是空串**
                 // （旧的字留在框里，读回去就成了"这一档也有加载器版本"）。
                 page.setFlavors(flavors, QStringLiteral("paper"));
@@ -192,6 +197,10 @@ int UiServerModeChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
                 check(page.loaderVersion().isEmpty() && page.installerVersion().isEmpty() &&
                           page.buildId().isEmpty(),
                       "★ U34.6 没填的那几格读回去是空串（收着的行不算数）");
+                buildEdit->setText("232"); page.hide();
+                check(page.buildId() == QStringLiteral("232") && page.loaderVersion().isEmpty() && page.installerVersion().isEmpty(),
+                    "U34 closed Paper wizard retains its build while excluding hidden loader fields");
+                page.show(); buildEdit->clear(); QApplication::processEvents();
                 // 说明与「创建」：有问题时点名问题并把创建挡住，没问题时放行。
                 page.setSummary(QString(), QStringLiteral("先填个游戏版本"));
                 check(summary->text() == QStringLiteral("先填个游戏版本") && !createBtn->isEnabled(),

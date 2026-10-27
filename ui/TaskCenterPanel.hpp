@@ -124,7 +124,7 @@ using ItemProvider = std::function<QList<Item>()>;
 /// 「查看详情」不在这一枚举里 —— 它是**点那一行本身**（整行的行为，不是行尾一颗按钮）。
 /// 两样分开是因为它们的位置不一样：详情页是"我想看看这是怎么回事"，取消是"别下了"，
 /// 后者要是也藏在详情页里，用户得点两下才够得着。
-enum class RowAction { Cancel, Retry, OpenTarget, OpenLog, ExportReport, OpenCrashDir, Seen, Viewed, MoveUp, MoveDown, RepairImport, Recover };
+enum class RowAction { Cancel, Retry, OpenTarget, OpenLog, ExportReport, OpenCrashDir, Seen, Viewed, MoveUp, MoveDown, RepairImport, Recover, Pause };
 
 /// 行尾那颗小按钮被点了。参数是那一行的 `key` 和点的是哪一颗。
 using RowActionHandler = std::function<void(const QString &key, RowAction action)>;

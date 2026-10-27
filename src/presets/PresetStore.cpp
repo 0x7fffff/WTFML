@@ -414,6 +414,10 @@ PresetManifest loadManifest(const QString &root, const QString &id, bool *ok, QS
     bool parsed = false;
     const PresetManifest manifest = manifestFromJson(bytes, &parsed);
     if (!parsed) {
+        QJsonParseError syntax;
+        QJsonDocument::fromJson(bytes, &syntax);
+        if (syntax.error != QJsonParseError::NoError)
+            return fail(faultAt(path, QStringLiteral("JSON字节位置 %1：%2").arg(syntax.offset).arg(syntax.errorString())));
         return fail(faultAt(path, QStringLiteral("读不回来（不是合法 JSON、不是我们写的格式、"
                                                 "版本比这个启动器新、或者缺了 id / 名字）")));
     }

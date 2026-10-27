@@ -249,15 +249,15 @@ QString NewServerPage::gameVersion() const { return m_gameVersionEdit->text().tr
 
 QString NewServerPage::loaderVersion() const {
     // 收着的那一行不算数（换档之后旧的字还留在框里，读回去就成了"这一档也有加载器版本"）。
-    return m_loaderRow->isVisible() ? m_loaderEdit->text().trimmed() : QString();
+    return !m_loaderRow->isHidden() ? m_loaderEdit->text().trimmed() : QString();
 }
 
 QString NewServerPage::installerVersion() const {
-    return m_installerRow->isVisible() ? m_installerEdit->text().trimmed() : QString();
+    return !m_installerRow->isHidden() ? m_installerEdit->text().trimmed() : QString();
 }
 
 QString NewServerPage::buildId() const {
-    return m_buildRow->isVisible() ? m_buildEdit->text().trimmed() : QString();
+    return !m_buildRow->isHidden() ? m_buildEdit->text().trimmed() : QString();
 }
 
 int NewServerPage::memoryMb() const { return m_memorySpin->value(); }

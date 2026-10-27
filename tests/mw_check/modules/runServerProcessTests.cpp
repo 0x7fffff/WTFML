@@ -30,6 +30,15 @@ void runServerProcessTests() {
     // ---- T41.1 起 → 读到 `Done (` → 运行中 ----
     {
         ServerRun::ServerProcess process;
+        int ended = 0;
+        QObject::connect(&process, &ServerRun::ServerProcess::exited, &process, [&](const QString &, int) { ++ended; });
+        process.start("wrongjava-hang", dir.path(), exe, {"--fake-server", "wrongjava-hang"}, 4000);
+        check(pumpUntil([&] { return ended > 0; }, 5000) && ended == 1 && !process.isRunning() &&
+            process.status() == ServerModel::Status::Crashed && !process.wasForceKilled(),
+            "T41 fatal startup Java mismatch is bounded and classified as failure, not user force-kill");
+    }
+    {
+        ServerRun::ServerProcess process;
         QString lastStatus;
         QList<QPair<QString, int>> exits;
         QObject::connect(&process, &ServerRun::ServerProcess::statusChanged, &process,

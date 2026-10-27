@@ -49,6 +49,7 @@ public:
         std::function<void(const QString &)> repairImport;
         /// 「继续未完成操作」：主窗口按报告钥匙把那趟文件操作接着做完。
         std::function<void(const QString &)> recoverOperation;
+        std::function<void(const QString &)> pauseTask;
     };
 
     TaskDetailController(ActivityCenterController *activity, CrashReportController *crash,

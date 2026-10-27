@@ -192,6 +192,28 @@ bool TaskManager::startQueued(TaskId id) {
     return true;
 }
 
+bool TaskManager::pause(TaskId id) {
+    auto *task = find(id);
+    if (!task || task->state != TaskState::Running || !task->capabilities.canPause) return false;
+    task->state = TaskState::Paused;
+    task->capabilities.canPause = false;
+    touch(id, true);
+    return true;
+}
+
+bool TaskManager::queueRecovery(TaskId id) {
+    auto *task = find(id);
+    if (!task || !task->capabilities.canRecover ||
+        (task->state != TaskState::Paused && !isTerminalState(task->state))) return false;
+    task->state = TaskState::Queued;
+    task->finishedAt = {};
+    task->errorSummary.clear();
+    task->capabilities.canRecover = false;
+    task->capabilities.canCancel = true;
+    touch(id, true);
+    return true;
+}
+
 TaskSnapshot *TaskManager::find(TaskId id) {
     if (id == invalidTaskId()) {
         return nullptr;
@@ -466,7 +488,7 @@ bool TaskManager::setCapabilities(TaskId id, const TaskCapabilities &capabilitie
 bool TaskManager::setRecovery(TaskId id, const QString &recoveryToken, bool canRecover,
                               const QString &blockedReason) {
     TaskSnapshot *task = find(id);
-    if (task == nullptr || !isTerminalState(task->state)) {
+    if (task == nullptr || (!isTerminalState(task->state) && task->state != TaskState::Paused)) {
         return false;
     }
     task->recoveryToken = recoveryToken;

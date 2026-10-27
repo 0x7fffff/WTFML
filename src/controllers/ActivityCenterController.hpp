@@ -31,6 +31,8 @@ public:
         std::function<void(Tasks::TaskId)> start);
     bool moveQueued(Tasks::TaskId id, int delta);
     bool isQueued(Tasks::TaskId id) const;
+    void releaseLane(Tasks::TaskId id);
+    bool queueRecovery(Tasks::TaskId id, QObject *owner, std::function<void(Tasks::TaskId)> start);
     void startReady() { dispatch(); }
 
     Tasks::TaskId begin(Tasks::TaskKind kind, const QString &title,

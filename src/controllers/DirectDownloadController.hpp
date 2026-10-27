@@ -4,6 +4,7 @@
 #include <QElapsedTimer>
 #include <QSet>
 #include <QHash>
+#include <memory>
 #include "tasks/TaskId.hpp"
 #include "download/DirectDownloadRequest.hpp"
 #include "download/DownloadRate.hpp"
@@ -12,6 +13,7 @@ class ActivityCenterController;
 class ResumableDownload;
 class DownloadToolDialog;
 class QWidget;
+class QLockFile;
 
 class DirectDownloadController final : public QObject {
 public:
@@ -22,10 +24,21 @@ public:
     bool owns(Tasks::TaskId id) const;
     bool canCancel(Tasks::TaskId id) const;
     bool cancel(Tasks::TaskId id);
+    bool pause(Tasks::TaskId id);
+    bool resume(Tasks::TaskId id);
     void shutdown();
     Tasks::TaskId taskId() const { return m_task; }
     Tasks::TaskId lastSubmittedTaskId() const { return m_lastSubmitted; }
 private:
+    struct Recovery { DirectDownloadRequest request; QString token; };
+    QHash<Tasks::TaskId, Recovery> m_recoveries;
+    QString m_recoveryPath;
+    bool m_recoveryReadable = true;
+    bool m_recoveryLoaded = false;
+    std::unique_ptr<QLockFile> m_recoveryLock;
+    bool saveRecovery();
+    void loadRecovery();
+    void syncPauseCapability();
     void manageCache(int action);
     bool m_cacheBusy = false;
     bool m_cacheTrimPending = false;

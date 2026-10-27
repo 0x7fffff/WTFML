@@ -221,7 +221,18 @@ void ServerProcess::appendLine(const QString &line) {
     }
     emit lineAppended(m_serverId, line);
 
-    if (!m_started && isReadyLine(line)) {
+    // Fabric can leave a Java error dialog/thread alive after this fatal startup
+    // exception. It cannot recover by waiting; stop only our own failed process.
+    if (!m_started && m_status == ServerModel::Status::Starting &&
+        (line.startsWith(QStringLiteral("java.lang.UnsupportedClassVersionError:")) ||
+         line.startsWith(QStringLiteral("Caused by: java.lang.UnsupportedClassVersionError:")))) {
+        setStatus(ServerModel::Status::Crashed);
+        emit message(tr("服务端使用的 Java 版本过旧，已停止失败的启动；请选择匹配的 Java 后重试。"));
+        if (m_process) m_process->kill();
+        return;
+    }
+
+    if (!m_started && m_status == ServerModel::Status::Starting && isReadyLine(line)) {
         // 服务端没有"窗口出现了"那种信号 —— 这一行才是"真的在跑了"。读到之后启动就
         // 结束了，宽限那个计时器也就不用等了（它只在"停止中"才有意义）。
         m_started = true;

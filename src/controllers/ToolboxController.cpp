@@ -356,6 +356,8 @@ void ToolboxController::setPlayerSkin(const QImage &skin, const QImage &cape, bo
 bool ToolboxController::ownsDownloadTask(quint64 id) const { return m_directDownload->owns(id); }
 bool ToolboxController::canCancelDownloadTask(quint64 id) const { return m_directDownload->canCancel(id); }
 bool ToolboxController::cancelDownloadTask(quint64 id) { return m_directDownload->cancel(id); }
+bool ToolboxController::pauseDownloadTask(quint64 id) { return m_directDownload->pause(id); }
+bool ToolboxController::resumeDownloadTask(quint64 id) { return m_directDownload->resume(id); }
 
 void ToolboxController::shutdown() {
     m_trimPreview->shutdown();
