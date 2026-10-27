@@ -1,5 +1,7 @@
 #include "Support.hpp"
+int runDownloadBatchChecks(QApplication &app);
 int MwHighSpeedDownloadCheck(QApplication &app) {
+        if (app.arguments().contains("--batch-resume-root")) return runDownloadBatchChecks(app);
         const auto childAt = app.arguments().indexOf(QStringLiteral("--resume-root"));
         if (childAt >= 0) {
             const auto root = app.arguments().value(childAt + 1);
@@ -21,7 +23,7 @@ int MwHighSpeedDownloadCheck(QApplication &app) {
 
         QTemporaryDir fixture(QDir::current().filePath(QStringLiteral(".download-tool-XXXXXX")));
         if (!fixture.isValid()) return 2;
-        int failures = 0;
+        int failures = runDownloadBatchChecks(app);
         const auto expect = [&failures](bool ok, const char *message) {
             printf("%s %s\n", ok ? "PASS" : "FAIL", message);
             fflush(stdout);
@@ -60,7 +62,7 @@ int MwHighSpeedDownloadCheck(QApplication &app) {
                     socket->setProperty("input", input);
                     if (!input.contains("\r\n\r\n") || socket->property("sent").toBool()) return;
                     socket->setProperty("sent", true); ++requests;
-                    const QByteArray path = input.split(' ').value(1);
+                    const QByteArray path = input.split(' ').value(1).split('?').first();
                     if (path == "/redirect") { socket->write("HTTP/1.1 302 Found\r\nLocation: /ok\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"); socket->disconnectFromHost(); return; }
                     if (path == "/bad") { socket->write("HTTP/1.1 404 Missing\r\nContent-Length: 3\r\nConnection: close\r\n\r\nbad"); socket->disconnectFromHost(); return; }
                     if (path == "/slow" && slowNow) { socket->write("HTTP/1.1 200 OK\r\nContent-Length: 2097152\r\n\r\nx"); return; }
@@ -76,9 +78,11 @@ int MwHighSpeedDownloadCheck(QApplication &app) {
         };
         const auto wait = [&] {
             QElapsedTimer limit; limit.start();
-            while (tool.canCancel(tool.taskId()) && limit.elapsed() < 15000) QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
-            expect(!tool.canCancel(tool.taskId()), "task reaches terminal state before deadline");
-            if (tool.canCancel(tool.taskId())) tool.cancel(tool.taskId());
+            while (Tasks::isActiveState(activity.tasks()->snapshot(tool.taskId()).state) && limit.elapsed() < 15000) QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            expect(!Tasks::isActiveState(activity.tasks()->snapshot(tool.taskId()).state), "task reaches terminal state before deadline");
+            if (Tasks::isActiveState(activity.tasks()->snapshot(tool.taskId()).state)) tool.cancel(tool.taskId());
+            const auto snapshot = activity.tasks()->snapshot(tool.taskId());
+            if (snapshot.state == Tasks::TaskState::Failed) printf("DOWNLOAD_FAILURE: %s\n", snapshot.errorSummary.toUtf8().constData());
         };
         const auto read = [](const QString &path) { QFile f(path); if (!f.open(QIODevice::ReadOnly)) return QByteArray(); return f.readAll(); };
         auto ok = request(QStringLiteral("ok"), QStringLiteral("result.bin"));
@@ -100,8 +104,12 @@ int MwHighSpeedDownloadCheck(QApplication &app) {
         expect(activity.tasks()->snapshot(tool.taskId()).state == Tasks::TaskState::Failed && read(conflict.path) == "created-by-another-writer", "destination appearing during transfer is preserved without overwrite consent");
         expect(!tool.start(ok, false, &error), "existing destination requires overwrite confirmation");
         auto bad = request(QStringLiteral("bad"), QStringLiteral("result.bin"));
+        bad.url.setQuery(QStringLiteral("token=private-download-proof"));
         expect(tool.start(bad, true, &error), "confirmed overwrite starts"); wait();
         expect(activity.tasks()->snapshot(tool.taskId()).state == Tasks::TaskState::Failed && read(ok.path) == body, "HTTP failure preserves previous destination");
+        expect(activity.tasks()->saveHistory() && !read(activity.tasks()->historyPath()).contains("private-download-proof") &&
+            activity.tasks()->snapshot(tool.taskId()).errorSummary.contains(QStringLiteral("/bad")),
+            "signed URL failure keeps useful endpoint information without persisting URL credentials in task history");
         auto partial = request(QStringLiteral("partial"), QStringLiteral("partial.bin"));
         expect(tool.start(partial, false, &error), "partial-response fixture starts"); wait();
         expect(activity.tasks()->snapshot(tool.taskId()).state == Tasks::TaskState::Failed && !QFileInfo::exists(partial.path), "unsolicited HTTP 206 is never committed as complete file");

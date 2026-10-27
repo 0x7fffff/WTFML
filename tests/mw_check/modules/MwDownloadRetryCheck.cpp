@@ -15,6 +15,12 @@ int MwDownloadRetryCheck() {
                    .contains(QStringLiteral("超时")), "network timeout has Chinese text");
         expect(DownloadRetryPolicy::displayError(QNetworkReply::HostNotFoundError, QStringLiteral("diagnostic")) == QStringLiteral("diagnostic"),
                "unmapped network errors preserve their diagnostic text");
+        const auto safeError = DownloadRetryPolicy::displayError(QNetworkReply::ContentAccessDenied,
+            QStringLiteral("https://user:password@example.com/a?token=secret#fragment then HTTP://example.net/b?key=other failed"));
+        expect(safeError.contains(QStringLiteral("example.com/a")) && safeError.contains(QStringLiteral("example.net/b")) &&
+            !safeError.contains(QStringLiteral("secret")) && !safeError.contains(QStringLiteral("password")) &&
+            !safeError.contains(QStringLiteral("other")) && !safeError.contains(QStringLiteral("fragment")),
+            "network errors strip credentials and signed queries from every URL while retaining endpoints");
         const auto run = [&](int status, int failCount, bool cancel) {
             QTcpServer server;
             if (!server.listen(QHostAddress::LocalHost, 0)) { ++failures; return; }

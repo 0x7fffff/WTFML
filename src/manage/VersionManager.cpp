@@ -74,8 +74,36 @@
 #include "ModpackCompletion.hpp"
 
 #include "VersionManagerInternals.hpp"
+#include "download/DownloadCheckpoint.hpp"
 
 using namespace VersionManagerInternals;
+
+QJsonObject VersionManager::downloadContinuation() const {
+    if (!m_ownBatchOpen || m_resourceDownload.running || m_modpackInstall.active()) return {}; // Import reports own their continuation.
+    QJsonObject intent{{"root", AppPaths::minecraftDir()}};
+    QString instance;
+    if (m_namedInstance.active()) {
+        instance = m_namedInstance.instanceId;
+        intent.insert("instance", instance);
+        if (m_loaderInstall.active()) {
+            intent.insert("kind", "named-loader"); intent.insert("game", m_loaderInstall.gameVersion);
+            intent.insert("loader", int(m_loaderInstall.kind)); intent.insert("java", m_loaderInstall.javaPath);
+            intent.insert("loaderVersion", m_loaderInstall.loaderVersion.isEmpty() ? m_loaderInstall.pinnedVersion : m_loaderInstall.loaderVersion);
+        } else { intent.insert("kind", "named-vanilla"); intent.insert("game", m_namedInstance.parentId); }
+    } else if (!m_currentVersionDownloading.isEmpty() && !m_loaderInstall.active() && !m_assetDirectorPrefetch.active) {
+        instance = m_currentVersionDownloading; intent.insert("instance", instance); intent.insert("kind", "repair");
+    } else return {};
+    QJsonObject originals;
+    const QString json = AppPaths::versionDir(instance) + '/' + instance + ".json";
+    const QString meta = AppPaths::versionDir(instance) + "/wtfml.meta";
+    for (const auto &path : {json, meta}) {
+        const auto state = DownloadCheckpoint::fingerprint(path);
+        if (state.isEmpty()) return {};
+        originals.insert(path, state);
+    }
+    intent.insert("originals", originals);
+    return intent;
+}
 
 VersionManager::VersionManager(QObject *parent)
     : QObject(parent), downloadManager(new DownloadManager(this)) {

@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QSaveFile>
 #include <QNetworkReply>
+#include <functional>
 
 // 一个回复一个临时文件。校验之前不替换原文件；最多读取 64 KiB，不缓存整份下载。
 class StreamedFile {
@@ -53,6 +54,7 @@ public:
             prefix != QByteArray("PK\x05\x06", 4) && prefix != QByteArray("PK\x07\x08", 4))
             return QStringLiteral("Not a zip archive (expected a jar/zip body)");
         if (!allowOverwrite && QFileInfo::exists(file.fileName())) return QStringLiteral("目标文件已存在，未覆盖。请更换文件名或确认覆盖。");
+        if (commitGuard) { const auto problem = commitGuard(); if (!problem.isEmpty()) return problem; }
         if (!file.commit()) return file.errorString();
         return {};
     }
@@ -62,4 +64,5 @@ public:
     QByteArray prefix;
     QString error;
     bool allowOverwrite;
+    std::function<QString()> commitGuard;
 };

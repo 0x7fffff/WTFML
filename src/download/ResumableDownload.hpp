@@ -32,6 +32,7 @@ public:
     bool cancel();
     bool isRunning() const { return m_running; }
     bool canCancel() const;
+    void setCommitGuard(std::function<QString()> guard) { m_commitGuard = std::move(guard); }
     /// 是否已经真正发过网络请求。为 false 时 `finished(false, …)` 只可能是本地准备失败
     /// （地址/路径无效、缓存目录不可写、同一下载的缓存被占用），调用方应改走普通下载，
     /// 而不是把文件判成源站失败。
@@ -59,6 +60,7 @@ signals:
     void finished(bool success, const QString &error);
     void checkpointSaved(qint64 reusableBytes);
 private:
+    std::function<QString()> m_commitGuard;
     enum class Stage { Probe, Prepare, Parts, Switching, Single, Assemble, Done };
     void probe(int attempt = 0);
     void prepareCache();

@@ -156,6 +156,7 @@
 #include "controllers/InstanceFileController.hpp"
 #include "controllers/InstanceTransferController.hpp"
 #include "controllers/FileOperationRecoveryController.hpp"
+#include "controllers/DownloadBatchController.hpp"
 #include "controllers/InstanceDialogController.hpp"
 #include "controllers/InstanceEditorController.hpp"
 #include "controllers/ImportController.hpp"
@@ -654,11 +655,16 @@ MainWindow::MainWindow(QWidget *parent)
                 if (ok && m_toolboxController && m_toolboxController->ownsDownloadTask(id)) {
                     m_toolboxController->resumeDownloadTask(id); return;
                 }
+                if (ok && m_downloadBatches && m_downloadBatches->owns(id)) { m_downloadBatches->resume(id); return; }
                 if (!ok || m_fileRecovery == nullptr) return;
                 const Tasks::TaskSnapshot task = m_activityCenter->tasks()->snapshot(id);
                 if (!task.recoveryToken.isEmpty()) m_fileRecovery->resume(task.recoveryToken);
             },
-            [this](const QString &key) { if (m_toolboxController) m_toolboxController->pauseDownloadTask(key.toULongLong()); }},
+            [this](const QString &key) {
+                const auto id = key.toULongLong();
+                if (m_downloadBatches && m_downloadBatches->owns(id)) m_downloadBatches->pause(id);
+                else if (m_toolboxController) m_toolboxController->pauseDownloadTask(id);
+            }},
         this);
     connect(m_serverWorkspace, &ServerWorkspaceController::message, this,
             [this](const QString &text) { appendLog(text); });
@@ -850,6 +856,18 @@ MainWindow::MainWindow(QWidget *parent)
     // 账本是启动器级的固定文件，不随当前游戏文件夹切换。这样正在下载/启动时切换目录，
     // 内存里的任务不会在下一次落盘时被写进另一份 .minecraft。
     m_activityCenter->loadHistory();
+    m_downloadBatches = new DownloadBatchController(m_activityCenter, m_versionManager->downloads(),
+        [this] {
+            if (!m_versionManager->ownsFileBatch()) return Tasks::invalidTaskId();
+            return m_downloadTaskId != Tasks::invalidTaskId() ? m_downloadTaskId : m_updateBatch.task;
+        }, this);
+    m_downloadBatches->setContinuation([this] { return snapshotDownloadContinuation(); },
+        [this](Tasks::TaskId id, const QJsonObject &intent) { return continueDownloadInstallation(id, intent); });
+    m_downloadBatches->setRestoreAllowed([this] {
+        return !m_downloadInFlight && runningVersionIds().isEmpty() && !m_launchController->isStarting()
+            && installingVersionIds().isEmpty() && (!m_serverInstall || !m_serverInstall->isRunning());
+    });
+    m_downloadBatches->load();
     // 「忽略这一版 / 固定这一版」那一本账：**启动时读一次**。
     //
     // 读不回来（文件被改坏了 / 权限不对）**不拦任何事**：那是"以后别再提示我"这一档的
@@ -952,6 +970,7 @@ MainWindow::MainWindow(QWidget *parent)
 }
 
 MainWindow::~MainWindow() {
+    if (m_downloadBatches) m_downloadBatches->shutdown();
     // 日志窗**没有父窗口**（理由见 GameSessionController::ensureGameLogWindow() 那段），
     // 所以 Qt 不会顺手把它们带走 —— 这里自己收，否则关掉启动器之后屏幕上会留着几扇无主的
     // 日志窗。那一份表连同收法都在那一位控制器里（它建的那些窗，它自己收）。
@@ -1535,6 +1554,7 @@ bool MainWindow::cancelWouldWork(const Tasks::TaskSnapshot &task) const {
     if (task.id == m_downloadTaskId && m_presetController && m_presetController->isInstallingMods()) return true;
     if (m_toolboxController && m_toolboxController->ownsDownloadTask(task.id))
         return m_toolboxController->canCancelDownloadTask(task.id);
+    if (m_downloadBatches && m_downloadBatches->canCancel(task.id)) return true;
     // ① 服务端安装那一趟：自己跑 `QProcess` + 自己的元数据请求，不走下载批次。
     if (m_serverInstall != nullptr && m_serverInstall->isRunning()
         && m_serverInstallTaskId != Tasks::invalidTaskId() && task.id == m_serverInstallTaskId) {
@@ -1626,6 +1646,7 @@ void MainWindow::cancelTaskFromDetail(const QString &key) {
     bool directKey = false;
     const auto directId = key.toULongLong(&directKey);
     if (directKey && m_toolboxController && m_toolboxController->cancelDownloadTask(directId)) return;
+    if (directKey && m_downloadBatches && m_downloadBatches->cancel(directId)) return;
     if (m_presetController && key == QString::number(m_downloadTaskId) && m_presetController->cancelModInstall()) return;
     // 取消要**按这一项是谁**分派：服务端安装那一趟和版本/资源下载那一批不是同一份
     // 状态（一个自己跑 QProcess + 自己的元数据请求，一个走 `VersionManager` 的批次）。
@@ -2124,6 +2145,10 @@ QSet<QString> MainWindow::installingVersionIds() const {
     // 版本表"那几段是界面自己记的（数据层那会儿连批都还没开）。
     // 后台搬文件（模组迁移 / 「迁移」「升级副本」）两个入口共用这一份名单。
     QSet<QString> ids = m_fileOperationInstanceIds;
+    if (m_downloadBatches && m_downloadBatches->isRestoring()) {
+        const auto all = QDir(AppPaths::versionsDir()).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        for (const auto &id : all) ids.insert(id);
+    }
     const QString busy = m_versionManager->busyVersionId();
     if (!busy.isEmpty()) {
         ids.insert(busy);

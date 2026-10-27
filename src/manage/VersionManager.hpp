@@ -247,6 +247,9 @@ public:
     ///
     /// @return false = 当前没有可取消的批次（信号竞争、或者已经被别的东西收掉了）。
     bool cancelActiveDownload();
+    /// Immutable UI intent for an interrupted file phase; never serializes a running installer.
+    QJsonObject downloadContinuation() const;
+    bool ownsFileBatch() const { return m_ownBatchOpen; }
 
     /// 上一次失败的那一批**能不能重做**（界面上那颗「重试」露不露的唯一判据）。
     bool canRetryDownload() const;

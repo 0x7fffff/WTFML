@@ -1,0 +1,194 @@
+#include "DownloadBatchController.hpp"
+#include "ActivityCenterController.hpp"
+#include "download/DownloadManager.hpp"
+#include "download/DownloadCheckpoint.hpp"
+#include "util/WriteDirectoryGuard.hpp"
+#include <QTimer>
+#include <QUuid>
+
+DownloadBatchController::DownloadBatchController(ActivityCenterController *activity, DownloadManager *downloads,
+    std::function<Tasks::TaskId()> activeTask, QObject *parent)
+    : QObject(parent), m_activity(activity), m_downloads(downloads), m_activeTask(std::move(activeTask)) {
+    m_root = QFileInfo(activity->tasks()->historyPath()).absolutePath() + "/download-batches";
+    connect(downloads, &DownloadManager::batchStarted, this, [this] {
+        if (m_stopping || m_restoring) return;
+        const auto id = m_activeTask();
+        if (id == Tasks::invalidTaskId() || !m_activity->tasks()->has(id)) return;
+        const auto task = m_activity->tasks()->snapshot(id);
+        if (QDir(m_root).entryList({"*.receipt"}, QDir::Files).size() >= 64) return;
+        const auto path = m_root + '/' + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".receipt";
+        if (m_downloads->enableCheckpoint(path, {{"title", task.title}, {"task", QString::number(id)},
+            {"target", task.targetId}, {"filesOnly", true}, {"continuation", m_continuationSnapshot ? m_continuationSnapshot() : QJsonObject()}})) {
+            m_current = id; m_records.insert(id, path);
+        }
+    });
+    connect(downloads, &DownloadManager::checkpointChanged, this, &DownloadBatchController::sync);
+    connect(downloads, &DownloadManager::batchProgress, this, [this] { sync(); });
+    connect(downloads, &DownloadManager::allDownloadsFinished, this, &DownloadBatchController::complete);
+    connect(activity->tasks(), &Tasks::TaskManager::taskFinished, this, [this](Tasks::TaskId id, bool) {
+        if (m_activity->tasks()->snapshot(id).state != Tasks::TaskState::Cancelled || !owns(id)) return;
+        if (id == m_current) { m_downloads->forgetCheckpoint(); m_current = Tasks::invalidTaskId(); }
+        else { DownloadCheckpoint receipt; if (receipt.load(m_records.value(id))) receipt.discard(); }
+        m_records.remove(id);
+    });
+    connect(activity, &QObject::destroyed, this, [this] { m_activity = nullptr; m_stopping = true; });
+    connect(downloads, &QObject::destroyed, this, [this] { m_downloads = nullptr; m_stopping = true; });
+}
+void DownloadBatchController::load() {
+    if (m_stopping || !DownloadCheckpoint::safePath(m_root)) return;
+    const auto names = QDir(m_root).entryList({"*.receipt"}, QDir::Files, QDir::Name);
+    if (names.size() > 64) return; // Keep unexpected/unbounded evidence intact.
+    for (const auto &name : names) {
+        const auto path = m_root + '/' + name;
+        if (m_records.values().contains(path)) continue;
+        DownloadCheckpoint receipt;
+        if (!receipt.load(path) || receipt.files.isEmpty()) continue;
+        bool ok = false; const auto oldId = receipt.context.value("task").toString().toULongLong(&ok);
+        Tasks::TaskId id = Tasks::invalidTaskId();
+        if (ok && m_activity->tasks()->has(oldId)) {
+            const auto old = m_activity->tasks()->snapshot(oldId);
+            const bool sameIntent = old.title == receipt.context.value("title").toString()
+                && old.targetId == receipt.context.value("target").toString();
+            if (sameIntent && ((old.state == Tasks::TaskState::Succeeded && receipt.context.value("phase") != "continue-install") || old.state == Tasks::TaskState::Cancelled)) {
+                receipt.discard(); continue;
+            }
+            if (sameIntent && (Tasks::isTerminalState(old.state) || old.state == Tasks::TaskState::Paused)) id = oldId;
+        }
+        const bool hasContinuation = !receipt.context.value("continuation").toObject().isEmpty();
+        const bool reused = id != Tasks::invalidTaskId();
+        if (!reused) id = m_activity->begin(hasContinuation ? Tasks::TaskKind::Install : Tasks::TaskKind::Download,
+            receipt.context.value("title").toString(), receipt.context.value("target").toString());
+        if (receipt.context.value("phase") == "continue-install") {
+            if (reused) {
+                m_activity->tasks()->setRecovery(id, name, true);
+                if (!m_activity->tasks()->queueRecovery(id) || !m_activity->tasks()->startQueued(id)) continue;
+            }
+            auto caps = m_activity->tasks()->snapshot(id).capabilities; caps.canPause = true;
+            m_activity->tasks()->setCapabilities(id, caps); m_activity->tasks()->pause(id);
+            m_activity->tasks()->setDetail(id, tr("文件已补齐，等待明确点击继续安装；执行前仍会检查目标和预设变化。"));
+        } else if (!reused) m_activity->finish(id, false, tr("上次文件下载中断。先补齐文件，不会自动执行安装器。"), false);
+        else m_activity->tasks()->setDetail(id, tr("上次文件下载中断。先补齐文件，不会自动执行安装器。"));
+        receipt.context.insert("task", QString::number(id));
+        if (!receipt.save()) continue;
+        m_records.insert(id, path);
+        m_activity->tasks()->setRecovery(id, name, true);
+    }
+}
+bool DownloadBatchController::owns(Tasks::TaskId id) const { return m_records.contains(id); }
+bool DownloadBatchController::canCancel(Tasks::TaskId id) const {
+    return owns(id) && (id != m_current || m_restoring || (m_downloads && m_downloads->batchPaused()));
+}
+void DownloadBatchController::sync() {
+    if (!m_activity || !m_downloads || !owns(m_current)) return;
+    if (m_downloads->checkpointPath().isEmpty()) {
+        m_activity->tasks()->setRecovery(m_current, {}, false);
+        m_records.remove(m_current); m_current = Tasks::invalidTaskId(); return;
+    }
+    auto caps = m_activity->tasks()->snapshot(m_current).capabilities;
+    caps.canPause = m_downloads->canPauseBatch();
+    m_activity->tasks()->setCapabilities(m_current, caps);
+    if (m_restoring) {
+        const auto stats = m_downloads->stats();
+        m_activity->tasks()->setProgress(m_current, stats.done, stats.total);
+        m_activity->tasks()->setDetail(m_current, tr("补齐文件 %1 / %2；尚未执行安装器。").arg(stats.done).arg(stats.total));
+    }
+}
+bool DownloadBatchController::pause(Tasks::TaskId id) {
+    if (m_stopping || !owns(id) || id != m_current || !m_downloads->canPauseBatch()) return false;
+    // Set the ledger before cancellation: aborted old replies must not end the task.
+    auto caps = m_activity->tasks()->snapshot(id).capabilities; caps.canPause = true;
+    m_activity->tasks()->setCapabilities(id, caps);
+    if (!m_downloads->pauseBatch()) return false;
+    caps = m_activity->tasks()->snapshot(id).capabilities; caps.canPause = true;
+    m_activity->tasks()->setCapabilities(id, caps);
+    if (!m_activity->tasks()->pause(id)) return false;
+    m_activity->tasks()->setRecovery(id, QFileInfo(m_records.value(id)).fileName(), true);
+    m_activity->tasks()->setDetail(id, tr("已暂停文件下载。已保存完整分段；继续前会检查目标变化，安装器和提交阶段不可暂停。"));
+    return true;
+}
+bool DownloadBatchController::resume(Tasks::TaskId id) {
+    if (m_stopping || !owns(id)) return false;
+    const bool live = id == m_current && m_downloads->batchPaused();
+    if (!live && m_downloads->isBusy()) return false;
+    if (!live && m_restoreAllowed && !m_restoreAllowed()) {
+        m_activity->tasks()->setDetail(id, tr("有游戏、启动或文件操作正在进行，请结束后再继续文件恢复。")); return false;
+    }
+    QString problem;
+    DownloadCheckpoint receipt;
+    if (!live && !receipt.load(m_records.value(id))) return false;
+    const auto entries = live ? QList<DownloadCheckpoint::File>() : receipt.files;
+    QSet<QString> roots;
+    for (const auto &entry : entries) roots.insert(WriteDirectoryGuard::rootFor(QFileInfo(entry.path).absolutePath()));
+    for (const auto &root : roots) if (!WriteDirectoryGuard::acquire(root, &problem)) {
+        m_activity->tasks()->setRecovery(id, QFileInfo(m_records.value(id)).fileName(), false, problem); return false;
+    }
+    if (!live && receipt.context.value("phase") == "continue-install") {
+        if (!m_continue) return false;
+        for (const auto &entry : receipt.files) if (!DownloadCheckpoint::unchanged(entry)) {
+            m_activity->tasks()->setRecovery(id, QFileInfo(m_records.value(id)).fileName(), false, tr("文件已被外部修改，请重新预览安装。")); return false;
+        }
+        if (!m_activity->tasks()->queueRecovery(id) || !m_activity->tasks()->startQueued(id)) return false;
+        const auto path = m_records.take(id);
+        if (m_continue(id, receipt.context.value("continuation").toObject())) { receipt.discard(); return true; }
+        m_records.insert(id, path);
+        m_activity->finish(id, false, tr("目标、安装环境或原配置已变化，请重新预览安装。"), false);
+        m_activity->tasks()->setRecovery(id, QFileInfo(path).fileName(), false, tr("请重新预览安装。"));
+        return false;
+    }
+    receipt.lock.reset();
+    if (!m_activity->tasks()->queueRecovery(id) || !m_activity->tasks()->startQueued(id)) return false;
+    m_current = id;
+    if (!live) m_restoring = true;
+    const bool started = live ? m_downloads->resumeBatch(&problem) : m_downloads->restoreBatch(m_records.value(id), &problem);
+    if (!started) {
+        if (live) {
+            auto caps = m_activity->tasks()->snapshot(id).capabilities; caps.canPause = true;
+            m_activity->tasks()->setCapabilities(id, caps); m_activity->tasks()->pause(id);
+            m_activity->tasks()->setDetail(id, problem);
+        } else {
+            m_current = Tasks::invalidTaskId(); m_restoring = false;
+            m_activity->finish(id, false, problem, false);
+        }
+        m_activity->tasks()->setRecovery(id, QFileInfo(m_records.value(id)).fileName(), false, problem);
+    }
+    sync(); return started;
+}
+void DownloadBatchController::complete(bool success) {
+    if (!m_activity || !owns(m_current)) return;
+    const auto id = m_current;
+    const bool continuation = success && m_restoring && m_continue &&
+        !m_downloads->checkpointContext().value("continuation").toObject().isEmpty();
+    if (continuation) {
+        if (!m_downloads->deferCheckpointContinuation()) {
+            m_activity->finish(id, false, tr("文件已保留，但安装接续记录未能保存；未执行安装器，请再次继续或重新预览。"), false);
+            m_activity->tasks()->setRecovery(id, QFileInfo(m_records.value(id)).fileName(), true);
+            m_current = Tasks::invalidTaskId(); m_restoring = false; return;
+        }
+        m_activity->tasks()->setDetail(id, tr("文件已补齐。再次点击继续，才会按原选择继续安装并应用预设；安装器未自动执行。"));
+        auto caps = m_activity->tasks()->snapshot(id).capabilities; caps.canPause = true;
+        m_activity->tasks()->setCapabilities(id, caps); m_activity->tasks()->pause(id);
+        m_activity->tasks()->setRecovery(id, QFileInfo(m_records.value(id)).fileName(), true);
+        m_current = Tasks::invalidTaskId(); m_restoring = false;
+        return;
+    }
+    if (m_restoring) {
+        m_activity->tasks()->setDetail(id, success ? tr("已补齐并校验记录中的文件。请回原安装流程继续；安装器未自动执行。")
+            : tr("仍有文件未完成，已保留记录，可再次继续。"));
+        m_activity->finish(id, success, success ? QString() : tr("文件下载未完成。"), false);
+    }
+    if (success) {
+        m_downloads->forgetCheckpoint(); m_records.remove(id);
+        m_activity->tasks()->setRecovery(id, {}, false);
+    } else m_activity->tasks()->setRecovery(id, QFileInfo(m_records.value(id)).fileName(), true);
+    m_current = Tasks::invalidTaskId(); m_restoring = false;
+}
+bool DownloadBatchController::cancel(Tasks::TaskId id) {
+    if (!owns(id)) return false;
+    if (id == m_current && !m_restoring) return false; // VM owns its terminal signal, including a paused batch.
+    if (id == m_current) {
+        m_downloads->cancelBatch(); m_current = Tasks::invalidTaskId(); m_restoring = false;
+    } else { DownloadCheckpoint receipt; if (!receipt.load(m_records.value(id))) return false; receipt.discard(); }
+    m_records.remove(id); m_activity->tasks()->cancel(id); m_activity->tasks()->setRecovery(id, {}, false);
+    return true;
+}
+void DownloadBatchController::shutdown() { if (!m_stopping) { if (m_downloads && m_downloads->canPauseBatch()) pause(m_current); m_stopping = true; } }

@@ -265,6 +265,8 @@ set(SOURCE_FILES
     src/controllers/ToolboxController.cpp
     src/controllers/DirectDownloadController.cpp
     src/controllers/DirectDownloadRecovery.cpp
+    src/controllers/DownloadBatchController.cpp
+    src/controllers/DownloadInstallContinuation.cpp
     src/controllers/BackupController.cpp
     src/controllers/ServerPingController.cpp
     src/controllers/FolderController.cpp
@@ -385,6 +387,7 @@ set(SOURCE_FILES
     src/settings/GameWindowSettings.cpp
     src/settings/LauncherSettings.cpp
     src/download/DownloadManager.cpp
+    src/download/DownloadManagerRecovery.cpp
     src/download/LocalFileReuse.cpp
     src/download/AssetDirectorKnownSet.cpp
     src/download/AssetDirectorKnownSetData.cpp

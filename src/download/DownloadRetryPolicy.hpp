@@ -10,6 +10,7 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <QUrl>
+#include <QRegularExpression>
 #include <algorithm>
 
 namespace DownloadRetryPolicy {
@@ -20,7 +21,19 @@ inline QString displayError(QNetworkReply::NetworkError error, const QString &fa
         return QCoreApplication::translate("DownloadRetryPolicy", "网络请求已中止（可能由超时、换源或取消操作触发）。");
     if (error == QNetworkReply::TimeoutError)
         return QCoreApplication::translate("DownloadRetryPolicy", "网络请求超时，请检查网络后重试。");
-    return fallback;
+    // Qt embeds the full request URL in many network errors. Never copy signed
+    // queries, fragments or embedded credentials into logs/task history.
+    QString safe = fallback;
+    static const QRegularExpression urls(QStringLiteral("https?://[^\\s<>\\\"']+"), QRegularExpression::CaseInsensitiveOption);
+    QList<QRegularExpressionMatch> matches;
+    auto it = urls.globalMatch(fallback);
+    while (it.hasNext()) matches.append(it.next());
+    for (auto i = matches.crbegin(); i != matches.crend(); ++i) {
+        const auto url = QUrl(i->captured());
+        safe.replace(i->capturedStart(), i->capturedLength(),
+            url.adjusted(QUrl::RemoveUserInfo | QUrl::RemoveQuery | QUrl::RemoveFragment).toString());
+    }
+    return safe;
 }
 // All download managers (including nested range workers) share origin cooldowns.
 // Monotonic deadlines avoid wall-clock changes; unrelated origins keep running.

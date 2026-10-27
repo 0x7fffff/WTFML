@@ -1,6 +1,7 @@
 #include "DirectDownloadController.hpp"
 #include "ActivityCenterController.hpp"
 #include "download/ResumableDownload.hpp"
+#include "download/DownloadCheckpoint.hpp"
 #include "auth/TokenStore.hpp"
 #include "DownloadToolDialog.hpp"
 #include <QFile>
@@ -40,7 +41,7 @@ bool DirectDownloadController::saveRecovery() {
     QJsonArray jobs;
     for (auto it = m_recoveries.cbegin(); it != m_recoveries.cend(); ++it)
         jobs.append(QJsonObject{{"task", QString::number(it.key())}, {"token", it->token},
-            {"url", it->request.url.toString(QUrl::FullyEncoded)}, {"path", it->request.path}});
+            {"url", it->request.url.toString(QUrl::FullyEncoded)}, {"path", it->request.path}, {"original", it->original}});
     const auto bytes = TokenStore::protect(QJsonDocument(QJsonObject{{"format", 1}, {"jobs", jobs}}).toJson());
 #ifdef Q_OS_WIN
     // Signed URLs may contain credentials. Refuse the legacy obfuscation fallback.
@@ -77,7 +78,12 @@ void DirectDownloadController::loadRecovery() {
                 QFileInfo(path).fileName(), &request, &problem) || request.path != path) {
             m_recoveryReadable = false; return;
         }
-        parsed.insert(id, {request, token}); paths.insert(path.toCaseFolded()); tokens.insert(token);
+        const auto original = row.contains("original") ? row.value("original").toObject() : QJsonObject{{"exists", false}};
+        if (!original.value("exists").isBool() || (original.value("exists").toBool() &&
+            (original.value("sha256").toString().size() != 64 || !original.value("size").isString()))) {
+            m_recoveryReadable = false; return;
+        }
+        parsed.insert(id, {request, token, original}); paths.insert(path.toCaseFolded()); tokens.insert(token);
     }
     for (auto it = parsed.cbegin(); it != parsed.cend(); ++it) {
         Tasks::TaskId id = it.key();
@@ -120,17 +126,18 @@ bool DirectDownloadController::pause(Tasks::TaskId id) {
 bool DirectDownloadController::resume(Tasks::TaskId id) {
     if (!m_activity || m_stopping || !m_recoveries.contains(id)) return false;
     const auto record = m_recoveries.value(id);
-    if (!safeParent(record.request.path) || QFileInfo::exists(record.request.path)) {
+    if (!safeParent(record.request.path) || DownloadCheckpoint::fingerprint(record.request.path) != record.original) {
         m_activity->tasks()->setRecovery(id, record.token, false, tr("目标已出现文件或目录已变化，请重新预览下载，未覆盖。"));
         return false;
     }
     if (!saveRecovery()) return false;
+    m_activity->tasks()->setRecovery(id, record.token, true);
     const bool queued = m_activity->queueRecovery(id, this, [this, record](Tasks::TaskId task) {
         // Re-probe the original URL, never reuse a persisted redirect/CDN address.
-        if (QFileInfo::exists(record.request.path) || !safeParent(record.request.path)) {
+        if (!safeParent(record.request.path) || DownloadCheckpoint::fingerprint(record.request.path) != record.original) {
             m_activity->finish(task, false, tr("目标在排队期间变化，未继续下载。"), false); return;
         }
-        startJob(task, record.request, false);
+        startJob(task, record.request, record.original.value("exists").toBool());
     });
     if (queued) m_pendingPaths.insert(id, record.request.path);
     return queued;

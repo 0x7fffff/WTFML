@@ -7,6 +7,7 @@
  */
 
 #include "DownloadManager.hpp"
+#include "DownloadCheckpoint.hpp"
 #include "DownloadCache.hpp"
 #include "DownloadRetryPolicy.hpp"
 #include "ResumableDownload.hpp"
@@ -904,6 +905,9 @@ QJsonObject DownloadManager::getVersionJson() const { return currentVersionJson;
 void DownloadManager::setFlaggedPaths(const QStringList &paths) { m_flaggedPaths = paths; }
 
 void DownloadManager::beginBatch() {
+    m_checkpoint.reset();
+    m_checkpointFailed = false;
+    m_batchPaused = false;
     // 上一批还没收尾就又被开始了，先替它收尾，否则它的完成信号会丢。
     if (m_batchOpen) {
         qWarning() << "beginBatch() called while a batch was still open, closing it first.";
@@ -926,6 +930,7 @@ void DownloadManager::beginBatch() {
     m_currentFile.clear();
     m_batchEmitted = false;
     m_batchOpen = true;
+    emit batchStarted();
     if (DownloadDiag::enabled()) {
         DownloadDiag::line(QStringLiteral(
                                "batch begin gen=%1 mirror=%2 mirrorPreferred=%3 cap=%4 "
@@ -991,6 +996,8 @@ void DownloadManager::abandonBatch() {
 }
 
 void DownloadManager::cancelBatch() {
+    if (!m_suspendingBatch) forgetCheckpoint();
+    m_batchPaused = false;
     if (m_speedProbe) m_speedProbe->abort();
     if (DownloadDiag::enabled()) {
         DownloadDiag::line(QStringLiteral("batch cancelled gen=%1 oldGen=%2 total=%3 done=%4 "
@@ -1062,7 +1069,7 @@ bool DownloadManager::isBusy() const {
     // 界面显示空闲、取消按钮失效"。
     // 「借文件」那条线也是这样：它没发网络请求，但它确实还在干活（找来源 / 复制几 MB）。
     // 漏掉它的表现和分段那条一样 —— 界面解禁、用户以为已经就绪，而文件还没落盘。
-    return m_batchOpen || pendingDownloads > 0 || !m_pendingJobs.isEmpty()
+    return m_batchPaused || m_batchOpen || pendingDownloads > 0 || !m_pendingJobs.isEmpty()
            || !m_segmentJobs.isEmpty() || m_reuseActive > 0 || !m_reuseQueue.isEmpty();
 }
 
@@ -1169,10 +1176,18 @@ void DownloadManager::scheduleFile(const QString &url, const QString &destinatio
         return;
     }
 
+    if (m_checkpoint && !range.active()) {
+        const auto path = QDir::cleanPath(QFileInfo(destinationPath).absoluteFilePath());
+        if (!m_checkpoint->add({url, path, expectedSha1, officialUrl, expectedSize, DownloadCheckpoint::fingerprint(path)})) {
+            m_checkpointFailed = true;
+            emit checkpointChanged();
+        }
+    }
+
     // 盘上没有，但**别的游戏文件夹里可能有一模一样的**（见
     // setReuseSourceFolders()）。这一步排在 m_totalJobs++ 之前是故意的：借成功的话它
     // 压根不走网络，就不该占进度条分母（和跳过那一支同一个道理）；借不到再回来补记。
-    if (mode != VerifyMode::AlwaysDownload && !m_flaggedPaths.contains(destinationPath)
+    if (!m_checkpoint && mode != VerifyMode::AlwaysDownload && !m_flaggedPaths.contains(destinationPath)
         && !expectedSha1.isEmpty() && !range.active() && !m_reuseSourceFolders.isEmpty()) {
         const QString relativePath =
             LocalFileReuse::relativePathWithin(destinationPath, AppPaths::minecraftDir());
@@ -1200,14 +1215,36 @@ void DownloadManager::queueNetworkJob(const QString &url, const QString &destina
     m_totalJobs++;
     // 排进队列之后立刻试着发一次：队列是空的、连接也有富余的时候，这一句就把它发出去了
     // （所以"只下一两个文件"的那些调用点感觉不到队列存在）。
-    const bool segmented = m_segmentEnabled && segmentedEligible(url, expectedSha1, expectedSize, range);
+    const bool segmented = m_segmentEnabled && (!m_checkpoint || !expectedSha1.isEmpty())
+        && segmentedEligible(url, expectedSha1, expectedSize, range);
     m_pendingJobs.enqueue(
         PendingJob{url, destinationPath, expectedSha1, expectedSize, officialUrl,
                    QUrl(url).host(), 0, 0, range, segmented});
-    pumpDownloadQueue();
+    if (m_checkpoint) {
+        if (!m_checkpointPumpQueued) {
+            m_checkpointPumpQueued = true;
+            QTimer::singleShot(0, this, [this] { m_checkpointPumpQueued = false; pumpDownloadQueue(); });
+        }
+    } else pumpDownloadQueue();
 }
 
 void DownloadManager::pumpDownloadQueue() {
+    if (m_batchPaused) return;
+    if (m_checkpoint && m_checkpoint->dirty) {
+        if (!m_checkpoint->save()) m_checkpointFailed = true;
+        emit checkpointChanged();
+        if (m_checkpointFailed) {
+            // Do not send an unjournalled write; surface a normal failed batch.
+            m_checkpoint.reset();
+            const auto jobs = m_pendingJobs;
+            m_pendingJobs.clear();
+            for (const auto &job : jobs) {
+                ++m_doneJobs; ++m_failedJobs; m_failedPaths.append(job.destinationPath);
+                emit downloadFinished(QFileInfo(job.destinationPath).fileName(), false, tr("无法保存下载恢复记录，未开始写入。"));
+            }
+            checkAllDownloadsFinished(); return;
+        }
+    }
     // 限速欠账没还清之前不发新作业：小文件的身子大半在"结束那一刻一次性写完"的那一口里
     // （见 throttledReadBufferBytes 的说明），不挡住新作业的话，缓冲里那些字节就等于
     // 免费通过 —— 上限会被放大好几倍。负余额只表示"还欠多少字节"，不是错误；下一拍补到
@@ -1480,6 +1517,7 @@ void DownloadManager::startSegmentedDownload(const PendingJob &job) {
     const bool rerouted = (targetUrl != job.url);
 
     auto *task = new ResumableDownload(this, m_networkFactory);
+    task->setCommitGuard(checkpointGuard(job.destinationPath));
     // 限速要跟着这一条走：它在 start() 里会建自己那份下载器（见那个 setter 的说明）。
     // 并且**和外层共用一个令牌桶** —— 每个分段作业各拿一份上限的话，
     // 设 1 MB/s 时三个作业加上外层能跑出四倍。
@@ -1781,6 +1819,7 @@ void DownloadManager::startDownload(const QUrl &url, const QString &destinationP
                 reply->abort();
             });
     const auto stream = QSharedPointer<StreamedFile>::create(destinationPath, m_allowOverwrite);
+    stream->commitGuard = checkpointGuard(destinationPath);
     m_streamedFiles.insert(reply, stream);
     // 文件作业才量首字节（元数据那几条走的是别的槽，没有 readyRead 这一截）。
     // 有这一格，"ttfb=never"才只表示"真的一口都没吐"，而不是"这条没量"。
@@ -2081,6 +2120,7 @@ void DownloadManager::downloadAssets(const AssetIndex &assetIndex) {
         expectedSha1s[indexReply] = assetIndex.sha1;
     }
     pendingDownloads++;
+    indexReply->setProperty("wtfmlAssetIndex", true);
     connect(indexReply, &QNetworkReply::finished, this, &DownloadManager::onAssetIndexDownloaded);
     connect(indexReply, &QNetworkReply::downloadProgress, this,
             &DownloadManager::onDownloadReplyProgress);
@@ -2886,6 +2926,19 @@ void DownloadManager::onDownloadReplyFinished() {
     }
     if (success) {
         noteReroutedReplyOutcome(reply, true);
+        if (!stale && m_checkpoint && stream) {
+            const auto it = m_checkpoint->indexes.constFind(QDir::cleanPath(destPath).toCaseFolded());
+            if (it != m_checkpoint->indexes.cend()) {
+                auto &entry = m_checkpoint->files[it.value()];
+                if (entry.sha1.isEmpty()) {
+                    // Persist our own verified output identity, so a no-hash source can
+                    // skip completed files after a pause without blessing external edits.
+                    entry.sha1 = QString::fromLatin1(stream->hash.result().toHex()); entry.size = stream->bytes;
+                    m_checkpoint->dirty = true;
+                    if (!m_checkpoint->save()) m_checkpointFailed = true;
+                }
+            }
+        }
         m_officialFallbacks.remove(reply);
         m_stallMeters.remove(reply);
         // 落盘那一步不分成哪一批（数据本身是好东西），**报**这一步才分：上一批的完成信号

@@ -29,6 +29,7 @@
 #include <QUrl>
 #include <QVariant>
 #include <QSharedPointer>
+#include <functional>
 #include "NetworkManagerFactory.hpp"
 
 #include "DownloadConcurrency.hpp"  // 「同时最多下几个」那四档（唯一出处）
@@ -39,6 +40,7 @@ class QTimer;
 class QThreadPool;
 class StreamedFile;
 class ResumableDownload;
+class DownloadCheckpoint;
 
 struct DownloadRange {
     qint64 first = -1, last = -1, total = -1;
@@ -590,6 +592,19 @@ public:
     /// 再 abort —— 那些回调走的就是"这一条不属于当前批次"那条路。
     void cancelBatch();
 
+    // Opt-in at the owning executor's batch boundary; nested range downloaders stay unregistered.
+    bool enableCheckpoint(const QString &path, const QJsonObject &context);
+    bool canPauseBatch() const;
+    bool pauseBatch();
+    bool resumeBatch(QString *problem = nullptr);
+    bool restoreBatch(const QString &path, QString *problem = nullptr);
+    bool batchPaused() const { return m_batchPaused; }
+    QString checkpointPath() const;
+    QJsonObject checkpointContext() const;
+    bool deferCheckpointContinuation();
+    void forgetCheckpoint();
+    void setCommitGuard(std::function<QString()> guard) { m_commitGuard = std::move(guard); }
+
     /// 失败作业要重做时需要的**全部**东西（见 `failedJobs()`）。够 `downloadFile()` 再喂一遍。
     struct FailedJob {
         /// 这一条该从哪儿下（失败那一次用的那个地址）。
@@ -641,6 +656,8 @@ signals:
     // 进度用标量发，避免每来一个网络分片就拷贝一份 DownloadStats。
     void batchProgress(int done, int total, int failed, const QString &currentFile);
     void allDownloadsFinished(bool success);
+    void batchStarted();
+    void checkpointChanged();
 
 private slots:
     /// 看门狗每跳一次（5 秒）：看"在看之下"的那些回复动没动，没动就降级 + abort。
@@ -654,6 +671,13 @@ private slots:
     void onAssetIndexDownloaded();
 
 private:
+    QSharedPointer<DownloadCheckpoint> m_checkpoint;
+    bool m_batchPaused = false;
+    bool m_checkpointFailed = false;
+    bool m_checkpointPumpQueued = false;
+    bool m_suspendingBatch = false;
+    std::function<QString()> m_commitGuard;
+    std::function<QString()> checkpointGuard(const QString &path) const;
     QNetworkAccessManager *networkManager;
     NetworkManagerFactory m_networkFactory;
     QList<MinecraftVersion> availableVersions;

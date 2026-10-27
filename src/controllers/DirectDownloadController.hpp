@@ -4,6 +4,7 @@
 #include <QElapsedTimer>
 #include <QSet>
 #include <QHash>
+#include <QJsonObject>
 #include <memory>
 #include "tasks/TaskId.hpp"
 #include "download/DirectDownloadRequest.hpp"
@@ -30,7 +31,7 @@ public:
     Tasks::TaskId taskId() const { return m_task; }
     Tasks::TaskId lastSubmittedTaskId() const { return m_lastSubmitted; }
 private:
-    struct Recovery { DirectDownloadRequest request; QString token; };
+    struct Recovery { DirectDownloadRequest request; QString token; QJsonObject original; };
     QHash<Tasks::TaskId, Recovery> m_recoveries;
     QString m_recoveryPath;
     bool m_recoveryReadable = true;

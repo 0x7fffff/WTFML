@@ -74,6 +74,7 @@ class ModpackExportController;
 class InstanceFileController;
 class InstanceTransferController;
 class FileOperationRecoveryController;
+class DownloadBatchController;
 class InstanceDialogController;
 class InstanceEditorController;
 class ImportController;
@@ -2880,6 +2881,9 @@ private:
     InstanceTransferController *m_instanceTransferController = nullptr;
     /// 「继续未完成操作」：按 OperationReport 把没做完的文件操作补完。
     FileOperationRecoveryController *m_fileRecovery = nullptr;
+    DownloadBatchController *m_downloadBatches = nullptr;
+    QJsonObject snapshotDownloadContinuation() const;
+    bool continueDownloadInstallation(Tasks::TaskId id, const QJsonObject &intent);
     InstanceDialogController *m_instanceDialogController = nullptr;
     InstanceEditorController *m_instanceEditorController = nullptr;
     ImportController *m_importController = nullptr;

@@ -518,6 +518,7 @@ void ResumableDownload::startSingle() {
     m_stage = Stage::Single;
     emit statusChanged(tr("源站未满足安全分段条件，使用普通下载与有限重试。"));
     m_files->setAllowOverwrite(m_overwrite);
+    m_files->setCommitGuard(m_commitGuard);
     m_files->beginBatch();
     m_files->downloadFile(m_url.toString(), m_target, m_sha1, m_expectedSize, VerifyMode::AlwaysDownload);
     m_files->endBatch();
@@ -539,6 +540,7 @@ void ResumableDownload::assemble() {
     const auto lock = m_lock;
     const auto generation = m_generation;
     const auto total = m_total; const bool overwrite = m_overwrite;
+    const auto commitGuard = m_commitGuard;
     auto *worker = QThread::create([=] {
         Q_UNUSED(lock);
         QDir().mkpath(QFileInfo(target).absolutePath());
@@ -570,6 +572,7 @@ void ResumableDownload::assemble() {
         }
         if (token->loadRelaxed()) return;
         if (!overwrite && (QFileInfo::exists(target) || QFileInfo(target).isSymLink())) { *result = QStringLiteral("目标文件已出现，未覆盖。"); return; }
+        if (commitGuard) { *result = commitGuard(); if (!result->isEmpty()) return; }
         // 取消和原子提交只有一个能获准：接受取消后绝不再替换旧目标。
         if (!token->testAndSetOrdered(0, 2)) return;
         if (!output.commit()) *result = output.errorString();

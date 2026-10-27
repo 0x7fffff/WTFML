@@ -277,6 +277,8 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/controllers/ToolboxController.cpp
     ${REPO_ROOT}/src/controllers/DirectDownloadController.cpp
     ${REPO_ROOT}/src/controllers/DirectDownloadRecovery.cpp
+    ${REPO_ROOT}/src/controllers/DownloadBatchController.cpp
+    ${REPO_ROOT}/src/controllers/DownloadInstallContinuation.cpp
     ${REPO_ROOT}/src/controllers/ToolboxController.hpp
     ${REPO_ROOT}/ui/ToolboxPage.cpp
     ${REPO_ROOT}/ui/ToolboxPage.hpp
@@ -504,6 +506,7 @@ function(add_mw_module target source)
  add_dependencies(wtfml_specialist_modules ${target})
 endfunction()
 add_mw_module(mw_check_high_speed_download modules/MwHighSpeedDownloadCheck.cpp MwHighSpeedDownloadCheck)
+target_sources(mw_check_high_speed_download_case PRIVATE DownloadBatchChecks.cpp)
 add_mw_module(mw_check_download_retry modules/MwDownloadRetryCheck.cpp MwDownloadRetryCheck)
 target_sources(mw_check_download_retry_case PRIVATE RequestBudgetChecks.cpp)
 add_mw_module(mw_check_activity_selection modules/MwActivitySelectionCheck.cpp MwActivitySelectionCheck)

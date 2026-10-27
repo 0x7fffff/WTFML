@@ -3,6 +3,7 @@
 #include "download/ResumableDownload.hpp"
 #include "DownloadToolDialog.hpp"
 #include "download/DownloadCache.hpp"
+#include "download/DownloadCheckpoint.hpp"
 #include "util/AppPaths.hpp"
 #include <QUuid>
 #include <QLockFile>
@@ -103,7 +104,7 @@ bool DirectDownloadController::start(const DirectDownloadRequest &request, bool 
     if (m_stopping) return reject(tr("启动器正在关闭，不能新增下载。"));
     if (!m_activity) return reject(tr("任务中心尚未就绪。"));
     loadRecovery();
-    if (!allowOverwrite && m_recoveries.size() >= 64) return reject(tr("待恢复下载已达64项，请先继续或取消已有任务。"));
+    if (m_recoveries.size() >= 64) return reject(tr("待恢复下载已达64项，请先继续或取消已有任务。"));
     if (!QDir::isAbsolutePath(request.path)) return reject(tr("目标文件必须是绝对路径。"));
     DirectDownloadRequest validated;
     if (!DirectDownloadRequest::parse(request.url.toString(), QFileInfo(request.path).absolutePath(), QFileInfo(request.path).fileName(), &validated, error)) return false;
@@ -112,12 +113,13 @@ bool DirectDownloadController::start(const DirectDownloadRequest &request, bool 
     for (auto it = m_recoveries.begin(); it != m_recoveries.end(); ++it) {
         const auto state = m_activity->tasks()->snapshot(it.key()).state;
         if (samePath(it->request.path) && it->request.url != validated.url &&
-            (state == Tasks::TaskState::Paused || Tasks::isTerminalState(state)) && !allowOverwrite) {
+            (state == Tasks::TaskState::Paused || Tasks::isTerminalState(state))) {
             const auto previous = it->request.url; it->request.url = validated.url;
             if (!saveRecovery()) { it->request.url = previous; return reject(tr("无法保存新的下载地址，未继续。")); }
             const auto id = it.key();
             if (!resume(id)) return reject(tr("目标已变化或任务无法继续，请检查任务中心提示。"));
             m_lastSubmitted = id;
+            m_activity->startReady();
             if (error) error->clear();
             return true;
         }
@@ -132,10 +134,11 @@ bool DirectDownloadController::start(const DirectDownloadRequest &request, bool 
         QStringLiteral("direct-download"), this, [this, validated, allowOverwrite](Tasks::TaskId job) { startJob(job, validated, allowOverwrite); });
     if (id == Tasks::invalidTaskId()) return reject(tr("等待队列已满，请稍后再添加。"));
     m_lastSubmitted = id; m_ownedTasks.insert(id); m_pendingPaths.insert(id, validated.path);
-    // Replacing an existing original needs a separate immutable backup contract.
-    // Only absent-target jobs are recoverable; never silently bless changed originals.
-    if (!allowOverwrite && m_recoveryReadable) {
-        m_recoveries.insert(id, {validated, QUuid::createUuid().toString(QUuid::WithoutBraces)});
+    // Preserve the user's consent against the exact original, not merely the same pathname.
+    if (m_recoveryReadable) {
+        const auto original = DownloadCheckpoint::fingerprint(validated.path);
+        if (original.isEmpty()) { m_activity->tasks()->cancel(id); return reject(tr("目标不可读或包含链接，未开始下载。")); }
+        m_recoveries.insert(id, {validated, QUuid::createUuid().toString(QUuid::WithoutBraces), original});
         if (!saveRecovery()) {
             m_recoveries.remove(id); m_activity->tasks()->cancel(id);
             return reject(tr("无法保存下载恢复记录，未开始下载。"));
@@ -183,6 +186,16 @@ void DirectDownloadController::startJob(Tasks::TaskId id, const DirectDownloadRe
         if (m_dialog) m_dialog->status->setText(message);
     });
     connect(m_download, &ResumableDownload::finished, this, [this](bool success, const QString &message) { finish(success, message); });
+    if (m_recoveries.contains(id)) {
+        const auto original = m_recoveries.value(id).original;
+        const auto target = validated.path;
+        const auto guard = [target, original] {
+            return DownloadCheckpoint::fingerprint(target) == original ? QString()
+                : QStringLiteral("目标已被外部修改，请重新预览；未覆盖。");
+        };
+        if (!guard().isEmpty()) { finish(false, guard()); return; }
+        m_download->setCommitGuard(guard);
+    }
     m_download->start(validated.url, validated.path, {}, -1, allowOverwrite);
     syncPauseCapability();
     manageCache(1);
@@ -243,11 +256,13 @@ bool DirectDownloadController::owns(Tasks::TaskId id) const { return m_ownedTask
 bool DirectDownloadController::canCancel(Tasks::TaskId id) const {
     return m_activity != nullptr && owns(id) && (m_activity->isQueued(id) ||
         m_activity->tasks()->snapshot(id).state == Tasks::TaskState::Paused ||
+        (m_recoveries.contains(id) && Tasks::isTerminalState(m_activity->tasks()->snapshot(id).state)) ||
         (id == m_task && m_running && m_download && m_download->canCancel()));
 }
 bool DirectDownloadController::cancel(Tasks::TaskId id) {
     if (!owns(id)) return false;
-    if (m_activity != nullptr && (m_activity->isQueued(id) || m_activity->tasks()->snapshot(id).state == Tasks::TaskState::Paused)) {
+    if (m_activity != nullptr && (m_activity->isQueued(id) || m_activity->tasks()->snapshot(id).state == Tasks::TaskState::Paused ||
+        (m_recoveries.contains(id) && Tasks::isTerminalState(m_activity->tasks()->snapshot(id).state)))) {
         m_pendingPaths.remove(id); m_recoveries.remove(id); saveRecovery(); m_activity->tasks()->cancel(id);
         m_activity->tasks()->setRecovery(id, {}, false);
         return true;
