@@ -211,7 +211,27 @@ void PresetModInstaller::start(const QList<ModReference> &references, const QStr
     m_deadline = new QTimer(this); m_deadline->setSingleShot(true);
     connect(m_deadline, &QTimer::timeout, this, [this] { if (!m_done) cancel(); });
     m_deadline->start(m_remainingMs);
-    readInventory();
+    if (m_activity && !m_continuation.isEmpty()) {
+        m_activity->tasks()->setDetail(m_taskId, tr("正在后台建立模组目录快照…"));
+        const auto expected = m_continuation.value("modTargets").toObject();
+        auto *watcher = new QFutureWatcher<QJsonObject>(this);
+        connect(watcher, &QFutureWatcher<QJsonObject>::finished, this, [this, watcher, expected] {
+            const auto targets = watcher->result();
+            watcher->deleteLater();
+            if (m_done || m_scanCancel->load(std::memory_order_relaxed)) return;
+            if (targets.isEmpty() || (!expected.isEmpty() && targets != expected) ||
+                (m_running && m_running()) || (m_planCurrent && !m_planCurrent())) {
+                finish(tr("无法确认模组目录或预设状态，请重新预览；未继续下载或部署。"));
+                return;
+            }
+            m_continuation.insert("modTargets", targets);
+            m_activity->tasks()->setDetail(m_taskId, tr("正在检查已安装模组与预设依赖…"));
+            readInventory();
+        });
+        watcher->setFuture(QtConcurrent::run([root = m_root, cancel = m_scanCancel] {
+            return Presets::snapshotModTargets(root, cancel.get());
+        }));
+    } else readInventory();
 }
 
 void PresetModInstaller::readInventory(bool beforeCommit) {

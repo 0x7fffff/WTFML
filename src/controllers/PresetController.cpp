@@ -1731,11 +1731,11 @@ void PresetController::installModsAfterInstall(const QStringList &presetIds, con
             m_modTaskId = m_activity->begin(Tasks::TaskKind::Install, tr("应用模组预设：%1").arg(displayName(instanceId)), instanceId);
             ownTask = true;
         }
-        const auto targets = Presets::snapshotModTargets(requestedRoot);
-        if (!targets.isEmpty()) task->setRecovery(m_activity, m_modTaskId,
+        // Snapshot hashing belongs to the installer worker, after the busy guard is held.
+        task->setRecovery(m_activity, m_modTaskId,
             {{"kind", "preset-mods"}, {"root", AppPaths::minecraftDir()}, {"instance", instanceId},
              {"game", m_versions->instanceGameVersion(instanceId)}, {"loader", loader},
-             {"selection", snapshot}, {"modTargets", targets}});
+             {"selection", snapshot}});
     }
     const auto taskId = m_modTaskId;
     // 必须在 `start()` **之前**记：`start()` 在"没有版本 / 加载器对不上"那几条路上

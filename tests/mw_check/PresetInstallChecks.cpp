@@ -411,6 +411,53 @@ int runPresetInstallChecks() {
         check(presetFileRequests == before + (expired ? 3 : 2) && QFileInfo::exists(root + "/mods/main.jar"),
               "restart reuses verified stage; expired source requires explicit requery and never silently deploys");
     }
+    for (const QString mode : {QString("normal"), QString("cancel"), QString("changed"), QString("destroy")}) {
+        scenario = 0;
+        const auto root = scratch.filePath("initial-snapshot-" + mode);
+        QDir().mkpath(root + "/mods");
+        const auto original = root + "/mods/local-data.bin";
+        QFile bulk(original);
+        bool prepared = bulk.open(QIODevice::WriteOnly);
+        const QByteArray chunk(1024 * 1024, 's');
+        for (int i = 0; i < 32 && prepared; ++i) prepared = bulk.write(chunk) == chunk.size();
+        bulk.close();
+        check(prepared, "initial preset snapshot owns a 32 MiB local file");
+        if (!prepared) continue;
+        ActivityCenterController activity; activity.tasks()->setHistoryPath(root + "/tasks.json");
+        const auto id = activity.begin(Tasks::TaskKind::Install, "initial snapshot", "test");
+        ResourceStore store;
+        store.setModrinthApiBaseOverride(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort()));
+        QPointer<Presets::PresetModInstaller> task = new Presets::PresetModInstaller(&store, &store);
+        QJsonObject intent{{"kind", "preset-mods"}};
+        if (mode == "changed") {
+            intent.insert("modTargets", Presets::snapshotModTargets(root));
+            QFile added(root + "/mods/external.json");
+            check(added.open(QIODevice::WriteOnly) && added.write("user-file") == 9, "initial snapshot external change fixture");
+        }
+        task->setRecovery(&activity, id, intent);
+        Presets::ModReference ref; ref.platform = "modrinth"; ref.projectId = "main";
+        bool finished = false; Presets::PresetModInstaller::Result result;
+        const int before = presetFileRequests;
+        QElapsedTimer submit; submit.start();
+        task->start({ref}, root, "1.20.1", "fabric", {}, [] { return false; }, [&](auto value) { result = value; finished = true; });
+        const auto submittedUs = submit.nsecsElapsed()/1000;
+        check(!finished && activity.tasks()->snapshot(id).detail.contains(QStringLiteral("后台建立")) && presetFileRequests == before,
+              "initial snapshot returns before hashing completion, network or deployment");
+        printf("MEASURE preset-initial-snapshot mode=%s bytes=33554432 submit_us=%lld\n",qPrintable(mode),static_cast<long long>(submittedUs));
+        if (mode == "cancel") task->cancel();
+        if (mode == "destroy") {
+            delete task.data();
+            QApplication::processEvents();
+            check(task.isNull() && !finished, "destroyed initial snapshot owner never delivers a completion callback");
+        } else {
+            check(pump([&]{return finished;}), "initial snapshot reaches a bounded completion");
+            check(mode == "normal" ? result.ok : (!result.ok && (mode != "cancel" || result.cancelled)),
+                  "initial snapshot accepts normal state and rejects cancelled or changed state");
+        }
+        check(QFileInfo::exists(root + "/mods/main.jar") == (mode == "normal"), "initial snapshot cancellation/change/destruction never deploys");
+        check(QFileInfo(original).size() == 32LL*1024*1024, "initial snapshot preserves the user file");
+        if (mode != "normal") check(presetFileRequests == before, "rejected initial snapshot never downloads a mod");
+    }
     for (const QString mode : {QString("resume"), QString("changed"), QString("cancel")}) {
         const auto root = scratch.filePath("resume-scan-" + mode);
         QDir().mkpath(root + "/mods");
