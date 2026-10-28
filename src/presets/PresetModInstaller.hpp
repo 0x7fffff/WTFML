@@ -4,13 +4,17 @@
 #include "InstalledModInventory.hpp"
 #include <QObject>
 #include <QJsonArray>
-#include <QTemporaryDir>
+#include <QDir>
+#include "tasks/TaskId.hpp"
 #include <functional>
 #include <memory>
 
 class DownloadManager;
 class ResourceStore;
 class QLockFile;
+class ActivityCenterController;
+class DownloadBatchController;
+class QTimer;
 
 namespace Presets {
 // One installation operation owns its requests and staging files. No nested event loop.
@@ -29,6 +33,9 @@ public:
                const QString &gameVersion, const QString &loader, const QString &apiKey,
                std::function<bool()> running, std::function<void(Result)> completed);
     void cancel();
+    void setRecovery(ActivityCenterController *activity, Tasks::TaskId id, const QJsonObject &intent);
+    bool pauseDownload();
+    bool resumeDownload();
     void setSelectionSnapshot(const QJsonArray &snapshot) { m_selectionSnapshot = snapshot; }
     void setInstanceIdentityKey(const QString &key) { m_identityKey = key; }
     struct ReviewDecision { bool accepted = false; QHash<QString, ModReference> alternatives; };
@@ -45,6 +52,7 @@ private:
     void deployOne(int index);
     void finish(const QString &problem = {});
     bool saveExecutionRecord();
+    QString stagedPath(int index) const;
     ResourceStore *m_store = nullptr;
     DownloadManager *m_download = nullptr;
     ModInstallRequest m_request;
@@ -53,13 +61,20 @@ private:
     QHash<QString, ModResolveInput> m_answers;
     QSet<QString> m_versionLookups;
     QString m_root, m_waiting;
-    std::unique_ptr<QTemporaryDir> m_stage;
+    std::unique_ptr<QDir> m_stage;
+    DownloadBatchController *m_recovery = nullptr;
+    ActivityCenterController *m_activity = nullptr;
+    Tasks::TaskId m_taskId = Tasks::invalidTaskId();
+    QJsonObject m_continuation;
+    QTimer *m_deadline = nullptr;
+    int m_remainingMs = 600000;
     std::unique_ptr<QLockFile> m_writeLock;
     std::function<bool()> m_running;
     std::function<void(Result)> m_completed;
     Result m_result;
     QJsonArray m_selectionSnapshot;
     bool m_done = false;
+    bool m_resumeScanActive = false;
     bool m_reviewApproved = false, m_reviewPending = false;
     Review m_review;
     std::function<bool()> m_planCurrent;

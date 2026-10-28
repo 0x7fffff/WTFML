@@ -23,6 +23,8 @@ function(wtfml_add_test)
  if(NOT TARGET "${owner}")
   set(owner "-")
  endif()
+ # Non-audited checks remain exclusive even when CTest has parallel slots.
+ set_tests_properties(${T_NAME} PROPERTIES RUN_SERIAL TRUE)
  set_property(GLOBAL APPEND_STRING PROPERTY WTFML_TEST_BUILD_OWNERS "${T_NAME}|${owner}\n")
 endfunction()
 function(wtfml_compact_module target entry runner)
@@ -613,3 +615,10 @@ add_executable(wtfml_modpack_boundary EXCLUDE_FROM_ALL ${REPO_ROOT}/tools/modpac
 target_link_libraries(wtfml_modpack_boundary PRIVATE wtfml_core_runtime Qt6::Network)
 add_subdirectory(mw_check)
 
+
+# Audited modules use independent settings, default/current data roots and temporary fixtures.
+# They do not launch shared helper processes. Expand this list only with overlap evidence.
+set_tests_properties(wtfml.core-accounts wtfml.core-activity wtfml.core-toolbox
+    PROPERTIES RUN_SERIAL FALSE)
+set_property(TEST wtfml.core-accounts wtfml.core-activity wtfml.core-toolbox
+    APPEND PROPERTY LABELS isolated-parallel)

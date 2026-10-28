@@ -601,7 +601,7 @@ public:
     bool batchPaused() const { return m_batchPaused; }
     QString checkpointPath() const;
     QJsonObject checkpointContext() const;
-    bool deferCheckpointContinuation();
+    bool deferCheckpointContinuation(bool refreshSources = false);
     void forgetCheckpoint();
     void setCommitGuard(std::function<QString()> guard) { m_commitGuard = std::move(guard); }
 

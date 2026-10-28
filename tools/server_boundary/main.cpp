@@ -21,7 +21,7 @@ bool save(const QString &path, const QByteArray &bytes) {
     QFile f(path); return f.open(QIODevice::WriteOnly) && f.write(bytes) == bytes.size();
 }
 QJsonObject serverUiEvidence(const QString &root, const ServerInstall::Request &request);
-QJsonObject serverWizardInstall(const QString &root);
+QJsonObject serverWizardInstall(const QString &root, bool checkpoint, bool client, bool resumeOnly, const QString &java);
 int main(int argc, char **argv) {
     QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc, argv); app.setOrganizationName("WTFML-server-acceptance"); app.setApplicationName("isolated");
@@ -30,13 +30,22 @@ int main(int argc, char **argv) {
         {"flavor", "vanilla/fabric/forge", "flavor"}, {"accept-eula", "Explicitly authorized test EULA acceptance"},
         {"wrong-java", "Optional real older Java executable", "java"}, {"run-only", "Recheck an owned installed acceptance root"},
         {"ui-only", "Check wizard and console export against owned actual server logs"},
-        {"wizard-install", "Run actual MainWindow vanilla installation with checked isolated settings"}});
+        {"wizard-install", "Run actual MainWindow vanilla installation with checked isolated settings"},
+        {"repair-install", "Retry installation only in a previously owned acceptance root"},
+        {"install-only", "Stop after installation without starting a server"},
+        {"checkpoint-ui", "Pause and reopen actual MainWindow server installation; no server launch"},
+        {"client-checkpoint-ui", "Actual Forge client installation and FOV preset after window restart; no game launch"},
+        {"resume-client-ui", "Continue an owned client checkpoint without recreating its preset or original request"},
+        {"install-seconds", "Installation deadline, at most 650 seconds", "seconds", "300"}});
     parser.process(app);
     const auto root = parser.value("root"), java = parser.value("java"), flavor = parser.value("flavor");
     const bool runOnly = parser.isSet("run-only") || parser.isSet("ui-only");
+    const bool repair = parser.isSet("repair-install");
+    bool validSeconds = false; const int seconds = parser.value("install-seconds").toInt(&validSeconds);
+    if (!validSeconds || seconds < 1 || seconds > 650 || (repair && runOnly)) return 2;
     if (!QDir::isAbsolutePath(root) || !QFileInfo(java).isFile() ||
         !QStringList{"vanilla", "fabric", "forge"}.contains(flavor)) return 2;
-    if (runOnly) {
+    if (runOnly || repair) {
         QFile marker(root + "/owned.json");
         if (!marker.open(QIODevice::ReadOnly) || marker.size() > 4096) return 2;
         const auto owned = QJsonDocument::fromJson(marker.readAll()).object();
@@ -53,9 +62,13 @@ int main(int argc, char **argv) {
     request.flavor = flavor == "forge" ? ServerInstall::Flavor::Forge : flavor == "fabric" ? ServerInstall::Flavor::Fabric : ServerInstall::Flavor::Vanilla;
     if (flavor == "fabric") { request.loaderVersion = "0.16.14"; request.installerVersion = "1.0.1"; }
     if (flavor == "forge") request.loaderVersion = "47.2.0";
-    if (parser.isSet("wizard-install")) {
+    if (parser.isSet("wizard-install") || parser.isSet("checkpoint-ui") || parser.isSet("client-checkpoint-ui") || parser.isSet("resume-client-ui")) {
         if (runOnly || flavor != "vanilla") return 2;
-        const auto report = serverWizardInstall(root);
+        const bool resume = parser.isSet("resume-client-ui");
+        if (resume && !repair) return 2;
+        QFile previousUi(root + "/wizard-install.json");
+        if (previousUi.exists() && !previousUi.copy(root + "/wizard-install-before-" + QString::number(QDateTime::currentMSecsSinceEpoch()) + ".json")) return 2;
+        const auto report = serverWizardInstall(root, parser.isSet("checkpoint-ui") || parser.isSet("client-checkpoint-ui") || resume, parser.isSet("client-checkpoint-ui") || resume, resume, java);
         save(root + "/wizard-install.json", QJsonDocument(report).toJson());
         return report.value("ok").toBool() ? 0 : 1;
     }
@@ -67,7 +80,7 @@ int main(int argc, char **argv) {
     ServerModel::Info info; info.name = "Acceptance"; info.gameVersion = request.gameVersion;
     info.flavor = request.flavor; info.flavorKnown = true; info.loaderVersion = request.loaderVersion; info.installerVersion = request.installerVersion;
     QString problem;
-    if (!runOnly && !ServerRegistry::createServer("Acceptance", info, &problem)) return 2;
+    if (!runOnly && !repair && !ServerRegistry::createServer("Acceptance", info, &problem)) return 2;
     DownloadManager downloads; ServerInstallRun::ServerInstallController installer;
     installer.setDownloadManager(&downloads);
     QEventLoop installLoop; bool installed = runOnly && ServerRegistry::describe("Acceptance").installed;
@@ -82,12 +95,13 @@ int main(int argc, char **argv) {
     QTimer deadline; deadline.setSingleShot(true);
     QObject::connect(&deadline, &QTimer::timeout, &installLoop, [&] { installer.cancel(); problem = "install deadline"; installLoop.quit(); });
     if (!runOnly) {
-        deadline.start(300000); installer.start(request, "Acceptance", java);
+        deadline.start(seconds * 1000); installer.start(request, "Acceptance", java);
         if (installer.isRunning()) installLoop.exec();
     }
     deadline.stop();
     QJsonObject report{{"installed", installed}, {"installProblem", problem}, {"flavor", flavor}, {"installationReused", runOnly}};
     if (!installed) { save(root + "/report.json", QJsonDocument(report).toJson()); return 1; }
+    if (parser.isSet("install-only")) { report["ok"] = true; save(root + "/report.json", QJsonDocument(report).toJson()); return 0; }
     const auto plan = ServerInstall::planFor(request);
     const auto dir = AppPaths::serverDir("Acceptance");
     if (runOnly && !save(dir + "/eula.txt", "eula=false\n")) return 2;

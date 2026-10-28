@@ -5,6 +5,11 @@
 #include "Theme.hpp"
 #include <QJsonObject>
 #include "presets/PresetModInstaller.hpp"
+#include "presets/PresetModTargets.hpp"
+#include "controllers/ActivityCenterController.hpp"
+#include "controllers/DownloadBatchController.hpp"
+#include "download/DownloadManager.hpp"
+#include <QProcess>
 #include "download/ResourceStore.hpp"
 #include "PresetModEditor.hpp"
 #include "PresetOptionsEditor.hpp"
@@ -43,6 +48,36 @@
 #include <memory>
 
 int runPresetInstallChecks() {
+    const auto args = QCoreApplication::arguments();
+    const int childAt = args.indexOf("--preset-stage-resume");
+    if (childAt >= 0) {
+        const auto root = args.value(childAt + 1), endpoint = args.value(childAt + 2);
+        if (!QDir::isAbsolutePath(root) || !QFileInfo(root + "/tasks.json").isFile()) return 2;
+        ActivityCenterController activity; activity.tasks()->setHistoryPath(root + "/tasks.json"); activity.loadHistory();
+        DownloadManager files; DownloadBatchController recovery(&activity, &files, [] { return Tasks::invalidTaskId(); });
+        ResourceStore store; store.setModrinthApiBaseOverride(endpoint);
+        int continued = 0; bool deployed = false;
+        recovery.setContinuation({}, [&](Tasks::TaskId id, const QJsonObject &intent) {
+            if (intent.value("kind") != "preset-mods" || Presets::snapshotModTargets(root) != intent.value("modTargets").toObject()) return false;
+            ++continued;
+            auto *task = new Presets::PresetModInstaller(&store, &store);
+            task->setRecovery(&activity, id, intent);
+            Presets::ModReference ref; ref.platform = "modrinth"; ref.projectId = "main";
+            task->start({ref}, root, "1.20.1", "fabric", {}, [] { return false; }, [&](auto result) {
+                deployed = result.ok; activity.finish(id, result.ok, {}, false);
+            });
+            return true;
+        });
+        recovery.load();
+        const auto wait = [](auto done) { QElapsedTimer timer; timer.start(); while (!done() && timer.elapsed() < 10000) QApplication::processEvents(); return done(); };
+        for (const auto &task : activity.tasks()->all()) if (recovery.owns(task.id)) {
+            if (!recovery.resume(task.id) || !wait([&] { return activity.tasks()->snapshot(task.id).state == Tasks::TaskState::Paused; })) return 3;
+            if (continued || QFileInfo::exists(root + "/mods/main.jar")) return 4;
+            if (!recovery.resume(task.id) || !wait([&] { return deployed; }) || continued != 1) return 5;
+            return QFileInfo::exists(root + "/mods/main.jar") && QFileInfo::exists(root + "/mods/dep.jar") ? 0 : 6;
+        }
+        return 7;
+    }
     int failures = 0;
     auto check = [&](bool ok, const char *name, const QString &detail = QString()) {
         std::printf("%s %s%s\n", ok ? "PASS" : "FAIL", name,
@@ -218,6 +253,9 @@ int runPresetInstallChecks() {
     bool mutatedInventory = false;
     int hashQueries = 0;
     bool validHashRequests = true;
+    bool holdPresetDownload = false;
+    int presetFileRequests = 0;
+    bool expireNextPresetFile = false;
     QObject::connect(&server, &QTcpServer::newConnection, &server, [&] {
         while (auto *socket = server.nextPendingConnection()) {
             QObject::connect(socket, &QTcpSocket::readyRead, socket, [&, socket] {
@@ -230,11 +268,20 @@ int runPresetInstallChecks() {
                     if (line.toLower().startsWith("content-length:")) contentLength = line.mid(15).trimmed().toLongLong();
                 if (request.size() < headerEnd + contentLength) return;
                 socket->setProperty("served", true);
+                if (request.contains("/file.jar")) {
+                    ++presetFileRequests;
+                    if (holdPresetDownload) { socket->write("HTTP/1.1 200 OK\r\nContent-Length: 18\r\n\r\np"); return; }
+                    if (expireNextPresetFile) {
+                        expireNextPresetFile = false;
+                        socket->write("HTTP/1.1 403 Expired\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        socket->disconnectFromHost(); return;
+                    }
+                }
                 if (scenario == 5) return;
                 QByteArray body = payload;
-                if (scenario == 29 && request.contains("/file.jar") && !mutatedInventory) {
+                if (scenario == 29 && request.contains("/project/") && !mutatedInventory) {
                     QFile::remove(activeRoot + QStringLiteral("/wtfml.preset-mod-install.json"));
-                    mutatedInventory = QDir().rmdir(activeRoot); // Empty fixture directory only.
+                    mutatedInventory = QDir().rmdir(activeRoot);
                 }
                 if (scenario == 25 && request.contains("/file.jar") && !mutatedInventory) {
                     mutatedInventory = true;
@@ -338,6 +385,80 @@ int runPresetInstallChecks() {
             QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
         }
     });
+    for (bool expired : {false, true}) {
+        const auto root = scratch.filePath(expired ? "expired-preset" : "restart-preset"); QDir().mkpath(root);
+        ActivityCenterController activity; activity.tasks()->setHistoryPath(root + "/tasks.json");
+        const auto id = activity.begin(Tasks::TaskKind::Install, "preset stage", "test");
+        ResourceStore store; const auto endpoint = QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
+        store.setModrinthApiBaseOverride(endpoint);
+        auto *task = new Presets::PresetModInstaller(&store, &store);
+        const QJsonObject intent{{"kind", "preset-mods"}, {"modTargets", Presets::snapshotModTargets(root)}};
+        task->setRecovery(&activity, id, intent);
+        Presets::ModReference ref; ref.platform = "modrinth"; ref.projectId = "main";
+        bool finished = false; holdPresetDownload = true; const int before = presetFileRequests;
+        task->start({ref}, root, "1.20.1", "fabric", {}, [] { return false; }, [&](auto) { finished = true; });
+        check(pump([&] { return presetFileRequests > before; }) && task->pauseDownload() && !finished,
+              "preset file stage pauses without deployment or a failure terminal signal");
+        check(activity.tasks()->saveHistory(), "paused preset task history saved");
+        delete task; holdPresetDownload = false; expireNextPresetFile = expired;
+        QProcess child; auto childArgs = args.mid(1); childArgs << "--preset-stage-resume" << root << endpoint;
+        child.start(QCoreApplication::applicationFilePath(), childArgs);
+        QElapsedTimer timer; timer.start();
+        while (child.state() != QProcess::NotRunning && timer.elapsed() < 15000) QApplication::processEvents();
+        check(child.state() == QProcess::NotRunning && child.exitCode() == 0,
+              "fresh process fills preset stage then waits for explicit deployment and rechecks metadata", QString::fromUtf8(child.readAllStandardOutput() + child.readAllStandardError()));
+        if (child.state() != QProcess::NotRunning) { child.kill(); child.waitForFinished(1000); }
+        check(presetFileRequests == before + (expired ? 3 : 2) && QFileInfo::exists(root + "/mods/main.jar"),
+              "restart reuses verified stage; expired source requires explicit requery and never silently deploys");
+    }
+    for (const QString mode : {QString("resume"), QString("changed"), QString("cancel")}) {
+        const auto root = scratch.filePath("resume-scan-" + mode);
+        QDir().mkpath(root + "/mods");
+        QFile bulk(root + "/mods/local-data.bin");
+        bool prepared = bulk.open(QIODevice::WriteOnly);
+        const QByteArray chunk(1024 * 1024, 'm');
+        for (int i = 0; i < 32 && prepared; ++i) prepared = bulk.write(chunk) == chunk.size();
+        bulk.close();
+        check(prepared, "preset resume scan owns a 32 MiB local file");
+        if (!prepared) continue;
+        ActivityCenterController activity; activity.tasks()->setHistoryPath(root + "/tasks.json");
+        const auto id = activity.begin(Tasks::TaskKind::Install, "resume scan", "test");
+        ResourceStore store;
+        store.setModrinthApiBaseOverride(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort()));
+        QPointer<Presets::PresetModInstaller> task = new Presets::PresetModInstaller(&store, &store);
+        task->setRecovery(&activity, id, {{"kind", "preset-mods"}, {"modTargets", Presets::snapshotModTargets(root)}});
+        Presets::ModReference ref; ref.platform = "modrinth"; ref.projectId = "main";
+        bool finished = false; Presets::PresetModInstaller::Result result;
+        holdPresetDownload = true; const int before = presetFileRequests;
+        task->start({ref}, root, "1.20.1", "fabric", {}, [] { return false; }, [&](auto value) { result = value; finished = true; });
+        const bool paused = pump([&] { return presetFileRequests > before; }) && task && task->pauseDownload();
+        check(paused, "live preset download pauses before asynchronous target scan");
+        holdPresetDownload = false;
+        if (!paused) { if (task) task->cancel(); continue; }
+        if (mode == "changed") {
+            QFile added(root + "/mods/external.json");
+            check(added.open(QIODevice::WriteOnly) && added.write("user-file") == 9,
+                "external user file appears after preset consent");
+            added.close();
+        }
+        QElapsedTimer submit; submit.start();
+        check(task->resumeDownload() && !finished, "preset resume accepts background scanning without deploying synchronously");
+        printf("MEASURE preset-resume-submit mode=%s bytes=33554432 elapsed_us=%lld\n", qPrintable(mode), static_cast<long long>(submit.nsecsElapsed() / 1000));
+        fflush(stdout);
+        check(!task->resumeDownload(), "preset resume rejects duplicate directory scans");
+        if (mode == "cancel") task->cancel();
+        if (mode == "changed") {
+            check(pump([&] { return activity.tasks()->snapshot(id).detail.contains(QStringLiteral("外部修改")); }) && !finished &&
+                !QFileInfo::exists(root + "/mods/main.jar") && QFileInfo::exists(root + "/mods/external.json"),
+                "changed directory blocks resume and preserves the external user file");
+            if (task) task->cancel();
+        } else {
+            check(pump([&] { return finished; }) && (mode == "cancel" ? result.cancelled : result.ok),
+                "background preset scan resumes successfully or honours cancellation");
+            check(QFileInfo::exists(root + "/mods/main.jar") == (mode == "resume"),
+                "cancelled directory scan never deploys a mod");
+        }
+    }
     for (scenario = 0; scenario < 41; ++scenario) {
         exactQueries = 0;
         hashQueries = 0;

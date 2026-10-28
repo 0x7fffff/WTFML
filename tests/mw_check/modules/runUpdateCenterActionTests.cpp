@@ -1,4 +1,6 @@
 #include "Support.hpp"
+#include "controllers/DownloadBatchController.hpp"
+#include "controllers/ActivityCenterController.hpp"
 void runUpdateCenterActionTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -6,6 +8,11 @@ void runUpdateCenterActionTests() {
     if (!root.isValid()) {
         return;
     }
+    struct DefaultRootGuard {
+        QVariant previous = qApp->property("wtfml.testDefaultMinecraftDir");
+        ~DefaultRootGuard() { qApp->setProperty("wtfml.testDefaultMinecraftDir", previous); }
+    } defaultRoot;
+    qApp->setProperty("wtfml.testDefaultMinecraftDir", root.filePath("launcher-data"));
 
     FakeLookupApi api;
     check(api.start(), "T38.0 假接口服务器起来了");
@@ -240,6 +247,27 @@ void runUpdateCenterActionTests() {
         int snapshotAfterUndo = -1;
         bool jarBackAfterUndo = false;
         QString stateAfterUndo;
+        bool updatePaused = false, updateResumed = false, originalWhilePaused = false, pausing = false;
+        QStringList pauseObservations;
+        auto *activity = w.findChild<ActivityCenterController *>();
+        DownloadBatchController *batches = nullptr;
+        for (auto *child : w.children()) if (auto *candidate = dynamic_cast<DownloadBatchController *>(child)) batches = candidate;
+        if (activity && batches) QObject::connect(activity->tasks(), &Tasks::TaskManager::taskChanged, &w,
+            [&](Tasks::TaskId id) {
+                if (pausing || updatePaused) return;
+                const auto task = activity->tasks()->snapshot(id);
+                if (task.title.contains(QStringLiteral("更新")) && pauseObservations.size() < 20)
+                    pauseObservations.append(QString("id=%1 target=%2 owner=%3 pause=%4 state=%5").arg(id).arg(task.targetId).arg(batches->owns(id)).arg(task.capabilities.canPause).arg(int(task.state)));
+                if (!batches->owns(id)) return;
+                if (task.targetId != idV || !task.capabilities.canPause) return;
+                pausing = true;
+                updatePaused = batches->pause(id);
+                QFile original(modJar);
+                originalWhilePaused = original.open(QIODevice::ReadOnly) && original.readAll() == originalBytes;
+                original.close();
+                if (updatePaused) QTimer::singleShot(0, &w, [&, id] { updateResumed = batches->resume(id); });
+                pausing = false;
+            });
 
         QTimer driver;
         driver.setInterval(10);
@@ -386,6 +414,9 @@ void runUpdateCenterActionTests() {
         answerer.stop();
 
         check(checkedFound, "T38.1 实例设置那一页上「检查更新」那颗按钮找到了");
+        check(updatePaused && updateResumed && originalWhilePaused,
+              "T38.1 更新中心实际文件批次归原任务所有，暂停保留原件，继续后沿原完成/回滚接线收尾",
+              QString("paused=%1 resumed=%2 original=%3 activity=%4 batches=%5; %6").arg(updatePaused).arg(updateResumed).arg(originalWhilePaused).arg(activity != nullptr).arg(batches != nullptr).arg(pauseObservations.join("; ")));
         check(reachedEnd,
               "★★ T38.2 整条路走完了：忽略这一版 → 不再忽略 → 固定这一版 → 不再固定 → "
               "更新 → 撤销",

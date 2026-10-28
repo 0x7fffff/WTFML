@@ -656,6 +656,7 @@ MainWindow::MainWindow(QWidget *parent)
                     m_toolboxController->resumeDownloadTask(id); return;
                 }
                 if (ok && m_downloadBatches && m_downloadBatches->owns(id)) { m_downloadBatches->resume(id); return; }
+                if (ok && m_presetController && m_presetController->ownsModTask(id)) { m_presetController->resumeModDownload(id); return; }
                 if (!ok || m_fileRecovery == nullptr) return;
                 const Tasks::TaskSnapshot task = m_activityCenter->tasks()->snapshot(id);
                 if (!task.recoveryToken.isEmpty()) m_fileRecovery->resume(task.recoveryToken);
@@ -663,6 +664,7 @@ MainWindow::MainWindow(QWidget *parent)
             [this](const QString &key) {
                 const auto id = key.toULongLong();
                 if (m_downloadBatches && m_downloadBatches->owns(id)) m_downloadBatches->pause(id);
+                else if (m_presetController && m_presetController->ownsModTask(id)) m_presetController->pauseModDownload(id);
                 else if (m_toolboxController) m_toolboxController->pauseDownloadTask(id);
             }},
         this);
@@ -856,8 +858,10 @@ MainWindow::MainWindow(QWidget *parent)
     // 账本是启动器级的固定文件，不随当前游戏文件夹切换。这样正在下载/启动时切换目录，
     // 内存里的任务不会在下一次落盘时被写进另一份 .minecraft。
     m_activityCenter->loadHistory();
+    m_presetController->setRecoveryHost(m_activityCenter, [this] { return m_downloadTaskId; });
     m_downloadBatches = new DownloadBatchController(m_activityCenter, m_versionManager->downloads(),
         [this] {
+            if (m_serverInstall && m_serverInstall->ownsDownloadBatch()) return m_serverInstallTaskId;
             if (!m_versionManager->ownsFileBatch()) return Tasks::invalidTaskId();
             return m_downloadTaskId != Tasks::invalidTaskId() ? m_downloadTaskId : m_updateBatch.task;
         }, this);
@@ -865,6 +869,7 @@ MainWindow::MainWindow(QWidget *parent)
         [this](Tasks::TaskId id, const QJsonObject &intent) { return continueDownloadInstallation(id, intent); });
     m_downloadBatches->setRestoreAllowed([this] {
         return !m_downloadInFlight && runningVersionIds().isEmpty() && !m_launchController->isStarting()
+            && m_serverWorkspace->runningServerIds().isEmpty()
             && installingVersionIds().isEmpty() && (!m_serverInstall || !m_serverInstall->isRunning());
     });
     m_downloadBatches->load();
@@ -1551,7 +1556,7 @@ bool MainWindow::cancelWouldWork(const Tasks::TaskSnapshot &task) const {
     if (m_backupController != nullptr && m_backupController->canCancelTask(task.id)) {
         return true;
     }
-    if (task.id == m_downloadTaskId && m_presetController && m_presetController->isInstallingMods()) return true;
+    if (m_presetController && m_presetController->ownsModTask(task.id)) return true;
     if (m_toolboxController && m_toolboxController->ownsDownloadTask(task.id))
         return m_toolboxController->canCancelDownloadTask(task.id);
     if (m_downloadBatches && m_downloadBatches->canCancel(task.id)) return true;
@@ -1647,7 +1652,7 @@ void MainWindow::cancelTaskFromDetail(const QString &key) {
     const auto directId = key.toULongLong(&directKey);
     if (directKey && m_toolboxController && m_toolboxController->cancelDownloadTask(directId)) return;
     if (directKey && m_downloadBatches && m_downloadBatches->cancel(directId)) return;
-    if (m_presetController && key == QString::number(m_downloadTaskId) && m_presetController->cancelModInstall()) return;
+    if (directKey && m_presetController && m_presetController->ownsModTask(directId) && m_presetController->cancelModInstall()) return;
     // 取消要**按这一项是谁**分派：服务端安装那一趟和版本/资源下载那一批不是同一份
     // 状态（一个自己跑 QProcess + 自己的元数据请求，一个走 `VersionManager` 的批次）。
     // 两边都无脑叫一遍的话，取消一次服务端安装会顺手把别人正在跑的下载掐掉 ——

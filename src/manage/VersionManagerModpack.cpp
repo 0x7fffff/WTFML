@@ -656,6 +656,14 @@ void VersionManager::finishNamedInstance(const QString &parentId, const QString 
         return;
     }
 
+    // A named alias has the same thin JSON shape as an interrupted legacy
+    // import. Publish its normal instance identity only after all parent files
+    // have completed, so the installed-list/launch guards can recognize it.
+    if (id != parentId && ensureInstanceId(id).isEmpty()) {
+        failNamedInstance(tr("文件已保留，但实例身份未能保存；未将本次安装报告为成功。"));
+        return;
+    }
+
     m_namedInstance.reset();
     emit versionDownloadFinished(
         id, true,

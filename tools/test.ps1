@@ -15,7 +15,8 @@ param(
     [switch]$ListOnly,
     [ValidateRange(1, 900)][int]$BuildTimeoutSeconds = 600,
     [ValidateRange(1, 900)][int]$TestTimeoutSeconds = 900,
-    [ValidateRange(1, 16)][int]$BuildJobs = 2
+    [ValidateRange(1, 16)][int]$BuildJobs = 2,
+    [ValidateRange(1, 2)][int]$TestJobs = 2
 )
 
 $ErrorActionPreference = 'Stop'
@@ -167,7 +168,7 @@ try {
             Invoke-Stage "build-$target" $cmake @('--build', $build, '--target', $target, '--parallel', "$BuildJobs") $BuildTimeoutSeconds
         }
     }
-    $testArgs = @('--test-dir', $build, '--no-tests=error', '--output-on-failure', '--parallel', '1', '--timeout', '900') + $selection
+    $testArgs = @('--test-dir', $build, '--no-tests=error', '--output-on-failure', '--parallel', "$TestJobs", '--timeout', '900') + $selection
     if ($ListOnly) { $testArgs += @('--show-only=json-v1') }
     else { $testArgs += @('--verbose', '--output-junit', (Join-Path $run 'results.xml')) }
     Invoke-Stage 'test' $ctest $testArgs $TestTimeoutSeconds
@@ -176,7 +177,7 @@ try {
     $failure = "$_"
     Write-Host "ERROR: $_" -ForegroundColor Red
 } finally {
-    $summary = [ordered]@{ suite = $Suite; buildDir = $build; listOnly = [bool]$ListOnly; noBuild = [bool]$NoBuild; exitCode = $result; error = $failure; stages = @($stages.ToArray()) }
+    $summary = [ordered]@{ suite = $Suite; buildDir = $build; listOnly = [bool]$ListOnly; noBuild = [bool]$NoBuild; testJobs = $TestJobs; exitCode = $result; error = $failure; stages = @($stages.ToArray()) }
     $summary | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $run 'summary.json') -Encoding utf8
     $env:TEMP = $oldTemp
     $env:TMP = $oldTmp

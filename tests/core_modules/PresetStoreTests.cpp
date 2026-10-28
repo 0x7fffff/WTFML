@@ -372,7 +372,8 @@ void runPresetStoreTests() {
               && listed.at(2).id == third.id,
           "★★ PA4 新建的排在**末尾**，列表次序 = 用户排的次序（不抢他排好的位置）",
           QString::number(listed.size()));
-    check(listed.first().name == QStringLiteral("我的习惯")
+    // 夹具写入失败时列表为空，保留前面的失败记录，不再解引用空列表导致整套段错。
+    check(!listed.isEmpty() && listed.first().name == QStringLiteral("我的习惯")
               && listed.first().description == QStringLiteral("视野那一套")
               && listed.first().sectionCount == 0 && !listed.first().isDefault,
           "PA4 列表那一栏要的那几样：显示名 / 说明 / 段数 / 是不是默认项");
@@ -595,7 +596,7 @@ void runPresetStoreTests() {
     // ---------- PA7. 排序 + 那个唯一的默认项 ----------
     check(Presets::move(root, third.id, -1), "PA7 往上挪一位");
     listed = Presets::list(root);
-    check(listed.at(0).id == created.id && listed.at(1).id == third.id
+    check(listed.size() == 3 && listed.at(0).id == created.id && listed.at(1).id == third.id
               && listed.at(2).id == second.id,
           "★★ PA7 挪动真的换了位（次序表的次序就是列表的次序）");
     check(!Presets::move(root, third.id, -5) && !Presets::move(root, second.id, +1)
@@ -605,7 +606,7 @@ void runPresetStoreTests() {
     check(Presets::setDefault(root, third.id), "PA7 设默认项");
     check(Presets::defaultPresetId(root) == third.id, "PA7 那个唯一的默认项就是它");
     listed = Presets::list(root);
-    check(listed.at(1).isDefault && !listed.at(0).isDefault && !listed.at(2).isDefault,
+    check(listed.size() == 3 && listed.at(1).isDefault && !listed.at(0).isDefault && !listed.at(2).isDefault,
           "★★ PA7 列表里**只有一份**顶着默认项（『设为唯一默认项』）");
     check(!Presets::setDefault(root, Presets::newPresetId()),
           "PA7 不在下标里的 id 设不成默认");
@@ -654,9 +655,9 @@ void runPresetStoreTests() {
               && broken.first().id == doomed.id,
           "★★ PA9 一份坏了**只丢它自己**：别的照旧列得出来",
           QStringLiteral("活了 %1 份、坏了 %2 份").arg(survivors.size()).arg(broken.size()));
-    check(broken.first().reason.contains(QStringLiteral("manifest.json")),
+    check(!broken.isEmpty() && broken.first().reason.contains(QStringLiteral("manifest.json")),
           "★ PA9 坏的那一份说得出**是哪个文件**（这句人话原样能显示给用户，界面不再加工）",
-          broken.first().reason);
+          broken.isEmpty() ? QStringLiteral("未生成损坏记录，检查前置夹具失败") : broken.first().reason);
     check(!Presets::loadManifest(root, doomed.id).isValid(), "PA9 直接读它也是空壳");
 
     // 下标里有、盘上已经没有了（「默认项丢失」那个组合要的正是这一档）。

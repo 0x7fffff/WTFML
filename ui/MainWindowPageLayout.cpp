@@ -366,9 +366,8 @@ QLabel *addDynamicHint(QWidget *box, const QString &text, QWidget *parent) {
     QFont hintFont = hint->font();
     hintFont.setPointSize(qMax(1, hintFont.pointSize() - 1));
     hint->setFont(hintFont);
-    QPalette hintPalette = hint->palette();
-    hintPalette.setColor(QPalette::WindowText, hintPalette.color(QPalette::PlaceholderText));
-    hint->setPalette(hintPalette);
+    // 使用动态文字角色，不能把创建时的浅色主题文字固化在局部调色板中。
+    markTextRole(hint, Theme::secondaryTextRoleValue());
     qobject_cast<QVBoxLayout *>(box->layout())->addWidget(hint);
     return hint;
 }
@@ -377,12 +376,14 @@ QLabel *addDynamicHint(QWidget *box, const QString &text, QWidget *parent) {
 /// 用的就是它（大小、换行、摆放都和旁边那行灰字一套）。
 QLabel *addDynamicErrorHint(QWidget *box, QWidget *parent) {
     QLabel *hint = addDynamicHint(box, QString(), parent);
-    QPalette errorPalette = hint->palette();
-    // 拿的正是这个标签当下这块调色板（深色主题下它就是深的那一块），所以下面那行红字
-    // 自己会跟着主题换档 —— 不用再去问"现在是什么主题"。
-    errorPalette.setColor(QPalette::WindowText,
-                          MainWindowUI::installNameErrorColor(errorPalette));
-    hint->setPalette(errorPalette);
+    markTextRole(hint, QString());
+    const auto refreshError = [hint] {
+        QPalette palette = qApp->palette();
+        palette.setColor(QPalette::WindowText, MainWindowUI::installNameErrorColor(palette));
+        hint->setPalette(palette);
+    };
+    refreshError();
+    Theme::follow(hint, refreshError);
     return hint;
 }
 

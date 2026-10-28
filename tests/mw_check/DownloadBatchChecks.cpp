@@ -6,6 +6,8 @@
 #include "controllers/DirectDownloadController.hpp"
 #include "manage/VersionManager.hpp"
 #include "presets/PresetTargetSnapshot.hpp"
+#include "server/ServerInstallController.hpp"
+#include "server/ServerRegistry.hpp"
 
 int runDownloadBatchChecks(QApplication &app) {
     const auto childAt = app.arguments().indexOf("--batch-resume-root");
@@ -33,7 +35,11 @@ int runDownloadBatchChecks(QApplication &app) {
             while (Tasks::isActiveState(activity.tasks()->snapshot(task.id).state) && activity.tasks()->snapshot(task.id).state != Tasks::TaskState::Paused && clock.elapsed() < 10000)
                 QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
             if (activity.tasks()->snapshot(task.id).state == Tasks::TaskState::Paused) {
-                if (continued != 0 || !controller.resume(task.id) || continued != 1) return 6;
+                if (continued != 0 || !controller.resume(task.id)) return 6;
+                QElapsedTimer verifyClock; verifyClock.start();
+                while (controller.isRestoring() && verifyClock.elapsed() < 10000)
+                    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                if (continued != 1) return 6;
             }
             return activity.tasks()->snapshot(task.id).state == Tasks::TaskState::Succeeded ? 0 : 4;
         }
@@ -65,6 +71,7 @@ int runDownloadBatchChecks(QApplication &app) {
     }
     QTcpServer server; if (!server.listen(QHostAddress::LocalHost, 0)) return 1;
     const QByteArray payload(128 * 1024, 'c');
+    QByteArray namedMetadata, namedManifest;
     const QString sha1 = QString::fromLatin1(QCryptographicHash::hash(payload, QCryptographicHash::Sha1).toHex());
     int requests = 0;
     bool holdSecond = true;
@@ -78,8 +85,10 @@ int runDownloadBatchChecks(QApplication &app) {
                 if (input.split(' ').value(1).startsWith("/hold") && holdSecond) {
                     socket->write("HTTP/1.1 200 OK\r\nContent-Length: " + QByteArray::number(payload.size()) + "\r\n\r\nc"); return;
                 }
-                socket->write("HTTP/1.1 200 OK\r\nContent-Length: " + QByteArray::number(payload.size()) + "\r\nConnection: close\r\n\r\n");
-                socket->write(payload); socket->disconnectFromHost();
+                const auto path = input.split(' ').value(1);
+                const auto body = path.startsWith("/named-meta") ? namedMetadata : path.startsWith("/named-manifest") ? namedManifest : payload;
+                socket->write("HTTP/1.1 200 OK\r\nContent-Length: " + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n");
+                socket->write(body); socket->disconnectFromHost();
             });
             QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
         }
@@ -90,6 +99,134 @@ int runDownloadBatchChecks(QApplication &app) {
         while (!done() && clock.elapsed() < 10000) QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
         return done();
     };
+    // The continuation gate must accept work without hashing on the UI thread,
+    // reject duplicates, and never run an installer after cancel/destruction/revoked consent.
+    for (const QString mode : {QString("accept"), QString("cancel"), QString("destroy"), QString("revoke"), QString("changed")}) {
+        const auto root = fixture.filePath("async-" + mode);
+        QDir().mkpath(root + "/download-batches");
+        const auto target = root + "/large.bin";
+        QFile large(target);
+        bool prepared = large.open(QIODevice::WriteOnly);
+        const QByteArray chunk(1024 * 1024, 'v');
+        for (int part = 0; part < 32 && prepared; ++part) prepared = large.write(chunk) == chunk.size();
+        large.close();
+        expect(prepared, "async validation uses an owned 32 MiB original");
+        if (!prepared) continue;
+        ActivityCenterController activity; activity.tasks()->setHistoryPath(root + "/tasks.json");
+        const auto id = activity.begin(Tasks::TaskKind::Install, QStringLiteral("后台恢复校验"));
+        const auto receiptPath = root + "/download-batches/one.receipt";
+        DownloadCheckpoint receipt; receipt.path = receiptPath;
+        receipt.context = {{"title", QStringLiteral("后台恢复校验")}, {"task", QString::number(id)},
+            {"phase", "continue-install"}, {"continuation", QJsonObject{{"kind", "test"}}}};
+        const auto original = DownloadCheckpoint::fingerprint(target);
+        expect(receipt.add({url, target, {}, {}, 32 * 1024 * 1024, original}) && receipt.save(),
+            "async continuation retains a protected execution receipt");
+        receipt.lock.reset();
+        activity.finish(id, false, QStringLiteral("模拟上一进程退出"), false);
+        if (mode == "changed") expect(write(target, "external-edit"), "external modification precedes validation");
+        const auto expectedOriginal = DownloadCheckpoint::fingerprint(target);
+        DownloadManager downloads;
+        auto batches = std::make_unique<DownloadBatchController>(&activity, &downloads, [] { return Tasks::invalidTaskId(); });
+        bool allowed = true; int continued = 0;
+        batches->setRestoreAllowed([&] { return allowed; });
+        batches->setContinuation({}, [&](Tasks::TaskId task, const QJsonObject &) {
+            ++continued; activity.finish(task, true, {}, false); return true;
+        });
+        batches->load();
+        expect(batches->owns(id), "restart fixture restores the original interrupted task identity");
+        QElapsedTimer validationTimer; validationTimer.start();
+        expect(batches->resume(id) && batches->isRestoring() && continued == 0,
+            "resume returns before validation/installer completion and marks the operation busy");
+        printf("MEASURE resume-submit mode=%s bytes=33554432 elapsed_us=%lld\n", qPrintable(mode), static_cast<long long>(validationTimer.nsecsElapsed() / 1000));
+        fflush(stdout);
+        const auto caps = activity.tasks()->snapshot(id).capabilities;
+        expect(caps.canCancel && !caps.canPause, "task UI offers cancel rather than pause during validation");
+        expect(!batches->resume(id), "duplicate continuation is rejected while validation is pending");
+        if (mode == "destroy") {
+            batches.reset();
+            DownloadCheckpoint preserved;
+            expect(preserved.load(receiptPath) && continued == 0,
+                "destroying the controller releases the receipt and never runs its continuation");
+            continue;
+        }
+        if (mode == "cancel") expect(batches->cancel(id), "pending validation is cancellable");
+        if (mode == "revoke") allowed = false;
+        expect(wait([&] { return !batches->isRestoring(); }), "background validation completes or cancels within the test deadline");
+        if (mode == "accept") expect(continued == 1 && activity.tasks()->snapshot(id).state == Tasks::TaskState::Succeeded,
+            "unchanged files continue the original intent exactly once");
+        else expect(continued == 0 && activity.tasks()->snapshot(id).state == (mode == "cancel" ? Tasks::TaskState::Cancelled : Tasks::TaskState::Failed),
+            "cancelled or revoked validation never invokes the installer");
+        expect(DownloadCheckpoint::fingerprint(target) == expectedOriginal, "validation never modifies the original or external edit");
+    }
+    {
+        DownloadManager downloads; downloads.setSegmentedDownloadEnabled(false);
+        downloads.setVersionManifestUrlOverride(QString(url).replace("/file?", "/hold?"));
+        const int before = requests;
+        downloads.fetchVersionManifest();
+        expect(wait([&] { return requests > before; }), "independent startup manifest remains in flight");
+        downloads.beginBatch();
+        expect(downloads.enableCheckpoint(fixture.filePath("manifest-independent.receipt"), {}), "resource batch beside independent manifest records its intent");
+        downloads.downloadFile(url, fixture.filePath("manifest-independent.bin"), sha1, payload.size()); downloads.endBatch();
+        expect(downloads.canPauseBatch() && downloads.pauseBatch(), "independent startup manifest never disables file-batch pause");
+        downloads.cancelBatch();
+    }
+    {
+        const auto oldRoot = AppPaths::minecraftDir();
+        const auto root = fixture.filePath("server-recovery"); QDir().mkpath(root); AppPaths::setMinecraftDir(root);
+        ServerInstall::Request request; request.flavor = ServerInstall::Flavor::Vanilla; request.gameVersion = "1.20.1";
+        ServerModel::Info info; info.name = "Recovery"; info.flavor = request.flavor; info.flavorKnown = true; info.gameVersion = request.gameVersion;
+        QString problem; expect(ServerRegistry::createServer("Recovery", info, &problem), "isolated server created");
+        QJsonObject intent;
+        {
+            DownloadManager downloads; downloads.setSegmentedDownloadEnabled(false);
+            ServerInstallRun::ServerInstallController installer; installer.setDownloadManager(&downloads);
+            installer.setLocalVersionJson([&](const QString &) { return QJsonObject{{"downloads", QJsonObject{{"server", QJsonObject{{"url", url}, {"sha1", sha1}, {"size", payload.size()}}}}}}; });
+            ActivityCenterController activity; activity.tasks()->setHistoryPath(root + "/tasks.json");
+            const auto task = activity.begin(Tasks::TaskKind::Install, "server fixture", "Recovery");
+            DownloadBatchController batches(&activity, &downloads, [&] { return installer.ownsDownloadBatch() ? task : Tasks::invalidTaskId(); });
+            batches.setContinuation([&] { return installer.downloadContinuation(); }, {});
+            installer.start(request, "Recovery", {});
+            intent = installer.downloadContinuation();
+            expect(batches.owns(task) && batches.pause(task) && !intent.isEmpty(), "server owns receipt before batch dispatch and pauses its file stage");
+            expect(installer.isRunning() && !ServerRegistry::describe("Recovery").installed, "paused server is not falsely installed");
+            expect(batches.resume(task) && wait([&] { return !installer.isRunning(); }) && ServerRegistry::describe("Recovery").installed,
+                "server resumes live without losing its completion wiring");
+        }
+        DownloadManager downloads; ServerInstallRun::ServerInstallController resumed; resumed.setDownloadManager(&downloads);
+        const auto properties = AppPaths::serverDir("Recovery") + "/server.properties";
+        expect(write(properties, "external=true") && !resumed.continueDownload(intent), "server continuation refuses changed settings");
+        QFile::remove(properties);
+        expect(resumed.continueDownload(intent) && wait([&] { return !resumed.isRunning(); }) && ServerRegistry::describe("Recovery").installed,
+            "new controller explicitly continues exact resolved server files");
+        for (const auto &mode : {QString("retry-success"), QString("failure"), QString("noisy")}) {
+            const auto id = "Watchdog-" + mode;
+            ServerInstall::Request forge; forge.flavor = ServerInstall::Flavor::Forge; forge.gameVersion = "1.20.1"; forge.loaderVersion = "47.2.0";
+            info.name = id; info.flavor = forge.flavor; info.loaderVersion = forge.loaderVersion;
+            expect(ServerRegistry::createServer(id, info, &problem), "watchdog fixture server created");
+            const auto dir = AppPaths::serverDir(id);
+            expect(write(dir + "/.watchdog-fixture.json", QJsonDocument(QJsonObject{{"format", "wtfml-installer-watchdog-test/1"}, {"root", dir}, {"mode", mode}}).toJson()), "watchdog private marker saved");
+            auto plan = ServerInstall::planFor(forge);
+            plan.downloads[0].url = url; plan.downloads[0].sha1 = sha1; plan.downloads[0].size = payload.size();
+            ServerInstallRun::ServerInstallController execution; execution.setDownloadManager(&downloads);
+            execution.setInstallerWatchdogLimits(350, 1400);
+            int terminals = 0; bool success = false; QString error;
+            QObject::connect(&execution, &ServerInstallRun::ServerInstallController::finished, &execution,
+                [&](auto outcome, const QString &text) { ++terminals; success = outcome == ServerInstallRun::Outcome::Succeeded; error = text; });
+            execution.start(forge, id, app.applicationFilePath(), &plan);
+            expect(wait([&] { return terminals == 1; }) && success == (mode == "retry-success"), "watchdog real process reaches the expected single terminal outcome");
+            expect(read(dir + "/attempts").toInt() == (mode == "noisy" ? 1 : 2), "watchdog retries silence once but total deadline ignores noisy output");
+            expect(QFileInfo::exists(dir + '/' + plan.downloads.first().fileName), "watchdog failure keeps downloaded installer");
+            if (mode != "retry-success") expect(!error.isEmpty() && !ServerRegistry::describe(id).installed, "failed installer is not published as installed");
+            if (mode == "failure") {
+                expect(write(dir + "/.watchdog-fixture.json", QJsonDocument(QJsonObject{{"format", "wtfml-installer-watchdog-test/1"}, {"root", dir}, {"mode", "retry-success"}}).toJson()), "retry fixture becomes available again");
+                terminals = 0; success = false;
+                execution.start(forge, id, app.applicationFilePath(), &plan);
+                expect(wait([&] { return terminals == 1; }) && success && ServerRegistry::describe(id).installed,
+                    "explicit reinstallation reuses retained installer and succeeds after a watchdog failure");
+            }
+        }
+        AppPaths::setMinecraftDir(oldRoot);
+    }
     {
         DownloadManager downloader; downloader.setSegmentedDownloadEnabled(false);
         const QString receipt = fixture.filePath("file.receipt"), target = fixture.filePath("existing.bin");
@@ -202,6 +339,18 @@ int runDownloadBatchChecks(QApplication &app) {
         expect(controller.pause(id) && terminals == 0 && manager.busyVersionId() == "core-test", "real core installation download pauses while keeping the instance locked");
         expect(controller.resume(id) && wait([&] { return terminals == 1; }) && succeeded && read(instance + "/core-test.jar") == payload,
             "real core executor continues after a pause and reports one verified completion");
+        id = activity.begin(Tasks::TaskKind::Install, QStringLiteral("发布命名实例")); terminals = 0; succeeded = false;
+        namedMetadata = QJsonDocument(json).toJson();
+        const auto metaUrl = QString(url).replace("/file?", "/named-meta?");
+        namedManifest = QJsonDocument(QJsonObject{{"versions", QJsonArray{QJsonObject{{"id", "core-test"}, {"url", metaUrl}, {"type", "release"}}}}}).toJson();
+        manager.downloads()->setUseMirror(false);
+        manager.downloads()->setVersionManifestUrlOverride(QString(url).replace("/file?", "/named-manifest?"));
+        manager.downloads()->fetchVersionManifest();
+        expect(wait([&] { return !manager.downloads()->getAvailableVersions().isEmpty(); }), "named installation metadata is provided by the local fixture only");
+        manager.installNamedVanilla("named-complete", "core-test");
+        expect(wait([&] { return terminals == 1; }) && succeeded && manager.installedVersions().contains("named-complete") &&
+            !InstanceFiles::isUnfinishedImport("named-complete") && QFileInfo::exists(AppPaths::versionMetaPath("named-complete")),
+            "completed named aliases publish their instance identity and are not mistaken for interrupted imports");
         id = activity.begin(Tasks::TaskKind::Download, QStringLiteral("取消已暂停资源"));
         expect(manager.downloadResourceFiles(root + "/mods", "test-instance", "cancelled",
             {{url, "cancelled.bin", sha1, payload.size(), {}}}) && controller.pause(id), "resource cancellation fixture pauses");

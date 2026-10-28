@@ -272,6 +272,8 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    if (app.arguments().contains(QStringLiteral("update-center-check"))) { runUpdateCenterActionTests(); return g_fail == 0 ? 0 : 1; }
+
     // ---------- modpack-import-live：**真网络**跑一次整合包导入 ----------
     // mw_check.exe modpack-import-live "<整合包.zip>" "<实例名>" "<游戏根目录>"
     //

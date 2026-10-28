@@ -21,8 +21,84 @@
 #include <QMainWindow>
 #include <QPushButton>
 #include <QTimer>
+#include "controllers/ActivityCenterController.hpp"
+#include "controllers/DownloadBatchController.hpp"
+#include <memory>
+#include <QElapsedTimer>
+#include "controllers/PresetController.hpp"
+#include "presets/PresetStore.hpp"
+#include "manage/VersionManager.hpp"
+#include "PresetInstallPicker.hpp"
+#include "InlineMessage.hpp"
+#include "TaskCenterPanel.hpp"
+#include <QComboBox>
+#include <QTreeWidget>
+#include <QTabWidget>
+#include <QUuid>
+#include <QMouseEvent>
 
-QJsonObject serverWizardInstall(const QString &root) {
+namespace {
+bool prepareClientInstall(MainWindow &window, const QString &root, const QString &presetId) {
+    window.ui()->getTabWidget()->setCurrentIndex(MainWindowUI::downloadTabIndex());
+    if (!QMetaObject::invokeMethod(&window, "openInstallPage", Qt::DirectConnection, Q_ARG(QString, QString("1.20.1")))) return false;
+    auto *tree = window.ui()->getLoaderTree();
+    QTreeWidgetItem *pinned = nullptr;
+    QElapsedTimer clock; clock.start();
+    while (!pinned && clock.elapsed() < 90000) {
+        QApplication::processEvents(QEventLoop::AllEvents, 20);
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            auto *row = tree->topLevelItem(i);
+            if (row->data(0, Qt::UserRole).toInt() != VersionManager::loaderIndexForKind(VersionManager::LoaderKind::Forge)) continue;
+            for (int j = 0; j < row->childCount(); ++j)
+                if (row->child(j)->data(0, Qt::UserRole).toString() == "47.2.0") pinned = row->child(j);
+        }
+    }
+    if (!pinned || !QMetaObject::invokeMethod(tree, "itemClicked", Qt::DirectConnection, Q_ARG(QTreeWidgetItem *, pinned), Q_ARG(int, 0))) return false;
+    window.ui()->getInstallNameEdit()->setText("ClientRecovery");
+    bool selected = false;
+    QTimer promptGuard; promptGuard.setSingleShot(true);
+    QObject::connect(&promptGuard, &QTimer::timeout, &window, [&] { window.ui()->overlay()->dismiss(); });
+    promptGuard.start(10000);
+    QTimer::singleShot(100, &window, [&] {
+        for (auto *picker : window.findChildren<PresetInstallPicker *>()) {
+            auto *combo = picker->findChild<QComboBox *>(PresetInstallPicker::comboName(0));
+            if (!combo) continue;
+            const int index = combo->findData(presetId);
+            if (index < 0) continue;
+            combo->setCurrentIndex(index); selected = picker->selectedCount() == 1;
+            if (auto *box = qobject_cast<InlineMessageBox *>(picker->parentWidget())) {
+                if (auto *button = box->findChild<QPushButton *>(InlineMessageBox::buttonName(0))) button->click();
+            } else for (auto *box : window.findChildren<InlineMessageBox *>())
+                if (auto *button = box->findChild<QPushButton *>(InlineMessageBox::buttonName(0))) button->click();
+        }
+    });
+    QTreeWidgetItem *presetRow = nullptr;
+    for (int i = 0; i < tree->topLevelItemCount(); ++i)
+        if (tree->topLevelItem(i)->data(0, Qt::UserRole).toInt() == MainWindowUI::installPresetRowRole()) presetRow = tree->topLevelItem(i);
+    if (!presetRow || !QMetaObject::invokeMethod(tree, "itemClicked", Qt::DirectConnection, Q_ARG(QTreeWidgetItem *, presetRow), Q_ARG(int, 0))) return false;
+    promptGuard.stop(); if (!selected) return false;
+    window.grab().save(root + "/client-install-selection.png");
+    QTimer confirmation;
+    QObject::connect(&confirmation, &QTimer::timeout, &window, [&] {
+        for (auto *box : window.findChildren<InlineMessageBox *>()) {
+            auto *title = box->findChild<QLabel *>(InlineMessageBox::titleLabelName());
+            if (box->isVisible() && title && title->text() == QStringLiteral("实例已存在")) {
+                if (auto *button = box->findChild<QPushButton *>(InlineMessageBox::buttonName(0))) button->click();
+                return;
+            }
+        }
+        for (auto *button : window.findChildren<QPushButton *>())
+            if (button->isVisible() && (button->text() == QStringLiteral("安装并应用") || button->text() == QStringLiteral("校验并补全"))) { button->click(); return; }
+    }); confirmation.start(50); promptGuard.start(10000);
+    auto *install = window.ui()->getInstallButton();
+    const bool enabled = install && install->isEnabled();
+    if (enabled) install->click();
+    confirmation.stop(); promptGuard.stop();
+    return enabled;
+}
+}
+
+QJsonObject serverWizardInstall(const QString &root, bool checkpoint, bool client, bool resumeOnly, const QString &java) {
     const auto configRoot = QDir(root + "/settings").absolutePath() + '/';
     // main() sets a dedicated organization and redirects IniFormat/UserScope to
     // root/settings. Verify that exact default resolution before any write.
@@ -35,11 +111,30 @@ QJsonObject serverWizardInstall(const QString &root) {
     QSettings isolated(resolved, QSettings::IniFormat);
     isolated.setValue("Launcher/Folders", QStringList{root + "/game"});
     isolated.setValue("Launcher/CurrentFolder", root + "/game"); isolated.sync();
+    if (client) { isolated.setValue("Java/Path", java); isolated.sync(); }
     if (isolated.status() != QSettings::NoError) return {{"ok", false}, {"problem", "isolated settings write failed"}};
     QDir().mkpath(root + "/game");
     qApp->setProperty("wtfml.testDefaultMinecraftDir", root + "/game");
     AppPaths::setMinecraftDir(root + "/game");
-    MainWindow window; window.resize(1100, 760); window.show();
+    QString presetId;
+    if (client && !resumeOnly) {
+        Presets::PresetManifest preset; preset.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        preset.name = "Recovery FOV"; preset.category = Presets::PresetCategory::GameSettings;
+        Presets::PresetSection options; options.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        options.kind = Presets::SectionKind::VanillaOptions;
+        options.items = QJsonArray{QJsonObject{{"key", "fov"}, {"value", "0.5"}}};
+        preset.sections.append(options);
+        Presets::PresetIndex index; index.order = {preset.id};
+        if (!Presets::saveManifest(PresetController::presetsRoot(), preset) || !Presets::saveIndex(PresetController::presetsRoot(), index))
+            return {{"ok", false}, {"problem", "isolated preset could not be saved"}};
+        presetId = preset.id;
+    }
+    auto owner = std::make_unique<MainWindow>();
+    auto &window = *owner; window.resize(1100, 760); window.show();
+    int previousIntents = 0;
+    if (auto *activity = window.findChild<ActivityCenterController *>())
+        for (const auto &task : activity->tasks()->all())
+            if (task.targetId == (client ? "ClientRecovery" : "Acceptance") && task.kind == Tasks::TaskKind::Install) ++previousIntents;
     bool accepted = false, screenshot = false, installed = false;
     auto *create = window.findChild<QPushButton *>(MainWindowUI::newServerButtonName());
     if (!create) return {{"ok", false}, {"problem", "missing production creation entry"}};
@@ -57,14 +152,117 @@ QJsonObject serverWizardInstall(const QString &root) {
     QObject::connect(&pageDeadline, &QTimer::timeout, &window, [&] {
         for (auto *overlay : window.findChildren<OverlayHost *>()) overlay->evict();
     }); pageDeadline.start(15000);
-    create->click(); pageDeadline.stop();
+    if (resumeOnly) { accepted = true; screenshot = true; }
+    else if (client) { accepted = prepareClientInstall(window, root, presetId); screenshot = accepted; }
+    else create->click();
+    pageDeadline.stop();
     QEventLoop loop; QTimer poll, deadline;
-    poll.setInterval(100); deadline.setSingleShot(true);
+    bool paused = false;
+    Tasks::TaskId taskId = Tasks::invalidTaskId();
+    const auto batchesFor = [](MainWindow &host) -> DownloadBatchController * {
+        for (auto *child : host.children()) if (auto *batches = dynamic_cast<DownloadBatchController *>(child)) return batches;
+        return nullptr;
+    };
+    if (resumeOnly) {
+        auto *activity = window.findChild<ActivityCenterController *>();
+        auto *batches = batchesFor(window);
+        if (activity && batches) for (const auto &task : activity->tasks()->all()) {
+            if (task.targetId == "ClientRecovery" && batches->owns(task.id)) { taskId = task.id; paused = true; }
+        }
+    }
+    const auto taskScreenshot = [&](MainWindow &host, const QString &name) {
+        auto *panel = host.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
+        if (!panel || !panel->isVisible())
+            if (auto *button = host.findChild<QPushButton *>(MainWindowUI::taskSummaryButtonName())) button->click();
+        QElapsedTimer animation; animation.start();
+        while (animation.elapsed() < 400) QApplication::processEvents(QEventLoop::AllEvents, 20);
+        if (auto *row = host.findChild<QWidget *>(MainWindowUI::taskCenterPanelRowName(0))) {
+            const QPointF local(row->rect().center()), global(row->mapToGlobal(row->rect().center()));
+            QMouseEvent press(QEvent::MouseButtonPress, local, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QMouseEvent release(QEvent::MouseButtonRelease, local, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(row, &press); QApplication::sendEvent(row, &release);
+        }
+        QApplication::processEvents();
+        panel = host.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
+        if (!panel || !panel->isVisible()) return false;
+        return host.grab().save(root + '/' + name);
+    };
+    poll.setInterval(checkpoint ? 1 : 100); deadline.setSingleShot(true);
     QObject::connect(&poll, &QTimer::timeout, &loop, [&] {
+        if (checkpoint) {
+            auto *activity = window.findChild<ActivityCenterController *>();
+            auto *batches = batchesFor(window);
+            if (activity && batches) for (const auto &task : activity->tasks()->all()) {
+                if (task.targetId == (client ? "ClientRecovery" : "Acceptance") && batches->owns(task.id) && task.capabilities.canPause && batches->pause(task.id)) {
+                    taskId = task.id; paused = true; loop.quit(); return;
+                }
+            }
+            return;
+        }
         if (ServerRegistry::describe("Acceptance").installed) { installed = true; loop.quit(); }
     });
     QObject::connect(&deadline, &QTimer::timeout, &loop, &QEventLoop::quit);
-    if (accepted) { poll.start(); deadline.start(300000); loop.exec(); }
+    if (accepted && !resumeOnly) { poll.start(); deadline.start(client ? 120000 : 300000); loop.exec(); }
+    poll.stop(); deadline.stop();
+    if (checkpoint) {
+        auto *activity = window.findChild<ActivityCenterController *>();
+        const bool pauseShot = paused && taskScreenshot(window, "paused-task.png");
+        const bool saved = activity && activity->tasks()->saveHistory();
+        if (!paused || !saved) return {{"ok", false}, {"accepted", accepted}, {"paused", paused}, {"problem", "could not checkpoint actual installation download"}};
+        window.hide(); owner.reset();
+        MainWindow reopened; reopened.resize(1100, 760); reopened.show();
+        QTimer completion;
+        QObject::connect(&completion, &QTimer::timeout, &reopened, [&] {
+            for (auto *box : reopened.findChildren<InlineMessageBox *>()) {
+                const auto *title = box->findChild<QLabel *>(InlineMessageBox::titleLabelName());
+                if (!box->isVisible() || !title || title->text() != QStringLiteral("安装完成")) continue;
+                reopened.grab().save(root + "/installation-complete-prompt.png");
+                if (auto *button = box->findChild<QPushButton *>(InlineMessageBox::buttonName(0))) button->click();
+            }
+        }); completion.start(100);
+        auto *restored = reopened.findChild<ActivityCenterController *>();
+        auto *batches = batchesFor(reopened);
+        if (!restored || !batches || !batches->owns(taskId))
+            return {{"ok", false}, {"problem", "main window did not restore original task"}};
+        const bool alreadyReady = restored->tasks()->snapshot(taskId).detail.contains(QStringLiteral("文件已补齐"));
+        if (!batches->resume(taskId)) return {{"ok", false}, {"problem", "original task refused explicit resume"}, {"detail", restored->tasks()->snapshot(taskId).detail}};
+        QElapsedTimer timer; timer.start();
+        // A receipt may already be at the explicit-continuation gate after an OS
+        // restart. One click then starts the installer rather than file replay.
+        if (alreadyReady && client) {
+            // The first resume above was the user's explicit continuation.
+        } else while (restored->tasks()->snapshot(taskId).state != Tasks::TaskState::Paused && timer.elapsed() < (client ? 600000 : 300000))
+            QApplication::processEvents(QEventLoop::AllEvents, 20);
+        const bool ready = restored->tasks()->snapshot(taskId).state == Tasks::TaskState::Paused;
+        const bool readyShot = (ready || alreadyReady) && taskScreenshot(reopened, "files-ready-task.png");
+        const bool explicitContinue = alreadyReady || (ready && batches->resume(taskId));
+        if (!explicitContinue) return {{"ok", false}, {"problem", "files did not reach the continuation gate"}, {"detail", restored->tasks()->snapshot(taskId).detail}};
+        timer.restart();
+        while (!Tasks::isTerminalState(restored->tasks()->snapshot(taskId).state) && timer.elapsed() < (client ? 480000 : 30000))
+            QApplication::processEvents(QEventLoop::AllEvents, 20);
+        bool presetApplied = !client;
+        if (client) {
+            QFile options(AppPaths::versionDir("ClientRecovery") + "/options.txt");
+            presetApplied = options.open(QIODevice::ReadOnly) && options.readAll().contains("fov:0.5");
+        }
+        auto *versions = reopened.findChild<VersionManager *>();
+        const bool listed = !client || (versions && versions->installedVersions().contains("ClientRecovery"));
+        installed = restored->tasks()->snapshot(taskId).state == Tasks::TaskState::Succeeded && presetApplied && listed &&
+            (client ? QFileInfo::exists(AppPaths::versionJsonPath("ClientRecovery")) : ServerRegistry::describe("Acceptance").installed);
+        int intents = 0;
+        for (const auto &task : restored->tasks()->all()) if (task.targetId == (client ? "ClientRecovery" : "Acceptance") && task.kind == Tasks::TaskKind::Install) ++intents;
+        const bool oneIntent = intents == previousIntents + (resumeOnly ? 0 : 1);
+        const bool finalShot = taskScreenshot(reopened, "completed-task.png");
+        return {{"ok", accepted && paused && (ready || alreadyReady) && explicitContinue && installed && oneIntent && pauseShot && readyShot && finalShot},
+            {"paused", paused}, {"filesReadyWaited", ready || alreadyReady}, {"explicitContinue", explicitContinue}, {"installed", installed},
+            {"singleIntent", oneIntent}, {"screenshots", pauseShot && readyShot && finalShot},
+            {"presetApplied", presetApplied},
+            {"listed", listed},
+            {"resumedExistingProcessReceipt", resumeOnly},
+            {"task", QString::number(taskId)}, {"settingsFile", resolved},
+            {"scope", client ? "Actual MainWindow Forge 47.2.0/1.20.1 + FOV preset, public download, pause, reopen, files-only restore, explicit installer continuation; no game launch"
+                : "Actual MainWindow server wizard, public download, pause, destroy/reopen window, files-only restore, explicit installation; no server launch"}};
+    }
     window.hide();
     return {{"ok", accepted && installed && screenshot}, {"accepted", accepted}, {"installed", installed},
         {"screenshot", screenshot}, {"settingsFile", resolved},

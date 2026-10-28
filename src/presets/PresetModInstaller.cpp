@@ -14,6 +14,10 @@
 #include "manage/InstanceIconLookup.hpp"
 #include "util/AppPaths.hpp"
 #include "util/DirectorySessionLock.hpp"
+#include "controllers/DownloadBatchController.hpp"
+#include "controllers/ActivityCenterController.hpp"
+#include "download/DownloadCheckpoint.hpp"
+#include "PresetModTargets.hpp"
 
 namespace Presets {
 namespace {
@@ -38,7 +42,56 @@ QSet<QString> failingParents(const QList<ModInstallRow> &rows, QSet<QString> fai
 }
 PresetModInstaller::PresetModInstaller(QObject *parent, ResourceStore *store) : QObject(parent), m_store(store) {}
 PresetModInstaller::~PresetModInstaller() {
+    if (m_recovery) m_recovery->shutdown();
     m_scanCancel->store(true, std::memory_order_relaxed);
+}
+
+void PresetModInstaller::setRecovery(ActivityCenterController *activity, Tasks::TaskId id, const QJsonObject &intent) {
+    m_activity = activity; m_taskId = id; m_continuation = intent;
+}
+bool PresetModInstaller::pauseDownload() {
+    if (m_done || !m_recovery || m_phase != "download" || !m_recovery->pause(m_taskId)) return false;
+    if (m_deadline) { m_remainingMs = qMax(1, m_deadline->remainingTime()); m_deadline->stop(); }
+    return true;
+}
+bool PresetModInstaller::resumeDownload() {
+    if (m_done || !m_recovery || m_phase != "download" || m_resumeScanActive ||
+        !m_download || !m_download->batchPaused()) return false;
+    const auto root = m_root;
+    const auto expected = m_continuation.value("modTargets").toObject();
+    if (expected.isEmpty()) return false;
+    m_resumeScanActive = true;
+    const auto token = m_activity ? m_activity->tasks()->snapshot(m_taskId).recoveryToken : QString();
+    if (m_activity) {
+        m_activity->tasks()->setDetail(m_taskId, tr("正在后台检查模组目录，完成后恢复文件下载。"));
+        m_activity->tasks()->setRecovery(m_taskId, token, false, tr("正在检查模组目录。"));
+    }
+    auto *watcher = new QFutureWatcher<QJsonObject>(this);
+    connect(watcher, &QFutureWatcher<QJsonObject>::finished, this, [this, watcher, root, expected, token] {
+        const auto current = watcher->result();
+        watcher->deleteLater();
+        m_resumeScanActive = false;
+        if (m_done || m_scanCancel->load(std::memory_order_relaxed)) return;
+        if (root != m_root || m_phase != "download" || current.isEmpty() || current != expected ||
+            (m_running && m_running()) || (m_planCurrent && !m_planCurrent())) {
+            if (m_activity) {
+                m_activity->tasks()->setDetail(m_taskId, tr("模组目录或实例状态已被外部修改，请取消并重新预览。"));
+                m_activity->tasks()->setRecovery(m_taskId, token, false, tr("请取消并重新预览。"));
+            }
+            return;
+        }
+        if (m_activity) m_activity->tasks()->setRecovery(m_taskId, token, true);
+        if (m_recovery->resume(m_taskId) && m_deadline) m_deadline->start(m_remainingMs);
+    });
+    watcher->setFuture(QtConcurrent::run([root, cancel = m_scanCancel] {
+        return Presets::snapshotModTargets(root, cancel.get());
+    }));
+    return true;
+}
+QString PresetModInstaller::stagedPath(int index) const {
+    const auto hash = m_downloadRows.at(index).file.sha1.toLower();
+    const bool valid = QRegularExpression(QStringLiteral("^[0-9a-f]{40}$")).match(hash).hasMatch();
+    return m_stage->filePath(valid ? hash + ".jar" : "invalid-" + QString::number(index));
 }
 
 void PresetModInstaller::start(const QList<ModReference> &references, const QString &root,
@@ -155,7 +208,9 @@ void PresetModInstaller::start(const QList<ModReference> &references, const QStr
             m_waiting.clear();
             QTimer::singleShot(0, this, [this] { resolveNext(); });
         });
-    QTimer::singleShot(600000, this, [this] { if (!m_done) { cancel(); } });
+    m_deadline = new QTimer(this); m_deadline->setSingleShot(true);
+    connect(m_deadline, &QTimer::timeout, this, [this] { if (!m_done) cancel(); });
+    m_deadline->start(m_remainingMs);
     readInventory();
 }
 
@@ -486,20 +541,26 @@ bool PresetModInstaller::queryUnidentifiedFiles() {
 void PresetModInstaller::download() {
     m_phase = QStringLiteral("download");
     if (!saveExecutionRecord()) { finish(tr("无法保存下载前执行报告，未开始下载。")); return; }
-    if (!QDir::isAbsolutePath(m_root) || redirected(m_root) ||
+    if (!QDir::isAbsolutePath(m_root) || !QFileInfo(m_root).isDir() || redirected(m_root) ||
         redirected(QDir(m_root).filePath(QStringLiteral("mods")))) {
         finish(tr("实例或模组目录不安全，未写入文件。")); return;
     }
-    m_stage = std::make_unique<QTemporaryDir>();
-    if (!m_stage->isValid()) { finish(tr("无法创建模组下载暂存目录。")); return; }
+    const auto stage = QDir(m_root).filePath(".wtfml-preset-downloads");
+    if (!DownloadCheckpoint::safePath(stage) || !QDir().mkpath(stage)) { finish(tr("无法创建安全的模组下载暂存目录。")); return; }
+    m_stage = std::make_unique<QDir>(stage);
     m_download = new DownloadManager(this);
     m_download->setUseMirror(false);
     m_download->setMaxConcurrentDownloads(4);
+    if (m_activity && m_taskId != Tasks::invalidTaskId() && !m_continuation.isEmpty()) {
+        m_recovery = new DownloadBatchController(m_activity, m_download, [this] { return m_taskId; }, this);
+        m_recovery->setContinuation([this] { return m_continuation; }, {});
+    }
     connect(m_download, &DownloadManager::allDownloadsFinished, this, [this](bool) {
         if (!m_done) QTimer::singleShot(0, this, [this] { if (!m_done) readInventory(true); });
     });
     m_download->beginBatch();
     const auto rows = m_downloadRows;
+    QSet<QString> staged;
     for (int i = 0; i < rows.size(); ++i) {
         const auto &file = rows[i].file;
         const QUrl url(file.url);
@@ -509,7 +570,11 @@ void PresetModInstaller::download() {
             file.filename != QFileInfo(file.filename).fileName() || file.filename.contains(QLatin1Char('\\')) ||
             file.filename.contains(QLatin1Char(':')) || !file.filename.endsWith(QStringLiteral(".jar"), Qt::CaseInsensitive) ||
             !QRegularExpression(QStringLiteral("^[0-9a-fA-F]{40}$")).match(file.sha1).hasMatch()) continue;
-        m_download->downloadFile(file.url, m_stage->filePath(QString::number(i)), file.sha1, file.size);
+        const auto path = stagedPath(i);
+        if (!DownloadCheckpoint::safePath(path)) { finish(tr("暂存文件路径已变为链接，未下载或部署。")); return; }
+        if (staged.contains(path)) continue;
+        staged.insert(path);
+        m_download->downloadFile(file.url, path, file.sha1, file.size);
     }
     m_download->endBatch();
 }
@@ -522,7 +587,7 @@ void PresetModInstaller::commit() {
     // Necessary downloads must all verify before any staged file is installed.
     for (int i = 0; i < rows.size(); ++i) {
         const auto &row = rows[i];
-        const auto verified = verifyDownloadedFile(m_stage->filePath(QString::number(i)), row.file.size, row.file.sha1);
+        const auto verified = verifyDownloadedFile(stagedPath(i), row.file.size, row.file.sha1);
         if ((!verified.ok || verified.unverified) && row.required) {
             finish(tr("必要模组「%1」未通过下载校验，未写入模组文件。保存文件名或校验信息也可能无效。").arg(row.title)); return;
         }
@@ -549,7 +614,7 @@ void PresetModInstaller::commit() {
     for (int i = 0; i < rows.size(); ++i) {
         const auto &row = rows[i];
         if (skipOptional.contains(row.key)) continue;
-        if (!QFile::exists(m_stage->filePath(QString::number(i)))) continue;
+        if (!QFile::exists(stagedPath(i))) continue;
         const QString name = row.file.filename.toCaseFolded();
         if (names.contains(name) && names.value(name) != row.file.sha1.toLower()) {
             finish(tr("多个模组使用相同文件名但内容不同，未写入：%1").arg(row.file.filename)); return;
@@ -630,11 +695,12 @@ bool PresetModInstaller::saveExecutionRecord() {
 void PresetModInstaller::finish(const QString &problem) {
     if (m_done) return;
     m_done = true;
+    if (m_deadline) m_deadline->stop();
     m_scanCancel->store(true, std::memory_order_relaxed);
     if (!problem.isEmpty()) { m_result.ok = false; m_result.lines.prepend(problem); }
     if (!problem.isEmpty() && m_result.installed > 0)
         m_result.lines.append(tr("失败前已写入 %1 个模组；基础实例和已写入文件保留。").arg(m_result.installed));
-    if (m_download) m_download->cancelBatch();
+    if (m_download && (m_result.cancelled || m_download->isBusy())) m_download->cancelBatch();
     saveExecutionRecord();
     m_writeLock.reset();
     if (m_completed) m_completed(m_result);

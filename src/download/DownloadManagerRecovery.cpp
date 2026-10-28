@@ -13,9 +13,10 @@ bool DownloadManager::enableCheckpoint(const QString &path, const QJsonObject &c
 }
 QString DownloadManager::checkpointPath() const { return m_checkpoint ? m_checkpoint->path : QString(); }
 QJsonObject DownloadManager::checkpointContext() const { return m_checkpoint ? m_checkpoint->context : QJsonObject(); }
-bool DownloadManager::deferCheckpointContinuation() {
+bool DownloadManager::deferCheckpointContinuation(bool refreshSources) {
     if (!m_checkpoint) return false;
     m_checkpoint->context.insert("phase", "continue-install");
+    m_checkpoint->context.insert("refreshSources", refreshSources);
     const bool saved = m_checkpoint->save();
     m_checkpoint.reset(); // Retain the receipt; only an explicit second action may run the installer.
     return saved;
@@ -27,7 +28,12 @@ void DownloadManager::forgetCheckpoint() {
 }
 bool DownloadManager::canPauseBatch() const {
     if (!m_checkpoint || m_checkpointFailed || m_checkpoint->files.isEmpty() || m_batchPaused ||
-        m_batchOpen || m_batchEmitted || m_reuseActive > 0 || !m_metadataReplies.isEmpty()) return false;
+        m_batchOpen || m_batchEmitted || m_reuseActive > 0) return false;
+    // The home/download-page manifest request neither registers file jobs nor
+    // belongs to this batch. cancelBatch() leaves it alive; waiting for it would
+    // hide pause for an unrelated resource update on a slow network.
+    for (const auto &job : m_metadataReplies)
+        if (job.label != QStringLiteral("version_manifest.json")) return false;
     for (auto *reply : activeDownloads.keys()) if (reply->property("wtfmlAssetIndex").toBool()) return false;
     for (auto *job : m_segmentJobs.keys()) if (!job->canCancel()) return false;
     return isBusy();

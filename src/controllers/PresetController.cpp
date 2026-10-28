@@ -14,6 +14,9 @@
 #include "PresetModReview.hpp"
 #include "PresetOptionsEditor.hpp"
 #include "presets/PresetModInstaller.hpp"
+#include "presets/PresetModTargets.hpp"
+#include "controllers/ActivityCenterController.hpp"
+#include "manage/InstanceFiles.hpp"
 #include "presets/PresetManifestLoader.hpp"
 #include "presets/PresetPreviewLoader.hpp"
 #include <QPushButton>
@@ -1713,19 +1716,78 @@ void PresetController::installModsAfterInstall(const QStringList &presetIds, con
         dialog->open();
     });
     m_modInstallTask = task;
+    bool ownTask = false;
+    m_modTaskId = m_resumingModTask;
+    m_resumingModTask = Tasks::invalidTaskId();
+    if (m_activity) {
+        if (m_modTaskId == Tasks::invalidTaskId() && m_activeInstallTask) {
+            const auto candidate = m_activeInstallTask();
+            if (m_activity->tasks()->has(candidate)) {
+                const auto current = m_activity->tasks()->snapshot(candidate);
+                if (current.targetId == instanceId && current.kind == Tasks::TaskKind::Install && Tasks::isActiveState(current.state)) m_modTaskId = candidate;
+            }
+        }
+        if (m_modTaskId == Tasks::invalidTaskId()) {
+            m_modTaskId = m_activity->begin(Tasks::TaskKind::Install, tr("应用模组预设：%1").arg(displayName(instanceId)), instanceId);
+            ownTask = true;
+        }
+        const auto targets = Presets::snapshotModTargets(requestedRoot);
+        if (!targets.isEmpty()) task->setRecovery(m_activity, m_modTaskId,
+            {{"kind", "preset-mods"}, {"root", AppPaths::minecraftDir()}, {"instance", instanceId},
+             {"game", m_versions->instanceGameVersion(instanceId)}, {"loader", loader},
+             {"selection", snapshot}, {"modTargets", targets}});
+    }
+    const auto taskId = m_modTaskId;
     // 必须在 `start()` **之前**记：`start()` 在"没有版本 / 加载器对不上"那几条路上
     // 会**同步**回调 completed，先记后清才是对的顺序。
     if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(instanceId, true);
     task->start(references, instanceRoot(instanceId), m_versions->instanceGameVersion(instanceId), loader,
                 m_presetApiKey, [this, instanceId] { return m_host.isRunning && m_host.isRunning(instanceId); },
-                [this, instanceId, completed](const Presets::PresetModInstaller::Result &result) {
+                [this, instanceId, completed, taskId, ownTask](const Presets::PresetModInstaller::Result &result) {
                     m_modInstallTask.clear();
+                    m_modTaskId = Tasks::invalidTaskId();
                     if (m_host.setFileOperationBusy) m_host.setFileOperationBusy(instanceId, false);
                     if (m_host.refreshInstances) m_host.refreshInstances();
                     const QString text = result.lines.join(QLatin1Char('\n'));
                     log(text);
+                    if (m_activity && ownTask) {
+                        if (result.cancelled) m_activity->tasks()->cancel(taskId);
+                        else m_activity->finish(taskId, result.ok, result.ok ? QString() : text, false);
+                    }
                     completed(result.ok, text);
                 });
+}
+
+bool PresetController::pauseModDownload(Tasks::TaskId id) {
+    return ownsModTask(id) && static_cast<Presets::PresetModInstaller *>(m_modInstallTask.data())->pauseDownload();
+}
+bool PresetController::resumeModDownload(Tasks::TaskId id) {
+    return ownsModTask(id) && static_cast<Presets::PresetModInstaller *>(m_modInstallTask.data())->resumeDownload();
+}
+bool PresetController::continueModInstallation(Tasks::TaskId id, const QJsonObject &intent) {
+    if (m_modInstallTask || !m_activity || intent.value("kind") != "preset-mods" ||
+        QDir::cleanPath(intent.value("root").toString()) != QDir::cleanPath(AppPaths::minecraftDir())) return false;
+    const auto instance = intent.value("instance").toString();
+    if (!InstanceFiles::validateDirName(instance).isEmpty() || (m_host.isInstanceBusy && m_host.isInstanceBusy(instance)) ||
+        (m_host.isRunning && m_host.isRunning(instance))) return false;
+    QString loader, version; m_versions->instanceLoaderInfo(instance, &loader, &version);
+    const auto targets = intent.value("modTargets").toObject();
+    if (m_versions->instanceGameVersion(instance) != intent.value("game").toString() || loader != intent.value("loader").toString() ||
+        targets.isEmpty() || Presets::snapshotModTargets(instanceRoot(instance)) != targets) return false;
+    QStringList ids;
+    for (const auto &value : intent.value("selection").toArray()) {
+        const auto old = value.toObject(); bool ok = false;
+        const auto manifest = Presets::loadManifest(presetsRoot(), old.value("id").toString(), &ok);
+        if (!ok || Presets::manifestToJson(manifest) != old) return false;
+        ids.append(manifest.id);
+    }
+    if (ids.isEmpty()) return false;
+    m_resumingModTask = id;
+    installModsAfterInstall(ids, instance, [this, id](bool ok, const QString &text) {
+        if (m_activity) m_activity->finish(id, ok, ok ? QString() : text, false);
+    });
+    m_resumingModTask = Tasks::invalidTaskId();
+    return true;
 }
 
 bool PresetController::cancelModInstall() {

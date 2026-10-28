@@ -33,6 +33,8 @@
 
 #include <functional>
 #include <QPointer>
+#include "tasks/TaskId.hpp"
+class ActivityCenterController;
 
 #include "PresetManagePage.hpp"
 #include "presets/PresetApply.hpp"
@@ -262,6 +264,13 @@ public:
                                  std::function<void(bool, const QString &)> completed);
     bool cancelModInstall();
     bool isInstallingMods() const { return !m_modInstallTask.isNull(); }
+    void setRecoveryHost(ActivityCenterController *activity, std::function<Tasks::TaskId()> active) {
+        m_activity = activity; m_activeInstallTask = std::move(active);
+    }
+    bool ownsModTask(Tasks::TaskId id) const { return m_modInstallTask && id == m_modTaskId; }
+    bool pauseModDownload(Tasks::TaskId id);
+    bool resumeModDownload(Tasks::TaskId id);
+    bool continueModInstallation(Tasks::TaskId id, const QJsonObject &intent);
 
 signals:
     /// 兼容检查每出一条 / 收尾都会发（`finished` 那一发也在这条信号上）。
@@ -319,4 +328,7 @@ private:
     QString m_modCheckPresetId;
     QPointer<QObject> m_modInstallTask;
     QString m_presetApiKey;
+    ActivityCenterController *m_activity = nullptr;
+    std::function<Tasks::TaskId()> m_activeInstallTask;
+    Tasks::TaskId m_modTaskId = Tasks::invalidTaskId(), m_resumingModTask = Tasks::invalidTaskId();
 };

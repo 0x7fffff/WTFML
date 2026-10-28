@@ -33,10 +33,13 @@ public:
      * false（见 loginInFlight()），**这种 false 不发信号**。
      *
      * NOTE: 返回 true 只代表**流程开了头**：登录真正成功还是失败是异步的，靠下面那三个
-     * 信号。两条返回 false 的路径都会先发一次 loginFailed() —— 也就是说调用方
+     * 信号。配置、监听或浏览器失败时都会先发一次 loginFailed() —— 也就是说调用方
      * 不需要自己处理失败，**更不要**在那边再写一句日志当提示（那就成了两份说法）。
      */
     bool loginMicrosoft();
+
+    /// 空串表示已配置；只检查构建配置，不连接网络或打开浏览器。
+    static QString loginConfigurationError();
 
     /**
      * @brief 登录流程是不是正在走（点了按钮、浏览器那头还没回来）。

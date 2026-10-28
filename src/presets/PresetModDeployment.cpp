@@ -27,7 +27,7 @@ void PresetModInstaller::deployOne(int index) {
         || !QFileInfo(mods).isDir() || QFileInfo(mods).isSymLink() || QFileInfo(mods).isJunction()) {
         finish(tr("实例或模组目录已变化，未重新创建或继续写入。")); return;
     }
-    const QString path = m_stage->filePath(QString::number(index));
+    const QString path = stagedPath(index);
     const auto verified = verifyDownloadedFile(path, row.file.size, row.file.sha1);
     if (!verified.ok || verified.unverified) {
         if (row.required) { finish(tr("必要模组暂存内容已变化，已停止部署。")); return; }

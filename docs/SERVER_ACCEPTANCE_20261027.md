@@ -32,3 +32,19 @@ Fabric复核还发现向导关闭后getter使用isVisible丢失加载器参数�
 DOWNLOAD_MOJMAPS静默到300秒工具截止，未安装成功。与首次真实安装成功并列保留；
 不能靠后续运行矩阵通过宣称该网络根因消失。服务端已补有界静默重试，尚需针对该具体现场复验。
 不将本轮结果推广到所有服务端/游戏版本、冷缓存性能、原生文件对话框或公网玩家加入。
+
+## 10 月 27～28 日收尾
+
+原故障现场已核对固定 build 路径、旧失败报告和测试服务端元数据，补记 owned.json 的来源及旧报告 SHA-256 后重试。
+`build/server-matrix-forge-20261027-1007/report.json` 现为 installed/ok=true，使用真实 Microsoft Java 17；
+原失败另存为 report-before-run-only-*.json，installation.log 追加，未删除半成品。
+`build/2.1-forge-original-retry-20261027-run2.*.log` 保留真实重试输出。
+
+高速度下载模块另用实际 OS 子进程和缩短时钟验证：静默一次后重启成功、两次静默后唯一失败终态、
+持续有输出仍受总截止约束、保留安装器、明确重新安装成功。生产默认仍为 3 分钟静默 / 10 分钟总截止。
+故障位于外部 Java 内部下载，而不是 Qt 文件队列；瞬时网络首因没有被这次成功重试证明消失。
+本轮收口的是有界失败、保留与可重试行为，不是声明已根治上游网络。
+
+服务端恢复真窗口：`build/server-recovery-ui-20261027-final/wizard-install.json` 全部通过，
+包括单一任务、暂停、销毁/重开主窗口、文件补齐后等待、第二次明确继续和三阶段截图；不启动服务端。
+跨 OS 进程的文件恢复另由模块覆盖，两者不混同。详见 [下载恢复](DOWNLOAD_RECOVERY_ACCEPTANCE_20261027.md)。

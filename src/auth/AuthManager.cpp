@@ -41,17 +41,11 @@
 #include "util/SecretRedactor.hpp"
 
 namespace {
-// 正版登录那两格随构建配置走的常数。
-//
-// 这两个宏由 CMakeLists 那两条 `WTFML_CLIENT_ID` / `WTFML_REDIRECT_URI` 缓存变量按需注入
-// （带了 `-D` 才有定义）；**没带的时候用下面这份兜底值**，所以"不改那两条、照旧构建"
-// 出来的东西保持不变。想换成自己那份 Azure 应用注册时不必改源码。
-// 回调地址一定要和"我们监听哪个端口"同步（见 OAuthEndpoints.hpp 那段）：换地址就等于
-// 换端口，端口是**从下面这串地址里算出来的**，不是另写的一位。
+// 正版登录只使用构建时明确配置的项目应用 ID；未配置时在本地提示，禁止发起授权。
 #ifdef WTFML_CLIENT_ID
 static constexpr const char kClientId[] = WTFML_CLIENT_ID;
 #else
-static constexpr const char kClientId[] = "1f3dc837-04f1-4389-947e-d698b69571b7";
+static constexpr const char kClientId[] = "";
 #endif
 
 // NOTE: 两份凭据落在哪些键上、以及那串字节怎么保护，都**不在这里** ——
@@ -171,10 +165,26 @@ AuthManager::AuthManager(QObject *parent)
     applyMinecraftTokenData(loadMinecraftTokenData());
 }
 
+QString AuthManager::loginConfigurationError() {
+    if (QString::fromLatin1(kClientId).trimmed().isEmpty()) {
+        return tr("此构建尚未配置项目的微软登录应用 ID，暂不能登录或刷新正版账号。请使用配置完成的正式版本；已有凭据不会被删除。");
+    }
+    if (!OAuthEndpoints::isUsableRedirectUri(QString::fromLatin1(kRedirectUri))) {
+        return tr("此构建的微软登录回调地址无效，请联系维护者修正构建配置。");
+    }
+    return {};
+}
+
 bool AuthManager::loginMicrosoft() {
     if (m_loginInFlight) {
         // 已经在等了。这里**不能**重开：换掉 code verifier 会让已经打开的那个浏览器
         // 标签页的回调作废（微软那头回 invalid_grant），用户看着登录页莫名其妙失败。
+        return false;
+    }
+
+    const QString configError = loginConfigurationError();
+    if (!configError.isEmpty()) {
+        emit loginFailed(configError);
         return false;
     }
 
@@ -771,6 +781,11 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code, QString *access
 bool AuthManager::requestMicrosoftTokenRefresh(const QString &refreshToken, QString *accessToken,
                                                QString *errorMessage,
                                                const QString &expectedActiveUuid) {
+    const QString configError = loginConfigurationError();
+    if (!configError.isEmpty()) {
+        if (errorMessage) *errorMessage = configError;
+        return false;
+    }
     if (refreshToken.isEmpty()) {
         *errorMessage = tr("没有可用的刷新凭据，请重新登录。");
         return false;

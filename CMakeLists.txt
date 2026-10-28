@@ -551,19 +551,11 @@ if(WTFML_DIAG_DOWNLOAD)
         COMPILE_DEFINITIONS "WTFML_DIAG_DOWNLOAD=1;WTFML_BUILD_FLAVOR=\"download-diagnostics\"")
 endif()
 
-# 正版登录那两格（客户端 ID 和回调地址通过构建配置注入）。
-#
-# 默认**空 = 用源码里那份兜底值**（`src/auth/AuthManager.cpp` 里那两个 `#ifdef` 的另一半），
-# 所以不带 `-D` 构建时用的就是源码里的兜底值。要换成自己那份 Azure 应用注册时不用改源码：
-#
-#   cmake -DWTFML_CLIENT_ID=<你的应用 id> -DWTFML_REDIRECT_URI=http://localhost:38300/ …
-#
-# ★ 回调地址换了就等于换了监听端口：端口是 AuthManager 从这串地址里**算**出来的
-#   （`OAuthEndpoints::callbackPort()`），别再去找第二个地方改。
-# ★ 为什么不干脆把源码里那两个字面量删掉：删掉之后不带 `-D` 的构建会拿到空 client_id，
-#   表现是"点登录、浏览器开了、微软说这个应用不存在" —— 比多一个开关更糟。
-set(WTFML_CLIENT_ID "" CACHE STRING "Microsoft OAuth 客户端 ID（空 = 用源码里的兜底值）")
-set(WTFML_REDIRECT_URI "" CACHE STRING "OAuth 回调地址，端口随之生效（空 = 用源码里的兜底值）")
+# 正版登录使用项目自己的 Azure 应用注册。未配置时仍可构建和离线使用，
+# 登录/刷新在发起网络请求前明确提示；不借用其它项目的应用 ID。
+# cmake -DWTFML_CLIENT_ID=<项目应用ID> -DWTFML_REDIRECT_URI=http://localhost:38226/ ...
+set(WTFML_CLIENT_ID "" CACHE STRING "项目自己的 Microsoft OAuth 客户端 ID（空 = 禁用在线授权）")
+set(WTFML_REDIRECT_URI "" CACHE STRING "OAuth 回调地址（空 = http://localhost:38226/）")
 
 if(WTFML_CLIENT_ID)
     target_compile_definitions(WTFMinecraftLauncher PRIVATE WTFML_CLIENT_ID="${WTFML_CLIENT_ID}")

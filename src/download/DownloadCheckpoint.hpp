@@ -15,6 +15,7 @@
 #include <QRegularExpression>
 #include <QUrl>
 #include <memory>
+#include <atomic>
 
 // A file-batch receipt, not a serialized Java installer. URLs can contain credentials.
 // The original receipt survives malformed input, a busy lock, and failed atomic writes.
@@ -46,19 +47,25 @@ public:
         }
         return true;
     }
-    static QJsonObject fingerprint(const QString &path) {
+    static QJsonObject fingerprint(const QString &path, const std::atomic_bool *cancel = nullptr) {
         QFileInfo info(path);
         if (!safePath(path)) return {};
         if (!info.exists()) return {{"exists", false}};
         QFile file(path);
         if (!info.isFile() || !file.open(QIODevice::ReadOnly)) return {};
         QCryptographicHash hash(QCryptographicHash::Sha256);
-        if (!hash.addData(&file)) return {};
+        while (!file.atEnd()) {
+            if (cancel && cancel->load(std::memory_order_relaxed)) return {};
+            const auto bytes = file.read(1024 * 1024);
+            if (bytes.isEmpty() && file.error() != QFileDevice::NoError) return {};
+            hash.addData(bytes);
+        }
+        if (cancel && cancel->load(std::memory_order_relaxed)) return {};
         return {{"exists", true}, {"size", QString::number(info.size())},
                 {"sha256", QString::fromLatin1(hash.result().toHex())}};
     }
-    static bool unchanged(const File &entry) {
-        const auto current = fingerprint(entry.path);
+    static bool unchanged(const File &entry, const std::atomic_bool *cancel = nullptr) {
+        const auto current = fingerprint(entry.path, cancel);
         if (current.isEmpty()) return false;
         if (current == entry.original) return true;
         // A previous run may have committed this exact declared artifact before dying.
@@ -67,7 +74,14 @@ public:
         if (entry.size >= 0 && QFileInfo(file).size() != entry.size) return false;
         if (!file.open(QIODevice::ReadOnly)) return false;
         QCryptographicHash hash(QCryptographicHash::Sha1);
-        return hash.addData(&file) && QString::fromLatin1(hash.result().toHex()).compare(entry.sha1, Qt::CaseInsensitive) == 0;
+        while (!file.atEnd()) {
+            if (cancel && cancel->load(std::memory_order_relaxed)) return false;
+            const auto bytes = file.read(1024 * 1024);
+            if (bytes.isEmpty() && file.error() != QFileDevice::NoError) return false;
+            hash.addData(bytes);
+        }
+        return !(cancel && cancel->load(std::memory_order_relaxed)) &&
+            QString::fromLatin1(hash.result().toHex()).compare(entry.sha1, Qt::CaseInsensitive) == 0;
     }
     bool add(const File &entry) {
         const auto key = entry.path.toCaseFolded();

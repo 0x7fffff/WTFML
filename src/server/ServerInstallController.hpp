@@ -90,6 +90,10 @@ public:
      * 闸门问的是这后一件事 —— 只问 `isRunning()` 会把安装器那几分钟也算成“下载器忙”。
      */
     bool ownsDownloadBatch() const { return m_batchOwned; }
+    QJsonObject downloadContinuation() const;
+    bool continueDownload(const QJsonObject &intent);
+    // Acceptance tools can shorten deadlines without replacing the production process path.
+    void setInstallerWatchdogLimits(int silentMs, int totalMs);
 
     /**
      * @brief 开装。
@@ -101,7 +105,7 @@ public:
      * 但没给 java ⇒ 直接失败，措辞见 `javaMissingMessage()`。
      */
     void start(const ServerInstall::Request &request, const QString &serverId,
-               const QString &javaPath);
+               const QString &javaPath, const ServerInstall::Plan *resolved = nullptr);
 
     /// 用户按了「取消」。
     void cancel();
@@ -150,6 +154,7 @@ private:
     QElapsedTimer m_installerProgress, m_installerTotal;
     int m_installerRetries = 0;
     bool m_installerRestartPending = false;
+    int m_installerSilentMs = 180000, m_installerTotalMs = 600000;
     QNetworkReply *m_metadataReply = nullptr;
 
     bool m_running = false;
@@ -162,6 +167,7 @@ private:
     QString m_serverId;
     QString m_dir;
     QString m_javaPath;
+    QJsonObject m_downloadOriginals;
 
     /// 计划里那些文件下完了几个、失败的那个叫什么（空 = 没失败）。
     int m_downloaded = 0;

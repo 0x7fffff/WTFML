@@ -4,9 +4,14 @@
 #include "manage/VersionManager.hpp"
 #include "util/AppPaths.hpp"
 #include "presets/PresetTargetSnapshot.hpp"
+#include "server/ServerInstallController.hpp"
+#include "controllers/ServerWorkspaceController.hpp"
+#include "download/DownloadManager.hpp"
+#include "controllers/PresetController.hpp"
 #include <QJsonArray>
 
 QJsonObject MainWindow::snapshotDownloadContinuation() const {
+    if (m_serverInstall && m_serverInstall->ownsDownloadBatch()) return m_serverInstall->downloadContinuation();
     auto intent = m_versionManager->downloadContinuation();
     if (intent.isEmpty()) return {};
     QJsonArray presets;
@@ -23,6 +28,19 @@ QJsonObject MainWindow::snapshotDownloadContinuation() const {
 }
 
 bool MainWindow::continueDownloadInstallation(Tasks::TaskId id, const QJsonObject &intent) {
+    if (intent.value("kind") == "preset-mods") return m_presetController && m_presetController->continueModInstallation(id, intent);
+    if (intent.value("kind") == "server-install") {
+        if (!m_serverInstall || m_serverInstall->isRunning() || m_downloadInFlight ||
+            m_versionManager->downloads()->isBusy()) return false;
+        const auto server = intent.value("server").toString();
+        const auto process = m_serverWorkspace->process(server);
+        if (process && process->isRunning()) return false;
+        const auto previous = m_serverInstallTaskId;
+        m_serverInstallTaskId = id;
+        if (m_serverInstall->continueDownload(intent)) return true;
+        m_serverInstallTaskId = previous;
+        return false;
+    }
     const auto instance = intent.value("instance").toString(), game = intent.value("game").toString();
     const auto kind = intent.value("kind").toString();
     if (m_downloadInFlight || m_versionManager->isDownloading() || m_versionManager->isLoaderInstalling() ||

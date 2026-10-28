@@ -10,6 +10,33 @@
 #include "RangeChecks.hpp"
 int main(int argc, char **argv) {
  QApplication app(argc, argv);
+ // A private fixture marker is required before this executable can impersonate Java.
+ // The real installer controller still launches/kills/retries an OS process.
+ if (app.arguments().value(1) == "-jar") {
+  const auto jar = app.arguments().value(2);
+  const auto root = QFileInfo(jar).absolutePath();
+  QFile marker(root + "/.watchdog-fixture.json");
+  if (!marker.open(QIODevice::ReadOnly) || marker.size() > 4096) return 3;
+  const auto fixture = QJsonDocument::fromJson(marker.readAll()).object();
+  if (fixture.value("format") != "wtfml-installer-watchdog-test/1" || fixture.value("root") != root) return 3;
+  QFile counter(root + "/attempts"); int attempts = 0;
+  if (counter.open(QIODevice::ReadOnly)) { attempts = counter.readAll().toInt(); counter.close(); }
+  if (!counter.open(QIODevice::WriteOnly | QIODevice::Truncate)) return 3;
+  counter.write(QByteArray::number(attempts + 1)); counter.close();
+  if (fixture.value("mode") == "retry-success" && attempts > 0) {
+   const auto args = root + "/libraries/net/minecraftforge/forge/1.20.1-47.2.0/win_args.txt";
+   QDir().mkpath(QFileInfo(args).absolutePath()); QFile file(args);
+   QFile jvm(root + "/user_jvm_args.txt");
+   return file.open(QIODevice::WriteOnly) && file.write("fixture") == 7 && jvm.open(QIODevice::WriteOnly) ? 0 : 3;
+  }
+  QTimer output;
+  if (fixture.value("mode") == "noisy") {
+   QObject::connect(&output, &QTimer::timeout, &app, [] { std::printf("fixture progress\n"); std::fflush(stdout); });
+   output.start(30);
+  }
+  QTimer::singleShot(10000, &app, &QCoreApplication::quit);
+  return app.exec();
+ }
     Q_INIT_RESOURCE(icons);
  std::setvbuf(stdout, nullptr, _IONBF, 0);
  QString sandboxParent = QCoreApplication::applicationDirPath();

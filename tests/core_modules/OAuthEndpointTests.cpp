@@ -1,7 +1,24 @@
 #include "Support.hpp"
+#include "auth/AuthManager.hpp"
 
 void runOAuthEndpointTests() {
     section("ZA. 回调地址 → 监听端口（构建注入那两格）");
+
+    // 测试运行时未配置项目 App ID：应在监听/浏览器/网络之前同步拒绝。
+    if (!AuthManager::loginConfigurationError().isEmpty()) {
+        AuthManager auth;
+        QString failure;
+        int failures = 0;
+        QObject::connect(&auth, &AuthManager::loginFailed, &auth, [&](const QString &message) {
+            failure = message;
+            ++failures;
+        });
+        check(!auth.loginMicrosoft() && !auth.loginInFlight(),
+              "ZA0 缺少登录构建配置时拒绝开启授权，不进入等待状态");
+        check(failures == 1 && failure == AuthManager::loginConfigurationError(),
+              "ZA0 同步给出一次可读的配置错误，界面可以恢复按钮");
+    }
+
 
     // ---------- ZA1. 出厂那份兜底地址读出来还是 38226 ----------
     {

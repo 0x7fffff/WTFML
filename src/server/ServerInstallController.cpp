@@ -33,6 +33,7 @@
 #include "ServerModel.hpp"
 #include "ServerInstallRun.hpp"
 #include "ServerRegistry.hpp"
+#include "download/DownloadCheckpoint.hpp"
 
 namespace ServerInstallRun {
 
@@ -58,16 +59,23 @@ ServerInstallController::ServerInstallController(QObject *parent) : QObject(pare
     m_installerWatchdog->setInterval(1000);
     connect(m_installerWatchdog, &QTimer::timeout, this, [this] {
         if (!m_running || m_cancelling || !m_process || m_process->state() == QProcess::NotRunning) return;
-        if (m_installerTotal.elapsed() >= 600000) {
-            fail(QStringLiteral("服务端安装器已达到10分钟截止，半成品保留，请检查网络后修复。")); return;
+        if (m_installerTotal.elapsed() >= m_installerTotalMs) {
+            fail(QStringLiteral("服务端安装器已达到总截止（%1 秒），半成品保留，请检查网络后修复。").arg(m_installerTotalMs / 1000)); return;
         }
-        if (m_installerProgress.elapsed() < 180000) return;
+        if (m_installerProgress.elapsed() < m_installerSilentMs || m_installerRestartPending) return;
         if (m_installerRetries == 0) {
             ++m_installerRetries; m_installerRestartPending = true;
-            emit message(QStringLiteral("服务端安装器连续3分钟无输出，可能卡在内部下载；保留文件并重启安装器一次。"));
+            emit message(QStringLiteral("服务端安装器连续 %1 秒无输出，可能卡在内部下载；保留文件并重启安装器一次。").arg(m_installerSilentMs / 1000));
             m_process->kill();
-        } else fail(QStringLiteral("服务端安装器重试后仍连续3分钟无输出，已停止；半成品保留。\n%1").arg(m_installerTail));
+        } else fail(QStringLiteral("服务端安装器重试后仍连续 %1 秒无输出，已停止；半成品保留。\n%2").arg(m_installerSilentMs / 1000).arg(m_installerTail));
     });
+}
+
+void ServerInstallController::setInstallerWatchdogLimits(int silentMs, int totalMs) {
+    if (m_running) return;
+    m_installerTotalMs = qBound(1, totalMs, 900000);
+    m_installerSilentMs = qBound(1, silentMs, m_installerTotalMs);
+    m_installerWatchdog->setInterval(qBound(1, m_installerSilentMs / 4, 1000));
 }
 
 // ---------------------------------------------------------------------------
@@ -75,7 +83,8 @@ ServerInstallController::ServerInstallController(QObject *parent) : QObject(pare
 // ---------------------------------------------------------------------------
 
 void ServerInstallController::start(const ServerInstall::Request &request,
-                                    const QString &serverId, const QString &javaPath) {
+                                    const QString &serverId, const QString &javaPath,
+                                    const ServerInstall::Plan *resolved) {
     if (m_running) {
         emit finished(Outcome::Failed, QStringLiteral("已经有一个服务端在装了，等它跑完。"));
         return;
@@ -95,7 +104,7 @@ void ServerInstallController::start(const ServerInstall::Request &request,
         return;
     }
 
-    m_plan = ServerInstall::planFor(request);
+    m_plan = resolved ? *resolved : ServerInstall::planFor(request);
     if (!m_plan.ok) {
         emit finished(Outcome::Failed, m_plan.problem);
         return;
@@ -141,7 +150,70 @@ void ServerInstallController::start(const ServerInstall::Request &request,
         emit stepsChanged(QStringList{QStringLiteral("核对装好了没有")}, 0);
     }
 
-    beginResolve();
+    if (resolved) {
+        emit stepsChanged(ServerInstallRun::stepNames(m_request, m_plan), 0);
+        beginDownloads();
+    } else beginResolve();
+}
+
+QJsonObject ServerInstallController::downloadContinuation() const {
+    if (!m_running || !m_batchOwned) return {};
+    QJsonObject originals;
+    for (const auto &name : {AppPaths::serverMetaFileName(), QStringLiteral("server.properties"),
+             QStringLiteral("eula.txt"), QStringLiteral("ops.json"), QStringLiteral("whitelist.json")}) {
+        const auto path = QDir(m_dir).filePath(name);
+        const auto fingerprint = DownloadCheckpoint::fingerprint(path);
+        if (fingerprint.isEmpty()) return {};
+        originals.insert(path, fingerprint);
+    }
+    QJsonArray files;
+    for (const auto &file : m_plan.downloads) files.append(QJsonObject{
+        {"name", file.fileName}, {"url", file.url}, {"sha1", file.sha1},
+        {"sha256", file.sha256}, {"size", QString::number(file.size)}});
+    return {{"kind", "server-install"}, {"root", AppPaths::minecraftDir()}, {"server", m_serverId},
+        {"flavor", int(m_request.flavor)}, {"game", m_request.gameVersion},
+        {"loaderVersion", m_request.loaderVersion}, {"installerVersion", m_request.installerVersion},
+        {"buildId", m_request.buildId}, {"java", m_javaPath}, {"originals", originals}, {"files", files}};
+}
+
+bool ServerInstallController::continueDownload(const QJsonObject &intent) {
+    if (m_running || !m_downloads || m_downloads->isBusy() || intent.value("kind") != "server-install" ||
+        QDir::cleanPath(intent.value("root").toString()) != QDir::cleanPath(AppPaths::minecraftDir())) return false;
+    const auto id = intent.value("server").toString();
+    QString problem;
+    if (!ServerWriteGuard::acquire(id, &problem)) return false;
+    const auto originals = intent.value("originals").toObject();
+    if (originals.size() != 5) return false;
+    for (auto it = originals.begin(); it != originals.end(); ++it)
+        if (QFileInfo(it.key()).absolutePath() != QDir(AppPaths::serverDir(id)).absolutePath() ||
+            DownloadCheckpoint::fingerprint(it.key()) != it.value().toObject()) return false;
+    ServerInstall::Request request;
+    const int flavor = intent.value("flavor").toInt(-1);
+    bool known = false;
+    for (const auto value : ServerInstall::allFlavors()) if (int(value) == flavor) { request.flavor = value; known = true; }
+    if (!known || !flavorSupported(request.flavor)) return false;
+    request.gameVersion = intent.value("game").toString();
+    request.loaderVersion = intent.value("loaderVersion").toString();
+    request.installerVersion = intent.value("installerVersion").toString();
+    request.buildId = intent.value("buildId").toString();
+    auto plan = ServerInstall::planFor(request);
+    if (!plan.ok) return false;
+    plan.downloads.clear();
+    const auto files = intent.value("files").toArray();
+    if (files.isEmpty() || files.size() > 16) return false;
+    for (const auto &value : files) {
+        const auto object = value.toObject();
+        ServerInstall::Download file;
+        file.fileName = object.value("name").toString(); file.url = object.value("url").toString();
+        file.sha1 = object.value("sha1").toString(); file.sha256 = object.value("sha256").toString();
+        file.size = object.value("size").toString().toLongLong();
+        const QUrl url(file.url);
+        if (!InstanceFiles::validatePathSegment(file.fileName).isEmpty() || !url.isValid() ||
+            (url.scheme() != "https" && url.scheme() != "http") || !url.userInfo().isEmpty()) return false;
+        plan.downloads.append(file);
+    }
+    start(request, id, intent.value("java").toString(), &plan);
+    return true;
 }
 
 void ServerInstallController::beginResolve() {
@@ -344,8 +416,7 @@ void ServerInstallController::beginDownloads() {
     connect(m_downloads, &DownloadManager::downloadProgress, this,
             [this](const QString &, qint64 received, qint64 total) {
                 emit bytesChanged(received, total);
-            },
-            Qt::UniqueConnection);
+            });
 
     m_downloadNames.clear();
     // 这一趟**必须自己开一批**。下载器是共用的，那几个计数器
@@ -354,8 +425,9 @@ void ServerInstallController::beginDownloads() {
     // 失败数都是别人的（`m_failedJobs` 非零时整批还会被判成"有文件没下下来"）。
     // 顺带把"整批结束"那一发也挪到了这一批自己的收尾上（信号是谁接走的，见
     // `VersionManager::beginOwnBatch()` 那一大段）。
-    m_downloads->beginBatch();
     m_batchOwned = true;
+    m_downloadOriginals = downloadContinuation().value("originals").toObject();
+    m_downloads->beginBatch();
     for (const ServerInstall::Download &download : m_plan.downloads) {
         const QString path = m_dir + QLatin1Char('/') + download.fileName;
         m_downloadNames.insert(download.fileName);
@@ -411,6 +483,11 @@ void ServerInstallController::onDownloadFinished(const QString &fileName, bool s
 void ServerInstallController::beginInstaller() {
     if (m_cancelling) {
         return;
+    }
+    for (auto it = m_downloadOriginals.begin(); it != m_downloadOriginals.end(); ++it) {
+        if (DownloadCheckpoint::fingerprint(it.key()) != it.value().toObject()) {
+            fail(QStringLiteral("服务端配置在下载期间已变化，请重新预览；未执行安装器。")); return;
+        }
     }
     const QString jarName = ServerInstallRun::installerJarName(m_plan);
     if (jarName.isEmpty()) {
@@ -534,12 +611,16 @@ void ServerInstallController::finishWith(Outcome outcome, const QString &errorSu
     m_running = false;
     m_batchOwned = false;
     if (m_process != nullptr) {
-        m_process->disconnect(this);
-        if (m_process->state() != QProcess::NotRunning) {
-            m_process->kill();
-        }
-        m_process->deleteLater();
+        auto *process = m_process;
         m_process = nullptr;
+        process->disconnect(this);
+        if (process->state() != QProcess::NotRunning) {
+            connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), process, &QObject::deleteLater);
+            process->kill();
+            QTimer::singleShot(5000, process, &QObject::deleteLater);
+        } else {
+            process->deleteLater();
+        }
     }
     if (m_metadataReply != nullptr) {
         m_metadataReply->disconnect(this);
