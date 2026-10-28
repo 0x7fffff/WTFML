@@ -18,6 +18,11 @@
 #include <QTabWidget>
 #include <QTimer>
 #include <QWindow>
+#include "DesktopAcceptanceScenarios.hpp"
+#include "DesktopLogAcceptance.hpp"
+#include "DesktopInputAcceptance.hpp"
+#include "auth/AccountStore.hpp"
+#include "launcher/LauncherManager.hpp"
 
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
@@ -26,7 +31,14 @@ int main(int argc, char **argv) {
     QCommandLineParser parser;
     parser.addHelpOption();
     parser.addOption({"root", "New isolated evidence directory", "path"});
+    parser.addOption({"extended", "Controlled long text, overlays, background and keyboard scenarios"});
+    parser.addOption({"log-stress", "Two native log windows with bounded controlled output"});
+    parser.addOption({"game-root", "Explicitly marked isolated game fixture for manual native smoke", "path"});
+    parser.addOption({"java-path", "Java for the isolated game fixture", "path"});
+    parser.addOption({"manual-input", "90-second native keyboard observation without synthesizing keys"});
     parser.process(app);
+    const bool extended = parser.isSet("extended");
+    const int sceneCount = extended ? 10 : 4;
     const QString root = QDir::cleanPath(parser.value("root"));
     if (!QDir::isAbsolutePath(root) || QFileInfo::exists(root)) return 2;
     // Qt environment overrides would simulate scaling rather than test Windows DPI.
@@ -38,9 +50,24 @@ int main(int argc, char **argv) {
     AppPaths::setMinecraftDir(root + "/game");
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, root + "/settings");
+    QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, root + "/settings-system");
     QSettings settings;
     settings.setValue("Launcher/Folders", QStringList{root + "/game"});
     settings.setValue("Launcher/CurrentFolder", root + "/game");
+    const QString gameRoot = QDir::cleanPath(parser.value("game-root"));
+    if (parser.isSet("game-root")) {
+        QFile marker(gameRoot + "/p1-game-acceptance.json");
+        if (!QDir::isAbsolutePath(gameRoot) || !marker.open(QIODevice::ReadOnly) || marker.size() > 4096 ||
+            QJsonDocument::fromJson(marker.readAll()).object().value("format") != "wtfml-isolated-game/1" ||
+            !QFileInfo::exists(parser.value("java-path"))) return 2;
+        settings.setValue("Launcher/Folders", QStringList{gameRoot});
+        settings.setValue("Launcher/CurrentFolder", gameRoot);
+        settings.setValue("Java/Path", parser.value("java-path"));
+        settings.setValue("Version/LastLaunched", "fabric-loader-0.19.3-1.21.11");
+        AppPaths::setMinecraftDir(gameRoot);
+        QString error;
+        if (!AccountStore::addOffline("DesktopTest", &error)) return 2;
+    }
     settings.sync();
     if (settings.status() != QSettings::NoError) return 2;
     QApplication::setStyle(Theme::createStyle());
@@ -54,15 +81,47 @@ int main(int argc, char **argv) {
     window.setWindowTitle("WTFML Desktop Acceptance");
     window.resize(1040, 700);
     window.show();
+    if (parser.isSet("manual-input")) {
+        window.setWindowTitle("WTFML Keyboard Acceptance");
+        new DesktopInputAcceptance(window, root);
+        return app.exec();
+    }
+    if (parser.isSet("game-root")) {
+        auto *launcher = window.findChild<LauncherManager *>();
+        if (!launcher) return 2;
+        QObject::connect(launcher, &LauncherManager::gameFinished, &window,
+            [&](int session, int code, QProcess::ExitStatus status) {
+                const QJsonObject report{{"session",session},{"exitCode",code},{"normalExit",status==QProcess::NormalExit},
+                    {"scope","real isolated offline game; main menu must be separately observed"}};
+                QFile output(root+"/game-exit.json");
+                const auto bytes=QJsonDocument(report).toJson();
+                const bool saved=output.open(QIODevice::WriteOnly) && output.write(bytes)==bytes.size();
+                app.exit(saved && code==0 && status==QProcess::NormalExit ? 0 : 1);
+            });
+        QTimer::singleShot(300000,&window,[&] {
+            for (const auto &game:launcher->runningGames()) launcher->stopGame(game.sessionId);
+            app.exit(124);
+        });
+        return app.exec();
+    }
+    if (parser.isSet("log-stress")) {
+        QTimer::singleShot(500, &window, [&] { DesktopLogAcceptance::start(app, window, root); });
+        return app.exec();
+    }
+    const auto activeTask = extended ? DesktopAcceptance::seedTasks(window) : Tasks::invalidTaskId();
+    const auto picture = extended ? DesktopAcceptance::background(root) : QString();
+    const bool nativeReducedMotion = Anim::platformReducedMotion();
+    QHash<int, QJsonObject> keyboardReports;
+    QHash<int, bool> opened;
     QJsonArray samples;
     // Actual available preset IDs are the source of truth.
     QStringList themes = Theme::presetIds();
     themes.removeAll("system");
     int sample = 0;
     QTimer next;
-    next.setInterval(700);
+    next.setInterval(extended ? 900 : 700);
     QObject::connect(&next, &QTimer::timeout, &app, [&] {
-        const int total = themes.size() * 4 * 2;
+        const int total = themes.size() * sceneCount * 2;
         if (sample >= total) {
             next.stop();
             const auto screen = window.windowHandle()->screen();
@@ -72,7 +131,7 @@ int main(int argc, char **argv) {
                 {"availableWidth", screen->availableGeometry().width()},
                 {"availableHeight", screen->availableGeometry().height()},
                 {"settingsFile", settings.fileName()}, {"samples", samples},
-                {"scope", "native screenshots; keyboard, focus contrast and overlays require separate review"}};
+                {"nativeReducedMotion", nativeReducedMotion}, {"extended", extended}, {"scope", extended ? "controlled geometry and Tab fixtures; real content and full accessibility require separate review" : "native basic page screenshots"}};
             QFile output(root + "/report.json");
             const QByteArray bytes = QJsonDocument(report).toJson();
             const bool saved = output.open(QIODevice::WriteOnly) && output.write(bytes) == bytes.size();
@@ -80,24 +139,38 @@ int main(int argc, char **argv) {
             for (const auto &value : samples) {
                 const auto entry = value.toObject();
                 allSaved &= entry.value("saved").toBool() && entry.value("secondaryPaletteMismatches").toInt() == 0;
+                if (extended) {
+                    const auto extra = entry.value("extra").toObject();
+                    allSaved &= extra.value("actionAccepted").toBool();
+                    if (entry.value("page").toInt() == 6)
+                        allSaved &= extra.value("selectedTaskRows").toInt() == 1 && extra.value("visibleFlowSteps").toInt() > 0;
+                }
             }
             app.exit(saved && allSaved ? 0 : 1);
             return;
         }
-        const int page = sample % 4;
-        const int size = (sample / 4) % 2;
-        const auto theme = themes.at(sample / 8);
+        const int page = sample % sceneCount;
+        const int size = (sample / sceneCount) % 2;
+        const auto theme = themes.at(sample / (sceneCount * 2));
         if (page == 0) {
-            Theme::setSpec(Theme::presetSpec(theme));
+            auto spec = Theme::presetSpec(theme);
+            if (extended && size == 1 && !picture.isEmpty()) {
+                Theme::PartStyle image;
+                image.hasImage = true; image.imagePath = picture; image.imageOpacity = 25;
+                spec.parts.insert(int(Theme::Part::PageBackground), image);
+            }
+            Theme::setSpec(spec);
             Theme::apply(app);
-            Anim::setEnabled(size == 0);
+            Anim::setPlatformReducedMotion(extended && size == 1 ? true : nativeReducedMotion);
+            Anim::setEnabled(extended ? true : size == 0);
             window.resize(size == 0 ? QSize(1040, 700) : QSize(900, 600));
         }
-        window.ui()->getTabWidget()->setCurrentIndex(page);
+        if (!extended) window.ui()->getTabWidget()->setCurrentIndex(page);
         // Capture on the next event-loop turn, after layout and paint have settled.
         const int current = sample++;
-        QTimer::singleShot(450, &window, [&, page, size, theme, current] {
+        QTimer::singleShot(extended ? 650 : 450, &window, [&, page, size, theme, current] {
             const QString name = QString("%1-%2-%3.png").arg(theme).arg(size).arg(page);
+            const QJsonObject keyboard = keyboardReports.value(current);
             const bool saved = window.grab().save(root + '/' + name);
             int secondaryLabels = 0, secondaryMismatches = 0;
             for (auto *label : window.findChildren<QLabel *>()) {
@@ -105,11 +178,42 @@ int main(int argc, char **argv) {
                 ++secondaryLabels;
                 if (label->palette().color(QPalette::WindowText) != app.palette().color(QPalette::PlaceholderText)) ++secondaryMismatches;
             }
-            samples.append(QJsonObject{{"index", current}, {"theme", theme}, {"page", page},
+            QJsonObject extra;
+            if (extended) {
+                extra.insert("background", size == 1);
+                extra.insert("effectiveAnimations", Anim::enabled());
+                extra.insert("forcedReducedMotion", size == 1);
+                extra.insert("actionAccepted", opened.value(current, false));
+                extra.insert("overlayShown", window.ui()->overlay()->isOpen());
+                if (page < 4) extra.insert("keyboard", keyboard);
+                int selected = 0, flow = 0;
+                for (auto *child : window.findChildren<QWidget *>()) {
+                    if (child->isVisible() && child->property("taskCenterSelected").toBool()) ++selected;
+                    if (child->isVisible() && child->objectName().startsWith("taskCenterFlowStepName_")) ++flow;
+                }
+                extra.insert("selectedTaskRows", selected);
+                extra.insert("visibleFlowSteps", flow);
+                if (auto *popup = QApplication::activePopupWidget()) {
+                    extra.insert("popupSaved", popup->grab().save(root + "/popup-" + name));
+                    extra.insert("popupWidth", popup->width());
+                }
+                if (auto *modal = QApplication::activeModalWidget())
+                    extra.insert("modalSaved", modal->grab().save(root + "/modal-" + name));
+            }
+            samples.append(QJsonObject{{"extra", extra}, {"index", current}, {"theme", theme}, {"page", page},
                 {"secondaryLabels", secondaryLabels}, {"secondaryPaletteMismatches", secondaryMismatches},
                 {"animations", size == 0}, {"requestedWidth", size == 0 ? 1040 : 900},
                 {"requestedHeight", size == 0 ? 700 : 600}, {"width", window.width()},
                 {"height", window.height()}, {"saved", saved}, {"file", name}});
+            if (extended) DesktopAcceptance::closeTransient(window);
+        });
+        if (extended) QTimer::singleShot(0, &window, [&, page, current] {
+            opened.insert(current, true); // The action may enter a nested page loop; capture verifies the actual surface.
+            const bool accepted = DesktopAcceptance::scene(window, page, activeTask);
+            opened.insert(current, accepted);
+            if (page < 4) QTimer::singleShot(150, &window, [&, current] {
+                keyboardReports.insert(current, DesktopAcceptance::keyboard(window));
+            });
         });
     });
     QTimer::singleShot(1000, &next, [&] { next.start(); });

@@ -14,10 +14,16 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    QTemporaryDir processSandbox;
+    if (!processSandbox.isValid()) return 2;
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, processSandbox.filePath("settings"));
+    QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, processSandbox.filePath("system-settings"));
+    app.setProperty("wtfml.testDefaultMinecraftDir", processSandbox.filePath("default-game"));
     const QString repoRoot = QStringLiteral(REPO_ROOT_PATH);
     const QString metaDir = repoRoot + "/tests/meta";
-    // applicationDirPath() = bin/，沙箱就落在 bin/.minecraft
-    const QString sandbox = QCoreApplication::applicationDirPath() + "/.minecraft";
+    // Per-process legacy driver fixture; never delete a shared build-local game tree.
+    const QString sandbox = processSandbox.filePath(".minecraft");
 
     // libs 模式：只打印生产代码 extractLibraries 选中了哪些 library（不下载）。
     // 用来验证平台 rules 过滤是否真的生效。

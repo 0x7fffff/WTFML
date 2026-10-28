@@ -53,6 +53,15 @@ int UiThemeCheck(QApplication &app) {
                 focusHost.show();
                 focusHost.activateWindow();
                 app.processEvents();
+                button.clearFocus();
+                QKeyEvent firstTab(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier);
+                QApplication::sendEvent(&focusHost, &firstTab);
+                expect(button.hasFocus() && button.property("wtfmlKeyboardFocus").toBool(),
+                       "first Tab enters a visible control and displays focus from an empty focus state");
+                button.clearFocus();
+                QKeyEvent firstBacktab(QEvent::KeyPress, Qt::Key_Backtab, Qt::ShiftModifier);
+                QApplication::sendEvent(&focusHost, &firstBacktab);
+                expect(button.hasFocus(), "first Shift-Tab enters the reverse focus chain");
                 button.setFocus(Qt::TabFocusReason);
                 // 「键盘在用」这一档现在只认**真的按键**（见 Theme.cpp 里
                 // `ButtonFocusVisibility` 那段 —— 藏起焦点控件时 Qt 也报 TabFocusReason，

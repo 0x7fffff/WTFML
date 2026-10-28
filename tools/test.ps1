@@ -106,7 +106,7 @@ try {
         'affected' { @('-LE', 'visual') }
         { $_ -in @('ci-app', 'ci-core', 'ci-ui', 'ci-integration') } { @('-L', "^$Suite$", '-LE', 'visual') }
         'quick' { @('-R', '^wtfml\.(test-runner|test-modules|java-manage|mod-action-panel|workspace|activity-selection|theme|ui-refresh|install-layout|lifecycle|toolbox-polish|armor-trim)$') }
-        'core' { @('-R', '^wtfml\.core(-|$)') }
+        'core' { @('-L', '^core$') }
         'java' { @('-R', '^wtfml\.java-manage$') }
         'window' { @('-R', '^wtfml\.main-window$') }
         'mods' { @('-R', '^wtfml\.mod-action-panel$') }

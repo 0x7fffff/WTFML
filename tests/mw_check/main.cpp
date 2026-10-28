@@ -176,6 +176,7 @@ int main(int argc, char *argv[]) {
         AppPaths::setMinecraftDir(root);
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, root);
+        QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, root + "/system-settings");
         app.setOrganizationName(QStringLiteral("WTFML-install-smoke"));
         app.setApplicationName(QStringLiteral("install-smoke"));
         VersionManager manager;
@@ -246,6 +247,7 @@ int main(int argc, char *argv[]) {
     QApplication::setApplicationName(QStringLiteral("mw_check"));
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir);
+    QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, root.filePath("system-settings"));
     check(AppPaths::defaultMinecraftDir() == root.filePath(QStringLiteral(".minecraft")) &&
               AppPaths::minecraftDir() == AppPaths::defaultMinecraftDir(),
           "主窗口测试默认数据根属于本进程临时目录");

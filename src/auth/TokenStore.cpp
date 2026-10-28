@@ -1,3 +1,4 @@
+#include "util/SecretRedactor.hpp"
 /**
  * @file TokenStore.cpp
  * @brief 凭据落盘的加解密与读写（见 .hpp 里那段说明）。
@@ -101,14 +102,13 @@ QByteArray TokenStore::protect(const QByteArray &plain) {
     if (!blob.isEmpty()) {
         return QByteArray(kTokenMagic, kTokenMagicLen) + blob;
     }
-    // DPAPI 极少失败（凭据存储坏了、内存不够）。真失败就退回混淆，**但要让人看见** ——
-    // 悄悄降级成弱保护比直接失败更糟。
-    qWarning() << "DPAPI 加密失败，这次的令牌只能用旧的混淆写盘。";
+    // Encryption failure must never downgrade saved credentials to legacy obfuscation.
+    qWarning() << "DPAPI 加密失败，拒绝写入凭据，原数据保留。";
+    return {};
 #else
-    // 本工程目前只发 Windows（PCL 目录、注册表这些都是 Windows 的东西）。
-    // 其它平台暂时沿用旧的混淆，见上面的说明。
-#endif
+    // Windows is the supported distribution; preserve existing compatibility elsewhere.
     return legacyXor(plain);
+#endif
 }
 
 QByteArray TokenStore::unprotect(const QByteArray &stored) {
@@ -125,9 +125,15 @@ QByteArray TokenStore::unprotect(const QByteArray &stored) {
 
 bool TokenStore::writeJson(const QString &key, const QJsonObject &json, QString *errorOut) {
     if (!DirectorySessionLock::acquire(AppPaths::defaultMinecraftDir(), errorOut)) return false;
+    SecretRedactor::rememberCredentialFields(json);
     QSettings settings;
     const QByteArray rawData = QJsonDocument(json).toJson(QJsonDocument::Compact);
-    settings.setValue(key, protect(rawData.toBase64()));
+    const QByteArray stored = protect(rawData.toBase64());
+    if (stored.isEmpty()) {
+        if (errorOut) *errorOut = QStringLiteral("无法保护登录凭据，未写入，原数据保留。");
+        return false;
+    }
+    settings.setValue(key, stored);
     settings.sync();
     if (settings.status() != QSettings::NoError) {
         if (errorOut != nullptr) {
@@ -172,6 +178,7 @@ QJsonObject TokenStore::readJsonChecked(const QString &key, bool *readableOut) {
     if (readableOut != nullptr) {
         *readableOut = true;
     }
+    SecretRedactor::rememberCredentialFields(document.object());
     return document.object();
 }
 

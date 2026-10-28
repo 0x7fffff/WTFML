@@ -11,6 +11,9 @@
 #include <QStyleFactory>
 #include <QTextStream>
 #include <QMessageBox>
+#include <QRecursiveMutex>
+#include <QMutexLocker>
+#include "util/StartupAcceptance.hpp"
 
 #include "MainWindow.hpp"
 #include "perf/PerfProbe.hpp"  // 测量构建专用；普通构建里 attach() 是内联空函数
@@ -27,18 +30,18 @@ namespace {
 
 /// 这一次启动的日志文件。**它开没开就是唯一那份状态**：没开 = 还早，先攒着（见下面那段
 /// NOTE）；开了 = 直接写进去。不另立一个 bool —— 两份状态迟早会不一致。
-QFile g_logFile;
-QTextStream g_logStream;
-/// 文件还没开时先攒下的那些行（openFileLog() 时一起补进去）。
-QStringList g_pendingLog;
-/// 这一位记的是"开文件已经失败过"。只靠"g_logFile.isOpen() 为假就攒着"不行：
-/// openFileLog() 开文件失败之后（数据目录不可写、目录权限被改、杀软拦新建文件）
-/// **每一条日志都还在往那个表里塞**，而它再也没有第二处读 —— openFileLog() 里那句
-/// clear() 只跑那一次，之后没人清了。开着日志窗跑一个模组包（几万行游戏输出，qDebug
-/// 走的正是这个 handler）就是几十 MB 只涨不落。
-/// NOTE: 判据必须是"试过了"而不是"文件没开着" —— 这两件事在 openFileLog() 之前长得一样，
-/// 而那时候攒着是对的。
-bool g_logFileGaveUp = false;
+struct FileLogState {
+    QRecursiveMutex mutex;
+    QFile file;
+    QTextStream stream;
+    QStringList pending;
+    bool gaveUp = false;
+};
+FileLogState &fileLogState() {
+    // Qt may emit from worker threads and during static teardown.
+    static auto *state = new FileLogState;
+    return *state;
+}
 
 /// 把 Qt 的日志（qDebug / qWarning；产品里所有 [WTFML] 那句话、以及游戏自己的输出
 /// 都从这里过，见 LauncherManager）落一份到盘上，同时照旧往 stderr 写一份。
@@ -66,14 +69,16 @@ bool g_logFileGaveUp = false;
 void installFileLog() {
     qInstallMessageHandler([](QtMsgType type, const QMessageLogContext &context,
                               const QString &text) {
+        auto &state = fileLogState();
+        QMutexLocker guard(&state.mutex);
         const QString line = qFormatLogMessage(type, context, SecretRedactor::redact(text));
-        if (g_logFile.isOpen()) {
+        if (state.file.isOpen()) {
             // 进程结束时由系统收这个句柄 —— 这里没有可挂的析构点，而且最后那几行往往
             // 正是"要退出"那些话，早收反而丢东西。
-            g_logStream << line << Qt::endl;
-            g_logStream.flush();
-        } else if (!g_logFileGaveUp) {
-            g_pendingLog.append(line);
+            state.stream << line << Qt::endl;
+            state.stream.flush();
+        } else if (!state.gaveUp) {
+            state.pending.append(line);
         }
         const QByteArray raw = line.toUtf8();
         std::fprintf(stderr, "%s\n", raw.constData());
@@ -84,22 +89,24 @@ void installFileLog() {
 /// 现在可以把日志写进盘上了：建目录、开文件、把之前攒下的行一起补进去。
 /// 调用点见 main()（排在窗口 show() 之后 —— 那一刻"当前游戏文件夹"才是定下来的）。
 void openFileLog() {
+    auto &state = fileLogState();
+    QMutexLocker guard(&state.mutex);
     const QString dir = AppPaths::minecraftDir() + QStringLiteral("/logs");
     QDir().mkpath(dir);
-    g_logFile.setFileName(dir + QStringLiteral("/wtfml.log"));
+    state.file.setFileName(dir + QStringLiteral("/wtfml.log"));
     // 开不了就只是不写（见 installFileLog 的 NOTE）；攒下的行照样丢掉，不再越攒越多。
-    if (g_logFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        g_logStream.setDevice(&g_logFile);
-        for (const QString &line : g_pendingLog) {
-            g_logStream << line << Qt::endl;
+    if (state.file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        state.stream.setDevice(&state.file);
+        for (const QString &line : state.pending) {
+            state.stream << line << Qt::endl;
         }
-        g_logStream.flush();
+        state.stream.flush();
     } else {
         // **记下"试过了、没开成"**。不然 handler 那边分不清"还轮不到开文件"
-        // 和"开了但失败了"，会把后面每一行继续往 g_pendingLog 里塞（见那一位的说明）。
-        g_logFileGaveUp = true;
+        // 和"开了但失败了"，会把后面每一行继续往 state.pending 里塞（见那一位的说明）。
+        state.gaveUp = true;
     }
-    g_pendingLog.clear();
+    state.pending.clear();
 }
 
 } // namespace
@@ -107,7 +114,7 @@ void openFileLog() {
 int main(int argc, char *argv[]) {
     // **handler 排在 QApplication 构造之前**。上面那段 NOTE 说设计动机正是
     // 要留住"字体库那几句"（它们比当前游戏文件夹还早）：那一句若排在 QApplication
-    // 构造**之后**，那几句话发生在 handler 装上之前，既没进 g_pendingLog 也没进日志文件，
+    // 构造**之后**，那几句话发生在 handler 装上之前，既没进 state.pending 也没进日志文件，
     // 于是"按 NOTE 去日志文件里查那句警告"永远查不到。
     // NOTE: 这一步不需要 QApplication 已经存在（qInstallMessageHandler / qFormatLogMessage
     // 都是纯 QtCore 的东西），所以提前是安全的。
@@ -138,12 +145,20 @@ int main(int argc, char *argv[]) {
     app.setApplicationVersion(QStringLiteral(WTFML_VERSION));
     app.setOrganizationName("WTFML");
 
+    StartupAcceptance::Context acceptance;
+    QString acceptanceProblem;
+    if (!StartupAcceptance::configure(&acceptance, &acceptanceProblem)) {
+        qCritical().noquote() << acceptanceProblem;
+        return 2;
+    }
+
     DirectorySessionLock::enabled = true;
     LauncherSettings startupSettings;
     FolderManager startupFolders(&startupSettings);
     QString lockProblem;
     if (!DirectorySessionLock::acquire(startupFolders.currentFolder(), &lockProblem) ||
         !DirectorySessionLock::acquire(FolderManager::defaultFolder(), &lockProblem)) {
+        StartupAcceptance::dismissRefusal(acceptance);
         QMessageBox::information(nullptr, QStringLiteral("启动器已在运行或目录不可用"), lockProblem);
         return 1;
     }
@@ -185,6 +200,7 @@ int main(int argc, char *argv[]) {
     // 日志文件到这一刻才开：窗口立起来 = FolderManager 已经把「当前游戏文件夹」从
     // QSettings 里恢复好了，落点才是对的（见 installFileLog 的 NOTE）。
     openFileLog();
+    StartupAcceptance::attach(acceptance, window);
 
     // 特供版（-DWTFML_DIAG_DOWNLOAD=ON）的下载明细：和 wtfml.log 同一个目录、同一份
     // "这一次启动"。普通构建里 enabled() 是编译期常量 false，这两句什么都不做。

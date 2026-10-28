@@ -1,5 +1,7 @@
 #pragma once
 #include <QReadWriteLock>
+#include <QJsonObject>
+#include <QJsonArray>
 #include <QStringList>
 #include <QStringView>
 #include <algorithm>
@@ -19,6 +21,22 @@ inline void remember(const QString &secret) {
     if (!state.values.contains(secret)) {
         state.values.append(secret);
         std::sort(state.values.begin(), state.values.end(), [](const auto &a, const auto &b) { return a.size() > b.size(); });
+    }
+}
+// Register only defined credential fields; ordinary profile names and identifiers stay readable.
+// Account lists contain nested token objects, so visit objects/arrays as well.
+inline void rememberCredentialFields(const QJsonValue &value) {
+    if (value.isArray()) {
+        for (const auto &entry : value.toArray()) rememberCredentialFields(entry);
+    } else if (value.isObject()) {
+        const auto object = value.toObject();
+        for (auto it = object.begin(); it != object.end(); ++it) {
+            const QString key = it.key().toLower();
+            if (key == QLatin1String("access_token") || key == QLatin1String("refresh_token") ||
+                key == QLatin1String("id_token") || key == QLatin1String("client_secret") ||
+                key == QLatin1String("token")) remember(it.value().toString());
+            if (it.value().isObject() || it.value().isArray()) rememberCredentialFields(it.value());
+        }
     }
 }
 inline QStringList secrets() {

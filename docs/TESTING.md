@@ -874,3 +874,47 @@ CTest 仅允许已核对的 core-accounts、core-activity、core-toolbox 并行�
 记录：`build/test-runs/20261028-123154-ac213ec8/`、`20261028-123449-c4843d1e/`。
 运行器失败/超时/空选择自检也通过：`build/p1-runner-check-20261028.log`。
 其它模块继续逐组审核后再开放，不直接提高全量并行度。
+
+
+## P1 独立验收工具（2026-10-28）
+
+先加载本机 Qt/MinGW 运行库路径，证据目录必须是新的绝对路径；不覆盖原有游戏或证据。
+所有入口均有独立截止，下面的测试不需要真实账号。
+
+```powershell
+# 构建原生验收窗口（不进入默认构建目标）
+cmake --build build/verification-mingw13 --target wtfml_desktop_acceptance --parallel 2
+pwsh -NoProfile -File tools/acceptance_desktop.ps1 -Extended -Root build/new-native-ui-run
+pwsh -NoProfile -File tools/acceptance_desktop.ps1 -LogStress -Root build/new-native-log-run
+
+# 真实系统键盘事件观察；90 秒后自行退出，按 Tab/Shift-Tab，产出 input-report.json 和截图
+build/verification-mingw13/tests/mw_check/wtfml_desktop_acceptance.exe --root D:/new-owned-evidence/keyboard --manual-input
+
+# 真实产品入口/同目录互斥/日志并发；不改真实注册表配置
+python tools/acceptance_directory_boundary.py --exe build/release-mingw13/WTFMinecraftLauncher.exe --root D:/new-owned-evidence/startup
+# --in-place 用于已经部署好运行库的同一目录；省略时会创建三个独立安装位置
+
+# 公网样本经生产下载引擎下载，另验大小与 SHA-1；最多约 180 秒
+python tools/acceptance_public_downloads.py --exe build/release-mingw13/tools/network_diag/WTFMLNetworkDiag.exe --root D:/new-owned-evidence/network
+
+# 指定文本样本审计（只扫描各目录顶层；不会递归遍历游戏）
+python tools/audit_login_outputs.py --self-test --root build/new-native-log-run --report build/new-output-audit.json
+```
+
+`-Extended` 是三主题/两尺寸/十场景的受控几何与 Tab 事件测试，减少动态效果用内部标志模拟；
+不替代真实系统缩放、真实内容或 Windows 设置切换。`-LogStress` 使用真实会话控制器与原生日志窗口，
+两路各 25000 行，检查上限、分离、过滤、导出脱敏及心跳；输入为受控输出，不称作两个真实游戏。
+`--manual-input` 不生成键盘事件，记录收到的原生事件、焦点和截图；没有 Tab 或焦点失败会返回非零。
+
+游戏主菜单专项沿用已有隔离 Fabric 1.21.11 夹具；`--game-root` 要求该测试目录含
+`p1-game-acceptance.json`，格式 `wtfml-isolated-game/1`，并提供 `--java-path`。
+该入口只创建私有 DesktopTest 离线配置，正常退出记录 `game-exit.json`，300 秒截止；
+主菜单必须另行观察，进程退出 0 不单独证明主菜单。不要给真实游戏目录添加测试标记。
+
+Windows/MinGW 新增 `wtfml.token-protection-fault`：仅该测试进程的导入符号模拟 DPAPI 失败，
+不替换系统 DLL、不注入其他进程，正式程序没有加密故障开关。
+`-Suite core` 按 `core` 标签选择，也可用 `-Suite ci-core -Modules token-protection-fault` 单独运行。
+核心 11 个入口、兼容入口及主窗口/UI 入口均隔离用户/系统配置与默认根；
+仍只开放已验证的三个模块并行，其余独占。`check-test-modules.ps1` 防止入口隔离声明遗漏。
+
+本轮结果、首次失败与范围限制见 [P1 验收](P1_ACCEPTANCE_20261028.md)。

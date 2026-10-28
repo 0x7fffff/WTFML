@@ -6,6 +6,16 @@ void runErrorReportTests() {
     section("日志凭据保护：完整值、跨块与导出");
     const QString credential = QStringLiteral("__MC_SECURITY_TEST_ABC123456789__");
     SecretRedactor::rememberArguments({QStringLiteral("--accessToken"), credential});
+    const QString refresh = QStringLiteral("__AUDIT_REFRESH_SECRET_987654321__");
+    const QString xbox = QStringLiteral("__AUDIT_XBOX_SECRET_987654321__");
+    const QString profileName = QStringLiteral("ReadableProfileName");
+    SecretRedactor::rememberCredentialFields(QJsonObject{
+        {"accounts", QJsonArray{QJsonObject{{"name", profileName},
+            {"microsoft", QJsonObject{{"refresh_token", refresh}}},
+            {"xbox", QJsonObject{{"Token", xbox}}}}}}});
+    check(SecretRedactor::redact(refresh + xbox + profileName) ==
+          SecretRedactor::replacement() + SecretRedactor::replacement() + profileName,
+          "嵌套账户与Xbox票据脱敏，普通档案名称仍可读");
     const QString masked = SecretRedactor::replacement();
     check(SecretRedactor::redact(credential + credential) == masked + masked,
           "重复凭据全部遮盖");

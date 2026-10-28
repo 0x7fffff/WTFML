@@ -4,6 +4,7 @@
 #include "util/AppPaths.hpp"
 #include "util/DownloadDiagnostics.hpp"
 #include <QApplication>
+#include <QSettings>
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QComboBox>
@@ -64,6 +65,10 @@ static int worker(QApplication &app, QJsonObject config) {
     if (!QDir::isAbsolutePath(directory) || !QDir::isAbsolutePath(scratch) || !QDir(directory).exists() || !QDir(scratch).exists()) return 2;
     qputenv("WTFML_DOWNLOAD_DEBUG", "1");
     AppPaths::setMinecraftDir(scratch);
+    app.setProperty("wtfml.testDefaultMinecraftDir", scratch);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, scratch + "/settings");
+    QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, scratch + "/system-settings");
     auto log = std::make_shared<Log>(QDir(directory).filePath(QStringLiteral("events.jsonl")));
     if (!log->file.isOpen()) return 2;
     log->budget = qBound<qint64>(1024, qint64(config.value("budget").toDouble(128 * 1024 * 1024)), 128LL * 1024 * 1024);

@@ -141,6 +141,37 @@ protected:
                 m_keyboard = true;
                 setVisible(qobject_cast<QAbstractButton *>(QApplication::focusWidget()), true);
             }
+            // A native frameless window can receive its first Tab before Qt has
+            // assigned any child focus. Recover that entry only; existing editors,
+            // popup/dialog focus and normal Tab traversal keep their own handling.
+            auto *keyEvent = static_cast<QKeyEvent *>(event);
+            auto *receiver = qobject_cast<QWidget *>(watched);
+            auto *host = receiver ? receiver->window() : nullptr;
+            if ((key == Qt::Key_Tab || key == Qt::Key_Backtab) &&
+                !(keyEvent->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier)) &&
+                (QApplication::focusWidget() == nullptr || QApplication::focusWidget() == host) && host != nullptr && host->isWindow()) {
+                const bool backward = key == Qt::Key_Backtab || keyEvent->modifiers().testFlag(Qt::ShiftModifier);
+                QWidget *candidate = backward ? host->previousInFocusChain() : host->nextInFocusChain();
+                while (candidate != host) {
+                    if (candidate->isVisible() && candidate->isEnabled() &&
+                        (candidate->focusPolicy() & Qt::TabFocus) && candidate->window() == host) {
+                        candidate->setFocus(backward ? Qt::BacktabFocusReason : Qt::TabFocusReason);
+                        if (QApplication::focusWidget() == candidate) { event->accept(); return true; }
+                        break;
+                    }
+                    candidate = backward ? candidate->previousInFocusChain() : candidate->nextInFocusChain();
+                }
+                // If the window itself was assigned focus before its child chain
+                // joined, enter the visible descendant chain directly.
+                auto children = host->findChildren<QWidget *>();
+                if (backward) std::reverse(children.begin(), children.end());
+                for (auto *child : children) {
+                    if (child->isVisible() && child->isEnabled() && (child->focusPolicy() & Qt::TabFocus) && child->window() == host) {
+                        child->setFocus(backward ? Qt::BacktabFocusReason : Qt::TabFocusReason);
+                        if (QApplication::focusWidget() && QApplication::focusWidget() != host) { event->accept(); return true; }
+                    }
+                }
+            }
         } else if (event->type() == QEvent::FocusIn && button != nullptr) {
             const auto reason = static_cast<QFocusEvent *>(event)->reason();
             if (reason == Qt::MouseFocusReason) {

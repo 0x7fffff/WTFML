@@ -622,3 +622,12 @@ set_tests_properties(wtfml.core-accounts wtfml.core-activity wtfml.core-toolbox
     PROPERTIES RUN_SERIAL FALSE)
 set_property(TEST wtfml.core-accounts wtfml.core-activity wtfml.core-toolbox
     APPEND PROPERTY LABELS isolated-parallel)
+
+# Override a single import in this test process only; the production binary has no fault hook.
+if(MINGW AND WIN32)
+    add_executable(token_protection_fault token_protection_fault/main.cpp)
+    target_link_libraries(token_protection_fault PRIVATE wtfml_core_runtime crypt32)
+    wtfml_add_test(NAME wtfml.token-protection-fault COMMAND token_protection_fault)
+    set_tests_properties(wtfml.token-protection-fault PROPERTIES
+        LABELS "core;security;ci-core" TIMEOUT 30 ENVIRONMENT "${WTFML_TEST_RUNTIME_ENVIRONMENT}")
+endif()

@@ -93,14 +93,18 @@ HttpResult sendJson(QNetworkAccessManager *manager, const QUrl &url, bool post,
     // 写一份自己的值和它一样、名字不一样的常量，"15 秒"在仓库里就有两个出处 ——
     // 哪天有人只改了一处，登录链和皮肤接口的超时就会悄悄不一样，而这是
     // 只有网络慢的时候才看得出来、看出来了也未必查得到的那种差别。
-    return HttpClient::send(manager, url, post ? HttpClient::Verb::Post : HttpClient::Verb::Get,
+    SecretRedactor::remember(QString::fromUtf8(bearer));
+    auto result = HttpClient::send(manager, url, post ? HttpClient::Verb::Post : HttpClient::Verb::Get,
                             body, contentType, bearer, HttpClient::kDefaultTimeoutMs);
+    // Register newly issued Microsoft/Xbox/Minecraft tokens before any later error/log path.
+    SecretRedactor::rememberCredentialFields(result.json);
+    return result;
 }
 
 /// 失败时那句"…失败：<为什么>"。有网络层的错就说网络层的，否则说 HTTP 状态码。
 QString httpFailureText(const HttpResult &result, const QString &what) {
     if (!result.networkError.isEmpty()) {
-        return QObject::tr("%1：%2").arg(what, result.networkError);
+        return QObject::tr("%1：%2").arg(what, SecretRedactor::redact(result.networkError));
     }
 
     // 429：限流。**必须**在下面那条通用分支之前拦下 —— 通用分支认的正是正文里那个
@@ -117,7 +121,7 @@ QString httpFailureText(const HttpResult &result, const QString &what) {
     for (const char *key : {"errorMessage", "Message", "error"}) {
         const QString detail = result.json.value(QString::fromLatin1(key)).toString();
         if (!detail.isEmpty()) {
-            return QObject::tr("%1（HTTP %2）：%3").arg(what).arg(result.status).arg(detail);
+            return QObject::tr("%1（HTTP %2）：%3").arg(what).arg(result.status).arg(SecretRedactor::redact(detail));
         }
     }
     return QObject::tr("%1（HTTP %2）。").arg(what).arg(result.status);
@@ -135,7 +139,7 @@ QString oauthFailureText(const HttpResult &result, const QString &what) {
         return httpFailureText(result, what);
     }
     return AuthManager::oauthErrorText(code,
-                                      result.json.value("error_description").toString(), what);
+                                      SecretRedactor::redact(result.json.value("error_description").toString()), what);
 }
 
 /// XBL/XSTS 的 DisplayClaims.xui[0].uhs —— 账户在 Xbox 那边的标识（user hash）。
@@ -194,6 +198,7 @@ bool AuthManager::loginMicrosoft() {
     }
 
     m_codeVerifier = createCodeVerifier();
+    SecretRedactor::remember(m_codeVerifier);
     m_oauthState = createCodeVerifier();
     const QUrl authUrl(buildAuthUrl());
     if (!QDesktopServices::openUrl(authUrl)) {
@@ -289,6 +294,7 @@ bool AuthManager::refreshMinecraftToken(QString *errorMessage) {
     };
 
     const QString refreshToken = loadMicrosoftTokenData().value("refresh_token").toString();
+    SecretRedactor::remember(refreshToken);
     if (refreshToken.isEmpty()) {
         return fail(tr("还没有登录过，或者登录信息已经不完整了。"));
     }
@@ -510,6 +516,7 @@ void AuthManager::processCallbackRequest(QTcpSocket *socket, const QByteArray &r
         return;
     }
     const QString code = query.queryItemValue("code");
+    SecretRedactor::remember(code);
     const QString error = query.queryItemValue("error");
 
     // NOTE: 这里**不要**把 code / error 的内容写进日志。授权码是密钥材料（PKCE 挡的是
@@ -786,6 +793,7 @@ bool AuthManager::requestMicrosoftTokenRefresh(const QString &refreshToken, QStr
         if (errorMessage) *errorMessage = configError;
         return false;
     }
+    SecretRedactor::remember(refreshToken);
     if (refreshToken.isEmpty()) {
         *errorMessage = tr("没有可用的刷新凭据，请重新登录。");
         return false;

@@ -6,14 +6,15 @@ param([Alias('ChangedPath')][string[]]$ImpactChangedPath,
 
 function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
     $catalog = [ordered]@{
-        core = @('core', 'core-bootstrap', 'core-downloads', 'core-install', 'core-instances', 'core-java', 'core-accounts',
+        core = @('core', 'core-bootstrap', 'core-downloads', 'core-install', 'core-instances', 'core-java', 'core-accounts', 'token-protection-fault',
                  'core-resources', 'core-launch', 'core-servers', 'core-activity', 'core-presets', 'core-toolbox')
         'core-downloads' = @('core-downloads')
         'core-bootstrap' = @('core-bootstrap')
         'core-install' = @('core-install')
         'core-instances' = @('core-instances')
         'core-java' = @('core-java')
-        'core-accounts' = @('core-accounts')
+        'core-accounts' = @('core-accounts', 'token-protection-fault')
+        'token-protection-fault' = @('token-protection-fault')
         'core-resources' = @('core-resources')
         'core-launch' = @('core-launch')
         'core-servers' = @('core-servers')

@@ -9,6 +9,9 @@ int main(int argc, char *argv[]) {
 
     QApplication app(argc, argv);
     Q_INIT_RESOURCE(icons);
+    QTemporaryDir processSandbox;
+    if (!processSandbox.isValid()) return 2;
+    app.setProperty("wtfml.testDefaultMinecraftDir", processSandbox.filePath(".minecraft"));
 
     // ---------- 设置沙盒：必须在**第一个 QSettings 对象出现之前**重定向 ----------
     // 这个工程量的是"出厂那套外观"（主题色 #3d8068、跟着系统、一项覆盖都没有），
@@ -17,7 +20,7 @@ int main(int argc, char *argv[]) {
     // 一片红、在 CI 上全绿，红的还偏偏是"出厂色对不对"那一类断言（见 W1 / W12 / Z11）。
     // org/app 两个都要设：INI 后端也会因 org 为空而 setStatus(AccessError)。
     {
-        const QDir root(QCoreApplication::applicationDirPath());
+        const QDir root(processSandbox.path());
         const QString settingsDir = root.filePath(QStringLiteral("ui-check-settings"));
         QDir(settingsDir).removeRecursively();
         QDir().mkpath(settingsDir);
@@ -25,6 +28,7 @@ int main(int argc, char *argv[]) {
         QApplication::setApplicationName(QStringLiteral("ui_check"));
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir);
+        QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, root.filePath("system-settings"));
         // 每趟都从"从没打开过启动器"开始（和 mw_check 那份沙盒同一个形状）：
         // 上一趟 W 段自己存进去的预设不许活到这一趟，否则第二次跑就又是一片红。
         QFile::remove(settingsDir + QStringLiteral("/WTFML-check/ui_check.ini"));
