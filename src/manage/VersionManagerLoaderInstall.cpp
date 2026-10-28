@@ -359,7 +359,7 @@ VersionManager::LoaderVersionParse VersionManager::parseLoaderVersions(
     }
 
     // 直接送那份带 `stable` 标记的列表：界面要用它标「测试版」、也要用它决定
-    // 「下载稳定版（release）」那一行能不能点（见 MainWindow::fillLoaderVersionItems）。
+    // 「下载稳定版（release）」那一行能不能点（见 InstallPageController::fillLoaderVersionItems）。
     result.versions = entries;
     // NOTE: "这个游戏版本一个能装的都没有"**不算读失败**（`error` 留空、按 success 发出去，
     // 版本列表是空的）。四种加载器里都是**真结论**：比如 Forge 还没支持某个刚发的

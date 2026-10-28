@@ -266,7 +266,7 @@ inline bool copyTreeInto(const QString &from, const QString &to) {
 /// Forge 是 promotions 的 recommended、NeoForge 是没有 `-beta` 后缀、OptiFine 是
 /// 官方页那一行）。**稳定档也可能挑出一条 stable=false 的**：上游这份清单里一条正式版
 /// 都没有时，那两档都会退回"最新的那条"（界面上那一行也是灰的，见
-/// MainWindow::fillLoaderVersionItems），这时候话要说成"退回去了"。
+/// InstallPageController::fillLoaderVersionItems），这时候话要说成"退回去了"。
 inline QString pickChannelDetail(LoaderMeta::LoaderChannel channel, bool stable) {
     if (channel == LoaderMeta::LoaderChannel::Newest) {
         return QObject::tr("最新那一档，连测试版一起算");

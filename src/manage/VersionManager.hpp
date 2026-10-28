@@ -1293,7 +1293,7 @@ signals:
     /// @param errorMessage 成功时是那批文件的汇总（"1 个文件已全部就绪。"），失败时是失败清单。
     ///
     /// NOTE: 单独一个信号、**不复用 versionDownloadFinished**：那个信号的第一个参数是
-    /// "哪个版本"，界面按它去清"这个实例正在安装"的标记（见 onVersionDownloadFinished）——
+    /// "哪个版本"，界面按它去清"这个实例正在安装"的标记（见界面那一层收尾，`DownloadCompletionController::onFinished`）——
     /// 而一个模组下完不该去动任何实例的安装状态。语义不同的东西共用一个信号，
     /// 错法是静默的：界面上看是"下完一个模组，某个正在装的实例忽然被解禁了"。
     void resourceDownloadFinished(const QString &label, bool success,

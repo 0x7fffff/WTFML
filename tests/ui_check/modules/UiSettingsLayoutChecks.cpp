@@ -301,7 +301,7 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
         //
         // 界面层这里只钉三件**界面层管得着**的：它在不在、默认是不是勾上（用户要的默认是
         // 勾上）、以及那两行字是不是把两种情形都说清了。「勾上之后到底问不问」是 MainWindow
-        // 那边算的（见 installResourceVersionNow），这里量不了。
+        // 那边算的（见 ），这里量不了。
         if (auto *autoCheck = ui.getDownloadAutoIntoInstanceCheck()) {
             // **界面层不自己猜**（和上面 CurseForge 那一格同一条规矩）：刚搭好时是**没勾**的，
             // 值由 MainWindow 从盘上灌（见 applySettingsToUi）。"默认勾上"是**设置那一层**的

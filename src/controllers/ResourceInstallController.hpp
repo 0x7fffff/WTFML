@@ -1,0 +1,133 @@
+/**
+ * @file ResourceInstallController.hpp
+ * @brief "把某一份资源装进某个实例"这一整条路：前置检查、落点、谁在动盘、开起来之后算谁的主人。
+ *
+ * 【为什么这一层值得单独站着】
+ *
+ * 这一段原来是 `MainWindow` 里的五个函数（`installResourceVersion`、`startDependencyCheck`、
+ * `onDependencyProjectsFinished`、`onDependencyVersionsFinished`、`finishDependencyCheck`）
+ * 加二百来行 `installResourceVersionNow()`。它们共享**一份状态**（`DependencyCheck`：
+ * 正在问哪几个前置、还差几发回信、算的是哪个实例），而那份状态只在这一趟点击到"下好了"
+ * 之间有 意义 —— 和主窗口上其余几百个成员摆在一起时，"这一趟结束了没有"要满地找。
+ *
+ * 【这一趟的形状（顺序不能换）】
+ *
+ * ① 点下载 → `install()` 先看这一版声明的必装前置里还缺哪几个；
+ * ② 一条不缺 → 连一个请求都不多发；
+ * ③ 有缺的 → 问一次"这几个号叫什么"，再逐条问"它有哪些版本"（筛的是**目标实例**的
+ *    游戏版本 + 加载器）；
+ * ④ 全问完 → 弹一个框，把缺的那几个列出来，两颗按钮：「一起下载」/「只下这个」；
+ * ⑤ 一起下载 → 把 `Plan::downloads` 和主模组**并成一批**下。
+ *
+ * 判断那一半（缺哪些 / 去哪问 / 挑哪一版 / 挑不出来怎么说）全在 `ModDependencies` 里
+ * （纯函数，离线可测），这一层只接线。
+ *
+ * 【`installNow()` 那段的价值（每一条都带着"为什么不能反过来写"）】
+ *
+ * · **落点**：实例里那四类子目录，还是整合包的缓存目录（整合包不能进 `versions/` ——
+ *   那底下每一个子目录都会被当成一个实例）；
+ * · **问不问「存哪儿」**：设置里没勾 **或** 这一栏不是从实例里点进来的。两条来路读的是
+ *   同一个值（`m_downloadFromInstanceId`），和「← 返回实例设置」那颗按钮同一个出处 ——
+ *   不另开一个布尔，否则"露着返回键、却弹了保存框"迟早会出现；
+ * · **谁在动盘**：默认是那个实例；用户挑了别处的目录时必须清空（那底下没有任何实例在
+ *   被写，锁着它等于白挡别人启动）；
+ * · **加载器对不上**：只管模组，判据刻意做得窄（见实现里那五条）；
+ * · **任务号必须在 `downloadResourceFiles()` 之前建**：盘上都已经有的时候那一批会
+ *   **同步**收尾，先建号才认领得到那一条终态。
+ *
+ * 【边界】
+ *
+ * · 在：上面这些判断、那几次网络问话、`QFileDialog` 那一问、`downloadResourceFiles()`
+ *   那一发、整合包待导入表的登记与作废。
+ * · 不在：下载本身（`VersionManager`）、下载收尾（`DownloadCompletionController`）、
+ *   "这一版要装进哪个实例"那一条判据（`MainWindow::dependencyInstanceId()` ——
+ *   详情页和下拉框都要用它，不是这一层的私事）。
+ */
+
+#pragma once
+
+#include <QHash>
+#include <QList>
+#include <QObject>
+#include <QString>
+
+#include "download/ModDependencies.hpp"
+#include "download/ResourceCatalog.hpp"
+
+class MainWindow;
+
+class ResourceInstallController final : public QObject {
+public:
+    explicit ResourceInstallController(MainWindow *owner);
+
+    /// 点下"下载这一版"之后的第一站（原来叫 `MainWindow::installResourceVersion()`）：
+    /// 缺前置就去问前置（`startDependencyCheck`），不缺就直接下。
+    void install(ResourceCatalog::Kind kind, const QString &displayTitle,
+                 ResourceCatalog::VersionEntry version, ResourceCatalog::Source source);
+
+    /// 真正下那一段（`install()` 的后半截，也是前置检查回来之后的落点）。
+    ///
+    /// @param extras 一起下的前置（`Plan::downloads`；空表 = 只下主模组）。
+    /// @param forcedInstanceId **这一趟就是给这个实例下的**（空 = 现算，见
+    /// `MainWindow::dependencyInstanceId()`）。只有一条来路会点名它：前置检查回来那一趟 ——
+    /// 那时已经过了一轮网络往返，那一页可能已经被用户收掉了，现算会算成别的实例。
+    /// 非空还带一个副作用：**不再弹"存哪儿"那个框**（这一趟的落点是点名定死的）。
+    ///
+    /// @note `version` 按值收：这一趟里会开嵌套事件循环（"存哪儿"那个框），期间可能
+    /// 有一发版本清单插进调用方那张 `QHash`，递引用进来会悬空。
+    ///
+    /// @note 实例文件页那颗「更新」（悬浮条上那一颗）**不走这儿** —— 它是一批一起下，见
+    /// `MainWindow::updateInstanceFiles()` 里那段（`downloadResourceFiles()` 一次只收一批）。
+    void installNow(ResourceCatalog::Kind kind, const QString &displayTitle,
+                    ResourceCatalog::VersionEntry version,
+                    const QList<ModDependencies::Resolved> &extras,
+                    const QString &forcedInstanceId = QString());
+
+    /// 名字那一发回来了（`ResourceStore::projectsFinished`）。
+    void onProjectsFinished(const QString &requestKey, const QList<ResourceCatalog::Hit> &hits,
+                            const QString &problem);
+    /// 某一条前置的版本列表回来了（`ResourceStore::versionsFinished`）。
+    void onVersionsFinished(const QString &requestKey,
+                            const QList<ResourceCatalog::VersionEntry> &versions,
+                            const QString &problem);
+
+private:
+    /// 正在跑的这一趟前置检查（**只有一趟**：用户连点两下"下载"时第二下不该再起一趟 ——
+    /// 两趟会各问一遍、各弹一个框，而第一趟已经弹着的那个框正转着嵌套事件循环）。
+    struct DependencyCheck {
+        bool active = false;
+        ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
+        QString title;
+        ResourceCatalog::VersionEntry version;
+        QString instanceId;
+        ModDependencies::Target target;
+        /// 还缺的那些（`missingRequiredDependencies()` 的结果，顺序原样）。
+        QList<ModDependencies::Lookup> missing;
+        /// 名字那一发的钥匙（回来的不是这一把就丢 —— 用户完全可能中途又点了别的）。
+        QString titleRequestKey;
+        // NOTE: 这一趟**自己没有一份"项目号 → 名字"**：名字从主窗口那个会话级缓存
+        // （`m_projectTitles`）里查（详情页那一行和这一趟共用它）。
+        // 在这儿再存一份的症状是"同一个号在详情页上已经叫 Sodium 了、弹框里还是
+        // 一串数字"—— 两份名字各写各的，谁也不报错。
+        // / 钥匙 → 那一发的版本列表。**缺席 ≠ 空表**：前者是"没问到"（网络），后者是
+        // / "它就是没有版本"（`ModDependencies::buildPlan` 那两句话分得清清楚楚）。
+        QHash<QString, QList<ResourceCatalog::VersionEntry>> answers;
+        /// 还差几发没回来（0 到齐了 → 收尾）。
+        int pending = 0;
+        /// 这个实例的 mods **认过没有**（见 `MainWindow::installedModKeys()` 的 `known`
+        /// 出参）。只决定弹框那句话："这几个还没装" ↔ "无法确认你装了没有" ——
+        /// **空表和"确实一个都没装"是两件事**，混成一句等于替用户认下一件我们不知道的事。
+        bool installedKnown = false;
+    };
+
+    /// 起一趟前置检查：问名字 → 逐条问版本 → `finishDependencyCheck()`。
+    void startDependencyCheck(ResourceCatalog::Kind kind, const QString &displayTitle,
+                              const ResourceCatalog::VersionEntry &version,
+                              const ModDependencies::Target &target,
+                              const QList<ModDependencies::Lookup> &missing, bool installedKnown);
+    /// 全问完了：算 Plan、弹框、按用户那一按继续装（或者只装主模组）。
+    void finishDependencyCheck();
+
+    MainWindow &m_owner;
+    DependencyCheck m_check;
+};

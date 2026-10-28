@@ -41,6 +41,12 @@ const char *kFormatTag = "wtfml-backup/1";
 const char *kKindWorld = "world";
 const char *kKindInstance = "instance";
 
+/// 「还原之前自动做的那一份」在文件名里那段记号（`backupFileName(…, safety=true)` 把它
+/// 插在前缀和时间戳中间）。**一处定义**：`nameIsSafety()`（认人）与
+/// `sortBackupsNewestFirst()`（排序）都得认它 —— 两边各写一份的话，哪天这个记号变了，
+/// 会变成"排在前面"和"认成安全的"两件事。
+const QString kSafetyMark = QStringLiteral("恢复前-");
+
 /// 还原之前对着空闲空间判"放不放得下"时，在清单里那些字节之外再留的**固定**余量。
 /// 宁可留大一点：留多了什么也没浪费（还原完就还回去了），留少了就是"判够了、解到一半
 /// 盘满"——那正是加这一眼要避免的那件事（文件的元数据、簇对齐、临时文件都吃空间）。
@@ -360,7 +366,7 @@ QString backupFileName(const QString &label, const QDateTime &at, bool safety) {
 }
 
 QStringList sortBackupsNewestFirst(const QStringList &paths, const QString &prefix) {
-    const QString safetyMark = QStringLiteral("恢复前-");
+    const QString &safetyMark = kSafetyMark;
     struct Key {
         QString stamp;   // 名字里那串时间戳（不含「恢复前-」和 `.zip`）
         bool stamped = false;
@@ -388,6 +394,21 @@ QStringList sortBackupsNewestFirst(const QStringList &paths, const QString &pref
         return a > b;
     });
     return sorted;
+}
+
+QString sizeText(qint64 bytes) {
+    if (bytes >= 1024LL * 1024 * 1024) {
+        return QStringLiteral("%1 GB").arg(
+            QString::number(double(bytes) / (1024.0 * 1024 * 1024), 'f', 2));
+    }
+    if (bytes >= 1024 * 1024) {
+        return QStringLiteral("%1 MB").arg(QString::number(double(bytes) / (1024.0 * 1024), 'f', 1));
+    }
+    return QStringLiteral("%1 KB").arg(QString::number(double(bytes) / 1024.0, 'f', 1));
+}
+
+bool nameIsSafety(const QString &fileName, const QString &prefix) {
+    return fileName.mid(prefix.size()).startsWith(kSafetyMark);
 }
 
 QList<FileRecord> collectFiles(const QString &rootDir, const QStringList &excludeTop,

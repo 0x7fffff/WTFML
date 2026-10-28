@@ -325,6 +325,24 @@ bool writeMeta(const QString &serverId, const ServerModel::Info &info, QString *
     return true;
 }
 
+bool setRestartOnCrash(const QString &serverId, bool on, QString *problemOut) {
+    if (problemOut != nullptr) {
+        problemOut->clear();
+    }
+    // 先看"读不读得懂"：不是"文件在不在"（不在 = 从外面拖进来的，照写）。
+    QString readProblem;
+    ServerModel::Info info = readMeta(serverId, &readProblem);
+    if (!readProblem.isEmpty()) {
+        if (problemOut != nullptr) {
+            *problemOut = QStringLiteral("%1。这一项没有改 —— 照这份空记录写回去会把它顶掉。")
+                              .arg(readProblem);
+        }
+        return false;
+    }
+    info.restartOnCrash = on;
+    return writeMeta(serverId, info, problemOut);
+}
+
 // ---------------------------------------------------------------------------
 // 建 / 删
 // ---------------------------------------------------------------------------

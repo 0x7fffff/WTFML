@@ -102,6 +102,15 @@ ServerModel::Info readMeta(const QString &serverId, QString *problemOut = nullpt
 bool writeMeta(const QString &serverId, const ServerModel::Info &info,
                QString *problemOut = nullptr);
 
+/// 只改「异常退出后自动重启」那一格（右键菜单里那一项）。
+///
+/// ★ **读不懂就不写**：`writeMeta()` 是照着 `Info` 重建整份的，而 `readMeta()` 在
+/// "文件在、但读不懂"时回的是**空** `Info` —— 照那个写回去，等于用一份最小合法记录
+/// 顶掉盘上那份（里面记的游戏版本 / 内存 / 端口全没了）。所以这一格走这条专用路：
+/// 先按 `readMeta()` 的 `problem` 判一下，有问题就原样留着、把那句话回给调用方。
+/// 文件本来就不在（用户从外面拖进来的服务端）不算问题，照写。
+bool setRestartOnCrash(const QString &serverId, bool on, QString *problemOut = nullptr);
+
 // ---------------------------------------------------------------------------
 // 建 / 删
 // ---------------------------------------------------------------------------

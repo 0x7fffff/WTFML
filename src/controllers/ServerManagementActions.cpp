@@ -11,6 +11,7 @@
 #include "InlineMessage.hpp"
 #include "OverlayHost.hpp"
 #include "controllers/ServerSettingsController.hpp"
+#include "controllers/ServerSettingsPageController.hpp"
 #include "controllers/ServerWorkspaceController.hpp"
 #include "controllers/ServerConsoleController.hpp"
 #include "controllers/BackupController.hpp"
@@ -29,31 +30,19 @@
 #include <QFileDialog>
 #include <QFileInfo>
 
-namespace {
-static QString backupSizeText(qint64 bytes) {
-    if (bytes >= 1024LL * 1024 * 1024) {
-        return QStringLiteral("%1 GB").arg(QString::number(double(bytes) / (1024.0 * 1024 * 1024), 'f', 2));
-    }
-    if (bytes >= 1024 * 1024) {
-        return QStringLiteral("%1 MB").arg(QString::number(double(bytes) / (1024.0 * 1024), 'f', 1));
-    }
-    return QStringLiteral("%1 KB").arg(QString::number(double(bytes) / 1024.0, 'f', 1));
-}
-}
-
 void ServerManagementActions::refreshServerPlayers(MainWindow *owner) {
-    ServerSettingsPage *page = owner->m_serverSettingsPage;
-    const QString serverId = owner->m_serverSettingsId;
+    ServerSettingsPage *page = owner->m_serverSettings->settingsPage();
+    const QString serverId = owner->m_serverSettings->serverId();
     if (page == nullptr || serverId.isEmpty()) {
         return;
     }
     const int index = qBound(0, page->playerList(), ServerPlayers::listCount() - 1);
     const auto list = static_cast<ServerPlayers::List>(index);
     // 「踢出…」只对正在跑的服务端有意义（和写名单那两颗正好相反 —— 见页面那段）。
-    page->setPlayerKickAvailable(!owner->m_serverSettingsEditable);
+    page->setPlayerKickAvailable(!owner->m_serverSettings->editable());
     const ServerPlayers::Content content =
         owner->m_serverSettingsController->readPlayers(serverId, list);
-    QString note = MainWindowUI::serverSettingsPlayerNoteText(index, !owner->m_serverSettingsEditable);
+    QString note = MainWindowUI::serverSettingsPlayerNoteText(index, !owner->m_serverSettings->editable());
     if (!content.ok) {
         // ★ 读不懂就**什么都不摆、也不许写**：那份文件里可能还有用户自己的记录，
         //   拿空名单覆盖它比"这一页现在看不了"糟得多。
@@ -96,12 +85,12 @@ void ServerManagementActions::refreshServerPlayers(MainWindow *owner) {
 }
 
 void ServerManagementActions::addServerPlayer(MainWindow *owner) {
-    ServerSettingsPage *page = owner->m_serverSettingsPage;
-    const QString serverId = owner->m_serverSettingsId;
+    ServerSettingsPage *page = owner->m_serverSettings->settingsPage();
+    const QString serverId = owner->m_serverSettings->serverId();
     if (page == nullptr || serverId.isEmpty()) {
         return;
     }
-    if (!owner->m_serverSettingsEditable) {
+    if (!owner->m_serverSettings->editable()) {
         InlineMessage::warning(
             owner->m_ui->overlay(), MainWindow::tr("现在改不了"),
             MainWindowUI::serverSettingsPlayerNoteText(page->playerList(), true));
@@ -161,12 +150,12 @@ void ServerManagementActions::addServerPlayer(MainWindow *owner) {
 }
 
 void ServerManagementActions::removeServerPlayer(MainWindow *owner, const QString &identity) {
-    ServerSettingsPage *page = owner->m_serverSettingsPage;
-    const QString serverId = owner->m_serverSettingsId;
+    ServerSettingsPage *page = owner->m_serverSettings->settingsPage();
+    const QString serverId = owner->m_serverSettings->serverId();
     if (page == nullptr || serverId.isEmpty() || identity.isEmpty()) {
         return;
     }
-    if (!owner->m_serverSettingsEditable) {
+    if (!owner->m_serverSettings->editable()) {
         InlineMessage::warning(
             owner->m_ui->overlay(), MainWindow::tr("现在改不了"),
             MainWindowUI::serverSettingsPlayerNoteText(page->playerList(), true));
@@ -214,11 +203,11 @@ void ServerManagementActions::removeServerPlayer(MainWindow *owner, const QStrin
 }
 
 void ServerManagementActions::pickServerResourcePack(MainWindow *owner) {
-    ServerSettingsPage *page = owner->m_serverSettingsPage;
-    if (page == nullptr || owner->m_serverSettingsId.isEmpty()) {
+    ServerSettingsPage *page = owner->m_serverSettings->settingsPage();
+    if (page == nullptr || owner->m_serverSettings->serverId().isEmpty()) {
         return;
     }
-    if (!owner->m_serverSettingsEditable) {
+    if (!owner->m_serverSettings->editable()) {
         InlineMessage::warning(owner->m_ui->overlay(), MainWindow::tr("现在改不了"),
                                MainWindowUI::serverSettingsRunningNote());
         return;
@@ -257,8 +246,8 @@ void ServerManagementActions::pickServerResourcePack(MainWindow *owner) {
 }
 
 QString ServerManagementActions::serverContentFolder(const MainWindow *owner) {
-    ServerSettingsPage *page = owner->m_serverSettingsPage;
-    const QString serverId = owner->m_serverSettingsId;
+    ServerSettingsPage *page = owner->m_serverSettings->settingsPage();
+    const QString serverId = owner->m_serverSettings->serverId();
     if (page == nullptr || serverId.isEmpty()) {
         return QString();
     }
@@ -272,15 +261,15 @@ QString ServerManagementActions::serverContentFolder(const MainWindow *owner) {
 }
 
 void ServerManagementActions::refreshServerContent(MainWindow *owner) {
-    ServerSettingsPage *page = owner->m_serverSettingsPage;
-    const QString serverId = owner->m_serverSettingsId;
+    ServerSettingsPage *page = owner->m_serverSettings->settingsPage();
+    const QString serverId = owner->m_serverSettings->serverId();
     if (page == nullptr || serverId.isEmpty()) {
         return;
     }
     const int kindIndex = qBound(0, page->contentKind(), ServerContent::kindCount() - 1);
     const auto kind = static_cast<ServerContent::Kind>(kindIndex);
     const QString folder = owner->serverContentFolder();
-    const bool running = !owner->m_serverSettingsEditable;
+    const bool running = !owner->m_serverSettings->editable();
     if (folder.isEmpty()) {
         // 数据包那一类：世界在哪儿都还不知道 —— 别摆一个假路径，说清楚该去哪儿改。
         page->setContentRows({});
@@ -301,7 +290,7 @@ void ServerManagementActions::refreshServerContent(MainWindow *owner) {
     for (const ServerContent::Entry &entry : entries) {
         ServerSettingsPage::ContentRow row;
         row.name = entry.name;
-        row.size = backupSizeText(QFileInfo(dir.filePath(entry.name)).size());
+        row.size = BackupFiles::sizeText(QFileInfo(dir.filePath(entry.name)).size());
         row.disabled = entry.disabled;
         rows.append(row);
     }
@@ -309,12 +298,12 @@ void ServerManagementActions::refreshServerContent(MainWindow *owner) {
 }
 
 void ServerManagementActions::addServerContent(MainWindow *owner) {
-    ServerSettingsPage *page = owner->m_serverSettingsPage;
-    const QString serverId = owner->m_serverSettingsId;
+    ServerSettingsPage *page = owner->m_serverSettings->settingsPage();
+    const QString serverId = owner->m_serverSettings->serverId();
     if (page == nullptr || serverId.isEmpty()) {
         return;
     }
-    if (!owner->m_serverSettingsEditable) {
+    if (!owner->m_serverSettings->editable()) {
         InlineMessage::warning(owner->m_ui->overlay(), MainWindow::tr("现在改不了"),
                                MainWindowUI::serverSettingsRunningNote());
         return;
@@ -387,12 +376,12 @@ void ServerManagementActions::addServerContent(MainWindow *owner) {
 }
 
 void ServerManagementActions::toggleServerContent(MainWindow *owner, const QString &name, bool enable) {
-    ServerSettingsPage *page = owner->m_serverSettingsPage;
-    const QString serverId = owner->m_serverSettingsId;
+    ServerSettingsPage *page = owner->m_serverSettings->settingsPage();
+    const QString serverId = owner->m_serverSettings->serverId();
     if (page == nullptr || serverId.isEmpty() || name.isEmpty()) {
         return;
     }
-    if (!owner->m_serverSettingsEditable) {
+    if (!owner->m_serverSettings->editable()) {
         InlineMessage::warning(owner->m_ui->overlay(), MainWindow::tr("现在改不了"),
                                MainWindowUI::serverSettingsRunningNote());
         return;
@@ -462,7 +451,7 @@ void ServerManagementActions::openServerContentFolder(MainWindow *owner) {
 }
 
 void ServerManagementActions::kickServerPlayer(MainWindow *owner, const QString &name) {
-    const QString serverId = owner->m_serverSettingsId;
+    const QString serverId = owner->m_serverSettings->serverId();
     if (serverId.isEmpty() || name.isEmpty()) {
         return;
     }
@@ -492,8 +481,8 @@ void ServerManagementActions::kickServerPlayer(MainWindow *owner, const QString 
 }
 
 void ServerManagementActions::runServerCheckAction(MainWindow *owner, const QString &token) {
-    ServerSettingsPage *page = owner->m_serverSettingsPage;
-    const QString serverId = owner->m_serverSettingsId;
+    ServerSettingsPage *page = owner->m_serverSettings->settingsPage();
+    const QString serverId = owner->m_serverSettings->serverId();
     if (page == nullptr || serverId.isEmpty()) {
         return;
     }
@@ -513,7 +502,7 @@ void ServerManagementActions::runServerCheckAction(MainWindow *owner, const QStr
         // EULA 那道闸就是 `ensureServerEula()`（那一发问的就是"同意并启动"）——这一页上
         // 并没有"启动"这回事，所以这里借它把那段话问出来、把 `eula.txt` 写下去。
         owner->ensureServerEula(serverId);
-        owner->refreshServerSettingsPage();
+        owner->m_serverSettings->refresh();
         return;
     }
     if (token == QStringLiteral("fix-values")) {
@@ -552,7 +541,7 @@ void ServerManagementActions::runServerCheckAction(MainWindow *owner, const QStr
         owner->appendLog(MainWindow::tr("服务端 %1 的 server.properties 里有 %2 项改回了缺省值。")
                       .arg(serverId)
                       .arg(result.changed));
-        owner->refreshServerSettingsPage();
+        owner->m_serverSettings->refresh();
         return;
     }
     if (token == QStringLiteral("open-settings")) {
@@ -676,7 +665,7 @@ void ServerManagementActions::restoreServerWorldBackup(MainWindow *owner, const 
                                 worldName.isEmpty() ? serverId : worldName)
                      : MainWindow::tr("这一份读不出清单，认不出它是什么备份，没有解开。\n\n%1")
                            .arg(problem));
-        owner->refreshServerSettingsPage();
+        owner->m_serverSettings->refresh();
         return;
     }
     // 默认**不**落在「还原」上：这一步会把这个世界现在的文件整个换掉（和删世界同一档）。
@@ -705,7 +694,7 @@ void ServerManagementActions::deleteServerBackup(MainWindow *owner, const QStrin
         InlineMessage::warning(owner->m_ui->overlay(), MainWindow::tr("删不掉"),
                                MainWindow::tr("这一份已经不在了：\n%1")
                                    .arg(QDir::toNativeSeparators(zipPath)));
-        owner->refreshServerSettingsPage();
+        owner->m_serverSettings->refresh();
         return;
     }
     // 这一份进**回收站**（不是永久删除）：备份就是留着以防万一的，手滑删掉更该有退路。
@@ -718,7 +707,7 @@ void ServerManagementActions::deleteServerBackup(MainWindow *owner, const QStrin
         return;
     }
     QString lockProblem;
-    if (!ServerWriteGuard::acquire(owner->m_serverSettingsId, &lockProblem)) {
+    if (!ServerWriteGuard::acquire(owner->m_serverSettings->serverId(), &lockProblem)) {
         InlineMessage::warning(owner->m_ui->overlay(), MainWindow::tr("删不掉"), lockProblem);
         return;
     }
@@ -730,5 +719,5 @@ void ServerManagementActions::deleteServerBackup(MainWindow *owner, const QStrin
         return;
     }
     owner->appendLog(MainWindow::tr("已删除一份备份：%1").arg(QDir::toNativeSeparators(zipPath)));
-    owner->refreshServerSettingsPage();
+    owner->m_serverSettings->refresh();
 }

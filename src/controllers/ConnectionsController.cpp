@@ -1,5 +1,6 @@
 #include "ConnectionsController.hpp"
 #include "MainWindow.hpp"
+#include "controllers/ResourceInstallController.hpp"
 #include "Animations.hpp"
 #include "InlineMessage.hpp"
 #include "MainWindowUI.hpp"
@@ -11,8 +12,12 @@
 #include "RowActivation.hpp"
 #include "auth/AuthManager.hpp"
 #include "controllers/ActivityCenterController.hpp"
+#include "controllers/DownloadTaskLedgerController.hpp"
+#include "controllers/DownloadCompletionController.hpp"
+#include "controllers/InstallPageController.hpp"
 #include "controllers/JavaSettingsController.hpp"
 #include "controllers/PlayerSkinController.hpp"
+#include "controllers/ServerMenuController.hpp"
 #include "download/ResourceStore.hpp"
 #include "download/DownloadRate.hpp"
 #include <memory>
@@ -147,8 +152,8 @@ void ConnectionsController::setup() {
                         }
                     });
             // 右键那一发（`setContextMenuPolicy(Qt::CustomContextMenu)` 在 MainWindowUI 里设的）。
-            connect(serverList, &QTreeWidget::customContextMenuRequested, m_owner,
-                    &MainWindow::showServerContextMenu);
+            connect(serverList, &QTreeWidget::customContextMenuRequested, m_owner->m_serverMenu,
+                    &ServerMenuController::showAt);
         }
     }
     // 左边列表选中哪一份 .minecraft，启动器就换到哪一份上（PCL 的卡片是同一个交互）。
@@ -373,8 +378,8 @@ void ConnectionsController::setup() {
                          [](QTreeWidgetItem *item) { return item->parent() == nullptr; });
     connect(m_owner->m_ui->getInstallBackButton(), &QPushButton::clicked, m_owner,
             &MainWindow::backToVersionTree);
-    connect(m_owner->m_ui->getInstallButton(), &QPushButton::clicked, m_owner,
-            &MainWindow::onInstallButtonClicked);
+    connect(m_owner->m_ui->getInstallButton(), &QPushButton::clicked, m_owner->m_installPage,
+            &InstallPageController::installClicked);
     // 实例预设那一行：它是**加载器树里的一条**，点它是
     // 开那张四类弹窗（在 onLoaderTreeClicked 里按 UserRole 认出来）—— 没有单独的控件
     // 要接线。
@@ -411,7 +416,7 @@ void ConnectionsController::setup() {
                 return;
             }
             if (index == MainWindowUI::modLoaderNoneIndex()) {
-                m_owner->selectLoader(index);
+                m_owner->m_installPage->selectLoader(index);
                 return;
             }
             // NOTE: 这里**先算再做**（`!item->isExpanded()` 在动状态之前求值）：
@@ -433,11 +438,11 @@ void ConnectionsController::setup() {
         // 走到这里就是"选中了这条加载器的这个版本"（上面那句 isDisabled() 已经把
         // "正在获取…"/"列表没取到"那两个灰占位挡在外面了 —— 不挡的话"列表没取到"会被
         // 当成一个选中的版本号填进默认名里）。
-        m_owner->m_chosenLoaderVersion.insert(index, version);
-        m_owner->selectLoader(index);
+        m_owner->m_installPage->setPinnedLoaderVersion(index, version);
+        m_owner->m_installPage->selectLoader(index);
         loader->setExpanded(false);
         // 钉的版本号是默认名的一部分（`1.20.1-Forge_47.4.10`），换一条就得重算。
-        m_owner->updateInstallName();
+        m_owner->m_installPage->updateInstallName();
     };
     // 接线口和版本树那一条完全一样（鼠标单击 + 键盘回车），另外交待**哪些行是"开/关"**：
     // 点得快的第二发到的是双击事件，只有开关行才补那一发。按上面那三条判据划：
@@ -688,14 +693,14 @@ void ConnectionsController::setup() {
     // 谁的回复谁接走，不会互相顶掉。**不要**为了"省两个连接"把它们并成一个槽：
     // 那样这个函数会变成三段 if，而三件事的生命周期根本不一样（详情页那一页关掉就没了、
     // 前置那一趟跟着一次点击、更新检测那一趟跟着一次检查）。
-    connect(m_owner->m_resourceStore, &ResourceStore::versionsFinished, m_owner,
-            &MainWindow::onDependencyVersionsFinished);
+    connect(m_owner->m_resourceStore, &ResourceStore::versionsFinished,
+            m_owner->m_resourceInstall, &ResourceInstallController::onVersionsFinished);
     connect(m_owner->m_resourceStore, &ResourceStore::versionsFinished, m_owner,
             &MainWindow::onUpdateCheckVersionsFinished);
     connect(m_owner->m_resourceStore, &ResourceStore::latestVersionsFinished, m_owner,
             &MainWindow::onUpdateCheckLatestFinished);
-    connect(m_owner->m_resourceStore, &ResourceStore::projectsFinished, m_owner,
-            &MainWindow::onDependencyProjectsFinished);
+    connect(m_owner->m_resourceStore, &ResourceStore::projectsFinished,
+            m_owner->m_resourceInstall, &ResourceInstallController::onProjectsFinished);
     // 详情页那一行前置要的名字。**和上面那一趟分开两个槽**，理由同 `versionsFinished`
     // 那三条 —— 两件事各有各的钥匙，各自认人（见 :: 后面那段 ★）。
     connect(m_owner->m_resourceStore, &ResourceStore::projectsFinished, m_owner,
@@ -926,8 +931,8 @@ void ConnectionsController::setup() {
     const auto rate = std::make_shared<LiveRate>();
     rate->clock.start();
     const auto ownerTask = [this] {
-        return m_owner->m_downloadBatchOwnerTaskId != Tasks::invalidTaskId()
-            ? m_owner->m_downloadBatchOwnerTaskId : m_owner->m_serverInstallTaskId;
+        return m_owner->m_downloadTaskLedger->owner() != Tasks::invalidTaskId()
+            ? m_owner->m_downloadTaskLedger->owner() : m_owner->m_serverInstallTaskId;
     };
     const auto switchTask = [rate](Tasks::TaskId id) {
         if (rate->task == id) return;
@@ -956,8 +961,8 @@ void ConnectionsController::setup() {
         m_owner->m_activityCenter->setTransferSpeed(id, rate->estimate.bytesPerSecond(now));
     });
     rateTimer->start();
-    connect(m_owner->m_versionManager, &VersionManager::versionDownloadFinished, m_owner,
-            &MainWindow::onVersionDownloadFinished);
+    connect(m_owner->m_versionManager, &VersionManager::versionDownloadFinished,
+            m_owner->m_downloadCompletion, &DownloadCompletionController::onFinished);
     // 下载页那几类资源（模组/数据包/资源包/光影）里挑中的那个版本下完了。**和上面那条分开**
     // （理由见 VersionManager 里那个信号的 NOTE）：这条路上的 label 不是"哪个版本"，
     // 接进来的是另一个槽，那个槽不碰任何实例的安装状态。

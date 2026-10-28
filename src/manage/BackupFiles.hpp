@@ -127,6 +127,23 @@ QString backupFileName(const QString &label, const QDateTime &at, bool safety = 
 /// 名字里认不出时间戳的那几份排在最后（按名字倒序，稳定可复现）。
 QStringList sortBackupsNewestFirst(const QStringList &paths, const QString &prefix);
 
+/// 一份备份在那一列里怎么写大小（「12.4 MB」）。
+///
+/// **自己算**，不用 `QLocale::formattedDataSize()`：那个的写法跟着系统语言走
+/// （"1.5 MiB" / "1,5 MB"），而这几句要在判据里逐字断言 —— 跟着区域设置变的字符串没法钉。
+///
+/// NOTE: 这个格式原来在**三处**各有一份（世界页、`ServerManagementActions`、以及搬
+/// 「服务端设置」时新分出来的那一份）—— 三份一模一样却谁也不认识谁，改一处不会有任何
+/// 报错。现在只有这一份。
+QString sizeText(qint64 bytes);
+
+/// @p fileName 是不是"还原之前自动做的那一份"（安全快照）。
+///
+/// 从**文件名**认，不去读清单：读一份清单要起一次 PowerShell，而这一列里可能摆着几十份
+/// （见 `backupFilePrefix()` 那段）。那个记号本身是 `backupFileName()` 定的 ——
+/// 「恢复前-」夹在前缀和时间戳中间。
+bool nameIsSafety(const QString &fileName, const QString &prefix);
+
 /// 走一遍目录，把要记进清单的文件列出来（**按路径排序**，可复现）。
 /// @param rootDir 要走的目录（必须存在）。
 /// @param excludeTop 要跳过的**顶层目录名**（实例快照排 assets / libraries 用的就是它）。

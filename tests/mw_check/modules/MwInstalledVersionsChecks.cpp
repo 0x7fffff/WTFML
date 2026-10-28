@@ -73,7 +73,7 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
         // 展开版本，选择版本以后收缩，显示版本"）。
         //
         // NOTE: 之前这里戳的是五个 QRadioButton + 一个 QButtonGroup。
-        // "选中哪一条"现在住在 MainWindow::m_selectedLoaderIndex 里（界面上**没有**
+        // "选中哪一条"现在住在 InstallPageController::m_selectedLoader 里（界面上**没有**
         // 任何"勾"的状态），所以可观察的东西只剩两样：
         // · 名称框里的默认名（勾了 Forge 就是 `1.21.4-Forge`）；
         // · 那棵树每一行第二行的小字（选中的那条写自己钉的版本号，其余几条写

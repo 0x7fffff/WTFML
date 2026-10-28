@@ -307,7 +307,7 @@ void MainWindowUI::setupDownloadGamePage() {
     installBodyLayout->setContentsMargins(0, 0, 0, qMax(48, installButtonMinHeight()) + 40);
 
     // 版本名称：实例的目录名（`versions/<这个名字>`）。默认名、重名提示、名字不合法
-    // 那句原因，都在 MainWindow::updateInstallNameHint() 一处刷（界面这边不持有
+    // 那句原因，都在 InstallPageController::updateInstallNameHint() 一处刷（界面这边不持有
     // 业务状态：它不知道盘上有哪些目录）。
     QWidget *nameBox = makeHintedControl(installPage);
     auto *nameLabel = new QLabel(installNameLabelText(), nameBox);
@@ -321,7 +321,7 @@ void MainWindowUI::setupDownloadGamePage() {
     // 说明（非法名字**不替换掉框里那句「装好后在实例...」**，而是在下面添加一行红色字）。
     // 平时它空着、也藏起来 —— 藏起来而不是
     // "留一个空行"，是为了正常情况下名字框底下那几行的位置不动。
-    // 显隐和文字都由 MainWindow::updateInstallNameHint() 一处刷（界面这边不知道盘上
+    // 显隐和文字都由 InstallPageController::updateInstallNameHint() 一处刷（界面这边不知道盘上
     // 有哪些目录、也不知道什么名字算不能用）。
     installNameError = addDynamicErrorHint(nameBox, nameBox);
     installNameError->setObjectName(installNameErrorName());
@@ -475,7 +475,7 @@ void MainWindowUI::setupDownloadGamePage() {
     QObject::connect(loaderTree, &QTreeWidget::itemCollapsed, loaderTree,
                      [fitLoaderTreeHeight]() { fitLoaderTreeHeight(); });
     // NOTE: 「这一棵树现在该显示成什么样」（哪条写着"与 X 不兼容"、哪条写着选中的
-    // 版本号）一件都不在这里做 —— 那是 MainWindow::updateLoaderRows() 的活，
+    // 版本号）一件都不在这里做 —— 那是 InstallPageController::updateLoaderRows() 的活，
     // 它按"选中了哪个加载器"一处重算。这里只把五条搭出来。
     fitLoaderTreeHeight();
     // 中间那层滚动区收尾：名称框和卡片都铺完了，内容容器交给它；

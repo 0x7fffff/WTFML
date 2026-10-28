@@ -16,7 +16,7 @@
  *
  * 这一层全是纯函数：喂「为什么退的」「已经连着重启过几次」「策略」进来，回一个决定。
  * 不读盘、不看时钟、不起进程 —— 所以 `verify` 能直接钉（ZAF 一节），真接线在 `MainWindow`
- * （`onServerExited()` 那一段），策略存在 `ServerModel::Info`（`.wtfml-server` 里那两格）。
+ * （`ServerRunController::onExited()` 那一段），策略存在 `ServerModel::Info`（`.wtfml-server` 里那两格）。
  */
 
 #pragma once

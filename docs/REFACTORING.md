@@ -39,12 +39,385 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 初次缺少共享文字构造函数/完整类型头导致的编译失败，以及修探针前的主窗口240秒超时均保留日志。
 不将这次源文件拆分的行数变化当成编译或运行加速数据。
 
+## 2026-10-28 ⑧ `controllers/UpdateCenterController`
+
+「更新中心」那一页的**全部状态**原来挂在 `MainWindow` 上：那一本「忽略 / 固定」的账
+（`UpdatePolicy::Store`）、页面对象、以及"这一页现在说的是哪个实例"。三样必须同进同退
+（开页记 id、动作按 id 认人、关页清掉；账一动就得把名单重算一遍再把开着的页面重摆），
+而它们和主窗口上其余几百个成员摆在一起时，"漏掉其中一条"的症状很难认 —— 表现是用户按了
+「忽略」，屏幕上那一行照旧写着「可更新到 X」，而名单里其实已经剔掉了。
+
+搬走的：`openUpdateCenter()` / `updateCenterReportForPage()`（改名 `reportFor()`）/
+`rebuildInstanceOutdatedPaths()`（改名 `rebuildOutdatedPaths()`）/ `saveUpdatePolicy()`
+（改名 `savePolicy()`）/ 四个 `onUpdateCenter*`，连同那三个成员。三处重复的"开着的这一页
+重摆一次"收成一个 `refreshPageIfOpen()`。
+
+留在主窗口的：
+
+- 四条**薄壳**（`openUpdateCenter` / `updateCenterReportForPage` / `rebuildInstanceOutdatedPaths`
+  / `saveUpdatePolicy`）—— `InstanceUpdateCheckController::finishUpdateCheck()` 和实例设置页
+  按名字叫它们，壳只是"主窗口仍然认这个名字"。
+- `m_updateBatch` 与 `onUpdateBatchFileFinished()` / `finishUpdateBatch()` —— 那一批挂在
+  下载器回来的路上，和这一页开没开无关。
+- `m_instanceUpdateResults` / `m_instanceUpdateTargets` / `m_instanceOutdatedPaths` ——
+  检测那一层（`InstanceUpdateCheckController`）与文件管理页也读写它们，生命周期比这一页长。
+
+`InstanceUpdateCheckController` 里唯一那句直接读账的写法跟着改成
+`m_owner.m_updateCenter->policy()`（`policy()` 是这本账对外的**唯一入口**）。
+
+缝合线仍然是"一套状态 + 动它的那几条"，不是行数：`src/MainWindow.cpp` 10,734 → 10,429 行。
+
+验证：`ctest -j1` **39/39 通过**（388.04 s，含 `wtfml.main-window` 84.36 s、
+`wtfml.ui` 9.82 s）；直跑 `mw_check.exe` **2716/2716**（与上一轮基线同数）；
+`ui_check.exe` offscreen **3121/3121**。真屏直跑 `ui_check.exe` 有 1 条字体度量断言红
+（文件夹齿轮菜单"字形落点往里 6 px"，实测 5,5），offscreen 与 ctest 都绿 —— 真屏字体回退
+造成的，与本次搬迁无关（没碰 `ui/`）。
+
+## 2026-10-28 ⑨ `ui/InstanceSettingsDialog`：按"一页一摊"分 TU
+
+主 .cpp 3,813 行里最长的是三个"搭页"函数（概览 597 / 启动 423 / 文件八页 460），它们的
+共同点是**各自只在一次打开对话框时跑一遍**，彼此只共享几样搭控件的小工具。于是按
+"一页一摊"搬成三个翻译单元 —— **类没动**（同一个类，定义分散在四份 .cpp），所以断言一条
+都不用改：
+
+| 文件 | 行数 | 这一摊是什么 |
+| --- | ---: | --- |
+| `ui/InstanceSettingsDialog.cpp` | 2,112 | 外壳与接线：构造、左栏导航、堆叠页、脏状态、拖放、拒绝关页 |
+| `ui/InstanceSettingsOverviewPage.cpp` | 684 | 「概览」那四行 + 它底下的维护入口 |
+| `ui/InstanceSettingsLaunchPage.cpp` | 510 | 「启动」那一栏（Java / 内存 / 窗口 / 高级选项） |
+| `ui/InstanceSettingsFilePages.cpp` | 547 | 「文件管理」那八页（服务器列表 + 七份 `InstanceFilesPage`） |
+| `ui/InstanceSettingsDialogInternals.hpp` | 260 | 四个 .cpp 共用的搭控件小工具 |
+
+搬进那个内部头的，原来是主 .cpp 顶上**匿名命名空间**里的一整套：每行三颗的按钮规格
+（`prepareActionButton()` / `newActionGrid()` / `layoutActionCells()` / `layoutActionButtons()`）、
+`addTitledRow()`、`MenuPopup`（更改图标 / 分组那两个浮层的壳）、`menuEntryStyle()`、
+`kIconPreviewSize` 与那三个浮层留白。匿名命名空间是**内部链接**，拆完之后另外三个 .cpp
+根本看不见它们 —— 各抄一份的话，"恒定宽度"那几条规矩（少一颗的那一行不摊开、宽不钉像素）
+只要改漏一处就静默不一致，而屏幕上表现为"这几颗按钮宽窄对不上"。所以函数一律 `inline`。
+
+只在一个 TU 里用的东西**没有**往上搬：`kMemorySpinWidth` 等四个宽度跟着「启动」那一份、
+`kIconCandidateSize` / `kIconCandidatesPerRow` 跟着「概览」那一份、`fileKeyCanToggle()`
+跟着文件那几页、`titleTextFor()` / `addNavColumn()` / `pageKeyAtStackIndex()` 留在外壳。
+
+三个新 .cpp 进 `ui/MainWindowPages.cmake`（产品与两个 UI 验证层共用的那一张表）——
+漏掉这一处不会编译失败，是链接期一串 `InstanceSettingsDialog::…` undefined reference。
+
+验证：全量 `ctest -j1` **39/39**（381.48 s）；直跑 `mw_check.exe` **2716/2716**；
+`ui_check.exe` offscreen **3121/3121**（实例设置那一块的大部分断言都在 `ui_check` 里）。
+
+## 2026-10-28 ⑩ `controllers/ServerSettingsPageController`
+
+「服务端设置」那一页的六格状态原来全挂在 `MainWindow` 上：页对象、"这一页现在说的是哪个
+服务端"、能不能改（服务端在跑 = 不能）、体检里"那个端口现在有人占着吗"的结论，外加两格
+**只写不读**的原文账。它们必须同进同退 —— 服务端一启动，`setEditable()`、体检单、保存带
+三处要**同一次**跟着变，漏一条的症状是"服务端明明停了，那一页还是灰的"。
+
+搬走的八条：`openServerSettingsPage()` / `refreshServerSettingsPage()` /
+`updateServerSettingsSaveState()` / `mergeServerSettingsEdits()` / `saveServerSettings()` /
+`revertServerSettings()` / `serverCheckFacts()` / `runServerCheck()`，连同那六格成员
+（改名成 `open()` / `refresh()` / `updateSaveState()` / `mergeEdits()` / `save()` /
+`revert()` / `checkFacts()` / `runCheck()`）。页面对象仍然懒建、仍然挂在主窗口底下
+（`new ServerSettingsPage(&m_owner)`）—— 生命周期归主窗口，控制器只拿一个不拥有的指针。
+
+留在主窗口的只有**两条薄壳**，因为还有三处按名字叫它们：`openServerSettingsPage()`（服务端
+列表的右键菜单 + mw_check 的 T42，**经元对象系统驱动，所以继续留在 `private slots:`**）、
+`refreshServerSettingsPage()`（`BackupController` 的宿主回调 + `ServerManagementActions`
+里那五处"改完盘上那份、把页面重摆一遍"）。其余六条搬走之后**一个外人都没有**，所以没留壳。
+
+两处顺手清掉的真东西：
+
+* `m_serverSettingsRaw` / `m_serverSettingsOriginal` 是**只写不读**的 —— 头文件上那句"这一层
+  手里始终握着唯一会被写回盘上的原文"早就不成立了（真正写盘的是页面那份 `rawText()`，
+  `save()` 读的就是它）。顺着搬迁一起删。
+* `backupSizeText()` 那份"12.4 MB"的格式在**三处**各有一份（`MainWindow` 的匿名
+  namespace、`ServerManagementActions` 的匿名 namespace、以及搬出来之后还要第四份），
+  现在收进 `BackupFiles::sizeText()`；「安全快照」那个 `恢复前-` 记号同理
+  （`BackupFiles::nameIsSafety()`，和 `sortBackupsNewestFirst()` 用同一个常量）。
+* 那一节顶上还留着一整段**没有函数跟着的**文档注释（"盘上那一份 `server.properties` 的
+  原文…"紧挨着 `}  // namespace`）和另一段"一个服务端世界的备份在盘上认哪一串前缀"——
+  都是前几轮搬走函数时留下的孤儿，一起删。
+
+`ServerManagementActions` 里 28 处 `owner->m_serverSettingsPage / …Id / …Editable` 改走
+控制器的访问器（`settingsPage()` / `serverId()` / `editable()`）。**访问器不叫 `page()`**：
+调用方每一段开头都是 `ServerSettingsPage *page = owner->m_serverSettings->…`，而 C++ 里
+声明符的名字在初始化式之前就进了作用域 —— 写成 `page()` 会被解析成"对那个还没初始化的
+局部变量取成员"，报的是 `has no member named 'page'`，读报错信息反而不像那么回事。
+
+新 .cpp 要进两张表（根 `CMakeLists.txt` 与 `tests/mw_check/CMakeLists.txt`）；
+`tests/CMakeLists.txt` 的 `wtfml_core_runtime` **不用**加 —— 它不编 `MainWindow`。
+
+缝合线是"一套状态 + 动它的那几条"：`src/MainWindow.cpp` 10,429 → 10,065 行。
+
+验证：全量 `ctest -j1` **39/39**（398.83 s）；直跑 `mw_check.exe` **2716/2716**（与上一轮
+基线同数）；`ui_check.exe` offscreen **3121/3121**。
+
+## 2026-10-28 ⑪ `controllers/InstallPageController`
+
+安装页上有四格状态是**成套的**：这一页正对着哪个原版号、选中了哪一条加载器、每条加载器
+钉住的版本号、以及"用户自己改过名称框没有"。它们一起决定三件看得见的事 —— 那棵树长什么样
+（哪条选中、其余几条"与 X 不兼容"并变灰、选中那条第二行小字写它钉的哪一版）、名称框里默认
+写什么、点「安装」时装什么。原来散在 `MainWindow` 上，于是"进安装页要清哪几样"得读
+`openInstallPage()` 全文才知道，漏一样就是"上次顺手选的 Forge 跟着下一个版本进来了"那种
+说不清的症状。
+
+搬走的十四条：`openInstallPage()` / `backToVersionTree()` / `defaultInstanceName()` /
+`selectedLoaderIndex()` / `loaderItem()` / `pinnedLoaderVersion()` / `updateLoaderRows()` /
+`selectLoader()` / `requestAllLoaderVersions()` / `fillLoaderVersionItems()` /
+`onLoaderVersionsFetched()` / `updateInstallName()` / `updateInstallNameHint()` /
+`onInstallNameEdited()`，连同四格成员（改名成 `openPage()` / `backToVersionTree()` /
+`defaultInstanceName()` / `selectedLoader()` / `loaderItem()` / `pinnedLoaderVersion()` /
+`updateLoaderRows()` / `selectLoader()` / `requestAllLoaderVersions()` /
+`fillLoaderVersionItems()` / `onLoaderVersionsFetched()` / `updateInstallName()` /
+`updateInstallNameHint()` / `noteNameEdited()`，成员是 `m_gameVersion` / `m_selectedLoader` /
+`m_chosenVersion` / `m_nameTouched`）。
+
+留在主窗口的只有**四个薄壳**，因为 moc 或验证工程按名字叫它们：`openInstallPage`
+（`ConnectionsController` 的两条入口 + mw_check 的 `QMetaObject::invokeMethod`）、
+`backToVersionTree`（`&MainWindow::backToVersionTree` 直接当槽连）、`onInstallNameEdited`、
+`onLoaderVersionsFetched`（同样是 `invokeMethod` 驱动的）。其余十条搬走之后一个外人都没有
+（`ConnectionsController` 里那三处自己改成 `m_owner->m_installPage->…`），所以没留壳。
+
+`m_chosenVersion` 有**一个写侧**在 `ConnectionsController`（点一条版本号那一下"先钉再选"），
+所以控制器补了一个 `setPinnedLoaderVersion()` —— 它只记账、不改选中，两条的顺序和原来一样。
+
+`InstallPageController` 也是主窗口的 `friend`（它要读 `m_ui` / `m_versionManager` /
+`m_downloadInFlight`，还要在进页时叫一声 `updateInstallPresetSummary()`）。**实例预设那一行
+没有跟着搬**：`m_installPresetChoices` 与那几个 `m_installPendingPresets` /
+`m_installPendingPresetInstance` / `m_installPresetFingerprints` / `…ModsReady/Ok/Report`
+是一套账，被 `DownloadInstallContinuation` 与 `InstanceUpdateFlow` 读，动它要连着两处一起
+改，单独一趟。
+
+缝合线仍然是"一套状态 + 动它的那几条"：`src/MainWindow.cpp` 10,064 → 9,589 行，
+`src/controllers/InstallPageController.cpp` 504 行。
+
+验证：全量 `ctest -j1` **39/39**；直跑 `mw_check.exe` **2716/2716**（与上一轮基线同数）；
+`ui_check.exe` offscreen **3121/3121**。
+
+## 2026-10-28 ⑫ 「实例预设」那一行搬进 `InstallPageController`
+
+安装页那棵树上「预设」那一行是另一格**成套的**状态：四类里各选了哪一份（`m_presetChoices`）、
+点它开的那张紧凑弹窗、以及那一行第二行小字上的摘要。三样同进同退 —— 弹窗点「确定选择」
+要整张表重建、重建完摘要要立刻跟着变；取消 / 「前往预设管理」则一个字都不能写。
+
+搬走的四条：`installPresetRowItem()`（→ `presetRowItem()`）/ `updateInstallPresetSummary()`
+（→ `updatePresetSummary()`）/ `currentInstallPresetSelections()`（→
+`currentPresetSelections()`）/ `openInstallPresetPicker()`（→ `openPresetPicker()`），连同
+`m_installPresetChoices`（→ `m_presetChoices`）。主窗口只留 `openInstallPresetPicker()` 一条
+薄壳（`ConnectionsController` 里点那一行走的是它）。
+
+**只搬了这一半**：`m_installPendingPresets` / `…PresetInstance` / `…Fingerprints` /
+`…ModsReady/Ok/Report` 仍住在主窗口 —— 那是"这一次安装**已经排上**的预设"，跟着下载收尾
+走（`DownloadInstallContinuation` / `InstanceUpdateFlow` 读），和"用户在页面上挑了哪几份"
+是两件事。`onInstallButtonClicked()` 与 `pickInstallerJava()` 同理，留给下一趟。
+
+顺手的一处：弹窗的父控件原来写的是 `this`（主窗口）；搬过来之后 `this` 是个 `QObject`、
+不是 `QWidget`，所以那一格显式写成 `&m_owner`。
+
+`src/MainWindow.cpp` 9,589 → 9,314 行；`src/controllers/InstallPageController.cpp` 504 → 796 行。
+
+## 2026-10-28 ⑬ `controllers/ServerRunController`：服务端起 / 停 / 退出之后怎么办
+
+服务端那一摊里有一组**四格成套**的状态：谁的世界正在备份 / 还原（`m_serverFileBusy`）、
+这一轮连着崩了几次（`m_serverRestartAttempts`）、这一次退出是不是我们让它停的
+（`m_serverStopRequested`）、以及它几点起来的（`m_serverStartedAt`）。四格只决定两件
+看得见的事 —— 那一行上写着什么、以及"崩了之后要不要自己再拉起来"。它们和主窗口里其余
+几百个成员摆在一起时，漏一格的症状很难认：最典型的是 **自动重启次数不清零**，一台服务端
+崩到第三次之后就再也不自己起来了，而日志只说"次数用完了"。
+
+搬走的四条：`startServer()`（→ `start()`，带 `automatic` 那条自动重启的路）/ `stopServer()`
+（→ `stop()`）/ `forceKillServer()`（→ `forceKill()`）/ `onServerExited()`
+（→ `onExited()`），连同上面那四格状态。**没有留薄壳** —— 这四个名字只被 `MainWindow.cpp`
+自己和自己那几处接线调用，没有 moc / `QMetaObject::invokeMethod` / 校验代码按名字点它们，
+所以声明直接删掉、调用点改指控制器。
+
+**一条判据都没跟着搬**：命令怎么拼、宽限多久才许强杀在 `server/ServerRun.hpp`（verify ZZ），
+该不该重启、歇几秒在 `ServerRestart::decide()`（verify ZAF），进程本身在
+`ServerWorkspaceController` 的 `ServerProcess` 里（`mw_check` 的 T41 拿本工程自己的 exe
+当"服务端"跑整趟）。这一层只把"按了哪颗按钮"翻成一个动作、把退出回调翻成"要不要重启"。
+
+`src/MainWindow.cpp` 9,314 → 9,115 行；`src/controllers/ServerRunController.cpp` 237 行。
+
+## 2026-10-28 ⑭ `controllers/DownloadCompletionController`：下载收尾与"这一趟排上了哪几份预设"
+
+公共终态信号 `VersionManager::versionDownloadFinished(id, ok, msg)` 是**一条信号、六种来路**：
+普通版本下载、装一个带名字的实例、导入整合包、「补全文件」、GTNH 首启资源预取，以及"装完
+之后再把预设落上去"那一趟。分辨它们靠的是主窗口上"这一次是替谁做的"那几个标记，收尾那
+一段三百多行全在主窗口里。
+
+搬走的是**成套的那一份状态**加它唯一的消费者：`m_installPendingPresets`（点「安装」那一刻
+定死的 (预设 id, 是否已确认「覆盖」)）/ `m_installPendingPresetInstance` /
+`m_installPresetFingerprints` / `m_installPresetModsReady` / `…ModsOk` / `…ModsReport`，
+连同 `onVersionDownloadFinished()`（→ `onFinished()`）。
+
+这一套**不是**"用户在页面上挑了哪几份"（那在 `InstallPageController::m_presetChoices`）：
+写它的是三处 —— 安装按钮、`DownloadInstallContinuation` 的断点续装、`InstanceUpdateFlow`
+的升级那一趟；读它的是收尾这一发。所以它跟着**下载**走，不跟着页面走。
+
+`src/MainWindow.cpp` 9,115 → 8,781 行；`src/controllers/DownloadCompletionController.cpp` 376 行。
+两个 CMake 表都登记了新 .cpp（`tests/CMakeLists.txt` 不用 —— 它不编 `MainWindow`）。
+
+逐行核对过一遍：把 `HEAD` 的 `onVersionDownloadFinished()` 与新的 `onFinished()` 各自去掉
+注释、去掉 `m_owner.` 前缀之后做并排比对，**只剩改名**（`m_installPendingPresets` →
+`m_pendingPresets`…）与 `tr(` → `MainWindow::tr(`，没有少搬/多搬的分支。
+
+验收：`ctest` **39/39**、真屏 `mw_check` **2716/2716**、离屏 `ui_check` **3121/3121**。
+
+## 2026-10-28 ⑮ `InstallPageController::installClicked()`：点「安装」那一刻的判断
+
+安装页那一层早就有（`InstallPageController`：装哪个原版、选哪条加载器、钉了哪一版、名字
+被改过没有），但它**只记选择、不发请求** —— 真正把选择变成一次安装的还是主窗口里那
+170 行的 `onInstallButtonClicked()`。那一段读的全是这一页的状态（`gameVersion()` /
+`selectedLoader()` / `pinnedLoaderVersion()` / `currentPresetSelections()`），摆在主窗口
+里等于"谁都知道这一页长什么样，只有它自己不算"。
+
+搬走的是**整段流程**，一句判断都没改：四道前置闸（有没有别的下载在跑 / 原版号在不在 /
+名字合不合法 / 盘上已经有一份时问"校验并修复"）、摊开预设计划并让用户确认（写进
+`DownloadCompletionController`，见 ⑭）、挑安装器要的 Java，最后**先记
+`m_installingInstanceId` 再 `setDownloadUiBusy(true)`**（顺序的原因逐字留在那段的 NOTE 里）。
+
+`pickInstallerJava()` 跟着一起走，并**改成了公开**：它还有第二个调用者 ——
+`InstanceUpdateFlow` 准备核心那一趟（参数里那个加载器下标本来就是安装页那棵树的下标）。
+参数怎么翻枚举、要哪个 Java 的判据仍在 `VersionManager::loaderKindFromIndex()` 与
+`JavaSettingsController::installerJavaFor()`，这一层只负责问与弹窗。
+
+接线改了一条：`getInstallButton()->clicked` 从 `&MainWindow::onInstallButtonClicked`
+改为 `m_installPage, &InstallPageController::installClicked`。主窗口里那两个声明直接删掉
+（没有 moc / `QMetaObject::invokeMethod` / 校验代码按名字点它们）。
+
+`src/MainWindow.cpp` 8,781 → 8,610 行；`src/controllers/InstallPageController.cpp` 795 → 977 行。
+
+逐行核对过：`HEAD` 的 `onInstallButtonClicked()` / `pickInstallerJava()` 与搬过来的两份，
+去掉注释与接收者前缀之后只剩 14 处 API 改名（`selectedLoader()`、
+`currentPresetSelections()`、`m_downloadCompletion->begin()`），`pickInstallerJava()` 零差异。
+
+验收：`ctest` **39/39**、真屏 `mw_check` **2716/2716**、离屏 `ui_check` **3121/3121**。
+
+## 2026-10-28 ⑯a `DownloadTaskLedgerController`：「这一批下载的账」
+
+搬的是**一套只在一段时间里有意义的状态**：从 `setDownloadUiBusy(true)` 起到那一条终态信号
+为止。分开看每一格都像个小开关，合起来才是"这一批下载"这个对象 —— 所以它们一起走：
+
+| 原来在 `MainWindow` 上 | 现在 |
+| --- | --- |
+| `m_downloadTaskId` | `task()` / `setTask()` / `clearTask()` |
+| `m_downloadBatchOwnerTaskId`（失败清单归谁、「重试」资格） | `owner()` / `owns()` / `setOwner()` / `clearOwnerIf()` / `clearOwner()` |
+| `m_downloadParentTask` + `m_downloadParentStep` | `setParent()` / `parent()` / `parentStep()` / `dropParentIf()` |
+| `m_resourceBatchLabel` | `resourceLabel()` / `setResourceLabel()` |
+| `m_downloadCancelInFlight` | `userCancelInFlight()` / `setUserCancelInFlight()` |
+| `m_progressThrottle` | `takeProgressTick()` / `resetProgressThrottle()` |
+| `beginDownloadTask()` | `begin()` |
+| `setDownloadTaskParent()` | `setParent()` |
+| `setDownloadUiBusy(false)` 里那半截兜底 | `finish(fallbackError)` |
+
+一条判据都没跟着搬：账本还是 `ActivityCenterController`，"这一批是替谁做的"仍是主窗口上那
+四个 id，能不能取消仍是 `VersionManager`。这一层只记"这一批是谁"，并按它收尾。
+
+**为什么叫 `DownloadTaskLedgerController` 而不是 `DownloadBatchController`**：后者已经被
+**检查点 / 断点恢复**那一层占了（`src/controllers/DownloadBatchController.*`，接
+`DownloadManager` 的 receipt、暂停继续、续装意图）。两件事不重叠，别合并。
+
+接线：`ConnectionsController` / `ImportController` / `InstallPageController` /
+`InstanceUpdateFlow` / `DownloadInstallContinuation` / `ResourcePageController` /
+`DownloadCompletionController` 七处共 30 余个调用点改成问账本控制器；
+`MainWindow::downloadTaskId()` 这个访问器、`beginDownloadTask()`、`setDownloadTaskParent()`
+三个声明一起删掉。`MainWindow.cpp` 8,610 → 8,540 行。
+
+语义比对：HEAD 的 `beginDownloadTask()` 与新的 `begin()` 归一化后**只差成员改名**（父任务那
+一条 `beginChild(` 的换行也变了，参数一个没动）。
+
+验证：ctest **39/39**（39 项）、真屏 `mw_check` **2716/2716**、offscreen `ui_check` **3121/3121**。
+（迁移前 `MainWindow.cpp` 8,610 行，迁移后 8,540 行。）
+
+## 2026-10-28 ⑰ `ServerMenuController`：「服务端」那一页的右键菜单
+
+菜单上八项，七项只是转发（开控制台 / 开目录 / 设置页 / 修复 / 强制结束 / 删除都各有出处），
+真正有判断的只有两处 —— 那一处就是这一片的价值：
+
+- **用不上的那几项不摆**（而不是摆一颗灰的）：装好了就没有「修复」、没在跑就没有「强制结束」；
+- 「异常退出后自动重启」是**长期设置**：勾没勾读盘上那份 `.wtfml-server`，
+  勾一下就写回去；取消勾选还要把这一轮的崩溃计数清掉（再打开时从第 1 次算起）。
+
+接线：`ConnectionsController` 里 `customContextMenuRequested` 直接接
+`&ServerMenuController::showAt`；`MainWindow::showServerContextMenu()` /
+`runServerMenuAction()` 两个声明删掉。`MainWindow.cpp` 8,540 → 8,447 行。
+
+**顺带修掉一个真问题**（不是重构，是行为修正，单独一条用例）：
+
+原来那一格是 `readMeta()` + `writeMeta()` 自己拼的，而 `readMeta()` 在"文件在、但读不懂"时
+回的是**空** `Info` —— 照它写回去等于用一份最小合法记录**顶掉**盘上那份记录（游戏版本 /
+内存 / 端口全没），而且一句提示都没有（`writeMeta()` 那边只看写没写成）。
+现在这一格走 `ServerRegistry::setRestartOnCrash()`：先看 `readMeta()` 的 `problem`，
+读不懂就原样留着、把那句话回给调用方（界面弹「没记住」）。文件本来就不在
+（用户从外面拖进来的服务端）不算问题，照写。
+用例：`tests/core_modules/ServerRegistryTests.cpp` 的 ZX8.5（坏文件在 ⇒ 回 false、
+问题非空、**字节一个没动**；修好之后照常写、而且同一份记录里别的格还在）。
+
+验证：ctest **39/39**（39 项）、真屏 `mw_check` **2716/2716**、offscreen `ui_check` **3121/3121**。
+
+## 2026-10-28 ⑱ `ResourceInstallController`：「把这一份资源装进那个实例」
+
+原来是 `MainWindow::installResourceVersionNow()` 那二百来行。搬走的是**这一批下载的
+全部前置判断**，每一条都带着"为什么不能反过来写"：
+
+- **落点**：实例里那四类子目录，还是整合包的缓存目录（整合包不能进 `versions/`——
+  那底下每一个子目录都会被当成一个实例）；
+- **问不问「存哪儿」**：设置里没勾 **或** 这一栏不是从实例里点进来的。两条来路读的是
+  同一个值（`m_downloadFromInstanceId`），和「← 返回实例设置」那颗按钮同一个出处；
+- **谁在动盘**：默认是那个实例；用户挑了别处的目录时必须清空（不锁任何人启动）；
+- **加载器对不上**：只管模组，判据刻意做窄（认不出的加载器 / 多加载器 / 纯原版都放行）；
+- **任务号先建**：盘上都已经有的时候那一批会**同步**收尾，先建号才认领得到终态；
+  忙态先问一遍，被拒的白问不在账本上留一行红字。
+
+两个调用点（`installResourceVersion()` 与前置检查回来那一趟）改成直接问
+`m_resourceInstall->installNow(...)`，`MainWindow.hpp` 那个声明与它的长注释一起删掉。
+`MainWindow.cpp` 8,447 → 8,245 行。搬的是同一段代码：归一化后逐行比对只有
+`this` → `&owner`、`tr(` → `MainWindow::tr(`、成员前加 `owner.` 三类差异（脚本
+`build/tmp-wtfml-diff-18.py`）。
+
+**自证到什么程度**：这一段**没有** mw_check 用例直接钉住（"存哪儿"那一支要真对话框），
+所以凭的是上面那句逐行比对 + 三个验证目标没红；真正跑过的行为断言仍是资源详情页 /
+下载页那几条既有用例。
+
+验证：ctest **39/39**（39 项）、真屏 `mw_check` **2716/2716**、offscreen `ui_check` **3121/3121**。
+
+## 2026-10-28 ⑲ 前置依赖检查 → 同一个 `ResourceInstallController`
+
+⑱ 搬走的是"真正下那一段"，留下的那五条函数是它的**上半截**：点下载 → 看这一版声明的
+必装前置里还缺哪几个 → 一条不缺就直接下、有缺的先问名字再逐条问版本 → 弹一个框 →
+按用户那一按回到 `installNow()`。它们共享一份状态（`DependencyCheck`：正问着哪几个、
+还差几发回信、算的是哪个实例），而那份状态只在这一趟点击到"下好了"之间有 意义。
+
+搬法：五条函数与 `DependencyCheck` 整段进控制器，`MainWindow` 只留
+`installResourceVersion()` 一条薄壳（详情页与搜索页按名字叫它，接线一个字没动）。
+`ResourceStore::versionsFinished` / `projectsFinished` 两条连接从 `MainWindow` 改接到
+控制器实例上 —— 那本来就是"谁的回复谁接走"（三条 `versionsFinished` 各按自己的钥匙认人）。
+
+**没跟着搬的**（它们不是这一趟的私事）：`dependencyInstanceId()` /
+`downloadCameFromInstance()` 是"要装进哪个实例"的唯一出处，`dependencyTargetFor()` /
+`installedModKeys()` 更新检测那一趟也在用。
+
+`MainWindow.cpp` 8,245 → 8,053 行（另删掉两段早就没有声明的旧注释 —— 那两件事现在
+写在 `controllers/ResourcePageController.hpp` 里）。五条函数归一化后逐行比对只有行宽、
+`this` → `owner.`、`m_dependencyCheck` → `m_check` 三类差异（脚本
+`build/tmp-wtfml-diff-19.py`）。
+
+验证：ctest **39/39**（39 项）、真屏 `mw_check` **2716/2716**、offscreen `ui_check` **3121/3121**。
+
 ## 尚未收口
 
-- MainWindow 中安装、服务端、更新中心等剩余协调职责及过大的 API/状态头。
-- InstanceSettingsDialog 的概览、启动设置与编辑控件仍在主文件，下一步需连同编辑/脏状态边界一起拆。
+- MainWindow 中剩余的协调职责及过大的 API/状态头（更新中心、服务端设置、安装页、
+  服务端起停、下载收尾、安装按钮、这一批下载的账、服务端菜单都已搬出，「实例预设」那一行也搬了）；
+  剩下的大头是导航/实例元数据（那份清单见 `docs/INSTANCE_META_INVENTORY.md`）
+  与实例设置的编辑控件 / 脏状态边界。
+- 「这一批下载的账」七格已搬进 `DownloadTaskLedgerController`（⑯a），但
+  `m_repairingInstanceId` / `m_installingInstanceId` / `m_importingInstanceId` /
+  `m_assetPrefetchInstanceId` 那四个"这一批是替谁做的"仍留在主窗口上 —— 它们同时是
+  `installingVersionIds()`（「谁不能启动」的唯一出处）的判据，"账本记谁"与"谁能启动"
+  是两件事，要搬得先想清楚这一层怎么不变成第二个判据。
+- InstanceSettingsDialog 的编辑控件与**脏状态**边界仍在外壳那一份（概览/启动/文件那几页已分 TU），
+  下一步要连着"改了哪几项就写哪几项"一起看，不能只搬控件。
 - UiContentPagesChecks 等大测试仍共享长寿命夹具，先明确夹具生命周期再分领域，避免机械搬运改变事件时序。
-- VersionManager 上一轮已经分为核心、加载器安装、整合包导入、实例识别与导出，本轮没有再按行数切割它。
+- VersionManager 已分为核心、加载器安装、整合包导入、实例识别与导出，本轮没有再按行数切割它。
 
 ## 之前的记录（保留原验收口径）
 
@@ -100,3 +473,14 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
   这三份 .cpp 要同时进三张源文件表（主目标、`tests/CMakeLists.txt` 的 `wtfml_core_runtime`、
   `tests/mw_check/CMakeLists.txt`）—— 漏一张不在编译期报错，是链接期一串
   `VersionManager::…` 的 undefined reference。
+
+
+## 2026-10-29 独立复核
+
+发现 `ResourceInstallController` 继承 QObject 但构造未传 parent，MainWindow 仅保留裸指针，
+关闭主窗口不会释放该控制器。补 `QObject(owner)`，工作区回归通过真实主窗口构造/销毁检查
+恰有一份控制器且 QPointer 归零。专项 `20261029-011542-e157c114`，工作区/活动选择 2/2。
+本轮独立完整回归 `20261029-011742-adabd43e`：非视觉 38/38，测试阶段 376.20 秒；
+视觉 `20261029-012814-027533df`：3121/3121，10.05 秒。
+正式构建通过（`build/review-release-20261029.log`）；模块静态检查和 diff 检查通过。
+既有拆分历史断言数不当作本轮独立验收；本轮未重复真机/实网矩阵。

@@ -45,7 +45,6 @@ namespace BackupFiles { enum class Kind; }
 #include "controllers/ResourcePageController.hpp"
 #include "controllers/ServerListController.hpp"
 #include "manage/InstanceFilter.hpp"
-#include "manage/UpdatePolicy.hpp"
 #include "..\ui\UpdateCenterPage.hpp"
 #include "..\ui\NewServerPage.hpp"
 #include "server/ServerInstallController.hpp"
@@ -57,6 +56,14 @@ class QDragEnterEvent;  // 拖进来的文件（只用指针，所以前置声�
 class QDropEvent;
 class InstanceUpdateCheckController;
 class ResourceSearchController;
+class UpdateCenterController;
+class ServerSettingsPageController;
+class InstallPageController;
+class ServerRunController;
+class DownloadCompletionController;
+class DownloadTaskLedgerController;
+class ServerMenuController;
+class ResourceInstallController;
 class ServerSettingsController;
 class ServerManagementActions;
 class InstanceUpdateFlow;
@@ -603,13 +610,13 @@ private slots:
     ///
     /// 干活的在 VersionManager::repairVersionFiles()，这里管的是"该不该开始、开始之后
     /// 界面成什么样"：三道守卫（这个实例自己在忙 / 别的批次在跑 / 继承链不完整），
-    /// 置 m_repairingInstanceId + 界面忙态，收尾在 onVersionDownloadFinished() 里。
+    /// 置 m_repairingInstanceId + 界面忙态，收尾在 DownloadCompletionController::onFinished() 里。
     void repairInstanceFiles(const QString &versionId);
     /// 导入成功后给这个实例预取 GTNH 首启资源（MCLib AssetDirector）。
     ///
     /// 什么都不做的四种情况：认不出消费者模组（绝大多数实例）、已经全在盘上、体积超上限、
     /// 另一个批次正在跑。真开一批时就置 m_assetPrefetchInstanceId + 界面忙态，
-    /// 收尾在 onVersionDownloadFinished() 里（它也会给失败那颗「再试一次」）。
+    /// 收尾在 DownloadCompletionController::onFinished() 里（它也会给失败那颗「再试一次」）。
     ///
     /// 为什么挂在"导入成功之后"而不是启动前：启动那条路是同步的（里面还有嵌套事件循环），
     /// 往里塞一个几十 MB 的下载会把取消、关窗、重复点击那几道闸全部重排；而导入刚结束时
@@ -1126,7 +1133,6 @@ private slots:
     /// 名称框里每敲一个字：记下"用户动过这个名字了"，再重算那句小字（重名提示要"实时"）。
     void onInstallNameEdited();
     /// 点了「安装」。名字校验、重名那一问、Java 挑选、忙态，都在这里收口。
-    void onInstallButtonClicked();
     /// requestLoaderVersions() 的回复：填进**那一条**底下的子条目。
     ///
     /// 参数收的是**下标**（不是 VersionManager::LoaderKind）：这是给 moc 看的槽，
@@ -1140,8 +1146,6 @@ private slots:
     void onVersionsFetched(const QStringList &versions);
     void onVersionDetailsFetched(const QString &versionId, const QJsonObject &versionJson);
     void onVersionDownloadStats(int done, int total, int failed, const QString &currentFile);
-    void onVersionDownloadFinished(const QString &versionId, bool success,
-                                   const QString &errorMessage);
     /// 「导入整合包…」那个按钮：只是**选文件**，选完交给 importModpackFromFile()。
     /// 拆成两个函数是因为下载页「整合包」那一页也要走同一条路（那边是"下回来一个 .mrpack"，
     /// 路径是从下载结果来的，没有文件对话框那一步）—— 整条导入流程只有一份。
@@ -1190,7 +1194,7 @@ private slots:
     void importDroppedModpack(const QString &zipPath, const QString &namePrefill);
     /// 下载页那几类资源里挑中的那个版本下完了（见 downloadResourceFiles）。
     /// label 是「Sodium 0.6.13」这种"下的是什么"，界面上只写日志 + 弹窗，**不碰任何实例的
-    /// 安装状态**（那是 onVersionDownloadFinished 的事，两者语义不同，见 VersionManager 里
+    /// 安装状态**（那是 DownloadCompletionController::onFinished 的事，两者语义不同，见 VersionManager 里
     /// 那个信号的 NOTE）。
     void onResourceDownloadFinished(const QString &label, bool success,
                                     const QString &errorMessage);
@@ -1304,9 +1308,17 @@ private:
     friend class LaunchController;
     friend class ConnectionsController;
     friend class ResourcePageController;
+    friend class ResourceInstallController;
     friend class DownloadFilterController;
     friend class InstanceUpdateCheckController;
     friend class ResourceSearchController;
+    friend class UpdateCenterController;
+    friend class ServerSettingsPageController;
+    friend class InstallPageController;
+    friend class ServerRunController;
+    friend class DownloadCompletionController;
+    friend class DownloadTaskLedgerController;
+    friend class ServerMenuController;
     void setupConnections();
 
     // ---------- 「世界设置」那两格状态----------
@@ -1456,14 +1468,6 @@ private:
     /// 带进来**（这一整个头对 ui/ 那边只按指针持有，见上面那几行前置声明）。
     /// 按当下这颗 chip 从**全量**那份清单里筛出来、分组、摆进页面（空的那一对也走它）。
     void fillResourcePageGroups();
-    /// 摆 chip 与版本列表中间那一行（"这一版要装的前置"）。
-    ///
-    /// **不是**拿参数进来算，而是读 `m_resourcePage.dependencies` 那一份 —— 名字那一发回来
-    /// 的时候"最上面那一版"可能已经换了，这里要填的始终是**当前这一页当下那一份**。
-    /// 名字不全时**先摆"有几条"那句、再去问名字**（问完回来再进一次这个函数）。
-    /// 详情页要的那几个前置**叫什么**（`ModDependencies::projectsKeyFor("detail", …)`）回来了。
-    /// 和 `onDependencyProjectsFinished`（前置那一趟）**分开两个槽**：两件事的生命周期不
-    /// 一样，而各自按自己的钥匙认人（见 setupConnections 里那段 ★）。
     /// `m_projectTitles` 那把键（`Hit::iconCacheId()` 那个拼法 —— `<来源>-<项目号>`，
     /// **唯一出处是它**，别在这儿再拼一遍字符串）。
     static QString projectTitleKey(ResourceCatalog::Source source, const QString &projectId);
@@ -1473,51 +1477,16 @@ private:
                                ResourceCatalog::Source source);
     /// 详情页上点了某一个具体版本（`Row::key` = `VersionEntry::id`）= 下它。
 
-    // ---------- 前置模组：装一个模组时带上它要的那几个----------
+    // ---------- 前置模组：装一个模组时带上它要的那几个 ----------
     //
-    // 在模组下载页选中一个模组后显示其依赖，下载时弹窗，可以一键下载所有缺少的依赖。
-    // 判断那一半（缺哪些 / 去哪问 / 挑哪一版 / 挑不出来怎么说）
-    // 全在 `ModDependencies` 里（纯函数，离线可测），**这里只接线**：
+    // 那一整趟（缺哪些 → 问名字 → 问版本 → 弹框 → 并成一批下）连同它那一份状态
+    // （`DependencyCheck`）都在 `controllers/ResourceInstallController`，理由与形状见
+    // 那边头文件第一段。这里留下的只有 `installResourceVersion()` 一条薄壳 ——
+    // 详情页与搜索页按名字叫它。
     //
-    // ① 点下载 → `installResourceVersion()` 先看这一版声明的必装前置里还缺哪几个；
-    // ② 一条不缺 → 连一个请求都不多发；
-    // ③ 有缺的 → 问一次"这几个号叫什么"（名字在项目对象里，见 ResourceStore::fetchProjects），
-    // 再逐条问"它有哪些版本"（筛的是**目标实例**的游戏版本 + 加载器）；
-    // ④ 全问完 → 弹一个框，把缺的那几个列出来，两颗按钮：「一起下载」/「只下这个」；
-    // ⑤ 一起下载 → 把 `Plan::downloads` 和主模组**并成一批**下（`downloadResourceFiles`
-    // 一次收全表，所以它们是同一批、一个进度、一条"下好了"的日志）。
-    //
-    // NOTE: 那一批里**解不开的那几条**不会让整件事停下（下不下来的前置不代表这个模组不能
-    // 装），它们进 `Plan::unresolved`，弹框里原话列出来 —— 用户看到的必须是
-    // "这几个没找到"，不是"什么都没发生"。
-    struct DependencyCheck {
-        /// 正在跑这一趟（**只有一趟**：用户连点两下"下载"时第二下不该再起一趟 ——
-        /// 两趟会各问一遍、各弹一个框，而第一趟已经弹着的那个框正转着嵌套事件循环）。
-        bool active = false;
-        ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
-        QString title;
-        ResourceCatalog::VersionEntry version;
-        QString instanceId;
-        ModDependencies::Target target;
-        /// 还缺的那些（`missingRequiredDependencies()` 的结果，顺序原样）。
-        QList<ModDependencies::Lookup> missing;
-        /// 名字那一发的钥匙（回来的不是这一把就丢 —— 用户完全可能中途又点了别的）。
-        QString titleRequestKey;
-        // NOTE: 这一趟**自己没有一份"项目号 → 名字"**：名字从
-        // `m_projectTitles` 那个会话级缓存里查（详情页那一行和这一趟共用它）。
-        // 在这儿再存一份的症状是"同一个号在详情页上已经叫 Sodium 了、弹框里还是
-        // 一串数字"—— 两份名字各写各的，谁也不报错。
-        // / 钥匙 → 那一发的版本列表。**缺席 ≠ 空表**：前者是"没问到"（网络），后者是
-        // / "它就是没有版本"（`ModDependencies::buildPlan` 那两句话分得清清楚楚）。
-        QHash<QString, QList<ResourceCatalog::VersionEntry>> answers;
-        /// 还差几发没回来（0 到齐了 → 收尾）。
-        int pending = 0;
-        /// 这个实例的 mods **认过没有**（见 `installedModKeys()` 的 `known` 出参）。
-        /// 只决定弹框那句话："这几个还没装" ↔ "无法确认你装了没有"——
-        /// **空表和"确实一个都没装"是两件事**，混成一句等于替用户认下一件我们不知道的事。
-        bool installedKnown = false;
-    };
-    DependencyCheck m_dependencyCheck;
+    // NOTE: 下面这几条**留在这里**，因为它们不是这一趟的私事：
+    // `dependencyInstanceId()` / `downloadCameFromInstance()` 是"要装进哪个实例"的
+    // 唯一出处（详情页和下拉框都要读），`dependencyTargetFor()` 更新检测那一趟也在用。
 
     /// "这一版要装进哪个实例" —— **这一句话的唯一出处**。
     ///
@@ -1531,7 +1500,7 @@ private:
     /// 两条都没有 = 不知道，返回空（调用方按空处理）。
     QString dependencyInstanceId() const;
 
-    /// "这一趟下载是从**某个实例**里点进来的吗" —— 只决定 `installResourceVersionNow()`
+    /// "这一趟下载是从**某个实例**里点进来的吗" —— 只决定 `ResourceInstallController::installNow()`
     /// 要不要弹那个"存哪儿"的框（见 LauncherSettings 里 `downloadAutoIntoInstance` 那一节，
     /// 那里是这一支判据**唯一**的语义出处）。
     ///
@@ -1550,38 +1519,6 @@ private:
     /// 搬过去的）。所以多出来一个 @p known 出参：**空表**和"确实一个都没装"是两件事，
     /// 界面上那两句话不一样（见 `known` 的用法）。
     QSet<QString> installedModKeys(const QString &instanceId, bool *known) const;
-    /// 起一趟前置检查（见上面那段）。占着 `m_dependencyCheck`。
-    void startDependencyCheck(ResourceCatalog::Kind kind, const QString &displayTitle,
-                              const ResourceCatalog::VersionEntry &version,
-                              const ModDependencies::Target &target,
-                              const QList<ModDependencies::Lookup> &missing,
-                              bool installedKnown);
-    /// 名字那一发回来了 → 逐条去问版本列表。
-    void onDependencyProjectsFinished(const QString &requestKey,
-                                      const QList<ResourceCatalog::Hit> &hits,
-                                      const QString &problem);
-    /// 某一条前置的版本列表回来了 → 记下答案，到齐了就弹框。
-    void onDependencyVersionsFinished(const QString &requestKey,
-                                      const QList<ResourceCatalog::VersionEntry> &versions,
-                                      const QString &problem);
-    /// 全问完了：算 Plan、弹框、按用户那一按继续装（或者只装主模组）。
-    void finishDependencyCheck();
-    /// 真正下那一段（`installResourceVersion()` 的后半截）。
-    ///
-    /// @param extras 一起下的前置（`Plan::downloads`；空表 = 只下主模组）。
-    /// @param forcedInstanceId **这一趟就是给这个实例下的**（空 = 现算，见
-    /// `dependencyInstanceId()`）。只有一条来路会点名它：前置检查回来那一趟 ——
-    /// `finishDependencyCheck()` 是在一轮网络往返**之后**才走到这里的，那时候那一页
-    /// 可能已经被用户收掉了，现算会算成别的实例。
-    /// 非空还带一个副作用：**不再弹"存哪儿"那个框**（这一趟的落点是点名定死的）。
-    ///
-    /// NOTE: 实例文件页那颗「更新」（悬浮条上那一颗）**不走这儿** —— 它是一批一起下，见
-    /// `updateInstanceFiles()` 里那段（`downloadResourceFiles()` 一次只收一批）。
-    void installResourceVersionNow(ResourceCatalog::Kind kind, const QString &displayTitle,
-                                   ResourceCatalog::VersionEntry version,
-                                   const QList<ModDependencies::Resolved> &extras,
-                                   const QString &forcedInstanceId = QString());
-
     // ---------- 实例更新检测----------
     //
     // 实例设置那一页带更新检测。判据只有一条：盘上那个文件的 sha1 落在
@@ -1651,24 +1588,18 @@ private:
     /// 把上面那一页要的那份 `Report` 造出来 —— **唯一翻译点**（和 `integrityReportForPage()`
     /// / `taskCenterItem()` 是同一个路数）。忽略 / 固定那两档在这一处算好，页面自己不再判。
     UpdateCenterPage::Report updateCenterReportForPage(const QString &instanceId) const;
-    /// 按**现在**这本账（`m_updatePolicy`）把"这个实例哪几条要更新"重算一遍，写回
-    /// `m_instanceOutdatedPaths`，并把开着的更新中心那一页重摆一次。忽略 / 固定一动就要走它
-    /// —— 名单和界面必须**同一次**动，不然用户会看到"已经忽略了、但计数里还算着它"。
+    /// 按**现在**这本账把"这个实例哪几条要更新"重算一遍，写回 `m_instanceOutdatedPaths`，
+    /// 并把开着的更新中心那一页重摆一次。忽略 / 固定一动就要走它 —— 名单和界面必须**同一次**
+    /// 动，不然用户会看到"已经忽略了、但计数里还算着它"。
     ///
-    /// NOTE: **不碰 `m_instanceUpdateTargets`** —— 那一份留的是**全部**"可更新"的条目
-    /// （不管忽略没忽略），理由见那个成员那段（「不再忽略」要靠它把版本 id 找回来）。
+    /// NOTE: 上面这四条都是**壳**，实现在 `controllers/UpdateCenterController`（那一页的全部
+    /// 状态也在那儿：这本账、页面对象、开页时记下的实例 id）。留着名字是因为检测收尾那条路
+    /// 还要按主窗口叫它们（`InstanceUpdateCheckController::finishUpdateCheck()`）。
     void rebuildInstanceOutdatedPaths(const QString &instanceId);
     /// 那一本账写回盘（`<数据目录>/wtfml.updates`）。写不成**只写日志**：用户按的是一颗
     /// "以后别提示我"，弹一个"存不进去"的框除了让他分心以外没有下一步可做（那一份记录在
     /// 这一次会话里仍然是生效的）。
     bool saveUpdatePolicy();
-    /// 更新中心那一页的三个动作。**实例 id 从 `m_updateCenterInstanceId` 取**（和
-    /// `m_integrityReportVersionId` 一个路数：页面活着的期间它一直指着那一份结论）。
-    void onUpdateCenterUpdateRequested(const QStringList &paths);
-    void onUpdateCenterIgnoreToggled(const QString &path, bool ignored);
-    void onUpdateCenterPinToggled(const QString &path, bool pinned);
-    /// 「撤销上一次更新」：把那个实例的回滚点还原回去（见 `UpdateRollback::restore()`）。
-    void onUpdateCenterUndoRequested();
     /// 某一批「更新」下完之后那一行结果（逐条）。**每个资源一条**——
     /// 下载那一侧的那个信号收在这里，翻成任务账本里那一步。
     void onUpdateBatchFileFinished(const QString &label, const QString &fileName, bool success,
@@ -1957,7 +1888,7 @@ private:
     /// 「下载新模组时直接放进当前实例」那一格（设置页「下载」栏）。
     ///
     /// 改了这一项**不影响已经发出的那一批下载** —— 落点在点下那一瞬间就定死了（见
-    /// installResourceVersionNow）。这是刻意的：半批落在一个地方、半批落在另一个地方，
+    /// `ResourceInstallController::installNow()`）。这是刻意的：半批落在一个地方、半批落在另一个地方，
     /// 比"这次改的下一批才生效"难查得多。
     void onDownloadAutoIntoInstanceChanged();
     /// 「缺失前置提醒」那一格改了（见 LauncherSettings 里那一节）。
@@ -2149,18 +2080,6 @@ private:
                             const QList<Tasks::TaskStep> &steps = QList<Tasks::TaskStep>());
     /// 收尾：成功 / 失败（失败时把号记进"没看过"）。**找不到那个号就什么都不做**。
     void finishTask(Tasks::TaskId id, bool success, const QString &errorSummary = QString());
-    /// 这一批下载对上的任务号（没有这一批 = 无效号）。
-    Tasks::TaskId downloadTaskId() const { return m_downloadTaskId; }
-    /// 「正在忙的这一批下载」起手：按当前那三个 id 判断这是哪一类活儿（补全 / 装实例 /
-    /// 导入整合包 / 普通下载），记一件任务并把号存进 m_downloadTaskId。
-    ///
-    /// NOTE: 判据就是 `m_repairingInstanceId` / `m_installingInstanceId` /
-    /// `m_importingInstanceId` 那三个"界面上自己记的" —— 收尾那几条路（
-    /// onVersionDownloadFinished）用的也是它们，所以两头的分档**天然一致**。
-    void beginDownloadTask();
-    /// 让接下来那一批下载挂到 @p parent 的第 @p step 步底下（`beginDownloadTask()` 读它）。
-    /// 父任务收尾由调用方负责 —— 这一批只是那件意图里的一步。
-    void setDownloadTaskParent(Tasks::TaskId parent, int step);
     /// 「实例更新」父任务在准备阶段可以被取消：这一对登记 / 摘除那条取消入口。
     void setUpdateFlowCancel(Tasks::TaskId task, std::function<bool()> cancel,
                              std::function<bool()> available = {});
@@ -2420,15 +2339,6 @@ private:
     // / **这一行的那颗按钮被点了**：未装好 = 修复 / 能启动 = 启动 / 在跑 = 停止。
     // / 三档合成一个入口，是因为屏幕上就是**一颗**按钮（行尾一颗按钮 + 右键菜单）。
     void activateServerRow(const QString &serverId);
-    /// 起它。装好没有 / 已经在跑 / EULA / Java —— 四道闸全在这一条路上。
-    /// @param automatic 这一发是不是「崩了之后自动重启」拉起来的。用户自己按的会把这个
-    /// 服务端的重启计数清零（他亲手起的 = 新的一轮）；自动那一路不清（否则计数永远
-    /// 停在 0，崩无限次也停不下来）。
-    void startServer(const QString &serverId, bool automatic = false);
-    /// 让它正常停下来（`stop`）。已经在停 / 没在跑 = 什么都不做。
-    void stopServer(const QString &serverId);
-    /// 强制结束（不等存盘）。**没在跑 = 什么都不做**。
-    void forceKillServer(const QString &serverId);
     /// 开控制台那一页（覆盖层整页）。★ 转手给 `ServerConsoleController::open()` ——
     /// 页对象、`ownerTab`、「这一页现在说的是谁」全在那边。
     void openServerConsole(const QString &serverId);
@@ -2441,10 +2351,6 @@ private:
     void repairServer(const QString &serverId);
     /// 删掉一个服务端（**会连着 world/ 一起没** —— 所以那一问要说清楚）。
     void removeServer(const QString &serverId);
-    /// 列表上右键那一发（`customContextMenuRequested` 的接收端）。
-    void showServerContextMenu(const QPoint &pos);
-    /// 按 @p action（`MainWindowUI::ServerMenuAction` 的下标）做一件事。
-    void runServerMenuAction(const QString &serverId, int action);
 
     // ---------- 服务端设置那一页 ----------
     //
@@ -2454,33 +2360,20 @@ private:
     // `ServerPortCheck`（体检）里 —— 这一层只做两件事：把盘上的事实翻成界面上那几行，
     // 把用户按的那一下落回盘上。
     //
-    // **两种编辑方式不打起来的那条规矩**：这一层手里始终握着**一份原文**
-    // （`m_serverSettingsRaw`），它是唯一会被写回盘上的东西；表单里改过的那几项是叠在
-    // 它上面的补丁（`ServerSettingsPage::changedOnly()`）。
-    // 保存 = `parseProperties(原文)` → `applyEdits(补丁)` → `writeProperties()`
-    // （见 `saveServerSettings()`）—— 于是注释、他手写的别的键、键的顺序、行尾，
-    // 一个字节都不动。
+    // **这一页的状态和决定它的那几条现在都在 `ServerSettingsPageController` 里**
+    // （页对象、"这一页现在说的是谁"、能不能改、端口那一次的结论）。那边写着两条规矩：
+    // 表单补丁叠在页面上那份原文上、服务端在跑时整页只读。
     //
-    // **服务端在跑的时候这一页是只读的**（`setEditable(false, …)`）：它停下来的那一刻
-    // 会把自己内存里那份 `server.properties` 写回盘上，现在改的会被盖掉。
-    // 这一条**在 `private slots:` 里**（同上面那一小段的规矩）：它本来就只被右键菜单
-    // 那一发驱动，而且 mw_check 的 T42 要靠元对象系统把这一页整页驱动起来（`openInstance
-    // Settings()` 也是这么被 T27 调用的）。别的十几条留在下面 `private:` 里 —— 那些是
-    // 页面上的信号驱动的，判据从**真控件**那一头点进去量。
+    // 留在主窗口的只有两条薄壳。`openServerSettingsPage()` 这一条**在 `private slots:` 里**
+    // （同上面那一小段的规矩）：它本来就只被右键菜单那一发驱动，而且 mw_check 的 T42 要靠
+    // 元对象系统把这一页整页驱动起来（`openInstanceSettings()` 也是这么被 T27 调用的）。
 private slots:
     void openServerSettingsPage(const QString &serverId);
 
 private:
     /// 把这一页四页都按**盘上现在的样子**重摆一遍（开页 / 放弃改动 / 保存之后 / 备份收尾）。
+    /// 薄壳：真正那一段在 `ServerSettingsPageController::refresh()`。
     void refreshServerSettingsPage();
-    /// 保存那一页上的改动：原文 + 表单补丁 → `server.properties`。
-    void saveServerSettings();
-    /// 放弃改动：把这一页按盘上那一份重新摆一遍（表单基线、原文、保存带全回到开页那一刻）。
-    void revertServerSettings();
-    /// 切页那一下：把"表单补丁"和"原始文本"两边的编辑合起来（见 `sectionChanged` 那段）。
-    void mergeServerSettingsEdits(int fromSection, int toSection);
-    /// 现在改过几项 / 动没动原文 —— 保存带那句话与「保存」的灰亮的**唯一出处**。
-    void updateServerSettingsSaveState();
 
     // ---------- 玩家名单（「玩家管理」）----------
     //
@@ -2514,13 +2407,13 @@ private:
     // ---------- 服务端资源包 ----------
     void pickServerResourcePack();
 
-    /// 跑一遍体检（开页 / 保存之后 / 用户点了「重新检查」），把结论摆到那一页上。
-    /// 顺带把端口那一次真监听的结论记进 `m_serverSettingsPortState`。
-    void runServerCheck();
     /// 体检单上某一条的出路（`ServerCheck::actionToken()` 那个记号）。
+    ///
+    /// NOTE: 「跑一遍体检」本身（`runServerCheck()`）和它的原料（`serverCheckFacts()`）
+    /// 跟着那一页搬进了 `ServerSettingsPageController` —— 只有这一条还留在主窗口，因为
+    /// 它要动的是**服务端本身**（写 `eula` / 开端口 / 装 Java…），那是 `ServerManagementActions`
+    /// 那一层的事。
     void runServerCheckAction(const QString &token);
-    /// 体检的原料：**全是现查出来的事实**（判据那一层一个都不自己查）。
-    ServerCheck::Facts serverCheckFacts();
     /// 盘上这一份 `server.properties` 里的世界目录名（`level-name`；值不合法回空串）。
     QString serverWorldName(const QString &serverId) const;
     /// 世界目录的绝对路径（`<服务端目录>/<level-name>`；`level-name` 不合法时回空串）。
@@ -2555,7 +2448,6 @@ private:
     void updateServerRow(const QString &serverId);
     void onServerStatusChanged(const QString &serverId, ServerModel::Status status);
     void onServerLineAppended(const QString &serverId, const QString &line);
-    void onServerExited(const QString &serverId, int exitCode);
     void onServerForceKillAvailable(const QString &serverId);
 
     /// `<目录>/mods` 里 `.jar` 的个数（`.jar.disabled` **不算**）—— 宽限时间那两个入参
@@ -2608,76 +2500,25 @@ private:
     void refreshAvailableVersions();
 
     // ---------- 安装页（版本树的下一层）----------
-    // / 这份要装的实例默认叫什么：目录名的形状照现有实例的写法
-    // / （`1.18.2-Forge_40.3.12`），没选加载器时就是原版号本身。
-    QString defaultInstanceName() const;
-    /// 现在选中的是哪一条（modLoaderOptionNames() 的下标；不会出现 -1 ——
-    /// 那个「不装（纯原版）」就是"没选加载器"这个状态本身）。
-    int selectedLoaderIndex() const;
-    /// 那棵树里某一条加载器的条目（顶层第 @p loaderIndex 条）；找不到回 nullptr。
-    QTreeWidgetItem *loaderItem(int loaderIndex) const;
-    /// 那棵树里「预设」那一行（`UserRole == installPresetRowRole()`）；找不到回 nullptr。
-    QTreeWidgetItem *installPresetRowItem() const;
-    /// 把「预设」那一行第二行小字刷成当前的摘要（「未选择」/「已选择 N 类」）。
-    /// **唯一出处** —— 进安装页、弹窗点确定、装完一单之后都走它。
-    void updateInstallPresetSummary();
+    // 「要装哪个原版 / 选中哪条加载器 / 它钉了哪一版 / 名字改过没有」这一成套状态住在
+    // 这一层 —— 那四样必须同进同退（见 `controllers/InstallPageController.hpp` 开头那段）。
+    InstallPageController *m_installPage = nullptr;
     /**
      * @brief 点「预设」那一行时开的那张紧凑弹窗。
      *
      * **不跳页**：弹窗压在安装页上（`execPrompt`），顶上写清楚"这一份基于哪个版本 /
      * 加载器"；里面四类各挑一份，选一份就现算那份计划（只读）。
      *
-     * 取消 / 点「前往预设管理」都**不写** `m_installPresetChoices` —— 用户回来时还是
-     * 原来那一份选择（取消不丢安装配置）。
+     * 取消 / 点「前往预设管理」都**不写**那一份选择 —— 用户回来时还是原来那一份
+     * （取消不丢安装配置）。那一行现在是 `InstallPageController` 的（这是它的薄壳）。
      */
     void openInstallPresetPicker();
-    /// 现在四类里选中了哪几份（只含非空 id，按四类的次序）。安装那一刻读它。
-    QList<QPair<QString, QString>> currentInstallPresetSelections() const;
-    /// 某一条加载器"钉住"的那一格（它在树上点的那一条）。三种可能，别当成"一定是版本号"：
-    /// 一个**具体版本号**、那两档的键（`@latest` / `@stable`，见 LoaderMeta::loaderChannelKey）、
-    /// 或者**空串**（没挑过 —— 数据层按稳定档算，和"让安装器按默认规矩挑"一个意思）。
-    QString pinnedLoaderVersion(int loaderIndex) const;
-    /// 刷新那棵树的样子：哪一条选中了、其余几条写着"与 X 不兼容"、选中的那条第二行
-    /// 写着它选的版本号、以及**没选中的那几条加载器变灰**（选择以后其他选项变成不可用、
-    /// 不能点开）。忙态变化之后必须重新调一次（装到一半时
-    /// 整棵树是灰的）。
-    ///
-    /// NOTE: "选中了哪一条"**不在树上**（QTreeWidget 的选中项是"光标停在哪"，
-    /// 和"我要装哪一个"是两件事）—— 它住在 m_selectedLoaderIndex 里，这里是唯一
-    /// 把它画出来的地方。
-    void updateLoaderRows();
-    /// 选中某一条加载器：改选中项、刷那棵树。走这里的是**点一条版本号**（选中它爹那条
-    /// 加载器）和**点「不装（纯原版）」**那一条 —— 点一条加载器**不**选中它，那一下只
-    /// 展开/收起（点一下展开，再点一下关闭）。
-    /// 它在树上**不**负责展开（展开折叠是点击那一下自己的事），也**不**发任何请求 ——
-    /// 版本列表是进安装页时一次性全问好的（见 requestAllLoaderVersions()）。
-    void selectLoader(int loaderIndex);
-    /// 四个加载器能装哪些版本，**进安装页时一次性全问出去**（不能点开了再获取，得全
-    /// 获取完）：先给每条摆一个「正在获取…」占位，再各发一发请求。
-    /// 四条各占一格，所以四发真能同时在飞（见 VersionManager::m_loaderVersionRequests）。
-    void requestAllLoaderVersions();
-    /// 把一份版本列表灌成某个加载器的子条目。
-    /// @param includeChannels 要不要头两条那两档（「下载最新版（alpha/beta）」/
-    /// 「下载稳定版（release）」）。**"这一版一个能装的都没有"的时候要传 false**
-    /// （对应版本不支持时，不要保留自动那两档）—— 理由见
-    /// onLoaderVersionsFetched() 里那段（留着它等于让用户挑一条必然装不出来的路），
-    /// 那种情况下 versions 也一定是空的。列表**没取到**时传 true：那两档不依赖这份
-    /// 列表，所以列表没到手也得让它们能点。
-    /// @param versions 每一条都带着 `stable` —— 稳定那一行灰不灰、哪几条标「测试版」都看它。
-    void fillLoaderVersionItems(int loaderIndex, const LoaderMeta::LoaderVersionList &versions,
-                                bool includeChannels);
-    /// 名称框里的默认名（用户没自己改过时才动它），再刷下面那句小字。
-    void updateInstallName();
-    /// 名称框下面那句小字 + 「安装」按钮的可用性：名字合不合法、盘上有没有重名的
-    /// （重名**只提示、不拦** —— 同名就是同一个实例，再装一次是校验并补齐它）。
-    void updateInstallNameHint();
     /// 这次安装要哪个 Java 去跑外部安装器（Fabric 用不上，直接回 true）。
     /// @param out 成功时写入；失败时**不碰**（调用方那份值保持不变）。
     /// @return 挑得出来返回 true；挑不出来返回 false（里面已经弹窗说清原因了）。
     ///
     /// 拆出来是因为"装一个带名字的实例"和别的安装路都要它 —— 那段判据（读版本 json 的
     /// javaVersion、按它挑运行时）抄两遍的话，早晚有一处忘了跟着改。
-    bool pickInstallerJava(const QString &gameVersion, int loaderIndex, QString *out);
     // 启动时把"上次启动过的版本"选回来。**只在构造函数里调一次**——
     // 名单每次刷新（清单到达、下载完成）都调它就会变成"用户手选完又被抢回去"。
     // 记着的那个版本已经不在磁盘上时留空不选，占位文案会说明该怎么选。
@@ -2796,6 +2637,11 @@ private:
     /// 这一格仍然是旧的（盘上那几个文件其实已经换过了）—— 直到他再点一次
     /// 「检查更新」。这是**刻意**的：现算一份"现在还是不是最新的"要再跑一整趟
     /// 反查 + 版本列表，而那正是他刚点过的那颗按钮。
+    /// 为什么这一份不跟着筛：用户点了「不再忽略」时要能**当场**把"换成哪一版"找回来
+    /// （他不可能为了这个再跑一趟检测）。筛掉的那一条如果连版本 id 都丢了，"不再忽略"
+    /// 就只能记成一个空 —— 那一颗按钮就永远按不动了。
+    /// NOTE: 两份名单指向的仍然是同一件事（"可更新的那几条"），差别只在于**要不要提示**，
+    /// 所以按筛过的那一份去这一份里取，取得到的一定是对的。
     QHash<QString, QHash<QString, ResourceCatalog::VersionEntry>> m_instanceUpdateTargets;
     /// 正在**后台搬文件**的那几个实例（模组预设 / 复制实例 / 迁移 / 升级副本 / 还原）。
     /// 它们全都会进 `installingVersionIds()`，也就是"这期间谁都不许启动、不许删、
@@ -2816,19 +2662,6 @@ private:
         QString lookupNote;
     };
     QHash<QString, UpdateCheckResult> m_instanceUpdateResults;
-    /// 为什么这一份不跟着筛：用户点了「不再忽略」时要能**当场**把"换成哪一版"找回来
-    /// （他不可能为了这个再跑一趟检测）。筛掉的那一条如果连版本 id 都丢了，"不再忽略"
-    /// 就只能记成一个空 —— 那一颗按钮就永远按不动了。
-    /// NOTE: 两份名单指向的仍然是同一件事（"可更新的那几条"），差别只在于**要不要提示**，
-    /// 所以按筛过的那一份去这一份里取，取得到的一定是对的。
-    /// 「忽略某一版」「固定某一版」那一本账（`<数据目录>/wtfml.updates`）。
-    ///
-    /// NOTE: **启动时读一次、改了就写**（见 saveUpdatePolicy）。和上面那几份会话缓存
-    /// 不一样 —— 那几份只活到运行结束，而这两档说的是"以后"（尤其"固定"：
-    /// 下次开启动器它还得算话），所以它必须落盘。
-    UpdatePolicy::Store m_updatePolicy;
-    /// 更新中心那一页（懒建一次、之后复用）。
-    UpdateCenterPage *m_updateCenterPage = nullptr;
     /// 实例页正文现在停在哪种模式（客户端实例 / 服务端）。
     ///
     /// NOTE: 记的用户**最近一次**选的档（切开页面、切回来还是他选的那一档），不是"盘上有没有
@@ -2851,19 +2684,13 @@ private:
     int m_serverInstallStepCount = 0;
     /// 服务端进程的所有权、复用与信号汇聚属于服务端域，主窗口只呈现状态。
     ServerWorkspaceController *m_serverWorkspace = nullptr;
-    /// 每个服务端**这一轮**里已经自动重启过几次（`ServerRestart::decide()` 的入参之一）。
-    /// 跑够久（`ServerRestart::kResetAfterSeconds()`）再崩、或者用户自己停 / 自己启动时清零。
-    QHash<QString, int> m_serverRestartAttempts;
-    /// 这一次启动是什么时候（判"跑够久了没有"，决定上面那个计数是不是新的一轮）。
-    QHash<QString, QDateTime> m_serverStartedAt;
-    /// 哪些服务端的**这一次退出是我们让的**（「停止」/「强制结束」）。退出回调里据此
-    /// 把这一趟判成 `UserStop` —— 被强杀的进程退出码往往非 0，但它不是"崩了"。
-    QSet<QString> m_serverStopRequested;
-    /// 哪些服务端的**世界正在被备份 / 还原**（唯一出处是 `BackupController` 的
-    /// `setServerFileOperationBusy` 回调；服务端那一趟收尾时摘）。这一趟要把世界目录
-    /// 整个读 / 换 ⇒ 期间它不能启动、不能删（`startServer()` / `removeServer()` 各一道闸）。
-    /// 实例那一侧的同类标记在 `installingVersionIds()`，服务端不是实例，不能混用。
-    QSet<QString> m_serverFileBusy;
+    /// 起 / 停 / 强杀 / 退出之后怎么办（四格状态：备份忙态、崩溃计数、是不是我们让它停的、
+    /// 几点起来的）。★ 它**不拥有**进程 —— 进程在 `m_serverWorkspace` 里。
+    ServerRunController *m_serverRun = nullptr;
+    /// 服务端列表的右键菜单（摆哪几项 + 点下去做什么）。
+    ServerMenuController *m_serverMenu = nullptr;
+    /// 下载收尾那六种来路 + 「这一趟排上了哪几份预设」那一套（见 `DownloadCompletionController`）。
+    DownloadCompletionController *m_downloadCompletion = nullptr;
     ServerSettingsController *m_serverSettingsController = nullptr;
     ThemeSettingsController *m_themeSettingsController = nullptr;
     JavaSettingsController *m_javaSettingsController = nullptr;
@@ -2895,27 +2722,15 @@ private:
     /// （`src/controllers/ServerConsoleController`），这一层
     /// 只留 `openServerConsole()` / `updateServerConsole()` 两条转手的口子。
     ServerConsoleController *m_serverConsole = nullptr;
-    /// 「服务端设置」那一页（懒建一次、之后复用，和控制台那张同一路数）。
-    ServerSettingsPage *m_serverSettingsPage = nullptr;
-    /// 那一页**现在说的是哪一个**服务端（同 `ServerConsoleController` 里那一格的理由：
-    /// 认它，不许去问"列表上现在选中谁"）。
-    QString m_serverSettingsId;
-    /// 这一页**手里那份 `server.properties` 的原文** —— 唯一会被写回盘上的东西。
-    /// 表单里改过的那几项是叠在它上面的补丁（见 .hpp 里那段 ★）。
-    QString m_serverSettingsRaw;
-    /// 开页那一刻盘上那一份（「放弃改动」还原到它；保存成功之后它也换成新那一份）。
-    QString m_serverSettingsOriginal;
-    /// 这一页现在能不能改（服务端在跑 = 不能，见 `setEditable()` 那一段）。
-    bool m_serverSettingsEditable = true;
-    /// 体检里"那个端口现在有人占着吗"的结论（`ServerPortCheck::stateOf()` 那一发）。
-    /// **开页 / 重新检查 / 保存之后**各查一次 —— 它不是个"随时都准"的事实（用户可能刚把
-    /// 占着它的那个程序关掉）。
-    ServerPortCheck::State m_serverSettingsPortState = ServerPortCheck::State::Unknown;
-    /// 那一页现在说的是哪个实例的结论（**开那一页时记下来**）。
+    /// 「服务端设置」那一页。**页对象、"这一页现在说的是哪个服务端"、能不能改、体检里
+    /// 那个端口的结论，全在控制器里**（`src/controllers/ServerSettingsPageController`），
+    /// 这一层只留 `openServerSettingsPage()` / `refreshServerSettingsPage()` 两条薄壳。
     ///
-    /// 和 `m_integrityReportVersionId` 一个路数：页面是复用的、点动作时它可能已经关了，
-    /// 所以"这一按是对哪个实例按的"只能从这儿来 —— 不许去问"现在选中的是哪个实例"。
-    QString m_updateCenterInstanceId;
+    /// NOTE: 原来这里还有 `m_serverSettingsRaw` / `m_serverSettingsOriginal` 两格，注释
+    /// 说它们是"唯一会被写回盘上的东西"。**那句话早就不是真的了**：真正写盘的是页面那份
+    /// `rawText()`（`save()` 读的就是它），这两格从搬出控制器之前起就一直只写不读。
+    /// 顺着这次搬迁一起删掉。
+    ServerSettingsPageController *m_serverSettings = nullptr;
     /// 正在跑的那一批「更新」。`label` 空 = 没有。
     ///
     /// 为什么要有它：`downloadResourceFiles()` 一次只收**一批**，而这一批里每个文件的
@@ -3015,11 +2830,15 @@ private:
     /// （`controllers/ResourcePageController.*`）。控制器构造时创建，页面仍然懒建。
     /// 状态本身用 `m_resourcePage->state()` 读，页面对象用 `m_resourcePage->page()`。
     ResourcePageController *m_resourcePage = nullptr;
+    /// 「把这一份资源装进那个实例」那一段（落点 / 忙闸 / 任务号 / 整合包待导入表）。
+    ResourceInstallController *m_resourceInstall = nullptr;
     /// 下载页每一页顶上那一行筛子的灌与读（`controllers/DownloadFilterController.*`）。
     /// 和上面那个一样**构造里就建**：主窗口一启动就要灌筛子（`fillDownloadFilters()`）。
     DownloadFilterController *m_downloadFilter = nullptr;
     /// 搜索请求、结果树与该次查询词由控制器管理；跨页面会话缓存仍在本窗口。
     ResourceSearchController *m_resourceSearch = nullptr;
+    /// 「更新中心」那一页的全部状态 + 四个动作（见 `controllers/UpdateCenterController.hpp`）。
+    UpdateCenterController *m_updateCenter = nullptr;
     /// 单次更新检测的请求集合、弱页面引用和反查线程。析构 UI 前先等它收尾。
     InstanceUpdateCheckController *m_instanceUpdateCheck = nullptr;
     /// 「这个项目号叫什么」的**会话级**缓存（键 = `Hit::iconCacheId()`，也就是
@@ -3034,7 +2853,7 @@ private:
     ///
     /// 三件事读它：① 左栏顶上那颗「返回实例设置」回哪儿；② 从这一栏点下载时要不要弹
     /// explorer 选保存位置（按「下载新模组就自动放进当前实例文件夹」那条设置，
-    /// 见 installResourceVersionNow）；③ 从这一栏点开一个资源的详情页时
+    /// 见 `ResourceInstallController::installNow()`）；③ 从这一栏点开一个资源的详情页时
     /// 拿它当"当前实例"（chip 预选 + 加载器排前面）。
     QString m_downloadFromInstanceId;
     /// 上面那个实例的设置页**进来时停在哪一页**（= `openDownloadCategory()` 收到的
@@ -3099,42 +2918,6 @@ private:
     // 它也是一批下载、也走公共的 versionDownloadFinished(id, ok, msg)。收尾话术不一样：
     // 这里不能说"版本文件已全部就绪"，也不能说"校验完成"。
     QString m_assetPrefetchInstanceId;
-    // ---------- 安装页（版本树的下一层）----------
-    // 安装页现在正对着哪个原版号（空 = 没进过安装页）。四个加载器各自能挑哪些版本、
-    // 默认名怎么拼，都以它为准。
-    QString m_installGameVersion;
-    // 安装页那棵树上**选中**了哪一条（modLoaderOptionNames() 的下标）。「不装（纯原版）」
-    // 就是"不装加载器"这个状态，所以它只有一个合法值、没有 -1 —— 每次进安装页都退回它。
-    //
-    // 为什么不去问那棵树"你选中了哪一条"：QTreeWidget 的 currentItem 是"光标停在哪"，
-    // 用户点一下别处它就变了（而"装什么"不该跟着变）；展开/收起更是和"选中"完全无关。
-    // 这条状态是产品状态，住在产品这一层。
-    // NOTE: 初值在构造函数里给（`MainWindowUI::modLoaderNoneIndex()`）—— 这个头只前置
-    // 声明了 MainWindowUI（见文件顶上那个 class 声明），在这儿调它的静态函数编不过。
-    int m_selectedLoaderIndex;
-    // 每一条加载器**钉住**的版本号（下标 → 版本号；空串 = 不钉，让安装器按默认规矩挑）。
-    // 没进过 map 的下标等于没钉。进安装页时整个清掉（换了一个游戏版本，上一份能装的
-    // 版本就完全不是这一份了）。
-    QHash<int, QString> m_chosenLoaderVersion;
-    // 用户**自己改过**名称框没有。改过之后默认名就不再跟着加载器变了（不然他敲到一半
-    // 的名字会被一次"选了 Forge"顶掉）；每次进安装页重置。
-    bool m_installNameTouched = false;
-    // 安装页「预设」那一行。四类**各选一份**：
-    // key = `Presets::presetCategoryKey()` 的串，value = 预设 id（空串 / 不在 map 里 = 这一类不用）。
-    // 只有用户在弹窗里点「确定选择」时才改 —— 取消、点「前往预设管理」都不动它
-    // （「取消不丢安装配置」）。默认一个都不选：「不猜旧混合预设属于
-    // 哪一类」这条在安装页这一侧同样成立。
-    QMap<QString, QString> m_installPresetChoices;
-    // 这一次安装**真的**带着哪几份预设走（点「安装」那一刻定死；收尾时按这个次序应用）。
-    // 每一对是 (预设 id, 是否已确认「覆盖」那一档)；空的 = 这一趟不带预设。
-    // 从点下安装到 versionDownloadFinished 之间用户还可能去改弹窗里的选择 —— 那一动
-    // 不该改变这一趟已经发出去的安装。所以收尾读的是这两笔，不是界面。
-    QList<QPair<QString, bool>> m_installPendingPresets;
-    QString m_installPendingPresetInstance;
-    QMap<QString, QString> m_installPresetFingerprints;
-    bool m_installPresetModsReady = false;
-    bool m_installPresetModsOk = true;
-    QString m_installPresetModsReport;
     // "有版本目录但 jar 名对不上"这件事是否已经写过日志。refreshInstalledVersions()
     // 一次会话会被调很多次，不记一笔就是同样的告警反复刷。
     bool m_reportedUnrecognizedVersions = false;
@@ -3150,45 +2933,15 @@ private:
     // `LauncherManager` 照旧是执行者，这里把它们的信号翻成一次 `begin()` /
     // `setProgress()` / `succeed()`（「不把任务中心做成第二套业务逻辑」）。
     ActivityCenterController *m_activityCenter = nullptr;
-    /// 正在跑的那一批下载对应的任务号（无效号 = 没有这一批）。**一批一个号**：
-    /// 从 `setDownloadUiBusy(true)` 起、到那一条终态信号为止（见 beginDownloadTask()）。
-    /// 下载页那几类资源（模组 / 数据包 / 资源包 / 光影 / 整合包）和
-    /// 「重试」那一批也在这上面挂一件事（见 installResourceVersionNow() 与
-    /// retryTaskFromDetail()）—— 它们同样进任务中心：下大文件时用户看得到进度，
-    /// 失败了也有地方能点「重试」。
-    Tasks::TaskId m_downloadTaskId = Tasks::invalidTaskId();
-    /// 这一批下载/安装要挂到哪个父任务底下（0 = 独立成行）。
-    /// 「实例更新」把核心准备并进同一个用户意图：源实例更新只该在任务中心出现一行。
-    Tasks::TaskId m_downloadParentTask = Tasks::invalidTaskId();
-    int m_downloadParentStep = -1;
+    /// 「这一批下载的账」（任务号 / 谁能重试 / 父任务与步号 / 资源名 / 取消标志 / 进度节流）
+    /// 全在它身上 —— 见 `controllers/DownloadTaskLedgerController.hpp` 那段"为什么是一套"。
+    DownloadTaskLedgerController *m_downloadTaskLedger = nullptr;
     /// 「实例更新」父任务的取消入口（准备阶段才给）。`cancelWouldWork()` 和
     /// `cancelTaskFromDetail()` 都按它把父任务那一颗按钮接到真的那一批下载上。
     Tasks::TaskId m_updateFlowTask = Tasks::invalidTaskId();
     std::function<bool()> m_updateFlowCancel;
     /// 只用于「露不露按钮」：不能拿 m_updateFlowCancel 当查询（那一个调用会真的取消）。
     std::function<bool()> m_updateFlowCancelAvailable;
-    /// 那一格失败清单**归账本里的哪一件任务**（"重试"资格的出处，见 finishTask()）。
-    ///
-    /// 绝大多数时候它就等于 `m_downloadTaskId`；两处不能现读的地方靠它：
-    /// ① 「更新中心」那一批挂在 `m_updateBatch.task` 上，而那一批收尾时 `m_updateBatch`
-    /// 已经先被清空了；② 资源下载 / 重试那一批的号会在成功收尾后立刻清掉。
-    /// 没有它的话，任何一件**别的**任务（启动、导出、服务端安装、复制实例…）在这一刻收尾，
-    /// 都会把"这份失败清单是谁的"改成它自己 —— 于是真失败那一件上的「重试」消失，而
-    /// 点别人的「重试」重做的却是这一批文件。
-    Tasks::TaskId m_downloadBatchOwnerTaskId = Tasks::invalidTaskId();
-    /// 资源下载那一批的 label（`resourceDownloadFinished(label, …)` 回来时按它认领那件任务）。
-    /// 空 = 当前没有资源下载在跑。
-    QString m_resourceBatchLabel;
-    /// 这一发终态是不是**用户自己按的取消**（只在这一个同步调用栈里为真）。
-    ///
-    /// `VersionManager::cancelActiveDownload()` 收尾时走的是和"真失败"**同一条**终态信号
-    /// （`versionDownloadFinished` / `resourceDownloadFinished`，success=false），于是那几个
-    /// 槽把它当成失败：账本记成 Failed、点亮底栏那颗"没看过的失败"红点，还当场弹一句
-    /// 「下载失败」—— 用户刚点完取消。账本里本来就有一档 `Cancelled`（服务端安装那条路
-    /// 就是这么收的），这里只是补上"哪一发是取消"这个**只有主窗口知道**的事实。
-    /// 取消是同步收尾的（信号在 `cancelActiveDownload()` 返回之前就发完了），所以用一个
-    /// 只在那一小段里为真的成员就够，不必给两条信号各加一个参数。
-    bool m_downloadCancelInFlight = false;
     /// 「那一批**失败下来、等着重试**的东西是谁的」—— 就是 `VersionManager::m_failedBatch`
     /// 里那一份失败清单的主人（那里面**只留得住一批**，见 `finishTask()`）。
     ///
@@ -3215,8 +2968,6 @@ private:
     /// 那句还回去，而不是把"在等什么"和忙指针一起收掉（见 enterSyncWait()）。
     QStringList m_syncWaitStack;
     // 后台正在写整合包。用它挡住同一实例页上的重复点击；完成回调会清掉。
-    // 进度按网络分片到达（5000 多个 asset），节流一下再刷界面
-    QElapsedTimer m_progressThrottle;
 
     // ---------- 一次游戏会话的那一段 ----------
     //

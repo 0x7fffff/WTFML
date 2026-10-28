@@ -1,4 +1,5 @@
 #include "InstanceUpdateCheckController.hpp"
+#include "UpdateCenterController.hpp"
 #include "MainWindow.hpp"
 #include "MainWindowUI.hpp"
 #include "InlineMessage.hpp"
@@ -416,7 +417,7 @@ void InstanceUpdateCheckController::finishUpdateCheck(QString instanceId) {
             }
         }
         // Missing keys in a partial scan are not evidence of removed files.
-        if (run.selectedScope.isEmpty() && UpdatePolicy::dropStalePins(m_owner.m_updatePolicy, instanceId, sha1ByKey) > 0) {
+        if (run.selectedScope.isEmpty() && UpdatePolicy::dropStalePins(m_owner.m_updateCenter->policy(), instanceId, sha1ByKey) > 0) {
             m_owner.saveUpdatePolicy();
         }
     }

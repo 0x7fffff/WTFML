@@ -11,6 +11,7 @@
 #include "OverlayHost.hpp"
 #include "ResourceDetailPage.hpp"
 #include "controllers/ActivityCenterController.hpp"
+#include "controllers/DownloadTaskLedgerController.hpp"
 #include "download/ResourceStore.hpp"
 #include "download/ModDependencies.hpp"
 #include "download/ResourceCatalog.hpp"
@@ -402,7 +403,7 @@ void ResourcePageController::onProjectsFinished(const QString &requestKey,
     }
     m_owner.rememberProjectTitles(hits, m_state.source);
     // 没取到**不是错误**（那一页上还有"有几条"那句），所以不弹窗、只记一句日志 ——
-    // 和前置那一趟同一条规矩（见 onDependencyProjectsFinished）。
+    // 和前置那一趟同一条规矩（见 `ResourceInstallController::onProjectsFinished`）。
     if (!problem.isEmpty()) {
         m_owner.appendLog(tr("前置模组的名字没取到：%1").arg(problem));
     }
@@ -439,20 +440,20 @@ void ResourcePageController::onDownloadFinished(const QString &label, bool succe
         return;
     }
 
-    // 这一发是不是**用户自己按的取消**（见 `m_owner.m_downloadCancelInFlight`）：
+    // 这一发是不是**用户自己按的取消**（见 `DownloadTaskLedgerController::userCancelInFlight()`）：
     // 取消和真失败走的是同一条终态信号，可账本里它们该落成两档。
-    const bool userCancelled = !success && m_owner.m_downloadCancelInFlight;
+    const bool userCancelled = !success && m_owner.m_downloadTaskLedger->userCancelInFlight();
 
-    if (!m_owner.m_resourceBatchLabel.isEmpty() && label == m_owner.m_resourceBatchLabel
-        && m_owner.m_downloadTaskId != Tasks::invalidTaskId()) {
-        const Tasks::TaskId task = m_owner.m_downloadTaskId;
-        m_owner.m_downloadTaskId = Tasks::invalidTaskId();
-        m_owner.m_resourceBatchLabel.clear();
+    if (!m_owner.m_downloadTaskLedger->resourceLabel().isEmpty()
+        && label == m_owner.m_downloadTaskLedger->resourceLabel()
+        && m_owner.m_downloadTaskLedger->task() != Tasks::invalidTaskId()) {
+        const Tasks::TaskId task = m_owner.m_downloadTaskLedger->task();
+        m_owner.m_downloadTaskLedger->clearTask();
+        m_owner.m_downloadTaskLedger->setResourceLabel(QString());
         if (userCancelled) {
             m_owner.m_activityCenter->tasks()->cancel(task);
-            if (m_owner.m_downloadBatchOwnerTaskId == task) {
-                m_owner.m_downloadBatchOwnerTaskId = Tasks::invalidTaskId();
-            }
+            // 重试资格跟着松开（别的任务收尾时不许把它挪走 —— 见 owner() 那段）。
+            m_owner.m_downloadTaskLedger->clearOwnerIf(task);
         } else {
             m_owner.finishTask(task, success, success ? QString() : errorMessage);
         }

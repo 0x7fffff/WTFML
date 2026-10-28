@@ -133,6 +133,13 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/controllers/ServerWorkspaceController.cpp
     ${REPO_ROOT}/src/controllers/ServerConsoleController.cpp
     ${REPO_ROOT}/src/controllers/ServerSettingsController.cpp
+    ${REPO_ROOT}/src/controllers/ServerSettingsPageController.cpp
+    ${REPO_ROOT}/src/controllers/DownloadCompletionController.cpp
+    ${REPO_ROOT}/src/controllers/DownloadTaskLedgerController.cpp
+    ${REPO_ROOT}/src/controllers/ResourceInstallController.cpp
+    ${REPO_ROOT}/src/controllers/InstallPageController.cpp
+    ${REPO_ROOT}/src/controllers/ServerRunController.cpp
+    ${REPO_ROOT}/src/controllers/ServerMenuController.cpp
     ${REPO_ROOT}/src/controllers/ServerManagementActions.cpp
     ${REPO_ROOT}/src/controllers/ThemeSettingsController.cpp
     ${REPO_ROOT}/src/controllers/PlayerSkinController.cpp
@@ -157,6 +164,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/controllers/MainWindowViewData.cpp
     ${REPO_ROOT}/src/controllers/ResourceSearchController.cpp
     ${REPO_ROOT}/src/controllers/InstanceUpdateCheckController.cpp
+    ${REPO_ROOT}/src/controllers/UpdateCenterController.cpp
     # 「服务器列表」那一页上会写盘的那三件事（同上）。它只要 ServerListFile ——
     # 那个已经在清单里了。
     ${REPO_ROOT}/src/controllers/ServerListController.cpp

@@ -10,6 +10,15 @@
 #include "MainWindow.hpp"
 #include "controllers/ResourceSearchController.hpp"
 #include "controllers/InstanceUpdateCheckController.hpp"
+#include "controllers/UpdateCenterController.hpp"
+#include "controllers/ServerSettingsPageController.hpp"
+#include "controllers/InstallPageController.hpp"
+#include "controllers/ServerRunController.hpp"
+#include "controllers/ServerMenuController.hpp"
+#include "controllers/DownloadCompletionController.hpp"
+#include "controllers/DownloadTaskLedgerController.hpp"
+#include "controllers/ResourceInstallController.hpp"
+#include "manage/UpdatePolicy.hpp"
 #include "util/SecretRedactor.hpp"
 #include "util/LaunchScriptCredentials.hpp"
 #include "manage/BackupFiles.hpp"
@@ -290,20 +299,32 @@ MainWindow::MainWindow(QWidget *parent)
       m_skinApi(new SkinApi(this)),
       m_playerSkin(
           new PlayerSkinController(m_authManager, m_skinStore, m_randomSkinStore, this)) {
-    // 安装页那棵树默认停在「不装（纯原版）」那一条（打开安装页时也是它，见
-    // openInstallPage()）—— 这一位构造完就得是个真值，免得任何早于安装页读到它的路
-    // （selectedLoaderIndex()）拿到一个没初始化的下标。
-    //
-    // NOTE: 构造函数里**没有任何一处**调 updateLoaderRows()，第一次是 openInstallPage()
-    // （:1742）。初值不写在头文件里是因为那边只前置声明了 MainWindowUI。
-    m_selectedLoaderIndex = MainWindowUI::modLoaderNoneIndex();
+    // 安装页那一层（要装哪个原版、选中哪条加载器、名称框里那份"用户改过没有"）。
+    // NOTE: 它的构造里**特意不碰那棵树的界面** —— 第一次重画是进安装页的 `openPage()`；
+    // 构造只把「选中」这一位初始化成 `MainWindowUI::modLoaderNoneIndex()`。
+    m_installPage = new InstallPageController(this);
+    // 服务端**起 / 停 / 退出之后怎么办**那一套（见 `controllers/ServerRunController.hpp`）。
+    // 它不拥有进程 —— 进程的账在 `m_serverWorkspace` 里，这一层只按 id 去问。
+    m_serverRun = new ServerRunController(this);
+    // 「服务端」那一页的右键菜单：摆哪几项 + 点下去做什么（见
+    // `controllers/ServerMenuController.hpp` 那段"为什么这一层值得单独站着"）。
+    m_serverMenu = new ServerMenuController(this);
+    // 下载收尾那六种来路（见 `controllers/DownloadCompletionController.hpp`）。
+    m_downloadCompletion = new DownloadCompletionController(this);
+    // 「这一批下载的账」：任务号 / 谁能重试 / 父任务 / 资源名 / 取消标志 / 进度节流。
+    m_downloadTaskLedger = new DownloadTaskLedgerController(this);
     setAcceptDrops(true);
     // 「资源详情」那一页的控制器**构造里就建**（只是状态 + 一个 QObject，页面对象仍然懒建）。
     // 不能跟着页面一起懒建：图标那一发、版本列表那一发回来时都可能比"开过页"早到，
     // 而它们按 `m_resourcePage->state().open` 认人 —— 那一位没有"还没建"这一档。
     m_resourcePage = new ResourcePageController(this);
+    // 「把这一份资源装进那个实例」：落点 / 谁在动盘 / 存不存别处 / 加载器那道闸。
+    m_resourceInstall = new ResourceInstallController(this);
     m_downloadFilter = new DownloadFilterController(this);
     m_instanceUpdateCheck = new InstanceUpdateCheckController(this);
+    // 「更新中心」那一页：账 + 页面对象 + 开页时记的实例 id 全在这一层（构造里就建，
+    // 页面仍然懒建 —— 理由同上面 `m_resourcePage` 那段）。
+    m_updateCenter = new UpdateCenterController(this);
     m_resourceSearch = new ResourceSearchController(this);
     // ---------- 任务账本 ----------
     // **唯一**记录"现在有哪些事在跑、各自跑到哪儿了"的地方。它自己一个网络都不开、一个
@@ -312,6 +333,9 @@ MainWindow::MainWindow(QWidget *parent)
     // 做成第二套业务逻辑）。
     m_activityCenter = new ActivityCenterController(this);
     m_serverSettingsController = new ServerSettingsController(m_serverWorkspace);
+    // 「服务端设置」那一页：页对象 + 现在说的是谁 + 能不能改 + 端口那一次的结论全在这一层
+    // （构造里就建，页面仍然懒建 —— 理由同上面 `m_resourcePage` 那段）。
+    m_serverSettings = new ServerSettingsPageController(this);
     m_themeSettingsController = new ThemeSettingsController(m_ui, m_settings, this, this);
     m_javaSettingsController = new JavaSettingsController(
         m_ui, m_javaSettings, m_javaRuntimeController, this,
@@ -391,11 +415,7 @@ MainWindow::MainWindow(QWidget *parent)
             [this](InstanceSettingsDialog *dialog, const QString &worldDir) {
                 showWorldSettingsPage(dialog, worldDir);
             },
-            [this](const QString &serverId) {
-                if (m_serverSettingsPage != nullptr && m_serverSettingsId == serverId) {
-                    refreshServerSettingsPage();
-                }
-            },
+            [this](const QString &serverId) { m_serverSettings->refreshIfShowing(serverId); },
             // 还原一份实例期间它算「正在搬文件」：不能启动、不能删（见 restoreInstance()）。
             [this](const QString &id, bool busy) {
                 if (busy) {
@@ -405,15 +425,10 @@ MainWindow::MainWindow(QWidget *parent)
                 }
             },
             [this] { refreshInstalledVersions(); },
-            // 服务端世界正在备份 / 还原：那一个服务端不能启动、不能删（见 startServer() /
-            // removeServer() 那两道闸）。服务端不是实例，记不进 `installingVersionIds()`。
-            [this](const QString &id, bool busy) {
-                if (busy) {
-                    m_serverFileBusy.insert(id);
-                } else {
-                    m_serverFileBusy.remove(id);
-                }
-            }},
+            // 服务端世界正在备份 / 还原：那一个服务端不能启动、不能删（见
+            // `ServerRunController::fileBusy()` / `removeServer()` 那两道闸）。服务端不是
+            // 实例，记不进 `installingVersionIds()`。
+            [this](const QString &id, bool busy) { m_serverRun->setFileBusy(id, busy); }},
         this);
     m_serverPingController = new ServerPingController(
         ServerPingController::Host{
@@ -425,8 +440,8 @@ MainWindow::MainWindow(QWidget *parent)
         m_serverWorkspace, m_ui, this,
         ServerConsoleController::Host{
             [this](const QString &text) { appendLog(text); },
-            [this](const QString &id) { stopServer(id); },
-            [this](const QString &id) { forceKillServer(id); }},
+            [this](const QString &id) { m_serverRun->stop(id); },
+            [this](const QString &id) { m_serverRun->forceKill(id); }},
         this);
     m_folderController = new FolderController(
         m_folderManager, m_launcherManager, m_ui, this,
@@ -676,8 +691,8 @@ MainWindow::MainWindow(QWidget *parent)
             &MainWindow::onServerLineAppended);
     connect(m_serverWorkspace, &ServerWorkspaceController::forceKillAvailable, this,
             &MainWindow::onServerForceKillAvailable);
-    connect(m_serverWorkspace, &ServerWorkspaceController::exited, this,
-            &MainWindow::onServerExited);
+    connect(m_serverWorkspace, &ServerWorkspaceController::exited, m_serverRun,
+            &ServerRunController::onExited);
     // 收起态那一格的重画时机里有一档是"刚完成那一项露到头了"（「完成任务短暂显示后
     // 收进历史」）—— 那个到期**没有任何信号会来**，只能自己起一个单发定时器。
     m_taskSummaryTimer = new QTimer(this);
@@ -858,12 +873,13 @@ MainWindow::MainWindow(QWidget *parent)
     // 账本是启动器级的固定文件，不随当前游戏文件夹切换。这样正在下载/启动时切换目录，
     // 内存里的任务不会在下一次落盘时被写进另一份 .minecraft。
     m_activityCenter->loadHistory();
-    m_presetController->setRecoveryHost(m_activityCenter, [this] { return m_downloadTaskId; });
+    m_presetController->setRecoveryHost(m_activityCenter, [this] { return m_downloadTaskLedger->task(); });
     m_downloadBatches = new DownloadBatchController(m_activityCenter, m_versionManager->downloads(),
         [this] {
             if (m_serverInstall && m_serverInstall->ownsDownloadBatch()) return m_serverInstallTaskId;
             if (!m_versionManager->ownsFileBatch()) return Tasks::invalidTaskId();
-            return m_downloadTaskId != Tasks::invalidTaskId() ? m_downloadTaskId : m_updateBatch.task;
+            return m_downloadTaskLedger->task() != Tasks::invalidTaskId()
+                       ? m_downloadTaskLedger->task() : m_updateBatch.task;
         }, this);
     m_downloadBatches->setContinuation([this] { return snapshotDownloadContinuation(); },
         [this](Tasks::TaskId id, const QJsonObject &intent) { return continueDownloadInstallation(id, intent); });
@@ -880,7 +896,7 @@ MainWindow::MainWindow(QWidget *parent)
     // 然后用户什么也做不了"轻得多。所以只写日志。
     {
         QString policyProblem;
-        m_updatePolicy = UpdatePolicy::load(UpdatePolicy::storePath(), &policyProblem);
+        m_updateCenter->policy() = UpdatePolicy::load(UpdatePolicy::storePath(), &policyProblem);
         if (!policyProblem.isEmpty()) {
             appendLog(tr("「更新中心」那份记录读不回来：%1").arg(policyProblem));
         }
@@ -1237,15 +1253,15 @@ void MainWindow::setDownloadUiBusy(bool busy) {
     // 会让这一批文件一半写进 A、一半写进 B。两个按钮的可用性由 updateFolderButtons()
     // 一处说了算（「移除文件夹」还要看选中的是不是自带那份）。
     m_ui->getFolderList()->setEnabled(!busy);
-    // 「模组加载器」那棵树一起灰，理由同上。忙完解禁走 updateLoaderRows() 一处重算
+    // 「模组加载器」那棵树一起灰，理由同上。忙完解禁走 m_installPage->updateLoaderRows() 一处重算
     // （那棵树的样子全由它一处决定）；「安装」那个按钮还要看名称合法不合法，走
-    // updateInstallNameHint() 一处。
+    // m_installPage->updateInstallNameHint() 一处。
     m_ui->getLoaderTree()->setEnabled(!busy);
-    updateLoaderRows();
-    updateInstallNameHint();
+    m_installPage->updateLoaderRows();
+    m_installPage->updateInstallNameHint();
     // 重灌一遍"能启动的实例"：上面那条过滤（在装的那个先不出现）要立刻生效 ——
-    // 置忙那一刻它该从列表里消失，置闲那一刻它该回来（成功的话还在 onVersionDownloadFinished
-    // 里被选中，那句也在这个函数之后跑）。
+    // 置忙那一刻它该从列表里消失，置闲那一刻它该回来（成功的话还在
+    // `DownloadCompletionController::onFinished` 里被选中，那句也在这个函数之后跑）。
     refreshInstalledVersions();
     updateFolderButtons();
 
@@ -1253,16 +1269,11 @@ void MainWindow::setDownloadUiBusy(bool busy) {
     // 进度条和"已下载 d / t"那几样都在**任务自己身上**（`Tasks::TaskSnapshot`），
     // 这一格只是账本的一块投影 —— 要清的不是三个成员，而是"把这一批的那件任务收掉"。
     if (busy) {
-        beginDownloadTask();
+        m_downloadTaskLedger->begin();
     } else {
-        // 这一批到此为止。正常情况下那条终态信号（onVersionDownloadFinished）已经按成败
-        // 收过尾了，这一句是**兜底**：数据层要是哪一次没发出终态（被拒绝的批次、中途退出的
-        // 那几路），账本上就会留一件"永远在跑"的任务，底栏那一格从此一直显示它。
-        //
-        // NOTE: 对已经收过尾的那一件，`finishTask()` 什么都不做（终态只落一次，见
-        // TaskManager::finish）—— 所以这一句不会把成功改写成失败、也不会多一颗红点。
-        finishTask(m_downloadTaskId, false, tr("这一批下载没有正常结束。"));
-        m_downloadTaskId = Tasks::invalidTaskId();
+        // 这一批到此为止（"为什么这是兜底、为什么不会把成功改写成失败"逐字在
+        // `DownloadTaskLedgerController::finish()` 里）。
+        m_downloadTaskLedger->finish(tr("这一批下载没有正常结束。"));
     }
     updateBottomBar();
 }
@@ -1571,12 +1582,13 @@ bool MainWindow::cancelWouldWork(const Tasks::TaskSnapshot &task) const {
     // InstanceDialogController 的 begin）都会长出一颗「取消」，按下去掐掉的却是当时
     // 正好在飞的**另一批**版本下载。`cancelTaskFromDetail()` 里那一句分派必须同口径。
     // 再补：`VersionManager` 上可以同时挂两批，账本里也就有两个号 ——
-    // ① `m_downloadTaskId`（`beginDownloadTask()` 记的版本 / 整合包 / 资源下载）；
+    // ① `m_downloadTaskLedger->task()`（`DownloadTaskLedgerController::begin()` 记的版本 /
+    //    整合包 / 资源下载）；
     // ② `m_updateBatch.task`（「更新某个实例的 N 个资源」，见
     // `updateInstanceResources()`）。两批都是 `canCancelDownload()` 的真主人，少认一个
     // 就是"取消按钮整个消失"。别的号（升级副本、导入搬文件…）仍然一律不认。
     const bool ownsVersionBatch =
-        task.id == m_downloadTaskId
+        task.id == m_downloadTaskLedger->task()
         || (m_updateBatch.task != Tasks::invalidTaskId() && task.id == m_updateBatch.task);
     return m_versionManager != nullptr && ownsVersionBatch
            && m_versionManager->canCancelDownload();
@@ -1668,19 +1680,19 @@ void MainWindow::cancelTaskFromDetail(const QString &key) {
         return;
     }
     // 和 `cancelWouldWork()` 的 ② 逐字同口径：版本下载 / 整合包导入那一批认
-    // `m_downloadTaskId`，「更新某个实例资源」那一批认 `m_updateBatch.task`。
+    // `m_downloadTaskLedger->task()`，「更新某个实例资源」那一批认 `m_updateBatch.task`。
     // 两者底下是同一个下载器，所以都是同一条 `cancelActiveDownload()`。
     if (m_versionManager != nullptr
-        && (key == QString::number(m_downloadTaskId)
+        && (key == QString::number(m_downloadTaskLedger->task())
             || (m_updateBatch.task != Tasks::invalidTaskId()
                 && key == QString::number(m_updateBatch.task)))) {
         // 取消走的是和"真失败"同一条终态信号（success=false），那几个槽
         // 分不出来 —— 于是用户刚点完取消就被弹一句「下载失败」、账本上记成 Failed、底栏
         // 还亮起一颗"没看过的失败"红点。这一位只在下面这一发里为真：终态信号是**同步**
         // 发完的（`cancelActiveDownload()` 返回之前），所以槽里读到的就是"这一次是取消"。
-        m_downloadCancelInFlight = true;
+        m_downloadTaskLedger->setUserCancelInFlight(true);
         const bool cancelled = m_versionManager->cancelActiveDownload();
-        m_downloadCancelInFlight = false;
+        m_downloadTaskLedger->setUserCancelInFlight(false);
         if (cancelled) {
             appendLog(tr("下载已取消。已经下好的文件留在原处。"));
         }
@@ -1707,7 +1719,7 @@ void MainWindow::retryTaskFromDetail(const QString &key) {
     // 判据里补上 `m_downloadInFlight`。只问 `isDownloading()` 有一个
     // **真的窗口**：版本安装刚点下去、正在取 version.json 的那一段（元数据作业，
     // 不计进 `DownloadManager::isBusy()`），忙态已经是 true、账本里"安装 X"那一件
-    // 也已经建好了，可这里会放行 —— 于是 `m_downloadTaskId = newTask()` 把安装那一件
+    // 也已经建好了，可这里会放行 —— 于是 `adopt(newTask)` 把安装那一件
     // 的号**顶掉**。之后安装那一路收尾（`onVersionDetailsFetched()` 失败支 /
     // `onAllDownloadsFinished()`）收的是**别人的号**，自己那件永远停在"进行中"。
     // 服务端安装那一段同理：它的下载批次是共用下载器上的，正在下的那几秒 `isDownloading()`
@@ -1729,15 +1741,12 @@ void MainWindow::retryTaskFromDetail(const QString &key) {
     const QString retryLabel = m_versionManager->retryBatchLabel();
     const Tasks::TaskId newTask = beginTask(
         retryTask.kind, tr("重试：%1").arg(retryTask.title), retryTask.targetId);
-    m_downloadTaskId = newTask;
-    m_downloadBatchOwnerTaskId = newTask;
-    m_resourceBatchLabel = retryLabel;
+    m_downloadTaskLedger->adopt(newTask);
+    m_downloadTaskLedger->setResourceLabel(retryLabel);
     if (!m_versionManager->retryDownload()) {
         // 正常走不到（忙态上面刚问过）：别在账本里留一条永远"进行中"的行。
         m_activityCenter->tasks()->fail(newTask, tr("没能开始重试。"));
-        m_downloadTaskId = Tasks::invalidTaskId();
-        m_downloadBatchOwnerTaskId = Tasks::invalidTaskId();
-        m_resourceBatchLabel.clear();
+        m_downloadTaskLedger->clear();
         return;
     }
     // 那一格失败清单**刚被这一按吃掉了**（`retryDownload()` 自己 reset）⇒ 号也跟着
@@ -1753,79 +1762,21 @@ Tasks::TaskId MainWindow::beginTask(Tasks::TaskKind kind, const QString &title,
 }
 
 void MainWindow::finishTask(Tasks::TaskId id, bool success, const QString &errorSummary) {
-    // 那格失败清单只认**这一批的主人**（见 `m_downloadBatchOwnerTaskId`）。
+    // 那格失败清单只认**这一批的主人**（见 `DownloadTaskLedgerController::owner()`）。
     // **不能**问 `canRetryDownload()`（全局）：那样任何一件任务在"清单还攥着"
     // 的时候收尾，账本都会把重试资格记到**它**头上：
     // · 真失败的那一件（比如补全文件）上的「重试」凭空消失；
     // · 服务端安装 / 导出 / 启动这一类**跟下载批次毫无关系**的任务反而长出「重试」，
     // 点下去重做的是别人的文件。
-    const bool ownsDownloadBatch = id != Tasks::invalidTaskId()
-                                   && id == m_downloadBatchOwnerTaskId;
+    const bool ownsDownloadBatch = m_downloadTaskLedger->owns(id);
     const bool retryPayloadAvailable = ownsDownloadBatch && m_versionManager != nullptr
                                        && m_versionManager->canRetryDownload();
     m_activityCenter->finish(id, success, errorSummary, retryPayloadAvailable);
     // 收过尾了，这一批不再"占着"重试资格 —— 清单本身（m_failedBatch）还在，
     // 露不露由账本里那一位 m_retryableTaskId 说了算。
     if (ownsDownloadBatch) {
-        m_downloadBatchOwnerTaskId = Tasks::invalidTaskId();
+        m_downloadTaskLedger->clearOwner();
     }
-}
-
-void MainWindow::beginDownloadTask() {
-    // 同一批里 `setDownloadUiBusy(true)` 只该来一次；但要是上一批的号还留着（理论上不该），
-    // 也不能拿它当新的使 —— 那一行的进度会从上一批的位置开始爬。
-    if (m_downloadTaskId != Tasks::invalidTaskId() && m_activityCenter->tasks()->has(m_downloadTaskId)) {
-        return;
-    }
-    // 这一批到底是哪一类活：判据就是界面上自己记的那三个 id（它们在**置忙之前**就写好了，
-    // 见那三处的 NOTE），而收尾那几条路（onVersionDownloadFinished）用的也是它们 ——
-    // 所以起手和收尾的分档天然一致，不会出现"起手记成安装、收尾按下载报"。
-    Tasks::TaskKind kind = Tasks::TaskKind::Download;
-    QString title;
-    if (!m_importingInstanceId.isEmpty()) {
-        kind = Tasks::TaskKind::Import;  // 导入 = "装一整套东西"，和安装同一档优先级
-        title = tr("导入整合包 %1").arg(instanceDisplayName(m_importingInstanceId));
-    } else if (!m_installingInstanceId.isEmpty()) {
-        kind = Tasks::TaskKind::Install;
-        title = tr("安装 %1").arg(instanceDisplayName(m_installingInstanceId));
-    } else if (!m_repairingInstanceId.isEmpty()) {
-        kind = Tasks::TaskKind::Install;
-        title = tr("校验并补全 %1").arg(instanceDisplayName(m_repairingInstanceId));
-    } else if (!m_assetPrefetchInstanceId.isEmpty()) {
-        // 预取 = "把这些文件拿下来"，不是装东西；它下的是共享的 assets/asset_director。
-        kind = Tasks::TaskKind::Download;
-        title = tr("预取 %1 的首启资源").arg(instanceDisplayName(m_assetPrefetchInstanceId));
-    } else {
-        // 兜底那一支：今天从界面上**走不到**（能置忙的三条路都会先写上那三个 id 之一 ——
-        // 版本下载没有单独的入口，它是那三条路里的一段）。留着是因为它是个安全的默认：
-        // 以后多一条"不特定属于某个实例的下载"，它会得到一个说不岔的标题，而不是一条
-        // 空标题的任务。种类给 `Download`（"把文件拿下来"）而不是 `Install`。
-        title = tr("下载游戏文件");
-    }
-    const QString target = !m_importingInstanceId.isEmpty() ? m_importingInstanceId
-        : !m_installingInstanceId.isEmpty() ? m_installingInstanceId
-        : !m_repairingInstanceId.isEmpty() ? m_repairingInstanceId : m_assetPrefetchInstanceId;
-    // 父任务那一支：先把这一批挂到父任务的某一步底下。父任务认不出来（已被收尾 /
-    // 被清除）时退回独立成行 —— 宁可在任务中心多一行，也不能让这批下载没有账。
-    Tasks::TaskId child = Tasks::invalidTaskId();
-    if (m_downloadParentTask != Tasks::invalidTaskId()) {
-        child = m_activityCenter->tasks()->beginChild(
-            m_downloadParentTask, kind, title, target, {}, Tasks::TaskCapabilities(),
-            m_downloadParentStep);
-        if (child != Tasks::invalidTaskId()) {
-            m_downloadTaskId = child;
-        }
-    }
-    if (child == Tasks::invalidTaskId()) {
-        m_downloadTaskId = beginTask(kind, title, target);
-    }
-    // 这一批就是账本里这个号 —— 收尾时"重试"资格只认它（见 finishTask()）。
-    m_downloadBatchOwnerTaskId = m_downloadTaskId;
-}
-
-void MainWindow::setDownloadTaskParent(Tasks::TaskId parent, int step) {
-    m_downloadParentTask = parent;
-    m_downloadParentStep = step;
 }
 
 void MainWindow::setUpdateFlowCancel(Tasks::TaskId task, std::function<bool()> cancel,
@@ -1841,10 +1792,7 @@ void MainWindow::clearUpdateFlowCancel(Tasks::TaskId task) {
         m_updateFlowCancel = nullptr;
         m_updateFlowCancelAvailable = nullptr;
     }
-    if (task == Tasks::invalidTaskId() || task == m_downloadParentTask) {
-        m_downloadParentTask = Tasks::invalidTaskId();
-        m_downloadParentStep = -1;
-    }
+    m_downloadTaskLedger->dropParentIf(task);
 }
 
 void MainWindow::startPlayerSkinLoad() {
@@ -2057,7 +2005,7 @@ void MainWindow::updateDownloadProgressUi(int done, int total, int failed,
                                           const QString &currentFile) {
     // 这一批对上的那件任务（没有这一批 = 无效号）。**进度只往它身上写** —— 底栏那一格和
     // 任务中心面板都是从账本投影出来的，没有第二处要同步（账本是唯一真相）。
-    const Tasks::TaskId task = m_downloadTaskId;
+    const Tasks::TaskId task = m_downloadTaskLedger->task();
 
     // 标题下面那行小字。**没报过总数时只说"已下载多少"，不许编一个百分比出来**。
     // `total <= 0` 在这里是"这一批还没报过总数"（版本 json 还在路上、
@@ -2101,10 +2049,9 @@ void MainWindow::onVersionDownloadStats(int done, int total, int failed,
     // NOTE: 丢掉的那些**没有**"结束时补刷"这回事 —— 底栏那一格停在上一次越过阈值的
     // 那一帧，最多比真实进度旧 200 ms。整批结束由 setDownloadUiBusy(false) 把那一件
     // 任务收掉（收尾之后那一格换成"（已完成）"，停在哪一帧都看不出来了）。
-    if (m_progressThrottle.isValid() && m_progressThrottle.elapsed() < 200) {
+    if (!m_downloadTaskLedger->takeProgressTick()) {
         return;
     }
-    m_progressThrottle.start();
     updateDownloadProgressUi(done, total, failed, currentFile);
 }
 
@@ -2713,214 +2660,12 @@ void MainWindow::refreshAvailableVersions() {
 }
 
 void MainWindow::openInstallPage(const QString &gameVersion) {
-    if (gameVersion.isEmpty()) {
-        return;
-    }
-    m_installGameVersion = gameVersion;
-    m_installNameTouched = false;
-
-    // 这一层只管界面：要装的是哪个版本、名称框里默认写什么、那五条加载器现在该是什么
-    // 状态。真正的安装请求在 onInstallButtonClicked() 里发出去。
-    m_ui->getInstallTargetLabel()->setText(MainWindowUI::installTargetText(gameVersion));
-    // 默认名跟着"选中的加载器"走（没选就是原版号本身）—— updateLoaderRows() 会顺手
-    // 把它算出来，所以这里先摆状态、再让它收尾。
-    // 注意每次进安装页都**回到「不装（纯原版）」**：上一个实例选的是哪条加载器跟这一个
-    // 没关系，留着的话下一个版本会顶着一个"上次顺手选的 Forge"进来。
-    m_selectedLoaderIndex = MainWindowUI::modLoaderNoneIndex();
-    // 钉住的版本号同理：换了一个游戏版本，上一份能装的版本就完全不是这一份了
-    // （Forge 每个游戏版本能装的版本完全不同）。
-    m_chosenLoaderVersion.clear();
-    // 收起来 + 清掉上次灌进去的子条目（**不能**只 clear 整棵树：那样顶层那五条也一起
-    // 没了）。takeChildren() 交出来的那些条目已经不带爹了，得自己删 —— 不删就是每进一次
-    // 安装页漏一批（几十上百个 QTreeWidgetItem）。requestAllLoaderVersions() 里对每个
-    // 加载器再来一遍，顺手把"正在获取…"占位摆上。
-    for (int i = 0; i < MainWindowUI::modLoaderOptionTexts().size(); ++i) {
-        QTreeWidgetItem *item = loaderItem(i);
-        if (item == nullptr) {
-            continue;
-        }
-        item->setExpanded(false);
-        qDeleteAll(item->takeChildren());
-    }
-    updateLoaderRows();
-    // 四个加载器能装哪些版本：**进这一页就全问出去**，不能"点开了再获取"。点开哪条
-    // 现拉哪条会留下"点不开了"的状态（见 fillLoaderVersionItems() 里那段 NOTE）。
-    requestAllLoaderVersions();
-    // 名称框里的默认值：勾的是「不装」时就是原版号本身（那正是"装原版"这条老路）。
-    updateInstallName();
-
-    // 实例预设那一行：摘要按 `m_installPresetChoices` 刷一遍。
-    // 用户的选择**不跟着翻页重置**：换一个版本再看一眼，不该让他已经挑好的
-    // 哪几类预设悄悄没了（取消弹窗也不写它 —— 见 openInstallPresetPicker()）。
-    updateInstallPresetSummary();
-
-    // 树那一层留着不动（用户按返回时回的就是它，连展开状态都还在）。
-    m_ui->getGameStack()->setCurrentIndex(MainWindowUI::downloadGameInstallIndex());
-    m_ui->getInstallNameEdit()->setFocus();
-    appendLog(tr("准备安装，基于原版 %1。").arg(gameVersion));
+    // 薄壳：这一页的全部状态与摆法在 `InstallPageController`（见那个头文件开头的解释）。
+    m_installPage->openPage(gameVersion);
 }
 
 void MainWindow::backToVersionTree() {
-    // 只翻页，什么都不清：树里那份展开状态、名称框里敲过的字都留着 —— 用户按返回
-    // 是想"再看一眼别的版本"，不是想"放弃刚才那些输入"。真要放弃，重进一次就重算了。
-    m_ui->getGameStack()->setCurrentIndex(MainWindowUI::downloadGameTreeIndex());
-}
-
-// ---------------------------------------------------------------------------
-// 安装页：名称框 + 四个加载器（各自选版本）
-// ---------------------------------------------------------------------------
-
-QString MainWindow::defaultInstanceName() const {
-    // 目录名的形状是 `1.18.2-Forge_40.3.12`、`1.21.1-NeoForge_21.1.210`。
-    // 没选加载器时就是原版号本身 —— 那一份**不写薄 json**（id == 父版本），装出来的就是
-    // 原版那个实例。
-    //
-    // NOTE: 刻意**不**走 VersionDisplay::formatVersionName()：那是**显示名**的拼法，跟着
-    // 用户在设置页选的"版本名格式"开关走（关掉"实际版本"那一档就会拼出一个不含
-    // 版本号的目录名），而目录名要的是确定、可预期、跟显示开关无关。
-    if (m_installGameVersion.isEmpty()) {
-        return QString();
-    }
-    VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
-    const int index = selectedLoaderIndex();
-    if (!VersionManager::loaderKindFromIndex(index, &kind)) {
-        return m_installGameVersion;
-    }
-    const QString loaderName = VersionManager::loaderDisplayName(kind);
-    const QString pinned = pinnedLoaderVersion(index);
-    // 钉的是一个**具体版本号**时原样写进目录名（`1.18.2-Forge_40.3.12`）。
-    // 钉的是**那两档**（`@latest` / `@stable`）时**不带后缀**（`1.21.4-Forge`），
-    // 和「自动（推荐）」写出来的名字一致。两个理由：
-    // · 那两档最终装到哪个版本号，要等安装那条路联网挑完才知道（见
-    // VersionManager::installLoaderVersion），这一刻算不出来 —— 写 `_stable` 是拿
-    // "哪一档"当版本号用，而真实版本号在装完那份 wtfml.meta 的 loaderVersion 里；
-    // · 名字一样才走得上「已经有叫这个的实例了 → 再装一次是校验并补齐」那条路。带后缀
-    // 的话，用户"同一个游戏同一个加载器"再装一次会多出一个并行实例，而他手上的老实例
-    // 还叫 `1.21.4-Forge`。同一档换个版本装进同一个实例，本来就是这条路支持的用法。
-    LoaderMeta::LoaderChannel channel;
-    const bool byChannel = LoaderMeta::loaderChannelFromKey(pinned, &channel);
-    const QString suffix = byChannel ? QString() : pinned;
-    return suffix.isEmpty() ? QStringLiteral("%1-%2").arg(m_installGameVersion, loaderName)
-                            : QStringLiteral("%1-%2_%3").arg(m_installGameVersion, loaderName,
-                                                             suffix);
-}
-
-int MainWindow::selectedLoaderIndex() const {
-    return m_selectedLoaderIndex;
-}
-
-QTreeWidgetItem *MainWindow::loaderItem(int loaderIndex) const {
-    // 负数是「预设」那一行的哨兵（`installPresetRowRole()`），不是加载器下标 ——
-    // 放进去会正好把它找出来（那个 UserRole 就是 -1）。
-    if (loaderIndex < 0) {
-        return nullptr;
-    }
-    QTreeWidget *tree = m_ui->getLoaderTree();
-    if (tree == nullptr) {
-        return nullptr;
-    }
-    // 顺序是界面自己按 modLoaderOptionNames() 摆的（第 i 条就是第 i 个加载器），
-    // 但**身份**仍然从 userData 读 —— 摆的顺序哪天变了，这里不会跟着错。
-    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-        QTreeWidgetItem *item = tree->topLevelItem(i);
-        if (item->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt() == loaderIndex) {
-            return item;
-        }
-    }
-    return nullptr;
-}
-
-QString MainWindow::pinnedLoaderVersion(int loaderIndex) const {
-    // 这一格里有三种东西（见 MainWindowUI::loaderVersionStableText 上面那段）：
-    // · 一个**具体版本号** —— 用户在那两档下面点的那一条；
-    // · `@latest` / `@stable` —— 用户点的是上面那两档（LoaderMeta::loaderChannelKey）；
-    // · **空串** —— 没挑过（没进过安装页、或者版本列表没取到）。空串在数据层那边按
-    // 稳定档算（LoaderMeta::loaderRequestFromChoice），也就是让安装器按默认规矩挑。
-    // 没进过 map 的下标也是空串。
-    return m_chosenLoaderVersion.value(loaderIndex);
-}
-
-void MainWindow::updateLoaderRows() {
-    // 那棵树的样子**全部**在这一处决定（别处一个 setText/setData 都不许写）：
-    // · 选中的那一条：第二行小字写它选的那一格（版本号 / 「最新版」/「稳定版」）；
-    // · 其余几条加载器：第二行小字写「与 X 不兼容」；
-    // · 「不装（纯原版）」那条：没有第二行（它不是加载器，不跟谁冲突）；它仍然存在，
-    // 但**不画在界面上**（只留内部状态，见 MainWindowUI 里那段 NOTE）。
-    // NOTE: 选中某一条之后，**其余几条加载器变灰、也点不开**（选中之后其余几条不能
-    // 点开）。改选别的加载器先点**当前这条行尾的 ×**
-    // —— 那一下退回「不装（纯原版）」，其余几条重新亮起来（那条内部条目本身不画，
-    // 界面上没有重复的「不装」选项可点）；换版本则点当前这条底下的版本号。
-    // 本启动器一次只装一个加载器，所以"不兼容"说的是"两个不能同时装"，而灰掉
-    // 说的是"这一下点了也不会变成装它"。
-    const int selected = selectedLoaderIndex();
-    VersionManager::LoaderKind selectedKind = VersionManager::LoaderKind::Fabric;
-    const bool hasLoader = VersionManager::loaderKindFromIndex(selected, &selectedKind);
-    const QString selectedName =
-        hasLoader ? VersionManager::loaderDisplayName(selectedKind) : QString();
-
-    const int count = MainWindowUI::modLoaderOptionTexts().size();
-    for (int i = 0; i < count; ++i) {
-        QTreeWidgetItem *item = loaderItem(i);
-        if (item == nullptr) {
-            continue;
-        }
-        VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
-        const bool isLoader = VersionManager::loaderKindFromIndex(i, &kind);
-        QString subText;
-        if (isLoader && hasLoader) {
-            if (i == selected) {
-                const QString pinned = pinnedLoaderVersion(i);
-                LoaderMeta::LoaderChannel channel;
-                if (LoaderMeta::loaderChannelFromKey(pinned, &channel)) {
-                    // 挑的是那一档：小字写档名（版本号要等装的时候才定下来）。
-                    subText = MainWindowUI::loaderVersionChannelShortText(
-                        channel == LoaderMeta::LoaderChannel::Newest);
-                } else if (pinned.isEmpty()) {
-                    // 没挑过（版本列表没取到）：按默认那一档说 —— 稳定档。
-                    subText = MainWindowUI::loaderVersionChannelShortText(false);
-                } else {
-                    subText = pinned;
-                }
-            } else {
-                subText = MainWindowUI::loaderConflictText(selectedName);
-            }
-        }
-        // 角色是 rowSubTextRole()：空串 = 那一行不画第二行小字（代理那边统一处理）。
-        item->setData(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::rowSubTextRole(), subText);
-        // 选中的那条加载器：行尾（箭头左边）画一个「取消」小叉 —— 点它 = 不装这个加载器了、
-        // 退回「不装（纯原版）」（选中之后在展开箭头左侧摆一个小叉，点它就是取消安装
-        // 这个加载器）。**只有这一条**有这个叉：其余几条（包括「不装」）没有"要取消的东西"。
-        // 点它的那一下由 MainWindow::eventFilter 接（几何是 VersionTreeDelegate::clearRect()）。
-        item->setData(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::rowClearRole(),
-                      isLoader && hasLoader && i == selected);
-        // 灰那几条：选中了某个加载器之后**其余几条加载器**不可用（见上面那段 NOTE）。
-        // 顺手把灰掉的那条**收起来** —— 收着的时候它底下的版本号看不见，而"展开着一份
-        // 版本列表、整条却是灰的"看着像"点得动、只是不让点"（点一下才知道不是）。
-        // 「不装（纯原版）」不参与：它不是加载器（isLoader 为假），而且是那条退路。
-        if (isLoader) {
-            const bool locked = hasLoader && i != selected;
-            if (locked && item->isExpanded()) {
-                item->setExpanded(false);
-            }
-            item->setDisabled(locked);
-        }
-    }
-}
-
-void MainWindow::selectLoader(int loaderIndex) {
-    // 「不装（纯原版）」和四个加载器都是合法值；表外的值（界面表和枚举哪天对不上）
-    // 一律当作"没选加载器"—— 宁可装成原版，也不要拿着一个不认识的下标去猜加载器。
-    VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
-    m_selectedLoaderIndex = VersionManager::loaderKindFromIndex(loaderIndex, &kind)
-                                ? loaderIndex
-                                : MainWindowUI::modLoaderNoneIndex();
-    updateLoaderRows();
-    // 默认名里带着加载器名（和它钉的版本号），换一条就得重算一次。
-    updateInstallName();
-    // NOTE: **这里不发任何请求**。"有哪些版本"是进安装页时一次性全问好的
-    // （见 requestAllLoaderVersions()：不能点开了再获取）。走这一句的只有两条路：点一条**版本号**（选中它爹那条加载器）、
-    // 点「不装（纯原版）」那一条。点一条加载器**不再**选中它（那一下只展开/收起，
-    // 见 onLoaderTreeClicked() 上面那段）—— 点一下就去碰那棵树会造成"点不开了"，别再走回去。
+    m_installPage->backToVersionTree();
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
@@ -2946,10 +2691,10 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             if (event->type() == QEvent::MouseButtonPress) {
                 // 按下就动手（松开那一下只负责被吃掉）：跟普通按钮一样，按下去就该有反应。
                 // 这一下取消的是"装这个加载器"这件事 —— 退回「不装（纯原版）」。
-                // NOTE: **钉住的版本号留着**（不清 m_chosenLoaderVersion）：那是用户自己挑的
+                // NOTE: **钉住的版本号留着**（不清 m_chosenVersion）：那是用户自己挑的
                 // 一版，按一下叉就把它忘掉，下次再选中这条加载器还得从头找一遍。
                 // 它只在"这一条被选中"的时候才显示，留着不会让人看到不该看的东西。
-                selectLoader(MainWindowUI::modLoaderNoneIndex());
+                m_installPage->selectLoader(MainWindowUI::modLoaderNoneIndex());
             }
             return true;
         }
@@ -3142,220 +2887,11 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
     return QMainWindow::eventFilter(watched, event);
 }
 
-void MainWindow::requestAllLoaderVersions() {
-    // 进安装页时把**四个加载器**的版本列表一次性全问出去（不能点开了再获取，
-    // 得全获取完）。四条各占一格请求（见 VersionManager 里 m_loaderVersionRequests
-    // 那段），所以四条真能同时在飞。
-    //
-    // 代价是进一次安装页约 500 KB（Forge 那份 maven 清单自己就 211 KB）—— 换来的是
-    // "点开哪一条都立刻有东西看"，而不是"点开 → 等一下 → 才出列表"那一下。
-    if (m_installGameVersion.isEmpty()) {
-        return;  // 没定下来装哪个游戏版本，问不出"这个版本上有哪些加载器版本"
-    }
-    for (int i = 0; i < MainWindowUI::modLoaderOptionTexts().size(); ++i) {
-        VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
-        if (!VersionManager::loaderKindFromIndex(i, &kind)) {
-            continue;  // 「不装（纯原版）」那一条：原版没有加载器版本可问
-        }
-        QTreeWidgetItem *item = loaderItem(i);
-        if (item == nullptr) {
-            continue;
-        }
-        // 先摆一条灰的"正在获取…"占住那一条底下的位置：空着一条看着像"这个加载器一个
-        // 版本都没有"。回复在 onLoaderVersionsFetched() 里收，按"加载器 + 游戏版本"认领。
-        item->setExpanded(false);
-        qDeleteAll(item->takeChildren());
-        auto *waiting = new QTreeWidgetItem(item);
-        waiting->setText(MainWindowUI::loaderTreeKeyColumn(),
-                         MainWindowUI::loaderVersionFetchingText());
-        waiting->setDisabled(true);  // 灰的、点不动：它不是能选的东西（选了也不该有反应）
-        m_versionManager->requestLoaderVersions(m_installGameVersion, kind);
-    }
-}
-
-void MainWindow::fillLoaderVersionItems(int loaderIndex,
-                                        const LoaderMeta::LoaderVersionList &versions,
-                                        bool includeChannels) {
-    QTreeWidgetItem *item = loaderItem(loaderIndex);
-    if (item == nullptr) {
-        return;
-    }
-    // 别动用户已经选中的那一条：列表可能刚好是"同一条"（缓存命中的那次会走到这里），
-    // 重灌一次把它顶回第 0 条就是"我选的 47.4.10 自己变回最新版了"。选中的版本号在
-    // m_chosenLoaderVersion 里，所以重灌只是把条目重建一遍、再把光标放回去。
-    const QString chosen = pinnedLoaderVersion(loaderIndex);
-    const bool wasExpanded = item->isExpanded();
-    // 连"正在获取…"那条一起清掉：它就是等这一份列表用的。
-    qDeleteAll(item->takeChildren());
-    // 这一版上有没有正式版 —— 稳定那一行灰不灰就看它。**列表为空时一律当作"不知道"**：
-    // 那时候这份列表根本没取到（下面 includeChannels 为假的那一支是"问到了、就是没有"，
-    // 连这两行都不摆），而"让安装器自己挑"那条路不依赖这份列表，所以不该把用户堵死。
-    bool hasStable = false;
-    for (const LoaderMeta::LoaderVersionEntry &entry : versions) {
-        hasStable = hasStable || entry.stable;
-    }
-    // 头两条 = 那两档（见 MainWindowUI::loaderVersionLatestText 上面那段）。它们的 userData
-    // 是 LoaderMeta::loaderChannelKey() 那两个键，再往下才是具体版本号。
-    //
-    // includeChannels 为假 = 这一版**一个能装的都没有**（versions 也是空的）：连这两档
-    // 都不留 —— 理由写在 onLoaderVersionsFetched() 那段（留着等于让用户挑一条必然装不
-    // 出来的路）。调用方保证"includeChannels 假"只在这种情况出现。
-    QTreeWidgetItem *latestItem = nullptr;
-    QTreeWidgetItem *stableItem = nullptr;
-    if (includeChannels) {
-        const auto mark = [loaderIndex](QTreeWidgetItem *row) {
-            row->setIcon(MainWindowUI::loaderTreeKeyColumn(),
-                         QIcon(VersionIcons::loaderMark(
-                             loaderIndex, MainWindowUI::versionTreeIconSize())));
-        };
-        latestItem = new QTreeWidgetItem(item);
-        latestItem->setText(MainWindowUI::loaderTreeKeyColumn(),
-                            MainWindowUI::loaderVersionLatestText());
-        latestItem->setData(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole,
-                            LoaderMeta::loaderChannelKey(LoaderMeta::LoaderChannel::Newest));
-        mark(latestItem);
-
-        stableItem = new QTreeWidgetItem(item);
-        stableItem->setText(MainWindowUI::loaderTreeKeyColumn(),
-                            MainWindowUI::loaderVersionStableText());
-        stableItem->setData(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole,
-                            LoaderMeta::loaderChannelKey(LoaderMeta::LoaderChannel::Stable));
-        mark(stableItem);
-        // **问到了、可一条正式版都没有**（NeoForge + 26.3 就是：11 个构建全是 `-beta`）：
-        // 这一行灰掉、第二行小字把原因写出来。留着能点的它等于让用户挑一条必然装不出来的
-        // 路 —— 装的时候会以"还没有支持 X 的版本"收场。
-        if (!versions.isEmpty() && !hasStable) {
-            stableItem->setDisabled(true);
-            stableItem->setData(MainWindowUI::loaderTreeKeyColumn(),
-                                MainWindowUI::rowSubTextRole(),
-                                MainWindowUI::loaderVersionStableMissingText());
-        }
-    }
-    QTreeWidgetItem *chosenItem = nullptr;
-    for (const LoaderMeta::LoaderVersionEntry &entry : versions) {
-        const QString &version = entry.version;
-        auto *child = new QTreeWidgetItem(item);
-        child->setText(MainWindowUI::loaderTreeKeyColumn(), version);
-        child->setData(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole, version);
-        // 子条目前面挂**它自己那个加载器**的标志（那一列列出来的是"Fabric 能装哪些版本"，
-        // 前面顶个草方块会让人以为是原版号）。
-        child->setIcon(MainWindowUI::loaderTreeKeyColumn(),
-                       QIcon(VersionIcons::loaderMark(loaderIndex,
-                                                      MainWindowUI::versionTreeIconSize())));
-        // 不是正式版的那几条：第二行小字标出「测试版」。**照列、也能装**（beta 版虽然
-        // 不稳定，但是也能使用）—— 这一行小字是"它是什么"，不是"它不行"。
-        if (!entry.stable) {
-            child->setData(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::rowSubTextRole(),
-                           MainWindowUI::loaderVersionBetaSubText());
-        }
-        if (version == chosen) {
-            chosenItem = child;
-        }
-    }
-    // 光标放回"现在钉着的那一条"—— 展开之后一眼看到的就是它。没挑过（空串）时摆在
-    // **默认会走的那一档**上：稳定档（它灰了就是最新档），和安装那条路的默认值一致。
-    // **这不改选中状态**：选中是 m_selectedLoaderIndex 的事，这里只是画光标。
-    if (chosenItem == nullptr) {
-        LoaderMeta::LoaderChannel channel;
-        if (LoaderMeta::loaderChannelFromKey(chosen, &channel)) {
-            chosenItem = channel == LoaderMeta::LoaderChannel::Newest ? latestItem : stableItem;
-        } else {
-            // 没挑过、或者钉的那条这次没列出来（换了游戏版本那种）：退回默认那一档。
-            chosenItem = (stableItem != nullptr && !stableItem->isDisabled()) ? stableItem
-                                                                             : latestItem;
-        }
-    }
-    QTreeWidget *tree = m_ui->getLoaderTree();
-    // chosenItem 可能是空指针（"这一版一个能装的都没有"那次：连那两档都没有，底下只剩一条
-    // 灰的）。那种情况下这一列本来就没有"现在钉着的那一条"可指 —— 什么都不做。
-    if (tree != nullptr && wasExpanded && chosenItem != nullptr) {
-        tree->setCurrentItem(chosenItem);
-    }
-    // 列表是灌在**已经展开**的那一条底下的：条目换了一批，那棵树的高度得跟着重算
-    // （MainWindowUI 那边挂在 expanded/collapsed 上，可这一批是原地换的、信号不会响）。
-    // 收起来的那条不用管：它在展开的那一刻会自己算一次。
-    if (wasExpanded) {
-        item->setExpanded(false);
-        item->setExpanded(true);
-    }
-}
-
 void MainWindow::onLoaderVersionsFetched(const QString &gameVersion, int loaderIndex, bool success,
                                          const LoaderMeta::LoaderVersionList &versions,
                                          const QString &errorMessage) {
-    // 这一发回复可能已经过时了（用户换了游戏版本）。按"这条回复讲的是不是现在这一页"来判，
-    // 过时的直接丢 —— 填错地方的下场是"点了 Fabric 却看到 Forge 的版本号"，那不报错、
-    // 只会装错东西。
-    if (gameVersion != m_installGameVersion) {
-        return;
-    }
-    // 那棵树是按**下标**摆的，日志里那句"是哪个加载器"要的是名字，所以这里翻译回枚举；
-    // 反函数在这边失手（表没改全）就当没收到 —— 宁可那一条底下空着，也不要填错。
-    VersionManager::LoaderKind kind;
-    if (!VersionManager::loaderKindFromIndex(loaderIndex, &kind)) {
-        return;
-    }
-    QTreeWidgetItem *item = loaderItem(loaderIndex);
-    if (item == nullptr) {
-        return;
-    }
-    if (!success) {
-        // 拉不到：那一条底下**只留那两档**，外加一条灰的「列表没取到」把话说到 ——
-        // 不钉版本这条路是不需要这份列表的（安装器自己会挑，问的是另一份东西：
-        // promotions / maven 清单，见 installLoaderVersion 那条路），所以"列不出来"不该把
-        // 安装整件事堵死，但也不能一声不吭。
-        // 两档都**不灰**：这一刻我们根本不知道有没有正式版（那份列表没到手），而"让安装器
-        // 自己挑"这条路由数据层去挑、挑不出来会在安装那条路上说清楚。
-        // 具体原因（超时？404？）写进日志 —— 那是给排查用的，不是给用户读的。
-        fillLoaderVersionItems(loaderIndex, LoaderMeta::LoaderVersionList(),
-                               /*includeChannels=*/true);
-        auto *failed = new QTreeWidgetItem(item);
-        failed->setText(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::loaderVersionFailedText());
-        failed->setDisabled(true);
-        appendLog(tr("%1 在 %2 上有哪些版本没取到：%3")
-                      .arg(VersionManager::loaderDisplayName(kind), gameVersion, errorMessage));
-        return;
-    }
-    if (versions.isEmpty()) {
-        // **问到了、就是没有**（四种加载器上都可能：Forge 还没支持某个刚发的快照）。
-        // 这时候底下**不留那两档**（列表里没有能装的版本，就不保留「自动」那两档）：
-        // 留着它等于让用户挑一条必然装不出来的路 —— 安装那条路会以"X 还没有支持 Y 的版本"
-        // 收场，那一下本来在这一眼就该说完（这种情况摆「无可用版本」而不是「列表没取到」）。
-        //
-        // NOTE: 起"**有预览版、没有正式版**"的那种版本**不算**这一支 ——
-        // 「beta 版虽然不稳定，但是也能使用」，所以那一份列表非空、照列，
-        // 只是稳定那一行是灰的。
-        // 于是这条加载器**一个能点的子条目都没有**，也就选不中它 —— 这正是"这一条我装不了"
-        // 该有的样子；底下那条灰的「无可用版本」只是把原因写出来。
-        fillLoaderVersionItems(loaderIndex, LoaderMeta::LoaderVersionList(),
-                               /*includeChannels=*/false);
-        auto *none = new QTreeWidgetItem(item);
-        none->setText(MainWindowUI::loaderTreeKeyColumn(),
-                      MainWindowUI::loaderVersionUnavailableText());
-        none->setDisabled(true);
-        appendLog(tr("%1 还没有支持 %2 的版本。")
-                      .arg(VersionManager::loaderDisplayName(kind), gameVersion));
-        return;
-    }
-    // 这一版上一条正式版都没有（真实例子：NeoForge + 26.3，11 个构建全是 `-beta`）：
-    // 用户还什么都没挑的时候，把默认那一档**挪到「最新版」**上 —— 不然什么都没点、点安装，
-    // 走的是稳定档那条必然装不出来的路（那一行同时也是灰的，见 fillLoaderVersionItems）。
-    //
-    // NOTE: 只在他**没挑过**的时候改（空串）。他已经挑过的那一格不许动 —— 那是他自己的
-    // 选择，哪怕挑的正是一条现在没列出来的版本号。
-    if (pinnedLoaderVersion(loaderIndex).isEmpty()) {
-        bool hasStable = false;
-        for (const LoaderMeta::LoaderVersionEntry &entry : versions) {
-            hasStable = hasStable || entry.stable;
-        }
-        if (!hasStable) {
-            m_chosenLoaderVersion.insert(
-                loaderIndex, LoaderMeta::loaderChannelKey(LoaderMeta::LoaderChannel::Newest));
-        }
-    }
-    // 灌进去就完了 —— 不存缓存：这一批是进安装页时一次性问全的（requestAllLoaderVersions），
-    // 每一条在这次安装页里只会被灌这一次。
-    fillLoaderVersionItems(loaderIndex, versions, /*includeChannels=*/true);
+    m_installPage->onLoaderVersionsFetched(gameVersion, loaderIndex, success, versions,
+                                           errorMessage);
 }
 
 // ---------------------------------------------------------------------------
@@ -3506,37 +3042,9 @@ void MainWindow::downloadResourceVersion(QTreeWidgetItem *item) {
 void MainWindow::installResourceVersion(ResourceCatalog::Kind kind, const QString &displayTitle,
                                         ResourceCatalog::VersionEntry version,
                                         ResourceCatalog::Source source) {
-    // 判据：这一版声明的必装前置里，**目标实例还缺哪几个**（`ModDependencies` 那边算，
-    // 纯函数）。一条不缺就走下面那一句 —— 那时候**一个请求都不多发**。
-    //
-    // NOTE: 资源包 / 数据包**不看**：它们那一版列的是 `minecraft` / `datapack`（游戏本体），
-    // 那和"前置"不是一回事；整合包更不用 —— 它的依赖在清单里，本来就是整个包一起装。
-    if ((kind == ResourceCatalog::Kind::Mod || kind == ResourceCatalog::Kind::Shader) &&
-        m_settings->warnMissingDependencies() && !m_dependencyCheck.active) {
-        const QString instanceId = dependencyInstanceId();
-        // 光影的**豁免**：这个实例已经能跑光影了（加载器是 OptiFine，或者
-        // mods/ 里已经有 iris / oculus / optifine）⇒ 整段跳过。
-        // 理由：Modrinth 上光影项目声明的前置就是 `iris`（OptiFine 那一支还有的写
-        // `optifine`），而**装了 OptiFine 的人不需要 iris** —— 不豁免的话，他每下一次光影
-        // 都被劝着装一个用不上的前置。判据直接借现成的 `instanceShaderUsable()`
-        // （整段词匹配那一条也在它里面，不在这儿再写一遍）。
-        const bool shaderAlreadyUsable =
-            kind == ResourceCatalog::Kind::Shader && instanceShaderUsable(instanceId);
-        if (!instanceId.isEmpty() && !shaderAlreadyUsable) {
-            const ModDependencies::Target target = dependencyTargetFor(instanceId, source);
-            bool installedKnown = false;
-            const QSet<QString> installed = installedModKeys(instanceId, &installedKnown);
-            const QList<ModDependencies::Lookup> missing =
-                ModDependencies::missingRequiredDependencies(version, installed, target);
-            if (!missing.isEmpty()) {
-                startDependencyCheck(kind, displayTitle, version, target, missing, installedKnown);
-                return;
-            }
-        }
-        // 设置里关着 / 不知道装进哪个实例 / 光影已经能用 / 没有缺的：交给下面那一句，
-        // 它的判断和话术一个字都不变（关掉 = 只下他点的那一版）。
-    }
-    installResourceVersionNow(kind, displayTitle, version, {});
+    // 薄壳：缺前置那一趟、以及"下到哪儿"全在 `ResourceInstallController`（见那边头文件
+    // 第一段 —— 这一趟的形状和每一条判断的理由都写在那儿）。
+    m_resourceInstall->install(kind, displayTitle, version, source);
 }
 
 QString MainWindow::dependencyInstanceId() const {
@@ -3546,7 +3054,7 @@ QString MainWindow::dependencyInstanceId() const {
     // 递进来的本来就是下拉框里那一个，两份值一样）。
     // NOTE: 判据带上 `open`，是为了不让**关掉那一页之后**残留的旧值去顶替下拉框 ——
     // 用户关掉详情页、回到下载页直接下另一个模组时，目标该是下拉框上那一个。
-    // （异步那一趟不受影响：`finishDependencyCheck()` 把实例**显式传下去**了。）
+    // （异步那一趟不受影响：`ResourceInstallController::finishDependencyCheck()` 把实例**显式传下去**了。）
     if (m_resourcePage->state().open && !m_resourcePage->state().instanceId.isEmpty()) {
         return m_resourcePage->state().instanceId;
     }
@@ -3623,174 +3131,11 @@ QSet<QString> MainWindow::installedModKeys(const QString &instanceId, bool *know
     keys = m_instanceIconController->recognizedResourceKeysUnder(modsDir);
     // `known` 说的是"这个实例的 mods 到底认过没有"，而不是"认出来几个" ——
     // 一个模组都没认出（新实例、全是自己改过的 jar）和"没进过文件管理页"都表现为空表，
-    // 而界面上那两句话不一样（见 startDependencyCheck）。
+    // 而界面上那两句话不一样（见 `ResourceInstallController::startDependencyCheck()`）。
     if (known != nullptr) {
         *known = m_instanceIconController->recognizedInstanceIs(instanceId);
     }
     return keys;
-}
-
-void MainWindow::startDependencyCheck(ResourceCatalog::Kind kind, const QString &displayTitle,
-                                      const ResourceCatalog::VersionEntry &version,
-                                      const ModDependencies::Target &target,
-                                      const QList<ModDependencies::Lookup> &missing,
-                                      bool installedKnown) {
-    m_dependencyCheck = DependencyCheck{};
-    m_dependencyCheck.active = true;
-    m_dependencyCheck.kind = kind;
-    m_dependencyCheck.title = displayTitle;
-    m_dependencyCheck.version = version;
-    m_dependencyCheck.instanceId = target.instanceId;
-    m_dependencyCheck.target = target;
-    m_dependencyCheck.missing = missing;
-    // "这个实例的 mods 到底认过没有"（见 installedModKeys 的 known 出参）—— 它只决定
-    // 弹框那句话怎么写（"这几个还没装" vs "无法确认你装了没有"），所以跟着这一趟存着。
-    m_dependencyCheck.installedKnown = installedKnown;
-
-    QStringList ids;
-    ids.reserve(missing.size());
-    for (const ModDependencies::Lookup &lookup : missing) {
-        if (!ids.contains(lookup.dependency.projectId)) {
-            ids.append(lookup.dependency.projectId);
-        }
-    }
-    // 消费方名字（`dependency`）**必须跟详情页那一趟（`detail`）分开**：两处问的完全可能
-    // 是同一批号，而 `fetchProjects()` 是按钥匙去重的（同一把钥匙再来一发把前一发掐掉）。
-    // 撞上的症状是"先发的那一趟永远等不到回信"，屏幕上一点异常都没有。
-    m_dependencyCheck.titleRequestKey = ModDependencies::projectsKeyFor(
-        QStringLiteral("dependency"), ids, m_dependencyCheck.target.source);
-    appendLog(ModDependencies::dependencyLookupLogText(missing.size()));
-    m_resourceStore->fetchProjects(m_dependencyCheck.titleRequestKey, ids,
-                                   m_dependencyCheck.target.source);
-}
-
-void MainWindow::onDependencyProjectsFinished(const QString &requestKey,
-                                             const QList<ResourceCatalog::Hit> &hits,
-                                             const QString &problem) {
-    if (!m_dependencyCheck.active || requestKey != m_dependencyCheck.titleRequestKey) {
-        return; // 不是这一趟等的（用户中途又点了别的下载）
-    }
-    // 名字取不到**不算错**：那一条退成项目号显示（见 ModDependencies::buildPlan 那段），
-    // 而"没有名字"挡不住"要不要一起下"这个决定。所以这里只记一句日志。
-    if (!problem.isEmpty()) {
-        appendLog(tr("前置模组的名字没取到：%1").arg(problem));
-    }
-    // 名字进**会话级**那个缓存（详情页那一行读的是同一份）。取不到名字的那几条**不写**：
-    // 写一个空串进去等于把"还没问过"说成"问过了、它没名字"。
-    rememberProjectTitles(hits, m_dependencyCheck.target.source);
-
-    // 逐条去问"它有哪些版本"。**同一批发出去**（一把钥匙一个项目，互相不撞）——
-    // 串起来问的话，N 个前置就是 N 个往返，而它们本来就互不相干。
-    m_dependencyCheck.answers.clear();
-    m_dependencyCheck.pending = 0;
-    for (const ModDependencies::Lookup &lookup : m_dependencyCheck.missing) {
-        ++m_dependencyCheck.pending;
-        m_resourceStore->fetchVersions(lookup.requestKey, lookup.dependency.projectId,
-                                       m_dependencyCheck.target.source,
-                                       m_dependencyCheck.target.gameVersion,
-                                       m_dependencyCheck.target.loader);
-    }
-    if (m_dependencyCheck.pending == 0) {
-        finishDependencyCheck(); // 一条都不缺（走不到：missing 非空才进这一趟）
-    }
-}
-
-void MainWindow::onDependencyVersionsFinished(const QString &requestKey,
-                                             const QList<ResourceCatalog::VersionEntry> &versions,
-                                             const QString &problem) {
-    if (!m_dependencyCheck.active) {
-        return;
-    }
-    bool ours = false;
-    for (const ModDependencies::Lookup &lookup : m_dependencyCheck.missing) {
-        if (lookup.requestKey == requestKey) {
-            ours = true;
-            break;
-        }
-    }
-    if (!ours) {
-        return; // 详情页那一发（或者别的页面）的回复，不关这一趟的事
-    }
-    // 失败时**不往 answers 里放空表**：`buildPlan` 那边"钥匙缺席"和"回来了但是空的"
-    // 是两句不同的话（"没问到"和"它就是没有版本"）—— 放空表等于把前者说成后者。
-    if (problem.isEmpty()) {
-        m_dependencyCheck.answers.insert(requestKey, versions);
-    }
-    if (m_dependencyCheck.pending > 0) {
-        --m_dependencyCheck.pending;
-    }
-    if (m_dependencyCheck.pending == 0) {
-        finishDependencyCheck();
-    }
-}
-
-void MainWindow::finishDependencyCheck() {
-    DependencyCheck check = m_dependencyCheck;
-    m_dependencyCheck.active = false;
-
-    const bool installedKnown = check.installedKnown;
-
-    // 名字从会话缓存里查（详情页那一行读的是同一份）。缺的那几条**退成项目号**——
-    // 列出来总比"有 2 个前置没找到"强（见 ModDependencies::buildPlan 那段），
-    // 而"为什么没名字"已经写进日志了（见 onDependencyProjectsFinished）。
-    QHash<QString, QString> titles;
-    for (const ModDependencies::Lookup &lookup : check.missing) {
-        const QString name =
-            m_projectTitles.value(projectTitleKey(check.target.source, lookup.dependency.projectId));
-        if (!name.isEmpty()) {
-            titles.insert(lookup.dependency.projectId, name);
-        }
-    }
-
-    const ModDependencies::Plan plan =
-        ModDependencies::buildPlan(check.missing, check.answers, titles);
-
-    QStringList names;
-    names.reserve(check.missing.size());
-    for (const ModDependencies::Lookup &lookup : check.missing) {
-        const QString name = titles.value(lookup.dependency.projectId);
-        names.append(name.isEmpty() ? lookup.dependency.projectId : name);
-    }
-
-    const QString note = ModDependencies::unresolvedNoteText(plan.unresolved);
-    QList<ModDependencies::Resolved> extras;
-    if (plan.downloads.isEmpty()) {
-        // 一条都没解开：**照样把这个模组装上**，但得如实说一句"前置一条都没找到"。
-        // 不说的话，用户点完下载看到的就是"下好了"，而进游戏那一下就崩。
-        //
-        // NOTE: 这一档走 `ask()` 而不是 `warning()`：只有 `ask()` 带得了那行**灰字**
-        // （那行灰字写的是"可以在设置里关掉"）。一颗「知道了」按下去就走。
-        QString text = ModDependencies::dependencyPromptText(check.kind, names);
-        if (!note.isEmpty()) {
-            text += QStringLiteral("\n\n") + note;
-        }
-        InlineMessage::ask(m_ui->overlay(), MessageKind::Warning,
-                           ModDependencies::dependencyPromptTitle(), text, {tr("知道了")}, 0, -1,
-                           false, ModDependencies::dependencyPromptNoteText());
-    } else {
-        QString text = installedKnown
-                           ? ModDependencies::dependencyPromptText(check.kind, names)
-                           : ModDependencies::dependencyPromptUnknownText(check.kind, names);
-        if (!note.isEmpty()) {
-            text += QStringLiteral("\n\n") + note;
-        }
-        // 两颗按钮：左「只下这个」（**默认那颗** —— 误按回车不该替用户多做一件事），
-        // 右「一起下载」。
-        // NOTE: 必须用 `ask()`：`question()` 带不了那行灰字（没有 note 这一格）。
-        const int choice = InlineMessage::ask(
-            m_ui->overlay(), MessageKind::Question, ModDependencies::dependencyPromptTitle(), text,
-            {ModDependencies::dependencyOnlyThisButtonText(),
-             ModDependencies::dependencyAllButtonText()},
-            0, -1, false, ModDependencies::dependencyPromptNoteText());
-        if (choice == 1) {
-            extras = plan.downloads;
-        }
-    }
-
-    // `check.instanceId` 显式传下去：这一趟是从一轮网络往返**之后**回到这里的，那期间
-    // 用户完全可能把详情页收掉（于是 `m_resourcePage.open` 落了、`dependencyInstanceId()`
-    // 只能退回下拉框）。检查时算的是哪个实例，就得装进哪个实例。
-    installResourceVersionNow(check.kind, check.title, check.version, extras, check.instanceId);
 }
 
 // ============================ 实例更新检测 ============================
@@ -3849,63 +3194,22 @@ void MainWindow::finishUpdateCheck(QString instanceId) {
 // 更新中心
 // ===========================================================================
 //
-// 这一段的形状：**判据在 `src/manage/UpdatePolicy`**（"这一条现在要不要提示"）、
-// **回滚在 `src/manage/UpdateRollback`**（"动手之前先留一份旧的"）、**页面在
-// `ui/UpdateCenterPage`**（只画不判）。这一层夹在中间，干的只有三件事：
-// ① 把上面那一趟检测的原始结论翻成页面认的那一份（`updateCenterReportForPage()`）；
-// ② 用户按下去之后把它翻成一个动作（更新 / 记一笔忽略固定 / 还原）；
-// ③ 每一批更新起一个任务账本条目，并**逐个资源**回报结果。
+// 这一段现在只剩两条薄壳：那一页的**全部状态**（"忽略 / 固定"那一本账、页面对象、开页时
+// 记下的实例 id）以及把它翻成动作的那几条，都在 `controllers/UpdateCenterController`
+// （检测那一趟自己另有一层，见 `controllers/InstanceUpdateCheckController`）。
 //
-// 【为什么忽略 / 固定一动就要重算一遍名单】
+// 【为什么还留着这两条壳】
 //
-// 「可更新」那一档在文件管理页上是个**筛选**（`m_instanceOutdatedPaths`）。不重算的话，
-// 用户刚忽略掉的那一条仍然算在"可更新 3 条"里 —— 而他明明看着那一行写着「已忽略这一版」。
+// 按名字叫它们的**不止这里**：检测收尾那条路要清一遍过期的固定、再把「可更新」名单重算
+// 一次（`InstanceUpdateCheckController::finishUpdateCheck()`）。壳的意思只是"主窗口仍然认
+// 这个名字"，实现随状态一起搬走了 —— 状态和动它的那几条在同一个 .cpp 里。
 
 void MainWindow::rebuildInstanceOutdatedPaths(const QString &instanceId) {
-    if (instanceId.isEmpty()) {
-        return;
-    }
-    // 没查过 = 什么都不动。★ **不能**在那儿写一个空名单："键在不在 = 查过没有"（见
-    // m_instanceOutdatedPaths 那段），塞一个空表进去等于替用户说了一句"查过了，都是最新"。
-    const auto result = m_instanceUpdateResults.constFind(instanceId);
-    if (result == m_instanceUpdateResults.constEnd()) {
-        return;
-    }
-    const QString instanceDir = AppPaths::versionDir(instanceId);
-
-    QStringList outdatedPaths;
-    for (const ModDependencies::UpdateVerdict &verdict : result.value().verdicts) {
-        if (verdict.state != ModDependencies::UpdateState::Outdated) {
-            continue;
-        }
-        // 判据**只此一处**（见 UpdatePolicy 文件头：忽略记的是"那一版"、固定记的是"那一份"）。
-        // 钥匙先摘掉 `.disabled` —— 和文件管理页那把钥匙逐字同一个（`identityPath()`）。
-        const UpdatePolicy::Entry entry = UpdatePolicy::entryOf(
-            m_updatePolicy, instanceId,
-            UpdatePolicy::storeKey(instanceDir, InstanceFilesPage::identityPath(verdict.item.path)));
-        if (UpdatePolicy::suppressed(entry, verdict.item.sha1, verdict.latestVersionId)
-            != UpdatePolicy::Suppress::None) {
-            continue;
-        }
-        outdatedPaths.append(verdict.item.path);
-    }
-    m_instanceOutdatedPaths.insert(instanceId, outdatedPaths);
-
-    // 这一页要是正开着就**当场重摆**（用户刚按下的就是它上面那一行）。
-    if (m_updateCenterPage != nullptr && m_updateCenterInstanceId == instanceId) {
-        m_updateCenterPage->setReport(updateCenterReportForPage(instanceId));
-    }
+    m_updateCenter->rebuildOutdatedPaths(instanceId);
 }
 
 bool MainWindow::saveUpdatePolicy() {
-    QString problem;
-    if (UpdatePolicy::save(m_updatePolicy, UpdatePolicy::storePath(), &problem)) {
-        return true;
-    }
-    // 写不成**只写日志**：用户按的是一颗"以后别提示我"，弹一个"存不进去"的框除了让他分心
-    // 以外没有下一步可做 —— 而那一份记录在这一次会话里仍然是生效的（内存里那份还在）。
-    appendLog(tr("「更新中心」那份记录没能写进盘：%1").arg(problem));
-    return false;
+    return m_updateCenter->savePolicy();
 }
 
 void MainWindow::setInstanceMode(MainWindowUI::InstanceMode mode) {
@@ -4211,134 +3515,10 @@ void MainWindow::activateServerRow(const QString &serverId) {
     }
     const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
     if (process != nullptr && process->isRunning()) {
-        stopServer(serverId);
+        m_serverRun->stop(serverId);
         return;
     }
-    startServer(serverId);
-}
-
-void MainWindow::startServer(const QString &serverId, bool automatic) {
-    if (serverId.isEmpty()) {
-        return;
-    }
-    // 闸⓪：这一份的世界正在备份 / 还原。那一趟现在读 / 换的正是这个世界目录 —— 这时候
-    // 起服，它读写到的是"一半新一半旧"的存档，收尾还会把那几份文件当成新内容再盖一遍。
-    if (m_serverFileBusy.contains(serverId)) {
-        if (automatic) {
-            // 自动重启是它自己起的（用户没在等这一下），不弹窗，记一行就够。
-            appendLog(tr("%1 的世界正在备份或者还原，这一次没有自动重启。").arg(serverId));
-        } else {
-            InlineMessage::information(
-                m_ui->overlay(), tr("这个服务端这会儿动不得"),
-                tr("它的世界正在备份或者还原。等那一趟完了再启动 —— 现在起服读写到的是"
-                   "一半新一半旧的存档。"));
-        }
-        return;
-    }
-    // 用户亲手起的 = 新的一轮：上一轮的"连着崩几次"从这里清零。自动重启那一路**不清**
-    // （理由见 `ServerRestart::decide()`：清了就等于不限次数）。
-    if (!automatic) {
-        m_serverRestartAttempts.remove(serverId);
-    }
-    m_serverStopRequested.remove(serverId);
-    // 闸①：装好了没有。判据是 `ServerRegistry::describe()`（= `ServerModel::isInstalled()`），
-    // 和那一行上写着「未安装」的是同一个出处。
-    const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
-    if (!entry.installed) {
-        InlineMessage::warning(m_ui->overlay(), tr("这个服务端还不能启动"),
-                               ServerRun::notInstalledMessage());
-        return;
-    }
-    ServerRun::ServerProcess *process = m_serverWorkspace->ensureProcess(serverId);
-    if (process == nullptr) {
-        return;
-    }
-    // 闸②：已经在跑了（同一行连点两下、或者右键菜单里又点了一次）。
-    if (process->isRunning()) {
-        appendLog(tr("%1 已经在跑了。").arg(serverId));
-        return;
-    }
-    // 闸③：EULA。**只有用户自己勾了才写**（见 ensureServerEula）。
-    if (!ensureServerEula(serverId)) {
-        return;
-    }
-    // 闸④：那条命令拼得出来吗（这一档要的信息在不在我们记的那一份里）。
-    QString problem;
-    const ServerInstall::Plan plan = serverLaunchPlan(serverId, &problem);
-    if (!plan.ok) {
-        InlineMessage::critical(m_ui->overlay(), tr("起不了这个服务端"), problem);
-        return;
-    }
-    // 闸⑤：java。判据和装加载器/装服务端那两条路**同一套**（版本 json 里的 `javaVersion`
-    // 说了算），拿不到就说清楚为什么。
-    const ServerModel::Info info = ServerRegistry::readMeta(serverId);
-    // 这一个自己指定过 Java 就用它（`Info::javaPath` 的原话），否则跟全局那一套。
-    const QString configuredJava =
-        info.javaPath.isEmpty() ? m_javaSettings->javaPath() : info.javaPath;
-    QString java = configuredJava;
-    int requiredJavaMajor = 0;
-    const QJsonObject gameJson = m_versionManager->getVersionJson(info.gameVersion);
-    if (!gameJson.isEmpty()) {
-        requiredJavaMajor = gameJson[QStringLiteral("javaVersion")]
-                                .toObject()[QStringLiteral("majorVersion")]
-                                .toInt();
-    }
-    QString javaReason;
-    if (!m_javaSettings->installerJavaFor(requiredJavaMajor, configuredJava, &java, &javaReason)) {
-        appendLog(tr("起这个服务端要的 Java 拿不到：%1").arg(javaReason));
-        InlineMessage::warning(m_ui->overlay(), tr("Java 版本不够"), javaReason);
-        return;
-    }
-    if (java != configuredJava) {
-        appendLog(tr("这个服务端要 Java %1，起的时候用 %2").arg(requiredJavaMajor).arg(java));
-    }
-
-    // 那条命令 + 宽限那两个入参（模组数量 / 存档大小，见 ServerRun.hpp 那张表）。
-    // 内存：这一个自己配过就用它，没配过（`memoryMb <= 0`，见 `ServerModel::Info` 那句）
-    // 就跟全局那一档 —— 和上面 java 的规矩一样。
-    const int memoryMb = info.memoryMb > 0 ? info.memoryMb : m_javaSettings->xmx();
-    const QStringList arguments = ServerRun::launchArguments(plan, memoryMb);
-    const int mods = countServerMods(entry.dirPath);
-    const qint64 worldBytes = serverWorldBytes(entry.dirPath);
-    const int gracefulMs = ServerRun::gracefulStopMs(mods, worldBytes);
-    appendLog(tr("起服务端 %1：%2 个模组、存档 %3 MB，停下来最多等 %4 秒。")
-                  .arg(entry.name.isEmpty() ? serverId : entry.name)
-                  .arg(mods)
-                  .arg(worldBytes / (1024 * 1024))
-                  .arg(gracefulMs / 1000));
-    if (!plan.note.isEmpty()) {
-        // 那一档自己的补充说明（"第一趟要联网""入口是两张参数文件"…）——**唯一出处**，
-        // 照抄，别在这儿另编一句。
-        appendLog(plan.note);
-    }
-    m_serverStartedAt.insert(serverId, QDateTime::currentDateTime());
-    process->start(serverId, entry.dirPath, java, arguments, gracefulMs);
-}
-
-void MainWindow::stopServer(const QString &serverId) {
-    ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
-    if (process == nullptr || !process->isRunning()) {
-        return;
-    }
-    // "这一次是我们让它停的"：退出回调要拿这个把 `Crash` 那一档排掉（见 `onServerExited`）。
-    m_serverStopRequested.insert(serverId);
-    if (process->requestStop()) {
-        return;
-    }
-    // 那一句写不进去（它的 stdin 已经关了 / 它根本不在读）⇒ 只剩强杀一条路。这时候还
-    // 摆着"再等 X 秒"就是骗人，直接说实话。
-    appendLog(tr("%1：让它停的那一句没能写进去，只能强制结束。").arg(serverId));
-    process->forceKill();
-}
-
-void MainWindow::forceKillServer(const QString &serverId) {
-    ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
-    if (process == nullptr || !process->isRunning()) {
-        return;
-    }
-    // 同上：这是用户让它死的，退出码再难看也不是"崩了"。
-    m_serverStopRequested.insert(serverId);
-    process->forceKill();
+    m_serverRun->start(serverId);
 }
 
 void MainWindow::openServerConsole(const QString &serverId) {
@@ -4403,7 +3583,7 @@ void MainWindow::removeServer(const QString &serverId) {
     const QString shown = entry.name.isEmpty() ? serverId : entry.name;
     // 世界正在备份 / 还原：那一趟还在往这个目录里读 / 写，删掉它等于把正在解压的落点
     // 从底下抽走（备份那一趟则会把"删到一半的目录"打进包里）。
-    if (m_serverFileBusy.contains(serverId)) {
+    if (m_serverRun->fileBusy(serverId)) {
         InlineMessage::warning(m_ui->overlay(), tr("这一份这会儿不能删"),
                                tr("「%1」的世界正在备份或者还原。等那一趟完了再删。")
                                    .arg(shown));
@@ -4433,480 +3613,33 @@ void MainWindow::removeServer(const QString &serverId) {
     refreshServerList();
 }
 
-void MainWindow::showServerContextMenu(const QPoint &pos) {
-    QTreeWidget *tree = m_ui == nullptr ? nullptr : m_ui->getServerList();
-    if (tree == nullptr) {
-        return;
-    }
-    QTreeWidgetItem *item = tree->itemAt(pos);
-    if (item == nullptr) {
-        return;
-    }
-    const QString serverId = item->data(0, Qt::UserRole).toString();
-    if (serverId.isEmpty()) {
-        return;  // 空白处右键：什么都不弹（这一页没有"对整个列表做的事"）
-    }
-    tree->setCurrentItem(item);
-    const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
-    const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
-    const bool running = process != nullptr && process->isRunning();
-
-    QMenu menu(this);
-    for (int i = 0; i < MainWindowUI::serverMenuActionCount(); ++i) {
-        const auto action = static_cast<MainWindowUI::ServerMenuAction>(i);
-        // 用不上的那几项**不摆**（而不是摆一颗灰的）：
-        // 装好了就没有「修复」；没在跑就没有「强制结束」—— 摆一颗永远点不动的项，
-        // 比不摆它更容易让人以为界面坏了。
-        if (action == MainWindowUI::ServerMenuAction::Repair && entry.installed) {
-            continue;
-        }
-        if (action == MainWindowUI::ServerMenuAction::ForceKill && !running) {
-            continue;
-        }
-        QAction *entryAction = menu.addAction(MainWindowUI::serverMenuText(action));
-        if (action == MainWindowUI::ServerMenuAction::RestartOnCrash) {
-            // 可勾选：勾没勾读的是盘上那一份（`.wtfml-server` 的 `restartOnCrash`）——
-            // 这一项是**长期设置**，不是"这一次会话"的开关。
-            entryAction->setCheckable(true);
-            entryAction->setChecked(ServerRegistry::readMeta(serverId).restartOnCrash);
-            entryAction->setToolTip(MainWindowUI::serverRestartMenuNote());
-        }
-        if (action == MainWindowUI::ServerMenuAction::ForceKill) {
-            // 宽限时间那一条：没到点之前是不给按的（存盘中途被打死正是丢存档的姿势）。
-            const bool allowed = process != nullptr && process->forceKillAllowed();
-            entryAction->setEnabled(allowed);
-            entryAction->setToolTip(allowed
-                                        ? ServerRun::forceKillNote(0)
-                                        : ServerRun::stoppingNote(
-                                              (process != nullptr ? process->gracefulMs() : 0)
-                                              / 1000));
-        }
-        connect(entryAction, &QAction::triggered, this,
-                [this, serverId, i] { runServerMenuAction(serverId, i); });
-    }
-    if (menu.isEmpty()) {
-        return;
-    }
-    menu.exec(tree->viewport()->mapToGlobal(pos));
-}
-
-void MainWindow::runServerMenuAction(const QString &serverId, int action) {
-    switch (static_cast<MainWindowUI::ServerMenuAction>(action)) {
-    case MainWindowUI::ServerMenuAction::Console:
-        openServerConsole(serverId);
-        break;
-    case MainWindowUI::ServerMenuAction::Folder:
-        openServerFolder(serverId);
-        break;
-    case MainWindowUI::ServerMenuAction::Settings:
-        openServerSettingsPage(serverId);
-        break;
-    case MainWindowUI::ServerMenuAction::Repair:
-        repairServer(serverId);
-        break;
-    case MainWindowUI::ServerMenuAction::ForceKill:
-        forceKillServer(serverId);
-        break;
-    case MainWindowUI::ServerMenuAction::RestartOnCrash: {
-        // 勾 / 取消勾：写进 `.wtfml-server`（下一次开菜单读的就是它）。写不进去要说一声 ——
-        // 一项"看起来勾上了、其实没记住"的设置比没有这一项更糟。
-        ServerModel::Info info = ServerRegistry::readMeta(serverId);
-        info.restartOnCrash = !info.restartOnCrash;
-        QString problem;
-        if (!ServerRegistry::writeMeta(serverId, info, &problem)) {
-            InlineMessage::warning(m_ui->overlay(), tr("没记住"), problem);
-            return;
-        }
-        if (!info.restartOnCrash) {
-            // 关掉 = 这一轮到此为止（再打开时从第 1 次算起）。
-            m_serverRestartAttempts.remove(serverId);
-        }
-        appendLog(tr("服务端 %1：异常退出后自动重启%2。")
-                      .arg(serverId, info.restartOnCrash ? tr("已打开") : tr("已关闭")));
-        break;
-    }
-    case MainWindowUI::ServerMenuAction::Remove:
-        removeServer(serverId);
-        break;
-    }
-}
-
 // ===========================================================================
-// 「服务端设置」那一页
+// 「服务端设置」那一页 —— 这里只留两条薄壳
 // ===========================================================================
 //
-// 这一页上摆着四样东西，每一样背后都有一层判据（见 MainWindow.hpp 里那段）：
+// 这一页的**全部状态**（页对象 / 现在说的是哪个服务端 / 能不能改 / 端口那一次的结论）
+// 和决定它的那几条（开页、重摆整页、保存、放弃改动、切页合编辑、体检）都搬进了
+// `src/controllers/ServerSettingsPageController` —— 为什么搬、搬走了什么，见那个 .hpp。
 //
-// ① 常用设置 `ServerPropertiesForm`（那十几个旋钮的表与值域）
-// ② 原始文本 这一层手里那份**原文**（`ServerModel::parseProperties` 解它）
-// ③ 世界备份 `BackupFiles`（它那一套引擎 / 任务账本，和世界页**共用同一条路**）
-// ④ 体检 `ServerCheck`（纯值进、结论出）+ `ServerPortCheck`（真占一次端口）
+// 主窗口这边只留两个名字，因为还有三处按名字叫它们：
 //
-// 这一节里会写盘的只有两处：`saveServerSettings()` 和那三颗备份按钮 —— 其余全是读。
-// 两种编辑方式怎么不打起来（表单 / 原始文本），见 `saveServerSettings()` 那段。
-
-// 「12.4 MB」那一句的唯一出处（定义在世界页 / 实例页那一批下面）—— 这一节在它前面，
-// 所以要自己把它引出来（**不是另写一份**：这个格式两边必须一模一样）。
-static QString backupSizeText(qint64 bytes);
-
-namespace {
-
-/// 一个服务端世界的备份在盘上认哪一串前缀。
-///
-/// **不能只用世界目录名**：`ServerRegistry` 底下两个服务端都叫 `world` 是常态，而挑备份
-/// 那一套（`pickBackupZip()`）是按**文件名前缀**筛的 —— 只写世界名的话，两边会互相挑到
-/// 对方的备份。加上 serverId（目录名，唯一）就不会撞。
-///
-/// NOTE: 中间那个 `-` 不会被 `BackupFiles::safeLabel()` 换成别的东西（它换的是
-/// `\/:*?"<>|` 和一切控制字符），所以前缀里的分隔符一路原样。
-/// 这一份的文件名是不是"还原之前自动做的那一份"（安全快照）。
-///
-/// 从**文件名**认，不去读清单：读一份清单要起一次 PowerShell，而这一列里可能摆着几十份
-/// （见 `BackupFiles::backupFilePrefix()` 那段）。那个记号本身是 `backupFileName()` 定的
-/// ——「恢复前-」夹在前缀和时间戳中间。
-bool backupNameIsSafety(const QString &fileName, const QString &prefix) {
-    return fileName.mid(prefix.size()).startsWith(QStringLiteral("恢复前-"));
-}
-
-/// 盘上那一份 `server.properties` 的原文（文件不在 / 读不动 = 空串）。
-/// 编码跟着 `ServerRegistry` 那一对（`readProperties` / `writeProperties` 都是 UTF-8）。
-}  // namespace
+// ① `openServerSettingsPage()`：服务端列表的右键菜单（`ServerMenuController::run()`），
+//    以及 mw_check 的 T42（**经元对象系统**驱动 —— 所以它必须继续是 `private slots:`）；
+// ② `refreshServerSettingsPage()`：备份收尾那一发（`BackupController` 的宿主回调），
+//    以及 `ServerManagementActions` 里那五处"改完盘上那份、把页面重摆一遍"。
+//
+// NOTE: 其余的（保存 / 放弃 / 合编辑 / 保存带 / 体检）原来也只有这一页自己的信号在叫，
+// 搬走之后一个外人都没有，所以**没有留壳** —— 留一个没人叫的空壳只会让人以为"主窗口还管
+// 这一页"。
 
 void MainWindow::openServerSettingsPage(const QString &serverId) {
-    OverlayHost *overlay = m_ui == nullptr ? nullptr : m_ui->overlay();
-    if (overlay == nullptr || serverId.isEmpty()) {
-        return;
-    }
-    if (m_serverSettingsPage == nullptr) {
-        m_serverSettingsPage = new ServerSettingsPage(this);
-        // NOTE: 这一批只接一次（页面复用）。**认人认 `m_serverSettingsId`，不认"列表上现在
-        // 选中谁"** —— 同控制台那一页那条理由。
-        connect(m_serverSettingsPage, &ServerSettingsPage::sectionChanged, this,
-                [this](int section) { mergeServerSettingsEdits(-1, section); });
-        connect(m_serverSettingsPage, &ServerSettingsPage::edited, this,
-                [this] { updateServerSettingsSaveState(); });
-        connect(m_serverSettingsPage, &ServerSettingsPage::saveRequested, this,
-                [this] { saveServerSettings(); });
-        connect(m_serverSettingsPage, &ServerSettingsPage::revertRequested, this,
-                [this] { revertServerSettings(); });
-        connect(m_serverSettingsPage, &ServerSettingsPage::backupNowRequested, this,
-                [this] { backupServerWorld(m_serverSettingsId); });
-        connect(m_serverSettingsPage, &ServerSettingsPage::restoreBackupRequested, this,
-                [this](const QString &zipPath) {
-                    restoreServerWorldBackup(m_serverSettingsId, zipPath);
-                });
-        connect(m_serverSettingsPage, &ServerSettingsPage::deleteBackupRequested, this,
-                [this](const QString &zipPath) { deleteServerBackup(zipPath); });
-        connect(m_serverSettingsPage, &ServerSettingsPage::openBackupFolderRequested, this,
-                [this] { openBackupFolder(BackupFiles::Kind::World); });
-        connect(m_serverSettingsPage, &ServerSettingsPage::recheckRequested, this,
-                [this] { runServerCheck(); });
-        connect(m_serverSettingsPage, &ServerSettingsPage::actionRequested, this,
-                [this](const QString &token) { runServerCheckAction(token); });
-        // 玩家名单：换一份名单就地重摆；加 / 移除由这一层问话、写盘。
-        connect(m_serverSettingsPage, &ServerSettingsPage::playerListChanged, this,
-                [this](int) { refreshServerPlayers(); });
-        connect(m_serverSettingsPage, &ServerSettingsPage::playerAddRequested, this,
-                [this] { addServerPlayer(); });
-        connect(m_serverSettingsPage, &ServerSettingsPage::playerRemoveRequested, this,
-                [this](const QString &identity) { removeServerPlayer(identity); });
-        // 资源包那一颗：选本地 zip、算 SHA-1。
-        connect(m_serverSettingsPage, &ServerSettingsPage::resourcePackPickRequested, this,
-                [this] { pickServerResourcePack(); });
-        // 内容那一页：换类就地重摆；加 / 启用禁用 / 打开文件夹 / 刷新由这一层做。
-        connect(m_serverSettingsPage, &ServerSettingsPage::contentKindChanged, this,
-                [this](int) { refreshServerContent(); });
-        connect(m_serverSettingsPage, &ServerSettingsPage::contentAddRequested, this,
-                [this] { addServerContent(); });
-        connect(m_serverSettingsPage, &ServerSettingsPage::contentToggleRequested, this,
-                [this](const QString &name, bool enable) { toggleServerContent(name, enable); });
-        connect(m_serverSettingsPage, &ServerSettingsPage::contentOpenFolderRequested, this,
-                [this] { openServerContentFolder(); });
-        connect(m_serverSettingsPage, &ServerSettingsPage::contentRefreshRequested, this,
-                [this] { refreshServerContent(); });
-        // 「踢出…」：送一条 kick 命令进正在跑的服务端（必须走控制台、回显结果）。
-        connect(m_serverSettingsPage, &ServerSettingsPage::playerKickRequested, this,
-                [this](const QString &name) { kickServerPlayer(name); });
-    }
-    m_serverSettingsId = serverId;
-    m_serverSettingsPage->setSection(ServerSettingsPage::Section::Common);
-    refreshServerSettingsPage();
-
-    // 开页要说清 `ownerTab`、并且**先切过去**（见 `OverlayHost::execPage` 那段）：这一页
-    // 是从服务端列表上开出来的，那一位就是"实例"这一颗。
-    const int instancesTab = MainWindowUI::instancesTabIndex();
-    if (QTabWidget *tabs = m_ui->getTabWidget()) {
-        if (instancesTab >= 0 && instancesTab < tabs->count()) {
-            tabs->setCurrentIndex(instancesTab);
-        }
-    }
-    overlay->execPage(m_serverSettingsPage, ServerSettingsPage::windowTitle(), instancesTab);
-    // 收页之后"这一页说的是谁"就没意义了（同控制台那一页末尾那一段）。
-    // NOTE: 手里那份原文也一起扔掉 —— 它只在开页期间有用，留着的话下一次开页前要是有人
-    // 读了它，读到的会是上一个服务端的内容。
-    m_serverSettingsId.clear();
-    m_serverSettingsRaw.clear();
-    m_serverSettingsOriginal.clear();
+    m_serverSettings->open(serverId);
 }
 
 void MainWindow::refreshServerSettingsPage() {
-    ServerSettingsPage *page = m_serverSettingsPage;
-    const QString serverId = m_serverSettingsId;
-    if (page == nullptr || serverId.isEmpty()) {
-        return;
-    }
-    const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
-    page->setServerName(entry.name.isEmpty() ? serverId : entry.name);
-
-    // 在跑的时候整页只读（见 .hpp 里那段：它退出时会把自己内存里那份写回盘上）。
-    const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
-    const bool running = process != nullptr && process->isRunning();
-    m_serverSettingsEditable = !running;
-    QString statusText =
-        ServerModel::statusName(process != nullptr ? process->status() : ServerModel::Status::Stopped);
-    if (running) {
-        statusText += MainWindowUI::serverSettingsRunningStatusSuffix();
-    }
-    page->setStatusText(statusText);
-    page->setEditable(m_serverSettingsEditable,
-                      running ? MainWindowUI::serverSettingsRunningNote() : QString());
-
-    // ---------- ① 常用设置 + ② 原始文本 ----------
-    //
-    // 两样**一起**摆：表单里那几格是叠在原文上的补丁，所以"原文"和"基线"必须是同一份
-    // 盘上读出来的东西（`setValues()` 自己就把基线重设到刚摆进去的那一份）。
-    const QString raw = m_serverSettingsController->readRaw(serverId);
-    m_serverSettingsRaw = raw;
-    m_serverSettingsOriginal = raw;
-    const ServerModel::Properties properties = ServerModel::parseProperties(raw);
-
-    QList<ServerSettingsPage::FieldView> views;
-    const QList<ServerPropertiesForm::Field> &fields = ServerPropertiesForm::commonFields();
-    for (const ServerPropertiesForm::Field &field : fields) {
-        ServerSettingsPage::FieldView view;
-        view.key = field.key;
-        view.label = field.label;
-        view.hint = field.hint;
-        switch (field.kind) {
-        case ServerPropertiesForm::Kind::Text:
-            view.kind = ServerSettingsPage::Kind::Text;
-            break;
-        case ServerPropertiesForm::Kind::Number:
-            view.kind = ServerSettingsPage::Kind::Number;
-            break;
-        case ServerPropertiesForm::Kind::Switch:
-            view.kind = ServerSettingsPage::Kind::Switch;
-            break;
-        case ServerPropertiesForm::Kind::Choice:
-            view.kind = ServerSettingsPage::Kind::Choice;
-            break;
-        }
-        view.min = field.min;
-        view.max = field.max;
-        // 哪一行要挂"游戏里长什么样"的预览、哪一行旁边摆「选择本地 zip…」，都由字段表
-        // 说了算（目前分别是 `motd` 与 `resource-pack-sha1`）。
-        view.preview = field.preview;
-        view.zipPick = field.zipPick;
-        for (const ServerPropertiesForm::Choice &choice : field.choices) {
-            view.choiceTokens.append(choice.token);
-            view.choiceNames.append(choice.name);
-        }
-        views.append(view);
-    }
-    page->setFields(views);
-    page->setValues(ServerPropertiesForm::valuesOf(properties, fields));
-    page->setRawText(raw);
-
-    // ---------- ③ 世界备份 ----------
-    const QString worldName = serverWorldName(serverId);
-    const QString worldDir = serverWorldDir(serverId);
-    const QString backupDir = BackupFiles::backupDir(BackupFiles::Kind::World);
-    QList<ServerSettingsPage::BackupRow> rows;
-    if (!worldName.isEmpty()) {
-        const QString prefix = BackupFiles::backupFilePrefix(
-            m_serverSettingsController->backupLabel(serverId));
-        const QFileInfoList entries = QDir(backupDir).entryInfoList(
-            QStringList{QStringLiteral("*.zip")}, QDir::Files, QDir::Name | QDir::Reversed);
-        QStringList matching;
-        for (const QFileInfo &info : entries) {
-            if (info.fileName().startsWith(prefix, Qt::CaseInsensitive)) {
-                matching.append(info.absoluteFilePath());
-            }
-        }
-        // 不能直接按整名字典序倒排（`QDir::Name | QDir::Reversed`）：自动留的
-        // 「恢复前-」安全快照名字里多一段汉字，码位在数字之后 ⇒ 它们全被排到最新的常规
-        // 备份前面，这一列"最新在上面"就不成立了。和挑备份那一段同一个出处。
-        matching = BackupFiles::sortBackupsNewestFirst(matching, prefix);
-        for (const QString &path : std::as_const(matching)) {
-            const QFileInfo info(path);
-            ServerSettingsPage::BackupRow row;
-            row.path = info.absoluteFilePath();
-            row.when = info.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm"));
-            row.size = backupSizeText(info.size());
-            row.safety = backupNameIsSafety(info.fileName(), prefix);
-            row.scope = row.safety ? tr("还原之前自动做的那一份")
-                                   : tr("这个世界的整个文件夹");
-            rows.append(row);
-        }
-    }
-    page->setBackupRows(rows);
-    page->setBackupNote(worldDir.isEmpty()
-                            ? tr("这个服务端的 level-name 现在这个值我们认不出来，不知道世界在"
-                                 "哪儿 —— 先去「常用设置」把它改成一个正常的目录名。")
-                            : tr("世界在：%1\n备份放在：%2（「立即备份」就打一份新的到这里）")
-                                  .arg(QDir::toNativeSeparators(worldDir),
-                                       QDir::toNativeSeparators(backupDir)));
-
-    // ---------- ④ 体检 ----------
-    runServerCheck();
-
-    // 保存带：刚摆完 = 什么都没改。
-    updateServerSettingsSaveState();
+    m_serverSettings->refresh();
 }
 
-void MainWindow::updateServerSettingsSaveState() {
-    ServerSettingsPage *page = m_serverSettingsPage;
-    if (page == nullptr) {
-        return;
-    }
-    if (!m_serverSettingsEditable) {
-        // 在跑的时候那句话由 `setEditable()` 那一句管（`refreshSaveBar()` 会拿它盖住）。
-        page->setSaveState(false, MainWindowUI::serverSettingsRunningNote());
-        return;
-    }
-    const int changed = page->changedOnly().size();
-    const bool raw = page->rawEdited();
-    if (changed > 0 && raw) {
-        page->setSaveState(true, MainWindowUI::serverSettingsDirtyBothNote(changed));
-    } else if (changed > 0) {
-        page->setSaveState(true, MainWindowUI::serverSettingsDirtyFieldsNote(changed));
-    } else if (raw) {
-        page->setSaveState(true, MainWindowUI::serverSettingsDirtyRawNote());
-    } else {
-        page->setSaveState(false, MainWindowUI::serverSettingsCleanNote());
-    }
-}
-
-void MainWindow::mergeServerSettingsEdits(int fromSection, int toSection) {
-    ServerSettingsPage *page = m_serverSettingsPage;
-    if (page == nullptr || m_serverSettingsId.isEmpty()) {
-        return;
-    }
-    Q_UNUSED(fromSection);
-    if (toSection == static_cast<int>(ServerSettingsPage::Section::RawText)) {
-        // **离开表单、去看原文**：把表单里改过的那几项先合进文本框 —— 用户马上要看的正是
-        // "我改完之后这份文件长什么样"，这时候还摆着旧的那一份就是骗人（而且他很可能顺手
-        // 就在这一页上接着改，两边不一致会丢改动）。
-        //
-        // 合的方式是"解析 → 叠补丁 → 吐回文本"——**和保存走的是同一条路**
-        // （`saveServerSettings()` 前一半），所以"他在文本框里看到的那一份"和"按保存会
-        // 写下去的那一份"是同一份，一个字节都不差。
-        const ServerSettingsPage::Values edits = page->changedOnly();
-        if (!edits.isEmpty()) {
-            page->setRawText(m_serverSettingsController->mergeIntoRaw(page->rawText(), edits));
-            // 合完就算"用户动过文本框"了（内容真的变了、而且这一份是未保存的状态）——
-            // `setRawText()` 把那个记号清掉了，所以在这儿补回来。补丁那边**不动基线**：
-            // 它还摆在表单上，切回去的时候两边一比还是"改过那几项"。
-            page->markRawEdited();
-        }
-        return;
-    }
-    if (toSection == static_cast<int>(ServerSettingsPage::Section::Common)) {
-        // **回到表单**：按文本框里**现在**那一份重摆表单，并把基线重设到它 —— 用户在文本框
-        // 里删了一行、改了一个值，切回来时就该看得见。
-        //
-        // NOTE: 这一步**只动表单和基线，不写盘**（保存还是那唯一一条写盘的路）。
-        page->setValues(m_serverSettingsController->valuesFromRaw(page->rawText()));
-    }
-    // 「世界备份」「体检」两页和这两样都不搭界，切过去什么都不用做。
-}
-
-void MainWindow::saveServerSettings() {
-    ServerSettingsPage *page = m_serverSettingsPage;
-    const QString serverId = m_serverSettingsId;
-    if (page == nullptr || serverId.isEmpty() || !m_serverSettingsEditable) {
-        return;
-    }
-    const ServerSettingsController::SaveResult result = m_serverSettingsController->save(
-        serverId, page->rawText(), page->changedOnly());
-    if (!result.rejected.isEmpty()) {
-        // **整份都不写**（而不是"能写的那几项先写下去"）：写盘是一发原子的 `QSaveFile`，
-        // 写一半再报错，用户看着的是"保存了"而盘上是半份 —— 宁可让他把那一格改对再来。
-        InlineMessage::warning(
-            m_ui->overlay(), tr("有几项改不了"),
-            tr("这几项的值不对，所以**这一趟什么都没写**：\n%1\n\n"
-               "把这几项改对（表单里的格子、或者「原始文本」里那一行），再按一次保存。")
-                .arg(result.rejected.join(QStringLiteral("\n"))));
-        return;
-    }
-    if (!result.ok) {
-        InlineMessage::critical(m_ui->overlay(), tr("保存不了"), result.problem);
-        return;
-    }
-    appendLog(tr("服务端 %1 的 server.properties 已保存（改了 %2 项）。")
-                  .arg(result.serverName)
-                  .arg(result.changed));
-    // 存完之后把这一页整个按**盘上那份新文件**重摆一遍（原文、表单基线、备份那一列、
-    // 体检单都跟着换）—— 然后在那行小字上说明"刚刚存过"。
-    refreshServerSettingsPage();
-    page->setSaveState(false, MainWindowUI::serverSettingsSavedNote());
-}
-
-void MainWindow::revertServerSettings() {
-    ServerSettingsPage *page = m_serverSettingsPage;
-    if (page == nullptr || m_serverSettingsId.isEmpty() || !m_serverSettingsEditable) {
-        return;
-    }
-    // 放弃改动 = 把这一页按盘上那一份重新摆一遍（原文、表单基线、保存带全回到开页那一刻）。
-    // NOTE: 这一路**不碰盘**，所以什么都不用问。
-    refreshServerSettingsPage();
-    page->setSaveState(false, MainWindowUI::serverSettingsCleanNote());
-}
-
-// ---------------------------------------------------------------------------
-// 体检
-// ---------------------------------------------------------------------------
-
-ServerCheck::Facts MainWindow::serverCheckFacts() {
-    return m_serverSettingsController->checkFacts(m_serverSettingsId,
-                                                   m_serverSettingsPortState);
-}
-
-void MainWindow::runServerCheck() {
-    ServerSettingsPage *page = m_serverSettingsPage;
-    if (page == nullptr || m_serverSettingsId.isEmpty()) {
-        return;
-    }
-    // 端口那一次真监听**先做**（它是个同步的、几十微秒的动作）——体检单里那一条要的正是
-    // 它的结论。
-    const ServerModel::Properties properties = ServerRegistry::readProperties(m_serverSettingsId);
-    const int port = ServerModel::serverPortOf(properties);
-    m_serverSettingsPortState = port > 0 ? ServerPortCheck::stateOf(port, nullptr)
-                                         : ServerPortCheck::State::Unknown;
-
-    const ServerCheck::Facts facts = serverCheckFacts();
-    const QList<ServerCheck::Finding> findings = ServerCheck::inspect(facts);
-    QList<ServerSettingsPage::CheckRow> rows;
-    rows.reserve(findings.size());
-    for (const ServerCheck::Finding &finding : findings) {
-        ServerSettingsPage::CheckRow row;
-        // 两边的档位是按下标对齐的（0 要处理 / 1 提醒 / 2 说明）。
-        row.severity = static_cast<int>(finding.severity);
-        row.title = finding.title;
-        row.detail = finding.detail;
-        row.actionToken = ServerCheck::actionToken(finding.action);
-        rows.append(row);
-    }
-    page->setCheckRows(rows);
-    page->setCheckSummary(ServerCheck::summaryText(findings));
-
-    // ---------- ④ 玩家名单 ----------
-    // **摆在最后**：它要读 `m_serverSettingsEditable`（上面 `setEditable()` 那一发算出来的），
-    // 而那一句又回头会重摆那两颗按钮的灰亮。
-    refreshServerPlayers();
-    // ---------- ⑤ 内容 ----------
-    refreshServerContent();
-}
 
 // ---------------------------------------------------------------------------
 // 玩家名单（「玩家管理」）
@@ -5124,82 +3857,6 @@ void MainWindow::onServerForceKillAvailable(const QString &serverId) {
     updateServerRow(serverId);
 }
 
-void MainWindow::onServerExited(const QString &serverId, int exitCode) {
-    const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
-    const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
-    const QString shown = entry.name.isEmpty() ? serverId : entry.name;
-    // ---------- 这一次是怎么退的（重启策略）----------
-    const bool userStopped = m_serverStopRequested.remove(serverId) > 0;
-    const bool forceKilled = process != nullptr && process->wasForceKilled();
-    const bool zeroStartupFailure = exitCode == 0 && process != nullptr
-        && process->status() == ServerModel::Status::Crashed;
-    const ServerRestart::Why why = zeroStartupFailure && !userStopped && !forceKilled
-        ? ServerRestart::Why::Crash : ServerRestart::whyFor(userStopped, forceKilled, exitCode);
-    // 跑够久（`kResetAfterSeconds()`）再崩算新的一轮：一台"每周崩一次"的服务端不该在
-    // 第三次之后永远不再自动起来。
-    const QDateTime startedAt = m_serverStartedAt.take(serverId);
-    if (startedAt.isValid()
-        && startedAt.secsTo(QDateTime::currentDateTime())
-               >= ServerRestart::kResetAfterSeconds) {
-        m_serverRestartAttempts.remove(serverId);
-    }
-    if (!ServerRestart::isAbnormal(why)) {
-        // 正常退出 / 我们自己停的：这一轮结束，计数没必要留着。
-        m_serverRestartAttempts.remove(serverId);
-    }
-    updateServerRow(serverId);
-    updateServerConsole();
-    if (exitCode == 0 && !zeroStartupFailure) {
-        appendLog(tr("%1 已经退出。").arg(shown));
-        return;
-    }
-    if (process != nullptr && process->wasForceKilled()) {
-        // "你让我强杀的"和"它自己崩了"是两件事 —— 后者才该弹一个预警框。
-        appendLog(tr("%1 已经被强制结束。").arg(shown));
-        return;
-    }
-    const QString exitReason = zeroStartupFailure ? tr("未完成启动（进程退出码 0）")
-        : tr("异常退出（退出码 %1）").arg(exitCode);
-    appendLog(tr("%1：%2。").arg(shown, exitReason));
-    // ---------- 崩了之后要不要自动拉起（重启策略 + 上限）----------
-    //
-    // 判据全在 `ServerRestart::decide()`（verify ZAF 一节钉死）。这一层只做两件事：
-    // 把盘上记的策略读出来、按它的结论排那一发 `singleShot`。
-    const ServerModel::Info info = ServerRegistry::readMeta(serverId);
-    ServerRestart::Policy policy;
-    policy.enabled = info.restartOnCrash;
-    policy.maxAttempts = info.restartMaxAttempts;
-    const int used = m_serverRestartAttempts.value(serverId);
-    const ServerRestart::Decision decision = ServerRestart::decide(policy, why, used);
-    if (decision.restart) {
-        m_serverRestartAttempts.insert(serverId, used + 1);
-        appendLog(tr("%1：%2").arg(shown, decision.note));
-        // 这一步**不弹**那张阻塞的预警卡：用户多半不在跟前，弹了他不点，重启就一直等着
-        // 那层嵌套事件循环（"自动重启"变成"等用户回来才重启"）。日志里有原话，控制台里
-        // 也有它退出前最后那几行。
-        QTimer::singleShot(decision.delaySeconds * 1000, this, [this, serverId, shown] {
-            const ServerRun::ServerProcess *fresh = m_serverWorkspace->process(serverId);
-            if (fresh != nullptr && fresh->isRunning()) {
-                return;  // 用户在这几秒里自己又起来了
-            }
-            appendLog(tr("%1：自动重启来了。").arg(shown));
-            startServer(serverId, /*automatic=*/true);
-        });
-        return;
-    }
-    if (!decision.note.isEmpty()) {
-        // 次数用完了：这一句必须说出来，不然用户会以为它还会自己起来。
-        appendLog(tr("%1：%2").arg(shown, decision.note));
-    }
-    // 「错误既进入日志，也在用户当前流程中可见」：日志那一半上面已经写了，这一半是
-    // 弹窗 —— 用户点了启动之后常常就去干别的了，不弹一下他看不见。
-    InlineMessage::warning(
-        m_ui->overlay(), tr("这个服务端退出了"),
-        tr("「%1」%2。\n\n控制台里最后那几行写着它退出之前在说什么 ——"
-           "右键这一行点「打开控制台」就能看见。")
-            .arg(shown, exitReason));
-}
-
 int MainWindow::countServerMods(const QString &dirPath) {
     return ServerWorkspaceController::countEnabledMods(dirPath);
 }
@@ -5272,283 +3929,14 @@ void MainWindow::updateNewServerSummary(NewServerPage *page) {
     page->setSummary(lines.join(QStringLiteral("\n")), QString());
 }
 
+// 这两条是「更新中心」那一页在**主窗口这一侧**的入口：状态和动作都在
+// `controllers/UpdateCenterController`（见那一段的说明）。
 void MainWindow::openUpdateCenter(const QString &instanceId) {
-    OverlayHost *overlay = m_ui->overlay();
-    if (overlay == nullptr || instanceId.isEmpty()) {
-        return;
-    }
-    if (m_updateCenterPage == nullptr) {
-        m_updateCenterPage = new UpdateCenterPage(this);
-        connect(m_updateCenterPage, &UpdateCenterPage::updateRequested, this,
-                &MainWindow::onUpdateCenterUpdateRequested);
-        connect(m_updateCenterPage, &UpdateCenterPage::ignoreToggled, this,
-                &MainWindow::onUpdateCenterIgnoreToggled);
-        connect(m_updateCenterPage, &UpdateCenterPage::pinToggled, this,
-                &MainWindow::onUpdateCenterPinToggled);
-        connect(m_updateCenterPage, &UpdateCenterPage::undoRequested, this,
-                &MainWindow::onUpdateCenterUndoRequested);
-    }
-    // 这一页说的是哪个实例：**动作处理函数全靠它**（页面是复用的，而点动作时它可能已经
-    // 关了 —— 不许去问"现在选中的是哪个实例"，同 m_integrityReportVersionId 那条）。
-    m_updateCenterInstanceId = instanceId;
-    // 摆结论。**必须在 execPage 之前**：那一下阻塞在嵌套事件循环里。
-    m_updateCenterPage->setReport(updateCenterReportForPage(instanceId));
-    overlay->execPage(m_updateCenterPage, UpdateCenterPage::windowTitle());
-    // 收页了：这一页说的那个实例不再作数（下一次开的时候重新记）。
-    m_updateCenterInstanceId.clear();
+    m_updateCenter->open(instanceId);
 }
 
 UpdateCenterPage::Report MainWindow::updateCenterReportForPage(const QString &instanceId) const {
-    // **唯一翻译点**（和 integrityReportForPage() / taskCenterItem() 同一个路数）。
-    UpdateCenterPage::Report out;
-    out.instanceName = instanceDisplayName(instanceId);
-
-    const auto result = m_instanceUpdateResults.constFind(instanceId);
-    if (result == m_instanceUpdateResults.constEnd()) {
-        // 没查过：这一页**没有结论**可摆（列表整个空着），用户要看到的是这句话 + 下一步。
-        out.error = tr("这个实例还没查过更新。");
-        return out;
-    }
-    const QString instanceDir = AppPaths::versionDir(instanceId);
-    int outdatedCount = 0;
-    for (const ModDependencies::UpdateVerdict &verdict : result.value().verdicts) {
-        UpdateCenterPage::Row row;
-        row.path = verdict.item.path;
-        row.fileName = QFileInfo(verdict.item.path).fileName();
-        // 名字取不到时就空着 —— 页面会退回文件名（`updateCenterRowLabelText()`，
-        // 和下面日志里那个 displayName 逐字同一个规矩）。
-        row.name = verdict.item.title;
-        row.currentSha1 = verdict.item.sha1;
-        switch (verdict.state) {
-        case ModDependencies::UpdateState::Outdated:
-            row.state = UpdateCenterPage::State::Outdated;
-            row.targetVersionId = verdict.latestVersionId;
-            row.targetText = verdict.latestVersionNumber;
-            ++outdatedCount;
-            break;
-        case ModDependencies::UpdateState::UpToDate:
-            row.state = UpdateCenterPage::State::UpToDate;
-            // 「已是最新（1.2.3）」—— 版本号就是判"最新"时那一条（`judgeUpdate()` 看的是
-            // 列表第一条，`latestVersionNumber` 记的正是它）。
-            row.currentText = verdict.latestVersionNumber;
-            break;
-        case ModDependencies::UpdateState::Unknown:
-            row.state = UpdateCenterPage::State::Unknown;
-            row.note = verdict.reason;
-            break;
-        }
-        // 「忽略 / 固定」那一档：**这一处算，页面不再判一遍**（判两遍迟早对不上：用户会
-        // 看到那一行写着"已忽略"、而它还挂在"可更新"那一组的计数里）。
-        const UpdatePolicy::Entry entry = UpdatePolicy::entryOf(
-            m_updatePolicy, instanceId,
-            UpdatePolicy::storeKey(instanceDir, InstanceFilesPage::identityPath(row.path)));
-        switch (UpdatePolicy::suppressed(entry, row.currentSha1, row.targetVersionId)) {
-        case UpdatePolicy::Suppress::Ignored:
-            row.suppress = UpdateCenterPage::Suppress::Ignored;
-            break;
-        case UpdatePolicy::Suppress::Pinned:
-            row.suppress = UpdateCenterPage::Suppress::Pinned;
-            break;
-        case UpdatePolicy::Suppress::None:
-            break;
-        }
-        out.rows.append(row);
-    }
-    out.summary = ModDependencies::updateSummaryText(result.value().verdicts.size(), outdatedCount);
-    out.note = result.value().lookupNote;
-
-    // 回滚点：**每次开页都重新读一遍盘**（不缓存 —— 撤销那一下就是把它用掉，缓存一份就
-    // 会出现"按了撤销、那一颗还在"）。
-    bool hasSnapshot = false;
-    const UpdateRollback::Snapshot snapshot = UpdateRollback::read(instanceId, &hasSnapshot);
-    if (hasSnapshot) {
-        out.undoFileCount = snapshot.fileCount();
-        out.undoText = tr("撤销上一次更新（%1 个文件）").arg(snapshot.fileCount());
-    }
-    return out;
-}
-
-void MainWindow::onUpdateCenterUpdateRequested(const QStringList &paths) {
-    const QString instanceId = m_updateCenterInstanceId;
-    if (instanceId.isEmpty() || paths.isEmpty()) {
-        return;
-    }
-    // 先把这一页收掉（它正卡在 execPage 的嵌套事件循环里），**排到下一轮**再动手 ——
-    // 更新那一批失败了会往同一条覆盖层上弹提示，现在不排会撞上还没收干净的这一页。
-    // （和完整性报告页那颗「补齐…」是同一个路数。）
-    if (m_updateCenterPage != nullptr) {
-        m_updateCenterPage->reject();
-    }
-    const QStringList selected = paths;
-    QTimer::singleShot(0, this, [this, instanceId, selected] {
-        // 页键给空串：这一批是**跨类**勾出来的，落点全按每条自己那个目录算（见头文件那段）。
-        updateInstanceFiles(instanceId, QString(), selected);
-    });
-}
-
-void MainWindow::onUpdateCenterIgnoreToggled(const QString &path, bool ignored) {
-    const QString instanceId = m_updateCenterInstanceId;
-    if (instanceId.isEmpty() || path.isEmpty()) {
-        return;
-    }
-    const QString key = UpdatePolicy::storeKey(
-        AppPaths::versionDir(instanceId), InstanceFilesPage::identityPath(path));
-    if (key.isEmpty()) {
-        return;  // 不在实例目录底下（正常走不到）：宁可不记，也不拿一个空键去混记录
-    }
-    // 要忽略的是**要换上的那一版**（不是"这个项目"）—— 那一版的 id 从上一趟检测的原始
-    // 结论里取（`m_instanceUpdateTargets` 那一份是**全部**可更新的，忽略过的那条也在里面）。
-    QString targetVersionId;
-    if (ignored) {
-        const QHash<QString, ResourceCatalog::VersionEntry> targets =
-            m_instanceUpdateTargets.value(instanceId);
-        const auto it = targets.constFind(path);
-        if (it != targets.constEnd()) {
-            targetVersionId = it.value().id;
-        }
-        if (targetVersionId.isEmpty()) {
-            // 拼不出"要换成哪一版"就**不许记这一条**：记下去的是"忽略某一版"，而那一版是谁
-            // 都不知道 —— 那样记出来的记录永远对不上任何一次检测（等于一颗点了没反应的按钮）。
-            InlineMessage::warning(m_ui->overlay(), tr("忽略不了这一条"),
-                                   tr("这一条没查出一版可以记的（多半是这一趟检测的结果已经"
-                                      "过期了）。重新点一次「检查更新」再试。"));
-            return;
-        }
-    }
-    UpdatePolicy::setIgnored(m_updatePolicy, instanceId, key, ignored ? targetVersionId : QString());
-    saveUpdatePolicy();
-    appendLog(ignored ? tr("「更新中心」：%1 的这一版以后不再提示更新。")
-                            .arg(QFileInfo(path).fileName())
-                      : tr("「更新中心」：%1 又参与更新提示了。").arg(QFileInfo(path).fileName()));
-    rebuildInstanceOutdatedPaths(instanceId);
-    // 按完**当场重喂这一页**。不喂的话那一行照旧写着「可更新到 X」、三颗
-    // chip 也照旧——用户按的是"以后别再提示我"，屏幕上却一点变化都没有，他只能靠"再点
-    // 一次看看会不会还写那句话"来判断自己按中了没有。重喂之后那一行写「已忽略」、那一颗
-    // 变成「不再忽略」、底下那颗「更新选中的 N 项」的计数也跟着减一。
-    // （`setReport()` 的重建走 `deleteLater()`，所以从 chip 自己的 clicked 里重喂是安全的；
-    // 撤销那条路同样这么做。）
-    if (m_updateCenterPage != nullptr && m_updateCenterInstanceId == instanceId) {
-        m_updateCenterPage->setReport(updateCenterReportForPage(instanceId));
-    }
-}
-
-void MainWindow::onUpdateCenterPinToggled(const QString &path, bool pinned) {
-    const QString instanceId = m_updateCenterInstanceId;
-    if (instanceId.isEmpty() || path.isEmpty()) {
-        return;
-    }
-    const QString key = UpdatePolicy::storeKey(
-        AppPaths::versionDir(instanceId), InstanceFilesPage::identityPath(path));
-    if (key.isEmpty()) {
-        return;
-    }
-    // 固定记的是**盘上那一份现在的内容 sha1**（见 UpdatePolicy 文件头：判据手上只有 sha1）。
-    // 算不出来（文件读不动）就**不许记** —— 记一条空 sha1 等于记了一条永远判不出来的记录。
-    QString sha1;
-    if (pinned) {
-        for (const ModDependencies::UpdateVerdict &verdict : m_instanceUpdateResults.value(instanceId).verdicts) {
-            if (verdict.item.path == path) {
-                sha1 = verdict.item.sha1;
-                break;
-            }
-        }
-        if (sha1.isEmpty()) {
-            InlineMessage::warning(m_ui->overlay(), tr("固定不了这一条"),
-                                   tr("这一份文件的内容读不出来（或者上一趟检测没算出它的 sha1），"
-                                      "没法记「固定这一版」。"));
-            return;
-        }
-    }
-    UpdatePolicy::setPinned(m_updatePolicy, instanceId, key, pinned ? sha1 : QString());
-    saveUpdatePolicy();
-    appendLog(pinned ? tr("「更新中心」：%1 固定在这一版上，以后不再提示更新。")
-                           .arg(QFileInfo(path).fileName())
-                     : tr("「更新中心」：%1 不再固定了。").arg(QFileInfo(path).fileName()));
-    rebuildInstanceOutdatedPaths(instanceId);
-    // 同上（忽略那一档）：按完当场重喂，让那一行写成「已固定」、chip 翻成「不再固定」。
-    if (m_updateCenterPage != nullptr && m_updateCenterInstanceId == instanceId) {
-        m_updateCenterPage->setReport(updateCenterReportForPage(instanceId));
-    }
-}
-
-void MainWindow::onUpdateCenterUndoRequested() {
-    const QString instanceId = m_updateCenterInstanceId;
-    if (instanceId.isEmpty()) {
-        return;
-    }
-    bool hasSnapshot = false;
-    QString problem;
-    const UpdateRollback::Snapshot snapshot =
-        UpdateRollback::read(instanceId, &hasSnapshot, &problem);
-    if (!hasSnapshot) {
-        InlineMessage::warning(m_ui->overlay(), tr("没有可撤销的更新"),
-                               problem.isEmpty() ? tr("这个实例没有回滚点。") : problem);
-        return;
-    }
-    // 问一次再动手：这一下**会覆盖盘上现在的文件**（用户可能已经在游戏里玩了半天、
-    // 自己换过东西）。撤销不是一个"点错了也没事"的动作。
-    const QString text =
-        tr("把「%1」退回上一次更新之前：\n\n"
-           "· 换回去 %2 个文件\n"
-           "· 删掉那次更新新添的 %3 个文件\n\n"
-           "这一趟更新之后你自己改过的东西**会一起被改回去**。")
-            .arg(instanceDisplayName(instanceId))
-            .arg(snapshot.fileCount())
-            .arg(snapshot.addedCount());
-    // 就一颗「继续」：这一问的目的是把"会发生什么"说在前面（不是二选一），所以
-    // `destructiveIndex` 留空 —— 撤销本身是要用户想清楚才按的，但把它标成一档"危险动作"
-    // 的红按钮，和这一段想说的"可以退回去"反而矛盾。
-    if (InlineMessage::ask(m_ui->overlay(), MessageKind::Warning, tr("撤销上一次更新"), text,
-                           {tr("撤销")}, 0, -1)
-        != 0) {
-        return;
-    }
-
-    const UpdateRollback::RestoreResult result =
-        UpdateRollback::restore(snapshot, AppPaths::versionDir(instanceId));
-    appendLog(tr("撤销「%1」上一次更新：换回去 %2 个、删掉 %3 个、失败 %4 个。")
-                  .arg(instanceDisplayName(instanceId))
-                  .arg(result.restored)
-                  .arg(result.removed)
-                  .arg(result.failed));
-    if (!result.ok()) {
-        // **一条失败不影响其余**（见 UpdateRollback::restore 那段）：照实说清现在是半新半旧，
-        // 并且**留着回滚点**（下一次再按还能把没退回去的那几条退回来）。
-        InlineMessage::warning(
-            m_ui->overlay(), tr("没能全退回去"),
-            tr("换回去 %1 个、删掉 %2 个，有 %3 个没能动。\n\n%4\n\n"
-               "回滚点留着，可以再按一次。")
-                .arg(result.restored)
-                .arg(result.removed)
-                .arg(result.failed)
-                .arg(result.problems.join(QStringLiteral("\n"))));
-    } else {
-        // 全退回去了：这一份回滚点**用掉了**（删掉 —— 留着的话下一次开页还会露一颗
-        // 「撤销上一次更新」，而它指向的那次更新已经不存在了）。
-        UpdateRollback::discard(instanceId);
-        appendLog(tr("「%1」已经退回更新前的样子。").arg(instanceDisplayName(instanceId)));
-    }
-    // 这一批文件的内容换过了 ⇒ 「固定这一版」那几条的判据（sha1）多半已经对不上，
-    // 顺手清一遍过期的（不清的话那几条会一直挂着"已固定"，而它其实早就失效了）。
-    QHash<QString, QString> sha1ByKey;
-    for (const ModDependencies::UpdateVerdict &verdict : m_instanceUpdateResults.value(instanceId).verdicts) {
-        const QString entryKey = UpdatePolicy::storeKey(
-            AppPaths::versionDir(instanceId), InstanceFilesPage::identityPath(verdict.item.path));
-        if (!entryKey.isEmpty()) {
-            sha1ByKey.insert(entryKey, verdict.item.sha1);
-        }
-    }
-    if (UpdatePolicy::dropStalePins(m_updatePolicy, instanceId, sha1ByKey) > 0) {
-        saveUpdatePolicy();
-    }
-    // 重摆这一页 + 让文件管理那几页的「可更新」跟着更新（盘上那几个文件已经不是原来那份了）。
-    rebuildInstanceOutdatedPaths(instanceId);
-    if (m_updateCenterPage != nullptr && m_updateCenterInstanceId == instanceId) {
-        m_updateCenterPage->setReport(updateCenterReportForPage(instanceId));
-    }
-    // 文件管理页那一份"可更新"名单也得重摆（它记的是路径，路径没变，但内容变了）。
-    // NOTE: 这一页现在没开着（撤销是从更新中心按的，而更新中心占着覆盖层），所以这里
-    // 只需要把**会话缓存**写对 —— 下一次开那一页时由开页那条路补上。
+    return m_updateCenter->reportFor(instanceId);
 }
 
 void MainWindow::onUpdateBatchFileFinished(const QString &label, const QString &fileName,
@@ -5586,9 +3974,9 @@ void MainWindow::finishUpdateBatch(bool success, const QString &errorMessage) {
     if (run.label.isEmpty()) {
         return;
     }
-    // 取消和真失败走同一条终态信号（见 `m_downloadCancelInFlight`）——
+    // 取消和真失败走同一条终态信号（见 `DownloadTaskLedgerController::userCancelInFlight()`）——
     // 用户按了取消就记 Cancelled，不记 Failed、不点亮底栏那颗"没看过的失败"红点。
-    const bool userCancelled = !success && m_downloadCancelInFlight;
+    const bool userCancelled = !success && m_downloadTaskLedger->userCancelInFlight();
     if (userCancelled && m_activityCenter->tasks()->has(run.task)) {
         m_activityCenter->tasks()->cancel(run.task);
     } else if (m_activityCenter->tasks()->has(run.task)) {
@@ -5600,10 +3988,8 @@ void MainWindow::finishUpdateBatch(bool success, const QString &errorMessage) {
                                        : errorMessage);
     }
     // finishTask() 认领过就会自己清掉；这一段是"那一件已经不在账本里"的兜底，
-    // 别让重试资格留在一次已经收尾的更新上（见 m_downloadBatchOwnerTaskId）。
-    if (m_downloadBatchOwnerTaskId == run.task) {
-        m_downloadBatchOwnerTaskId = Tasks::invalidTaskId();
-    }
+    // 别让重试资格留在一次已经收尾的更新上（见 `clearOwnerIf()`）。
+    m_downloadTaskLedger->clearOwnerIf(run.task);
     appendLog(success ? tr("更新「%1」结束：换好 %2 个，失败 %3 个。")
                             .arg(instanceDisplayName(run.instanceId))
                             .arg(run.succeeded.size())
@@ -5650,211 +4036,6 @@ void MainWindow::finishUpdateBatch(bool success, const QString &errorMessage) {
     // 那条路同一个规矩。
     const QString instanceId = run.instanceId;
     runWhenOverlayFree([this, instanceId] { openUpdateCenter(instanceId); });
-}
-
-void MainWindow::installResourceVersionNow(ResourceCatalog::Kind kind,
-                                           const QString &displayTitle,
-                                           ResourceCatalog::VersionEntry version,
-                                           const QList<ModDependencies::Resolved> &extras,
-                                           const QString &forcedInstanceId) {
-    const bool isModpack = kind == ResourceCatalog::Kind::Modpack;
-
-    // 目标实例：**优先用调用方递进来的**（前置检查那一趟回来时，页面可能已经关了，而
-    // 那一趟在 `m_dependencyCheck.instanceId` 里记着它当时算的是哪个实例 —— 现算会算错），
-    // 其次是 `dependencyInstanceId()`（见那一处的两条来路）。整合包那一路不用它 ——
-    // 下回来的是 .mrpack，接着走导入，实例名是在那条路上问出来的。
-    const QString instanceId =
-        isModpack ? QString()
-                  : (forcedInstanceId.isEmpty() ? dependencyInstanceId() : forcedInstanceId);
-    // "这一趟是从某个实例里点进来的吗" —— 只决定要不要弹"存哪儿"那个框（见 LauncherSettings
-    // 里 downloadAutoIntoInstance 那一节）。调用方点名了实例也算。
-    const bool cameFromInstance = !forcedInstanceId.isEmpty() || downloadCameFromInstance();
-    if (!isModpack && instanceId.isEmpty()) {
-        InlineMessage::warning(m_ui->overlay(), tr("没有选中实例"),
-                             tr("先在「已安装版本」里选一个实例，再挑要装进它的版本。"));
-        return;
-    }
-
-    // 下到哪儿去。实例那几类是 `<实例目录>/<子目录>`（mods / datapacks / resourcepacks /
-    // shaderpacks）；整合包走缓存目录 —— 它不能进 versions/（那底下每一个子目录都会被当成
-    // 一个实例）。
-    const QString folder = ResourceCatalog::folderForKind(kind);
-    const QString defaultDir = isModpack
-                                   ? AppPaths::modpackCacheDir()
-                                   : AppPaths::versionDir(instanceId) +
-                                         QLatin1Char('/') + folder;
-    if (!isModpack && folder.isEmpty()) {
-        return;  // folderForKind 说了"这一类不走这条安装路"，而它又不是整合包
-    }
-
-    // **要不要问一句"存哪儿"**（要求见 LauncherSettings 里那一节，
-    // 那里是这一支判据唯一的语义出处）。判据就一条：
-    //
-    // 弹框 = 设置里没勾 或者 这一栏不是从实例设置里点进来的
-    //
-    // "是不是从实例设置里点进来的"读的是 `m_downloadFromInstanceId` —— 和那颗
-    // 「← 返回实例设置」用的是**同一个值**，因为它俩说的本来就是同一件事（这一栏是从哪个
-    // 实例来的）。不另开一个布尔：两个值一旦分开，"露着返回键、却弹了保存框"这种事迟早
-    // 会出现。
-    //
-    // NOTE: 这一支是**在哪里下载**那一层唯一的岔路，所以它写在"算落点"这一句上，而不是
-    // 写在按钮那一路：详情页里点一行、下载页里双击一行、文件管理里点名字进详情页再
-    // 点一行 —— 三条路都会走到这儿，分流只有一处才不会有哪一条路漏掉。
-    // NOTE: 用户在下载页里待久了之后（比如从实例 A 点进来、又自己把「已安装版本」换成 B），
-    // 这一位还是非空、于是不再问。这是**刻意的**：那时候落点仍然是"当前实例"（下拉框
-    // 里那一个），而这一项勾选框上写的就是"直接放进当前实例"。
-    QString destinationDir = defaultDir;
-    // 这一批算"谁在动盘"。默认是那个实例；用户挑了别处的目录时它必须是空的（那底下没有任何
-    // 实例在被写，锁着它等于白挡别人启动）。
-    QString busyInstanceId = instanceId;
-    if (!m_settings->downloadAutoIntoInstance() || !cameFromInstance) {
-        // 这个框是**嵌套事件循环**：开着的这一会儿，网络回信照常派发 —— 也就可能有一发
-        // 版本清单插进 `m_resourceVersions`（那张 QHash 一 rehash，调用方递进来的
-        // 元素引用就悬空了）。所以 `version` 这一格是**按值**收的（见头文件那一处），
-        // 下面 `version.primaryFile()` 读的是自己手里这份拷贝，容器怎么变都不关它的事。
-        const QString chosen = QFileDialog::getExistingDirectory(
-            this, tr("下载到哪个文件夹"), defaultDir);
-        if (chosen.isEmpty()) {
-            return;  // 用户取消 = 这一版不下（一个字都不写盘）
-        }
-        destinationDir = chosen;
-        if (QDir(destinationDir) != QDir(defaultDir)) {
-            busyInstanceId.clear();
-        }
-    }
-
-    const ResourceCatalog::FileEntry *file = version.primaryFile();
-    if (file == nullptr || file->url.isEmpty()) {
-        // 「接口没给地址」有两种，**不是同一句话**：一种是这一版真的没有文件；
-        // 另一种是作者在项目设置里关掉了第三方分发（CurseForge 那条路，`downloadUrl`
-        // 给的就是 null，见 FileEntry::unavailableNote）。后者要是也说成"没有可下载的文件"，
-        // 用户会当成启动器坏了，然后一遍遍重试 —— 那句话在那儿就写好了，用它。
-        const QString note = file == nullptr ? QString() : file->unavailableNote;
-        InlineMessage::warning(m_ui->overlay(), tr("下载失败"),
-                               note.isEmpty() ? tr("这一版没有可下载的文件。") : note);
-        return;
-    }
-
-    // 加载器对不对得上。**这一层没有按加载器筛过**（见 onResourceItemActivated 里那段
-    // NOTE），所以在这儿补一道闸：给一个 Fabric 实例装一个 Forge 的模组，症状是"游戏进去就
-    // 崩"，而那一刻没人会想到是刚才那个模组。
-    //
-    // NOTE: 这道闸**只管模组**（非模组时不拦）。理由：`VersionEntry::loaders`
-    // 不是只有模组加载器 —— 资源包那一版列的是 `minecraft`、数据包列的是 `datapack`、
-    // 光影列的是 `iris/optifine`，它们跟"这个实例装的是什么模组加载器"根本没有关系。
-    // 不收的话，给一个 Forge 实例装资源包/数据包会**每次都弹一次**「加载器对不上」，
-    // 而那句话（"这一版是给 minecraft 用的"）本身就说不通 —— 那种框弹多了，用户就
-    // 再也不看这类提醒了，真正该拦的那一次也跟着一起被忽略。
-    const bool loaderMatters = kind == ResourceCatalog::Kind::Mod;
-    // 判据刻意做得**窄**（只拦"知道实例是什么加载器、且这一版只列了另一种"这一种）：
-    // · 不是模组（资源包 / 数据包 / 光影 / 整合包）→ 放行；
-    // · 认不出实例的加载器（纯原版，或者 json 里没写）→ 放行；
-    // · 这一版列了不止一种加载器（Quilt 之类兼容好几种）→ 放行；
-    // · 纯原版实例 + 一个带加载器的模组 → 也放行（认不出来的和纯原版在这里分不开，
-    // 宁可漏拦也不要拦住一个本来装得上的）。
-    // 拦下来的是**问一句**，不是禁止 —— 坚持"就要这么装"就照装。
-    const VersionDisplayParts parts = m_versionManager->displayParts(instanceId);
-    // 加载器名走 instanceLoaderName()，**不是** `parts.loaderName`：后者只有我们自己的
-    // 安装器会写，PCL 那类合并实例读出来是空的 —— 于是这道闸
-    // 对它们**恒不放行**，"加载器对不上"那句话一次都弹不出来（它最该拦的那一对恰好就
-    // 在这些实例上）。理由同 instanceModsUsable() 那段。
-    QString instanceLoaderVersion;
-    const QString instanceLoader =
-        instanceLoaderName(parts, m_versionManager, &instanceLoaderVersion);
-    if (loaderMatters && !instanceLoader.isEmpty() && version.loaders.size() == 1
-        && version.loaders.first().compare(instanceLoader, Qt::CaseInsensitive) != 0) {
-        const auto answer = InlineMessage::question(m_ui->overlay(), tr("加载器对不上"),
-            tr("这个实例是 %1 %2，而这一版是给 %3 用的。\n\n"
-               "装进去多半不会生效（游戏进去可能直接崩）。还要装吗？")
-                .arg(instanceLoader, instanceLoaderVersion, version.loaders.first()), tr("是"), tr("否"), false);
-        if (!answer) {
-            return;
-        }
-    }
-
-    QList<VersionManager::ResourceFile> files;
-    VersionManager::ResourceFile resourceFile;
-    resourceFile.url = file->url;
-    resourceFile.filename = file->filename;
-    resourceFile.sha1 = file->sha1;
-    resourceFile.size = file->size;
-    files.append(resourceFile);
-
-    // NOTE: 前置的落点就是这个实例的 mods（`destinationDir` 是按 kind=模组算出来的）——
-    // 前置本来就是模组，和主文件同一个目录，这一点不用另判。
-    for (const ModDependencies::Resolved &extra : extras) {
-        if (extra.file.url.isEmpty() || extra.file.filename.isEmpty()) {
-            continue; // 走不到（resolveDependency 已经挡过一道），挡第二道不费什么
-        }
-        VersionManager::ResourceFile extraFile;
-        extraFile.url = extra.file.url;
-        extraFile.filename = extra.file.filename;
-        extraFile.sha1 = extra.file.sha1;
-        extraFile.size = extra.file.size;
-        files.append(extraFile);
-    }
-
-    QString label = QStringLiteral("%1 %2").arg(displayTitle, version.versionNumber);
-    if (!extras.isEmpty()) {
-        // 日志和"下好了"那句话上写清楚这一批里**还有前置**（不然用户看到下了好几个文件、
-        // 而屏幕上只说了一个模组的名字，会以为下错了）。
-        label += tr("（含 %1 个前置）").arg(extras.size());
-    }
-    // 下完接着走导入那条路（那边会问实例名、挑 Java，然后解包、下清单里那几百个文件）。
-    // 路径按**接口给的文件名**算 —— 落盘用的就是它（见 downloadResourceFiles），这里
-    // 不另编一套命名。
-    const QString modpackPath =
-        isModpack ? destinationDir + QLatin1Char('/') + file->filename : QString();
-    appendLog(tr("正在下载 %1（%2）。").arg(label, QDir::toNativeSeparators(destinationDir)));
-    // busyInstanceId 传空的有两路：整合包下到缓存里（盘上没有任何实例在被写），以及用户
-    // 自己挑了实例之外的目录那一路 —— 两路都不该锁住谁（见上面算落点那一段）。
-    //
-    // 这一批也要在任务中心里**看得见**（状态、进度、取消、失败后的重试）——
-    // 不记任务的话，下几百 MB 的整合包时底栏那格一直空着，失败之后也没有任何地方
-    // 能点「重试」（失败清单是有的，可没有一行任务认领它）。
-    //
-    // 号必须在 `downloadResourceFiles()` **之前**建：所有文件盘上都已经有的时候，那一批
-    // 会**同步**收尾（当场发 `resourceDownloadFinished`），先建号才认领得到那一条终态。
-    // 反过来，"忙"的那几种拒绝也会同步发一条失败终态 —— 所以先自己把忙态问一遍，
-    // 被拒的白问不该在账本上留一行红字（判据和 updateInstanceFiles() 那道闸同一个）。
-    //
-    // `m_downloadInFlight` 必须一起问。版本安装取 version.json 的那
-    // 一段是元数据作业（不计进 `isDownloading()`），而那一趟的号已经在
-    // `m_downloadTaskId` 里了 —— 只问下面那几个谓词的话，这一句会放行，紧接着
-    // `m_downloadTaskId = beginTask(...)` 把安装那一件顶掉：安装收尾时收的是**这一单**，
-    // 它自己永远停在"进行中"（而且下载器那边还会以"已有下载任务"拒掉安装）。
-    if (m_downloadInFlight || m_versionManager->isDownloading() || m_versionManager->isLoaderInstalling()
-        || m_versionManager->isModpackImporting()
-        || m_versionManager->isNamedInstanceInstalling()
-        || (m_serverInstall != nullptr && m_serverInstall->ownsDownloadBatch())) {
-        InlineMessage::information(
-            m_ui->overlay(), tr("现在做不了"),
-            tr("已经有一个下载或者安装任务在跑了，等它结束再下这个。"));
-        return;
-    }
-    m_resourceBatchLabel = label;
-    m_downloadTaskId = beginTask(Tasks::TaskKind::Download, label);
-    // 这一单的登记**必须摆在 `downloadResourceFiles()` 之前**：这批文件**盘上都已经有**时
-    // （上次下完了但导入失败 / 被取消，`.mrpack` 还躺在缓存里），`downloadResourceFiles()`
-    // 会在它**返回之前**就同步发完 `resourceDownloadFinished(label, true, …)` ——
-    // 那时这一句还没执行，没有人接得到这一单，导入永远不开始；界面却照样弹
-    // 「已经装进实例里了」。而失败那一支**不** take 记录，只有成功那一支才取
-    // （见 `onResourceDownloadFinished()` 里那段 ★），所以提前登记不会漏。
-    if (!modpackPath.isEmpty()) {
-        m_pendingModpackImports.insert(label, modpackPath);
-    }
-    const bool started =
-        m_versionManager->downloadResourceFiles(destinationDir, busyInstanceId, label, files);
-    if (started) {
-        // 只有真开起来了才算"这一批的主人"（被拒那一发已经在上面那句里收过尾了，
-        // 见 onResourceDownloadFinished()）。
-        m_downloadBatchOwnerTaskId = m_downloadTaskId;
-        m_activityCenter->tasks()->setProgress(m_downloadTaskId, 0, 0);
-    } else if (!modpackPath.isEmpty()) {
-        // 没开起来（撞上上面那道忙闸）：刚登记的那一单作废，留着就是一条永远等不到
-        // 下载的记录。
-        m_pendingModpackImports.remove(label);
-    }
 }
 
 // ============================ 资源详情页 ============================
@@ -5921,533 +4102,19 @@ void MainWindow::rememberProjectTitles(const QList<ResourceCatalog::Hit> &hits,
     }
 }
 
-
-void MainWindow::updateInstallName() {
-    QLineEdit *edit = m_ui->getInstallNameEdit();
-    if (!m_installNameTouched) {
-        // 用户还没自己改过名字：默认名跟着"勾中的加载器 + 它选的那个版本"走。
-        // 挡信号是必须的 —— 不挡的话这一句会触发 textChanged，于是"程序填的名字"
-        // 被当成"用户改过"，从此默认名再也不跟着加载器变了。
-        const QSignalBlocker blocker(edit);
-        edit->setText(defaultInstanceName());
-    }
-    updateInstallNameHint();
-}
-
-void MainWindow::updateInstallNameHint() {
-    QLineEdit *edit = m_ui->getInstallNameEdit();
-    const QString name = edit->text().trimmed();
-
-    // 名字合不合法：判据在数据层（InstanceFiles::validateDirName()，和"重命名实例"、
-    // "整合包导入"用的是同一套规矩）。这里只用它的结论，不抄一份规则过来。
-    const QString invalid = InstanceFiles::validateDirName(name);
-    const bool canInstall = invalid.isEmpty();
-
-    // 上面那行**灰字**：说"装下去会怎样"。名字能不能用**都照说** —— 起名字
-    // 不合法的原因不顶掉这一行，而是另起一行红字（上面那句「装好后在实例…」照旧留着）。
-    // 名字空着时这行没话可说（没有名字就没有目录），就让它空着。
-    QString hint;
-    if (!name.isEmpty()) {
-        // 重名：**只提示、不拦**（在下方小字提示）。
-        // 同名就是同一个实例 —— 装下去不是新建一个，而是校验并补齐那个目录里的文件
-        // （「重下 = 校验跳过」）。这句话必须说清这一点，否则用户会以为会多出一个。
-        // NOTE: 名字不合法时**不查**重名 —— 那个名字当不了目录名，AppPaths::versionDir()
-        // 拼出来的路径没有意义（`..` 那种会拼到数据目录外面去），查了也只是白查。
-        const QString dir = canInstall ? AppPaths::versionDir(name) : QString();
-        if (!dir.isEmpty() && QDir(dir).exists()) {
-            // 「已经装过了」和「这个目录是别的东西」在用户眼里是两回事，分开说。
-            const bool installed = QFile::exists(AppPaths::versionJsonPath(name));
-            hint = installed ? tr("已经有叫「%1」的实例了：同一个名字就是同一个实例，再装一次"
-                                  "会校验并补齐它的文件（已经下好的跳过）。")
-                                   .arg(name)
-                             : tr("%1 已经存在了，但它不像一个装好的实例。装下去会往这个目录"
-                                  "里写文件。")
-                                   .arg(dir);
-        } else {
-            hint = tr("装好之后在「实例」页里能看到它，目录是 versions/%1。").arg(name);
-        }
-    }
-    QLabel *hintLabel = m_ui->getInstallNameHint();
-    hintLabel->setText(hint);
-    hintLabel->setVisible(!hint.isEmpty());
-
-    // 下面那行**红字**：名字不能用的原因（就是 validateDirName() 那句话的字面意思）。
-    // 能用的时候空着 + 藏起来 —— 藏起来（而不是留一个空行）是为了让加载器树和安装按钮
-    // 的位置不被这一行顶动。
-    QLabel *error = m_ui->getInstallNameError();
-    error->setText(invalid);
-    error->setVisible(!canInstall);
-    // 「安装」按钮：名字不合法就点不动（省掉一次"点了才弹一句名字不对"的往返）。
-    // 忙的时候也不给点（那是 setDownloadUiBusy 的活，这里只是别把它顶回来）。
-    m_ui->getInstallButton()->setEnabled(canInstall && !m_downloadInFlight);
-}
-
 void MainWindow::onInstallNameEdited() {
-    // 用户动过这个名字了：此后默认名不再跟着加载器变（不然他敲到一半的名字会被
-    // 一次"勾了 Forge"顶掉）。
-    m_installNameTouched = true;
-    updateInstallNameHint();
+    m_installPage->noteNameEdited();
 }
 
 // ---------------------------------------------------------------------------
 // 安装页：实例预设
 // ---------------------------------------------------------------------------
 
-QTreeWidgetItem *MainWindow::installPresetRowItem() const {
-    QTreeWidget *tree = m_ui->getLoaderTree();
-    if (tree == nullptr) {
-        return nullptr;
-    }
-    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-        QTreeWidgetItem *item = tree->topLevelItem(i);
-        if (item->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt() ==
-            MainWindowUI::installPresetRowRole()) {
-            return item;
-        }
-    }
-    return nullptr;
-}
-
-void MainWindow::updateInstallPresetSummary() {
-    QTreeWidgetItem *item = installPresetRowItem();
-    if (item == nullptr) {
-        return;
-    }
-    int selected = 0;
-    for (auto it = m_installPresetChoices.constBegin();
-         it != m_installPresetChoices.constEnd(); ++it) {
-        if (!it.value().isEmpty()) {
-            ++selected;
-        }
-    }
-    item->setData(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::rowSubTextRole(),
-                  MainWindowUI::installPresetSummaryText(selected));
-}
-
-QList<QPair<QString, QString>> MainWindow::currentInstallPresetSelections() const {
-    QList<QPair<QString, QString>> out;
-    // 按四类的次序（不是 QMap 的字典序）：显示 / 应用 / 日志里那几句话的次序要一样。
-    for (const PresetController::InstallCategory &category : PresetController::installCategories()) {
-        const QString id = m_installPresetChoices.value(category.key);
-        if (!id.isEmpty()) {
-            out.append({category.key, id});
-        }
-    }
-    return out;
-}
-
 void MainWindow::openInstallPresetPicker() {
-    if (m_presetController == nullptr) {
-        InlineMessage::warning(m_ui->overlay(), tr("预设不可用"),
-                               tr("这一份启动器里预设那一层没有初始化，没法挑预设。"));
-        return;
-    }
-
-    // 这一趟弹窗里改的东西**只落在这张本地草稿上**：取消 / 点「前往预设管理」都
-    // 不写 `m_installPresetChoices`（取消不丢安装配置）。
-    QMap<QString, QString> draft = m_installPresetChoices;
-
-    const QString instanceName = m_ui->getInstallNameEdit()->text().trimmed();
-    struct StatusText {
-        QString status;
-        QStringList reasons;
-        bool problem = false;
-    };
-    // 一份预设"对着这个还没装出来的实例"会做什么 —— **只读**。状态行只说结论，
-    // 原因（缺失 / 未知 / 跳过 / 覆盖）收在下面那块可展开的地方。
-    const auto describe = [this, &instanceName](const QString &presetId) {
-        StatusText out;
-        if (presetId.isEmpty()) {
-            return out;
-        }
-        if (instanceName.isEmpty()) {
-            out.status = tr("先在上面填好版本名称。");
-            out.problem = true;
-            return out;
-        }
-        const PresetController::InstallPreview preview =
-            m_presetController->previewForInstall(presetId, instanceName);
-        if (!preview.problem.isEmpty()) {
-            out.status = preview.problem;
-            out.problem = true;
-            return out;
-        }
-        if (!preview.blockedReason.isEmpty()) {
-            out.status = preview.blockedReason;
-            out.problem = true;
-            return out;
-        }
-        if (!preview.ok) {
-            out.status = tr("这一份算不出计划。");
-            out.problem = true;
-            return out;
-        }
-        QString text = tr("会动 %1 项").arg(preview.itemCount);
-        if (preview.skippedCount > 0) {
-            text += tr("，跳过 %1 项").arg(preview.skippedCount);
-        }
-        if (preview.blockedCount > 0) {
-            text += tr("，%1 段做不了").arg(preview.blockedCount);
-        }
-        if (preview.needsConfirm) {
-            text += tr("，有一段「覆盖」要先确认");
-        }
-        out.status = text;
-        out.reasons = preview.reasons;
-        // 「要做不了 / 要确认」才染红；"跳过几项"是正常计划的一部分。
-        out.problem = preview.blockedCount > 0 || preview.needsConfirm;
-        return out;
-    };
-
-    QList<PresetInstallPicker::Category> categories;
-    // 「模组」那一类：状态行让给兼容检查，计划那几行收进原因里。
-    const QString modsCategoryKey = Presets::presetCategoryKey(Presets::PresetCategory::Mods);
-    for (const PresetController::InstallCategory &one : PresetController::installCategories()) {
-        PresetInstallPicker::Category category;
-        category.key = one.key;
-        category.title = one.title;
-        for (const Presets::PresetSummary &preset :
-             m_presetController->presetsInCategory(one.key)) {
-            category.options.append({preset.id, preset.name, true});
-        }
-        category.selectedId = draft.value(one.key);
-        // 选过、但盘上已经不在的那一份：**留在下拉框里**并标出来（「已删除/损坏的
-        // 所选项明确提示，不静默换为另一项」）。名字也读不出来了，只能拿 id 认。
-        if (!category.selectedId.isEmpty()) {
-            bool found = false;
-            for (const PresetInstallPicker::Option &option : category.options) {
-                if (option.id == category.selectedId) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                category.options.append({category.selectedId, category.selectedId, false});
-            }
-            if (one.key == modsCategoryKey) {
-                // 模组引用要联网查（本地/缓存那部分立刻就出来），先摆一句"正在检查"。
-                category.status = tr("正在检查模组兼容性…");
-                category.problem = false;
-            } else {
-                const StatusText status = describe(category.selectedId);
-                category.status = status.status;
-                category.reasons = status.reasons;
-                category.problem = status.problem;
-            }
-        }
-        categories.append(category);
-    }
-
-    // 这一块**必须在堆上**：`InlineMessageBox::setContent()` 会 `setParent(box)`，
-    // 弹窗析构时按 QObject 的规矩把子控件一起 delete。栈对象被 delete 是未定义行为。
-    auto *picker = new PresetInstallPicker();
-    const QString pickerLoaderName =
-        VersionManager::loaderKindFromIndex(m_selectedLoaderIndex, nullptr)
-            ? MainWindowUI::modLoaderOptionTexts().value(m_selectedLoaderIndex)
-            : QString();
-    picker->setContext(m_installGameVersion, pickerLoaderName);
-    picker->setCategories(categories);
-
-    InlineMessageBox box(MessageKind::Question, MainWindowUI::installPresetPickerTitle(),
-                         QString(),
-                         {MainWindowUI::installPresetConfirmText(),
-                          MainWindowUI::installPresetCancelText()},
-                         0, -1, this);
-    box.setContent(picker);  // box 接管它（弹窗析构时一起 delete）
-    box.setNote(tr("取消不会改动这里已经选好的预设；装好之后按这里选的那几类应用。"));
-
-    // 兼容检查那几行：一条引用一行（匹配的不列，只说有问题的 + 暂无法确认的）。
-    const auto modCompatReasons = [](const QList<Presets::CompatibilityResult> &results) {
-        QStringList out;
-        for (const Presets::CompatibilityResult &result : results) {
-            if (result.state == Presets::CompatibilityState::Matched) {
-                continue;
-            }
-            QString stateText;
-            switch (result.state) {
-            case Presets::CompatibilityState::Missing:
-                stateText = tr("缺失");
-                break;
-            case Presets::CompatibilityState::Unknown:
-                stateText = tr("暂无法确认");
-                break;
-            case Presets::CompatibilityState::Invalid:
-                stateText = tr("引用无法识别");
-                break;
-            case Presets::CompatibilityState::Pending:
-            case Presets::CompatibilityState::Checking:
-                stateText = tr("检查中");
-                break;
-            case Presets::CompatibilityState::Matched:
-                continue;
-            }
-            const QString name = result.name.isEmpty() ? result.projectId : result.name;
-            QString line = QStringLiteral("%1（%2）").arg(name, stateText);
-            if (!result.detail.isEmpty()) {
-                line += QStringLiteral("：%1").arg(result.detail);
-            }
-            line += result.required ? tr("【必要项】") : tr("【可选项】");
-            out.append(line);
-        }
-        return out;
-    };
-
-    // 兼容检查的每一发都只写到「模组」那一页 —— 且只有现在选的还是同一份时才写
-    // （换了一份 / 收掉弹窗前那一刻，旧 generation 的快照不许盖掉新的）。
-    QObject::connect(m_presetController, &PresetController::modCheckUpdated, &box,
-                     [picker, modsCategoryKey, modCompatReasons](
-                         const PresetController::ModCheckUpdate &update) {
-                         if (update.presetId.isEmpty() ||
-                             picker->selectedId(modsCategoryKey) != update.presetId) {
-                             return;
-                         }
-                         const bool problem = update.summary.requiredMissing > 0 ||
-                                              update.summary.invalid > 0;
-                         picker->setStatus(modsCategoryKey, update.summary.text(),
-                                           modCompatReasons(update.results), problem);
-                     });
-    // 弹窗一关就作废这一代（在途请求的回调按 generation 丢掉，不再擦已经关掉的那几行）。
-    QObject::connect(&box, &QObject::destroyed, m_presetController,
-                     [this]() { m_presetController->cancelModCheck(); });
-
-    // 换一份就现算一次（还是只读）。算不出来也照实写在那一行上 —— 别把上一份的数留着。
-    // 模组那一类的状态行归兼容检查，计划那几句收进「查看计划与原因」里。
-    QObject::connect(
-        picker, &PresetInstallPicker::selectionChanged, &box,
-        [this, picker, &describe, modsCategoryKey, pickerLoaderName](const QString &key,
-                                                                    const QString &presetId) {
-            const StatusText status = describe(presetId);
-            if (key != modsCategoryKey) {
-                picker->setStatus(key, status.status, status.reasons, status.problem);
-                return;
-            }
-            if (presetId.isEmpty()) {
-                m_presetController->cancelModCheck();
-                picker->setStatus(key, QString(), {}, false);
-                return;
-            }
-            QStringList reasons = status.reasons;
-            if (!status.status.isEmpty()) {
-                reasons.prepend(status.status);
-            }
-            picker->setStatus(key, tr("正在检查模组兼容性…"), reasons, status.problem);
-            m_presetController->startModCheck(presetId, m_installGameVersion, pickerLoaderName,
-                                              true);
-        });
-
-    // 打开时已经选着的那一份：立刻开查（本地能判的那几条同步就出来，其余排队）。
-    const QString initialModsPreset = draft.value(modsCategoryKey);
-    if (!initialModsPreset.isEmpty()) {
-        m_presetController->startModCheck(initialModsPreset, m_installGameVersion,
-                                          pickerLoaderName, true);
-    }
-
-    // 「前往预设管理」：收掉这张弹窗，**把用户带过去**，安装上下文一个字都不动。
-    bool goManage = false;
-    QObject::connect(picker, &PresetInstallPicker::manageRequested, &box, [this, &goManage]() {
-        goManage = true;
-        // 走 dismiss()：提示那一档发 promptDismissed ⇒ execPrompt 的嵌套循环醒过来。
-        // 直接 closeOverlay() 的话调用方要一直等下去（见 OverlayHost 那段）。
-        m_ui->overlay()->dismiss();
-    });
-
-    m_ui->overlay()->execPrompt(&box);
-    if (goManage) {
-        // 安装页那一趟的状态全在内存里（版本 / 名字 / 已选的几类）—— 切过去再切回来
-        // 还是原来那一份（保留安装上下文并返回）。
-        m_ui->getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
-        setInstanceMode(MainWindowUI::InstanceMode::Preset);
-        return;
-    }
-    if (box.clickedIndex() != 0) {
-        // 取消 / Esc / 点外面：草稿整个丢掉，界面上的摘要一个字都不变。
-        return;
-    }
-
-    // 点「确定选择」：**整张表按弹窗里现在那几项重建**（不能只往里 insert —— 用户把
-    // 某一类改回「不使用」时，旧的那一条必须消失）。
-    m_installPresetChoices.clear();
-    for (const QPair<QString, QString> &one : picker->selections()) {
-        m_installPresetChoices.insert(one.first, one.second);
-    }
-    updateInstallPresetSummary();
+    // 薄壳：「预设」那一行的选择、弹窗、摘要都在 `InstallPageController`（见那边）。
+    m_installPage->openPresetPicker();
 }
 
-void MainWindow::onInstallButtonClicked() {
-    if (m_downloadInFlight) {
-        appendLog(tr("已有下载任务正在进行，请等它结束。"));
-        return;
-    }
-    const QString gameVersion = m_installGameVersion;
-    if (gameVersion.isEmpty()) {
-        // 正常走不到（安装页只能从树里一个具体版本进来）。真走到了就是界面状态错了，
-        // 宁可不做 —— 猜一个版本装下去会装到用户没点过的东西上。
-        InlineMessage::warning(m_ui->overlay(), tr("没有选中版本"),
-                             tr("不知道要基于哪个原版安装，请回到版本列表重新挑一个。"));
-        return;
-    }
-
-    const QString name = m_ui->getInstallNameEdit()->text().trimmed();
-    const QString invalid = InstanceFiles::validateDirName(name);
-    if (!invalid.isEmpty()) {
-        InlineMessage::warning(m_ui->overlay(), tr("名字不能用"), invalid);
-        return;
-    }
-
-    const int loaderIndex = selectedLoaderIndex();
-    VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
-    const bool withLoader = VersionManager::loaderKindFromIndex(loaderIndex, &kind);
-
-    // 已经下过就不给"直接重下"（几 GB 白跑一趟），而是校验并补齐缺失/损坏的文件 ——
-    // 这是本启动器一贯的规矩。名字和原版号一样时问的是"这个版本"，不一样时问的是
-    // "这个实例"，两句话都得像人说的。
-    if (QFile::exists(AppPaths::versionJsonPath(name))) {
-        const bool sameAsVanilla = name == gameVersion;
-        const auto answer = InlineMessage::question(m_ui->overlay(), sameAsVanilla ? tr("版本已存在") : tr("实例已存在"),
-            sameAsVanilla
-                ? tr("版本 %1 已经下载过了。\n是否校验并修复缺失或损坏的文件？").arg(name)
-                : tr("实例「%1」已经装过了。\n是否校验并修复缺失或损坏的文件？").arg(name), tr("是"), tr("否"), true);
-        if (!answer) {
-            appendLog(tr("已取消对 %1 的校验。").arg(name));
-            return;
-        }
-        appendLog(tr("开始校验 %1 的文件（已存在的会跳过）...").arg(name));
-    }
-
-    // ---- 实例预设：带着走的那几份先把计划摊开 ----
-    //
-    // 这一步在**发请求之前**：用户看到的是"装好之后会改哪些文件、有没有覆盖"的精确计划，
-    // 而不是装完了才发现某个段是「覆盖」。点了取消 ⇒ 整个安装也不开始（他取消的是这一次
-    // "带预设的安装"，不是"不要装了"再点一次——但那两种在屏幕上分不开，宁可不做）。
-    //
-    // pending 在这一刻定死：从点下安装到 versionDownloadFinished 之间用户还可能去改
-    // 弹窗里的选择，而那一动不该改变这一趟已经发出去的安装（见 MainWindow.hpp 那段）。
-    m_installPendingPresets.clear();
-    m_installPendingPresetInstance.clear();
-    m_installPresetFingerprints.clear();
-    const QList<QPair<QString, QString>> presetSelections = currentInstallPresetSelections();
-    if (!presetSelections.isEmpty()) {
-        if (m_presetController == nullptr) {
-            InlineMessage::warning(m_ui->overlay(), tr("预设不可用"),
-                                   tr("这一份启动器里预设那一层没有初始化，没法应用预设。"));
-            return;
-        }
-        // 四类里那几句标题（"游戏设置 / 模组 …"）只从 controller 拿，界面这边不抄一份。
-        const QList<PresetController::InstallCategory> categories =
-            PresetController::installCategories();
-
-        QStringList summaryLines;
-        QList<QPair<QString, bool>> pending;
-        QMap<QString, QString> fingerprints;
-        for (const QPair<QString, QString> &one : presetSelections) {
-            const PresetController::InstallPreview preview =
-                m_presetController->previewForInstall(one.second, name);
-            if (!preview.ok || !preview.blockedReason.isEmpty() || !preview.problem.isEmpty()) {
-                const QString why =
-                    !preview.problem.isEmpty() ? preview.problem : preview.blockedReason;
-                QString title;
-                for (const PresetController::InstallCategory &category : categories) {
-                    if (category.key == one.first) {
-                        title = category.title;
-                        break;
-                    }
-                }
-                InlineMessage::warning(
-                    m_ui->overlay(), tr("这份预设现在不能应用"),
-                    tr("%1那一份「%2」：%3")
-                        .arg(title, preview.presetName,
-                             why.isEmpty() ? tr("这一份算不出计划。") : why));
-                return;
-            }
-            // 每一份自己那一道「覆盖」闸：装好之后按这一格决定要不要再问一次。
-            pending.append({one.second, preview.needsConfirm});
-            fingerprints.insert(one.second, preview.fingerprint);
-            summaryLines.append(
-                tr("· %1：%2").arg(preview.presetName, preview.summary));
-        }
-        InlineMessageBox box(
-            MessageKind::Question, tr("安装完成后应用预设"),
-            tr("装好「%1」之后会把这些预设应用上去：\n\n%2")
-                .arg(name, summaryLines.join(QLatin1Char('\n'))),
-            {tr("安装并应用"), tr("取消")}, 0, -1, this);
-        box.setNote(tr("应用前会把要改写的文件先备份到预设目录下的 backups/ 里。"));
-        m_ui->overlay()->execPrompt(&box);
-        if (box.clickedIndex() != 0) {
-            appendLog(tr("已取消这次安装（带预设的那一趟）。"));
-            return;
-        }
-        m_installPendingPresets = pending;
-        m_installPendingPresetInstance = name;
-        m_installPresetFingerprints = fingerprints;
-    }
-
-    QString installerJava = m_javaSettings->javaPath();
-    if (withLoader && !pickInstallerJava(gameVersion, loaderIndex, &installerJava)) {
-        return;  // 里面已经弹过窗说清原因了，界面还没进忙态，直接退出就是干净的状态
-    }
-
-    // 忙要在点击这一刻就置上：版本 json / 加载器列表都是异步拉回来的，中间这段时间
-    // 按钮还能点的话，用户会重复触发（和别处同一个理由）。
-    //
-    // NOTE: **顺序不能反**（m_installingInstanceId 必须在 setDownloadUiBusy(true) 之前）。
-    // setDownloadUiBusy() 内部会调 refreshInstalledVersions()，而那份"能启动的实例"
-    // 列表是按 m_installingInstanceId 过滤出来的（installingVersionIds()）。反过来的
-    // 话，置忙那一刻读到的还是**上一次**的值：对一个已经装好的实例点「安装」（校验并
-    // 修复）时，它整段安装期间都留在可启动列表里 —— 用户点得动它，点下去却被
-    // onStartButtonClicked() 那道按版本的闸口弹一句"文件还没有下载完成"。
-    // 那正是 MainWindow.hpp 写明不许出现的"列表里能选、点下去被拦"。
-    // （applyModpackImport() 那边本来就是"先记 id 再置忙"，这里对齐它。）
-    m_installingInstanceId = name;
-    setDownloadUiBusy(true);
-    m_progressThrottle.invalidate();
-    if (withLoader) {
-        m_versionManager->installNamedLoader(name, gameVersion, kind, pinnedLoaderVersion(loaderIndex),
-                                            installerJava);
-    } else {
-        m_versionManager->installNamedVanilla(name, gameVersion);
-    }
-}
-
-bool MainWindow::pickInstallerJava(const QString &gameVersion, int loaderIndex, QString *out) {
-    // 安装器自己就是个 Java 程序（Forge/NeoForge 是 `java -jar <安装器>.jar --installClient
-    // <目录>`，OptiFine 那个是无界面入口 + 换 APPDATA，见 VersionManager::runInstaller），
-    // 所以要的运行环境和"这个版本要的 Java"是同一件事：版本 json 里的 javaVersion。
-    // Fabric 那条路只拉 json + 下 maven 库，一个进程都不起，所以这一段只管要跑安装器的那些。
-    //
-    // 拿不到版本 json（原版还没装）就不知道要求，此时原样用配的那份 —— 不在这一步拦人：装
-    // 加载器本来就会把原版补齐，而"要哪个 Java"从那份 json 里读最准，猜一个主版本比不猜更
-    // 危险（见启动那条路上"拿不到 version.json 就不能猜"那段注释）。
-    // 参数收下标、在这里翻一次枚举（和界面别处同一处翻译，见 VersionManager 里那段注释）。
-    // 翻不出来 = 没勾加载器 / 勾的是「不装」：一个外部安装器都不跑，直接放行。
-    VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
-    if (!VersionManager::loaderKindFromIndex(loaderIndex, &kind)) {
-        return true;
-    }
-    if (kind == VersionManager::LoaderKind::Fabric
-        || kind == VersionManager::LoaderKind::Quilt) {
-        // 这两条都只拉 profile json + maven 库，一个外部安装器进程都不起。
-        return true;
-    }
-    const QString configuredJava = m_javaSettings->javaPath();
-    QString installerJava = configuredJava;
-    int requiredJavaMajor = 0;
-    const QJsonObject gameJson = m_versionManager->getVersionJson(gameVersion);
-    if (!gameJson.isEmpty()) {
-        requiredJavaMajor = gameJson["javaVersion"].toObject()["majorVersion"].toInt();
-    }
-    QString javaReason;
-    if (!m_javaSettings->installerJavaFor(requiredJavaMajor, configuredJava, &installerJava,
-                                          &javaReason)) {
-        appendLog(tr("这个版本要的 Java 拿不到：%1").arg(javaReason));
-        InlineMessage::warning(m_ui->overlay(), tr("Java 版本不够"), javaReason);
-        return false;
-    }
-    if (installerJava != configuredJava) {
-        appendLog(tr("这个版本要 Java %1，装的时候改用 %2").arg(requiredJavaMajor).arg(installerJava));
-    }
-    *out = installerJava;
-    return true;
-}
 
 // ======================================================================
 // 「设置」选项卡
@@ -8721,7 +6388,7 @@ void MainWindow::continueOpenDownloadCategory(int row, const QString &categoryKe
     m_ui->getTabWidget()->setCurrentIndex(MainWindowUI::downloadTabIndex());
     // 从实例设置进来的那一次，顺手做三件事 —— 都是"让屏幕上说的和用户以为的是同一件事"：
     // ① 「已安装版本」那一格选到**那个实例**上：这一栏下来的东西是落进"当前选中的实例"
-    // 的（见 installResourceVersionNow），不替用户选上的话，"从实例 A 的页面点进来、
+    // 的（见 ），不替用户选上的话，"从实例 A 的页面点进来、
     // 东西却下进了实例 B"——而屏幕上没有任何东西说过会这样（用户那句「下载新模组就
     // 自动放进当前实例文件夹」说的正是这一件事）；
     // ② 版本筛子填成那个实例的游戏版本；
@@ -9334,7 +7001,7 @@ void MainWindow::updateInstanceFiles(const QString &instanceId, const QString &p
     m_activityCenter->tasks()->setProgress(m_updateBatch.task, 0, static_cast<qint64>(files.size()));
     // 这一批的失败清单归它（`finishUpdateBatch()` 会先把 `m_updateBatch` 清空，所以
     // "重试"资格不能等到收尾时现读，见 finishTask()）。
-    m_downloadBatchOwnerTaskId = m_updateBatch.task;
+    m_downloadTaskLedger->setOwner(m_updateBatch.task);
 
     appendLog(tr("正在更新 %1（%2）。")
                   .arg(label, QDir::toNativeSeparators(files.first().dir)));
@@ -9348,9 +7015,7 @@ void MainWindow::updateInstanceFiles(const QString &instanceId, const QString &p
         // 别留一条永远"正在跑"的记录，回滚点也一起撤掉（一个字节都没动过，留着只会让
         // 更新中心上那颗「撤销上一次更新」指向一次没发生的更新）。
         m_activityCenter->tasks()->fail(m_updateBatch.task, tr("没能开始这一批更新。"));
-        if (m_downloadBatchOwnerTaskId == m_updateBatch.task) {
-            m_downloadBatchOwnerTaskId = Tasks::invalidTaskId();
-        }
+        m_downloadTaskLedger->clearOwnerIf(m_updateBatch.task);
         m_updateBatch = UpdateBatchRun{};
         UpdateRollback::discard(instanceId);
     } else {
@@ -9925,7 +7590,7 @@ void MainWindow::maybePrefetchAssetDirector(const QString &versionId) {
                       .arg(instanceDisplayName(versionId)));
         return;
     }
-    // 顺序：**先记名字再置忙**（beginDownloadTask() 的判据就是这几个 id）。
+    // 顺序：**先记名字再置忙**（`DownloadTaskLedgerController::begin()` 的判据就是这几个 id）。
     m_assetPrefetchInstanceId = versionId;
     setDownloadUiBusy(true);
     appendLog(tr("正在预取「%1」的 GTNH 首启资源（%2 个对象，预计 %3 MiB，写入 %4）…")
@@ -10006,21 +7671,6 @@ void MainWindow::copyIntegrityReport() {
 // 四个入口（世界页三颗 + 概览那两颗）都收在这一段里。**干活的那一层在
 // `src/manage/BackupFiles`**（走目录、算 sha1、起 PowerShell 打包、还原之前做安全快照），
 // 这一段只负责：把描述拼出来、起一趟后台活、把结果记进任务账本并弹给用户。
-
-/// 一份备份有多大（正文里那句"共 N MB"）。
-///
-/// **自己算**，不用 `QLocale::formattedDataSize()`：那个的写法跟着系统语言走
-/// （"1.5 MiB" / "1,5 MB"），而这几句要在判据里逐字断言 —— 跟着区域设置变的字符串
-/// 没法钉。
-static QString backupSizeText(qint64 bytes) {
-    if (bytes >= 1024LL * 1024 * 1024) {
-        return QStringLiteral("%1 GB").arg(QString::number(double(bytes) / (1024.0 * 1024 * 1024), 'f', 2));
-    }
-    if (bytes >= 1024 * 1024) {
-        return QStringLiteral("%1 MB").arg(QString::number(double(bytes) / (1024.0 * 1024), 'f', 1));
-    }
-    return QStringLiteral("%1 KB").arg(QString::number(double(bytes) / 1024.0, 'f', 1));
-}
 
 void MainWindow::openBackupFolder(BackupFiles::Kind kind) {
     m_backupController->openFolder(kind);
@@ -10379,344 +8029,13 @@ void MainWindow::dropEvent(QDropEvent *event) {
     handleWindowDrop(paths);
 }
 
-void MainWindow::onVersionDownloadFinished(const QString &versionId, bool success,
-                                           const QString &errorMessage) {
-    // Keep the original installation task and busy guard alive until the asynchronous
-    // preset download step completes. Re-enter once to use the existing finalization.
-    if (success && m_presetController && !m_installPresetModsReady &&
-        versionId == m_installingInstanceId && versionId == m_installPendingPresetInstance &&
-        !m_installPendingPresets.isEmpty()) {
-        m_installPresetModsReady = true;
-        auto steps = m_activityCenter->tasks()->snapshot(m_downloadTaskId).steps;
-        steps.append({tr("应用实例预设"), Tasks::TaskStepState::Running, tr("检查模组、前置与配置")});
-        m_activityCenter->tasks()->setSteps(m_downloadTaskId, steps);
-        m_activityCenter->tasks()->setProgress(m_downloadTaskId, 0, 0);
-        m_activityCenter->tasks()->setDetail(m_downloadTaskId, tr("正在检查并应用实例预设…"));
-        QStringList ids;
-        for (const auto &choice : m_installPendingPresets) ids.append(choice.first);
-        for (const auto &id : ids) {
-            if (m_installPresetFingerprints.value(id).isEmpty() ||
-                m_presetController->presetFingerprint(id) != m_installPresetFingerprints.value(id)) {
-                m_installPresetModsOk = false;
-                m_installPresetModsReport = tr("预设在确认后发生变化或已损坏，未继续下载模组；请重新预览并确认。");
-                onVersionDownloadFinished(versionId, true, errorMessage);
-                return;
-            }
-        }
-        appendLog(tr("正在应用实例预设：检查模组及必要前置…"));
-        m_presetController->installModsAfterInstall(ids, versionId,
-            [this, versionId, errorMessage](bool ok, const QString &report) {
-                m_installPresetModsOk = ok;
-                m_installPresetModsReport = report;
-                onVersionDownloadFinished(versionId, true, errorMessage);
-            });
-        return;
-    }
-    // 这两笔要在 setDownloadUiBusy(false) **之前**清：那个函数会重灌"能启动的实例"，
-    // 而判据里就有它们两个（见 installingVersionIds()）—— 顺序反了的话，刚装完的实例
-    // 第一次刷新时还被滤着（要等下面那句再刷一次才出现），中间那一帧用户看到的是
-    // "装完了可它不在列表里"。先清、后恢复界面，那一帧就不存在。
-    const bool wasImporting =
-        !m_importingInstanceId.isEmpty() && versionId == m_importingInstanceId;
-    const bool wasInstallingInstance =
-        !m_installingInstanceId.isEmpty() && versionId == m_installingInstanceId;
-    if (wasImporting) {
-        m_importingInstanceId.clear();
-    }
-    if (wasInstallingInstance) {
-        m_installingInstanceId.clear();
-    }
-    // 「补全文件」那颗按钮那一笔。理由和上面两条逐字一样：它也走公共的
-    // versionDownloadFinished(id, ok, msg)，也得在 setDownloadUiBusy(false)（那把"能启动的
-    // 实例"重灌一遍，判据里就有它）之前清掉。
-    const bool wasRepairing =
-        !m_repairingInstanceId.isEmpty() && versionId == m_repairingInstanceId;
-    if (wasRepairing) {
-        m_repairingInstanceId.clear();
-    }
-    // 首启资源预取（见 maybePrefetchAssetDirector）：同一条公共终态信号，同一个清场时机。
-    const bool wasPrefetching =
-        !m_assetPrefetchInstanceId.isEmpty() && versionId == m_assetPrefetchInstanceId;
-    if (wasPrefetching) {
-        m_assetPrefetchInstanceId.clear();
-    }
-    // 这一发是不是**用户自己按的取消**（判据见 `m_downloadCancelInFlight`）。
-    // `cancelActiveDownload()` 走的是和"真失败"同一条终态信号，下面每一个分支都必须
-    // 分开说：账本记 Cancelled、底栏不点红点、也不弹「失败」那个框。
-    const bool userCancelled = !success && m_downloadCancelInFlight;
-
-    // 安装任务的最后一步：把这一趟带着的那份预设落上去（那条
-    // 「生成并显示 ApplyPlan → 备份 → 应用预设 → 写入实例元数据和任务结果」）。
-    //
-    // 必须**在任务收尾之前**：预设应用本来就是安装任务的一步，它成没成要写进任务结果
-    // 那句话里。这一趟写的是刚装出来的实例目录（几十 KB 的配置文件），而它此刻还在
-    // `installingVersionIds()` 里 —— 不会有人在这期间把它启动起来。
-    //
-    // 应用失败**不把安装任务改判成失败**：游戏和加载器都装好了，能玩；预设没落上是
-    // 另一句话。所以 `success` 原样传下去，预设那一句并进结果文本里（见下面那一段）。
-    QString resultMessage = errorMessage;
-    QString presetApplyProblem;
-    if (!m_installPresetModsOk) presetApplyProblem = m_installPresetModsReport;
-    if (wasInstallingInstance && success && !m_installPendingPresets.isEmpty() &&
-        m_installPendingPresetInstance == versionId) {
-        if (m_presetController != nullptr) {
-            QStringList applied;
-            QStringList failed;
-            if (!m_installPresetModsReport.isEmpty()) {
-                if (m_installPresetModsOk) applied.append(m_installPresetModsReport);
-                else failed.append(m_installPresetModsReport);
-            }
-            for (const QPair<QString, bool> &one : m_installPendingPresets) {
-                if (m_installPresetFingerprints.value(one.first).isEmpty() ||
-                    m_presetController->presetFingerprint(one.first) != m_installPresetFingerprints.value(one.first)) {
-                    presetApplyProblem = tr("预设在确认后发生变化或已损坏，未使用旧确认覆盖新内容，请重新预览。");
-                    failed.append(presetApplyProblem);
-                    continue;
-                }
-                // 四类各一份 —— 每一份都走同一条路；一份失败不把前面已经落上去的
-                // 那几份从结果里抹掉（它们确实写进去了）。
-                const PresetController::InstallApply outcome =
-                    m_presetController->applyAfterInstall(one.first, versionId, one.second);
-                if (outcome.ok) {
-                    applied.append(outcome.message);
-                } else {
-                    presetApplyProblem = outcome.message;
-                    failed.append(outcome.message);
-                }
-            }
-            if (failed.isEmpty()) {
-                resultMessage = errorMessage + QStringLiteral("\n\n") +
-                                applied.join(QLatin1Char('\n'));
-            } else {
-                resultMessage = errorMessage + QStringLiteral("\n\n实例可用，预设部分应用：\n") +
-                                (applied + failed).join(QLatin1Char('\n'));
-            }
-        }
-    }
-    // 不管这一趟成没成、带没带预设，pending 都在这一刻清干净：下一次安装不该继承这一次的。
-    if (m_installPresetModsReady) {
-        const auto steps = m_activityCenter->tasks()->snapshot(m_downloadTaskId).steps;
-        if (!steps.isEmpty() && steps.last().name == tr("应用实例预设"))
-            m_activityCenter->tasks()->setStepState(m_downloadTaskId, steps.size() - 1,
-                presetApplyProblem.isEmpty() ? Tasks::TaskStepState::Done : Tasks::TaskStepState::Failed,
-                presetApplyProblem);
-    }
-    m_installPendingPresets.clear();
-    m_installPendingPresetInstance.clear();
-    m_installPresetModsReady = false;
-    m_installPresetModsOk = true;
-    m_installPresetModsReport.clear();
-    m_installPresetFingerprints.clear();
-
-    // 这一批在账本上收尾。**必须在 setDownloadUiBusy(false) 之前**：那个函数是"这一批
-    // 结束了"的公共通道，它自己会在末尾兜一次底（见那边）——先在这儿按成败如实收，
-    // 兜底那一句就什么都不做；反过来顺序的话，兜底会先把任务按失败收掉，这一句再说什么
-    // 都晚了（终态只落一次）。
-    if (userCancelled && m_downloadTaskId != Tasks::invalidTaskId()) {
-        // 用户主动取消是**正常收场**，账本里那一档就叫 Cancelled
-        // （服务端安装那条路也是这么收的，见 ConnectionsController 里那段 NOTE）。
-        // 借 `finishTask(..., false, …)` 的话：状态是 Failed、底栏亮一颗"没看过的失败"
-        // 红点、「需要处理」筛选里多一条假失败，而用户只是按了一下取消。
-        m_activityCenter->tasks()->cancel(m_downloadTaskId);
-        // 重试资格跟着松开（和 finishTask() 里那一句同一个理由：这一批已经收尾了）。
-        if (m_downloadBatchOwnerTaskId == m_downloadTaskId) {
-            m_downloadBatchOwnerTaskId = Tasks::invalidTaskId();
-        }
-    } else {
-        finishTask(m_downloadTaskId, success, resultMessage);
-    }
-    m_downloadTaskId = Tasks::invalidTaskId();
-
-    // 整批结束，无论成败都要把界面恢复回来
-    setDownloadUiBusy(false);
-    m_progressThrottle.invalidate();
-
-    // Instance update chains core preparation into its next step; do not open an
-    // unrelated installation-complete dialog or apply default presets here.
-    if (m_versionManager->property("instanceUpdatePreparedId").toString() == versionId) {
-        refreshInstalledVersions();
-        return;
-    }
-
-    // 这一条讲的是整合包导入（数据层那边"一次点击 = 一个终态"，导入也走这同一个信号）。
-    // 收尾那句话是**说给用户看的**（"整合包「X」导入好了…"），所以这里不再往上叠
-    // 「版本 X 的文件已全部就绪」那一句 —— 对导入来说那句是错的：下的是这个整合包的
-    // 模组，不是"某个版本的文件"。成功的样子是**实例列表里多一个**（顺便选中它）。
-    if (wasImporting) {
-        if (success) {
-            appendLog(tr("✓ %1").arg(errorMessage));
-            // 刷新会把下拉框和实例页那张树一起重灌（同一个函数里做的），新实例就在里面。
-            refreshInstalledVersions();
-            QComboBox *combo = m_ui->getInstalledVersionCombo();
-            // 刷新只"保住原来选中的"，保不住"原来压根没选"：刚导入出来的这个顶上，
-            // 省得用户还得自己去列表里找一遍（和下载完成那条路一个口径）。
-            // NOTE: 那条口径是**两件事**：不但要"顶上"，还得"原来已经有选中的就别动"
-            // —— 用户自己挑的版本比"刚做完的那个"更重要，所以下面那道
-            // currentIndex() < 0 的守卫不能省。
-            if (combo->currentIndex() < 0) {
-                if (const int index = combo->findData(versionId); index >= 0) {
-                    combo->setCurrentIndex(index);
-                }
-            }
-            updateStartButtonText();
-            InlineMessage::information(m_ui->overlay(), tr("导入完成"), errorMessage);
-            // 这次导入的东西要是 GTNH 那种会在首启里跑 MCLib AssetDirector 的包，
-            // 趁热把那几十 MB 资源预取掉（体积、写入位置见 docs/MODPACK_IMPORT.md）。
-            // 放在提示之后：那几个提示是"导入成了"的收尾，先让用户看见它。
-            maybePrefetchAssetDirector(versionId);
-        } else if (userCancelled) {
-            // 用户自己按的取消：日志照写，但**不弹「导入失败」**（那不是失败）。
-            appendLog(tr("✗ 整合包导入已由用户取消。"));
-        } else {
-            appendLog(tr("✗ 整合包没有导入：%1").arg(errorMessage));
-            InlineMessage::warning(m_ui->overlay(), tr("导入失败"), errorMessage);
-        }
-        return;
-    }
-
-    // 这一条讲的是"装一个带名字的实例"（安装页上点了「安装」）。它走的也是这同一个
-    // 信号（数据层那边"一次点击 = 一个终态"），收尾那句话说的是**用户起的那个名字**。
-    // 和整合包那段同一个道理：不再往上叠「版本 X 的文件已全部就绪」那一句。
-    if (wasInstallingInstance) {
-        if (success) {
-            appendLog(tr("✓ %1").arg(resultMessage));
-            // 装出来的实例要能被启动：刷"已安装版本"那一摊，并把它选上（刷新只保得住
-            // "原来选中的"，保不住"原来压根没选"）。
-            refreshInstalledVersions();
-            QComboBox *installedCombo = m_ui->getInstalledVersionCombo();
-            if (installedCombo->currentIndex() < 0) {
-                if (const int index = installedCombo->findData(versionId); index >= 0) {
-                    installedCombo->setCurrentIndex(index);
-                }
-            }
-            updateStartButtonText();
-            // 预设没落上：安装本身成了，所以**不改标题**（「安装失败」是假话），
-            // 但那一句必须是 warning 的颜色 —— 用户这会儿最该看见的正是它。
-            if (!presetApplyProblem.isEmpty()) {
-                InlineMessage::warning(m_ui->overlay(), tr("安装完成，但预设没有应用上"),
-                                       resultMessage);
-            } else {
-                InlineMessage::information(m_ui->overlay(), tr("安装完成"), resultMessage);
-            }
-        } else if (userCancelled) {
-            appendLog(tr("✗ 安装「%1」已由用户取消。").arg(instanceDisplayName(versionId)));
-        } else {
-            appendLog(tr("✗ %1").arg(errorMessage));
-            InlineMessage::warning(m_ui->overlay(), tr("安装失败"), errorMessage);
-        }
-        return;
-    }
-
-    // 这一条讲的是「补全文件」（实例设置页「启动」栏那颗按钮，）。走的也是公共的
-    // versionDownloadFinished(id, ok, msg)：数据层那边"一次点击 = 一个终态"这条约定不破。
-    // 这里要说的是**用户认得的那个名字**（实例名，不是目录名），而且不能说"下载完成" ——
-    // 用户点的是"检查"，那就报"检查完"。
-    if (wasRepairing) {
-        const QString displayName = instanceDisplayName(versionId);
-        if (success) {
-            appendLog(tr("✓ 实例「%1」的文件校验完成：%2").arg(displayName, errorMessage));
-            // 补全期间它被滤出了"能启动的实例"（installingVersionIds() 里有它），回来之后
-            // 把它选中 —— 和上面那条同一种情况：刷新只保得住"原来选中的"，保不住"原来被
-            // 滤掉、选中的那一格顺位落到了别人身上"。
-            QComboBox *installedCombo = m_ui->getInstalledVersionCombo();
-            if (installedCombo->currentIndex() < 0) {
-                if (const int index = installedCombo->findData(versionId); index >= 0) {
-                    installedCombo->setCurrentIndex(index);
-                }
-            }
-            updateStartButtonText();
-            InlineMessage::information(m_ui->overlay(), tr("检查完成"),
-                                       tr("实例「%1」的文件都齐了。\n\n%2")
-                                           .arg(displayName, errorMessage));
-        } else if (userCancelled) {
-            appendLog(tr("✗ 实例「%1」的文件校验已由用户取消。").arg(displayName));
-        } else {
-            appendLog(tr("✗ 实例「%1」的文件没补齐：%2").arg(displayName, errorMessage));
-            InlineMessage::warning(m_ui->overlay(), tr("文件没补齐"),
-                                   tr("实例「%1」有文件没能拿到。\n\n%2")
-                                       .arg(displayName, errorMessage));
-        }
-        return;
-    }
-
-    // GTNH 首启资源预取（2.1.6b）。走的是公共终态信号，但话术是另一件事：
-    // 既不是"版本文件就绪"，也不是"校验完成" —— 它下的是共享的 assets/asset_director。
-    // success + 空 message = 这一趟其实没什么要下的（数据层那边有意不打扰用户）。
-    if (wasPrefetching) {
-        const QString displayName = instanceDisplayName(versionId);
-        if (success) {
-            if (errorMessage.isEmpty()) {
-                appendLog(tr("「%1」的首启资源本来就齐了，这一趟没有下载。").arg(displayName));
-            } else {
-                appendLog(tr("✓ 「%1」的首启资源已预取：%2").arg(displayName, errorMessage));
-                InlineMessage::information(
-                    m_ui->overlay(), tr("首启资源已预取"),
-                    tr("「%1」的 GTNH 首启资源已经准备好了，第一次启动不会再卡在 AssetDirector 的下载上。\n\n%2")
-                        .arg(displayName, errorMessage));
-            }
-        } else if (userCancelled) {
-            appendLog(tr("✗ 「%1」的首启资源预取已由用户取消（已下好的文件留在原处）。")
-                          .arg(displayName));
-        } else {
-            appendLog(tr("✗ 「%1」的首启资源没预取完：%2").arg(displayName, errorMessage));
-            // 重试 = 再发起一次预取（数据层那边会跳过校验通过的部分，不会从头再来）。
-            // 这条不走账本里那颗"重试"：那一颗是给"失败清单"用的，而预取失败之后
-            // 最该做的事是"再核一遍盘上那些、把缺的补上"，不是"把这份清单重下一遍"。
-            const bool retry = InlineMessage::question(
-                m_ui->overlay(), tr("首启资源没预取完"),
-                tr("「%1」的 GTNH 首启资源没能全部拿到。\n\n%2\n\n"
-                   "这不影响启动：游戏第一次启动时 AssetDirector 会自己继续下。要现在再试一次吗？")
-                    .arg(displayName, errorMessage),
-                tr("再试一次"), tr("知道了"), true);
-            if (retry) {
-                maybePrefetchAssetDirector(versionId);
-            }
-        }
-        return;
-    }
-
-    if (success) {
-        appendLog(tr("✓ 版本 %1 下载完成：%2").arg(versionId, errorMessage));
-
-        // 刷新"已安装版本"下拉框：client jar 已经落到
-        // .minecraft/versions/<id>/<id>.jar，installedVersions() 下次扫盘就能看到它。
-        // NOTE: 这里可以放心刷新：fillVersionCombo() 自己负责把原来选中的版本捡回来。
-        refreshInstalledVersions();
-
-        // 刷新只能"保住"原来的选中项，保不住"原来压根没选"：那种情况下把刚下完的
-        // 版本顶上，省得用户下完还要自己去下拉框里再找一遍。原来已经有选中项时
-        // 不覆盖 —— 用户自己挑的版本比"最新下完的那个"更重要。
-        QComboBox *installedCombo = m_ui->getInstalledVersionCombo();
-        if (installedCombo->currentIndex() < 0) {
-            // 按 id 找（findData），不是按显示文本（findText）——刚下完的版本可能
-            // 已经有自定义名，显示文本不一定是版本号。
-            if (const int index = installedCombo->findData(versionId); index >= 0) {
-                installedCombo->setCurrentIndex(index);
-            }
-        }
-
-        InlineMessage::information(m_ui->overlay(), tr("下载完成"),
-                                 tr("版本 %1 的文件已全部就绪。\n\n%2").arg(versionId, errorMessage));
-    } else if (userCancelled) {
-        // 用户自己按的取消：一句日志就够（`cancelTaskFromDetail()` 那边已经写过「已取消」）。
-        // 不弹「下载失败」—— 那不是失败。
-        appendLog(tr("✗ 版本 %1 的下载已由用户取消。").arg(versionId));
-    } else {
-        // 失败就不刷新了：没成功就不该有新条目冒出来（jar 大概率没落地）
-        appendLog(tr("✗ 版本 %1 下载失败：%2").arg(versionId, errorMessage));
-        InlineMessage::warning(m_ui->overlay(), tr("下载失败"),
-                             tr("版本 %1 有文件未能下载完成。\n\n%2").arg(versionId, errorMessage));
-    }
-}
-
 void MainWindow::onVersionDetailsFetched(const QString &versionId, const QJsonObject &versionJson) {
     if (versionJson.isEmpty()) {
         appendLog(tr("获取版本 %1 的信息失败。").arg(versionId));
         // 账本上那件任务也到此为止（这一步还没进到"下载文件"，但用户点的那件事已经黄了）。
-        // NOTE: 收尾也在 setDownloadUiBusy(false) **之前**，理由和 onVersionDownloadFinished
-        // 那边逐字一样。
-        finishTask(m_downloadTaskId, false, tr("没能取到版本 %1 的信息。").arg(versionId));
-        m_downloadTaskId = Tasks::invalidTaskId();
+        // NOTE: 收尾也在 setDownloadUiBusy(false) **之前**，理由和
+        // `DownloadCompletionController::onFinished` 那边逐字一样。
+        m_downloadTaskLedger->finish(tr("没能取到版本 %1 的信息。").arg(versionId));
         setDownloadUiBusy(false);
         InlineMessage::warning(m_ui->overlay(), tr("下载失败"),
                              tr("无法获取版本 %1 的信息，请检查网络后重试。").arg(versionId));

@@ -37,9 +37,9 @@ public:
     struct Host {
         /// 往启动器日志里写一句（主窗口那句 `appendLog`）。
         std::function<void(const QString &)> log;
-        /// 让它停下来（`MainWindow::stopServer`）—— 页上那颗「停止」。
+        /// 让它停下来（`ServerRunController::stop`）—— 页上那颗「停止」。
         std::function<void(const QString &)> stop;
-        /// 强制结束（`MainWindow::forceKillServer`）—— 页上那颗「强制结束」。
+        /// 强制结束（`ServerRunController::forceKill`）—— 页上那颗「强制结束」。
         std::function<void(const QString &)> forceKill;
     };
 

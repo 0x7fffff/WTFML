@@ -469,3 +469,42 @@ pwsh -File tools/perf-download.ps1            # 全表；-Only '*seg*' 只跑一
 `build/perf-download-report-before-limit-fix/`（改前限速用例）、
 `build/perf-download-report-20261025-final/`（上表这一次：11 个用例、每例逐文件 SHA-1 核对通过）。
 功能回归：`build/verification-mingw13` 严格构建通过、`ctest` 38/38 通过（354.20 s）。
+
+## 十、共享头扇出（静态，2026-10-28）
+
+口径：`build/verification-mingw13` 里每一份 `.d` 依赖文件算一个 TU，数"哪些 TU 依赖这份头"。
+这是**静态扇出**，不是耗时 —— 它说的是"动这份头要重编多少个 TU"，编译每个 TU 要多久另算。
+TU 总数 1412（产品 218 / 验证 1194），仓库内头 297 份。
+
+| TU | 产品 | 验证 | 头 |
+| ---: | ---: | ---: | --- |
+| 478 | 71 | 407 | `src/util/AppPaths.hpp` |
+| 436 | 85 | 351 | `ui/Theme.hpp` |
+| 433 | 52 | 381 | `src/download/DownloadSpeedLimit.hpp` |
+| 433 | 52 | 381 | `src/download/DownloadConcurrency.hpp` |
+| 420 | 62 | 358 | `src/manage/InstanceFiles.hpp` |
+| 397 | 45 | 352 | `src/download/LoaderMeta.hpp` |
+| 394 | 40 | 354 | `src/download/ResourceCatalog.hpp` |
+| 393 | 44 | 349 | `src/manage/VersionDisplay.hpp` |
+| 371 | 70 | 301 | `ui/TaskCenterPanel.hpp` |
+| 370 | 35 | 335 | `src/settings/GameWindowSettings.hpp` |
+| 355 | 50 | 305 | `src/download/NetworkManagerFactory.hpp` |
+| 345 | 62 | 283 | `ui/TaskProgressBar.hpp` |
+| 345 | 62 | 283 | `ui/SkinViewer.hpp` |
+| 345 | 48 | 297 | `src/download/LocalFileReuse.hpp` |
+| 345 | 30 | 315 | `src/server/ServerRestart.hpp` |
+| 344 | 29 | 315 | `src/download/ServerInstall.hpp` |
+| 341 | 61 | 280 | `ui/GroupDialog.hpp` |
+| 341 | 46 | 295 | `src/util/ZipUtil.hpp` |
+| 341 | 29 | 312 | `src/server/ServerModel.hpp` |
+| 340 | 62 | 278 | `ui/MemorySlider.hpp` |
+
+读法（别越读越远）：
+
+- 排在前面的十几份彼此只差几十个 TU —— 它们底下挂着**同一个传递底座**（工具 / 路径 / 版本显示那几份），
+  所以"把某一根从 436 降到 400"这种数字没有意义；要看的是**产品那一栏**（改它要重编多少产品 TU）。
+- 验证那一栏远大于产品那一栏，理由和第二节 AppPaths 那一条相同：验证工程有一份公共夹具，
+  夹具引一份头就等于全体验证 TU 都引。
+- 本轮没有据此改任何 include —— 这张表是记账，不是优化凭证。
+
+原始数据：`build/tmp-wtfml-fanout.json`（临时文件，不入库）。

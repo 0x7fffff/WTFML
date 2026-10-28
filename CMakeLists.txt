@@ -290,6 +290,13 @@ set(SOURCE_FILES
     src/controllers/ServerWorkspaceController.cpp
     src/controllers/ServerConsoleController.cpp
     src/controllers/ServerSettingsController.cpp
+    src/controllers/ServerSettingsPageController.cpp
+    src/controllers/DownloadCompletionController.cpp
+    src/controllers/DownloadTaskLedgerController.cpp
+    src/controllers/ResourceInstallController.cpp
+    src/controllers/InstallPageController.cpp
+    src/controllers/ServerRunController.cpp
+    src/controllers/ServerMenuController.cpp
     src/controllers/ServerManagementActions.cpp
     src/controllers/ThemeSettingsController.cpp
     src/controllers/PlayerSkinController.cpp
@@ -298,6 +305,7 @@ set(SOURCE_FILES
     src/controllers/MainWindowViewData.cpp
     src/controllers/ResourceSearchController.cpp
     src/controllers/InstanceUpdateCheckController.cpp
+    src/controllers/UpdateCenterController.cpp
     src/controllers/DownloadFilterController.cpp
     src/controllers/ResourcePageController.cpp
     src/controllers/InstancePagesController.cpp

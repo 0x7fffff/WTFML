@@ -3,8 +3,23 @@
 #include "manage/ModpackInstallReport.hpp"
 #include "manage/ModpackCompletion.hpp"
 #include "controllers/ImportController.hpp"
+#include "controllers/ResourceInstallController.hpp"
 int MwWorkspaceCheck(QApplication &app) {
         runPromptProbeChecks();
+        QPointer<QObject> resourceLifetime;
+        {
+            MainWindow lifetimeWindow;
+            int resourceControllers = 0;
+            for (auto *child : lifetimeWindow.children()) {
+                if (dynamic_cast<ResourceInstallController *>(child)) {
+                    resourceLifetime = child;
+                    ++resourceControllers;
+                }
+            }
+            check(resourceControllers == 1, "资源安装控制器由真实主窗口持有且只有一份");
+        }
+        check(resourceLifetime.isNull(), "关闭主窗口同步释放资源安装控制器，断开异步回信接线");
+
 
         QTemporaryDir fixture(QDir::current().filePath(QStringLiteral(".workspace-check-XXXXXX")));
         if (!fixture.isValid()) return 2;

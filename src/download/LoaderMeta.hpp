@@ -243,7 +243,7 @@ inline LoaderRequest loaderRequestFromChoice(const QString &choice) {
 }
 
 /// 把条目列表抽成版本号列表（`stable` 那份信息在这里丢掉 —— 只有"要标出测试版"的地方
-/// 才需要它，见 MainWindow::fillLoaderVersionItems）。
+/// 才需要它，见 InstallPageController::fillLoaderVersionItems）。
 inline QStringList loaderVersionStrings(const LoaderVersionList &entries) {
     QStringList versions;
     versions.reserve(entries.size());

@@ -489,7 +489,7 @@ Tasks::TaskId BackupController::startWrite(const BackupFiles::Manifest &manifest
     // 服务端世界的那一趟（备份 / 还原）读 / 换的是**这一个服务端**的目录。
     m_refreshServerId = refreshServerId;
     // 跑着的时候它不能启动、不能删 —— 实例那一侧和这条服务端路都必须记"动不得"
-    // （见 MainWindow::startServer() / removeServer() 那两道闸）。
+    // （见 `ServerRunController::fileBusy()` / `removeServer()` 那两道闸）。
     m_busyServerId = refreshServerId;
     if (!m_busyServerId.isEmpty() && m_host.setServerFileOperationBusy) {
         m_host.setServerFileOperationBusy(m_busyServerId, true);

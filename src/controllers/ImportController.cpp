@@ -6,6 +6,7 @@
 #include "MainWindowUI.hpp"
 #include "OverlayHost.hpp"
 #include "download/ResourceCatalog.hpp"
+#include "controllers/DownloadTaskLedgerController.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "manage/DroppedResource.hpp"
 #include "manage/FolderManager.hpp"
@@ -796,7 +797,7 @@ bool ImportController::applyResolvedModpackImport(const QString &zipPath,
     // 时间按钮还能点的话用户会重复触发（和下载、装加载器两条路同一个理由）。
     m_owner->m_importingInstanceId = instanceName;
     m_owner->setDownloadUiBusy(true);
-    m_owner->m_progressThrottle.invalidate();
+    m_owner->m_downloadTaskLedger->resetProgressThrottle();
     m_owner->appendLog(m_owner->tr("开始导入整合包 %1 ...").arg(QFileInfo(zipPath).fileName()));
     if (resumingImport) {
         // 用户点的是「接着下」，日志里得留下这句 —— 不然排查的人只会看到"导入了一个已经

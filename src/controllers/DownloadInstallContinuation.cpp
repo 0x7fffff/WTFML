@@ -8,6 +8,8 @@
 #include "controllers/ServerWorkspaceController.hpp"
 #include "download/DownloadManager.hpp"
 #include "controllers/PresetController.hpp"
+#include "controllers/DownloadCompletionController.hpp"
+#include "controllers/DownloadTaskLedgerController.hpp"
 #include <QJsonArray>
 
 QJsonObject MainWindow::snapshotDownloadContinuation() const {
@@ -15,9 +17,10 @@ QJsonObject MainWindow::snapshotDownloadContinuation() const {
     auto intent = m_versionManager->downloadContinuation();
     if (intent.isEmpty()) return {};
     QJsonArray presets;
-    for (const auto &choice : m_installPendingPresets) presets.append(QJsonObject{{"id", choice.first}, {"force", choice.second}});
+    for (const auto &choice : m_downloadCompletion->presets()) presets.append(QJsonObject{{"id", choice.first}, {"force", choice.second}});
     QJsonObject fingerprints;
-    for (auto it = m_installPresetFingerprints.cbegin(); it != m_installPresetFingerprints.cend(); ++it) fingerprints.insert(it.key(), it.value());
+    const QMap<QString, QString> &storedFingerprints = m_downloadCompletion->fingerprints();
+    for (auto it = storedFingerprints.cbegin(); it != storedFingerprints.cend(); ++it) fingerprints.insert(it.key(), it.value());
     intent.insert("presets", presets); intent.insert("presetFingerprints", fingerprints);
     if (!presets.isEmpty()) {
         const auto targets = Presets::snapshotInitializationTargets(AppPaths::versionDir(intent.value("instance").toString()));
@@ -61,23 +64,20 @@ bool MainWindow::continueDownloadInstallation(Tasks::TaskId id, const QJsonObjec
     if (kind == "named-loader" && (loader < 0 || loader > int(VersionManager::LoaderKind::Quilt) ||
         !VersionManager::loaderInstallSupported(VersionManager::LoaderKind(loader)))) return false;
 
-    m_installPendingPresets.clear(); m_installPresetFingerprints.clear();
+    QList<QPair<QString, bool>> presets;
     for (const auto &value : intent.value("presets").toArray()) {
         const auto row = value.toObject();
-        m_installPendingPresets.append({row.value("id").toString(), row.value("force").toBool()});
+        presets.append({row.value("id").toString(), row.value("force").toBool()});
     }
-    const auto fingerprints = intent.value("presetFingerprints").toObject();
-    for (auto it = fingerprints.begin(); it != fingerprints.end(); ++it) m_installPresetFingerprints.insert(it.key(), it.value().toString());
-    m_installPendingPresetInstance = kind == "repair" ? QString() : instance;
-    m_installPresetModsReady = false;
-    m_installPresetModsOk = true;
-    m_installPresetModsReport.clear();
-    m_downloadTaskId = id;
-    m_downloadBatchOwnerTaskId = id;
+    QMap<QString, QString> fingerprints;
+    const auto storedFingerprints = intent.value("presetFingerprints").toObject();
+    for (auto it = storedFingerprints.begin(); it != storedFingerprints.end(); ++it) fingerprints.insert(it.key(), it.value().toString());
+    m_downloadCompletion->begin(kind == "repair" ? QString() : instance, presets, fingerprints);
+    m_downloadTaskLedger->adopt(id);
     if (kind == "repair") m_repairingInstanceId = instance;
     else m_installingInstanceId = instance;
     setDownloadUiBusy(true);
-    m_progressThrottle.invalidate();
+    m_downloadTaskLedger->resetProgressThrottle();
     if (kind == "repair") m_versionManager->repairVersionFiles(instance);
     else if (kind == "named-vanilla") m_versionManager->installNamedVanilla(instance, game);
     else m_versionManager->installNamedLoader(instance, game, VersionManager::LoaderKind(loader),

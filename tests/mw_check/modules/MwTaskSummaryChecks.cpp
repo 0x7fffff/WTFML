@@ -26,7 +26,7 @@ int MwTaskSummaryChecks(MainWindow &window) {
                                             Q_ARG(bool, true));
             QApplication::processEvents();
             // 这一批在界面上没有对应的实例（下面那三个 id 都是空的），走的是兜底那一支
-            // —— 标题「下载游戏文件」（见 MainWindow::beginDownloadTask()）。
+            // —— 标题「下载游戏文件」（见 DownloadTaskLedgerController::begin()）。
             check(abStatus->text() == QStringLiteral("下载游戏文件"),
                   "AB1 起一批下载：中间那格写的是**这件任务的标题**（不再是一根空条）",
                   abStatus->text());
@@ -62,7 +62,7 @@ int MwTaskSummaryChecks(MainWindow &window) {
 
             // ---- ② 报一次数：进度落进账本，底栏 + 面板都看得见 ----
             // NOTE: 等过那个 200 ms 的节流窗口再报数。onVersionDownloadStats() 是**前缘
-            // 节流**（src/MainWindow.cpp 里那句 m_progressThrottle.elapsed() < 200），
+            // 节流**（DownloadTaskLedgerController::takeProgressTick() 里那句 elapsed() < 200），
             // 而节流的起点是"上一发真报数"—— 这一节之前有没有别人报过（别的节留下的
             // 后台下载、真网络那几条探针），就决定了这一发会不会被**吞掉**。被吞掉时
             // 报出来的是「0 / 0」，看着像产品坏了，其实是这条断言在跟节流器抢时间。

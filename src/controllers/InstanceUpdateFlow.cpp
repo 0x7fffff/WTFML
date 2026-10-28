@@ -10,7 +10,10 @@
 #include "InlineMessage.hpp"
 #include "Theme.hpp"
 #include "controllers/InstanceTransferController.hpp"
+#include "controllers/DownloadCompletionController.hpp"
 #include "controllers/ActivityCenterController.hpp"
+#include "controllers/InstallPageController.hpp"
+#include "controllers/DownloadTaskLedgerController.hpp"
 #include "manage/VersionManager.hpp"
 #include "operations/InstanceUpgrade.hpp"
 #include "operations/OperationReport.hpp"
@@ -221,9 +224,9 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     QObject::connect(wizard, &QDialog::finished, dialog, [dialog, state] { if (state->requiresReload) dialog->reject(); });
     wizard->cancelRequested = [owner, state, status] {
         if (state->preparing) {
-            owner->m_downloadCancelInFlight = true;
+            owner->m_downloadTaskLedger->setUserCancelInFlight(true);
             const bool requested = owner->m_versionManager->cancelActiveDownload();
-            if (!requested) owner->m_downloadCancelInFlight = false;
+            if (!requested) owner->m_downloadTaskLedger->setUserCancelInFlight(false);
             else state->prepCancelled = true;
             status->setText(requested ? QObject::tr("已请求取消核心准备，原实例未改变。")
                 : QObject::tr("当前安装阶段暂不能取消，请等待阶段结束。")); return false;
@@ -876,7 +879,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
                 }
             }
             QString installerJava = owner->m_javaSettings->javaPath();
-            if (!state->loader.isEmpty() && !owner->pickInstallerJava(state->game,
+            if (!state->loader.isEmpty() && !owner->m_installPage->pickInstallerJava(state->game,
                 VersionManager::loaderIndexForKind(loaderKind(state->loader)), &installerJava)) return;
             if (!InlineMessage::question(owner->m_ui->overlay(), QObject::tr("确认实例更新"),
                     QObject::tr("更新到 Minecraft %1 · %2 %3。\n\n平台有目标发行版的模组可按列表替换为适配版（必要前置自动补齐）；其余按保留或禁用处理，无法确认兼容性的模组必须先选择处理方式。\n替换失败或必要前置失败会整趟回滚，并写出原因报告。\n存档跨版本后可能无法降级；请勿同时运行实例。\n\n下一步自动准备核心，之后执行副本或完整快照更新。")
@@ -889,15 +892,15 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
             state->core = QStringLiteral("wtfml-update-") + QUuid::createUuid().toString(QUuid::WithoutBraces);
             state->prepCancelled = false;
             // 父任务必须在 `setDownloadUiBusy(true)` **之前**建好：那一下会调
-            // `beginDownloadTask()`，它按 `m_downloadParentTask` 决定核心准备是挂在这一步底下
+            // `DownloadTaskLedgerController::begin()`，它按父任务决定核心准备是挂在这一步底下
             // 还是另起一行。
             beginParentTask();
-            owner->setDownloadTaskParent(state->parent, 0);
+            owner->m_downloadTaskLedger->setParent(state->parent, 0);
             owner->setUpdateFlowCancel(state->parent, [owner, state] {
-                owner->m_downloadCancelInFlight = true;
+                owner->m_downloadTaskLedger->setUserCancelInFlight(true);
                 const bool requested = owner->m_versionManager->cancelActiveDownload();
                 if (!requested) {
-                    owner->m_downloadCancelInFlight = false;
+                    owner->m_downloadTaskLedger->setUserCancelInFlight(false);
                     return false;
                 }
                 state->prepCancelled = true;
@@ -911,11 +914,9 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
             auto *vm = owner->m_versionManager;
             vm->setProperty("instanceUpdatePreparedId", state->core);
             owner->m_installingInstanceId = state->core;
-            owner->m_installPendingPresets.clear(); owner->m_installPendingPresetInstance.clear();
-            owner->m_installPresetFingerprints.clear(); owner->m_installPresetModsReady = false;
-            owner->m_installPresetModsOk = true; owner->m_installPresetModsReport.clear();
+            owner->m_downloadCompletion->clear();
             owner->markFileOperationBusy(state->source);
-            owner->setDownloadUiBusy(true); owner->beginDownloadTask();
+            owner->setDownloadUiBusy(true); owner->m_downloadTaskLedger->begin();
             const auto core = state->core;
             QObject::connect(vm, &VersionManager::versionDownloadFinished, owner,
                 [owner, guard = QPointer<InstanceSettingsDialog>(dialog), state, core, selectors = QPointer<QWidget>(selectors), status = QPointer<QLabel>(status), refreshEnabled, execute]

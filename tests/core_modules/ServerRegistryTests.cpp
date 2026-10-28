@@ -191,6 +191,46 @@ void runServerRegistryTests() {
               "ZX8 本来就不在 = 已经达成目的（回 true）");
     }
 
+    // ---------- ZX8.5 「异常退出后自动重启」那一格：读不懂就不写 ----------
+    {
+        const QString metaPath = AppPaths::serverMetaPath(QStringLiteral("Srv1"));
+        QFile file(metaPath);
+        check(file.open(QIODevice::ReadOnly), "ZX8.5 先拿到那一份记录");
+        const QByteArray before = file.readAll();
+        file.close();
+        check(!before.isEmpty(), "ZX8.5 那一份不是空的");
+
+        const QByteArray corruptBytes = QStringLiteral("{ 这不是 JSON").toUtf8();
+        QFile broken(metaPath);
+        check(broken.open(QIODevice::WriteOnly | QIODevice::Truncate), "ZX8.5 把它弄坏");
+        broken.write(corruptBytes);
+        broken.close();
+
+        QString problem;
+        check(!ServerRegistry::setRestartOnCrash(QStringLiteral("Srv1"), true, &problem),
+              "★★ ZX8.5 读不懂的那一份不许被一份空记录顶掉", problem);
+        check(!problem.isEmpty(), "ZX8.5 而且说得出为什么");
+
+        QFile after(metaPath);
+        check(after.open(QIODevice::ReadOnly), "ZX8.5 坏的那份还在");
+        const QByteArray untouched = after.readAll();
+        after.close();
+        check(untouched == corruptBytes, "★★ ZX8.5 一个字节都没动", QString::fromUtf8(untouched));
+
+        // 修回来之后照常能写：而且**别的格还在**（这一格不是整份重建）。
+        QFile restore(metaPath);
+        check(restore.open(QIODevice::WriteOnly | QIODevice::Truncate), "ZX8.5 先修回来");
+        restore.write(before);
+        restore.close();
+        QString okProblem;
+        check(ServerRegistry::setRestartOnCrash(QStringLiteral("Srv1"), true, &okProblem),
+              "ZX8.5 好的那一份照常写进去", okProblem);
+        const ServerModel::Info reread = ServerRegistry::readMeta(QStringLiteral("Srv1"));
+        check(reread.restartOnCrash, "★ ZX8.5 写下去之后读回来就是「打开」");
+        check(reread.gameVersion == QStringLiteral("1.20.1"),
+              "★ ZX8.5 同一份记录里别的格（游戏版本）还在 —— 这一项不是整份重写", reread.gameVersion);
+    }
+
     // ---------- ZX9. 真删一个 ----------
     {
         const QString dir = AppPaths::serverDir(QStringLiteral("Srv1"));

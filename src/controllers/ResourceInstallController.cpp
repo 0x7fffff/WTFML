@@ -1,0 +1,436 @@
+#include "controllers/ResourceInstallController.hpp"
+
+#include <QDir>
+#include <QFileDialog>
+#include <QSet>
+#include <QStringList>
+
+#include "MainWindow.hpp"
+#include "controllers/ActivityCenterController.hpp"
+#include "controllers/DownloadTaskLedgerController.hpp"
+#include "controllers/MainWindowViewData.hpp"
+#include "controllers/ResourcePageController.hpp"
+#include "download/ModDependencies.hpp"
+#include "download/ResourceStore.hpp"
+#include "manage/VersionManager.hpp"
+#include "settings/LauncherSettings.hpp"
+#include "tasks/TaskManager.hpp"
+#include "InlineMessage.hpp"
+#include "MainWindowUI.hpp"
+#include "util/AppPaths.hpp"
+
+ResourceInstallController::ResourceInstallController(MainWindow *owner) : QObject(owner), m_owner(*owner) {}
+
+void ResourceInstallController::install(ResourceCatalog::Kind kind, const QString &displayTitle,
+                                        ResourceCatalog::VersionEntry version,
+                                        ResourceCatalog::Source source) {
+    MainWindow &owner = m_owner;
+    // 判据：这一版声明的必装前置里，**目标实例还缺哪几个**（`ModDependencies` 那边算，
+    // 纯函数）。一条不缺就走下面那一句 —— 那时候**一个请求都不多发**。
+    //
+    // NOTE: 资源包 / 数据包**不看**：它们那一版列的是 `minecraft` / `datapack`（游戏本体），
+    // 那和"前置"不是一回事；整合包更不用 —— 它的依赖在清单里，本来就是整个包一起装。
+    if ((kind == ResourceCatalog::Kind::Mod || kind == ResourceCatalog::Kind::Shader) &&
+        owner.m_settings->warnMissingDependencies() && !m_check.active) {
+        const QString instanceId = owner.dependencyInstanceId();
+        // 光影的**豁免**：这个实例已经能跑光影了（加载器是 OptiFine，或者
+        // mods/ 里已经有 iris / oculus / optifine）⇒ 整段跳过。
+        // 理由：Modrinth 上光影项目声明的前置就是 `iris`（OptiFine 那一支还有的写
+        // `optifine`），而**装了 OptiFine 的人不需要 iris** —— 不豁免的话，他每下一次光影
+        // 都被劝着装一个用不上的前置。判据直接借现成的 `instanceShaderUsable()`
+        // （整段词匹配那一条也在它里面，不在这儿再写一遍）。
+        const bool shaderAlreadyUsable =
+            kind == ResourceCatalog::Kind::Shader && owner.instanceShaderUsable(instanceId);
+        if (!instanceId.isEmpty() && !shaderAlreadyUsable) {
+            const ModDependencies::Target target = owner.dependencyTargetFor(instanceId, source);
+            bool installedKnown = false;
+            const QSet<QString> installed = owner.installedModKeys(instanceId, &installedKnown);
+            const QList<ModDependencies::Lookup> missing =
+                ModDependencies::missingRequiredDependencies(version, installed, target);
+            if (!missing.isEmpty()) {
+                startDependencyCheck(kind, displayTitle, version, target, missing, installedKnown);
+                return;
+            }
+        }
+        // 设置里关着 / 不知道装进哪个实例 / 光影已经能用 / 没有缺的：交给下面那一句，
+        // 它的判断和话术一个字都不变（关掉 = 只下他点的那一版）。
+    }
+    installNow(kind, displayTitle, version, {});
+}
+
+void ResourceInstallController::startDependencyCheck(ResourceCatalog::Kind kind,
+                                                     const QString &displayTitle,
+                                                     const ResourceCatalog::VersionEntry &version,
+                                                     const ModDependencies::Target &target,
+                                                     const QList<ModDependencies::Lookup> &missing,
+                                                     bool installedKnown) {
+    MainWindow &owner = m_owner;
+    m_check = DependencyCheck{};
+    m_check.active = true;
+    m_check.kind = kind;
+    m_check.title = displayTitle;
+    m_check.version = version;
+    m_check.instanceId = target.instanceId;
+    m_check.target = target;
+    m_check.missing = missing;
+    // "这个实例的 mods 到底认过没有"（见 installedModKeys 的 known 出参）—— 它只决定
+    // 弹框那句话怎么写（"这几个还没装" vs "无法确认你装了没有"），所以跟着这一趟存着。
+    m_check.installedKnown = installedKnown;
+
+    QStringList ids;
+    ids.reserve(missing.size());
+    for (const ModDependencies::Lookup &lookup : missing) {
+        if (!ids.contains(lookup.dependency.projectId)) {
+            ids.append(lookup.dependency.projectId);
+        }
+    }
+    // 消费方名字（`dependency`）**必须跟详情页那一趟（`detail`）分开**：两处问的完全可能
+    // 是同一批号，而 `fetchProjects()` 是按钥匙去重的（同一把钥匙再来一发把前一发掐掉）。
+    // 撞上的症状是"先发的那一趟永远等不到回信"，屏幕上一点异常都没有。
+    m_check.titleRequestKey = ModDependencies::projectsKeyFor(
+        QStringLiteral("dependency"), ids, m_check.target.source);
+    owner.appendLog(ModDependencies::dependencyLookupLogText(missing.size()));
+    owner.m_resourceStore->fetchProjects(m_check.titleRequestKey, ids, m_check.target.source);
+}
+
+void ResourceInstallController::onProjectsFinished(const QString &requestKey,
+                                                   const QList<ResourceCatalog::Hit> &hits,
+                                                   const QString &problem) {
+    MainWindow &owner = m_owner;
+    if (!m_check.active || requestKey != m_check.titleRequestKey) {
+        return; // 不是这一趟等的（用户中途又点了别的下载）
+    }
+    // 名字取不到**不算错**：那一条退成项目号显示（见 ModDependencies::buildPlan 那段），
+    // 而"没有名字"挡不住"要不要一起下"这个决定。所以这里只记一句日志。
+    if (!problem.isEmpty()) {
+        owner.appendLog(MainWindow::tr("前置模组的名字没取到：%1").arg(problem));
+    }
+    // 名字进**会话级**那个缓存（详情页那一行读的是同一份）。取不到名字的那几条**不写**：
+    // 写一个空串进去等于把"还没问过"说成"问过了、它没名字"。
+    owner.rememberProjectTitles(hits, m_check.target.source);
+
+    // 逐条去问"它有哪些版本"。**同一批发出去**（一把钥匙一个项目，互相不撞）——
+    // 串起来问的话，N 个前置就是 N 个往返，而它们本来就互不相干。
+    m_check.answers.clear();
+    m_check.pending = 0;
+    for (const ModDependencies::Lookup &lookup : m_check.missing) {
+        ++m_check.pending;
+        owner.m_resourceStore->fetchVersions(lookup.requestKey, lookup.dependency.projectId,
+                                             m_check.target.source, m_check.target.gameVersion,
+                                             m_check.target.loader);
+    }
+    if (m_check.pending == 0) {
+        finishDependencyCheck(); // 一条都不缺（走不到：missing 非空才进这一趟）
+    }
+}
+
+void ResourceInstallController::onVersionsFinished(
+    const QString &requestKey, const QList<ResourceCatalog::VersionEntry> &versions,
+    const QString &problem) {
+    if (!m_check.active) {
+        return;
+    }
+    bool ours = false;
+    for (const ModDependencies::Lookup &lookup : m_check.missing) {
+        if (lookup.requestKey == requestKey) {
+            ours = true;
+            break;
+        }
+    }
+    if (!ours) {
+        return; // 详情页那一发（或者别的页面）的回复，不关这一趟的事
+    }
+    // 失败时**不往 answers 里放空表**：`buildPlan` 那边"钥匙缺席"和"回来了但是空的"
+    // 是两句不同的话（"没问到"和"它就是没有版本"）—— 放空表等于把前者说成后者。
+    if (problem.isEmpty()) {
+        m_check.answers.insert(requestKey, versions);
+    }
+    if (m_check.pending > 0) {
+        --m_check.pending;
+    }
+    if (m_check.pending == 0) {
+        finishDependencyCheck();
+    }
+}
+
+void ResourceInstallController::finishDependencyCheck() {
+    MainWindow &owner = m_owner;
+    DependencyCheck check = m_check;
+    m_check.active = false;
+
+    const bool installedKnown = check.installedKnown;
+
+    // 名字从会话缓存里查（详情页那一行读的是同一份）。缺的那几条**退成项目号**——
+    // 列出来总比"有 2 个前置没找到"强（见 ModDependencies::buildPlan 那段），
+    // 而"为什么没名字"已经写进日志了（见 onProjectsFinished）。
+    QHash<QString, QString> titles;
+    for (const ModDependencies::Lookup &lookup : check.missing) {
+        const QString name = owner.m_projectTitles.value(
+            owner.projectTitleKey(check.target.source, lookup.dependency.projectId));
+        if (!name.isEmpty()) {
+            titles.insert(lookup.dependency.projectId, name);
+        }
+    }
+
+    const ModDependencies::Plan plan =
+        ModDependencies::buildPlan(check.missing, check.answers, titles);
+
+    QStringList names;
+    names.reserve(check.missing.size());
+    for (const ModDependencies::Lookup &lookup : check.missing) {
+        const QString name = titles.value(lookup.dependency.projectId);
+        names.append(name.isEmpty() ? lookup.dependency.projectId : name);
+    }
+
+    const QString note = ModDependencies::unresolvedNoteText(plan.unresolved);
+    QList<ModDependencies::Resolved> extras;
+    if (plan.downloads.isEmpty()) {
+        // 一条都没解开：**照样把这个模组装上**，但得如实说一句"前置一条都没找到"。
+        // 不说的话，用户点完下载看到的就是"下好了"，而进游戏那一下就崩。
+        //
+        // NOTE: 这一档走 `ask()` 而不是 `warning()`：只有 `ask()` 带得了那行**灰字**
+        // （那行灰字写的是"可以在设置里关掉"）。一颗「知道了」按下去就走。
+        QString text = ModDependencies::dependencyPromptText(check.kind, names);
+        if (!note.isEmpty()) {
+            text += QStringLiteral("\n\n") + note;
+        }
+        InlineMessage::ask(owner.m_ui->overlay(), MessageKind::Warning,
+                           ModDependencies::dependencyPromptTitle(), text,
+                           {MainWindow::tr("知道了")}, 0, -1, false,
+                           ModDependencies::dependencyPromptNoteText());
+    } else {
+        QString text = installedKnown
+                           ? ModDependencies::dependencyPromptText(check.kind, names)
+                           : ModDependencies::dependencyPromptUnknownText(check.kind, names);
+        if (!note.isEmpty()) {
+            text += QStringLiteral("\n\n") + note;
+        }
+        // 两颗按钮：左「只下这个」（**默认那颗** —— 误按回车不该替用户多做一件事），
+        // 右「一起下载」。
+        // NOTE: 必须用 `ask()`：`question()` 带不了那行灰字（没有 note 这一格）。
+        const int choice = InlineMessage::ask(
+            owner.m_ui->overlay(), MessageKind::Question,
+            ModDependencies::dependencyPromptTitle(), text,
+            {ModDependencies::dependencyOnlyThisButtonText(),
+             ModDependencies::dependencyAllButtonText()},
+            0, -1, false, ModDependencies::dependencyPromptNoteText());
+        if (choice == 1) {
+            extras = plan.downloads;
+        }
+    }
+
+    // `check.instanceId` 显式传下去：这一趟是从一轮网络往返**之后**回到这里的，那期间
+    // 用户完全可能把详情页收掉（于是 `m_resourcePage.open` 落了、`dependencyInstanceId()`
+    // 只能退回下拉框）。检查时算的是哪个实例，就得装进哪个实例。
+    installNow(check.kind, check.title, check.version, extras, check.instanceId);
+}
+
+void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QString &displayTitle,
+                                          ResourceCatalog::VersionEntry version,
+                                          const QList<ModDependencies::Resolved> &extras,
+                                          const QString &forcedInstanceId) {
+    MainWindow &owner = m_owner;
+    const bool isModpack = kind == ResourceCatalog::Kind::Modpack;
+
+    // 目标实例：**优先用调用方递进来的**（前置检查那一趟回来时，页面可能已经关了，而
+    // 那一趟在 `m_check.instanceId` 里记着它当时算的是哪个实例 —— 现算会算错），
+    // 其次是 `dependencyInstanceId()`（见那一处的两条来路）。整合包那一路不用它 ——
+    // 下回来的是 .mrpack，接着走导入，实例名是在那条路上问出来的。
+    const QString instanceId =
+        isModpack ? QString()
+                  : (forcedInstanceId.isEmpty() ? owner.dependencyInstanceId() : forcedInstanceId);
+    // "这一趟是从某个实例里点进来的吗" —— 只决定要不要弹"存哪儿"那个框（见 LauncherSettings
+    // 里 downloadAutoIntoInstance 那一节）。调用方点名了实例也算。
+    const bool cameFromInstance = !forcedInstanceId.isEmpty() || owner.downloadCameFromInstance();
+    if (!isModpack && instanceId.isEmpty()) {
+        InlineMessage::warning(owner.m_ui->overlay(), MainWindow::tr("没有选中实例"),
+                             MainWindow::tr("先在「已安装版本」里选一个实例，再挑要装进它的版本。"));
+        return;
+    }
+
+    // 下到哪儿去。实例那几类是 `<实例目录>/<子目录>`（mods / datapacks / resourcepacks /
+    // shaderpacks）；整合包走缓存目录 —— 它不能进 versions/（那底下每一个子目录都会被当成
+    // 一个实例）。
+    const QString folder = ResourceCatalog::folderForKind(kind);
+    const QString defaultDir = isModpack
+                                   ? AppPaths::modpackCacheDir()
+                                   : AppPaths::versionDir(instanceId) +
+                                         QLatin1Char('/') + folder;
+    if (!isModpack && folder.isEmpty()) {
+        return;  // folderForKind 说了"这一类不走这条安装路"，而它又不是整合包
+    }
+
+    // **要不要问一句"存哪儿"**（要求见 LauncherSettings 里那一节，
+    // 那里是这一支判据唯一的语义出处）。判据就一条：
+    //
+    // 弹框 = 设置里没勾 或者 这一栏不是从实例设置里点进来的
+    //
+    // "是不是从实例设置里点进来的"读的是 `m_downloadFromInstanceId` —— 和那颗
+    // 「← 返回实例设置」用的是**同一个值**，因为它俩说的本来就是同一件事（这一栏是从哪个
+    // 实例来的）。不另开一个布尔：两个值一旦分开，"露着返回键、却弹了保存框"这种事迟早会
+    // 出现。
+    //
+    // NOTE: 这一支是**在哪里下载**那一层唯一的岔路，所以它写在"算落点"这一句上，而不是
+    // 写在按钮那一路：详情页里点一行、下载页里双击一行、文件管理里点名字进详情页再
+    // 点一行 —— 三条路都会走到这儿，分流只有一处才不会有哪一条路漏掉。
+    // NOTE: 用户在下载页里待久了之后（比如从实例 A 点进来、又自己把「已安装版本」换成 B），
+    // 这一位还是非空、于是不再问。这是**刻意的**：那时候落点仍然是"当前实例"（下拉框
+    // 里那一个），而这一项勾选框上写的就是"直接放进当前实例"。
+    QString destinationDir = defaultDir;
+    // 这一批算"谁在动盘"。默认是那个实例；用户挑了别处的目录时它必须是空的（那底下没有任何
+    // 实例在被写，锁着它等于白挡别人启动）。
+    QString busyInstanceId = instanceId;
+    if (!owner.m_settings->downloadAutoIntoInstance() || !cameFromInstance) {
+        // 这个框是**嵌套事件循环**：开着的这一会儿，网络回信照常派发 —— 也就可能有一发
+        // 版本清单插进 `m_resourceVersions`（那张 QHash 一 rehash，调用方递进来的
+        // 元素引用就悬空了）。所以 `version` 这一格是**按值**收的（见头文件那一处），
+        // 下面 `version.primaryFile()` 读的是自己手里这份拷贝，容器怎么变都不关它的事。
+        const QString chosen = QFileDialog::getExistingDirectory(
+            &owner, MainWindow::tr("下载到哪个文件夹"), defaultDir);
+        if (chosen.isEmpty()) {
+            return;  // 用户取消 = 这一版不下（一个字都不写盘）
+        }
+        destinationDir = chosen;
+        if (QDir(destinationDir) != QDir(defaultDir)) {
+            busyInstanceId.clear();
+        }
+    }
+
+    const ResourceCatalog::FileEntry *file = version.primaryFile();
+    if (file == nullptr || file->url.isEmpty()) {
+        // 「接口没给地址」有两种，**不是同一句话**：一种是这一版真的没有文件；
+        // 另一种是作者在项目设置里关掉了第三方分发（CurseForge 那条路，`downloadUrl`
+        // 给的就是 null，见 FileEntry::unavailableNote）。后者要是也说成"没有可下载的文件"，
+        // 用户会当成启动器坏了，然后一遍遍重试 —— 那句话在那儿就写好了，用它。
+        const QString note = file == nullptr ? QString() : file->unavailableNote;
+        InlineMessage::warning(owner.m_ui->overlay(), MainWindow::tr("下载失败"),
+                               note.isEmpty() ? MainWindow::tr("这一版没有可下载的文件。") : note);
+        return;
+    }
+
+    // 加载器对不对得上。**这一层没有按加载器筛过**（见 onResourceItemActivated 里那段
+    // NOTE），所以在这儿补一道闸：给一个 Fabric 实例装一个 Forge 的模组，症状是"游戏进去就
+    // 崩"，而那一刻没人会想到是刚才那个模组。
+    //
+    // NOTE: 这道闸**只管模组**（非模组时不拦）。理由：`VersionEntry::loaders`
+    // 不是只有模组加载器 —— 资源包那一版列的是 `minecraft`、数据包列的是 `datapack`、
+    // 光影列的是 `iris/optifine`，它们跟"这个实例装的是什么模组加载器"根本没有关系。
+    // 不收的话，给一个 Forge 实例装资源包/数据包会**每次都弹一次**「加载器对不上」，
+    // 而那句话（"这一版是给 minecraft 用的"）本身就说不通 —— 那种框弹多了，用户就
+    // 再也不看这类提醒了，真正该拦的那一次也跟着一起被忽略。
+    const bool loaderMatters = kind == ResourceCatalog::Kind::Mod;
+    // 判据刻意做得**窄**（只拦"知道实例是什么加载器、且这一版只列了另一种"这一种）：
+    // · 不是模组（资源包 / 数据包 / 光影 / 整合包）→ 放行；
+    // · 认不出实例的加载器（纯原版，或者 json 里没写）→ 放行；
+    // · 这一版列了不止一种加载器（Quilt 之类兼容好几种）→ 放行；
+    // · 纯原版实例 + 一个带加载器的模组 → 也放行（认不出来的和纯原版在这里分不开，
+    // 宁可漏拦也不要拦住一个本来装得上的）。
+    // 拦下来的是**问一句**，不是禁止 —— 坚持"就要这么装"就照装。
+    const VersionDisplayParts parts = owner.m_versionManager->displayParts(instanceId);
+    // 加载器名走 instanceLoaderName()，**不是** `parts.loaderName`：后者只有我们自己的
+    // 安装器会写，PCL 那类合并实例读出来是空的 —— 于是这道闸
+    // 对它们**恒不放行**，"加载器对不上"那句话一次都弹不出来（它最该拦的那一对恰好就
+    // 在这些实例上）。理由同 instanceModsUsable() 那段。
+    QString instanceLoaderVersion;
+    const QString instanceLoader =
+        MainWindowViewData::instanceLoaderName(parts, owner.m_versionManager, &instanceLoaderVersion);
+    if (loaderMatters && !instanceLoader.isEmpty() && version.loaders.size() == 1
+        && version.loaders.first().compare(instanceLoader, Qt::CaseInsensitive) != 0) {
+        const auto answer = InlineMessage::question(owner.m_ui->overlay(),
+            MainWindow::tr("加载器对不上"),
+            MainWindow::tr("这个实例是 %1 %2，而这一版是给 %3 用的。\n\n"
+                           "装进去多半不会生效（游戏进去可能直接崩）。还要装吗？")
+                .arg(instanceLoader, instanceLoaderVersion, version.loaders.first()),
+            MainWindow::tr("是"), MainWindow::tr("否"), false);
+        if (!answer) {
+            return;
+        }
+    }
+
+    QList<VersionManager::ResourceFile> files;
+    VersionManager::ResourceFile resourceFile;
+    resourceFile.url = file->url;
+    resourceFile.filename = file->filename;
+    resourceFile.sha1 = file->sha1;
+    resourceFile.size = file->size;
+    files.append(resourceFile);
+
+    // NOTE: 前置的落点就是这个实例的 mods（`destinationDir` 是按 kind=模组算出来的）——
+    // 前置本来就是模组，和主文件同一个目录，这一点不用另判。
+    for (const ModDependencies::Resolved &extra : extras) {
+        if (extra.file.url.isEmpty() || extra.file.filename.isEmpty()) {
+            continue; // 走不到（resolveDependency 已经挡过一道），挡第二道不费什么
+        }
+        VersionManager::ResourceFile extraFile;
+        extraFile.url = extra.file.url;
+        extraFile.filename = extra.file.filename;
+        extraFile.sha1 = extra.file.sha1;
+        extraFile.size = extra.file.size;
+        files.append(extraFile);
+    }
+
+    QString label = QStringLiteral("%1 %2").arg(displayTitle, version.versionNumber);
+    if (!extras.isEmpty()) {
+        // 日志和"下好了"那句话上写清楚这一批里**还有前置**（不然用户看到下了好几个文件、
+        // 而屏幕上只说了一个模组的名字，会以为下错了）。
+        label += MainWindow::tr("（含 %1 个前置）").arg(extras.size());
+    }
+    // 下完接着走导入那条路（那边会问实例名、挑 Java，然后解包、下清单里那几百个文件）。
+    // 路径按**接口给的文件名**算 —— 落盘用的就是它（见 downloadResourceFiles），这里
+    // 不另编一套命名。
+    const QString modpackPath =
+        isModpack ? destinationDir + QLatin1Char('/') + file->filename : QString();
+    owner.appendLog(
+        MainWindow::tr("正在下载 %1（%2）。").arg(label, QDir::toNativeSeparators(destinationDir)));
+    // busyInstanceId 传空的有两路：整合包下到缓存里（盘上没有任何实例在被写），以及用户
+    // 自己挑了实例之外的目录那一路 —— 两路都不该锁住谁（见上面算落点那一段）。
+    //
+    // 这一批也要在任务中心里**看得见**（状态、进度、取消、失败后的重试）——
+    // 不记任务的话，下几百 MB 的整合包时底栏那格一直空着，失败之后也没有任何地方
+    // 能点「重试」（失败清单是有的，可没有一行任务认领它）。
+    //
+    // 号必须在 `downloadResourceFiles()` **之前**建：所有文件盘上都已经有的时候，那一批
+    // 会**同步**收尾（当场发 `resourceDownloadFinished`），先建号才认领得到那一条终态。
+    // 反过来，"忙"的那几种拒绝也会同步发一条失败终态 —— 所以先自己把忙态问一遍，
+    // 被拒的白问不该在账本上留一行红字（判据和 updateInstanceFiles() 那道闸同一个）。
+    //
+    // `m_downloadInFlight` 必须一起问。版本安装取 version.json 的那
+    // 一段是元数据作业（不计进 `isDownloading()`），而那一趟的号已经在
+    // `DownloadTaskLedgerController::task()` 里了 —— 只问下面那几个谓词的话，这一句会放行，
+    // 紧接着 `setTask(beginTask(...))` 把安装那一件顶掉：安装收尾时收的是**这一单**，
+    // 它自己永远停在"进行中"（而且下载器那边还会以"已有下载任务"拒掉安装）。
+    if (owner.m_downloadInFlight || owner.m_versionManager->isDownloading()
+        || owner.m_versionManager->isLoaderInstalling()
+        || owner.m_versionManager->isModpackImporting()
+        || owner.m_versionManager->isNamedInstanceInstalling()
+        || (owner.m_serverInstall != nullptr && owner.m_serverInstall->ownsDownloadBatch())) {
+        InlineMessage::information(
+            owner.m_ui->overlay(), MainWindow::tr("现在做不了"),
+            MainWindow::tr("已经有一个下载或者安装任务在跑了，等它结束再下这个。"));
+        return;
+    }
+    owner.m_downloadTaskLedger->setResourceLabel(label);
+    owner.m_downloadTaskLedger->setTask(
+        owner.beginTask(Tasks::TaskKind::Download, label));
+    // 这一单的登记**必须摆在 `downloadResourceFiles()` 之前**：这批文件**盘上都已经有**时
+    // （上次下完了但导入失败 / 被取消，`.mrpack` 还躺在缓存里），`downloadResourceFiles()`
+    // 会在它**返回之前**就同步发完 `resourceDownloadFinished(label, true, …)` ——
+    // 那时这一句还没执行，没有人接得到这一单，导入永远不开始；界面却照样弹
+    // 「已经装进实例里了」。而失败那一支**不** take 记录，只有成功那一支才取
+    // （见 `onResourceDownloadFinished()` 里那段 ★），所以提前登记不会漏。
+    if (!modpackPath.isEmpty()) {
+        owner.m_pendingModpackImports.insert(label, modpackPath);
+    }
+    const bool started =
+        owner.m_versionManager->downloadResourceFiles(destinationDir, busyInstanceId, label, files);
+    if (started) {
+        // 只有真开起来了才算"这一批的主人"（被拒那一发已经在上面那句里收过尾了，
+        // 见 onResourceDownloadFinished()）。
+        owner.m_downloadTaskLedger->setOwner(owner.m_downloadTaskLedger->task());
+        owner.m_activityCenter->tasks()->setProgress(owner.m_downloadTaskLedger->task(), 0, 0);
+    } else if (!modpackPath.isEmpty()) {
+        // 没开起来（撞上上面那道忙闸）：刚登记的那一单作废，留着就是一条永远等不到
+        // 下载的记录。
+        owner.m_pendingModpackImports.remove(label);
+    }
+}

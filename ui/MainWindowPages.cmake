@@ -8,4 +8,8 @@ set(WTFML_UI_PAGE_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/MainWindowPanels.cpp
     ${CMAKE_CURRENT_LIST_DIR}/InstanceSettingsLifecycle.cpp
     ${CMAKE_CURRENT_LIST_DIR}/InstanceSettingsServers.cpp
+    # 「实例设置」按"一页一摊"分的三份（同一个类的实现，共用 InstanceSettingsDialogInternals.hpp）
+    ${CMAKE_CURRENT_LIST_DIR}/InstanceSettingsOverviewPage.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/InstanceSettingsLaunchPage.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/InstanceSettingsFilePages.cpp
 )

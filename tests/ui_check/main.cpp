@@ -1194,13 +1194,13 @@ int main(int argc, char *argv[]) {
     check(installed->currentIndex() < 0, "空下拉框 currentIndex() == -1");
 
     // 模组加载器那棵树**没有"界面自己记住选了哪一条"这件事**：选中的那条住在
-    // MainWindow::m_selectedLoaderIndex 里，界面这一层只搭条目、不置任何状态
+    // InstallPageController::m_selectedLoader 里，界面这一层只搭条目、不置任何状态
     // （所以这里没有什么"初始勾中的是哪个"可钉 —— 那条不变量在 mw_check 那边，
     // 那边才搭得出 MainWindow）。
     //
     // NOTE: 原来这里钉的是"初始勾的是「不装（纯原版）」"。换成树之后这条**更强了**：
     // 树上的条目本来就没有"勾"这个状态，产品里"现在要装哪一个"只有
-    // m_selectedLoaderIndex 一处（MainWindow 的构造函数把它置成
+    // m_selectedLoader 一处（InstallPageController 的构造函数把它置成
     // modLoaderNoneIndex()）。这里改钉"树上不带任何勾选状态"——它就是
     // "选中只住在一个地方"这件事在界面上的凭据。
     {

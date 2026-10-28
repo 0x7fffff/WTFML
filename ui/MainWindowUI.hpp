@@ -329,7 +329,7 @@ public:
     /// 加载器那棵树五条都是给全的（各自那个标志）。
     static int rowIconRole() { return Qt::DecorationRole; }
     /// 「这一行尾那个小叉要画」挂在哪个角色上（真 = 画）。只有安装页那棵树上"**选中的那条
-    /// 加载器**"会写真（见 MainWindow::updateLoaderRows()），点了它 = 取消装这个加载器、
+    /// 加载器**"会写真（见 InstallPageController::updateLoaderRows()），点了它 = 取消装这个加载器、
     /// 退回「不装（纯原版）」（选中以后在那个 > 左侧加一个 x 来取消安装）。
     /// NOTE: 版本树从来不写这个角色 —— 那棵树上没有"取消掉这一条"这种事。
     /// NOTE: 号码是 `UserRole + 9`：它属于行装饰那一档（+8/+9/+10），不能和条目身份那批
@@ -550,10 +550,10 @@ public:
     /// 安装页顶上那句"要装的是基于哪个原版的什么"（点的是哪个版本，到这里必须还看得见）。
     static QString installTargetLabelName() { return QStringLiteral("installTargetLabel"); }
     /// 「版本名称」框：实例的目录名（`versions/<这个名字>`），默认名由 MainWindow 按
-    /// "原版号 + 加载器"填（见 MainWindow::defaultInstanceName()）。
+    /// "原版号 + 加载器"填（见 InstallPageController::defaultInstanceName()）。
     static QString installNameEditName() { return QStringLiteral("installNameEdit"); }
     /// 名称框下面那行灰色小字：**说这一份装下去是什么** —— 平时的说明，或者重名提示。
-    /// 两种取值一处决定（MainWindow::updateInstallNameHint()）。
+    /// 两种取值一处决定（InstallPageController::updateInstallNameHint()）。
     ///
     /// NOTE: 它**不兼职报错**。名字不能用（有非法字符、空着）时那句原因在下面那行
     /// 红字里，这一行照旧说"装好之后会在哪儿"。
@@ -1233,7 +1233,7 @@ public:
         Settings,      ///< 服务端设置（server.properties / 备份 / 体检）
         Repair,        ///< 修复（重跑安装）
         ForceKill,     ///< 强制结束
-        /// 异常退出后自动重启（**可勾选**的一项，见 `showServerContextMenu`）。放在
+        /// 异常退出后自动重启（**可勾选**的一项，见 `ServerMenuController`）。放在
         /// 「强制结束」后面、「删除」前面：删除永远在最后（不可逆的那一项别夹在中间）。
         RestartOnCrash,
         Remove,        ///< 删掉这个服务端
@@ -3473,7 +3473,7 @@ public:
     ///
     /// NOTE: 界面上那五条**没有 objectName**（条目不是 QObject）：身份读每条的
     /// `Qt::UserRole`（顶层是下标、子条目是版本号）。"选中了哪一条"这件事
-    /// 不在这棵树上 —— 它住在 MainWindow 里（`selectedLoaderIndex()`），
+    /// 不在这棵树上 —— 它住在 `InstallPageController` 里（`selectedLoader()`），
     /// 这一层只管把状态画出来。
     QTreeWidget *getLoaderTree() const { return loaderTree; }
 

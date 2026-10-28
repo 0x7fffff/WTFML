@@ -2119,7 +2119,7 @@ void runServerPlayersTests();
 // · **连着崩几次就收手**，而且次数是「连着」的（跑够久再崩算新的一轮）；
 // · 两次之间**退避**（5、10、20、40、60 封顶）：给用户留出看控制台的时间。
 //
-// 真接线在 `MainWindow::onServerExited()`（排那一发 `singleShot`），策略那两格在
+// 真接线在 `ServerRunController::onExited()`（排那一发 `singleShot`），策略那两格在
 // `.wtfml-server` 里 —— 下面顺带钉一遍往返：记不住的设置等于没有。
 // ---------------------------------------------------------------------------
 void runServerRestartTests();
