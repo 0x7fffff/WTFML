@@ -746,6 +746,13 @@ DownloadManager::DownloadManager(QObject *parent, NetworkManagerFactory networkF
     m_reusePool = new QThreadPool(this);
     m_reusePool->setMaxThreadCount(kMaxReuseWorkers);
     m_reuseCancel = QSharedPointer<std::atomic_bool>::create(false);
+
+    // 「这一份盘上到底对不对」那条线的线程池。**1 条**：这个活的每一件都是整份读文件，
+    // 几条并排在机械盘上只会互相抢磁头，反而更慢。它不改变"总读盘量"，只把这段从
+    // 界面线程搬走（见 PrecheckJob 的说明）。
+    m_precheckPool = new QThreadPool(this);
+    m_precheckPool->setMaxThreadCount(1);
+    m_precheckCancel = QSharedPointer<std::atomic_bool>::create(false);
 }
 
 DownloadManager::~DownloadManager() {
@@ -771,6 +778,17 @@ DownloadManager::~DownloadManager() {
     if (m_reusePool) {
         m_reusePool->clear();
         m_reusePool->waitForDone();
+    }
+    // 「问盘」那条线同样先收手再等干净。它只读不写，但仍然要等：那一条回来时投递的
+    // lambda 是 context = this 的 queued invocation，对象没了就自动丢弃；
+    // 而 waitForDone() 保证的是"本对象析构期间它不会还在读一份马上就要被删的文件"。
+    if (m_precheckCancel) {
+        m_precheckCancel->store(true, std::memory_order_relaxed);
+    }
+    m_precheckQueue.clear();
+    if (m_precheckPool) {
+        m_precheckPool->clear();
+        m_precheckPool->waitForDone();
     }
     // 挂在 QNetworkAccessManager::finished 上那条（noteReplyProtocol）在这里断掉。
     // 理由和别的槽不一样：那个槽会写 m_http2Hosts，而**成员是在析构函数体跑完之后**才销毁的、
@@ -924,6 +942,8 @@ void DownloadManager::beginBatch() {
     // 上一批的借文件作业跟着这一批作废（见 clearReuseJobs()）。新一批从 0 开始数。
     m_reusedJobs = 0;
     clearReuseJobs();
+    // 问盘那条线同理：上一批还没问完的那几条，结论按代次丢掉（它们本来也没记账）。
+    clearPrecheckJobs();
     m_failedPaths.clear();
     m_failedJobInfos.clear();
     // "体检点名的那几条"只对**上一批**成立（见 setFlaggedPaths）：新的一批谁都没点名。
@@ -987,6 +1007,8 @@ void DownloadManager::abandonBatch() {
     // 借文件那条线同理：还在后台找来源 / 复制的那些也一起作废（它们的结账会因为代次
     // 对不上被丢掉，不会往这一批里记任何数）。
     clearReuseJobs();
+    // 问盘那条线同理：排着的不问了，正在读的那一条读完之后按代次丢结论。
+    clearPrecheckJobs();
     // 置真 = "这一批的完成信号已经发过了"：checkAllDownloadsFinished() 之后一个字都不会发
     // （那几个交完货才回来的回复会走到那里，然后立刻返回）。
     m_batchEmitted = true;
@@ -1018,6 +1040,8 @@ void DownloadManager::cancelBatch() {
     m_pendingJobs.clear();
     // 借文件那条线同理：排着的不找了，已经开跑的复制循环每个块看一次取消令牌。
     clearReuseJobs();
+    // 问盘那条线也一起作废：那些文件本来就没计进分母，丢掉结论就是把"还没定"还回去。
+    clearPrecheckJobs();
     // 2. 封口 + 加代次。这两句合起来的**唯一**意思是"这一批到此为止、之后回来的所有回复
     // 都与我无关"：m_batchEmitted 挡住收尾那一次发射，代次让已经在飞的那几条
     // （下面 abort() 逼回来的那些）在 `onDownloadReplyFinished` / `handleDownloadError`
@@ -1070,8 +1094,11 @@ bool DownloadManager::isBusy() const {
     // 界面显示空闲、取消按钮失效"。
     // 「借文件」那条线也是这样：它没发网络请求，但它确实还在干活（找来源 / 复制几 MB）。
     // 漏掉它的表现和分段那条一样 —— 界面解禁、用户以为已经就绪，而文件还没落盘。
+    // 「问盘」那条线（要整份读文件才问得出来的判据，见 PrecheckJob）同理：那些文件
+    // 既没进分母也没进队列，漏掉它的表现是"还没核对完就报下载完成"。
     return m_batchPaused || m_batchOpen || pendingDownloads > 0 || !m_pendingJobs.isEmpty()
-           || !m_segmentJobs.isEmpty() || m_reuseActive > 0 || !m_reuseQueue.isEmpty();
+           || !m_segmentJobs.isEmpty() || m_reuseActive > 0 || !m_reuseQueue.isEmpty()
+           || m_precheckActive > 0 || !m_precheckQueue.isEmpty();
 }
 
 DownloadStats DownloadManager::stats() const {
@@ -1105,6 +1132,21 @@ bool DownloadManager::fileAlreadyValid(const QString &path, const QString &expec
         // 一份真资源的字节数不可能是 0，所以这条判据不会误伤任何好东西。
         return false;
     }
+    // 到这里为止全是 stat 级别的判断；下面这一半**可能整份读文件** —— 那条分界线就是
+    // `precheckReadsFileBody()`，后台问盘那条线调的也是同一个 `fileBodyValid()`。
+    return fileBodyValid(path, expectedSha1, expectedSize, mode);
+}
+
+bool DownloadManager::fileBodyValid(const QString &path, const QString &expectedSha1,
+                                    qint64 expectedSize, VerifyMode mode,
+                                    const std::atomic_bool *cancel) {
+    if (mode == VerifyMode::AlwaysDownload) {
+        return false;
+    }
+    const QFileInfo info(path);
+    if (!info.exists() || !info.isFile() || info.size() == 0) {
+        return false;
+    }
     if (mode == VerifyMode::ExistsOnly) {
         // "文件在就算好"这一档里，**该是 zip 的那一类还要真的是 zip**。
         //
@@ -1124,7 +1166,7 @@ bool DownloadManager::fileAlreadyValid(const QString &path, const QString &expec
     if (expectedSha1.isEmpty()) {
         return true;
     }
-    return calculateFileSha1(path) == expectedSha1;
+    return calculateFileSha1(path, cancel) == expectedSha1;
 }
 
 void DownloadManager::downloadFile(const QString &url, const QString &destinationPath,
@@ -1159,6 +1201,33 @@ void DownloadManager::scheduleFile(const QString &url, const QString &destinatio
         return;
     }
 
+    // 这一条作业的两份"要问盘"的结论，先装进一个值类型 —— 后台那条线原样带走它。
+    PrecheckJob job;
+    job.url = url;
+    job.destinationPath = destinationPath;
+    job.expectedSha1 = expectedSha1;
+    job.officialUrl = officialUrl;
+    job.expectedSize = expectedSize;
+    job.mode = mode;
+    job.range = range;
+    // 只有"这一批登记原件、且这份还没登记过"才要在后台顺手算指纹。已经登记过的那几份
+    // （跨重启续装会整张恢复记录重放一遍）用盘上记着的那一份，白读一遍没意义。
+    job.wantFingerprint = m_checkpoint != nullptr && !range.active()
+        && m_checkpoint->find(QDir::cleanPath(QFileInfo(destinationPath).absoluteFilePath())) == nullptr;
+
+    // 「盘上那份到底对不对」要**整份读文件**才能问出来的那一档交给后台。
+    //
+    // 为什么非分不可：重新装一个已经装过的实例时，几千个文件都在盘上，`fileAlreadyValid()`
+    // 会逐个整份哈希（SHA-1），紧接着登记原件指纹又要再整份读一遍（SHA-256）—— 这两趟
+    // 都在界面线程上，加起来就是"点了下载，窗口几十秒不动"。分界线见
+    // `precheckReadsFileBody()`：它回 false 的那些（文件根本不在 / 0 字节 / 只看存在 /
+    // 大小一眼不符）本来就是 stat 级别的判断，留在原地问，行为和从前逐字一致。
+    if (precheckReadsFileBody(destinationPath, expectedSha1, expectedSize, mode, range)) {
+        m_precheckQueue.enqueue(job);
+        pumpPrecheckQueue();
+        return;
+    }
+
     if (fileAlreadyValid(destinationPath, expectedSha1, expectedSize, mode)) {
         // 盘上已经好好的那几个**只记 skipped、不进 done/total**。
         //
@@ -1177,11 +1246,19 @@ void DownloadManager::scheduleFile(const QString &url, const QString &destinatio
         return;
     }
 
-    if (m_checkpoint && !range.active()) {
-        const auto path = QDir::cleanPath(QFileInfo(destinationPath).absoluteFilePath());
+    continueAfterPrecheck(job, nullptr);
+}
+
+void DownloadManager::continueAfterPrecheck(const PrecheckJob &job, const QJsonObject *original) {
+    if (m_checkpoint && !job.range.active()) {
+        const auto path = QDir::cleanPath(QFileInfo(job.destinationPath).absoluteFilePath());
         const auto *recorded = m_checkpoint->find(path);
-        const auto original = recorded ? recorded->original : DownloadCheckpoint::fingerprint(path);
-        if (!m_checkpoint->add({url, path, expectedSha1, officialUrl, expectedSize, original})) {
+        // 后台算好的那一份优先；没有（便宜那一支：文件根本不在，指纹就是 {"exists":false}）
+        // 才现算。**两条路的产物必须一模一样** —— 恢复记录里存的就是这一份。
+        const auto fingerprint = recorded ? recorded->original
+            : (original != nullptr ? *original : DownloadCheckpoint::fingerprint(path));
+        if (!m_checkpoint->add({job.url, path, job.expectedSha1, job.officialUrl, job.expectedSize,
+                                fingerprint})) {
             m_checkpointFailed = true;
             emit checkpointChanged();
         }
@@ -1190,26 +1267,28 @@ void DownloadManager::scheduleFile(const QString &url, const QString &destinatio
     // 盘上没有，但**别的游戏文件夹里可能有一模一样的**（见
     // setReuseSourceFolders()）。这一步排在 m_totalJobs++ 之前是故意的：借成功的话它
     // 压根不走网络，就不该占进度条分母（和跳过那一支同一个道理）；借不到再回来补记。
-    if (!m_checkpoint && mode != VerifyMode::AlwaysDownload && !m_flaggedPaths.contains(destinationPath)
-        && !expectedSha1.isEmpty() && !range.active() && !m_reuseSourceFolders.isEmpty()) {
+    if (!m_checkpoint && job.mode != VerifyMode::AlwaysDownload
+        && !m_flaggedPaths.contains(job.destinationPath) && !job.expectedSha1.isEmpty()
+        && !job.range.active() && !m_reuseSourceFolders.isEmpty()) {
         const QString relativePath =
-            LocalFileReuse::relativePathWithin(destinationPath, AppPaths::minecraftDir());
+            LocalFileReuse::relativePathWithin(job.destinationPath, AppPaths::minecraftDir());
         if (!relativePath.isEmpty()) {
-            ReuseJob job;
-            job.url = url;
-            job.destinationPath = destinationPath;
-            job.relativePath = relativePath;
-            job.expectedSha1 = expectedSha1;
-            job.expectedSize = expectedSize;
-            job.mode = mode;
-            job.officialUrl = officialUrl;
-            m_reuseQueue.enqueue(job);
+            ReuseJob reuse;
+            reuse.url = job.url;
+            reuse.destinationPath = job.destinationPath;
+            reuse.relativePath = relativePath;
+            reuse.expectedSha1 = job.expectedSha1;
+            reuse.expectedSize = job.expectedSize;
+            reuse.mode = job.mode;
+            reuse.officialUrl = job.officialUrl;
+            m_reuseQueue.enqueue(reuse);
             pumpReuseQueue();
             return;
         }
     }
 
-    queueNetworkJob(url, destinationPath, expectedSha1, expectedSize, officialUrl, range);
+    queueNetworkJob(job.url, job.destinationPath, job.expectedSha1, job.expectedSize,
+                    job.officialUrl, job.range);
 }
 
 void DownloadManager::queueNetworkJob(const QString &url, const QString &destinationPath,
@@ -1495,6 +1574,107 @@ void DownloadManager::clearReuseJobs() {
     // NOTE: **不**碰 m_reuseActive。那几条还在池子里跑，它们回来时自己减（见
     // pumpReuseQueue 的完成回调）—— 在这里清零的话，池里的作业永远减不到零，
     // 下一批会以为还有 4 条在跑而再也不启动新的。
+}
+
+bool DownloadManager::precheckReadsFileBody(const QString &path, const QString &expectedSha1,
+                                            qint64 expectedSize, VerifyMode mode,
+                                            const DownloadRange &range) const {
+    // 点名 / 一律重下：`fileAlreadyValid()` 头一句就挡掉，压根不看盘。
+    if (mode == VerifyMode::AlwaysDownload || m_flaggedPaths.contains(path)) {
+        return false;
+    }
+    const QFileInfo info(path);
+    // 不在 / 不是文件 / 0 字节：老判据当场就回 false，一个字节都不用读。
+    if (!info.exists() || !info.isFile() || info.size() == 0) {
+        return false;
+    }
+    // 真要比 SHA-1：这一趟是整份读（大小一眼不符的那些不读，见 fileBodyValid）。
+    if (mode != VerifyMode::ExistsOnly && !expectedSha1.isEmpty()
+        && (expectedSize <= 0 || info.size() == expectedSize)) {
+        return true;
+    }
+    // 登记原件指纹（`DownloadCheckpoint::fingerprint`，SHA-256）也是整份读。
+    // 只有这一批带恢复记录才会登记；没有 checkpoint 的批次白读一遍没意义。
+    return m_checkpoint != nullptr && !range.active();
+}
+
+void DownloadManager::pumpPrecheckQueue() {
+    if (m_shuttingDown || m_precheckPool == nullptr || !m_precheckCancel) {
+        return;
+    }
+    // 一次只放一条：这个活的每一件都是整份读文件，并排跑只会互相抢磁头
+    // （见 m_precheckPool 的说明）。
+    while (m_precheckActive < 1 && !m_precheckQueue.isEmpty()) {
+        const PrecheckJob job = m_precheckQueue.dequeue();
+        // 代次和取消令牌都在**开跑那一刻**拷一份：作业跑起来之后，主线程可能又开了新一批
+        // （clearPrecheckJobs 会换令牌、加代次），那一条回来时按代次对不上就丢掉。
+        const quint64 generation = m_precheckGeneration;
+        const QSharedPointer<std::atomic_bool> cancel = m_precheckCancel;
+        ++m_precheckActive;
+        m_precheckPool->start(QRunnable::create(
+            [this, job, generation, cancel]() {
+                // 后台线程**只**算这两个结论，记账 / 发信号一律回主线程做：
+                // DownloadStats、m_checkpoint 和 QObject 的信号都不是线程安全的。
+                const bool valid = DownloadManager::fileBodyValid(
+                    job.destinationPath, job.expectedSha1, job.expectedSize, job.mode, cancel.data());
+                QJsonObject original;
+                if (job.wantFingerprint) {
+                    original = DownloadCheckpoint::fingerprint(job.destinationPath, cancel.data());
+                }
+                QMetaObject::invokeMethod(
+                    this,
+                    [this, job, generation, valid, original]() {
+                        if (m_shuttingDown) {
+                            return;
+                        }
+                        if (m_precheckActive > 0) {
+                            --m_precheckActive;
+                        }
+                        if (generation == m_precheckGeneration) {
+                            onPrecheckFinished(job, valid, original);
+                        }
+                        pumpPrecheckQueue();
+                        checkAllDownloadsFinished();
+                    },
+                    Qt::QueuedConnection);
+            }));
+    }
+}
+
+void DownloadManager::onPrecheckFinished(const PrecheckJob &job, bool valid,
+                                         const QJsonObject &original) {
+    const QString fileName = QFileInfo(job.destinationPath).fileName();
+    if (valid) {
+        // 和 `scheduleFile()` 那一支逐字同一条账：只记 skipped、不进 done/total。
+        ++m_skippedJobs;
+        emit downloadFinished(fileName, true, QString());
+        emitBatchProgress(job.destinationPath);
+        // 收尾由调用方（pumpPrecheckQueue 的完成回调）紧接着做：那里还要把下一条
+        // 问盘作业放出去，收尾必须排在它**后面** —— 否则这一条刚减完就要发
+        // allDownloadsFinished，而队列里明明还有几条没问。
+        return;
+    }
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("precheck miss dest=%1 mode=%2")
+                               .arg(QDir::toNativeSeparators(job.destinationPath))
+                               .arg(job.mode == VerifyMode::ExistsOnly ? QStringLiteral("exists")
+                                    : job.mode == VerifyMode::AlwaysDownload ? QStringLiteral("always")
+                                                                             : QStringLiteral("size-sha1")));
+    }
+    continueAfterPrecheck(job, &original);
+}
+
+void DownloadManager::clearPrecheckJobs() {
+    // 旧令牌置真：正在读的那一条读完这一个块就收手（指纹那一路每个 1 MiB 看一次；
+    // SHA-1 那一路没有取消点，一格粒度是"一份文件"，读完按代次丢掉结论）。
+    // 换一个新的给下一批用：同一个布尔复用的话，取消过一次之后新的作业一开跑就判成"已取消"。
+    if (m_precheckCancel) {
+        m_precheckCancel->store(true, std::memory_order_relaxed);
+    }
+    m_precheckQueue.clear();
+    m_precheckCancel = QSharedPointer<std::atomic_bool>::create(false);
+    ++m_precheckGeneration;
+    // NOTE: **不**碰 m_precheckActive，理由同 clearReuseJobs()。
 }
 
 bool DownloadManager::segmentedEligible(const QString &url, const QString &expectedSha1,
@@ -1991,9 +2171,10 @@ void DownloadManager::checkAllDownloadsFinished() {
     // 时候发出 allDownloadsFinished。
     // m_segmentJobs：分段作业没有 QNetworkReply，不计 pendingDownloads，必须单独算上。
     // 借文件那条线同理：排队 / 正在复制的那些也还没交货（见 m_reuseActive）。
+    // 问盘那条线也一样：还在后台核对"盘上那几份到底对不对"时，这一批当然没下完。
     if (m_shuttingDown || m_batchOpen || m_batchEmitted || pendingDownloads > 0
         || !m_pendingJobs.isEmpty() || !m_segmentJobs.isEmpty() || m_reuseActive > 0
-        || !m_reuseQueue.isEmpty()) {
+        || !m_reuseQueue.isEmpty() || m_precheckActive > 0 || !m_precheckQueue.isEmpty()) {
         return;
     }
     m_batchEmitted = true;
@@ -2537,16 +2718,38 @@ bool DownloadManager::verifyFileSha1(const QString &filePath, const QString &exp
     return actualSha1 == expectedSha1;
 }
 
-QString DownloadManager::calculateFileSha1(const QString &filePath) {
+QString DownloadManager::calculateFileSha1(const QString &filePath, const std::atomic_bool *cancel) {
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) {
         return QString();
     }
     QCryptographicHash hash(QCryptographicHash::Sha1);
-    if (hash.addData(&file)) {
-        return hash.result().toHex();
+    if (cancel == nullptr) {
+        // 没有取消令牌的那条路（体检、界面线程上的小文件）照旧一次性读完：
+        // `addData(QIODevice *)` 是 Qt 自己那条最优路径，不在这上面再套一层循环。
+        if (hash.addData(&file)) {
+            return hash.result().toHex();
+        }
+        return QString();
     }
-    return QString();
+    // 后台那条路（见 pumpPrecheckQueue）：分块读、每块看一次取消。块大小和
+    // `DownloadCheckpoint::fingerprint()` 同一个数。**哈希算法只有这一份**，
+    // 两条路算出同一个值；取消只能提前退出，不能算出别的东西（回空串，调用方按
+    // "没通过"处理，而真正的作废靠代次）。
+    while (!file.atEnd()) {
+        if (cancel->load(std::memory_order_relaxed)) {
+            return QString();
+        }
+        const auto bytes = file.read(1024 * 1024);
+        if (bytes.isEmpty() && file.error() != QFileDevice::NoError) {
+            return QString();
+        }
+        hash.addData(bytes);
+    }
+    if (cancel->load(std::memory_order_relaxed)) {
+        return QString();
+    }
+    return hash.result().toHex();
 }
 
 void DownloadManager::parseVersionManifest(const QJsonDocument &json) {

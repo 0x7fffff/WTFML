@@ -26,13 +26,23 @@ public:
     bool isRestoring() const { return (m_restoring && m_current != Tasks::invalidTaskId()) || m_verifying != Tasks::invalidTaskId(); }
     void setRestoreAllowed(std::function<bool()> check) { m_restoreAllowed = std::move(check); }
     void setContinuation(std::function<QJsonObject()> snapshot, std::function<bool(Tasks::TaskId, const QJsonObject &)> resume,
-        std::function<bool(const QJsonObject &, const std::atomic_bool *)> validate = {}) {
+        std::function<bool(const QJsonObject &, const std::atomic_bool *)> validate = {},
+        std::function<QJsonObject(const QJsonObject &, const std::atomic_bool *)> targets = {}) {
         m_continuationSnapshot = std::move(snapshot); m_continue = std::move(resume);
         m_continuationValidation = std::move(validate);
+        m_continuationTargets = std::move(targets);
     }
 private:
     void sync();
     void complete(bool success);
+    /// 把"接续意图里那份要读盘的快照"（`presetTargets`）挪到后台去算，算完补进恢复记录。
+    ///
+    /// 为什么挪：那一拍要把目标实例的配置目录整棵走一遍、每一份整文件算 SHA-256
+    /// （resourcepacks/ 和 shaderpacks/ 里的文件是几十上百 MB 的），而它原来是在
+    /// `batchStarted` 里**同步**拍的 —— 就是用户按下"安装"、第一份文件开始下的那一刻。
+    /// 代价量在 `tests/core_modules/PresetSnapshotScaleTests.cpp`。
+    void requestContinuationTargets(Tasks::TaskId id, const QString &path, const QJsonObject &intent);
+    void stopContinuationTargets();
     ActivityCenterController *m_activity;
     DownloadManager *m_downloads;
     std::function<Tasks::TaskId()> m_activeTask;
@@ -40,6 +50,9 @@ private:
     std::function<QJsonObject()> m_continuationSnapshot;
     std::function<bool(Tasks::TaskId, const QJsonObject &)> m_continue;
     std::function<bool(const QJsonObject &, const std::atomic_bool *)> m_continuationValidation;
+    std::function<QJsonObject(const QJsonObject &, const std::atomic_bool *)> m_continuationTargets;
+    std::shared_ptr<std::atomic_bool> m_targetsCancel;
+    quint64 m_targetsGeneration = 0;
     QHash<Tasks::TaskId, QString> m_records;
     QString m_root;
     Tasks::TaskId m_current = Tasks::invalidTaskId();

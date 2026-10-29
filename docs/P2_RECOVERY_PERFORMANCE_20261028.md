@@ -165,3 +165,155 @@ USB HDD：`H:/WTFML-Acceptance-20261025/p2-initialization-restore-20261029/repor
 七种提交耗时 40.816 / 42.670 / 46.634 / 43.870 / 47.197 / 43.354 / 47.258 ms；含清单读取/解密和任务变更，有缓存及并行负载影响。
 正式构建 `build/p2-initialization-restore-release-20261029.log`、模块边界检查及 diff 检查通过。
 未增加真实 Java 安装或游戏/UI 真机验收；本轮测试验证的是生产目标验证器、恢复任务接线及既有下载/预设模块。
+
+## 第七步：已有文件的跳过校验与首次原件登记（2026-10-29）
+
+`DownloadManager::scheduleFile()` 原来对**每一个**已存在的目标当场做两件整份读文件的活：
+`fileAlreadyValid()` 里的 SHA-1（判"盘上这份是不是对的"），以及紧跟其后的
+`DownloadCheckpoint::fingerprint()` 的 SHA-256（登记原件指纹）。重新装一个装过的实例时
+几千个文件都在盘上，这两趟加起来就是"点了下载、窗口几十秒不动"。
+
+现在按一条**可判定的分界线**拆开：`precheckReadsFileBody()` 只回答"这一份要不要整份读"——
+点名 / 不在盘上 / 0 字节 / 只看存在 / 大小一眼不符（且不需要指纹）都在界面线程当场问完，
+**行为和从前逐字一致**；要读的那一些装成 `PrecheckJob` 进单工作线程的池子，结论回到界面
+线程才记账。判据的后半段抽成 `fileBodyValid()` 一处，`fileAlreadyValid()` 就是"便宜那几道闸
++ `fileBodyValid()`"，后台调的也是同一个函数 —— 两条路不可能各算各的。
+
+- 记账推迟到结论回来：结论之前这一份既不算跳过也不算要下（和不进分母的"借文件"同一条账）。
+  `isBusy()` 与 `checkAllDownloadsFinished()` 都把队列与在跑的那一条算上，否则会在"还没核对完"
+  的时候发出批次完成。
+- 取消 / 销毁 / 开新一批：`clearPrecheckJobs()` 换代次 + 换取消令牌。SHA-1 那条路原来用
+  `addData(QIODevice *)` 一次读完，现在带令牌时按 1 MiB 分块读、每块看一次（**哈希算法
+  仍然只有这一份**，不带令牌的老路逐字不变）；已经跑着的那一条回来时按代次丢掉结论。
+- 暂停：核对期间 `canPauseBatch()` 回 false、`resumeBatch()` 也拒绝。暂停是按恢复记录
+  重放的，而还没核对完的那几份连原件指纹都没算出来、根本没进恢复记录 —— 这时候允许暂停
+  就等于把它们静默丢掉。这和"借文件在飞时不许暂停"是同一条理由。
+- 后台只调静态函数（`fileBodyValid` / `DownloadCheckpoint::fingerprint`），不捕获
+  MainWindow / 控制器，也不碰 `m_checkpoint`：登记与发信号一律回界面线程做。
+
+新增 25 条断言：判据后半段的真值表（大小/哈希/未知哈希/不存在/zip 头）、"调度调用返回时
+还没记账"（= 判决确实被推迟）、32 MiB 已正确文件在后台核对后被跳过且零请求、坏文件在后台
+顺手算出的原件指纹**逐字落进恢复记录**、取消后零请求且忙态自行落下、文件根本不在时仍是
+同步判决。测量（本机、有文件缓存，不是冷盘结论）：32 MiB 已存在文件的调度调用
+1,597 µs，全量 SHA-1 46,839 µs。
+
+仍未迁移：初次下载恢复、恢复记录的读取/解密/序列化/原子保存、基础配置目录快照，
+以及 `resumeBatch()` 提交前那一趟 `unchanged()` 的同步全量核对。后台化不减少总读盘量。
+
+## 第八步：恢复记录的存/读代价与压缩格式（2026-10-29）
+
+计划 P2 第 3 条要的是先把"恢复记录读取/解密、清单序列化/原子保存"的大批量代价量出来，
+再决定动哪一块。量法：`tests/core_modules/DownloadReceiptScaleTests.cpp`（`wtfml.core-downloads`
+里的 DRS 一节）照着上限造 50,000 条记录、真存真读，并另搭一份同样的 JSON 把 `save()`
+拆成几段计时。全部同步跑，就是界面线程上那一趟。
+
+改动前（`WTFML-PROTECTED-1` = DPAPI(明文 JSON)，22.3 MB）：
+
+| 段 | 50,000 条 | 5,000 条 |
+| --- | --- | --- |
+| `save()` 整趟 | 1,335,363 µs | 46,901 µs |
+| `load()` 整趟 | 1,413,487 µs | 46,920 µs |
+| 其中搭 JsonArray / 转 Compact | 170,677 / 120,603 µs | — |
+| 其中 DPAPI 加密 | 1,054,944 µs（79%） | — |
+| 其中原子写 | 14,451 µs | — |
+
+DPAPI 占八成，且它按字节数收钱：`CryptProtectData` 走 LSA 那一趟。而这份 JSON 里九成是
+重复的键名 —— `qCompress(plain, 1)` 只要 35 ms 就把它压到 1,346,853 字节（**十六分之一**），
+压完之后同一趟加密只剩 8 ms。
+
+所以盘上现在写的是 `WTFML-PROTECTED-2` = DPAPI(zlib 压缩过的 JSON)，读侧两档都认：
+
+- `DownloadCheckpoint::encodeReceipt()` 是写侧唯一出处：压不小（很小的清单）就照老样子写
+  `-1` 那一档，绝不为了"格式统一"写一份更大的。
+- ★ 读侧剥掉 `-2` 之后**必须把 `-1` 那个魔术接回去**再交给 `TokenStore::unprotect()` ——
+  它按那个魔术分"DPAPI 解"和"老混淆解"，不带魔术的字节会被当成老格式解出一坨乱码
+  （第一版就是这么错的，DRS6 当场红）。
+- 老那一档（用户盘上暂停中的批次就是它）继续读得了：DRS12 手写一份 `-1` 夹具验过。
+- 三样约束原样保留：解不开就是 `load()` 回 false（原件一个字节不动，DRS10/DRS11）、
+  原子写与 DPAPI 失败照旧让 `save()` 回 false 并让批次失败可见、`QSaveFile` 落盘仍在
+  退出前同步完成（没有挪到后台）。
+
+改动后：
+
+| 段 | 50,000 条 | 5,000 条 |
+| --- | --- | --- |
+| `save()` 整趟 | 342,247 µs（−74%） | 42,146 µs |
+| `load()` 整趟 | 404,375 µs（−71%） | 46,921 µs |
+| 盘上那份 | 1,347,068 字节（−94%） | 135,196 字节 |
+
+剩下的 `load()` 里，JSON 解析约 64 ms，逐条校验（每条的 `QUrl(StrictMode)` + `cleanPath`）
+才是大头（约 270 ms @ 50k，5k 时约 27 ms）。它没动：那是认不认这条记录的门，收益不值当
+换掉那套校验。
+
+仍未迁移：初次下载恢复、基础配置目录快照，以及 `resumeBatch()` 提交前那一趟 `unchanged()`
+的同步全量核对（见第七步）。恢复记录的存/读仍在界面线程上同步完成 —— 这一次是把这一趟
+从 1.3 秒压到 0.34 秒，不是把它挪走。
+
+## 第九步：首装那一刻的配置目录快照（2026-10-29）
+
+### 量出来的东西
+
+「装进一个实例」这条路上，第一份文件开始下的那一刻（`DownloadManager::beginBatch()` →
+`batchStarted` → `DownloadBatchController`）原来要**同步**走一遍目标实例的配置目录：
+
+```
+options.txt / optionsof.txt / servers.dat / config/ / defaultconfigs/
+resourcepacks/ / shaderpacks/ / wtfml.datapacks/ / datapacks-pending/
+saves/<世界>/level.dat、saves/<世界>/datapacks/
+```
+
+每一份**整文件**算一遍 SHA-256（`Presets::snapshotInitializationTargets`）。
+
+`tests/core_modules/PresetSnapshotScaleTests.cpp`（模块 `presets`，PSS1–PSS4）造了一棵
+"真机上常见的"实例树（400 份 config、40 份 defaultconfigs、2×4 MB 资源包、2 MB 光影包、
+一个带 80 份函数的数据包的存档）和两棵对照树：
+
+| 树 | 格数 | 走一趟 |
+| --- | --- | --- |
+| 常见的整棵树 | 559 | **493 ms** |
+| 只有一份 64 MB 资源包 | 11 | **285 ms** |
+| 空实例（什么都没有） | 10 | 7.7 ms |
+
+恢复那一条路还要再走一遍同一棵树（`unchangedInitializationContinuation` 拿它跟记录里的比）：
+**521 ms** —— 那一趟早在第七步就已经挪进后台校验了，不在界面线程上。
+也就是说这笔钱**只有首装这一趟是在界面上付的**，而 `resourcepacks/` 和 `shaderpacks/`
+里的文件是几十上百 MB 的 —— 代价按字节线性，越舍得装越顿。
+
+### 改法
+
+批次开门时只登记**便宜的那几格**（版本意图 + 预设 id + 预设指纹），`presetTargets` 那一棵
+树挪到后台：
+
+- `MainWindow::snapshotDownloadContinuation()` 不再拍这棵树；
+  `MainWindow` 多给 `DownloadBatchController::setContinuation()` 一个第四个回调
+  （`std::function<QJsonObject(const QJsonObject &, const std::atomic_bool *)>`），
+  拿意图里的 `root` / `instance` 去拍（跟恢复那条判据用的是**同一个表达式**）。
+- `DownloadBatchController::requestContinuationTargets()`：只在"写了预设 + 有实例名"的那
+  几趟发这一拍（服务端安装那份意图没有 `instance`，它的接续不靠这一拍）；算完先核三件事
+  ——代号没变、`m_current` 还是这一趟、恢复记录还是同一份路径 —— 才把 `presetTargets`
+  并进去。
+- 落到盘上走新的 `DownloadManager::updateCheckpointContext()`：只换 `context` 并当场
+  `save()`，**不碰 `dirty`**（那是文件表的账）。
+- 拍不出来（路径上有关口、文件读不动）⇒ **整条接续意图都不要**（置空），这一批按普通下载
+  收尾。留半截（有预设、没 `presetTargets`）到了恢复那一步照样被
+  `unchangedInitializationContinuation` 挡下来，只会让"接着装"出现一个按不动的按钮。
+
+### 改完的对照
+
+`tests/mw_check/DownloadBatchChecks.cpp` 新增那一区（`MEASURE preset-targets`，同一棵
+302 份小文件的树）：
+
+| | `beginBatch()` 那一趟 |
+| --- | --- |
+| 同一棵树同步走一遍（对照） | **88.6 ms** |
+| 现在（只登记意图） | **3.7 ms** |
+
+界面上剩的那 3.7 ms 是与文件表无关的登记（建记录、写盘一次）。
+
+仍同步跑在界面线程上的：恢复记录本身的存/读（第八步）。
+
+★ 顺手核了一条：`DownloadManager::resumeBatch()` 提交前那一趟 `unchanged()` 全量核对
+**在界面线程上同步跑着**，但**产品里没有人调它** —— 界面上「继续」走的是
+`DownloadBatchController::resume()`（后台校验 → `resumeValidatedBatch()`），
+`resumeBatch()` / `restoreBatch()` 只剩测试在用。所以它不构成界面上的顿，
+这一条不按"待迁移"记。

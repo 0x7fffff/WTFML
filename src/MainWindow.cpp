@@ -884,7 +884,14 @@ MainWindow::MainWindow(QWidget *parent)
         }, this);
     m_downloadBatches->setContinuation([this] { return snapshotDownloadContinuation(); },
         [this](Tasks::TaskId id, const QJsonObject &intent) { return continueDownloadInstallation(id, intent, true); },
-        [](const QJsonObject &intent, const std::atomic_bool *cancel) { return Presets::unchangedInitializationContinuation(intent, cancel); });
+        [](const QJsonObject &intent, const std::atomic_bool *cancel) { return Presets::unchangedInitializationContinuation(intent, cancel); },
+        // 「要写预设的那几趟」要拍的那棵配置树：**在后台算**（见 `requestContinuationTargets`）。
+        // 只读意图里的值，不碰界面/启动器状态，所以可以放心在 worker 里跑。
+        [](const QJsonObject &intent, const std::atomic_bool *cancel) {
+            const auto root = intent.value("root").toString(), instance = intent.value("instance").toString();
+            if (!QDir::isAbsolutePath(root) || instance.isEmpty()) return QJsonObject();
+            return Presets::snapshotInitializationTargets(QDir(root).filePath(QStringLiteral("versions/") + instance), cancel);
+        });
     m_downloadBatches->setRestoreAllowed([this] {
         return !m_downloadInFlight && runningVersionIds().isEmpty() && !m_launchController->isStarting()
             && m_serverWorkspace->runningServerIds().isEmpty()

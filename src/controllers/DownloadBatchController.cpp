@@ -19,9 +19,11 @@ DownloadBatchController::DownloadBatchController(ActivityCenterController *activ
         const auto task = m_activity->tasks()->snapshot(id);
         if (QDir(m_root).entryList({"*.receipt"}, QDir::Files).size() >= 64) return;
         const auto path = m_root + '/' + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".receipt";
+        const auto intent = m_continuationSnapshot ? m_continuationSnapshot() : QJsonObject();
         if (m_downloads->enableCheckpoint(path, {{"title", task.title}, {"task", QString::number(id)},
-            {"target", task.targetId}, {"filesOnly", true}, {"continuation", m_continuationSnapshot ? m_continuationSnapshot() : QJsonObject()}})) {
+            {"target", task.targetId}, {"filesOnly", true}, {"continuation", intent}})) {
             m_current = id; m_records.insert(id, path);
+            requestContinuationTargets(id, path, intent);
         }
     });
     connect(downloads, &DownloadManager::checkpointChanged, this, &DownloadBatchController::sync);
@@ -38,6 +40,7 @@ DownloadBatchController::DownloadBatchController(ActivityCenterController *activ
 }
 DownloadBatchController::~DownloadBatchController() {
     if (m_verifyCancel) m_verifyCancel->store(true, std::memory_order_relaxed);
+    stopContinuationTargets();
 }
 void DownloadBatchController::load() {
     if (m_stopping || !DownloadCheckpoint::safePath(m_root)) return;
@@ -80,6 +83,44 @@ void DownloadBatchController::load() {
         m_records.insert(id, path);
         m_activity->tasks()->setRecovery(id, name, true);
     }
+}
+void DownloadBatchController::stopContinuationTargets() {
+    if (m_targetsCancel) m_targetsCancel->store(true, std::memory_order_relaxed);
+    // 代号一加，算完的那一份也不许再补进记录（记录可能已经换成别的批次了）。
+    ++m_targetsGeneration;
+    m_targetsCancel.reset();
+}
+void DownloadBatchController::requestContinuationTargets(Tasks::TaskId id, const QString &path,
+    const QJsonObject &intent) {
+    // 只有"要写预设"的那几趟才需要这一拍：没预设就不读那棵树，一拍都不发。
+    // 服务端安装那份意图**没有 `instance`**（配置树不按实例分），它的接续不靠这一拍。
+    if (!m_continuationTargets || m_stopping || intent.isEmpty() ||
+        intent.contains("presetTargets") || intent.value("presets").toArray().isEmpty() ||
+        intent.value("instance").toString().isEmpty()) return;
+    const auto generation = ++m_targetsGeneration;
+    const auto cancel = m_targetsCancel = std::make_shared<std::atomic_bool>(false);
+    const auto targets = m_continuationTargets;
+    auto *watcher = new QFutureWatcher<QJsonObject>(this);
+    connect(watcher, &QFutureWatcher<QJsonObject>::finished, this, [this, watcher, cancel, generation, id, path] {
+        const auto computed = watcher->result();
+        watcher->deleteLater();
+        if (generation != m_targetsGeneration) return;
+        m_targetsCancel.reset();
+        if (m_stopping || !m_downloads || m_current != id || m_downloads->checkpointPath() != path) return;
+        if (cancel->load(std::memory_order_relaxed)) return;
+        auto context = m_downloads->checkpointContext();
+        auto continuation = context.value("continuation").toObject();
+        // 拍不出来（路径上有关口、文件读不动）就**整条接续意图都不要** —— 半截意图
+        // （有预设、没有 `presetTargets`）到了恢复那一步照样被 `unchangedInitializationContinuation`
+        // 挡下来，留着只会让"接着装"出现一个按不动的按钮。这样这一批就按普通下载收尾。
+        if (computed.isEmpty()) continuation = QJsonObject();
+        else continuation.insert("presetTargets", computed);
+        context.insert("continuation", continuation);
+        m_downloads->updateCheckpointContext(context);
+    });
+    watcher->setFuture(QtConcurrent::run([targets, cancel, intent] {
+        return cancel->load(std::memory_order_relaxed) ? QJsonObject() : targets(intent, cancel.get());
+    }));
 }
 bool DownloadBatchController::owns(Tasks::TaskId id) const { return m_records.contains(id); }
 bool DownloadBatchController::canCancel(Tasks::TaskId id) const {
@@ -260,6 +301,7 @@ void DownloadBatchController::complete(bool success) {
 }
 bool DownloadBatchController::cancel(Tasks::TaskId id) {
     if (!owns(id)) return false;
+    if (id == m_current) stopContinuationTargets(); // 记录马上就要被丢掉，别让它再补进去
     if (id == m_verifying && m_verifyCancel) {
         m_verifyCancel->store(true, std::memory_order_relaxed);
         const bool live = id == m_current;
@@ -275,4 +317,4 @@ bool DownloadBatchController::cancel(Tasks::TaskId id) {
     m_records.remove(id); m_activity->tasks()->cancel(id); m_activity->tasks()->setRecovery(id, {}, false);
     return true;
 }
-void DownloadBatchController::shutdown() { if (m_verifyCancel) m_verifyCancel->store(true, std::memory_order_relaxed); if (!m_stopping) { if (m_downloads && m_downloads->canPauseBatch()) pause(m_current); m_stopping = true; } }
+void DownloadBatchController::shutdown() { stopContinuationTargets(); if (m_verifyCancel) m_verifyCancel->store(true, std::memory_order_relaxed); if (!m_stopping) { if (m_downloads && m_downloads->canPauseBatch()) pause(m_current); m_stopping = true; } }
