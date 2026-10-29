@@ -63,7 +63,7 @@ QWidget *PresetInstallPicker::buildPage(int index, const Category &category, Pag
         auto *emptyLayout = new QVBoxLayout(empty);
         emptyLayout->setContentsMargins(0, 0, 0, 0);
         emptyLayout->setSpacing(8);
-        auto *label = new QLabel(tr("这一类还没有预设。"), empty);
+        auto *label = new QLabel(tr("暂无此类预设"), empty);
         label->setObjectName(emptyLabelName(index));
         label->setWordWrap(true);
         emptyLayout->addWidget(label);

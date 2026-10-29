@@ -96,7 +96,7 @@ ServerConsolePage::ServerConsolePage(QWidget *parent) : QDialog(parent) {
             m_lineLimitCombo->addItem(RuntimeOutputModel::lineLimitText(limit), limit);
         }
         m_lineLimitCombo->setToolTip(
-            QStringLiteral("最多显示最后几行。**日志本身一行都不会少**，换回大的一档就看得见。"));
+            QStringLiteral("只影响显示，日志本身一行都不会少。"));
         m_lineLimitCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         m_lineLimitCombo->setMinimumContentsLength(8);
         // 滚轮防护：这是一页"滚着看输出"的地方，鼠标划过下拉框的机会不少。
@@ -115,7 +115,7 @@ ServerConsolePage::ServerConsolePage(QWidget *parent) : QDialog(parent) {
         m_exportButton = new QPushButton(QStringLiteral("导出日志…"), row);
         m_exportButton->setObjectName(exportLogButtonName());
         m_exportButton->setToolTip(
-            QStringLiteral("把这一份控制台**全部**的输出存成一个文本文件（含被搜掉的那些行）。"));
+            QStringLiteral("把控制台全部输出存成文本文件（含被搜掉的行）。"));
         // 只读、低频 ⇒ Ghost（和游戏日志窗那两颗导出键同一档）。
         Theme::markButton(m_exportButton, Theme::ButtonKind::Ghost);
         connect(m_exportButton, &QPushButton::clicked, this,

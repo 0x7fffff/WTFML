@@ -130,7 +130,7 @@ void InstanceTransferController::upgradeToCopy(const QString &sourceId, const QS
         return;
     }
     if (QFileInfo::exists(AppPaths::versionDir(name))) {
-        fail(tr("已经存在同名实例，未覆盖任何文件。请换一个副本名字。"));
+        fail(tr("实例名称已存在，未覆盖文件。请更换副本名称。"));
         return;
     }
     const QString game = AppPaths::minecraftDir();

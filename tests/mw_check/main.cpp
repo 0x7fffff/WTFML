@@ -3584,6 +3584,11 @@ int main(int argc, char *argv[]) {
     header("T43. 关窗收尾：worker 线程 / 子进程 / 还在飞的下载（离线）");
     runShutdownTests();
 
+    // 这一节不造 MainWindow、也不碰数据根目录：只立一张 QTreeWidget，量的是
+    // "藏起来选完再显示时滚动条会怎么动"和 restoreTreeScroll() 那一下（见 Support.hpp）。
+    header("T44. 管理页右侧那张实例树：打开时不许停在最底下");
+    runInstanceTreeScrollTests();
+
     // 夹具这一跑有没有"没演到的路由"：非零说明产品打了夹具没覆盖的地址，那一发拿到 404
     // （和真服务器上"没有这个路由"同形）。它不是"这条断言意外地没红"的替代品，但能更早
     // 说明这一跑其实没测到东西 —— 或者又开始悄悄依赖真实网络了。排查看 `unrouted`。

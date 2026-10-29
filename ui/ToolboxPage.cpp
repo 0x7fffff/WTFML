@@ -60,13 +60,13 @@ const ToolInfo kToolInfos[] = {
     {ToolboxPage::Tool::Anvil, "anvil", "附魔顺序助手", "附魔助手",
      "照 Java 版铁砧那套惩罚机制，算一条最省等级的顺序。"},
     {ToolboxPage::Tool::Text, "text", "文本生成器", "彩色文本",
-     "带 § 码的文本、JSON 组件、tellraw 命令 —— 三种写法互相转。"},
+     "§ 文本、JSON 组件与 tellraw 命令互相转换。"},
     {ToolboxPage::Tool::Coord, "coord", "坐标换算", "坐标换算",
-     "主世界与下界互转、区块与 region 文件；粘一行 F3+C 的 tp 命令也能认。"},
+     "主世界与下界互转，也认 F3+C 的 tp 命令。"},
     {ToolboxPage::Tool::Server, "server", "服务器在线检测", "延迟测试",
      "连上去问一句，看 MOTD、版本、在线人数，并量一个来回的延迟。"},
     {ToolboxPage::Tool::Hash, "hash", "文件哈希校验", "SHA校验",
-     "算一个文件的 SHA-256 / SHA-1 / MD5，并和手上那串已知值对一下。"},
+     "算文件的 SHA-256 / SHA-1 / MD5，可对照已知值。"},
     {ToolboxPage::Tool::Beacon, "beacon", "信标计算", "信标计算",
      "信标几级要多少块、效果范围多大、这一级能给出哪些效果。"},
     {ToolboxPage::Tool::Brewing, "brewing", "酿造助手", "酿造助手",
@@ -586,6 +586,9 @@ void ToolboxPage::showTool(Tool tool) {
     m_current = m_tools.at(index);
     m_stack->setCurrentIndex(index);
     syncChips();
+    // 顶上那排 chip 只走到这里（不经过 controller），所以"换了哪一件"必须从这里发出去 ——
+    // 纹饰那一页要借它去读预览资源，漏了就是"从 chip 进去不渲染盔甲"。
+    emit toolShown(m_current);
 }
 
 // ---------------------------------------------------------------------------
@@ -626,7 +629,7 @@ QWidget *ToolboxPage::buildAnvilPanel() {
     auto *removeRow = new QPushButton(QStringLiteral("删掉这一行"), panel);
     removeRow->setObjectName(QStringLiteral("anvilRemoveRow"));
     Theme::markButton(removeRow, Theme::ButtonKind::Neutral);
-    auto *plan = new QPushButton(QStringLiteral("算一下"), panel);
+    auto *plan = new QPushButton(QStringLiteral("计算"), panel);
     plan->setObjectName(QStringLiteral("anvilPlan"));
     Theme::markButton(plan, Theme::ButtonKind::Accent);
     rowButtons->addWidget(addRow);
@@ -687,7 +690,7 @@ void ToolboxPage::appendAnvilRow() {
     auto *uses = new QSpinBox(m_anvilTable);
     uses->setRange(0, 9);
     uses->setValue(0);
-    uses->setToolTip(QStringLiteral("这一件在铁砧上加工过几次 —— 加工一次前科就是 2^n−1"));
+    uses->setToolTip(QStringLiteral("在铁砧上加工过几次（前科 = 2^n−1）"));
     m_anvilTable->setCellWidget(row, 3, uses);
 
     // 第五格：这一条附魔和**上一行**是不是同一件东西。一本书能带好几条附魔、一件装备
@@ -698,8 +701,7 @@ void ToolboxPage::appendAnvilRow() {
     sameLayout->setAlignment(Qt::AlignCenter);
     auto *same = new QCheckBox(sameWrap);
     same->setObjectName(QStringLiteral("anvilSame"));
-    same->setToolTip(QStringLiteral("勾上 = 这一条附魔属于**上一行**那一件（比如一本书带着两条附魔）。"
-                                    "不勾 = 这是新的一件。"));
+    same->setToolTip(QStringLiteral("勾上表示与上一行是同一件（例如一本书带两条附魔）。"));
     sameLayout->addWidget(same);
     m_anvilTable->setCellWidget(row, 4, sameWrap);
     // 勾上之后"这一件"和"用过几次"就归上一行那一件管了 —— 这两格跟着灰掉，
@@ -725,7 +727,7 @@ void ToolboxPage::refreshAnvilSameColumn() {
             same->setToolTip(QStringLiteral("第一行没有上一行：这一件就是新的一件。"));
         } else {
             same->setEnabled(true);
-            same->setToolTip(QStringLiteral("勾上 = 这一条附魔属于**上一行**那一件（比如一本书带着两条附魔）。"
+            same->setToolTip(QStringLiteral("勾上 = 这一条附魔属于上一行那一件（比如一本书带着两条附魔）。"
                                             "不勾 = 这是新的一件。"));
         }
         // 「这一件」和「用过几次」描述的是**那一件东西**：并进上一行时它们归上一行管，
@@ -880,8 +882,7 @@ QWidget *ToolboxPage::buildTextPanel() {
     m_textHex->setPlaceholderText(QStringLiteral("#ff8800"));
     m_textHex->setMaxLength(7);
     m_textHex->setFixedWidth(96);
-    m_textHex->setToolTip(QStringLiteral("六位十六进制（`#RRGGBB`）。`§x` 那种写法要 1.16 起，"
-                                         "更早的版本认不出来。"));
+    m_textHex->setToolTip(QStringLiteral("六位十六进制（#RRGGBB）。§ 写法需 1.16 起。"));
     auto *hexInsert = new QPushButton(QStringLiteral("插自定颜色"), panel);
     hexInsert->setObjectName(QStringLiteral("textHexInsert"));
     hexInsert->setToolTip(m_textHex->toolTip());
@@ -942,7 +943,7 @@ QWidget *ToolboxPage::buildTextPanel() {
         {"textJson", "JSON 组件", "命令里的 text 字段、物品的 display.Name 用它"},
         {"textTellraw", "/tellraw 命令", "整条命令，可以直接粘进聊天栏按回车"},
         {"textMotd", "server.properties 的 motd 那一行",
-         "整行粘进 server.properties；非 ASCII 与 § 已经转成 \\uXXXX，按 ISO-8859-1 读也不坏"},
+         "整行粘进 server.properties；非 ASCII 已转成 \\uXXXX"},
     };
     for (const auto &spec : kOutputs) {
         auto *head = new QHBoxLayout;
@@ -1262,9 +1263,7 @@ QWidget *ToolboxPage::buildServerPanel() {
     layout->setSpacing(8);
 
     addPanelHeader(layout, panel, Tool::Server,
-                   QStringLiteral("地址写 host 或者 host:port（不写端口按 25565 算）。问到的是"
-                                  "服务器**这会儿**那一份 MOTD，和列表里缓存的那份不是一回事；"
-                                  "量出来的是状态握手那一个来回，**不是游戏内延迟**。"));
+                   QStringLiteral("地址填 host 或 host:port（默认端口 25565）。查实时 MOTD，量的是状态握手一个来回。"));
 
     auto *row = new QHBoxLayout;
     row->setContentsMargins(0, 0, 0, 0);
@@ -1275,7 +1274,7 @@ QWidget *ToolboxPage::buildServerPanel() {
     m_serverCheck = new QPushButton(QStringLiteral("检测"), panel);
     m_serverCheck->setObjectName(QStringLiteral("serverCheck"));
     Theme::markButton(m_serverCheck, Theme::ButtonKind::Accent);
-    m_serverCancel = new QPushButton(QStringLiteral("停下"), panel);
+    m_serverCancel = new QPushButton(QStringLiteral("取消"), panel);
     m_serverCancel->setObjectName(QStringLiteral("serverCancel"));
     Theme::markButton(m_serverCancel, Theme::ButtonKind::Neutral);
     m_serverCancel->setEnabled(false);
@@ -1346,7 +1345,7 @@ void ToolboxPage::setServerView(const ServerView &view) {
         const QString headline = !view.kind.isEmpty()
                                      ? view.kind
                                      : (view.timedOut ? QStringLiteral("超时")
-                                                      : QStringLiteral("没问成"));
+                                                      : QStringLiteral("检测失败"));
         html.append(QStringLiteral("<div><b>%1</b></div>").arg(headline.toHtmlEscaped()));
         html.append(QStringLiteral("<div>%1</div>").arg(view.error.toHtmlEscaped()));
     } else {
@@ -1364,7 +1363,7 @@ void ToolboxPage::setServerView(const ServerView &view) {
 void ToolboxPage::setServerBusy(bool busy) {
     if (m_serverCheck != nullptr) {
         m_serverCheck->setEnabled(!busy);
-        m_serverCheck->setText(busy ? QStringLiteral("正在问…") : QStringLiteral("检测"));
+        m_serverCheck->setText(busy ? QStringLiteral("检测中…") : QStringLiteral("检测"));
     }
     if (m_serverCancel != nullptr) {
         m_serverCancel->setEnabled(busy);
@@ -1382,8 +1381,7 @@ QWidget *ToolboxPage::buildHashPanel() {
     layout->setSpacing(8);
 
     addPanelHeader(layout, panel, Tool::Hash,
-                   QStringLiteral("把一个文件拖到这一页上，或者点「选一个…」。有已知值就粘到"
-                                  "那格 —— 各种写法（大写、带连字符、带 `sha256:` 前缀）都认。"));
+                   QStringLiteral("把文件拖到这一页，或点「选一个…」。已知值可粘进那格，各种写法都认。"));
 
     auto *pathRow = new QHBoxLayout;
     pathRow->setContentsMargins(0, 0, 0, 0);
@@ -1406,10 +1404,10 @@ QWidget *ToolboxPage::buildHashPanel() {
     m_hashExpected = new QLineEdit(panel);
     m_hashExpected->setObjectName(QStringLiteral("hashExpected"));
     m_hashExpected->setPlaceholderText(QStringLiteral("（可选）粘上人家给的那一串摘要"));
-    m_hashRun = new QPushButton(QStringLiteral("算一下"), panel);
+    m_hashRun = new QPushButton(QStringLiteral("计算"), panel);
     m_hashRun->setObjectName(QStringLiteral("hashRun"));
     Theme::markButton(m_hashRun, Theme::ButtonKind::Accent);
-    m_hashCancel = new QPushButton(QStringLiteral("停下"), panel);
+    m_hashCancel = new QPushButton(QStringLiteral("取消"), panel);
     m_hashCancel->setObjectName(QStringLiteral("hashCancel"));
     Theme::markButton(m_hashCancel, Theme::ButtonKind::Neutral);
     m_hashCancel->setEnabled(false);
@@ -1621,10 +1619,10 @@ void ToolboxPage::setHashProgress(qint64 done, qint64 total) {    if (m_hashProg
         return;
     }
     if (total <= 0) {
-        m_hashProgress->setText(QStringLiteral("已经读了 %1").arg(done));
+        m_hashProgress->setText(QStringLiteral("已读取 %1").arg(done));
         return;
     }
-    m_hashProgress->setText(QStringLiteral("已经读了 %1 / %2（%3%）")
+    m_hashProgress->setText(QStringLiteral("已读取 %1 / %2（%3%）")
                                 .arg(done)
                                 .arg(total)
                                 .arg(total > 0 ? done * 100 / total : 0));
@@ -1641,7 +1639,7 @@ void ToolboxPage::setHashStaleNote(const QString &text) {
 void ToolboxPage::setHashBusy(bool busy) {
     if (m_hashRun != nullptr) {
         m_hashRun->setEnabled(!busy);
-        m_hashRun->setText(busy ? QStringLiteral("正在算…") : QStringLiteral("算一下"));
+        m_hashRun->setText(busy ? QStringLiteral("正在计算…") : QStringLiteral("计算"));
     }
     if (m_hashCancel != nullptr) {
         m_hashCancel->setEnabled(busy);
@@ -1692,7 +1690,7 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     form2->addWidget(makeFieldLabel(panel, QStringLiteral("底座方块")));
     m_beaconMaterial = new QComboBox(panel);
     m_beaconMaterial->setObjectName(beaconMaterialComboName());
-    m_beaconMaterial->setToolTip(QStringLiteral("只影响「折成多少个锭 / 宝石」；任何材质的底座效果都一样"));
+    m_beaconMaterial->setToolTip(QStringLiteral("只影响折成多少个锭或宝石。"));
     form2->addWidget(m_beaconMaterial);
     form2->addWidget(makeFieldLabel(panel, QStringLiteral("信标颗数")));
     m_beaconCount = new QSpinBox(panel);
@@ -1768,7 +1766,7 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     beamReport->setObjectName(QStringLiteral("beamColorReport")); beamReport->setWordWrap(true);
     beamReport->setTextFormat(Qt::PlainText); layout->addWidget(beamReport); addResultCopy(layout, beamReport);
     layout->addWidget(makeMutedLabel(panel, QStringLiteral("beamScopeNotice")));
-    panel->findChild<QLabel *>(QStringLiteral("beamScopeNotice"))->setText(QStringLiteral("玻璃与玻璃板使用相同颜色；光柱图仅示意分段颜色，不模拟实际高度、遮挡和光照。"));
+    panel->findChild<QLabel *>(QStringLiteral("beamScopeNotice"))->setText(QStringLiteral("玻璃与玻璃板同色；光柱图仅示意分段颜色。"));
     layout->addStretch(1);
 
     const auto emitNow = [this]() {
@@ -2016,7 +2014,7 @@ QWidget *ToolboxPage::buildBannerPanel() {
     form->addWidget(m_bannerColor);
     m_bannerAdd = new QPushButton(QStringLiteral("加一层"), panel);
     m_bannerAdd->setObjectName(bannerAddName());
-    m_bannerAdd->setToolTip(QStringLiteral("把上面选的图案和颜色叠到列表最上面（第 6 层之后游戏里叠不了）"));
+    m_bannerAdd->setToolTip(QStringLiteral("把所选图案和颜色叠到最上面（最多 6 层）"));
     Theme::markButton(m_bannerAdd, Theme::ButtonKind::Primary);
     form->addWidget(m_bannerAdd);
     form->addStretch(1);
@@ -2032,7 +2030,7 @@ QWidget *ToolboxPage::buildBannerPanel() {
     bannerPreview->setObjectName(QStringLiteral("bannerVisualPreview"));
     bannerPreview->setFixedSize(96, 192); bannerPreview->setAlignment(Qt::AlignCenter);
     bannerPreviewRow->addWidget(bannerPreview);
-    auto *bannerNotice = new QLabel(QStringLiteral("加载本地原版客户端 JAR，可查看真实图案缩略图和二维叠层预览。"), panel);
+    auto *bannerNotice = new QLabel(QStringLiteral("加载原版客户端 JAR 后显示图案缩略图与二维叠层预览。"), panel);
     bannerNotice->setObjectName(QStringLiteral("bannerVisualNotice")); bannerNotice->setWordWrap(true);
     bannerNotice->setMinimumWidth(0); bannerNotice->setTextFormat(Qt::PlainText);
     layout->addWidget(bannerNotice);
@@ -2270,7 +2268,7 @@ void ToolboxPage::setBannerPreview(const QImage &image, const QString &notice) {
         else preview->setPixmap(QPixmap::fromImage(image).scaled(preview->size(), Qt::KeepAspectRatio, Qt::FastTransformation));
     }
     auto *label = findChild<QLabel *>(QStringLiteral("bannerVisualNotice"));
-    if (label != nullptr) label->setText(notice.isEmpty() ? QStringLiteral("二维旗面预览 / 按所选贴图的实际层序合成，不含游戏光照。") : notice);
+    if (label != nullptr) label->setText(notice.isEmpty() ? QStringLiteral("二维旗面预览 / 按贴图实际层序合成。") : notice);
 }
 void ToolboxPage::setBannerPatternIcons(const QList<QIcon> &icons) {
     if (m_bannerPattern == nullptr) return;
@@ -2340,7 +2338,7 @@ QWidget *ToolboxPage::buildTrimPanel() {
     auto *layout = new QVBoxLayout(panel);
     layout->setContentsMargins(0, 2, 0, 0); layout->setSpacing(6);
     // 标题与那一句总述已经在覆盖页顶上（`toolName()` / `toolSummary()`），这里不重复。
-    // 那句「模板每打一件消耗一个…」是这一页的规则，摆在四列表格下面一行浅色小字里。
+    // 表格下面只留结果那几行：每件选了什么都写在上面三排下拉框里，不再复述一遍。
     auto *body = new QHBoxLayout; body->setSpacing(12);
     auto *left = new QVBoxLayout; left->setSpacing(8);
     auto *form = new QGridLayout; form->setHorizontalSpacing(6); form->setVerticalSpacing(6);
@@ -2363,9 +2361,6 @@ QWidget *ToolboxPage::buildTrimPanel() {
         }
     }
     left->addLayout(form);
-    auto *trimHint=makeMutedLabel(panel);
-    trimHint->setText(tr("模板每打一件消耗一个；海龟壳只有头盔。"));
-    left->addWidget(trimHint);
     m_trimResult=new QLabel(panel); m_trimResult->setObjectName(trimResultName());
     m_trimResult->setWordWrap(true); m_trimResult->setAlignment(Qt::AlignTop|Qt::AlignLeft);
     m_trimResult->setTextInteractionFlags(Qt::TextSelectableByMouse);

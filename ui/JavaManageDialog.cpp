@@ -81,8 +81,7 @@ QString JavaManageDialog::usedMarkText() {
 
 QString JavaManageDialog::hintText() {
     return QStringLiteral(
-        "下载的是 Adoptium 的构建，装在游戏文件夹的 java/<主版本> 下面，"
-        "不会动系统里已经装好的 Java。装好之后启动时会自动认得。");
+        "下载 Adoptium 构建，装在游戏文件夹的 java/<主版本> 下，不影响系统里已装的 Java。");
 }
 
 QString JavaManageDialog::titleText() const {
@@ -176,7 +175,7 @@ JavaManageDialog::JavaManageDialog(QWidget *parent) : QDialog(parent) {
     // 「重新检测」= 重扫一遍（一般性）；上面那些「选用」「下载」都是确认性。
     Theme::markButton(m_detect, Theme::ButtonKind::Neutral);
     m_detect->setAutoDefault(false);
-    m_detect->setToolTip(QStringLiteral("重新扫一遍这台机器上已经装好的 Java（含原版启动器装的那几份）。"));
+    m_detect->setToolTip(QStringLiteral("重新扫描本机已安装的 Java。"));
     actions->addWidget(m_downloadAll);
     actions->addWidget(m_detect);
     actions->addStretch(1);

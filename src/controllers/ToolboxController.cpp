@@ -153,6 +153,11 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
     // 「显示披风」勾选只改预览那一张图，不碰资源、不写盘 —— 直接重绘即可。
     connect(m_page, &ToolboxPage::trimCapeVisibilityChanged, this,
             [this](bool) { m_trimPreview->refresh(); });
+    // 纹饰那一页一露出来就去读本地预览资源 —— 入口有两条（工具箱面板、顶上那排 chip），
+    // 两条都走 `showTool()`，所以只接这一个信号（见 `ToolboxPage::toolShown` 的注释）。
+    connect(m_page, &ToolboxPage::toolShown, this, [this](ToolboxPage::Tool tool) {
+        if (tool == ToolboxPage::Tool::Trim) m_trimPreview->ensureLocal();
+    });
     // 算完哈希之后盯着那个文件：它一变，屏幕上那串摘要就不再是"它现在的摘要"。
     m_hashWatcher = new QFileSystemWatcher(this);
     connect(m_hashWatcher, &QFileSystemWatcher::fileChanged, this,
@@ -414,7 +419,6 @@ void ToolboxController::open(const QString &toolKey) {
     }
     // 换一件工具**先换再开**：这一页是复用的对象，开出来那一刻已经是用户点的那一件。
     m_page->showTool(tool);
-    if (tool == ToolboxPage::Tool::Trim) m_trimPreview->ensureLocal();
     // 「再开一页」不再问：覆盖层上压着东西时**静默收掉再继续**（`runWhenOverlayFree()`
     // 是那条路的唯一出处）。直接 execPage 的话，页正开着时它会原地返回 nullptr 那一档，
     // 用户看到的是"点了没反应"。
@@ -501,7 +505,7 @@ void ToolboxController::runAnvilPlan() {
         // 互斥顶掉的那几条**点名说清楚**：不解释的话，用户会以为那一条悄悄丢了
         // （代价里那 +1 是照旧的，所以要说明"合不上来但还是要多花一级"）。
         for (auto it = step.cost.dropped.constBegin(); it != step.cost.dropped.constEnd(); ++it) {
-            view.notes.append(tr("第 %1 步：「%2」和目标上已有的附魔互斥，这一步**没合上来** —— "
+            view.notes.append(tr("第 %1 步：「%2」和目标上已有的附魔互斥，这一步没合上来 —— "
                                  "目标保住自己那条（铁砧按每一条互斥照旧 +1 级）。"
                                  "想留下这一条，就把它那一件放到左边先合。")
                                   .arg(stepNumber)
@@ -529,7 +533,7 @@ void ToolboxController::runAnvilPlan() {
                 leftover.append(units.at(index).label);
             }
         }
-        view.notes.append(tr("这几件**用不上**：%1 —— 加进去也升不了级（材料可以不全用）。")
+        view.notes.append(tr("这几件用不上：%1 —— 加进去也升不了级（材料可以不全用）。")
                               .arg(leftover.join(QStringLiteral("、"))));
     }
     if (plan.finalPenalty > 0) {
@@ -1142,9 +1146,11 @@ void ToolboxController::refreshTrim() {
     if (m_page == nullptr) {
         return;
     }
-    QStringList equipped, notes;
+    QStringList notes;
     QMap<QString, int> materials;
     QString error;
+    // 每件选了什么都写在上面那三排下拉框里；结果区只算材料账，不再复述一遍。
+    int equippedCount = 0;
     const auto equipment = m_page->trimEquipment();
     for (int slot = 0; slot < equipment.size(); ++slot) {
         const auto selection = equipment[slot];
@@ -1156,13 +1162,12 @@ void ToolboxController::refreshTrim() {
             continue;
         }
         materials[armor]++;
+        ++equippedCount;
         if (selection.pattern < 0) {
-            equipped.append(armor);
             continue;
         }
         const auto pattern = ArmorTrim::patternAt(selection.pattern);
         const auto material = ArmorTrim::trimMaterialAt(selection.material);
-        equipped.append(tr("%1：%2 / %3").arg(armor, pattern.name, material.name));
         materials[pattern.name + tr("纹饰模板")]++;
         materials[material.item]++;
         // 提示（这枚模板从哪来 / 哪个版本才有 / 模板可以复制）只从判据层拿：
@@ -1184,7 +1189,7 @@ void ToolboxController::refreshTrim() {
         m_trimPreview->refresh();
         return;
     }
-    if (equipped.isEmpty()) {
+    if (equippedCount == 0) {
         m_page->setTrimResult(tr("尚未选择装备"));
         m_trimPreview->refresh();
         return;
@@ -1193,8 +1198,7 @@ void ToolboxController::refreshTrim() {
     for (auto it = materials.cbegin(); it != materials.cend(); ++it) {
         items.append(tr("%1 × %2").arg(it.key()).arg(it.value()));
     }
-    QString text = equipped.join(QChar('\n')) + tr("\n\n材料：")
-                   + items.join(QStringLiteral(" / "));
+    QString text = tr("材料：") + items.join(QStringLiteral(" / "));
     if (!notes.isEmpty()) {
         text += tr("\n\n提示：\n");
         for (const QString &note : notes) {

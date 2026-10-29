@@ -775,19 +775,7 @@ QWidget *MainWindowUI::setupInstancePage() {
         Theme::markButton(importModpackButton, Theme::ButtonKind::Neutral);
         instance.left.layout->addWidget(importModpackButton);
 
-        // 那颗按钮的说明：摆在这儿是因为它讲的就是上面那颗按钮，读的人不用自己把
-        // 句子和按钮对起来。
-        QLabel *importHint = new QLabel(
-            QStringLiteral("收 Modrinth 格式的整合包（.zip / .mrpack），"
-                           "加载器、模组、config 一次装好。"),
-            instance.left.surface);
-        importHint->setObjectName(importHintLabelName());
-        importHint->setWordWrap(true);
-        markTextRole(importHint, Theme::secondaryTextRoleValue());
-        // 横向把自己从布局的度量里摘出去：侧栏是固定宽度，让这句话参与横向度量只会让它
-        // 把侧栏的内容挤出去（见 `buildTwoColumnPage()` 里说明那一行同一条规矩）。
-        importHint->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-        instance.left.layout->addWidget(importHint);
+        importModpackButton->setToolTip(QStringLiteral("导入平台整合包或可识别的本地压缩包。"));
 
     }
     {
@@ -1418,7 +1406,7 @@ void MainWindowUI::openHomeInstancePicker(
     auto *search = new QLineEdit(instancePane);
     search->setObjectName(QStringLiteral("homePickerSearch"));
     search->setPlaceholderText(QStringLiteral("搜索名称、版本、加载器、文件夹或标签"));
-    search->setToolTip(QStringLiteral("支持空格组合搜索，例如：1.21 fabric 收藏。也可搜索加载器版本、文件夹路径、纯净/vanilla、最近/recent。"));
+    search->setToolTip(QStringLiteral("支持空格组合关键词，例如 1.21 fabric。"));
     search->setClearButtonEnabled(true);
     search->setMinimumWidth(140);
     heading->addWidget(search);
@@ -1436,9 +1424,6 @@ void MainWindowUI::openHomeInstancePicker(
     WheelGuard::install(filter);
     heading->addWidget(filter);
     instanceLayout->addLayout(heading);
-    auto *hint = makeHomeHint(QStringLiteral("单击一个实例即可选中；启动仍由主页底部按钮完成。"),
-                              instancePane);
-    instanceLayout->addWidget(hint);
     auto *instanceList = new QListWidget(instancePane);
     instanceList->setObjectName(QStringLiteral("homePickerInstanceList"));
     instanceList->setFrameShape(QFrame::NoFrame);

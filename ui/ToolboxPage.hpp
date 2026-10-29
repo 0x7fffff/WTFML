@@ -389,6 +389,8 @@ public:
     bool trimWholeSet() const;
 
 signals:
+    /// 换到哪一件工具（顶上那排 chip 和工具箱面板都走 `showTool()`，只在这里发一次）。
+    void toolShown(ToolboxPage::Tool tool);
     void trimEquipmentChanged();
     /// 「显示披风」被勾上 / 取消（披风图由 controller 给，这一层只报这个开关）。
     void trimCapeVisibilityChanged(bool visible);

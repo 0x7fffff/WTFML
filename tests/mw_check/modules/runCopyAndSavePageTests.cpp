@@ -88,12 +88,13 @@ void runCopyAndSavePageTests() {
             // tooltip 里必须说清**落到哪儿**：那一颗问的是「复制到哪个游戏文件夹」，
             // 而副本落在**那个文件夹**的 versions/ 底下 —— 不说的话用户会在自己挑的
             // 那一层里找它，找不到就以为复制没成。
-            check(button->toolTip().contains(QStringLiteral("versions")),
+            check(button->toolTip().contains(QStringLiteral("目标游戏目录")),
                   "★★ T27.1 tooltip 说清了副本落在「<那个文件夹>\\versions\\<新名字>」"
                   "（问的是游戏文件夹，不是「就拷到你挑的这一层」）",
                   button->toolTip());
             // 副本拿到的是一个**新实例 id**：所以它是一件独立的东西，不是一个链接。
-            check(button->toolTip().contains(QStringLiteral("实例 id")),
+            check(InstanceSettingsDialog::copyHint().contains(QStringLiteral("独立")) &&
+                      button->toolTip().contains(QStringLiteral("保留原实例")),
                   "T27.1 tooltip 也说清了副本是独立的（拿到一个新的实例 id）",
                   button->toolTip());
         }
@@ -1085,7 +1086,7 @@ void runCopyAndSavePageTests() {
                 check(askTitle(boxAsks, 0) == QStringLiteral("改动存档文件"),
                       "★★ T27.7 展开弹的是那一句备份警告", askTitle(boxAsks, 0));
                 check(askButtons(boxAsks, 0) ==
-                          QStringList({QStringLiteral("继续改"), QStringLiteral("先备份一份"),
+                          QStringList({QStringLiteral("继续改"), QStringLiteral("先创建备份"),
                                        QStringLiteral("取消")}),
                       "★★ T27.7 那三颗是「继续改 / 先备份一份 / 取消」（用户要的那颗备份就在"
                       "这一问里）",
@@ -1199,7 +1200,7 @@ void runCopyAndSavePageTests() {
                       "★ T27.7 存完之后底下那行字改口说「已保存」",
                       world != nullptr ? world->noteLabel()->text() : QString());
                 check(world != nullptr &&
-                          world->noteLabel()->text().contains(QStringLiteral("备份已经有了")),
+                          world->noteLabel()->text().contains(QStringLiteral("已有存档信息备份")),
                       "★ T27.7 而且它知道备份已经有了（存完那一刻 MainWindow 告诉了它）");
 
                 // ---------- 读回来核对 ----------
@@ -1347,7 +1348,7 @@ void runCopyAndSavePageTests() {
                       "上写东西）");
                 if (world != nullptr && world->isUnreadable()) {
                     check(world->titleLabel()->text() ==
-                              QStringLiteral("这个世界可能坏了：坏掉的"),
+                              QStringLiteral("存档读取失败：坏掉的"),
                           "★★ T27.7 标题上写着「这个世界可能坏了」、还带着是哪一个世界",
                           world->titleLabel()->text());
                     // 那一句小字 = **原因原文** + "只能看和备份"（`refreshNote()` 那一档）。
@@ -1383,7 +1384,7 @@ void runCopyAndSavePageTests() {
                 check(backupAsks.size() == 1,
                       "★★ T27.7 点页里「备份一份」报一句话（页里那一颗真的接到了）",
                       QString::number(backupAsks.size()));
-                check(askTitle(backupAsks, 0) == QStringLiteral("备份一份"),
+                check(askTitle(backupAsks, 0) == WorldSettingsPage::backupText(),
                       "★★ T27.7 报的就是页里那一颗自己的说法「备份一份」",
                       askTitle(backupAsks, 0));
                 check(askText(backupAsks, 0).contains(
@@ -1462,7 +1463,7 @@ void runCopyAndSavePageTests() {
         // 这一行的 `level.dat` 是 T27.4 导进来的那 3 个字节 ⇒ 开出来的是**坏档**那一档的
         // 标题，而且里面带着**这一行**的世界名（点哪一行说哪一行）。
         check(!rowName.isEmpty() &&
-                  pageTitle == QStringLiteral("这个世界可能坏了：%1").arg(rowName),
+                  pageTitle == QStringLiteral("存档读取失败：%1").arg(rowName),
               "★ T27.6 顶上那句带着**这一行**的世界名，而且是坏档那一档的说法", pageTitle);
         check(!prefilled.isEmpty() && prefilled == rowName,
               "★ T27.6 页里「重命名…」那一问的输框预填的就是**现在这个名字**（改名不用重打"

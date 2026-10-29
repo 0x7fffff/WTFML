@@ -236,7 +236,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
             status->setText(QObject::tr("已请求取消下载适配模组；停下后整趟更新不会执行。"));
             return false;
         }
-        if (state->executing) { status->setText(QObject::tr("正在进行文件事务，不能中途关闭；请等待完成或失败结果。")); return false; }
+        if (state->executing) { status->setText(QObject::tr("正在提交文件，请等待完成。")); return false; }
         return true;
     };
     QObject::connect(retryFlow, &QPushButton::clicked, wizard, [wizard, state, retryFlow] {
@@ -275,7 +275,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
         const int kept = dialog->upgradeKeptMods().size();
         const int replaced = dialog->upgradeReplaceMods().size();
         const int pending = dialog->upgradePendingModCount();
-        QString summaryText = QObject::tr("当前实例：%1\n目标：Minecraft %2 / %3 %4\n\n保留启用：%5　替换适配版：%6　禁用但保留文件：%7　待确认：%8\n\n%9\n\n存档跨版本后可能无法降级；执行前会检查磁盘空间。%11\n平台查询失败不等于没有适配版；适配替换只使用平台明确给出的目标发行版。%10")
+        QString summaryText = QObject::tr("当前实例：%1\n目标：Minecraft %2 / %3 %4\n\n保留启用：%5　替换适配版：%6　禁用但保留文件：%7　待确认：%8\n\n%9\n\n存档跨版本后可能无法降级；执行前会检查磁盘空间。%11%10")
             .arg(state->source, state->game, state->loader.isEmpty() ? QObject::tr("纯原版") : state->loader, state->loaderVersion)
             .arg(kept).arg(replaced)
             .arg(qMax(0, tree->property("upgradeModCount").toInt() - kept - pending - replaced))
@@ -285,7 +285,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
             .arg(!copyValid ? QObject::tr("\n副本名称无效或已经存在，请修改。") : !correctRoot ? QObject::tr("\n游戏目录已改变，请关闭向导重新进入。") : QString())
             .arg(mode->currentData().toBool()
                 ? QObject::tr("更新当前实例：先创建并逐文件校验完整 ZIP 快照（约需 2 倍实例空间），原目录另行保留，可用「回滚上次更新」恢复。")
-                : QObject::tr("创建更新副本：只复制一份用户文件并逐文件校验，不再为副本另做 ZIP 快照（约需 1 份实例空间）；源实例一个字节都不会被改，它本身就是回滚材料。"));
+                : QObject::tr("创建独立副本并逐文件校验，约需一份实例空间；保留源实例，不重复创建 ZIP 快照。"));
         if (replaced > 0) {
             summaryText += QObject::tr("\n\n将下载并替换 %1 个模组；必要前置失败或任一替换失败时整趟回滚，并写出原因报告。")
                                .arg(replaced);
@@ -324,7 +324,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
         if (state->finished && !state->problem.isEmpty()) status->setText(state->problem);
         Q_UNUSED(loaderVersion);
         if (!state->preparing && !state->executing && !state->finished)
-            status->setText(!state->problem.isEmpty() ? state->problem : ready ? QObject::tr("核心和加载器会自动准备，无需跳到下载页。") : QObject::tr("请选择目标 Minecraft 和加载器版本。"));
+            status->setText(!state->problem.isEmpty() ? state->problem : ready ? QObject::tr("准备就绪") : QObject::tr("请选择目标 Minecraft 和加载器版本。"));
     };
     auto *poll = new QTimer(dialog); poll->setInterval(300);
     QObject::connect(poll, &QTimer::timeout, dialog, refreshEnabled); poll->start();
@@ -854,7 +854,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
                 const QString name = copyName->text().trimmed();
                 const QString error = InstanceFiles::validateDirName(name);
                 if (!error.isEmpty() || QFileInfo::exists(AppPaths::versionDir(name))) {
-                    InlineMessage::warning(owner->m_ui->overlay(), QObject::tr("副本名称不可用"), error.isEmpty() ? QObject::tr("已经存在同名实例，请换一个名字。") : error); return;
+                    InlineMessage::warning(owner->m_ui->overlay(), QObject::tr("副本名称不可用"), error.isEmpty() ? QObject::tr("实例名称已存在，请更换名称。") : error); return;
                 }
             }
             if (mode->currentData().toBool()
@@ -882,7 +882,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
             if (!state->loader.isEmpty() && !owner->m_installPage->pickInstallerJava(state->game,
                 VersionManager::loaderIndexForKind(loaderKind(state->loader)), &installerJava)) return;
             if (!InlineMessage::question(owner->m_ui->overlay(), QObject::tr("确认实例更新"),
-                    QObject::tr("更新到 Minecraft %1 / %2 %3。\n\n平台有目标发行版的模组可按列表替换为适配版（必要前置自动补齐）；其余按保留或禁用处理，无法确认兼容性的模组必须先选择处理方式。\n替换失败或必要前置失败会整趟回滚，并写出原因报告。\n存档跨版本后可能无法降级；请勿同时运行实例。\n\n下一步自动准备核心，之后执行副本或完整快照更新。")
+                    QObject::tr("更新到 Minecraft %1 / %2 %3。\n\n有目标发行版的模组可替换为适配版（缺的前置会自动补齐），其余按保留或禁用处理；无法确认的需先选处理方式。\n替换失败或前置失败会整趟回滚，并写出报告。\n存档跨版本后可能无法降级；请勿同时运行实例。")
                         .arg(state->game, state->loader.isEmpty() ? QObject::tr("纯原版") : state->loader, state->loaderVersion),
                     QObject::tr("准备并继续"), QObject::tr("取消"), false)) return;
             // Confirmation runs a nested event loop: recheck ownership before any write.

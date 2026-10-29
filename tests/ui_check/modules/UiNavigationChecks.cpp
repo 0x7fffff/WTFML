@@ -324,8 +324,8 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
             check(importBtn != nullptr && importBtn->text() == MainWindowUI::importModpackText(),
                   "按钮上写的是约定的那句话",
                   importBtn != nullptr ? importBtn->text() : QStringLiteral("<null>"));
-            check(importBtn != nullptr && importBtn->isEnabled() && importBtn->toolTip().isEmpty(),
-                  "「导入整合包…」是能点的，也不挂提示",
+            check(importBtn != nullptr && importBtn->isEnabled() && !importBtn->toolTip().isEmpty(),
+                  "导入按钮可用，格式说明按需显示",
                   importBtn != nullptr ? importBtn->toolTip() : QStringLiteral("<null>"));
             // 宽度策略**不再是 Fixed**（在右栏时怕把列表挤窄）—— 挪到左栏之后它和
             // 「添加文件夹…」一样顶满这一栏，那两颗才看着是一组。这条钉的就是"别再有人

@@ -1404,7 +1404,7 @@ PresetController::InstallPreview PresetController::previewForInstall(
     view.presetName = manifest.name;
     view.fingerprint = QString::fromLatin1(QCryptographicHash::hash(Presets::manifestToBytes(manifest), QCryptographicHash::Sha256).toHex());
     if (!manifest.modReferences.isEmpty()) {
-        view.lines.append(tr("平台模组 %1 项：安装后按目标版本解析发行文件和必要前置；缺失或查询失败将如实报告，不安装其它版本代替。")
+        view.lines.append(tr("平台模组 %1 项：按目标版本解析发行文件与必要前置，缺失或查询失败会如实报告。")
                           .arg(manifest.modReferences.size()));
     }
 

@@ -19,7 +19,7 @@ PresetModReview::PresetModReview(const Presets::ModInstallPlan &plan, QWidget *p
     auto *layout = new QVBoxLayout(this);
     auto *summary = new QLabel(Presets::modInstallSummaryText(plan), this);
     summary->setWordWrap(true); layout->addWidget(summary);
-    auto *hint = new QLabel(tr("确认前不会下载或写入。替代项目仅本次有效；填写 modrinth:项目ID 或 curseforge:数字ID 后，将重新检查它及必要前置，再次确认。"), this);
+    auto *hint = new QLabel(tr("替代项目仅本次有效，需重新检查必要前置。"), this);
     hint->setWordWrap(true); layout->addWidget(hint);
     if (!plan.optionalDependencyKeys.isEmpty()) {
         auto *optional = new QLabel(tr("可选前置（不会自动加入）：%1").arg(plan.optionalDependencyKeys.join(QStringLiteral("、"))), this);
@@ -27,8 +27,9 @@ PresetModReview::PresetModReview(const Presets::ModInstallPlan &plan, QWidget *p
     }
     m_rows = new QTreeWidget(this);
     m_rows->setObjectName("presetModReviewRows");
-    m_rows->setHeaderLabels({tr("项目 / 前置"), tr("发行版"), tr("状态"), tr("实际文件"), tr("大小"), tr("本次替代项目")});
+    m_rows->setHeaderLabels({tr("模组"), tr("版本"), tr("状态"), tr("文件"), tr("大小"), tr("替代项目")});
     m_rows->setRootIsDecorated(false); m_rows->setUniformRowHeights(true);
+    bool hasReplacementInput = false;
     for (const auto &row : plan.rows) {
         const QString title = (row.replacesKeys.isEmpty() ? QString() : row.replacesKeys.join(QStringLiteral("、")) + QStringLiteral(" → "))
             + row.title + (row.fromDependency ? tr("（必要前置）") : QString());
@@ -42,17 +43,33 @@ PresetModReview::PresetModReview(const Presets::ModInstallPlan &plan, QWidget *p
         item->setToolTip(2, row.problem + QLatin1Char('\n') + row.details.join(QLatin1Char('\n')));
         if (!row.problem.isEmpty()) item->setText(2, row.problem);
         if (row.status == Presets::ModInstallStatus::Missing || row.status == Presets::ModInstallStatus::AlternativeNeedsConfirm) {
+            hasReplacementInput = true;
             auto *edit = new QLineEdit(m_rows); edit->setPlaceholderText("modrinth:sodium");
+            edit->setToolTip(tr("格式：modrinth:项目ID 或 curseforge:数字ID"));
             edit->setProperty("originalKey", row.key); m_rows->setItemWidget(item, 5, edit);
         }
     }
+    hint->setVisible(hasReplacementInput);
     m_rows->header()->setSectionResizeMode(QHeaderView::Interactive);
     m_rows->header()->setStretchLastSection(true);
     m_rows->setColumnWidth(0, 160); m_rows->setColumnWidth(2, 200); m_rows->setColumnWidth(3, 160);
     layout->addWidget(m_rows, 1);
     m_problem = new QLabel(this); m_problem->setWordWrap(true); layout->addWidget(m_problem);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-    buttons->button(QDialogButtonBox::Ok)->setText(tr("确认 / 重新检查替代"));
+    auto *confirmButton = buttons->button(QDialogButtonBox::Ok);
+    const auto updateConfirmText = [this, confirmButton] {
+        bool hasReplacement = false;
+        for (int i = 0; i < m_rows->topLevelItemCount(); ++i) {
+            auto *edit = qobject_cast<QLineEdit *>(m_rows->itemWidget(m_rows->topLevelItem(i), 5));
+            if (edit && !edit->text().trimmed().isEmpty()) { hasReplacement = true; break; }
+        }
+        confirmButton->setText(hasReplacement || !m_plan.ok ? tr("检查替代") : tr("确认安装"));
+    };
+    for (int i = 0; i < m_rows->topLevelItemCount(); ++i) {
+        if (auto *edit = qobject_cast<QLineEdit *>(m_rows->itemWidget(m_rows->topLevelItem(i), 5)))
+            connect(edit, &QLineEdit::textChanged, this, updateConfirmText);
+    }
+    updateConfirmText();
     buttons->button(QDialogButtonBox::Cancel)->setText(tr("取消"));
     Theme::markButton(buttons->button(QDialogButtonBox::Ok), Theme::ButtonKind::Primary);
     Theme::markButton(buttons->button(QDialogButtonBox::Cancel), Theme::ButtonKind::Neutral);

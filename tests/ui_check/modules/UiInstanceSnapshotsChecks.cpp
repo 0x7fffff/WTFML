@@ -42,7 +42,7 @@ int UiInstanceSnapshotsChecks() {
                       restore->text().endsWith(QChar(0x2026)),
                   "★ U30.2 两颗都带省略号（按下去之后还会再问一句 / 还要挑一份）");
             check(create->toolTip().contains(QStringLiteral("后台")) &&
-                      create->toolTip().contains(QStringLiteral("cache/backups")) &&
+                      create->toolTip().contains(QStringLiteral("备份目录")) &&
                       restore->toolTip().contains(QStringLiteral("覆盖")),
                   "★★ U30.2 两句 tooltip 各说各的：创建那颗说清「打在后台跑、包落在哪儿」，"
                   "恢复那颗**自己先说清会覆盖现在这些文件**（别等点下去才知道）",
@@ -53,12 +53,12 @@ int UiInstanceSnapshotsChecks() {
             const auto hintOf = [](QWidget *button) {
                 QWidget *cell = button->parentWidget();
                 QLabel *hint = cell != nullptr ? cell->findChild<QLabel *>() : nullptr;
-                return hint != nullptr ? hint->text() : QString();
+                return hint != nullptr ? hint->text() : cell != nullptr ? cell->toolTip() : QString();
             };
-            check(hintOf(create).contains(QStringLiteral("默认不打包")) &&
-                      hintOf(create).contains(QStringLiteral("资源文件")) &&
-                      hintOf(restore).contains(QStringLiteral("自动给现在这一份留一份")) &&
-                      hintOf(restore).contains(QStringLiteral("核对")),
+            check(hintOf(create).contains(QStringLiteral("可选择是否包含")) &&
+                      hintOf(create).contains(QStringLiteral("资源")) &&
+                      hintOf(restore).contains(QStringLiteral("自动备份")) &&
+                      hintOf(restore).contains(QStringLiteral("校验")),
                   "★★ U30.2 两行小字都点到了正地方（默认不打包能重新下回来的那部分 / "
                   "还原之前自动留一份、还原之后逐文件核对）",
                   hintOf(restore));

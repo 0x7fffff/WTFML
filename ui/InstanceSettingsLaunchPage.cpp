@@ -98,18 +98,12 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
 
     // 这一句解释的是**这几项**的属性（「跟随全局 / 自定义」），所以它摆在「启动」栏里、
     // 紧挨着那五项，而不是整页顶上 —— 摆在顶上会让「文件管理」那几栏也像有这么一对档位。
-    auto *explain = new QLabel(
-        tr("每一项都可以「跟随全局」或「自定义」。「跟随全局」的项目在你改全局设置时跟着变，"
-           "「自定义」的项目只对这个实例生效。这些都写在这个实例目录下的 wtfml.meta 里。"),
-        this);
-    explain->setWordWrap(true);
-    grid->addWidget(explain, row++, 0, 1, 2);
+    grid->parentWidget()->setToolTip(tr("「跟随全局」使用全局设置，「自定义」仅用于本实例。"));
 
     // ---------- Java 路径 ----------
     {
         QWidget *cell = addOverrideRow(grid, row, javaPathField(), tr("Java 路径"),
-                                       tr("只对这个实例生效。留空 = 这个实例不指定路径"
-                                          "（跟着全局那份走）。"));
+                                       tr("仅用于当前实例；留空时跟随全局 Java。"));
         row += 2;
         auto *choiceRow = choiceRowOf(javaPathField());
         m_javaPathEdit = new QLineEdit(cell);
@@ -158,7 +152,7 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
     // ---------- 内存：最大 / 最小 / 分配方式 ----------
     {
         QWidget *cell = addOverrideRow(grid, row, xmxField(), tr("最大内存"),
-                                       tr("只对这个实例生效（给 JVM 的 -Xmx）。"));
+                                       tr("当前实例的最大内存。"));
         row += 2;
         m_xmxFollowCell = cell;
         auto *choiceRow = choiceRowOf(xmxField());
@@ -219,7 +213,7 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
         // 验证工程还能按 objectName 把它找回来 —— "这一项查得到、但看不见"正是现在的意思。
         const int titleRow = row;   // 标题在 addTitledRow() 里就摆在 (row, 0) 这一格上
         QWidget *cell = addOverrideRow(grid, row, xmsField(), tr("最小内存"),
-                                       tr("只对这个实例生效（给 JVM 的 -Xms）。"));
+                                       tr("当前实例的初始内存。"));
         row += 2;
         m_xmsFollowCell = cell;
         auto *choiceRow = choiceRowOf(xmsField());
@@ -263,7 +257,7 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
     // Field() 函数，代号是调用方喂进来的。这正是这条分层规矩要保住的性质。
     if (!windowModes.isEmpty()) {
         QWidget *cell = addOverrideRow(grid, row, windowModeField(), tr("窗口模式"),
-                                       tr("只对这个实例生效：这一个实例照这一档开窗。"));
+                                       tr("当前实例启动时的窗口模式。"));
         row += 2;
         auto *choiceRow = choiceRowOf(windowModeField());
         m_windowModeCombo = new QComboBox(cell);
@@ -291,7 +285,7 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
         // 下拉框，但那两个数本身是一对 —— override() 那边要么两个一起收、要么两个都不收
         // （见 .hpp 里那段）。
         QWidget *cell = addOverrideRow(grid, row, windowWidthField(), tr("窗口大小"),
-                                       tr("只对这个实例生效（单位是像素）。"));
+                                       tr("窗口尺寸，单位为像素。"));
         row += 2;
         auto *choiceRow = choiceRowOf(windowWidthField());
         m_windowWidthSpin = new QSpinBox(cell);
@@ -396,7 +390,7 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
         {
             QWidget *cell =
                 addOverrideRow(advancedGrid, advancedRow, extraJvmArgsField(), tr("额外 JVM 参数"),
-                               tr("只对这个实例生效：取代全局那一份，不是叠加。多条用空格分隔。"));
+                               tr("替代全局参数，以空格分隔。"));
             advancedRow += 2;
             auto *choiceRow = choiceRowOf(extraJvmArgsField());
             m_extraJvmArgsEdit = new QLineEdit(cell);
@@ -417,9 +411,7 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
             m_appendJvmArgsEdit->setFixedHeight(kAppendJvmArgsHeight);
             m_appendJvmArgsEdit->setPlainText(appendJvmArgs.join(QLatin1Char('\n')));
             cellLayout->addWidget(m_appendJvmArgsEdit);
-            auto *hint = new QLabel(appendJvmArgsHint(), cell);
-            hint->setWordWrap(true);
-            cellLayout->addWidget(hint);
+            cell->setToolTip(appendJvmArgsHint());
         }
         {
             // 提醒开关。和上面那行一样：**不是覆盖层的一项**（没有「跟随全局 / 自定义」
@@ -436,12 +428,7 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
             m_warnJavaMismatchCheck->setObjectName(warnJavaMismatchCheckName());
             m_warnJavaMismatchCheck->setChecked(warnJavaMismatch);
             cellLayout->addWidget(m_warnJavaMismatchCheck);
-            auto *hint = new QLabel(
-                tr("只对这个实例生效。取消勾选之后启动时不再问「这个 Java 版本对不上」，"
-                   "直接按你指定的 Java 启动。"),
-                cell);
-            hint->setWordWrap(true);
-            cellLayout->addWidget(hint);
+            m_warnJavaMismatchCheck->setToolTip(tr("关闭后使用指定 Java，不再提示版本不符。"));
         }
     }
 
@@ -501,9 +488,7 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
         layoutActionButtons(pairGrid, {exportScript});
         column->addLayout(pairGrid);
 
-        auto *hint = new QLabel(actionsHint(), cell);
-        hint->setWordWrap(true);
-        column->addWidget(hint);
+        cell->setToolTip(actionsHint());
         grid->addWidget(cell, row++, 0, 1, 2);
     }
 

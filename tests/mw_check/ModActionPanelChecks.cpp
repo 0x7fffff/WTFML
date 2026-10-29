@@ -20,6 +20,7 @@
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QEventLoop>
+#include <QElapsedTimer>
 #include <QTimer>
 #include <QThread>
 #include <QScrollArea>
@@ -58,6 +59,17 @@ int runModActionPanelChecks() {
     auto *clear = page.findChild<QPushButton *>(InstanceFilesPage::selectionButtonName(InstanceFilesPage::SelectionAction::ClearAll));
     check(all->isVisible() && !clear->isEnabled(), "selection tools visible without selection");
     all->click(); QApplication::processEvents();
+    auto *invert = page.selectionButtonAt(static_cast<int>(InstanceFilesPage::SelectionAction::InvertAll));
+    int selectionChanges = 0;
+    const auto selectionConnection = QObject::connect(list, &QListWidget::itemSelectionChanged,
+        &page, [&] { ++selectionChanges; });
+    invert->click();
+    check(selectionChanges == 1 && list->selectedItems().isEmpty() && panel->isHidden(),
+          "invert clears selected rows in one notification and refreshes panel state");
+    invert->click();
+    check(selectionChanges == 2 && list->selectedItems().size() == 2 && !panel->isHidden(),
+          "invert restores visible selection in one notification");
+    QObject::disconnect(selectionConnection);
     QStringList inspectedPaths;
     QObject::connect(&page, &InstanceFilesPage::inspectDependenciesRequested, &page,
         [&](const QStringList &paths) { inspectedPaths = paths; });
@@ -78,7 +90,7 @@ int runModActionPanelChecks() {
     check(checkedPaths.size() == 2, "update check forwards selected paths only");
     check(list->selectedItems().size() == 2 && !panel->isHidden(), "multi-selection opens panel");
     auto *actionScroll = page.findChild<QScrollArea *>(QStringLiteral("modActionScroll"));
-    check(actionScroll && actionScroll->width() == 260 && list->width() < 740,
+    check(actionScroll && actionScroll->width() == 240 && list->width() < 760,
           "wide layout reserves panel space");
     check(all->parentWidget()->parentWidget() != &page,
           "wide header shares filter and selection tools row");
@@ -91,8 +103,11 @@ int runModActionPanelChecks() {
     int toggles = 0;
     QObject::connect(&page, &InstanceFilesPage::batchToggleRequested, &page,
         [&](const QStringList &paths, bool) { toggles += paths.size(); });
-    // The original action buttons remain the executor endpoints for the state menu.
-    page.findChild<QPushButton *>(InstanceFilesPage::selectionButtonName(InstanceFilesPage::SelectionAction::Enable))->click();
+    auto *enable = page.selectionButtonAt(static_cast<int>(InstanceFilesPage::SelectionAction::Enable));
+    auto *disable = page.selectionButtonAt(static_cast<int>(InstanceFilesPage::SelectionAction::Disable));
+    check(enable->isVisible() && disable->isVisible() && enable->isEnabled() && disable->isEnabled(),
+          "mixed selection exposes both direct state actions");
+    enable->click();
     check(toggles == 1 && list->selectedItems().size() == 2, "mixed selection enables only disabled file and keeps selection");
     const QString renamed = dir.filePath(QStringLiteral("Iris.jar"));
     QFile::rename(dir.filePath(QStringLiteral("Iris.jar.disabled")), renamed);
@@ -104,8 +119,9 @@ int runModActionPanelChecks() {
     check(page.width() == 560 && list->width() > 500 && actionScroll->geometry().right() < page.width(), "narrow drawer does not force minimum width");
     if (!preview.isEmpty()) page.grab().save(preview + QStringLiteral("/mods-narrow.png"));
     page.resize(560, 420); QApplication::processEvents();
-    check(page.height() == 420 && actionScroll->verticalScrollBar()->maximum() > 0,
-          "short window scrolls action panel instead of clipping commands");
+    check(page.height() == 420 && (actionScroll->verticalScrollBar()->maximum() > 0 ||
+              panel->minimumSizeHint().height() <= actionScroll->viewport()->height()),
+          "short window either fits compact commands or makes them scrollable");
     auto *moreActions = page.findChild<QPushButton *>(QStringLiteral("modMoreActions"));
     actionScroll->ensureWidgetVisible(moreActions); QApplication::processEvents();
     check(actionScroll->viewport()->rect().contains(moreActions->mapTo(actionScroll->viewport(), moreActions->rect().center())),
@@ -120,6 +136,37 @@ int runModActionPanelChecks() {
     page.setSearchText(QString()); all->click();
     clear->click();
     check(list->selectedItems().isEmpty() && panel->isHidden(), "clear selection closes panel");
+    // Opt-in real-widget comparison. Keep timing out of pass/fail thresholds:
+    // the reference intentionally repeats the old row-by-row notification path.
+    const int requestedRows = qEnvironmentVariableIntValue("WTFML_MOD_SELECTION_PROBE_ROWS");
+    if (requestedRows > 0) {
+        const int rows = qBound(10, requestedRows, 2000);
+        const QString probeRoot = dir.filePath(QStringLiteral("selection-probe"));
+        if (!QDir().mkpath(probeRoot)) return 1;
+        for (int i = 0; i < rows; ++i) {
+            QFile file(QDir(probeRoot).filePath(QStringLiteral("mod-%1.jar").arg(i)));
+            if (!file.open(QIODevice::WriteOnly) || file.write("fixture") < 0) return 1;
+        }
+        page.setDirectory(probeRoot); QApplication::processEvents();
+        check(list->count() == rows, "selection probe displays requested fixture rows");
+        int notices = 0;
+        const auto connection = QObject::connect(list, &QListWidget::itemSelectionChanged,
+            &page, [&] { ++notices; });
+        QElapsedTimer timer; timer.start();
+        for (int i = 0; i < list->count(); ++i) list->item(i)->setSelected(true);
+        const qint64 referenceUs = timer.nsecsElapsed() / 1000;
+        const int referenceNotices = notices;
+        clear->click(); notices = 0;
+        timer.restart(); invert->click();
+        const qint64 bulkUs = timer.nsecsElapsed() / 1000;
+        check(list->selectedItems().size() == rows && notices == 1,
+              "large invert preserves the same selected set with one notification");
+        std::printf("SELECTION-PROBE rows=%d reference_us=%lld reference_notices=%d bulk_us=%lld bulk_notices=%d\n",
+            rows, static_cast<long long>(referenceUs), referenceNotices,
+            static_cast<long long>(bulkUs), notices);
+        QObject::disconnect(connection);
+        clear->click();
+    }
     const auto emptyDirectory = dir.filePath(QStringLiteral("empty-mods"));
     QDir().mkpath(emptyDirectory);
     page.setDirectory(emptyDirectory); page.refresh(); QApplication::processEvents();

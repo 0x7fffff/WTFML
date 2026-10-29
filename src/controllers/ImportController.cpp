@@ -237,7 +237,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
     // 拒绝（服务端 / 存档）也能直接从条目表看出来，且**必须**在解析之前判。
     if (layout.serverPack) {
         refuse(m_owner->tr("这不是客户端整合包"),
-               m_owner->tr("这个压缩包里是一个**服务端**包（里面没有客户端要的 config、"
+               m_owner->tr("这个压缩包里是一个服务端包（里面没有客户端要的 config、"
                            "资源包这些，只有服务端启动用的文件）。\n\n"
                            "客户端这边装不了它。要开服的话用「新建服务端」，把这份包解到"
                            "服务端目录里。"));

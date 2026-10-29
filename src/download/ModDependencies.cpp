@@ -156,7 +156,7 @@ QString inspectInstalledDependencies(const QList<InstalledItem> &selected,
             if (!disabled(item)) lines.append(dependencyWarnings(dep, versions, names, QStringLiteral("当前已识别启用清单")));
         }
     }
-    lines.append(QStringLiteral("\n仅使用有效缓存和已识别资料；未识别项目、跨平台对应关系和模组内部版本范围仍需确认。不是完整求解器，也不保证可启动；不会安装、删除或修改文件。"));
+    lines.append(QStringLiteral("\n仅根据有效缓存和已识别资料判断；未识别项目仍需自行确认。不是完整求解器，不保证可启动，也不会修改文件。"));
     return lines.join(QLatin1Char('\n'));
 }
 
@@ -549,7 +549,7 @@ QString unresolvedNoteText(const QStringList &lines) {
 }
 
 QString dependencyLookupLogText(int count) {
-    return QStringLiteral("正在问 %1 个前置模组要下哪一版…").arg(count);
+    return QStringLiteral("正在查询 %1 个前置模组的可用版本…").arg(count);
 }
 
 QString detailPrerequisiteText(const QStringList &names) {
@@ -572,7 +572,7 @@ QString updateUpToDateText() { return QStringLiteral("已是最新"); }
 
 QString updateOutdatedText() { return QStringLiteral("有新版本"); }
 
-QString updateUnknownText() { return QStringLiteral("说不清"); }
+QString updateUnknownText() { return QStringLiteral("无法确认"); }
 
 QString updateSummaryText(int checked, int outdated) {
     return QStringLiteral("检查了 %1 个资源，%2 个有新版本。").arg(checked).arg(outdated);

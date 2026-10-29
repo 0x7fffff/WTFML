@@ -507,7 +507,7 @@ void ConfigFileEditorPage::refreshNote() {
     }
     if (!m_loaded.utf8Ok) {
         m_note->setText(readOnlyPrefix() +
-                        tr("这个文件不是 UTF-8 编码，改它会把里面的字弄坏，所以这里只能看。"));
+                        tr("文件不是 UTF-8 编码，保存会把内容弄坏，只能查看。"));
         return;
     }
     if (m_loaded.tooBig) {

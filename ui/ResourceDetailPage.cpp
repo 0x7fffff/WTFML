@@ -340,7 +340,7 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     m_modSettings->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     // 只有实例模组详情显示并启用它，下载详情不能访问本地配置。
     m_modSettings->setEnabled(false);
-    m_modSettings->setToolTip(tr("打开此实例的配置文件管理；共享配置需自行选择。"));
+    m_modSettings->setToolTip(tr("打开配置文件管理；共享配置需自行选择。"));
     connect(m_modSettings, &QPushButton::clicked, this, [this] {
         if (m_modSettingsShown) emit modSettingsRequested();
     });

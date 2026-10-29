@@ -95,7 +95,7 @@ void runGameCrashTests() {
             const Tasks::TaskSnapshot crash = newCrash(beforeCrash);
             check(crash.state == Tasks::TaskState::Failed,
                   "★ T34.1 它是**失败**收尾的（底栏那颗红点靠这个亮起来）");
-            check(crash.title == QStringLiteral("游戏异常退出 · T34崩溃目标"),
+            check(crash.title == QStringLiteral("游戏异常退出 / T34崩溃目标"),
                   "★ T34.1 标题里带着**用户认得的那个名字**", crash.title);
             check(crash.targetId == crashInstance,
                   "★ T34.1 targetId = 实例 id（「打开目标位置」那一颗要照它开目录）",

@@ -257,7 +257,7 @@ int UiLifecycleCheck(QApplication &app) {
             expect(disabling && affected == QStringList{folder + QStringLiteral("/active.jar")},
                    "mixed selection disables only active files, not folders or already-disabled files");
             expect(disable->toolTip().contains(QStringLiteral("禁用 1"))
-                       && disable->toolTip().contains(QStringLiteral("2 项保持不变")),
+                       && disable->toolTip().contains(QStringLiteral("2 项不变")),
                    "toggle tooltip explains affected and unchanged counts");
             enable->click();
             expect(!disabling && affected == QStringList{folder + QStringLiteral("/inactive.jar.disabled")},

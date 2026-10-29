@@ -75,7 +75,7 @@ protected:
 PresetOptionsEditor::PresetOptionsEditor(const QList<Entry> &entries, QWidget *parent) : QDialog(parent) {
     setWindowTitle(tr("编辑游戏设置预设")); resize(600, 440);
     auto *layout = new QVBoxLayout(this);
-    auto *hint = new QLabel(tr("从下方添加常用设置，双击右侧修改数值。视角使用角度，界面尺寸 0 表示自动；只应用清单内的设置，不覆盖其它配置。自定义设置键和按键仍可直接编辑。"), this);
+    auto *hint = new QLabel(tr("从下方添加常用设置，双击右侧修改数值。只应用清单内的设置。"), this);
     hint->setWordWrap(true); layout->addWidget(hint);
     m_table = new QTableWidget(0, 2, this);
     m_table->setObjectName(QStringLiteral("presetOptionsEditorTable"));

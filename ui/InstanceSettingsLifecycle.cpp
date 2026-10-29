@@ -129,8 +129,8 @@ void InstanceSettingsDialog::setupLifecyclePages() {
                             || key == QStringLiteral("structure");
         if (browse) {
             hint(key == QStringLiteral("structure")
-                     ? tr("浏览各存档 generated 目录中的结构文件；双击打开文件，右键打开所在目录。")
-                     : tr("按修改时间从新到旧显示。双击打开文件，右键打开所在目录。"));
+                     ? tr("存档 generated 目录中的结构文件。双击打开，右键打开目录。")
+                     : tr("按修改时间从新到旧。双击打开，右键打开目录。"));
             action(tr("刷新"), [this, key]() { refreshLifecycleFiles(key); });
             auto *search = new QLineEdit(page);
             search->setObjectName(QStringLiteral("instanceLifecycleSearch_%1").arg(key));
@@ -186,23 +186,23 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             continue;
         }
         if (key == QStringLiteral("integrity")) {
-            hint(tr("检查核心文件、依赖库和资源，查看缺失或异常文件报告，再按报告选择修复。"));
+            hint(tr("检查核心文件、依赖库和资源。"));
             moveOverviewAction(integrityCheckButtonName());
         } else if (key == QStringLiteral("repair")) {
-            hint(tr("重新补齐版本客户端、依赖库和资源；保留实例的模组、配置与存档。只需检查问题时，请使用完整性检查。"));
+            hint(tr("补齐缺失的版本文件，保留模组、配置与存档。"));
             if (auto *repair = findChild<QPushButton *>(repairFilesButtonName())) {
                 repair->setParent(page);
                 layout->addWidget(repair, 0, Qt::AlignLeft);
                 repair->show();
             }
         } else if (key == QStringLiteral("snapshots")) {
-            hint(tr("实例快照包含整个实例的用户数据，与单个世界备份独立。恢复前沿用现有预览和安全备份流程。"));
+            hint(tr("快照包含整个实例，与单世界备份相互独立。"));
             moveOverviewAction(createSnapshotButtonName());
             moveOverviewAction(restoreSnapshotButtonName());
         } else if (key == QStringLiteral("worldbackup")) {
             action(tr("返回存档"), [this]() { showPage(QStringLiteral("save")); })
                 ->setObjectName(QStringLiteral("instanceWorldBackupBack"));
-            hint(tr("选择需要管理的世界。备份只覆盖这个世界，恢复沿用现有备份选择与安全确认流程。"));
+            hint(tr("备份只覆盖选中的世界。"));
             auto *list = new QListWidget(page);
             list->setObjectName(QStringLiteral("instanceWorldBackupList"));
             m_lifecycleLists.insert(key, list);
@@ -223,9 +223,7 @@ void InstanceSettingsDialog::setupLifecyclePages() {
         } else if (key == QStringLiteral("export")) {
             moveOverviewAction(exportButtonName());
         } else if (key == QStringLiteral("diagnosis")) {
-            hint(tr("把实例本身、Java、内存、模组、最近一次启动日志和最近一份崩溃报告放在一起看。"
-                    "每一条都是盘上读得到的事实；认不出来的崩溃只如实转述，不猜是哪个模组。"
-                    "文件是否齐全请用「完整性检查」。"));
+            hint(tr("实例、Java、内存、模组与最近的日志。"));
             m_diagnosisReport = new QPlainTextEdit(page);
             m_diagnosisReport->setObjectName(diagnosisReportName());
             m_diagnosisReport->setReadOnly(true);
@@ -249,11 +247,9 @@ void InstanceSettingsDialog::setupLifecyclePages() {
                 context->setWordWrap(true);
                 context->setTextInteractionFlags(Qt::TextSelectableByMouse);
                 layout->addWidget(context);
-                hint(tr("选择目标版本，检查当前实例后再更新。模组声明符合不保证能运行；原地更新必须先完成完整快照。"));
+                hint(tr("选择目标版本并检查当前实例，确认后才更新；原地更新会先创建完整快照。"));
             } else {
-                hint(tr("把这一份实例的内容搬进这个游戏文件夹里的另一份实例。"
-                        "只增加文件，不删除、不覆盖目标里已有的同名文件；这一份实例原样保留。"
-                        "两边的游戏都要先关掉。"));
+                hint(tr("搬进另一份实例：只增加文件，不删除、不覆盖同名文件。两边的游戏都要先关掉。"));
             }
             auto *targetLine = new QHBoxLayout();
             auto *targetLabel = new QLabel(upgrade ? tr("目标版本") : tr("目标实例"), page);
@@ -336,7 +332,7 @@ void InstanceSettingsDialog::setupLifecyclePages() {
                 scope->setMaximumWidth(290);
                 auto *scopeLayout = new QVBoxLayout(scope);
                 scopeLayout->setContentsMargins(0, 0, 0, 0);
-                auto *scopeHint = new QLabel(tr("副本保留内容\n仅用于创建副本；原地更新保留全部用户文件。"), scope);
+                auto *scopeHint = new QLabel(tr("副本保留内容\n原地更新保留全部用户文件。"), scope);
                 scopeHint->setWordWrap(true);
                 scopeLayout->addWidget(scopeHint);
                 scopeLayout->addWidget(items, 1);

@@ -1580,7 +1580,8 @@ void runInstanceFilesPagesTests() {
                 }
                 list->setCurrentItem(targetItem);
                 QApplication::processEvents();
-                replayRowText = targetItem->text();
+                // 这一页是普通 QListWidgetItem（没有行控件），第二行就是「时间 / 大小」。
+                replayRowText = targetItem->text().section(QLatin1Char('\n'), 1);
                 replayPendingSeen =
                     info->isVisible() && info->text() == InstanceSettingsDialog::lifecycleInfoPendingText();
                 QElapsedTimer timer;
@@ -1621,8 +1622,8 @@ void runInstanceFilesPagesTests() {
             check(replayInfoTip.contains(QStringLiteral("录制时间："))
                       && replayInfoTip.contains(QStringLiteral("文件大小：")),
                   "★ T20.12 悬停提示里补上了录制时间与文件大小", replayInfoTip);
-            check(replayRowText.contains(QStringLiteral(" · ")),
-                  "★ T20.12 列表行第二行是「时间 · 大小」那一条细节（不只是时间戳）",
+            check(replayRowText.contains(QStringLiteral(" / ")),
+                  "★ T20.12 列表行第二行是「时间 / 大小」那一条细节（不只是时间戳）",
                   replayRowText);
         }
 

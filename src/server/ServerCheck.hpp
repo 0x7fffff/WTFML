@@ -304,7 +304,7 @@ inline QList<Finding> inspect(const Facts &facts) {
             Severity::Info,
             QStringLiteral("配置文件里还有 %1 项是我们不认识的")
                 .arg(facts.unknownKeys.size()),
-            QStringLiteral("这些键（%1）在「常用设置」里没有对应的格子，但我们**一个都不动**"
+            QStringLiteral("这些键（%1）在「常用设置」里没有对应的格子，但我们一个都不动"
                            "—— 保存的时候它们原样留着。")
                 .arg(facts.unknownKeys.mid(0, 6).join(QStringLiteral("、"))),
             Action::None});

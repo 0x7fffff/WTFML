@@ -1577,7 +1577,7 @@ QString MainWindowUI::groupActionTooltip(int action, const GroupRow &row) {
                                                "先在列表里选中一个实例，再回这儿挑一组");
         }
         return QCoreApplication::translate(
-            "MainWindowUI", "挑一个组把选中的实例放进去（它只能属于一个组，原来在别的组的话就换过来）");
+            "MainWindowUI", "把选中的实例放进一个组（会离开原来的组）");
     case GroupActionClearMembers:
         if (row.memberCount <= 0) {
             return QCoreApplication::translate("MainWindowUI", "这一组里一个实例都没有");

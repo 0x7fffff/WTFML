@@ -311,7 +311,7 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
                 m_owner.appendLog(MainWindow::tr("✓ 「%1」的首启资源已预取：%2").arg(displayName, errorMessage));
                 InlineMessage::information(
                     m_owner.m_ui->overlay(), MainWindow::tr("首启资源已预取"),
-                    MainWindow::tr("「%1」的 GTNH 首启资源已经准备好了，第一次启动不会再卡在 AssetDirector 的下载上。\n\n%2")
+                    MainWindow::tr("「%1」的首启资源已就绪，第一次启动不会再卡在下载上。\n\n%2")
                         .arg(displayName, errorMessage));
             }
         } else if (userCancelled) {

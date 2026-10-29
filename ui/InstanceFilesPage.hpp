@@ -130,6 +130,16 @@ public:
     /// 列什么（见 Mode）。默认 FilesAndDirs。
     void setMode(Mode mode);
 
+    /// 行首那一格图标露不露。**默认露**。
+    ///
+    /// 关掉的是"这一页上根本不会有图"的那几页：原理图（`.litematic` 不在任何平台的
+    /// 清单里）、配置文件（纯文本）。那几页上每一行都摆一张占位拼图，白占一格宽度 ——
+    /// 关掉之后名字那一格直接吃掉这块地方。
+    ///
+    /// NOTE: 和 `setCanEdit()` 一样，建行时按这一位决定**建不建那一格**（不是建完
+    /// 再藏 —— 藏起来的控件仍然占着布局里那一格）。
+    void setRowIconsVisible(bool visible);
+
     /// 行尾要不要那颗「启用 / 禁用」。**只有游戏会自己扫的那三个目录给 true**
     /// （模组 / 资源包 / 光影包）—— 数据包里那些要自己搬进存档、原理图要 Litematica
     /// 主动去读、存档根本不是一个文件，改了名都只会让用户以为生效了。
@@ -193,14 +203,13 @@ public:
     /// 对它们没有意义）。真要给别的页也用，这两句得先改名。
     static QString joinText() { return QStringLiteral("加入选中的世界"); }
     static QString joinTip() {
-        return QStringLiteral("用游戏自己的 --quickPlaySingleplayer 参数直接进选中的那个世界"
-                              "（**临时占位**：先试试看这条参数发出去游戏认不认）。");
+        return QStringLiteral("启动游戏并进入所选世界，需要游戏支持快速加入。");
     }
 
     /// 「加入选中的世界」那颗**没选中一条世界**时的悬停提示。**唯一出处**（刷新 / 验证
     /// 工程都按它核对）。
     static QString joinSelectFirstHint() {
-        return QStringLiteral("先在下面选中一个世界。");
+        return QStringLiteral("请先选择存档。");
     }
 
     /// 顶上那颗「批量编辑」。**是占位** ——
@@ -755,16 +764,12 @@ public:
     }
     /// 「更新」那一颗的悬停提示（灰着的时候也说得出为什么灰 —— 那三条灰化规则）。
     static QString selectionUpdateTip() {
-        return QStringLiteral("把选中的这些升到最新版。选中的里面一条有新版本的都没有时，"
-                              "这一颗是灰的。");
+        return QStringLiteral("更新选中的可更新项。");
     }
     /// 「禁用 / 启用」两颗的悬停提示。@param disable 这一颗是「禁用」还是「启用」。
     static QString selectionToggleTip(bool disable) {
-        return disable ? QStringLiteral("把选中的这些改名挂上 `%1`，游戏就扫不到它们了"
-                                        "（文件还在）。选中的都已经禁用着时，这一颗是灰的。")
-                             .arg(disabledSuffix())
-                       : QStringLiteral("把选中的这些改回原来的名字，游戏又能扫到它们了。"
-                                        "选中的都已经启用着时，这一颗是灰的。");
+        return disable ? QStringLiteral("禁用选中项，保留原文件。")
+                       : QStringLiteral("启用选中项。");
     }
     /// 「全选 / 反选 / 取消」三颗的悬停提示。三句话说的是同一件事的另一面：**只算当前
     /// 筛出来的那些行**（看不见的那些不参与）。
@@ -773,7 +778,7 @@ public:
         case SelectionAction::SelectAll:
             return QStringLiteral("选中当前筛出来的全部条目。");
         case SelectionAction::InvertAll:
-            return QStringLiteral("把当前筛出来的这些反过来选（选中的取消、没选的选中）。");
+            return QStringLiteral("反选当前列表。");
         case SelectionAction::ClearAll:
             return QStringLiteral("清空选择。");
         default:
@@ -789,14 +794,14 @@ public:
     /// 还走得到（下拉框不收空档、也不写条数）。所以这句话现在照旧是"你上别处按一颗
     /// 去"那一路。
     static QString updateNotCheckedText() {
-        return QStringLiteral("还没有查过更新 —— 到「概览」那一栏点「检查更新」，这里就会列出来。");
+        return QStringLiteral("尚未检查更新，请先在概览中检查。");
     }
     /// 选着「可更新」、查过了、这一页里一条要更新的都没有。
     static QString updateNoneText() {
-        return QStringLiteral("查过了，这一页里的文件都没有新版本。");
+        return QStringLiteral("暂无可用更新");
     }
     /// 目录不存在 / 是空的时候那一句（每一页都可以自己盖掉，见 setEmptyText）。
-    static QString emptyText() { return QStringLiteral("这个文件夹还是空的。"); }
+    static QString emptyText() { return QStringLiteral("文件夹为空"); }
 
     // ---------- 「这一页现在停在哪儿」（★★ ）----------
     //
@@ -1160,6 +1165,8 @@ private:
     void fillDirectoryStats();
 
     Mode m_mode = Mode::FilesAndDirs;
+    /// 行首那一格图标（见 setRowIconsVisible()）。默认露。
+    bool m_rowIconsVisible = true;
     bool m_canToggle = false;
     bool m_canDelete = false;
     /// 这套「批量管理」开不开（见 setBatchMode）。
@@ -1342,7 +1349,6 @@ private:
     QPushButton *m_selectionReopen = nullptr;
     QLabel *m_selectionSummary = nullptr;
     QLabel *m_actionStatus = nullptr;
-    QPushButton *m_stateAction = nullptr;
     QLabel *m_selectionCount = nullptr;
     /// 那七颗按钮，**下标就是 `static_cast<int>(SelectionAction)`**。
     QList<QPushButton *> m_selectionButtons;

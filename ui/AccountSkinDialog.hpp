@@ -159,8 +159,8 @@ public:
     static QString offlineSkinResetButtonText() { return QStringLiteral("恢复默认外观"); }
     static QString offlineSkinButtonToolTip() {
         return QStringLiteral(
-            "从盘上挑一张 PNG（64×64 或 64×32）当这个离线账号在启动器里的外观。"
-            "只影响启动器里的预览，游戏里那张脸是游戏自己定的。");
+            "选一张 PNG（64×64 或 64×32）作为这个离线账号在启动器里的外观。"
+            "只影响启动器预览，游戏内皮肤由游戏自己决定。");
     }
     static QString offlineSkinResetButtonToolTip() {
         return QStringLiteral("撤掉自己挑的那张，回到按这个账号算出来的 / 随机挑的那一张。");

@@ -397,7 +397,7 @@ QString dependencyOnlyThisButtonText();
 /// 下完了但有几个没解开时那一句（空表回空串 = 不显示）。
 QString unresolvedNoteText(const QStringList &lines);
 
-/// 日志里那一行：「正在问 %1 个前置模组要下哪一版…」。
+/// 日志里那一行：「正在查询 %1 个前置模组的可用版本…」。
 QString dependencyLookupLogText(int count);
 
 /// 详情页上那一行（用户 ：「如果有前置模组，在下载页的游戏版本选择和模组版本

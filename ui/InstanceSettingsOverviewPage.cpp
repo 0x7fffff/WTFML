@@ -135,9 +135,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         // 这一格现在**没有行名**了，所以那句占位文字就是它唯一的名字。
         m_instanceNameEdit->setPlaceholderText(instanceNameText());
         nameColumn->addWidget(m_instanceNameEdit);
-        auto *nameHint = new QLabel(instanceNameHint(), cell);
-        nameHint->setWordWrap(true);
-        nameColumn->addWidget(nameHint);
+        m_instanceNameEdit->setToolTip(instanceNameHint());
         m_lastLaunchLabel = new QLabel(cell);
         m_lastLaunchLabel->setObjectName(QStringLiteral("instanceLastLaunch"));
         m_lastLaunchLabel->setWordWrap(true);
@@ -309,9 +307,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         // （一个管"要不要在置顶组里多摆一条"，一个管"老家在哪"）—— 它们之间没有任何
         // 要同步的东西。
         column->addWidget(m_pinCheck);
-        auto *hint = new QLabel(pinHint(), cell);
-        hint->setWordWrap(true);
-        column->addWidget(hint);
+        cell->setToolTip(pinHint());
         grid->addWidget(cell, row++, 0, 1, 2);
     }
 
@@ -371,9 +367,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         });
         prepareActionButton(button);
         column->addWidget(button);
-        auto *hint = new QLabel(exportHint(), cell);
-        hint->setWordWrap(true);
-        column->addWidget(hint);
+        cell->setToolTip(exportHint());
         actionCells.append(cell);
     }
 
@@ -400,9 +394,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
                 [this]() { emit checkUpdatesRequested(); });
         prepareActionButton(button);
         column->addWidget(button);
-        auto *hint = new QLabel(checkUpdatesHint(), cell);
-        hint->setWordWrap(true);
-        column->addWidget(hint);
+        cell->setToolTip(checkUpdatesHint());
         actionCells.append(cell);
     }
 
@@ -430,9 +422,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         connect(button, &QPushButton::clicked, this, [this]() { emit updateCenterRequested(); });
         prepareActionButton(button);
         column->addWidget(button);
-        auto *hint = new QLabel(updateCenterHint(), cell);
-        hint->setWordWrap(true);
-        column->addWidget(hint);
+        cell->setToolTip(updateCenterHint());
         actionCells.append(cell);
     }
 
@@ -450,9 +440,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
                 [this]() { emit integrityCheckRequested(); });
         prepareActionButton(button);
         column->addWidget(button);
-        auto *hint = new QLabel(integrityCheckHint(), cell);
-        hint->setWordWrap(true);
-        column->addWidget(hint);
+        cell->setToolTip(integrityCheckHint());
         actionCells.append(cell);
     }
 
@@ -475,9 +463,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
                 [this]() { emit copyInstanceRequested(); });
         prepareActionButton(button);
         column->addWidget(button);
-        auto *hint = new QLabel(copyHint(), cell);
-        hint->setWordWrap(true);
-        column->addWidget(hint);
+        cell->setToolTip(copyHint());
         actionCells.append(cell);
     }
 
@@ -499,9 +485,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
                 [this]() { emit createSnapshotRequested(); });
         prepareActionButton(button);
         column->addWidget(button);
-        auto *hint = new QLabel(createSnapshotHint(), cell);
-        hint->setWordWrap(true);
-        column->addWidget(hint);
+        cell->setToolTip(createSnapshotHint());
         actionCells.append(cell);
     }
     {

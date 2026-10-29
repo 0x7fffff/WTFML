@@ -515,7 +515,7 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     toolbar->addWidget(m_search, 1);
     m_clearFinished = new QPushButton(MainWindowUI::taskCenterPanelClearText(), m_toolbar);
     m_clearFinished->setObjectName(MainWindowUI::taskCenterPanelClearButtonName());
-    m_clearFinished->setToolTip(tr("清除全部已结束记录（不受筛选影响），不取消正在进行的任务，也不删除下载文件。"));
+    m_clearFinished->setToolTip(tr("清除全部已结束记录，不影响进行中的任务与下载文件。"));
     m_clearFinished->setVisible(bool(m_onClear));
     Theme::markButton(m_clearFinished, Theme::ButtonKind::Neutral);
     toolbar->addWidget(m_clearFinished);
@@ -1238,7 +1238,7 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
             auto *label = new QLabel(line, m_detailContent);
             layout->addWidget(label);
         }
-        auto *hint = new QLabel(tr("在中间选择一项，可查看步骤、错误和可用操作。"),
+        auto *hint = new QLabel(tr("选择一项查看步骤和可用操作。"),
                                 m_detailContent);
         hint->setWordWrap(true);
         applyMutedFont(hint, -1);

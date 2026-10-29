@@ -104,7 +104,7 @@ void showSchematicDetails(OverlayHost *overlay, QWidget *parent, const QString &
                     info.problem.isEmpty() ? QObject::tr("方块数据未完整解析，不能把未知数量当成零。") : info.problem));
                 return;
             }
-            summary->setText(QObject::tr("%1 × %2 × %3 / %4 种方块 ID / %5 个非空气方块\n同一 ID 的不同状态合并；不等同于生存模式所需物品数量。")
+            summary->setText(QObject::tr("%1 × %2 × %3 / %4 种方块 ID / %5 个非空气方块")
                 .arg(info.width).arg(info.height).arg(info.length).arg(info.blocks.size()).arg(info.blockCount));
             table->setRowCount(info.blocks.size());
             for (int row = 0; row < info.blocks.size(); ++row) {
@@ -197,11 +197,11 @@ InstanceSettingsDialog::GlobalValues toDialogGlobal(const EffectiveJavaSettings 
 }
 
 QList<InstanceSettingsDialog::WindowModeChoice> windowModeChoices() {
-    return {{QObject::tr("小窗（按下面的大小开一个窗口）"),
+    return {{QObject::tr("窗口"),
              gameWindowModeToken(GameWindowMode::Windowed)},
-            {QObject::tr("最大化（铺满屏幕，任务栏留出来）"),
+            {QObject::tr("最大化"),
              gameWindowModeToken(GameWindowMode::Maximized)},
-            {QObject::tr("全屏（原版自己的 --fullscreen）"),
+            {QObject::tr("全屏"),
              gameWindowModeToken(GameWindowMode::Fullscreen)}};
 }
 
@@ -211,7 +211,7 @@ QString windowModeLabel(GameWindowMode mode) {
     case GameWindowMode::Fullscreen: return QObject::tr("全屏");
     case GameWindowMode::Windowed: break;
     }
-    return QObject::tr("小窗");
+    return QObject::tr("窗口");
 }
 
 VersionCategory::Channel versionChannelOf(const VersionManager *versions,
@@ -679,7 +679,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
             return;
         }
         if (targetIdNow.startsWith(QStringLiteral("@download:"))) {
-            dialog.setTransferPlan(key, tr("目标 Minecraft %1 尚未准备。先选择并安装目标核心与加载器，再返回本实例检查更新；此时不会写入当前实例。").arg(targetIdNow.mid(10)));
+            dialog.setTransferPlan(key, tr("目标 Minecraft %1 尚未准备。先安装目标核心与加载器，再回来检查更新。").arg(targetIdNow.mid(10)));
             dialog.setTransferItems(key, {}, {});
         } else pushTransferPlan(key, buildTransferPlan(key, targetIdNow));
     };
@@ -728,7 +728,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 if (key == QStringLiteral("upgrade") && dialog.property("modernUpgradeFlow").toBool()) return;
                 if (otherId.isEmpty() || otherId.startsWith(QStringLiteral("@download:"))) {
                     dialog.setTransferPlan(key, otherId.isEmpty() ? tr("请选择目标版本。")
-                        : tr("目标 Minecraft %1 尚未准备；完成核心与加载器安装后才能执行更新。本地模组声明与平台发行版状态分别检查。").arg(otherId.mid(10)));
+                        : tr("目标 Minecraft %1 尚未准备，安装核心与加载器后才能更新。").arg(otherId.mid(10)));
                     dialog.setTransferItems(key, {}, {}); return;
                 }
                 pushTransferPlan(key, buildTransferPlan(key, otherId));
@@ -748,7 +748,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 }
                 if (targetIdCopy == sourceId) {
                     InlineMessage::warning(m_owner->m_ui->overlay(), title,
-                                           tr("目标不能是这一份自己。"));
+                                           tr("源实例与目标实例不能相同。"));
                     return;
                 }
                 if (keys.isEmpty()) {
@@ -763,15 +763,14 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                         || m_owner->m_launcherManager->isVersionRunning(targetIdCopy))) {
                     InlineMessage::warning(
                         m_owner->m_ui->overlay(), title,
-                        tr("有一份实例正在运行。先关掉游戏 —— 开着的时候搬出来的是一份"
-                           "写到一半的东西。"));
+                        tr("实例正在运行，请先关闭游戏。"));
                     return;
                 }
                 // 正在装（下载 / 安装器在跑）的那一份也不动：它的目录此刻正被写。
                 const QSet<QString> installing = m_owner->installingVersionIds();
                 if (installing.contains(sourceId) || installing.contains(targetIdCopy)) {
                     InlineMessage::warning(m_owner->m_ui->overlay(), title,
-                                           tr("有一份实例正在安装，等它装完再试。"));
+                                           tr("实例正在安装，请完成后重试。"));
                     return;
                 }
                 // 现算一份计划：用户勾的那些文件可能在页面停着的时候变了。
@@ -798,8 +797,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                         tr("%1 升级副本").arg(m_owner->instanceDisplayName(sourceId));
                     newName = InlineMessage::getText(
                                   m_owner->m_ui->overlay(), title,
-                                  tr("新的一份叫什么名字？\n\n它会建在这个游戏文件夹里，"
-                                     "以「%1」这个版本为底。")
+                                  tr("新实例名称：\n\n目标游戏目录中的基础版本：%1")
                                       .arg(m_owner->instanceDisplayName(targetIdCopy)),
                                   suggestion, &nameOk)
                                   .trimmed();
@@ -821,15 +819,14 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     && (m_owner->m_launcherManager->isVersionRunning(sourceId)
                         || m_owner->m_launcherManager->isVersionRunning(targetIdCopy))) {
                     InlineMessage::warning(m_owner->m_ui->overlay(), title,
-                                           tr("有一份实例刚刚跑起来了。先关掉游戏再试 —— "
-                                              "开着的时候拷出来的是一份写到一半的东西。"));
+                                           tr("实例已开始运行，请先关闭游戏。"));
                     return;
                 }
                 {
                     const QSet<QString> busyNow = m_owner->installingVersionIds();
                     if (busyNow.contains(sourceId) || busyNow.contains(targetIdCopy)) {
                         InlineMessage::warning(m_owner->m_ui->overlay(), title,
-                                               tr("有一份实例正在安装或搬文件，等它收尾再试。"));
+                                               tr("实例正在安装或迁移，请完成后重试。"));
                         return;
                     }
                 }
@@ -848,7 +845,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 QList<Tasks::TaskStep> steps;
                 QHash<QString, int> stepIndexOf;
                 if (key == QStringLiteral("upgrade")) {
-                    steps << Tasks::TaskStep{tr("造出新的那一份"),
+                    steps << Tasks::TaskStep{tr("创建目标实例"),
                                              Tasks::TaskStepState::Running, {}};
                 }
                 for (const TransferPlanner::Item &item : plan.items) {
@@ -1042,7 +1039,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                                         complete ? OperationReport::EntryState::Done
                                                  : OperationReport::EntryState::Pending,
                                         complete ? QString()
-                                                 : tr("上一趟没搬完，可以继续（已搬过去的会跳过）")});
+                                                 : tr("可继续未完成的迁移，已完成文件将跳过。")});
                                     itemArray.append(QJsonObject{
                                         {QStringLiteral("key"), item.key},
                                         {QStringLiteral("relativePath"), item.relativePath},
@@ -1100,7 +1097,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                                 ledger->setStepState(taskId, 0, Tasks::TaskStepState::Done);
                                 ledger->setDetail(
                                     taskId,
-                                    tr("新的一份「%1」已经造好了，开始搬文件。").arg(newName));
+                                    tr("目标实例“%1”已创建，正在迁移文件。").arg(newName));
                                 // 列表已经在本函数开头刷过一次（摘忙标记之后），这里别重复刷。
                             }
 
@@ -1706,7 +1703,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 const QString suggestion = tr("%1 副本").arg(m_owner->instanceDisplayName(sourceId));
                 bool ok = false;
                 const QString name = InlineMessage::getText(
-                    m_owner->m_ui->overlay(), tr("复制实例"), tr("复制出来的这一份叫什么？"), suggestion, &ok);
+                    m_owner->m_ui->overlay(), tr("复制实例"), tr("副本名称："), suggestion, &ok);
                 if (!ok) {
                     return;
                 }
@@ -1855,13 +1852,11 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     QString why;
                     if (m_owner->backupWorldLevelData(m_owner->m_worldDir, &why)) {
                         InlineMessage::information(
-                            m_owner->m_ui->overlay(), tr("备份一份"),
-                            tr("这个世界的 level.dat 已经原样抄了一份到启动器的缓存里。\n"
-                               "要还原的话，把那一份拷回存档目录、改名叫 level.dat 就行。\n\n"
-                               "放这儿了：%1")
+                            m_owner->m_ui->overlay(), tr("创建备份"),
+                            tr("已备份存档信息。手动还原时把备份复制到存档目录并命名为 level.dat。\n\n备份位置：%1")
                                 .arg(QDir::toNativeSeparators(m_owner->latestWorldBackup(m_owner->m_worldDir))));
                     } else {
-                        InlineMessage::warning(m_owner->m_ui->overlay(), tr("备份一份"),
+                        InlineMessage::warning(m_owner->m_ui->overlay(), tr("创建备份"),
                                                tr("没能留成备份：%1").arg(why));
                     }
                 });
@@ -1944,7 +1939,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     if (!instanceId.isEmpty() &&
                         m_owner->m_launcherManager->isVersionRunning(instanceId)) {
                         InlineMessage::warning(m_owner->m_ui->overlay(), tr("删除世界"),
-                                               tr("游戏正在运行，先关掉游戏再删这个世界。"));
+                                               tr("游戏正在运行，请关闭后再删除存档。"));
                         return;
                     }
                     if (!instanceId.isEmpty() &&
@@ -2020,15 +2015,12 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     const QString worldName = QFileInfo(m_owner->m_worldDir).fileName();
                     const int choice = InlineMessage::ask(
                         m_owner->m_ui->overlay(), MessageKind::Question, tr("改动存档文件"),
-                        tr("下面这几格改的是「%1」的存档文件本身 —— 世界名、允许作弊、极限"
-                           "模式、难度。游戏里没有改一个已有世界的入口，改坏了这个世界就"
-                           "变味了。\n\n要接着改，最好先留一份现在能玩的。")
+                        tr("将直接修改“%1”的存档名称、游戏模式、难度及规则。建议先备份存档信息。")
                             .arg(worldName),
-                        {tr("继续改"), tr("先备份一份"), tr("取消")},
+                        {tr("继续改"), tr("先创建备份"), tr("取消")},
                         /*defaultIndex=*/0, /*destructiveIndex=*/-1,
                         /*dismissOnOutsideClick=*/false,
-                        tr("「先备份一份」= 把这个世界的 level.dat 原样抄一份到启动器的"
-                           "缓存里，不动存档本身。"));
+                        tr("备份当前 level.dat，不修改存档。"));
                     if (choice == 2 || choice == -1) {
                         // 「取消」和"点外面关掉"都算"不改了" ⇒ 把框**收回去**（不收回来的
                         // 话页面上那个框开着、而用户什么也没答应，看着像那句警告白弹了）。
@@ -2047,7 +2039,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                         }
                         InlineMessage::information(
                             m_owner->m_ui->overlay(), tr("备份好了"),
-                            tr("「%1」的 level.dat 已经留了一份：\n%2")
+                            tr("已备份“%1”的存档信息：\n%2")
                                 .arg(worldName,
                                      QDir::toNativeSeparators(m_owner->latestWorldBackup(m_owner->m_worldDir))));
                     }

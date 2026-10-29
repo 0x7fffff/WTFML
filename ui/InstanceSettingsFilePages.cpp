@@ -193,6 +193,11 @@ void InstanceSettingsDialog::setupFilePages() {
             files->setMode(key == QStringLiteral("save")   ? InstanceFilesPage::Mode::DirsOnly
                            : key == QStringLiteral("mod") ? InstanceFilesPage::Mode::FilesOnly
                                                           : InstanceFilesPage::Mode::FilesAndDirs);
+            // 「原理图」与「配置文件」这两页**没有图**：`.litematic` 不在任何平台的清单里、
+            // 配置文件是纯文本 —— 一整列占位拼图白占宽度。那两页干脆不建那一格
+            // （判据只有这一处：别的几页都有真图标或游戏自己写的缩略图）。
+            files->setRowIconsVisible(key != QStringLiteral("schematic")
+                                      && key != QStringLiteral("config"));
             // 只有游戏会自己扫的那三个目录给「禁用」；存档**不给删**（理由见
             // InstanceFilesPage::setCanDelete()）。
             //

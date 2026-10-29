@@ -39,8 +39,12 @@ const QUrl kClient(QStringLiteral("https://piston-data.mojang.com/v1/objects/") 
 /// 这个版本（顺着 inheritsFrom 往上）是什么时候发布的 —— 给候选排序用。
 ///
 /// 读 `versions/<id>/<id>.json` 的 `releaseTime`（快照/正式版都有）；融合实例的 json
-/// 只有 `clientVersion`，所以调用方传的是 `InstanceFiles::jarOwnerId()`。都没有时退回
-/// json 文件的 mtime —— 那是"哪天装进来的"，只当兜底，别拿它当主判据。
+/// 只有 `clientVersion`，所以调用方传的是 `InstanceFiles::jarOwnerId()`。
+///
+/// 整条链上都没有 `releaseTime` 的（魔改整包那份自己拼的 json、手写的壳）回 **0**、
+/// 不拿 json 的 mtime 顶替：mtime 记的是"哪天解压进来的"，几十个版本同一天装的时候
+/// 它能让一个魔改包排到原版前面 —— 预览要的是原版客户端里的纹理和调色板。0 排在最旧，
+/// 有原版可读时永远轮不到它们；机器上只有魔改版时它们照样会被试到（只是排在后面）。
 qint64 releaseStamp(const QString &versionId) {
     QString current = versionId;
     QSet<QString> visited;
@@ -59,8 +63,7 @@ qint64 releaseStamp(const QString &versionId) {
         }
         current = object.value(QStringLiteral("inheritsFrom")).toString();
     }
-    const QFileInfo info(InstanceFiles::jsonPath(versionId));
-    return info.exists() ? info.lastModified().toMSecsSinceEpoch() : 0;
+    return 0;
 }
 }
 
@@ -154,9 +157,9 @@ void ArmorTrimPreviewController::ensureLocal() {
     for(const auto &id:entries) {
         const QString jar=InstanceFiles::jarPath(id);
         if(!QFileInfo::exists(jar)) continue;
-        // 按**这个 jar 所代表的那个游戏版本**的发布时间排，不按版本目录的 mtime。
-        // 目录 mtime 是"哪天装进来的"：几十个版本同一天解压，按它取前几个会拿到
-        // 1.21 以前的客户端，涡流/镶铆（1.21）和树脂质（1.21.4）就永远缺。
+        // 按**这个 jar 所代表的那个原版版本**的发布时间排：新的在前，认不出来是哪一版
+        // 原版（魔改整包、手写壳）的按 0 排最后 —— 预览只认原版客户端里的纹理与调色板，
+        // 魔改包就算装得更新也不许抢在前面。见 releaseStamp() 上面那段。
         candidates.append({id, jar, releaseStamp(InstanceFiles::jarOwnerId(id))});
     }
     // 最多试 16 份：1.21.2+ 的客户端本来就能读（新的装备层路径会折回旧名），

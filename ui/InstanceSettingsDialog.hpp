@@ -1008,16 +1008,11 @@ public:
     /// 那句话不是失败，是"这一条我没法判"。**别把这句话写成"已经全部检查过了"**：
     /// 用户会以为"说不清"的那几条也是"没问题"。
     static QString checkUpdatesHint() {
-        return QStringLiteral("看看这个实例里的模组/资源包有没有新版本（要对一遍每个资源的"
-                              "版本列表，要联网）。只报数，不动盘上的文件。");
+        return QStringLiteral("检查资源更新，不修改文件。");
     }
     /// 那颗按钮的 tooltip（**说全的那一份**）。
     static QString checkUpdatesButtonTooltip() {
-        return QStringLiteral("逐个认一遍这个实例里的资源（模组 / 资源包 / 数据包 / 光影），"
-                              "再按这个实例的游戏版本和加载器问一遍它们各自的版本列表，"
-                              "比出哪些有新版本。\n\n"
-                              "认不出来的（自己改过的、作者删了老版本的）会写「说不清」——"
-                              "那不是「没有问题」，是这一条没法判。");
+        return QStringLiteral("按当前游戏版本和加载器检查资源更新；无法识别的标为「无法确认」。");
     }
     /// 概览页那颗「更新中心」的 objectName。
     ///
@@ -1029,16 +1024,11 @@ public:
     static QString updateCenterText() { return QStringLiteral("更新中心"); }
     /// 那一格下面那句解释。
     static QString updateCenterHint() {
-        return QStringLiteral("看上一次检查更新的结果，逐条更新 / 忽略某一版 / 固定某一版，"
-                              "也能把上一次更新退回去。不联网。");
+        return QStringLiteral("查看检查结果、更新资源或撤销上次更新。");
     }
     /// 那颗按钮的 tooltip（**说全的那一份**）。
     static QString updateCenterButtonTooltip() {
-        return QStringLiteral("把上一次「检查更新」查出来的那一份结论摊成能动手的一页：\n"
-                              "• 勾几条（或只点一条）就把它们换成新版；\n"
-                              "• 「忽略这一版」= 这一版别再提示我（作者再发新版本时它会回来）；\n"
-                              "• 「固定这一版」= 我就停在这一版上；\n"
-                              "• 「撤销上一次更新」= 把上一次换掉的文件退回原样。");
+        return QStringLiteral("支持更新、忽略版本、固定版本和撤销上次更新。");
     }
 
     // ---- 「复制实例」----
@@ -1056,8 +1046,7 @@ public:
     /// VersionManager::copyInstance 那段）。不说清的话，用户会以为挑中的目录就是副本
     /// 本身的位置，然后在一个自己没料到的层级里找它。
     static QString copyHint() {
-        return QStringLiteral("把这一份原样复制到另一个游戏文件夹里去（模组、存档、配置一起"
-                              "带走），复制出来的那一份是独立的：改它不影响这一份。");
+        return QStringLiteral("复制模组、存档和配置，创建独立实例。");
     }
 
     /// 那颗按钮的 tooltip（**说全的那一份**）。
@@ -1065,12 +1054,7 @@ public:
     /// NOTE: 最后那句"先关掉游戏"是真的会拦（MainWindow::copyInstanceTo() 里第二道闸）。
     /// 界面不该在明着教用户做一件会被拦住的事。
     static QString copyButtonTooltip() {
-        return QStringLiteral("选一个游戏文件夹，再给副本起个名字，就会在"
-                              "「<那个文件夹>\\versions\\<名字>」下多出一份。\n\n"
-                              "源文件一个字节都不动；副本拿到一个全新的实例 id，所以它和"
-                              "这一份在分组、图标这些地方互不影响。\n\n"
-                              "游戏正在运行的时候复制不了（拷出来会是一份写到一半的存档），"
-                              "先关掉游戏。");
+        return QStringLiteral("选择目标游戏目录和副本名称。复制保留原实例，运行中的实例不能复制。");
     }
 
     // ---- 「删除实例」----
@@ -1093,16 +1077,11 @@ public:
     /// 但它**不是**永久删除：删掉的那一整目录会进回收站，所以字也得这么说，不然用户要么
     /// 以为没法挽回、要么以为回收站永远替他留着。
     static QString deleteHint() {
-        return QStringLiteral("把这个实例整个删掉（jar、json、以及它自己的设置都在里面），"
-                              "删掉的东西会进回收站，可以从那里还原。");
+        return QStringLiteral("删除实例目录，文件移入回收站。");
     }
     /// 那颗按钮的 tooltip（**说全的那一份**）。
     static QString deleteButtonTooltip() {
-        return QStringLiteral("删掉这个实例的那整个目录。\n\n"
-                              "游戏正在跑、或者这个实例正在装的时候删不了 —— "
-                              "这两种情况会先告诉你，不会删到一半。\n\n"
-                              "删掉的东西会进回收站，要恢复可以从那里找回来（回收站被清空之后"
-                              "就真没了）；别的实例和游戏文件夹都不受影响。");
+        return QStringLiteral("删除实例目录，文件移入回收站。运行或安装期间不可删除；清空回收站后无法恢复。");
     }
 
     // ---- 存档那一页顶上那两颗----
@@ -1113,13 +1092,13 @@ public:
     // / 存档页顶上那颗「导入世界」。
     static QString importWorldText() { return QStringLiteral("导入世界"); }
     static QString importWorldTip() {
-        return QStringLiteral("把一个已经在你盘上的世界文件夹拷进这个实例的 saves 里。");
+        return QStringLiteral("导入本地世界文件夹。");
     }
     /// 存档页顶上那颗「批量编辑」。**它是个占位** —— 点下去只会说一句
     /// 「还没做」。字和提示都照实写，不假装它能用。
     static QString batchEditWorldsText() { return QStringLiteral("批量编辑"); }
     static QString batchEditWorldsTip() {
-        return QStringLiteral("一次改好几个世界（还没做，这个按钮先摆在这儿）。");
+        return QStringLiteral("批量编辑存档（暂不可用）。");
     }
 
     // ---- 启动栏那两颗「动作」按钮（导出启动脚本 / 补全版本文件）----
@@ -1136,12 +1115,10 @@ public:
     static QString repairFilesText() { return QStringLiteral("补全版本文件"); }
     /// 两颗按钮的 tooltip，以及那一行下面那句合起来的说明。
     static QString exportScriptHint() {
-        return QStringLiteral("导出一个 .bat：双击就按这套参数启动这个版本，不用启动器。"
-                              "正版账号导出的那份里带着登录令牌，别发给别人。");
+        return QStringLiteral("导出独立启动脚本。正版脚本不保存令牌，运行时需提供 WTFML_MC_ACCESS_TOKEN。");
     }
     static QString repairFilesHint() {
-        return QStringLiteral("校验这个版本的客户端 jar、库和资源，缺哪个补哪个；已经完好的"
-                              "会跳过。要有下载或者安装任务在跑时用不了。");
+        return QStringLiteral("校验并补齐客户端、库和资源；下载或安装期间不可执行。");
     }
     /// 两颗按钮下面那一句。**两句都要留着**：上面那一颗带着"导出的脚本里有令牌"这句
     /// 安全警告，光放 tooltip 里会有人一辈子看不到。
@@ -1151,11 +1128,10 @@ public:
     static QString integrityCheckButtonName() { return QStringLiteral("instanceIntegrityCheckButton"); }
     static QString integrityCheckText() { return QStringLiteral("检查并修复"); }
     static QString integrityCheckHint() {
-        return QStringLiteral("扫一遍这个实例的客户端、库和资源，把缺的、坏的分组列出来给你看，"
-                              "看完了再决定补不补。扫描只读盘，不动你的文件。");
+        return QStringLiteral("只读检查缺失或损坏文件，确认后修复。");
     }
     static QString integrityCheckTooltip() {
-        return QStringLiteral("扫描在后台跑，期间可以接着用启动器。扫完会开一页报告。");
+        return QStringLiteral("后台扫描，完成后显示检查报告。");
     }
 
     // ---- 概览栏那两颗「快照」----
@@ -1170,22 +1146,18 @@ public:
     static QString createSnapshotText() { return QStringLiteral("创建快照…"); }
     /// 那一格下面那句解释。**要点名默认排除的是什么** —— 那是用户唯一需要知道的分岔。
     static QString createSnapshotHint() {
-        return QStringLiteral("把这个实例（模组、配置、存档…）打成一份可以整体还原的快照。"
-                              "默认不打包能重新下回来的资源文件和游戏库，要连着它们一起"
-                              "打包的话按下去之后可以选。");
+        return QStringLiteral("备份模组、配置和存档，可选择是否包含游戏库和资源。");
     }
     static QString createSnapshotTooltip() {
-        return QStringLiteral("打在后台跑，期间可以接着用启动器。"
-                              "快照放在启动器数据目录的 cache/backups/instances 底下。");
+        return QStringLiteral("后台创建快照，保存到启动器的实例备份目录。");
     }
     static QString restoreSnapshotButtonName() { return QStringLiteral("instanceRestoreSnapshotButton"); }
     static QString restoreSnapshotText() { return QStringLiteral("从快照恢复…"); }
     static QString restoreSnapshotHint() {
-        return QStringLiteral("从以前留的快照里挑一份，把这个实例还原回那时候的样子。"
-                              "还原之前会先自动给现在这一份留一份，还原之后逐文件核对。");
+        return QStringLiteral("还原前自动备份当前实例，还原后校验文件。");
     }
     static QString restoreSnapshotTooltip() {
-        return QStringLiteral("会先问一句，然后收掉这一页再干活（会覆盖这个实例现在的文件）。");
+        return QStringLiteral("还原将覆盖当前实例文件。");
     }
 
     // ---- 文件管理那八页的文案与 objectName----
@@ -1321,9 +1293,7 @@ public:
     /// 这个问题只有一个答案，而那个答案就是选中那一行。
     static QString serverEditText() { return QStringLiteral("编辑"); }
     static QString serverEditTip() {
-        return QStringLiteral("改选中的那一台的名字和地址。**名字和地址分开问两句**（这一层"
-                              "一次只能问一样），两个都能留空。改完直接写进这个实例的 "
-                              "servers.dat。");
+        return QStringLiteral("编辑所选服务器的名称和地址。");
     }
     /// 「添加」：往列表里加一台服务器。
     ///
@@ -1331,8 +1301,7 @@ public:
     /// "先选中"这一步，所以它**常亮**（连一条都没有的时候尤其要能按）。
     static QString serverAddText() { return QStringLiteral("添加"); }
     static QString serverAddTip() {
-        return QStringLiteral("加一台新的。名字可以留空，地址得填。加完直接写进这个实例的 "
-                              "servers.dat。");
+        return QStringLiteral("添加服务器；地址必填，名称可选。");
     }
     /// 「删除」：把选中那一台从列表里拿掉。
     ///
@@ -1341,19 +1310,17 @@ public:
     /// 的 destructive 那一档，在 MainWindow 里）—— 这一层只发一条信号。
     static QString serverDeleteText() { return QStringLiteral("删除"); }
     static QString serverDeleteTip() {
-        return QStringLiteral("把选中的那一台从列表里删掉。会先问一句，删完直接写进这个实例的 "
-                              "servers.dat。");
+        return QStringLiteral("从服务器列表中移除所选项。");
     }
     /// 「加入服务器」（**临时占位**，见 setServerJoinText()）。
     static QString serverJoinText() { return QStringLiteral("加入服务器"); }
     static QString serverJoinTip() {
-        return QStringLiteral("用游戏自己的 --quickPlayMultiplayer 参数直接连进选中的那一台"
-                              "（**临时占位**：先试试看这条参数发出去游戏认不认）。");
+        return QStringLiteral("启动游戏并加入所选服务器，需要游戏支持快速加入。");
     }
     /// 「编辑」「删除」「加入」三颗在**没选中一条**时按不动 —— 悬停提示里说清为什么。
     /// （「添加」也在这一组旁边，但它不跟着选中走，见 `serverAddText()` 那条 NOTE。）
     static QString serverSelectFirstHint() {
-        return QStringLiteral("先在下面选中一台服务器。");
+        return QStringLiteral("请先选择服务器。");
     }
     /// 「刷新」正在重读 + 重测的时候那颗按钮上的字。
     static QString serverPingingText() { return QStringLiteral("刷新中…"); }
@@ -1393,7 +1360,7 @@ public:
     /// NOTE: 认不出来（空串、光一个方括号）就**原样回**，不猜也不报错：这一格只是个显示，
     /// 真正的"这个地址能不能用"由 ServerPing::splitAddress 说了算。
     static QString maskedServerAddress(const QString &address);
-    static QString serverEmptyText() { return QStringLiteral("这个实例还没有加过服务器。"); }
+    static QString serverEmptyText() { return QStringLiteral("暂无服务器"); }
     /// 服务器名字那一格是空的的时候顶上什么字。servers.dat 里的 name 真能是空串。
     static QString unnamedMark() { return QStringLiteral("（无名）"); }
 
@@ -1444,16 +1411,14 @@ public:
     static QString ungroupedGroupText();
     /// 「更改图标」那个浮层下面那句话。
     static QString iconHint() {
-        return QStringLiteral("挑一张图当这个实例的标志。它会出现在实例树上，以及底栏"
-                              "「正在运行」那一行里。");
+        return QStringLiteral("选择实例图标。");
     }
     /// 勾选框下面那句话：两边各摆一条，说明白"原组那份不动"。
     ///
     /// NOTE: 它得说清三件事：勾上之后**哪儿多出一条**、**原来那份不动**、取消勾选之后
     /// 哪一条没了 —— 少说中间那一件，用户就会以为勾上等于"搬家"。
     static QString pinHint() {
-        return QStringLiteral("在收藏组中保留快捷入口，不改变原分组。主页收藏区按显示数量和"
-                              "最近启动时间展示；取消收藏不会删除实例。");
+        return QStringLiteral("添加到收藏，原分组不变。主页按显示数量和最近启动时间展示。");
     }
     /// 第四行那颗按钮下面那句话（**看得见的那一行**，短）。
     ///
@@ -1466,15 +1431,11 @@ public:
     }
     /// 那颗按钮的 tooltip（**说全的那一份**）。
     static QString exportButtonTooltip() {
-        return QStringLiteral("按整合包规范打包：保存框里挑 .mrpack 走 Modrinth 规范、"
-                              "挑 .zip 走 CurseForge 规范，两个都能被「导入整合包…」装回来。"
-                              "能认出来源的模组写进清单（装的人那边直接下），认不出来的"
-                              "原样打进包里，一个都不会丢。存档和截图不进包。");
+        return QStringLiteral("支持 Modrinth（.mrpack）和 CurseForge（.zip）。不含存档和截图。");
     }
     /// 那一格下面那句解释（**唯一一处**说清"改这里 = 改磁盘上的目录名"）。
     static QString instanceNameHint() {
-        return QStringLiteral("改这里就是给这个实例改名：它会成为 versions 下那个目录的名字，"
-                              "里面的 jar 和 json 会一起改。");
+        return QStringLiteral("重命名实例目录及核心文件。");
     }
     static QString advancedToggleName() { return QStringLiteral("instanceAdvancedToggle"); }
     static QString advancedBoxName() { return QStringLiteral("instanceAdvancedBox"); }
@@ -1538,7 +1499,7 @@ public:
     }
     /// 自动档下两行内存数字框的提示（也是它们被禁用的原因）。
     static QString memoryAutoDisabledHint() {
-        return QStringLiteral("「内存分配」是自动档：这两个数按系统内存现算，覆盖不生效。");
+        return QStringLiteral("自动分配内存时，手动设置不生效。");
     }
     /// 高级选项那个折叠按钮上的字。默认折叠 —— 里面两项都是"改错了会让游戏起不来"
     /// 的东西，不该一打开对话框就摆在眼前。
@@ -1549,8 +1510,7 @@ public:
     /// NOTE: 「之后」那两个字**不许写成 `**之后**`** —— 这一页上没有任何一处设过
     /// `setTextFormat(Qt::MarkdownText)`，星号会原样画在用户眼前（全项目同一条）。
     static QString appendJvmArgsHint() {
-        return QStringLiteral("一条一行。排在全局额外参数之后（同一条以后写的为准），"
-                              "不覆盖全局那一份。");
+        return QStringLiteral("每行一条，追加在全局参数之后；相同参数以最后一项为准。");
     }
 
 protected:

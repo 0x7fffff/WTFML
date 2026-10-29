@@ -734,7 +734,7 @@ void InstanceEditorController::saveWorldSettings(InstanceSettingsDialog *dialog)
             m_owner->m_ui->overlay(), MessageKind::Question, m_owner->tr("盘上那份被人改过了"),
             m_owner->tr("「%1」的 level.dat 在你打开这一页之后被改过（游戏在跑？别的工具？）。"
                "\n\n现在存下去，改它的那一次就没有了。\n\n"
-               "（不管是哪一档，我们**只改你在页面上动过的那几格**，别的原样留着。）")
+               "（不管是哪一档，我们只改你在页面上动过的那几格，别的原样留着。）")
                 .arg(worldName),
             {m_owner->tr("照样存下去"), m_owner->tr("读盘上那一份")}, /*defaultIndex=*/-1, /*destructiveIndex=*/0,
             false);

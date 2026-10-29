@@ -614,8 +614,8 @@ void LaunchController::onStartButtonClicked() {
                                .arg(launchPlayerName));
         InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("账号被切换了"),
             m_owner->tr("准备 Java 运行环境的时候账号从「%1」换成了「%2」。\n"
-                        "这一次没有启动 —— 不然游戏会带着**另一个账号的身份**配**原来那个账号的"
-                        "登录令牌**起来，联机时会被服务器拒绝。\n\n请再点一次启动。")
+                        "这一次没有启动 —— 不然游戏会带着另一个账号的身份配原来那个账号的"
+                        "登录令牌起来，联机时会被服务器拒绝。\n\n请再点一次启动。")
                 .arg(launchPlayerName, m_owner->m_authManager->playerName()));
         return;
     }

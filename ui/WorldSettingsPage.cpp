@@ -199,7 +199,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     // 压缩包、一个是单文件的救命稻草。上面 `fullBackupButtonName()` 那段有完整来路。
     m_fullBackup = new QPushButton(fullBackupText(), this);
     m_fullBackup->setObjectName(fullBackupButtonName());
-    m_fullBackup->setToolTip(tr("把整个存档文件夹打成一个压缩包（按文件核对，可以整份还原）。"));
+    m_fullBackup->setToolTip(tr("将完整存档保存为压缩包并校验。"));
     Theme::markButton(m_fullBackup, Theme::ButtonKind::Neutral);
     connect(m_fullBackup, &QPushButton::clicked, this,
             [this] { emit fullBackupRequested(); });
@@ -207,7 +207,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
 
     m_restore = new QPushButton(restoreBackupText(), this);
     m_restore->setObjectName(restoreButtonName());
-    m_restore->setToolTip(tr("从备份目录里挑一份还原回来。还原之前会先给现在这一份自动留一份。"));
+    m_restore->setToolTip(tr("选择备份还原，还原前自动备份当前文件。"));
     // 红：它把**这个存档现在这一份**整个换掉 —— 和实例概览那颗「从快照恢复…」同一档
     // （`Danger` 的界定是"删了就拿不回来"，里面点名的几条里就有"还原"）。
     // 还原之前自动留的那一份是兜底，不是"没风险"（见 .hpp 里 restoreBackupText 那段）。
@@ -218,7 +218,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
 
     m_backupFolder = new QPushButton(openBackupFolderText(), this);
     m_backupFolder->setObjectName(backupFolderButtonName());
-    m_backupFolder->setToolTip(tr("打开这个存档的备份放在哪儿（启动器数据目录下的 cache/backups）。"));
+    m_backupFolder->setToolTip(tr("打开存档备份目录。"));
     Theme::markButton(m_backupFolder, Theme::ButtonKind::Ghost);
     connect(m_backupFolder, &QPushButton::clicked, this,
             [this] { emit openBackupFolderRequested(); });
@@ -226,7 +226,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
 
     m_delete = new QPushButton(deleteText(), this);
     m_delete->setObjectName(deleteButtonName());
-    m_delete->setToolTip(tr("把这个世界连同里面的东西从盘上删掉（会先问一句）。"));
+    m_delete->setToolTip(tr("删除这个世界及其全部文件，会先确认。"));
     // 红：这一档叫「不可撤销（如修改存档，删除实例）」—— 这一颗删的就是一整个
     // 存档目录（里面的 region 是几十上百 MB 的游玩记录，删了拿不回来）。
     Theme::markButton(m_delete, Theme::ButtonKind::Danger);
@@ -238,7 +238,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
 
     m_backup = new QPushButton(backupText(), this);
     m_backup->setObjectName(backupButtonName());
-    m_backup->setToolTip(tr("把这个世界的 level.dat 原样留一份（写之前也会自动留）。"));
+    m_backup->setToolTip(tr("备份存档信息，保存修改前也会自动备份。"));
     // 「备份」= 多出一份（一般性）。
     Theme::markButton(m_backup, Theme::ButtonKind::Neutral);
     connect(m_backup, &QPushButton::clicked, this, &WorldSettingsPage::backupRequested);
@@ -292,8 +292,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     m_fileToggle->setChecked(false);
     m_fileToggle->setArrowType(Qt::RightArrow);
     m_fileToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    m_fileToggle->setToolTip(tr("世界名 / 允许作弊 / 极限模式 / 难度 / 游戏规则 —— 这些全都写在"
-                                "存档文件里，改之前会先问你一句。"));
+    m_fileToggle->setToolTip(tr("世界名、难度、游戏规则等写在存档文件里，修改前会先确认。"));
     body->addWidget(m_fileToggle, 0, Qt::AlignLeft);
 
     m_fileBody = new QWidget(m_body);
@@ -312,8 +311,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     fileBody->addLayout(makeOptionRow(
         m_fileBody, tr("世界名"), m_nameEdit,
         // 星号在界面上是原样画出来的，重点一律用「」。
-        tr("level.dat 里记着的那个名字。1.13 起游戏列表显示的是「文件夹名」，这一个"
-           "只在旧存档、以及部分工具里看得见。")));
+        tr("存档信息中保存的世界名称。")));
 
     m_allowCommands = new ToggleSwitch(m_fileBody);
     m_allowCommands->setObjectName(allowCommandsName());
@@ -548,7 +546,7 @@ QString WorldSettingsPage::saveText() {
     return QStringLiteral("保存");
 }
 QString WorldSettingsPage::backupText() {
-    return QStringLiteral("备份一份");
+    return QStringLiteral("创建备份");
 }
 QString WorldSettingsPage::openFolderText() {
     return QStringLiteral("打开文件夹");
@@ -578,17 +576,15 @@ QString WorldSettingsPage::rulesSectionText() {
     return QStringLiteral("世界设置（游戏规则）");
 }
 QString WorldSettingsPage::noMatchText() {
-    return QStringLiteral("没有名字里有这几个字的规则。");
+    return QStringLiteral("未找到匹配的规则");
 }
 QString WorldSettingsPage::emptyRulesText() {
-    return QStringLiteral("一条规则都没有（连启动器认识的那些也没有）—— 这不该发生。");
+    return QStringLiteral("无法读取游戏规则");
 }
 QString WorldSettingsPage::rulesSourceHint(bool hasRules) {
     // 这一段是"这一列是怎么来的"的说明书 —— 不然用户会以为**屏幕上每一条**都是他这个世界里本来就有的。
     if (hasRules) {
-        return QStringLiteral("列表里是启动器认识的全部规则：存档里有的用存档里的值，"
-                              "存档里还没有的那几条用游戏默认值（名字旁边写着「默认」）。"
-                              "改过哪一条，才会把哪一条写进存档。");
+        return QStringLiteral("未写入存档的规则显示默认值，仅保存修改过的规则。");
     }
     return QStringLiteral("这个存档里还没有「游戏规则」那一格（工具做出来的、还没进过的档"
                           "常常是这样）—— 下面每一条摆的都是游戏的默认值，改过哪一条才会"
@@ -601,7 +597,7 @@ QString WorldSettingsPage::defaultedHintText() {
 QString WorldSettingsPage::notGzippedText() {
     // 同上：`**不是**` 那两个星号会原样画在屏幕上，改成「不是」。
     return QStringLiteral("注意：盘上这份 level.dat「不是」gzip 包着的（正常存档都是）。"
-                          "我们按原样写回去，不替你改形状。");
+                          "我们按原样写回，不改它的形状。");
 }
 
 QString WorldSettingsPage::difficultyOptionText(int difficulty) {
@@ -715,7 +711,7 @@ void WorldSettingsPage::setUnreadable(const QString &dirName, const QString &rea
     m_unreadableReason = reason;
     m_savedAt.clear();
     m_backupAvailable = false;
-    m_title->setText(tr("这个世界可能坏了：%1").arg(dirName));
+    m_title->setText(tr("存档读取失败：%1").arg(dirName));
     m_ruleList->clear();
     m_ruleRows.clear();
     // 这一档里那个折叠框**整个收起来**（连那颗钮一起藏，见 applyUnreadableState()）——
@@ -746,7 +742,7 @@ void WorldSettingsPage::refreshFileHints() {
         return inFile ? what : what + QLatin1Char('\n') + defaultedHintText();
     };
     const QString nameWhat =
-        tr("level.dat 里记着的那个名字。1.13 起游戏列表显示的是「文件夹名」。");
+        tr("存档信息中保存的世界名称。");
     m_nameEdit->setToolTip(tip(nameWhat, m_view.hasLevelName));
     m_allowCommands->setToolTip(
         tip(tr("打开之后，这个世界里能用指令（单机也要开作弊）。"), m_view.hasAllowCommands));
@@ -762,7 +758,7 @@ void WorldSettingsPage::setDirName(const QString &dirName) {
     m_view.dirName = dirName;
     // 「读不出来」那一档的标题是另一种说法（那句"这个世界可能坏了"），也得跟着改。
     if (m_unreadable) {
-        m_title->setText(tr("这个世界可能坏了：%1").arg(dirName));
+        m_title->setText(tr("存档读取失败：%1").arg(dirName));
     } else {
         m_title->setText(tr("世界设置：%1").arg(dirName));
     }
@@ -1151,12 +1147,12 @@ void WorldSettingsPage::refreshNote() {
     }
     QStringList lines;
     if (!m_savedAt.isEmpty()) {
-        lines.append(tr("已保存（%1）。写之前的那一份留在备份里。").arg(m_savedAt));
+        lines.append(tr("已保存（%1），原文件已备份。").arg(m_savedAt));
     } else {
-        lines.append(tr("改完按「保存」。写下去之前会自动留一份原来的 level.dat。"));
+        lines.append(tr("保存前自动备份原有 level.dat。"));
     }
     if (m_backupAvailable) {
-        lines.append(tr("这个世界的备份已经有了（「备份一份」会再留一份新的）。"));
+        lines.append(tr("已有存档信息备份，可再次创建。"));
     }
     // 这一列是**全集**，所以底下那句是"这一列是怎么来的"
     // 的说明书（`rulesSourceHint()`，盘上有没有那一格各说一句）。

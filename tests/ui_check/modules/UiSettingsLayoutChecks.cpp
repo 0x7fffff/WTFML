@@ -312,24 +312,11 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
             check(autoCheck->text() == MainWindowUI::downloadAutoIntoInstanceCheckText() &&
                       !autoCheck->text().isEmpty(),
                   "那一格的字（勾上管的是哪一件事）", autoCheck->text());
-            // 两行说明：勾上和没勾**各自**会怎样都要写出来。只写一半的话，用户看到"自动放进
-            // 当前实例"会以为"在下载页点也一样"，而实际上下载页那一栏照样问。
-            //
-            // 那两行是这一格**同一个盒子**里的 QLabel（`addHint` 塞进 makeHintedControl 的那个
-            // 竖排里）—— 没有 objectName 可取，所以从勾选框的父控件往下捞。
-            QString hint;
-            if (QWidget *box = autoCheck->parentWidget()) {
-                for (QLabel *label : box->findChildren<QLabel *>()) {
-                    hint += label->text();
-                    hint += QLatin1Char('\n');
-                }
-            }
-            check(!hint.isEmpty() &&
-                      hint.contains(MainWindowUI::downloadAutoIntoInstanceRowText()),
-                  "说明里点到了「下载新模组」这件事", hint.trimmed());
-            check(hint.contains(QStringLiteral("不管从哪儿")),
-                  "说明把**没勾**那一半也写了（只写勾上的那一半会让人以为下载页也不问）",
-                  hint.trimmed());
+            const QString hint = autoCheck->parentWidget()->toolTip();
+            check(hint.contains(QStringLiteral("下载页")) && hint.contains(QStringLiteral("实例")),
+                  "按需帮助区分实例下载和下载页的保存位置", hint);
+            check(hint.contains(QStringLiteral("关闭后每次选择位置")),
+                  "按需帮助保留关闭自动保存后的行为", hint);
         } else {
             check(false, "找得到「下载新模组」那颗勾选框");
         }
@@ -426,13 +413,10 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                 }
                 return false;
             };
-            check(hasLabelText(MainWindowUI::javaWarnMismatchRowText()) &&
-                      hasLabelText(MainWindowUI::warnDuplicateLaunchRowText()) &&
-                      hasLabelText(MainWindowUI::warnWorldLossRowText()),
-                  "三条的行标题都在表单上（提示框那行小字指的就是它们）",
-                  MainWindowUI::javaWarnMismatchRowText() + QStringLiteral(" / ") +
-                      MainWindowUI::warnDuplicateLaunchRowText() + QStringLiteral(" / ") +
-                      MainWindowUI::warnWorldLossRowText());
+            check(warnForm->findChild<QCheckBox *>(MainWindowUI::javaWarnMismatchCheckName()) &&
+                      warnForm->findChild<QCheckBox *>(MainWindowUI::warnDuplicateLaunchCheckName()) &&
+                      warnForm->findChild<QCheckBox *>(MainWindowUI::warnWorldLossCheckName()),
+                  "安全提醒的三个开关直接显示，不重复添加行标题");
             check(hasLabelText(QStringLiteral("安全提醒")),
                   "这一栏的组标题「安全提醒」也画出来了");
             check(!hasLabelText(QStringLiteral("启动提醒")),

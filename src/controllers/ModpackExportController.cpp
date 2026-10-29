@@ -122,8 +122,8 @@ void ModpackExportController::exportPack(const QString &versionId,
             m_overlay, tr("读不出这个实例基于哪个原版"),
             tr("整合包清单里必须写清楚「基于哪个原版游戏」，而这一份读不出来 —— 要么本地"
                "没有一处写着它（wtfml.meta 里没有 realVersion，版本 json 里没有 clientVersion、"
-               "也顺不出指得到原版的 inheritsFrom 链），要么写着的那个**不是一个真能装出来的"
-               "版本号**（自己改过的名字就属于这种：清单里记着它，别人那边却没有这个版本可装）。\n\n"
+               "也顺不出指得到原版的 inheritsFrom 链），要么写着的那个不是一个真能装出来的"
+               "版本号（自己改过的名字就属于这种：清单里记着它，别人那边却没有这个版本可装）。\n\n"
                "这个实例多半是很早以前装的、或者被手动改过。在「实例设置…」里看不出版本号"
                "的话，建议重装一份再导出。"));
         return;
@@ -316,7 +316,7 @@ void ModpackExportController::continueExport(const ModpackExport::ExportPlan &pl
                     lines.append(tr("有 %1 个文件连哈希都没算出来（读取失败），它们也原样进了包。")
                                      .arg(plan.hashFailures.size()));
                 if (!plan.collect.skippedDirs.isEmpty())
-                    lines.append(tr("没进包：%1（共 %2 个文件）。存档和截图是**你自己**的东西，"
+                    lines.append(tr("没进包：%1（共 %2 个文件）。存档和截图是你自己的东西，"
                                     "打进包里会盖掉收包那个人的。")
                                      .arg(plan.collect.skippedDirs.join(QStringLiteral("、")),
                                           QString::number(plan.collect.skippedFileCount)));

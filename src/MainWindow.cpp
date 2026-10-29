@@ -1119,10 +1119,10 @@ void MainWindow::closeEvent(QCloseEvent *event) {
         }
         const QString text =
             games.size() == 1
-                ? tr("游戏「%1」还在运行。\n\n关掉启动器**不会**关掉游戏 —— 它会继续跑，"
+                ? tr("游戏「%1」还在运行。\n\n关掉启动器不会关掉游戏 —— 它会继续跑，"
                      "存档、联机都照常。\n要现在关掉启动器吗？")
                       .arg(names.first())
-                : tr("还有 %1 个游戏在运行：%2。\n\n关掉启动器**不会**关掉游戏 —— "
+                : tr("还有 %1 个游戏在运行：%2。\n\n关掉启动器不会关掉游戏 —— "
                      "它们会继续跑，存档、联机都照常。\n要现在关掉启动器吗？")
                       .arg(games.size())
                       .arg(names.join(QStringLiteral("、")));
@@ -1160,11 +1160,11 @@ void MainWindow::closeEvent(QCloseEvent *event) {
         const QString text =
             serverIds.size() == 1
                 ? tr("服务端「%1」还在运行。\n\n关掉启动器时要把它怎么办？\n"
-                     "「一起停掉」会让它**存完盘**再退（可能要等一会儿）；"
+                     "「一起停掉」会让它存完盘再退（可能要等一会儿）；"
                      "「留着它继续跑」的话，启动器关了它照样开着。")
                       .arg(names.first())
                 : tr("还有 %1 个服务端在运行：%2。\n\n关掉启动器时要把它们怎么办？\n"
-                     "「一起停掉」会让它们**存完盘**再退（可能要等一会儿）；"
+                     "「一起停掉」会让它们存完盘再退（可能要等一会儿）；"
                      "「留着它们继续跑」的话，启动器关了它们照样开着。")
                       .arg(serverIds.size())
                       .arg(names.join(QStringLiteral("、")));
@@ -2313,6 +2313,10 @@ InstanceFilter::Facts MainWindow::instanceFilterFacts(const VersionDisplayParts 
 void MainWindow::rebuildInstanceTree() {
     QTreeWidget *tree = m_ui->getInstanceList();
     const QList<VersionDisplayParts> parts = m_instancePageParts;
+    // 「管理页右侧每次打开都在最底下」：下面 syncTreeToCombo() 选中的是当前实例，Qt 会
+    // 滚到它那儿；开机那一趟树还藏着，这一滚被攒到第一次显示、排完版才补，用户看到的就
+    // 永远是列表底部。记下重建前的位置，等排版真结束再放回去（见 restoreTreeScroll()）。
+    const int keepTreeScroll = tree->verticalScrollBar()->value();
 
     // ---- ① 筛：过不了的实例**根本不进桶**（不是"画好了再藏起来"）----
     //
@@ -2403,6 +2407,7 @@ void MainWindow::rebuildInstanceTree() {
         }
     }
     syncTreeToCombo(m_ui->getInstalledVersionCombo(), tree);
+    restoreTreeScroll(tree, keepTreeScroll);
 
     // ---- ③ 顶上那行说明：这一份文件夹里有几个实例（筛着的时候再说一句筛出来几个）----
     //
@@ -3602,7 +3607,7 @@ void MainWindow::removeServer(const QString &serverId) {
     // 一边是「取消」（`defaultYes = false`，回车不会把它删掉）、那颗按钮按危险档染红。
     const bool go = InlineMessage::question(
         m_ui->overlay(), tr("删掉这个服务端"),
-        tr("「%1」这一整个目录会被删掉 —— 里面的世界（world/）、模组、配置**一起没**。\n\n"
+        tr("「%1」这一整个目录会被删掉 —— 里面的世界（world/）、模组、配置一起没。\n\n"
            "删掉的东西会进回收站，要恢复可以从那里找回来。\n\n确定要删吗？")
             .arg(shown),
         tr("删掉它"), tr("取消"), false, true);
@@ -4275,11 +4280,11 @@ void MainWindow::applySettingsToUi() {
     // NOTE: 文案里点明了各档"下面那个窗口大小还管不管用"，因为「最大化」那一档不吃它
     // （原版没有最大化参数，是照屏幕工作区算的，见 GameWindowSettings.hpp）。
     QComboBox *windowModeCombo = m_ui->getGameWindowModeCombo();
-    windowModeCombo->addItem(tr("小窗（按下面的窗口大小开一个窗口）"),
+    windowModeCombo->addItem(tr("窗口"),
                              int(GameWindowMode::Windowed));
-    windowModeCombo->addItem(tr("最大化（铺满屏幕，任务栏留出来）"),
+    windowModeCombo->addItem(tr("最大化"),
                              int(GameWindowMode::Maximized));
-    windowModeCombo->addItem(tr("全屏（原版自己的 --fullscreen）"), int(GameWindowMode::Fullscreen));
+    windowModeCombo->addItem(tr("全屏"), int(GameWindowMode::Fullscreen));
     selectByEnumData(windowModeCombo, m_settings->gameWindowMode());
     // 窗口大小：两个框各自 setValue（信号已经被上面那两个 blocker 挡上了）。
     m_ui->getGameWindowWidthSpin()->setValue(m_settings->gameWindowWidth());

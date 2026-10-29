@@ -900,8 +900,7 @@ void InstanceSettingsDialog::relayoutShortcuts() {
         auto *more = new QPushButton(shortcutMoreText(), m_shortcutCell);
         Theme::markButton(more, Theme::ButtonKind::Neutral);
         more->setObjectName(shortcutMoreButtonName());
-        more->setToolTip(tr("这个实例里现在还没有那几个目录 —— 点开照旧可以进去（头一次进去会"
-                            "把目录建出来）。"));
+        more->setToolTip(tr("目录尚不存在，打开时自动创建。"));
         connect(more, &QPushButton::clicked, this, &InstanceSettingsDialog::toggleMoreShortcuts);
         m_shortcutMoreButton = more;
     }
@@ -947,28 +946,28 @@ QString InstanceSettingsDialog::filesHint(const QString &key) {
 
 QString InstanceSettingsDialog::filesEmptyText(const QString &key) {
     if (key == QStringLiteral("mod")) {
-        return tr("这个实例还没装模组。按上面的「%1」去找一个。").arg(filesDownloadText(key));
+        return tr("暂无模组，可通过“%1”添加。").arg(filesDownloadText(key));
     }
     if (key == QStringLiteral("resourcepack")) {
-        return tr("这个实例还没有资源包。按上面的「%1」去找一个。").arg(filesDownloadText(key));
+        return tr("暂无资源包，可通过“%1”添加。").arg(filesDownloadText(key));
     }
     if (key == QStringLiteral("datapack")) {
-        return tr("这个实例还没有数据包。按上面的「%1」去找一个。").arg(filesDownloadText(key));
+        return tr("暂无数据包，可通过“%1”添加。").arg(filesDownloadText(key));
     }
     if (key == QStringLiteral("shader")) {
-        return tr("这个实例还没有光影包。按上面的「%1」去找一个。").arg(filesDownloadText(key));
+        return tr("暂无光影，可通过“%1”添加。").arg(filesDownloadText(key));
     }
     if (key == QStringLiteral("schematic")) {
-        return tr("这个实例还没有结构 / 原理图。");
+        return tr("暂无结构或原理图");
     }
     if (key == QStringLiteral("config")) {
         // 「还没有」在这里有**两种**原因，都说得出口：这个实例从来没进过游戏（模组还没
         // 跑过一次，也就还没写配置），或者它确实一个能配的模组都没有。第二种更常见 ——
         // 原版客户端本来就没有 config 这个目录。
-        return tr("这个实例里还没有配置文件。进一次游戏，模组自己会把默认配置写进来。");
+        return tr("暂无配置文件，启动游戏后可自动生成。");
     }
     if (key == QStringLiteral("save")) {
-        return tr("这个实例还没有存档。进游戏存一个就有了。");
+        return tr("暂无存档");
     }
     if (key == QStringLiteral("server")) {
         return serverEmptyText();
@@ -977,22 +976,19 @@ QString InstanceSettingsDialog::filesEmptyText(const QString &key) {
 }
 
 QString InstanceSettingsDialog::shaderUnavailableText() {
-    return tr("光影包要由 Iris 或者 OptiFine 来加载，这个实例两个都没有 —— 装进去了也不会"
-              "生效。先去「下载」页装一个 Iris，或者给这个实例装 OptiFine。");
+    return tr("使用光影需要 Iris 或 OptiFine，请先安装兼容版本。");
 }
 
 QString InstanceSettingsDialog::schematicUnavailableText() {
-    return tr("原理图是 Litematica / 投影模组用的，这个实例没装它 —— 这个文件夹现在没人会读。"
-              "先去「下载」页装一个。");
+    return tr("使用原理图需要安装 Litematica 等兼容模组。");
 }
 
 QString InstanceSettingsDialog::modUnavailableText() {
-    return tr("这个实例是原版的，没有模组加载器（Forge / NeoForge / Fabric / Quilt / "
-              "OptiFine），mods 文件夹里的东西游戏根本不会读。");
+    return tr("当前实例未安装模组加载器，无法加载 mods 目录中的模组。");
 }
 
 QString InstanceSettingsDialog::datapackUnavailableText() {
-    return tr("数据包是 1.13 才有的东西，这个实例的版本比它老 —— 这个文件夹没有人会读。");
+    return tr("当前游戏版本不支持数据包，需要 Minecraft 1.13 或更新版本。");
 }
 
 QString InstanceSettingsDialog::filesDownloadText(const QString &key) {
@@ -1025,7 +1021,7 @@ QString InstanceSettingsDialog::filesDownloadTip(const QString &key) {
         return QString();
     }
     // 提示里得说清"这一页会关掉"：用户按它是为了**换个地方**，不是就地多出一个东西。
-    return tr("切到「下载」页的「%1」那一栏去找新的（这一页会关掉）。").arg(texts.at(index));
+    return tr("打开“%1”下载页。").arg(texts.at(index));
 }
 
 QString InstanceSettingsDialog::filesDownloadCategoryKey(const QString &key) {
@@ -1059,7 +1055,7 @@ QString InstanceSettingsDialog::filesResourceTip(const QString &title) {
     }
     // 和 filesDownloadTip() 同一句话的规矩：**说清这一页会关掉** —— 用户点它是为了换个
     // 地方，不是就地多出一个东西。
-    return tr("打开「%1」的下载页（这一页会关掉）。").arg(title);
+    return tr("打开“%1”下载页。").arg(title);
 }
 
 // 那几页底下不挂说明文字，所以这里也没有一段讲"行尾那颗 ⓘ"的小字。要再挂说明，写的时候
@@ -1084,7 +1080,7 @@ QString InstanceSettingsDialog::pageUnavailableText(const QString &key) {
 }
 
 QString InstanceSettingsDialog::pageShownHint() {
-    return tr("勾上：左边那一列里就有这一页；不勾：这一页收起来（里面的东西一个都不会动）。");
+    return tr("在导航中显示此页；隐藏不会删除文件。");
 }
 
 void InstanceSettingsDialog::setInstanceDir(const QString &dir) {
@@ -1443,7 +1439,7 @@ void InstanceSettingsDialog::setPinned(bool pinned, const QString &pinnedGroupId
     m_pinCheck->setEnabled(!pinnedGroupId.isEmpty());
     m_pinCheck->setToolTip(
         pinnedGroupId.isEmpty()
-            ? tr("这一份 .minecraft 里没有收藏组。先去实例页左栏的「分组设置…」里勾一个。")
+            ? tr("暂无收藏组，请先在分组设置中指定。")
             : QString());
 }
 
@@ -1470,8 +1466,8 @@ void InstanceSettingsDialog::refreshGroupMenuState() {
         // 眼里是一回事。这是实例页那块「挑目标」浮层早就定下的规矩（那边叫
         // `containsSelected`），两处的措辞也照抄：灰着必须配一句为什么。
         m_groupRows.at(i)->setEnabled(!current);
-        m_groupRows.at(i)->setToolTip(current ? tr("已经在这一组里了")
-                                              : tr("把这个实例放到这一组里"));
+        m_groupRows.at(i)->setToolTip(current ? tr("已在此分组")
+                                              : tr("移入此分组"));
     }
     if (m_groupButton == nullptr) {
         return;

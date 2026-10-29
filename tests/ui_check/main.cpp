@@ -353,9 +353,7 @@ int main(int argc, char *argv[]) {
                                ? instanceSidebar->findChild<QLabel *>(
                                      MainWindowUI::importHintLabelName())
                                : nullptr;
-        check(hint != nullptr && hint->text().contains(QStringLiteral("Modrinth")),
-              "「导入整合包…」下面那句说明（按 objectName 找得回、写的是收什么格式）",
-              hint != nullptr ? hint->text() : QStringLiteral("<null>"));
+        check(hint == nullptr, "导入说明不再常驻侧栏");
     }
     // ---- 右栏（正文面）：就只有那一棵实例树 ----
     check(nearestGroupBox(instanceList) == nullptr &&
@@ -2435,12 +2433,7 @@ int main(int argc, char *argv[]) {
             // 说明那句在按钮**下面**（说明是跟着那颗按钮的，摆到别处就白写了）。
             QLabel *hint =
                 iside->findChild<QLabel *>(MainWindowUI::importHintLabelName());
-            check(hint != nullptr && boxIn(hint).top() > importBox.bottom(),
-                  "那句说明在按钮的下面（不是上面）",
-                  hint != nullptr ? QString("hint.top=%1 import.bottom=%2")
-                                        .arg(boxIn(hint).top())
-                                        .arg(importBox.bottom())
-                                  : QStringLiteral("<null>"));
+            check(hint == nullptr, "导入帮助按需显示，不占用按钮下方空间");
         }
 
         // 量完把状态收回去：Y 节和"打开就停在主页"的约定都依赖停在主页。

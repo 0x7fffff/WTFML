@@ -2135,8 +2135,8 @@ int UiContentPagesChecks(QFrame * &bar) {
                 // 但**摆放换了地方**——
                 // / 更新 / 删除在右侧那块操作面板里（名字也换成了「更新选中项 / 删除选中项」）；
                 // / 全选 / 反选 / 清除选择在顶上那排工具里（面板外面）；
-                // / 启用 / 禁用**收进「启用 / 禁用…」菜单**，不再并排两颗
-                //   （菜单里两项各自按 `selectedTogglePaths()` 现算灰不灰 —— 见 U10R）。
+                // / 启用 / 禁用并排显示在操作面板中
+                //   （两颗按钮各自按 `selectedTogglePaths()` 计算可用状态 —— 见 U10R）。
                 // 用户当初点名的并排顺序只在**没开面板**的那几页（资源包 / 数据包 / 光影）上
                 // 还是原样；面板这一档是后来照用户要求改的，不是顺序丢失。
                 // 判据用 `isAncestorOf()` 而不是 `isVisibleTo()`：后者只顺着**自己**那条
@@ -2155,15 +2155,15 @@ int UiContentPagesChecks(QFrame * &bar) {
                       QString::number(InstanceFilesPage::selectionActionCount()));
                 check(buttonOf(InstanceFilesPage::SelectionAction::Enable) != nullptr &&
                           buttonOf(InstanceFilesPage::SelectionAction::Disable) != nullptr &&
-                          !buttonOf(InstanceFilesPage::SelectionAction::Enable)->isVisible() &&
-                          !buttonOf(InstanceFilesPage::SelectionAction::Disable)->isVisible() &&
+                          inPanel(buttonOf(InstanceFilesPage::SelectionAction::Enable)) &&
+                          inPanel(buttonOf(InstanceFilesPage::SelectionAction::Disable)) &&
                           outOfPanel(buttonOf(InstanceFilesPage::SelectionAction::SelectAll)) &&
                           outOfPanel(buttonOf(InstanceFilesPage::SelectionAction::InvertAll)) &&
                           outOfPanel(buttonOf(InstanceFilesPage::SelectionAction::ClearAll)),
-                      "★★ U10Q 启用/禁用收进「启用 / 禁用…」菜单；全选/反选/清除选择在顶部工具行"
+                      "★★ U10Q 启用/禁用并排显示；全选/反选/清除选择在顶部工具行"
                       "（都不再挤在面板里）");
-                check(mods->findChild<QPushButton *>(QStringLiteral("modStateAction")) != nullptr,
-                      "★★ U10Q 面板上有那颗「启用 / 禁用…」（这一档的两颗开关就在它菜单里）");
+                check(mods->findChild<QPushButton *>(QStringLiteral("modStateAction")) == nullptr,
+                      "★★ U10Q 面板不再创建启用/禁用菜单");
 
                 // ---- ⑤ 「更新」这一颗按下去报的**是选中那些的路径** ----
                 QStringList reportedPaths;
@@ -2571,15 +2571,7 @@ int UiContentPagesChecks(QFrame * &bar) {
                       rightClicked.join(QStringLiteral(" | ")));
                 QObject::disconnect(rcConn);
 
-                // ---- ④ 两颗开关收进「启用 / 禁用…」菜单（灰化规则不变）----
-                //
-                // 用户当初的要求是「在禁用旁边增加启用」；模组页后来改成了右侧操作面板，
-                // 那两颗并排按钮被收进一颗「启用 / 禁用…」菜单（用户后一轮点名的改法，
-                // 见 U10Q 那一段）。菜单里两项的灰化规则和原来并排两颗**逐字相同**：
-                // 选中里一条禁用着的都没有 ⇒「全部启用」灰；全是禁用 ⇒「全部禁用」灰；
-                // 两种都有 ⇒ 两项都亮。判据仍然挂在两颗按钮的 enabled 上
-                // （`updateSelectionBar()` 每趟现算），所以这里验的是那一半；
-                // 可见性那一半反过来验：**两颗都不在面板里**（再并排摆着就是和菜单重复）。
+                // ---- ④ 启用和禁用直接可见，分别按选中项的状态置灰 ----
                 const auto enableButton = [&barButton] {
                     return barButton(InstanceFilesPage::SelectionAction::Enable);
                 };
@@ -2597,32 +2589,32 @@ int UiContentPagesChecks(QFrame * &bar) {
                            QStringLiteral(" / ") +
                            stateSays(QStringLiteral("禁用"), disableButton());
                 };
-                const auto hiddenInPanel = [&] {
+                const auto visibleInPanel = [&] {
                     return enableButton() != nullptr && disableButton() != nullptr &&
-                           !enableButton()->isVisibleTo(bar) && !disableButton()->isVisibleTo(bar);
+                           enableButton()->isVisibleTo(bar) && disableButton()->isVisibleTo(bar);
                 };
                 selectOnly(modA);  // 只选那条**启用着**的
-                check(bar != nullptr && bar->isVisible() && hiddenInPanel() &&
+                check(bar != nullptr && bar->isVisible() && visibleInPanel() &&
                           enableButton() != nullptr && !enableButton()->isEnabled() &&
                           disableButton() != nullptr && disableButton()->isEnabled(),
-                      "★★ U10R 选中的里面**一条禁用着的都没有** ⇒ 菜单里「全部启用」灰、"
-                      "「全部禁用」亮（两颗并排按钮本身收在菜单后面，不在面板里重复摆）",
+                      "★★ U10R 选中的里面**一条禁用着的都没有** ⇒ 「启用」灰、"
+                      "「禁用」亮（两颗按钮直接显示）",
                       bothButtonsSaid());
                 selectOnly(modC);  // 只选那条**禁用着**的（全是禁用）
-                check(hiddenInPanel() && enableButton() != nullptr &&
+                check(visibleInPanel() && enableButton() != nullptr &&
                           enableButton()->isEnabled() && disableButton() != nullptr &&
                           !disableButton()->isEnabled(),
-                      "★★ U10R 选中的**全是禁用着的** ⇒ 菜单里「全部禁用」灰、"
-                      "「全部启用」亮（同一套规则反过来）",
+                      "★★ U10R 选中的**全是禁用着的** ⇒ 「禁用」灰、"
+                      "「启用」亮（同一套规则反过来）",
                       bothButtonsSaid());
                 selectOnly(modB);
                 if (rowOf(modC) >= 0) {
                     list->item(rowOf(modC))->setSelected(true);  // 一条启用 + 一条禁用
                 }
-                check(hiddenInPanel() && enableButton() != nullptr &&
+                check(visibleInPanel() && enableButton() != nullptr &&
                           enableButton()->isEnabled() && disableButton() != nullptr &&
                           disableButton()->isEnabled(),
-                      "U10R 选中里两种都有 ⇒ 菜单两项都亮着（这一档谁都不该灰）",
+                      "U10R 选中里两种都有 ⇒ 启用与禁用都可用（这一档谁都不该灰）",
                       bothButtonsSaid());
                 list->clearSelection();
 

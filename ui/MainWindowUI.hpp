@@ -1097,10 +1097,9 @@ public:
         case InstanceFilterButton::Vanilla:
             return QStringLiteral("只看没装模组加载器的实例（原版）。");
         case InstanceFilterButton::Modded:
-            return QStringLiteral("只看装了模组加载器的实例（Forge / Fabric / NeoForge / Quilt）。");
+            return QStringLiteral("只看带模组加载器的实例。");
         case InstanceFilterButton::Updatable:
-            return QStringLiteral("只看查过更新、而且真有几条能更的实例"
-                                  "（在实例设置里点过「检查更新」的才算）。");
+            return QStringLiteral("只看检查过更新、且有可更新版本的实例。");
         case InstanceFilterButton::Recent:
             return QStringLiteral("只看启动过、账本上还留着记录的实例（最近 20 次以内）。");
         }
@@ -1148,11 +1147,9 @@ public:
     static QString instanceModeTipText(InstanceMode mode) {
         switch (mode) {
         case InstanceMode::Client:
-            return QStringLiteral("这一页管的是客户端实例（装在 versions/ 底下、点一下能启动"
-                                  "游戏的那些）。");
+            return QStringLiteral("管理装在 versions/ 下的客户端实例。");
         case InstanceMode::Server:
-            return QStringLiteral("这一页管的是服务端（装在数据目录的 Servers/ 底下、能开服"
-                                  "的那些）。");
+            return QStringLiteral("管理装在数据目录 Servers/ 下的服务端。");
         case InstanceMode::Preset:
             return QStringLiteral("这一页管的是实例预设：把一份实例的按键、游戏设置、服务器"
                                   "列表这些收成一份，再落到别的实例上。");
@@ -1432,7 +1429,7 @@ public:
     /// NOTE: "在跑所以改不了"那一句不在这一组里（`serverSettingsRunningNote()`）—— 那个是
     /// "整页只读"的原因，不是保存带自己的状态。
     static QString serverSettingsDirtyFieldsNote(int count) {
-        return QStringLiteral("改过 %1 项 —— 保存之后写进 server.properties，别的行不动。")
+        return QStringLiteral("改了 %1 项，保存后写进 server.properties。")
             .arg(count);
     }
     static QString serverSettingsDirtyRawNote() {
@@ -1456,9 +1453,8 @@ public:
     /// 「原始文本」那一页顶上那句（这一页不重排、不整理的说明）。
     static QString serverSettingsRawNoteText() {
         return QStringLiteral(
-            "这里就是 server.properties 全文，原样摆出来：注释、你没见过的那些键、"
-            "键的顺序、行尾都按盘上那一份。\n"
-            "在「常用设置」里改过的项，切到这一页时会先合进来 —— 保存写回去的就是这一份。");
+            "server.properties 全文，按盘上那一份原样显示。\n"
+            "「常用设置」里改过的项会先合进来。");
     }
 
     /// 备份那一列的三格。**唯一出处**（表的列数、每列标题都读它）。
@@ -1523,8 +1519,7 @@ public:
                                  .arg(folder)
                            : QStringLiteral("这一页读写服务端目录下的 mods 文件夹（%1）。")
                                  .arg(folder);
-        text += QStringLiteral("\n禁用只是把后缀改成 .disabled —— 文件还在，内容一个字节都不动，"
-                               "想恢复就再点一次「启用」。");
+        text += QStringLiteral("\n禁用只改后缀为 .disabled，文件内容不变；再点「启用」即可恢复。");
         if (running) {
             text += QStringLiteral("\n服务端正在跑：现在改它也不会加载，重启服务端之后才生效。");
         }
@@ -2356,7 +2351,7 @@ public:
         return QStringLiteral("有新版本（%1 条）").arg(count);
     }
     static QString updateCenterRestGroupTitleText(int count) {
-        return QStringLiteral("已是最新或说不清（%1 条）").arg(count);
+        return QStringLiteral("已是最新或无法确认（%1 条）").arg(count);
     }
     static QString updateCenterRowLabelText(const QString &name, const QString &fileName) {
         return name.isEmpty() ? fileName : name;
@@ -2381,7 +2376,7 @@ public:
             return versionText.isEmpty() ? QStringLiteral("已是最新")
                                          : QStringLiteral("已是最新（%1）").arg(versionText);
         default:
-            return QStringLiteral("说不清");
+            return QStringLiteral("无法确认");
         }
     }
     /// 那一行「更新」那颗 chip 的字。
@@ -2416,7 +2411,7 @@ public:
     static QString updateCenterCloseText() { return QStringLiteral("关闭"); }
     /// 没查过（或者这个实例一条能查的都没有）时那一整块：一句大话 + 一句下一步。
     static QString updateCenterEmptyHintText() {
-        return QStringLiteral("先在「实例设置 → 概览」里点一下「检查更新」，回来这儿就有东西可看了。");
+        return QStringLiteral("先在「实例设置 → 概览」里点「检查更新」。");
     }
 
     // ------------------------------------------------------------------

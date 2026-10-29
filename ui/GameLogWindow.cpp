@@ -1092,7 +1092,7 @@ QString GameLogWindow::exportReportButtonText() { return QStringLiteral("导出�
 QString GameLogWindow::exportLogButtonTooltip() {
     // 这句话（和下面那句）唯一的用途就是把两颗键**分开**：它们只差"要不要给别人的那一份
     // 环境信息"，而这一点从键上的字看不出来。所以两句都写成"你会拿到什么"。
-    return QStringLiteral("把这一份游戏输出原样存成文本文件（上面筛掉的几档也在里面，最多 %1 行）。")
+    return QStringLiteral("把全部游戏输出存成文本文件（含被筛掉的几档，最多 %1 行）。")
         .arg(maxLogBlocks());
 }
 
@@ -1116,8 +1116,7 @@ QString GameLogWindow::searchEmptyPlaceholderText() {
 }
 
 QString GameLogWindow::searchTooltip() {
-    return QStringLiteral("只看**含有这一串**的行。它只影响这个窗里显示什么 —— "
-                          "「导出日志」拿到的仍然是整份日志。");
+    return QStringLiteral("只看包含这一串的行；导出仍是整份日志。");
 }
 
 QString GameLogWindow::searchText() const {
@@ -1147,8 +1146,7 @@ int GameLogWindow::lineLimitOfIndex(int index) {
 }
 
 QString GameLogWindow::lineLimitTooltip() {
-    return QStringLiteral("最多显示最后几行。**日志本身一行都不会少**（最多留 %1 行），"
-                          "换回大的一档就看得见。")
+    return QStringLiteral("只影响显示，日志一行都不会少（最多留 %1 行）。")
         .arg(maxLogBlocks());
 }
 

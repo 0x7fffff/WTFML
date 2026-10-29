@@ -11,6 +11,10 @@
 #include "controllers/MainWindowViewData.hpp"
 
 #include <QFileInfo>
+#include <QScrollBar>
+#include <QTimer>
+
+#include <QEvent>
 
 namespace MainWindowViewData {
 
@@ -288,6 +292,68 @@ void syncTreeToCombo(const QComboBox *combo, QTreeWidget *tree) {
     }
     // 没找到（或者下拉框本来就没选）：留空，别硬选一个别的。
     tree->setCurrentItem(nullptr);
+}
+
+/**
+ * @brief 把实例树的滚动位置放回重建前那儿。
+ * @param tree 实例页那张树（@c nullptr 当没事发生）。
+ * @param value 重建前 @c verticalScrollBar()->value()。
+ *
+ * 为什么不是"选的时候别滚"：`setCurrentItem()` 落在**藏着的**树上是滚不动的（这会儿
+ * range 还是 0），Qt 把这一滚攒到树**第一次显示、排完版**那一下才补 —— 拦在
+ * `syncTreeToCombo()` 周围的 @c scrollTo() 挡不住它（量过：挡了照样 0 → 底）。
+ * 所以只能等 range 真算出来、再等一轮事件循环（那一滚是 show 里同步做的）之后放回去。
+ *
+ * 树已经露着的那一趟（装完一个实例、改完分组之后重灌）排版是现成的，当场放回。
+ */
+namespace {
+constexpr auto kScrollRestoreName = "wtfmlInstanceTreeScrollRestorer";
+
+// One pending restore per tree. Show also matters when the range is already
+// valid: hiding/reopening a populated tree need not emit rangeChanged again.
+class TreeScrollRestorer final : public QObject {
+public:
+    explicit TreeScrollRestorer(QTreeWidget &tree) : QObject(&tree), m_tree(tree), m_timer(this) {
+        setObjectName(QString::fromLatin1(kScrollRestoreName));
+        m_timer.setSingleShot(true);
+        connect(&m_timer, &QTimer::timeout, this, [this] {
+            if (!m_pending || !m_tree.isVisible()) return;
+            m_pending = false;
+            m_tree.verticalScrollBar()->setValue(m_value);
+        });
+        connect(tree.verticalScrollBar(), &QScrollBar::rangeChanged, this, [this] { schedule(); });
+        tree.installEventFilter(this);
+    }
+    void restore(int value) {
+        m_timer.stop();
+        m_value = value;
+        m_pending = true;
+        if (m_tree.isVisible()) {
+            m_tree.verticalScrollBar()->setValue(value);
+            schedule(); // Rebuilding a visible tree can still defer its layout.
+        }
+    }
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        if (watched == &m_tree && event->type() == QEvent::Show) schedule();
+        return false;
+    }
+private:
+    void schedule() {
+        if (m_pending && m_tree.isVisible()) m_timer.start(0);
+    }
+    QTreeWidget &m_tree;
+    QTimer m_timer;
+    int m_value = 0;
+    bool m_pending = false;
+};
+} // namespace
+
+void restoreTreeScroll(QTreeWidget *tree, int value) {
+    if (!tree) return;
+    auto *owner = tree->findChild<QObject *>(QString::fromLatin1(kScrollRestoreName), Qt::FindDirectChildrenOnly);
+    auto *restorer = owner ? static_cast<TreeScrollRestorer *>(owner) : new TreeScrollRestorer(*tree);
+    restorer->restore(value);
 }
 
 QList<InstanceGroupStore::Group> toStoreGroups(const QList<GroupDialog::Group> &from) {

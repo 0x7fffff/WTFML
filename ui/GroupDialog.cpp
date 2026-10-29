@@ -54,10 +54,8 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
     auto *mainLayout = new QVBoxLayout(this);
 
     auto *hint = new QLabel(
-        tr("这里管的是分组本身：有哪些分组、各叫什么、按什么顺序排、画出来是展开的还是"
-           "收着的。删掉一个分组不会删掉里面的实例 —— 它们只是回到未分组。\n"
-           "行尾那个方框里上、下两颗三角把这一组往上/往下挪一格（按住 Shift 点 = 直接放到最上面/"
-           "最下面）。"),
+        tr("管理分组的名称与顺序。删掉分组不会删掉里面的实例，它们会回到未分组。\n"
+           "行尾的三角把这一组上下挪一格，按住 Shift 直接放到最上面或最下面。"),
         this);
     hint->setWordWrap(true);
     mainLayout->addWidget(hint);
@@ -99,8 +97,7 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
         m_expandedCheck = new QCheckBox(tr("默认展开"), groupBox);
         m_expandedCheck->setObjectName(expandedCheckName());
         m_expandedCheck->setToolTip(
-            tr("这一组在实例列表里画成展开的还是收着的。点组头那一下也算数 —— 两处改的"
-               "是同一个状态。"));
+            tr("这一组在实例列表里默认展开。点组头也能切换。"));
         orderRow->addStretch(1);
         orderRow->addWidget(m_expandedCheck);
         // 紧挨着「默认展开」右边 —— 「旁边」就是这一行、这一格。
@@ -228,8 +225,7 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
         }
         const bool answer = InlineMessage::question(OverlayHost::forWidget(this), tr("恢复默认分组设置"),
             tr("现在的分组会被换成这 %1 个默认分组：%2。\n\n"
-               "自己建的分组会消失，组里的实例一个都不会被删 —— 它们会按版本类型回到各自"
-               "的默认分组或者未分组。\n\n"
+               "自己建的分组会消失，里面的实例不会被删，会按版本类型回到默认分组或未分组。\n\n"
                "确定要恢复吗？")
                 .arg(names.size())
                 .arg(names.join(tr("、"))), tr("是"), tr("否"), false,

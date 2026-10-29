@@ -33,31 +33,34 @@ const TrimMaterialRow kTrimMaterials[] = {
 struct TrimPatternRow {
     const char *id;
     const char *name;
-    const char *source;  ///< 模板从哪儿来
-    const char *since;   ///< 哪个 Java 版本开始有
+    const char *source;    ///< 模板从哪儿来
+    const char *duplicate; ///< 复制这枚模板要的那种方块
+    const char *since;     ///< 哪个 Java 版本开始有
 };
 
 // 名字照游戏 `zh_cn.json` 的 `trim_pattern.minecraft.*` 写（「镶铆盔甲纹饰」那一列），
 // 来源按 Java 1.20 / 1.21 的实际箱子写；不写"城堡里某处"这种含糊说法。
+// `duplicate` 抄的是游戏自己的复制配方（`data/minecraft/recipe/*_armor_trim_smithing_template.json`
+// 里那个 `C` 位），方块名照 `zh_cn.json`；四块陶瓦、四块圆石那几组是游戏原样，不是取整。
 const TrimPatternRow kPatterns[] = {
-    {"coast", "海岸", "沉船（藏宝箱）", "1.20"},
-    {"sentry", "哨兵", "掠夺者前哨站", "1.20"},
-    {"dune", "沙丘", "沙漠神殿", "1.20"},
-    {"wild", "荒野", "丛林神庙", "1.20"},
-    {"ward", "监守", "远古城市", "1.20"},
-    {"eye", "眼眸", "要塞", "1.20"},
-    {"vex", "恼鬼", "林地府邸", "1.20"},
-    {"tide", "潮汐", "远古守卫者（击杀掉落）", "1.20"},
-    {"snout", "猪鼻", "堡垒遗迹", "1.20"},
-    {"rib", "肋骨", "下界要塞", "1.20"},
-    {"spire", "尖塔", "末地城", "1.20"},
-    {"wayfinder", "向导", "古迹废墟（可疑的沙砾）", "1.20"},
-    {"shaper", "塑造", "古迹废墟（可疑的沙砾）", "1.20"},
-    {"silence", "幽静", "远古城市", "1.20"},
-    {"raiser", "牧民", "古迹废墟（可疑的沙砾）", "1.20"},
-    {"host", "雇主", "古迹废墟（可疑的沙砾）", "1.20"},
-    {"flow", "涡流", "试炼密室（不祥宝库）", "1.21"},
-    {"bolt", "镶铆", "试炼密室（宝库）", "1.21"},
+    {"coast", "海岸", "沉船（藏宝箱）", "圆石", "1.20"},
+    {"sentry", "哨兵", "掠夺者前哨站", "圆石", "1.20"},
+    {"dune", "沙丘", "沙漠神殿", "砂岩", "1.20"},
+    {"wild", "荒野", "丛林神庙", "苔石", "1.20"},
+    {"ward", "监守", "远古城市", "深板岩圆石", "1.20"},
+    {"eye", "眼眸", "要塞", "末地石", "1.20"},
+    {"vex", "恼鬼", "林地府邸", "圆石", "1.20"},
+    {"tide", "潮汐", "远古守卫者（击杀掉落）", "海晶石", "1.20"},
+    {"snout", "猪鼻", "堡垒遗迹", "黑石", "1.20"},
+    {"rib", "肋骨", "下界要塞", "下界岩", "1.20"},
+    {"spire", "尖塔", "末地城", "紫珀块", "1.20"},
+    {"wayfinder", "向导", "古迹废墟（可疑的沙砾）", "陶瓦", "1.20"},
+    {"shaper", "塑造", "古迹废墟（可疑的沙砾）", "陶瓦", "1.20"},
+    {"silence", "幽静", "远古城市", "深板岩圆石", "1.20"},
+    {"raiser", "牧民", "古迹废墟（可疑的沙砾）", "陶瓦", "1.20"},
+    {"host", "雇主", "古迹废墟（可疑的沙砾）", "陶瓦", "1.20"},
+    {"flow", "涡流", "试炼密室（不祥宝库）", "旋风棒", "1.21"},
+    {"bolt", "镶铆", "试炼密室（宝库）", "铜块", "1.21"},
 };
 
 const char *kParts[] = {"头盔", "胸甲", "护腿", "靴子"};
@@ -123,11 +126,16 @@ TrimPattern patternAt(int index) {
     }
     return {QString::fromLatin1(kPatterns[index].id), QString::fromUtf8(kPatterns[index].name),
             QString::fromUtf8(kPatterns[index].source),
+            QString::fromUtf8(kPatterns[index].duplicate),
             QString::fromLatin1(kPatterns[index].since)};
 }
 
 QString patternSource(int index) {
     return validPattern(index) ? QString::fromUtf8(kPatterns[index].source) : QString();
+}
+
+QString patternDuplicate(int index) {
+    return validPattern(index) ? QString::fromUtf8(kPatterns[index].duplicate) : QString();
 }
 
 QStringList patternNames() {
@@ -220,8 +228,10 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
     const TrimMaterial material = trimMaterialAt(trimMaterial);
     const QString templateName = QStringLiteral("%1纹饰模板").arg(pattern.name);
 
-    // 来源与版本要求写「模板来源」——不写"地牢里"这种含糊说法。
-    result.notes.append(QStringLiteral("这枚%1来自：%2。").arg(templateName, pattern.source));
+    // 一句话把"从哪来"和"再要一枚拿什么换"说完 —— 这两样是用户看这页真正要查的。
+    // 模板本身和那七颗钻石不必写：前者就是这一枚，后者谁都备得住。
+    result.notes.append(QStringLiteral("这枚%1来自：%2；复制用%3。")
+                            .arg(templateName, pattern.source, pattern.duplicate));
     if (pattern.since != QStringLiteral("1.20")) {
         result.notes.append(QStringLiteral("%1是 Java %2 才加入的 —— 更早的版本里没有这枚模板。")
                                 .arg(templateName, pattern.since));
@@ -252,8 +262,7 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
         for (const QString &piece : pieceNames) {
             result.materials.append(QStringLiteral("%1 × 1").arg(piece));
         }
-        result.notes.append(QStringLiteral("整套 = 四次锻造，模板和材料各 %1 份（模板每用一次"
-                                           "消耗一个，不会因为做整套而省）。")
+        result.notes.append(QStringLiteral("整套需要 %1 次锻造，模板和材料各 %1 份。")
                                 .arg(kPartCount));
         result.summary = QStringLiteral("%1 / %2纹饰的%3")
                              .arg(material.name, pattern.name, setLabel);
@@ -274,13 +283,9 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
     result.materials.append(QStringLiteral("%1 × %2").arg(armor).arg(pieces));
 
     if (pieces > 1) {
-        result.notes.append(QStringLiteral("模板每打一件消耗一个 —— 四件套就是 %1 个模板，"
-                                           "不是学会一次用一辈子。")
+        result.notes.append(QStringLiteral("模板每打一件消耗一个：%1 件共需 %1 个。")
                                 .arg(pieces));
     }
-    result.notes.append(QStringLiteral("模板可以复制：1 个模板 + 7 颗钻石 + 1 块对应方块 → 2 个；"
-                                       "每种图案那块方块不一样，以游戏里那张配方为准。"));
-
     result.summary = QStringLiteral("%1 / %2纹饰的%3 × %4")
                          .arg(material.name, pattern.name, armor)
                          .arg(pieces);

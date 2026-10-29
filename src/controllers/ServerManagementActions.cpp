@@ -238,7 +238,7 @@ void ServerManagementActions::pickServerResourcePack(MainWindow *owner) {
     InlineMessage::information(
         owner->m_ui->overlay(), MainWindow::tr("SHA-1 算好了"),
         MainWindow::tr("本地这一份「%1」的 SHA-1 已经填进「资源包 SHA-1」那一格：\n\n%2\n\n"
-           "「资源包地址」那一格还得你自己填 —— 要一个别的玩家**连得到**的 http(s) "
+           "「资源包地址」那一格还得你自己填 —— 要一个别的玩家连得到的 http(s) "
            "链接（自己的网站 / 网盘直链 / 对象存储都行）。本机文件路径别人打不开，"
            "启动器不会把它填进去。\n\n"
            "换了 zip 就要重新算一遍 SHA-1；服务端下一次启动时才会用上新值。")
@@ -671,7 +671,7 @@ void ServerManagementActions::restoreServerWorldBackup(MainWindow *owner, const 
     // 默认**不**落在「还原」上：这一步会把这个世界现在的文件整个换掉（和删世界同一档）。
     if (!InlineMessage::question(
             owner->m_ui->overlay(), MainWindow::tr("恢复备份"),
-            MainWindow::tr("「%1」现在的文件会被备份里那一份**整个换掉**。\n\n"
+            MainWindow::tr("「%1」现在的文件会被备份里那一份整个换掉。\n\n"
                "还原之前会自动给现在这一份留一份安全快照，所以这一步是能退回来的。\n\n"
                "要还原的是这一份：\n%2")
                 .arg(worldName.isEmpty() ? serverId : worldName,

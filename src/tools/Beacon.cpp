@@ -144,12 +144,11 @@ QString sharedBaseText(int level, int beaconCount) {
             .arg(beaconCount);
     }
     if (beaconCount == 1) {
-        return QStringLiteral("一颗信标：底座 %1 块。信标本体另外要 3 块黑曜石 + 1 颗下界之星 + 3 块玻璃。")
-            .arg(totalBlocks(level));
+        return QStringLiteral("信标本体另需 3 块黑曜石 + 1 颗下界之星 + 3 块玻璃。");
     }
     // 每颗信标自己那一套材料按颗数算；底座只有一座。
     return QStringLiteral("%1 颗信标共用一座 %2 级金字塔：底座仍然只要 %3 块（顶面 3 × 3，最多放 %4 颗）；"
-                          "每颗信标自己另外要 3 块黑曜石 + 1 颗下界之星 + 3 块玻璃，%1 颗一共 %5 块黑曜石、"
+                          "每颗信标另需 3 块黑曜石 + 1 颗下界之星 + 3 块玻璃，%1 颗一共 %5 块黑曜石、"
                           "%1 颗下界之星、%5 块玻璃。")
         .arg(beaconCount)
         .arg(level)
@@ -173,7 +172,7 @@ QString summaryText(int level) {
     if (!isValidLevel(level)) {
         return QStringLiteral("信标等级只有 1 – 4 级（%1 不是一个真的等级）。").arg(level);
     }
-    return QStringLiteral("%1 级信标：范围 %2 格，累计 %3 块。")
+    return QStringLiteral("%1 级信标：范围 %2 格，底座共 %3 块。")
         .arg(level)
         .arg(effectRange(level))
         .arg(totalBlocks(level));
@@ -191,33 +190,27 @@ QString detailText(int fromLevel, int level) {
     lines << summaryText(level);
     // 说的是**从下面数第 level 层**（搭到这一级时新铺的那一层，也是最大的那一层）——
     // 不是"最上面那一层"：最上面永远是 3 × 3。
-    lines << QStringLiteral("• 从下面数第 %1 层：%2 × %2 = %3 块（最上面那层永远是 3 × 3）")
+    lines << QStringLiteral("• 第 %1 层：%2 × %2 = %3 块（最上面那层固定 3 × 3）")
                  .arg(level)
                  .arg(2 * level + 1)
                  .arg(layerBlocks(level));
-    lines << QStringLiteral("• 从零搭起一共要 %1 块（每一层比下面那层窄两格；这个数**不含**信标本体）")
-                 .arg(totalBlocks(level));
     if (fromLevel > 0 && fromLevel < level) {
-        lines << QStringLiteral("• 你现在是 %1 级：再补 %2 块就够")
+        lines << QStringLiteral("• 你现在是 %1 级：再补 %2 块")
                      .arg(fromLevel)
                      .arg(blocksToAdd(fromLevel, level));
     } else if (fromLevel == level) {
-        lines << QStringLiteral("• 你现在已经是 %1 级了，不用再加方块").arg(level);
+        lines << QStringLiteral("• 你现在是 %1 级：不需要再加方块").arg(level);
     } else if (fromLevel > level) {
-        lines << QStringLiteral("• 你现在是 %1 级，已经比这个目标高了（要降低就得自己拆）")
-                     .arg(fromLevel);
+        lines << QStringLiteral("• 你现在是 %1 级，高于目标；降级要自己拆").arg(fromLevel);
     }
-    lines << QStringLiteral("• 效果范围：%1 格").arg(effectRange(level));
-    lines << QStringLiteral("• 可以给：%1").arg(effectsForLevel(level).join(QStringLiteral("、")));
+    lines << QStringLiteral("• 效果：%1").arg(effectsForLevel(level).join(QStringLiteral("、")));
     if (level < maxLevel()) {
-        lines << QStringLiteral("• 再升一级（%1 级）要再加 %2 块，范围变成 %3 格")
+        lines << QStringLiteral("• 升到 %1 级：再加 %2 块，范围 %3 格")
                      .arg(level + 1)
                      .arg(layerBlocks(level + 1))
                      .arg(effectRange(level + 1));
-    } else {
-        lines << QStringLiteral("• 已经到顶了：4 级就是最高一级");
     }
-    lines << QStringLiteral("• 信标要放在金字塔正中间、上面留出天空（玻璃可以，别的方块不行）");
+    lines << QStringLiteral("• 信标放在金字塔正中间，上方留出天空（可用玻璃）");
     return lines.join(QLatin1Char('\n'));
 }
 

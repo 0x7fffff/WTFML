@@ -574,9 +574,33 @@ void runToolboxExtraTests() {
               "★★ ZAJ5 涡流是 1.21 的试炼密室模板",
               ArmorTrim::patternAt(flow).since);
 
+        // 复制材料抄的是游戏 `data/minecraft/recipe/*_armor_trim_smithing_template.json`
+        // 里那个 `C` 位；抽三枚不同的（石英那组里挑一枚、海晶石、1.21 的旋风棒）钉住。
+        check(ArmorTrim::patternDuplicate(coast) == QStringLiteral("圆石")
+                  && ArmorTrim::patternDuplicate(5) == QStringLiteral("末地石")
+                  && ArmorTrim::patternDuplicate(ArmorTrim::patternCount() - 1)
+                         == QStringLiteral("铜块"),
+              "★★ ZAJ5 复制用的方块逐图案抄游戏配方（海岸=圆石、眼眸=末地石、镶铆=铜块）",
+              ArmorTrim::patternDuplicate(coast) + QStringLiteral(" / ")
+                  + ArmorTrim::patternDuplicate(5) + QStringLiteral(" / ")
+                  + ArmorTrim::patternDuplicate(ArmorTrim::patternCount() - 1));
+        int missingDuplicate = 0;
+        for (int i = 0; i < ArmorTrim::patternCount(); ++i) {
+            if (ArmorTrim::patternDuplicate(i).isEmpty()) ++missingDuplicate;
+        }
+        check(missingDuplicate == 0,
+              "★★ ZAJ5 十八种图案**一个不缺**复制材料（不留「以游戏内为准」）",
+              QString::number(ArmorTrim::patternCount()) + QStringLiteral(" 种"));
+        check(ArmorTrim::patternDuplicate(-1).isEmpty(),
+              "★ ZAJ5 图案下标越界 ⇒ 复制材料是空串（不编一个方块出来）");
+
         const ArmorTrim::Plan single = ArmorTrim::plan(4, 1, coast, 0, 1);
         check(single.notes.join(QStringLiteral(" / ")).contains(QStringLiteral("这枚海岸纹饰模板来自：沉船")),
               "★★ ZAJ5 单件计划里也写清模板从哪儿来",
+              single.notes.join(QStringLiteral(" / ")));
+        check(single.notes.join(QStringLiteral(" / ")).contains(QStringLiteral("复制用圆石"))
+                  && !single.notes.join(QStringLiteral(" / ")).contains(QStringLiteral("以游戏内配方为准")),
+              "★★ ZAJ5 来源和复制材料写在同一句里，不再留一句「以游戏内配方为准」",
               single.notes.join(QStringLiteral(" / ")));
         const ArmorTrim::Plan flowPlan = ArmorTrim::plan(4, 1, flow, 0, 1);
         check(flowPlan.ok

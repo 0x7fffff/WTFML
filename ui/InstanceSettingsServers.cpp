@@ -192,7 +192,7 @@ void InstanceSettingsDialog::refreshServerFavorites() {
     if (m_serverTree->topLevelItemCount() > 0) {
         m_serverTree->setVisible(visible > 0);
         m_serverNotice->setVisible(visible == 0);
-        if (visible == 0) m_serverNotice->setText(tr("这个实例还没有收藏的服务器。"));
+        if (visible == 0) m_serverNotice->setText(tr("暂无收藏服务器"));
     }
     updateServerSelectionActions();
 }

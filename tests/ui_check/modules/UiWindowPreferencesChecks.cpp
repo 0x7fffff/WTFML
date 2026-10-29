@@ -62,8 +62,8 @@ int UiWindowPreferencesChecks(QTabWidget * &tabs) {
                             hasRowTitle = true;
                         }
                     }
-                    check(hasRowTitle,
-                          "Z2 行标题「游戏日志」真画在表单上（不是把勾选框那句话抄一遍）",
+                    check(!hasRowTitle,
+                          "Z2 游戏日志开关自带名称，不重复添加行标题",
                           MainWindowUI::showGameLogRowText());
                     check(MainWindowUI::showGameLogRowText() !=
                               MainWindowUI::showGameLogCheckText(),

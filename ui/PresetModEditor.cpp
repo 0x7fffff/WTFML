@@ -36,7 +36,7 @@ PresetModEditor::PresetModEditor(const QList<Entry> &entries, QWidget *parent) :
     setWindowTitle(tr("编辑模组预设"));
     resize(760, 440);
     auto *layout = new QVBoxLayout(this);
-    auto *hint = new QLabel(tr("粘贴 Modrinth 模组链接即可添加，也可填写项目 ID。游戏版本和加载器留空表示跟随实例；勾选“必要”的模组失败会阻止预设安装。"), this);
+    auto *hint = new QLabel(tr("版本和加载器留空时跟随实例；标为必要的模组失败会中止安装。"), this);
     hint->setWordWrap(true);
     layout->addWidget(hint);
     auto *quickRow = new QHBoxLayout;
@@ -77,7 +77,7 @@ PresetModEditor::PresetModEditor(const QList<Entry> &entries, QWidget *parent) :
         QString platform = QStringLiteral("modrinth"), id = link->text().trimmed();
         if (!normalizeProject(&platform, &id) ||
             !QRegularExpression(QStringLiteral("^[A-Za-z0-9_-]+$")).match(id).hasMatch()) {
-            m_problem->setText(tr("请输入 Modrinth 模组链接或项目 ID。CurseForge 请在表格中选择平台并填写数字项目 ID，不能用网页名称代替。"));
+            m_problem->setText(tr("请输入 Modrinth 链接或项目 ID；CurseForge 只能填数字 ID。"));
             link->setFocus(); return;
         }
         for (int row = 0; row < m_table->rowCount(); ++row) {
@@ -110,7 +110,7 @@ PresetModEditor::PresetModEditor(const QList<Entry> &entries, QWidget *parent) :
             const auto pattern = entry.platform == QStringLiteral("curseforge") ? QStringLiteral("^[0-9]+$") : QStringLiteral("^[A-Za-z0-9_-]+$");
             if ((entry.platform != QStringLiteral("modrinth") && entry.platform != QStringLiteral("curseforge")) ||
                 !QRegularExpression(pattern).match(entry.projectId).hasMatch() || seen.contains(key)) {
-                m_problem->setText(tr("第 %1 行：项目 ID 为空、格式错误或重复。Modrinth 支持模组链接；CurseForge 必须填写数字项目 ID。").arg(row + 1));
+                m_problem->setText(tr("第 %1 行：项目 ID 为空、格式错误或重复。").arg(row + 1));
                 m_table->setCurrentCell(row, 1); m_table->scrollToItem(m_table->item(row, 1)); return;
             }
             seen.insert(key);

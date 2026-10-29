@@ -393,7 +393,7 @@ QString AsciiPathAlias::ensure(const Paths &paths, const QString &versionId,
                    "这个实例只能用 Java 8 启动，而它所在的路径里有非 ASCII 字符 —— "
                    "Java 8 打不开这种路径（这台机器开着 Windows 的「Beta: 使用 Unicode UTF-8 "
                    "提供全球语言支持」，Java 8 认不出它）。\n\n"
-                   "启动器本想换成一套纯 ASCII 的别名绕过去，但**游戏目录自己**的路径里也有"
+                   "启动器本想换成一套纯 ASCII 的别名绕过去，但游戏目录自己的路径里也有"
                    "非 ASCII 字符，别名救不了：\n%1\n\n"
                    "把游戏目录挪到一个纯英文、数字的路径下（例如 E:\\MC\\.minecraft）就能正常"
                    "启动。")

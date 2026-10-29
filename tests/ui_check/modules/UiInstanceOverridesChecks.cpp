@@ -935,15 +935,8 @@ int UiInstanceOverridesChecks() {
                       groupButtonOf(dialog)->isEnabled(),
                   "★ U0h 勾上置顶**不动**「分组…」那一格（老家归老家、置顶归置顶）",
                   dialog.chosenGroupId());
-            // 用户点名要的那句解释：「下面给到注释提醒」。
-            QLabel *pinHintLabel = nullptr;
-            for (QLabel *label : dialog.findChildren<QLabel *>()) {
-                if (label->text() == Dlg::pinHint()) {
-                    pinHintLabel = label;
-                }
-            }
-            check(pinHintLabel != nullptr && pinHintLabel->wordWrap(),
-                  "★ U0h 勾选框底下那句解释摆在页面上（用户原话：下面给到注释提醒）");
+            check(pinOf(dialog)->parentWidget()->toolTip() == Dlg::pinHint(),
+                  "收藏规则通过按需帮助提供，不重复占用页面");
             pinOf(dialog)->setChecked(false);
             check(!dialog.pinned() && dialog.chosenGroupId() == QStringLiteral("default-vanilla"),
                   "U0h 取消置顶：分组那一格还是原来那一组（两件事各管各的）");
@@ -1021,23 +1014,8 @@ int UiInstanceOverridesChecks() {
                       exportScript->toolTip() == Dlg::exportScriptHint() &&
                       repairFiles->toolTip() == Dlg::repairFilesHint(),
                   "U0h2 两颗按钮各自的 tooltip 就是那两句解释（字面量只有产品那一份）");
-            // 下面那句**必须**留着，而且必须**不是** tooltip 的复印件：那颗按钮的 tooltip 里
-            // 那句"导出的脚本里有令牌、别发给别人"是这条路径上唯一的安全警告，光放 tooltip
-            // 里会有人一辈子看不到（理由见 .hpp 里 actionsHint() 那段）。
-            bool hintLabelFound = false;
-            for (QLabel *label : dialog.findChildren<QLabel *>()) {
-                if (label->text() == Dlg::actionsHint()) {
-                    hintLabelFound = true;
-                }
-            }
-            // 判"那句警告在**下面那一句**里"看的是"令牌"这两个字，不是"那句话还在不在"：
-            // actionsHint() 就是两句 tooltip 拼起来的，拿整句去比等于自己比自己的实现。
-            // 而"别把带令牌的脚本发给别人"是这条路上唯一的安全警告 —— 有人把下面那句改成
-            // 别的话（只留 tooltip 里那份）时，这一条必须红。
-            check(!Dlg::actionsHint().isEmpty() && hintLabelFound &&
-                      Dlg::actionsHint().contains(QStringLiteral("令牌")),
-                  "★ U0h2 两颗按钮下面那句真的摆在页面上，而且**那句令牌警告在里面**"
-                  "（只躺在 tooltip 里会有人一辈子看不到）");
+            check(exportScript->toolTip().contains(QStringLiteral("不保存令牌")),
+                  "启动脚本说明与不持久化登录令牌的实现一致");
         }
 
         // ---- U0h3 概览页那颗「检查更新」----
@@ -1070,8 +1048,8 @@ int UiInstanceOverridesChecks() {
                   "★ U0h3 那颗的 tooltip 就是那一份说全的（逐个资源认一遍 + 问版本列表要按"
                   "这个实例的游戏版本和加载器筛）");
             check(!Dlg::checkUpdatesButtonTooltip().isEmpty() &&
-                      Dlg::checkUpdatesButtonTooltip().contains(QStringLiteral("说不清")) &&
-                      Dlg::checkUpdatesHint().contains(QStringLiteral("不动盘上的文件")),
+                      Dlg::checkUpdatesButtonTooltip().contains(ModDependencies::updateUnknownText()) &&
+                      Dlg::checkUpdatesHint().contains(QStringLiteral("不修改文件")),
                   "★ U0h3 「说不清」这三个字写在 tooltip 里，而且下面那句明说了**不动盘上的"
                   "文件** —— 这条路上唯一一句安全承诺（有人把它删成「已经全部检查过了」时"
                   "这一条得红）",
@@ -1092,8 +1070,8 @@ int UiInstanceOverridesChecks() {
                     hintFound = true;
                 }
             }
-            check(hintFound,
-                  "★ U0h3 底下那句解释真的摆在页面上（只躺在 tooltip 里会有人一辈子看不到）");
+            check(!hintFound && checkUpdates->parentWidget()->toolTip() == Dlg::checkUpdatesHint(),
+                  "更新说明按需提供，不重复显示常驻说明");
             // 界面上的那三个字和判据那一层的 `updateUnknownText()` 必须是**同一个字**：
             // tooltip 里写的是给用户看的承诺（"认不出来的写「说不清」，那不是没问题"），
             // 而屏幕上真正印出来的那一格读的是 ModDependencies 那份（见
@@ -1285,8 +1263,8 @@ int UiInstanceOverridesChecks() {
                       QStringLiteral("标签 %1 处 / 占位「%2」")
                           .arg(labelHits)
                           .arg(nameEdit->placeholderText()));
-                check(hintHits == 1,
-                      "U1c 那一格下面那句解释也在（说清改这里 = 改磁盘上的目录名）",
+                check(hintHits == 0 && nameEdit->toolTip() == Dlg::instanceNameHint(),
+                      "U1c 实例重命名说明在输入框提示中，不占用额外行",
                       QStringLiteral("找到 %1 处").arg(hintHits));
                 // 读的是那一格里的字，而且**不 trim**：前后空格是用户自己写的，要原样返回。
                 // （"改没改名"那条判据在 MainWindow 那边比 instanceId，不靠这里 trim。）

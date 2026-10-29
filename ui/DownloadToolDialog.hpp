@@ -22,7 +22,7 @@ public:
         auto *layout = new QVBoxLayout(this);
         layout->setContentsMargins(20, 18, 20, 18);
         layout->setSpacing(12);
-        auto *hint = new QLabel(QStringLiteral("下载 HTTP/HTTPS 文件直链，进度同步到任务中心。支持失败重试；速度取决于网络和源站。关闭此窗口后任务继续。"), this);
+        auto *hint = new QLabel(QStringLiteral("下载 HTTP/HTTPS 直链，进度显示在任务中心。关闭窗口后任务继续。"), this);
         hint->setWordWrap(true);
         layout->addWidget(hint);
         auto *form = new QFormLayout;
@@ -48,7 +48,7 @@ public:
         progress = new QProgressBar(this); progress->setRange(0, 100); progress->setValue(0);
         progress->setObjectName(QStringLiteral("downloadToolProgress"));
         layout->addWidget(progress);
-        status = new QLabel(QStringLiteral("大文件在源站支持时自动分段；完整分段可跨重启续传，不支持时退回普通下载。"), this);
+        status = new QLabel(QStringLiteral("源站支持时自动分段，可跨重启续传。"), this);
         status->setTextFormat(Qt::PlainText); status->setWordWrap(true);
         status->setObjectName(QStringLiteral("downloadToolStatus"));
         layout->addWidget(status);
@@ -70,7 +70,7 @@ public:
             connect(button, &QPushButton::clicked, this, [this, action] { if (onCache) onCache(action); });
         }
         layout->addLayout(cacheButtons);
-        cacheLimit->setToolTip(QStringLiteral("新下载开始时按最旧优先整理闲置缓存；活动下载不会被清理，使用中可暂时超过上限。过期指 30 天未更新。"));
+        cacheLimit->setToolTip(QStringLiteral("按最旧优先整理闲置缓存；正在进行的下载不受影响。过期指 30 天未更新。"));
         auto *buttons = new QHBoxLayout;
         buttons->addStretch();
         stop = new QPushButton(QStringLiteral("取消下载"), this);

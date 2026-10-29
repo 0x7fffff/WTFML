@@ -178,12 +178,12 @@ void PresetManagePage::buildUi() {
     m_duplicateButton = new QPushButton(QStringLiteral("复制"), left);
     m_duplicateButton->setObjectName(duplicateButtonName());
     m_duplicateButton->setAutoDefault(false);
-    m_duplicateButton->setToolTip(QStringLiteral("新的一份，段和 files/ 里的文件原样搬过去。"));
+    m_duplicateButton->setToolTip(QStringLiteral("复制一份，内容和文件原样保留。"));
     m_defaultButton = new QPushButton(QStringLiteral("设为默认"), left);
     m_defaultButton->setObjectName(defaultButtonName());
     m_defaultButton->setAutoDefault(false);
     m_defaultButton->setToolTip(
-        QStringLiteral("安装实例时优先选中这一份。当前只有一个全局默认项，安装时仍可按类别调整选择。"));
+        QStringLiteral("安装实例时优先选中这一份。"));
     m_deleteButton = new QPushButton(QStringLiteral("删除"), left);
     m_deleteButton->setObjectName(deleteButtonName());
     m_deleteButton->setAutoDefault(false);
@@ -253,32 +253,30 @@ void PresetManagePage::buildUi() {
     rightLayout->setSpacing(8);
 
     // ---------- 这一份是什么 ----------
-    rightLayout->addWidget(makeSectionTitle(QStringLiteral("这一份预设"), right));
+    rightLayout->addWidget(makeSectionTitle(QStringLiteral("预设内容"), right));
 
-    auto *nameRow = new QHBoxLayout;
-    nameRow->setContentsMargins(0, 0, 0, 0);
-    nameRow->setSpacing(8);
-    nameRow->addWidget(new QLabel(QStringLiteral("名字"), right));
+    auto *details = new QGridLayout;
+    details->setContentsMargins(0, 0, 0, 0);
+    details->setHorizontalSpacing(8);
+    details->setVerticalSpacing(8);
+    details->setColumnStretch(1, 1);
+    details->addWidget(new QLabel(QStringLiteral("名称"), right), 0, 0, Qt::AlignRight | Qt::AlignVCenter);
     m_nameEdit = new QLineEdit(right);
     m_nameEdit->setObjectName(nameEditName());
-    m_nameEdit->setPlaceholderText(QStringLiteral("这一份叫什么"));
-    nameRow->addWidget(m_nameEdit, 1);
-    rightLayout->addLayout(nameRow);
+    m_nameEdit->setPlaceholderText(QStringLiteral("预设名称"));
+    details->addWidget(m_nameEdit, 0, 1);
 
-    auto *descriptionRow = new QHBoxLayout;
-    descriptionRow->setContentsMargins(0, 0, 0, 0);
-    descriptionRow->setSpacing(8);
-    descriptionRow->addWidget(new QLabel(QStringLiteral("说明"), right));
+    details->addWidget(new QLabel(QStringLiteral("说明"), right), 1, 0, Qt::AlignRight | Qt::AlignVCenter);
     m_descriptionEdit = new QLineEdit(right);
     m_descriptionEdit->setObjectName(descriptionEditName());
-    m_descriptionEdit->setPlaceholderText(QStringLiteral("一句话说明（可空）"));
-    descriptionRow->addWidget(m_descriptionEdit, 1);
-    m_saveDetailsButton = new QPushButton(QStringLiteral("保存名称和说明"), right);
+    m_descriptionEdit->setPlaceholderText(QStringLiteral("说明（可选）"));
+    details->addWidget(m_descriptionEdit, 1, 1);
+    m_saveDetailsButton = new QPushButton(QStringLiteral("保存"), right);
     m_saveDetailsButton->setObjectName(saveDetailsButtonName());
     m_saveDetailsButton->setAutoDefault(false);
     Theme::markButton(m_saveDetailsButton, Theme::ButtonKind::Neutral);
-    descriptionRow->addWidget(m_saveDetailsButton);
-    rightLayout->addLayout(descriptionRow);
+    details->addWidget(m_saveDetailsButton, 0, 2, 2, 1, Qt::AlignVCenter);
+    rightLayout->addLayout(details);
     connect(m_saveDetailsButton, &QPushButton::clicked, this, [this] {
         const QString id = currentPresetId();
         if (id.isEmpty()) return;
@@ -318,7 +316,7 @@ void PresetManagePage::buildUi() {
     });
 
     // ---------- 从实例提取 ----------
-    auto *captureToggle = new QPushButton(tr("从已有实例提取…"), right);
+    auto *captureToggle = new QPushButton(tr("从实例提取…"), right);
     captureToggle->setObjectName(QStringLiteral("presetCaptureToggle"));
     captureToggle->setCheckable(true);
     captureToggle->setAutoDefault(false);
@@ -351,14 +349,14 @@ void PresetManagePage::buildUi() {
     };
     captureGrid->addWidget(new QLabel(QStringLiteral("游戏设置"), right), 0, 0);
     addCheck(0, 1, QStringLiteral("基础设置"),
-             QStringLiteral("FOV、GUI 缩放、语言、音量、渲染距离……显示器/全屏分辨率那一类默认不收。"),
+             QStringLiteral("FOV、界面缩放、语言、音量、渲染距离等。"),
              true, &m_captureOptions);
     addCheck(0, 2, QStringLiteral("标准按键"),
              QStringLiteral("options.txt 里的 key_*。"),
              true, &m_captureKeys);
     captureGrid->addWidget(new QLabel(QStringLiteral("服务器"), right), 1, 0);
     addCheck(1, 1, QStringLiteral("服务器列表"),
-             QStringLiteral("servers.dat；落到别的实例上是「追加」，已经在列表里的地址不会重复。"),
+             QStringLiteral("servers.dat；追加到目标实例，已有地址不重复。"),
              true, &m_captureServers);
     captureGrid->addWidget(new QLabel(QStringLiteral("配置文件"), right), 2, 0);
     addCheck(2, 1, QStringLiteral("config/"),
@@ -382,8 +380,7 @@ void PresetManagePage::buildUi() {
              false, &m_captureMalilibValues);
     captureGrid->addWidget(new QLabel(QStringLiteral("数据包"), right), 5, 0);
     addCheck(5, 1, QStringLiteral("存档数据包"),
-             QStringLiteral("saves/<世界>/datapacks/；落到别的实例上时，目标那边还没有这个存档就先记成"
-                            "「待应用」摆着 —— 不新建存档，也不冒充已经在游戏里启用。"),
+             QStringLiteral("saves/<世界>/datapacks/；目标实例没有该存档时先记为「待应用」。"),
              false, &m_captureDataPacks);
     captureGrid->setColumnStretch(3, 1);
     captureLayout->addLayout(captureGrid);
@@ -391,7 +388,7 @@ void PresetManagePage::buildUi() {
     auto *captureRow = new QHBoxLayout;
     captureRow->setContentsMargins(0, 0, 0, 0);
     captureRow->setSpacing(8);
-    captureRow->addWidget(new QLabel(QStringLiteral("从这个实例"), right));
+    captureRow->addWidget(new QLabel(QStringLiteral("来源实例"), right));
     m_captureInstanceCombo = new QComboBox(right);
     m_captureInstanceCombo->setObjectName(captureInstanceComboName());
     m_captureInstanceCombo->setMinimumWidth(220);
@@ -410,7 +407,7 @@ void PresetManagePage::buildUi() {
     captureButtons->addWidget(m_captureButton);
     m_newPresetNameEdit = new QLineEdit(right);
     m_newPresetNameEdit->setObjectName(newPresetNameEditName());
-    m_newPresetNameEdit->setPlaceholderText(QStringLiteral("新预设的名字（可空）"));
+    m_newPresetNameEdit->setPlaceholderText(QStringLiteral("新预设名称（可选）"));
     m_newPresetNameEdit->setMaximumWidth(220);
     captureButtons->addWidget(m_newPresetNameEdit);
     m_captureAsNewButton = new QPushButton(QStringLiteral("提取为新预设"), right);
@@ -452,7 +449,7 @@ void PresetManagePage::buildUi() {
     m_previewButton->setObjectName(previewButtonName());
     m_previewButton->setAutoDefault(false);
     m_previewButton->setToolTip(
-        QStringLiteral("先说清楚会动哪几段、写几项、删几项、有哪些冲突；这一步一个字节都不写。"));
+        QStringLiteral("查看更改和冲突，不写入实例。"));
     Theme::markButton(m_previewButton, Theme::ButtonKind::Neutral);
     applyRow->addWidget(m_previewButton);
     rightLayout->addLayout(applyRow);
@@ -630,8 +627,8 @@ void PresetManagePage::rebuildPresetList(const QString &selectId, bool emitSelec
         m_presetMeta->clear();
         m_sectionList->clear();
         m_presetMeta->setText(m_presets.isEmpty()
-            ? tr("先选择左侧类别并新建预设，再编辑内容或从已有实例提取。")
-            : tr("没有匹配的预设，请调整类别或清空搜索。"));
+            ? tr("尚无预设")
+            : tr("未找到匹配的预设"));
     }
     refreshActions();
 
@@ -770,7 +767,7 @@ void PresetManagePage::showPreset(const QString &id, const QString &name,
 
     m_sectionList->clear();
     if (sections.isEmpty()) {
-        auto *item = new QListWidgetItem(tr("尚未添加内容：点击下方编辑按钮，或展开“从已有实例提取”。"),
+        auto *item = new QListWidgetItem(tr("暂无内容"),
                                          m_sectionList);
         item->setFlags(Qt::NoItemFlags);
     } else {
@@ -831,7 +828,7 @@ void PresetManagePage::setPlanLoading(bool loading) {
     clearPlan();
     m_previewButton->setText(loading ? tr("取消预览") : tr("预览计划"));
     m_previewButton->setToolTip(loading ? tr("取消本次预览，不会修改实例。")
-        : tr("先说清楚会动哪几段、写几项、删几项、有哪些冲突；这一步一个字节都不写。"));
+        : tr("预览会改动的段落与条目，这一步不写文件。"));
     m_planHint->setText(loading ? tr("正在读取实例并生成计划…") : QString());
     refreshActions();
 }
@@ -919,7 +916,7 @@ void PresetManagePage::showApplyResult(const ApplyView &result) {
         auto *item = new QListWidgetItem(QStringLiteral("备份：%1").arg(result.backupDir),
                                          m_planList);
         item->setFlags(Qt::NoItemFlags);
-        item->setToolTip(QStringLiteral("要还原的话，把这一棵里的文件照原路径拷回实例目录。"));
+        item->setToolTip(QStringLiteral("还原时把这一份里的文件按原路径拷回实例目录。"));
     }
     m_planHint->setText(result.ok ? QStringLiteral("应用完成。")
                                   : QStringLiteral("应用没有全部完成，看上面哪一段没做成。"));

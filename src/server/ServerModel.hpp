@@ -154,7 +154,7 @@ inline QString eulaFileText(bool accepted) {
     text += QStringLiteral("#By changing the setting below to TRUE you are indicating your "
                            "agreement to our EULA (https://aka.ms/MinecraftEULA).\n");
     text += QStringLiteral("#\n");
-    text += QStringLiteral("#我们（启动器）是在用户**主动勾选**之后才写这一行的，见 ServerModel 的文件头。\n");
+    text += QStringLiteral("#我们（启动器）是在用户主动勾选之后才写这一行的，见 ServerModel 的文件头。\n");
     text += QStringLiteral("eula=%1\n").arg(accepted ? QStringLiteral("true")
                                                     : QStringLiteral("false"));
     return text;

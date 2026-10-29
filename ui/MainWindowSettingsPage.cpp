@@ -56,6 +56,22 @@ QWidget *MainWindowUI::setupSettingsTab() {
 namespace {
 
 /// 设置页里一栏那一页的两样东西：表单控件（说明文字的父窗）与它那张 grid。
+// Static help stays available on demand; dynamic state/error labels remain inline.
+void addSettingHelp(QWidget *box, const QString &text, QWidget *) {
+    box->setToolTip(text);
+    box->setAccessibleDescription(text);
+    for (auto *child : box->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly)) {
+        if (child->accessibleDescription().isEmpty()) child->setAccessibleDescription(text);
+    }
+}
+
+void addSettingsControl(const SettingsSection &section, const QString &label,
+                        QWidget *control, QWidget *parent) {
+    // A checkbox already names its setting; avoid a duplicate heading above it.
+    const bool namedCheckbox = control->findChild<QCheckBox *>(QString(), Qt::FindDirectChildrenOnly) != nullptr;
+    addSettingItem(section, namedCheckbox ? section.title : label, control, parent);
+}
+
 struct SettingsPanel {
     QWidget *form = nullptr;
     QGridLayout *grid = nullptr;
@@ -233,14 +249,9 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         // 改用匹配的那个（那个开关在「提示」栏里）。全局档不问，是因为它不匹配时
         // 自动档本来就会挑一个替换掉，钉死的那档是用户对**整台机器**的选择 ——
         // 那种一眼就该是自己配错的，不值得每次启动都问一遍。
-        addHint(box, QStringLiteral("按版本要求自动挑：1.16.5 及以下要 Java 8、"
-                                    "1.18~1.20.4 要 Java 17、1.20.5~1.21.11 要 Java 21、"
-                                    "26.x 要 Java 25（同一个启动器里得能共存）。"
-                                    "缺哪一个、或者哪一个坏了打不开，点「Java 管理…」去装。"
-                                    "要给某一个实例单独钉一个 Java，用它的「实例设置…」；"
-                                    "那边对不上时会弹框问一句（那个开关在「提示」栏里）。"),
+        addSettingHelp(box, QStringLiteral("自动选择符合游戏版本要求的 Java；可在实例设置中单独指定。"),
                 form);
-        addSettingItem(section1, QStringLiteral("运行时"), box, form);
+        addSettingsControl(section1, QStringLiteral("运行时"), box, form);
     }
 
     // ---------- 内存分配 ----------
@@ -298,7 +309,7 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         // 一句占位，免得空标签把行高压成 0、布局跳一下。
         memoryHint = addDynamicHint(box, QStringLiteral("正在读取系统内存…"), form);
         memoryHint->setObjectName(memoryHintName());
-        addSettingItem(section2, QStringLiteral("最大内存"), box, form);
+        addSettingsControl(section2, QStringLiteral("最大内存"), box, form);
     }
     // NOTE: 「最小内存」（-Xms）**这一行不在界面上**。界面上不让他管这一项，值照旧存在
     // 设置里
@@ -318,10 +329,9 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         // 右边一大片空白。这几颗是同一件事的同一个控件（选一项），落到的宽度就该是
         // 同一条规矩。
         boxLayout->addWidget(launcherBehaviourCombo, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("游戏起来之后启动器自己怎么办。「收起」是把窗口藏起来、"
-                                    "进程还在（关掉进程会连带杀掉游戏）。"),
+        addSettingHelp(box, QStringLiteral("“收起”仅隐藏启动器窗口，游戏继续运行。"),
                 form);
-        addSettingItem(section3, QStringLiteral("启动器行为"), box, form);
+        addSettingsControl(section3, QStringLiteral("启动器行为"), box, form);
     }
 
     // ---------- JVM 参数 ----------
@@ -347,12 +357,9 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         buttonRowLayout->addStretch(1);
         boxLayout->addWidget(buttonRow);
 
-        addHint(box, QStringLiteral("多条参数用空格分隔（一行一条也行）。改完点「应用」生效 —— "
-                                    "不边打字边存，免得打到一半的半条参数被写进配置。"
-                                    "按版本的那份写在 .minecraft/versions/<版本>/wtfml.meta "
-                                    "的 jvmArgs 里，排在全局之后（同一条以后写的为准）。"),
+        addSettingHelp(box, QStringLiteral("参数以空格或换行分隔，点击“应用”保存。实例参数优先于全局参数。"),
                 form);
-        addSettingItem(section4, QStringLiteral("全局额外参数"), box, form);
+        addSettingsControl(section4, QStringLiteral("全局额外参数"), box, form);
     }
 
     // NOTE: 「实例预设」的入口在实例页顶部的模式行（客户端实例 | 服务端 | 预设）：
@@ -380,14 +387,11 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
         showGameLogCheck->setObjectName(showGameLogCheckName());
         // 勾选状态由 MainWindow 灌（它才知道这个开关存在哪），这里只搭控件。
         boxLayout->addWidget(showGameLogCheck, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("打开之后，每启动一份游戏都会另外开一个小窗，"
-                                    "把那一份游戏自己的输出实时写进去 —— 崩溃前那几行报错就在那里。"
-                                    "同时开好几份时一份游戏一个窗，不会混在一起。"
-                                    "关掉时游戏输出只进日志文件。"),
+        addSettingHelp(box, QStringLiteral("每个游戏独立显示日志窗口；关闭后仍保留日志文件。"),
                 form);
         // 行标题用 RowText() 那一句，**不是**勾选框上的那句话 —— 否则同一句话
         // 并排出现两遍；见 showGameLogRowText() 上面那段。
-        addSettingItem(section1, showGameLogRowText(), box, form);
+        addSettingsControl(section1, showGameLogRowText(), box, form);
     }
     {
         auto [box, boxLayout] = makeHintedControlWithLayout(form);
@@ -395,13 +399,9 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
         processPriorityCombo->setObjectName(processPriorityComboName());
         WheelGuard::install(processPriorityCombo);
         boxLayout->addWidget(processPriorityCombo, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("游戏进程占 CPU 的优先级。这和任务管理器里「设置优先级」"
-                                    "是同一件事，只是在这里设一次就一直生效。"
-                                    "往低调可以在后台跑着游戏的时候让系统先顾别的；"
-                                    "往高调**不解决卡顿** —— 卡顿多半是内存或显卡的事，"
-                                    "调高只会让别的程序更卡。"),
+        addSettingHelp(box, QStringLiteral("设置游戏进程的 CPU 调度优先级。较高优先级可能影响其它程序。"),
                 form);
-        addSettingItem(section1, QStringLiteral("进程优先级"), box, form);
+        addSettingsControl(section1, QStringLiteral("进程优先级"), box, form);
     }
     {
         auto [box, boxLayout] = makeHintedControlWithLayout(form);
@@ -409,18 +409,8 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
         gameWindowModeCombo->setObjectName(gameWindowModeComboName());
         WheelGuard::install(gameWindowModeCombo);
         boxLayout->addWidget(gameWindowModeCombo, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("小窗 = 按下面那个大小开一个普通窗口。"
-                                    "最大化 = 开一个铺满屏幕（任务栏那块地方留出来）的窗口，"
-                                    "下面那个大小这时不生效。"
-                                    "全屏 = 直接进全屏（原版自己的 --fullscreen），"
-                                    "下面那个大小这时是「按 F11 退出全屏之后回到多大」。"
-                                    // 这几句是**屏幕上给用户看的话**：没有加粗这回事，写
-                                    // `**…**` 会原样画成两个星号（「」才是这一套文案里
-                                    // 强调的写法）。
-                                    "这三档都只影响「启动那一刻」；游戏里自己改过的窗口大小、"
-                                    "以及游戏自己记住的那一份，启动器不覆盖。"),
-                form);
-        addSettingItem(section1, QStringLiteral("窗口模式"), box, form);
+        addSettingHelp(box, QStringLiteral("设置启动时的窗口模式；全屏下的尺寸用于退出全屏后。"), form);
+        addSettingsControl(section1, QStringLiteral("窗口模式"), box, form);
     }
     {
         auto [box, boxLayout] = makeHintedControlWithLayout(form);
@@ -451,12 +441,9 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
         // 整行按 sizeHint 靠左摆，不撑满整格（内容那一格是整幅宽，两个数字框被拉开就是坏的）——
         // 和 addInlineControl() 是同一条规矩，只是这里那一格是整个小容器而不是单个控件。
         boxLayout->addWidget(sizeRow, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("启动时按这个大小开窗（单位是像素，走的是原版自己的 "
-                                    "--width/--height 那两个参数）。默认的 854×480 就是"
-                                    "原版的默认值 —— 没动过这一项时和以前一模一样。"
-                                    "游戏内自己把窗口拖大过的话，以游戏记住的为准。"),
+        addSettingHelp(box, QStringLiteral("启动窗口尺寸，单位为像素。游戏可能优先使用自身保存的尺寸。"),
                 form);
-        addSettingItem(section1, QStringLiteral("窗口大小"), box, form);
+        addSettingsControl(section1, QStringLiteral("窗口大小"), box, form);
     }
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
@@ -488,12 +475,9 @@ void MainWindowUI::setupSettingsWarnPanel(QStackedWidget *stack) {
             new QCheckBox(QStringLiteral("实例指定的 Java 版本不符时提醒"), box);
         javaWarnMismatchCheck->setObjectName(javaWarnMismatchCheckName());
         boxLayout->addWidget(javaWarnMismatchCheck, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("只对「实例设置…」里单独指定过 Java 的实例起作用。"
-                                    "关掉之后不再问，直接按你给它指定的那个 Java 启动 ——"
-                                    "版本真的不对时游戏会以 UnsupportedClassVersionError "
-                                    "之类的方式失败，得去「实例设置…」里换回来。"),
+        addSettingHelp(box, QStringLiteral("关闭后仍使用实例指定的 Java，版本不符可能导致启动失败。"),
                 form);
-        addSettingItem(section1, javaWarnMismatchRowText(), box, form);
+        addSettingsControl(section1, javaWarnMismatchRowText(), box, form);
     }
     {
         auto [box, boxLayout] = makeHintedControlWithLayout(form);
@@ -501,22 +485,18 @@ void MainWindowUI::setupSettingsWarnPanel(QStackedWidget *stack) {
         warnDuplicateLaunchCheck->setObjectName(warnDuplicateLaunchCheckName());
         // 勾选状态由 MainWindow 灌（它才知道这个开关存在哪），这里只搭控件。
         boxLayout->addWidget(warnDuplicateLaunchCheck, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("用同一个账号、在十秒之内再点一次启动同一个实例时，"
-                                    "先问一句再启动 —— 手快连点两下会开出两份一模一样的游戏，"
-                                    "而它们开着同一份存档。"),
+        addSettingHelp(box, QStringLiteral("同一账号在 10 秒内重复启动同一实例时确认。"),
                 form);
-        addSettingItem(section1, warnDuplicateLaunchRowText(), box, form);
+        addSettingsControl(section1, warnDuplicateLaunchRowText(), box, form);
     }
     {
         auto [box, boxLayout] = makeHintedControlWithLayout(form);
         warnWorldLossCheck = new QCheckBox(warnWorldLossCheckText(), box);
         warnWorldLossCheck->setObjectName(warnWorldLossCheckName());
         boxLayout->addWidget(warnWorldLossCheck, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("这个实例已经有一份在跑时提醒一句：单人存档被两份游戏同时"
-                                    "打开可能会丢进度。换账号启动、或者上一问选了「仍要启动」，"
-                                    "走到的都是这一条。"),
+        addHint(box, QStringLiteral("同一实例同时运行可能损坏存档。"),
                 form);
-        addSettingItem(section1, warnWorldLossRowText(), box, form);
+        addSettingsControl(section1, warnWorldLossRowText(), box, form);
     }
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长
@@ -548,11 +528,11 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         // 文本框和下拉框不往整格里撑（内容那一格是整幅宽，一个名字框被拉到 600 px 看着就是坏的）——
         // 和 addInlineControl() 是同一条规矩。
         boxLayout->addWidget(titleTextEdit, 0, Qt::AlignLeft);
-        addHint(box,
-                QStringLiteral("窗口左上角那行字。留空就是默认的 %1。")
+        addSettingHelp(box,
+                QStringLiteral("留空使用默认标题 %1。")
                     .arg(TitleBar::defaultBrandText()),
                 form);
-        addSettingItem(section1, QStringLiteral("标题文字"), box, form);
+        addSettingsControl(section1, QStringLiteral("标题文字"), box, form);
     }
 
     // ---------- 主题 ----------
@@ -578,11 +558,10 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
             }
             themePresetCombo->setMinimumWidth(themePresetComboWidth());
             boxLayout->addWidget(themePresetCombo, 0, Qt::AlignLeft);
-            addHint(box,
-                    QStringLiteral("翡翠实验室与海洋蓝为浅色主题，炭灰适合夜间使用；"
-                                   "也可以选择跟随系统的深浅模式。"),
+            addSettingHelp(box,
+                    QStringLiteral("可选择固定主题或跟随系统。"),
                     form);
-            addSettingItem(section2, themePresetRowText(), box, form);
+            addSettingsControl(section2, themePresetRowText(), box, form);
         }
         {
             auto *colors = new QCheckBox(QStringLiteral("日志颜色显示"), form);
@@ -593,8 +572,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
             });
             QWidget *box = makeHintedControl(form);
             qobject_cast<QVBoxLayout *>(box->layout())->addWidget(colors);
-            addHint(box, QStringLiteral("对新打开的日志窗口生效。关闭后使用统一文字与背景色，等级计数、过滤和导出仍然保留。"), form);
-            addSettingItem(section2, QStringLiteral("游戏日志"), box, form);
+            addSettingHelp(box, QStringLiteral("对新日志窗口生效，不影响等级过滤、计数和导出。"), form);
+            addSettingsControl(section2, QStringLiteral("游戏日志"), box, form);
         }
 
         // ---- 主题色（顶栏那一块、当前那一颗导航底下那条线、确认性按钮的字和边）----
@@ -620,11 +599,10 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
             lineLayout->addWidget(themeAccentResetButton);
             lineLayout->addStretch(1);
             boxLayout->addWidget(line);
-            addHint(box,
-                    QStringLiteral("点左边那块色挑一个颜色。顶栏、侧栏选中项那根竖条、"
-                                   "确认性按钮（启动 / 下载 / 搜索那些）都用它。"),
+            addSettingHelp(box,
+                    QStringLiteral("用于标题栏、选中标记和主要操作按钮。"),
                     form);
-            addSettingItem(section2, themeAccentRowText(), box, form);
+            addSettingsControl(section2, themeAccentRowText(), box, form);
         }
 
         // ---- 文字不透明度 ----
@@ -646,11 +624,10 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
             lineLayout->addWidget(themeTextOpacityPercent);
             lineLayout->addStretch(1);
             boxLayout->addWidget(line);
-            addHint(box,
-                    QStringLiteral("界面上所有字的不透明度。调低 = 字变淡（下面那张背景图透出来"
-                                   "更明显）。100% 是出厂那一档。"),
+            addSettingHelp(box,
+                    QStringLiteral("调整界面文字的不透明度。"),
                     form);
-            addSettingItem(section2, themeTextOpacityRowText(), box, form);
+            addSettingsControl(section2, themeTextOpacityRowText(), box, form);
         }
 
         // ---- 语义色（危险 / 警告 / 正常 / 报错）----
@@ -700,16 +677,14 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
             lineLayout->addWidget(themeSemanticResetButton, 0, Qt::AlignTop);
             lineLayout->addStretch(1);
             boxLayout->addWidget(line);
-            addHint(box,
-                    QStringLiteral("红黄绿各是哪个红黄绿（删除失败那种红、警告的黄、"
-                                   "「一切正常」的绿、表单报错那处红）。"
-                                   "不挑就按当前深浅现推 —— 「跟随预设」把它还给预设。"),
+            addSettingHelp(box,
+                    QStringLiteral("自定义错误、警告和成功状态的颜色；“跟随预设”恢复主题配色。"),
                     form);
-            addSettingItem(section2, themeSemanticRowText(), box, form);
+            addSettingsControl(section2, themeSemanticRowText(), box, form);
         }
 
         m_themeAdvancedEditor = new ThemeAdvancedEditor(form);
-        addSettingItem(section2, QStringLiteral("高级配色"), m_themeAdvancedEditor, form);
+        addSettingsControl(section2, QStringLiteral("高级配色"), m_themeAdvancedEditor, form);
 
         // ---- 整份主题：恢复全部默认 + 导出 / 导入 ----
         {
@@ -739,12 +714,10 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
             }
             lineLayout->addStretch(1);
             boxLayout->addWidget(line);
-            addHint(box,
-                    QStringLiteral("「恢复全部默认」把这一栏（含下面的背景图）一起还原成出厂那一份。"
-                                   "「导出」存成一个 JSON 文件，能自己改、也能带到别的机器上导回来；"
-                                   "背景图那几张图**不在**这个文件里（只有路径）。"),
+            addSettingHelp(box,
+                    QStringLiteral("恢复默认包含背景设置。导出文件仅保存图片路径，不包含图片。"),
                     form);
-            addSettingItem(section2, themeFileRowText(), box, form);
+            addSettingsControl(section2, themeFileRowText(), box, form);
         }
 
         // ---- Tab 顺序：这一节按"从上到下、从左到右"排一遍 ----
@@ -839,21 +812,19 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
             widgets.state->setWordWrap(true);
             boxLayout->addWidget(widgets.state);
 
-            addHint(box,
-                    QStringLiteral("%1「选择图片…」挑的那张会拷一份进启动器的数据目录，"
-                                   "之后把它挪走、删掉都不影响这一块。不透明度调低 = "
-                                   "底下的底色透上来 —— 字要读得清就是靠它。")
+            addSettingHelp(box,
+                    QStringLiteral("%1图片会复制到启动器数据目录。透明度影响图片与底色的混合。")
                         .arg(what),
                     form);
-            addSettingItem(section3, Theme::partName(part), box, form);
+            addSettingsControl(section3, Theme::partName(part), box, form);
 
             m_themeImageRows.append(widgets);
         };
 
         addImageRow(Theme::Part::HomeLeft,
-                    QStringLiteral("主页左栏那一块（「已安装版本」到「启动游戏」那一片）。"));
+                    QStringLiteral("主页内容区。"));
         addImageRow(Theme::Part::PageBackground,
-                    QStringLiteral("四个页面（主页 / 实例 / 下载 / 设置）内容区那一整块底。"));
+                    QStringLiteral("主页、管理、下载和设置的页面背景。"));
     }
 
     // ---------- 账户 ----------
@@ -874,10 +845,9 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         boxLayout->addWidget(accountSkinSettingsButton, 0, Qt::AlignLeft);
         // 账号入口集中在主页右上身份区；设置页不保留第二扇门。
         accountSkinSettingsButton->hide();
-        addHint(box, QStringLiteral("正版登录、添加离线账号、切换账号、换皮肤和披风都在这个窗里。"
-                                    "登录后用户名显示在窗口左下角，启动游戏时用的也是它。"),
+        addSettingHelp(box, QStringLiteral("管理账号、皮肤和披风。"),
                 form);
-        addSettingItem(section4, QStringLiteral("账号"), box, form);
+        addSettingsControl(section4, QStringLiteral("账号"), box, form);
     }
 
     // ---------- 版本名格式 ----------
@@ -907,11 +877,9 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         checkLayout->setColumnStretch(2, 1);
         boxLayout->addWidget(checks);
 
-        addHint(box, QStringLiteral("上面这些名字是按「自定义名-实际版本-加载器名-加载器版本」"
-                                    "拼出来的，勾掉哪一项哪一段就不显示。"
-                                    "数据来自 .minecraft/versions/<版本>/wtfml.meta。"),
+        addSettingHelp(box, QStringLiteral("按所选字段组合显示名称，不更改实例目录名。"),
                 form);
-        addSettingItem(section5, QStringLiteral("显示哪些字段"), box, form);
+        addSettingsControl(section5, QStringLiteral("显示哪些字段"), box, form);
     }
 
     // ---------- 动效 ----------
@@ -928,13 +896,10 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         animationsCheck = new QCheckBox(animationsCheckText(), box);
         animationsCheck->setObjectName(animationsCheckName());
         boxLayout->addWidget(animationsCheck, 0, Qt::AlignLeft);
-        addHint(box,
-                QStringLiteral("按钮按下的反馈、换页、列表展开折叠那几段。"
-                               "关掉之后它们立刻完成 —— 界面一样能用。\n"
-                               "Windows 的「辅助功能 → 视觉效果 → 动画效果」关着的时候，"
-                               "这一档是不动的（系统说了算）。"),
+        addSettingHelp(box,
+                QStringLiteral("控制按压、换页和展开动画；同时遵循系统的减少动态效果设置。"),
                 form);
-        addSettingItem(section6, QStringLiteral("切换"), box, form);
+        addSettingsControl(section6, QStringLiteral("切换"), box, form);
     }
 
     const SettingsSection section7 =
@@ -947,8 +912,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         spin->setSuffix(QStringLiteral(" 个"));
         WheelGuard::install(spin);
         boxLayout->addWidget(spin, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("设为 0 时整排隐藏；窗口变窄时条目自动精简为图标。"), form);
-        addSettingItem(section7, label, box, form);
+        addSettingHelp(box, QStringLiteral("0 表示隐藏；窄屏自动精简为图标。"), form);
+        addSettingsControl(section7, label, box, form);
         *out = spin;
     };
     addCount(QStringLiteral("收藏排数量"), homeFavoriteCountSpinName(), &homeFavoriteCountSpin);
@@ -973,10 +938,9 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
         downloadSourceCombo->setObjectName(downloadSourceComboName());
         WheelGuard::install(downloadSourceCombo);
         boxLayout->addWidget(downloadSourceCombo, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("镜像源是第三方服务（BMCLAPI），国内通常快很多。"
-                                    "下回来的文件不对时可以换回官方源重下。"),
+        addHint(box, QStringLiteral("镜像服务由 BMCLAPI 提供。"),
                 form);
-        addSettingItem(section1, QStringLiteral("来源"), box, form);
+        addSettingsControl(section1, QStringLiteral("来源"), box, form);
     }
     {
         // 「同时最多下几个」。放在「下载源」这一组里：和上面那两格是
@@ -987,12 +951,9 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
         downloadConcurrencyCombo->setObjectName(downloadConcurrencyComboName());
         WheelGuard::install(downloadConcurrencyCombo);
         boxLayout->addWidget(downloadConcurrencyCombo, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("同时最多几个文件在下载。调大在快网线上更快，"
-                                    "网线慢或者被限流时反而更容易超时 —— 默认那一档是实测"
-                                    "挑出来的平衡点。改完立刻生效，正在下的那一批也按新值走"
-                                    "（已经在下的那几个不会被叫停）。"),
+        addSettingHelp(box, QStringLiteral("同时下载的文件上限。降低上限可减少限流和超时；不会中断正在下载的文件。"),
                 form);
-        addSettingItem(section1, downloadConcurrencyRowText(), box, form);
+        addSettingsControl(section1, downloadConcurrencyRowText(), box, form);
     }
     {
         // 「下载速度上限」。和上面那格同一个位置、同一个形状：它也是
@@ -1003,12 +964,9 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
         downloadSpeedLimitCombo->setObjectName(downloadSpeedLimitComboName());
         WheelGuard::install(downloadSpeedLimitCombo);
         boxLayout->addWidget(downloadSpeedLimitCombo, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("给自动下载（游戏文件、模组、资源包这些）压一个总上限，"
-                                    "免得把整条网线占满。0 = 不限。\n"
-                                    "改完立刻生效：正在下的那一批也会慢下来（不会重新开始）。"
-                                    "工具箱里的「直链下载」是另一件工具，不受这一项管。"),
+        addSettingHelp(box, QStringLiteral("0 表示不限速，对正在进行的自动下载生效，不影响工具箱的直链下载。"),
                 form);
-        addSettingItem(section1, downloadSpeedLimitRowText(), box, form);
+        addSettingsControl(section1, downloadSpeedLimitRowText(), box, form);
     }
     {
         // 「代理」。和上面几格同一个位置：它也是"请求怎么走"。
@@ -1025,14 +983,9 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
             QStringLiteral("127.0.0.1:7890 或 socks5://127.0.0.1:7890"));
         downloadProxyManualEdit->setVisible(false);
         boxLayout->addWidget(downloadProxyManualEdit);
-        addHint(box, QStringLiteral("启动器所有的网络请求都走这一项。\n"
-                                    "「跟随系统」= 用 Windows 的 Internet 选项里配的那个；"
-                                    "「直连」= 一个代理都不走；「手动」= 填一个 HTTP 或 SOCKS5 "
-                                    "代理地址（只认主机和端口，不带路径）。\n"
-                                    "改完立刻生效 —— 已经在跑的那几个请求不会被掐断，下一次"
-                                    "请求就走新的。"),
+        addSettingHelp(box, QStringLiteral("跟随系统、直连或使用 HTTP/SOCKS5 代理。更改对后续请求生效。"),
                 form);
-        addSettingItem(section1, downloadProxyRowText(), box, form);
+        addSettingsControl(section1, downloadProxyRowText(), box, form);
     }
     {
         // CurseForge 的 API key。放在「下载源」这一组里是因为它和上面那格
@@ -1046,14 +999,9 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
         // 贴错了得能看一眼；② 它本来就明文躺在配置里，圆点给的是**假的**安全感。
         // 它是这一项而不是"账号密码"那一类：泄露的代价是那个用户自己的额度被用掉。
         boxLayout->addWidget(curseForgeApiKeyEdit);
-        addHint(box, QStringLiteral("CurseForge 那一条路要用它：下载页把来源选成 CurseForge 时"
-                                    "搜项目靠接口，CurseForge 格式的整合包导入也要靠接口把"
-                                    "清单里那些编号换成下载地址。官方接口要 key（在 "
-                                    "console.curseforge.com 免费申请），留空则走一台社区镜像 —— "
-                                    "它不用 key，但可能限流、也可能哪天就停了。"
-                                    "改完按回车（或者点到别处）就记住。"),
+        addSettingHelp(box, QStringLiteral("用于 CurseForge 搜索和整合包解析。留空时使用社区镜像。"),
                 form);
-        addSettingItem(section1, curseForgeApiKeyRowText(), box, form);
+        addSettingsControl(section1, curseForgeApiKeyRowText(), box, form);
     }
 
     // ---------- 下下来的东西放在哪儿 ----------
@@ -1067,12 +1015,9 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
             new QCheckBox(downloadAutoIntoInstanceCheckText(), box);
         downloadAutoIntoInstanceCheck->setObjectName(downloadAutoIntoInstanceCheckName());
         boxLayout->addWidget(downloadAutoIntoInstanceCheck, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("勾上：从实例设置里点「下载新模组」（或资源包等）时，"
-                                    "下回来的文件直接放进那个实例，不再问存哪儿；"
-                                    "在下载页里直接下的仍然会弹框让你挑位置。\n"
-                                    "不勾：不管从哪儿点进来的，每次都弹框让你自己挑。"),
+        addSettingHelp(box, QStringLiteral("从实例设置发起的下载直接保存到该实例，关闭后每次选择位置；下载页仍需选择位置。"),
                 form);
-        addSettingItem(section2, downloadAutoIntoInstanceRowText(), box, form);
+        addSettingsControl(section2, downloadAutoIntoInstanceRowText(), box, form);
     }
 
     // ---------- 「下载缺前置时提醒」 ----------
@@ -1083,12 +1028,9 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
         warnMissingDependenciesCheck = new QCheckBox(warnMissingDependenciesCheckText(), box);
         warnMissingDependenciesCheck->setObjectName(warnMissingDependenciesCheckName());
         boxLayout->addWidget(warnMissingDependenciesCheck, 0, Qt::AlignLeft);
-        addHint(box, QStringLiteral("勾上：点下载一个模组（或光影包）时，先看它要装进的那个实例"
-                                    "缺不缺前置；缺了就弹窗列出来，可以一键一起下。\n"
-                                    "不勾：不查也不提示，只下你点的那一版 —— 前置缺了游戏会在"
-                                    "启动时崩，而崩溃画面里一个字都不会提到少了哪个模组。"),
+        addSettingHelp(box, QStringLiteral("下载前检查目标实例的必要前置；关闭后可能因缺少依赖而无法运行。"),
                 form);
-        addSettingItem(section2, warnMissingDependenciesRowText(), box, form);
+        addSettingsControl(section2, warnMissingDependenciesRowText(), box, form);
     }
 
     // 剩下的竖直空间留在底部：设置项不跟着窗口高度一起被拉长

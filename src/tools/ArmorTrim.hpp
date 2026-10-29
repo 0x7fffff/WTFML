@@ -14,8 +14,9 @@
  * 【一张模板打一件】
  *
  * 锻造台里**模板每用一次消耗一个**（不是永久解锁）。所以做整套（四件）要学会算成
- * "模板 × 4"。模板攒不够时可以复制：**1 个模板 + 7 颗钻石 + 1 块对应方块 → 2 个模板**，
- * 但**每种图案那块方块不一样** —— 这里不瞎写，只把这件事说出来（不编造）。
+ * "模板 × 4"。模板攒不够时可以复制：**1 个模板 + 7 颗钻石 + 1 块对应方块 → 2 个模板**。
+ * 那块方块**每种图案不一样**，所以这里把 18 种各抄一份（游戏 `data/minecraft/recipe/`
+ * 里那张复制配方的 `C` 位），结果里直接写"复制用圆石"这种话，不留"以游戏内为准"。
  *
  * 【海龟壳】
  *
@@ -45,10 +46,11 @@ QStringList trimMaterialNames();
 
 /// 纹饰图案（模板）。
 struct TrimPattern {
-    QString id;     ///< `coast`
-    QString name;   ///< `海岸`
-    QString source; ///< 这枚模板从哪儿来（`沉船（藏宝箱）`）
-    QString since;  ///< 哪个 Java 版本开始有（`1.20` / `1.21`）
+    QString id;        ///< `coast`
+    QString name;      ///< `海岸`
+    QString source;    ///< 这枚模板从哪儿来（`沉船（藏宝箱）`）
+    QString duplicate; ///< 复制这枚模板要的方块（`圆石`）
+    QString since;     ///< 哪个 Java 版本开始有（`1.20` / `1.21`）
 };
 
 int patternCount();
@@ -57,6 +59,8 @@ TrimPattern patternAt(int index);
 QStringList patternNames();
 /// 模板来源那一句（`沉船（藏宝箱）`；越界回空串）。界面别自己再写一份。
 QString patternSource(int index);
+/// 复制这枚模板要的那种方块（`圆石`；越界回空串）。抄的是游戏自己的复制配方。
+QString patternDuplicate(int index);
 
 // ================= 盔甲 =================
 

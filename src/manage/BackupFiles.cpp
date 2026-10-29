@@ -825,7 +825,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
             result.stage = RestoreResult::Stage::Space;
             result.problem = QObject::tr("这块盘放不下这一份备份：解开大约要 %1，只剩 %2。"
                                          "\n清一清空间、或者把它还原到别的盘上再试。"
-                                         "\n**现在盘上原有的东西一个字节都没动。**")
+                                         "\n现在盘上原有的东西一个字节都没动。")
                                  .arg(QLocale().formattedDataSize(needed),
                                       QLocale().formattedDataSize(free));
             return result;
@@ -909,7 +909,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
                 if (!probeProblem.isEmpty() || !present.isEmpty()) {
                     result.stage = RestoreResult::Stage::SafetySnapshot;
                     result.problem = QObject::tr("没能在还原之前给「现在这一份」做安全快照：%1"
-                                                 "\n为了不让你丢东西，这个目录**没有被改动**。")
+                                                 "\n为了不让你丢东西，这个目录没有被改动。")
                                          .arg(snapshot.problem);
                     return result;
                 }

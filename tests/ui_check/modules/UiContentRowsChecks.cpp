@@ -315,6 +315,10 @@ int UiContentRowsChecks() {
                 bool allHaveIconSlot = true;
                 bool allSameWidth = true;
                 bool allRowHeight = true;
+                // 「原理图 / 配置文件」这两页没有图，产品侧**不建**那一格（见
+                // `InstanceFilesPage::setRowIconsVisible()`）：这里反过来核"确实没有"。
+                int iconlessRowsChecked = 0;
+                bool noSlotOnIconlessPages = true;
                 for (const QString &key : Dlg::filePageKeys()) {
                     // 「服务器列表」那一页是棵表（另有一节量它），不是"一行一个文件"那种行。
                     if (key == Dlg::serverPageKey()) {
@@ -326,13 +330,20 @@ int UiContentRowsChecks() {
                     }
                     ++pagesChecked;
                     page->refresh();
+                    const bool pageHasIcons = key != QStringLiteral("schematic")
+                                              && key != QStringLiteral("config");
                     for (int row = 0; row < page->list()->count(); ++row) {
-                        ++rowsChecked;
                         QLabel *label = iconLabelAt(page, row);
-                        allHaveIconSlot = allHaveIconSlot && label != nullptr;
-                        allSameWidth =
-                            allSameWidth && label != nullptr &&
-                            label->width() == MainWindowUI::instanceFileIconSize();
+                        if (pageHasIcons) {
+                            ++rowsChecked;
+                            allHaveIconSlot = allHaveIconSlot && label != nullptr;
+                            allSameWidth =
+                                allSameWidth && label != nullptr &&
+                                label->width() == MainWindowUI::instanceFileIconSize();
+                        } else {
+                            ++iconlessRowsChecked;
+                            noSlotOnIconlessPages = noSlotOnIconlessPages && label == nullptr;
+                        }
                         QListWidgetItem *item = page->list()->item(row);
                         allRowHeight =
                             allRowHeight && item != nullptr &&
@@ -346,8 +357,11 @@ int UiContentRowsChecks() {
                       "Z15c 前提：中间那几页都列到了东西（下面那三条才有东西可量）",
                       QStringLiteral("%1 页 / %2 行").arg(pagesChecked).arg(rowsChecked));
                 check(allHaveIconSlot && rowsChecked > 0,
-                      "★ Z15c **每一页每一行**最左边都有那一格图标（少一格的话那一列左边界"
-                      "就对不齐，而看着像某几行漏画了）");
+                      "★ Z15c **有图的那几页每一行**最左边都有那一格图标（少一格的话那一列"
+                      "左边界就对不齐，而看着像某几行漏画了）");
+                check(noSlotOnIconlessPages && iconlessRowsChecked > 0,
+                      "★ Z15c 原理图 / 配置文件那两页**一个图标格都不建**（整列占位拼图白占宽度）",
+                      QStringLiteral("%1 行").arg(iconlessRowsChecked));
                 check(allSameWidth,
                       "★ Z15c 那一格是固定宽度（= instanceFileIconSize()）：真图标回来换上去"
                       "时布局不该重算 —— 一列几十行同时重排会让整张表抖一下",

@@ -300,7 +300,7 @@ void ServerSettingsPageController::save() {
         // 写一半再报错，用户看着的是"保存了"而盘上是半份 —— 宁可让他把那一格改对再来。
         InlineMessage::warning(
             m_owner.m_ui->overlay(), MainWindow::tr("有几项改不了"),
-            MainWindow::tr("这几项的值不对，所以**这一趟什么都没写**：\n%1\n\n"
+            MainWindow::tr("这几项的值不对，所以这一趟什么都没写：\n%1\n\n"
                            "把这几项改对（表单里的格子、或者「原始文本」里那一行），"
                            "再按一次保存。")
                 .arg(result.rejected.join(QStringLiteral("\n"))));

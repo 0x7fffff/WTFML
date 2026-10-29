@@ -49,8 +49,8 @@ int UiBackupActionsChecks() {
             // 三句话各说各的：一个说"整个文件夹打成一个包"，一个说"挑一份还原回来"，
             // 一个说"备份放在哪儿"。三颗同款按钮挤在一排上，说不清就会点错。
             check(fullBackup->toolTip().contains(QStringLiteral("压缩包")) &&
-                      restore->toolTip().contains(QStringLiteral("挑一份")) &&
-                      backupFolder->toolTip().contains(QStringLiteral("哪儿")),
+                      restore->toolTip().contains(QStringLiteral("还原")) &&
+                      backupFolder->toolTip().contains(QStringLiteral("备份目录")),
                   "★★ U30.1 三句 tooltip 各说各的（打成一个包 / 挑一份还原 / 备份放在哪儿）"
                   "—— 同款按钮挤一排，说不清就会点错",
                   fullBackup->toolTip());

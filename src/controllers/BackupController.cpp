@@ -313,7 +313,7 @@ void BackupController::restoreWorld(const QString &worldDir, InstanceSettingsDia
     const QPointer<BackupController> alive(this);
     if (!InlineMessage::question(
             m_overlay, tr("恢复备份"),
-            tr("「%1」现在的文件会被备份里那一份**整个换掉**。\n\n"
+            tr("「%1」现在的文件会被备份里那一份整个换掉。\n\n"
                "还原之前会自动给现在这一份留一份安全快照，所以这一步是能退回来的。\n\n"
                "要还原的是这一份：\n%2")
                 .arg(worldName, QDir::toNativeSeparators(zip)),
@@ -363,9 +363,8 @@ void BackupController::snapshotInstance(const QString &versionId) {
     }
     const int picked = InlineMessage::ask(
         m_overlay, MessageKind::Question, tr("创建快照"),
-        tr("快照会把「%1」整个目录打成一个压缩包，需要的时候可以整体还原回来。\n\n"
-           "默认**不**打包 assets 和 libraries —— 那两部分是能重新下回来的资源文件和游戏库"
-           "（通常几百 MB 到几个 GB），不打它们快照会小很多。")
+        tr("快照会把「%1」整个目录打成一个压缩包，需要时可整体还原。\n\n"
+           "默认不打包 assets 和 libraries：这两部分能重新下载，通常有几百 MB 到几个 GB。")
             .arg(displayName(versionId)),
         {tr("创建快照"), tr("完整快照（含可重新下载的部分）"), tr("取消")}, 0, -1, false);
     if (picked != 0 && picked != 1) return;
@@ -448,7 +447,7 @@ void BackupController::restoreInstance(const QString &versionId, InstanceSetting
     const QPointer<BackupController> alive(this);
     if (!InlineMessage::question(
             m_overlay, tr("从快照恢复"),
-            tr("「%1」现在的文件会被快照里那一份**整个换掉** —— 模组、配置、存档全算。\n\n"
+            tr("「%1」现在的文件会被快照里那一份整个换掉 —— 模组、配置、存档全算。\n\n"
                "还原之前会自动给现在这一份留一份安全快照，所以这一步是能退回来的。\n\n"
                "要还原的是这一份：\n%2")
                 .arg(displayName(versionId), QDir::toNativeSeparators(zip)),

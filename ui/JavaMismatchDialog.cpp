@@ -35,8 +35,7 @@ QString JavaMismatchDialog::messageText(const QString &instanceName, int expecte
                                         const QString &javaPath) {
     return QStringLiteral(
                "实例「%1」在「实例设置…」里指定了 %2，而这个版本要求 Java %3。\n\n"
-               "仍然用它启动多半起不来（报 UnsupportedClassVersionError）；"
-               "改用匹配的 Java 会把「实例设置…」里那一项换成自动挑中的匹配版本，并记下来。\n\n"
+               "用它启动多半会失败。改用匹配的 Java 会把实例设置里那一项换成自动挑中的版本。\n\n"
                "%4")
         .arg(instanceName, describeActual(actualMajor, actualVersionText),
              QString::number(expectedMajor), javaPath);
@@ -65,7 +64,7 @@ JavaMismatchDialog::JavaMismatchDialog(const QString &instanceName, int expected
     m_dontRemindCheck = new QCheckBox(tr("以后不再提醒这个实例"), this);
     m_dontRemindCheck->setObjectName(dontRemindCheckName());
     m_dontRemindCheck->setToolTip(
-        tr("记在这个实例自己的 wtfml.meta 里。想再打开：实例设置… → 高级选项 → 版本提醒。"));
+        tr("记在这个实例的设置里，可随时在「高级选项 → 版本提醒」改回来。"));
     layout->addWidget(m_dontRemindCheck);
 
     layout->addStretch(1);

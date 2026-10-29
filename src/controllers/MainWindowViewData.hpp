@@ -117,6 +117,8 @@ void fillInstanceTree(QTreeWidget *tree, const QList<InstanceGroupBucket> &bucke
                       const QHash<QString, QIcon> &marks, const QString &pinnedGroupId,
                       const QSet<QString> &pinnedInstanceIds);
 void syncTreeToCombo(const QComboBox *combo, QTreeWidget *tree);
+/// 把实例树的滚动位置放回重建前那儿（灌树 + 选当前项之后调一次）。
+void restoreTreeScroll(QTreeWidget *tree, int value);
 QList<InstanceGroupStore::Group> toStoreGroups(const QList<GroupDialog::Group> &from);
 QList<GroupDialog::Group> toDialogGroups(const QList<InstanceGroupStore::Group> &from);
 QList<MainWindowUI::GroupRow> groupRowsForMenu(const MainWindowUI *ui,

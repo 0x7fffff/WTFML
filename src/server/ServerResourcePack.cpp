@@ -67,13 +67,13 @@ EntriesCheck checkEntries(const QStringList &entries) {
     if (!result.hasPackMeta && nestedMeta) {
         // 最常见的一种错：把整个文件夹一起压了。游戏只认最外层那一份。
         result.problem =
-            QStringLiteral("pack.mcmeta 被套在一个文件夹里 —— 游戏只认压缩包**最外层**的"
+            QStringLiteral("pack.mcmeta 被套在一个文件夹里 —— 游戏只认压缩包最外层的"
                            "那一份。把包里的东西重新压到最外层再试。");
         return result;
     }
     if (!result.hasPackMeta) {
         if (result.looksLikeDataPack) {
-            result.problem = QStringLiteral("这里面是 data/ 而不是 assets/ —— 它像是**数据包**，"
+            result.problem = QStringLiteral("这里面是 data/ 而不是 assets/ —— 它像是数据包，"
                                             "不是资源包。服务端资源包要选改了客户端贴图/声音"
                                             "的那一份。");
         } else {

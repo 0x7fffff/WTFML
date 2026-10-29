@@ -137,6 +137,7 @@ inline ZeroColumn makeZeroColumn(QWidget *parent, int spacing = 4) {
     auto *column = new QVBoxLayout(cell);
     column->setContentsMargins(0, 0, 0, 0);
     column->setSpacing(spacing);
+    column->setAlignment(Qt::AlignTop);
     return {cell, column};
 }
 
