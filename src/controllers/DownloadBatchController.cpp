@@ -123,7 +123,7 @@ bool DownloadBatchController::resume(Tasks::TaskId id) {
     QString problem;
     DownloadCheckpoint receipt;
     if (!live && !receipt.load(m_records.value(id))) return false;
-    const auto entries = live ? QList<DownloadCheckpoint::File>() : receipt.files;
+    const auto entries = live ? m_downloads->m_checkpoint->files : receipt.files;
     QSet<QString> roots;
     for (const auto &entry : entries) roots.insert(WriteDirectoryGuard::rootFor(QFileInfo(entry.path).absolutePath()));
     for (const auto &root : roots) if (!WriteDirectoryGuard::acquire(root, &problem)) {
@@ -179,23 +179,48 @@ bool DownloadBatchController::resume(Tasks::TaskId id) {
         return true;
 
     }
-    receipt.lock.reset();
     if (!m_activity->tasks()->queueRecovery(id) || !m_activity->tasks()->startQueued(id)) return false;
-    m_current = id;
-    if (!live) m_restoring = true;
-    const bool started = live ? m_downloads->resumeBatch(&problem) : m_downloads->restoreBatch(m_records.value(id), &problem);
-    if (!started) {
-        if (live) {
-            auto caps = m_activity->tasks()->snapshot(id).capabilities; caps.canPause = true;
-            m_activity->tasks()->setCapabilities(id, caps); m_activity->tasks()->pause(id);
-            m_activity->tasks()->setDetail(id, problem);
-        } else {
-            m_current = Tasks::invalidTaskId(); m_restoring = false;
-            m_activity->finish(id, false, problem, false);
+    m_activity->tasks()->setDetail(id, tr("正在后台校验下载目标；完成后才恢复文件下载。"));
+    auto caps = m_activity->tasks()->snapshot(id).capabilities;
+    caps.canPause = false; caps.canCancel = true; caps.cancelBlockedReason.clear();
+    m_activity->tasks()->setCapabilities(id, caps);
+    m_verifying = id;
+    const auto generation = ++m_verifyGeneration;
+    const auto cancel = m_verifyCancel = std::make_shared<std::atomic_bool>(false);
+    const auto held = live ? m_downloads->m_checkpoint : QSharedPointer<DownloadCheckpoint>::create(std::move(receipt));
+    using Targets = QHash<QString, QJsonObject>;
+    auto *watcher = new QFutureWatcher<Targets>(this);
+    connect(watcher, &QFutureWatcher<Targets>::finished, this, [this, watcher, held, cancel, generation, id, live] {
+        const auto targets = watcher->result();
+        watcher->deleteLater();
+        if (generation != m_verifyGeneration) return;
+        m_verifying = Tasks::invalidTaskId(); m_verifyCancel.reset();
+        if (m_stopping || !m_activity || !m_downloads) return;
+        if (cancel->load(std::memory_order_relaxed) || !owns(id) ||
+            m_activity->tasks()->snapshot(id).state == Tasks::TaskState::Cancelled) { held->discard(); return; }
+        const bool sameBatch = live ? m_downloads->m_checkpoint == held && m_downloads->batchPaused()
+                                    : !m_downloads->isBusy() && !m_downloads->m_checkpoint;
+        if (targets.size() != held->files.size() || !sameBatch || (!live && m_restoreAllowed && !m_restoreAllowed())) {
+            const auto reason = tr("文件已变化或恢复条件已改变，请重新预览；未恢复下载。");
+            m_activity->finish(id, false, reason, false);
+            m_activity->tasks()->setRecovery(id, QFileInfo(held->path).fileName(), false, reason);
+            return;
         }
-        m_activity->tasks()->setRecovery(id, QFileInfo(m_records.value(id)).fileName(), false, problem);
-    }
-    sync(); return started;
+        m_current = id;
+        if (!live) m_restoring = true; // A live executor still owns installation/terminal signals.
+        m_downloads->resumeValidatedBatch(held, targets);
+        sync();
+    });
+    watcher->setFuture(QtConcurrent::run([entries, cancel] {
+        Targets targets;
+        for (const auto &entry : entries) {
+            QJsonObject current;
+            if (cancel->load(std::memory_order_relaxed) || !DownloadCheckpoint::unchanged(entry, cancel.get(), &current)) return Targets();
+            targets.insert(QDir::cleanPath(entry.path).toCaseFolded(), current);
+        }
+        return cancel->load(std::memory_order_relaxed) ? Targets() : targets;
+    }));
+    return true;
 }
 void DownloadBatchController::complete(bool success) {
     if (!m_activity || !owns(m_current)) return;
@@ -235,7 +260,9 @@ bool DownloadBatchController::cancel(Tasks::TaskId id) {
     if (!owns(id)) return false;
     if (id == m_verifying && m_verifyCancel) {
         m_verifyCancel->store(true, std::memory_order_relaxed);
+        const bool live = id == m_current;
         m_activity->tasks()->cancel(id);
+        if (live && m_downloads) m_downloads->cancelBatch();
         m_activity->tasks()->setRecovery(id, {}, false);
         return true;
     }

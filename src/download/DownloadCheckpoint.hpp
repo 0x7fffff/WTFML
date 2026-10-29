@@ -64,10 +64,10 @@ public:
         return {{"exists", true}, {"size", QString::number(info.size())},
                 {"sha256", QString::fromLatin1(hash.result().toHex())}};
     }
-    static bool unchanged(const File &entry, const std::atomic_bool *cancel = nullptr) {
+    static bool unchanged(const File &entry, const std::atomic_bool *cancel = nullptr, QJsonObject *verified = nullptr) {
         const auto current = fingerprint(entry.path, cancel);
         if (current.isEmpty()) return false;
-        if (current == entry.original) return true;
+        if (current == entry.original) { if (verified) *verified = current; return true; }
         // A previous run may have committed this exact declared artifact before dying.
         if (entry.sha1.isEmpty() || !current.value("exists").toBool()) return false;
         QFile file(entry.path);
@@ -80,8 +80,10 @@ public:
             if (bytes.isEmpty() && file.error() != QFileDevice::NoError) return false;
             hash.addData(bytes);
         }
-        return !(cancel && cancel->load(std::memory_order_relaxed)) &&
+        const bool valid = !(cancel && cancel->load(std::memory_order_relaxed)) &&
             QString::fromLatin1(hash.result().toHex()).compare(entry.sha1, Qt::CaseInsensitive) == 0;
+        if (valid && verified) *verified = current;
+        return valid;
     }
     bool add(const File &entry) {
         const auto key = entry.path.toCaseFolded();

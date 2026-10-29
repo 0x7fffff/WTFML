@@ -905,6 +905,7 @@ QJsonObject DownloadManager::getVersionJson() const { return currentVersionJson;
 void DownloadManager::setFlaggedPaths(const QStringList &paths) { m_flaggedPaths = paths; }
 
 void DownloadManager::beginBatch() {
+    m_resumeTargets.clear();
     m_checkpoint.reset();
     m_checkpointFailed = false;
     m_batchPaused = false;
@@ -1178,7 +1179,9 @@ void DownloadManager::scheduleFile(const QString &url, const QString &destinatio
 
     if (m_checkpoint && !range.active()) {
         const auto path = QDir::cleanPath(QFileInfo(destinationPath).absoluteFilePath());
-        if (!m_checkpoint->add({url, path, expectedSha1, officialUrl, expectedSize, DownloadCheckpoint::fingerprint(path)})) {
+        const auto *recorded = m_checkpoint->find(path);
+        const auto original = recorded ? recorded->original : DownloadCheckpoint::fingerprint(path);
+        if (!m_checkpoint->add({url, path, expectedSha1, officialUrl, expectedSize, original})) {
             m_checkpointFailed = true;
             emit checkpointChanged();
         }

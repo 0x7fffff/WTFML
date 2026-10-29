@@ -74,6 +74,7 @@ int runDownloadBatchChecks(QApplication &app) {
     QByteArray namedMetadata, namedManifest;
     const QString sha1 = QString::fromLatin1(QCryptographicHash::hash(payload, QCryptographicHash::Sha1).toHex());
     int requests = 0;
+    std::function<void()> beforeResponse;
     bool holdSecond = true;
     QObject::connect(&server, &QTcpServer::newConnection, &server, [&] {
         while (server.hasPendingConnections()) {
@@ -82,6 +83,7 @@ int runDownloadBatchChecks(QApplication &app) {
                 const auto input = socket->property("input").toByteArray() + socket->readAll(); socket->setProperty("input", input);
                 if (!input.contains("\r\n\r\n") || socket->property("sent").toBool()) return;
                 socket->setProperty("sent", true); ++requests;
+                if (beforeResponse) { auto action = std::move(beforeResponse); beforeResponse = {}; action(); }
                 if (input.split(' ').value(1).startsWith("/hold") && holdSecond) {
                     socket->write("HTTP/1.1 200 OK\r\nContent-Length: " + QByteArray::number(payload.size()) + "\r\n\r\nc"); return;
                 }
@@ -157,6 +159,71 @@ int runDownloadBatchChecks(QApplication &app) {
         else expect(continued == 0 && activity.tasks()->snapshot(id).state == (mode == "cancel" ? Tasks::TaskState::Cancelled : Tasks::TaskState::Failed),
             "cancelled or revoked validation never invokes the installer");
         expect(DownloadCheckpoint::fingerprint(target) == expectedOriginal, "validation never modifies the original or external edit");
+    }
+    for (const QString mode : {QString("accept"), QString("cancel"), QString("destroy"),
+                               QString("revoke"), QString("changed"), QString("publish-race")}) {
+        const auto root = fixture.filePath("async-files-" + mode);
+        QDir().mkpath(root);
+        const auto target = root + "/original.bin";
+        QFile large(target);
+        bool prepared = large.open(QIODevice::WriteOnly);
+        const QByteArray chunk(1024 * 1024, 'q');
+        for (int i = 0; i < 32 && prepared; ++i) prepared = large.write(chunk) == chunk.size();
+        large.close();
+        expect(prepared, "file resume owns a 32 MiB original");
+        if (!prepared) continue;
+        ActivityCenterController activity; activity.tasks()->setHistoryPath(root + "/tasks.json");
+        const auto id = activity.begin(Tasks::TaskKind::Download, "resume files");
+        DownloadCheckpoint receipt; receipt.path = root + "/download-batches/one.receipt";
+        receipt.context = {{"title", "resume files"}, {"task", QString::number(id)}};
+        expect(receipt.add({url, target, sha1, {}, payload.size(), DownloadCheckpoint::fingerprint(target)}) && receipt.save(),
+               "file resume retains its exact original consent");
+        receipt.lock.reset(); activity.finish(id, false, "interrupted", false);
+        if (mode == "changed") expect(write(target, "external-edit"), "file resume external change fixture");
+        const auto original = DownloadCheckpoint::fingerprint(target);
+        DownloadManager downloads; downloads.setSegmentedDownloadEnabled(false);
+        auto batches = std::make_unique<DownloadBatchController>(&activity, &downloads, [] { return Tasks::invalidTaskId(); });
+        bool allowed = true; batches->setRestoreAllowed([&] { return allowed; }); batches->load();
+        const auto before = requests;
+        QElapsedTimer submit; submit.start();
+        expect(batches->resume(id) && batches->isRestoring() && requests == before,
+               "file resume admits background validation before network or writes");
+        printf("MEASURE file-resume mode=%s bytes=33554432 submit_us=%lld\n", qPrintable(mode), static_cast<long long>(submit.nsecsElapsed()/1000));
+        expect(!batches->resume(id) && !activity.tasks()->snapshot(id).capabilities.canPause,
+               "file validation rejects duplicate resume and pause");
+        if (mode == "destroy") {
+            batches.reset();
+            DownloadCheckpoint saved;
+            expect(saved.load(receipt.path) && requests == before && DownloadCheckpoint::fingerprint(target) == original,
+                   "destroyed file validator releases its receipt without publishing");
+            continue;
+        }
+        if (mode == "cancel") expect(batches->cancel(id), "file validation accepts cancellation");
+        if (mode == "revoke") allowed = false;
+        if (mode == "publish-race") beforeResponse = [&] { expect(write(target, "external-after-validation"), "external change after validation fixture"); };
+        expect(wait([&] { return !batches->isRestoring(); }), "file recovery reaches a bounded terminal outcome");
+        beforeResponse = {};
+        const auto state = activity.tasks()->snapshot(id).state;
+        expect(state == (mode == "accept" ? Tasks::TaskState::Succeeded : mode == "cancel" ? Tasks::TaskState::Cancelled : Tasks::TaskState::Failed),
+               "file recovery reports success, failure or user cancellation correctly");
+        if (mode == "accept") expect(read(target) == payload, "validated file recovery publishes the expected artifact");
+        else if (mode == "publish-race") expect(read(target) == "external-after-validation", "publish guard retains a post-validation external edit");
+        else expect(requests == before && DownloadCheckpoint::fingerprint(target) == original, "rejected file recovery preserves original without network");
+    }
+    {
+        const auto root = fixture.filePath("cancel-live-validation"); QDir().mkpath(root);
+        ActivityCenterController activity; activity.tasks()->setHistoryPath(root + "/tasks.json");
+        const auto id = activity.begin(Tasks::TaskKind::Download, "cancel live validation");
+        DownloadManager downloads; downloads.setSegmentedDownloadEnabled(false);
+        DownloadBatchController batches(&activity, &downloads, [&] { return id; });
+        downloads.beginBatch();
+        downloads.downloadFile(QString(url).replace("/file?", "/hold?"), root + "/file.bin", sha1, payload.size());
+        downloads.endBatch();
+        expect(wait([&] { return downloads.canPauseBatch(); }) && batches.pause(id) && batches.resume(id),
+               "live paused batch enters background target validation");
+        expect(batches.cancel(id) && wait([&] { return !batches.isRestoring() && !downloads.isBusy(); }) &&
+                   activity.tasks()->snapshot(id).state == Tasks::TaskState::Cancelled,
+               "cancelling live validation also clears the paused downloader busy state");
     }
     {
         DownloadManager downloads; downloads.setSegmentedDownloadEnabled(false);

@@ -671,6 +671,11 @@ private slots:
     void onAssetIndexDownloaded();
 
 private:
+    friend class DownloadBatchController;
+    // Only the recovery controller supplies worker-validated targets while retaining the receipt lock.
+    bool resumeValidatedBatch(const QSharedPointer<DownloadCheckpoint> &receipt,
+        const QHash<QString, QJsonObject> &targets);
+    QHash<QString, QJsonObject> m_resumeTargets;
     QSharedPointer<DownloadCheckpoint> m_checkpoint;
     bool m_batchPaused = false;
     bool m_checkpointFailed = false;

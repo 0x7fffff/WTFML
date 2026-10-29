@@ -53,17 +53,22 @@ bool DownloadManager::resumeBatch(QString *problem) {
     const auto receipt = m_checkpoint;
     for (const auto &file : receipt->files) if (!DownloadCheckpoint::unchanged(file))
         return reject(tr("目标已被外部改动，请重新预览；未覆盖：%1").arg(file.path));
+    if (problem) problem->clear();
+    return resumeValidatedBatch(receipt, {});
+}
+bool DownloadManager::resumeValidatedBatch(const QSharedPointer<DownloadCheckpoint> &receipt,
+    const QHash<QString, QJsonObject> &targets) {
     // Suppress the owning UI's new-batch registration when replaying this exact batch.
     QSignalBlocker blocker(this);
     beginBatch();
     m_checkpoint = receipt;
+    m_resumeTargets = targets;
     // Restore outward signals before any synchronous skipped/completed file callbacks.
     blocker.unblock();
     for (const auto &file : receipt->files)
         downloadFile(file.url, file.path, file.sha1, file.size, VerifyMode::SizeAndSha1, file.official);
     endBatch();
     emit checkpointChanged();
-    if (problem) problem->clear();
     return true;
 }
 bool DownloadManager::restoreBatch(const QString &path, QString *problem) {
@@ -77,6 +82,14 @@ bool DownloadManager::restoreBatch(const QString &path, QString *problem) {
 std::function<QString()> DownloadManager::checkpointGuard(const QString &path) const {
     const auto *found = m_checkpoint ? m_checkpoint->find(path) : nullptr;
     if (found) {
+        const auto verified = m_resumeTargets.constFind(QDir::cleanPath(path).toCaseFolded());
+        if (verified != m_resumeTargets.cend()) {
+            const auto original = verified.value();
+            return [path, original] {
+                return DownloadCheckpoint::fingerprint(path) == original ? QString()
+                    : QStringLiteral("下载期间目标已变化，未覆盖，请重新预览：%1").arg(path);
+            };
+        }
         const auto &entry = *found;
         if (!DownloadCheckpoint::unchanged(entry)) return [path] { return QStringLiteral("目标已被外部修改，未覆盖：%1").arg(path); };
         const auto original = DownloadCheckpoint::fingerprint(path);
