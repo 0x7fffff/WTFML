@@ -2710,7 +2710,7 @@ private:
     FileOperationRecoveryController *m_fileRecovery = nullptr;
     DownloadBatchController *m_downloadBatches = nullptr;
     QJsonObject snapshotDownloadContinuation() const;
-    bool continueDownloadInstallation(Tasks::TaskId id, const QJsonObject &intent);
+    bool continueDownloadInstallation(Tasks::TaskId id, const QJsonObject &intent, bool targetsVerified = false);
     InstanceDialogController *m_instanceDialogController = nullptr;
     InstanceEditorController *m_instanceEditorController = nullptr;
     ImportController *m_importController = nullptr;

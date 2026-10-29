@@ -30,7 +30,7 @@ QJsonObject MainWindow::snapshotDownloadContinuation() const {
     return intent;
 }
 
-bool MainWindow::continueDownloadInstallation(Tasks::TaskId id, const QJsonObject &intent) {
+bool MainWindow::continueDownloadInstallation(Tasks::TaskId id, const QJsonObject &intent, bool targetsVerified) {
     if (intent.value("kind") == "preset-mods") return m_presetController && m_presetController->continueModInstallation(id, intent);
     if (intent.value("kind") == "server-install") {
         if (!m_serverInstall || m_serverInstall->isRunning() || m_downloadInFlight ||
@@ -52,14 +52,7 @@ bool MainWindow::continueDownloadInstallation(Tasks::TaskId id, const QJsonObjec
         !InstanceFiles::validateDirName(instance).isEmpty()) return false;
     if (kind != "repair" && kind != "named-vanilla" && kind != "named-loader") return false;
     if (kind != "repair" && !InstanceFiles::validateDirName(game).isEmpty()) return false;
-    const auto originals = intent.value("originals").toObject();
-    if (originals.isEmpty()) return false;
-    for (auto it = originals.begin(); it != originals.end(); ++it)
-        if (DownloadCheckpoint::fingerprint(it.key()) != it.value().toObject()) return false;
-    if (!intent.value("presets").toArray().isEmpty()) {
-        const auto targets = intent.value("presetTargets").toObject();
-        if (targets.isEmpty() || Presets::snapshotInitializationTargets(AppPaths::versionDir(instance)) != targets) return false;
-    }
+    if (!targetsVerified && !Presets::unchangedInitializationContinuation(intent)) return false;
     const int loader = intent.value("loader").toInt(-1);
     if (kind == "named-loader" && (loader < 0 || loader > int(VersionManager::LoaderKind::Quilt) ||
         !VersionManager::loaderInstallSupported(VersionManager::LoaderKind(loader)))) return false;

@@ -25,8 +25,10 @@ public:
     void shutdown();
     bool isRestoring() const { return (m_restoring && m_current != Tasks::invalidTaskId()) || m_verifying != Tasks::invalidTaskId(); }
     void setRestoreAllowed(std::function<bool()> check) { m_restoreAllowed = std::move(check); }
-    void setContinuation(std::function<QJsonObject()> snapshot, std::function<bool(Tasks::TaskId, const QJsonObject &)> resume) {
+    void setContinuation(std::function<QJsonObject()> snapshot, std::function<bool(Tasks::TaskId, const QJsonObject &)> resume,
+        std::function<bool(const QJsonObject &, const std::atomic_bool *)> validate = {}) {
         m_continuationSnapshot = std::move(snapshot); m_continue = std::move(resume);
+        m_continuationValidation = std::move(validate);
     }
 private:
     void sync();
@@ -37,6 +39,7 @@ private:
     std::function<bool()> m_restoreAllowed;
     std::function<QJsonObject()> m_continuationSnapshot;
     std::function<bool(Tasks::TaskId, const QJsonObject &)> m_continue;
+    std::function<bool(const QJsonObject &, const std::atomic_bool *)> m_continuationValidation;
     QHash<Tasks::TaskId, QString> m_records;
     QString m_root;
     Tasks::TaskId m_current = Tasks::invalidTaskId();

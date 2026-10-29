@@ -8,6 +8,7 @@
  */
 
 #include "MainWindow.hpp"
+#include "presets/PresetTargetSnapshot.hpp"
 #include "controllers/ResourceSearchController.hpp"
 #include "controllers/InstanceUpdateCheckController.hpp"
 #include "controllers/UpdateCenterController.hpp"
@@ -882,7 +883,8 @@ MainWindow::MainWindow(QWidget *parent)
                        ? m_downloadTaskLedger->task() : m_updateBatch.task;
         }, this);
     m_downloadBatches->setContinuation([this] { return snapshotDownloadContinuation(); },
-        [this](Tasks::TaskId id, const QJsonObject &intent) { return continueDownloadInstallation(id, intent); });
+        [this](Tasks::TaskId id, const QJsonObject &intent) { return continueDownloadInstallation(id, intent, true); },
+        [](const QJsonObject &intent, const std::atomic_bool *cancel) { return Presets::unchangedInitializationContinuation(intent, cancel); });
     m_downloadBatches->setRestoreAllowed([this] {
         return !m_downloadInFlight && runningVersionIds().isEmpty() && !m_launchController->isStarting()
             && m_serverWorkspace->runningServerIds().isEmpty()

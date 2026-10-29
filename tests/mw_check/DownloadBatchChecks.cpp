@@ -160,6 +160,70 @@ int runDownloadBatchChecks(QApplication &app) {
             "cancelled or revoked validation never invokes the installer");
         expect(DownloadCheckpoint::fingerprint(target) == expectedOriginal, "validation never modifies the original or external edit");
     }
+    for (const QString mode : {QString("accept"), QString("cancel"), QString("destroy"), QString("revoke"),
+                               QString("changed"), QString("added"), QString("core-changed")}) {
+        const auto root = fixture.filePath("async-initialization-" + mode);
+        const auto instance = root + "/versions/example";
+        const auto config = instance + "/config/large.bin";
+        QDir().mkpath(instance + "/config");
+        QFile large(config); bool prepared = large.open(QIODevice::WriteOnly);
+        const QByteArray chunk(1024 * 1024, 'i');
+        for (int i = 0; i < 32 && prepared; ++i) prepared = large.write(chunk) == chunk.size();
+        large.close();
+        expect(prepared, "initialization recovery owns a 32 MiB configuration");
+        if (!prepared) continue;
+        const auto core = instance + "/core.json";
+        expect(write(core, "original-core"), "initialization core identity fixture");
+        const QJsonObject intent{{"kind", "named-vanilla"}, {"root", root}, {"instance", "example"},
+            {"presets", QJsonArray{QJsonObject{{"id", "test"}}}},
+            {"originals", QJsonObject{{core, DownloadCheckpoint::fingerprint(core)}}},
+            {"presetTargets", Presets::snapshotInitializationTargets(instance)}};
+        std::atomic_bool stopped{true};
+        expect(Presets::snapshotInitializationTargets(instance, &stopped).isEmpty() &&
+                   !Presets::unchangedInitializationContinuation(intent, &stopped),
+               "configuration scanning observes cancellation without accepting a partial snapshot");
+        auto malformed = intent;
+        malformed.insert("originals", QJsonObject{{instance + "/config", QJsonObject()}});
+        expect(!Presets::unchangedInitializationContinuation(malformed),
+               "an unreadable original cannot match an empty saved fingerprint");
+        if (mode == "changed") expect(write(config, "external-configuration"), "external configuration change fixture");
+        if (mode == "added") expect(write(instance + "/config/new.json", "{}"), "new configuration file fixture");
+        if (mode == "core-changed") expect(write(core, "external-core"), "external core change fixture");
+        const auto preserved = DownloadCheckpoint::fingerprint(config);
+        ActivityCenterController activity; activity.tasks()->setHistoryPath(root + "/tasks.json");
+        const auto id = activity.begin(Tasks::TaskKind::Install, "resume initialization");
+        DownloadCheckpoint receipt; receipt.path = root + "/download-batches/one.receipt";
+        receipt.context = {{"title", "resume initialization"}, {"task", QString::number(id)},
+            {"phase", "continue-install"}, {"continuation", intent}};
+        expect(receipt.add({url, root + "/missing.stage", {}, {}, -1, {{"exists", false}}}) && receipt.save(),
+               "initialization consent and original targets survive restart");
+        receipt.lock.reset(); activity.finish(id, false, "interrupted", false);
+        DownloadManager downloads;
+        auto batches = std::make_unique<DownloadBatchController>(&activity, &downloads, [] { return Tasks::invalidTaskId(); });
+        bool allowed = true; int continued = 0;
+        batches->setRestoreAllowed([&] { return allowed; });
+        batches->setContinuation({}, [&](Tasks::TaskId task, const QJsonObject &) {
+            ++continued; activity.finish(task, true, {}, false); return true;
+        }, Presets::unchangedInitializationContinuation);
+        batches->load();
+        QElapsedTimer submit; submit.start();
+        expect(batches->resume(id) && batches->isRestoring() && continued == 0,
+               "configuration verification starts in background before installation");
+        printf("MEASURE initialization-resume mode=%s bytes=33554432 submit_us=%lld\n", qPrintable(mode), static_cast<long long>(submit.nsecsElapsed()/1000));
+        expect(!batches->resume(id), "configuration verification rejects duplicate continuation");
+        if (mode == "destroy") {
+            batches.reset(); DownloadCheckpoint saved;
+            expect(saved.load(receipt.path) && continued == 0, "destroyed configuration scan retains consent and never installs");
+            continue;
+        }
+        if (mode == "cancel") expect(batches->cancel(id), "configuration verification accepts cancellation");
+        if (mode == "revoke") allowed = false;
+        expect(wait([&] { return !batches->isRestoring(); }), "configuration verification completes within its deadline");
+        expect(continued == (mode == "accept" ? 1 : 0) && activity.tasks()->snapshot(id).state ==
+                   (mode == "accept" ? Tasks::TaskState::Succeeded : mode == "cancel" ? Tasks::TaskState::Cancelled : Tasks::TaskState::Failed),
+               "changed, cancelled or revoked initialization never runs its installer");
+        expect(DownloadCheckpoint::fingerprint(config) == preserved, "configuration verification retains external and original contents");
+    }
     for (const QString mode : {QString("accept"), QString("cancel"), QString("destroy"),
                                QString("revoke"), QString("changed"), QString("publish-race")}) {
         const auto root = fixture.filePath("async-files-" + mode);

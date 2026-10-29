@@ -170,11 +170,13 @@ bool DownloadBatchController::resume(Tasks::TaskId id) {
             m_activity->finish(id, false, tr("目标、安装环境或原配置已变化，请重新预览安装。"), false);
             m_activity->tasks()->setRecovery(id, QFileInfo(path).fileName(), false, tr("请重新预览安装。"));
         });
-        watcher->setFuture(QtConcurrent::run([entries, cancel] {
+        const auto validate = m_continuationValidation;
+        const auto intent = held->context.value("continuation").toObject();
+        watcher->setFuture(QtConcurrent::run([entries, cancel, validate, intent] {
             for (const auto &entry : entries) {
                 if (cancel->load(std::memory_order_relaxed) || !DownloadCheckpoint::unchanged(entry, cancel.get())) return false;
             }
-            return !cancel->load(std::memory_order_relaxed);
+            return !cancel->load(std::memory_order_relaxed) && (!validate || validate(intent, cancel.get()));
         }));
         return true;
 
