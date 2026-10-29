@@ -4,6 +4,7 @@
  */
 
 #include "ModInstallPlan.hpp"
+#include "PresetCompatibility.hpp"
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -34,8 +35,8 @@ QString effectiveGameVersion(const ModInstallRequest &request, const ModReferenc
 }
 
 QString effectiveLoader(const ModInstallRequest &request, const ModReference &reference) {
-    return reference.loader.trimmed().isEmpty() ? request.loader.trimmed()
-                                                : reference.loader.trimmed();
+    return normalizeCompatibilityLoader(reference.loader.trimmed().isEmpty() ? request.loader
+                                                                            : reference.loader);
 }
 
 QString contextText(const QString &gameVersion, const QString &loader) {
@@ -70,7 +71,7 @@ bool versionMatches(const ResourceCatalog::VersionEntry &version, const QString 
     if (!loader.isEmpty() && !version.loaders.isEmpty()) {
         bool hit = false;
         for (const QString &candidate : version.loaders) {
-            if (candidate.compare(loader, Qt::CaseInsensitive) == 0) {
+            if (normalizeCompatibilityLoader(candidate) == normalizeCompatibilityLoader(loader)) {
                 hit = true;
                 break;
             }

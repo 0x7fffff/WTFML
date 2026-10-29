@@ -1,5 +1,6 @@
 #include "PresetModInstaller.hpp"
 #include "PresetWriteLock.hpp"
+#include "PresetCompatibility.hpp"
 #include "download/DownloadManager.hpp"
 #include "download/ResourceStore.hpp"
 #include <QDir>
@@ -110,12 +111,13 @@ void PresetModInstaller::start(const QList<ModReference> &references, const QStr
         m_root.clear(); finish(writeProblem); return;
     }
     m_request.gameVersion = gameVersion;
-    m_request.loader = loader;
+    m_request.loader = normalizeCompatibilityLoader(loader);
     for (const auto &ref : references) {
         ModResolveInput input;
         input.reference = ref;
+        input.reference.loader = normalizeCompatibilityLoader(ref.loader);
         if ((!ref.gameVersion.isEmpty() && ref.gameVersion != gameVersion) ||
-            (!ref.loader.isEmpty() && ref.loader.compare(loader, Qt::CaseInsensitive) != 0)) {
+            (!ref.loader.isEmpty() && input.reference.loader != m_request.loader)) {
             input.queried = true;
             input.queryFailed = true;
             input.queryProblem = tr("预设限定的游戏版本或加载器与目标实例不符，未查询其它版本替代。");
@@ -124,7 +126,7 @@ void PresetModInstaller::start(const QList<ModReference> &references, const QStr
         m_request.references.append(input);
     }
     if (references.isEmpty()) { m_result.ok = true; finish(); return; }
-    if (gameVersion.isEmpty() || loader.isEmpty() || loader == QStringLiteral("vanilla")) {
+    if (gameVersion.isEmpty() || m_request.loader.isEmpty()) {
         finish(tr("没有可确认的游戏版本或模组加载器，未下载模组。")); return;
     }
     if (!m_store) m_store = new ResourceStore(this);
@@ -408,7 +410,7 @@ void PresetModInstaller::resolveNext() {
         m_waiting = row.key;
         m_store->fetchVersions(row.key, row.reference.projectId, source,
             row.reference.gameVersion.isEmpty() ? m_request.gameVersion : row.reference.gameVersion,
-            row.reference.loader.isEmpty() ? m_request.loader : row.reference.loader);
+            normalizeCompatibilityLoader(row.reference.loader.isEmpty() ? m_request.loader : row.reference.loader));
         return;
     }
     if (queryUnidentifiedFiles()) return;

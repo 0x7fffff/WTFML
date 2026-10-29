@@ -82,6 +82,10 @@ void runPresetCompatibilityTests() {
                   Presets::normalizeCompatibilityLoader(QStringLiteral("原版")).isEmpty() &&
                   Presets::normalizeCompatibilityLoader(QStringLiteral("none")).isEmpty(),
               "PH2 加载器名归一：大小写 / 原版 / none");
+        check(Presets::normalizeCompatibilityLoader(QStringLiteral("Fabric-loader")) == QStringLiteral("fabric") &&
+                  Presets::normalizeCompatibilityLoader(QStringLiteral("quilt-loader")) == QStringLiteral("quilt") &&
+                  Presets::normalizeCompatibilityLoader(QStringLiteral("unknown-loader")) == QStringLiteral("unknown-loader"),
+              "PH2 平台加载器名归一且不猜未知名称");
         check(Presets::CompatibilityContext{QStringLiteral("1.21.1"), QStringLiteral("NeoForge"),
                                             true}
                       .cacheKey() ==

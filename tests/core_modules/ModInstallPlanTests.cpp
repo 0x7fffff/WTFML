@@ -171,6 +171,22 @@ void runModInstallPlanTests() {
               QStringLiteral("rows=%1 download=%2").arg(plan.rows.size()).arg(plan.download));
     }
 
+    for (const QString platformLoader : {QStringLiteral("fabric"), QStringLiteral("quilt")}) {
+        auto request = base;
+        request.loader = platformLoader + QStringLiteral("-loader");
+        auto reference = makeReference(QStringLiteral("P-ALIAS"), QStringLiteral("加载器别名"));
+        reference.loader = request.loader;
+        request.references.append(makeInput(reference, {makeVersion(QStringLiteral("alias-1"),
+            {QStringLiteral("1.20.1")}, {platformLoader})}));
+        check(Presets::planModInstall(request).ok, "PM 实例加载器别名匹配平台发行版", platformLoader);
+        request.loader = QStringLiteral("forge");
+        reference.loader.clear();
+        request.references.clear();
+        request.references.append(makeInput(reference, {makeVersion(QStringLiteral("wrong-loader"),
+            {QStringLiteral("1.20.1")}, {platformLoader})}));
+        check(!Presets::planModInstall(request).ok, "PM 不把真正不同的加载器当别名", platformLoader);
+    }
+
     // ---------- PM3 依赖展开：required 折进来、optional 只列、embedded 无视 ----------
     {
         Presets::ModInstallRequest request = base;

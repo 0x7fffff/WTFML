@@ -270,6 +270,7 @@ public:
     bool ownsModTask(Tasks::TaskId id) const { return m_modInstallTask && id == m_modTaskId; }
     bool pauseModDownload(Tasks::TaskId id);
     bool resumeModDownload(Tasks::TaskId id);
+    // Accepts preparation; directory validation completes asynchronously before any download/deployment.
     bool continueModInstallation(Tasks::TaskId id, const QJsonObject &intent);
 
 signals:
@@ -277,6 +278,8 @@ signals:
     void modCheckUpdated(const PresetController::ModCheckUpdate &update);
 
 private:
+    void installModsAfterInstallImpl(const QStringList &presetIds, const QString &instanceId,
+        std::function<void(bool, const QString &)> completed, const QJsonObject &expectedModTargets);
     QString instanceRoot(const QString &instanceId) const;
     QString displayName(const QString &instanceId) const;
     void log(const QString &message) const;

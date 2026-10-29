@@ -14,8 +14,13 @@
 #include "PresetModEditor.hpp"
 #include "PresetOptionsEditor.hpp"
 #include "PresetManagePage.hpp"
+#include "PresetModReview.hpp"
+#include "manage/VersionManager.hpp"
+#include "util/AppPaths.hpp"
+#include <QDialogButtonBox>
 #include <QLineEdit>
 #include <QLabel>
+#include <QTreeWidget>
 #include <QListView>
 #include <QSortFilterProxyModel>
 #include <QPersistentModelIndex>
@@ -391,16 +396,16 @@ int runPresetInstallChecks() {
         const auto id = activity.begin(Tasks::TaskKind::Install, "preset stage", "test");
         ResourceStore store; const auto endpoint = QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
         store.setModrinthApiBaseOverride(endpoint);
-        auto *task = new Presets::PresetModInstaller(&store, &store);
+        QPointer<Presets::PresetModInstaller> task = new Presets::PresetModInstaller(&store, &store);
         const QJsonObject intent{{"kind", "preset-mods"}, {"modTargets", Presets::snapshotModTargets(root)}};
         task->setRecovery(&activity, id, intent);
         Presets::ModReference ref; ref.platform = "modrinth"; ref.projectId = "main";
         bool finished = false; holdPresetDownload = true; const int before = presetFileRequests;
         task->start({ref}, root, "1.20.1", "fabric", {}, [] { return false; }, [&](auto) { finished = true; });
-        check(pump([&] { return presetFileRequests > before; }) && task->pauseDownload() && !finished,
+        check(pump([&] { return presetFileRequests > before; }) && task && task->pauseDownload() && !finished,
               "preset file stage pauses without deployment or a failure terminal signal");
         check(activity.tasks()->saveHistory(), "paused preset task history saved");
-        delete task; holdPresetDownload = false; expireNextPresetFile = expired;
+        delete task.data(); holdPresetDownload = false; expireNextPresetFile = expired;
         QProcess child; auto childArgs = args.mid(1); childArgs << "--preset-stage-resume" << root << endpoint;
         child.start(QCoreApplication::applicationFilePath(), childArgs);
         QElapsedTimer timer; timer.start();
@@ -410,6 +415,72 @@ int runPresetInstallChecks() {
         if (child.state() != QProcess::NotRunning) { child.kill(); child.waitForFinished(1000); }
         check(presetFileRequests == before + (expired ? 3 : 2) && QFileInfo::exists(root + "/mods/main.jar"),
               "restart reuses verified stage; expired source requires explicit requery and never silently deploys");
+    }
+    {
+        const auto previousRoot = AppPaths::minecraftDir();
+        for (const QString mode : {QString("normal"), QString("cancel"), QString("changed"), QString("destroy"), QString("running")}) {
+            scenario = 0;
+            const auto gameRoot = scratch.filePath("controller-resume-" + mode);
+            const QString instance = "resume-fixture";
+            const auto root = gameRoot + "/versions/" + instance;
+            QDir().mkpath(root + "/mods");
+            AppPaths::setMinecraftDir(gameRoot);
+            VersionManager versions;
+            check(versions.updateVersionMeta(instance, {{"realVersion","1.20.1"},{"loaderName","Fabric"},{"loaderVersion","0.16.9"}}),
+                  "controller resume owns isolated version metadata");
+            QFile bulk(root + "/mods/local-data.bin");
+            bool prepared=bulk.open(QIODevice::WriteOnly);
+            const QByteArray chunk(1024*1024,'r');
+            for(int i=0;i<32 && prepared;++i) prepared=bulk.write(chunk)==chunk.size();
+            bulk.close();
+            check(prepared,"controller resume owns a 32 MiB original");
+            if(!prepared)continue;
+            auto manifest=Presets::create(PresetController::presetsRoot(),"resume fixture",{},Presets::PresetCategory::Mods);
+            Presets::ModReference ref;ref.platform="modrinth";ref.projectId="main";manifest.modReferences.append(ref);
+            check(Presets::saveManifest(PresetController::presetsRoot(),manifest),"controller resume stores exact preset consent");
+            const auto targets=Presets::snapshotModTargets(root);
+            if(mode=="changed") {QFile added(root+"/mods/external.json");check(added.open(QIODevice::WriteOnly)&&added.write("user-file")==9,"controller resume external change fixture");}
+            QString loader,loaderVersion;versions.instanceLoaderInfo(instance,&loader,&loaderVersion);
+            const QJsonObject intent{{"kind","preset-mods"},{"root",gameRoot},{"instance",instance},
+                {"game",versions.instanceGameVersion(instance)},{"loader",loader},{"modTargets",targets},
+                {"selection",QJsonArray{Presets::manifestToJson(manifest)}}};
+            ActivityCenterController activity;activity.tasks()->setHistoryPath(gameRoot+"/tasks.json");
+            const auto id=activity.begin(Tasks::TaskKind::Install,"controller continuation",instance);
+            QWidget host;bool running=false,busy=false;
+            PresetController::Host callbacks;
+            callbacks.isRunning=[&](const QString &){return running;};
+            callbacks.setFileOperationBusy=[&](const QString &,bool value){busy=value;};
+            auto controller=std::make_unique<PresetController>(&versions,&host,callbacks);
+            controller->setRecoveryHost(&activity,{});
+            const int before=presetFileRequests;
+            QElapsedTimer submit;submit.start();
+            check(controller->continueModInstallation(id,intent)&&controller->isInstallingMods()&&busy,
+                "real continuation admits background validation while retaining instance busy guard");
+            printf("MEASURE preset-controller-resume mode=%s bytes=33554432 submit_us=%lld\n",qPrintable(mode),static_cast<long long>(submit.nsecsElapsed()/1000));
+            check(activity.tasks()->snapshot(id).detail.contains(QStringLiteral("后台建立"))&&presetFileRequests==before,
+                "real continuation returns before target hash, platform queries or deployment");
+            for(auto *store:controller->findChildren<ResourceStore *>())store->setModrinthApiBaseOverride(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort()));
+            check(!controller->continueModInstallation(id,intent),"duplicate continuation cannot create a second validator");
+            if(mode=="running")running=true;
+            if(mode=="cancel")controller->cancelModInstall();
+            if(mode=="destroy") {controller.reset();QApplication::processEvents();}
+            else check(pump([&]{
+                if (mode == "normal") {
+                    for (auto *dialog : host.findChildren<QDialog *>()) {
+                        auto *review = dynamic_cast<PresetModReview *>(dialog);
+                        if (review && review->isVisible())
+                            review->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+                    }
+                }
+                return !controller->isInstallingMods();
+            }),"real continuation finishes validation or safely rejects it");
+            check(QFileInfo::exists(root+"/mods/main.jar")==(mode=="normal"),"real continuation never deploys after change, cancellation, destruction or running state");
+            if(mode=="normal")check(activity.tasks()->snapshot(id).state==Tasks::TaskState::Succeeded,"unchanged continuation completes the same original task");
+            else check(presetFileRequests==before,"rejected real continuation does not download a mod");
+            if(mode=="cancel")check(activity.tasks()->snapshot(id).state==Tasks::TaskState::Cancelled,"user-cancelled continuation is cancelled rather than failed");
+            check(QFileInfo(root+"/mods/local-data.bin").size()==32LL*1024*1024,"real continuation retains original user file");
+        }
+        AppPaths::setMinecraftDir(previousRoot);
     }
     for (const QString mode : {QString("normal"), QString("cancel"), QString("changed"), QString("destroy")}) {
         scenario = 0;

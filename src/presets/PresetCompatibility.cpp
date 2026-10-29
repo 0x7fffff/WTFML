@@ -26,6 +26,8 @@ QString normalizeCompatibilityLoader(const QString &raw) {
         value == QLatin1String("neo-forge")) {
         return QStringLiteral("neoforge");
     }
+    if (value == QLatin1String("fabric-loader")) return QStringLiteral("fabric");
+    if (value == QLatin1String("quilt-loader")) return QStringLiteral("quilt");
     return value;
 }
 

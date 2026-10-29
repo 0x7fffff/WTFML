@@ -1659,6 +1659,11 @@ void PresetController::setCurseForgeApiKey(const QString &apiKey) {
 
 void PresetController::installModsAfterInstall(const QStringList &presetIds, const QString &instanceId,
     std::function<void(bool, const QString &)> completed) {
+    installModsAfterInstallImpl(presetIds, instanceId, std::move(completed), {});
+}
+
+void PresetController::installModsAfterInstallImpl(const QStringList &presetIds, const QString &instanceId,
+    std::function<void(bool, const QString &)> completed, const QJsonObject &expectedModTargets) {
     if (m_modInstallTask) { completed(false, tr("另一项模组预设仍在应用，请等待或取消。")); return; }
     if (!m_versions || instanceId.isEmpty()) { completed(false, tr("目标实例不可用。")); return; }
     // 同一道闸在真正开跑之前再问一次（和 `applyPlan()` 那道是**同一个判断**）：从
@@ -1735,7 +1740,7 @@ void PresetController::installModsAfterInstall(const QStringList &presetIds, con
         task->setRecovery(m_activity, m_modTaskId,
             {{"kind", "preset-mods"}, {"root", AppPaths::minecraftDir()}, {"instance", instanceId},
              {"game", m_versions->instanceGameVersion(instanceId)}, {"loader", loader},
-             {"selection", snapshot}});
+             {"selection", snapshot}, {"modTargets", expectedModTargets}});
     }
     const auto taskId = m_modTaskId;
     // 必须在 `start()` **之前**记：`start()` 在"没有版本 / 加载器对不上"那几条路上
@@ -1750,9 +1755,11 @@ void PresetController::installModsAfterInstall(const QStringList &presetIds, con
                     if (m_host.refreshInstances) m_host.refreshInstances();
                     const QString text = result.lines.join(QLatin1Char('\n'));
                     log(text);
-                    if (m_activity && ownTask) {
+                    if (m_activity) {
+                        // A resumed/parent-owned task must also retain user cancellation.
+                        // Its completion callback cannot turn that terminal state into failure.
                         if (result.cancelled) m_activity->tasks()->cancel(taskId);
-                        else m_activity->finish(taskId, result.ok, result.ok ? QString() : text, false);
+                        else if (ownTask) m_activity->finish(taskId, result.ok, result.ok ? QString() : text, false);
                     }
                     completed(result.ok, text);
                 });
@@ -1773,7 +1780,7 @@ bool PresetController::continueModInstallation(Tasks::TaskId id, const QJsonObje
     QString loader, version; m_versions->instanceLoaderInfo(instance, &loader, &version);
     const auto targets = intent.value("modTargets").toObject();
     if (m_versions->instanceGameVersion(instance) != intent.value("game").toString() || loader != intent.value("loader").toString() ||
-        targets.isEmpty() || Presets::snapshotModTargets(instanceRoot(instance)) != targets) return false;
+        targets.isEmpty()) return false;
     QStringList ids;
     for (const auto &value : intent.value("selection").toArray()) {
         const auto old = value.toObject(); bool ok = false;
@@ -1783,9 +1790,9 @@ bool PresetController::continueModInstallation(Tasks::TaskId id, const QJsonObje
     }
     if (ids.isEmpty()) return false;
     m_resumingModTask = id;
-    installModsAfterInstall(ids, instance, [this, id](bool ok, const QString &text) {
+    installModsAfterInstallImpl(ids, instance, [this, id](bool ok, const QString &text) {
         if (m_activity) m_activity->finish(id, ok, ok ? QString() : text, false);
-    });
+    }, targets);
     m_resumingModTask = Tasks::invalidTaskId();
     return true;
 }
