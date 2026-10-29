@@ -29,7 +29,7 @@ constexpr int kDialogHeight = 440;
 void applyHintStyle(QLabel *hint) {
     hint->setWordWrap(true);
     QFont hintFont = hint->font();
-    hintFont.setPointSize(qMax(1, hintFont.pointSize() - 1));
+    hintFont = Theme::textFont(hintFont, Theme::TextRole::Caption);
     hint->setFont(hintFont);
     QPalette hintPalette = hint->palette();
     hintPalette.setColor(QPalette::WindowText, hintPalette.color(QPalette::PlaceholderText));

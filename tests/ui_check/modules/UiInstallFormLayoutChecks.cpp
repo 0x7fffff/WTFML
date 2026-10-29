@@ -129,14 +129,14 @@ int UiInstallFormLayoutChecks(MainWindowUI &ui, QLineEdit * &installNameEdit, QL
         }
         const QRect rPage = rectInPage(installPage);
         check(!rInstall.isNull() && installBtn != nullptr && installNameEdit != nullptr &&
-                  installBtn->font().pointSize() >=
-                      installNameEdit->font().pointSize() + MainWindowUI::installButtonFontStep() &&
+                  installBtn->font().pixelSize() >=
+                      installNameEdit->font().pixelSize() + MainWindowUI::installButtonFontStep() &&
                   installBtn->minimumHeight() >= MainWindowUI::installButtonMinHeight(),
               "「安装」的字比这一页那些控件大（installButtonFontStep 档）而且有最小高度",
               installBtn != nullptr
                   ? QString("btn=%1 edit=%2 minH=%3")
-                        .arg(installBtn->font().pointSize())
-                        .arg(installNameEdit != nullptr ? installNameEdit->font().pointSize() : -1)
+                        .arg(installBtn->font().pixelSize())
+                        .arg(installNameEdit != nullptr ? installNameEdit->font().pixelSize() : -1)
                         .arg(installBtn->minimumHeight())
                   : QStringLiteral("<null>"));
         // 靠右：底栏里那颗键**右边**贴着底栏右边缘、左边空着一大截（前面垫着一条 stretch）。
@@ -259,8 +259,8 @@ int UiInstallFormLayoutChecks(MainWindowUI &ui, QLineEdit * &installNameEdit, QL
         const QString badName = QStringLiteral("a/b");
         const QRect rHint2 = rectInPage(installNameHint);
         const QRect rError = rectInPage(installNameError);
-        const int hintSize = installNameHint->font().pointSize();
-        const int errorSize = installNameError->font().pointSize();
+        const int hintSize = installNameHint->font().pixelSize();
+        const int errorSize = installNameError->font().pixelSize();
 
         // NOTE: 这里**不**比那句原因的原文 —— 这一节刻意只链 ui/（纯界面工程，见
         // CMakeLists 顶上那段），而原话是数据层 InstanceFiles::validateDirName()
@@ -314,12 +314,12 @@ int UiInstallFormLayoutChecks(MainWindowUI &ui, QLineEdit * &installNameEdit, QL
         check(!rHint2.isNull() && !rError.isNull() && rError.x() == rHint2.x(),
               "红字跟灰字左对齐（同一列起头，不是缩进也不是居中）",
               QString("hint.x=%1 error.x=%2").arg(rHint2.x()).arg(rError.x()));
-        check(hintSize > 0 && errorSize == hintSize && errorSize < installNameEdit->font().pointSize(),
+        check(hintSize > 0 && errorSize == hintSize && errorSize < installNameEdit->font().pixelSize(),
               "红字跟旁边那句灰字**同号**、都比输入框小一档（一对说明 + 原因，看着是一家人）",
               QString("红=%1 灰=%2 输入框=%3")
                   .arg(errorSize)
                   .arg(hintSize)
-                  .arg(installNameEdit->font().pointSize()));
+                  .arg(installNameEdit->font().pixelSize()));
 
         // 像素这一关：那一行上得有**红**的墨，而上面那句灰字那一行一点红都没有
         // （红的只该出现在新加的那一行上，说明那句照旧是灰的）。

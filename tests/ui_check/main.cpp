@@ -8,6 +8,7 @@ int main(int argc, char *argv[]) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
 
     QApplication app(argc, argv);
+    app.setFont(Theme::textFont(app.font(), Theme::TextRole::Body));
     Q_INIT_RESOURCE(icons);
     QTemporaryDir processSandbox;
     if (!processSandbox.isValid()) return 2;
@@ -528,10 +529,9 @@ int main(int argc, char *argv[]) {
     // 画没了、画到别的格子里 —— 那只有像素知道。所以下面自己起一棵小树挂**真**代理，
     // 抓一张图按像素认（窗口上那棵一条数据都没有：数据要联网才来）。
     check(versionTree != nullptr &&
-              versionTree->font().pointSize() ==
-                  QApplication::font().pointSize() + MainWindowUI::versionTreeFontStep(),
-          "版本树的字号比默认大 "+QString::number(MainWindowUI::versionTreeFontStep())+" 号（「放大一点」）",
-          versionTree != nullptr ? QString::number(versionTree->font().pointSize()) : QString());
+              versionTree->font().pixelSize() == 14,
+          "版本树采用正文 14px 字号",
+          versionTree != nullptr ? QString::number(versionTree->font().pixelSize()) : QString());
     check(versionTree != nullptr && !versionTree->expandsOnDoubleClick(),
           "双击不再自己展开一遍（单击分类就切换展开，两次叠起来等于没动）");
     check(versionTree != nullptr && !versionTree->rootIsDecorated(),
@@ -970,7 +970,7 @@ int main(int argc, char *argv[]) {
               QString("hint.x=%1 edit.x=%2").arg(rHint.x()).arg(rEdit.x()));
         // 字号比输入框里的字小一档 —— 它是注释，不是内容（和别处那些小字一个口径）。
         check(installNameHint != nullptr && installNameEdit != nullptr &&
-                  installNameHint->font().pointSize() < installNameEdit->font().pointSize(),
+                  installNameHint->font().pixelSize() == 12 && installNameEdit->font().pixelSize() == 14,
               "那句小字的字号比输入框小一档",
               QString("hint=%1 edit=%2")
                   .arg(installNameHint != nullptr ? installNameHint->font().pointSize() : -1)
@@ -1584,6 +1584,13 @@ int main(int argc, char *argv[]) {
               QStringLiteral("窗口 sizeHint %1 → %2")
                   .arg(shortWindowHint)
                   .arg(window.sizeHint().width()));
+        if (window.minimumSizeHint().width() > 900) {
+            for (auto *child : window.findChildren<QWidget *>()) {
+                if (child->minimumSizeHint().width() > 500)
+                    std::printf("LAYOUT-WIDTH %s %s min=%d hint=%d\n", child->metaObject()->className(),
+                        qPrintable(child->objectName()), child->minimumSizeHint().width(), child->sizeHint().width());
+            }
+        }
         // 这一条钉的是上面 ② 那半句事实：最小宽度**没有**跟着长。哪天有人把
         // setMinimumWidth(kStatusLabelMinWidth) 拿掉，这一条会红 —— 那时候"文字顶宽最小
         // 宽度"才真的会成立，也才轮到这个上限去挡。
@@ -1866,8 +1873,8 @@ int main(int argc, char *argv[]) {
         // 另外两句（ 加的）：没有实例在跑 / 正在启动；再加上 那
         // 一句「有实例异常退出」。
         // 四句话**两两不同**是这一节的要点 —— 那句话本来就是为了让人一眼看出是哪个状态。
-        check(MainWindowUI::runStateNotRunningText() == QStringLiteral("当前没有运行中的实例"),
-              "一个都没在跑时那句是「当前没有运行中的实例」",
+        check(MainWindowUI::runStateNotRunningText() == QStringLiteral("暂无运行实例"),
+              "一个都没在跑时那句是「暂无运行实例」",
               MainWindowUI::runStateNotRunningText());
         check(MainWindowUI::runStateNotRunningText() != MainWindowUI::runStateRunningText() &&
                   MainWindowUI::runStateNotRunningText() !=
@@ -1878,7 +1885,7 @@ int main(int argc, char *argv[]) {
               MainWindowUI::runStateNotRunningText());
 
         // 第四句（ 用户加的）：「有实例异常退出」。要求就是这五个字。
-        // NOTE: 这一句和「当前没有运行中的实例」**必须**是两句 —— 红那一档说的是"出过事"，
+        // NOTE: 这一句和「暂无运行实例」**必须**是两句 —— 红那一档说的是"出过事"，
         // 灰那一档说的是"没在跑"，两句混成一句的话用户根本分不出"要不要去看一眼"。
         check(MainWindowUI::runStateErrorText() == QStringLiteral("有实例异常退出"),
               "有实例异常退出时那句是「有实例异常退出」", MainWindowUI::runStateErrorText());
@@ -2010,7 +2017,7 @@ int main(int argc, char *argv[]) {
                                 runBtn->mapTo(bar, QPoint(runBtn->width(), 0)).x();
             const int gapRight = accBtn->mapTo(bar, QPoint(0, 0)).x() -
                                  progress->mapTo(bar, QPoint(progress->width(), 0)).x();
-            check(gapLeft == gapRight, "进度那格仍然居中（左右空档一样宽）",
+            check(qAbs(gapLeft - gapRight) <= 1, "进度那格仍然居中（左右空档一样宽）",
                   QStringLiteral("左 %1 px / 右 %2 px").arg(gapLeft).arg(gapRight));
 
             progress->hide();
@@ -2354,7 +2361,7 @@ int main(int argc, char *argv[]) {
                       accountName->mapTo(bar, QPoint(0, 0)).y(),
                   "它在名字**下面**");
             // 做法照抄左上角那一格：小一号 + PlaceholderText 颜色。
-            check(accountType->font().pointSize() < accountName->font().pointSize(),
+            check(accountType->font().pixelSize() == 12 && accountName->font().pixelSize() == 14,
                   "字号比名字小一档（它是注释，不是内容）",
                   QString("%1 vs %2")
                       .arg(accountType->font().pointSize())

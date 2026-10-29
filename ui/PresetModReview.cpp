@@ -33,7 +33,7 @@ PresetModReview::PresetModReview(const Presets::ModInstallPlan &plan, QWidget *p
         const QString title = (row.replacesKeys.isEmpty() ? QString() : row.replacesKeys.join(QStringLiteral("、")) + QStringLiteral(" → "))
             + row.title + (row.fromDependency ? tr("（必要前置）") : QString());
         const QString release = row.version.versionNumber.isEmpty() ? row.version.id
-            : row.version.versionNumber + QStringLiteral(" · ") + row.version.id;
+            : row.version.versionNumber + QStringLiteral(" / ") + row.version.id;
         auto *item = new QTreeWidgetItem(m_rows, {title,
             release, Presets::modInstallStatusText(row.status), row.file.filename,
             row.file.size >= 0 ? QLocale().formattedDataSize(row.file.size, 1, QLocale::DataSizeSIFormat) : QString()});

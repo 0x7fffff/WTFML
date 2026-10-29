@@ -70,7 +70,7 @@ constexpr int kPlanListHeight = 132;
 void applyHintStyle(QLabel *hint) {
     hint->setWordWrap(true);
     QFont hintFont = hint->font();
-    hintFont.setPointSize(qMax(1, hintFont.pointSize() - 1));
+    hintFont = Theme::textFont(hintFont, Theme::TextRole::Caption);
     hint->setFont(hintFont);
     QPalette hintPalette = hint->palette();
     hintPalette.setColor(QPalette::WindowText, hintPalette.color(QPalette::PlaceholderText));
@@ -83,7 +83,7 @@ QLabel *makeSectionTitle(const QString &text, QWidget *parent) {
     auto *label = new QLabel(text, parent);
     QFont font = label->font();
     font.setBold(true);
-    font.setPointSize(font.pointSize() + 1);
+    font = Theme::textFont(font, Theme::TextRole::Heading);
     label->setFont(font);
     return label;
 }
@@ -766,7 +766,7 @@ void PresetManagePage::showPreset(const QString &id, const QString &name,
         parts.append(QStringLiteral("类别：%1").arg(categoryText));
     }
     parts.append(QStringLiteral("%1 段").arg(sections.size()));
-    m_presetMeta->setText(parts.join(QStringLiteral(" · ")));
+    m_presetMeta->setText(parts.join(QStringLiteral(" / ")));
 
     m_sectionList->clear();
     if (sections.isEmpty()) {
@@ -776,7 +776,7 @@ void PresetManagePage::showPreset(const QString &id, const QString &name,
     } else {
         for (const SectionItem &section : sections) {
             const QString title = section.title.isEmpty() ? section.kindText : section.title;
-            QString text = QStringLiteral("%1 · %2 · %3 项")
+            QString text = QStringLiteral("%1 / %2 / %3 项")
                                .arg(title, section.modeText)
                                .arg(section.itemCount);
             if (!section.summary.isEmpty()) {

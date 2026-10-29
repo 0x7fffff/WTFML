@@ -251,7 +251,7 @@ QStringList InstanceSettingsDialog::serverStatusLines(const ServerRowStatus &sta
 }
 
 QString InstanceSettingsDialog::serverStatusText(const ServerRowStatus &status) {
-    return serverStatusLines(status).join(QStringLiteral(" · "));
+    return serverStatusLines(status).join(QStringLiteral(" / "));
 }
 
 QString InstanceSettingsDialog::maskedServerAddress(const QString &address) {

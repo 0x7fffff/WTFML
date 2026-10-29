@@ -586,7 +586,7 @@ public:
         subtitle->setElideMode(MainWindowUI::folderRowPathElideMode());
         subtitle->setText(row.subtitle);
         QFont subtitleFont = subtitle->font();
-        subtitleFont.setPointSize(qMax(1, subtitleFont.pointSize() - 1));
+        subtitleFont = Theme::textFont(subtitleFont, Theme::TextRole::Caption);
         subtitle->setFont(subtitleFont);
         QPalette subtitlePalette = subtitle->palette();
         subtitlePalette.setColor(QPalette::WindowText,
@@ -1145,7 +1145,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     // 第二行小一号、灰一点，跟第一行区分开。字号按当前字号减 1（不用点值，
     // 免得不支持点值的平台出现负字号）；颜色用调色板里的 PlaceholderText。
     QFont detailFont = runStateDetailLabel->font();
-    detailFont.setPointSize(qMax(1, detailFont.pointSize() - 1));
+    detailFont = Theme::textFont(detailFont, Theme::TextRole::Caption);
     runStateDetailLabel->setFont(detailFont);
     QPalette detailPalette = runStateDetailLabel->palette();
     detailPalette.setColor(QPalette::WindowText, detailPalette.color(QPalette::PlaceholderText));
@@ -1261,7 +1261,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     taskExtraLabel->setMinimumWidth(0);
     {
         QFont extraFont = taskExtraLabel->font();
-        extraFont.setPointSize(qMax(1, extraFont.pointSize() - 1));
+        extraFont = Theme::textFont(extraFont, Theme::TextRole::Caption);
         taskExtraLabel->setFont(extraFont);
         QPalette extraPalette = taskExtraLabel->palette();
         extraPalette.setColor(QPalette::WindowText,
@@ -1288,7 +1288,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     taskPercentLabel->setObjectName(taskPercentLabelName());
     {
         QFont pctFont = taskPercentLabel->font();
-        pctFont.setPointSize(qMax(1, pctFont.pointSize() - 1));
+        pctFont = Theme::textFont(pctFont, Theme::TextRole::Caption);
         taskPercentLabel->setFont(pctFont);
     }
     taskProgressRow->addWidget(taskPercentLabel, 0, Qt::AlignVCenter);
@@ -1340,7 +1340,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     accountTypeLabel->setObjectName(accountTypeLabelName());
     accountTypeLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     QFont accountTypeFont = accountTypeLabel->font();
-    accountTypeFont.setPointSize(qMax(1, accountTypeFont.pointSize() - 1));
+    accountTypeFont = Theme::textFont(accountTypeFont, Theme::TextRole::Caption);
     accountTypeLabel->setFont(accountTypeFont);
     // `QLabel` 不吃 `PlaceholderText` 这个角色（那是输入框占位用的），要把那一支**抄进
     // `WindowText`**。抄这一下不能只在构造里做一次：局部调色板里没标的角色在装上去之后
@@ -2093,12 +2093,13 @@ void MainWindowUI::toggleToolboxPanel() {
     closeButton->setFixedSize(26, 26);
     closeButton->setCursor(Qt::PointingHandCursor);
     closeButton->setToolTip(QCoreApplication::translate("MainWindowUI", "关闭"));
+    closeButton->setFont(Theme::textFont(closeButton->font(), Theme::TextRole::Heading));
     closeButton->setStyleSheet(
         QStringLiteral("QPushButton { background: transparent; border: none;"
-                       " color: %1; font-size: 17px; padding: 0; border-radius: 6px; }"
+                       " color: %1; padding: 0; border-radius: %4px; }"
                        "QPushButton:hover { background-color: %2; }"
                        "QPushButton:pressed { background-color: %3; }")
-            .arg(iconInk.name(), rowHover.name(), rowPressed.name()));
+            .arg(iconInk.name(), rowHover.name(), rowPressed.name()).arg(Theme::buttonRadius()));
     // NOTE: 上下文对象给按钮自己（`MainWindowUI` 不是 QObject），理由同下面那几颗。
     QObject::connect(closeButton, &QPushButton::clicked, closeButton,
                      [this]() { closeToolboxPanel(); });

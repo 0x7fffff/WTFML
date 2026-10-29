@@ -124,7 +124,7 @@ QString inspectInstalledDependencies(const QList<InstalledItem> &selected,
         ++recognized;
         projectFiles[projectKey(item)].append(QString(item.path).replace(QLatin1Char('\\'), QLatin1Char('/')).section(QLatin1Char('/'), -1));
     }
-    QStringList lines{QStringLiteral("选中 %1 项 · 已识别启用文件 %2 项 · 未识别启用文件 %3 项")
+    QStringList lines{QStringLiteral("选中 %1 项 / 已识别启用文件 %2 项 / 未识别启用文件 %3 项")
         .arg(selected.size()).arg(recognized).arg(unknown)};
     QStringList duplicates;
     for (auto it = projectFiles.cbegin(); it != projectFiles.cend(); ++it)

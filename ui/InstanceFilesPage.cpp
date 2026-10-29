@@ -18,6 +18,7 @@
 #include <QDirIterator>
 #include <QFileInfo>
 #include <QHBoxLayout>
+#include <QGridLayout>
 #include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
@@ -75,7 +76,7 @@ void makeSmallLine(QLabel *label) {
         return;
     }
     QFont font = label->font();
-    font.setPointSize(qMax(6, font.pointSize() + MainWindowUI::versionDateFontDelta()));
+    font = Theme::textFont(font, Theme::TextRole::Caption);
     label->setFont(font);
 }
 
@@ -713,11 +714,11 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
     m_actionScroll->hide();
     delete m_selectionBar->layout();
     auto *panel = new QVBoxLayout(m_selectionBar);
-    panel->setContentsMargins(16, 16, 16, 16);
-    panel->setSpacing(10);
+    panel->setContentsMargins(12, 12, 12, 12);
+    panel->setSpacing(8);
     auto *heading = new QHBoxLayout;
     auto *title = new QLabel(tr("操作"), m_selectionBar);
-    QFont titleFont = title->font(); titleFont.setBold(true); titleFont.setPointSize(16);
+    QFont titleFont = title->font(); titleFont.setBold(true); titleFont = Theme::textFont(titleFont, Theme::TextRole::Heading);
     title->setFont(titleFont);
     heading->addWidget(title, 1);
     auto *close = new QPushButton(QStringLiteral("×"), m_selectionBar);
@@ -737,6 +738,11 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
     m_stateAction->setObjectName(QStringLiteral("modStateAction"));
     Theme::markButton(m_stateAction, Theme::ButtonKind::Neutral);
     panel->addWidget(m_stateAction);
+    auto *actions = new QGridLayout;
+    actions->setSpacing(8);
+    actions->setColumnStretch(0, 1);
+    actions->setColumnStretch(1, 1);
+    panel->addLayout(actions);
     connect(m_stateAction, &QPushButton::clicked, this, [this] {
         QMenu menu(this);
         for (bool disable : {false, true}) {
@@ -752,7 +758,7 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
     check->setObjectName(QStringLiteral("modCheckSelectedUpdates"));
     check->setToolTip(tr("只检查选中的已启用模组，不会直接安装。"));
     Theme::markButton(check, Theme::ButtonKind::Neutral);
-    panel->addWidget(check);
+    actions->addWidget(check, 0, 0);
     connect(check, &QPushButton::clicked, this, [this] {
         const auto paths = selectedPathList();
         if (!paths.isEmpty()) emit checkSelectedUpdatesRequested(paths);
@@ -779,18 +785,23 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
         } else if (action == SelectionAction::Disable || action == SelectionAction::Enable) {
             button->hide();
         } else {
-            panel->addWidget(button);
-            if (action == SelectionAction::Update) button->setText(tr("更新选中项"));
+            if (action == SelectionAction::Update) {
+                button->setText(tr("更新"));
+                actions->addWidget(button, 0, 1);
+            }
             if (action == SelectionAction::Delete) {
-                button->setText(tr("删除选中项"));
+                button->setText(tr("删除"));
                 button->setIcon(VersionIcons::actionIcon(VersionIcons::Action::Delete));
+                actions->addWidget(button, 2, 0);
             }
         }
     }
     for (bool move : {false, true}) {
-        auto *transfer = new QPushButton(move ? tr("移动到实例…") : tr("复制到实例…"), m_selectionBar);
+        auto *transfer = new QPushButton(move ? tr("移动…") : tr("复制…"), m_selectionBar);
+        transfer->setToolTip(move ? tr("移动到其它实例") : tr("复制到其它实例"));
+        transfer->setAccessibleName(transfer->toolTip());
         Theme::markButton(transfer, Theme::ButtonKind::Neutral);
-        panel->insertWidget(panel->count() - 1, transfer);
+        actions->addWidget(transfer, 1, move ? 1 : 0);
         connect(transfer, &QPushButton::clicked, this, [this, move] {
             emit transferSelectionRequested(selectedPathList(), move);
         });
@@ -798,7 +809,7 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
     auto *more = new QPushButton(tr("更多…"), m_selectionBar);
     more->setObjectName(QStringLiteral("modMoreActions"));
     Theme::markButton(more, Theme::ButtonKind::Neutral);
-    panel->addWidget(more);
+    actions->addWidget(more, 2, 1);
     connect(more, &QPushButton::clicked, this, [this, more] {
         const auto paths = selectedPathList();
         QMenu menu(this);
@@ -832,10 +843,7 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
         menu.exec(more->mapToGlobal(QPoint(0, more->height())));
     });
     panel->addStretch();
-    auto *hint = new QLabel(tr("选择仅针对当前筛选结果。\n删除只处理模组文件，不清理配置。"), m_selectionBar);
-    hint->setWordWrap(true);
-    makeSecondary(hint);
-    panel->addWidget(hint);
+    m_selectionBar->setToolTip(tr("选择仅针对当前筛选结果。删除模组不清理配置。"));
     // Keep search and installation together; directory maintenance belongs in a menu.
     auto *header = qobject_cast<QHBoxLayout *>(m_searchRow->layout());
     m_pathRow->layout()->removeWidget(m_download);
@@ -1478,7 +1486,7 @@ void InstanceFilesPage::refresh() {
     // 于是把**它们现在选中的那几个**一起报出来（一眼看得全"这一页正在列哪几个文件夹"）。
     // 别的七页永远只有一个 ⇒ 那边走的就是这一条。
     const QStringList dirs = scanDirectories();
-    const QString shownDir = QDir::toNativeSeparators(dirs.join(QStringLiteral("   ·   ")));
+    const QString shownDir = QDir::toNativeSeparators(dirs.join(QStringLiteral("   /   ")));
     m_pathLabel->setText(shownDir);
     // 装不下时是从中间省略的，两头那几段还能看；整条路径靠悬停提示给（见构造里那段 NOTE）。
     m_pathLabel->setToolTip(shownDir);
@@ -1889,7 +1897,7 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
     } else {
         meta = isDir ? QStringLiteral("—") : formatSize(size);
         if (modified.isValid()) {
-            meta += QStringLiteral(" · ") + modified.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+            meta += QStringLiteral(" / ") + modified.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
         }
     }
     auto *metaLabel = new ElidedLabel(textColumn);
@@ -2325,7 +2333,7 @@ void InstanceFilesPage::updateSelectionBar() {
         m_selectionSummary->setText(tr("共 %1 个模组").arg(m_list->count()));
         m_selectionReopen->setText(tr("已选 %1 项").arg(count));
         m_selectionReopen->setVisible(count > 0);
-        m_actionStatus->setText(tr("启用 %1  ·  禁用 %2")
+        m_actionStatus->setText(tr("启用 %1  /  禁用 %2")
             .arg(selectedTogglePaths(true).size()).arg(selectedTogglePaths(false).size()));
         buttonFor(SelectionAction::Enable)->hide();
         buttonFor(SelectionAction::Disable)->hide();
@@ -2365,7 +2373,7 @@ void InstanceFilesPage::repositionSelectionBar() {
             }
             m_selectionTools->show();
         }
-        const int panelWidth = qMin(260, m_contentHost->width());
+        const int panelWidth = qMin(240, m_contentHost->width());
         const bool visible = !m_selectionBar->isHidden();
         // Narrow windows use a drawer; wide windows reserve space beside the list.
         m_contentHost->layout()->setContentsMargins(0, 0,
@@ -2479,7 +2487,7 @@ void InstanceFilesPage::fillDirectoryStats() {
         // 同一张表里两种行的小字长得一样，才不会让人以为这一列有两个意思。
         QString meta = formatSize(bytes);
         if (played.isValid()) {
-            meta += QStringLiteral(" · ") + played.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+            meta += QStringLiteral(" / ") + played.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
         }
         label->setText(meta);
     }

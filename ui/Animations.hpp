@@ -59,18 +59,17 @@ namespace Anim {
 // —— 时长与档位：**唯一出处**（要改节奏就改这儿，别在调用点写数）——
 
 /// 按下去那一下多快（毫秒）。
-constexpr int pressInMs() { return 90; }
+constexpr int pressInMs() { return 140; }
 /// 松开之后弹回来多快。
-constexpr int pressOutMs() { return 130; }
+constexpr int pressOutMs() { return 150; }
 /// 换页那一下（淡入 + 上抬）。
 ///
-/// 180 ms：幕布方案消除了子控件的末帧瞬移，不需要靠偏长时长掩护；
-/// 180 ms 仍有 11 拍，配合 `OutSine` 足够连续，同时顶栏反馈与页面能一起收住。
-constexpr int appearMs() { return 180; }
+/// 页面进入使用 250 ms ease-out，与覆盖层和面板保持一致。
+constexpr int appearMs() { return 250; }
 /// 整块覆盖那一层（`OverlayHost`）淡进来那一下。**和换页同一个量级**（同一类转场）。
-constexpr int overlayMs() { return 180; }
+constexpr int overlayMs() { return 250; }
 /// 底栏上拉面板滑上来那一下。
-constexpr int panelMs() { return 170; }
+constexpr int panelMs() { return 250; }
 /// 滚动条**冒出来**那一下。
 /// 和换页同一个量级 —— 它得跟页面那一下一起收住，单独更快或更慢都会看成"两件事"。
 constexpr int scrollBarMs() { return 180; }
@@ -84,7 +83,7 @@ constexpr int pageRiseDistance() { return 8; }
 /// 「同页筛选/列表变化：只动画新增、删除和状态，**不重播整页**」。
 /// 所以这一位比换页短一档 —— 它是"这一行是新来的"，不是"一整页换过去了"。
 /// 抬位移一概没有：行在列表里，往下挪着画会盖到相邻那一行上（见 `Anim::rowAppear()`）。
-constexpr int rowAppearMs() { return 120; }
+constexpr int rowAppearMs() { return 150; }
 
 /// 进度条**追值**那一发多快（毫秒）。
 ///
@@ -103,10 +102,10 @@ constexpr int stepMs() { return 16; }
 /// * 更高（比如 0.8）：定住那一帧确实像"一页内容刚落位"，可"淡"这一半只剩 20%，
 /// 整个转场就只剩一个"抬"，看上去像是从下面瞬移上去的、**没有过渡**。
 /// * ★ **0.72**：起手仍明确可见，但减少大面积页面由灰变实造成的闪烁感，剩下的 28%
-/// 浓淡由 `OutSine` 平滑收尾。它管的是"定住那一帧有多实"，和抬多少无关；
+/// 浓淡由 `OutCubic` 平滑收尾。它管的是"定住那一帧有多实"，和抬多少无关；
 /// 抬少了反而更需要起手那一位撑住"这一页是刚上来的"。
 ///
-/// NOTE: 它只治"定住那一帧"和浓淡的**起点**，缓动在 `runProgress()` 里（`OutSine`），
+/// NOTE: 它只治"定住那一帧"和浓淡的**起点**，缓动在 `runProgress()` 里（`OutCubic`），
 /// 映射 `pageStartOpacity() + (1 - pageStartOpacity()) * t` 写在 `pageAppear()` 里。
 /// NOTE: 别的几发（整块覆盖层 `overlayAppear()`、滚动条 `scrollBarAppear()`）**从 0 淡**：
 /// 它们本来就是"从无到有"，而且没有"一大块空底"这个观感问题。
@@ -291,7 +290,7 @@ constexpr int rowAppearLimit() { return 20; }
  * 可条子自己已经被钳回 0 了，照追值算就是从 0 慢慢爬到"其实早就下到那儿了"的那个
  * 数字（用户等启动那几秒回来，看见的是下载在**重头爬**）。从 0 起手一律不追，
  * 反正"这一批的第一个真数字"本来就该直接看见。
- * 4. 其余（往前）⇒ 从当前那一格追到 `value`，`OutSine`，**收尾一定落在 `value` 上**
+ * 4. 其余（往前）⇒ 从当前那一格追到 `value`，`OutCubic`，**收尾一定落在 `value` 上**
  * （不是"落在它附近"）。
  *
  * 全仓**所有**对这个进度条的写入（包括复位成 0、包括"还回来"那一趟）都走它 ——

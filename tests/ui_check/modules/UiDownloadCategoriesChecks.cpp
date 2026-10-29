@@ -259,6 +259,21 @@ int UiDownloadCategoriesChecks(MainWindowUI &ui, QStackedWidget * &gameStack, QW
         check(filterGuardOk, "筛子那四个下拉框都装了滚轮防护");
         check(filterMaxWidthOk,
               "★ 那四个下拉框的宽度上下限都设了（去掉上限整窗 sizeHint 会从 862 涨到 934）");
+        if (stack && ui.getTabWidget() && downloadPage) {
+            const int previousTab = ui.getTabWidget()->currentIndex();
+            const int previousPage = stack->currentIndex();
+            ui.getTabWidget()->setCurrentWidget(downloadPage);
+            stack->setCurrentIndex(MainWindowUI::downloadCategoryModIndex());
+            QApplication::processEvents();
+            auto *page = stack->currentWidget();
+            auto *type = page->findChild<QComboBox *>(MainWindowUI::downloadFilterTypeComboName(QStringLiteral("mod")));
+            auto *label = type ? type->parentWidget()->findChild<QLabel *>() : nullptr;
+            check(type && label && label->text() == MainWindowUI::downloadFilterTypeLabel() &&
+                      qAbs(label->geometry().center().y() - type->geometry().center().y()) <= 1,
+                  "筛选类型标签属于同一布局并与下拉框垂直对齐");
+            stack->setCurrentIndex(previousPage);
+            ui.getTabWidget()->setCurrentIndex(previousTab);
+        }
 
         // 「模组加载器那一栏只存在于模组页」的另一半：**按访问器取**也一样 ——
         // 光有上面那个"页面上数不出来"还不够，MainWindow 灌数据时读的正是这个访问器，

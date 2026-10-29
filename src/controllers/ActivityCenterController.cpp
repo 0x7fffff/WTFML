@@ -314,7 +314,7 @@ TaskCenter::Item ActivityCenterController::item(const Tasks::TaskSnapshot &task,
                                     InstanceFilesPage::formatSize(task.bytesTotal));
     }
     if (task.state == Tasks::TaskState::Running && transferSpeed(task.id) >= 0) {
-        if (!result.bytesText.isEmpty()) result.bytesText += QStringLiteral(" · ");
+        if (!result.bytesText.isEmpty()) result.bytesText += QStringLiteral(" / ");
         result.bytesText += InstanceFilesPage::formatSize(transferSpeed(task.id)) + QStringLiteral("/s");
     }
 

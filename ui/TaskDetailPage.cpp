@@ -76,7 +76,7 @@ TaskDetailPage::TaskDetailPage(QWidget *parent) : QDialog(parent) {
     {
         QFont titleFont = m_titleLabel->font();
         titleFont.setBold(true);
-        titleFont.setPointSize(titleFont.pointSize() + 2);
+        titleFont = Theme::textFont(titleFont, Theme::TextRole::Heading);
         m_titleLabel->setFont(titleFont);
     }
     m_box->addWidget(m_titleLabel);
@@ -253,7 +253,7 @@ void TaskDetailPage::rebuild() {
             auto *label = new QLabel(m_body);
             label->setObjectName(MainWindowUI::taskDetailStepName(i));
             const QString note = step.note.isEmpty() ? QString()
-                                                     : QStringLiteral(" · ") + step.note;
+                                                     : QStringLiteral(" / ") + step.note;
             label->setText(TaskCenter::stepMark(step.state) + QLatin1Char(' ') + step.name + note);
             if (step.state == TaskCenter::StepState::Failed) {
                 QPalette palette = label->palette();

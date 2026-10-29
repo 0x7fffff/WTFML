@@ -166,9 +166,9 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
         const auto result = BeaconBeam::calculate(glass);
         QStringList rows;
         for (int i = 0; i < result.segments.size(); ++i)
-            rows.append(tr("第 %1 层 · %2玻璃 → %3").arg(i + 1).arg(Banner::colorName(glass[i]), result.segments[i].name()));
+            rows.append(tr("第 %1 层 / %2玻璃 → %3").arg(i + 1).arg(Banner::colorName(glass[i]), result.segments[i].name()));
         const QColor final = result.finalColor;
-        rows.append(tr("最终颜色：%1 · RGB(%2, %3, %4)").arg(final.name()).arg(final.red()).arg(final.green()).arg(final.blue()));
+        rows.append(tr("最终颜色：%1 / RGB(%2, %3, %4)").arg(final.name()).arg(final.red()).arg(final.green()).arg(final.blue()));
         QStringList materials;
         for (int color = 0; color < Banner::colorCount(); ++color) {
             const int count = glass.count(color);
@@ -948,17 +948,17 @@ void ToolboxController::runHashBatch(const QStringList &paths, int algorithmInde
                         ++okCount;
                     }
                 }
-                QString summary = tr("共 %1 个文件 · %2")
+                QString summary = tr("共 %1 个文件 / %2")
                                       .arg(rows.size())
                                       .arg(FileHash::algorithmName(algorithm));
                 if (aborted) {
-                    summary += tr(" · 停下了，后面那几个没算");
+                    summary += tr(" / 停下了，后面那几个没算");
                 }
                 if (failed > 0) {
-                    summary += tr(" · %1 个没算成").arg(failed);
+                    summary += tr(" / %1 个没算成").arg(failed);
                 }
                 if (okCount == 0) {
-                    summary += tr(" · 一个都没算成");
+                    summary += tr(" / 一个都没算成");
                 }
                 m_page->setHashBatchView(rows, summary);
                 m_page->setHashBusy(false);
@@ -1162,7 +1162,7 @@ void ToolboxController::refreshTrim() {
         }
         const auto pattern = ArmorTrim::patternAt(selection.pattern);
         const auto material = ArmorTrim::trimMaterialAt(selection.material);
-        equipped.append(tr("%1：%2 · %3").arg(armor, pattern.name, material.name));
+        equipped.append(tr("%1：%2 / %3").arg(armor, pattern.name, material.name));
         materials[pattern.name + tr("纹饰模板")]++;
         materials[material.item]++;
         // 提示（这枚模板从哪来 / 哪个版本才有 / 模板可以复制）只从判据层拿：
@@ -1194,11 +1194,11 @@ void ToolboxController::refreshTrim() {
         items.append(tr("%1 × %2").arg(it.key()).arg(it.value()));
     }
     QString text = equipped.join(QChar('\n')) + tr("\n\n材料：")
-                   + items.join(QStringLiteral(" · "));
+                   + items.join(QStringLiteral(" / "));
     if (!notes.isEmpty()) {
         text += tr("\n\n提示：\n");
         for (const QString &note : notes) {
-            text += tr("· %1\n").arg(note);
+            text += tr("• %1\n").arg(note);
         }
         text.chop(1);
     }

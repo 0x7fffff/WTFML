@@ -1405,7 +1405,7 @@ QString hitMetaLine(const Hit &hit) {
     }
     // 来源总在：这一行是"这一条是从哪一家来的"，而图标和版本列表都跟着它走。
     bits.append(sourceLabel(hit.source));
-    return bits.join(QStringLiteral(" · "));
+    return bits.join(QStringLiteral(" / "));
 }
 
 QString VersionGroup::title() const {

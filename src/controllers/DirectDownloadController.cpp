@@ -91,7 +91,7 @@ void DirectDownloadController::manageCache(int action) {
     connect(worker, &QThread::finished, worker, &QObject::deleteLater);
     connect(worker, &QThread::finished, this, [this, result] {
         m_cacheBusy = false;
-        if (m_dialog) m_dialog->cacheStatus->setText(tr("续传缓存：%1 · 本次释放 %2 · 跳过占用 %3 · 失败 %4%5")
+        if (m_dialog) m_dialog->cacheStatus->setText(tr("续传缓存：%1 / 本次释放 %2 / 跳过占用 %3 / 失败 %4%5")
             .arg(QLocale().formattedDataSize(qMax<qint64>(0, result->bytes)), QLocale().formattedDataSize(result->removed))
             .arg(result->busy).arg(result->failed).arg(result->incomplete ? tr("（扫描达到安全限制，统计不完整）") : QString()));
         if (m_cacheTrimPending) { m_cacheTrimPending = false; manageCache(1); }
@@ -129,7 +129,7 @@ bool DirectDownloadController::start(const DirectDownloadRequest &request, bool 
     if (reserved || (m_running && samePath(m_path)) || std::any_of(m_pendingPaths.cbegin(), m_pendingPaths.cend(), samePath))
         return reject(tr("该保存路径已有进行中或排队的下载，请更换文件名。"));
     const auto id = m_activity->enqueue(Tasks::TaskKind::Download,
-        tr("直链下载 · %1").arg(QFileInfo(validated.path).fileName()), QFileInfo(validated.path).absolutePath(),
+        tr("直链下载 / %1").arg(QFileInfo(validated.path).fileName()), QFileInfo(validated.path).absolutePath(),
         {{tr("下载文件"), Tasks::TaskStepState::Pending, {}}, {tr("校验并保存"), Tasks::TaskStepState::Pending, {}}},
         QStringLiteral("direct-download"), this, [this, validated, allowOverwrite](Tasks::TaskId job) { startJob(job, validated, allowOverwrite); });
     if (id == Tasks::invalidTaskId()) return reject(tr("等待队列已满，请稍后再添加。"));
@@ -213,7 +213,7 @@ void DirectDownloadController::updateProgress(qint64 done, qint64 total) {
     m_lastRateUi = now;
     const auto size = [](qint64 bytes) { return QLocale().formattedDataSize(qMax<qint64>(0, bytes)); };
     const qint64 speed = m_rate.bytesPerSecond(now);
-    m_status = tr("%1 / %2 · %3").arg(size(done), total > 0 ? size(total) : tr("大小未知"),
+    m_status = tr("%1 / %2 / %3").arg(size(done), total > 0 ? size(total) : tr("大小未知"),
         speed < 0 ? tr("测量速度中…") : size(speed) + QStringLiteral("/s"));
     if (total > done) {
         const qint64 eta = m_rate.remainingSeconds(now, total - done);
@@ -223,8 +223,8 @@ void DirectDownloadController::updateProgress(qint64 done, qint64 total) {
                 ? tr("%1 小时 %2 分").arg(seconds / 3600).arg((seconds % 3600) / 60)
                 : seconds >= 60 ? tr("%1 分 %2 秒").arg(seconds / 60).arg(seconds % 60)
                                 : tr("%1 秒").arg(seconds);
-            m_status += tr(" · 预计剩余约 %1").arg(duration);
-        } else m_status += speed == 0 ? tr(" · 等待数据…") : tr(" · 正在估算剩余时间…");
+            m_status += tr(" / 预计剩余约 %1").arg(duration);
+        } else m_status += speed == 0 ? tr(" / 等待数据…") : tr(" / 正在估算剩余时间…");
     }
     m_activity->tasks()->setDetail(m_task, m_status);
     if (m_dialog) m_dialog->showProgress(done, total, m_status);

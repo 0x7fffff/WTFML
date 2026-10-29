@@ -713,7 +713,7 @@ QString summaryText(const Info &info, const QString &targetGameVersion) {
                                .arg(version)
                                .arg(info.dataVersion));
     }
-    QString text = parts.join(QStringLiteral(" · "));
+    QString text = parts.join(QStringLiteral(" / "));
     if (!info.countsComplete) {
         text += QStringLiteral("\n（这份文件的方块表没解出来，只读到元数据）");
     }

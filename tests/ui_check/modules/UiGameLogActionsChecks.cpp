@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include <QFontInfo>
 int UiGameLogActionsChecks(QFrame * &bar) {
     {
         // 这个窗是"给我一行字我就写上去"的一块控件，不认识"会话"是什么（见它的文件头），
@@ -112,19 +113,11 @@ int UiGameLogActionsChecks(QFrame * &bar) {
             {
                 const QFont systemFixed = QFontDatabase::systemFont(QFontDatabase::FixedFont);
                 const QFont logFont = view->font();
-                bool bigger = false;
-                QString fontDetail;
-                if (systemFixed.pointSizeF() > 0) {
-                    bigger = logFont.pointSizeF() > systemFixed.pointSizeF();
-                    fontDetail = QStringLiteral("点 %1 vs 系统 %2")
-                                     .arg(logFont.pointSizeF())
-                                     .arg(systemFixed.pointSizeF());
-                } else {
-                    bigger = logFont.pixelSize() > systemFixed.pixelSize();
-                    fontDetail = QStringLiteral("像素 %1 vs 系统 %2")
-                                     .arg(logFont.pixelSize())
-                                     .arg(systemFixed.pixelSize());
-                }
+                const bool points = systemFixed.pointSizeF() > 0;
+                const qreal systemSize = points ? systemFixed.pointSizeF() : systemFixed.pixelSize();
+                const qreal logSize = points ? logFont.pointSizeF() : logFont.pixelSize();
+                const bool bigger = logSize > systemSize;
+                const QString fontDetail = QStringLiteral("日志 %1 / 系统 %2").arg(logSize).arg(systemSize);
                 check(bigger && GameLogWindow::logFontPointDelta() > 0,
                       "Z3 正文字号比系统那个等宽字体**大一档**（用户说的「稍微大一点」）",
                       fontDetail);
@@ -145,11 +138,11 @@ int UiGameLogActionsChecks(QFrame * &bar) {
                       .arg(GameLogWindow::maxLogBlocks()));
             // 说明行比正文小一号、颜色是 PlaceholderText（和设置页那些说明同一套写法）。
             if (log->getHintLabel() != nullptr) {
-                check(log->getHintLabel()->font().pointSize() < log->font().pointSize(),
+                check(log->getHintLabel()->font().pixelSize() < log->font().pixelSize(),
                       "Z3 顶上那句说明比正文小一号",
                       QString("%1 vs %2")
-                          .arg(log->getHintLabel()->font().pointSize())
-                          .arg(log->font().pointSize()));
+                          .arg(log->getHintLabel()->font().pixelSize())
+                          .arg(log->font().pixelSize()));
                 check(log->getHintLabel()->palette().color(QPalette::WindowText) ==
                           log->getHintLabel()->palette().color(QPalette::PlaceholderText),
                       "Z3 那句说明的颜色是 PlaceholderText（灰色注释那一档）",

@@ -316,7 +316,7 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
         motdRaw.isEmpty() ? QVector<MotdPiece>() : MotdText::parse(motdRaw, 2);
     const int motdLines = motdPieces.isEmpty() ? 0 : (motdPieces.last().line + 1);
     QFont subFont = option.font;
-    subFont.setPointSize(qMax(6, option.font.pointSize() + MainWindowUI::versionDateFontDelta()));
+    subFont = Theme::textFont(subFont, Theme::TextRole::Caption);
     const QFontMetrics mainMetrics(option.font);
     const QFontMetrics subMetrics(subFont);
     // 两行合成一块，整块在行里居中（行高是常数，所以"上面一行字下面一行字"看着才稳）。
@@ -492,7 +492,7 @@ QSize VersionTreeDelegate::sizeHint(const QStyleOptionViewItem &option,
     // 第二行小字：两棵树都可能有（版本树上是发布时间，加载器那棵树上是"与 X 不兼容"
     // 或者选中的版本号），有就按它量。
     QFont subFont = option.font;
-    subFont.setPointSize(qMax(6, option.font.pointSize() + MainWindowUI::versionDateFontDelta()));
+    subFont = Theme::textFont(subFont, Theme::TextRole::Caption);
     width = qMax(width, QFontMetrics(subFont).horizontalAdvance(
                             index.data(MainWindowUI::rowSubTextRole()).toString()));
     // MOTD（rowMotdRawRole()）量的是**最长的那一行**：`§` 码不是字，不能拿原串直接量

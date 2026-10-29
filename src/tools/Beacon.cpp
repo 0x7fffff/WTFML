@@ -191,33 +191,33 @@ QString detailText(int fromLevel, int level) {
     lines << summaryText(level);
     // 说的是**从下面数第 level 层**（搭到这一级时新铺的那一层，也是最大的那一层）——
     // 不是"最上面那一层"：最上面永远是 3 × 3。
-    lines << QStringLiteral("· 从下面数第 %1 层：%2 × %2 = %3 块（最上面那层永远是 3 × 3）")
+    lines << QStringLiteral("• 从下面数第 %1 层：%2 × %2 = %3 块（最上面那层永远是 3 × 3）")
                  .arg(level)
                  .arg(2 * level + 1)
                  .arg(layerBlocks(level));
-    lines << QStringLiteral("· 从零搭起一共要 %1 块（每一层比下面那层窄两格；这个数**不含**信标本体）")
+    lines << QStringLiteral("• 从零搭起一共要 %1 块（每一层比下面那层窄两格；这个数**不含**信标本体）")
                  .arg(totalBlocks(level));
     if (fromLevel > 0 && fromLevel < level) {
-        lines << QStringLiteral("· 你现在是 %1 级：再补 %2 块就够")
+        lines << QStringLiteral("• 你现在是 %1 级：再补 %2 块就够")
                      .arg(fromLevel)
                      .arg(blocksToAdd(fromLevel, level));
     } else if (fromLevel == level) {
-        lines << QStringLiteral("· 你现在已经是 %1 级了，不用再加方块").arg(level);
+        lines << QStringLiteral("• 你现在已经是 %1 级了，不用再加方块").arg(level);
     } else if (fromLevel > level) {
-        lines << QStringLiteral("· 你现在是 %1 级，已经比这个目标高了（要降低就得自己拆）")
+        lines << QStringLiteral("• 你现在是 %1 级，已经比这个目标高了（要降低就得自己拆）")
                      .arg(fromLevel);
     }
-    lines << QStringLiteral("· 效果范围：%1 格").arg(effectRange(level));
-    lines << QStringLiteral("· 可以给：%1").arg(effectsForLevel(level).join(QStringLiteral("、")));
+    lines << QStringLiteral("• 效果范围：%1 格").arg(effectRange(level));
+    lines << QStringLiteral("• 可以给：%1").arg(effectsForLevel(level).join(QStringLiteral("、")));
     if (level < maxLevel()) {
-        lines << QStringLiteral("· 再升一级（%1 级）要再加 %2 块，范围变成 %3 格")
+        lines << QStringLiteral("• 再升一级（%1 级）要再加 %2 块，范围变成 %3 格")
                      .arg(level + 1)
                      .arg(layerBlocks(level + 1))
                      .arg(effectRange(level + 1));
     } else {
-        lines << QStringLiteral("· 已经到顶了：4 级就是最高一级");
+        lines << QStringLiteral("• 已经到顶了：4 级就是最高一级");
     }
-    lines << QStringLiteral("· 信标要放在金字塔正中间、上面留出天空（玻璃可以，别的方块不行）");
+    lines << QStringLiteral("• 信标要放在金字塔正中间、上面留出天空（玻璃可以，别的方块不行）");
     return lines.join(QLatin1Char('\n'));
 }
 

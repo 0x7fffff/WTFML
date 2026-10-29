@@ -108,13 +108,9 @@ constexpr int kGlyphSize = 18;
 /// 那时候 `setPointSizeF()` 会被 Qt 静默忽略（字号一点不变、也不报错），得改 `setPixelSize()`。
 /// 用**增量**不写死 pt：面板字号跟着系统走，写死会把"比正文大一点"变成"在某些机器上比正文小"。
 QFont enlargedFont(const QFont &base, qreal pointDelta, int pixelDelta) {
-    QFont out = base;
-    if (out.pointSizeF() > 0) {
-        out.setPointSizeF(out.pointSizeF() + pointDelta);
-    } else if (out.pixelSize() > 0) {
-        out.setPixelSize(out.pixelSize() + pixelDelta);
-    }
-    return out;
+    Q_UNUSED(pointDelta);
+    Q_UNUSED(pixelDelta);
+    return Theme::textFont(base, Theme::TextRole::Heading);
 }
 
 QColor blendedColor(const QColor &from, const QColor &to, qreal progress) {

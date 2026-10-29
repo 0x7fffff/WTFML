@@ -6,6 +6,7 @@
 #include "Animations.hpp"
 
 #include <QAbstractAnimation>
+#include <QAbstractNativeEventFilter>
 #include <QAbstractButton>
 #include <QAbstractScrollArea>
 #include <QApplication>
@@ -365,7 +366,7 @@ struct StepRun {
 /**
  * 跑一发进度动画，每一帧交给 `apply()` 去摆那个效果 / 那块幕布上的几个数。
  *
- * `apply` 收到的是**已经映射好的值**（`from` → `to`，走 `OutSine`），不是 0→1。
+ * `apply` 收到的是**已经映射好的值**（`from` → `to`，走 `OutCubic`），不是 0→1。
  *
  * `owner`：这一发动画和步进器挂在谁身上（效果的拥有者那几发就是效果自己；换页那几发是
  * 那块幕布）。同一个 `owner` 上又进来一发时，上一发会被停掉。
@@ -404,7 +405,7 @@ void runProgress(QObject *owner, QWidget *repaintTarget, qreal from, qreal to, i
     animation->setDuration(qMax(1, ms));
     animation->setStartValue(from);
     animation->setEndValue(to);
-    animation->setEasingCurve(QEasingCurve::OutSine);
+    animation->setEasingCurve(QEasingCurve::OutCubic);
     // 每一拍推完之后让那一块自己重画一遍。效果那几发这儿只叫得动"控件自己"那一层
     // （子控件那一块要等它自己脏了才画 —— 这正是换页那一发不能用效果的原因，见
     // `PageCurtain` 那段）；幕布是一块普通控件，这一句就是"整块都新"。
@@ -445,7 +446,7 @@ void runProgress(QObject *owner, QWidget *repaintTarget, qreal from, qreal to, i
     // 最多是起手多定住一两帧（那一段的观感由 `pageStartOpacity()` 与
     // `pageRiseDistance()` 管着）。
     //
-    // 补发那一拍会**和上一拍挤在一起**（离得太近）：那一拍原地丢掉，曲线用 `OutSine`
+    // 补发那一拍会**和上一拍挤在一起**（离得太近）：那一拍原地丢掉，曲线用 `OutCubic`
     // 保证每一拍之间的浓淡与位移都平滑。
     //
     // 【不走"单发链"（推完一档再 start 下一发），太拖】两拍之间确实至少隔一个
@@ -749,6 +750,24 @@ bool installPressAnimation(QApplication &app) {
         return true;
     }
     app.setProperty(kFilterMark, true);
+#if defined(Q_OS_WIN)
+    // Follow Windows accessibility changes while the launcher remains open.
+    class MotionPreferenceWatcher final : public QObject, public QAbstractNativeEventFilter {
+    public:
+        explicit MotionPreferenceWatcher(QApplication &owner) : QObject(&owner), m_app(owner) {
+            owner.installNativeEventFilter(this);
+        }
+        ~MotionPreferenceWatcher() override { m_app.removeNativeEventFilter(this); }
+        bool nativeEventFilter(const QByteArray &, void *message, qintptr *) override {
+            const auto *event = static_cast<MSG *>(message);
+            if (event && event->message == WM_SETTINGCHANGE) refreshPlatformReducedMotion();
+            return false;
+        }
+    private:
+        QApplication &m_app;
+    };
+    new MotionPreferenceWatcher(app);
+#endif
     app.installEventFilter(new PressFilter(&app));
     return true;
 }
@@ -918,7 +937,7 @@ void slideUp(QWidget *window, const QPoint &target) {
     animation->setDuration(panelMs());
     animation->setStartValue(start);
     animation->setEndValue(target);
-    // NOTE: 这一发**故意用 `OutCubic`**（"整页转场"那几发用 `OutSine`）：
+    // 小面板与整页转场共用 OutCubic，避免进入动作使用不同的收尾节奏。
     // 它是"一小块面板弹出来"，要的是干脆利落 —— 16 px 走完就该能点上面的东西了。
     // 收尾圆滑在这儿的代价是"最后 1~2 px 还在慢慢挪"。
     animation->setEasingCurve(QEasingCurve::OutCubic);

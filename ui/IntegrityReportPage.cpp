@@ -55,7 +55,7 @@ IntegrityReportPage::IntegrityReportPage(QWidget *parent) : QDialog(parent) {
     {
         QFont font = m_summaryLabel->font();
         font.setBold(true);
-        font.setPointSize(font.pointSize() + 2);
+        font = Theme::textFont(font, Theme::TextRole::Heading);
         m_summaryLabel->setFont(font);
     }
     m_box->addWidget(m_summaryLabel);

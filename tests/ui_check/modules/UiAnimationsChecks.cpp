@@ -42,13 +42,13 @@ int UiAnimationsChecks(QApplication &app, QFrame * &bar) {
         // **160–180 ms**；按钮 hover：90–120 ms；下载进度使用**平滑追值**…；不动画窗口几何、
         // 表格列宽和文字缩放」。这一条量的是**这些数本身**（每一个数"为什么是这个值"写在
         // `Animations.hpp` 里它自己那一段）。
-        check(Anim::appearMs() >= 160 && Anim::appearMs() <= 200 &&
-                  Anim::pageRiseDistance() == 8 && Anim::panelMs() >= 160 &&
-                  Anim::panelMs() <= 180 && Anim::rowAppearMs() > 0 &&
+        check(Anim::appearMs() == 250 && Anim::overlayMs() == 250 &&
+                  Anim::pageRiseDistance() == 8 && Anim::panelMs() >= 240 &&
+                  Anim::panelMs() <= 260 && Anim::rowAppearMs() > 0 &&
                   Anim::rowAppearMs() <= 200 && Anim::progressMs() > 0 &&
                   Anim::rowAppearLimit() > 0,
-              "★ ⑬ 那几个时长/位移都落在案上给的区间里（换页 160–200 ms、抬正好 8 px、"
-              "面板 160–180 ms），新增的三位（行淡 / 追值 / 淡几行的上限）也都不是 0 那种"
+              "★ ⑬ 那几个时长/位移都落在案上给的区间里（换页 250 ms、抬正好 8 px、"
+              "面板 250 ms），新增的三位（行淡 / 追值 / 淡几行的上限）也都不是 0 那种"
               "假参数",
               QStringLiteral("换页 %1 ms / 抬 %2 px / 面板 %3 ms / 行淡 %4 ms（最多 %5 行）/ "
                              "追值 %6 ms")

@@ -684,7 +684,7 @@ void WorldSettingsPage::setWorld(const WorldView &view) {
     if (view.hasRegions && !view.regionsText.isEmpty()) {
         facts.append(tr("已生成区域 %1").arg(view.regionsText));
     }
-    m_info->setText(facts.join(QStringLiteral("　·　")));
+    m_info->setText(facts.join(QStringLiteral(" / ")));
     // 说明（模组维度不在里面 / 有区域文件读不出来）只挂在 tooltip 上：顶上那行已经够长了，
     // 而它是"结果可能不完整"的补充事实，不是主角。
     m_info->setToolTip(view.mapNote);

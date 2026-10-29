@@ -109,7 +109,7 @@ constexpr int kTextMaxWidth = kCompactWidth - 2 * kPanelPadding - 56;
 /// 看着就是"这句 setPalette 没生效"）。
 void applyMutedFont(QWidget *widget, int pointDelta) {
     QFont font = widget->font();
-    font.setPointSize(qMax(1, font.pointSize() + pointDelta));
+    font = Theme::textFont(font, pointDelta < 0 ? Theme::TextRole::Caption : Theme::TextRole::Body);
     widget->setFont(font);
     const QColor muted = widget->palette().color(QPalette::PlaceholderText);
     QPalette palette = widget->palette();

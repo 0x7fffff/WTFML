@@ -56,7 +56,7 @@ TreeSize measure(const QString &absolutePath, bool isDirectory) {
 }
 
 QString joinSize(int files, qint64 bytes) {
-    return QStringLiteral("%1 个文件 · %2").arg(files).arg(FileHash::fileSizeText(bytes));
+    return QStringLiteral("%1 个文件 / %2").arg(files).arg(FileHash::fileSizeText(bytes));
 }
 
 }  // namespace
@@ -80,7 +80,7 @@ QString compatibilityText(Compatibility compatibility, const QString &sourceGame
     };
     switch (compatibility) {
     case Compatibility::Same:
-        return QStringLiteral("目标版本（%1 · %2）与源一致：模组与配置可以原样搬过去。")
+        return QStringLiteral("目标版本（%1 / %2）与源一致：模组与配置可以原样搬过去。")
             .arg(sourceGameVersion, loaderWord(sourceLoaderName));
     case Compatibility::GameVersionDiffers:
         return QStringLiteral("目标版本是 %1，源是 %2 —— 模组与部分配置可能不兼容，"
@@ -91,7 +91,7 @@ QString compatibilityText(Compatibility compatibility, const QString &sourceGame
                               "模组与加载器相关配置可能不兼容，所以「模组」默认不勾选。")
             .arg(loaderWord(targetLoaderName), loaderWord(sourceLoaderName), sourceGameVersion);
     case Compatibility::BothDiffer:
-        return QStringLiteral("目标版本是 %1 · %2，源是 %3 · %4 —— 模组与部分配置可能不兼容，"
+        return QStringLiteral("目标版本是 %1 / %2，源是 %3 / %4 —— 模组与部分配置可能不兼容，"
                               "所以「模组」默认不勾选。")
             .arg(targetGameVersion, loaderWord(targetLoaderName), sourceGameVersion,
                  loaderWord(sourceLoaderName));
@@ -139,7 +139,7 @@ QString Plan::headline() const {
                 : QStringLiteral("迁移计划：%1").arg(compatibilityName(compatibility));
     const qint64 bytes = selectedBytes(defaultSelectedKeys());
     const int files = selectedFileCount(defaultSelectedKeys());
-    return QStringLiteral("%1 · 默认搬 %2 项（%3）").arg(prefix).arg(count).arg(joinSize(files, bytes));
+    return QStringLiteral("%1 / 默认搬 %2 项（%3）").arg(prefix).arg(count).arg(joinSize(files, bytes));
 }
 
 QString Plan::detailText() const {
@@ -152,7 +152,7 @@ QString Plan::detailText() const {
                       : QStringLiteral("以下是这次迁移里要搬的内容："));
     for (const Item &item : items) {
         if (!item.exists) {
-            lines << QStringLiteral("· %1：这一份实例里没有").arg(item.label);
+            lines << QStringLiteral("• %1：这一份实例里没有").arg(item.label);
             continue;
         }
         lines << QStringLiteral("%1 %2（%3）")

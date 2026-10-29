@@ -47,8 +47,8 @@ int UiLaunchPromptsChecks(MainWindowUI &ui) {
                           .arg(rowY));
                 // 小一号：字号是**在同一个调色板的字体上算**的（不写死点数），所以这里
                 // 只比"它比正文小"，不钉具体点数。
-                const qreal textPt = text->font().pointSizeF();
-                const qreal notePt = note->font().pointSizeF();
+                const qreal textPt = text->font().pixelSize();
+                const qreal notePt = note->font().pixelSize();
                 check(notePt > 0 && textPt > 0 && notePt < textPt,
                       "小字确实比正文小一号",
                       QStringLiteral("正文 %1pt ／ 小字 %2pt").arg(textPt).arg(notePt));

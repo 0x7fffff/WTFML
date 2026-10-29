@@ -616,10 +616,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         // 也没有「更多目录」（见 .hpp 里 setFolderPresentKeys() 那条 NOTE）。
         relayoutShortcuts();
         column->addLayout(buttonGrid);
-        auto *hint = new QLabel(filesHint(QStringLiteral("shortcut")), cell);
-        hint->setObjectName(filesHintName(QStringLiteral("shortcut")));
-        hint->setWordWrap(true);
-        column->addWidget(hint);
+        cell->setToolTip(filesHint(QStringLiteral("shortcut")));
         grid->addWidget(cell, row++, 0, 1, 2);
     }
 

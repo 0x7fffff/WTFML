@@ -49,7 +49,7 @@ QLabel *makeHomeTitle(const QString &text, QWidget *parent) {
     auto *label = new QLabel(text, parent);
     QFont font = label->font();
     font.setBold(true);
-    font.setPointSizeF(font.pointSizeF() + 2.0);
+    font = Theme::textFont(font, Theme::TextRole::Heading);
     label->setFont(font);
     return label;
 }
@@ -226,7 +226,7 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
             titleFont.setBold(true);
             // 页面标题要比卡片标题再高一档：只高 +2 时在默认 900px 窗口里只比正文
             // 大一点点，右边有「刷新 / 分组设置」时尤其容易被按钮抢走视觉重心。
-            titleFont.setPointSizeF(titleFont.pointSizeF() + 3.0);
+            titleFont = Theme::textFont(titleFont, Theme::TextRole::Heading);
             columns.right.title->setFont(titleFont);
         }
         titleRow->addWidget(columns.right.title);
@@ -285,7 +285,7 @@ void fillPageHeader(Column &column, const QString &title, const QString &subtitl
     }
     if (column.subtitle != nullptr) {
         column.subtitle->setText(subtitle);
-        column.subtitle->setVisible(!subtitle.isEmpty());
+        column.subtitle->setVisible(false); // Root navigation already identifies the page.
     }
 }
 
@@ -312,7 +312,7 @@ SettingsSection addSettingsSection(QGridLayout *grid, int &row, const QString &t
     {
         QFont titleFont = titleLabel->font();
         titleFont.setBold(true);
-        titleFont.setPointSizeF(titleFont.pointSizeF() + 1.0);
+        titleFont = Theme::textFont(titleFont, Theme::TextRole::Heading);
         titleLabel->setFont(titleFont);
     }
     layout->addWidget(titleLabel);
@@ -364,7 +364,7 @@ QLabel *addDynamicHint(QWidget *box, const QString &text, QWidget *parent) {
     QLabel *hint = new QLabel(text, parent);
     hint->setWordWrap(true);
     QFont hintFont = hint->font();
-    hintFont.setPointSize(qMax(1, hintFont.pointSize() - 1));
+    hintFont = Theme::textFont(hintFont, Theme::TextRole::Caption);
     hint->setFont(hintFont);
     // 使用动态文字角色，不能把创建时的浅色主题文字固化在局部调色板中。
     markTextRole(hint, Theme::secondaryTextRoleValue());

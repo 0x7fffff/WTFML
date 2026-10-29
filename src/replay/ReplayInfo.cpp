@@ -144,7 +144,7 @@ QString summaryText(const Info &info) {
     }
     if (info.playerCount > 0) parts << QStringLiteral("%1 位玩家").arg(info.playerCount);
     if (!info.generator.isEmpty()) parts << info.generator;
-    return parts.join(QStringLiteral(" · "));
+    return parts.join(QStringLiteral(" / "));
 }
 
 QString detailText(const Info &info) {

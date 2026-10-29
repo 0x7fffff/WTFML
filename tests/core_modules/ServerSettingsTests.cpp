@@ -537,7 +537,7 @@ void runServerSettingsTests() {
               titleAt(8));
 
         // `summaryText()` 的三档拼法（没有的那几档不出现）。
-        check(ServerCheck::summaryText(all) == QStringLiteral("4 项要处理 · 2 项提醒 · 3 项说明"),
+        check(ServerCheck::summaryText(all) == QStringLiteral("4 项要处理 / 2 项提醒 / 3 项说明"),
               "★★ ZV5 总括那句是三档拼出来的、次序固定", ServerCheck::summaryText(all));
         ServerCheck::Facts onlyInfo = good;
         onlyInfo.modCount = 1;  // 加上"世界在盘上"那一条 ⇒ 两条说明

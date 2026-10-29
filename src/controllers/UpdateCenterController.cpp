@@ -306,8 +306,8 @@ void UpdateCenterController::onUndoRequested() {
     // 自己换过东西）。撤销不是一个"点错了也没事"的动作。
     const QString text =
         MainWindow::tr("把「%1」退回上一次更新之前：\n\n"
-                       "· 换回去 %2 个文件\n"
-                       "· 删掉那次更新新添的 %3 个文件\n\n"
+                       "• 换回去 %2 个文件\n"
+                       "• 删掉那次更新新添的 %3 个文件\n\n"
                        "这一趟更新之后你自己改过的东西**会一起被改回去**。")
             .arg(m_owner.instanceDisplayName(instanceId))
             .arg(snapshot.fileCount())

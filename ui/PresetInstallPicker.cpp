@@ -45,7 +45,7 @@ void PresetInstallPicker::setContext(const QString &gameVersion, const QString &
     const QString loaderText = loader.trimmed();
     QString text = tr("游戏版本 %1").arg(versionText.isEmpty() ? tr("（未选）") : versionText);
     if (!loaderText.isEmpty()) {
-        text += QStringLiteral(" · ") + loaderText;
+        text += QStringLiteral(" / ") + loaderText;
     }
     m_context->setText(text);
 }

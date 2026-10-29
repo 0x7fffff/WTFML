@@ -2,6 +2,7 @@
 #include <type_traits>
 int main(int argc, char **argv) {
  QApplication app(argc, argv);
+ app.setFont(Theme::textFont(app.font(), Theme::TextRole::Body));
     Q_INIT_RESOURCE(icons);
  std::setvbuf(stdout, nullptr, _IONBF, 0);
  Anim::setEnabled(false);

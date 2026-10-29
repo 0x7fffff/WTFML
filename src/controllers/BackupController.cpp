@@ -89,7 +89,7 @@ QString BackupController::pickLine(const QString &zipPath, const QString &from) 
                        .arg(info.fileName(), sizeText(info.size()),
                             info.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm")));
     if (!from.isEmpty()) {
-        line += tr(" · 来自「%1」").arg(from);
+        line += tr(" / 来自「%1」").arg(from);
     }
     return line;
 }

@@ -95,7 +95,7 @@ QWidget *MainWindowUI::setupDownloadPage() {
         // 都是"刷新按钮再也不出现"，两边各自的断言都还是绿的。
         downloadCategoryList->setMouseTracking(true);
         QFont categoryFont = downloadCategoryList->font();
-        categoryFont.setPointSize(categoryFont.pointSize() + versionTreeFontStep());
+        categoryFont = Theme::textFont(categoryFont, Theme::TextRole::Body);
         downloadCategoryList->setFont(categoryFont);
         for (int i = 0; i < categoryKeys.size(); ++i) {
             auto *item = new QListWidgetItem(categoryTexts.value(i), downloadCategoryList);
@@ -244,7 +244,7 @@ void MainWindowUI::setupDownloadGamePage() {
     versionTree->setMouseTracking(true);
     // 字号放大一点。代理里那行小字是从这个字号往下推的，别在这儿单独设它。
     QFont treeFont = versionTree->font();
-    treeFont.setPointSize(treeFont.pointSize() + versionTreeFontStep());
+    treeFont = Theme::textFont(treeFont, Theme::TextRole::Body);
     versionTree->setFont(treeFont);
     // 图标尺寸：画是代理画的（它自己按 versionTreeIconSize 缩放），这里设的是**视图
     // 认下的那个尺寸** —— 装上安装页那棵加载器树之后，这两条竖的设置必须成对地
@@ -394,7 +394,7 @@ void MainWindowUI::setupDownloadGamePage() {
     // 展开/收起是"点那一条"完成的，而点中一条会把它整行画成选中色（和版本树那边
     // 一样）。这里**不要**再自己画高亮：选中色就是"你现在停在哪一条"。
     QFont loaderFont = loaderTree->font();
-    loaderFont.setPointSize(loaderFont.pointSize() + versionTreeFontStep());
+    loaderFont = Theme::textFont(loaderFont, Theme::TextRole::Body);
     loaderTree->setFont(loaderFont);
     // 五条加载器（+ 展开出来的版本号）都用同一个标志尺寸，和版本树上那 18 px 一致。
     loaderTree->setIconSize(QSize(versionTreeIconSize(), versionTreeIconSize()));
@@ -493,7 +493,7 @@ void MainWindowUI::setupDownloadGamePage() {
     // Latest design: a compact floating action at the bottom-centre of the right content pane.
     // Only its own rectangle intercepts input; the surrounding scroll area remains interactive.
     QFont installFont = installButton->font();
-    installFont.setPointSize(installFont.pointSize() + installButtonFontStep());
+    installFont = Theme::textFont(installFont, Theme::TextRole::Heading);
     installButton->setFont(installFont);
     installButton->setMinimumHeight(qMax(48, installButtonMinHeight()));
     auto *installFooter = new QFrame(installContent);
@@ -630,17 +630,21 @@ void MainWindowUI::setupDownloadResourcePages() {
         };
         // 一个"标签 + 下拉框"的小组。标签只为说明右边那个框是筛什么用的 —— 这四样
         // 没有一样能从框里的内容猜出来（尤其「全部」那一项在四个框里长得一模一样）。
-        const auto addFilterLabel = [&](QLayout *row, const QString &text) {
+        const auto addFilterLabel = [&](QHBoxLayout *row, const QString &text) {
+            auto *group = new QHBoxLayout;
+            group->setSpacing(4);
             auto *label = new QLabel(text, filterRow);
             label->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
-            row->addWidget(label);
+            group->addWidget(label);
+            row->addLayout(group);
+            return group;
         };
 
         // 版本：**可编辑的下拉框** —— 上面那张清单里挑一个，也能自己打一个（版本可自行输入）。
         // 清单由 MainWindow 灌（它才知道有哪些游戏版本），
         // 灌之前它就是空的一个框。回车这一条也由 MainWindow 接（可编辑下拉框内部那个
         // QLineEdit 是 `combo->lineEdit()`，这一层不接信号）。
-        addFilterLabel(filterBottom, downloadFilterVersionLabel());
+        auto *versionGroup = addFilterLabel(filterBottom, downloadFilterVersionLabel());
         QComboBox *versionCombo = makeFilterCombo(downloadFilterVersionComboName(categoryKey));
         versionCombo->setEditable(true);
         // NOTE: 可输入的框上**必须**把"回车就把框里的字追进清单"这条关掉（Qt 的默认是
@@ -650,7 +654,7 @@ void MainWindowUI::setupDownloadResourcePages() {
         // 也搜不出东西来（它不在任何一家接口的版本表里）。
         versionCombo->setInsertPolicy(QComboBox::NoInsert);
         versionCombo->setPlaceholderText(downloadFilterVersionPlaceholder());
-        filterBottom->addWidget(versionCombo);
+        versionGroup->addWidget(versionCombo);
 
         // 模组加载器：**只有模组那一页有**（模组加载器只在模组那一栏存在）。
         // 别的几页连控件都不建 —— 建了再藏起来不叫"只在模组那栏存在"（验证工程按名字
@@ -659,9 +663,9 @@ void MainWindowUI::setupDownloadResourcePages() {
         // 再写一遍 "mod" 那个字面量。
         QComboBox *loaderCombo = nullptr;
         if (i == downloadCategoryModIndex()) {
-            addFilterLabel(filterBottom, downloadFilterLoaderLabel());
+            auto *loaderGroup = addFilterLabel(filterBottom, downloadFilterLoaderLabel());
             loaderCombo = makeFilterCombo(downloadFilterLoaderComboName(categoryKey));
-            filterBottom->addWidget(loaderCombo);
+            loaderGroup->addWidget(loaderCombo);
         }
 
         // 来源 / 类型：两页都有。类型那一栏**整个会藏起来**（连标签一起）——
@@ -669,14 +673,14 @@ void MainWindowUI::setupDownloadResourcePages() {
         // 摆一个只有「全部」的框等于骗人。显隐由 MainWindow 按那张表决定，这一层
         // 只是把标签也一起放在能藏的地方（标签进 layout、留个指针不管不行，所以这里
         // 用一个容器把"标签 + 框"包成一件东西）。
-        addFilterLabel(filterBottom, downloadFilterSourceLabel());
+        auto *sourceGroup = addFilterLabel(filterBottom, downloadFilterSourceLabel());
         QComboBox *sourceCombo = makeFilterCombo(downloadFilterSourceComboName(categoryKey));
-        filterBottom->addWidget(sourceCombo);
+        sourceGroup->addWidget(sourceCombo);
 
         QWidget *typeBox = new QWidget(filterRow);
         auto *typeLayout = new QHBoxLayout(typeBox);
         typeLayout->setContentsMargins(0, 0, 0, 0);
-        typeLayout->setSpacing(kFilterRowSpacing);
+        typeLayout->setSpacing(4);
         addFilterLabel(typeLayout, downloadFilterTypeLabel());
         QComboBox *typeCombo = makeFilterCombo(downloadFilterTypeComboName(categoryKey));
         typeLayout->addWidget(typeCombo);
@@ -731,7 +735,7 @@ void MainWindowUI::setupDownloadResourcePages() {
         tree->setMouseTracking(true);
         tree->setExpandsOnDoubleClick(false);
         QFont resourceFont = tree->font();
-        resourceFont.setPointSize(resourceFont.pointSize() + versionTreeFontStep());
+        resourceFont = Theme::textFont(resourceFont, Theme::TextRole::Body);
         tree->setFont(resourceFont);
         tree->setIconSize(QSize(resourceTreeIconSize(), resourceTreeIconSize()));
         // 展开/折叠动画：和版本树那两棵同一句（三个层次都共用同一个代理，
@@ -773,7 +777,7 @@ void MainWindowUI::setDownloadHeaderRow(int row) {
     downloadHeaderSubtitleLabel->setText(downloadHeaderSubtitle(row));
     // 说明是**这一页的状态**，永远露着（`fillPageHeader()` 那套"空串就收起来"在这儿
     // 用不上：它管的是"这一页有没有说明"，而这里每一类都有一句）。
-    downloadHeaderSubtitleLabel->setVisible(true);
+    downloadHeaderSubtitleLabel->setVisible(downloadCategoryKeys().value(row) == QStringLiteral("datapack"));
     if (downloadHeaderRefreshButton != nullptr) {
         downloadHeaderRefreshButton->setVisible(row != downloadCategoryServerIndex());
     }

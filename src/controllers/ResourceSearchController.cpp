@@ -63,7 +63,7 @@ void ResourceSearchController::startResourceSearch(ResourceCatalog::Kind kind) {
     if (!category.isEmpty()) {
         conditions.append(MainWindow::tr("类型 %1").arg(shownText(m_owner.m_ui->getDownloadFilterTypeCombo(key))));
     }
-    m_owner.appendLog(MainWindow::tr("搜索条件：%1").arg(conditions.join(QStringLiteral(" · "))));
+    m_owner.appendLog(MainWindow::tr("搜索条件：%1").arg(conditions.join(QStringLiteral(" / "))));
 
     // 钥匙里要带来源（见 ResourceCatalog::searchRequestKey 那段）：用户刚点完 Modrinth 又
     // 切成 CurseForge 时，前一趟回来的结果不该被当成"我现在等的那一发"填进树里。
@@ -99,7 +99,7 @@ void ResourceSearchController::fillResourceHitRows(QTreeWidget *tree, ResourceCa
             bits.append(hit.author);
         }
         bits.append(ResourceCatalog::formatDownloads(hit.downloads));
-        item->setData(column, MainWindowUI::rowSubTextRole(), bits.join(QStringLiteral(" · ")));
+        item->setData(column, MainWindowUI::rowSubTextRole(), bits.join(QStringLiteral(" / ")));
 
         // 简介一行放不下（代理只画一行、超了截断），鼠标停上去看全文。
         // 空简介不挂 tooltip —— 挂一个空的等于鼠标一停就冒一个空框。
@@ -352,7 +352,7 @@ void ResourceSearchController::fillResourceVersionRows(QTreeWidgetItem *gameItem
             // ISO 8601（`T…`）只取日期那一段。
             bits.append(version.datePublished.left(10));
         }
-        item->setData(column, MainWindowUI::rowSubTextRole(), bits.join(QStringLiteral(" · ")));
+        item->setData(column, MainWindowUI::rowSubTextRole(), bits.join(QStringLiteral(" / ")));
         if (resourceIcon.isValid()) {
             item->setData(column, MainWindowUI::rowIconRole(), resourceIcon);
         }

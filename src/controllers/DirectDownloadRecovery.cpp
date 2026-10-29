@@ -94,7 +94,7 @@ void DirectDownloadController::loadRecovery() {
             continue; // A stale journal write must not resurrect an acknowledged terminal task.
         if (!m_activity->tasks()->has(id) || old.kind != Tasks::TaskKind::Download ||
             old.targetId != QFileInfo(it->request.path).absolutePath() || !Tasks::isTerminalState(old.state)) {
-            id = m_activity->begin(Tasks::TaskKind::Download, tr("待继续下载 · %1").arg(QFileInfo(it->request.path).fileName()),
+            id = m_activity->begin(Tasks::TaskKind::Download, tr("待继续下载 / %1").arg(QFileInfo(it->request.path).fileName()),
                 QFileInfo(it->request.path).absolutePath(),
                 {{tr("下载文件"), Tasks::TaskStepState::Pending, {}}, {tr("校验并保存"), Tasks::TaskStepState::Pending, {}}});
             m_activity->finish(id, false, tr("上次下载未完成，请明确点击继续；不会自动下载。"), false);

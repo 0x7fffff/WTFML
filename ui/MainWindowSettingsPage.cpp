@@ -136,7 +136,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     // 悬停底色要它，理由见版本树那第一处：视图不填 State_MouseOver 就不出底色，也不报错。
     settingsCategoryList->setMouseTracking(true);
     QFont categoryFont = settingsCategoryList->font();
-    categoryFont.setPointSize(categoryFont.pointSize() + versionTreeFontStep());
+    categoryFont = Theme::textFont(categoryFont, Theme::TextRole::Body);
     settingsCategoryList->setFont(categoryFont);
     for (int i = 0; i < categoryKeys.size(); ++i) {
         auto *item = new QListWidgetItem(categoryTexts.value(i), settingsCategoryList);

@@ -123,7 +123,7 @@ QString text(const Facts &facts, const QDateTime &now, const QString &errors, co
         out += sectionDivider(QStringLiteral("可能的原因（按规则判的，不是猜的）"));
         out += QLatin1Char('\n');
         for (const QString &hint : facts.hints) {
-            out += QStringLiteral("· ") + hint + QLatin1Char('\n');
+            out += QStringLiteral("• ") + hint + QLatin1Char('\n');
         }
         out += QLatin1Char('\n');
     }

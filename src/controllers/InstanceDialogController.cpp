@@ -104,7 +104,7 @@ void showSchematicDetails(OverlayHost *overlay, QWidget *parent, const QString &
                     info.problem.isEmpty() ? QObject::tr("方块数据未完整解析，不能把未知数量当成零。") : info.problem));
                 return;
             }
-            summary->setText(QObject::tr("%1 × %2 × %3 · %4 种方块 ID · %5 个非空气方块\n同一 ID 的不同状态合并；不等同于生存模式所需物品数量。")
+            summary->setText(QObject::tr("%1 × %2 × %3 / %4 种方块 ID / %5 个非空气方块\n同一 ID 的不同状态合并；不等同于生存模式所需物品数量。")
                 .arg(info.width).arg(info.height).arg(info.length).arg(info.blocks.size()).arg(info.blockCount));
             table->setRowCount(info.blocks.size());
             for (int row = 0; row < info.blocks.size(); ++row) {
@@ -613,7 +613,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
             QString label = m_owner->instanceDisplayName(id);
             if (label.isEmpty()) label = id;
             label += QStringLiteral("（%1").arg(gameVersion);
-            if (!parts.loaderName.isEmpty()) label += QStringLiteral(" · %1").arg(parts.loaderName);
+            if (!parts.loaderName.isEmpty()) label += QStringLiteral(" / %1").arg(parts.loaderName);
             label += QStringLiteral("）");
             targets.append(qMakePair(label, id));
         }
@@ -641,7 +641,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 if (!item.exists) continue;  // 没有的东西不摆勾选框（正文里已经说了「没有」）
                 QString label = item.label;
                 if (item.fileCount > 0) {
-                    label += QStringLiteral(" · %1 个文件 · %2")
+                    label += QStringLiteral(" / %1 个文件 / %2")
                                  .arg(item.fileCount)
                                  .arg(FileHash::fileSizeText(item.bytes));
                 }
@@ -662,7 +662,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 const auto parts = m_owner->m_versionManager->displayParts(entry.second);
                 const QString game = parts.realVersion.isEmpty() ? parts.id : parts.realVersion;
                 prepared.insert(game);
-                entry.first = game + QStringLiteral(" · ") + (parts.loaderName.isEmpty() ? tr("原版") : parts.loaderName + QLatin1Char(' ') + parts.loaderVersion)
+                entry.first = game + QStringLiteral(" / ") + (parts.loaderName.isEmpty() ? tr("原版") : parts.loaderName + QLatin1Char(' ') + parts.loaderVersion)
                     + tr("（核心已准备：%1）").arg(m_owner->instanceDisplayName(entry.second));
             }
             for (const auto &version : m_owner->m_versionManager->availableVersions()) if (!prepared.contains(version))
@@ -685,7 +685,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     };
     refreshTransferPage(QStringLiteral("migration"));
     const auto sourceParts = m_owner->m_versionManager->displayParts(targetId);
-    dialog.setUpgradeContext(tr("当前实例：%1\nMinecraft %2 · %3 %4")
+    dialog.setUpgradeContext(tr("当前实例：%1\nMinecraft %2 / %3 %4")
         .arg(m_owner->instanceDisplayName(targetId), sourceParts.realVersion.isEmpty() ? sourceParts.id : sourceParts.realVersion,
              sourceParts.loaderName.isEmpty() ? tr("原版") : sourceParts.loaderName, sourceParts.loaderVersion));
     auto *upgradeStore = new ResourceStore(&dialog);
@@ -1501,7 +1501,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                                 plannedVersions.insert(planned.item.projectId, targets.value(plannedPath).id);
                         }
                         const auto version = targets.value(path);
-                        names.append(tr("%1\n%2\n目标文件：%3\n加载器：%4 · 游戏：%5")
+                        names.append(tr("%1\n%2\n目标文件：%3\n加载器：%4 / 游戏：%5")
                             .arg(QFileInfo(path).fileName(), ModDependencies::updateDifferenceText(
                                 entry.currentVersion, version, plannedVersions, projectNames),
                                 version.primaryFile()->filename, version.loaders.join(QStringLiteral(" / ")),

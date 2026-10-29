@@ -657,6 +657,8 @@ public:
     static QString downloadPageTitle() { return QStringLiteral("下载"); }
     /// 页头那行说明写什么 —— **跟着当前停在哪一类变**（第 index 个分类）。
     static QString downloadHeaderSubtitle(int index) {
+        if (downloadCategoryKeys().value(index) == QStringLiteral("datapack"))
+            return QStringLiteral("下载后请将数据包放入对应存档的 datapacks 文件夹。");
         // 「服务端」那一栏不是资源搜索页（见 downloadCategoryServerIndex() 那段），
         // 它自己有一句；漏了这一条就会掉到下面「游戏」那一句上，页头说的和这一页
         // 能干的完全不是一回事。
@@ -667,7 +669,7 @@ public:
         if (!hint.isEmpty()) {
             return hint;
         }
-        return QStringLiteral("挑一个游戏版本，挑加载器，装进实例");
+        return QStringLiteral("选择游戏版本和加载器");
     }
     /// 页头右上角那颗刷新（**只作用于当前这一类**）。
     static QString downloadHeaderRefreshButtonName() {
@@ -747,11 +749,11 @@ public:
     /// 只会当成装坏了 —— 那句话是这一页唯一说得出这件事的地方。
     static QStringList downloadSearchHints() {
         return {QString(),
-                QStringLiteral("搜整合包名，回车；挑一个游戏版本，再挑一个版本号导入"),
-                QStringLiteral("搜模组名，回车；挑一个游戏版本，再挑一个版本号装进实例"),
-                QStringLiteral("搜数据包名，回车；下进实例的 datapacks/，用的时候放进存档"),
-                QStringLiteral("搜资源包名，回车；挑一个游戏版本，再挑一个版本号装进实例"),
-                QStringLiteral("搜光影包名，回车；挑一个游戏版本，再挑一个版本号装进实例")};
+                QStringLiteral("搜索整合包名称"),
+                QStringLiteral("搜索模组名称"),
+                QStringLiteral("搜索数据包名称"),
+                QStringLiteral("搜索资源包名称"),
+                QStringLiteral("搜索光影包名称")};
     }
     /// 第 index 个分类那一页搜索框里提示什么（「游戏」那页没有搜索框，返回空串）。
     static QString downloadSearchHint(int index) {
@@ -2256,7 +2258,7 @@ public:
         if (finishedText.isEmpty()) {
             return QStringLiteral("%1 开始，还没结束").arg(startedText);
         }
-        return QStringLiteral("%1 开始 · %2 结束")
+        return QStringLiteral("%1 开始 / %2 结束")
             .arg(withDate(started, startedText), withDate(finished, finishedText));
     }
     /// 一行右边那个百分比写成什么（「62%」）。**唯一出处**。
@@ -3181,7 +3183,7 @@ public:
     /// NOTE: 这一句是「当前没有运行中的实例」。光看字和别的状态分不出"完全没在跑"，
     /// 一眼看颜色能分出来。**这一档的方块是灰的**（红挪去说"出过事"了），
     /// 但那句话一个字都不能动：它说的仍然是"没实例在跑"这件事本身。
-    static QString runStateNotRunningText() { return QStringLiteral("当前没有运行中的实例"); }
+    static QString runStateNotRunningText() { return QStringLiteral("暂无运行实例"); }
     /// 有实例异常退出、而且账上那一项还没处理掉时那一行写什么。
     static QString runStateErrorText() { return QStringLiteral("有实例异常退出"); }
     /// 正在启动时那一行：`<实例名>启动中...`。
@@ -3224,7 +3226,7 @@ public:
     /// 「显示的是默认外观」，而这时候屏幕上恰恰不是那张默认外观。
     /// 后面那半句也不是废话：这张图**只在启动器里**显示，游戏里那张脸是游戏自己定的。
     static QString skinHintOfflineLoadedText(const QString &name) {
-        return QStringLiteral("%1 的外观（离线账号 · 启动器里随机挑的）").arg(name);
+        return QStringLiteral("%1 的外观（离线账号 / 本地预览）").arg(name);
     }
     /// 离线账号那张**官方默认皮肤** —— 名字算得出游戏会给哪一张的时候走这一句
     /// （见 DefaultSkin：那是确定的，不是随机的）。
@@ -3236,13 +3238,13 @@ public:
     /// 见 DefaultSkin.hpp 文件头），那句话要能解释这件事。
     /// @param versionId 实例的显示名（和启动按钮第二行同一个出处），不是目录名。
     static QString skinHintOfflineDefaultSkinText(const QString &name, const QString &versionId) {
-        return QStringLiteral("%1 的外观（离线账号 · %2 的默认皮肤）").arg(name, versionId);
+        return QStringLiteral("%1 的外观（离线账号 / %2 的默认皮肤）").arg(name, versionId);
     }
     /// 离线账号**用户自己挑的那张**（「账号与外观」里「换一张…」）。不能借用上面那两句：
     /// 随机那句说的是"启动器里挑的"，默认皮肤那句说的是"跟这个实例走" —— 自己挑的这张
     /// 两样都不对（它是明确的"我要这张"，而且换实例也不变）。
     static QString skinHintOfflineCustomSkinText(const QString &name) {
-        return QStringLiteral("%1 的外观（离线账号 · 你自己换的）").arg(name);
+        return QStringLiteral("%1 的外观（离线账号 / 自定义皮肤）").arg(name);
     }
     /// 正在去官方要。
     static QString skinHintLoadingText(const QString &name) {

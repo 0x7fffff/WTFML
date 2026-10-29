@@ -93,7 +93,7 @@ void runReplayInfoTests() {
                   QStringLiteral("时长=%1 日期=%2 玩家=%3")
                       .arg(info.durationMs).arg(info.dateMs).arg(info.playerCount));
             check(info.singleplayer, "RP2 没有 `singleplayer` 那一格 ⇒ 按单人算");
-            check(ReplayInfo::summaryText(info) == QStringLiteral("1.8.9 · 单人"),
+            check(ReplayInfo::summaryText(info) == QStringLiteral("1.8.9 / 单人"),
                   "★ RP2 不知道的字段一个都不往那一行里塞",
                   ReplayInfo::summaryText(info));
         }

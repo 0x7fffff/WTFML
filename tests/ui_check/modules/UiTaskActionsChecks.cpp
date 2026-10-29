@@ -157,7 +157,7 @@ int UiTaskActionsChecks(QMainWindow &window, MainWindowUI &ui) {
         auto *step1 = page.findChild<QLabel *>(MainWindowUI::taskDetailStepName(1));
         check(step0 != nullptr && step0->text() == QStringLiteral("✓ 校验文件")
                   && step1 != nullptr
-                  && step1->text() == QStringLiteral("✗ 下载库文件 · 3 个失败"),
+                  && step1->text() == QStringLiteral("✗ 下载库文件 / 3 个失败"),
               "I6 步骤那一栏：记号 + 名字（+ 小字），失败的**那一步**单独说清楚",
               (step0 != nullptr ? step0->text() : QStringLiteral("<没找到>")) + QStringLiteral(" / ")
                   + (step1 != nullptr ? step1->text() : QStringLiteral("<没找到>")));
@@ -191,7 +191,7 @@ int UiTaskActionsChecks(QMainWindow &window, MainWindowUI &ui) {
 
         // 时间那一行：同一天只写时分（下面是唯一出处，面板那一行也用同一个）。
         check(MainWindowUI::taskDetailTimeLineText(failed.startedAt, failed.finishedAt)
-                  == QStringLiteral("19:42 开始 · 19:48 结束"),
+                  == QStringLiteral("19:42 开始 / 19:48 结束"),
               "I6 起止时间写成一行；同一天只写时分",
               MainWindowUI::taskDetailTimeLineText(failed.startedAt, failed.finishedAt));
         check(MainWindowUI::taskDetailTimeLineText(QDateTime(),

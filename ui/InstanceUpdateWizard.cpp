@@ -33,7 +33,7 @@ InstanceUpdateWizard::InstanceUpdateWizard(QWidget *target, QWidget *mods, QWidg
     const QStringList titles{tr("选择目标版本"), tr("检查并处理模组"), tr("确认更新方案"), tr("执行与结果")};
     const QList<QWidget *> content{target, mods, confirmation, progress};
     for (int i = 0; i < content.size(); ++i) {
-        auto *step = new Step; step->setTitle(tr("%1 / 4 · %2").arg(i + 1).arg(titles[i]));
+        auto *step = new Step; step->setTitle(tr("%1 / 4 / %2").arg(i + 1).arg(titles[i]));
         auto *layout = new QVBoxLayout(step); layout->setContentsMargins(0, 8, 0, 0);
         layout->addWidget(content[i], 1); addPage(step);
     }

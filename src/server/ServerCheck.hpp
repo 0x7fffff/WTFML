@@ -188,7 +188,7 @@ inline QString summaryText(const QList<Finding> &findings) {
     if (infos > 0) {
         parts.append(QStringLiteral("%1 项说明").arg(infos));
     }
-    return parts.join(QStringLiteral(" · "));
+    return parts.join(QStringLiteral(" / "));
 }
 
 inline QList<Finding> inspect(const Facts &facts) {

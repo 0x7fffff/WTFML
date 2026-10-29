@@ -427,16 +427,13 @@ QWidget *MainWindowUI::setupHomePage() {
     homeBottomLayout->setSpacing(12);
     homePageLayout->addWidget(homeBottomArea);
     {
-        auto *eyebrow = makeHomeHint(QStringLiteral("WTFML / MINECRAFT LAUNCHER"), home.left.widget);
         home.left.layout->addSpacing(20);
-        home.left.layout->addWidget(eyebrow);
         auto *welcome = makeHomeTitle(QStringLiteral("下一个世界，等你开启。"), home.left.widget);
         QFont font = welcome->font();
-        font.setPointSizeF(font.pointSizeF() + 12);
+        font = Theme::textFont(font, Theme::TextRole::Display);
         welcome->setFont(font);
         welcome->setWordWrap(true);
         home.left.layout->addWidget(welcome);
-        home.left.layout->addWidget(makeHomeHint(QStringLiteral("自由探索，从这里开始。"), home.left.widget));
     }
     {
         // 下拉框继续作为启动逻辑的内部选择模型，但主页上不出现。用户从底部的
@@ -479,7 +476,7 @@ QWidget *MainWindowUI::setupHomePage() {
         startButton->setMinimumHeight(kStartButtonMinHeight);
         QFont startFont = startButton->font();
         startFont.setBold(true);
-        startFont.setPointSizeF(startFont.pointSizeF() + 1.0);
+        startFont = Theme::textFont(startFont, Theme::TextRole::Heading);
         startButton->setFont(startFont);
         Theme::markButton(startButton, Theme::ButtonKind::Primary);
         // 启动入口在「当前」实例卡片。保留这个兼容控件供既有业务连接使用，但不参与
@@ -1126,7 +1123,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 line->addLayout(identity, 1);
                 auto *activityLabel = makeHomeHint(activity, card);
                 activityLabel->setObjectName(QStringLiteral("homeCurrentActivity"));
-                activityLabel->setText(activity.split(QStringLiteral(" · ")).join(QLatin1Char('\n')));
+                activityLabel->setText(activity.split(QStringLiteral(" / ")).join(QLatin1Char('\n')));
                 activityLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
                 activityLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
                 activityLabel->setToolTip(activity);
@@ -1183,7 +1180,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 auto *plus = new QLabel(QStringLiteral("＋"), card);
                 plus->setAlignment(Qt::AlignCenter);
                 QFont plusFont = plus->font();
-                plusFont.setPointSizeF(plusFont.pointSizeF() + 7.0);
+                plusFont = Theme::textFont(plusFont, Theme::TextRole::Heading);
                 plus->setFont(plusFont);
                 emptyLayout->addWidget(plus, 1, Qt::AlignCenter);
                 if (!iconsOnly) {

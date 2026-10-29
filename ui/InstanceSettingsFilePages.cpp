@@ -309,10 +309,7 @@ void InstanceSettingsDialog::setupFilePages() {
             m_filesPages.insert(key, files);
             target->addWidget(files, 1);
             if (!batch && !isSave && key != QStringLiteral("schematic") && key != QStringLiteral("structure")) {
-                auto *hint = new QLabel(filesHint(key), listHost);
-                hint->setObjectName(filesHintName(key));
-                hint->setWordWrap(true);
-                target->addWidget(hint);
+                files->setToolTip(filesHint(key));
             }
 
             // 第 1 格：编辑器。**建一次留着**（见 .hpp 里 configFilePage() 那两条 NOTE）

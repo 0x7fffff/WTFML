@@ -41,7 +41,7 @@ HomeQuickController::Rows HomeQuickController::build(
             item.detail += QStringLiteral("\n上次启动：") + LaunchHistory::whenText(record.startedAt);
             const QString played = LaunchHistory::durationText(record.durationSeconds);
             if (!played.isEmpty()) {
-                item.detail += item.detail.isEmpty() ? played : QStringLiteral(" · ") + played;
+                item.detail += item.detail.isEmpty() ? played : QStringLiteral(" / ") + played;
             }
             item.detail += LaunchHistory::resultNote(record);
         } else {

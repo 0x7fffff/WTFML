@@ -289,10 +289,10 @@ QString Result::text() const {
     if (!failures.isEmpty()) {
         text += QStringLiteral("\n\n没搬成的：");
         for (const QString &failure : failures) {
-            text += QStringLiteral("\n· %1").arg(QDir::toNativeSeparators(failure));
+            text += QStringLiteral("\n• %1").arg(QDir::toNativeSeparators(failure));
         }
         if (failedFiles > failures.size()) {
-            text += QStringLiteral("\n· …还有 %1 个").arg(failedFiles - failures.size());
+            text += QStringLiteral("\n• …还有 %1 个").arg(failedFiles - failures.size());
         }
     }
     return text;
@@ -378,19 +378,19 @@ QString VerifySummary::text() const {
     if (!missing.isEmpty()) {
         head += QStringLiteral("\n\n没在目标里找到的：");
         for (const QString &path : missing) {
-            head += QStringLiteral("\n· %1").arg(QDir::toNativeSeparators(path));
+            head += QStringLiteral("\n• %1").arg(QDir::toNativeSeparators(path));
         }
         if (missingFiles > missing.size()) {
-            head += QStringLiteral("\n· …还有 %1 个").arg(missingFiles - missing.size());
+            head += QStringLiteral("\n• …还有 %1 个").arg(missingFiles - missing.size());
         }
     }
     if (!mismatched.isEmpty()) {
         head += QStringLiteral("\n\n大小不同的（原来是目标里就有的）：");
         for (const QString &path : mismatched) {
-            head += QStringLiteral("\n· %1").arg(QDir::toNativeSeparators(path));
+            head += QStringLiteral("\n• %1").arg(QDir::toNativeSeparators(path));
         }
         if (sizeMismatchFiles > mismatched.size()) {
-            head += QStringLiteral("\n· …还有 %1 个").arg(sizeMismatchFiles - mismatched.size());
+            head += QStringLiteral("\n• …还有 %1 个").arg(sizeMismatchFiles - mismatched.size());
         }
     }
     return head;

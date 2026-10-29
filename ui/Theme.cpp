@@ -550,13 +550,12 @@ public:
             pen.setWidthF(2.0);
             p->setPen(pen);
             // 内缩 1 px：两像素的笔有一半落在外面，贴着边缘画会被裁掉一半（看上去就成一像素了）。
-            // 圆角跟着按钮那一档走（`controlRadius()`，和 QSS 里 `border-radius` 同一个数）；
-            // 别的控件仍用输入框那一档 3。
+            // The inset focus ring shares the control's center of curvature.
             const QRectF ringRect = wholeWidgetButton
                 ? QRectF(w->rect()).adjusted(1, 1, -1, -1)
                 : QRectF(opt->rect).adjusted(1, 1, -1, -1);
-            p->drawRoundedRect(ringRect, wholeWidgetButton ? controlRadius() : 3,
-                                wholeWidgetButton ? controlRadius() : 3);
+            const int radius = qMax(0, (wholeWidgetButton ? buttonRadius() : controlRadius()) - 1);
+            p->drawRoundedRect(ringRect, radius, radius);
             p->restore();
             return;
         }
@@ -2051,6 +2050,8 @@ void apply(QApplication &app) {
         return;
     }
     applyingTheme() = true;
+    if (app.font().pixelSize() != textSize(TextRole::Body))
+        app.setFont(textFont(app.font(), TextRole::Body));
     if (app.findChild<QObject *>(QStringLiteral("wtfmlButtonFocusVisibility")) == nullptr)
         new ButtonFocusVisibility(app);
     if (app.findChild<QObject *>(QStringLiteral("wtfmlScrollBarStyler")) == nullptr)

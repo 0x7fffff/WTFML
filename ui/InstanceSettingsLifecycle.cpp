@@ -71,7 +71,7 @@ void InstanceSettingsDialog::setupLifecyclePages() {
         auto *title = new QLabel(pageText(key), page);
         QFont font = title->font();
         font.setBold(true);
-        font.setPointSize(font.pointSize() + 2);
+        font = Theme::textFont(font, Theme::TextRole::Heading);
         title->setFont(font);
         layout->addWidget(title);
         const auto hint = [layout, page](const QString &text) {
@@ -424,7 +424,7 @@ void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
             const QImage thumb = reader.read();
             details << InstanceFilesPage::formatSize(file.size());
             auto *item = new QListWidgetItem(
-                file.fileName() + QLatin1Char('\n') + details.join(QStringLiteral(" · ")),
+                file.fileName() + QLatin1Char('\n') + details.join(QStringLiteral(" / ")),
                 list);
             item->setData(Qt::UserRole, file.absoluteFilePath());
             item->setToolTip(file.absoluteFilePath());
@@ -433,7 +433,7 @@ void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
         }
         details << InstanceFilesPage::formatSize(file.size());
         auto *item = new QListWidgetItem(
-            file.fileName() + QLatin1Char('\n') + details.join(QStringLiteral(" · ")), list);
+            file.fileName() + QLatin1Char('\n') + details.join(QStringLiteral(" / ")), list);
         item->setData(Qt::UserRole, file.absoluteFilePath());
         item->setToolTip(file.absoluteFilePath());
     }

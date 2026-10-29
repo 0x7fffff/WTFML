@@ -444,17 +444,17 @@ void InstanceUpdateCheckController::finishUpdateCheck(QString instanceId) {
 
     QStringList lines;
     for (const ModDependencies::UpdateVerdict &verdict : outdated) {
-        lines.append(QStringLiteral("· %1 —— %2 %3")
+        lines.append(QStringLiteral("• %1 —— %2 %3")
                          .arg(displayName(verdict), ModDependencies::updateOutdatedText(),
                               verdict.latestVersionNumber));
     }
     for (const ModDependencies::UpdateVerdict &verdict : unknown) {
-        lines.append(QStringLiteral("· %1 —— %2：%3")
+        lines.append(QStringLiteral("• %1 —— %2：%3")
                          .arg(displayName(verdict), ModDependencies::updateUnknownText(),
                               verdict.reason));
     }
     for (const ModDependencies::UpdateVerdict &verdict : current) {
-        lines.append(QStringLiteral("· %1 —— %2")
+        lines.append(QStringLiteral("• %1 —— %2")
                          .arg(displayName(verdict), ModDependencies::updateUpToDateText()));
     }
 

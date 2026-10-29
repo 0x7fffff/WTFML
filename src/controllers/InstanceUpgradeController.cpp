@@ -90,7 +90,7 @@ void InstanceTransferController::upgradeInPlace(QString sourceId, QString target
         core.disableOldMods = false;
     }
     if (!InlineMessage::question(m_overlay, tr("原地升级"),
-        tr("将「%1」的核心替换为 %2 · %3。\n\n存档、截图、配置及其它用户文件全部保留，"
+        tr("将「%1」的核心替换为 %2 / %3。\n\n存档、截图、配置及其它用户文件全部保留，"
            "不导入目标实例的用户文件。先创建并逐文件校验完整快照，再替换；"
            "原目录另行保留，可用「回滚原地升级」恢复。\n\n以磁盘内容为准：未保存的设置请先取消并保存，"
            "替换后会关闭当前设置页。这不会自动适配或下载模组。继续吗？")

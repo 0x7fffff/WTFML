@@ -86,7 +86,7 @@ Tasks::TaskId CrashReportController::report(int sessionId, int exitCode, bool cr
     const Record record = buildRecord(sessionId, exitCode, crashed, launch, errorLog, fullLog);
     const QString where = record.facts.instanceName.isEmpty() ? record.facts.instanceId
                                                               : record.facts.instanceName;
-    const QString title = where.isEmpty() ? tr("游戏异常退出") : tr("游戏异常退出 · %1").arg(where);
+    const QString title = where.isEmpty() ? tr("游戏异常退出") : tr("游戏异常退出 / %1").arg(where);
     const QStringList hints = GameExitDiagnosis::hints(record.facts);
     const QString exitText = GameExitDiagnosis::exitDescription(exitCode);
     QList<Tasks::TaskStep> steps{

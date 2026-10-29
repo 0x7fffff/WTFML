@@ -602,7 +602,7 @@ int ConfigFileEditorPage::rebuildIndex() {
         if (!entry.note.isEmpty()) {
             tip << entry.note;
         }
-        tip << QStringLiteral("%1 · 第 %2 行")
+        tip << QStringLiteral("%1 / 第 %2 行")
                    .arg(ConfigEntries::kindName(entry.kind))
                    .arg(entry.line + 1);
         leaf->setToolTip(0, tip.join(QLatin1Char('\n')));

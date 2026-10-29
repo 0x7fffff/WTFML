@@ -244,7 +244,7 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
                                 .arg(templateName, material.item));
         for (const QString &piece : pieceNames) {
             result.steps.append(
-                QStringLiteral("%1 + %2 + %3 → 「%2 · %4纹饰的%3」")
+                QStringLiteral("%1 + %2 + %3 → 「%2 / %4纹饰的%3」")
                     .arg(templateName, material.item, piece, pattern.name));
         }
         result.materials.append(QStringLiteral("%1 × %2").arg(templateName).arg(kPartCount));
@@ -255,7 +255,7 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
         result.notes.append(QStringLiteral("整套 = 四次锻造，模板和材料各 %1 份（模板每用一次"
                                            "消耗一个，不会因为做整套而省）。")
                                 .arg(kPartCount));
-        result.summary = QStringLiteral("%1 · %2纹饰的%3")
+        result.summary = QStringLiteral("%1 / %2纹饰的%3")
                              .arg(material.name, pattern.name, setLabel);
         result.ok = true;
         return result;
@@ -266,7 +266,7 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
 
     result.steps.append(QStringLiteral("去锻造台：把%1 + %2 + %3 摆进去")
                             .arg(templateName, material.item, armor));
-    result.steps.append(QStringLiteral("一次锻造消耗 1 个模板、1 份材料、1 件%1 → 「%2 · %3纹饰的%1」")
+    result.steps.append(QStringLiteral("一次锻造消耗 1 个模板、1 份材料、1 件%1 → 「%2 / %3纹饰的%1」")
                             .arg(armor, material.name, pattern.name));
 
     result.materials.append(QStringLiteral("%1 × %2").arg(templateName).arg(pieces));
@@ -281,7 +281,7 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
     result.notes.append(QStringLiteral("模板可以复制：1 个模板 + 7 颗钻石 + 1 块对应方块 → 2 个；"
                                        "每种图案那块方块不一样，以游戏里那张配方为准。"));
 
-    result.summary = QStringLiteral("%1 · %2纹饰的%3 × %4")
+    result.summary = QStringLiteral("%1 / %2纹饰的%3 × %4")
                          .arg(material.name, pattern.name, armor)
                          .arg(pieces);
     result.ok = true;
@@ -297,13 +297,13 @@ QString Plan::detailText() const {
     lines.append(QString());
     lines.append(QStringLiteral("一步一步："));
     for (const QString &step : steps) {
-        lines.append(QStringLiteral("· %1").arg(step));
+        lines.append(QStringLiteral("• %1").arg(step));
     }
     if (!materials.isEmpty()) {
         lines.append(QString());
         lines.append(QStringLiteral("材料清单："));
         for (const QString &row : materials) {
-            lines.append(QStringLiteral("· %1").arg(row));
+            lines.append(QStringLiteral("• %1").arg(row));
         }
     }
     if (!notes.isEmpty()) {

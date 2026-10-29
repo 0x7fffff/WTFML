@@ -266,7 +266,7 @@ void runErrorReportTests() {
           "★ ZI4 有提示时才有那一节");
     check(withHints.indexOf(QStringLiteral("可能的原因")) < withHints.indexOf(QStringLiteral("错误与致命")),
           "★ ZI4 那一节排在错误摘录**前面**");
-    check(withHints.contains(QStringLiteral("· 这条是第一条。\n· 这条是第二条。\n")),
+    check(withHints.contains(QStringLiteral("• 这条是第一条。\n• 这条是第二条。\n")),
           "ZI4 逐条写成「· 那句话」");
     crash.hints = QStringList();
     check(!ErrorReport::text(crash, now, QStringLiteral("x\n"), QStringLiteral("y\n"))

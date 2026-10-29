@@ -13,7 +13,7 @@ public:
         setMinimumSize(200, 220);
         setMaximumHeight(360);
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-        setToolTip(tr("拖动旋转 · 滚轮缩放 · 双击复位\n固定站姿示意，不含附魔光效；皮甲使用默认未染色外观。"));
+        setToolTip(tr("拖动旋转 / 滚轮缩放 / 双击复位\n固定站姿示意，不含附魔光效；皮甲使用默认未染色外观。"));
     }
     void setScene(const SkinModel::Scene &scene) {
         const bool hadScene = !m_scene.skin.isNull();

@@ -77,7 +77,7 @@ void ServerManagementActions::refreshServerPlayers(MainWindow *owner) {
             if (!entry.reason.isEmpty()) notes << entry.reason;
             row.expired = ServerPlayers::isExpired(entry, now);
         }
-        row.note = notes.join(QStringLiteral(" · "));
+        row.note = notes.join(QStringLiteral(" / "));
         rows.append(row);
     }
     page->setPlayerRows(rows);
@@ -518,7 +518,7 @@ void ServerManagementActions::runServerCheckAction(MainWindow *owner, const QStr
             const ServerPropertiesForm::Field *field =
                 ServerPropertiesForm::fieldFor(problem.key);
             if (field != nullptr) {
-                lines.append(MainWindow::tr("·「%1」：%2 → %3")
+                lines.append(MainWindow::tr("•「%1」：%2 → %3")
                                  .arg(field->label, problem.value.isEmpty() ? MainWindow::tr("（空的）")
                                                                             : problem.value,
                                       field->fallback));

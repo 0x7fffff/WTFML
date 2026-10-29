@@ -209,8 +209,8 @@ Report analyze(const Inputs &inputs) {
     if (!version.isEmpty()) {
         if (!inputs.loaderName.isEmpty()) {
             version += inputs.loaderVersion.isEmpty()
-                           ? QStringLiteral(" · %1").arg(inputs.loaderName)
-                           : QStringLiteral(" · %1 %2").arg(inputs.loaderName, inputs.loaderVersion);
+                           ? QStringLiteral(" / %1").arg(inputs.loaderName)
+                           : QStringLiteral(" / %1 %2").arg(inputs.loaderName, inputs.loaderVersion);
         }
         where << version;
     }
@@ -300,7 +300,7 @@ Report analyze(const Inputs &inputs) {
         if (inputs.systemTotalMb > 0) {
             memoryParts << QStringLiteral("机器共 %1 MB").arg(inputs.systemTotalMb);
         }
-        const QString memoryDetail = memoryParts.join(QStringLiteral(" · "));
+        const QString memoryDetail = memoryParts.join(QStringLiteral(" / "));
 
         if (inputs.xmxMb > 0 && inputs.systemTotalMb > 0
             && inputs.xmxMb > inputs.systemTotalMb) {

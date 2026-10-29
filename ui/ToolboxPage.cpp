@@ -282,7 +282,7 @@ QLabel *makeSectionTitle(QWidget *parent, const QString &text) {
                        Theme::sectionTitleTextRoleValue());
     QFont font = label->font();
     font.setBold(true);
-    font.setPointSize(font.pointSize() + 1);
+    font = Theme::textFont(font, Theme::TextRole::Heading);
     label->setFont(font);
     return label;
 }
@@ -329,7 +329,7 @@ QLabel *addPanelHeader(QVBoxLayout *layout, QWidget *parent, ToolboxPage::Tool t
     auto *title = new QLabel(ToolboxPage::toolName(tool), parent);
     QFont font = title->font();
     font.setBold(true);
-    font.setPointSize(font.pointSize() + 3);
+    font = Theme::textFont(font, Theme::TextRole::Heading);
     title->setFont(font);
     layout->addWidget(title);
     auto *hint = makeMutedLabel(parent);
@@ -1714,7 +1714,7 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     m_beaconResult->setMinimumHeight(140);
     layout->addWidget(m_beaconResult);
     addResultCopy(layout, m_beaconResult);
-    layout->addWidget(makeSectionTitle(panel, QStringLiteral("光柱配色 · 现代 Java 版")));
+    layout->addWidget(makeSectionTitle(panel, QStringLiteral("光柱配色 / 现代 Java 版")));
     auto *glassRow = new QHBoxLayout;
     auto *glassColor = new QComboBox(panel);
     glassColor->setObjectName(QStringLiteral("beamGlassColor"));
@@ -2270,7 +2270,7 @@ void ToolboxPage::setBannerPreview(const QImage &image, const QString &notice) {
         else preview->setPixmap(QPixmap::fromImage(image).scaled(preview->size(), Qt::KeepAspectRatio, Qt::FastTransformation));
     }
     auto *label = findChild<QLabel *>(QStringLiteral("bannerVisualNotice"));
-    if (label != nullptr) label->setText(notice.isEmpty() ? QStringLiteral("二维旗面预览 · 按所选贴图的实际层序合成，不含游戏光照。") : notice);
+    if (label != nullptr) label->setText(notice.isEmpty() ? QStringLiteral("二维旗面预览 / 按所选贴图的实际层序合成，不含游戏光照。") : notice);
 }
 void ToolboxPage::setBannerPatternIcons(const QList<QIcon> &icons) {
     if (m_bannerPattern == nullptr) return;

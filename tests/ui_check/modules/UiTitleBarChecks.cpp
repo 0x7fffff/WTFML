@@ -75,20 +75,20 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
                       navLabels.join(QStringLiteral(" / ")));
 
                 {
-                    const qreal basePoints = QApplication::font().pointSizeF();
+                    const qreal basePoints = QApplication::font().pixelSize();
                     bool allSame = strip->navCount() > 0;
                     bool bigger = true;
                     QString fontText;
                     for (int i = 0; i < strip->navCount(); ++i) {
                         const QFont f = strip->navButton(i) != nullptr ? strip->navButton(i)->font()
                                                                        : QFont();
-                        fontText += QStringLiteral("%1 ").arg(f.pointSizeF());
-                        allSame = allSame && f.pointSizeF() == strip->navButton(0)->font().pointSizeF();
-                        bigger = bigger && f.pointSizeF() > basePoints;
+                        fontText += QStringLiteral("%1 ").arg(f.pixelSize());
+                        allSame = allSame && f.pixelSize() == strip->navButton(0)->font().pixelSize();
+                        bigger = bigger && f.pixelSize() > basePoints;
                     }
                     check(basePoints > 0 && allSame && bigger
-                              && strip->navButton(0)->font().pointSizeF()
-                                     == basePoints + TitleBar::navFontPointDelta(),
+                              && strip->navButton(0)->font().pixelSize()
+                                     == 18,
                           "★ Z11 四颗导航的字比正文大一档（「上面四个按钮的文本也做大点」）、四颗一个样",
                           QStringLiteral("正文 %1 / 四颗 %2 / 增量 %3")
                               .arg(basePoints)

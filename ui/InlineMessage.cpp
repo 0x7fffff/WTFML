@@ -298,12 +298,7 @@ void InlineMessageBox::setNote(const QString &text) {
         // 小一号 + 浅一档。字号在**这份调色板自己的字体**上算（不是写死点数）：
         // 系统字号调大调小、或者以后换主题，这一行都跟着正文一起动，不会变成"正文 11pt
         // 而附注还是 10pt"那种歪掉的比例。
-        QFont noteFont = m_noteLabel->font();
-        if (noteFont.pointSizeF() > 0) {
-            noteFont.setPointSizeF(qMax(1.0, noteFont.pointSizeF() - 1.0));
-        } else if (noteFont.pixelSize() > 0) {
-            noteFont.setPixelSize(qMax(1, noteFont.pixelSize() - 1));
-        }
+        QFont noteFont = Theme::textFont(m_noteLabel->font(), Theme::TextRole::Caption);
         m_noteLabel->setFont(noteFont);
         // 浅一档的颜色走 QPalette::PlaceholderText —— 全仓"比正文浅一档的次要操作"就是它
         // （版本树那个取消小叉、导航按钮那几颗没选中的，用的都是同一个）。

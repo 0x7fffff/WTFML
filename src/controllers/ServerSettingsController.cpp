@@ -61,7 +61,7 @@ ServerSettingsController::SaveResult ServerSettingsController::save(
         QString normalized;
         QString problem;
         if (!ServerPropertiesForm::accepts(*field, edit.second, &normalized, &problem)) {
-            result.rejected.append(QStringLiteral("·「%1」：%2").arg(field->label, problem));
+            result.rejected.append(QStringLiteral("•「%1」：%2").arg(field->label, problem));
             continue;
         }
         accepted.append(qMakePair(edit.first, normalized));

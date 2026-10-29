@@ -374,7 +374,7 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     {
         // 和设置页里那些说明文字同一套写法：小一号、灰色。
         QFont hintFont = m_hintLabel->font();
-        hintFont.setPointSize(qMax(1, hintFont.pointSize() - 1));
+        hintFont = Theme::textFont(hintFont, Theme::TextRole::Caption);
         m_hintLabel->setFont(hintFont);
         // 灰的那一支取**这一窗自己的**（窗的调色板把 `PlaceholderText` 摆成了 `logHint`）。
         // ★ 两个角色**一起写**：`QLabel` 不吃 `PlaceholderText`，要把它抄进 `WindowText`；

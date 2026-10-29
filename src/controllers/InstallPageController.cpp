@@ -894,7 +894,7 @@ void InstallPageController::installClicked() {
             pending.append({one.second, preview.needsConfirm});
             fingerprints.insert(one.second, preview.fingerprint);
             summaryLines.append(
-                MainWindow::tr("· %1：%2").arg(preview.presetName, preview.summary));
+                MainWindow::tr("• %1：%2").arg(preview.presetName, preview.summary));
         }
         InlineMessageBox box(
             MessageKind::Question, MainWindow::tr("安装完成后应用预设"),

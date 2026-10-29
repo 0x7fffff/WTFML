@@ -29,6 +29,13 @@ int UiThemeCheck(QApplication &app) {
         for (const QString &id : {QStringLiteral("emerald"), QStringLiteral("ocean"), QStringLiteral("dark")}) {
             Theme::setSpec(Theme::presetSpec(id));
             Theme::apply(app);
+            expect(app.font().pixelSize() == 14, "application body text uses the shared 14 px scale");
+            QFont bold = app.font(); bold.setBold(true);
+            expect(Theme::textFont(bold, Theme::TextRole::Caption).pixelSize() == 12 &&
+                   Theme::textFont(bold, Theme::TextRole::Heading).pixelSize() == 18 &&
+                   Theme::textFont(bold, Theme::TextRole::Display).pixelSize() == 28 &&
+                   Theme::textFont(bold, Theme::TextRole::Caption).bold(),
+                   "four readable text roles preserve font weight across themes");
             if (installedSheet.isEmpty()) {
                 installedSheet = app.styleSheet();
             }

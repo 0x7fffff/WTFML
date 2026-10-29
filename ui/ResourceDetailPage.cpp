@@ -233,7 +233,7 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     m_title->setObjectName(titleLabelName());
     QFont titleFont = m_title->font();
     titleFont.setBold(true);
-    titleFont.setPointSize(titleFont.pointSize() + 2);
+    titleFont = Theme::textFont(titleFont, Theme::TextRole::Heading);
     m_title->setFont(titleFont);
     textColumn->addWidget(m_title);
 
@@ -246,7 +246,7 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     m_meta = new ElidedLabel(card);
     m_meta->setObjectName(metaLabelName());
     QFont metaFont = m_meta->font();
-    metaFont.setPointSize(qMax(6, metaFont.pointSize() - 1));
+    metaFont = Theme::textFont(metaFont, Theme::TextRole::Caption);
     m_meta->setFont(metaFont);
     {
         // 次要信息用次要那一档颜色（和列表里第二行小字同一个角色，见 VersionTreeDelegate）。
@@ -381,7 +381,7 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     m_list->setMouseTracking(true);
     m_list->setExpandsOnDoubleClick(false);
     QFont listFont = m_list->font();
-    listFont.setPointSize(listFont.pointSize() + MainWindowUI::versionTreeFontStep());
+    listFont = Theme::textFont(listFont, Theme::TextRole::Body);
     m_list->setFont(listFont);
     m_list->setIconSize(QSize(ResourceDetailMarks::badgeSize(),
                               ResourceDetailMarks::badgeSize()));

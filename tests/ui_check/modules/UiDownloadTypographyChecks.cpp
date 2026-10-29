@@ -29,17 +29,17 @@ int UiDownloadTypographyChecks(QMainWindow &window, MainWindowUI &ui) {
               "行高**确实**比没动过的列表大一截（这就是「做大点」）",
               QString("分类=%1 普通=%2").arg(rowHeight).arg(plain.sizeHintForRow(0)));
         check(categoryList != nullptr && versionTreeForFont != nullptr &&
-                  categoryList->font().pointSize() > plain.font().pointSize() &&
-                  categoryList->font().pointSize() == versionTreeForFont->font().pointSize(),
-              "字号也比普通列表大一档，而且和版本树那棵是同一档",
+                  categoryList->font().pixelSize() == 14 &&
+                  categoryList->font().pixelSize() == versionTreeForFont->font().pixelSize(),
+              "分类和版本列表共用 14 px 正文字号",
               categoryList == nullptr
                   ? QString()
                   : QString("分类=%1 普通=%2 版本树=%3")
-                        .arg(categoryList->font().pointSize())
-                        .arg(plain.font().pointSize())
+                        .arg(categoryList->font().pixelSize())
+                        .arg(plain.font().pixelSize())
                         .arg(versionTreeForFont == nullptr
                                  ? -1
-                                 : versionTreeForFont->font().pointSize()));
+                                 : versionTreeForFont->font().pixelSize()));
 
         // ② 每一条都挂着那个标记（少一条就是"这一类没有刷新"）
         // 「服务端」那一栏**故意没有**这一格 —— 它不向任何资源站问东西，

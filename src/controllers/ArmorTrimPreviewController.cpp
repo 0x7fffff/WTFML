@@ -209,7 +209,7 @@ void ArmorTrimPreviewController::load(const QStringList &archives,bool verifyCac
             return;
         }
         m_images=result->images; m_source=result->source;
-        status(tr("资源已载入：%1 · 固定站姿示意，拖动旋转 / 滚轮缩放；皮甲未染色，无附魔光效。")
+        status(tr("资源已载入：%1 / 固定站姿示意，拖动旋转 / 滚轮缩放；皮甲未染色，无附魔光效。")
                .arg(QFileInfo(m_source).fileName()));
         refresh();
     });
@@ -255,7 +255,7 @@ void ArmorTrimPreviewController::refresh() {
     m_page->setTrimPreview(result.scene);
     if(!ready) return;
     if(!m_busy) status(result.error.isEmpty()
-        ? tr("资源：%1 · 拖动旋转，滚轮缩放")
+        ? tr("资源：%1 / 拖动旋转，滚轮缩放")
               .arg(QFileInfo(m_source).fileName()) : result.error);
 }
 

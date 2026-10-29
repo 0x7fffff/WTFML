@@ -264,7 +264,7 @@ Plan plan(int baseColorIndex, const QList<Layer> &layers) {
                                   : QStringLiteral("{BlockEntityTag:{Patterns:[%1]}}")
                                         .arg(patternTags.join(QChar(','))));
 
-    result.summary = QStringLiteral("底色 %1 · %2 层 / %3").arg(baseName).arg(layers.size()).arg(kMaxLayers);
+    result.summary = QStringLiteral("底色 %1 / %2 层 / %3").arg(baseName).arg(layers.size()).arg(kMaxLayers);
     result.materials = materials.rows();
     result.ok = true;
     return result;
@@ -279,13 +279,13 @@ QString Plan::detailText() const {
     lines.append(QString());
     lines.append(QStringLiteral("一步一步："));
     for (const QString &step : steps) {
-        lines.append(QStringLiteral("· %1").arg(step));
+        lines.append(QStringLiteral("• %1").arg(step));
     }
     if (!materials.isEmpty()) {
         lines.append(QString());
         lines.append(QStringLiteral("材料清单："));
         for (const QString &row : materials) {
-            lines.append(QStringLiteral("· %1").arg(row));
+            lines.append(QStringLiteral("• %1").arg(row));
         }
     }
     if (!notes.isEmpty()) {

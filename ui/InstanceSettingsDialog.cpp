@@ -193,7 +193,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // 少了这一句，代理里那段一个字都不会生效 —— 不报错、断言也不一定先红，屏幕上就是"悬停没反应"。
     m_pageList->setMouseTracking(true);
     QFont listFont = m_pageList->font();
-    listFont.setPointSize(listFont.pointSize() + MainWindowUI::versionTreeFontStep());
+    listFont = Theme::textFont(listFont, Theme::TextRole::Body);
     m_pageList->setFont(listFont);
     // 只为一件事：**别让"拿到焦点"变成一次翻页**（见 eventFilter() 上面那一整段）。
     m_pageList->installEventFilter(this);
@@ -937,40 +937,11 @@ void InstanceSettingsDialog::relayoutShortcuts() {
 }
 
 QString InstanceSettingsDialog::filesHint(const QString &key) {
-    if (key == QStringLiteral("shortcut")) {
-        return tr("这几颗只是把文件夹打开 —— 版本目录、日志、游戏目录、崩溃报告、配置，"
-                  "这几样左栏里没有单独的入口。模组 / 资源包 / 光影包…那些都在左栏对应的"
-                  "那几页里，不在这儿重复摆一遍。下面那几格决定左栏那几页露不露出来。");
-    }
-    if (key == QStringLiteral("schematic")) {
-        return tr("这里两样东西都在：结构方块存下来的（跟着存档走，上面那排挑是哪一个存档）"
-                  "和投影模组读的（在这个实例自己的文件夹里）。两样都是压缩过的 NBT，"
-                  "改坏了游戏读不出来 —— 这一页只列给你看，不动它们。");
-    }
-    if (key == QStringLiteral("config")) {
-        // 这一句得把"能干什么"和"为什么是这么个界面"都说清楚 —— 后半句才是关键
-        // （见 ConfigFileEditorPage.hpp 那段：模组把类型和范围声明在代码里，只有游戏进程
-        // 拿得到，所以启动器这边做不出勾选框那一套）。
-        return tr("点一个文件就能直接改（双击，或者选中之后按回车）。里面按模组原样排版，"
-                  "启动器不改它的格式、不动它的注释 —— 看清楚再改，改错了没有撤销。"
-                  "文件夹可以点进去。");
-    }
-    if (key == QStringLiteral("save")) {
-        return tr("一个文件夹就是一个存档。启动器不删存档 —— 这里只看得见，要删得自己去"
-                  "文件夹里删。");
-    }
-    if (key == QStringLiteral("server")) {
-        // 这一页不只是那份文件的一面镜子（图标 / MOTD / 延迟都是**刚问来的**），
-        // 也不只是"只看"：加 / 改名 / 改地址 / 删都会**写回 servers.dat**。
-        // 所以说明里必须写清"哪几颗会动盘"：「刷新」只重读 + 重问，一个字都不写；
-        // 四颗真正写盘的都在下面点名。
-        return tr("这里就是游戏自己的服务器列表（servers.dat），启动器现在能改它了："
-                  "「编辑」改这一台的名字和地址，「添加」多一台，「删除」拿掉一台。"
-                  "改的只有名字和地址这两样，图标、隐藏之类的设置原样留着。"
-                  "「刷新」会重读一遍文件、再连上去问每台现在什么样（图标、那两行字、"
-                  "多少人、多少毫秒），只问不写、不进游戏。地址那一格显示的是遮过的，"
-                  "在上面按右键能把完整的那个复制下来。");
-    }
+    if (key == QStringLiteral("shortcut")) return tr("打开实例目录及相关文件夹。");
+    if (key == QStringLiteral("schematic") || key == QStringLiteral("structure")) return tr("查看投影和结构文件。");
+    if (key == QStringLiteral("config")) return tr("双击文件或按 Enter 编辑，双击文件夹进入。");
+    if (key == QStringLiteral("save")) return tr("管理世界、备份和导入存档。");
+    if (key == QStringLiteral("server")) return tr("编辑服务器名称和地址；右键地址可复制。");
     return QString();
 }
 

@@ -118,11 +118,11 @@ WorldSettingsPage::WorldView worldViewOf(const QString &worldDir,
     }
     view.hasRegions = !map.regions.isEmpty();
     if (view.hasRegions) {
-        view.regionsText = InstanceEditorController::tr("%1 个区域文件 · 已生成 %2 个区块")
+        view.regionsText = InstanceEditorController::tr("%1 个区域文件 / 已生成 %2 个区块")
                                .arg(map.regions.size())
                                .arg(map.chunkCount);
         if (map.chunkBounds.ok) {
-            view.regionsText += InstanceEditorController::tr(" · 范围 x %1 ~ %2、z %3 ~ %4")
+            view.regionsText += InstanceEditorController::tr(" / 范围 x %1 ~ %2、z %3 ~ %4")
                                     .arg(map.chunkBounds.minBlockX())
                                     .arg(map.chunkBounds.maxBlockX())
                                     .arg(map.chunkBounds.minBlockZ())
@@ -492,7 +492,7 @@ void InstanceEditorController::showConfigHistory(InstanceSettingsDialog *dialog,
         const QString generation = QDir(AppPaths::configBackupDir() + QLatin1Char('/') + instanceId)
                                        .relativeFilePath(backup).section(QLatin1Char('/'), 0, 0);
         const QDateTime when = QDateTime::fromString(generation.left(15), QStringLiteral("yyyyMMdd-HHmmss"));
-        rows.append(m_owner->tr("%1 · %2 字节\n%3")
+        rows.append(m_owner->tr("%1 / %2 字节\n%3")
             .arg(when.isValid() ? when.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")) : generation)
             .arg(file.size()).arg(QDir::toNativeSeparators(backup)));
     }

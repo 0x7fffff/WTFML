@@ -596,7 +596,7 @@ void ImportController::repairFromReport(const QString &reportPath) {
         QStringList names;
         for (int index = 0; index < report.issues.size(); ++index) {
             const auto &issue = report.issues.at(index);
-            names.append((checked.contains(index) ? tr("✓ 已校验 · ") : QString()) +
+            names.append((checked.contains(index) ? tr("✓ 已校验 / ") : QString()) +
                 (issue.fileName.isEmpty() ? tr("文件 %1").arg(issue.ref.fileId) : issue.fileName));
         }
         InlineMessageBox box(MessageKind::Information, tr("补齐：%1").arg(report.packName),

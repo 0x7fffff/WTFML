@@ -626,7 +626,7 @@ int UiContentPagesChecks(QFrame * &bar) {
                 check(name != nullptr && !name->font().strikeOut() && offName != nullptr &&
                           colorOf(offName) != colorOf(name),
                       "★★ U10P 而且**只有禁用那一条**名字是灰的、也只有它被划掉（旁边那条"
-                      "启用的：正文色、没有删除线）—— 灰走的是和「大小 · 时间」同一档的次要"
+                      "启用的：正文色、没有删除线）—— 灰走的是和「大小 / 时间」同一档的次要"
                       "色（全仓唯一去处 QPalette::PlaceholderText）",
                       QStringLiteral("启用那条 %1 / 禁用那条 %2")
                           .arg(colorOf(name).name(), colorOf(offName).name()));
@@ -644,12 +644,12 @@ int UiContentPagesChecks(QFrame * &bar) {
             //
             // 要求那一句：「同页筛选/列表变化：只动画**新增**、删除和状态，**不重播整页**」。
             // 这一段的判据全是**结构**上的（不是"看着好像淡了一下"）：
-            // · 这一趟真**新冒出来**的行，每一个身上挂着一个效果、而且那一发动画的时长
+            // / 这一趟真**新冒出来**的行，每一个身上挂着一个效果、而且那一发动画的时长
             // 就是 `rowAppearMs()`（效果挂在行上，动画是效果的子对象 —— 这儿的够法
             // 和 ⑬ 那一段够幕布、够换页动画是同一招：只认公开类型 + `findChildren`）；
-            // · 这一趟**本来就在**的行，一个效果都没有 —— 这就是「不重播整页」：旧的那几行
+            // / 这一趟**本来就在**的行，一个效果都没有 —— 这就是「不重播整页」：旧的那几行
             // 要是也被淡了，屏幕上就是整页在闪；
-            // · 整个过程里行和列表的**几何一个像素都不动**。
+            // / 整个过程里行和列表的**几何一个像素都不动**。
             //
             // 判据里"哪几行是新的"是**构造出来的**：先筛到一条不剩（`m_shownIdentities`
             // 清空），再筛回来 ⇒ 那三条在重建这一趟里全是新的。反过来，紧接着换到「禁用」
@@ -988,7 +988,7 @@ int UiContentPagesChecks(QFrame * &bar) {
                 // 规矩和别的那几页一样：**先把行摆出来**，一个目录的字节数（要递归整个
                 // saves/，几百个世界的话是几秒）排到事件循环上一趟一趟算（见 .cpp 里
                 // fillDirectoryStats 那段）。所以这里量的是两态：**刚刷出来**那一刻必须是
-                // 「正在统计…」，泵一次事件循环之后必须变成"大小 · 时间"。
+                // 「正在统计…」，泵一次事件循环之后必须变成"大小 / 时间"。
                 //
                 // NOTE: 显式调 refresh() 而不是靠对话框构造时那一趟 —— 构造那一趟排的活儿
                 // 可能已经被本段前面那些 processEvents 跑掉了，那时第一态就量不到，
@@ -1018,8 +1018,8 @@ int UiContentPagesChecks(QFrame * &bar) {
                 check(filled.contains(InstanceFilesPage::formatSize(4096)),
                       "★ U10O 大小算的是**目录里所有东西加起来**（4 KB 那份 level.dat）",
                       filled);
-                check(filled.contains(QStringLiteral(" · ")),
-                      "U10O 大小和最后游玩时间是同一行里的两截（中间一个分隔点）", filled);
+                check(filled.contains(QStringLiteral(" / ")),
+                      "U10O 大小和最后游玩时间是同一行里的两截（斜线分隔）", filled);
                 // 「最后游玩时间」取的是 level.dat 的修改时刻（游戏每存一次档就写它一次），
                 // 所以那一截必须长得像一个日期 —— 拿目录自己的 mtime 那种错法给出的也是
                 // 日期，这一条只证明"有日期"，取值来源在 verify 那边（见 ZJ 节）。
@@ -1325,37 +1325,14 @@ int UiContentPagesChecks(QFrame * &bar) {
         {
             QStringList badHints;
             for (const QString &key : Dlg::filePageKeys()) {
-                auto *hint = dialog.findChild<QLabel *>(Dlg::filesHintName(key));
-                if (Dlg::filesNameOpensResource(key) || key == QStringLiteral("save") ||
-                    key == QStringLiteral("schematic") || key == QStringLiteral("structure") || key == QStringLiteral("server")) {
-                    // 批量管理那四页：**不该有**小字。
-                    if (hint != nullptr) {
-                        badHints.append(key + QStringLiteral(":有(不该有)"));
-                    }
-                } else {
-                    // 其余页：得有，而且正文就是 filesHint(key)。
-                    if (hint == nullptr || hint->text().isEmpty()) {
-                        badHints.append(key + QStringLiteral(":缺"));
-                    } else if (hint->text() != Dlg::filesHint(key)) {
-                        badHints.append(key + QStringLiteral(":字不对"));
-                    }
-                }
+                if (dialog.findChild<QLabel *>(Dlg::filesHintName(key))) badHints.append(key);
             }
-            check(badHints.isEmpty(),
-                  "★ U10j 底下那行小字：批量管理那四页**没有**、其余页有且文字==filesHint(key)",
-                  badHints.join(QLatin1Char('|')));
-            // 快捷方式那一句也跟着搬到概览页了。**那句必须重写过**：
-            // 它原来写的是「都在**旁边那一列**里」—— 那一列（中栏）已经拆了，留着那句话
-            // 就是在指一个不存在的东西。
-            auto *shortcutHint =
-                dialog.findChild<QLabel *>(Dlg::filesHintName(QStringLiteral("shortcut")));
-            check(shortcutHint != nullptr && !shortcutHint->text().isEmpty() &&
-                      Dlg::filesHint(QStringLiteral("shortcut")) == shortcutHint->text() &&
-                      !Dlg::filesHint(QStringLiteral("shortcut"))
-                           .contains(QStringLiteral("旁边那一列")),
-                  "★ U10j 快捷方式底下那句话跟着搬到了概览页，而且**不再指着已经拆掉的"
-                  "「旁边那一列」**",
-                  shortcutHint != nullptr ? shortcutHint->text() : QString());
+            check(badHints.isEmpty(), "文件页不再显示常驻解释段落", badHints.join(QLatin1Char('|')));
+            auto *configFiles = dialog.filesPage(QStringLiteral("config"));
+            check(configFiles && configFiles->toolTip() == Dlg::filesHint(QStringLiteral("config")),
+                  "配置编辑操作保留在简短悬停提示中");
+            check(!dialog.findChild<QLabel *>(Dlg::filesHintName(QStringLiteral("shortcut"))),
+                  "概览快捷目录不重复显示解释段落");
         }
 
         // ---- U10k 名字长到装不下时：**省略号收尾**，而且是从中间截 ----
@@ -1423,7 +1400,7 @@ int UiContentPagesChecks(QFrame * &bar) {
 
                 // ---- U10k-1 **名字那一格真的拿到了宽度**（这一节的正题）----
                 //
-                // 这三样挤在**同一行**时，「4.0 KB · 00:12」在 150% 的字号下要 300 px ——
+                // 这三样挤在**同一行**时，「4.0 KB / 00:12」在 150% 的字号下要 300 px ——
                 // 名字那一格（横向是 Ignored，最小宽度 0）被挤成 **0 宽**，一整列名字一个
                 // 字都看不见（不是"裁得难看"，是"根本没有"）。
                 const bool wideEnough = nameLabel->width() >= InstanceFilesPage::nameLabelMinWidth();
@@ -1444,7 +1421,7 @@ int UiContentPagesChecks(QFrame * &bar) {
 
                 // ---- U10k-2 那个大小·时间在**下一行**（同一个左边，名字底下）----
                 //
-                // 这才是修法本身：把"名字"和"大小 · 时间"摆成上下两行，名字那一格就再也不
+                // 这才是修法本身：把"名字"和"大小 / 时间"摆成上下两行，名字那一格就再也不
                 // 用跟谁抢宽度了。摆回同一行的改动会让这条当场红。
                 const bool stacked =
                     metaLabel != nullptr && metaLabel->isVisible() &&
@@ -1754,8 +1731,8 @@ int UiContentPagesChecks(QFrame * &bar) {
             // 现在**那句话连同 `filesDetailHint()` 一起删了**（用户："把这个页面下方那段
             // 叙述删了来让框拉到底充分利用空间"），那四页底下**一个 QLabel 都不建**。
             // ⇒ 这一格没有可钉的东西了，**它钉的两件事搬到了 U10j 和 U10M**：
-            // · U10j：那四页**找不到** `filesHintName(key)` 那个控件、其余页找得到；
-            // · U10M：那四页 `filesHint()` 一律回空串。
+            // / U10j：那四页**找不到** `filesHintName(key)` 那个控件、其余页找得到；
+            // / U10M：那四页 `filesHint()` 一律回空串。
             // 留在这一格的教训，别再犯一遍：删一个界面元素的时候，**先问一句"哪条断言
             // 是钉它的"** —— 断言不比产品少写更值钱，钉着一个已删的东西的断言只会红，
             // 然后被人顺手注释掉（`wtfml-comment-vs-code`：字面声称的那一侧就是洞）。
@@ -2156,9 +2133,9 @@ int UiContentPagesChecks(QFrame * &bar) {
                 // 模组页开了「操作面板」那一档（`setActionPanelEnabled(true)`）：
                 // 七颗按钮一个都没少（`selectionActionCount()` 仍是 7，选择/灰化规则不变），
                 // 但**摆放换了地方**——
-                // · 更新 / 删除在右侧那块操作面板里（名字也换成了「更新选中项 / 删除选中项」）；
-                // · 全选 / 反选 / 清除选择在顶上那排工具里（面板外面）；
-                // · 启用 / 禁用**收进「启用 / 禁用…」菜单**，不再并排两颗
+                // / 更新 / 删除在右侧那块操作面板里（名字也换成了「更新选中项 / 删除选中项」）；
+                // / 全选 / 反选 / 清除选择在顶上那排工具里（面板外面）；
+                // / 启用 / 禁用**收进「启用 / 禁用…」菜单**，不再并排两颗
                 //   （菜单里两项各自按 `selectedTogglePaths()` 现算灰不灰 —— 见 U10R）。
                 // 用户当初点名的并排顺序只在**没开面板**的那几页（资源包 / 数据包 / 光影）上
                 // 还是原样；面板这一档是后来照用户要求改的，不是顺序丢失。
@@ -2872,8 +2849,8 @@ int UiContentPagesChecks(QFrame * &bar) {
                 live.playersMax = 20;
                 // 「在线」那两个字 傍晚删了（要求：「把服务器那个 在线
                 // 文本删了，只保留延迟和人数」）—— 通了的这一档第一行**就是数字**。
-                check(Dlg::serverStatusText(live) == QStringLiteral("42 ms · 7/20 人"),
-                      "★ U10L 通了 ⇒「延迟 · 人数」（没有「在线」两个字）",
+                check(Dlg::serverStatusText(live) == QStringLiteral("42 ms / 7/20 人"),
+                      "★ U10L 通了 ⇒「延迟 / 人数」（没有「在线」两个字）",
                       Dlg::serverStatusText(live));
 
                 // 服务器没说人数（-1）和"一个人都没有"（0）不是一回事：前者不许写出人数，
@@ -2887,7 +2864,7 @@ int UiContentPagesChecks(QFrame * &bar) {
                 Dlg::ServerRowStatus zero = live;
                 zero.playersOnline = 0;
                 zero.playersMax = 0;
-                check(Dlg::serverStatusText(zero) == QStringLiteral("42 ms · 0/0 人"),
+                check(Dlg::serverStatusText(zero) == QStringLiteral("42 ms / 0/0 人"),
                       "U10L 0/0 是**它说了**「一个人都没有」，照写", Dlg::serverStatusText(zero));
                 // 延迟量不出（-1）那一档：人数照写，只少一行。**不许**因此冒出「在线」。
                 Dlg::ServerRowStatus noLatency = live;
@@ -3199,8 +3176,8 @@ int UiContentPagesChecks(QFrame * &bar) {
                                             QStringLiteral("7/20 人")}),
                       "★ U10L 通了 ⇒ 两行：第一行延迟、第二行人数（没有「在线」两个字）",
                       lines.join(QStringLiteral("︱")));
-                check(Dlg::serverStatusText(live) == lines.join(QStringLiteral(" · ")),
-                      "★ U10L 单行那份就是这两行用「 · 」拼起来的"
+                check(Dlg::serverStatusText(live) == lines.join(QStringLiteral(" / ")),
+                      "★ U10L 单行那份就是这两行用「 / 」拼起来的"
                       "（所以格子里拆成两行之后，悬停那句一个字都没变）",
                       Dlg::serverStatusText(live));
 

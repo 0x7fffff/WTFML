@@ -206,7 +206,7 @@ private:
             m_steps.push_back({QStringLiteral("tasks:update-%1").arg(tick + 1, 2, 10, QLatin1Char('0')),
                                [this, tick] {
                 m_tasks[tick].percent = 20 + tick;
-                m_tasks[tick].detail = QStringLiteral("正在下载资源 · %1 MB/s").arg(tick + 1);
+                m_tasks[tick].detail = QStringLiteral("正在下载资源 / %1 MB/s").arg(tick + 1);
                 if (m_taskPanel) m_taskPanel->refresh();
             }});
         }

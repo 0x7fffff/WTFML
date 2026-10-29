@@ -1500,7 +1500,7 @@ void MainWindow::updateBottomBarTaskSummary() {
     summary.extraCount = picked.extraCount;
     summary.title = picked.title;
     if (picked.state == Tasks::TaskState::Running && m_activityCenter->transferSpeed(picked.id) >= 0)
-        summary.title += QStringLiteral(" · %1/s").arg(
+        summary.title += QStringLiteral(" / %1/s").arg(
             InstanceFilesPage::formatSize(m_activityCenter->transferSpeed(picked.id)));
     // 红点看的是"**有没有没看过的失败**"，和正显示的是哪一项无关（正在下载而上一件
     // 事失败了，两个信号都该看得见）—— 这条也是账本层算的。
@@ -3798,7 +3798,7 @@ void MainWindow::updateServerRow(const QString &serverId) {
 
     // 第 0 列：名字 — 档 · 状态。**服务端没有"图标"那一栏能替它说话**（实例行行首有
     // 图标，这一页是名字 + 状态两个字）。
-    item->setText(0, QStringLiteral("%1  —  %2 · %3")
+    item->setText(0, QStringLiteral("%1  —  %2 / %3")
                          .arg(entry.name, ServerInstall::flavorName(entry.flavor),
                               ServerModel::statusName(status)));
     QString tip = entry.note;
@@ -3969,11 +3969,11 @@ void MainWindow::onUpdateBatchFileFinished(const QString &label, const QString &
         if (!path.isEmpty()) {
             m_updateBatch.succeeded.append(path);
         }
-        m_updateBatch.lines.append(tr("· %1 —— 已经换成新版本").arg(fileName));
+        m_updateBatch.lines.append(tr("• %1 —— 已经换成新版本").arg(fileName));
     } else {
         ++m_updateBatch.failedSteps;
         m_updateBatch.lines.append(
-            tr("· %1 —— 没换成功：%2").arg(fileName, errorMessage));
+            tr("• %1 —— 没换成功：%2").arg(fileName, errorMessage));
     }
 }
 
@@ -4728,7 +4728,7 @@ void MainWindow::updateHomeRecent() {
                 const VersionDisplayParts parts = m_versionManager->displayParts(instance.id);
                 QString loaderVersion;
                 const QString loader = instanceLoaderName(parts, m_versionManager, &loaderVersion);
-                instance.version = QStringLiteral("Minecraft %1 · %2")
+                instance.version = QStringLiteral("Minecraft %1 / %2")
                     .arg(parts.realVersion.isEmpty() ? parts.id : parts.realVersion,
                          loader.isEmpty() ? QStringLiteral("原版")
                                           : (loader + QLatin1Char(' ') + loaderVersion).trimmed());
@@ -4806,7 +4806,7 @@ void MainWindow::openHomeInstancePicker() {
                 row.subtitle = loader.isEmpty()
                                    ? (part.realVersion.isEmpty() ? QStringLiteral("原版")
                                                                  : part.realVersion)
-                                   : QStringLiteral("%1 · %2")
+                                   : QStringLiteral("%1 / %2")
                                          .arg(part.realVersion.isEmpty() ? part.id
                                                                         : part.realVersion,
                                               loader);

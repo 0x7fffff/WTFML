@@ -168,7 +168,7 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
         m_titleLabel->setObjectName(MainWindowUI::serverSettingsTitleName());
         QFont titleFont = m_titleLabel->font();
         titleFont.setBold(true);
-        titleFont.setPointSize(titleFont.pointSize() + 2);
+        titleFont = Theme::textFont(titleFont, Theme::TextRole::Heading);
         m_titleLabel->setFont(titleFont);
         // 名字可能很长（用户起的）：不许它把状态那半截挤出去。
         m_titleLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
@@ -190,7 +190,7 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
     m_sectionList->setMouseTracking(true);
     m_sectionList->setItemDelegate(new VersionTreeDelegate(m_sectionList));
     QFont navFont = m_sectionList->font();
-    navFont.setPointSize(navFont.pointSize() + MainWindowUI::versionTreeFontStep());
+    navFont = Theme::textFont(navFont, Theme::TextRole::Body);
     m_sectionList->setFont(navFont);
     for (int i = 0; i < MainWindowUI::serverSettingsSectionCount(); ++i) {
         new QListWidgetItem(MainWindowUI::serverSettingsSectionTitle(i), m_sectionList);

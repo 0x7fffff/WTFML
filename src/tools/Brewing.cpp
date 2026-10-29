@@ -131,17 +131,17 @@ QString Plan::detailText() const {
         lines << QStringLiteral("%1. %2").arg(i + 1).arg(steps.at(i));
     }
     lines << QString();
-    lines << QStringLiteral("· 要 %1 瓶：一共酿 %2 次（一次最多 %3 瓶）")
+    lines << QStringLiteral("• 要 %1 瓶：一共酿 %2 次（一次最多 %3 瓶）")
                  .arg(bottles)
                  .arg(operations)
                  .arg(maxBottlesPerOperation());
     if (!materials.isEmpty()) {
-        lines << QStringLiteral("· 材料合计（每一步按 %1 次备料）：%2")
+        lines << QStringLiteral("• 材料合计（每一步按 %1 次备料）：%2")
                      .arg(operations)
                      .arg(materials.join(QStringLiteral("、")));
     }
-    lines << QStringLiteral("· 玻璃瓶 %1 个（装水用）。").arg(bottles);
-    lines << QStringLiteral("· 烈焰粉燃料：酿 %1 次 ⇒ %2 个（1 个烈焰粉够 20 次酿造）。")
+    lines << QStringLiteral("• 玻璃瓶 %1 个（装水用）。").arg(bottles);
+    lines << QStringLiteral("• 烈焰粉燃料：酿 %1 次 ⇒ %2 个（1 个烈焰粉够 20 次酿造）。")
                  .arg(operations)
                  .arg(blazePowderFor(operations));
     return lines.join(QLatin1Char('\n'));
@@ -256,12 +256,12 @@ Plan plan(int potionIndex, bool extended, bool level2, Form form, int bottles) {
     }
 
     result.ok = true;
-    result.summary = QStringLiteral("一共 %1 步 · 产出：%2")
+    result.summary = QStringLiteral("一共 %1 步 / 产出：%2")
                          .arg(result.steps.size())
                          .arg(nameWithModifiers(target.name, extended, level2, form,
                                                 target.upgradedLevel));
     if (bottles != 1) {
-        result.summary += QStringLiteral(" · %1 瓶（酿 %2 次）")
+        result.summary += QStringLiteral(" / %1 瓶（酿 %2 次）")
                               .arg(bottles)
                               .arg(result.operations);
     }

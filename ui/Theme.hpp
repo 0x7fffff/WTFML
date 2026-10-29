@@ -53,6 +53,7 @@
 #include <QApplication>
 #include <QColor>
 #include <QEvent>
+#include <QFont>
 #include <QHash>
 #include <QJsonObject>
 #include <QPalette>
@@ -72,6 +73,22 @@ class QStyle;
 class QWidget;
 
 namespace Theme {
+
+// Logical pixels; Windows display scaling remains handled by Qt.
+enum class TextRole { Caption, Body, Heading, Display };
+constexpr int textSize(TextRole role) {
+    switch (role) {
+    case TextRole::Caption: return 12;
+    case TextRole::Body: return 14;
+    case TextRole::Heading: return 18;
+    case TextRole::Display: return 28;
+    }
+    return 14;
+}
+inline QFont textFont(QFont font, TextRole role) {
+    font.setPixelSize(textSize(role));
+    return font;
+}
 
 // 色号来自《WTFML_三主题配色规范》，组件共用，用户覆盖仍在 Spec 中保存。
 struct Tokens {
@@ -470,7 +487,7 @@ QString secondaryTextRoleValue();
 //
 // 页面外边距 20 ／ 区块间距 16 ／ 控件间距 8
 //
-// 圆角只留四档：控件 4 ／ 按钮 6 ／ 主表面 8 ／ 小节 10。
+// 圆角只留四档：控件 6 ／ 按钮 8 ／ 主表面 12 ／ 小节 8。
 //
 // 间距那三档的**取数处仍然是 `MainWindowUI`**（`pageMargin()` / `kColumnSpacing` /
 // `kFilterRowSpacing`）—— 页面骨架整个搭在那儿，那是"布局规格层"；这里只收两位
@@ -572,13 +589,13 @@ void markColorSwatch(QPushButton *button, const QColor &color);
 
 
 /// 输入类控件（`QLineEdit` / `QComboBox` / `QAbstractSpinBox` / 勾选框那个框）的圆角。
-constexpr int controlRadius() { return 4; }
+constexpr int controlRadius() { return 6; }
 /// `QPushButton` 的圆角（比输入类大一档：它比输入框矮胖，同一个圆角看着更方）。
-constexpr int buttonRadius() { return 4; }
+constexpr int buttonRadius() { return 8; }
 /// 主表面（`wtfmlSurface="workspace"` / `"sidebar"`）的圆角。
-constexpr int surfaceRadius() { return 4; }
-/// 小节卡片（`wtfmlSurface="section"`）的圆角。比主表面大一档：它是"面里的一层"。
-constexpr int sectionRadius() { return 4; }
+constexpr int surfaceRadius() { return 12; }
+/// 小节卡片（`wtfmlSurface="section"`）的圆角。小于主表面：它是"面里的一层"。
+constexpr int sectionRadius() { return 8; }
 
 // ---------------------------------------------------------------------------
 // 滚动条
