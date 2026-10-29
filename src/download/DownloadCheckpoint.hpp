@@ -34,6 +34,12 @@ public:
     std::unique_ptr<QLockFile> lock;
     static constexpr qint64 maximumBytes = 32 * 1024 * 1024;
     static constexpr int maximumFiles = 50000;
+    // 盘上那一份的两个形状（见 encodeReceipt / load）：
+    //   `WTFML-PROTECTED-1\n` + DPAPI(明文 JSON)  —— 老的那一档，只读不写；
+    //   `WTFML-PROTECTED-2\n` + DPAPI(zlib 压缩过的 JSON) —— 现在写的这一档。
+    // 前一档留着是因为**用户盘上那些暂停中的批次就是那个形状**，换了格式也得读得回来。
+    static constexpr char plainMagic[] = "WTFML-PROTECTED-1\n";
+    static constexpr char compressedMagic[] = "WTFML-PROTECTED-2\n";
 
     static bool safePath(const QString &path) {
         if (!QDir::isAbsolutePath(path)) return false;
@@ -46,6 +52,27 @@ public:
             p = next;
         }
         return true;
+    }
+    /// 把一份清单 JSON 编成盘上那一坨字节（加密 + 顺手压一遍）。
+    ///
+    /// 为什么压：这一层是**同步跑在 GUI 线程上**的，而 DPAPI 是按时长里最大的一块
+    /// （实测 50,000 条 / 22 MB 那份：加密 1.05 秒，占整趟的八成；压缩本身只要 35 毫秒，
+    /// 压完 1.3 MB 之后同一趟加密只剩 8～64 毫秒）。压缩的代价远小于它省下的加密时间 ——
+    /// 见 `tests/core_modules/DownloadReceiptScaleTests.cpp` 的 `receipt-breakdown` 那几格。
+    ///
+    /// 压不小（很小的清单）就照老样子写明文那一档，绝不为了"格式统一"去写一份更大的。
+    static QByteArray encodeReceipt(const QByteArray &plain) {
+#ifdef Q_OS_WIN
+        const auto squeezed = qCompress(plain, 1);
+        if (squeezed.size() + 1024 < plain.size()) {
+            const auto blob = TokenStore::protect(squeezed);
+            const QByteArray protectPrefix(plainMagic, int(sizeof(plainMagic)) - 1);
+            if (!blob.startsWith(protectPrefix)) return {};
+            const QByteArray receiptPrefix(compressedMagic, int(sizeof(compressedMagic)) - 1);
+            return receiptPrefix + blob.mid(protectPrefix.size());
+        }
+#endif
+        return TokenStore::protect(plain);
     }
     static QJsonObject fingerprint(const QString &path, const std::atomic_bool *cancel = nullptr) {
         QFileInfo info(path);
@@ -113,9 +140,9 @@ public:
             {"sha1", f.sha1}, {"size", QString::number(f.size)}, {"official", f.official}, {"original", f.original}});
         const auto plain = QJsonDocument(QJsonObject{{"format", 1}, {"context", context}, {"files", rows}}).toJson(QJsonDocument::Compact);
         if (plain.size() > maximumBytes) return false;
-        const auto bytes = TokenStore::protect(plain);
+        const auto bytes = encodeReceipt(plain);
 #ifdef Q_OS_WIN
-        if (!bytes.startsWith("WTFML-PROTECTED-1\n")) return false;
+        if (!bytes.startsWith(plainMagic) && !bytes.startsWith(compressedMagic)) return false;
 #endif
         QSaveFile output(path); output.setDirectWriteFallback(false);
         if (bytes.isEmpty() || bytes.size() > maximumBytes || !output.open(QIODevice::WriteOnly) ||
@@ -129,10 +156,34 @@ public:
         QFile input(source);
         if (!input.open(QIODevice::ReadOnly) || input.size() > maximumBytes) return false;
         const auto bytes = input.readAll();
+        QByteArray decoded;
 #ifdef Q_OS_WIN
-        if (!bytes.startsWith("WTFML-PROTECTED-1\n")) return false;
+        if (bytes.startsWith(compressedMagic)) {
+            // 解不开（截断 / 投毒 / 不是这一台加密的）就是空的那一份，下面按"格式不对"拒掉 ——
+            // **原件一个字节都不动**，用户那一份还是出事之后唯一能拿来对的东西。
+            //
+            // NOTE: 剥掉 `-2` 之后**得把 `-1` 那个魔术接回去**再交给 `unprotect` —— 它按那个
+            // 魔术分"DPAPI 解"和"老混淆解"，不带魔术后缀它会走老那一条，解出来是一坨乱码。
+            const QByteArray dpapi(plainMagic, int(sizeof(plainMagic)) - 1);
+            const auto payload = TokenStore::unprotect(
+                dpapi + bytes.mid(int(sizeof(compressedMagic)) - 1));
+            // 压缩头那 4 个字节就是解压后的长度：**先拿它比一下 `maximumBytes` 再解** ——
+            // 免得一份投毒/截断的记录让 `qUncompress` 去要一块天文数字的内存。
+            const bool plausible = payload.size() >= 4
+                && ((quint32(quint8(payload.at(0))) << 24) | (quint32(quint8(payload.at(1))) << 16)
+                    | (quint32(quint8(payload.at(2))) << 8) | quint32(quint8(payload.at(3))))
+                       <= quint32(maximumBytes);
+            if (!plausible) return false;
+            decoded = qUncompress(payload);
+        } else if (bytes.startsWith(plainMagic)) {
+            decoded = TokenStore::unprotect(bytes);  // 老那一档：盘上还留着的暂停批次
+        } else {
+            return false;
+        }
+#else
+        decoded = TokenStore::unprotect(bytes);  // 非 Windows 走旧混淆，没有魔术
 #endif
-        const auto document = QJsonDocument::fromJson(TokenStore::unprotect(bytes));
+        const auto document = QJsonDocument::fromJson(decoded);
         const auto object = document.object();
         if (!document.isObject() || object.value("format") != 1 || !object.value("context").isObject() ||
             !object.value("files").isArray() || object.value("files").toArray().size() > maximumFiles) return false;

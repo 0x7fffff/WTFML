@@ -13,6 +13,13 @@ bool DownloadManager::enableCheckpoint(const QString &path, const QJsonObject &c
 }
 QString DownloadManager::checkpointPath() const { return m_checkpoint ? m_checkpoint->path : QString(); }
 QJsonObject DownloadManager::checkpointContext() const { return m_checkpoint ? m_checkpoint->context : QJsonObject(); }
+bool DownloadManager::updateCheckpointContext(const QJsonObject &context) {
+    if (!m_checkpoint) return false;
+    m_checkpoint->context = context;
+    const bool saved = m_checkpoint->save();
+    if (saved) emit checkpointChanged();
+    return saved;
+}
 bool DownloadManager::deferCheckpointContinuation(bool refreshSources) {
     if (!m_checkpoint) return false;
     m_checkpoint->context.insert("phase", "continue-install");
@@ -27,8 +34,13 @@ void DownloadManager::forgetCheckpoint() {
     emit checkpointChanged();
 }
 bool DownloadManager::canPauseBatch() const {
+    // m_precheckActive / m_precheckQueue：还有几份"盘上那份到底对不对"没问完（见
+    // `PrecheckJob`）。**这一段不许暂停** —— 暂停会按恢复记录重放，而没问完的那几份
+    // 还没登记进去（原件指纹都还没算出来），重放时它们就丢了。等它们问完再让暂停出现，
+    // 和 m_reuseActive 那条同一个道理。
     if (!m_checkpoint || m_checkpointFailed || m_checkpoint->files.isEmpty() || m_batchPaused ||
-        m_batchOpen || m_batchEmitted || m_reuseActive > 0) return false;
+        m_batchOpen || m_batchEmitted || m_reuseActive > 0 || m_precheckActive > 0
+        || !m_precheckQueue.isEmpty()) return false;
     // The home/download-page manifest request neither registers file jobs nor
     // belongs to this batch. cancelBatch() leaves it alive; waiting for it would
     // hide pause for an unrelated resource update on a slow network.
@@ -48,7 +60,8 @@ bool DownloadManager::pauseBatch() {
 }
 bool DownloadManager::resumeBatch(QString *problem) {
     const auto reject = [problem](const QString &reason) { if (problem) *problem = reason; return false; };
-    if (!m_batchPaused || !m_checkpoint || pendingDownloads > 0 || !m_segmentJobs.isEmpty() || m_reuseActive > 0)
+    if (!m_batchPaused || !m_checkpoint || pendingDownloads > 0 || !m_segmentJobs.isEmpty() || m_reuseActive > 0
+        || m_precheckActive > 0 || !m_precheckQueue.isEmpty())
         return reject(tr("下载仍在收尾，请稍后继续。"));
     const auto receipt = m_checkpoint;
     for (const auto &file : receipt->files) if (!DownloadCheckpoint::unchanged(file))

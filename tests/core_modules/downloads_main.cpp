@@ -14,6 +14,7 @@ int main(int argc, char **argv) {
     runDownloadSpeedLimitTests();
     runDownloadProxyTests();
     runLocalFileReuseTests();
+    runDownloadReceiptScaleTests(sandbox);
  out()<<"downloads: "<<g_checks-g_failures<<"/"<<g_checks<<"\n"; return g_failures==0 && moduleStatus==0 ? 0 : 1;
 }
 

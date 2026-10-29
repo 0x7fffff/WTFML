@@ -26,6 +26,7 @@ add_library(core_cases_downloads OBJECT
  core_modules/DownloadSpeedLimitTests.cpp
  core_modules/DownloadProxyTests.cpp
  core_modules/LocalFileReuseTests.cpp
+ core_modules/DownloadReceiptScaleTests.cpp
 )
 wtfml_core_compile(core_cases_downloads)
 list(APPEND WTFML_CORE_CASE_OBJECTS $<TARGET_OBJECTS:core_cases_downloads>)
@@ -186,6 +187,7 @@ add_library(core_cases_presets OBJECT
  core_modules/PresetCaptureApplyTests.cpp
  core_modules/ResourceAndDataPackTests.cpp
  core_modules/ModInstallPlanTests.cpp
+ core_modules/PresetSnapshotScaleTests.cpp
 )
 wtfml_core_compile(core_cases_presets)
 list(APPEND WTFML_CORE_CASE_OBJECTS $<TARGET_OBJECTS:core_cases_presets>)

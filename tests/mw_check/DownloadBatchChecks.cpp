@@ -8,6 +8,7 @@
 #include "presets/PresetTargetSnapshot.hpp"
 #include "server/ServerInstallController.hpp"
 #include "server/ServerRegistry.hpp"
+#include <QThread>
 
 int runDownloadBatchChecks(QApplication &app) {
     const auto childAt = app.arguments().indexOf("--batch-resume-root");
@@ -290,6 +291,124 @@ int runDownloadBatchChecks(QApplication &app) {
                "cancelling live validation also clears the paused downloader busy state");
     }
     {
+        // 「盘上那份到底对不对」要整份读文件才问得出来的那一档：判据必须在后台问，
+        // 记账必须等结论回来才发生（见 DownloadManager::PrecheckJob）。
+        const auto root = fixture.filePath("precheck-existing"); QDir().mkpath(root);
+
+        // 判据的"后半段"是 public static，直接对着盘上的几种状态问一遍 ——
+        // 它和 fileAlreadyValid() 必须是同一个结论（前者就是后者的下半段）。
+        const auto bodyFile = root + "/body.bin";
+        expect(write(bodyFile, payload), "body-check fixture written");
+        expect(DownloadManager::fileBodyValid(bodyFile, sha1, payload.size(), VerifyMode::SizeAndSha1),
+               "body check accepts a matching size and sha1");
+        expect(!DownloadManager::fileBodyValid(bodyFile, QString(40, QLatin1Char('0')), payload.size(),
+                                               VerifyMode::SizeAndSha1),
+               "body check rejects a mismatching sha1");
+        expect(!DownloadManager::fileBodyValid(bodyFile, sha1, payload.size() + 1, VerifyMode::SizeAndSha1),
+               "body check rejects a mismatching size without hashing");
+        expect(DownloadManager::fileBodyValid(bodyFile, {}, payload.size(), VerifyMode::SizeAndSha1),
+               "body check trusts an unknown sha1 when the size matches");
+        expect(!DownloadManager::fileBodyValid(root + "/absent.bin", {}, -1, VerifyMode::SizeAndSha1),
+               "body check never accepts an absent file");
+        const auto notZip = root + "/installer.jar";
+        expect(write(notZip, payload) && !DownloadManager::fileBodyValid(notZip, {}, -1, VerifyMode::ExistsOnly),
+               "exists-only check still refuses a jar that is not a zip");
+        QFile zipLike(notZip); const bool zipOpened = zipLike.open(QIODevice::WriteOnly);
+        if (zipOpened) zipLike.write(QByteArray("PK\x03\x04", 4));
+        zipLike.close();
+        expect(DownloadManager::fileBodyValid(notZip, {}, -1, VerifyMode::ExistsOnly),
+               "exists-only check accepts a real zip header");
+
+        // 甲：盘上那份已经是对的 —— 结论必须**推迟**（调度调用当场记账还是 0），
+        // 回来之后只记 skipped、一个网络请求都不发。32 MiB 让"整份哈希"有可测的时间。
+        const auto big = root + "/big.bin";
+        const QByteArray chunk(1024 * 1024, 'p');
+        QFile bigFile(big); bool prepared = bigFile.open(QIODevice::WriteOnly);
+        for (int part = 0; part < 32 && prepared; ++part) prepared = bigFile.write(chunk) == chunk.size();
+        bigFile.close();
+        QElapsedTimer hashClock; hashClock.start();
+        const QString bigSha1 = DownloadManager::calculateFileSha1(big);
+        const qint64 hashUs = hashClock.nsecsElapsed() / 1000;
+        expect(prepared && bigSha1.size() == 40, "existing 32 MiB file fixture written");
+
+        {
+            const int before = requests;
+            DownloadManager downloads; downloads.setSegmentedDownloadEnabled(false);
+            downloads.beginBatch();
+            expect(downloads.enableCheckpoint(fixture.filePath("precheck-valid.receipt"), {}),
+                   "existing-file batch records its receipt");
+            QElapsedTimer scheduleClock; scheduleClock.start();
+            downloads.downloadFile(url, big, bigSha1, 32 * 1024 * 1024);
+            const qint64 scheduleUs = scheduleClock.nsecsElapsed() / 1000;
+            // 判据只有这一条：结论还没出来之前，这一份既不算跳过也不算要下。它在界面线程
+            // 上整份读过的话，这一句之后 skipped 就已经是 1 了。
+            expect(downloads.stats().skipped == 0 && downloads.isBusy(),
+                   "existing-file decision is deferred off the UI thread");
+            downloads.endBatch();
+            expect(wait([&] { return !downloads.isBusy(); }), "background verification settles the batch");
+            expect(downloads.stats().skipped == 1 && downloads.stats().total == 0 && requests == before,
+                   "already-valid 32 MiB file is skipped after background verification");
+            printf("MEASURE precheck-existing bytes=33554432 schedule_call_us=%lld full_sha1_us=%lld\n",
+                   static_cast<long long>(scheduleUs), static_cast<long long>(hashUs));
+        }
+
+        // 乙：盘上那份存在但是坏的 —— 后台这次要**顺手把原件指纹算出来**，那份指纹
+        // 必须一字不差地落进恢复记录（否则跨重启"原件还在不在"就没法判）。
+        {
+            const auto corrupt = root + "/corrupt.bin";
+            const QByteArray wrong(payload.size(), 'x');
+            expect(write(corrupt, wrong), "corrupt existing file fixture written");
+            const auto receiptPath = fixture.filePath("precheck-corrupt.receipt");
+            int skipped = 0, total = 0, failed = 0;
+            {
+                DownloadManager downloads; downloads.setSegmentedDownloadEnabled(false);
+                downloads.beginBatch();
+                expect(downloads.enableCheckpoint(receiptPath, {}), "corrupt-file batch records its receipt");
+                downloads.downloadFile(url, corrupt, sha1, payload.size());
+                expect(downloads.stats().skipped == 0, "corrupt existing file is not decided on the UI thread");
+                downloads.endBatch();
+                expect(wait([&] { return !downloads.isBusy(); }), "corrupt file batch settles");
+                skipped = downloads.stats().skipped; total = downloads.stats().total;
+                failed = downloads.stats().failed;
+                expect(read(corrupt) == payload, "corrupt existing file is replaced by the declared artifact");
+            }
+            expect(skipped == 0 && total == 1 && failed == 0, "corrupt existing file counts as downloaded, not skipped");
+            DownloadCheckpoint saved;
+            expect(saved.load(receiptPath), "corrupt-file receipt readable after the batch");
+            const auto *entry = saved.find(corrupt);
+            expect(entry != nullptr
+                       && entry->original.value("sha256").toString()
+                              == QString::fromLatin1(QCryptographicHash::hash(wrong, QCryptographicHash::Sha256).toHex()),
+                   "background precheck writes the exact original fingerprint into the receipt");
+        }
+
+        // 丙：取消 —— 问到一半作废，一个请求都不该发出去，忙态要能自己落下来。
+        {
+            const int before = requests;
+            DownloadManager downloads; downloads.setSegmentedDownloadEnabled(false);
+            downloads.beginBatch();
+            downloads.downloadFile(url, big, bigSha1, 32 * 1024 * 1024);
+            downloads.endBatch();
+            expect(downloads.stats().skipped == 0, "big file is still being verified when the batch is cancelled");
+            downloads.cancelBatch();
+            expect(wait([&] { return !downloads.isBusy(); }) && requests == before,
+                   "cancelling a batch abandons pending background verification without network");
+        }
+
+        // 丁：文件根本不在 —— 便宜那一支必须还在原地问（同步），否则一次全新安装
+        // 的几千个调度会全挤进线程池。
+        {
+            const auto missing = root + "/missing.bin";
+            DownloadManager downloads; downloads.setSegmentedDownloadEnabled(false);
+            downloads.beginBatch();
+            downloads.downloadFile(url, missing, sha1, payload.size());
+            expect(downloads.stats().total == 1, "absent file is still decided synchronously");
+            downloads.endBatch();
+            expect(wait([&] { return !downloads.isBusy(); }) && read(missing) == payload,
+                   "absent file downloads normally");
+        }
+    }
+    {
         DownloadManager downloads; downloads.setSegmentedDownloadEnabled(false);
         downloads.setVersionManifestUrlOverride(QString(url).replace("/file?", "/hold?"));
         const int before = requests;
@@ -441,6 +560,77 @@ int runDownloadBatchChecks(QApplication &app) {
         expect(wait([&] { return child.state() == QProcess::NotRunning; }) && child.exitCode() == 0 && read(root + "/artifact.bin") == payload,
             "fresh process must wait for a second explicit action before invoking installation continuation exactly once");
         if (child.state() != QProcess::NotRunning) { child.kill(); child.waitForFinished(1000); }
+    }
+    // 「首装一开始就要把目标实例的配置目录拍个快照」那一拍**不在界面线程上**：
+    // 批次开门时只登记便宜的接续意图，那一棵树在后台走完再补进恢复记录。
+    // 这棵树有多大、走一趟要多久，量在 `tests/core_modules/PresetSnapshotScaleTests.cpp`。
+    {
+        const auto root = fixture.filePath("async-preset-targets"); QDir().mkpath(root);
+        const auto instance = root + "/versions/async-instance";
+        QDir().mkpath(instance + "/config");
+        bool fixtureOk = write(instance + "/options.txt", "fov:1") && write(instance + "/config/mod.json", "{}");
+        for (int i = 0; i < 300 && fixtureOk; ++i)
+            fixtureOk = write(instance + QStringLiteral("/config/pack-%1.json").arg(i, 3, 10, QChar(QLatin1Char('0'))),
+                              QByteArray(1024, 'k'));
+        expect(fixtureOk, "preset initialization target fixture prepared");
+        const auto intent = [&] {
+            return QJsonObject{{"kind", "named-vanilla"}, {"root", root}, {"instance", "async-instance"},
+                               {"originals", QJsonObject()},
+                               {"presets", QJsonArray{QJsonObject{{"id", "preset"}}}}};
+        }();
+        const auto targetTree = [](const QJsonObject &asked) {
+            return Presets::snapshotInitializationTargets(
+                QDir(asked.value("root").toString()).filePath("versions/" + asked.value("instance").toString()));
+        };
+        // 同一棵树同步走一遍的代价（对照用）：这一拍原来就在 `beginBatch()` 里面。
+        QElapsedTimer syncClock; syncClock.start();
+        const auto directWalk = targetTree(intent);
+        const qint64 syncUs = syncClock.nsecsElapsed() / 1000;
+        expect(!directWalk.isEmpty(), "preset initialization target fixture walks on this machine");
+        for (const QString mode : {QString("lands"), QString("fails")}) {
+            ActivityCenterController activity; activity.tasks()->setHistoryPath(root + "/tasks.json");
+            const auto id = activity.begin(Tasks::TaskKind::Install, QStringLiteral("异步快照"));
+            auto downloader = std::make_unique<DownloadManager>(); downloader->setSegmentedDownloadEnabled(false);
+            auto controller = std::make_unique<DownloadBatchController>(&activity, downloader.get(), [id] { return id; });
+            int snapshotCalls = 0; bool offThread = false;
+            controller->setContinuation([intent] { return intent; },
+                [](Tasks::TaskId, const QJsonObject &) { return false; }, {},
+                [&](const QJsonObject &asked, const std::atomic_bool *) {
+                    ++snapshotCalls;
+                    offThread = QThread::currentThread() != qApp->thread();
+                    return mode == "lands" ? targetTree(asked) : QJsonObject();
+                });
+            QElapsedTimer startClock; startClock.start();
+            holdSecond = true; // 让这一份停在半路上：快照落地时这一批还得开着
+            downloader->beginBatch();
+            const qint64 beginUs = startClock.nsecsElapsed() / 1000;
+            downloader->downloadFile(QString(url).replace("/file?", "/hold?"), root + "/stalled.bin", sha1, payload.size());
+            downloader->endBatch();
+            printf("MEASURE preset-targets target=begin mode=%s begin_us=%lld sync_same_tree_us=%lld\n",
+                   qPrintable(mode), static_cast<long long>(beginUs), static_cast<long long>(syncUs));
+            expect(controller->owns(id), "batch start registers an installation receipt");
+            const auto registered = downloader->checkpointContext().value("continuation").toObject();
+            expect(registered.value("kind") == "named-vanilla" && !registered.contains("presetTargets"),
+                   "batch start records the intent without hashing the configuration tree");
+            expect(wait([&] { return snapshotCalls > 0; }) && offThread,
+                   "configuration tree snapshot runs off the interface thread");
+            if (mode == "lands") {
+                expect(wait([&] {
+                           const auto continuation = downloader->checkpointContext().value("continuation").toObject();
+                           return continuation.contains("presetTargets");
+                       }),
+                       "background snapshot is merged into the live receipt");
+                const auto continuation = downloader->checkpointContext().value("continuation").toObject();
+                expect(continuation.value("presetTargets").toObject() == targetTree(intent),
+                       "merged snapshot matches a fresh walk of the same tree");
+            } else {
+                expect(wait([&] { return downloader->checkpointContext().value("continuation").toObject().isEmpty(); }),
+                       "an unreadable configuration tree drops the whole continuation instead of keeping half of it");
+            }
+            holdSecond = false;
+            downloader->cancelBatch();
+            controller.reset(); downloader.reset();
+        }
     }
     {
         const auto previousRoot = AppPaths::minecraftDir();

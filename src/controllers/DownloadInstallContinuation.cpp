@@ -22,11 +22,11 @@ QJsonObject MainWindow::snapshotDownloadContinuation() const {
     const QMap<QString, QString> &storedFingerprints = m_downloadCompletion->fingerprints();
     for (auto it = storedFingerprints.cbegin(); it != storedFingerprints.cend(); ++it) fingerprints.insert(it.key(), it.value());
     intent.insert("presets", presets); intent.insert("presetFingerprints", fingerprints);
-    if (!presets.isEmpty()) {
-        const auto targets = Presets::snapshotInitializationTargets(AppPaths::versionDir(intent.value("instance").toString()));
-        if (targets.isEmpty()) return {};
-        intent.insert("presetTargets", targets);
-    }
+    // `presetTargets`（目标实例配置目录那一整棵树的指纹）**不在这里拍**：那一拍要把
+    // config/、defaultconfigs/、resourcepacks/、shaderpacks/ 和每个存档都走一遍、每份
+    // 整文件算 SHA-256，而这里是"按下安装、第一份文件开始下"的那一刻，同步跑在界面
+    // 线程上。改由 `DownloadBatchController` 拿到意图之后在后台算完补进恢复记录
+    // （代价量在 `tests/core_modules/PresetSnapshotScaleTests.cpp`）。
     return intent;
 }
 

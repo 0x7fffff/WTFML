@@ -601,6 +601,13 @@ public:
     bool batchPaused() const { return m_batchPaused; }
     QString checkpointPath() const;
     QJsonObject checkpointContext() const;
+    /// 换掉恢复记录里那几格**来路信息**（`context`），并当场落盘。
+    ///
+    /// 只给"先登记、后补齐"那一条路用：批次一开始就把接续意图登记进记录（便宜的那几格），
+    /// 真正要读盘的配置目录快照在后台算完再补进去（见 `DownloadBatchController`）。
+    /// 记的不是这一批文件本身，所以**不碰 `dirty`**：那是文件表的账。
+    /// @return 落盘成功与否。调用方据此决定"没补上"要不要让这一批按普通下载收尾。
+    bool updateCheckpointContext(const QJsonObject &context);
     bool deferCheckpointContinuation(bool refreshSources = false);
     void forgetCheckpoint();
     void setCommitGuard(std::function<QString()> guard) { m_commitGuard = std::move(guard); }
@@ -639,7 +646,21 @@ public:
     // 两份算法只要有一天对不上（比如这边换成 buffer 分块），"校验不过"就会变成
     // 一句没人查得动的假话。
     bool verifyFileSha1(const QString &filePath, const QString &expectedSha1);
-    static QString calculateFileSha1(const QString &filePath);
+    /// @param cancel 后台那条线（`pumpPrecheckQueue()`）传进来的取消令牌：给了就按 1 MiB
+    ///               分块读、每块看一次；不给（界面线程 / 体检那一层）照旧一次性交给
+    ///               `QCryptographicHash` —— 哈希算法只有这一份，两条路算出同一个值。
+    static QString calculateFileSha1(const QString &filePath,
+                                     const std::atomic_bool *cancel = nullptr);
+    /// `fileAlreadyValid()` 的**后半段**：会真去读文件体（比 SHA-1 / 看 zip 头）的那一半。
+    ///
+    /// 为什么拆出来：前半段（点名 / 不存在 / 0 字节 / 大小对不上 / ExistsOnly）全是
+    /// stat 级别的判断，界面线程上做不心疼；后半段要**整份读**，几千个已经躺在实例里的
+    /// 文件就是几十秒的卡顿 —— `scheduleFile()` 靠这条分界决定"这一份要不要丢进后台"。
+    /// 两条路必须给出同一个结论，所以它是 public、验证工程直接拿它问一遍（见
+    /// `tests/mw_check/DownloadBatchChecks.cpp` 的 `precheck-existing` 一节）。
+    static bool fileBodyValid(const QString &path, const QString &expectedSha1,
+                              qint64 expectedSize, VerifyMode mode,
+                              const std::atomic_bool *cancel = nullptr);
     void parseVersionManifest(const QJsonDocument &json);
     void parseVersionJson(const QJsonDocument &json);
     QList<Library> extractLibraries(const QJsonObject &versionJson);
@@ -833,6 +854,39 @@ private:
     /// 借文件那条线的代次。**和 m_batchGeneration 分开**：纯值层（LocalFileReuse）的用例
     /// 不走 beginBatch，而借文件的结果要能单独作废（见 clearReuseJobs()）。
     quint64 m_reuseGeneration = 0;
+
+    // ------------------------------------------------------------------
+    // 「要整份读文件的那几条判据」后台化（见 scheduleFile()）
+    // ------------------------------------------------------------------
+    // / 一条还在后台问盘上的作业。它对应 `scheduleFile()` 里"盘上那份如果真去比 SHA-1、
+    // / 或者要给它算一份原件指纹，就得整份读一遍"的那一档。
+    // /
+    // / NOTE: **不进 m_totalJobs**：结论出来之前它既不算跳过、也不算要下。和借文件那条线
+    // / 同一个道理 —— 分母是"真要下的那几个"，还没定下来的不该先占一格。
+    struct PrecheckJob {
+        QString url;
+        QString destinationPath;
+        QString expectedSha1;
+        QString officialUrl;
+        qint64 expectedSize = -1;
+        VerifyMode mode = VerifyMode::SizeAndSha1;
+        DownloadRange range;
+        /// 要不要顺手把原件指纹（`DownloadCheckpoint::fingerprint`，SHA-256）也算出来。
+        /// 只有这一批有 checkpoint 才算：没 checkpoint 的批次根本不登记原件，白读一遍没意义。
+        bool wantFingerprint = false;
+    };
+    QQueue<PrecheckJob> m_precheckQueue;
+    /// 后台问盘专用线程池。**1 条**：这个活是整份读文件，几条并排在机械盘上只会互相抢磁头；
+    /// 借文件那个池是 4 条，但它是"硬链接一瞬间 / 复制一次"，不是同一个性质。
+    QThreadPool *m_precheckPool = nullptr;
+    /// 正在后台问的作业数。isBusy() 与 checkAllDownloadsFinished() 都要算上它，
+    /// 否则"只剩已有文件要核对"的那一段会被当成"这一批已经下完了"。
+    int m_precheckActive = 0;
+    /// 取消令牌：beginBatch / 取消 / 放弃 / 析构都换一个新的，旧的那个置真。
+    QSharedPointer<std::atomic_bool> m_precheckCancel;
+    /// 问盘那条线的代次。**和 m_batchGeneration 分开**：裸 downloadFile 不走 beginBatch，
+    /// 而结果要能单独作废（见 clearPrecheckJobs()）。
+    quint64 m_precheckGeneration = 0;
 
     /// 一个正在跑的安全分段作业。它没有 QNetworkReply（内部由 ResumableDownload 用自己的
     /// DownloadManager 发最多 4 条 Range 请求），所以**不计进 pendingDownloads**；全局并发
@@ -1055,6 +1109,29 @@ private:
     /// 什么时候调：beginBatch（新一批不继承上一批的）、abandonBatch / cancelBatch、析构。
     /// **不**改 m_reuseActive：那几条还在池子里跑，它们回来时会自己减掉。
     void clearReuseJobs();
+
+    /// 这一条调度要不要**整份读文件**才能问出来（比 SHA-1，或算原件指纹）。
+    ///
+    /// 便宜的那几档（不存在 / 0 字节 / 点名 / 只看存在 / 大小对不上且没要求指纹）在这里
+    /// 回 false —— `scheduleFile()` 就照老样子在界面线程上一句话问完。回 true 的那些
+    /// 交给 `pumpPrecheckQueue()`。
+    bool precheckReadsFileBody(const QString &path, const QString &expectedSha1, qint64 expectedSize,
+                               VerifyMode mode, const DownloadRange &range) const;
+    /// 往后台池里丢一条问盘作业（一次只有一条在跑，见 m_precheckPool 的说明）。
+    void pumpPrecheckQueue();
+    /// 一条问盘作业的结账（主线程）：通过 = 跳过，不通过 = 走 `continueAfterPrecheck()`。
+    void onPrecheckFinished(const PrecheckJob &job, bool valid, const QJsonObject &original);
+    /// 核对过之后的那一段尾巴：登记原件指纹 → 借文件 → 排进网络队列。
+    ///
+    /// `scheduleFile()` 的便宜分支与后台核对完成后的回调**共用这一处** —— 两条路的记账
+    /// 必须一模一样，否则会出现"后台核对过的那几个没登记进恢复记录"这种账。
+    /// @param original 后台已经算好的原件指纹；nullptr = 现算（便宜那一支：文件根本不在）。
+    void continueAfterPrecheck(const PrecheckJob &job, const QJsonObject *original);
+    /// 把排着队的问盘作业全部丢掉，并让已经在跑的那一条尽快收手（换一个取消令牌）。
+    ///
+    /// 什么时候调：beginBatch、abandonBatch / cancelBatch、析构。**不**改 m_precheckActive：
+    /// 那一条还在池子里跑，它回来时会自己减掉（代次对不上，结论直接丢）。
+    void clearPrecheckJobs();
     /// 把一个**已经在途过**的作业放回队列**最前面**（重试 / 换源 / 补投都走这里）。
     ///
     /// 为什么不 `enqueue()` 到队尾：一条重试排在几千个还没发过的资源对象后面，等于
