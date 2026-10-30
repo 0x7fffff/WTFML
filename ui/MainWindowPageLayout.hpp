@@ -207,5 +207,5 @@ QLabel *addDynamicErrorHint(QWidget *box, QWidget *parent);
 void addHint(QWidget *box, const QString &text, QWidget *parent);
 
 void syncDownloadHeaderVisibility(QWidget *header, QStackedWidget *downloadStack,
-                                  QStackedWidget *gameStack);
+                                  QStackedWidget *gameStack, QStackedWidget *serverStack);
 }

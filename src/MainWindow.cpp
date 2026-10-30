@@ -54,6 +54,8 @@
 // 内容区上面那一层：设置界面和各种提示都开在它里面，不再另开独立窗口。
 // 见它的文件头 —— ui/ 那边只管"开在哪儿、长什么样"，不认识业务。
 #include "..\ui\OverlayHost.hpp"
+#include <QDialog>
+#include <QLayout>
 // 安装页「预设」那一行点开的紧凑弹窗：四类各挑一份、看一眼计划。
 // 它只画外面喂进去的值（`ui/` 不读盘），所以这一边负责把 controller 算好的东西递进去。
 #include "..\ui\PresetInstallPicker.hpp"
@@ -374,7 +376,12 @@ MainWindow::MainWindow(QWidget *parent)
             },
             // 收尾之后重灌实例清单：这一趟期间别的刷新（下载收尾、改设置）会把这一份
             // 按 `installingVersionIds()` 滤掉，不重刷它就一直不在列表里。
-            [this]() { refreshInstalledVersions(); }},
+            [this]() { refreshInstalledVersions(); },
+            // 预设编辑器那一页铺在内容区上（和实例设置同一条路，见 OverlayHost::execPage）。
+            // 归属传 -1 = 现在这一颗选项卡：这一页只从实例页「预设」那一档开得出来。
+            [this](QDialog *dialog, const QString &title, int ownerTab) {
+                return m_ui->overlay()->execPage(dialog, title, ownerTab);
+            }},
         this);
     m_presetController->setEditorPrompt([this](const QString &title, const QString &text, const QStringList &buttons) {
         return InlineMessage::ask(m_ui->overlay(), MessageKind::Question, title, text, buttons, buttons.size()-1, buttons.size()-1);
@@ -3333,14 +3340,28 @@ void MainWindow::refreshServerList() {
 }
 
 void MainWindow::openNewServerPage() {
-    OverlayHost *overlay = m_ui == nullptr ? nullptr : m_ui->overlay();
-    if (overlay == nullptr) {
+    if (m_ui == nullptr) {
+        return;
+    }
+    QWidget *formHost = m_ui->getServerFormHost();
+    QStackedWidget *stack = m_ui->getServerStack();
+    if (formHost == nullptr || stack == nullptr || formHost->layout() == nullptr) {
         return;
     }
     if (m_newServerPage == nullptr) {
-        m_newServerPage = new NewServerPage(this);
+        // 它**不是**单独开的一页：和「下载 → 游戏」那张安装页一样，就住在服务端那一栏的
+        // 第二层里（产品要求"服务端下载和游戏下载一个样，不要搞独立的新界面"）。
+        // 降成普通控件嵌进去之后，它的 accepted / rejected 只当"这一层该干什么"的通知。
+        m_newServerPage = new NewServerPage(formHost);
+        m_newServerPage->setWindowFlags(Qt::Widget);
+        m_newServerPage->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        formHost->layout()->addWidget(m_newServerPage);
+        m_newServerPage->show();
         connect(m_newServerPage, &NewServerPage::fieldsChanged, this,
                 [this] { updateNewServerSummary(m_newServerPage); });
+        connect(m_newServerPage, &QDialog::accepted, this,
+                &MainWindow::createServerFromNewServerPage);
+        connect(m_newServerPage, &QDialog::rejected, this, &MainWindow::leaveNewServerPage);
     }
     // 摆那八档（**每次开页都重喂**：页面是复用的）。哪几档要填哪几格由这一层翻好
     // （`ServerInstall` 那一层知道，页面不知道）。
@@ -3388,20 +3409,36 @@ void MainWindow::openNewServerPage() {
     if (auto *install = m_newServerPage->findChild<QPushButton *>(MainWindowUI::newServerCreateButtonName()))
         install->setText(fromDownload ? tr("安装") : tr("创建"));
     updateNewServerSummary(m_newServerPage);
-    // 同控制台那一页：说清 `ownerTab` 并先切过去（这一页也是从服务端列表上开出来的）。
-    const int instancesTab = fromDownload ? MainWindowUI::downloadTabIndex() : MainWindowUI::instancesTabIndex();
+    // accept()/reject() 会把这一页藏起来（`QDialog` 的老规矩）—— 再开一次要能露出来。
+    m_newServerPage->show();
+    // 走「下载 → 服务端」同一条路（和「游戏」下载一致）：切到下载页、翻到「服务端」那一栏、
+    // 停在第二层那张安装表单上。不再开覆盖层 —— 用户要的就是"别搞独立的新界面"。
     if (QTabWidget *tabs = m_ui->getTabWidget()) {
-        if (instancesTab >= 0 && instancesTab < tabs->count()) {
-            tabs->setCurrentIndex(instancesTab);
+        const int tab = MainWindowUI::downloadTabIndex();
+        if (tab >= 0 && tab < tabs->count()) {
+            tabs->setCurrentIndex(tab);
         }
     }
-    if (overlay->execPage(m_newServerPage, fromDownload ? tr("安装服务端") : NewServerPage::windowTitle(), instancesTab)
-        != QDialog::Accepted) {
+    if (QListWidget *categories = m_ui->getDownloadCategoryList()) {
+        if (categories->currentRow() != MainWindowUI::downloadCategoryServerIndex()) {
+            categories->setCurrentRow(MainWindowUI::downloadCategoryServerIndex());
+        }
+    }
+    stack->setCurrentIndex(MainWindowUI::downloadServerFormIndex());
+    if (auto *name = m_newServerPage->findChild<QLineEdit *>(MainWindowUI::newServerNameEditName())) {
+        name->setFocus();
+        name->selectAll();
+    }
+}
+
+void MainWindow::createServerFromNewServerPage() {
+    if (m_ui == nullptr || m_newServerPage == nullptr) {
         return;
     }
-    // 收页了 —— 建这个服务端：名字洗成目录名、重名加后缀、写 `.wtfml-server`。
+    // 「创建」真按下去了 —— 建这个服务端：名字洗成目录名、重名加后缀、写 `.wtfml-server`。
     const QString desired = ServerRegistry::sanitizeId(m_newServerPage->serverName());
     if (desired.isEmpty()) {
+        // 话说完就停在表单上：刚填的东西不能因为一句提醒就没收。
         InlineMessage::warning(m_ui->overlay(), QStringLiteral("这个名字不能当目录名"),
                                QStringLiteral("换一个名字再试（名字里不能只有标点或空白）。"));
         return;
@@ -3424,8 +3461,16 @@ void MainWindow::openNewServerPage() {
         InlineMessage::critical(m_ui->overlay(), QStringLiteral("建不了这个服务端"), problem);
         return;
     }
-    // 切到服务端那一页（用户刚建的就在那儿），并重扫一遍让它出现在列表里。
+    // 建好了：表单那一层退回去（下次进来从版本列表开始），并切到「管理 → 服务端」——
+    // 用户刚建的那一行就在那儿。
+    leaveNewServerPage();
     setInstanceMode(MainWindowUI::InstanceMode::Server);
+    if (QTabWidget *tabs = m_ui->getTabWidget()) {
+        const int tab = MainWindowUI::instancesTabIndex();
+        if (tab >= 0 && tab < tabs->count()) {
+            tabs->setCurrentIndex(tab);
+        }
+    }
     // 「创建」= 建目录 + 记一份账 + **当趟就把东西下下来 / 跑安装器**（不是"建完让
     // 用户自己再点一下安装"）。排在切页之后：那一行先以「未安装」露出来，
     // 紧接着任务中心就动起来 —— 用户看到的是"这一行正在变成能用的"。
@@ -3436,6 +3481,19 @@ void MainWindow::openNewServerPage() {
     request.installerVersion = info.installerVersion;
     request.buildId = info.buildId;
     installServer(serverId, request);
+}
+
+void MainWindow::leaveNewServerPage() {
+    if (m_ui == nullptr) {
+        return;
+    }
+    if (QStackedWidget *stack = m_ui->getServerStack()) {
+        stack->setCurrentIndex(MainWindowUI::downloadServerListIndex());
+    }
+    // `accept()` / `reject()` 会把这一页藏起来；它就住在那层里，下次进来要还看得见。
+    if (m_newServerPage != nullptr) {
+        m_newServerPage->show();
+    }
 }
 
 void MainWindow::installServer(const QString &serverId, const ServerInstall::Request &request) {

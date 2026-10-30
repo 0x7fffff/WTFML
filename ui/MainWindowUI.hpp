@@ -707,8 +707,28 @@ public:
     static int downloadCategoryModIndex() { return 3; }
     /// Server selection follows game selection and uses the same fetched version metadata.
     static int downloadCategoryServerIndex() { return 1; }
-    /// Server version list; resource-catalog controls are intentionally absent.
+    /// 「服务端」那一栏那一页（外层：里面是两层，和「游戏」一个形状）。
+    ///
+    /// 两层是**产品要求**（"服务端下载要和游戏下载一个样，不要另开一个界面"）：
+    /// [0] 版本列表（一句说明 + 筛子 + 版本树）→ 点一个版本进 [1] 安装表单
+    /// （顶上「← 返回版本列表」+ 嵌进来的 `NewServerPage`）。表单那一层页头整块收起
+    /// （判据见 `syncDownloadHeaderVisibility()`）。
     static QString downloadServerPageName() { return QStringLiteral("serverPage"); }
+    /// 外层里面那个堆叠页 / 它的两层各自的名字。
+    static QString downloadServerStackName() { return QStringLiteral("downloadServerStack"); }
+    static QString downloadServerListPageName() { return QStringLiteral("downloadServerListPage"); }
+    static QString downloadServerFormPageName() { return QStringLiteral("downloadServerFormPage"); }
+    /// 表单那一层里装 `NewServerPage` 的容器（`MainWindow` 在第一次打开时把它塞进去）。
+    static QString downloadServerFormHostName() {
+        return QStringLiteral("downloadServerFormHost");
+    }
+    /// 表单顶上那颗「← 返回版本列表」（字复用 `installBackButtonText()`）。
+    static QString downloadServerBackButtonName() {
+        return QStringLiteral("downloadServerBackButton");
+    }
+    /// 堆叠页的两层下标（**唯一出处**：判据、切层、验证工程都读这三个函数）。
+    static int downloadServerListIndex() { return 0; }
+    static int downloadServerFormIndex() { return 1; }
     /// 那一页上那句说明（**唯一出处**）。
     ///
     /// 为什么要把"装好之后去哪儿"写出来：这一页只负责**造**，造完的服务端不住在
@@ -3382,6 +3402,13 @@ public:
     /// （下载页那一栏也要能新建服务端）。
     QPushButton *getDownloadNewServerButton() const { return downloadNewServerButton; }
 
+    /// 「服务端」那一栏里面那个堆叠页（[0] 版本列表 / [1] 安装表单）。
+    QStackedWidget *getServerStack() const { return serverStack; }
+    /// 安装表单那一层里装 `NewServerPage` 的容器（第一次打开时由 `MainWindow` 塞进去）。
+    QWidget *getServerFormHost() const { return serverFormHost; }
+    /// 表单顶上那颗「← 返回版本列表」。
+    QPushButton *getServerFormBackButton() const { return serverFormBackButton; }
+
     /// 下载页页头**那一整块**（标题 + 说明 + 右上角动作）。
     ///
     /// 「下载 → 游戏」里面那一层**安装页**（挑加载器那页）一打开，这一整块就整块
@@ -3670,6 +3697,7 @@ private:
     /// 下载页第 0 页「游戏」（版本树 / 安装页两层）与其余那几页（一行筛子 + 三层树）。
     /// 两摊之间只共享已经挂好的 `downloadStack` / `gameStack` / `downloadHeader`。
     void setupDownloadGamePage();
+    void setupDownloadServerPage();
     void setupDownloadResourcePages();
     /// 设置页的外壳（左栏分类 + 右栏堆叠页），内容仍归 `setupSettingsPage()`。
     QWidget *setupSettingsTab();
@@ -3807,6 +3835,12 @@ private:
     QPushButton *downloadHeaderRefreshButton = nullptr;
     /// 下载页「服务端」那一栏里那颗「新建服务端…」（见 getDownloadNewServerButton()）。
     QPushButton *downloadNewServerButton = nullptr;
+    /// 下载页「服务端」那一栏里那个堆叠页（[0] 版本列表 / [1] 安装表单）。
+    QStackedWidget *serverStack = nullptr;
+    /// 安装表单那一层里装 `NewServerPage` 的容器。
+    QWidget *serverFormHost = nullptr;
+    /// 表单顶上那颗「← 返回版本列表」。
+    QPushButton *serverFormBackButton = nullptr;
     /// 下载页页头那一整块（见 getDownloadHeader() 那段）。
     QWidget *downloadHeader = nullptr;
     /// 安装页中间那层滚动区（见 installScrollName() 那段）。

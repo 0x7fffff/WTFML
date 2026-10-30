@@ -2306,9 +2306,15 @@ private:
     void setInstanceMode(MainWindowUI::InstanceMode mode);
     /// 重扫 `<数据目录>/Servers`，把服务端列表重灌一遍（`ServerRegistry::scanAll()`）。
     void refreshServerList();
-    /// 开「新建服务端」那一页（覆盖层整页，`OverlayHost::execPage()`）。它 `accept()` 之后
-    /// 才轮到这边建目录、写 `.wtfml-server`。
+    /// 打开「新建服务端」那张表单 —— 它**不是**单独开的一页：表单就住在「下载 → 服务端」
+    /// 那一栏的第二层里（和「游戏」的安装页同一个形状，`downloadServerFormIndex()`）。
+    /// 所以这里做的是"切到下载页 → 翻到服务端那一栏 → 停在表单那一层"。
     void openNewServerPage();
+    /// 表单上那颗「创建」真按下去之后那一截（`NewServerPage::accepted` 的接收端）：
+    /// 建目录、写 `.wtfml-server`、切到「管理 → 服务端」、接着排安装那一趟。
+    void createServerFromNewServerPage();
+    /// 从表单退回版本列表那一层（「取消」/Esc/「← 返回版本列表」，以及建好之后）。
+    void leaveNewServerPage();
     /// 给「新建服务端」那一页现算那句计划说明 + 「创建」能不能点（`fieldsChanged` 的接收端）。
     ///
     /// **唯一翻译点**：`ServerInstall::planFor()` 的结论 + `ServerRegistry` 的重名判据，
@@ -2667,7 +2673,8 @@ private:
     /// NOTE: 记的用户**最近一次**选的档（切开页面、切回来还是他选的那一档），不是"盘上有没有
     /// 服务端"。两个模式的判据分得很清：这个字段只管"露哪一页"。
     MainWindowUI::InstanceMode m_instanceMode = MainWindowUI::InstanceMode::Client;
-    /// 「新建服务端」那一页（懒建一次、之后复用，和更新中心同一个路数）。
+    /// 「新建服务端」那张表单（懒建一次、之后复用）。它嵌在「下载 → 服务端」那一栏的
+    /// 第二层里（`MainWindowUI::getServerFormHost()`），**不是**浮在覆盖层上的独立一页。
     NewServerPage *m_newServerPage = nullptr;
     /// 服务端安装那四段的驱动（构造里建一次，和 `m_versionManager` 一样常驻）。
     ///

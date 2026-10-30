@@ -147,7 +147,24 @@ QWidget *MainWindowUI::setupDownloadPage() {
         // 顺序是契约：第 0 页先加，其余几页按同一张表的顺序往后加，
         // 于是"第 i 个分类 = 第 i 页"这条对应关系成立（验证工程会数一遍两边的条数）。
         setupDownloadGamePage();
+        setupDownloadServerPage();
         setupDownloadResourcePages();
+
+        // 页头的显隐跟着三处翻页走（判据见 `syncDownloadHeaderVisibility()` 那段）：
+        // · 外层翻分类（游戏 / 服务端 / 整合包 / 模组 …）；
+        // · 「游戏」那一层在版本树 / 安装页之间翻；
+        // · 「服务端」那一层在版本列表 / 安装表单之间翻。
+        // 三条入口都接上：「退回版本树」（`MainWindow::backToVersionTree()`）只动内层、
+        // 不碰外层；从别的分类回到「游戏」又只动外层。只接一条就会漏掉另一半。
+        // NOTE: 每一发都只传 `int`，判据自己读三个堆叠页的 currentIndex()，不依赖信号里
+        // 的下标（外面那一发给的是分类下标，里面那两发是层下标，含义不一样）。
+        const auto syncHeader = [header = downloadHeader, downloadStack = downloadStack,
+                                 gameStack = gameStack, serverStack = serverStack](int) {
+            syncDownloadHeaderVisibility(header, downloadStack, gameStack, serverStack);
+        };
+        for (QStackedWidget *stack : {downloadStack, gameStack, serverStack}) {
+            QObject::connect(stack, &QStackedWidget::currentChanged, stack, syncHeader);
+        }
 
         // 打开下载页时停在「游戏」。
         downloadCategoryList->setCurrentRow(downloadCategoryGameIndex());
@@ -513,23 +530,186 @@ void MainWindowUI::setupDownloadGamePage() {
     // 于是"第 i 个分类 = 第 i 页"这条对应关系成立（验证工程会数一遍两边的条数）。
     downloadStack->addWidget(gamePage);
 
-    // 页头的显隐跟着这两层走（判据见 `syncDownloadHeaderVisibility()` 那段）：
-    // · 外层翻分类（游戏 / 整合包 / 模组 …）；
-    // · 内层在「游戏」里翻版本树 / 安装页。
-    // 两条入口都接上，是因为「退回版本树」（`MainWindow::backToVersionTree()`）
-    // 只动内层、不碰外层；从别的分类回到「游戏」又只动外层。只接一条就会漏掉另一半。
-    // NOTE: 两发都只传 `int`，判据自己读两个堆叠页的 currentIndex()，不依赖信号里
-    // 的下标（外面那一发给的是分类下标，里面那一发是层下标，含义不一样）。
-    QObject::connect(downloadStack, &QStackedWidget::currentChanged, downloadStack,
-                     [header = downloadHeader, downloadStack = downloadStack,
-                      gameStack = gameStack](int) {
-                         syncDownloadHeaderVisibility(header, downloadStack, gameStack);
-                     });
-    QObject::connect(gameStack, &QStackedWidget::currentChanged, gameStack,
-                     [header = downloadHeader, downloadStack = downloadStack,
-                      gameStack = gameStack](int) {
-                         syncDownloadHeaderVisibility(header, downloadStack, gameStack);
-                     });
+}
+
+/// 下载页「服务端」那一栏：和「游戏」**一个形状**（两层），不是另开一个界面。
+///
+/// 产品要求是"服务端下载要和游戏下载功能相一致，不要搞独立的新界面"。所以这一页
+/// 加进 `downloadStack` 之后自己再分两层：
+///   [0] **版本列表** —— 一句说明 + 筛子 + 一棵版本树，点一个版本进表单；
+///   [1] **安装表单** —— 顶上「← 返回版本列表」，下面嵌 `NewServerPage`
+///       （由 `MainWindow` 在第一次打开时塞进 `serverFormHost`；它不再自己开覆盖层）。
+/// 表单那一层页头整块收起（判据见 `syncDownloadHeaderVisibility()`）。
+///
+/// 版本树的来源和资源页那几页是同一条路：克隆「游戏」那一棵（同一份版本清单），
+/// 刷新走 `sourceDirty`，而且**只在列表这一层真的露着**的时候才克隆 —— 翻到表单上
+/// 就不必再搬一遍整个清单。
+void MainWindowUI::setupDownloadServerPage() {
+    // ---- 外层：这一栏那一页 + 里面那个堆叠页 ----
+    QWidget *serverPage = new QWidget(downloadStack);
+    serverPage->setObjectName(downloadServerPageName());
+    auto *serverLayout = new QVBoxLayout(serverPage);
+    serverLayout->setContentsMargins(0, 0, 0, 0);
+    serverLayout->setSpacing(0);
+    serverStack = new QStackedWidget(serverPage);
+    serverStack->setObjectName(downloadServerStackName());
+    serverLayout->addWidget(serverStack);
+
+    // ---- [0] 版本列表 ----
+    QWidget *listPage = new QWidget(serverStack);
+    listPage->setObjectName(downloadServerListPageName());
+    auto *listLayout = new QVBoxLayout(listPage);
+    listLayout->setContentsMargins(0, 0, 0, 0);
+    listLayout->setSpacing(10);
+    auto *hint = new QLabel(downloadServerHintText(), listPage);
+    hint->setObjectName(downloadServerHintName());
+    hint->setWordWrap(true);
+    listLayout->addWidget(hint);
+    auto *search = new QLineEdit(listPage);
+    search->setObjectName(QStringLiteral("serverVersionFilter"));
+    search->setPlaceholderText(versionFilterPlaceholderText());
+    search->setClearButtonEnabled(true);
+    listLayout->addWidget(search);
+    auto *versions = new QTreeWidget(listPage);
+    versions->setObjectName(QStringLiteral("serverVersionTree"));
+    versions->setHeaderHidden(true);
+    versions->setRootIsDecorated(false);
+    versions->setIndentation(0);
+    versions->setUniformRowHeights(true);
+    versions->setItemDelegate(new VersionTreeDelegate(versions, true));
+    versions->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    listLayout->addWidget(versions, 1);
+    downloadNewServerButton = new QPushButton(newServerText(), listPage);
+    downloadNewServerButton->setObjectName(downloadNewServerButtonName());
+    downloadNewServerButton->hide(); // 版本号就是可见入口；这一颗只当"同一个动作"的接线点。
+    const auto filter = [versions, search] {
+        const QStringList terms = search->text().trimmed().split(
+            QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        for (int i = 0; i < versions->topLevelItemCount(); ++i) {
+            auto *group = versions->topLevelItem(i);
+            bool any = false;
+            for (int j = 0; j < group->childCount(); ++j) {
+                auto *item = group->child(j);
+                bool matches = true;
+                for (const auto &term : terms)
+                    matches &= item->text(0).contains(term, Qt::CaseInsensitive);
+                item->setHidden(!matches);
+                any |= matches;
+            }
+            group->setHidden(!any);
+            if (!terms.isEmpty() && any) group->setExpanded(true);
+        }
+    };
+    QObject::connect(search, &QLineEdit::textChanged, versions, filter);
+    auto *sync = new QTimer(versions);
+    sync->setSingleShot(true);
+    const QPointer<QTreeWidget> source = versionTree;
+    QObject::connect(sync, &QTimer::timeout, versions,
+                     [source, versions, hint, filter, stack = serverStack, listPage,
+                      outer = downloadStack, serverPage] {
+        if (!source || !versions->property("sourceDirty").toBool()) return;
+        // 两件事都得成立才算"这一层真的露着"：外面那一栏停在「服务端」，里面停在版本列表。
+        // 少判外面那一条，翻到「游戏」页之后这一棵还会跟着版本树一起重建（白搬整个清单）。
+        if (stack->currentWidget() != listPage || outer->currentWidget() != serverPage) return;
+        versions->setProperty("sourceDirty", false);
+        versions->setProperty("syncRevision", versions->property("syncRevision").toInt() + 1);
+        versions->setUpdatesEnabled(false);
+        QSet<QString> expanded;
+        const bool initialized = versions->property("initialized").toBool();
+        for (int i = 0; i < versions->topLevelItemCount(); ++i)
+            if (versions->topLevelItem(i)->isExpanded())
+                expanded.insert(versions->topLevelItem(i)->data(0, Qt::UserRole).toString());
+        const QSignalBlocker blocker(versions);
+        const int scroll = versions->verticalScrollBar()->value();
+        versions->clear();
+        for (int i = 0; i < source->topLevelItemCount(); ++i) {
+            auto *original = source->topLevelItem(i);
+            if (original->childCount() == 0) continue;
+            auto *group = original->clone();
+            versions->addTopLevelItem(group);
+            group->setExpanded(initialized
+                                   ? expanded.contains(group->data(0, Qt::UserRole).toString())
+                                   : original->isExpanded());
+        }
+        if (versions->topLevelItemCount() > 0) versions->setProperty("initialized", true);
+        hint->setText(QStringLiteral("暂无可用版本，请刷新重试。"));
+        hint->setVisible(versions->topLevelItemCount() == 0);
+        versions->verticalScrollBar()->setValue(scroll);
+        filter();
+        versions->setUpdatesEnabled(true);
+    });
+    const auto invalidate = [versions, sync, stack = serverStack, listPage,
+                             outer = downloadStack, serverPage] {
+        versions->setProperty("sourceDirty", true);
+        if (stack->currentWidget() == listPage && outer->currentWidget() == serverPage)
+            sync->start(0);
+    };
+    QObject::connect(serverStack, &QStackedWidget::currentChanged, sync,
+                     [sync, versions, stack = serverStack, listPage,
+                      outer = downloadStack, serverPage](int) {
+        if (stack->currentWidget() == listPage && outer->currentWidget() == serverPage &&
+            versions->property("sourceDirty").toBool())
+            sync->start(0);
+    });
+    // 外层翻回「服务端」那一栏时也要补一发（翻栏只动外面这一层）。
+    QObject::connect(downloadStack, &QStackedWidget::currentChanged, sync,
+                     [sync, versions, stack = serverStack, listPage,
+                      outer = downloadStack, serverPage](int) {
+        if (stack->currentWidget() == listPage && outer->currentWidget() == serverPage &&
+            versions->property("sourceDirty").toBool())
+            sync->start(0);
+    });
+    for (auto signal : {&QAbstractItemModel::modelReset})
+        QObject::connect(versionTree->model(), signal, sync, invalidate);
+    QObject::connect(versionTree->model(), &QAbstractItemModel::rowsInserted, sync, invalidate);
+    QObject::connect(versionTree->model(), &QAbstractItemModel::rowsRemoved, sync, invalidate);
+    QObject::connect(versionTree->model(), &QAbstractItemModel::dataChanged, sync, invalidate);
+    versions->setProperty("sourceDirty", true);
+    connectRowActivation(
+        versions,
+        [this](QTreeWidgetItem *item) {
+            if (!item) return;
+            if (!item->parent()) {
+                item->setExpanded(!item->isExpanded());
+                return;
+            }
+            const QString id = item->data(versionTreeKeyColumn(), Qt::UserRole).toString();
+            if (id.isEmpty()) return;
+            // 点一个版本 = 进安装表单那一层（和「游戏」点版本号进安装页同一步）。
+            downloadNewServerButton->setProperty("selectedVersion", id);
+            downloadNewServerButton->click();
+        },
+        [](QTreeWidgetItem *item) { return item && !item->parent(); });
+    serverStack->addWidget(listPage);
+
+    // ---- [1] 安装表单 ----
+    QWidget *formPage = new QWidget(serverStack);
+    formPage->setObjectName(downloadServerFormPageName());
+    auto *formLayout = new QVBoxLayout(formPage);
+    formLayout->setContentsMargins(0, 0, 0, 0);
+    formLayout->setSpacing(10);
+    serverFormBackButton = new QPushButton(installBackButtonText(), formPage);
+    serverFormBackButton->setObjectName(downloadServerBackButtonName());
+    Theme::markButton(serverFormBackButton, Theme::ButtonKind::Neutral);
+    serverFormBackButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    auto *backRow = new QHBoxLayout;
+    backRow->setContentsMargins(0, 0, 0, 0);
+    backRow->addWidget(serverFormBackButton);
+    backRow->addStretch(1);
+    formLayout->addLayout(backRow);
+    serverFormHost = new QWidget(formPage);
+    serverFormHost->setObjectName(downloadServerFormHostName());
+    auto *hostLayout = new QVBoxLayout(serverFormHost);
+    hostLayout->setContentsMargins(0, 0, 0, 0);
+    hostLayout->setSpacing(0);
+    formLayout->addWidget(serverFormHost, 1);
+    serverStack->addWidget(formPage);
+    // 「← 返回版本列表」= 退回这一页的第一层（表单不自己关：它就住在这一层里）。
+    QObject::connect(serverFormBackButton, &QPushButton::clicked, serverStack,
+                     [stack = serverStack] { stack->setCurrentIndex(downloadServerListIndex()); });
+
+    // 第 1 页加在「游戏」之后（顺序是契约：第 i 个分类 = 第 i 页）。
+    downloadStack->addWidget(serverPage);
 }
 
 /// 下载页其余那几页：一行筛子 + 一棵三层树（资源 → 游戏版本 → 版本号）。
@@ -551,101 +731,9 @@ void MainWindowUI::setupDownloadResourcePages() {
         if (i == downloadCategoryGameIndex()) {
             continue;
         }
-        // 「服务端」那一栏**不是资源搜索页**（补上「下载页里没有『服务端』入口栏」那条缺口）。
-        // 它只有一句说明 + 一颗「新建服务端…」，
-        // 按下去和实例页那颗走同一条路（见 ConnectionsController 里那条接线）。
-        // 和「游戏」一样要**先跳过这里那个资源页模板** —— 不然这一页会多出一整行
-        // 筛子和一棵永远搜不出东西的三层树（那个键在 ResourceCatalog 里根本不存在）。
+        // 「服务端」那一栏自己一整页（两层，和「游戏」一个形状）—— 这里跳过资源页模板。
+        // 见 `setupDownloadServerPage()`。
         if (i == downloadCategoryServerIndex()) {
-            QWidget *serverPage = new QWidget(downloadStack);
-            serverPage->setObjectName(downloadServerPageName());
-            auto *serverLayout = new QVBoxLayout(serverPage);
-            serverLayout->setContentsMargins(0, 0, 0, 0);
-            serverLayout->setSpacing(10);
-            auto *hint = new QLabel(downloadServerHintText(), serverPage);
-            hint->setObjectName(downloadServerHintName());
-            hint->setWordWrap(true);
-            serverLayout->addWidget(hint);
-            auto *search = new QLineEdit(serverPage);
-            search->setObjectName(QStringLiteral("serverVersionFilter"));
-            search->setPlaceholderText(versionFilterPlaceholderText()); search->setClearButtonEnabled(true);
-            serverLayout->addWidget(search);
-            auto *versions = new QTreeWidget(serverPage);
-            versions->setObjectName(QStringLiteral("serverVersionTree"));
-            versions->setHeaderHidden(true); versions->setRootIsDecorated(false);
-            versions->setIndentation(0); versions->setUniformRowHeights(true);
-            versions->setItemDelegate(new VersionTreeDelegate(versions, true));
-            versions->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-            serverLayout->addWidget(versions, 1);
-            downloadNewServerButton = new QPushButton(newServerText(), serverPage);
-            downloadNewServerButton->setObjectName(downloadNewServerButtonName());
-            downloadNewServerButton->hide(); // compatibility action; versions are the visible entry point.
-            const auto filter = [versions, search] {
-                const QStringList terms = search->text().trimmed().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
-                for (int i = 0; i < versions->topLevelItemCount(); ++i) {
-                    auto *group = versions->topLevelItem(i); bool any = false;
-                    for (int j = 0; j < group->childCount(); ++j) {
-                        auto *item = group->child(j); bool matches = true;
-                        for (const auto &term : terms) matches &= item->text(0).contains(term, Qt::CaseInsensitive);
-                        item->setHidden(!matches); any |= matches;
-                    }
-                    group->setHidden(!any);
-                    if (!terms.isEmpty() && any) group->setExpanded(true);
-                }
-            };
-            QObject::connect(search, &QLineEdit::textChanged, versions, filter);
-            auto *sync = new QTimer(versions); sync->setSingleShot(true);
-            const QPointer<QTreeWidget> source = versionTree;
-            QObject::connect(sync, &QTimer::timeout, versions, [source, versions, hint, filter, downloadStack = downloadStack, serverPage] {
-                if (!source || !versions->property("sourceDirty").toBool()) return;
-                // Hidden service pages must not clone the entire game catalog during navigation.
-                if (downloadStack->currentWidget() != serverPage) return;
-                versions->setProperty("sourceDirty", false);
-                versions->setProperty("syncRevision", versions->property("syncRevision").toInt()+1);
-                versions->setUpdatesEnabled(false);
-                QSet<QString> expanded;
-                const bool initialized = versions->property("initialized").toBool();
-                for (int i = 0; i < versions->topLevelItemCount(); ++i)
-                    if (versions->topLevelItem(i)->isExpanded()) expanded.insert(versions->topLevelItem(i)->data(0, Qt::UserRole).toString());
-                const QSignalBlocker blocker(versions);
-                const int scroll = versions->verticalScrollBar()->value();
-                versions->clear();
-                for (int i = 0; i < source->topLevelItemCount(); ++i) {
-                    auto *original = source->topLevelItem(i);
-                    if (original->childCount() == 0) continue;
-                    auto *group = original->clone(); versions->addTopLevelItem(group);
-                    group->setExpanded(initialized ? expanded.contains(group->data(0, Qt::UserRole).toString()) : original->isExpanded());
-                }
-                if (versions->topLevelItemCount() > 0) versions->setProperty("initialized", true);
-                hint->setText(QStringLiteral("暂无可用版本，请刷新重试。"));
-                hint->setVisible(versions->topLevelItemCount() == 0);
-                versions->verticalScrollBar()->setValue(scroll);
-                filter();
-                versions->setUpdatesEnabled(true);
-            });
-            const auto invalidate = [versions, sync, stack = downloadStack, serverPage] {
-                versions->setProperty("sourceDirty", true);
-                if (stack->currentWidget() == serverPage) sync->start(0);
-            };
-            QObject::connect(downloadStack, &QStackedWidget::currentChanged, sync,
-                [sync, versions, stack = downloadStack, serverPage](int) {
-                    if (stack->currentWidget() == serverPage && versions->property("sourceDirty").toBool()) sync->start(0);
-                });
-            for (auto signal : {&QAbstractItemModel::modelReset})
-                QObject::connect(versionTree->model(), signal, sync, invalidate);
-            QObject::connect(versionTree->model(), &QAbstractItemModel::rowsInserted, sync, invalidate);
-            QObject::connect(versionTree->model(), &QAbstractItemModel::rowsRemoved, sync, invalidate);
-            QObject::connect(versionTree->model(), &QAbstractItemModel::dataChanged, sync, invalidate);
-            versions->setProperty("sourceDirty", true);
-            connectRowActivation(versions, [this](QTreeWidgetItem *item) {
-                if (!item) return;
-                if (!item->parent()) { item->setExpanded(!item->isExpanded()); return; }
-                const QString id = item->data(versionTreeKeyColumn(), Qt::UserRole).toString();
-                if (id.isEmpty()) return;
-                downloadNewServerButton->setProperty("selectedVersion", id);
-                downloadNewServerButton->click();
-            }, [](QTreeWidgetItem *item) { return item && !item->parent(); });
-            downloadStack->addWidget(serverPage);
             continue;
         }
         const QString categoryKey = categoryKeys.value(i);

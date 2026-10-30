@@ -398,18 +398,24 @@ void addHint(QWidget *box, const QString &text, QWidget *parent) {
 /// 里面第二层那页**安装页**（挑加载器、填名字、按安装）；外面（版本树那一层、以及别的分类）
 /// 页头照旧露着。
 ///
+/// 「服务端」那一栏**也是两层**（版本列表 / 安装表单），和「游戏」一模一样 —— 用户要的
+/// 就是"服务端下载和游戏下载一个样"。表单那一层同样把页头整块收起来。
+///
 /// NOTE: 只接收传进来的指针、**不捕获 MainWindowUI 自己** —— 它不是一个 QObject
-/// （见类声明），而这两发 `currentChanged` 的 context 是那两个堆叠页本身。
-/// 判据读的是两个堆叠页**此刻**的下标，所以"先翻分类、后翻内层"哪一发先到、
+/// （见类声明），而这几发 `currentChanged` 的 context 是那三个堆叠页本身。
+/// 判据读的是堆叠页**此刻**的下标，所以"先翻分类、后翻内层"哪一发先到、
 /// 或者中间多来一发，结果都一样。
 void syncDownloadHeaderVisibility(QWidget *header, QStackedWidget *downloadStack,
-                                  QStackedWidget *gameStack) {
+                                  QStackedWidget *gameStack, QStackedWidget *serverStack) {
     if (header == nullptr || downloadStack == nullptr || gameStack == nullptr) {
         return;
     }
     const bool onInstallPage =
-        downloadStack->currentIndex() == MainWindowUI::downloadCategoryGameIndex() &&
-        gameStack->currentIndex() == MainWindowUI::downloadGameInstallIndex();
+        (downloadStack->currentIndex() == MainWindowUI::downloadCategoryGameIndex() &&
+         gameStack->currentIndex() == MainWindowUI::downloadGameInstallIndex()) ||
+        (serverStack != nullptr &&
+         downloadStack->currentIndex() == MainWindowUI::downloadCategoryServerIndex() &&
+         serverStack->currentIndex() == MainWindowUI::downloadServerFormIndex());
     header->setVisible(!onInstallPage);
 }
 }

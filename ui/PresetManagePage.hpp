@@ -37,11 +37,9 @@ class QGridLayout;
 class QLabel;
 class QLineEdit;
 class QListWidget;
-class QListView;
-class QModelIndex;
-class QStandardItemModel;
-class PresetFilterProxy;
 class QPushButton;
+class QTreeWidget;
+class QTreeWidgetItem;
 
 class PresetManagePage : public QDialog {
     Q_OBJECT
@@ -168,8 +166,9 @@ public:
     /// 左栏整份换掉。@param selectId 换完之后选中哪一份（不在列表里就选第一份）。
     void setPresets(const QList<PresetItem> &presets, const QList<BrokenItem> &broken,
                     const QString &selectId);
-    /// 类别筛选 chip + 「新建为」下拉框的内容。第一项 `key` 空串 = 「全部」。
-    /// 只摆一次（外面那几类是从枚举翻过来的，运行期间不会变）；重复调会整排重建。
+    /// 左栏那张分组列表用的**组次序与组名**，以及「新建为」下拉框的内容。
+    /// `key` 空串 = 「全部」那种纯筛选项：它不是一组，也不进「新建为」。
+    /// 只摆一次（外面那几类是从枚举翻过来的，运行期间不会变）；重复调会整棵重建。
     void setCategories(const QList<CategoryOption> &categories);
     /// 这一份预设能收哪几样（掩码见 `CaptureBit`）。不许收的那几格**禁掉并清勾**，
     /// `note` 挂到它们的工具提示尾巴上（一句人话：为什么这一类不收）。
@@ -201,10 +200,14 @@ public:
     CaptureChoice captureChoice() const;
 
     // ---------- 控件的 objectName（验证工程靠这些名字认控件） ----------
+    /// 左边那张**按类别分组**的列表（`QTreeWidget`：组头 + 组里的预设行）。
     static QString presetListName() { return QStringLiteral("presetList"); }
-    static QString categoryFilterName(int index) {
-        return QStringLiteral("presetCategoryFilter%1").arg(index);
-    }
+    /// 行上那两处"这一行是谁"的位置（**验证工程按 id 认行**用）：组头那几行没有 id，
+    /// 读不回来的那几行 `rowBrokenRole()` 为真。
+    /// ★ 号码从 `Qt::UserRole + 20` 起：`MainWindowUI` 那一批身份/装饰角色已经占到 +16，
+    /// 而 `groupIdRole()` 是 `UserRole + 1` —— 撞上去的症状是每一行都被当成组头。
+    static constexpr int rowIdRole() { return Qt::UserRole; }
+    static constexpr int rowBrokenRole() { return Qt::UserRole + 21; }
     static QString newCategoryComboName() { return QStringLiteral("presetNewCategoryCombo"); }
     static QString newButtonName() { return QStringLiteral("presetNewButton"); }
     static QString duplicateButtonName() { return QStringLiteral("presetDuplicateButton"); }
@@ -264,34 +267,34 @@ private:
     void buildUi();
     void refreshActions();
     void refreshCaptureEnabled();
+    /// 整棵树按「类别分组」重建（见文件头「左边那一列」）。
     void rebuildPresetList(const QString &selectId, bool emitSelection);
-    void applyCategoryFilter(const QString &key);
     void setCaptureCheckEnabled(QCheckBox *box, quint32 bit, quint32 mask,
                                 const QString &note);
     void armDelete();
     void disarmDelete();
     void armApply();
     void disarmApply();
-    void onCurrentPresetChanged(const QModelIndex &current, const QModelIndex &previous);
-    int currentPresetRow() const;
-    QString presetIdAt(int row) const;
-    bool rowIsBroken(int row) const;
+    void onCurrentPresetChanged(QTreeWidgetItem *current, QTreeWidgetItem *previous);
+    /// 现在选中的那一条能不能动手（不是组头、不是读不回来的那一份）。
+    bool selectionValid() const;
+    /// 同一个组里往前 / 往后那一份（`delta` = -1 / +1，跳过的不可用行）。没有就是 nullptr。
+    QTreeWidgetItem *siblingPreset(int delta) const;
     void fillInstances(QComboBox *combo, const QList<InstanceItem> &instances,
                        const QString &selectId);
     static QString comboInstanceId(const QComboBox *combo);
 
-    QListView *m_presetList = nullptr;
-    QStandardItemModel *m_presetModel = nullptr;
-    PresetFilterProxy *m_presetProxy = nullptr;
+    /// 分组列表。**按类别分组**（组头是类别名，组里那一行一份预设）—— 和实例页 /
+    /// 服务端页那两张列表同一个写法（组头粗体 + 右端箭头，见 `InstanceGroupDelegate`）。
+    QTreeWidget *m_presetList = nullptr;
     QLineEdit *m_searchEdit = nullptr;
-    /// 类别筛选那一排 chip 所在的那一格（每次 `setCategories()` 整片重建）。
-    QWidget *m_filterRow = nullptr;
-    QGridLayout *m_filterLayout = nullptr;
-    QList<QPushButton *> m_filterChips;
     QComboBox *m_newCategoryCombo = nullptr;
     QList<PresetItem> m_presets;
     QList<BrokenItem> m_broken;
-    QString m_filterKey;
+    /// 组的先后次序和组名（`setCategories()` 灌进来）。组名这一层不认识 ——
+    /// 外面翻好了再给，和别的 POD 同一条规矩。
+    QStringList m_groupOrder;
+    QHash<QString, QString> m_groupText;
     QPushButton *m_newButton = nullptr;
     QPushButton *m_duplicateButton = nullptr;
     QPushButton *m_deleteButton = nullptr;

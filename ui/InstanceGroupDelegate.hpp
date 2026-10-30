@@ -22,6 +22,23 @@ class InstanceGroupDelegate : public QStyledItemDelegate {
 public:
     explicit InstanceGroupDelegate(QObject *parent = nullptr);
 
+    /// 组里那些行**行尾那三颗**（齿轮 / 置顶箭头 / 垃圾桶）画不画。默认画（实例页）。
+    ///
+    /// 预设页那棵树也挂这个代理（两处的组头、悬停底色、选中带子要和实例页逐字一样），
+    /// 但那些动作长在右边那一栏的按钮上 —— 组里再挂一排，屏幕上会多出三格"点下去没有
+    /// 去处"的图标，而 `MainWindow::eventFilter` 那边根本没接预设树。关掉之后正文的截断
+    /// 边界跟着挪到行尾（见 paint()），不关的话名字会被一条看不见的空位压短。
+    void setInlineRowActions(bool on) { m_inlineRowActions = on; }
+    bool inlineRowActions() const { return m_inlineRowActions; }
+
+    /// 行高。默认 `MainWindowUI::instanceTreeRowHeight()`（实例页那一档）。
+    ///
+    /// 挂在窄栏里的那棵树（预设页左栏 232 px）用不着 58 那么高 —— 一屏看不到三行就
+    /// 得滚。矮的那一档按它自己给；把它留着可变而不是另写一套代理，是因为组头、悬停、
+    /// 选中这一整套画法只该有一份。
+    void setRowHeight(int height) { m_rowHeight = height; }
+    int rowHeight() const;
+
     /// 这一行**画出来**的那一圈：整条行上下各收掉半个 `instanceTreeRowGap()`。
     ///
     /// 行与行之间那道空就是它留出来的 —— 底色、图标、文字全画在这一圈里，圈外那一带谁也不画，
@@ -120,6 +137,10 @@ public:
                    const QModelIndex &index) override;
 
 private:
+    bool m_inlineRowActions = true;
+    /// 0 = 走 `MainWindowUI::instanceTreeRowHeight()`（实例页那一档）。
+    int m_rowHeight = 0;
+
     /// 实例行那三颗按钮的**字形**格子，从右往左**一次算完**（右起：齿轮 / 上箭头 / 垃圾桶）。
     ///
     /// 三个 `instanceXxxGlyphRect()` 和三个 `instanceXxxRect()` 都是它的薄壳（前者原样、

@@ -7,6 +7,9 @@
  */
 
 #include "PresetManagePage.hpp"
+#include "Animations.hpp"
+#include "InstanceGroupDelegate.hpp"
+#include "MainWindowUI.hpp"
 #include "Theme.hpp"
 
 #include <QCheckBox>
@@ -21,39 +24,13 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QListWidgetItem>
-#include <QListView>
-#include <QItemSelectionModel>
-#include <QStandardItemModel>
-#include <QSortFilterProxyModel>
 #include <QPalette>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QTimer>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 #include <QVBoxLayout>
-
-// Source rows are built only when data changes. Search/category changes filter
-// indices without allocating new items or rewriting their names/tooltips.
-class PresetFilterProxy final : public QSortFilterProxyModel {
-public:
-    explicit PresetFilterProxy(QObject *parent) : QSortFilterProxyModel(parent) {}
-    void setFilters(const QString &category, const QString &query) {
-        if (m_category == category && m_query == query) return;
-        m_category = category;
-        m_query = query;
-        invalidate();
-    }
-protected:
-    bool filterAcceptsRow(int row, const QModelIndex &parent) const override {
-        const auto index = sourceModel()->index(row, 0, parent);
-        // Broken presets remain visible in All even during a text search, as before.
-        if (index.data(Qt::UserRole + 1).toBool()) return m_category.isEmpty();
-        return (m_category.isEmpty() || index.data(Qt::UserRole + 3).toString() == m_category || index.data(Qt::UserRole + 5).toStringList().contains(m_category)) &&
-            (m_query.isEmpty() || index.data(Qt::UserRole + 4).toString().contains(m_query, Qt::CaseInsensitive));
-    }
-private:
-    QString m_category;
-    QString m_query;
-};
 
 namespace {
 
@@ -65,6 +42,35 @@ constexpr int kLeftColumnWidth = 232;
 /// 段表 / 计划表的高度：三四行可见，再多就滚。
 constexpr int kSectionListHeight = 118;
 constexpr int kPlanListHeight = 132;
+/// 左栏那张分组列表的行高和行首图标。行高比实例页那一档（58）矮：这一栏是 232 px 的
+/// 侧栏，58 一屏看不见三行。组头、悬停、选中那几层画法仍然走 `InstanceGroupDelegate`
+/// —— 两边看着是同一张表。
+constexpr int kPresetRowHeight = 46;
+constexpr int kPresetIconSize = 20;
+/// 预设行上那三个数据槽（外面喂进来的值，页面里只用不翻）。
+///
+/// ★ 号码从 `Qt::UserRole + 20` 起，别往 +1 / +2 上挪：`MainWindowUI::groupIdRole()`
+/// 是 `Qt::UserRole + 1`、资源那几张表还有 `+3`，撞上去的症状是"每一行都被当成组头"
+/// （选中不生效、右边那一栏永远空着）。`rowBrokenRole()` 必须和这里那一个逐字一致。
+constexpr int kRoleId = Qt::UserRole;
+constexpr int kRoleBroken = Qt::UserRole + 21;
+constexpr int kRoleDefault = Qt::UserRole + 22;
+/// 搜索用的一份"名字 + 说明"（原先那个代理模型上的过滤串，现在直接挂在这一格上）。
+constexpr int kRoleSearchText = Qt::UserRole + 23;
+static_assert(kRoleBroken == PresetManagePage::rowBrokenRole(),
+              "rowBrokenRole() 是给外面认行用的那把钥匙，两边不许各写各的");
+/// 「读不回来」那一组的钥匙。它不是预设类别（类别钥匙由外面给），才用一个不可能撞上的串。
+QString brokenGroupKey() {
+    return QStringLiteral("!broken");
+}
+
+bool itemIsBroken(const QTreeWidgetItem *item) {
+    return item != nullptr && item->data(0, kRoleBroken).toBool();
+}
+
+bool itemIsGroup(const QTreeWidgetItem *item) {
+    return item != nullptr && item->data(0, MainWindowUI::groupIdRole()).isValid();
+}
 
 /// 小一号 + PlaceholderText 那档墨色。和 JavaManageDialog / MainWindowUI 里那几个
 /// 匿名 namespace 里的同名帮手是同一套形状（跨不过来，只能各留一份）。
@@ -89,11 +95,8 @@ QLabel *makeSectionTitle(const QString &text, QWidget *parent) {
     return label;
 }
 
-bool itemIsBroken(const QModelIndex &item) {
-    return item.isValid() && item.data(Qt::UserRole + 1).toBool();
-}
-
 }  // namespace
+
 
 PresetManagePage::PresetManagePage(QWidget *parent) : QDialog(parent) {
     setWindowTitle(titleText());
@@ -127,14 +130,6 @@ void PresetManagePage::buildUi() {
     leftLayout->setSpacing(8);
     leftLayout->addWidget(makeSectionTitle(QStringLiteral("预设"), left));
 
-    // 类别筛选（本地筛，不读盘）：一排 chip，四类 + 旧版 / 全部。
-    m_filterRow = new QWidget(left);
-    m_filterLayout = new QGridLayout(m_filterRow);
-    m_filterLayout->setContentsMargins(0, 0, 0, 0);
-    m_filterLayout->setHorizontalSpacing(6);
-    m_filterLayout->setVerticalSpacing(6);
-    leftLayout->addWidget(m_filterRow);
-
     m_searchEdit = new QLineEdit(left);
     m_searchEdit->setObjectName(QStringLiteral("presetSearchEdit"));
     m_searchEdit->setPlaceholderText(tr("搜索名称或说明"));
@@ -142,19 +137,41 @@ void PresetManagePage::buildUi() {
     leftLayout->addWidget(m_searchEdit);
     connect(m_searchEdit, &QLineEdit::textChanged, this, [this] { rebuildPresetList(QString(), true); });
 
-    m_presetList = new QListView(left);
-    m_presetModel = new QStandardItemModel(this);
-    m_presetProxy = new PresetFilterProxy(this);
-    m_presetProxy->setSourceModel(m_presetModel);
-    m_presetList->setModel(m_presetProxy);
-    m_presetList->setUniformItemSizes(true);
-    m_presetList->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    // 一张**按类别分组**的列表：组头是类别名（粗体 + 右端箭头，和实例页 / 服务端页
+    // 那两张表同一个代理），组里一行一份预设。窗格本身和实例树同一条规矩：不画外框、
+    // 左边不画展开三角（展开/收起画在行尾那个箭头上）、每行等高、开着悬停跟踪
+    // （组头的悬停底色和实例页是同一件事）。
+    m_presetList = new QTreeWidget(left);
     m_presetList->setObjectName(presetListName());
+    m_presetList->setHeaderHidden(true);
+    m_presetList->setFrameShape(QFrame::NoFrame);
+    m_presetList->setRootIsDecorated(false);
+    m_presetList->setUniformRowHeights(true);
+    m_presetList->setIndentation(14);
+    m_presetList->setIconSize(QSize(kPresetIconSize, kPresetIconSize));
     m_presetList->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_presetList->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_presetList->setAlternatingRowColors(false);
+    m_presetList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_presetList->setMouseTracking(true);
+    auto *listDelegate = new InstanceGroupDelegate(m_presetList);
+    // 这一页的行尾**不挂动作**（增删改在下面那六颗按钮上）—— 挂着的话行尾会多出三格
+    // 点下去没有去处的图标。
+    listDelegate->setInlineRowActions(false);
+    listDelegate->setRowHeight(kPresetRowHeight);
+    m_presetList->setItemDelegate(listDelegate);
+    Anim::animateExpansion(m_presetList);
     leftLayout->addWidget(m_presetList, 1);
-    connect(m_presetList->selectionModel(), &QItemSelectionModel::currentChanged, this,
+    connect(m_presetList, &QTreeWidget::currentItemChanged, this,
             &PresetManagePage::onCurrentPresetChanged);
+    // 组头点一下 = 展开 / 收起（它不可选中，所以不会抢走"现在看的是哪一份"）。
+    m_presetList->setExpandsOnDoubleClick(false);
+    connect(m_presetList, &QTreeWidget::itemClicked, this,
+            [](QTreeWidgetItem *item, int) {
+                if (itemIsGroup(item)) {
+                    item->setExpanded(!item->isExpanded());
+                }
+            });
 
     // 「新建」建出来的是哪一类：★ 必须四类里选一个 —— 跨类总预设不在产品里。
     auto *newCategoryRow = new QHBoxLayout;
@@ -230,8 +247,8 @@ void PresetManagePage::buildUi() {
     connect(m_defaultButton, &QPushButton::clicked, this, [this] {
         const QString id = currentPresetId();
         if (id.isEmpty()) return;
-        const auto item = m_presetList->currentIndex();
-        const bool nowDefault = item.data(Qt::UserRole + 2).toBool();
+        const auto *item = m_presetList->currentItem();
+        const bool nowDefault = item != nullptr && item->data(0, kRoleDefault).toBool();
         emit defaultRequested(id, !nowDefault);
     });
     connect(m_moveUpButton, &QPushButton::clicked, this, [this] {
@@ -563,54 +580,6 @@ void PresetManagePage::setPresets(const QList<PresetItem> &presets,
                                   const QList<BrokenItem> &broken, const QString &selectId) {
     m_presets = presets;
     m_broken = broken;
-    m_fillingList = true;
-    auto *model = new QStandardItemModel(this);
-    for (const PresetItem &preset : m_presets) {
-        auto *item = new QStandardItem;
-        item->setEditable(false);
-        QString text = preset.name;
-        if (preset.isDefault) {
-            text += QStringLiteral("（默认）");
-        }
-        item->setText(text);
-        item->setData(preset.id, Qt::UserRole);
-        item->setData(false, Qt::UserRole + 1);
-        item->setData(preset.isDefault, Qt::UserRole + 2);
-        item->setData(preset.categoryKey, Qt::UserRole + 3);
-        item->setData(preset.categoryKeys, Qt::UserRole + 5);
-        if (!preset.iconPath.isEmpty()) item->setIcon(QIcon(preset.iconPath));
-        item->setData(preset.name + QLatin1Char(' ') + preset.description, Qt::UserRole + 4);
-        QString tip = preset.description;
-        if (!preset.categoryText.isEmpty()) {
-            if (!tip.isEmpty()) tip += QLatin1Char('\n');
-            tip += QStringLiteral("类别：%1").arg(preset.categoryText);
-        }
-        if (!preset.updatedText.isEmpty()) {
-            if (!tip.isEmpty()) tip += QLatin1Char('\n');
-            tip += preset.updatedText;
-        }
-        tip += QStringLiteral("\n%1 段").arg(preset.sectionCount);
-        item->setToolTip(tip);
-        model->appendRow(item);
-    }
-    // 读不回来的那几份**只在「全部」那一档列出来**：它们没写类别，硬塞进某一类里
-    // 等于替它们猜一个身份。
-    for (const BrokenItem &one : m_broken) {
-        // 读不回来的那些**照样列出来**，但不可选：用户至少知道"它还在，只是读不动"。
-        auto *item = new QStandardItem;
-        QString name = one.id;
-        if (name.size() > 12) name = name.left(12) + QStringLiteral("…");
-        item->setText(QStringLiteral("⚠ 读不出来：%1").arg(name));
-        item->setData(one.id, Qt::UserRole);
-        item->setData(true, Qt::UserRole + 1);
-        item->setFlags(Qt::NoItemFlags);
-        item->setToolTip(one.reason);
-        model->appendRow(item);
-    }
-    m_presetProxy->setSourceModel(model);
-    delete m_presetModel;
-    m_presetModel = model;
-    m_fillingList = false;
     rebuildPresetList(selectId, false);
     m_currentId = currentPresetId();
 }
@@ -618,19 +587,132 @@ void PresetManagePage::setPresets(const QList<PresetItem> &presets,
 void PresetManagePage::rebuildPresetList(const QString &selectId, bool emitSelection) {
     const QString previousId = m_currentId;
     const QString keep = selectId.isEmpty() ? m_currentId : selectId;
+    const QString query = m_searchEdit->text().trimmed();
     m_fillingList = true;
-    m_presetProxy->setFilters(m_filterKey, m_searchEdit->text().trimmed());
-    int selectRow = -1;
-    int firstSelectable = -1;
-    for (int row = 0; row < m_presetProxy->rowCount(); ++row) {
-        if (rowIsBroken(row)) continue;
-        if (firstSelectable < 0) firstSelectable = row;
-        if (presetIdAt(row) == keep) selectRow = row;
+    m_presetList->clear();
+
+    // 先按类别分桶。桶与桶之间按 `setCategories()` 给的那个次序摆（和外面那四类
+    // + 旧版 / 综合 / 草稿的固定次序一致），不认识的钥匙排在后面、按第一次出现的次序
+    // —— 页面不认识钥匙背后的意思，它只负责"同一类的摆在一起"。
+    QHash<QString, QList<const PresetItem *>> buckets;
+    QStringList keys;
+    for (const PresetItem &preset : m_presets) {
+        if (!buckets.contains(preset.categoryKey)) {
+            buckets.insert(preset.categoryKey, {});
+            keys.append(preset.categoryKey);
+        }
+        buckets[preset.categoryKey].append(&preset);
     }
-    if (selectRow < 0) {
-        selectRow = firstSelectable;
+    QStringList ordered;
+    for (const QString &key : m_groupOrder) {
+        if (buckets.contains(key)) ordered.append(key);
     }
-    m_presetList->setCurrentIndex(selectRow >= 0 ? m_presetProxy->index(selectRow, 0) : QModelIndex());
+    for (const QString &key : keys) {
+        if (!ordered.contains(key)) ordered.append(key);
+    }
+
+    auto makeGroup = [this](const QString &text) {
+        auto *group = new QTreeWidgetItem(m_presetList);
+        group->setText(0, text);
+        // 组头这一格是 `InstanceGroupDelegate` 认"这是组"的判据（和实例页同一把钥匙）。
+        group->setData(0, MainWindowUI::groupIdRole(), text);
+        group->setFlags(Qt::ItemIsEnabled);
+        group->setFirstColumnSpanned(true);
+        return group;
+    };
+
+    for (const QString &key : ordered) {
+        QString text = m_groupText.value(key);
+        if (text.isEmpty() && !buckets.value(key).isEmpty()) {
+            text = buckets.value(key).first()->categoryText;
+        }
+        if (text.isEmpty()) text = key;
+        auto *group = makeGroup(text);
+        for (const PresetItem *preset : buckets.value(key)) {
+            auto *item = new QTreeWidgetItem(group);
+            QString label = preset->name;
+            if (preset->isDefault) {
+                label += QStringLiteral("（默认）");
+            }
+            item->setText(0, label);
+            item->setData(0, kRoleId, preset->id);
+            item->setData(0, kRoleBroken, false);
+            item->setData(0, kRoleDefault, preset->isDefault);
+            item->setData(0, kRoleSearchText,
+                          preset->name + QLatin1Char(' ') + preset->description);
+            if (!preset->iconPath.isEmpty()) item->setIcon(0, QIcon(preset->iconPath));
+            QString tip = preset->description;
+            if (!preset->categoryText.isEmpty()) {
+                if (!tip.isEmpty()) tip += QLatin1Char('\n');
+                tip += QStringLiteral("类别：%1").arg(preset->categoryText);
+            }
+            if (!preset->updatedText.isEmpty()) {
+                if (!tip.isEmpty()) tip += QLatin1Char('\n');
+                tip += preset->updatedText;
+            }
+            tip += QStringLiteral("\n%1 段").arg(preset->sectionCount);
+            item->setToolTip(0, tip);
+        }
+    }
+
+    // 读不回来的那几份：它们没写类别，硬塞进某一类里等于替它们猜一个身份 —— 所以单开
+    // 一组摆在最后。照样列出来但不可选：用户至少知道"它还在，只是读不动"。
+    // 这一组**不跟着搜索走**（它们没有可信的名字可比），和原先"在全部那一档里一直露着"
+    // 是同一条规矩。
+    if (!m_broken.isEmpty()) {
+        auto *group = makeGroup(tr("读不出来"));
+        // 这一组的钥匙要**真的**写成 `brokenGroupKey()`：下面按搜索藏行时靠它把这一组
+        // 摘出去（组里那几行没有可比的名字，跟着搜索一起消失才是撒谎）。
+        group->setData(0, MainWindowUI::groupIdRole(), brokenGroupKey());
+        for (const BrokenItem &one : m_broken) {
+            auto *item = new QTreeWidgetItem(group);
+            QString name = one.id;
+            if (name.size() > 12) name = name.left(12) + QStringLiteral("…");
+            item->setText(0, QStringLiteral("⚠ 读不出来：%1").arg(name));
+            item->setData(0, kRoleId, one.id);
+            item->setData(0, kRoleBroken, true);
+            item->setFlags(Qt::NoItemFlags);
+            item->setToolTip(0, one.reason);
+        }
+    }
+
+    // 搜索：只藏行，不重新建行（一遍一遍重建会把滚动位置和展开状态一起丢掉）。
+    for (int g = 0; g < m_presetList->topLevelItemCount(); ++g) {
+        auto *group = m_presetList->topLevelItem(g);
+        if (group->data(0, MainWindowUI::groupIdRole()).toString() == brokenGroupKey()) {
+            continue;  // 上面那段：那一组不跟着搜索走
+        }
+        int visible = 0;
+        for (int i = 0; i < group->childCount(); ++i) {
+            auto *child = group->child(i);
+            const bool match = query.isEmpty() ||
+                               child->data(0, kRoleSearchText)
+                                   .toString()
+                                   .contains(query, Qt::CaseInsensitive);
+            child->setHidden(!match);
+            if (match) ++visible;
+        }
+        group->setHidden(visible == 0);
+    }
+
+    // 选中的那一份不在列表里（或者被搜索藏掉了）就退回第一条看得见的。
+    QTreeWidgetItem *target = nullptr;
+    QTreeWidgetItem *first = nullptr;
+    for (int g = 0; g < m_presetList->topLevelItemCount() && target == nullptr; ++g) {
+        auto *group = m_presetList->topLevelItem(g);
+        if (group->isHidden()) continue;
+        group->setExpanded(true);
+        for (int i = 0; i < group->childCount(); ++i) {
+            auto *child = group->child(i);
+            if (child->isHidden() || itemIsBroken(child)) continue;
+            if (first == nullptr) first = child;
+            if (child->data(0, kRoleId).toString() == keep) {
+                target = child;
+                break;
+            }
+        }
+    }
+    m_presetList->setCurrentItem(target != nullptr ? target : first);
     m_fillingList = false;
 
     if (currentPresetId().isEmpty()) {
@@ -645,7 +727,7 @@ void PresetManagePage::rebuildPresetList(const QString &selectId, bool emitSelec
     }
     refreshActions();
 
-    // 用户自己换了筛选项：新选中的那一份要跟着刷新右栏（外面靠这个信号知道"现在看的是谁"）。
+    // 用户自己换了搜索词：新选中的那一份要跟着刷新右栏（外面靠这个信号知道"现在看的是谁"）。
     const QString nowId = currentPresetId();
     if (emitSelection && nowId != previousId) {
         m_currentId = nowId;
@@ -655,49 +737,13 @@ void PresetManagePage::rebuildPresetList(const QString &selectId, bool emitSelec
 }
 
 void PresetManagePage::setCategories(const QList<CategoryOption> &categories) {
-    const QString keepFilter = m_filterKey;
-
-    // 整排重建（只摆一次，重复调用也安全）。
-    while (QLayoutItem *entry = m_filterLayout->takeAt(0)) {
-        delete entry->widget();
-        delete entry;
-    }
-    m_filterChips.clear();
-    m_filterKey.clear();
-    int column = 0;
-    int row = 0;
-    for (int i = 0; i < categories.size(); ++i) {
-        const CategoryOption &option = categories.at(i);
-        auto *chip = new QPushButton(option.text, m_filterRow);
-        chip->setObjectName(categoryFilterName(i));
-        chip->setCheckable(true);
-        chip->setAutoDefault(false);
-        chip->setToolTip(option.key.isEmpty()
-                             ? QStringLiteral("不筛类别，全都列出来。")
-                             : QStringLiteral("只看「%1」这一类（本地筛，不读盘）。")
-                                   .arg(option.text));
-        Theme::markChipButton(chip);
-        // Both bounds are finite so the shared icon-size keeper can restore
-        // chip height after Qt's application stylesheet polish.
-        chip->setFixedSize((kLeftColumnWidth-32)/2,Theme::chipHeight());
-        chip->setProperty("presetCategoryKey", option.key);
-        const QString key = option.key;
-        connect(chip, &QPushButton::clicked, this,
-                [this, key] { applyCategoryFilter(key); });
-        m_filterLayout->addWidget(chip, row, column);
-        m_filterChips.append(chip);
-        if (option.key == keepFilter) {
-            m_filterKey = keepFilter;
-        }
-        if (++column >= 2) {
-            column = 0;
-            ++row;
-        }
-    }
-    const int rows=(m_filterChips.size()+1)/2;
-    m_filterRow->setFixedHeight(rows*Theme::chipHeight()+qMax(0,rows-1)*m_filterLayout->verticalSpacing());
-    for (int i = 0; i < m_filterLayout->columnCount(); ++i) {
-        m_filterLayout->setColumnStretch(i, 1);
+    // 分组次序与组名：空钥匙 = 「全部」那一项，它不是一组。
+    m_groupOrder.clear();
+    m_groupText.clear();
+    for (const CategoryOption &option : categories) {
+        if (option.key.isEmpty()) continue;
+        m_groupOrder.append(option.key);
+        m_groupText.insert(option.key, option.text);
     }
 
     // 「新建为」：只列真正能新建的那些（「全部」那一项不进下拉框）。
@@ -716,17 +762,10 @@ void PresetManagePage::setCategories(const QList<CategoryOption> &categories) {
         }
     }
 
-    applyCategoryFilter(m_filterKey);
-}
-
-void PresetManagePage::applyCategoryFilter(const QString &key) {
-    m_filterKey = key;
-    for (QPushButton *chip : m_filterChips) {
-        if (chip != nullptr) {
-            chip->setChecked(chip->property("presetCategoryKey").toString() == key);
-        }
+    // 组名换了（或者第一次来）⇒ 组头跟着换一遍。没数据时什么都不用建。
+    if (!m_presets.isEmpty() || !m_broken.isEmpty()) {
+        rebuildPresetList(m_currentId, false);
     }
-    rebuildPresetList(QString(), true);
 }
 
 void PresetManagePage::setCaptureCheckEnabled(QCheckBox *box, quint32 bit, quint32 mask,
@@ -990,11 +1029,11 @@ void PresetManagePage::setBusy(bool busy) {
 }
 
 QString PresetManagePage::currentPresetId() const {
-    const auto item = m_presetList->currentIndex();
-    if (!item.isValid() || itemIsBroken(item)) {
+    const auto *item = m_presetList->currentItem();
+    if (item == nullptr || itemIsBroken(item) || itemIsGroup(item)) {
         return QString();
     }
-    return item.data(Qt::UserRole).toString();
+    return item->data(0, kRoleId).toString();
 }
 
 QString PresetManagePage::selectedApplyInstanceId() const {
@@ -1018,8 +1057,7 @@ PresetManagePage::CaptureChoice PresetManagePage::captureChoice() const {
 }
 
 void PresetManagePage::refreshActions() {
-    const int row = currentPresetRow();
-    const bool valid = row >= 0 && !rowIsBroken(row);
+    const bool valid = selectionValid();
     const bool editable = valid && !m_busy && m_detailsAvailable;
     const bool draft = currentPresetId().startsWith(QStringLiteral("draft:"));
     for (const auto &name : {QStringLiteral("presetEditModsButton"), QStringLiteral("presetEditOptionsButton")})
@@ -1035,20 +1073,13 @@ void PresetManagePage::refreshActions() {
 
     m_presetList->setEnabled(true);
 
-    // 上移 / 下移：列表里只有**读得回来的**那些能挪（坏的那几份不在下标里）。
-    int firstValid = -1;
-    int lastValid = -1;
-    for (int i = 0; i < m_presetProxy->rowCount(); ++i) {
-        if (!rowIsBroken(i)) {
-            if (firstValid < 0) firstValid = i;
-            lastValid = i;
-        }
-    }
-    m_moveUpButton->setEnabled(editable && !draft && row > firstValid);
-    m_moveDownButton->setEnabled(editable && !draft && row >= 0 && row < lastValid);
+    // 上移 / 下移：能挪的判据是"同一个组里还有前一份 / 后一份"。跨组挪没有意义 ——
+    // 列表按类别分组，挪到别组去屏幕上什么都不会变。
+    m_moveUpButton->setEnabled(editable && !draft && siblingPreset(-1) != nullptr);
+    m_moveDownButton->setEnabled(editable && !draft && siblingPreset(1) != nullptr);
 
-    const auto item = m_presetList->currentIndex();
-    const bool isDefault = item.data(Qt::UserRole + 2).toBool();
+    const auto *item = m_presetList->currentItem();
+    const bool isDefault = item != nullptr && item->data(0, kRoleDefault).toBool();
     m_defaultButton->setText(isDefault ? QStringLiteral("取消默认")
                                        : QStringLiteral("设为默认"));
 
@@ -1144,14 +1175,16 @@ void PresetManagePage::disarmApply() {
 // 列表
 // ---------------------------------------------------------------------------
 
-void PresetManagePage::onCurrentPresetChanged(const QModelIndex &current,
-                                              const QModelIndex &previous) {
+void PresetManagePage::onCurrentPresetChanged(QTreeWidgetItem *current,
+                                              QTreeWidgetItem *previous) {
     Q_UNUSED(previous);
     if (m_fillingList) {
         return;
     }
     refreshActions();
-    if (!current.isValid() || itemIsBroken(current)) {
+    // 组头不可选中（见 buildUi），所以走到这儿的一定是组里那一行；真为空 / 读不回来 /
+    // 组头时按"什么都没选"处理 —— 右边那一栏跟着清空，不给拿组头当代替品的机会。
+    if (current == nullptr || itemIsBroken(current) || itemIsGroup(current)) {
         m_currentId.clear();
         m_nameEdit->clear();
         m_descriptionEdit->clear();
@@ -1162,22 +1195,27 @@ void PresetManagePage::onCurrentPresetChanged(const QModelIndex &current,
         emit presetSelected(QString());
         return;
     }
-    const QString id = current.data(Qt::UserRole).toString();
+    const QString id = current->data(0, kRoleId).toString();
     m_currentId = id;
     clearPlan();
     emit presetSelected(id);
 }
 
-int PresetManagePage::currentPresetRow() const {
-    return m_presetList->currentIndex().row();
+bool PresetManagePage::selectionValid() const {
+    const auto *item = m_presetList->currentItem();
+    return item != nullptr && !itemIsBroken(item) && !itemIsGroup(item);
 }
 
-QString PresetManagePage::presetIdAt(int row) const {
-    return m_presetProxy->index(row, 0).data(Qt::UserRole).toString();
-}
-
-bool PresetManagePage::rowIsBroken(int row) const {
-    return itemIsBroken(m_presetProxy->index(row, 0));
+QTreeWidgetItem *PresetManagePage::siblingPreset(int delta) const {
+    const auto *item = m_presetList->currentItem();
+    if (item == nullptr || item->parent() == nullptr) return nullptr;
+    auto *parent = item->parent();
+    for (int i = parent->indexOfChild(const_cast<QTreeWidgetItem *>(item)) + delta;
+         i >= 0 && i < parent->childCount(); i += delta) {
+        auto *candidate = parent->child(i);
+        if (!candidate->isHidden() && !itemIsBroken(candidate)) return candidate;
+    }
+    return nullptr;
 }
 
 QString PresetManagePage::comboInstanceId(const QComboBox *combo) {

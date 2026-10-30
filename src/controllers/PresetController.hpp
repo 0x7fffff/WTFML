@@ -43,6 +43,7 @@ class ActivityCenterController;
 #include "presets/PresetTypes.hpp"
 
 class PresetEditorPage;
+class QDialog;
 class VersionManager;
 class QComboBox;
 class QWidget;
@@ -94,6 +95,10 @@ public:
         /// 实例**整份滤掉** —— 万一这期间别的事（下载收尾、改设置）已经刷过一次，用户看到
         /// 的就是"实例没了"，不重刷它就一直不在列表里。
         std::function<void()> refreshInstances;
+        /// 把一页铺到内容区上（`OverlayHost::execPage`，返回值和 `QDialog::exec()` 同义）。
+        /// 预设编辑器就靠这一条走"整页覆盖内容区"那条路 —— 和实例设置一模一样。
+        /// 空 = 这个宿主没有覆盖层（验证工程那种没有主窗口的宿主）：开不了页，按"没开成"算。
+        std::function<int(QDialog *, const QString &, int)> execPage = {};
         /// Optional thread-safe reader for isolated tests; production reads PresetStore.
         std::function<Presets::CatalogSnapshot(const QString &)> readCatalog = {};
         std::function<Presets::ManifestSnapshot(const QString &, const QString &)> readManifest = {};

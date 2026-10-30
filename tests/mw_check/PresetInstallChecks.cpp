@@ -785,41 +785,79 @@ int runPresetInstallChecks() {
             items.append(item);
         }
         manage.setPresets(items, {{QStringLiteral("broken"), QStringLiteral("bad manifest")}}, QStringLiteral("700"));
-        auto *view = manage.findChild<QListView *>(PresetManagePage::presetListName());
-        auto *proxy = view ? qobject_cast<QSortFilterProxyModel *>(view->model()) : nullptr;
+        // 左栏是**按类别分组**的一棵树（组头 + 预设行）：没有筛选 chip、也没有代理模型，
+        // 行就长在各自的组下面。"哪一行是谁"按 `rowIdRole()` 认，组头没有 id。
+        auto *view = manage.findChild<QTreeWidget *>(PresetManagePage::presetListName());
         auto *search = manage.findChild<QLineEdit *>(QStringLiteral("presetSearchEdit"));
-        check(proxy && proxy->rowCount() == 1001 && manage.currentPresetId() == QStringLiteral("700"),
-              "large preset view preserves source order and requested identity");
-        if (proxy && search) {
-            const QPersistentModelIndex sourceFirst(proxy->sourceModel()->index(0, 0));
+        const auto rows = [view] {
+            int n = 0;
+            if (view != nullptr)
+                for (int g = 0; g < view->topLevelItemCount(); ++g) n += view->topLevelItem(g)->childCount();
+            return n;
+        };
+        const auto visibleRows = [view] {
+            int n = 0;
+            if (view == nullptr) return n;
+            for (int g = 0; g < view->topLevelItemCount(); ++g) {
+                QTreeWidgetItem *group = view->topLevelItem(g);
+                if (group->isHidden()) continue;
+                for (int i = 0; i < group->childCount(); ++i)
+                    if (!group->child(i)->isHidden()) ++n;
+            }
+            return n;
+        };
+        const auto rowFor = [view](const QString &id) -> QTreeWidgetItem * {
+            if (view == nullptr) return nullptr;
+            for (int g = 0; g < view->topLevelItemCount(); ++g) {
+                QTreeWidgetItem *group = view->topLevelItem(g);
+                for (int i = 0; i < group->childCount(); ++i)
+                    if (group->child(i)->data(0, PresetManagePage::rowIdRole()).toString() == id)
+                        return group->child(i);
+            }
+            return nullptr;
+        };
+        check(view && rows() == 1001 && manage.currentPresetId() == QStringLiteral("700"),
+              "large preset list keeps every entry and the requested identity");
+        check(view && view->topLevelItemCount() == 3 && view->topLevelItem(0)->text(0) == QStringLiteral("设置") &&
+                  view->topLevelItem(1)->text(0) == QStringLiteral("模组") &&
+                  view->topLevelItem(2)->text(0) == QStringLiteral("读不出来"),
+              "groups follow the category order the controller supplies and unreadable presets get their own last group");
+        bool grouped = view != nullptr;
+        for (int g = 0; g < (view ? view->topLevelItemCount() : 0); ++g) {
+            QTreeWidgetItem *group = view->topLevelItem(g);
+            const bool mods = group->text(0) == QStringLiteral("模组");
+            if (group->text(0) != QStringLiteral("设置") && !mods) continue;
+            for (int i = 0; i < group->childCount(); ++i) {
+                const int id = group->child(i)->data(0, PresetManagePage::rowIdRole()).toString().toInt();
+                grouped = grouped && (id % 2 == 1) == mods;
+            }
+        }
+        check(grouped, "every preset row sits under its own category header");
+        if (search) {
             QObject::connect(&manage, &PresetManagePage::presetSelected, &manage,
                              [&](const QString &id) { if (id.isEmpty()) ++clearedCalls; else ++selectedCalls; });
             search->setText(QStringLiteral("  CREATIVE  "));
-            check(sourceFirst.isValid() && proxy->rowCount() == 1001 && selectedCalls == 0 &&
-                      manage.currentPresetId() == QStringLiteral("700"),
-                  "search reuses source rows, trims input and keeps matching selection without duplicate callbacks");
+            check(rows() == 1001 && selectedCalls == 0 && manage.currentPresetId() == QStringLiteral("700"),
+                  "search trims input, matches descriptions case-insensitively and emits no duplicate callbacks");
             search->setText(QStringLiteral("no matches"));
-            check(proxy->rowCount() == 1 && !proxy->index(0, 0).flags().testFlag(Qt::ItemIsSelectable) &&
-                      manage.currentPresetId().isEmpty() && clearedCalls == 1 &&
+            check(visibleRows() == 1 && manage.currentPresetId().isEmpty() && clearedCalls == 1 &&
                       !manage.findChild<QPushButton *>(PresetManagePage::deleteButtonName())->isEnabled(),
                   "broken presets remain visible but cannot become a stale actionable selection");
-            manage.findChild<QPushButton *>(PresetManagePage::categoryFilterName(2))->click();
-            check(proxy->rowCount() == 0, "category filter excludes unclassified broken presets");
+            check(rowFor(QStringLiteral("broken")) && !rowFor(QStringLiteral("broken"))->isHidden(),
+                  "the unreadable group is not hidden by an unrelated search query");
             search->clear();
-            check(proxy->rowCount() == 500 && manage.currentPresetId() == QStringLiteral("1") && selectedCalls == 1,
-                  "combined category and search choose first visible valid preset once");
+            check(rows() == 1001 && manage.currentPresetId() == QStringLiteral("0") && selectedCalls == 1,
+                  "clearing search selects the first visible preset exactly once");
             manage.setPresets(items, {}, QStringLiteral("700"));
-            check(!sourceFirst.isValid() && proxy->rowCount() == 500 &&
-                      manage.currentPresetId() == QStringLiteral("1"),
-                  "data refresh respects active category when requested id is hidden");
-            manage.findChild<QPushButton *>(PresetManagePage::categoryFilterName(0))->click();
-            view->setCurrentIndex(proxy->index(0, 0));
+            check(rows() == 1000 && manage.currentPresetId() == QStringLiteral("700"),
+                  "data refresh keeps the requested identity when it is still present");
+            view->setCurrentItem(rowFor(QStringLiteral("0")));
             QObject::connect(&manage, &PresetManagePage::defaultRequested, &manage,
                              [&](const QString &id, bool enabled) { defaultId = id; makeDefault = enabled; });
             manage.findChild<QPushButton *>(PresetManagePage::defaultButtonName())->click();
-            check(defaultId == QStringLiteral("0") && !makeDefault &&
-                      proxy->index(0, 0).data().toString().contains(QStringLiteral("默认")),
-                  "default indicator and toggle refer to the visible preset's source identity");
+            check(defaultId == QStringLiteral("0") && !makeDefault && rowFor(QStringLiteral("0")) &&
+                      rowFor(QStringLiteral("0"))->text(0).contains(QStringLiteral("默认")),
+                  "default indicator and toggle refer to the selected preset's identity");
         }
     }
     const auto presetRoot = scratch.filePath(QStringLiteral("presets"));

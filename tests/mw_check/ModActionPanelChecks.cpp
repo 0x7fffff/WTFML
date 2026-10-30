@@ -94,8 +94,15 @@ int runModActionPanelChecks() {
           "wide layout reserves panel space");
     check(all->parentWidget()->parentWidget() != &page,
           "wide header shares filter and selection tools row");
-    check(page.downloadButton()->isVisible() && page.findChild<QPushButton *>(QStringLiteral("modHeaderMore"))->isVisible()
-          && !page.openFolderButton()->isVisible(), "compact mod header retains install and maintenance menu");
+    // 紧凑的模组页头把三件事并在一排里：「下载新模组」+「打开文件夹」+「更多…」。
+    // 「打开文件夹」是从原来那条路径排 / 「更多」菜单里**提上来**的（最常用的一颗不该藏在菜单里），
+    // 所以它在页头上露着、而且和「更多…」同一排 —— 路径排这一档在模组页整条是收起的。
+    auto *headerMore = page.findChild<QPushButton *>(QStringLiteral("modHeaderMore"));
+    auto *headerFolder = page.openFolderButton();
+    check(page.downloadButton()->isVisible() && headerMore->isVisible()
+          && headerFolder->isVisible()
+          && headerFolder->parentWidget() == headerMore->parentWidget(),
+          "compact mod header pairs install, folder and maintenance actions");
     page.findChild<QPushButton *>(QStringLiteral("modActionPanelClose"))->click();
     check(panel->isHidden() && list->selectedItems().size() == 2, "close preserves selection");
     page.findChild<QPushButton *>(QStringLiteral("modSelectedCount"))->click();

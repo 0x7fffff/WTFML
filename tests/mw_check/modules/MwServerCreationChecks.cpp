@@ -25,23 +25,30 @@ int MwServerCreationChecks(const QDir &root) {
         w.show();
         QApplication::processEvents();
         {
-            QObject scope;
             auto *download = byObjectName<QPushButton>(&w, MainWindowUI::downloadNewServerButtonName());
             auto *tabs = byObjectName<QTabWidget>(&w, MainWindowUI::tabWidgetName());
+            auto *serverStack =
+                w.findChild<QStackedWidget *>(MainWindowUI::downloadServerStackName());
             const int oldTab = tabs ? tabs->currentIndex() : 0;
-            bool correctVersion = false, correctOwner = false;
-            QTimer::singleShot(0, &scope, [&] {
-                auto *page = byObjectName<NewServerPage>(&w, MainWindowUI::newServerPageName());
-                auto *version = page ? page->findChild<QLineEdit *>(MainWindowUI::newServerGameVersionEditName()) : nullptr;
-                correctVersion = version && version->text() == QStringLiteral("1.21.1") && version->isReadOnly();
-                correctOwner = tabs && tabs->currentIndex() == MainWindowUI::downloadTabIndex();
-                if (page) page->reject();
-            });
             if (download) { download->setProperty("selectedVersion", QStringLiteral("1.21.1")); download->click(); }
-            check(download && correctVersion && correctOwner,
-                  "server download config uses the selected version and stays owned by Downloads");
+            QApplication::processEvents();
+            // 服务端下载和游戏下载**一个形状**：点一个版本 = 进「服务端」那一栏的第二层
+            // （不是另开一页、不是覆盖层）。所以这一按当场就到位，不用再等嵌套循环。
+            auto *page = byObjectName<NewServerPage>(&w, MainWindowUI::newServerPageName());
+            auto *version = page ? page->findChild<QLineEdit *>(MainWindowUI::newServerGameVersionEditName()) : nullptr;
+            check(download && page && !page->isWindow() && version &&
+                      version->text() == QStringLiteral("1.21.1") && version->isReadOnly() &&
+                      tabs && tabs->currentIndex() == MainWindowUI::downloadTabIndex() &&
+                      serverStack &&
+                      serverStack->currentIndex() == MainWindowUI::downloadServerFormIndex(),
+                  "server download config uses the selected version and lives in the download form layer");
+            if (page) page->reject();
+            QApplication::processEvents();
+            check(serverStack &&
+                      serverStack->currentIndex() == MainWindowUI::downloadServerListIndex(),
+                  "leaving the server form returns to the version list layer");
             if (download) download->setProperty("selectedVersion", QVariant());
-            if (tabs) tabs->setCurrentIndex(oldTab);
+            if (tabs && oldTab >= 0 && oldTab < tabs->count()) tabs->setCurrentIndex(oldTab);
         }
 
         auto *clientChip = byObjectName<QPushButton>(
@@ -135,19 +142,15 @@ int MwServerCreationChecks(const QDir &root) {
                 const QString newId = QStringLiteral("新服务端");
                 check(!QDir(AppPaths::serverDir(newId)).exists(),
                       "T39.5 前提：这个名字的目录起手不存在");
-                // 那一页是在**嵌套事件循环**里开的（`execPage`）：先排一发"填字段 + 点创建"，
-                // 再点那颗按钮 —— 那一发会在嵌套循环里跑（和别的节驱动整页同一个形状）。
-                bool pageSeen = false;
-                QTimer::singleShot(0, [&pageSeen] {
-                    OverlayHost *host = currentOverlay();
-                    if (host == nullptr) {
-                        return;
-                    }
-                    auto *page = host->findChild<NewServerPage *>();
-                    if (page == nullptr) {
-                        return;
-                    }
-                    pageSeen = true;
+                // 表单**不是**单独开的一页：它住在「下载 → 服务端」那一栏的第二层里，
+                // 点开当场就到位（没有嵌套循环），填完再按「创建」。
+                newServerBtn->click();
+                QApplication::processEvents();
+                auto *page = byObjectName<NewServerPage>(&w, MainWindowUI::newServerPageName());
+                check(page != nullptr && !page->isWindow(),
+                      "★ T39.5 点「新建服务端…」开的就是那张表单（按 objectName 找得到，"
+                      "嵌在内容区那一层里而不是另开一个窗）");
+                if (page != nullptr) {
                     // 用**真的控件**填（不是 `setDefaults()`）：那两个入口套了 QSignalBlocker，
                     // 只有走 `setText()` 才会发 `fieldsChanged()`、让翻译点重算计划 —— 「创建」
                     // 也才会从"点不动"变成能点（名字/版本都填了，计划才成立）。
@@ -166,11 +169,8 @@ int MwServerCreationChecks(const QDir &root) {
                               "撤了）");
                         btn->click();  // = accept()，MainWindow 接住之后去建目录、写 meta
                     }
-                });
-                newServerBtn->click();  // 进嵌套循环，直到上面那一发点上「创建」
+                }
                 QApplication::processEvents();
-                check(pageSeen,
-                      "★ T39.5 点「新建服务端…」开的就是那一页（按 objectName 找得到）");
                 check(QDir(AppPaths::serverDir(newId)).exists() &&
                           QFile::exists(AppPaths::serverMetaPath(newId)),
                       "★★ T39.5 收下那一页之后：`Servers/新服务端/` 真的建出来了、里面有一份 "
@@ -195,23 +195,23 @@ int MwServerCreationChecks(const QDir &root) {
                 check(categories != nullptr && downloadNewServer != nullptr,
                       "★ T39.5b 前提：下载页分类列表和「服务端」那一栏那颗按钮都找得到");
                 if (categories != nullptr && downloadNewServer != nullptr) {
+                    auto *serverStack =
+                        w.findChild<QStackedWidget *>(MainWindowUI::downloadServerStackName());
                     categories->setCurrentRow(MainWindowUI::downloadCategoryServerIndex());
                     QApplication::processEvents();
-                    bool pageSeen = false;
-                    QTimer::singleShot(0, [&pageSeen] {
-                        OverlayHost *host = currentOverlay();
-                        auto *page = host == nullptr ? nullptr
-                                                     : host->findChild<NewServerPage *>();
-                        pageSeen = page != nullptr;
-                        if (page != nullptr) {
-                            page->reject();  // 收页（这一条只管"开的是哪一页"，不建东西）
-                        }
-                    });
-                    downloadNewServer->click();  // 进嵌套循环，直到上面那一发收页
+                    downloadNewServer->click();
                     QApplication::processEvents();
-                    check(pageSeen,
+                    auto *page = byObjectName<NewServerPage>(&w, MainWindowUI::newServerPageName());
+                    check(page != nullptr &&
+                              serverStack &&
+                              serverStack->currentIndex() ==
+                                  MainWindowUI::downloadServerFormIndex(),
                           "★★ T39.5b 下载页「服务端」那一栏那颗按钮开的就是「新建服务端」"
-                          "那一页（和实例页那颗同一个动作）");
+                          "那张表单（和实例页那颗同一个动作）");
+                    if (page != nullptr) {
+                        page->reject();  // 退回版本列表那一层（这一条只管"开的是哪一张表单"，不建东西）
+                        QApplication::processEvents();
+                    }
                     check(serverTree->topLevelItemCount() == 2,
                           "T39.5b 收页之后服务端列表一条都没多（reject 那条路不建东西）",
                           QString::number(serverTree->topLevelItemCount()));

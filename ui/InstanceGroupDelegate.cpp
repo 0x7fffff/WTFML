@@ -15,6 +15,10 @@
 
 InstanceGroupDelegate::InstanceGroupDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
 
+int InstanceGroupDelegate::rowHeight() const {
+    return m_rowHeight > 0 ? m_rowHeight : MainWindowUI::instanceTreeRowHeight();
+}
+
 QRect InstanceGroupDelegate::chevronRect(const QRect &row) {
     const int pad = MainWindowUI::versionTreeRowPadding();
     // 边长按这一行的高度收一收。不缩的话，行高变矮时 12 px 的箭头会上下各冒出去
@@ -167,7 +171,10 @@ bool InstanceGroupDelegate::helpEvent(QHelpEvent *event, QAbstractItemView *view
                                       const QStyleOptionViewItem &option, const QModelIndex &index) {
     // 只在"光标真落在那颗齿轮那一格上"时说话（和 VersionTreeDelegate 那个箭头/叉一个规矩），
     // 别的地方一句都不弹。
-    if (event != nullptr && event->type() == QEvent::ToolTip) {
+    // 没画那一排的树（`setInlineRowActions(false)`，预设页）一句都不说 —— 那些格子在上面
+    // 根本没画，在这儿说话等于"指着一块空白弹出了「进入实例设置」"。组头那一格（齿轮）
+    // 仍然照说。
+    if (m_inlineRowActions && event != nullptr && event->type() == QEvent::ToolTip) {
         const QString tip = rowActionTip(index, option.rect, event->pos());
         if (!tip.isEmpty()) {
             QToolTip::showText(event->globalPos(), tip, view);
@@ -266,7 +273,11 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
             // 停在哪：最左那颗按钮**命中格**的左边（它已经比字形大一圈，天然留出一点空隙）。
             // 三颗无论此刻画不画都算进去 —— 和 sizeHint() 那条规矩一样（跟着悬停变的话，
             // 鼠标一扫过去正文就左右跳一下）。
-            const int stopAt = instanceTrashRect(option.rect).left();
+            // 不画那一排的那种树（`setInlineRowActions(false)`，见 .hpp）停在行尾留白之前。
+            const int stopAt = m_inlineRowActions
+                                   ? instanceTrashRect(option.rect).left()
+                                   : option.rect.x() + option.rect.width() -
+                                         MainWindowUI::versionTreeRowPadding();
             const QRect textArea =
                 style->subElementRect(QStyle::SE_ItemViewItemText, &opt, opt.widget);
             const int avail = qMin(textArea.width(), stopAt - textArea.left());
@@ -294,6 +305,12 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
 
         // 三颗都用**正文色**（和实例页文件夹行那颗齿轮一个取色口径）：它们是行里的动作，
         // 但这一行的正文就是实例名，动作和正文同色才不显得"行尾挂了三个别的东西"。
+        //
+        // 不画那一排的树（`setInlineRowActions(false)`，见 .hpp 的预设页）到这儿就结束了：
+        // 底色、选中、正文、图标已经全部画完，行尾干干净净。
+        if (!m_inlineRowActions) {
+            return;
+        }
         //
         // NOTE: 每颗都不自己缓存 pixmap —— `VersionIcons::` 内部已经按"尺寸 + 颜色"缓存
         // （见那边 cached()），这一层再存一份只会多一处要同步的地方。
@@ -440,8 +457,8 @@ QSize InstanceGroupDelegate::sizeHint(const QStyleOptionViewItem &option,
     // 树上开着 uniformRowHeights（第一行多高所有
     // 行就多高），而平铺那一档的第一行是**实例**、有分组时第一行是**组头** —— 两边都给
     // 同一个数，"一张树多高"才不随"有没有分组"翻个面。
-    const int height = MainWindowUI::instanceTreeRowHeight();
-    if (!isGroup) {
+    const int height = rowHeight();
+    if (!isGroup && m_inlineRowActions) {
         // 实例行：行尾那三颗按钮占的宽度**无条件**加上 —— 三颗 + 两个间隔 + 左右各一份
         // 命中格的 margin + 右留白。判据里**故意不放悬停**（和 VersionTreeDelegate::
         // sizeHint() 里那一段同一个规矩）：跟着悬停变的话，鼠标一扫过去整行的宽度就跟着
@@ -457,6 +474,10 @@ QSize InstanceGroupDelegate::sizeHint(const QStyleOptionViewItem &option,
                             2 * MainWindowUI::instanceRowActionMargin() +
                             MainWindowUI::versionTreeRowPadding();
         return QSize(size.width() + actions, height);
+    }
+    if (!isGroup) {
+        // 组里那些行、但不画行尾那一排（预设页）：只剩右边一份留白。
+        return QSize(size.width() + MainWindowUI::versionTreeRowPadding(), height);
     }
     // 宽度按内容加：右边那几格也占地方 —— 展开箭头一律有，齿轮看角色。
     int extra = MainWindowUI::versionTreeArrowSize() + 6;
