@@ -1538,10 +1538,14 @@ QString widgetStyleSheet() {
     // 自己的 min-height —— 只靠 C++ 的 `setFixedHeight(52)` 拦不住：QSS 的 `min-height`
     // 是在**每一次 polish** 时 `setMinimumHeight()` 下去的（`QStyleSheetStyle::setGeometry()`），
     // 而悬停 / 按下 / 换主题都会来一发 polish，于是"点一下卡片，压小的那一截又长回 82"。
+    //
+    // ★★ 这里写 50 不是 52：QSS 的 min/max-height 走 `boxSize()`，把上下各 1px 的边框也
+    // 算进尺寸里，写 50 出来的卡片才是代码里那个 52。（`normal` 写 82 出 84 是同一个道理。）
+    // 写成 52 的话每次 polish 都会比 C++ 的固定高度多 2px —— 就是"点一下还是会长一点点"。
     qss += QStringLiteral(
         "QPushButton[wtfmlQuickCard=\"true\"] { padding: 0px; }"
         "QPushButton[wtfmlQuickCardSize=\"normal\"] { min-height: 82px; max-height: 82px; }"
-        "QPushButton[wtfmlQuickCardSize=\"compact\"] { min-height: 52px; max-height: 52px; }"
+        "QPushButton[wtfmlQuickCardSize=\"compact\"] { min-height: 50px; max-height: 50px; }"
         "QPushButton[wtfmlQuickCardSize=\"icon\"] { min-height: 54px; max-height: 54px; }");
     qss += QStringLiteral("QPushButton[wtfmlAccountHeader=\"true\"] { padding: 0px; min-height: 62px; }");
 
