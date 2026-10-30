@@ -134,6 +134,40 @@ QFrame *makeHomeCard(QWidget *parent) {
     Theme::follow(card, applyPalette);
     return card;
 }
+
+/// 主页快捷卡片点开的那一块小面板（`homeQuickPopup`）。
+///
+/// 为什么不是裸的 `QFrame(..., Qt::Popup)`：**点面板外面收掉它的那一下会被重放一遍**。
+/// Qt 关一块 `Qt::Popup` 时，如果光标不在它的几何里，会把这同一个 press 重放给光标底下
+/// 那个控件（`QApplicationPrivate::closePopup()` → `replayMousePress` →
+/// `QWidgetWindow::handleMouseEvent` 尾巴上那段；Windows 上那个 style hint 是 true）。
+/// 底下正好是「列表 / 返回」时，重放那一下就把实例列表收了 —— 用户看到的症状是"点详情
+/// 之后上方压缩失效、整块长回去"（列表收起后本来就该是那个高度）。同一份日志里连开两块
+/// 面板、隔着面板换「最近 / 收藏」，也都是这发重放打到卡片和标签上。
+///
+/// 底栏两块面板 / 文件夹齿轮菜单 / 实例设置里那些框是**同一道闸**，注释放的那几处见
+/// `MainWindowPanels.cpp`（`ToolboxPopup`、`FolderMenu::handleAnchorPress`）。
+///
+/// NOTE: 属性**必须在 close() 之前钉** —— Qt 是关窗那一刻读它（`hide_helper`）；而且它
+/// 会被 Qt 在下一次把鼠标事件投给这个控件时清掉（`qapplication.cpp` 里
+/// `setAttribute(WA_NoMouseReplay, false)`），所以挂在构造里没用，只能在外面那一下按需要钉。
+class HomeQuickPopup final : public QFrame {
+public:
+    using QFrame::QFrame;
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override {
+        if (rect().contains(event->position().toPoint())) {
+            QFrame::mousePressEvent(event);  // 落在面板自己身上：照旧往下走
+            return;
+        }
+        // 外面那一下 = "面板该收了"。钉上再收：既收了面板，也不让底下的控件跟着挨一下。
+        setAttribute(Qt::WA_NoMouseReplay, true);
+        close();
+        event->accept();
+    }
+    void mouseDoubleClickEvent(QMouseEvent *event) override { mousePressEvent(event); }
+};
 } // namespace
 
 MainWindowUI::MainWindowUI(QMainWindow *parent) { setupUi(parent); }
@@ -1284,7 +1318,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             }
 
             QObject::connect(card, &QPushButton::clicked, card, [this, card, item]() {
-                auto *popup = new QFrame(card->window(), Qt::Popup | Qt::FramelessWindowHint);
+                auto *popup = new HomeQuickPopup(card->window(), Qt::Popup | Qt::FramelessWindowHint);
                 popup->setAttribute(Qt::WA_DeleteOnClose);
                 popup->setObjectName(QStringLiteral("homeQuickPopup"));
                 markSurface(popup, Theme::workspaceSurfaceValue());

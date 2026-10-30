@@ -1,5 +1,6 @@
 #include "Support.hpp"
 #include "TaskCenterPanel.hpp"
+#include <QMouseEvent>
 int UiUiRefreshCheck(QApplication &app) {
 
         const int fontId = QFontDatabase::addApplicationFont(QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc")));
@@ -438,6 +439,61 @@ int UiUiRefreshCheck(QApplication &app) {
         ui.closeHomeInstancePicker();
         expect(!ui.homeInstancePickerOpen() && curtainCount() == 1, "rapid reversal replaces the previous transition");
         expect(launchCard && launchCard->height() == normalHeight, "closing home list restores the normal launch card height");
+        // 列表展开着的时候，上方被压小的那一截不许因为换「最近 / 收藏」、点开快捷卡片又长回去。
+        //
+        // ★ 最后那两条盯的是同一个真因：点面板外面收掉它的那一下会被 Qt **重放**
+        // （`QApplicationPrivate::closePopup()` → `replayMousePress` → `QWidgetWindow` 尾巴），
+        // 重放落到「列表 / 返回」上，实例列表就跟着收了 —— 压缩失效、整块长回 84。
+        // 面板那头是 `HomeQuickPopup`（`ui/MainWindowUI.cpp`），它在外面那一下先钉
+        // `WA_NoMouseReplay` 再收自己。
+        {
+            const MainWindowUI::HomeQuickItem item = quick;
+            ui.setHomeQuickRows({item}, {item, item, item}, {item, item, item});
+            ui.openHomeInstancePicker({}, {instance}, {}, {});
+            settle();
+            const auto launchHeight = [home] {
+                auto *c = home->findChild<QWidget *>(QStringLiteral("homeCurrentInstanceCard"));
+                return c ? c->height() : -1;
+            };
+            expect(launchHeight() > 0 && launchHeight() <= 56, "expanded list compacts the launch card before tab switching");
+            for (const QString &name : {QStringLiteral("homeQuickRecentTab"), QStringLiteral("homeQuickFavoriteTab")}) {
+                if (auto *tab = preview.findChild<QPushButton *>(name)) tab->click();
+                settle();
+                expect(launchHeight() > 0 && launchHeight() <= 56,
+                       name == QStringLiteral("homeQuickRecentTab")
+                           ? "switching to the recent page keeps the launch card compact"
+                           : "switching to the favorite page keeps the launch card compact");
+            }
+            auto *favSection = home->findChild<QWidget *>(QStringLiteral("homeFavoriteSection"));
+            auto *card = favSection ? favSection->findChild<QPushButton *>(QStringLiteral("homeQuickCard_preview"))
+                                    : nullptr;
+            expect(card != nullptr, "favorite page exposes the preview quick card");
+            if (card) {
+                card->click();
+                settle();
+                auto *popup = preview.findChild<QWidget *>(QStringLiteral("homeQuickPopup"));
+                expect(popup && popup->isVisible(), "clicking the quick card opens its panel");
+                expect(launchHeight() > 0 && launchHeight() <= 56,
+                       "the quick card panel does not grow the launch card back");
+                if (popup) {
+                    // 面板外面那一下：照真窗口的形状发一个 press（局部坐标落在 rect 外）。
+                    const QPointF outside(-5, -5);
+                    QMouseEvent press(QEvent::MouseButtonPress, outside, popup->mapToGlobal(outside.toPoint()),
+                                      Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                    QCoreApplication::sendEvent(popup, &press);
+                    // 属性是被重放前那一刻读的，而且 Qt 下一次投鼠标事件就会清掉 ⇒ 就地断言。
+                    expect(popup->testAttribute(Qt::WA_NoMouseReplay),
+                           "closing the panel from an outside press suppresses the replayed press");
+                    expect(!popup->isVisible(), "an outside press closes the quick card panel");
+                    settle();
+                }
+                expect(ui.homeInstancePickerOpen() && launchHeight() > 0 && launchHeight() <= 56,
+                       "dismissing the quick card panel leaves the expanded list and its compact height alone");
+            }
+            ui.closeHomeInstancePicker();
+            settle();
+            expect(launchHeight() > 56, "closing the list after the panel dance restores the launch card height");
+        }
         settle();
         expect(curtainCount() == 0, "home picker transition removes its snapshot on completion");
         ui.openHomeInstancePicker({}, {instance}, {}, {});
