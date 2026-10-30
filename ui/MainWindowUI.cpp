@@ -1452,7 +1452,22 @@ void MainWindowUI::setHomeQuickMode(HomeQuickMode mode) {
         for (auto *widget : homeQuickSection->findChildren<QWidget *>()) {
             const QString name = widget->objectName();
             if (name == QStringLiteral("homeCurrentInstanceCard") || name.startsWith(QStringLiteral("homeQuickCard_")) ||
-                name.startsWith(QStringLiteral("homeQuickEmpty_"))) widget->setFixedHeight(compact ? 52 : 84);
+                name.startsWith(QStringLiteral("homeQuickEmpty_"))) {
+                widget->setFixedHeight(compact ? 52 : 84);
+                // ★ 只 `setFixedHeight()` 不够：高度上下限的**真出处是 QSS**。
+                // `QStyleSheetStyle::setGeometry()` 在每一次 polish（悬停、按下、换主题都会来）
+                // 拿 `wtfmlQuickCardSize="normal"` 的 `min-height: 82px` 去 `setMinimumHeight()`，
+                // 把 52 顶回 82 —— 用户看到的就是"点一下卡片，压小的那截又长回去"。
+                // 所以档位要跟着切，切完按 QSS 的规矩重新 polish 一次。
+                if (widget->property("wtfmlQuickCard").toBool()) {
+                    const QString size = compact ? QStringLiteral("compact") : QStringLiteral("normal");
+                    if (widget->property("wtfmlQuickCardSize").toString() != size) {
+                        widget->setProperty("wtfmlQuickCardSize", size);
+                        widget->style()->unpolish(widget);
+                        widget->style()->polish(widget);
+                    }
+                }
+            }
             if (name == QStringLiteral("homeCurrentVersion") || name == QStringLiteral("homeCurrentActivity") ||
                 name == QStringLiteral("homeQuickSecondaryActions") || name == QStringLiteral("homeQuickEmptyHint")) widget->setVisible(!compact);
             if (name == QStringLiteral("homeCurrentLaunch")) widget->setMinimumWidth(compact ? 72 : 90);

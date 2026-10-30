@@ -1533,9 +1533,15 @@ QString widgetStyleSheet() {
 
     // 快速启动卡自己按内容档位钉高度。和图标按钮相同，先把通用 QPushButton 的
     // min-height / padding 复位，否则 QSS polish 会把 C++ 里给卡片的高度压回普通按钮。
+    //
+    // ★ `compact` 那一档是主页实例列表展开时用的（上方启动块要让位）。它必须在这里有一档
+    // 自己的 min-height —— 只靠 C++ 的 `setFixedHeight(52)` 拦不住：QSS 的 `min-height`
+    // 是在**每一次 polish** 时 `setMinimumHeight()` 下去的（`QStyleSheetStyle::setGeometry()`），
+    // 而悬停 / 按下 / 换主题都会来一发 polish，于是"点一下卡片，压小的那一截又长回 82"。
     qss += QStringLiteral(
         "QPushButton[wtfmlQuickCard=\"true\"] { padding: 0px; }"
         "QPushButton[wtfmlQuickCardSize=\"normal\"] { min-height: 82px; max-height: 82px; }"
+        "QPushButton[wtfmlQuickCardSize=\"compact\"] { min-height: 52px; max-height: 52px; }"
         "QPushButton[wtfmlQuickCardSize=\"icon\"] { min-height: 54px; max-height: 54px; }");
     qss += QStringLiteral("QPushButton[wtfmlAccountHeader=\"true\"] { padding: 0px; min-height: 62px; }");
 

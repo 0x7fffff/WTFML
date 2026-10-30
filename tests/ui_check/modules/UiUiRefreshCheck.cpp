@@ -469,6 +469,14 @@ int UiUiRefreshCheck(QApplication &app) {
                                     : nullptr;
             expect(card != nullptr, "favorite page exposes the preview quick card");
             if (card) {
+                // ★ 高度上下限的真出处是 QSS（`wtfmlQuickCardSize` 那一档的 min-height）。
+                // 悬停 / 按下 / 换主题都会来一发 polish，把 C++ 里写下的 52 顶回 82 ——
+                // 用户看到的就是"点一下卡片，压小的那截又长回去"。这里手动来一发 polish。
+                card->style()->unpolish(card);
+                card->style()->polish(card);
+                settle();
+                expect(card->height() > 0 && card->height() <= 56,
+                       "repolishing a compacted quick card keeps it at the compact height");
                 card->click();
                 settle();
                 auto *popup = preview.findChild<QWidget *>(QStringLiteral("homeQuickPopup"));
