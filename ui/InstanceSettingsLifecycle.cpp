@@ -135,7 +135,10 @@ void InstanceSettingsDialog::setupLifecyclePages() {
                        findChild<QPushButton *>(restoreSnapshotButtonName()),
                        findChild<QPushButton *>(QStringLiteral("inspectRecoveryButton"))});
             section(tr("复制与导出"));
-            buttonRow({findChild<QPushButton *>(copyButtonName()), findChild<QPushButton *>(exportButtonName())});
+            auto *preset = new QPushButton(tr("另存为预设"), page);
+            preset->setObjectName("instanceExportPresetButton");
+            connect(preset, &QPushButton::clicked, this, &InstanceSettingsDialog::exportPresetRequested);
+            buttonRow({findChild<QPushButton *>(copyButtonName()), findChild<QPushButton *>(exportButtonName()), preset});
             section(tr("删除实例"));
             buttonRow({findChild<QPushButton *>(deleteButtonName())});
             layout->addStretch(1);

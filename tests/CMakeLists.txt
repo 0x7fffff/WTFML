@@ -203,6 +203,7 @@ set(PROJECT_SOURCES
     # 参数，所以 `verify` 的 **PA** 一节拿 `QTemporaryDir` 一喂就能逐格念 —— 包括最难查的
     # 那两格：「一份坏了另外几份照旧列得出来」和「名字里带 `../` 也逃不出预设目录」。
     ${REPO_ROOT}/src/presets/PresetTypes.hpp
+    ${REPO_ROOT}/src/presets/PresetWorkspace.cpp
     ${REPO_ROOT}/src/presets/PresetStore.cpp
     ${REPO_ROOT}/src/presets/PresetStore.hpp
     # 原版设置那一段：`options.txt` 的保序读写（门槛就是

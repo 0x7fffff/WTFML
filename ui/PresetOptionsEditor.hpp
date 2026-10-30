@@ -5,7 +5,8 @@ class QTableWidget;
 class PresetOptionsEditor : public QDialog {
 public:
     struct Entry { QString key, value; };
-    explicit PresetOptionsEditor(const QList<Entry> &entries, QWidget *parent = nullptr);
+    enum class Mode { All, Options, Keys };
+    explicit PresetOptionsEditor(const QList<Entry> &entries, QWidget *parent = nullptr, Mode mode = Mode::All);
     QList<Entry> entries() const;
 private:
     void append(const Entry &entry);

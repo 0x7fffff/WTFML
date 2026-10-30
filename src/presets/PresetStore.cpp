@@ -481,6 +481,7 @@ QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken) {
             }
             return;
         }
+        if (manifest.internalComponent) return;
         PresetSummary summary;
         summary.id = id;
         summary.name = manifest.name;
@@ -489,6 +490,8 @@ QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken) {
         summary.sectionCount = manifest.sections.size();
         summary.category = manifest.category;
         summary.isDefault = (id == index.defaultPresetId);
+        summary.componentCategories = manifest.editorState.value("components").toObject().keys();
+        summary.iconPath = manifest.editorState.value("icon").toString();
         summaries.append(summary);
     };
 

@@ -52,13 +52,13 @@ int UiDownloadTypographyChecks(QMainWindow &window, MainWindowUI &ui) {
                 ++marked;
             }
         }
-        check(categoryList != nullptr && marked == categoryList->count() - 1 &&
-                  marked == MainWindowUI::downloadCategoryKeys().size() - 1 &&
+        check(categoryList != nullptr && marked == categoryList->count() &&
+                  marked == MainWindowUI::downloadCategoryKeys().size() &&
                   serverRefreshIndex >= 0 && serverRefreshIndex < categoryList->count() &&
                   categoryList->item(serverRefreshIndex) != nullptr &&
-                  !categoryList->item(serverRefreshIndex)
+                  categoryList->item(serverRefreshIndex)
                        ->data(MainWindowUI::rowRefreshRole()).toBool(),
-              "除「服务端」以外**一条不落**都挂着刷新那一格（服务端那一栏故意没有）",
+              "所有下载分类都有刷新入口，包括服务端版本列表",
               QString("挂上的=%1 条目=%2")
                   .arg(marked)
                   .arg(categoryList == nullptr ? -1 : categoryList->count()));

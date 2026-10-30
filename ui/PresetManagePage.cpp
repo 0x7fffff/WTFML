@@ -10,6 +10,7 @@
 #include "Theme.hpp"
 
 #include <QCheckBox>
+#include <QIcon>
 #include <QComboBox>
 #include <QFont>
 #include <QFrame>
@@ -46,7 +47,7 @@ protected:
         const auto index = sourceModel()->index(row, 0, parent);
         // Broken presets remain visible in All even during a text search, as before.
         if (index.data(Qt::UserRole + 1).toBool()) return m_category.isEmpty();
-        return (m_category.isEmpty() || index.data(Qt::UserRole + 3).toString() == m_category) &&
+        return (m_category.isEmpty() || index.data(Qt::UserRole + 3).toString() == m_category || index.data(Qt::UserRole + 5).toStringList().contains(m_category)) &&
             (m_query.isEmpty() || index.data(Qt::UserRole + 4).toString().contains(m_query, Qt::CaseInsensitive));
     }
 private:
@@ -119,7 +120,8 @@ void PresetManagePage::buildUi() {
     // 左栏：预设列表 + 增删改
     // ------------------------------------------------------------------
     auto *left = new QWidget(this);
-    left->setFixedWidth(kLeftColumnWidth);
+    left->setMinimumWidth(0);
+    left->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Preferred);
     auto *leftLayout = new QVBoxLayout(left);
     leftLayout->setContentsMargins(0, 0, 0, 0);
     leftLayout->setSpacing(8);
@@ -158,7 +160,9 @@ void PresetManagePage::buildUi() {
     auto *newCategoryRow = new QHBoxLayout;
     newCategoryRow->setContentsMargins(0, 0, 0, 0);
     newCategoryRow->setSpacing(8);
-    newCategoryRow->addWidget(new QLabel(QStringLiteral("新建为"), left));
+    auto *newCategoryLabel = new QLabel(QStringLiteral("新建为"), left);
+    newCategoryLabel->setObjectName("presetNewCategoryLabel");
+    newCategoryRow->addWidget(newCategoryLabel);
     m_newCategoryCombo = new QComboBox(left);
     m_newCategoryCombo->setObjectName(newCategoryComboName());
     m_newCategoryCombo->setToolTip(
@@ -239,7 +243,14 @@ void PresetManagePage::buildUi() {
         if (!id.isEmpty()) emit moveRequested(id, 1);
     });
 
-    columns->addWidget(left);
+    auto *leftScroll = new Theme::GutterScrollArea(this);
+    leftScroll->setObjectName("presetCatalogSidebarScroll");
+    leftScroll->setFixedWidth(kLeftColumnWidth);
+    leftScroll->setWidgetResizable(true);
+    leftScroll->setFrameShape(QFrame::NoFrame);
+    leftScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    leftScroll->setWidget(left);
+    columns->addWidget(leftScroll);
 
     // ------------------------------------------------------------------
     // 右栏：放进滚动区（矮窗口里下边那两段还能滚到）
@@ -566,6 +577,8 @@ void PresetManagePage::setPresets(const QList<PresetItem> &presets,
         item->setData(false, Qt::UserRole + 1);
         item->setData(preset.isDefault, Qt::UserRole + 2);
         item->setData(preset.categoryKey, Qt::UserRole + 3);
+        item->setData(preset.categoryKeys, Qt::UserRole + 5);
+        if (!preset.iconPath.isEmpty()) item->setIcon(QIcon(preset.iconPath));
         item->setData(preset.name + QLatin1Char(' ') + preset.description, Qt::UserRole + 4);
         QString tip = preset.description;
         if (!preset.categoryText.isEmpty()) {
@@ -664,6 +677,9 @@ void PresetManagePage::setCategories(const QList<CategoryOption> &categories) {
                              : QStringLiteral("只看「%1」这一类（本地筛，不读盘）。")
                                    .arg(option.text));
         Theme::markChipButton(chip);
+        // Both bounds are finite so the shared icon-size keeper can restore
+        // chip height after Qt's application stylesheet polish.
+        chip->setFixedSize((kLeftColumnWidth-32)/2,Theme::chipHeight());
         chip->setProperty("presetCategoryKey", option.key);
         const QString key = option.key;
         connect(chip, &QPushButton::clicked, this,
@@ -673,11 +689,13 @@ void PresetManagePage::setCategories(const QList<CategoryOption> &categories) {
         if (option.key == keepFilter) {
             m_filterKey = keepFilter;
         }
-        if (++column >= 3) {
+        if (++column >= 2) {
             column = 0;
             ++row;
         }
     }
+    const int rows=(m_filterChips.size()+1)/2;
+    m_filterRow->setFixedHeight(rows*Theme::chipHeight()+qMax(0,rows-1)*m_filterLayout->verticalSpacing());
     for (int i = 0; i < m_filterLayout->columnCount(); ++i) {
         m_filterLayout->setColumnStretch(i, 1);
     }
@@ -1003,13 +1021,14 @@ void PresetManagePage::refreshActions() {
     const int row = currentPresetRow();
     const bool valid = row >= 0 && !rowIsBroken(row);
     const bool editable = valid && !m_busy && m_detailsAvailable;
+    const bool draft = currentPresetId().startsWith(QStringLiteral("draft:"));
     for (const auto &name : {QStringLiteral("presetEditModsButton"), QStringLiteral("presetEditOptionsButton")})
         if (auto *button = findChild<QPushButton *>(name)) button->setEnabled(editable);
 
     m_newButton->setEnabled(!m_busy);
-    m_duplicateButton->setEnabled(editable);
+    m_duplicateButton->setEnabled(editable && !draft);
     m_deleteButton->setEnabled(editable);
-    m_defaultButton->setEnabled(editable);
+    m_defaultButton->setEnabled(editable && !draft);
     m_saveDetailsButton->setEnabled(editable);
     m_nameEdit->setEnabled(editable);
     m_descriptionEdit->setEnabled(editable);
@@ -1025,8 +1044,8 @@ void PresetManagePage::refreshActions() {
             lastValid = i;
         }
     }
-    m_moveUpButton->setEnabled(editable && row > firstValid);
-    m_moveDownButton->setEnabled(editable && row >= 0 && row < lastValid);
+    m_moveUpButton->setEnabled(editable && !draft && row > firstValid);
+    m_moveDownButton->setEnabled(editable && !draft && row >= 0 && row < lastValid);
 
     const auto item = m_presetList->currentIndex();
     const bool isDefault = item.data(Qt::UserRole + 2).toBool();
@@ -1037,7 +1056,7 @@ void PresetManagePage::refreshActions() {
         m_deleteButton->setText(QStringLiteral("删除"));
     }
 
-    m_previewButton->setEnabled(m_planLoading || (editable && !comboInstanceId(m_applyInstanceCombo).isEmpty()));
+    m_previewButton->setEnabled(!draft && (m_planLoading || (editable && !comboInstanceId(m_applyInstanceCombo).isEmpty())));
     m_applyButton->setEnabled(!m_busy && m_detailsAvailable && m_planCanApply && valid);
     if (!m_applyArmed) {
         m_applyButton->setText(QStringLiteral("应用"));

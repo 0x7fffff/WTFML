@@ -24,6 +24,25 @@ int MwServerCreationChecks(const QDir &root) {
         MainWindow w;
         w.show();
         QApplication::processEvents();
+        {
+            QObject scope;
+            auto *download = byObjectName<QPushButton>(&w, MainWindowUI::downloadNewServerButtonName());
+            auto *tabs = byObjectName<QTabWidget>(&w, MainWindowUI::tabWidgetName());
+            const int oldTab = tabs ? tabs->currentIndex() : 0;
+            bool correctVersion = false, correctOwner = false;
+            QTimer::singleShot(0, &scope, [&] {
+                auto *page = byObjectName<NewServerPage>(&w, MainWindowUI::newServerPageName());
+                auto *version = page ? page->findChild<QLineEdit *>(MainWindowUI::newServerGameVersionEditName()) : nullptr;
+                correctVersion = version && version->text() == QStringLiteral("1.21.1") && version->isReadOnly();
+                correctOwner = tabs && tabs->currentIndex() == MainWindowUI::downloadTabIndex();
+                if (page) page->reject();
+            });
+            if (download) { download->setProperty("selectedVersion", QStringLiteral("1.21.1")); download->click(); }
+            check(download && correctVersion && correctOwner,
+                  "server download config uses the selected version and stays owned by Downloads");
+            if (download) download->setProperty("selectedVersion", QVariant());
+            if (tabs) tabs->setCurrentIndex(oldTab);
+        }
 
         auto *clientChip = byObjectName<QPushButton>(
             &w, MainWindowUI::instanceModeButtonName(MainWindowUI::InstanceMode::Client));

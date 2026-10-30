@@ -31,6 +31,7 @@
 #pragma once
 
 #include <QColor>
+#include <QMap>
 #include <QList>
 #include <QPair>
 #include <QString>
@@ -57,6 +58,7 @@ public:
         /// 不静默换为另一项」—— 悄悄换成"不使用"或别的一份，用户下一次看到的是
         /// "我明明选过"。
         bool available = true;
+        bool composite = false;
     };
 
     /// 一类。`options` 不含「不使用」那一项（那一项每一页都有、是第 0 项）。
@@ -75,6 +77,8 @@ public:
         bool problem = false;
     };
 
+    struct Composite { QString id, name; QMap<QString,QString> parts; };
+    void setComposites(const QList<Composite> &presets);
     explicit PresetInstallPicker(QWidget *parent = nullptr);
 
     /// 弹窗顶上那句「游戏版本 1.21.1 · Forge」（`loader` 为空 = 原版）。

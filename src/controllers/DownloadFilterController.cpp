@@ -56,11 +56,8 @@ void DownloadFilterController::refreshDownloadCategory(int row) {
         return;
     }
     if (row == MainWindowUI::downloadCategoryServerIndex()) {
-        // 「服务端」那一栏**没有"重新问一遍"这回事**：它不向任何资源站
-        // 问东西，那一页只有一句说明 + 一颗「新建服务端…」。界面上那颗行尾刷新和页头
-        // 刷新在这一栏都已经不露了（见 MainWindowUI），这里再挡一道是因为
-        // `refreshDownloadCategory()` 还有别的调用点（键盘/测试），不能靠"用户点不到"
-        // 当保证。
+        if (auto *categories = m_owner.m_ui->getDownloadCategoryList()) categories->setCurrentRow(row);
+        m_owner.m_versionManager->fetchAvailableVersions();
         return;
     }
     // 点的那一类要是现在没选中的，先切过去 —— 不切的话请求飞出去了、结果落在看不见的

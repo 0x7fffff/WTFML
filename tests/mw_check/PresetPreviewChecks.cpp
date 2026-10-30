@@ -1,5 +1,9 @@
 #include "PresetPreviewChecks.hpp"
 #include "controllers/PresetController.hpp"
+#include "PresetEditorPage.hpp"
+#include <QLineEdit>
+#include <QLabel>
+#include <QKeyEvent>
 #include "presets/PresetCatalog.hpp"
 #include "presets/PresetManifestLoader.hpp"
 #include "presets/PresetPreviewLoader.hpp"
@@ -190,5 +194,53 @@ int runPresetPreviewChecks() {
     check(options.open(QIODevice::ReadOnly) && options.readAll() == original && QFileInfo(options).lastModified() == timestamp && tree() == beforeTree,
           "preview leaves target bytes, timestamps and directory tree unchanged");
     options.close();
+    {
+        QTemporaryDir editorFixture;
+        const auto previousDefault=qApp->property("wtfml.testDefaultMinecraftDir");
+        qApp->setProperty("wtfml.testDefaultMinecraftDir",editorFixture.path());
+        QWidget host;
+        PresetController editorController(nullptr,&host,{});
+        int choice=3;
+        editorController.setEditorPrompt([&](const QString &,const QString &,const QStringList &){return choice;});
+        editorController.openEditor();
+        auto *editor=static_cast<PresetEditorPage *>(host.findChild<QWidget *>("presetEditorPage"));
+        auto *name=host.findChild<QLineEdit *>("presetEditorName");
+        check(editor&&name,"unified preset editor opens without creating a published preset");
+        auto *embeddedManager=host.findChild<PresetManagePage *>();
+        check(embeddedManager&&!embeddedManager->isWindow()&&embeddedManager->parentWidget()==&host,"preset catalog is embedded in the management host rather than a dialog window");
+        check(editor&&!editor->isWindow(),"preset editor is embedded rather than a second application window");
+        check(embeddedManager&&embeddedManager->minimumSizeHint().height()==0,"embedded catalog does not force the management mode controls to collapse in a short window");
+        if(editor&&name){
+            name->setText("Editor leave test");
+            check(!editorController.leaveEditor()&&name->text()=="Editor leave test","cancel departure retains the complete unsaved editor");
+            choice=1;
+            check(!editorController.leaveEditor()&&editor->isDirty(),"failed publication keeps the editor and its unsaved changes");
+            choice=0;
+            const auto draftId=editor->document().value("id").toString();
+            check(editorController.leaveEditor(),"save-as-draft departure waits for the save and then leaves");
+            check(embeddedManager&&!embeddedManager->isHidden(),"leaving the editor reveals the embedded preset catalog");
+            QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);
+            QApplication::sendEvent(embeddedManager,&escape);
+            check(!embeddedManager->isHidden(),"Escape does not dismiss the embedded preset catalog into a blank host");
+            auto *categoryChip=embeddedManager->findChild<QPushButton *>(PresetManagePage::categoryFilterName(0));
+            check(categoryChip&&categoryChip->minimumHeight()>=24&&categoryChip->maximumHeight()==24,"embedded preset category buttons retain a readable height after stylesheet polish");
+            bool saved=false;Presets::loadManifest(PresetController::presetsRoot()+"/drafts",draftId,&saved);
+            check(saved,"departure draft is persisted before the editor closes");
+            editorController.openEditor(draftId,true);
+            auto pages=host.findChildren<QWidget *>("presetEditorPage");PresetEditorPage *active=nullptr;
+            for(auto *page:pages)if(!page->isHidden())active=static_cast<PresetEditorPage *>(page);
+            check(active&&active->document().value("name")=="Editor leave test","saved draft can be reopened as one editable document");
+            choice=2;editorController.leaveEditor();
+            auto legacy=Presets::create(PresetController::presetsRoot(),"Legacy repeated sections");
+            Presets::PresetSection first;first.id=Presets::newPresetId();first.kind=Presets::SectionKind::VanillaOptions;first.items=QJsonArray{QJsonObject{{"key","guiScale"},{"value","2"}}};
+            auto second=first;second.id=Presets::newPresetId();second.mode=Presets::ApplyMode::Replace;
+            legacy.sections={first,second};check(Presets::saveManifest(PresetController::presetsRoot(),legacy),"repeated-section editor fixture is saved");
+            editorController.openEditor(legacy.id);
+            auto *status=embeddedManager->findChild<QLabel *>(PresetManagePage::statusLabelName());
+            if(status&&!status->text().contains(QString::fromUtf8("多段")))std::printf("Legacy editor status: %s\n",status->text().toUtf8().constData());
+            check(status&&status->text().contains(QString::fromUtf8("多段")),"legacy repeated sections are refused rather than silently changing overwrite order");
+        }
+        qApp->setProperty("wtfml.testDefaultMinecraftDir",previousDefault);
+    }
     return failures;
 }

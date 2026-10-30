@@ -17,6 +17,9 @@
 #include "VersionIcons.hpp"
 #include "VersionTreeDelegate.hpp"
 #include "WindowChrome.hpp"
+#include "RowActivation.hpp"
+#include <QPointer>
+#include <QScrollBar>
 
 #include <QColor>
 #include <QEvent>
@@ -105,7 +108,7 @@ QWidget *MainWindowUI::setupDownloadPage() {
             // MainWindow::eventFilter 接 —— 判据是 VersionTreeDelegate::refreshRect()。
             // NOTE: 这里是**两参数**那个 setData（QListWidgetItem 认的是 role，没有列）——
             // 三参数那一个是 QTreeWidgetItem 的，写在这儿编不过。
-            if (i != downloadCategoryServerIndex()) {
+            {
                 item->setData(rowRefreshRole(), true);
             }
         }
@@ -563,12 +566,85 @@ void MainWindowUI::setupDownloadResourcePages() {
             hint->setObjectName(downloadServerHintName());
             hint->setWordWrap(true);
             serverLayout->addWidget(hint);
+            auto *search = new QLineEdit(serverPage);
+            search->setObjectName(QStringLiteral("serverVersionFilter"));
+            search->setPlaceholderText(versionFilterPlaceholderText()); search->setClearButtonEnabled(true);
+            serverLayout->addWidget(search);
+            auto *versions = new QTreeWidget(serverPage);
+            versions->setObjectName(QStringLiteral("serverVersionTree"));
+            versions->setHeaderHidden(true); versions->setRootIsDecorated(false);
+            versions->setIndentation(0); versions->setUniformRowHeights(true);
+            versions->setItemDelegate(new VersionTreeDelegate(versions, true));
+            versions->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+            serverLayout->addWidget(versions, 1);
             downloadNewServerButton = new QPushButton(newServerText(), serverPage);
             downloadNewServerButton->setObjectName(downloadNewServerButtonName());
-            // 「新建服务端…」= 造一个新东西（和实例页那颗同一档，见那边那段）。
-            Theme::markButton(downloadNewServerButton, Theme::ButtonKind::Accent);
-            serverLayout->addWidget(downloadNewServerButton);
-            serverLayout->addStretch(1);
+            downloadNewServerButton->hide(); // compatibility action; versions are the visible entry point.
+            const auto filter = [versions, search] {
+                const QStringList terms = search->text().trimmed().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+                for (int i = 0; i < versions->topLevelItemCount(); ++i) {
+                    auto *group = versions->topLevelItem(i); bool any = false;
+                    for (int j = 0; j < group->childCount(); ++j) {
+                        auto *item = group->child(j); bool matches = true;
+                        for (const auto &term : terms) matches &= item->text(0).contains(term, Qt::CaseInsensitive);
+                        item->setHidden(!matches); any |= matches;
+                    }
+                    group->setHidden(!any);
+                    if (!terms.isEmpty() && any) group->setExpanded(true);
+                }
+            };
+            QObject::connect(search, &QLineEdit::textChanged, versions, filter);
+            auto *sync = new QTimer(versions); sync->setSingleShot(true);
+            const QPointer<QTreeWidget> source = versionTree;
+            QObject::connect(sync, &QTimer::timeout, versions, [source, versions, hint, filter, downloadStack = downloadStack, serverPage] {
+                if (!source || !versions->property("sourceDirty").toBool()) return;
+                // Hidden service pages must not clone the entire game catalog during navigation.
+                if (downloadStack->currentWidget() != serverPage) return;
+                versions->setProperty("sourceDirty", false);
+                versions->setProperty("syncRevision", versions->property("syncRevision").toInt()+1);
+                versions->setUpdatesEnabled(false);
+                QSet<QString> expanded;
+                const bool initialized = versions->property("initialized").toBool();
+                for (int i = 0; i < versions->topLevelItemCount(); ++i)
+                    if (versions->topLevelItem(i)->isExpanded()) expanded.insert(versions->topLevelItem(i)->data(0, Qt::UserRole).toString());
+                const QSignalBlocker blocker(versions);
+                const int scroll = versions->verticalScrollBar()->value();
+                versions->clear();
+                for (int i = 0; i < source->topLevelItemCount(); ++i) {
+                    auto *original = source->topLevelItem(i);
+                    if (original->childCount() == 0) continue;
+                    auto *group = original->clone(); versions->addTopLevelItem(group);
+                    group->setExpanded(initialized ? expanded.contains(group->data(0, Qt::UserRole).toString()) : original->isExpanded());
+                }
+                if (versions->topLevelItemCount() > 0) versions->setProperty("initialized", true);
+                hint->setText(QStringLiteral("暂无可用版本，请刷新重试。"));
+                hint->setVisible(versions->topLevelItemCount() == 0);
+                versions->verticalScrollBar()->setValue(scroll);
+                filter();
+                versions->setUpdatesEnabled(true);
+            });
+            const auto invalidate = [versions, sync, stack = downloadStack, serverPage] {
+                versions->setProperty("sourceDirty", true);
+                if (stack->currentWidget() == serverPage) sync->start(0);
+            };
+            QObject::connect(downloadStack, &QStackedWidget::currentChanged, sync,
+                [sync, versions, stack = downloadStack, serverPage](int) {
+                    if (stack->currentWidget() == serverPage && versions->property("sourceDirty").toBool()) sync->start(0);
+                });
+            for (auto signal : {&QAbstractItemModel::modelReset})
+                QObject::connect(versionTree->model(), signal, sync, invalidate);
+            QObject::connect(versionTree->model(), &QAbstractItemModel::rowsInserted, sync, invalidate);
+            QObject::connect(versionTree->model(), &QAbstractItemModel::rowsRemoved, sync, invalidate);
+            QObject::connect(versionTree->model(), &QAbstractItemModel::dataChanged, sync, invalidate);
+            versions->setProperty("sourceDirty", true);
+            connectRowActivation(versions, [this](QTreeWidgetItem *item) {
+                if (!item) return;
+                if (!item->parent()) { item->setExpanded(!item->isExpanded()); return; }
+                const QString id = item->data(versionTreeKeyColumn(), Qt::UserRole).toString();
+                if (id.isEmpty()) return;
+                downloadNewServerButton->setProperty("selectedVersion", id);
+                downloadNewServerButton->click();
+            }, [](QTreeWidgetItem *item) { return item && !item->parent(); });
             downloadStack->addWidget(serverPage);
             continue;
         }
@@ -779,7 +855,7 @@ void MainWindowUI::setDownloadHeaderRow(int row) {
     // 用不上：它管的是"这一页有没有说明"，而这里每一类都有一句）。
     downloadHeaderSubtitleLabel->setVisible(downloadCategoryKeys().value(row) == QStringLiteral("datapack"));
     if (downloadHeaderRefreshButton != nullptr) {
-        downloadHeaderRefreshButton->setVisible(row != downloadCategoryServerIndex());
+        downloadHeaderRefreshButton->setVisible(true);
     }
 }
 

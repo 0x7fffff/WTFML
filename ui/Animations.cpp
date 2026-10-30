@@ -853,7 +853,9 @@ void pageAppear(QWidget *widget, const QColor &backdrop) {
     curtain->setFrame(rise, from);
     // NOTE: 收尾只是**收起来**，不删 —— 同一个控件上下一次换页接着用这一块（省一次生灭，
     // 也躲开"上一发还在跑、下一发就来了"那一下的悬空指针）。
-    runProgress(curtain, curtain, 0.0, 1.0, appearMs(), stepMs(),
+    // Page transitions follow elapsed time: dropped frames must not stretch a
+    // 250 ms transition into a visible stall while a large list is laid out.
+    runProgress(curtain, curtain, 0.0, 1.0, appearMs(), 0,
                 [c = QPointer<QWidget>(curtain)]() {
                     if (c != nullptr) {
                         c->hide();

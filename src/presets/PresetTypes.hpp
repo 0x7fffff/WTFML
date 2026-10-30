@@ -405,6 +405,9 @@ struct PresetManifest {
     /// （旧混合预设也能带 —— 见 `PresetStore::categoryMismatch()`）。
     QList<ModReference> modReferences;
     QList<PresetSection> sections;
+    // Editor-only content includes disabled parts. Runtime sections above contain only enabled parts.
+    QJsonObject editorState;
+    bool internalComponent = false;
 
     /// 拿得出去吗。**只判身份那两格**：载荷坏不坏归 `PresetStore::loadManifest()` 说。
     bool isValid() const { return !id.isEmpty() && !name.isEmpty(); }
@@ -446,6 +449,8 @@ struct PresetSummary {
     PresetCategory category = PresetCategory::Unset;
     /// 是不是那个唯一的默认项。
     bool isDefault = false;
+    QStringList componentCategories;
+    QString iconPath;
 };
 
 /// 读不回来的那一份（`PresetStore::list()` 的第二个产物）。
@@ -565,6 +570,8 @@ inline QJsonObject manifestToJson(const PresetManifest &manifest) {
         sections.append(sectionToJson(section));
     }
     root.insert(QStringLiteral("sections"), sections);
+    if (!manifest.editorState.isEmpty()) root.insert(QStringLiteral("editorState"), manifest.editorState);
+    if (manifest.internalComponent) root.insert(QStringLiteral("internalComponent"), true);
     return root;
 }
 
@@ -615,6 +622,10 @@ inline PresetManifest manifestFromJson(const QByteArray &bytes, bool *ok = nullp
     manifest.id = root.value(QStringLiteral("id")).toString();
     manifest.name = root.value(QStringLiteral("name")).toString();
     manifest.description = root.value(QStringLiteral("description")).toString();
+    if (root.contains(QStringLiteral("editorState")) && !root.value(QStringLiteral("editorState")).isObject()) return PresetManifest();
+    if (root.contains(QStringLiteral("internalComponent")) && !root.value(QStringLiteral("internalComponent")).isBool()) return PresetManifest();
+    manifest.editorState = root.value(QStringLiteral("editorState")).toObject();
+    manifest.internalComponent = root.value(QStringLiteral("internalComponent")).toBool();
     manifest.createdAt =
         QDateTime::fromString(root.value(QStringLiteral("createdAt")).toString(), Qt::ISODateWithMs);
     manifest.updatedAt =

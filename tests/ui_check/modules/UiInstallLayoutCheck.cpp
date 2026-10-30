@@ -1,4 +1,7 @@
 #include "Support.hpp"
+#include "PresetEditorPage.hpp"
+#include "PresetInstallPicker.hpp"
+#include <QJsonArray>
 int UiInstallLayoutCheck(QApplication &app) {
 
         const int fontId = QFontDatabase::addApplicationFont(QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc")));
@@ -94,6 +97,51 @@ int UiInstallLayoutCheck(QApplication &app) {
                 QDir().mkpath(QStringLiteral("build/install-previews"));
                 window.grab().save(QStringLiteral("build/install-previews/install-%1.png").arg(size.width()));
             }
+        }
+        {
+            ui.setInstanceMode(MainWindowUI::InstanceMode::Preset);
+            auto *instancePage=ui.getTabWidget()->widget(MainWindowUI::instancesTabIndex());
+            auto *folderColumn=instancePage->findChild<QWidget *>(MainWindowUI::leftColumnName("instance"));
+            expect(folderColumn&&folderColumn->isHidden(),"preset mode removes the entire folder column including its reserved width");
+            ui.navigationGuard=[] { return false; };
+            if (auto *client=ui.getInstanceModeButton(MainWindowUI::InstanceMode::Client))client->click();
+            expect(ui.getInstanceModeStack()->currentIndex()==static_cast<int>(MainWindowUI::InstanceMode::Preset) && ui.getInstanceModeButton(MainWindowUI::InstanceMode::Preset)->isChecked(),"cancelled preset departure keeps the active mode indicator");
+            ui.navigationGuard={};
+            ui.setInstanceMode(MainWindowUI::InstanceMode::Client);
+            expect(folderColumn&&!folderColumn->isHidden(),"returning to client instances restores the folder column");
+            PresetEditorPage editor(QJsonObject{{"id","editor-test"},{"name","Original"}});
+            if(app.arguments().contains(QStringLiteral("--install-layout-preview"))){
+                editor.resize(980,640);editor.show();app.processEvents();QDir().mkpath("build/install-previews");editor.grab().save("build/install-previews/preset-editor.png");
+            }
+            editor.confirmReset=[](const QString &){return true;};
+            auto *name=editor.findChild<QLineEdit *>("presetEditorName");
+            expect(!editor.isDirty(),"new editor opens without false unsaved changes");
+            name->setText("Changed");expect(editor.isDirty(),"name edits join the unsaved document");
+            auto *nav=editor.findChild<QListWidget *>("presetEditorNavigation");int back=0;editor.backRequested=[&]{++back;};nav->setCurrentRow(2);
+            expect(editor.isDirty()&&back==0,"internal page switches retain edits without leaving");
+            editor.findChild<QPushButton *>("presetEditorRestore")->click();
+            expect(!editor.isDirty()&&editor.document().value("name")=="Original","restore reloads the last saved document");
+            bool draft=false;editor.saveRequested=[&](bool value){draft=value;};editor.findChild<QPushButton *>("presetEditorSaveDraft")->click();
+            expect(draft,"draft button emits a draft save rather than publishing");
+            editor.findChild<QPushButton *>("presetEditorClear")->click();
+            expect(editor.document().value("name")=="Original","clear preserves the preset name");
+            QJsonObject packs{{"id","pack-test"},{"name","Packs"},{"sections",QJsonArray{QJsonObject{{"id","resourcePacks"},{"kind","genericFiles"},{"items",QJsonArray{QJsonObject{{"path","resourcepacks/low.zip"},{"enabled",true},{"priority",0}},QJsonObject{{"path","resourcepacks/high.zip"},{"enabled",true},{"priority",1}}}}}}}};
+            PresetEditorPage packEditor(packs);
+            auto *packTable=packEditor.findChild<QTableWidget *>("presetEditorFiles_resourcePacks");
+            expect(packTable&&packTable->item(0,0)->text().endsWith("high.zip"),"resource pack editor displays highest priority first");
+            const auto storedPacks=packEditor.document().value("sections").toArray().first().toObject().value("items").toArray();
+            expect(storedPacks.first().toObject().value("priority").toInt()>storedPacks.last().toObject().value("priority").toInt(),"saving the resource pack editor preserves effective pack priority");
+            PresetEditorPage metadataEditor(QJsonObject{{"id","metadata"},{"name","Metadata"},{"sections",QJsonArray{QJsonObject{{"id","original-section"},{"kind","vanillaOptions"},{"mode","replace"},{"items",QJsonArray{QJsonObject{{"key","guiScale"},{"value","2"},{"extra","retained"}}}}}}}});
+            const auto metadata=metadataEditor.document().value("sections").toArray().first().toObject();
+            expect(metadata.value("mode")=="replace"&&metadata.value("items").toArray().first().toObject().value("extra")=="retained","editing preserves existing section policy and item metadata");
+            PresetInstallPicker picker;
+            PresetInstallPicker::Category game;game.key="gameSettings";game.title="Game";game.options.append({"game-child","Composite",true,true});
+            PresetInstallPicker::Category mods;mods.key="mods";mods.title="Mods";mods.options.append({"mod-child","Composite",true,true});
+            picker.setCategories({game,mods});picker.setComposites({{"parent","Composite",{{"gameSettings","game-child"},{"mods","mod-child"}}}});
+            picker.findChild<QComboBox *>("presetCompositeCombo")->setCurrentIndex(1);
+            expect(picker.selectedId("gameSettings")=="game-child"&&picker.selectedId("mods")=="mod-child","composite selection maps to independent category parts");
+            picker.findChild<QCheckBox *>("presetCompositePart_mods")->setChecked(false);
+            expect(picker.selectedId("mods").isEmpty()&&picker.selectedId("gameSettings")=="game-child","unchecking a composite part leaves other parts selected");
         }
         return failures == 0 ? 0 : 1;
     

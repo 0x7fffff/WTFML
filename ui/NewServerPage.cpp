@@ -205,6 +205,10 @@ void NewServerPage::setFlavors(const QList<FlavorOption> &flavors, const QString
 void NewServerPage::setDefaults(const QString &name, const QString &gameVersion) {
     const QSignalBlocker b1(m_nameEdit);
     const QSignalBlocker b2(m_gameVersionEdit);
+    if (m_gameVersionEdit->text() != gameVersion) {
+        const QSignalBlocker b3(m_loaderEdit), b4(m_installerEdit), b5(m_buildEdit);
+        m_loaderEdit->clear(); m_installerEdit->clear(); m_buildEdit->clear();
+    }
     m_nameEdit->setText(name);
     m_gameVersionEdit->setText(gameVersion);
 }

@@ -1,6 +1,30 @@
 #include "Support.hpp"
+#include "presets/PresetWorkspace.hpp"
 
 void runPresetStoreTests() {
+    {
+        QTemporaryDir dir;
+        QJsonObject doc{{"id",Presets::newPresetId()},{"name",QStringLiteral("常用")}};
+        auto empty=Presets::saveEditorDocument(dir.path(),doc,false);
+        check(!empty.ok,"Empty editor documents cannot be published");
+        auto draft=Presets::saveEditorDocument(dir.path(),doc,true);
+        check(draft.ok&&Presets::list(dir.path()).isEmpty()&&Presets::list(dir.path()+"/drafts").size()==1,"Blank drafts are stored separately from installation candidates");
+        doc["sections"]=QJsonArray{QJsonObject{{"id","vanillaOptions"},{"kind","vanillaOptions"},{"items",QJsonArray{QJsonObject{{"key","guiScale"},{"value","2"}}}}}};
+        doc["modReferences"]=QJsonArray{QJsonObject{{"platform","modrinth"},{"projectId","sodium"},{"name","Sodium"}}};
+        auto composite=Presets::saveEditorDocument(dir.path(),doc,false);
+        check(composite.ok&&composite.manifest.editorState.value("components").toObject().size()==2&&Presets::list(dir.path()).size()==1,"Composite publishes two private parts and one public preset");
+        const auto parts=composite.manifest.editorState.value("components").toObject();bool ok=false;
+        auto modPart=Presets::loadManifest(dir.path(),parts.value("mods").toString(),&ok);
+        check(ok&&modPart.internalComponent&&modPart.sections.isEmpty()&&modPart.modReferences.size()==1,"Selecting composite Mods applies only its mod component");
+        auto oldBytes=Presets::manifestToBytes(Presets::loadManifest(dir.path(),doc.value("id").toString()));
+        doc["name"]=QStringLiteral("未发布修改");auto newerDraft=Presets::saveEditorDocument(dir.path(),doc,true);
+        check(newerDraft.ok&&Presets::manifestToBytes(Presets::loadManifest(dir.path(),doc.value("id").toString()))==oldBytes,"Saving a draft preserves the currently published preset");
+        doc["enabledParts"]=QJsonObject{{"mods",false}};auto disabled=Presets::saveEditorDocument(dir.path(),doc,false);
+        check(disabled.ok&&disabled.manifest.category==Presets::PresetCategory::GameSettings&&disabled.manifest.modReferences.isEmpty()&&!disabled.document.value("modReferences").toArray().isEmpty(),"Disabled content remains editable but never enters the runtime payload");
+        doc["enabledParts"]=QJsonObject{{"mods",false},{"gameSettings",false}};
+        check(!Presets::saveEditorDocument(dir.path(),doc,false).ok,"Publishing requires at least one enabled populated part");
+        auto unsafe=doc;unsafe["id"]="../outside";check(!Presets::saveEditorDocument(dir.path(),unsafe,true).ok,"Editor saves reject unsafe preset IDs");
+    }
     {
         Presets::PresetManifest good; good.id = Presets::newPresetId(); good.name = QStringLiteral("边界");
         const auto json = Presets::manifestToJson(good);

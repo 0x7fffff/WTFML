@@ -272,6 +272,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     bar->setCurrentNav(tabWidget->currentIndex());
     // 条只发信号、不自己动手（见 TitleBar.hpp）：翻页是这一层的事。
     QObject::connect(bar, &TitleBar::navRequested, tabWidget, [this](int index) {
+        if (navigationGuard && !navigationGuard()) return;
         const int sourceIndex = tabWidget->currentIndex();
         const bool reselected = index == sourceIndex;
         // 点上方那四大钮时要**收起任务中心**，不能卡在别的页上没反应。
@@ -1045,12 +1046,28 @@ QWidget *MainWindowUI::setupInstancePage() {
 
 
 void MainWindowUI::setInstanceMode(InstanceMode mode) {
+    if (navigationGuard && !navigationGuard()) {
+        const int current = instanceModeStack ? instanceModeStack->currentIndex() : 0;
+        for (int i=0;i<instanceModeButtons.size();++i)
+            if (instanceModeButtons[i]) instanceModeButtons[i]->setChecked(i==current);
+        return;
+    }
     const int index = static_cast<int>(mode);
     if (instanceModeStack == nullptr || index < 0 || index >= instanceModeStack->count()) {
         return;  // 界面没搭出来 / 越界：什么都不改（见头文件那段）
     }
     // 三颗按钮的勾和停着的那一页**一起**改（这是这个函数存在的全部意义）。
     instanceModeStack->setCurrentIndex(index);
+    // Presets belong to the launcher, not the selected game folder. Their own
+    // catalog/editor navigation occupies the left column in this mode.
+    if (auto *page = tabWidget->widget(instancesTabIndex())) {
+        if (auto *column = page->findChild<QWidget *>(leftColumnName(QStringLiteral("instance"))))
+            column->setVisible(mode != InstanceMode::Preset);
+        if (auto *title = page->findChild<QLabel *>(pageTitleName(QStringLiteral("instance"))))
+            title->setText(mode==InstanceMode::Preset ? QStringLiteral("预设") : QStringLiteral("实例"));
+    }
+    if (groupInstanceButton) groupInstanceButton->setVisible(mode != InstanceMode::Preset);
+    if (instanceFolderLabel) instanceFolderLabel->setVisible(mode != InstanceMode::Preset);
     for (int i = 0; i < instanceModeButtons.size(); ++i) {
         if (instanceModeButtons.at(i) != nullptr) {
             instanceModeButtons.at(i)->setChecked(i == index);
@@ -1105,6 +1122,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 const QString version = item.detail.section(QLatin1Char('\n'), 0, 0);
                 const QString activity = item.detail.section(QLatin1Char('\n'), 1);
                 auto *detail = makeHomeHint(version, card);
+                detail->setObjectName(QStringLiteral("homeCurrentVersion"));
                 detail->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
                 detail->setToolTip(item.detail);
                 identity->addWidget(detail);
@@ -1117,6 +1135,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 activityLabel->setToolTip(activity);
                 line->addWidget(activityLabel, 1);
                 auto *launch = new QPushButton(QStringLiteral("启动"), card);
+                launch->setObjectName(QStringLiteral("homeCurrentLaunch"));
                 launch->setMinimumWidth(90);
                 Theme::markButton(launch, Theme::ButtonKind::Primary);
                 QObject::connect(launch, &QPushButton::clicked, launch, [this, key = item.key]() {
@@ -1173,6 +1192,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 emptyLayout->addWidget(plus, 1, Qt::AlignCenter);
                 if (!iconsOnly) {
                     auto *hint = makeHomeHint(QStringLiteral("添加实例"), card);
+                    hint->setObjectName(QStringLiteral("homeQuickEmptyHint"));
                     hint->setAlignment(Qt::AlignCenter);
                     emptyLayout->addWidget(hint);
                 }
@@ -1211,7 +1231,10 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             content->addLayout(identity, 1);
 
             if (!iconsOnly) {
-                auto *actions = new QHBoxLayout;
+                auto *actionHost = new QWidget(card);
+                actionHost->setObjectName(QStringLiteral("homeQuickSecondaryActions"));
+                auto *actions = new QHBoxLayout(actionHost);
+                actions->setContentsMargins(0, 0, 0, 0);
                 actions->setSpacing(6);
                 auto *launch = new QPushButton(QStringLiteral("启动"), card);
                 Theme::markButton(launch, Theme::ButtonKind::Accent);
@@ -1232,7 +1255,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                     });
                     actions->addWidget(edit);
                 }
-                content->addLayout(actions);
+                content->addWidget(actionHost);
             }
 
             QObject::connect(card, &QPushButton::clicked, card, [this, card, item]() {
@@ -1252,22 +1275,26 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 auto *layout = new QVBoxLayout(body);
                 layout->setContentsMargins(16, 14, 16, 14);
                 layout->setSpacing(8);
-                auto *title = new QLabel(item.name, popup);
+                auto *identity = new QHBoxLayout;
+                identity->setSpacing(12);
+                auto *icon = new QLabel(body);
+                icon->setFixedSize(48, 48);
+                icon->setPixmap(item.icon.isNull() ? VersionIcons::grassBlock(48) : item.icon.pixmap(48, 48));
+                identity->addWidget(icon, 0, Qt::AlignTop);
+                auto *information = new QVBoxLayout;
+                information->setSpacing(4);
+                auto *title = new QLabel(item.name, body);
                 title->setTextFormat(Qt::PlainText);
-                QFont titleFont = title->font();
-                titleFont.setBold(true);
-                title->setFont(titleFont);
-                title->setWordWrap(true);
-                layout->addWidget(title);
-                if (!item.icon.isNull()) {
-                    auto *icon = new QLabel(popup);
-                    icon->setPixmap(item.icon.pixmap(40, 40));
-                    layout->insertWidget(0, icon);
-                }
+                QFont titleFont = Theme::textFont(title->font(), Theme::TextRole::Heading);
+                titleFont.setBold(true); title->setFont(titleFont); title->setWordWrap(true);
+                information->addWidget(title);
                 if (!item.detail.isEmpty()) {
-                    auto *detail = makeHomeHint(item.detail, popup);
-                    layout->addWidget(detail);
+                    auto *detail = makeHomeHint(item.detail, body);
+                    detail->setWordWrap(true);
+                    information->addWidget(detail);
                 }
+                identity->addLayout(information, 1);
+                layout->addLayout(identity);
                 auto *actions = new QHBoxLayout;
                 auto *edit = new QPushButton(QStringLiteral("实例设置"), popup);
                 Theme::markButton(edit, Theme::ButtonKind::Ghost);
@@ -1302,8 +1329,8 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 QScreen *screen = QGuiApplication::screenAt(cardRect.center());
                 if (!screen) screen = card->screen();
                 const QRect available = screen ? screen->availableGeometry() : QRect(card->window()->mapToGlobal(QPoint()), card->window()->size());
-                popup->setFixedWidth(qMin(qMax(320, card->width() * 3), qMax(1, available.width() - 16)));
-                const int contentWidth = qMax(1, popup->width() - 24);
+                popup->setFixedWidth(qMin(440, qMax(1, available.width() - 16)));
+                const int contentWidth = qMax(1, popup->width() - 32);
                 const int contentHeight = qMax(layout->sizeHint().height(), layout->totalHeightForWidth(contentWidth));
                 popup->setGeometry(PopupPlacement::around(cardRect, QSize(popup->width(), contentHeight + 2), available));
                 popup->show();
@@ -1361,6 +1388,21 @@ void MainWindowUI::setHomeQuickMode(HomeQuickMode mode) {
     apply(homeQuickCurrentTab, homeQuickCurrentSection, HomeQuickMode::Current);
     apply(homeQuickRecentTab, homeQuickRecentSection, HomeQuickMode::Recent);
     apply(homeQuickFavoriteTab, homeFavoriteSection, HomeQuickMode::Favorite);
+    const bool compact = homeInstancePickerOpen();
+    if (homeQuickSection) {
+        for (auto *widget : homeQuickSection->findChildren<QWidget *>()) {
+            const QString name = widget->objectName();
+            if (name == QStringLiteral("homeCurrentInstanceCard") || name.startsWith(QStringLiteral("homeQuickCard_")) ||
+                name.startsWith(QStringLiteral("homeQuickEmpty_"))) widget->setFixedHeight(compact ? 52 : 84);
+            if (name == QStringLiteral("homeCurrentVersion") || name == QStringLiteral("homeCurrentActivity") ||
+                name == QStringLiteral("homeQuickSecondaryActions") || name == QStringLiteral("homeQuickEmptyHint")) widget->setVisible(!compact);
+            if (name == QStringLiteral("homeCurrentLaunch")) widget->setMinimumWidth(compact ? 72 : 90);
+        }
+        if (auto *layout = qobject_cast<QVBoxLayout *>(homeQuickSection->layout())) {
+            layout->setContentsMargins(compact ? 8 : 12, compact ? 4 : 8, compact ? 8 : 12, compact ? 4 : 8);
+            layout->setSpacing(compact ? 3 : 7);
+        }
+    }
 }
 
 void MainWindowUI::openHomeInstancePicker(
@@ -1530,6 +1572,7 @@ void MainWindowUI::openHomeInstancePicker(
         homeInstanceSelectButton->setText(QStringLiteral("返回"));
     }
     homePickerHost->show();
+    setHomeQuickMode(m_homeQuickMode);
     if (homeLaunchArea != nullptr) {
         homeLaunchArea->show();
     }
@@ -1554,6 +1597,7 @@ void MainWindowUI::closeHomeInstancePicker() {
     }
     Anim::layoutTransition(tabWidget->widget(0), [this]() {
     homePickerHost->hide();
+    setHomeQuickMode(m_homeQuickMode);
     if (homeHeroArea != nullptr) {
         homeHeroArea->show();
     }

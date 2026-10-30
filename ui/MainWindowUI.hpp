@@ -138,6 +138,7 @@ protected:
 class ThemeAdvancedEditor;
 class MainWindowUI {
 public:
+    std::function<bool()> navigationGuard;
     explicit MainWindowUI(QMainWindow *parent);
 
     // ---------- 控件的 objectName ----------
@@ -683,21 +684,15 @@ public:
     /// **顺序就是界面上从上到下的顺序**，第 0 个是「游戏」（它没有资源表，有别的两张）。
     ///
     /// 「服务端」补在**表尾**（补上「下载页里没有『服务端』入口栏」那条缺口）。
-    /// 补在末尾不是为了好写 —— 第 0/1/2 条的下标
-    /// （downloadCategoryGameIndex / ModpackIndex / ModIndex）是别处写死判据的，
-    /// 插在中间会把它们全挪位。它和「游戏」一样**没有资源搜索那一套**（见
-    /// downloadCategoryServerIndex() 那段），所以后面那些"按分类键建资源页"的循环
-    /// 必须和跳过第 0 条一样跳过它。
+    /// Categories and stacked pages share this order; identify special pages via the helpers below.
     static QStringList downloadCategoryKeys() {
-        return {QStringLiteral("game"), QStringLiteral("modpack"), QStringLiteral("mod"),
-                QStringLiteral("datapack"), QStringLiteral("resourcepack"),
-                QStringLiteral("shader"), QStringLiteral("server")};
+        return {QStringLiteral("game"), QStringLiteral("server"), QStringLiteral("modpack"),
+                QStringLiteral("mod"), QStringLiteral("datapack"), QStringLiteral("resourcepack"), QStringLiteral("shader")};
     }
     /// 条目上写的字。和上面那张表**一一对应**，顺序不能各排各的。
     static QStringList downloadCategoryTexts() {
-        return {QStringLiteral("游戏"), QStringLiteral("整合包"), QStringLiteral("模组"),
-                QStringLiteral("数据包"), QStringLiteral("资源包"), QStringLiteral("光影"),
-                QStringLiteral("服务端")};
+        return {QStringLiteral("游戏"), QStringLiteral("服务端"), QStringLiteral("整合包"), QStringLiteral("模组"),
+                QStringLiteral("数据包"), QStringLiteral("资源包"), QStringLiteral("光影")};
     }
     /// 有内容的那个分类的下标（「游戏」）。写死数字的地方一律用它。
     static int downloadCategoryGameIndex() { return 0; }
@@ -708,20 +703,11 @@ public:
     /// 判据用**下标**（和 downloadCategoryGameIndex() 一个规矩），不在这里再写一遍分类键的
     /// 字面量：键只在 downloadCategoryKeys() 那张表里写一次，两处各写一份迟早会写歪，
     /// 而写歪的症状是"那一页多长了一个控件/少长了一个控件"。表里现在这两条的位子见那张表。
-    static int downloadCategoryModpackIndex() { return 1; }
-    static int downloadCategoryModIndex() { return 2; }
-    /// 「服务端」那一栏的下标（表尾那一条）。
-    ///
-    /// 它**不是**资源搜索页：没有搜索框、没有那张三层树、没有「刷新」那一格（三样
-    /// 都没有意义 —— 它不向任何一家资源站问东西）。那一页只有一句说明 + 一颗
-    /// 「新建服务端…」，按下去走的是实例页那颗「新建服务端…」同一条路
-    /// （`MainWindow::openNewServerPage()`）。
-    ///
-    /// 凡是"除「游戏」以外每一类都建一张资源页"的循环，都要和跳过第 0 条一样跳过
-    /// 这一条 —— 漏了它，那一页会被建成一棵空的三层树，而「刷新」那一格点下去
-    /// 什么都不做（`refreshDownloadCategory()` 认不出这个键）。
-    static int downloadCategoryServerIndex() { return 6; }
-    /// 「服务端」那一页（一个说明 + 一颗按钮）。
+    static int downloadCategoryModpackIndex() { return 2; }
+    static int downloadCategoryModIndex() { return 3; }
+    /// Server selection follows game selection and uses the same fetched version metadata.
+    static int downloadCategoryServerIndex() { return 1; }
+    /// Server version list; resource-catalog controls are intentionally absent.
     static QString downloadServerPageName() { return QStringLiteral("serverPage"); }
     /// 那一页上那句说明（**唯一出处**）。
     ///
@@ -748,7 +734,7 @@ public:
     /// （见 ResourceCatalog::folderForKind 那段）。不写的话，用户装完进游戏找不到，
     /// 只会当成装坏了 —— 那句话是这一页唯一说得出这件事的地方。
     static QStringList downloadSearchHints() {
-        return {QString(),
+        return {QString(), QString(),
                 QStringLiteral("搜索整合包名称"),
                 QStringLiteral("搜索模组名称"),
                 QStringLiteral("搜索数据包名称"),

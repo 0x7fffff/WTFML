@@ -9,6 +9,9 @@
 #include "Theme.hpp"
 
 #include <QComboBox>
+#include <QCheckBox>
+#include <QListView>
+#include <QGridLayout>
 #include <QLabel>
 #include <QPalette>
 #include <QPushButton>
@@ -104,6 +107,16 @@ QWidget *PresetInstallPicker::buildPage(int index, const Category &category, Pag
         combo->setCurrentIndex(row >= 0 ? row : 0);
     }
     layout->addWidget(combo);
+    bool hasComposite = false;
+    for (const auto &option : category.options) hasComposite |= option.composite;
+    if (hasComposite) {
+        auto *show = new QCheckBox(tr("显示综合预设"), page); show->setChecked(true);
+        layout->addWidget(show);
+        connect(show, &QCheckBox::toggled, combo, [combo, category](bool visible) {
+            if (auto *view = qobject_cast<QListView *>(combo->view()))
+                for (int i=0;i<category.options.size();++i) view->setRowHidden(i+1, !visible && category.options[i].composite && combo->currentIndex()!=i+1);
+        });
+    }
 
     auto *status = new QLabel(page);
     status->setObjectName(statusName(index));
@@ -257,4 +270,27 @@ int PresetInstallPicker::indexOfKey(const QString &key) const {
         }
     }
     return -1;
+}
+
+void PresetInstallPicker::setComposites(const QList<Composite> &presets) {
+    if(presets.isEmpty())return;
+    auto *panel=new QWidget(this);panel->setObjectName("presetCompositePicker");auto *grid=new QGridLayout(panel);grid->setContentsMargins(0,0,0,0);
+    auto *combo=new QComboBox(panel);combo->setObjectName("presetCompositeCombo");combo->addItem(tr("综合预设"),QString());for(const auto &preset:presets)combo->addItem(preset.name,preset.id);grid->addWidget(combo,0,0,1,2);
+    auto checks=QMap<QString,QCheckBox *>();int row=1;
+    for(const auto &category:m_categories){auto *check=new QCheckBox(category.title,panel);check->setObjectName("presetCompositePart_"+category.key);check->setEnabled(false);checks[category.key]=check;grid->addWidget(check,row/2+1,row%2);++row;}
+    qobject_cast<QVBoxLayout *>(layout())->insertWidget(1,panel);
+    auto apply=[this,combo,presets,checks](bool select){
+        const int selected=combo->currentIndex()-1;const auto parts=selected>=0?presets[selected].parts:QMap<QString,QString>();
+        for(auto it=checks.begin();it!=checks.end();++it){const QString id=parts.value(it.key());const QSignalBlocker block(it.value());it.value()->setEnabled(!id.isEmpty());
+            const int page=indexOfKey(it.key());auto *field=page>=0?m_pages[page].combo:nullptr;
+            if(select&&field)field->setCurrentIndex(id.isEmpty()?0:field->findData(id));
+            it.value()->setChecked(!id.isEmpty()&&field&&field->currentData().toString()==id);
+        }
+    };
+    connect(combo,QOverload<int>::of(&QComboBox::currentIndexChanged),panel,[apply](int){apply(true);});
+    for(auto it=checks.begin();it!=checks.end();++it){const auto key=it.key();connect(it.value(),&QCheckBox::toggled,panel,[this,combo,presets,key](bool on){const int selected=combo->currentIndex()-1,page=indexOfKey(key);if(selected<0||page<0||!m_pages[page].combo)return;const auto id=on?presets[selected].parts.value(key):QString();auto *field=m_pages[page].combo;field->setCurrentIndex(id.isEmpty()?0:field->findData(id));});}
+    connect(this,&PresetInstallPicker::selectionChanged,panel,[apply](const QString &,const QString &){apply(false);});
+    // Restore the composite label only when the current category choices match it.
+    for(int i=0;i<presets.size();++i){bool same=!presets[i].parts.isEmpty();for(auto it=presets[i].parts.begin();it!=presets[i].parts.end();++it)same &= selectedId(it.key())==it.value();if(same){const QSignalBlocker blocker(combo);combo->setCurrentIndex(i+1);break;}}
+    apply(false);
 }

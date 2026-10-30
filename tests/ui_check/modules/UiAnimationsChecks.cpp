@@ -227,24 +227,12 @@ int UiAnimationsChecks(QApplication &app, QFrame * &bar) {
                       .arg(appearTotal));
         }
 
-        // —— 而那一发是**按帧走**的（：用户报「动画有严重的卡顿感」之后加的）——
-        //
-        // 只判"接线在"——"每一步推得多准、看着顺不顺"是观感，归人眼（用户说过
-        // "可以不那么严格的检查"）。
+        // A slow frame must not lengthen a page transition by replaying every frame.
         {
-            const QList<QTimer *> steppers =
-                curtain != nullptr ? curtain->findChildren<QTimer *>(QStringLiteral("wtfmlAnimStepper"))
-                                   : QList<QTimer *>();
-            const bool live = steppers.size() == 1;
-            check(Anim::stepMs() > 0 && live && steppers.first()->interval() == Anim::stepMs() &&
-                      steppers.first()->isActive(),
-                  "★★ ⑬ 换页那一发是**按帧走**的（每一拍推一档，不是按墙上时钟算）—— "
-                  "迟到的第一拍只推一档，不会一口气跳到半路",
-                  QStringLiteral("步进器 %1 个、周期 %2 ms、该是 %3 ms、在跑 %4")
-                      .arg(steppers.size())
-                      .arg(live ? steppers.first()->interval() : -1)
-                      .arg(Anim::stepMs())
-                      .arg(live && steppers.first()->isActive()));
+            const auto steppers = curtain ? curtain->findChildren<QTimer *>(QStringLiteral("wtfmlAnimStepper")) : QList<QTimer *>();
+            const auto animations = curtain ? curtain->findChildren<QVariantAnimation *>() : QList<QVariantAnimation *>();
+            check(steppers.isEmpty() && !animations.isEmpty() && animations.first()->state() == QAbstractAnimation::Running,
+                  "Page transitions use elapsed time instead of replaying delayed frames");
         }
         {
             QEventLoop lead;

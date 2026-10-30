@@ -102,6 +102,7 @@ set(SOURCE_FILES
     # 「实例预设」那一页的控制器：MainWindow 构造里 new 它，少了这一个
     # 文件链接期报的是 `undefined reference to PresetController::…`。它调的
     # `src/presets/` 那一层在下面（`PresetStore` / 四个适配器 / 计划 / 提取 / 应用）。
+    ${REPO_ROOT}/src/controllers/PresetControllerEditor.cpp
     ${REPO_ROOT}/src/controllers/PresetController.cpp
     ${REPO_ROOT}/src/presets/PresetModInstaller.cpp
     ${REPO_ROOT}/src/presets/PresetModDeployment.cpp
@@ -184,6 +185,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/manage/ModpackExport.cpp
     # 实例预设那一层：PresetController 直接调它。判据本身的断言在
     # `verify` 的 PA–PG 那几节，这儿只是为了让 mw_check 链接得过。
+    ${REPO_ROOT}/src/presets/PresetWorkspace.cpp
     ${REPO_ROOT}/src/presets/PresetStore.cpp
     ${REPO_ROOT}/src/presets/VanillaOptions.cpp
     ${REPO_ROOT}/src/presets/ServerListPreset.cpp
@@ -346,6 +348,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/ui/JavaMismatchDialog.cpp
     ${REPO_ROOT}/ui/JavaManageDialog.cpp
     # 「实例预设」整页：PresetController 直接 new 它。
+    ${REPO_ROOT}/ui/PresetEditorPage.cpp
     ${REPO_ROOT}/ui/PresetManagePage.cpp
     ${REPO_ROOT}/ui/PresetModEditor.cpp
     ${REPO_ROOT}/ui/PresetOptionsEditor.cpp

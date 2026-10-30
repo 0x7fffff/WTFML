@@ -1,3 +1,4 @@
+#include "controllers/PresetController.hpp"
 #include "InstanceDialogController.hpp"
 #include "UpgradeAssessment.hpp"
 #include "InstanceUpdateFlow.hpp"
@@ -2427,7 +2428,18 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     //
     // NOTE: 这一页**不再 accept**（没有「确定」了），所以这里**不看返回值** —— 关页
     // 不等于放弃（该写的早就在上面那些 lambda 里写完了），"关掉"就是"关掉"。
+    bool exportPreset = false;
+    connect(&dialog, &InstanceSettingsDialog::exportPresetRequested, &dialog, [&dialog, &exportPreset] { exportPreset = true; dialog.reject(); });
     dialog.setTitleVisible(false);
     m_owner->m_ui->overlay()->execPage(&dialog, dialog.titleText(), settingsTab);
+    if (exportPreset) {
+        const QString id=targetId;
+        QTimer::singleShot(0,m_owner,[this,id] {
+            m_owner->m_ui->getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
+            m_owner->m_ui->setInstanceMode(MainWindowUI::InstanceMode::Preset);
+            m_owner->m_presetController->open();
+            m_owner->m_presetController->captureForEditor(id);
+        });
+    }
 }
 

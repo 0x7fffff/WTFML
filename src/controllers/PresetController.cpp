@@ -10,6 +10,11 @@
 #include "controllers/PresetController.hpp"
 
 #include "PresetManagePage.hpp"
+#include "PresetEditorPage.hpp"
+#include "Theme.hpp"
+#include "presets/PresetWorkspace.hpp"
+#include <QLineEdit>
+#include <QLabel>
 #include "PresetModEditor.hpp"
 #include "PresetModReview.hpp"
 #include "PresetOptionsEditor.hpp"
@@ -46,6 +51,15 @@
 #include <QVBoxLayout>
 
 namespace {
+
+// Embedded pages must not inherit QDialog's Escape/Enter dismissal behavior.
+class EmbeddedPresetManagePage final : public PresetManagePage {
+public:
+    explicit EmbeddedPresetManagePage(QWidget *parent) : PresetManagePage(parent) {}
+    QSize minimumSizeHint() const override { return QSize(0,0); }
+    void accept() override {}
+    void reject() override {}
+};
 
 Presets::CaptureSelection toSelection(const PresetManagePage::CaptureChoice &choice) {
     Presets::CaptureSelection selection;
@@ -133,7 +147,12 @@ QString sectionKindText(const Presets::PresetSection &section) {
 PresetController::PresetController(VersionManager *versions, QWidget *hostPage, Host host,
                                    QObject *parent)
     : QObject(parent), m_versions(versions), m_hostPage(hostPage), m_host(std::move(host)) {
-    m_catalogLoader = new Presets::CatalogLoader(this, m_host.readCatalog);
+    m_catalogLoader = new Presets::CatalogLoader(this, m_host.readCatalog ? m_host.readCatalog : Presets::CatalogLoader::Reader([](const QString &root) {
+        auto catalog = Presets::readCatalog(root);
+        auto drafts = Presets::list(root + QStringLiteral("/drafts"));
+        for (auto draft : drafts) { draft.id.prepend(QStringLiteral("draft:")); catalog.presets.append(draft); }
+        return catalog;
+    }));
     m_manifestLoader = new Presets::ManifestLoader(this, m_host.readManifest);
     m_previewLoader = new Presets::PreviewLoader(this, m_host.readPreview);
     // 兼容检查那一套：真网络提供方 + 共享缓存 + 检查器。★ 缓存与 checker 都活到这一层
@@ -224,7 +243,12 @@ void PresetController::buildPage() {
     if (m_page != nullptr) {
         return;
     }
-    m_page = new PresetManagePage(m_hostPage);
+    m_page = new EmbeddedPresetManagePage(m_hostPage);
+    // QDialog remains useful to standalone callers, but the management page is
+    // always a child widget here. A parent alone does not remove Qt::Dialog.
+    m_page->setWindowFlags(Qt::Widget);
+    m_page->setWindowModality(Qt::NonModal);
+    m_page->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     // 页面是实例页第三档的常驻内容（不是弹出来的覆盖页）：塞进宿主里，跟着换页容器一起露/收。
     auto *hostLayout = qobject_cast<QVBoxLayout *>(m_hostPage->layout());
     if (hostLayout != nullptr) {
@@ -236,6 +260,7 @@ void PresetController::buildPage() {
         layout->addWidget(m_page);
     }
 
+    m_page->show();
     pushCategories();
 
     connect(m_page, &PresetManagePage::presetSelected, this, &PresetController::selectPreset);
@@ -244,8 +269,18 @@ void PresetController::buildPage() {
     connect(m_page, &PresetManagePage::resumeRequested, this, [this](const QString &preset, const QString &instance) {
         applyPlanImpl(preset, instance, true, true);
     });
-    connect(m_page, &PresetManagePage::createRequested, this,
-            &PresetController::createPreset);
+    connect(m_page, &PresetManagePage::createRequested, this, [this](const QString &) { openEditor(); });
+    if (auto *combo = m_page->findChild<QComboBox *>(PresetManagePage::newCategoryComboName())) combo->hide();
+    if (auto *label = m_page->findChild<QLabel *>(QStringLiteral("presetNewCategoryLabel"))) label->hide();
+    auto *editDocument = m_page->findChild<QPushButton *>(PresetManagePage::saveDetailsButtonName());
+    if (editDocument) {
+        disconnect(editDocument,nullptr,m_page,nullptr);
+        editDocument->setText(tr("编辑预设"));
+        Theme::markButton(editDocument,Theme::ButtonKind::Primary);
+        connect(editDocument, &QPushButton::clicked, this, [this] { if (!m_currentId.isEmpty()) openEditor(m_currentId); });
+    }
+    if (auto *name = m_page->findChild<QLineEdit *>(PresetManagePage::nameEditName())) name->setReadOnly(true);
+    if (auto *description = m_page->findChild<QLineEdit *>(PresetManagePage::descriptionEditName())) description->setReadOnly(true);
     connect(m_page, &PresetManagePage::duplicateRequested, this,
             &PresetController::duplicatePreset);
     connect(m_page, &PresetManagePage::detailsEdited, this,
@@ -253,92 +288,20 @@ void PresetController::buildPage() {
                 saveDetails(id, name, description);
             });
     connect(m_page, &PresetManagePage::deleteRequested, this, &PresetController::removePreset);
-    connect(m_page, &PresetManagePage::editOptionsRequested, this, [this](const QString &id) {
-        bool ok = false;
-        auto manifest = Presets::loadManifest(presetsRoot(), id, &ok);
-        if (!ok || manifest.category != Presets::PresetCategory::GameSettings) return;
-        QList<PresetOptionsEditor::Entry> entries;
-        QSet<QString> seen;
-        QMap<int, Presets::PresetSection> sections;
-        QMap<QString, QJsonObject> original;
-        for (const auto &section : manifest.sections) {
-            if (section.kind != Presets::SectionKind::VanillaOptions && section.kind != Presets::SectionKind::VanillaKeys) continue;
-            if (sections.contains(int(section.kind))) {
-                m_page->showStatus(tr("这份预设有多段同类设置，请先整理为单段，避免改变覆盖顺序。")); return;
-            }
-            sections.insert(int(section.kind), section);
-            for (const auto &value : section.items) {
-                const auto item = value.toObject(); const QString key = item.value("key").toString();
-                if (key.isEmpty() || !item.value("value").isString() || seen.contains(key)) {
-                    m_page->showStatus(tr("设置段含无效或重复键，未自动改写；请先修复或重新提取。")); return;
-                }
-                seen.insert(key); original.insert(key, item);
-                entries.append({key, item.value("value").toString()});
-            }
-        }
-        const QByteArray before = Presets::manifestToBytes(manifest);
-        PresetOptionsEditor editor(entries, m_page);
-        if (editor.exec() != QDialog::Accepted) return;
-        auto current = Presets::loadManifest(presetsRoot(), id, &ok);
-        if (!ok || Presets::manifestToBytes(current) != before) {
-            m_page->showStatus(tr("预设在编辑期间发生变化，未覆盖，请重新打开编辑。")); return;
-        }
-        for (auto it = sections.begin(); it != sections.end(); ++it) it->items = {};
-        for (const auto &entry : editor.entries()) {
-            const auto kind = entry.key.startsWith(QStringLiteral("key_")) ? Presets::SectionKind::VanillaKeys : Presets::SectionKind::VanillaOptions;
-            auto &section = sections[int(kind)]; section.kind = kind;
-            if (section.id.isEmpty()) section.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-            auto item = original.value(entry.key);
-            item.insert("key", entry.key); item.insert("value", entry.value);
-            section.items.append(item);
-        }
-        QList<Presets::PresetSection> output;
-        for (const auto &section : current.sections)
-            if (section.kind != Presets::SectionKind::VanillaOptions && section.kind != Presets::SectionKind::VanillaKeys) output.append(section);
-        for (const auto &section : sections) output.append(section);
-        current.sections = output;
-        current.updatedAt = QDateTime::currentDateTime();
-        if (!Presets::saveManifest(presetsRoot(), current)) { m_page->showStatus(tr("设置保存失败，原预设保留。")); return; }
-        refreshList(id);
-        m_page->showStatus(tr("游戏设置与按键已保存，其它配置段保持不变。"));
-    });
-    connect(m_page, &PresetManagePage::editModsRequested, this, [this](const QString &id) {
-        bool ok = false;
-        auto manifest = Presets::loadManifest(presetsRoot(), id, &ok);
-        if (!ok || manifest.category != Presets::PresetCategory::Mods) return;
-        QList<PresetModEditor::Entry> entries;
-        for (const auto &ref : manifest.modReferences)
-            entries.append({ref.platform, ref.projectId, ref.name, ref.gameVersion, ref.loader, ref.required});
-        PresetModEditor editor(entries, m_page);
-        if (editor.exec() != QDialog::Accepted) return;
-        // Re-read to preserve unrelated metadata changed while the editor was open.
-        manifest = Presets::loadManifest(presetsRoot(), id, &ok);
-        if (!ok || manifest.category != Presets::PresetCategory::Mods) return;
-        manifest.modReferences.clear();
-        for (const auto &entry : editor.entries()) {
-            Presets::ModReference ref;
-            ref.platform = entry.platform; ref.projectId = entry.projectId; ref.name = entry.name;
-            ref.gameVersion = entry.gameVersion; ref.loader = entry.loader; ref.required = entry.required;
-            manifest.modReferences.append(ref);
-        }
-        manifest.updatedAt = QDateTime::currentDateTime();
-        if (!Presets::saveManifest(presetsRoot(), manifest)) { m_page->showStatus(tr("模组清单保存失败，原内容保留。")); return; }
-        cancelModCheck();
-        refreshList(id);
-        m_page->showStatus(tr("模组清单已保存；安装时按目标版本检查并下载。"));
-    });
+    connect(m_page, &PresetManagePage::editOptionsRequested, this, [this](const QString &id) { openEditor(id); });
+    connect(m_page, &PresetManagePage::editModsRequested, this, [this](const QString &id) { openEditor(id); });
     connect(m_page, &PresetManagePage::defaultRequested, this,
             &PresetController::setDefaultPreset);
     connect(m_page, &PresetManagePage::moveRequested, this, &PresetController::movePreset);
     connect(m_page, &PresetManagePage::captureRequested, this,
             [this](const QString &presetId, const QString &instanceId,
                    const PresetManagePage::CaptureChoice &choice) {
-                captureInto(presetId, instanceId, choice);
+                Q_UNUSED(presetId); Q_UNUSED(choice); captureForEditor(instanceId);
             });
     connect(m_page, &PresetManagePage::captureAsNewRequested, this,
             [this](const QString &instanceId, const QString &name, const QString &categoryKey,
                    const PresetManagePage::CaptureChoice &choice) {
-                captureAsNew(instanceId, name, categoryKey, choice);
+                Q_UNUSED(name); Q_UNUSED(categoryKey); Q_UNUSED(choice); captureForEditor(instanceId);
             });
     connect(m_page, &PresetManagePage::planRequested, this, &PresetController::previewPlan);
     connect(m_page, &PresetManagePage::applyTargetChanged, this, [this] { invalidatePreview(); });
@@ -403,10 +366,12 @@ void PresetController::pushCategories() {
     // 旧版混合预设（没写类别）：能看、能用、能复制，但不能**新做**出这一类。
     PresetManagePage::CategoryOption legacy;
     legacy.key = categoryFilterKey(Presets::PresetCategory::Unset);
-    legacy.text = categoryText(Presets::PresetCategory::Unset);
+    legacy.text = tr("旧版");
     legacy.filterOnly = true;
     options.append(legacy);
 
+    options.append({QStringLiteral("composite"), tr("综合预设"), true});
+    options.append({QStringLiteral("draft"), tr("草稿"), true});
     m_page->setCategories(options);
 }
 
@@ -556,6 +521,10 @@ void PresetController::pushCatalog(const Presets::CatalogSnapshot &snapshot, con
         item.isDefault = summary.isDefault;
         item.categoryKey = categoryFilterKey(summary.category);
         item.categoryText = categoryText(summary.category);
+        item.categoryKeys = summary.componentCategories;
+        item.iconPath = summary.iconPath;
+        if (!summary.componentCategories.isEmpty()) { item.categoryKey = QStringLiteral("composite"); item.categoryText = tr("综合预设"); }
+        if (summary.id.startsWith(QStringLiteral("draft:"))) { item.categoryKey = QStringLiteral("draft"); item.categoryText = tr("草稿"); item.name += tr("（草稿）"); }
         items.append(item);
     }
 
@@ -596,7 +565,19 @@ void PresetController::pushCatalog(const Presets::CatalogSnapshot &snapshot, con
 }
 
 void PresetController::selectPreset(const QString &id) {
+    if (m_editor) return;
     if (m_page == nullptr) {
+        return;
+    }
+    if (id.startsWith(QStringLiteral("draft:"))) {
+        m_currentId=id; invalidatePreview();
+        const auto page=m_page;
+        m_manifestLoader->load(presetsRoot()+QStringLiteral("/drafts"),id.mid(6),[this,page,id](const Presets::ManifestSnapshot &snapshot) {
+            if(!page||m_currentId!=id)return;
+            updatePageBusy();
+            if(snapshot.ok)page->showPreset(id,snapshot.manifest.name,QString(),tr("草稿"),sectionItems(snapshot.manifest));
+            else page->showPresetReadError(snapshot.problem);
+        });
         return;
     }
     m_currentId = id;
@@ -629,11 +610,11 @@ void PresetController::pushPresetToPage(const QString &id) {
         page->showPreset(snapshot.id, manifest.name, manifest.description, categoryText(manifest.category),
                        sectionItems(manifest));
         if (auto *edit = page->findChild<QPushButton *>(QStringLiteral("presetEditModsButton")))
-            edit->setVisible(manifest.category == Presets::PresetCategory::Mods);
+            edit->hide();
         if (auto *edit = page->findChild<QPushButton *>(QStringLiteral("presetEditOptionsButton")))
-            edit->setVisible(manifest.category == Presets::PresetCategory::GameSettings);
-        page->setCaptureAvailability(captureMaskFor(manifest.category),
-                                   captureNoteFor(manifest.category));
+            edit->hide();
+        page->setCaptureAvailability(captureMaskFor(manifest.category) & ~(PresetManagePage::CaptureConfig | PresetManagePage::CaptureDefaultConfigs | PresetManagePage::CaptureMalilib | PresetManagePage::CaptureMalilibValues),
+                                   tr("仅提取游戏设置、按键和资源清单。"));
     });
 }
 
@@ -774,6 +755,7 @@ void PresetController::saveDetails(const QString &id, const QString &name,
 }
 
 void PresetController::removePreset(const QString &id) {
+    if(id.startsWith("draft:")){if(Presets::remove(presetsRoot()+"/drafts",id.mid(6)))refreshList();return;}
     bool ok = false;
     QString reason;
     const Presets::PresetManifest manifest =
@@ -796,6 +778,7 @@ void PresetController::removePreset(const QString &id) {
 }
 
 void PresetController::setDefaultPreset(const QString &id, bool makeDefault) {
+    if(id.startsWith("draft:"))return;
     if (!Presets::setDefault(presetsRoot(), makeDefault ? id : QString())) {
         if (m_page != nullptr) {
             m_page->showStatus(QStringLiteral("默认项没能改：那一份已经不在列表里了。"));
@@ -1029,6 +1012,7 @@ QString PresetController::rowText(const Presets::ApplyPlanRow &row) const {
 }
 
 void PresetController::previewPlan(const QString &presetId, const QString &instanceId) {
+    if(presetId.startsWith("draft:")){if(m_page)m_page->showStatus(tr("草稿需保存为预设后才能应用。"));return;}
     if (!m_page || presetId.isEmpty() || instanceId.isEmpty() ||
         presetId != m_page->currentPresetId() || instanceId != m_page->selectedApplyInstanceId()) return;
     if (m_host.isInstanceBusy && m_host.isInstanceBusy(instanceId)) {
@@ -1211,6 +1195,31 @@ void PresetController::applyPlanImpl(const QString &presetId, const QString &ins
         m_page->showApplyResult(view);
         return;
     }
+    const auto componentIds=manifest.editorState.value("components").toObject();
+    if (!componentIds.isEmpty() && !manifest.modReferences.isEmpty()) {
+        Presets::PresetApplyRequest request;
+        request.instanceId=instanceId;request.instanceRoot=instanceRoot(instanceId);
+        request.gameRunning=m_host.isRunning&&m_host.isRunning(instanceId);
+        request.replaceConfirmed=replaceConfirmed;request.resumeUnfinished=resume;
+        request.supportsDataPacks=m_versions&&m_versions->instanceSupportsDatapacks(instanceId);
+        const auto preview=planOnly(manifest,request);
+        if(preview.needsConfirm||!preview.blockedReason.isEmpty()||!preview.problem.isEmpty()) {
+            view.needsConfirm=preview.needsConfirm;view.problem=!preview.blockedReason.isEmpty()?preview.blockedReason:preview.problem;
+            m_page->showApplyResult(view);return;
+        }
+        const auto root=presetsRoot();const auto page=m_page;
+        installModsAfterInstall({componentIds.value("mods").toString()},instanceId,[this,root,page,manifest,request](bool success,const QString &message) {
+            if (!page) { return; }
+            PresetManagePage::ApplyView view;
+            view.lines=message.split('\n');
+            if(!success){view.problem=tr("模组未全部应用，其余部分尚未应用。");page->showApplyResult(view);return;}
+            const auto result=Presets::applyPresetToInstance(root,manifest,request);view.ok=result.ok;view.needsConfirm=result.needsConfirm;
+            view.problem=!result.blockedReason.isEmpty()?result.blockedReason:result.problem;view.backupDir=result.backupDir;
+            for (const auto &row : result.rows) { view.lines.append(applyRowText(row)); }
+            page->showApplyResult(view);
+        });
+        return;
+    }
     if (manifest.category == Presets::PresetCategory::Mods && !manifest.modReferences.isEmpty()) {
         QStringList selected{presetId};
         if (resume) {
@@ -1380,6 +1389,11 @@ QList<Presets::PresetSummary> PresetController::presetsInCategory(
     for (const Presets::PresetSummary &one : availablePresets()) {
         if (one.category == category) {
             out.append(one);
+        } else if (one.componentCategories.contains(categoryKey)) {
+            bool loaded = false;
+            const auto parent = Presets::loadManifest(presetsRoot(), one.id, &loaded);
+            const auto child = parent.editorState.value("components").toObject().value(categoryKey).toString();
+            if (loaded && Presets::isValidPresetId(child)) { auto part = one; part.id = child; part.category = category; out.append(part); }
         }
     }
     return out;

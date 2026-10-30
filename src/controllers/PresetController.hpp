@@ -42,6 +42,7 @@ class ActivityCenterController;
 #include "presets/PresetCompatibility.hpp"
 #include "presets/PresetTypes.hpp"
 
+class PresetEditorPage;
 class VersionManager;
 class QComboBox;
 class QWidget;
@@ -105,6 +106,11 @@ public:
 
     /// 刷新管理页（实例页切到「预设」那一档时调用；页面是常驻的，这里只重新灌数据）。
     void open();
+    void openEditor(const QString &id = QString(), bool draft = false);
+    bool leaveEditor();
+    void captureForEditor(const QString &instanceId);
+    void setEditorPrompt(std::function<int(const QString &, const QString &, const QStringList &)> prompt) { m_editorPrompt = std::move(prompt); }
+
     bool catalogLoading() const;
     bool detailsLoading() const;
     bool previewLoading() const;
@@ -317,6 +323,13 @@ private:
     QPointer<QWidget> m_hostPage;
     Host m_host;
     QPointer<PresetManagePage> m_page;
+    QPointer<PresetEditorPage> m_editor;
+    bool m_editorSaving = false;
+    bool m_editorPrompting = false;
+    std::function<int(const QString &, const QString &, const QStringList &)> m_editorPrompt;
+    void saveEditor(bool draft, const std::function<void(bool)> &done = {});
+    void closeEditor();
+
     Presets::CatalogLoader *m_catalogLoader = nullptr;
     Presets::ManifestLoader *m_manifestLoader = nullptr;
     Presets::PreviewLoader *m_previewLoader = nullptr;

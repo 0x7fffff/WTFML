@@ -376,6 +376,10 @@ MainWindow::MainWindow(QWidget *parent)
             // 按 `installingVersionIds()` 滤掉，不重刷它就一直不在列表里。
             [this]() { refreshInstalledVersions(); }},
         this);
+    m_presetController->setEditorPrompt([this](const QString &title, const QString &text, const QStringList &buttons) {
+        return InlineMessage::ask(m_ui->overlay(), MessageKind::Question, title, text, buttons, buttons.size()-1, buttons.size()-1);
+    });
+    m_ui->navigationGuard = [this] { return !m_presetController || m_presetController->leaveEditor(); };
     // 模组兼容检查里 CurseForge 那一侧要用同一个 key（设置里填过才算可用）。
     m_presetController->setCurseForgeApiKey(m_settings->curseForgeApiKey());
     m_launcherPreferences = new LauncherPreferencesController(
@@ -1064,6 +1068,7 @@ bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
+    if (m_presetController && !m_presetController->leaveEditor()) { event->ignore(); return; }
     const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
     // 还在跑的那些服务端（键 = serverId，**按名字排序** —— 提示里报出来的名字每次都得是
     // 同一个顺序，不然同一件事两句话看着像两件事）。
@@ -2578,6 +2583,8 @@ void MainWindow::refreshAvailableVersions() {
     }
 
     const QSignalBlocker blocker(tree);
+    const bool updatesEnabled = tree->updatesEnabled();
+    tree->setUpdatesEnabled(false);
     tree->clear();
 
     // 摆在**最上面**：它讲的是"现在最值得装的这两条"，放在四个分类后面等于没摆（那四栏各自
@@ -2671,6 +2678,7 @@ void MainWindow::refreshAvailableVersions() {
     }
 
     m_ui->applyVersionFilter();
+    tree->setUpdatesEnabled(updatesEnabled);
 }
 
 void MainWindow::openInstallPage(const QString &gameVersion) {
@@ -3369,19 +3377,25 @@ void MainWindow::openNewServerPage() {
     // 默认名是 `Server<版本>`。用当前主页选中的那一个版本当缺省
     // （`selectedVersionId()` 是"下拉框里那个 id 是什么"的唯一出处，见本文件上面那个
     // 自由函数 —— 它已经处理了"空着 = 没选"）
-    const QString currentVersion = selectedVersionId(m_ui->getInstalledVersionCombo());
+    const bool fromDownload = sender() == m_ui->getDownloadNewServerButton();
+    const QString selected = fromDownload ? m_ui->getDownloadNewServerButton()->property("selectedVersion").toString() : QString();
+    const QString currentVersion = selected.isEmpty() ? selectedVersionId(m_ui->getInstalledVersionCombo()) : selected;
     m_newServerPage->setDefaults(
         ServerRegistry::defaultServerName(ServerInstall::Flavor::Vanilla, currentVersion),
         currentVersion);
+    if (auto *version = m_newServerPage->findChild<QLineEdit *>(MainWindowUI::newServerGameVersionEditName()))
+        version->setReadOnly(fromDownload && !selected.isEmpty());
+    if (auto *install = m_newServerPage->findChild<QPushButton *>(MainWindowUI::newServerCreateButtonName()))
+        install->setText(fromDownload ? tr("安装") : tr("创建"));
     updateNewServerSummary(m_newServerPage);
     // 同控制台那一页：说清 `ownerTab` 并先切过去（这一页也是从服务端列表上开出来的）。
-    const int instancesTab = MainWindowUI::instancesTabIndex();
+    const int instancesTab = fromDownload ? MainWindowUI::downloadTabIndex() : MainWindowUI::instancesTabIndex();
     if (QTabWidget *tabs = m_ui->getTabWidget()) {
         if (instancesTab >= 0 && instancesTab < tabs->count()) {
             tabs->setCurrentIndex(instancesTab);
         }
     }
-    if (overlay->execPage(m_newServerPage, NewServerPage::windowTitle(), instancesTab)
+    if (overlay->execPage(m_newServerPage, fromDownload ? tr("安装服务端") : NewServerPage::windowTitle(), instancesTab)
         != QDialog::Accepted) {
         return;
     }

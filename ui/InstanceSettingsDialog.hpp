@@ -1604,6 +1604,7 @@ signals:
      * @param path 用户挑的完整路径（带 `.mrpack` 或 `.zip`）。
      */
     void exportModpackRequested(const QString &path);
+    void exportPresetRequested();
 
     /**
      * @brief 用户点了概览那一栏的「检查更新」。

@@ -63,6 +63,8 @@ public:
         QString categoryText;  ///< 已经翻好的类别名（工具提示与右栏摘要里显示）
         int sectionCount = 0;
         bool isDefault = false;
+        QStringList categoryKeys;
+        QString iconPath;
     };
 
     /// 类别筛选那一排 chip 里的一项，以及"新建为"那个下拉框里的一项。

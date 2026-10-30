@@ -72,7 +72,7 @@ protected:
 };
 }
 
-PresetOptionsEditor::PresetOptionsEditor(const QList<Entry> &entries, QWidget *parent) : QDialog(parent) {
+PresetOptionsEditor::PresetOptionsEditor(const QList<Entry> &entries, QWidget *parent, Mode mode) : QDialog(parent) {
     setWindowTitle(tr("编辑游戏设置预设")); resize(600, 440);
     auto *layout = new QVBoxLayout(this);
     auto *hint = new QLabel(tr("从下方添加常用设置，双击右侧修改数值。只应用清单内的设置。"), this);
@@ -92,6 +92,15 @@ PresetOptionsEditor::PresetOptionsEditor(const QList<Entry> &entries, QWidget *p
     common->addItem(tr("关闭自动跳跃"), QStringList{QStringLiteral("autoJump"), QStringLiteral("false")});
     common->addItem(tr("渲染距离"), QStringList{QStringLiteral("renderDistance"), QStringLiteral("12")});
     common->addItem(tr("跳跃按键"), QStringList{QStringLiteral("key_key.jump"), QStringLiteral("key.keyboard.space")});
+    for (const auto &key : QStringList{"forward", "back", "left", "right", "inventory", "sneak", "sprint", "attack", "use"}) {
+        const QHash<QString,QString> labels{{"forward",tr("前进")},{"back",tr("后退")},{"left",tr("左移")},{"right",tr("右移")},{"inventory",tr("物品栏")},{"sneak",tr("潜行")},{"sprint",tr("疾跑")},{"attack",tr("攻击")},{"use",tr("使用")}};
+        const QHash<QString,QString> defaults{{"forward","key.keyboard.w"},{"back","key.keyboard.s"},{"left","key.keyboard.a"},{"right","key.keyboard.d"},{"inventory","key.keyboard.e"},{"sneak","key.keyboard.left.shift"},{"sprint","key.keyboard.left.control"},{"attack","key.mouse.left"},{"use","key.mouse.right"}};
+        common->addItem(labels.value(key),QStringList{QStringLiteral("key_key.")+key,defaults.value(key)});
+    }
+    if (mode!=Mode::All) for(int i=common->count()-1;i>=0;--i) {
+        const bool key=common->itemData(i).toStringList().value(0).startsWith("key_");
+        if(key!=(mode==Mode::Keys))common->removeItem(i);
+    }
     auto *add = new QPushButton(tr("添加"), this);
     auto *remove = new QPushButton(tr("移除选中"), this);
     add->setAutoDefault(false); remove->setAutoDefault(false);

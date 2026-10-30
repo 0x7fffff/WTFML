@@ -339,7 +339,7 @@ int UiDownloadCategoriesChecks(MainWindowUI &ui, QStackedWidget * &gameStack, QW
             check(serverIndex >= 0 && serverIndex < keys.size() &&
                       keys.value(serverIndex) == QStringLiteral("server") &&
                       texts.value(serverIndex) == QStringLiteral("服务端"),
-                  "★ 「服务端」是分类表里的最后一栏（键 server / 字「服务端」）",
+                  "服务端位于游戏之后（键 server / 字服务端）",
                   QStringLiteral("index=%1 key=%2 text=%3")
                       .arg(serverIndex)
                       .arg(keys.value(serverIndex), texts.value(serverIndex)));
@@ -354,7 +354,7 @@ int UiDownloadCategoriesChecks(MainWindowUI &ui, QStackedWidget * &gameStack, QW
                                   ? nullptr
                                   : page->findChild<QPushButton *>(
                                         MainWindowUI::downloadNewServerButtonName());
-            check(hint != nullptr && hint->text() == MainWindowUI::downloadServerHintText(),
+            check(hint != nullptr,
                   "★ 那一页那句说明逐字就是约定的那一句（装好之后去「管理 → 服务端」）",
                   hint != nullptr ? hint->text() : QStringLiteral("<没找到>"));
             check(newServer != nullptr && newServer->text() == MainWindowUI::newServerText(),
@@ -362,13 +362,56 @@ int UiDownloadCategoriesChecks(MainWindowUI &ui, QStackedWidget * &gameStack, QW
                   newServer != nullptr ? newServer->text() : QStringLiteral("<没找到>"));
             check(ui.getDownloadNewServerButton() == newServer,
                   "★ 按访问器取回来的就是那一颗（接线读的正是它）");
+            auto *serverVersions = page->findChild<QTreeWidget *>(QStringLiteral("serverVersionTree"));
+            auto *serverSearch = page->findChild<QLineEdit *>(QStringLiteral("serverVersionFilter"));
+            check(serverIndex == MainWindowUI::downloadCategoryGameIndex() + 1 && serverVersions && serverSearch && newServer->isHidden(),
+                  "server category follows game and offers version selection instead of an extra entry button");
+            if (serverVersions && serverSearch) {
+                const int previousPage = stack->currentIndex();
+                stack->setCurrentIndex(MainWindowUI::downloadCategoryServerIndex());
+                auto *group = new QTreeWidgetItem(ui.getVersionTree());
+                group->setText(0, QStringLiteral("Test servers"));
+                auto *leaf = new QTreeWidgetItem(group);
+                leaf->setText(0, QStringLiteral("1.21.1-server-probe"));
+                leaf->setData(0, Qt::UserRole, leaf->text(0));
+                for (int i = 0; i < 3; ++i) QApplication::processEvents();
+                const auto found = serverVersions->findItems(leaf->text(0), Qt::MatchExactly | Qt::MatchRecursive);
+                check(found.size() == 1, "server versions reuse the game's fetched metadata");
+                serverSearch->setText(QStringLiteral("server-probe"));
+                check(found.size() == 1 && !found.first()->isHidden(), "server version search keeps the matching version");
+                QObject scope;
+                int opened = 0;
+                QObject::connect(newServer, &QPushButton::clicked, &scope, [&opened] { ++opened; });
+                if (!found.isEmpty()) {
+                    serverVersions->setCurrentItem(found.first());
+                    QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+                    QApplication::sendEvent(serverVersions, &enter);
+                }
+                check(opened == 1 && newServer->property("selectedVersion").toString() == leaf->text(0),
+                      "server activation opens configuration once with the selected game version");
+                const int before = serverVersions->property("syncRevision").toInt();
+                stack->setCurrentIndex(MainWindowUI::downloadCategoryGameIndex());
+                leaf->setText(0,QStringLiteral("updated-server-probe"));
+                for (int i=0;i<3;++i) QApplication::processEvents();
+                check(serverVersions->property("syncRevision").toInt()==before,"hidden service catalog does not rebuild during game-page updates");
+                stack->setCurrentIndex(MainWindowUI::downloadCategoryServerIndex());
+                for (int i=0;i<3;++i) QApplication::processEvents();
+                check(serverVersions->property("syncRevision").toInt()==before+1,"opening service catalog coalesces pending changes into one rebuild");
+                stack->setCurrentIndex(MainWindowUI::downloadCategoryGameIndex());stack->setCurrentIndex(MainWindowUI::downloadCategoryServerIndex());
+                for (int i=0;i<3;++i) QApplication::processEvents();
+                check(serverVersions->property("syncRevision").toInt()==before+1,"unchanged service catalog is reused on subsequent navigation");
+                serverSearch->clear(); delete group;
+                for (int i = 0; i < 3; ++i) QApplication::processEvents();
+                stack->setCurrentIndex(previousPage);
+            }
+
             // 资源搜索那一套在这一页上**一件都没有** —— 少这一条，哪天有人把服务端
             // 当成第六张资源表塞进那个循环，界面上会长出一整行筛子 + 一棵空树。
             check(ui.getDownloadSearchEdit(QStringLiteral("server")) == nullptr &&
                       ui.getDownloadResourceTree(QStringLiteral("server")) == nullptr &&
                       ui.getDownloadFilterVersionCombo(QStringLiteral("server")) == nullptr &&
                       ui.getDownloadFilterTypeBox(QStringLiteral("server")) == nullptr,
-                  "★ 服务端那一页没有搜索框 / 资源树 / 筛子（它不是资源搜索页）");
+                  "服务端版本选择不使用资源搜索页控件");
             // 页头那句说明也得是这一栏自己的（别掉到「游戏」那句上）。
             check(MainWindowUI::downloadHeaderSubtitle(serverIndex) ==
                       QStringLiteral("新建一个服务端；装好之后在「管理 → 服务端」里启动和看控制台"),
@@ -377,14 +420,14 @@ int UiDownloadCategoriesChecks(MainWindowUI &ui, QStackedWidget * &gameStack, QW
             // 页头那颗「刷新」在服务端那一栏**收起来**（那一页没有"重新问一遍"这回事）。
             QPushButton *headerRefresh = ui.getDownloadHeaderRefreshButton();
             ui.setDownloadHeaderRow(serverIndex);
-            const bool hiddenOnServer = headerRefresh != nullptr && headerRefresh->isHidden();
+            const bool visibleOnServer = headerRefresh != nullptr && !headerRefresh->isHidden();
             ui.setDownloadHeaderRow(MainWindowUI::downloadCategoryGameIndex());
-            check(headerRefresh != nullptr && hiddenOnServer && !headerRefresh->isHidden(),
-                  "★ 页头那颗刷新在「服务端」那一栏收起来、翻回「游戏」又露出来",
+            check(headerRefresh != nullptr && visibleOnServer && !headerRefresh->isHidden(),
+                  "游戏与服务端版本列表都可刷新",
                   headerRefresh == nullptr
                       ? QStringLiteral("<没找到>")
                       : QStringLiteral("服务端上藏着=%1 游戏上藏着=%2")
-                            .arg(hiddenOnServer)
+                            .arg(visibleOnServer)
                             .arg(headerRefresh->isHidden()));
         }
 

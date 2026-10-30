@@ -258,6 +258,7 @@ set(SOURCE_FILES
     src/MainWindow.cpp
     src/controllers/JavaRuntimeController.cpp
     src/controllers/JavaSettingsController.cpp
+    src/controllers/PresetControllerEditor.cpp
     src/controllers/PresetController.cpp
     src/controllers/LauncherPreferencesController.cpp
     src/controllers/CrashReportController.cpp
@@ -351,6 +352,7 @@ set(SOURCE_FILES
     # 「上一次启动」那本账。
     src/manage/LaunchHistory.cpp
     # 实例预设的盘那一层：下标 + 单份 + 那几件增删改。
+    src/presets/PresetWorkspace.cpp
     src/presets/PresetStore.cpp
     # 原版设置那一段的判据：见头文件那一位。
     src/presets/VanillaOptions.cpp
@@ -479,6 +481,7 @@ set(SOURCE_FILES
     ui/InlineMessage.cpp
     ui/JavaMismatchDialog.cpp
     ui/JavaManageDialog.cpp
+    ui/PresetEditorPage.cpp
     ui/PresetManagePage.cpp
     ui/PresetModEditor.cpp
     ui/PresetOptionsEditor.cpp

@@ -14,6 +14,7 @@
 #include "MainWindowUI.hpp"
 #include "OverlayHost.hpp"
 #include "PresetInstallPicker.hpp"
+#include "presets/PresetStore.hpp"
 #include "VersionIcons.hpp"
 #include "controllers/DownloadCompletionController.hpp"
 #include "controllers/DownloadTaskLedgerController.hpp"
@@ -633,7 +634,7 @@ void InstallPageController::openPresetPicker() {
         category.title = one.title;
         for (const Presets::PresetSummary &preset :
              m_owner.m_presetController->presetsInCategory(one.key)) {
-            category.options.append({preset.id, preset.name, true});
+            category.options.append({preset.id, preset.name, true, !preset.componentCategories.isEmpty()});
         }
         category.selectedId = draft.value(one.key);
         // 选过、但盘上已经不在的那一份：**留在下拉框里**并标出来（「已删除/损坏的
@@ -672,6 +673,18 @@ void InstallPageController::openPresetPicker() {
             : QString();
     picker->setContext(gameVersion(), pickerLoaderName);
     picker->setCategories(categories);
+    QList<PresetInstallPicker::Composite> composites;
+    for (const auto &preset : m_owner.m_presetController->availablePresets()) {
+        if (preset.componentCategories.isEmpty()) continue;
+        bool loaded = false;
+        const auto manifest = Presets::loadManifest(PresetController::presetsRoot(), preset.id, &loaded);
+        if (!loaded) continue;
+        PresetInstallPicker::Composite option; option.id=preset.id; option.name=preset.name;
+        const auto parts=manifest.editorState.value("components").toObject();
+        for (auto it=parts.begin();it!=parts.end();++it) option.parts.insert(it.key(),it.value().toString());
+        composites.append(option);
+    }
+    picker->setComposites(composites);
 
     InlineMessageBox box(MessageKind::Question, MainWindowUI::installPresetPickerTitle(),
                          QString(),

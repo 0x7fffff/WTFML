@@ -425,10 +425,19 @@ int UiUiRefreshCheck(QApplication &app) {
                 if (!curtain->isHidden()) ++count;
             return count;
         };
+        MainWindowUI::HomeQuickItem quick;
+        quick.key = QStringLiteral("preview"); quick.name = QStringLiteral("Preview");
+        quick.detail = QStringLiteral("Minecraft 1.21.1\nLast played today");
+        ui.setHomeQuickRows({quick}, {quick}, {quick});
+        auto *launchCard = home->findChild<QWidget *>(QStringLiteral("homeCurrentInstanceCard"));
+        const int normalHeight = launchCard ? launchCard->height() : 0;
         ui.openHomeInstancePicker({}, {instance}, {}, {});
+        expect(launchCard && launchCard->height() <= 56 && launchCard->height() < normalHeight,
+               "expanded home list shrinks the launch card to leave space for instances");
         expect(ui.homeInstancePickerOpen() && curtainCount() == 1, "home picker changes state immediately and starts transition");
         ui.closeHomeInstancePicker();
         expect(!ui.homeInstancePickerOpen() && curtainCount() == 1, "rapid reversal replaces the previous transition");
+        expect(launchCard && launchCard->height() == normalHeight, "closing home list restores the normal launch card height");
         settle();
         expect(curtainCount() == 0, "home picker transition removes its snapshot on completion");
         ui.openHomeInstancePicker({}, {instance}, {}, {});

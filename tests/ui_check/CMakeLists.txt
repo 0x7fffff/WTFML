@@ -21,6 +21,10 @@ add_library(wtfml_ui_runtime STATIC
 
                                 ${REPO_ROOT}/ui/AccountSkinDialog.cpp
                                 ${REPO_ROOT}/ui/MainWindowUI.cpp
+                                ${REPO_ROOT}/ui/PresetInstallPicker.cpp
+                                ${REPO_ROOT}/ui/PresetEditorPage.cpp
+                                ${REPO_ROOT}/ui/PresetOptionsEditor.cpp
+                                ${REPO_ROOT}/ui/PresetModEditor.cpp
                                 ${WTFML_UI_PAGE_SOURCES}
                                 # 「最大内存」那一行那根条：MainWindowUI.cpp 和
                                 # InstanceSettingsDialog.cpp 都直接 new 它，少了这一个文件会
