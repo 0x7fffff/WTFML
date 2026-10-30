@@ -31,7 +31,9 @@
 #include <QDialog>
 #include <QList>
 #include <QString>
+#include <QStringList>
 
+class QComboBox;
 class QLabel;
 class QListWidget;
 class QLineEdit;
@@ -79,6 +81,7 @@ public:
     /// 就叫一次，见 `fieldsChanged`）。
     /// @param problem 非空 = 现在这一份填法还不成立，把那句话（而不是计划说明）摆出来。
     void setSummary(const QString &text, const QString &problem);
+    void setVersionChoices(bool installer, const QStringList &versions, const QString &status = {});
 
     // ---------- 读回用户填的（`accept()` 之后）----------
     QString serverName() const;
@@ -92,6 +95,7 @@ public:
 signals:
     /// 用户改了任何一格（换档 / 打字 / 拨内存）。`MainWindow` 接它现算计划说明。
     void fieldsChanged();
+    void versionsRetryRequested();
 
 private:
     /// 按当前选中那一档，露/收那几行，并把 `setSummary()` 的旧话清掉（等翻译点重新喂）。
@@ -100,6 +104,8 @@ private:
     QLineEdit *m_nameEdit = nullptr;
     QListWidget *m_flavorList = nullptr;
     QLineEdit *m_gameVersionEdit = nullptr;
+    QComboBox *m_loaderCombo = nullptr;
+    QComboBox *m_installerCombo = nullptr;
     QLineEdit *m_loaderEdit = nullptr;
     QLineEdit *m_installerEdit = nullptr;
     QLineEdit *m_buildEdit = nullptr;

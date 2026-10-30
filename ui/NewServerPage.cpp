@@ -22,6 +22,7 @@
 #include "VersionIcons.hpp"
 
 #include <QApplication>
+#include <QComboBox>
 
 using namespace MainWindowPageLayout;
 
@@ -152,6 +153,7 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
     m_summaryLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     // 折行 QLabel 的 sizeHint 是"整句排成一行"的宽度 —— 纯说明不许参与横向度量（同一条规矩）。
     m_summaryLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_summaryLabel->hide();
     bodyLayout->addWidget(m_summaryLabel);
 
     // ---------- 服务端：整页唯一的一张卡片 ----------
@@ -170,11 +172,30 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
     serverCardLayout->addWidget(m_flavorList);
     serverCardLayout->addWidget(makeRow(serverCard, QStringLiteral("游戏版本"), &m_gameVersionEdit,
                                         MainWindowUI::newServerGameVersionEditName()));
-    m_loaderRow = makeRow(serverCard, QStringLiteral("加载器版本"), &m_loaderEdit,
-                          MainWindowUI::newServerLoaderEditName());
+    auto versionRow = [this, serverCard](const QString &title, const QString &name,
+                                          QComboBox **comboOut, QLineEdit **editOut) {
+        auto *combo = new QComboBox(serverCard);
+        combo->setObjectName(name + "Combo");
+        combo->setEditable(true);
+        combo->setInsertPolicy(QComboBox::NoInsert);
+        combo->lineEdit()->setReadOnly(true);
+        combo->lineEdit()->setObjectName(name);
+        combo->setPlaceholderText(tr("正在获取…"));
+        combo->lineEdit()->setPlaceholderText(tr("正在获取…"));
+        *comboOut = combo; *editOut = combo->lineEdit();
+        auto *row = makeControlRow(serverCard, title, combo, true);
+        auto *retry = new QPushButton(tr("刷新"), row);
+        retry->setAutoDefault(false);
+        Theme::markButton(retry, Theme::ButtonKind::Neutral);
+        row->layout()->addWidget(retry);
+        connect(retry, &QPushButton::clicked, this, &NewServerPage::versionsRetryRequested);
+        return row;
+    };
+    m_loaderRow = versionRow(tr("加载器版本"), MainWindowUI::newServerLoaderEditName(),
+                             &m_loaderCombo, &m_loaderEdit);
     serverCardLayout->addWidget(m_loaderRow);
-    m_installerRow = makeRow(serverCard, QStringLiteral("安装器版本"), &m_installerEdit,
-                             MainWindowUI::newServerInstallerEditName());
+    m_installerRow = versionRow(tr("安装器版本"), MainWindowUI::newServerInstallerEditName(),
+                                &m_installerCombo, &m_installerEdit);
     serverCardLayout->addWidget(m_installerRow);
     m_buildRow = makeRow(serverCard, QStringLiteral("构建号"), &m_buildEdit,
                          MainWindowUI::newServerBuildEditName());
@@ -208,7 +229,7 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
     auto *footer = new QFrame(content);
     footer->setObjectName(QStringLiteral("newServerFooter"));
     auto *footerLayout = new QHBoxLayout(footer);
-    footerLayout->setContentsMargins(0, 12, 0, 16);
+    footerLayout->setContentsMargins(0, 12, 0, 0);
     footerLayout->addWidget(m_createButton);
     contentLayout->addWidget(footer, 0, 0, Qt::AlignHCenter | Qt::AlignBottom);
     footer->raise();
@@ -273,13 +294,31 @@ void NewServerPage::setTargetDir(const QString &dir) {
                                      : dir);
 }
 
+void NewServerPage::setVersionChoices(bool installer, const QStringList &versions, const QString &status) {
+    auto *combo = installer ? m_installerCombo : m_loaderCombo;
+    auto *edit = installer ? m_installerEdit : m_loaderEdit;
+    const QString previous = edit->text();
+    {
+        const QSignalBlocker block(combo), lineBlock(edit);
+        combo->clear();
+        combo->addItems(versions);
+        combo->setCurrentIndex(versions.isEmpty() ? -1 : qMax(0, versions.indexOf(previous)));
+        const QString placeholder = status.isEmpty() ? tr("暂无可用版本") : status;
+        combo->setPlaceholderText(placeholder);
+        edit->setPlaceholderText(placeholder);
+        if (versions.isEmpty()) edit->clear();
+        combo->setEnabled(!versions.isEmpty());
+        combo->setToolTip(status);
+    }
+    emit fieldsChanged();
+}
+
 void NewServerPage::setSummary(const QString &text, const QString &problem) {
     // 有问题就先说问题（那是用户现在要解决的事），没有才说计划。两句都是翻译点给的。
     const QString shown = problem.isEmpty() ? text : problem;
-    if (m_summaryLabel->text() == shown) {
-        return;
-    }
-    m_summaryLabel->setText(shown);
+    m_summaryLabel->setVisible(!shown.trimmed().isEmpty());
+    if (m_summaryLabel->text() != shown)
+        m_summaryLabel->setText(shown);
     // 有问题时「创建」点不动（填法不成立就点下去，只会建一个半残的服务端）。
     m_createButton->setEnabled(problem.isEmpty());
 }

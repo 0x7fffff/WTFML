@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include <QVariantAnimation>
 #include "TaskCenterPanel.hpp"
 #include <QMouseEvent>
 int UiUiRefreshCheck(QApplication &app) {
@@ -413,6 +414,38 @@ int UiUiRefreshCheck(QApplication &app) {
             }
         }
         Anim::setEnabled(true);
+        {
+            QWidget canvas;
+            canvas.resize(360,220);
+            QFrame content(&canvas);
+            content.setGeometry(canvas.rect());
+            content.setStyleSheet(QStringLiteral("background: #aa1414; border: none;"));
+            canvas.show();
+            app.processEvents();
+            bool coveredDuringChange=false;
+            Anim::layoutTransition(&canvas,[&] {
+                auto *cover=canvas.findChild<QWidget *>(QStringLiteral("wtfmlLayoutCurtain"),Qt::FindDirectChildrenOnly);
+                coveredDuringChange=cover&&!cover->isHidden();
+                content.raise();
+                content.setStyleSheet(QStringLiteral("background: #2040a0; border: none;"));
+                // QWidget/QSS geometry changes can finish on the next event turn.
+                QTimer::singleShot(0,&content,[&] { content.setStyleSheet(QStringLiteral("background: #14a050; border: none;")); });
+            },true);
+            expect(coveredDuringChange,"layout transition covers the old frame before changing the live layout");
+            auto *topCover=canvas.findChild<QWidget *>("wtfmlLayoutCurtain",Qt::FindDirectChildrenOnly);
+            expect(canvas.findChildren<QWidget *>(QString(),Qt::FindDirectChildrenOnly).last()==topCover,
+                   "opening a raised page cannot cover its own transition snapshot");
+            QEventLoop ready;
+            QTimer::singleShot(25,&ready,&QEventLoop::quit);
+            ready.exec();
+            auto *cover=canvas.findChild<QWidget *>(QStringLiteral("wtfmlLayoutCurtain"),Qt::FindDirectChildrenOnly);
+            auto animations=cover?cover->findChildren<QVariantAnimation *>():QList<QVariantAnimation *>();
+            if(!animations.isEmpty())animations.first()->setCurrentTime(animations.first()->duration()-1);
+            const auto pixel=cover?cover->grab().toImage().pixelColor(180,110):QColor();
+            expect(pixel.isValid()&&qAbs(pixel.red()-20)<3&&qAbs(pixel.green()-160)<3&&qAbs(pixel.blue()-80)<3,
+                   "transition destination includes next-turn polish instead of flashing to a stale snapshot");
+            Anim::cancelLayoutTransition(&canvas);
+        }
         const auto settle = [] {
             QEventLoop loop;
             QTimer::singleShot(400, &loop, &QEventLoop::quit);
@@ -520,6 +553,8 @@ int UiUiRefreshCheck(QApplication &app) {
         expect(curtain && curtain->testAttribute(Qt::WA_TransparentForMouseEvents) &&
                    curtain->geometry() == ui.getTabWidget()->geometry(),
                "task center transition excludes top navigation and bottom bar and does not intercept input");
+        expect(curtain && curtain->parentWidget()->findChildren<QWidget *>(QString(),Qt::FindDirectChildrenOnly).last()==curtain,
+               "task center opening snapshot is stacked above the page overlay");
         ui.getTaskSummaryButton()->click();
         settle();
         expect(!preview.findChild<QWidget *>(MainWindowUI::taskCenterPanelName()) && curtainCount() == 0,

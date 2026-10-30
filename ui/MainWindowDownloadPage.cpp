@@ -517,7 +517,7 @@ void MainWindowUI::setupDownloadGamePage() {
     auto *installFooter = new QFrame(installContent);
     installFooter->setObjectName(installFooterName());
     auto *footerLayout = new QHBoxLayout(installFooter);
-    footerLayout->setContentsMargins(0, 12, 0, 16);
+    footerLayout->setContentsMargins(0, 12, 0, 0);
     footerLayout->setSpacing(kFilterRowSpacing);
     footerLayout->addWidget(installButton);
     installContentLayout->addWidget(installFooter, 0, 0, Qt::AlignHCenter | Qt::AlignBottom);

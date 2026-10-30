@@ -674,6 +674,12 @@ public:
         surface->installEventFilter(this);
     }
     void frame(qreal progress) { m_progress = progress; update(); }
+    void captureDestination(const std::function<QPixmap()> &capture) {
+        // 保持幕布可见，仅在离屏抓图时跳过自身，避免抓进旧快照。
+        m_capturing = true;
+        m_after = capture();
+        m_capturing = false;
+    }
 protected:
     bool eventFilter(QObject *, QEvent *event) override {
         if (event->type() == QEvent::Hide || event->type() == QEvent::Resize) {
@@ -685,6 +691,7 @@ protected:
         return false;
     }
     void paintEvent(QPaintEvent *) override {
+        if (m_capturing) return;
         QPainter painter(this);
         painter.setClipRect(rect());
         painter.drawPixmap(0, 0, m_before);
@@ -697,6 +704,7 @@ protected:
 private:
     QPixmap m_before, m_after;
     bool m_expanding;
+    bool m_capturing = false;
     qreal m_progress = 0;
 };
 
@@ -895,19 +903,36 @@ void layoutTransition(QWidget *surface, const std::function<void()> &change,
     }
     for (auto *old : surface->findChildren<QWidget *>(QLatin1String(kCurtainName)))
         delete old;
+    // 先遮住旧画面，再切换真实布局；延迟到下一轮事件后采集稳定终点。
+    QPointer<LayoutCurtain> curtain;
+    if (animate) {
+        curtain = new LayoutCurtain(surface, area, before, QPixmap(), expanding);
+        curtain->show();
+        curtain->raise();
+    }
     change();
     if (!guard) return;
+    // openPage() 会 raise 覆盖层，动画快照必须重新位于它上方。
+    if (curtain && !curtain->isHidden()) curtain->raise();
     if (surface->layout()) surface->layout()->activate();
     for (auto *child : surface->findChildren<QWidget *>())
         if (child->isVisible() && child->layout()) child->layout()->activate();
-    if (!animate || !enabled() || !surface->isVisible() ||
-        !surface->rect().contains(area)) return;
-    auto *curtain = new LayoutCurtain(surface, area, before, capture(), expanding);
-    curtain->show();
-    curtain->raise();
-    runProgress(curtain, curtain, 0, 1, panelMs(), stepMs(),
-                [curtain]() { curtain->hide(); curtain->deleteLater(); },
-                [curtain](qreal progress) { curtain->frame(progress); });
+    if (!curtain) return;
+    QTimer::singleShot(0, curtain, [guard, curtain, area, capture]() {
+        if (!guard || !curtain) return;
+        if (!enabled() || !guard->isVisible() || curtain->isHidden() ||
+            !guard->rect().contains(area)) {
+            curtain->hide();
+            curtain->deleteLater();
+            return;
+        }
+        if (guard->layout()) guard->layout()->activate();
+        curtain->raise();
+        curtain->captureDestination(capture);
+        runProgress(curtain, curtain, 0, 1, panelMs(), 0,
+                    [curtain]() { if (curtain) { curtain->hide(); curtain->deleteLater(); } },
+                    [curtain](qreal progress) { if (curtain) curtain->frame(progress); });
+    });
 }
 
 void overlayAppear(QWidget *widget) {

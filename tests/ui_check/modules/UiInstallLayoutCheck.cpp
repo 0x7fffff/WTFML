@@ -1,5 +1,9 @@
 #include "Support.hpp"
 #include "PresetEditorPage.hpp"
+#include "PresetOptionsEditor.hpp"
+#include "NewServerPage.hpp"
+#include <QDoubleSpinBox>
+#include <QKeyEvent>
 #include "PresetInstallPicker.hpp"
 #include <QJsonArray>
 int UiInstallLayoutCheck(QApplication &app) {
@@ -65,6 +69,8 @@ int UiInstallLayoutCheck(QApplication &app) {
             expect(origin.y() > 0 && origin.y() + button->height() <= scroll->height(),
                    "floating action remains inside the content pane");
             expect(!scroll->isAncestorOf(button), "action does not scroll with the form");
+            expect(scroll->height() - origin.y() - button->height() <= 2,
+                   "game install action sits at the bottom of its content pane");
             auto *row = tree->topLevelItem(0);
             const int stableWidth = tree->viewport()->width();
             const QRect clearBefore = VersionTreeDelegate::clearRect(tree->visualItemRect(row));
@@ -142,6 +148,88 @@ int UiInstallLayoutCheck(QApplication &app) {
             expect(picker.selectedId("gameSettings")=="game-child"&&picker.selectedId("mods")=="mod-child","composite selection maps to independent category parts");
             picker.findChild<QCheckBox *>("presetCompositePart_mods")->setChecked(false);
             expect(picker.selectedId("mods").isEmpty()&&picker.selectedId("gameSettings")=="game-child","unchecking a composite part leaves other parts selected");
+        }
+        {
+            PresetOptionsEditor detailed({}, nullptr, PresetOptionsEditor::Mode::Options);
+            auto *table = detailed.findChild<QTableWidget *>("presetOptionsEditorTable");
+            expect(table && table->rowCount() >= 35 && detailed.entries().isEmpty(),
+                   "blank preset exposes detailed settings without silently selecting defaults");
+            auto rowFor = [table](const QString &key) {
+                for (int row=0;row<table->rowCount();++row) if (table->item(row,0)->text()==key) return row;
+                return -1;
+            };
+            const int gamma = rowFor("gamma");
+            auto *brightness = detailed.findChild<QDoubleSpinBox *>("presetValue_gamma");
+            expect(gamma>=0 && brightness && !brightness->isEnabled(), "unselected settings cannot be edited accidentally");
+            if (gamma>=0 && brightness) {
+                table->item(gamma,0)->setCheckState(Qt::Checked);
+                brightness->setValue(75);
+                expect(detailed.entries().size()==1 && detailed.entries().first().value=="0.75",
+                       "percentage control stores the game normalized value only when selected");
+                table->item(gamma,0)->setCheckState(Qt::Unchecked);
+                expect(detailed.entries().isEmpty(), "unchecking excludes an option without deleting its edited value");
+                table->item(gamma,0)->setCheckState(Qt::Checked);
+                expect(detailed.entries().first().value=="0.75", "reselecting retains the edited value");
+                brightness->findChild<QLineEdit *>()->setText("86.5%");
+                expect(detailed.entries().first().value=="0.865", "saving commits a pending numeric edit even before focus leaves the control");
+            }
+            PresetOptionsEditor imported({{"gamma","2.5"},{"futureOption","keep:raw"}}, nullptr, PresetOptionsEditor::Mode::Options);
+            expect(imported.entries().size()==2 && imported.entries()[0].value=="2.5" && imported.entries()[1].value=="keep:raw",
+                   "unknown options and out-of-range imported values survive opening the editor unchanged");
+            PresetOptionsEditor bindings({}, nullptr, PresetOptionsEditor::Mode::Keys);
+            auto *keyTable = bindings.findChild<QTableWidget *>("presetOptionsEditorTable");
+            expect(keyTable->rowCount()>=25 && bindings.entries().isEmpty(), "key page exposes vanilla bindings independently of settings");
+            auto *jump = bindings.findChild<QPushButton *>("presetValue_key_key.jump");
+            int jumpRow=-1;
+            for(int row=0;row<keyTable->rowCount();++row) if(keyTable->item(row,0)->text()=="key_key.jump") jumpRow=row;
+            if(jump && jumpRow>=0) {
+                keyTable->item(jumpRow,0)->setCheckState(Qt::Checked);
+                jump->click();
+                QKeyEvent press(QEvent::KeyPress, Qt::Key_R, Qt::NoModifier);
+                QApplication::sendEvent(jump,&press);
+                expect(bindings.entries().size()==1 && bindings.entries().first().value=="key.keyboard.r",
+                       "key capture writes Minecraft binding rather than Qt shortcut text");
+                jump->click();
+                QKeyEvent cancel(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);
+                QApplication::sendEvent(jump,&cancel);
+                expect(bindings.entries().first().value=="key.keyboard.r", "escape cancels key recording without losing the binding");
+                jump->click();
+                QKeyEvent clear(QEvent::KeyPress,Qt::Key_Backspace,Qt::NoModifier);
+                QApplication::sendEvent(jump,&clear);
+                expect(bindings.entries().first().value=="key.keyboard.unknown", "clearing a binding uses the game unbound key value");
+            } else expect(false,"jump binding control exists");
+            auto *search=detailed.findChild<QLineEdit *>("presetOptionsSearch");
+            search->setText("声音");
+            expect(table->isRowHidden(rowFor("fov")) && !table->isRowHidden(rowFor("soundCategory_master")),
+                   "settings search matches categories without changing selection");
+        }
+        {
+            NewServerPage server;
+            NewServerPage::FlavorOption fabric;
+            fabric.token="fabric"; fabric.name="Fabric"; fabric.needsLoader=true; fabric.needsInstaller=true;
+            server.setFlavors({fabric},"fabric");
+            auto *installer=server.findChild<QComboBox *>(MainWindowUI::newServerInstallerEditName()+"Combo");
+            server.setVersionChoices(true,{"1.0.0","0.9.0"});
+            expect(installer && installer->lineEdit()->isReadOnly() && server.installerVersion()=="1.0.0",
+                   "server installer versions are selectable without manual version entry");
+            installer->setCurrentIndex(1);
+            server.setVersionChoices(true,{"1.0.0","0.9.0"});
+            expect(server.installerVersion()=="0.9.0","refreshing server installer versions preserves an available selection");
+            server.setVersionChoices(true,{},"Retry");
+            expect(!installer->isEnabled() && server.installerVersion().isEmpty(),"failed server metadata cannot retain a stale installer version");
+            auto *summary=server.findChild<QLabel *>(MainWindowUI::newServerSummaryLabelName());
+            expect(summary && summary->isHidden(), "empty server summary reserves no vertical space");
+            server.setSummary({}, "Invalid name");
+            expect(!summary->isHidden(), "server errors remain visible when present");
+            server.setSummary({}, {});
+            expect(summary->isHidden(), "clearing the server error removes its reserved row");
+            server.resize(720,520); server.show();
+            for(int pass=0;pass<5;++pass) app.processEvents();
+            auto *content=server.findChild<QWidget *>("newServerContent");
+            auto *action=server.findChild<QPushButton *>(MainWindowUI::newServerCreateButtonName());
+            const int bottom=action->mapTo(content,QPoint(0,action->height())).y();
+            expect(content->height()-bottom<=2,"server install action shares the bottom placement of game installation");
+            server.close();
         }
         return failures == 0 ? 0 : 1;
     

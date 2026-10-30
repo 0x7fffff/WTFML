@@ -1,3 +1,4 @@
+#include "controllers/ServerVersionPicker.hpp"
 /**
  * @file MainWindow.cpp
  * @brief 实现主应用程序窗口及用户交互逻辑。
@@ -3356,6 +3357,7 @@ void MainWindow::openNewServerPage() {
         // 第二层里（产品要求"服务端下载和游戏下载一个样，不要搞独立的新界面"）。
         // 降成普通控件嵌进去之后，它的 accepted / rejected 只当"这一层该干什么"的通知。
         m_newServerPage = new NewServerPage(formHost);
+        new ServerVersionPicker(m_newServerPage, m_versionManager);
         m_newServerPage->setWindowFlags(Qt::Widget);
         m_newServerPage->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         formHost->layout()->addWidget(m_newServerPage);

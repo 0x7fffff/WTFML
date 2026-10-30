@@ -9,6 +9,6 @@ public:
     explicit PresetOptionsEditor(const QList<Entry> &entries, QWidget *parent = nullptr, Mode mode = Mode::All);
     QList<Entry> entries() const;
 private:
-    void append(const Entry &entry);
+    void append(const Entry &entry, bool included = true);
     QTableWidget *m_table;
 };
