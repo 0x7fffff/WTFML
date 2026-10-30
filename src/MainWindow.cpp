@@ -381,7 +381,10 @@ MainWindow::MainWindow(QWidget *parent)
             // 归属传 -1 = 现在这一颗选项卡：这一页只从实例页「预设」那一档开得出来。
             [this](QDialog *dialog, const QString &title, int ownerTab) {
                 return m_ui->overlay()->execPage(dialog, title, ownerTab);
-            }},
+            },
+            // 页头那句「N 份预设」：和「当前文件夹：…（N 个实例）」是页头同一格，
+            // 换档时由 MainWindowUI 自己换着写（见 setInstanceMode）。
+            [this](const QString &text) { m_ui->setPresetSubtitle(text); }},
         this);
     m_presetController->setEditorPrompt([this](const QString &title, const QString &text, const QStringList &buttons) {
         return InlineMessage::ask(m_ui->overlay(), MessageKind::Question, title, text, buttons, buttons.size()-1, buttons.size()-1);
@@ -2436,7 +2439,7 @@ void MainWindow::rebuildInstanceTree() {
                           ? tr("（%1 个实例，筛出 %2 个）").arg(parts.size()).arg(shown.size())
                           : tr("（%1 个实例）").arg(parts.size());
     }
-    m_ui->getInstanceFolderLabel()->setText(folderText);
+    m_ui->setInstanceFolderText(folderText);
 
     // ---- ④ 一条都没剩下时那一句话 ----
     //
@@ -3404,6 +3407,10 @@ void MainWindow::openNewServerPage() {
     m_newServerPage->setDefaults(
         ServerRegistry::defaultServerName(ServerInstall::Flavor::Vanilla, currentVersion),
         currentVersion);
+    // 返回行右边那句（和游戏安装页「将基于原版 26.3 安装」同一格）：版本已经在列表里选好了。
+    m_ui->setServerFormIntro(currentVersion.isEmpty()
+                                 ? tr("将安装一个新服务端")
+                                 : tr("将安装 %1 服务端").arg(currentVersion));
     if (auto *version = m_newServerPage->findChild<QLineEdit *>(MainWindowUI::newServerGameVersionEditName()))
         version->setReadOnly(fromDownload && !selected.isEmpty());
     if (auto *install = m_newServerPage->findChild<QPushButton *>(MainWindowUI::newServerCreateButtonName()))

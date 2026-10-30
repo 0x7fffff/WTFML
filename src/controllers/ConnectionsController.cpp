@@ -17,6 +17,7 @@
 #include "controllers/InstallPageController.hpp"
 #include "controllers/JavaSettingsController.hpp"
 #include "controllers/PlayerSkinController.hpp"
+#include "controllers/PresetController.hpp"
 #include "controllers/ServerMenuController.hpp"
 #include "download/ResourceStore.hpp"
 #include "download/DownloadRate.hpp"
@@ -197,6 +198,9 @@ void ConnectionsController::setup() {
         // 分组**不需要**在这里重置或重读：InstanceGroupStore 每个访问器都会比一下
         // "这次问的是哪一份 .minecraft"，不一样就自己重读（见它的文件头）。
         m_owner->refreshInstalledVersions();
+        // 预设跟着游戏文件夹走（`Presets::presetsRoot()` = 当前文件夹下的 `presets/`），
+        // 换了一整份 .minecraft 就是换了一整套预设：页面这会儿正开着的话当场重灌。
+        m_owner->m_presetController->refreshList();
         // 换游戏文件夹也算"点击左边栏、右边栏跟着变"（用户 ：「除了切换页面，
         // 点击左边栏导致右边栏发生变化的时候也要加动画」）。
         // 挂在这儿、而不是挂在左栏那一次点击上：这一发**就是**"右边那一列真的换了一整份"

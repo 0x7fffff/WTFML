@@ -1,6 +1,6 @@
 /**
  * @file PresetManagePage.hpp
- * @brief 「实例预设」整页：左边一份一份的列表，右边摘要 / 从实例提取 / 应用计划。
+ * @brief 「实例预设」整页：一层是列表，一层是选中那一份的细节。
  *
  * 【这一层不认识预设的盘】
  *
@@ -9,12 +9,19 @@
  * 和 `src/presets/` 那一层。界面上那些"段种类 / 模式"的中文名也是外面翻译好再喂进来的 ——
  * `ui/` 不 include `src/`，`SectionKind` 这个枚举在这一层根本不出现。
  *
+ * 【两层的形状都照着这一栏里已有的样子】
+ *
+ * 列表那一层和「客户端实例」「服务端」是同一页形（顶上 chip 高的搜索框 + 一排类别 chip、
+ * 中间一整棵不画外框、按类别分组的树、底下那颗建东西的主操作）。细节那一层和下载页那张
+ * 安装页是同一页形（顶上「← 返回」+ 名字、中间滚动区里几张卡片、主操作浮在底下正中间）。
+ * 点一行进细节、按返回回列表 —— 和实例页点一行进实例设置是同一条路。
+ *
  * 【为什么提取和应用的入口都在这一页上】
  *
  * 这一页要的是"新建、复制、重命名、删除和从实例提取"一整套，以及"应用前
  * 看得见精确计划"。两件事共用"选一份预设"这一个上下文，拆成两页会让用户在两页之间来回
- * 对照"我刚才选的是哪一份"。所以这一页分成三块，自上而下：**这一份是什么**（名字、说明、
- * 段表）→ **从实例收一份**（勾几样、选实例）→ **落到实例上**（预览、确认、应用）。
+ * 对照"我刚才选的是哪一份"。所以细节那一层分三张卡片，自上而下：**预设内容**（名字、说明、
+ * 段表、这一份的增删改）→ **从实例提取**（勾几样、选实例）→ **应用到实例**（预览、确认、应用）。
  *
  * 【确认一律在页内做，不开第二个框】
  *
@@ -33,11 +40,14 @@
 
 class QCheckBox;
 class QComboBox;
+class QFrame;
 class QGridLayout;
+class QHBoxLayout;
 class QLabel;
 class QLineEdit;
 class QListWidget;
 class QPushButton;
+class QStackedWidget;
 class QTreeWidget;
 class QTreeWidgetItem;
 
@@ -202,6 +212,14 @@ public:
     // ---------- 控件的 objectName（验证工程靠这些名字认控件） ----------
     /// 左边那张**按类别分组**的列表（`QTreeWidget`：组头 + 组里的预设行）。
     static QString presetListName() { return QStringLiteral("presetList"); }
+    /// 顶层那个两层栈（0 = 列表、1 = 细节），验证工程用来认"现在露着哪一层"。
+    static QString layersName() { return QStringLiteral("presetLayers"); }
+    /// 类别 chip 的 objectName：`presetCategoryChip_<钥匙>`（「全部」那种空钥匙写作 `all`）。
+    static QString categoryChipName(const QString &key) {
+        return QStringLiteral("presetCategoryChip_") + (key.isEmpty() ? QStringLiteral("all") : key);
+    }
+    /// 细节那一层的「← 返回」。
+    static QString backButtonName() { return QStringLiteral("presetBackButton"); }
     /// 行上那两处"这一行是谁"的位置（**验证工程按 id 认行**用）：组头那几行没有 id，
     /// 读不回来的那几行 `rowBrokenRole()` 为真。
     /// ★ 号码从 `Qt::UserRole + 20` 起：`MainWindowUI` 那一批身份/装饰角色已经占到 +16，
@@ -265,6 +283,22 @@ signals:
 
 private:
     void buildUi();
+    /// 第 0 层：搜索 + 类别 chip + 树 + 底下那颗「新建预设…」。
+    void buildListLayer();
+    /// 第 1 层：「← 返回」+ 名字、滚动区里的三小节、浮在底下正中间的「应用」。
+    /// 形状照实例设置那一页：顶上一条返回行，下面是整片底色上的几小节（不套卡片）。
+    void buildDetailLayer();
+    /// 名称 / 说明 / 一行小字（和实例设置页顶上那块"图标 + 名字"同一个位置）。
+    QWidget *buildIdentityBlock(QWidget *parent);
+    QWidget *buildPresetContentSection(QWidget *parent);
+    QWidget *buildCaptureSection(QWidget *parent);
+    QWidget *buildApplySection(QWidget *parent);
+    /// 在两层之间翻（细节那一层要把"现在看的是哪一份"写进标题）。
+    void showDetailLayer(bool detail);
+    /// 按 `setCategories()` 灌进来的次序把类别 chip 摆一遍（「全部」= 空钥匙那一项）。
+    void rebuildCategoryChips();
+    /// 亮不亮只看 `m_categoryFilterKey` 这一处（摆完、点完都走它）。
+    void syncCategoryChips();
     void refreshActions();
     void refreshCaptureEnabled();
     /// 整棵树按「类别分组」重建（见文件头「左边那一列」）。
@@ -284,6 +318,25 @@ private:
                        const QString &selectId);
     static QString comboInstanceId(const QComboBox *combo);
 
+    /// 顶层那两层：0 = 列表、1 = 细节（和实例页 / 下载页那两个栈同一个用法 ——
+    /// 两层都建着，只看露哪一层）。
+    QStackedWidget *m_layers = nullptr;
+    QWidget *m_listLayer = nullptr;
+    QWidget *m_detailLayer = nullptr;
+    /// 列表那一层顶上那一行（搜索框 + 类别 chip）。
+    QHBoxLayout *m_filterRow = nullptr;
+    /// 「没有符合筛选条件的预设」那一句（筛空了才露）。
+    QLabel *m_noMatchLabel = nullptr;
+    /// 类别 chip（第一颗是「全部」，钥匙空串）。点哪一颗就把哪一颗点亮 —— 单选。
+    QList<QPushButton *> m_categoryChips;
+    /// 和 `m_categoryChips` **并列**的那把钥匙（chip 不带数据槽，按下标对回去）。
+    QStringList m_categoryChipKeys;
+    /// 外面最后灌进来的那张类别表（重摆 chip 时照它的次序来）。
+    QList<CategoryOption> m_categoryOptions;
+    /// 现在亮着的那一颗的钥匙（空 = 「全部」）。
+    QString m_categoryFilterKey;
+    QPushButton *m_backButton = nullptr;
+    QLabel *m_detailTitle = nullptr;
     /// 分组列表。**按类别分组**（组头是类别名，组里那一行一份预设）—— 和实例页 /
     /// 服务端页那两张列表同一个写法（组头粗体 + 右端箭头，见 `InstanceGroupDelegate`）。
     QTreeWidget *m_presetList = nullptr;
@@ -307,6 +360,11 @@ private:
     QPushButton *m_saveDetailsButton = nullptr;
     QLabel *m_presetMeta = nullptr;
     QListWidget *m_sectionList = nullptr;
+    /// 顶上那块图标（这份预设自带的图标；没有就是拼图）——和实例设置页那块同一个位置。
+    QLabel *m_identityIcon = nullptr;
+    /// 细节层左栏那条导航（概览 / 从实例提取 / 应用到实例）和右栏那个页栈。
+    QListWidget *m_detailNav = nullptr;
+    QStackedWidget *m_detailPages = nullptr;
 
     QComboBox *m_captureInstanceCombo = nullptr;
     QCheckBox *m_captureOptions = nullptr;

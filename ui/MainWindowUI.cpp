@@ -1045,6 +1045,26 @@ QWidget *MainWindowUI::setupInstancePage() {
 /// 「游戏」那一页是版本树 + 安装页；其余几页在下面那段循环里搭（搜索框 + 三层树）。
 
 
+void MainWindowUI::setInstanceFolderText(const QString &text) {
+    instanceFolderText = text;
+    if (instanceFolderLabel != nullptr && instanceMode != InstanceMode::Preset) {
+        instanceFolderLabel->setText(text);
+    }
+}
+
+void MainWindowUI::setPresetSubtitle(const QString &text) {
+    presetSubtitleText = text;
+    if (instanceFolderLabel != nullptr && instanceMode == InstanceMode::Preset) {
+        instanceFolderLabel->setText(text);
+    }
+}
+
+void MainWindowUI::setServerFormIntro(const QString &text) {
+    if (serverFormIntroLabel != nullptr) {
+        serverFormIntroLabel->setText(text);
+    }
+}
+
 void MainWindowUI::setInstanceMode(InstanceMode mode) {
     if (navigationGuard && !navigationGuard()) {
         const int current = instanceModeStack ? instanceModeStack->currentIndex() : 0;
@@ -1058,16 +1078,21 @@ void MainWindowUI::setInstanceMode(InstanceMode mode) {
     }
     // 三颗按钮的勾和停着的那一页**一起**改（这是这个函数存在的全部意义）。
     instanceModeStack->setCurrentIndex(index);
-    // Presets belong to the launcher, not the selected game folder. Their own
-    // catalog/editor navigation occupies the left column in this mode.
+    // Presets live in the selected game folder too (they serve that folder's instances),
+    // so the folder column stays visible in every mode.
     if (auto *page = tabWidget->widget(instancesTabIndex())) {
-        if (auto *column = page->findChild<QWidget *>(leftColumnName(QStringLiteral("instance"))))
-            column->setVisible(mode != InstanceMode::Preset);
         if (auto *title = page->findChild<QLabel *>(pageTitleName(QStringLiteral("instance"))))
             title->setText(mode==InstanceMode::Preset ? QStringLiteral("预设") : QStringLiteral("实例"));
     }
     if (groupInstanceButton) groupInstanceButton->setVisible(mode != InstanceMode::Preset);
-    if (instanceFolderLabel) instanceFolderLabel->setVisible(mode != InstanceMode::Preset);
+    instanceMode = mode;
+    // 页头那句副标题**一直都有**（"这一页列的是什么"）：换档只是换一句话。
+    // 预设和实例同属当前游戏文件夹，所以两份底稿说的都是这个文件夹。
+    if (instanceFolderLabel) {
+        instanceFolderLabel->setVisible(true);
+        instanceFolderLabel->setText(mode == InstanceMode::Preset ? presetSubtitleText
+                                                                  : instanceFolderText);
+    }
     for (int i = 0; i < instanceModeButtons.size(); ++i) {
         if (instanceModeButtons.at(i) != nullptr) {
             instanceModeButtons.at(i)->setChecked(i == index);

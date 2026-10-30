@@ -102,7 +102,7 @@ int UiInstallLayoutCheck(QApplication &app) {
             ui.setInstanceMode(MainWindowUI::InstanceMode::Preset);
             auto *instancePage=ui.getTabWidget()->widget(MainWindowUI::instancesTabIndex());
             auto *folderColumn=instancePage->findChild<QWidget *>(MainWindowUI::leftColumnName("instance"));
-            expect(folderColumn&&folderColumn->isHidden(),"preset mode removes the entire folder column including its reserved width");
+            expect(folderColumn&&!folderColumn->isHidden(),"preset mode keeps the folder column, same as instances");
             ui.navigationGuard=[] { return false; };
             if (auto *client=ui.getInstanceModeButton(MainWindowUI::InstanceMode::Client))client->click();
             expect(ui.getInstanceModeStack()->currentIndex()==static_cast<int>(MainWindowUI::InstanceMode::Preset) && ui.getInstanceModeButton(MainWindowUI::InstanceMode::Preset)->isChecked(),"cancelled preset departure keeps the active mode indicator");

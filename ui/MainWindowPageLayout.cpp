@@ -419,3 +419,61 @@ void syncDownloadHeaderVisibility(QWidget *header, QStackedWidget *downloadStack
     header->setVisible(!onInstallPage);
 }
 }
+
+// ---------------------------------------------------------------------------
+namespace MainWindowPageLayout {
+
+// 小节卡片 / 小节 / 正文滚动层（三样各只此一处）
+// ---------------------------------------------------------------------------
+
+QFrame *makeSectionCard(const QString &title, QWidget *parent, QVBoxLayout **layoutOut) {
+    auto *card = new QFrame(parent);
+    markSurface(card, Theme::sectionSurfaceValue());
+    auto *layout = new QVBoxLayout(card);
+    layout->setContentsMargins(18, 16, 18, 18);
+    layout->setSpacing(12);
+    auto *heading = new QLabel(title, card);
+    markTextRole(heading, Theme::sectionTitleTextRoleValue());
+    QFont font = heading->font();
+    font.setBold(true);
+    heading->setFont(font);
+    layout->addWidget(heading);
+    if (layoutOut != nullptr) {
+        *layoutOut = layout;
+    }
+    return card;
+}
+
+QWidget *makePageSection(const QString &title, QWidget *parent, QVBoxLayout **layoutOut) {
+    auto *section = new QWidget(parent);
+    auto *layout = new QVBoxLayout(section);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(10);
+    auto *heading = new QLabel(title, section);
+    markTextRole(heading, Theme::sectionTitleTextRoleValue());
+    QFont font = heading->font();
+    font.setBold(true);
+    heading->setFont(font);
+    layout->addWidget(heading);
+    if (layoutOut != nullptr) {
+        *layoutOut = layout;
+    }
+    return section;
+}
+
+QScrollArea *makePageScroll(QWidget *parent, int bottomMargin, QVBoxLayout **bodyOut) {
+    auto *scroll = new Theme::GutterScrollArea(parent);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto *body = new QWidget(scroll);
+    auto *bodyLayout = new QVBoxLayout(body);
+    bodyLayout->setContentsMargins(0, 0, 0, bottomMargin);
+    scroll->setWidget(body);
+    if (bodyOut != nullptr) {
+        *bodyOut = bodyLayout;
+    }
+    return scroll;
+}
+
+}  // namespace MainWindowPageLayout

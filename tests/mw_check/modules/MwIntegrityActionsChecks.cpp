@@ -278,13 +278,13 @@ int MwIntegrityActionsChecks(const QDir &root) {
                         page->findChild<QLineEdit *>(MainWindowUI::newServerNameEditName())) {
                     nameEdit->setText(spigotName);  // 名字非空，摘要才会走到「档」那一步
                 }
-                if (auto *combo =
-                        page->findChild<QComboBox *>(MainWindowUI::newServerFlavorComboName())) {
+                if (auto *flavors =
+                        page->findChild<QListWidget *>(MainWindowUI::newServerFlavorListName())) {
                     const QString want = ServerInstall::flavorToken(ServerInstall::Flavor::Spigot);
-                    for (int i = 0; i < combo->count(); ++i) {
-                        if (combo->itemData(i, Qt::UserRole).toString() == want) {
+                    for (int i = 0; i < flavors->count(); ++i) {
+                        if (flavors->item(i)->data(Qt::UserRole).toString() == want) {
                             comboSawSpigot = true;
-                            combo->setCurrentIndex(i);  // 发 currentIndexChanged → 翻译点重算
+                            flavors->setCurrentRow(i);  // 发 currentRowChanged → 翻译点重算
                             break;
                         }
                     }

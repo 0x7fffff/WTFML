@@ -32,8 +32,8 @@
 #include <QList>
 #include <QString>
 
-class QComboBox;
 class QLabel;
+class QListWidget;
 class QLineEdit;
 class QPushButton;
 class QSpinBox;
@@ -42,7 +42,7 @@ class NewServerPage : public QDialog {
     Q_OBJECT
 
 public:
-    /// 下拉框里的一档。**全是显示用的字符串 + 四堵"这一档要填哪几格"**（都由翻译点算好）。
+    /// 端类别列表里的一档。**全是显示用的字符串 + 四堵"这一档要填哪几格"**（都由翻译点算好）。
     struct FlavorOption {
         QString token;  ///< 身份（`ServerInstall::flavorToken()`）—— **认人用它，不认文字**
         QString name;   ///< 显示名（`ServerInstall::flavorName()`）
@@ -98,7 +98,7 @@ private:
     void applyFlavorVisibility();
 
     QLineEdit *m_nameEdit = nullptr;
-    QComboBox *m_flavorCombo = nullptr;
+    QListWidget *m_flavorList = nullptr;
     QLineEdit *m_gameVersionEdit = nullptr;
     QLineEdit *m_loaderEdit = nullptr;
     QLineEdit *m_installerEdit = nullptr;
@@ -113,6 +113,6 @@ private:
     QWidget *m_loaderRow = nullptr;
     QWidget *m_installerRow = nullptr;
     QWidget *m_buildRow = nullptr;
-    /// 下拉框里那八档（下标 = `QComboBox` 的 `currentIndex()`）。
+    /// 端类别列表里那几档（行下标 = `QListWidget` 的 `currentRow()`）。
     QList<FlavorOption> m_flavors;
 };

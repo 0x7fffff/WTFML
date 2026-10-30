@@ -99,6 +99,9 @@ public:
         /// 预设编辑器就靠这一条走"整页覆盖内容区"那条路 —— 和实例设置一模一样。
         /// 空 = 这个宿主没有覆盖层（验证工程那种没有主窗口的宿主）：开不了页，按"没开成"算。
         std::function<int(QDialog *, const QString &, int)> execPage = {};
+        /// 预设页页头那句副标题（「N 份预设」）。空 = 这个宿主没有页头（验证工程那种宿主）。
+        /// 和实例页那句「当前文件夹：…（N 个实例）」是同一条路：页头说明由这一层灌。
+        std::function<void(const QString &)> presetSubtitle = {};
         /// Optional thread-safe reader for isolated tests; production reads PresetStore.
         std::function<Presets::CatalogSnapshot(const QString &)> readCatalog = {};
         std::function<Presets::ManifestSnapshot(const QString &, const QString &)> readManifest = {};

@@ -1188,7 +1188,7 @@ public:
     // `setSummary()`）。
     static QString newServerPageName() { return QStringLiteral("newServerPage"); }
     static QString newServerNameEditName() { return QStringLiteral("newServerNameEdit"); }
-    static QString newServerFlavorComboName() { return QStringLiteral("newServerFlavorCombo"); }
+    static QString newServerFlavorListName() { return QStringLiteral("newServerFlavorList"); }
     static QString newServerGameVersionEditName() {
         return QStringLiteral("newServerGameVersionEdit");
     }
@@ -3408,6 +3408,8 @@ public:
     QWidget *getServerFormHost() const { return serverFormHost; }
     /// 表单顶上那颗「← 返回版本列表」。
     QPushButton *getServerFormBackButton() const { return serverFormBackButton; }
+    /// 表单顶上那句「将安装 26.3 服务端」（和游戏安装页那句「将基于原版 26.3 安装」同一格）。
+    void setServerFormIntro(const QString &text);
 
     /// 下载页页头**那一整块**（标题 + 说明 + 右上角动作）。
     ///
@@ -3433,6 +3435,12 @@ public:
     /// 都调它，别在两处各设一遍（那样两颗按钮的勾和实际停着的页迟早对不上）。
     /// 传越界的值什么都不做（宁可停在上一档，也不要切到一页不存在的页上）。
     void setInstanceMode(InstanceMode mode);
+
+    /// 实例页页头那句副标题（「当前文件夹：…（N 个实例）」）。灌数据那条路走这里：
+    /// 普通模式立刻写进页头，预设模式先记着，切回客户端实例时再写（见 `setInstanceMode`）。
+    void setInstanceFolderText(const QString &text);
+    /// 预设那一档的副标题（「N 份预设」）。只在预设模式写进页头；其余时候先记着。
+    void setPresetSubtitle(const QString &text);
 
     /// 让它露面/收起来。**收起时连位置都不占**（`setVisible(false)`，不是 `setEnabled`）。
     void setDownloadBackVisible(bool visible) {
@@ -3802,6 +3810,12 @@ private:
     QPushButton *groupInstanceButton = nullptr;
     QPushButton *importModpackButton = nullptr;
     QLabel *instanceFolderLabel = nullptr;
+    /// 页头那句副标题的两份底稿（普通档 = 文件夹 + 实例数；预设档 = 预设数）。
+    /// 两份都留着，换档只是换着写，切换回来不用等外面重灌一遍。
+    QString instanceFolderText;
+    QString presetSubtitleText;
+    /// 现在停在哪一档（`setInstanceMode()` 写；上面那两份底稿按它挑一份写进页头）。
+    InstanceMode instanceMode = InstanceMode::Client;
     /// 实例页那一行搜索与筛选：一个搜索框 + 四颗 chip，摆进正文面里
     /// 树的上方。**外框是自己一个控件**（不是裸布局）：验证工程要按 objectName 找回来量
     /// "整排有没有超出正文面"（和下载页页头那条同一套做法）。
@@ -3841,6 +3855,8 @@ private:
     QWidget *serverFormHost = nullptr;
     /// 表单顶上那颗「← 返回版本列表」。
     QPushButton *serverFormBackButton = nullptr;
+    /// 返回行右边那句「将安装 26.3 服务端」（文案由 `MainWindow` 现算现喂）。
+    QLabel *serverFormIntroLabel = nullptr;
     /// 下载页页头那一整块（见 getDownloadHeader() 那段）。
     QWidget *downloadHeader = nullptr;
     /// 安装页中间那层滚动区（见 installScrollName() 那段）。

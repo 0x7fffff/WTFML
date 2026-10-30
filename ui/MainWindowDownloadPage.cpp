@@ -556,35 +556,60 @@ void MainWindowUI::setupDownloadServerPage() {
     serverLayout->addWidget(serverStack);
 
     // ---- [0] 版本列表 ----
+    //
+    // 这一层和「游戏」那一页**逐件同形**：顶上一行筛子（左边搜索框、右边结果那句话），
+    // 中间一整棵版本树，点一个版本进下一层。同一栏里两页的筛子长得不一样是最刺眼的
+    // 不统一之一，所以那几条视图设置（字号 / 图标边长 / 悬停 / 展开动画）照抄过来。
     QWidget *listPage = new QWidget(serverStack);
     listPage->setObjectName(downloadServerListPageName());
     auto *listLayout = new QVBoxLayout(listPage);
     listLayout->setContentsMargins(0, 0, 0, 0);
     listLayout->setSpacing(10);
-    auto *hint = new QLabel(downloadServerHintText(), listPage);
-    hint->setObjectName(downloadServerHintName());
-    hint->setWordWrap(true);
-    listLayout->addWidget(hint);
-    auto *search = new QLineEdit(listPage);
+    // 说明那一句（「装好之后去管理 → 服务端」）在**页头副标题**里，不占这一页：
+    // 这一行留给"筛出来的结果"（和「游戏」那一页同一个位置、同一句话法）。
+    auto *filterBar = new QWidget(listPage);
+    auto *filterLayout = new QHBoxLayout(filterBar);
+    filterLayout->setContentsMargins(0, 0, 0, 0);
+    filterLayout->setSpacing(10);
+    auto *search = new QLineEdit(filterBar);
     search->setObjectName(QStringLiteral("serverVersionFilter"));
     search->setPlaceholderText(versionFilterPlaceholderText());
-    search->setClearButtonEnabled(true);
-    listLayout->addWidget(search);
+    filterLayout->addWidget(search, 1);
+    auto *hint = new QLabel(filterBar);
+    hint->setObjectName(downloadServerHintName());
+    hint->setVisible(false);
+    // 和「游戏」那一页同一个下限：结果在"找到 1 个"和"找到 742 个"之间切换时框宽不跳。
+    hint->setMinimumWidth(120);
+    filterLayout->addWidget(hint);
+    listLayout->addWidget(filterBar);
+
     auto *versions = new QTreeWidget(listPage);
     versions->setObjectName(QStringLiteral("serverVersionTree"));
     versions->setHeaderHidden(true);
+    versions->setFrameShape(QFrame::NoFrame);
     versions->setRootIsDecorated(false);
-    versions->setIndentation(0);
+    versions->setColumnCount(1);
     versions->setUniformRowHeights(true);
+    stabilizeDownloadTree(versions);
     versions->setItemDelegate(new VersionTreeDelegate(versions, true));
     versions->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    // 悬停那一行的加深底色要它（另一半在代理里那个 `&& hovered`）。
+    versions->setMouseTracking(true);
+    QFont versionsFont = versions->font();
+    versionsFont = Theme::textFont(versionsFont, Theme::TextRole::Body);
+    versions->setFont(versionsFont);
+    versions->setIconSize(QSize(versionTreeIconSize(), versionTreeIconSize()));
+    versions->setExpandsOnDoubleClick(false);
+    Anim::animateExpansion(versions);
     listLayout->addWidget(versions, 1);
     downloadNewServerButton = new QPushButton(newServerText(), listPage);
     downloadNewServerButton->setObjectName(downloadNewServerButtonName());
     downloadNewServerButton->hide(); // 版本号就是可见入口；这一颗只当"同一个动作"的接线点。
-    const auto filter = [versions, search] {
-        const QStringList terms = search->text().trimmed().split(
+    const auto filter = [versions, search, hint] {
+        const QString text = search->text().trimmed();
+        const QStringList terms = text.split(
             QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        int matched = 0;
         for (int i = 0; i < versions->topLevelItemCount(); ++i) {
             auto *group = versions->topLevelItem(i);
             bool any = false;
@@ -594,18 +619,31 @@ void MainWindowUI::setupDownloadServerPage() {
                 for (const auto &term : terms)
                     matches &= item->text(0).contains(term, Qt::CaseInsensitive);
                 item->setHidden(!matches);
+                if (matches) ++matched;
                 any |= matches;
             }
             group->setHidden(!any);
             if (!terms.isEmpty() && any) group->setExpanded(true);
         }
+        // 结果那句话：没有清单时说"刷新重试"，筛过就说找到几个 / 一个都没匹配上
+        // （和「游戏」那一页的说法逐字一致 —— `versionFilterMatchText()` 那一处）。
+        if (versions->topLevelItemCount() == 0) {
+            hint->setText(QStringLiteral("暂无可用版本，请刷新重试。"));
+            hint->setVisible(true);
+            return;
+        }
+        hint->setVisible(!terms.isEmpty());
+        hint->setText(terms.isEmpty()
+                          ? QString()
+                          : (matched == 0 ? versionFilterNoMatchText(text)
+                                          : versionFilterMatchText(matched)));
     };
     QObject::connect(search, &QLineEdit::textChanged, versions, filter);
     auto *sync = new QTimer(versions);
     sync->setSingleShot(true);
     const QPointer<QTreeWidget> source = versionTree;
     QObject::connect(sync, &QTimer::timeout, versions,
-                     [source, versions, hint, filter, stack = serverStack, listPage,
+                     [source, versions, filter, stack = serverStack, listPage,
                       outer = downloadStack, serverPage] {
         if (!source || !versions->property("sourceDirty").toBool()) return;
         // 两件事都得成立才算"这一层真的露着"：外面那一栏停在「服务端」，里面停在版本列表。
@@ -632,8 +670,6 @@ void MainWindowUI::setupDownloadServerPage() {
                                    : original->isExpanded());
         }
         if (versions->topLevelItemCount() > 0) versions->setProperty("initialized", true);
-        hint->setText(QStringLiteral("暂无可用版本，请刷新重试。"));
-        hint->setVisible(versions->topLevelItemCount() == 0);
         versions->verticalScrollBar()->setValue(scroll);
         filter();
         versions->setUpdatesEnabled(true);
@@ -695,6 +731,10 @@ void MainWindowUI::setupDownloadServerPage() {
     auto *backRow = new QHBoxLayout;
     backRow->setContentsMargins(0, 0, 0, 0);
     backRow->addWidget(serverFormBackButton);
+    // 和「游戏」安装页顶上一模一样：返回键右边那句话说的是"这一趟要装什么"。
+    serverFormIntroLabel = new QLabel(formPage);
+    serverFormIntroLabel->setObjectName(QStringLiteral("serverFormIntroLabel"));
+    backRow->addWidget(serverFormIntroLabel);
     backRow->addStretch(1);
     formLayout->addLayout(backRow);
     serverFormHost = new QWidget(formPage);
