@@ -155,7 +155,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     auto *start = new QPushButton(QObject::tr("开始更新"), page); start->setObjectName("instanceUpdateStart");
     Theme::markButton(start, Theme::ButtonKind::Primary); start->setAutoDefault(false);
     auto *rollback = new QPushButton(QObject::tr("回滚上次更新…"), page);
-    Theme::markButton(rollback, Theme::ButtonKind::Ghost); rollback->setAutoDefault(false);
+    Theme::markButton(rollback, Theme::ButtonKind::Neutral); rollback->setAutoDefault(false);
     QObject::connect(rollback, &QPushButton::clicked, dialog, [dialog] { emit dialog->rollbackUpgradeRequested(); });
 
     // Move the real controls into a native wizard. The wizard stays in the backing

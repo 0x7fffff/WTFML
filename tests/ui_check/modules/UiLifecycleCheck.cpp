@@ -65,6 +65,25 @@ int UiLifecycleCheck(QApplication &app) {
             }
         }
         dialog.setFileDirs(dirs);
+        dialog.resize(1100, 720);
+        dialog.show();
+        dialog.showPage(Dlg::overviewCategoryKey());
+        app.processEvents();
+        const QList<QPushButton *> overviewCommands = {
+            dialog.findChild<QPushButton *>(Dlg::changeIconButtonName()),
+            dialog.findChild<QPushButton *>(Dlg::groupButtonName()),
+            dialog.findChild<QPushButton *>(Dlg::checkUpdatesButtonName()),
+            dialog.findChild<QPushButton *>(Dlg::updateCenterButtonName()),
+            dialog.findChild<QPushButton *>(Dlg::shortcutButtonName(0))};
+        bool sameWidth = true;
+        const int referenceWidth = overviewCommands.first()->width();
+        for (auto *button : overviewCommands) {
+            sameWidth &= button && qAbs(button->width() - referenceWidth) <= 1;
+            if (button) printf("overview geometry %s: x=%d width=%d parentWidth=%d\n", qPrintable(button->objectName()),
+                               button->mapTo(&dialog, QPoint()).x(), button->width(), button->parentWidget()->width());
+        }
+        expect(sameWidth, "overview command groups share equal column widths across independent grids");
+
         auto *navigation = dialog.findChild<QTreeWidget *>(Dlg::navigationTreeName());
         bool backupLeaf = false;
         int collapsedGroups = 0;
@@ -76,6 +95,21 @@ int UiLifecycleCheck(QApplication &app) {
         }
         expect(navigation && !backupLeaf, "world backup is not a standalone navigation item");
         expect(collapsedGroups == 2, "creative and maintenance groups start collapsed");
+        QStringList maintenanceKeys;
+        for (QTreeWidgetItemIterator it(navigation); navigation && *it; ++it) {
+            auto *parent = (*it)->parent();
+            if (parent && parent->data(0, Qt::UserRole + 1).toString() == QStringLiteral("maintenance"))
+                maintenanceKeys.append((*it)->data(0, Qt::UserRole).toString());
+        }
+        expect(maintenanceKeys == QStringList{QStringLiteral("diagnosis"), QStringLiteral("logs"),
+                   QStringLiteral("operationsmenu"), QStringLiteral("migration"), QStringLiteral("upgrade")},
+               "maintenance has five functional entries without redundant pages");
+        dialog.showPage(QStringLiteral("diagnosticsmenu"));
+        expect(dialog.currentPageKey() == QStringLiteral("diagnosis"), "legacy diagnostics route opens actual report");
+        expect(navigation->currentItem() && navigation->currentItem()->data(0, Qt::UserRole).toString() == QStringLiteral("diagnosis"),
+               "direct diagnostics page keeps the correct navigation selection");
+        dialog.showPage(QStringLiteral("export"));
+        expect(dialog.currentPageKey() == QStringLiteral("operationsmenu"), "legacy export route opens instance actions");
         int repairs = 0, inspections = 0;
         QObject::connect(&dialog, &Dlg::repairFilesRequested, [&repairs] { ++repairs; });
         QObject::connect(&dialog, &Dlg::integrityCheckRequested, [&inspections] { ++inspections; });
@@ -84,6 +118,9 @@ int UiLifecycleCheck(QApplication &app) {
         expect(repair && !repair->isVisibleTo(&dialog), "launch settings no longer duplicate file repair");
         dialog.showPage(QStringLiteral("repair"));
         expect(repair && repair->isVisibleTo(&dialog), "maintenance repair owns the file completion action");
+        auto *inspection = dialog.findChild<QPushButton *>(Dlg::integrityCheckButtonName());
+        expect(dialog.currentPageKey() == QStringLiteral("diagnosis") && inspection && inspection->isVisibleTo(&dialog),
+               "repair and integrity actions share one page without another entry button");
         if (repair) repair->click();
         expect(repairs == 1 && inspections == 0, "repair page repairs instead of duplicating integrity scan");
         const QList<QPair<QString, QString>> movedActions = {
@@ -104,6 +141,35 @@ int UiLifecycleCheck(QApplication &app) {
         dialog.showPage(Dlg::overviewCategoryKey());
         expect(dialog.findChild<QPushButton *>(Dlg::checkUpdatesButtonName())->isVisibleTo(&dialog),
                "overview retains update check entry");
+        dialog.showPage(QStringLiteral("snapshots"));
+        expect(dialog.currentPageKey() == QStringLiteral("operationsmenu"), "snapshot route opens consolidated backup and operations page");
+        auto *snapshot = dialog.findChild<QPushButton *>(Dlg::createSnapshotButtonName());
+        auto *exportCommand = dialog.findChild<QPushButton *>(Dlg::exportButtonName());
+        expect(snapshot && exportCommand && snapshot->width() == exportCommand->width() && snapshot->width() < 320,
+               "backup and instance commands have consistent compact widths");
+        app.processEvents();
+        const auto commandsDoNotOverlap = [&dialog](const QStringList &names) {
+            QRect previous;
+            QWidget *row = nullptr;
+            for (const QString &name : names) {
+                auto *button = dialog.findChild<QPushButton *>(name);
+                if (button) printf("maintenance geometry %s visible=%d parent=%s x=%d y=%d w=%d h=%d\n",
+                    qPrintable(name), button->isVisibleTo(&dialog), qPrintable(button->parentWidget()->objectName()),
+                    button->mapTo(&dialog,QPoint()).x(), button->mapTo(&dialog,QPoint()).y(), button->width(), button->height());
+                if (!button || !button->isVisibleTo(&dialog)) return false;
+                if (row && row != button->parentWidget()) return false;
+                row = button->parentWidget();
+                const QRect box(button->mapTo(&dialog, QPoint()), button->size());
+                if (!previous.isNull() && (box.left() < previous.right() + 8 || box.top() != previous.top())) return false;
+                previous = box;
+            }
+            return row && row->layout() && row->width() >= previous.width();
+        };
+        expect(commandsDoNotOverlap({Dlg::createSnapshotButtonName(), Dlg::restoreSnapshotButtonName(),
+                       QStringLiteral("inspectRecoveryButton")}),
+               "all three backup commands occupy separate horizontal click targets in one managed row");
+        expect(commandsDoNotOverlap({Dlg::copyButtonName(), Dlg::exportButtonName()}),
+               "copy and export commands do not overlap after reparenting");
         dialog.showPage(QStringLiteral("save"));
         dialog.showPage(QStringLiteral("resourcepack"));
         auto *packMode = dialog.findChild<QPushButton *>(QStringLiteral("resourcePackFileMode"));

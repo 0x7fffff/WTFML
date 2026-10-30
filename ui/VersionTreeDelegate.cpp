@@ -138,7 +138,7 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
             painter->save();
             painter->setPen(Qt::NoPen);
             painter->setBrush(hoverFill);
-            painter->drawRoundedRect(hoverRect, 7.0, 7.0);
+            painter->drawRect(hoverRect);
             painter->restore();
         } else {
             painter->fillRect(option.rect, hoverFill);
@@ -182,30 +182,22 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
         Theme::paintSelectionRail(painter, option.rect);
     }
 
-    // 侧栏那一列（`m_navRow`）：选中那一行的底和墨和别处**是同一套**，只是形状不同 ——
-    // 这里是"内缩圆角块 + 一块跟着圆角走的指示条"，别的表是"整条行 + 左边那根直条"
-    // （侧栏用圆角块那一款）。
-    //
-    // 平台样式那一层的 Selected 已在上面拿掉：这一档要的是内缩圆角块；如果先让
-    // Fusion 铺满灰底，再在上面盖圆角块，四个圆角外仍会漏出灰色直角。
-    // 换色**只能**这么做：调色板里那一档 `Highlight` 被 `WtfmlProxyStyle::`
-    // `selectedItemOption()` 拿去当"要不要接管"的判据了（见 Theme.hpp 里那段：
-    // 换过 Highlight 的表它就不接管），而这一层要的恰恰是"接管了之后再改一层色"。
+    // Sidebar selection uses a rectangular inset and rail, matching other navigation lists.
+    // The platform Selected layer is suppressed above so it cannot paint another background.
     if (m_navRow && selected) {
         const QRectF selectedRect = QRectF(option.rect.adjusted(3, 2, -3, -2));
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing, true);
         painter->setPen(Qt::NoPen);
         painter->setBrush(Theme::selectionFill(option.palette.color(QPalette::Base)));
-        painter->drawRoundedRect(selectedRect, 7.0, 7.0);
+        painter->drawRect(selectedRect);
 
-        // 指示条也收在圆角块里面，上下留一点呼吸，而不是一根贯穿两行之间的分隔线。
-        const QRectF barRect(selectedRect.left(), selectedRect.top() + 6.0,
+        // 指示条收在选中区域内部，与其它侧栏保持直角。
+        const QRectF barRect(selectedRect.left(), selectedRect.top(),
                              Theme::selectionBarThickness(),
-                             qMax(0.0, selectedRect.height() - 12.0));
+                             selectedRect.height());
         painter->setBrush(Theme::selectionBar());
-        painter->drawRoundedRect(barRect, Theme::selectionBarThickness() / 2.0,
-                                 Theme::selectionBarThickness() / 2.0);
+        painter->drawRect(barRect);
         painter->restore();
     }
 

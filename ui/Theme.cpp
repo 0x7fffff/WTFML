@@ -484,6 +484,31 @@ public:
     void drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPainter *p,
                        const QWidget *w) const override
     {
+        if ((pe == PE_IndicatorCheckBox || pe == PE_IndicatorItemViewItemCheck) && opt && p) {
+            const bool enabled = opt->state & State_Enabled;
+            const bool checked = opt->state & State_On;
+            const bool mixed = opt->state & State_NoChange;
+            const QColor ink = opt->palette.color(!enabled ? QPalette::PlaceholderText
+                                                 : checked || mixed ? QPalette::Link : QPalette::Text);
+            const QRectF box = QRectF(opt->rect).adjusted(0.8, 0.8, -0.8, -0.8);
+            p->save();
+            p->setRenderHint(QPainter::Antialiasing, true);
+            p->setPen(QPen(ink, 1.2));
+            p->setBrush(opt->palette.color(enabled ? QPalette::Base : QPalette::Button));
+            p->drawRoundedRect(box, 2.5, 2.5);
+            p->setPen(QPen(ink, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            const auto point = [&box](qreal x, qreal y) {
+                return QPointF(box.left() + box.width() * x, box.top() + box.height() * y);
+            };
+            if (mixed) p->drawLine(point(0.25, 0.5), point(0.75, 0.5));
+            else if (checked) {
+                QPainterPath tick; tick.moveTo(point(0.22, 0.51));
+                tick.lineTo(point(0.43, 0.72)); tick.lineTo(point(0.79, 0.28));
+                p->drawPath(tick);
+            }
+            p->restore();
+            return;
+        }
         // 选中那一块：调色板里那一档（`Highlight`）是**平台给的蓝**，而"出厂那一份不碰
         // 调色板"这条不能破（破了就把"跟着系统深浅"钉死了，见 `apply()` 那段）⇒ 由这里
         // 接过来自己画成"这一行自己的底色混一档主题色 + 左边一根 3 px 指示条"
@@ -575,9 +600,18 @@ public:
         QRect cell = subControlRect(CC_ComboBox, &comboOpt, SC_ComboBoxArrow, w);
         if (cell.isValid()) {
             // 只擦边框以内那一片（外圈那一圈是样式表画的那 1px），右边补足上面说的那 1px。
-            cell = cell.intersected(w->rect().adjusted(1, 1, -1, -1));
-            cell.setRight(w->width() - 2);
-            p->fillRect(cell, opt->palette.brush(QPalette::Button));
+            // The native drop-down panel also paints its bottom/right bevel.
+            // Clear those pixels too, then restore the single themed outer edge.
+            cell = cell.intersected(w->rect());
+            cell.setRight(w->width() - 1);
+            cell.setBottom(w->height() - 1);
+            p->fillRect(cell, opt->palette.brush(QPalette::Base));
+            p->save();
+            p->setRenderHint(QPainter::Antialiasing, false);
+            p->setPen(opt->palette.color(w->hasFocus() ? QPalette::Link : QPalette::Dark));
+            p->drawLine(cell.left(), w->height() - 1, w->width() - 1, w->height() - 1);
+            p->drawLine(w->width() - 1, cell.top(), w->width() - 1, w->height() - 1);
+            p->restore();
         }
 
         // 2) 画 V。墨色跟着 `ButtonText` 走 —— 应用级样式表那句 `color:` 已经被灌进调色板
@@ -1148,6 +1182,15 @@ void markButton(QWidget *button, ButtonKind kind) {
     if (button == nullptr) {
         return;
     }
+    // Text actions need a visible surface; icon-only and navigation buttons
+    // retain their lighter presentation. Keep the semantic kind unchanged.
+    bool textAction = false;
+    if (auto *push = qobject_cast<QPushButton *>(button)) {
+        for (const QChar character : push->text()) {
+            if (character.isLetterOrNumber()) { textAction = true; break; }
+        }
+    }
+    button->setProperty("wtfmlTextAction", textAction);
     const QString key = buttonKindKey(kind);
     if (key.isEmpty()) {
         button->setProperty(kButtonKindProperty, QVariant());
@@ -1457,6 +1500,16 @@ QString widgetStyleSheet() {
                           "QPushButton[%1=\"ghost\"]:checked { background-color: %5; }")
                .arg(QString::fromLatin1(kButtonKindProperty), black, hover, pressed, ghostTint);
 
+    // Non-toggle text actions (refresh, open folder, export, reset, etc.)
+    // share the neutral fill so their click target is visible at rest.
+    qss += QStringLiteral("QPushButton[%1=\"ghost\"][wtfmlTextAction=\"true\"][checkable=\"false\"]:enabled"
+                          " { background-color: %2; color: %3; }"
+                          "QPushButton[%1=\"ghost\"][wtfmlTextAction=\"true\"][checkable=\"false\"]:hover:enabled"
+                          " { background-color: %4; }"
+                          "QPushButton[%1=\"ghost\"][wtfmlTextAction=\"true\"][checkable=\"false\"]:pressed:enabled"
+                          " { background-color: %5; }")
+               .arg(QString::fromLatin1(kButtonKindProperty), neutralFill, black, hover, pressed);
+
     // 「灰掉」这一条**必须摆在上面那两块之后**。
     // Qt 的样式表按**优先级**排：`QPushButton[wtfmlButtonKind="neutral"]` 和
     // `QPushButton:disabled` 都是"元素 + 一个属性/伪类"，**优先级一模一样** ——
@@ -1592,25 +1645,12 @@ QString widgetStyleSheet() {
     // 勾选框
     // -----------------------------------------------------------------------
     //
-    // 勾选框未勾选的时候框和文本做成黑色，勾选了两者都变成主题色。
-    // 所以这里**成对**地换色：未勾选 = 黑框 + 黑字（`neutralInkColor()`）；勾上 = 主题色
-    // 的**实心**框 + 主题色的字（用 `link` 那一档写字：各预设都把它备成"压在自家底色上
-    // 读得清"的主题色墨，浅底深绿、深底浅蓝）。
-    //
-    // 勾上那一格画的是**实心块**、不是"白底 + 一个勾"：样式表画勾要一张图，而图是死的
-    // —— 主题色是能换的（`Theme/Accent`），贴一张绿勾上去等于把"换一个主题色"这件事
-    // 在勾选框这一格上弄坏。实心 vs 空心是**不依赖任何图**就能分辨的一对状态，而且
-    // "框变成主题色"正是这一档要的效果。
-    qss += QStringLiteral(
-               "QCheckBox { color: %1; }"
-               "QCheckBox:checked { color: %2; }"
-               "QCheckBox:disabled { color: %3; }"
-               "QCheckBox::indicator { background-color: #ffffff; border: 1px solid %1;"
-               " border-radius: %6px; }"
-               "QCheckBox::indicator:checked { background-color: %4; border-color: %2; }"
-               "QCheckBox::indicator:disabled { background-color: %5; border-color: %3; }")
-               .arg(black, accentInk, disabledInk, pure, disabledFill)
-               .arg(controlRadius());
+    // Checkbox indicators are drawn by WtfmlProxyStyle at the actual device scale.
+    // Do not override ::indicator here: QSS would bypass the custom checkmark.
+    qss += QStringLiteral("QCheckBox { color: %1; }"
+                          "QCheckBox:checked { color: %2; }"
+                          "QCheckBox:disabled { color: %3; }")
+               .arg(black, accentInk, disabledInk);
 
     // -----------------------------------------------------------------------
     // 滚动条
@@ -1724,7 +1764,6 @@ QString widgetStyleSheet() {
         " background-color: %1; color: %2; border: 1px solid %3; border-radius: %7px; }"
         "QLineEdit:focus, QComboBox:focus { border-color: %4; }"
         "QLineEdit:disabled, QComboBox:disabled { color: %5; background-color: %6; }"
-        "QCheckBox::indicator:unchecked { background-color: %1; border-color: %3; }"
         "QComboBox QAbstractItemView { selection-background-color: %8; selection-color: %2; }"
         "QTabWidget::pane { background-color: %9; border: none; }")
         .arg(paletteRef("base"), paletteRef("text"), paletteRef("dark"), paletteRef("link"),
@@ -1754,14 +1793,14 @@ QStringList presetIds() {
 
 QString presetName(const QString &id) {
     if (id == QLatin1String("light")) {
-        return QStringLiteral("翡翠实验室");
+        return QStringLiteral("翡翠绿");
     }
     if (id == QLatin1String("dark")) {
-        return QStringLiteral("炭灰");
+        return QStringLiteral("石炭灰");
     }
-    if (id == QLatin1String("emerald")) return QStringLiteral("翡翠实验室");
+    if (id == QLatin1String("emerald")) return QStringLiteral("翡翠绿");
     if (id == QLatin1String("ocean")) return QStringLiteral("海洋蓝");
-    return QStringLiteral("跟着系统");
+    return QStringLiteral("跟随系统");
 }
 
 bool isPresetId(const QString &id) {

@@ -4296,8 +4296,8 @@ void MainWindow::applySettingsToUi() {
 
     // ---------- 下载源 ----------
     QComboBox *sourceCombo = m_ui->getDownloadSourceCombo();
-    sourceCombo->addItem(tr("官方源（Mojang）"), int(DownloadSource::Official));
-    sourceCombo->addItem(tr("镜像源（BMCLAPI）"), int(DownloadSource::Mirror));
+    sourceCombo->addItem(tr("优先官方源，速度缓慢时使用国内源"), int(DownloadSource::Official));
+    sourceCombo->addItem(tr("优先国内源，速度缓慢时使用官方源"), int(DownloadSource::Mirror));
     selectByEnumData(sourceCombo, m_settings->downloadSource());
 
     // ---------- 「同时最多下几个」 ----------

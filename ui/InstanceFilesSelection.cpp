@@ -16,6 +16,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
+#include <QLineEdit>
 #include <QMenu>
 #include <QPushButton>
 #include <QUrl>
@@ -154,12 +155,18 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
     });
     panel->addStretch();
     m_selectionBar->setToolTip(tr("选择仅针对当前筛选结果。删除模组不清理配置。"));
-    // Keep search and installation together; directory maintenance belongs in a menu.
+    // Search yields space to the frequently used folder action.
     auto *header = qobject_cast<QHBoxLayout *>(m_searchRow->layout());
     m_pathRow->layout()->removeWidget(m_download);
     const bool downloadVisible = !m_download->isHidden();
     header->addWidget(m_download);
     m_download->setVisible(downloadVisible);
+    m_pathRow->layout()->removeWidget(m_openFolder);
+    m_openFolder->setText(tr("打开文件夹"));
+    Theme::markButton(m_openFolder, Theme::ButtonKind::Neutral);
+    header->addWidget(m_openFolder);
+    m_openFolder->show();
+    m_search->setMinimumWidth(100);
     auto *headerMore = new QPushButton(tr("更多…"), m_searchRow);
     headerMore->setObjectName(QStringLiteral("modHeaderMore"));
     Theme::markButton(headerMore, Theme::ButtonKind::Neutral);
@@ -167,7 +174,6 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
     connect(headerMore, &QPushButton::clicked, this, [this, headerMore] {
         QMenu menu(this);
         menu.addAction(tr("刷新列表"), m_refresh, &QPushButton::click);
-        menu.addAction(tr("打开模组文件夹"), m_openFolder, &QPushButton::click);
         auto *copy = menu.addAction(tr("复制文件夹路径"));
         connect(copy, &QAction::triggered, this, [this] {
             QApplication::clipboard()->setText(m_directory);

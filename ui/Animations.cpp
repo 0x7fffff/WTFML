@@ -11,6 +11,7 @@
 #include <QAbstractScrollArea>
 #include <QApplication>
 #include <QColor>
+#include <QDebug>
 #include <QEasingCurve>
 #include <QElapsedTimer>   // 步进器里那一位"上一拍是第几毫秒推的"（见 `runProgress()`）
 #include <QEvent>
@@ -336,7 +337,12 @@ private:
                                : QRect(m_target->mapTo(grabSource, QPoint(0, 0)),
                                        m_target->size()));
         m_grabbing = true;
+        QElapsedTimer captureClock;
+        captureClock.start();
         m_snapshot = grabSource->grab(inGrab);
+        if (captureClock.elapsed() > 32)
+            qInfo() << "[UI timing] slow page snapshot" << m_target->metaObject()->className()
+                    << inGrab.size() << captureClock.elapsed() << "ms";
         m_snapshotSize = m_target->size();
         m_grabbing = false;
     }
@@ -496,6 +502,9 @@ void runProgress(QObject *owner, QWidget *repaintTarget, qreal from, qreal to, i
             return;
         }
         stepper->stop();
+        if (nowMs > animation->duration() * 3 / 2)
+            qInfo() << "[UI timing] stretched frame animation: expected" << animation->duration()
+                    << "ms, actual" << nowMs << "ms";
         finishLater();
     });
     state->clock.start();
@@ -851,7 +860,9 @@ void pageAppear(QWidget *widget, const QColor &backdrop) {
                     }
                 },
                 [curtain, rise, from](qreal t) {
-                    curtain->setFrame(rise * (1.0 - t), from + (1.0 - from) * t);
+                    // Movement uses ease-out; a gentler opacity ramp keeps the fade visible
+                    // instead of becoming opaque in the first few movement frames.
+                    curtain->setFrame(rise * (1.0 - t), from + (1.0 - from) * t * t);
                 });
 }
 

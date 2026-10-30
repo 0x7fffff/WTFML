@@ -732,6 +732,35 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
               "「最大内存」的说明有占位文字（免得布局跳）",
               ui.getMemoryHint() != nullptr ? ui.getMemoryHint()->text() : QString());
     }
+    {
+        auto *page = tabs->widget(MainWindowUI::settingsTabIndex());
+        auto *categories = page->findChild<QStackedWidget *>(MainWindowUI::settingsCategoryStackName());
+        auto *look = page->findChild<QScrollArea *>(MainWindowUI::settingsPanelName(QStringLiteral("look")));
+        QWidget *window = tabs->window();
+        const QSize oldSize = window->size();
+        const int oldCategory = categories->currentIndex();
+        categories->setCurrentWidget(look);
+        for (const int width : {900, 1100}) {
+            window->resize(width, 720);
+            QApplication::processEvents();
+            bool fits = look && look->widget()->width() <= look->viewport()->width() && look->horizontalScrollBar()->maximum() == 0;
+            for (const auto part : {Theme::Part::HomeLeft, Theme::Part::PageBackground}) {
+                const QString key = Theme::partKey(part);
+                auto *choose = page->findChild<QPushButton *>(MainWindowUI::themeImageChooseName(key));
+                auto *fit = page->findChild<QComboBox *>(MainWindowUI::themeImageFitName(key));
+                auto *opacity = page->findChild<QSlider *>(MainWindowUI::themeImageOpacityName(key));
+                if (!choose || !fit || !opacity) { fits = false; continue; }
+                QWidget *form = look->widget();
+                fits &= fit->mapTo(form, QPoint()).y() >= choose->mapTo(form, QPoint()).y() + choose->height();
+                fits &= opacity->mapTo(form, QPoint()).y() >= fit->mapTo(form, QPoint()).y() + fit->height();
+                fits &= opacity->mapTo(form, QPoint()).x() + opacity->width() <= form->width();
+            }
+            check(fits, "background controls reflow vertically without horizontal scrolling", QString::number(width));
+        }
+        window->resize(oldSize);
+        categories->setCurrentIndex(oldCategory);
+        QApplication::processEvents();
+    }
  return 0;
 }
 

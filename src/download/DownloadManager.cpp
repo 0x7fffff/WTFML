@@ -823,6 +823,67 @@ DownloadManager::~DownloadManager() {
 }
 
 void DownloadManager::fetchVersionManifest() {
+    const qulonglong serial = property("wtfmlManifestSerial").toULongLong() + 1;
+    setProperty("wtfmlManifestSerial", serial);
+    for (auto *previous : networkManager->findChildren<QNetworkReply *>()) {
+        if (!previous->property("wtfmlManifestRace").toBool()) continue;
+        m_metadataReplies.remove(previous); m_stallMeters.remove(previous); m_officialFallbacks.remove(previous);
+        previous->abort(); previous->deleteLater();
+    }
+    if (m_versionManifestUrlOverride.isEmpty()) {
+        struct Race { int pending = 2; bool done = false; QList<QPointer<QNetworkReply>> replies; };
+        auto race = QSharedPointer<Race>::create();
+        const QStringList urls{versionManifestUrl(), officialVersionManifestUrl()};
+        for (const QString &address : urls) {
+            QNetworkRequest request{QUrl(address)};
+            configureHttp1(request); request.setTransferTimeout(10000);
+            auto *reply = networkManager->get(request);
+            reply->setProperty("wtfmlManifestRace", true);
+            race->replies.append(reply);
+            MetadataJob job; job.label = QStringLiteral("version_manifest.json");
+            m_metadataReplies[reply] = job;
+            m_stallMeters[reply].lastSignOfLifeMs = m_clock.elapsed();
+            connect(reply, &QNetworkReply::downloadProgress, this, &DownloadManager::onDownloadReplyProgress);
+            QTimer::singleShot(10000, this, [reply = QPointer<QNetworkReply>(reply)] {
+                if (reply && !reply->isFinished()) reply->abort();
+            });
+            connect(reply, &QNetworkReply::finished, this, [this, reply, race, serial] {
+                m_metadataReplies.remove(reply); m_stallMeters.remove(reply); m_officialFallbacks.remove(reply);
+                reply->deleteLater();
+                if (serial != property("wtfmlManifestSerial").toULongLong() || race->done) return;
+                QJsonParseError error;
+                const auto document = QJsonDocument::fromJson(reply->readAll(), &error);
+                const auto versions = document.object().value(QStringLiteral("versions")).toArray();
+                bool valid = reply->error() == QNetworkReply::NoError && error.error == QJsonParseError::NoError
+                             && document.isObject() && !versions.isEmpty();
+                for (const auto &entry : versions) {
+                    const auto object = entry.toObject();
+                    const QUrl url(object.value(QStringLiteral("url")).toString());
+                    valid &= !object.value(QStringLiteral("id")).toString().isEmpty()
+                             && !object.value(QStringLiteral("type")).toString().isEmpty()
+                             && url.isValid() && !url.host().isEmpty()
+                             && (url.scheme() == QStringLiteral("https") || url.scheme() == QStringLiteral("http"));
+                }
+                --race->pending;
+                if (!valid && race->pending != 0) return;
+                race->done = true;
+                if (valid) {
+                    parseVersionManifest(document);
+                    if (DownloadDiag::enabled())
+                        DownloadDiag::line(QStringLiteral("manifest race winner url=%1 versions=%2")
+                            .arg(DownloadDiag::safeUrl(reply->url())).arg(availableVersions.size()));
+                }
+                for (const auto &other : race->replies) {
+                    if (!other || other == reply) continue;
+                    m_metadataReplies.remove(other); m_stallMeters.remove(other); m_officialFallbacks.remove(other);
+                    if (!other->isFinished()) other->abort();
+                    other->deleteLater();
+                }
+                emit versionManifestFetched(availableVersions);
+            });
+        }
+        return;
+    }
     const QString officialUrl = m_versionManifestUrlOverride.isEmpty()
                                     ? officialVersionManifestUrl()
                                     : m_versionManifestUrlOverride;
@@ -904,9 +965,10 @@ void DownloadManager::fetchVersionJson(const QString &versionId) {
             m_metadataReplies[reply] = job;
             // 和版本清单同理：镜像这条路由会 302 到一条只有几百字节每秒的链子上，
             // 没有备用地址的话它既不失败也不完成。
-            if (shouldRecordOfficialFallback(versionQUrl.toString(), version.url)) {
-                m_officialFallbacks[reply] = version.url;
-            }
+            const QString alternate = !m_useMirror && effectiveUrl == version.url
+                ? mirrorVersionJsonUrl(versionId) : version.url;
+            if (shouldRecordOfficialFallback(versionQUrl.toString(), alternate))
+                m_officialFallbacks[reply] = alternate;
             m_stallMeters[reply].lastSignOfLifeMs = m_clock.elapsed();
             connect(reply, &QNetworkReply::downloadProgress, this,
                     &DownloadManager::onDownloadReplyProgress);
@@ -1207,6 +1269,12 @@ void DownloadManager::scheduleFile(const QString &url, const QString &destinatio
     job.destinationPath = destinationPath;
     job.expectedSha1 = expectedSha1;
     job.officialUrl = officialUrl;
+    // Only known Minecraft URLs with a content hash can switch to a domestic mirror.
+    // Keep arbitrary mod/file URLs and unauthenticated payloads on their original route.
+    if (!m_useMirror && !expectedSha1.isEmpty() && (officialUrl.isEmpty() || officialUrl == url)) {
+        const QString domestic = mirrorUrl(url);
+        if (domestic != url) job.officialUrl = domestic;
+    }
     job.expectedSize = expectedSize;
     job.mode = mode;
     job.range = range;
@@ -2709,8 +2777,9 @@ void DownloadManager::downloadClientJar(const QString &versionId, const QString 
     const QString effectiveUrl = mirrorPreferred() ? mirrorClientJarUrl(versionId) : url;
     // 第三个参数是官方那条地址（镜像那条是**按版本号拼**出来的，形状完全不一样，
     // 没法由它反推回去）。几十 MB 的 jar 要是取到一半超时，退一步比整批重来划算。
+    const QString alternate = !m_useMirror && !expectedSha1.isEmpty() ? mirrorClientJarUrl(versionId) : url;
     downloadFile(effectiveUrl, destinationPath, expectedSha1, expectedSize,
-                 VerifyMode::SizeAndSha1, url);
+                 VerifyMode::SizeAndSha1, alternate);
 }
 
 bool DownloadManager::verifyFileSha1(const QString &filePath, const QString &expectedSha1) {

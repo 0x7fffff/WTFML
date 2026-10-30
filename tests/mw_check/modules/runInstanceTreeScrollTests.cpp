@@ -3,6 +3,7 @@
 
 #include <QEventLoop>
 #include <QPointer>
+#include <QPixmap>
 #include <QScrollBar>
 #include <QTimer>
 #include <QTreeWidget>
@@ -84,6 +85,9 @@ void runInstanceTreeScrollTests() {
         held->setCurrentItem(target);
         MainWindowViewData::restoreTreeScroll(held, keep);
         held->show();
+        const QPixmap firstFrame = held->grab();
+        check(!firstFrame.isNull() && held->verticalScrollBar()->value() == keep,
+              "T44 first animation snapshot already uses the restored scroll position before event pumping");
         pumpEvents();
         check(held->verticalScrollBar()->value() == keep,
               "★★ T44 重建前记下的滚动位置在排版之后被放回去了（不再是列表底部）",
@@ -128,6 +132,13 @@ void runInstanceTreeScrollTests() {
         pumpEvents();
         check(tree->verticalScrollBar()->value() == 4,
               "T44 reopening a laid-out tree restores the latest request without needing a range change");
+        tree->hide();
+        tree->setCurrentItem(lastItemOf(tree));
+        tree->show();
+        tree->grab();
+        check(tree->verticalScrollBar()->value() == 4,
+              "T44 reopening management without rebuilding preserves the first captured frame");
+        pumpEvents();
         tree->clear();
         auto *head = new QTreeWidgetItem(tree);
         for (int i = 0; i < 60; ++i) new QTreeWidgetItem(head);

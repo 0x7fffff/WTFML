@@ -317,10 +317,10 @@ public:
     static QStringList lifecyclePageTexts() {
         return {QStringLiteral("世界备份"), QStringLiteral("截图"), QStringLiteral("Replay"),
                 QStringLiteral("结构"), QStringLiteral("完整性检查"), QStringLiteral("实例修复"),
-                QStringLiteral("日志"), QStringLiteral("崩溃报告"), QStringLiteral("启动诊断"),
+                QStringLiteral("日志"), QStringLiteral("崩溃报告"), QStringLiteral("检查与诊断"),
                 QStringLiteral("快照与恢复"), QStringLiteral("导出整合包"),
                 QStringLiteral("实例迁移"), QStringLiteral("版本升级"),
-                QStringLiteral("完整性"), QStringLiteral("诊断"), QStringLiteral("实例操作")};
+                QStringLiteral("检查与修复"), QStringLiteral("诊断"), QStringLiteral("备份与操作")};
     }
     static int pageCount() { return filePageFirstIndex() + filePageKeys().size() + lifecyclePageKeys().size(); }
 

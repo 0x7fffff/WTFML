@@ -318,11 +318,12 @@ public:
         m_timer.setSingleShot(true);
         connect(&m_timer, &QTimer::timeout, this, [this] {
             if (!m_pending || !m_tree.isVisible()) return;
-            m_pending = false;
             m_tree.verticalScrollBar()->setValue(m_value);
+            m_pending = false;
         });
         connect(tree.verticalScrollBar(), &QScrollBar::rangeChanged, this, [this] { schedule(); });
         tree.installEventFilter(this);
+        tree.viewport()->installEventFilter(this);
     }
     void restore(int value) {
         m_timer.stop();
@@ -335,7 +336,22 @@ public:
     }
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override {
-        if (watched == &m_tree && event->type() == QEvent::Show) schedule();
+        if (watched == &m_tree && event->type() == QEvent::Hide) {
+            if (!m_pending) m_value = m_tree.verticalScrollBar()->value();
+            m_pending = true;
+            m_timer.stop();
+        }
+        if (m_pending && watched == &m_tree && event->type() == QEvent::Show) {
+            m_tree.doItemsLayout();
+            m_tree.verticalScrollBar()->setValue(m_value);
+            schedule();
+        }
+        if (m_pending && watched == m_tree.viewport() && event->type() == QEvent::Paint) {
+            // Animation snapshots render before the queued restore can run.
+            m_tree.verticalScrollBar()->setValue(m_value);
+            m_pending = false;
+            m_timer.stop();
+        }
         return false;
     }
 private:

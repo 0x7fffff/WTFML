@@ -1,5 +1,87 @@
 #include "Support.hpp"
 
+#include <QEventLoop>
+#include <QTimer>
+#include <QCryptographicHash>
+#include <QTemporaryDir>
+#include <QFile>
+#include <cstring>
+
+namespace {
+class ManifestRaceReply final : public QNetworkReply {
+public:
+    ManifestRaceReply(const QNetworkRequest &request, QByteArray body, int delay, QObject *parent)
+        : QNetworkReply(parent), m_body(std::move(body)) {
+        setRequest(request); setUrl(request.url()); open(QIODevice::ReadOnly);
+        setAttribute(QNetworkRequest::HttpStatusCodeAttribute, 200);
+        QTimer::singleShot(delay, this, [this] {
+            if (isFinished()) return;
+            if (m_body == QByteArray("NETWORK_FAILURE"))
+                setError(QNetworkReply::UnknownNetworkError, QStringLiteral("controlled failure"));
+            setFinished(true); emit readyRead(); emit finished();
+        });
+    }
+    void abort() override {
+        if (isFinished()) return;
+        setError(OperationCanceledError, QStringLiteral("cancelled"));
+        setFinished(true); emit finished();
+    }
+    qint64 bytesAvailable() const override { return m_body.size() - m_offset + QNetworkReply::bytesAvailable(); }
+protected:
+    qint64 readData(char *data, qint64 maximum) override {
+        const qint64 count = qMin<qint64>(maximum, m_body.size() - m_offset);
+        if (count <= 0) return -1;
+        std::memcpy(data, m_body.constData() + m_offset, size_t(count)); m_offset += count; return count;
+    }
+private:
+    QByteArray m_body;
+    qint64 m_offset = 0;
+};
+class ManifestRaceNetwork final : public QNetworkAccessManager {
+public:
+    using Response = std::function<QPair<QByteArray,int>(const QUrl &, int)>;
+    ManifestRaceNetwork(QObject *owner, Response response) : QNetworkAccessManager(owner), response(std::move(response)) {}
+    int requests = 0;
+    QList<QUrl> urls;
+protected:
+    QNetworkReply *createRequest(Operation, const QNetworkRequest &request, QIODevice *) override {
+        urls.append(request.url());
+        const auto reply = response(request.url(), ++requests);
+        return new ManifestRaceReply(request, reply.first, reply.second, this);
+    }
+private:
+    Response response;
+};
+QByteArray manifestBody(const QByteArray &id) {
+    return "{\"versions\":[{\"id\":\"" + id + "\",\"type\":\"release\",\"url\":\"https://example.test/version.json\"}]}";
+}
+void runManifestRaceScenario(int scenario) {
+    ManifestRaceNetwork *network = nullptr;
+    DownloadManager manager(nullptr, [&](QObject *owner) {
+        network = new ManifestRaceNetwork(owner, [scenario](const QUrl &url, int number) {
+            const bool official = url.host() == QStringLiteral("piston-meta.mojang.com") || url.host() == QStringLiteral("launchermeta.mojang.com");
+            if (scenario == 0) return qMakePair(manifestBody(official ? "official" : "domestic"), official ? 40 : 5);
+            if (scenario == 1) return qMakePair(official ? manifestBody("official") : QByteArray("{\"versions\":[]}"), official ? 25 : 5);
+            if (scenario == 2) return qMakePair(QByteArray("not json"), official ? 25 : 5);
+            return qMakePair(manifestBody(number <= 2 ? "stale" : "current"), number <= 2 ? 50 : 10);
+        });
+        return network;
+    });
+    int emissions = 0;
+    QObject::connect(&manager, &DownloadManager::versionManifestFetched, &manager, [&](const auto &) { ++emissions; });
+    manager.fetchVersionManifest();
+    check(network->requests == 2, "manifest starts both domestic and official requests concurrently");
+    if (scenario == 3) manager.fetchVersionManifest();
+    QEventLoop loop; QTimer::singleShot(100, &loop, &QEventLoop::quit); loop.exec();
+    const auto versions = manager.getAvailableVersions();
+    const QString expected = scenario == 0 ? QStringLiteral("domestic") : scenario == 3 ? QStringLiteral("current") : QStringLiteral("official");
+    check(emissions == 1 && (scenario == 2 ? versions.isEmpty() : versions.size() == 1 && versions.first().id == expected),
+          "manifest race emits once, validates payloads, cancels losers and rejects stale refreshes",
+          QStringLiteral("scenario %1 / signals %2 / entries %3").arg(scenario).arg(emissions).arg(versions.size()));
+}
+}
+
+
 void runDownloadConcurrencyTests() {
     section("ZO. 「同时最多下几个」那几档");
 
@@ -92,6 +174,32 @@ void runDownloadConcurrencyTests() {
                   !DownloadManager::mayIssueAnotherDownload(
                       DownloadManager::kMaxConcurrentDownloads, 1),
               "★ ZO3 两参数那个版本就是拿出厂那一档问的（老断言不跟着改动漂）");
+    }    for (int scenario = 0; scenario < 4; ++scenario) runManifestRaceScenario(scenario);
+    {
+        QTemporaryDir directory;
+        ManifestRaceNetwork *network = nullptr;
+        DownloadManager manager(nullptr, [&](QObject *owner) {
+            network = new ManifestRaceNetwork(owner, [](const QUrl &, int number) {
+                return qMakePair(number == 1 ? QByteArray("NETWORK_FAILURE") : QByteArray("verified-client"), 5);
+            });
+            return network;
+        });
+        manager.setUseMirror(false);
+        int completions = 0; bool succeeded = false;
+        QEventLoop loop;
+        QObject::connect(&manager, &DownloadManager::downloadFinished, &loop,
+            [&](const QString &, bool ok, const QString &) { ++completions; succeeded = ok; loop.quit(); });
+        const QString hash = QString::fromLatin1(QCryptographicHash::hash("verified-client", QCryptographicHash::Sha1).toHex());
+        const QString path = directory.filePath(QStringLiteral("client.jar"));
+        manager.downloadClientJar(QStringLiteral("1.21.1"), QStringLiteral("https://piston-data.mojang.com/client.jar"),
+                                  path, hash, 15);
+        QTimer::singleShot(2000, &loop, &QEventLoop::quit); loop.exec();
+        QFile file(path); const bool opened = file.open(QIODevice::ReadOnly);
+        check(completions == 1 && succeeded && network->requests == 2 &&
+              network->urls.value(1) == QUrl(DownloadManager::mirrorClientJarUrl(QStringLiteral("1.21.1"))) && opened && file.readAll() == QByteArray("verified-client"),
+              "official-priority client download falls back to domestic source and still verifies its hash");
     }
+
+
 }
 

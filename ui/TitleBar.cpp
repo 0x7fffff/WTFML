@@ -287,9 +287,17 @@ void TitleBarButton::paintEvent(QPaintEvent *) {
         }
         return;
     }
-    const QPixmap glyph = m_glyph == Glyph::Close ? VersionIcons::cross(kGlyphSize, ink)
-                                                 : VersionIcons::windowMinimize(kGlyphSize, ink);
-    p.drawPixmap(QPoint((width() - kGlyphSize) / 2, (height() - kGlyphSize) / 2), glyph);
+    const QPointF center(width() / 2.0, height() / 2.0);
+    p.setPen(QPen(ink, 2.0, Qt::SolidLine, Qt::RoundCap));
+    if (m_glyph == Glyph::Close) {
+        // Paint at the widget's actual device scale instead of enlarging an
+        // 18 px raster icon at 125%/150% display scaling.
+        constexpr qreal halfSpan = 4.5;
+        p.drawLine(center + QPointF(-halfSpan, -halfSpan), center + QPointF(halfSpan, halfSpan));
+        p.drawLine(center + QPointF(halfSpan, -halfSpan), center + QPointF(-halfSpan, halfSpan));
+        return;
+    }
+    p.drawLine(center + QPointF(-5.0, 0.0), center + QPointF(5.0, 0.0));
 }
 
 TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {

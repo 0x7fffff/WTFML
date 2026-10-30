@@ -242,15 +242,12 @@ int UiInstanceOverridesChecks() {
                   navTextMiss.isEmpty() ? QStringLiteral("（%1 条全对上）").arg(navKeys.size())
                                         : navTextMiss.join(QLatin1Char('|')));
 
-            // 树里能点的那几条 = 概览 / 启动 + 七条可选页 + **另有自己那一行的七条生命周期
-            // 页**。最后那一组是"维护"那组（四条）+ 截图 / 回放 / 结构各一条 —— 世界备份从存档进入。
-            // 下面那个数按名字钉死，是因为"哪几条另有自己的行"是**界面的分组规格**，不是
-            // 从键表算得出来的东西（另八条生命周期页走的是那三条 `*menu` 的门）。
+            // Default content pages plus direct creation/maintenance entries.
+            // World backup stays under saves; intermediate maintenance menus are not navigation entries.
             const QStringList ownRowKeys = {
-                QStringLiteral("screenshots"),
-                QStringLiteral("replay"),            QStringLiteral("structure"),
-                QStringLiteral("integritymenu"),     QStringLiteral("diagnosticsmenu"),
-                QStringLiteral("snapshots"),         QStringLiteral("operationsmenu")};
+                QStringLiteral("screenshots"), QStringLiteral("replay"), QStringLiteral("structure"),
+                QStringLiteral("diagnosis"), QStringLiteral("logs"), QStringLiteral("operationsmenu"),
+                QStringLiteral("migration"), QStringLiteral("upgrade")};
             QStringList strayKeys;
             for (const QString &key : navKeys) {
                 if (!defaultKeys.contains(key) && !Dlg::lifecyclePageKeys().contains(key)) {
@@ -271,7 +268,7 @@ int UiInstanceOverridesChecks() {
                       ownRowHit == ownRowKeys.size() &&
                       navKeys.size() == defaultKeys.size() + ownRowKeys.size() &&
                       navDedup.size() == navKeys.size(),
-                  "★ U0a 树里的键不多不少：默认那九条一条不落、另有自己那一行的七条生命周期页"
+                  "★ U0a 树里的键不多不少：默认那九条一条不落、直接进入功能的生命周期页"
                   "都在、没有多余的野键（键两两不同 —— 它们要进 objectName）",
                   QStringLiteral("默认 %1/%2、自有行 %3/%4、共 %5 条（去重后 %6）")
                       .arg(defaultRowHit)

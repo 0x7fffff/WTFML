@@ -113,8 +113,8 @@ inline constexpr int kActionButtonMinWidth = InstanceSettingsDialog::actionButto
 inline void prepareActionButton(QWidget *button) {
     button->setMinimumWidth(kActionButtonMinWidth);
     button->setFixedHeight(kActionButtonHeight);
-    // 横向 Expanding：列有多宽它就有多宽 —— 这才是"恒定宽度"的来源（见下一个函数）。
-    button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    // Ignore text size hints horizontally; shared column minima and stretch determine the width.
+    button->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
 }
 
 /// 新建一张"每行三颗"的网格（列距 / 行距走 `kActionButtonSpacing`）。
@@ -153,9 +153,20 @@ inline ZeroColumn makeZeroColumn(QWidget *parent, int spacing = 4) {
 /// "恒定"，四颗里有一颗比别人宽就不是恒定了。
 inline void layoutActionCells(QGridLayout *grid, const QList<QWidget *> &cells) {
     for (int i = 0; i < cells.size(); ++i) {
+        cells.at(i)->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         grid->addWidget(cells.at(i), i / kActionButtonsPerRow, i % kActionButtonsPerRow);
     }
+    // Qt omits spacing before an empty trailing column. A zero-height widget
+    // makes the final column participate, even when this group has only two actions.
+    for (int column = cells.size(); column < kActionButtonsPerRow; ++column) {
+        auto *filler = new QWidget;
+        filler->setObjectName(QStringLiteral("instanceActionGridFiller"));
+        filler->setFixedHeight(0);
+        filler->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        grid->addWidget(filler, 0, column);
+    }
     for (int column = 0; column < kActionButtonsPerRow; ++column) {
+        grid->setColumnMinimumWidth(column, kActionButtonMinWidth);
         grid->setColumnStretch(column, 1);
     }
 }

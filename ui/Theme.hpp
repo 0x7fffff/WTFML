@@ -593,9 +593,9 @@ constexpr int controlRadius() { return 6; }
 /// `QPushButton` 的圆角（比输入类大一档：它比输入框矮胖，同一个圆角看着更方）。
 constexpr int buttonRadius() { return 8; }
 /// 主表面（`wtfmlSurface="workspace"` / `"sidebar"`）的圆角。
-constexpr int surfaceRadius() { return 12; }
-/// 小节卡片（`wtfmlSurface="section"`）的圆角。小于主表面：它是"面里的一层"。
-constexpr int sectionRadius() { return 8; }
+constexpr int surfaceRadius() { return 0; }
+/// 小节卡片与主表面统一使用直角。
+constexpr int sectionRadius() { return 0; }
 
 // ---------------------------------------------------------------------------
 // 滚动条

@@ -48,30 +48,22 @@ int UiInstanceSnapshotsChecks() {
                   "恢复那颗**自己先说清会覆盖现在这些文件**（别等点下去才知道）",
                   create->toolTip());
 
-            // 格子底下那两行小字：创建那颗必须点名"默认不打包什么"，恢复那颗必须点名
-            // "还原之前会自动留一份" —— 这两句正是用户唯一需要先知道的事。
-            const auto hintOf = [](QWidget *button) {
-                QWidget *cell = button->parentWidget();
-                QLabel *hint = cell != nullptr ? cell->findChild<QLabel *>() : nullptr;
-                return hint != nullptr ? hint->text() : cell != nullptr ? cell->toolTip() : QString();
-            };
-            check(hintOf(create).contains(QStringLiteral("可选择是否包含")) &&
-                      hintOf(create).contains(QStringLiteral("资源")) &&
-                      hintOf(restore).contains(QStringLiteral("自动备份")) &&
-                      hintOf(restore).contains(QStringLiteral("校验")),
-                  "★★ U30.2 两行小字都点到了正地方（默认不打包能重新下回来的那部分 / "
-                  "还原之前自动留一份、还原之后逐文件核对）",
-                  hintOf(restore));
+            // Details live on the action tooltip after merging the maintenance page.
+            check(create->toolTip().contains(QStringLiteral("可选择是否包含")) &&
+                      create->toolTip().contains(QStringLiteral("资源")) &&
+                      restore->toolTip().contains(QStringLiteral("自动备份")) &&
+                      restore->toolTip().contains(QStringLiteral("校验")),
+                  "U30.2 snapshot tooltips retain scope, safety backup and verification details",
+                  restore->toolTip());
 
-            // ---- 颜色：创建是"干这件事"（主题色），恢复是"删了就拿不回来"那一档 ----
             const auto kindOf = [](QPushButton *button) {
                 const QVariant value = button->property("wtfmlButtonKind");
                 return value.isValid() ? value.toString()
                                        : Theme::buttonKindKey(Theme::ButtonKind::Accent);
             };
-            check(kindOf(create) == Theme::buttonKindKey(Theme::ButtonKind::Accent) &&
+            check(kindOf(create) == Theme::buttonKindKey(Theme::ButtonKind::Neutral) &&
                       kindOf(restore) == Theme::buttonKindKey(Theme::ButtonKind::Danger),
-                  "★★ U30.2 「创建快照…」是主题色那一档（创建 = 干这件事），"
+                  "U30.2 创建快照使用中性底色，"
                   "「从快照恢复…」和「删除实例」同一档（它把现在这一份整个换掉）",
                   kindOf(create) + QStringLiteral(" / ") + kindOf(restore));
             auto *integrity = byName(Dlg::integrityCheckButtonName());

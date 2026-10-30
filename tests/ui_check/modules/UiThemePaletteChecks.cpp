@@ -953,10 +953,9 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 // 普通那一档铺的是调色板的 `Button`（这一套界面里"白纸"就是这一支，
                 // 不是纯白 —— 见 W12 那一条，两处同一个判据）。
                 const QColor solidFill = paintSolid->palette().color(QPalette::Button);
-                check(sameColor(ghostArea, boardColor) &&
+                check(sameColor(ghostArea, solidFill) &&
                           !sameColor(boardColor, solidFill) && sameColor(solidArea, solidFill),
-                      "★★ Ghost 那一格**透出底下的东西**（中心跟板子同一个色），旁边那颗普通"
-                      "按钮铺的是调色板的 `Button` —— 「不抢眼」在屏幕上就是这个样子",
+                      "文字辅助操作与普通按钮使用主题底色，避免看起来像不可点击文字",
                       QStringLiteral("板 %1 / Ghost %2 / 普通 %3（要 %4）")
                           .arg(boardColor.name(), ghostArea.name(), solidArea.name(),
                                solidFill.name()));
@@ -1318,9 +1317,8 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             const int checkedBlack = countColorIn(checkedShot, checkedBox->rect(), neutralInk, 30);
             const int checkedGreen = countColorIn(checkedShot, checkedBox->rect(), checkInk, 30);
             const int checkedPure = countColorIn(checkedShot, checkedBox->rect(), accentPure2, 6);
-            check(checkedGreen > 0 && checkedPure > 0 && checkedBlack == 0,
-                  "★★ W13 勾选框勾上：**框和字一起**变成主题色（方框被 `Accent` 那一支填满、"
-                  "字是调色板 `Link` 那一支，黑的一个像素都不剩）",
+            check(checkedGreen > 0 && checkedBlack == 0,
+                  "W13 勾选框勾上使用主题色边框、勾号和文字，不再显示实心圆块",
                   QStringLiteral("字 %1 个 / 方框 %2 个 / 黑 %3 个")
                       .arg(checkedGreen).arg(checkedPure).arg(checkedBlack));
 

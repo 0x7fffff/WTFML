@@ -91,6 +91,7 @@ SettingsPanel addSettingsPanel(QStackedWidget *stack, const QString &key) {
     QScrollArea *scroll = new Theme::GutterScrollArea(stack);
     scroll->setObjectName(MainWindowUI::settingsPanelName(key));
     scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setFrameShape(QFrame::NoFrame);
     // NOTE: 宽度是给**表单**限的，不是给滚动区限的：滚动条仍然贴着正文面最右边那条线
     // （和别的页一个规矩），只有表单本身收窄。
@@ -787,7 +788,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
             widgets.opacity->setObjectName(MainWindowUI::themeImageOpacityName(key));
             widgets.opacity->setRange(0, 100);
             widgets.opacity->setValue(100);
-            widgets.opacity->setFixedWidth(MainWindowUI::themeImageOpacityWidth());
+            widgets.opacity->setMinimumWidth(80);
+            widgets.opacity->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
             widgets.percent = new QLabel(MainWindowUI::themeImagePercentText(100), line);
             widgets.percent->setObjectName(MainWindowUI::themeImagePercentName(key));
@@ -795,15 +797,17 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
 
             lineLayout->addWidget(widgets.choose);
             lineLayout->addWidget(widgets.clear);
-            lineLayout->addSpacing(MainWindowUI::themeImageGroupSpacing());
-            lineLayout->addWidget(new QLabel(QStringLiteral("摆法"), line));
-            lineLayout->addWidget(widgets.fit);
-            lineLayout->addSpacing(MainWindowUI::themeImageGroupSpacing());
-            lineLayout->addWidget(new QLabel(QStringLiteral("不透明度"), line));
-            lineLayout->addWidget(widgets.opacity);
-            lineLayout->addWidget(widgets.percent);
             lineLayout->addStretch(1);
             boxLayout->addWidget(line);
+            auto [fitLine, fitLayout] = makeInlineRow(box);
+            fitLayout->addWidget(new QLabel(QStringLiteral("摆放方式"), fitLine));
+            fitLayout->addWidget(widgets.fit, 1);
+            boxLayout->addWidget(fitLine);
+            auto [opacityLine, opacityLayout] = makeInlineRow(box);
+            opacityLayout->addWidget(new QLabel(QStringLiteral("不透明度"), opacityLine));
+            opacityLayout->addWidget(widgets.opacity, 1);
+            opacityLayout->addWidget(widgets.percent);
+            boxLayout->addWidget(opacityLine);
 
             // "现在铺的是哪一张"那一行：**字号正常、不用 hint 那档灰** —— 它是这一格当前
             // 的状态（和上面那行说明不是一个意思），用户扫一眼要知道自己挑了哪张。
@@ -876,6 +880,23 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         checkLayout->addWidget(versionNameLoaderVersionCheck, 1, 1);
         checkLayout->setColumnStretch(2, 1);
         boxLayout->addWidget(checks);
+        auto *preview = new QLabel(box);
+        preview->setObjectName(QStringLiteral("versionNameFormatPreview"));
+        preview->setWordWrap(true);
+        const auto updatePreview = [this, preview] {
+            QStringList pieces;
+            if (versionNameCustomCheck->isChecked()) pieces << QStringLiteral("我的世界");
+            if (versionNameRealCheck->isChecked()) pieces << QStringLiteral("1.21.1");
+            if (versionNameLoaderCheck->isChecked()) pieces << QStringLiteral("Fabric");
+            if (versionNameLoaderVersionCheck->isChecked()) pieces << QStringLiteral("0.19.3");
+            preview->setText(QStringLiteral("预览：%1").arg(pieces.isEmpty() ? QStringLiteral("1.21.1") : pieces.join(QLatin1Char('-'))));
+        };
+        for (auto *check : {versionNameCustomCheck, versionNameRealCheck, versionNameLoaderCheck, versionNameLoaderVersionCheck})
+            QObject::connect(check, &QCheckBox::toggled, preview, updatePreview);
+        updatePreview();
+        QTimer::singleShot(0, preview, updatePreview);
+        QObject::connect(stack, &QStackedWidget::currentChanged, preview, [updatePreview](int) { updatePreview(); });
+        boxLayout->addWidget(preview);
 
         addSettingHelp(box, QStringLiteral("按所选字段组合显示名称，不更改实例目录名。"),
                 form);

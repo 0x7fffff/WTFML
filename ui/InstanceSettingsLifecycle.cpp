@@ -8,6 +8,7 @@
 
 #include <QAbstractItemView>  // eventFilter()：那两件导航控件共同的兜底（focusInEvent 替人挑第一条）
 #include <QCheckBox>
+#include <QButtonGroup>
 #include <QComboBox>
 #include <QCompleter>
 #include <QDir>
@@ -68,6 +69,11 @@ void InstanceSettingsDialog::setupLifecyclePages() {
     for (const QString &key : lifecyclePageKeys()) {
         QWidget *page = addPage(key);
         auto *layout = qobject_cast<QVBoxLayout *>(page->layout());
+        // Old page keys remain valid for saved navigation and external callers;
+        // showPage() redirects them to the consolidated maintenance pages.
+        if (key == QStringLiteral("integrity") || key == QStringLiteral("repair") ||
+            key == QStringLiteral("export") || key == QStringLiteral("diagnosticsmenu") ||
+            key == QStringLiteral("integritymenu") || key == QStringLiteral("snapshots")) continue;
         auto *title = new QLabel(pageText(key), page);
         QFont font = title->font();
         font.setBold(true);
@@ -86,48 +92,76 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             layout->addWidget(button, 0, Qt::AlignLeft);
             return button;
         };
-        const auto moveOverviewAction = [this, page, layout](const QString &name) {
-            auto *button = findChild<QPushButton *>(name);
-            if (button == nullptr) return;
-            QWidget *cell = button->parentWidget();
-            cell->setParent(page);
-            layout->addWidget(cell);
-            cell->show();
-        };
-        QStringList children;
-        if (key == QStringLiteral("integritymenu"))
-            children = {QStringLiteral("integrity"), QStringLiteral("repair")};
-        if (key == QStringLiteral("diagnosticsmenu"))
-            children = {QStringLiteral("logs"), QStringLiteral("crash"), QStringLiteral("diagnosis")};
-        if (key == QStringLiteral("operationsmenu"))
-            children = {QStringLiteral("export"), QStringLiteral("migration"), QStringLiteral("upgrade")};
-        if (!children.isEmpty()) {
-            for (const QString &child : children)
-                action(pageText(child), [this, child]() { showPage(child); });
-            if (key == QStringLiteral("operationsmenu")) {
-                moveOverviewAction(copyButtonName());
-                moveOverviewAction(deleteButtonName());
+        int commandWidth = 160;
+        for (const QString &name : {createSnapshotButtonName(), restoreSnapshotButtonName(),
+                 QStringLiteral("inspectRecoveryButton"), copyButtonName(), exportButtonName(),
+                 deleteButtonName(), integrityCheckButtonName(), repairFilesButtonName()}) {
+            if (auto *button = findChild<QPushButton *>(name))
+                commandWidth = qMax(commandWidth, button->fontMetrics().horizontalAdvance(button->text()) + 32);
+        }
+        const auto buttonRow = [page, layout, commandWidth](const QList<QPushButton *> &buttons) {
+            auto *rowHost = new QWidget(page);
+            rowHost->setObjectName(QStringLiteral("instanceMaintenanceActionRow"));
+            auto *row = new QHBoxLayout(rowHost);
+            row->setContentsMargins(0, 0, 0, 0);
+            row->setSpacing(8);
+            layout->addWidget(rowHost);
+            for (auto *button : buttons) {
+                if (!button) continue;
+                if (auto *previous = button->parentWidget(); previous && previous != page && previous != rowHost)
+                    previous->hide();
+                button->setParent(rowHost);
+                if (button->objectName() == createSnapshotButtonName())
+                    button->setToolTip(createSnapshotTooltip() + QLatin1Char('\n') + createSnapshotHint());
+                if (button->objectName() == restoreSnapshotButtonName())
+                    button->setToolTip(restoreSnapshotTooltip() + QLatin1Char('\n') + restoreSnapshotHint());
+                if (button->property("wtfmlButtonKind").toString().isEmpty())
+                    Theme::markButton(button, Theme::ButtonKind::Neutral);
+                button->setFixedSize(commandWidth, actionButtonHeight());
+                button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+                row->addWidget(button);
+                button->show();
             }
+            row->addStretch();
+        };
+        if (key == QStringLiteral("operationsmenu")) {
+            const auto section = [page, layout](const QString &text) {
+                auto *heading = new QLabel(text, page);
+                QFont font = heading->font(); font.setBold(true); heading->setFont(font);
+                layout->addWidget(heading);
+            };
+            section(tr("备份与恢复"));
+            buttonRow({findChild<QPushButton *>(createSnapshotButtonName()),
+                       findChild<QPushButton *>(restoreSnapshotButtonName()),
+                       findChild<QPushButton *>(QStringLiteral("inspectRecoveryButton"))});
+            section(tr("复制与导出"));
+            buttonRow({findChild<QPushButton *>(copyButtonName()), findChild<QPushButton *>(exportButtonName())});
+            section(tr("删除实例"));
+            buttonRow({findChild<QPushButton *>(deleteButtonName())});
             layout->addStretch(1);
             continue;
-        }
-        QString parentMenu;
-        if (key == QStringLiteral("integrity") || key == QStringLiteral("repair")) parentMenu = QStringLiteral("integritymenu");
-        if (key == QStringLiteral("logs") || key == QStringLiteral("crash") || key == QStringLiteral("diagnosis")) parentMenu = QStringLiteral("diagnosticsmenu");
-        if (key == QStringLiteral("export") || key == QStringLiteral("migration") || key == QStringLiteral("upgrade")) parentMenu = QStringLiteral("operationsmenu");
-        if (!parentMenu.isEmpty()) {
-            auto *back = action(tr("返回%1").arg(pageText(parentMenu)), [this, parentMenu]() { showPage(parentMenu); });
-            if (key == QStringLiteral("upgrade")) {
-                layout->removeWidget(title); layout->removeWidget(back);
-                auto *heading = new QHBoxLayout;
-                heading->addWidget(title, 1); heading->addWidget(back);
-                layout->insertLayout(0, heading);
-            }
         }
         const bool browse = key == QStringLiteral("screenshots") || key == QStringLiteral("replay")
                             || key == QStringLiteral("logs") || key == QStringLiteral("crash")
                             || key == QStringLiteral("structure");
         if (browse) {
+            if (key == QStringLiteral("logs") || key == QStringLiteral("crash")) {
+                auto *log = new QPushButton(tr("游戏日志"), page);
+                auto *crash = new QPushButton(tr("崩溃报告"), page);
+                for (auto *button : {log, crash}) {
+                    button->setCheckable(true);
+                    Theme::markButton(button, Theme::ButtonKind::Neutral);
+                }
+                auto *tabs = new QButtonGroup(page);
+                tabs->setExclusive(true);
+                tabs->addButton(log);
+                tabs->addButton(crash);
+                log->setChecked(key == QStringLiteral("logs"));
+                crash->setChecked(key == QStringLiteral("crash"));
+                connect(log, &QPushButton::clicked, this, [this] { showPage(QStringLiteral("logs")); });
+                connect(crash, &QPushButton::clicked, this, [this] { showPage(QStringLiteral("crash")); });
+                buttonRow({log, crash});
+            }
             hint(key == QStringLiteral("structure")
                      ? tr("存档 generated 目录中的结构文件。双击打开，右键打开目录。")
                      : tr("按修改时间从新到旧。双击打开，右键打开目录。"));
@@ -185,21 +219,7 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             });
             continue;
         }
-        if (key == QStringLiteral("integrity")) {
-            hint(tr("检查核心文件、依赖库和资源。"));
-            moveOverviewAction(integrityCheckButtonName());
-        } else if (key == QStringLiteral("repair")) {
-            hint(tr("补齐缺失的版本文件，保留模组、配置与存档。"));
-            if (auto *repair = findChild<QPushButton *>(repairFilesButtonName())) {
-                repair->setParent(page);
-                layout->addWidget(repair, 0, Qt::AlignLeft);
-                repair->show();
-            }
-        } else if (key == QStringLiteral("snapshots")) {
-            hint(tr("快照包含整个实例，与单世界备份相互独立。"));
-            moveOverviewAction(createSnapshotButtonName());
-            moveOverviewAction(restoreSnapshotButtonName());
-        } else if (key == QStringLiteral("worldbackup")) {
+        if (key == QStringLiteral("worldbackup")) {
             action(tr("返回存档"), [this]() { showPage(QStringLiteral("save")); })
                 ->setObjectName(QStringLiteral("instanceWorldBackupBack"));
             hint(tr("备份只覆盖选中的世界。"));
@@ -220,20 +240,18 @@ void InstanceSettingsDialog::setupLifecyclePages() {
                     if (!path.isEmpty()) emit restoreSelectedWorldRequested(path);
                 }
             });
-        } else if (key == QStringLiteral("export")) {
-            moveOverviewAction(exportButtonName());
         } else if (key == QStringLiteral("diagnosis")) {
-            hint(tr("实例、Java、内存、模组与最近的日志。"));
+            auto *refresh = new QPushButton(tr("重新诊断"), page);
+            refresh->setObjectName(diagnosisRefreshButtonName());
+            connect(refresh, &QPushButton::clicked, this, [this] { emit diagnosisRequested(); });
+            auto *repair = findChild<QPushButton *>(repairFilesButtonName());
+            buttonRow({refresh, findChild<QPushButton *>(integrityCheckButtonName()), repair});
             m_diagnosisReport = new QPlainTextEdit(page);
             m_diagnosisReport->setObjectName(diagnosisReportName());
             m_diagnosisReport->setReadOnly(true);
             m_diagnosisReport->setPlainText(diagnosisPendingText());
             m_diagnosisReport->setLineWrapMode(QPlainTextEdit::WidgetWidth);
             layout->addWidget(m_diagnosisReport, 1);
-            action(tr("重新检查"), [this]() { emit diagnosisRequested(); })
-                ->setObjectName(diagnosisRefreshButtonName());
-            action(tr("查看日志"), [this]() { showPage(QStringLiteral("logs")); });
-            action(tr("查看崩溃报告"), [this]() { showPage(QStringLiteral("crash")); });
         } else if (key == QStringLiteral("migration") || key == QStringLiteral("upgrade")) {
             // 「迁移」和「升级」共用一套控件：目标 → 计划正文 → 可勾选的范围表 → 动手那一颗。
             // 计划怎么算、勾什么、兼容性怎么说全在 `TransferPlanner`；这一层只摆字。
@@ -373,7 +391,7 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             });
             updateTransferApplyState(key);
         }
-        if (key != QStringLiteral("upgrade")) layout->addStretch(1);
+        if (key != QStringLiteral("upgrade") && key != QStringLiteral("diagnosis")) layout->addStretch(1);
     }
 }
 

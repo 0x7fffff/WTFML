@@ -23,6 +23,8 @@
 
 #include <QAbstractItemView>  // eventFilter()：那两件导航控件共同的兜底（focusInEvent 替人挑第一条）
 #include <QCheckBox>
+#include <QElapsedTimer>
+#include <QDebug>
 #include <QComboBox>
 #include <QCompleter>
 #include <QDir>
@@ -80,6 +82,15 @@
 #include "InstanceSettingsDialogInternals.hpp"
 
 namespace {
+
+QString maintenancePageKey(const QString &key) {
+    if (key == QStringLiteral("integrity") || key == QStringLiteral("repair") ||
+        key == QStringLiteral("integritymenu") || key == QStringLiteral("diagnosticsmenu"))
+        return QStringLiteral("diagnosis");
+    if (key == QStringLiteral("export") || key == QStringLiteral("snapshots"))
+        return QStringLiteral("operationsmenu");
+    return key;
+}
 
 /// 这七个框一律**不伸缩 + 一条下限**（见 `addOverrideRow()` 里那两行）：默认吃拉伸的话，
 /// 同一页上会量出 59 / 143 / 307 三种宽度（「Java 路径」那一行挤、其它几行摊满），而"档位"
@@ -619,7 +630,8 @@ void InstanceSettingsDialog::applyEntry(int row) {
     applyPageKey(item->data(Qt::UserRole).toString());
 }
 
-void InstanceSettingsDialog::applyPageKey(const QString &key) {
+void InstanceSettingsDialog::applyPageKey(const QString &requestedKey) {
+    const QString key = maintenancePageKey(requestedKey);
     const int index = stackPageIndexOf(key);
     if (index < 0) {
         return;
@@ -646,14 +658,8 @@ void InstanceSettingsDialog::applyPageKey(const QString &key) {
         const QSignalBlocker blocker(m_navigationTree);
         m_navigationTree->setCurrentItem(nullptr);
         QString navigationKey = key;
-        if (key == QStringLiteral("worldbackup"))
-            navigationKey = QStringLiteral("save");
-        if (key == QStringLiteral("integrity") || key == QStringLiteral("repair"))
-            navigationKey = QStringLiteral("integritymenu");
-        if (key == QStringLiteral("logs") || key == QStringLiteral("crash") || key == QStringLiteral("diagnosis"))
-            navigationKey = QStringLiteral("diagnosticsmenu");
-        if (key == QStringLiteral("export") || key == QStringLiteral("migration") || key == QStringLiteral("upgrade"))
-            navigationKey = QStringLiteral("operationsmenu");
+        if (key == QStringLiteral("worldbackup")) navigationKey = QStringLiteral("save");
+        if (key == QStringLiteral("crash")) navigationKey = QStringLiteral("logs");
         for (QTreeWidgetItemIterator it(m_navigationTree); *it; ++it) {
             if ((*it)->data(0, Qt::UserRole).toString() == navigationKey) {
                 m_navigationTree->setCurrentItem(*it);
@@ -879,6 +885,8 @@ void InstanceSettingsDialog::relayoutShortcuts() {
     }
     // 先清网格：`takeAt()` 摘下来的那一项只是"摆法"，控件自己还挂在 m_shortcutCell 上。
     while (QLayoutItem *item = m_shortcutGrid->takeAt(0)) {
+        if (auto *widget = item->widget(); widget && widget->objectName() == QStringLiteral("instanceActionGridFiller"))
+            delete widget;
         delete item;
     }
 
@@ -1090,6 +1098,8 @@ void InstanceSettingsDialog::setInstanceDir(const QString &dir) {
 }
 
 void InstanceSettingsDialog::setFileDirs(const QHash<QString, QString> &dirs) {
+    QElapsedTimer prepareClock;
+    prepareClock.start();
     m_fileDirs = dirs;
     // `config/` 的根**在这儿**认下来（不是在构造函数里）—— 那会儿这一份还没灌进来，
     // 抓到的永远是空串，"不许越过 config/"那道墙就形同虚设了（见 .hpp 里 m_configRoot
@@ -1106,6 +1116,9 @@ void InstanceSettingsDialog::setFileDirs(const QHash<QString, QString> &dirs) {
         }
     }
     updateConfigUpButton();
+    if (prepareClock.elapsed() > 32)
+        qInfo() << "[UI timing] instance file pages initialization" << keys.size()
+                << "pages," << prepareClock.elapsed() << "ms";
 }
 
 void InstanceSettingsDialog::openConfigEditor(const QString &path,
@@ -1583,7 +1596,8 @@ void InstanceSettingsDialog::refreshIconRow() {
     }
 }
 
-void InstanceSettingsDialog::showPage(const QString &key) {
+void InstanceSettingsDialog::showPage(const QString &requestedKey) {
+    const QString key = maintenancePageKey(requestedKey);
     const int index = stackPageIndexOf(key);
     if (index < 0) {
         return;
@@ -1661,12 +1675,11 @@ void InstanceSettingsDialog::rebuildNavigationTree() {
                                QStringLiteral("schematic"), QStringLiteral("structure")})
         if (m_pageOverrides.value(key).toBool(true)) leaf(creative, key);
     auto *maintenance = group(nullptr, tr("维护"), QStringLiteral("maintenance"));
-    leaf(maintenance, QStringLiteral("integritymenu"));
-    leaf(maintenance, QStringLiteral("diagnosticsmenu"));
-    // 这一行走 `leaf()`：那一行字和它自己的页头都由 `pageText()` 说 —— 那一句本来就是这个
-    // 文件里写明了的唯一出处，别在这行自己写死一个名字。
-    leaf(maintenance, QStringLiteral("snapshots"));
+    leaf(maintenance, QStringLiteral("diagnosis"));
+    leaf(maintenance, QStringLiteral("logs"));
     leaf(maintenance, QStringLiteral("operationsmenu"));
+    leaf(maintenance, QStringLiteral("migration"));
+    leaf(maintenance, QStringLiteral("upgrade"));
     for (QTreeWidgetItemIterator it(m_navigationTree); *it; ++it) {
         if ((*it)->childCount() > 0) {
             const QString id = (*it)->data(0, Qt::UserRole + 1).toString();

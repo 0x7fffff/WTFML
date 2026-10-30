@@ -95,21 +95,9 @@ constexpr int progressMs() { return 240; }
 /// 「一拍」是多少毫秒 —— **按帧走**的那几发（换页 / 覆盖层 / 滚动条）用它。
 constexpr int stepMs() { return 16; }
 
-/// 换页那一发起手的**不透明度**（不是 0）。
-///
-/// * 从 0 淡：定住那一帧就是垫底的窗口底色，看着是"闪一下白"。
-/// * 0.5：定住的是一块半灰的，而且一站就是几十毫秒，看着是**卡住**。
-/// * 更高（比如 0.8）：定住那一帧确实像"一页内容刚落位"，可"淡"这一半只剩 20%，
-/// 整个转场就只剩一个"抬"，看上去像是从下面瞬移上去的、**没有过渡**。
-/// * ★ **0.72**：起手仍明确可见，但减少大面积页面由灰变实造成的闪烁感，剩下的 28%
-/// 浓淡由 `OutCubic` 平滑收尾。它管的是"定住那一帧有多实"，和抬多少无关；
-/// 抬少了反而更需要起手那一位撑住"这一页是刚上来的"。
-///
-/// NOTE: 它只治"定住那一帧"和浓淡的**起点**，缓动在 `runProgress()` 里（`OutCubic`），
-/// 映射 `pageStartOpacity() + (1 - pageStartOpacity()) * t` 写在 `pageAppear()` 里。
-/// NOTE: 别的几发（整块覆盖层 `overlayAppear()`、滚动条 `scrollBarAppear()`）**从 0 淡**：
-/// 它们本来就是"从无到有"，而且没有"一大块空底"这个观感问题。
-constexpr qreal pageStartOpacity() { return 0.72; }
+/// Page content begins faintly visible, then fades in over the upward transition.
+/// Keep a small nonzero start to avoid a blank first frame while the page is populated.
+constexpr qreal pageStartOpacity() { return 0.12; }
 
 // 换页**没有干等**：起手直接淡（总时长就是 `appearMs()`）。"不要瞬间铺上"靠的是
 // 那一段缓动 + `pageRiseDistance()` 的上抬 —— 干等出来的"不是瞬间"，观感上就是
