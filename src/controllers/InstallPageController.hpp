@@ -81,7 +81,7 @@ public:
     /// 名称框里的默认名（用户没自己改过时才动它），再刷下面那句小字。
     void updateInstallName();
     /// 名称框下面那句小字 + 「安装」按钮的可用性（名字合不合法、盘上有没有重名）。
-    void updateInstallNameHint();
+    void updateInstallNameState();
     /// 名称框里每敲一个字：记下"用户动过这个名字了"，再重算那句小字。
     void noteNameEdited();
 

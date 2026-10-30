@@ -1279,10 +1279,10 @@ void MainWindow::setDownloadUiBusy(bool busy) {
     m_ui->getFolderList()->setEnabled(!busy);
     // 「模组加载器」那棵树一起灰，理由同上。忙完解禁走 m_installPage->updateLoaderRows() 一处重算
     // （那棵树的样子全由它一处决定）；「安装」那个按钮还要看名称合法不合法，走
-    // m_installPage->updateInstallNameHint() 一处。
+    // m_installPage->updateInstallNameState() 一处。
     m_ui->getLoaderTree()->setEnabled(!busy);
     m_installPage->updateLoaderRows();
-    m_installPage->updateInstallNameHint();
+    m_installPage->updateInstallNameState();
     // 重灌一遍"能启动的实例"：上面那条过滤（在装的那个先不出现）要立刻生效 ——
     // 置忙那一刻它该从列表里消失，置闲那一刻它该回来（成功的话还在
     // `DownloadCompletionController::onFinished` 里被选中，那句也在这个函数之后跑）。
@@ -3999,27 +3999,11 @@ void MainWindow::updateNewServerSummary(NewServerPage *page) {
         page->setSummary(QString(), plan.problem);
         return;
     }
-    // 成立了：把"这一档要下什么、装完是什么样"说清楚（`plan.note` 是补充，可空）。
-    QStringList lines;
-    if (plan.downloads.isEmpty()) {
-        lines.append(QStringLiteral("这一档的下载地址要联网现查（列表拉回来才知道下哪个）。"));
-    } else {
-        QStringList names;
-        for (const ServerInstall::Download &download : plan.downloads) {
-            names.append(download.fileName);
-        }
-        lines.append(QStringLiteral("要下：%1").arg(names.join(QStringLiteral("、"))));
-    }
-    if (plan.firstLaunchNeedsNetwork) {
-        lines.append(QStringLiteral("第一次启动还要联网拉东西。"));
-    }
-    if (!plan.note.isEmpty()) {
-        lines.append(plan.note);
-    }
-    lines.append(ServerInstall::installMethodText(plan.method));
-    // 按下「创建」会发生什么，直说一句：不是"建完一个空壳"，是当场排一趟安装。
-    lines.append(QStringLiteral("按「创建」会直接开始装（进度在任务中心那一格）。"));
-    page->setSummary(lines.join(QStringLiteral("\n")), QString());
+    // 成立了：**不再摆"这一档要下什么、按下去会发生什么"那一段说明** —— 用户点名
+    // 那是废话（下载地址联不联网、jar 放哪、进度在任务中心，界面上不必先讲一遍）。
+    // 这里只把上一档留下的问题句清掉；真正拦人的那几句（填法不成立 / 这一档不支持）
+    // 由上面那几处 `setSummary(…, problem)` 露出来。
+    page->setSummary(QString(), QString());
 }
 
 // 这两条是「更新中心」那一页在**主窗口这一侧**的入口：状态和动作都在

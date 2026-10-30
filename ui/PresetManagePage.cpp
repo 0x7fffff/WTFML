@@ -3,9 +3,9 @@
  * @brief 实现 PresetManagePage.hpp。
  *
  * 两页一个形状，都照着这一栏里已有的样子：
- *   第 0 页（列表）= 和「客户端实例」「服务端」同一页形 —— 顶上 chip 高的搜索框 + 一排
- *     类别 chip，中间一整棵不画外框的树（行高 58、行首图标 26、按类别分组），最底下那颗
- *     建东西的主操作。
+ *   第 0 页（列表）= 和「客户端实例」「服务端」同一页形 —— 顶上一整条搜索框 + 下面一排
+ *     类别 chip（类别多，挤在一行会把搜索框压没），中间一整棵不画外框的树（行高 58、
+ *     行首图标 26、按类别分组），最底下那颗建东西的主操作。
  *   第 1 页（细节）= 和实例设置那一页同一页形 —— 顶上一行「← 返回」+ 这是哪一份，下面
  *     整片底色上是"图标 + 名字 + 说明"和几小节（预设内容 / 从实例提取 / 应用到实例），
  *     主操作浮在底下正中间。
@@ -139,9 +139,10 @@ void PresetManagePage::buildUi() {
 
 /// 第 0 层：搜索 + 类别 + 一棵按类别分组的树 + 底下那颗「新建预设…」。
 ///
-/// 顶上那一行和实例列表那一行**逐字同形**（见 `MainWindowUI` 里 `instanceFilterRow`
-/// 那一段）：左边一个 chip 高的搜索框、右边一排 chip。树也一样：不画外框、左边不画
-/// 展开三角、行高就是实例页那一档（58）、行首图标 26。
+/// 顶上那两行和实例列表那一行同一个口径（见 `MainWindowUI` 里 `instanceFilterRow`
+/// 那一段）：搜索框 chip 高、chip 那一排挨着摆；只是预设的类别比实例多，两样分成两排
+/// （搜索框独占一行，chip 在下面一行）。树也一样：不画外框、左边不画展开三角、
+/// 行高就是实例页那一档（58）、行首图标 26。
 void PresetManagePage::buildListLayer() {
     m_listLayer = new QWidget(m_layers);
     m_listLayer->setObjectName(QStringLiteral("presetListPage"));
@@ -149,20 +150,36 @@ void PresetManagePage::buildListLayer() {
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(kFilterRowSpacing);
 
-    // ---- 搜索 + 类别 chip ----
-    auto *filterRow = new QWidget(m_listLayer);
-    filterRow->setObjectName(QStringLiteral("presetFilterRow"));
-    m_filterRow = new QHBoxLayout(filterRow);
-    m_filterRow->setContentsMargins(0, 0, 0, 0);
-    m_filterRow->setSpacing(kFilterRowSpacing);
-    m_searchEdit = new QLineEdit(filterRow);
+    // ---- 搜索框一行、类别 chip 一行 ----
+    //
+    // 八个类别 chip 摆在同一行里会把搜索框挤得只剩几十像素（用户量的就是这一条），
+    // 所以分两排：上面一条**整幅宽**的搜索框，下面一排 chip。chip 再多也只是往右排，
+    // 不再抢搜索框的宽度。
+    auto *filterBox = new QWidget(m_listLayer);
+    filterBox->setObjectName(QStringLiteral("presetFilterRow"));
+    auto *filterLayout = new QVBoxLayout(filterBox);
+    filterLayout->setContentsMargins(0, 0, 0, 0);
+    filterLayout->setSpacing(kFilterRowSpacing);
+
+    auto *searchRow = new QWidget(filterBox);
+    auto *searchLayout = new QHBoxLayout(searchRow);
+    searchLayout->setContentsMargins(0, 0, 0, 0);
+    searchLayout->setSpacing(kFilterRowSpacing);
+    m_searchEdit = new QLineEdit(searchRow);
     m_searchEdit->setObjectName(QStringLiteral("presetSearchEdit"));
     m_searchEdit->setPlaceholderText(tr("搜索名称或说明"));
     m_searchEdit->setClearButtonEnabled(true);
     // 和实例页那个框一样高（chip 那一档）：同一栏里两页最上面那一行不该差着高度。
     m_searchEdit->setFixedHeight(Theme::chipHeight());
-    m_filterRow->addWidget(m_searchEdit, 1);
-    layout->addWidget(filterRow);
+    searchLayout->addWidget(m_searchEdit, 1);
+    filterLayout->addWidget(searchRow);
+
+    auto *chipRow = new QWidget(filterBox);
+    m_chipRow = new QHBoxLayout(chipRow);
+    m_chipRow->setContentsMargins(0, 0, 0, 0);
+    m_chipRow->setSpacing(kFilterRowSpacing);
+    filterLayout->addWidget(chipRow);
+    layout->addWidget(filterBox);
     connect(m_searchEdit, &QLineEdit::textChanged, this,
             [this] { rebuildPresetList(QString(), true); });
 
@@ -1002,7 +1019,7 @@ void PresetManagePage::setCategories(const QList<CategoryOption> &categories) {
 /// 类别 chip 按 `setCategories()` 的次序重摆一遍。每颗一个 `clicked` → 换成"只亮这一颗"。
 /// 摆之前记住现在亮着哪一颗：外面重复调 `setCategories()` 时不该把用户的筛选重置掉。
 void PresetManagePage::rebuildCategoryChips() {
-    if (m_filterRow == nullptr) {
+    if (m_chipRow == nullptr) {
         return;
     }
     // 先看一遍外面给的那张表里有没有**空钥匙**那一项（「全部」）：没有就补一颗，
@@ -1021,7 +1038,7 @@ void PresetManagePage::rebuildCategoryChips() {
     }
 
     for (auto *chip : m_categoryChips) {
-        m_filterRow->removeWidget(chip);
+        m_chipRow->removeWidget(chip);
         delete chip;
     }
     m_categoryChips.clear();
@@ -1032,14 +1049,14 @@ void PresetManagePage::rebuildCategoryChips() {
     }
     // 亮着哪一颗由 `syncCategoryChips()` 一处说了算（摆的时候、点的时候都走它）。
     for (int i = 0; i < keys.size(); ++i) {
-        auto *chip = new QPushButton(texts.at(i), m_filterRow->parentWidget());
+        auto *chip = new QPushButton(texts.at(i), m_chipRow->parentWidget());
         chip->setObjectName(categoryChipName(keys.at(i)));
         chip->setCheckable(true);
         chip->setAutoDefault(false);
         // chip 那一档（24 px 高、圆角、勾上是实底主题色）—— 和实例页那一排
         // **同一个出处** `Theme::markChipButton()`，两页的筛子长得一样靠的就是它。
         Theme::markChipButton(chip);
-        m_filterRow->addWidget(chip);
+        m_chipRow->addWidget(chip);
         m_categoryChips.append(chip);
         m_categoryChipKeys.append(keys.at(i));
         const int index = i;

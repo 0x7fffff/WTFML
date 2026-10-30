@@ -323,8 +323,8 @@ private:
     QStackedWidget *m_layers = nullptr;
     QWidget *m_listLayer = nullptr;
     QWidget *m_detailLayer = nullptr;
-    /// 列表那一层顶上那一行（搜索框 + 类别 chip）。
-    QHBoxLayout *m_filterRow = nullptr;
+    /// 列表那一层顶上那两行里的第二行（类别 chip）。第一行是搜索框，独占一整条。
+    QHBoxLayout *m_chipRow = nullptr;
     /// 「没有符合筛选条件的预设」那一句（筛空了才露）。
     QLabel *m_noMatchLabel = nullptr;
     /// 类别 chip（第一颗是「全部」，钥匙空串）。点哪一颗就把哪一颗点亮 —— 单选。

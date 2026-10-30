@@ -2423,7 +2423,7 @@ int MwIntegrityActionsChecks(const QDir &root);
 int MwInstanceOverviewChecks(const QDir &root, const QDir &versionsDir);
 int MwOverridePersistenceChecks(const QDir &root, const QString &settingsDir, const QDir &versionsDir, QSpinBox * &maxSpin, MemorySlider * &maxSlider);
 int MwRunStateLifecycleChecks(const QDir &root, const QDir &versionsDir);
-int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStackedWidget * &gameStack, QLineEdit * &installNameEdit, QLabel * &installNameHint, QLabel * &installNameError, QPushButton * &installBtn, QPushButton * &installBackBtn, GlobalJavaSettings * &windowJava, const std::function<void(const QString &)> &pinGlobalJava, const std::function<void()> &unpinGlobalJava);
+int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStackedWidget * &gameStack, QLineEdit * &installNameEdit, QLabel * &installNameError, QPushButton * &installBtn, QPushButton * &installBackBtn, GlobalJavaSettings * &windowJava, const std::function<void(const QString &)> &pinGlobalJava, const std::function<void()> &unpinGlobalJava);
 int MwDownloadNavigationChecks(MainWindow &window);
 int MwVersionActivationChecks(MainWindow &window, QTreeWidget * &versionTree, QStackedWidget * &gameStack, QLineEdit * &installNameEdit, QLabel * &installTargetLabel, QPushButton * &installBackBtn);
 int MwRapidRowActivationChecks(MainWindow &window, QTreeWidget * &versionTree, QStackedWidget * &gameStack, QLineEdit * &installNameEdit, QLabel * &installTargetLabel, QPushButton * &installBackBtn);

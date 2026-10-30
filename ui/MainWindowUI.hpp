@@ -553,12 +553,6 @@ public:
     /// 「版本名称」框：实例的目录名（`versions/<这个名字>`），默认名由 MainWindow 按
     /// "原版号 + 加载器"填（见 InstallPageController::defaultInstanceName()）。
     static QString installNameEditName() { return QStringLiteral("installNameEdit"); }
-    /// 名称框下面那行灰色小字：**说这一份装下去是什么** —— 平时的说明，或者重名提示。
-    /// 两种取值一处决定（InstallPageController::updateInstallNameHint()）。
-    ///
-    /// NOTE: 它**不兼职报错**。名字不能用（有非法字符、空着）时那句原因在下面那行
-    /// 红字里，这一行照旧说"装好之后会在哪儿"。
-    static QString installNameHintName() { return QStringLiteral("installNameHint"); }
     /// 名称框底下那行**红字**：名字不能用时那句原因（`InstanceFiles::validateDirName()` 的
     /// 返回值，界面这边不抄一份规则）。名字能用的时候它是空的、也藏起来 —— 于是名字框、
     /// 加载器树、安装按钮在正常情况下一个像素都不动。
@@ -3476,8 +3470,6 @@ public:
     void applyVersionFilter();
     /// 「版本名称」框（安装页顶上那个）。
     QLineEdit *getInstallNameEdit() const { return installNameEdit; }
-    /// 名称框下面那行灰色小字（平时的说明 / 重名提示，两种取值一处决定）。
-    QLabel *getInstallNameHint() const { return installNameHint; }
     /// 名称框底下那行红字（名字不能用时的原因；能用时它空着且藏着）。
     QLabel *getInstallNameError() const { return installNameError; }
     /// 安装页顶上那句"将基于原版 X 安装"。
@@ -3886,7 +3878,6 @@ private:
     bool versionFilterActive = false;
     QLabel *installTargetLabel = nullptr;
     QLineEdit *installNameEdit = nullptr;
-    QLabel *installNameHint = nullptr;
     QLabel *installNameError = nullptr;
     QPushButton *installButton = nullptr;
     QPushButton *installBackButton = nullptr;

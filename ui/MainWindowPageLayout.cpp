@@ -373,7 +373,7 @@ QLabel *addDynamicHint(QWidget *box, const QString &text, QWidget *parent) {
 }
 
 /// 和 addDynamicHint() 同一个形状，但字是**红的** —— 名字框底下那行"名字不能用"的原因
-/// 用的就是它（大小、换行、摆放都和旁边那行灰字一套）。
+/// 用的就是它（大小、换行按说明那一档）。
 QLabel *addDynamicErrorHint(QWidget *box, QWidget *parent) {
     QLabel *hint = addDynamicHint(box, QString(), parent);
     markTextRole(hint, QString());

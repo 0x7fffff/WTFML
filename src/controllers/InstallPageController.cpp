@@ -25,7 +25,6 @@
 #include "settings/GlobalJavaSettings.hpp"
 #include "util/AppPaths.hpp"
 
-#include <QDir>
 #include <QFile>
 #include <QJsonObject>
 #include <QLabel>
@@ -457,10 +456,10 @@ void InstallPageController::updateInstallName() {
         const QSignalBlocker blocker(edit);
         edit->setText(defaultInstanceName());
     }
-    updateInstallNameHint();
+    updateInstallNameState();
 }
 
-void InstallPageController::updateInstallNameHint() {
+void InstallPageController::updateInstallNameState() {
     QLineEdit *edit = m_owner.m_ui->getInstallNameEdit();
     const QString name = edit->text().trimmed();
 
@@ -469,37 +468,10 @@ void InstallPageController::updateInstallNameHint() {
     const QString invalid = InstanceFiles::validateDirName(name);
     const bool canInstall = invalid.isEmpty();
 
-    // 上面那行**灰字**：说"装下去会怎样"。名字能不能用**都照说** —— 起名字
-    // 不合法的原因不顶掉这一行，而是另起一行红字（上面那句「装好后在实例…」照旧留着）。
-    // 名字空着时这行没话可说（没有名字就没有目录），就让它空着。
-    QString hint;
-    if (!name.isEmpty()) {
-        // 重名：**只提示、不拦**（在下方小字提示）。
-        // 同名就是同一个实例 —— 装下去不是新建一个，而是校验并补齐那个目录里的文件
-        // （「重下 = 校验跳过」）。这句话必须说清这一点，否则用户会以为会多出一个。
-        // NOTE: 名字不合法时**不查**重名 —— 那个名字当不了目录名，AppPaths::versionDir()
-        // 拼出来的路径没有意义（`..` 那种会拼到数据目录外面去），查了也只是白查。
-        const QString dir = canInstall ? AppPaths::versionDir(name) : QString();
-        if (!dir.isEmpty() && QDir(dir).exists()) {
-            // 「已经装过了」和「这个目录是别的东西」在用户眼里是两回事，分开说。
-            const bool installed = QFile::exists(AppPaths::versionJsonPath(name));
-            hint = installed ? MainWindow::tr("已经有叫「%1」的实例了：同一个名字就是同一个实例，再装一次"
-                                  "会校验并补齐它的文件（已经下好的跳过）。")
-                                   .arg(name)
-                             : MainWindow::tr("%1 已经存在了，但它不像一个装好的实例。装下去会往这个目录"
-                                  "里写文件。")
-                                   .arg(dir);
-        } else {
-            hint = MainWindow::tr("装好之后在「实例」页里能看到它，目录是 versions/%1。").arg(name);
-        }
-    }
-    QLabel *hintLabel = m_owner.m_ui->getInstallNameHint();
-    hintLabel->setText(hint);
-    hintLabel->setVisible(!hint.isEmpty());
-
-    // 下面那行**红字**：名字不能用的原因（就是 validateDirName() 那句话的字面意思）。
-    // 能用的时候空着 + 藏起来 —— 藏起来（而不是留一个空行）是为了让加载器树和安装按钮
-    // 的位置不被这一行顶动。
+    // 名字框底下只有那行**红字**：名字不能用的原因（就是 validateDirName() 那句话的
+    // 字面意思）。能用的时候空着 + 藏起来 —— 藏起来（而不是留一个空行）是为了让
+    // 加载器树和安装按钮的位置不被这一行顶动。那句"装下去会怎样"的灰色说明**没了**
+    // （用户点名是废话，见 MainWindowDownloadPage 里那一段）。
     QLabel *error = m_owner.m_ui->getInstallNameError();
     error->setText(invalid);
     error->setVisible(!canInstall);
@@ -512,7 +484,7 @@ void InstallPageController::noteNameEdited() {
     // 用户动过这个名字了：此后默认名不再跟着加载器变（不然他敲到一半的名字会被
     // 一次"勾了 Forge"顶掉）。
     m_nameTouched = true;
-    updateInstallNameHint();
+    updateInstallNameState();
 }
 
 // ---------------------------------------------------------------------------

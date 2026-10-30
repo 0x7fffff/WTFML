@@ -326,23 +326,21 @@ void MainWindowUI::setupDownloadGamePage() {
     // The floating action must not cover the last selectable row at the scroll limit.
     installBodyLayout->setContentsMargins(0, 0, 0, qMax(48, installButtonMinHeight()) + 40);
 
-    // 版本名称：实例的目录名（`versions/<这个名字>`）。默认名、重名提示、名字不合法
-    // 那句原因，都在 InstallPageController::updateInstallNameHint() 一处刷（界面这边不持有
-    // 业务状态：它不知道盘上有哪些目录）。
+    // 版本名称：实例的目录名（`versions/<这个名字>`）。默认名和名字不合法那句原因，
+    // 都在 InstallPageController::updateInstallNameState() 一处刷（界面这边不持有
+    // 业务状态：它不知道什么名字算不能用）。
+    //
+    // NOTE: 名字框底下**不再摆那句灰色说明**（"装好之后在实例页…" / 重名提示）——
+    // 用户点名那是废话，和下载页别处"一句解释一行字"的口径一起删了。这里只留
+    // 名字不能用时的红字。
     QWidget *nameBox = makeHintedControl(installPage);
     auto *nameLabel = new QLabel(installNameLabelText(), nameBox);
     nameBox->layout()->addWidget(nameLabel);
     installNameEdit = new QLineEdit(nameBox);
     installNameEdit->setObjectName(installNameEditName());
     nameBox->layout()->addWidget(installNameEdit);
-    installNameHint = addDynamicHint(nameBox, QString(), nameBox);
-    installNameHint->setObjectName(installNameHintName());
-    // 名字不能用（有非法字符、空着）时的**原因**另起一行红字，不去顶掉上面那句
-    // 说明（非法名字**不替换掉框里那句「装好后在实例...」**，而是在下面添加一行红色字）。
-    // 平时它空着、也藏起来 —— 藏起来而不是
-    // "留一个空行"，是为了正常情况下名字框底下那几行的位置不动。
-    // 显隐和文字都由 InstallPageController::updateInstallNameHint() 一处刷（界面这边不知道盘上
-    // 有哪些目录、也不知道什么名字算不能用）。
+    // 名字不能用（有非法字符、空着）时的**原因**：一行红字。平时它空着、也藏起来 ——
+    // 藏起来而不是"留一个空行"，是为了正常情况下名字框底下那几行的位置不动。
     installNameError = addDynamicErrorHint(nameBox, nameBox);
     installNameError->setObjectName(installNameErrorName());
     installNameError->setVisible(false);

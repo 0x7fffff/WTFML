@@ -126,8 +126,7 @@ int main(int argc, char *argv[]) {
     QStackedWidget *gameStack = ui.getGameStack();
     QTreeWidget *versionTree = ui.getVersionTree();
     QLineEdit *installNameEdit = ui.getInstallNameEdit();
-    QLabel *installNameHint = ui.getInstallNameHint();
-    // 名字不能用时那行**红字**：它紧接着灰字那一句，说原因。
+    // 名字不能用时那行**红字**。名字框底下那句灰色说明已经删了（用户点名是废话）。
     QLabel *installNameError = ui.getInstallNameError();
     QLabel *installTargetLabel = ui.getInstallTargetLabel();
     QPushButton *installBtn = ui.getInstallButton();
@@ -161,10 +160,6 @@ int main(int argc, char *argv[]) {
               installNameEdit->objectName() == MainWindowUI::installNameEditName(),
           "版本名称输入框找得回来（按 objectName）",
           installNameEdit != nullptr ? installNameEdit->objectName() : QStringLiteral("<null>"));
-    check(installNameHint != nullptr &&
-              installNameHint->objectName() == MainWindowUI::installNameHintName(),
-          "名称框下面那句小字找得回来（按 objectName）",
-          installNameHint != nullptr ? installNameHint->objectName() : QStringLiteral("<null>"));
     check(installTargetLabel != nullptr &&
               installTargetLabel->objectName() == MainWindowUI::installTargetLabelName(),
           "「将基于原版 X 安装」那个标签找得回来（按 objectName）",
@@ -927,7 +922,6 @@ int main(int argc, char *argv[]) {
     const QRect rBack = rectInPage(installBackBtn);
     const QRect rTarget = rectInPage(installTargetLabel);
     const QRect rEdit = rectInPage(installNameEdit);
-    const QRect rHint = rectInPage(installNameHint);
     const QRect rInstall = rectInPage(installBtn);
 
     // 「← 返回版本列表」和「将基于原版 X 安装」同一行（返回按钮在前、标签在后）。
@@ -959,20 +953,6 @@ int main(int argc, char *argv[]) {
               "「版本名称」那个标签在输入框上面",
               QString("label.bottom=%1 edit.y=%2")
                   .arg(rLabel.y() + rLabel.height()).arg(rEdit.y()));
-        check(!rHint.isNull() && !rEdit.isNull() && rHint.y() >= rEdit.y() + rEdit.height(),
-              "重名/校验那句小字在输入框**下面**",
-              QString("hint.y=%1 edit.bottom=%2").arg(rHint.y()).arg(rEdit.y() + rEdit.height()));
-        check(!rHint.isNull() && !rEdit.isNull() && rHint.x() >= rEdit.x() &&
-                  rHint.x() < rEdit.x() + rEdit.width(),
-              "那句小字跟输入框左对齐（不是居中也不是贴右边）",
-              QString("hint.x=%1 edit.x=%2").arg(rHint.x()).arg(rEdit.x()));
-        // 字号比输入框里的字小一档 —— 它是注释，不是内容（和别处那些小字一个口径）。
-        check(installNameHint != nullptr && installNameEdit != nullptr &&
-                  installNameHint->font().pixelSize() == 12 && installNameEdit->font().pixelSize() == 14,
-              "那句小字的字号比输入框小一档",
-              QString("hint=%1 edit=%2")
-                  .arg(installNameHint != nullptr ? installNameHint->font().pointSize() : -1)
-                  .arg(installNameEdit != nullptr ? installNameEdit->font().pointSize() : -1));
     }
 
     // 加载器那一卡、名称框、底栏自上而下排开。这几条是"用户描述的那个形状"
@@ -981,7 +961,7 @@ int main(int argc, char *argv[]) {
     QFrame *installFooter = nullptr;
     const QByteArray surfaceKey = Theme::surfacePropertyName().toUtf8();
 
-    if (const int result = UiInstallFormLayoutChecks(ui, installNameEdit, installNameHint, installNameError, installBtn, loaderTree, downloadPage, rEdit, rInstall, loaderCard, installFooter, surfaceKey, rectInPage); result != 0) return result;
+    if (const int result = UiInstallFormLayoutChecks(ui, installNameEdit, installNameError, installBtn, loaderTree, downloadPage, rEdit, rInstall, loaderCard, installFooter, surfaceKey, rectInPage); result != 0) return result;
 
     // ---- 页头从安装页退出来之后要**回来**（"点进去就隐藏，外面还保留"的后半句）----
     {
