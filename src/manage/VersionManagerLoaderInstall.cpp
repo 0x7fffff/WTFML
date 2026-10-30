@@ -26,6 +26,7 @@
  * 接着干什么"这类判断留在核心那个文件里（见 `onAllDownloadsFinished()`）。
  */
 
+#include "net/ControlGet.hpp"
 #include "VersionManager.hpp"
 #include "VersionManagerInternals.hpp"
 
@@ -157,6 +158,9 @@ void VersionManager::requestLoaderVersions(const QString &gameVersion, LoaderKin
     // 照样会来一发，回复处理函数靠"这一个指针还是我手上这个吗"把它丢掉。
     // 别的加载器在飞的那几发**不动**：四个各占一格，四条一起问是正常的（见头里那段）。
     LoaderVersionRequest &slot = m_loaderVersionRequests[int(kind)];
+    ++slot.generation;
+    delete slot.queued.data();
+    slot.queued = nullptr;
     if (slot.reply != nullptr) {
         // **先摘指针，再 abort()** —— 顺序不能换。abort() 有可能**当场**把 finished()
         // 发出来（回复已经在手上、只是还没被处理时就是这一种）。那一发进来时这一格里
@@ -247,13 +251,21 @@ void VersionManager::fetchLoaderVersions(LoaderKind kind, const QString &url, bo
     const QUrl target(url);
     QNetworkRequest request(target);
     request.setTransferTimeout(30000);
-    QNetworkReply *reply = loaderNetworkManager()->get(request);
-    m_loaderVersionRequests[int(kind)].reply = reply;
-    // 走没走镜像跟着这一发钉住：解析要按**问的时候**那条路来（见 hpp 里那一格）。
-    m_loaderVersionRequests[int(kind)].fromMirror = fromMirror;
-    // 回复得**带着是哪个加载器的**回来：四发同时在飞，光认指针认不出是谁的回复。
-    connect(reply, &QNetworkReply::finished, this,
-            [this, reply, kind] { onLoaderVersionsReply(kind, reply); });
+    auto &slot = m_loaderVersionRequests[int(kind)];
+    slot.fromMirror = fromMirror;
+    const auto generation = slot.generation;
+    slot.queued = RequestBudget::ControlGet::start(this, loaderNetworkManager(), request, 30000,
+        [this, kind, generation](QNetworkReply *reply, const QString &error) {
+            auto &current = m_loaderVersionRequests[int(kind)];
+            if (current.generation != generation) return;
+            current.queued = nullptr;
+            if (!reply) {
+                emit loaderVersionsFetched(current.gameVersion, kind, false, {}, error);
+                return;
+            }
+            current.reply = reply;
+            onLoaderVersionsReply(kind, reply);
+        });
 }
 
 void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply) {
@@ -279,7 +291,8 @@ void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply
         // loaderVersionsMirrorFallback()）。判"连不上"用的是下载那条路同一个
         // transientReply()：超时 / 连接被掐 / HTTP/2 断流都算，404、证书不对、
         // 用户取消不算 —— 那些换镜像也帮不上忙。只退一次，镜像再失败就照实报。
-        if (!slot->mirrorFallbackUsed && DownloadRetryPolicy::transientReply(reply)) {
+        if (!slot->mirrorFallbackUsed && (DownloadRetryPolicy::transientReply(reply) ||
+            reply->property("wtfmlControlDeadlineExpired").toBool())) {
             const QString fallback = loaderVersionsMirrorFallback(kind, slot->officialUrl);
             if (!fallback.isEmpty()) {
                 slot->mirrorFallbackUsed = true;
@@ -292,7 +305,8 @@ void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply
         emit loaderVersionsFetched(
             gameVersion, kind, false, LoaderMeta::LoaderVersionList(),
             tr("拿不到 %1 %2 的版本列表（%3）。检查网络后重试。")
-                .arg(loaderDisplayName(kind), gameVersion, reply->errorString()));
+                .arg(loaderDisplayName(kind), gameVersion,
+                     reply->property("wtfmlControlDeadlineExpired").toBool() ? tr("请求超时") : reply->errorString()));
         return;
     }
 

@@ -1,6 +1,7 @@
 #pragma once
 // 服务端表单的异步版本选择接线；页面只接收列表，不负责联网。
 #include "NewServerPage.hpp"
+#include "net/ControlGet.hpp"
 #include "manage/VersionManager.hpp"
 #include "download/ServerInstall.hpp"
 #include <QNetworkAccessManager>
@@ -52,7 +53,8 @@ private:
         const QString key = token + "/" + game;
         if (key == m_key) return;
         m_key = key;
-        if (m_reply) { m_reply->abort(); m_reply = nullptr; }
+        delete m_request.data();
+        m_request = nullptr;
         if (needsLoader(token)) {
             m_page->setVersionChoices(false, {}, tr("正在获取…"));
             m_versions->requestLoaderVersions(game, loaderKind(token));
@@ -64,15 +66,14 @@ private:
                                                         : ServerInstall::quiltInstallerMetadataUrl()));
         request.setTransferTimeout(15000);
         request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-        auto *reply = m_network->get(request);
-        m_reply = reply;
-        QTimer::singleShot(15000, reply, [reply] { if (reply->isRunning()) reply->abort(); });
-        connect(reply, &QNetworkReply::readyRead, reply, [reply] { if (reply->bytesAvailable() > 2*1024*1024) reply->abort(); });
-        connect(reply, &QNetworkReply::finished, this, [this, reply, token, key] {
+        m_request = RequestBudget::ControlGet::start(this, m_network, request, 15000,
+            [this, token, key](QNetworkReply *reply, const QString &queueError) {
+            if (key != m_key) return;
+            m_request = nullptr;
+            if (!reply) { m_page->setVersionChoices(true, {}, queueError); return; }
             const QByteArray body = reply->isOpen() ? reply->readAll() : QByteArray();
             const bool ok = reply->error() == QNetworkReply::NoError && body.size() <= 2*1024*1024;
             reply->deleteLater();
-            if (m_reply == reply) m_reply = nullptr;
             if (key != m_key) return;
             const QStringList list = !ok ? QStringList() : ordered(token == "fabric"
                 ? ServerInstall::listFabricInstallerVersions(QJsonDocument::fromJson(body).array())
@@ -84,7 +85,7 @@ private:
     NewServerPage *m_page;
     VersionManager *m_versions;
     QNetworkAccessManager *m_network;
-    QPointer<QNetworkReply> m_reply;
+    QPointer<RequestBudget::ControlGet> m_request;
     QHash<QString, QStringList> m_cache;
     QString m_key;
     bool m_scheduled = false;

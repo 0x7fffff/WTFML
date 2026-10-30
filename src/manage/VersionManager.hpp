@@ -1784,6 +1784,8 @@ private:
     // 会把前一发掐死，前三条底下就永远停在「正在获取…」。
     struct LoaderVersionRequest {
         QString gameVersion;
+        QPointer<QObject> queued;
+        quint64 generation = 0;
         // 这一发是走**镜像**那条路问出去的吗。**随请求钉住**，不在回复回来时再读一遍
         // downloadManager->useMirror()。
         //

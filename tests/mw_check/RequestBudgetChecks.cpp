@@ -2,6 +2,8 @@
 #include "download/SlowSourcePolicy.hpp"
 #include "net/HttpClient.hpp"
 #include "net/RequestBudget.hpp"
+#include "net/ControlGet.hpp"
+#include "manage/VersionManager.hpp"
 #include <QCryptographicHash>
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -54,6 +56,14 @@ int runRequestBudgetChecks() {
                 ++count;
                 const bool slow = input->startsWith("GET /slow ");
                 const bool sample = input->toLower().contains("range: bytes=0-65535");
+                if (input->startsWith("GET /trickle ")) {
+                    socket->write("HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\nConnection: close\r\n\r\n");
+                    auto *heartbeat=new QTimer(socket);
+                    heartbeat->setInterval(20);
+                    QObject::connect(heartbeat,&QTimer::timeout,socket,[socket] { socket->write("x"); });
+                    heartbeat->start();
+                    return;
+                }
                 if (slow) {
                     socket->write("HTTP/1.1 200 OK\r\nContent-Length: 8388608\r\nConnection: close\r\n\r\n");
                     socket->write(large.left(256 * 1024));
@@ -111,6 +121,95 @@ int runRequestBudgetChecks() {
         one.reset(); two.reset();
         wait([&] { return RequestBudget::snapshot().bulk == 0; }, 100);
         expect(!QFile::exists(fixture.filePath("cancelled")), "cancelling a budget-waiting job never publishes it");
+    }
+    {
+        QNetworkAccessManager first, second;
+        QObject owner;
+        int completed=0;
+        bool valid=true;
+        const int before=count;
+        peak=0;
+        for (int n=0;n<8;++n) RequestBudget::ControlGet::start(&owner,n%2 ? &first : &second,
+            QNetworkRequest(QUrl(base+"control"+QString::number(n))),1000,
+            [&](QNetworkReply *reply,const QString &error) {
+                valid = valid && reply && error.isEmpty() && reply->error()==QNetworkReply::NoError
+                    && reply->readAll()=="ok" && RequestBudget::snapshot().control<=3;
+                ++completed;
+            });
+        expect(wait([&] { return completed==8; }) && valid && count-before==8 && peak<=4,
+               "independent metadata managers share four control slots and release before completion callbacks");
+    }
+    {
+        QList<RequestBudget::Lease> holds;
+        for(int n=0;n<4;++n) holds.append(RequestBudget::tryAcquire(RequestBudget::Lane::Control));
+        QNetworkAccessManager manager;
+        QObject owner;
+        const int before=count;
+        bool expired=false, cancelledCalled=false;
+        RequestBudget::ControlGet::start(&owner,&manager,QNetworkRequest(QUrl(base+"expired")),60,
+            [&](QNetworkReply *reply,const QString &error) { expired=!reply && !error.isEmpty(); });
+        auto *cancelled = RequestBudget::ControlGet::start(&owner,&manager,QNetworkRequest(QUrl(base+"cancelled")),1000,
+            [&](QNetworkReply *,const QString &) { cancelledCalled=true; });
+        delete cancelled;
+        auto *departedOwner=new QObject;
+        RequestBudget::ControlGet::start(departedOwner,&manager,QNetworkRequest(QUrl(base+"departed")),1000,
+            [&](QNetworkReply *,const QString &) { cancelledCalled=true; });
+        delete departedOwner;
+        expect(wait([&] { return expired; },500) && count==before && !cancelledCalled,
+               "metadata queue timeout and cancellation never open a socket while the budget is occupied");
+        bool resumed=false;
+        RequestBudget::ControlGet::start(&owner,&manager,QNetworkRequest(QUrl(base+"resumed")),1000,
+            [&](QNetworkReply *reply,const QString &error) { resumed=reply && error.isEmpty() && reply->readAll()=="ok"; });
+        holds.clear();
+        expect(wait([&] { return resumed; }) && count==before+1,
+               "metadata waiting for a shared slot starts after another owner releases its lease");
+    }
+    {
+        QNetworkAccessManager manager;
+        QObject owner;
+        bool called=false;
+        auto *activeRequest=RequestBudget::ControlGet::start(&owner,&manager,QNetworkRequest(QUrl(base+"slow")),1000,
+            [&](QNetworkReply *,const QString &) { called=true; });
+        expect(wait([&] { return RequestBudget::snapshot().control==1; }),"metadata request reaches its active state");
+        delete activeRequest;
+        expect(RequestBudget::snapshot().control==0 && !called,
+               "destroying active metadata work closes its reply and returns its lease without a stale callback");
+        bool timedOut=false;
+        RequestBudget::ControlGet::start(&owner,&manager,QNetworkRequest(QUrl(base+"trickle")),100,
+            [&](QNetworkReply *reply,const QString &) { timedOut=reply && reply->error()!=QNetworkReply::NoError
+                && reply->property("wtfmlControlDeadlineExpired").toBool(); });
+        expect(wait([&] { return timedOut; },1000) && RequestBudget::snapshot().control==0,
+               "metadata transfer deadline aborts a stalled response and releases its shared slot");
+    }
+    {
+        QObject owner;
+        auto *manager=new QNetworkAccessManager;
+        bool stale=false;
+        RequestBudget::ControlGet::start(&owner,manager,QNetworkRequest(QUrl(base+"slow")),1000,
+            [&](QNetworkReply *,const QString &) { stale=true; });
+        expect(wait([&] { return RequestBudget::snapshot().control==1; }),"metadata manager owns an active request before teardown");
+        delete manager;
+        QCoreApplication::processEvents(QEventLoop::AllEvents);
+        expect(RequestBudget::snapshot().control==0 && !stale,
+               "network manager teardown releases the control slot without calling a destructing owner");
+    }
+    {
+        QList<RequestBudget::Lease> holds;
+        for(int n=0;n<4;++n) holds.append(RequestBudget::tryAcquire(RequestBudget::Lane::Control));
+        VersionManager versions;
+        int replies=0;
+        QObject::connect(&versions,&VersionManager::loaderVersionsFetched,&versions,
+            [&](const QString &,VersionManager::LoaderKind,bool,const LoaderMeta::LoaderVersionList &,const QString &) { ++replies; });
+        versions.requestLoaderVersions("1.20.1",VersionManager::LoaderKind::Fabric);
+        versions.requestLoaderVersions("1.21.1",VersionManager::LoaderKind::Fabric);
+        int queued=0;
+        for(auto *child:versions.children()) if(dynamic_cast<RequestBudget::ControlGet *>(child)) ++queued;
+        expect(queued==1 && replies==0,
+               "replacing a budget-waiting loader query leaves exactly one job and no obsolete failure");
+        versions.requestLoaderVersions({},VersionManager::LoaderKind::Fabric);
+        queued=0;
+        for(auto *child:versions.children()) if(dynamic_cast<RequestBudget::ControlGet *>(child)) ++queued;
+        expect(queued==0 && replies==1,"clearing a loader selection cancels its queued request instead of dispatching it later");
     }
     expect(!SlowSourcePolicy::shouldProbe(29000, 100000, large.size(), false) &&
            !SlowSourcePolicy::shouldProbe(35000, 100000, large.size(), true) &&
