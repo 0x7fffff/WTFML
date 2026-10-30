@@ -74,6 +74,7 @@
 #include "InstanceFilesPage.hpp"
 #include "MainWindowUI.hpp"
 #include "MemorySlider.hpp"
+#include "RowActivation.hpp"
 #include "VersionIcons.hpp"
 // 第 1 格那个世界设置。头文件那边已经 include 了它（进参是个嵌套类型），
 // 这一句是给"这一份 .cpp 自己用得上它的完整定义"留的。
@@ -231,6 +232,26 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                     showPage(item->data(0, Qt::UserRole).toString());
             });
     m_navigationTree->installEventFilter(this);
+    // 组头那几行（「内容管理」「世界与联机」「创作工具」「维护」）：**整行**点下去就是
+    // 展开 / 收起。原来只有最左边那颗小箭头管用 —— 组头不可选中、整行又没有别的动作，
+    // 指着那行字点下去什么都不发生，用户只会以为界面坏了（截图点名要改的就是这一处）。
+    // 接线口和实例树、下载页那几棵树是**同一处出处**：一次手势只算一下、点得快时后面
+    // 每一发照样算、回车同一条路（见 ui/RowActivation.hpp）。
+    //
+    // NOTE: 叶子那几行**不归它管** —— 点一条叶子 = 选中它，翻页走上面那条
+    // `currentItemChanged`（键盘上下键同一条路），这里再补一次就是同一页摆两遍。
+    // 所以"这是不是开关行"的判据只有一条：有孩子。
+    connectRowActivation(m_navigationTree,
+                         [](QTreeWidgetItem *item) {
+                             if (item != nullptr && item->childCount() > 0) {
+                                 // 先算再做：`!isExpanded()` 必须在这发之前取，反过来的话
+                                 // 读到的是已经被翻过的状态（和实例树那条同一个写法）。
+                                 item->setExpanded(!item->isExpanded());
+                             }
+                         },
+                         [](QTreeWidgetItem *item) {
+                             return item != nullptr && item->childCount() > 0;
+                         });
     addNavColumn(columns, m_navigationTree, launchInstance);
     QWidget::setTabOrder(m_navigationTree, launchInstance);
 
