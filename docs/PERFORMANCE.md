@@ -683,3 +683,32 @@ meta 为准、meta 没写才去 json 的 `libraries` 里认（含薄 json 从父
 
 读法：单机、改前 n=2 / 改后 n=3、只量探针构建（Release `-O3`、只编产品）。别把
 815 → 655 外推成"所有机器都快 20%"，它说的是这一份夹具、这一条路径。
+
+## 2026-10-31 实例目录扫描：两趟 readdir 合成一趟
+
+```powershell
+pwsh -File tools/perf-startup.ps1 -Runs 3 -Instances 200 -InstanceMeta -Exe build/perf-probe/WTFMinecraftLauncher.exe -ReportDir <目录>
+```
+
+上一节之后一轮刷新里最大的一块变成 `scan`（`installedVersions()` 扫盘，18–23 ms）。拆开看
+每实例一次：`resolveInstance()` 里 `DirListing` 先 `entryList("*.jar")`、再
+`entryList("*.json")` —— **两趟完整的目录读取**，看的是同一批顶层条目。
+
+现在 `InstanceFiles::scanDir()` 一趟 `entryList(QDir::Files)` 取全，再按后缀分进两个表。
+顺序逐字不变（两种写法都按文件名排），后缀比较**不区分大小写**（`QDir` 的名字过滤器默认
+就是这个规矩，`A.JAR` 在改之前就是候选 jar）；目录不存在时 `entryList()` 照样给空表，
+所以原来那句 `dir.exists()` 早退一起去掉了。
+
+| 200 个实例（各带 wtfml.meta） | visible 中位 | 范围 | 每轮 `scan`（探针） |
+| --- | ---: | ---: | ---: |
+| 改之前（`build/perf-probe-scan-before`，md5 `6959ce8e`） | 656.4 ms | 653.0–681.4 | 18–23 ms |
+| 改之后（`build/perf-probe-scan-after`，md5 `7ff4cdd0`） | 623.5 ms | 615.3–625.5 | 7–10 ms |
+
+- 两轮背靠背、同一台机器、同一份夹具、各 n=3；visible 的两次范围不重叠。
+- `maxBlock` 两次范围是叠着的（12.8–24.3 / 19.1–30.3），这一条**不当收益**。
+- 分段探针里 `marks` 也跟着变了（第一次 94 → 62、之后 44 → 25），那是进程第一轮解析
+  200 份 json 那一次的一次性成本，受磁盘/AV 状态影响大，**不当成这次改动的收益**。
+- 正确性：`verify_instances` 的 J 段（认不出来的目录进不进列表、告警条数）与
+  `InstanceFileTests` 的真值表覆盖这条判据；整轮 `ctest` 39/39 全过。
+
+读法：单机、只量探针构建、n=3；说的是这一份夹具下"每轮刷新的扫盘那一段"。

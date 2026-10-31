@@ -389,17 +389,33 @@ DirListing scanDir(const QString &versionId) {
     out.dirName = versionId;
 
     const QDir dir(AppPaths::versionDir(versionId));
-    if (!dir.exists()) {
-        return out;
-    }
 
     // NOTE: 必须**非递归** —— QDir::Files 不能配上 QDir::Subdirectories。
     // 实例目录底下还有 libraries/：下载时把整个版本目录当目的地，库 jar 全写在
     // versions/<id>/libraries/ 里，真机上一个整合包随手就是几百个。递归扫会把它们
     // 统统当成客户端 jar 的候选，于是"顶层恰好一个 jar"这条判据立刻失效、
     // 所有实例反而认不出来了。别顺手加上 Subdirectories。
-    out.jarNames = dir.entryList(QStringList() << QStringLiteral("*.jar"), QDir::Files);
-    out.jsonNames = dir.entryList(QStringList() << QStringLiteral("*.json"), QDir::Files);
+    //
+    // NOTE: **一趟 readdir 分两类**，不是两趟 `entryList()`（一次 `*.jar`、一次
+    // `*.json`）：两趟看的是同一批顶层条目，而每趟都是一次完整的目录读取。真机上
+    // 200 个实例一轮刷新就是 400 趟，这一趟能省掉一半。顺序不变：带名字过滤和
+    // 不带名字过滤的 `entryList()` 都按文件名排，所以两个表里每一条的先后和改之前
+    // 逐字相同。
+    //
+    // 后缀比较**不区分大小写**：`QDir` 的名字过滤器（原来那两个 `*.jar` / `*.json`）
+    // 默认就是不分大小写的（它的 `CaseSensitive` 过滤器位没有置），所以 `A.JAR` 改之前
+    // 就是候选 jar，这里必须照旧。
+    //
+    // 目录不存在时 `entryList()` 给空表，和原来那句 `dir.exists()` 早退一个结果，
+    // 所以那道闸不需要了（它自己也要一次 stat）。
+    const QStringList names = dir.entryList(QDir::Files);
+    for (const QString &name : names) {
+        if (name.endsWith(QStringLiteral(".jar"), Qt::CaseInsensitive)) {
+            out.jarNames.append(name);
+        } else if (name.endsWith(QStringLiteral(".json"), Qt::CaseInsensitive)) {
+            out.jsonNames.append(name);
+        }
+    }
     return out;
 }
 
