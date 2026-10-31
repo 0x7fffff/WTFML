@@ -712,3 +712,80 @@ pwsh -File tools/perf-startup.ps1 -Runs 3 -Instances 200 -InstanceMeta -Exe buil
   `InstanceFileTests` 的真值表覆盖这条判据；整轮 `ctest` 39/39 全过。
 
 读法：单机、只量探针构建、n=3；说的是这一份夹具下"每轮刷新的扫盘那一段"。
+## 2026-10-31 主页那颗箭头：一个字形把启动拖长了 270 ms
+
+```powershell
+pwsh -File tools/perf-startup.ps1 -Runs 3 -Instances 200 -InstanceMeta -Exe <exe> -ReportDir <目录>
+```
+
+上一节之后启动是 615–625 ms。这一段是从"哪一块最贵"一路拆下来的：`setupUi()`
+≈ 335–358 ms，其中四页 ≈ 296–316 ms，再往下几乎全在**主页**（271–275 ms），
+主页里又几乎全在右栏那张账号卡片的一段几何计算上：
+
+```
+STARTUP-PROBE home left 1        ← 左栏全部搭完，1 ms
+STARTUP-PROBE home card 1        ← 卡片外壳，1 ms
+STARTUP-PROBE home account 10    ← 账号按钮 + 三个标签，9 ms
+STARTUP-PROBE home viewer 10     ← SkinViewer 构造
+STARTUP-PROBE home skin 10       ← 兜底皮肤
+STARTUP-PROBE home minheight 279 ← profileCard->heightForWidth(...) 这一段 269 ms
+```
+
+`heightForWidth()` 里逐个问子控件的 `sizeHint()`（那个卡片的做法见
+`HomeProfileCard`）。逐个计时：
+
+```
+STARTUP-PROBE carditem QPushButton 264   ← 就是这一下
+STARTUP-PROBE carditem SkinViewer 0
+```
+
+换成一颗裸的 `QPushButton` 量 `sizeHint()` 只要 7 ms；带上这套属性（kind /
+homeAction / accountHeader）、带子布局也都还是 0 ms。差别只剩那颗箭头：
+`QLabel("⌄")`，而 **U+2304 不在默认界面字体的覆盖表里**。Qt 第一次量这段文字
+就要去字体库里做一遍**回退查找**，本机实测：
+
+```
+STARTUP-PROBE probebtn   QSize(54, 34) 7     ← 裸按钮
+STARTUP-PROBE glyph      QSize(10, 19) 268   ← 就一个 "⌄"
+STARTUP-PROBE plainlabel QSize(24, 18) 0     ← 中文/ASCII 不付这笔
+```
+
+不是 QSS、不是布局、不是皮肤，是**一个字形没在默认字体里**。改法：那颗箭头改用
+`VersionIcons::chevron()` 画的位图（和底栏、版本树里那些箭头是同一份笔画），
+控件、尺寸、换主题重画都由 `Theme::follow()` 管；U+2304 从启动路径上拿掉。
+
+| 200 个实例（各带 wtfml.meta） | visible 中位 | 范围 | 最长阻塞 |
+| --- | ---: | ---: | ---: |
+| 改之前（`build/perf-probe-arrow-before.exe`，md5 `0bfb054c`） | 670.0 ms | 642–722 | 13.1–33.1 ms |
+| 改之后（`build/perf-probe-arrow-after.exe`，md5 `ad323ad6`） | 383.4 ms | 374–391 | 12.9–15.5 ms |
+
+- 两份都是**不带探针**的探针构建（`WTFML_PERF_PROBE=ON`、Release），背靠背各 n=3，
+  同一台机器、同一份夹具；`git stash` 前后各编一次，所以是真正的同版 A/B。
+- 拿掉的这一下是**一次性**的（进程里第一次量那段文字），不是每帧都付；它落在
+  `show()` 之前，所以直接表现为"窗口晚 270 ms 出来"。
+- `maxBlock` 两边范围叠着，不当收益；这一节的收益只有一个：visible 少了 ≈287 ms。
+
+**诚实的一条**：这 270 ms 是字体回退那套东西的**一次性**初始化，不是每颗字形的价。
+同一个进程里接着量别的回退字形（`✓` U+2713、`⚠` U+26A0）都是 0 ms，再量一遍 `⌄` 也是
+0 ms。也就是说这次改的是"**这笔钱不再压在启动上**"，不是"这笔钱不存在了"：界面上还有
+别的回退字形（实例文件页的 `⚠`、任务中心的 `✓` / `✗` 之类），第一次真的画出那一页时
+仍然会付一次。启动第一屏（主页）现在一个回退字形都不用，这是实测到的收益；要把这笔钱
+彻底去掉，得把那些也换成画的图标，那是一次单独的清扫，这次不做。
+
+```
+GLYPH-PROBE ascii   QSize(21, 16) 7
+GLYPH-PROBE cjk     QSize(24, 16) 0
+GLYPH-PROBE chevron QSize(9, 16) 271   ← U+2304，第一次回退查找
+GLYPH-PROBE check   QSize(12, 16) 0    ← U+2713，后面的都免费
+GLYPH-PROBE warn    QSize(17, 16) 0    ← U+26A0
+GLYPH-PROBE chevron-again QSize(9, 16) 0
+```
+
+正确性：`accountArrow` 只是装饰，没有任何断言认那个字形；`ui_check` / `mw_check`
+全套、整轮 `ctest` 全过（`wtfml.core-resources`、`wtfml.download-retry` 各闪一次，
+单独重跑都过，按已知的 `build/verification-mingw13` 并行时序 flake 处理）。
+
+读法：单机、n=3、只量探针构建。270 ms 这个数取决于**这台机器默认字体里有没有那一格**
+——换一台默认字体更全的机器，改之前那一版可能本来就不付这笔；收益的绝对值不可外推，
+但"启动第一屏别用字体里没有的字形"这条规矩与机器无关。
+

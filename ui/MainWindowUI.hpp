@@ -1623,6 +1623,13 @@ public:
     /// 那个入口按钮上写的字。和其它文案一样做成静态访问器 —— 验证工程引它，
     /// 产品里改一个字就不用两边各写一遍字面量。
     static QString accountSkinButtonText() { return QStringLiteral("账号与外观…"); }
+    /// 主页账号卡片右边那颗**朝下**小箭头的 objectName 与边长（像素）。
+    ///
+    /// 箭头是 `VersionIcons::chevron()` 画的位图，**不是字体里的字形**：原先写的是
+    /// U+2304「⌄」，默认界面字体里没有这一格，Qt 第一次量它的时候要做一遍字体回退
+    /// 查找（本机实测 268 ms，见 docs/PERFORMANCE.md「主页那颗箭头」）。
+    static QString homeAccountArrowName() { return QStringLiteral("homeAccountArrow"); }
+    static int homeAccountArrowSize() { return 12; }
 
     static QString homeFavoriteCountSpinName() { return QStringLiteral("homeFavoriteCountSpin"); }
     static QString homeRecentCountSpinName() { return QStringLiteral("homeRecentCountSpin"); }
