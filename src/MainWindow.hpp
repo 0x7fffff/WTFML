@@ -989,6 +989,9 @@ private slots:
     /// @param open 真要开的那一整段（**不含**自己那一道判据 —— 让位这件事这儿已经做完了）。
     /// @param roundsLeft 还能再排几轮（`kOverlayOpenRounds`）。**不写"转到收干净为止"**：
     /// 收不掉的时候再转多少轮也收不掉，转下去只是空转（同 `kDownloadOpenRounds`）。
+    ///
+    /// NOTE: 这条**只给用户自己点的那些**用。后台弄完的事要开一页，走下面的
+    /// `openPageWhenIdle()` —— 那一档**不驱逐**（理由见那边）。
     void runWhenOverlayFree(const std::function<void()> &open,
                             int roundsLeft = kOverlayOpenRounds);
 
@@ -998,6 +1001,18 @@ private slots:
     /// 嵌套事件循环里等着、这一发不该落在它头上。真有那么一天，也得说句人话
     /// （"点了没反应"正是这条路要治的毛病）。
     void warnOverlayBusy();
+
+    /// **后台**做完的事要开一页时走这个（更新检测回来了 / 更新装完了 / 体检跑完了）。
+    ///
+    /// 和 `runWhenOverlayFree()` 的差别只有一条，但很要紧：**不驱逐**。那一档是"用户
+    /// 刚点了什么，把挡路的收掉再继续"；而这里是后台弄完的事 —— 用户这会儿可能正看着
+    /// 另一页，把它收掉就是"我什么都没点，屏幕上的东西自己没了"（实例设置那种页还会
+    /// 顺带把用户刚翻到的那一页、滚到哪儿全丢了）。
+    ///
+    /// 空着就当场开；被占着就排着，等这一层收干净之后再开
+    /// （`OverlayHost::queuePageOpen()`）。用户**自己**点的那条路照旧走
+    /// `runWhenOverlayFree()`，两条不许合并。
+    void openPageWhenIdle(const std::function<void()> &open);
 
     /// `runWhenOverlayFree()` 让开之后真正跑的那一半。
     /// NOTE: 分成两个函数是为了让"让位"那一段只有一处（`runWhenOverlayFree`），而各个入口

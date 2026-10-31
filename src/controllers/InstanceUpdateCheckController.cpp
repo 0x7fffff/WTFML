@@ -465,5 +465,7 @@ void InstanceUpdateCheckController::finishUpdateCheck(QString instanceId) {
     for (const QString &line : lines) {
         m_owner.appendLog(QStringLiteral("  ") + line);
     }
-    m_owner.runWhenOverlayFree([this, instanceId] { m_owner.openUpdateCenter(instanceId); });
+    // 这是**后台**弄完的事（用户可能早就不看那一页了）：开更新中心但**不驱逐**
+    // 用户正看着的那一页（见 `MainWindow::openPageWhenIdle()`）。
+    m_owner.openPageWhenIdle([this, instanceId] { m_owner.openUpdateCenter(instanceId); });
 }

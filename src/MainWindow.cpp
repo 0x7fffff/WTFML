@@ -417,7 +417,7 @@ MainWindow::MainWindow(QWidget *parent)
         IntegrityController::Host{
             [this](const QString &id) { return instanceDisplayName(id); },
             [this](const QString &text) { appendLog(text); },
-            [this](std::function<void()> open) { runWhenOverlayFree(open); },
+            [this](std::function<void()> open) { openPageWhenIdle(open); },
             [this](const QString &id) { repairInstanceFiles(id); }},
         this);
     m_backupController = new BackupController(
@@ -4111,10 +4111,10 @@ void MainWindow::finishUpdateBatch(bool success, const QString &errorMessage) {
                                    .arg(text));
     }
     // 收尾之后**再开一次更新中心**：用户刚按的就是它上面那一颗，他下一步要么看看剩下的
-    // 那几条、要么撤销（失败了的话）。排到下一轮 + 等覆盖层空下来，和 finishUpdateCheck()
-    // 那条路同一个规矩。
+    // 那几条、要么撤销（失败了的话）。这是后台收的尾（下载可能跑了好几分钟，用户早翻到
+    // 别的页去了）⇒ 走 `openPageWhenIdle()`：**不驱逐**他正看着的那一页，等它收干净再开。
     const QString instanceId = run.instanceId;
-    runWhenOverlayFree([this, instanceId] { openUpdateCenter(instanceId); });
+    openPageWhenIdle([this, instanceId] { openUpdateCenter(instanceId); });
 }
 
 // ============================ 资源详情页 ============================
@@ -6889,6 +6889,19 @@ void MainWindow::runWhenOverlayFree(const std::function<void()> &open, int round
     QTimer::singleShot(0, this, [this, open, roundsLeft] {
         runWhenOverlayFree(open, roundsLeft - 1);
     });
+}
+
+void MainWindow::openPageWhenIdle(const std::function<void()> &open) {
+    if (!open) {
+        return;
+    }
+    OverlayHost *overlay = m_ui->overlay();
+    if (overlay == nullptr) {
+        open();
+        return;
+    }
+    // 空着 / 被占着两条路都在 OverlayHost 里（排队 + 收干净之后下一轮再摆）。
+    overlay->queuePageOpen(open);
 }
 
 void MainWindow::warnOverlayBusy() {
