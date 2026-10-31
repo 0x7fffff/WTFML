@@ -2188,8 +2188,10 @@ void MainWindow::refreshInstalledVersions() {
     managementParts.reserve(installed.size());
     for (const QString &id : installed) {
         // 每个版本读一次 <id>/wtfml.meta（几百字节的可选文件，绝大多数版本没有）。
-        // 刻意不缓存：这个文件会被"重命名"功能改写，缓存了就会变成"改了名不生效"。
-        // 开销上不必担心 —— 实例数最多也就几十个，而这个函数一次会话没有调用上界。
+        // 这个文件会被外面改写（用户手写、别的启动器），所以读侧缓存靠"在不在 + 修改
+        // 时刻 + 字节数"失效，重命名这类走写侧的路写完当场丢掉那一格 —— 见
+        // VersionManager::readVersionMeta()。本函数之后 instanceKey() / homeGroupIdOf()
+        // 还要再问同一个文件两三次，那些问都落在同一格上。
         const VersionDisplayParts part = m_versionManager->displayParts(id);
         if (!installing.contains(id)) {
             parts.append(part);
@@ -2344,10 +2346,10 @@ void MainWindow::rebuildInstanceTree() {
     // 归属键走 instanceKey()（稳定 id，没有就退回目录名）。
     //
     // NOTE: 每个实例这里要读两次 wtfml.meta（上面 displayParts() 一次、这里 instanceId()
-    // 一次）。看着浪费，但这个文件是几百字节的可选文件、实例最多也就几十个，
-    // 而"把两者合并成一次读"要把 instanceId 塞进 VersionDisplayParts ——那是个
-    // 纯显示用的结构，塞一个身份字段进去会让"显示名怎么拼"和"归属怎么认"纠缠在
-    // 一起。分开读，代价是一次小文件打开。
+    // 一次）。两者不合并：把 instanceId 塞进 VersionDisplayParts 会让"显示名怎么拼"和
+    // "归属怎么认"纠缠在一起，那是个纯显示用的结构。第二次读现在不再开文件 ——
+    // `VersionManager::readVersionMeta()` 按"在不在 / 修改时刻 / 字节数"缓存了读回来的
+    // 那一份，这里是一次 stat（见那边 `m_metaCache` 那段）。
     const QList<InstanceGroupStore::Group> groups = m_groupStore->groups();
     QList<InstanceGroupBucket> buckets;
     QHash<QString, int> bucketOfGroup;

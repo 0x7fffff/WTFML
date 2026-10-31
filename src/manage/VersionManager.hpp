@@ -5,6 +5,7 @@
  */
 #pragma once
 
+#include <QHash>
 #include <QJsonObject>
 #include <QFuture>
 #include <QObject>
@@ -23,6 +24,7 @@ class QTimer;
 #include "../download/DownloadManager.hpp"
 #include "../download/LoaderMeta.hpp"
 #include "../download/VersionCategory.hpp"
+#include "InstanceMetaFile.hpp"
 #include "ModpackExport.hpp"
 #include "ModpackImport.hpp"
 #include "VersionDisplay.hpp"
@@ -1868,6 +1870,31 @@ private:
     // versionId -> **合并后**的 versionJson（走完 inheritsFrom 链）。单独一张表：
     // 往 versionJsons 里塞合并结果会把"原始那份"盖掉，而下载路径要靠原始那份落盘。
     mutable QMap<QString, QJsonObject> mergedVersionJsons;
+    /// 一份 `<id>/wtfml.meta` 的读结果缓存（见 `readVersionMeta()`）。
+    ///
+    /// 为什么要缓存：实例树**每重灌一次**就对同一个实例问三四个问题 —— 显示名一次、
+    /// 稳定 id 一次、"按加载器归到哪个默认组"两次。真读是"打开 + 读 + 解析"，200 个
+    /// 实例那一趟实测一百多毫秒（`build/tmp-wtfml-probe` 的分段探针，同一版二进制），
+    /// 而其中九成是同一个文件的第 2~4 次打开。
+    ///
+    /// NOTE: 键是**完整路径**而不是版本 id —— 换一整份 .minecraft 之后两份目录里各有
+    /// 一个 `1.20.1`（同 `clearVersionJsonCache()` 那段理由）。
+    /// NOTE: 判据里带着"在不在 + 修改时刻 + 字节数"。盘上那份被**别人**改过（用户
+    /// 手写、别的启动器）一定看得出来；唯一看不出来的是"同一个毫秒里、同样字节数"
+    /// 的改写 —— 我们自己写的那条路不会落进这个缝（`updateVersionMeta()` 写完当场把
+    /// 这一格丢掉）。旧注释里那句"缓存了就会变成改了名不生效"说的就是这个缝，别把
+    /// 那两个判据摘掉。
+    struct MetaCacheEntry {
+        bool exists = false;
+        qint64 modifiedMs = 0;
+        qint64 size = -1;
+        QJsonObject meta;
+        InstanceMetaFile::Status status = InstanceMetaFile::Status::Missing;
+    };
+    mutable QHash<QString, MetaCacheEntry> m_metaCache;
+    /// 缓存的上界（张数，不是字节）。数据目录来回切时旧路径会留在表里，
+    /// 过了这个数就整表丢掉重来（比按 LRU 记账简单，而这里没有"热"可言）。
+    static constexpr int kMaxMetaCacheEntries = 4096;
     QString m_currentVersionDownloading;
     // 现在这一批下载**是不是我自己开的**（见上面四个包装那一段）。分辨"别人的批次"全看它：
     // `onAllDownloadsFinished()` 开头那道判据、还有 `busyVersionId()` 那道门控，问的都是它。

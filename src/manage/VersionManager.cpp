@@ -1079,6 +1079,9 @@ void VersionManager::clearVersionJsonCache() {
     // 而这里丢一次的成本只是下次读一遍那几个 json（几毫秒）。
     versionJsons.clear();
     mergedVersionJsons.clear();
+    // 元数据缓存按**完整路径**做键，换文件夹本来就不会串；这里一起丢掉是为了别让
+    // 上一份目录的那几百格留在表里（那些路径在接下来的会话里不会再被读到）。
+    m_metaCache.clear();
 }
 
 QJsonObject VersionManager::rawVersionJson(const QString &versionId) const {
@@ -1225,15 +1228,33 @@ QJsonObject VersionManager::readVersionMeta(const QString &versionId, QString *m
     if (metaPathOut != nullptr) {
         *metaPathOut = metaPath;
     }
-    InstanceMetaFile::Status status = InstanceMetaFile::Status::Missing;
-    const QJsonObject meta = InstanceMetaFile::read(metaPath, &status);
+    // 先看一眼盘上那一份还在不在、改没改过（`QFileInfo` 一次 stat），没变就用上一次读
+    // 回来的那一份 —— 为什么要缓存、缓存又靠什么看见"改了名"，见 `m_metaCache` 那段。
+    const QFileInfo info(metaPath);
+    const bool exists = info.exists();
+    const qint64 modifiedMs =
+        exists ? info.fileTime(QFileDevice::FileModificationTime).toMSecsSinceEpoch() : 0;
+    const qint64 size = exists ? info.size() : -1;
+    auto cached = m_metaCache.find(metaPath);
+    if (cached == m_metaCache.end() || cached->exists != exists
+        || cached->modifiedMs != modifiedMs || cached->size != size) {
+        MetaCacheEntry entry;
+        entry.exists = exists;
+        entry.modifiedMs = modifiedMs;
+        entry.size = size;
+        entry.meta = InstanceMetaFile::read(metaPath, &entry.status);
+        if (m_metaCache.size() >= kMaxMetaCacheEntries) {
+            m_metaCache.clear();
+        }
+        cached = m_metaCache.insert(metaPath, entry);
+    }
     if (unreadableOut != nullptr) {
         // "改不动"的两种都算：内容读不懂，或者版本比这个启动器新。写侧两种都会拒写，
         // 想知道"能不能盖"的调用方看这一个标志就够了。
-        *unreadableOut = status == InstanceMetaFile::Status::Unreadable
-                         || status == InstanceMetaFile::Status::BadVersion;
+        *unreadableOut = cached->status == InstanceMetaFile::Status::Unreadable
+                         || cached->status == InstanceMetaFile::Status::BadVersion;
     }
-    return meta;
+    return cached->meta;
 }
 
 bool VersionManager::updateVersionMeta(const QString &versionId, const QJsonObject &fields,
@@ -1244,7 +1265,13 @@ bool VersionManager::updateVersionMeta(const QString &versionId, const QJsonObje
     if (!DirectorySessionLock::acquire(AppPaths::minecraftDir(), errorOut)) return false;
     // 合并写的规矩只有一份（见 InstanceMetaFile）：读不懂 / 版本不认识就不覆盖、
     // null 删键、QSaveFile、缩进输出。这里只管"当前数据目录下的哪一份"和目录锁。
-    return InstanceMetaFile::mergeWrite(AppPaths::versionMetaPath(versionId), fields, errorOut);
+    const QString metaPath = AppPaths::versionMetaPath(versionId);
+    const bool written = InstanceMetaFile::mergeWrite(metaPath, fields, errorOut);
+    // 写完当场把缓存那一格丢掉：成功的那一下要立刻看得见新值（同一毫秒里同样的字节
+    // 数那种改写，光靠"修改时刻 + 大小"是分不出来的）；失败那一下也丢掉，下一次读
+    // 重新问盘，免得把"写失败了"和"盘上那份还是老样子"搅在一起。
+    m_metaCache.remove(metaPath);
+    return written;
 }
 
 QString VersionManager::instanceId(const QString &versionId) const {

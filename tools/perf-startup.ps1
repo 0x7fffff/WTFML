@@ -33,6 +33,12 @@
 .PARAMETER Instances
     沙盒里预置的实例个数（versions/<id>/<id>.jar + <id>.json），默认 0。
 
+.PARAMETER InstanceMeta
+    给每一份预置实例多写一个 `wtfml.meta`（schemaVersion 1、显示名、稳定 instanceId）。
+    默认的夹具**没有**这个文件：实例目录刚下载完时本来就没有它，只有改过名 / 归过组 /
+    换过图标的实例才会写出来。要量"读元数据那几条路"的时候才打开这一档 ——
+    两种夹具的数字不可直接比较。
+
 .PARAMETER StallSeconds
     窗口出现后继续观察界面卡顿的秒数，默认 3。
 
@@ -45,6 +51,7 @@ param(
     [string]$Exe = '',
     [int]$Runs = 6,
     [int]$Instances = 0,
+    [switch]$InstanceMeta,
     [int]$StallSeconds = 3,
     [int]$Warmup = 1,
     # 界面探针模式：给 exe 传 `--wtfml-perf-probe=<沙盒>/perf-probe.json`，由它自己
@@ -173,6 +180,16 @@ for ($i = 1; $i -le $Instances; $i++) {
     } | ConvertTo-Json -Depth 4
     Set-Content -LiteralPath (Join-Path $dir "$id.json") -Value $meta -Encoding utf8
     Write-EmptyZip (Join-Path $dir "$id.jar")
+    if ($InstanceMeta) {
+        # 和真实写出来的形状一样：`InstanceMetaFile::mergeWrite()` 成功时一定带 schemaVersion。
+        # instanceId 用可复现的固定 UUID（第 4/8 段的首字符定成 4/8，就是合法 UUID 的形状）。
+        $metaFile = [ordered]@{
+            schemaVersion = 1
+            name = "Perf $i"
+            instanceId = ('00000000-0000-4000-8000-{0:D12}' -f $i)
+        } | ConvertTo-Json -Depth 4
+        Set-Content -LiteralPath (Join-Path $dir 'wtfml.meta') -Value $metaFile -Encoding utf8
+    }
 }
 
 # ---- 注册表换沙盒 ----
@@ -441,6 +458,7 @@ $report = [ordered]@{
     probe             = [bool]$Probe
     warmupRuns        = $Warmup
     instances         = $Instances
+    instanceMeta      = [bool]$InstanceMeta
     sandbox           = [IO.Path]::GetRelativePath($repo, $Sandbox)
     measurement       = if ($Probe) {
         '产品内探针（WTFML_PERF_PROBE=1，Release）：Java/导航/主题、200条合成任务、1000条预设视图、临时预设元数据同步/后台读取；每步量动作+整窗repaint；20ms看门狗标记卡顿跨度。造数及故意同步读取不代表产品界面路径。'
@@ -474,7 +492,7 @@ $lines.Add("# 启动/就绪基线 $stamp")
 $lines.Add('')
 $lines.Add("- 机器：$cpu / ${ramGb} GB / $os")
 $lines.Add("- exe：$($report.exe)（$($report.buildType)，md5 $exeMd5）")
-$lines.Add("- 实例数：$Instances；计入统计：$($runResults.Count) 次（热身 $Warmup 次不计）")
+$lines.Add("- 实例数：$Instances$(if ($InstanceMeta) { '（每个带 wtfml.meta）' })；计入统计：$($runResults.Count) 次（热身 $Warmup 次不计）")
 $lines.Add("- 测量：$($report.measurement)")
 $lines.Add('')
 if ($s.visibleMs) {
