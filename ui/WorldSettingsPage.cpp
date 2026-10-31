@@ -893,6 +893,12 @@ void WorldSettingsPage::rebuildRuleRows(bool harvestFromRows) {
     }
 
     int shown = 0;
+    // 「先把 item 全排好，再逐条挂行控件」—— 理由逐字见
+    // `InstanceFilesPage::rebuildRows()` 那一段：`setItemWidget()` 挂上一条之后，
+    // 后面每一次 `addItem()` 都要替**已经挂着的那一摞**重算几何，夹着写整表就是
+    // 平方级。这一页每一条规则都有行控件，而每换一个世界、每筛一次都要整表重摆
+    // （模组世界几百条规则时最看得出）。
+    QList<QPair<QListWidgetItem *, QWidget *>> pendingRows;
     for (const Rule &rule : m_view.rules) {
         if (!ruleMatches(rule)) {
             continue;
@@ -961,9 +967,12 @@ void WorldSettingsPage::rebuildRuleRows(bool harvestFromRows) {
         }
 
         m_ruleList->addItem(item);
-        m_ruleList->setItemWidget(item, row);
+        pendingRows.append(qMakePair(item, row));
         m_ruleRows.insert(rule.name, shown);
         ++shown;
+    }
+    for (const auto &pair : pendingRows) {
+        m_ruleList->setItemWidget(pair.first, pair.second);
     }
 
     if (shown == 0) {
