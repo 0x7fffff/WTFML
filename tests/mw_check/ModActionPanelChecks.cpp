@@ -174,6 +174,40 @@ int runModActionPanelChecks() {
         QObject::disconnect(connection);
         clear->click();
     }
+    // Opt-in 首绘 / 重列 / 滚动测量（P2「复杂预设/大列表」：先测，再决定要不要走模型委托 /
+    // 虚拟化）。**只打印、不设阈值** —— 耗时跟机器走，写死数字只会变成一条噪声断言。
+    // 量的三件事：① 换到这份目录（扫盘 + 逐行建控件 + 一次事件循环）；② 同一份目录再
+    // refresh 一遍（重扫 + 整表重建）；③ 滚到底（视图重绘那一截）。
+    const int paintRows = qEnvironmentVariableIntValue("WTFML_FILES_PAINT_PROBE_ROWS");
+    if (paintRows > 0) {
+        const int rows = qBound(10, paintRows, 2000);
+        const QString paintRoot = dir.filePath(QStringLiteral("paint-probe"));
+        if (!QDir().mkpath(paintRoot)) return 1;
+        for (int i = 0; i < rows; ++i) {
+            QFile file(QDir(paintRoot).filePath(QStringLiteral("paint-%1.jar").arg(i)));
+            if (!file.open(QIODevice::WriteOnly) || file.write("fixture") < 0) return 1;
+        }
+        QElapsedTimer timer;
+        timer.start();
+        page.setDirectory(paintRoot); QApplication::processEvents();
+        const qint64 buildUs = timer.nsecsElapsed() / 1000;
+        check(list->count() == rows, "paint probe displays requested fixture rows");
+        timer.restart();
+        page.refresh(); QApplication::processEvents();
+        const qint64 refreshUs = timer.nsecsElapsed() / 1000;
+        auto *probeBar = list->verticalScrollBar();
+        timer.restart();
+        probeBar->setValue(probeBar->maximum()); QApplication::processEvents();
+        const qint64 scrollUs = timer.nsecsElapsed() / 1000;
+        timer.restart();
+        page.setSearchText(QStringLiteral("paint-1"));
+        QApplication::processEvents();
+        const qint64 filterUs = timer.nsecsElapsed() / 1000;
+        std::printf("FILES-PAINT-PROBE rows=%d build_us=%lld refresh_us=%lld scroll_us=%lld filter_us=%lld filtered=%d\n",
+            rows, static_cast<long long>(buildUs), static_cast<long long>(refreshUs),
+            static_cast<long long>(scrollUs), static_cast<long long>(filterUs), list->count());
+        page.setSearchText(QString());
+    }
     const auto emptyDirectory = dir.filePath(QStringLiteral("empty-mods"));
     QDir().mkpath(emptyDirectory);
     page.setDirectory(emptyDirectory); page.refresh(); QApplication::processEvents();
