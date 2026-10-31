@@ -30,9 +30,20 @@ CMakeLists 一个字都不用改：
 ```bash
 cmake -S . -B build/static-release -G "MinGW Makefiles" \
       -DCMAKE_PREFIX_PATH=D:/Qt/static-6.10.1/install \
-      -DCMAKE_BUILD_TYPE=Release
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_C_COMPILER=C:/mingw64/bin/gcc.exe \
+      -DCMAKE_CXX_COMPILER=C:/mingw64/bin/g++.exe
 cmake --build build/static-release -j
 ```
+
+★ **静态那份必须用编静态 Qt 的那个工具链**。`D:/Qt/static-6.10.1` 是 `C:/mingw64`
+（MinGW-Builds，GCC 15.2，mcf 线程模型）编的；拿开发用的 `D:/Qt/Qt/Tools/mingw1310_64`
+去链，会在 `_MCF_mutex_lock_slow` / `_MCF_mutex_unlock_slow` / `__intrinsic_setjmpex`
+上链接失败 —— 那几个符号是 mcfgthread 的，13.1 那份没有。上面显式指定编译器就是为了
+不靠 PATH 的运气。
+
+要拿去发布的那一份再走 `tools/prepare-release-copy.ps1`：只对**副本**去符号，
+原构建目录不动，调试信息单独留一份。
 
 版本号**只有一个出处**：`CMakeLists.txt` 的 `project(... VERSION x.y.z)`，编成
 `WTFML_VERSION` 宏交给界面显示。
