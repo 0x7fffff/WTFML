@@ -848,3 +848,13 @@ U+FF01 ！    metrics=4ms      0x1F3xx 那一片（emoji） 未测，按回退�
 `wtfml.core-resources` / `wtfml.download-retry` 各闪一次、单独重跑都过，按已知的并行
 时序 flake 处理。断言里跟记号有关的那几条已改成对 `TextMarks` 下断言（不是再抄一份
 字面量）：任务中心 I1/I2、任务详情 I6、原理图 SG1、迁移计划、实例补全那一句日志。
+
+## 2026-11-01 发布副本去符号（静态单文件）
+
+静态 Qt 那份 `-O3` 单文件 73,531,415 字节，`strip --strip-unneeded` 之后 43,288,540
+（省 41.1%），导入 DLL 清单逐条相同。启动三跑：原件 visible 188/199/189 ms，
+去符号副本 171/185/190 ms —— 没有变慢。`-Os`（MinSizeRel）再去 4.9 MB，但启动中位
+189 → 238 ms，不采用；`-flto=auto` 在这条工具链上链接不过（16 个自家符号被判未定义），
+不引入。工具是 `tools/prepare-release-copy.ps1`（只动副本、留 `.debug`、写
+`release-copy.json`），完整口径、证据目录和"没验到的"见
+[发布体积实测](P2_RELEASE_SIZE_20261101.md)。
