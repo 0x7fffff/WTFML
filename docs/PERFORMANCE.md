@@ -551,3 +551,52 @@ pwsh -File tools/perf-startup.ps1 -Runs 3 -Instances 200 -InstanceMeta -StallSec
 外部改写 —— 那种改写光靠这三个值分不出来，代码注释里写明了为什么接受它。
 
 读法：单机、n=3、外部测量，只差这一段代码的 A/B。别把它当成"启动快一成"的通用结论。
+
+## 2026-10-31 换主题：只给露着的滚动条重挂样式
+
+```powershell
+pwsh -File tools/perf-startup.ps1 -Probe -Runs 3 -Instances 0 -Exe build/perf-probe/WTFMinecraftLauncher.exe -ReportDir <目录>
+```
+
+起因：第四节里「换主题」一直是 40–55 ms 一档（`theme:ocean` 最贵），只是一下配色变化，
+这个价能感觉到一顿。这次先把它拆开量：在 `Theme::apply()` 里临时加 `THEME-PROBE` 计时
+（`setPalette()` / `styleScrollBars()` / `repolishWidgets()` 三段各一行 `qInfo`），量完
+整段删掉。拆分前后的探针构建 md5 分别是 `ad5ef306`、`21a6933b`，最终构建 `76b1a0d5`。
+
+拆分结果（空目录夹具，拆分前后各两轮，只列真换了主题的那四次，单位 ms）：
+
+| 段 | 改之前 | 改之后 |
+| --- | ---: | ---: |
+| `setPalette()` | 0.36–1.08 | 0.36–0.82 |
+| `styleScrollBars()` | 14.7–25.9（ocean ≈25，其余 ≈14.7–16.0） | 0.05–0.36 |
+| `repolishWidgets()` | 22.5–26.7 | 22.5–25.7 |
+
+原注释写着「很便宜」的 `styleScrollBars()` 其实是第二贵的一笔：它对
+`QApplication::allWidgets()` 里每一根 `QScrollBar` 单独 `setStyleSheet()`，一次切主题
+要给全应用几百根一起重挂。现在只算 `isVisible()` 的那些 —— 一屏上真露着的滚动条通常
+就一两根。藏着的那些身上记的代数标记还是旧的，`ScrollBarStyler`（应用级事件过滤器）收
+`QEvent::Show` 时看标记不对才补一发，所以它们第一次露出来时颜色已经是新的。
+
+最终数字（同一台机器、同一份探针配置、空目录夹具，n=3 中位）：
+
+| 步骤 | 改之前（md5 `ea78d72f`） | 改之后（md5 `76b1a0d5`） |
+| --- | ---: | ---: |
+| `theme:ocean` | 54.9 | 28.9 |
+| `theme:dark` | 40.6 | 26.5 |
+| `theme:system` | 40.1 | 26.6 |
+| `theme:restore` | 41.1 | 24.9 |
+
+同一份报告里其余步骤没动：`nav:instances` 25.6 → 25.1、`nav:settings` 9.9 → 9.2、
+`nav:settings-again` 3.5 → 3.9。窗口可见时间 595.0 → 610.3 ms，两次范围（579–607 /
+600–613）互相叠着，这条路径本来就不经过主题，既不当收益也不当回归。
+
+剩下的大头是 `repolishWidgets()`（22.5–25.7 ms）。**没有**顺手把它也改成懒的：藏着的
+控件不重 polish，就得在每次 `Show` 时自己记"我这一身是哪一代主题"，漏一处就是老配色
+停在屏上，需要单独的钩子加真机视觉验收，不能拿自动测试代替。记在这儿，留给以后。
+
+正确性：`ui_check` 第 ⑭ 组三条钉住「藏着的没有控件级样式 / 换主题不给它白跑一趟 /
+一露头就把新主题的样式补上」，外加原有的滚动条配色检查。全量复跑：`ui_check`
+3136/3136、`mw_check` 2722/2722、`verify` 6182/6182。
+
+读法：单机、n=3、只量了探针构建（Release，`-DWTFML_PERF_PROBE=ON`，只编产品），说的是
+"换一次主题同步那一截"，不含整窗重画那几毫秒。

@@ -2056,13 +2056,23 @@ void repolishWidgets() {
     }
 }
 
-/// 换主题时把每一根滚动条的控件级样式重算一遍（数量是两位数，很便宜）。
+/// 换主题时把每一根滚动条的控件级样式重算一遍。
+///
+/// 只算**露着的**那些（见下面那条为什么）。换主题的一下里，一屏上真露着的滚动条
+/// 通常只有一两根，而全应用几百根一起重挂的价钱是 15–26 ms
+/// （perf 探针的 `THEME-PROBE` 拆分，2026-10-31），和"重 polish 所有控件"同量级。
 void styleScrollBars() {
     ++scrollBarThemeGeneration();
     const QList<QWidget *> all = QApplication::allWidgets();
     for (QWidget *widget : all) {
         if (auto *bar = qobject_cast<QScrollBar *>(widget)) {
-            styleScrollBar(bar);
+            // 藏着的**不在这儿算**：它们身上的代数标记还是旧的，露出来的那一刻
+            // ScrollBarStyler 收 Show 事件补一发（`styleScrollBar()` 先看标记，
+            // 旧标记 ⇒ 真重挂）。少这一趟不影响它们该有的颜色，只是把活挪到它
+            // 第一次真的要画的时候。
+            if (bar->isVisible()) {
+                styleScrollBar(bar);
+            }
         }
     }
 }
