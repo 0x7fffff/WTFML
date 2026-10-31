@@ -17,6 +17,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
+#include "PowerShell.hpp"
 #include <QProcess>
 #include <QUuid>
 #include <QElapsedTimer>
@@ -190,7 +191,7 @@ bool runPowershell(const QString &script, int timeoutMs, QByteArray *stdoutOut,
         return false;
     }
     QProcess process;
-    process.start(QStringLiteral("powershell"),
+    process.start(PowerShell::executable(),
                   {QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
                    QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
                    QStringLiteral("-EncodedCommand"), encoded});
@@ -483,7 +484,7 @@ ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &e
                  psFilePath(QFile::decodeName(temp))).arg(maximumBytes);
 
     QProcess process;
-    process.start(QStringLiteral("powershell"),
+    process.start(PowerShell::executable(),
                   {QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
                    QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
                    QStringLiteral("-EncodedCommand"), encodeCommand(script)});
@@ -588,7 +589,7 @@ ZipUtil::EntryStatus ZipUtil::extractEntryToFile(const QString &archive, const Q
             .arg(psQuote(entryName), psFilePath(archive), psFilePath(targetPath));
 
     QProcess process;
-    process.start(QStringLiteral("powershell"),
+    process.start(PowerShell::executable(),
                   {QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
                    QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
                    QStringLiteral("-EncodedCommand"), encodeCommand(script)});
@@ -670,7 +671,7 @@ ZipUtil::EntryStatus ZipUtil::listEntries(const QString &archive, QStringList *o
             .arg(psFilePath(archive), psFilePath(QFile::decodeName(temp)));
 
     QProcess process;
-    process.start(QStringLiteral("powershell"),
+    process.start(PowerShell::executable(),
                   {QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
                    QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
                    QStringLiteral("-EncodedCommand"), encodeCommand(script)});

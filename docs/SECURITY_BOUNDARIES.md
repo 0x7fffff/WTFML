@@ -87,3 +87,19 @@ PNG / BMP / WebP 的头部可以声明几万乘几万，而压缩后的字节只
 | `verify_instances` | 1622/1622 |
 
 `tools/check-test-modules.ps1` 与 `tools/check-ci-partitions.ps1` 均通过。
+
+## 6. 2026-10-31 补：`powershell.exe` 按系统路径解析
+
+以前五处起 PowerShell 都拿裸名 `powershell`。Qt 在 Windows 上走 `CreateProcess`，
+`applicationName` 是空 —— 只有名字的程序按「应用目录 → **当前目录** → 系统目录 → PATH」
+找。便携版从下载目录 / 游戏文件夹里跑起来时，同目录扔一个 `powershell.exe` 就会被我们
+这一发执行，拿到的是用户自己的权限。
+
+现在统一走 `util/PowerShell.hpp` 的 `PowerShell::executable()`：
+`%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`（32 位进程由 WOW64
+重定向到 SysWOW64 那份），解析一次、缓存；连 SystemRoot 都读不到才回退裸名。
+Java 下载那条 `Expand-Archive` 顺手从 `-Path` 换成 `-LiteralPath`：`-Path` 认通配符，
+数据目录带 `[` / `*` 时会被当成模式去展开。
+
+验证：`verify` 6183/6183（`LongPathTests` 新增一条，钉住解析出来的是系统那份、不是
+裸名）；`verify_presets` 762/762（走同一套 `ZipUtil` 解压）。

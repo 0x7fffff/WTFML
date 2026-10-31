@@ -15,6 +15,7 @@
 #include <QJsonValue>
 #include <QNetworkReply>
 #include <QSaveFile>
+#include "util/PowerShell.hpp"
 #include <QProcess>
 #include <QRegularExpression>
 #include <QRegularExpressionMatch>
@@ -349,10 +350,12 @@ QString psSingleQuoted(const QString &value) {
 }
 
 bool extractZipWithPowerShell(const QString &zipFile, const QString &targetDir) {
-    QString command = QStringLiteral("Expand-Archive -Path %1 -DestinationPath %2 -Force")
+    // `-LiteralPath`：`-Path` 认通配符，路径里带个 `[` / `*` 就会被当成模式去展开
+    // （数据目录在 `[备份]` 这种名字下面时就解不开，甚至解到别的文件上）。
+    QString command = QStringLiteral("Expand-Archive -LiteralPath %1 -DestinationPath %2 -Force")
                           .arg(psSingleQuoted(zipFile), psSingleQuoted(targetDir));
     QString stdOut, stdErr;
-    bool ok = runProcess(QStringLiteral("powershell"),
+    bool ok = runProcess(PowerShell::executable(),
                          {QStringLiteral("-NoProfile"), QStringLiteral("-Command"), command},
                          &stdOut, &stdErr, 60000);
     if (!ok) {

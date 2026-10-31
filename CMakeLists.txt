@@ -209,6 +209,7 @@ set(HEADER_FILES
     # 掉盘时那句话：卷认得出来且已就绪才算可用（见头文件）。
     src/util/StorageAvailability.hpp
     src/util/ZipUtil.hpp
+    src/util/PowerShell.hpp
     src/util/NbtUtil.hpp
     src/util/NbtTree.hpp
     src/util/ServerPing.hpp

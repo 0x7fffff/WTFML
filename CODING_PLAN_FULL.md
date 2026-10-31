@@ -186,6 +186,11 @@ HDD 间歇拒绝仍未复现，按用户决定暂缓（原 P3，见 §6）；首
   4096 / 16 MP，背景图与实例图标另给宽一档，皮肤 256²）。拒掉时都有终态或一句话，
   不是静默跳过。判据清单与断言见 [安全边界](docs/SECURITY_BOUNDARIES.md)。
   剩余：列表虚拟化与本机用户配置文件的处理按原计划，不把本轮写成渗透测试或安全认证。
+  同一轮补一条：起 PowerShell 不再拿裸名（`CreateProcess` 会先看当前目录与 PATH，
+  便携版旁边扔一个 `powershell.exe` 就会被执行），五处统一走
+  `PowerShell::executable()` 的系统绝对路径；Java 下载的 `Expand-Archive` 改成
+  `-LiteralPath`，免得路径里的 `[` / `*` 被当通配符展开。见
+  [安全边界](docs/SECURITY_BOUNDARIES.md)。
 
 正式更新通道继续按用户决定暂缓，统一见 §6。
 

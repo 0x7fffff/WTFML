@@ -3,6 +3,7 @@
 #include "manage/WorldFiles.hpp"
 #include "operations/TransferApply.hpp"
 #include "util/ZipUtil.hpp"
+#include "util/PowerShell.hpp"
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
 #endif
@@ -25,6 +26,19 @@ QByteArray readFixture(const QString &path) {
 void runLongPathTests() {
 #ifdef Q_OS_WIN
     section("P2 long paths: real file operations beyond MAX_PATH");
+    {
+        // 起 PowerShell 不许拿裸名：`CreateProcess` 找程序时会看**当前目录**和 PATH，
+        // 便携版从下载目录里跑起来的时候，同目录放一个 powershell.exe 就会被我们执行。
+        // SystemRoot 读不到（构造出来的环境）时才允许回退裸名 —— 判定和实现同一份。
+        const QFileInfo powerShell(PowerShell::executable());
+        const bool systemCopy = qEnvironmentVariableIsEmpty("SystemRoot")
+            || (powerShell.isAbsolute() && powerShell.isFile()
+                && powerShell.fileName().compare(QStringLiteral("powershell.exe"),
+                                                 Qt::CaseInsensitive) == 0);
+        check(systemCopy,
+              "PowerShell is resolved to the system copy, not a bare name searched in the working directory",
+              PowerShell::executable());
+    }
     QTemporaryDir fixture;
     check(fixture.isValid(), "long-path fixture uses temporary storage");
     if (!fixture.isValid()) return;
