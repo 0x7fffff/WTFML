@@ -9,6 +9,7 @@ int main(int argc, char **argv) {
  const QString sandbox=fixture.filePath(".minecraft"); QDir().mkpath(sandbox); AppPaths::setMinecraftDir(sandbox);
  app.setProperty("wtfml.testDefaultMinecraftDir", sandbox);
  const QString metaDir=QStringLiteral(REPO_ROOT_PATH)+"/tests/meta";
+    runAssetNamesTests();
     moduleStatus |= runPipelineTests(app, sandbox);
     runDownloadConcurrencyTests();
     runDownloadSpeedLimitTests();

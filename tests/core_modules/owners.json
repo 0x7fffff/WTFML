@@ -1,6 +1,7 @@
 {
   "ModpackCompletionTests.cpp": "resources",
   "AssetDirectorKnownSetTests.cpp": "resources",
+  "AssetNamesTests.cpp": "downloads",
   "PipelineTests.cpp": "downloads",
   "DownloadConcurrencyTests.cpp": "downloads",
   "DownloadSpeedLimitTests.cpp": "downloads",

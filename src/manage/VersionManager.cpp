@@ -1020,11 +1020,15 @@ bool VersionManager::downloadResourceFiles(const QString &destinationDir,
         // 文件名来自接口，**不能**直接往盘上拼：里面出现 `../` 或者一个绝对路径，写出去的
         // 位置就不在目标目录里了。这不是防谁，是"接口给的东西要当数据看"这条底线 ——
         // 一个作者把文件名写成 "../../../startup.bat" 是完全做得到的。
-        if (file.filename.isEmpty() || file.filename.contains(QLatin1Char('/'))
-            || file.filename.contains(QLatin1Char('\\'))
-            || file.filename.contains(QStringLiteral(".."))) {
+        //
+        // 判据本体在 `InstanceFiles::validateFileName()`（和"一段路径"同一套规矩，另加
+        // 文件名那一条长度上限）：`:`（NTFS 的备用数据流）、结尾的点和空格（Windows 会
+        // 静默吃掉）、保留设备名（`CON`）这些也都一并挡在门外。
+        const QString nameProblem = InstanceFiles::validateFileName(file.filename);
+        if (!nameProblem.isEmpty()) {
             emit resourceDownloadFinished(
-                label, false, tr("这一版的文件名没法用（%1），没有装。").arg(file.filename));
+                label, false,
+                tr("这一版的文件名没法用（%1）：%2\n没有装。").arg(file.filename, nameProblem));
             return false;
         }
         // 落点：**每一条自己可以带一个目录**（见 `ResourceFile::dir` 那段 —— 更新中心那一批

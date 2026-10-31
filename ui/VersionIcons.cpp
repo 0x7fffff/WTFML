@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QHash>
 #include <QImage>
+#include <QImageReader>
 #include <QIconEngine>
 #include <QPainter>
 #include <QPainterPath>
@@ -14,6 +15,13 @@
 #include <functional>
 
 namespace {
+
+/// 实例图标**源图**的尺寸上限（见 `VersionIcons::fileMark()`）：那张图是盘上的
+/// `icon.png`（用户自己挑的，也可能是从别处拷来 / 包里带进来的），先问头里声明的
+/// 尺寸再解 —— 几十字节的头声称 6 万乘 6 万，照它分配就是几个 GB。
+/// 8192 / 64 MP 是"一张高像素手机照片"那一档，再大的一律当读不出来。
+constexpr int kMaxIconSourceSide = 8192;
+constexpr qint64 kMaxIconSourcePixels = 64LL * 1024 * 1024;
 
 class ActionIconEngine final : public QIconEngine {
 public:
@@ -292,10 +300,27 @@ QPixmap VersionIcons::fileMark(const QString &path, int size) {
                             .arg(info.lastModified().toMSecsSinceEpoch())
                             .arg(size);
     return cached(key, [path, size]() {
-        const QPixmap source(path);
+        // 先问尺寸再解：`icon.png` 是从盘上读的，当外部输入看（见上面那两个常量）。
+        QImageReader reader(path);
+        const QSize pixels = reader.size();
+        if (!pixels.isValid() || pixels.width() <= 0 || pixels.height() <= 0
+            || pixels.width() > kMaxIconSourceSide || pixels.height() > kMaxIconSourceSide
+            || qint64(pixels.width()) * pixels.height() > kMaxIconSourcePixels) {
+            // 认不出来的格式（用户挑了个 .txt）、半截文件，或者一张"头里写着几个 G"
+            // 的图：**空图**，不是一张黑图。调用方退回默认那张，用户看到的是
+            // "它没生效"，而不是"我的图变成黑的了"。
+            return QPixmap();
+        }
+        // 比目标格子大的先按格子尺寸解（有些插件仍会解全图，真正的闸是上面那个检查）。
+        if (pixels.width() > size || pixels.height() > size) {
+            reader.setScaledSize(pixels.scaled(size, size, Qt::KeepAspectRatio));
+        }
+        const QImage decoded = reader.read();
+        if (decoded.isNull()) {
+            return QPixmap();
+        }
+        const QPixmap source = QPixmap::fromImage(decoded);
         if (source.isNull()) {
-            // 认不出来的格式（用户挑了个 .txt）或半截文件：**空图**，不是一张黑图。
-            // 调用方退回默认那张，用户看到的是"它没生效"，而不是"我的图变成黑的了"。
             return QPixmap();
         }
         // 先按长宽比缩，再补成方的：树上那一格是方的，直接把一张扁图塞进去会被拉变形。

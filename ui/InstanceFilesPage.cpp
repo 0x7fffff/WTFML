@@ -19,6 +19,8 @@
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QIcon>
+#include <QImage>
+#include <QImageReader>
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
@@ -207,9 +209,25 @@ QPixmap directoryThumbnail(const QString &dirPath) {
     if (!QFileInfo::exists(candidate)) {
         return QPixmap();
     }
+    // `icon.png` 是**世界里带进来的**（共享存档里那一份也长这样），当外部输入看：
+    // 先问头里声明的尺寸、超了不解。原版那张是 64×64，这里留到 1024 —— 再大的一律
+    // 当"读不出来"，调用方退回文件夹字形。
+    constexpr int kMaxSide = 1024;
+    constexpr qint64 kMaxPixels = 1024LL * 1024;
+    QImageReader reader(candidate);
+    const QSize pixels = reader.size();
+    if (!pixels.isValid() || pixels.width() <= 0 || pixels.height() <= 0
+        || pixels.width() > kMaxSide || pixels.height() > kMaxSide
+        || qint64(pixels.width()) * pixels.height() > kMaxPixels) {
+        return QPixmap();
+    }
     // 读不出来的（坏文件、不是张图）回空的那张，调用方自然退回文件夹字形 —— 不弹错、
     // 也不留一格里半张烂图。
-    return QPixmap(candidate);
+    const QImage decoded = reader.read();
+    if (decoded.isNull()) {
+        return QPixmap();
+    }
+    return QPixmap::fromImage(decoded);
 }
 
 }  // namespace

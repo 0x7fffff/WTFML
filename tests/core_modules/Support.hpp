@@ -61,6 +61,8 @@
 #include "auth/OAuthEndpoints.hpp"
 #include "auth/SkinApi.hpp"
 #include "auth/TokenStore.hpp"
+// version.json 里那两个会变成盘上路径的名字（资源索引号 / 对象哈希）。见 ZAO 节。
+#include "download/AssetNames.hpp"
 #include "download/DownloadConcurrency.hpp"
 #include "download/DownloadManager.hpp"
 #include "download/LocalFileReuse.hpp"
@@ -531,6 +533,9 @@ int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox);
 
 /// vm-fetch-fail 模式：元数据拉取走死路时，必须有终态信号。
 int runVersionManagerFetchFail(QCoreApplication &app);
+
+/// version.json 里的索引号 / 对象哈希能不能当文件名（纯函数，见 ZAO 节）。
+int runAssetNamesTests();
 
 // ---------------------------------------------------------------------------
 // I. 版本显示名：formatVersionName / normalizeVersionNameOptions（纯函数）

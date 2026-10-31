@@ -165,6 +165,19 @@ QString validatePathSegment(const QString &segment) {
     return QString();
 }
 
+QString validateFileName(const QString &name) {
+    const QString problem = validatePathSegment(name);
+    if (!problem.isEmpty()) {
+        return problem;
+    }
+    if (name.length() > kMaxFileNameLength) {
+        return QStringLiteral("文件名太长了，最多 %1 个字符（现在 %2 个）。")
+            .arg(kMaxFileNameLength)
+            .arg(name.length());
+    }
+    return QString();
+}
+
 QString validateDirName(const QString &rawName) {
     const QString name = rawName.trimmed();
 

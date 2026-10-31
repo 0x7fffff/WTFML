@@ -33,6 +33,7 @@
 #include <QTemporaryFile>
 
 #include "../launcher/LibraryRules.hpp"
+#include "AssetNames.hpp"
 #include "../util/AppPaths.hpp"
 #include "../util/DownloadDiagnostics.hpp"
 
@@ -2313,6 +2314,21 @@ void DownloadManager::downloadAssets(const AssetIndex &assetIndex) {
         qWarning() << "Asset index is missing url or id, nothing to download.";
         return;
     }
+    // 索引号是要拼进 `<assets>/indexes/<id>.json` 的 —— version.json 是外部输入，
+    // 一个 `../..` 就能把"写索引"变成"往资产目录外面写文件"。当数据看，不安全的直接
+    // 记一笔失败（照 scheduleFile() 早退那套账：进分母、发终态，整批就不会被当成成功）。
+    if (!AssetNames::isSafeIndexId(assetIndex.id)) {
+        qWarning() << "Refusing an unsafe asset index id:" << assetIndex.id;
+        m_batchEmitted = false;
+        ++m_totalJobs;
+        ++m_doneJobs;
+        ++m_failedJobs;
+        emit downloadFinished(assetIndex.id, false,
+                              tr("这份 version.json 里的资源索引号不能当文件名用，没有下载资源。"));
+        emitBatchProgress(assetIndex.id);
+        checkAllDownloadsFinished();
+        return;
+    }
 
     // 第一步，下载资产索引 JSON 文件。
     // 目录**不接参数**：索引和下面 parseAndDownloadAssets() 写 objects 用的必须是同一个
@@ -2740,7 +2756,10 @@ bool DownloadManager::parseAndDownloadAssets(const QString &indexPath, QString *
         QJsonObject assetObj = it.value().toObject();
         QString hash = assetObj["hash"].toString();
 
-        if (hash.length() != 40) {
+        // 哈希同时是**文件名**（`objects/<前两位>/<整个哈希>`）：只判长度不够 ——
+        // 一串 40 个字符的 `../` 拼接照样能让 `objects/` 底下拼出一条回退路径。
+        // 判"40 位十六进制"之后，前两位那一段必然是两位十六进制，跑不出 objects/。
+        if (!AssetNames::isSha1Hex(hash)) {
             qWarning() << "Invalid hash for asset" << assetName << ":" << hash;
             continue;
         }

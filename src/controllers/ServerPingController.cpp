@@ -7,6 +7,8 @@
 
 #include <utility>
 
+#include "util/ImageDecode.hpp"
+
 ServerPingController::ServerPingController(Host host, QObject *parent)
     : QObject(parent), m_host(std::move(host)), m_pinger(new ServerPing::Pinger(this)) {
     connect(m_pinger, &ServerPing::Pinger::oneFinished, this,
@@ -28,8 +30,11 @@ InstanceSettingsDialog::ServerRowStatus ServerPingController::rowFromCache(
     row.motdRaw = entry.motdRaw;
     row.motd = ServerPing::cleanMotd(entry.motdRaw);
     if (!entry.iconPng.isEmpty()) {
-        QPixmap icon;
-        if (icon.loadFromData(entry.iconPng, "PNG")) row.icon = QIcon(icon);
+        // 图标是**服务器给的字节**（缓存里那一份也一样）：走 ImageDecode 而不是
+        // `QPixmap::loadFromData` —— 那一层带尺寸上限，挡得住"声明 6 万乘 6 万、
+        // 实际只有几十个字节"的解压炸弹。
+        const QImage icon = ImageDecode::decode(entry.iconPng);
+        if (!icon.isNull()) row.icon = QIcon(QPixmap::fromImage(icon));
     }
     return row;
 }
@@ -112,8 +117,9 @@ void ServerPingController::pushRows() {
             row.motd = status.motd;
             row.motdRaw = status.motdRaw;
             if (!status.iconPng.isEmpty()) {
-                QPixmap icon;
-                if (icon.loadFromData(status.iconPng, "PNG")) row.icon = QIcon(icon);
+                // 同 rowFromCache() 那一段：外部字节先过 ImageDecode 的尺寸上限。
+                const QImage icon = ImageDecode::decode(status.iconPng);
+                if (!icon.isNull()) row.icon = QIcon(QPixmap::fromImage(icon));
             }
         } else if (m_run.cached.contains(i)) {
             row = rowFromCache(m_run.cached.value(i));

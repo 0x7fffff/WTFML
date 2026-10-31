@@ -84,6 +84,7 @@
 // 「背景图」那一节挑回来的那张图：**拷进数据目录**再记路径（见那个文件头那段）。
 // `ui/` 那边不许 include `src/`，所以收图这一步只能在 MainWindow 这一层做
 // （`MainWindowUI::ThemeImageRow` 只管摆控件）。
+#include "util/ImageDecode.hpp"
 #include "util/ThemeImage.hpp"
 
 // 添加以下头文件（防止hpp变动导致文件失效）
@@ -5360,19 +5361,37 @@ void MainWindow::onAccountRemoveRequested(const QString &uuid) {
     refreshAccountSkin();
 }
 
+namespace {
+
+/// 用户挑的皮肤图**文件**的字节上限（一张合法的皮肤不过几 KB；这里挡的是"把一整部
+/// 电影当皮肤选进来"那种 —— 读进来的每个字节都要占内存）。
+constexpr qint64 kMaxPickedSkinBytes = 16LL * 1024 * 1024;
+
+/// 皮肤图的解码上限。皮肤只可能是 64×64 / 64×32（真正的判据是
+/// `SkinApi::isAcceptableSkinSize()`），256 只是给将来放宽留余量；这一道挡的是
+/// "照一个荒唐的声明去分配"（见 `ImageDecode::Limits`）。
+constexpr ImageDecode::Limits kPickedSkinLimits{256, 256 * 256};
+
+} // namespace
+
 void MainWindow::onSkinUploadRequested(const QString &path, const QString &variant) {
     // 先把文件读出来。**尺寸那条规矩只在 SkinApi::isAcceptableSkinSize() 里**（唯一出处），
     // 这里不自己再判一遍。但"读不出来"得在这里说 —— 它连尺寸都没有。
     QFile file(path);
     const QString fileName = QFileInfo(path).fileName();
-    if (!file.open(QIODevice::ReadOnly)) {
+    // 文件本身也封一个顶：一张合法皮肤不过几 KB，读进来的每一字节都要占内存。
+    if (!file.open(QIODevice::ReadOnly) || file.size() <= 0
+        || file.size() > kMaxPickedSkinBytes) {
         InlineMessage::warning(m_ui->overlay(), tr("上传皮肤失败"),
-                             tr("读不到「%1」这个文件。").arg(fileName));
+                             tr("读不到「%1」这个文件（或者它大得不像一张皮肤图）。")
+                                 .arg(fileName));
         return;
     }
     const QByteArray png = file.readAll();
     file.close();
-    const QImage image(path);  // 用 QImage 再读一遍只为拿宽高（下面换的是原始字节）
+    // 宽高从**同一份字节**里拿（不再按路径读第二遍）。皮肤图是用户挑的本机文件，
+    // 也可能来自群里那个"皮肤包" —— 先问尺寸、超了不解（见 `ImageDecode::Limits`）。
+    const QImage image = ImageDecode::decode(png, kPickedSkinLimits);
     if (image.isNull()) {
         InlineMessage::warning(m_ui->overlay(), tr("上传皮肤失败"),
                              tr("「%1」不是一张能读出来的图片。").arg(fileName));
@@ -5413,7 +5432,15 @@ void MainWindow::onOfflineSkinPickRequested(const QString &path, const QString &
         return;
     }
     const QString fileName = QFileInfo(path).fileName();
-    const QImage image(path);
+    // 和正版上传那条路同一个上限、同一个理由（那是一张用户挑的本机文件，而
+    // "皮肤包"里的图不一定是好心的）。
+    QImage image;
+    QFile skinFile(path);
+    if (skinFile.open(QIODevice::ReadOnly) && skinFile.size() > 0
+        && skinFile.size() <= kMaxPickedSkinBytes) {
+        image = ImageDecode::decode(skinFile.readAll(), kPickedSkinLimits);
+        skinFile.close();
+    }
     if (image.isNull()) {
         InlineMessage::warning(m_ui->overlay(), tr("换皮肤失败"),
                                tr("读不到「%1」这张图（或者它不是一张能读出来的图片）。")

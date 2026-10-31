@@ -21,6 +21,7 @@ endif()
 set(WTFML_CORE_CASE_OBJECTS)
 set(WTFML_CORE_MODULE_TARGETS)
 add_library(core_cases_downloads OBJECT
+ core_modules/AssetNamesTests.cpp
  core_modules/PipelineTests.cpp
  core_modules/DownloadConcurrencyTests.cpp
  core_modules/DownloadSpeedLimitTests.cpp

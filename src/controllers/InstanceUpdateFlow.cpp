@@ -738,8 +738,12 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
                                  const QString versionId = entry.value(QStringLiteral("versionId")).toString();
                                  const QString filename = entry.value(QStringLiteral("filename")).toString();
                                  const QString sha1 = entry.value(QStringLiteral("sha1")).toString();
+                                 // 这张审计表是**从盘上读回来的**（安装器写的，可谁都能改），
+                                 // 里面的 `filename` 就当数据看：先过文件名那一套规矩
+                                 // （`..` / 冒号 / 保留设备名 / 太长），再拼 `mods/<它>`。
                                  if (!filename.endsWith(QStringLiteral(".jar"), Qt::CaseInsensitive)
-                                     || sha1.size() != 40) {
+                                     || sha1.size() != 40
+                                     || !InstanceFiles::validateFileName(filename).isEmpty()) {
                                      continue;
                                  }
                                  const QString staged = QDir(stageDir).filePath(

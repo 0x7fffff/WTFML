@@ -3,6 +3,39 @@
 int runInstanceFileTests(const QString &sandbox) {
     section("N. 实例判据（认得出哪个是客户端 jar）");
 
+    section("N0. 一个平铺文件名（mods/ 里那一层）");
+    // `validateFileName()` = `validatePathSegment()` + 一条长度上限，判据只有一份。
+    // 这个名字从哪儿来？远程接口（这一版的文件名）和盘上读回来的审计表 —— 两处都不能信。
+    check(InstanceFiles::validateFileName(
+              QStringLiteral("sodium-0.5.11+mc1.20.1-forge.jar")).isEmpty(),
+          "N0 真模组名那种长名字收");
+    check(InstanceFiles::validateFileName(QStringLiteral("名字 带 空格.jar")).isEmpty(),
+          "N0 中间的空格照收（Windows 只吃结尾那个）");
+    const QList<QPair<QString, QString>> badNames = {
+        {QStringLiteral(".."), QStringLiteral("上跳一段")},
+        {QStringLiteral("a/b"), QStringLiteral("斜杠")},
+        {QStringLiteral("a\b"), QStringLiteral("反斜杠")},
+        {QStringLiteral("C:"), QStringLiteral("盘符冒号")},
+        {QStringLiteral("a:b"), QStringLiteral("冒号（NTFS 的备用数据流）")},
+        {QStringLiteral("CON"), QStringLiteral("保留设备名")},
+        {QStringLiteral("CON.jar"), QStringLiteral("带扩展名的保留设备名")},
+        {QStringLiteral("名字."), QStringLiteral("结尾的点")},
+        {QStringLiteral("名字 "), QStringLiteral("结尾的空格")},
+        {QStringLiteral("a\nb"), QStringLiteral("换行")},
+        {QString(), QStringLiteral("空串")},
+    };
+    for (const auto &one : badNames) {
+        const QString problem = InstanceFiles::validateFileName(one.first);
+        check(!problem.isEmpty(), "★ N0 拒：" + one.second, one.first);
+    }
+    const QString limitLine = InstanceFiles::validateFileName(
+        QString(InstanceFiles::kMaxFileNameLength + 1, QLatin1Char('a')));
+    check(!limitLine.isEmpty() && limitLine.contains(QStringLiteral("200")),
+          "N0 201 个字符拒，而且那句话里写着上限 200（用户看得见）", limitLine);
+    check(InstanceFiles::validateFileName(
+              QString(InstanceFiles::kMaxFileNameLength, QLatin1Char('a'))).isEmpty(),
+          "N0 恰好 200 个字符收（边界不是 199）");
+
     const auto listing = [](const QString &dir, const QStringList &jars,
                             const QStringList &jsons) {
         InstanceFiles::DirListing l;
