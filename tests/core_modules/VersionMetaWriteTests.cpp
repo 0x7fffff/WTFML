@@ -141,6 +141,80 @@ int runVersionMetaWriteTests(const QString &sandbox) {
               "O7 顶掉坏 id 时没把旁边的显示名一起抹掉");
     }
 
+    // ---- 格式版本：写出来的文件带 schemaVersion，老的（没这个键）按 1 认 ----
+    // 加这个键的意义是**限住更新的启动器写过的文件**：老启动器按 1 的规矩合并一份 2
+    // 的文件，可能把它新加的字段解释错、再原样盖回去。
+    {
+        writeMetaFile(R"({"name":"没有版本号的老文件","jvmArgs":["-Dkeep=me"]})");
+        QJsonObject fields;
+        fields.insert(QStringLiteral("realVersion"), QStringLiteral("1.20.1"));
+        QString error;
+        check(vm.updateVersionMeta(id, fields, &error), "O9 没有版本号的老文件照样能写", error);
+        const QJsonObject after = readMetaFile();
+        check(after.value(QStringLiteral("schemaVersion")).toInt() == 1,
+              "O9 写一次之后文件里带上了 schemaVersion = 1",
+              QString::number(after.value(QStringLiteral("schemaVersion")).toInt()));
+        check(after.value(QStringLiteral("name")).toString() == QStringLiteral("没有版本号的老文件") &&
+                  after.value(QStringLiteral("jvmArgs")).toArray().size() == 1,
+              "O9 补版本号时没把老内容一起换掉");
+        check(vm.displayParts(id).customName == QStringLiteral("没有版本号的老文件"),
+              "O9 补了版本号读侧照样看得见");
+    }
+
+    // ---- 版本比这个启动器新：只读不写，一个字节都不动 ----
+    writeMetaFile(R"({"schemaVersion":2,"name":"更新版写的","newField":{"a":1}})");
+    {
+        QByteArray before;
+        {
+            QFile f(metaPath);
+            if (f.open(QIODevice::ReadOnly)) {
+                before = f.readAll();
+            }
+        }
+        QJsonObject fields;
+        fields.insert(QStringLiteral("name"), QStringLiteral("不该写进去"));
+        QString error;
+        check(!vm.updateVersionMeta(id, fields, &error), "O10 版本比这个新时拒绝写");
+        check(error.contains(QStringLiteral("2")), "O10 拒绝时把那个版本号说出来了", error);
+        QByteArray after;
+        {
+            QFile f(metaPath);
+            if (f.open(QIODevice::ReadOnly)) {
+                after = f.readAll();
+            }
+        }
+        check(after == before, "O10 被拒绝时原文件逐字节不变（新版本写的字段还在）");
+        // 读侧不跟着瞎：显示名这种字段的意思没变过，2 的文件照样要读得出来。
+        check(vm.displayParts(id).customName == QStringLiteral("更新版写的"),
+              "O10 版本新不影响读（读侧照旧看得见显示名）",
+              vm.displayParts(id).customName);
+    }
+
+    // ---- 版本号本身写坏了（不是整数）：同样拒写 ----
+    writeMetaFile(R"({"schemaVersion":"2","name":"版本号是字符串"})");
+    {
+        QByteArray before;
+        {
+            QFile f(metaPath);
+            if (f.open(QIODevice::ReadOnly)) {
+                before = f.readAll();
+            }
+        }
+        QJsonObject fields;
+        fields.insert(QStringLiteral("name"), QStringLiteral("不该写进去"));
+        QString error;
+        check(!vm.updateVersionMeta(id, fields, &error), "O11 版本号不是整数时拒绝写");
+        check(!error.isEmpty(), "O11 拒绝时给出了原因", error);
+        QByteArray after;
+        {
+            QFile f(metaPath);
+            if (f.open(QIODevice::ReadOnly)) {
+                after = f.readAll();
+            }
+        }
+        check(after == before, "O11 被拒绝时原文件逐字节不变");
+    }
+
     const bool cleaned = QDir(versionsRoot + "/" + id).removeRecursively();
     check(cleaned && !QDir(versionsRoot + "/" + id).exists(),
           "O8 用完的沙盒目录删干净了（句柄没被自己攥着）");

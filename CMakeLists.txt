@@ -336,6 +336,7 @@ set(SOURCE_FILES
     src/manage/RandomSkinStore.cpp
     # 离线账号自己挑的那张皮肤。
     src/manage/OfflineSkin.cpp
+    src/manage/InstanceMetaFile.cpp
     src/manage/VersionManager.cpp
     # 这四份是同一个类的实现，按职责分文件（理由见各自文件头与 VersionManagerInternals.hpp）。
     src/manage/VersionManagerLoaderInstall.cpp

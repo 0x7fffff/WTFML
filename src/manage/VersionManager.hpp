@@ -1057,6 +1057,8 @@ public:
     // nameFormat / realVersion —— 整体覆盖写会把它们抹掉，而那正是读侧花了力气
     // 支持的东西。同理，文件**存在但解析不了**时**拒绝写**：往一份读不懂的内容上
     // 合并等于把用户手写的部分丢掉，比"这次没写成"糟得多。
+    // NOTE: 这些规矩的实现在 manage/InstanceMetaFile（按路径工作，暂存目录 / 别的游戏
+    // 文件夹也能用）；这里只负责"当前数据目录下的哪一份"和目录锁。
     // NOTE: 非 const —— 它真的往磁盘上写东西。"看起来是只读"的假 const 会诱使人在
     // 扫描路径上调用它，而扫描一次会话要跑无数遍、绝不能带副作用。
     bool updateVersionMeta(const QString &versionId, const QJsonObject &fields,
@@ -1327,13 +1329,12 @@ private slots:
     void onAllDownloadsFinished(bool success);
 
 private:
-    // 读 <id>/wtfml.meta 并解析成对象。文件不存在、打不开、格式错都返回空对象
-    // （格式错会告警）。displayParts() 和 versionJvmArgs() 共用这一份读盘逻辑，
-    // 免得把"什么算坏文件、坏了要不要吭声"的判断抄两遍、慢慢抄歪。
+    // 读 <id>/wtfml.meta 并解析成对象，实现只有一份（InstanceMetaFile::read）。
+    // 文件不存在、打不开、格式错都返回空对象（后两种会告警）。
     // metaPathOut 非空时回填路径，供调用方在告警里指出是哪个文件。
-    // unreadableOut 非空时回填"文件在、但读不懂"（打不开或格式错）—— 返回空对象有
-    // 两种含义（没有这个文件 / 有这个文件但坏了），写侧必须分得清：前者可以新建，
-    // 后者得拒绝写，否则就是把用户手写的内容覆盖掉。
+    // unreadableOut 非空时回填"文件在、但改不动"：读不懂，**或者**格式版本比这个
+    // 启动器新。返回空对象有两种含义（没有这个文件 / 有这个文件但读不懂），写侧必须
+    // 分得清：前者可以新建，后者得拒绝写，否则就是把用户手写的内容覆盖掉。
     QJsonObject readVersionMeta(const QString &versionId, QString *metaPathOut = nullptr,
                                 bool *unreadableOut = nullptr) const;
 

@@ -1,4 +1,5 @@
 #include "ModpackCompletion.hpp"
+#include "InstanceMetaFile.hpp"
 #include "ModpackInstallReport.hpp"
 #include "InstanceFiles.hpp"
 #include "util/AppPaths.hpp"
@@ -211,19 +212,18 @@ bool finish(const QString &instance, QString *error, const Stop &stop) {
     if ((stop && stop()) || !markerMatches(instance, proof)) return abort(QObject::tr("已取消或导入标记已改变"));
     if (!safe(instance, QStringLiteral("wtfml.meta")) || !safe(instance, QStringLiteral("wtfml.import-report.json")))
         return abort(QObject::tr("提交路径不安全"));
-    QJsonObject meta;
-    const QString metaPath = instance + QStringLiteral("/wtfml.meta");
-    if (QFileInfo::exists(metaPath)) {
-        QJsonParseError parse;
-        const auto doc = QJsonDocument::fromJson(bounded(metaPath), &parse);
-        if (parse.error != QJsonParseError::NoError || !doc.isObject()) return abort(QObject::tr("现有元数据无法读取，未覆盖"));
-        meta = doc.object();
-    }
-    meta["realVersion"] = proof.value("gameVersion");
+    QJsonObject metaFields;
+    metaFields.insert(QStringLiteral("realVersion"), proof.value("gameVersion"));
     const auto key = proof.value("loaderKey").toString();
     const QHash<QString, QString> names{{"fabric-loader", "Fabric"}, {"forge", "Forge"}, {"neoforge", "NeoForge"}, {"quilt-loader", "Quilt"}};
-    if (!key.isEmpty()) { meta["loaderName"] = names.value(key, key); meta["loaderVersion"] = proof.value("loaderVersion"); }
-    if (!save(metaPath, meta)) return abort(QObject::tr("元数据写入失败，内容保留"));
+    if (!key.isEmpty()) {
+        metaFields.insert(QStringLiteral("loaderName"), names.value(key, key));
+        metaFields.insert(QStringLiteral("loaderVersion"), proof.value("loaderVersion"));
+    }
+    // 合并写的规矩只有一份（InstanceMetaFile）：读不懂 / 版本不认识 ⇒ 一个字节都不动。
+    QString metaError;
+    if (!InstanceMetaFile::mergeWrite(instance + QStringLiteral("/wtfml.meta"), metaFields, &metaError))
+        return abort(QObject::tr("元数据写入失败，内容保留：%1").arg(metaError));
     if ((stop && stop()) || !markerMatches(instance, proof)) return abort(QObject::tr("已取消或导入标记改变，保留未完成状态"));
     if (!ModpackInstallReport::write(instance, pack, {}, true, error)) return false;
     // 报告写入也可能耗时；发布启动门禁前再检查取消和导入尝试绑定。

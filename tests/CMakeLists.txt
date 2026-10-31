@@ -162,6 +162,7 @@ set(PROJECT_SOURCES
     # 是不是真的一张都不剩。纯文件读写，不联网。
     ${REPO_ROOT}/src/manage/OfflineSkin.cpp
     ${REPO_ROOT}/src/manage/OfflineSkin.hpp
+    ${REPO_ROOT}/src/manage/InstanceMetaFile.cpp
     ${REPO_ROOT}/src/manage/VersionManager.cpp
     # 同一个类按职责分开的那三份（核心那一份就在上面；理由见各文件头）。
     # 少一份不会在编译期报错，只在链接期报一串 `VersionManager::…` 的 undefined reference。

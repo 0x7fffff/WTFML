@@ -791,7 +791,9 @@ void runCopyInstanceAndWorldTests() {
         QString error;
         check(!vm.copyInstance(badId, destRootPath, QStringLiteral("半份"), &error),
               "ZJ5 源那份 meta 是坏 JSON 时这一趟失败");
-        check(error.contains(QStringLiteral("合法的 JSON")), "ZJ5 原因说清了是 meta 读不懂", error);
+        // 措辞由 InstanceMetaFile 给（读不懂 / 版本不认识 / 写不进三种都走那一句），
+        // 这里只要它点名是哪个文件 —— 用户得知道去改哪一份。
+        check(error.contains(QStringLiteral("wtfml.meta")), "ZJ5 原因说清了是 meta 读不懂", error);
         check(!existsAt(destRootPath + QStringLiteral("/versions/半份")),
               "ZJ5 失败之后那份没拷完的自己删掉了（saves 里不该留一个来路不明的目录）");
     }
