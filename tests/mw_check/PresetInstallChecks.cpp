@@ -245,6 +245,96 @@ int runPresetInstallChecks() {
             qApp->setProperty("wtfml.testDefaultMinecraftDir", previousRoot);
         }
     }
+    {
+        QTemporaryDir root;
+        check(root.isValid(), "install picker fixture has an isolated data root");
+        if (root.isValid()) {
+            const auto previousRoot = qApp->property("wtfml.testDefaultMinecraftDir");
+            qApp->setProperty("wtfml.testDefaultMinecraftDir", root.path());
+            const QString presetsRoot = PresetController::presetsRoot();
+            const QString gameId = Presets::newPresetId();
+            const QString modsId = Presets::newPresetId();
+            const QString packsId = Presets::newPresetId();
+            const QString dataId = Presets::newPresetId();
+            const QString compositeId = Presets::newPresetId();
+            const QString childModsId = Presets::newPresetId();
+            const QString childPacksId = Presets::newPresetId();
+            const auto add = [&presetsRoot](const QString &id, const QString &name,
+                                            Presets::PresetCategory category,
+                                            const QJsonObject &components = QJsonObject()) {
+                Presets::PresetManifest manifest;
+                manifest.id = id;
+                manifest.name = name;
+                manifest.category = category;
+                if (!components.isEmpty()) {
+                    manifest.editorState.insert(QStringLiteral("components"), components);
+                }
+                return Presets::saveManifest(presetsRoot, manifest);
+            };
+            QJsonObject parts;
+            parts.insert(Presets::presetCategoryKey(Presets::PresetCategory::Mods), childModsId);
+            parts.insert(Presets::presetCategoryKey(Presets::PresetCategory::ResourcePacks),
+                         childPacksId);
+            Presets::PresetIndex index;
+            index.order = {gameId, modsId, packsId, dataId, compositeId};
+            const bool written =
+                add(gameId, QStringLiteral("游戏设置"), Presets::PresetCategory::GameSettings)
+                && add(modsId, QStringLiteral("模组"), Presets::PresetCategory::Mods)
+                && add(packsId, QStringLiteral("资源包"), Presets::PresetCategory::ResourcePacks)
+                && add(dataId, QStringLiteral("数据包"), Presets::PresetCategory::DataPacks)
+                && add(compositeId, QStringLiteral("综合"), Presets::PresetCategory::Unset, parts)
+                && Presets::saveIndex(presetsRoot, index);
+            check(written, "install picker fixture writes four presets plus a composite");
+            if (written) {
+                QWidget host;
+                PresetController controller(nullptr, &host, PresetController::Host{});
+                const PresetController::InstallPickerData picker = controller.installPickerData();
+                const auto idsOf = [&picker](Presets::PresetCategory category) {
+                    QStringList ids;
+                    for (const Presets::PresetSummary &summary :
+                         picker.optionsFor(Presets::presetCategoryKey(category))) {
+                        ids.append(summary.id);
+                    }
+                    return ids;
+                };
+                check(picker.presets.size() == 5,
+                      "install picker reads the whole store in one pass");
+                check(idsOf(Presets::PresetCategory::GameSettings) == QStringList{gameId},
+                      "install picker only offers a category's own presets in it");
+                // 复合预设那几段跟着父项次序排在普通预设后面，子项带着父项的名字。
+                check(idsOf(Presets::PresetCategory::Mods) == QStringList{modsId, childModsId},
+                      "install picker offers a composite preset's mod part under mods");
+                check(idsOf(Presets::PresetCategory::ResourcePacks)
+                          == QStringList{packsId, childPacksId},
+                      "install picker offers a composite preset's pack part under resource packs");
+                check(idsOf(Presets::PresetCategory::DataPacks) == QStringList{dataId},
+                      "install picker does not invent a part a composite preset lacks");
+                check(picker.optionsFor(QStringLiteral("no-such-category")).isEmpty(),
+                      "install picker answers an unknown category with nothing");
+                bool compositeSeen = false;
+                for (const PresetController::InstallPickerPreset &row : picker.presets) {
+                    if (row.summary.id != compositeId) continue;
+                    compositeSeen =
+                        row.componentsLoaded
+                        && row.components.value(
+                               Presets::presetCategoryKey(Presets::PresetCategory::Mods))
+                               == childModsId
+                        && row.components.size() == 2;
+                }
+                check(compositeSeen,
+                      "install picker carries the composite's parts without rereading the manifest");
+                for (const Presets::PresetSummary &option :
+                     picker.optionsFor(Presets::presetCategoryKey(Presets::PresetCategory::Mods))) {
+                    if (option.id == childModsId) {
+                        check(option.name == QStringLiteral("综合")
+                                  && option.category == Presets::PresetCategory::Mods,
+                              "a composite part keeps the parent's name and takes the asked category");
+                    }
+                }
+            }
+            qApp->setProperty("wtfml.testDefaultMinecraftDir", previousRoot);
+        }
+    }
     QTemporaryDir scratch;
     QTcpServer server;
     check(scratch.isValid() && server.listen(QHostAddress::LocalHost, 0), "local preset fixture starts");

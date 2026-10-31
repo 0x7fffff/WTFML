@@ -26,6 +26,7 @@
 #pragma once
 
 #include <QList>
+#include <QMap>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -187,8 +188,27 @@ public:
     /// "不静默拆分类别"在安装页这一侧同样是"不猜它属于哪一类"。
     static QList<InstallCategory> installCategories();
 
-    /// 某一类的可用预设（按下标次序，只含读得回来的那些）。认不出的 key 回空表。
-    QList<Presets::PresetSummary> presetsInCategory(const QString &categoryKey) const;
+    /// 安装页那个弹窗要的全部预设数据 —— **只读一趟盘**。
+    ///
+    /// 早先的写法是「每一类各扫一遍，最后再扫一遍找复合预设」：四类就是五趟
+    /// `Presets::list()`，而每一趟都要把 store 里每份 manifest 读一遍（perf 里 1000 份
+    /// 同步读是 2.2 s 一趟）。20 份预设时这一下约 150 ms；1000 份时是十来秒的冻结。
+    /// 现在一趟扫完，复合预设的 manifest 也只读一次（以前「算某一类的项」和「拼复合项」
+    /// 各读一次）。
+    struct InstallPickerPreset {
+        Presets::PresetSummary summary;
+        /// 复合预设那几段（`components`：类别键 → 子预设 id）；普通预设是空的。
+        QMap<QString, QString> components;
+        /// 这份数据是不是从那份 manifest 真读回来的：普通预设不读、直接算 true；
+        /// 复合预设读不回来 ⇒ false（那一份一个子项都不往外给，和老写法同一条）。
+        bool componentsLoaded = false;
+    };
+    struct InstallPickerData {
+        QList<InstallPickerPreset> presets;  // 按下标次序
+        /// 某一类的可用项（含复合预设里的那一子项，次序跟着父项）。认不出的 key 回空表。
+        QList<Presets::PresetSummary> optionsFor(const QString &categoryKey) const;
+    };
+    InstallPickerData installPickerData() const;
 
     /// 安装前的计划预览（`lines` 每一项是"段名 + 那一行计划"，`summary` 是一句话）。
     struct InstallPreview {

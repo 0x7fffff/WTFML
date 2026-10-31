@@ -600,3 +600,28 @@ pwsh -File tools/perf-startup.ps1 -Probe -Runs 3 -Instances 0 -Exe build/perf-pr
 
 读法：单机、n=3、只量了探针构建（Release，`-DWTFML_PERF_PROBE=ON`，只编产品），说的是
 "换一次主题同步那一截"，不含整窗重画那几毫秒。
+
+## 2026-10-31 安装确认弹窗：预设数据只扫一趟盘
+
+路径：下载页 → 选一个版本 → 装 → 确认弹窗里那四类预设（游戏设置 / 模组 / 资源包 /
+数据包）。
+
+原来的写法：弹窗按四类各问一次 `presetsInCategory()`，而每一类里都调
+`availablePresets()` —— 也就是 `Presets::list()`，把 store 里每份 manifest 读一遍；
+最后为了「复合预设」那张表又扫一遍、再按份读 manifest。四类加大表 = **五趟全量扫盘**，
+复合预设的 manifest 还在一趟里被读两遍。
+
+现在：`PresetController::installPickerData()` 扫一次，复合预设每份只读一次 manifest，
+四类的选项由 `InstallPickerData::optionsFor()` 从这份快照里派生；
+`InstallPageController` 拿同一份数据去拼四类和复合表，这一整段不再碰盘。
+
+价：第八节实测过，1000 份预设单趟同步读是 2.2–2.5 s（本机、Release）。按它折算，
+旧写法在 1000 份时是五趟 ≈ 11 s 的冻结，新写法是一趟；20 份时约 220 ms → 44 ms。
+**这是拿单趟成本折算的，不是这次在弹窗上重新量的**（这一段没有探针）；要真数字得给
+弹窗加一步测量，目前没做。
+
+正确性：`mw_check_preset_install` 新增十项 —— 四类各自只出现自己的、复合预设的子项
+按父项次序出现在对应类里、缺的那一类不凭空造、未知类别回空、复合项带着父项名字和
+读回来的 `components`（不再第二次读 manifest）。复跑：`verify` 6182/6182、
+`verify_presets` 762/762、`ui_check` 3136/3136、`mw_check` 2722/2722，
+`mw_check_preset_install` 全过。

@@ -598,14 +598,17 @@ void InstallPageController::openPresetPicker() {
     };
 
     QList<PresetInstallPicker::Category> categories;
+    // 四类的可选项和复合预设那一张表**来自同一次扫盘**（`installPickerData()` 那段
+    // 写着为什么不能再按类各扫一趟）：这一整段只读一次盘。
+    const PresetController::InstallPickerData pickerData =
+        m_owner.m_presetController->installPickerData();
     // 「模组」那一类：状态行让给兼容检查，计划那几行收进原因里。
     const QString modsCategoryKey = Presets::presetCategoryKey(Presets::PresetCategory::Mods);
     for (const PresetController::InstallCategory &one : PresetController::installCategories()) {
         PresetInstallPicker::Category category;
         category.key = one.key;
         category.title = one.title;
-        for (const Presets::PresetSummary &preset :
-             m_owner.m_presetController->presetsInCategory(one.key)) {
+        for (const Presets::PresetSummary &preset : pickerData.optionsFor(one.key)) {
             category.options.append({preset.id, preset.name, true, !preset.componentCategories.isEmpty()});
         }
         category.selectedId = draft.value(one.key);
@@ -646,14 +649,10 @@ void InstallPageController::openPresetPicker() {
     picker->setContext(gameVersion(), pickerLoaderName);
     picker->setCategories(categories);
     QList<PresetInstallPicker::Composite> composites;
-    for (const auto &preset : m_owner.m_presetController->availablePresets()) {
-        if (preset.componentCategories.isEmpty()) continue;
-        bool loaded = false;
-        const auto manifest = Presets::loadManifest(PresetController::presetsRoot(), preset.id, &loaded);
-        if (!loaded) continue;
-        PresetInstallPicker::Composite option; option.id=preset.id; option.name=preset.name;
-        const auto parts=manifest.editorState.value("components").toObject();
-        for (auto it=parts.begin();it!=parts.end();++it) option.parts.insert(it.key(),it.value().toString());
+    for (const PresetController::InstallPickerPreset &choice : pickerData.presets) {
+        if (choice.summary.componentCategories.isEmpty() || !choice.componentsLoaded) continue;
+        PresetInstallPicker::Composite option; option.id=choice.summary.id; option.name=choice.summary.name;
+        option.parts = choice.components;
         composites.append(option);
     }
     picker->setComposites(composites);
