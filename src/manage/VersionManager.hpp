@@ -1421,9 +1421,9 @@ private:
     };
 
     void fetchFabricLoaderList();
-    void onFabricLoaderListReply(QNetworkReply *reply);
+    void onFabricLoaderListReply(QNetworkReply *reply, const QString &jobError);
     void fetchFabricProfile();
-    void onFabricProfileReply(QNetworkReply *reply);
+    void onFabricProfileReply(QNetworkReply *reply, const QString &jobError);
     // profile 拿到手之后：先看原版在不在，在就直接下一段，不在就先装原版。
     void startParentOrLoaderFiles();
     // 把加载器 json 落盘并下它自己那几个库（走 downloadVersion 那条老路）。
@@ -1558,7 +1558,7 @@ private:
     /// 镜像那份版本表挑不出来时的退路：换官方那条再发一发。
     /// @return 真的退了（调用方应当直接 return，等下一发回复）返回 true。
     bool retryInstallerListFromOfficial();
-    void onInstallerListReply(QNetworkReply *reply);
+    void onInstallerListReply(QNetworkReply *reply, const QString &jobError);
     // 把安装器 jar 下到 cache/installers/（一批下载，完成信号回到 onAllDownloadsFinished）。
     void startInstallerDownload();
     // 前置检查 + 起那个 Java 子进程。**异步**：它不阻塞界面，结果由 onInstallerFinished 收。
@@ -1593,7 +1593,8 @@ private:
     // 回复处理里不再重新读下载源（理由见定义处：两次读之间用户能换设置，
     // 换了就会拿另一种格式去解同一条回复）。
     void fetchOptifineVersionList();
-    void onOptifineVersionListReply(QNetworkReply *reply, bool fromMirror);
+    void onOptifineVersionListReply(QNetworkReply *reply, bool fromMirror,
+                                    const QString &jobError);
     // 版本号定了之后的收尾：填 installerFileName/loaderVersion，再按下载源决定"直接下（镜像）"
     // 还是"先去广告页拿 token（官方）"。**两条路共用**（版本表挑出来的 / 用户钉死的），
     // 差别只在"版本号从哪来"。定义处有详细说明。
@@ -1603,7 +1604,7 @@ private:
                               bool fromMirror);
     // 官方那条路多一步：真文件在广告页后面，得先把它那条带 token 的地址抠出来。
     void fetchOptifineDownloadToken();
-    void onOptifineDownloadTokenReply(QNetworkReply *reply);
+    void onOptifineDownloadTokenReply(QNetworkReply *reply, const QString &jobError);
     // OptiFine 的安装器**要拿原版的客户端 jar 当输入**，所以原版必须先在盘上才能起它
     // （这一点和 Forge 装完再补正好相反）。判据和 startParentOrLoaderFiles() 一样：
     // 版本 json + 客户端 jar 两份文件都在。

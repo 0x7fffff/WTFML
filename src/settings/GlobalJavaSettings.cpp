@@ -22,6 +22,7 @@
 #include <QStandardPaths>
 #include <QTemporaryFile>
 
+#include "../net/ControlGet.hpp"
 #include "../util/AppPaths.hpp"
 #include "../util/WriteDirectoryGuard.hpp"
 
@@ -439,11 +440,12 @@ bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {
 
     QNetworkAccessManager manager;
     QNetworkRequest request(url);
-    // NOTE: 这个超时**不能省**。这一路在工作线程里用内嵌事件循环等待；没有超时的话，
+    // NOTE: 这个超时**不能省**。这一路在事件循环里等待写盘；没有超时的话，
     // 对端连上了却不发数据时 loop.exec() 没有任何退出条件。
     // 它是"不活动超时"，一直匀速在下的不会因此被切断。
-    // 全仓联网处只有这里和下面那个 Adoptium 列表没有超时（别处 10/15/30 秒），
     // 取 30 秒和下载管理器那条约定一致。
+    // NOTE: 这一发**不进** `RequestBudget::ControlGet`：它是几十到两百兆的运行时压缩包，
+    // 属于 Bulk 那一档的量级，不是"问一句就完事"的元数据。
     request.setTransferTimeout(30000);
     QNetworkReply *reply = manager.get(request);
     QEventLoop loop;
@@ -948,23 +950,39 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion, QString *javaP
 
     QNetworkAccessManager manager;
     QNetworkRequest request(apiUrl);
-    // 同 downloadFileToLocal()：这一路也是 UI 线程上的同步请求，没有超时的话
+    // 同 downloadFileToLocal()：这一路也是 UI 线程上的同步请求，没有截止的话
     // 对端连上不发数据就永远回不来（这个请求只是取一份 JSON，30 秒足够）。
-    request.setTransferTimeout(30000);
-    QNetworkReply *reply = manager.get(request);
+    // 排队与截止交给 `RequestBudget::ControlGet`（与其它元数据请求共用 Control 名额）；
+    // 30 秒现在是「排队 + 传输」的合计 —— 这一路本来就阻塞等待，收场没变。
+    QByteArray body;
+    QString problem;
     QEventLoop loop;
-    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    loop.exec();
+    {
+        // 只为了给作业一个主人：这一路没有现成的 QObject 可以挂。
+        QObject owner;
+        RequestBudget::ControlGet::start(
+            &owner, &manager, request, 30000,
+            [&](QNetworkReply *reply, const QString &jobError) {
+                if (reply == nullptr) {
+                    problem = jobError;
+                } else {
+                    body = reply->readAll();
+                    problem = reply->error() == QNetworkReply::NoError ? QString()
+                                                                       : reply->errorString();
+                    reply->deleteLater();
+                }
+                loop.quit();
+            });
+        loop.exec();
+    }
 
-    if (reply->error() != QNetworkReply::NoError) {
-        qDebug() << "Network error fetching from Adoptium API:" << reply->errorString();
-        reply->deleteLater();
+    if (!problem.isEmpty()) {
+        qDebug() << "Network error fetching from Adoptium API:" << problem;
         return false;
     }
 
     qDebug() << "Adoptium API response received successfully";
-    QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-    reply->deleteLater();
+    QJsonDocument doc = QJsonDocument::fromJson(body);
 
     QJsonArray assets = doc.array();
     if (assets.isEmpty()) {

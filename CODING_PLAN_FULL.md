@@ -76,12 +76,13 @@ HDD 间歇拒绝仍未复现，按用户决定暂缓（原 P3，见 §6）；首
   普通下载的共享预算/低速比较/有限重试和本地 Range/ETag/摘要边界已落地，不重复列作未实现。
   不混拼未经证明一致的表示；进程请求额度不宣称全部 TCP 或外部 Java 上限。
   见 [高速下载](docs/HIGH_SPEED_DOWNLOAD.md)、[网络诊断](docs/NETWORK_DIAGNOSTICS.md)。
-  2026-10-31 元数据请求已统一到 `RequestBudget::ControlGet`：加载器列表、服务端安装器、
-  平台兼容版本表、皮肤三发、资源商店九处；GET 与带小段正文的 POST 共用排队/截止/
-  删除即取消。见 [元数据](docs/P2_METADATA_BUDGET_20261031.md)、
+  2026-10-31 元数据请求已全部统一到 `RequestBudget::ControlGet`：加载器版本表、服务端
+  安装、加载器安装、平台兼容、皮肤三发、资源商店九处、Java 管理；GET 与带小段正文的
+  POST 共用排队/截止/删除即取消。见 [元数据](docs/P2_METADATA_BUDGET_20261031.md)、
   [兼容](docs/P2_COMPAT_BUDGET_20261031.md)、[皮肤](docs/P2_SKIN_BUDGET_20261031.md)、
-  [资源商店](docs/P2_RESOURCE_BUDGET_20261031.md)。
-  仍各自管超时的独立 QNAM：服务端安装、Java 管理、随机版本挑选。
+  [资源商店](docs/P2_RESOURCE_BUDGET_20261031.md)、
+  [安装与 Java](docs/P2_INSTALL_BUDGET_20261031.md)。
+  仍自己管超时的只剩正文：普通下载、Java 运行时压缩包。
 - [ ] **运行/构建剩余测量**：其它共享头扇出、主线程精确调用栈、
   实际多任务负载。已有冷/增量/热重链、共享运行器、下载基准、后台扫描与局部更新，复用
   [性能记录](docs/PERFORMANCE.md)，不再称这些未测量，不以断言数说明变快。

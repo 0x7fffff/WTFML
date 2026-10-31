@@ -28,6 +28,7 @@
 #include <QUrl>
 
 #include "../download/DownloadManager.hpp"
+#include "../net/ControlGet.hpp"
 #include "../net/HttpClient.hpp"
 #include "../util/AppPaths.hpp"
 #include "ServerModel.hpp"
@@ -47,6 +48,12 @@ constexpr int kInstallerTailChars = 1200;
 QString javaMissingMessage() {
     return QStringLiteral("这一档要跑它的安装器，而安装器是一个 Java 程序 —— 没找到能用的 Java。"
                           "去「设置 → Java」里选一个，或者先把游戏跑起来一次让它自己挑。");
+}
+
+/// 没有回复（排队到点 / 被掐 / 管理器先没）时的失败措辞：`what` 是"取 xxx"，
+/// 拼出来是「取 xxx失败：等待网络请求超时。」—— 和以前超时走"网络错误"那条路一个收场。
+QString unansweredText(const QString &what, const QString &jobError) {
+    return QStringLiteral("%1失败：%2").arg(what, jobError);
 }
 
 }  // namespace
@@ -248,28 +255,29 @@ void ServerInstallController::beginResolve() {
     }
 
     // Paper：那份构建列表。
+    const QString what = QStringLiteral("取 %1 ").arg(need.url);
     QNetworkRequest request{QUrl(need.url)};
-    request.setTransferTimeout(HttpClient::kDefaultTimeoutMs);
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::NoLessSafeRedirectPolicy);
-    m_metadataReply = m_network->get(request);
-    connect(m_metadataReply, &QNetworkReply::finished, this, [this]() {
-        QNetworkReply *reply = m_metadataReply;
-        m_metadataReply = nullptr;
-        if (reply == nullptr) {
-            return;
-        }
-        const QByteArray payload = reply->readAll();
-        const QString problem =
-            reply->error() == QNetworkReply::NoError
-                ? QString()
-                : QStringLiteral("取 %1 失败了：%2").arg(reply->url().toString(), reply->errorString());
-        reply->deleteLater();
-        if (m_cancelling) {
-            return;  // 取消那条路自己会收尾，这里什么都不做
-        }
-        onMetadataReady(problem.isEmpty() ? payload : QByteArray(), problem);
-    });
+    m_metadataReply = RequestBudget::ControlGet::start(
+        this, m_network, request, HttpClient::kDefaultTimeoutMs,
+        [this, what](QNetworkReply *reply, const QString &jobError) {
+            m_metadataReply = nullptr;
+            if (reply == nullptr) {
+                onMetadataReady(QByteArray(), unansweredText(what, jobError));
+                return;
+            }
+            const QByteArray payload = reply->readAll();
+            const QString problem =
+                reply->error() == QNetworkReply::NoError
+                    ? QString()
+                    : QStringLiteral("取 %1 失败了：%2").arg(reply->url().toString(), reply->errorString());
+            reply->deleteLater();
+            if (m_cancelling) {
+                return;  // 取消那条路自己会收尾，这里什么都不做
+            }
+            onMetadataReady(problem.isEmpty() ? payload : QByteArray(), problem);
+        });
 }
 
 void ServerInstallController::fetchVersionJson() {
@@ -278,18 +286,21 @@ void ServerInstallController::fetchVersionJson() {
     // 那条覆盖。原来这里拼 `endpoint(officialVersionManifestUrl())`，覆盖被绕过 ——
     // 没有预置本地版本 json 的测试会静默打真 Mojang/镜像。
     QNetworkRequest request{QUrl(m_downloads->versionManifestUrl())};
-    request.setTransferTimeout(HttpClient::kDefaultTimeoutMs);
-    m_metadataReply = m_network->get(request);
-    connect(m_metadataReply, &QNetworkReply::finished, this,
-            [this]() { onVersionManifest(m_metadataReply); });
+    m_metadataReply = RequestBudget::ControlGet::start(
+        this, m_network, request, HttpClient::kDefaultTimeoutMs,
+        [this](QNetworkReply *reply, const QString &jobError) {
+            m_metadataReply = nullptr;
+            onVersionManifest(reply, jobError);
+        });
 }
 
-void ServerInstallController::onVersionManifest(QNetworkReply *reply) {
+void ServerInstallController::onVersionManifest(QNetworkReply *reply, const QString &jobError) {
     if (reply == nullptr) {
+        if (m_cancelling) {
+            return;
+        }
+        fail(unansweredText(QStringLiteral("取版本清单"), jobError));
         return;
-    }
-    if (m_metadataReply == reply) {
-        m_metadataReply = nullptr;
     }
     const QByteArray payload = reply->readAll();
     const QString networkProblem = reply->errorString();
@@ -305,10 +316,12 @@ void ServerInstallController::onVersionManifest(QNetworkReply *reply) {
         const QString official = DownloadManager::officialVersionManifestUrl();
         if (attempted == QUrl(DownloadManager::mirrorUrl(official))) {
             QNetworkRequest fallback{QUrl(official)};
-            fallback.setTransferTimeout(HttpClient::kDefaultTimeoutMs);
-            m_metadataReply = m_network->get(fallback);
-            connect(m_metadataReply, &QNetworkReply::finished, this,
-                    [this]() { onVersionManifest(m_metadataReply); });
+            m_metadataReply = RequestBudget::ControlGet::start(
+                this, m_network, fallback, HttpClient::kDefaultTimeoutMs,
+                [this](QNetworkReply *inner, const QString &innerError) {
+                    m_metadataReply = nullptr;
+                    onVersionManifest(inner, innerError);
+                });
             return;
         }
         fail(QStringLiteral("取版本清单失败了：%1").arg(networkProblem));
@@ -337,26 +350,27 @@ void ServerInstallController::onVersionManifest(QNetworkReply *reply) {
                             ? DownloadManager::mirrorVersionJsonUrl(m_request.gameVersion)
                             : officialUrl;
     QNetworkRequest request{QUrl(url)};
-    request.setTransferTimeout(HttpClient::kDefaultTimeoutMs);
-    m_metadataReply = m_network->get(request);
-    connect(m_metadataReply, &QNetworkReply::finished, this, [this]() {
-        QNetworkReply *inner = m_metadataReply;
-        m_metadataReply = nullptr;
-        if (inner == nullptr) {
-            return;
-        }
-        const QByteArray bytes = inner->readAll();
-        const QString problem =
-            inner->error() == QNetworkReply::NoError
-                ? QString()
-                : QStringLiteral("取 %1 的版本信息失败了：%2")
-                      .arg(m_request.gameVersion, inner->errorString());
-        inner->deleteLater();
-        if (m_cancelling) {
-            return;
-        }
-        onMetadataReady(problem.isEmpty() ? bytes : QByteArray(), problem);
-    });
+    const QString what = QStringLiteral("取 %1 的版本信息 ").arg(m_request.gameVersion);
+    m_metadataReply = RequestBudget::ControlGet::start(
+        this, m_network, request, HttpClient::kDefaultTimeoutMs,
+        [this, what](QNetworkReply *inner, const QString &jobError) {
+            m_metadataReply = nullptr;
+            if (inner == nullptr) {
+                onMetadataReady(QByteArray(), unansweredText(what, jobError));
+                return;
+            }
+            const QByteArray bytes = inner->readAll();
+            const QString problem =
+                inner->error() == QNetworkReply::NoError
+                    ? QString()
+                    : QStringLiteral("取 %1 的版本信息失败了：%2")
+                          .arg(m_request.gameVersion, inner->errorString());
+            inner->deleteLater();
+            if (m_cancelling) {
+                return;
+            }
+            onMetadataReady(problem.isEmpty() ? bytes : QByteArray(), problem);
+        });
 }
 
 void ServerInstallController::onMetadataReady(const QByteArray &payload, const QString &problem) {
@@ -622,12 +636,10 @@ void ServerInstallController::finishWith(Outcome outcome, const QString &errorSu
             process->deleteLater();
         }
     }
-    if (m_metadataReply != nullptr) {
-        m_metadataReply->disconnect(this);
-        m_metadataReply->abort();
-        m_metadataReply->deleteLater();
-        m_metadataReply = nullptr;
-    }
+    // 元数据作业一起掐掉：删作业 = 排队的字节不发、在飞的中止、也不回调
+    // （取消那条路的收场由 `finishWith()` 自己发 `finished()`）。
+    delete m_metadataReply;
+    m_metadataReply = nullptr;
     // 附件那几条连线只在这一趟里用（下载器是共用的，留着的话下一趟会接两遍）。
     if (m_downloads != nullptr) {
         disconnect(m_downloads, nullptr, this, nullptr);
