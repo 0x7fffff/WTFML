@@ -4,6 +4,7 @@
  */
 
 #include "TaskCenterPanel.hpp"
+#include "TextMarks.hpp"
 #include <QDrag>
 #include <QMimeData>
 #include <QDragEnterEvent>
@@ -395,15 +396,17 @@ private:
 QString TaskCenter::stepMark(StepState state) {
     // 四个记号是**画出来的一串字符**，不是图标：它们和那行步骤的正文同色同字号，混在
     // 一句里读得下去（换成图标就得跟着调色、还要在两栏里各摆一次）。
+    // **挑字有讲究**：`✓` / `✗` 这一档默认界面字体里没有，第一次画出来会触发 277 ms 的
+    // 字体回退（见 TextMarks.hpp 头注释），所以成功 / 失败走 `√` / `×`。
     switch (state) {
     case StepState::Pending:
         return QCoreApplication::translate("TaskCenter", "○");
     case StepState::Running:
         return QCoreApplication::translate("TaskCenter", "●");
     case StepState::Done:
-        return QCoreApplication::translate("TaskCenter", "✓");
+        return TextMarks::done();
     case StepState::Failed:
-        return QCoreApplication::translate("TaskCenter", "✗");
+        return TextMarks::failed();
     }
     return QString();
 }
@@ -448,9 +451,9 @@ TaskCenter::Step TaskCenter::stepForTask(State taskState, const Step &step) {
 QString TaskCenter::terminalMark(State state) {
     switch (state) {
     case State::Succeeded:
-        return QCoreApplication::translate("TaskCenter", "✓");
+        return TextMarks::done();
     case State::Failed:
-        return QCoreApplication::translate("TaskCenter", "✗");
+        return TextMarks::failed();
     case State::Cancelled:
         return QCoreApplication::translate("TaskCenter", "—");
     case State::Interrupted:

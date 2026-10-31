@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "TextMarks.hpp"
 int UiTaskCenterChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs) {
 
     {
@@ -48,8 +49,19 @@ int UiTaskCenterChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
                     return items;
                 },
                 [&clearCalls]() { ++clearCalls; });
-            check(TaskCenter::terminalMark(TaskCenter::State::Succeeded) == QStringLiteral("✓")
-                      && TaskCenter::terminalMark(TaskCenter::State::Failed) == QStringLiteral("✗")
+            // 记号必须是**默认界面字体里真有的那几格**：`✓` / `✗` / `⚠` 那一档不在里面，
+            // 第一次画出来之前 Qt 要先把整条字体回退链建起来 —— 本机实测 277 ms，
+            // 而它落在"那一页第一次画出来的那一帧"上（见 `ui/TextMarks.hpp` 头注释）。
+            // 这一条不是美学检查：把记号改回 `✓` 会让任务中心第一次打开时卡一下。
+            check(TextMarks::done() == QStringLiteral("√") && TextMarks::failed() == QStringLiteral("×")
+                      && TextMarks::warning() == QStringLiteral("※")
+                      && TextMarks::checked() == QStringLiteral("■")
+                      && TextMarks::unchecked() == QStringLiteral("□"),
+                  "I1 TextMarks 那五格还是主字体里有的字（别改回 ✓ / ✗ / ⚠ / ☑ / ☐）",
+                  TextMarks::done() + TextMarks::failed() + TextMarks::warning()
+                      + TextMarks::checked() + TextMarks::unchecked());
+            check(TaskCenter::terminalMark(TaskCenter::State::Succeeded) == TextMarks::done()
+                      && TaskCenter::terminalMark(TaskCenter::State::Failed) == TextMarks::failed()
                       && TaskCenter::terminalMark(TaskCenter::State::Cancelled) == QStringLiteral("—")
                       && TaskCenter::terminalMark(TaskCenter::State::Interrupted) == QStringLiteral("!"),
                   "I2 四种终态各有自己的记号（取消/中断不冒充成功）");

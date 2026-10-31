@@ -1,4 +1,5 @@
 #include "ModpackExportController.hpp"
+#include "TextMarks.hpp"
 
 #include "InlineMessage.hpp"
 #include "OverlayHost.hpp"
@@ -296,7 +297,7 @@ void ModpackExportController::continueExport(const ModpackExport::ExportPlan &pl
                 setTaskDetail(tr("已写入 %1").arg(QDir::toNativeSeparators(targetPath)));
                 finishTask(true);
                 const QString shown = QDir::toNativeSeparators(targetPath);
-                log(tr("✓ 整合包已导出：%1").arg(shown));
+                log(TextMarks::done(tr("整合包已导出：%1").arg(shown)));
                 QStringList lines{tr("已经写到：\n%1").arg(shown)};
                 lines.append(tr("问过 %1 个文件，认出来 %2 个（写进清单，装的人那边自己去下）；"
                                 "其余 %3 个原样打进了包里（模组本体、配置、资源包都在）。")

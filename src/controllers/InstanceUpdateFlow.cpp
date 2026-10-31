@@ -3,6 +3,7 @@
  * @brief 将目标核心安装与当前实例更新串联；只使用现有下载器和快照事务。
  */
 #include "InstanceUpdateFlow.hpp"
+#include "TextMarks.hpp"
 #include "MainWindow.hpp"
 #include "InstanceSettingsDialog.hpp"
 #include "InstanceUpdateWizard.hpp"
@@ -297,10 +298,13 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
             QStringList lines;
             const auto appendSteps = [&lines](const QList<Tasks::TaskStep> &steps) {
                 for (const auto &step : steps) {
-                    const QString mark = step.state == Tasks::TaskStepState::Done ? QStringLiteral("✓ ")
-                        : step.state == Tasks::TaskStepState::Running ? QStringLiteral("→ ")
-                        : step.state == Tasks::TaskStepState::Failed ? QStringLiteral("× ") : QStringLiteral("• ");
-                    lines.append(mark + step.name + (step.note.isEmpty() ? QString() : QStringLiteral(" — ") + step.note));
+                    // 记号只从 `TextMarks` 取：`✓` 那一格默认界面字体里没有，第一次画出来
+                    // 要付一次 277 ms 的字体回退（见 `ui/TextMarks.hpp` 头注释）。
+                    const QString mark = step.state == Tasks::TaskStepState::Done ? TextMarks::done()
+                        : step.state == Tasks::TaskStepState::Running ? TextMarks::running()
+                        : step.state == Tasks::TaskStepState::Failed ? TextMarks::failed() : TextMarks::pending();
+                    lines.append(mark + QLatin1Char(' ') + step.name
+                                 + (step.note.isEmpty() ? QString() : QStringLiteral(" — ") + step.note));
                 }
             };
             for (const auto &task : owner->m_activityCenter->tasks()->all()) {

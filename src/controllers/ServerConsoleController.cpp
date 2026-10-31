@@ -1,4 +1,5 @@
 #include "controllers/ServerConsoleController.hpp"
+#include "TextMarks.hpp"
 #include "util/SecretRedactor.hpp"
 
 #include "InlineMessage.hpp"
@@ -157,6 +158,6 @@ void ServerConsoleController::exportLog() {
         return;
     }
     if (m_host.log) {
-        m_host.log(tr("✓ 服务端日志已导出：%1").arg(QDir::toNativeSeparators(path)));
+        m_host.log(TextMarks::done(tr("服务端日志已导出：%1").arg(QDir::toNativeSeparators(path))));
     }
 }

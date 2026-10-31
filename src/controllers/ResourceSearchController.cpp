@@ -1,4 +1,5 @@
 #include "ResourceSearchController.hpp"
+#include "TextMarks.hpp"
 #include "MainWindow.hpp"
 #include "MainWindowUI.hpp"
 #include "ResourceDetailPage.hpp"
@@ -169,7 +170,7 @@ void ResourceSearchController::onResourceSearchFinished(const QString &requestKe
         // 看清、又最不该用一个模态框打断他的）。回车再按一次就是重试。
         // 这一条和加载器树那条「列表没取到」是同一种形状，所以做法也一样。
         // 真要弹窗的是那些**没有别的地方能显示**的错（见 onResourceDownloadFinished）。
-        m_owner.appendLog(MainWindow::tr("✗ 搜索%1失败：%2").arg(ResourceCatalog::kindLabel(kind), result.problem));
+        m_owner.appendLog(TextMarks::failed(tr("搜索%1失败：%2").arg(ResourceCatalog::kindLabel(kind), result.problem)));
         m_owner.addResourcePlaceholderRow(tree, result.problem);
         return;
     }

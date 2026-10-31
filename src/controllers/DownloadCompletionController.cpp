@@ -8,6 +8,7 @@
  */
 
 #include "controllers/DownloadCompletionController.hpp"
+#include "TextMarks.hpp"
 
 #include "InlineMessage.hpp"
 #include "MainWindow.hpp"
@@ -191,7 +192,7 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
     // 模组，不是"某个版本的文件"。成功的样子是**实例列表里多一个**（顺便选中它）。
     if (wasImporting) {
         if (success) {
-            m_owner.appendLog(MainWindow::tr("✓ %1").arg(errorMessage));
+            m_owner.appendLog(TextMarks::done(tr("%1").arg(errorMessage)));
             // 刷新会把下拉框和实例页那张树一起重灌（同一个函数里做的），新实例就在里面。
             m_owner.refreshInstalledVersions();
             QComboBox *combo = m_owner.m_ui->getInstalledVersionCombo();
@@ -213,9 +214,9 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
             m_owner.maybePrefetchAssetDirector(versionId);
         } else if (userCancelled) {
             // 用户自己按的取消：日志照写，但**不弹「导入失败」**（那不是失败）。
-            m_owner.appendLog(MainWindow::tr("✗ 整合包导入已由用户取消。"));
+            m_owner.appendLog(TextMarks::failed(tr("整合包导入已由用户取消。")));
         } else {
-            m_owner.appendLog(MainWindow::tr("✗ 整合包没有导入：%1").arg(errorMessage));
+            m_owner.appendLog(TextMarks::failed(tr("整合包没有导入：%1").arg(errorMessage)));
             InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("导入失败"), errorMessage);
         }
         return;
@@ -226,7 +227,7 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
     // 和整合包那段同一个道理：不再往上叠「版本 X 的文件已全部就绪」那一句。
     if (wasInstallingInstance) {
         if (success) {
-            m_owner.appendLog(MainWindow::tr("✓ %1").arg(resultMessage));
+            m_owner.appendLog(TextMarks::done(tr("%1").arg(resultMessage)));
             // 装出来的实例要能被启动：刷"已安装版本"那一摊，并把它选上（刷新只保得住
             // "原来选中的"，保不住"原来压根没选"）。
             m_owner.refreshInstalledVersions();
@@ -246,9 +247,9 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
                 InlineMessage::information(m_owner.m_ui->overlay(), MainWindow::tr("安装完成"), resultMessage);
             }
         } else if (userCancelled) {
-            m_owner.appendLog(MainWindow::tr("✗ 安装「%1」已由用户取消。").arg(m_owner.instanceDisplayName(versionId)));
+            m_owner.appendLog(TextMarks::failed(tr("安装「%1」已由用户取消。").arg(m_owner.instanceDisplayName(versionId))));
         } else {
-            m_owner.appendLog(MainWindow::tr("✗ %1").arg(errorMessage));
+            m_owner.appendLog(TextMarks::failed(tr("%1").arg(errorMessage)));
             InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("安装失败"), errorMessage);
         }
         return;
@@ -261,7 +262,7 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
     if (wasRepairing) {
         const QString displayName = m_owner.instanceDisplayName(versionId);
         if (success) {
-            m_owner.appendLog(MainWindow::tr("✓ 实例「%1」的文件校验完成：%2").arg(displayName, errorMessage));
+            m_owner.appendLog(TextMarks::done(tr("实例「%1」的文件校验完成：%2").arg(displayName, errorMessage)));
             // 补全期间它被滤出了"能启动的实例"（installingVersionIds() 里有它），回来之后
             // 把它选中 —— 和上面那条同一种情况：刷新只保得住"原来选中的"，保不住"原来被
             // 滤掉、选中的那一格顺位落到了别人身上"。
@@ -276,9 +277,9 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
                                        MainWindow::tr("实例「%1」的文件都齐了。\n\n%2")
                                            .arg(displayName, errorMessage));
         } else if (userCancelled) {
-            m_owner.appendLog(MainWindow::tr("✗ 实例「%1」的文件校验已由用户取消。").arg(displayName));
+            m_owner.appendLog(TextMarks::failed(tr("实例「%1」的文件校验已由用户取消。").arg(displayName)));
         } else {
-            m_owner.appendLog(MainWindow::tr("✗ 实例「%1」的文件没补齐：%2").arg(displayName, errorMessage));
+            m_owner.appendLog(TextMarks::failed(tr("实例「%1」的文件没补齐：%2").arg(displayName, errorMessage)));
             InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("文件没补齐"),
                                    MainWindow::tr("实例「%1」有文件没能拿到。\n\n%2")
                                        .arg(displayName, errorMessage));
@@ -295,17 +296,17 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
             if (errorMessage.isEmpty()) {
                 m_owner.appendLog(MainWindow::tr("「%1」的首启资源本来就齐了，这一趟没有下载。").arg(displayName));
             } else {
-                m_owner.appendLog(MainWindow::tr("✓ 「%1」的首启资源已预取：%2").arg(displayName, errorMessage));
+                m_owner.appendLog(TextMarks::done(tr("「%1」的首启资源已预取：%2").arg(displayName, errorMessage)));
                 InlineMessage::information(
                     m_owner.m_ui->overlay(), MainWindow::tr("首启资源已预取"),
                     MainWindow::tr("「%1」的首启资源已就绪，第一次启动不会再卡在下载上。\n\n%2")
                         .arg(displayName, errorMessage));
             }
         } else if (userCancelled) {
-            m_owner.appendLog(MainWindow::tr("✗ 「%1」的首启资源预取已由用户取消（已下好的文件留在原处）。")
+            m_owner.appendLog(TextMarks::failed(tr("「%1」的首启资源预取已由用户取消（已下好的文件留在原处）。"))
                           .arg(displayName));
         } else {
-            m_owner.appendLog(MainWindow::tr("✗ 「%1」的首启资源没预取完：%2").arg(displayName, errorMessage));
+            m_owner.appendLog(TextMarks::failed(tr("「%1」的首启资源没预取完：%2").arg(displayName, errorMessage)));
             // 重试 = 再发起一次预取（数据层那边会跳过校验通过的部分，不会从头再来）。
             // 这条不走账本里那颗"重试"：那一颗是给"失败清单"用的，而预取失败之后
             // 最该做的事是"再核一遍盘上那些、把缺的补上"，不是"把这份清单重下一遍"。
@@ -323,7 +324,7 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
     }
 
     if (success) {
-        m_owner.appendLog(MainWindow::tr("✓ 版本 %1 下载完成：%2").arg(versionId, errorMessage));
+        m_owner.appendLog(TextMarks::done(tr("版本 %1 下载完成：%2").arg(versionId, errorMessage)));
 
         // 刷新"已安装版本"下拉框：client jar 已经落到
         // .minecraft/versions/<id>/<id>.jar，installedVersions() 下次扫盘就能看到它。
@@ -347,10 +348,10 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
     } else if (userCancelled) {
         // 用户自己按的取消：一句日志就够（`cancelTaskFromDetail()` 那边已经写过「已取消」）。
         // 不弹「下载失败」—— 那不是失败。
-        m_owner.appendLog(MainWindow::tr("✗ 版本 %1 的下载已由用户取消。").arg(versionId));
+        m_owner.appendLog(TextMarks::failed(tr("版本 %1 的下载已由用户取消。").arg(versionId)));
     } else {
         // 失败就不刷新了：没成功就不该有新条目冒出来（jar 大概率没落地）
-        m_owner.appendLog(MainWindow::tr("✗ 版本 %1 下载失败：%2").arg(versionId, errorMessage));
+        m_owner.appendLog(TextMarks::failed(tr("版本 %1 下载失败：%2").arg(versionId, errorMessage)));
         InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("下载失败"),
                              MainWindow::tr("版本 %1 有文件未能下载完成。\n\n%2").arg(versionId, errorMessage));
     }

@@ -1,4 +1,5 @@
 #include "controllers/CrashReportController.hpp"
+#include "TextMarks.hpp"
 
 #include "controllers/ActivityCenterController.hpp"
 #include "InlineMessage.hpp"
@@ -218,7 +219,7 @@ void CrashReportController::exportReport(const QString &key) {
                                    .arg(QDir::toNativeSeparators(path), error));
         return;
     }
-    log(tr("✓ 错误报告已导出：%1").arg(QDir::toNativeSeparators(path)));
+    log(TextMarks::done(tr("错误报告已导出：%1").arg(QDir::toNativeSeparators(path))));
 }
 
 void CrashReportController::openReportsDirectory() {

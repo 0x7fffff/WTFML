@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "TextMarks.hpp"
 #include "util/SecretRedactor.hpp"
 void runInstanceStartActionsTests() {
     const QString originalDir = AppPaths::minecraftDir();
@@ -316,7 +317,7 @@ void runInstanceStartActionsTests() {
                   "刷新只保得住「原来选中的」那一项，保不住「被滤掉的那一个」）");
             check(newLogContains(QStringLiteral("开始校验「%1」的文件（已存在的会跳过）").arg(displayA)),
                   "T19.5 日志里「开始」那一行说的是显示名（点下去就该有一行，用户要看得见它动了）");
-            check(newLogContains(QStringLiteral("✓ 实例「%1」的文件校验完成：").arg(displayA)),
+            check(newLogContains(TextMarks::done() + QStringLiteral(" 实例「%1」的文件校验完成：").arg(displayA)),
                   "T19.5 日志里「结束」那一行也是");
 
             // ---------- ⓪（续）补全之后再体检一遍：一句坏话都没有 ----------

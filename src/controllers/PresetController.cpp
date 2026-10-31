@@ -8,6 +8,7 @@
  */
 
 #include "controllers/PresetController.hpp"
+#include "TextMarks.hpp"
 
 #include "PresetManagePage.hpp"
 #include "PresetEditorPage.hpp"
@@ -1285,7 +1286,7 @@ void PresetController::applyPlanImpl(const QString &presetId, const QString &ins
         view.lines.append(applyRowText(row));
     }
     for (const Presets::MalilibConflict &conflict : result.keyConflicts) {
-        view.lines.append(QStringLiteral("⚠ 键位冲突：%1 ← %2")
+        view.lines.append(TextMarks::warning(QStringLiteral("键位冲突：%1 ← %2"))
                               .arg(conflict.keys,
                                    conflict.claims.join(QStringLiteral(" / "))));
     }
@@ -1492,7 +1493,7 @@ PresetController::InstallPreview PresetController::previewForInstall(
         view.lines.append(rowText(row));
     }
     for (const Presets::MalilibConflict &conflict : plan.keyConflicts) {
-        const QString line = QStringLiteral("⚠ 键位冲突：%1 ← %2")
+        const QString line = TextMarks::warning(QStringLiteral("键位冲突：%1 ← %2"))
                                  .arg(conflict.keys,
                                       conflict.claims.join(QStringLiteral(" / ")));
         view.lines.append(line);

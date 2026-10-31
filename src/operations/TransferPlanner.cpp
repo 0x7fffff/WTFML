@@ -9,6 +9,7 @@
 #include <QFileInfo>
 #include <QStringList>
 
+#include "TextMarks.hpp"
 #include "tools/FileHash.hpp"
 
 namespace TransferPlanner {
@@ -155,8 +156,10 @@ QString Plan::detailText() const {
             lines << QStringLiteral("• %1：这一份实例里没有").arg(item.label);
             continue;
         }
+        // 勾选框记号：`☑` / `☐` 默认界面字体里没有（首次排版约 280 ms 的字体回退），
+        // 换成同一份字体里有的 `■` / `□`（见 `ui/TextMarks.hpp` 头注释）。
         lines << QStringLiteral("%1 %2（%3）")
-                     .arg(item.defaultSelected ? QStringLiteral("☑") : QStringLiteral("☐"),
+                     .arg(item.defaultSelected ? TextMarks::checked() : TextMarks::unchecked(),
                           item.label, joinSize(item.fileCount, item.bytes));
         if (!item.note.isEmpty()) lines << QStringLiteral("    %1").arg(item.note);
     }

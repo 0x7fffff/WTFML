@@ -7,6 +7,7 @@
  */
 
 #include "SchematicInfo.hpp"
+#include "TextMarks.hpp"
 
 #include <QFile>
 #include <QFileInfo>
@@ -719,7 +720,7 @@ QString summaryText(const Info &info, const QString &targetGameVersion) {
     }
     const QString compatibility = compatibilityText(info, targetGameVersion);
     if (!compatibility.isEmpty()) {
-        text += QStringLiteral("\n⚠ %1").arg(compatibility);
+        text += QLatin1Char('\n') + TextMarks::warning(compatibility);
     }
     if (!info.description.isEmpty()) {
         // 描述常常很长、还带颜色码；只留第一行，剩下的放悬停提示。
