@@ -286,6 +286,49 @@ bool moveToRecycleBin(const QString &path, QString *error) {
         }
     }
 
+    // 动手之前先问一句「这一项本身删得动吗」：拿 `DELETE` 权限开一个句柄再立刻关掉，
+    // 盘上**一个字节都不改**。这一问换来两件事：
+    //
+    //  · 报的是**确定的原因**（ACL 拒绝删除 / 被别的程序占着），而不是等回收站那一趟回来
+    //    之后，用一句「回收站不可用、放不下这么大、或者被别的程序占着」让用户自己猜。
+    //  · 判死发生在**动任何东西之前**。让 `IFileOperation` 自己去撞的话，它会先把子树里
+    //    删得动的那些搬进回收站、最后才在那一层失败 —— 留下一半在里面、一半在外面的现场
+    //    （实测：子树里的文件已经没了，目录还在，报「Access is denied」）。
+    //
+    // 这一问只挡「连这一项本身都删不动」。子树里某一件被占着，照旧由下面那一趟去撞
+    // （`FOFX_EARLYFAILURE` 碰到就停，见 ZAO6）。
+    //
+    // NOTE: 只读文件、目录、以及 ACL 只拒绝「写」的那一件，这里都开得出来（ZAO2 / ZAO7
+    // 量的就是它们），所以不会把「文件是只读的」误报成「权限不够」。删除本来就有两条路
+    // （自己身上有 DELETE，或者所在目录有 FILE_DELETE_CHILD），`CreateFileW` 判的是同一条
+    // 规矩，所以 ACL 得两条一起拒才挡得住 —— 测试里那个夹具就是这么造的。
+    {
+        DWORD probeError = 0;
+        const HANDLE probe =
+            CreateFileW(wide.c_str(), DELETE,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                        OPEN_EXISTING,
+                        info.isDir() ? FILE_FLAG_BACKUP_SEMANTICS : FILE_ATTRIBUTE_NORMAL,
+                        nullptr);
+        if (probe == INVALID_HANDLE_VALUE) {
+            probeError = GetLastError();
+        } else {
+            CloseHandle(probe);
+        }
+        if (probeError == ERROR_ACCESS_DENIED) {
+            return fail(FolderManager::tr("「%1」的权限不允许删除：这一项（或者它所在的目录）"
+                                          "上面挂了拒绝删除的 ACL。\n\n"
+                                          "在「属性 → 安全 → 高级」里找到那条拒绝项去掉，"
+                                          "或者用管理员身份重试。这一项没有动。")
+                            .arg(QDir::toNativeSeparators(target)));
+        }
+        if (probeError == ERROR_SHARING_VIOLATION || probeError == ERROR_LOCK_VIOLATION) {
+            return fail(FolderManager::tr("「%1」正被别的程序占着（多半是游戏还开着）。\n\n"
+                                          "把它关掉再试。这一项没有动。")
+                            .arg(QDir::toNativeSeparators(target)));
+        }
+    }
+
     // 一棵树里的链接先剥掉（理由见 stripLinksBelow()）。
     if (info.isDir()) {
         QString linkProblem;

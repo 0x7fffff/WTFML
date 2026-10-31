@@ -629,8 +629,9 @@ void InstanceTransferController::deleteWorldInBackground(
             const QString error =
                 result.ok
                     ? QString()
-                    : tr("没能把「%1」移进回收站：%2\n\n"
-                         "先把游戏关掉再试。")
+                    // 原因为什么由 `moveToRecycleBin()` 给全（权限 / 被占着 / 回收站本身）；
+                    // 这里不替它补「先把游戏关掉再试」—— 权限不够时那句话是错的。
+                    : tr("没能把「%1」移进回收站。\n\n%2")
                           .arg(QDir::toNativeSeparators(worldDir), result.error);
             if (m_host.setTaskStepState) m_host.setTaskStepState(task, 0,
                 result.ok ? Tasks::TaskStepState::Done : Tasks::TaskStepState::Failed);
