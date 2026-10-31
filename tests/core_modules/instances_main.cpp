@@ -542,6 +542,7 @@ int main(int argc, char **argv) {
     moduleStatus |= runVersionJvmArgsTests(sandbox);
     moduleStatus |= runInstanceFileTests(sandbox);
     moduleStatus |= runVersionMetaWriteTests(sandbox);
+    moduleStatus |= runInstallOccupancyTests(sandbox);
     moduleStatus |= runRenameInstanceTests(sandbox);
     moduleStatus |= runInstanceGroupTests(sandbox);
     moduleStatus |= runInstalledScanTests(sandbox);

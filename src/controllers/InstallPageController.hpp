@@ -57,7 +57,7 @@ public:
     /// `MainWindow::onInstallButtonClicked()`（连同 `pickInstallerJava()` 一起搬过来）。
     ///
     /// 它先问三件事（有没有别的下载在跑 / 原版号在不在 / 名字合不合法），再摊开预设计划、
-    /// 挑安装器要的 Java，最后**先记 `m_installingInstanceId` 再置忙**（顺序见那段的 NOTE）。
+    /// 挑安装器要的 Java，最后**先记「安装」那一档占用再置忙**（顺序见那段的 NOTE）。
     void installClicked();
 
     /// 装加载器那一路要**先**挑出跑安装器的 Java：Forge / NeoForge / OptiFine 的安装器

@@ -517,3 +517,44 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 仍然**没有**做的那一半：`execPage()` 的嵌套事件循环、根页来路与"逐根页迁移明确路由栈
 （返回恢复进入前状态）"——那会改动每一页的返回语义和所有阻塞调用点，不在一轮里顺手做。
 
+
+## 2026-10-31 四档安装占用收进 `InstallOccupancy`
+
+「大文件按状态所有权拆分」里点名剩下的一摊：主窗口上那四个"这一批下载是替谁做的"
+`QString`（导入 / 安装 / 补全 / 预取）。它们本身没几行，麻烦的是**判据被抄了好几遍**：
+
+- "是不是正在改这个实例"这条三段 OR 在四个地方各写一次（补全入口的守卫、体检的
+  `targetBeingModified`、预取的守卫、文件页/预设那一侧的占用集合）；
+- 优先链（导入 > 安装 > 补全 > 预取）在任务账那边写了两遍 —— 标题一遍、目标一遍，
+  两处还得保持一致；
+- 收尾那一段四条 `x == m_xxxInstanceId` 各自再清一次。
+
+只要有一处漏了某一档，症状就是用户能直接看见的："装着的实例还能点启动"、"这一批
+认错了自己是哪一类、收尾说了别人的话"。
+
+修改：新增 `src/controllers/InstallOccupancy.hpp`（纯值、一个 TU 都不多），四档收进去，
+问法只在这里定义一次 ——
+
+- `active()`：现在说话的那一档（优先级就是 `kOrder` 那张表），任务账的标题/目标改用它；
+- `modifying(id)` / `anyModifying()`：导入 / 安装 / 补全（**预取不算** —— 它写共享的
+  `assets/asset_director`，实例目录一个字都不动）；
+- `instanceIds()`：四档全部非空 id（并进 `installingVersionIds()`，预取也在内 ——
+  它照样不该被启动）；
+- `clearFor(id)`：收尾时清掉**所有对得上的档**并返回最高优先级的那一档。真有两档撞了
+  同一个 id（不该发生）时两档都松开：只松一档的话另一档会永远占着，那个实例从此再也
+  启动不了。
+
+写法上：`setBatch()` 是唯一写入口（"先记占用再置忙"那个顺序写出来就看得见是哪一档），
+`Batch::None` 不是一档（写它不算数）。主窗口只留一个 `InstallOccupancy m_installOccupancy;`
+成员，那一处的旧注释（为什么界面要自己记这一笔）改成一段总说明；预设那一侧窄的闸仍
+只认**导入**这一档（`is(Batch::Import, id)`），没有被顺手放宽成 `modifying()`。
+
+验证：新增 `tests/core_modules/InstallOccupancyTests.cpp`（OC1–OC8，16 条）钉住优先级、
+"预取不算正在改它"、`clearFor()` 的两条边界（对不上的不动、撞 id 两档都松）。
+`verify` 6113 → 6129、`verify_instances` 1581 → 1597；`verify_resources` 913/913、
+`ui_check` 3133/3133、`mw_check` 2722/2722 全绿。
+顺手补上 `owners.json` 里漏登记的 `ResourceStoreBudgetTests.cpp`（`fa95720` 加的文件，
+`check-test-modules.ps1` 在这一次之前就已经红着）。
+
+还剩：实例设置的编辑控件与脏状态（那一摊的状态所有权在 `InstanceSettingsController`
+那一侧），本轮没动。

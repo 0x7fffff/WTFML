@@ -2,6 +2,7 @@
 
 #include "MainWindow.hpp"
 #include "controllers/ActivityCenterController.hpp"
+#include "controllers/InstallOccupancy.hpp"
 #include "tasks/TaskManager.hpp"
 
 namespace {
@@ -58,34 +59,40 @@ void DownloadTaskLedgerController::begin() {
     if (m_taskId != Tasks::invalidTaskId() && m_owner.m_activityCenter->tasks()->has(m_taskId)) {
         return;
     }
-    // 这一批到底是哪一类活：判据就是界面上自己记的那三个 id（它们在**置忙之前**就写好了），
+    // 这一批到底是哪一类活：判据就是界面自己记的那四档占用（它们在**置忙之前**就写好了），
     // 而收尾那几条路（`DownloadCompletionController::onFinished`）用的也是它们 ——
     // 所以起手和收尾的分档天然一致，不会出现"起手记成安装、收尾按下载报"。
+    // 优先级（导入 > 安装 > 补全 > 预取）只在 `InstallOccupancy::active()` 里写一遍。
+    const InstallOccupancy::Active active = m_owner.m_installOccupancy.active();
     Tasks::TaskKind kind = Tasks::TaskKind::Download;
     QString title;
-    if (!m_owner.m_importingInstanceId.isEmpty()) {
+    switch (active.batch) {
+    case InstallOccupancy::Batch::Import:
         kind = Tasks::TaskKind::Import;  // 导入 = "装一整套东西"，和安装同一档优先级
-        title = MainWindow::tr("导入整合包 %1").arg(m_owner.instanceDisplayName(m_owner.m_importingInstanceId));
-    } else if (!m_owner.m_installingInstanceId.isEmpty()) {
+        title = MainWindow::tr("导入整合包 %1").arg(m_owner.instanceDisplayName(active.instanceId));
+        break;
+    case InstallOccupancy::Batch::Install:
         kind = Tasks::TaskKind::Install;
-        title = MainWindow::tr("安装 %1").arg(m_owner.instanceDisplayName(m_owner.m_installingInstanceId));
-    } else if (!m_owner.m_repairingInstanceId.isEmpty()) {
+        title = MainWindow::tr("安装 %1").arg(m_owner.instanceDisplayName(active.instanceId));
+        break;
+    case InstallOccupancy::Batch::Repair:
         kind = Tasks::TaskKind::Install;
-        title = MainWindow::tr("校验并补全 %1").arg(m_owner.instanceDisplayName(m_owner.m_repairingInstanceId));
-    } else if (!m_owner.m_assetPrefetchInstanceId.isEmpty()) {
+        title = MainWindow::tr("校验并补全 %1").arg(m_owner.instanceDisplayName(active.instanceId));
+        break;
+    case InstallOccupancy::Batch::Prefetch:
         // 预取 = "把这些文件拿下来"，不是装东西；它下的是共享的 assets/asset_director。
         kind = Tasks::TaskKind::Download;
-        title = MainWindow::tr("预取 %1 的首启资源").arg(m_owner.instanceDisplayName(m_owner.m_assetPrefetchInstanceId));
-    } else {
-        // 兜底那一支：今天从界面上**走不到**（能置忙的三条路都会先写上那三个 id 之一 ——
-        // 版本下载没有单独的入口，它是那三条路里的一段）。留着是因为它是个安全的默认：
+        title = MainWindow::tr("预取 %1 的首启资源").arg(m_owner.instanceDisplayName(active.instanceId));
+        break;
+    case InstallOccupancy::Batch::None:
+        // 兜底那一支：今天从界面上**走不到**（能置忙的三条路都会先写上那四档之一 ——
+        // 版本下载没有单独的入口，它是那几条路里的一段）。留着是因为它是个安全的默认：
         // 以后多一条"不特定属于某个实例的下载"，它会得到一个说不岔的标题，而不是一条
         // 空标题的任务。种类给 `Download`（"把文件拿下来"）而不是 `Install`。
         title = MainWindow::tr("下载游戏文件");
+        break;
     }
-    const QString target = !m_owner.m_importingInstanceId.isEmpty() ? m_owner.m_importingInstanceId
-        : !m_owner.m_installingInstanceId.isEmpty() ? m_owner.m_installingInstanceId
-        : !m_owner.m_repairingInstanceId.isEmpty() ? m_owner.m_repairingInstanceId : m_owner.m_assetPrefetchInstanceId;
+    const QString target = active.instanceId;
     // 父任务那一支：先把这一批挂到父任务的某一步底下。父任务认不出来（已被收尾 /
     // 被清除）时退回独立成行 —— 宁可在任务中心多一行，也不能让这批下载没有账。
     Tasks::TaskId child = Tasks::invalidTaskId();

@@ -913,7 +913,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
             status->setText(QObject::tr("正在准备目标核心与加载器，完成后自动继续…"));
             auto *vm = owner->m_versionManager;
             vm->setProperty("instanceUpdatePreparedId", state->core);
-            owner->m_installingInstanceId = state->core;
+            owner->m_installOccupancy.setBatch(InstallOccupancy::Batch::Install, state->core);
             owner->m_downloadCompletion->clear();
             owner->markFileOperationBusy(state->source);
             owner->setDownloadUiBusy(true); owner->m_downloadTaskLedger->begin();

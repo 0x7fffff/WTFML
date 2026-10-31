@@ -903,15 +903,15 @@ void InstallPageController::installClicked() {
     // 忙要在点击这一刻就置上：版本 json / 加载器列表都是异步拉回来的，中间这段时间
     // 按钮还能点的话，用户会重复触发（和别处同一个理由）。
     //
-    // NOTE: **顺序不能反**（`m_installingInstanceId` 必须在 `setDownloadUiBusy(true)` 之前）。
+    // NOTE: **顺序不能反**（「安装」那一档占用必须在 `setDownloadUiBusy(true)` 之前）。
     // `setDownloadUiBusy()` 内部会调 refreshInstalledVersions()，而那份"能启动的实例"
-    // 列表是按 `m_installingInstanceId` 过滤出来的（installingVersionIds()）。反过来的
+    // 列表是按这一档过滤出来的（installingVersionIds()）。反过来的
     // 话，置忙那一刻读到的还是**上一次**的值：对一个已经装好的实例点「安装」（校验并
     // 修复）时，它整段安装期间都留在可启动列表里 —— 用户点得动它，点下去却被
     // onStartButtonClicked() 那道按版本的闸口弹一句"文件还没有下载完成"。
     // 那正是 MainWindow.hpp 写明不许出现的"列表里能选、点下去被拦"。
-    // （applyModpackImport() 那边本来就是"先记 id 再置忙"，这里对齐它。）
-    m_owner.m_installingInstanceId = name;
+    // （applyModpackImport() 那边本来就是"先记占用再置忙"，这里对齐它。）
+    m_owner.m_installOccupancy.setBatch(InstallOccupancy::Batch::Install, name);
     m_owner.setDownloadUiBusy(true);
     m_owner.m_downloadTaskLedger->resetProgressThrottle();
     if (withLoader) {

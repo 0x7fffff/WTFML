@@ -42,6 +42,7 @@ namespace BackupFiles { enum class Kind; }
 #include "controllers/LaunchHistoryController.hpp"
 #include "controllers/InstanceSettingsController.hpp"
 #include "controllers/DownloadFilterController.hpp"
+#include "controllers/InstallOccupancy.hpp"
 #include "controllers/ResourcePageController.hpp"
 #include "controllers/ServerListController.hpp"
 #include "manage/InstanceFilter.hpp"
@@ -610,12 +611,13 @@ private slots:
     ///
     /// 干活的在 VersionManager::repairVersionFiles()，这里管的是"该不该开始、开始之后
     /// 界面成什么样"：三道守卫（这个实例自己在忙 / 别的批次在跑 / 继承链不完整），
-    /// 置 m_repairingInstanceId + 界面忙态，收尾在 DownloadCompletionController::onFinished() 里。
+    /// 置「补全」那一档占用（`InstallOccupancy`）+ 界面忙态，收尾在
+    /// DownloadCompletionController::onFinished() 里。
     void repairInstanceFiles(const QString &versionId);
     /// 导入成功后给这个实例预取 GTNH 首启资源（MCLib AssetDirector）。
     ///
     /// 什么都不做的四种情况：认不出消费者模组（绝大多数实例）、已经全在盘上、体积超上限、
-    /// 另一个批次正在跑。真开一批时就置 m_assetPrefetchInstanceId + 界面忙态，
+    /// 另一个批次正在跑。真开一批时就置「预取」那一档占用 + 界面忙态，
     /// 收尾在 DownloadCompletionController::onFinished() 里（它也会给失败那颗「再试一次」）。
     ///
     /// 为什么挂在"导入成功之后"而不是启动前：启动那条路是同步的（里面还有嵌套事件循环），
@@ -2160,12 +2162,12 @@ private:
     /// 这几个来源缺一不可，它们兜的是同一种缝：活儿还在进行，但此刻**没有任何一批下载
     /// 在跑**（isDownloading() 是 false），于是只看下载状态的话，这个实例看起来已经好了。
     /// - busyVersionId()：正在下这一批的那一个版本。
-    /// - m_importingInstanceId / m_installingInstanceId：整合包导入和"带名字的新实例"
-    /// 都有"等原版版本 json"那一段（元数据请求，不算下载），导入还多一段解压覆盖。
-    /// - m_repairingInstanceId（「补全文件」那颗按钮）：它**是**一批下载在跑，
-    /// 所以 busyVersionId() 那一份本来就盖住它 —— 列在这里是给"按钮点下去、批次还没
-    /// 起来"那一小段兜底（那之间隔着一道 isBusy() 判据）。那一段里这个实例的文件马上
-    /// 就要被重写，照样不该被启动。
+    /// - `m_installOccupancy`（导入整合包 / 带名字的新实例 / 补全 / 首启资源预取四档，
+    ///   判据见 `InstallOccupancy`）：导入和"带名字的新实例"都有"等原版版本 json"那一段
+    ///   （元数据请求，不算下载），导入还多一段解压覆盖。补全与预取**是**一批下载在跑，
+    ///   busyVersionId() 那一份通常已经盖住它们 —— 列在这里是给"按钮点下去、批次还没
+    ///   起来"那一小段兜底（那之间隔着一道 isBusy() 判据）；那一小段里补全要重写这个
+    ///   实例的文件、预取要往共享的 assets/asset_director 里写，照样不该被启动。
     QSet<QString> installingVersionIds() const;
 
     /// 记 / 摘"这一份实例正在后台搬文件"。**唯一入口**，别直接动下面那个集合。
@@ -2920,26 +2922,15 @@ private:
     // 下载是否在进行中。注意不能只问 m_versionManager：从点击"下载"到版本 JSON
     // 拉回来之前，VersionManager 那边还没有任何批次，这段时间也得算"忙"。
     bool m_downloadInFlight = false;
-    // 为什么界面要自己记这一笔：导入的那**一个**终态走的是公共的
-    // versionDownloadFinished(id, ok, msg) —— 收尾那句话是说给用户看的（"整合包「X」
-    // 导入好了"），而这里要判断的是"这一条信号讲的是导入，还是普通的一次版本下载"，
-    // 好把那句「版本 X 的文件已全部就绪」换成导入该说的话。数据层那边不另发一个信号，
-    // 是为了让"一次点击 = 一个终态"这条约定继续保持唯一（见 importModpack 的说明）。
-    QString m_importingInstanceId;
-    // 正在装的那个"带名字的实例"叫什么（空 = 没有这种安装在跑）。和上面那个是同一个
-    // 道理：装一个带名字的实例走的也是公共的 versionDownloadFinished(id, ok, msg)，
-    // 这里要判断"这一条讲的是它，还是普通的一次版本下载"，好把那句「版本 X 的文件已
-    // 全部就绪」换成"实例装好了"该说的话。
-    QString m_installingInstanceId;
-    // 正在**校验/补全**的那个实例（空 = 没有补全在跑）。来路和上面那个一模一样：补全走的
-    // 也是公共的 versionDownloadFinished(id, ok, msg)，这里要判断"这一条讲的是补全，还是
-    // 普通的一次版本下载"，好把那句「版本 X 的文件已全部就绪」换成"都齐了 / 缺哪几个"。
-    // 它也进 installingVersionIds()（见那边），所以补全期间这个实例不在启动列表里。
-    QString m_repairingInstanceId;
-    // 正在**预取 GTNH 首启资源**的那个实例（空 = 没有在跑）。和上面两个同一个来路：
-    // 它也是一批下载、也走公共的 versionDownloadFinished(id, ok, msg)。收尾话术不一样：
-    // 这里不能说"版本文件已全部就绪"，也不能说"校验完成"。
-    QString m_assetPrefetchInstanceId;
+    // 「这一批下载是谁的」—— 导入整合包 / 带名字的新实例 / 补全文件 / 首启资源预取四档。
+    //
+    // 为什么界面要自己记这一笔：这四档走的都是公共的 versionDownloadFinished(id, ok, msg)
+    // —— 收尾那句话是说给用户看的（"整合包「X」导入好了"），而这里要判断的是"这一条信号
+    // 讲的是哪一档"，好把那句「版本 X 的文件已全部就绪」换成那一档该说的话。数据层那边不
+    // 另发一个信号，是为了让"一次点击 = 一个终态"这条约定继续保持唯一（见 importModpack
+    // 的说明）。判据（谁算"正在改它"、任务行该叫什么、哪些实例不能启动）全在
+    // `InstallOccupancy`，这里只是持有它。
+    InstallOccupancy m_installOccupancy;
     // "有版本目录但 jar 名对不上"这件事是否已经写过日志。refreshInstalledVersions()
     // 一次会话会被调很多次，不记一笔就是同样的告警反复刷。
     bool m_reportedUnrecognizedVersions = false;

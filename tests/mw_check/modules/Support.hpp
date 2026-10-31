@@ -1493,7 +1493,7 @@ void runResourceDetailPageTests();
 // 界面这一半）；
 // ④ 期间这个实例从「能启动的实例」里滤掉，结束之后**回来并且被选中**；
 // ⑤ 收尾那句话说的是**用户认得的实例名**，不是裸目录名 —— 这一条钉的是
-// onVersionDownloadFinished() 里"先清 m_repairingInstanceId 再 setDownloadUiBusy(false)"
+// onVersionDownloadFinished() 里"先清「补全」那一档占用、再 setDownloadUiBusy(false)"
 // 那个顺序：反过来（或者顺序颠倒）时它还在过滤名单里，instanceDisplayName() 只能
 // 退回目录名，而两句日志/两个框都会跟着说错是谁。
 //

@@ -365,9 +365,13 @@ MainWindow::MainWindow(QWidget *parent)
                 }
             },
             [this](const QString &id) {
-                // 导入整合包那一路也会把 overrides 整棵解压进实例根目录（`m_importingInstanceId`），
-                // 和预设写的是同一片地方。它不在搬文件那个计数集合里，单独并进来。
-                return m_fileOperationInstanceIds.contains(id) || id == m_importingInstanceId;
+                // 导入整合包那一路也会把 overrides 整棵解压进实例根目录，和预设写的是
+                // 同一片地方。它不在搬文件那个计数集合里，单独并进来。
+                //
+                // NOTE: 只认**导入**这一档，不用 `InstallOccupancy::modifying()`：这是窄的
+                // 那道闸（宽的那一道在下面），安装 / 补全期间落预设是允许的。
+                return m_fileOperationInstanceIds.contains(id)
+                       || m_installOccupancy.is(InstallOccupancy::Batch::Import, id);
             },
             // `applyPlan()` 专用、宽的那一份 —— 正被安装 / 补全文件的
             // 实例也不能这时候落预设。它只从预设页那一颗「应用」进来，不存在
@@ -2130,25 +2134,9 @@ QSet<QString> MainWindow::installingVersionIds() const {
     if (!busy.isEmpty()) {
         ids.insert(busy);
     }
-    // 这两个只在"用户点的是它"那一刻置上、终态时清掉（见那两个成员的说明），覆盖面比
-    // VersionManager 那个宽 —— 正好补上前奏那几段。
-    if (!m_importingInstanceId.isEmpty()) {
-        ids.insert(m_importingInstanceId);
-    }
-    if (!m_installingInstanceId.isEmpty()) {
-        ids.insert(m_installingInstanceId);
-    }
-    // 「补全文件」那颗按钮：它**是**一批下载在跑，所以上面那个 busy 那一份
-    // 通常已经盖住它了；记这一笔是给"点下去、批次还没起来"那一小段兜底（见头文件）。
-    if (!m_repairingInstanceId.isEmpty()) {
-        ids.insert(m_repairingInstanceId);
-    }
-    // 首启资源预取：它同样在往共享的 assets/asset_director 里写文件，期间不让这个实例
-    // 启动（AD 那时也会往同一个目录写）。批次真起来之后 busyVersionId() 已经盖住它，
-    // 这一笔盖的是"点下去、批次还没起来"那一小段。
-    if (!m_assetPrefetchInstanceId.isEmpty()) {
-        ids.insert(m_assetPrefetchInstanceId);
-    }
+    // 那四档界面自己记的占用（导入 / 安装 / 补全 / 预取）只在"用户点的是它"那一刻置上、
+    // 终态时清掉，覆盖面比 VersionManager 那个宽 —— 正好补上前奏那几段。
+    ids.unite(m_installOccupancy.instanceIds());
     return ids;
 }
 
@@ -7601,9 +7589,7 @@ void MainWindow::repairInstanceFiles(const QString &versionId) {
     // 三道守卫，各说各的：用户点的是"检查这个实例"，说清"现在为什么不行"比一句笼统的
     // "忙"有用。第一道看的是**这个实例自己**（不等于"有下载在跑"——别的实例在装不该拦它，
     // 但这里点的是补全，而补全要开一批下载，所以第二道照样得拦）。
-    const bool thisInstanceBusy = versionId == m_installingInstanceId ||
-                                  versionId == m_importingInstanceId ||
-                                  versionId == m_repairingInstanceId;
+    const bool thisInstanceBusy = m_installOccupancy.modifying(versionId);
     if (thisInstanceBusy) {
         InlineMessage::information(
             m_ui->overlay(), tr("现在做不了"),
@@ -7642,7 +7628,7 @@ void MainWindow::repairInstanceFiles(const QString &versionId) {
     appendLog(tr("开始校验「%1」的文件（已存在的会跳过）...").arg(instanceDisplayName(versionId)));
     // 顺序：**先记名字再置忙**。setDownloadUiBusy() 里那句 refreshInstalledVersions() 读的
     // 就是这个判据（正在补全的实例不该出现在启动列表里），反过来的话它漏得出那一次刷新。
-    m_repairingInstanceId = versionId;
+    m_installOccupancy.setBatch(InstallOccupancy::Batch::Repair, versionId);
     setDownloadUiBusy(true);
     m_versionManager->repairVersionFiles(versionId, flagged);
 }
@@ -7676,14 +7662,13 @@ void MainWindow::maybePrefetchAssetDirector(const QString &versionId) {
     }
     // 三道守卫：这个实例（或别的批次）正忙就不抢批次状态。数据层那边还会再挡一次。
     if (m_downloadInFlight || m_versionManager->isDownloading()
-        || !m_repairingInstanceId.isEmpty() || !m_importingInstanceId.isEmpty()
-        || !m_installingInstanceId.isEmpty()) {
+        || m_installOccupancy.anyModifying()) {
         appendLog(tr("「%1」的首启资源这次没有预取（有别的下载或安装正在进行）。")
                       .arg(instanceDisplayName(versionId)));
         return;
     }
     // 顺序：**先记名字再置忙**（`DownloadTaskLedgerController::begin()` 的判据就是这几个 id）。
-    m_assetPrefetchInstanceId = versionId;
+    m_installOccupancy.setBatch(InstallOccupancy::Batch::Prefetch, versionId);
     setDownloadUiBusy(true);
     appendLog(tr("正在预取「%1」的 GTNH 首启资源（%2 个对象，预计 %3 MiB，写入 %4）…")
                   .arg(instanceDisplayName(versionId))
@@ -7693,8 +7678,8 @@ void MainWindow::maybePrefetchAssetDirector(const QString &versionId) {
     if (!m_versionManager->prefetchAssetDirectorResources(versionId)) {
         // 数据层一个字节都没动（不适用 / 被拒 / 已齐）：它可能已经同步发过终态（那时上面那个
         // 分支已经收完尾了），也可能什么都没发 —— 后者要在这里把忙态和任务收回来。
-        if (m_assetPrefetchInstanceId == versionId) {
-            m_assetPrefetchInstanceId.clear();
+        if (m_installOccupancy.is(InstallOccupancy::Batch::Prefetch, versionId)) {
+            m_installOccupancy.clearBatch(InstallOccupancy::Batch::Prefetch);
             setDownloadUiBusy(false);
         }
     }
@@ -7710,9 +7695,7 @@ bool MainWindow::integrityScanningVersion(const QString &versionId) const {
 
 void MainWindow::submitIntegrityCheck(const QString &versionId) {
     IntegrityController::BusyFacts busy;
-    busy.targetBeingModified = versionId == m_installingInstanceId
-                               || versionId == m_importingInstanceId
-                               || versionId == m_repairingInstanceId;
+    busy.targetBeingModified = m_installOccupancy.modifying(versionId);
     busy.anotherDownloadRunning = m_downloadInFlight || m_versionManager->isDownloading()
                                   || (m_serverInstall != nullptr
                                       && m_serverInstall->ownsDownloadBatch());
