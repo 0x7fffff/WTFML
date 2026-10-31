@@ -232,6 +232,13 @@ int runRequestBudgetChecks() {
            !SlowSourcePolicy::better(30000, 65536, 1000) &&
            SlowSourcePolicy::better(30000, 65536, 60),
            "source comparison requires sustained slow work and a sufficiently large faster sample");
+    // 分段协调器那一档看的是**窗口内合计**：还剩多少字节要单独判，不能拿窗口里的字节数
+    // 当成整份进度。
+    expect(SlowSourcePolicy::shouldCompare(35000, 100000, 4 * 1024 * 1024, false) &&
+           !SlowSourcePolicy::shouldCompare(35000, 100000, 4 * 1024 * 1024 - 1, false) &&
+           !SlowSourcePolicy::shouldCompare(35000, 100000, 8 * 1024 * 1024, true) &&
+           !SlowSourcePolicy::shouldCompare(1000, 100000, 8 * 1024 * 1024, false),
+           "the segmented comparison needs a full window, a real remainder and no local limit");
     {
         DownloadManager download;
         download.setSegmentedDownloadEnabled(false);

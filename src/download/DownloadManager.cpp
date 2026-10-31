@@ -1781,6 +1781,9 @@ void DownloadManager::startSegmentedDownload(const PendingJob &job) {
     record.expectedSize = job.expectedSize;
     // 已经因为镜像降级改道到官方了，"退回官方"这条退路就用掉了（和 startDownload 同源）。
     record.officialUrl = rerouted ? QString() : job.officialUrl;
+    // 分段途中合计速率持续太慢时，协调器会拿这条退路取一段样本比一比（快得多就整条
+    // 换过去）。口径与 record.officialUrl 一致：没有退路的作业不设，比较不会发生。
+    task->setFallbackUrl(QUrl(record.officialUrl));
     record.host = QUrl(targetUrl).host();
     record.officialRetried = job.officialRetried;
     record.plainRetried = job.plainRetried;

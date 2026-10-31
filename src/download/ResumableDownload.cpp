@@ -2,6 +2,7 @@
 #include "../net/RequestBudget.hpp"
 #include "DownloadManager.hpp"
 #include "DownloadRetryPolicy.hpp"
+#include "SlowSourcePolicy.hpp"
 #include "../util/DownloadDiagnostics.hpp"
 #include <QCryptographicHash>
 #include <QJsonDocument>
@@ -49,6 +50,12 @@ void removeParts(const QString &directory) {
 bool strongEtag(const QByteArray &value) {
     return value.size() >= 2 && value.size() <= 4096 && value.startsWith('"') && value.endsWith('"') && !value.contains('\r') && !value.contains('\n');
 }
+/// 「持续低速」的观察窗口（毫秒）。非 0 只可能来自验证工程
+/// （`ResumableDownload::setLowSpeedWindowForTest`）—— 产品代码里没人写它。
+qint64 &lowSpeedWindowOverride() {
+    static qint64 ms = 0;
+    return ms;
+}
 }
 
 ResumableDownload::ResumableDownload(QObject *parent, NetworkManagerFactory networkFactory)
@@ -57,8 +64,20 @@ ResumableDownload::ResumableDownload(QObject *parent, NetworkManagerFactory netw
     m_stuckTimer = new QTimer(this);
     m_stuckTimer->setInterval(30 * 1000);
     connect(m_stuckTimer, &QTimer::timeout, this, &ResumableDownload::checkStuck);
+    // 持续低速比较的节拍：一个窗口至少看几下，别只在窗口边界上采一个点。
+    m_rateTimer = new QTimer(this);
+    connect(m_rateTimer, &QTimer::timeout, this, &ResumableDownload::maybeCompareSources);
 }
 ResumableDownload::~ResumableDownload() { cancel(); }
+
+void ResumableDownload::setLowSpeedWindowForTest(qint64 ms) {
+    lowSpeedWindowOverride() = qMax<qint64>(0, ms);
+}
+
+qint64 ResumableDownload::lowSpeedWindowMs() {
+    const qint64 override = lowSpeedWindowOverride();
+    return override > 0 ? override : SlowSourcePolicy::kSustainedWindowMs;
+}
 
 QString ResumableDownload::cacheDirectory(const QUrl &url, const QString &target, const QString &root) {
     const QString base = root.isEmpty() ? QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/range-downloads") : root;
@@ -77,7 +96,12 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
     if (!cancel()) { emit statusChanged(tr("正在提交完整文件，请等待保存结束。")); return; }
     delete m_files;
     m_files = new DownloadManager(this, m_networkFactory);
-    connect(m_files, &DownloadManager::transferBytes, this, &ResumableDownload::transferBytes);
+    // 分段正文的字节数同时记进"本窗口"那一格：持续低速比较看的是**合计**速率，
+    // 单条链路的速度由内部下载器的看门狗各自管。
+    connect(m_files, &DownloadManager::transferBytes, this, [this](qint64 bytes) {
+        if (m_stage == Stage::Parts) m_rateBytes += bytes;
+        emit transferBytes(bytes);
+    });
     // 先共用一个令牌桶，再推限速（顺序不能反：setter 写的是桶里那一份）。
     m_files->shareSpeedLimitBucketWith(m_speedBucketOwner);
     m_files->setUseMirror(false);
@@ -93,6 +117,8 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
     m_url = url; m_target = target; m_sha1 = sha1; m_expectedSize = size; m_overwrite = overwrite;
     m_total = -1; m_count = 0; m_complete.clear(); m_live.clear(); m_etag.clear(); m_networkAttempted = false;
     m_partsRetried = false; m_partsRetryPending = false;
+    m_rateTimer->stop(); m_rateBytes = 0; m_nextCompareMs = 0; m_compareClock.start();
+    m_sample = nullptr;
     m_urlHash = hashText(url.toEncoded()); m_cache = cacheDirectory(url, target, cacheRoot);
     if (!url.isValid() || (url.scheme() != QStringLiteral("http") && url.scheme() != QStringLiteral("https")) || !QDir::isAbsolutePath(target)) {
         finish(false, tr("下载地址或保存路径无效。")); return;
@@ -483,6 +509,13 @@ bool ResumableDownload::saveManifest(QString *error) {
 void ResumableDownload::downloadParts() {
     if (m_complete.size() == m_count) { assemble(); return; }
     m_stage = Stage::Parts;
+    // 持续低速比较的窗口从这里重新起算（换源、补段之后都算新的一轮）。
+    m_rateBytes = 0;
+    m_rateClock.start();
+    if (!m_fallbackUrl.isEmpty()) {
+        m_rateTimer->setInterval(int(qBound<qint64>(500, lowSpeedWindowMs() / 5, qint64(5000))));
+        m_rateTimer->start();
+    }
     if (DownloadDiag::enabled()) {
         DownloadDiag::line(QStringLiteral("resumable parts: missing=%1/%2 partSize=%3 total=%4 "
                                           "url=%5")
@@ -504,6 +537,124 @@ void ResumableDownload::downloadParts() {
         m_files->downloadFile(m_source.toString(), partPath(index), {}, partLength(index), VerifyMode::AlwaysDownload, {}, range);
     }
     m_files->endBatch();
+}
+
+void ResumableDownload::maybeCompareSources() {
+    if (!m_running || m_stage != Stage::Parts) return;
+    // 没有退路、已经换过一次（换完就把备用地址清空了）、样本还在飞、或者设了限速：
+    // 这几种情况下"慢"都不是源站的证据（限速是本地令牌桶，样本会绕过它，比出来的是假的）。
+    if (m_fallbackUrl.isEmpty() || m_sample || m_speedLimitBytesPerSecond > 0) return;
+    if (m_compareClock.elapsed() < m_nextCompareMs) return;
+    const qint64 window = m_rateClock.elapsed();
+    if (window < lowSpeedWindowMs()) return;
+    const qint64 rate = m_rateBytes * 1000 / qMax<qint64>(1, window);
+    const qint64 remaining = m_total - completedBytes();
+    // 换源会把入口换成备用地址，而备用地址的 ETag 很可能和现在的不同 ——
+    // `prepareCache()` 认不出就整批作废旧分段。只有"前路还长"才值得冒这个险：
+    // 备用地址快三倍时，最坏情况（从零重下）也才和"照现在的速度下完剩下的"打平。
+    const bool worthSwitching = remaining > 0 && remaining * 3 > m_total;
+    const bool slow = SlowSourcePolicy::shouldCompare(window, m_rateBytes, remaining,
+                                                      m_speedLimitBytesPerSecond > 0,
+                                                      lowSpeedWindowMs());
+    if (!slow || !worthSwitching) {
+        // 这一窗不算数：下一个窗口重新攒（速率是**窗口内**的合计，不能越拖越平均）。
+        m_rateBytes = 0;
+        m_rateClock.start();
+        return;
+    }
+    auto lease = RequestBudget::tryAcquire(RequestBudget::Lane::Bulk);
+    if (!lease) {
+        // 名额紧：不要拿着一个越来越长的窗口去比 —— 下一拍再来。
+        m_rateBytes = 0;
+        m_rateClock.start();
+        return;
+    }
+    QNetworkRequest request(m_fallbackUrl);
+    request.setRawHeader("Range", "bytes=0-65535");
+    request.setRawHeader("Accept-Encoding", "identity");
+    request.setTransferTimeout(6000);
+    auto *reply = m_files->networkAccess()->get(request);
+    RequestBudget::attach(reply, lease);
+    m_sample = reply;
+    reply->setReadBufferSize(64 * 1024);
+    auto clock = std::make_shared<QElapsedTimer>();
+    clock->start();
+    auto bytes = std::make_shared<qint64>(0);
+    connect(reply, &QIODevice::readyRead, reply, [reply, bytes] {
+        *bytes += reply->read(qMax<qint64>(0, 65536 - *bytes)).size();
+        if (*bytes >= 65536) {
+            reply->setProperty("wtfmlSampleComplete", true);
+            reply->abort();  // 不认 Range 的服务器会把整个文件倒过来，64 KiB 就够了
+        }
+    });
+    QTimer::singleShot(6000, reply, [reply] { if (!reply->isFinished()) reply->abort(); });
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("resumable source comparison start currentBps=%1 "
+                                          "windowMs=%2 complete=%3/%4 fallback=%5")
+                               .arg(rate)
+                               .arg(window)
+                               .arg(m_complete.size())
+                               .arg(m_count)
+                               .arg(DownloadDiag::safeUrl(m_fallbackUrl)));
+    }
+    const auto generation = m_generation;
+    connect(reply, &QNetworkReply::finished, this, [this, reply, generation, rate, clock, bytes] {
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const bool sampled = (status == 200 || status == 206) &&
+            (reply->error() == QNetworkReply::NoError ||
+             reply->property("wtfmlSampleComplete").toBool());
+        const bool switchSource =
+            sampled && SlowSourcePolicy::better(rate, *bytes, qMax<qint64>(1, clock->elapsed()));
+        if (DownloadDiag::enabled()) {
+            DownloadDiag::line(QStringLiteral("resumable source comparison: status=%1 bytes=%2 "
+                                              "elapsedMs=%3 currentBps=%4 switch=%5")
+                                   .arg(status > 0 ? QString::number(status) : QStringLiteral("-"))
+                                   .arg(*bytes)
+                                   .arg(clock->elapsed())
+                                   .arg(rate)
+                                   .arg(switchSource ? QStringLiteral("yes") : QStringLiteral("no")));
+        }
+        reply->deleteLater();
+        if (m_sample == reply) m_sample = nullptr;
+        if (!m_running || generation != m_generation || m_stage != Stage::Parts) return;
+        // 换与不换都从这里开一个新窗口；没换成的退避一分钟再比，别拿 64 KiB 反复探。
+        m_rateBytes = 0;
+        m_rateClock.start();
+        m_nextCompareMs = m_compareClock.elapsed() + 60000;
+        if (!switchSource) return;
+        switchToFallback();
+    });
+}
+
+void ResumableDownload::switchToFallback() {
+    if (!m_running || m_stage != Stage::Parts || m_fallbackUrl.isEmpty()) return;
+    const QUrl fallback = m_fallbackUrl;
+    // 只换一次：换过去之后不再把原入口当"退路"来回弹（两个都不快时只会来回跳）。
+    m_fallbackUrl = QUrl();
+    m_rateTimer->stop();
+    if (DownloadDiag::enabled()) {
+        DownloadDiag::line(QStringLiteral("resumable source switch from=%1 to=%2 complete=%3/%4")
+                               .arg(DownloadDiag::safeUrl(m_url),
+                                    DownloadDiag::safeUrl(fallback))
+                               .arg(m_complete.size())
+                               .arg(m_count));
+    }
+    // 换的是**入口地址**：备用地址自己也可能 302 到一条很快过期的落点。重新走一遍
+    // `probe()` 拿落点和 ETag —— `m_source` 是那一趟的产物，拿入口地址直接去发 Range
+    // 会绕过它，签名 URL 那类落点 60 秒就作废了（和 `checkStuck()` 重新探测同一个理由）。
+    // 分段正文一条都不跨来源拼：ETag 变了 `prepareCache()` 会把旧分段整批作废。
+    // 这一轮补段的次数也给新来源重新记一份（换源只有一次，不会因此无限重试）。
+    m_url = fallback;
+    m_partsRetried = false;
+    m_partsRetryPending = false;
+    m_stage = Stage::Probe;  // 先改状态：`cancelBatch()` 的收尾信号别再走进分段分支
+    m_files->cancelBatch();
+    m_live.clear();
+    m_progressClock.restart();
+    m_rateBytes = 0;
+    m_rateClock.start();
+    m_nextCompareMs = 0;
+    probe();
 }
 
 void ResumableDownload::startSingle() {
@@ -639,6 +790,9 @@ void ResumableDownload::finish(bool success, const QString &error) {
     if (!m_running) return;
     m_running = false; m_stage = Stage::Done;
     m_stuckTimer->stop();
+    // 比较样本也是本对象发出去的一条请求：收尾时一起掐掉（它的回调按代次认，不会误收）。
+    m_rateTimer->stop();
+    if (m_sample) { m_sample->abort(); m_sample = nullptr; }
     if (DownloadDiag::enabled()) {
         DownloadDiag::line(QStringLiteral("resumable finished success=%1 error=%2 target=%3")
                                .arg(success ? QStringLiteral("yes") : QStringLiteral("no"),
@@ -658,6 +812,8 @@ bool ResumableDownload::cancel() {
     ++m_generation;
     m_running = false; m_stage = Stage::Done;
     if (m_stuckTimer) m_stuckTimer->stop();
+    if (m_rateTimer) m_rateTimer->stop();
+    if (m_sample) { m_sample->abort(); m_sample = nullptr; }
     if (m_abort) m_abort->storeRelaxed(1);
     if (m_probe) { m_probe->abort(); m_probe = nullptr; }
     if (m_files) m_files->cancelBatch();

@@ -52,6 +52,17 @@ public:
     /// 作业各拿满一份。`DownloadManager::startSegmentedDownload()` 在 start() 之前调。
     void setSpeedLimitBucketOwner(DownloadManager *owner) { m_speedBucketOwner = owner; }
 
+    /// 官方备用地址（外层下载器给的那条退路）。分段途中**合计**速率持续低于
+    /// `SlowSourcePolicy` 的阈值时，从这里取 64 KiB 样本比较；真快得多就整条换过去
+    /// （重新探测入口、按 ETag 决定旧分段留不留），只换一次。
+    /// 本来就直连官方（或者已经因为镜像降级改道过）时没有备用地址：不设 = 不比较。
+    void setFallbackUrl(const QUrl &url) { m_fallbackUrl = url; }
+
+    /// 只给验证工程：把「持续低速」的观察窗口改短（默认
+    /// `SlowSourcePolicy::kSustainedWindowMs`）。阈值本身仍只有 `SlowSourcePolicy` 一处。
+    /// 传 0 = 恢复默认。产品代码不许调。
+    static void setLowSpeedWindowForTest(qint64 ms);
+
     static QString cacheDirectory(const QUrl &url, const QString &target, const QString &root = {});
 signals:
     void progress(qint64 done, qint64 total);
@@ -80,8 +91,23 @@ private:
     /// 的表现就是"进度条永远停着、没有错误"，用户只能重启（实测卡死过二十分钟）。
     void checkStuck();
     static constexpr qint64 kStuckGiveUpMs = 5 * 60 * 1000;
+    /// 分段阶段的持续低速比较：每 tick 看一次本窗口的**合计**速率（窗口见
+    /// `lowSpeedWindowMs()`），够慢就从备用地址取一段样本；样本明显更快就换源。
+    void maybeCompareSources();
+    void switchToFallback();
+    static qint64 lowSpeedWindowMs();
     QElapsedTimer m_progressClock;
     QTimer *m_stuckTimer = nullptr;
+    QTimer *m_rateTimer = nullptr;
+    /// 本窗口的起点与其中收到的分段正文字节（判断"持续低速"用）。
+    QElapsedTimer m_rateClock;
+    qint64 m_rateBytes = 0;
+    /// 整条作业的时钟 + 下一次允许取样本的时刻（没换成的样本要退避）。
+    QElapsedTimer m_compareClock;
+    qint64 m_nextCompareMs = 0;
+    /// 备用地址与正在取样本的那一发（取消/收尾时要掐掉）。
+    QUrl m_fallbackUrl;
+    QPointer<QNetworkReply> m_sample;
     DownloadManager *m_files = nullptr;
     NetworkManagerFactory m_networkFactory;
     /// 速度上限（字节/秒，0 = 不限；见 setSpeedLimitBytesPerSecond()）。`m_files` 每次
