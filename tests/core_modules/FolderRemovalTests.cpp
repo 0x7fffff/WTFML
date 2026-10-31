@@ -307,5 +307,103 @@ void runFolderRemovalTests() {
             icacls({nativeBlocked, QStringLiteral("/remove:d"), user});
         }
     }
+
+    // ---------- ZAP. ACL 真的拒绝删除：说的是「权限」，而且动手之前就停 ----------
+    {
+        // ZAO7 钉住的是「没有写权限 ≠ 删不掉」；这一节钉另一头：**真没有删除权限**时
+        // 必须如实报「权限不允许」，而且要在动任何东西之前停下。
+        //
+        // 夹具为什么要挂两条拒绝项：Windows 判一项能不能删，是「自己身上有 DELETE」**或**
+        // 「所在目录有 FILE_DELETE_CHILD」二者其一。只给那一项挂 `(DE)` 挡不住 —— 父目录
+        // 那条 DC 还在，实测 `Remove-Item` 照样删得掉（文件没了、只报目录那句拒绝）。
+        // 所以父目录也得挂一条 `(DC)`。
+        const QString user = qEnvironmentVariable("USERNAME");
+        const auto icacls = [](const QStringList &args) {
+            return QProcess::execute(QStringLiteral("cmd"),
+                                     QStringList{QStringLiteral("/c"), QStringLiteral("icacls")} +
+                                         args) == 0;
+        };
+
+        // ZAP1. 一整个目录（里面还躺着一件文件）。
+        {
+            const QString parent = temp.filePath(QStringLiteral("回收站-权限-父"));
+            const QString victim = parent + QStringLiteral("/不许删");
+            const QString child = victim + QStringLiteral("/里面那件.txt");
+            const bool wrote =
+                QDir().mkpath(victim) && writeBytesAt(child, QByteArrayLiteral("keep"));
+            const QString nativeVictim = QDir::toNativeSeparators(victim);
+            const QString nativeParent = QDir::toNativeSeparators(parent);
+            const bool denied = wrote && !user.isEmpty() &&
+                                icacls({nativeVictim, QStringLiteral("/deny"),
+                                        user + QStringLiteral(":(DE)")}) &&
+                                icacls({nativeParent, QStringLiteral("/deny"),
+                                        user + QStringLiteral(":(DC)")});
+            check(wrote && denied,
+                  "★ ZAP1 前提：那一项挂拒绝删除、所在目录挂拒绝删子项（icacls /deny DE + DC）",
+                  QStringLiteral("写=%1 挂上=%2 用户=%3").arg(wrote).arg(denied).arg(user));
+            if (denied) {
+                QString problem;
+                const bool moved = moveToRecycleBin(victim, &problem);
+                // 这一条分得出两种原因才值钱：说「权限」、不说「被占着」。
+                check(!moved && problem.contains(QStringLiteral("权限")) &&
+                          !problem.contains(QStringLiteral("占着")),
+                      "★★ ZAP1 没有删除权限时回 false，说的是「权限」而不是「被占着」", problem);
+                check(problem.contains(nativeVictim),
+                      "★★ ZAP1 那句话里带着是哪一件", problem);
+                // 预检的意义就在这一条：让 IFileOperation 自己撞上去的话，子树里删得动的
+                // 那些会先进回收站、最后才在目录那一层失败 —— 这里要求一件都没少。
+                check(QFileInfo::exists(child) && readBytesAt(child) == QByteArrayLiteral("keep"),
+                      "★★★ ZAP1 一个字节都没动：里面那件还在原处、内容没变",
+                      QFileInfo::exists(child) ? QString::fromLatin1(readBytesAt(child))
+                                               : QStringLiteral("<里面那件不见了>"));
+                // 收尾：两条拒绝项都摘掉；之后同一项必须过得去 —— 证明挡住它的确实是 ACL。
+                icacls({nativeVictim, QStringLiteral("/remove:d"), user});
+                icacls({nativeParent, QStringLiteral("/remove:d"), user});
+                QString afterProblem;
+                const bool movedAfter = moveToRecycleBin(victim, &afterProblem);
+                check(movedAfter && !QFileInfo::exists(victim),
+                      "★★ ZAP1 摘掉拒绝项之后同一项照常进回收站（挡住它的确实是那条 ACL）",
+                      afterProblem);
+            } else {
+                icacls({nativeVictim, QStringLiteral("/remove:d"), user});
+                icacls({nativeParent, QStringLiteral("/remove:d"), user});
+            }
+        }
+
+        // ZAP2. 单件文件（父目录挂拒绝删子项、文件本身挂拒绝删除）。
+        {
+            const QString parent = temp.filePath(QStringLiteral("回收站-权限-文件父"));
+            const QString victim = parent + QStringLiteral("/不许删.dat");
+            const bool wrote =
+                QDir().mkpath(parent) && writeBytesAt(victim, QByteArrayLiteral("keep"));
+            const QString nativeVictim = QDir::toNativeSeparators(victim);
+            const QString nativeParent = QDir::toNativeSeparators(parent);
+            const bool denied = wrote && !user.isEmpty() &&
+                                icacls({nativeVictim, QStringLiteral("/deny"),
+                                        user + QStringLiteral(":(DE)")}) &&
+                                icacls({nativeParent, QStringLiteral("/deny"),
+                                        user + QStringLiteral(":(DC)")});
+            check(wrote && denied, "★ ZAP2 前提：单件文件那一对拒绝项挂上了",
+                  QStringLiteral("写=%1 挂上=%2 用户=%3").arg(wrote).arg(denied).arg(user));
+            if (denied) {
+                QString problem;
+                const bool moved = moveToRecycleBin(victim, &problem);
+                check(!moved && problem.contains(QStringLiteral("权限")),
+                      "★★ ZAP2 单件文件没有删除权限时回 false + 说的是「权限」", problem);
+                check(readBytesAt(victim) == QByteArrayLiteral("keep"),
+                      "★★★ ZAP2 那一件还在原处、内容没变",
+                      QString::fromLatin1(readBytesAt(victim)));
+                icacls({nativeVictim, QStringLiteral("/remove:d"), user});
+                icacls({nativeParent, QStringLiteral("/remove:d"), user});
+                QString afterProblem;
+                const bool movedAfter = moveToRecycleBin(victim, &afterProblem);
+                check(movedAfter && !QFileInfo::exists(victim),
+                      "★★ ZAP2 摘掉拒绝项之后同一件照常进回收站", afterProblem);
+            } else {
+                icacls({nativeVictim, QStringLiteral("/remove:d"), user});
+                icacls({nativeParent, QStringLiteral("/remove:d"), user});
+            }
+        }
+    }
 }
 

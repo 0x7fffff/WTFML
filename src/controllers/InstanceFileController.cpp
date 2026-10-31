@@ -168,8 +168,10 @@ bool InstanceFileController::removeUnchecked(const QString &path, QString *probl
     // 点错了得有地方捞回来。目录那条路连同里面一起移，链接只摘壳子 —— 两条约定都在
     // `moveToRecycleBin()` 里（见 FolderManager.hpp）。
     QString recycleProblem;
+    // 原因由 `moveToRecycleBin()` 给全（权限 / 被占着 / 回收站本身），这里只包一层
+    // 「是哪一件」—— 不再替它补一句「先把游戏关掉再试」：权限不够的时候那句话是错的。
     if (!moveToRecycleBin(path, &recycleProblem))
-        return fail(tr("没能把「%1」移进回收站：%2\n\n先把游戏关掉再试。")
+        return fail(tr("没能把「%1」移进回收站。\n\n%2")
                         .arg(QDir::toNativeSeparators(path), recycleProblem));
     log(tr("删除文件：%1").arg(QDir::toNativeSeparators(path)));
     return true;
