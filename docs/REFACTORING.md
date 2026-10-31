@@ -492,3 +492,102 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 同时合并启用/禁用统计，并将逐行反选改为选择模型的一次事务，避免每行重算整套状态。
 模组专项、1000 条目测量、完整 UI 3123/3123 和 Release 构建通过；
 测量范围、证据及尚未完成项见 [选择性能](P2_SELECTION_PERFORMANCE_20261029.md)。
+
+## 2026-10-31 后台完成不再驱逐用户正看着的那一页
+
+审 `execPage()` 那一片时确认的一个真缺陷：后台弄完的事（更新检测回来、更新装完、
+体检跑完）走的是 `runWhenOverlayFree()` —— 它的规矩是**先把占着这一层的那一页收掉**
+再开新的。于是"检查更新在后台跑着，用户翻进了实例设置"的结果是：结果一回来，他那一页
+自己没了（实例设置那页还会连带丢掉翻到哪儿、滚到哪儿，虽然字段是改了就写的）。
+
+修改（只有这一条，不做页面栈）：
+
+- `OverlayHost::queuePageOpen(show)`：空着就当场调，**被占着就排着**（整页、提示、
+  **收着的页**都算占着 —— 收着的那一页用户切回去还指望它原样在）。收干净之后下一轮
+  才调，最多排 4 发，超了丢最老的。收页时排的那一发和提示那条排水路数完全相同
+  （`QTimer::singleShot(0)` + 先排下一次再摆这一发），不新造时序。
+- `MainWindow::openPageWhenIdle()` 是它在主窗口这一侧的出口，和
+  `runWhenOverlayFree()` **并存**：用户自己点的那些照旧驱逐（"我点了，把挡路的收掉"），
+  后台完成的三处改用新的（`InstanceUpdateCheckController::finishUpdateCheck()`、
+  更新收尾后重开更新中心、`IntegrityController` 的体检报告页，后者的 `Host` 注释同步）。
+- 用例在 `tests/ui_check/modules/UiOverlayNavigationChecks.cpp` 的 O2b：被占着时那一发
+  一句都不执行、用户那一页的标题和层级不动、别人照样开不进来；收掉之后那一发自己出来，
+  而且不会跑第二遍；空着时是当场执行（返回 false）。
+
+仍然**没有**做的那一半：`execPage()` 的嵌套事件循环、根页来路与"逐根页迁移明确路由栈
+（返回恢复进入前状态）"——那会改动每一页的返回语义和所有阻塞调用点，不在一轮里顺手做。
+
+
+## 2026-10-31 四档安装占用收进 `InstallOccupancy`
+
+「大文件按状态所有权拆分」里点名剩下的一摊：主窗口上那四个"这一批下载是替谁做的"
+`QString`（导入 / 安装 / 补全 / 预取）。它们本身没几行，麻烦的是**判据被抄了好几遍**：
+
+- "是不是正在改这个实例"这条三段 OR 在四个地方各写一次（补全入口的守卫、体检的
+  `targetBeingModified`、预取的守卫、文件页/预设那一侧的占用集合）；
+- 优先链（导入 > 安装 > 补全 > 预取）在任务账那边写了两遍 —— 标题一遍、目标一遍，
+  两处还得保持一致；
+- 收尾那一段四条 `x == m_xxxInstanceId` 各自再清一次。
+
+只要有一处漏了某一档，症状就是用户能直接看见的："装着的实例还能点启动"、"这一批
+认错了自己是哪一类、收尾说了别人的话"。
+
+修改：新增 `src/controllers/InstallOccupancy.hpp`（纯值、一个 TU 都不多），四档收进去，
+问法只在这里定义一次 ——
+
+- `active()`：现在说话的那一档（优先级就是 `kOrder` 那张表），任务账的标题/目标改用它；
+- `modifying(id)` / `anyModifying()`：导入 / 安装 / 补全（**预取不算** —— 它写共享的
+  `assets/asset_director`，实例目录一个字都不动）；
+- `instanceIds()`：四档全部非空 id（并进 `installingVersionIds()`，预取也在内 ——
+  它照样不该被启动）；
+- `clearFor(id)`：收尾时清掉**所有对得上的档**并返回最高优先级的那一档。真有两档撞了
+  同一个 id（不该发生）时两档都松开：只松一档的话另一档会永远占着，那个实例从此再也
+  启动不了。
+
+写法上：`setBatch()` 是唯一写入口（"先记占用再置忙"那个顺序写出来就看得见是哪一档），
+`Batch::None` 不是一档（写它不算数）。主窗口只留一个 `InstallOccupancy m_installOccupancy;`
+成员，那一处的旧注释（为什么界面要自己记这一笔）改成一段总说明；预设那一侧窄的闸仍
+只认**导入**这一档（`is(Batch::Import, id)`），没有被顺手放宽成 `modifying()`。
+
+验证：新增 `tests/core_modules/InstallOccupancyTests.cpp`（OC1–OC8，16 条）钉住优先级、
+"预取不算正在改它"、`clearFor()` 的两条边界（对不上的不动、撞 id 两档都松）。
+`verify` 6113 → 6129、`verify_instances` 1581 → 1597；`verify_resources` 913/913、
+`ui_check` 3133/3133、`mw_check` 2722/2722 全绿。
+顺手补上 `owners.json` 里漏登记的 `ResourceStoreBudgetTests.cpp`（`fa95720` 加的文件，
+`check-test-modules.ps1` 在这一次之前就已经红着）。
+
+还剩：实例设置的编辑控件与脏状态（那一摊的状态所有权在 `InstanceSettingsController`
+那一侧），本轮没动。
+
+## 2026-10-31 「导出启动脚本」的正文收进 `LaunchScriptExport`
+
+「大文件按状态所有权拆分」里另一摊：`MainWindow::exportLaunchScript()`。它前半段是问用户、
+取令牌、算 Java 值，后半段是一大段内联代码加一个文件内的 `static QString batchQuote()`，
+把一串启动参数拼成 cmd 认的 .bat 正文。拼的规矩全是**看不见的**：
+
+- 哪些字符要让 cmd 包一层引号（空格/制表符/空串/`&|<>()^"`），而 `!` 故意不动（脚本没开
+  延迟展开，转义反而多出一个 `^`）；
+- `%` 必须写两遍（引号里照样展开）；
+- 注释要按**本地代码页**写得出来，英文版 Windows 上换成英文（`toLocal8Bit()` 会把汉字变成
+  `?`）；
+- 正版那一路令牌换成 `%WTFML_MC_ACCESS_TOKEN%` 引用，原始令牌一个字节都不落盘；
+- 拼完再过一道已知凭据，对得上就整份不写。
+
+以前这些只有"开对话框、真令牌、双击脚本"才验得到 —— 错一个字节用户双击时才看得见。
+
+修改：新增 `src/launcher/LaunchScriptExport.hpp`（纯头文件，值进、文本出）：
+
+- `quote(arg)`：上面那两条引号规矩（原 `batchQuote`，连注释一起搬过来）；
+- `compose(Input)`：`Input` 只有四个值（数据目录 / Java 程序 / 已经展开好的参数 / 令牌与
+  离线标志），拼出整份正文；返回**空串** = 里面有已知凭据。程序名为空时的裸 `java` 兜底
+  也挪进来了（写 `""` 出去是个跑不起来的脚本）。
+
+主窗口那边只剩"凑值 + 写文件 + 说结果"：`QSaveFile`、"写不进去怎么报"、"哪几件事要提一句"
+都留在原处（那些是界面层的事）。行为不变，唯一的写法差异是令牌替换多了 `!token.isEmpty()`
+这一道守卫（正版这一路走到那里时令牌必然非空；离线不替换）。
+
+验证：新增 `tests/core_modules/LaunchScriptExportTests.cpp`（模块 `launch`，LX1–LX5，19 条）
+钉住引号规矩、离线那一份的结构、空程序名兜底、正版令牌替换（且引用本身不被 `%` 那条规矩
+写成两遍）、以及"带已知凭据整份不写 / 去掉那一条照常拼得出来"。`verify` 6129 → 6148、
+`verify_launch` 310 → 329；`verify_resources` 913/913、`ui_check` 3133/3133、
+`mw_check` 2722/2722 全绿，`check-test-modules.ps1` / `check-ci-partitions.ps1` 通过。

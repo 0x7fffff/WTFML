@@ -5,6 +5,7 @@
  */
 #pragma once
 
+#include <QHash>
 #include <QJsonObject>
 #include <QFuture>
 #include <QObject>
@@ -23,6 +24,7 @@ class QTimer;
 #include "../download/DownloadManager.hpp"
 #include "../download/LoaderMeta.hpp"
 #include "../download/VersionCategory.hpp"
+#include "InstanceMetaFile.hpp"
 #include "ModpackExport.hpp"
 #include "ModpackImport.hpp"
 #include "VersionDisplay.hpp"
@@ -174,7 +176,7 @@ public:
      * 用户看到"体检说要修 1 个、补全说一个都不用下"。把体检那份清单喂进来，两边就对上了。
      * （口径见 DownloadManager::setFlaggedPaths()；**只认路径、不分类别**。）
      *
-     * NOTE: 收尾信号被调用方当成两用（见 MainWindow 里 m_repairingInstanceId 那段），所以
+     * NOTE: 收尾信号被调用方当成两用（见 `InstallOccupancy` 的「补全」那一档），所以
      * 这里的早退**必须**发终态 —— 界面点一下就在等一个结果，不发就是"点了没反应"。
      * NOTE: 想先把 json 拉一遍再补的老路走不通：那要求联网，而损坏的文件里就有可能是网络
      * 本身弄坏的。盘上那份 json 足够算出要找哪些文件。
@@ -833,8 +835,10 @@ public:
      * mod）。"这一页对用户有没有用"是另一个问题，那个补在调用的那一侧 ——
      * 见 MainWindow::instanceModsUsable()。
      *
-     * NOTE: 这里**读盘**（meta + json），和 instanceSupportsDatapacks() 一样现取不缓存；
-     * 但 `getVersionJson()` 那一层自带缓存，所以一次会话里每个实例只真读一次。
+     * NOTE: 这里**读盘**（meta + json），但两层缓存兜着：meta 那半走
+     * `readVersionMeta()`（按"在不在 / 修改时刻 / 字节数"失效），json 那半算过一次就跟着
+     * 合并缓存那一格记着（见 instanceTraits()）。所以一次会话里每个实例的 json 只认一遍，
+     * 之后每次刷新只多一次 meta 的 stat。
      *
      * NOTE: 第 2 条**先看 OptiFine**（和导出那条路的顺序一致，见 loaderEvidenceFromJson）。
      * 所以一个"既装了 Fabric、又装了 OptiFine"的实例在这里报的是 `OptiFine` ——
@@ -844,6 +848,32 @@ public:
      */
     bool instanceModLoader(const QString &instanceId, QString *nameOut,
                            QString *versionOut = nullptr) const;
+
+    /**
+     * @brief 一个实例**显示层**要的两条事实，一次问齐：加载器，和版本分类那个 `type`。
+     *
+     * 合并成一次的原因很实际：这两个答案都来自同一次 `wtfml.meta` 读。分开问两遍
+     * （`instanceModLoader()` + 版本分类）就是每个实例每次刷新多一遍 stat ——
+     * 实例树在 200 个实例上要问两轮（行首图标一轮、自动归类一轮），那一层实测能把
+     * 一次刷新里三成的阻塞摊在这几条 stat 上。
+     *
+     * 两条的取法各自和原来一模一样（别在这里"顺便统一"）：
+     * - `loaderName`：`wtfml.meta` 里那格**原样**（trimmed，可能是用户手写的 `fabric`），
+     *   没有才回落到版本 json 里认出来的**显示名**；都没有 = 空串。
+     * - `type`：`wtfml.meta` 里的 `type` 优先，其次是版本 json 自己写的那个；都没有 = 空串
+     *   （调用方当**正式版**处理，见 MainWindowViewData.cpp 里 versionChannelOf()）。
+     *
+     * NOTE: json 那半算过一遍就跟着合并缓存那一格一起记着（见 MergedJsonEntry）——
+     * 丢掉 json 缓存的每一处都会把这两个答案一起丢掉，所以不必再维护第二份失效逻辑。
+     * NOTE: meta 那半**每次问都现读一次 stat**（和 readVersionMeta() 的失效判据一致）：
+     * 用户在外面手改 wtfml.meta 之后，下一次刷新就该看见新的加载器名。
+     */
+    struct InstanceTraits {
+        QString loaderName;     ///< 加载器名（meta 里那格原样；或 json 认出来的显示名）
+        QString loaderVersion;  ///< 只在 loaderName 非空时有意义
+        QString type;           ///< "release" / "snapshot" / "old_beta" …；空 = 不知道
+    };
+    InstanceTraits instanceTraits(const QString &instanceId) const;
 
     /**
      * @brief 反查：本地 sha1 → Modrinth 的版本。
@@ -1057,6 +1087,8 @@ public:
     // nameFormat / realVersion —— 整体覆盖写会把它们抹掉，而那正是读侧花了力气
     // 支持的东西。同理，文件**存在但解析不了**时**拒绝写**：往一份读不懂的内容上
     // 合并等于把用户手写的部分丢掉，比"这次没写成"糟得多。
+    // NOTE: 这些规矩的实现在 manage/InstanceMetaFile（按路径工作，暂存目录 / 别的游戏
+    // 文件夹也能用）；这里只负责"当前数据目录下的哪一份"和目录锁。
     // NOTE: 非 const —— 它真的往磁盘上写东西。"看起来是只读"的假 const 会诱使人在
     // 扫描路径上调用它，而扫描一次会话要跑无数遍、绝不能带副作用。
     bool updateVersionMeta(const QString &versionId, const QJsonObject &fields,
@@ -1327,13 +1359,12 @@ private slots:
     void onAllDownloadsFinished(bool success);
 
 private:
-    // 读 <id>/wtfml.meta 并解析成对象。文件不存在、打不开、格式错都返回空对象
-    // （格式错会告警）。displayParts() 和 versionJvmArgs() 共用这一份读盘逻辑，
-    // 免得把"什么算坏文件、坏了要不要吭声"的判断抄两遍、慢慢抄歪。
+    // 读 <id>/wtfml.meta 并解析成对象，实现只有一份（InstanceMetaFile::read）。
+    // 文件不存在、打不开、格式错都返回空对象（后两种会告警）。
     // metaPathOut 非空时回填路径，供调用方在告警里指出是哪个文件。
-    // unreadableOut 非空时回填"文件在、但读不懂"（打不开或格式错）—— 返回空对象有
-    // 两种含义（没有这个文件 / 有这个文件但坏了），写侧必须分得清：前者可以新建，
-    // 后者得拒绝写，否则就是把用户手写的内容覆盖掉。
+    // unreadableOut 非空时回填"文件在、但改不动"：读不懂，**或者**格式版本比这个
+    // 启动器新。返回空对象有两种含义（没有这个文件 / 有这个文件但读不懂），写侧必须
+    // 分得清：前者可以新建，后者得拒绝写，否则就是把用户手写的内容覆盖掉。
     QJsonObject readVersionMeta(const QString &versionId, QString *metaPathOut = nullptr,
                                 bool *unreadableOut = nullptr) const;
 
@@ -1421,9 +1452,9 @@ private:
     };
 
     void fetchFabricLoaderList();
-    void onFabricLoaderListReply(QNetworkReply *reply);
+    void onFabricLoaderListReply(QNetworkReply *reply, const QString &jobError);
     void fetchFabricProfile();
-    void onFabricProfileReply(QNetworkReply *reply);
+    void onFabricProfileReply(QNetworkReply *reply, const QString &jobError);
     // profile 拿到手之后：先看原版在不在，在就直接下一段，不在就先装原版。
     void startParentOrLoaderFiles();
     // 把加载器 json 落盘并下它自己那几个库（走 downloadVersion 那条老路）。
@@ -1558,7 +1589,7 @@ private:
     /// 镜像那份版本表挑不出来时的退路：换官方那条再发一发。
     /// @return 真的退了（调用方应当直接 return，等下一发回复）返回 true。
     bool retryInstallerListFromOfficial();
-    void onInstallerListReply(QNetworkReply *reply);
+    void onInstallerListReply(QNetworkReply *reply, const QString &jobError);
     // 把安装器 jar 下到 cache/installers/（一批下载，完成信号回到 onAllDownloadsFinished）。
     void startInstallerDownload();
     // 前置检查 + 起那个 Java 子进程。**异步**：它不阻塞界面，结果由 onInstallerFinished 收。
@@ -1593,7 +1624,8 @@ private:
     // 回复处理里不再重新读下载源（理由见定义处：两次读之间用户能换设置，
     // 换了就会拿另一种格式去解同一条回复）。
     void fetchOptifineVersionList();
-    void onOptifineVersionListReply(QNetworkReply *reply, bool fromMirror);
+    void onOptifineVersionListReply(QNetworkReply *reply, bool fromMirror,
+                                    const QString &jobError);
     // 版本号定了之后的收尾：填 installerFileName/loaderVersion，再按下载源决定"直接下（镜像）"
     // 还是"先去广告页拿 token（官方）"。**两条路共用**（版本表挑出来的 / 用户钉死的），
     // 差别只在"版本号从哪来"。定义处有详细说明。
@@ -1603,7 +1635,7 @@ private:
                               bool fromMirror);
     // 官方那条路多一步：真文件在广告页后面，得先把它那条带 token 的地址抠出来。
     void fetchOptifineDownloadToken();
-    void onOptifineDownloadTokenReply(QNetworkReply *reply);
+    void onOptifineDownloadTokenReply(QNetworkReply *reply, const QString &jobError);
     // OptiFine 的安装器**要拿原版的客户端 jar 当输入**，所以原版必须先在盘上才能起它
     // （这一点和 Forge 装完再补正好相反）。判据和 startParentOrLoaderFiles() 一样：
     // 版本 json + 客户端 jar 两份文件都在。
@@ -1784,6 +1816,8 @@ private:
     // 会把前一发掐死，前三条底下就永远停在「正在获取…」。
     struct LoaderVersionRequest {
         QString gameVersion;
+        QPointer<QObject> queued;
+        quint64 generation = 0;
         // 这一发是走**镜像**那条路问出去的吗。**随请求钉住**，不在回复回来时再读一遍
         // downloadManager->useMirror()。
         //
@@ -1863,7 +1897,52 @@ private:
     mutable QMap<QString, QJsonObject> versionJsons;
     // versionId -> **合并后**的 versionJson（走完 inheritsFrom 链）。单独一张表：
     // 往 versionJsons 里塞合并结果会把"原始那份"盖掉，而下载路径要靠原始那份落盘。
-    mutable QMap<QString, QJsonObject> mergedVersionJsons;
+    //
+    // 每一格里除了 json 本体，还懒算一份**只取决于这份 json** 的事实（加载器证据和
+    // `type`，见 instanceTraits()）。放在同一格里是有意的：丢掉 json 缓存的那六处
+    // （复制 / 删除 / 整合包替换 / 加载器安装 / 换文件夹 / 单版本 remove）现在**不必**
+    // 再记得多清一张表 —— 漏清一处的症状是"删掉重装同一个版本号之后，实例行前面还是
+    // 旧加载器的标志、归类还留在旧组里"，而屏幕上没有任何一句话说得通。
+    //
+    // NOTE: `const` 成员不是笔误：instanceTraits() 是 const 方法，事实是在第一次问的时候
+    // 补进缓存那一格里的（和这张表本身迟到填充是一个道理）。
+    struct MergedJsonEntry {
+        QJsonObject json;
+        mutable bool factsScanned = false;  ///< 下面那几个字段算过没有
+        mutable bool loaderFound = false;   ///< loaderEvidenceFromJson() 认出来没有
+        mutable QString loaderKey;          ///< 认出来时的证据键（见 loaderDisplayNameForEvidenceKey）
+        mutable QString loaderVersion;
+        mutable QString type;               ///< json 自己写的 "type"（可能是空串）
+    };
+    mutable QMap<QString, MergedJsonEntry> mergedVersionJsons;
+    /// 取合并 json 那一格（缓存里没有就先取一次；取不到 / 继承链没走完 ⇒ nullptr）。
+    /// 只在 instanceTraits() 用得上；`getVersionJson()` 不给指针是因为调用方要的是内容。
+    const MergedJsonEntry *mergedJsonEntry(const QString &versionId) const;
+    /// 一份 `<id>/wtfml.meta` 的读结果缓存（见 `readVersionMeta()`）。
+    ///
+    /// 为什么要缓存：实例树**每重灌一次**就对同一个实例问三四个问题 —— 显示名一次、
+    /// 稳定 id 一次、"按加载器归到哪个默认组"两次。真读是"打开 + 读 + 解析"，200 个
+    /// 实例那一趟实测一百多毫秒（`build/tmp-wtfml-probe` 的分段探针，同一版二进制），
+    /// 而其中九成是同一个文件的第 2~4 次打开。
+    ///
+    /// NOTE: 键是**完整路径**而不是版本 id —— 换一整份 .minecraft 之后两份目录里各有
+    /// 一个 `1.20.1`（同 `clearVersionJsonCache()` 那段理由）。
+    /// NOTE: 判据里带着"在不在 + 修改时刻 + 字节数"。盘上那份被**别人**改过（用户
+    /// 手写、别的启动器）一定看得出来；唯一看不出来的是"同一个毫秒里、同样字节数"
+    /// 的改写 —— 我们自己写的那条路不会落进这个缝（`updateVersionMeta()` 写完当场把
+    /// 这一格丢掉）。旧注释里那句"缓存了就会变成改了名不生效"说的就是这个缝，别把
+    /// 那两个判据摘掉。
+    struct MetaCacheEntry {
+        bool exists = false;
+        qint64 modifiedMs = 0;
+        qint64 size = -1;
+        QJsonObject meta;
+        InstanceMetaFile::Status status = InstanceMetaFile::Status::Missing;
+    };
+    mutable QHash<QString, MetaCacheEntry> m_metaCache;
+    /// 缓存的上界（张数，不是字节）。数据目录来回切时旧路径会留在表里，
+    /// 过了这个数就整表丢掉重来（比按 LRU 记账简单，而这里没有"热"可言）。
+    static constexpr int kMaxMetaCacheEntries = 4096;
     QString m_currentVersionDownloading;
     // 现在这一批下载**是不是我自己开的**（见上面四个包装那一段）。分辨"别人的批次"全看它：
     // `onAllDownloadsFinished()` 开头那道判据、还有 `busyVersionId()` 那道门控，问的都是它。

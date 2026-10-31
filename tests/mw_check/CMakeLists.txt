@@ -223,6 +223,7 @@ set(SOURCE_FILES
     # 离线账号**自己挑的**那张（「换一张…」）：MainWindow / PlayerSkinController 直接调它，
     # 少了这一个文件会在链接那一步报一串 `OfflineSkin::…` 的 undefined reference。
     ${REPO_ROOT}/src/manage/OfflineSkin.cpp
+    ${REPO_ROOT}/src/manage/InstanceMetaFile.cpp
     ${REPO_ROOT}/src/manage/VersionManager.cpp
     # 同一个类按职责分开的那三份（核心那一份就在上面；理由见各文件头）。
     # 少一份不会在编译期报错，只在链接期报一串 `VersionManager::…` 的 undefined reference。

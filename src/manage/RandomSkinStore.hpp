@@ -77,6 +77,10 @@ public:
     /// 所以"随机"的范围就是这一页，当然越大越好。
     static int defaultListSize() { return maxListSize(); }
 
+    /// 把列表端点指到本机假服务器（**只有验证工程会调**）。空串 = 官方地址。
+    /// 必须在发出任何请求之前设置；之后只读。
+    static void setEndpointOverride(const QString &base);
+
     /// 解一批皮肤哈希出来（**只留 64 位十六进制那些**，保持原顺序）。
     ///
     /// 会**去重**：同一张图在刚生成的一小段时间里会连着出现好几次，留着它等于给那张图
@@ -115,7 +119,8 @@ public:
      * 挑中的是**官方 CDN 上的地址**（不是 MineSkin 的），调用方直接把它当一份档案的
      * skinUrl 用即可。失败发 failed()（静默降级，见文件头）。
      *
-     * @return 真的发出去了返回 true；已经有一次在飞、这一趟被挡掉时返回 **false**。
+     * @return 这一趟真的开工了返回 true（**开工 = 进了 Control 队列**，不一定当场发出去了）；
+     * 已经有一次在飞、这一趟被挡掉时返回 **false**。
      * 起返回值有意义：调用方（MainWindow）要拿它决定"这一趟算谁挑的"
      * —— 被挡掉的那一趟**什么都没开始**，不能把"发请求时那位是谁"改掉，否则上一趟
      * 的结果会被记到这一位名下（见 MainWindow::onRandomSkinReady() 那段）。
@@ -132,6 +137,8 @@ signals:
 private:
     /// 自己一个管理器，理由同 PlayerSkinStore：不和 DownloadManager 共用（那个的超时是给
     /// 几十兆的 jar 用的），这是可选的外观请求。
+    /// NOTE: 管理器 ≠ 名额。这一发走 `RequestBudget::ControlGet`，和别的短请求共用四个
+    /// Control 名额 —— 管理器只是连接池，排队由那条更上面的额度管。
     QNetworkAccessManager *m_network;
 
     /// 已经有一次在飞了。**必须有这个闸**：fetchRandomSkin() 会被反复调到（每次刷新外观、

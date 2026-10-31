@@ -25,7 +25,6 @@
 #include "settings/GlobalJavaSettings.hpp"
 #include "util/AppPaths.hpp"
 
-#include <QDir>
 #include <QFile>
 #include <QJsonObject>
 #include <QLabel>
@@ -457,10 +456,10 @@ void InstallPageController::updateInstallName() {
         const QSignalBlocker blocker(edit);
         edit->setText(defaultInstanceName());
     }
-    updateInstallNameHint();
+    updateInstallNameState();
 }
 
-void InstallPageController::updateInstallNameHint() {
+void InstallPageController::updateInstallNameState() {
     QLineEdit *edit = m_owner.m_ui->getInstallNameEdit();
     const QString name = edit->text().trimmed();
 
@@ -469,37 +468,10 @@ void InstallPageController::updateInstallNameHint() {
     const QString invalid = InstanceFiles::validateDirName(name);
     const bool canInstall = invalid.isEmpty();
 
-    // 上面那行**灰字**：说"装下去会怎样"。名字能不能用**都照说** —— 起名字
-    // 不合法的原因不顶掉这一行，而是另起一行红字（上面那句「装好后在实例…」照旧留着）。
-    // 名字空着时这行没话可说（没有名字就没有目录），就让它空着。
-    QString hint;
-    if (!name.isEmpty()) {
-        // 重名：**只提示、不拦**（在下方小字提示）。
-        // 同名就是同一个实例 —— 装下去不是新建一个，而是校验并补齐那个目录里的文件
-        // （「重下 = 校验跳过」）。这句话必须说清这一点，否则用户会以为会多出一个。
-        // NOTE: 名字不合法时**不查**重名 —— 那个名字当不了目录名，AppPaths::versionDir()
-        // 拼出来的路径没有意义（`..` 那种会拼到数据目录外面去），查了也只是白查。
-        const QString dir = canInstall ? AppPaths::versionDir(name) : QString();
-        if (!dir.isEmpty() && QDir(dir).exists()) {
-            // 「已经装过了」和「这个目录是别的东西」在用户眼里是两回事，分开说。
-            const bool installed = QFile::exists(AppPaths::versionJsonPath(name));
-            hint = installed ? MainWindow::tr("已经有叫「%1」的实例了：同一个名字就是同一个实例，再装一次"
-                                  "会校验并补齐它的文件（已经下好的跳过）。")
-                                   .arg(name)
-                             : MainWindow::tr("%1 已经存在了，但它不像一个装好的实例。装下去会往这个目录"
-                                  "里写文件。")
-                                   .arg(dir);
-        } else {
-            hint = MainWindow::tr("装好之后在「实例」页里能看到它，目录是 versions/%1。").arg(name);
-        }
-    }
-    QLabel *hintLabel = m_owner.m_ui->getInstallNameHint();
-    hintLabel->setText(hint);
-    hintLabel->setVisible(!hint.isEmpty());
-
-    // 下面那行**红字**：名字不能用的原因（就是 validateDirName() 那句话的字面意思）。
-    // 能用的时候空着 + 藏起来 —— 藏起来（而不是留一个空行）是为了让加载器树和安装按钮
-    // 的位置不被这一行顶动。
+    // 名字框底下只有那行**红字**：名字不能用的原因（就是 validateDirName() 那句话的
+    // 字面意思）。能用的时候空着 + 藏起来 —— 藏起来（而不是留一个空行）是为了让
+    // 加载器树和安装按钮的位置不被这一行顶动。那句"装下去会怎样"的灰色说明**没了**
+    // （用户点名是废话，见 MainWindowDownloadPage 里那一段）。
     QLabel *error = m_owner.m_ui->getInstallNameError();
     error->setText(invalid);
     error->setVisible(!canInstall);
@@ -512,7 +484,7 @@ void InstallPageController::noteNameEdited() {
     // 用户动过这个名字了：此后默认名不再跟着加载器变（不然他敲到一半的名字会被
     // 一次"勾了 Forge"顶掉）。
     m_nameTouched = true;
-    updateInstallNameHint();
+    updateInstallNameState();
 }
 
 // ---------------------------------------------------------------------------
@@ -626,14 +598,17 @@ void InstallPageController::openPresetPicker() {
     };
 
     QList<PresetInstallPicker::Category> categories;
+    // 四类的可选项和复合预设那一张表**来自同一次扫盘**（`installPickerData()` 那段
+    // 写着为什么不能再按类各扫一趟）：这一整段只读一次盘。
+    const PresetController::InstallPickerData pickerData =
+        m_owner.m_presetController->installPickerData();
     // 「模组」那一类：状态行让给兼容检查，计划那几行收进原因里。
     const QString modsCategoryKey = Presets::presetCategoryKey(Presets::PresetCategory::Mods);
     for (const PresetController::InstallCategory &one : PresetController::installCategories()) {
         PresetInstallPicker::Category category;
         category.key = one.key;
         category.title = one.title;
-        for (const Presets::PresetSummary &preset :
-             m_owner.m_presetController->presetsInCategory(one.key)) {
+        for (const Presets::PresetSummary &preset : pickerData.optionsFor(one.key)) {
             category.options.append({preset.id, preset.name, true, !preset.componentCategories.isEmpty()});
         }
         category.selectedId = draft.value(one.key);
@@ -674,14 +649,10 @@ void InstallPageController::openPresetPicker() {
     picker->setContext(gameVersion(), pickerLoaderName);
     picker->setCategories(categories);
     QList<PresetInstallPicker::Composite> composites;
-    for (const auto &preset : m_owner.m_presetController->availablePresets()) {
-        if (preset.componentCategories.isEmpty()) continue;
-        bool loaded = false;
-        const auto manifest = Presets::loadManifest(PresetController::presetsRoot(), preset.id, &loaded);
-        if (!loaded) continue;
-        PresetInstallPicker::Composite option; option.id=preset.id; option.name=preset.name;
-        const auto parts=manifest.editorState.value("components").toObject();
-        for (auto it=parts.begin();it!=parts.end();++it) option.parts.insert(it.key(),it.value().toString());
+    for (const PresetController::InstallPickerPreset &choice : pickerData.presets) {
+        if (choice.summary.componentCategories.isEmpty() || !choice.componentsLoaded) continue;
+        PresetInstallPicker::Composite option; option.id=choice.summary.id; option.name=choice.summary.name;
+        option.parts = choice.components;
         composites.append(option);
     }
     picker->setComposites(composites);
@@ -931,15 +902,15 @@ void InstallPageController::installClicked() {
     // 忙要在点击这一刻就置上：版本 json / 加载器列表都是异步拉回来的，中间这段时间
     // 按钮还能点的话，用户会重复触发（和别处同一个理由）。
     //
-    // NOTE: **顺序不能反**（`m_installingInstanceId` 必须在 `setDownloadUiBusy(true)` 之前）。
+    // NOTE: **顺序不能反**（「安装」那一档占用必须在 `setDownloadUiBusy(true)` 之前）。
     // `setDownloadUiBusy()` 内部会调 refreshInstalledVersions()，而那份"能启动的实例"
-    // 列表是按 `m_installingInstanceId` 过滤出来的（installingVersionIds()）。反过来的
+    // 列表是按这一档过滤出来的（installingVersionIds()）。反过来的
     // 话，置忙那一刻读到的还是**上一次**的值：对一个已经装好的实例点「安装」（校验并
     // 修复）时，它整段安装期间都留在可启动列表里 —— 用户点得动它，点下去却被
     // onStartButtonClicked() 那道按版本的闸口弹一句"文件还没有下载完成"。
     // 那正是 MainWindow.hpp 写明不许出现的"列表里能选、点下去被拦"。
-    // （applyModpackImport() 那边本来就是"先记 id 再置忙"，这里对齐它。）
-    m_owner.m_installingInstanceId = name;
+    // （applyModpackImport() 那边本来就是"先记占用再置忙"，这里对齐它。）
+    m_owner.m_installOccupancy.setBatch(InstallOccupancy::Batch::Install, name);
     m_owner.setDownloadUiBusy(true);
     m_owner.m_downloadTaskLedger->resetProgressThrottle();
     if (withLoader) {

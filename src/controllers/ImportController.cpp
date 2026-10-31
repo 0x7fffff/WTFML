@@ -116,8 +116,8 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
     // 拖进来的这一路也得过忙态这道闸。上面那颗「导入整合包…」按钮在忙的
     // 时候是灰的（`setDownloadUiBusy()`），但主窗口的拖放照收不误（`dropEvent()` 不看
     // 忙态）。不拦的话：导入 A 的过程中再拖进来一个 B，B 会从问名字那一步一路走到下面
-    // `m_importingInstanceId = B` —— A 的 id 被顶掉（A 下完时 `versionId !=
-    // m_importingInstanceId`，连忙态都不收）、任务中心当前那条任务还是 A 的，而两条
+    // 把「导入」那一档占用改成 B —— A 的 id 被顶掉（A 下完时 `clearFor()` 对不上它，
+    // 连忙态都不收）、任务中心当前那条任务还是 A 的，而两条
     // 导入同时在往 versions 下面写。判据和按钮那一处**是同一句话**（`m_downloadInFlight`），
     // 不另立一个。
     if (m_owner->m_downloadInFlight) {
@@ -129,7 +129,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
     }
     // 另一条导入流程还没走完（`m_downloadInFlight` 管不到这一段：CurseForge 预览在
     // 真正开始下载**之前**）。拖放 / 再点一次按钮都会走到这里 —— 两趟同时问名字、
-    // 同时写 `m_importingInstanceId` 的后果见头文件里 `m_importFlow` 那段。
+    // 同时写「导入」那一档占用的后果见头文件里 `m_importFlow` 那段。
     if (m_importFlow) {
         m_owner->appendLog(m_owner->tr("已有导入流程正在进行，%1 没有导入。")
                                .arg(QFileInfo(zipPath).fileName()));
@@ -795,7 +795,7 @@ bool ImportController::applyResolvedModpackImport(const QString &zipPath,
 
     // 忙要在**点击这一刻**置上：导入的头两步（拉版本表 / 拉 profile）是异步的，中间那段
     // 时间按钮还能点的话用户会重复触发（和下载、装加载器两条路同一个理由）。
-    m_owner->m_importingInstanceId = instanceName;
+    m_owner->m_installOccupancy.setBatch(InstallOccupancy::Batch::Import, instanceName);
     m_owner->setDownloadUiBusy(true);
     m_owner->m_downloadTaskLedger->resetProgressThrottle();
     m_owner->appendLog(m_owner->tr("开始导入整合包 %1 ...").arg(QFileInfo(zipPath).fileName()));

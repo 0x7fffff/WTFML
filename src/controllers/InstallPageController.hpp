@@ -57,7 +57,7 @@ public:
     /// `MainWindow::onInstallButtonClicked()`（连同 `pickInstallerJava()` 一起搬过来）。
     ///
     /// 它先问三件事（有没有别的下载在跑 / 原版号在不在 / 名字合不合法），再摊开预设计划、
-    /// 挑安装器要的 Java，最后**先记 `m_installingInstanceId` 再置忙**（顺序见那段的 NOTE）。
+    /// 挑安装器要的 Java，最后**先记「安装」那一档占用再置忙**（顺序见那段的 NOTE）。
     void installClicked();
 
     /// 装加载器那一路要**先**挑出跑安装器的 Java：Forge / NeoForge / OptiFine 的安装器
@@ -81,7 +81,7 @@ public:
     /// 名称框里的默认名（用户没自己改过时才动它），再刷下面那句小字。
     void updateInstallName();
     /// 名称框下面那句小字 + 「安装」按钮的可用性（名字合不合法、盘上有没有重名）。
-    void updateInstallNameHint();
+    void updateInstallNameState();
     /// 名称框里每敲一个字：记下"用户动过这个名字了"，再重算那句小字。
     void noteNameEdited();
 

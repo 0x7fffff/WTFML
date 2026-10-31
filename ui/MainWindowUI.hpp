@@ -553,12 +553,6 @@ public:
     /// 「版本名称」框：实例的目录名（`versions/<这个名字>`），默认名由 MainWindow 按
     /// "原版号 + 加载器"填（见 InstallPageController::defaultInstanceName()）。
     static QString installNameEditName() { return QStringLiteral("installNameEdit"); }
-    /// 名称框下面那行灰色小字：**说这一份装下去是什么** —— 平时的说明，或者重名提示。
-    /// 两种取值一处决定（InstallPageController::updateInstallNameHint()）。
-    ///
-    /// NOTE: 它**不兼职报错**。名字不能用（有非法字符、空着）时那句原因在下面那行
-    /// 红字里，这一行照旧说"装好之后会在哪儿"。
-    static QString installNameHintName() { return QStringLiteral("installNameHint"); }
     /// 名称框底下那行**红字**：名字不能用时那句原因（`InstanceFiles::validateDirName()` 的
     /// 返回值，界面这边不抄一份规则）。名字能用的时候它是空的、也藏起来 —— 于是名字框、
     /// 加载器树、安装按钮在正常情况下一个像素都不动。
@@ -707,8 +701,28 @@ public:
     static int downloadCategoryModIndex() { return 3; }
     /// Server selection follows game selection and uses the same fetched version metadata.
     static int downloadCategoryServerIndex() { return 1; }
-    /// Server version list; resource-catalog controls are intentionally absent.
+    /// 「服务端」那一栏那一页（外层：里面是两层，和「游戏」一个形状）。
+    ///
+    /// 两层是**产品要求**（"服务端下载要和游戏下载一个样，不要另开一个界面"）：
+    /// [0] 版本列表（一句说明 + 筛子 + 版本树）→ 点一个版本进 [1] 安装表单
+    /// （顶上「← 返回版本列表」+ 嵌进来的 `NewServerPage`）。表单那一层页头整块收起
+    /// （判据见 `syncDownloadHeaderVisibility()`）。
     static QString downloadServerPageName() { return QStringLiteral("serverPage"); }
+    /// 外层里面那个堆叠页 / 它的两层各自的名字。
+    static QString downloadServerStackName() { return QStringLiteral("downloadServerStack"); }
+    static QString downloadServerListPageName() { return QStringLiteral("downloadServerListPage"); }
+    static QString downloadServerFormPageName() { return QStringLiteral("downloadServerFormPage"); }
+    /// 表单那一层里装 `NewServerPage` 的容器（`MainWindow` 在第一次打开时把它塞进去）。
+    static QString downloadServerFormHostName() {
+        return QStringLiteral("downloadServerFormHost");
+    }
+    /// 表单顶上那颗「← 返回版本列表」（字复用 `installBackButtonText()`）。
+    static QString downloadServerBackButtonName() {
+        return QStringLiteral("downloadServerBackButton");
+    }
+    /// 堆叠页的两层下标（**唯一出处**：判据、切层、验证工程都读这三个函数）。
+    static int downloadServerListIndex() { return 0; }
+    static int downloadServerFormIndex() { return 1; }
     /// 那一页上那句说明（**唯一出处**）。
     ///
     /// 为什么要把"装好之后去哪儿"写出来：这一页只负责**造**，造完的服务端不住在
@@ -1168,7 +1182,7 @@ public:
     // `setSummary()`）。
     static QString newServerPageName() { return QStringLiteral("newServerPage"); }
     static QString newServerNameEditName() { return QStringLiteral("newServerNameEdit"); }
-    static QString newServerFlavorComboName() { return QStringLiteral("newServerFlavorCombo"); }
+    static QString newServerFlavorListName() { return QStringLiteral("newServerFlavorList"); }
     static QString newServerGameVersionEditName() {
         return QStringLiteral("newServerGameVersionEdit");
     }
@@ -1609,6 +1623,13 @@ public:
     /// 那个入口按钮上写的字。和其它文案一样做成静态访问器 —— 验证工程引它，
     /// 产品里改一个字就不用两边各写一遍字面量。
     static QString accountSkinButtonText() { return QStringLiteral("账号与外观…"); }
+    /// 主页账号卡片右边那颗**朝下**小箭头的 objectName 与边长（像素）。
+    ///
+    /// 箭头是 `VersionIcons::chevron()` 画的位图，**不是字体里的字形**：原先写的是
+    /// U+2304「⌄」，默认界面字体里没有这一格，Qt 第一次量它的时候要做一遍字体回退
+    /// 查找（本机实测 268 ms，见 docs/PERFORMANCE.md「主页那颗箭头」）。
+    static QString homeAccountArrowName() { return QStringLiteral("homeAccountArrow"); }
+    static int homeAccountArrowSize() { return 12; }
 
     static QString homeFavoriteCountSpinName() { return QStringLiteral("homeFavoriteCountSpin"); }
     static QString homeRecentCountSpinName() { return QStringLiteral("homeRecentCountSpin"); }
@@ -3382,6 +3403,15 @@ public:
     /// （下载页那一栏也要能新建服务端）。
     QPushButton *getDownloadNewServerButton() const { return downloadNewServerButton; }
 
+    /// 「服务端」那一栏里面那个堆叠页（[0] 版本列表 / [1] 安装表单）。
+    QStackedWidget *getServerStack() const { return serverStack; }
+    /// 安装表单那一层里装 `NewServerPage` 的容器（第一次打开时由 `MainWindow` 塞进去）。
+    QWidget *getServerFormHost() const { return serverFormHost; }
+    /// 表单顶上那颗「← 返回版本列表」。
+    QPushButton *getServerFormBackButton() const { return serverFormBackButton; }
+    /// 表单顶上那句「将安装 26.3 服务端」（和游戏安装页那句「将基于原版 26.3 安装」同一格）。
+    void setServerFormIntro(const QString &text);
+
     /// 下载页页头**那一整块**（标题 + 说明 + 右上角动作）。
     ///
     /// 「下载 → 游戏」里面那一层**安装页**（挑加载器那页）一打开，这一整块就整块
@@ -3406,6 +3436,12 @@ public:
     /// 都调它，别在两处各设一遍（那样两颗按钮的勾和实际停着的页迟早对不上）。
     /// 传越界的值什么都不做（宁可停在上一档，也不要切到一页不存在的页上）。
     void setInstanceMode(InstanceMode mode);
+
+    /// 实例页页头那句副标题（「当前文件夹：…（N 个实例）」）。灌数据那条路走这里：
+    /// 普通模式立刻写进页头，预设模式先记着，切回客户端实例时再写（见 `setInstanceMode`）。
+    void setInstanceFolderText(const QString &text);
+    /// 预设那一档的副标题（「N 份预设」）。只在预设模式写进页头；其余时候先记着。
+    void setPresetSubtitle(const QString &text);
 
     /// 让它露面/收起来。**收起时连位置都不占**（`setVisible(false)`，不是 `setEnabled`）。
     void setDownloadBackVisible(bool visible) {
@@ -3441,8 +3477,6 @@ public:
     void applyVersionFilter();
     /// 「版本名称」框（安装页顶上那个）。
     QLineEdit *getInstallNameEdit() const { return installNameEdit; }
-    /// 名称框下面那行灰色小字（平时的说明 / 重名提示，两种取值一处决定）。
-    QLabel *getInstallNameHint() const { return installNameHint; }
     /// 名称框底下那行红字（名字不能用时的原因；能用时它空着且藏着）。
     QLabel *getInstallNameError() const { return installNameError; }
     /// 安装页顶上那句"将基于原版 X 安装"。
@@ -3670,6 +3704,7 @@ private:
     /// 下载页第 0 页「游戏」（版本树 / 安装页两层）与其余那几页（一行筛子 + 三层树）。
     /// 两摊之间只共享已经挂好的 `downloadStack` / `gameStack` / `downloadHeader`。
     void setupDownloadGamePage();
+    void setupDownloadServerPage();
     void setupDownloadResourcePages();
     /// 设置页的外壳（左栏分类 + 右栏堆叠页），内容仍归 `setupSettingsPage()`。
     QWidget *setupSettingsTab();
@@ -3774,6 +3809,12 @@ private:
     QPushButton *groupInstanceButton = nullptr;
     QPushButton *importModpackButton = nullptr;
     QLabel *instanceFolderLabel = nullptr;
+    /// 页头那句副标题的两份底稿（普通档 = 文件夹 + 实例数；预设档 = 预设数）。
+    /// 两份都留着，换档只是换着写，切换回来不用等外面重灌一遍。
+    QString instanceFolderText;
+    QString presetSubtitleText;
+    /// 现在停在哪一档（`setInstanceMode()` 写；上面那两份底稿按它挑一份写进页头）。
+    InstanceMode instanceMode = InstanceMode::Client;
     /// 实例页那一行搜索与筛选：一个搜索框 + 四颗 chip，摆进正文面里
     /// 树的上方。**外框是自己一个控件**（不是裸布局）：验证工程要按 objectName 找回来量
     /// "整排有没有超出正文面"（和下载页页头那条同一套做法）。
@@ -3807,6 +3848,14 @@ private:
     QPushButton *downloadHeaderRefreshButton = nullptr;
     /// 下载页「服务端」那一栏里那颗「新建服务端…」（见 getDownloadNewServerButton()）。
     QPushButton *downloadNewServerButton = nullptr;
+    /// 下载页「服务端」那一栏里那个堆叠页（[0] 版本列表 / [1] 安装表单）。
+    QStackedWidget *serverStack = nullptr;
+    /// 安装表单那一层里装 `NewServerPage` 的容器。
+    QWidget *serverFormHost = nullptr;
+    /// 表单顶上那颗「← 返回版本列表」。
+    QPushButton *serverFormBackButton = nullptr;
+    /// 返回行右边那句「将安装 26.3 服务端」（文案由 `MainWindow` 现算现喂）。
+    QLabel *serverFormIntroLabel = nullptr;
     /// 下载页页头那一整块（见 getDownloadHeader() 那段）。
     QWidget *downloadHeader = nullptr;
     /// 安装页中间那层滚动区（见 installScrollName() 那段）。
@@ -3836,7 +3885,6 @@ private:
     bool versionFilterActive = false;
     QLabel *installTargetLabel = nullptr;
     QLineEdit *installNameEdit = nullptr;
-    QLabel *installNameHint = nullptr;
     QLabel *installNameError = nullptr;
     QPushButton *installButton = nullptr;
     QPushButton *installBackButton = nullptr;

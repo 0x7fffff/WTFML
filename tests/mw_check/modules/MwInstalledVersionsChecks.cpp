@@ -1,5 +1,5 @@
 #include "Support.hpp"
-int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStackedWidget * &gameStack, QLineEdit * &installNameEdit, QLabel * &installNameHint, QLabel * &installNameError, QPushButton * &installBtn, QPushButton * &installBackBtn, GlobalJavaSettings * &windowJava, const std::function<void(const QString &)> &pinGlobalJava, const std::function<void()> &unpinGlobalJava) {
+int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStackedWidget * &gameStack, QLineEdit * &installNameEdit, QLabel * &installNameError, QPushButton * &installBtn, QPushButton * &installBackBtn, GlobalJavaSettings * &windowJava, const std::function<void(const QString &)> &pinGlobalJava, const std::function<void()> &unpinGlobalJava) {
     {
         // 用别名而不是 `using VersionManager::LoaderKind`：后者在块作用域里
         // GCC 直接报「using-declaration for member at non-class scope」。
@@ -186,18 +186,17 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
         // 是默认名 → 点一条加载器 → 按「安装」。控件**全都得找回来**（找不到的典型原因
         // 是有人改了 objectName 或把控件挪了家，那时候后面十几条一起红只会淹没真正的原因）。
         const bool loaderTreeReady = loaderTree != nullptr && rows.size() == names.size();
-        check(installNameEdit != nullptr && installNameHint != nullptr &&
+        check(installNameEdit != nullptr &&
                   installNameError != nullptr && installBtn != nullptr &&
                   installBackBtn != nullptr && gameStack != nullptr && loaderTreeReady,
-              "安装页那一套控件都找得到（名称框 / 那句小字 / 那行红字 / 安装 / 返回 / 两层堆叠 / "
+              "安装页那一套控件都找得到（名称框 / 那行红字 / 安装 / 返回 / 两层堆叠 / "
               "加载器树）");
 
-        if (installNameEdit != nullptr && installNameHint != nullptr &&
+        if (installNameEdit != nullptr &&
             installNameError != nullptr && installBtn != nullptr && installBackBtn != nullptr &&
             gameStack != nullptr && loaderTreeReady) {
             // Y3 要用一个"下过一半"的版本目录：产品在"这个版本下过没有"那一问上判的就是
-            // <版本>.json 在不在，所以先摆好它 —— 同时它也让"重名那句小字"走到"已经装过
-            // 的那个分支"（那一支要求目录和 json 都在）。
+            // <版本>.json 在不在，所以先摆好它。
             const QString kPickedId = QStringLiteral("1.21.4");
             const QString pickedJson = versionsDir.filePath(kPickedId + QLatin1Char('/') +
                                                             kPickedId + QStringLiteral(".json"));
@@ -238,15 +237,8 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
             check(installNameEdit->text() == kPickedId,
                   "名称框里的默认名就是那个原版号（没勾加载器时就是它本身）",
                   installNameEdit->text());
-            // 重名提示是**实时**的（要求"如果文件夹里有重名则在下方小字提示"）：
-            // 进安装页那一刻就该算出来了，不用等用户去点一下别的地方。
-            check(installNameHint->text().contains(QStringLiteral("已经有叫「%1」的实例了")
-                                                      .arg(kPickedId)),
-                  "名称框下面那句小字说了重名这件事（而且说的是「同一个实例」）",
-                  installNameHint->text());
-            check(installNameHint->text().contains(QStringLiteral("校验")),
-                  "那句话还说清了再装一次会校验并补齐（不是「会多出一个」）",
-                  installNameHint->text());
+            // NOTE: "重名 = 同一个实例"那句灰色说明已经删了（用户点名是废话），
+            // 名字框底下只剩红字；这里只量名字合法时「安装」是亮的。
             check(installBtn->isEnabled(), "默认名合法，「安装」是亮的");
 
             // 实例预设那一行（「OptiFine 下预设行、
@@ -852,10 +844,6 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
             check(rowSubText(rows.at(forgeIndex)) == MainWindowUI::loaderVersionChannelShortText(false),
                   "那一条的第二行小字写着它现在钉的是哪一档（还没挑具体版本，所以是「稳定版」）",
                   rowSubText(rows.at(forgeIndex)));
-            check(!installNameHint->text().contains(QStringLiteral("已经有叫")),
-                  "换了名字之后，重名那句小字跟着消失（它说的是**当前这个名字**）",
-                  installNameHint->text());
-
             // Y3. 勾一个**接通了、但这一次装不了**的加载器：版本 json 要的 Java 本机给不出来，
             // 就得在"还没开始装"那一刻停下 —— 弹「Java 版本不够」、界面不进忙态、一个
             // 字节都不下，也不许拿着一份认不出来的 Java 硬上（那样用户等半天等来一句
@@ -982,32 +970,14 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                   QStringLiteral("显出来=%1 字=「%2」")
                       .arg(installNameError->isHidden() ? 0 : 1)
                       .arg(installNameError->text()));
-            check(!installNameHint->text().isEmpty() &&
-                      installNameHint->text().contains(invalidName),
-                  "★ 上面那句说明**没有被顶掉**（照样说着装好之后在哪儿、目录叫什么）",
-                  installNameHint->text());
-            check(!installNameError->text().isEmpty() &&
-                      !installNameHint->text().contains(installNameError->text()),
-                  "两句各说各的（原因那句没混进上面那句说明里）",
-                  installNameHint->text());
             check(!installBtn->isEnabled(), "名字不合法时「安装」是灰的（省掉一次往返）");
             installNameEdit->setText(QString());
             QApplication::processEvents();
             check(!installNameError->isHidden() && !installNameError->text().isEmpty(),
                   "名字清空时那行红字说的是「不能是空的」",
                   installNameError->text());
-            // 名字清空那一刻上面那句"装好之后…"没话可说（没有名字就没有目录）—— 这时
-            // 它得**连那一行一起收掉**，不能只把字清空：那是 wordWrap 的标签，空着照样
-            // 占一整行，于是底下那行红字上面会凭空多出一个空行（用户 报的
-            // "把名字弄空了以后上面那行消失了但是下面那一行空提示会换行怪怪的"）。
-            check(installNameHint->isHidden() && installNameHint->text().isEmpty(),
-                  "★ 名字清空时上面那句灰字**整行收掉**（不是清空文字还占着一行，"
-                  "那会让底下那行红字凭空多出一个空行）",
-                  QStringLiteral("藏=%1 字=「%2」")
-                      .arg(installNameHint->isHidden() ? 1 : 0)
-                      .arg(installNameHint->text()));
             check(!installBtn->isEnabled(), "空名字时「安装」也是灰的");
-            // 名字改回能用的：红字**收起来**（不是留一行空的），那句话照旧说着装到哪儿。
+            // 名字改回能用的：红字**收起来**（不是留一行空的）。
             installNameEdit->setText(QStringLiteral("1.21.4-Forge"));
             QApplication::processEvents();
             check(installNameError->isHidden() && installNameError->text().isEmpty(),
@@ -1015,13 +985,7 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                   QStringLiteral("显出来=%1 字=「%2」")
                       .arg(installNameError->isHidden() ? 0 : 1)
                       .arg(installNameError->text()));
-            check(!installNameHint->isHidden() && !installNameHint->text().isEmpty() &&
-                      installBtn->isEnabled(),
-                  "★ 名字能用时那句说明**又回来了**（这一行是有话可说才占位置的），"
-                  "「安装」也亮着",
-                  QStringLiteral("藏=%1 字=「%2」")
-                      .arg(installNameHint->isHidden() ? 1 : 0)
-                      .arg(installNameHint->text()));
+            check(installBtn->isEnabled(), "名字能用了，「安装」又亮了");
 
             // 收拾：这个假版本目录不能留给 O 节（O 要数沙盒里有几个版本）。删之前
             // 先确认它本来不在沙盒里 —— 免得哪天真有人拿 1.21.4 当固定装置。

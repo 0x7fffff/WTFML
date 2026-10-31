@@ -354,7 +354,7 @@ void runInstanceStartActionsTests() {
                           answerer4.answered.at(0).text.contains(
                               QStringLiteral("实例「%1」的文件都齐了。").arg(displayB)),
                       "★ T19.6 那句话说的是**下拉框里那个显示名** —— 收尾必须是「先清 "
-                      "m_repairingInstanceId、再 setDownloadUiBusy(false)」：反过来这一趟刷新时"
+                      "「补全」那一档占用、再 setDownloadUiBusy(false)」：反过来这一趟刷新时"
                       "它还被滤着，名字就只能退回裸目录名",
                       answerer4.answered.isEmpty() ? QString() : answerer4.answered.at(0).text);
                 check(!answerer4.answered.isEmpty() &&

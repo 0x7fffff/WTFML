@@ -164,6 +164,57 @@ int UiOverlayNavigationChecks() {
         QApplication::processEvents();
         check(!host.isOpen() && !host.isVisible(), "O2 收尾：这一层收干净了");
         delete probe;
+
+        // ---------- 后台要开的页：排着，不许驱逐用户正看着的那一页 ----------
+        // 用户的场面：更新检测在后台跑着，他翻进了另一页；结果回来时**不能**把他那一页
+        // 收掉（`runWhenOverlayFree()` 干的就是收掉再开），只能等他自己收干净。
+        {
+            QWidget *busy = host.openPage(QStringLiteral("用户正看着的"));
+            QApplication::processEvents();
+            int fired = 0;
+            check(host.queuePageOpen([&fired, &host] {
+                      ++fired;
+                      // 真·开一页（更新中心那条路就是这个形状：`execPage` 里嵌一个对话框）——
+                      // 这里只摆一层空页也够：要验的是"轮到它的时候这一层确实空着"。
+                      if (QWidget *area = host.openPage(QStringLiteral("后台那页"))) {
+                          area->setProperty("queuedPageOpened", true);
+                      }
+                  }),
+                  "★ O2b 被占着的时候那一发排上了");
+            for (int i = 0; i < 3; ++i) {
+                QApplication::processEvents();
+            }
+            check(host.pageOpen() && host.pageTitle() == QStringLiteral("用户正看着的") && fired == 0,
+                  "★★ O2b 后台那一发**没有**把用户正看着的那一页顶掉（一句都没执行）",
+                  QStringLiteral("标题 %1 / 执行 %2 次").arg(host.pageTitle()).arg(fired));
+            check(busy != nullptr && host.openPage(QStringLiteral("插队")) == nullptr,
+                  "O2b 排着的那一发不释放这一层（别人照样开不进来）");
+            // 用户自己收掉那一页 ⇒ 后台那一发才轮到。
+            host.closeOverlay();
+            QApplication::processEvents();
+            for (int i = 0; i < 3; ++i) {
+                QApplication::processEvents();
+            }
+            check(fired == 1 && host.pageOpen() && host.pageTitle() == QStringLiteral("后台那页"),
+                  "★★ O2b 那一页收干净之后，排着的那一发自己出来了",
+                  QStringLiteral("执行 %1 次 / 标题 %2").arg(fired).arg(host.pageTitle()));
+            host.closeOverlay();
+            QApplication::processEvents();
+            check(!host.isOpen() && fired == 1, "O2b 收尾：它不会再自己跑第二遍");
+        }
+        // 空着的时候**当场**就开（没排队这一说）。
+        {
+            int fired = 0;
+            check(!host.queuePageOpen([&fired, &host] {
+                      ++fired;
+                      host.openPage(QStringLiteral("当场开的"));
+                  }),
+                  "O2b 空着的时候返回 false（那一发已经执行了）");
+            check(fired == 1 && host.pageTitle() == QStringLiteral("当场开的"),
+                  "O2b 空着的时候当场就开出来了", host.pageTitle());
+            host.closeOverlay();
+            QApplication::processEvents();
+        }
     }
     return 0;
 }

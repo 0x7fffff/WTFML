@@ -62,7 +62,7 @@ void embed(QDialog *dialog) {
             label->hide();
 }
 } // namespace
-PresetEditorPage::PresetEditorPage(const QJsonObject &document, QWidget *parent) : QWidget(parent) {
+PresetEditorPage::PresetEditorPage(const QJsonObject &document, QWidget *parent) : QDialog(parent) {
     setObjectName("presetEditorPage");
     auto *outer = new QHBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
@@ -71,12 +71,8 @@ PresetEditorPage::PresetEditorPage(const QJsonObject &document, QWidget *parent)
     left->setFixedWidth(204);
     auto *side = new QVBoxLayout(left);
     side->setContentsMargins(0, 0, 0, 0);
-    auto *back = button(tr("返回"), left, side);
-    back->setObjectName("presetEditorBack");
-    connect(back, &QPushButton::clicked, this, [this] {
-        if (backRequested)
-            backRequested();
-    });
+    // 左上角那颗「返回」**不摆了**：这一页由覆盖层整块铺在内容区上，返回箭头在页眉上
+    // （和实例设置一模一样）。`backRequested` 那条路仍然通 —— 走 reject()。
     m_navigation = new QListWidget(left);
     m_navigation->setObjectName("presetEditorNavigation");
     m_navigation->setFrameShape(QFrame::NoFrame);
@@ -130,6 +126,12 @@ PresetEditorPage::PresetEditorPage(const QJsonObject &document, QWidget *parent)
     setDocument(document);
     m_original = this->document();
 }
+void PresetEditorPage::reject() {
+    // 一个字都不关：要不要保存是控制器的决定（见 .hpp 那段）。控制器收页走 accept()。
+    if (backRequested)
+        backRequested();
+}
+
 void PresetEditorPage::setDocument(const QJsonObject &document) {
     const int page = qMax(0, m_navigation->currentRow());
     rebuildPages(document);

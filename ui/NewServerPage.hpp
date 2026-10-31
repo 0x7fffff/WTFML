@@ -31,9 +31,11 @@
 #include <QDialog>
 #include <QList>
 #include <QString>
+#include <QStringList>
 
 class QComboBox;
 class QLabel;
+class QListWidget;
 class QLineEdit;
 class QPushButton;
 class QSpinBox;
@@ -42,7 +44,7 @@ class NewServerPage : public QDialog {
     Q_OBJECT
 
 public:
-    /// 下拉框里的一档。**全是显示用的字符串 + 四堵"这一档要填哪几格"**（都由翻译点算好）。
+    /// 端类别列表里的一档。**全是显示用的字符串 + 四堵"这一档要填哪几格"**（都由翻译点算好）。
     struct FlavorOption {
         QString token;  ///< 身份（`ServerInstall::flavorToken()`）—— **认人用它，不认文字**
         QString name;   ///< 显示名（`ServerInstall::flavorName()`）
@@ -79,6 +81,7 @@ public:
     /// 就叫一次，见 `fieldsChanged`）。
     /// @param problem 非空 = 现在这一份填法还不成立，把那句话（而不是计划说明）摆出来。
     void setSummary(const QString &text, const QString &problem);
+    void setVersionChoices(bool installer, const QStringList &versions, const QString &status = {});
 
     // ---------- 读回用户填的（`accept()` 之后）----------
     QString serverName() const;
@@ -92,14 +95,17 @@ public:
 signals:
     /// 用户改了任何一格（换档 / 打字 / 拨内存）。`MainWindow` 接它现算计划说明。
     void fieldsChanged();
+    void versionsRetryRequested();
 
 private:
     /// 按当前选中那一档，露/收那几行，并把 `setSummary()` 的旧话清掉（等翻译点重新喂）。
     void applyFlavorVisibility();
 
     QLineEdit *m_nameEdit = nullptr;
-    QComboBox *m_flavorCombo = nullptr;
+    QListWidget *m_flavorList = nullptr;
     QLineEdit *m_gameVersionEdit = nullptr;
+    QComboBox *m_loaderCombo = nullptr;
+    QComboBox *m_installerCombo = nullptr;
     QLineEdit *m_loaderEdit = nullptr;
     QLineEdit *m_installerEdit = nullptr;
     QLineEdit *m_buildEdit = nullptr;
@@ -113,6 +119,6 @@ private:
     QWidget *m_loaderRow = nullptr;
     QWidget *m_installerRow = nullptr;
     QWidget *m_buildRow = nullptr;
-    /// 下拉框里那八档（下标 = `QComboBox` 的 `currentIndex()`）。
+    /// 端类别列表里那几档（行下标 = `QListWidget` 的 `currentRow()`）。
     QList<FlavorOption> m_flavors;
 };

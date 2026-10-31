@@ -34,6 +34,11 @@
  * `ask()`）。能走到这儿的只有一条路：页面开着的时候又点了底栏那些**没被盖住**的
  * 按钮。这里不做叠（那是"页面栈"，是另一个东西）。
  *
+ * **后台**弄完的事（更新检测回来了、更新装完了、体检跑完了）要开一页时，走
+ * `queuePageOpen()`：空着就当场开，被占着就**排着**，等这一层收干净再开 ——
+ * 它**不驱逐**，用户正看着的那一页不许被后台的事顶掉。用户**自己**点的那些开页
+ * 照旧走 `MainWindow::runWhenOverlayFree()`（"我点了，把挡路的收掉"）。
+ *
  * 【顶上那四颗导航按钮：切页 = 把这一层"收着"，不是关掉】
  * 四个按钮都适用：切到哪一颗就回到那个功能的页面，原来那一页的状态（包括滚到哪儿）
  * 都保留。
@@ -282,6 +287,24 @@ public:
     /// 不该先排一轮。
     bool queueNotification(std::function<void()> show);
 
+    /**
+     * @brief **后台**做完的事要开一页时用这个：空着就当场开，被占着就排着。
+     *
+     * 和 `MainWindow::runWhenOverlayFree()` 的差别只有一条，但很要紧：**不驱逐**。
+     * 那一档的规矩是"用户刚点了什么、先把挡路的收掉再继续"；而这里是**后台**弄完的
+     * 事（更新检测回来了、更新装完了），用户这会儿可能正看着另一页 —— 把它收掉
+     * 就是"我什么都没点，屏幕上的东西自己没了"。
+     *
+     * 所以：空着 ⇒ 当场调 `show()`；被占着（整页、提示、**收着的页**都算）⇒ 排着，
+     * 等这一层收干净之后下一轮再调。排队最多 `kMaxQueuedPageOpens` 发，超了丢最老的
+     * 那一发（新的那次才是用户等的）。
+     *
+     * @return 排上了才 true；当场就调了返回 false（调用方不用再做什么，两种都对）。
+     * @note `show()` 里该怎么做判据、要不要再 `execPage()`，由调用方自己定 —— 这里只
+     * 管"什么时候轮到它"。
+     */
+    bool queuePageOpen(std::function<void()> show);
+
     // ---------- objectName / 尺寸常量（验证工程靠它们认控件、量几何） ----------
 
     static QString overlayHostName() { return QStringLiteral("overlayHost"); }
@@ -386,6 +409,9 @@ private:
     /// 排在下一轮事件循环：这时的调用栈属于**上一条提示的调用方**，不能把它按在这儿
     /// 等用户点完下一条。
     void scheduleNotificationDrain();
+    /// 这一层收干净之后，把排着的那一发"后台要开的页"摆出来（见 `queuePageOpen()`）。
+    /// 同样排在下一轮：收页那一刻的调用栈还属于那一页的调用方。
+    void schedulePageDrain();
 
     QWidget *m_anchor = nullptr;
     Mode m_mode = Mode::None;
@@ -441,6 +467,14 @@ private:
     QList<std::function<void()>> m_queuedNotifications;
     /// 已经排了"下一轮去摆"这一下：同一条提示收掉时别排两遍（收页 / 收提示两条路都会走到）。
     bool m_notificationDrainPending = false;
+
+    /// 已经被这一层占着、等着轮到自己开的那几页（见 `queuePageOpen()`）。
+    QList<std::function<void()>> m_queuedPageOpens;
+    /// 同上，排下一轮的那一位。
+    bool m_pageDrainPending = false;
+    /// 排队上限：后台那几件事（更新检测 / 更新收尾 / 一致性检查）都回来了才有可能到几位，
+    /// 再多的就是在拿队列当日志用了。
+    static constexpr int kMaxQueuedPageOpens = 4;
 
     /// 还回来的内容先寄存在这儿：一个藏起来的空控件。**不能直接 setParent(nullptr)** ——
     /// 那会让它变回顶层窗口（Qt 里"没有父控件的 QWidget 就是窗口"），哪怕它一直是 hide 的，

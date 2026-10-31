@@ -349,14 +349,14 @@ void runPresetStoreTests() {
 
     // ---------- PA4. 落点 + 盘上那一趟 ----------
     const QString originalDir = AppPaths::minecraftDir();
-    const QString presetRootDefault = Presets::presetsRoot();
+    const QString presetRootBefore = Presets::presetsRoot();
     AppPaths::setMinecraftDir(temp.path() + QStringLiteral("/别的游戏文件夹"));
-    check(Presets::presetsRoot() == presetRootDefault
-              && presetRootDefault
-                     == AppPaths::defaultMinecraftDir() + QStringLiteral("/presets"),
-          "★★ PA4 预设跟着**启动器**走、不跟着当前游戏文件夹走（`<启动器数据根>/presets`）—— "
-          "换一个 .minecraft，昨天攒的那份习惯还得在（和任务账本同一层）",
-          presetRootDefault);
+    check(Presets::presetsRoot()
+              == AppPaths::minecraftDir() + QStringLiteral("/presets")
+              && Presets::presetsRoot() != presetRootBefore,
+          "★★ PA4 预设跟着**当前游戏文件夹**走（`<当前游戏文件夹>/presets`）—— "
+          "和实例同一层：换一个文件夹就是另一批预设",
+          Presets::presetsRoot());
     AppPaths::setMinecraftDir(originalDir);
 
     check(Presets::list(root).isEmpty(),

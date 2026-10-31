@@ -26,6 +26,7 @@
 #pragma once
 
 #include <QList>
+#include <QMap>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -43,6 +44,7 @@ class ActivityCenterController;
 #include "presets/PresetTypes.hpp"
 
 class PresetEditorPage;
+class QDialog;
 class VersionManager;
 class QComboBox;
 class QWidget;
@@ -79,7 +81,7 @@ public:
         /// `options.txt` / 服务器清单等），和后台拷树撞在一起时两边都不知道对方在写
         /// 所以开跑之前先问一句；别处那几条路都能查到这个名单，预设这一页也要查。
         /// 问的必须**只是搬文件那一份**，不是"不能启动"那个合集：安装向导收尾那一步
-        /// 是带着 `m_installingInstanceId` 调进来的（那是它自己的标记）。
+        /// 是带着「安装」那一档占用调进来的（那是它自己的标记）。
         std::function<bool(const QString &)> isFileOperationBusy;
         /// 这一份实例此刻**任何一样**写作业占着它没有（= 不能启动的那个合集：
         /// 后台搬文件 + 正在装 + 正在补全/修复）。只给 `applyPlan()` 用。
@@ -94,6 +96,13 @@ public:
         /// 实例**整份滤掉** —— 万一这期间别的事（下载收尾、改设置）已经刷过一次，用户看到
         /// 的就是"实例没了"，不重刷它就一直不在列表里。
         std::function<void()> refreshInstances;
+        /// 把一页铺到内容区上（`OverlayHost::execPage`，返回值和 `QDialog::exec()` 同义）。
+        /// 预设编辑器就靠这一条走"整页覆盖内容区"那条路 —— 和实例设置一模一样。
+        /// 空 = 这个宿主没有覆盖层（验证工程那种没有主窗口的宿主）：开不了页，按"没开成"算。
+        std::function<int(QDialog *, const QString &, int)> execPage = {};
+        /// 预设页页头那句副标题（「N 份预设」）。空 = 这个宿主没有页头（验证工程那种宿主）。
+        /// 和实例页那句「当前文件夹：…（N 个实例）」是同一条路：页头说明由这一层灌。
+        std::function<void(const QString &)> presetSubtitle = {};
         /// Optional thread-safe reader for isolated tests; production reads PresetStore.
         std::function<Presets::CatalogSnapshot(const QString &)> readCatalog = {};
         std::function<Presets::ManifestSnapshot(const QString &, const QString &)> readManifest = {};
@@ -179,8 +188,27 @@ public:
     /// "不静默拆分类别"在安装页这一侧同样是"不猜它属于哪一类"。
     static QList<InstallCategory> installCategories();
 
-    /// 某一类的可用预设（按下标次序，只含读得回来的那些）。认不出的 key 回空表。
-    QList<Presets::PresetSummary> presetsInCategory(const QString &categoryKey) const;
+    /// 安装页那个弹窗要的全部预设数据 —— **只读一趟盘**。
+    ///
+    /// 早先的写法是「每一类各扫一遍，最后再扫一遍找复合预设」：四类就是五趟
+    /// `Presets::list()`，而每一趟都要把 store 里每份 manifest 读一遍（perf 里 1000 份
+    /// 同步读是 2.2 s 一趟）。20 份预设时这一下约 150 ms；1000 份时是十来秒的冻结。
+    /// 现在一趟扫完，复合预设的 manifest 也只读一次（以前「算某一类的项」和「拼复合项」
+    /// 各读一次）。
+    struct InstallPickerPreset {
+        Presets::PresetSummary summary;
+        /// 复合预设那几段（`components`：类别键 → 子预设 id）；普通预设是空的。
+        QMap<QString, QString> components;
+        /// 这份数据是不是从那份 manifest 真读回来的：普通预设不读、直接算 true；
+        /// 复合预设读不回来 ⇒ false（那一份一个子项都不往外给，和老写法同一条）。
+        bool componentsLoaded = false;
+    };
+    struct InstallPickerData {
+        QList<InstallPickerPreset> presets;  // 按下标次序
+        /// 某一类的可用项（含复合预设里的那一子项，次序跟着父项）。认不出的 key 回空表。
+        QList<Presets::PresetSummary> optionsFor(const QString &categoryKey) const;
+    };
+    InstallPickerData installPickerData() const;
 
     /// 安装前的计划预览（`lines` 每一项是"段名 + 那一行计划"，`summary` 是一句话）。
     struct InstallPreview {

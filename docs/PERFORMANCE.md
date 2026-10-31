@@ -515,3 +515,277 @@ TU 总数 1412（产品 218 / 验证 1194），仓库内头 297 份。
 生产反选按钮的批量路径 1.430ms、1 次通知，最终选择集合相同。
 仅统计同步调用，未含首绘、后续绘制、冷盘和真实模组解析；不外推整页加速比例。
 详细改动、复测命令及专项/UI 验证见 [选择性能](P2_SELECTION_PERFORMANCE_20261029.md)。
+
+## 2026-10-31 实例列表：`wtfml.meta` 读侧缓存
+
+```powershell
+pwsh -File tools/perf-startup.ps1 -Runs 3 -Instances 200 -InstanceMeta -StallSeconds 2 -ReportDir <目录>
+```
+
+怎么量的：产品 exe（`build/verification-mingw13`，Release），外部测量口径与第二节相同
+（visible / ready / `WM_NULL` 最长阻塞）。**同一次会话、同一台机器、同一份沙盒夹具**连测
+两轮；两轮之间只把 `src/manage/VersionManager.hpp/.cpp` stash 掉重编一次，两份 exe 的差异
+就是那一格缓存（md5 记在各自的 `startup.json` 里）。
+
+夹具：`-InstanceMeta` 是这次新加的开关 —— 每个实例多写一份 `wtfml.meta`
+（`schemaVersion` 1 / 显示名 / 稳定 `instanceId`）。默认夹具**没有**它（实例刚下载完时
+本来也没有，改过名 / 归过组 / 换过图标的实例才有），所以**两种夹具的数字不能横向比**；
+带 meta 的这一份才量得到"每个实例被问三四遍"那条路。
+
+| 200 个实例（各带 wtfml.meta） | visible 中位 | 范围 | ready 中位 | maxBlock 中位 | 范围 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 无缓存（`exe-before`，md5 `5be401d6`） | 922.8 ms | 904.1–931.5 | 939.2 ms | 203.9 ms | 202.2–205.2 |
+| 有缓存（`exe-after`，md5 `d1036ec0`） | 840.2 ms | 816.9–865.1 | 845.4 ms | 150.0 ms | 144.0–188.7 |
+
+- 窗口早出来 82.6 ms，主线程最长阻塞降 53.9 ms；两组范围不重叠。
+- 剩下的 150 ms 大致就是"没有 meta 的那一轮"的数：同一天、同一台机器、无 meta 夹具的
+  200 实例是 788–829 ms / 144–165 ms（`build/perf-instances-200-metacache`，exe md5
+  `9d709661`）。早先同一版二进制的分段探针（同样是**无 meta** 夹具）里，一轮刷新的两大块
+  是每行图标（`marks` ~91 ms）与树填充（`fill` ~37 ms）—— 接下来要压的是它们，不是元数据。
+- 无 meta 的夹具本来就没有可缓存的东西：缓存把"打不开"换成"stat 一下"，数字基本不动。
+  所以这一条**只在"有 meta"的夹具上成立**，别拿它去解释无 meta 的数字。
+
+正确性：缓存按"在不在 + 修改时刻 + 字节数"失效，我们自己的写侧（重命名 / 分组 / 图标）
+写完当场丢掉那一格。`verify` 的 O12 一段钉住四种失效：外面的改写（改大 / 改小）、
+写侧改完当场可见、文件被删掉之后回到"没有"。判据的缝只有"同一毫秒里、同样字节数"的
+外部改写 —— 那种改写光靠这三个值分不出来，代码注释里写明了为什么接受它。
+
+读法：单机、n=3、外部测量，只差这一段代码的 A/B。别把它当成"启动快一成"的通用结论。
+
+## 2026-10-31 换主题：只给露着的滚动条重挂样式
+
+```powershell
+pwsh -File tools/perf-startup.ps1 -Probe -Runs 3 -Instances 0 -Exe build/perf-probe/WTFMinecraftLauncher.exe -ReportDir <目录>
+```
+
+起因：第四节里「换主题」一直是 40–55 ms 一档（`theme:ocean` 最贵），只是一下配色变化，
+这个价能感觉到一顿。这次先把它拆开量：在 `Theme::apply()` 里临时加 `THEME-PROBE` 计时
+（`setPalette()` / `styleScrollBars()` / `repolishWidgets()` 三段各一行 `qInfo`），量完
+整段删掉。拆分前后的探针构建 md5 分别是 `ad5ef306`、`21a6933b`，最终构建 `76b1a0d5`。
+
+拆分结果（空目录夹具，拆分前后各两轮，只列真换了主题的那四次，单位 ms）：
+
+| 段 | 改之前 | 改之后 |
+| --- | ---: | ---: |
+| `setPalette()` | 0.36–1.08 | 0.36–0.82 |
+| `styleScrollBars()` | 14.7–25.9（ocean ≈25，其余 ≈14.7–16.0） | 0.05–0.36 |
+| `repolishWidgets()` | 22.5–26.7 | 22.5–25.7 |
+
+原注释写着「很便宜」的 `styleScrollBars()` 其实是第二贵的一笔：它对
+`QApplication::allWidgets()` 里每一根 `QScrollBar` 单独 `setStyleSheet()`，一次切主题
+要给全应用几百根一起重挂。现在只算 `isVisible()` 的那些 —— 一屏上真露着的滚动条通常
+就一两根。藏着的那些身上记的代数标记还是旧的，`ScrollBarStyler`（应用级事件过滤器）收
+`QEvent::Show` 时看标记不对才补一发，所以它们第一次露出来时颜色已经是新的。
+
+最终数字（同一台机器、同一份探针配置、空目录夹具，n=3 中位）：
+
+| 步骤 | 改之前（md5 `ea78d72f`） | 改之后（md5 `76b1a0d5`） |
+| --- | ---: | ---: |
+| `theme:ocean` | 54.9 | 28.9 |
+| `theme:dark` | 40.6 | 26.5 |
+| `theme:system` | 40.1 | 26.6 |
+| `theme:restore` | 41.1 | 24.9 |
+
+同一份报告里其余步骤没动：`nav:instances` 25.6 → 25.1、`nav:settings` 9.9 → 9.2、
+`nav:settings-again` 3.5 → 3.9。窗口可见时间 595.0 → 610.3 ms，两次范围（579–607 /
+600–613）互相叠着，这条路径本来就不经过主题，既不当收益也不当回归。
+
+剩下的大头是 `repolishWidgets()`（22.5–25.7 ms）。**没有**顺手把它也改成懒的：藏着的
+控件不重 polish，就得在每次 `Show` 时自己记"我这一身是哪一代主题"，漏一处就是老配色
+停在屏上，需要单独的钩子加真机视觉验收，不能拿自动测试代替。记在这儿，留给以后。
+
+正确性：`ui_check` 第 ⑭ 组三条钉住「藏着的没有控件级样式 / 换主题不给它白跑一趟 /
+一露头就把新主题的样式补上」，外加原有的滚动条配色检查。全量复跑：`ui_check`
+3136/3136、`mw_check` 2722/2722、`verify` 6182/6182。
+
+读法：单机、n=3、只量了探针构建（Release，`-DWTFML_PERF_PROBE=ON`，只编产品），说的是
+"换一次主题同步那一截"，不含整窗重画那几毫秒。
+
+## 2026-10-31 安装确认弹窗：预设数据只扫一趟盘
+
+路径：下载页 → 选一个版本 → 装 → 确认弹窗里那四类预设（游戏设置 / 模组 / 资源包 /
+数据包）。
+
+原来的写法：弹窗按四类各问一次 `presetsInCategory()`，而每一类里都调
+`availablePresets()` —— 也就是 `Presets::list()`，把 store 里每份 manifest 读一遍；
+最后为了「复合预设」那张表又扫一遍、再按份读 manifest。四类加大表 = **五趟全量扫盘**，
+复合预设的 manifest 还在一趟里被读两遍。
+
+现在：`PresetController::installPickerData()` 扫一次，复合预设每份只读一次 manifest，
+四类的选项由 `InstallPickerData::optionsFor()` 从这份快照里派生；
+`InstallPageController` 拿同一份数据去拼四类和复合表，这一整段不再碰盘。
+
+价：第八节实测过，1000 份预设单趟同步读是 2.2–2.5 s（本机、Release）。按它折算，
+旧写法在 1000 份时是五趟 ≈ 11 s 的冻结，新写法是一趟；20 份时约 220 ms → 44 ms。
+**这是拿单趟成本折算的，不是这次在弹窗上重新量的**（这一段没有探针）；要真数字得给
+弹窗加一步测量，目前没做。
+
+正确性：`mw_check_preset_install` 新增十项 —— 四类各自只出现自己的、复合预设的子项
+按父项次序出现在对应类里、缺的那一类不凭空造、未知类别回空、复合项带着父项名字和
+读回来的 `components`（不再第二次读 manifest）。复跑：`verify` 6182/6182、
+`verify_presets` 762/762、`ui_check` 3136/3136、`mw_check` 2722/2722，
+`mw_check_preset_install` 全过。
+
+## 2026-10-31 实例列表：加载器 / 版本类型一次问清楚
+
+```powershell
+pwsh -File tools/perf-startup.ps1 -Runs 3 -Instances 200 -InstanceMeta -Exe build/perf-probe/WTFMinecraftLauncher.exe -ReportDir <目录>
+```
+
+（改之前那一份跑的是 `-Runs 2`，计入 2 次；改之后是 3 次。其余参数相同。）
+
+起因：上一节把"同一个实例被问三四遍 `wtfml.meta`"压掉之后，分段探针显示一轮刷新剩下的
+两块是每行的 `marks`（35–63 ms）和树填充 `fill`（38–50 ms）。看代码才明白 `marks` 不是
+画图标：每行都要问「是哪个加载器」（实例行前面的标志、默认分组**再问一遍**、频道判定
+还要问一次版本类型），而这三个问题每次都各自把 `wtfml.meta` 读一遍、再各自把合并过的
+版本 json 认一遍（扫 `libraries`、展开 `arguments.game`）。同一个实例、同一份数据，
+一轮里认三遍。
+
+现在：`VersionManager::instanceTraits()` 一次返回三格 —— 加载器名、加载器版本、版本类型。
+meta 那半读一次就够；json 那半只在缺答案时才去认，认出来的结果记在
+`mergedVersionJsons` 那一格里（`MergedJsonEntry`）。`instanceModLoader()` 变成它的一层
+包装，界面上那三处改成一人调一次。
+
+价（同一台机器、同一份 200 个各带 `wtfml.meta` 的夹具，外部测量口径同第二节）：
+
+| 200 个实例（各带 wtfml.meta） | visible 中位 | 范围 | ready 中位 | maxBlock 中位 | 范围 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 改之前（`build/perf-probe-refresh-before`，md5 `ad7d5f51`） | 815.6 ms | 809.3–821.9 | 826.2 ms | 148.0 ms | 132.9–163.1 |
+| 改之后（`build/perf-probe-traits-after`，md5 `549da091`） | 654.6 ms | 640.8–662.8 | 657.3 ms | 19.8 ms | 19.1–20.9 |
+
+同两份报告里的分段探针（`TEMP REFRESH-PROBE`，一列 `qInfo` 打在 `refreshInstalledVersions()`
+里，量完整段删掉；单位 ms，每个进程两轮刷新）：
+
+| 段 | 改之前（6 轮） | 改之后（8 轮） |
+| --- | ---: | ---: |
+| `scan`（`installedVersions()` 扫盘） | 17–25 | 18–24 |
+| `parts`（`displayParts()` 那圈） | 1–9 | 1–11 |
+| `marks`（每行的标志 / 分组 / 频道） | 35, 39, 43, 61, 63, 121 | 41, 42, 42, 102（进程里第一轮）；1, 1, 2, 2（第二轮） |
+| `fill`（`rebuildInstanceTree()`，含分组那一趟） | 38, 40, 42, 43, 45, 50 | 3–6（每一轮） |
+
+- `fill` 一起掉下来的原因：分组那一趟原来对每个实例各自问一次加载器和类型，现在走
+  同一份 `instanceTraits()` 结果。
+- **诚实的一条**：进程里第一轮刷新仍然要 41–102 ms（那 102 是冷盘那次）。它付的是
+  "200 份版本 json 各解析一遍 + 认一遍"的一次性成本，现在缓存住了；第二轮起 1–2 ms。
+  改之前是**每一轮**都付这 35–63 ms，这才是省下来的东西。
+- `scan` 没动：每实例几次 stat 还是那样。下一步要再压就是它。
+- 夹具带 meta。无 meta 的实例走的是 json 那半，收益同样是"一轮只认一遍"，但没有这一轮
+  的 A/B 数字。
+
+正确性：`verify_instances` 新增 QQ 一段（26 项）钉住三条契约 —— meta 写了加载器就以
+meta 为准、meta 没写才去 json 的 `libraries` 里认（含薄 json 从父版本继承）；
+`clearVersionJsonCache()` 之后必须重新认（那一格事实就存在 `mergedVersionJsons` 里，
+所以六处清缓存的地方天然一起失效）；外部直接改 `wtfml.meta`，同一个会话里的下一次问
+就看得见（那半每轮都 stat）。全量复跑：`verify_instances` 1657/1657、`verify` 全过、
+`ui_check`、`mw_check`、`verify_presets`、`verify_downloads` 全过。整轮 `ctest` 跑完
+只有 `wtfml.core-resources` 闪过一次 SEGFAULT，单独重跑三次全过，按已知的
+`build/verification-mingw13` 时序 flake 处理，没当回归追。
+
+读法：单机、改前 n=2 / 改后 n=3、只量探针构建（Release `-O3`、只编产品）。别把
+815 → 655 外推成"所有机器都快 20%"，它说的是这一份夹具、这一条路径。
+
+## 2026-10-31 实例目录扫描：两趟 readdir 合成一趟
+
+```powershell
+pwsh -File tools/perf-startup.ps1 -Runs 3 -Instances 200 -InstanceMeta -Exe build/perf-probe/WTFMinecraftLauncher.exe -ReportDir <目录>
+```
+
+上一节之后一轮刷新里最大的一块变成 `scan`（`installedVersions()` 扫盘，18–23 ms）。拆开看
+每实例一次：`resolveInstance()` 里 `DirListing` 先 `entryList("*.jar")`、再
+`entryList("*.json")` —— **两趟完整的目录读取**，看的是同一批顶层条目。
+
+现在 `InstanceFiles::scanDir()` 一趟 `entryList(QDir::Files)` 取全，再按后缀分进两个表。
+顺序逐字不变（两种写法都按文件名排），后缀比较**不区分大小写**（`QDir` 的名字过滤器默认
+就是这个规矩，`A.JAR` 在改之前就是候选 jar）；目录不存在时 `entryList()` 照样给空表，
+所以原来那句 `dir.exists()` 早退一起去掉了。
+
+| 200 个实例（各带 wtfml.meta） | visible 中位 | 范围 | 每轮 `scan`（探针） |
+| --- | ---: | ---: | ---: |
+| 改之前（`build/perf-probe-scan-before`，md5 `6959ce8e`） | 656.4 ms | 653.0–681.4 | 18–23 ms |
+| 改之后（`build/perf-probe-scan-after`，md5 `7ff4cdd0`） | 623.5 ms | 615.3–625.5 | 7–10 ms |
+
+- 两轮背靠背、同一台机器、同一份夹具、各 n=3；visible 的两次范围不重叠。
+- `maxBlock` 两次范围是叠着的（12.8–24.3 / 19.1–30.3），这一条**不当收益**。
+- 分段探针里 `marks` 也跟着变了（第一次 94 → 62、之后 44 → 25），那是进程第一轮解析
+  200 份 json 那一次的一次性成本，受磁盘/AV 状态影响大，**不当成这次改动的收益**。
+- 正确性：`verify_instances` 的 J 段（认不出来的目录进不进列表、告警条数）与
+  `InstanceFileTests` 的真值表覆盖这条判据；整轮 `ctest` 39/39 全过。
+
+读法：单机、只量探针构建、n=3；说的是这一份夹具下"每轮刷新的扫盘那一段"。
+## 2026-10-31 主页那颗箭头：一个字形把启动拖长了 270 ms
+
+```powershell
+pwsh -File tools/perf-startup.ps1 -Runs 3 -Instances 200 -InstanceMeta -Exe <exe> -ReportDir <目录>
+```
+
+上一节之后启动是 615–625 ms。这一段是从"哪一块最贵"一路拆下来的：`setupUi()`
+≈ 335–358 ms，其中四页 ≈ 296–316 ms，再往下几乎全在**主页**（271–275 ms），
+主页里又几乎全在右栏那张账号卡片的一段几何计算上：
+
+```
+STARTUP-PROBE home left 1        ← 左栏全部搭完，1 ms
+STARTUP-PROBE home card 1        ← 卡片外壳，1 ms
+STARTUP-PROBE home account 10    ← 账号按钮 + 三个标签，9 ms
+STARTUP-PROBE home viewer 10     ← SkinViewer 构造
+STARTUP-PROBE home skin 10       ← 兜底皮肤
+STARTUP-PROBE home minheight 279 ← profileCard->heightForWidth(...) 这一段 269 ms
+```
+
+`heightForWidth()` 里逐个问子控件的 `sizeHint()`（那个卡片的做法见
+`HomeProfileCard`）。逐个计时：
+
+```
+STARTUP-PROBE carditem QPushButton 264   ← 就是这一下
+STARTUP-PROBE carditem SkinViewer 0
+```
+
+换成一颗裸的 `QPushButton` 量 `sizeHint()` 只要 7 ms；带上这套属性（kind /
+homeAction / accountHeader）、带子布局也都还是 0 ms。差别只剩那颗箭头：
+`QLabel("⌄")`，而 **U+2304 不在默认界面字体的覆盖表里**。Qt 第一次量这段文字
+就要去字体库里做一遍**回退查找**，本机实测：
+
+```
+STARTUP-PROBE probebtn   QSize(54, 34) 7     ← 裸按钮
+STARTUP-PROBE glyph      QSize(10, 19) 268   ← 就一个 "⌄"
+STARTUP-PROBE plainlabel QSize(24, 18) 0     ← 中文/ASCII 不付这笔
+```
+
+不是 QSS、不是布局、不是皮肤，是**一个字形没在默认字体里**。改法：那颗箭头改用
+`VersionIcons::chevron()` 画的位图（和底栏、版本树里那些箭头是同一份笔画），
+控件、尺寸、换主题重画都由 `Theme::follow()` 管；U+2304 从启动路径上拿掉。
+
+| 200 个实例（各带 wtfml.meta） | visible 中位 | 范围 | 最长阻塞 |
+| --- | ---: | ---: | ---: |
+| 改之前（`build/perf-probe-arrow-before.exe`，md5 `0bfb054c`） | 670.0 ms | 642–722 | 13.1–33.1 ms |
+| 改之后（`build/perf-probe-arrow-after.exe`，md5 `ad323ad6`） | 383.4 ms | 374–391 | 12.9–15.5 ms |
+
+- 两份都是**不带探针**的探针构建（`WTFML_PERF_PROBE=ON`、Release），背靠背各 n=3，
+  同一台机器、同一份夹具；`git stash` 前后各编一次，所以是真正的同版 A/B。
+- 拿掉的这一下是**一次性**的（进程里第一次量那段文字），不是每帧都付；它落在
+  `show()` 之前，所以直接表现为"窗口晚 270 ms 出来"。
+- `maxBlock` 两边范围叠着，不当收益；这一节的收益只有一个：visible 少了 ≈287 ms。
+
+**诚实的一条**：这 270 ms 是字体回退那套东西的**一次性**初始化，不是每颗字形的价。
+同一个进程里接着量别的回退字形（`✓` U+2713、`⚠` U+26A0）都是 0 ms，再量一遍 `⌄` 也是
+0 ms。也就是说这次改的是"**这笔钱不再压在启动上**"，不是"这笔钱不存在了"：界面上还有
+别的回退字形（实例文件页的 `⚠`、任务中心的 `✓` / `✗` 之类），第一次真的画出那一页时
+仍然会付一次。启动第一屏（主页）现在一个回退字形都不用，这是实测到的收益；要把这笔钱
+彻底去掉，得把那些也换成画的图标，那是一次单独的清扫，这次不做。
+
+```
+GLYPH-PROBE ascii   QSize(21, 16) 7
+GLYPH-PROBE cjk     QSize(24, 16) 0
+GLYPH-PROBE chevron QSize(9, 16) 271   ← U+2304，第一次回退查找
+GLYPH-PROBE check   QSize(12, 16) 0    ← U+2713，后面的都免费
+GLYPH-PROBE warn    QSize(17, 16) 0    ← U+26A0
+GLYPH-PROBE chevron-again QSize(9, 16) 0
+```
+
+正确性：`accountArrow` 只是装饰，没有任何断言认那个字形；`ui_check` / `mw_check`
+全套、整轮 `ctest` 全过（`wtfml.core-resources`、`wtfml.download-retry` 各闪一次，
+单独重跑都过，按已知的 `build/verification-mingw13` 并行时序 flake 处理）。
+
+读法：单机、n=3、只量探针构建。270 ms 这个数取决于**这台机器默认字体里有没有那一格**
+——换一台默认字体更全的机器，改之前那一版可能本来就不付这笔；收益的绝对值不可外推，
+但"启动第一屏别用字体里没有的字形"这条规矩与机器无关。
+

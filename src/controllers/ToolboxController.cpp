@@ -24,6 +24,7 @@
 #include "tools/CoordConvert.hpp"
 #include "tools/FileHash.hpp"
 #include "tools/TextFormat.hpp"
+#include "util/ImageDecode.hpp"
 #include "util/ServerPing.hpp"
 
 #include <QColor>
@@ -713,9 +714,11 @@ void ToolboxController::checkServer(const QString &address) {
                                            : QStringLiteral("%1").arg(status.playersOnline);
                         view.latency = tr("%1 ms").arg(status.latencyMs);
                         if (!status.iconPng.isEmpty()) {
-                            QPixmap icon;
-                            if (icon.loadFromData(status.iconPng)) {
-                                view.icon = icon;
+                            // 服务器给的字节走 ImageDecode：那一层有尺寸上限（见
+                            // `ImageDecode::Limits`），挡解压炸弹。
+                            const QImage icon = ImageDecode::decode(status.iconPng);
+                            if (!icon.isNull()) {
+                                view.icon = QPixmap::fromImage(icon);
                             }
                         }
                     }

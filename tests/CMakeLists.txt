@@ -162,6 +162,7 @@ set(PROJECT_SOURCES
     # 是不是真的一张都不剩。纯文件读写，不联网。
     ${REPO_ROOT}/src/manage/OfflineSkin.cpp
     ${REPO_ROOT}/src/manage/OfflineSkin.hpp
+    ${REPO_ROOT}/src/manage/InstanceMetaFile.cpp
     ${REPO_ROOT}/src/manage/VersionManager.cpp
     # 同一个类按职责分开的那三份（核心那一份就在上面；理由见各文件头）。
     # 少一份不会在编译期报错，只在链接期报一串 `VersionManager::…` 的 undefined reference。
@@ -380,6 +381,12 @@ set(PROJECT_SOURCES
 # 文件直接配置失败，而不是让对应用例在运行时如实地报 FAIL（那才是想要的信号）。
 if(EXISTS ${REPO_ROOT}/src/launcher/VersionArguments.hpp)
     list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/launcher/VersionArguments.hpp)
+endif()
+
+# LaunchScriptExport 是「导出启动脚本」那份 .bat 的正文：哪些字符要加引号、`%` 写两遍、
+# 令牌换成环境变量引用、带已知凭据就不写。理由同上：别的分支上没有它，存在才加。
+if(EXISTS ${REPO_ROOT}/src/launcher/LaunchScriptExport.hpp)
+    list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/launcher/LaunchScriptExport.hpp)
 endif()
 
 # VersionInheritance 是"带模组加载器的版本（inheritsFrom）"那次改动引入的。理由同上：

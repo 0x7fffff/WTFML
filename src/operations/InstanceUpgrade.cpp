@@ -2,6 +2,7 @@
 
 #include "manage/BackupFiles.hpp"
 #include "manage/InstanceFiles.hpp"
+#include "manage/InstanceMetaFile.hpp"
 #include "manage/FolderManager.hpp"
 #include "util/ZipUtil.hpp"
 
@@ -501,26 +502,27 @@ bool writeUpdateChangeLog(const Request &r, const Core &core, const QString &can
 bool applyCoreToCandidate(const Request &r, const Core &core, const QString &candidate,
                           Result *result) {
     // Read identity/settings from the copied original, never from the target.
-    QJsonObject meta;
+    // 这里只**验证**它读得懂：升级要干一大摊事，读不懂的文件得现在就说，别拖到最后
+    // 写不进去才发现。真正的合并写在这条路末尾（原来那份内容一个键都不会少）。
     const QString metaPath = candidate + "/wtfml.meta";
-    QFile metaFile(metaPath);
-    if (metaFile.exists()) {
-        if (!metaFile.open(QIODevice::ReadOnly) || metaFile.size() > 16 * 1024 * 1024) {
-            result->problem = QStringLiteral("无法读取原实例设置，未继续升级。"); return false;
-        }
-        const auto document = QJsonDocument::fromJson(metaFile.readAll());
-        if (!document.isObject()) { result->problem = QStringLiteral("原实例设置不是有效 JSON，未继续升级。"); return false; }
-        meta = document.object();
-        metaFile.close();
+    InstanceMetaFile::Status metaStatus = InstanceMetaFile::Status::Missing;
+    InstanceMetaFile::read(metaPath, &metaStatus);
+    if (metaStatus == InstanceMetaFile::Status::Unreadable) {
+        result->problem = QStringLiteral("无法读取原实例设置，未继续升级。"); return false;
+    }
+    if (metaStatus == InstanceMetaFile::Status::BadVersion) {
+        result->problem = QStringLiteral("原实例设置的格式版本比这个启动器新，未继续升级。"); return false;
     }
     auto json = core.mergedJson;
     json.insert("id", r.instanceId);
     json.remove("inheritsFrom"); // Flattening prevents inheritance through the id being replaced.
     json.remove("jar");
-    meta.insert("realVersion", core.gameVersion);
-    meta.insert("loaderName", core.loaderName);
-    meta.insert("loaderVersion", core.loaderVersion);
-    meta.insert("upgradeTransactionId", r.transactionId);
+    const QJsonObject metaFields{
+        {"realVersion", core.gameVersion},
+        {"loaderName", core.loaderName},
+        {"loaderVersion", core.loaderVersion},
+        {"upgradeTransactionId", r.transactionId},
+    };
     QFile jar(core.clientJar);
     QCryptographicHash hash(QCryptographicHash::Sha1);
     const QString expected = json.value("downloads").toObject().value("client").toObject().value("sha1").toString();
@@ -582,8 +584,13 @@ bool applyCoreToCandidate(const Request &r, const Core &core, const QString &can
     }
     const QString client = candidate + '/' + r.instanceId + ".jar";
     if ((QFileInfo::exists(client) && !QFile::remove(client)) || !QFile::copy(core.clientJar, client)
-        || !saveObject(candidate + '/' + r.instanceId + ".json", json) || !saveObject(metaPath, meta)) {
+        || !saveObject(candidate + '/' + r.instanceId + ".json", json)) {
         result->problem = QStringLiteral("无法准备新核心或设置，原实例未改变。"); return false;
+    }
+    QString metaProblem;
+    if (!InstanceMetaFile::mergeWrite(metaPath, metaFields, &metaProblem)) {
+        result->problem = QStringLiteral("无法写入原实例设置，原实例未改变：%1").arg(metaProblem);
+        return false;
     }
     QFile copiedJar(client);
     QCryptographicHash copiedHash(QCryptographicHash::Sha1);

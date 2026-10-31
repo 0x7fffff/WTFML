@@ -83,7 +83,7 @@ const QSet<QString> &gameKeys() {
         QStringLiteral("renderDistance"), QStringLiteral("simulationDistance"),
         QStringLiteral("maxFps"), QStringLiteral("graphicsMode"), QStringLiteral("ao"),
         QStringLiteral("particles"), QStringLiteral("renderClouds"),
-        QStringLiteral("entityShadows"), QStringLiteral("entityDistanceScaling"),
+        QStringLiteral("entityShadows"), QStringLiteral("entityDistanceScaling"), QStringLiteral("bobView"),
         QStringLiteral("menuBackgroundBlurriness"), QStringLiteral("biomeBlendRadius"),
         QStringLiteral("enableVsync"), QStringLiteral("soundDevice"),
         QStringLiteral("showSubtitles"), QStringLiteral("forceUnicodeFont"),

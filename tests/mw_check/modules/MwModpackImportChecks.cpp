@@ -457,7 +457,7 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
         // ---- AA11 已经有一批下载在跑：这时候**拖一个整合包进来** ----
         //
         // 那颗按钮这时候是灰的，可是窗口的拖放**不经过按钮**（用户从资源管理器里把文件
-        // 拖进来，走的是 dropEvent）。这里必须有一道闸：没有的话 `m_importingInstanceId`
+        // 拖进来，走的是 dropEvent）。这里必须有一道闸：没有的话「导入」那一档占用
         // 会被第二趟直接覆盖，第一趟收尾时按那个 id 收，两趟互相把对方的忙态/目录认错。
         {
             const int startedBefore = countOccurrences(messagesSnapshot(), QStringLiteral("开始导入整合包"));

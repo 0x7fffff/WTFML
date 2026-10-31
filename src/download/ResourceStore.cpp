@@ -18,6 +18,7 @@
 #include <QRegularExpression>
 
 #include "manage/ModpackImport.hpp"  // curseForgeApiBase() —— 那条接口根地址的唯一出处
+#include "net/ControlGet.hpp"
 #include "net/HttpClient.hpp"
 #include "util/AppPaths.hpp"
 #include "util/ImageDecode.hpp"
@@ -106,8 +107,9 @@ QNetworkRequest ResourceStore::resourceRequest(const QString &url,
     for (const QPair<QByteArray, QByteArray> &header : headers) {
         request.setRawHeader(header.first, header.second);
     }
-    // Qt 自己的 transferTimeout，不用再搭一个 QTimer：HttpClient 那边手写超时是因为它在跑
-    // 内嵌事件循环（见 .hpp 开头那段）。
+    // 这条 transferTimeout 现在**由作业再写一次**（`ControlGet` 拿"整项剩余时间"盖上去，
+    // 见 ControlGet.hpp）：同一个数，写着只是让这一份请求单拎出来看也是自洽的。
+    // 真正的截止在作业那一层 —— 它是排队 + 传输的合计。
     request.setTransferTimeout(HttpClient::kDefaultTimeoutMs);
     return request;
 }
@@ -116,6 +118,7 @@ QNetworkRequest ResourceStore::iconRequest(const QString &url, const IconValidat
     QNetworkRequest request{QUrl(url)};
     request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("WTFML"));
     request.setTransferTimeout(kIconTimeoutMs);
+    // 同上：作业会按"整项剩余时间"再盖一次（排队 + 传输共用一个截止）。
     // 空的那条不发（见声明处那段：一个空的条件头不是"没有凭据"，是一句不成形的话）。
     if (!validators.etag.isEmpty()) {
         request.setRawHeader("If-None-Match", validators.etag.toUtf8());
@@ -133,6 +136,15 @@ int statusOf(QNetworkReply *reply) {
 
 /// 状态码在 2xx（真的拿到了东西，而不是"拿到了一个错误页"）。
 bool okStatus(int status) { return status >= 200 && status < 300; }
+
+/// 没拿到回复（排队到点 / 被掐 / 管理器先没）时那句原因。
+///
+/// 收场和"连都没连上"（状态码 0）一样，只是原因那句来自 `ControlGet`（它写的是
+/// "等待网络请求超时。"这类）。CurseForge 那段"填一份 key"的提示不往这里加：
+/// 这话说的是"这一发没轮到/被掐了"，不是"那个接口不给你"。
+QString unansweredText(const QString &what, const QString &jobError) {
+    return QStringLiteral("%1失败：%2").arg(what, jobError);
+}
 
 ResourceStore::ResourceStore(QObject *parent)
     : QObject(parent), m_net(new QNetworkAccessManager(this)) {}
@@ -159,14 +171,13 @@ void ResourceStore::fetchLatestVersions(const QString &requestKey, const QString
                                         const QString &gameVersion, const QString &loader) {
     // 同一把钥匙上又来一批（用户又点了一次「检查更新」）：旧那几发**先掐掉** ——
     // 和 `fetchVersions()` 开头那两句同一个理由（回来得晚的那一发不该盖掉新的）。
-    // 掐掉之后它们**照样会发 finished**，所以下面那个回调拿"代号"认人（见 LatestRun）。
+    // 掐 = 删作业：排队中的不会再发出去，已发出的 abort 且不回调。下面那个回调拿"代号"
+    // 认人那一句仍然要留 —— 换一批之后这一格可能已经是新的了（见 LatestRun）。
     if (auto previous = m_latestRuns.find(requestKey); previous != m_latestRuns.end()) {
-        const QList<QNetworkReply *> stale = previous->replies;
+        const QList<RequestBudget::ControlGet *> stale = previous->replies;
         m_latestRuns.erase(previous);
-        for (QNetworkReply *reply : stale) {
-            if (reply != nullptr) {
-                reply->abort();
-            }
+        for (RequestBudget::ControlGet *job : stale) {
+            delete job;
         }
     }
 
@@ -199,78 +210,72 @@ void ResourceStore::fetchLatestVersions(const QString &requestKey, const QString
     for (const QByteArray &body : bodies) {
         // `Content-Type` **必须给**（`resourceRequest` 那三个参数里最后一个）：
         // QNetworkAccessManager 不会替一个 POST 猜它，而缺了它的正文那边读不成 JSON。
-        QNetworkReply *reply =
-            m_net->post(resourceRequest(url, {}, QByteArrayLiteral("application/json")), body);
-        m_latestRuns[requestKey].replies.append(reply);
-
-        QObject::connect(reply, &QNetworkReply::finished, this,
-                         [this, reply, requestKey, generation]() {
-            reply->deleteLater();
-            auto it = m_latestRuns.find(requestKey);
-            // 两样都要对得上：这一把钥匙上还是我这一批（**代号**），而且这一发真的在名单里
-            // （被 abort 掉的那些不在里面 —— 它们是被后来那一批换掉的）。
-            if (it == m_latestRuns.end() || it->generation != generation) {
-                return;
-            }
-            const int status = statusOf(reply);
-            const QByteArray body = reply->readAll();
-            const QString what = QStringLiteral("读取版本列表");
-            QHash<QString, ResourceCatalog::VersionEntry> part;
-            bool ok = false;
-            if (status == HttpClient::kStatusTooManyRequests) {
-                it->problem = HttpClient::throttledText(what);
-            } else if (!okStatus(status)) {
-                it->problem = failureText(reply, body, what);
-            } else {
-                // 200 也得**看一眼形状**：网关的拦截页也是 200。读不出来就是"这一批没问到"
-                // —— 一条都不许当成"已是最新"（见 .hpp 里那条 NOTE）。
-                const QJsonDocument document = QJsonDocument::fromJson(body);
-                if (!document.isObject()) {
-                    it->problem = QStringLiteral("版本列表读不懂（接口回的不是一份版本清单）");
+        auto *job = RequestBudget::ControlGet::startPost(
+            this, m_net, resourceRequest(url, {}, QByteArrayLiteral("application/json")), body,
+            HttpClient::kDefaultTimeoutMs,
+            [this, requestKey, generation](QNetworkReply *reply, const QString &jobError) {
+                auto it = m_latestRuns.find(requestKey);
+                // 这一把钥匙上还是不是我这一批（**代号**）。被换掉的那一批的作业是**删掉的**，
+                // 根本不会回调；这一句防的是"同一把钥匙上又开了一批"那一格。
+                if (it == m_latestRuns.end() || it->generation != generation) {
+                    return;
+                }
+                const QString what = QStringLiteral("读取版本列表");
+                QHash<QString, ResourceCatalog::VersionEntry> part;
+                bool ok = false;
+                if (reply == nullptr) {
+                    it->problem = unansweredText(what, jobError);
                 } else {
-                    part = ResourceCatalog::parseVersionFilesUpdate(body);
-                    ok = true;
+                    const int status = statusOf(reply);
+                    const QByteArray answer = reply->readAll();
+                    if (status == HttpClient::kStatusTooManyRequests) {
+                        it->problem = HttpClient::throttledText(what);
+                    } else if (!okStatus(status)) {
+                        it->problem = failureText(reply, answer, what);
+                    } else {
+                        // 200 也得**看一眼形状**：网关的拦截页也是 200。读不出来就是
+                        // "这一批没问到" —— 一条都不许当成"已是最新"（见 .hpp 里那条 NOTE）。
+                        const QJsonDocument document = QJsonDocument::fromJson(answer);
+                        if (!document.isObject()) {
+                            it->problem = QStringLiteral("版本列表读不懂（接口回的不是一份版本清单）");
+                        } else {
+                            part = ResourceCatalog::parseVersionFilesUpdate(answer);
+                            ok = true;
+                        }
+                    }
                 }
-            }
-            if (ok) {
-                for (auto found = part.constBegin(); found != part.constEnd(); ++found) {
-                    it->merged.insert(found.key(), found.value());
+                if (ok) {
+                    for (auto found = part.constBegin(); found != part.constEnd(); ++found) {
+                        it->merged.insert(found.key(), found.value());
+                    }
                 }
-            }
-            if (--it->pending > 0) {
-                return;  // 还有几发没回来，等它们
-            }
-            // 收尾：**把这一批整个拿出来**再发信号 —— 发出去之后接的人可能立刻又开一批，
-            // 那时候这一格已经不是我的了。
-            const LatestRun finished = *it;
-            m_latestRuns.erase(it);
-            emit latestVersionsFinished(requestKey, finished.merged, finished.problem);
-        });
+                if (--it->pending > 0) {
+                    return;  // 还有几发没回来，等它们
+                }
+                // 收尾：**把这一批整个拿出来**再发信号 —— 发出去之后接的人可能立刻又开一批，
+                // 那时候这一格已经不是我的了。
+                const LatestRun finished = *it;
+                m_latestRuns.erase(it);
+                emit latestVersionsFinished(requestKey, finished.merged, finished.problem);
+            });
+        m_latestRuns[requestKey].replies.append(job);
     }
 }
 
 void ResourceStore::abortAll() {
-    const QList<QNetworkReply *> replies = m_replies.values();
+    // 取消 = 删作业：排队中的一个字节都不会发，发出去的那一发在作业析构里 abort 且不回调。
+    // 所以这里既不用发 finished 让回调自己去认"这一发过期了"，也不会在窗口关掉之后
+    // 还收到已经没人要的回调。
+    const QList<RequestBudget::ControlGet *> replies = m_replies.values();
     m_replies.clear();
     // 批次那几发也要掐（它们是**独立**的一张表，见 m_latestRuns 那段）—— 少掐这一处的
     // 症状是"窗口关了之后那几个回调还会回来"，而那时候 `this` 已经被析构了。
     const QList<LatestRun> latestRuns = m_latestRuns.values();
     m_latestRuns.clear();
     for (const LatestRun &run : latestRuns) {
-        for (QNetworkReply *reply : run.replies) {
-            if (reply != nullptr) {
-                reply->abort();
-            }
-        }
+        qDeleteAll(run.replies);
     }
-    for (QNetworkReply *reply : replies) {
-        // abort 之后**不能再去读它**（HttpClient 那边的约定，漏了就是偶发崩溃）。
-        // 掐掉会让它发 finished，那个回调第一件事就是"这一发还是不是手上这个"——
-        // 上面已经把 key 摘掉了，所以它会自己安静地退出去，不会往界面上发过期的东西。
-        if (reply != nullptr) {
-            reply->abort();
-        }
-    }
+    qDeleteAll(replies);
     m_iconPending.clear();
 }
 
@@ -311,9 +316,9 @@ void ResourceStore::search(const QString &requestKey, ResourceCatalog::Kind kind
                            ResourceCatalog::Source source, const QString &query,
                            const QString &gameVersion, const QString &loader,
                            const QString &category) {
-    if (QNetworkReply *previous = m_replies.take(requestKey)) {
-        previous->abort();
-    }
+    // 换掉上一发 = 删作业：还排在 Control 队列里的一个字节都不会发，已经发出去的那一发作废、
+    // **不回调**。所以下面那些回调里不再需要"这一发还是不是手上这个"的比较。
+    delete m_replies.take(requestKey);
 
     // 用户又动了一下（换分类 / 又敲了一次回车）= 那一批图标重新开始算。这道闸只管
     // "这一屏别一张张干等"，不该管一整个会话：他刚才多半就是去把代理打开了
@@ -328,42 +333,46 @@ void ResourceStore::search(const QString &requestKey, ResourceCatalog::Kind kind
     const QString url = ResourceCatalog::searchUrl(
         kind, query, 0, kSearchPageSize, gameVersion, loader, source, category,
         isCurseForge ? curseForgeApiBase() : m_modrinthApiBaseOverride);
-    QNetworkReply *reply = m_net->get(
+    auto *job = RequestBudget::ControlGet::start(
+        this, m_net,
         resourceRequest(url, isCurseForge ? apiKeyHeaders(m_curseForgeApiKey)
-                                          : QList<QPair<QByteArray, QByteArray>>()));
-    m_replies.insert(requestKey, reply);
+                                          : QList<QPair<QByteArray, QByteArray>>()),
+        HttpClient::kDefaultTimeoutMs,
+        [this, requestKey, source](QNetworkReply *reply, const QString &jobError) {
+            // 先把钥匙摘掉再发信号：接的人可能立刻又搜一次，那时候这一格归他不归我。
+            m_replies.remove(requestKey);
 
-    QObject::connect(reply, &QNetworkReply::finished, this,
-                     [this, reply, requestKey, source]() {
-        reply->deleteLater();
-        if (m_replies.value(requestKey) != reply) {
-            return; // 又搜了一次（或者被 abortAll 掐了）：这一发的结果已经没人要了
-        }
-        m_replies.remove(requestKey);
+            ResourceCatalog::SearchResult result;
+            if (reply == nullptr) {
+                // 排队到点 / 被掐 / 管理器先没：这一发没成，得让界面收场（不能一直转圈）。
+                result.problem = unansweredText(QStringLiteral("搜索"), jobError);
+                emit searchFinished(requestKey, result);
+                return;
+            }
 
-        const int status = statusOf(reply);
-        const QByteArray body = reply->readAll();
+            const int status = statusOf(reply);
+            const QByteArray body = reply->readAll();
 
-        ResourceCatalog::SearchResult result;
-        if (status == HttpClient::kStatusTooManyRequests) {
-            // 429 说的不是"请求哪儿写错了"，是"你问得太勤了"，得跟用户这么说（唯一出处）。
-            result.problem = HttpClient::throttledText(QStringLiteral("搜索"));
-        } else if (okStatus(status)) {
-            // 2xx 才交给解析器。它读不懂时会自己报「接口返回的数据读不懂」——
-            // 那是对的：拿到 200 却读不出 hits，问题就在正文上。
-            result = source == ResourceCatalog::Source::CurseForge
-                         ? ResourceCatalog::parseCurseForgeSearch(body)
-                         : ResourceCatalog::parseSearch(body);
-        } else {
-            result.problem = failureText(reply, body, QStringLiteral("搜索"), source,
-                                         !m_curseForgeApiKey.isEmpty());
-        }
-        emit searchFinished(requestKey, result);
-    });
+            if (status == HttpClient::kStatusTooManyRequests) {
+                // 429 说的不是"请求哪儿写错了"，是"你问得太勤了"，得跟用户这么说（唯一出处）。
+                result.problem = HttpClient::throttledText(QStringLiteral("搜索"));
+            } else if (okStatus(status)) {
+                // 2xx 才交给解析器。它读不懂时会自己报「接口返回的数据读不懂」——
+                // 那是对的：拿到 200 却读不出 hits，问题就在正文上。
+                result = source == ResourceCatalog::Source::CurseForge
+                             ? ResourceCatalog::parseCurseForgeSearch(body)
+                             : ResourceCatalog::parseSearch(body);
+            } else {
+                result.problem = failureText(reply, body, QStringLiteral("搜索"), source,
+                                             !m_curseForgeApiKey.isEmpty());
+            }
+            emit searchFinished(requestKey, result);
+        });
+    m_replies.insert(requestKey, job);
 }
 
 void ResourceStore::fetchModrinthFiles(const QString &requestKey, const QStringList &sha1s) {
-    if (auto *previous = m_replies.take(requestKey)) previous->abort();
+    delete m_replies.take(requestKey);
     QSet<QString> requested;
     const QRegularExpression hashPattern(QStringLiteral("^[0-9a-fA-F]{40}$"));
     for (const auto &sha : sha1s) {
@@ -381,13 +390,16 @@ void ResourceStore::fetchModrinthFiles(const QString &requestKey, const QStringL
     while (base.endsWith(QLatin1Char('/'))) base.chop(1);
     const auto body = QJsonDocument(QJsonObject{{QStringLiteral("algorithm"), QStringLiteral("sha1")},
         {QStringLiteral("hashes"), QJsonArray::fromStringList(requested.values())}}).toJson(QJsonDocument::Compact);
-    auto *reply = m_net->post(resourceRequest(base + QStringLiteral("/version_files"), {},
-        QByteArrayLiteral("application/json")), body);
-    m_replies.insert(requestKey, reply);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, requestKey, requested] {
-        reply->deleteLater();
-        if (m_replies.value(requestKey) != reply) return;
+    auto *job = RequestBudget::ControlGet::startPost(this, m_net,
+        resourceRequest(base + QStringLiteral("/version_files"), {},
+                        QByteArrayLiteral("application/json")),
+        body, HttpClient::kDefaultTimeoutMs,
+        [this, requestKey, requested](QNetworkReply *reply, const QString &jobError) {
         m_replies.remove(requestKey);
+        if (reply == nullptr) {
+            emit modrinthFilesFinished(requestKey, {}, {}, unansweredText(QStringLiteral("识别已安装模组"), jobError));
+            return;
+        }
         const auto body = reply->readAll();
         if (!okStatus(statusOf(reply))) {
             emit modrinthFilesFinished(requestKey, {}, {}, failureText(reply, body, QStringLiteral("识别已安装模组"))); return;
@@ -426,20 +438,26 @@ void ResourceStore::fetchModrinthFiles(const QString &requestKey, const QStringL
         }
         emit modrinthFilesFinished(requestKey, projects, versions, problem);
     });
+    m_replies.insert(requestKey, job);
 }
 
 void ResourceStore::fetchModrinthVersion(const QString &requestKey, const QString &versionId) {
-    if (auto *previous = m_replies.take(requestKey)) previous->abort();
+    delete m_replies.take(requestKey);
     QString base = m_modrinthApiBaseOverride.isEmpty()
         ? QStringLiteral("https://api.modrinth.com/v2") : m_modrinthApiBaseOverride;
     while (base.endsWith(QLatin1Char('/'))) base.chop(1);
-    auto *reply = m_net->get(resourceRequest(base + QStringLiteral("/version/")
-        + QString::fromLatin1(QUrl::toPercentEncoding(versionId))));
-    m_replies.insert(requestKey, reply);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, requestKey, versionId] {
-        reply->deleteLater();
-        if (m_replies.value(requestKey) != reply) return;
+    auto *job = RequestBudget::ControlGet::start(
+        this, m_net,
+        resourceRequest(base + QStringLiteral("/version/")
+                        + QString::fromLatin1(QUrl::toPercentEncoding(versionId))),
+        HttpClient::kDefaultTimeoutMs,
+        [this, requestKey, versionId](QNetworkReply *reply, const QString &jobError) {
         m_replies.remove(requestKey);
+        if (reply == nullptr) {
+            emit modrinthVersionFinished(requestKey, {}, {},
+                unansweredText(QStringLiteral("读取精确前置版本"), jobError));
+            return;
+        }
         const QByteArray body = reply->readAll();
         if (!okStatus(statusOf(reply))) {
             emit modrinthVersionFinished(requestKey, {}, {},
@@ -457,6 +475,7 @@ void ResourceStore::fetchModrinthVersion(const QString &requestKey, const QStrin
         }
         emit modrinthVersionFinished(requestKey, project, parsed.first(), {});
     });
+    m_replies.insert(requestKey, job);
 }
 
 void ResourceStore::fetchCurseForgeVersion(const QString &requestKey, const QString &fileId) {
@@ -466,16 +485,19 @@ void ResourceStore::fetchCurseForgeVersion(const QString &requestKey, const QStr
         emit curseForgeVersionFinished(requestKey, {}, {}, QStringLiteral("CurseForge 文件 ID 无效。"));
         return;
     }
-    if (auto *previous = m_replies.take(requestKey)) previous->abort();
+    delete m_replies.take(requestKey);
     auto request = resourceRequest(curseForgeApiBase() + QStringLiteral("/mods/files"), apiKeyHeaders(m_curseForgeApiKey));
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-    auto *reply = m_net->post(request, QJsonDocument(QJsonObject{
-        {"fileIds", QJsonArray{QJsonValue(id)}}}).toJson(QJsonDocument::Compact));
-    m_replies.insert(requestKey, reply);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, requestKey, fileId] {
-        reply->deleteLater();
-        if (m_replies.value(requestKey) != reply) return;
+    auto *job = RequestBudget::ControlGet::startPost(this, m_net, request,
+        QJsonDocument(QJsonObject{{"fileIds", QJsonArray{QJsonValue(id)}}}).toJson(QJsonDocument::Compact),
+        HttpClient::kDefaultTimeoutMs,
+        [this, requestKey, fileId](QNetworkReply *reply, const QString &jobError) {
         m_replies.remove(requestKey);
+        if (reply == nullptr) {
+            emit curseForgeVersionFinished(requestKey, {}, {},
+                unansweredText(QStringLiteral("读取精确前置文件"), jobError));
+            return;
+        }
         const auto body = reply->readAll();
         if (!okStatus(statusOf(reply))) {
             emit curseForgeVersionFinished(requestKey, {}, {}, failureText(reply, body,
@@ -492,35 +514,35 @@ void ResourceStore::fetchCurseForgeVersion(const QString &requestKey, const QStr
         }
         emit curseForgeVersionFinished(requestKey, QString::number(project), parsed.first(), {});
     });
+    m_replies.insert(requestKey, job);
 }
 
 void ResourceStore::fetchVersions(const QString &requestKey, const QString &projectId,
                                   ResourceCatalog::Source source, const QString &gameVersion,
                                   const QString &loader) {
-    if (QNetworkReply *previous = m_replies.take(requestKey)) {
-        previous->abort();
-    }
+    delete m_replies.take(requestKey);
 
     const bool isCurseForge = source == ResourceCatalog::Source::CurseForge;
     const QString url = ResourceCatalog::versionsUrl(
         projectId, gameVersion, loader, source,
         isCurseForge ? curseForgeApiBase() : m_modrinthApiBaseOverride);
-    QNetworkReply *reply = m_net->get(
+    auto *job = RequestBudget::ControlGet::start(
+        this, m_net,
         resourceRequest(url, isCurseForge ? apiKeyHeaders(m_curseForgeApiKey)
-                                          : QList<QPair<QByteArray, QByteArray>>()));
-    m_replies.insert(requestKey, reply);
+                                          : QList<QPair<QByteArray, QByteArray>>()),
+        HttpClient::kDefaultTimeoutMs,
+        [this, requestKey, source](QNetworkReply *reply, const QString &jobError) {
+        m_replies.remove(requestKey);
 
-    QObject::connect(reply, &QNetworkReply::finished, this,
-                     [this, reply, requestKey, source]() {
-        reply->deleteLater();
-        if (m_replies.value(requestKey) != reply) {
+        const QString what = QStringLiteral("读取版本列表");
+        if (reply == nullptr) {
+            emit versionsFinished(requestKey, QList<ResourceCatalog::VersionEntry>(),
+                                  unansweredText(what, jobError));
             return;
         }
-        m_replies.remove(requestKey);
 
         const int status = statusOf(reply);
         const QByteArray body = reply->readAll();
-        const QString what = QStringLiteral("读取版本列表");
 
         if (status == HttpClient::kStatusTooManyRequests) {
             emit versionsFinished(requestKey, QList<ResourceCatalog::VersionEntry>(),
@@ -555,13 +577,12 @@ void ResourceStore::fetchVersions(const QString &requestKey, const QString &proj
         }
         emit versionsFinished(requestKey, ResourceCatalog::parseVersions(body), QString());
     });
+    m_replies.insert(requestKey, job);
 }
 
 void ResourceStore::fetchProjects(const QString &requestKey, const QStringList &projectIds,
                                   ResourceCatalog::Source source) {
-    if (QNetworkReply *previous = m_replies.take(requestKey)) {
-        previous->abort();
-    }
+    delete m_replies.take(requestKey);
     // 空表：没什么可问的，**照样回一发**（"一个都不用问"也是走完了 —— 接的人可能在等
     // 这一发收尾，不回的话他那一格永远停在"正在问…"）。
     if (projectIds.isEmpty()) {
@@ -574,7 +595,43 @@ void ResourceStore::fetchProjects(const QString &requestKey, const QStringList &
         isCurseForge ? apiKeyHeaders(m_curseForgeApiKey)
                      : QList<QPair<QByteArray, QByteArray>>();
 
-    QNetworkReply *reply = nullptr;
+    // 两条路一个收尾：两家回来的东西形状不同，但"怎么失败、什么时候摘钥匙"是一样的。
+    const RequestBudget::ControlGet::Completion completion =
+        [this, requestKey, source](QNetworkReply *reply, const QString &jobError) {
+        m_replies.remove(requestKey);
+        const QString what = QStringLiteral("读取资源信息");
+
+        if (reply == nullptr) {
+            emit projectsFinished(requestKey, QList<ResourceCatalog::Hit>(),
+                                  unansweredText(what, jobError));
+            return;
+        }
+
+        const int status = statusOf(reply);
+        const QByteArray body = reply->readAll();
+
+        if (status == HttpClient::kStatusTooManyRequests) {
+            emit projectsFinished(requestKey, QList<ResourceCatalog::Hit>(),
+                                  HttpClient::throttledText(what));
+            return;
+        }
+        if (!okStatus(status)) {
+            emit projectsFinished(requestKey, QList<ResourceCatalog::Hit>(),
+                                  failureText(reply, body, what, source,
+                                              !m_curseForgeApiKey.isEmpty()));
+            return;
+        }
+        // 少几条 / 一条都没有**不算错**（作者删了、号本来就不对），所以这里不判"像不像
+        // 一份项目清单"：真给了一份别的东西（网关拦截页）时解析器回空表，接的人退成
+        // "用项目号显示" —— 那正是它能做的最好的事（见声明处那段）。
+        emit projectsFinished(requestKey,
+                              source == ResourceCatalog::Source::CurseForge
+                                  ? ResourceCatalog::parseCurseForgeMods(body)
+                                  : ResourceCatalog::parseProjects(body),
+                              QString());
+    };
+
+    RequestBudget::ControlGet *job = nullptr;
     if (isCurseForge) {
         // 那一家是 `POST /mods` + 一个**正文明文**的号表（`{"modIds":[…],"filterPcOnly":true}`，
         // 构造那一份的唯一出处是 ModpackImport，别在这儿再拼一遍）。号是**数字**：递一串
@@ -599,49 +656,21 @@ void ResourceStore::fetchProjects(const QString &requestKey, const QStringList &
         }
         // 第三个参数（`Content-Type`）**不是可选的**：漏了它这条接口回 400（见
         // resourceRequest 那段），而 400 在界面上长得和"这个项目没了"一样。
-        reply = m_net->post(resourceRequest(curseForgeApiBase() + QStringLiteral("/mods"), headers,
-                                            QByteArrayLiteral("application/json")),
-                            body);
+        job = RequestBudget::ControlGet::startPost(
+            this, m_net,
+            resourceRequest(curseForgeApiBase() + QStringLiteral("/mods"), headers,
+                            QByteArrayLiteral("application/json")),
+            body, HttpClient::kDefaultTimeoutMs, completion);
     } else {
         // 根地址走**同一个 override**（见 search() 那段）：不加这一格的话，详情页那一行
         // 前置的名字在验证工程里会打到真接口上 —— 而它回来得慢、回什么都看不出来。
-        reply = m_net->get(resourceRequest(
-            ResourceCatalog::projectsRequestUrl(projectIds, m_modrinthApiBaseOverride), headers));
+        job = RequestBudget::ControlGet::start(
+            this, m_net,
+            resourceRequest(ResourceCatalog::projectsRequestUrl(projectIds, m_modrinthApiBaseOverride),
+                            headers),
+            HttpClient::kDefaultTimeoutMs, completion);
     }
-    m_replies.insert(requestKey, reply);
-
-    QObject::connect(reply, &QNetworkReply::finished, this,
-                     [this, reply, requestKey, source]() {
-        reply->deleteLater();
-        if (m_replies.value(requestKey) != reply) {
-            return; // 又发了一次（或者被 abortAll 掐了）：这一发的结果已经没人要了
-        }
-        m_replies.remove(requestKey);
-
-        const int status = statusOf(reply);
-        const QByteArray body = reply->readAll();
-        const QString what = QStringLiteral("读取资源信息");
-
-        if (status == HttpClient::kStatusTooManyRequests) {
-            emit projectsFinished(requestKey, QList<ResourceCatalog::Hit>(),
-                                  HttpClient::throttledText(what));
-            return;
-        }
-        if (!okStatus(status)) {
-            emit projectsFinished(requestKey, QList<ResourceCatalog::Hit>(),
-                                  failureText(reply, body, what, source,
-                                              !m_curseForgeApiKey.isEmpty()));
-            return;
-        }
-        // 少几条 / 一条都没有**不算错**（作者删了、号本来就不对），所以这里不判"像不像
-        // 一份项目清单"：真给了一份别的东西（网关拦截页）时解析器回空表，接的人退成
-        // "用项目号显示" —— 那正是它能做的最好的事（见声明处那段）。
-        emit projectsFinished(requestKey,
-                              source == ResourceCatalog::Source::CurseForge
-                                  ? ResourceCatalog::parseCurseForgeMods(body)
-                                  : ResourceCatalog::parseProjects(body),
-                              QString());
-    });
+    m_replies.insert(requestKey, job);
 }
 
 QString ResourceStore::iconCachePath(const QString &cacheId) {
@@ -918,24 +947,25 @@ void ResourceStore::startIconRequest(const QString &iconId, const QString &url,
     // project 已经在飞的那一发会被掐掉，和接口那两条请求同款。
     // 键加个前缀：两边的键都是自己拼的字符串，加前缀是让"这一格是谁"看得出来，也不会撞。
     const QString requestKey = QStringLiteral("icon:") + iconId;
-    if (QNetworkReply *previous = m_replies.take(requestKey)) {
-        previous->abort();
-    }
+    delete m_replies.take(requestKey);
     m_iconPending.insert(iconId);
-    QNetworkReply *reply = m_net->get(iconRequest(url, validators));
-    m_replies.insert(requestKey, reply);
-    QObject::connect(reply, &QNetworkReply::finished, this,
-                     [this, reply, iconId, url, fallbackUrl, onDiskBytes, requestKey,
-                      validators]() {
-        reply->deleteLater();
-        // 被掐掉的那一发（abortAll()，或者同一张图又问了第二遍）到此为止：**不读它**、
-        // 什么都不做（abort 之后读它是 HttpClient 那边的约定，见 abortAll 那段）。
-        // 也**不动** m_iconPending —— 那一格现在是新的那一发在管。
-        if (m_replies.value(requestKey) != reply) {
-            return;
-        }
+    auto *job = RequestBudget::ControlGet::start(
+        this, m_net, iconRequest(url, validators), kIconTimeoutMs,
+        [this, iconId, url, fallbackUrl, onDiskBytes, requestKey,
+         validators](QNetworkReply *reply, const QString &jobError) {
+        // 先把钥匙摘掉再判：下面"换一条地址再要一次"会往同一个 key 上开新的一发。
         m_replies.remove(requestKey);
         m_iconPending.remove(iconId);
+
+        if (reply == nullptr) {
+            // 排队到点 / 被掐 / 管理器先没：这一发不算"主机答话了"，和超时同一档 ——
+            // 记一次失败、把占位发回去（这个信号的契约是"每一发都会回一次"）。
+            // 这里不读 jobError：图标是次要的东西，界面上没有一行字容得下它。
+            Q_UNUSED(jobError);
+            noteIconFailure(0);
+            answerIcon(iconId);
+            return;
+        }
 
         const int status = statusOf(reply);
         const QByteArray body = reply->readAll();
@@ -1006,4 +1036,5 @@ void ResourceStore::startIconRequest(const QString &iconId, const QString &url,
         saveIconToCache(iconId, body);
         emit iconReady(iconId, icon);
     });
+    m_replies.insert(requestKey, job);
 }

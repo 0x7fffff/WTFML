@@ -14,6 +14,7 @@
 #include "Theme.hpp"
 #include "presets/PresetWorkspace.hpp"
 #include <QLineEdit>
+#include <QJsonObject>
 #include <QLabel>
 #include "PresetModEditor.hpp"
 #include "PresetModReview.hpp"
@@ -503,6 +504,13 @@ void PresetController::pushListAndSelect(const QString &selectId) {
 
 void PresetController::pushCatalog(const Presets::CatalogSnapshot &snapshot, const QString &selectId) {
     const auto &summaries = snapshot.presets;
+    // 页头那句和实例页那句同一个形状（「当前文件夹：…（N 个实例）」）：预设跟着这个
+    // 文件夹走，页头上说的是同一份路径、换了个后缀。
+    if (m_host.presetSubtitle) {
+        m_host.presetSubtitle(tr("当前文件夹：%1（%2 份预设）")
+                                  .arg(QDir::toNativeSeparators(AppPaths::minecraftDir()))
+                                  .arg(summaries.size()));
+    }
     m_catalogNames.clear();
     for (const auto &summary : summaries) m_catalogNames.insert(summary.name);
 
@@ -1378,7 +1386,35 @@ QList<PresetController::InstallCategory> PresetController::installCategories() {
     return out;
 }
 
-QList<Presets::PresetSummary> PresetController::presetsInCategory(
+PresetController::InstallPickerData PresetController::installPickerData() const {
+    InstallPickerData data;
+    const QList<Presets::PresetSummary> summaries = Presets::list(presetsRoot());
+    data.presets.reserve(summaries.size());
+    for (const Presets::PresetSummary &summary : summaries) {
+        InstallPickerPreset row;
+        row.summary = summary;
+        // 普通预设没有要读的那份 manifest；复合预设读完一次，这一整段就都用这一份
+        // （别的调用点再读一遍是同一次读盘变成两次）。
+        row.componentsLoaded = summary.componentCategories.isEmpty();
+        if (!row.componentsLoaded) {
+            bool loaded = false;
+            const Presets::PresetManifest manifest =
+                Presets::loadManifest(presetsRoot(), summary.id, &loaded);
+            row.componentsLoaded = loaded;
+            if (loaded) {
+                const QJsonObject parts =
+                    manifest.editorState.value(QStringLiteral("components")).toObject();
+                for (auto it = parts.begin(); it != parts.end(); ++it) {
+                    row.components.insert(it.key(), it.value().toString());
+                }
+            }
+        }
+        data.presets.append(row);
+    }
+    return data;
+}
+
+QList<Presets::PresetSummary> PresetController::InstallPickerData::optionsFor(
     const QString &categoryKey) const {
     bool ok = false;
     const Presets::PresetCategory category = Presets::presetCategoryFromKey(categoryKey, &ok);
@@ -1386,14 +1422,21 @@ QList<Presets::PresetSummary> PresetController::presetsInCategory(
         return {};
     }
     QList<Presets::PresetSummary> out;
-    for (const Presets::PresetSummary &one : availablePresets()) {
+    for (const InstallPickerPreset &row : presets) {
+        const Presets::PresetSummary &one = row.summary;
         if (one.category == category) {
             out.append(one);
         } else if (one.componentCategories.contains(categoryKey)) {
-            bool loaded = false;
-            const auto parent = Presets::loadManifest(presetsRoot(), one.id, &loaded);
-            const auto child = parent.editorState.value("components").toObject().value(categoryKey).toString();
-            if (loaded && Presets::isValidPresetId(child)) { auto part = one; part.id = child; part.category = category; out.append(part); }
+            if (!row.componentsLoaded) {
+                continue;  // 那份 manifest 没读回来 ⇒ 不知道这一段是哪个子预设
+            }
+            const QString child = row.components.value(categoryKey);
+            if (Presets::isValidPresetId(child)) {
+                auto part = one;
+                part.id = child;
+                part.category = category;
+                out.append(part);
+            }
         }
     }
     return out;

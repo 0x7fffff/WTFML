@@ -8,7 +8,8 @@
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListView>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 #include <QPushButton>
 #include <QSemaphore>
 #include <QThread>
@@ -70,7 +71,21 @@ int runPresetManifestChecks() {
     check(pump([&] { return a->calls == 1; }), "preset detail read starts in background");
     auto *page = host.findChild<PresetManagePage *>();
     if (!page) return failures + 1;
-    auto *list = page->findChild<QListView *>(PresetManagePage::presetListName());
+    auto *list = page->findChild<QTreeWidget *>(PresetManagePage::presetListName());
+    // 左栏是**按类别分组**的一棵树（组头 + 预设行）：按 id 认行，组头不算行。
+    const auto presetRow = [](QTreeWidget *tree, const QString &id) -> QTreeWidgetItem * {
+        if (tree == nullptr) return nullptr;
+        for (int g = 0; g < tree->topLevelItemCount(); ++g) {
+            QTreeWidgetItem *group = tree->topLevelItem(g);
+            for (int i = 0; i < group->childCount(); ++i) {
+                if (group->child(i)->data(0, PresetManagePage::rowIdRole()).toString() == id)
+                    return group->child(i);
+            }
+        }
+        return nullptr;
+    };
+    check(presetRow(list, idA) && presetRow(list, idB) && presetRow(list, idC),
+          "grouped preset list lists every catalog entry as a row");
     auto *name = page->findChild<QLineEdit *>(PresetManagePage::nameEditName());
     auto *save = page->findChild<QPushButton *>(PresetManagePage::saveDetailsButtonName());
     auto *create = page->findChild<QPushButton *>(PresetManagePage::newButtonName());
@@ -78,8 +93,8 @@ int runPresetManifestChecks() {
     QTimer::singleShot(0, page, [&] { input = true; });
     check(pump([&] { return input; }) && page->isBusy() && name->text().isEmpty() && !save->isEnabled(),
           "input remains responsive and stale detail editing is disabled during read");
-    list->setCurrentIndex(list->model()->index(1, 0));
-    list->setCurrentIndex(list->model()->index(2, 0));
+    list->setCurrentItem(presetRow(list, idB));
+    list->setCurrentItem(presetRow(list, idC));
     a->release.release();
     check(pump([&] { return c->calls == 1; }) && b->calls == 0 && page->isBusy() && name->text().isEmpty(),
           "rapid selection reads only latest pending manifest and discards old detail");
@@ -87,10 +102,10 @@ int runPresetManifestChecks() {
     check(pump([&] { return !controller.detailsLoading(); }) && !page->isBusy() && save->isEnabled() &&
           name->text() == QStringLiteral("content-") + idC, "latest detail alone restores matching editor");
 
-    list->setCurrentIndex(QModelIndex());
+    list->setCurrentItem(nullptr);
     check(page->currentPresetId().isEmpty() && name->text().isEmpty() && !save->isEnabled(),
           "clearing current index removes stale details without enabling writes");
-    list->setCurrentIndex(list->model()->index(0, 0));
+    list->setCurrentItem(presetRow(list, idA));
     check(pump([&] { return a->calls == 2; }), "filter invalidation fixture is reading");
     page->findChild<QLineEdit *>(QStringLiteral("presetSearchEdit"))->setText(QStringLiteral("no-match"));
     check(page->currentPresetId().isEmpty() && !page->isBusy() && create->isEnabled(),
@@ -104,14 +119,14 @@ int runPresetManifestChecks() {
     c->fail = true;
     a->release.release(); c->release.release();
     page->findChild<QLineEdit *>(QStringLiteral("presetSearchEdit"))->clear();
-    list->setCurrentIndex(list->model()->index(2, 0));
+    list->setCurrentItem(presetRow(list, idC));
     check(pump([&] { return !controller.detailsLoading(); }) && !page->isBusy() && !save->isEnabled() &&
           create->isEnabled() && page->findChild<QLabel *>(PresetManagePage::statusLabelName())->text().contains(QStringLiteral("fixture read failure")) &&
           page->findChild<QLabel *>(QStringLiteral("presetMetaLabel"))->text().contains(QStringLiteral("无法读取")),
           "failed manifest read reports reason without enabling stale editor");
 
     const int before = a->calls;
-    list->setCurrentIndex(list->model()->index(0, 0));
+    list->setCurrentItem(presetRow(list, idA));
     check(pump([&] { return a->calls > before; }), "page destruction fixture is reading");
     delete page;
     a->release.release();

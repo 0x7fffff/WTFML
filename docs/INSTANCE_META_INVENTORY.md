@@ -24,15 +24,18 @@
 | `LaunchController`（「以后用这个 Java」） | `javaPath` |
 | `MainWindow`（「不再提醒」） | `skipJavaVersionWarning=true` |
 
-**不走中央入口的三个直写者**（各自读—改—写，也是 `QSaveFile`）：
+**下层只有一个实现**：`src/manage/InstanceMetaFile.hpp` 的 `mergeWrite(path, fields, error)`
+（2026-10-31 收口）。它按**路径**而不是按"当前数据目录下的哪个 id"工作，所以暂存目录、
+候选目录、别的游戏文件夹里的那一份都能用。`updateVersionMeta()` 现在只负责
+"哪一份 + 目录锁"，读—改—写全在 `InstanceMetaFile` 里：
 
 - `VersionManager::copyInstance()` —— 写**副本暂存目录**里那一份（换 `name` / 新 `instanceId`）；
 - `ModpackCompletion`（整合包收尾）—— 补那三格加载器字段；
-- `InstanceUpgrade::applyCoreToCandidate()` —— 补那三格 + `upgradeTransactionId`。
+- `InstanceUpgrade::applyCoreToCandidate()` —— 先只**验证**读得懂（早失败），末尾才补那三格
+  + `upgradeTransactionId`。
 
-四处均采用缩进 JSON：`QJsonDocument::toJson()` 默认就是 `Indented`，
-中央入口及 `copyInstance` 显式指定同一格式。不要把默认参数误记成紧凑输出。
-更新保留字段语义，但会统一用户原有排版，不能据排版判断写入者。
+都是缩进 JSON（`QJsonDocument::Indented`），都走 `QSaveFile`。更新保留字段语义，
+但会统一用户原有排版，不能据排版判断写入者。
 
 ## 二、读的人
 
@@ -44,24 +47,27 @@
 `MainWindow`（Java 覆盖）、`LaunchController`（窗口 / Java 覆盖）、
 `InstanceDialogController`、`MainWindowViewData`（`type`）。
 
-**自己解析、不走 `readVersionMeta` 的三处**：`copyInstance()` 的暂存那份、
-`ModpackCompletion`、`InstanceUpgrade` —— 就是上面那三个直写者。
+`InstanceUpgrade` 开头那一次"读得懂吗"的检查也走 `InstanceMetaFile::read()`；
+除此之外没有第二个人自己解析这份文件。
 
 **只问"在不在"**：`InstanceFiles`（有 meta = 导入完成）、`InstanceTransferController`
 （复制完核对）、`ModpackExport`（打包时排除它）。
 
 ## 三、现在的判据
 
-- **格式版本：不存在。** 文件里没有任何 `version` / `schema` / `format` / `metaVersion` 键，
-  读侧也不检查。任何 JSON 对象都算合法。要加版本号，得先回答"旧文件怎么认"，这一步今天没有。
+- **格式版本：`schemaVersion`，当前是 1（2026-10-31 起）。** 每次写都会补上这个键；
+  文件里没有它 = 1（加键之前写出来的一律按 1 认）。**比 1 新 ⇒ 只读不写**：读侧照常
+  返回内容（显示名这类字段的意思没变），写侧拒绝并说明版本号 —— 那种文件可能是更新的
+  启动器写的，按 1 的规矩合并会把它的新字段解释错再盖回去。版本号不是整数也拒写。
   （对照：`.wtfml-server` 有 `format` + `version`，`wtfml.import-report.json` 有
-  `schemaVersion`，两者读侧都检查。）
-- **原子写：有。** 四处写全是 `QSaveFile`，断电只会留旧内容，不会有半截 JSON。
-- **未知字段：保得住。** 四个写者都是"读进来再盖"，不是"照结构体重建"，
+  `schemaVersion`。）
+- **原子写：有。** 所有写都走 `QSaveFile`，断电只会留旧内容，不会有半截 JSON。
+- **未知字段：保得住。** 写侧一律"读进来再盖"，不是"照结构体重建"，
   所以用户手写的键不会被抹掉。文件不存在时才从空对象起。
-- **损坏：拒绝写、不备份、不隔离。** 解不动时 `unreadable` 置真，`updateVersionMeta`
-  直接拒绝并报错（`tests/core_modules/VersionMetaWriteTests.cpp` 的 O3 钉住了这一条）；
-  三个直写者也各自中止。但**没有任何 `.bak` / 隔离 / 上一版恢复**——
+- **大小上限：16 MiB。** 超过当读不懂处理（实例设置不该这么大，别把内存吃光）。
+- **损坏：拒绝写、不备份、不隔离。** 解不动时 `updateVersionMeta` 直接拒绝并报错
+  （`tests/core_modules/VersionMetaWriteTests.cpp` 的 O3 钉住了这一条），三个下层调用点
+  也走同一个拒写；O9–O11 钉住版本号的三种情形。但**没有任何 `.bak` / 隔离 / 上一版恢复**——
   坏掉的那份就一直坏着，直到用户手动修。
 
 ## 四、顺手查出来的一个真问题（服务端那一份）
@@ -82,16 +88,10 @@
    文件本来就不在不算问题，照写）。右键菜单那一格改成走它，写不进去弹「没记住」。
    用例 `tests/core_modules/ServerRegistryTests.cpp` 的 ZX8.5：坏文件在 ⇒ 回 false、
    问题非空、**字节一个没动**；修好之后照常写，而且同一份记录里别的格还在。
-2. 再谈 `wtfml.meta` 的格式版本：加不加、旧文件怎么认、要不要在损坏时留一份
-   `<name>.wtfml.meta.bak` 而不是原地不动。
-3. 收口那三个直写者：它们各自重复了"读—改—写 + 拒绝坏文件"这一套，
-   应该回到 `updateVersionMeta()`（它在暂存目录 / 候选目录上也能用，只是路径要参数化）。
-   **2026-10-29 复核**：三处**都已经**各自挡住了坏文件（不是漏判），所以这一步是
-   **去重**而不是修 bug：
-   · `VersionManager::copyInstance()`（`VersionManager.cpp` 第 4 步，暂存目录上一个
-     自己拼的 `metaPath` + `QSaveFile`）；
-   · `manage/ModpackCompletion.cpp`「现有元数据无法读取，未覆盖」那一句；
-   · 升级那一趟。三份的规矩与 `updateVersionMeta()` 逐条相同（合并、null = 删键、
-     读不懂就不写、`QSaveFile` 缩进输出）。要收的话**先参数化路径**
-   （`updateVersionMetaAt(dir, fields, error)`，现有那个委托到它），否则"目标在别的
-   游戏文件夹里"那一条又会把人逼回自己拼路径。
+2. ~~`wtfml.meta` 的格式版本~~ **已落地（2026-10-31）**：`InstanceMetaFile::kSchemaVersion = 1`，
+   没有键 = 1，比 1 新或不是整数一律拒写、原有字节不动。仍然**不做** `<name>.bak`：
+   损坏时原地不动、由用户修，比自动备份后再猜测安全。
+3. ~~收口那三个直写者~~ **已落地（2026-10-31）**：新模块 `manage/InstanceMetaFile.{hpp,cpp}`
+   按路径参数化（`mergeWrite(path, fields, error)`），`updateVersionMeta()`
+   委托到它，三个直写者也改走它。`InstanceUpgrade` 保留开头那次"读得懂吗"的
+   提前检查（升级要干一大摊事，别拖到最后才发现写不进去），真正的写仍在末尾。

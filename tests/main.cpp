@@ -246,6 +246,10 @@ runVersionMetaWriteTests(sandbox);
 #endif
 
 #ifndef WTFML_CORE_BASELINE
+runInstallOccupancyTests(sandbox);
+#endif
+
+#ifndef WTFML_CORE_BASELINE
 runRenameInstanceTests(sandbox);
 #endif
 
@@ -1431,6 +1435,10 @@ runVersionMetaWriteTests(sandbox);
 #endif
 
 #ifndef WTFML_CORE_BASELINE
+runInstallOccupancyTests(sandbox);
+#endif
+
+#ifndef WTFML_CORE_BASELINE
 runRenameInstanceTests(sandbox);
 #endif
 
@@ -1588,6 +1596,7 @@ runQuickPlayTests(metaDir);
 
 #ifndef WTFML_CORE_BASELINE
 runErrorReportTests();
+runLaunchScriptExportTests();
 #endif
 
     // -----------------------------------------------------------------

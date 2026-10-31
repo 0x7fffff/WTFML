@@ -1,5 +1,7 @@
 #include "Support.hpp"
 
+#include "net/RequestBudget.hpp"
+
 void runPlayerSkinTests(const QString &sandbox) {
     section("T. 玩家外观（档案解析 + 内容寻址缓存）");
 
@@ -328,6 +330,156 @@ void runPlayerSkinTests(const QString &sandbox) {
                   200, QByteArrayLiteral("<html>429 Too Many Requests</html>")) ==
                   Outcome::Failed,
               "T7 200 但 body 不是档案 → 失败（不能只看状态码）");
+    }
+
+    // ---- T8 两发外观请求都走 Control 额度（本机真实 HTTP 夹具） ----
+    //
+    // 这一节要证的是"皮肤这条路**真的**进了共用额度"，不是复刻 ControlGet 那一层的行为
+    // （排队、截止、删作业的语义已在 PH6 和 RequestBudgetChecks 里逐条钉过）。所以只量
+    // 四件事：额度占满时一个字节都不发；名额回来就照常发出并收尾；收尾后不残留租约；
+    // 排队中的作业跟着对象一起删掉时，名额腾出来也不发。
+    {
+        QTcpServer server;
+        check(server.listen(QHostAddress::LocalHost), "T8 夹具端口");
+        const QString hash = QStringLiteral("0123456789abcdef").repeated(4);
+        const QByteArray png = fakeSkinPng(64, 64);
+        const QString base = QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
+        PlayerSkinStore::setEndpointOverrides(base + QStringLiteral("/profile/"), base);
+        RandomSkinStore::setEndpointOverride(base + QStringLiteral("/skins"));
+        // 档案里那张贴图**指着夹具**（走 textureUrlForHash 的覆盖那条路），于是"档案到了
+        // → 拿它的 skinUrl 去下贴图"这一整条链在本地闭环。
+        const QString textureUrl = PlayerSkinStore::textureUrlForHash(hash);
+        const QByteArray profileBody = envelope(
+            QStringLiteral(R"JSON({"textures":{"SKIN":{"url":"%1"}}})JSON").arg(textureUrl));
+        const QByteArray listBody =
+            QStringLiteral(R"JSON({"skins":[{"texture":"%1"}]})JSON").arg(hash).toUtf8();
+
+        int profileRequests = 0;
+        int textureRequests = 0;
+        int listRequests = 0;
+        QObject::connect(&server, &QTcpServer::newConnection, &server, [&] {
+            while (auto *socket = server.nextPendingConnection()) {
+                QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+                QObject::connect(socket, &QTcpSocket::readyRead, socket, [&, socket] {
+                    const QByteArray request = socket->readAll();
+                    if (socket->property("answered").toBool()) return;
+                    socket->setProperty("answered", true);
+                    QByteArray body = png;
+                    if (request.startsWith("GET /profile/")) {
+                        ++profileRequests;
+                        body = profileBody;
+                    } else if (request.startsWith("GET /texture/")) {
+                        ++textureRequests;
+                        body = png;
+                    } else {
+                        ++listRequests;
+                        body = listBody;
+                    }
+                    socket->write("HTTP/1.1 200 OK\r\nContent-Length: " +
+                                  QByteArray::number(body.size()) +
+                                  "\r\nConnection: close\r\n\r\n");
+                    socket->write(body);
+                    socket->disconnectFromHost();
+                });
+            }
+        });
+        const auto pump = [](int ms) {
+            QEventLoop loop;
+            QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+            loop.exec();
+        };
+        const auto pumpUntil = [&](auto done, int ms) {
+            QElapsedTimer clock;
+            clock.start();
+            while (!done() && clock.elapsed() < ms) pump(20);
+            return done();
+        };
+        const auto fillControlLane = [] {
+            QList<RequestBudget::Lease> holds;
+            while (auto lease = RequestBudget::tryAcquire(RequestBudget::Lane::Control)) {
+                holds.append(lease);
+            }
+            return holds;
+        };
+        const int baseline = RequestBudget::snapshot().control;
+        const QString uuid = QStringLiteral("0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f");
+        const QString cached = PlayerSkinStore::cachePathForUrl(textureUrl);
+        QFile::remove(cached);
+
+        {
+            PlayerSkinStore store;
+            int profiles = 0;
+            QString profileSkinUrl;
+            QObject::connect(&store, &PlayerSkinStore::profileReady, &store,
+                             [&](const QString &, const PlayerSkinProfile &profile) {
+                                 ++profiles;
+                                 profileSkinUrl = profile.skinUrl;
+                             });
+
+            auto holds = fillControlLane();
+            store.refreshForUuid(uuid);
+            pump(150);
+            check(profileRequests == 0 && profiles == 0,
+                  "T8 额度占满时取档案只排队：一个字节都没发、也不回调");
+            holds.clear();
+            check(pumpUntil([&] { return profiles > 0; }, 2000) && profileRequests == 1 &&
+                      profileSkinUrl == textureUrl,
+                  "T8 名额回来这一发就发出去，档案照常到达", profileSkinUrl);
+
+            int textures = 0;
+            QString gotPath;
+            QObject::connect(&store, &PlayerSkinStore::textureReady, &store,
+                             [&](const QString &, const QString &path) {
+                                 ++textures;
+                                 gotPath = path;
+                             });
+            holds = fillControlLane();
+            store.fetchTexture(textureUrl);
+            pump(150);
+            check(textureRequests == 0 && textures == 0,
+                  "T8 额度占满时下贴图也只排队（那一发还没发出去）");
+            holds.clear();
+            check(pumpUntil([&] { return textures > 0; }, 2000) && textureRequests == 1 &&
+                      QFile::exists(gotPath),
+                  "T8 名额回来就下贴图、过 PNG 判据、落盘",
+                  QDir::toNativeSeparators(gotPath));
+
+            RandomSkinStore random;
+            QString randomUrl;
+            int randomFailures = 0;
+            QObject::connect(&random, &RandomSkinStore::skinReady, &random,
+                             [&](const QString &url) { randomUrl = url; });
+            QObject::connect(&random, &RandomSkinStore::failed, &random,
+                             [&](const QString &) { ++randomFailures; });
+            holds = fillControlLane();
+            check(random.fetchRandomSkin(), "T8 挑一张：这一趟真的开工了");
+            pump(150);
+            check(listRequests == 0 && randomUrl.isEmpty() && randomFailures == 0,
+                  "T8 额度占满时列表那一发也只排队");
+            holds.clear();
+            check(pumpUntil([&] { return !randomUrl.isEmpty(); }, 2000) && listRequests == 1 &&
+                      randomUrl == textureUrl,
+                  "T8 名额回来就挑出一张（地址还是官方 CDN 那个形状）", randomUrl);
+        }
+
+        // 排队中的作业跟着对象一起删掉：名额腾出来也不许偷偷发。
+        {
+            const int before = profileRequests;
+            auto *doomed = new PlayerSkinStore;
+            auto holds = fillControlLane();
+            doomed->refreshForUuid(uuid);
+            pump(100);
+            delete doomed;
+            holds.clear();
+            pump(300);
+            check(profileRequests == before &&
+                      RequestBudget::snapshot().control == baseline,
+                  "★★ T8 排队中的作业跟着对象一起删掉 ⇒ 名额腾出来也不发、租约不残留");
+        }
+
+        PlayerSkinStore::setEndpointOverrides({}, {});
+        RandomSkinStore::setEndpointOverride({});
+        QFile::remove(cached);
     }
 }
 

@@ -31,6 +31,7 @@
 #include "../settings/GlobalJavaSettings.hpp"
 
 #include "FolderManager.hpp"
+#include "InstanceMetaFile.hpp"
 
 #include <QDateTime>
 #include <QElapsedTimer>
@@ -1019,11 +1020,15 @@ bool VersionManager::downloadResourceFiles(const QString &destinationDir,
         // 文件名来自接口，**不能**直接往盘上拼：里面出现 `../` 或者一个绝对路径，写出去的
         // 位置就不在目标目录里了。这不是防谁，是"接口给的东西要当数据看"这条底线 ——
         // 一个作者把文件名写成 "../../../startup.bat" 是完全做得到的。
-        if (file.filename.isEmpty() || file.filename.contains(QLatin1Char('/'))
-            || file.filename.contains(QLatin1Char('\\'))
-            || file.filename.contains(QStringLiteral(".."))) {
+        //
+        // 判据本体在 `InstanceFiles::validateFileName()`（和"一段路径"同一套规矩，另加
+        // 文件名那一条长度上限）：`:`（NTFS 的备用数据流）、结尾的点和空格（Windows 会
+        // 静默吃掉）、保留设备名（`CON`）这些也都一并挡在门外。
+        const QString nameProblem = InstanceFiles::validateFileName(file.filename);
+        if (!nameProblem.isEmpty()) {
             emit resourceDownloadFinished(
-                label, false, tr("这一版的文件名没法用（%1），没有装。").arg(file.filename));
+                label, false,
+                tr("这一版的文件名没法用（%1）：%2\n没有装。").arg(file.filename, nameProblem));
             return false;
         }
         // 落点：**每一条自己可以带一个目录**（见 `ResourceFile::dir` 那段 —— 更新中心那一批
@@ -1074,6 +1079,9 @@ void VersionManager::clearVersionJsonCache() {
     // 而这里丢一次的成本只是下次读一遍那几个 json（几毫秒）。
     versionJsons.clear();
     mergedVersionJsons.clear();
+    // 元数据缓存按**完整路径**做键，换文件夹本来就不会串；这里一起丢掉是为了别让
+    // 上一份目录的那几百格留在表里（那些路径在接下来的会话里不会再被读到）。
+    m_metaCache.clear();
 }
 
 QJsonObject VersionManager::rawVersionJson(const QString &versionId) const {
@@ -1111,7 +1119,7 @@ QJsonObject VersionManager::rawVersionJson(const QString &versionId) const {
 QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
     const auto cached = mergedVersionJsons.constFind(versionId);
     if (cached != mergedVersionJsons.constEnd()) {
-        return cached.value();
+        return cached->json;
     }
 
     QJsonObject merged = rawVersionJson(versionId);
@@ -1172,9 +1180,22 @@ QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
     // 启动器就拿着缺 assets/librarys 的半份 json 去启动，且不报任何错。
     // 环和深度超限同理：留在盘上的东西没变过，重读一次盘比用错的强。
     if (parentId.isEmpty()) {
-        mergedVersionJsons[versionId] = merged;
+        MergedJsonEntry entry;
+        entry.json = merged;
+        mergedVersionJsons.insert(versionId, entry);
     }
     return merged;
+}
+
+const VersionManager::MergedJsonEntry *VersionManager::mergedJsonEntry(
+    const QString &versionId) const {
+    if (!mergedVersionJsons.contains(versionId)) {
+        // 取一次：取到了自然就进了缓存。取不到（文件不在 / 继承链没走完）**不缓存**，
+        // 所以这里下一次问还会再试一遍 —— 和 getVersionJson() 的规矩一致。
+        getVersionJson(versionId);
+    }
+    const auto it = mergedVersionJsons.constFind(versionId);
+    return it == mergedVersionJsons.constEnd() ? nullptr : &it.value();
 }
 
 QString VersionManager::inheritanceProblem(const QString &versionId) const {
@@ -1220,99 +1241,50 @@ QJsonObject VersionManager::readVersionMeta(const QString &versionId, QString *m
     if (metaPathOut != nullptr) {
         *metaPathOut = metaPath;
     }
+    // 先看一眼盘上那一份还在不在、改没改过（`QFileInfo` 一次 stat），没变就用上一次读
+    // 回来的那一份 —— 为什么要缓存、缓存又靠什么看见"改了名"，见 `m_metaCache` 那段。
+    const QFileInfo info(metaPath);
+    const bool exists = info.exists();
+    const qint64 modifiedMs =
+        exists ? info.fileTime(QFileDevice::FileModificationTime).toMSecsSinceEpoch() : 0;
+    const qint64 size = exists ? info.size() : -1;
+    auto cached = m_metaCache.find(metaPath);
+    if (cached == m_metaCache.end() || cached->exists != exists
+        || cached->modifiedMs != modifiedMs || cached->size != size) {
+        MetaCacheEntry entry;
+        entry.exists = exists;
+        entry.modifiedMs = modifiedMs;
+        entry.size = size;
+        entry.meta = InstanceMetaFile::read(metaPath, &entry.status);
+        if (m_metaCache.size() >= kMaxMetaCacheEntries) {
+            m_metaCache.clear();
+        }
+        cached = m_metaCache.insert(metaPath, entry);
+    }
     if (unreadableOut != nullptr) {
-        *unreadableOut = false;
+        // "改不动"的两种都算：内容读不懂，或者版本比这个启动器新。写侧两种都会拒写，
+        // 想知道"能不能盖"的调用方看这一个标志就够了。
+        *unreadableOut = cached->status == InstanceMetaFile::Status::Unreadable
+                         || cached->status == InstanceMetaFile::Status::BadVersion;
     }
-
-    QFile metaFile(metaPath);
-    if (!metaFile.exists()) {
-        // 绝大多数版本没有这个文件，不是异常，也别打日志——refreshInstalledVersions()
-        // 会对着每个已安装版本调一次，打日志就是刷屏。
-        return QJsonObject();
-    }
-    if (!metaFile.open(QIODevice::ReadOnly)) {
-        qWarning() << "Version metadata exists but cannot be opened:" << metaPath;
-        if (unreadableOut != nullptr) {
-            *unreadableOut = true;
-        }
-        return QJsonObject();
-    }
-
-    QJsonParseError parseError;
-    const QJsonDocument doc = QJsonDocument::fromJson(metaFile.readAll(), &parseError);
-    metaFile.close();
-    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
-        // 手写的文件写错格式很常见。整个文件当没有，但不静默——这是用户手写的，
-        // 不告诉他写错了他会一直以为生效了。
-        qWarning() << "Failed to parse version metadata" << metaPath << ":" << parseError.errorString();
-        if (unreadableOut != nullptr) {
-            *unreadableOut = true;
-        }
-        return QJsonObject();
-    }
-    return doc.object();
+    return cached->meta;
 }
 
 bool VersionManager::updateVersionMeta(const QString &versionId, const QJsonObject &fields,
                                        QString *errorOut) {
     const QString invalid = InstanceFiles::validatePathSegment(versionId);
     if (!invalid.isEmpty()) { if (errorOut) *errorOut = invalid; return false; }
-    const QString metaPath = AppPaths::versionMetaPath(versionId);
 
     if (!DirectorySessionLock::acquire(AppPaths::minecraftDir(), errorOut)) return false;
-    // 先把现有的读进来当底，再往上盖要改的键 —— **合并**写，不整体替换。
-    // 这个文件是用户可以手写的，里面可能已经有 jvmArgs / nameFormat / realVersion，
-    // 整体覆盖会把它们悄悄抹掉。
-    bool unreadable = false;
-    QJsonObject merged = readVersionMeta(versionId, nullptr, &unreadable);
-    if (unreadable) {
-        // 往一份读不懂的内容上合并 = 把用户手写的部分丢掉。宁可这次不写。
-        if (errorOut != nullptr) {
-            *errorOut = tr("%1 的内容不是合法的 JSON，为避免覆盖掉你写的东西，这次没有改动它。")
-                            .arg(metaPath);
-        }
-        return false;
-    }
-
-    for (auto it = fields.constBegin(); it != fields.constEnd(); ++it) {
-        if (it.value().isNull() || it.value().isUndefined()) {
-            // 约定：null 表示**删掉**这个键（"改回跟随全局"要的就是"这个键不存在"）。
-            merged.remove(it.key());
-        } else {
-            merged.insert(it.key(), it.value());
-        }
-    }
-
-    // 目录理论上一定在（扫描是先认 jar 的），但重命名那条路会在目录刚建好时调过来，
-    // 建不出来就没什么好写的了。
-    if (!QDir().mkpath(AppPaths::versionDir(versionId))) {
-        if (errorOut != nullptr) {
-            *errorOut = tr("无法创建目录 %1。").arg(AppPaths::versionDir(versionId));
-        }
-        return false;
-    }
-
-    // QSaveFile：先写同目录的临时文件、commit() 时才改名覆盖。断电或崩溃只会留下
-    // "旧内容完好"，绝不会留下半截 JSON —— 这个文件坏掉的后果是那个实例的显示名和
-    // 参数整体失效，比"这次没写成"糟得多。
-    //
-    // 缩进输出：这是用户会拿记事本打开看的文件，紧排一行没法读。代价是重写会把
-    // 用户原来的排版统一掉，可以接受。
-    QSaveFile file(metaPath);
-    if (!file.open(QIODevice::WriteOnly)) {
-        if (errorOut != nullptr) {
-            *errorOut = tr("无法写入 %1。").arg(metaPath);
-        }
-        return false;
-    }
-    file.write(QJsonDocument(merged).toJson(QJsonDocument::Indented));
-    if (!file.commit()) {
-        if (errorOut != nullptr) {
-            *errorOut = tr("写入 %1 失败。").arg(metaPath);
-        }
-        return false;
-    }
-    return true;
+    // 合并写的规矩只有一份（见 InstanceMetaFile）：读不懂 / 版本不认识就不覆盖、
+    // null 删键、QSaveFile、缩进输出。这里只管"当前数据目录下的哪一份"和目录锁。
+    const QString metaPath = AppPaths::versionMetaPath(versionId);
+    const bool written = InstanceMetaFile::mergeWrite(metaPath, fields, errorOut);
+    // 写完当场把缓存那一格丢掉：成功的那一下要立刻看得见新值（同一毫秒里同样的字节
+    // 数那种改写，光靠"修改时刻 + 大小"是分不出来的）；失败那一下也丢掉，下一次读
+    // 重新问盘，免得把"写失败了"和"盘上那份还是老样子"搅在一起。
+    m_metaCache.remove(metaPath);
+    return written;
 }
 
 QString VersionManager::instanceId(const QString &versionId) const {
@@ -1678,40 +1650,15 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
     // 数据目录下的路径）—— 只有那个文件名从 AppPaths 问，其余自己拼。
     {
         const QString metaPath = stagingDir + QLatin1Char('/') + AppPaths::versionMetaFileName();
-        bool unreadable = false;
-        QJsonObject meta;
-        QFile metaFile(metaPath);
-        if (metaFile.exists()) {
-            if (!metaFile.open(QIODevice::ReadOnly)) {
-                return fail(tr("读不了 %1，这一份的目标目录名没改对。%2")
-                                .arg(QDir::toNativeSeparators(metaPath), removePartial()));
-            }
-            QJsonParseError parseError;
-            const QJsonDocument doc = QJsonDocument::fromJson(metaFile.readAll(), &parseError);
-            metaFile.close();
-            if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
-                unreadable = true;
-            } else {
-                meta = doc.object();
-            }
-        }
-        if (unreadable) {
-            // 和 updateVersionMeta() 同一条：往一份读不懂的内容上合并 = 把用户手写的部分
-            // 丢掉，宁可这一趟不写。源目录里那份一个字都没动过，用户回去还看得见它。
-            return fail(tr("%1 的内容不是合法的 JSON，为避免覆盖掉它，这一份没有做出来。%2")
-                            .arg(QDir::toNativeSeparators(metaPath), removePartial()));
-        }
-        meta.insert(kDisplayNameField, name);
-        meta.insert(kInstanceIdField, newInstanceId());
-
-        // QSaveFile + 缩进输出：和 updateVersionMeta() 逐条同款（理由写在那边：这个文件
-        // 坏掉的后果是那一份实例的显示名和参数整体失效，比"这次没写成"糟得多）。
-        QSaveFile out(metaPath);
-        if (!out.open(QIODevice::WriteOnly)
-            || out.write(QJsonDocument(meta).toJson(QJsonDocument::Indented)) < 0
-            || !out.commit()) {
-            return fail(tr("写不了 %1，这一份做出来了但启动器认不出它是谁。%2")
-                            .arg(QDir::toNativeSeparators(metaPath), removePartial()));
+        QString metaError;
+        if (!InstanceMetaFile::mergeWrite(
+                metaPath,
+                QJsonObject{{kDisplayNameField, name}, {kInstanceIdField, newInstanceId()}},
+                &metaError)) {
+            // 读不懂就不合并（reason 由 mergeWrite 给：读不懂 / 版本不认识 / 写不进）。
+            // 源目录里那份一个字都没动过，用户回去还看得见它。
+            return fail(tr("这一份的 %1 没能改对：%2%3")
+                            .arg(AppPaths::versionMetaFileName(), metaError, removePartial()));
         }
     }
 

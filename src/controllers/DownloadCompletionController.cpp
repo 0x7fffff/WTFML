@@ -13,6 +13,7 @@
 #include "MainWindow.hpp"
 #include "MainWindowUI.hpp"
 #include "OverlayHost.hpp"
+#include "controllers/InstallOccupancy.hpp"
 #include "controllers/ActivityCenterController.hpp"
 #include "controllers/PresetController.hpp"
 #include "controllers/DownloadTaskLedgerController.hpp"
@@ -46,8 +47,8 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
     // Keep the original installation task and busy guard alive until the asynchronous
     // preset download step completes. Re-enter once to use the existing finalization.
     if (success && m_owner.m_presetController && !m_modsReady &&
-        versionId == m_owner.m_installingInstanceId && versionId == m_pendingInstance &&
-        !m_pendingPresets.isEmpty()) {
+        m_owner.m_installOccupancy.is(InstallOccupancy::Batch::Install, versionId) &&
+        versionId == m_pendingInstance && !m_pendingPresets.isEmpty()) {
         m_modsReady = true;
         auto steps = m_owner.m_activityCenter->tasks()->snapshot(m_owner.m_downloadTaskLedger->task()).steps;
         steps.append({MainWindow::tr("应用实例预设"), Tasks::TaskStepState::Running, MainWindow::tr("检查模组、前置与配置")});
@@ -74,34 +75,20 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
             });
         return;
     }
-    // 这两笔要在 setDownloadUiBusy(false) **之前**清：那个函数会重灌"能启动的实例"，
-    // 而判据里就有它们两个（见 installingVersionIds()）—— 顺序反了的话，刚装完的实例
+    // 这几笔要在 setDownloadUiBusy(false) **之前**清：那个函数会重灌"能启动的实例"，
+    // 而判据里就有它们（见 installingVersionIds()）—— 顺序反了的话，刚装完的实例
     // 第一次刷新时还被滤着（要等下面那句再刷一次才出现），中间那一帧用户看到的是
     // "装完了可它不在列表里"。先清、后恢复界面，那一帧就不存在。
-    const bool wasImporting =
-        !m_owner.m_importingInstanceId.isEmpty() && versionId == m_owner.m_importingInstanceId;
-    const bool wasInstallingInstance =
-        !m_owner.m_installingInstanceId.isEmpty() && versionId == m_owner.m_installingInstanceId;
-    if (wasImporting) {
-        m_owner.m_importingInstanceId.clear();
-    }
-    if (wasInstallingInstance) {
-        m_owner.m_installingInstanceId.clear();
-    }
-    // 「补全文件」那颗按钮那一笔。理由和上面两条逐字一样：它也走公共的
-    // versionDownloadFinished(id, ok, msg)，也得在 setDownloadUiBusy(false)（那把"能启动的
-    // 实例"重灌一遍，判据里就有它）之前清掉。
-    const bool wasRepairing =
-        !m_owner.m_repairingInstanceId.isEmpty() && versionId == m_owner.m_repairingInstanceId;
-    if (wasRepairing) {
-        m_owner.m_repairingInstanceId.clear();
-    }
-    // 首启资源预取（见 maybePrefetchAssetDirector）：同一条公共终态信号，同一个清场时机。
-    const bool wasPrefetching =
-        !m_owner.m_assetPrefetchInstanceId.isEmpty() && versionId == m_owner.m_assetPrefetchInstanceId;
-    if (wasPrefetching) {
-        m_owner.m_assetPrefetchInstanceId.clear();
-    }
+    //
+    // `clearFor()` 把**和这个 id 对得上**的档全清掉，并告诉这一发该按哪一档说话
+    // （优先级：导入 > 安装 > 补全 > 预取，见 `InstallOccupancy::active()`）。
+    const InstallOccupancy::Batch batch = m_owner.m_installOccupancy.clearFor(versionId);
+    const bool wasImporting = batch == InstallOccupancy::Batch::Import;
+    const bool wasInstallingInstance = batch == InstallOccupancy::Batch::Install;
+    // 「补全文件」那颗按钮和首启资源预取（见 maybePrefetchAssetDirector）走的是同一条
+    // 公共终态信号，清场时机和上面两条逐字一样。
+    const bool wasRepairing = batch == InstallOccupancy::Batch::Repair;
+    const bool wasPrefetching = batch == InstallOccupancy::Batch::Prefetch;
     // 这一发是不是**用户自己按的取消**（判据见 `DownloadTaskLedgerController::userCancelInFlight()`）。
     // `cancelActiveDownload()` 走的是和"真失败"同一条终态信号，下面每一个分支都必须
     // 分开说：账本记 Cancelled、底栏不点红点、也不弹「失败」那个框。

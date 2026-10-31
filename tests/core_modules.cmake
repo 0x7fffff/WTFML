@@ -21,6 +21,7 @@ endif()
 set(WTFML_CORE_CASE_OBJECTS)
 set(WTFML_CORE_MODULE_TARGETS)
 add_library(core_cases_downloads OBJECT
+ core_modules/AssetNamesTests.cpp
  core_modules/PipelineTests.cpp
  core_modules/DownloadConcurrencyTests.cpp
  core_modules/DownloadSpeedLimitTests.cpp
@@ -54,6 +55,8 @@ add_library(core_cases_instances OBJECT
  core_modules/VersionJvmArgsTests.cpp
  core_modules/InstanceFileTests.cpp
  core_modules/VersionMetaWriteTests.cpp
+ core_modules/InstanceTraitsTests.cpp
+ core_modules/InstallOccupancyTests.cpp
  core_modules/RenameInstanceTests.cpp
  core_modules/InstanceGroupTests.cpp
  core_modules/InstalledScanTests.cpp
@@ -119,6 +122,8 @@ add_library(core_cases_resources OBJECT
  core_modules/AssetDirectorKnownSetTests.cpp
  core_modules/ResourceCatalogTests.cpp
  core_modules/ResourceDetailTests.cpp
+ # ZI：资源商店那几发也走共享的 Control 额度（本机假接口，不碰外网）。
+ core_modules/ResourceStoreBudgetTests.cpp
 )
 wtfml_core_compile(core_cases_resources)
 list(APPEND WTFML_CORE_CASE_OBJECTS $<TARGET_OBJECTS:core_cases_resources>)
@@ -131,6 +136,7 @@ add_library(core_cases_launch OBJECT
  core_modules/LaunchOptionsTests.cpp
  core_modules/QuickPlayTests.cpp
  core_modules/ErrorReportTests.cpp
+ core_modules/LaunchScriptExportTests.cpp
  core_modules/NativesMarkerTests.cpp
  core_modules/GameExitDiagnosisTests.cpp
  core_modules/LaunchHistoryTests.cpp

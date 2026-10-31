@@ -26,6 +26,8 @@ public:
     struct Host {
         std::function<QString(const QString &)> displayName;
         std::function<void(const QString &)> log;
+        /// 体检跑完之后开报告页。**后台**完成的那一发 ⇒ 走
+        /// `MainWindow::openPageWhenIdle()`：不驱逐用户正看着的那一页，等它收干净再开。
         std::function<void(std::function<void()>)> openWhenOverlayFree;
         std::function<void(const QString &)> repair;
     };

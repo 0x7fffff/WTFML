@@ -75,6 +75,8 @@ set(HEADER_FILES
     src/controllers/ServerListController.hpp
     src/launcher/LauncherManager.hpp
     src/launcher/LibraryRules.hpp
+    # 「导出启动脚本」那份 .bat 的正文（纯值进、文本出，验证工程逐条钉住）。
+    src/launcher/LaunchScriptExport.hpp
     src/launcher/ProcessPriority.hpp
     src/launcher/VersionInheritance.hpp
     src/auth/AuthManager.hpp
@@ -207,6 +209,7 @@ set(HEADER_FILES
     # 掉盘时那句话：卷认得出来且已就绪才算可用（见头文件）。
     src/util/StorageAvailability.hpp
     src/util/ZipUtil.hpp
+    src/util/PowerShell.hpp
     src/util/NbtUtil.hpp
     src/util/NbtTree.hpp
     src/util/ServerPing.hpp
@@ -336,6 +339,7 @@ set(SOURCE_FILES
     src/manage/RandomSkinStore.cpp
     # 离线账号自己挑的那张皮肤。
     src/manage/OfflineSkin.cpp
+    src/manage/InstanceMetaFile.cpp
     src/manage/VersionManager.cpp
     # 这四份是同一个类的实现，按职责分文件（理由见各自文件头与 VersionManagerInternals.hpp）。
     src/manage/VersionManagerLoaderInstall.cpp

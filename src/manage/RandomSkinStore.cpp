@@ -22,6 +22,7 @@
 #include <QSet>
 
 #include "../util/AppPaths.hpp"
+#include "../net/ControlGet.hpp"
 #include "PlayerSkinStore.hpp"
 
 namespace {
@@ -31,22 +32,33 @@ constexpr char kListEndpoint[] = "https://api.mineskin.org/v2/skins";
 
 /// 一个请求的超时。和 PlayerSkinStore 取同一个数：这是**可选**的外观请求，
 /// 真连不上就早点放弃、退回默认外观，不该拖着什么。
+/// NOTE: 这一发走 ControlGet，所以这个数是**排队 + 传输**一起的预算。
 constexpr int kTransferTimeoutMs = 10000;
 
 /// 请求里的字段名。
 const QString kSkinsField = QStringLiteral("skins");
 const QString kTextureField = QStringLiteral("texture");
 
+/// 验证工程的地址覆盖（见 setEndpointOverride）。空 = 官方地址。
+QString g_listBaseOverride;
+
 }  // namespace
 
 RandomSkinStore::RandomSkinStore(QObject *parent)
     : QObject(parent), m_network(new QNetworkAccessManager(this)) {}
 
+void RandomSkinStore::setEndpointOverride(const QString &base) {
+    g_listBaseOverride = base.trimmed();
+}
+
 QUrl RandomSkinStore::listRequestUrl(int size) {
     // 自己先钳住（理由见 .hpp：官方对超限回的是 400，不是一个截短了的列表）。
     const int clamped = qBound(1, size, maxListSize());
-    return QUrl(QLatin1String(kListEndpoint) + QStringLiteral("?size=") +
-                QString::number(clamped));
+    const QString base =
+        g_listBaseOverride.isEmpty() ? QString::fromLatin1(kListEndpoint) : g_listBaseOverride;
+    // 覆盖地址本身可能带着查询串（夹具常这么写），那就接着往后拼。
+    const QChar sep = base.contains(QLatin1Char('?')) ? QLatin1Char('&') : QLatin1Char('?');
+    return QUrl(base + sep + QStringLiteral("size=") + QString::number(clamped));
 }
 
 QStringList RandomSkinStore::parseTextureHashes(const QByteArray &body, QString *errorOut) {
@@ -174,37 +186,44 @@ bool RandomSkinStore::fetchRandomSkin() {
     m_inFlight = true;
 
     QNetworkRequest request(listRequestUrl(defaultListSize()));
-    request.setTransferTimeout(kTransferTimeoutMs);
-    QNetworkReply *reply = m_network->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        m_inFlight = false;
-        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        const QByteArray body = reply->readAll();
-        const QString networkError = reply->errorString();
-        const bool ok = reply->error() == QNetworkReply::NoError;
-        reply->deleteLater();
+    // 不在这条请求上写超时：它和别的短请求共用 Control 名额，排队 + 传输一起算进
+    // kTransferTimeoutMs（ControlGet 按剩余时间自己设 transferTimeout）。
+    RequestBudget::ControlGet::start(
+        this, m_network, request, kTransferTimeoutMs,
+        [this](QNetworkReply *reply, const QString &jobError) {
+            // 不管是发出去的还是没发出去的，这一趟到此为止 —— 先放开闸，后面的刷新才能再问。
+            m_inFlight = false;
+            if (reply == nullptr) {
+                emit failed(QStringLiteral("取随机皮肤列表失败：%1").arg(jobError));
+                return;
+            }
+            const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            const QByteArray body = reply->readAll();
+            const QString networkError = reply->errorString();
+            const bool ok = reply->error() == QNetworkReply::NoError;
 
-        if (!ok) {
-            emit failed(QStringLiteral("取随机皮肤列表失败（HTTP %1）：%2")
-                            .arg(status)
-                            .arg(networkError));
-            return;
-        }
+            if (!ok) {
+                emit failed(QStringLiteral("取随机皮肤列表失败（HTTP %1）：%2")
+                                .arg(status)
+                                .arg(networkError));
+                return;
+            }
 
-        QString error;
-        const QStringList hashes = parseTextureHashes(body, &error);
-        if (hashes.isEmpty()) {
-            emit failed(error);
-            return;
-        }
-        const QString hash = pickIndex(hashes, QRandomGenerator::global()->bounded(hashes.size()));
-        const QString url = PlayerSkinStore::textureUrlForHash(hash);
-        if (url.isEmpty()) {
-            // parseTextureHashes() 已经按同一把尺子筛过一遍，理论上到不了这儿。
-            emit failed(QStringLiteral("挑中的贴图哈希拼不出地址：%1").arg(hash));
-            return;
-        }
-        emit skinReady(url);
-    });
+            QString error;
+            const QStringList hashes = parseTextureHashes(body, &error);
+            if (hashes.isEmpty()) {
+                emit failed(error);
+                return;
+            }
+            const QString hash =
+                pickIndex(hashes, QRandomGenerator::global()->bounded(hashes.size()));
+            const QString url = PlayerSkinStore::textureUrlForHash(hash);
+            if (url.isEmpty()) {
+                // parseTextureHashes() 已经按同一把尺子筛过一遍，理论上到不了这儿。
+                emit failed(QStringLiteral("挑中的贴图哈希拼不出地址：%1").arg(hash));
+                return;
+            }
+            emit skinReady(url);
+        });
     return true;  // 请求真的发出去了（被 m_inFlight 挡掉那一趟是上面那个 return false）
 }

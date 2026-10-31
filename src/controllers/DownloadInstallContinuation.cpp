@@ -67,8 +67,8 @@ bool MainWindow::continueDownloadInstallation(Tasks::TaskId id, const QJsonObjec
     for (auto it = storedFingerprints.begin(); it != storedFingerprints.end(); ++it) fingerprints.insert(it.key(), it.value().toString());
     m_downloadCompletion->begin(kind == "repair" ? QString() : instance, presets, fingerprints);
     m_downloadTaskLedger->adopt(id);
-    if (kind == "repair") m_repairingInstanceId = instance;
-    else m_installingInstanceId = instance;
+    if (kind == "repair") m_installOccupancy.setBatch(InstallOccupancy::Batch::Repair, instance);
+    else m_installOccupancy.setBatch(InstallOccupancy::Batch::Install, instance);
     setDownloadUiBusy(true);
     m_downloadTaskLedger->resetProgressThrottle();
     if (kind == "repair") m_versionManager->repairVersionFiles(instance);

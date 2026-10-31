@@ -121,10 +121,11 @@ QString faultAt(const QString &path, const QString &why) {
 // ---------------------------------------------------------------------------
 
 QString presetsRoot() {
-    // 启动器自带的数据根目录（不是 `minecraftDir()`）：预设是用户的习惯，换一个游戏
-    // 文件夹之后它不该跟着不见 —— 理由和 `Tasks::defaultHistoryPath()` 逐字同源，
-    // 见头文件那一段。
-    return AppPaths::defaultMinecraftDir() + QStringLiteral("/presets");
+    // **跟着当前游戏文件夹走**（和实例同一个归属）：换一个 .minecraft 就是换一套预设，
+    // 和那一份文件夹里的实例对得上。早先放在启动器数据根下（"用户习惯不跟文件夹走"），
+    // 用户看两张列表一对照就说不对 —— 预设服务的正是这个文件夹里的实例。
+    // 全局预设是以后的事，不是现在这一份的形状。
+    return AppPaths::minecraftDir() + QStringLiteral("/presets");
 }
 
 QString indexPath(const QString &root) {

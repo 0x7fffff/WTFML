@@ -150,7 +150,8 @@ int UiServerModeChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
             page.setFlavors(flavors, QStringLiteral("fabric"));
             QApplication::processEvents();
 
-            auto *combo = page.findChild<QComboBox *>(MainWindowUI::newServerFlavorComboName());
+            auto *flavorList =
+                page.findChild<QListWidget *>(MainWindowUI::newServerFlavorListName());
             auto *loaderEdit = page.findChild<QLineEdit *>(MainWindowUI::newServerLoaderEditName());
             auto *installerEdit =
                 page.findChild<QLineEdit *>(MainWindowUI::newServerInstallerEditName());
@@ -159,16 +160,16 @@ int UiServerModeChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
             auto *summary = page.findChild<QLabel *>(MainWindowUI::newServerSummaryLabelName());
             auto *createBtn =
                 page.findChild<QPushButton *>(MainWindowUI::newServerCreateButtonName());
-            const bool pageThere = combo != nullptr && loaderEdit != nullptr &&
+            const bool pageThere = flavorList != nullptr && loaderEdit != nullptr &&
                                    installerEdit != nullptr && buildEdit != nullptr &&
                                    memorySpin != nullptr && summary != nullptr &&
                                    createBtn != nullptr;
             check(pageThere, "U34.5 前提：「新建服务端」那一页那几格都按 objectName 找得到");
             if (pageThere) {
-                check(combo->count() == 2 && combo->itemText(0) == QStringLiteral("Fabric") &&
-                          combo->itemText(1) == QStringLiteral("Paper") &&
-                          combo->itemData(0, Qt::UserRole).toString() == QStringLiteral("fabric"),
-                      "★ U34.5 下拉框逐条摆的就是喂进来的那几档（认的是 token，不是文字）");
+                check(flavorList->count() == 2 && flavorList->item(0)->text() == QStringLiteral("Fabric") &&
+                          flavorList->item(1)->text() == QStringLiteral("Paper") &&
+                          flavorList->item(0)->data(Qt::UserRole).toString() == QStringLiteral("fabric"),
+                      "★ U34.5 端类别那一排逐条摆的就是喂进来的那几档（认的是 token，不是文字）");
                 // 停在 Fabric（要加载器 + 安装器，不要构建号）⇒ 那两行露着、构建号收着。
                 check(loaderEdit->isVisible() && installerEdit->isVisible() &&
                           !buildEdit->isVisible(),

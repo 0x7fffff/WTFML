@@ -6,7 +6,9 @@
  *
  * 安装页那张弹窗必须在**问网络之前**就出来，所以这一层绝不能用
  * `HttpClient` 那种同步等法 —— 那是给"点一下、界面停住等结果"的登录链用的。
- * 这里一个请求一个 `QNetworkReply`，超时自己 abort，结论交回 `CompatibilityChecker`。
+ * 这里一个请求一个 `RequestBudget::ControlGet` 作业：与加载器版本查询、模板/清单等
+ * 短请求共用 Control 名额，排队和传输合起来一个截止，超时由作业自己收手，
+ * 结论交回 `CompatibilityChecker`。
  *
  * 【结论的口径】
  *
@@ -56,10 +58,14 @@ public:
 
     /// 版本查询单发超时。★ 和 `CompatibilityChecker::Options::timeoutMs` 是两层：
     /// 检查器那一层是"这一项多久没结论就报 Unknown"的兜底，这里是让网络请求自己收手。
+    /// 这一发**排队 + 传输**一起算进这个截止（和 `HttpClient` 共用 Control 名额），
+    /// 所以它比"纯粹的在网线上待多久"短一点点 —— 那正是 P2 的口径。
     void setTransferTimeoutMs(int ms) { m_transferTimeoutMs = ms; }
 
 private:
-    struct QueryState { bool cancelled = false; QPointer<QNetworkReply> reply; };
+    /// 取消 = 直接删掉那个作业。排在队里的作业被删掉之后**一个字节都不会发**；
+    /// 已经发出去的那一发在析构里 abort。取消不回调（结论由检查器按超时收）。
+    struct QueryState { bool cancelled = false; QPointer<QObject> job; };
     void queryModrinth(const ModReference &reference, const CompatibilityContext &context,
                        const Reply &reply, int attempt, const std::shared_ptr<QueryState> &state);
     void queryCurseForge(const ModReference &reference, const CompatibilityContext &context,

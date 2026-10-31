@@ -328,6 +328,49 @@ int UiScrollBarsChecks(QApplication &app, QFrame * &bar) {
                            gutterBackgroundPixel.name(QColor::HexArgb)));
         }
 
+        // —— 换主题时**藏着的**滚动条不白跑，露头那一刻补上 ——
+        //
+        // 这一条钉的是 2026-10-31 改掉的那笔账：换一次主题原来把每一根滚动条都重挂一遍
+        // （控件级 `setStyleSheet()` ⇒ 重新解析 + polish），探针拆出来是 15–26 ms，而其中
+        // 大多数根本不在屏幕上。现在只重挂露着的，藏着的等 Show 事件补
+        // （`ScrollBarStyler` + `styleScrollBar()` 身上的代数标记）。
+        {
+            const Theme::Spec specBefore = Theme::current();
+            QWidget hiddenHost;
+            hiddenHost.resize(240, 160);
+            hiddenHost.setAutoFillBackground(true);
+            auto *hiddenScroll = new QScrollArea(&hiddenHost);
+            hiddenScroll->setGeometry(0, 0, 240, 160);
+            hiddenScroll->setFrameShape(QFrame::NoFrame);
+            hiddenScroll->setWidgetResizable(true);
+            hiddenScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+            auto *hiddenContent = new QWidget(hiddenScroll);
+            hiddenContent->setMinimumHeight(600);
+            hiddenScroll->setWidget(hiddenContent);
+            QScrollBar *hiddenBar = hiddenScroll->verticalScrollBar();
+            check(hiddenBar->styleSheet().isEmpty(),
+                  "⑭ 还没露头的滚动条身上没有控件级样式（下面两条的前提）");
+
+            Theme::Spec dark = specBefore;
+            dark.presetId = QStringLiteral("dark");
+            dark.accent = Theme::tokens(dark.presetId).primary;
+            Theme::setSpec(dark);
+            Theme::apply(app);
+            check(hiddenBar->styleSheet().isEmpty(),
+                  "★ ⑭ 换主题不给藏着的滚动条白跑一趟（它身上还是没样式）",
+                  hiddenBar->styleSheet());
+
+            hiddenHost.show();
+            QApplication::processEvents();
+            QApplication::processEvents();
+            check(!hiddenBar->styleSheet().isEmpty(),
+                  "★★ ⑭ 藏着的滚动条一露头就把新主题的样式补上（不是停在老颜色上）",
+                  hiddenBar->styleSheet());
+
+            Theme::setSpec(specBefore);
+            Theme::apply(app);
+        }
+
         Anim::setEnabled(wasEnabled);
     }
     return 0;

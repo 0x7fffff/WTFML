@@ -245,6 +245,96 @@ int runPresetInstallChecks() {
             qApp->setProperty("wtfml.testDefaultMinecraftDir", previousRoot);
         }
     }
+    {
+        QTemporaryDir root;
+        check(root.isValid(), "install picker fixture has an isolated data root");
+        if (root.isValid()) {
+            const auto previousRoot = qApp->property("wtfml.testDefaultMinecraftDir");
+            qApp->setProperty("wtfml.testDefaultMinecraftDir", root.path());
+            const QString presetsRoot = PresetController::presetsRoot();
+            const QString gameId = Presets::newPresetId();
+            const QString modsId = Presets::newPresetId();
+            const QString packsId = Presets::newPresetId();
+            const QString dataId = Presets::newPresetId();
+            const QString compositeId = Presets::newPresetId();
+            const QString childModsId = Presets::newPresetId();
+            const QString childPacksId = Presets::newPresetId();
+            const auto add = [&presetsRoot](const QString &id, const QString &name,
+                                            Presets::PresetCategory category,
+                                            const QJsonObject &components = QJsonObject()) {
+                Presets::PresetManifest manifest;
+                manifest.id = id;
+                manifest.name = name;
+                manifest.category = category;
+                if (!components.isEmpty()) {
+                    manifest.editorState.insert(QStringLiteral("components"), components);
+                }
+                return Presets::saveManifest(presetsRoot, manifest);
+            };
+            QJsonObject parts;
+            parts.insert(Presets::presetCategoryKey(Presets::PresetCategory::Mods), childModsId);
+            parts.insert(Presets::presetCategoryKey(Presets::PresetCategory::ResourcePacks),
+                         childPacksId);
+            Presets::PresetIndex index;
+            index.order = {gameId, modsId, packsId, dataId, compositeId};
+            const bool written =
+                add(gameId, QStringLiteral("游戏设置"), Presets::PresetCategory::GameSettings)
+                && add(modsId, QStringLiteral("模组"), Presets::PresetCategory::Mods)
+                && add(packsId, QStringLiteral("资源包"), Presets::PresetCategory::ResourcePacks)
+                && add(dataId, QStringLiteral("数据包"), Presets::PresetCategory::DataPacks)
+                && add(compositeId, QStringLiteral("综合"), Presets::PresetCategory::Unset, parts)
+                && Presets::saveIndex(presetsRoot, index);
+            check(written, "install picker fixture writes four presets plus a composite");
+            if (written) {
+                QWidget host;
+                PresetController controller(nullptr, &host, PresetController::Host{});
+                const PresetController::InstallPickerData picker = controller.installPickerData();
+                const auto idsOf = [&picker](Presets::PresetCategory category) {
+                    QStringList ids;
+                    for (const Presets::PresetSummary &summary :
+                         picker.optionsFor(Presets::presetCategoryKey(category))) {
+                        ids.append(summary.id);
+                    }
+                    return ids;
+                };
+                check(picker.presets.size() == 5,
+                      "install picker reads the whole store in one pass");
+                check(idsOf(Presets::PresetCategory::GameSettings) == QStringList{gameId},
+                      "install picker only offers a category's own presets in it");
+                // 复合预设那几段跟着父项次序排在普通预设后面，子项带着父项的名字。
+                check(idsOf(Presets::PresetCategory::Mods) == QStringList{modsId, childModsId},
+                      "install picker offers a composite preset's mod part under mods");
+                check(idsOf(Presets::PresetCategory::ResourcePacks)
+                          == QStringList{packsId, childPacksId},
+                      "install picker offers a composite preset's pack part under resource packs");
+                check(idsOf(Presets::PresetCategory::DataPacks) == QStringList{dataId},
+                      "install picker does not invent a part a composite preset lacks");
+                check(picker.optionsFor(QStringLiteral("no-such-category")).isEmpty(),
+                      "install picker answers an unknown category with nothing");
+                bool compositeSeen = false;
+                for (const PresetController::InstallPickerPreset &row : picker.presets) {
+                    if (row.summary.id != compositeId) continue;
+                    compositeSeen =
+                        row.componentsLoaded
+                        && row.components.value(
+                               Presets::presetCategoryKey(Presets::PresetCategory::Mods))
+                               == childModsId
+                        && row.components.size() == 2;
+                }
+                check(compositeSeen,
+                      "install picker carries the composite's parts without rereading the manifest");
+                for (const Presets::PresetSummary &option :
+                     picker.optionsFor(Presets::presetCategoryKey(Presets::PresetCategory::Mods))) {
+                    if (option.id == childModsId) {
+                        check(option.name == QStringLiteral("综合")
+                                  && option.category == Presets::PresetCategory::Mods,
+                              "a composite part keeps the parent's name and takes the asked category");
+                    }
+                }
+            }
+            qApp->setProperty("wtfml.testDefaultMinecraftDir", previousRoot);
+        }
+    }
     QTemporaryDir scratch;
     QTcpServer server;
     check(scratch.isValid() && server.listen(QHostAddress::LocalHost, 0), "local preset fixture starts");
@@ -785,41 +875,79 @@ int runPresetInstallChecks() {
             items.append(item);
         }
         manage.setPresets(items, {{QStringLiteral("broken"), QStringLiteral("bad manifest")}}, QStringLiteral("700"));
-        auto *view = manage.findChild<QListView *>(PresetManagePage::presetListName());
-        auto *proxy = view ? qobject_cast<QSortFilterProxyModel *>(view->model()) : nullptr;
+        // 左栏是**按类别分组**的一棵树（组头 + 预设行）：没有筛选 chip、也没有代理模型，
+        // 行就长在各自的组下面。"哪一行是谁"按 `rowIdRole()` 认，组头没有 id。
+        auto *view = manage.findChild<QTreeWidget *>(PresetManagePage::presetListName());
         auto *search = manage.findChild<QLineEdit *>(QStringLiteral("presetSearchEdit"));
-        check(proxy && proxy->rowCount() == 1001 && manage.currentPresetId() == QStringLiteral("700"),
-              "large preset view preserves source order and requested identity");
-        if (proxy && search) {
-            const QPersistentModelIndex sourceFirst(proxy->sourceModel()->index(0, 0));
+        const auto rows = [view] {
+            int n = 0;
+            if (view != nullptr)
+                for (int g = 0; g < view->topLevelItemCount(); ++g) n += view->topLevelItem(g)->childCount();
+            return n;
+        };
+        const auto visibleRows = [view] {
+            int n = 0;
+            if (view == nullptr) return n;
+            for (int g = 0; g < view->topLevelItemCount(); ++g) {
+                QTreeWidgetItem *group = view->topLevelItem(g);
+                if (group->isHidden()) continue;
+                for (int i = 0; i < group->childCount(); ++i)
+                    if (!group->child(i)->isHidden()) ++n;
+            }
+            return n;
+        };
+        const auto rowFor = [view](const QString &id) -> QTreeWidgetItem * {
+            if (view == nullptr) return nullptr;
+            for (int g = 0; g < view->topLevelItemCount(); ++g) {
+                QTreeWidgetItem *group = view->topLevelItem(g);
+                for (int i = 0; i < group->childCount(); ++i)
+                    if (group->child(i)->data(0, PresetManagePage::rowIdRole()).toString() == id)
+                        return group->child(i);
+            }
+            return nullptr;
+        };
+        check(view && rows() == 1001 && manage.currentPresetId() == QStringLiteral("700"),
+              "large preset list keeps every entry and the requested identity");
+        check(view && view->topLevelItemCount() == 3 && view->topLevelItem(0)->text(0) == QStringLiteral("设置") &&
+                  view->topLevelItem(1)->text(0) == QStringLiteral("模组") &&
+                  view->topLevelItem(2)->text(0) == QStringLiteral("读不出来"),
+              "groups follow the category order the controller supplies and unreadable presets get their own last group");
+        bool grouped = view != nullptr;
+        for (int g = 0; g < (view ? view->topLevelItemCount() : 0); ++g) {
+            QTreeWidgetItem *group = view->topLevelItem(g);
+            const bool mods = group->text(0) == QStringLiteral("模组");
+            if (group->text(0) != QStringLiteral("设置") && !mods) continue;
+            for (int i = 0; i < group->childCount(); ++i) {
+                const int id = group->child(i)->data(0, PresetManagePage::rowIdRole()).toString().toInt();
+                grouped = grouped && (id % 2 == 1) == mods;
+            }
+        }
+        check(grouped, "every preset row sits under its own category header");
+        if (search) {
             QObject::connect(&manage, &PresetManagePage::presetSelected, &manage,
                              [&](const QString &id) { if (id.isEmpty()) ++clearedCalls; else ++selectedCalls; });
             search->setText(QStringLiteral("  CREATIVE  "));
-            check(sourceFirst.isValid() && proxy->rowCount() == 1001 && selectedCalls == 0 &&
-                      manage.currentPresetId() == QStringLiteral("700"),
-                  "search reuses source rows, trims input and keeps matching selection without duplicate callbacks");
+            check(rows() == 1001 && selectedCalls == 0 && manage.currentPresetId() == QStringLiteral("700"),
+                  "search trims input, matches descriptions case-insensitively and emits no duplicate callbacks");
             search->setText(QStringLiteral("no matches"));
-            check(proxy->rowCount() == 1 && !proxy->index(0, 0).flags().testFlag(Qt::ItemIsSelectable) &&
-                      manage.currentPresetId().isEmpty() && clearedCalls == 1 &&
+            check(visibleRows() == 1 && manage.currentPresetId().isEmpty() && clearedCalls == 1 &&
                       !manage.findChild<QPushButton *>(PresetManagePage::deleteButtonName())->isEnabled(),
                   "broken presets remain visible but cannot become a stale actionable selection");
-            manage.findChild<QPushButton *>(PresetManagePage::categoryFilterName(2))->click();
-            check(proxy->rowCount() == 0, "category filter excludes unclassified broken presets");
+            check(rowFor(QStringLiteral("broken")) && !rowFor(QStringLiteral("broken"))->isHidden(),
+                  "the unreadable group is not hidden by an unrelated search query");
             search->clear();
-            check(proxy->rowCount() == 500 && manage.currentPresetId() == QStringLiteral("1") && selectedCalls == 1,
-                  "combined category and search choose first visible valid preset once");
+            check(rows() == 1001 && manage.currentPresetId() == QStringLiteral("0") && selectedCalls == 1,
+                  "clearing search selects the first visible preset exactly once");
             manage.setPresets(items, {}, QStringLiteral("700"));
-            check(!sourceFirst.isValid() && proxy->rowCount() == 500 &&
-                      manage.currentPresetId() == QStringLiteral("1"),
-                  "data refresh respects active category when requested id is hidden");
-            manage.findChild<QPushButton *>(PresetManagePage::categoryFilterName(0))->click();
-            view->setCurrentIndex(proxy->index(0, 0));
+            check(rows() == 1000 && manage.currentPresetId() == QStringLiteral("700"),
+                  "data refresh keeps the requested identity when it is still present");
+            view->setCurrentItem(rowFor(QStringLiteral("0")));
             QObject::connect(&manage, &PresetManagePage::defaultRequested, &manage,
                              [&](const QString &id, bool enabled) { defaultId = id; makeDefault = enabled; });
             manage.findChild<QPushButton *>(PresetManagePage::defaultButtonName())->click();
-            check(defaultId == QStringLiteral("0") && !makeDefault &&
-                      proxy->index(0, 0).data().toString().contains(QStringLiteral("默认")),
-                  "default indicator and toggle refer to the visible preset's source identity");
+            check(defaultId == QStringLiteral("0") && !makeDefault && rowFor(QStringLiteral("0")) &&
+                      rowFor(QStringLiteral("0"))->text(0).contains(QStringLiteral("默认")),
+                  "default indicator and toggle refer to the selected preset's identity");
         }
     }
     const auto presetRoot = scratch.filePath(QStringLiteral("presets"));

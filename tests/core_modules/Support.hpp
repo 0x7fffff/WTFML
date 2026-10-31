@@ -61,6 +61,8 @@
 #include "auth/OAuthEndpoints.hpp"
 #include "auth/SkinApi.hpp"
 #include "auth/TokenStore.hpp"
+// version.json 里那两个会变成盘上路径的名字（资源索引号 / 对象哈希）。见 ZAO 节。
+#include "download/AssetNames.hpp"
 #include "download/DownloadConcurrency.hpp"
 #include "download/DownloadManager.hpp"
 #include "download/LocalFileReuse.hpp"
@@ -532,6 +534,9 @@ int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox);
 /// vm-fetch-fail 模式：元数据拉取走死路时，必须有终态信号。
 int runVersionManagerFetchFail(QCoreApplication &app);
 
+/// version.json 里的索引号 / 对象哈希能不能当文件名（纯函数，见 ZAO 节）。
+int runAssetNamesTests();
+
 // ---------------------------------------------------------------------------
 // I. 版本显示名：formatVersionName / normalizeVersionNameOptions（纯函数）
 // + VersionManager::displayParts()（读盘）+ LauncherSettings（读写设置）
@@ -565,6 +570,14 @@ int runInstanceFileTests(const QString &sandbox);
 // wtfml.meta 的写侧：合并写、坏文件拒绝写、稳定 id 幂等。
 // 重命名 / 分组 / 每实例设置三件事都靠这一层。
 int runVersionMetaWriteTests(const QString &sandbox);
+
+// 实例特征（加载器 + 版本类型）一次问清楚：meta 优先、json 兜底、结果跟着
+// mergedVersionJsons 一起缓存。钉的是"装完加载器界面上立刻认得出"这条。
+int runInstanceTraitsTests(const QString &sandbox);
+
+// 安装占用那四档（导入 / 安装 / 补全 / 预取）的判据：优先级、"谁算正在改它"、
+// 收尾按哪一档说话。纯值进、结论出，不建界面也不碰盘。
+int runInstallOccupancyTests(const QString &sandbox);
 
 // 重命名：名字校验的真值表 + 真改磁盘目录名（含失败路径）。
 int runRenameInstanceTests(const QString &sandbox);
@@ -971,6 +984,15 @@ void runResourceCatalogTests();
 // =========================================================================
 
 void runResourceDetailTests();
+
+// =========================================================================
+// ZI 节：资源商店那几发请求也走共享的 Control 额度。
+//
+// 纯接线（搜索 / 带正文的 POST / 图标 / 换发与删作业），本机假接口，一个字节都不出网。
+// 排队与截止本身的语义在 PH6 / T8 / RequestBudgetChecks 里钉，这里不重复。
+// =========================================================================
+
+void runResourceStoreBudgetTests();
 
 // =========================================================================
 // ZB 节：下载页图标的**盘上那一份缓存**、它的**凭据**、以及那一发请求本身
@@ -1605,6 +1627,7 @@ void runQuickPlayTests(const QString &metaDir);
 // NOTE: 时间是从外面传进去的（`ErrorReport` 不读时钟），所以 `生成时间：` 那一行在这里
 // 是个定值 —— 这一条是整个文件里唯一能钉住"时间那一格长什么样"的办法。
 void runErrorReportTests();
+int runLaunchScriptExportTests();
 
 // =========================================================================
 // ZJ. 「复制实例」和「导入世界 / 世界改名」

@@ -9,6 +9,7 @@
 #include "Theme.hpp"   // 顶上那颗「← 返回」的身份（一般性 = 黑字黑边）
 
 #include <QApplication>
+#include <QDebug>
 #include <QDialog>
 #include <QEvent>
 #include <QEventLoop>
@@ -461,6 +462,8 @@ void OverlayHost::closeOverlay() {
         applyVisibility();
         // 这一条提示收掉了：排着的那几条纯报信提示该出来了。
         scheduleNotificationDrain();
+        // 这一层整个空出来了：后台等着的那几页也轮到它们了。
+        schedulePageDrain();
         return;
     }
     if (m_mode == Mode::Page) {
@@ -470,6 +473,7 @@ void OverlayHost::closeOverlay() {
         m_pageOwnerTab = -1;
         m_pageFocus = nullptr;
         applyVisibility();
+        schedulePageDrain();
         return;
     }
 }
@@ -485,6 +489,47 @@ bool OverlayHost::queueNotification(std::function<void()> show) {
     }
     m_queuedNotifications.append(std::move(show));
     return true;
+}
+
+bool OverlayHost::queuePageOpen(std::function<void()> show) {
+    if (!show) {
+        return false;
+    }
+    if (!isOpen()) {
+        // 空着：就是现在。调用方拿到的是"已经开了"，不用再做什么。
+        show();
+        return false;
+    }
+    // 被占着 —— **不驱逐**（见头文件那段：这是后台弄完的事，不是用户刚点的）。
+    // 收着的页也算占着：它看不见，可用户切回去就指望它原样还在。
+    if (m_queuedPageOpens.size() >= kMaxQueuedPageOpens) {
+        qWarning() << "Overlay: dropping the oldest queued page, more than"
+                   << kMaxQueuedPageOpens << "background pages are waiting";
+        m_queuedPageOpens.removeFirst();
+    }
+    m_queuedPageOpens.append(std::move(show));
+    return true;
+}
+
+void OverlayHost::schedulePageDrain() {
+    if (m_queuedPageOpens.isEmpty() || m_pageDrainPending) {
+        return;
+    }
+    m_pageDrainPending = true;
+    // 和提示那条同一个理由（见 scheduleNotificationDrain）：这一下发生在收页的收尾里，
+    // 调用栈还属于那一页的调用方，不能把它按在我们的活儿里。
+    QTimer::singleShot(0, this, [this] {
+        m_pageDrainPending = false;
+        // 这中间又有人占上了（或者本来就没收干净）：留着，等下一次收干净再排。
+        if (m_queuedPageOpens.isEmpty() || isOpen()) {
+            return;
+        }
+        const auto show = m_queuedPageOpens.takeFirst();
+        // **先排下一次、再摆这一发**：`show()` 可能开出新的一页（那剩下的几条就该等它
+        // 收掉），也可能什么都没开（比如那个实例已经不在了）—— 两种都不能把后面的堵死。
+        schedulePageDrain();
+        show();
+    });
 }
 
 void OverlayHost::scheduleNotificationDrain() {

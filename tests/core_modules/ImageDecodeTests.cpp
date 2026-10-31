@@ -85,5 +85,78 @@ void runImageDecodeTests() {
         check(webpImage.isNull(),
               "ZC2 这台机器解不了 webp：如实回 null（界面会退回 PNG，不是报错）");
     }
+
+    section("ZC3. 解码上限：头里写着多大就先拒，别按它去分配内存");
+    // 图标 / 皮肤来自外部（Modrinth CDN、服务器答复里那串 data URL、用户拖进来的文件），
+    // 一个几十字节的"头"就能声称 8000x8000 —— 照它分配是 192 MB，几张就能把进程按死。
+    // 所以 `ImageDecode` 在**读像素之前**先看声明的尺寸（见 ImageDecode.hpp 的 Limits）。
+    {
+        const ImageDecode::Limits dflt;
+        check(ImageDecode::sizeWithinLimits(QSize(16, 16), dflt), "ZC3 16x16 在默认上限里");
+        check(ImageDecode::sizeWithinLimits(
+                  QSize(ImageDecode::kMaxDecodedSide, ImageDecode::kMaxDecodedSide), dflt),
+              "ZC3 4096x4096 恰好卡在默认上限上（收）");
+        check(!ImageDecode::sizeWithinLimits(QSize(ImageDecode::kMaxDecodedSide + 1, 1), dflt),
+              "ZC3 边长超一个像素就不收");
+        check(!ImageDecode::sizeWithinLimits(
+                  QSize(ImageDecode::kMaxDecodedSide, ImageDecode::kMaxDecodedSide + 1), dflt),
+              "★ ZC3 两边都没超边长、像素数超了也不收（4096x4097）");
+        check(!ImageDecode::sizeWithinLimits(QSize(), dflt)
+                  && !ImageDecode::sizeWithinLimits(QSize(0, 10), dflt)
+                  && !ImageDecode::sizeWithinLimits(QSize(-5, 5), dflt),
+              "ZC3 空的 / 零边 / 负边都不收（`QSize::isValid()` 那一条）");
+        check(ImageDecode::sizeWithinLimits(QSize(100, 100), ImageDecode::Limits{100, 10000})
+                  && !ImageDecode::sizeWithinLimits(QSize(101, 100),
+                                                    ImageDecode::Limits{100, 10000}),
+              "ZC3 调用方自己给的上限说了算（不只看那两个默认常量）");
+    }
+    check(ImageDecode::decode(pngBytes, ImageDecode::Limits{32, 32 * 32}).isNull(),
+          "ZC3 上限调到 32x32 之后，上面那张 96x96 的 PNG 当场拒");
+    check(!ImageDecode::decode(pngBytes, ImageDecode::Limits{96, 96 * 96}).isNull(),
+          "ZC3 上限刚好够（96x96）就照常解得回来（闸没把正常图也拦掉）");
+
+    // 手搓一个"头声称很大、像素一个字节都没有"的 BMP：BITMAPINFOHEADER 定长 54 字节，
+    // 解码器读得到宽高、读不到像素 —— 要证的正是"这时候连试都不试"。
+    const auto oversizedBmp = [](quint32 side) {
+        QByteArray bytes;
+        const auto u16 = [&bytes](quint16 value) {
+            bytes.append(static_cast<char>(value & 0xFF));
+            bytes.append(static_cast<char>((value >> 8) & 0xFF));
+        };
+        const auto u32 = [&bytes](quint32 value) {
+            bytes.append(static_cast<char>(value & 0xFF));
+            bytes.append(static_cast<char>((value >> 8) & 0xFF));
+            bytes.append(static_cast<char>((value >> 16) & 0xFF));
+            bytes.append(static_cast<char>((value >> 24) & 0xFF));
+        };
+        bytes.append(QByteArrayLiteral("BM"));
+        u32(54);   // 文件大小（这里不按它算图）
+        u16(0);    // 保留
+        u16(0);
+        u32(54);   // 像素数据偏移
+        u32(40);   // BITMAPINFOHEADER
+        u32(side); // 宽
+        u32(side); // 高（正数 = 自下而上，够解码器认）
+        u16(1);    // planes
+        u16(24);   // 每像素 24 位
+        u32(0);    // BI_RGB
+        u32(0);    // 图像大小（BI_RGB 时可以写 0）
+        u32(2835); // 横向 DPI
+        u32(2835); // 纵向 DPI
+        u32(0);    // 调色板
+        u32(0);    // 重要色
+        return bytes;
+    };
+    QByteArray bomb = oversizedBmp(8000);
+    {
+        QBuffer probeBuffer(&bomb);
+        probeBuffer.open(QIODevice::ReadOnly);
+        QImageReader probe(&probeBuffer);
+        check(probe.size() == QSize(8000, 8000),
+              "ZC3 夹具的头确实声称 8000x8000（解码器读得到那个数）",
+              QStringLiteral("%1x%2").arg(probe.size().width()).arg(probe.size().height()));
+    }
+    check(ImageDecode::decode(bomb).isNull(),
+          "★ ZC3 80 字节的头声称 8000x8000 ⇒ 直接回 null（不按头分配 192 MB）");
 }
 

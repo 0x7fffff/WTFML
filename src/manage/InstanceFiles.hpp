@@ -45,6 +45,14 @@ namespace InstanceFiles {
 /// 的话，改一处漏一处的症状是"候选名字自己就过不了校验"。
 constexpr int kMaxDirNameLength = 64;
 
+/// 一个**文件名**（不含目录）的长度上限，`validateFileName()` 用它。
+///
+/// 和 kMaxDirNameLength 分开：64 是"实例目录名"的规矩，而 mod 文件名可以到 60+ 个
+/// 字符，再长一点也完全正常（`sodium-0.5.11+mc1.20.1-forge.jar` 这种拼接很常见）。
+/// 这条挡的只是"把一整句话当文件名用"那种，同时给整条路径（MAX_PATH 260）留出实例目录
+/// 那一段的余量。
+constexpr int kMaxFileNameLength = 200;
+
 /// 扫一个实例目录得到的原始材料。纯数据 —— 判据本体 resolve() 只吃它、不碰磁盘，
 /// 所以真值表能在验证工程里直接钉住，不用先去造目录。
 struct DirListing {
@@ -236,6 +244,19 @@ QString validateDirName(const QString &rawName);
  * 把一个正常的整合包挡在外面）。
  */
 QString validatePathSegment(const QString &segment);
+
+/**
+ * @brief 一个**平铺文件名**（`mods/` 里那一层）能不能用 —— 和路径段同一套规矩，
+ *        再加一条长度上限（`kMaxFileNameLength`）。纯函数，不碰磁盘。
+ * @return 合法返回空串；否则返回给用户看的一句原因。
+ *
+ * 这一条专门给"要往盘上落的名字"用，而那几个名字的来源是**外部**（Modrinth /
+ * CurseForge 的 `filename` 字段、升级审计里记下来的那一份）。它们不是用户自己在对话框
+ * 里敲的，所以不能指望"用户不会输入反斜杠"这种事 —— 一个作者把文件名写成
+ * `..\..\startup.bat`（或者在文件名里塞一个 `:` 借 NTFS 的备用数据流）是完全做得到的。
+ * 判据本体就是 `validatePathSegment()` + 长度：同一个规矩只写一份。
+ */
+QString validateFileName(const QString &name);
 
 /**
  * @brief @p candidate 是不是 @p parent 自己、或者它**底下**的某一层。

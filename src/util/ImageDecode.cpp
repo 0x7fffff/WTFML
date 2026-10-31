@@ -4,6 +4,9 @@
  */
 #include "ImageDecode.hpp"
 
+#include <QBuffer>
+#include <QDebug>
+#include <QImageReader>
 #include <QString>
 
 #include <string>
@@ -82,7 +85,7 @@ bool wicHasWebpDecoder(IWICImagingFactory *factory) {
 
 /// 走 WIC 解一串字节。**是内存流，不落盘** —— 产品的图标正是 QNetworkReply 里的一串字节，
 /// 写临时文件那条路在这里不成立（见 build/tools/wicprobe/ 里那份验过这一点的探针）。
-QImage decodeWithWic(const QByteArray &bytes) {
+QImage decodeWithWic(const QByteArray &bytes, const Limits &limits) {
     IWICImagingFactory *factory = wicFactory();
     if (factory == nullptr) {
         return QImage();
@@ -108,7 +111,11 @@ QImage decodeWithWic(const QByteArray &bytes) {
         UINT width = 0;
         UINT height = 0;
         frame->GetSize(&width, &height);
-        if (width > 0 && height > 0) {
+        // 尺寸上限在**分配之前**判（理由见头文件里的 Limits）：WIC 先告诉我们要多大，
+        // 这里就能在知道"放不下"的时候一个字节都不分配。帧尺寸是外部输入，别信它。
+        if (width > 0 && height > 0
+            && sizeWithinLimits(
+                QSize(static_cast<int>(width), static_cast<int>(height)), limits)) {
             // 32bppBGRA（直存 alpha）在内存里的字节顺序正好就是 QImage::Format_ARGB32
             // 要的那个 —— 别换成 Premultiplied，那是另一个格式。
             QImage buffer(static_cast<int>(width), static_cast<int>(height),
@@ -161,14 +168,42 @@ bool webpAvailable() { return false; }
 
 #endif // Q_OS_WIN
 
-QImage decode(const QByteArray &bytes) {
+bool sizeWithinLimits(const QSize &size, const Limits &limits) {
+    if (!size.isValid() || size.isEmpty()) {
+        return false;
+    }
+    if (size.width() > limits.maxSide || size.height() > limits.maxSide) {
+        return false;
+    }
+    return qint64(size.width()) * qint64(size.height()) <= limits.maxPixels;
+}
+
+QImage decode(const QByteArray &bytes, const Limits &limits) {
     if (bytes.isEmpty()) {
         return QImage(); // 空的一串不是"一张空图"，是"没有图"
     }
 
-    // 先让 Qt 自己试。绝大多数的图走到这里就结束了（png / jpg / gif / bmp / ico…）。
-    QImage image;
-    if (image.loadFromData(bytes)) {
+    // 先问尺寸（这一步只读头部、不解码），再让 Qt 去解 —— 见头文件里的 Limits。
+    QBuffer buffer;
+    buffer.setData(bytes);
+    if (!buffer.open(QIODevice::ReadOnly)) {
+        return QImage();
+    }
+    QImageReader reader(&buffer);
+    const QSize declared = reader.size();
+    if (declared.isValid() && !sizeWithinLimits(declared, limits)) {
+        qWarning() << "Refusing to decode an oversized image:" << declared
+                   << "limits" << limits.maxSide << limits.maxPixels;
+        return QImage();
+    }
+    // 绝大多数的图走到这里就结束了（png / jpg / gif / bmp / ico…）。
+    QImage image = reader.read();
+    if (!image.isNull()) {
+        // 有些格式的头部不给尺寸（size() 无效），这条兜底：解出来真超大也不能带出去。
+        if (!sizeWithinLimits(image.size(), limits)) {
+            qWarning() << "Refusing an oversized decoded image:" << image.size();
+            return QImage();
+        }
         return image;
     }
 
@@ -176,7 +211,7 @@ QImage decode(const QByteArray &bytes) {
     // 剩下的就是 Qt 不认的。只有确信这台机器解得了才把它递过去 —— 省一次必然失败的
     // COM 往返，也让"能不能解"这件事只有一个判据（见头文件）。
     if (webpAvailable()) {
-        return decodeWithWic(bytes);
+        return decodeWithWic(bytes, limits);
     }
 #endif
     return QImage();

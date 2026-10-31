@@ -95,6 +95,43 @@ int UiLifecycleCheck(QApplication &app) {
         }
         expect(navigation && !backupLeaf, "world backup is not a standalone navigation item");
         expect(collapsedGroups == 2, "creative and maintenance groups start collapsed");
+        // 组头那一行：点**行身**（不是最左边那颗小箭头）也要展开 / 收起 ——
+        // 截图点名要改的就是这一处（原来整行只有那颗箭头管用）。
+        {
+            QTreeWidgetItem *contentGroup = nullptr;
+            for (QTreeWidgetItemIterator it(navigation); navigation && *it; ++it) {
+                if ((*it)->data(0, Qt::UserRole + 1).toString() == QStringLiteral("content")) {
+                    contentGroup = *it;
+                    break;
+                }
+            }
+            bool toggledOff = false;
+            bool toggledBack = false;
+            if (navigation != nullptr && contentGroup != nullptr && navigation->viewport() != nullptr) {
+                auto *viewport = navigation->viewport();
+                const auto clickRowBody = [navigation, viewport, contentGroup] {
+                    // 落点取**行身**（离左边那颗箭头半个行宽远）：这不是"点在箭头上"的
+                    // 那一发，正是要验的那件事。
+                    const QRect row = navigation->visualItemRect(contentGroup);
+                    const QPoint pos(row.left() + row.height(), row.center().y());
+                    QMouseEvent press(QEvent::MouseButtonPress, QPointF(pos),
+                                      QPointF(viewport->mapToGlobal(pos)), Qt::LeftButton,
+                                      Qt::LeftButton, Qt::NoModifier);
+                    QApplication::sendEvent(viewport, &press);
+                    QMouseEvent release(QEvent::MouseButtonRelease, QPointF(pos),
+                                        QPointF(viewport->mapToGlobal(pos)), Qt::LeftButton,
+                                        Qt::NoButton, Qt::NoModifier);
+                    QApplication::sendEvent(viewport, &release);
+                };
+                const bool wasExpanded = contentGroup->isExpanded();
+                clickRowBody();
+                toggledOff = contentGroup->isExpanded() != wasExpanded;
+                clickRowBody();  // 再点一下翻回去，别把后面的断言建立在被改过的状态上
+                toggledBack = contentGroup->isExpanded() == wasExpanded;
+            }
+            expect(toggledOff, "clicking a group row body collapses it without aiming at the arrow");
+            expect(toggledBack, "clicking the same group row body again expands it back");
+        }
         QStringList maintenanceKeys;
         for (QTreeWidgetItemIterator it(navigation); navigation && *it; ++it) {
             auto *parent = (*it)->parent();

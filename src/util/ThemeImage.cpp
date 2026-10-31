@@ -89,7 +89,10 @@ QString store(const QString &slot, const QString &sourcePath, QString *errorOut)
         // 值得；尺寸上限那一刀照样在（下面是同一个 kMaxSide）。
         QFile bytes(sourcePath);
         if (bytes.open(QIODevice::ReadOnly)) {
-            image = ImageDecode::decode(bytes.readAll());
+            // 这一档的上限比图标那一档宽一档：这是**用户自己挑的本机文件**（不是网上
+            // 来的那一类），一张 24 MP 的照片完全正常；默认那 16 MP 会把它挡在门外。
+            image = ImageDecode::decode(bytes.readAll(),
+                                        ImageDecode::Limits{8192, 64LL * 1024 * 1024});
             if (!image.isNull() && qMax(image.width(), image.height()) > kMaxSide) {
                 image = image.scaled(kMaxSide, kMaxSide, Qt::KeepAspectRatio,
                                      Qt::SmoothTransformation);

@@ -22,6 +22,8 @@
  * NOTE: 元数据那几次 GET 用的是**自己**的 `QNetworkAccessManager`，和 VersionManager
  * 给加载器元数据开的那一份是同一个道理（见那边 `m_loaderVersionRequests` 的注释）：
  * 那些是"问一句就完事"的请求，混进下载器的回复表里只会让两边的收尾互相算错。
+ * 排队和截止交给 `RequestBudget::ControlGet`（与其它元数据请求共用 Control 名额）；
+ * QNAM 只是连接池，不占名额。
  *
  * 【取消】
  *
@@ -50,6 +52,10 @@ class DownloadManager;
 class QNetworkReply;
 class QProcess;
 class QTimer;
+
+namespace RequestBudget {
+class ControlGet;
+}
 
 namespace ServerInstallRun {
 
@@ -132,7 +138,8 @@ private:
     void onMetadataReady(const QByteArray &payload, const QString &problem);
     /// 从版本清单里找这个版本 json 的地址，然后取它（原版那一档本地没有时走这条）。
     void fetchVersionJson();
-    void onVersionManifest(QNetworkReply *reply);
+    /// `reply` 空 = 这一发没有回复（排队到点 / 被掐 / 管理器先没），`jobError` 是那句原因。
+    void onVersionManifest(QNetworkReply *reply, const QString &jobError);
 
     /// 第二段：按计划把文件都下下来。
     void beginDownloads();
@@ -155,7 +162,7 @@ private:
     int m_installerRetries = 0;
     bool m_installerRestartPending = false;
     int m_installerSilentMs = 180000, m_installerTotalMs = 600000;
-    QNetworkReply *m_metadataReply = nullptr;
+    RequestBudget::ControlGet *m_metadataReply = nullptr;
 
     bool m_running = false;
     bool m_cancelling = false;

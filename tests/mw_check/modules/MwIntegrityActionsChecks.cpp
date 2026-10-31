@@ -165,19 +165,15 @@ int MwIntegrityActionsChecks(const QDir &root) {
             ServerRegistry::uniqueServerId(ServerRegistry::sanitizeId(installedName));
         const QSet<quint64> before = installIds();
         {
-            bool pageSeen = false;
+            // 表单是嵌在「下载 → 服务端」那一栏第二层里的（不是覆盖层里那一页）：
+            // 点开当场就在，填完再按「创建」—— 没有嵌套事件循环要排。
+            newServerBtn->click();
+            QApplication::processEvents();
+            auto *page = w.findChild<NewServerPage *>(MainWindowUI::newServerPageName());
+            const bool pageSeen = page != nullptr && !page->isWindow();
             bool createEnabled = false;
             bool targetDirShown = false;
-            QTimer::singleShot(0, [&] {
-                OverlayHost *host = currentOverlay();
-                if (host == nullptr) {
-                    return;
-                }
-                auto *page = host->findChild<NewServerPage *>();
-                if (page == nullptr) {
-                    return;
-                }
-                pageSeen = true;
+            if (page != nullptr) {
                 // 用**真的控件**填（不是 `setDefaults()`）：那两个入口套了 QSignalBlocker，
                 // 只有走 `setText()` 才会发 `fieldsChanged()`、让翻译点重算计划。
                 if (auto *nameEdit =
@@ -198,8 +194,7 @@ int MwIntegrityActionsChecks(const QDir &root) {
                     createEnabled = btn->isEnabled();
                     btn->click();  // = accept()，MainWindow 接住之后建目录 + 排安装任务
                 }
-            });
-            newServerBtn->click();  // 进嵌套循环，直到上面那一发点上「创建」
+            }
             QApplication::processEvents();
             check(pageSeen && createEnabled,
                   "T40.1 那一页开出来了；填了名字 + 版本之后「创建」能点（原版这一档计划成立）");
@@ -271,31 +266,25 @@ int MwIntegrityActionsChecks(const QDir &root) {
         const QString spigotId =
             ServerRegistry::uniqueServerId(ServerRegistry::sanitizeId(spigotName));
         {
-            bool pageSeen = false;
+            newServerBtn->click();
+            QApplication::processEvents();
+            auto *page = w.findChild<NewServerPage *>(MainWindowUI::newServerPageName());
+            const bool pageSeen = page != nullptr && !page->isWindow();
             bool comboSawSpigot = false;
             bool createDisabled = false;
             QString summary;
-            QTimer::singleShot(0, [&] {
-                OverlayHost *host = currentOverlay();
-                if (host == nullptr) {
-                    return;
-                }
-                auto *page = host->findChild<NewServerPage *>();
-                if (page == nullptr) {
-                    return;
-                }
-                pageSeen = true;
+            if (page != nullptr) {
                 if (auto *nameEdit =
                         page->findChild<QLineEdit *>(MainWindowUI::newServerNameEditName())) {
                     nameEdit->setText(spigotName);  // 名字非空，摘要才会走到「档」那一步
                 }
-                if (auto *combo =
-                        page->findChild<QComboBox *>(MainWindowUI::newServerFlavorComboName())) {
+                if (auto *flavors =
+                        page->findChild<QListWidget *>(MainWindowUI::newServerFlavorListName())) {
                     const QString want = ServerInstall::flavorToken(ServerInstall::Flavor::Spigot);
-                    for (int i = 0; i < combo->count(); ++i) {
-                        if (combo->itemData(i, Qt::UserRole).toString() == want) {
+                    for (int i = 0; i < flavors->count(); ++i) {
+                        if (flavors->item(i)->data(Qt::UserRole).toString() == want) {
                             comboSawSpigot = true;
-                            combo->setCurrentIndex(i);  // 发 currentIndexChanged → 翻译点重算
+                            flavors->setCurrentRow(i);  // 发 currentRowChanged → 翻译点重算
                             break;
                         }
                     }
@@ -309,10 +298,9 @@ int MwIntegrityActionsChecks(const QDir &root) {
                         MainWindowUI::newServerSummaryLabelName())) {
                     summary = label->text();
                 }
-                page->reject();  // 收页（**不建**任何东西）
-            });
-            newServerBtn->click();
-            QApplication::processEvents();
+                page->reject();  // 退回版本列表那一层（**不建**任何东西）
+                QApplication::processEvents();
+            }
             check(pageSeen && comboSawSpigot,
                   "T40.5 前提：下拉框里**列着** Spigot 这一档（用户得知道有它）");
             check(createDisabled,
@@ -334,17 +322,11 @@ int MwIntegrityActionsChecks(const QDir &root) {
             // 账本的"起点"必须在**按下创建之前**取：这一节这一趟本身就是新加的那一项，
             // 取晚了它就进了 `known`，`newInstallSince()` 从那儿往后什么新东西都找不到。
             const QSet<quint64> beforeCancel = installIds();
-            bool pageSeen = false;
-            QTimer::singleShot(0, [&] {
-                OverlayHost *host = currentOverlay();
-                if (host == nullptr) {
-                    return;
-                }
-                auto *page = host->findChild<NewServerPage *>();
-                if (page == nullptr) {
-                    return;
-                }
-                pageSeen = true;
+            newServerBtn->click();
+            QApplication::processEvents();
+            auto *page = w.findChild<NewServerPage *>(MainWindowUI::newServerPageName());
+            const bool pageSeen = page != nullptr && !page->isWindow();
+            if (page != nullptr) {
                 if (auto *nameEdit =
                         page->findChild<QLineEdit *>(MainWindowUI::newServerNameEditName())) {
                     nameEdit->setText(cancelName);
@@ -358,8 +340,7 @@ int MwIntegrityActionsChecks(const QDir &root) {
                         MainWindowUI::newServerCreateButtonName())) {
                     btn->click();
                 }
-            });
-            newServerBtn->click();
+            }
             QApplication::processEvents();
             check(pageSeen, "T40.6 前提：取消那一趟也排上了");
 

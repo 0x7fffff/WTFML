@@ -206,6 +206,27 @@ QLabel *addDynamicErrorHint(QWidget *box, QWidget *parent);
 
 void addHint(QWidget *box, const QString &text, QWidget *parent);
 
+// ---------- 页面上的两种"小节"和那层滚动正文 ----------
+//
+// 同一栏里两种页形反复出现，抽成三样，别在各页各抄一份：
+// · `makeSectionCard()`：浅色面 + 一圈内边距 + 一条粗标题 —— 下载页那张安装页
+//   （「模组加载器」）和服务端表单（「服务端」）用的是它；
+// · `makePageSection()`：**不套卡片**，只有一条粗标题 + 下面那片内容 —— 实例设置页
+//   （「显示哪些页」）和预设详情（「预设内容」…）用的是它；
+// · `makePageScroll()`：无边框 + 可伸缩 + 横向不滚的正文层（底下留出浮着的主按钮）。
+
+/// 一张小节卡片。@p layoutOut 拿回来的是卡片里的竖布局（标题已经在里面）。
+QFrame *makeSectionCard(const QString &title, QWidget *parent,
+                        QVBoxLayout **layoutOut = nullptr);
+
+/// 一页上的小节（无卡片）。@p layoutOut 同上。
+QWidget *makePageSection(const QString &title, QWidget *parent,
+                         QVBoxLayout **layoutOut = nullptr);
+
+/// 正文那层滚动区。@p bottomMargin 是给浮着的主按钮留的高度（不要浮按钮就传 0）。
+QScrollArea *makePageScroll(QWidget *parent, int bottomMargin,
+                            QVBoxLayout **bodyOut = nullptr);
+
 void syncDownloadHeaderVisibility(QWidget *header, QStackedWidget *downloadStack,
-                                  QStackedWidget *gameStack);
+                                  QStackedWidget *gameStack, QStackedWidget *serverStack);
 }

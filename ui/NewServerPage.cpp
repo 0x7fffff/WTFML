@@ -5,19 +5,47 @@
 
 #include "NewServerPage.hpp"
 
-#include <QComboBox>
-#include <QFormLayout>
+#include <QFont>
+#include <QFrame>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QVBoxLayout>
 
+#include "MainWindowPageLayout.hpp"
 #include "MainWindowUI.hpp"
 #include "Theme.hpp"
+#include "VersionIcons.hpp"
+
+#include <QApplication>
+#include <QComboBox>
+
+using namespace MainWindowPageLayout;
 
 namespace {
+
+/// 端类别那几行的行高 / 图标边长（安装页那张「模组加载器」卡片是同一档）。
+constexpr int kFlavorRowHeight = 44;
+constexpr int kFlavorIconSize = 26;
+
+/// 一档的头像：原版是草方块，Fabric / Forge / NeoForge 用各自的标志，
+/// 认不出来的（Quilt / Paper / Purpur / Spigot）用拼图 —— 和列表里"这一份是什么"
+/// 同一个记号（见 VersionIcons::puzzleMark 那段）。
+QIcon flavorMark(const NewServerPage::FlavorOption &option) {
+    if (option.token == QLatin1String("vanilla")) {
+        return QIcon(VersionIcons::grassBlock(kFlavorIconSize));
+    }
+    const QPixmap known = VersionIcons::iconMarkForKey(option.token, kFlavorIconSize);
+    if (!known.isNull()) {
+        return QIcon(known);
+    }
+    return QIcon(VersionIcons::puzzleMark(
+        kFlavorIconSize, QApplication::palette().color(QPalette::WindowText)));
+}
 
 /// 一行小字（说明/计划）。和更新中心那一页的 `makeMutedLabel()` 是同一套做法。
 QLabel *makeMutedLabel(QWidget *parent, const QString &objectName) {
@@ -49,6 +77,24 @@ QWidget *makeRow(QWidget *parent, const QString &labelText, QLineEdit **editOut,
     return row;
 }
 
+/// 一个"标签 + 任意控件"的行（下拉框 / 数字框那一类）。
+QWidget *makeControlRow(QWidget *parent, const QString &labelText, QWidget *control,
+                        bool stretchControl) {
+    auto *row = new QWidget(parent);
+    auto *layout = new QHBoxLayout(row);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(8);
+    auto *label = new QLabel(labelText, row);
+    label->setFixedWidth(96);
+    layout->addWidget(label);
+    control->setParent(row);
+    layout->addWidget(control, stretchControl ? 1 : 0);
+    if (!stretchControl) {
+        layout->addStretch(1);
+    }
+    return row;
+}
+
 }  // namespace
 
 NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
@@ -57,117 +103,139 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
     // 只影响"单独拿出来用"（验证工程那几处）：嵌进覆盖层时这一页拿的是内容区的整幅宽。
     resize(720, 520);
 
-    auto *box = new QVBoxLayout(this);
-    box->setContentsMargins(12, 12, 12, 12);
-    box->setSpacing(10);
+    // 形状照搬下载页那张安装页（用户点名「服务端下载要和游戏下载相一致」）：
+    // 中间是滚动区里几张卡片，底下「创建」那颗主动作浮在正中间。
+    auto *outer = new QVBoxLayout(this);
+    outer->setContentsMargins(0, 0, 0, 0);
+    outer->setSpacing(0);
 
-    // ---------- 名称 ----------
-    {
-        auto *row = new QWidget(this);
-        auto *layout = new QHBoxLayout(row);
-        layout->setContentsMargins(0, 0, 0, 0);
-        layout->setSpacing(8);
-        auto *label = new QLabel(QStringLiteral("名称"), row);
-        label->setFixedWidth(96);
-        layout->addWidget(label);
-        m_nameEdit = new QLineEdit(row);
-        m_nameEdit->setObjectName(MainWindowUI::newServerNameEditName());
-        m_nameEdit->setPlaceholderText(QStringLiteral("会当成这个服务端的目录名"));
-        layout->addWidget(m_nameEdit, 1);
-        box->addWidget(row);
-    }
+    auto *content = new QWidget(this);
+    content->setObjectName(QStringLiteral("newServerContent"));
+    auto *contentLayout = new QGridLayout(content);
+    contentLayout->setContentsMargins(0, 0, 0, 0);
+    outer->addWidget(content, 1);
 
-    // ---------- 目录（只读：根只有一份，一个服务端 = 根下面一个目录）----------
-    {
-        auto *row = new QWidget(this);
-        auto *layout = new QHBoxLayout(row);
-        layout->setContentsMargins(0, 0, 0, 0);
-        layout->setSpacing(8);
-        auto *label = new QLabel(QStringLiteral("目录"), row);
-        label->setFixedWidth(96);
-        layout->addWidget(label);
-        m_targetDirLabel = makeMutedLabel(row, MainWindowUI::newServerTargetDirName());
-        m_targetDirLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        // 路径可能很长：**不许**参与横向度量（同一条规矩，和摘要那一句一样）。
-        m_targetDirLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-        m_targetDirLabel->setToolTip(QStringLiteral("服务端根目录下面以它的名字命名的那个目录"));
-        layout->addWidget(m_targetDirLabel, 1);
-        box->addWidget(row);
-    }
+    // 底下那颗浮着的按钮会盖住最后一行：留出它的高度（和安装页同一个算式）。
+    QVBoxLayout *bodyLayout = nullptr;
+    auto *scroll = makePageScroll(content, 88, &bodyLayout);
+    scroll->setObjectName(QStringLiteral("newServerScroll"));
+    contentLayout->addWidget(scroll, 0, 0);
+    auto *body = bodyLayout->parentWidget();
+    bodyLayout->setSpacing(10);
 
-    // ---------- 服务端类型 ----------
-    {
-        auto *row = new QWidget(this);
-        auto *layout = new QHBoxLayout(row);
-        layout->setContentsMargins(0, 0, 0, 0);
-        layout->setSpacing(8);
-        auto *label = new QLabel(QStringLiteral("服务端类型"), row);
-        label->setFixedWidth(96);
-        layout->addWidget(label);
-        m_flavorCombo = new QComboBox(row);
-        m_flavorCombo->setObjectName(MainWindowUI::newServerFlavorComboName());
-        layout->addWidget(m_flavorCombo, 1);
-        box->addWidget(row);
-    }
+    // ---------- 名称：直接摆在页面上 ----------
+    //
+    // 形状照搬安装页那个名字块（用户点名「服务端下载要和游戏下载相一致」）：
+    // 一条小标题 + 一整幅输入框 + 底下一行淡色说明，**不套卡片**
+    // （那一页的「版本名称」也是这么摆的）。
+    auto *identity = new QWidget(body);
+    identity->setObjectName(QStringLiteral("newServerIdentity"));
+    auto *identityLayout = new QVBoxLayout(identity);
+    identityLayout->setContentsMargins(0, 0, 0, 0);
+    identityLayout->setSpacing(6);
+    identityLayout->addWidget(new QLabel(QStringLiteral("名称"), identity));
+    m_nameEdit = new QLineEdit(identity);
+    m_nameEdit->setObjectName(MainWindowUI::newServerNameEditName());
+    m_nameEdit->setPlaceholderText(QStringLiteral("会当成这个服务端的目录名"));
+    identityLayout->addWidget(m_nameEdit);
+    m_targetDirLabel = makeMutedLabel(identity, MainWindowUI::newServerTargetDirName());
+    m_targetDirLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    // 路径可能很长：**不许**参与横向度量（同一条规矩，和摘要那一句一样）。
+    m_targetDirLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_targetDirLabel->setToolTip(QStringLiteral("服务端根目录下面以它的名字命名的那个目录"));
+    identityLayout->addWidget(m_targetDirLabel);
+    bodyLayout->addWidget(identity);
 
-    // ---------- 游戏版本 ----------
-    box->addWidget(makeRow(this, QStringLiteral("游戏版本"), &m_gameVersionEdit,
-                           MainWindowUI::newServerGameVersionEditName()));
-    // ---------- 加载器版本（按档露/收）----------
-    m_loaderRow = makeRow(this, QStringLiteral("加载器版本"), &m_loaderEdit,
-                          MainWindowUI::newServerLoaderEditName());
-    box->addWidget(m_loaderRow);
-    // ---------- 安装器版本（按档露/收）----------
-    m_installerRow = makeRow(this, QStringLiteral("安装器版本"), &m_installerEdit,
-                             MainWindowUI::newServerInstallerEditName());
-    box->addWidget(m_installerRow);
-    // ---------- 构建号（按档露/收）----------
-    m_buildRow = makeRow(this, QStringLiteral("构建号"), &m_buildEdit,
+    // ---------- 计划说明（由 MainWindow 现算现喂）----------
+    // 位置和安装页名字框底下那行淡字一样：紧跟着名字块，读下来才知道这一趟会做什么。
+    m_summaryLabel = makeMutedLabel(body, MainWindowUI::newServerSummaryLabelName());
+    m_summaryLabel->setWordWrap(true);
+    m_summaryLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    // 折行 QLabel 的 sizeHint 是"整句排成一行"的宽度 —— 纯说明不许参与横向度量（同一条规矩）。
+    m_summaryLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_summaryLabel->hide();
+    bodyLayout->addWidget(m_summaryLabel);
+
+    // ---------- 服务端：整页唯一的一张卡片 ----------
+    QVBoxLayout *serverCardLayout = nullptr;
+    auto *serverCard = makeSectionCard(QStringLiteral("服务端"), body, &serverCardLayout);
+    // 端类别是**一排行**（不是下拉框）：和安装页那张「模组加载器」卡片同一个形状 ——
+    // 一眼看得见有哪几档、每行点一下就选它。
+    m_flavorList = new QListWidget(serverCard);
+    m_flavorList->setObjectName(MainWindowUI::newServerFlavorListName());
+    m_flavorList->setFrameShape(QFrame::NoFrame);
+    m_flavorList->setStyleSheet(QStringLiteral("QListWidget{background:transparent;border:none;}"));
+    m_flavorList->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_flavorList->setIconSize(QSize(kFlavorIconSize, kFlavorIconSize));
+    m_flavorList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_flavorList->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    serverCardLayout->addWidget(m_flavorList);
+    serverCardLayout->addWidget(makeRow(serverCard, QStringLiteral("游戏版本"), &m_gameVersionEdit,
+                                        MainWindowUI::newServerGameVersionEditName()));
+    auto versionRow = [this, serverCard](const QString &title, const QString &name,
+                                          QComboBox **comboOut, QLineEdit **editOut) {
+        auto *combo = new QComboBox(serverCard);
+        combo->setObjectName(name + "Combo");
+        combo->setEditable(true);
+        combo->setInsertPolicy(QComboBox::NoInsert);
+        combo->lineEdit()->setReadOnly(true);
+        combo->lineEdit()->setObjectName(name);
+        combo->setPlaceholderText(tr("正在获取…"));
+        combo->lineEdit()->setPlaceholderText(tr("正在获取…"));
+        *comboOut = combo; *editOut = combo->lineEdit();
+        auto *row = makeControlRow(serverCard, title, combo, true);
+        auto *retry = new QPushButton(tr("刷新"), row);
+        retry->setAutoDefault(false);
+        Theme::markButton(retry, Theme::ButtonKind::Neutral);
+        row->layout()->addWidget(retry);
+        connect(retry, &QPushButton::clicked, this, &NewServerPage::versionsRetryRequested);
+        return row;
+    };
+    m_loaderRow = versionRow(tr("加载器版本"), MainWindowUI::newServerLoaderEditName(),
+                             &m_loaderCombo, &m_loaderEdit);
+    serverCardLayout->addWidget(m_loaderRow);
+    m_installerRow = versionRow(tr("安装器版本"), MainWindowUI::newServerInstallerEditName(),
+                                &m_installerCombo, &m_installerEdit);
+    serverCardLayout->addWidget(m_installerRow);
+    m_buildRow = makeRow(serverCard, QStringLiteral("构建号"), &m_buildEdit,
                          MainWindowUI::newServerBuildEditName());
-    box->addWidget(m_buildRow);
-
-    // ---------- 内存 ----------
+    serverCardLayout->addWidget(m_buildRow);
     {
-        auto *row = new QWidget(this);
-        auto *layout = new QHBoxLayout(row);
-        layout->setContentsMargins(0, 0, 0, 0);
-        layout->setSpacing(8);
-        auto *label = new QLabel(QStringLiteral("内存上限"), row);
-        label->setFixedWidth(96);
-        layout->addWidget(label);
-        m_memorySpin = new QSpinBox(row);
+        m_memorySpin = new QSpinBox(serverCard);
         m_memorySpin->setObjectName(MainWindowUI::newServerMemorySpinName());
         m_memorySpin->setRange(512, 65536);
         m_memorySpin->setSingleStep(512);
         m_memorySpin->setValue(2048);
         m_memorySpin->setSuffix(QStringLiteral(" MB"));
-        layout->addWidget(m_memorySpin);
-        layout->addStretch(1);
-        box->addWidget(row);
+        serverCardLayout->addWidget(
+            makeControlRow(serverCard, QStringLiteral("内存上限"), m_memorySpin, false));
     }
+    bodyLayout->addWidget(serverCard);
 
-    // ---------- 计划说明（由 MainWindow 现算现喂）----------
-    m_summaryLabel = makeMutedLabel(this, MainWindowUI::newServerSummaryLabelName());
-    m_summaryLabel->setWordWrap(true);
-    m_summaryLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    // 折行 QLabel 的 sizeHint 是"整句排成一行"的宽度 —— 纯说明不许参与横向度量（同一条规矩）。
-    m_summaryLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    box->addWidget(m_summaryLabel);
-    box->addStretch(1);
+    // 内容装不满时**上对齐**（和安装页那条收尾同一个写法）。
+    bodyLayout->addStretch(1);
 
-    // ---------- 底下那两颗 ----------
-    auto *buttons = new QHBoxLayout();
-    buttons->addStretch(1);
-    auto *cancel = new QPushButton(QStringLiteral("取消"), this);
-    Theme::markButton(cancel, Theme::ButtonKind::Neutral);
-    buttons->addWidget(cancel);
-    m_createButton = new QPushButton(QStringLiteral("创建"), this);
+    // ---------- 底下那颗「创建」（浮在正中间）----------
+    m_createButton = new QPushButton(QStringLiteral("创建"), content);
     m_createButton->setObjectName(MainWindowUI::newServerCreateButtonName());
-    Theme::markButton(m_createButton, Theme::ButtonKind::Accent);
-    buttons->addWidget(m_createButton);
-    box->addLayout(buttons);
+    m_createButton->setAutoDefault(false);
+    m_createButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_createButton->setMinimumWidth(180);
+    Theme::markButton(m_createButton, Theme::ButtonKind::Primary);
+    QFont createFont = m_createButton->font();
+    createFont = Theme::textFont(createFont, Theme::TextRole::Heading);
+    m_createButton->setFont(createFont);
+    m_createButton->setMinimumHeight(48);
+    auto *footer = new QFrame(content);
+    footer->setObjectName(QStringLiteral("newServerFooter"));
+    auto *footerLayout = new QHBoxLayout(footer);
+    footerLayout->setContentsMargins(0, 12, 0, 0);
+    footerLayout->addWidget(m_createButton);
+    contentLayout->addWidget(footer, 0, 0, Qt::AlignHCenter | Qt::AlignBottom);
+    footer->raise();
 
-    connect(cancel, &QPushButton::clicked, this, &QDialog::reject);
+    // 退回上一层（「← 返回版本列表」/ 实例页那颗）就是"取消"：这一层不另摆一颗，
+    // 和安装页同一条规矩（页上只有一颗主动作）。
     connect(m_createButton, &QPushButton::clicked, this, &QDialog::accept);
 
     // 用户改任何一格 → 告诉翻译点重算计划说明。
@@ -178,7 +246,7 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
     connect(m_installerEdit, &QLineEdit::textChanged, this, emitChanged);
     connect(m_buildEdit, &QLineEdit::textChanged, this, emitChanged);
     connect(m_memorySpin, &QSpinBox::valueChanged, this, emitChanged);
-    connect(m_flavorCombo, &QComboBox::currentIndexChanged, this, [this](int) {
+    connect(m_flavorList, &QListWidget::currentRowChanged, this, [this](int) {
         applyFlavorVisibility();
         emit fieldsChanged();
     });
@@ -186,19 +254,22 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
 
 void NewServerPage::setFlavors(const QList<FlavorOption> &flavors, const QString &defaultToken) {
     m_flavors = flavors;
-    const QSignalBlocker blocker(m_flavorCombo);  // 灌数据这一步不算"用户改了"
-    m_flavorCombo->clear();
-    int defaultIndex = 0;
+    const QSignalBlocker blocker(m_flavorList);  // 灌数据这一步不算"用户改了"
+    m_flavorList->clear();
+    int defaultRow = 0;
     for (int i = 0; i < flavors.size(); ++i) {
         const FlavorOption &option = flavors.at(i);
-        m_flavorCombo->addItem(option.name);
-        m_flavorCombo->setItemData(i, option.note, Qt::ToolTipRole);
-        m_flavorCombo->setItemData(i, option.token, Qt::UserRole);
+        auto *item = new QListWidgetItem(flavorMark(option), option.name, m_flavorList);
+        item->setData(Qt::UserRole, option.token);
+        item->setToolTip(option.note);
+        item->setSizeHint(QSize(0, kFlavorRowHeight));
         if (option.token == defaultToken) {
-            defaultIndex = i;
+            defaultRow = i;
         }
     }
-    m_flavorCombo->setCurrentIndex(defaultIndex);
+    m_flavorList->setCurrentRow(defaultRow);
+    // 行数变了高度跟着变（不留半行空着、也不出滚动条）。
+    m_flavorList->setFixedHeight(qMax(1, flavors.size()) * kFlavorRowHeight + 4);
     applyFlavorVisibility();
 }
 
@@ -223,21 +294,39 @@ void NewServerPage::setTargetDir(const QString &dir) {
                                      : dir);
 }
 
+void NewServerPage::setVersionChoices(bool installer, const QStringList &versions, const QString &status) {
+    auto *combo = installer ? m_installerCombo : m_loaderCombo;
+    auto *edit = installer ? m_installerEdit : m_loaderEdit;
+    const QString previous = edit->text();
+    {
+        const QSignalBlocker block(combo), lineBlock(edit);
+        combo->clear();
+        combo->addItems(versions);
+        combo->setCurrentIndex(versions.isEmpty() ? -1 : qMax(0, versions.indexOf(previous)));
+        const QString placeholder = status.isEmpty() ? tr("暂无可用版本") : status;
+        combo->setPlaceholderText(placeholder);
+        edit->setPlaceholderText(placeholder);
+        if (versions.isEmpty()) edit->clear();
+        combo->setEnabled(!versions.isEmpty());
+        combo->setToolTip(status);
+    }
+    emit fieldsChanged();
+}
+
 void NewServerPage::setSummary(const QString &text, const QString &problem) {
     // 有问题就先说问题（那是用户现在要解决的事），没有才说计划。两句都是翻译点给的。
     const QString shown = problem.isEmpty() ? text : problem;
-    if (m_summaryLabel->text() == shown) {
-        return;
-    }
-    m_summaryLabel->setText(shown);
+    m_summaryLabel->setVisible(!shown.trimmed().isEmpty());
+    if (m_summaryLabel->text() != shown)
+        m_summaryLabel->setText(shown);
     // 有问题时「创建」点不动（填法不成立就点下去，只会建一个半残的服务端）。
     m_createButton->setEnabled(problem.isEmpty());
 }
 
 void NewServerPage::applyFlavorVisibility() {
-    const int index = m_flavorCombo->currentIndex();
-    const bool valid = index >= 0 && index < m_flavors.size();
-    const FlavorOption option = valid ? m_flavors.at(index) : FlavorOption{};
+    const int row = m_flavorList != nullptr ? m_flavorList->currentRow() : -1;
+    const bool valid = row >= 0 && row < m_flavors.size();
+    const FlavorOption option = valid ? m_flavors.at(row) : FlavorOption{};
     m_loaderRow->setVisible(option.needsLoader);
     m_installerRow->setVisible(option.needsInstaller);
     m_buildRow->setVisible(option.needsBuild);
@@ -246,7 +335,8 @@ void NewServerPage::applyFlavorVisibility() {
 QString NewServerPage::serverName() const { return m_nameEdit->text().trimmed(); }
 
 QString NewServerPage::flavorToken() const {
-    return m_flavorCombo->currentData(Qt::UserRole).toString();
+    const QListWidgetItem *item = m_flavorList->currentItem();
+    return item != nullptr ? item->data(Qt::UserRole).toString() : QString();
 }
 
 QString NewServerPage::gameVersion() const { return m_gameVersionEdit->text().trimmed(); }

@@ -2314,9 +2314,7 @@ int main(int argc, char *argv[]) {
         window.findChild<QStackedWidget *>(MainWindowUI::downloadGameStackName());
     QLineEdit *installNameEdit =
         window.findChild<QLineEdit *>(MainWindowUI::installNameEditName());
-    QLabel *installNameHint =
-        window.findChild<QLabel *>(MainWindowUI::installNameHintName());
-    // 名字不能用时那句原因所在的那行**红字**（ 起它不再顶掉上面那句说明）。
+    // 名字不能用时那句原因所在的那行**红字**（名字框底下那句灰色说明已经删了）。
     QLabel *installNameError =
         window.findChild<QLabel *>(MainWindowUI::installNameErrorName());
     QLabel *installTargetLabel =
@@ -2335,7 +2333,6 @@ int main(int argc, char *argv[]) {
     check(versionTree != nullptr, "找得到版本树（按 objectName）");
     check(gameStack != nullptr, "找得到游戏页那两层堆叠（按 objectName）");
     check(installNameEdit != nullptr, "找得到安装页的版本名称输入框（按 objectName）");
-    check(installNameHint != nullptr, "找得到名称框下面那句小字（按 objectName）");
     check(installBtn != nullptr, "找得到安装页那个「安装」按钮（按 objectName）");
     check(installBackBtn != nullptr, "找得到「← 返回版本列表」（按 objectName）");
 
@@ -3045,7 +3042,7 @@ int main(int argc, char *argv[]) {
     if (const int result = MwRunStateLifecycleChecks(root, versionsDir); result != 0) return result;
 
     header("Y. 下载页「模组加载器」那组钮的接线");
-    if (const int result = MwInstalledVersionsChecks(versionsDir, window, gameStack, installNameEdit, installNameHint, installNameError, installBtn, installBackBtn, windowJava, pinGlobalJava, unpinGlobalJava); result != 0) return result;
+    if (const int result = MwInstalledVersionsChecks(versionsDir, window, gameStack, installNameEdit, installNameError, installBtn, installBackBtn, windowJava, pinGlobalJava, unpinGlobalJava); result != 0) return result;
 
     header("Y2. 下载页左栏那份分类：点哪个，右栏就翻到哪一页");
     if (const int result = MwDownloadNavigationChecks(window); result != 0) return result;

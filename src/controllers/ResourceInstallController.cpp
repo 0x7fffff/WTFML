@@ -12,6 +12,7 @@
 #include "controllers/ResourcePageController.hpp"
 #include "download/ModDependencies.hpp"
 #include "download/ResourceStore.hpp"
+#include "manage/InstanceFiles.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/LauncherSettings.hpp"
 #include "tasks/TaskManager.hpp"
@@ -305,6 +306,18 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
         const QString note = file == nullptr ? QString() : file->unavailableNote;
         InlineMessage::warning(owner.m_ui->overlay(), MainWindow::tr("下载失败"),
                                note.isEmpty() ? MainWindow::tr("这一版没有可下载的文件。") : note);
+        return;
+    }
+
+    // 文件名是**接口给的那一串**，下面要拿它拼两种路径：落点（见 downloadResourceFiles）
+    // 和整合包那条 `modpackPath`。先过一遍同一套规矩（`InstanceFiles::validateFileName()`）
+    // —— `downloadResourceFiles()` 里还有一道（最后一道，别的调用方也走那儿），这里这一道
+    // 是为了**早**拦住：用户当场看到一句"这个文件名没法用"，而不是等一批文件下到一半。
+    const QString fileNameProblem = InstanceFiles::validateFileName(file->filename);
+    if (!fileNameProblem.isEmpty()) {
+        InlineMessage::warning(owner.m_ui->overlay(), MainWindow::tr("下载失败"),
+                               MainWindow::tr("这一版的文件名没法用（%1）：%2\n没有下载。")
+                                   .arg(file->filename, fileNameProblem));
         return;
     }
 

@@ -743,77 +743,77 @@ bool VersionManager::instanceSupportsDatapacks(const QString &instanceId) {
 
 bool VersionManager::instanceModLoader(const QString &instanceId, QString *nameOut,
                                        QString *versionOut) const {
+    const InstanceTraits traits = instanceTraits(instanceId);
     if (nameOut != nullptr) {
-        nameOut->clear();
+        *nameOut = traits.loaderName;
     }
     if (versionOut != nullptr) {
-        versionOut->clear();
+        *versionOut = traits.loaderVersion;
     }
+    return !traits.loaderName.isEmpty();
+}
+
+VersionManager::InstanceTraits VersionManager::instanceTraits(const QString &instanceId) const {
+    InstanceTraits traits;
     const QString start = instanceId.trimmed();
     if (start.isEmpty()) {
-        return false;
+        return traits;
     }
 
-    // ---- 第一条路：我们自己记在 wtfml.meta 里的那一段 ----
+    // ---- meta 那半：两个答案都先看这里 ----
     //
-    // 罩的是**我们自己的安装器**装出来的实例（见 updateVersionMeta 里那一处），也含用户
-    // 手写过的 meta（`loaderName` 写 "fabric" 也认 —— 大小写不敏感地比一次就够，不必
-    // 逐字对上 loaderDisplayName()，这里不拿它反查下标）。
+    // 一次读，供两条判据用（见头文件里"为什么合并成一次"）。
     const QJsonObject meta = versionMeta(start);
     const QString metaName = meta.value(QStringLiteral("loaderName")).toString().trimmed();
     if (!metaName.isEmpty()) {
-        if (nameOut != nullptr) {
-            *nameOut = metaName;
-        }
-        if (versionOut != nullptr) {
-            *versionOut = meta.value(QStringLiteral("loaderVersion")).toString().trimmed();
-        }
-        return true;
+        traits.loaderName = metaName;
+        traits.loaderVersion = meta.value(QStringLiteral("loaderVersion")).toString().trimmed();
+    }
+    traits.type = meta.value(QStringLiteral("type")).toString();
+    if (!traits.loaderName.isEmpty() && !traits.type.isEmpty()) {
+        return traits;  // 两个答案都齐了，版本 json 那半一个字节都不用读
     }
 
-    // ---- 第二条路：版本 json 自己身上认（`libraries` + `arguments.game`）----
+    // ---- json 那半：只在缺答案时才去问 ----
     //
-    // 罩的是 PCL / HMCL 那一类"整份 json 都合进实例目录"的实例 —— 用户盘上 70 个实例里
-    // 67 个是这一档，它们**只有**这条路走得通（meta 里没有 loaderName，`id` 是用户起的
-    // 名字、链上也问不出东西）。判据本身一点没另写，就是导出那条路用的
-    // loaderEvidenceFromJson()。
-    //
-    // 问的是 **getVersionJson()**（合并过的那一份），不是 rawVersionJson()：薄实例
-    // （`26.4-snapshot-1-Fabric` 那种，on-disk json 只有 `id` + `inheritsFrom` +
-    // `type`）的加载器整个在父那一份里，读自己那份一个字都认不出来。合并那一层自带
-    // 缓存，所以一次会话里每个实例只真读一次。
-    //
-    // NOTE: 那道 exists() 是**必须**的：rawVersionJson() 找不到文件时会 qWarning，而这个
-    // 函数每次刷新实例列表都对每个实例问一遍（同 versionChannelOf() 里那条闸的理由）。
-    if (QFile::exists(InstanceFiles::jsonPath(start))) {
+    // 那道"缓存里有没有"是必须的：`mergedJsonEntry()` 走到 getVersionJson() 时，文件不在
+    // 会 qWarning，而这个函数每次刷新实例列表都对每个实例跑一遍（同 versionChannelOf()
+    // 那条闸的理由）。缓存里已经有这一格 = 之前读成功过，可以直接问。
+    if (!mergedVersionJsons.contains(start) && !QFile::exists(InstanceFiles::jsonPath(start))) {
+        return traits;
+    }
+    const MergedJsonEntry *entry = mergedJsonEntry(start);
+    if (entry == nullptr) {
+        return traits;
+    }
+    if (!entry->factsScanned) {
+        // 一份 json 只认一遍：`libraries` 扫一遍、`arguments.game` 展开一遍都是实打实的
+        // 钱，而它们跟着这份 json 变，所以在同一个缓存格里记着就够了（见 MergedJsonEntry）。
         QString key;
         QString version;
-        QString problem;  // "认得出来但导不了"那一句 —— 这一条路上它没有意义，丢掉。
-        if (loaderEvidenceFromJson(getVersionJson(start), &key, &version, &problem)) {
-            const QString name = loaderDisplayNameForEvidenceKey(key);
-            if (!name.isEmpty()) {
-                if (nameOut != nullptr) {
-                    *nameOut = name;
-                }
-                if (versionOut != nullptr) {
-                    *versionOut = version;
-                }
-                return true;
-            }
-            // 认出来了、但那张表里没有它的名字：**当成认不出来**（名字是给界面用的，说不
-            // 出名字就画草方块、也拿不出"这个实例是 X"那句话）。表里少一行的症状就是这个
-            // 实例在界面上退回原版，所以那边写着"逐条列出"。
-            qWarning() << "Loader evidence key not in the display table:" << key << "for"
-                       << start;
+        QString problem;  // "认得出来但导不了"那一句 —— 这里只问"是哪个"，丢掉。
+        entry->loaderFound = loaderEvidenceFromJson(entry->json, &key, &version, &problem);
+        entry->loaderKey = key;
+        entry->loaderVersion = version;
+        entry->type = entry->json.value(QStringLiteral("type")).toString();
+        entry->factsScanned = true;
+    }
+    if (traits.loaderName.isEmpty() && entry->loaderFound) {
+        const QString name = loaderDisplayNameForEvidenceKey(entry->loaderKey);
+        if (!name.isEmpty()) {
+            traits.loaderName = name;
+            traits.loaderVersion = entry->loaderVersion;
+        } else {
+            // 认出来了、但那张表里没有它的名字：**当成认不出来**（名字是给界面用的）。
+            // 这句话现在一个实例一生只说一次（以前是每刷新一次说一遍）。
+            qWarning() << "Loader evidence key not in the display table:" << entry->loaderKey
+                       << "for" << start;
         }
     }
-
-    // ---- 没有第三条路 ----
-    //
-    // `mods/` 里有 jar **不算**：这一格回答的是"它基于哪个加载器"，而往 mods/ 里丢一个
-    // jar 不构成任何一条加载器证据（一个装了 jar 的纯原版实例仍然起不来那些 mod）。
-    // "这一页对用户有没有用"是另一个问题，补在调用那一侧。
-    return false;
+    if (traits.type.isEmpty()) {
+        traits.type = entry->type;
+    }
+    return traits;
 }
 
 QString VersionManager::lookupModrinthVersionFiles(

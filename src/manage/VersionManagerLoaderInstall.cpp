@@ -26,6 +26,7 @@
  * 接着干什么"这类判断留在核心那个文件里（见 `onAllDownloadsFinished()`）。
  */
 
+#include "net/ControlGet.hpp"
 #include "VersionManager.hpp"
 #include "VersionManagerInternals.hpp"
 
@@ -68,6 +69,22 @@
 #include "InstanceFiles.hpp"
 
 using namespace VersionManagerInternals;
+
+namespace {
+
+/// 回复里那句原因；没有回复（排队到点 / 被掐 / 管理器先没）就用作业给的那句。
+QString replyReason(QNetworkReply *reply, const QString &jobError) {
+    return reply != nullptr ? reply->errorString() : jobError;
+}
+
+/// 这一发算不算"换个源再试试"：没回复（含排队到点）算，传输出错按既有判据，
+/// 在飞时被作业按截止掐掉也算 —— 和版本表那条路（`onLoaderVersionsReply`）同一个口径。
+bool transientJobFailure(QNetworkReply *reply) {
+    return reply == nullptr || DownloadRetryPolicy::transientReply(reply) ||
+           reply->property(RequestBudget::kDeadlineExpiredProperty).toBool();
+}
+
+}  // namespace
 
 // ---------------------------------------------------------------------------
 // 带模组加载器的版本（今天只有 Fabric 接通了）
@@ -157,6 +174,9 @@ void VersionManager::requestLoaderVersions(const QString &gameVersion, LoaderKin
     // 照样会来一发，回复处理函数靠"这一个指针还是我手上这个吗"把它丢掉。
     // 别的加载器在飞的那几发**不动**：四个各占一格，四条一起问是正常的（见头里那段）。
     LoaderVersionRequest &slot = m_loaderVersionRequests[int(kind)];
+    ++slot.generation;
+    delete slot.queued.data();
+    slot.queued = nullptr;
     if (slot.reply != nullptr) {
         // **先摘指针，再 abort()** —— 顺序不能换。abort() 有可能**当场**把 finished()
         // 发出来（回复已经在手上、只是还没被处理时就是这一种）。那一发进来时这一格里
@@ -247,13 +267,21 @@ void VersionManager::fetchLoaderVersions(LoaderKind kind, const QString &url, bo
     const QUrl target(url);
     QNetworkRequest request(target);
     request.setTransferTimeout(30000);
-    QNetworkReply *reply = loaderNetworkManager()->get(request);
-    m_loaderVersionRequests[int(kind)].reply = reply;
-    // 走没走镜像跟着这一发钉住：解析要按**问的时候**那条路来（见 hpp 里那一格）。
-    m_loaderVersionRequests[int(kind)].fromMirror = fromMirror;
-    // 回复得**带着是哪个加载器的**回来：四发同时在飞，光认指针认不出是谁的回复。
-    connect(reply, &QNetworkReply::finished, this,
-            [this, reply, kind] { onLoaderVersionsReply(kind, reply); });
+    auto &slot = m_loaderVersionRequests[int(kind)];
+    slot.fromMirror = fromMirror;
+    const auto generation = slot.generation;
+    slot.queued = RequestBudget::ControlGet::start(this, loaderNetworkManager(), request, 30000,
+        [this, kind, generation](QNetworkReply *reply, const QString &error) {
+            auto &current = m_loaderVersionRequests[int(kind)];
+            if (current.generation != generation) return;
+            current.queued = nullptr;
+            if (!reply) {
+                emit loaderVersionsFetched(current.gameVersion, kind, false, {}, error);
+                return;
+            }
+            current.reply = reply;
+            onLoaderVersionsReply(kind, reply);
+        });
 }
 
 void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply) {
@@ -279,7 +307,8 @@ void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply
         // loaderVersionsMirrorFallback()）。判"连不上"用的是下载那条路同一个
         // transientReply()：超时 / 连接被掐 / HTTP/2 断流都算，404、证书不对、
         // 用户取消不算 —— 那些换镜像也帮不上忙。只退一次，镜像再失败就照实报。
-        if (!slot->mirrorFallbackUsed && DownloadRetryPolicy::transientReply(reply)) {
+        if (!slot->mirrorFallbackUsed && (DownloadRetryPolicy::transientReply(reply) ||
+            reply->property(RequestBudget::kDeadlineExpiredProperty).toBool())) {
             const QString fallback = loaderVersionsMirrorFallback(kind, slot->officialUrl);
             if (!fallback.isEmpty()) {
                 slot->mirrorFallbackUsed = true;
@@ -292,7 +321,8 @@ void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply
         emit loaderVersionsFetched(
             gameVersion, kind, false, LoaderMeta::LoaderVersionList(),
             tr("拿不到 %1 %2 的版本列表（%3）。检查网络后重试。")
-                .arg(loaderDisplayName(kind), gameVersion, reply->errorString()));
+                .arg(loaderDisplayName(kind), gameVersion,
+                     reply->property(RequestBudget::kDeadlineExpiredProperty).toBool() ? tr("请求超时") : reply->errorString()));
         return;
     }
 
@@ -485,16 +515,18 @@ void VersionManager::fetchFabricLoaderList() {
                        ? LoaderMeta::quiltLoaderListUrl(m_loaderInstall.gameVersion)
                        : LoaderMeta::fabricLoaderListUrl(m_loaderInstall.gameVersion));
     QNetworkRequest request(url);
-    // 和 DownloadManager 那几处元数据请求同一个超时：卡死的连接会让界面永远停在
-    // "下载中"（按钮是禁用的），而这个请求没有别的兜底。
-    request.setTransferTimeout(30000);
-    QNetworkReply *reply = loaderNetworkManager()->get(request);
-    connect(reply, &QNetworkReply::finished, this,
-            [this, reply] { onFabricLoaderListReply(reply); });
+    // 30 秒是"排队 + 传输"的合计：卡死的连接会让界面永远停在 "下载中"（按钮是禁用的），
+    // 而这个请求没有别的兜底。
+    RequestBudget::ControlGet::start(this, loaderNetworkManager(), request, 30000,
+        [this](QNetworkReply *reply, const QString &jobError) {
+            onFabricLoaderListReply(reply, jobError);
+        });
 }
 
-void VersionManager::onFabricLoaderListReply(QNetworkReply *reply) {
-    reply->deleteLater();
+void VersionManager::onFabricLoaderListReply(QNetworkReply *reply, const QString &jobError) {
+    if (reply != nullptr) {
+        reply->deleteLater();
+    }
     // 状态已经换过（上一次失败收了尾、或者用户又点了一次）：这份回复没人要了。
     if (m_loaderInstall.phase != LoaderInstall::Phase::FetchingList) {
         return;
@@ -503,7 +535,7 @@ void VersionManager::onFabricLoaderListReply(QNetworkReply *reply) {
     // 读之前先看设备开没开：超时/掐断回来的那条已经不 open，readAll() 会甩
     // `QIODevice::read ... device not open`。
     // **仍然不拿 error() 当门**（理由见下面那条 ★★ 400 带正文的坑）。
-    const QByteArray body = reply->isOpen() ? reply->readAll() : QByteArray();
+    const QByteArray body = reply != nullptr && reply->isOpen() ? reply->readAll() : QByteArray();
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
     // （1.12.2 实测）：**先看回复里有没有能读的东西，再看传输层报没报错** ——
@@ -517,7 +549,7 @@ void VersionManager::onFabricLoaderListReply(QNetworkReply *reply) {
     // 该走的是下面那条「列表是空的 ⇒ 这个版本还没支持」。
     if (!doc.isArray()) {
         failLoaderInstall(tr("拿不到 %1 的加载器列表（%2）。检查网络后重试。")
-                              .arg(m_loaderInstall.gameVersion, reply->errorString()));
+                              .arg(m_loaderInstall.gameVersion, replyReason(reply, jobError)));
         return;
     }
 
@@ -562,25 +594,27 @@ void VersionManager::fetchFabricProfile() {
                        : LoaderMeta::fabricProfileUrl(m_loaderInstall.gameVersion,
                                                       m_loaderInstall.loaderVersion));
     QNetworkRequest request(url);
-    request.setTransferTimeout(30000);
-    QNetworkReply *reply = loaderNetworkManager()->get(request);
-    connect(reply, &QNetworkReply::finished, this,
-            [this, reply] { onFabricProfileReply(reply); });
+    RequestBudget::ControlGet::start(this, loaderNetworkManager(), request, 30000,
+        [this](QNetworkReply *reply, const QString &jobError) {
+            onFabricProfileReply(reply, jobError);
+        });
 }
 
-void VersionManager::onFabricProfileReply(QNetworkReply *reply) {
-    reply->deleteLater();
+void VersionManager::onFabricProfileReply(QNetworkReply *reply, const QString &jobError) {
+    if (reply != nullptr) {
+        reply->deleteLater();
+    }
     if (m_loaderInstall.phase != LoaderInstall::Phase::FetchingProfile) {
         return;
     }
 
-    const QByteArray body = reply->isOpen() ? reply->readAll() : QByteArray();
+    const QByteArray body = reply != nullptr && reply->isOpen() ? reply->readAll() : QByteArray();
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
-    if (reply->error() != QNetworkReply::NoError || !doc.isObject()) {
+    if (reply == nullptr || reply->error() != QNetworkReply::NoError || !doc.isObject()) {
         failLoaderInstall(tr("拿不到 %1 %2 的 profile（%3）。")
                               .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion,
-                                   reply->errorString()));
+                                   replyReason(reply, jobError)));
         return;
     }
 
@@ -685,10 +719,10 @@ void VersionManager::requestInstallerList(const QString &url) {
     // （"request 不是类类型"）。
     const QUrl target(url);
     QNetworkRequest request(target);
-    request.setTransferTimeout(30000);
-    QNetworkReply *reply = loaderNetworkManager()->get(request);
-    connect(reply, &QNetworkReply::finished, this,
-            [this, reply] { onInstallerListReply(reply); });
+    RequestBudget::ControlGet::start(this, loaderNetworkManager(), request, 30000,
+        [this](QNetworkReply *reply, const QString &jobError) {
+            onInstallerListReply(reply, jobError);
+        });
 }
 
 bool VersionManager::retryInstallerListFromOfficial() {
@@ -706,20 +740,21 @@ bool VersionManager::retryInstallerListFromOfficial() {
     return true;
 }
 
-void VersionManager::onInstallerListReply(QNetworkReply *reply) {
-    reply->deleteLater();
+void VersionManager::onInstallerListReply(QNetworkReply *reply, const QString &jobError) {
+    if (reply != nullptr) {
+        reply->deleteLater();
+    }
     // 状态已经换过（上一次失败收了尾、或者用户又点了一次）：这份回复没人要了。
     if (m_loaderInstall.phase != LoaderInstall::Phase::FetchingInstallerList) {
         return;
     }
 
-    const QByteArray body = reply->isOpen() ? reply->readAll() : QByteArray();
-    if (reply->error() != QNetworkReply::NoError) {
+    const QByteArray body = reply != nullptr && reply->isOpen() ? reply->readAll() : QByteArray();
+    if (reply == nullptr || reply->error() != QNetworkReply::NoError) {
         if (retryInstallerListFromOfficial()) {
             return;
         }
-        if (!m_loaderInstall.listMirrorTried &&
-            DownloadRetryPolicy::transientReply(reply)) {
+        if (!m_loaderInstall.listMirrorTried && transientJobFailure(reply)) {
             const QString fallback = loaderVersionsMirrorFallback(
                 m_loaderInstall.kind, m_loaderInstall.listOfficialUrl);
             if (!fallback.isEmpty()) {
@@ -729,14 +764,14 @@ void VersionManager::onInstallerListReply(QNetworkReply *reply) {
                 m_loaderInstall.listRetriedOfficial = true;
                 emit loaderInstallMessage(
                     tr("%1 版本表的官方地址连不上（%2），改用镜像再问一次...")
-                        .arg(m_loaderInstall.loaderName, reply->errorString()));
+                        .arg(m_loaderInstall.loaderName, replyReason(reply, jobError)));
                 requestInstallerList(fallback);
                 return;
             }
         }
         failLoaderInstall(tr("拿不到 %1 %2 的版本表（%3）。检查网络后重试。")
                               .arg(m_loaderInstall.loaderName, m_loaderInstall.gameVersion,
-                                   reply->errorString()));
+                                   replyReason(reply, jobError)));
         return;
     }
 
@@ -1600,24 +1635,27 @@ void VersionManager::fetchOptifineVersionList() {
     const QUrl url(fromMirror ? LoaderMeta::optifineMirrorListUrl(m_loaderInstall.gameVersion)
                               : LoaderMeta::optifineDownloadsPageUrl());
     QNetworkRequest request(url);
-    request.setTransferTimeout(30000);
-    QNetworkReply *reply = loaderNetworkManager()->get(request);
-    connect(reply, &QNetworkReply::finished, this,
-            [this, reply, fromMirror] { onOptifineVersionListReply(reply, fromMirror); });
+    RequestBudget::ControlGet::start(this, loaderNetworkManager(), request, 30000,
+        [this, fromMirror](QNetworkReply *reply, const QString &jobError) {
+            onOptifineVersionListReply(reply, fromMirror, jobError);
+        });
 }
 
-void VersionManager::onOptifineVersionListReply(QNetworkReply *reply, bool fromMirror) {
-    reply->deleteLater();
+void VersionManager::onOptifineVersionListReply(QNetworkReply *reply, bool fromMirror,
+                                                const QString &jobError) {
+    if (reply != nullptr) {
+        reply->deleteLater();
+    }
     // 状态已经换过（上一次失败收了尾、或者用户又点了一次）：这份回复没人要了。
     if (m_loaderInstall.phase != LoaderInstall::Phase::FetchingInstallerList) {
         return;
     }
 
-    const QByteArray body = reply->isOpen() ? reply->readAll() : QByteArray();
-    if (reply->error() != QNetworkReply::NoError) {
+    const QByteArray body = reply != nullptr && reply->isOpen() ? reply->readAll() : QByteArray();
+    if (reply == nullptr || reply->error() != QNetworkReply::NoError) {
         failLoaderInstall(tr("拿不到 %1 %2 的版本表（%3）。检查网络后重试。")
                               .arg(m_loaderInstall.loaderName, m_loaderInstall.gameVersion,
-                                   reply->errorString()));
+                                   replyReason(reply, jobError)));
         return;
     }
 
@@ -1726,23 +1764,25 @@ void VersionManager::adoptOptifineEdition(const QString &edition,
 void VersionManager::fetchOptifineDownloadToken() {
     const QUrl url(LoaderMeta::optifineAdPageUrl(m_loaderInstall.installerFileName));
     QNetworkRequest request(url);
-    request.setTransferTimeout(30000);
-    QNetworkReply *reply = loaderNetworkManager()->get(request);
-    connect(reply, &QNetworkReply::finished, this,
-            [this, reply] { onOptifineDownloadTokenReply(reply); });
+    RequestBudget::ControlGet::start(this, loaderNetworkManager(), request, 30000,
+        [this](QNetworkReply *reply, const QString &jobError) {
+            onOptifineDownloadTokenReply(reply, jobError);
+        });
 }
 
-void VersionManager::onOptifineDownloadTokenReply(QNetworkReply *reply) {
-    reply->deleteLater();
+void VersionManager::onOptifineDownloadTokenReply(QNetworkReply *reply, const QString &jobError) {
+    if (reply != nullptr) {
+        reply->deleteLater();
+    }
     if (m_loaderInstall.phase != LoaderInstall::Phase::FetchingInstallerToken) {
         return;
     }
 
-    const QByteArray body = reply->isOpen() ? reply->readAll() : QByteArray();
-    if (reply->error() != QNetworkReply::NoError) {
+    const QByteArray body = reply != nullptr && reply->isOpen() ? reply->readAll() : QByteArray();
+    if (reply == nullptr || reply->error() != QNetworkReply::NoError) {
         failLoaderInstall(tr("拿不到 %1 %2 的下载地址（%3）。检查网络后重试。")
                               .arg(m_loaderInstall.loaderName, m_loaderInstall.loaderVersion,
-                                   reply->errorString()));
+                                   replyReason(reply, jobError)));
         return;
     }
 

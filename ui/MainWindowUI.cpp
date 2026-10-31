@@ -134,6 +134,40 @@ QFrame *makeHomeCard(QWidget *parent) {
     Theme::follow(card, applyPalette);
     return card;
 }
+
+/// 主页快捷卡片点开的那一块小面板（`homeQuickPopup`）。
+///
+/// 为什么不是裸的 `QFrame(..., Qt::Popup)`：**点面板外面收掉它的那一下会被重放一遍**。
+/// Qt 关一块 `Qt::Popup` 时，如果光标不在它的几何里，会把这同一个 press 重放给光标底下
+/// 那个控件（`QApplicationPrivate::closePopup()` → `replayMousePress` →
+/// `QWidgetWindow::handleMouseEvent` 尾巴上那段；Windows 上那个 style hint 是 true）。
+/// 底下正好是「列表 / 返回」时，重放那一下就把实例列表收了 —— 用户看到的症状是"点详情
+/// 之后上方压缩失效、整块长回去"（列表收起后本来就该是那个高度）。同一份日志里连开两块
+/// 面板、隔着面板换「最近 / 收藏」，也都是这发重放打到卡片和标签上。
+///
+/// 底栏两块面板 / 文件夹齿轮菜单 / 实例设置里那些框是**同一道闸**，注释放的那几处见
+/// `MainWindowPanels.cpp`（`ToolboxPopup`、`FolderMenu::handleAnchorPress`）。
+///
+/// NOTE: 属性**必须在 close() 之前钉** —— Qt 是关窗那一刻读它（`hide_helper`）；而且它
+/// 会被 Qt 在下一次把鼠标事件投给这个控件时清掉（`qapplication.cpp` 里
+/// `setAttribute(WA_NoMouseReplay, false)`），所以挂在构造里没用，只能在外面那一下按需要钉。
+class HomeQuickPopup final : public QFrame {
+public:
+    using QFrame::QFrame;
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override {
+        if (rect().contains(event->position().toPoint())) {
+            QFrame::mousePressEvent(event);  // 落在面板自己身上：照旧往下走
+            return;
+        }
+        // 外面那一下 = "面板该收了"。钉上再收：既收了面板，也不让底下的控件跟着挨一下。
+        setAttribute(Qt::WA_NoMouseReplay, true);
+        close();
+        event->accept();
+    }
+    void mouseDoubleClickEvent(QMouseEvent *event) override { mousePressEvent(event); }
+};
 } // namespace
 
 MainWindowUI::MainWindowUI(QMainWindow *parent) { setupUi(parent); }
@@ -632,8 +666,22 @@ QWidget *MainWindowUI::setupHomePage() {
         homeAccountTypeLabel->setMinimumHeight(homeAccountTypeLabel->fontMetrics().height() + 2);
         accountIdentity->addWidget(homeAccountTypeLabel);
         accountHeader->addLayout(accountIdentity, 1);
-        auto *accountArrow = new QLabel(QStringLiteral("⌄"), accountSkinButton);
+        // 那颗小箭头**是画的**，不是字体里的字形。原来这里写的是 U+2304「⌄」：
+        // 默认界面字体里没有这一格，Qt 于是第一次排这段文字时要去字体库里做一遍回退查找
+        // ——本机实测 268 ms，整个启动里最大的一块（见 docs/PERFORMANCE.md「主页那颗箭头」）。
+        // `VersionIcons::chevron()` 和底栏、版本树里那些箭头是同一份笔画，也不吃字体。
+        auto *accountArrow = new QLabel(accountSkinButton);
+        accountArrow->setObjectName(MainWindowUI::homeAccountArrowName());
         accountArrow->setAttribute(Qt::WA_TransparentForMouseEvents);
+        const auto applyAccountArrow = [accountArrow]() {
+            accountArrow->setPixmap(VersionIcons::chevron(
+                true, homeAccountArrowSize(),
+                accountArrow->palette().color(QPalette::WindowText)));
+        };
+        applyAccountArrow();
+        // 位图的颜色已经落在像素里了 ⇒ 换主题要重画一张（`VersionIcons` 按边长城里缓存）。
+        Theme::follow(accountArrow, applyAccountArrow);
+        accountArrow->setFixedSize(homeAccountArrowSize(), homeAccountArrowSize());
         accountHeader->addWidget(accountArrow);
         profileLayout->addWidget(accountSkinButton);
         QObject::connect(accountSkinButton, &QPushButton::clicked, accountSkinButton, [this]() {
@@ -1045,6 +1093,26 @@ QWidget *MainWindowUI::setupInstancePage() {
 /// 「游戏」那一页是版本树 + 安装页；其余几页在下面那段循环里搭（搜索框 + 三层树）。
 
 
+void MainWindowUI::setInstanceFolderText(const QString &text) {
+    instanceFolderText = text;
+    if (instanceFolderLabel != nullptr && instanceMode != InstanceMode::Preset) {
+        instanceFolderLabel->setText(text);
+    }
+}
+
+void MainWindowUI::setPresetSubtitle(const QString &text) {
+    presetSubtitleText = text;
+    if (instanceFolderLabel != nullptr && instanceMode == InstanceMode::Preset) {
+        instanceFolderLabel->setText(text);
+    }
+}
+
+void MainWindowUI::setServerFormIntro(const QString &text) {
+    if (serverFormIntroLabel != nullptr) {
+        serverFormIntroLabel->setText(text);
+    }
+}
+
 void MainWindowUI::setInstanceMode(InstanceMode mode) {
     if (navigationGuard && !navigationGuard()) {
         const int current = instanceModeStack ? instanceModeStack->currentIndex() : 0;
@@ -1058,16 +1126,21 @@ void MainWindowUI::setInstanceMode(InstanceMode mode) {
     }
     // 三颗按钮的勾和停着的那一页**一起**改（这是这个函数存在的全部意义）。
     instanceModeStack->setCurrentIndex(index);
-    // Presets belong to the launcher, not the selected game folder. Their own
-    // catalog/editor navigation occupies the left column in this mode.
+    // Presets live in the selected game folder too (they serve that folder's instances),
+    // so the folder column stays visible in every mode.
     if (auto *page = tabWidget->widget(instancesTabIndex())) {
-        if (auto *column = page->findChild<QWidget *>(leftColumnName(QStringLiteral("instance"))))
-            column->setVisible(mode != InstanceMode::Preset);
         if (auto *title = page->findChild<QLabel *>(pageTitleName(QStringLiteral("instance"))))
             title->setText(mode==InstanceMode::Preset ? QStringLiteral("预设") : QStringLiteral("实例"));
     }
     if (groupInstanceButton) groupInstanceButton->setVisible(mode != InstanceMode::Preset);
-    if (instanceFolderLabel) instanceFolderLabel->setVisible(mode != InstanceMode::Preset);
+    instanceMode = mode;
+    // 页头那句副标题**一直都有**（"这一页列的是什么"）：换档只是换一句话。
+    // 预设和实例同属当前游戏文件夹，所以两份底稿说的都是这个文件夹。
+    if (instanceFolderLabel) {
+        instanceFolderLabel->setVisible(true);
+        instanceFolderLabel->setText(mode == InstanceMode::Preset ? presetSubtitleText
+                                                                  : instanceFolderText);
+    }
     for (int i = 0; i < instanceModeButtons.size(); ++i) {
         if (instanceModeButtons.at(i) != nullptr) {
             instanceModeButtons.at(i)->setChecked(i == index);
@@ -1259,7 +1332,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             }
 
             QObject::connect(card, &QPushButton::clicked, card, [this, card, item]() {
-                auto *popup = new QFrame(card->window(), Qt::Popup | Qt::FramelessWindowHint);
+                auto *popup = new HomeQuickPopup(card->window(), Qt::Popup | Qt::FramelessWindowHint);
                 popup->setAttribute(Qt::WA_DeleteOnClose);
                 popup->setObjectName(QStringLiteral("homeQuickPopup"));
                 markSurface(popup, Theme::workspaceSurfaceValue());
@@ -1393,7 +1466,22 @@ void MainWindowUI::setHomeQuickMode(HomeQuickMode mode) {
         for (auto *widget : homeQuickSection->findChildren<QWidget *>()) {
             const QString name = widget->objectName();
             if (name == QStringLiteral("homeCurrentInstanceCard") || name.startsWith(QStringLiteral("homeQuickCard_")) ||
-                name.startsWith(QStringLiteral("homeQuickEmpty_"))) widget->setFixedHeight(compact ? 52 : 84);
+                name.startsWith(QStringLiteral("homeQuickEmpty_"))) {
+                widget->setFixedHeight(compact ? 52 : 84);
+                // ★ 只 `setFixedHeight()` 不够：高度上下限的**真出处是 QSS**。
+                // `QStyleSheetStyle::setGeometry()` 在每一次 polish（悬停、按下、换主题都会来）
+                // 拿 `wtfmlQuickCardSize="normal"` 的 `min-height: 82px` 去 `setMinimumHeight()`，
+                // 把 52 顶回 82 —— 用户看到的就是"点一下卡片，压小的那截又长回去"。
+                // 所以档位要跟着切，切完按 QSS 的规矩重新 polish 一次。
+                if (widget->property("wtfmlQuickCard").toBool()) {
+                    const QString size = compact ? QStringLiteral("compact") : QStringLiteral("normal");
+                    if (widget->property("wtfmlQuickCardSize").toString() != size) {
+                        widget->setProperty("wtfmlQuickCardSize", size);
+                        widget->style()->unpolish(widget);
+                        widget->style()->polish(widget);
+                    }
+                }
+            }
             if (name == QStringLiteral("homeCurrentVersion") || name == QStringLiteral("homeCurrentActivity") ||
                 name == QStringLiteral("homeQuickSecondaryActions") || name == QStringLiteral("homeQuickEmptyHint")) widget->setVisible(!compact);
             if (name == QStringLiteral("homeCurrentLaunch")) widget->setMinimumWidth(compact ? 72 : 90);

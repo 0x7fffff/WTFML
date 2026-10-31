@@ -19,6 +19,8 @@
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QIcon>
+#include <QImage>
+#include <QImageReader>
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
@@ -207,9 +209,25 @@ QPixmap directoryThumbnail(const QString &dirPath) {
     if (!QFileInfo::exists(candidate)) {
         return QPixmap();
     }
+    // `icon.png` 是**世界里带进来的**（共享存档里那一份也长这样），当外部输入看：
+    // 先问头里声明的尺寸、超了不解。原版那张是 64×64，这里留到 1024 —— 再大的一律
+    // 当"读不出来"，调用方退回文件夹字形。
+    constexpr int kMaxSide = 1024;
+    constexpr qint64 kMaxPixels = 1024LL * 1024;
+    QImageReader reader(candidate);
+    const QSize pixels = reader.size();
+    if (!pixels.isValid() || pixels.width() <= 0 || pixels.height() <= 0
+        || pixels.width() > kMaxSide || pixels.height() > kMaxSide
+        || qint64(pixels.width()) * pixels.height() > kMaxPixels) {
+        return QPixmap();
+    }
     // 读不出来的（坏文件、不是张图）回空的那张，调用方自然退回文件夹字形 —— 不弹错、
     // 也不留一格里半张烂图。
-    return QPixmap(candidate);
+    const QImage decoded = reader.read();
+    if (decoded.isNull()) {
+        return QPixmap();
+    }
+    return QPixmap::fromImage(decoded);
 }
 
 }  // namespace
@@ -1516,6 +1534,14 @@ void InstanceFilesPage::rebuildRows() {
         m_statQueue.clear();
         m_statLabels.clear();
 
+        // 「先把 item 全排好，再逐条挂行控件」—— 两件事**不能夹在一起做**。
+        //
+        // `setItemWidget()` 挂上一条之后，视图后面每一次 `addItem()` 都要替**已经挂着的
+        // 那一摞**重算一遍几何；夹在一起写的话第 k 条 item 的插入要给前面 k-1 个行控件各算
+        // 一遍，整表就是平方级。实测 1000 行：夹着写 1.39 s，先排完再挂 0.29 s（同一版
+        // 二进制 A/B；前面那三档对照在 docs/P2_LARGE_LIST_PAINT_20261031.md）。所以这个
+        // 循环只管"item 和行控件都建出来、配好对"，挂的事等整表排完一趟做完。
+        QList<QPair<QListWidgetItem *, QWidget *>> pendingRows;
         for (const Entry &entry : m_entries) {
             if (!entryMatchesFilter(entry)) {
                 continue;
@@ -1526,9 +1552,8 @@ void InstanceFilesPage::rebuildRows() {
             // 行高和实例树 / 版本树同一档：一页里换行高不会错，但"我们自己的列表"看着该是一个东西。
             item->setSizeHint(QSize(0, MainWindowUI::versionTreeRowHeight()));
             m_list->addItem(item);
-            QWidget *row = makeRow(entry.displayName, entry.path, entry.isDir, entry.disabled,
-                                   entry.size, entry.modified);
-            m_list->setItemWidget(item, row);
+            QWidget *row = makeRow(entry.displayName, entry.path, entry.isDir,
+                                   entry.disabled, entry.size, entry.modified);
             const QString identity = identityPath(entry.path);
             if (!m_shownIdentities.contains(identity)) {
                 freshRows.append(row);
@@ -1550,6 +1575,10 @@ void InstanceFilesPage::rebuildRows() {
             if (m_batchMode && keptSelected) {
                 item->setSelected(true);
             }
+            pendingRows.append(qMakePair(item, row));
+        }
+        for (const auto &pair : pendingRows) {
+            m_list->setItemWidget(pair.first, pair.second);
         }
     }
     // 「同页筛选/列表变化：只动画**新增**、删除和状态，

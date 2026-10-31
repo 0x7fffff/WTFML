@@ -1,6 +1,7 @@
 #include "SegmentInstallChecks.hpp"
 #include <functional>
 #include "download/DownloadManager.hpp"
+#include "download/ResumableDownload.hpp"
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QTemporaryDir>
@@ -42,6 +43,8 @@ int runSegmentInstallChecks() {
     // probes = Range: bytes=0-0；parts = 其它带 Range 的请求；full = 完全不带 Range 的请求。
     // 302 的入口请求不计（一次分段会打入口 + 落点两条），这样计数只反映数据请求本身。
     int probes = 0, parts = 0, full = 0, redirects = 0, signedHits = 0, badSigned = 0;
+    // 「持续低速换源」那一节要分清两条腿：主地址上有几条分段、备用地址上取了几次样本。
+    int slowProbes = 0, slowParts = 0, officialProbes = 0, officialParts = 0, officialSamples = 0;
     int partDelayMs = 0;
     // 有个别场景要连着看门狗一起等（失速那两跳各 5 秒），截止线单独放宽。
     int deadlineMs = 30000;
@@ -59,6 +62,7 @@ int runSegmentInstallChecks() {
     int nextToken = 0;
     const auto resetCounters = [&] {
         probes = parts = full = redirects = signedHits = badSigned = 0;
+        slowProbes = slowParts = officialProbes = officialParts = officialSamples = 0;
         partDelayMs = 0;
         flakyFailed = false;
         stallTriggered = false;
@@ -97,6 +101,18 @@ int runSegmentInstallChecks() {
                     if (begin < 0) ++full;
                     else if (probing) ++probes;
                     else ++parts;
+                    if (path == "/slow") {
+                        if (probing) ++slowProbes;
+                        else if (begin >= 0) ++slowParts;
+                    }
+                    if (path == "/official") {
+                        if (probing) ++officialProbes;
+                        else if (begin >= 0) {
+                            // 64 KiB 那一发是低速比较的样本，不算分段正文。
+                            if (begin == 0 && end == 65535) ++officialSamples;
+                            else ++officialParts;
+                        }
+                    }
                 }
 
                 QByteArray response;
@@ -151,6 +167,13 @@ int runSegmentInstallChecks() {
                             // 因为一直有活动而不响，90 秒"一个字节都没有"的兜底也不响，
                             // 只有"有退路 + 一直太慢"那条判据该动手。
                             stallTriggered = true;
+                            trickleOpen = true;
+                            payload = payload.left(4096);
+                        }
+                        if (ranged && path == "/slow") {
+                            // 主地址上**每一条**分段都只有几百字节/秒：合计速率也远低于
+                            // 持续低速那条线，而且永远下不完。协调器要在看门狗之前拿
+                            // 备用地址的样本比一比，然后整条换过去。
                             trickleOpen = true;
                             payload = payload.left(4096);
                         }
@@ -483,6 +506,27 @@ int runSegmentInstallChecks() {
                "aborting a silent part keeps the job billed as one success");
         expect(out.results == 1 && out.batchResults == 1 && out.batchSuccess,
                "a silent part still produces exactly one file result and one batch result");
+    }
+
+    // 12. 主地址每条分段都只有几百字节/秒、调用方给了官方地址：分段阶段的**合计**速率
+    // 持续低于阈值时，协调器从官方取 64 KiB 样本；样本明显更快 ⇒ 整条换过去
+    // （重新探测入口与 ETag，旧分段留不留由 prepareCache 决定），不整文件重下。
+    // 观察窗口在这里缩到 3 秒（默认 30 秒），阈值本身没有第二处。
+    {
+        resetCounters();
+        ResumableDownload::setLowSpeedWindowForTest(3000);
+        const auto out = runOne(QStringLiteral("slow.bin"), QStringLiteral("/slow"),
+                                QStringLiteral("/official"), cache, false);
+        ResumableDownload::setLowSpeedWindowForTest(0);
+        expect(out.deadlineHeld && out.bytes == body,
+               "a sustained slow source is compared and the file still completes");
+        expect(slowProbes == 1 && slowParts == 4,
+               "the slow source only ever gets the first probe and its four ranges");
+        expect(officialSamples == 1, "the comparison takes exactly one 64 KiB sample");
+        expect(officialProbes == 1 && officialParts == 4,
+               "switching re-probes the faster source and runs the missing parts there");
+        expect(full == 0 && out.stats.total == 1 && out.stats.done == 1 && out.stats.failed == 0,
+               "a source switch is neither a whole-file re-download nor a counted failure");
     }
 
     return failures ? 1 : 0;

@@ -1533,9 +1533,19 @@ QString widgetStyleSheet() {
 
     // 快速启动卡自己按内容档位钉高度。和图标按钮相同，先把通用 QPushButton 的
     // min-height / padding 复位，否则 QSS polish 会把 C++ 里给卡片的高度压回普通按钮。
+    //
+    // ★ `compact` 那一档是主页实例列表展开时用的（上方启动块要让位）。它必须在这里有一档
+    // 自己的 min-height —— 只靠 C++ 的 `setFixedHeight(52)` 拦不住：QSS 的 `min-height`
+    // 是在**每一次 polish** 时 `setMinimumHeight()` 下去的（`QStyleSheetStyle::setGeometry()`），
+    // 而悬停 / 按下 / 换主题都会来一发 polish，于是"点一下卡片，压小的那一截又长回 82"。
+    //
+    // ★★ 这里写 50 不是 52：QSS 的 min/max-height 走 `boxSize()`，把上下各 1px 的边框也
+    // 算进尺寸里，写 50 出来的卡片才是代码里那个 52。（`normal` 写 82 出 84 是同一个道理。）
+    // 写成 52 的话每次 polish 都会比 C++ 的固定高度多 2px —— 就是"点一下还是会长一点点"。
     qss += QStringLiteral(
         "QPushButton[wtfmlQuickCard=\"true\"] { padding: 0px; }"
         "QPushButton[wtfmlQuickCardSize=\"normal\"] { min-height: 82px; max-height: 82px; }"
+        "QPushButton[wtfmlQuickCardSize=\"compact\"] { min-height: 50px; max-height: 50px; }"
         "QPushButton[wtfmlQuickCardSize=\"icon\"] { min-height: 54px; max-height: 54px; }");
     qss += QStringLiteral("QPushButton[wtfmlAccountHeader=\"true\"] { padding: 0px; min-height: 62px; }");
 
@@ -2046,13 +2056,23 @@ void repolishWidgets() {
     }
 }
 
-/// 换主题时把每一根滚动条的控件级样式重算一遍（数量是两位数，很便宜）。
+/// 换主题时把每一根滚动条的控件级样式重算一遍。
+///
+/// 只算**露着的**那些（见下面那条为什么）。换主题的一下里，一屏上真露着的滚动条
+/// 通常只有一两根，而全应用几百根一起重挂的价钱是 15–26 ms
+/// （perf 探针的 `THEME-PROBE` 拆分，2026-10-31），和"重 polish 所有控件"同量级。
 void styleScrollBars() {
     ++scrollBarThemeGeneration();
     const QList<QWidget *> all = QApplication::allWidgets();
     for (QWidget *widget : all) {
         if (auto *bar = qobject_cast<QScrollBar *>(widget)) {
-            styleScrollBar(bar);
+            // 藏着的**不在这儿算**：它们身上的代数标记还是旧的，露出来的那一刻
+            // ScrollBarStyler 收 Show 事件补一发（`styleScrollBar()` 先看标记，
+            // 旧标记 ⇒ 真重挂）。少这一趟不影响它们该有的颜色，只是把活挪到它
+            // 第一次真的要画的时候。
+            if (bar->isVisible()) {
+                styleScrollBar(bar);
+            }
         }
     }
 }

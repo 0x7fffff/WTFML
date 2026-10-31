@@ -433,12 +433,23 @@ void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
         if (key == QStringLiteral("screenshots")) {
             QImageReader reader(file.absoluteFilePath());
             const QSize pixels = reader.size();
+            // 截图也是**盘上的文件**（实例 / 存档跟着分享走的时候能带进来）：头里写得
+            // 荒唐就不解 —— 8K 截图是 33 MP，这里留到 64 MP。
+            constexpr int kMaxSide = 16384;
+            constexpr qint64 kMaxPixels = 64LL * 1024 * 1024;
+            const bool oversized =
+                pixels.isValid() && pixels.width() > 0 && pixels.height() > 0
+                && (pixels.width() > kMaxSide || pixels.height() > kMaxSide
+                    || qint64(pixels.width()) * pixels.height() > kMaxPixels);
             if (pixels.isValid()) {
                 details << QStringLiteral("%1×%2").arg(pixels.width()).arg(pixels.height());
-                reader.setScaledSize(pixels.scaled(QSize(96, 64), Qt::KeepAspectRatio));
+                if (!oversized) {
+                    reader.setScaledSize(pixels.scaled(QSize(96, 64), Qt::KeepAspectRatio));
+                }
             }
             // 尺寸读不出来也照样试着解一张缩略图（有些 PNG 的头信息坏了，数据还能读）。
-            const QImage thumb = reader.read();
+            // NOTE: 但"头里写得荒唐"的那一份不在此列 —— 那种读一次就是几个 G。
+            const QImage thumb = oversized ? QImage() : reader.read();
             details << InstanceFilesPage::formatSize(file.size());
             auto *item = new QListWidgetItem(
                 file.fileName() + QLatin1Char('\n') + details.join(QStringLiteral(" / ")),

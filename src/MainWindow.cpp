@@ -1,3 +1,4 @@
+#include "controllers/ServerVersionPicker.hpp"
 /**
  * @file MainWindow.cpp
  * @brief 实现主应用程序窗口及用户交互逻辑。
@@ -20,6 +21,7 @@
 #include "controllers/DownloadTaskLedgerController.hpp"
 #include "controllers/ResourceInstallController.hpp"
 #include "manage/UpdatePolicy.hpp"
+#include "launcher/LaunchScriptExport.hpp"
 #include "util/SecretRedactor.hpp"
 #include "util/LaunchScriptCredentials.hpp"
 #include "manage/BackupFiles.hpp"
@@ -54,6 +56,8 @@
 // 内容区上面那一层：设置界面和各种提示都开在它里面，不再另开独立窗口。
 // 见它的文件头 —— ui/ 那边只管"开在哪儿、长什么样"，不认识业务。
 #include "..\ui\OverlayHost.hpp"
+#include <QDialog>
+#include <QLayout>
 // 安装页「预设」那一行点开的紧凑弹窗：四类各挑一份、看一眼计划。
 // 它只画外面喂进去的值（`ui/` 不读盘），所以这一边负责把 controller 算好的东西递进去。
 #include "..\ui\PresetInstallPicker.hpp"
@@ -80,6 +84,7 @@
 // 「背景图」那一节挑回来的那张图：**拷进数据目录**再记路径（见那个文件头那段）。
 // `ui/` 那边不许 include `src/`，所以收图这一步只能在 MainWindow 这一层做
 // （`MainWindowUI::ThemeImageRow` 只管摆控件）。
+#include "util/ImageDecode.hpp"
 #include "util/ThemeImage.hpp"
 
 // 添加以下头文件（防止hpp变动导致文件失效）
@@ -362,9 +367,13 @@ MainWindow::MainWindow(QWidget *parent)
                 }
             },
             [this](const QString &id) {
-                // 导入整合包那一路也会把 overrides 整棵解压进实例根目录（`m_importingInstanceId`），
-                // 和预设写的是同一片地方。它不在搬文件那个计数集合里，单独并进来。
-                return m_fileOperationInstanceIds.contains(id) || id == m_importingInstanceId;
+                // 导入整合包那一路也会把 overrides 整棵解压进实例根目录，和预设写的是
+                // 同一片地方。它不在搬文件那个计数集合里，单独并进来。
+                //
+                // NOTE: 只认**导入**这一档，不用 `InstallOccupancy::modifying()`：这是窄的
+                // 那道闸（宽的那一道在下面），安装 / 补全期间落预设是允许的。
+                return m_fileOperationInstanceIds.contains(id)
+                       || m_installOccupancy.is(InstallOccupancy::Batch::Import, id);
             },
             // `applyPlan()` 专用、宽的那一份 —— 正被安装 / 补全文件的
             // 实例也不能这时候落预设。它只从预设页那一颗「应用」进来，不存在
@@ -374,7 +383,15 @@ MainWindow::MainWindow(QWidget *parent)
             },
             // 收尾之后重灌实例清单：这一趟期间别的刷新（下载收尾、改设置）会把这一份
             // 按 `installingVersionIds()` 滤掉，不重刷它就一直不在列表里。
-            [this]() { refreshInstalledVersions(); }},
+            [this]() { refreshInstalledVersions(); },
+            // 预设编辑器那一页铺在内容区上（和实例设置同一条路，见 OverlayHost::execPage）。
+            // 归属传 -1 = 现在这一颗选项卡：这一页只从实例页「预设」那一档开得出来。
+            [this](QDialog *dialog, const QString &title, int ownerTab) {
+                return m_ui->overlay()->execPage(dialog, title, ownerTab);
+            },
+            // 页头那句「N 份预设」：和「当前文件夹：…（N 个实例）」是页头同一格，
+            // 换档时由 MainWindowUI 自己换着写（见 setInstanceMode）。
+            [this](const QString &text) { m_ui->setPresetSubtitle(text); }},
         this);
     m_presetController->setEditorPrompt([this](const QString &title, const QString &text, const QStringList &buttons) {
         return InlineMessage::ask(m_ui->overlay(), MessageKind::Question, title, text, buttons, buttons.size()-1, buttons.size()-1);
@@ -406,7 +423,7 @@ MainWindow::MainWindow(QWidget *parent)
         IntegrityController::Host{
             [this](const QString &id) { return instanceDisplayName(id); },
             [this](const QString &text) { appendLog(text); },
-            [this](std::function<void()> open) { runWhenOverlayFree(open); },
+            [this](std::function<void()> open) { openPageWhenIdle(open); },
             [this](const QString &id) { repairInstanceFiles(id); }},
         this);
     m_backupController = new BackupController(
@@ -1269,10 +1286,10 @@ void MainWindow::setDownloadUiBusy(bool busy) {
     m_ui->getFolderList()->setEnabled(!busy);
     // 「模组加载器」那棵树一起灰，理由同上。忙完解禁走 m_installPage->updateLoaderRows() 一处重算
     // （那棵树的样子全由它一处决定）；「安装」那个按钮还要看名称合法不合法，走
-    // m_installPage->updateInstallNameHint() 一处。
+    // m_installPage->updateInstallNameState() 一处。
     m_ui->getLoaderTree()->setEnabled(!busy);
     m_installPage->updateLoaderRows();
-    m_installPage->updateInstallNameHint();
+    m_installPage->updateInstallNameState();
     // 重灌一遍"能启动的实例"：上面那条过滤（在装的那个先不出现）要立刻生效 ——
     // 置忙那一刻它该从列表里消失，置闲那一刻它该回来（成功的话还在
     // `DownloadCompletionController::onFinished` 里被选中，那句也在这个函数之后跑）。
@@ -2119,25 +2136,9 @@ QSet<QString> MainWindow::installingVersionIds() const {
     if (!busy.isEmpty()) {
         ids.insert(busy);
     }
-    // 这两个只在"用户点的是它"那一刻置上、终态时清掉（见那两个成员的说明），覆盖面比
-    // VersionManager 那个宽 —— 正好补上前奏那几段。
-    if (!m_importingInstanceId.isEmpty()) {
-        ids.insert(m_importingInstanceId);
-    }
-    if (!m_installingInstanceId.isEmpty()) {
-        ids.insert(m_installingInstanceId);
-    }
-    // 「补全文件」那颗按钮：它**是**一批下载在跑，所以上面那个 busy 那一份
-    // 通常已经盖住它了；记这一笔是给"点下去、批次还没起来"那一小段兜底（见头文件）。
-    if (!m_repairingInstanceId.isEmpty()) {
-        ids.insert(m_repairingInstanceId);
-    }
-    // 首启资源预取：它同样在往共享的 assets/asset_director 里写文件，期间不让这个实例
-    // 启动（AD 那时也会往同一个目录写）。批次真起来之后 busyVersionId() 已经盖住它，
-    // 这一笔盖的是"点下去、批次还没起来"那一小段。
-    if (!m_assetPrefetchInstanceId.isEmpty()) {
-        ids.insert(m_assetPrefetchInstanceId);
-    }
+    // 那四档界面自己记的占用（导入 / 安装 / 补全 / 预取）只在"用户点的是它"那一刻置上、
+    // 终态时清掉，覆盖面比 VersionManager 那个宽 —— 正好补上前奏那几段。
+    ids.unite(m_installOccupancy.instanceIds());
     return ids;
 }
 
@@ -2187,8 +2188,10 @@ void MainWindow::refreshInstalledVersions() {
     managementParts.reserve(installed.size());
     for (const QString &id : installed) {
         // 每个版本读一次 <id>/wtfml.meta（几百字节的可选文件，绝大多数版本没有）。
-        // 刻意不缓存：这个文件会被"重命名"功能改写，缓存了就会变成"改了名不生效"。
-        // 开销上不必担心 —— 实例数最多也就几十个，而这个函数一次会话没有调用上界。
+        // 这个文件会被外面改写（用户手写、别的启动器），所以读侧缓存靠"在不在 + 修改
+        // 时刻 + 字节数"失效，重命名这类走写侧的路写完当场丢掉那一格 —— 见
+        // VersionManager::readVersionMeta()。本函数之后 instanceKey() / homeGroupIdOf()
+        // 还要再问同一个文件两三次，那些问都落在同一格上。
         const VersionDisplayParts part = m_versionManager->displayParts(id);
         if (!installing.contains(id)) {
             parts.append(part);
@@ -2343,10 +2346,10 @@ void MainWindow::rebuildInstanceTree() {
     // 归属键走 instanceKey()（稳定 id，没有就退回目录名）。
     //
     // NOTE: 每个实例这里要读两次 wtfml.meta（上面 displayParts() 一次、这里 instanceId()
-    // 一次）。看着浪费，但这个文件是几百字节的可选文件、实例最多也就几十个，
-    // 而"把两者合并成一次读"要把 instanceId 塞进 VersionDisplayParts ——那是个
-    // 纯显示用的结构，塞一个身份字段进去会让"显示名怎么拼"和"归属怎么认"纠缠在
-    // 一起。分开读，代价是一次小文件打开。
+    // 一次）。两者不合并：把 instanceId 塞进 VersionDisplayParts 会让"显示名怎么拼"和
+    // "归属怎么认"纠缠在一起，那是个纯显示用的结构。第二次读现在不再开文件 ——
+    // `VersionManager::readVersionMeta()` 按"在不在 / 修改时刻 / 字节数"缓存了读回来的
+    // 那一份，这里是一次 stat（见那边 `m_metaCache` 那段）。
     const QList<InstanceGroupStore::Group> groups = m_groupStore->groups();
     QList<InstanceGroupBucket> buckets;
     QHash<QString, int> bucketOfGroup;
@@ -2429,7 +2432,7 @@ void MainWindow::rebuildInstanceTree() {
                           ? tr("（%1 个实例，筛出 %2 个）").arg(parts.size()).arg(shown.size())
                           : tr("（%1 个实例）").arg(parts.size());
     }
-    m_ui->getInstanceFolderLabel()->setText(folderText);
+    m_ui->setInstanceFolderText(folderText);
 
     // ---- ④ 一条都没剩下时那一句话 ----
     //
@@ -3333,14 +3336,29 @@ void MainWindow::refreshServerList() {
 }
 
 void MainWindow::openNewServerPage() {
-    OverlayHost *overlay = m_ui == nullptr ? nullptr : m_ui->overlay();
-    if (overlay == nullptr) {
+    if (m_ui == nullptr) {
+        return;
+    }
+    QWidget *formHost = m_ui->getServerFormHost();
+    QStackedWidget *stack = m_ui->getServerStack();
+    if (formHost == nullptr || stack == nullptr || formHost->layout() == nullptr) {
         return;
     }
     if (m_newServerPage == nullptr) {
-        m_newServerPage = new NewServerPage(this);
+        // 它**不是**单独开的一页：和「下载 → 游戏」那张安装页一样，就住在服务端那一栏的
+        // 第二层里（产品要求"服务端下载和游戏下载一个样，不要搞独立的新界面"）。
+        // 降成普通控件嵌进去之后，它的 accepted / rejected 只当"这一层该干什么"的通知。
+        m_newServerPage = new NewServerPage(formHost);
+        new ServerVersionPicker(m_newServerPage, m_versionManager);
+        m_newServerPage->setWindowFlags(Qt::Widget);
+        m_newServerPage->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        formHost->layout()->addWidget(m_newServerPage);
+        m_newServerPage->show();
         connect(m_newServerPage, &NewServerPage::fieldsChanged, this,
                 [this] { updateNewServerSummary(m_newServerPage); });
+        connect(m_newServerPage, &QDialog::accepted, this,
+                &MainWindow::createServerFromNewServerPage);
+        connect(m_newServerPage, &QDialog::rejected, this, &MainWindow::leaveNewServerPage);
     }
     // 摆那八档（**每次开页都重喂**：页面是复用的）。哪几档要填哪几格由这一层翻好
     // （`ServerInstall` 那一层知道，页面不知道）。
@@ -3383,25 +3401,45 @@ void MainWindow::openNewServerPage() {
     m_newServerPage->setDefaults(
         ServerRegistry::defaultServerName(ServerInstall::Flavor::Vanilla, currentVersion),
         currentVersion);
+    // 返回行右边那句（和游戏安装页「将基于原版 26.3 安装」同一格）：版本已经在列表里选好了。
+    m_ui->setServerFormIntro(currentVersion.isEmpty()
+                                 ? tr("将安装一个新服务端")
+                                 : tr("将安装 %1 服务端").arg(currentVersion));
     if (auto *version = m_newServerPage->findChild<QLineEdit *>(MainWindowUI::newServerGameVersionEditName()))
         version->setReadOnly(fromDownload && !selected.isEmpty());
     if (auto *install = m_newServerPage->findChild<QPushButton *>(MainWindowUI::newServerCreateButtonName()))
         install->setText(fromDownload ? tr("安装") : tr("创建"));
     updateNewServerSummary(m_newServerPage);
-    // 同控制台那一页：说清 `ownerTab` 并先切过去（这一页也是从服务端列表上开出来的）。
-    const int instancesTab = fromDownload ? MainWindowUI::downloadTabIndex() : MainWindowUI::instancesTabIndex();
+    // accept()/reject() 会把这一页藏起来（`QDialog` 的老规矩）—— 再开一次要能露出来。
+    m_newServerPage->show();
+    // 走「下载 → 服务端」同一条路（和「游戏」下载一致）：切到下载页、翻到「服务端」那一栏、
+    // 停在第二层那张安装表单上。不再开覆盖层 —— 用户要的就是"别搞独立的新界面"。
     if (QTabWidget *tabs = m_ui->getTabWidget()) {
-        if (instancesTab >= 0 && instancesTab < tabs->count()) {
-            tabs->setCurrentIndex(instancesTab);
+        const int tab = MainWindowUI::downloadTabIndex();
+        if (tab >= 0 && tab < tabs->count()) {
+            tabs->setCurrentIndex(tab);
         }
     }
-    if (overlay->execPage(m_newServerPage, fromDownload ? tr("安装服务端") : NewServerPage::windowTitle(), instancesTab)
-        != QDialog::Accepted) {
+    if (QListWidget *categories = m_ui->getDownloadCategoryList()) {
+        if (categories->currentRow() != MainWindowUI::downloadCategoryServerIndex()) {
+            categories->setCurrentRow(MainWindowUI::downloadCategoryServerIndex());
+        }
+    }
+    stack->setCurrentIndex(MainWindowUI::downloadServerFormIndex());
+    if (auto *name = m_newServerPage->findChild<QLineEdit *>(MainWindowUI::newServerNameEditName())) {
+        name->setFocus();
+        name->selectAll();
+    }
+}
+
+void MainWindow::createServerFromNewServerPage() {
+    if (m_ui == nullptr || m_newServerPage == nullptr) {
         return;
     }
-    // 收页了 —— 建这个服务端：名字洗成目录名、重名加后缀、写 `.wtfml-server`。
+    // 「创建」真按下去了 —— 建这个服务端：名字洗成目录名、重名加后缀、写 `.wtfml-server`。
     const QString desired = ServerRegistry::sanitizeId(m_newServerPage->serverName());
     if (desired.isEmpty()) {
+        // 话说完就停在表单上：刚填的东西不能因为一句提醒就没收。
         InlineMessage::warning(m_ui->overlay(), QStringLiteral("这个名字不能当目录名"),
                                QStringLiteral("换一个名字再试（名字里不能只有标点或空白）。"));
         return;
@@ -3424,8 +3462,16 @@ void MainWindow::openNewServerPage() {
         InlineMessage::critical(m_ui->overlay(), QStringLiteral("建不了这个服务端"), problem);
         return;
     }
-    // 切到服务端那一页（用户刚建的就在那儿），并重扫一遍让它出现在列表里。
+    // 建好了：表单那一层退回去（下次进来从版本列表开始），并切到「管理 → 服务端」——
+    // 用户刚建的那一行就在那儿。
+    leaveNewServerPage();
     setInstanceMode(MainWindowUI::InstanceMode::Server);
+    if (QTabWidget *tabs = m_ui->getTabWidget()) {
+        const int tab = MainWindowUI::instancesTabIndex();
+        if (tab >= 0 && tab < tabs->count()) {
+            tabs->setCurrentIndex(tab);
+        }
+    }
     // 「创建」= 建目录 + 记一份账 + **当趟就把东西下下来 / 跑安装器**（不是"建完让
     // 用户自己再点一下安装"）。排在切页之后：那一行先以「未安装」露出来，
     // 紧接着任务中心就动起来 —— 用户看到的是"这一行正在变成能用的"。
@@ -3436,6 +3482,19 @@ void MainWindow::openNewServerPage() {
     request.installerVersion = info.installerVersion;
     request.buildId = info.buildId;
     installServer(serverId, request);
+}
+
+void MainWindow::leaveNewServerPage() {
+    if (m_ui == nullptr) {
+        return;
+    }
+    if (QStackedWidget *stack = m_ui->getServerStack()) {
+        stack->setCurrentIndex(MainWindowUI::downloadServerListIndex());
+    }
+    // `accept()` / `reject()` 会把这一页藏起来；它就住在那层里，下次进来要还看得见。
+    if (m_newServerPage != nullptr) {
+        m_newServerPage->show();
+    }
 }
 
 void MainWindow::installServer(const QString &serverId, const ServerInstall::Request &request) {
@@ -3934,27 +3993,11 @@ void MainWindow::updateNewServerSummary(NewServerPage *page) {
         page->setSummary(QString(), plan.problem);
         return;
     }
-    // 成立了：把"这一档要下什么、装完是什么样"说清楚（`plan.note` 是补充，可空）。
-    QStringList lines;
-    if (plan.downloads.isEmpty()) {
-        lines.append(QStringLiteral("这一档的下载地址要联网现查（列表拉回来才知道下哪个）。"));
-    } else {
-        QStringList names;
-        for (const ServerInstall::Download &download : plan.downloads) {
-            names.append(download.fileName);
-        }
-        lines.append(QStringLiteral("要下：%1").arg(names.join(QStringLiteral("、"))));
-    }
-    if (plan.firstLaunchNeedsNetwork) {
-        lines.append(QStringLiteral("第一次启动还要联网拉东西。"));
-    }
-    if (!plan.note.isEmpty()) {
-        lines.append(plan.note);
-    }
-    lines.append(ServerInstall::installMethodText(plan.method));
-    // 按下「创建」会发生什么，直说一句：不是"建完一个空壳"，是当场排一趟安装。
-    lines.append(QStringLiteral("按「创建」会直接开始装（进度在任务中心那一格）。"));
-    page->setSummary(lines.join(QStringLiteral("\n")), QString());
+    // 成立了：**不再摆"这一档要下什么、按下去会发生什么"那一段说明** —— 用户点名
+    // 那是废话（下载地址联不联网、jar 放哪、进度在任务中心，界面上不必先讲一遍）。
+    // 这里只把上一档留下的问题句清掉；真正拦人的那几句（填法不成立 / 这一档不支持）
+    // 由上面那几处 `setSummary(…, problem)` 露出来。
+    page->setSummary(QString(), QString());
 }
 
 // 这两条是「更新中心」那一页在**主窗口这一侧**的入口：状态和动作都在
@@ -4060,10 +4103,10 @@ void MainWindow::finishUpdateBatch(bool success, const QString &errorMessage) {
                                    .arg(text));
     }
     // 收尾之后**再开一次更新中心**：用户刚按的就是它上面那一颗，他下一步要么看看剩下的
-    // 那几条、要么撤销（失败了的话）。排到下一轮 + 等覆盖层空下来，和 finishUpdateCheck()
-    // 那条路同一个规矩。
+    // 那几条、要么撤销（失败了的话）。这是后台收的尾（下载可能跑了好几分钟，用户早翻到
+    // 别的页去了）⇒ 走 `openPageWhenIdle()`：**不驱逐**他正看着的那一页，等它收干净再开。
     const QString instanceId = run.instanceId;
-    runWhenOverlayFree([this, instanceId] { openUpdateCenter(instanceId); });
+    openPageWhenIdle([this, instanceId] { openUpdateCenter(instanceId); });
 }
 
 // ============================ 资源详情页 ============================
@@ -5320,19 +5363,37 @@ void MainWindow::onAccountRemoveRequested(const QString &uuid) {
     refreshAccountSkin();
 }
 
+namespace {
+
+/// 用户挑的皮肤图**文件**的字节上限（一张合法的皮肤不过几 KB；这里挡的是"把一整部
+/// 电影当皮肤选进来"那种 —— 读进来的每个字节都要占内存）。
+constexpr qint64 kMaxPickedSkinBytes = 16LL * 1024 * 1024;
+
+/// 皮肤图的解码上限。皮肤只可能是 64×64 / 64×32（真正的判据是
+/// `SkinApi::isAcceptableSkinSize()`），256 只是给将来放宽留余量；这一道挡的是
+/// "照一个荒唐的声明去分配"（见 `ImageDecode::Limits`）。
+constexpr ImageDecode::Limits kPickedSkinLimits{256, 256 * 256};
+
+} // namespace
+
 void MainWindow::onSkinUploadRequested(const QString &path, const QString &variant) {
     // 先把文件读出来。**尺寸那条规矩只在 SkinApi::isAcceptableSkinSize() 里**（唯一出处），
     // 这里不自己再判一遍。但"读不出来"得在这里说 —— 它连尺寸都没有。
     QFile file(path);
     const QString fileName = QFileInfo(path).fileName();
-    if (!file.open(QIODevice::ReadOnly)) {
+    // 文件本身也封一个顶：一张合法皮肤不过几 KB，读进来的每一字节都要占内存。
+    if (!file.open(QIODevice::ReadOnly) || file.size() <= 0
+        || file.size() > kMaxPickedSkinBytes) {
         InlineMessage::warning(m_ui->overlay(), tr("上传皮肤失败"),
-                             tr("读不到「%1」这个文件。").arg(fileName));
+                             tr("读不到「%1」这个文件（或者它大得不像一张皮肤图）。")
+                                 .arg(fileName));
         return;
     }
     const QByteArray png = file.readAll();
     file.close();
-    const QImage image(path);  // 用 QImage 再读一遍只为拿宽高（下面换的是原始字节）
+    // 宽高从**同一份字节**里拿（不再按路径读第二遍）。皮肤图是用户挑的本机文件，
+    // 也可能来自群里那个"皮肤包" —— 先问尺寸、超了不解（见 `ImageDecode::Limits`）。
+    const QImage image = ImageDecode::decode(png, kPickedSkinLimits);
     if (image.isNull()) {
         InlineMessage::warning(m_ui->overlay(), tr("上传皮肤失败"),
                              tr("「%1」不是一张能读出来的图片。").arg(fileName));
@@ -5373,7 +5434,15 @@ void MainWindow::onOfflineSkinPickRequested(const QString &path, const QString &
         return;
     }
     const QString fileName = QFileInfo(path).fileName();
-    const QImage image(path);
+    // 和正版上传那条路同一个上限、同一个理由（那是一张用户挑的本机文件，而
+    // "皮肤包"里的图不一定是好心的）。
+    QImage image;
+    QFile skinFile(path);
+    if (skinFile.open(QIODevice::ReadOnly) && skinFile.size() > 0
+        && skinFile.size() <= kMaxPickedSkinBytes) {
+        image = ImageDecode::decode(skinFile.readAll(), kPickedSkinLimits);
+        skinFile.close();
+    }
     if (image.isNull()) {
         InlineMessage::warning(m_ui->overlay(), tr("换皮肤失败"),
                                tr("读不到「%1」这张图（或者它不是一张能读出来的图片）。")
@@ -6840,6 +6909,19 @@ void MainWindow::runWhenOverlayFree(const std::function<void()> &open, int round
     });
 }
 
+void MainWindow::openPageWhenIdle(const std::function<void()> &open) {
+    if (!open) {
+        return;
+    }
+    OverlayHost *overlay = m_ui->overlay();
+    if (overlay == nullptr) {
+        open();
+        return;
+    }
+    // 空着 / 被占着两条路都在 OverlayHost 里（排队 + 收干净之后下一轮再摆）。
+    overlay->queuePageOpen(open);
+}
+
 void MainWindow::warnOverlayBusy() {
     OverlayHost *overlay = m_ui->overlay();
     if (overlay == nullptr) {
@@ -7152,35 +7234,6 @@ bool MainWindow::applyInstanceSettings(const QString &versionId,
     return ok;
 }
 
-/// 把一个参数按 cmd.exe 的规矩包起来（「导出启动脚本」那一串参数要用它）。
-///
-/// 两条规矩，都得照做：
-/// - `%` 在批处理里是**变量展开**（`%PATH%`），而且写在双引号里**照样展开** ⇒ 一律写 `%%`；
-/// - 含空格/制表符、空串、或者带 `&|<>()^"` 的参数要加双引号（不加的话那个参数会被 cmd
-/// 拆成好几段，或者整个消失）。
-///
-/// NOTE: 参数里真出现一个 `"` 是**没救**的 —— cmd 没有"引号里的引号"这种写法。这条路上
-/// 的参数来自版本 json 和用户设置（路径、UUID、玩家名），到不了那一步；真到了也只是
-/// 那一个参数被拆开，脚本里看得见，不是静默错。
-/// NOTE: 故意**不**动 `!`：它只在"开了延迟展开"的 cmd 里有意义（脚本自己 `@echo off`，
-/// 默认就没开），而按延迟展开去转义（`^^!`）会让正常那一档凭空多出一个 `^`。
-static QString batchQuote(const QString &arg) {
-    QString escaped = arg;
-    escaped.replace(QLatin1Char('%'), QStringLiteral("%%"));
-    static const QString kSpecial = QStringLiteral(" \t&|<>()^\"");
-    bool needsQuotes = escaped.isEmpty();
-    for (const QChar &ch : escaped) {
-        if (kSpecial.contains(ch)) {
-            needsQuotes = true;
-            break;
-        }
-    }
-    if (!needsQuotes) {
-        return escaped;
-    }
-    return QLatin1Char('"') + escaped + QLatin1Char('"');
-}
-
 // ============================ 日志窗那两颗导出 ============================
 //
 // 为什么保存框在这一层而不是窗那一层：`ui/` 不认识数据目录（那一层的规矩，见
@@ -7442,50 +7495,20 @@ void MainWindow::exportLaunchScript(const QString &versionId, const QString &pat
         resolveJavaSettings(m_javaSettings->effective(), override);
     resolveMemoryForLaunch(versionId, javaSettings, override);
 
-    const QString program = javaSettings.javaPath.isEmpty()
-                                ? QStringLiteral("java")
-                                : QDir::toNativeSeparators(javaSettings.javaPath);
-    const QStringList args =
-        launchArguments(versionId, versionJson, javaSettings,
-                        offlineMode ? token : LaunchScriptCredentials::placeholder(), offlineMode);
-
-    // ---------- 拼那个 .bat ----------
-    //
-    // 编码写**本地 8 位**，不写 UTF-8 + `chcp 65001`：cmd 是按当前代码页读文件的，而"双击
-    // 一个 .bat"时先跑起来的正是 cmd 自己 —— 代码页要等它读到那一行 `chcp` 才能改，在那之前
-    // 的字节已经按旧代码页解过了。写本地代码页则两边天然一致。
-    //
-    // 第一句必须是 `cd /d`：参数里 classpath 那几段是**相对 <数据目录>** 写的（启动器那边
-    // 靠 QProcess 的 setWorkingDirectory(minecraftDir) 兜住），脚本不在那个目录下跑就找不到
-    // jar。`/d` 是连盘符一起换 —— 数据目录在 E 盘、脚本导到 C 盘桌面上是最常见的情形。
-    QString script;
-    // 注释也要按**本地 8 位**写得出来。英文版 Windows 的代码页装不下汉字，
-    // `toLocal8Bit()` 会把它们变成 '?' —— 那一行就成了一句问号。注释是给人看的，宁可
-    // 换一种写得出来的语言，也不要写一串乱码。
-    // 参数里那种非 ASCII 没法替（那是用户的路径/名字），只能照实写。
-    const auto localOrAscii = [](const QString &local, const QString &ascii) {
-        return QString::fromLocal8Bit(local.toLocal8Bit()) == local ? local : ascii;
-    };
-    script += QStringLiteral("@echo off\r\n");
-    script += localOrAscii(
-        QStringLiteral("rem 由 WTFML 导出：按这个实例现在的参数启动。\r\n"),
-        QStringLiteral("rem Exported by WTFML: starts with this instance's current arguments.\r\n"));
-    if (!offlineMode) {
-        script += LaunchScriptCredentials::preamble();
-    }
-    script += QStringLiteral("cd /d ") +
-              batchQuote(QDir::toNativeSeparators(AppPaths::minecraftDir())) +
-              QStringLiteral("\r\n");
-    script += batchQuote(program);
-    for (const QString &arg : args) {
-        QString safeArgument = arg;
-        if (!offlineMode) safeArgument.replace(token, LaunchScriptCredentials::placeholder());
-        script += QLatin1Char(' ') + (offlineMode ? batchQuote(safeArgument)
-            : LaunchScriptCredentials::argument(batchQuote(safeArgument)));
-    }
-    script += QStringLiteral("\r\n");
-
-    if (SecretRedactor::redact(script) != script) {
+    // 正文（引号规矩、`%` 写两遍、本地代码页那句注释、令牌换成环境变量引用、拼完再过一道
+    // 已知凭据）归 `LaunchScriptExport::compose()` —— 那些规矩错一个字节都要等用户双击脚本
+    // 才看得见，那边验证工程能逐条钉住。这一层只凑值：数据目录、Java 程序、和启动器这一趟
+    // 同一份参数、以及这个身份。返回空串 = 参数里带着已知凭据，这一份不写。
+    LaunchScriptExport::Input scriptInput;
+    scriptInput.dataDir = AppPaths::minecraftDir();
+    scriptInput.program = javaSettings.javaPath;
+    scriptInput.args = launchArguments(
+        versionId, versionJson, javaSettings,
+        offlineMode ? token : LaunchScriptCredentials::placeholder(), offlineMode);
+    scriptInput.token = token;
+    scriptInput.offlineMode = offlineMode;
+    const QString script = LaunchScriptExport::compose(scriptInput);
+    if (script.isEmpty()) {
         InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
             tr("启动参数中仍包含已知登录凭据，未写入脚本。请移除自定义参数中的凭据后重试。"));
         return;
@@ -7537,9 +7560,7 @@ void MainWindow::repairInstanceFiles(const QString &versionId) {
     // 三道守卫，各说各的：用户点的是"检查这个实例"，说清"现在为什么不行"比一句笼统的
     // "忙"有用。第一道看的是**这个实例自己**（不等于"有下载在跑"——别的实例在装不该拦它，
     // 但这里点的是补全，而补全要开一批下载，所以第二道照样得拦）。
-    const bool thisInstanceBusy = versionId == m_installingInstanceId ||
-                                  versionId == m_importingInstanceId ||
-                                  versionId == m_repairingInstanceId;
+    const bool thisInstanceBusy = m_installOccupancy.modifying(versionId);
     if (thisInstanceBusy) {
         InlineMessage::information(
             m_ui->overlay(), tr("现在做不了"),
@@ -7578,7 +7599,7 @@ void MainWindow::repairInstanceFiles(const QString &versionId) {
     appendLog(tr("开始校验「%1」的文件（已存在的会跳过）...").arg(instanceDisplayName(versionId)));
     // 顺序：**先记名字再置忙**。setDownloadUiBusy() 里那句 refreshInstalledVersions() 读的
     // 就是这个判据（正在补全的实例不该出现在启动列表里），反过来的话它漏得出那一次刷新。
-    m_repairingInstanceId = versionId;
+    m_installOccupancy.setBatch(InstallOccupancy::Batch::Repair, versionId);
     setDownloadUiBusy(true);
     m_versionManager->repairVersionFiles(versionId, flagged);
 }
@@ -7612,14 +7633,13 @@ void MainWindow::maybePrefetchAssetDirector(const QString &versionId) {
     }
     // 三道守卫：这个实例（或别的批次）正忙就不抢批次状态。数据层那边还会再挡一次。
     if (m_downloadInFlight || m_versionManager->isDownloading()
-        || !m_repairingInstanceId.isEmpty() || !m_importingInstanceId.isEmpty()
-        || !m_installingInstanceId.isEmpty()) {
+        || m_installOccupancy.anyModifying()) {
         appendLog(tr("「%1」的首启资源这次没有预取（有别的下载或安装正在进行）。")
                       .arg(instanceDisplayName(versionId)));
         return;
     }
     // 顺序：**先记名字再置忙**（`DownloadTaskLedgerController::begin()` 的判据就是这几个 id）。
-    m_assetPrefetchInstanceId = versionId;
+    m_installOccupancy.setBatch(InstallOccupancy::Batch::Prefetch, versionId);
     setDownloadUiBusy(true);
     appendLog(tr("正在预取「%1」的 GTNH 首启资源（%2 个对象，预计 %3 MiB，写入 %4）…")
                   .arg(instanceDisplayName(versionId))
@@ -7629,8 +7649,8 @@ void MainWindow::maybePrefetchAssetDirector(const QString &versionId) {
     if (!m_versionManager->prefetchAssetDirectorResources(versionId)) {
         // 数据层一个字节都没动（不适用 / 被拒 / 已齐）：它可能已经同步发过终态（那时上面那个
         // 分支已经收完尾了），也可能什么都没发 —— 后者要在这里把忙态和任务收回来。
-        if (m_assetPrefetchInstanceId == versionId) {
-            m_assetPrefetchInstanceId.clear();
+        if (m_installOccupancy.is(InstallOccupancy::Batch::Prefetch, versionId)) {
+            m_installOccupancy.clearBatch(InstallOccupancy::Batch::Prefetch);
             setDownloadUiBusy(false);
         }
     }
@@ -7646,9 +7666,7 @@ bool MainWindow::integrityScanningVersion(const QString &versionId) const {
 
 void MainWindow::submitIntegrityCheck(const QString &versionId) {
     IntegrityController::BusyFacts busy;
-    busy.targetBeingModified = versionId == m_installingInstanceId
-                               || versionId == m_importingInstanceId
-                               || versionId == m_repairingInstanceId;
+    busy.targetBeingModified = m_installOccupancy.modifying(versionId);
     busy.anotherDownloadRunning = m_downloadInFlight || m_versionManager->isDownloading()
                                   || (m_serverInstall != nullptr
                                       && m_serverInstall->ownsDownloadBatch());

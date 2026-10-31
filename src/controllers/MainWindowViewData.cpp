@@ -608,24 +608,17 @@ QList<MainWindowUI::PanelAction> runningPanelActions(const QColor &ink) {
 /// 的 type 是从它继承的原版那一层来的 —— 那正是它该显示的分类。而装的时候手里只有
 /// `pack.gameVersion` 这个版本号，想写 type 反而要再回清单里查一次。
 /// 代价是每个"meta 里没写 type 的"实例第一次问它时要读+解析一次那份 json；结果在
-/// VersionManager 里带缓存（mergedVersionJsons），所以一次会话里每个实例只读一次。
+/// VersionManager 里带着（跟着合并缓存那一格走，见 `InstanceTraits`），所以一次会话里
+/// 每个实例只读一次。
+///
+/// NOTE: 两条判据（meta 里的 `type`、json 里的 `type`）现在都由
+/// `VersionManager::instanceTraits()` 一次答完 —— 它和"这个实例是哪个加载器"共用一次
+/// meta 读。分开问的话，实例树每刷新一次就要对每个实例多问两遍 stat（行首图标一遍、
+/// 自动归类一遍），200 个实例上那是几十毫秒。
 VersionCategory::Channel versionChannelOf(const VersionManager *versions, const QString &versionId) {
-    QString type = versions == nullptr
-                       ? QString()
-                       : versions->versionMeta(versionId).value(QStringLiteral("type")).toString();
-    // 先看一眼那份 json 在不在：不在就别问 getVersionJson()（它会 qWarning，而这个函数
-    // 每次刷新实例列表都要对每个实例跑一遍，一句"版本 JSON 找不到"会把日志刷满）。
-    //
-    // NOTE: 这道闸只管"文件不在"那一种 —— **解析不了的**（用户手里是一份坏 json）照样会
-    // 抱怨一句"Failed to parse ..."，而且每次刷新都会再说一遍（解析失败那条路不进
-    // 缓存，见 VersionManager::getVersionJson）。这是**故意留着**的：那份 json 坏掉
-    // 的实例本来就启动不了，日志里说一句比闷着强，而且它跟"缺 jar""缺 java"是同一档
-    // 频率（一次刷新一句，不是每个像素一句）。见 mw_check 的 J 节 —— 那一节的样本
-    // 文件因此必须是**能解析**的 json。
-    if (type.isEmpty() && versions != nullptr
-        && QFile::exists(InstanceFiles::jsonPath(versionId))) {
-        type = versions->getVersionJson(versionId).value(QStringLiteral("type")).toString();
-    }
+    QString type = versions == nullptr ? QString() : versions->instanceTraits(versionId).type;
+    // "文件不在就不问 json"那道闸不在这里了：它在 instanceTraits() 里面（同一条理由 ——
+    // getVersionJson() 找不到文件会 qWarning，而这个函数每次刷新都对每个实例跑一遍）。
     if (type.isEmpty()) {
         type = QStringLiteral("release");
     }
@@ -686,7 +679,12 @@ QString loaderGroupKey(const QString &loaderName) {
 /// 要给它一个标志就加一颗加载器钮 —— 别在这儿另画一张图。
 QPixmap defaultInstanceMark(const VersionDisplayParts &part, const VersionManager *versions,
                             int size) {
-    const QString loader = instanceLoaderName(part, versions);
+    // 加载器名和版本分类**一次问齐**（`instanceTraits()` 共用一次 meta 读）。分开问两遍
+    // 的话，实例树每重灌一次、每个实例就多一遍 stat —— 200 个实例上这是几十毫秒的差价。
+    const VersionManager::InstanceTraits traits =
+        versions == nullptr ? VersionManager::InstanceTraits{} : versions->instanceTraits(part.id);
+    // 安装器自己写下的那格压过 json 里认出来的（见 instanceLoaderName()）。
+    const QString loader = part.loaderName.isEmpty() ? traits.loaderName : part.loaderName;
     if (!loader.isEmpty()) {
         for (int index = 0; index < MainWindowUI::modLoaderNoneIndex(); ++index) {
             VersionManager::LoaderKind kind;
@@ -697,7 +695,9 @@ QPixmap defaultInstanceMark(const VersionDisplayParts &part, const VersionManage
         }
         return VersionIcons::grassBlock(size);
     }
-    return VersionIcons::versionChannelMark(versionChannelIndexOf(versions, part.id), size);
+    const QString type = traits.type.isEmpty() ? QStringLiteral("release") : traits.type;
+    return VersionIcons::versionChannelMark(
+        VersionCategory::channelIndex(VersionCategory::channelFor(part.id, type)), size);
 }
 
 /// 实例页某一行前面那个小图标（默认原版草块、forge 铁砧等；用户可以自己换一张，
@@ -763,10 +763,18 @@ QString defaultGroupIdFor(const VersionDisplayParts &part, const VersionManager 
         return known.contains(id) ? id : QString();
     };
     // 加载器那一条先判：装了加载器的快照版/远古版也算"可安装mod"（那才是它现在的样子）。
-    if (!instanceLoaderName(part, versions).isEmpty()) {
+    //
+    // 两条判据都由 `instanceTraits()` 一次答完（共用一次 meta 读）。这里**不能**改回
+    // "先问 instanceLoaderName()、再问 versionChannelOf()"：那是每个实例两遍 stat，
+    // 而自动归类在实例树每重灌一次时都要对每个实例跑一遍。
+    const VersionManager::InstanceTraits traits =
+        versions == nullptr ? VersionManager::InstanceTraits{} : versions->instanceTraits(part.id);
+    const QString loader = part.loaderName.isEmpty() ? traits.loaderName : part.loaderName;
+    if (!loader.isEmpty()) {
         return existing(InstanceGroupStore::DefaultKind::Moddable);
     }
-    switch (versionChannelOf(versions, part.id)) {
+    const QString type = traits.type.isEmpty() ? QStringLiteral("release") : traits.type;
+    switch (VersionCategory::channelFor(part.id, type)) {
     case VersionCategory::Channel::Release:
         return existing(InstanceGroupStore::DefaultKind::Vanilla);
     case VersionCategory::Channel::Snapshot:
