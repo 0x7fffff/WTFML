@@ -55,6 +55,7 @@ add_library(core_cases_instances OBJECT
  core_modules/VersionJvmArgsTests.cpp
  core_modules/InstanceFileTests.cpp
  core_modules/VersionMetaWriteTests.cpp
+ core_modules/InstanceTraitsTests.cpp
  core_modules/InstallOccupancyTests.cpp
  core_modules/RenameInstanceTests.cpp
  core_modules/InstanceGroupTests.cpp

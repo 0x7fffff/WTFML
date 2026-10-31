@@ -625,3 +625,61 @@ pwsh -File tools/perf-startup.ps1 -Probe -Runs 3 -Instances 0 -Exe build/perf-pr
 读回来的 `components`（不再第二次读 manifest）。复跑：`verify` 6182/6182、
 `verify_presets` 762/762、`ui_check` 3136/3136、`mw_check` 2722/2722，
 `mw_check_preset_install` 全过。
+
+## 2026-10-31 实例列表：加载器 / 版本类型一次问清楚
+
+```powershell
+pwsh -File tools/perf-startup.ps1 -Runs 3 -Instances 200 -InstanceMeta -Exe build/perf-probe/WTFMinecraftLauncher.exe -ReportDir <目录>
+```
+
+（改之前那一份跑的是 `-Runs 2`，计入 2 次；改之后是 3 次。其余参数相同。）
+
+起因：上一节把"同一个实例被问三四遍 `wtfml.meta`"压掉之后，分段探针显示一轮刷新剩下的
+两块是每行的 `marks`（35–63 ms）和树填充 `fill`（38–50 ms）。看代码才明白 `marks` 不是
+画图标：每行都要问「是哪个加载器」（实例行前面的标志、默认分组**再问一遍**、频道判定
+还要问一次版本类型），而这三个问题每次都各自把 `wtfml.meta` 读一遍、再各自把合并过的
+版本 json 认一遍（扫 `libraries`、展开 `arguments.game`）。同一个实例、同一份数据，
+一轮里认三遍。
+
+现在：`VersionManager::instanceTraits()` 一次返回三格 —— 加载器名、加载器版本、版本类型。
+meta 那半读一次就够；json 那半只在缺答案时才去认，认出来的结果记在
+`mergedVersionJsons` 那一格里（`MergedJsonEntry`）。`instanceModLoader()` 变成它的一层
+包装，界面上那三处改成一人调一次。
+
+价（同一台机器、同一份 200 个各带 `wtfml.meta` 的夹具，外部测量口径同第二节）：
+
+| 200 个实例（各带 wtfml.meta） | visible 中位 | 范围 | ready 中位 | maxBlock 中位 | 范围 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 改之前（`build/perf-probe-refresh-before`，md5 `ad7d5f51`） | 815.6 ms | 809.3–821.9 | 826.2 ms | 148.0 ms | 132.9–163.1 |
+| 改之后（`build/perf-probe-traits-after`，md5 `549da091`） | 654.6 ms | 640.8–662.8 | 657.3 ms | 19.8 ms | 19.1–20.9 |
+
+同两份报告里的分段探针（`TEMP REFRESH-PROBE`，一列 `qInfo` 打在 `refreshInstalledVersions()`
+里，量完整段删掉；单位 ms，每个进程两轮刷新）：
+
+| 段 | 改之前（6 轮） | 改之后（8 轮） |
+| --- | ---: | ---: |
+| `scan`（`installedVersions()` 扫盘） | 17–25 | 18–24 |
+| `parts`（`displayParts()` 那圈） | 1–9 | 1–11 |
+| `marks`（每行的标志 / 分组 / 频道） | 35, 39, 43, 61, 63, 121 | 41, 42, 42, 102（进程里第一轮）；1, 1, 2, 2（第二轮） |
+| `fill`（`rebuildInstanceTree()`，含分组那一趟） | 38, 40, 42, 43, 45, 50 | 3–6（每一轮） |
+
+- `fill` 一起掉下来的原因：分组那一趟原来对每个实例各自问一次加载器和类型，现在走
+  同一份 `instanceTraits()` 结果。
+- **诚实的一条**：进程里第一轮刷新仍然要 41–102 ms（那 102 是冷盘那次）。它付的是
+  "200 份版本 json 各解析一遍 + 认一遍"的一次性成本，现在缓存住了；第二轮起 1–2 ms。
+  改之前是**每一轮**都付这 35–63 ms，这才是省下来的东西。
+- `scan` 没动：每实例几次 stat 还是那样。下一步要再压就是它。
+- 夹具带 meta。无 meta 的实例走的是 json 那半，收益同样是"一轮只认一遍"，但没有这一轮
+  的 A/B 数字。
+
+正确性：`verify_instances` 新增 QQ 一段（26 项）钉住三条契约 —— meta 写了加载器就以
+meta 为准、meta 没写才去 json 的 `libraries` 里认（含薄 json 从父版本继承）；
+`clearVersionJsonCache()` 之后必须重新认（那一格事实就存在 `mergedVersionJsons` 里，
+所以六处清缓存的地方天然一起失效）；外部直接改 `wtfml.meta`，同一个会话里的下一次问
+就看得见（那半每轮都 stat）。全量复跑：`verify_instances` 1657/1657、`verify` 全过、
+`ui_check`、`mw_check`、`verify_presets`、`verify_downloads` 全过。整轮 `ctest` 跑完
+只有 `wtfml.core-resources` 闪过一次 SEGFAULT，单独重跑三次全过，按已知的
+`build/verification-mingw13` 时序 flake 处理，没当回归追。
+
+读法：单机、改前 n=2 / 改后 n=3、只量探针构建（Release `-O3`、只编产品）。别把
+815 → 655 外推成"所有机器都快 20%"，它说的是这一份夹具、这一条路径。

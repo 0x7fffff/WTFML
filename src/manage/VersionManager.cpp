@@ -1119,7 +1119,7 @@ QJsonObject VersionManager::rawVersionJson(const QString &versionId) const {
 QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
     const auto cached = mergedVersionJsons.constFind(versionId);
     if (cached != mergedVersionJsons.constEnd()) {
-        return cached.value();
+        return cached->json;
     }
 
     QJsonObject merged = rawVersionJson(versionId);
@@ -1180,9 +1180,22 @@ QJsonObject VersionManager::getVersionJson(const QString &versionId) const {
     // 启动器就拿着缺 assets/librarys 的半份 json 去启动，且不报任何错。
     // 环和深度超限同理：留在盘上的东西没变过，重读一次盘比用错的强。
     if (parentId.isEmpty()) {
-        mergedVersionJsons[versionId] = merged;
+        MergedJsonEntry entry;
+        entry.json = merged;
+        mergedVersionJsons.insert(versionId, entry);
     }
     return merged;
+}
+
+const VersionManager::MergedJsonEntry *VersionManager::mergedJsonEntry(
+    const QString &versionId) const {
+    if (!mergedVersionJsons.contains(versionId)) {
+        // 取一次：取到了自然就进了缓存。取不到（文件不在 / 继承链没走完）**不缓存**，
+        // 所以这里下一次问还会再试一遍 —— 和 getVersionJson() 的规矩一致。
+        getVersionJson(versionId);
+    }
+    const auto it = mergedVersionJsons.constFind(versionId);
+    return it == mergedVersionJsons.constEnd() ? nullptr : &it.value();
 }
 
 QString VersionManager::inheritanceProblem(const QString &versionId) const {

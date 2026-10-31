@@ -571,6 +571,10 @@ int runInstanceFileTests(const QString &sandbox);
 // 重命名 / 分组 / 每实例设置三件事都靠这一层。
 int runVersionMetaWriteTests(const QString &sandbox);
 
+// 实例特征（加载器 + 版本类型）一次问清楚：meta 优先、json 兜底、结果跟着
+// mergedVersionJsons 一起缓存。钉的是"装完加载器界面上立刻认得出"这条。
+int runInstanceTraitsTests(const QString &sandbox);
+
 // 安装占用那四档（导入 / 安装 / 补全 / 预取）的判据：优先级、"谁算正在改它"、
 // 收尾按哪一档说话。纯值进、结论出，不建界面也不碰盘。
 int runInstallOccupancyTests(const QString &sandbox);

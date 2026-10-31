@@ -17,6 +17,7 @@
   "VersionJvmArgsTests.cpp": "instances",
   "InstanceFileTests.cpp": "instances",
   "VersionMetaWriteTests.cpp": "instances",
+  "InstanceTraitsTests.cpp": "instances",
   "InstallOccupancyTests.cpp": "instances",
   "ResourceStoreBudgetTests.cpp": "resources",
   "RenameInstanceTests.cpp": "instances",

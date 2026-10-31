@@ -835,8 +835,10 @@ public:
      * mod）。"这一页对用户有没有用"是另一个问题，那个补在调用的那一侧 ——
      * 见 MainWindow::instanceModsUsable()。
      *
-     * NOTE: 这里**读盘**（meta + json），和 instanceSupportsDatapacks() 一样现取不缓存；
-     * 但 `getVersionJson()` 那一层自带缓存，所以一次会话里每个实例只真读一次。
+     * NOTE: 这里**读盘**（meta + json），但两层缓存兜着：meta 那半走
+     * `readVersionMeta()`（按"在不在 / 修改时刻 / 字节数"失效），json 那半算过一次就跟着
+     * 合并缓存那一格记着（见 instanceTraits()）。所以一次会话里每个实例的 json 只认一遍，
+     * 之后每次刷新只多一次 meta 的 stat。
      *
      * NOTE: 第 2 条**先看 OptiFine**（和导出那条路的顺序一致，见 loaderEvidenceFromJson）。
      * 所以一个"既装了 Fabric、又装了 OptiFine"的实例在这里报的是 `OptiFine` ——
@@ -846,6 +848,32 @@ public:
      */
     bool instanceModLoader(const QString &instanceId, QString *nameOut,
                            QString *versionOut = nullptr) const;
+
+    /**
+     * @brief 一个实例**显示层**要的两条事实，一次问齐：加载器，和版本分类那个 `type`。
+     *
+     * 合并成一次的原因很实际：这两个答案都来自同一次 `wtfml.meta` 读。分开问两遍
+     * （`instanceModLoader()` + 版本分类）就是每个实例每次刷新多一遍 stat ——
+     * 实例树在 200 个实例上要问两轮（行首图标一轮、自动归类一轮），那一层实测能把
+     * 一次刷新里三成的阻塞摊在这几条 stat 上。
+     *
+     * 两条的取法各自和原来一模一样（别在这里"顺便统一"）：
+     * - `loaderName`：`wtfml.meta` 里那格**原样**（trimmed，可能是用户手写的 `fabric`），
+     *   没有才回落到版本 json 里认出来的**显示名**；都没有 = 空串。
+     * - `type`：`wtfml.meta` 里的 `type` 优先，其次是版本 json 自己写的那个；都没有 = 空串
+     *   （调用方当**正式版**处理，见 MainWindowViewData.cpp 里 versionChannelOf()）。
+     *
+     * NOTE: json 那半算过一遍就跟着合并缓存那一格一起记着（见 MergedJsonEntry）——
+     * 丢掉 json 缓存的每一处都会把这两个答案一起丢掉，所以不必再维护第二份失效逻辑。
+     * NOTE: meta 那半**每次问都现读一次 stat**（和 readVersionMeta() 的失效判据一致）：
+     * 用户在外面手改 wtfml.meta 之后，下一次刷新就该看见新的加载器名。
+     */
+    struct InstanceTraits {
+        QString loaderName;     ///< 加载器名（meta 里那格原样；或 json 认出来的显示名）
+        QString loaderVersion;  ///< 只在 loaderName 非空时有意义
+        QString type;           ///< "release" / "snapshot" / "old_beta" …；空 = 不知道
+    };
+    InstanceTraits instanceTraits(const QString &instanceId) const;
 
     /**
      * @brief 反查：本地 sha1 → Modrinth 的版本。
@@ -1869,7 +1897,27 @@ private:
     mutable QMap<QString, QJsonObject> versionJsons;
     // versionId -> **合并后**的 versionJson（走完 inheritsFrom 链）。单独一张表：
     // 往 versionJsons 里塞合并结果会把"原始那份"盖掉，而下载路径要靠原始那份落盘。
-    mutable QMap<QString, QJsonObject> mergedVersionJsons;
+    //
+    // 每一格里除了 json 本体，还懒算一份**只取决于这份 json** 的事实（加载器证据和
+    // `type`，见 instanceTraits()）。放在同一格里是有意的：丢掉 json 缓存的那六处
+    // （复制 / 删除 / 整合包替换 / 加载器安装 / 换文件夹 / 单版本 remove）现在**不必**
+    // 再记得多清一张表 —— 漏清一处的症状是"删掉重装同一个版本号之后，实例行前面还是
+    // 旧加载器的标志、归类还留在旧组里"，而屏幕上没有任何一句话说得通。
+    //
+    // NOTE: `const` 成员不是笔误：instanceTraits() 是 const 方法，事实是在第一次问的时候
+    // 补进缓存那一格里的（和这张表本身迟到填充是一个道理）。
+    struct MergedJsonEntry {
+        QJsonObject json;
+        mutable bool factsScanned = false;  ///< 下面那几个字段算过没有
+        mutable bool loaderFound = false;   ///< loaderEvidenceFromJson() 认出来没有
+        mutable QString loaderKey;          ///< 认出来时的证据键（见 loaderDisplayNameForEvidenceKey）
+        mutable QString loaderVersion;
+        mutable QString type;               ///< json 自己写的 "type"（可能是空串）
+    };
+    mutable QMap<QString, MergedJsonEntry> mergedVersionJsons;
+    /// 取合并 json 那一格（缓存里没有就先取一次；取不到 / 继承链没走完 ⇒ nullptr）。
+    /// 只在 instanceTraits() 用得上；`getVersionJson()` 不给指针是因为调用方要的是内容。
+    const MergedJsonEntry *mergedJsonEntry(const QString &versionId) const;
     /// 一份 `<id>/wtfml.meta` 的读结果缓存（见 `readVersionMeta()`）。
     ///
     /// 为什么要缓存：实例树**每重灌一次**就对同一个实例问三四个问题 —— 显示名一次、
