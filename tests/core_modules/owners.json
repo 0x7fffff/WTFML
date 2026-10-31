@@ -52,6 +52,7 @@
   "LaunchOptionsTests.cpp": "launch",
   "QuickPlayTests.cpp": "launch",
   "ErrorReportTests.cpp": "launch",
+  "LaunchScriptExportTests.cpp": "launch",
   "NativesMarkerTests.cpp": "launch",
   "GameExitDiagnosisTests.cpp": "launch",
   "LaunchHistoryTests.cpp": "launch",

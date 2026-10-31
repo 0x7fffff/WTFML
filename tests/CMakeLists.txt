@@ -383,6 +383,12 @@ if(EXISTS ${REPO_ROOT}/src/launcher/VersionArguments.hpp)
     list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/launcher/VersionArguments.hpp)
 endif()
 
+# LaunchScriptExport 是「导出启动脚本」那份 .bat 的正文：哪些字符要加引号、`%` 写两遍、
+# 令牌换成环境变量引用、带已知凭据就不写。理由同上：别的分支上没有它，存在才加。
+if(EXISTS ${REPO_ROOT}/src/launcher/LaunchScriptExport.hpp)
+    list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/launcher/LaunchScriptExport.hpp)
+endif()
+
 # VersionInheritance 是"带模组加载器的版本（inheritsFrom）"那次改动引入的。理由同上：
 # 别的分支上没有这两个文件，存在才加，缺了就让对应用例在运行时报 FAIL。
 if(EXISTS ${REPO_ROOT}/src/launcher/VersionInheritance.cpp)

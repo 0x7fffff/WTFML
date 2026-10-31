@@ -1596,6 +1596,7 @@ runQuickPlayTests(metaDir);
 
 #ifndef WTFML_CORE_BASELINE
 runErrorReportTests();
+runLaunchScriptExportTests();
 #endif
 
     // -----------------------------------------------------------------

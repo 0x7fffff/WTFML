@@ -134,6 +134,7 @@ add_library(core_cases_launch OBJECT
  core_modules/LaunchOptionsTests.cpp
  core_modules/QuickPlayTests.cpp
  core_modules/ErrorReportTests.cpp
+ core_modules/LaunchScriptExportTests.cpp
  core_modules/NativesMarkerTests.cpp
  core_modules/GameExitDiagnosisTests.cpp
  core_modules/LaunchHistoryTests.cpp

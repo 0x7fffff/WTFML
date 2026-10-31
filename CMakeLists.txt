@@ -75,6 +75,8 @@ set(HEADER_FILES
     src/controllers/ServerListController.hpp
     src/launcher/LauncherManager.hpp
     src/launcher/LibraryRules.hpp
+    # 「导出启动脚本」那份 .bat 的正文（纯值进、文本出，验证工程逐条钉住）。
+    src/launcher/LaunchScriptExport.hpp
     src/launcher/ProcessPriority.hpp
     src/launcher/VersionInheritance.hpp
     src/auth/AuthManager.hpp

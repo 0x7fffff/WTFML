@@ -21,6 +21,7 @@
 #include "controllers/DownloadTaskLedgerController.hpp"
 #include "controllers/ResourceInstallController.hpp"
 #include "manage/UpdatePolicy.hpp"
+#include "launcher/LaunchScriptExport.hpp"
 #include "util/SecretRedactor.hpp"
 #include "util/LaunchScriptCredentials.hpp"
 #include "manage/BackupFiles.hpp"
@@ -7204,35 +7205,6 @@ bool MainWindow::applyInstanceSettings(const QString &versionId,
     return ok;
 }
 
-/// 把一个参数按 cmd.exe 的规矩包起来（「导出启动脚本」那一串参数要用它）。
-///
-/// 两条规矩，都得照做：
-/// - `%` 在批处理里是**变量展开**（`%PATH%`），而且写在双引号里**照样展开** ⇒ 一律写 `%%`；
-/// - 含空格/制表符、空串、或者带 `&|<>()^"` 的参数要加双引号（不加的话那个参数会被 cmd
-/// 拆成好几段，或者整个消失）。
-///
-/// NOTE: 参数里真出现一个 `"` 是**没救**的 —— cmd 没有"引号里的引号"这种写法。这条路上
-/// 的参数来自版本 json 和用户设置（路径、UUID、玩家名），到不了那一步；真到了也只是
-/// 那一个参数被拆开，脚本里看得见，不是静默错。
-/// NOTE: 故意**不**动 `!`：它只在"开了延迟展开"的 cmd 里有意义（脚本自己 `@echo off`，
-/// 默认就没开），而按延迟展开去转义（`^^!`）会让正常那一档凭空多出一个 `^`。
-static QString batchQuote(const QString &arg) {
-    QString escaped = arg;
-    escaped.replace(QLatin1Char('%'), QStringLiteral("%%"));
-    static const QString kSpecial = QStringLiteral(" \t&|<>()^\"");
-    bool needsQuotes = escaped.isEmpty();
-    for (const QChar &ch : escaped) {
-        if (kSpecial.contains(ch)) {
-            needsQuotes = true;
-            break;
-        }
-    }
-    if (!needsQuotes) {
-        return escaped;
-    }
-    return QLatin1Char('"') + escaped + QLatin1Char('"');
-}
-
 // ============================ 日志窗那两颗导出 ============================
 //
 // 为什么保存框在这一层而不是窗那一层：`ui/` 不认识数据目录（那一层的规矩，见
@@ -7494,50 +7466,20 @@ void MainWindow::exportLaunchScript(const QString &versionId, const QString &pat
         resolveJavaSettings(m_javaSettings->effective(), override);
     resolveMemoryForLaunch(versionId, javaSettings, override);
 
-    const QString program = javaSettings.javaPath.isEmpty()
-                                ? QStringLiteral("java")
-                                : QDir::toNativeSeparators(javaSettings.javaPath);
-    const QStringList args =
-        launchArguments(versionId, versionJson, javaSettings,
-                        offlineMode ? token : LaunchScriptCredentials::placeholder(), offlineMode);
-
-    // ---------- 拼那个 .bat ----------
-    //
-    // 编码写**本地 8 位**，不写 UTF-8 + `chcp 65001`：cmd 是按当前代码页读文件的，而"双击
-    // 一个 .bat"时先跑起来的正是 cmd 自己 —— 代码页要等它读到那一行 `chcp` 才能改，在那之前
-    // 的字节已经按旧代码页解过了。写本地代码页则两边天然一致。
-    //
-    // 第一句必须是 `cd /d`：参数里 classpath 那几段是**相对 <数据目录>** 写的（启动器那边
-    // 靠 QProcess 的 setWorkingDirectory(minecraftDir) 兜住），脚本不在那个目录下跑就找不到
-    // jar。`/d` 是连盘符一起换 —— 数据目录在 E 盘、脚本导到 C 盘桌面上是最常见的情形。
-    QString script;
-    // 注释也要按**本地 8 位**写得出来。英文版 Windows 的代码页装不下汉字，
-    // `toLocal8Bit()` 会把它们变成 '?' —— 那一行就成了一句问号。注释是给人看的，宁可
-    // 换一种写得出来的语言，也不要写一串乱码。
-    // 参数里那种非 ASCII 没法替（那是用户的路径/名字），只能照实写。
-    const auto localOrAscii = [](const QString &local, const QString &ascii) {
-        return QString::fromLocal8Bit(local.toLocal8Bit()) == local ? local : ascii;
-    };
-    script += QStringLiteral("@echo off\r\n");
-    script += localOrAscii(
-        QStringLiteral("rem 由 WTFML 导出：按这个实例现在的参数启动。\r\n"),
-        QStringLiteral("rem Exported by WTFML: starts with this instance's current arguments.\r\n"));
-    if (!offlineMode) {
-        script += LaunchScriptCredentials::preamble();
-    }
-    script += QStringLiteral("cd /d ") +
-              batchQuote(QDir::toNativeSeparators(AppPaths::minecraftDir())) +
-              QStringLiteral("\r\n");
-    script += batchQuote(program);
-    for (const QString &arg : args) {
-        QString safeArgument = arg;
-        if (!offlineMode) safeArgument.replace(token, LaunchScriptCredentials::placeholder());
-        script += QLatin1Char(' ') + (offlineMode ? batchQuote(safeArgument)
-            : LaunchScriptCredentials::argument(batchQuote(safeArgument)));
-    }
-    script += QStringLiteral("\r\n");
-
-    if (SecretRedactor::redact(script) != script) {
+    // 正文（引号规矩、`%` 写两遍、本地代码页那句注释、令牌换成环境变量引用、拼完再过一道
+    // 已知凭据）归 `LaunchScriptExport::compose()` —— 那些规矩错一个字节都要等用户双击脚本
+    // 才看得见，那边验证工程能逐条钉住。这一层只凑值：数据目录、Java 程序、和启动器这一趟
+    // 同一份参数、以及这个身份。返回空串 = 参数里带着已知凭据，这一份不写。
+    LaunchScriptExport::Input scriptInput;
+    scriptInput.dataDir = AppPaths::minecraftDir();
+    scriptInput.program = javaSettings.javaPath;
+    scriptInput.args = launchArguments(
+        versionId, versionJson, javaSettings,
+        offlineMode ? token : LaunchScriptCredentials::placeholder(), offlineMode);
+    scriptInput.token = token;
+    scriptInput.offlineMode = offlineMode;
+    const QString script = LaunchScriptExport::compose(scriptInput);
+    if (script.isEmpty()) {
         InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
             tr("启动参数中仍包含已知登录凭据，未写入脚本。请移除自定义参数中的凭据后重试。"));
         return;

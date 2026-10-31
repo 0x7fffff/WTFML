@@ -12,6 +12,7 @@ int main(int argc, char **argv) {
     runLaunchOptionsTests(sandbox);
     runQuickPlayTests(metaDir);
     runErrorReportTests();
+    runLaunchScriptExportTests();
     runNativesMarkerTests();
     runGameExitDiagnosisTests();
     runLaunchHistoryTests();

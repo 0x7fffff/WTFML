@@ -1618,6 +1618,7 @@ void runQuickPlayTests(const QString &metaDir);
 // NOTE: 时间是从外面传进去的（`ErrorReport` 不读时钟），所以 `生成时间：` 那一行在这里
 // 是个定值 —— 这一条是整个文件里唯一能钉住"时间那一格长什么样"的办法。
 void runErrorReportTests();
+int runLaunchScriptExportTests();
 
 // =========================================================================
 // ZJ. 「复制实例」和「导入世界 / 世界改名」
