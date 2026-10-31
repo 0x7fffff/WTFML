@@ -22,6 +22,7 @@
 #include <QUrl>
 
 #include "../util/AppPaths.hpp"
+#include "../net/ControlGet.hpp"
 
 namespace {
 
@@ -30,8 +31,9 @@ constexpr char kProfileEndpoint[] =
     "https://sessionserver.mojang.com/session/minecraft/profile/";
 
 /// 这一个请求的超时。比 DownloadManager 的 30 s 短是有意的：那 30 s 是给几十兆的
-/// jar/资源包的，而这是一张几 KB 的贴图、而且是**可选**的外观请求 —— 真连不上就早点
-/// 放弃、退回默认外观，不该拖着什么。
+/// jar/资源包的，而这是一张几 KB 的贴图和一份几 KB 的档案、而且是**可选**的外观请求
+/// —— 真连不上就早点放弃、退回默认外观，不该拖着什么。
+/// NOTE: 这两发走 ControlGet，所以这个数是**排队 + 传输**一起的预算，不是纯传输超时。
 constexpr int kTransferTimeoutMs = 10000;
 
 /// 档案缓存文件的格式版本。将来格式变了就 +1，而**不认识的版本一律当读不懂** ——
@@ -391,49 +393,66 @@ void PlayerSkinStore::refreshForUuid(const QString &uuid) {
     const QUrl url(g_profileBaseOverride.isEmpty() ? QLatin1String(kProfileEndpoint)
                                                    : withTrailingSlash(g_profileBaseOverride) + key);
     QNetworkRequest request(url);
-    request.setTransferTimeout(kTransferTimeoutMs);
-    QNetworkReply *reply = m_network->get(request);
+    // 超时不写在请求上：这一发和别的短请求共用 Control 名额，排队 + 传输一起算进
+    // kTransferTimeoutMs（ControlGet 按剩余时间自己设 transferTimeout）。
     // `key` 一起捕获进去：回来的时候"现在是谁"可能已经不是发请求时的那个了，而这份档案
     // 是**发请求时那个人的** —— 只有把身份跟着信号带出去，调用方才能判断该不该落盘。
-    connect(reply, &QNetworkReply::finished, this, [this, reply, key]() {
-        // 先取完要用的东西再放它走（reply->readAll() 之后才 deleteLater）。
-        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        const QByteArray body = reply->readAll();
-        const QString networkError = reply->errorString();
-        reply->deleteLater();
+    RequestBudget::ControlGet::start(this, m_network, request, kTransferTimeoutMs,
+                                     [this, key](QNetworkReply *reply, const QString &jobError) {
+                                         if (reply == nullptr) {
+                                             // 没发出去 / 排队到点 / 被掐 / QNAM 先没：都算这一发
+                                             // 没成。发 failed() 而不是只记日志 —— 调用方拿它把
+                                             // "正在获取"那一格落回 false（以前超时走网络错误那条
+                                             // 路，同样会发 failed）。
+                                             emit failed(QStringLiteral("取档案失败：%1").arg(jobError));
+                                             return;
+                                         }
+                                         const int status =
+                                             reply->attribute(QNetworkRequest::HttpStatusCodeAttribute)
+                                                 .toInt();
+                                         const QByteArray body = reply->readAll();
+                                         const QString networkError = reply->errorString();
 
-        const ProfileFetchOutcome outcome = classifyProfileResponse(status, body);
-        if (outcome == ProfileFetchOutcome::NoSuchPlayer) {
-            // 204：查不到这个人，或者被限流了。**不发信号**、也不清掉手上那份缓存 ——
-            // 多半是限流，此时"继续用上次那套外观"比"退回默认外观"更接近用户想看到的。
-            qWarning().noquote() << "官方查不到这个玩家的档案（204），沿用上次的外观";
-            return;
-        }
-        if (outcome == ProfileFetchOutcome::Throttled) {
-            // 429：官方在限流。**不发 failed()** —— 那会在日志里留一句"取档案失败
-            // （HTTP 429）"，而外观那一栏其实照旧（静默降级的理由同上面 204 那条）。
-            // 和 204 唯一的不同在这里：记下解禁时刻，这段时间内不再问（见
-            // kThrottleBackoffMs）—— "又 429"就是这么来的，一次被挡、后面每次刷新都撞。
-            m_throttledUntil = QDateTime::currentDateTimeUtc().addMSecs(kThrottleBackoffMs);
-            qWarning().noquote()
-                << "官方限流了（429），一分钟后再说，这段时间沿用上次的外观";
-            return;
-        }
-        if (outcome == ProfileFetchOutcome::Failed) {
-            emit failed(QStringLiteral("取档案失败（HTTP %1）：%2").arg(status).arg(networkError));
-            return;
-        }
+                                         const ProfileFetchOutcome outcome =
+                                             classifyProfileResponse(status, body);
+                                         if (outcome == ProfileFetchOutcome::NoSuchPlayer) {
+                                             // 204：查不到这个人，或者被限流了。**不发信号**、也不清掉
+                                             // 手上那份缓存 —— 多半是限流，此时"继续用上次那套外观"比
+                                             // "退回默认外观"更接近用户想看到的。
+                                             qWarning().noquote()
+                                                 << "官方查不到这个玩家的档案（204），沿用上次的外观";
+                                             return;
+                                         }
+                                         if (outcome == ProfileFetchOutcome::Throttled) {
+                                             // 429：官方在限流。**不发 failed()** —— 那会在日志里留一句
+                                             // "取档案失败（HTTP 429）"，而外观那一栏其实照旧（静默降级
+                                             // 的理由同上面 204 那条）。和 204 唯一的不同在这里：记下解禁
+                                             // 时刻，这段时间内不再问（见 kThrottleBackoffMs）—— "又 429"
+                                             // 就是这么来的，一次被挡、后面每次刷新都撞。
+                                             m_throttledUntil = QDateTime::currentDateTimeUtc().addMSecs(
+                                                 kThrottleBackoffMs);
+                                             qWarning().noquote()
+                                                 << "官方限流了（429），一分钟后再说，这段时间沿用上次的外观";
+                                             return;
+                                         }
+                                         if (outcome == ProfileFetchOutcome::Failed) {
+                                             emit failed(QStringLiteral("取档案失败（HTTP %1）：%2")
+                                                             .arg(status)
+                                                             .arg(networkError));
+                                             return;
+                                         }
 
-        QString error;
-        const PlayerSkinProfile profile = parseProfileJson(body, &error);
-        if (profile.isEmpty()) {
-            // 分类说 Ok 就没道理走到这里（Ok 的定义就是"解得出来"），但真到了这一步也
-            // 不能发一份空档案出去 —— 那会让调用方把好不容易画出来的外观清掉。
-            emit failed(error);
-            return;
-        }
-        emit profileReady(key, profile);
-    });
+                                         QString error;
+                                         const PlayerSkinProfile profile = parseProfileJson(body, &error);
+                                         if (profile.isEmpty()) {
+                                             // 分类说 Ok 就没道理走到这里（Ok 的定义就是"解得出来"），但真到
+                                             // 了这一步也不能发一份空档案出去 —— 那会让调用方把好不容易画出来
+                                             // 的外观清掉。
+                                             emit failed(error);
+                                             return;
+                                         }
+                                         emit profileReady(key, profile);
+                                     });
 }
 
 void PlayerSkinStore::fetchTexture(const QString &url) {
@@ -463,37 +482,45 @@ void PlayerSkinStore::fetchTexture(const QString &url) {
     }
 
     QNetworkRequest request(target);
-    request.setTransferTimeout(kTransferTimeoutMs);
-    QNetworkReply *reply = m_network->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, url, cached]() {
-        const QByteArray bytes = reply->readAll();
-        const QString networkError = reply->errorString();
-        const bool ok = reply->error() == QNetworkReply::NoError;
-        reply->deleteLater();
+    // 同 refreshForUuid：超时由 ControlGet 按剩余时间设，排队也算在里面。
+    RequestBudget::ControlGet::start(
+        this, m_network, request, kTransferTimeoutMs,
+        [this, url, cached](QNetworkReply *reply, const QString &jobError) {
+            if (reply == nullptr) {
+                // 同上：没发出去/被掐/包装层先没，都是"这次没成"。
+                emit failed(QStringLiteral("下贴图失败：%1").arg(jobError));
+                return;
+            }
+            const QByteArray bytes = reply->readAll();
+            const QString networkError = reply->errorString();
+            const bool ok = reply->error() == QNetworkReply::NoError;
 
-        if (!ok) {
-            emit failed(QStringLiteral("下贴图失败：%1").arg(networkError));
-            return;
-        }
-        if (!looksLikeSkinPng(bytes)) {
-            // **不落盘**。往里写一张垃圾图，下次开窗会把它当"命中缓存"用，而缓存是
-            // 永不失效的 —— 那张图会一直错下去，而且再也不会有人去重下它。
-            emit failed(QStringLiteral("贴图不是一张 64 宽的皮肤 PNG（%1 字节）").arg(bytes.size()));
-            return;
-        }
+            if (!ok) {
+                emit failed(QStringLiteral("下贴图失败：%1").arg(networkError));
+                return;
+            }
+            if (!looksLikeSkinPng(bytes)) {
+                // **不落盘**。往里写一张垃圾图，下次开窗会把它当"命中缓存"用，而缓存是
+                // 永不失效的 —— 那张图会一直错下去，而且再也不会有人去重下它。
+                emit failed(
+                    QStringLiteral("贴图不是一张 64 宽的皮肤 PNG（%1 字节）").arg(bytes.size()));
+                return;
+            }
 
-        if (!QDir().mkpath(AppPaths::skinsDir())) {
-            emit failed(QStringLiteral("无法创建目录 %1。")
-                            .arg(QDir::toNativeSeparators(AppPaths::skinsDir())));
-            return;
-        }
-        QSaveFile file(cached);
-        if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit()) {
-            // 落盘失败（磁盘满、权限）时**也当失败**：这张图只在内存里，而调用方要的是
-            // 一个能读的路径。说清楚比"发一个读不到的路径"强。
-            emit failed(QStringLiteral("贴图存不下来：%1").arg(QDir::toNativeSeparators(cached)));
-            return;
-        }
-        emit textureReady(url, cached);
-    });
+            if (!QDir().mkpath(AppPaths::skinsDir())) {
+                emit failed(QStringLiteral("无法创建目录 %1。")
+                                .arg(QDir::toNativeSeparators(AppPaths::skinsDir())));
+                return;
+            }
+            QSaveFile file(cached);
+            if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size()
+                || !file.commit()) {
+                // 落盘失败（磁盘满、权限）时**也当失败**：这张图只在内存里，而调用方要的是
+                // 一个能读的路径。说清楚比"发一个读不到的路径"强。
+                emit failed(
+                    QStringLiteral("贴图存不下来：%1").arg(QDir::toNativeSeparators(cached)));
+                return;
+            }
+            emit textureReady(url, cached);
+        });
 }

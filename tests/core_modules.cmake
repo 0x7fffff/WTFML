@@ -119,6 +119,8 @@ add_library(core_cases_resources OBJECT
  core_modules/AssetDirectorKnownSetTests.cpp
  core_modules/ResourceCatalogTests.cpp
  core_modules/ResourceDetailTests.cpp
+ # ZI：资源商店那几发也走共享的 Control 额度（本机假接口，不碰外网）。
+ core_modules/ResourceStoreBudgetTests.cpp
 )
 wtfml_core_compile(core_cases_resources)
 list(APPEND WTFML_CORE_CASE_OBJECTS $<TARGET_OBJECTS:core_cases_resources>)

@@ -179,6 +179,12 @@ public:
 
     // ---------- 联网 ----------
 
+    // 两发请求（档案、贴图）都走 RequestBudget::ControlGet：和别的短请求共用四个
+    // Control 名额，排队 + 传输一起算进 kTransferTimeoutMs。没有名额时只排队、不阻塞
+    // 界面；删掉作业（或对象析构）就是取消 —— 排队的那一发一个字节都不会发、也不回调。
+    // 拿不到回复（排队到点 / 被掐 / 管理器先没）仍然发 failed()：调用方要靠它把
+    // "正在获取"那一格落回去（和以前"超时 = 网络错误"的收场一致）。
+
     /**
      * @brief 异步要一次档案，回来发 profileReady()。
      *
@@ -223,6 +229,7 @@ signals:
 private:
     /// 自己的管理器，不和 DownloadManager 共用：那个的超时是 30 s（下载大文件用的），
     /// 而这一个请求是可选的外观请求，不该拖着用户的东西。见 kTransferTimeoutMs。
+    /// NOTE: 管理器 ≠ 名额。两发请求都走 `RequestBudget::ControlGet`，排队/截止在那边管。
     QNetworkAccessManager *m_network;
 
     /// 被限流之后"什么时候可以再问"。从没被限流过就是无效值（见 withinThrottleBackoff：

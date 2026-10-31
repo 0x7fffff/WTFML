@@ -211,6 +211,21 @@ int runRequestBudgetChecks() {
         for(auto *child:versions.children()) if(dynamic_cast<RequestBudget::ControlGet *>(child)) ++queued;
         expect(queued==0 && replies==1,"clearing a loader selection cancels its queued request instead of dispatching it later");
     }
+    {
+        QNetworkAccessManager manager;
+        QObject owner;
+        bool oversized=false, normal=true;
+        RequestBudget::ControlGet::start(&owner,&manager,QNetworkRequest(QUrl(base+"fast")),2000,
+            [&](QNetworkReply *reply,const QString &) {
+                oversized = reply && reply->error()!=QNetworkReply::NoError;
+            }, 1024);
+        RequestBudget::ControlGet::start(&owner,&manager,QNetworkRequest(QUrl(base+"control")),2000,
+            [&](QNetworkReply *reply,const QString &error) {
+                normal = reply && error.isEmpty() && reply->readAll()=="ok";
+            });
+        expect(wait([&] { return oversized && normal; }) && RequestBudget::snapshot().control==0,
+               "a per-job body limit cuts an oversized metadata answer without affecting the default limit");
+    }
     expect(!SlowSourcePolicy::shouldProbe(29000, 100000, large.size(), false) &&
            !SlowSourcePolicy::shouldProbe(35000, 100000, large.size(), true) &&
            !SlowSourcePolicy::better(30000, 1000, 1) &&

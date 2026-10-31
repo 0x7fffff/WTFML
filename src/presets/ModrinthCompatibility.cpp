@@ -5,6 +5,7 @@
 
 #include "ModrinthCompatibility.hpp"
 #include "download/ResourceCatalog.hpp"
+#include "net/ControlGet.hpp"
 
 #include <QDateTime>
 #include <QCryptographicHash>
@@ -20,8 +21,10 @@
 namespace Presets {
 namespace {
 
-/// 查询超时那一位打在这个属性上：`finished` 里要分得清"到点收手"和"别的原因 abort"。
-const char *const kTimedOutProperty = "wtfmlCompatTimedOut";
+/// 正文硬顶。平台版本表比一般元数据大：Modrinth 的 `/version` 每条都带着 changelog 全文，
+/// 几百上千个版本的项轻松超过 `ControlGet` 的 2 MiB 出厂值。这里抬到 8 MiB —— 仍然是
+/// 一个顶（异常答复不许无界缓冲），只是不会把一份正常答复截成"这一发失败"。
+constexpr int kVersionBodyLimit = 8 * 1024 * 1024;
 
 /// 429 之后别再去敲门的那段窗口（毫秒）。退避只对"这一发没成"有用；被限流时
 /// 立刻再发只会把窗口拖得更长，所以整段时间内同一个平台的查询直接给「暂无法确认」。
@@ -139,7 +142,9 @@ CompatibilityProvider::Cancel PlatformCompatibilityProvider::queryCancelable(
     }
     return [state] {
         state->cancelled = true;
-        if (state->reply && !state->reply->isFinished()) state->reply->abort();
+        // 排队中的作业删掉之后**一个字节都不会发**；已经发出去的那一发在析构里 abort。
+        // 取消不回调 —— 结论由检查器按超时那一路收（见 `CompatibilityChecker::beginQuery`）。
+        delete state->job.data();
     };
 }
 
@@ -172,98 +177,93 @@ void PlatformCompatibilityProvider::queryModrinth(const ModReference &reference,
     QNetworkRequest request(url);
     request.setRawHeader("User-Agent", "WTFML (Minecraft launcher)");
     request.setRawHeader("Accept", "application/json");
-    QNetworkReply *networkReply = m_network->get(request);
-    state->reply = networkReply;
-
-    QTimer::singleShot(m_transferTimeoutMs, networkReply, [networkReply]() {
-        if (networkReply->isFinished()) {
-            return;
-        }
-        networkReply->setProperty(kTimedOutProperty, true);
-        networkReply->abort();
-    });
-
-    QObject::connect(networkReply, &QNetworkReply::finished, this,
-                     [this, networkReply, reply, context, reference, attempt, state]() {
-                         networkReply->deleteLater();
-                         if (state->cancelled) return;
-                         // 瞬态失败：还有名额就退避一会儿再来一发；名额用完才报「暂无法确认」。
-                         const auto retryOrUnknown = [this, networkReply, reply, context,
-                                                      reference, attempt, state](const QString &why) {
-                             if (attempt + 1 < m_maxAttempts) {
-                                 QTimer::singleShot(
-                                     retryDelayMs(attempt), this,
-                                     [this, reference, context, reply, attempt, state]() {
-                                         queryModrinth(reference, context, reply, attempt + 1, state);
-                                     });
-                                 return;
-                             }
-                             reply(CompatibilityState::Unknown, why);
-                         };
-                         if (networkReply->property(kTimedOutProperty).toBool()) {
-                             // 超时不在这一层重试：检查器那一层有总时限，再挂一轮只会拖长。
-                             reply(CompatibilityState::Unknown,
-                                   QStringLiteral("查询超时，暂时无法确认。"));
-                             return;
-                         }
-                         const int status =
-                             networkReply->attribute(QNetworkRequest::HttpStatusCodeAttribute)
-                                 .toInt();
-                         if (networkReply->error() != QNetworkReply::NoError && status == 0) {
-                             // 连 HTTP 响应都没拿到：网络层的事，**不是**缺失。
-                             retryOrUnknown(
-                                 QStringLiteral("查询失败：%1").arg(networkReply->errorString()));
-                             return;
-                         }
-                         if (status == 404) {
-                             reply(CompatibilityState::Missing,
-                                   QStringLiteral("Modrinth 上没有这个项目。"));
-                             return;
-                         }
-                         if (status == 429) {
-                             // 限流：记下一个窗口，窗口里的后续查询直接「暂无法确认」，
-                             // 不去把平台的桶敲得更空。429 本身从不算缺失。
-                             m_modrinthThrottledUntilMs =
-                                 QDateTime::currentMSecsSinceEpoch() + kThrottleWindowMs;
-                             reply(CompatibilityState::Unknown,
-                                   QStringLiteral("Modrinth 限流了，暂时无法确认，稍后再试。"));
-                             return;
-                         }
-                         if (status == 408 || status >= 500) {
-                             retryOrUnknown(
-                                 QStringLiteral("接口返回 HTTP %1，暂时无法确认。").arg(status));
-                             return;
-                         }
-                         if (status < 200 || status >= 300) {
-                             reply(CompatibilityState::Unknown,
-                                   QStringLiteral("接口返回 HTTP %1，暂时无法确认。").arg(status));
-                             return;
-                         }
-                         QJsonParseError error{};
-                         const QJsonDocument document =
-                             QJsonDocument::fromJson(networkReply->readAll(), &error);
-                         if (error.error != QJsonParseError::NoError || !document.isArray()) {
-                             reply(CompatibilityState::Unknown,
-                                   QStringLiteral("接口返回的内容看不懂，暂时无法确认。"));
-                             return;
-                         }
-                         const QJsonArray versions = document.array();
-                         if (versions.isEmpty()) {
-                             reply(CompatibilityState::Missing,
-                                   QStringLiteral("Modrinth 上没有兼容 %1%2 的发行版。")
-                                       .arg(context.gameVersion.isEmpty()
-                                                ? QStringLiteral("这个版本")
-                                                : context.gameVersion,
-                                            context.loader.isEmpty()
-                                                ? QString()
-                                                : QStringLiteral(" / ") + context.loader));
-                             return;
-                         }
-                         const auto parsed = ResourceCatalog::parseVersions(document.toJson());
-                         QString detail;
-                         const auto state = classifyVersions(parsed, context, parsed.size() != versions.size(), &detail);
-                         reply(state, detail);
-                     });
+    // 与加载器版本查询、模板/清单这些短请求共用 Control 名额；排队和传输合起来一个截止。
+    // 作业挂在 `this`（提供方）名下：提供方没了，手里的作业跟着没，不会对着已析构的对象回调。
+    state->job = RequestBudget::ControlGet::start(
+        this, m_network, request, m_transferTimeoutMs,
+        [this, reply, context, reference, attempt, state](QNetworkReply *networkReply,
+                                                          const QString &jobError) {
+            if (state->cancelled) return;
+            // 没有回复可读（管理器先没 / 回复先没）：如实报「暂无法确认」。**不在这一层重发**
+            // —— 重发要用的那个 QNAM 多半正在析构。
+            if (networkReply == nullptr) {
+                reply(CompatibilityState::Unknown,
+                      jobError.isEmpty() ? QStringLiteral("查询中断，暂时无法确认。") : jobError);
+                return;
+            }
+            // （回复由 ControlGet 收尾统一 deleteLater，这里不碰它的生命周期。）
+            // 瞬态失败：还有名额就退避一会儿再来一发；名额用完才报「暂无法确认」。
+            const auto retryOrUnknown = [this, reply, context, reference, attempt, state](
+                                            const QString &why) {
+                if (attempt + 1 < m_maxAttempts) {
+                    QTimer::singleShot(retryDelayMs(attempt), this,
+                                       [this, reference, context, reply, attempt, state]() {
+                                           queryModrinth(reference, context, reply, attempt + 1,
+                                                         state);
+                                       });
+                    return;
+                }
+                reply(CompatibilityState::Unknown, why);
+            };
+            if (networkReply->property(RequestBudget::kDeadlineExpiredProperty).toBool()) {
+                // 超时不在这一层重试：检查器那一层有总时限，再挂一轮只会拖长。
+                reply(CompatibilityState::Unknown, QStringLiteral("查询超时，暂时无法确认。"));
+                return;
+            }
+            const int status =
+                networkReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (networkReply->error() != QNetworkReply::NoError && status == 0) {
+                // 连 HTTP 响应都没拿到：网络层的事，**不是**缺失。
+                retryOrUnknown(QStringLiteral("查询失败：%1").arg(networkReply->errorString()));
+                return;
+            }
+            if (status == 404) {
+                reply(CompatibilityState::Missing, QStringLiteral("Modrinth 上没有这个项目。"));
+                return;
+            }
+            if (status == 429) {
+                // 限流：记下一个窗口，窗口里的后续查询直接「暂无法确认」，
+                // 不去把平台的桶敲得更空。429 本身从不算缺失。
+                m_modrinthThrottledUntilMs =
+                    QDateTime::currentMSecsSinceEpoch() + kThrottleWindowMs;
+                reply(CompatibilityState::Unknown,
+                      QStringLiteral("Modrinth 限流了，暂时无法确认，稍后再试。"));
+                return;
+            }
+            if (status == 408 || status >= 500) {
+                retryOrUnknown(QStringLiteral("接口返回 HTTP %1，暂时无法确认。").arg(status));
+                return;
+            }
+            if (status < 200 || status >= 300) {
+                reply(CompatibilityState::Unknown,
+                      QStringLiteral("接口返回 HTTP %1，暂时无法确认。").arg(status));
+                return;
+            }
+            QJsonParseError error{};
+            const QJsonDocument document = QJsonDocument::fromJson(networkReply->readAll(), &error);
+            if (error.error != QJsonParseError::NoError || !document.isArray()) {
+                reply(CompatibilityState::Unknown,
+                      QStringLiteral("接口返回的内容看不懂，暂时无法确认。"));
+                return;
+            }
+            const QJsonArray versions = document.array();
+            if (versions.isEmpty()) {
+                reply(CompatibilityState::Missing,
+                      QStringLiteral("Modrinth 上没有兼容 %1%2 的发行版。")
+                          .arg(context.gameVersion.isEmpty() ? QStringLiteral("这个版本")
+                                                             : context.gameVersion,
+                               context.loader.isEmpty()
+                                   ? QString()
+                                   : QStringLiteral(" / ") + context.loader));
+                return;
+            }
+            const auto parsed = ResourceCatalog::parseVersions(document.toJson());
+            QString detail;
+            const auto result = classifyVersions(parsed, context, parsed.size() != versions.size(),
+                                                 &detail);
+            reply(result, detail);
+        },
+        kVersionBodyLimit);
 }
 
 void PlatformCompatibilityProvider::queryCurseForge(const ModReference &reference,
@@ -299,100 +299,93 @@ void PlatformCompatibilityProvider::queryCurseForge(const ModReference &referenc
     request.setRawHeader("User-Agent", "WTFML (Minecraft launcher)");
     request.setRawHeader("Accept", "application/json");
     request.setRawHeader("x-api-key", m_curseForgeKey);
-    QNetworkReply *networkReply = m_network->get(request);
-    state->reply = networkReply;
-
-    QTimer::singleShot(m_transferTimeoutMs, networkReply, [networkReply]() {
-        if (networkReply->isFinished()) {
-            return;
-        }
-        networkReply->setProperty(kTimedOutProperty, true);
-        networkReply->abort();
-    });
-
-    QObject::connect(networkReply, &QNetworkReply::finished, this,
-                     [this, networkReply, reply, context, reference, attempt, state]() {
-                         networkReply->deleteLater();
-                         if (state->cancelled) return;
-                         const auto retryOrUnknown = [this, networkReply, reply, context,
-                                                      reference, attempt, state](const QString &why) {
-                             if (attempt + 1 < m_maxAttempts) {
-                                 QTimer::singleShot(
-                                     retryDelayMs(attempt), this,
-                                     [this, reference, context, reply, attempt, state]() {
-                                         queryCurseForge(reference, context, reply, attempt + 1, state);
-                                     });
-                                 return;
-                             }
-                             reply(CompatibilityState::Unknown, why);
-                         };
-                         if (networkReply->property(kTimedOutProperty).toBool()) {
-                             reply(CompatibilityState::Unknown,
-                                   QStringLiteral("查询超时，暂时无法确认。"));
-                             return;
-                         }
-                         const int status =
-                             networkReply->attribute(QNetworkRequest::HttpStatusCodeAttribute)
-                                 .toInt();
-                         if (networkReply->error() != QNetworkReply::NoError && status == 0) {
-                             retryOrUnknown(
-                                 QStringLiteral("查询失败：%1").arg(networkReply->errorString()));
-                             return;
-                         }
-                         if (status == 404) {
-                             reply(CompatibilityState::Missing,
-                                   QStringLiteral("CurseForge 上没有这个项目。"));
-                             return;
-                         }
-                         if (status == 429) {
-                             m_curseForgeThrottledUntilMs =
-                                 QDateTime::currentMSecsSinceEpoch() + kThrottleWindowMs;
-                             reply(CompatibilityState::Unknown,
-                                   QStringLiteral("CurseForge 限流了，暂时无法确认，稍后再试。"));
-                             return;
-                         }
-                         if (status == 408 || status >= 500) {
-                             retryOrUnknown(
-                                 QStringLiteral("接口返回 HTTP %1，暂时无法确认。").arg(status));
-                             return;
-                         }
-                         if (status < 200 || status >= 300) {
-                             reply(CompatibilityState::Unknown,
-                                   QStringLiteral("接口返回 HTTP %1，暂时无法确认。").arg(status));
-                             return;
-                         }
-                         QJsonParseError error{};
-                         const QJsonDocument document =
-                             QJsonDocument::fromJson(networkReply->readAll(), &error);
-                         if (error.error != QJsonParseError::NoError || !document.isObject()) {
-                             reply(CompatibilityState::Unknown,
-                                   QStringLiteral("接口返回的内容看不懂，暂时无法确认。"));
-                             return;
-                         }
-                         if (!document.object().value(QStringLiteral("data")).isArray()) {
-                             reply(CompatibilityState::Unknown, QStringLiteral("接口没有返回文件清单，暂时无法确认。")); return;
-                         }
-                         const QJsonArray files =
-                             document.object().value(QStringLiteral("data")).toArray();
-                         if (files.isEmpty()) {
-                             reply(CompatibilityState::Missing,
-                                   QStringLiteral("CurseForge 上没有兼容 %1%2 的发行版。")
-                                       .arg(context.gameVersion.isEmpty()
-                                                ? QStringLiteral("这个版本")
-                                                : context.gameVersion,
-                                            context.loader.isEmpty()
-                                                ? QString()
-                                                : QStringLiteral(" / ") + context.loader));
-                             return;
-                         }
-                         const auto parsed = ResourceCatalog::parseCurseForgeVersions(document.toJson());
-                         const auto pagination = document.object().value(QStringLiteral("pagination")).toObject();
-                         const bool incomplete = parsed.size() != files.size() ||
-                             pagination.value(QStringLiteral("totalCount")).toInteger() > files.size();
-                         QString detail;
-                         const auto state = classifyVersions(parsed, context, incomplete, &detail);
-                         reply(state, detail);
-                     });
+    // 和 Modrinth 那条同口径：共用 Control 名额，排队 + 传输一个截止。
+    state->job = RequestBudget::ControlGet::start(
+        this, m_network, request, m_transferTimeoutMs,
+        [this, reply, context, reference, attempt, state](QNetworkReply *networkReply,
+                                                          const QString &jobError) {
+            if (state->cancelled) return;
+            if (networkReply == nullptr) {
+                reply(CompatibilityState::Unknown,
+                      jobError.isEmpty() ? QStringLiteral("查询中断，暂时无法确认。") : jobError);
+                return;
+            }
+            const auto retryOrUnknown = [this, reply, context, reference, attempt, state](
+                                            const QString &why) {
+                if (attempt + 1 < m_maxAttempts) {
+                    QTimer::singleShot(retryDelayMs(attempt), this,
+                                       [this, reference, context, reply, attempt, state]() {
+                                           queryCurseForge(reference, context, reply, attempt + 1,
+                                                           state);
+                                       });
+                    return;
+                }
+                reply(CompatibilityState::Unknown, why);
+            };
+            if (networkReply->property(RequestBudget::kDeadlineExpiredProperty).toBool()) {
+                reply(CompatibilityState::Unknown, QStringLiteral("查询超时，暂时无法确认。"));
+                return;
+            }
+            const int status =
+                networkReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (networkReply->error() != QNetworkReply::NoError && status == 0) {
+                retryOrUnknown(QStringLiteral("查询失败：%1").arg(networkReply->errorString()));
+                return;
+            }
+            if (status == 404) {
+                reply(CompatibilityState::Missing, QStringLiteral("CurseForge 上没有这个项目。"));
+                return;
+            }
+            if (status == 429) {
+                m_curseForgeThrottledUntilMs =
+                    QDateTime::currentMSecsSinceEpoch() + kThrottleWindowMs;
+                reply(CompatibilityState::Unknown,
+                      QStringLiteral("CurseForge 限流了，暂时无法确认，稍后再试。"));
+                return;
+            }
+            if (status == 408 || status >= 500) {
+                retryOrUnknown(QStringLiteral("接口返回 HTTP %1，暂时无法确认。").arg(status));
+                return;
+            }
+            if (status < 200 || status >= 300) {
+                reply(CompatibilityState::Unknown,
+                      QStringLiteral("接口返回 HTTP %1，暂时无法确认。").arg(status));
+                return;
+            }
+            QJsonParseError error{};
+            const QJsonDocument document = QJsonDocument::fromJson(networkReply->readAll(), &error);
+            if (error.error != QJsonParseError::NoError || !document.isObject()) {
+                reply(CompatibilityState::Unknown,
+                      QStringLiteral("接口返回的内容看不懂，暂时无法确认。"));
+                return;
+            }
+            if (!document.object().value(QStringLiteral("data")).isArray()) {
+                reply(CompatibilityState::Unknown,
+                      QStringLiteral("接口没有返回文件清单，暂时无法确认。"));
+                return;
+            }
+            const QJsonArray files = document.object().value(QStringLiteral("data")).toArray();
+            if (files.isEmpty()) {
+                reply(CompatibilityState::Missing,
+                      QStringLiteral("CurseForge 上没有兼容 %1%2 的发行版。")
+                          .arg(context.gameVersion.isEmpty() ? QStringLiteral("这个版本")
+                                                             : context.gameVersion,
+                               context.loader.isEmpty()
+                                   ? QString()
+                                   : QStringLiteral(" / ") + context.loader));
+                return;
+            }
+            const auto parsed = ResourceCatalog::parseCurseForgeVersions(document.toJson());
+            const auto pagination =
+                document.object().value(QStringLiteral("pagination")).toObject();
+            const bool incomplete = parsed.size() != files.size() ||
+                                    pagination.value(QStringLiteral("totalCount")).toInteger() >
+                                        files.size();
+            QString detail;
+            const auto result = classifyVersions(parsed, context, incomplete, &detail);
+            reply(result, detail);
+        },
+        kVersionBodyLimit);
 }
 
 }  // namespace Presets

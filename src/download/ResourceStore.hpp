@@ -21,6 +21,14 @@
  * 和 VersionManager 那边"看 reply 指针还是不是手上这个"是同一个道理，只是这里跨了函数边界，
  * 得有个名字。
  *
+ * 【每一发都走共享的 Control 额度】
+ *
+ * 搜索、版本表、项目表、精确前置、文件身份、更新批量和图标，全都用
+ * `RequestBudget::ControlGet`：和 HttpClient、加载器版本查询、皮肤那些短请求共用四个
+ * Control 名额（大文件仍走 Bulk）。没有名额时只排队、不阻塞界面；排队与传输计入同一个
+ * 截止（接口那几发 15 秒、图标 8 秒）。取消 = 删掉作业：排队中的不会发出去，已发出的
+ * abort 且不回调。
+ *
  * 【两个来源（ 加的）】
  *
  * 这一层的每个入口都带一个 `ResourceCatalog::Source`：地址怎么拼、正文怎么读都在
@@ -48,6 +56,10 @@
 
 class QNetworkAccessManager;
 class QNetworkReply;
+
+namespace RequestBudget {
+class ControlGet;
+}
 
 class ResourceStore : public QObject {
     Q_OBJECT
@@ -305,7 +317,11 @@ public:
     static void dropIconFromCache(const QString &cacheId);
 
     /// 除了图标之外**每一条请求**共用的那个构造：`User-Agent: WTFML` + 额外头
-    /// + 15 秒 transferTimeout（`HttpClient::kDefaultTimeoutMs`，唯一出处）。
+    /// + 15 秒（`HttpClient::kDefaultTimeoutMs`，唯一出处）。
+    ///
+    /// NOTE: 这 15 秒现在是**排队 + 传输**的整项预算（这一发走 `RequestBudget::ControlGet`，
+    /// 它按剩余时间设 Qt 自己的 transferTimeout；这里设的那一格会被它覆盖成同一个量级）。
+    /// 这里仍然写着它，是因为这张真值表（哪一发是几秒）在 ZB 那一节被直接断言着。
     ///
     /// @param headers 额外要带的（现在只有 CurseForge 的 `x-api-key`，见 `apiKeyHeaders()`
     /// 那个匿名命名空间里的唯一出处）。空表 = 一个头都不加。
@@ -321,8 +337,8 @@ public:
         const QString &url, const QList<QPair<QByteArray, QByteArray>> &headers = {},
         const QByteArray &contentType = QByteArray());
 
-    /// 图标那一发用的请求：8 秒超时（kIconTimeoutMs，比 kDefaultTimeoutMs 短），
-    /// **可能带**"变了没有"那两个头。
+    /// 图标那一发用的请求：8 秒（kIconTimeoutMs，比 kDefaultTimeoutMs 短），
+    /// **可能带**"变了没有"那两个头。这 8 秒同样是排队 + 传输的整项预算（见上面那条 NOTE）。
     ///
     /// 【空的那条一律不发】
     ///
@@ -460,8 +476,15 @@ private:
     void noteIconFailure(int httpStatus);
 
     QNetworkAccessManager *m_net = nullptr;
-    /// 每个频道手上那一发（key -> reply）。回来的东西不是这一发就丢掉。
-    QHash<QString, QNetworkReply *> m_replies;
+    /// 每个频道手上那一发（key -> 作业）。
+    ///
+    /// 存的是 `RequestBudget::ControlGet` 作业，不是裸 QNetworkReply：这几发都要和别的短
+    /// 请求共用四个 Control 名额（见文件头那段）。**换一发 = 删掉旧的作业** —— 还排在队里
+    /// 的那一个字节都不会发；已经发出去的那一发在析构里 abort，且**不回调**。
+    /// 于是"回来的时候这一发还是不是手上这个"这个问题在旧数据上就不存在了：被换掉的那一发
+    /// 根本不会回调。回调里照旧先把钥匙摘掉（`m_replies.remove(requestKey)`）—— 信号发出去
+    /// 之后接的人可能立刻在同一个钥匙上开新的一发，晚一步摘就等于把新的那格删了。
+    QHash<QString, RequestBudget::ControlGet *> m_replies;
 
     /// 「这一串文件各自该换成哪一版」那一批（见 fetchLatestVersions）。**和上面那张表
     /// 不是一个形状**：那一批是"分几发出去、合并着回**一发**信号"，所以要存的是"这一批
@@ -475,7 +498,7 @@ private:
         /// 整批的毛病（任何一发报错都算整批的）。
         QString problem;
         /// 飞出去的那几发（重来 / 析构时要掐掉）。
-        QList<QNetworkReply *> replies;
+        QList<RequestBudget::ControlGet *> replies;
     };
     QHash<QString, LatestRun> m_latestRuns;
     /// 发批次的代号（只增不减，见 LatestRun::generation）。

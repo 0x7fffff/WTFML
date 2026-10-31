@@ -292,7 +292,7 @@ void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply
         // transientReply()：超时 / 连接被掐 / HTTP/2 断流都算，404、证书不对、
         // 用户取消不算 —— 那些换镜像也帮不上忙。只退一次，镜像再失败就照实报。
         if (!slot->mirrorFallbackUsed && (DownloadRetryPolicy::transientReply(reply) ||
-            reply->property("wtfmlControlDeadlineExpired").toBool())) {
+            reply->property(RequestBudget::kDeadlineExpiredProperty).toBool())) {
             const QString fallback = loaderVersionsMirrorFallback(kind, slot->officialUrl);
             if (!fallback.isEmpty()) {
                 slot->mirrorFallbackUsed = true;
@@ -306,7 +306,7 @@ void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply
             gameVersion, kind, false, LoaderMeta::LoaderVersionList(),
             tr("拿不到 %1 %2 的版本列表（%3）。检查网络后重试。")
                 .arg(loaderDisplayName(kind), gameVersion,
-                     reply->property("wtfmlControlDeadlineExpired").toBool() ? tr("请求超时") : reply->errorString()));
+                     reply->property(RequestBudget::kDeadlineExpiredProperty).toBool() ? tr("请求超时") : reply->errorString()));
         return;
     }
 

@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "net/RequestBudget.hpp"
 #include "presets/ModrinthCompatibility.hpp"
 
 void runPresetCompatibilityTests() {
@@ -435,6 +436,103 @@ void runPresetCompatibilityTests() {
         Presets::PresetManifest right = manifest;
         check(Presets::categoryMismatch(right).isEmpty(),
               "PH5 「模组」类里的引用是合法的");
+    }
+
+    section("PH6. 平台兼容查询共用额度：排队、取消、截止");
+    {
+        QTcpServer server;
+        check(server.listen(QHostAddress::LocalHost), "PH6 夹具端口");
+        int requests = 0;
+        bool silent = false;  // 收下请求但一个字节都不回（测截止）
+        QObject::connect(&server, &QTcpServer::newConnection, &server, [&] {
+            while (auto *socket = server.nextPendingConnection()) {
+                QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+                QObject::connect(socket, &QTcpSocket::readyRead, socket, [socket, &requests, &silent] {
+                    socket->readAll();
+                    if (socket->property("answered").toBool()) return;
+                    socket->setProperty("answered", true);
+                    ++requests;
+                    if (silent) return;
+                    socket->write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]");
+                    socket->disconnectFromHost();
+                });
+            }
+        });
+        Presets::PlatformCompatibilityProvider provider(
+            QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
+        const Presets::CompatibilityContext context{QStringLiteral("1.21.1"),
+                                                    QStringLiteral("fabric"), true};
+        const int baseline = RequestBudget::snapshot().control;
+
+        // 把 Control 名额占满（"占满" = tryAcquire 再也拿不到，不假设此刻还剩几个）。
+        QList<RequestBudget::Lease> holds;
+        while (auto lease = RequestBudget::tryAcquire(RequestBudget::Lane::Control)) holds.append(lease);
+
+        int answered = 0;
+        Presets::CompatibilityState answer = Presets::CompatibilityState::Pending;
+        QString detail;
+        auto cancelQueued = provider.queryCancelable(
+            makeRef(QStringLiteral("modrinth"), QStringLiteral("queued")), context,
+            [&](Presets::CompatibilityState value, const QString &why) {
+                answer = value; detail = why; ++answered;
+            });
+        {
+            QEventLoop blocked;
+            QTimer::singleShot(150, &blocked, &QEventLoop::quit);
+            blocked.exec();
+        }
+        check(requests == 0 && answered == 0,
+              "PH6 额度占满时这一发只排队：一个字节都没发、也不回调");
+
+        // 放弃排队中的那一发 ⇒ 之后腾出名额也不会偷偷发出去。
+        cancelQueued();
+        holds.clear();
+        {
+            QEventLoop released;
+            QTimer::singleShot(300, &released, &QEventLoop::quit);
+            released.exec();
+        }
+        check(requests == 0 && answered == 0 && RequestBudget::snapshot().control == baseline,
+              "★★ PH6 删掉排队中的作业 ⇒ 名额腾出来也不发请求、不回调");
+
+        answered = 0;
+        answer = Presets::CompatibilityState::Pending;
+        auto cancelSent = provider.queryCancelable(
+            makeRef(QStringLiteral("modrinth"), QStringLiteral("sent")), context,
+            [&](Presets::CompatibilityState value, const QString &why) {
+                answer = value; detail = why; ++answered;
+            });
+        {
+            QEventLoop sent;
+            QTimer::singleShot(1000, &sent, &QEventLoop::quit);
+            sent.exec();
+        }
+        cancelSent();
+        check(requests == 1 && answered == 1 && answer == Presets::CompatibilityState::Missing,
+              "PH6 名额回来了这一发就发出去，空版本表照旧判「缺失」", detail);
+
+        // 截止（排队 + 传输）到点：报「查询超时」，不是缺失，也不重发。
+        silent = true;
+        answered = 0;
+        answer = Presets::CompatibilityState::Pending;
+        provider.setTransferTimeoutMs(250);
+        auto cancelSlow = provider.queryCancelable(
+            makeRef(QStringLiteral("modrinth"), QStringLiteral("slow")), context,
+            [&](Presets::CompatibilityState value, const QString &why) {
+                answer = value; detail = why; ++answered;
+            });
+        {
+            QEventLoop deadline;
+            QTimer::singleShot(1500, &deadline, &QEventLoop::quit);
+            deadline.exec();
+        }
+        cancelSlow();
+        provider.setTransferTimeoutMs(12000);
+        check(answered == 1 && answer == Presets::CompatibilityState::Unknown &&
+                  detail.contains(QStringLiteral("超时")),
+              "PH6 截止到点 ⇒ 暂无法确认（原因写着超时），不是缺失", detail);
+        check(RequestBudget::snapshot().control == baseline,
+              "★★ PH6 超时那一发把共用名额还回去了");
     }
 }
 
