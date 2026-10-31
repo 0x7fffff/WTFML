@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "TextMarks.hpp"
 
 void runSchematicInfoTests() {
     section("SG. 结构 / 原理图的元数据与方块统计");
@@ -156,10 +157,10 @@ void runSchematicInfoTests() {
                   && summary.contains(QStringLiteral("1.20.1（数据版本 3465）")),
               "★ SG1 那一行字：尺寸 / 方块数 / 数据版本对应的游戏版本",
               summary);
-        check(!summary.contains(QStringLiteral("⚠")),
+        check(!summary.contains(TextMarks::warning()),
               "SG1 同一个版本（1.20.1-Forge_47.2.0）⇒ **不出**兼容提示");
         const QString other = SchematicInfo::summaryText(info, QStringLiteral("1.18.2"));
-        check(other.contains(QStringLiteral("⚠")) && other.contains(QStringLiteral("1.18.2")),
+        check(other.contains(TextMarks::warning()) && other.contains(QStringLiteral("1.18.2")),
               "★ SG1 换到 1.18.2 ⇒ 明说「来自哪一版、实例是哪一版」，不把话说死",
               other);
         check(SchematicInfo::topBlocksText(info).contains(QStringLiteral("最多的方块："))

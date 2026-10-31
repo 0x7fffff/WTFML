@@ -9,6 +9,7 @@
  */
 
 #include "MainWindow.hpp"
+#include "TextMarks.hpp"
 #include "presets/PresetTargetSnapshot.hpp"
 #include "controllers/ResourceSearchController.hpp"
 #include "controllers/InstanceUpdateCheckController.hpp"
@@ -7372,7 +7373,7 @@ void MainWindow::exportGameLog(int sessionId) {
         return;
     }
     const QString shown = QDir::toNativeSeparators(path);
-    appendLog(tr("✓ 日志已导出：%1").arg(shown));
+    appendLog(TextMarks::done(tr("日志已导出：%1").arg(shown)));
     // 成功那一下**写回那个日志窗**：用户就在那儿点的那颗键，眼睛也在那儿 —— 弹一个框
     // 还要他再点一次"知道了"，而这件事没有需要他决定的东西。写法跟着窗里已有的那几行
     // 自己补的话（"[游戏已退出，退出码：0]"），一样带方括号。
@@ -7437,7 +7438,7 @@ void MainWindow::exportGameErrorReport(int sessionId) {
         return;
     }
     const QString shown = QDir::toNativeSeparators(path);
-    appendLog(tr("✓ 错误报告已导出：%1").arg(shown));
+    appendLog(TextMarks::done(tr("错误报告已导出：%1").arg(shown)));
     if (!windowGuard.isNull()) {
         windowGuard->appendText(tr("\n[错误报告已导出：%1]\n").arg(shown));
     }
@@ -7535,7 +7536,7 @@ void MainWindow::exportLaunchScript(const QString &versionId, const QString &pat
     }
 
     const QString shown = QDir::toNativeSeparators(path);
-    appendLog(tr("✓ 启动脚本已导出：%1").arg(shown));
+    appendLog(TextMarks::done(tr("启动脚本已导出：%1").arg(shown)));
     QStringList notes;
     notes.append(offlineMode ? tr("这一份用的是离线身份（游戏里就是这个名字）。")
                              : tr("脚本不保存登录令牌。正版建议从启动器启动；高级用法需在运行环境中提供 WTFML_MC_ACCESS_TOKEN。"));
@@ -7617,7 +7618,7 @@ void MainWindow::maybePrefetchAssetDirector(const QString &versionId) {
     }
     if (!plan.refusal.isEmpty()) {
         // 超上限：说清是哪套、多大，一个字节都不下。这条只在真的点了导入时出现。
-        appendLog(tr("✗ 「%1」的首启资源没有预取：%2")
+        appendLog(TextMarks::failed(tr("「%1」的首启资源没有预取：%2"))
                       .arg(instanceDisplayName(versionId), plan.refusal));
         InlineMessage::warning(m_ui->overlay(), tr("首启资源没有预取"),
                                tr("「%1」的首启资源没有预取：\n\n%2\n\n"

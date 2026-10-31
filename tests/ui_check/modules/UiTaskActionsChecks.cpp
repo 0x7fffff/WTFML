@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "TextMarks.hpp"
 int UiTaskActionsChecks(QMainWindow &window, MainWindowUI &ui) {
 
     {
@@ -119,7 +120,7 @@ int UiTaskActionsChecks(QMainWindow &window, MainWindowUI &ui) {
               "I6 详情页认得住「这一项是谁」（回话时要带上它）", page.taskKey());
         auto *stateLabel = page.findChild<QLabel *>(MainWindowUI::taskDetailStateName());
         check(stateLabel != nullptr
-                  && stateLabel->text() == QStringLiteral("✗ 失败"),
+                  && stateLabel->text() == TextMarks::failed() + QStringLiteral(" 失败"),
               "I6 状态那一行 = 终端记号 + 那一个词（失败不写成一串别的话）",
               stateLabel != nullptr ? stateLabel->text() : QStringLiteral("<没找到>"));
         auto *titleLabel = page.findChild<QLabel *>(MainWindowUI::taskDetailTitleName());
@@ -155,9 +156,9 @@ int UiTaskActionsChecks(QMainWindow &window, MainWindowUI &ui) {
               percentLabel != nullptr ? percentLabel->text() : QStringLiteral("<没找到>"));
         auto *step0 = page.findChild<QLabel *>(MainWindowUI::taskDetailStepName(0));
         auto *step1 = page.findChild<QLabel *>(MainWindowUI::taskDetailStepName(1));
-        check(step0 != nullptr && step0->text() == QStringLiteral("✓ 校验文件")
+        check(step0 != nullptr && step0->text() == TextMarks::done() + QStringLiteral(" 校验文件")
                   && step1 != nullptr
-                  && step1->text() == QStringLiteral("✗ 下载库文件 / 3 个失败"),
+                  && step1->text() == TextMarks::failed() + QStringLiteral(" 下载库文件 / 3 个失败"),
               "I6 步骤那一栏：记号 + 名字（+ 小字），失败的**那一步**单独说清楚",
               (step0 != nullptr ? step0->text() : QStringLiteral("<没找到>")) + QStringLiteral(" / ")
                   + (step1 != nullptr ? step1->text() : QStringLiteral("<没找到>")));

@@ -354,7 +354,10 @@ public:
     static QString launchInstanceButtonName() {
         return QStringLiteral("instanceSettingsLaunchInstance");
     }
-    static QString launchInstanceText() { return QStringLiteral("▶ 启动实例"); }
+    /// 概览那一页最大的那颗按钮。**不带 `▶`**：那一格默认界面字体里没有，第一次画出来
+    /// 要付一次 277 ms 的字体回退（见 `ui/TextMarks.hpp` 头注释）；这颗按钮本身就是
+    /// 那一页唯一的主动作，不缺一个三角来说明它。
+    static QString launchInstanceText() { return QStringLiteral("启动实例"); }
     static QString launchInstanceHint() {
         return QStringLiteral("从实例设置的任意页面启动当前实例");
     }

@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "TextMarks.hpp"
 
 void runTransferPlannerTests() {
     section("TR. 迁移 / 升级副本：计划判据与只增不删的落盘");
@@ -99,8 +100,8 @@ void runTransferPlannerTests() {
         check(plan.headline().contains(QStringLiteral("迁移计划：一致"))
                   && plan.headline().contains(QStringLiteral("默认搬")),
               "TR1 顶上那一句", plan.headline());
-        check(plan.detailText().contains(QStringLiteral("☑ 存档"))
-                  && plan.detailText().contains(QStringLiteral("☐ 日志")),
+        check(plan.detailText().contains(TextMarks::checked() + QStringLiteral(" 存档"))
+                  && plan.detailText().contains(TextMarks::unchecked() + QStringLiteral(" 日志")),
               "TR1 正文把勾与不勾都画出来");
         check(plan.detailText().contains(QStringLiteral("不覆盖"))
                   && plan.detailText().contains(QStringLiteral("不删除")),

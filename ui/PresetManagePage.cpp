@@ -12,6 +12,7 @@
  */
 
 #include "PresetManagePage.hpp"
+#include "TextMarks.hpp"
 #include "Animations.hpp"
 #include "InstanceGroupDelegate.hpp"
 #include "MainWindowPageLayout.hpp"
@@ -882,7 +883,7 @@ void PresetManagePage::rebuildPresetList(const QString &selectId, bool emitSelec
             auto *item = new QTreeWidgetItem(group);
             QString name = one.id;
             if (name.size() > 12) name = name.left(12) + QStringLiteral("…");
-            item->setText(0, QStringLiteral("⚠ 读不出来：%1").arg(name));
+            item->setText(0, TextMarks::warning(QStringLiteral("读不出来：%1").arg(name)));
             item->setData(0, kRoleId, one.id);
             item->setData(0, kRoleBroken, true);
             item->setFlags(Qt::NoItemFlags);
@@ -1238,13 +1239,12 @@ void PresetManagePage::showPlan(const PlanView &plan) {
     }
 
     for (const PlanLine &line : plan.rows) {
-        auto *item = new QListWidgetItem((line.risky ? QStringLiteral("⚠ ") : QString()) +
-                                             line.text,
+        auto *item = new QListWidgetItem(line.risky ? TextMarks::warning(line.text) : line.text,
                                          m_planList);
         item->setFlags(Qt::NoItemFlags);
     }
     for (const QString &conflict : plan.keyConflicts) {
-        auto *item = new QListWidgetItem(QStringLiteral("⚠ 键位冲突：%1").arg(conflict),
+        auto *item = new QListWidgetItem(TextMarks::warning(QStringLiteral("键位冲突：%1").arg(conflict)),
                                          m_planList);
         item->setFlags(Qt::NoItemFlags);
     }

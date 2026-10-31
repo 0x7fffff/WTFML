@@ -789,3 +789,62 @@ GLYPH-PROBE chevron-again QSize(9, 16) 0
 ——换一台默认字体更全的机器，改之前那一版可能本来就不付这笔；收益的绝对值不可外推，
 但"启动第一屏别用字体里没有的字形"这条规矩与机器无关。
 
+
+## 2026-10-31 界面正文里的回退字形：一次清扫
+
+上一节把启动第一屏那一颗 `⌄` 换成画的了，但别的页还在正文里塞 `✓` / `✗` / `⚠` / `☑`
+——那些也都是默认界面字体里没有的字，谁先画出来谁付那 270 ms。这一轮把那几格清掉。
+
+**怎么量的**：临时探针 `build/tmp-wtfml-fontprobe/main.cpp`，**一个码点一个独立进程**，
+量它第一次 `QFontMetrics::horizontalAdvance()` 的耗时（回退机器是进程内一次性的，
+一个进程里连着量一串会让后面全是 0，看不出谁付的钱）：
+
+```
+U+0041 A     metrics=6ms      U+2304 ⌄     metrics=281ms
+U+2190 ←     metrics=4ms      U+2303 ⌃     metrics=275ms
+U+2192 →     metrics=4ms      U+26A0 ⚠     metrics=277ms
+U+2022 •     metrics=4ms      U+2713 ✓     metrics=279ms
+U+00D7 ×     metrics=4ms      U+2717 ✗     metrics=272ms
+U+2605 ★     metrics=4~5ms    U+25B6 ▶     metrics=287ms
+U+25A0 ■     metrics=4ms      U+2610 ☐     metrics=294ms
+U+25A1 □     metrics=4ms      U+2611 ☑     metrics=276ms
+U+25CF ●     metrics=4ms      U+24D8 ⓘ     metrics=285ms
+U+203B ※     metrics=4ms      U+23F3 ⏳    metrics=277ms
+U+221A √     metrics=4ms      U+2194 ↔     metrics=277ms
+U+FF01 ！    metrics=4ms      0x1F3xx 那一片（emoji） 未测，按回退字形对待
+```
+
+判据只有一条：**主字体里有没有**。`QFontMetrics::inFont()` 不行 —— 它问的是整条回退链，
+本机上上面每一个字符它都回 1。
+
+**改了什么**（`ui/TextMarks.hpp` 是唯一出处，五格 + 三个「记号 + 空格 + 正文」的重载）：
+
+| 原来 | 现在 | 首次排版 |
+| --- | --- | --- |
+| `✓`（任务中心、日志、升级向导步骤） | `√` U+221A | 279 → 4 ms |
+| `✗`（同上） | `×` U+00D7 | 272 → 4 ms |
+| `⚠`（预设页、键位冲突、原理图兼容提示） | `※` U+203B | 277 → 4 ms |
+| `☑` / `☐`（迁移 / 升级计划表） | `■` / `□` U+25A0 / U+25A1 | 294 / 276 → 4 ms |
+| `▶ 启动实例`（实例概览的主动作） | `启动实例` | 287 → 0 ms |
+
+`○ ● → • ★` 这几格本来就在主字体里，没动。`ui/TextMarks.hpp` 的头注释里列了
+**不许再用**的那一串（`✔ ✘ ⚡ ▶ ◀ ↻ ⟳ ⓘ ℹ ⌛ ⏳ ✎ ✏ ⌄ ⌃ ↔`），它们是同一套回退字形；
+要图标就走 `VersionIcons` 画的那一套。
+
+**钉住它的断言**：`tests/ui_check/modules/UiTaskCenterChecks.cpp` 的 I1，直接对
+`TextMarks::done()` 这几格的**字符本身**下断言——有人把 `✓` 写回去，那条会红，
+红的那句话里写清楚了为什么（不是美学，是 277 ms）。
+
+**诚实的两条**：
+
+- 这不是"把那笔钱彻底删掉了"。用户在 Minecraft 日志、模组名、服务器 MOTD 里带进来的
+  回退字形照样会触发一次（那是外部数据，控制不了）；这里保证的是**界面自己写的话**
+  一个都不碰回退路径。
+- 数字都来自本机（Windows 11 中文版，默认界面字体 Microsoft YaHei UI 9pt）。换一台
+  默认字体更全的机器，改之前可能本来就不付这笔；"界面自己别用回退字形"这条规矩与机器
+  无关，绝对值不可外推。
+
+正确性：整轮 `ctest`（`build/verification-mingw13`，39 项）过，
+`wtfml.core-resources` / `wtfml.download-retry` 各闪一次、单独重跑都过，按已知的并行
+时序 flake 处理。断言里跟记号有关的那几条已改成对 `TextMarks` 下断言（不是再抄一份
+字面量）：任务中心 I1/I2、任务详情 I6、原理图 SG1、迁移计划、实例补全那一句日志。

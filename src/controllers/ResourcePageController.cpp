@@ -1,4 +1,5 @@
 #include "controllers/ResourcePageController.hpp"
+#include "TextMarks.hpp"
 
 #include <QApplication>
 #include <QClipboard>
@@ -462,10 +463,10 @@ void ResourcePageController::onDownloadFinished(const QString &label, bool succe
     if (!success) {
         if (userCancelled) {
             // 取消不是失败：日志照写，不弹「下载失败」、也不算一次没看过的失败。
-            m_owner.appendLog(tr("✗ %1 已由用户取消下载。").arg(label));
+            m_owner.appendLog(TextMarks::failed(tr("%1 已由用户取消下载。").arg(label)));
             return;
         }
-        m_owner.appendLog(tr("✗ %1 没有下下来：%2").arg(label, errorMessage));
+        m_owner.appendLog(TextMarks::failed(tr("%1 没有下下来：%2").arg(label, errorMessage)));
         InlineMessage::warning(m_owner.m_ui->overlay(), tr("下载失败"),
                              tr("%1 有文件没能下下来。\n\n%2").arg(label, errorMessage));
         return;
@@ -486,7 +487,7 @@ void ResourcePageController::onDownloadFinished(const QString &label, bool succe
     // 成功那一发照样认领得到；用户再也不重试的话，它只是内存里一条记录。
     const QString pendingModpack = m_owner.m_pendingModpackImports.take(label);
 
-    m_owner.appendLog(tr("✓ %1 下好了：%2").arg(label, errorMessage));
+    m_owner.appendLog(TextMarks::done(tr("%1 下好了：%2").arg(label, errorMessage)));
     if (!pendingModpack.isEmpty()) {
         // 不弹"下载完成"：整合包下回来只是第一步，紧接着那个导入框就是用户的下一步，
         // 中间夹一个"下好了"等于让他白点一次。
