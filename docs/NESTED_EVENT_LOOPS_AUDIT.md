@@ -3,6 +3,15 @@
 「导航/实例元数据渐进收口」那一项要动 `execPage()` 的嵌套事件循环和逐根页路由栈 ——
 动之前先把**现在到底有哪些地方会重入事件循环**数清楚。这份记录只做盘点，不改任何代码。
 
+> **2026-11-01 更新：任务详情页已经迁走了，下面那张表是 `a51159f` 的快照。**
+> `TaskDetailController::open()` 不再走 `execPage()`，改用 `OverlayHost::showPage()`：
+> 摆上去就返回，收页（返回箭头 / 页上 Esc / 那颗「关闭」/ `dismiss()` / `evict()` /
+> `closeOverlay()`）全由覆盖层自己收 —— 返回箭头接成 `reject()`，和这一页自己的
+> accept/reject 一起落到 `QDialog::finished`，那里把这一层收掉。A 类调用点因此
+> **12 → 11**。新接口的收尾用例在 `UiOverlayNavigationChecks` 的 O2c（四个收页路都量到）、
+> 控制器那一侧在 `MwWorkspaceCheck`（非阻塞开、一层只放一页、关闭/返回都收得干净）。
+> 下面表里 `TaskDetailController.cpp:91` 那一行按这个更新读；其余仍是快照。
+
 ## 两类，别混着看
 
 - **A. 有意等用户**：`OverlayHost::execPage()`。调用方要等用户把这一页收掉才往下走

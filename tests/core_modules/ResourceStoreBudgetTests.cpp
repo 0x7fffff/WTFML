@@ -190,7 +190,8 @@ void runResourceStoreBudgetTests() {
             ResourceCatalog::Kind::Mod, ResourceCatalog::Source::CurseForge);
         bool got = false;
         ResourceCatalog::SearchResult found;
-        QObject::connect(&store, &ResourceStore::searchFinished, &store,
+        const QMetaObject::Connection finishedConnection =
+            QObject::connect(&store, &ResourceStore::searchFinished, &store,
                          [&](const QString &finished, const ResourceCatalog::SearchResult &result) {
                              if (finished != key) {
                                  return;
@@ -217,6 +218,11 @@ void runResourceStoreBudgetTests() {
                   .arg(found.hits.size())
                   .arg(api.matching("/v1/mods/search").size())
                   .arg(found.problem));
+        // ★ 这一条**必须断**：lambda 按引用抓着这一节里的 `got` / `found`，而 ZI4 用的是
+        // **同一个请求键** —— 还挂着的话，那一发回来会往已经退栈的 `found` 上赋值。
+        // 实测就是这样偶发 0xC0000005（gdb 栈：`QString::operator=` ← 这个 lambda），
+        // 而且只在整轮里碰运气，单跑多半看不出来。
+        QObject::disconnect(finishedConnection);
     }
 
     // ---- ZI2 有正文的那一发（CurseForge 的 `POST /mods`）也进同一个额度 ----------
@@ -230,7 +236,8 @@ void runResourceStoreBudgetTests() {
         bool got = false;
         QList<ResourceCatalog::Hit> hits;
         QString problem;
-        QObject::connect(&store, &ResourceStore::projectsFinished, &store,
+        const QMetaObject::Connection finishedConnection =
+            QObject::connect(&store, &ResourceStore::projectsFinished, &store,
                          [&](const QString &finished, const QList<ResourceCatalog::Hit> &answer,
                              const QString &why) {
                              if (finished != key) {
@@ -257,6 +264,8 @@ void runResourceStoreBudgetTests() {
         check(!api.lastPostBody().isEmpty() && api.lastPostBody().contains("modIds"),
               "ZI2 出发的是**带正文的 POST**（号表在正文里，不是空请求）",
               QString::fromUtf8(api.lastPostBody()));
+        // 同一个理由（见 ZI1 那条 NOTE）：这一节退掉之后 lambda 抓着的引用就没了。
+        QObject::disconnect(finishedConnection);
     }
 
     // ---- ZI3 图标那一发 -------------------------------------------------------
@@ -269,7 +278,8 @@ void runResourceStoreBudgetTests() {
         const QString iconId = hit.iconCacheId();
         ResourceStore::dropIconFromCache(iconId);
         bool got = false;
-        QObject::connect(&store, &ResourceStore::iconReady, &store,
+        const QMetaObject::Connection readyConnection =
+            QObject::connect(&store, &ResourceStore::iconReady, &store,
                          [&](const QString &ready, const QPixmap &) {
                              if (ready == iconId) {
                                  got = true;
@@ -291,6 +301,8 @@ void runResourceStoreBudgetTests() {
               "ZI3 名额回来就下图标、收尾回一次",
               QString::fromUtf8(api.requests().join(QByteArrayLiteral(" | "))));
         ResourceStore::dropIconFromCache(iconId);
+        // 同一个理由（见 ZI1 那条 NOTE）：这一节退掉之后 lambda 抓着的 `got` 就没了。
+        QObject::disconnect(readyConnection);
     }
 
     // ---- ZI4 同一个请求键上换了一发：旧的删掉 ⇒ 只发一次、只回一次 --------------
@@ -299,7 +311,8 @@ void runResourceStoreBudgetTests() {
         const QString key = ResourceCatalog::searchRequestKey(
             ResourceCatalog::Kind::Mod, ResourceCatalog::Source::CurseForge);
         int answers = 0;
-        QObject::connect(&store, &ResourceStore::searchFinished, &store,
+        const QMetaObject::Connection finishedConnection =
+            QObject::connect(&store, &ResourceStore::searchFinished, &store,
                          [&](const QString &finished, const ResourceCatalog::SearchResult &) {
                              if (finished == key) {
                                  ++answers;
@@ -320,6 +333,8 @@ void runResourceStoreBudgetTests() {
               QStringLiteral("发=%1 回=%2")
                   .arg(api.matching("/v1/mods/search").size())
                   .arg(answers));
+        // 同一个理由（见 ZI1 那条 NOTE）：这一节退掉之后 lambda 抓着的 `answers` 就没了。
+        QObject::disconnect(finishedConnection);
     }
 
     // ---- ZI5 排队中的作业跟着对象一起删掉：名额腾出来也不发、租约不残留 ----------

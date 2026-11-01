@@ -173,7 +173,8 @@ TaskDetailPage::TaskDetailPage(QWidget *parent) : QDialog(parent) {
     close->setObjectName(MainWindowUI::taskDetailCloseName());
     Theme::markButton(close, Theme::ButtonKind::Neutral);
     close->setCursor(Qt::PointingHandCursor);
-    // 关页 = 走覆盖层那条返回路（`reject()` 正是 `execPage()` 认的"用户要回去了"）。
+    // 关页 = 走覆盖层那条返回路：`reject()` 发 `QDialog::finished`，`showPage()` 接的就是
+    // 这一发（返回箭头也只是转成 `reject()`；`execPage()` 那一档同样是它）。
     connect(close, &QPushButton::clicked, this, &QDialog::reject);
     actions->addWidget(close);
     m_box->addLayout(actions);

@@ -4,9 +4,11 @@
  *
  * 【它是"页"，不是窗口】
  *
- * 开出来的方式和资源详情页 / 实例设置一样：`OverlayHost::execPage()` 把这一页整块盖在内容区上
- * （**顶上四颗导航和底栏不盖**），顶上那条 `← 返回` 就是这一页的出路。`QDialog` 只是个壳 ——
- * 它是全仓所有"内嵌页"的共同基类形状（`OverlayHost` 认 `QDialog`），不是"要另开一个窗口"。
+ * 开出来的方式：`OverlayHost::showPage()` 把这一页整块盖在内容区上（**顶上四颗导航和底栏
+ * 不盖**），顶上那条 `← 返回` 就是这一页的出路。它是**非阻塞**的 —— 这一页不收任何结果，
+ * 摆上去调用方就回来了（`execPage()` 那种"卡住调用方等用户点返回"在这里没有用武之地）。
+ * `QDialog` 只是个壳 —— 它是全仓所有"内嵌页"的共同基类形状（`OverlayHost` 认 `QDialog`），
+ * 不是"要另开一个窗口"。
  *
  * 【它一个字节的业务都不碰】
  *
@@ -60,7 +62,7 @@ public:
 
     explicit TaskDetailPage(QWidget *parent = nullptr);
 
-    /// 这一页的标题（`OverlayHost::execPage` 顶上那一条写的字）。
+    /// 这一页的标题（`OverlayHost::showPage` 顶上那一条写的字）。
     static QString windowTitle() { return QStringLiteral("任务详情"); }
 
     /// 摆一项任务。**每次开页都重新喂一遍**（同一页对象会被复用，见 MainWindow 那边）。
@@ -68,8 +70,8 @@ public:
     /// @param item 面板那一行的同一份形状（`MainWindow::taskCenterItems()` 是唯一翻译点）。
     void setTask(const TaskCenter::Item &item);
 
-    /// 现在摆的是哪一项（上面那几个槽回话时要带上它 —— `OverlayHost` 是**嵌套**事件循环，
-    /// 页开着的时候账本可能已经又动了）。
+    /// 现在摆的是哪一项（上面那几个槽回话时要带上它 —— 页开着的时候账本可能已经又动了，
+    /// 这一页摆的是**点开那一刻**的那一份）。
     QString taskKey() const { return m_key; }
 
     // ---------- 供验证工程与 MainWindow 调的那几个槽 ----------

@@ -591,3 +591,30 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 写成两遍）、以及"带已知凭据整份不写 / 去掉那一条照常拼得出来"。`verify` 6129 → 6148、
 `verify_launch` 310 → 329；`verify_resources` 913/913、`ui_check` 3133/3133、
 `mw_check` 2722/2722 全绿，`check-test-modules.ps1` / `check-ci-partitions.ps1` 通过。
+
+## 2026-11-01 任务详情页改成非阻塞开页（`OverlayHost::showPage()`）
+
+「导航/实例元数据渐进收口」里"逐根页迁移明确路由栈"的第一页。挑任务详情页是因为它
+**不收任何结果**：`TaskDetailController::open()` 在 `execPage()` 那一句之后没有一行代码，
+以前却要卡在嵌套事件循环里等用户点返回。那一页开着的时候，"下面"的每一句（重摆内容、
+再点一行、后台收尾）都得按"这个循环还在转"来读 —— 这正是那一项要收掉的那类时序。
+
+修改：
+
+- `OverlayHost::showPage(dialog, title, ownerTab)`：`execPage()` 的**非阻塞**兄弟。摆上去
+  就返回；返回箭头接成 `reject()`，这一页自己的 accept/reject（Esc、页上那颗「关闭」）
+  一起落到 `QDialog::finished` —— 那里收掉这一层。`dismiss()` / `evict()` / `closeOverlay()`
+  走的仍是原来那几条路，非阻塞页在 `closeTopLayer()` 里**不需要特判**（没有循环要醒）。
+- 已经有一页占着这一层时返回 false，**而且**不碰正开着的那一页（同一颗按钮被按两下时，
+  旧写法会把眼前这一页收进寄存处 —— 页自己没了，比"没开成"糟）。
+- 页面对象不删：收页时和其它对话框一样"还回去"，同一个对象再摆上来照旧（`m_pageWidget`
+  只记"现在这一页是不是 `showPage()` 开的"，顺带把两条收页接线一起断掉）。
+- `TaskDetailController::open()` 改走它，注释里"必须在 `execPage()` 之前"那一段删掉 ——
+  现在开完就回来了；`TaskDetailPage` 文件头、`MainWindow::openTaskDetailPage()` 的 NOTE 同步。
+
+验证：`UiOverlayNavigationChecks` 的 O2c（10 条：QDialog 默认是顶层窗口 → 摆上去之后
+嵌进内容区、返回/ Esc / `evict()` 三条收页路都收干净、重复摆被拒且不动眼前那一页）；
+`MwWorkspaceCheck` 4 条（真控制器非阻塞开、一层只放一页、「关闭」和返回箭头各收一次、
+同一页对象能再摆上来）。`A` 类调用点 12 → 11，见
+[嵌套事件循环盘点](NESTED_EVENT_LOOPS_AUDIT.md)。**还剩 11 处**（实例设置、资源详情页、
+预设编辑器这些"要等用户答完再往下走"的调用点语义确实要阻塞，迁到路由栈时得先改返回语义）。
