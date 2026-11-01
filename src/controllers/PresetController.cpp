@@ -97,12 +97,6 @@ QString kindTextOf(Presets::SectionKind kind) {
     return QStringLiteral("自定义");
 }
 
-/// 安装页那个下拉框里"什么都不应用"那一项。**只有这一处**：灌数据的是这里，
-/// 判"要不要应用"的调用方读的是同一项的 `Qt::UserRole`（空串），文字只在屏幕上出现。
-QString installPresetNoneText() {
-    return QStringLiteral("不使用预设");
-}
-
 /// 筛选项那把钥匙。★ `Unset` 在盘上**没有**类别字段（`presetCategoryKey()` 回空串），
 /// 而空串在页面上是「全部」那一档 —— 所以旧数据在筛选这一层另起一个不落盘的钥匙。
 QString categoryFilterKey(Presets::PresetCategory category) {
@@ -787,15 +781,43 @@ void PresetController::removePreset(const QString &id) {
 }
 
 void PresetController::setDefaultPreset(const QString &id, bool makeDefault) {
-    if(id.startsWith("draft:"))return;
-    if (!Presets::setDefault(presetsRoot(), makeDefault ? id : QString())) {
+    if (id.startsWith("draft:")) return;
+    const QString root = presetsRoot();
+    // 这一份属于自己的类别只写在它那份 manifest 里 —— 读一次（小文件），别处不存第二本账。
+    bool ok = false;
+    QString reason;
+    const Presets::PresetManifest manifest = Presets::loadManifest(root, id, &ok, &reason);
+    const bool composite = ok && !manifest.editorState.value(QStringLiteral("components")).toObject().isEmpty();
+    const Presets::PresetCategory category =
+        ok ? manifest.category : Presets::PresetCategory::Unset;
+
+    bool changed = false;
+    if (makeDefault) {
+        // 混合 / 综合预设不设分类默认：它们没有"这一类"。界面上那颗按钮本来就按这一条灰着；
+        // 走到这里说明调用方绕过了界面 —— 不做，也不偷偷退回去写旧版那个单默认项。
+        changed = ok && !composite && category != Presets::PresetCategory::Unset
+                  && Presets::setDefault(root, category, id);
+    } else {
+        // 取消：两个来源都清干净。旧版那个单默认键不清的话，旧版本启动器还会说它是默认，
+        // 而本版本已经不算它了 —— 那就是两本账。
+        if (Presets::defaultPresetId(root) == id) {
+            changed = Presets::setDefault(root, QString());
+        }
+        if (ok && category != Presets::PresetCategory::Unset) {
+            changed = Presets::setDefault(root, category, QString()) || changed;
+        }
+    }
+    if (!changed) {
         if (m_page != nullptr) {
-            m_page->showStatus(QStringLiteral("默认项没能改：那一份已经不在列表里了。"));
+            m_page->showStatus(makeDefault && ok
+                                   ? QStringLiteral("综合预设和旧版混合预设不设默认：默认只对四类预设生效。")
+                                   : QStringLiteral("默认项没能改：那一份已经不在列表里了。"));
         }
         return;
     }
-    log(makeDefault ? QStringLiteral("预设：默认项改成了「%1」。").arg(displayName(id))
-                    : QStringLiteral("预设：取消了默认项。"));
+    log(makeDefault
+            ? QStringLiteral("预设：%1那一类的默认项改成了「%2」。").arg(categoryText(category), displayName(id))
+            : QStringLiteral("预设：取消了「%1」在%2那一类的默认。").arg(displayName(id), categoryText(category)));
     refreshList(id);
 }
 
@@ -1327,48 +1349,47 @@ QList<Presets::PresetSummary> PresetController::availablePresets() const {
     return Presets::list(presetsRoot());
 }
 
-QString PresetController::defaultPresetId() const {
-    return Presets::defaultPresetId(presetsRoot());
-}
+QMap<QString, QString> PresetController::categoryDefaultsInEffect() const {
+    const QString root = presetsRoot();
+    Presets::PresetDefaults defaults = Presets::defaults(root);
 
-void PresetController::fillInstallSelector(QComboBox *combo, const QString &preferredId,
-                                           bool preferredKnown) const {
-    if (combo == nullptr) {
-        return;
-    }
-    // 这一趟是**程序在灌数据**：不挡信号的话，每加一项都会触发一发 currentIndexChanged，
-    // 那一发会把"用户自己选的"这个状态点着 —— 然后下一次进来就不再跟着默认项走了。
-    const QSignalBlocker blocker(combo);
-    combo->clear();
-    // 第一项是"什么都不应用"。它也是 `Qt::UserRole` 为空串的那一项，调用方按 data 判。
-    combo->addItem(installPresetNoneText(), QString());
-
-    const QList<Presets::PresetSummary> presets = availablePresets();
-    const QString defaultId = defaultPresetId();
-    for (const Presets::PresetSummary &one : presets) {
-        const QString label = one.id == defaultId
-                                  ? QStringLiteral("%1（默认）").arg(one.name)
-                                  : one.name;
-        combo->addItem(label, one.id);
-    }
-
-    // 选哪一项：**用户选过就听用户的**（哪怕他选的是"不使用预设"，那也是 selection）；
-    // 没选过才轮到默认项（「不因后台默认项变化而偷偷切换」）。
-    int index = -1;
-    if (preferredKnown) {
-        if (preferredId.isEmpty()) {
-            index = 0;
-        } else {
-            index = combo->findData(preferredId);
+    // 旧版那个单默认项**自己**属于哪一类：读它那份 manifest（一个小文件）。
+    // 读不回来 / 它是混合预设（`category == Unset`）⇒ 不知道，于是不推导 ——
+    // 宁可这一类没有默认，也不把一份不知类别的预设塞进去。
+    Presets::PresetCategory legacyCategory = Presets::PresetCategory::Unset;
+    if (!defaults.legacyId.isEmpty()) {
+        bool ok = false;
+        const Presets::PresetManifest manifest = Presets::loadManifest(root, defaults.legacyId, &ok);
+        if (ok) {
+            legacyCategory = manifest.category;
+            // 综合预设（有子项的那一份）也不能拆成几类默认：它自己没有"这一类"。
+            if (!manifest.editorState.value(QStringLiteral("components")).toObject().isEmpty()) {
+                legacyCategory = Presets::PresetCategory::Unset;
+            }
         }
     }
-    if (index < 0 && !defaultId.isEmpty()) {
-        index = combo->findData(defaultId);
+
+    QMap<QString, QString> out;
+    for (const PresetController::InstallCategory &category : PresetController::installCategories()) {
+        bool keyOk = false;
+        const Presets::PresetCategory value = Presets::presetCategoryFromKey(category.key, &keyOk);
+        if (!keyOk || value == Presets::PresetCategory::Unset) {
+            continue;
+        }
+        const QString id = Presets::defaultFor(defaults, value, legacyCategory);
+        if (id.isEmpty()) {
+            continue;
+        }
+        // **默认缺失回退**：指的那一份已经不在 / 读不回来 ⇒ 这一类就是没有默认。
+        // 不在这里报错：用户有一天删了那一份，安装页不该从那时起每次都弹一句警告。
+        bool exists = false;
+        Presets::loadManifest(root, id, &exists);
+        if (!exists) {
+            continue;
+        }
+        out.insert(category.key, id);
     }
-    if (index < 0) {
-        index = 0;
-    }
-    combo->setCurrentIndex(index);
+    return out;
 }
 
 QList<PresetController::InstallCategory> PresetController::installCategories() {

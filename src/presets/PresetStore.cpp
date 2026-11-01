@@ -271,7 +271,35 @@ PresetIndex dropFromIndex(PresetIndex index, const QString &id) {
     if (index.defaultPresetId == id) {
         index.defaultPresetId.clear();
     }
+    // 哪一类的默认项是它：**留键、清成空串**（= 这一类现在明确没有默认）。
+    // 直接把键删掉的话，旧版那个单默认项（如果还指着同类的另一个人）又会顶上来 ——
+    // 用户刚删掉一份预设，屏幕上却冒出另一个"默认"，那一手不该发生。
+    for (auto it = index.categoryDefaults.begin(); it != index.categoryDefaults.end(); ++it) {
+        if (it.value() == id) {
+            it.value().clear();
+        }
+    }
     return index;
+}
+
+/// 下标里"哪一类默认是哪一份"这一格能不能留：认得出的四类才留；值要么是空串
+/// （明确不要默认），要么是合法 id。读、写两侧都过这一道。
+void normalizeCategoryDefaults(QMap<QString, QString> *byCategory) {
+    for (auto it = byCategory->begin(); it != byCategory->end();) {
+        bool keyOk = false;
+        const PresetCategory category = presetCategoryFromKey(it.key(), &keyOk);
+        if (!keyOk || category == PresetCategory::Unset) {
+            it = byCategory->erase(it);
+            continue;
+        }
+        if (!it.value().isEmpty() && !isValidPresetId(it.value())) {
+            // 坏掉的一格当"没表过态"：比"这一类明确不要默认"松一档，别让一格坏数据
+            // 把用户将来的默认一起锁死。
+            it = byCategory->erase(it);
+            continue;
+        }
+        ++it;
+    }
 }
 
 PresetIndex moveInIndex(PresetIndex index, const QString &id, int delta) {
@@ -322,6 +350,7 @@ PresetIndex loadIndex(const QString &root, bool *ok) {
     if (!index.defaultPresetId.isEmpty() && !isValidPresetId(index.defaultPresetId)) {
         index.defaultPresetId.clear();
     }
+    normalizeCategoryDefaults(&index.categoryDefaults);
     return index;
 }
 
@@ -340,6 +369,7 @@ bool saveIndex(const QString &root, const PresetIndex &index) {
     if (!isValidPresetId(normalized.defaultPresetId)) {
         normalized.defaultPresetId.clear();
     }
+    normalizeCategoryDefaults(&normalized.categoryDefaults);
     if (!QDir().mkpath(root)) {
         return false;
     }
@@ -541,6 +571,21 @@ QList<ManifestLoadResult> loadManifests(const QString &root, const QStringList &
         ids, [&root](const QString &id) { return loadForList(root, id); });
 }
 
+/// 这一行现在算不算"它那一类的默认项"。
+///
+/// 显式表过态（下标里有这一类那一格）就只听显式的 —— 哪怕值是空串（"这一类不要默认"），
+/// 也不许旧版那个单默认项偷偷顶上来。没表过态时才轮到旧版那个（它只点亮**它自己那一行**，
+/// 所以不会一夜之间变成四类都有默认）。
+bool isDefaultPreset(const PresetIndex &index, const PresetSummary &summary) {
+    if (summary.category != PresetCategory::Unset) {
+        const auto it = index.categoryDefaults.constFind(presetCategoryKey(summary.category));
+        if (it != index.categoryDefaults.constEnd()) {
+            return !it.value().isEmpty() && it.value() == summary.id;
+        }
+    }
+    return summary.id == index.defaultPresetId;
+}
+
 }  // namespace
 
 QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken) {
@@ -663,7 +708,7 @@ QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken) {
         PresetSummary summary = cell.entry.summary;
         summary.id = ordered.at(i);
         // `isDefault` 不进缓存：它由每一次调用的下标决定，而缓存是跨调用活着的。
-        summary.isDefault = (summary.id == index.defaultPresetId);
+        summary.isDefault = isDefaultPreset(index, summary);
         summaries.append(summary);
     }
     return summaries;
@@ -684,6 +729,30 @@ void forgetSummaryCache(const QString &root) {
 
 QString defaultPresetId(const QString &root) {
     return loadIndex(root, nullptr).defaultPresetId;
+}
+
+PresetDefaults defaults(const QString &root) {
+    const PresetIndex index = loadIndex(root, nullptr);
+    PresetDefaults out;
+    out.legacyId = index.defaultPresetId;
+    out.byCategory = index.categoryDefaults;
+    return out;
+}
+
+QString defaultFor(const PresetDefaults &defaults, PresetCategory category,
+                   PresetCategory legacyCategory) {
+    if (category == PresetCategory::Unset) {
+        // 混合/认不出的类别没有"分类默认"：老那个单默认项就是它的全部答案。
+        return defaults.legacyId;
+    }
+    const auto it = defaults.byCategory.constFind(presetCategoryKey(category));
+    if (it != defaults.byCategory.constEnd()) {
+        return it.value();  // 空串 = 这一类明确不要默认（不是"没表过态"）
+    }
+    // 没表过态：旧版那个单默认项**自己就属于这一类**时才顶上来。它要是混合预设
+    // （调用方算出来是 `Unset`）就不推导 —— 把一份混合预设拆成几类默认正是
+    // 「不静默重组混合默认」不许做的事。
+    return legacyCategory == category ? defaults.legacyId : QString();
 }
 
 // ---------------------------------------------------------------------------
@@ -848,6 +917,25 @@ bool setDefault(const QString &root, const QString &id) {
         return false;
     }
     index.defaultPresetId = id;
+    return saveIndex(root, index);
+}
+
+bool setDefault(const QString &root, PresetCategory category, const QString &id) {
+    if (category == PresetCategory::Unset) {
+        // 混合预设没有"这一类"可言。要动它走上面那个单默认项的老入口。
+        return false;
+    }
+    bool indexReadable = true;
+    PresetIndex index = loadIndex(root, &indexReadable);
+    if (!indexReadable) {
+        return false;
+    }
+    if (!id.isEmpty() && !isValidPresetId(id)) {
+        return false;
+    }
+    // **不要求 `index.contains(id)`**：综合预设里的子项也算"一份预设"（它在安装页
+    // 是单独一格），而子项不出现在 `order` 里。
+    index.categoryDefaults.insert(presetCategoryKey(category), id);
     return saveIndex(root, index);
 }
 

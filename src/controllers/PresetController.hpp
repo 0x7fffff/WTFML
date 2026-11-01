@@ -159,26 +159,23 @@ public:
     // ---------- 给安装流程的只读入口 ----------
     // / 可用的预设（读得回来的那些，按下标次序）。
     QList<Presets::PresetSummary> availablePresets() const;
-    /// 那个唯一的默认项（可能为空 / 可能已经不在盘上，调用方按 `availablePresets()` 核）。
-    QString defaultPresetId() const;
+    /**
+     * @brief 四类各自的默认项，**已经核对过、可以直接用的那一份**。
+     *
+     * 键 = 四类的 `presetCategoryKey()`；值 = 那一类的默认预设 id（这一类没有默认 ⇒ 不出现）。
+     * 三道都在这儿落下：
+     * · 显式那格优先；没表过态时，旧版那个单默认项**自己属于这一类**才顶上来
+     *   （`Presets::defaultFor()` 的规矩）；混合预设不推导（不静默重组）；
+     * · **默认缺失回退**：指的那一份已经不在 / 读不回来 ⇒ 当这一类没有默认，不报错；
+     * · 只读一次下标 + 最多读一次那份旧默认的 manifest，**不扫盘**（安装页每次刷摘要都问它）。
+     */
+    QMap<QString, QString> categoryDefaultsInEffect() const;
+
     /// 把一份预设算成计划（安装向导的「应用预览」用它，**一个字节都不写**）。
     Presets::PresetApplyResult planOnly(const Presets::PresetManifest &manifest,
                                         const Presets::PresetApplyRequest &request) const;
 
     // ---------- 安装页 ----------
-    /**
-     * @brief 把"盘上有哪几份预设"灌进安装页那个下拉框。
-     *
-     * 第一项固定是「不使用预设」（`Qt::UserRole` 是空串）；其余按 `index.json` 的次序，
-     * 默认那一份的名字尾巴上带「（默认）」，且**默认就选中它**。
-     *
-     * @param preferredId 用户上一次手动选的那一份（空 = 用户没选过）。它在盘上还在 ⇒
-     * 选它；不在了 ⇒ 退回默认那一份。★ 这条规则就是「用户手动选择后，
-     * 不因后台默认项变化而偷偷切换」的落点 —— 默认项只在"用户没选过"时说话。
-     */
-    void fillInstallSelector(QComboBox *combo, const QString &preferredId = QString(),
-                             bool preferredKnown = false) const;
-
     /// 安装页弹窗里的**一类**（次序 = 页签次序，`key` 是 `presetCategoryKey()` 的串）。
     struct InstallCategory {
         QString key;

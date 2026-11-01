@@ -107,9 +107,9 @@ bool isSafeRelativePath(const QString &path);
 /// 追加到**末尾**（新做出来的一份排在最后，不抢用户排好的次序）。
 PresetIndex appendToIndex(PresetIndex index, const QString &id);
 
-/// 摘掉一条。★ 摘掉的正好是默认项时，**默认位空出来**（`defaultPresetId` 清空）——
-/// 不偷偷换给列表里的下一份：那一下用户看不见，而"默认项"是个有后果的开关（安装时
-/// 那个预选框会跟着动）。
+/// 摘掉一条。★ 摘掉的正好是默认项时，**默认位空出来**（`defaultPresetId` 清空；
+/// 哪一类的默认项是它，那一格留键清成空串）—— 不偷偷换给列表里的下一份，也不让旧版那个
+/// 单默认项顶上来：那一下用户看不见，而"默认项"是个有后果的开关（安装页那个预选项会跟着动）。
 PresetIndex dropFromIndex(PresetIndex index, const QString &id);
 
 /// 在列表里挪 `delta` 位（-1 / +1）。挪不动（在边上、或者压根不在表里）就原样回。
@@ -164,9 +164,37 @@ QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken = nul
 /// 产品代码里不该有人调它 —— 盘上变了 `list()` 自己会发现，本进程写的会自己作废。
 void forgetSummaryCache(const QString &root);
 
-/// 那个唯一的默认项（没有 = 空串）。**不检查它还在不在** —— 默认项丢了这件事由列表那一侧
-/// 回答（UI 用例「默认项丢失」要的是这个组合，不是一个会撒谎的"有默认项"）。
+/// **旧版**那个唯一的默认项（没有 = 空串）。**不检查它还在不在** —— 默认项丢了这件事由
+/// 列表那一侧回答（UI 用例「默认项丢失」要的是这个组合，不是一个会撒谎的"有默认项"）。
+///
+/// 新代码问"这一类默认是哪一份"请用 `defaultFor()`；这个入口只剩读旧数据的用途。
 QString defaultPresetId(const QString &root);
+
+// ---------------------------------------------------------------------------
+// 每类一个默认项
+// ---------------------------------------------------------------------------
+
+/// 下标里"哪一类默认是哪一份"这一格的读法。
+///
+/// 两份来源：旧版那个全局单默认项（`legacyId`）和新的四类各一格（`byCategory`）。
+/// ★ `byCategory` 里**键在 = 这一类显式表过态**，值是空串 = 用户明确说"这一类不要默认"。
+struct PresetDefaults {
+    QString legacyId;
+    QMap<QString, QString> byCategory;
+};
+
+/// 一趟把两份读出来（各读一次 `index.json` 就是白读一遍同一个文件）。
+PresetDefaults defaults(const QString &root);
+
+/// 某一类的默认项（没有 = 空串）。
+///
+/// 规则只有两层：显式那格优先（空串就是空串，不让旧默认顶上来）；没表过态时，旧版单默认项
+/// **自己的类别**恰好是这一类才顶上来。
+///
+/// @param legacyCategory 旧版那一份**自己的**类别（调用方读它那份 manifest 得到）。
+/// 传 `Unset` = 它没有类别（混合预设 / 读不回来）⇒ **不推导**：不静默重组混合默认。
+QString defaultFor(const PresetDefaults &defaults, PresetCategory category,
+                   PresetCategory legacyCategory = PresetCategory::Unset);
 
 // ---------------------------------------------------------------------------
 // 增删改
@@ -199,8 +227,17 @@ bool rename(const QString &root, const QString &id, const QString &newName);
 /// 另一块盘上是常见做法，追进去删的是那一头的东西。
 bool remove(const QString &root, const QString &id);
 
-/// 设成那个唯一的默认项（`id` 空 = 取消默认）。不在下标里的回 false。
+/// 设成**旧版**那个唯一的默认项（`id` 空 = 取消默认）。不在下标里的回 false。
+///
+/// 新代码给某一类设默认请用下面那个按类别的重载：混合预设（`Unset`）没有"这一类"，
+/// 走这个老入口才有意义。
 bool setDefault(const QString &root, const QString &id);
+
+/// 给**某一类**设默认项（`id` 空 = 这一类明确不要默认）。混合预设（`Unset`）回 false。
+///
+/// 不要求在 `order` 里：综合预设的子项也是"一份预设"（安装页里它单独一格），而子项不出现在
+/// 列表下标里。盘上在不在**这儿不查** —— 默认项被删/读不回来时由调用方落成"这一类没有默认"。
+bool setDefault(const QString &root, PresetCategory category, const QString &id);
 
 /// 在列表里挪一位（`delta` = -1 / +1）。挪不动回 false。
 bool move(const QString &root, const QString &id, int delta);

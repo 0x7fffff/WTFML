@@ -904,5 +904,158 @@ void runPresetStoreTests() {
         check(listedV.size() == 11 && brokenV.size() == 1 && brokenV.at(0).id == ids.at(7),
               "★★ PA13 坏的那一份只掉它自己（十一份照列、那一份进 broken）");
     }
+
+    // ---------- PA14. 每类一个默认项（旧版那个单默认项只剩"读旧数据"） ----------
+    {
+        const QString defRoot = temp.path() + "/category-defaults";
+        QDir().mkpath(defRoot);
+        const Presets::PresetManifest game =
+            Presets::create(defRoot, QStringLiteral("游戏设置那份"), {}, Presets::PresetCategory::GameSettings);
+        const Presets::PresetManifest modA =
+            Presets::create(defRoot, QStringLiteral("模组甲"), {}, Presets::PresetCategory::Mods);
+        const Presets::PresetManifest pack =
+            Presets::create(defRoot, QStringLiteral("资源包那份"), {}, Presets::PresetCategory::ResourcePacks);
+        const Presets::PresetManifest modB =
+            Presets::create(defRoot, QStringLiteral("模组乙"), {}, Presets::PresetCategory::Mods);
+        check(!game.id.isEmpty() && !modA.id.isEmpty() && !pack.id.isEmpty() && !modB.id.isEmpty(),
+              "PA14 四份夹具（两模组 + 游戏设置 + 资源包）造得出来");
+
+        const auto defaultsOf = [&defRoot](const QString &id) {
+            bool found = false;
+            bool value = false;
+            for (const Presets::PresetSummary &one : Presets::list(defRoot)) {
+                if (one.id == id) {
+                    found = true;
+                    value = one.isDefault;
+                }
+            }
+            return found ? value : false;
+        };
+
+        // 14a. 每类各设一个：两份不同类的预设可以同时是默认。
+        check(Presets::setDefault(defRoot, Presets::PresetCategory::Mods, modA.id),
+              "PA14 给『模组』这一类设默认");
+        check(Presets::setDefault(defRoot, Presets::PresetCategory::ResourcePacks, pack.id),
+              "★ PA14 再给『资源包』设一个 —— 各管各的，不是替换掉上一个");
+        check(defaultsOf(modA.id) && defaultsOf(pack.id) && !defaultsOf(game.id) && !defaultsOf(modB.id),
+              "★★ PA14 列表里两份各顶着自己那一类的默认（同类的另一份不跟着亮）");
+
+        // 14b. 同一类里换一个 = 替换，不是两份都亮。
+        check(Presets::setDefault(defRoot, Presets::PresetCategory::Mods, modB.id),
+              "PA14 模组那一类换一份");
+        check(defaultsOf(modB.id) && !defaultsOf(modA.id) && defaultsOf(pack.id),
+              "★★ PA14 同一类只有一个默认项（换的那一下把上一份换下来，别的类不受影响）");
+
+        // 14c. 读法：显式那格优先；旧版那个单默认项只在"没表过态"时按自己的类别顶上来。
+        Presets::PresetDefaults read = Presets::defaults(defRoot);
+        check(read.byCategory.value(Presets::presetCategoryKey(Presets::PresetCategory::Mods)) == modB.id
+                  && Presets::defaultFor(read, Presets::PresetCategory::Mods) == modB.id,
+              "★ PA14 显式那一格读得回来");
+        check(Presets::defaultFor(read, Presets::PresetCategory::GameSettings).isEmpty()
+                  && Presets::defaultFor(read, Presets::PresetCategory::DataPacks).isEmpty(),
+              "★★ PA14 没设过的类没有默认（不拿别的那份凑数）");
+
+        // 14d. 旧数据：只有一个 `default`（游戏设置那份）。它只在自己那一类顶上来。
+        const QString legacyRoot = temp.path() + "/legacy-single-default";
+        QDir().mkpath(legacyRoot);
+        const Presets::PresetManifest legacyGame =
+            Presets::create(legacyRoot, QStringLiteral("老的游戏设置"), {}, Presets::PresetCategory::GameSettings);
+        const Presets::PresetManifest legacyMods =
+            Presets::create(legacyRoot, QStringLiteral("老的模组"), {}, Presets::PresetCategory::Mods);
+        check(Presets::setDefault(legacyRoot, legacyGame.id), "PA14 旧写法：设那个唯一的默认项");
+        const Presets::PresetDefaults legacy = Presets::defaults(legacyRoot);
+        check(legacy.legacyId == legacyGame.id && legacy.byCategory.isEmpty(),
+              "★★ PA14 旧下标里只有 `default` 一位，`defaults` 一个键都不会凭空长出来（不静默迁移）");
+        check(Presets::defaultFor(legacy, Presets::PresetCategory::GameSettings,
+                                  Presets::PresetCategory::GameSettings) == legacyGame.id,
+              "★★ PA14 旧默认项**自己属于哪一类**，那一类没表过态时才由它顶上");
+        check(Presets::defaultFor(legacy, Presets::PresetCategory::Mods,
+                                  Presets::PresetCategory::GameSettings).isEmpty(),
+              "★★ PA14 别的类不会被它顶上（旧默认项只点亮它自己那一行）");
+        check(Presets::defaultFor(legacy, Presets::PresetCategory::Mods,
+                                  Presets::PresetCategory::Unset).isEmpty(),
+              "★★ PA14 旧默认项是混合预设（`Unset`）⇒ 一类都不推导：不静默重组混合默认");
+
+        // 14e. 显式"这一类不要默认"挡得住旧默认项的推导。
+        check(Presets::setDefault(legacyRoot, Presets::PresetCategory::GameSettings, QString()),
+              "PA14 游戏设置这一类明确设成『不要默认』");
+        const Presets::PresetDefaults blocked = Presets::defaults(legacyRoot);
+        check(blocked.byCategory.contains(Presets::presetCategoryKey(Presets::PresetCategory::GameSettings))
+                  && Presets::defaultFor(blocked, Presets::PresetCategory::GameSettings,
+                                         Presets::PresetCategory::GameSettings).isEmpty(),
+              "★★ PA14 显式『不要』不会被旧默认项重新顶上来（键在 = 表过态，值空 = 不要）");
+        check(Presets::list(legacyRoot).size() == 2, "PA14 拉黑默认项不删预设（两份都还在）");
+
+        // 14f. 删掉默认那一份：那一类空出来，**不**回退到旧默认项。
+        check(Presets::setDefault(legacyRoot, Presets::PresetCategory::Mods, legacyMods.id)
+                  && Presets::remove(legacyRoot, legacyMods.id),
+              "PA14 模组的默认项被删掉");
+        const Presets::PresetDefaults afterRemove = Presets::defaults(legacyRoot);
+        check(afterRemove.byCategory.contains(Presets::presetCategoryKey(Presets::PresetCategory::Mods))
+                  && afterRemove.byCategory.value(Presets::presetCategoryKey(Presets::PresetCategory::Mods)).isEmpty()
+                  && Presets::list(legacyRoot).size() == 1,
+              "★★ PA14 删掉默认项 ⇒ 那一类明确『没有默认』（不偷偷换给同类的下一份）");
+
+        // 14g. 设不成的几种：混合预设没有"这一类"、坏 id、乱填的类别键。
+        check(!Presets::setDefault(defRoot, Presets::PresetCategory::Unset, modA.id),
+              "PA14 混合预设（`Unset`）没有分类默认，回 false");
+        check(!Presets::setDefault(defRoot, Presets::PresetCategory::Mods, QStringLiteral("../外面"))
+                  && !Presets::setDefault(defRoot, Presets::PresetCategory::Mods, QStringLiteral("不是 id")),
+              "★ PA14 不是 id 的值写不进去（那是拼路径的东西）");
+        // 指着一个盘上已经没有的 id：写是写得下（"默认缺失回退"由调用方落成"没有默认"），
+        // 但是**不许**因此把一个坏值写进下标。
+        const QString ghost = Presets::newPresetId();
+        check(Presets::setDefault(defRoot, Presets::PresetCategory::DataPacks, ghost)
+                  && Presets::defaultFor(Presets::defaults(defRoot), Presets::PresetCategory::DataPacks) == ghost
+                  && !defaultsOf(ghost),
+              "★★ PA14 默认项指着一份盘上没了的预设：下标照记、列表里一份都不亮（回退在调用方）");
+
+        // 14h. 下标往返 + 坏形状不认。
+        const Presets::PresetIndex roundTrip = Presets::loadIndex(defRoot);
+        check(roundTrip.categoryDefaults.value(Presets::presetCategoryKey(Presets::PresetCategory::Mods)) == modB.id
+                  && roundTrip.categoryDefaults.contains(
+                      Presets::presetCategoryKey(Presets::PresetCategory::DataPacks)),
+              "PA14 `defaults` 那一格往返之后还在");
+        check(!Presets::indexToJson(Presets::PresetIndex()).contains(QStringLiteral("defaults")),
+              "PA14 一格都没表过态时 `defaults` 不写下去（旧版本读它也不认识）");
+
+        const auto indexBytes = [](const QString &defaultsJson) {
+            QJsonObject root;
+            root.insert(QStringLiteral("format"), Presets::indexFormatTag());
+            root.insert(QStringLiteral("schemaVersion"), 1);
+            root.insert(QStringLiteral("order"), QJsonArray());
+            // 原样放进那份 JSON（数组 / 对象都照原形状塞，别先 `.object()` 抹成空表）。
+            const QJsonDocument defaults = QJsonDocument::fromJson(defaultsJson.toUtf8());
+            root.insert(QStringLiteral("defaults"), defaults.isArray() ? QJsonValue(defaults.array())
+                                                                      : QJsonValue(defaults.object()));
+            return QJsonDocument(root).toJson();
+        };
+        bool badOk = true;
+        Presets::indexFromJson(indexBytes(QStringLiteral("[1,2,3]")), &badOk);
+        check(!badOk, "★★ PA14 `defaults` 不是对象 ⇒ 整份下标不认（和 `order` / `default` 同一条规矩）");
+        bool typeOk = true;
+        Presets::indexFromJson(indexBytes(QStringLiteral("{\"mods\":3}")), &typeOk);
+        check(!typeOk, "★★ PA14 某一个值不是字符串 ⇒ 整份下标不认（不悄悄变成『没有默认项』）");
+        bool futureOk = true;
+        const Presets::PresetIndex future =
+            Presets::indexFromJson(indexBytes(QStringLiteral("{\"futureCategory\":\"%1\"}").arg(ghost)),
+                                   &futureOk);
+        check(futureOk && future.categoryDefaults.isEmpty(),
+              "★ PA14 认不出的类别键（将来版本加的类）跳过那一格，整份下标照读");
+        // 坏 id 那一格由 `loadIndex()` 的归一化兜住（`indexFromJson` 只认形状，不认 id 长相）。
+        const QString dirtyRoot = temp.path() + "/dirty-defaults";
+        QDir().mkpath(dirtyRoot);
+        writeFileAt(Presets::indexPath(dirtyRoot),
+                    indexBytes(QStringLiteral("{\"%1\":\"不是 id\",\"%2\":\"\"}")
+                                   .arg(Presets::presetCategoryKey(Presets::PresetCategory::Mods),
+                                        Presets::presetCategoryKey(Presets::PresetCategory::DataPacks))));
+        bool dirtyOk = true;
+        const Presets::PresetIndex dirty = Presets::loadIndex(dirtyRoot, &dirtyOk);
+        check(dirtyOk && !dirty.categoryDefaults.contains(Presets::presetCategoryKey(Presets::PresetCategory::Mods))
+                  && dirty.categoryDefaults.value(
+                         Presets::presetCategoryKey(Presets::PresetCategory::DataPacks), QStringLiteral("x")).isEmpty(),
+              "★★ PA14 坏 id 那一格当『没表过态』丢掉，明确『不要』那一格留着"
+              "（不让一格坏数据把整份下标作废，也不让坏格混成『不要』）");
+    }
 }
 

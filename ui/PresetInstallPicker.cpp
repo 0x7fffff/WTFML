@@ -156,6 +156,7 @@ QWidget *PresetInstallPicker::buildPage(int index, const Category &category, Pag
                 // 先清掉，调用方算完新计划再 `setStatus()` 填回来 —— 留着旧数字是最糟的
                 // 一种：用户以为新选的那份就是"会动 12 项"。
                 m_categories[index].selectedId = id;
+                m_userTouched.insert(m_categories.at(index).key);
                 applyStatus(m_pages[index], QString(), QStringList(), false);
                 emit selectionChanged(m_categories.at(index).key, id);
             });
@@ -237,10 +238,14 @@ QString PresetInstallPicker::selectedId(const QString &key) const {
 
 QList<QPair<QString, QString>> PresetInstallPicker::selections() const {
     QList<QPair<QString, QString>> out;
+    // ★ 选成"不使用预设"的那些**也给一条**（`selectedId` 是空串）：那是"用户明确说这一类
+    // 不要"，调用方要记住它，不能让这一类以后新设的默认项再顶回来。反过来，用户压根没动过
+    // 的那一类（`selectedId` 也是空串）不出现在这张表里 —— 那是"没表态"。
     for (const Category &category : m_categories) {
-        if (!category.selectedId.isEmpty()) {
-            out.append({category.key, category.selectedId});
+        if (category.selectedId.isEmpty() && !m_userTouched.contains(category.key)) {
+            continue;
         }
+        out.append({category.key, category.selectedId});
     }
     return out;
 }
