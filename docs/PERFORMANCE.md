@@ -952,3 +952,57 @@ endif()
 证据：`build/tmp-wtfml-pch-{off,on}-build.log`、`build/tmp-wtfml-pch-tests-build.log`、
 `build/tmp-wtfml-verify-pch-build.log`、`build/tmp-wtfml-pch-static-build.log`
 （都是临时文件，不入库）。
+
+## 2026-11-01 主线程卡住时的调用栈
+
+`actionMs` 只回答"这一步用了多久"，不回答"这段时间主线程在做什么"。这一轮加了采样器
+（`src/perf/StallSampler.cpp`，只在 `-DWTFML_PERF_PROBE=ON` 的构建里编）：主线程每个
+探针步骤打一次心跳，另一个线程看心跳，停了 50 ms 以上就 `SuspendThread` →
+`GetThreadContext` → `StackWalk64` → `ResumeThread`，放行之后才 `SymFromAddr`；
+本程序的帧只记 `exe+0xRVA`，事后交给 `tools/symbolize-stalls.ps1`（addr2line）解析。
+方法、踩过的坑（`SYMBOL_INFO::Name` 数组重载、返回地址要 `-1`、dbghelp 只有导出表）
+和边界见 [主线程卡住时的调用栈](P2_STALL_STACKS_20261101.md)。
+
+三跑同一份 exe（`-Instances 200`，200 个实例），栈顶与步骤耗时对得上：
+
+| 步骤 | `actionMs`（三跑） | 卡住时主线程在哪 |
+| --- | --- | --- |
+| `presets:read-store-1/2/3` | 2292–2367 ms | `Presets::list` → `loadManifest` → `QFile::read`（`PresetStore.cpp:410`） |
+| `presets:prepare-store-1000` | 1670–1694 ms | `saveManifest` → `writeBytesAtomic` → `QSaveFile::commit` → `FlushFileBuffers`（`PresetStore.cpp:64`） |
+| `nav:instances` | 273–278 ms | DirectWrite 字形回退（`fallbacksForFamily` / `stringToCMap`） |
+| `scan:java` | 81–108 ms | `QProcess::waitForFinished`（`GlobalJavaSettings.cpp:95`） |
+| `tasks:open-200` | 77–82 ms | 造 200 行任务控件：`ensurePolished` → `totalSizeHint` |
+
+`gapMs` 比同一步骤的 `actionMs` 大 1.9–86.6 ms（22 份栈，中位 25.6 ms），采样器没有
+把测量本身拖慢一个量级。另有一次 `nav:settings` 卡 2.9 s、栈停在 `QThread::start` →
+`CreateThread`，同一份 exe 后两跑只有 12.3 / 10.9 ms，没有复现，只记现象不记结论。
+
+证据：`build/tmp-wtfml-stall-run3/`、`build/tmp-wtfml-stall-run4/` 的报告与
+`build/tmp-wtfml-probe/` 的探针构建（都是临时文件，不入库）。
+
+## 2026-11-01 后台目录加载与界面交互（多任务负载）
+
+探针原来是串行的：后台目录加载那一步会把后面的步骤全挡住，所以"用户在预设页转圈时
+点翻页"从没量过。这一轮改成同一份 exe 里做 A/B：`concurrent:calm-01..08`（空载）→
+起真正的 `Presets::CatalogLoader`（1000 份 manifest）→ `concurrent:busy-01..08`
+（加载中），每步都记 `loadActive`。
+
+10 跑（`-Instances 200`，200 个实例，后台那一趟都是 8/8 步真的压在读盘窗口上）：
+
+| 指标 | 空载 | 加载中 |
+| --- | --- | --- |
+| 翻页一次（`actionMs`，8 发均值） | 2.9–3.3 ms | 3.6–3.9 ms |
+| 整窗重画（8 发均值） | 3.3–3.5 ms | 3.9–4.8 ms |
+| 后台那段时间主线程心跳最大间隔 | — | 37–44 ms |
+
+两个方向稳（10 跑 10 次加载中更慢），绝对值都在 4 ms 上下，用户看不见。后台那一趟
+没有一份超过 50 ms 的卡顿栈被采到。对照是同一个 store **同步**读一趟 2.3 s
+（见上一节），后台化这一步是对的。
+
+顺手排除：`WTFML_PERF_NO_STALL_SAMPLER=1` 关掉采栈再跑 4 次，`nav:settings` 10.1–11.7 ms，
+与开着的 11.1–12.5 ms 同量级，没说采栈拖慢了被测量的步骤。
+
+没解释的现象：第一次进设置页时 `QThreadPool::start` 偶尔卡在建线程里 2.8–2.9 s
+（9 次带栈的测量里 2 次，栈停在 `QThread::start` → `CreateThread`），同 exe 后来 8 跑
+没复现，未定位。方法与边界见
+[后台干活时界面还点得动吗](P2_CONCURRENT_LOAD_20261101.md)。

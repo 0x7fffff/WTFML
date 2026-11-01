@@ -44,6 +44,7 @@ set(CMAKE_AUTORCC ON)
 set(HEADER_FILES
     src/MainWindow.hpp
     src/perf/PerfProbe.hpp
+    src/perf/StallSampler.hpp
     src/controllers/JavaRuntimeController.hpp
     src/controllers/JavaSettingsController.hpp
     # 实例预设管理页的胶水。
@@ -528,8 +529,14 @@ qt_add_executable(WTFMinecraftLauncher
 # 默认不加进来 —— 普通构建里连这个 .cpp 都不编，`PerfProbe::attach()` 是内联空函数。
 # 只给主程序挂宏，验证工程不受影响（它们本来也不该跑探针）。
 if(WTFML_PERF_PROBE)
-    target_sources(WTFMinecraftLauncher PRIVATE src/perf/PerfProbe.cpp)
+    target_sources(WTFMinecraftLauncher PRIVATE src/perf/PerfProbe.cpp src/perf/StallSampler.cpp)
     target_compile_definitions(WTFMinecraftLauncher PRIVATE WTFML_PERF_PROBE=1)
+    # 「卡在哪一行」要能解析：栈里本程序的帧只记 `exe+0xRVA`，名字由
+    # tools/symbolize-stalls.ps1 用 addr2line 从 DWARF 里取 —— 没有 -g 就只有地址。
+    # -g 不改代码生成，只让 exe 变大；这一档本来就是测量用的。
+    target_compile_options(WTFMinecraftLauncher PRIVATE -g)
+    # StackWalk64 / SymFromAddr。
+    target_link_libraries(WTFMinecraftLauncher PRIVATE dbghelp)
 endif()
 
 # GUI 子系统（**不弹控制台窗口**）。
