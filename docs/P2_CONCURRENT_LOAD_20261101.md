@@ -83,21 +83,13 @@
 被测量的步骤；这不等于"采样器零成本"（它的开销在
 [卡住时的调用栈](P2_STALL_STACKS_20261101.md)里单独量过）。
 
-## 仍然没解释的：第一次进设置页偶发 2.9 s
+## 当时没解释的：第一次进设置页偶发 2.9 s（同一天查过了）
 
-同一个步骤 `nav:settings`（第一次点设置页）在 9 次带栈的测量里出现过 **2 次** 2.8–2.9 s，
-栈停在：
-
-```
-ntdll!ZwCreateThreadEx → KERNELBASE!CreateRemoteThreadEx → KERNEL32!CreateThread
-Qt6Core!QThread::start → QThreadPoolPrivate::startThread → QThreadPool::start
-JavaSettingsController::queueDiscovery(...)   src/controllers/JavaSettingsController.cpp:172
-```
-
-也就是"把 Java 发现作业丢进线程池"这一步在**建线程**里卡了将近 3 秒。两次都是采样器
-开着的时候；但采样器开着的 6 跑里那一步是 11–12 ms，开关两组的后面 8 跑也一次没出现，
-所以不指认采样器、也不指认产品代码——**没定位**，只记现象：同一个 exe 再跑 8 次
-没复现。下次撞见先看是不是同一条栈、那一跑之前机器在干什么（扫描软件/磁盘）。
+第一次点设置页有时 10 ms、有时 2.9 s，栈停在 `QThreadPool::start` → `QThread::start`
+→ `CreateThread`。这一轮把它量成"建线程那一下偶尔要 3 s"：不止我们自己的 Java 发现，
+Qt 自己在绘制里起线程也撞上过；普通控制台程序连建 240 个线程一次没慢过；提前预建线程
+只是把卡顿挪到 `nav:instances`，不是修好。**产品代码没动**，证据与下一步见
+[起一个线程偶尔要 3 秒](P2_THREAD_CREATE_STALL_20261101.md)。
 
 ## 没覆盖到的
 

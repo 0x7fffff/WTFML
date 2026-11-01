@@ -1002,9 +1002,13 @@ endif()
 顺手排除：`WTFML_PERF_NO_STALL_SAMPLER=1` 关掉采栈再跑 4 次，`nav:settings` 10.1–11.7 ms，
 与开着的 11.1–12.5 ms 同量级，没说采栈拖慢了被测量的步骤。
 
-没解释的现象：第一次进设置页时 `QThreadPool::start` 偶尔卡在建线程里 2.8–2.9 s
-（9 次带栈的测量里 2 次，栈停在 `QThread::start` → `CreateThread`），同 exe 后来 8 跑
-没复现，未定位。方法与边界见
+没解释的现象：第一次进设置页时 `QThreadPool::start` 偶尔卡在建线程里 2.8–2.9 s，
+栈停在 `QThread::start` → `CreateThread`。**同一天补测过**：20 跑里 6 跑 2.91–3.41 s、
+其余 10–11 ms（双峰）；同样的栈也出现在 Qt 自己绘制路径上的 `QThreadPool::start`
+（不是我们哪段代码慢）；普通 Qt 控制台程序连建 240 个线程一次也没慢过；第一步先预建
+一颗池线程能把设置页那一下压到 0/20，但卡顿挪到了 `nav:instances`（2/20）——
+**转移，不是修好**，产品代码没动。见
+[起一个线程偶尔要 3 秒](P2_THREAD_CREATE_STALL_20261101.md) 与
 [后台干活时界面还点得动吗](P2_CONCURRENT_LOAD_20261101.md)。
 
 ## 2026-11-01 预设列表的摘要缓存
@@ -1052,3 +1056,20 @@ endif()
 8 发里只有 2 发真的压在窗口上，剩下的空载样本会把 `busy` 平均数拉回 `calm`。现在
 `busy` 只统计 `loadActive` 的那几发（样本数 8 → 2）。形状、踩到的坑（`slots` 是 Qt 的
 空宏）与验收（PA13）见 [预设列表的冷读改成并行](P2_PRESET_READ_PARALLEL_20261101.md)。
+
+## 2026-11-01 起一个线程偶尔要 3 秒（只测，没改）
+
+第一次点设置页有两种形态：~10 ms，或者 **2.91–3.41 s**。栈都是
+`QThreadPool::start` → `QThread::start` → `CreateThread` 卡在内核里。
+
+| 组 | 跑数 | 慢的那几下 |
+| --- | --- | --- |
+| 原样 | 20 | 6 跑（`nav:settings` 2.91–3.41 s，其余 10–11 ms） |
+| 第一步先预建一颗线程池线程 | 20 | `nav:settings` 0 跑；但 `nav:instances` 还有 2 跑（2.4 s / 3.0 s） |
+| 普通 Qt 控制台程序连建 240 个线程 | 3×80 | 一次都没有 > 100 ms |
+
+两个不同的调用者都撞上过（我们的 `JavaSettingsController::queueDiscovery`，和 Qt 自己
+绘制路径上的 `QThreadPool::start`）⇒ **不是某段产品代码慢**，是"这个进程在那一刻建线程慢"；
+预热只是把卡顿挪走。机器上装着 Kaspersky + Defender，但没关防护去验证。产品代码这一轮
+一个字节都没改。证据与下一步（杀毒排除项 / 干净虚拟机 / ETW）见
+[起一个线程偶尔要 3 秒](P2_THREAD_CREATE_STALL_20261101.md)。
