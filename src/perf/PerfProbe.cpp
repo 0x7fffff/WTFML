@@ -18,6 +18,8 @@
 
 #include "perf/PerfProbe.hpp"
 
+#include "perf/StallSampler.hpp"
+
 #include "MainWindow.hpp"
 #include "MainWindowUI.hpp"
 #include "Theme.hpp"
@@ -53,6 +55,8 @@
 namespace {
 
 constexpr int kStallTickMs = 20;
+// 心跳停两拍半才算"卡住"：低于这个数多半是正常的一帧，采下来只是噪声。
+constexpr int kStallSampleAfterMs = 50;
 constexpr int kBetweenStepsMs = 150;
 constexpr int kFinalSettleMs = 300;
 
@@ -82,6 +86,8 @@ struct StepResult {
     QString name;
     double actionMs = 0.0;
     double repaintMs = 0.0;
+    /// 这一步执行时后台目录加载是否还在跑。多任务那一组 A/B 靠它判断这一发到底算不算"加载中"。
+    bool loadActive = false;
 };
 
 class Probe final : public QObject {
@@ -94,6 +100,13 @@ public:
     {
     }
 
+    ~Probe() override
+    {
+        // 中途关窗时 finish() 不会跑。采样线程要是还 joinable，进程退出时
+        // std::thread 的析构会直接 terminate —— 这里兜住。
+        StallSampler::stop();
+    }
+
     void start()
     {
         m_themeBefore = Theme::current().presetId;
@@ -101,10 +114,19 @@ public:
 
         m_clock.start();
         m_lastTickMs = 0;
+        // 采样器会把主线程暂停几毫秒。要分清"某一步慢"是产品本身的，还是采样器压出来的，
+        // 就得能单独关掉它：`WTFML_PERF_NO_STALL_SAMPLER=1` 只停采样，看门狗（心跳 /
+        // 最大间隔 / slowSpans）照旧。
+        m_stallSamplerOn = qEnvironmentVariableIsEmpty("WTFML_PERF_NO_STALL_SAMPLER");
+        if (m_stallSamplerOn) {
+            StallSampler::start(kStallSampleAfterMs);
+        }
         m_watchdog = new QTimer(this);
         m_watchdog->setTimerType(Qt::PreciseTimer);
         m_watchdog->setInterval(kStallTickMs);
         connect(m_watchdog, &QTimer::timeout, this, [this] {
+            // 同时是采样线程的心跳：它停了多久 = 主线程被占住了多久。
+            StallSampler::beat(static_cast<int>(m_next));
             const qint64 now = m_clock.elapsed();
             const qint64 gap = now - m_lastTickMs;
             m_lastTickMs = now;
@@ -268,6 +290,24 @@ private:
                 m_storeFailed = m_storeRows != 1000 || !broken.isEmpty();
             }});
         }
+        // 多任务负载：同一串翻页动作跑两趟 —— 先空载（对照），再在后台目录加载期间跑。
+        // 真实使用里用户在预设页转圈时照样点翻页；旧探针会把这一步之后的动作全挡住
+        // （`runNext()` 里等异步目录），那种重叠量不到。
+        const QList<int> navCycle{MainWindowUI::homeTabIndex(), MainWindowUI::instancesTabIndex(),
+                                  MainWindowUI::downloadTabIndex(), MainWindowUI::settingsTabIndex()};
+        const auto addNavCycle = [this, &navCycle](const QString &prefix) {
+            for (int round = 0; round < 2; ++round) {
+                for (int i = 0; i < navCycle.size(); ++i) {
+                    const int index = navCycle.at(i);
+                    m_steps.push_back({QStringLiteral("%1-%2")
+                                           .arg(prefix)
+                                           .arg(round * navCycle.size() + i + 1, 2, 10, QLatin1Char('0')),
+                                       [this, index] { clickNav(index); }});
+                }
+            }
+        };
+        addNavCycle(QStringLiteral("concurrent:calm"));
+
         m_steps.push_back({QStringLiteral("presets:start-background-store"), [this] {
             if (m_storeFailed || !m_storeDir) { m_storeFailed = true; return; }
             m_asyncCatalogPending = true;
@@ -280,6 +320,7 @@ private:
                 m_asyncCatalogPending = false;
             });
         }});
+        addNavCycle(QStringLiteral("concurrent:busy"));
     }
 
     QComboBox *themeCombo() const
@@ -314,19 +355,19 @@ private:
 
     void runNext()
     {
-        // Let the ordinary event loop run while the production catalog worker reads.
-        // Keep the measurement bounded without synchronously waiting on its future.
-        if (m_asyncCatalogPending) {
-            if (m_asyncCatalogClock.elapsed() > 30000) {
-                m_catalogLoader->invalidate();
-                m_storeFailed = true;
-                m_asyncCatalogPending = false;
-            } else {
-                QTimer::singleShot(10, this, [this] { runNext(); });
-                return;
-            }
-        }
         if (m_next >= m_steps.size()) {
+            // 步骤走完了。后台那趟目录加载还没回来的话，等它收尾再落盘（有上限），
+            // 这样报告里的 elapsedMs / guiTicks 才是完整的一趟。
+            if (m_asyncCatalogPending) {
+                if (m_asyncCatalogClock.elapsed() > 30000) {
+                    m_catalogLoader->invalidate();
+                    m_storeFailed = true;
+                    m_asyncCatalogPending = false;
+                } else {
+                    QTimer::singleShot(10, this, [this] { runNext(); });
+                    return;
+                }
+            }
             QTimer::singleShot(kFinalSettleMs, this, [this] { finish(); });
             return;
         }
@@ -335,6 +376,7 @@ private:
         m_currentStep = step.name;
         StepResult result;
         result.name = step.name;
+        result.loadActive = m_catalogLoader != nullptr && m_catalogLoader->isLoading();
 
         QElapsedTimer timer;
         timer.start();
@@ -354,6 +396,7 @@ private:
     void finish()
     {
         m_watchdog->stop();
+        StallSampler::stop();
 
         QJsonArray steps;
         for (const StepResult &result : std::as_const(m_results)) {
@@ -361,6 +404,7 @@ private:
             entry.insert(QStringLiteral("name"), result.name);
             entry.insert(QStringLiteral("actionMs"), round1(result.actionMs));
             entry.insert(QStringLiteral("repaintMs"), round1(result.repaintMs));
+            entry.insert(QStringLiteral("loadActive"), result.loadActive);
             steps.append(entry);
         }
 
@@ -375,10 +419,26 @@ private:
         stalls.insert(QStringLiteral("maxGapAtStep"), m_maxGapAt);
         stalls.insert(QStringLiteral("slowSpans"), m_slowSpans);
 
+        // 卡住那一刻的调用栈。上面那些只有"卡了多久"，这里回答"卡在哪一行"：
+        // 本程序的帧是 `exe+0xRVA`（姓名交给 tools/symbolize-stalls.ps1），
+        // 系统 DLL 的帧带 dbghelp 认得出来的函数名。
+        QJsonArray stallStacks;
+        for (const QJsonObject &sample : StallSampler::samples()) {
+            QJsonObject entry = sample;
+            const int index = entry.value(QStringLiteral("stepIndex")).toInt(-1);
+            entry.remove(QStringLiteral("stepIndex"));
+            entry.insert(QStringLiteral("step"),
+                         index >= 0 && index < m_steps.size() ? m_steps[index].name
+                                                              : QStringLiteral("startup"));
+            stallStacks.append(entry);
+        }
+        stalls.insert(QStringLiteral("samples"), stallStacks);
+
         QJsonObject root;
         root.insert(QStringLiteral("schema"), 1);
         root.insert(QStringLiteral("kind"), QStringLiteral("ui-probe"));
         root.insert(QStringLiteral("probe"), QStringLiteral("WTFML_PERF_PROBE=1"));
+        root.insert(QStringLiteral("stallSampler"), m_stallSamplerOn);
         root.insert(QStringLiteral("dataDir"), AppPaths::minecraftDir());
         root.insert(QStringLiteral("appVersion"), m_app.applicationVersion());
         root.insert(QStringLiteral("qt"), QString::fromLatin1(qVersion()));
@@ -395,6 +455,42 @@ private:
             {QStringLiteral("source"), QStringLiteral("synthetic-disk-metadata-only")},
             {QStringLiteral("expectedRows"), 1000}, {QStringLiteral("actualRows"), m_storeRows},
             {QStringLiteral("ok"), !m_storeFailed}, {QStringLiteral("reads"), 3}});
+        // 多任务那一组：同一串翻页动作，空载一趟 / 后台目录加载中一趟。两趟都在同一份
+        // 报告里，别拿别的构建、别的机器上的数来比。`busyDuringLoad` 说明"加载中"那
+        // 一趟里有几发点下去时目录还在读 —— 少于总数的话，剩下那几发其实已经空载了。
+        double calmSum = 0.0;
+        double calmMax = 0.0;
+        double busySum = 0.0;
+        double busyMax = 0.0;
+        int calmCount = 0;
+        int busyCount = 0;
+        int busyDuringLoad = 0;
+        for (const StepResult &result : std::as_const(m_results)) {
+            if (result.name.startsWith(QStringLiteral("concurrent:calm-"))) {
+                calmSum += result.actionMs;
+                calmMax = std::max(calmMax, result.actionMs);
+                ++calmCount;
+            } else if (result.name.startsWith(QStringLiteral("concurrent:busy-"))) {
+                busySum += result.actionMs;
+                busyMax = std::max(busyMax, result.actionMs);
+                ++busyCount;
+                if (result.loadActive) {
+                    ++busyDuringLoad;
+                }
+            }
+        }
+        root.insert(QStringLiteral("concurrentWorkload"), QJsonObject{
+            {QStringLiteral("source"), QStringLiteral("nav-cycle")},
+            {QStringLiteral("calm"), QJsonObject{
+                {QStringLiteral("count"), calmCount},
+                {QStringLiteral("avgMs"), calmCount > 0 ? round1(calmSum / calmCount) : 0.0},
+                {QStringLiteral("maxMs"), round1(calmMax)}}},
+            {QStringLiteral("busy"), QJsonObject{
+                {QStringLiteral("count"), busyCount},
+                {QStringLiteral("avgMs"), busyCount > 0 ? round1(busySum / busyCount) : 0.0},
+                {QStringLiteral("maxMs"), round1(busyMax)}}},
+            {QStringLiteral("busyDuringLoad"), busyDuringLoad},
+            {QStringLiteral("catalogElapsedMs"), m_asyncCatalogElapsed}});
         root.insert(QStringLiteral("backgroundPresetStore"), QJsonObject{
             {QStringLiteral("rows"), m_asyncCatalogRows},
             {QStringLiteral("elapsedMs"), m_asyncCatalogElapsed},
@@ -452,6 +548,7 @@ private:
     qint64 m_maxGapMs = 0;
     qint64 m_ticks = 0;
     qint64 m_overFiftyMs = 0;
+    bool m_stallSamplerOn = true;
     qsizetype m_next = 0;
 };
 
