@@ -329,6 +329,26 @@ void runCurseForgeTests() {
               "ZG2 清单自己起的覆盖目录名（overrides-1.20.1）原样用",
               named.ok ? named.pack.overridesDir : named.problem);
 
+        // FTB 那种包：清单字段和 CurseForge 是同一套（`manifestVersion` / `files[]` 的
+        // projectID+fileID / `overrides` / `minecraft.modLoaders`），没有独立适配器也走得通。
+        // ★ 这一条钉的是"别为了 FTB 另写第二个解析器"：同一套骨架，FTB 的包本来就由
+        // CurseForge 托管那些号。它不写 `manifestType` —— 缺这一条本来就不拒。
+        const ModpackImport::Result ftb = ModpackImport::parseCurseForgeManifest(
+            R"json({"manifestVersion":1,"version":"1.20.0","name":"FTB Example",
+                    "author":"FTB","overrides":"overrides",
+                    "files":[{"projectID":238222,"fileID":5000001,"required":true},
+                             {"projectID":306612,"fileID":5000002,"required":false}],
+                    "minecraft":{"version":"1.20.1",
+                                 "modLoaders":[{"id":"forge-47.2.3","primary":true}]}})json");
+        check(ftb.ok && ftb.pack.format == ModpackImport::Format::CurseForge &&
+                  ftb.pack.name == QStringLiteral("FTB Example") &&
+                  ftb.pack.gameVersion == QStringLiteral("1.20.1") &&
+                  ftb.pack.loaderKey == QStringLiteral("forge") &&
+                  ftb.pack.loaderVersion == QStringLiteral("47.2.3") &&
+                  ftb.pack.pendingRefs.size() == 2,
+              "ZG2 FTB 那种清单（同一套骨架、不写 manifestType）照样解析",
+              ftb.ok ? ftb.pack.name : ftb.problem);
+
         // 号是 0 / 负数 / 字符串的条目一律丢（丢一条只是少一个文件，`toInt()` 丢进来的
         // 0 会让接口那一发带着一个无效号去问，而那一发失败会**整包停下**）。
         const ModpackImport::Result junk = ModpackImport::parseCurseForgeManifest(

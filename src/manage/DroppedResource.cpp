@@ -150,6 +150,12 @@ DroppedResource::Result DroppedResource::classify(const QString &path) {
         return result;
     }
 
+    // 判据层认出"为什么不是"的时候（比如好几个实例打在一起），用它那句话 ——
+    // 一句光秃秃的「认不出」会让用户以为包坏了。
+    if (!layout.detail.isEmpty()) {
+        result.detail = layout.detail;
+        return result;
+    }
     result.detail = entries.isEmpty()
                         ? QStringLiteral("这个压缩包是空的")
                         : QStringLiteral("里面既没有整合包清单、也没有 pack.mcmeta 或 shaders/，"
