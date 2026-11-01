@@ -34,6 +34,7 @@
 #include <QMap>
 #include <QList>
 #include <QPair>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QWidget>
@@ -94,7 +95,11 @@ public:
     /// 某一类现在选的是哪一份（空串 = 不使用）。认不出的 key 也回空串。
     QString selectedId(const QString &key) const;
 
-    /// 四类合起来现在选中了哪几份（**只含非空 id**，按页面上的次序）。
+    /// 四类合起来现在是什么选择，按页面上的次序。
+    ///
+    /// · 选着某一份 ⇒ 一条 `{key, id}`；
+    /// · 用户亲手改成"不使用预设" ⇒ 一条 `{key, ""}`（调用方要记住这个"不要"）；
+    /// · 用户没动过、本来也没选 ⇒ **不出现**（"没表态"和"不要"是两件事）。
     QList<QPair<QString, QString>> selections() const;
 
     /// 选中了几类（摘要那句「已选择 N 类」用的数）。
@@ -142,7 +147,7 @@ public:
 signals:
     /// 用户在下拉框里换了某一类（`presetId` 空串 = 改回「不使用」）。
     /// 由**用户**改出来的才发；`setCategories()` 灌数据那一趟不发（见 .cpp 里的
-    /// `QSignalBlocker`，和 `PresetController::fillInstallSelector()` 同一个理由）。
+    /// `QSignalBlocker`）：灌数据那一下不是"用户改了"，不该记进 `m_userTouched`。
     void selectionChanged(const QString &categoryKey, const QString &presetId);
 
     /// 空状态那颗「前往预设管理」被点了。去哪由调用方决定。
@@ -174,4 +179,8 @@ private:
     QStackedWidget *m_stack = nullptr;
     QList<Category> m_categories;
     QList<Page> m_pages;
+    /// 用户**亲手动过**的那几类（下拉框改过一次就算）。`selections()` 靠它分开
+    /// "他明确选了不使用预设"和"他压根没看这一类" —— 后者不该被记成一次选择，
+    /// 否则以后给这一类新设了默认项，安装页还是会一直记着"不要"。
+    QSet<QString> m_userTouched;
 };

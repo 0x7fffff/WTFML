@@ -312,6 +312,9 @@ private:
     void onCurrentPresetChanged(QTreeWidgetItem *current, QTreeWidgetItem *previous);
     /// 现在选中的那一条能不能动手（不是组头、不是读不回来的那一份）。
     bool selectionValid() const;
+    /// 选中的那一条能不能设/取消默认：只有**四类**那几组里的行可以。
+    /// 综合预设、旧版混合预设、草稿没有"这一类"可言（默认现在是每类各一个）。
+    bool defaultAppliesToSelection() const;
     /// 同一个组里往前 / 往后那一份（`delta` = -1 / +1，跳过的不可用行）。没有就是 nullptr。
     QTreeWidgetItem *siblingPreset(int delta) const;
     void fillInstances(QComboBox *combo, const QList<InstanceItem> &instances,

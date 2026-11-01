@@ -1393,7 +1393,14 @@ void PresetManagePage::refreshActions() {
     m_newButton->setEnabled(!m_busy);
     m_duplicateButton->setEnabled(editable && !draft);
     m_deleteButton->setEnabled(editable);
-    m_defaultButton->setEnabled(editable && !draft);
+    // 「设为默认」只对**四类**有意义（默认项现在每类各一个）。综合预设（好几类拼的）、
+    // 旧版混合预设、草稿都没有"这一类"可言 —— 按钮灰着并说明原因，别让它看起来像能用。
+    // 判据不用在这儿认识那四个名字：`setCategories()` 灌进来时 `filterOnly = false` 的
+    // 那几项就是四类（「全部 / 旧版 / 综合预设 / 草稿」都标着 filterOnly）。
+    m_defaultButton->setEnabled(editable && !draft && defaultAppliesToSelection());
+    m_defaultButton->setToolTip(defaultAppliesToSelection() || !valid
+                                    ? QString()
+                                    : QStringLiteral("综合预设和旧版混合预设不设默认：默认只对四类预设生效。"));
     m_saveDetailsButton->setEnabled(editable);
     m_nameEdit->setEnabled(editable);
     m_descriptionEdit->setEnabled(editable);
@@ -1533,6 +1540,28 @@ void PresetManagePage::onCurrentPresetChanged(QTreeWidgetItem *current,
 bool PresetManagePage::selectionValid() const {
     const auto *item = m_presetList->currentItem();
     return item != nullptr && !itemIsBroken(item) && !itemIsGroup(item);
+}
+
+bool PresetManagePage::defaultAppliesToSelection() const {
+    const auto *item = m_presetList->currentItem();
+    if (item == nullptr || item->parent() == nullptr || itemIsBroken(item) || itemIsGroup(item)) {
+        return false;
+    }
+    // 行所在的组头**存的是组名，不是钥匙**（`groupIdRole()` 那一格是 `InstanceGroupDelegate`
+    // 认"这是组"用的，见 `rebuildPresetList()` 的 `makeGroup()`）—— 所以按 `m_groupText`
+    // 反过来对：哪一项组名跟它一样、又不是筛选专用的，就是它的类别。
+    // "是不是四类"这一层**不认识**，只认灌进来的选项：`filterOnly = false` 的那几项才是
+    // 能新建的四类（「全部 / 旧版 / 综合预设 / 草稿」都标着 `filterOnly`）。
+    const QString groupText = item->parent()->data(0, MainWindowUI::groupIdRole()).toString();
+    for (const CategoryOption &option : m_categoryOptions) {
+        if (option.filterOnly || option.key.isEmpty()) {
+            continue;
+        }
+        if (m_groupText.value(option.key) == groupText) {
+            return true;
+        }
+    }
+    return false;
 }
 
 QTreeWidgetItem *PresetManagePage::siblingPreset(int delta) const {

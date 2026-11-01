@@ -511,22 +511,31 @@ void InstallPageController::updatePresetSummary() {
     if (item == nullptr) {
         return;
     }
-    int selected = 0;
-    for (auto it = m_presetChoices.constBegin();
-         it != m_presetChoices.constEnd(); ++it) {
-        if (!it.value().isEmpty()) {
-            ++selected;
-        }
-    }
+    // ★ 数的是**真正会应用的那几类**，不是 `m_presetChoices` 里有几条：用户没表过态的
+    // 那一类跟着默认项走，摘要也得把它算上（不然弹窗里明明选着、行上却写"未选择"）。
+    const int selected = currentPresetSelections().size();
     item->setData(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::rowSubTextRole(),
                   MainWindowUI::installPresetSummaryText(selected));
 }
 
 QList<QPair<QString, QString>> InstallPageController::currentPresetSelections() const {
     QList<QPair<QString, QString>> out;
+    // 用户没表过态的那几类才问默认项 —— 表过态的（哪怕选的是"不使用预设"）一律听用户的。
+    // 只在真需要时才去读盘：四类都有显式答案时这一次调用一个文件都不碰。
+    QMap<QString, QString> defaults;
+    bool defaultsLoaded = false;
     // 按四类的次序（不是 QMap 的字典序）：显示 / 应用 / 日志里那几句话的次序要一样。
     for (const PresetController::InstallCategory &category : PresetController::installCategories()) {
-        const QString id = m_presetChoices.value(category.key);
+        QString id;
+        if (m_presetChoices.contains(category.key)) {
+            id = m_presetChoices.value(category.key);
+        } else if (m_owner.m_presetController != nullptr) {
+            if (!defaultsLoaded) {
+                defaults = m_owner.m_presetController->categoryDefaultsInEffect();
+                defaultsLoaded = true;
+            }
+            id = defaults.value(category.key);
+        }
         if (!id.isEmpty()) {
             out.append({category.key, id});
         }
@@ -602,6 +611,11 @@ void InstallPageController::openPresetPicker() {
     // 写着为什么不能再按类各扫一趟）：这一整段只读一次盘。
     const PresetController::InstallPickerData pickerData =
         m_owner.m_presetController->installPickerData();
+    // 每类的默认项：「用户没在弹窗里表过态」的那几类一进来就按它摆好 —— 这就是"默认"在
+    // 安装页的意思（用户在弹窗里选过，哪怕是选"不使用预设"，也一律听用户的）。
+    const QMap<QString, QString> defaults =
+        m_owner.m_presetController != nullptr ? m_owner.m_presetController->categoryDefaultsInEffect()
+                                              : QMap<QString, QString>();
     // 「模组」那一类：状态行让给兼容检查，计划那几行收进原因里。
     const QString modsCategoryKey = Presets::presetCategoryKey(Presets::PresetCategory::Mods);
     for (const PresetController::InstallCategory &one : PresetController::installCategories()) {
@@ -611,7 +625,23 @@ void InstallPageController::openPresetPicker() {
         for (const Presets::PresetSummary &preset : pickerData.optionsFor(one.key)) {
             category.options.append({preset.id, preset.name, true, !preset.componentCategories.isEmpty()});
         }
-        category.selectedId = draft.value(one.key);
+        const bool userChose = draft.contains(one.key);
+        category.selectedId = userChose ? draft.value(one.key) : defaults.value(one.key);
+        if (!userChose && !category.selectedId.isEmpty()) {
+            bool offered = false;
+            for (const PresetInstallPicker::Option &option : category.options) {
+                if (option.id == category.selectedId) {
+                    offered = true;
+                    break;
+                }
+            }
+            // 默认项不在这一类的可选项里（默认指着的是一份别的类的 / 一份没露面的子项）⇒
+            // 当这一类没有默认。**不**学下面那条"用户选过、盘上没了"的样子去摆一行
+            // "已删除"：用户压根没选过它。
+            if (!offered) {
+                category.selectedId.clear();
+            }
+        }
         // 选过、但盘上已经不在的那一份：**留在下拉框里**并标出来（「已删除/损坏的
         // 所选项明确提示，不静默换为另一项」）。名字也读不出来了，只能拿 id 认。
         if (!category.selectedId.isEmpty()) {
@@ -744,8 +774,15 @@ void InstallPageController::openPresetPicker() {
                                               true);
         });
 
-    // 打开时已经选着的那一份：立刻开查（本地能判的那几条同步就出来，其余排队）。
-    const QString initialModsPreset = draft.value(modsCategoryKey);
+    // 打开时已经选着的那一份（用户选的或这一类的默认）：立刻开查
+    // （本地能判的那几条同步就出来，其余排队）。
+    QString initialModsPreset;
+    for (const PresetInstallPicker::Category &category : categories) {
+        if (category.key == modsCategoryKey) {
+            initialModsPreset = category.selectedId;
+            break;
+        }
+    }
     if (!initialModsPreset.isEmpty()) {
         m_owner.m_presetController->startModCheck(initialModsPreset, gameVersion(),
                                           pickerLoaderName, true);

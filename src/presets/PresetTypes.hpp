@@ -423,7 +423,7 @@ struct PresetManifest {
     }
 };
 
-/// 下标：**只管两件事** —— 列表的次序、和那个唯一的默认项。
+/// 下标：**只管两件事** —— 列表的次序、和每类那个默认项。
 ///
 /// 这里**故意不存草稿**（名字、说明、段数一个都不在这儿）：一份预设的全部内容只写在它
 /// 自己的 `manifest.json` 里。存两份的后果不是"省一次读盘"，而是**两份会漂**（这里用同一条取舍：
@@ -432,8 +432,15 @@ struct PresetIndex {
     int schemaVersion = kSchemaVersion;
     /// 列表顺序 = 用户排的顺序。里面只放**合法 UUID**。
     QStringList order;
-    /// 那个唯一的默认项（「将任意一个设为唯一默认项」）。空 = 没有默认项。
+    /// **旧版**那个唯一的默认项（兼容键 `default`）。新写的不再落这里，只读旧数据。
+    ///
+    /// 早先全局只有一个默认项；现在每类各一个（`categoryDefaults`）。旧键原样读、
+    /// 原样写回（旧版本启动器还认得），推导规则见 `PresetStore::defaultFor()`：它若属于
+    /// 某一类，那一类没显式表过态时就由它顶上；它要是混合预设就**不推导**（不静默重组）。
     QString defaultPresetId;
+    /// 每类一个默认项：键 = `presetCategoryKey()`（四类）。★ **键在 = 这一类显式表过态**，
+    /// 值是空串 = 用户明确说"这一类不要默认"；键不在 = 没表过态（才轮到旧版那个顶上来）。
+    QMap<QString, QString> categoryDefaults;
 
     bool contains(const QString &id) const { return order.contains(id); }
 };
@@ -695,6 +702,16 @@ inline QJsonObject indexToJson(const PresetIndex &index) {
     if (!index.defaultPresetId.isEmpty()) {
         root.insert(QStringLiteral("default"), index.defaultPresetId);
     }
+    // `defaults` 只在真表过态时才写：一次都没设过的下标里不该多出这一格（旧版本读它
+    // 也读不懂，多写一格就是白让旧版本困惑）。值可以是空串 —— 那是"这一类明确不要默认"。
+    if (!index.categoryDefaults.isEmpty()) {
+        QJsonObject byCategory;
+        for (auto it = index.categoryDefaults.constBegin();
+             it != index.categoryDefaults.constEnd(); ++it) {
+            byCategory.insert(it.key(), it.value());
+        }
+        root.insert(QStringLiteral("defaults"), byCategory);
+    }
     return root;
 }
 
@@ -744,6 +761,29 @@ inline PresetIndex indexFromJson(const QByteArray &bytes, bool *ok = nullptr) {
         }
     }
     index.defaultPresetId = root.value(QStringLiteral("default")).toString();
+
+    // 每类默认项那一格。三种读法都是"别让一格把整份下标作废"：
+    // · 整个字段不是对象 ⇒ 类型错，和 `order` / `default` 同一条规矩，整份不认；
+    // · 键是认不出的类别（将来版本加的类）⇒ **跳过这一格**，其余照读；
+    // · 值不是字符串 ⇒ 类型错，同上，整份不认。
+    if (root.contains(QStringLiteral("defaults"))) {
+        const QJsonValue byCategory = root.value(QStringLiteral("defaults"));
+        if (!byCategory.isObject()) {
+            return PresetIndex();
+        }
+        const QJsonObject object = byCategory.toObject();
+        for (auto it = object.begin(); it != object.end(); ++it) {
+            bool keyOk = false;
+            const PresetCategory category = presetCategoryFromKey(it.key(), &keyOk);
+            if (!keyOk || category == PresetCategory::Unset) {
+                continue;
+            }
+            if (!it.value().isString()) {
+                return PresetIndex();
+            }
+            index.categoryDefaults.insert(it.key(), it.value().toString());
+        }
+    }
     if (ok != nullptr) {
         *ok = true;
     }

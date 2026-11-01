@@ -120,6 +120,10 @@ public:
     /// **唯一出处** —— 进安装页、弹窗点确定、装完一单之后都走它。
     void updatePresetSummary();
     /// 现在四类里选中了哪几份（只含非空 id，按四类的次序）。
+    ///
+    /// **含各类的默认项**：用户没在弹窗里表过态的那一类，用 `PresetController::
+    /// categoryDefaultsInEffect()` 给的默认；表过态（哪怕选的是"不使用预设"）就听用户的。
+    /// 摘要那句话和点「安装」时摊开的那份计划都读这一份 —— 两处必须是同一份答案。
     QList<QPair<QString, QString>> currentPresetSelections() const;
 
     /// 这份要装的实例默认叫什么（目录名的形状 `1.18.2-Forge_40.3.12`）。
@@ -144,11 +148,12 @@ private:
     QHash<int, QString> m_chosenVersion;
     /// 用户**自己改过**名称框没有。改过之后默认名就不再跟着加载器变。
     bool m_nameTouched = false;
-    /// 「预设」那一行：四类**各选一份**（key = `Presets::presetCategoryKey()` 的串，
-    /// value = 预设 id；空串 / 不在 map 里 = 这一类不用）。
+    /// 「预设」那一行：四类**各一格**（key = `Presets::presetCategoryKey()` 的串，
+    /// value = 预设 id）。
     ///
-    /// 只有用户在弹窗里点「确定选择」时才改 —— 取消、点「前往预设管理」都不动它。
-    /// 默认一个都不选（「不猜旧混合预设属于哪一类」这条在安装页这一侧同样成立）。
+    /// ★ **键在 = 用户在弹窗里表过态**：值是空串 = 他明确说"这一类不要"；
+    /// 键不在 = 没表过态 ⇒ 这一类跟着它的**默认项**走（`categoryDefaultsInEffect()`）。
+    /// 只有点「确定选择」时才整张表重建 —— 取消、点「前往预设管理」都不动它。
     /// **不跟着翻页重置**：换一个版本再看一眼，不该让他已经挑好的那几类悄悄没了。
     QMap<QString, QString> m_presetChoices;
 };
