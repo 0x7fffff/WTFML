@@ -214,7 +214,10 @@ int runRequestBudgetChecks() {
     {
         QNetworkAccessManager manager;
         QObject owner;
-        bool oversized=false, normal=true;
+        // `normal` 必须从 false 起：它表示"第二发真的回来了并且正文对"。从 true 起的话，
+        // 两发谁先回来都会让 `wait()` 提前满足条件，第二发还在飞时就去读
+        // `snapshot().control`，会偶发读成 1（2026-11-01 逮到的那条约 1/6 偶发红就是这么来的）。
+        bool oversized=false, normal=false, controlDone=false;
         RequestBudget::ControlGet::start(&owner,&manager,QNetworkRequest(QUrl(base+"fast")),2000,
             [&](QNetworkReply *reply,const QString &) {
                 oversized = reply && reply->error()!=QNetworkReply::NoError;
@@ -222,8 +225,10 @@ int runRequestBudgetChecks() {
         RequestBudget::ControlGet::start(&owner,&manager,QNetworkRequest(QUrl(base+"control")),2000,
             [&](QNetworkReply *reply,const QString &error) {
                 normal = reply && error.isEmpty() && reply->readAll()=="ok";
+                controlDone = true;
             });
-        expect(wait([&] { return oversized && normal; }) && RequestBudget::snapshot().control==0,
+        expect(wait([&] { return oversized && controlDone; }) && normal
+                   && RequestBudget::snapshot().control==0,
                "a per-job body limit cuts an oversized metadata answer without affecting the default limit");
     }
     expect(!SlowSourcePolicy::shouldProbe(29000, 100000, large.size(), false) &&
