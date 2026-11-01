@@ -9,7 +9,11 @@
 > 箭头 / 页上 Esc / 那一页自己的关闭 / `dismiss()` / `evict()` / `closeOverlay()`）全由
 > 覆盖层自己收 —— 返回箭头接成 `reject()`，和这一页自己的 accept/reject 一起落到
 > `QDialog::finished`，那里把这一层收掉。A 类调用点因此**12 → 4**。
-> 后四页 `execPage()` 返回之后本来还有一句"收页了，把这一页说的是谁清掉"：现在靠
+> **2026-11-02 又收了一页**：「分组设置…」也改走 `showPage()`（`MainWindow::openGroupDialogNow()`）。
+> 它要判「确定 / 取消」，收尾原来排在 `execPage()` 返回之后 —— 现在接在
+> `pageClosed(QWidget *)` 上，用 `QDialog::result()` 读同一个结果（确定 = `Accepted`），
+> 是「要结果」的页面里**第一张**改成非阻塞的；A 类调用点 **4 → 3**。
+> 那一批里有四页 `execPage()` 返回之后本来还有一句"收页了，把这一页说的是谁清掉"：现在靠
 > `OverlayHost::pageClosed(QWidget *)`（所有收页路都汇到 `closeOverlay()`，收页钩子只发
 > 那一处；接的人按页面对象认人）。用例在 `UiOverlayNavigationChecks` 的 O2c（四个收页路口
 > 都量到，另加三处 `pageClosed()` 的发送）、`MwWorkspaceCheck`（非阻塞开、一层只放一页、
@@ -20,7 +24,8 @@
 > `ToolboxController.cpp:429`、`UpdateCenterController.cpp:63`、
 > `ServerConsoleController.cpp:74`、`ServerSettingsPageController.cpp:107`、
 > `JavaSettingsController.cpp:116`、`MainWindow.cpp:4966` 这八行按这个更新读；
-> 其余仍是快照。还剩 4 处：实例设置、资源详情页（要用返回值）、预设编辑器、分组对话框。
+> 其余仍是快照（`MainWindow.cpp:5905` 那一行是分组设置，2026-11-02 已按上面那段改成
+> 非阻塞）。还剩 3 处：实例设置、资源详情页（要拿返回值）、预设编辑器（要拿 accept / reject）。
 
 ## 两类，别混着看
 

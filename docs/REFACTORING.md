@@ -631,6 +631,22 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 （扫完自己开页、页眉是「完整性检查」、顶上那句总述说的是这个实例）；Java 管理页那条
 `runJavaManageTests` 的 T26 与账号与外观那页 `MwAccountAppearanceChecks` 的 Z2 / Z2b
 改成"点完按钮再转事件等探针"，不再假设 `click()` 会阻塞。
-`A` 类调用点 12 → 4，见 [嵌套事件循环盘点](NESTED_EVENT_LOOPS_AUDIT.md)。**还剩 4 处**：
-实例设置、资源详情页（要拿返回值）、预设编辑器（要拿 accept / reject）、分组对话框
-（要判 `Accepted` 才有下一步）。
+`A` 类调用点 12 → 4，见 [嵌套事件循环盘点](NESTED_EVENT_LOOPS_AUDIT.md)。
+
+### 2026-11-02 「分组设置…」也改了（第一张"要结果"的非阻塞页）
+
+`MainWindow::openGroupDialogNow()` 原来要 `execPage()` 的返回值：`Accepted` 才
+`applyGroupList()`。现在改成 `showPage()` + `pageClosed()` 钩子，结果用
+`QDialog::result()` 读（同一个值），对话框改成每次开新建一份、收页后 `deleteLater()`：
+
+- 钩子接在**对话框**上（不是 `this`）当上下文，`Qt::SingleShotConnection` —— 这一页收掉
+  之后对话框就删了，连接跟着一起没；接在 `this` 上的话每开一次会多留一条永远不会匹配上
+  的连接。
+- 取消 / 返回箭头 / Esc / 被别的页顶掉都是 `Rejected`，磁盘一个字节不动（和原来一样）。
+- 摆不上时（覆盖层刚被占）删掉新对话框并留一句日志。
+
+验证：`MwInstanceGroupsChecks` 的 TGD（点那颗按钮点完就返回、页真的摆上来；在页上新建组、
+点「确定」→ 真的写进 `wtfml.folders`；再开一次、新建组、点「取消」→ 一个字节都没落盘）。
+这一段以前写不出来 —— 注释里"要过 `exec()` 这个模态循环，offscreen 下驱动不了"说的就是它。
+
+**还剩 3 处**：实例设置、资源详情页（要拿返回值）、预设编辑器（要拿 accept / reject）。
