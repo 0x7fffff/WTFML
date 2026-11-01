@@ -187,6 +187,8 @@ set(PROJECT_SOURCES
     # 这三件事都能绕开界面直接钉死，而且全是真的建 zip、真的解回来。
     ${REPO_ROOT}/src/manage/BackupFiles.cpp
     ${REPO_ROOT}/src/manage/BackupFiles.hpp
+    ${REPO_ROOT}/src/manage/ManualRecovery.cpp
+    ${REPO_ROOT}/src/manage/ManualRecovery.hpp
     # WorldFiles：「导入世界」和存档改名那两个改盘的动作。放进来是为了绕开原生选择框
     # （测试驱动不了它）直接调函数 —— 重名挡住没有、拷一半失败会不会留半份，都在这里钉。
     ${REPO_ROOT}/src/manage/WorldFiles.cpp

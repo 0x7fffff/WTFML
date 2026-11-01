@@ -1,7 +1,11 @@
 #include "Support.hpp"
+#include "manage/ManualRecovery.hpp"
 #include "manage/RecoveryReview.hpp"
 #include "manage/RestoreJournal.hpp"
 #include "manage/OwnedStaging.hpp"
+#include "util/DirectorySessionLock.hpp"
+
+#include <QLockFile>
 
 void runBackupTests() {
     section("ZQ. 世界与实例备份：清单 / 打包 / 还原");
@@ -1068,6 +1072,166 @@ void runBackupTests() {
         OwnedStaging::cleanup(root);
         check(readAll(retained + QStringLiteral("/level.dat")) == "ORIGINAL",
               "ZQ11 旧目录即使有伪登记也不在暂存清理范围内");
+    }
+    section("ZQ12. 人工恢复目录：用旧目录换回来，两边都留着");
+    {
+        const QString root = work + QStringLiteral("/manual-recovery-tests");
+        const QString target = root + QStringLiteral("/instance");
+        const QString oldDir = root + QStringLiteral("/.wtfml-restore-previous-")
+            + QUuid::createUuid().toString(QUuid::WithoutBraces);
+        writeFileAt(target + QStringLiteral("/level.dat"), "CURRENT");
+        writeFileAt(oldDir + QStringLiteral("/level.dat"), "OLD");
+        QDir().mkpath(RestoreJournal::directory(root));
+        const QString journalPath = QDir(RestoreJournal::directory(root)).filePath(
+            QUuid::createUuid().toString(QUuid::WithoutBraces) + QStringLiteral(".json"));
+        check(RestoreJournal::write(journalPath, RestoreJournal::record(target, oldDir, true)),
+              "ZQ12 还原事务留下的现场记录写好了");
+        const auto journalCount = [&] {
+            return QDir(RestoreJournal::directory(root))
+                .entryList({QStringLiteral("*.json")}, QDir::Files).size();
+        };
+
+        // 「不自动清理未知暂存」：这一趟一个 removeTree 都不该碰。
+        const QString unknownStaging = root + QStringLiteral("/.wtfml-restore-UNKNOWN");
+        writeFileAt(unknownStaging + QStringLiteral("/keep.txt"), "KEEP");
+        const QByteArray journalBefore = readAll(journalPath);
+
+        ManualRecovery::Request request;
+        request.gameRoot = root;
+        request.targetDir = target;
+        request.replacementDir = oldDir;
+
+        auto inUse = request;
+        inUse.inUse = true;
+        const auto blocked = ManualRecovery::swapDirectories(inUse);
+        check(!blocked.ok && readAll(target + QStringLiteral("/level.dat")) == "CURRENT"
+                  && readAll(oldDir + QStringLiteral("/level.dat")) == "OLD"
+                  && readAll(journalPath) == journalBefore,
+              "★★ ZQ12 游戏在跑 / 正被占用 ⇒ 一个目录都没换，记录也没动", blocked.problem);
+
+        {
+            const bool enabledBefore = DirectorySessionLock::enabled;
+            DirectorySessionLock::enabled = true;
+            QLockFile other(QDir::temp().filePath(
+                QStringLiteral("wtfml-directory-%1.lock")
+                    .arg(DirectorySessionLock::keyFor(root))));
+            other.setStaleLockTime(0);
+            check(other.tryLock(0), "ZQ12 数据目录占用夹具取得锁");
+            const auto refused = ManualRecovery::swapDirectories(request);
+            DirectorySessionLock::enabled = enabledBefore;
+            check(!refused.ok && readAll(target + QStringLiteral("/level.dat")) == "CURRENT"
+                      && readAll(oldDir + QStringLiteral("/level.dat")) == "OLD",
+                  "★★ ZQ12 另一份启动器占着数据目录 ⇒ 不动盘", refused.problem);
+        }
+
+        // 另一条记录把这份旧目录当成自己的 retained：换走它会让那一条变成
+        // 「目标和旧目录均缺失」，所以先拒绝。
+        {
+            const QString otherTarget = root + QStringLiteral("/other-instance");
+            QDir().mkpath(otherTarget);
+            const QString otherJournal = QDir(RestoreJournal::directory(root)).filePath(
+                QUuid::createUuid().toString(QUuid::WithoutBraces) + QStringLiteral(".json"));
+            check(RestoreJournal::write(otherJournal,
+                      RestoreJournal::record(otherTarget, oldDir, true)),
+                  "ZQ12 另一条认领同一份旧目录的记录写好了");
+            const auto claimed = ManualRecovery::swapDirectories(request);
+            check(!claimed.ok && readAll(target + QStringLiteral("/level.dat")) == "CURRENT"
+                      && readAll(oldDir + QStringLiteral("/level.dat")) == "OLD",
+                  "★★ ZQ12 旧目录还被另一条记录登记着 ⇒ 不换", claimed.problem);
+            QFile::remove(otherJournal);
+        }
+        // 同一个目标上有一条记录，但记的不是用户挑的这一份：先处理那条。
+        {
+            const QString otherRetained = root + QStringLiteral("/.wtfml-restore-previous-")
+                + QUuid::createUuid().toString(QUuid::WithoutBraces);
+            QDir().mkpath(otherRetained);
+            const QString otherJournal = QDir(RestoreJournal::directory(root)).filePath(
+                QUuid::createUuid().toString(QUuid::WithoutBraces) + QStringLiteral(".json"));
+            check(RestoreJournal::write(otherJournal,
+                      RestoreJournal::record(target, otherRetained, true)),
+                  "ZQ12 同一目标的另一条记录写好了");
+            const auto mismatch = ManualRecovery::swapDirectories(request);
+            check(!mismatch.ok && readAll(target + QStringLiteral("/level.dat")) == "CURRENT"
+                      && readAll(oldDir + QStringLiteral("/level.dat")) == "OLD",
+                  "★★ ZQ12 和记录里那一份对不上 ⇒ 不换", mismatch.problem);
+            QFile::remove(otherJournal);
+            QDir().rmdir(otherRetained);
+        }
+
+        const auto swapped = ManualRecovery::swapDirectories(request);
+        check(swapped.ok, "★★★ ZQ12 换回来了", swapped.problem);
+        check(readAll(target + QStringLiteral("/level.dat")) == "OLD",
+              "★★★ ZQ12 当前目录里现在是旧那一份");
+        check(!swapped.retainedPath.isEmpty()
+                  && readAll(swapped.retainedPath + QStringLiteral("/level.dat")) == "CURRENT",
+              "★★★ ZQ12 换下来的「现在这一份」原样留在旁边（两边都留着）",
+              swapped.retainedPath);
+        check(!QFileInfo::exists(oldDir), "ZQ12 旧目录是被改名换上去的，不是拷过去再删");
+        check(QFileInfo::exists(journalPath) && journalCount() == 1,
+              "★★ ZQ12 同一个目标只留一条记录，而且记录没被删掉",
+              QString::number(journalCount()));
+        const RecoveryReview::Item review = RecoveryReview::read(root, journalPath);
+        check(review.problem.isEmpty() && !swapped.retainedPath.isEmpty()
+                  && review.target == InstanceFiles::canonicalPath(target)
+                  && QFileInfo(review.retained).fileName()
+                         == QFileInfo(swapped.retainedPath).fileName(),
+              "ZQ12 记录改写成了这一趟的「换下来的那一份」", review.retained);
+        check(readAll(unknownStaging + QStringLiteral("/keep.txt")) == "KEEP",
+              "★★ ZQ12 没登记的暂存一个字节都没动");
+
+        // 已发布事务：启动恢复不替用户决定，两份都原样。
+        const auto messages = BackupFiles::recoverInterruptedRestores(root);
+        check(readAll(target + QStringLiteral("/level.dat")) == "OLD"
+                  && readAll(swapped.retainedPath + QStringLiteral("/level.dat")) == "CURRENT"
+                  && !messages.isEmpty(),
+              "★★★ ZQ12 启动恢复不替用户决定：两边都留着并留下提示",
+              messages.join(QStringLiteral("；")));
+
+        QString problem;
+        check(RecoveryReview::acknowledge(root, RecoveryReview::read(root, journalPath), &problem)
+                  && readAll(target + QStringLiteral("/level.dat")) == "OLD"
+                  && readAll(swapped.retainedPath + QStringLiteral("/level.dat")) == "CURRENT",
+              "ZQ12 标记已检查只归档日志，两份数据原样保留", problem);
+    }
+    {
+        // 两段改名之间断掉：目标已经挪走、旧目录还没换上来。启动恢复要把「现在这一份」
+        // 放回去 —— 也就是这一趟人工恢复等于没发生，挑中的旧目录原地不动。
+        const QString root = work + QStringLiteral("/manual-recovery-crash");
+        const QString target = root + QStringLiteral("/instance");
+        const QString retained = root + QStringLiteral("/.wtfml-restore-previous-")
+            + QUuid::createUuid().toString(QUuid::WithoutBraces);
+        const QString chosen = root + QStringLiteral("/chosen-old");
+        writeFileAt(retained + QStringLiteral("/level.dat"), "CURRENT");
+        writeFileAt(chosen + QStringLiteral("/level.dat"), "OLD");
+        QDir().mkpath(RestoreJournal::directory(root));
+        const QString journalPath = QDir(RestoreJournal::directory(root)).filePath(
+            QUuid::createUuid().toString(QUuid::WithoutBraces) + QStringLiteral(".json"));
+        check(RestoreJournal::write(journalPath, RestoreJournal::record(target, retained, true)),
+              "ZQ12 断在两次改名之间的记录写好了");
+        BackupFiles::recoverInterruptedRestores(root);
+        check(readAll(target + QStringLiteral("/level.dat")) == "CURRENT"
+                  && readAll(chosen + QStringLiteral("/level.dat")) == "OLD",
+              "★★★ ZQ12 断在两次改名之间 ⇒ 启动恢复把现在这一份放回去，挑的旧目录没动");
+    }
+    {
+        // 目标本来就不在了：没有「换下来的」那一份，记录也没有旧目录可检查。
+        const QString root = work + QStringLiteral("/manual-recovery-gone");
+        const QString target = root + QStringLiteral("/instance");
+        const QString chosen = root + QStringLiteral("/old-copy");
+        writeFileAt(chosen + QStringLiteral("/level.dat"), "OLD");
+        ManualRecovery::Request request;
+        request.gameRoot = root;
+        request.targetDir = target;
+        request.replacementDir = chosen;
+        const auto placed = ManualRecovery::swapDirectories(request);
+        check(placed.ok && placed.retainedPath.isEmpty()
+                  && readAll(target + QStringLiteral("/level.dat")) == "OLD",
+              "★★ ZQ12 目标已经不在了 ⇒ 旧目录直接放回去，没有换下来的那一份",
+              placed.problem);
+        BackupFiles::recoverInterruptedRestores(root);
+        check(QDir(RestoreJournal::directory(root))
+                  .entryList({QStringLiteral("*.json")}, QDir::Files).isEmpty(),
+              "ZQ12 目标原本不存在的事务恢复后不留记录（没有旧目录要检查）");
     }
     AppPaths::setMinecraftDir(originalDir);
 }

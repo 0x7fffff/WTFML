@@ -107,6 +107,8 @@ set(HEADER_FILES
     src/manage/UpdatePolicy.hpp
     src/manage/UpdateRollback.hpp
     src/manage/BackupFiles.hpp
+    # 「人工恢复目录」：人挑一份旧目录把现在这一份换掉，两边都保留。
+    src/manage/ManualRecovery.hpp
     src/manage/WorldFiles.hpp
     # 世界只读概况：种子 / 玩家位置 / 已生成区域 / 大小。
     src/manage/WorldMap.hpp
@@ -357,6 +359,7 @@ set(SOURCE_FILES
     src/manage/UpdatePolicy.cpp
     src/manage/UpdateRollback.cpp
     src/manage/BackupFiles.cpp
+    src/manage/ManualRecovery.cpp
     src/manage/WorldFiles.cpp
     # 世界只读概况：只读 level.dat 的那几格 + region/*.mca 的 8 KiB 头。
     src/manage/WorldMap.cpp
