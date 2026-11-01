@@ -4,6 +4,7 @@
  */
 
 #include "tools/Brewing.hpp"
+#include "tools/GameVersion.hpp"
 
 #include <QHash>
 
@@ -23,6 +24,7 @@ struct Recipe {
     bool extendable;
     bool upgradable;
     int upgradedLevel = 2;  ///< 荧石粉之后是几级（只有迟缓是 IV，见下面那一条）
+    const char *since = nullptr;  ///< 从哪一版起才有（空 = 各版本都有）
 };
 
 const Recipe kRecipes[] = {
@@ -43,6 +45,12 @@ const Recipe kRecipes[] = {
     {"缓降", "幻翼膜", -1, true, true, false},
     {"虚弱", "发酵蜘蛛眼", -1, true, true, false},
     {"海龟大师", "海龟壳", -1, false, true, true},
+    // 1.21 加的四瓶：都从**粗制的药水**来（不是水瓶直做），也没有延长 / II 级版本。
+    // 材料名照 `zh_cn.json`：旋风棒 / 蜘蛛网 / 黏液块 / 石头。
+    {"盘丝", "蜘蛛网", -1, false, false, false, 2, "1.21"},
+    {"蓄风", "旋风棒", -1, false, false, false, 2, "1.21"},
+    {"渗浆", "黏液块", -1, false, false, false, 2, "1.21"},
+    {"虫蚀", "石头", -1, false, false, false, 2, "1.21"},
 };
 
 int recipeCount() { return int(sizeof(kRecipes) / sizeof(kRecipes[0])); }
@@ -113,6 +121,7 @@ PotionInfo potionAt(int index) {
     info.extendable = recipe.extendable;
     info.upgradable = recipe.upgradable;
     info.upgradedLevel = recipe.upgradable ? recipe.upgradedLevel : 0;
+    info.since = recipe.since != nullptr ? QString::fromLatin1(recipe.since) : QString();
     return info;
 }
 
@@ -120,6 +129,20 @@ QStringList potionNames() {
     QStringList names;
     for (const Recipe &recipe : kRecipes) names.append(QString::fromUtf8(recipe.name));
     return names;
+}
+
+QString potionSince(int index) {
+    if (index < 0 || index >= recipeCount() || kRecipes[index].since == nullptr) {
+        return QString();
+    }
+    return QString::fromLatin1(kRecipes[index].since);
+}
+
+bool available(int index, const QString &version) {
+    if (index < 0 || index >= recipeCount()) {
+        return false;
+    }
+    return GameVersion::availableIn(potionSince(index), version);
 }
 
 QString Plan::detailText() const {

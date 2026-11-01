@@ -51,6 +51,9 @@ struct PotionInfo {
     /// 荧石粉之后是几级（2 = II；**迟缓是 IV**，游戏里荧石粉给的是迟缓 IV）。
     /// `upgradable == false` 时是 0。
     int upgradedLevel = 0;
+    /// 这一种药水从哪一版起才有（`1.21`）。表里绝大多数是空串 = 各版本都有；
+    /// 1.21 加的那四瓶（盘丝 / 蓄风 / 渗浆 / 虫蚀）写 `1.21`。
+    QString since;
 };
 
 /// @p level 的中文写法：2 → 「II」、4 → 「IV」，其它照数字写（`levelText(0)` 空串）。
@@ -62,6 +65,15 @@ int potionCount();
 PotionInfo potionAt(int index);
 /// 全部药水名（界面下拉框用；次序就是表的次序）。
 QStringList potionNames();
+/// 这一种药水从哪一版起才有（`1.21`）；各版本都有时回空串。越界回空串。
+QString potionSince(int index);
+/**
+ * @brief @p version 里有没有第 @p index 种药水（空串 = 不限版本）。
+ *
+ * 判据走 `GameVersion::availableIn()`，与旗帜那页的「目标版本」同一套。
+ * 越界下标回 **false**（认不出来就不能说它有）。
+ */
+bool available(int index, const QString &version);
 
 /// 一条酿造计划。
 struct Plan {

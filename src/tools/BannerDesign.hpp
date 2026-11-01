@@ -1,22 +1,17 @@
 #pragma once
 #include "Banner.hpp"
+#include "GameVersion.hpp"
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
-#include <QVersionNumber>
 
 namespace BannerDesign {
 struct Design { int base = 0; QString version; QStringList layers; };
-inline QStringList versions() {
-    return {QString(), QStringLiteral("1.14"), QStringLiteral("1.15"), QStringLiteral("1.16"),
-        QStringLiteral("1.17"), QStringLiteral("1.18"), QStringLiteral("1.19"),
-        QStringLiteral("1.20"), QStringLiteral("1.20.4"), QStringLiteral("1.21")};
-}
+inline QStringList versions() { return GameVersion::versions(); }
 inline bool available(int pattern, const QString &version) {
-    return version.isEmpty() || QVersionNumber::fromString(Banner::patternSince(pattern))
-        <= QVersionNumber::fromString(version);
+    return GameVersion::availableIn(Banner::patternSince(pattern), version);
 }
 inline QJsonObject encode(const Design &design) {
     QJsonArray layers;

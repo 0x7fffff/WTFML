@@ -122,6 +122,8 @@ public:
     static QString brewingFormComboName() { return QStringLiteral("toolboxBrewingForm"); }
     /// 要几瓶（1–64；一次酿造最多 3 瓶）。
     static QString brewingBottlesSpinName() { return QStringLiteral("toolboxBrewingBottles"); }
+    /// 目标版本（空串 = 不限版本；判据在 `GameVersion`）。
+    static QString brewingVersionComboName() { return QStringLiteral("toolboxBrewingVersion"); }
     static QString brewingResultName() { return QStringLiteral("toolboxBrewingResult"); }
     static QString bannerBaseComboName() { return QStringLiteral("toolboxBannerBase"); }
     static QString bannerPatternComboName() { return QStringLiteral("toolboxBannerPattern"); }
@@ -334,6 +336,8 @@ public:
     void setBrewingPotions(const QStringList &names);
     /// 形态下拉框的那几项（`普通` / `喷溅型` / `滞留型`）。
     void setBrewingForms(const QStringList &names);
+    /// 目标版本下拉框的那几项（空串那一项显示成「不限版本」；程序摆值不发信号）。
+    void setBrewingVersions(const QStringList &versions);
     /// 结果那一整段（`Brewing::Plan::detailText()` 拼好的）。
     void setBrewingResult(const QString &text);
     int brewingPotionIndex() const;
@@ -342,6 +346,8 @@ public:
     int brewingFormIndex() const;
     /// 要几瓶（1–64）。
     int brewingBottles() const;
+    /// 目标版本（空串 = 不限版本）。
+    QString brewingVersion() const;
 
     // ================= 八、旗帜设计 =================
 

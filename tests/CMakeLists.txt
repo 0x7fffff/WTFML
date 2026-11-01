@@ -327,6 +327,7 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/tools/Beacon.hpp
     ${REPO_ROOT}/src/tools/Brewing.cpp
     ${REPO_ROOT}/src/tools/Brewing.hpp
+    ${REPO_ROOT}/src/tools/GameVersion.hpp
     # 旗帜设计 / 纹饰搭配：ZAJ 那一节钉图案表、层数上限、
     # 材料合并与纹饰的海龟壳限制。
     ${REPO_ROOT}/src/tools/Banner.cpp

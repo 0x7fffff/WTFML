@@ -157,6 +157,29 @@ int UiBeaconBrewingChecks() {
                       "★ U39 改瓶数也发一发（材料与酿造次数跟着变）",
                       QString::number(brewSignals));
             }
+
+            // 后补的「目标版本」那一格：版本表由 controller 摆进来，程序摆值不发信号。
+            auto *brewingVersion =
+                page.findChild<QComboBox *>(ToolboxPage::brewingVersionComboName());
+            check(brewingVersion != nullptr,
+                  "★★ U39 酿造多出来的「目标版本」那一格在");
+            if (brewingVersion != nullptr) {
+                brewSignals = 0;
+                page.setBrewingVersions(
+                    {QString(), QStringLiteral("1.20.4"), QStringLiteral("1.21")});
+                check(brewSignals == 0 && brewingVersion->count() == 3
+                          && brewingVersion->itemText(0) == QStringLiteral("不限版本")
+                          && brewingVersion->itemData(0).toString().isEmpty()
+                          && brewingVersion->currentData().toString().isEmpty(),
+                      "★★ U39 `setBrewingVersions()` 把空串那一项摆成「不限版本」、**不发信号**",
+                      QString::number(brewSignals));
+                brewingVersion->setCurrentIndex(2);
+                check(brewSignals == 1 && page.brewingVersion() == QStringLiteral("1.21"),
+                      "★ U39 换目标版本也发一发（controller 拿它判这一瓶在不在）",
+                      QStringLiteral("%1 发 / %2")
+                          .arg(brewSignals)
+                          .arg(page.brewingVersion()));
+            }
             page.setBrewingResult(QStringLiteral("一共 4 步"));
             check(brewingResult->text() == QStringLiteral("一共 4 步"),
                   "★ U39 酿造结果那一格逐字摆进来");
