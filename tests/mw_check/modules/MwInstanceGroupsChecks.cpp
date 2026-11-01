@@ -1,7 +1,8 @@
 #include "Support.hpp"
 int MwInstanceGroupsChecks(const QDir &root, const QDir &versionsDir) {
-    // 直接往沙盒里写 wtfml.folders（产品里写它的是对话框的「确定」，那一步要过
-    // exec() 这个模态循环，offscreen 下驱动不了）。
+    // 直接往沙盒里写 wtfml.folders。产品里写它的是对话框的「确定」；那一步 2026-11-02
+    // 起可以驱动了（开页改成非阻塞，见 TGD 那一段），前面这些节仍然直接写文件 ——
+    // 它们要摆的是"某个既定状态"，不是"走一遍对话框"。
     {
         const QString groupFile = AppPaths::instanceGroupFilePath();
         QDir().remove(groupFile);
@@ -1729,6 +1730,96 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             QDir(versionsDir.filePath(kSnapTemp)).removeRecursively();
             check(!QDir(versionsDir.filePath(kSnapTemp)).exists(),
                   QStringLiteral("T17 临时实例 %1 删干净了").arg(kSnapTemp));
+        }
+
+        // ---- TGD. 「分组设置…」那一页改成了非阻塞开页（2026-11-02） ----
+        //
+        // 以前这一段没法写：点那颗按钮会卡在 `execPage()` 的嵌套事件循环里，offscreen 下
+        // 驱动不了「确定 / 取消」（T16 那一半因此只能直接调 applyGroupList()）。改成
+        // `OverlayHost::showPage()` 之后点完就返回，于是能真的从界面走到盘上：
+        // 开页 → 在页上改 → 点「确定 / 取消」 → 收页钩子把工作副本落盘（或丢掉）。
+        {
+            const QString groupFile = AppPaths::instanceGroupFilePath();
+            QDir().remove(groupFile);
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+
+            MainWindow w;
+            w.show();
+            QApplication::processEvents();
+            showInstanceTab(&w);
+            auto *button = w.findChild<QPushButton *>(MainWindowUI::groupInstanceButtonName());
+            check(button != nullptr, "TGD 前提：找得到「分组设置…」那颗按钮");
+            if (button == nullptr) {
+                return 0;  // 找不到就没有下文了；上面的 check 已经把这件红记下了
+            }
+
+            // 点一下、把这一页摆出来。**这一发不该卡住** —— 卡住的话下面这一行压根走不到
+            // （offscreen 下那个嵌套循环没有东西会来收它）。
+            const auto openGroupPage = [&]() -> QPair<OverlayHost *, GroupDialog *> {
+                button->click();
+                QApplication::processEvents();
+                return {currentPageOverlay(), w.findChild<GroupDialog *>()};
+            };
+            const auto groupsInFile = [&groupFile]() -> QStringList {
+                QStringList names;
+                const QJsonArray groups = QJsonDocument::fromJson(readBytesAt(groupFile))
+                                              .object()
+                                              .value(QStringLiteral("groups"))
+                                              .toArray();
+                for (const QJsonValue &value : groups) {
+                    names << value.toObject().value(QStringLiteral("name")).toString();
+                }
+                return names;
+            };
+
+            const QString confirmedName = QStringLiteral("TGD-确定落盘");
+            {
+                const auto page = openGroupPage();
+                OverlayHost *host = page.first;
+                GroupDialog *dialog = page.second;
+                check(host != nullptr && host->pageOpen(),
+                      "TGD 点完那颗按钮这一页就摆上来了（点完就返回，没有卡在嵌套循环里）");
+                check(dialog != nullptr, "TGD 覆盖层里摆着的那一个是 GroupDialog");
+                if (dialog != nullptr) {
+                    check(dialog->createGroup(confirmedName), "TGD 在页上新建一个组");
+                    auto *confirm =
+                        dialog->findChild<QPushButton *>(GroupDialog::confirmButtonName());
+                    check(confirm != nullptr, "TGD 找得到「确定」那一颗");
+                    if (confirm != nullptr) {
+                        confirm->click();
+                    }
+                }
+                check(host == nullptr || !host->pageOpen(),
+                      "TGD 点「确定」之后这一页收干净了（pageClosed 那条钩子跑过）");
+                check(groupsInFile().contains(confirmedName),
+                      "★★ TGD 「确定」之后那个组真的写进了 wtfml.folders",
+                      groupsInFile().join(QLatin1Char('|')));
+            }
+
+            // 取消那一档：页上改的那一份**只在对话框自己手里**，磁盘一个字节都不许动。
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            {
+                const QString droppedName = QStringLiteral("TGD-取消不落盘");
+                const auto page = openGroupPage();
+                OverlayHost *host = page.first;
+                GroupDialog *dialog = page.second;
+                check(host != nullptr && host->pageOpen(), "TGD 取消那一档：这一页也摆上来了");
+                check(dialog != nullptr, "TGD 取消那一档：找到的是**新**摆上来的那一个");
+                if (dialog != nullptr) {
+                    check(dialog->createGroup(droppedName), "TGD 取消那一档：在页上新建一个组");
+                    auto *cancel =
+                        dialog->findChild<QPushButton *>(GroupDialog::cancelButtonName());
+                    check(cancel != nullptr, "TGD 找得到「取消」那一颗");
+                    if (cancel != nullptr) {
+                        cancel->click();
+                    }
+                }
+                check(host == nullptr || !host->pageOpen(), "TGD 点「取消」之后这一页也收干净了");
+                check(!groupsInFile().contains(droppedName),
+                      "★★ TGD 「取消」之后页上那个组一个字节都没落盘",
+                      groupsInFile().join(QLatin1Char('|')));
+            }
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         }
 
         // 这一节把分组文件改得面目全非（两个自定义组 + 几条归属），下一节开始前清干净 ——

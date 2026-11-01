@@ -2901,6 +2901,10 @@ private:
     // 实例分组（<数据目录>/wtfml.folders）。**不需要**在换游戏文件夹时重置它：
     // 它每个访问器都会比一下"这次问的是哪一份 .minecraft"，不一样就自己重读。
     InstanceGroupStore *m_groupStore;
+    // 正开着的那一张「分组设置…」页（空 = 没开）。每次开新建一份（组清单 / 人数是
+    // 开页那一刻的快照），收页之后由 openGroupDialogNow() 里那条 pageClosed 钩子收掉，
+    // 所以这一格只在"开着"的这一段有效。
+    GroupDialog *m_groupDialog = nullptr;
     // 玩家外观的数据层（免鉴权问官方 + 内容寻址的本地缓存）。
     PlayerSkinStore *m_skinStore;
     // 给离线账号挑一张随机皮肤（挑的是一个地址，图还是上面那个 Store 去下）。

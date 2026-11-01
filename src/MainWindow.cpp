@@ -5930,15 +5930,41 @@ void MainWindow::openGroupDialogNow() {
     // NOTE: 这张窗**不读选中的实例** ——
     // 一个实例都没选也开得出来，那是"先建几个组、再往里放东西"的正常顺序。
     // 把实例放进某个组是组行行尾那颗齿轮的事（见 onGroupActionRequested()）。
-    GroupDialog dialog(toDialogGroups(m_groupStore->groups()), counts, toDialogGroups(defaults),
-                       defaultCounts, this);
-    // 整页盖在内容区上（见 OverlayHost::execPage）。这一页自己没有标题行，页眉那句
-    // 就是它唯一一处标题（和它自己的窗口标题同一个出处）。
-    if (m_ui->overlay()->execPage(&dialog, GroupDialog::windowTitle()) != QDialog::Accepted) {
-        // 取消 / 返回箭头：磁盘一个字节都没动（对话框只改自己手里那份工作副本）。
-        return;
+    // NOTE: 这张页**每次开都新建一份**（组清单 / 人数是开页那一刻的快照，留着重开会
+    // 拿旧数字）。它不归 `m_groupStore` 也不归覆盖层：收页之后由下面那条钩子
+    // `deleteLater()` 收掉。
+    auto *dialog = new GroupDialog(toDialogGroups(m_groupStore->groups()), counts,
+                                   toDialogGroups(defaults), defaultCounts, this);
+    m_groupDialog = dialog;
+    // 整页盖在内容区上（见 OverlayHost::showPage：摆上去就返回，不卡调用方）。
+    // 这一页自己没有标题行，页眉那句就是它唯一一处标题（和它自己的窗口标题同一个出处）。
+    //
+    // 收页 = 用户把这一页收掉（确定 / 取消 / 返回箭头 / Esc / 被别的页顶掉 —— 全汇到
+    // `pageClosed()`）。只有「确定」才落盘；其余几档磁盘一个字节都没动（对话框只改自己
+    // 手里那份工作副本）。`result()` 和 `execPage()` 的返回值是同一套：确定 = Accepted。
+    //
+    // NOTE: 接在 `dialog` 上（不是 `this` 上）当上下文：这一页收掉之后对话框就
+    // `deleteLater()` 了，连接跟着一起没；不接在 this 上的话，每开一次就多留一条永远
+    // 不会匹配上的连接。
+    connect(
+        m_ui->overlay(), &OverlayHost::pageClosed, dialog,
+        [this, dialog](QWidget *page) {
+            if (page != dialog) {
+                return;
+            }
+            m_groupDialog = nullptr;
+            if (dialog->result() == QDialog::Accepted) {
+                applyGroupList(dialog);
+            }
+            dialog->deleteLater();
+        },
+        Qt::SingleShotConnection);
+    if (!m_ui->overlay()->showPage(dialog, GroupDialog::windowTitle())) {
+        // 覆盖层刚被另一页占上了（正常走不到：入口已经先 `runWhenOverlayFree()` 让过位）。
+        m_groupDialog = nullptr;
+        dialog->deleteLater();
+        appendLog(tr("分组设置那一页没开成：覆盖层刚被另一页占上了。"));
     }
-    applyGroupList(&dialog);
 }
 
 bool MainWindow::applyGroupList(const GroupDialog *dialog) {
