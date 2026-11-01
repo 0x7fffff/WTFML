@@ -592,12 +592,13 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 `verify_launch` 310 → 329；`verify_resources` 913/913、`ui_check` 3133/3133、
 `mw_check` 2722/2722 全绿，`check-test-modules.ps1` / `check-ci-partitions.ps1` 通过。
 
-## 2026-11-01 三页改成非阻塞开页（`OverlayHost::showPage()`）
+## 2026-11-01 七页改成非阻塞开页（`OverlayHost::showPage()`）
 
-「导航/实例元数据渐进收口」里"逐根页迁移明确路由栈"的头三页：任务详情、体检报告、
-工具箱。挑它们的标准是同一条：**开页那一句之后不收任何结果**，以前却要卡在嵌套事件循环里
-等用户点返回。那一页开着的时候，"下面"的每一句（重摆内容、再点一行、后台收尾）都得按
-"这个循环还在转"来读 —— 这正是那一项要收掉的那类时序。
+「导航/实例元数据渐进收口」里"逐根页迁移明确路由栈"的头七页：任务详情、体检报告、
+工具箱、更新中心、服务器控制台、服务器设置、Java 管理。挑它们的标准是同一条：**开页那一句
+之后不收任何结果**，以前却要卡在嵌套事件循环里等用户点返回。那一页开着的时候，"下面"的
+每一句（重摆内容、再点一行、后台收尾）都得按"这个循环还在转"来读 —— 这正是那一项要收掉的
+那类时序。
 
 修改：
 
@@ -609,18 +610,24 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
   旧写法会把眼前这一页收进寄存处 —— 页自己没了，比"没开成"糟）。
 - 页面对象不删：收页时和其它对话框一样"还回去"，同一个对象再摆上来照旧（`m_pageWidget`
   只记"现在这一页是不是 `showPage()` 开的"，顺带把两条收页接线一起断掉）。
+- `OverlayHost::pageClosed(QWidget *page)`：所有收页路都汇到 `closeOverlay()`，所以收页钩子
+  只发那一处（带的就是刚才摆着的那一个对话框；`execPage()` 那一档从内容区里认）。以前靠
+  "`execPage()` 返回之后"做收尾的调用方改接这一发 —— 更新中心 / 服务器控制台 /
+  服务器设置页各自用它清掉"这一页说的是谁"（`m_instanceId` / `m_serverId`），接的时候按
+  页面对象认人，别的页收掉不会误伤。
 - `TaskDetailController::open()`、`IntegrityController::openReport()`、
-  `ToolboxController::open()` 改走它，注释里"必须在 `execPage()` 之前"那几段删掉 ——
+  `ToolboxController::open()`、`UpdateCenterController::open()`、
+  `ServerConsoleController::open()`、`ServerSettingsPageController::open()`、
+  `JavaSettingsController::open()` 改走它，注释里"必须在 `execPage()` 之前"那几段删掉 ——
   现在开完就回来了；`TaskDetailPage` 文件头、`MainWindow::openTaskDetailPage()` 的 NOTE 同步。
-  三处摆不上时都留一句日志（不是静默失败）。
+  七处摆不上时都留一句日志（不是静默失败），那三处有"说的是谁"的当场清掉。
 
-验证：`UiOverlayNavigationChecks` 的 O2c（10 条：QDialog 默认是顶层窗口 → 摆上去之后
-嵌进内容区、返回/ Esc / `evict()` 三条收页路都收干净、重复摆被拒且不动眼前那一页）；
+验证：`UiOverlayNavigationChecks` 的 O2c（12 条：QDialog 默认是顶层窗口 → 摆上去之后
+嵌进内容区、返回 / Esc / `evict()` 三条收页路都收干净、重复摆被拒且不动眼前那一页、
+三条收页路各发一次 `pageClosed()` 且带的是这一个对话框）；
 `MwWorkspaceCheck` 4 条（真控制器非阻塞开、一层只放一页、「关闭」和返回箭头各收一次、
-同一页对象能再摆上来）；体检报告页那条接着由 `runIntegrityScanTests` 的 T33.2 量
-（扫完自己开页、页眉是「完整性检查」、顶上那句总述说的是这个实例）。`A` 类调用点
-12 → 9，见 [嵌套事件循环盘点](NESTED_EVENT_LOOPS_AUDIT.md)。**还剩 9 处**：实例设置、
-资源详情页、预设编辑器这些"要等用户答完再往下走"的语义确实要阻塞；服务器控制台 /
-服务器设置页 / 更新中心 / Java 管理 / 账号皮肤对话框 / 群组对话框这几处 `execPage()`
-之后还有一句"收页了，把这一页说的是谁清掉"，迁到路由栈时要先给它们一个收页钩子，
-不在一轮里顺手改。
+同一页对象能再摆上来）；体检报告页那条由 `runIntegrityScanTests` 的 T33.2 量
+（扫完自己开页、页眉是「完整性检查」、顶上那句总述说的是这个实例）；Java 管理页那条
+`runJavaManageTests` 的 T26 改成"点完按钮再转事件等探针"，不再假设 `click()` 会阻塞。
+`A` 类调用点 12 → 5，见 [嵌套事件循环盘点](NESTED_EVENT_LOOPS_AUDIT.md)。**还剩 5 处**：
+实例设置、资源详情页（要拿返回值）、预设编辑器、账号皮肤对话框、分组对话框。

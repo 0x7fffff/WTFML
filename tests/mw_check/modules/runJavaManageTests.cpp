@@ -151,15 +151,14 @@ void runJavaManageTests() {
         check(w.findChild<QComboBox *>(QStringLiteral("javaVersionCombo")) == nullptr,
               "T26.1 老的那个下拉框一个都不剩（按它原来的 objectName 找）");
 
-        // 这一页是**整页**（`execPage`），而 `openJavaManage()` 进去之后就卡在那层嵌套
-        // 事件循环里 —— 所以量它只能自己排一发定时器（那一发在那层循环里跑），量完点页眉
-        // 上那颗返回箭头收页，外面这句 `click()` 才拿得回控制权。
+        // 这一页是**整页**，而且开页是**非阻塞**的（`OverlayHost::showPage()`）：点完那颗
+        // 按钮 `openJavaManage()` 就返回了。所以量它得自己把事件转起来 —— 下面排的是一发
+        // **反复重排**的定时器：哪一轮真看到那一页了再量，量完点页眉上那颗返回箭头收页。
         //
         // NOTE: **不能**用 `QTimer::singleShot(0, …)`：`openJavaManage()` 在切选项卡和
-        // `execPage` 之前还有一句 `enterSyncWait()`，那一句自己会
+        // 摆页之前还有一句 `enterSyncWait()`，那一句自己会
         // `processEvents(ExcludeUserInputEvents)` —— 排出去的那一发会**在页面摆上
-        // 去之前**就跑掉（那时候量到的是"没有这一页"）。所以这里排的是一发
-        // **反复重排**的定时器：哪一轮真看到那一页了再量。
+        // 去之前**就跑掉（那时候量到的是"没有这一页"）。
         bool probed = false;
         int ticks = 0;
         QTimer probe;
@@ -442,11 +441,15 @@ void runJavaManageTests() {
             }
         });
         probe.start();
-        javaManage->click();  // 同步：卡在嵌套循环里，上面那发定时器在里面跑完才返回
+        javaManage->click();  // 非阻塞：点完就回来了，这一页由覆盖层自己收
+        // 开页不再卡在嵌套循环里，所以在这里把事件转起来：等探针真看到那一页（它自己
+        // 会量完并点返回箭头收页），再等这一层收干净。
+        const bool sawPage = pumpUntil([&] { return probed; }, 5000);
+        pumpUntil([&] { return !overlay->isOpen(); }, 5000);
         probe.stop();
         // 这一条是上面一整段的**前提**：没开出来的话里面一条都没跑 —— 那种"全绿"是假的。
-        check(probed, "T26.2 那颗按钮真的把「Java 管理」那一页开出来了"
-                      "（★ 这条要是红了，上面里面所有东西一条都没量到）");
+        check(sawPage, "T26.2 那颗按钮真的把「Java 管理」那一页开出来了"
+                       "（★ 这条要是红了，上面里面所有东西一条都没量到）");
         check(!overlay->isOpen(), "T26.9 点完那颗返回箭头，这一页收干净了");
     }
 

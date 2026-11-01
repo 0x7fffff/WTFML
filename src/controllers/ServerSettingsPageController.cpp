@@ -91,6 +91,13 @@ void ServerSettingsPageController::open(const QString &serverId) {
         // 「踢出…」：送一条 kick 命令进正在跑的服务端（必须走控制台、回显结果）。
         connect(m_page, &ServerSettingsPage::playerKickRequested, this,
                 [this](const QString &name) { m_owner.kickServerPlayer(name); });
+        // 收页钩子（见 `OverlayHost::pageClosed()`）：这一页收掉之后"说的是谁"就没意义了
+        // （同控制台那一页）；以前靠 `execPage()` 返回之后那一句清，现在开页不等它了。
+        connect(overlay, &OverlayHost::pageClosed, this, [this](QWidget *page) {
+            if (page == m_page) {
+                m_serverId.clear();
+            }
+        });
     }
     m_serverId = serverId;
     m_page->setSection(ServerSettingsPage::Section::Common);
@@ -104,9 +111,13 @@ void ServerSettingsPageController::open(const QString &serverId) {
             tabs->setCurrentIndex(instancesTab);
         }
     }
-    overlay->execPage(m_page, ServerSettingsPage::windowTitle(), instancesTab);
-    // 收页之后"这一页说的是谁"就没意义了（同控制台那一页末尾那一段）。
-    m_serverId.clear();
+    // 非阻塞开页（见 `OverlayHost::showPage()`）：这一页后面没有一行代码要等它收掉，
+    // 收尾（清 `m_serverId`）在上面那条钩子上。
+    if (!overlay->showPage(m_page, ServerSettingsPage::windowTitle(), instancesTab)) {
+        // 摆不上（这一层刚被别人占上）：这一页说的服务端当场作废，留一句日志。
+        m_serverId.clear();
+        m_owner.appendLog(MainWindow::tr("服务器设置页没开成：覆盖层刚被另一页占上了。"));
+    }
 }
 
 void ServerSettingsPageController::refreshIfShowing(const QString &serverId) {

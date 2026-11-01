@@ -246,6 +246,13 @@ int UiOverlayNavigationChecks() {
                       dialog.isVisible(),
                   "★ O2c 已经有一页的时候再摆被拒，正开着的那一页原样还在");
 
+            // 收页钩子（`OverlayHost::pageClosed()`）：三条收页路都汇到 `closeOverlay()`，
+            // 所以下面返回箭头 / Esc / `evict()` 每一路都该发一次，而且带的就是这一个对话框
+            // —— 控制器靠它清掉"这一页说的是谁"。
+            QList<QWidget *> closedPages;
+            QObject::connect(&host, &OverlayHost::pageClosed, &host,
+                             [&closedPages](QWidget *page) { closedPages.append(page); });
+
             // 返回箭头 = 这一页收掉（接的是 reject → finished，和 `execPage()` 同源）。
             auto *back = host.findChild<QPushButton *>(OverlayHost::overlayBackButtonName());
             if (back) {
@@ -254,6 +261,9 @@ int UiOverlayNavigationChecks() {
             }
             check(back && !host.isOpen() && !dialog.isVisible() && dialog.parentWidget() != content,
                   "★★ O2c 点返回 = 这一页收干净了（对话框挂回寄存处、不删）");
+            check(closedPages.size() == 1 && closedPages.first() == &dialog,
+                  "★★ O2c 收页时发了 pageClosed()，带的就是刚收起来的那一个对话框",
+                  QStringLiteral("发了 %1 次").arg(closedPages.size()));
 
             // 在页上按 Esc / 页上那颗「关闭」也是 `reject()` —— 落到同一处。
             check(host.showPage(&dialog, QStringLiteral("非阻塞页")), "O2c 同一个对象能再摆上来");
@@ -265,6 +275,9 @@ int UiOverlayNavigationChecks() {
             QApplication::processEvents();
             check(!host.isOpen() && !dialog.isVisible(),
                   "★ O2c 在页上按 Esc = 这一页收干净（和「关闭」那颗同一发）");
+            check(closedPages.size() == 2 && closedPages.last() == &dialog,
+                  "O2c Esc 收页也发 pageClosed()（第二轮同样带的是这一页）",
+                  QStringLiteral("发了 %1 次").arg(closedPages.size()));
 
             // 用户自己点了另一件要开页的事（`runWhenOverlayFree()` 那一档）：`evict()`
             // 也得收得掉非阻塞页 —— 它走的是同一条 `backPressed`。
@@ -273,6 +286,9 @@ int UiOverlayNavigationChecks() {
             check(host.evict(), "★ O2c evict() 收得掉这一页（要让路的时候）");
             QApplication::processEvents();
             check(!host.isOpen() && !dialog.isVisible(), "★ O2c evict() 之后这一层空出来了");
+            check(closedPages.size() == 3 && closedPages.last() == &dialog,
+                  "★ O2c evict() 收页同样发 pageClosed()（让路也不算漏收尾）",
+                  QStringLiteral("发了 %1 次").arg(closedPages.size()));
         }
     }
     return 0;

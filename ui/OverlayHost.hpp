@@ -388,6 +388,15 @@ signals:
     /// 实现里那段 ★ 注释。
     void promptDismissed();
 
+    /// 整页那一层收掉了（`closeOverlay()` 那一处，**所有**收页路都汇到这里：返回箭头 /
+    /// Esc / 页上自己那颗关闭 / `dismiss()` / `evict()` / `closeOverlay()`）。`page` 是
+    /// 刚才摆着的那一个对话框 —— 页面对象不删（还在寄存处），只是不再露着。
+    ///
+    /// **给谁用**：以前靠"`execPage()` 返回之后"才做收尾的调用方（清掉"这一页说的是谁"
+    /// 那类），改走 `showPage()` 之后就靠这一发。接的人自己认 `page == 我那一页`，
+    /// 有别的页开着的时候不会误伤。
+    void pageClosed(QWidget *page);
+
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
