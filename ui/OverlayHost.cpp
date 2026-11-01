@@ -467,6 +467,16 @@ void OverlayHost::closeOverlay() {
         return;
     }
     if (m_mode == Mode::Page) {
+        // 这一层刚才是哪一页（`pageClosed()` 要带上它）：`showPage()` 那一档直接记着；
+        // `execPage()` 那一档记的是内容区里那**唯一**一个子控件 —— 页面对象活到这次收页
+        // 结束（收页信号在下面发，之后才轮到调用方决定删不删）。
+        QWidget *closedPage = m_pageWidget;
+        if (closedPage == nullptr && m_pageContentLayout != nullptr &&
+            m_pageContentLayout->count() > 0) {
+            if (QLayoutItem *item = m_pageContentLayout->itemAt(0)) {
+                closedPage = item->widget();
+            }
+        }
         setPageHeaderWidget(nullptr);
         // `showPage()` 摆着的那一页：两条收页接线先断掉（这一页的调用方不是卡在循环里
         // 等我们的，收尾就在这儿）。`execPage()` 那一档这两个本来就是空的。
@@ -478,6 +488,8 @@ void OverlayHost::closeOverlay() {
         m_pageOwnerTab = -1;
         m_pageFocus = nullptr;
         applyVisibility();
+        // 所有收页路都汇到这里，所以收页钩子只发这一处（见头文件那段）。
+        emit pageClosed(closedPage);
         schedulePageDrain();
         return;
     }

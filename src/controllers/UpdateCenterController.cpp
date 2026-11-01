@@ -54,15 +54,26 @@ void UpdateCenterController::open(const QString &instanceId) {
                 &UpdateCenterController::onPinToggled);
         connect(m_page, &UpdateCenterPage::undoRequested, this,
                 &UpdateCenterController::onUndoRequested);
+        // 收页钩子（见 `OverlayHost::pageClosed()`）：这一页收掉之后"说的是谁"不再作数。
+        // 以前是靠 `execPage()` 返回之后那一句清的，现在开页不等它了，就在收页这一发上清。
+        // 认页面对象：别的页开着的时候不会误伤。
+        connect(overlay, &OverlayHost::pageClosed, this, [this](QWidget *page) {
+            if (page == m_page) {
+                m_instanceId.clear();
+            }
+        });
     }
     // 这一页说的是哪个实例：**动作处理函数全靠它**（页面是复用的，而点动作时它可能已经
     // 关了 —— 不许去问"现在选中的是哪个实例"，同 m_integrityReportVersionId 那条）。
     m_instanceId = instanceId;
-    // 摆结论。**必须在 execPage 之前**：那一下阻塞在嵌套事件循环里。
+    // 摆结论。现在开页是**非阻塞**的（`OverlayHost::showPage()`）：这一页自己不等任何
+    // 结果，收页时上面那条钩子把 `m_instanceId` 清掉。
     m_page->setReport(reportFor(instanceId));
-    overlay->execPage(m_page, UpdateCenterPage::windowTitle());
-    // 收页了：这一页说的那个实例不再作数（下一次开的时候重新记）。
-    m_instanceId.clear();
+    if (!overlay->showPage(m_page, UpdateCenterPage::windowTitle())) {
+        // 摆不上（这一层刚被别人占上）：这一页说的实例当场作废，留一句日志。
+        m_instanceId.clear();
+        m_owner.appendLog(MainWindow::tr("更新中心那一页没开成：覆盖层刚被另一页占上了。"));
+    }
 }
 
 UpdateCenterPage::Report UpdateCenterController::reportFor(const QString &instanceId) const {
