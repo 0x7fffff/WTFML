@@ -86,19 +86,14 @@ int MwAccountAppearanceChecks() {
 
         // ---- Z2 入口按钮：懒建 + 顶上那句话 + 预览跟着走 ----
         //
-        // 这个入口从**非模态 show()** 换成了 `overlay->execPage()`
-        // （把内容区整块盖掉 + 内部一个嵌套事件循环，和「实例设置」那一页同形）。
-        // 于是"点开之后要断言的东西"就不能再线性地写在 `entry->click()` 后面 ——
-        // 那一句会一直卡在嵌套循环里，直到这一页被收掉（实测：整片挂死在这儿）。
+        // 这个入口开的是覆盖层的**整页**（把内容区整块盖掉，和「实例设置」那一页同形），
+        // 而且开页是**非阻塞**的（`OverlayHost::showPage()`）：点完按钮就回来了，这一页
+        // 一直露着，直到下面按返回箭头收掉。
         //
-        // 这里的形状是：把那一片**排成一发 0 毫秒定时器**，再点。execPage 一进它的
-        // 嵌套循环这一发就跑完了（包括最后按返回箭头离开），于是 click() 正常返回。
-        // 整个 mw_check 里只有这儿能看见"那一页正开着"的一瞬间。
-        //
-        // NOTE: 那一发定时器**没有 context 对象**（`QTimer::singleShot(0, lambda)`）。
-        // 万一页面根本没开成（比如覆盖层已经被别的东西占着），它会在下面那句
-        // processEvents() 里跑到，看到的 host 是"没开着"，于是那几条断言红掉、
-        // 而不是把测试挂死 —— 这正是想要的失败形状。
+        // 所以"点开之后要断言的东西"直接写在点击后面即可 —— 先把事件转起来等这一页摆上来
+        // （`runWhenOverlayFree()` 在空着的时候是同一轮同步开的，这一步通常一轮就够）。
+        // 以前这里是一发 `QTimer::singleShot(0, …)`，靠 `execPage()` 的嵌套循环把它跑完；
+        // 非阻塞之后那一发会跑在"页面还没摆上来"的时候。
         {
             MainWindow w10;
             w10.show();
@@ -134,8 +129,15 @@ int MwAccountAppearanceChecks() {
                 if (manageButton != nullptr) {
                     manageButton->click();
                 }
+                {
+                    OverlayHost *probeHost =
+                        w10.findChild<OverlayHost *>(OverlayHost::overlayHostName());
+                    pumpUntil(
+                        [probeHost] { return probeHost != nullptr && probeHost->pageOpen(); },
+                        5000);
+                }
 
-                QTimer::singleShot(0, [&w10, entry] {
+                const auto runWhilePageOpen = [&] {
                     OverlayHost *host =
                         w10.findChild<OverlayHost *>(OverlayHost::overlayHostName());
                     check(host != nullptr && host->pageOpen(),
@@ -153,7 +155,7 @@ int MwAccountAppearanceChecks() {
                     }
 
                     // 让 onAccountSkinButtonClicked() 排队的那一发 refreshAccountSkin()
-                    // 先跑完（它比这一发定时器晚排，所以要手动放行一次）—— 状态行是它写的。
+                    // 先跑完 —— 状态行是它写的。
                     QApplication::processEvents();
 
                     AccountSkinDialog *dialog = w10.findChild<AccountSkinDialog *>();
@@ -239,8 +241,8 @@ int MwAccountAppearanceChecks() {
                     check(host->pageOpen(),
                           "Z2 也没有叠出第二页来（同一层只做一个页面）");
 
-                    // 按**返回箭头**离开：execPage() 把它接到 reject 上，嵌套循环这才退出
-                    // —— 这一句就是这个定时器存在的理由，别删。
+                    // 按**返回箭头**离开（`showPage()` 把它接到 `reject()` 上，收页是这一层
+                    // 自己的事 —— 调用方早就返回了）。
                     if (auto *back = host->findChild<QPushButton *>(
                             OverlayHost::overlayBackButtonName())) {
                         back->click();
@@ -248,7 +250,9 @@ int MwAccountAppearanceChecks() {
                         check(false, "Z2 页眉左边那颗返回箭头按 objectName 找得到");
                         host->closeOverlay();  // 兜底：至少别让测试卡死在这一层上
                     }
-                });
+                };
+
+                runWhilePageOpen();
 
                 entry->click();
                 QApplication::processEvents();
@@ -278,8 +282,11 @@ int MwAccountAppearanceChecks() {
                 tabs->setCurrentIndex(MainWindowUI::settingsTabIndex());
                 QApplication::processEvents();
                 bool reopenedSeen = false;
-                QTimer::singleShot(0, [&] {
-                    // 这一发跑在第一次 execPage 的嵌套循环里：那一页正开着。
+                // 开页现在是非阻塞的（`OverlayHost::showPage()`）：点完这一页就在屏幕上了，
+                // 原来那一发 0 毫秒定时器（靠 `execPage()` 的嵌套循环执行）直接写成顺序代码。
+                settingsEntry->click();
+                QApplication::processEvents();
+                {
                     check(host->pageOpen(), "Z2b 前提：入口把「账号与外观」开出来了");
                     // 用户切到主页：整页那一档**收起来**（`isOpen()` 仍真 —— 它仍占着
                     // 那一位，这正是"点了没反应"那一档的现场）。
@@ -288,22 +295,19 @@ int MwAccountAppearanceChecks() {
                     check(host->isOpen(),
                           "Z2b 前提：切到主页之后那一页只是收起来、仍占着这一位");
                     // 就在这一档按入口。让位那一发只是**请求**（见 runWhenOverlayFree），
-                    // 所以"重开"排在下一轮；这里再排一发断言跟在它后面（同一轮 FIFO），
-                    // 重开出来的那一页一露面就用返回箭头收掉，别让上面的 click 卡死。
+                    // 收掉之后"重开"排在下一轮 —— 在这儿把事件转起来等新的一页摆上来。
                     QMetaObject::invokeMethod(&w10b, "onAccountSkinButtonClicked",
                                               Qt::DirectConnection);
-                    QTimer::singleShot(0, [&] {
-                        reopenedSeen = host->pageOpen();
-                        if (auto *back = host->findChild<QPushButton *>(
-                                OverlayHost::overlayBackButtonName())) {
-                            back->click();
-                        } else {
-                            host->closeOverlay();  // 兜底：至少别把测试挂死在嵌套循环里
-                        }
-                    });
-                });
-                settingsEntry->click();  // 进 execPage 的嵌套循环，直到上面那发断言收页
-                QApplication::processEvents();
+                    pumpUntil([&] { return host->pageOpen(); }, 5000);
+                    reopenedSeen = host->pageOpen();
+                    if (auto *back = host->findChild<QPushButton *>(
+                            OverlayHost::overlayBackButtonName())) {
+                        back->click();
+                    } else {
+                        host->closeOverlay();  // 兜底：至少别把测试挂死在这一层上
+                    }
+                }
+                pumpUntil([&] { return !host->isOpen(); }, 5000);
                 check(reopenedSeen,
                       "★★ Z2b 覆盖层被收着的整页占着时，按这道入口会先静默收掉它、"
                       "再开出新页（不是「点了没反应」）");

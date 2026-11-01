@@ -592,13 +592,13 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 `verify_launch` 310 → 329；`verify_resources` 913/913、`ui_check` 3133/3133、
 `mw_check` 2722/2722 全绿，`check-test-modules.ps1` / `check-ci-partitions.ps1` 通过。
 
-## 2026-11-01 七页改成非阻塞开页（`OverlayHost::showPage()`）
+## 2026-11-01 八页改成非阻塞开页（`OverlayHost::showPage()`）
 
-「导航/实例元数据渐进收口」里"逐根页迁移明确路由栈"的头七页：任务详情、体检报告、
-工具箱、更新中心、服务器控制台、服务器设置、Java 管理。挑它们的标准是同一条：**开页那一句
-之后不收任何结果**，以前却要卡在嵌套事件循环里等用户点返回。那一页开着的时候，"下面"的
-每一句（重摆内容、再点一行、后台收尾）都得按"这个循环还在转"来读 —— 这正是那一项要收掉的
-那类时序。
+「导航/实例元数据渐进收口」里"逐根页迁移明确路由栈"的头八页：任务详情、体检报告、
+工具箱、更新中心、服务器控制台、服务器设置、Java 管理、账号与外观。挑它们的标准是同一条：
+**开页那一句之后不收任何结果**，以前却要卡在嵌套事件循环里等用户点返回。那一页开着的
+时候，"下面"的每一句（重摆内容、再点一行、后台收尾）都得按"这个循环还在转"来读 —— 这
+正是那一项要收掉的那类时序。
 
 修改：
 
@@ -618,9 +618,10 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 - `TaskDetailController::open()`、`IntegrityController::openReport()`、
   `ToolboxController::open()`、`UpdateCenterController::open()`、
   `ServerConsoleController::open()`、`ServerSettingsPageController::open()`、
-  `JavaSettingsController::open()` 改走它，注释里"必须在 `execPage()` 之前"那几段删掉 ——
-  现在开完就回来了；`TaskDetailPage` 文件头、`MainWindow::openTaskDetailPage()` 的 NOTE 同步。
-  七处摆不上时都留一句日志（不是静默失败），那三处有"说的是谁"的当场清掉。
+  `JavaSettingsController::openManagePage()`、`MainWindow::onAccountSkinButtonClicked()`
+  改走它，注释里"必须在 `execPage()` 之前"那几段删掉 —— 现在开完就回来了；`TaskDetailPage`
+  文件头、`MainWindow::openTaskDetailPage()` 的 NOTE 同步。八处摆不上时都留一句日志
+  （不是静默失败），那三处有"说的是谁"的当场清掉。
 
 验证：`UiOverlayNavigationChecks` 的 O2c（12 条：QDialog 默认是顶层窗口 → 摆上去之后
 嵌进内容区、返回 / Esc / `evict()` 三条收页路都收干净、重复摆被拒且不动眼前那一页、
@@ -628,6 +629,8 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 `MwWorkspaceCheck` 4 条（真控制器非阻塞开、一层只放一页、「关闭」和返回箭头各收一次、
 同一页对象能再摆上来）；体检报告页那条由 `runIntegrityScanTests` 的 T33.2 量
 （扫完自己开页、页眉是「完整性检查」、顶上那句总述说的是这个实例）；Java 管理页那条
-`runJavaManageTests` 的 T26 改成"点完按钮再转事件等探针"，不再假设 `click()` 会阻塞。
-`A` 类调用点 12 → 5，见 [嵌套事件循环盘点](NESTED_EVENT_LOOPS_AUDIT.md)。**还剩 5 处**：
-实例设置、资源详情页（要拿返回值）、预设编辑器、账号皮肤对话框、分组对话框。
+`runJavaManageTests` 的 T26 与账号与外观那页 `MwAccountAppearanceChecks` 的 Z2 / Z2b
+改成"点完按钮再转事件等探针"，不再假设 `click()` 会阻塞。
+`A` 类调用点 12 → 4，见 [嵌套事件循环盘点](NESTED_EVENT_LOOPS_AUDIT.md)。**还剩 4 处**：
+实例设置、资源详情页（要拿返回值）、预设编辑器（要拿 accept / reject）、分组对话框
+（要判 `Accepted` 才有下一步）。
