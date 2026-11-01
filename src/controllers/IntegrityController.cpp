@@ -194,7 +194,12 @@ void IntegrityController::openReport(const QString &versionId) {
         view.groups.append(item);
     }
     m_page->setReport(view);
-    m_overlay->execPage(m_page, IntegrityReportPage::windowTitle());
+    // 非阻塞地摆上去（见 `OverlayHost::showPage()`）：这一页后面没有一行代码要等它收掉，
+    // 以前走 `execPage()` 只是让"体检完自动开报告"这一发把调用栈卡在嵌套循环里。
+    if (!m_overlay->showPage(m_page, IntegrityReportPage::windowTitle())) {
+        // 摆不上（这一层刚被别人占上）：留一句日志，别让用户以为体检白跑了。
+        log(tr("完整性检查报告页没开成：覆盖层刚被另一页占上了。"));
+    }
 }
 
 void IntegrityController::reportAction(int action) {

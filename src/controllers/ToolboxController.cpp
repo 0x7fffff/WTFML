@@ -424,9 +424,15 @@ void ToolboxController::open(const QString &toolKey) {
     // 换一件工具**先换再开**：这一页是复用的对象，开出来那一刻已经是用户点的那一件。
     m_page->showTool(tool);
     // 「再开一页」不再问：覆盖层上压着东西时**静默收掉再继续**（`runWhenOverlayFree()`
-    // 是那条路的唯一出处）。直接 execPage 的话，页正开着时它会原地返回 nullptr 那一档，
+    // 是那条路的唯一出处）。直接开的话，页正开着时它会原地返回那一档「没开成」，
     // 用户看到的是"点了没反应"。
-    const auto openPage = [this]() { m_overlay->execPage(m_page, ToolboxPage::windowTitle()); };
+    const auto openPage = [this]() {
+        // 非阻塞（见 `OverlayHost::showPage()`）：工具箱这一页后面没有一行代码要等它
+        // 收掉，用户换一件工具只是换内容 + 重开。
+        if (!m_overlay->showPage(m_page, ToolboxPage::windowTitle())) {
+            m_host.log(tr("工具箱页面没开成：覆盖层刚被另一页占上了。"));
+        }
+    };
     if (m_overlay->isOpen()) {
         if (m_host.openWhenOverlayFree) {
             m_host.openWhenOverlayFree(openPage);
