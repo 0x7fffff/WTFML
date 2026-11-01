@@ -81,6 +81,7 @@ set(HEADER_FILES
     ${REPO_ROOT}/src/manage/UpdatePolicy.hpp
     ${REPO_ROOT}/src/manage/UpdateRollback.hpp
     ${REPO_ROOT}/src/manage/BackupFiles.hpp
+    ${REPO_ROOT}/src/manage/ManualRecovery.hpp
     ${REPO_ROOT}/src/manage/WorldFiles.hpp
     # 世界只读概况：InstanceEditorController 翻译 WorldView 时直接调它。
     ${REPO_ROOT}/src/manage/WorldMap.hpp
@@ -239,6 +240,7 @@ set(SOURCE_FILES
     # 备份那一层：MainWindow 里打存档备份 / 建实例快照 / 还原那几条路直接调它。
     # 少了这一个文件会在链接那一步报一串 `BackupFiles::…` 的 undefined reference。
     ${REPO_ROOT}/src/manage/BackupFiles.cpp
+    ${REPO_ROOT}/src/manage/ManualRecovery.cpp
     ${REPO_ROOT}/src/manage/WorldFiles.cpp
     ${REPO_ROOT}/src/manage/WorldMap.cpp
     # 「上一次启动」那一层：少了这一个文件会在链接那一步报一串

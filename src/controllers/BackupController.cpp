@@ -4,6 +4,7 @@
 #include "ActivityCenterController.hpp"
 #include "util/AppPaths.hpp"
 #include "manage/VersionManager.hpp"
+#include "manage/ManualRecovery.hpp"
 #include "manage/RecoveryReview.hpp"
 #include "InlineMessage.hpp"
 #include "InstanceSettingsDialog.hpp"
@@ -121,19 +122,89 @@ void BackupController::inspectRecovery() {
     index -= 2;
     if (index < 0 || index >= items.size()) return;
     const auto item = items.at(index);
+    // 能换回旧目录的那一种现场：记录读得懂、旧目录还在、目标要么是个目录要么已经不在了。
+    // 目标那一格是个**文件**、或者两边哪个是链接（记录会判成 problem）都不给这一颗按钮。
+    const bool canSwap = item.problem.isEmpty() && QFileInfo(item.retained).isDir()
+                         && (!QFileInfo::exists(item.target) || QFileInfo(item.target).isDir());
     const QString text = item.problem.isEmpty()
-        ? tr("当前目录：\n%1\n\n还原前目录：\n%2\n\n标记已检查只归档日志，两份数据均保留；不会切换或删除目录。")
+        ? tr("当前目录：\n%1\n\n还原前目录：\n%2\n\n标记已检查只归档日志，两份数据均保留，"
+             "不会删除任何一份。\n想用旧目录换回当前目录时，点「用旧目录换回来」—— 换下来的这一份"
+             "会原样留在旁边，也会先登记一条可退回的恢复记录。")
               .arg(QDir::toNativeSeparators(item.target), QDir::toNativeSeparators(item.retained))
         : item.problem + tr("\n\n日志：%1").arg(QDir::toNativeSeparators(item.journal));
-    InlineMessageBox box(MessageKind::Information, tr("检查还原事务"), text,
-        {tr("打开所在目录"), tr("保留两份，标记已检查"), tr("关闭")}, 2, -1);
+    QStringList buttons{tr("打开所在目录")};
+    const int swapIndex = canSwap ? int(buttons.size()) : -1;
+    if (canSwap) buttons.append(tr("用旧目录换回来（两份都留着）"));
+    const int ackIndex = int(buttons.size());
+    buttons.append(tr("保留两份，标记已检查"));
+    const int closeIndex = int(buttons.size());
+    buttons.append(tr("关闭"));
+    InlineMessageBox box(MessageKind::Information, tr("检查还原事务"), text, buttons,
+                         closeIndex, -1);
     m_overlay->execPrompt(&box);
-    if (box.clickedIndex() == 0) {
+    const int clicked = box.clickedIndex();
+    if (clicked == 0) {
         const QString directory = item.target.isEmpty() ? QFileInfo(item.journal).absolutePath()
                                                        : QFileInfo(item.target).absolutePath();
         if (!QDesktopServices::openUrl(QUrl::fromLocalFile(directory)))
             InlineMessage::warning(m_overlay, tr("打开目录失败"), directory);
-    } else if (box.clickedIndex() == 1) {
+    } else if (clicked == swapIndex) {
+        // 「人工恢复目录」：换之前先量运行状态；确认框之后再过一遍（那一段是嵌套事件循环，
+        // 用户在这十几秒里照样能去启动游戏）。
+        const QString instanceId =
+            m_host.instanceIdOfPath ? m_host.instanceIdOfPath(item.target) : QString();
+        const auto inUse = [this, &instanceId] {
+            return busy()
+                   || (!instanceId.isEmpty() && m_host.isRunning
+                       && m_host.isRunning(instanceId))
+                   || (!instanceId.isEmpty() && m_host.isBeingModified
+                       && m_host.isBeingModified(instanceId));
+        };
+        if (inUse()) {
+            InlineMessage::information(m_overlay, tr("现在做不了"),
+                                       tr("这一份正在运行，或者正被复制 / 备份 / 还原 / 安装占用。"
+                                          "等它停下来再来换。"));
+            return;
+        }
+        if (!InlineMessage::question(
+                m_overlay, tr("用旧目录换回来"),
+                tr("会用这一份旧目录换掉当前目录：\n\n旧目录：\n%1\n\n当前目录：\n%2\n\n"
+                   "换下来的「现在这一份」会原样留在旁边，两边都不删；这一步会先登记一条"
+                   "可退回的恢复记录。")
+                    .arg(QDir::toNativeSeparators(item.retained),
+                         QDir::toNativeSeparators(item.target)),
+                tr("换回来"), tr("取消"), false, true)) {
+            return;
+        }
+        if (AppPaths::minecraftDir() != root || inUse()) return;
+        ManualRecovery::Request request;
+        request.gameRoot = root;
+        request.targetDir = item.target;
+        request.replacementDir = item.retained;
+        request.inUse = false;  // 上面两趟已经量过；这一层自己还会守数据目录会话锁。
+        const ManualRecovery::Result swapped = ManualRecovery::swapDirectories(request);
+        if (!swapped.ok) {
+            log(tr("人工恢复没有做成：%1").arg(swapped.problem));
+            InlineMessage::warning(m_overlay, tr("没能换回来"), swapped.problem);
+            return;
+        }
+        log(tr("人工恢复：用 %1 换掉了 %2").arg(QDir::toNativeSeparators(item.retained),
+                                                QDir::toNativeSeparators(item.target)));
+        QString done = tr("已经换回来了。");
+        if (!swapped.retainedPath.isEmpty()) {
+            done += tr("\n\n换下来的「现在这一份」原样留在这儿：\n%1")
+                        .arg(QDir::toNativeSeparators(swapped.retainedPath));
+        }
+        if (!swapped.journalPath.isEmpty()) {
+            done += tr("\n\n恢复记录也留着（%1），在「中断恢复检查」里能看到，核对完再标记已检查。")
+                        .arg(QDir::toNativeSeparators(swapped.journalPath));
+        }
+        if (!swapped.notes.isEmpty()) {
+            done += QStringLiteral("\n\n") + swapped.notes.join(QStringLiteral("\n"));
+        }
+        if (m_host.refreshInstances) m_host.refreshInstances();
+        InlineMessage::information(m_overlay, tr("换回来了"), done);
+    } else if (clicked == ackIndex) {
         QString problem;
         if (!RecoveryReview::acknowledge(root, item, &problem))
             InlineMessage::warning(m_overlay, tr("未标记已检查"), problem);
