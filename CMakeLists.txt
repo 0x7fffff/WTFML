@@ -31,6 +31,12 @@ option(WTFML_PERF_PROBE "Build the UI perf probe (measurement-only Release build
 # 主线程空档。和上面那条一样**只做测量**：默认 OFF、不进 ctest、不进发布物。
 # （产品 exe 没有假网络注入点，验证工程又是 -O0 —— 所以另开一个只含下载引擎的 Release 工具。）
 option(WTFML_PERF_DOWNLOAD "Build the concurrent-download benchmark tool (measurement-only)" OFF)
+# 预编译头：把每个 TU 都要重新解析的那一截 Qt 头只解析一次（量法与取舍见
+# docs/PERFORMANCE.md「共享头扇出的时间成本与预编译头」那一节）。默认 ON —— 它只影响
+# 构建耗时，不影响产物：PCH 只是"提前把这份头的解析结果存盘"，编出来的代码和不用它时相同。
+# 关掉它：`-DWTFML_USE_PCH=OFF`。什么时候要关：换编译器/工具链排查奇怪的警告，
+# 或者盘太紧（这份 .gch 本机 177 MB，在构建目录里、不进仓库）。
+option(WTFML_USE_PCH "Precompile the shared Qt header for every launcher TU" ON)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -556,6 +562,22 @@ set_target_properties(WTFMinecraftLauncher PROPERTIES qt_no_entrypoint TRUE)
 #   * `src/MainWindow.cpp` 的错误报告（`facts.launcherVersion`）。
 # 两处必须都从这里取，不要再写第二份字面量。
 target_compile_definitions(WTFMinecraftLauncher PRIVATE WTFML_VERSION="${PROJECT_VERSION}")
+
+# 预编译头（WTFML_USE_PCH，默认 ON）。
+#
+# 为什么要它：本机量过，一个**空** TU 只 `#include <QString> + <QWidget>` 就要 1427 ms
+# 语法解析（空 TU 66 ms）—— 产品里每一个 TU 都在重复付这一笔。把这份头预编译一次之后，
+# 同一个 TU 337 ms（.gch 本机 177 MB，读回来的固定成本约 270 ms）。
+#
+# 为什么只给 `QWidget` 这一条，不给 `<QtWidgets>` 整个模块：整模块那份 .gch 本机 425 MB、
+# 每个 TU 读回来要 3445 ms —— 比不用 PCH 还慢。加条目前先照第十三节的办法量一遍。
+#
+# 只挂在主程序上：验证工程是几十个各自独立的 target，每个都要自己那份 .gch（几十份
+# 177 MB），换不来时间。它们本来也不是日常改动的那一份。
+if(WTFML_USE_PCH)
+    target_precompile_headers(WTFMinecraftLauncher PRIVATE
+        "$<$<COMPILE_LANGUAGE:CXX>:<QtWidgets/QWidget>>")
+endif()
 
 # 特供版（-DWTFML_DIAG_DOWNLOAD=ON）：详细下载日志恒开。
 #

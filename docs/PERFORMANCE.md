@@ -858,3 +858,97 @@ U+FF01 ！    metrics=4ms      0x1F3xx 那一片（emoji） 未测，按回退�
 不引入。工具是 `tools/prepare-release-copy.ps1`（只动副本、留 `.debug`、写
 `release-copy.json`），完整口径、证据目录和"没验到的"见
 [发布体积实测](P2_RELEASE_SIZE_20261101.md)。
+
+## 2026-11-01 共享头扇出的时间成本与预编译头
+
+第十节量的是**静态扇出**——动一份头要重编多少个 TU，那一节自己写着"编译每个 TU 要多久
+另算"。这一节把那笔另算补上，并据此加了一项构建选项。
+
+### 动一份头要等多久（验证工程，`--parallel 12`）
+
+做法：`touch` 那一份头 → `cmake --build build/verification-mingw13 --parallel 12` →
+记墙钟和 `Building CXX object` 的行数。每份都是上一次构建完全就绪之后再动。
+
+| 动的头 | 重编 TU | 墙钟 |
+| --- | ---: | ---: |
+| `src/util/AppPaths.hpp` | 411 | 297 s |
+| `ui/Theme.hpp` | 328 | 238 s |
+| `ui/MainWindowUI.hpp` | 271 | 218 s |
+
+### 这 218~297 秒花在哪儿：单个 TU 的解析成本
+
+`g++ -fsyntax-only`、与产品同一条命令（`-O3 -std=c++23` + 那份 `includes_CXX.rsp`），
+每份跑 3 次取最低值：
+
+| TU 里只有 | 解析 |
+| --- | ---: |
+| 空 TU | 66 ms |
+| `#include "AppPaths.hpp"` | 66 ms |
+| `#include <QString>` + `<QWidget>` | 1427 ms |
+| `#include "Theme.hpp"` | 1566 ms |
+| `#include "InstanceFilesPage.hpp"` | 1481 ms |
+| `#include "MainWindowUI.hpp"` | 1853 ms |
+
+读法：**1.4 秒的底座是 Qt 控件头**，项目自己的头在它上面只加 0.1–0.4 秒（`AppPaths.hpp`
+压根不引 Qt，所以在它上面几乎是 0）。所以"再砍几个项目头"换不来什么；能吃回来的是
+那 1.4 秒本身 —— 每个 TU 都在重复解析同一批 Qt 声明。
+
+### 预编译头：哪一张能要，哪一张不能要
+
+`QWidget` 那张 `.gch`：建一次 4.4 s，177,643,858 字节。同一个 TU 读回来：
+1427 → **337 ms**（`MainWindowUI.hpp` 1853 → 825，`InstanceFilesPage.hpp` 1481 → 402），
+空 TU 66 → 335 ms —— 那 335 ms 就是固定读回成本，**只有本来要解析 Qt 的 TU 才赚**。
+
+`<QtWidgets>` 整个模块那张：11.0 s、425,264,619 字节，同一个 TU 读回来 **3445 ms** ——
+比不用 PCH 还慢。这张不要。
+
+### 落地：`WTFML_USE_PCH`（默认 ON，只给主程序）
+
+```cmake
+if(WTFML_USE_PCH)
+    target_precompile_headers(WTFMinecraftLauncher PRIVATE
+        "$<$<COMPILE_LANGUAGE:CXX>:<QtWidgets/QWidget>>")
+endif()
+```
+
+全量产品构建（`WTFML_BUILD_TESTS=OFF`、Release、严格警告、全新目录、`--parallel 12`）：
+
+| | TU | 墙钟 |
+| --- | ---: | ---: |
+| `WTFML_USE_PCH=OFF` | 237 | 95 s |
+| `WTFML_USE_PCH=ON` | 238（多的是 `.gch` 本身） | **75 s（−21%）** |
+
+带测试的全量构建（`WTFML_USE_PCH=ON`、严格警告 + `-Werror`、801 个 TU）：**378 s**。
+**这一项没有 A/B**：OFF 那一份跑到一半被"机器内存吃紧"停掉了，不是构建报错 ——
+所以"带测试的构建快多少"这一格不填，只记 ON 这一份的实测值。按单 TU 省下的解析折算，
+它最多只能吃回那 238 个产品 TU 的份额，测试 TU 一点不受益。
+
+为什么只给主程序挂：验证工程是几十个各自独立的 target，每个都要自己那份 `.gch`
+（几十份 × 177 MB），换不回来。
+
+验证：打开 PCH 之后 `build/verification-mingw13` 整棵重编通过（226 TU，`--parallel 8`），
+`ctest --preset verification` **38/38 通过**（403.85 s）。PCH 只改"这份头解析几次"，
+不改编出来的语义；这一跑是确认没有哪条 TU 原本靠"自己 include"编过、现在被兜住了。
+
+### 踩过的坑（写下来省下一次）
+
+- **PCH 与使用端的编译选项必须逐字一致**，否则 GCC 静默不用它 —— 看起来"没变快"，
+  其实根本没读。`-Winvalid-pch` 才看得见。这次撞到的是建 `.gch` 时带了 `-O3`、
+  编译 TU 时漏了，警告原文是 `created and used with differing settings of
+  '-munroll-only-small-loops'`。
+- PCH 会把"漏写的 include"兜住：主程序少写一句 `#include <QWidget>` 也能编过。
+  这份 PCH 只有一条头，影响面就到这儿为止。
+
+### 没验到的
+
+- **CI（sccache）上的效果**：没在 runner 上量过，也没验证 sccache 对 GCC PCH 的缓存行为。
+- 低内存机器：每个 g++ 进程都会映射那 177 MB；本机 31.4 GB 没量到边界。
+- 磁盘：每个构建目录多一份 177 MB（`build/tmp-wtfml-pch-on` 261 MB、带测试的
+  `build/tmp-wtfml-pch-tests` 1.9 GB 是整棵树的体积，不是 `.gch` 单独的体积）。
+
+静态发布那份（`build/static-release`，GCC 15.2 / `C:/mingw64`，另一份 Qt）也重编通过：
+231 TU、95 s，`.gch` 190.8 MB —— 这条工具链上 PCH 一样可用，发布路径不受影响。
+
+证据：`build/tmp-wtfml-pch-{off,on}-build.log`、`build/tmp-wtfml-pch-tests-build.log`、
+`build/tmp-wtfml-verify-pch-build.log`、`build/tmp-wtfml-pch-static-build.log`
+（都是临时文件，不入库）。

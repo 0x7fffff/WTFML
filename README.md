@@ -24,7 +24,11 @@ cmake --build build -j
 ```
 
 产物 `build/WTFMinecraftLauncher.exe`。它是 **GUI 子系统**（跑起来不弹控制台），所以要
-Qt 的 dll 在 `PATH` 上。要**真·单文件**（一个自包含的 exe，不带任何 dll）就换静态 Qt，
+Qt 的 dll 在 `PATH` 上。
+
+默认会预编译一份 Qt 控件头（`WTFML_USE_PCH`），主程序的全量构建 95 → 75 秒；代价是构建
+目录里多一份 177 MB 的 `.gch`。不想用就 `-DWTFML_USE_PCH=OFF`，量法与取舍见
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md) 最后一节。要**真·单文件**（一个自包含的 exe，不带任何 dll）就换静态 Qt，
 CMakeLists 一个字都不用改：
 
 ```bash
