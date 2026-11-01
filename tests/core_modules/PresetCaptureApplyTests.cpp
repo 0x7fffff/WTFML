@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "presets/ModSourceResolution.hpp"
 #include "presets/PresetExecutionReport.hpp"
 #include "presets/PresetWriteLock.hpp"
 
@@ -230,5 +231,48 @@ void runPresetCaptureApplyTests() {
     check(!snapshotProblem.isEmpty(),
           "★★★ PG7 `options.txt` 读不动 ⇒ 快照带着一句人话（不然整份设置会被当成空的铺掉）",
           snapshotProblem);
+
+    // ------------------------------------------------------------------
+    // PG8 从实例提取模组：两个来源认出来的那一堆怎么合（纯函数，不联网）
+    // ------------------------------------------------------------------
+    {
+        using Presets::LocalModIdentity;
+        const QList<LocalModIdentity> mods{
+            {QStringLiteral("aa"), 111u, true},   // 只有 Modrinth 认得
+            {QStringLiteral("bb"), 222u, true},   // 两家都认得
+            {QStringLiteral("cc"), 333u, true},   // 只有 CurseForge 认得
+            {QStringLiteral("dd"), 444u, false},  // 指纹没算出来，而表里恰好有 444
+            {QStringLiteral("ee"), 0u, false},    // 什么都没问出来
+        };
+        QHash<QString, QString> modrinth;
+        modrinth.insert(QStringLiteral("aa"), QStringLiteral("sodium"));
+        modrinth.insert(QStringLiteral("bb"), QStringLiteral("fabric-api"));
+        QHash<quint32, QString> curseForge;
+        curseForge.insert(222u, QStringLiteral("306612"));
+        curseForge.insert(333u, QStringLiteral("238222"));
+        curseForge.insert(444u, QStringLiteral("999999"));
+        const QList<Presets::ResolvedModSource> resolved =
+            Presets::resolveModSources(mods, modrinth, curseForge);
+        check(resolved.size() == mods.size(), "PG8 一条本地 jar 对一条结果",
+              QString::number(resolved.size()));
+        check(resolved.value(0).platform == QLatin1String("modrinth") &&
+                  resolved.value(0).projectId == QLatin1String("sodium"),
+              "PG8 Modrinth 认得出就写它", resolved.value(0).platform);
+        check(resolved.value(1).platform == QLatin1String("modrinth") &&
+                  resolved.value(1).projectId == QLatin1String("fabric-api"),
+              "★★ PG8 两家都认得出来时跟 Modrinth 走（CurseForge 那一格不盖过来）",
+              resolved.value(1).platform);
+        check(resolved.value(2).platform == QLatin1String("curseforge") &&
+                  resolved.value(2).projectId == QLatin1String("238222"),
+              "PG8 Modrinth 没认出来、指纹对上了 ⇒ 走 CurseForge");
+        check(resolved.value(3).platform.isEmpty() && resolved.value(3).projectId.isEmpty(),
+              "★★ PG8 指纹没算出来时，表里那个 444 不许拿来用（0 也是合法指纹）",
+              resolved.value(3).platform);
+        check(resolved.value(4).platform.isEmpty() && resolved.value(4).projectId.isEmpty(),
+              "PG8 两边都没认出来 ⇒ 两格都空，等用户在编辑页补");
+        const QList<Presets::LocalModIdentity> noMods;
+        check(Presets::resolveModSources(noMods, modrinth, curseForge).isEmpty(),
+              "PG8 没有本地 jar ⇒ 一条结果都没有");
+    }
 }
 

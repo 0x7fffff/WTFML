@@ -1,13 +1,13 @@
 #include "PresetController.hpp"
 #include "PresetEditorPage.hpp"
-#include "download/ResourceStore.hpp"
+#include "manage/ModpackExport.hpp"
 #include "manage/VersionManager.hpp"
 #include "presets/GenericFiles.hpp"
+#include "presets/ModSourceResolution.hpp"
 #include "presets/PresetCapture.hpp"
 #include "presets/PresetModTargets.hpp"
 #include "presets/PresetWorkspace.hpp"
 #include "util/AppPaths.hpp"
-#include <QCryptographicHash>
 #include <QDir>
 #include <QEventLoop>
 #include <QFile>
@@ -16,10 +16,9 @@
 #include <QJsonArray>
 #include <QLayout>
 #include <QPushButton>
+#include <QSet>
 #include <QTemporaryDir>
-#include <QTimer>
 #include <QtConcurrent/QtConcurrentRun>
-#include <memory>
 
 void PresetController::openEditor(const QString &id, bool draft) {
     if (m_editor && !leaveEditor())
@@ -163,9 +162,18 @@ bool PresetController::leaveEditor() {
 }
 
 namespace {
+/// 提取出来的一个模组：认出来的带着平台和项目号，认不出来的两格都空（编辑页里那行显示成
+/// 「未知来源（请选择）」，等用户补）。
+struct CapturedMod {
+    QString platform;
+    QString projectId;
+    QString name;
+};
 struct EditorCapture {
     Presets::CaptureReport report;
-    QMap<QString, QString> mods;
+    QList<CapturedMod> mods;
+    /// 来源问询自己出的问题（没连上、接口回的东西读不懂）。只作提示，不影响"认出来几个"。
+    QStringList lookupProblems;
 };
 } // namespace
 void PresetController::captureForEditor(const QString &instanceId) {
@@ -189,117 +197,156 @@ void PresetController::captureForEditor(const QString &instanceId) {
     request.selection.resourcePacks = true;
     request.selection.shaderPacks = true;
     request.selection.dataPacks = true;
+    // 两个来源的设置在这儿就抄成值：工人里现建一台 `VersionManager`，不去碰控制器、
+    // 页面和它们手上那些对象（和导出那条路同一个理由，见 ModpackExportController）。
+    // NOTE: 两句"问询失败"的话也在主线程翻好带进去 —— 工人里调不到页面的 `tr()`
+    // （那是个成员函数，lambda 没捕获 `this`）。
+    const QString modrinthBase = m_versions ? m_versions->modrinthApiRoot() : QString();
+    const QString curseForgeKey = m_presetApiKey;
+    const QString curseForgeBase =
+        m_versions ? m_versions->curseForgeResolveSettings().apiBaseOverride : QString();
+    const QString modrinthFailedText = tr("Modrinth 那一侧没问成：%1");
+    const QString curseForgeFailedText = tr("CurseForge 那一侧没问成：%1");
     auto *watcher = new QFutureWatcher<EditorCapture>(this);
     if (m_page) {
         m_page->setBusy(true);
-        m_page->showStatus(tr("正在提取实例设置与资源…"));
+        m_page->showStatus(tr("正在提取实例内容并识别模组来源…"));
     }
     connect(
         watcher, &QFutureWatcher<EditorCapture>::finished, this,
         [this, watcher, id, root, instanceId] {
             auto capture = watcher->result();
             watcher->deleteLater();
+            if (m_page)
+                m_page->setBusy(false);
             if (!capture.report.ok && capture.mods.isEmpty()) {
-                if (m_page) {
-                    m_page->setBusy(false);
+                if (m_page)
                     m_page->showStatus(capture.report.problems.join('\n'));
-                }
                 return;
             }
-            auto *store = new ResourceStore(this);
-            if (m_versions)
-                store->setModrinthApiBaseOverride(m_versions->modrinthApiRoot());
-            struct State {
-                QMap<QString, QString> projects;
-                QStringList pending;
-                bool done = false;
-            };
-            auto state = std::make_shared<State>();
-            state->pending = capture.mods.keys();
-            auto finish = [this, store, state, capture, id, root, instanceId] {
-                if (state->done)
-                    return;
-                state->done = true;
-                store->abortAll();
-                store->deleteLater();
+            Presets::PresetManifest draft;
+            draft.id = id;
+            draft.name = displayName(instanceId);
+            draft.sections = capture.report.sections;
+            draft.sourceInstanceId = instanceId;
+            draft.createdAt = QDateTime::currentDateTime();
+            draft.updatedAt = draft.createdAt;
+            auto document = Presets::editorDocument(draft);
+            QJsonArray refs;
+            int unresolved = 0;
+            for (const CapturedMod &mod : capture.mods) {
+                if (mod.projectId.isEmpty())
+                    ++unresolved;
+                refs.append(QJsonObject{
+                    {"platform", mod.platform},
+                    {"projectId", mod.projectId},
+                    {"name", mod.name},
+                    {"required", true}});
+            }
+            document["modReferences"] = refs;
+            draft.editorState = document;
+            if (!Presets::saveManifest(root, draft)) {
                 if (m_page)
-                    m_page->setBusy(false);
-                Presets::PresetManifest draft;
-                draft.id = id;
-                draft.name = displayName(instanceId);
-                draft.sections = capture.report.sections;
-                draft.sourceInstanceId = instanceId;
-                draft.createdAt = QDateTime::currentDateTime();
-                draft.updatedAt = draft.createdAt;
-                auto document = Presets::editorDocument(draft);
-                QJsonArray refs;
-                int unresolved = 0;
-                for (auto it = capture.mods.begin(); it != capture.mods.end(); ++it) {
-                    const auto project = state->projects.value(it.key());
-                    if (project.isEmpty())
-                        ++unresolved;
-                    refs.append(QJsonObject{
-                        {"platform", project.isEmpty() ? QString() : QStringLiteral("modrinth")},
-                        {"projectId", project},
-                        {"name", it.value()},
-                        {"required", true}});
-                }
-                document["modReferences"] = refs;
-                draft.editorState = document;
-                if (!Presets::saveManifest(root, draft)) {
-                    if (m_page)
-                        m_page->showStatus(tr("无法保存提取的草稿。"));
-                    return;
-                }
-                openEditor(id, true);
-                if (m_editor) {
-                    QStringList notes = capture.report.problems;
-                    if (unresolved)
-                        notes.prepend(
-                            tr("%1 个模组未识别来源，请在模组页补充，或在概览中暂时禁用模组部分。")
-                                .arg(unresolved));
-                    m_editor->showProblem(notes.join('\n'));
-                }
-            };
-            auto next = [store, state, finish] {
-                if (state->pending.isEmpty()) {
-                    finish();
-                    return;
-                }
-                QStringList chunk;
-                while (!state->pending.isEmpty() && chunk.size() < 100)
-                    chunk.append(state->pending.takeFirst());
-                store->fetchModrinthFiles(QStringLiteral("preset-capture"), chunk);
-            };
-            connect(store, &ResourceStore::modrinthFilesFinished, store,
-                    [state, next](const QString &, const QHash<QString, QString> &projects,
-                                  const QHash<QString, ResourceCatalog::VersionEntry> &,
-                                  const QString &) {
-                        for (auto it = projects.begin(); it != projects.end(); ++it)
-                            state->projects.insert(it.key(), it.value());
-                        if (!state->done)
-                            next();
-                    });
-            QTimer::singleShot(45000, store, finish);
-            if (m_page && !capture.mods.isEmpty())
-                m_page->showStatus(tr("正在识别模组来源…"));
-            next();
+                    m_page->showStatus(tr("无法保存提取的草稿。"));
+                return;
+            }
+            openEditor(id, true);
+            if (m_editor) {
+                QStringList notes = capture.report.problems;
+                if (unresolved)
+                    notes.prepend(
+                        tr("%1 个模组在 Modrinth 和 CurseForge 上都没认出来（可能手工改过、"
+                           "或者没传到任何一个平台），请在模组页补充，或在概览中暂时禁用模组部分。")
+                            .arg(unresolved));
+                notes.append(capture.lookupProblems);
+                m_editor->showProblem(notes.join('\n'));
+            }
         });
-    watcher->setFuture(QtConcurrent::run([request] {
-        EditorCapture result;
-        result.report = Presets::captureFromInstance(request);
-        const auto entries =
-            QDir(request.instanceRoot + "/mods")
-                .entryInfoList({"*.jar"}, QDir::Files | QDir::NoSymLinks, QDir::Name);
-        for (const auto &entry : entries) {
-            QFile file(entry.filePath());
-            if (!file.open(QIODevice::ReadOnly))
-                continue;
-            QCryptographicHash hash(QCryptographicHash::Sha1);
-            if (hash.addData(&file))
-                result.mods.insert(QString::fromLatin1(hash.result().toHex()),
-                                   entry.completeBaseName());
-        }
-        return result;
-    }));
+    watcher->setFuture(QtConcurrent::run(
+        [request, modrinthBase, curseForgeKey, curseForgeBase, modrinthFailedText,
+         curseForgeFailedText] {
+            EditorCapture result;
+            result.report = Presets::captureFromInstance(request);
+
+            // ---- 一个 jar 一条：sha1 和 CurseForge 指纹（`hashFile` 两趟读一次算齐） ----
+            //
+            // 读不动的那一份留成"没认出来"，不让整趟提取失败：一个锁着的 jar 不该把
+            // 其它几十个已经认出来的模组一起拖下水。
+            struct LocalMod {
+                QString sha1;
+                QString name;
+                quint32 fingerprint = 0;
+                bool fingerprintOk = false;
+            };
+            QList<LocalMod> mods;
+            const auto entries =
+                QDir(request.instanceRoot + "/mods")
+                    .entryInfoList({"*.jar"}, QDir::Files | QDir::NoSymLinks, QDir::Name);
+            mods.reserve(entries.size());
+            for (const auto &entry : entries) {
+                ModpackExport::FileHashes hashes;
+                QString why;
+                if (!ModpackExport::hashFile(entry.filePath(), true, &hashes, &why))
+                    continue;
+                mods.append({hashes.sha1, entry.completeBaseName(), hashes.fingerprint,
+                             hashes.fingerprintOk});
+            }
+            if (mods.isEmpty())
+                return result;
+
+            // ---- 两个来源各问一次（都是批量；失败就整条停，见两个 lookup 的注释） ----
+            VersionManager worker;
+            worker.setModrinthApiBaseOverride(modrinthBase);
+            worker.setCurseForgeApiKey(curseForgeKey);
+            worker.setCurseForgeApiBaseOverride(curseForgeBase);
+            QStringList sha1s;
+            sha1s.reserve(mods.size());
+            for (const LocalMod &mod : mods)
+                sha1s.append(mod.sha1);
+            QHash<QString, ModpackExport::ModrinthHit> modrinthHits;
+            const QString modrinthProblem = worker.lookupModrinthVersionFiles(sha1s, &modrinthHits);
+            if (!modrinthProblem.isEmpty())
+                result.lookupProblems.append(modrinthFailedText.arg(modrinthProblem));
+
+            // CurseForge 只问 Modrinth 没认出来的那几条：两个平台都有的模组跟 Modrinth 走
+            // （判断在 `Presets::resolveModSources()` 一处）。同一个指纹只问一次 ——
+            // 内容相同的两个 jar 在接口那边也是同一条。
+            QHash<quint32, QString> curseForgeProjects;
+            QList<quint32> fingerprints;
+            QSet<quint32> asked;
+            for (const LocalMod &mod : mods) {
+                if (!mod.fingerprintOk || modrinthHits.contains(mod.sha1) ||
+                    asked.contains(mod.fingerprint))
+                    continue;
+                asked.insert(mod.fingerprint);
+                fingerprints.append(mod.fingerprint);
+            }
+            if (!fingerprints.isEmpty()) {
+                QHash<quint32, ModpackExport::CurseForgeHit> hits;
+                const QString curseForgeProblem =
+                    worker.lookupCurseForgeFingerprints(fingerprints, &hits);
+                if (!curseForgeProblem.isEmpty())
+                    result.lookupProblems.append(curseForgeFailedText.arg(curseForgeProblem));
+                for (auto it = hits.constBegin(); it != hits.constEnd(); ++it) {
+                    // 接口的 `modId` 是 int：0 及以下说明这一条少了项目身份，别拿它当号。
+                    if (it.value().projectId > 0)
+                        curseForgeProjects.insert(it.key(), QString::number(it.value().projectId));
+                }
+            }
+
+            QHash<QString, QString> modrinthProjects;
+            for (auto it = modrinthHits.constBegin(); it != modrinthHits.constEnd(); ++it)
+                modrinthProjects.insert(it.key(), it.value().projectId);
+            QList<Presets::LocalModIdentity> identities;
+            identities.reserve(mods.size());
+            for (const LocalMod &mod : mods)
+                identities.append({mod.sha1, mod.fingerprint, mod.fingerprintOk});
+            const QList<Presets::ResolvedModSource> resolved =
+                Presets::resolveModSources(identities, modrinthProjects, curseForgeProjects);
+            result.mods.reserve(mods.size());
+            for (qsizetype i = 0; i < mods.size(); ++i)
+                result.mods.append({resolved.at(i).platform, resolved.at(i).projectId,
+                                    mods.at(i).name});
+            return result;
+        }));
 }
