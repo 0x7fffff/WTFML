@@ -66,11 +66,45 @@ PresetModEditor::PresetModEditor(const QList<Entry> &entries, QWidget *parent) :
     add->setAutoDefault(false); remove->setAutoDefault(false);
     Theme::markButton(add, Theme::ButtonKind::Neutral);
     Theme::markButton(remove, Theme::ButtonKind::Neutral);
-    actions->addWidget(add); actions->addWidget(remove); actions->addStretch(); layout->addLayout(actions);
-    connect(add, &QPushButton::clicked, this, [this] { append({QStringLiteral("modrinth"), {}, {}, {}, {}, true}); });
+    // 提取实例时两个平台都没认出来的那些行：平台那格停在「未知来源（请选择）」。这两件
+    // 是给人工收拾它们用的 —— 先把它们挑出来看，再逐条补或者整批删掉。
+    auto *onlyUnknown = new QCheckBox(tr("只看没认出来的"), this);
+    onlyUnknown->setObjectName(QStringLiteral("presetModOnlyUnknown"));
+    onlyUnknown->setToolTip(tr("只留下平台那格还是「未知来源（请选择）」的行；藏起来不等于删掉，"
+                               "取消勾选就都回来。"));
+    m_onlyUnknown = onlyUnknown;
+    auto *removeUnknown = new QPushButton(tr("移除没认出来的"), this);
+    removeUnknown->setObjectName(QStringLiteral("presetModRemoveUnknown"));
+    removeUnknown->setAutoDefault(false);
+    removeUnknown->setToolTip(tr("把平台那格还是「未知来源（请选择）」的行一次删掉；"
+                                 "整个编辑点「取消」仍然能撤回。"));
+    Theme::markButton(removeUnknown, Theme::ButtonKind::Neutral);
+    actions->addWidget(add); actions->addWidget(remove); actions->addStretch();
+    actions->addWidget(onlyUnknown); actions->addWidget(removeUnknown);
+    layout->addLayout(actions);
+    applyUnknownFilter();
+    connect(onlyUnknown, &QCheckBox::toggled, this, [this] { applyUnknownFilter(); });
+    connect(removeUnknown, &QPushButton::clicked, this, [this] {
+        int removed = 0;
+        for (int row = m_table->rowCount() - 1; row >= 0; --row) {
+            if (!unrecognizedRow(row)) continue;
+            m_table->removeRow(row);
+            ++removed;
+        }
+        applyUnknownFilter();
+        m_problem->setText(removed > 0
+                               ? tr("已移除 %1 行没认出平台的（整个编辑点「取消」仍然能撤回）。")
+                                     .arg(removed)
+                               : tr("没有没认出来的行。"));
+    });
+    connect(add, &QPushButton::clicked, this, [this] {
+        append({QStringLiteral("modrinth"), {}, {}, {}, {}, true});
+        applyUnknownFilter();
+    });
     connect(remove, &QPushButton::clicked, this, [this] {
         for (int row = m_table->rowCount() - 1; row >= 0; --row)
             if (m_table->selectionModel()->isRowSelected(row, QModelIndex())) m_table->removeRow(row);
+        applyUnknownFilter();
     });
     m_problem = new QLabel(this); m_problem->setObjectName(QStringLiteral("presetModProblem")); m_problem->setWordWrap(true); layout->addWidget(m_problem);
     const auto addLink = [this, link] {
@@ -83,11 +117,14 @@ PresetModEditor::PresetModEditor(const QList<Entry> &entries, QWidget *parent) :
         for (int row = 0; row < m_table->rowCount(); ++row) {
             const auto *source = qobject_cast<QComboBox *>(m_table->cellWidget(row, 0));
             if (source->currentData().toString() == platform && m_table->item(row, 1)->text().trimmed() == id) {
+                // 这一行可能正被「只看没认出来的」藏着 —— 先放开筛选，才真能定位到它。
+                if (m_onlyUnknown->isChecked()) m_onlyUnknown->setChecked(false);
                 m_table->selectRow(row); m_table->scrollToItem(m_table->item(row, 1));
                 m_problem->setText(tr("这个模组已经在清单中，已定位到该行。")); return;
             }
         }
         append({platform, id, id, {}, {}, true});
+        applyUnknownFilter();
         m_table->selectRow(m_table->rowCount() - 1);
         m_table->scrollToBottom(); link->clear(); link->setFocus(); m_problem->clear();
     };
@@ -145,4 +182,16 @@ QList<PresetModEditor::Entry> PresetModEditor::entries() const {
         result.append({source, id, text(2), text(4), text(5).toLower(), m_table->item(row, 3)->checkState() == Qt::Checked});
     }
     return result;
+}
+bool PresetModEditor::unrecognizedRow(int row) const {
+    const auto *source = qobject_cast<QComboBox *>(m_table->cellWidget(row, 0));
+    const QString platform = source ? source->currentData().toString() : QString();
+    // 「未知来源（请选择）」那一项的数据就是原来那串认不出的平台（多半是空串），
+    // 所以不是这两家就是没认出来 —— 别拿"下拉框里有没有这一项"判。
+    return platform != QStringLiteral("modrinth") && platform != QStringLiteral("curseforge");
+}
+void PresetModEditor::applyUnknownFilter() {
+    const bool only = m_onlyUnknown && m_onlyUnknown->isChecked();
+    for (int row = 0; row < m_table->rowCount(); ++row)
+        m_table->setRowHidden(row, only && !unrecognizedRow(row));
 }

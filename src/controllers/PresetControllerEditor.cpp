@@ -256,7 +256,9 @@ void PresetController::captureForEditor(const QString &instanceId) {
                 if (unresolved)
                     notes.prepend(
                         tr("%1 个模组在 Modrinth 和 CurseForge 上都没认出来（可能手工改过、"
-                           "或者没传到任何一个平台），请在模组页补充，或在概览中暂时禁用模组部分。")
+                           "或者没传到任何一个平台），请在模组页补充 —— 那一页可以勾"
+                           "「只看没认出来的」先挑它们出来，或者点「移除没认出来的」整批删掉；"
+                           "也可以在概览中暂时禁用模组部分。")
                             .arg(unresolved));
                 notes.append(capture.lookupProblems);
                 m_editor->showProblem(notes.join('\n'));
