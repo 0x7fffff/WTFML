@@ -97,7 +97,44 @@ void runModpackImportTests(const QString &sandbox) {
         check(wrappedInDir.format == Format::Wrapper &&
                   wrappedInDir.innerPackEntry == QStringLiteral("整理包/pack.mrpack"),
               "V0 套在一层目录里的 PCL 包装也认得出", wrappedInDir.detail);
-        // ⑥ 空归档 / 只有杂项：什么都不认（不建一个空实例，也不说它是模组合集）。
+        // ⑥ 只摆着几份 .jar 的压缩包 = 一堆模组，不是整合包（和"只有一个 mods/"同一档）。
+        const auto rootJarBundle = detectArchiveLayout(
+            {QStringLiteral("a.jar"), QStringLiteral("b.jar"), QStringLiteral("说明.txt")});
+        check(!rootJarBundle.modsBundle && rootJarBundle.format == Format::Unknown,
+              "V0 根上几份 .jar 再配一个说明：不算「纯 jar 堆」（有别的文件就说不出它是什么）",
+              rootJarBundle.detail);
+        const auto bareRootJars =
+            detectArchiveLayout({QStringLiteral("a.jar"), QStringLiteral("b.jar")});
+        check(bareRootJars.modsBundle, "V0 根上只有 .jar：按模组合集处理", bareRootJars.detail);
+
+        // ⑦ 几个实例打在一个压缩包里：**不猜**（随便挑一个装，剩下的那几份用户永远
+        // 不知道没装），但要说得清为什么。
+        const QStringList multiInstance{QStringLiteral("实例A/.minecraft/config/a.json"),
+                                        QStringLiteral("实例A/.minecraft/mods/a.jar"),
+                                        QStringLiteral("实例B/.minecraft/config/b.json"),
+                                        QStringLiteral("实例B/.minecraft/mods/b.jar")};
+        const auto multi = detectArchiveLayout(multiInstance);
+        check(multi.format == Format::Unknown && !multi.gameFolderMarkers &&
+                  !multi.modsBundle && multi.gameDirPrefix.isEmpty(),
+              "V0 多实例懒人包不猜（不拼成一个实例、也不当成模组合集）", multi.detail);
+        check(multi.detail.contains(QStringLiteral("实例")) &&
+                  multi.detail.contains(QStringLiteral(".minecraft")),
+              "V0 多实例懒人包说清楚为什么没导入", multi.detail);
+        // 套在一层目录里的多实例也认得出（`commonRootPrefix()` 那一趟）。
+        const auto wrappedMulti = detectArchiveLayout(
+            {QStringLiteral("整合包/实例A/.minecraft/config/a.json"),
+             QStringLiteral("整合包/实例B/.minecraft/config/b.json")});
+        check(wrappedMulti.format == Format::Unknown &&
+                  wrappedMulti.rootPrefix == QStringLiteral("整合包/") &&
+                  wrappedMulti.detail.contains(QStringLiteral("实例")),
+              "V0 套在一层目录里的多实例也说得清", wrappedMulti.detail);
+        // 只有一个 `.minecraft` 的兄弟目录（说明、启动器本体）**不算**多实例。
+        const auto singleInDir = detectArchiveLayout(
+            {QStringLiteral("实例A/.minecraft/config/a.json"), QStringLiteral("说明.txt")});
+        check(!singleInDir.detail.contains(QStringLiteral("实例")),
+              "V0 只有一个 .minecraft 时不报多实例", singleInDir.detail);
+
+        // ⑧ 空归档 / 只有杂项：什么都不认（不建一个空实例，也不说它是模组合集）。
         for (const QStringList &nothing : {QStringList{}, QStringList{QStringLiteral("readme.txt")},
              QStringList{QStringLiteral("__MACOSX/._x"), QStringLiteral(".DS_Store")}}) {
             const auto empty = detectArchiveLayout(nothing);
@@ -663,6 +700,18 @@ void runModpackImportTests(const QString &sandbox) {
         const QString junk = work + "/junk.zip";
         check(buildArchive(junk, {{QStringLiteral("README.txt"), QStringLiteral("说明")}}),
               "V5z 造出一个「里面什么都不是」的压缩包");
+        // 单模组打包成 .zip：**不是整合包**（导进去只会建一个空实例）。
+        const QString modZip = work + "/single-mod.zip";
+        check(buildArchive(modZip,
+                           {{QStringLiteral("fabric.mod.json"), QStringLiteral("{}")},
+                            {QStringLiteral("config/default.json"), QStringLiteral("{}")}}),
+              "V5z 造出一个「单模组压成 .zip」的包");
+        // 几个实例打在一个压缩包里：不猜，但要说清为什么。
+        const QString multiZip = work + "/multi-instance.zip";
+        check(buildArchive(multiZip,
+                           {{QStringLiteral("实例A/.minecraft/config/a.json"), QStringLiteral("{}")},
+                            {QStringLiteral("实例B/.minecraft/config/b.json"), QStringLiteral("{}")}}),
+              "V5z 造出一个「几个实例打在一起」的包");
 
         const auto kindOf = [](const QString &path) {
             return DroppedResource::classify(path);
@@ -707,6 +756,14 @@ void runModpackImportTests(const QString &sandbox) {
               kindOf(backslash).detail);
         check(!kindOf(junk).known, "V5z 里面什么都没有的压缩包 ⇒ 认不出来",
               kindOf(junk).detail);
+        check(!kindOf(modZip).known &&
+                  kindOf(modZip).detail.contains(QStringLiteral("模组")),
+              "★★ V5z 单模组压成 .zip ⇒ 认不出来，并说它是模组（不是当成整合包建个空实例）",
+              kindOf(modZip).detail);
+        check(!kindOf(multiZip).known &&
+                  kindOf(multiZip).detail.contains(QStringLiteral("实例")),
+              "★★ V5z 几个实例打在一起 ⇒ 不导入，并说清是多个实例（不是一句「认不出来」）",
+              kindOf(multiZip).detail);
         const QString notZip = work + "/其实是文本.zip";
         writeFileAt(notZip, "这不是压缩包");
         check(!kindOf(notZip).known,

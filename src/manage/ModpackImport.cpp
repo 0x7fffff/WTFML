@@ -291,6 +291,37 @@ bool hasRelativeDir(const QStringList &entries, const QString &prefix, const QSt
     return false;
 }
 
+/// 压缩包里是不是"好几个实例打在一起"（两个以上顶层目录各自带着一个 `.minecraft/`）。
+///
+/// ★ 这种包**不猜**：随便挑一个导进来，剩下的那几份既不会出现、也不会被提一句 ——
+/// 而用户以为"整个包都装好了"。返回那句人话（不是多实例时回空串）；判据只认
+/// "各带一个 `.minecraft/`"，不带这个目录的兄弟目录（说明、启动器本体）不算。
+QString multiInstanceDetail(const QStringList &entries, const QString &prefix) {
+    QSet<QString> tops;
+    const QString base = prefix.toLower();
+    for (const QString &raw : entries) {
+        const QString name = slashedEntry(raw).toLower();
+        if (!name.startsWith(base)) {
+            continue;
+        }
+        const QString rest = name.mid(base.size());
+        const int slash = rest.indexOf(QLatin1Char('/'));
+        if (slash <= 0) {
+            continue;
+        }
+        const QString tail = rest.mid(slash + 1);
+        if (tail == QLatin1String(".minecraft") ||
+            tail.startsWith(QLatin1String(".minecraft/"))) {
+            tops.insert(rest.left(slash));
+        }
+    }
+    if (tops.size() < 2) {
+        return QString();
+    }
+    return QObject::tr("里面有好几个 .minecraft 目录（像是把多个实例打在一个压缩包里），"
+                       "没有导入 —— 解压之后把要的那一份拖进来。");
+}
+
 bool hasLoaderKeyword(const QString &lowerId) {
     return lowerId.contains(QLatin1String("forge")) ||
            lowerId.contains(QLatin1String("fabric")) ||
@@ -688,7 +719,11 @@ ArchiveLayout detectArchiveLayout(const QStringList &entries) {
         layout.modsBundle = true;
         layout.gameDirPrefix = prefix;
         layout.detail = QObject::tr("里面只有一堆模组，没有整合包清单");
+        return layout;
     }
+    // ⑦ 最后一个仍然认不出的形状里，最常见的是"好几个实例打在一起"。它照样不导入，
+    // 但要**说清为什么**：一句「认不出来」会让用户以为包坏了，或者以为拖错了文件。
+    layout.detail = multiInstanceDetail(entries, prefix);
     return layout;
 }
 
