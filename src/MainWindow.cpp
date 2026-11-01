@@ -4951,19 +4951,21 @@ void MainWindow::onAccountSkinButtonClicked() {
             return;  // 没有覆盖层就开不了（主界面建的时候就有，正常到不了这一支）
         }
         // 页面把内容区整块盖掉，不是独立窗口。登录那一步会把浏览器推到前台、用户要
-        // 在两边来回切 —— execPage 内部那个嵌套事件循环一直在转，界面是活的，
-        // 浏览器本来也是外面的独立窗，谁都拦不着它。
+        // 在两边来回切 —— 界面一直是活的，浏览器本来也是外面的独立窗，谁都拦不着它。
         //
         // NOTE: 顺序是**先摆出来、再刷新**。refreshAccountSkin() 最后那一段会去拉披风列表
         // （真联网，最长能等十几秒），倒过来做的话头一次点这个入口就是"什么也没发生"
         // —— 页面还没画出来，那个请求已经在跑了，用户只会以为按钮点坏了。
-        // 这里排一发队：execPage 一进它自己的嵌套循环就先跑这一发，那时页面已经在屏幕上了。
+        // 这里排一发队：开页是**非阻塞**的（`OverlayHost::showPage()`），返回之后主循环照常
+        // 转，这一发就排在"页面已经在屏幕上"之后跑。
         QMetaObject::invokeMethod(this, [this] { refreshAccountSkin(); }, Qt::QueuedConnection);
-        // 那一发刷新排在 execPage 的嵌套循环里才跑；先把「皮肤」那一行摆对，免得开页的第一帧
+        // 那一发刷新排在页面摆上来之后；先把「皮肤」那一行摆对，免得开页的第一帧
         // 露的是正版才有的「上传皮肤…」（离线账号按下去只会失败）。
         m_accountSkinDialog->setOfflineSkinState(offlineIdentity(),
                                                  OfflineSkin::hasSkin(AccountStore::activeUuid()));
-        overlay->execPage(m_accountSkinDialog, AccountSkinDialog::windowTitle());
+        if (!overlay->showPage(m_accountSkinDialog, AccountSkinDialog::windowTitle())) {
+            appendLog(tr("账号与外观那一页没开成：覆盖层刚被另一页占上了。"));
+        }
     });
 }
 

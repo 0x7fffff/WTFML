@@ -3,23 +3,24 @@
 「导航/实例元数据渐进收口」那一项要动 `execPage()` 的嵌套事件循环和逐根页路由栈 ——
 动之前先把**现在到底有哪些地方会重入事件循环**数清楚。这份记录只做盘点，不改任何代码。
 
-> **2026-11-02 更新：七页已经迁走了，下面那张表是 `a51159f` 的快照。**
-> 任务详情、体检报告、工具箱、更新中心、服务器控制台、服务器设置、Java 管理这七页都不走
-> `execPage()` 了，改用 `OverlayHost::showPage()`：摆上去就返回，收页（返回箭头 / 页上
-> Esc / 那一页自己的关闭 / `dismiss()` / `evict()` / `closeOverlay()`）全由覆盖层自己收
-> —— 返回箭头接成 `reject()`，和这一页自己的 accept/reject 一起落到 `QDialog::finished`，
-> 那里把这一层收掉。A 类调用点因此**12 → 5**。
+> **2026-11-02 更新：八页已经迁走了，下面那张表是 `a51159f` 的快照。**
+> 任务详情、体检报告、工具箱、更新中心、服务器控制台、服务器设置、Java 管理、账号与外观
+> 这八页都不走 `execPage()` 了，改用 `OverlayHost::showPage()`：摆上去就返回，收页（返回
+> 箭头 / 页上 Esc / 那一页自己的关闭 / `dismiss()` / `evict()` / `closeOverlay()`）全由
+> 覆盖层自己收 —— 返回箭头接成 `reject()`，和这一页自己的 accept/reject 一起落到
+> `QDialog::finished`，那里把这一层收掉。A 类调用点因此**12 → 4**。
 > 后四页 `execPage()` 返回之后本来还有一句"收页了，把这一页说的是谁清掉"：现在靠
 > `OverlayHost::pageClosed(QWidget *)`（所有收页路都汇到 `closeOverlay()`，收页钩子只发
 > 那一处；接的人按页面对象认人）。用例在 `UiOverlayNavigationChecks` 的 O2c（四个收页路口
 > 都量到，另加三处 `pageClosed()` 的发送）、`MwWorkspaceCheck`（非阻塞开、一层只放一页、
 > 关闭/返回都收得干净）、`runIntegrityScanTests` 的 T33.2（扫完自己开页、页眉对、
-> 顶上那句对）、`runJavaManageTests` 的 T26（改为点完按钮再转事件等探针）。
+> 顶上那句对）、`runJavaManageTests` 的 T26 与 `MwAccountAppearanceChecks` 的 Z2 / Z2b
+> （改成点完按钮再转事件等探针）。
 > 下面表里 `TaskDetailController.cpp:91`、`IntegrityController.cpp:197`、
 > `ToolboxController.cpp:429`、`UpdateCenterController.cpp:63`、
 > `ServerConsoleController.cpp:74`、`ServerSettingsPageController.cpp:107`、
-> `JavaSettingsController.cpp:116` 这七行按这个更新读；其余仍是快照。
-> 还剩 5 处：实例设置、资源详情页（要用返回值）、预设编辑器、账号皮肤对话框、分组对话框。
+> `JavaSettingsController.cpp:116`、`MainWindow.cpp:4966` 这八行按这个更新读；
+> 其余仍是快照。还剩 4 处：实例设置、资源详情页（要用返回值）、预设编辑器、分组对话框。
 
 ## 两类，别混着看
 
