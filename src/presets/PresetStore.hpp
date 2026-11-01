@@ -157,6 +157,13 @@ bool saveManifest(const QString &root, const PresetManifest &manifest);
  */
 QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken = nullptr);
 
+/// 把 `root` 下所有预设的**摘要缓存**丢掉，让下一趟 `list()` 真的去读盘。
+///
+/// 只给测量用（`PerfProbe` 的"后台目录加载"那一步要量的是**冷读**；缓存热着的时候它
+/// 11 ms 就回来了，量不到东西）。缓存本身只是进程内的加速，不是数据，丢一次没有任何后果。
+/// 产品代码里不该有人调它 —— 盘上变了 `list()` 自己会发现，本进程写的会自己作废。
+void forgetSummaryCache(const QString &root);
+
 /// 那个唯一的默认项（没有 = 空串）。**不检查它还在不在** —— 默认项丢了这件事由列表那一侧
 /// 回答（UI 用例「默认项丢失」要的是这个组合，不是一个会撒谎的"有默认项"）。
 QString defaultPresetId(const QString &root);
