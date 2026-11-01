@@ -76,15 +76,20 @@
 - 整轮 `ctest`：`wtfml.download-retry` 里那条 "a per-job body limit …" 会偶发红
   （约 1/6，**HEAD 的二进制同样会红**，见下面"这不是这一轮引入的"），其余全绿。
 
-### 这不是这一轮引入的
+### 那条偶发红（不是这一轮引入的，同一天修了）
 
-`wtfml.download-retry` 那条红是 `RequestBudgetChecks.cpp:227`（`fast` 端点 8 MB 正文撞上
-1024 字节的 per-job 上限）。它走的是 `RequestBudget::ControlGet` 的 `readyRead` 里
-`bytesAvailable() > max` → `abort()` 这条；正文整块到达时它和 `finished` 抢先后，
-赶在 `finished` 后面就变成"正常收完了"。
+整轮 `ctest` 里 `wtfml.download-retry` 的 `RequestBudgetChecks.cpp` 那条
+"a per-job body limit …" 会偶发红，约 1/6。最早以为是 `ControlGet` 里
+`readyRead` 的 `abort()` 和 `finished` 抢先后 —— **查下来是判据自己写错了**：
 
-判据不是这一轮引入的，做法是 `git stash` 掉本轮改动、重编同一份测试二进制：
-**HEAD 那份 6 跑红 1 跑**（同一行、同一个症状）。所以记成已知偶发，没去改它。
+`normal` 一开始就是 `true`（意思是"还没看见失败"），而 `wait()` 等的是
+`oversized && normal`。如果 `control` 那一发比 `fast` 那一发回来得晚，
+`wait()` 在它回来之前就满足了，紧接着的 `snapshot().control==0` 读到 1 —— 红。
+用 `git stash` 掉本轮改动、重编同一份 HEAD 二进制对照过（6 跑红 1 跑），
+确认不是本轮引入的；诊断打印也证实失败那一跑 `control` 的回调根本没跑过。
+
+修法是把 `normal` 从 `false` 起、并把"`control` 回调来过"也算进 `wait()` 的条件里。
+修完连跑 20 次、整轮 `ctest` 39/39。
 
 ## 复现
 
