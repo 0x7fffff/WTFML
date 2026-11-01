@@ -34,7 +34,8 @@ TaskDetailController::TaskDetailController(ActivityCenterController *activity,
     // 用户在别处把这一批取消了），而页上那一份 `TaskCenter::Item` 是点开那一刻的快照。
     // 只在"在这一页上按了某颗按钮"时才重摆的话，一个正在下载的任务在页上会永远停在
     // 40%，底下的调用早就收尾了；「取消」那颗按钮也还亮着（点了才发现已经没什么可取消）。
-    // `execPage()` 是嵌套事件循环，这些信号在这里收得到，重摆就会当场出现在屏幕上。
+    // 这些信号照常收得到（开页不再是嵌套事件循环，主事件循环把它们照常转过来），
+    // 重摆就会当场出现在屏幕上。
     //
     // NOTE: 只接账本这两条（`taskChanged` 每一发都来，所以走合并版）。页没开着时什么都不
     // 做（见 refreshOpenPage 的第一行），不会为了没人看的页一遍遍造控件。
@@ -75,8 +76,7 @@ void TaskDetailController::open(const QString &key) {
         connect(m_page, &TaskDetailPage::actionRequested, this,
                 [this](const QString &key, TaskDetailPage::Action action) { this->action(key, action); });
     }
-    // 摆这一项要画的东西。**必须在 `execPage()` 之前**：那一下会阻塞在嵌套事件循环里
-    // （见 OverlayHost::execPage 的 NOTE），之后写的每一句都只有等用户点了返回才执行得到。
+    // 摆这一项要画的东西（先摆内容、再摆页：页一露出来就该是这一项的样子）。
     TaskCenter::Item item;
     if (!fillItem(key, &item)) {
         // 号早就没了（用户按过「清除已完成」，或者这一项是上一轮读盘读回来的历史）——
@@ -86,9 +86,17 @@ void TaskDetailController::open(const QString &key) {
     }
     m_page->setTask(item);
     // 归哪一颗选项卡：面板是从底栏中间那格弹出来的，而那一格**不属于任何一颗选项卡**
-    // （底栏是 tabWidget 的兄弟）—— 所以 `ownerTab` 给 -1，这一页就不跟着哪一颗走
-    // （见 OverlayHost 里 ownerTab 那一段）。
-    m_overlay->execPage(m_page, TaskDetailPage::windowTitle());
+    // （底栏是 tabWidget 的兄弟）—— 所以 `ownerTab` 给 -1 = 开页那一刻的那一颗（见
+    // OverlayHost 里 ownerTab 那一段；用户切走时这一页照样"收着"）。
+    //
+    // 这里用**非阻塞**的 `showPage()`：这一页自己不等任何结果，收页（返回箭头 /
+    // 页上按 Esc / 别处要开新的一页）全由覆盖层自己收干净。以前走 `execPage()`，点一下
+    // 任务那一行就卡在嵌套事件循环里，页开着的时候"下面"的每一句都要按那个循环分清楚。
+    if (!m_overlay->showPage(m_page, TaskDetailPage::windowTitle())) {
+        // 摆在门口那一下被抢了（另一页刚占上这一层）：什么都没发生，留一句日志
+        // —— 用户点的这一下不该由他再点第二遍来找原因。
+        log(tr("任务详情页没开成：覆盖层刚被另一页占上了。"));
+    }
 }
 
 void TaskDetailController::action(const QString &key, TaskDetailPage::Action action) {

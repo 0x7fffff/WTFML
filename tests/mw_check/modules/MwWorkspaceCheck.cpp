@@ -261,6 +261,55 @@ int MwWorkspaceCheck(QApplication &app) {
                 host->closeOverlay();
             }
         }
+        {
+            // ---------- 任务详情页：非阻塞开 ----------
+            // 点任务中心一行 ⇒ `openTaskDetailPage()` ⇒ 控制器里 `showPage()`。以前那一下
+            // 走 `execPage()`，调用方卡在嵌套事件循环里直到用户点返回 —— 这一节量的就是
+            // "那一句返回的时候页已经摆上了"，以及三条收页路都收得干净。
+            auto *activity = window.findChild<ActivityCenterController *>();
+            auto *details = window.findChild<TaskDetailController *>();
+            check(activity && details, "workspace 拿得到任务详情控制器");
+            if (activity && details) {
+                const auto task = activity->begin(Tasks::TaskKind::Import,
+                                                  QStringLiteral("Detail probe"),
+                                                  QStringLiteral("detail-probe"));
+                activity->finish(task, true, QString(), false);
+                const QString key = QString::number(task);
+                details->open(key);   // 以前这一句要等用户点返回才回来
+                app.processEvents();
+                auto *page = window.findChild<TaskDetailPage *>();
+                check(host->pageOpen() && host->pageTitle() == TaskDetailPage::windowTitle() &&
+                          page != nullptr && page->isVisible() && !page->isWindow() &&
+                          page->taskKey() == key,
+                      "★★ 任务详情页非阻塞开出来了：这一句返回的时候页已经摆上、挂在内容区里",
+                      QStringLiteral("pageOpen %1 / 可见 %2 / 是窗 %3 / key %4")
+                          .arg(host->pageOpen())
+                          .arg(page != nullptr && page->isVisible())
+                          .arg(page != nullptr && page->isWindow())
+                          .arg(page != nullptr ? page->taskKey() : QString()));
+                check(host->openPage(QStringLiteral("插队")) == nullptr,
+                      "一层只放一页：详情页开着的时候别人开不进来");
+                auto *close = page != nullptr
+                                  ? page->findChild<QPushButton *>(MainWindowUI::taskDetailCloseName())
+                                  : nullptr;
+                if (close != nullptr) {
+                    close->click();
+                }
+                app.processEvents();
+                check(!host->pageOpen() && page != nullptr && !page->isVisible(),
+                      "★ 详情页那颗「关闭」= 这一层收干净（reject → finished），页对象留着");
+                details->open(key);
+                app.processEvents();
+                check(host->pageOpen() && page != nullptr && page->isVisible(),
+                      "同一个页对象还能再摆上来（建一次留着）");
+                if (auto *back = host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
+                    back->click();
+                }
+                app.processEvents();
+                check(!host->pageOpen() && page != nullptr && !page->isVisible(),
+                      "★ 点返回箭头也收得掉这一页");
+            }
+        }
         TaskCenterPanel panel(nullptr, {}, {}, {}, {}, {}, nullptr, true);
         panel.resize(1000, 500);
         panel.showEmbedded();

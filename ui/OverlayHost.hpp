@@ -249,6 +249,27 @@ public:
     int execPage(QDialog *dialog, const QString &title, int ownerTab = -1);
 
     /**
+     * @brief 把 `dialog` 当"整页"摆上去，**不在调用方这里等它收掉**（`execPage()` 的非阻塞
+     * 兄弟）。
+     *
+     * 挂在覆盖层里的整页有两种开法，差别只有"调用方要不要等":
+     * - `execPage()`：调用方卡在嵌套事件循环里，直到这一页 accept/reject；
+     * - `showPage()`：摆上去就返回，**收页是这一层自己的事**。
+     *
+     * 收页的路都通到同一处：点页眉那颗返回箭头（`backPressed` ⇒ `reject()`）、这一页自己
+     * accept/reject（在页上按 Esc 也算 reject）、别处调 `closeOverlay()` / `dismiss()` /
+     * `evict()`。前两条落到 `QDialog::finished`，这里据此把这一层收掉。
+     *
+     * 页面对象**不删**：收页时和其它对话框一样"还回去"（见 `releaseContent()`），同一个
+     * 对象可以再摆上来（`TaskDetailPage` 就是这么复用的）。
+     *
+     * @param ownerTab 见 `openPage()`。
+     * @return 摆上了才 true。已经有页面/提示占着这一层（或者没给对话框）返回 false，
+     * 这时什么都没发生 —— 和 `openPage()` 返回 nullptr 是同一件事。
+     */
+    bool showPage(QDialog *dialog, const QString &title, int ownerTab = -1);
+
+    /**
      * @brief 换掉页眉上那行标题（页面已经开着的时候用）。
      *
      * 开页那一刻标题是定死的（`openPage()` / `execPage()` 收的那一个），可**页面上那件事
@@ -441,6 +462,13 @@ private:
     /// 整页那一档装内容的容器。
     QWidget *m_pageContent = nullptr;
     QVBoxLayout *m_pageContentLayout = nullptr;
+
+    /// `showPage()` 摆着的那一个页面（空 = 现在这一页不是 `showPage()` 开的，而是
+    /// `execPage()` 那一个嵌套循环在管）。QPointer：控制器先走一步时别留下悬空的。
+    QPointer<QDialog> m_pageWidget;
+    /// 上面那一页的两条收页接线（见 `showPage()`）—— 收页时一并断掉，下次摆上来重接。
+    QMetaObject::Connection m_pageWidgetBack;
+    QMetaObject::Connection m_pageWidgetFinished;
 
     /// 提示那张卡片（常驻，同上）。卡片自己画底和边 —— 于是"嵌进来的对话框"和
     /// "我们自己搭的提示面板"看起来是同一张卡。

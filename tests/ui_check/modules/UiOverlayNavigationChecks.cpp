@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include <QDialog>
 int UiOverlayNavigationChecks() {
     {
         QWidget home;
@@ -214,6 +215,64 @@ int UiOverlayNavigationChecks() {
                   "O2b 空着的时候当场就开出来了", host.pageTitle());
             host.closeOverlay();
             QApplication::processEvents();
+        }
+
+        // ---------- 非阻塞开页（showPage）：摆上去就返回，收页这一层自己收 ----------
+        // `execPage()` 卡住调用方等用户点返回；任务详情页那种"不收任何结果"的页用不着
+        // 那个循环（见 docs/NESTED_EVENT_LOOPS_AUDIT.md）。这里量的是新那条路的收尾。
+        {
+            QDialog dialog;
+            dialog.setObjectName(QStringLiteral("nonBlockingPageProbe"));
+            (void)new QWidget(&dialog);
+            check(dialog.isWindow(), "O2c 前提：QDialog 默认是顶层窗口（不嵌进去就会自己开一扇）");
+            check(host.showPage(&dialog, QStringLiteral("非阻塞页")),
+                  "★★ O2c showPage() 摆上了（返回 true —— 调用方没卡在事件循环里）");
+            for (int i = 0; i < 3; ++i) {
+                QApplication::processEvents();
+            }
+            auto *content = host.findChild<QWidget *>(OverlayHost::overlayPageContentName());
+            check(host.pageOpen() && host.pageTitle() == QStringLiteral("非阻塞页") &&
+                      dialog.isVisible() && !dialog.isWindow() && dialog.parentWidget() == content,
+                  "★★ O2c 这一页嵌在内容区里（不是另一扇窗），标题也对得上",
+                  QStringLiteral("pageOpen %1 / 可见 %2 / 是窗 %3 / 父亲是内容区 %4")
+                      .arg(host.pageOpen())
+                      .arg(dialog.isVisible())
+                      .arg(dialog.isWindow())
+                      .arg(dialog.parentWidget() == content));
+            // 同一颗「开页」被按了两下：第二下什么都不做 —— **不能**把正开着的那一页
+            // 收进寄存处（收进去的症状是"页自己没了"，比"没开成"糟得多）。
+            check(!host.showPage(&dialog, QStringLiteral("再摆一次")) &&
+                      host.pageOpen() && host.pageTitle() == QStringLiteral("非阻塞页") &&
+                      dialog.isVisible(),
+                  "★ O2c 已经有一页的时候再摆被拒，正开着的那一页原样还在");
+
+            // 返回箭头 = 这一页收掉（接的是 reject → finished，和 `execPage()` 同源）。
+            auto *back = host.findChild<QPushButton *>(OverlayHost::overlayBackButtonName());
+            if (back) {
+                back->click();
+                QApplication::processEvents();
+            }
+            check(back && !host.isOpen() && !dialog.isVisible() && dialog.parentWidget() != content,
+                  "★★ O2c 点返回 = 这一页收干净了（对话框挂回寄存处、不删）");
+
+            // 在页上按 Esc / 页上那颗「关闭」也是 `reject()` —— 落到同一处。
+            check(host.showPage(&dialog, QStringLiteral("非阻塞页")), "O2c 同一个对象能再摆上来");
+            for (int i = 0; i < 3; ++i) {
+                QApplication::processEvents();
+            }
+            QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+            QApplication::sendEvent(&dialog, &escape);
+            QApplication::processEvents();
+            check(!host.isOpen() && !dialog.isVisible(),
+                  "★ O2c 在页上按 Esc = 这一页收干净（和「关闭」那颗同一发）");
+
+            // 用户自己点了另一件要开页的事（`runWhenOverlayFree()` 那一档）：`evict()`
+            // 也得收得掉非阻塞页 —— 它走的是同一条 `backPressed`。
+            check(host.showPage(&dialog, QStringLiteral("非阻塞页")), "O2c 第三次摆上来");
+            QApplication::processEvents();
+            check(host.evict(), "★ O2c evict() 收得掉这一页（要让路的时候）");
+            QApplication::processEvents();
+            check(!host.isOpen() && !dialog.isVisible(), "★ O2c evict() 之后这一层空出来了");
         }
     }
     return 0;

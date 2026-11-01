@@ -468,6 +468,11 @@ void OverlayHost::closeOverlay() {
     }
     if (m_mode == Mode::Page) {
         setPageHeaderWidget(nullptr);
+        // `showPage()` 摆着的那一页：两条收页接线先断掉（这一页的调用方不是卡在循环里
+        // 等我们的，收尾就在这儿）。`execPage()` 那一档这两个本来就是空的。
+        disconnect(m_pageWidgetBack);
+        disconnect(m_pageWidgetFinished);
+        m_pageWidget = nullptr;
         releaseContent(m_pageContentLayout);
         m_mode = Mode::None;
         m_pageOwnerTab = -1;
@@ -619,6 +624,47 @@ void OverlayHost::relayout() {
 
 int OverlayHost::execPage(QDialog *dialog, const QString &title, int ownerTab) {
     return execEmbedded(dialog, title, true, false, ownerTab);
+}
+
+bool OverlayHost::showPage(QDialog *dialog, const QString &title, int ownerTab) {
+    // 先判"这一层空不空"：不空的时候接着往下走会把**正开着的那一页**（同一个对话框的话）
+    // 收进寄存处 —— 一次误触发就把用户眼前的页藏起来了。
+    if (dialog == nullptr || m_mode != Mode::None) {
+        return false;
+    }
+
+    // ① 先摘掉"窗口"身份 —— 和 `execEmbedded()` 里同一段理由：QDialog 只要带着
+    // Qt::Dialog 就是顶层窗口，塞进布局之前必须降级成普通子控件。
+    dialog->hide();
+    dialog->setParent(m_parking, Qt::Widget);
+
+    // ② 摆上去。`openPage()` 那一份判据刚看过一次，这里再挡一道是为了"布局还没搭好"
+    // 那一档：两种情况对调用方都是"没开成"。
+    QWidget *area = openPage(title, ownerTab);
+    if (area == nullptr || area->layout() == nullptr) {
+        return false;
+    }
+    area->layout()->addWidget(dialog);
+    dialog->setVisible(true);
+    relayout();
+
+    // ③ 收页：返回箭头接成 `reject()`（和 `execPage()` 里那条一模一样），Esc / 这一页
+    // 自己 accept/reject 也落到 `finished` —— 两条都在同一处收掉这一层。**没有**卡在
+    // 嵌套循环里的调用方要醒，所以 `closeTopLayer()` 那边不用特判。
+    //
+    // NOTE: 连接只挂到这一次收页上：同一个对象再摆上来时先断掉上一条，否则第二条会落在
+    // "现在开着的是别人那一页"这个判断上（`m_pageWidget` 已经不是它了）。
+    disconnect(m_pageWidgetBack);
+    disconnect(m_pageWidgetFinished);
+    m_pageWidget = dialog;
+    m_pageWidgetBack =
+        connect(this, &OverlayHost::backPressed, dialog, [dialog] { dialog->reject(); });
+    m_pageWidgetFinished = connect(dialog, &QDialog::finished, this, [this, dialog] {
+        if (m_pageWidget == dialog) {
+            closeOverlay();
+        }
+    });
+    return true;
 }
 
 void OverlayHost::setPageTitle(const QString &title) {
