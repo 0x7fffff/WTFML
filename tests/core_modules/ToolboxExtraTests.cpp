@@ -112,23 +112,44 @@ void runToolboxExtraTests() {
         check(Beacon::materialText(9, 164).contains(QStringLiteral("认不出")),
               "ZAI1b 材质下标越界时说「认不出」，不装作知道");
 
-        check(Beacon::maxBeaconsPerBase() == 9,
-              "★ ZAI1b 顶面 3 × 3 ⇒ 一座金字塔最多 9 颗信标");
-        check(Beacon::sharedBaseBlocks(4, 1) == 164 && Beacon::sharedBaseBlocks(4, 9) == 164,
-              "★★ ZAI1b 共用底座时方块数不随颗数增加（1 颗与 9 颗都是 164）",
-              QStringLiteral("%1 / %2")
-                  .arg(Beacon::sharedBaseBlocks(4, 1))
+        check(Beacon::maxBeaconCount() == 9,
+              "★ ZAI1b 这个计算器最多算 9 颗（紧凑摆法只在 3 × 3 的脚印里搜）");
+        check(Beacon::sharedBaseBlocks(4, 1) == 164,
+              "★ ZAI1b 1 颗 ⇒ 就是一座 4 级金字塔的 164 块");
+        // `BeaconBlockEntity.updateBase()` 是一颗一颗看的：每颗都要自己脚下一整套，
+        // 挨着摆时这些方格重叠 → 只算**并集**（不是"一人一座 164"）。
+        check(Beacon::sharedBaseBlocks(4, 2) == 188 && Beacon::sharedBaseBlocks(4, 3) == 212
+                  && Beacon::sharedBaseBlocks(4, 4) == 216 && Beacon::sharedBaseBlocks(4, 9) == 276,
+              "★★ ZAI1b 挨着摆共用的是并集：4 级 2 / 3 / 4 / 9 颗 = 188 / 212 / 216 / 276 块"
+              "（各盖一座是 328 / 492 / 656 / 1476）",
+              QStringLiteral("%1 / %2 / %3 / %4")
+                  .arg(Beacon::sharedBaseBlocks(4, 2))
+                  .arg(Beacon::sharedBaseBlocks(4, 3))
+                  .arg(Beacon::sharedBaseBlocks(4, 4))
                   .arg(Beacon::sharedBaseBlocks(4, 9)));
+        check(Beacon::sharedBaseBlocks(1, 2) == 12 && Beacon::sharedBaseBlocks(1, 4) == 16
+                  && Beacon::sharedBaseBlocks(2, 9) == 74,
+              "★★ ZAI1b 并集那笔账一层层算（1 级 2 颗 = 4 × 3 = 12；4 颗 2 × 2 = 16）",
+              QStringLiteral("%1 / %2 / %3")
+                  .arg(Beacon::sharedBaseBlocks(1, 2))
+                  .arg(Beacon::sharedBaseBlocks(1, 4))
+                  .arg(Beacon::sharedBaseBlocks(2, 9)));
         check(Beacon::sharedBaseBlocks(4, 0) == 0 && Beacon::sharedBaseBlocks(4, 10) == 0
                   && Beacon::sharedBaseBlocks(5, 1) == 0,
               "ZAI1b 颗数 / 等级越界 ⇒ 0");
         const QString shared = Beacon::sharedBaseText(4, 3);
         check(shared.contains(QStringLiteral("3 颗"))
-                  && shared.contains(QStringLiteral("底座仍然只要 164 块"))
-                  && shared.contains(QStringLiteral("9 块黑曜石")),
+                  && shared.contains(QStringLiteral("212 块"))
+                  && shared.contains(QStringLiteral("9 块黑曜石"))
+                  && shared.contains(QStringLiteral("15 块玻璃")),
               "★★ ZAI1b 共用底座那句把底座与每颗信标自己的材料分开说", shared);
-        check(Beacon::sharedBaseText(4, 10).contains(QStringLiteral("放不下")),
-              "ZAI1b 超过 9 颗时说「放不下」");
+        // 合成表 `GGG / GSG / OOO`：玻璃 5 块，不是 3。
+        check(Beacon::sharedBaseText(4, 1).contains(QStringLiteral("5 块玻璃"))
+                  && !Beacon::sharedBaseText(4, 1).contains(QStringLiteral("3 块玻璃")),
+              "★★ ZAI1b 一颗信标要 5 块玻璃（合成表那一圈），不是 3 块",
+              Beacon::sharedBaseText(4, 1));
+        check(Beacon::sharedBaseText(4, 10).contains(QStringLiteral("超出范围")),
+              "ZAI1b 超过 9 颗时说清楚");
     }
 
     // ---------- ZAI2. 酿造：表与形态 ----------

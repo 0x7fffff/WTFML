@@ -68,7 +68,7 @@ int UiBeaconBrewingChecks() {
             if (beaconCount != nullptr) {
                 check(beaconCount->minimum() == 1 && beaconCount->maximum() == 9
                           && beaconCount->value() == 1,
-                      "★ U39 颗数 1–9（顶面 3 × 3 最多 9 颗）、默认 1",
+                      "★ U39 颗数 1–9（紧凑摆法只在 3 × 3 的脚印里搜）、默认 1",
                       QStringLiteral("%1–%2")
                           .arg(beaconCount->minimum())
                           .arg(beaconCount->maximum()));

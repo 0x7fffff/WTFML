@@ -3116,10 +3116,18 @@ int main(int argc, char *argv[]) {
         auto *table = page.findChild<QTableWidget *>(QStringLiteral("anvilTable"));
         auto *addRow = page.findChild<QPushButton *>(QStringLiteral("anvilAddRow"));
         auto *removeRow = page.findChild<QPushButton *>(QStringLiteral("anvilRemoveRow"));
-        check(table != nullptr && addRow != nullptr && removeRow != nullptr
+        auto *rename = page.findChild<QCheckBox *>(QStringLiteral("anvilRename"));
+        check(table != nullptr && addRow != nullptr && removeRow != nullptr && rename != nullptr
                   && table->columnCount() == 5,
-              "★★ U40c 附魔那张表现在是五列（第五列 = 和上一行同一件）",
+              "★★ U40c 附魔那张表现在是五列（第五列 = 和上一行同一件），改名那一格也在",
               table != nullptr ? QString::number(table->columnCount()) : QString());
+        if (rename != nullptr) {
+            check(!rename->isChecked() && !page.anvilRename(),
+                  "★ U40c 「顺带改个名」默认不勾（改名那 1 级默认不算）");
+            rename->setChecked(true);
+            check(page.anvilRename(),
+                  "★★ U40c 勾上 ⇒ `anvilRename()` 读得回来（controller 拿它决定算不算那 1 级）");
+        }
         if (table != nullptr && addRow != nullptr && removeRow != nullptr) {
             const auto sameAt = [table](int row) -> QCheckBox * {
                 QWidget *wrap = table->cellWidget(row, 4);

@@ -5,6 +5,8 @@
 
 #include "tools/Beacon.hpp"
 
+#include <QList>
+
 namespace Beacon {
 
 namespace {
@@ -126,35 +128,139 @@ QString materialText(int index, int blocks) {
 
 // ---------- 多颗信标共用底座 ----------
 
-int maxBeaconsPerBase() { return 9; }
+namespace {
+
+/// 一颗信标在摆放网格里的位置（3 × 3 的脚印，下标 0 – 2）。
+struct Cell {
+    int x = 0;
+    int z = 0;
+};
+
+/// 合成表（`data/minecraft/recipe/beacon.json`：`GGG / GSG / OOO`）：
+/// 3 块黑曜石 + 1 颗下界之星 + 5 块玻璃。
+constexpr int kObsidianPerBeacon = 3;
+constexpr int kGlassPerBeacon = 5;
+constexpr int kStarPerBeacon = 1;
+
+/// 这一团信标在第 @p half 层（边长 `2 * half + 1`）的并集有多少格。
+///
+/// 照着 `BeaconBlockEntity.updateBase()` 那套判据：每一颗信标都要求"以自己为中心的
+/// `(2 * half + 1)²` 全是底座方块"。所以挨着摆的几颗不是"各盖一座金字塔"，而是这几块
+/// 方格的**并集** —— 重叠的部分只算一次。
+int unionArea(const QList<Cell> &cells, int half) {
+    const int side = 3 + 2 * half;  // 脚印 3 × 3 向外各扩 half
+    QList<bool> covered;
+    covered.fill(false, side * side);
+    for (const Cell &cell : cells) {
+        for (int dz = -half; dz <= half; ++dz) {
+            for (int dx = -half; dx <= half; ++dx) {
+                const int x = cell.x + dx + half;
+                const int z = cell.z + dz + half;
+                if (x >= 0 && x < side && z >= 0 && z < side) {
+                    covered[z * side + x] = true;
+                }
+            }
+        }
+    }
+    int count = 0;
+    for (bool hit : covered) {
+        if (hit) ++count;
+    }
+    return count;
+}
+
+/// 一颗信标要的层数摆出来长什么样（给界面说"摆成几 × 几"）。
+struct Layout {
+    int blocks = 0;  ///< 各层并集加起来一共多少块
+    int width = 0;   ///< 这一团占几格宽（x 方向）
+    int depth = 0;   ///< 这一团占几格深（z 方向）
+};
+
+/// 挑最省方块的紧凑摆法：在 3 × 3 的脚印里选 @p count 个格子，一层层算并集，取最小。
+///
+/// NOTE: 只搜 3 × 3 是因为 `count <= maxBeaconCount()`（9）—— 再多的摆法脚印会超过
+/// 3 × 3，而这里本来也只算得出 9 颗（界面上那格的上限也是它）。
+Layout compactLayout(int level, int count) {
+    Layout best;
+    best.blocks = -1;
+    for (int mask = 0; mask < (1 << 9); ++mask) {
+        if (__builtin_popcount(unsigned(mask)) != count) {
+            continue;
+        }
+        QList<Cell> cells;
+        int minX = 3;
+        int maxX = -1;
+        int minZ = 3;
+        int maxZ = -1;
+        for (int index = 0; index < 9; ++index) {
+            if ((mask & (1 << index)) == 0) {
+                continue;
+            }
+            const int x = index % 3;
+            const int z = index / 3;
+            cells.append(Cell{x, z});
+            minX = qMin(minX, x);
+            maxX = qMax(maxX, x);
+            minZ = qMin(minZ, z);
+            maxZ = qMax(maxZ, z);
+        }
+        int blocks = 0;
+        for (int half = minLevel(); half <= level; ++half) {
+            blocks += unionArea(cells, half);
+        }
+        if (best.blocks < 0 || blocks < best.blocks) {
+            best.blocks = blocks;
+            best.width = maxX - minX + 1;
+            best.depth = maxZ - minZ + 1;
+        }
+    }
+    return best;
+}
+
+}  // namespace
+
+int maxBeaconCount() { return 9; }
 
 int sharedBaseBlocks(int level, int beaconCount) {
-    if (!isValidLevel(level) || beaconCount < 1 || beaconCount > maxBeaconsPerBase()) return 0;
-    // 共用同一座金字塔时方块数**不随颗数增加** —— 顶面是一整块 3 × 3，几颗信标都站在上面。
-    return totalBlocks(level);
+    if (!isValidLevel(level) || beaconCount < 1 || beaconCount > maxBeaconCount()) return 0;
+    return compactLayout(level, beaconCount).blocks;
 }
 
 QString sharedBaseText(int level, int beaconCount) {
     if (!isValidLevel(level)) {
         return QStringLiteral("信标等级只有 1 – 4 级（%1 不是一个真的等级）。").arg(level);
     }
-    if (beaconCount < 1 || beaconCount > maxBeaconsPerBase()) {
-        return QStringLiteral("同一座金字塔上能放 1 – %1 颗信标（%2 颗放不下）。")
-            .arg(maxBeaconsPerBase())
+    if (beaconCount < 1 || beaconCount > maxBeaconCount()) {
+        return QStringLiteral("信标颗数只能算 1 – %1 颗（%2 颗超出范围）。")
+            .arg(maxBeaconCount())
             .arg(beaconCount);
     }
+    const QString each =
+        QStringLiteral("每颗信标另需 %1 块黑曜石 + %2 颗下界之星 + %3 块玻璃"
+                       "（合成表：底下 3 块黑曜石、中间一颗下界之星、四周 5 块玻璃）。")
+            .arg(kObsidianPerBeacon)
+            .arg(kStarPerBeacon)
+            .arg(kGlassPerBeacon);
     if (beaconCount == 1) {
-        return QStringLiteral("信标本体另需 3 块黑曜石 + 1 颗下界之星 + 3 块玻璃。");
+        return each;
     }
-    // 每颗信标自己那一套材料按颗数算；底座只有一座。
-    return QStringLiteral("%1 颗信标共用一座 %2 级金字塔：底座仍然只要 %3 块（顶面 3 × 3，最多放 %4 颗）；"
-                          "每颗信标另需 3 块黑曜石 + 1 颗下界之星 + 3 块玻璃，%1 颗一共 %5 块黑曜石、"
-                          "%1 颗下界之星、%5 块玻璃。")
-        .arg(beaconCount)
-        .arg(level)
-        .arg(totalBlocks(level))
-        .arg(maxBeaconsPerBase())
-        .arg(beaconCount * 3);
+    const Layout layout = compactLayout(level, beaconCount);
+    const int separate = beaconCount * totalBlocks(level);
+    QString text = QStringLiteral("%1 颗信标挨着摆（%2 × %3 的一团）能共用底座："
+                                  "%4 级只要 %5 块，各盖一座则要 %6 块 —— 共用的是重叠的那些方块，"
+                                  "不是「一颗信标一座金字塔」。")
+                       .arg(beaconCount)
+                       .arg(layout.width)
+                       .arg(layout.depth)
+                       .arg(level)
+                       .arg(layout.blocks)
+                       .arg(separate);
+    text += each;
+    text += QStringLiteral("%1 颗一共 %2 块黑曜石、%1 颗下界之星、%3 块玻璃。")
+                .arg(beaconCount)
+                .arg(beaconCount * kObsidianPerBeacon)
+                .arg(beaconCount * kGlassPerBeacon);
+    return text;
 }
 
 QStringList effectsForLevel(int level) {
