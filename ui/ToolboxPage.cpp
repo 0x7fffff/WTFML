@@ -1884,6 +1884,11 @@ QWidget *ToolboxPage::buildBrewingPanel() {
     m_brewingForm = new QComboBox(panel);
     m_brewingForm->setObjectName(brewingFormComboName());
     form->addWidget(m_brewingForm);
+    form->addWidget(makeFieldLabel(panel, QStringLiteral("目标版本")));
+    auto *version = new QComboBox(panel);
+    version->setObjectName(brewingVersionComboName());
+    version->setToolTip(QStringLiteral("按药水首次出现的版本提示；已经选的药水不会被改动。"));
+    form->addWidget(version);
     form->addWidget(makeFieldLabel(panel, QStringLiteral("瓶数")));
     m_brewingBottles = new QSpinBox(panel);
     m_brewingBottles->setObjectName(brewingBottlesSpinName());
@@ -1917,6 +1922,7 @@ QWidget *ToolboxPage::buildBrewingPanel() {
     connect(m_brewingForm, &QComboBox::currentIndexChanged, this,
             [emitNow](int) { emitNow(); });
     connect(m_brewingBottles, &QSpinBox::valueChanged, this, [emitNow](int) { emitNow(); });
+    connect(version, &QComboBox::currentIndexChanged, this, [emitNow](int) { emitNow(); });
     return panel;
 }
 
@@ -1937,6 +1943,23 @@ void ToolboxPage::setBrewingForms(const QStringList &names) {
     const QSignalBlocker blocker(m_brewingForm);
     m_brewingForm->clear();
     m_brewingForm->addItems(names);
+}
+
+void ToolboxPage::setBrewingVersions(const QStringList &versions) {
+    auto *combo = findChild<QComboBox *>(brewingVersionComboName());
+    if (combo == nullptr) {
+        return;
+    }
+    const QSignalBlocker blocker(combo);
+    combo->clear();
+    for (const auto &version : versions) {
+        combo->addItem(version.isEmpty() ? QStringLiteral("不限版本") : version, version);
+    }
+}
+
+QString ToolboxPage::brewingVersion() const {
+    const auto *combo = findChild<QComboBox *>(brewingVersionComboName());
+    return combo != nullptr ? combo->currentData().toString() : QString();
 }
 
 void ToolboxPage::setBrewingResult(const QString &text) {

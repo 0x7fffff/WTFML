@@ -23,6 +23,7 @@
 #include "tools/Brewing.hpp"
 #include "tools/CoordConvert.hpp"
 #include "tools/FileHash.hpp"
+#include "tools/GameVersion.hpp"
 #include "tools/TextFormat.hpp"
 #include "util/ImageDecode.hpp"
 #include "util/ServerPing.hpp"
@@ -223,6 +224,8 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
         brewForms.append(Brewing::formName(Brewing::Form(index)));
     }
     m_page->setBrewingForms(brewForms);
+    // 版本表和旗帜那一页共用一份（`GameVersion` 是唯一出处）。
+    m_page->setBrewingVersions(GameVersion::versions());
 
     // 旗帜 / 纹饰那两张表（出处分别在 `Banner` / `ArmorTrim` 里，这一层只翻成字符串）。
     QStringList bannerColors;
@@ -1110,8 +1113,19 @@ void ToolboxController::refreshBrewing(int potionIndex, bool extended, bool leve
     if (formIndex >= 0 && formIndex < Brewing::formCount()) {
         form = Brewing::Form(formIndex);
     }
-    m_page->setBrewingResult(
-        Brewing::plan(potionIndex, extended, level2, form, bottles).detailText());
+    const Brewing::Plan plan = Brewing::plan(potionIndex, extended, level2, form, bottles);
+    // 目标版本里还没有这一瓶时，先摆一句人话，路线照旧列在下面 —— 与旗帜那一页同一套
+    // 判据（`GameVersion::availableIn()`），不悄悄把选中的药水换掉。
+    QString prefix;
+    const QString version = m_page->brewingVersion();
+    if (potionIndex >= 0 && potionIndex < Brewing::potionCount()
+        && !Brewing::available(potionIndex, version)) {
+        prefix = tr("目标版本 %1 里还没有%2 —— 这种药水要 Java %3 起才有。\n\n")
+                     .arg(version,
+                          Brewing::potionAt(potionIndex).name + QStringLiteral("药水"),
+                          Brewing::potionSince(potionIndex));
+    }
+    m_page->setBrewingResult(prefix + plan.detailText());
 }
 
 void ToolboxController::refreshBanner(int baseColor, const QStringList &layers) {

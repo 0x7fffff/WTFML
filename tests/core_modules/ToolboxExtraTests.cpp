@@ -1,5 +1,8 @@
 #include "Support.hpp"
 
+#include "tools/BannerDesign.hpp"
+#include "tools/GameVersion.hpp"
+
 void runToolboxExtraTests() {
     section("ZAI. 工具箱：信标计算 / 酿造助手");
 
@@ -298,6 +301,85 @@ void runToolboxExtraTests() {
         check(Brewing::levelText(0).isEmpty() && Brewing::levelText(2) == QStringLiteral("II")
                   && Brewing::levelText(4) == QStringLiteral("IV"),
               "ZAI3b 等级写法（0 = 空、2 = II、4 = IV）");
+    }
+
+    // ---------- ZAI5. 酿造：1.21 那四瓶与版本边界 ----------
+    {
+        const auto indexOf = [](const QString &name) {
+            return Brewing::potionNames().indexOf(name);
+        };
+        const int weaving = indexOf(QStringLiteral("盘丝"));
+        const int wind = indexOf(QStringLiteral("蓄风"));
+        const int oozing = indexOf(QStringLiteral("渗浆"));
+        const int infested = indexOf(QStringLiteral("虫蚀"));
+        check(weaving >= 0 && wind >= 0 && oozing >= 0 && infested >= 0,
+              "★★ ZAI5 1.21 加的四瓶都在表里（盘丝 / 蓄风 / 渗浆 / 虫蚀）",
+              QStringLiteral("%1 / %2 / %3 / %4")
+                  .arg(weaving)
+                  .arg(wind)
+                  .arg(oozing)
+                  .arg(infested));
+        check(weaving >= 0 && Brewing::potionAt(weaving).ingredient == QStringLiteral("蜘蛛网")
+                  && wind >= 0
+                  && Brewing::potionAt(wind).ingredient == QStringLiteral("旋风棒")
+                  && oozing >= 0
+                  && Brewing::potionAt(oozing).ingredient == QStringLiteral("黏液块")
+                  && infested >= 0
+                  && Brewing::potionAt(infested).ingredient == QStringLiteral("石头"),
+              "★★ ZAI5 材料名照 `zh_cn.json`：蜘蛛网 / 旋风棒 / 黏液块 / 石头");
+        check(weaving >= 0 && Brewing::potionAt(weaving).parent == -1
+                  && !Brewing::potionAt(weaving).fromWater
+                  && !Brewing::potionAt(weaving).extendable
+                  && !Brewing::potionAt(weaving).upgradable,
+              "★★ ZAI5 从粗制的药水来（不是水瓶直做），也没有延长 / II 级版本");
+
+        if (weaving >= 0) {
+            const Brewing::Plan plan =
+                Brewing::plan(weaving, false, false, Brewing::Form::Normal, 4);
+            check(plan.ok && plan.steps.size() == 3
+                      && plan.steps.at(1).contains(QStringLiteral("下界疣"))
+                      && plan.steps.at(2).contains(QStringLiteral("蜘蛛网"))
+                      && plan.summary.contains(QStringLiteral("盘丝药水")),
+                  "★★ ZAI5 盘丝：水瓶 → 粗制的药水 → 加蜘蛛网（一共三步）",
+                  plan.steps.join(QStringLiteral(" / ")));
+            check(plan.materials.contains(QStringLiteral("蜘蛛网 × 2"))
+                      && plan.materials.contains(QStringLiteral("下界疣 × 2")),
+                  "★★ ZAI5 要 4 瓶 ⇒ 酿 2 次，蜘蛛网与下界疣各备 2 份",
+                  plan.materials.join(QStringLiteral("、")));
+        }
+
+        check(weaving >= 0 && Brewing::potionSince(weaving) == QStringLiteral("1.21")
+                  && wind >= 0 && Brewing::potionSince(wind) == QStringLiteral("1.21")
+                  && oozing >= 0 && Brewing::potionSince(oozing) == QStringLiteral("1.21")
+                  && infested >= 0 && Brewing::potionSince(infested) == QStringLiteral("1.21"),
+              "★★ ZAI5 那四瓶的版本门槛写的是 1.21");
+        check(Brewing::potionSince(0).isEmpty() && Brewing::potionSince(-1).isEmpty()
+                  && Brewing::potionSince(Brewing::potionCount()).isEmpty(),
+              "ZAI5 各版本都有的那几瓶回空串；越界也回空串");
+        check(weaving >= 0 && Brewing::available(weaving, QString())
+                  && Brewing::available(weaving, QStringLiteral("1.21"))
+                  && !Brewing::available(weaving, QStringLiteral("1.20.4"))
+                  && Brewing::available(0, QStringLiteral("1.14")) && Brewing::available(0, QString()),
+              "★★ ZAI5 目标版本 1.20.4 里还没有盘丝；迅捷各版本都有",
+              QStringLiteral("1.20.4=%1 / 1.21=%2")
+                  .arg(Brewing::available(weaving, QStringLiteral("1.20.4")) ? 1 : 0)
+                  .arg(weaving >= 0 && Brewing::available(weaving, QStringLiteral("1.21")) ? 1 : 0));
+        check(!Brewing::available(-1, QString())
+                  && !Brewing::available(Brewing::potionCount(), QString()),
+              "★ ZAI5 越界下标回 false（认不出来就不能说它有）");
+
+        check(!GameVersion::availableIn(QStringLiteral("1.21"), QStringLiteral("1.20.4"))
+                  && GameVersion::availableIn(QStringLiteral("1.21"), QStringLiteral("1.21"))
+                  && GameVersion::availableIn(QStringLiteral("1.20"),
+                                              QStringLiteral("1.20.4"))
+                  && GameVersion::availableIn(QString(), QStringLiteral("1.20.4"))
+                  && !GameVersion::availableIn(QStringLiteral("1.21.4"),
+                                               QStringLiteral("1.21")),
+              "★★ ZAI5 版本比较按段：1.20.4 < 1.21（不是按字面比）");
+        check(GameVersion::versions().first().isEmpty()
+                  && GameVersion::versions().contains(QStringLiteral("1.21"))
+                  && GameVersion::versions() == BannerDesign::versions(),
+              "★ ZAI5 版本表只有一份（旗帜那一页拿的就是它）");
     }
 
     // ---------- ZAJ0. 旗帜：图案表与十六色 ----------

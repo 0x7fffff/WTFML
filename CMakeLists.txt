@@ -235,6 +235,8 @@ set(HEADER_FILES
     src/tools/Brewing.hpp
     src/tools/Banner.hpp
     src/tools/ArmorTrim.hpp
+    # 「目标版本」那一栏的共用版本表与比较规则（旗帜 / 酿造共用这一份）。
+    src/tools/GameVersion.hpp
     ui/ConfigFileText.hpp
     ui/ConfigFileEditorPage.hpp
     ui/WorldSettingsPage.hpp
