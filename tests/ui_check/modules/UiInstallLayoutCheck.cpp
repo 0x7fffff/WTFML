@@ -131,6 +131,12 @@ int UiInstallLayoutCheck(QApplication &app) {
             expect(draft,"draft button emits a draft save rather than publishing");
             editor.findChild<QPushButton *>("presetEditorClear")->click();
             expect(editor.document().value("name")=="Original","clear preserves the preset name");
+            // 模组那一页在编辑器里是「嵌进来的对话框」：`embed()` 会把 QDialogButtonBox 和
+            // 直属的说明文字藏掉，认不出平台的那两件不在那些里面，得照样露着。
+            auto *onlyUnknown=editor.findChild<QCheckBox *>("presetModOnlyUnknown");
+            auto *removeUnknown=editor.findChild<QPushButton *>("presetModRemoveUnknown");
+            expect(onlyUnknown&&removeUnknown&&!onlyUnknown->isHidden()&&!removeUnknown->isHidden(),
+                   "embedded mod editor keeps the unrecognized-row filter and bulk removal visible");
             QJsonObject packs{{"id","pack-test"},{"name","Packs"},{"sections",QJsonArray{QJsonObject{{"id","resourcePacks"},{"kind","genericFiles"},{"items",QJsonArray{QJsonObject{{"path","resourcepacks/low.zip"},{"enabled",true},{"priority",0}},QJsonObject{{"path","resourcepacks/high.zip"},{"enabled",true},{"priority",1}}}}}}}};
             PresetEditorPage packEditor(packs);
             auto *packTable=packEditor.findChild<QTableWidget *>("presetEditorFiles_resourcePacks");

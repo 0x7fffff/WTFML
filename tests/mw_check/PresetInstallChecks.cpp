@@ -18,6 +18,8 @@
 #include "manage/VersionManager.hpp"
 #include "util/AppPaths.hpp"
 #include <QDialogButtonBox>
+#include <QCheckBox>
+#include <QTableWidget>
 #include <QLineEdit>
 #include <QLabel>
 #include <QTreeWidget>
@@ -822,6 +824,46 @@ int runPresetInstallChecks() {
     check(editor.entries().size() == 2, "duplicate quick add locates existing row instead of duplicating it");
     quickInput->setText(QStringLiteral("https://untrusted.example/mod/foo")); quickAdd->click();
     check(editor.entries().size() == 2, "unknown site cannot become a trusted project reference");
+    {
+        // 从实例提取时两个平台都没认出来的行：平台那格停在「未知来源（请选择）」。
+        // 「只看没认出来的」只藏行、不动数据；「移除没认出来的」才真删，并且不碰认出来的那些。
+        PresetModEditor unknownEditor(
+            {{QString(), QString(), QStringLiteral("mystery.jar"), {}, {}, true},
+             {QStringLiteral("modrinth"), QStringLiteral("abc123"), QStringLiteral("Example"), {}, {}, true},
+             {QStringLiteral("ftb"), QString(), QStringLiteral("odd.jar"), {}, {}, true}});
+        auto *onlyUnknown = unknownEditor.findChild<QCheckBox *>(QStringLiteral("presetModOnlyUnknown"));
+        auto *removeUnknown = unknownEditor.findChild<QPushButton *>(QStringLiteral("presetModRemoveUnknown"));
+        auto *table = unknownEditor.findChild<QTableWidget *>(QStringLiteral("presetModEditorTable"));
+        auto *problem = unknownEditor.findChild<QLabel *>(QStringLiteral("presetModProblem"));
+        check(onlyUnknown != nullptr && removeUnknown != nullptr && table != nullptr && problem != nullptr
+                  && table->rowCount() == 3,
+              "★ 模组编辑页有「只看没认出来的」与「移除没认出来的」两件（没认出来的行照样在表里）");
+        if (onlyUnknown && removeUnknown && table && problem) {
+            check(!onlyUnknown->isChecked() && !table->isRowHidden(0) && !table->isRowHidden(2),
+                  "★ 默认不筛：没认出来的行和认出来的一起露着");
+            onlyUnknown->setChecked(true);
+            check(!table->isRowHidden(0) && table->isRowHidden(1) && !table->isRowHidden(2)
+                      && unknownEditor.entries().size() == 3,
+                  "★★ 勾上「只看没认出来的」⇒ 只露没认出来的那两行，数据一行都没少",
+                  QStringLiteral("%1 %2 %3 / %4")
+                      .arg(table->isRowHidden(0)).arg(table->isRowHidden(1))
+                      .arg(table->isRowHidden(2)).arg(unknownEditor.entries().size()));
+            onlyUnknown->setChecked(false);
+            check(!table->isRowHidden(0) && !table->isRowHidden(2),
+                  "★ 取消筛选 ⇒ 之前藏起来的行都回来");
+            removeUnknown->click();
+            const auto left = unknownEditor.entries();
+            check(left.size() == 1 && left.first().platform == QStringLiteral("modrinth")
+                      && left.first().projectId == QStringLiteral("abc123"),
+                  "★★ 「移除没认出来的」只删平台还不认识的那几行，认出来的原样留着",
+                  QString::number(left.size()));
+            check(problem->text().contains(QStringLiteral("已移除 2 行")),
+                  "★ 删完说清楚删了几行（并且提醒「取消」能撤回）", problem->text());
+            removeUnknown->click();
+            check(problem->text().contains(QStringLiteral("没有没认出来的")),
+                  "★ 再点一次 ⇒ 说「没有没认出来的行」，不是默默无反应", problem->text());
+        }
+    }
     PresetOptionsEditor options({{QStringLiteral("fov"), QStringLiteral("0.5")},
                                 {QStringLiteral("key_key.jump"), QStringLiteral("key.keyboard.space")}});
     check(options.entries().size() == 2 && options.entries()[0].value == QStringLiteral("0.5"),
