@@ -15,6 +15,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
+#include <QMutex>
 #include <QSaveFile>
 #include <QSet>
 #include <QUuid>
@@ -37,6 +39,34 @@ constexpr int kDisplayNameLimit = 80;
 constexpr int kDescriptionLimit = 400;
 constexpr qint64 kIndexLimit = 4 * 1024 * 1024;
 constexpr qint64 kManifestLimit = 16 * 1024 * 1024;
+
+/// `list()` 每一趟都要把每一份 manifest 读回来、解析一遍。1000 份实测 2.3 秒
+/// （见 `docs/P2_STALL_STACKS_20261101.md`），而同一个进程里它会被问很多次（预设页、
+/// 安装选择弹窗、`availablePresets()`…）。这里按"这份文件的字节数 + 修改时刻"记住
+/// 上一次读出来的、**列表要的那几格**；任何一个变了就重读。
+///
+/// 只缓存**摘要**，不缓存 manifest 正文：正文是"应用到实例"那条路上真正要用的东西，
+/// 那条路多读一次没关系，读到旧的那一份不行。
+struct SummaryCacheEntry {
+    qint64 size = -1;
+    qint64 mtimeMs = -1;
+    /// false = 内部部件（`internalComponent`）：`list()` 本来就不列它，但也要记住，
+    /// 否则每一趟都还得把它的 manifest 读一遍才知道该跳过。
+    bool listed = true;
+    /// **不含 `isDefault`**：那一格由每一次调用的下标决定，不进缓存。
+    PresetSummary summary;
+};
+
+QHash<QString, SummaryCacheEntry> g_summaryCache;
+QMutex g_summaryCacheMutex;
+
+/// 上限只是防长跑进程里无限长；到顶整张丢掉重来（这是缓存，不是数据）。
+constexpr int kSummaryCacheLimit = 4096;
+
+void forgetSummaryCacheEntry(const QString &path) {
+    const QMutexLocker locker(&g_summaryCacheMutex);
+    g_summaryCache.remove(path);
+}
 
 /// 写盘：临时文件 + 原子改名（和任务账本 / 启动历史同一套）。
 bool writeBytesAtomic(const QString &path, const QByteArray &bytes) {
@@ -61,7 +91,13 @@ bool writeBytesAtomic(const QString &path, const QByteArray &bytes) {
         file.cancelWriting();
         return false;
     }
-    return file.commit();
+    if (!file.commit()) {
+        return false;
+    }
+    // 本进程自己写的这一份，摘要缓存立刻作废。不靠"修改时刻"这一格兜底：
+    // 同一毫秒里先写后读、时间戳粒度粗一点，都可能让它看起来没变。
+    forgetSummaryCacheEntry(path);
+    return true;
 }
 
 /// 说明那一栏怎么收：只去首尾空白，**不折行**（它是给人看的一段话，换行是有意义的）。
@@ -471,28 +507,63 @@ QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken) {
     QList<PresetSummary> summaries;
 
     const auto addOne = [&](const QString &id) {
-        bool ok = false;
-        QString reason;
-        const PresetManifest manifest = loadManifest(root, id, &ok, &reason);
-        if (!ok) {
-            // 坏的那一份**只进 broken**（不进 summary 列表）：这是这一条验收落成的
-            // 形状 —— 一份读不回来，别的照旧列出来、照旧能用。
-            if (broken != nullptr) {
-                broken->append(BrokenPreset{id, reason});
+        const QString path = manifestPath(root, id);
+        const QFileInfo info(path);
+        const bool exists = info.exists();
+        const qint64 size = exists ? info.size() : -1;
+        const qint64 mtimeMs = exists ? info.lastModified().toMSecsSinceEpoch() : -1;
+
+        SummaryCacheEntry entry;
+        bool hit = false;
+        {
+            const QMutexLocker locker(&g_summaryCacheMutex);
+            const auto it = g_summaryCache.constFind(path);
+            if (exists && it != g_summaryCache.constEnd() && it->size == size
+                && it->mtimeMs == mtimeMs) {
+                entry = *it;
+                hit = true;
             }
-            return;
         }
-        if (manifest.internalComponent) return;
-        PresetSummary summary;
+        if (!hit) {
+            bool ok = false;
+            QString reason;
+            const PresetManifest manifest = loadManifest(root, id, &ok, &reason);
+            if (!ok) {
+                // 坏了的那一份**不进缓存**：它多半是"还没写完"或者"正被改"，
+                // 记住一个错误只会让下一趟也看不见它。修好之后自然会读回来。
+                if (broken != nullptr) {
+                    broken->append(BrokenPreset{id, reason});
+                }
+                return;
+            }
+            entry.size = size;
+            entry.mtimeMs = mtimeMs;
+            entry.listed = !manifest.internalComponent;
+            if (entry.listed) {
+                PresetSummary &summary = entry.summary;
+                summary.id = id;
+                summary.name = manifest.name;
+                summary.description = manifest.description;
+                summary.updatedAt = manifest.updatedAt;
+                summary.sectionCount = manifest.sections.size();
+                summary.category = manifest.category;
+                summary.componentCategories =
+                    manifest.editorState.value("components").toObject().keys();
+                summary.iconPath = manifest.editorState.value("icon").toString();
+            }
+            const QMutexLocker locker(&g_summaryCacheMutex);
+            if (g_summaryCache.size() >= kSummaryCacheLimit) {
+                g_summaryCache.clear();
+            }
+            g_summaryCache.insert(path, entry);
+        }
+        // 内部部件（`internalComponent`）本来就不列，但也要记住 —— 否则每一趟
+        // 都还得把它整份 manifest 读一遍才知道该跳过。
+        if (!entry.listed) return;
+        PresetSummary summary = entry.summary;
         summary.id = id;
-        summary.name = manifest.name;
-        summary.description = manifest.description;
-        summary.updatedAt = manifest.updatedAt;
-        summary.sectionCount = manifest.sections.size();
-        summary.category = manifest.category;
+        // `isDefault` 不进缓存：它由每一次调用的下标决定，而缓存是跨调用活着的。
         summary.isDefault = (id == index.defaultPresetId);
-        summary.componentCategories = manifest.editorState.value("components").toObject().keys();
-        summary.iconPath = manifest.editorState.value("icon").toString();
         summaries.append(summary);
     };
 
@@ -520,6 +591,19 @@ QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken) {
         addOne(id);
     }
     return summaries;
+}
+
+void forgetSummaryCache(const QString &root) {
+    // 键是 manifest 的完整路径，所以按"这个根下面"整个扫一遍。
+    const QString prefix = QDir(root).absolutePath() + QLatin1Char('/');
+    const QMutexLocker locker(&g_summaryCacheMutex);
+    for (auto it = g_summaryCache.begin(); it != g_summaryCache.end();) {
+        if (QFileInfo(it.key()).absolutePath().startsWith(prefix)) {
+            it = g_summaryCache.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 QString defaultPresetId(const QString &root) {

@@ -759,5 +759,103 @@ void runPresetStoreTests() {
           "什么都不说");
     check(!Presets::move(root, created.id, 1) && !Presets::setDefault(root, created.id),
           "PA11 次序和默认项那两件在下标坏着时**回 false**（不动盘、也不假装成功）");
+
+    // ---------- PA12. 列表摘要的缓存：盘上变了必须当场看见 ----------
+    //
+    // `list()` 每一趟都要把每份 manifest 读回来解析，1000 份实测 2.3 秒，所以摘要要缓存
+    // （`PresetStore.cpp` 的 `SummaryCacheEntry`）。缓存能出错的地方只有一处：**该失效的
+    // 时候没失效**。下面五条都围着这一处：外改、内改、坏转好、默认项、内部部件。
+    {
+        const QString cacheRoot = temp.path() + QStringLiteral("/summary-cache");
+        const Presets::PresetManifest first = Presets::create(cacheRoot, QStringLiteral("甲甲甲"));
+        const Presets::PresetManifest second = Presets::create(cacheRoot, QStringLiteral("乙乙"));
+        check(Presets::list(cacheRoot).size() == 2,
+              "PA12 先正常列一趟（缓存就是这一趟填起来的）");
+
+        // 12a. **外面**改了这份文件、字节数还一样 ⇒ 只剩"修改时刻"那一格能发现。
+        const QString firstPath = Presets::manifestPath(cacheRoot, first.id);
+        const QFileInfo before(firstPath);
+        Presets::PresetManifest renamed = Presets::loadManifest(cacheRoot, first.id);
+        renamed.name = QStringLiteral("丙丙丙");
+        writeFileAt(firstPath, Presets::manifestToBytes(renamed));
+        {
+            QFile touch(firstPath);
+            check(touch.open(QIODevice::ReadWrite), "PA12 那份文件打得开（下面的比较靠它）");
+            // 写和上一次读可能落在同一毫秒里（时间戳粒度），显式往后拨一下：
+            // 测的是"会不会比大小和时刻"，不是运气。
+            touch.setFileTime(before.lastModified().addSecs(30), QFileDevice::FileModificationTime);
+        }
+        QStringList names;
+        for (const Presets::PresetSummary &one : Presets::list(cacheRoot)) {
+            names.append(one.name);
+        }
+        check(QFileInfo(firstPath).size() == before.size()
+                  && names.contains(QStringLiteral("丙丙丙")),
+              QStringLiteral("★★ PA12 外面改了一份、字节数没变 ⇒ 列表里就是新的（键是"
+                             "『大小 + 修改时刻』，不是『路径』）"),
+              names.join(QStringLiteral(" / ")));
+
+        // 12b. **本进程**写的那一份：把时间戳拨回去、大小也一样，也不许见到旧的。
+        //      靠的是写盘那条路（`writeBytesAtomic`）当场作废缓存那一格。
+        const QFileInfo written(firstPath);
+        Presets::PresetManifest third = Presets::loadManifest(cacheRoot, first.id);
+        third.name = QStringLiteral("丁丁丁");
+        check(Presets::saveManifest(cacheRoot, third), "PA12 本进程改一次名字");
+        {
+            QFile touch(firstPath);
+            check(touch.open(QIODevice::ReadWrite), "PA12 那份文件打得开（下面的比较靠它）");
+            touch.setFileTime(written.lastModified(), QFileDevice::FileModificationTime);
+        }
+        names.clear();
+        for (const Presets::PresetSummary &one : Presets::list(cacheRoot)) {
+            names.append(one.name);
+        }
+        check(names.contains(QStringLiteral("丁丁丁")) && QFileInfo(firstPath).size() == written.size(),
+              QStringLiteral("★★ PA12 本进程写的那一下：大小和修改时刻都跟缓存里记的一样，"
+                             "照样看得见新名字（作废靠写盘，不靠时间戳）"),
+              names.join(QStringLiteral(" / ")));
+
+        // 12c. 坏的那一份**不进缓存**：否则把它修好之后还得等别的东西来撞醒缓存。
+        writeFileAt(firstPath, QByteArrayLiteral("{ 这不是 json"));
+        QList<Presets::BrokenPreset> brokenAfter;
+        const QList<Presets::PresetSummary> whileBroken = Presets::list(cacheRoot, &brokenAfter);
+        check(whileBroken.size() == 1 && brokenAfter.size() == 1,
+              "PA12 坏掉的那一份这一趟就掉出列表（别的照旧）");
+        brokenAfter.clear();
+        check(Presets::saveManifest(cacheRoot, third), "PA12 把那份修回去");
+        const QList<Presets::PresetSummary> afterFix = Presets::list(cacheRoot, &brokenAfter);
+        check(afterFix.size() == 2 && brokenAfter.isEmpty(),
+              "★★ PA12 修好之后**下一趟**就回来了（读不回来的那份不进缓存）");
+
+        // 12d. 默认项不进缓存：它由**每一次调用**的下标决定。
+        Presets::setDefault(cacheRoot, second.id);
+        bool firstDefault = false;
+        bool secondDefault = false;
+        for (const Presets::PresetSummary &one : Presets::list(cacheRoot)) {
+            if (one.id == first.id) firstDefault = one.isDefault;
+            if (one.id == second.id) secondDefault = one.isDefault;
+        }
+        Presets::setDefault(cacheRoot, first.id);
+        bool firstDefault2 = false;
+        bool secondDefault2 = false;
+        for (const Presets::PresetSummary &one : Presets::list(cacheRoot)) {
+            if (one.id == first.id) firstDefault2 = one.isDefault;
+            if (one.id == second.id) secondDefault2 = one.isDefault;
+        }
+        check(!firstDefault && secondDefault && firstDefault2 && !secondDefault2,
+              "★★ PA12 换默认项之后下一趟就换过来了（那一格从来没进过缓存）");
+
+        // 12e. 内部部件（合成预设的私立零件）不进列表 —— 缓存也不能把它放进来。
+        Presets::PresetManifest part = Presets::create(cacheRoot, QStringLiteral("零件"));
+        part.internalComponent = true;
+        check(Presets::saveManifest(cacheRoot, part), "PA12 造一个内部部件");
+        check(Presets::list(cacheRoot).size() == 2,
+              "★★ PA12 内部部件不进列表（这一趟填了缓存）");
+        check(Presets::list(cacheRoot).size() == 2,
+              "★★ PA12 第二趟走的是缓存，还是不进列表");
+        part.internalComponent = false;
+        check(Presets::saveManifest(cacheRoot, part) && Presets::list(cacheRoot).size() == 3,
+              "★★ PA12 它不再是内部部件之后**下一趟**就列出来了");
+    }
 }
 

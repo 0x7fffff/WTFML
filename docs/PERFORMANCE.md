@@ -1006,3 +1006,26 @@ endif()
 （9 次带栈的测量里 2 次，栈停在 `QThread::start` → `CreateThread`），同 exe 后来 8 跑
 没复现，未定位。方法与边界见
 [后台干活时界面还点得动吗](P2_CONCURRENT_LOAD_20261101.md)。
+
+## 2026-11-01 预设列表的摘要缓存
+
+上一节那条 2.3 s 的栈（`Presets::list()` 一份一份读 manifest）解决的是**重复**那一半：
+`src/presets/PresetStore.cpp` 给 `list()` 加了一层进程内摘要缓存，键是 manifest 的
+完整路径、新鲜度按 `(字节数, 修改时刻)` 判定；只缓存列表要的那几格，不缓存正文；
+本进程写盘（`writeBytesAtomic`）提交成功后当场作废那一格；读不回来的那份不进缓存；
+上限 4096 份，带 `QMutex`（后台 `CatalogLoader` 与界面线程都会调）。
+
+同一份探针 exe、`-Instances 200`、1000 份预设，3 跑：
+
+| 步骤 | 改之前 | 改之后 |
+| --- | --- | --- |
+| `presets:read-store-1`（冷） | 2351–2367 ms | 2273–2321 ms |
+| `presets:read-store-2`（热） | 2306–2335 ms | 11.4–11.9 ms |
+| `presets:read-store-3`（热） | 2292–2308 ms | 11.4–15.4 ms |
+
+**第一次仍然要 2.3 s**，重复的那几趟每趟少 2.29 s（约 200×）。写那 1.7 s 没动。
+
+改完发现热缓存会让探针的"后台目录加载"那一步 11 ms 就回来、多任务 A/B 的加载中那半组
+空转（`busyDuringLoad` 8/8 → 0/8）；探针改了先调 `Presets::forgetSummaryCache()` 再起
+后台加载，三跑回到 2.31–2.36 s。形状、五条失效路径的验收（PA12）与边界见
+[预设列表的摘要缓存](P2_PRESET_LIST_CACHE_20261101.md)。

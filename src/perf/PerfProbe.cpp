@@ -310,6 +310,9 @@ private:
 
         m_steps.push_back({QStringLiteral("presets:start-background-store"), [this] {
             if (m_storeFailed || !m_storeDir) { m_storeFailed = true; return; }
+            // 上面那三趟 `presets:read-store-*` 已经把摘要缓存捂热了，不丢的话这一趟
+            // 11 ms 就回来，"加载中"那半组翻页就压在空载上，量不到东西。
+            Presets::forgetSummaryCache(m_storeDir->path());
             m_asyncCatalogPending = true;
             m_asyncCatalogClock.start();
             m_catalogLoader = new Presets::CatalogLoader(this);
