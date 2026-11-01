@@ -183,6 +183,8 @@ public:
     void setEnchantmentChoices(const QList<QPair<QString, QString>> &idAndName);
     /// 现在表格里那几行（用户点了「算」）。
     QList<AnvilRow> anvilRows() const;
+    /// 勾了「顺带改个名」没有（那 1 级算进去；空着 = 不改名）。
+    bool anvilRename() const;
     void setAnvilRows(const QList<AnvilRow> &rows);
     /// 把结论摆上去。
     void setAnvilView(const AnvilView &view);
@@ -476,6 +478,7 @@ private:
 
     // 一、附魔顺序助手
     QTableWidget *m_anvilTable = nullptr;
+    QCheckBox *m_anvilRename = nullptr;
     QList<QPair<QString, QString>> m_anvilChoices;
     QLabel *m_anvilResult = nullptr;
     QLabel *m_anvilError = nullptr;

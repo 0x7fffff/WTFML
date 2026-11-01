@@ -629,11 +629,21 @@ QWidget *ToolboxPage::buildAnvilPanel() {
     auto *removeRow = new QPushButton(QStringLiteral("删掉这一行"), panel);
     removeRow->setObjectName(QStringLiteral("anvilRemoveRow"));
     Theme::markButton(removeRow, Theme::ButtonKind::Neutral);
+    auto *rename = new QCheckBox(QStringLiteral("顺带改个名"), panel);
+    rename->setObjectName(QStringLiteral("anvilRename"));
+    // 铁砧那边改名只加在**一次操作**上：合的时候顺手改（+1 级），或者合完单独改一次
+    // （合完那件的前科 + 1、封顶 39）—— 这一格勾上就按"哪条便宜 / 塞得进去"来算。
+    rename->setToolTip(QStringLiteral("勾上就按「要改名」算：能塞进某一步合的时候就只多 1 级；"
+                                      "每一步都到 39 级了，就合完单独改一次"
+                                      "（合完那件的前科 + 1，封顶 39）。"));
+    m_anvilRename = rename;
     auto *plan = new QPushButton(QStringLiteral("计算"), panel);
     plan->setObjectName(QStringLiteral("anvilPlan"));
     Theme::markButton(plan, Theme::ButtonKind::Accent);
     rowButtons->addWidget(addRow);
     rowButtons->addWidget(removeRow);
+    rowButtons->addSpacing(12);
+    rowButtons->addWidget(rename);
     rowButtons->addStretch(1);
     rowButtons->addWidget(plan);
     layout->addLayout(rowButtons);
@@ -778,6 +788,10 @@ void ToolboxPage::setEnchantmentChoices(const QList<QPair<QString, QString>> &id
             }
         }
     }
+}
+
+bool ToolboxPage::anvilRename() const {
+    return m_anvilRename != nullptr && m_anvilRename->isChecked();
 }
 
 QList<ToolboxPage::AnvilRow> ToolboxPage::anvilRows() const {
@@ -1698,7 +1712,9 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     m_beaconCount->setRange(1, 9);
     m_beaconCount->setValue(1);
     m_beaconCount->setSuffix(QStringLiteral(" 颗"));
-    m_beaconCount->setToolTip(QStringLiteral("多颗信标可以共用同一座金字塔（顶面 3 × 3，最多 9 颗）"));
+    m_beaconCount->setToolTip(
+        QStringLiteral("多颗信标挨着摆就能共用底座（重叠的方块只算一次，按最省的那几种摆法算；"
+                       "这里最多算 9 颗）。"));
     form2->addWidget(m_beaconCount);
     form2->addStretch(1);
     layout->addLayout(form2);

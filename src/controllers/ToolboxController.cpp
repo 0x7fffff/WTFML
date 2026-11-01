@@ -467,7 +467,7 @@ void ToolboxController::runAnvilPlan() {
         units.append(unit);
     }
 
-    const Anvil::Plan plan = Anvil::plan(units);
+    const Anvil::Plan plan = Anvil::plan(units, m_page->anvilRename());
     ToolboxPage::AnvilView view;
     view.ok = plan.ok;
     view.error = plan.error;
@@ -520,7 +520,9 @@ void ToolboxController::runAnvilPlan() {
                                   .replace(QStringLiteral(" 的书"), QString())
                                   .replace(QStringLiteral(" 的装备"), QString());
     view.summary = plan.steps.isEmpty()
-                       ? tr("只有一件，不用合。")
+                       ? (plan.renameCost > 0
+                              ? tr("只有一件，不用合；改个名要 %1 级。").arg(plan.renameCost)
+                              : tr("只有一件，不用合。"))
                        : tr("一共 %1 级%2，合完是 %3。")
                              .arg(plan.totalCost)
                              .arg(plan.withinSurvival ? tr("（每一步都在 39 级以内）") : QString(),
@@ -544,6 +546,19 @@ void ToolboxController::runAnvilPlan() {
         view.notes.append(tr("合完之后那一件的前科是 %1（= 在铁砧上用过 %2 次）。")
                               .arg(plan.finalPenalty)
                               .arg(Anvil::usesForPenalty(plan.finalPenalty)));
+    }
+    // 改名那 1 级只花在**一次**操作上：某一步顺手改，或者合完单独改一次。
+    if (plan.renameCost > 0) {
+        if (plan.renameStep >= 0 && plan.renameStep < plan.steps.size()) {
+            view.notes.append(tr("第 %1 步合的时候顺手把名字改了 —— 总代价里多那 1 级"
+                                 "（这一步本身还算 %2 级；一条计划里只改一次）。")
+                                  .arg(plan.renameStep + 1)
+                                  .arg(plan.steps.at(plan.renameStep).cost.total));
+        } else {
+            view.notes.append(tr("合完之后再单独改一次名：%1 级（单改名 = 这一件的前科 + 1，"
+                                 "封顶 39；单改名不会让前科再涨）。")
+                                  .arg(plan.renameCost));
+        }
     }
     m_page->setAnvilView(view);
     if (m_host.log) {

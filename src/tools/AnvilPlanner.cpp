@@ -14,12 +14,16 @@ namespace {
 
 using namespace Anvil;
 
-/// 那一对倍率的来源：wiki 的 Anvil mechanics 页面（ 核对）。
+/// 这张表核对的两处来源：
+/// - 倍率（`anvil_cost`）与上限：1.21.10 客户端 `data/minecraft/enchantment` 那一批 json；
+/// - 互斥那一列：同一份数据里的 `exclusive_set` 标签（`data/minecraft/tags/enchantment`
+///   下面的 `exclusive_set` 目录）—— 同一条标签里的附魔**两两**互斥，等价于
+///   `Enchantment.areCompatible()`。
 ///
-/// NOTE: 1.21 那几条锤子上的新附魔（`density` / `breach` / `wind_burst`）的**互斥关系**没
-/// 登记在这张表里 —— 那几条我只核到了倍率与上限。表里 `incompatible` 那一列收的是
-/// 从早期版本起就定下来的那几对（锋利/亡灵杀手/节肢杀手、保护四兄弟、精准采集/时运、
-/// 深海探索者/冰霜行者、经验修补/无限、三叉戟那三条、多重箭/穿透）。
+/// NOTE: 互斥只按标签展开，不把"没能附在同一类物品上"当互斥：那是 `canEnchant` 那一档，
+/// 这一层不管（见 .hpp 开头"不做什么"）。
+/// NOTE: 1.21 的伤害那一组是**六条**（锋利 / 亡灵杀手 / 节肢杀手 / 穿刺 / 密度 / 破甲），
+/// 不是早期那三条；`loyalty` 的 `anvil_cost` 是 2（书那一档减半后仍是 1）。
 struct TableEntry {
     const char *id;
     const char *name;
@@ -44,9 +48,12 @@ const TableEntry kTable[] = {
     {"respiration", "水下呼吸", "Respiration", 3, 4, 2, ""},
     {"depth_strider", "深海探索者", "Depth Strider", 3, 4, 2, "frost_walker"},
     {"aqua_affinity", "水下速掘", "Aqua Affinity", 1, 4, 2, ""},
-    {"sharpness", "锋利", "Sharpness", 5, 1, 1, "smite,bane_of_arthropods"},
-    {"smite", "亡灵杀手", "Smite", 5, 2, 1, "sharpness,bane_of_arthropods"},
-    {"bane_of_arthropods", "节肢杀手", "Bane of Arthropods", 5, 2, 1, "sharpness,smite"},
+    {"sharpness", "锋利", "Sharpness", 5, 1, 1,
+     "smite,bane_of_arthropods,impaling,density,breach"},
+    {"smite", "亡灵杀手", "Smite", 5, 2, 1,
+     "sharpness,bane_of_arthropods,impaling,density,breach"},
+    {"bane_of_arthropods", "节肢杀手", "Bane of Arthropods", 5, 2, 1,
+     "sharpness,smite,impaling,density,breach"},
     {"knockback", "击退", "Knockback", 2, 2, 1, ""},
     {"fire_aspect", "火焰附加", "Fire Aspect", 2, 4, 2, ""},
     {"looting", "抢夺", "Looting", 3, 4, 2, ""},
@@ -63,11 +70,12 @@ const TableEntry kTable[] = {
     {"lure", "饵钓", "Lure", 3, 4, 2, ""},
     {"frost_walker", "冰霜行者", "Frost Walker", 2, 4, 2, "depth_strider"},
     {"mending", "经验修补", "Mending", 1, 4, 2, "infinity"},
-    {"curse_of_binding", "绑定诅咒", "Curse of Binding", 1, 8, 4, ""},
-    {"curse_of_vanishing", "消失诅咒", "Curse of Vanishing", 1, 8, 4, ""},
-    {"impaling", "穿刺", "Impaling", 5, 4, 2, ""},
+    {"binding_curse", "绑定诅咒", "Curse of Binding", 1, 8, 4, ""},
+    {"vanishing_curse", "消失诅咒", "Curse of Vanishing", 1, 8, 4, ""},
+    {"impaling", "穿刺", "Impaling", 5, 4, 2,
+     "sharpness,smite,bane_of_arthropods,density,breach"},
     {"riptide", "激流", "Riptide", 3, 4, 2, "loyalty,channeling"},
-    {"loyalty", "忠诚", "Loyalty", 3, 1, 1, "riptide"},
+    {"loyalty", "忠诚", "Loyalty", 3, 2, 1, "riptide"},
     {"channeling", "引雷", "Channeling", 1, 8, 4, "riptide"},
     {"multishot", "多重射击", "Multishot", 1, 4, 2, "piercing"},
     {"piercing", "穿透", "Piercing", 4, 1, 1, "multishot"},
@@ -75,8 +83,10 @@ const TableEntry kTable[] = {
     {"soul_speed", "灵魂疾行", "Soul Speed", 3, 8, 4, ""},
     {"swift_sneak", "迅捷潜行", "Swift Sneak", 3, 8, 4, ""},
     {"wind_burst", "风爆", "Wind Burst", 3, 4, 2, ""},
-    {"density", "密度", "Density", 5, 2, 1, ""},
-    {"breach", "破甲", "Breach", 4, 4, 2, ""},
+    {"density", "密度", "Density", 5, 2, 1,
+     "sharpness,smite,bane_of_arthropods,impaling,breach"},
+    {"breach", "破甲", "Breach", 4, 4, 2,
+     "sharpness,smite,bane_of_arthropods,impaling,density"},
 };
 
 QList<EnchantInfo> buildTable() {
@@ -129,8 +139,14 @@ MergeMaps mergeMaps(const QMap<QString, int> &target, const QMap<QString, int> &
         const QString id = it.key();
         const int level = it.value();
         // 目标上有一条和它互斥的 ⇒ 目标保住自己那条，代价 +1（Java 那一档）。
+        // NOTE: 比的是**已经合出来的那一份**（`merged.result`），不是最初的目标：铁砧那边
+        // 一条一条塞进去，塞进去的那条立即参与后面几条的互斥判断（`AnvilMenu.createResult`
+        // 里那个 `itemenchantments$mutable` 是边走边长的）。所以一件牺牲品上带着两条互斥的
+        // 附魔时，只有先轮到的能用上，后一条 +1 被顶掉 —— 不是两条都合上来。
+        // NOTE: 谁先轮到在这张表里按 id 的字典序（`QMap`），游戏里按附魔注册表的次序；
+        // 这种"一本书上带着两条互斥"的输入本来就不是正常玩法能做出的，两种次序都可能不同。
         bool conflict = false;
-        for (auto existing = target.constBegin(); existing != target.constEnd(); ++existing) {
+        for (auto existing = merged.result.constBegin(); existing != merged.result.constEnd(); ++existing) {
             if (incompatiblePair(existing.key(), id)) {
                 conflict = true;
                 break;
@@ -159,6 +175,9 @@ MergeMaps mergeMaps(const QMap<QString, int> &target, const QMap<QString, int> &
     return merged;
 }
 
+/// "这一件上还没有步骤"那种状态的最小步长（叶子）。比任何真实代价都大。
+constexpr int kNoStep = 0x3fffffff;
+
 /// 计划搜索里的一个状态：手上那一件（前科 + 总代价 + 带着什么）+ 它是从哪两步来的。
 struct State {
     int cost = 0;
@@ -168,6 +187,10 @@ struct State {
     int maxStep = 0;
     /// 这一件是不是附魔书（决定它当牺牲品时按哪一列倍率算；合并出来的那件跟着左边那件）。
     bool isBook = true;
+    /// 走到这一件为止**最小那一步**的代价（判"改名那 1 级能不能塞进某一步"用它：
+    /// 改名只能加在某一步上，那一步原本就得 ≤ 38，加完才不超 39）。叶子上没有步骤，
+    /// 给一个足够大的哨兵值。
+    int minStep = kNoStep;
     QMap<QString, int> enchantments;
     /// 来源：子集 A、子集 B、以及"谁左谁右"（true = A 当牺牲品）。
     int leftMask = 0;
@@ -326,19 +349,20 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
                         // 左边那件改一改，所以拿一件装备当底子合到最后还是那件装备。
                         sacrifice.isBook = sacrificeState.isBook;
 
-                        MergeCost merge = mergeCost(target, sacrifice);
-                        if (includeRename) {
-                            merge.total += 1;  // 改个名 +1 级（wiki 那句 "adding a single
-                                               // experience level"）
-                            merge.tooExpensive = merge.total > 39;
-                        }
-
+                        const MergeCost merge = mergeCost(target, sacrifice);
+                        // NOTE: 改名那 1 级**不塞进这里的代价**：铁砧那边 `AnvilMenu.
+                        // createResult()` 里只有名字框填了个新名字才 `i += 1`，而且只加在
+                        // 一次操作上。计划重建完再挑"最便宜的那一步"加（见 `renameStep`）。
+                        // 能这么挑的前提是那一步原本 ≤ 38（加 1 才不超 39），所以这一层
+                        // 要跟着记**最小那一步**。
                         State state;
                         state.cost = targetState.cost + sacrificeState.cost + merge.total;
                         state.penalty = merge.resultPenalty;
                         state.isBook = targetState.isBook;
                         state.maxStep = qMax(targetState.maxStep,
                                              qMax(sacrificeState.maxStep, merge.total));
+                        state.minStep = qMin(targetState.minStep,
+                                             qMin(sacrificeState.minStep, merge.total));
                         state.enchantments = merge.result;
                         state.leftMask = left;
                         state.rightMask = right;
@@ -366,7 +390,11 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
         for (const State &candidate : bucket) {
             bool dominated = false;
             for (const State &keptState : kept) {
-                if (keptState.cost <= candidate.cost && keptState.penalty <= candidate.penalty
+                // 要算改名时 `minStep` 越小越好（越小越有地方塞改名那 1 级），所以它也得
+                // "不比候选差"；不算改名时它跟目标无关，别让它削弱剪枝。
+                const bool minStepOk = !includeRename || keptState.minStep <= candidate.minStep;
+                if (minStepOk && keptState.cost <= candidate.cost
+                    && keptState.penalty <= candidate.penalty
                     && keptState.maxStep <= candidate.maxStep
                     && keptState.isBook == candidate.isBook
                     && keptState.enchantments == candidate.enchantments) {
@@ -401,17 +429,35 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
             break;
         }
     }
+    /// 改名那 1 级加在哪儿（`AnvilMenu.createResult()` 那条路）：
+    /// - 塞进某一步合的时候 —— 只要那一步原本 ≤ 38（加 1 不超 39，而铁砧是 `>= 40` 才
+    ///   拒绝）⇒ 一共多 1 级；
+    /// - 否则合完之后**单独**改一次 —— 代价 = 这一件的前科 + 1、封顶 39（`k == i` 那一支
+    ///   把 `cost >= 40` 压回 39，而且前科不变：单改名不算"在铁砧上用过一次"），所以这条
+    ///   路永远不会被铁砧拒绝。
+    const auto renameExtra = [includeRename](const State &state) {
+        if (!includeRename) {
+            return 0;
+        }
+        return state.minStep <= 38 ? 1 : qMin(state.penalty + 1, 39);
+    };
     /// 同样地看"能不能做出来"：累计小但中间某一步超了 39 的那条在生存里做不出来。
-    auto better = [](const State &candidate, const State &chosen) {
+    auto better = [&renameExtra, includeRename](const State &candidate, const State &chosen) {
         const bool candidateFeasible = candidate.maxStep <= 39;
         const bool chosenFeasible = chosen.maxStep <= 39;
         if (candidateFeasible != chosenFeasible) {
             return candidateFeasible;
         }
-        if (candidate.cost != chosen.cost) {
-            return candidate.cost < chosen.cost;
+        const int candidateCost = candidate.cost + renameExtra(candidate);
+        const int chosenCost = chosen.cost + renameExtra(chosen);
+        if (candidateCost != chosenCost) {
+            return candidateCost < chosenCost;
         }
-        return candidate.penalty < chosen.penalty;
+        if (candidate.penalty != chosen.penalty) {
+            return candidate.penalty < chosen.penalty;
+        }
+        // 要算改名、又一样便宜时，优先"能塞进某一步"的那条：少开一次铁砧。
+        return includeRename && candidate.minStep <= 38 && chosen.minStep > 38;
     };
 
     // 目标附魔 = 全部用上时、按"合完还是那一件"这条规矩的最优结果（用户列了哪些书，
@@ -510,7 +556,23 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
 
     plan.ok = true;
     plan.steps = walk.steps;
-    plan.totalCost = walk.totalCost;
+    plan.renameCost = renameExtra(*finalState);
+    plan.totalCost = walk.totalCost + plan.renameCost;
+    // 改名那 1 级落在**最便宜的那一步**上（那一步原本 ≤ 38 才塞得进去，所以挑最小的那步）。
+    // 塞不进去（每一步都 39）就留到合完之后单独改一次 —— `renameStep` 留在 -1。
+    if (includeRename && finalState->minStep <= 38) {
+        int cheapest = -1;
+        for (int index = 0; index < plan.steps.size(); ++index) {
+            if (cheapest < 0
+                || plan.steps.at(index).cost.total < plan.steps.at(cheapest).cost.total) {
+                cheapest = index;
+            }
+        }
+        if (cheapest >= 0) {
+            plan.renameStep = cheapest;
+            plan.steps[cheapest].renamedHere = true;
+        }
+    }
     plan.finalPenalty = finalState->penalty;
     plan.finalEnchantments = finalState->enchantments;
     plan.finalIsBook = finalState->isBook;
