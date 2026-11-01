@@ -857,5 +857,52 @@ void runPresetStoreTests() {
         check(Presets::saveManifest(cacheRoot, part) && Presets::list(cacheRoot).size() == 3,
               "★★ PA12 它不再是内部部件之后**下一趟**就列出来了");
     }
+
+    // ---------- PA13. 一次读很多份（`list()` 走并行那一档） ----------
+    // `loadManifests()` 在份数 >= 8 且线程池不止一个线程时并行读。这几条钉住的是：
+    // 并行读完了**次序还是 `ids` 的次序**、错了/坏了的那几份各自归位、缓存照样生效。
+    {
+        const QString manyRoot = temp.path() + "/parallel-list";
+        QDir().mkpath(manyRoot);
+
+        QStringList ids;
+        QStringList names;
+        for (int i = 0; i < 12; ++i) {
+            const QString name = QStringLiteral("并行 %1").arg(i, 2, 10, QLatin1Char('0'));
+            const Presets::PresetManifest made = Presets::create(manyRoot, name);
+            check(!made.id.isEmpty(), QStringLiteral("PA13 造得出来第 %1 份").arg(i));
+            ids.append(made.id);
+            names.append(name);
+        }
+        QList<Presets::BrokenPreset> brokenMany;
+        const QList<Presets::PresetSummary> listed = Presets::list(manyRoot, &brokenMany);
+        QStringList listedNames;
+        for (const Presets::PresetSummary &one : listed) {
+            listedNames.append(one.name);
+        }
+        check(listed.size() == 12 && brokenMany.isEmpty(),
+              QStringLiteral("PA13 十二份一次列全（坏的一份都没有）[%1]").arg(listed.size()));
+        check(listedNames == names,
+              "★★ PA13 并行读回来的次序就是下标的次序（不是读完的先后）");
+
+        // 13b. 改一份（只改名字、字节数多半不变）：靠写盘作废旧那一格，重读回来还是新名字。
+        Presets::PresetManifest renamed = Presets::loadManifest(manyRoot, ids.at(5));
+        renamed.name = QStringLiteral("并行 05（改过）");
+        check(Presets::saveManifest(manyRoot, renamed), "PA13 改掉中间那一份的名字");
+        bool sawRenamed = false;
+        for (const Presets::PresetSummary &one : Presets::list(manyRoot)) {
+            if (one.id == ids.at(5)) {
+                sawRenamed = (one.name == renamed.name);
+            }
+        }
+        check(sawRenamed, "★★ PA13 并行那一趟里改过的那一份照样看得见");
+
+        // 13c. 坏一份：它掉出去、进 broken，别的十一份原地不动。
+        writeFileAt(Presets::manifestPath(manyRoot, ids.at(7)), QByteArrayLiteral("{ 这不是 json"));
+        QList<Presets::BrokenPreset> brokenV;
+        const QList<Presets::PresetSummary> listedV = Presets::list(manyRoot, &brokenV);
+        check(listedV.size() == 11 && brokenV.size() == 1 && brokenV.at(0).id == ids.at(7),
+              "★★ PA13 坏的那一份只掉它自己（十一份照列、那一份进 broken）");
+    }
 }
 
