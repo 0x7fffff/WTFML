@@ -1029,3 +1029,26 @@ endif()
 空转（`busyDuringLoad` 8/8 → 0/8）；探针改了先调 `Presets::forgetSummaryCache()` 再起
 后台加载，三跑回到 2.31–2.36 s。形状、五条失效路径的验收（PA12）与边界见
 [预设列表的摘要缓存](P2_PRESET_LIST_CACHE_20261101.md)。
+
+## 2026-11-01 预设列表的冷读改成并行
+
+上一节只解决了**重复**：冷的第一趟仍是 2.3 s。这一节解决冷的那一半 —— `list()` 改成
+"先 stat 一遍问缓存、把没命中的攒起来一起读"，`loadManifests()` 在份数 >= 8 且全局线程池
+不止一个线程时用 `QtConcurrent::blockingMapped` 并行读，否则串行。次序仍按下标，
+`broken` 也按同一次序落。
+
+同一份探针 exe、`-Instances 200`、1000 份预设，3 跑：
+
+| 步骤 | 只有缓存 | 缓存 + 并行冷读 |
+| --- | --- | --- |
+| `presets:read-store-1`（冷） | 2273–2321 ms | **394.9–407.1 ms** |
+| `presets:read-store-2/3`（热） | 11.4–15.4 ms | 11.5–12.4 ms |
+| `presets:start-background-store`（真 `CatalogLoader`） | 2314–2357 ms | **402–424 ms** |
+
+冷读 2.3 s → 0.40 s（约 5.7×）；主线程最长一停里 2.3 s 那一口（原来落在 `read-store-1`
+上）随之消失，后台加载期间的界面最大间隔仍是 37–47 ms。写那 1.7 s 没动。
+
+顺带修了探针的一处测量口径：加载窗口从 2.3 s 缩到 0.4 s 之后，`concurrent:busy-*` 的
+8 发里只有 2 发真的压在窗口上，剩下的空载样本会把 `busy` 平均数拉回 `calm`。现在
+`busy` 只统计 `loadActive` 的那几发（样本数 8 → 2）。形状、踩到的坑（`slots` 是 Qt 的
+空宏）与验收（PA13）见 [预设列表的冷读改成并行](P2_PRESET_READ_PARALLEL_20261101.md)。

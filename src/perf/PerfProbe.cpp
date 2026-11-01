@@ -47,6 +47,7 @@
 #include <QUuid>
 #include <QWidget>
 
+#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <memory>
@@ -474,10 +475,13 @@ private:
                 calmMax = std::max(calmMax, result.actionMs);
                 ++calmCount;
             } else if (result.name.startsWith(QStringLiteral("concurrent:busy-"))) {
-                busySum += result.actionMs;
-                busyMax = std::max(busyMax, result.actionMs);
-                ++busyCount;
+                // 只把"目录还在读"的那几发算进 `busy`：加载从 2.3 s 缩到 0.4 s 之后
+                // （2026-11-01 预设并行读盘），8 发里后几发其实已经空载了 —— 混进平均数
+                // 只会把 `busy` 拉回 `calm`，看着"多任务不挡事"，其实那几发根本没压在窗口上。
                 if (result.loadActive) {
+                    busySum += result.actionMs;
+                    busyMax = std::max(busyMax, result.actionMs);
+                    ++busyCount;
                     ++busyDuringLoad;
                 }
             }

@@ -19,7 +19,10 @@
 #include <QMutex>
 #include <QSaveFile>
 #include <QSet>
+#include <QThreadPool>
 #include <QUuid>
+
+#include <QtConcurrent>
 
 #include "GenericFiles.hpp"
 #include "manage/FolderManager.hpp"
@@ -502,93 +505,166 @@ bool saveManifest(const QString &root, const PresetManifest &manifest) {
 // 列表
 // ---------------------------------------------------------------------------
 
+namespace {
+
+struct ManifestLoadResult {
+    PresetManifest manifest;
+    bool ok = false;
+    QString reason;
+};
+
+ManifestLoadResult loadForList(const QString &root, const QString &id) {
+    ManifestLoadResult result;
+    result.manifest = loadManifest(root, id, &result.ok, &result.reason);
+    return result;
+}
+
+/// 读一批 manifest，**次序与 `ids` 一致**。
+///
+/// 1000 份串行 2.4 s、并行 0.4 s（探针实测，见
+/// `docs/P2_PRESET_READ_PARALLEL_20261101.md`），所以够多就并行。少的时候不折腾：
+/// 起线程的价钱比几份文件还贵。调用方自己就是线程池线程时也不用怕互等 ——
+/// 全局池只剩一个线程时退回串行。
+QList<ManifestLoadResult> loadManifests(const QString &root, const QStringList &ids) {
+    constexpr qsizetype kParallelThreshold = 8;
+    const bool roomToParallel = ids.size() >= kParallelThreshold
+        && QThreadPool::globalInstance()->maxThreadCount() > 1;
+    if (!roomToParallel) {
+        QList<ManifestLoadResult> loaded;
+        loaded.reserve(ids.size());
+        for (const QString &id : ids) {
+            loaded.append(loadForList(root, id));
+        }
+        return loaded;
+    }
+    return QtConcurrent::blockingMapped<QList<ManifestLoadResult>>(
+        ids, [&root](const QString &id) { return loadForList(root, id); });
+}
+
+}  // namespace
+
 QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken) {
     const PresetIndex index = loadIndex(root, nullptr);
-    QList<PresetSummary> summaries;
 
-    const auto addOne = [&](const QString &id) {
-        const QString path = manifestPath(root, id);
-        const QFileInfo info(path);
-        const bool exists = info.exists();
-        const qint64 size = exists ? info.size() : -1;
-        const qint64 mtimeMs = exists ? info.lastModified().toMSecsSinceEpoch() : -1;
-
-        SummaryCacheEntry entry;
-        bool hit = false;
-        {
-            const QMutexLocker locker(&g_summaryCacheMutex);
-            const auto it = g_summaryCache.constFind(path);
-            if (exists && it != g_summaryCache.constEnd() && it->size == size
-                && it->mtimeMs == mtimeMs) {
-                entry = *it;
-                hit = true;
-            }
-        }
-        if (!hit) {
-            bool ok = false;
-            QString reason;
-            const PresetManifest manifest = loadManifest(root, id, &ok, &reason);
-            if (!ok) {
-                // 坏了的那一份**不进缓存**：它多半是"还没写完"或者"正被改"，
-                // 记住一个错误只会让下一趟也看不见它。修好之后自然会读回来。
-                if (broken != nullptr) {
-                    broken->append(BrokenPreset{id, reason});
-                }
-                return;
-            }
-            entry.size = size;
-            entry.mtimeMs = mtimeMs;
-            entry.listed = !manifest.internalComponent;
-            if (entry.listed) {
-                PresetSummary &summary = entry.summary;
-                summary.id = id;
-                summary.name = manifest.name;
-                summary.description = manifest.description;
-                summary.updatedAt = manifest.updatedAt;
-                summary.sectionCount = manifest.sections.size();
-                summary.category = manifest.category;
-                summary.componentCategories =
-                    manifest.editorState.value("components").toObject().keys();
-                summary.iconPath = manifest.editorState.value("icon").toString();
-            }
-            const QMutexLocker locker(&g_summaryCacheMutex);
-            if (g_summaryCache.size() >= kSummaryCacheLimit) {
-                g_summaryCache.clear();
-            }
-            g_summaryCache.insert(path, entry);
-        }
-        // 内部部件（`internalComponent`）本来就不列，但也要记住 —— 否则每一趟
-        // 都还得把它整份 manifest 读一遍才知道该跳过。
-        if (!entry.listed) return;
-        PresetSummary summary = entry.summary;
-        summary.id = id;
-        // `isDefault` 不进缓存：它由每一次调用的下标决定，而缓存是跨调用活着的。
-        summary.isDefault = (id == index.defaultPresetId);
-        summaries.append(summary);
-    };
-
+    // 先把这一趟的次序定下来：下标里的（用户排好的），再接盘上多出来的。
+    QStringList ordered;
     QSet<QString> seen;
     for (const QString &id : index.order) {
         seen.insert(id);
-        addOne(id);
+        ordered.append(id);
+    }
+    {
+        // 盘上有、下标里没有的（用户自己拷进来一份、或者下标被写坏过）→ **追加在末尾**。
+        // 不丢东西是这一条的全部理由：那些目录里躺着用户真正的预设。
+        QStringList extras;
+        const QDir dir(root);
+        const QStringList entries =
+            dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System);
+        for (const QString &entry : entries) {
+            if (!isValidPresetId(entry) || seen.contains(entry)) {
+                continue;
+            }
+            extras.append(entry);
+        }
+        // 读盘那一趟的次序要确定（`entryList` 的次序是文件系统给的，两台机器上不一样）。
+        extras.sort();
+        ordered.append(extras);
     }
 
-    // 盘上有、下标里没有的（用户自己拷进来一份、或者下标被写坏过）→ **追加在末尾**。
-    // 不丢东西是这一条的全部理由：那些目录里躺着用户真正的预设。
-    QStringList extras;
-    const QDir dir(root);
-    const QStringList entries =
-        dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System);
-    for (const QString &entry : entries) {
-        if (!isValidPresetId(entry) || seen.contains(entry)) {
+    // 第一趟只 stat（一份十来微秒），把缓存命中的挑出来；没命中的攒起来一起读。
+    struct Slot {
+        bool exists = false;
+        qint64 size = -1;
+        qint64 mtimeMs = -1;
+        /// 有东西可报：缓存命中，或者刚读回来并且读成功了。
+        bool resolved = false;
+        SummaryCacheEntry entry;
+    };
+    // 变量名别叫 `slots`：那是 Qt 的空宏（`private slots:` 那个）。
+    QList<Slot> cells;
+    cells.resize(ordered.size());
+    QStringList missIds;
+    QList<int> missAt;
+    for (int i = 0; i < ordered.size(); ++i) {
+        Slot &cell = cells[i];
+        const QString path = manifestPath(root, ordered.at(i));
+        const QFileInfo info(path);
+        cell.exists = info.exists();
+        if (!cell.exists) {
+            // 盘上没有：照样"读"一次 —— 那条路会说清"已经不在了"并进 broken。
+            missIds.append(ordered.at(i));
+            missAt.append(i);
             continue;
         }
-        extras.append(entry);
+        cell.size = info.size();
+        cell.mtimeMs = info.lastModified().toMSecsSinceEpoch();
+        const QMutexLocker locker(&g_summaryCacheMutex);
+        const auto it = g_summaryCache.constFind(path);
+        if (it != g_summaryCache.constEnd() && it->size == cell.size
+            && it->mtimeMs == cell.mtimeMs) {
+            cell.entry = *it;
+            cell.resolved = true;
+            continue;
+        }
+        missIds.append(ordered.at(i));
+        missAt.append(i);
     }
-    // 读盘那一趟的次序要确定（`entryList` 的次序是文件系统给的，两台机器上不一样）。
-    extras.sort();
-    for (const QString &id : extras) {
-        addOne(id);
+
+    // 第二趟：没命中的读回来（够多就并行）。结果按次序落回各自的格子上。
+    if (!missIds.isEmpty()) {
+        const QList<ManifestLoadResult> loaded = loadManifests(root, missIds);
+        for (int k = 0; k < loaded.size(); ++k) {
+            const QString &id = missIds.at(k);
+            Slot &cell = cells[missAt.at(k)];
+            const ManifestLoadResult &result = loaded.at(k);
+            if (!result.ok) {
+                // 坏了的那一份**不进缓存**：它多半是"还没写完"或者"正被改"，
+                // 记住一个错误只会让下一趟也看不见它。修好之后自然会读回来。
+                if (broken != nullptr) {
+                    broken->append(BrokenPreset{id, result.reason});
+                }
+                continue;
+            }
+            cell.entry.size = cell.size;
+            cell.entry.mtimeMs = cell.mtimeMs;
+            cell.entry.listed = !result.manifest.internalComponent;
+            if (cell.entry.listed) {
+                PresetSummary &summary = cell.entry.summary;
+                summary.id = id;
+                summary.name = result.manifest.name;
+                summary.description = result.manifest.description;
+                summary.updatedAt = result.manifest.updatedAt;
+                summary.sectionCount = result.manifest.sections.size();
+                summary.category = result.manifest.category;
+                summary.componentCategories =
+                    result.manifest.editorState.value("components").toObject().keys();
+                summary.iconPath = result.manifest.editorState.value("icon").toString();
+            }
+            cell.resolved = true;
+            if (cell.exists) {
+                const QMutexLocker locker(&g_summaryCacheMutex);
+                if (g_summaryCache.size() >= kSummaryCacheLimit) {
+                    g_summaryCache.clear();
+                }
+                g_summaryCache.insert(manifestPath(root, id), cell.entry);
+            }
+        }
+    }
+
+    QList<PresetSummary> summaries;
+    summaries.reserve(ordered.size());
+    for (int i = 0; i < ordered.size(); ++i) {
+        const Slot &cell = cells.at(i);
+        // 内部部件（`internalComponent`）本来就不列，但也要记住 —— 否则每一趟
+        // 都还得把它整份 manifest 读一遍才知道该跳过。
+        if (!cell.resolved || !cell.entry.listed) {
+            continue;
+        }
+        PresetSummary summary = cell.entry.summary;
+        summary.id = ordered.at(i);
+        // `isDefault` 不进缓存：它由每一次调用的下标决定，而缓存是跨调用活着的。
+        summary.isDefault = (summary.id == index.defaultPresetId);
+        summaries.append(summary);
     }
     return summaries;
 }

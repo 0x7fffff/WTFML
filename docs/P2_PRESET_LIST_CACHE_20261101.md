@@ -119,5 +119,6 @@ ctest --test-dir build/verification-mingw13 -R core-presets --output-on-failure
 - **写那一半**：1000 份 `saveManifest()` 仍是 1.7 s，其中每次 `QSaveFile::commit()` 都
   `FlushFileBuffers`。要不要为"批量造/导入预设"改成分批刷盘，得先看那条路真实的份数
   （用户手点不会一次造 1000 份）。
-- **冷读那 2.3 s**：预设页/安装弹窗第一次打开仍然要读全部 manifest。要真省掉它，得让
-  列表只读一个预先算好的摘要文件（改盘上格式），比这一轮的改动大得多，先不动。
+- ~~**冷读那 2.3 s**~~：**同一天解决了**（并行读，2.3 s → 0.40 s），见
+  [预设列表的冷读改成并行](P2_PRESET_READ_PARALLEL_20261101.md)。剩下那 0.40 s 里还有
+  stat + 解析；要再降一档仍得让列表只读一份预先算好的摘要文件（改盘上格式），先不动。
