@@ -2508,58 +2508,9 @@ namespace {
 // 在 `src/MainWindowSessionEvents.cpp`（同一个类，另一个翻译单元）。
 
 
-void MainWindow::onImportModpackClicked() {
-    m_importController->onImportModpackClicked();
-}
+// ---------- 导入整合包 / 把文件拖进来 ----------
+// 在 `src/MainWindowDropImport.cpp`（同一个类，另一个翻译单元）。
 
-void MainWindow::importModpackFromFile(const QString &zipPath, const QString &namePrefill) {
-    m_importController->importModpackFromFile(zipPath, namePrefill);
-}
-
-bool MainWindow::applyModpackImport(const QString &zipPath, const QString &instanceName,
-                                    const QByteArray &manifestJson,
-                                    ModpackImport::Format format) {
-    return m_importController->applyModpackImport(zipPath, instanceName, manifestJson, format);
-}
-
-bool MainWindow::installLocalResourceFile(const QString &versionId,
-                                          ResourceCatalog::Kind kind, const QString &path,
-                                          QString *problemOut) {
-    return m_importController->installLocalResourceFile(versionId, kind, path, problemOut);
-}
-
-void MainWindow::handleInstanceSettingsDrop(QWidget *page, const QString &versionId,
-                                            const QStringList &paths) {
-    m_importController->handleInstanceSettingsDrop(page, versionId, paths);
-}
-
-void MainWindow::importDroppedModpack(const QString &zipPath, const QString &namePrefill) {
-    m_importController->importDroppedModpack(zipPath, namePrefill);
-}
-
-void MainWindow::handleWindowDrop(const QStringList &paths) {
-    m_importController->handleWindowDrop(paths);
-}
-
-void MainWindow::dragEnterEvent(QDragEnterEvent *event) {
-    // 准入判据**就是**实例设置那一页用的那一个（同一个函数，见 .hpp 里那段 NOTE）：
-    // 拖的是一串本地文件才接。
-    if (InstanceSettingsDialog::droppedFilePaths(event->mimeData()).isEmpty()) {
-        event->ignore();
-        return;
-    }
-    event->acceptProposedAction();
-}
-
-void MainWindow::dropEvent(QDropEvent *event) {
-    const QStringList paths = InstanceSettingsDialog::droppedFilePaths(event->mimeData());
-    if (paths.isEmpty()) {
-        event->ignore();
-        return;
-    }
-    event->acceptProposedAction();
-    handleWindowDrop(paths);
-}
 
 void MainWindow::onVersionDetailsFetched(const QString &versionId, const QJsonObject &versionJson) {
     if (versionJson.isEmpty()) {
