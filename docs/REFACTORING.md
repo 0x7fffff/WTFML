@@ -1084,3 +1084,27 @@ controller。`applyInstanceSettings()` 后面紧跟着的匿名命名空间（�
 行数：`src/MainWindow.cpp` 3770 → 3505，新文件 265（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：启动那条路与主页「最近玩的」分出去
+
+`MainWindow.cpp` 里 2367–2591 这 225 行，主语是"这一次要不要启动 / 启动之后窗口怎么收"：
+
+- `onVersionsFetched()`：清单到齐之后摆进界面；
+- `launchIdentityKey()` / `confirmLaunchWhileRunning()` / `launchArguments()`：按下那颗按钮
+  之前的判据与参数；
+- `onStartButtonClicked()`：唯一入口（真正起进程在 `GameSessionController`）；
+- `appendLaunchRecord()` / `updateHomeRecent()` / `openHomeInstancePicker()`：启动之后主页
+  「最近玩的」那一条与它的选择框；
+- `applyLauncherBehaviourAfterLaunch()`：窗口行为（最小化 / 退出）。
+
+搬到 `src/MainWindowLaunch.cpp`。两处顺手收拾：
+
+- 主 `CMakeLists.txt` / `tests/mw_check` 里 `MainWindowDownloadOrigin.cpp` 被登记了两遍
+  （上一节插串了），这次一并去掉 —— CMake 会去重，所以前一次构建没炸，但清单不该长这样。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 3511 → 3289，新文件 264（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
