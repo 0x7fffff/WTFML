@@ -289,9 +289,9 @@ void runHomeRecentCardTests() {
         // ---------- ⑥ 「实例设置」那一颗开的是**这一份**实例的页 ----------
         {
             QString pageTitle;
-            closeInstanceSettingsPage(&pageTitle);
             settingsButton->click();
             QApplication::processEvents();
+            closeInstanceSettingsPage(&pageTitle);
             check(pageTitle.contains(displayName),
                   "★★ T36.6 「实例设置」那一颗开的就是这个实例的设置页（页眉上写着它）",
                   pageTitle);

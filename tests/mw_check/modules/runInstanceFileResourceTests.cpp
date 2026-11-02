@@ -161,7 +161,9 @@ void runInstanceFileResourceTests() {
         OverlayHost *overlay = w.ui() != nullptr ? w.ui()->overlay() : nullptr;
         check(overlay != nullptr, "T24.1 覆盖层拿得到（下面每一步都挂在它身上）");
 
-        // 页面**开起来之后**才量得了的三件事。整段跑在那个嵌套事件循环里。
+        // 页面**开起来之后**才量得了的三件事。开页现在是**非阻塞**的
+        // （`OverlayHost::showPage()`，摆上就返回），所以这一段是开完页当场跑的一个
+        // 普通函数体 —— 不再是"排一个 0 毫秒定时器等嵌套循环来派"。
         bool dialogFound = false;
         bool packRowFound = false;
         bool unknownRowFound = false;
@@ -176,7 +178,7 @@ void runInstanceFileResourceTests() {
         // 的是不是**同一页**"拿它比 —— 比"某个内部标志位"结实：那是用户眼睛看到的东西。
         QString settingsHeader;
 
-        QTimer::singleShot(0, [&] {
+        const auto inspectSettings = [&] {
             OverlayHost *host = currentPageOverlay();
             auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
             if (page == nullptr) {
@@ -314,10 +316,16 @@ void runInstanceFileResourceTests() {
                     QApplication::processEvents();
                 }
             }
-        });
+        };
 
         QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
                                   Q_ARG(QString, idV));
+        inspectSettings();
+        // 刚收起来那一份对话框是 `deleteLater()` 收的：先让它落地，不然下面
+        // 「退回实例设置」那一发里的 `findChild<InstanceSettingsDialog *>()` 会摸到它
+        // （已经收起来、页眉一片空白、停的也是老页）。测试里 `processEvents()` 够不着
+        // 那条 DeferredDelete（嵌套层数对不上，见 closeInstanceSettingsPage 那段）。
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
 
         check(dialogFound, "T24.1 实例设置那一页开起来了（下面每一条都要读它）");
         check(packRowFound && unknownRowFound && modRowFound,
@@ -556,7 +564,8 @@ void runInstanceFileResourceTests() {
         api.modrinthVersionListReply = QByteArrayLiteral("[]");
         bool modClickableAgain = false;
         {
-            QTimer::singleShot(0, [&] {
+            // 开页**不阻塞**了（`showPage()`），所以这一段是"开完页当场跑"的普通函数体。
+            const auto inspectModSettings = [&] {
                 OverlayHost *host = currentPageOverlay();
                 auto *page = host != nullptr
                                  ? host->findChild<InstanceSettingsDialog *>()
@@ -592,9 +601,14 @@ void runInstanceFileResourceTests() {
                 if (QToolButton *detail = modDetailAt()) {
                     detail->click();
                 }
-            });
+            };
             QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
                                       Q_ARG(QString, idV));
+            inspectModSettings();
+            // 收起来那一份对话框是 `deleteLater()` 收的；先让它落地，不然下面
+            // 「退回实例设置」那一发里的 `findChild<InstanceSettingsDialog *>()`
+            // 会摸到**这一份已经收起来的**（页眉一片空白、停的页也是老的）。
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         }
         check(modClickableAgain, "★★ T24.7 再从实例那一页打开时，模组那一条那颗「详情」"
                                  "**还是点得动**（身份表是会话缓存，不用再问一趟）");

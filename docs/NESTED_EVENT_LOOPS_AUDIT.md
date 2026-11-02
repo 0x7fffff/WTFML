@@ -33,7 +33,13 @@
 > 语义），`true` = 摆上去了、`false` = 没开出来（原来 `kResourcePageNotOpened` 那一档）。
 > 从实例文件页点「详情」进来的那一路用这个回调判结果（`Accepted` = 页上那颗「模组设置」，
 > 收完去配置文件页；`Rejected` = 返回，退回原来那一页）。A 类调用点 **2 → 1**。
-> 还剩 1 处：**实例设置**（整页，十几个闭环的接线台）。
+> **2026-11-02 收掉最后一页**：实例设置（整页，十几个闭环的接线台）也改走 `showPage()` ——
+> 那一页的十几个 `connect` 原来都捕着 `open()` 栈上的 `dialog` / `targetId` /
+> `refreshInstanceDirs` / `serverEdits`，现在改捕一个挂在对话框上的
+> `InstanceSettingsSession`（C++ 捕获引用变量时捕的是被引用的对象，所以
+> `[&dialog]` / `[&targetId]` 一个字都不用改）；收页之后的收尾（导出整合包 → 开预设编辑器、
+> `deleteLater`）接在 `pageClosed(QWidget *)` 上。A 类调用点 **1 → 0**：`execPage()` 这个
+> API 还在（`OverlayHost` 里保留着），但**产品代码里已经没有调用方**了。
 
 ## 两类，别混着看
 
@@ -44,6 +50,9 @@
   [测试笔记](../../WTFML-测试笔记.md) 的待办里。
 
 ## A：`execPage()` 的调用点
+
+> 下表是 `a51159f` 那一版的快照。按上面那段更新读：**全部都已迁到 `showPage()`，
+> 产品代码里现在一个 `execPage()` 调用都没有**（留在 `OverlayHost` 里的这个 API 是空着的）。
 
 `execEmbedded()` 里那次 `loop.exec()`（`ui/OverlayHost.cpp:710`）没有超时、**处理用户输入**
 （和 `QDialog::exec()` 同义）。退出条件是四个：对话框 `finished`（accept/reject）、

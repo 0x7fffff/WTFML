@@ -455,7 +455,7 @@ void runCopyAndSavePageTests() {
         PromptAnswerer answerer({0, 0, 0, 0});
         answerer.start();
         // 操作收尾之后（四次问句都答完、提示都收了）才点返回箭头 —— 提前收页会让
-        // `finished` 里那两个捕着 `&dialog` 的 lambda 落到一份已经析构的页上。
+        // `finished` 那条线上的 lambda 落在一个已经收掉页的会话上。
         QTimer closer;
         closer.setInterval(30);
         QObject::connect(&closer, &QTimer::timeout, [&] {
@@ -498,23 +498,31 @@ void runCopyAndSavePageTests() {
         });
         fallback.start(20000);
 
-        QTimer::singleShot(0, [&] {
-            OverlayHost *host = currentPageOverlay();
-            auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
-            if (page == nullptr) {
-                return;
-            }
-            emitted = true;
-            // 和「创建升级副本…」那一颗**发出的东西逐字相同**（只发意图，不写盘）：
-            // `saves` 是夹具里唯一一份默认勾着的范围。
-            page->transferApplyRequested(QStringLiteral("upgrade"), targetId,
-                                         QStringList{QStringLiteral("saves")});
-        });
+        // 那一页现在**不阻塞**（`showPage()`）：开完页当场发信号，别做成 0ms 定时器——
+        // 定时器要等 `processEvents()` 才醒，而那时下面几行已经把问句应答器停掉了，
+        // 四句问句就没人答、兜底也停了 ⇒ 整节挂死。
         QMetaObject::invokeMethod(&window, "openInstanceSettings", Qt::DirectConnection,
                                   Q_ARG(QString, id));
+        {
+            OverlayHost *host = currentPageOverlay();
+            auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
+            if (page != nullptr) {
+                emitted = true;
+                // 和「创建升级副本…」那一颗**发出的东西逐字相同**（只发意图，不写盘）：
+                // `saves` 是夹具里唯一一份默认勾着的范围。
+                page->transferApplyRequested(QStringLiteral("upgrade"), targetId,
+                                             QStringList{QStringLiteral("saves")});
+            }
+        }
+        // 等这一整趟收尾：前两问同步答掉之后，搬文件在后台线程里跑，进度提示那一档
+        // `pageOpen()` 是**假**的（所以不能拿"覆盖层空了"当判据）—— 结果 / 快速启动
+        // 那两问要等 `finished` 回来才弹。正常路径由 closer 在四问答完、提示收干净之后
+        // 点返回箭头；失败路径由 20 秒兜底关页。两者都会把 `closed` 置真。
+        pumpUntil([&] { return closed; }, 25000);
         fallback.stop();
         closer.stop();
         answerer.stop();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QApplication::processEvents();
 
         check(emitted, "T27.3b 「升级」页开出来了、信号也真的发出去了（这条红了下面都是假绿）");
@@ -1542,10 +1550,8 @@ void runCopyAndSavePageTests() {
 
             // ② 同一页上再来一次，这回点「删除」（第一颗）⇒ 页面收掉 + 目录真的没了。
             //
-            // 「产品自己收页了没有」**只能这么量**：`dismiss()` 发的是 `backPressed()`，
-            // 而 `m_mode` 要到 `execPage()` 那层嵌套循环**转回来**才被放成 None —— 在我们
-            // 这个 handler 里 `pageOpen()` 恒为 true。
-            // 所以直接接那一发信号：它响了 = 产品真的喊了"收页"。
+            // 「产品自己收页了没有」直接接那一发 `backPressed()`：它响了 = 产品真的喊了
+            // "收页"（不管后面还有没有人接着收）。
             auto dismissConnection = QObject::connect(
                 host, &OverlayHost::backPressed, host,
                 [&productDismissed]() { productDismissed = true; });
@@ -1560,10 +1566,9 @@ void runCopyAndSavePageTests() {
                     clickPromptButton(0);  // 「删除」
                 });
                 button->click();
-                // NOTE: **这里读不出"收页了没有"**。`dismiss()` 发的是 `backPressed()`，
-                // 而它要到 `execPage()` 那层嵌套循环真的转回来才会把 `m_mode` 放成
-                // None —— 也就是说"这一页收掉了"这件事**只有在 `invokeMethod` 返回
-                // 之后才量得到**（下面那条就是这么量的）。在这儿读只会量到"还没收到"。
+                // NOTE: 收页是**同步**的（`dismiss()` → `backPressed()` → 那一页 `reject()`），
+                // 但这一页收掉的最终样子（页对象 `deleteLater` 之后）要到下面那几发事件
+                // 处理之后才量得到。
             }
 
             QObject::disconnect(dismissConnection);
@@ -1576,7 +1581,10 @@ void runCopyAndSavePageTests() {
         });
         QMetaObject::invokeMethod(&window, "openInstanceSettings", Qt::DirectConnection,
                                   Q_ARG(QString, id));
+        // `processEvents()` 不递 `DeferredDelete`（`deleteLater()` 走的就是它）——
+        // 页收掉之后那一份要等这一发才真的析构，下面 `findChild()` 才量得准。
         QApplication::processEvents();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         check(probed, "★★ T27.8 那一页开出来了、那颗按钮也拿到手了（这条红了下面全是假绿）");
         check(askedOnCancel, "★★ T27.8 点下去**真的问了一句**才动手（不是直接就删）");
         check(askedTitle == QStringLiteral("删除实例"),

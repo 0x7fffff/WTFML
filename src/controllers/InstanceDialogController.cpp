@@ -34,6 +34,7 @@
 #include <QClipboard>
 #include <QSet>
 #include <atomic>
+#include <functional>
 #include <memory>
 
 #include "controllers/BackupController.hpp"
@@ -291,6 +292,30 @@ QString homeGroupIdOf(const InstanceGroupStore *groups, const QString &key,
     return known.contains(origin) ? origin : QString();
 }
 
+/**
+ * @brief 「实例设置」这一趟的会话：那几个**按引用被几十条接线捕获**的局部量。
+ *
+ * 这一页从 2026-11-02 起走 `OverlayHost::showPage()` —— 摆上去就返回，收页在之后某个
+ * 时刻（返回箭头 / Esc / 页上自己的操作 / 被别的页顶掉）。原来那些 lambda 捕获的是
+ * 函数里的栈对象，靠 `execPage()` 的嵌套事件循环把它们钉住；不再阻塞之后，函数一返回
+ * 栈就没了，捕获的引用全成了野指针。
+ *
+ * 所以把这几样搬到一个堆上的会话里，**父对象 = 对话框**：对话框 `deleteLater()` 之后
+ * 会话跟着它一起没，和这一页同生共死。下面那几十处 `[&dialog]` / `[&targetId]` 一个字
+ * 都不用改 —— C++ 里捕获一个引用变量，捕获的是**被引用的那个对象**，于是它们指向的
+ * 已经是堆上这几份。
+ *
+ * `refreshInstanceDirs` / `serverEdits` 必须在这里（而不是还留在栈上）：它们本身也被
+ * 别的接线按引用捕获着（改名那一条、服务器那三条），活不过函数返回就不行。
+ */
+struct InstanceSettingsSession : QObject {
+    QString targetId;
+    std::function<void(const QString &)> refreshInstanceDirs;
+    ServerListController *serverEdits = nullptr;
+    bool exportPreset = false;
+    ~InstanceSettingsSession() override { delete serverEdits; }
+};
+
 } // namespace
 
 InstanceDialogController::InstanceDialogController(MainWindow *owner)
@@ -332,11 +357,20 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // 不在这儿另读一次系统内存，是为了两页**逐字同一个数**：用户刚在设置页看见"最多 16256"，
     // 切到实例页又是另一个上限的话，两页各说各的。
     global.memoryCapMb = m_owner->m_ui->getMemoryMaxSpin()->maximum();
-    InstanceSettingsDialog dialog(m_owner->instanceDisplayName(versionId), versionId,
-                                  toDialogOverride(current, gameWindowOverrideFromJson(instanceMeta)),
-                                  global, m_owner->m_versionManager->versionJvmArgs(versionId),
-                                  !m_owner->m_versionManager->skipJavaVersionWarning(versionId),
-                                  windowModeChoices(), m_owner);
+    // 这一页**不阻塞开**（`showPage()` 摆上就返回），而整页几十条接线都按引用捕获下面
+    // 这几个局部量 —— 它们得活到收页之后，所以放在堆上的会话里（见
+    // `InstanceSettingsSession` 那段）。会话的父对象是对话框：这一页被 `deleteLater()`
+    // 收掉时它跟着一起没，一个字节都不用另找时机释放。
+    auto *session = new InstanceSettingsSession;
+    session->targetId = versionId;
+    auto *dialogPtr = new InstanceSettingsDialog(
+        m_owner->instanceDisplayName(versionId), versionId,
+        toDialogOverride(current, gameWindowOverrideFromJson(instanceMeta)),
+        global, m_owner->m_versionManager->versionJvmArgs(versionId),
+        !m_owner->m_versionManager->skipJavaVersionWarning(versionId),
+        windowModeChoices(), m_owner);
+    session->setParent(dialogPtr);
+    InstanceSettingsDialog &dialog = *dialogPtr;
     dialog.setLastLaunch(LaunchHistory::lastStartedAt(m_owner->m_launchHistory->records(), versionId));
     connect(&dialog, &InstanceSettingsDialog::launchInstanceRequested, m_owner,
             [this, versionId]() {
@@ -399,8 +433,9 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     //
     // NOTE: 它按**引用**收 targetId（而不是收一个 QString）：改名之后那个值变了，重算
     // 必须看新值。下面那些 lambda 也是同一个理由全都按引用捕获它。
-    QString targetId = versionId;
-    const auto refreshInstanceDirs = [this, &dialog, &targetId](const QString &id) {
+    // 这一位在会话里（不是栈上）：收页之后那些接线还得读它，见 InstanceSettingsSession。
+    QString &targetId = session->targetId;
+    session->refreshInstanceDirs = [this, &dialog, &targetId](const QString &id) {
         // 这一段"算"的活全在 `InstancePagesController` 里（哪几页用得上、
         // 那几页指向哪个目录、有结构的存档是哪几个）。这一层剩下的**只有摆**：
         // 把那一份事实挨个 `set` 到对话框上。
@@ -506,6 +541,9 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         m_owner->requestInstanceFileIcons(&dialog, id);
         m_owner->pushInstanceFileUpdates(&dialog, id);
     };
+    // 下面那条改名接线**按引用**收它（改名之后要整份重算）—— 所以引用的是会话里那一份，
+    // 不是这个栈上的引用变量本身。C++ 捕获引用变量时捕获的本来就是被引用的对象。
+    std::function<void(const QString &)> &refreshInstanceDirs = session->refreshInstanceDirs;
     refreshInstanceDirs(targetId);
 
     // 「Replay」和「结构」那两页，选中一行之后底下
@@ -1265,12 +1303,13 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // 干活 —— ui/ 那边不 include src/、也不碰磁盘，"这一次到底执行什么"只有这一层知道
     // （authManager / versionManager / launcherManager 都在这儿）。
     //
-    // 接在 execPage **之前**：那一下会阻塞在一个嵌套事件循环里（用户在页面上点按钮时，
-    // 这一句还没返回），接晚了就一辈子收不到。
+    // 全部接在 `showPage()` **之前**：那一句一摆上去，用户当场就能点按钮（函数的返回和
+    // 用户的下一次点击之间没有任何"还在准备中"的窗口），接晚了就一辈子收不到。
     //
-    // NOTE: dialog 是**栈上的局部对象**，所以这几条 connect 用 lambda 捕获它和 targetId ——
-    // 这里没有 m_owner->m_instanceSettingsDialog 那种成员（也刻意不加：加了就得管生命周期，
-    // 而这一页每次都是新开一个）。
+    // NOTE: `dialog` 是**堆上**的一份（见本函数开头那个 `InstanceSettingsSession`），
+    // 这几条 connect 的上下文一律是 `dialog` 自己 ⇒ 它一收掉，连接跟着断，轮不到
+    // lambda 去碰已经析构的对象。`targetId` / `refreshInstanceDirs` / `serverEdits`
+    // 都挂在那个会话上，跟着对话框一起走。
     connect(&dialog, &InstanceSettingsDialog::exportLaunchScriptRequested, m_owner,
             [this, &targetId](const QString &path) { m_owner->exportLaunchScript(targetId, path); });
     connect(&dialog, &InstanceSettingsDialog::repairFilesRequested, m_owner,
@@ -1402,8 +1441,8 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // 「文件管理」那三发：开文件夹 / 启用·禁用一条 / 删一条。
     //
     // NOTE: 这两条**要多捕获一个 &dialog** —— 动完盘得让那几页重列一遍（不然删掉的那一行
-    // 还在屏幕上，用户会以为没删掉）。dialog 是栈上的局部对象、这一句又写在
-    // execPage 之前，所以引用一直活着；那几发也只在 execPage 期间可能发生。
+    // 还在屏幕上，用户会以为没删掉）。dialog 挂在那个会话上、活到收页为止，所以引用一直
+    // 活着；那几发也只在页开着的时候可能发生。
     connect(&dialog, &InstanceSettingsDialog::backupSelectedWorldRequested, m_owner,
             [this](const QString &path) { m_owner->backupWorldNow(path); });
     connect(&dialog, &InstanceSettingsDialog::restoreSelectedWorldRequested, m_owner,
@@ -1738,9 +1777,9 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // 把 wtfml.meta 写进一个**已经被删掉的目录**里（`QDir().mkpath()` 会把它重新建出来
     // —— 屏幕上就会出现一个只有 meta、没有 json 的空壳实例）。
     //
-    // 收页走 `dismiss()`（不是 `closeOverlay()`）：这一页正卡在 `execPage()` 的嵌套
-    // 事件循环里，`dismiss()` 发的就是"返回箭头那一发"，`execPage()` 会正常返回；
-    // `closeOverlay()` 走的是另一条路（见 OverlayHost::dismiss() 那段 ★）。
+    // 收页走 `dismiss()`：它发的就是"返回箭头那一发"，`showPage()` 把它接在
+    // `dialog->reject()` 上（于是和用户自己点返回箭头走同一条路）；`closeOverlay()`
+    // 是另一条路（见 OverlayHost::dismiss() 那段 ★）。
     //
     // NOTE: 没删成（用户点了取消、或者被两道闸拦下）**不收页** —— 那时候实例还在，
     // 用户正该停在这一页上看着那句解释。
@@ -1763,8 +1802,8 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // 所以这里必须判空 —— 不判就是空指针解引用，症状是"一开实例设置就崩"，而
     // 取消勾选这一页是用户随时会做的事。
     //
-    // NOTE: 三条都接在 execPage **之前**，理由和上面那一整批逐字相同（那一下会阻塞在
-    // 嵌套事件循环里，接晚了就一辈子收不到）。
+    // NOTE: 三条都接在 `showPage()` **之前**，理由和上面那一整批逐字相同（页一摆上去
+    // 用户就能点，接晚了那一发就漏了）。
     if (InstanceFilesPage *saves = dialog.filesPage(QStringLiteral("save"))) {
         // 那支笔 = **直接进「世界设置」那一页**：三件事（重命名 / 打开文件夹 /
         // 删除世界）都搬进页里当按钮了，所以这一支笔点下去只剩一件事可做。
@@ -1841,8 +1880,8 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     //
     // 和「配置文件」那一页一样：这一页是**构造时就建好、一直留着**的，所以这四条
     // connect 只连这一次（不是"每开一个世界连一遍"）。
-    // NOTE: 依然接在 `execPage()` **之前** —— 那一下会阻塞在嵌套事件循环里，页面上那颗
-    // 按钮按下去的时候这一句还没返回，接晚了就一辈子收不到（和上面那一整批逐字相同）。
+    // NOTE: 依然接在 `showPage()` **之前** —— 页一摆上去用户就能按，接晚了那一发就漏了
+    // （和上面那一整批逐字相同）。
     if (WorldSettingsPage *world = dialog.worldSettingsPage()) {
         connect(world, &WorldSettingsPage::saveRequested, m_owner,
                 [this, &dialog]() { m_owner->saveWorldSettings(&dialog); });
@@ -2156,8 +2195,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // 那一页和下载页是两块地方，路只有这一条 —— 收页 + 摆选项卡 + 挑那一行全在
     // m_owner->openDownloadCategory() 一处（内含"为什么要排到下一轮事件循环"那句）。
     //
-    // NOTE: 接在 execPage **之前**，理由同上：那一下会阻塞在一个嵌套事件循环里，
-    // 用户在页面上点那颗按钮时，这一句还没返回，接晚了就一辈子收不到。
+    // NOTE: 接在 `showPage()` **之前**，理由同上：页一摆上去用户就能按，接晚了那一发就漏了。
     // 把**是哪个实例**也带过去（`targetId` 就是这一页说的那个实例）。那一栏
     // 靠它做两件事：左上角露出「← 返回实例设置」（回得来）、以及把「已安装版本」选到它
     // 身上（下来的东西落进"当前实例"）。不带的话用户点完那颗键就回不去了。
@@ -2174,17 +2212,16 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // `targetId` 按**引用**收（和上面那批 lambda 同一个理由，见 refreshInstanceDirs 的
     // NOTE）：它必须取到**改名之后**的值 —— 用户改完名再点名字，回来时那一页要开在
     // 新目录名的实例上，收一份旧名字就是"实例设置打不开"。
-    // NOTE: 同样接在 execPage **之前**，理由和上面那条逐字相同。
+    // NOTE: 同样接在 `showPage()` **之前**，理由和上面那条逐字相同。
     connect(&dialog, &InstanceSettingsDialog::fileResourceRequested, m_owner,
             [this, &dialog, &targetId](const QString &pageKey, const QString &path) {
                 // 非量不可的时机：下面那一发会把这一页收掉，而返回时开出来的是**另一个
-                // 对话框、另一个 InstanceFilesPage**（`openInstanceSettingsNow()` 里那个
-                // 栈上的对象）—— 位置只有这一刻还活在盘面上。摆回去那一段见
+                // 对话框、另一个 InstanceFilesPage**（`openInstanceSettingsNow()` 里新造
+                // 的那一份）—— 位置只有这一刻还活在盘面上。摆回去那一段见
                 // `openInstanceSettingsNow()` 里 `showPage()` 之前那一段。
                 //
-                // NOTE: 按**引用**收 `dialog`，理由和上面那批 lambda 逐字相同（它也接在
-                // `execPage()` 之前，那一发阻塞在嵌套事件循环里，这一层的栈一直
-                // 站着 —— 见 targetId 那一段）。右键点一行走的也是这一发
+                // NOTE: 按**引用**收 `dialog`，理由和上面那批 lambda 逐字相同：它挂在
+                // 那个会话上、活到收页为止（见 targetId 那一段）。右键点一行走的也是这一发
                 // （见 InstanceSettingsDialog 那边这段注释），所以两条路都顾到了。
                 if (InstanceFilesPage *files = dialog.filesPage(pageKey)) {
                     const InstanceFilesPage::ScrollPosition position = files->scrollPosition();
@@ -2216,11 +2253,11 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // 「（无名）」那条显示规矩、以及"动完统一重读重测"）。这一层剩下的是**只有它办得了的
     // 两件事**：问话（`OverlayHost` 在这儿）和重读重测（`pingServers` 要那个对话框）。
     //
-    // NOTE: 它是**这一趟的局部对象**（不是成员，和 `m_owner->m_instanceSettings` 那种不一样）：它那
-    // 两条回调要用 `&dialog` 和 `&targetId`，而这两个都只活在这一趟里 —— 和上面那一批
-    // "dialog 是栈上的局部对象"的 lambda 同一个道理。它和 `dialog` 一样活到 `execPage()`
-    // 结束，而那三发信号只可能在 `execPage()` 期间发出来。
-    ServerListController serverEdits(ServerListController::Host{
+    // NOTE: 它是**这一趟的会话对象**（不是成员，和 `m_owner->m_instanceSettings` 那种不一样）：
+    // 它那几条回调要用 `&dialog` 和 `&targetId`，而这两个都属于这一趟。它挂在会话上
+    // （`InstanceSettingsSession`），和这一页同生共死 —— 这一页不再阻塞开，它要是还留在
+    // 栈上，收页之后那三发信号里的 `&serverEdits` 就成了野引用。
+    session->serverEdits = new ServerListController(ServerListController::Host{
         [this](ServerListController::Ask which, const QString &initial, QString *out) {
             // **四句问话的文案全在这儿** —— 只有主窗口有 OverlayHost，而且"哪一档说哪句话"
             // 正是这一层该管的事（那一层只说"要问哪一格"）。
@@ -2270,6 +2307,8 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
             m_owner->loadServerList(&dialog, id);
             m_owner->pingServers(&dialog, id);
         }});
+    // 下面那三条接线按引用收它（和 targetId 同一个理由）—— 引用的必须是会话里那一份。
+    ServerListController &serverEdits = *session->serverEdits;
 
     // 落盘走 `src/manage/ServerListFile`（`NbtUtil` 那一层**故意只读**，见它的文件头）。
     // 认出"要改的是哪一条"靠**按值匹配**（名字 + 地址，退一步只按地址）—— 不能按下标：
@@ -2317,11 +2356,10 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // 这一页没有「取消 / 确定」：写设置全在这两条 lambda 里，
     // 时机是"值真的变了"（对话框那边保证：值没变不发，见 notifyEdited()）。
     //
-    // NOTE: `targetId` 是**活到 execPage 结束**的那个局部变量（上面算目录时就摆好了；
-    // 下面 execPage 会阻塞在嵌套事件循环里，这一层的栈一直站着），改名成功之后它
-    // 跟着换 —— 不换的话，改完名之后动任何一个开关都会写到**老目录名**上，而
-    // updateVersionMeta() 会照着老名字把目录重新建出来，用户手上就多一个只有一份
-    // wtfml.meta 的空壳实例。
+    // NOTE: `targetId` 是那个会话上的成员（活到收页为止；见 InstanceSettingsSession），
+    // 改名成功之后它跟着换 —— 不换的话，改完名之后动任何一个开关都会写到**老目录名**
+    // 上，而 updateVersionMeta() 会照着老名字把目录重新建出来，用户手上就多一个只有
+    // 一份 wtfml.meta 的空壳实例。
     connect(&dialog, &InstanceSettingsDialog::settingsEdited, m_owner,
             [this, &dialog, &targetId]() { m_owner->applyInstanceSettings(targetId, dialog); });
 
@@ -2365,11 +2403,11 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
 
     // ---------- 停在哪一页 ----------
     //
-    // 摆在这一段**最后、execPage 之前**有两条理由：
+    // 摆在这一段**最后、`showPage()` 之前**有两条理由：
     // ① `showPage()` 换不了"左栏里没有的那几页"（被用户勾掉的、以及「配置文件」那种没
     // 入口的），而"哪几页在左栏里"是上面 `setPageChoices()` 定的 ⇒ 必须在它**之后**；
-    // ② `execPage()` 是**阻塞**的（下面那一句会卡在嵌套事件循环里转到用户点返回），
-    // 再往后的代码这一趟根本执行不到。
+    // ② "停在哪一页"只能由摆上去那一句本身定 —— 页一摆上去用户当场就能看、能点，摆完了
+    // 再补一次换页就是当着用户的面翻一次。
     // 认不出来的键 `showPage()` 自己判 -1 什么都不做（停「概览」）—— 不静默出错。
     // **从资源详情页返回**时把那一页的滚动位置塞回去。位置是离开那一刻量的
     // （见 fileResourceRequested 那一条接线）。
@@ -2423,23 +2461,49 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
             });
 
     // 这一页盖在内容区上（标签栏和底栏都留着），左上角那颗返回箭头 = 关掉这一页（见
-    // OverlayHost::execPage）。标题写在页眉上，所以这一页自己那行标题要收起来 ——
+    // OverlayHost::showPage）。标题写在页眉上，所以这一页自己那行标题要收起来 ——
     // 两行一模一样的字挨着是重复，不是强调。
     //
     // NOTE: 这一页**不再 accept**（没有「确定」了），所以这里**不看返回值** —— 关页
     // 不等于放弃（该写的早就在上面那些 lambda 里写完了），"关掉"就是"关掉"。
-    bool exportPreset = false;
+    // 「导出为整合包…」那颗按钮是唯一的例外：它把自己 `reject()` 掉，收页之后由下面
+    // 那条钩子接过去开预设编辑器（这一位放在会话里，钩子读得到）。
+    bool &exportPreset = session->exportPreset;
     connect(&dialog, &InstanceSettingsDialog::exportPresetRequested, &dialog, [&dialog, &exportPreset] { exportPreset = true; dialog.reject(); });
     dialog.setTitleVisible(false);
-    m_owner->m_ui->overlay()->execPage(&dialog, dialog.titleText(), settingsTab);
-    if (exportPreset) {
-        const QString id=targetId;
-        QTimer::singleShot(0,m_owner,[this,id] {
-            m_owner->m_ui->getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
-            m_owner->m_ui->setInstanceMode(MainWindowUI::InstanceMode::Preset);
-            m_owner->m_presetController->open();
-            m_owner->m_presetController->captureForEditor(id);
-        });
+
+    // 摆上去就返回（不再是 `execPage()` 那个嵌套事件循环）。收页之后的两件事都接在
+    // `pageClosed(QWidget *)` 上 —— 所有收页路（返回箭头 / Esc / 页上自己的操作 /
+    // `dismiss()` / `evict()`）都汇到 `closeOverlay()`，钩子只发那一处。
+    // 上下文对象用 `dialog`：这一页收掉之后它 `deleteLater()`，连接跟着一起没。
+    OverlayHost *overlay = m_owner->m_ui->overlay();
+    connect(overlay, &OverlayHost::pageClosed, &dialog,
+            [this, &dialog, session](QWidget *closed) {
+                if (closed != &dialog) {
+                    return;
+                }
+                // 「导出为整合包…」：收页那一发是这条钩子自己排的，当场再去开预设编辑器
+                // 等于在收尾途中又进一层 —— 排到下一轮（和 `openFileResourcePage` 那条
+                // 回调同一个手法）。
+                if (session->exportPreset) {
+                    const QString id = session->targetId;
+                    QTimer::singleShot(0, m_owner, [this, id] {
+                        m_owner->m_ui->getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
+                        m_owner->m_ui->setInstanceMode(MainWindowUI::InstanceMode::Preset);
+                        m_owner->m_presetController->open();
+                        m_owner->m_presetController->captureForEditor(id);
+                    });
+                }
+                // 这一页每次开都是新的一份；收掉之后就还回去（会话和它那几个局部量挂在
+                // 它身上，一起走）。
+                dialog.deleteLater();
+            },
+            Qt::SingleShotConnection);
+    if (!overlay->showPage(&dialog, dialog.titleText(), settingsTab)) {
+        // 摆不上去（覆盖层刚被另一页占上了；正常走不到：入口已经先
+        // `runWhenOverlayFree()` 让过位）。这一趟就当没开过 —— 会话挂在对话框上，
+        // 一起收掉。
+        dialog.deleteLater();
     }
 }
 

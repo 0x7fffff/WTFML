@@ -1788,9 +1788,8 @@ signals:
      * 对应的一栏（写法见 filesDownloadCategoryKey()）。**是键不是行号**：下载页左栏
      * 的行序由界面自己摆，这一层不该知道它。
      *
-     * NOTE: 这一层只发信号，自己什么都不做（不关这一页、也不碰选项卡）—— 它正卡在
-     * MainWindow 的 `execPage()` 嵌套事件循环里，"收页之后再切到哪儿"的顺序只有
-     * 那边知道（见 OverlayHost::dismiss() 那段 ★）。
+     * NOTE: 这一层只发信号，自己什么都不做（不关这一页、也不碰选项卡）—— "收页之后再切到
+     * 哪儿"的顺序只有 MainWindow 那边知道（见 OverlayHost::dismiss() 那段 ★）。
      */
     void browseDownloadsRequested(const QString &categoryKey);
 
@@ -1806,7 +1805,7 @@ signals:
      * 反查表里的东西（`InstanceFilesPage` 和这一层都不知道一个文件对应哪个项目）。
      *
      * NOTE: 这一层只发信号，自己什么都不做（不关这一页）—— 和 browseDownloadsRequested()
-     * 同一个理由：它正卡在 MainWindow 的 `execPage()` 嵌套事件循环里。
+     * 同一个理由：收页和"之后开哪一页"的先后由 MainWindow 那边排。
      */
     void fileResourceRequested(const QString &pageKey, const QString &path);
 

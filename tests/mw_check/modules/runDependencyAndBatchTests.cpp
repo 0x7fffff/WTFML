@@ -212,34 +212,41 @@ void runDependencyAndBatchTests() {
         const auto runPass = [&](const QString &tag, bool expectDepPrompt, int expectedPrompts) {
             PassResult r;
             const QStringList requestsBefore = api.requests;
+            // 上一趟收掉的那一页是 `deleteLater()` 走的（`DeferredDelete`），
+            // `processEvents()` 不递它 —— 不先冲掉的话它会一直**停在覆盖层的停放区**里，
+            // 下面 `findChild<InstanceSettingsDialog *>()` 找到的就是这一份已经收掉的旧页
+            // （拿它去 `showPage()` / 读行，然后在下一个事件循环里被析构 ⇒ 悬空指针）。
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
 
             // ① 开实例设置 → 模组那一页 → 等那颗「详情」亮 → 点它。
-            QTimer::singleShot(0, [&, overlay] {
+            //
+            // 这一页现在**不阻塞**（`showPage()` 摆上去就返回），所以开完页当场跑这一段；
+            // 别做成 0 毫秒定时器 —— 那要等下面 `pumpUntil` 才醒，而 `settingsOpened`
+            // 是在那之前读的。
+            QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
+                                      Q_ARG(QString, idV));
+            {
                 OverlayHost *host = currentPageOverlay();
                 auto *page =
                     host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
-                if (page == nullptr) {
-                    return;
+                if (page != nullptr) {
+                    r.settingsOpened = true;
+                    page->showPage(QStringLiteral("mod"));
+                    InstanceFilesPage *mods = page->filesPage(QStringLiteral("mod"));
+                    if (mods != nullptr && mods->list() != nullptr) {
+                        QToolButton *detail = nullptr;
+                        pumpUntil(
+                            [&] {
+                                detail = detailForPath(mods, modJar);
+                                return detail != nullptr && detail->isEnabled();
+                            },
+                            15000);
+                        if (detail != nullptr) {
+                            detail->click();
+                        }
+                    }
                 }
-                r.settingsOpened = true;
-                page->showPage(QStringLiteral("mod"));
-                InstanceFilesPage *mods = page->filesPage(QStringLiteral("mod"));
-                if (mods == nullptr || mods->list() == nullptr) {
-                    return;
-                }
-                QToolButton *detail = nullptr;
-                pumpUntil(
-                    [&] {
-                        detail = detailForPath(mods, modJar);
-                        return detail != nullptr && detail->isEnabled();
-                    },
-                    15000);
-                if (detail != nullptr) {
-                    detail->click();
-                }
-            });
-            QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
-                                      Q_ARG(QString, idV));
+            }
             check(r.settingsOpened, tag + QStringLiteral("：实例设置那一页开起来了"));
 
             // ② 详情页那一层。产品那一发"开新页"排在队列里（这一页走 `showPage()`，
@@ -474,7 +481,12 @@ void runDependencyAndBatchTests() {
         {
             // 删除那一颗会弹「真的要删吗」那个框（产品对整批**只问一次**）：点左边那颗「删除」。
             PromptAnswerer deleter(QList<int>{0});
-            QTimer::singleShot(0, [&, overlay] {
+            // 这一页现在**不阻塞**（`showPage()`）：开完页当场跑这一段。
+            // 先把上一趟收页留下的 `DeferredDelete` 冲掉 —— 理由同 runPass 开头那一段：
+            // 不然 `findChild()` 会先把那份已经收掉的旧页交回来，而它会在下一个事件循环
+            // 里被析构（`mods` 跟着悬空）。
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            const auto runBatch = [&] {
                 OverlayHost *host = currentPageOverlay();
                 auto *page =
                     host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
@@ -576,9 +588,10 @@ void runDependencyAndBatchTests() {
                     back->click();
                 }
                 batch.ran = true;
-            });
+            };
             QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
                                       Q_ARG(QString, idV));
+            runBatch();
         }
         check(batch.ran && batch.rowsFound && batch.afterDisableRelisted,
               "T31.3 前提：模组那一页上那两个文件都在，改完名字之后那一页重列了",

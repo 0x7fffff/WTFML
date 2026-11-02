@@ -691,4 +691,28 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 `runDependencyAndBatchTests` 的 T31 收尾同理（产品把"退回实例设置"排到下一轮，
 收它那一发必须等它真起来）。
 
-**还剩 1 处**：实例设置（整页，十几个闭环的接线台）。
+### 2026-11-02 实例设置也改了（最后一处 `execPage()`）
+
+`InstanceDialogController::open()` 是 A 类里最后、也最大的一处：`open()` 里那十几个
+`connect` 的 lambda 都按引用捕着**栈上**的 `dialog`、`targetId`、`refreshInstanceDirs`、
+`serverEdits`、`exportPreset`。`showPage()` 摆上去就返回 ⇒ 函数一退这些全悬空。
+
+没有逐条改捕获（那是几十处、而且很脆），而是把这五个量搬进一个
+`InstanceSettingsSession : QObject`：`targetId` / `refreshInstanceDirs` /
+`exportPreset` 是成员，`serverEdits` 由它的析构函数 `delete`，整个 session
+`setParent(dialog)`。关键在于 C++ 的捕获语义 —— 捕获引用变量捕的是**被引用的对象**
+而不是那个引用变量本身，所以 `[&dialog]` / `[&targetId]` 一个字都不用改，只是它们
+指的对象从栈上换到了堆上。
+
+收页之后的两件事接在 `OverlayHost::pageClosed(QWidget *)` 上（上下文对象是 `dialog`，
+所以它一收掉连接跟着断）：`exportPreset` 为真时排一发 `singleShot(0)` 去开预设编辑器，
+最后 `dialog.deleteLater()`。`showPage()` 没开出来（覆盖层正忙）那一档照样
+`deleteLater()`，不再有"返回值"要判。
+
+验证：`mw_check` 全绿（2735/2735）、`mw_check_workspace` 全绿（45/45）、全套 ctest 39 项
+全绿。用例侧要改的都是"探针排在嵌套循环里"这个假设：凡是在 `invokeMethod(openInstanceSettings)`
+之前挂 `QTimer::singleShot(0, …)` 的，改成开完页**当场**跑（`showPage()` 返回时页面已经在
+屏幕上了）；凡是靠"页收掉之后 `deleteLater` 马上生效"的，补一发
+`QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete)` ——
+`processEvents()` 不递 `DeferredDelete`，不冲的话覆盖层的停放区里还留着一份旧页，
+`findChild<InstanceSettingsDialog *>()` 会把那份已经收掉的交回来。

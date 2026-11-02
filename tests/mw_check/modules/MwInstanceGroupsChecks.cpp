@@ -555,12 +555,12 @@ int MwInstanceGroupsChecks(const QDir &root, const QDir &versionsDir) {
                   "T10 组头挂着 rowGroupGearRole、它底下的实例不挂（点实例那一行不是开关）");
             if (opened != nullptr && opened->childCount() > 0) {
                 // 点实例那一行**现在开的是那一页「实例设置」**（要求
-                // 「直接点空白区域（和左边图标版本名）进入实例设置」）。它是整页覆盖层、
-                // 里面跑着一个嵌套事件循环，所以这里必须**先**排上"读一眼页眉、再按返回
-                // 箭头"那两发定时器 —— 否则这一下不是断言红，是整个测试**卡死在这儿**。
+                // 「直接点空白区域（和左边图标版本名）进入实例设置」）。那一页现在
+                // **不阻塞**（`showPage()`），所以顺序是：先点、再叫助手读页眉 + 按返回。
+                // 反过来（先排定时器再点）的话，助手醒过来时页还没开，读到的页眉是空的。
                 QString pageTitle;
-                closeInstanceSettingsPage(&pageTitle);
                 clickTreeRow(tree, opened->child(0));
+                closeInstanceSettingsPage(&pageTitle);
                 check(pageTitle.contains(QStringLiteral("实例设置")),
                       "T10 点实例那一行：开的是实例设置那一页（下面那条「那一组没被翻过来」"
                       "是在这一页关掉之后量的）",
@@ -1344,8 +1344,8 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                           .arg(row.width())
                           .arg(row.height()));
                 QString pageTitle;
-                closeInstanceSettingsPage(&pageTitle);
                 clickRowAt(tree, gearPos);
+                closeInstanceSettingsPage(&pageTitle);
                 check(pageTitle.contains(QStringLiteral("我的整合包")),
                       "★ 点行尾那颗齿轮：开的是**这一行**那个实例的设置页（页眉上写着它）",
                       pageTitle);
@@ -1370,7 +1370,6 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                           .arg(row.width())
                           .arg(row.height()));
                 QString pageTitle;
-                closeInstanceSettingsPage(&pageTitle);
                 // 这里**走信号**（和 T10 的 clickTreeRow 同一个理由），不再伪造鼠标两发。
                 //
                 // QTreeView 在 AnimatingState 里会把**任何一行**的按下整条吞掉
@@ -1382,6 +1381,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 // 与产品逻辑无关）。行内坐标和"不在三颗按钮上"仍由上面那条前提钉住；
                 // 信号路才是"点了这一行之后产品做了什么"的判据。
                 clickTreeRow(tree, target);
+                closeInstanceSettingsPage(&pageTitle);
                 check(pageTitle.contains(kSnapTemp),
                       "★ 点这一行的别的地方（左边图标 / 版本名那一片）：也是进这个实例的设置"
                       "（用户原话「直接点空白区域（和左边图标版本名）进入实例设置」）",
