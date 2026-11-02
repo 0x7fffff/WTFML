@@ -1129,3 +1129,24 @@ controller。`applyInstanceSettings()` 后面紧跟着的匿名命名空间（�
 行数：`src/MainWindow.cpp` 3289 → 3175，新文件 111（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：启动前的 Java 与内存决定分出去
+
+`MainWindow.cpp` 里 2946–3061 这 116 行，主语是"这一次启动的 Java 与内存"：
+
+- `askAboutJavaMismatch()`：实例要求的版本与手头那颗 Java 对不上时问一句（用哪颗 / 取消）；
+- `resolveMemoryForLaunch()`：xms/xmx 从哪儿来（手动档照抄，自动档现算一份给这次用）；
+- `instanceModCount()`：只给自动档数模组用（.hpp 那条 NOTE：只在这一支数）。
+
+搬到 `src/MainWindowLaunchJava.cpp`。两条纪律原样跟着搬：自动档**不写全局、也不写回
+meta** —— 写了下次读出来就是"自定义 + 一个用户没填过的数"。
+
+顺手收拾：两条源列表里 `MainWindowFolderColumn.cpp` 又出现了两遍（上一节插串了），
+这次去重 —— CMake 会去重所以构建没炸，但清单不该长这样。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 3181 → 3068，新文件 116（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。

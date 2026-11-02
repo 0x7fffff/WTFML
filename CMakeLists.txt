@@ -285,7 +285,7 @@ set(SOURCE_FILES
     src/MainWindowDownloadOrigin.cpp
     src/MainWindowLaunch.cpp
     src/MainWindowFolderColumn.cpp
-    src/MainWindowFolderColumn.cpp
+    src/MainWindowLaunchJava.cpp
     src/controllers/JavaRuntimeController.cpp
     src/controllers/JavaSettingsController.cpp
     src/controllers/PresetControllerEditor.cpp
