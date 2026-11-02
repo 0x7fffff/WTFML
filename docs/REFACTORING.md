@@ -825,3 +825,29 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 行数：`src/MainWindow.cpp` 8187 → 7673，新文件 562。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：服务端那两页的接线分出去
+
+`MainWindow.cpp` 里 3279–4025 这 747 行是一整片**服务端**的接线：列表重扫、点一行之后
+发生什么、控制台那几行、设置页那几组动作、修 / 删 / 起停，以及「新建服务端」那一页
+（`openNewServerPage()` / 三档那一串 / `installServer()` / `pickServerInstallerJava()`）。
+它和文件其余部分只共享"主窗口上那几个 controller 成员"，没有别的共享状态。
+
+搬到 `src/MainWindowServer.cpp`：
+
+- 文件顶上那个匿名命名空间整段跟着走：`loaderMarkIndexForServerFlavor()`（服务端八档挂哪
+  张图）与 `kMaxLoggedServerLineChars`（日志里一行最多留多少字）都只给这一片用。内链接的
+  东西不跨翻译单元 —— 留在原地是"一边报 defined but not used、另一边报没声明"。
+- `refreshServerList()` / `openServerConsole()` / `updateServerConsole()` /
+  `repairServer()` / `removeServer()`、设置页那十几条（玩家 / 内容 / 世界备份 / EULA /
+  检查）`serverLaunchPlan()` / `updateNewServerSummary()`。
+- 类接口一个字没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+边界：`setInstanceMode()` 留在原处 —— 它是页面切换，只是切到服务端那一页时顺手重扫一遍；
+判据一条都没动（命令怎么拼在 `server/ServerRun.hpp`、装到哪一步在
+`download/ServerInstall.hpp`、EULA 在 `server/ServerCheck.hpp`）。
+
+行数：`src/MainWindow.cpp` 7673 → 6930，新文件 805。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
