@@ -272,6 +272,7 @@ set(SOURCE_FILES
     src/MainWindow.cpp
     # 「设置」选项卡那一片接线：同一个类，另一个翻译单元（见那个文件的文件头）。
     src/MainWindowSettings.cpp
+    src/MainWindowServer.cpp
     src/controllers/JavaRuntimeController.cpp
     src/controllers/JavaSettingsController.cpp
     src/controllers/PresetControllerEditor.cpp
