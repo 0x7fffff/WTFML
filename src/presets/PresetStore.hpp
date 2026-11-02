@@ -37,6 +37,7 @@
 
 #include <QList>
 #include <QString>
+#include <QStringList>
 
 #include "PresetTypes.hpp"
 
@@ -165,6 +166,58 @@ bool saveManifest(const QString &root, const PresetManifest &manifest);
  * 作用是让下一次启动的第一趟列表不用再把每份 manifest 读一遍。
  */
 QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken = nullptr);
+
+// ---------------------------------------------------------------------------
+// 内部投影（综合预设的私立零件）的引用核对与回收
+// ---------------------------------------------------------------------------
+
+/// 一趟引用核对的结果（`orphanComponentIds()`）。
+struct OrphanComponents {
+    /// 确定没人引用、可以回收的内部投影 id。
+    QStringList ids;
+    /// 读不回来的份数（manifest 或下标）。> 0 ⇒ `ids` 一定是空的。
+    int unreadable = 0;
+};
+
+/**
+ * @brief 只核对、不动盘：哪些内部投影（`internalComponent`）已经没人引用了。
+ *
+ * 引用算两处：别的预设 manifest 的 `editorState.components` 值，以及下标里的默认项
+ * （旧版单默认 + 四类各一格）。任何一份读不回来 —— manifest 坏了 / 目录没了 / 下标坏了 ——
+ * 就不知道它引用了谁，所以这一趟**一份都不回收**（`ids` 空、`unreadable > 0`）：
+ * 回收是清理，不是赌命。
+ *
+ * 下标 `order` 里出现过的 id 也一律留下：不替用户改下标，宁可少回收一份。
+ */
+OrphanComponents orphanComponentIds(const QString &root);
+
+/// 引用核对 + 回收的结果（`sweepOrphanComponents()`）。
+struct OrphanSweepResult {
+    QStringList removedIds;
+    QStringList failedIds;
+    /// 同 `OrphanComponents::unreadable`；> 0 时 `removedIds` 一定为空。
+    int unreadable = 0;
+};
+
+/**
+ * @brief 把**确定没人引用**的内部投影整棵移进回收站。
+ *
+ * 只在两处调用：发布预设之后（这一趟可能换掉了上一版的子项）、删除一份预设之后
+ * （它的子项可能就此没人引用了）。回收目标只可能是 `internalComponent == true`
+ * 的目录；用户能看见的那一份永远不在候选里。删除按 `remove()` 同一条：先取目录锁，
+ * 再 `moveToRecycleBin()`（只摘链接本身，不追进去）。
+ */
+OrphanSweepResult sweepOrphanComponents(const QString &root);
+
+/**
+ * @brief 收掉一份**刚由调用方创建、还没发布**的内部投影目录。
+ *
+ * 给「综合预设保存失败」那条路用：父清单没写成，刚建出来的子项谁都不引用。
+ * 不按引用核对（那要扫全量），所以调用方必须是**刚刚造出这个 id 的人**；
+ * 这里再查两道：清单读得回来时必须是 `internalComponent`，清单在但读不回来的一律不碰。
+ * 目录不存在也算收掉了（幂等）。
+ */
+bool discardInternalComponent(const QString &root, const QString &id);
 
 /// 把 `root` 下所有预设的**摘要缓存**丢掉（进程里那张 + 盘上那份），让下一趟 `list()`
 /// 真的去读盘。

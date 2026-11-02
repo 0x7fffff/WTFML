@@ -307,10 +307,19 @@ EditorSaveResult saveEditorDocument(const QString &root, const QJsonObject &inpu
         manifest.category = PresetCategory::Unset;
     }
     QJsonObject components;
+    QStringList createdComponents;
+    // 这一趟失败时把已经落下的子项收掉：父清单还是旧的那一份，这些新 id 没有任何人引用。
+    // 只收**刚由这一趟创建**的 id（`discardInternalComponent` 不查全局引用）。
+    const auto discardCreated = [&root, &createdComponents] {
+        for (const QString &childId : createdComponents) {
+            discardInternalComponent(root, childId);
+        }
+    };
     if (!draft && activeParts.size() > 1) {
         for (const auto &part : activeParts) {
             auto child = manifest;
             child.id = newPresetId();
+            createdComponents.append(child.id);
             child.name = name;
             child.category = presetCategoryFromKey(part);
             child.internalComponent = true;
@@ -332,13 +341,18 @@ EditorSaveResult saveEditorDocument(const QString &root, const QJsonObject &inpu
                     const auto from = filesDir(destinationRoot, id) + "/" + relative,
                                to = filesDir(root, child.id) + "/" + relative;
                     if (QFileInfo(from).isDir()) {
-                        if (!copyTreeWithoutFollowingLinks(from, to, {}, &result.problem))
+                        if (!copyTreeWithoutFollowingLinks(from, to, {}, &result.problem)) {
+                            discardCreated();
                             return result;
-                    } else if (!copyFile(from, to, &result.problem))
+                        }
+                    } else if (!copyFile(from, to, &result.problem)) {
+                        discardCreated();
                         return result;
+                    }
                 }
             if (!saveManifest(root, child)) {
                 result.problem = QStringLiteral("综合预设保存失败，原预设保留。");
+                discardCreated();
                 return result;
             }
             components[part] = child.id;
@@ -348,17 +362,22 @@ EditorSaveResult saveEditorDocument(const QString &root, const QJsonObject &inpu
     manifest.editorState = state;
     if (!saveManifest(destinationRoot, manifest)) {
         result.problem = QStringLiteral("保存失败，原预设保留。");
+        discardCreated();
         return result;
     }
     bool indexOk = false;
     auto index = loadIndex(destinationRoot, &indexOk);
     if (indexOk && !index.contains(id) && !saveIndex(destinationRoot, appendToIndex(index, id))) {
         result.problem = QStringLiteral("预设已保存，但列表顺序未能写入。");
+        if (!draft) sweepOrphanComponents(destinationRoot);
         return result;
     }
     if (!draft && input.value("_filesRoot").toString() == filesDir(root + "/drafts", id) &&
         QFileInfo::exists(manifestPath(root + "/drafts", id)))
         remove(root + "/drafts", id);
+    // 发布成功：上一版的子项这时可能已经没人引用了（这一趟换了新子项，或者从综合预设
+    // 退回了单段）。核对拿不准时 sweep 一份都不动。
+    if (!draft) sweepOrphanComponents(destinationRoot);
     result.ok = true;
     result.manifest = manifest;
     result.document = state;
