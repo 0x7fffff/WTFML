@@ -1282,3 +1282,24 @@ meta** —— 写了下次读出来就是"自定义 + 一个用户没填过的�
 行数：`src/MainWindow.cpp` 2585 → 2533，新文件 52（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：实例更新检测与更新中心分出去
+
+`MainWindow.cpp` 里 2082–2283 这 202 行（分节横幅「实例更新检测」起），主语是"这个实例
+有哪些资源有新版本、要不要换"。它是一条**顺序不能换**的链：
+
+- 检测：`checkInstanceUpdates()` + 那几发回调（图标反查 / 版本清单 / 最新版）；
+- 可更新名单：`rebuildInstanceOutdatedPaths()` / `saveUpdatePolicy()`；
+- 更新中心那一页：`openUpdateCenter()` / `updateCenterReportForPage()` / `setInstanceMode()`；
+- 换文件与收尾：`onUpdateBatchFileFinished()` / `finishUpdateBatch()`。
+
+搬到 `src/MainWindowUpdateCenter.cpp`。两条说死的规矩跟着搬：检测这一趟不自动下载、不自动
+改盘；收尾之后再开一次更新中心走 `openPageWhenIdle()`（后台收尾跑了好几分钟，用户早翻走
+了，不驱逐他正看着的那一页）。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 2536 → 2362，新文件 202（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
