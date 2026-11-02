@@ -1167,3 +1167,26 @@ meta** —— 写了下次读出来就是"自定义 + 一个用户没填过的�
 行数：`src/MainWindow.cpp` 3068 → 2968，新文件 103（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：实例体检与备份 / 恢复分出去
+
+`MainWindow.cpp` 里 2749–2844 这 96 行（含「完整性检查与修复」两条分节线）：
+
+- `integrityScanningVersion()` / `submitIntegrityCheck()` / `onIntegrityScanProgress()` /
+  `onIntegrityScanFinished()`：体检那四发；
+- `integrityReportForPage()` / `openIntegrityReportPage()` / `onIntegrityReportAction()` /
+  `copyIntegrityReport()`：报告页；
+- `openBackupFolder()` / `backupWorldNow()` / `restoreWorldBackup()` / `snapshotInstance()` /
+  `restoreInstanceSnapshot()`：世界备份与实例快照；
+- `startBackupRestore()`：**按名字**的兼容入口 —— mw_check T35.3 / T35.4 用
+  `QMetaObject::invokeMethod` 驱动它，`invokeMethod` 找不到就返回 false、断言会静默失效。
+  薄壳的名字一个字没改。
+
+搬到 `src/MainWindowIntegrityBackup.cpp`。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 2968 → 2875，新文件 96（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
