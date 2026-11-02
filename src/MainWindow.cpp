@@ -2476,83 +2476,9 @@ namespace {
 // 在 `src/MainWindowInstanceSettingsWiring.cpp`（同一个类，另一个翻译单元）。
 
 
-bool MainWindow::overlayAcceptsNewPage() const {
-    // **只回答"空着没有"，一个字节都不往外弹**（要求见 .hpp 那段：
-    // 「先关闭当前页面再继续」那一类情况现在一律**静默收掉**再继续）。
-    OverlayHost *overlay = m_ui->overlay();
-    return overlay == nullptr || !overlay->isOpen();
-}
+// ---------- 覆盖层那一层「现在能不能开新页」（让位 / 排到下一轮 / 弹一句）----------
+// 在 `src/MainWindowOverlayGate.cpp`（同一个类，另一个翻译单元）。
 
-void MainWindow::runWhenOverlayFree(const std::function<void()> &open, int roundsLeft) {
-    if (!open) {
-        return;
-    }
-    OverlayHost *overlay = m_ui->overlay();
-    if (overlay == nullptr || !overlay->isOpen()) {
-        // 绝大多数时候走的是这一支：这一层本来就空着，**同一轮就把页开出来**。
-        open();
-        return;
-    }
-    // ---------- 这一层被占着：先让位，再开 ----------
-    //
-    // 占着它的可能是**提示**，也可能是**整页**；整页那一档还可能是"收着的"（用户在别的
-    // 选项卡上逛，而它一直占着这一位）。这里的规矩是**静默收掉，直接继续**。
-    if (roundsLeft <= 0 || !overlay->evict()) {
-        // 收不掉（那一层不认这一发 / 轮数用完了）。**到这一步才出声**：挡住用户操作的
-        // 事必须说清楚，而且得说清怎么办。
-        warnOverlayBusy();
-        return;
-    }
-    // 收页那一发对"非阻塞开的那一页"是同步落定的（reject → finished → closeOverlay），
-    // 可就当它是**请求**来排：这一趟调用栈随后还要退出，而下一轮里可能又有别的东西
-    // 把这一层占上了。∴ 排到下一轮，而且**下一轮再从头上过一遍**。
-    QTimer::singleShot(0, this, [this, open, roundsLeft] {
-        runWhenOverlayFree(open, roundsLeft - 1);
-    });
-}
-
-void MainWindow::openPageWhenIdle(const std::function<void()> &open) {
-    if (!open) {
-        return;
-    }
-    OverlayHost *overlay = m_ui->overlay();
-    if (overlay == nullptr) {
-        open();
-        return;
-    }
-    // 空着 / 被占着两条路都在 OverlayHost 里（排队 + 收干净之后下一轮再摆）。
-    overlay->queuePageOpen(open);
-}
-
-void MainWindow::warnOverlayBusy() {
-    OverlayHost *overlay = m_ui->overlay();
-    if (overlay == nullptr) {
-        return;
-    }
-    // 挡在这儿的是**已经开着的那一层**（一层只放得下一个页面，见 OverlayHost.hpp 那段）。
-    // 它可能是"正铺在眼前"（用户点的是底栏那些没被盖住的按钮），也可能是"收着"。
-    //
-    // NOTE: **这一条不能不出声。** 开页那一下拿到 nullptr / false 时，调用方把对话框
-    // 建了、一个字节没写、原地销毁 —— 用户点了实例行（或者组行那颗齿轮），屏幕上
-    // **什么都没发生**，也没有任何提示。
-    //
-    // NOTE: 起这一句只在**收不掉**的时候才出现（正常那一档是静默收掉 + 直接
-    // 继续，见 runWhenOverlayFree）—— 真走到这儿说明那一层连收页那一发都没认
-    // （页面早就不卡嵌套循环了，只可能是这一层的状态出了意外），
-    // 这时候唯一能做的是把话说清楚。
-    const QString title = overlay->pageTitle();
-    if (title.isEmpty()) {
-        InlineMessage::warning(overlay, tr("先关掉现在这一条提示"),
-                               tr("现在有一条提示开着，先说清它或者按 Esc 关掉它，再开这个。"));
-        return;
-    }
-    InlineMessage::warning(overlay, tr("先关掉现在这一页"),
-                           tr("「%1」那一页还开着。切到别的选项卡时它会收起来，但它一直占着"
-                              "这个位置 —— 顶上那四颗导航按钮一次只放得下一个页面。\n\n"
-                              "回到「%1」那一颗选项卡，点左上角的「←」把它关掉，再回来开"
-                              "这个。")
-                               .arg(title));
-}
 
 // ---------- 实例文件与实例设置的读写（读一页 / 改一批 / 删 / 拷 / 落盘）----------
 // 在 `src/MainWindowInstanceFiles.cpp`（同一个类，另一个翻译单元）。
