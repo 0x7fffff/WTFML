@@ -27,6 +27,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <functional>
 #include "download/ResourceCatalog.hpp"
 
 class MainWindow;
@@ -37,9 +38,6 @@ class ResourcePageController final : public QObject {
 
 public:
     explicit ResourcePageController(MainWindow *owner);
-
-    /// 这一页**压根没开出来**（覆盖层正忙 / 那一类的键不认识 / 那把钥匙不在表里）。
-    static constexpr int kResourcePageNotOpened = -1;
 
     /// 这一页是**怎么打开**的（只有右上角那一格摆什么需要知道，见 MainWindow 那份原注释）。
     enum class DetailSource {
@@ -113,9 +111,16 @@ public:
     /// 懒建那一次（建一次留着，关掉之后指针照样有效）。
     void setup();
 
-    /// 打开这一条资源的详情页。返回值同 `MainWindow::openResourceDetailPage()` 那份注释。
-    int open(const QString &iconKey, const QString &kindKey, DetailSource from,
-             const QString &instanceId);
+    /// 打开这一条资源的详情页（`OverlayHost::showPage()`：摆上去就返回，**不卡调用方**）。
+    ///
+    /// @return 这一页**摆上去了没有**。`false` = 没开出来（覆盖层正忙 / 那一类的键不
+    /// 认识 / 那把钥匙不在表里），调用方什么也别做 —— 和以前 `kResourcePageNotOpened`
+    /// 那一档同义。
+    ///
+    /// @p onClosed 在这一页收掉时叫**一次**，参数是 `QDialog::result()` 那套语义
+    /// （`Rejected` = 用户收掉了；`Accepted` = 页上那颗「模组设置」）。
+    bool open(const QString &iconKey, const QString &kindKey, DetailSource from,
+              const QString &instanceId, std::function<void(int)> onClosed = {});
     /// 详情页上某一颗 chip 被按了（参数是那颗的 key，空串 = 「全部」）。
     void onChipChanged(const QString &gameVersion);
     /// 详情页上方那个「显示快照版」勾选框被拨了。

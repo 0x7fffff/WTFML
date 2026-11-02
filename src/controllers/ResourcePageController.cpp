@@ -91,32 +91,33 @@ void ResourcePageController::applyChips(const QStringList &declaredGameVersions,
     m_page->setChips(chips, wanted);
 }
 
-int ResourcePageController::open(const QString &iconKey, const QString &kindKey,
-                                       DetailSource from, const QString &instanceId) {
+bool ResourcePageController::open(const QString &iconKey, const QString &kindKey,
+                                  DetailSource from, const QString &instanceId,
+                                  std::function<void(int)> onClosed) {
     OverlayHost *overlay = m_owner.m_ui->overlay();
     if (overlay == nullptr || overlay->isOpen()) {
         // 已经有覆盖层开着（另一页、或者一条提示）。这一层不做页面栈，这一次就不开了 ——
         // 和 `m_owner.openPage()` 返回 nullptr 是同一件事（见 OverlayHost.hpp 那段）。
-        return kResourcePageNotOpened;
+        return false;
     }
     ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
     if (!ResourceCatalog::kindFromCategoryKey(kindKey, &kind)) {
-        return kResourcePageNotOpened;  // 这一行不是我们建的（正常走不到）
+        return false;  // 这一行不是我们建的（正常走不到）
     }
     const auto hit = m_owner.m_resourceHits.constFind(iconKey);
     if (iconKey.isEmpty() || hit == m_owner.m_resourceHits.constEnd()) {
         // 条目上那把钥匙在表里找不到 = 这一行是上一批搜索留下的（重搜过）。用户没做错
         // 什么，不弹窗（和点第三层时那句"清单里没它"同一个规矩）。
-        return kResourcePageNotOpened;
+        return false;
     }
     setup();
     ResourceDetailPage *page = m_page;
     if (page == nullptr) {
-        return kResourcePageNotOpened;
+        return false;
     }
 
-    // 这一次说的是哪个资源、列的是哪一份。**开页之前就要摆好**：下面 execPage 一进去
-    // 就卡住了，那之后写的每一句都只有等用户点返回才执行得到。
+    // 这一次说的是哪个资源、列的是哪一份。**开页之前就要摆好**：下面那一句一摆上去就
+    // 返回调用方了，收页之后要读的这些字段得在那一刻就已经是这一份。
     m_state.open = true;
     m_state.kind = kind;
     m_state.source = hit->source;
@@ -218,7 +219,7 @@ int ResourcePageController::open(const QString &iconKey, const QString &kindKey,
     page->setDependencies(QString());
 
     // 图标：列表那几行早就为这一条要过了（见 fillResourceHitRows 最后那句），内存/盘上
-    // 命中就是**同步**回来的 —— 于是这一句常常在下面 execPage 之前就把图摆好了。
+    // 命中就是**同步**回来的 —— 于是这一句常常在下面 showPage 之前就把图摆好了。
     m_owner.m_resourceStore->requestIcon(*hit);
     // 版本列表（整份，不筛）。答复落在 onResourceVersionsFinished 里，判据是
     // `m_state.requestKey` —— 和树那条路按行重算钥匙的做法不同：那一页没有
@@ -226,15 +227,34 @@ int ResourcePageController::open(const QString &iconKey, const QString &kindKey,
     m_owner.m_resourceStore->fetchVersions(m_state.requestKey, hit->projectId, hit->source,
                                    QString());
 
-    // **最后**才开页：这一句会一直卡在这儿（内部那个嵌套事件循环）转到用户点返回。
-    // NOTE: 上面发出去的两条请求都是异步的，答复会在那个循环里落地 —— 所以"先发请求、
-    // 再开页"和"先开页、再发请求"对用户是同一件事；写成这样只是因为这一句之后
-    // 的控制流要等用户。
-    const int result = overlay->execPage(page, page->titleText());
-    // 点了返回（或者 Esc）：状态落下去。**页面本身留着**（它是懒建的那一份），下次点开
-    // 还是它，setHeader/setChips 会把上一次那些字全换掉。
-    m_state.open = false;
-    return result;
+    // **最后**才开页：摆上去就返回，收页之后才走下面那条钩子。
+    // NOTE: 上面发出去的两条请求都是异步的，答复在开页之后落地 —— 所以"先发请求、
+    // 再开页"和"先开页、再发请求"对用户是同一件事。
+    if (!overlay->showPage(page, page->titleText())) {
+        // 摆不上去（布局还没搭好那种）：这一趟就当没开。状态原样落回去，和没进来一样。
+        m_state.open = false;
+        return false;
+    }
+    // 收页钩子：所有收页路（返回箭头 / Esc / 页上那颗「模组设置」/ `dismiss()` /
+    // `evict()` / `closeOverlay()`）全汇到 `pageClosed()` 那一处。接在**页面对象**上
+    // 当上下文 —— 这一页是懒建留着的，下一次开页会重新接一条；连接跟着页面对象活，
+    // 而不是跟着某一次开页活。
+    //
+    // NOTE: 状态在这里落下去（`m_state.open = false`），**页面本身留着**（它是懒建的
+    // 那一份），下次点开还是它，setHeader/setChips 会把上一次那些字全换掉。
+    connect(
+        overlay, &OverlayHost::pageClosed, page,
+        [this, page, onClosed](QWidget *closed) {
+            if (closed != page) {
+                return;
+            }
+            m_state.open = false;
+            if (onClosed) {
+                onClosed(page->result());
+            }
+        },
+        Qt::SingleShotConnection);
+    return true;
 }
 
 void ResourcePageController::onChipChanged(const QString &gameVersion) {
