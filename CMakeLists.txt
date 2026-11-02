@@ -520,6 +520,7 @@ set(SOURCE_FILES
     ui/InstanceFilesPageFilter.cpp
     ui/InstanceFilesPageScroll.cpp
     ui/InstanceFilesPageInfoPanel.cpp
+    ui/InstanceFilesPageStructures.cpp
     ui/ResourcePackPage.cpp
     ui/ConfigFileText.cpp
     ui/ConfigFileEditorPage.cpp
