@@ -1303,3 +1303,29 @@ meta** —— 写了下次读出来就是"自定义 + 一个用户没填过的�
 行数：`src/MainWindow.cpp` 2536 → 2362，新文件 202（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+## 2026-11-03 `src/MainWindow.cpp`：底栏那一行 / 同步等待 / 下载进度投影分出去
+
+`MainWindow.cpp` 里 1252–1593 这 342 行，主语是"底栏这会儿该露什么"：
+
+- 同步等待：`enterSyncWait()` / `leaveSyncWait()` —— 点启动那一趟里 UI 线程在等网络或
+  等进程时，自己转一圈事件、让窗口照常重绘，别当场挂成「(无响应)」；
+- 全局忙态：`setDownloadUiBusy()`，挡住会打架的操作；
+- 那一行与左下角那颗方块：`updateBottomBar()` / `updateBottomBarRunState()`，
+  外加句柄名 `instanceDisplayName()`；
+- 三根进度条：`updateDownloadProgressUi()` / `onVersionDownloadStats()`。
+
+搬到 `src/MainWindowBottomBar.cpp`。这一片搬过去的三条规矩都在别的层做着，这里只照抄：
+
+- 方块三态与「正在启动优先」在 `MainWindowUI::RunStateMark`（含取色
+  `runStateMarkColor()` / `runStateMarkPixmap()`）；
+- 任务那一段的摘要只有 `Tasks::collapsedSummary()` 一个出处；
+- 会话事实来自 `LauncherManager` / `GameSessionController`，
+  下载事实来自 `DownloadTaskLedgerController` / `DownloadCompletionController`，
+  这一层只把它们摆成底栏的样子。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 2337 → 1998，新文件 342（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
