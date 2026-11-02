@@ -1376,3 +1376,25 @@ meta** —— 写了下次读出来就是"自定义 + 一个用户没填过的�
 行数：`src/MainWindow.cpp` 1781 → 1582，新文件 202（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+## 2026-11-03 `src/MainWindow.cpp`：一键装前置的判据分出去
+
+`MainWindow.cpp` 里 1236–1325 这 90 行，主语是"点「装上前置」那一下，目标到底是什么"：
+
+- `dependencyInstanceId()`：详情页开着的实例优先，否则下载页顶上那个下拉框。
+  判据带 `open`，是为了不让关页之后残留的旧值顶替下拉框；
+- `downloadCameFromInstance()`：这一条是不是从某个实例追过来的（装完回哪儿）；
+- `dependencyTargetFor()`：游戏版本 / 加载器从**那个实例自己**的 meta 读、不读页面上的
+  chip；加载器名归一成小写那一套（`loaderGroupKey()`），递显示名的症状是接口不报错、
+  只是筛不出东西；
+- `installedModKeys()`："认过没有"（`recognizedInstanceIs()`）与"认出几个"是两件事。
+
+搬到 `src/MainWindowResourceDependency.cpp`。判据仍在外层：版本号怎么读是
+`VersionManager::instanceGameVersion()`；"这一条是哪个资源"的表住在
+`InstanceIconController`；CurseForge 的根地址只有 `ModpackImport::curseForgeApiBase()` 一处。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 1582 → 1495，新文件 90（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
