@@ -290,6 +290,7 @@ set(SOURCE_FILES
     src/MainWindowIntegrityBackup.cpp
     src/MainWindowFileResource.cpp
     src/MainWindowInstanceEntry.cpp
+    src/MainWindowOverlayGate.cpp
     src/controllers/JavaRuntimeController.cpp
     src/controllers/JavaSettingsController.cpp
     src/controllers/PresetControllerEditor.cpp

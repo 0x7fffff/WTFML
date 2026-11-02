@@ -1226,3 +1226,22 @@ meta** —— 写了下次读出来就是"自定义 + 一个用户没填过的�
 行数：`src/MainWindow.cpp` 2777 → 2692，新文件 85（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：覆盖层「能不能开新页」那一片分出去
+
+`MainWindow.cpp` 里 2479–2555 这 77 行，主语是覆盖层的**占用**：
+
+- `overlayAcceptsNewPage()`：只回答"空着没有"，一个字节都不往外弹；
+- `runWhenOverlayFree()`：让位的唯一出处（静默收掉占着的那一层，把"开"排到下一轮）；
+- `openPageWhenIdle()`：排到下一轮；
+- `warnOverlayBusy()`：「顶上那四颗导航一次只放得下一个页面」那句话。
+
+全窗所有开页的调用点都从这里过 —— 分出来之后，"页到底什么时候才开"只在一个文件里翻。
+页面本身由 `ui/OverlayHost` 管（`showPage()` 不等旧页收完就返回，所以才有"排一轮"）。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 2695 → 2618，新文件 77（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
