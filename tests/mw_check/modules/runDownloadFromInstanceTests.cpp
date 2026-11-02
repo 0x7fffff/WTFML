@@ -116,7 +116,9 @@ void runDownloadFromInstanceTests() {
         bool openedPage = false;
         bool clickedDownload = false;
         QString settingsHeader;
-        QTimer::singleShot(0, [&] {
+        // 开页**不阻塞**（`OverlayHost::showPage()`）：点完 `invokeMethod` 这一页就已经在
+        // 屏幕上了，所以量它的那一段是当场跑的普通函数体（不再排 0 毫秒定时器等循环）。
+        const auto openModDownload = [&] {
             OverlayHost *host = currentPageOverlay();
             auto *page =
                 host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
@@ -131,12 +133,16 @@ void runDownloadFromInstanceTests() {
             }
             clickedDownload = true;
             // 这一下**同步**就把那一页收掉了（`openDownloadCategory` 的第一件事就是
-            // `overlay()->dismiss()`），所以点完这一行下面那句 `invokeMethod` 就返回了
-            // —— 后面**不许**再补一次"收页"（会撞在已经收干净的那一层上）。
+            // `overlay()->dismiss()`），所以点完这一行这个函数体就继续往下走 ——
+            // 后面**不许**再补一次"收页"（会撞在已经收干净的那一层上）。
             mods->downloadButton()->click();
-        });
+        };
         QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
                                   Q_ARG(QString, idV));
+        openModDownload();
+        // 收起来那一份对话框是 `deleteLater()` 收的：让它先落地，免得后面再开时
+        // `findChild<InstanceSettingsDialog *>()` 摸到这一份已经收起来的。
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         check(openedPage && clickedDownload,
               "T25.2 实例设置开起来了、模组那一页顶上那颗「下载新模组」也在");
         check(settingsHeader.isEmpty() == false, "T25.2 记下了那一页页眉上写的字（最后要比它）");
@@ -262,7 +268,8 @@ void runDownloadFromInstanceTests() {
         // 状态已经不在，这时候点顶上那颗什么都不会发生，量出来的是个假绿。
         bool reopened = false;
         bool clickedAgain = false;
-        QTimer::singleShot(0, [&] {
+        // 和 ② 同一套：开页不阻塞，点完 `invokeMethod` 当场量。
+        const auto reopenAndDownload = [&] {
             OverlayHost *host = currentPageOverlay();
             auto *page =
                 host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
@@ -276,9 +283,11 @@ void runDownloadFromInstanceTests() {
             }
             clickedAgain = true;
             mods->downloadButton()->click();
-        });
+        };
         QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
                                   Q_ARG(QString, idV));
+        reopenAndDownload();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         check(reopened && clickedAgain,
               "T25.6 前提：又走了一遍「进实例设置 → 点下载新模组」（上一趟那两位已经被返回键"
               "消费掉了，不复现一遍就是拿空状态量这一条）");

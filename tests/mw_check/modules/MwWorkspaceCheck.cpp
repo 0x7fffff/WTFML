@@ -134,20 +134,16 @@ int MwWorkspaceCheck(QApplication &app) {
                     search->setText(QStringLiteral("remember-filter"));
             }
             bool sawSettings = false;
-            QTimer timeout;
-            timeout.setSingleShot(true);
-            QObject::connect(&timeout, &QTimer::timeout, &window, [&]() {
-                check(false, "instance settings return completed within five seconds");
-                for (auto *dialog : window.findChildren<InstanceSettingsDialog *>()) dialog->reject();
-            });
-            timeout.start(5000);
-            QTimer::singleShot(0, &window, [&]() {
-                sawSettings = host->pageOpen();
-                check(tabs->currentIndex() == source, "instance settings keeps source tab");
-                if (auto *back = host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) back->click();
-            });
-            QMetaObject::invokeMethod(&window, "openInstanceSettings", Qt::DirectConnection, Q_ARG(QString, version));
-            timeout.stop();
+            // 实例设置页现在**不阻塞**（`showPage()` 摆上去就返回）：开完页当场观察、
+            // 当场点返回，别再挂一个 5 秒超时等 `invokeMethod` 卡回来。
+            QMetaObject::invokeMethod(&window, "openInstanceSettings", Qt::DirectConnection,
+                                      Q_ARG(QString, version));
+            app.processEvents();
+            sawSettings = host->pageOpen();
+            check(tabs->currentIndex() == source, "instance settings keeps source tab");
+            if (auto *back = host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) back->click();
+            app.processEvents();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             check(sawSettings && !host->pageOpen() && tabs->currentIndex() == source,
                   "back returns to source root page");
             if (source == MainWindowUI::homeTabIndex()) {

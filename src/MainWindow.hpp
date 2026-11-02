@@ -536,7 +536,7 @@ private slots:
     /// 也在模组而非概览，其余同理。从实例列表**新**点开一个实例的那几处一律不传：
     /// 那不是"回来"，用户没在等哪一页。
     ///
-    /// 这一页**永远归「实例」那一颗选项卡**（`OverlayHost::execPage()` 的 `ownerTab`），
+    /// 这一页**永远归「实例」那一颗选项卡**（`OverlayHost::showPage()` 的 `ownerTab`），
     /// 开之前先把选项卡切过去。不钉的话，从下载页那颗「← 返回实例设置」进来时当前选项卡
     /// 是**下载**，这一页会被记成下载页的页面 —— 用户点「实例」看见的是实例列表、那一页
     /// 收着看不见，而它占着覆盖层那一位 ⇒ 此后每次开实例设置都被挡下，而且**每次都被
@@ -820,9 +820,9 @@ private slots:
     // 也没有盘（ui/ 不 include src/，AppPaths 够不着）。而"切格子"是纯显示层的事，留在
     // 对话框自己那边（见 InstanceSettingsDialog::openConfigEditor()）。
     //
-    // NOTE: 三件的 `dialog` 都是**栈上的那个局部对象**（openInstanceSettings() 里那一句
-    // `InstanceSettingsDialog dialog(...)`）—— 和上面那几条 lambda 捕获的是同一个，
-    // 它活到 execPage 返回为止。
+    // NOTE: 三件的 `dialog` 都是**这一趟开出来的那一页**（`openInstanceSettings()` 里
+    // 那份堆上的 `InstanceSettingsDialog`）—— 和上面那几条 lambda 捕获的是同一个，
+    // 它活到收页为止。
 
     /// 用户点开了 config/ 底下的一条文件：读进来、解码，然后摆进编辑器那一格。
     ///

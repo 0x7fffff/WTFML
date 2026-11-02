@@ -1295,6 +1295,9 @@ void runInstanceFilesPagesTests() {
             check(pageStayedOpen,
                   "★★ T20.7 编辑器里改脏了之后再点**顶上那颗返回箭头**：整个实例设置页"
                   "**不关** —— 用户还没回答丢不丢，这一页就不许消失（不然改的东西悄悄没了）");
+            // 那一页收掉之后，对话框本身是 `deleteLater()` 收的 —— 测试里
+            // `processEvents()` 够不着那条 DeferredDelete（嵌套层数对不上），得显式送一发。
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             check(!w.findChild<InstanceSettingsDialog *>(),
                   "★★ T20.7 答了「丢掉改动」之后那一页才真的收掉");
             check(indexCount == 1 && indexVisible,
@@ -2353,11 +2356,10 @@ void runInstanceFilesPagesTests() {
                     if (page != nullptr) {
                         act(page);
                     }
-                    // 收页**必须**走顶上那颗返回箭头（它发 reject），不能用
-                    // `closeOverlay()` —— 后者只把外壳收了、一个信号都不发，而
-                    // `openInstanceSettings()` 正卡在 `execPage()` 那个嵌套循环里等着，
-                    // 于是这一句永远不返回（整个测试挂在那一行上，一行日志都不出）。
-                    // 见 OverlayHost::dismiss() 里那条 ★ 注释，同一个坑。
+                    // 收页**走顶上那颗返回箭头**（它发 reject）—— 和其它"点返回"的用例
+                    // 保持同一个形状。`closeOverlay()` 现在也收得干净（所有收页路都汇到
+                    // 它、`pageClosed()` 从那一处发），但这一条要量的就是"用户按返回"
+                    // 那一发。
                     if (host != nullptr) {
                         auto *back = host->findChild<QPushButton *>(
                             OverlayHost::overlayBackButtonName());
@@ -2822,7 +2824,11 @@ void runInstanceFilesPagesTests() {
             const auto modified = QFileInfo(datPath).lastModified();
             int visits = 0;
             for (int visit = 0; visit < 2; ++visit) {
-                QTimer::singleShot(0, &w, [&, visit] {
+                // 开页不阻塞了（`showPage()`）：先把页摆上来，再当场量。原来这里排一发
+                // 0 毫秒定时器等实例设置那层嵌套循环来派 —— 现在没有那层循环，定时器要等
+                // 外面泵事件才跑，而这个循环两趟都不泵 ⇒ `visits` 永远 0。
+                QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection, Q_ARG(QString, idV));
+                {
                     auto *host = w.ui()->overlay();
                     auto *page = host->findChild<InstanceSettingsDialog *>();
                     if (page && page->serverTree()->topLevelItemCount() == 2 &&
@@ -2862,8 +2868,10 @@ void runInstanceFilesPagesTests() {
                         }
                     }
                     if (auto *back = host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) back->click();
-                });
-                QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection, Q_ARG(QString, idV));
+                }
+                // 收起来那一份是 `deleteLater()` 收的：让它落地，下一趟开页时才不会
+                // `findChild` 摸到已经收起来的旧那一份。
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             }
             check(visits == 2, "server favorites real page exercised twice");
             QFile dat(datPath);

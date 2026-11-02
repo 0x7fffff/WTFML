@@ -370,10 +370,10 @@ void runBottomBarPanelTests() {
         QString dialogTitle;
         check(gear != nullptr, "AH3 最后一行那颗齿轮找得到");
         if (gear != nullptr) {
-            closeInstanceSettingsPage(&dialogTitle);
             gear->click();
-            // 面板先收、动作排到下一轮（见 MainWindowUI 里 dispatch 那段），所以要转事件循环。
-            QApplication::processEvents();
+            // 面板先收、动作排到下一轮（见 MainWindowUI 里 dispatch 那段），所以要转事件循环
+            // —— 助手自己也泵，直到那一页真的开出来为止。
+            closeInstanceSettingsPage(&dialogTitle);
             check(dialogTitle.contains(oldId),
                   "AH3 开的是那一行那个实例的设置（不是下拉框里选中的那个）", dialogTitle);
             check(g_modalTitle.isEmpty(),

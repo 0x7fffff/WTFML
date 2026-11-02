@@ -218,29 +218,37 @@ void closeInstanceSettingsPage(QString *instanceOut) {
     g_modalTitle.clear();
     g_modalText.clear();
     g_modalWasWarning = false;
-    const int gen = ++g_modalHandlerGeneration;
-    const auto handle = [instanceOut, gen] {
-        if (gen != g_modalHandlerGeneration) {
-            return; // 这一发过期了（理由见 g_modalHandlerGeneration）
-        }
-        OverlayHost *host = currentOverlay();
-        if (host == nullptr) {
-            return;
-        }
-        if (auto *title = host->findChild<QLabel *>(OverlayHost::overlayTitleLabelName())) {
-            *instanceOut = title->text();
-        } else {
-            // 不是那一页：按一条提示记下来（断言会看到"多弹了一个"）。
-            recordPrompt(host->findChild<InlineMessageBox *>());
-        }
-        if (auto *back = host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
-            back->click();  // 返回箭头 = reject（见 OverlayHost::execPage）
-            return;
-        }
+    ++g_modalHandlerGeneration;
+
+    // **调用顺序变了**：实例设置那一页现在走 `OverlayHost::showPage()` —— 摆上去就返回
+    // （`openInstanceSettings()` 不再卡在嵌套事件循环里）。所以这个助手不再是"先排两发
+    // 定时器等循环来派"，而是**点完那一下之后再调**：先等那一页真的摆上来（有些入口
+    // 把动作排到下一轮，比如底栏面板那颗齿轮），读一眼页眉，再按返回。
+    OverlayHost *host = nullptr;
+    const bool opened = pumpUntil(
+        [&host] {
+            host = currentPageOverlay();
+            return host != nullptr;
+        },
+        3000);
+    if (!opened) {
+        return;  // 这一页压根没开起来：断言会从页眉那一条红，这里别崩
+    }
+    if (auto *title = host->findChild<QLabel *>(OverlayHost::overlayTitleLabelName())) {
+        *instanceOut = title->text();
+    } else {
+        // 不是那一页：按一条提示记下来（断言会看到"多弹了一个"）。
+        recordPrompt(host->findChild<InlineMessageBox *>());
+    }
+    if (auto *back = host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
+        back->click();  // 返回箭头 = reject（见 OverlayHost::showPage）
+    } else {
         host->closeOverlay();  // 兜底：至少别让测试卡在这一层上
-    };
-    QTimer::singleShot(0, handle);
-    QTimer::singleShot(300, handle);
+    }
+    // 收页是同步的，但那一页的 `deleteLater()` 要等事件循环真的处理那条 DeferredDelete
+    // —— `processEvents()` 在测试里够不着那一档（嵌套层数对不上）。不收掉的话，下一条
+    // 再开时 `findChild<InstanceSettingsDialog *>()` 会摸到**这一份已经收起来的**。
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
 }
 
 void answerJavaMismatchDialog(const QString &buttonName, bool checkDontRemind) {
