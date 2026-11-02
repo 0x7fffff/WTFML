@@ -281,6 +281,7 @@ set(SOURCE_FILES
     src/MainWindowInstanceActions.cpp
     src/MainWindowInstanceFiles.cpp
     src/MainWindowSessionExport.cpp
+    src/MainWindowInstanceSettingsWiring.cpp
     src/controllers/JavaRuntimeController.cpp
     src/controllers/JavaSettingsController.cpp
     src/controllers/PresetControllerEditor.cpp
