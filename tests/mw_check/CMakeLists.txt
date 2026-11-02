@@ -335,6 +335,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/ui/InstanceSettingsDialog.cpp
     ${REPO_ROOT}/ui/InstanceUpdateWizard.cpp
     ${REPO_ROOT}/ui/InstanceFilesPage.cpp
+    ${REPO_ROOT}/ui/InstanceFilesPageRows.cpp
     ${REPO_ROOT}/ui/InstanceFilesSelection.cpp
     ${REPO_ROOT}/ui/ResourcePackPage.cpp
     # 「配置文件」那一页：编辑器那一格和它那套纯函数（认 BOM / 认行尾 /

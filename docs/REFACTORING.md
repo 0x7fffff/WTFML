@@ -761,3 +761,40 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 滚到中间、点「下载新模组」、按「← 返回实例设置」，断言落回**主页**、页键还是 `mod`、
 顶上那一行还是离开时那一行且滚动条不在 0。`mw_check` 2746/2746、全套 ctest 39 项全绿
 （`mw_check_workspace` 45/45）。
+
+
+## 2026-11-03 `ui/InstanceFilesPage`：「列表里那一行」这一摊分出去
+
+`InstanceFilesPage.cpp` 原来 2447 行，里面并着四摊互相看不见的状态：扫描（`refresh()` 那一趟
+自己的递归与过滤）、筛选（状态下拉框和那几颗钮）、行构建（`m_icons` / `m_resourceTips` 两套
+异步缓存 + `setItemWidget()` 托管的整棵行控件 + 悬停与行尾那几格）、选择与批量（已在
+`InstanceFilesSelection.cpp`）。前三摊里只有**行**这一摊的形状是"每重摆一次就整套重建，而
+图标和提示是之后异步补进来的" —— 它和扫描/筛选的数据流方向相反，接线也不共享，所以按状态
+所有权拆的第三刀落在它身上：`ui/InstanceFilesPageRows.cpp`（794 行）。
+
+- 搬过去的是 `rebuildRows()` / `makeRow()`，行尾那几格（`toggleButtonAt()` /
+  `deleteButtonAt()` / `detailButtonAt()` / `editButtonAt()` / `nameLabelAt()`），以及
+  `m_icons` / `m_resourceTips` 的读写（`iconForPath()` / `setIconForPath()` /
+  `setResourceForPath()`）、详情钮状态（`applyDetailButtonState()` /
+  `setRowDetailVisible()`）和悬停（`syncRowHover()`）。
+- 只在这几处用的小工具（`makeSmallLine()` / `placeholderIcon()` / `scaleToIconSlot()` /
+  `directoryThumbnail()`）跟着走，仍旧住在该 .cpp 的匿名命名空间里 —— 它们不调用
+  `InstanceFilesPage` 的私有成员，别的翻译单元也用不着。
+- 两处都要用的是 `makeSecondary()`：原来住在主 .cpp 顶上的匿名命名空间（内部链接），拆开后
+  另一个翻译单元根本看不见。**搬进新头** `ui/InstanceFilesPageInternals.hpp`，函数写成
+  `inline` —— 头文件里有定义、被两个 .cpp 各包含一次的话，重定义是链接期的事。没有两边各抄
+  一份：它钉的是"次要文字取 `QPalette::PlaceholderText`"这一档颜色，抄开后改一处、漏一处，
+  屏幕上就是"同一页里两种灰"，而代码里看不出哪一处才是对的。
+- `directoryThumbnail()` 上面那段说明原来和函数隔着一整个函数体（前一次拆选择模块时被切开
+  的），这次跟着函数一起回来了。
+- 类接口一个字没改（`InstanceFilesPage.hpp` 只改了一处过时注释里的文件名）；三条构建源列表
+  （主 `CMakeLists.txt`、`tests/mw_check`、`tests/ui_check`）各自登记新的 .cpp —— 少登记一条
+  不是编译错，是链接期一串 `undefined reference`。
+- 拆分时漏掉的一处 include：外壳少了 `#include "MainWindowUI.hpp"`（`WheelGuard` —— 状态下拉
+  框不许被滚轮改），编译期报 `'WheelGuard' has not been declared`。重建一次就现形，没有别的
+  症状。
+
+行数：主 .cpp 2447 → 1691，新文件 794，`InstanceFilesPageInternals.hpp` 44。
+
+验证：完整重建通过；`ui_check` 3165/3165（offscreen）、`mw_check` 2756/2756（真屏）；
+全套 ctest 39 项全绿。
