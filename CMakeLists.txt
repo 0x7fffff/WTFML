@@ -288,6 +288,7 @@ set(SOURCE_FILES
     src/MainWindowLaunchJava.cpp
     src/MainWindowRepair.cpp
     src/MainWindowIntegrityBackup.cpp
+    src/MainWindowFileResource.cpp
     src/controllers/JavaRuntimeController.cpp
     src/controllers/JavaSettingsController.cpp
     src/controllers/PresetControllerEditor.cpp
