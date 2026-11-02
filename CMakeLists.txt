@@ -487,6 +487,7 @@ set(SOURCE_FILES
     ui/InstanceSettingsDialog.cpp
     ui/InstanceUpdateWizard.cpp
     ui/InstanceFilesPage.cpp
+    ui/InstanceFilesPageRows.cpp
     ui/InstanceFilesSelection.cpp
     ui/ResourcePackPage.cpp
     ui/ConfigFileText.cpp

@@ -638,7 +638,7 @@ public:
     /// 验证工程靠它核三件事：名字装不下时是**省略号**收尾（不是硬裁）、省略是从
     /// **中间**截的（尾巴上挂着「（已禁用）」那四个字，截尾巴等于把状态先说没了），
     /// 以及它**确实拿到了宽度**（大于 nameLabelMinWidth()；名字那一格不能缩成 0 宽，
-    /// 否则一整列名字全看不见 —— 见 InstanceFilesPage.cpp::makeRow 里那段）。
+    /// 否则一整列名字全看不见 —— 见 InstanceFilesPageRows.cpp 里 makeRow 那段）。
     static QString nameLabelName() { return QStringLiteral("instanceFilesNameLabel"); }
 
     /// 它补的是「可更新」筛子说不出口的那件事：筛子只说得出口"这个目录里有几条这样的"
