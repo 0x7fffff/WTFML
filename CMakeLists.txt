@@ -284,6 +284,8 @@ set(SOURCE_FILES
     src/MainWindowInstanceSettingsWiring.cpp
     src/MainWindowDownloadOrigin.cpp
     src/MainWindowLaunch.cpp
+    src/MainWindowFolderColumn.cpp
+    src/MainWindowFolderColumn.cpp
     src/controllers/JavaRuntimeController.cpp
     src/controllers/JavaSettingsController.cpp
     src/controllers/PresetControllerEditor.cpp

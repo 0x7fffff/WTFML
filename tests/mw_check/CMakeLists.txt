@@ -112,6 +112,8 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/MainWindowInstanceSettingsWiring.cpp
     ${REPO_ROOT}/src/MainWindowDownloadOrigin.cpp
     ${REPO_ROOT}/src/MainWindowLaunch.cpp
+    ${REPO_ROOT}/src/MainWindowFolderColumn.cpp
+    ${REPO_ROOT}/src/MainWindowFolderColumn.cpp
     ${REPO_ROOT}/src/controllers/JavaRuntimeController.cpp
     ${REPO_ROOT}/src/controllers/JavaSettingsController.cpp
     # 「实例预设」那一页的控制器：MainWindow 构造里 new 它，少了这一个
