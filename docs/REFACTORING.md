@@ -1150,3 +1150,20 @@ meta** —— 写了下次读出来就是"自定义 + 一个用户没填过的�
 行数：`src/MainWindow.cpp` 3181 → 3068，新文件 116（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：补齐与修复（修复文件 / 预取资源）分出去
+
+`MainWindow.cpp` 里 2745–2847 这 103 行：`repairInstanceFiles()` 与
+`maybePrefetchAssetDirector()`。主语是"还差什么、现在能不能补"—— 两件事都要先过那几道
+守卫（另有实例在下载 / 正在启动 / 已经占着同一批），补完还要把忙态与任务收回来，收尾的
+两套分支写反一处就是"任务一直转圈"。放在一个文件里，守卫与收尾可以上下对着看。
+
+搬到 `src/MainWindowRepair.cpp`。占用状态只有 `InstallOccupancy` 一家；盘上怎么修在
+`VersionManager`，资源预取在 `IntegrityController`。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 3068 → 2968，新文件 103（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
