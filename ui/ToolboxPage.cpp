@@ -1335,6 +1335,16 @@ void ToolboxPage::setServerAddress(const QString &address) {
     }
 }
 
+QString ToolboxPage::serverPlayerCountText(int online, int max) {
+    if (online < 0) {
+        return QString();  // 服务器没说在线人数：那一行整个不写（见头文件）。
+    }
+    if (max > 0) {
+        return QStringLiteral("%1 / %2").arg(online).arg(max);
+    }
+    return QString::number(online);
+}
+
 void ToolboxPage::setServerView(const ServerView &view) {
     if (m_serverResult == nullptr) {
         return;

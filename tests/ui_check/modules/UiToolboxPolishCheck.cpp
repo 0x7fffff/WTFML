@@ -48,6 +48,31 @@ int UiToolboxPolishCheck(QApplication &app) {
             QMetaObject::invokeMethod(address, "returnPressed", Qt::DirectConnection);
             expect(requests == 1, "Enter starts exactly one check when idle");
         }
+        // 「在线」那一格：-1 是「服务器没说」，不是「0 个人」—— 不许把 -1 画上屏。
+        expect(ToolboxPage::serverPlayerCountText(7, 20) == QStringLiteral("7 / 20"),
+               "server player count renders shown/max");
+        expect(ToolboxPage::serverPlayerCountText(7, -1) == QStringLiteral("7"),
+               "server player count omits the missing maximum");
+        expect(ToolboxPage::serverPlayerCountText(0, 0) == QStringLiteral("0"),
+               "zero players reported stays 0 (not treated as unknown)");
+        expect(ToolboxPage::serverPlayerCountText(-1, -1).isEmpty(),
+               "server that reported no online count yields empty text, never -1");
+        ToolboxPage::ServerView noCountsView;
+        noCountsView.ok = true;
+        noCountsView.address = QStringLiteral("example.test");
+        noCountsView.motd = QStringLiteral("欢迎");
+        noCountsView.version = QStringLiteral("Paper 1.21.4");
+        noCountsView.players = ToolboxPage::serverPlayerCountText(-1, -1);
+        noCountsView.latency = QStringLiteral("26 ms");
+        page.setServerView(noCountsView);
+        const auto *serverResult = page.findChild<QLabel *>(QStringLiteral("serverResult"));
+        expect(serverResult != nullptr && serverResult->text().contains(QStringLiteral("Paper 1.21.4")) &&
+                   !serverResult->text().contains(QStringLiteral("在线")),
+               "server card omits the 在线 line when the count is unknown");
+        noCountsView.players = ToolboxPage::serverPlayerCountText(7, 20);
+        page.setServerView(noCountsView);
+        expect(serverResult != nullptr && serverResult->text().contains(QStringLiteral("在线")),
+               "server card shows the 在线 line when the count is known");
         QImage preview(900, 750, QImage::Format_ARGB32_Premultiplied);
         preview.fill(Qt::white);
         QPainter painter(&preview); painter.setFont(app.font());

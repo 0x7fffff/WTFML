@@ -259,6 +259,11 @@ public:
         QPixmap icon;          ///< 服务器图标（64×64；没有就是空的）
     };
     void setServerView(const ServerView &view);
+    /// 「在线」那一格的字：`7 / 20`、`7`、或者**空串**（服务器没报在线人数）。
+    ///
+    /// **唯一出处** —— controller 摆 `ServerView::players` 和验证工程都看它。
+    /// `online < 0` 是「服务器没说」，不是「0 个人」；把 -1 画到屏幕上等于报了个假数。
+    static QString serverPlayerCountText(int online, int max);
     /// 正在问 / 问完了（按钮那两颗跟着换）。
     void setServerBusy(bool busy);
 
