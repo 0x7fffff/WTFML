@@ -123,10 +123,11 @@ int MwInstanceOverviewChecks(const QDir &root, const QDir &versionsDir) {
         check(!forgeMark.isNull() && !grassMark.isNull() && forgeMark != grassMark,
               "T18 前提：铁砧和草方块不是同一张图（下面那些「换了没有」才分得出来）");
 
-        // 开这一页、在页面上摆一下、点返回箭头收页。`openInstanceSettings` 会**卡在嵌套
-        // 事件循环里**（见 OverlayHost::execPage），直到这一发把页面收掉 —— 和 S2 那条路
-        // 同一个形状。tweak 拿到的是那一层浮层 + **那一页本身**（读初值、点浮层里那几行
-        // 都从它上面走）+ 置顶勾选框。没找到的会是 nullptr。
+        // 开这一页、在页面上摆一下、点返回箭头收页。`openInstanceSettings` 是**非阻塞**的
+        // （见 OverlayHost::showPage），摆上去就返回；下面那一发 0 毫秒定时器排在
+        // `processEvents()` 里跑，负责读初值、点浮层那几行、最后收页。tweak 拿到的是那一层
+        // 浮层 + **那一页本身**（读初值、点浮层里那几行都从它上面走）+ 置顶勾选框。
+        // 没找到的会是 nullptr。
         //
         // 这一页**没有「确定」了**（要求「那个取消和确定删了，修改了的
         // 设置实时写入」）—— 所以 tweak 里那一下**本身就是写盘的那一下**，下面那一发
@@ -171,7 +172,7 @@ int MwInstanceOverviewChecks(const QDir &root, const QDir &versionsDir) {
                 tweak(host, page, pin);
                 // 收页走**返回箭头**： 起这一页没有「确定」了（要求「那个
                 // 取消和确定删了，修改了的设置实时写入」）—— 该写的东西在 tweak 里那一
-                // 下就写完了，这一发只是把页面收掉（= reject，见 OverlayHost::execPage）。
+                // 下就写完了，这一发只是把页面收掉（= reject，见 OverlayHost::showPage）。
                 if (auto *back =
                         host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
                     back->click();

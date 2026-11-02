@@ -50,7 +50,7 @@ TaskDetailPage::TaskDetailPage(QWidget *parent) : QDialog(parent) {
     setObjectName(MainWindowUI::taskDetailPageName());
     setWindowTitle(windowTitle());
     // 只影响"单独拿出来用"（验证工程那几处）：嵌进覆盖层的时候，这一页拿到的是内容区的
-    // 整幅宽（见 OverlayHost::execEmbedded 里那句 area->layout()->addWidget(dialog)）。
+    // 整幅宽（见 OverlayHost::showPage 里那句 area->layout()->addWidget(dialog)）。
     resize(560, 460);
 
     m_box = new QVBoxLayout(this);

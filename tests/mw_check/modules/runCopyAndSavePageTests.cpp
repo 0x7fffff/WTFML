@@ -475,7 +475,7 @@ void runCopyAndSavePageTests() {
         });
         closer.start();
         // 兜底（栈上的 QTimer ⇒ 出了这一节一定不会再响）：失败路径可能只弹 1~3 条，
-        // 别把整个测试挂在 `execPage` 的嵌套循环里。
+        // 别让整节挂死在一个没人应答的问句上。
         QTimer fallback;
         fallback.setSingleShot(true);
         QObject::connect(&fallback, &QTimer::timeout, [&] {

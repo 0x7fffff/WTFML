@@ -41,7 +41,7 @@ class UpdateCenterController final : public QObject {
 public:
     explicit UpdateCenterController(MainWindow *owner);
 
-    /// 开「更新中心」那一页（`OverlayHost::execPage()`，收在内容区里）。
+    /// 开「更新中心」那一页（`OverlayHost::showPage()`，收在内容区里）。
     ///
     /// @param instanceId 看哪个实例的结论。**必须传**（不是"当前选中的那个"）：这一页可以从
     ///                   实例设置那一页点进来，也可以从底栏 / 主页绕进来。

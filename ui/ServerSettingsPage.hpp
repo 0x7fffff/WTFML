@@ -153,7 +153,7 @@ public:
 
     explicit ServerSettingsPage(QWidget *parent = nullptr);
 
-    /// 覆盖层页眉上那行字（`OverlayHost::execPage()` 的标题）。
+    /// 覆盖层页眉上那行字（`OverlayHost::showPage()` 的标题）。
     static QString windowTitle() { return QStringLiteral("服务端设置"); }
 
     /// 顶上那行大字：这一页说的是**哪一个**服务端（显示名，不是目录名）。

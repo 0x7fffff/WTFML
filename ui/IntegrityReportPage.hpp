@@ -1,7 +1,7 @@
 /**
  * 【它和任务详情页是一个形状的"页"，不是窗口】
  *
- * 开出来的方式一模一样：`OverlayHost::execPage()` 把这一页整块盖在内容区上（**顶上四颗导航
+ * 开出来的方式一模一样：`OverlayHost::showPage()` 把这一页整块盖在内容区上（**顶上四颗导航
  * 和底栏不盖**），顶上那条 `← 返回` 是它的一条出路，页面上那颗「只查看」是另一条。`QDialog`
  * 只是全仓所有"内嵌页"共用的壳（`OverlayHost` 认它）。
  *
@@ -70,7 +70,7 @@ public:
 
     explicit IntegrityReportPage(QWidget *parent = nullptr);
 
-    /// 这一页的标题（`OverlayHost::execPage` 顶上那一条写的字）。
+    /// 这一页的标题（`OverlayHost::showPage` 顶上那一条写的字）。
     static QString windowTitle() { return QStringLiteral("完整性检查"); }
 
     void setReport(const Report &report);

@@ -329,7 +329,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // ① 点的**不是**现在这一颗 ⇒ 翻页。切走之后那页不会丢，只是"收着"（见
         // OverlayHost.hpp 那段），切回来还是原来那个界面、连滚到哪儿都在；
         // ② 点的**就是**现在这一颗 ⇒ "回到这个功能的首页"：把上面那一层收掉 —— 页面那一档
-        // 走"返回箭头"那一发（`execPage()` 的那一次才醒得过来，理由见 dismiss()）。
+        // 走"返回箭头"那一发（收页要经过页面自己的 reject，理由见 dismiss()）。
         if (reselected) {
             if (overlayHost != nullptr) {
                 overlayHost->dismiss();

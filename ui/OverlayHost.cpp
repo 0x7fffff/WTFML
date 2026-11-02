@@ -229,8 +229,8 @@ bool OverlayHost::parked() const {
 
 void OverlayHost::applyVisibility() {
     // 整页那一档**只在开它的那颗选项卡上露面**。切到别的选项卡上就"收着"：不关、不销毁
-    // —— 这一页正卡在 `execPage()` 的嵌套事件循环里，收掉了调用方会一直等下去，而"切回来
-    // 还是原来那一页（连滚到哪儿都在）"也就没了（见头文件那段）。
+    // —— 收掉了"切回来还是原来那一页（连滚到哪儿都在）"也就没了；用 `execPage()` 开的页
+    // 还会让调用方一直等下去（见头文件那段）。
     const bool pageShown = (m_mode == Mode::Page) && onOwnersTab();
     // 提示那一档不跟着选项卡走：它是要人回答的一句话，收起来 = 让调用方在用户看不见的
     // 地方干等。切页时它换的只是底图（见 refreshBackdrop）。
@@ -602,9 +602,9 @@ bool OverlayHost::closeTopLayer(bool evenWhenParked) {
             return false;
         }
         // 页面那一档：和"点返回箭头"**同一发**。★ 这里**绝不能改成 `closeOverlay()`** ——
-        // 用 `execPage()` 开出来的那一页正卡在自己的嵌套事件循环里，`closeOverlay()` 只把
-        // 外壳收了、一个信号都不发 ⇒ 调用方一直等下去（`MainWindow::openResourceDetailPage`
-        // 那一段的 `m_resourcePage.open` 永远归不了 false）。
+        // 它只拆外壳、不经过页面自己的 accept/reject：`showPage()` 那条 `backPressed ⇒
+        // reject` 不跑（页面在 reject 里做的收尾全被跳过），`execPage()` 的调用方更会一直
+        // 等下去。
         emit backPressed();
         return true;
     }

@@ -172,7 +172,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     setAcceptDrops(true);
     // 比分组对话框宽得多：从左到右是**两栏**（左栏一列页 + 右栏一块内容），600 放不下。
     // NOTE: 嵌进覆盖层的时候这个尺寸**不作数** —— 那一层给它的是内容区的整幅宽（见
-    // OverlayHost::execEmbedded 里那句 `area->layout()->addWidget(dialog)`）。
+    // OverlayHost::showPage 里那句 `area->layout()->addWidget(dialog)`）。
     // 这一句只影响单独把它拿出来用的时候（验证工程那几处）。
     resize(kDialogWidth, kDialogHeight);
 
@@ -369,9 +369,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // `reject()` 会把这一关挡下来先问一句（见那边）。那一格是这一页上唯一一处
     // "改动没有实时落盘"的地方（它的「保存」是一颗按钮），所以也只有它需要问。
     //
-    // NOTE: **这个对话框自己从不 accept**（没有「确定」那一类默认按钮）。
-    // `execPage` 那边判的是 Accepted / Rejected，这里永远是后者 —— 而那正是"这一页关掉了"
-    // 的意思，它不看返回值做什么（见 MainWindow::openInstanceSettings() 收尾那一段）。
+    // NOTE: **这个对话框自己从不 accept**（没有「确定」那一类默认按钮）。收页时读的是
+    // `QDialog::result()`（`pageClosed()` 那一发，和原来 `execPage()` 的返回值同一套），
+    // 这里永远是 Rejected —— 而那正是"这一页关掉了"的意思，收尾不看它做什么。
     watchEditors();
     // 左栏那一列灌第一遍（内容和第一页都归它管）。**排在 watchEditors() 之后**：它会在
     // 那一列上挑一条（程序化 setCurrentRow()），接上接线之后才走"选中 → 换页"那条正常路。
@@ -440,7 +440,7 @@ void InstanceSettingsDialog::dropEvent(QDropEvent *event) {
 void InstanceSettingsDialog::reject() {
     // 走这条路的**不是**编辑器自己那颗「返回」（那颗发 backRequested()、由 MainWindow
     // 接到 leaveConfigEditor() 上），而是**覆盖层页眉那颗返回箭头** —— 它接的是
-    // `dialog->reject()`（见 OverlayHost::execPage 里那段），点一下关掉的是**整个
+    // `dialog->reject()`（见 OverlayHost::showPage 里那段），点一下关掉的是**整个
     // 「实例设置」**。而那一格里可能正压着改了一半的东西。
     //
     // 这一层没有覆盖层、弹不出"要丢掉吗"那一句，所以只能**先挡住这一关**、把这一发交
@@ -1436,7 +1436,7 @@ void InstanceSettingsDialog::setGroupChoices(const QList<QPair<QString, QString>
     // NOTE: **当场 delete，不是 deleteLater**。悬着的那几行和新的几行**同名**（objectName
     // 按下标给），而按名字找控件的验证工程会先撞上旧那个 —— 那个窗口只在"事件循环
     // 转起来之前"存在，短到没法调试。代价是这一招**不能在一行自己的槽里调**
-    // （那一行还站在栈上）：产品里只有 MainWindow 在 execPage() 之前调一次。
+    // （那一行还站在栈上）：产品里只有 `InstanceDialogController` 在 `showPage()` 之前调一次。
     for (QPushButton *row : m_groupRows) {
         delete row;
     }

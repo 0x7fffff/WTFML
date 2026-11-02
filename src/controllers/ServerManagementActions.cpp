@@ -488,12 +488,13 @@ void ServerManagementActions::runServerCheckAction(MainWindow *owner, const QStr
     }
     if (token == QStringLiteral("reinstall")) {
         // 重装是那一行行尾那颗「修复」做的同一件事（`repairServer()`）——**先收掉这一页**：
-        // 它正卡在 `execPage()` 的嵌套事件循环里，而重装要走一遍下载 + 装，收掉之后用户
-        // 才看得见任务中心里那一项在跑（同"开新页之前先收页面"那条规矩）。
+        // 这一发正站在页面自己的槽里，收掉之后用户才看得见任务中心里那一项在跑
+        // （同"开新页之前先收页面"那条规矩）。
         //
-        // ★ 收页走 `dismiss()`（不是 `closeOverlay()`）：这一页正卡在 `execPage()` 的嵌套
-        //   事件循环里，`dismiss()` 发的就是"返回箭头那一发"，`execPage()` 会正常返回；
-        //   `closeOverlay()` 走的是另一条路（见 `OverlayHost::dismiss()` 那段 ★）。
+        // ★ 收页走 `dismiss()`（不是 `closeOverlay()`）：页面那一档发的是"返回箭头那一发"
+        //   （`backPressed` ⇒ `reject()` ⇒ `finished` ⇒ `closeOverlay()`，页面自己的收尾和
+        //   收页钩子都会跑）；`closeOverlay()` 只拆外壳、不经过 reject
+        //   （见 `OverlayHost::dismiss()` 那段 ★）。
         owner->m_ui->overlay()->dismiss();
         owner->repairServer(serverId);
         return;

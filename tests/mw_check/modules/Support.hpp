@@ -751,12 +751,12 @@ private:
     QList<int> m_script;
 };
 
-/// 把**整页**（`OverlayHost::execPage()` 开出来的那种）收掉：它们自己开出来、调用方卡在
-/// 嵌套事件循环里，测试这边得有人点返回箭头。
+/// 把**整页**（`OverlayHost::showPage()` 摆出来的那种）收掉：它们自己开出来、调用方早已
+/// 返回，测试这边得有人点返回箭头。
 ///
 /// 为什么不用 `closeInstanceSettingsPage()`（那一族是 0 毫秒 + 300 毫秒排两发）：这一页是
-/// **等后台那一趟跑完才开出来的**，落在兜底那一发之后 —— 排发那套全落空，测试就挂在
-/// 嵌套循环里了。所以这里也用**自走的定时器**：每一拍看一眼有没有整页开着，有就记下它长
+/// **等后台那一趟跑完才开出来的**，落在兜底那一发之后 —— 排发那套全落空，测试就挂在一个
+/// 没人收的页面上。所以这里也用**自走的定时器**：每一拍看一眼有没有整页开着，有就记下它长
 /// 什么样、点返回（见 PromptAnswerer 那段同一套理由）。
 class PageCloser {
 public:
@@ -846,7 +846,7 @@ private:
         seen.append(one);
         m_closing = true;
         if (auto *back = host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
-            back->click();  // 返回箭头 = reject（见 OverlayHost::execPage）
+            back->click();  // 返回箭头 = reject（见 OverlayHost::showPage）
             return;
         }
         host->closeOverlay();  // 兜底：至少别让测试卡在这一层上
@@ -2001,9 +2001,9 @@ void runLaunchGuardTests();
 // 这一条路上有**三处**只有接起来才存在的判据，任何一处错了，界面上都是"点一下没反应"：
 // ① 身份表（`m_instanceFileIdentities`）有没有被那一趟填上、钥匙（路径 + 大小 + 时间）
 // 对不对得上 —— 对不上就查不到那一条是哪个资源；
-// ② 收页那一下**必须是 dismiss()**（那一页正卡在 `execPage()` 的嵌套事件循环里，
-// `closeOverlay()` 一个信号都不发，那个循环永远不返回）；
-// ③ 开新页那一下**必须排到下一轮事件循环**（这一刻还在那个嵌套循环的调用栈里，
+// ② 收页那一下**必须是 dismiss()**（它经过页面自己的 reject：`closeOverlay()` 不走那条
+// 路，页面的收尾和收页钩子都不跑）；
+// ③ 开新页那一下**必须排到下一轮事件循环**（这一刻还在这次点击的调用栈里，
 // `openResourceDetailPage()` 开头那条 `overlay->isOpen()` 会把这次点击当场吃掉）。
 //
 // 【模组那一页是**故意**点不动的】
@@ -2133,12 +2133,12 @@ template <typename T> T *newestByObjectName(QObject *parent, const QString &name
 // 这几段任何一处断了，屏幕上的样子都是"按了没反应"或者"那句话没变" —— 既不像崩溃也不像
 // 报错。只有把真的 MainWindow 立起来、真按那几颗 chip、真读盘才量得到。
 //
-// 走法上有一处**不是随手写的**：这一页从开到关一直卡在 `OverlayHost::execPage()` 那一层
-// 嵌套事件循环里，而上面那些动作全在**这一层里面**发生（"收页"是 reject、下一件事由
-// MainWindow 排到下一轮）。所以这里用一台 10 毫秒的自走定时器按阶段往下推，每一阶段**先
-// 等到该看到的样子再动手** —— 谁先谁后由产品那边决定，不由测试决定（"点完就往下走"的
-// 量法会读到上一代控件，见 `newestByObjectName()` 那段）。外面那一层只 `pumpUntil` 到
-// 最后一阶段为止（和 T28/T32 是同一个形状）。
+// 走法上有一处**不是随手写的**：这一页开出来之后调用方早就返回了（`showPage()`），而上面
+// 那些动作全在页面上发生（"收页"是 reject、下一件事由 MainWindow 排到下一轮）。所以这里用
+// 一台 10 毫秒的自走定时器按阶段往下推，每一阶段**先等到该看到的样子再动手** —— 谁先谁后
+// 由产品那边决定，不由测试决定（"点完就往下走"的量法会读到上一代控件，见
+// `newestByObjectName()` 那段）。外面那一层只 `pumpUntil` 到最后一阶段为止（和 T28/T32
+// 是同一个形状）。
 // =========================================================================
 void runUpdateCenterActionTests();
 

@@ -2558,8 +2558,9 @@ void runInstanceFilesPagesTests() {
                 }
                 return QJsonDocument::fromJson(file.readAll()).object();
             };
-            // 和 T20.11 那个 withPage 同一手法（`openInstanceSettings()` 会卡在 execPage 的
-            // 嵌套循环里；收页必须走顶上那颗返回箭头 —— 用 closeOverlay() 会把整趟挂住）。
+            // 和 T20.11 那个 withPage 同一手法（`openInstanceSettings()` 是非阻塞的；
+            // 动作排在 0 毫秒定时器里，收页走顶上那颗返回箭头 —— `closeOverlay()` 不经过
+            // 页面自己的 reject，收页钩子那一套也不跑）。
             const auto withPage = [&w](const QString &id, auto &&act) {
                 QTimer::singleShot(0, [&] {
                     OverlayHost *host = currentPageOverlay();
@@ -2753,8 +2754,8 @@ void runInstanceFilesPagesTests() {
 
             bool clicked = false;
             QString buttonText;
-            // 和 T20.11 那个 withPage 同一手法（`openInstanceSettings()` 会卡在 execPage 的
-            // 嵌套事件循环里，所以动作必须排进那个循环），但**收尾那一下不一样**：这一页是
+            // 和 T20.11 那个 withPage 同一手法（`openInstanceSettings()` 是非阻塞的，
+            // 动作照旧排在 0 毫秒定时器里），但**收尾那一下不一样**：这一页是
             // 产品自己关的（那颗按钮的意思就是"换个地方"），所以不能照抄"再点一次返回箭头"
             // —— 那一下会落在一张已经收起来的页上。兜底只在"万一它还开着"的时候做。
             QTimer::singleShot(0, [&] {
@@ -2786,7 +2787,7 @@ void runInstanceFilesPagesTests() {
             QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
                                       Q_ARG(QString, idV));
             // 切选项卡那一发是**排到下一轮事件循环**的（见 openDownloadCategory() 里那段
-            // 这一句还在 execPage 那个嵌套循环的调用栈里时不能翻页），所以这儿等它一下，
+            // 这一句所在的调用栈没退干净之前不能翻页），所以这儿等它一下，
             // 而不是 `processEvents()` 完就立刻读。
             pumpUntil(
                 [&] {

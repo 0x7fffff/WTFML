@@ -1028,12 +1028,12 @@ void ImportController::handleInstanceSettingsDrop(QWidget *page, const QString &
         const QString prefill = QFileInfo(result.path).completeBaseName();
         // 「离开实例设置（相当于点了返回）」用的**就是**返回箭头那一发：`m_owner->runWhenOverlayFree()`
         // 让位那一步走的是 `OverlayHost::evict()`，而页那一档的 evict 发的正是
-        // `backPressed` —— `execPage()` 里那条连接把它接在 `dialog->reject()` 上（见
+        // `backPressed` —— `showPage()` 把它接在 `dialog->reject()` 上（见
         // OverlayHost.cpp 那段），一字不差就是"点了一下返回箭头"。
         //
-        // 这里**不要**再自己补一发 `dialog->reject()`：那一发这一轮还没生效（页正卡在
-        // 自己的嵌套事件循环里），补了也只是让 `backPressed` 那条连接**再跑一遍**
-        // reject —— 两次 done() 不报错，但"关页这件事有两个发起人"是白添的麻烦。
+        // 这里**不要**再自己补一发 `dialog->reject()`：evict() 那一发当场就走到 reject
+        // 了，补了只是让它再跑一遍（两次 done() 不报错，但"关页这件事有两个发起人"是
+        // 白添的麻烦）。
         //
         // 也不能"让位那一步"省掉（直接开问）：这一层还占着，`execPrompt()` 会被
         // `OverlayHost` 挡掉（一层只放得下一件，见它的头文件），用户看到的是"拖了半天

@@ -1265,7 +1265,7 @@ public:
 
     // ---------- 服务端控制台那一页 ----------
     //
-    // 整页（`OverlayHost::execPage()`）—— 日志要多宽有多宽，底下留一行输入框。
+    // 整页（`OverlayHost::showPage()`）—— 日志要多宽有多宽，底下留一行输入框。
     // 它和 `NewServerPage` 同一条规矩：**只摆控件、判据一条都不在这儿**（`ui/` 不 include
     // `src/`），"这是哪一档状态""能不能强制结束"全由 `MainWindow` 现算现喂。
     static QString serverConsolePageName() { return QStringLiteral("serverConsolePage"); }
@@ -1290,7 +1290,7 @@ public:
 
     // ---------- 服务端设置那一页 ----------
     //
-    // 整页（`OverlayHost::execPage()`）：左栏四页（常用设置 / 原始文本 / 世界备份 / 体检），
+    // 整页（`OverlayHost::showPage()`）：左栏四页（常用设置 / 原始文本 / 世界备份 / 体检），
     // 右边一个堆叠页，底下一条保存带。它和 `NewServerPage` / `ServerConsolePage` 同一条
     // 规矩：**只摆控件、判据一条都不在 ui/ 里**（哪几个字段、哪些值合法、该报哪几条，全由
     // `MainWindow` 从那几张表翻好喂进来）。

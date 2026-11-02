@@ -32,7 +32,7 @@
 namespace {
 
 // 这一页自己的几个尺寸。**都不跟着窗口走**：嵌进覆盖层那一层的时候这一页拿到的是内容区
-// 的整幅宽（见 OverlayHost::execEmbedded），"整页"看着才像一页；单独拿出来用时构造函数
+// 的整幅宽（见 OverlayHost::showPage），"整页"看着才像一页；单独拿出来用时构造函数
 // 里那个 resize() 只是给验证工程一个像样的初始大小。
 constexpr int kPageWidth = 820;
 constexpr int kPageHeight = 560;
@@ -201,7 +201,7 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     // 摆回来（showEvent 里那段）。
     setFocusPolicy(Qt::StrongFocus);
     // 只影响"单独拿出来用"（验证工程那几处）：嵌进覆盖层的时候，这一页拿到的是内容区的
-    // 整幅宽（见 OverlayHost::execEmbedded 里那句 area->layout()->addWidget(dialog)）。
+    // 整幅宽（见 OverlayHost::showPage 里那句 area->layout()->addWidget(dialog)）。
     resize(kPageWidth, kPageHeight);
 
     auto *outer = new QVBoxLayout(this);

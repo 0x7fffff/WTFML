@@ -201,9 +201,8 @@ void runResourceDetailPageTests() {
         const int requestsBeforeOpen = api.requests.size();
         // 看门狗：万一这一条路没把页面收掉，这一发在 12 秒后把它收掉。挂住比红更糟 ——
         // 挂住的话这一整跑一条结果都拿不到。
-        // NOTE: 收的必须是**返回箭头**（= reject），不能是 `closeOverlay()`：页那一次的
-        // `execEmbedded` 只认 `QDialog::finished`，光把覆盖层收掉它照旧卡在
-        // `loop.exec()` 里（这一点 实测过：挂住的那一跑就是它）。
+        // NOTE: 收的必须是**返回箭头**（= reject），不能是 `closeOverlay()`：后者不经过
+        // 页面自己的 reject，收页钩子和页面收尾那一套都不跑。
         // NOTE: 用**停得掉**的定时器，不是 `QTimer::singleShot`：这一节正常走完只要几十
         // 毫秒，留一发 12 秒的定时器在队列里，它就会在**后面某一节**响 —— 那时候
         // 开着的可能是别人的一层页或者一条提示，它照着"返回箭头"按下去，红的却是
@@ -403,7 +402,7 @@ void runResourceDetailPageTests() {
                       "（不是把用户踢回列表）");
             }
 
-            // 收工：点返回箭头（见 OverlayHost::execPage，箭头 = reject）。
+            // 收工：点返回箭头（见 OverlayHost::showPage，箭头 = reject）。
             if (auto *back =
                     overlay->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
                 back->click();
@@ -605,8 +604,8 @@ void runResourceDetailPageTests() {
             // 列表滚到哪儿都一起保留（四个选项卡都适用）。
             //
             // 这一节走**真按钮**（条上那四颗，`TitleBar::navButton()`），量的是那三下：
-            // ① 切到别的选项卡 ⇒ 这一页**收着**（不是关掉：它正卡在 `execPage()` 的嵌套循环
-            // 里，关掉的话调用方会一直等下去，而用户再点回来就再也见不到它了）；
+            // ① 切到别的选项卡 ⇒ 这一页**收着**（不是关掉：关掉的话"切回来还是原来那一页"
+            // 就没了，用户再点回来只能重新开一遍）；
             // ② 再点回「下载」⇒ 原来那一页连"按着哪颗 chip、列表几条"一起回来；
             // ③ 站在「下载」上再点一下「下载」⇒ 回到这个功能的首页（那一层收掉）。
             if (page != nullptr && overlay->pageOpen()) {
@@ -676,13 +675,12 @@ void runResourceDetailPageTests() {
                               .arg(page->versionRowCount()));
 
                     // ③ 站在「下载」上再点一下「下载」= 回到这个功能的首页。★ 收的必须是
-                    // **返回箭头那一发**（`dismiss()` 发的就是它）：`closeOverlay()` 结束不了
-                    // 页那一层的嵌套 `loop.exec()`（只认 `QDialog::finished`）—— 页收掉了而
-                    // `execPage()` 的调用方还在那儿等，用户看到的是"点了一下导航，界面就
-                    // 再也点不动了"。（`backPressed` 只有返回箭头和这一发会发，而这一节里
-                    // 返回箭头一次都没点过 ⇒ 数到的就是这一发。）
-                    // NOTE: 这里只量"那一发发出来了没有"。整层收干净要等控制权回到外层事件
-                    // 循环，那一条在下面（`navDismissCount == 1 && !overlay->isOpen()`）。
+                    // **返回箭头那一发**（`dismiss()` 发的就是它）：`closeOverlay()` 不经过
+                    // 页面自己的 reject，收页钩子和页面收尾都不跑。（`backPressed` 只有返回
+                    // 箭头和这一发会发，而这一节里返回箭头一次都没点过 ⇒ 数到的就是这一发。）
+                    // NOTE: 这里只量"那一发发出来了没有"。整层收干净是这一发里的事
+                    // （`reject ⇒ finished ⇒ closeOverlay`），但那一条判据放在后面读，
+                    // 免得和这一发混在一起。
                     const QMetaObject::Connection navSpy = QObject::connect(
                         overlay, &OverlayHost::backPressed, overlay,
                         [&navDismissCount] { ++navDismissCount; });
@@ -739,10 +737,9 @@ void runResourceDetailPageTests() {
               secondTitle + QStringLiteral(" / chip ")
                   + QString::number(secondChips));
         check(!overlay->isOpen(), "ZJ7 收干净了");
-        // ZJ10 的收尾：第三下导航发的那一发**真的把整层收干净了**。要在这里读 —— 那一层
-        // 的收尾（`closeOverlay()`）排在 `execPage()` 那个嵌套循环返回之后，而 ZJ10 自己是
-        // 卡在那个循环的回调里跑的（在里面读只能读到"还没收"）。这一条要是坏了，症状是
-        // "点一下导航，界面就再也点不动了"（页没了、调用方还在等）。
+        // ZJ10 的收尾：第三下导航发的那一发**真的把整层收干净了**。要在这里读 —— ZJ10
+        // 自己是在定时器回调里跑的，那一发之后的收尾不在它那段代码里；换到这一节读，
+        // 两件事分得开。这一条要是坏了，症状是"点一下导航，那一页还占着内容区"。
         check(!navDismissTried || (navDismissCount == 1 && !overlay->isOpen()),
               "★★ ZJ10 那一下之后这一层真的收干净了（回到这个功能的首页）",
               QStringLiteral("发了 %1 次 / isOpen %2")

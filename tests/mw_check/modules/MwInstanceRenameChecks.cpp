@@ -10,7 +10,7 @@ int MwInstanceRenameChecks(const QDir &versionsDir, MainWindow &window) {
     // 改完字的那一下磁盘上**当场**就变了，而"关掉这一页"不等于"放弃"。
     //
     // 这一节同时钉住用户给的那条方向 ——「最终不出现独立的窗口」：整件事里**顶窗一个都不
-    // 许多**（那一页是盖在内容区上的一层，见 OverlayHost::execPage）。S 段验的是"改完名
+    // 许多**（那一页是盖在内容区上的一层，见 OverlayHost::showPage）。S 段验的是"改完名
     // 要跟着动的状态"，这里验的是"这一下发生在哪儿、用户看不看得见"。
     //
     // NOTE: 这一节和 S 段里那条 `applyRename()` 不是重复：这里走的是**产品那条路**，
@@ -114,7 +114,7 @@ int MwInstanceRenameChecks(const QDir &versionsDir, MainWindow &window) {
                 QMetaObject::invokeMethod(edit, "editingFinished");
                 nameRevertedOnEmpty = edit->text() == btnNewId;
             }
-            // 收页：这一页没有「确定」了，返回箭头就是唯一出口（= reject，见 execPage）。
+            // 收页：这一页没有「确定」了，返回箭头就是唯一出口（= reject，见 showPage）。
             if (auto *back =
                     host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
                 back->click();
@@ -122,7 +122,8 @@ int MwInstanceRenameChecks(const QDir &versionsDir, MainWindow &window) {
             }
             host->closeOverlay();  // 兜底：至少别让测试卡在这一层上
         });
-        // 这一句会**卡在嵌套事件循环里**，直到上面那一发把返回箭头点掉（见 OverlayHost::execPage）。
+        // 开页是**非阻塞**的（见 OverlayHost::showPage）：返回之后页面已经摆上了，
+        // 上面那一发 0 毫秒定时器由下面的 `processEvents()` 跑完（返回箭头 = 收页）。
         QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
                                   Q_ARG(QString, btnOldId));
         QApplication::processEvents();
