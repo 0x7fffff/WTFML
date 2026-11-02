@@ -297,6 +297,7 @@ set(SOURCE_FILES
     src/MainWindowBottomBar.cpp
     src/MainWindowEventFilter.cpp
     src/MainWindowLifecycle.cpp
+    src/MainWindowResourceDependency.cpp
     src/controllers/JavaRuntimeController.cpp
     src/controllers/JavaSettingsController.cpp
     src/controllers/PresetControllerEditor.cpp
