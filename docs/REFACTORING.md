@@ -1108,3 +1108,24 @@ controller。`applyInstanceSettings()` 后面紧跟着的匿名命名空间（�
 行数：`src/MainWindow.cpp` 3511 → 3289，新文件 264（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：左侧「游戏文件夹」那一列分出去
+
+`MainWindow.cpp` 里 3063–3173 这 111 行，主语是"现在用的是哪个游戏文件夹"：
+
+- `onFolderSelectionChanged()`：选中的那一格落到 `FolderManager`，整扇窗跟着换
+  （路径、实例树、按钮、下拉框）；
+- `refreshFolderList()` / `updateFolderButtons()` / `folderTitle()`：那一列画成什么样；
+- `folderDisplayNameOf()`（文件内 `static`）：显示名一条规则说完（含"目录名即身份"那个坑），
+  只有这一片用，跟着搬；
+- `applyCurrentFolderToPaths()`：当前文件夹摆进几个"默认目录"；
+- `syncDownloadReuseSources()`：下载页能复用哪几个来源。
+
+搬到 `src/MainWindowFolderColumn.cpp`。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 3289 → 3175，新文件 111（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
