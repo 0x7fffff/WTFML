@@ -291,6 +291,7 @@ set(SOURCE_FILES
     src/MainWindowFileResource.cpp
     src/MainWindowInstanceEntry.cpp
     src/MainWindowOverlayGate.cpp
+    src/MainWindowSessionEvents.cpp
     src/controllers/JavaRuntimeController.cpp
     src/controllers/JavaSettingsController.cpp
     src/controllers/PresetControllerEditor.cpp

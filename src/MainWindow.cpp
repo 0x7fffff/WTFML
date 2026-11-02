@@ -2504,45 +2504,9 @@ namespace {
 // 在 `src/MainWindowFolderColumn.cpp`（同一个类，另一个翻译单元）。
 
 
-void MainWindow::onProcessOutput(int sessionId, const QString &text) {
-    m_gameSessionController->onProcessOutput(sessionId, text);
-}
+// ---------- 游戏会话的几发事件（输出 / 结束 / 日志窗 / 停止）----------
+// 在 `src/MainWindowSessionEvents.cpp`（同一个类，另一个翻译单元）。
 
-void MainWindow::onProcessError(int sessionId, const QString &text) {
-    m_gameSessionController->onProcessError(sessionId, text);
-}
-
-void MainWindow::onSessionDiscarded(int sessionId) {
-    m_gameSessionController->onSessionDiscarded(sessionId);
-}
-
-void MainWindow::showGameLogLine(int sessionId, const QString &text) {
-    m_gameSessionController->showGameLogLine(sessionId, text);
-}
-
-GameLogWindow *MainWindow::ensureGameLogWindow(int sessionId, bool userAsked) {
-    return m_gameSessionController->ensureGameLogWindow(sessionId, userAsked);
-}
-
-void MainWindow::onGameFinished(int sessionId, int exitCode, QProcess::ExitStatus exitStatus) {
-    m_gameSessionController->onGameFinished(sessionId, exitCode, exitStatus);
-}
-
-QString MainWindow::launchingInstanceName() const {
-    return m_gameSessionController->launchingInstanceName();
-}
-
-QString MainWindow::launchingStatusName() const {
-    return m_gameSessionController->launchingStatusName();
-}
-
-bool MainWindow::confirmStopGame(const QString &displayName, int sessions) {
-    return m_gameSessionController->confirmStopGame(displayName, sessions);
-}
-
-void MainWindow::stopGameSession(int sessionId) {
-    m_gameSessionController->stopGameSession(sessionId);
-}
 
 void MainWindow::onImportModpackClicked() {
     m_importController->onImportModpackClicked();
