@@ -851,3 +851,24 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 行数：`src/MainWindow.cpp` 7673 → 6930，新文件 805。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：任务中心那一片分出去
+
+`MainWindow.cpp` 里 1524–1849 这 326 行是"账本 → 界面"的唯一一道门：底栏中间那格的摘要
+（`updateBottomBarTaskSummary()`）、任务中心面板那几行（`taskCenterItems()`）、
+"取消 / 重试是不是真会做点什么"（`cancelWouldWork()` / `retryWouldWork()`）、详情页上
+那颗按钮的分派，以及 `beginTask()` / `finishTask()` / `setUpdateFlowCancel()` 这几条收尾。
+
+搬到 `src/MainWindowTasks.cpp`：
+
+- 判据一条都不在这一层：收起态显示谁、优先级、"刚完成那一项还露多久"在
+  `Tasks::collapsedSummary()`。"按取消真的会做点什么吗"必须和 `onTaskDetailAction()` 里
+  那条分派**逐字对齐** —— 两条因此留在同一个文件里、隔几行，改一条时另一条就在上面。
+- `m_syncWaitStatus` 那层"压倒"仍然只在 `updateBottomBarTaskSummary()` 里加：整条底栏上
+  唯一一处"同步等待盖在账本上面"。
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 6930 → 6607，新文件 372。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
