@@ -1416,16 +1416,11 @@ private:
     //
     // 下载页选中一个模组后进入一整页详情：上方写模组图像、名字、来源，并有转到
     // modrinth/curseforge/mcmod.cn 的选项，中间一排版本，下方排列版本。
-    // 「独立界面」落成**整页覆盖层**（`OverlayHost::execPage`，不另开窗）。
+    // 「独立界面」落成**整页覆盖层**（`OverlayHost::showPage`，不另开窗）。
     //
     // 界面那一层（ui/ResourceDetailPage）一个字节都不上网，进参出参全是值；下面这四个
     // 函数是它和业务层之间那层皮。
     void setupResourceDetailPage();
-    /// 这一页**压根没开出来**（覆盖层正忙 / 那一类的键不认识 / 那把钥匙不在表里）。
-    /// `execPage()` 从不让这个数当结果（它只回 `QDialog::Accepted/Rejected`），所以
-    /// 拿它跟 `QDialog::Rejected` 比是安全的 —— 调用方**只能靠它**区分"用户把这一页
-    /// 收掉了"和"压根没开"，见 `openFileResourcePage()`。
-    static constexpr int kResourcePageNotOpened = ResourcePageController::kResourcePageNotOpened;
     /// 进下载页那条路最多允许**再排几轮**去把实例设置那一页收干净（见
     /// `continueOpenDownloadCategory()`）。3 是个宽裕的上限：正常情况第一轮就已经收干净了
     /// （那一发 `dismiss()` 的收尾在下一轮事件循环之前就落定），只有"上面还压着一条提示"
@@ -1442,7 +1437,7 @@ private:
     ///
     /// 为什么单独立一个枚举而不是让调用方自己去 `setModSettingsSlot()`：那一页是
     /// **同一个对象、建一次留着**的，两个入口共用它 ⇒ "摆什么"必须在**每次开页都显式
-    /// 摆一次**，而摆的地方只能是这里（`execPage` 之前）。写成枚举参数的话，**下一个入口
+    /// 摆一次**，而摆的地方只能是这里（`showPage` 之前）。写成枚举参数的话，**下一个入口
     /// 一加进来就编译不过**，不会悄悄沿用上一次那一格。
     ///
     /// 模组点进来的详情页和资源包差不多，但右上角「显示快照版」那里换成「模组设置」
@@ -1453,23 +1448,27 @@ private:
     using DetailSource = ResourcePageController::DetailSource;
     /// 打开这一条资源的详情页（`iconKey` / `kindKey` 是条子上那两个角色）。
     ///
-    /// @return 用户是怎么把这一页收掉的（`execPage()` 那一发的结果）：**返回箭头和 Esc
-    /// 都是 `QDialog::Rejected`**，而这一页自己没有「确定」那一档（那三颗按钮和
-    /// 版本行都只发信号、不 accept）。开不出来时回 `kResourcePageNotOpened` ——
-    /// 调用方按它决定"要不要把来路放回去"（见 `openFileResourcePage()`）。
+    /// 摆上去就返回（`OverlayHost::showPage()`），**不卡调用方**。`onClosed` 在这一页
+    /// 收掉时叫一次，参数和原来 `execPage()` 的返回值同一套：**返回箭头和 Esc 都是
+    /// `QDialog::Rejected`**，`Accepted` 是页上那颗「模组设置」。
     ///
-    /// NOTE: **必须排在事件投递之后**再调（调用点走 `QTimer::singleShot(0, …)`）：里面那句
-    /// `execPage` 会转起一个嵌套事件循环，而调用它的地方（树的事件过滤器）正处在
-    /// 一发鼠标事件的投递途中 —— 在那里面再进一层事件循环，视图那一侧的状态机就悬了。
+    /// @return 这一页**摆上去了没有**。`false` = 没开出来（覆盖层正忙 / 那一行已经
+    /// 不在清单里），调用方按它决定"要不要把来路放回去"（见 `openFileResourcePage()`）。
+    ///
+    /// NOTE: **仍然必须排在事件投递之后**再调（调用点走 `QTimer::singleShot(0, …)`）：
+    /// 调用它的地方（树的事件过滤器）正处在一发鼠标事件的投递途中，视图那一侧的状态机
+    /// 还没落地 —— 和 `openPage()` 那条"排到下一轮再开"是同一个理由。
     /// @param instanceId 非空 = 这一页是**从那个实例进来的**：那一排 chip 会预选到那个实例
     /// 的游戏版本上，而版本组里那个实例的加载器排在前面（进入时版本自动选到当前实例
     /// 对应的那个，对应的模组加载器的版本放前面，资源包等同理，展示为对应版本适用的）。
     /// 空 = 不预选（照旧停在「全部」那颗上）。
     ///
-    /// NOTE: 这一位**不是可选的**（不给默认值）：加一个新入口时忘了说"是不是从某个
+    /// NOTE: `from` 这一位**不是可选的**（不给默认值）：加一个新入口时忘了说"是不是从某个
     /// 实例来的"，编译就过不去 —— 和上面 `DetailSource` 那条设计理由逐字相同。
-    int openResourceDetailPage(const QString &iconKey, const QString &kindKey, DetailSource from,
-                               const QString &instanceId);
+    /// `onClosed` 可以不给（下载页那条路不关心结果）。
+    bool openResourceDetailPage(const QString &iconKey, const QString &kindKey, DetailSource from,
+                                const QString &instanceId,
+                                std::function<void(int)> onClosed = {});
     /// 详情页上方那个「显示快照版」勾选框被拨了（点它、或者按 Alt 键）。
     ///
     /// 它换的是**那一排 chip 的表**（折着的那一份 ↔ 原样那一份），所以三件事一起做：

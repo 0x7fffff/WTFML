@@ -28,7 +28,12 @@
 > 非阻塞）。**2026-11-02 再收一页**：预设编辑器也改走 `showPage()` —— `Host` 上的
 > `execPage` 换成了 `showPage(dialog, title, ownerTab, onClosed)`，收页之后由
 > `openEditor()` 里那条回调做原来的收尾（`m_editor` 清空 / 刷新列表 / `deleteLater`）。
-> A 类调用点 **3 → 2**。还剩 2 处：实例设置、资源详情页（要拿返回值）。
+> A 类调用点 **3 → 2**。**2026-11-02 再收一页**：资源详情页也改走 `showPage()` ——
+> `ResourcePageController::open()` 多收一个 `onClosed(int)`（`QDialog::result()` 那套
+> 语义），`true` = 摆上去了、`false` = 没开出来（原来 `kResourcePageNotOpened` 那一档）。
+> 从实例文件页点「详情」进来的那一路用这个回调判结果（`Accepted` = 页上那颗「模组设置」，
+> 收完去配置文件页；`Rejected` = 返回，退回原来那一页）。A 类调用点 **2 → 1**。
+> 还剩 1 处：**实例设置**（整页，十几个闭环的接线台）。
 
 ## 两类，别混着看
 

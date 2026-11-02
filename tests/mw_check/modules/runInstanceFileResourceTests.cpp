@@ -327,8 +327,9 @@ void runInstanceFileResourceTests() {
         //
         // 直接读，**不许泵事件**：那一页是同步收的（`invokeMethod` 已经返回 ⇒ 嵌套循环
         // 退完了 ⇒ 覆盖层那一层已经拆了），而"再开一页"那一发还排在队列里没派 ——
-        // 这时候泵一下就等于把它派进下面那个嵌套循环里，卡死在那儿（pumpUntil 是先
-        // processEvents 再看判据的，所以"看着只是读一下"的那一句也会踩上）。
+        // 这时候泵一下就等于把它派出去，这一条读到的就是**新那一页**（也是开着的），
+        // 红的却会是"这一页没关"。（pumpUntil 是先 processEvents 再看判据的，所以
+        // "看着只是读一下"的那一句也会踩上。）
         const bool closed = !overlay->isOpen();
         check(closed,
               "★★ T24.5 点完那颗「详情」**这一页自己关掉了** —— 用户要的是「换个地方」，不是就地"
@@ -337,12 +338,10 @@ void runInstanceFileResourceTests() {
 
         // ---------- ⑤ 开出来的是**那个资源**的详情页 ----------
         //
-        // 这几样必须在**排到下一轮的那一发里面**量：外面泵事件那一句虽然会把产品那
-        // 一发"开新页"派下去，可新页是用 `execPage()` 开的 —— 它当场又开一层嵌套事件
-        // 循环，从外面泵事件的那一句**再也拿不回控制权**（整份 mw_check 挂在那儿，
-        // 一行日志都不出）。所以量这一页的动作自己排一个 0 毫秒定时器：它会在那一层
-        // 循环里面跑（产品的定时器排在前面，先进循环、再派到我们这一发），量完顺手点
-        // 返回把那一层收掉 —— 这才轮得回下面那几条断言。
+        // 这几样必须在**排到下一轮的那一发里面**量：产品那一发"开新页"排在队列里，
+        // 外面泵一次事件就会把它派出去。所以量这一页的动作自己排一个 0 毫秒定时器
+        // —— 产品的定时器排在前面，等它开完页才轮到这一发（`showPage()` 摆上去就
+        // 返回，量完点返回就收掉了）。
         struct DetailProbe {
             bool ran = false;
             bool opened = false;
@@ -382,7 +381,36 @@ void runInstanceFileResourceTests() {
         };
         ReturnProbe returned;
         DetailProbe probe;
-        QTimer::singleShot(0, [&probe, &returned, overlay, &w] {
+        // 「按返回之后落在哪儿」那一发：详情页是一收就返回调用方的（`showPage()`），
+        // 「退回实例设置」那一发排在**下一轮**（见 openFileResourcePage 里那句
+        // `QTimer::singleShot`）—— 所以这一发可能先于它落地。没开就再排自己一轮
+        // （和 ZJ 那一段同一个写法）。
+        int returnTries = 0;
+        std::function<void()> inspectReturn;
+        inspectReturn = [&returned, &inspectReturn, &returnTries, overlay] {
+            if (!overlay->pageOpen() && ++returnTries <= 50) {
+                QTimer::singleShot(0, inspectReturn);
+                return;
+            }
+            returned.ran = true;
+            returned.opened = overlay->pageOpen();
+            const QLabel *label =
+                overlay->findChild<QLabel *>(OverlayHost::overlayTitleLabelName());
+            returned.header = label != nullptr ? label->text() : QString();
+            // 实例设置那个对话框：**这会儿只剩它一个**了（外面那一份是外面那次调用
+            // 的栈上局部，收页时已经析构了），所以 findChild 拿到的就是刚开起来的这个。
+            auto *settings = overlay->findChild<InstanceSettingsDialog *>();
+            returned.hasSettings = settings != nullptr;
+            returned.instanceName = settings != nullptr ? settings->instanceName() : QString();
+            returned.pageKey = settings != nullptr ? settings->currentPageKey() : QString();
+            // 收页只能走返回箭头（见 OverlayHost::dismiss() 那段）—— 这一发不点，
+            // 这一层循环没人收，整份测试就停在这儿了。
+            if (auto *back =
+                    overlay->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
+                back->click();
+            }
+        };
+        QTimer::singleShot(0, [&probe, overlay, &w, &inspectReturn] {
             probe.ran = true;
             probe.opened = overlay->pageOpen();
             ResourceDetailPage *detail = w.findChild<ResourceDetailPage *>();
@@ -412,27 +440,7 @@ void runInstanceFileResourceTests() {
                 probe.firstGroupTitle = detail->groupTitleAt(0);
             }
             // 收这一页（= 用户按返回）之后，**紧接着**排下一发去量"退回到哪儿了"。
-            // 排在这一发里（而不是点完返回之后在外面排）是因为返回一点下去，这一层循环
-            // 马上就要退出、实例设置那一层马上就要起来 —— 在外面排就晚了一轮。
-            QTimer::singleShot(0, [&returned, overlay] {
-                returned.ran = true;
-                returned.opened = overlay->pageOpen();
-                const QLabel *label =
-                    overlay->findChild<QLabel *>(OverlayHost::overlayTitleLabelName());
-                returned.header = label != nullptr ? label->text() : QString();
-                // 实例设置那个对话框：**这会儿只剩它一个**了（外面那一份是外面那次调用
-                // 的栈上局部，收页时已经析构了），所以 findChild 拿到的就是刚开起来的这个。
-                auto *settings = overlay->findChild<InstanceSettingsDialog *>();
-                returned.hasSettings = settings != nullptr;
-                returned.instanceName = settings != nullptr ? settings->instanceName() : QString();
-                returned.pageKey = settings != nullptr ? settings->currentPageKey() : QString();
-                // 收页只能走返回箭头（见 OverlayHost::dismiss() 那段）—— 这一发不点，
-                // 这一层循环没人收，整份测试就停在这儿了。
-                if (auto *back =
-                        overlay->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
-                    back->click();
-                }
-            });
+            QTimer::singleShot(0, [&inspectReturn] { inspectReturn(); });
             // 收页只能走返回箭头（见 OverlayHost::dismiss() 那段）。
             if (auto *back =
                     overlay->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
@@ -493,6 +501,9 @@ void runInstanceFileResourceTests() {
               "放在前面」）—— 夹具里同一个游戏版本下 neoforge 排在 fabric **后面**，所以这一条"
               "真红了就说明排序没生效，而屏幕上一点异常都没有",
               QStringLiteral("第一组：%1").arg(probe.firstGroupTitle));
+
+        // 那一发要等产品排到下一轮的那一下跑完才落得下来（见 inspectReturn 那段）。
+        pumpUntil([&returned] { return returned.ran; }, 5000);
 
         // ---------- ⑥ 按返回之后**退回到实例设置**（用户 那句）----------
         //
@@ -591,9 +602,9 @@ void runInstanceFileResourceTests() {
               "★★ T24.7 点完模组那一行的「详情」，实例设置那一页也**自己收起来了**"
               "（和点资源包那一趟走的是同一条路，见 T24.5）");
 
-        // 这一层和 ⑤⑥ 那一段同构：详情页是 `execPage()` 开的，量它只能自己排一发 0 毫秒
-        // 定时器（那一发在它那层嵌套循环里跑），量完点返回把那一层收掉 —— 外面那句
-        // `pumpUntil` 才拿得回控制权。
+        // 这一层和 ⑤⑥ 那一段同构：产品那一发"开新页"排在队列里，量这一页只能自己排
+        // 一发 0 毫秒定时器（产品的定时器排在前面，等它开完页才轮到这一发）；
+        // `showPage()` 摆上去就返回，量完点「模组设置」把它收掉。
         struct ModDetailProbe {
             bool ran = false;
             bool opened = false;
@@ -617,7 +628,29 @@ void runInstanceFileResourceTests() {
         };
         ModDetailProbe modProbe;
         ModReturnProbe modReturned;
-        QTimer::singleShot(0, [&modProbe, &modReturned, overlay, &w] {
+        // 同 inspectReturn：点「模组设置」那一发也是先收页、再排到下一轮开实例设置。
+        int modReturnTries = 0;
+        std::function<void()> inspectModReturn;
+        inspectModReturn = [&modReturned, &inspectModReturn, &modReturnTries, overlay] {
+            if (!overlay->pageOpen() && ++modReturnTries <= 50) {
+                QTimer::singleShot(0, inspectModReturn);
+                return;
+            }
+            modReturned.ran = true;
+            modReturned.opened = overlay->pageOpen();
+            const QLabel *label =
+                overlay->findChild<QLabel *>(OverlayHost::overlayTitleLabelName());
+            modReturned.header = label != nullptr ? label->text() : QString();
+            auto *settings = overlay->findChild<InstanceSettingsDialog *>();
+            modReturned.hasSettings = settings != nullptr;
+            modReturned.instanceName = settings != nullptr ? settings->instanceName() : QString();
+            modReturned.pageKey = settings != nullptr ? settings->currentPageKey() : QString();
+            if (auto *back =
+                    overlay->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
+                back->click();
+            }
+        };
+        QTimer::singleShot(0, [&modProbe, overlay, &w, &inspectModReturn] {
             modProbe.ran = true;
             modProbe.opened = overlay->pageOpen();
             auto *detail = w.findChild<ResourceDetailPage *>();
@@ -647,22 +680,7 @@ void runInstanceFileResourceTests() {
                 }
             }
             // 点击模组设置，下一轮检查是否进入同一实例的配置管理。
-            QTimer::singleShot(0, [&modReturned, overlay] {
-                modReturned.ran = true;
-                modReturned.opened = overlay->pageOpen();
-                const QLabel *label =
-                    overlay->findChild<QLabel *>(OverlayHost::overlayTitleLabelName());
-                modReturned.header = label != nullptr ? label->text() : QString();
-                auto *settings = overlay->findChild<InstanceSettingsDialog *>();
-                modReturned.hasSettings = settings != nullptr;
-                modReturned.instanceName =
-                    settings != nullptr ? settings->instanceName() : QString();
-                modReturned.pageKey = settings != nullptr ? settings->currentPageKey() : QString();
-                if (auto *back =
-                        overlay->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
-                    back->click();
-                }
-            });
+            QTimer::singleShot(0, [&inspectModReturn] { inspectModReturn(); });
             if (detail != nullptr && detail->modSettingsButton() != nullptr)
                 detail->modSettingsButton()->click();
             else overlay->dismiss();
@@ -700,6 +718,7 @@ void runInstanceFileResourceTests() {
         check(!modProbe.checkboxChecked,
               "★★ T24.7 这一档上裸 Alt 那一下**什么都不拨**（那一格上压根没有勾选框可拨 ——"
               "拨一个看不见的勾，用户只会得出「这软件没反应」的结论）");
+        pumpUntil([&modReturned] { return modReturned.ran; }, 5000);
         check(modReturned.ran && modReturned.opened && modReturned.hasSettings &&
                   modReturned.instanceName == idV,
               "★★ T24.7 点击模组设置进入同一实例的设置，不误开其他实例",

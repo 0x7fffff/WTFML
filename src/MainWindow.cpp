@@ -2910,9 +2910,10 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
                 // 按下就动手（松开和那几发双击只负责被吃掉）—— 和实例行上那三颗一个规矩。
                 const QString iconKey =
                     item->data(column, MainWindowUI::resourceIconIdRole()).toString();
-                // **排到下一轮事件循环**再开页：`execPage` 里面要转起一个嵌套事件循环，
-                // 而这一发还在视图的事件处理里（列表那一侧的状态机悬在半路）。这里传的是
-                // 两个字符串**值**，不是条目指针 —— 下一轮里树可能已经被重搜清空了。
+                // **排到下一轮事件循环**再开页：这一发还在视图的事件处理里（列表那一侧
+                // 的状态机悬在半路），开页那一句不该在这里跑（和 `openPage()` 那条
+                // "排到下一轮再开"是同一个理由）。这里传的是两个字符串**值**，不是条目
+                // 指针 —— 下一轮里树可能已经被重搜清空了。
                 //
                 // 来路钉死是 `Download`：这条路上这一页**永远**摆「显示
                 // 快照版」，哪怕点的是一个模组（不能把下载页的行为带偏）。
@@ -4156,12 +4157,13 @@ void MainWindow::setupResourceDetailPage() {
     m_resourcePage->setup();
 }
 
-int MainWindow::openResourceDetailPage(const QString &iconKey, const QString &kindKey,
-                                       DetailSource from, const QString &instanceId) {
+bool MainWindow::openResourceDetailPage(const QString &iconKey, const QString &kindKey,
+                                        DetailSource from, const QString &instanceId,
+                                        std::function<void(int)> onClosed) {
     if (m_resourcePage == nullptr) {
         m_resourcePage = new ResourcePageController(this);
     }
-    return m_resourcePage->open(iconKey, kindKey, from, instanceId);
+    return m_resourcePage->open(iconKey, kindKey, from, instanceId, onClosed);
 }
 
 void MainWindow::fillResourcePageGroups() {
@@ -6712,27 +6714,39 @@ void MainWindow::onNavigationApplied(int sourceIndex, int index, bool reselected
 
 void MainWindow::openFileResourcePage(const QString &versionId, const QString &iconKey,
                                       const QString &kindKey) {
-    // 判据是 `QDialog::Rejected`（= 用户把这一页**收掉**了）：返回箭头和 Esc 走的都是
-    // 它。Accepted 专用于「模组设置」，转入当前实例的配置文件管理。
-    //
-    // 必须和 `kResourcePageNotOpened` 分开认：那一档是"这一页压根没开出来"（上面第
-    // ① ② 步认完之后、`m_resourceHits` 里那条已经不在了之类）。不分开的话，用户点一下
-    // 名字 = 实例设置被收掉、详情页没出来、实例设置又被摆回去，看着就是白闪一下。
-    //
     // 来路是 `InstanceFiles`：只有这一条路上那一页才可能摆「模组设置」（见
     // openResourceDetailPage 里那一句 —— 还要**同时**是个模组）。
-    const int result = openResourceDetailPage(iconKey, kindKey, DetailSource::InstanceFiles, versionId);
-    if (result == QDialog::Accepted && !versionId.isEmpty() && kindKey == QStringLiteral("mod")) {
-        openInstanceSettings(versionId, QStringLiteral("config"));
-        return;
-    }
-    if (result != QDialog::Rejected || versionId.isEmpty()) {
-        return;
-    }
-    // 回来时开在**刚才那一页**上（`kindKey` 就是那一页的键 —— 「这一页是哪一类资源」
-    // 和「实例设置里哪一页」现在恰好同名，那个等式在 filesDownloadCategoryKey() 一处）。
-    // 从模组点进去，返回也落在模组那一页而非概览，其余同理。
-    openInstanceSettings(versionId, kindKey);
+    //
+    // 收页之后怎么办**全在回调里**（`showPage()` 不等这一页收掉就返回了）。判据还是
+    // `QDialog::Rejected`（= 用户把这一页**收掉**了）：返回箭头和 Esc 走的都是它；
+    // `Accepted` 专用于「模组设置」，转入当前实例的配置文件管理。
+    //
+    // 必须和"压根没开出来"分开认：那一档是上面第 ① ② 步认完之后、`m_resourceHits`
+    // 里那条已经不在了之类 —— 没开出来就**什么也别做**。不分开的话，用户点一下名字 =
+    // 实例设置被收掉、详情页没出来、实例设置又被摆回去，看着就是白闪一下。
+    openResourceDetailPage(
+        iconKey, kindKey, DetailSource::InstanceFiles, versionId,
+        [this, versionId, kindKey](int result) {
+            // 这一发是从 `closeOverlay()` 里发出来的（`pageClosed` 就发在那儿，那一页
+            // 还没从"正在收"里走出来）。实例设置那一页现在仍会卡一个嵌套事件循环 ——
+            // 就在这一发里开它等于在收尾途中又进一层，所以**排到下一轮**再开
+            // （和 `openDownloadCategory()` 那边同一个手法）。
+            QTimer::singleShot(0, this, [this, versionId, kindKey, result] {
+                if (result == QDialog::Accepted && !versionId.isEmpty() &&
+                    kindKey == QStringLiteral("mod")) {
+                    openInstanceSettings(versionId, QStringLiteral("config"));
+                    return;
+                }
+                if (result != QDialog::Rejected || versionId.isEmpty()) {
+                    return;
+                }
+                // 回来时开在**刚才那一页**上（`kindKey` 就是那一页的键 —— 「这一页是哪
+                // 一类资源」和「实例设置里哪一页」现在恰好同名，那个等式在
+                // filesDownloadCategoryKey() 一处）。从模组点进去，返回也落在模组那一页
+                // 而非概览，其余同理。
+                openInstanceSettings(versionId, kindKey);
+            });
+        });
 }
 
 void MainWindow::openInstanceFileResource(const QString &versionId, const QString &pageKey,

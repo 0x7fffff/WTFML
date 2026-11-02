@@ -242,8 +242,9 @@ void runDependencyAndBatchTests() {
                                       Q_ARG(QString, idV));
             check(r.settingsOpened, tag + QStringLiteral("：实例设置那一页开起来了"));
 
-            // ② 详情页那一层。产品开这一页走的是 `execPage()`（一层嵌套事件循环），
-            // 所以量它的动作只能自己排一发 0 毫秒定时器 —— 那一发在**它那层循环**里跑。
+            // ② 详情页那一层。产品那一发"开新页"排在队列里（这一页走 `showPage()`，
+            // 摆上去就返回），所以量它的动作自己排一发 0 毫秒定时器 —— 产品的定时器
+            // 排在前面，等它开完页才轮到这一发。
             //
             // 「一起下载」那一趟的按钮脚本是 `{1, 0}`：第 1 条提示（前置）点右边那颗
             // 「一起下载」，第 2 条（下载失败 —— 这一节那两份文件都指向假服务器，
@@ -278,20 +279,31 @@ void runDependencyAndBatchTests() {
                     while (quiet.elapsed() < 1200) {
                         QApplication::processEvents(QEventLoop::AllEvents, 50);
                     }
-                    // 收页的动作**排在下一发里**：返回箭头一点，产品紧接着就把实例设置
-                    // 又开起来（一层新循环，见 T24.5），那一层得有人收 —— 不排的话整份
-                    // mw_check 就停在那层循环里了（一行日志都不出）。
-                    QTimer::singleShot(0, [&, overlay] {
+                    // 收页：返回箭头一点，详情页当场收掉（`showPage()` 摆上去的那种，
+                    // 收页是同步的），产品紧接着把实例设置**排到下一轮**再开起来
+                    // （见 openFileResourcePage 里那句 `QTimer::singleShot`）——
+                    // 所以「再点一下返回把它收掉」这一发必须等它真起来：没开就再排
+                    // 自己一轮（和 T24.5 那一段同一个写法）。不等的话这一发会点空，
+                    // 那一页开着没人收，整份 mw_check 就停在那层循环里了（一行日志
+                    // 都不出）。
+                    int backTries = 0;
+                    std::function<void()> closeSettings;
+                    closeSettings = [&, overlay] {
+                        if (!overlay->pageOpen() && ++backTries <= 50) {
+                            QTimer::singleShot(0, closeSettings);
+                            return;
+                        }
                         if (auto *back = overlay->findChild<QPushButton *>(
                                 OverlayHost::overlayBackButtonName())) {
                             back->click();
                         }
                         r.done = true;
-                    });
+                    };
                     if (auto *back = overlay->findChild<QPushButton *>(
                             OverlayHost::overlayBackButtonName())) {
                         back->click();
                     }
+                    QTimer::singleShot(0, closeSettings);
                 } else {
                     r.done = true;
                 }

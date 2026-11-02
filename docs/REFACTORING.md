@@ -667,4 +667,28 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 （开页返回时页面就在屏幕上、存草稿之后页面真的收掉了、重开草稿拿到同一份文档），
 假宿主换成一条同语义的 `showPage`（`finished` → `onClosed`）。
 
-**还剩 2 处**：实例设置、资源详情页（要拿返回值）。
+### 2026-11-02 资源详情页也改了（要返回值的那一页走回调）
+
+`ResourcePageController::open()` 原来返回 `execPage()` 的结果（`kResourcePageNotOpened`
+= 没开出来那一档），调用方开完立刻读 `state().open` 往下走。现在改成 `bool` + 一个
+`std::function<void(int)> onClosed`：
+
+- 返回 `true` = 这一页摆上去了；`false` = 没开出来（覆盖层正忙 / 那一类的键不认识 /
+  那把钥匙不在表里）—— 和以前 `kResourcePageNotOpened` 那一档同义，`state().open`
+  在 `showPage()` 之前就落下来，所以"开完立刻读"的地方一行都不用改。
+- `onClosed(int)` 接在 `OverlayHost::pageClosed()` 上（按页面对象认人、
+  `Qt::SingleShotConnection`），参数是 `QDialog::result()`：`Rejected` = 返回箭头，
+  `Accepted` = 页上那颗「模组设置」。
+
+主窗口那侧只有一个真正的调用方要判结果：`openFileResourcePage()`（从实例文件页点
+「详情」进来的那一路）。它的收尾原来排在 `execPage()` 返回之后 —— 现在整段挪进
+`onClosed`，而且**再排一发** `QTimer::singleShot(0, …)` 才去开实例设置：`onClosed`
+是在 `closeOverlay()` 发 `pageClosed()` 的栈里跑的，直接在里面开另一页（实例设置还是
+`execPage`）等于在收页的半路上又开一层嵌套循环。
+
+验证：`runInstanceFileResourceTests` 的 T24 里那几发探针从"排在详情页那层嵌套循环里"
+改成"排到下一轮 + 没开就再排自己一轮"（`overlay->pageOpen()` 判据）；
+`runDependencyAndBatchTests` 的 T31 收尾同理（产品把"退回实例设置"排到下一轮，
+收它那一发必须等它真起来）。
+
+**还剩 1 处**：实例设置（整页，十几个闭环的接线台）。
