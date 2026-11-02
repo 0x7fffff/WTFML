@@ -4137,7 +4137,7 @@ void MainWindow::finishUpdateBatch(bool success, const QString &errorMessage) {
 //
 // 下载页点中一个模组后进入一个**整页**：上方是模组图像、名字、来源和转到
 // modrinth/curseforge/mcmod.cn 的入口，中间一排版本，下方排列版本。
-// "独立界面"落成**整页覆盖层**（`OverlayHost::execPage`，顶上四个选项卡和
+// "独立界面"落成**整页覆盖层**（`OverlayHost::showPage`，顶上四个选项卡和
 // 底栏照旧露着，不另开窗）。
 //
 // 三件事的分工（写清楚免得下次改错地方）：
@@ -7017,13 +7017,14 @@ void MainWindow::warnOverlayBusy() {
     // 挡在这儿的是**已经开着的那一层**（一层只放得下一个页面，见 OverlayHost.hpp 那段）。
     // 它可能是"正铺在眼前"（用户点的是底栏那些没被盖住的按钮），也可能是"收着"。
     //
-    // NOTE: **这一条不能不出声。** `execPage()` 拿到 nullptr 直接返回 Rejected，对话框
+    // NOTE: **这一条不能不出声。** 开页那一下拿到 nullptr / false 时，调用方把对话框
     // 建了、一个字节没写、原地销毁 —— 用户点了实例行（或者组行那颗齿轮），屏幕上
     // **什么都没发生**，也没有任何提示。
     //
     // NOTE: 起这一句只在**收不掉**的时候才出现（正常那一档是静默收掉 + 直接
-    // 继续，见 runWhenOverlayFree）—— 真走到这儿说明那一层卡在自己的嵌套循环里、
-    // 连收页那一发都没认，这时候唯一能做的是把话说清楚。
+    // 继续，见 runWhenOverlayFree）—— 真走到这儿说明那一层连收页那一发都没认
+    // （页面早就不卡嵌套循环了，只可能是这一层的状态出了意外），
+    // 这时候唯一能做的是把话说清楚。
     const QString title = overlay->pageTitle();
     if (title.isEmpty()) {
         InlineMessage::warning(overlay, tr("先关掉现在这一条提示"),

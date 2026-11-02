@@ -91,12 +91,12 @@ int UiOverlayNavigationChecks() {
 
         // ③ 站在「甲」上再来一下 = 「回到这个功能的首页」：发的是返回箭头那一发。
         check(host.dismiss() && backCount == 1,
-              "★★ O2 站在自己这一页上再点一下 = 发**返回箭头那一发**（`execPage()` 那一次"
-              "才醒得过来）",
+              "★★ O2 站在自己这一页上再点一下 = 发**返回箭头那一发**（收页要经过页面自己的"
+              "reject）",
               QStringLiteral("发了 %1 次").arg(backCount));
         QObject::disconnect(backSpy);
-        // NOTE: 这一节里**没人接那一发**（产品那边接的是 `execPage()` 里那个嵌套循环：收到
-        // 就 `reject()`，再由 `execEmbedded` 收尾）。那一整条链在 mw_check 的 ZJ10 里
+        // NOTE: 这一节里**没人接那一发**（产品那边接的是 `showPage()`：收到就 `reject()`，
+        // 再由 `finished` 收掉这一层）。那一整条链在 mw_check 的 ZJ10 里
         // 按真按钮走过一遍；这里手动把这一层收掉，接着往下量别的。
         host.closeOverlay();
         QApplication::processEvents();
@@ -175,7 +175,7 @@ int UiOverlayNavigationChecks() {
             int fired = 0;
             check(host.queuePageOpen([&fired, &host] {
                       ++fired;
-                      // 真·开一页（更新中心那条路就是这个形状：`execPage` 里嵌一个对话框）——
+                      // 真·开一页（更新中心那条路就是这个形状：`showPage()` 摆一个对话框）——
                       // 这里只摆一层空页也够：要验的是"轮到它的时候这一层确实空着"。
                       if (QWidget *area = host.openPage(QStringLiteral("后台那页"))) {
                           area->setProperty("queuedPageOpened", true);

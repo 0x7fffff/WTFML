@@ -202,8 +202,8 @@ void UpdateCenterController::onUpdateRequested(const QStringList &paths) {
     if (instanceId.isEmpty() || paths.isEmpty()) {
         return;
     }
-    // 先把这一页收掉（它正卡在 execPage 的嵌套事件循环里），**排到下一轮**再动手 ——
-    // 更新那一批失败了会往同一条覆盖层上弹提示，现在不排会撞上还没收干净的这一页。
+    // 先把这一页收掉（收页本身是同步的，但这一发正站在页面自己的槽里），**排到下一轮**
+    // 再动手 —— 更新那一批失败了会往同一条覆盖层上弹提示，当场弹会压在还没退栈的页面上。
     // （和完整性报告页那颗「补齐…」是同一个路数。）
     if (m_page != nullptr) {
         m_page->reject();

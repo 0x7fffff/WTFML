@@ -287,9 +287,9 @@ void runInstanceFileResourceTests() {
             // ---------- ③ 按下去：这一页收起来、那一页开出来 ----------
             //
             // 这一发之后**一个 processEvents 都不许有**：收页那一发是同步的
-            // （`dismiss()` 让那个嵌套循环退出），而"开新页"那一发是**排到下一轮**的
+            // （`dismiss()` 一路走到 `closeOverlay()`），而"开新页"那一发是**排到下一轮**的
             // （见 openInstanceFileResource() 里那段 ★）—— 在这儿泵一下事件，
-            // 新页就会在那个嵌套循环还没退出的时候就开，被 `overlay->isOpen()` 吃掉。
+            // 新页就会在旧的这一层还没拆干净的时候开，被 `overlay->isOpen()` 吃掉。
             // （ZJ 那一段里同一条规矩的另一种写法。）
             // 按的是**行尾那颗「详情」**（单击条目只是选中）。`click()` 走的是
             // `QToolButton::clicked` —— 这颗按钮接的就是 `emit detailRequested(path)`。
@@ -298,17 +298,16 @@ void runInstanceFileResourceTests() {
             }
 
             // 兜底（不是"顺手加的保险"，是**必须**有的）：上面这一下要是没能把这一页
-            // 收掉（身份没认出来 / 那一行没找到），`execPage()` 那个嵌套事件循环就永远
-            // 不返回 —— 下面那句 `invokeMethod` 会挂死在那儿，整份 mw_check 一行日志都
-            // 不出（ZJ 那一段里同一条坑的另一种写法）。这一发让"没做到"退化成一条红的
-            // 断言，而不是把测试卡住。
+            // 收掉（身份没认出来 / 那一行没找到），这一页就一直占着覆盖层 —— 产品排队
+            // 的那一发"开新页"会撞上它、被 `isOpen()` 顺手扔掉，红的却变成"那一页没开
+            // 出来"。这一发让"没做到"退化成一个干净的起点。
             //
             // 判据必须是**"那一下本来就不会有反应"**，不能是"这一页还开着"：点中的
-            // 那一下是**同步**收页的（`dismiss()` 只发 signal，`m_mode` 要等嵌套循环
-            // 退完才归 None），所以刚点完这一页**照旧是开着的** —— 按"还开着"进这一支
-            // 的话，下面那句 `processEvents()` 会把产品排队的那一发"开新页"提前吃掉
-            // （那一刻覆盖层还盖着，`openResourceDetailPage` 开头那条 `isOpen()` 顺手
-            // 把这次点击扔掉），于是红的变成"那一页没开出来"，而真凶在这一行。
+            // 那一下是**同步**收页的（`dismiss()` ⇒ `reject()` ⇒ `finished` ⇒
+            // `closeOverlay()`，`click()` 返回时这一层已经拆了）。按"还开着"进这一支的话，
+            // 万一页面真没收掉，下面那句 `processEvents()` 会先派产品排队的那一发
+            // "开新页"，而它撞在还盖着的这一层上被扔掉（`openResourceDetailPage` 开头那条
+            // `isOpen()`）——红的变成"那一页没开出来"，真凶在这一行。
             if (packDetail == nullptr || !packClickable) {
                 if (auto *back = host->findChild<QPushButton *>(
                         OverlayHost::overlayBackButtonName())) {
@@ -333,16 +332,17 @@ void runInstanceFileResourceTests() {
 
         // ---------- ④ 那一页真的收起来了 ----------
         //
-        // 直接读，**不许泵事件**：那一页是同步收的（`invokeMethod` 已经返回 ⇒ 嵌套循环
-        // 退完了 ⇒ 覆盖层那一层已经拆了），而"再开一页"那一发还排在队列里没派 ——
+        // 直接读，**不许泵事件**：那一页是同步收的（`click()` 返回时 `dismiss()` 已经
+        // 走到 `closeOverlay()` ⇒ 覆盖层那一层已经拆了），而"再开一页"那一发还排在队列里
+        // 没派 ——
         // 这时候泵一下就等于把它派出去，这一条读到的就是**新那一页**（也是开着的），
         // 红的却会是"这一页没关"。（pumpUntil 是先 processEvents 再看判据的，所以
         // "看着只是读一下"的那一句也会踩上。）
         const bool closed = !overlay->isOpen();
         check(closed,
               "★★ T24.5 点完那颗「详情」**这一页自己关掉了** —— 用户要的是「换个地方」，不是就地"
-              "多出一个东西（收页那一下走的是 dismiss()：那一页正卡在 execPage 的嵌套事件"
-              "循环里，只 closeOverlay() 的话那个循环永远不返回）");
+              "多出一个东西（收页那一下走的是 dismiss()：它经过页面自己的 reject；只 closeOverlay()"
+              "的话页面的收尾和收页钩子都不跑）");
 
         // ---------- ⑤ 开出来的是**那个资源**的详情页 ----------
         //

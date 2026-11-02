@@ -103,7 +103,7 @@ void ServerSettingsPageController::open(const QString &serverId) {
     m_page->setSection(ServerSettingsPage::Section::Common);
     refresh();
 
-    // 开页要说清 `ownerTab`、并且**先切过去**（见 `OverlayHost::execPage` 那段）：这一页
+    // 开页要说清 `ownerTab`、并且**先切过去**（见 `OverlayHost::showPage` 那段）：这一页
     // 是从服务端列表上开出来的，那一位就是"实例"这一颗。
     const int instancesTab = MainWindowUI::instancesTabIndex();
     if (QTabWidget *tabs = m_owner.m_ui->getTabWidget()) {

@@ -466,10 +466,10 @@ int MwAccountAppearanceChecks() {
                         if (manageButton != nullptr) {
                             manageButton->click();
                         }
-                        // 这个入口是 `execPage()`（整页盖住内容区 + 内部一个
-                        // 嵌套事件循环），"点开之后要干的那些事"必须排进这一发定时器，
-                        // 最后按返回箭头离开，`click()` 才会返回。见 Z2 开头那段（那里把
-                        // 理由写全了）。
+                        // 这个入口开的是覆盖层的整页（`OverlayHost::showPage()`），
+                        // "点开之后要干的那些事"排进这一发 0 毫秒定时器（它现在跑在主事件
+                        // 循环里，不再靠嵌套循环），最后按返回箭头离开。见 Z2 开头那段
+                        // （那里把理由写全了）。
                         QTimer::singleShot(0, [&w11, &auth, accountName, offlineUuid, entry] {
                             OverlayHost *host =
                                 w11.findChild<OverlayHost *>(OverlayHost::overlayHostName());

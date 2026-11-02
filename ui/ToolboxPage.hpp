@@ -96,7 +96,7 @@ public:
     /// 颜色由调用方给（面板拿主题色那一档）。
     static QIcon toolIcon(Tool tool, const QColor &ink);
     /// 面板标题旁那把扳手（同一个画法）。
-    static QIcon panelTitleIcon(const QColor &ink);    /// 这一页的标题（`OverlayHost::execPage` 顶上那一条写的字）。
+    static QIcon panelTitleIcon(const QColor &ink);    /// 这一页的标题（`OverlayHost::showPage` 顶上那一条写的字）。
     static QString windowTitle() { return QStringLiteral("工具箱"); }
 
     /// 验证工程认控件用的那几个名字（`@p tool` 那一档的 chip / 页 / 以及**底栏面板上

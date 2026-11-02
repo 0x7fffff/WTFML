@@ -948,7 +948,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 // · 界面线程每 100 ms 把账本抄进任务中心（步骤状态、进度、提示行）；
                 // · 收尾那一发 `finished` 才弹结果、问快速启动。
                 //
-                // NOTE: 用户此时可能已经把实例设置页收掉了（这一整段不再阻塞 `execPage`）。
+                // NOTE: 用户此时可能已经把实例设置页收掉了（这一页不再阻塞调用方）。
                 // 所以 finished 里对对话框的引用一律先过 `QPointer`；任务账本那一侧
                 // 不依赖对话框，照样收尾。
                 const QString sourceDir = AppPaths::versionDir(sourceId);
@@ -1223,7 +1223,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                             }
 
                             // 搬过之后（或者刚多了一份副本）把目标列和计划重摆一遍。
-                            // 对话框可能已经被收掉了（这一趟不再阻塞 execPage）——
+                            // 对话框可能已经被收掉了（这一页不再阻塞调用方）——
                             // 那两个 lambda 都捕着 `&dialog`，只能在它还活着时调。
                             if (dialogGuard == nullptr) {
                                 return;

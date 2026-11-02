@@ -70,7 +70,7 @@ void ServerConsoleController::open(const QString &serverId) {
     // 只剩"从打开这一刻起"的日志。
     m_page->setLog(process != nullptr ? process->logLines() : QStringList());
     refresh();  // 状态那几行的唯一出处
-    // 开页要说清 `ownerTab`、并且**先切过去**（见 OverlayHost::execPage 那段）：这一页
+    // 开页要说清 `ownerTab`、并且**先切过去**（见 OverlayHost::showPage 那段）：这一页
     // 是从服务端列表上开出来的，那一位就是"实例"这一颗。不切的话，页眉上那颗返回箭头
     // 收页之后用户会落在一个跟刚才没关系的选项卡上。
     const int instancesTab = MainWindowUI::instancesTabIndex();

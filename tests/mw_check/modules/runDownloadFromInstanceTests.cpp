@@ -386,9 +386,9 @@ void runDownloadFromInstanceTests() {
         check(tabs->currentIndex() == MainWindowUI::downloadTabIndex() && navInstance != nullptr,
               "T25.7 前提：此刻停在下载页上（那颗「实例」是从这儿按下去的）");
 
-        // 两下都在**同一次信号里**做完：第一下进去（`execPage` 那层嵌套循环），那层循环
-        // 里的定时器记下"开出来的那一页长什么样"，**再按第二下**把这一页收掉 —— 收掉正是
-        // 让外面那次 `click()` 能返回的条件。两次读的都是真状态，中间没有假手。
+        // 两下都在**同一次信号里**做完：第一下把页开出来（非阻塞，`showPage()`），那一发
+        // 定时器记下"开出来的那一页长什么样"，**再按第二下**把这一页收掉 —— 两次读的都是
+        // 真状态，中间没有假手。
         bool navOpened = false;
         bool navSecondClicked = false;
         QString navPageKey;

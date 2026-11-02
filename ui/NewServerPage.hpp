@@ -19,7 +19,7 @@
  * 【它和一个普通确认框的区别】
  *
  * 用户填的每一格都**真的会变成盘上那个服务端**（名字变目录名、档和版本变成启动命令）——
- * 所以它在覆盖层里**整页**出现（`OverlayHost::execPage()`），而不是开一个小框。填到哪一格
+ * 所以它在覆盖层里**整页**出现（`OverlayHost::showPage()`），而不是开一个小框。填到哪一格
  * 才知道下一步要填什么（类型一变，下面那几行跟着露/收），挤在小框里做不了这件事。
  *
  * NOTE: 这一页**不联网、不碰盘**：它 `accept()` 之后才轮到 `MainWindow` 去建目录、去下载。
@@ -57,7 +57,7 @@ public:
 
     explicit NewServerPage(QWidget *parent = nullptr);
 
-    /// 覆盖层页眉上那行字（`OverlayHost::execPage` 的标题）。
+    /// 覆盖层页眉上那行字（`OverlayHost::showPage` 的标题）。
     static QString windowTitle() { return QStringLiteral("新建服务端"); }
 
     /// 摆那八档（**每次开页都重新喂**：同一页对象会被复用）。@p defaultToken 是起手停在哪一档。

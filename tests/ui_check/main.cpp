@@ -2666,8 +2666,8 @@ int main(int argc, char *argv[]) {
     // 事（mw_check 的 ZJ10 走真按钮），这里只管"锚点换了一页，这一层该怎么办"。
     //
     // "收着"和"关掉"是两件事，这一节钉的就是这个区别：收着 = `pageOpen()` 还是真、页对象
-    // 和它的内容一个不少（那页正卡在 `execPage()` 的嵌套事件循环里，收掉了调用方会一直等
-    // 下去），只是不露面。判据走 `parked()` + `isVisible()`。
+    // 和它的内容一个不少（收掉了"切回来还是原来那一页"就没了），只是不露面。判据走
+    // `parked()` + `isVisible()`。
     std::printf("\n===== O2. 切选项卡 = 这一页收着（不是关掉） =====\n");
     if (const int result = UiOverlayNavigationChecks(); result != 0) return result;
 

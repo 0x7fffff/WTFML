@@ -12,7 +12,7 @@
  * * 「忽略这一版」/「固定这一版」→ 以后别再提示我（判据在 `src/manage/UpdatePolicy`）；
  * * 底下那颗「撤销上一次更新」→ 退回这一批动手之前（回滚点，见 `src/manage/UpdateRollback`）。
  *
- * 一页上**不出现第二个窗口**：它是 `OverlayHost::execPage()` 盖在内容区
+ * 一页上**不出现第二个窗口**：它是 `OverlayHost::showPage()` 盖在内容区
  * 上的整页，顶上那颗 `← 返回` 和底下那颗「关闭」都是 `reject()`。
  *
  * 【它认的是自己那套 Report，不是 `ModDependencies::UpdateVerdict`】
@@ -137,7 +137,7 @@ public:
 
     explicit UpdateCenterPage(QWidget *parent = nullptr);
 
-    /// 这一页的标题（`OverlayHost::execPage` 顶上那一条写的字）。
+    /// 这一页的标题（`OverlayHost::showPage` 顶上那一条写的字）。
     static QString windowTitle() { return QStringLiteral("更新中心"); }
 
     /// 摆一份（**每次开页都重新喂一遍**：同一页对象会被复用，见 MainWindow 那边）。

@@ -107,10 +107,10 @@ class ResourceDetailPage : public QDialog {
 public:
     explicit ResourceDetailPage(QWidget *parent = nullptr);
 
-    /// 页眉上那行字（覆盖层那一层显示它，见 OverlayHost::execPage）。拿的是资源名。
+    /// 页眉上那行字（覆盖层那一层显示它，见 OverlayHost::showPage）。拿的是资源名。
     QString titleText() const;
 
-    /// 头卡那一块。**在 execPage 之前调**（页面开着的时候再换整块卡没人这么用）。
+    /// 头卡那一块。**在 showPage 之前调**（页面开着的时候再换整块卡没人这么用）。
     void setHeader(const ResourceDetail::Header &header);
 
     /// 资源图标（异步来的，走 ResourceStore 那一套）。传空的 QPixmap = 这个资源没有图标，

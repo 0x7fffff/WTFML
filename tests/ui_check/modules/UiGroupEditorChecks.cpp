@@ -28,7 +28,7 @@ int UiGroupEditorChecks() {
         // 「名字不合法」「重名」「恢复默认」那几条路都会**说一句为什么**，而那句话从
         // 起开在**内容区中间那一块**（`InlineMessage`），不再是一个独立的
         // QMessageBox 窗。要让这一句弹得出来，这个对话框自己得先"在覆盖层里" ——
-        // 产品那边它就是被 MainWindow 当一页塞进覆盖层的（见 OverlayHost::execPage），
+        // 产品那边它就是被 MainWindow 当一页塞进覆盖层的（见 OverlayHost::showPage），
         // 所以这里也照那条路摆一个**只服务于这一节的**覆盖层（不动上面那个 ui 的状态，
         // 那边 O 段还要断言"刚搭好的时候它是关着的"）。
         //

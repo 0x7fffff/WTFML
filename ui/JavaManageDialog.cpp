@@ -18,7 +18,7 @@
 namespace {
 
 /// 独立开出来时的大小。**内嵌到覆盖层里时它不作数**（那一层给的是整个内容区的宽度，
-/// 见 OverlayHost::execEmbedded）—— 和 InstanceSettingsDialog 同一个道理：这一句只为
+/// 见 OverlayHost::showPage）—— 和 InstanceSettingsDialog 同一个道理：这一句只为
 /// 了验证工程能把这个框单独摆出来看。
 constexpr int kDialogWidth = 780;
 constexpr int kDialogHeight = 440;
@@ -91,7 +91,7 @@ QString JavaManageDialog::titleText() const {
 JavaManageDialog::JavaManageDialog(QWidget *parent) : QDialog(parent) {
     setWindowTitle(titleText());
     // 「确定」都没有：这一页不是"填一张表然后提交"，每一颗按钮点下去就各自去做事，
-    // 左上角那颗返回箭头只是关掉这一页（OverlayHost::execPage 接的就是它）。
+    // 左上角那颗返回箭头只是关掉这一页（OverlayHost::showPage 接的就是它）。
     resize(kDialogWidth, kDialogHeight);
 
     auto *outer = new QVBoxLayout(this);

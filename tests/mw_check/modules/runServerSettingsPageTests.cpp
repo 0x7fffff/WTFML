@@ -366,7 +366,7 @@ void runServerSettingsPageTests() {
 
         // ---------- ⑨ 收页 ----------
         if (auto *back = host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
-            back->click();  // 返回箭头 = reject（见 OverlayHost::execPage）
+            back->click();  // 返回箭头 = reject（见 OverlayHost::showPage）
         }
     });
     QMetaObject::invokeMethod(&w, "openServerSettingsPage", Qt::DirectConnection,

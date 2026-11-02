@@ -46,12 +46,12 @@
  * 于是有两件事，性质完全不同：
  *
  * ① **切到别的选项卡 = 收着**（`parked()`）。整页那一档只在**开它的那颗选项卡**上露面，
- * 用户在别的选项卡上逛的时候它整个人是藏起来的 —— 不销毁、不 `reject`：这一页正卡在
- * `execPage()` 的嵌套事件循环里，收掉了调用方会一直等下去，而"切回来还是原来那一页"这件事
- * 也就没了（滚到哪儿、勾了哪颗 chip 全在内存里活着）。切回来原样摆出来。
+ * 用户在别的选项卡上逛的时候它整个人是藏起来的 —— 不销毁、不 `reject`：收掉了"切回来
+ * 还是原来那一页"这件事就没了（滚到哪儿、勾了哪颗 chip 全在内存里活着）；用 `execPage()`
+ * 开的页还会让调用方一直等下去。切回来原样摆出来。
  * ② **点的就是现在这一颗 = 回到这个功能的首页**（`dismiss()`）。发的是"返回箭头"那一发/
  * "Esc"那一发，和用户自己点它们一模一样（见 `dismiss()` 的注释：换成 `closeOverlay()`
- * 会让 `execPage()` 的调用方永远等下去）。
+ * 会绕过页面自己的 accept/reject，卡在嵌套循环里的调用方也永远醒不过来）。
  *
  * NOTE: 提示那一档（`Mode::Prompt`）**不跟着选项卡收**。它是个要人回答的问题 ——
  * 收起来等于让调用方在用户看不见的地方干等，而且 `InlineMessage::ask()` 那些
@@ -201,11 +201,11 @@ public:
      * @brief 「回到这个功能的首页」：收掉最上面那一层，**当作用户自己按了返回箭头 / 按了
      * Esc**。顶上那四颗导航按钮在"点的就是现在这一颗"的时候叫它（见头文件那段）。
      *
-     * 为什么不直接 `closeOverlay()`：用 `execPage()` 开出来的那一页正卡在自己的嵌套事件
-     * 循环里（`MainWindow::openResourceDetailPage` 就是这么等的），`closeOverlay()` 只把
-     * 外壳收了，那一页一个信号都不发 ⇒ 调用方一直等下去、`m_resourcePage.open` 永远归不了
-     * false。发 `backPressed()` 才是"点返回箭头"那一发（`execEmbedded` 接它去 `reject()`），
-     * 提示那一档同理走 `promptDismissed()`。
+     * 为什么不直接 `closeOverlay()`：收页要经过**页面自己的那一对 accept/reject** ——
+     * `showPage()` 把 `backPressed` 接成 `reject()`，页面在 reject 里做的那些事（比如实例
+     * 设置那页"有没保存的改动就先别关"）才跑得到；`execPage()` 开出来的那一页更会一直等在
+     * 自己的嵌套循环里。发 `backPressed()` 才是"点返回箭头"那一发，提示那一档同理走
+     * `promptDismissed()`。
      *
      * @return 真的收掉了才 true。**收着的页面**（用户现在在别的选项卡上）返回 false ——
      * 那一层他根本看不见，这一发不该落在它头上（不然是"我在主页点了一下主页，
@@ -222,11 +222,13 @@ public:
      * 要开新的一页、而这一层被别的页面/提示占着的时候，先把占着的那一层收掉，再开新的。
      *
      * 走的还是 `dismiss()` 那条路（页面那一档发 `backPressed()`、提示那一档发
-     * `promptDismissed()`）—— **不能**改成 `closeOverlay()`：收页那一发是**唯一**能让
-     * 卡在嵌套事件循环里的 `execPage()` 醒过来的信号（理由逐字见 `dismiss()` 那段）。
-     * 收页只是"请求"：它的收尾要等这一趟调用栈退出去 ⇒ 调用方**必须**把"开新的那一页"
-     * 排到下一轮（`QTimer::singleShot(0, …)`）。一排就开的话，新那页会撞在还没让开的
-     * 那一层上（`openPage()` 返回 nullptr = 屏幕上什么都没发生）。
+     * `promptDismissed()`）—— **不能**改成 `closeOverlay()`：收页要经过页面自己的
+     * accept/reject（理由逐字见 `dismiss()` 那段）。
+     * 收页是**请求**：`showPage()` 那一页在同一次调用里就收干净了，但调这一发的人多半正站在
+     * 那一页自己的槽里，而提示那一档（`execPrompt()`）还卡着嵌套循环、要到它的调用栈退出去
+     * 收尾才落地 ⇒ 调用方**必须**把"开新的那一页"排到下一轮（`QTimer::singleShot(0, …)`）。
+     * 一排就开的话，新那页会撞在还没让开的那一层上（`openPage()` 返回 nullptr = 屏幕上
+     * 什么都没发生）。
      *
      * @return 真的收掉了才 true（本来就没开着 = false）。
      */
@@ -321,7 +323,7 @@ public:
      * 那一发（新的那次才是用户等的）。
      *
      * @return 排上了才 true；当场就调了返回 false（调用方不用再做什么，两种都对）。
-     * @note `show()` 里该怎么做判据、要不要再 `execPage()`，由调用方自己定 —— 这里只
+     * @note `show()` 里该怎么做判据、要不要真的 `showPage()`，由调用方自己定 —— 这里只
      * 管"什么时候轮到它"。
      */
     bool queuePageOpen(std::function<void()> show);
@@ -376,7 +378,7 @@ public:
     static QColor scrimColor() { return Theme::partBackground(Theme::Part::Scrim); }
 
 signals:
-    /// 返回箭头被点了。`execPage()` 把它接到 reject 上；自己搭页面的调用方直接接。
+    /// 返回箭头被点了。`showPage()` / `execPage()` 把它接到 reject 上；自己搭页面的调用方直接接。
     void backPressed();
 
     /// 提示被"点外面 / 按 Esc"关掉了（只有 `dismissOnOutsideClick` 那一档会发）。
@@ -384,7 +386,7 @@ signals:
     /// **只有提示那一层（`execPrompt` / `openPrompt`）该接它**：发这一发的两处
     /// （`mousePressEvent` / `keyPressEvent`）都钉着 `m_mode == Mode::Prompt`，页面那层
     /// 永远等不到。两层都接的话，"点提示框外面 = 连底下那一页一起
-    /// reject"（页面那一次的 `execEmbedded` 还卡在自己的事件循环里、连接还活着）。详见
+    /// reject"（`execPage()` 那一档的 `execEmbedded` 还卡在自己的事件循环里、连接还活着）。详见
     /// 实现里那段 ★ 注释。
     void promptDismissed();
 
