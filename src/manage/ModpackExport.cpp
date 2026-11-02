@@ -228,13 +228,41 @@ QString curseForgeLoaderId(const QString &loaderKey, const QString &loaderVersio
     return prefix + QLatin1Char('-') + version;
 }
 
-QByteArray modrinthVersionFilesRequestBody(const QStringList &sha1s) {
-    QJsonArray hashes;
+QStringList uniqueSha1s(const QStringList &sha1s) {
+    QStringList unique;
+    unique.reserve(sha1s.size());
+    QSet<QString> seen;
     for (const QString &sha1 : sha1s) {
         const QString trimmed = sha1.trimmed();
-        if (!trimmed.isEmpty()) {
-            hashes.append(trimmed);
+        if (trimmed.isEmpty() || seen.contains(trimmed)) {
+            continue;
         }
+        seen.insert(trimmed);
+        unique.append(trimmed);
+    }
+    return unique;
+}
+
+QList<quint32> uniqueFingerprints(const QList<quint32> &fingerprints) {
+    QList<quint32> unique;
+    unique.reserve(fingerprints.size());
+    QSet<quint32> seen;
+    for (quint32 value : fingerprints) {
+        if (seen.contains(value)) {
+            continue;
+        }
+        seen.insert(value);
+        unique.append(value);
+    }
+    return unique;
+}
+
+QByteArray modrinthVersionFilesRequestBody(const QStringList &sha1s) {
+    QJsonArray hashes;
+    // 同一个哈希只发一次：接口按哈希回一条，重复的那几格只会白占批量名额
+    // （一批 100 条，内容相同的两个 jar 各占一格，别的那几个就少问一次）。
+    for (const QString &sha1 : uniqueSha1s(sha1s)) {
+        hashes.append(sha1);
     }
     if (hashes.isEmpty()) {
         return QByteArray();
@@ -247,7 +275,8 @@ QByteArray modrinthVersionFilesRequestBody(const QStringList &sha1s) {
 
 QByteArray curseForgeFingerprintsRequestBody(const QList<quint32> &fingerprints) {
     QJsonArray list;
-    for (quint32 value : fingerprints) {
+    // 同上：内容相同的两个文件指纹一样，一条就够（重复的只占批量名额）。
+    for (quint32 value : uniqueFingerprints(fingerprints)) {
         // 这一格必须发**数字**，不能发 `QString::number(value)` 那样的字符串：
         // `{"fingerprints":["3816865428"]}` 会回 HTTP 400（`invalid type: string …,
         // expected i64`），`{"fingerprints":[3816865428]}` 才是 HTTP 200。
@@ -1053,6 +1082,10 @@ ExportPlan buildExportPlan(const ExportRequest &request, const ModrinthQuery &qu
     // 「问过 12 个文件，认出来 0 个」—— 用户会拿着这句话去查网络、查限流、等着重试，
     // 而真相是"这一趟根本没联网"。这个数的含义钉死成：**真的发出去问过的文件个数**
     // （发出去了但没答话的也算，那是"问了没回"，和"没问"不是一回事）。
+    //
+    // NOTE: 内容相同的两个文件（换了名字的同一样东西）在这里算**两个文件**、只发**一个
+    // 哈希** —— 去重在 `lookup*` 那一层（`uniqueSha1s` / `uniqueFingerprints`）。所以
+    // 报告里"问过 N 个文件"比请求体里那一串长，是照实的：两份都查过，只是查的是同一份内容。
     const int toAsk = needFingerprint ? fingerprintOfPath.size() : sha1OfPath.size();
     if (toAsk > 0) {
         if (progress) {

@@ -825,6 +825,9 @@ QString VersionManager::lookupModrinthVersionFiles(
     if (sha1s.isEmpty()) {
         return QString();  // 空表那一发不该发出去（回复必然是空 map）
     }
+    // 先按哈希去重再分批：内容相同的两个 jar（比如同一个文件换个名字）只问一次。
+    // 只靠请求体那一层去重仍会把它们分到两批里 —— 第二批发出去只剩几条，白等一个 RTT。
+    const QStringList wanted = ModpackExport::uniqueSha1s(sha1s);
 
     // User-Agent **必须带**：Modrinth 的接口规矩里写着要能认出是谁在问（它按这个封滥用）。
     // 和 ResourceStore 那两处是同一个串，但**不能共用一份**（一个在 download/、一个在
@@ -832,8 +835,8 @@ QString VersionManager::lookupModrinthVersionFiles(
     const QList<QPair<QByteArray, QByteArray>> headers{
         {QByteArrayLiteral("User-Agent"), QByteArrayLiteral("WTFML")}};
 
-    for (int offset = 0; offset < sha1s.size(); offset += kLookupChunk) {
-        const QStringList chunk = sha1s.mid(offset, kLookupChunk);
+    for (int offset = 0; offset < wanted.size(); offset += kLookupChunk) {
+        const QStringList chunk = wanted.mid(offset, kLookupChunk);
         const QByteArray body = ModpackExport::modrinthVersionFilesRequestBody(chunk);
         if (body.isEmpty()) {
             continue;
@@ -873,6 +876,8 @@ QString VersionManager::lookupCurseForgeFingerprints(
     if (fingerprints.isEmpty()) {
         return QString();
     }
+    // 同 Modrinth 那一半：内容相同的两个文件指纹一样，先去掉重复再分批。
+    const QList<quint32> wanted = ModpackExport::uniqueFingerprints(fingerprints);
 
     // 和 resolveCurseForgeFiles 同一个形状：key 是用户自己填的才带（并且**只有**带了它才走
     // 官方那台），空串走那台不要 key 的社区镜像。base 自带 `/v1`（见 curseForgeApiBase）。
@@ -884,8 +889,8 @@ QString VersionManager::lookupCurseForgeFingerprints(
         headers.append({QByteArrayLiteral("x-api-key"), m_curseForgeApiKey.toUtf8()});
     }
 
-    for (int offset = 0; offset < fingerprints.size(); offset += kLookupChunk) {
-        const QList<quint32> chunk = fingerprints.mid(offset, kLookupChunk);
+    for (int offset = 0; offset < wanted.size(); offset += kLookupChunk) {
+        const QList<quint32> chunk = wanted.mid(offset, kLookupChunk);
         const QByteArray body = ModpackExport::curseForgeFingerprintsRequestBody(chunk);
         if (body.isEmpty()) {
             continue;
