@@ -1190,3 +1190,19 @@ meta** —— 写了下次读出来就是"自定义 + 一个用户没填过的�
 行数：`src/MainWindow.cpp` 2968 → 2875，新文件 96（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：从实例文件页点开一个资源分出去
+
+`MainWindow.cpp` 里 2553–2653 这 101 行：`openFileResourcePage()`（按来路摆详情页 ——
+只有 `InstanceFiles` 这一条路才可能露「模组设置」）与 `openInstanceFileResource()`
+（先 `dismiss()` 收掉实例设置那一页，再把三个**字符串**排到下一轮去开新页）。
+
+搬到 `src/MainWindowFileResource.cpp`。那句"下一轮里这一页早就没了，不能等到那时再查
+这一条是哪个资源"的注释原样跟着搬 —— 这是这段顺序不能动的理由。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 2875 → 2774，新文件 101（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。

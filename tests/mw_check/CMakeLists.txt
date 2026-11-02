@@ -116,6 +116,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/MainWindowLaunchJava.cpp
     ${REPO_ROOT}/src/MainWindowRepair.cpp
     ${REPO_ROOT}/src/MainWindowIntegrityBackup.cpp
+    ${REPO_ROOT}/src/MainWindowFileResource.cpp
     ${REPO_ROOT}/src/controllers/JavaRuntimeController.cpp
     ${REPO_ROOT}/src/controllers/JavaSettingsController.cpp
     # 「实例预设」那一页的控制器：MainWindow 构造里 new 它，少了这一个
