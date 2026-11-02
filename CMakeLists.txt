@@ -276,6 +276,7 @@ set(SOURCE_FILES
     src/MainWindowTasks.cpp
     src/MainWindowSkin.cpp
     src/MainWindowInstanceTree.cpp
+    src/MainWindowAccount.cpp
     src/controllers/JavaRuntimeController.cpp
     src/controllers/JavaSettingsController.cpp
     src/controllers/PresetControllerEditor.cpp

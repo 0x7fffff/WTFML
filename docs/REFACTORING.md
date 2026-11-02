@@ -918,3 +918,34 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 行数：`src/MainWindow.cpp` 6414 → 5822，新文件 641。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：「账号与外观」那一扇分出去
+
+`MainWindow.cpp` 里 2593–3247 这 655 行，原来的分节横幅就叫「账号与外观」：从
+`onAccountSkinButtonClicked()`（那一扇窗的开关）到 `onLoginFailed()`（登录失败必须弹窗）。
+主语是"现在是谁、他长什么样"：
+
+- `offlineIdentity()`：离线身份的唯一出处；`accountSkinStatusText()` / `refreshAccountSkin()`
+  把这一扇窗的预览与提示铺一遍。
+- 登录生命周期：`onLoginStarted()` / `onLoginSucceeded()` / `onLoginFailed()` —— 各自之后
+  要刷新什么（底栏、按钮、外观、面板快照）在这里，皮肤贴图落到窗口上那几处在
+  `MainWindowSkin.cpp`。
+- 账号动作：切号 / 移除 / 登出、离线账号的皮肤（挑一张 / 恢复随机）、正版上传皮肤、
+  选披风 / 隐藏披风。尺寸那条规矩仍然只在 `SkinApi::isAcceptableSkinSize()`。
+
+一并搬走的还有两处，理由写在新文件头：
+
+- `onBottomBarPanelAction()`：底栏两块上拉面板**唯一**的入口，一个函数同时分派账号行与
+  「正在跑的游戏」行，拆不开；它夹在账号这一串动作中间，跑着的游戏那一支只是转给
+  `stopGameSession()` / `openInstanceSettings()` / `GameSessionController`。
+- `onGameLogForSession()`：日志窗那个兼容入口（底栏与验证工程按名字调用）。
+
+匿名命名空间里的 `kMaxPickedSkinBytes` / `kPickedSkinLimits` 只有这一片里的两条皮肤路径
+（正版上传、离线手动挑）用，跟着用户一起走。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 5822 → 5170，新文件 704。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
