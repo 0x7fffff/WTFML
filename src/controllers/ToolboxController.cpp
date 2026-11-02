@@ -733,11 +733,8 @@ void ToolboxController::checkServer(const QString &address) {
                             view.motd = status.motd.toHtmlEscaped();
                         }
                         view.version = status.versionName;
-                        view.players = status.playersMax > 0
-                                           ? QStringLiteral("%1 / %2")
-                                                 .arg(status.playersOnline)
-                                                 .arg(status.playersMax)
-                                           : QStringLiteral("%1").arg(status.playersOnline);
+                        view.players = ToolboxPage::serverPlayerCountText(
+                            status.playersOnline, status.playersMax);
                         view.latency = tr("%1 ms").arg(status.latencyMs);
                         if (!status.iconPng.isEmpty()) {
                             // 服务器给的字节走 ImageDecode：那一层有尺寸上限（见
