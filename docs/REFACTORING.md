@@ -798,3 +798,30 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 
 验证：完整重建通过；`ui_check` 3165/3165（offscreen）、`mw_check` 2756/2756（真屏）；
 全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：「设置」选项卡那一片接线分出去
+
+`MainWindow.cpp` 8187 行里，4215–4731 这 517 行是一条**只认两样东西**的接线：`MainWindowUI`
+上那些控件，和"改了这个值要落到哪个键上"。后者逐项归 `LauncherPreferencesController`
+（启动器行为 / 内存 / 下载源与限速 / 代理 / 版本名格式 / 额外 JVM 参数）或
+`ThemeSettingsController`（背景图与配色）。它不碰启动、下载批次、实例树 —— 和文件里其它
+几片（任务中心、更新中心、账号与外观）没有共享状态。
+
+搬到 `src/MainWindowSettings.cpp`（同一个类，另一个翻译单元）：
+
+- `applySettingsToUi()`（把盘上的设置灌回控件）、`pushVersionNameOptionsToUi()`；
+  Java 与内存那一组（`refreshJavaList()` / `applyMemoryLimits()` / `clampXmsToXmx()` …）；
+  下载与启动器行为那一组 `on…Changed()`；主题那一组 `onTheme…()`；以及
+  `syncDownload*()` / `onCurseForgeApiKeyEdited()` / `onApplyExtraJvmArgsClicked()`。
+- 三个文件内静态的"档位 → 文案"（下载并发 / 限速 / 代理）跟着走：只在这一片里用。
+- 落盘时机**没有变**，仍然逐项写在自己那个函数上面；这一段里没有一处把几项攒起来写。
+
+边界停在 `applyLauncherBehaviourAfterLaunch()`（启动之后窗口怎么收）与它后面的
+`onVersionsFetched()` / 首页那一排：它们的主语是"启动"和"首页"，不是"设置页上那颗控件"。
+类接口一个字没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）各自登记新文件 ——
+`ui_check` 不编 `MainWindow`，没有第三条。
+
+行数：`src/MainWindow.cpp` 8187 → 7673，新文件 562。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
