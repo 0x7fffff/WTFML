@@ -521,6 +521,7 @@ set(SOURCE_FILES
     ui/InstanceFilesPageScroll.cpp
     ui/InstanceFilesPageInfoPanel.cpp
     ui/InstanceFilesPageStructures.cpp
+    ui/InstanceFilesPageCapabilities.cpp
     ui/ResourcePackPage.cpp
     ui/ConfigFileText.cpp
     ui/ConfigFileEditorPage.cpp
