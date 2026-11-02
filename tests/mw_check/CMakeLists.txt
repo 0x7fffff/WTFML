@@ -121,6 +121,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/MainWindowOverlayGate.cpp
     ${REPO_ROOT}/src/MainWindowSessionEvents.cpp
     ${REPO_ROOT}/src/MainWindowDropImport.cpp
+    ${REPO_ROOT}/src/MainWindowUpdateCenter.cpp
     ${REPO_ROOT}/src/controllers/JavaRuntimeController.cpp
     ${REPO_ROOT}/src/controllers/JavaSettingsController.cpp
     # 「实例预设」那一页的控制器：MainWindow 构造里 new 它，少了这一个
