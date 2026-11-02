@@ -398,11 +398,12 @@ void runToolboxExtraTests() {
                                                QStringLiteral("1.21")),
               "★★ ZAI5 版本比较按段：1.20.4 < 1.21（不是按字面比）");
         check(GameVersion::versions().first().isEmpty()
+                  && GameVersion::versions().contains(QStringLiteral("1.20.5"))
                   && GameVersion::versions().contains(QStringLiteral("1.21"))
                   && GameVersion::versions().contains(QStringLiteral("1.21.4"))
                   && GameVersion::versions() == BannerDesign::versions(),
-              "★ ZAI5 版本表只有一份（旗帜那一页拿的就是它；1.21.4 这一档是给"
-              "树脂质用的）");
+              "★ ZAI5 版本表只有一份（旗帜那一页拿的就是它；1.20.5 是图案写法的分界，"
+              "1.21.4 这一档是给树脂质用的）");
     }
 
     // ---------- ZAJ0. 旗帜：图案表与十六色 ----------
@@ -468,6 +469,28 @@ void runToolboxExtraTests() {
                   && plan.command.contains(QStringLiteral("{Pattern:\"cross\",Color:0}"))
                   && plan.command.contains(QStringLiteral("field_masoned")),
               "★ ZAJ1 指令里图案、颜色、底色都对得上", plan.command);
+        // 写法按目标版本分两套：1.20.5 起 `/give` 不收 NBT 那串，改用物品组件。
+        const QString nbtCommand =
+            QStringLiteral("/give @p minecraft:red_banner{BlockEntityTag:{Patterns:"
+                           "[{Pattern:\"cross\",Color:0},{Pattern:\"field_masoned\",Color:15}]}}");
+        const QString componentCommand =
+            QStringLiteral("/give @p minecraft:red_banner[minecraft:banner_patterns="
+                           "[{pattern:\"minecraft:cross\",color:\"white\"},"
+                           "{pattern:\"minecraft:field_masoned\",color:\"black\"}]]");
+        check(plan.command == nbtCommand,
+              "★★ ZAJ1 不限版本 / 1.20.4 ⇒ 老写法逐字不变（NBT）", plan.command);
+        check(Banner::plan(14, layers, QStringLiteral("1.20.4")).command == nbtCommand,
+              "★★ ZAJ1 1.20.4 ⇒ NBT（分界在这一档之后）",
+              Banner::plan(14, layers, QStringLiteral("1.20.4")).command);
+        check(Banner::plan(14, layers, QStringLiteral("1.20.5")).command == componentCommand
+                  && Banner::plan(14, layers, QStringLiteral("1.21")).command
+                         == componentCommand,
+              "★★ ZAJ1 1.20.5 起 ⇒ 物品组件写法（图案 id 与颜色名都带命名空间规则）",
+              Banner::plan(14, layers, QStringLiteral("1.20.5")).command);
+        check(Banner::plan(3, {}, QStringLiteral("1.21")).command
+                  == QStringLiteral("/give @p minecraft:light_blue_banner"),
+              "★ ZAJ1 新写法下没叠层 ⇒ 不拖一对空方括号",
+              Banner::plan(3, {}, QStringLiteral("1.21")).command);
         check(plan.detailText().contains(QStringLiteral("材料清单："))
                   && plan.detailText().contains(plan.command),
               "★ ZAJ1 明细把步骤、材料、指令都摆出来");

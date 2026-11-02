@@ -239,7 +239,7 @@ int runToolFeatureChecks() {
             }
             dragPreview = BannerRender::compose(base, parsed, textures);
             dragPage.setBannerPreview(dragPreview, {});
-            const auto plan = Banner::plan(base, parsed);
+            const auto plan = Banner::plan(base, parsed, dragPage.bannerVersion());
             dragPage.setBannerResult(plan.detailText());
             dragPage.setBannerCommand(plan.command);
         });

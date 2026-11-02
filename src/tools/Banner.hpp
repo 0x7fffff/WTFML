@@ -81,7 +81,10 @@ struct Plan {
     QString summary;      ///< 一句总述（`底色 红色 · 3 层 / 6`）
     QStringList materials;///< 材料清单（`红色羊毛 × 6`、`白色染料 × 2`…）
     QStringList notes;    ///< 要提醒的（连续两层一模一样、材料有特殊物品…）
-    QString command;      ///< 1.13–1.20.4 的 `/give` NBT 写法（1.20.5+ 改组件，写法不同）
+    /// `/give` 那一行。默认是 **1.13–1.20.4 的 NBT 写法**（`{BlockEntityTag:{Patterns:…}}`）；
+    /// 目标版本 >= 1.20.5 时换成**物品组件**写法（`[minecraft:banner_patterns=[…]]`）——
+    /// 那一版起 NBT 那串不再被接受（见 `plan()` 的 @p version）。
+    QString command;
     /// 整份明细（总述 + 步骤 + 材料 + 指令）。界面上那个结果框直接摆它。
     QString detailText() const;
 };
@@ -90,7 +93,9 @@ struct Plan {
  * @brief 算一条叠层计划。
  * @param baseColorIndex 底色（`colorName()` 的下标）。
  * @param layers 从下往上叠的层（第 0 项是先用织布机叠的那一层）。
+ * @param version 目标版本（空串 = 不限版本）。只影响 `command` 的写法：
+ *                1.20.5 起是物品组件、更早是 NBT；空串按老写法给（与以前逐字相同）。
  */
-Plan plan(int baseColorIndex, const QList<Layer> &layers);
+Plan plan(int baseColorIndex, const QList<Layer> &layers, const QString &version = QString());
 
 }  // namespace Banner
