@@ -1017,3 +1017,25 @@ controller。`applyInstanceSettings()` 后面紧跟着的匿名命名空间（�
 行数：`src/MainWindow.cpp` 4503 → 4221，新文件 282（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：日志 / 崩溃 / 导出那一片分出去
+
+`MainWindow.cpp` 里 3362–3678 这 317 行，主语是"刚刚那一次到底发生了什么"：
+
+- `reportGameCrash()`：异常退出之后把这一趟的启动事实和日志摆成 `CrashReportController`
+  要的那一份（会话一结束，`LauncherManager` 那份记录和日志窗里的两段日志就都没了，
+  所以必须在活的时侯留）；
+- `exportCrashReport()` / `openCrashReportsDir()` / `exportGameLog()` /
+  `exportGameErrorReport()`：日志窗那两颗导出 + 错误报告；
+- `exportLaunchScript()` / `exportModpack()`：启动脚本与整合包导出。
+
+搬到 `src/MainWindowSessionExport.cpp`。匿名命名空间（导出那两份文件的默认目录、写 meta
+那个助手）跟着用户一起走 —— 上一节「实例文件」的分割线正是划在它前面的。保存框留在这一层
+的理由不变：`ui/` 不认识数据目录。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 4224 → 3907，新文件 317（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
