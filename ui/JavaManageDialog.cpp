@@ -67,6 +67,10 @@ QString JavaManageDialog::detectText() {
     return QStringLiteral("检测已有 Java");
 }
 
+QString JavaManageDialog::manualText() {
+    return QStringLiteral("手动指定 java.exe…");
+}
+
 QString JavaManageDialog::autoRowText() {
     return QStringLiteral("自动（按版本挑选）");
 }
@@ -176,8 +180,16 @@ JavaManageDialog::JavaManageDialog(QWidget *parent) : QDialog(parent) {
     Theme::markButton(m_detect, Theme::ButtonKind::Neutral);
     m_detect->setAutoDefault(false);
     m_detect->setToolTip(QStringLiteral("重新扫描本机已安装的 Java。"));
+    // 「手动指定」和「检测」一样是一般性动作：它不改上面那几行，只是换一条外面不认识的
+    // 路径。装在别处的那一份（另一个盘上的 JDK、GraalVM）只有这一条路进来。
+    m_manual = new QPushButton(manualText(), this);
+    m_manual->setObjectName(manualButtonName());
+    Theme::markButton(m_manual, Theme::ButtonKind::Neutral);
+    m_manual->setAutoDefault(false);
+    m_manual->setToolTip(QStringLiteral("挑一份本机已有的 java.exe（不必在扫描出来的那几个目录里）。"));
     actions->addWidget(m_downloadAll);
     actions->addWidget(m_detect);
+    actions->addWidget(m_manual);
     actions->addStretch(1);
     outer->addLayout(actions);
 
@@ -187,6 +199,7 @@ JavaManageDialog::JavaManageDialog(QWidget *parent) : QDialog(parent) {
     connect(m_downloadAll, &QPushButton::clicked, this,
             &JavaManageDialog::downloadAllMissingRequested);
     connect(m_detect, &QPushButton::clicked, this, &JavaManageDialog::detectRequested);
+    connect(m_manual, &QPushButton::clicked, this, &JavaManageDialog::manualPathRequested);
 
     // 各行先按“没装”显示，控制器打开页面后会灌入扫描结果。
     //
@@ -252,6 +265,7 @@ void JavaManageDialog::setBusy(bool busy) {
         it.value().use->setEnabled(!busy);
     }
     m_detect->setEnabled(!busy);
+    if (m_manual != nullptr) m_manual->setEnabled(!busy);
     refreshUsedMarks();
     refreshDownloadAllState();
 }

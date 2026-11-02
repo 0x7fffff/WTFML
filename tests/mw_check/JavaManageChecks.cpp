@@ -45,6 +45,19 @@ int runJavaManageChecks() {
     check(!page.hasMissing(), "all managed runtimes satisfy download-all state");
     page.setRuntime(11, {});
     check(page.hasMissing() && !page.isInstalled(11), "removing Java 11 makes batch download available");
+
+    // 「手动指定 java.exe…」：这一页只发信号（选文件、认版本、写设置全在外面）。
+    int manualRequests = 0;
+    QObject::connect(&page, &JavaManageDialog::manualPathRequested, &page,
+                     [&manualRequests] { ++manualRequests; });
+    auto *manual = page.findChild<QPushButton *>(JavaManageDialog::manualButtonName());
+    check(manual != nullptr && manual->text() == JavaManageDialog::manualText(),
+          "manual java picker button exists with its own text");
+    if (manual != nullptr) manual->click();
+    check(manualRequests == 1, "manual java picker forwards exactly one request");
+    page.setBusy(true);
+    check(manual == nullptr || !manual->isEnabled(), "busy state also disables the manual picker");
+    page.setBusy(false);
     QTemporaryDir fixture;
     check(fixture.isValid(), "runtime version fixture available");
     if (fixture.isValid()) {

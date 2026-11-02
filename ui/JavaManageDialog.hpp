@@ -25,6 +25,10 @@
  * 唯一入口**，否则盘上已经是手动档的配置会变成一个回不去的死档。所以顶上多一条
  * 「自动（按版本挑选）」，装了的那几行行尾多一颗「选用」—— 点谁就钉死谁。
  * **每一行都在同一列上**，认的是 useButtonName(major) / autoUseButtonName()。
+ *
+ * 这几条都只认"扫描认得出来的 Java"。自己装在别处、扫描不进去的那一份（另一个盘上的
+ * JDK、GraalVM、别的启动器带的运行时）走底下那颗「手动指定 java.exe…」：这一页仍然
+ * 不认识路径，按钮只发 manualPathRequested()，选文件、认主版本、写设置全归外面。
  */
 #pragma once
 
@@ -72,6 +76,10 @@ public:
     /// 底下那两颗按钮的文字。抽出来是为了让断言按字面核对这两句。
     static QString downloadAllText();
     static QString detectText();
+
+    /// 底下那颗「手动指定 java.exe…」。选哪份、认不认得出主版本、写不写设置，
+    /// 全是外面的事 —— 这一页只把"用户要自己挑一份"这句话发出去。
+    static QString manualText();
 
     // ---------- 「选哪个 Java」那两颗（见文件头那一段） ----------
 
@@ -128,6 +136,7 @@ public:
     static QString autoUseButtonName() { return QStringLiteral("javaAutoUseButton"); }
     static QString downloadAllButtonName() { return QStringLiteral("javaDownloadAllButton"); }
     static QString detectButtonName() { return QStringLiteral("javaDetectButton"); }
+    static QString manualButtonName() { return QStringLiteral("javaManualButton"); }
     static QString hintLabelName() { return QStringLiteral("javaManageHintLabel"); }
 
 signals:
@@ -142,6 +151,10 @@ signals:
 
     /// 用户点了「检测已有 Java」。外面要重新扫一遍盘，然后把结果 setRuntime 回来。
     void detectRequested();
+
+    /// 用户点了「手动指定 java.exe…」。外面去问路径、认主版本，成了再 setSelection()。
+    /// **不报路径**：这一页压根不认识路径（见文件头最后一段）。
+    void manualPathRequested();
 
     /// 用户点了「自动（按版本挑选）」那条上的「选用」。
     void useAutoRequested();
@@ -172,6 +185,7 @@ private:
     QPushButton *m_autoUse = nullptr;
     QPushButton *m_downloadAll = nullptr;
     QPushButton *m_detect = nullptr;
+    QPushButton *m_manual = nullptr;
     bool m_busy = false;
     /// 现在用的是哪一档。
     bool m_autoSelect = true;

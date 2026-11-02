@@ -13,6 +13,8 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDir>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QLabel>
 #include <QSignalBlocker>
 #include <QSpinBox>
@@ -104,6 +106,8 @@ void JavaSettingsController::openManagePage() {
         connect(m_page, &JavaManageDialog::useAutoRequested, this, &JavaSettingsController::useAuto);
         connect(m_page, &JavaManageDialog::useRuntimeRequested, this,
                 &JavaSettingsController::useRuntime);
+        connect(m_page, &JavaManageDialog::manualPathRequested, this,
+                &JavaSettingsController::browseManualJava);
         connect(m_page, &QDialog::rejected, m_runtime,
                 &JavaRuntimeController::cancelAfterCurrent);
     }
@@ -173,19 +177,36 @@ void JavaSettingsController::queueDiscovery(std::function<QMap<int, QString>()> 
         pushRows();
         emit discoveryFinished();
     });
-    watcher->setFuture(QtConcurrent::run([scan = std::move(scan), pinned] {
+    // 手动档下钉的可能是一条扫描压根不认识的路径（另一个盘上的 JDK）。它必须占住自己
+    // 主版本那一行 —— 否则同一主版本里"扫描认得的那一条"会显示成正在用的，而实际上
+    // 盘上钉的是另一条。自动档照旧：宁可显示扫描结果，也不拿"上次用过"那条冒充。
+    const bool manualPinned = !m_settings->autoSelectJava();
+    watcher->setFuture(QtConcurrent::run([scan = std::move(scan), pinned, manualPinned] {
         auto versions = scan();
         if (!pinned.isEmpty() && !versions.values().contains(pinned)) {
             const int major = GlobalJavaSettings::probeJavaMajorVersion(pinned);
-            if (major > 0 && !versions.contains(major)) versions.insert(major, pinned);
+            if (major > 0 && (manualPinned || !versions.contains(major)))
+                versions.insert(major, pinned);
         }
         return versions;
     }));
 }
 
+QString JavaSettingsController::rowPathFor(int major) const {
+    // 手动挑到的那一份要盖在扫描结果上面 —— 否则同一主版本里扫描认得的那条会把
+    // 用户刚钉的那条挤掉，「（当前）」记号没处挂，看起来像没生效。
+    // 只认"它还是盘上钉的那条路径"：外面（启动/设置）换了路径，这一格就不作数。
+    const bool manualPinned = !m_settings->autoSelectJava() && m_manualMajor > 0 &&
+                              !m_manualPath.isEmpty() &&
+                              m_manualPath == m_settings->javaPath();
+    if (manualPinned && major == m_manualMajor) return m_manualPath;
+    return m_versions.value(major);
+}
+
 void JavaSettingsController::pushRows() {
     if (m_page == nullptr) return;
-    for (int major : JavaManageDialog::managedMajors()) m_page->setRuntime(major, m_versions.value(major));
+    for (int major : JavaManageDialog::managedMajors())
+        m_page->setRuntime(major, rowPathFor(major));
     m_page->setSelection(m_settings->autoSelectJava(), m_settings->javaPath());
 }
 
@@ -202,6 +223,11 @@ void JavaSettingsController::updatePathLabel() {
 
 void JavaSettingsController::useAuto() {
     if (m_page == nullptr) return;
+    // 换档之后"手动那份"不再代表盘上的状态 —— 再留着它就是拿旧值盖新值。
+    // 还在后台认主版本的那一发也作废：用户后来这一下说了算。
+    ++m_manualGeneration;
+    m_manualPath.clear();
+    m_manualMajor = 0;
     m_settings->setAutoSelectJava(true);
     m_settings->save();
     updatePathLabel();
@@ -209,12 +235,85 @@ void JavaSettingsController::useAuto() {
 }
 
 void JavaSettingsController::useRuntime(int major) {
-    if (m_page == nullptr || m_versions.value(major).isEmpty()) return;
+    // 钉的必须是**这一行画着的那条**。手动那份盖在扫描结果上面时，m_versions 里那一格
+    // 还是扫描认得的老路径 —— 按它钉，用户看到的是 A、盘上写的是 B。
+    if (m_page == nullptr) return;
+    const QString path = rowPathFor(major);
+    if (path.isEmpty()) return;
+    // 还在后台认主版本的那一发作废（用户直接点了「选用」，那一下更新）。
+    ++m_manualGeneration;
+    // 记成"手动那份"：这一行接下来仍要画它（也许它压根不在扫描结果里）。
+    m_manualPath = path;
+    m_manualMajor = major;
     m_settings->setAutoSelectJava(false);
-    m_settings->setJavaPath(m_versions.value(major));
+    m_settings->setJavaPath(path);
     m_settings->save();
     updatePathLabel();
     pushRows();
+}
+
+void JavaSettingsController::browseManualJava() {
+    if (m_page == nullptr) return;
+    const QString current = m_settings->javaPath();
+    // 从正在用的那一份旁边开始找：用户多半就是把启动器带的运行时换成隔壁装的那份。
+    const QString startDir = current.isEmpty() ? QString() : QFileInfo(current).absolutePath();
+    const QString path = QFileDialog::getOpenFileName(
+        m_dialogParent, tr("选择 java.exe"), startDir,
+        tr("Java 可执行文件 (java.exe);;所有文件 (*)"));
+    if (!path.isEmpty()) setManualJava(path);
+}
+
+void JavaSettingsController::setManualJava(const QString &path) {
+    const QFileInfo info(path.trimmed());
+    if (info.fileName().isEmpty()) return;
+    if (!info.isFile()) {
+        log(tr("手动指定的 Java 不在了：%1").arg(QDir::toNativeSeparators(info.filePath())));
+        InlineMessage::warning(
+            m_ui->overlay(), tr("没选到 java.exe"),
+            tr("这条路线上没有那个文件：\n%1\n\n"
+               "要选的是 Java 安装目录下 bin 里的 java.exe。")
+                .arg(QDir::toNativeSeparators(info.filePath())));
+        return;
+    }
+    // 绝对路径：盘上记的、行里画的、以后启动比对的都是它（用户从框里选回来的通常
+    // 已经是绝对路径，这一句是给测试和粘进来的相对路径兜底）。
+    const QString absolute = info.absoluteFilePath();
+    // 认主版本可能要真跑一次 `java -version`（最多 5 秒），所以先进后台；日志里留一句，
+    // 免得那几秒里用户以为这一下没反应。
+    log(tr("正在确认这份 Java 的主版本：%1").arg(QDir::toNativeSeparators(absolute)));
+    const quint64 generation = ++m_manualGeneration;
+    auto *watcher = new QFutureWatcher<int>(this);
+    connect(watcher, &QFutureWatcher<int>::finished, this,
+            [this, watcher, generation, absolute] {
+                watcher->deleteLater();
+                if (generation != m_manualGeneration) return;
+                const int major = watcher->result();
+                if (major <= 0) {
+                    log(tr("认不出这份 Java 的主版本：%1")
+                            .arg(QDir::toNativeSeparators(absolute)));
+                    InlineMessage::warning(
+                        m_ui->overlay(), tr("这不是一份能用的 Java"),
+                        tr("没能认出 %1 的主版本。\n\n"
+                           "如果它确实是一份 Java，请选它 bin 目录下的 java.exe；"
+                           "如果它装在别的盘上，启动器不认识也没关系 —— 这一条路就是为它留的，"
+                           "只是它得真的能跑起来。")
+                            .arg(QDir::toNativeSeparators(absolute)));
+                    return;
+                }
+                m_manualPath = absolute;
+                m_manualMajor = major;
+                m_settings->setAutoSelectJava(false);
+                m_settings->setJavaPath(absolute);
+                m_settings->save();
+                updatePathLabel();
+                pushRows();
+                log(tr("全局 Java 已手动指定为 Java %1：%2")
+                        .arg(major)
+                        .arg(QDir::toNativeSeparators(absolute)));
+            });
+    watcher->setFuture(QtConcurrent::run([absolute] {
+        return GlobalJavaSettings::probeJavaMajorVersion(absolute);
+    }));
 }
 
 void JavaSettingsController::detect() { if (m_page != nullptr) m_runtime->detectInstalled(); }
