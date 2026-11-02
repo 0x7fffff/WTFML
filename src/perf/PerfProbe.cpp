@@ -291,6 +291,15 @@ private:
                 m_storeFailed = m_storeRows != 1000 || !broken.isEmpty();
             }});
         }
+        // "下一次启动"那一趟：只清进程里那张摘要，盘上那份留着（第一趟读 manifest 时写的）。
+        // 量的就是正文那段省掉之后的代价 —— 每份一次 stat + 读一份摘要文件。
+        m_steps.push_back({QStringLiteral("presets:read-store-from-disk-cache"), [this] {
+            if (m_storeFailed || !m_storeDir) { m_storeFailed = true; return; }
+            Presets::forgetSummaryCache(m_storeDir->path(), true);
+            QList<Presets::BrokenPreset> broken;
+            m_storeRows = Presets::list(m_storeDir->path(), &broken).size();
+            m_storeFailed = m_storeRows != 1000 || !broken.isEmpty();
+        }});
         // 多任务负载：同一串翻页动作跑两趟 —— 先空载（对照），再在后台目录加载期间跑。
         // 真实使用里用户在预设页转圈时照样点翻页；旧探针会把这一步之后的动作全挡住
         // （`runNext()` 里等异步目录），那种重叠量不到。
