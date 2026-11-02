@@ -893,3 +893,28 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 行数：`src/MainWindow.cpp` 6607 → 6414，新文件 241。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：实例树 / 已安装版本 / «启动» 那一行分出去
+
+`MainWindow.cpp` 里 1606–2200 这 595 行，主语是"界面上列出来的那些实例和版本"：
+
+- `installingVersionIds()`：**谁现在不能启动**的唯一出处。三个来源（`m_fileOperationInstanceIds`
+  这份后台搬文件的名单、`DownloadBatchController::isRestoring()` 期间全部实例、`VersionManager`
+  的 `busyVersionId()`）在这里合流；界面别处只问它，不许自己再拼一遍。
+- `refreshInstalledVersions()` / `rebuildInstanceTree()`：已安装版本下拉框与分组树。
+- `updateInstanceTreeRunState()` / `updateStartButtonText()`：运行态，"启动"那颗按钮上那句字。
+- `restoreLastLaunchedVersion()` / `refreshAvailableVersions()` / `openInstallPage()` /
+  `backToVersionTree()`：上一次启动记的是谁、在线版本清单、以及从版本清单点进安装页。
+
+搬到 `src/MainWindowInstanceTree.cpp`，为什么单独一个翻译单元：这一片"启动按钮为什么灰着"
+是用户最常问的，判据（`installingVersionIds()` + 那几个 busy 计数）和投影（树、按钮文字）
+在同一处，不必在整扇窗里翻。判据规则本身不在这一层 —— 分组与排序在
+`manage/InstanceFilter`，显示名在 `manage/VersionDisplay` 的 `displayParts()`。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+- `eventFilter()`（下一段）**没有**跟着走：它管的是整扇窗的滚轮 / 悬停，不是这一片。
+
+行数：`src/MainWindow.cpp` 6414 → 5822，新文件 641。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
