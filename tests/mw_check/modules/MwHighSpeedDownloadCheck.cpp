@@ -91,12 +91,25 @@ int MwHighSpeedDownloadCheck(QApplication &app) {
         auto *dialog = qobject_cast<QDialog *>(QApplication::activeWindow());
         expect(dialog && dialog->objectName() == QStringLiteral("downloadToolDialog"), "download opens its own reusable tool window");
         if (dialog) expect(dialog->grab().save(fixture.filePath(QStringLiteral("download-tool-preview.png"))), "tool window preview renders successfully in isolated fixture");
+        if (dialog) dialog->resize(700, 460);
         expect(tool.start(ok, false, &error), "direct download starts asynchronously");
         const auto first = tool.taskId();
         if (dialog) dialog->close();
         wait();
         expect(activity.tasks()->snapshot(first).state == Tasks::TaskState::Succeeded && read(ok.path) == body, "closing window does not interrupt task; file and ledger succeed");
         expect(activity.tasks()->snapshot(first).bytesDone == body.size(), "task centre retains final byte progress");
+        // 独立窗口的尺寸/位置记忆：关窗口时记下，重新打开照旧（唯一一处真的量得到的
+        // "尺寸记忆" —— 主窗口与工具箱页不是独立窗口，见 FEATURES）。
+        expect(QSettings().contains(QStringLiteral("Toolbox/DownloadGeometry")),
+               "closing the tool window remembers its geometry");
+        DirectDownloadController reopenedTool(&activity, nullptr);
+        reopenedTool.open();
+        QCoreApplication::processEvents();
+        auto *reopenedDialog = qobject_cast<QDialog *>(QApplication::activeWindow());
+        expect(reopenedDialog && reopenedDialog->objectName() == QStringLiteral("downloadToolDialog") &&
+                   reopenedDialog->size() == QSize(700, 460),
+               "the tool window reopens at the remembered size");
+        reopenedTool.shutdown();
         auto conflict = request(QStringLiteral("ok"), QStringLiteral("conflict.bin"));
         expect(tool.start(conflict, false, &error), "new destination starts without overwrite permission");
         { QFile file(conflict.path); expect(file.open(QIODevice::WriteOnly) && file.write("created-by-another-writer") == 25, "concurrent writer fixture created"); }
