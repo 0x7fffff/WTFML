@@ -1463,3 +1463,26 @@ meta** —— 写了下次读出来就是"自定义 + 一个用户没填过的�
 行数：`ui/InstanceFilesPage.cpp` 1339 → 1261，新文件 81（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+## 2026-11-03 `ui/InstanceFilesPage.cpp`：「结构 / 原理图」那两排来源分出去
+
+`InstanceFilesPage.cpp` 里 736–826 这 91 行，主语是那一页顶上那两排下拉框（每个有结构的
+存档一排、投影一排）。和别的七页不一样：它一次列**好几个目录**，而排数是**每一趟现算**
+的 —— 这一趟三个存档有结构就是三排加一排投影，下一趟可能只剩一排。
+
+搬到 `ui/InstanceFilesPageStructures.cpp`：`setStructureSources()`（整块拆了重建）与
+`selectedStructurePath()`（按"第几排"读回选中的目录）。几条规矩跟着走：
+
+- 拆旧时**先藏再排删除**（`deleteLater()` 要等下一趟事件循环，不先藏的话屏幕上会看见
+  上一趟那一排闪一下）；
+- 排头宽度**统一成最宽的那一个**，量的是递进来的 title 而不是一个写死的词；
+- 一个来源一行都没有 ⇒ 摆一行灰的「无可用的结构」，它不是一个能选中的值；
+- 换一个来源 = 换一份要列的东西 ⇒ 当场重列；填 items 时先填、再 connect。
+
+`scanDirectories()` 留在原文件（它读这一份来源，但说的是"这一页列哪几个目录"）。
+
+- 类接口没改；三份源列表（主 `CMakeLists.txt`、`tests/mw_check`、`tests/ui_check`）登记新文件。
+
+行数：`ui/InstanceFilesPage.cpp` 1261 → 1173，新文件 91（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
