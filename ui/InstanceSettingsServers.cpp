@@ -255,10 +255,32 @@ QString InstanceSettingsDialog::serverStatusText(const ServerRowStatus &status) 
 }
 
 QString InstanceSettingsDialog::serverStatusTooltip(const ServerRowStatus &status) {
-    const QString text = serverStatusText(status);
-    const QString version = status.versionName.trimmed();
+    QStringList parts{serverStatusText(status)};
     // 版本名是服务器**自己说的**，原样挂着；只是它不属于"现在几个人"，所以只进提示。
-    return version.isEmpty() ? text : text + QStringLiteral(" / ") + version;
+    const QString version = status.versionName.trimmed();
+    if (!version.isEmpty()) {
+        parts.append(version);
+    }
+    // 在线玩家名同一档：洗过的名字再 trim 一遍（缓存 / 调用方递进来的可能带空白），
+    // 空格子跳过。最多列五个 —— 提示框跟着服务器给的名单无限变长不是个事。
+    constexpr int kMaxTooltipPlayers = 5;
+    QStringList names;
+    for (const QString &name : status.samplePlayers) {
+        const QString trimmed = name.trimmed();
+        if (!trimmed.isEmpty()) {
+            names.append(trimmed);
+        }
+    }
+    if (!names.isEmpty()) {
+        QString line =
+            tr("在线：%1").arg(names.mid(0, kMaxTooltipPlayers).join(QStringLiteral("、")));
+        // 还有没列出来的：名单本身更长，或者服务器只给了其中一段（在线人数 > 名单）。
+        if (names.size() > kMaxTooltipPlayers || status.playersOnline > names.size()) {
+            line += tr(" 等");
+        }
+        parts.append(line);
+    }
+    return parts.join(QStringLiteral(" / "));
 }
 
 QString InstanceSettingsDialog::maskedServerAddress(const QString &address) {

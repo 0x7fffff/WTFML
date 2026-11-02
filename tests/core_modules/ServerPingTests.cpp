@@ -366,6 +366,19 @@ void runServerPingTests() {
         QJsonObject players;
         players[QStringLiteral("online")] = 12;
         players[QStringLiteral("max")] = 100;
+        // 玩家名单：带 `§` 码、带重名、带空名，再加一长串 —— 一次把洗名字 / 去重 / 上限
+        // 三件事都摆在真连一次里（上限是 32 个，见 ServerPing.cpp）。
+        QJsonArray sample;
+        sample.append(QJsonObject{{QStringLiteral("name"), QStringLiteral("§aSteve")}});
+        sample.append(QJsonObject{{QStringLiteral("name"), QStringLiteral("Alex")}});
+        sample.append(QJsonObject{{QStringLiteral("name"), QStringLiteral("Steve")}});  // 重名
+        sample.append(QJsonObject{{QStringLiteral("name"), QStringLiteral("§r§l")}});   // 洗空了
+        sample.append(QJsonObject{{QStringLiteral("name"), QStringLiteral("  Bob  ")}});
+        for (int i = 0; i < 40; ++i) {
+            sample.append(
+                QJsonObject{{QStringLiteral("name"), QStringLiteral("p%1").arg(i)}});
+        }
+        players[QStringLiteral("sample")] = sample;
 
         QJsonObject version;
         version[QStringLiteral("name")] = QStringLiteral("Paper 1.21.4");
@@ -402,6 +415,15 @@ void runServerPingTests() {
         check(status.playersOnline == 12 && status.playersMax == 100,
               "ZH6 人数 12/100",
               QStringLiteral("%1/%2").arg(status.playersOnline).arg(status.playersMax));
+        // 名单：`§` 码洗掉、重名只留一次、空名跳过，最多 32 个（40 个 p 只进 29 个）。
+        check(status.samplePlayers.size() == 32 &&
+                  status.samplePlayers.mid(0, 3) ==
+                      QStringList{QStringLiteral("Steve"), QStringLiteral("Alex"),
+                                  QStringLiteral("Bob")} &&
+                  status.samplePlayers.last() == QStringLiteral("p28"),
+              "★★ ZH6 玩家名单洗过、去过重、封顶 32 个（名字是服务器给的，长度不能由它决定）",
+              status.samplePlayers.mid(0, 4).join(QStringLiteral("、")) + QStringLiteral(" … 共 %1")
+                  .arg(status.samplePlayers.size()));
         check(status.iconPng == iconPng, "ZH6 图标逐字节一样",
               QStringLiteral("%1 字节").arg(status.iconPng.size()));
         QImage iconImage;

@@ -28,6 +28,7 @@
 
 #include <QByteArray>
 #include <QString>
+#include <QStringList>
 
 namespace ServerStatusCache {
 
@@ -41,6 +42,11 @@ struct Entry {
     /// NOTE: 老缓存没有这个键 ⇒ 读出来是空串 ⇒ 悬停提示里少这一截。**不编造**
     /// （没问到过就是没问到过；空串和"服务器真报了个空名"在界面上是同一件事：不写）。
     QString versionName;
+    /// 服务器自报的在线玩家名（已去掉 `§` 码，见 ServerPing::Status::samplePlayers）。
+    ///
+    /// NOTE: 老缓存没有这个键 ⇒ 空表 ⇒ 悬停提示里少「在线：…」那一截。读的时候最多留
+    /// 32 个（手改过的缓存不该由它决定提示框多长）。
+    QStringList samplePlayers;
     /// MOTD 的原样（带 `§` 码和换行，见 ServerPing::motdRaw）。
     QString motdRaw;
     /// 图标那串原始 PNG 字节（服务器没给图标就是空的）。

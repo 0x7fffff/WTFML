@@ -2863,6 +2863,37 @@ int UiContentPagesChecks(QFrame * &bar) {
                       "U10L 版本名只有空白 ⇒ 当没问到（不写一个空尾巴「 / 」）",
                       Dlg::serverStatusTooltip(blankVersion));
 
+                // 在线玩家名单（同一档非常用属性）：只进提示、最多列五个。
+                Dlg::ServerRowStatus sampled = versioned;
+                sampled.samplePlayers = {QStringLiteral("Steve"), QStringLiteral("Alex")};
+                check(Dlg::serverStatusTooltip(sampled) ==
+                          QStringLiteral("42 ms / 7/20 人 / Paper 1.21.4 / 在线：Steve、Alex 等"),
+                      "★★ U10L 服务器给了名单 ⇒ 提示末尾挂「在线：…」（版本名仍在），"
+                      "状态那格一个字都不多",
+                      Dlg::serverStatusTooltip(sampled));
+                Dlg::ServerRowStatus manyNames = live;
+                manyNames.playersOnline = 7;
+                manyNames.samplePlayers = {QStringLiteral("A"), QStringLiteral("B"),
+                                           QStringLiteral("C"), QStringLiteral("D"),
+                                           QStringLiteral("E"), QStringLiteral("F"),
+                                           QStringLiteral("G")};
+                check(Dlg::serverStatusTooltip(manyNames) ==
+                          QStringLiteral("42 ms / 7/20 人 / 在线：A、B、C、D、E 等"),
+                      "★ U10L 名单超过五个 ⇒ 只列前五个，后面加「等」（提示框不跟着无限长）",
+                      Dlg::serverStatusTooltip(manyNames));
+                Dlg::ServerRowStatus partialNames = live;
+                partialNames.samplePlayers = {QStringLiteral("Steve"), QStringLiteral("Alex")};
+                check(Dlg::serverStatusTooltip(partialNames) ==
+                          QStringLiteral("42 ms / 7/20 人 / 在线：Steve、Alex 等"),
+                      "★ U10L 服务器只列了一部分（在线 7 人、名单 2 个）⇒ 也补「等」，"
+                      "不假装名单就是全部",
+                      Dlg::serverStatusTooltip(partialNames));
+                Dlg::ServerRowStatus blankNames = live;
+                blankNames.samplePlayers = {QStringLiteral("   "), QString()};
+                check(Dlg::serverStatusTooltip(blankNames) == Dlg::serverStatusText(live),
+                      "U10L 名单里只有空白格子 ⇒ 当没给（不写一个空尾巴「 / 」）",
+                      Dlg::serverStatusTooltip(blankNames));
+
                 // 服务器没说人数（-1）和"一个人都没有"（0）不是一回事：前者不许写出人数，
                 // 后者要写出 0/20 —— 混起来的话"它没说"会被显示成"这服空着"。
                 Dlg::ServerRowStatus noPlayers = live;
@@ -2908,6 +2939,7 @@ int UiContentPagesChecks(QFrame * &bar) {
             live.motd = motd;
             live.icon = icon;
             live.versionName = QStringLiteral("Paper 1.21.4");
+            live.samplePlayers = {QStringLiteral("Steve"), QStringLiteral("Alex")};
             statuses.append(live);
             Dlg::ServerRowStatus dead;
             dead.tested = true;
@@ -2950,11 +2982,11 @@ int UiContentPagesChecks(QFrame * &bar) {
                   QStringLiteral("「%1」「%2」「%3」")
                       .arg(liveItem->text(2), deadItem->text(2), untestedItem->text(2)));
             check(liveItem->toolTip(2) ==
-                      QStringLiteral("42 ms / 7/20 人 / Paper 1.21.4") &&
+                      QStringLiteral("42 ms / 7/20 人 / Paper 1.21.4 / 在线：Steve、Alex 等") &&
                       liveItem->text(2) == QStringLiteral("42 ms\n7/20 人"),
-                  "★ U10L 状态那一格的 tooltip 还是那一句**单行**的（版本名挂在末尾），"
+                  "★ U10L 状态那一格的 tooltip 还是那一句**单行**的（版本名、名单挂在末尾），"
                   "格子里仍是两行、一个字都不多（提示框里没有「两行」这回事；"
-                  "而且版本名不是「现在几个人」）",
+                  "而且版本名和名单不是「现在几个人」）",
                   liveItem->toolTip(2));
 
             // ---- U10L-5 行数和状态数对不上时：多的丢掉、缺的回到「还没测」----

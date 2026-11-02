@@ -530,6 +530,12 @@ public:
         /// （而且那一栏窄）。它只挂在悬停提示末尾（见 serverStatusTooltip()），
         /// 空串 = 没问到过（老缓存 / 没通的那一次）⇒ 那一截不写。
         QString versionName;
+        /// 服务器自报的在线玩家名（已去掉 `§` 码，来自 ServerPing::Status::
+        /// samplePlayers；缓存那一份从 ServerStatusCache::Entry 里来）。
+        ///
+        /// **不进状态那一格**（理由同版本名：那一栏窄，名单更长）。只挂在悬停提示末尾，
+        /// 最多列五个（见 serverStatusTooltip()）。空表 = 服务器没给这一栏，不是"没人"。
+        QStringList samplePlayers;
         QIcon icon;             ///< 服务器图标（favicon；服务器没给就是空的）
     };
 
@@ -557,12 +563,13 @@ public:
     /// 那几行变成两行之后，这里**一个字都没变**。
     static QString serverStatusText(const ServerRowStatus &status);
 
-    /// 状态那一格的**悬停提示**：`serverStatusText()` 再挂上服务器自报的版本名
-    /// （`42 ms / 7/20 人 / Paper 1.21.4`）。
+    /// 状态那一格的**悬停提示**：`serverStatusText()` 再挂上服务器自报的版本名与
+    /// 在线玩家名（`42 ms / 7/20 人 / Paper 1.21.4 / 在线：Steve、Alex`）。
     ///
     /// **唯一出处** —— setServerStatuses() 写 tooltip 那一处和验证工程都看它。
-    /// 版本名是**非常用属性**：不进格子（那一栏窄，而且它不是"现在几个人"的一部分），
-    /// 可它又是服务器自己说的、用户偶尔真要看的（认得出 Paper / Purpur）。空串 ⇒ 不写。
+    /// 版本名与玩家名都是**非常用属性**：不进格子（那一栏窄，而且它们不是"现在几个人"
+    /// 的一部分），可又是服务器自己说的、用户偶尔真要看的。空串 / 空表 ⇒ 那一截不写；
+    /// 玩家名最多列五个，后面还有（或者服务器只列了一部分）就加一个「等」。
     static QString serverStatusTooltip(const ServerRowStatus &status);
 
     /// 把六页目录列表**重新列一遍**。MainWindow 动过盘（删了 / 改了名）之后喊它。
