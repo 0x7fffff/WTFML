@@ -432,6 +432,84 @@ void runJavaManageTests() {
                           JavaManageDialog::autoRowText() + JavaManageDialog::usedMarkText(),
                   "T26.7 「（当前）」记号回到「自动」那一条上");
 
+            // ---------- 「手动指定 java.exe…」：扫描认不出来的那一份 ----------
+            //
+            // 要的是一份**在扫描目录之外**的 Java。沙盒里 java/<主版本> 那几份都是扫描
+            // 认得的，所以另起一棵树；主版本故意选 25 —— 沙盒里也有一份扫描认得的 25，
+            // 正好量"手动那条要盖过扫描那条"。
+            const QString externalRoot = root.path() + QStringLiteral("/tools/jdk-25");
+            QDir().mkpath(externalRoot + QStringLiteral("/bin"));
+            QFile externalExe(externalRoot + QStringLiteral("/bin/java.exe"));
+            if (externalExe.open(QIODevice::WriteOnly)) {
+                externalExe.write("fake");
+                externalExe.close();
+            }
+            // 认主版本只读 release（见 GlobalJavaSettings::probeJavaMajorVersion）：
+            // 一个字节都不会去跑那个假 exe，所以这一条不依赖这台机器真装着 Java。
+            QFile externalRelease(externalRoot + QStringLiteral("/release"));
+            if (externalRelease.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                externalRelease.write("JAVA_VERSION=\"25.0.1\"\n");
+                externalRelease.close();
+            }
+            const QString externalJava = externalRoot + QStringLiteral("/bin/java.exe");
+            auto *controller = w.findChild<JavaSettingsController *>();
+            const int i25 = majors.indexOf(25);
+            check(controller != nullptr && i25 >= 0 && rowLabel.at(i25) != nullptr,
+                  "T26.8 前提：主窗口里那个 Java 控制器和 Java 25 那一行都在");
+            if (controller != nullptr && i25 >= 0 && rowLabel.at(i25) != nullptr) {
+                controller->setManualJava(externalJava);
+                const bool pinnedToExternal = pumpUntil(
+                    [&] {
+                        return javaLabel->text() ==
+                               QStringLiteral("手动指定：%1").arg(externalJava);
+                    },
+                    3000);
+                check(pinnedToExternal,
+                      "★★ T26.8 手动挑一份扫描不认识的 java.exe ⇒ 设置页那行当场变成"
+                      "「手动指定：…」（选文件那个模态框测试驱动不了，这里直接驱动"
+                      "setManualJava —— 框后面的逻辑一条不少）",
+                      javaLabel->text());
+                {
+                    GlobalJavaSettings reread;
+                    check(!reread.autoSelectJava() && reread.javaPath() == externalJava,
+                          "★★ T26.8 盘上记的是「手动指定 + 那条路径」（再换一个对象读回来 —"
+                          "— 这一条会 point 出改了内存忘了 save() 的那种 bug）",
+                          QStringLiteral("AutoSelect=%1 path=%2")
+                              .arg(reread.autoSelectJava() ? 1 : 0)
+                              .arg(reread.javaPath()));
+                }
+                check(rowLabel.at(i25)->text() ==
+                          JavaManageDialog::rowText(25, externalJava) +
+                              JavaManageDialog::usedMarkText(),
+                      "★ T26.8 手动那份盖在扫描结果上面（同一主版本里扫描认得的那条不能把它"
+                      "挤掉），并且挂着「（当前）」记号",
+                      rowLabel.at(i25)->text());
+
+                // 选一条不存在的路径：弹一句、一个字节都不写。
+                const QString pathBefore = GlobalJavaSettings().javaPath();
+                bool warned = false;
+                QTimer dismissWarning;
+                dismissWarning.setInterval(10);
+                QObject::connect(&dismissWarning, &QTimer::timeout, [&] {
+                    if (InlineMessageBox *box = currentPrompt()) {
+                        warned = true;
+                        box->reject();
+                    }
+                });
+                dismissWarning.start();
+                controller->setManualJava(root.path() + QStringLiteral("/nope/bin/java.exe"));
+                const bool sawWarning = pumpUntil([&] { return warned; }, 3000);
+                dismissWarning.stop();
+                GlobalJavaSettings afterBadPick;
+                check(sawWarning && !afterBadPick.autoSelectJava() &&
+                          afterBadPick.javaPath() == pathBefore,
+                      "★ T26.8 选了一条不存在的路径 ⇒ 弹一句「没选到 java.exe」，盘上仍是"
+                      "刚才那条（不许半途改一半）",
+                      QStringLiteral("弹了=%1 path=%2")
+                          .arg(warned ? 1 : 0)
+                          .arg(afterBadPick.javaPath()));
+            }
+
             // ---------- 收页：点左上角那颗返回箭头（就是上面验过的那一颗） ----------
             if (back != nullptr) {
                 back->click();
