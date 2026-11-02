@@ -5,6 +5,8 @@
 
 #include "tools/ArmorTrim.hpp"
 
+#include "tools/GameVersion.hpp"
+
 namespace {
 
 struct TrimMaterialRow {
@@ -110,6 +112,11 @@ QString trimMaterialSince(int index) {
     return validTrimMaterial(index) ? QString::fromLatin1(kTrimMaterials[index].since) : QString();
 }
 
+bool trimMaterialAvailable(int index, const QString &version) {
+    return validTrimMaterial(index) &&
+           GameVersion::availableIn(QString::fromLatin1(kTrimMaterials[index].since), version);
+}
+
 QStringList trimMaterialNames() {
     QStringList list;
     for (const TrimMaterialRow &row : kTrimMaterials) {
@@ -144,6 +151,15 @@ QStringList patternNames() {
         list.append(QString::fromUtf8(row.name));
     }
     return list;
+}
+
+QString patternSince(int index) {
+    return validPattern(index) ? QString::fromLatin1(kPatterns[index].since) : QString();
+}
+
+bool patternAvailable(int index, const QString &version) {
+    return validPattern(index) &&
+           GameVersion::availableIn(QString::fromLatin1(kPatterns[index].since), version);
 }
 
 int partCount() { return kPartCount; }

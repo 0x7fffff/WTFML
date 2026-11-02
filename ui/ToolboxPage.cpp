@@ -2399,6 +2399,18 @@ QWidget *ToolboxPage::buildTrimPanel() {
             });
         }
     }
+    // 「目标版本」在盔甲格子上方：它管的是下面八格纹饰的可用性（只在结果里提一句，
+    // 不悄悄改动已经选好的搭配 —— 与旗帜 / 酿造同一套判据）。
+    auto *versionRow = new QHBoxLayout;
+    versionRow->setContentsMargins(0, 0, 0, 0);
+    versionRow->setSpacing(6);
+    versionRow->addWidget(makeFieldLabel(panel, tr("目标版本")));
+    auto *trimVersion = new QComboBox(panel);
+    trimVersion->setObjectName(trimVersionComboName());
+    trimVersion->setToolTip(tr("按纹饰图案 / 材料的首次出现版本提示；已经选好的搭配不会被改动。"));
+    versionRow->addWidget(trimVersion);
+    versionRow->addStretch(1);
+    left->addLayout(versionRow);
     left->addLayout(form);
     m_trimResult=new QLabel(panel); m_trimResult->setObjectName(trimResultName());
     m_trimResult->setWordWrap(true); m_trimResult->setAlignment(Qt::AlignTop|Qt::AlignLeft);
@@ -2449,6 +2461,7 @@ QWidget *ToolboxPage::buildTrimPanel() {
         connect(combo,&QComboBox::currentIndexChanged,this,[oldChanged](int){oldChanged();});
     connect(m_trimPieces,&QSpinBox::valueChanged,this,[oldChanged](int){oldChanged();});
     connect(m_trimWholeSet,&QCheckBox::toggled,this,[oldChanged](bool){oldChanged();});
+    connect(trimVersion,&QComboBox::currentIndexChanged,this,[oldChanged](int){oldChanged();});
     return panel;
 }
 
@@ -2569,6 +2582,23 @@ void ToolboxPage::setTrimMaterials(const QStringList &names) {
     const QSignalBlocker blocker(m_trimMaterial);
     m_trimMaterial->clear();
     m_trimMaterial->addItems(names);
+}
+
+void ToolboxPage::setTrimVersions(const QStringList &versions) {
+    auto *combo = findChild<QComboBox *>(trimVersionComboName());
+    if (combo == nullptr) {
+        return;
+    }
+    const QSignalBlocker blocker(combo);
+    combo->clear();
+    for (const auto &version : versions) {
+        combo->addItem(version.isEmpty() ? tr("不限版本") : version, version);
+    }
+}
+
+QString ToolboxPage::trimVersion() const {
+    const auto *combo = findChild<QComboBox *>(trimVersionComboName());
+    return combo != nullptr ? combo->currentData().toString() : QString();
 }
 
 void ToolboxPage::setTrimResult(const QString &text) {

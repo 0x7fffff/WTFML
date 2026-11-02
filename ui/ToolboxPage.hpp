@@ -140,6 +140,8 @@ public:
     static QString trimPatternComboName() { return QStringLiteral("toolboxTrimPattern"); }
     static QString trimMaterialComboName() { return QStringLiteral("toolboxTrimMaterial"); }
     static QString trimPiecesSpinName() { return QStringLiteral("toolboxTrimPieces"); }
+    /// 「目标版本」下拉框（纹饰与旗帜 / 酿造同一套版本表）。
+    static QString trimVersionComboName() { return QStringLiteral("toolboxTrimVersion"); }
     /// 「整套（四件）」那个勾（「单件 / 整套预览」）。
     static QString trimWholeSetName() { return QStringLiteral("toolboxTrimWholeSet"); }
     static QString trimResultName() { return QStringLiteral("toolboxTrimResult"); }
@@ -376,6 +378,10 @@ public:
     void setTrimParts(const QStringList &names);
     void setTrimPatterns(const QStringList &names);
     void setTrimMaterials(const QStringList &names);
+    /// 目标版本下拉框的那几项（空串那一项显示成「不限版本」；程序摆值不发信号）。
+    void setTrimVersions(const QStringList &versions);
+    /// 目标版本（空串 = 不限版本）。
+    QString trimVersion() const;
     /// 结果那一整段（controller 按四列合出来的材料账 + `ArmorTrim::plan()` 给的提示；
     /// 怎么算的不在这一层）。
     void setTrimResult(const QString &text);
