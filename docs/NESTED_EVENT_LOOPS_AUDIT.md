@@ -25,7 +25,10 @@
 > `ServerConsoleController.cpp:74`、`ServerSettingsPageController.cpp:107`、
 > `JavaSettingsController.cpp:116`、`MainWindow.cpp:4966` 这八行按这个更新读；
 > 其余仍是快照（`MainWindow.cpp:5905` 那一行是分组设置，2026-11-02 已按上面那段改成
-> 非阻塞）。还剩 3 处：实例设置、资源详情页（要拿返回值）、预设编辑器（要拿 accept / reject）。
+> 非阻塞）。**2026-11-02 再收一页**：预设编辑器也改走 `showPage()` —— `Host` 上的
+> `execPage` 换成了 `showPage(dialog, title, ownerTab, onClosed)`，收页之后由
+> `openEditor()` 里那条回调做原来的收尾（`m_editor` 清空 / 刷新列表 / `deleteLater`）。
+> A 类调用点 **3 → 2**。还剩 2 处：实例设置、资源详情页（要拿返回值）。
 
 ## 两类，别混着看
 

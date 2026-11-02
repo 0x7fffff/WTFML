@@ -96,10 +96,17 @@ public:
         /// 实例**整份滤掉** —— 万一这期间别的事（下载收尾、改设置）已经刷过一次，用户看到
         /// 的就是"实例没了"，不重刷它就一直不在列表里。
         std::function<void()> refreshInstances;
-        /// 把一页铺到内容区上（`OverlayHost::execPage`，返回值和 `QDialog::exec()` 同义）。
-        /// 预设编辑器就靠这一条走"整页覆盖内容区"那条路 —— 和实例设置一模一样。
+        /// 把一页铺到内容区上（`OverlayHost::showPage`：摆上去就返回）。预设编辑器就靠
+        /// 这一条走"整页覆盖内容区"那条路 —— 和实例设置那一页同一个外壳。
+        ///
+        /// @p onClosed 在这一页收掉时叫**一次**，参数是 `QDialog::result()`（「确定」=
+        /// `Accepted`，其余几档 = `Rejected`）。**所有收页路**（返回箭头 / Esc / 这一页
+        /// 自己 accept / `dismiss()` / `evict()` / `closeOverlay()`）都会叫到它 ——
+        /// 宿主那一层接的是 `OverlayHost::pageClosed()`，那是收页的唯一出口。
+        ///
         /// 空 = 这个宿主没有覆盖层（验证工程那种没有主窗口的宿主）：开不了页，按"没开成"算。
-        std::function<int(QDialog *, const QString &, int)> execPage = {};
+        std::function<bool(QDialog *, const QString &, int, std::function<void(int)>)> showPage =
+            {};
         /// 预设页页头那句副标题（「N 份预设」）。空 = 这个宿主没有页头（验证工程那种宿主）。
         /// 和实例页那句「当前文件夹：…（N 个实例）」是同一条路：页头说明由这一层灌。
         std::function<void(const QString &)> presetSubtitle = {};
