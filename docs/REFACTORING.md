@@ -1421,3 +1421,24 @@ meta** —— 写了下次读出来就是"自定义 + 一个用户没填过的�
 行数：`ui/InstanceFilesPage.cpp` 1691 → 1415，新文件 280（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+## 2026-11-03 `ui/InstanceFilesPage.cpp`：重列前后的滚动锚点分出去
+
+`InstanceFilesPage.cpp` 里 893–971 这 79 行，主语是"重列之后回到原来那个位置"：
+
+- 状态只有 `m_scrollAnchor` 一位：最上面那一行的**身份**（`identityPath()`）加它离视口
+  顶端的像素；
+- 记：`rememberScrollAnchor()` / `captureScrollPosition()`；
+- 带走再带回来：`scrollPosition()`（现算，读的不是锚点） / `setScrollPosition()`（只写，
+  不顺手摆 —— 那一刻表还是空的）；
+- 摆：`restoreScrollAnchor()`，摆完就丢（一次性的）。
+
+搬到 `ui/InstanceFilesPageScroll.cpp`。两条说死的规矩跟着搬：**空表不动手**（`refresh()`
+与 `rebuildRows()` 各叫一次，第二次看见的是空表，记下去就抹了第一份真锚点）；
+**锚点一次性的**（留着的话后面任何一次重排都可能再还一遍）。
+
+- 类接口没改；三份源列表（主 `CMakeLists.txt`、`tests/mw_check`、`tests/ui_check`）登记新文件。
+
+行数：`ui/InstanceFilesPage.cpp` 1415 → 1339，新文件 79（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
