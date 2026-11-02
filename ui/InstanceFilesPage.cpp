@@ -1022,87 +1022,9 @@ QLabel *InstanceFilesPage::pathLabel() const {
     return m_pathLabel;
 }
 
-// ---------- 列表下面那条"这一份是什么"----------
-//
-// 这一层只记账、只摆字（理由见 .hpp 里那一段）：读 gzip NBT、认 Litematica 的位打包
-// 都是 src/ 的事，由接的人算好递回来。
+// ---------- 列表下面那条"这一份是什么" ----------
+// 在 `ui/InstanceFilesPageInfoPanel.cpp`（同一个类，另一个翻译单元）。
 
-void InstanceFilesPage::setInfoPanelEnabled(bool enabled) {
-    m_infoDetails->setVisible(enabled);
-    if (m_infoPanelEnabled == enabled) {
-        return;
-    }
-    m_infoPanelEnabled = enabled;
-    if (!enabled) {
-        // 关掉 = 这一页一个字都不留（不是只藏起来：再打开时得从"正在读取…"重新来）。
-        if (m_infoTimer != nullptr) {
-            m_infoTimer->stop();
-        }
-        m_infoPath.clear();
-        if (m_info != nullptr) {
-            m_info->clear();
-            m_info->setToolTip(QString());
-            m_info->setVisible(false);
-        }
-        return;
-    }
-    updateInfoPanel();
-}
-
-void InstanceFilesPage::setInfoText(const QString &path, const QString &text,
-                                    const QString &toolTip) {
-    if (m_info == nullptr || !m_infoPanelEnabled) {
-        return;
-    }
-    // 过期答案（理由见 .hpp）：用户已经换到别的行上了，这一份讲的不是屏幕上选着的那条。
-    if (path != m_infoPath) {
-        return;
-    }
-    m_info->setText(text);
-    m_info->setToolTip(toolTip);
-    m_info->setVisible(!text.isEmpty());
-}
-
-void InstanceFilesPage::updateInfoPanel() {
-    if (m_info == nullptr || !m_infoPanelEnabled) {
-        return;
-    }
-    // 判据：**正好选了一条、而且它是文件**（选两个、选一个目录、一条没选 —— 都不谈"这一份"）。
-    QString path;
-    bool isDir = false;
-    if (m_list != nullptr) {
-        const QList<QListWidgetItem *> selected = m_list->selectedItems();
-        if (selected.size() == 1 && selected.first() != nullptr) {
-            path = selected.first()->data(pathRole()).toString();
-            const Entry *entry = entryForPath(path);
-            isDir = entry != nullptr && entry->isDir;
-        }
-    }
-    m_infoDetails->setEnabled(!path.isEmpty() && !isDir);
-    if (path.isEmpty() || isDir) {
-        if (m_infoTimer != nullptr) {
-            m_infoTimer->stop();
-        }
-        m_infoPath.clear();
-        m_info->clear();
-        m_info->setToolTip(QString());
-        m_info->setVisible(false);
-        return;
-    }
-    // 已经在为这一条等答案 / 已经摆着它的答案 ⇒ 不重复读盘（重列、开筛选都会走到这儿）。
-    if (path == m_infoPath) {
-        return;
-    }
-    m_infoPath = path;
-    m_info->setText(infoPendingText());
-    m_info->setToolTip(QString());
-    // 列表本身藏着的时候（目录空 / 筛完一条不剩）不露 —— 那种画面下不可能有选中的一行，
-    // 这里只是兜底：applyState() 也会把它收起来。
-    m_info->setVisible(true);
-    if (m_infoTimer != nullptr) {
-        m_infoTimer->start();
-    }
-}
 
 void InstanceFilesPage::setWorldLayout(QPushButton *backupButton) {
     if (m_worldLayout) return;
