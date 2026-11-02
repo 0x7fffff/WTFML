@@ -1356,3 +1356,23 @@ meta** —— 写了下次读出来就是"自定义 + 一个用户没填过的�
 行数：`src/MainWindow.cpp` 1998 → 1781，新文件 220（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+## 2026-11-03 `src/MainWindow.cpp`：窗口生命周期（析构 / 外框消息 / 关窗）分出去
+
+`MainWindow.cpp` 里 1045–1246 这 202 行，主语是"这个窗口要没了（或者正要没）的时候，
+还有什么不能半路丢下"：
+
+- `~MainWindow()`：四趟后台活（体检 / 备份 / 图标反查 / 检查更新）一条一条等过来。
+  少等一条就是 Qt 的 `QThread: Destroyed while thread is still running` 直接 abort ——
+  注释里那张单子（"这一层起的，析构里必须一个一个等过来"）跟着一起搬；
+- `nativeEvent()`：外框那两条消息转给 `ui/WindowChrome`；
+- `closeEvent()`：还有游戏 / 服务端在跑、或者启动正走到一半，要不要问一句。
+
+搬到 `src/MainWindowLifecycle.cpp`。怎么等、等多久仍收在各控制器自己的 `shutdown()` /
+`waitForLookup()` 里；这两条原生消息怎么回仍在 `ui/WindowChrome`。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 1781 → 1582，新文件 202（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
