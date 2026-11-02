@@ -43,6 +43,8 @@ void runServerStatusCacheTests() {
     // ---------- ③ 存下去再读回来：每一格都不许走样 ----------
     ServerStatusCache::Entry saved;
     saved.valid = true;
+    // 服务器自报的版本名也一起存（悬停提示末尾那一截，见 serverStatusTooltip()）。
+    saved.versionName = QStringLiteral("Paper 1.21.4");
     // MOTD 带 `§` 码、带换行、带中文 —— 都是"存不住就走样"的东西。
     saved.motdRaw = QStringLiteral("§a欢迎来到 §l本地服§r\n§7第二行 §c红");
     saved.iconPng = QByteArrayLiteral("\x89PNG\r\n\x1a\n") + QByteArray(64, '\x00') +
@@ -57,6 +59,9 @@ void runServerStatusCacheTests() {
                                    "cache/servers 多半还不存在）");
     const ServerStatusCache::Entry back = ServerStatusCache::load(address);
     check(back.valid, "★ T23.3 读得回来（valid 立着）");
+    check(back.versionName == saved.versionName,
+          "★ T23.3 服务器自报的版本名**一字不差**（悬停提示末尾那一截靠它）",
+          back.versionName);
     check(back.motdRaw == saved.motdRaw,
           "★★ T23.3 MOTD **一个字都不差**（`§` 码和换行都在 —— 少了哪一样，那一格就"
           "只剩一行灰字）",
@@ -138,6 +143,8 @@ void runServerStatusCacheTests() {
     check(legacy.valid && !legacy.online && !legacy.timedOut,
           "★ T23.5b 老缓存（没有这一位的那一份）读出来是 false —— 那一格写"
           "「没连上」，不是替它编一句「超时」");
+    check(legacy.versionName.isEmpty(),
+          "T23.5b 老缓存里也没有版本名 ⇒ 空串（悬停提示少那一截，不编造）");
 
     // ---------- ⑥ 写坏了（断电、手改）当没有，而且**不删** ----------
     writeFileAt(path, QByteArrayLiteral("{ 这不是 JSON"));

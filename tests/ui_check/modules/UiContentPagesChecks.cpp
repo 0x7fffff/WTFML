@@ -2845,6 +2845,24 @@ int UiContentPagesChecks(QFrame * &bar) {
                       "★ U10L 通了 ⇒「延迟 / 人数」（没有「在线」两个字）",
                       Dlg::serverStatusText(live));
 
+                // 服务器自报的版本名（非常用属性）：只进悬停提示末尾，不进格子。
+                check(Dlg::serverStatusTooltip(live) == Dlg::serverStatusText(live),
+                      "U10L 没问到版本名时悬停提示就是状态那句话（不多一格空尾巴）",
+                      Dlg::serverStatusTooltip(live));
+                Dlg::ServerRowStatus versioned = live;
+                versioned.versionName = QStringLiteral("  Paper 1.21.4  ");
+                check(Dlg::serverStatusTooltip(versioned) ==
+                          QStringLiteral("42 ms / 7/20 人 / Paper 1.21.4") &&
+                          Dlg::serverStatusText(versioned) == QStringLiteral("42 ms / 7/20 人"),
+                      "★ U10L 服务器报了版本名 ⇒ 悬停提示末尾挂上它（两头空白先去掉），"
+                      "状态那格**一个字都不多**",
+                      Dlg::serverStatusTooltip(versioned));
+                Dlg::ServerRowStatus blankVersion = live;
+                blankVersion.versionName = QStringLiteral("   ");
+                check(Dlg::serverStatusTooltip(blankVersion) == Dlg::serverStatusText(live),
+                      "U10L 版本名只有空白 ⇒ 当没问到（不写一个空尾巴「 / 」）",
+                      Dlg::serverStatusTooltip(blankVersion));
+
                 // 服务器没说人数（-1）和"一个人都没有"（0）不是一回事：前者不许写出人数，
                 // 后者要写出 0/20 —— 混起来的话"它没说"会被显示成"这服空着"。
                 Dlg::ServerRowStatus noPlayers = live;
@@ -2889,6 +2907,7 @@ int UiContentPagesChecks(QFrame * &bar) {
             live.playersMax = 20;
             live.motd = motd;
             live.icon = icon;
+            live.versionName = QStringLiteral("Paper 1.21.4");
             statuses.append(live);
             Dlg::ServerRowStatus dead;
             dead.tested = true;
@@ -2930,9 +2949,12 @@ int UiContentPagesChecks(QFrame * &bar) {
                   "★ U10L 三行的状态那一格各是各的（通了是两行、没通一行、还没测一行）",
                   QStringLiteral("「%1」「%2」「%3」")
                       .arg(liveItem->text(2), deadItem->text(2), untestedItem->text(2)));
-            check(liveItem->toolTip(2) == Dlg::serverStatusText(live),
-                  "★ U10L 同一格还是那一句**单行**的 tooltip"
-                  "（格子里拆成两行是排版，提示框里没有「两行」这回事）",
+            check(liveItem->toolTip(2) ==
+                      QStringLiteral("42 ms / 7/20 人 / Paper 1.21.4") &&
+                      liveItem->text(2) == QStringLiteral("42 ms\n7/20 人"),
+                  "★ U10L 状态那一格的 tooltip 还是那一句**单行**的（版本名挂在末尾），"
+                  "格子里仍是两行、一个字都不多（提示框里没有「两行」这回事；"
+                  "而且版本名不是「现在几个人」）",
                   liveItem->toolTip(2));
 
             // ---- U10L-5 行数和状态数对不上时：多的丢掉、缺的回到「还没测」----

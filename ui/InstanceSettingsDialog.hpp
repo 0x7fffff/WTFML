@@ -523,6 +523,13 @@ public:
         /// **它管别的**：没通那一档只有它分得出"理由要不要重说"（见 serverStatusLines()
         /// 里那两条支路）。一有真的结果就整条盖掉（fromCache 回到假）。
         bool fromCache = false;
+        /// 服务器自报的版本名（`Paper 1.21.4` 这种，原样来自 ServerPing::Status::
+        /// versionName；缓存那一份从 ServerStatusCache::Entry 里来）。
+        ///
+        /// **不进状态那一格**：那一格是延迟 / 人数，版本名不是"现在怎么样"的一部分
+        /// （而且那一栏窄）。它只挂在悬停提示末尾（见 serverStatusTooltip()），
+        /// 空串 = 没问到过（老缓存 / 没通的那一次）⇒ 那一截不写。
+        QString versionName;
         QIcon icon;             ///< 服务器图标（favicon；服务器没给就是空的）
     };
 
@@ -544,11 +551,19 @@ public:
     /// 不能空着（空着和"还没测"长得一样），而那时候除了这两个字没别的可说。
     static QStringList serverStatusLines(const ServerRowStatus &status);
 
-    /// 上面那几行的**单行写法**（用「 · 」串起来）—— 悬停提示用。验证工程也按它核对。
+    /// 上面那几行的**单行写法**（用「 / 」串起来）—— 状态那一格的底子。验证工程也按它核对。
     ///
-    /// NOTE: 它就是 `serverStatusLines().join(" · ")`（`42 ms · 7/20 人`），所以格子从
+    /// NOTE: 它就是 `serverStatusLines().join(" / ")`（`42 ms / 7/20 人`），所以格子从
     /// 那几行变成两行之后，这里**一个字都没变**。
     static QString serverStatusText(const ServerRowStatus &status);
+
+    /// 状态那一格的**悬停提示**：`serverStatusText()` 再挂上服务器自报的版本名
+    /// （`42 ms / 7/20 人 / Paper 1.21.4`）。
+    ///
+    /// **唯一出处** —— setServerStatuses() 写 tooltip 那一处和验证工程都看它。
+    /// 版本名是**非常用属性**：不进格子（那一栏窄，而且它不是"现在几个人"的一部分），
+    /// 可它又是服务器自己说的、用户偶尔真要看的（认得出 Paper / Purpur）。空串 ⇒ 不写。
+    static QString serverStatusTooltip(const ServerRowStatus &status);
 
     /// 把六页目录列表**重新列一遍**。MainWindow 动过盘（删了 / 改了名）之后喊它。
     void refreshFilePages();

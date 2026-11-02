@@ -11,6 +11,7 @@
 namespace {
 
 /// 盘上那几个键（读和写各只出现一次，见下面两个函数）。
+const char *kVersionNameKey = "versionName";
 const char *kMotdKey = "motd";
 const char *kIconKey = "icon";
 const char *kLatencyKey = "latencyMs";
@@ -58,6 +59,7 @@ Entry load(const QString &address) {
         return entry;
     }
     const QJsonObject root = document.object();
+    entry.versionName = root.value(QLatin1String(kVersionNameKey)).toString();
     entry.motdRaw = root.value(QLatin1String(kMotdKey)).toString();
     entry.iconPng =
         QByteArray::fromBase64(root.value(QLatin1String(kIconKey)).toString().toLatin1());
@@ -83,6 +85,7 @@ void save(const QString &address, const Entry &entry) {
     }
 
     QJsonObject root;
+    root.insert(QLatin1String(kVersionNameKey), entry.versionName);
     root.insert(QLatin1String(kMotdKey), entry.motdRaw);
     // 图标是**原始 PNG 字节**，JSON 里放不了二进制 ⇒ base64。它是几 KB 的一张小图，
     // 塞进同一个文件比另开一个 `.png` 省一次"两个文件对不上"的机会。
