@@ -1239,6 +1239,13 @@ public:
     /// ui_check 钉着"回来的每一个键都在 downloadCategoryKeys() 里"。
     static QString filesDownloadCategoryKey(const QString &key);
 
+    /// `filesDownloadCategoryKey()` 的**逆**：下载页那一栏 @p categoryKey 对应实例设置
+    /// 里的**哪一页**（回程要用：从那一页点出去的，回来还开在那一页上）。
+    ///
+    /// 认不出来（这一栏没有对应的文件页）回空串。实现就是拿 `filePageKeys()` 逐个过一遍
+    /// 上面那张表 —— 两张表仍然只有一个出处，这里不再抄一遍字面量。
+    static QString filesDownloadPageKey(const QString &categoryKey);
+
     /// 「点一下**名字**就进它自己的那一页」这一条在这几页上开不开。
     ///
     /// 这一张表是**四页**：模组 / 资源包 / 数据包 / 光影包，判据是"名字匹配上了资源"。

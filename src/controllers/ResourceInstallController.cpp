@@ -266,7 +266,7 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
     //
     // 弹框 = 设置里没勾 或者 这一栏不是从实例设置里点进来的
     //
-    // "是不是从实例设置里点进来的"读的是 `m_downloadFromInstanceId` —— 和那颗
+    // "是不是从实例设置里点进来的"读的是 `m_downloadReturn` —— 和那颗
     // 「← 返回实例设置」用的是**同一个值**，因为它俩说的本来就是同一件事（这一栏是从哪个
     // 实例来的）。不另开一个布尔：两个值一旦分开，"露着返回键、却弹了保存框"这种事迟早会
     // 出现。

@@ -2917,7 +2917,8 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
                 //
                 // 来路钉死是 `Download`：这条路上这一页**永远**摆「显示
                 // 快照版」，哪怕点的是一个模组（不能把下载页的行为带偏）。
-                const QString instanceId = m_downloadFromInstanceId;
+                // 实例号从下载页那条来路里读（`m_downloadReturn`）。
+                const QString instanceId = m_downloadReturn.instanceId;
                 QTimer::singleShot(0, this, [this, iconKey, kindKey, instanceId] {
                     // NOTE: 覆盖层被别的页占着时（典型场面：实例设置那一页**收着**、
                     // 用户切到下载页逛），`openResourceDetailPage()` 开头那条 `isOpen()`
@@ -3111,9 +3112,9 @@ QString MainWindow::dependencyInstanceId() const {
 }
 
 bool MainWindow::downloadCameFromInstance() const {
-    // ① 从实例设置点「下载新模组」切到下载页那一条（`m_downloadFromInstanceId` —— 就是
-    // 那颗「← 返回实例设置」用的同一个值）。
-    if (!m_downloadFromInstanceId.isEmpty()) {
+    // ① 从实例设置点「下载新模组」切到下载页那一条（`m_downloadReturn` —— 就是那
+    // 颗「← 返回实例设置」用的同一份来路）。
+    if (m_downloadReturn.valid()) {
         return true;
     }
     // ② 资源详情页是从某个实例点进来的（实例设置 → 模组 → 点名字，见
@@ -6451,7 +6452,8 @@ QStringList MainWindow::instanceCommonFolderKeys(const QString &versionId,
                                                      InstanceSettingsDialog::shortcutPathKeys());
 }
 
-void MainWindow::openDownloadCategory(const QString &categoryKey, const QString &returnInstanceId) {
+void MainWindow::openDownloadCategory(const QString &categoryKey,
+                                      const NavigationReturn &origin) {
     // 认行用**条目自己的 UserRole**（= 那一栏的键），不是行号：左栏那一列的行序是界面
     // 自己按 downloadCategoryKeys() 摆出来的，这一层不去假设"第几个就是哪一个"
     // （和 MainWindow::refreshDownloadCategory 那边认身份的做法一致）。
@@ -6471,45 +6473,40 @@ void MainWindow::openDownloadCategory(const QString &categoryKey, const QString 
         return;
     }
 
-    // ② 这一栏是不是**从某个实例的设置页里点「下载新模组」进来的**。
+    // ② 这一栏是不是**从某个实例的设置页里点「下载新模组」进来的**（@p origin 有效）。
     //
-    // 是的话记下那个实例，并且把「← 返回实例设置」露出来 —— 从实例设置里点
+    // 是的话记下来路，并且把「← 返回实例设置」露出来 —— 从实例设置里点
     // 「下载新模组/资源包…」进来时，左上角保留一个返回键，返回到实例设置里面，
     // 和资源包详情一致。
-    // 上面那一下 `dismiss()` 会把那一页收掉（`OverlayHost` 不做页面栈），所以"来路"只能
-    // 由这一层自己记着、自己放回去（和 openFileResourcePage 那边同一个手法）。
+    // 来路**只记在这一处**：`NavigationReturn` 里已经写清归哪颗根页、哪个实例、哪一页、
+    // 文件页滚到哪儿（见那份头文件）；下面 `returnToInstanceSettingsFromDownload()`
+    // 按同一份摆回去。
     //
     // 那颗键**整个下载页共用一颗**、摆在左栏顶上（就是左边栏的顶上），翻到别的栏它照旧在那儿 ——
     // 能不能回去和用户此刻在逛哪一栏无关。
-    //
-    // `m_downloadFromPageKey` 和这一位**同生共死**：它就是"来路那一页"。也正因为
-    // 「下载新模组」那一栏**就是**实例设置里那一页（`filesDownloadCategoryKey()` 那张
-    // 表是"这两处是一回事"的唯一出处），它不用另要一个参数，写的就是 `categoryKey`。
-    m_downloadFromInstanceId = returnInstanceId;
-    m_downloadFromPageKey = returnInstanceId.isEmpty() ? QString() : categoryKey;
-    m_ui->setDownloadBackVisible(!returnInstanceId.isEmpty());
+    m_downloadReturn = origin;
+    m_ui->setDownloadBackVisible(origin.valid());
 
     // ① 先收掉当前这一页。**只能走 dismiss()**：它发的就是顶上那颗返回箭头的同一发信号
-    // （见 OverlayHost::dismiss() 里那段 ★）—— 这一页正卡在 `execPage()` 的嵌套事件
-    // 循环里，只 `closeOverlay()` 的话一个信号都不发，那个循环永远不返回（用户看到的
-    // 是"按了没反应"，测试是直接挂在那儿）。
+    // （见 OverlayHost::dismiss() 里那段 ★）—— 用户按的那颗按钮可能正开着一条提示/另一页，
+    // 只 `closeOverlay()` 的话那一页自己收不到任何信号。
     //
     // NOTE: 这一发只是**尽力**先收（常见情况下它收完就完了）；收干净了没有由下一轮的
     // `continueOpenDownloadCategory()` 判 —— 上面一层压着一条提示时 `dismiss()`
     // 收掉的是**提示**、那一页还在原处。
     m_ui->overlay()->dismiss();
 
-    // ② 摆选项卡与那一栏**排到下一轮事件循环**：这一句这会儿还在上面那个嵌套循环的调用栈
-    // 里（按钮的 clicked 处理函数），`execPage()` 还没返回、覆盖层也还盖在内容区上 ——
+    // ② 摆选项卡与那一栏**排到下一轮事件循环**：这一句这会儿还在按钮的 clicked 处理函数
+    // 里，收页的收尾（`pageClosed` 那一发）还没跑完、覆盖层也还盖在内容区上 ——
     // 现在就把选项卡翻过去，翻的是它**底下**那一层，而覆盖层收干净的那一下还没发生。
     // 排到下一轮，那时这一页已经关好了（和 openResourceDetailPage 那边同一个手法）。
-    QTimer::singleShot(0, this, [this, row, categoryKey, returnInstanceId] {
-        continueOpenDownloadCategory(row, categoryKey, returnInstanceId, kDownloadOpenRounds);
+    QTimer::singleShot(0, this, [this, row, categoryKey, origin] {
+        continueOpenDownloadCategory(row, categoryKey, origin, kDownloadOpenRounds);
     });
 }
 
 void MainWindow::continueOpenDownloadCategory(int row, const QString &categoryKey,
-                                             const QString &returnInstanceId, int roundsLeft) {
+                                             const NavigationReturn &origin, int roundsLeft) {
     // ---------- 收页：收到干净为止，收不干净就**什么都不做**----------
     //
     // 为什么还要再收一次：`openDownloadCategory()` 里那一发 `dismiss()` 收的是**最上面
@@ -6524,9 +6521,9 @@ void MainWindow::continueOpenDownloadCategory(int row, const QString &categoryKe
     OverlayHost *overlay = m_ui->overlay();
     if (overlay != nullptr && overlay->pageOpen()) {
         if (roundsLeft > 0 && overlay->dismiss()) {
-            // 收到一半（这一发收回来的那一层要等 `execEmbedded` 收尾才真正落下去）—— 再排一轮。
-            QTimer::singleShot(0, this, [this, row, categoryKey, returnInstanceId, roundsLeft] {
-                continueOpenDownloadCategory(row, categoryKey, returnInstanceId, roundsLeft - 1);
+            // 收到一半（这一发收回来的那一层要等收尾才真正落下去）—— 再排一轮。
+            QTimer::singleShot(0, this, [this, row, categoryKey, origin, roundsLeft] {
+                continueOpenDownloadCategory(row, categoryKey, origin, roundsLeft - 1);
             });
             return;
         }
@@ -6543,9 +6540,10 @@ void MainWindow::continueOpenDownloadCategory(int row, const QString &categoryKe
     // ② 版本筛子填成那个实例的游戏版本；
     // ③ 模组加载器筛子填成那个实例的加载器。
     // ②③ 是「点击下载新模组/...后自动在搜索框里填入对应的版本和加载器」那条要求。
-    if (!returnInstanceId.isEmpty()) {
+    const bool cameFromInstance = origin.valid();
+    if (cameFromInstance) {
         QComboBox *combo = m_ui->getInstalledVersionCombo();
-        const int index = combo->findData(returnInstanceId);
+        const int index = combo->findData(origin.instanceId);
         if (index >= 0) {
             combo->setCurrentIndex(index);
             updateStartButtonText();
@@ -6561,8 +6559,8 @@ void MainWindow::continueOpenDownloadCategory(int row, const QString &categoryKe
     // 同一条路、同一个函数，重复调用是安全的（它自己判"树上已经有东西就不动"）。
     ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
     const bool known = ResourceCatalog::kindFromCategoryKey(categoryKey, &kind);
-    if (!returnInstanceId.isEmpty() && known) {
-        fillDownloadFiltersFromInstance(kind, returnInstanceId);
+    if (cameFromInstance && known) {
+        fillDownloadFiltersFromInstance(kind, origin.instanceId);
     }
     if (known) {
         ensureResourcePageLoaded(kind);
@@ -6600,20 +6598,28 @@ void MainWindow::fillDownloadFiltersFromInstance(ResourceCatalog::Kind kind,
 }
 
 void MainWindow::returnToInstanceSettingsFromDownload() {
-    const QString instanceId = m_downloadFromInstanceId;
-    // 回来时开在**来路那一页**上（要求「从模组点进去，返回也在模组而非概览，
-    // 其余同理」）。这一位和上面那一位同生共死，所以下面两句话并排写。
-    const QString pageKey = m_downloadFromPageKey;
-    // 先收干净再开那一页：`openInstanceSettings` 里第一件事就是问覆盖层开没开，
-    // 而这一颗键通常是在"没有覆盖层"的时候点的（不冲突），可万一撞上一条提示，
-    // 那一位留着就会让下一次进来时这颗键莫名地还露着。
-    m_downloadFromInstanceId.clear();
-    m_downloadFromPageKey.clear();
+    // 来路整个取走（一次性）：下面无论开得成开不成，这一份都不该留着。
+    const NavigationReturn origin = m_downloadReturn;
+    m_downloadReturn = NavigationReturn();
     m_ui->setDownloadBackVisible(false);
-    if (instanceId.isEmpty()) {
-        return;  // 正常走不到：那颗键只在这一位非空时才露面
+    if (!origin.valid()) {
+        return;  // 正常走不到：那颗键只在有来路时才露面
     }
-    openInstanceSettings(instanceId, pageKey);
+    // 回去时先把**来路那颗根页**翻回来（主页的快捷入口开出来的那页归主页，其余归实例）。
+    // 「返回恢复进入前状态」里"进"的那一半就是这颗根页：不翻的话，`openInstanceSettings()`
+    // 会按**当前**选项卡（下载）认家，于是从主页进来的一趟回到实例页 —— 屏幕换了一颗根页，
+    // 用户没按过它。
+    if (QTabWidget *tabs = m_ui->getTabWidget()) {
+        if (origin.rootTab >= 0 && origin.rootTab < tabs->count()) {
+            tabs->setCurrentIndex(origin.rootTab);
+        }
+    }
+    // 回来时开在**来路那一页**上（要求「从模组点进去，返回也在模组而非概览，其余同理」），
+    // 文件页的滚动位置也一起摆回去 —— 两个值同一个来源（`NavigationReturn`）。
+    // 挪到 `m_instanceReturn` 是因为真正摆页的是 `openInstanceSettings()` 那一趟
+    // （它读的是一位"开页时塞回去"的来路，见 `InstanceDialogController::open()`）。
+    m_instanceReturn = origin;
+    openInstanceSettings(origin.instanceId, origin.pageKey);
 }
 
 void MainWindow::onNavigationApplied(int sourceIndex, int index, bool reselected) {
@@ -6627,8 +6633,8 @@ void MainWindow::onNavigationApplied(int sourceIndex, int index, bool reselected
     //
     // 这**不是**那一颗返回键的第二条接线（那颗键仍旧只有一处出口，见 setupConnections
     // 里那段）—— 这里只是"同一件事从另一颗键上够得着"。两条都走
-    // `returnToInstanceSettingsFromDownload()`，所以"清哪两位、开在哪一页"一个字都不
-    // 用写两遍。
+    // `returnToInstanceSettingsFromDownload()`，所以"取哪一份来路、翻回哪颗根页、开在哪一页"
+    // 一个字都不用写两遍。
     //
     // 判据四条：
     // ① 点的是「实例」那一颗；
@@ -6642,17 +6648,18 @@ void MainWindow::onNavigationApplied(int sourceIndex, int index, bool reselected
     // 排到下一轮再开，见 `runWhenOverlayFree()`）—— 所以这一条判据是
     // "这一按到底算不算'回实例设置'"，不是"那一页开不出来"：占着的时候按「实例」
     // 就照常翻页（和按「主页」「设置」一样），让位那一套交给上面那一发。
-    // 留着这一条的理由是**顺序**：来路（`m_downloadFromInstanceId`）要排在那一次
+    // 留着这一条的理由是**顺序**：来路（`m_downloadReturn`）要排在那一次
     // 开页之前清掉，而"让位"是异步的 —— 两下里撞在一起会变成"返回键没了、页也没开"。
     //
     // 第二下为什么自动就成了"回到实例主页"：上面那一发把这一页开起来之后，当前选项卡
-    // **就是**「实例」，于是再按一下正中 MainWindowUI 那条的 ② 档（点的是当前这一颗
-    // ⇒ `overlayHost->dismiss()` = 收掉这一页，露出底下的实例列表）。那一下这一位已经
-    // 被上面清空了 ⇒ 这里不接手，两下没人打架。
+    // **就是**来路那颗根页（`NavigationReturn::rootTab`，通常是「实例」），于是再按一下
+    // 正中 MainWindowUI 那条的 ② 档（点的是当前这一颗 ⇒ `overlayHost->dismiss()` = 收掉
+    // 这一页，露出底下的实例列表）。那一下这一份已经被上面取走了 ⇒ 这里不接手，
+    // 两下没人打架。
     const bool overlayFree = m_ui->overlay() == nullptr || !m_ui->overlay()->isOpen();
     if (index == MainWindowUI::instancesTabIndex()
         && sourceIndex == MainWindowUI::downloadTabIndex()
-        && !m_downloadFromInstanceId.isEmpty() && overlayFree) {
+        && m_downloadReturn.valid() && overlayFree) {
         returnToInstanceSettingsFromDownload();
         return;
     }
@@ -6673,18 +6680,17 @@ void MainWindow::onNavigationApplied(int sourceIndex, int index, bool reselected
     // ⇒ 判据永远为真，等于没有这一条（那个症状照样发生，只有 `mw_check` T25.8 量得出来）。
     if (index != MainWindowUI::downloadTabIndex()
         || !reselected
-        || m_downloadFromInstanceId.isEmpty()) {
+        || !m_downloadReturn.valid()) {
         return;
     }
 
-    // 来路那一栏先认下来：下面头一件事就是把这几位清掉。
+    // 来路那一栏先认下来：下面头一件事就是把它整个取走。
     ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
-    const bool known = ResourceCatalog::kindFromCategoryKey(m_downloadFromPageKey, &kind);
+    const bool known = ResourceCatalog::kindFromCategoryKey(m_downloadReturn.pageKey, &kind);
 
-    // ① 把"从实例进来"这件事整个收起来。返回键露不露只看这一位（见 setDownloadBackVisible
-    // 的调用点），所以两位一起清，再把它收起来。
-    m_downloadFromInstanceId.clear();
-    m_downloadFromPageKey.clear();
+    // ① 把"从实例进来"这件事整个收起来。返回键露不露只看这一份（见 setDownloadBackVisible
+    // 的调用点），所以先取走再收起来。
+    m_downloadReturn = NavigationReturn();
     m_ui->setDownloadBackVisible(false);
 
     // ② 那一栏的筛子是**我们**灌进去的（fillDownloadFiltersFromInstance），回主页就该一并
@@ -6724,20 +6730,39 @@ void MainWindow::openFileResourcePage(const QString &versionId, const QString &i
     // 必须和"压根没开出来"分开认：那一档是上面第 ① ② 步认完之后、`m_resourceHits`
     // 里那条已经不在了之类 —— 没开出来就**什么也别做**。不分开的话，用户点一下名字 =
     // 实例设置被收掉、详情页没出来、实例设置又被摆回去，看着就是白闪一下。
+    //
+    // 「回来时翻回哪颗根页」在这一刻量：这一页摆在哪颗根页上，来路就归哪一颗。
+    // 收页那一刻再比一次 —— 中间用户可能已经切走、又从别的根页开了别的事
+    // （那种收掉是 `evict()` 的"让位"，**不是**他按的返回，见下面那段）。
+    QTabWidget *tabs = m_ui->getTabWidget();
+    const int originTab = tabs != nullptr ? tabs->currentIndex() : -1;
     openResourceDetailPage(
         iconKey, kindKey, DetailSource::InstanceFiles, versionId,
-        [this, versionId, kindKey](int result) {
+        [this, versionId, kindKey, originTab](int result) {
             // 这一发是从 `closeOverlay()` 里发出来的（`pageClosed` 就发在那儿，那一页
-            // 还没从"正在收"里走出来）。实例设置那一页现在仍会卡一个嵌套事件循环 ——
-            // 就在这一发里开它等于在收尾途中又进一层，所以**排到下一轮**再开
-            // （和 `openDownloadCategory()` 那边同一个手法）。
-            QTimer::singleShot(0, this, [this, versionId, kindKey, result] {
+            // 还没从"正在收"里走出来）。就在这一发里开别的一页等于在收尾途中又进一层，
+            // 所以**排到下一轮**再开（和 `openDownloadCategory()` 那边同一个手法）。
+            QTimer::singleShot(0, this, [this, versionId, kindKey, result, originTab] {
                 if (result == QDialog::Accepted && !versionId.isEmpty() &&
                     kindKey == QStringLiteral("mod")) {
                     openInstanceSettings(versionId, QStringLiteral("config"));
                     return;
                 }
                 if (result != QDialog::Rejected || versionId.isEmpty()) {
+                    return;
+                }
+                // ---------- 只在"来路还在"的时候回去 ----------
+                //
+                // `Rejected` 有两种来路：用户按了返回箭头 / Esc（要回去），以及这一页
+                // 被**别处**顶掉（`OverlayHost::evict()` 的"让位"—— 典型：用户切到
+                // 另一颗根页，又从那儿开了另一页）。后者这一页不是他收的、他也不在等
+                // "回到刚才那一页"；照着回去就会把刚开起来那一页顶掉（或者两发并排
+                // 排着、谁后到谁赢）。判据用**根页**：收页这一刻还停在这一页开出来的
+                // 那颗根页上 ⇒ 来路还在。那一份"回去滚到哪儿"也一并作废 —— 它属于
+                // 这条被放弃的路。
+                if (QTabWidget *nowTabs = m_ui->getTabWidget(); nowTabs != nullptr &&
+                        originTab >= 0 && nowTabs->currentIndex() != originTab) {
+                    m_instanceReturn = NavigationReturn();
                     return;
                 }
                 // 回来时开在**刚才那一页**上（`kindKey` 就是那一页的键 —— 「这一页是哪
@@ -6771,19 +6796,19 @@ void MainWindow::openInstanceFileResource(const QString &versionId, const QStrin
     if (!m_instanceIconController->fileResourceIconKey(path, &iconKey)) {
         return;
     }
-    // ③ 先收掉实例设置那一页 —— **只能走 dismiss()**，理由和 openDownloadCategory() 里
-    // 逐字相同：那一页正卡在 `execPage()` 的嵌套事件循环里，只 `closeOverlay()` 的话
-    // 一个信号都不发，那个循环永远不返回。
+    // ③ 先收掉实例设置那一页 —— 走 `dismiss()`（和 openDownloadCategory() 里同一个规矩）：
+    // 它发的就是"用户按了返回箭头"那一发，收页该走的收尾（`pageClosed` 那一串）一条不少；
+    // 只 `closeOverlay()` 的话那一页自己一个信号都收不到。
     if (m_ui->overlay() == nullptr || !m_ui->overlay()->isOpen()) {
-        // 页已经关掉了（连着点两下、或者返回键和它撞上）。没有那一层嵌套循环要收，
+        // 页已经关掉了（连着点两下、或者返回键和它撞上）。没有那一层要收，
         // 直接开新的就完了。
         openFileResourcePage(versionId, iconKey, kindKey);
         return;
     }
     m_ui->overlay()->dismiss();
-    // ④ 摆到下一轮：这一句这会儿还在那个嵌套循环的调用栈里（名字上那个鼠标松开事件），
-    // execPage() 还没返回、覆盖层也还盖着 —— 现在就去开新页的话，openResourceDetailPage
-    // 开头那条 `overlay->isOpen()` 会当场把这次点击吃掉。
+    // ④ 摆到下一轮：这一句这会儿还在收页的调用栈里（名字上那个鼠标松开事件），
+    // 覆盖层也还盖着 —— 现在就去开新页的话，openResourceDetailPage 开头那条
+    // `overlay->isOpen()` 会当场把这次点击吃掉。
     //
     // NOTE: 键与键都在这一层认完了，排到下一轮带过去的只有那三个**字符串**：下一轮
     // 里这一页早就没了，那时候再去查"这一条是哪个资源"就等于查一份已经被清掉的
@@ -6949,8 +6974,7 @@ void MainWindow::runWhenOverlayFree(const std::function<void()> &open, int round
     }
     OverlayHost *overlay = m_ui->overlay();
     if (overlay == nullptr || !overlay->isOpen()) {
-        // 绝大多数时候走的是这一支：这一层本来就空着，**同一轮就把页开出来**（那一页
-        // 仍然卡在自己的嵌套事件循环里转到用户点返回）。
+        // 绝大多数时候走的是这一支：这一层本来就空着，**同一轮就把页开出来**。
         open();
         return;
     }
@@ -6964,10 +6988,9 @@ void MainWindow::runWhenOverlayFree(const std::function<void()> &open, int round
         warnOverlayBusy();
         return;
     }
-    // 收页那一发只是**请求**（见 OverlayHost::evict() 那段）：那一页正卡在自己的嵌套
-    // 事件循环里，`backPressed()` 要等这一趟调用栈整个退出去、`execPage()` 醒过来，才
-    // 真的把它收干净。∴ 排到下一轮，而且**下一轮再从头上过一遍**（那一轮里可能又有别的
-    // 东西把这一层占上了）。
+    // 收页那一发对"非阻塞开的那一页"是同步落定的（reject → finished → closeOverlay），
+    // 可就当它是**请求**来排：这一趟调用栈随后还要退出，而下一轮里可能又有别的东西
+    // 把这一层占上了。∴ 排到下一轮，而且**下一轮再从头上过一遍**。
     QTimer::singleShot(0, this, [this, open, roundsLeft] {
         runWhenOverlayFree(open, roundsLeft - 1);
     });

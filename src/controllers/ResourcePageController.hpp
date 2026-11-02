@@ -73,7 +73,7 @@ public:
         QString title;
         /// 开页时**是从哪个实例进来的**（空 = 不是从某个实例进来的）。`from` 是
         /// `InstanceFiles` 时就是那个实例的目录名，`Download` 时是"用户上一次是从哪个
-        /// 实例进下载页的"（`m_downloadFromInstanceId`）。
+        /// 实例进下载页的"（`m_downloadReturn.instanceId`）。
         ///
         /// 它只喂两件事：开页那一下 chip 预选到**哪个**游戏版本、以及哪个加载器的组排前面。
         /// **存下来**而不是开页时用一次就扔：勾「显示快照版」那一下会把 chip 那一排整个

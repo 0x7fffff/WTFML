@@ -362,7 +362,7 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 - **落点**：实例里那四类子目录，还是整合包的缓存目录（整合包不能进 `versions/`——
   那底下每一个子目录都会被当成一个实例）；
 - **问不问「存哪儿」**：设置里没勾 **或** 这一栏不是从实例里点进来的。两条来路读的是
-  同一个值（`m_downloadFromInstanceId`），和「← 返回实例设置」那颗按钮同一个出处；
+  同一份来路（`m_downloadReturn`），和「← 返回实例设置」那颗按钮同一个出处；
 - **谁在动盘**：默认是那个实例；用户挑了别处的目录时必须清空（不锁任何人启动）；
 - **加载器对不上**：只管模组，判据刻意做窄（认不出的加载器 / 多加载器 / 纯原版都放行）；
 - **任务号先建**：盘上都已经有的时候那一批会**同步**收尾，先建号才认领得到终态；
@@ -716,3 +716,48 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 `QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete)` ——
 `processEvents()` 不递 `DeferredDelete`，不冲的话覆盖层的停放区里还留着一份旧页，
 `findChild<InstanceSettingsDialog *>()` 会把那份已经收掉的交回来。
+
+### 2026-11-02 返回实例设置：三份散落的来路收成一条 `NavigationReturn`
+
+「逐根页迁移明确路由栈（返回恢复进入前状态）」那一项里，真正缺的不是"把来路存下来"
+（那三样各自都存了），而是**它们不是一份东西**：
+
+- `m_downloadFromInstanceId` / `m_downloadFromPageKey`：从实例设置进下载页的那一趟记的是
+  实例和页键，但**归哪颗根页**没记 —— 返回时 `InstanceDialogController::open()` 拿
+  "当下停在哪颗根页"现算。从主页快捷入口进去的那一趟，回来时人已经被摆在下载页上，
+  于是算成「实例」：用户明明是从主页进来的，回来却落在另一颗根页上。
+- `MainWindow::FileScrollReturn`：从资源详情页返回时的那一份（实例 / 页键 / 顶行身份 /
+  偏移），只有那一支在写。
+
+另外还有两条真缺陷：
+
+- 「← 返回实例设置」那条路（`returnToInstanceSettingsFromDownload()`）**不量滚动位置**——
+  详情页那一路量了，下载页这一路没有，所以从下载页回去必然落回顶端。
+- 升级那一趟是在 `openDownloadCategory()` **之后**补写 `m_downloadFromPageKey = "upgrade"`：
+  中间那一段状态是错的，而且只有调用方知道要补。
+- 详情页被**别的根页**上的操作 `evict()` 掉时，`openFileResourcePage()` 的 `pageClosed`
+  回调照样拿旧来路去开实例设置 —— 和用户刚点开的那一页抢覆盖层。
+
+修改：
+
+- 新增 `src/controllers/NavigationReturn.hpp`（纯值）：`rootTab` / `instanceId` /
+  `pageKey` / `scrollIdentity` / `scrollDelta`，`valid()` 与 `hasScroll()` 各只回答一件事。
+  `instanceSettings(...)` 是"从实例设置出发"的那一份的构造口。
+- `MainWindow` 上留**两个**位子、形状相同但寿命不同：`m_downloadReturn`（"这一次进下载页
+  是从哪个实例点进来的"——返回键露不露、已安装版本选谁、详情页当哪个当前实例）和
+  `m_instanceReturn`（"回实例设置时把哪一页、滚到哪儿摆回去"）。下载页按返回时前者整个
+  挪进后者；`openInstanceSettingsNow()` 在 `showPage()` **之前**消费后者（对不上实例 /
+  页键就整份作废），用完就清。
+- 两条离开实例设置的路都在**离开那一刻**现量滚动位置（`fileResourceRequested` 与
+  `browseDownloadsRequested`）：回来时那是另一个对话框、另一批 `InstanceFilesPage`，
+  位置只有这一刻还活着。
+- `returnToInstanceSettingsFromDownload()` 先切回 `origin.rootTab` 再开页 —— 根页不是
+  现算的。
+- 升级入口直接带着 `pageKey = "upgrade"` 进下载页，不再事后改状态。
+- `openFileResourcePage()` 的 `pageClosed` 回调加一道闸：收页之后如果当前根页已经不是
+  进来时那一颗（= 这一页是被别的根页上的操作驱逐的），**不再**开实例设置。
+
+验证：`mw_check` 新增 T25.10（11 条）——把实例的 `mods/` 造出 40 条、从**主页**开实例设置、
+滚到中间、点「下载新模组」、按「← 返回实例设置」，断言落回**主页**、页键还是 `mod`、
+顶上那一行还是离开时那一行且滚动条不在 0。`mw_check` 2746/2746、全套 ctest 39 项全绿
+（`mw_check_workspace` 45/45）。

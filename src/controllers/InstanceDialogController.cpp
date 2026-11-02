@@ -735,12 +735,17 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     InstanceUpdateFlow::attach(m_owner, &dialog, targetId);
     connect(m_owner->m_versionManager, &VersionManager::versionsFetched, &dialog, [refreshTransferPage](const QStringList &) { refreshTransferPage(QStringLiteral("upgrade")); });
     if (m_owner->m_versionManager->availableVersions().isEmpty()) m_owner->m_versionManager->fetchAvailableVersions();
-    connect(&dialog, &InstanceSettingsDialog::prepareUpgradeTargetRequested, &dialog, [this, &dialog, targetId](const QString &version) {
+    connect(&dialog, &InstanceSettingsDialog::prepareUpgradeTargetRequested, &dialog, [this, &dialog, targetId, settingsTab](const QString &version) {
         dialog.reject();
-        QTimer::singleShot(0, m_owner, [owner = QPointer<MainWindow>(m_owner), targetId, version] {
+        QTimer::singleShot(0, m_owner, [owner = QPointer<MainWindow>(m_owner), targetId, version, settingsTab] {
             if (!owner) return;
-            owner->openDownloadCategory(QStringLiteral("game"), targetId);
-            owner->m_downloadFromPageKey = QStringLiteral("upgrade");
+            // 来路写清是**「版本升级」那一页**（不是落地那栏 `game`）：回来时用户要回到
+            // 他刚才点那一版的那一页。这一份 `NavigationReturn` 就是"来路"的唯一出处 ——
+            // 以前是先 `openDownloadCategory("game", …)` 再回头改一位页键，两步之间
+            // 那个状态是错的。
+            owner->openDownloadCategory(
+                QStringLiteral("game"),
+                NavigationReturn::instanceSettings(settingsTab, targetId, QStringLiteral("upgrade")));
             owner->openInstallPage(version);
         });
     });
@@ -2196,12 +2201,24 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // m_owner->openDownloadCategory() 一处（内含"为什么要排到下一轮事件循环"那句）。
     //
     // NOTE: 接在 `showPage()` **之前**，理由同上：页一摆上去用户就能按，接晚了那一发就漏了。
-    // 把**是哪个实例**也带过去（`targetId` 就是这一页说的那个实例）。那一栏
-    // 靠它做两件事：左上角露出「← 返回实例设置」（回得来）、以及把「已安装版本」选到它
-    // 身上（下来的东西落进"当前实例"）。不带的话用户点完那颗键就回不去了。
+    // 把**是哪个实例**、**哪颗根页**、**那一页滚到哪儿**一起带过去
+    // （`NavigationReturn` 就是"来路"那一份形状）。那一栏靠它做三件事：左上角露出
+    // 「← 返回实例设置」（回得来）、把「已安装版本」选到它身上（下来的东西落进"当前
+    // 实例"）、以及回去时把那一页和滚动位置原样摆回来。不带的话用户点完那颗键就回不去了。
     connect(&dialog, &InstanceSettingsDialog::browseDownloadsRequested, m_owner,
-            [this, &targetId](const QString &categoryKey) {
-                m_owner->openDownloadCategory(categoryKey, targetId);
+            [this, &dialog, &targetId, settingsTab](const QString &categoryKey) {
+                NavigationReturn origin = NavigationReturn::instanceSettings(
+                    settingsTab, targetId,
+                    InstanceSettingsDialog::filesDownloadPageKey(categoryKey));
+                // 离开这一刻量一下文件页滚到哪儿（和 fileResourceRequested 那条同一个
+                // 理由：回来时那一页是**另一份** InstanceFilesPage，位置只有这一刻还活着）。
+                if (InstanceFilesPage *files =
+                        dialog.filesPage(InstanceSettingsDialog::filesDownloadPageKey(categoryKey))) {
+                    const InstanceFilesPage::ScrollPosition position = files->scrollPosition();
+                    origin.scrollIdentity = position.identity;
+                    origin.scrollDelta = position.delta;
+                }
+                m_owner->openDownloadCategory(categoryKey, origin);
             });
 
     // 行上的名字点得动：**进的是那个资源自己的那一页**
@@ -2214,21 +2231,23 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // 新目录名的实例上，收一份旧名字就是"实例设置打不开"。
     // NOTE: 同样接在 `showPage()` **之前**，理由和上面那条逐字相同。
     connect(&dialog, &InstanceSettingsDialog::fileResourceRequested, m_owner,
-            [this, &dialog, &targetId](const QString &pageKey, const QString &path) {
+            [this, &dialog, &targetId, settingsTab](const QString &pageKey, const QString &path) {
                 // 非量不可的时机：下面那一发会把这一页收掉，而返回时开出来的是**另一个
-                // 对话框、另一个 InstanceFilesPage**（`openInstanceSettingsNow()` 里新造
-                // 的那一份）—— 位置只有这一刻还活在盘面上。摆回去那一段见
-                // `openInstanceSettingsNow()` 里 `showPage()` 之前那一段。
+                // 对话框、另一个 InstanceFilesPage** —— 位置只有这一刻还活在盘面上。
+                // 摆回去那一段见 `openInstanceSettingsNow()` 里 `showPage()` 之前那一段。
                 //
                 // NOTE: 按**引用**收 `dialog`，理由和上面那批 lambda 逐字相同：它挂在
                 // 那个会话上、活到收页为止（见 targetId 那一段）。右键点一行走的也是这一发
                 // （见 InstanceSettingsDialog 那边这段注释），所以两条路都顾到了。
+                NavigationReturn origin =
+                    NavigationReturn::instanceSettings(settingsTab, targetId, pageKey);
                 if (InstanceFilesPage *files = dialog.filesPage(pageKey)) {
                     const InstanceFilesPage::ScrollPosition position = files->scrollPosition();
-                    m_owner->m_fileScrollReturn.instanceId = targetId;
-                    m_owner->m_fileScrollReturn.pageKey = pageKey;
-                    m_owner->m_fileScrollReturn.identity = position.identity;
-                    m_owner->m_fileScrollReturn.delta = position.delta;
+                    origin.scrollIdentity = position.identity;
+                    origin.scrollDelta = position.delta;
+                }
+                if (origin.hasScroll()) {
+                    m_owner->m_instanceReturn = origin;
                 }
                 m_owner->openInstanceFileResource(targetId, pageKey, path);
             });
@@ -2409,8 +2428,10 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // ② "停在哪一页"只能由摆上去那一句本身定 —— 页一摆上去用户当场就能看、能点，摆完了
     // 再补一次换页就是当着用户的面翻一次。
     // 认不出来的键 `showPage()` 自己判 -1 什么都不做（停「概览」）—— 不静默出错。
-    // **从资源详情页返回**时把那一页的滚动位置塞回去。位置是离开那一刻量的
-    // （见 fileResourceRequested 那一条接线）。
+    // **回去**时把那一页的滚动位置塞回去。两条来路都量在离开那一刻：
+    // ① 从资源详情页返回（`fileResourceRequested` 那一条接线）；
+    // ② 从下载页按「← 返回实例设置」（那颗键把来路整个挪到 `m_instanceReturn` 上，
+    //    见 `MainWindow::returnToInstanceSettingsFromDownload()`）。
     //
     // 必须排在下面那句 `showPage()` **之前**：`showPage()` 会把那一页列出来，而
     // "列出来"这一趟的收尾就是 `restoreScrollAnchor()` —— 塞晚了这一趟已经落回顶端了，
@@ -2419,16 +2440,17 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // 对不上就整份作废（换了实例 / 开的是另一页 ⇒ 落回顶端才是对的）；不管用没用上，
     // 到这儿都清掉 —— 这一趟之后它的使命就结束了，留着的话下一次开实例设置会拿一份
     // 过期的位置去摆（而那时用户多半已经翻到别处去了）。
-    if (!m_owner->m_fileScrollReturn.identity.isEmpty() && m_owner->m_fileScrollReturn.instanceId == targetId &&
-        !pageKey.isEmpty() && m_owner->m_fileScrollReturn.pageKey == pageKey) {
+    if (m_owner->m_instanceReturn.hasScroll() &&
+        m_owner->m_instanceReturn.instanceId == targetId && !pageKey.isEmpty() &&
+        m_owner->m_instanceReturn.pageKey == pageKey) {
         if (InstanceFilesPage *files = dialog.filesPage(pageKey)) {
             InstanceFilesPage::ScrollPosition position;
-            position.identity = m_owner->m_fileScrollReturn.identity;
-            position.delta = m_owner->m_fileScrollReturn.delta;
+            position.identity = m_owner->m_instanceReturn.scrollIdentity;
+            position.delta = m_owner->m_instanceReturn.scrollDelta;
             files->setScrollPosition(position);
         }
     }
-    m_owner->m_fileScrollReturn = MainWindow::FileScrollReturn();
+    m_owner->m_instanceReturn = NavigationReturn();
 
     if (!pageKey.isEmpty()) {
         dialog.showPage(pageKey);
