@@ -993,3 +993,27 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 行数：`src/MainWindow.cpp` 4762 → 4500，新文件 262（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：实例文件与实例设置的读写分出去
+
+`MainWindow.cpp` 里 3358–3639 这 282 行，主语是"某个实例目录里的东西"：
+
+- `updateInstanceFiles()`：页键 → 哪一份页面数据（这一片最大的一段）；
+- `toggleInstanceFiles()` / `deleteInstanceFiles()`、`deleteInstanceFile()` /
+  `removeInstanceFileUnasked()`：批量开关 / 删除（走 controller，回收站在那边）；
+- `copyInstanceTo()` / `copyInstanceToInBackground()`、`importWorldInto()` /
+  `renameInstanceWorld()`：拷贝与导入；
+- `requestInstanceFileIcons()` / `pushInstanceFileUpdates()`：图标与"有更新"那两条投影；
+- `applyInstanceSettings()`：设置落盘，以及对话框现读成一份 `Edit` 的那一半。
+
+搬到 `src/MainWindowInstanceFiles.cpp`。判据不在这一层：页键与页表的形状在
+`InstanceSettingsDialog` / `InstanceFilesPage`，盘上的读写、事务登记与回收站在各自的
+controller。`applyInstanceSettings()` 后面紧跟着的匿名命名空间（导出那两份文件的默认目录、
+写 meta 那个助手）**没有**跟着走 —— 它属于下一节「日志窗那两颗导出」。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 4503 → 4221，新文件 282（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
