@@ -1486,3 +1486,23 @@ meta** —— 写了下次读出来就是"自定义 + 一个用户没填过的�
 行数：`ui/InstanceFilesPage.cpp` 1261 → 1173，新文件 91（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+## 2026-11-03 `ui/InstanceFilesPage.cpp`：能力开关与按钮文字分出去
+
+同一个 `InstanceFilesPage` 被八页用着，每页能做的事不一样。`InstanceFilesPage.cpp` 里
+604–734 这 131 行就是那一整套"这一页能做什么"：
+
+- 能力：`setMode()` / `setRowIconsVisible()` / `setCanToggle()` / `setCanDelete()` /
+  `setCanEdit()` / `setBatchMode()`；
+- 那几颗按钮的文字与显隐：`setEmptyText()` / `setImportText()` / `setJoinText()` /
+  `updateJoinEnabled()` / `setBatchText()` / `setDownloadText()`；
+- 列哪个目录：`setDirectory()`（只记账，看不见的页先欠着）。
+
+搬到 `ui/InstanceFilesPageCapabilities.cpp`。规矩跟着走：能力只由外面拨，这一层不自己
+猜；**按钮文字为空 = 这一颗不露**（这是"这一页没有这件事"的唯一说法）。
+
+- 类接口没改；三份源列表（主 `CMakeLists.txt`、`tests/mw_check`、`tests/ui_check`）登记新文件。
+
+行数：`ui/InstanceFilesPage.cpp` 1173 → 1045，新文件 131（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
