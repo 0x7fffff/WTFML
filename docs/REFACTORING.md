@@ -872,3 +872,24 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 行数：`src/MainWindow.cpp` 6930 → 6607，新文件 372。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：「脸上那张图」分出去
+
+`MainWindow.cpp` 里 1528–1723 这 196 行只认一张图：`PlayerSkinController` 手上那套外观
+（贴图 / 披风 / 细手臂），和它落到窗口上那几处 —— 底栏头像、主页那个小人、账号与外观
+那个窗里的提示，以及 `accountFacePixmap()` 那条只读本地缓存的头像。
+
+搬到 `src/MainWindowSkin.cpp`：
+
+- 四条薄壳 `onSkinProfileReady()` / `onSkinTextureReady()` / `onRandomSkinReady()` /
+  `applyPlayerSkin()` 的名字**一个字没动**：mw_check 的 X 节与 AF5/AF6/AF7 是按名字
+  `QMetaObject::invokeMethod` 打的（全程不联网验完整条外观路径的唯一办法）。换翻译单元
+  不影响按名字调用，改名会。
+- `startPlayerSkinLoad()`（全仓"把外观拉一遍"的唯一出口，六处调用点）与
+  `onPlayerSkinChanged()`（"现在显示的是哪一套"的唯一出口）整条跟着走。
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 6607 → 6414，新文件 241。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
