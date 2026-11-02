@@ -106,6 +106,7 @@ int UiBannerArmorChecks() {
         auto *trimPattern = page.findChild<QComboBox *>(ToolboxPage::trimPatternComboName());
         auto *trimMaterial = page.findChild<QComboBox *>(ToolboxPage::trimMaterialComboName());
         auto *trimPieces = page.findChild<QSpinBox *>(ToolboxPage::trimPiecesSpinName());
+        auto *trimVersion = page.findChild<QComboBox *>(ToolboxPage::trimVersionComboName());
         auto *trimResult = page.findChild<QLabel *>(ToolboxPage::trimResultName());
         check(trimArmor != nullptr && trimPart != nullptr && trimPattern != nullptr
                   && trimMaterial != nullptr && trimPieces != nullptr && trimResult != nullptr,
@@ -116,6 +117,16 @@ int UiBannerArmorChecks() {
             page.setTrimParts({QStringLiteral("头盔"), QStringLiteral("胸甲")});
             page.setTrimPatterns({QStringLiteral("海岸"), QStringLiteral("哨兵")});
             page.setTrimMaterials({QStringLiteral("紫水晶"), QStringLiteral("铜")});
+            check(trimVersion != nullptr,
+                  "★★ U40 纹饰那一页有「目标版本」下拉框（与旗帜 / 酿造同一套版本表）");
+            if (trimVersion != nullptr) {
+                page.setTrimVersions({QString(), QStringLiteral("1.20"), QStringLiteral("1.21"),
+                                      QStringLiteral("1.21.4")});
+                check(trimVersion->count() == 4 && trimVersion->itemText(0) == QStringLiteral("不限版本")
+                          && page.trimVersion().isEmpty(),
+                      "★★ U40 版本表照摆：空串那一项写「不限版本」，默认就是它",
+                      trimVersion->itemText(0));
+            }
             check(trimPieces->minimum() == 1 && trimPieces->maximum() == 4
                       && trimPieces->value() == 1,
                   "★★ U40 件数 1–4、默认 1（整套四件自己填 4）",
@@ -170,6 +181,13 @@ int UiBannerArmorChecks() {
                 check(trimSignals == 7 && !lastWholeSet && trimPart->isEnabled()
                           && trimPieces->isEnabled(),
                       "★ U40 取消整套：两格原样回来（不是偷偷忽略用户摆的设置）");
+            }
+            // 换目标版本也要重算（版本边界那一句提示在结果里）。
+            if (trimVersion != nullptr) {
+                trimVersion->setCurrentIndex(3);
+                check(trimSignals == 8 && page.trimVersion() == QStringLiteral("1.21.4"),
+                      "★★ U40 换目标版本 ⇒ 照发一发（判据层 / 结果区按它重算）",
+                      QStringLiteral("%1 次 / %2").arg(trimSignals).arg(page.trimVersion()));
             }
             page.setTrimResult(QStringLiteral("紫水晶 · 海岸纹饰的钻石胸甲 × 1"));
             check(trimResult->text()

@@ -2,8 +2,8 @@
  * @file GameVersion.hpp
  * @brief 「目标版本」那一栏的共用判据：版本次序表 + 「这一项从哪一版起才有」。
  *
- * 旗帜设计、酿造助手这几页各有一个「目标版本」下拉框，**版本表与比较规则只在这里写
- * 一次**（以前只有 `BannerDesign` 里那一份，别处再抄一张就会各走各的）。
+ * 旗帜设计、酿造助手、纹饰搭配这几页各有一个「目标版本」下拉框，**版本表与比较规则
+ * 只在这里写一次**（以前只有 `BannerDesign` 里那一份，别处再抄一张就会各走各的）。
  *
  * 【比较按段，不按字面】
  *
@@ -25,12 +25,13 @@ namespace GameVersion {
 
 /// 界面上「目标版本」下拉框的次序（**第一项空串 = 不限版本**）。
 ///
-/// NOTE: 只列到 `1.21` —— 排在后面的 `1.21.x` 与 `1.21` 在这些判据里等价（旗帜图案与
-/// 酿造配方在这一段没有再变），列出来只会让下拉框变长。
+/// NOTE: 1.21.4 这一档是给纹饰材料用的（树脂质 1.21.4 才有），旗帜与酿造在这一段
+/// 没有变化 —— 多一档只是让选到 1.21.4 的人不必看见「树脂质不存在」那句假话。
 inline QStringList versions() {
     return {QString(), QStringLiteral("1.14"), QStringLiteral("1.15"), QStringLiteral("1.16"),
             QStringLiteral("1.17"), QStringLiteral("1.18"), QStringLiteral("1.19"),
-            QStringLiteral("1.20"), QStringLiteral("1.20.4"), QStringLiteral("1.21")};
+            QStringLiteral("1.20"), QStringLiteral("1.20.4"), QStringLiteral("1.21"),
+            QStringLiteral("1.21.4")};
 }
 
 /**

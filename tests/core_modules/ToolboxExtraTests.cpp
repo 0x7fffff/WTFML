@@ -399,8 +399,10 @@ void runToolboxExtraTests() {
               "★★ ZAI5 版本比较按段：1.20.4 < 1.21（不是按字面比）");
         check(GameVersion::versions().first().isEmpty()
                   && GameVersion::versions().contains(QStringLiteral("1.21"))
+                  && GameVersion::versions().contains(QStringLiteral("1.21.4"))
                   && GameVersion::versions() == BannerDesign::versions(),
-              "★ ZAI5 版本表只有一份（旗帜那一页拿的就是它）");
+              "★ ZAI5 版本表只有一份（旗帜那一页拿的就是它；1.21.4 这一档是给"
+              "树脂质用的）");
     }
 
     // ---------- ZAJ0. 旗帜：图案表与十六色 ----------
@@ -559,6 +561,33 @@ void runToolboxExtraTests() {
                   + ArmorTrim::trimMaterialSince(10));
         check(ArmorTrim::trimMaterialAt(4).name == QStringLiteral("金质"),
               "★ ZAJ3 gold 的官方名是「金质」，不是「黄金」");
+        // 目标版本边界：与旗帜 / 酿造同一条判据（`GameVersion::availableIn()`）。
+        // 空串 = 不限版本；越界下标回 false（认不出来不能说它有）。
+        check(ArmorTrim::trimMaterialAvailable(10, QStringLiteral("1.21.4"))
+                  && !ArmorTrim::trimMaterialAvailable(10, QStringLiteral("1.21"))
+                  && ArmorTrim::trimMaterialAvailable(10, QString())
+                  && ArmorTrim::trimMaterialAvailable(0, QStringLiteral("1.20")),
+              "★★ ZAJ3 树脂质 1.21.4 才有（1.21 里没有；「不限版本」照旧算有）",
+              QStringLiteral("1.21.4=%1 1.21=%2 空=%3")
+                  .arg(ArmorTrim::trimMaterialAvailable(10, QStringLiteral("1.21.4")))
+                  .arg(ArmorTrim::trimMaterialAvailable(10, QStringLiteral("1.21")))
+                  .arg(ArmorTrim::trimMaterialAvailable(10, QString())));
+        check(!ArmorTrim::trimMaterialAvailable(11, QString())
+                  && !ArmorTrim::trimMaterialAvailable(-1, QString()),
+              "★ ZAJ3 越界的材料下标回 false（不是「不限版本 → 什么都有」）");
+        check(ArmorTrim::patternSince(16) == QStringLiteral("1.21")
+                  && ArmorTrim::patternSince(0) == QStringLiteral("1.20")
+                  && ArmorTrim::patternSince(99).isEmpty(),
+              "★ ZAJ3 图案的那一档版本从表里问（越界回空串）",
+              ArmorTrim::patternSince(16));
+        check(ArmorTrim::patternAvailable(16, QStringLiteral("1.21"))
+                  && !ArmorTrim::patternAvailable(16, QStringLiteral("1.20.4"))
+                  && ArmorTrim::patternAvailable(0, QStringLiteral("1.20"))
+                  && !ArmorTrim::patternAvailable(99, QString()),
+              "★★ ZAJ3 涡流 / 镶铆是 1.21 的图案（1.20.4 里没有）；海岸从 1.20 起",
+              QStringLiteral("涡流@1.21=%1 涡流@1.20.4=%2")
+                  .arg(ArmorTrim::patternAvailable(16, QStringLiteral("1.21")))
+                  .arg(ArmorTrim::patternAvailable(16, QStringLiteral("1.20.4"))));
         const QStringList patternNames = ArmorTrim::patternNames();
         check(patternNames
                   == QStringList{QStringLiteral("海岸"), QStringLiteral("哨兵"),

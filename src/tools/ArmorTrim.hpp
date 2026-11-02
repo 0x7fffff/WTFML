@@ -42,6 +42,13 @@ int trimMaterialCount();
 TrimMaterial trimMaterialAt(int index);
 /// 这种材料哪个 Java 版本才有（`1.20` / `1.21.4`；越界回空串）。
 QString trimMaterialSince(int index);
+/**
+ * @brief @p version 里有没有第 @p index 种纹饰材料（空串 = 不限版本）。
+ *
+ * 判据与旗帜 / 酿造同一条（`GameVersion::availableIn()`）。越界下标回 **false**
+ * （认不出来就不能说它有）。
+ */
+bool trimMaterialAvailable(int index, const QString &version);
 QStringList trimMaterialNames();
 
 /// 纹饰图案（模板）。
@@ -57,6 +64,14 @@ int patternCount();
 /// 第 @p index 种（越界回空的那个）。
 TrimPattern patternAt(int index);
 QStringList patternNames();
+/// 这枚图案从哪一版起才有（`1.20` / `1.21`；越界回空串）。
+QString patternSince(int index);
+/**
+ * @brief @p version 里有没有第 @p index 枚纹饰图案（空串 = 不限版本）。
+ *
+ * 判据与旗帜 / 酿造同一条（`GameVersion::availableIn()`）。越界下标回 **false**。
+ */
+bool patternAvailable(int index, const QString &version);
 /// 模板来源那一句（`沉船（藏宝箱）`；越界回空串）。界面别自己再写一份。
 QString patternSource(int index);
 /// 复制这枚模板要的那种方块（`圆石`；越界回空串）。抄的是游戏自己的复制配方。
