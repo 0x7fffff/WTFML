@@ -1206,3 +1206,23 @@ meta** —— 写了下次读出来就是"自定义 + 一个用户没填过的�
 行数：`src/MainWindow.cpp` 2875 → 2774，新文件 101（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：进实例设置 / 快速游玩分出去
+
+`MainWindow.cpp` 里 2463–2547 这 85 行，主语是"用户要从哪一页进那个实例"：
+
+- `openInstanceSettings()`：全窗唯一的入口（空 id 先判 ⇒ 普通提示；被占着就静默让位，
+  排到下一轮再开）；
+- `openInstanceSettingsNow()`：让位之后的那一发；
+- `instanceSupportsQuickPlay()` / `startQuickPlay()` / `startQuickPlayNow()`：服务器列表与
+  主页直达的那条路（真的起进程在 `LaunchController`）；
+- `instanceFileDirs()` / `instanceCommonFolderKeys()`：那扇窗要的目录表。
+
+搬到 `src/MainWindowInstanceEntry.cpp`。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 2777 → 2692，新文件 85（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
