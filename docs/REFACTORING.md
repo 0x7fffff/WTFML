@@ -1398,3 +1398,26 @@ meta** —— 写了下次读出来就是"自定义 + 一个用户没填过的�
 行数：`src/MainWindow.cpp` 1582 → 1495，新文件 90（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+## 2026-11-03 `ui/InstanceFilesPage.cpp`：搜索与状态筛选分出去
+
+`InstanceFilesPage.cpp` 里"这一页现在筛着什么、哪几条算中"自成一片，搬到
+`ui/InstanceFilesPageFilter.cpp`：
+
+- 两个条件：`m_searchText` / `m_stateFilter`，以及那份"哪些条有新版本"的名单
+  （`m_outdatedPaths` + `m_updateChecked`）——`setSearchText()` / `setStateFilter()` /
+  `setUpdateResult()` / `setCanFilterUpdates()`；
+- 两套控件（下拉框 / 四颗带条数的按钮）的填与摆：`filterAt()`、`fillStateCombo()`、
+  `fillStateButtons()`、`stateFilterCount()`、`stateFilterVisible()`、
+  `ensureStateFilterVisible()`；
+- 判据 `entryMatchesFilter()` —— 它读的正是上面那三位，跟着一起走。
+
+三条规矩跟着搬过去（文件头里写全了）：判据只有 `stateFilterVisible()` 一处、条件不许停在
+一档摆不出来的东西上；填控件时挡信号；条件一变就 `rebuildRows()`，例外只有
+`setUpdateResult()` 那句"名单本身没变就不重排"。
+
+- 类接口没改；三份源列表（主 `CMakeLists.txt`、`tests/mw_check`、`tests/ui_check`）登记新文件。
+
+行数：`ui/InstanceFilesPage.cpp` 1691 → 1415，新文件 280（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
