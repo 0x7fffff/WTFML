@@ -70,6 +70,20 @@ void DirectDownloadController::open() {
             if (!start(request, exists, &error)) m_dialog->status->setText(error);
         };
         m_dialog->onCancel = [this] { cancel(m_task); };
+        // 独立窗口的尺寸/位置记下来（这一件是全应用唯一的独立窗口，见 FEATURES）。
+        // 关窗口（accept / reject / 标题栏那个叉）都会发 finished ⇒ 记一次；程序被关掉时
+        // 还有 shutdown() 兜最后一次。
+        const QByteArray geometry =
+            settings.value(QStringLiteral("Toolbox/DownloadGeometry")).toByteArray();
+        if (!geometry.isEmpty()) {
+            m_dialog->restoreGeometry(geometry);
+        }
+        connect(m_dialog, &QDialog::finished, this, [this] {
+            if (m_dialog != nullptr) {
+                QSettings().setValue(QStringLiteral("Toolbox/DownloadGeometry"),
+                                     m_dialog->saveGeometry());
+            }
+        });
     }
     m_dialog->setBusy(m_running);
     if (!m_status.isEmpty()) m_dialog->status->setText(m_status);
@@ -291,6 +305,11 @@ bool DirectDownloadController::cancel(Tasks::TaskId id) {
 void DirectDownloadController::shutdown() {
     if (m_stopping) return;
     m_stopping = true;
+    // 关程序时窗口还开着：finished 不会来，这里补记一次（下次打开照上次的尺寸）。
+    if (m_dialog != nullptr) {
+        QSettings().setValue(QStringLiteral("Toolbox/DownloadGeometry"),
+                             m_dialog->saveGeometry());
+    }
     const auto waiting = m_pendingPaths.keys();
     for (auto id : waiting) if (!m_recoveries.contains(id)) cancel(id);
     if (m_running && !pause(m_task)) cancel(m_task);
