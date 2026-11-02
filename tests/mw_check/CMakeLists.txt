@@ -101,6 +101,7 @@ set(SOURCE_FILES
     # 「设置」选项卡那一片接线：和主工程同一份清单（同一个类，另一个翻译单元）。
     ${REPO_ROOT}/src/MainWindowSettings.cpp
     ${REPO_ROOT}/src/MainWindowServer.cpp
+    ${REPO_ROOT}/src/MainWindowTasks.cpp
     ${REPO_ROOT}/src/controllers/JavaRuntimeController.cpp
     ${REPO_ROOT}/src/controllers/JavaSettingsController.cpp
     # 「实例预设」那一页的控制器：MainWindow 构造里 new 它，少了这一个
