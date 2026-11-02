@@ -229,6 +229,12 @@ bool hashFile(const QString &path, bool needFingerprint, FileHashes *out, QStrin
 // `unmatchedFingerprints[]`。
 // 两条路的请求体和回复解析都在这儿（纯函数），发请求那一步在调用点（要 HttpClient）。
 
+/// 去重（保序，只留第一次出现的）。两个反查请求体和它们分块那一层都先过这里 ——
+/// 内容相同的两个 jar 哈希一样，发两遍只是白占一批 100 条里的名额；接口那边按哈希
+/// 回一条，第二遍问不出任何新东西。
+QStringList uniqueSha1s(const QStringList &sha1s);
+QList<quint32> uniqueFingerprints(const QList<quint32> &fingerprints);
+
 /// Modrinth 的批量反查请求体：`{"hashes":[...],"algorithm":"sha1"}`。
 /// 空表返回空 QByteArray —— 那一发**不该发出去**（空表的回复必然是空 map）。
 QByteArray modrinthVersionFilesRequestBody(const QStringList &sha1s);

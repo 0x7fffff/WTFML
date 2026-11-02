@@ -510,6 +510,35 @@ void runModpackExportFormatTests(const QString &sandbox) {
         check(ModpackExport::curseForgeFingerprintsRequestBody({}).isEmpty(),
               "V5h 空表不拼请求体");
 
+        // 去重：内容相同的两个文件（换个名字）哈希/指纹一样，一条就够。重复的那几格
+        // 只会白占每批 100 条的名额，把那几个真的没问过的文件挤到下一批去。
+        const QString shaA = QStringLiteral("c19b8bfb43a753ad8c27612d516ce61c58b0d2e6");
+        const QString shaB = QStringLiteral("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        const QJsonArray dedupHashes =
+            QJsonDocument::fromJson(ModpackExport::modrinthVersionFilesRequestBody(
+                                        {shaA, QString(), shaA, QStringLiteral("  ") + shaB}))
+                .object()
+                .value(QStringLiteral("hashes"))
+                .toArray();
+        check(dedupHashes.size() == 2 && dedupHashes.at(0).toString() == shaA &&
+                  dedupHashes.at(1).toString() == shaB,
+              "★ V5h 同一个 sha1 只发一次（空串/两头空白也不占一格，次序按第一次出现）",
+              QString::number(dedupHashes.size()));
+        const QJsonArray dedupFingerprints =
+            QJsonDocument::fromJson(ModpackExport::curseForgeFingerprintsRequestBody(
+                                        {3309664856u, 3309664856u, 7u}))
+                .object()
+                .value(QStringLiteral("fingerprints"))
+                .toArray();
+        check(dedupFingerprints.size() == 2 &&
+                  static_cast<quint32>(dedupFingerprints.at(0).toDouble()) == 3309664856u &&
+                  static_cast<quint32>(dedupFingerprints.at(1).toDouble()) == 7u,
+              "★ V5h 同一个指纹只发一次（去重保序）",
+              QString::number(dedupFingerprints.size()));
+        check(ModpackExport::uniqueSha1s({shaB, shaA, shaB}) == QStringList{shaB, shaA} &&
+                  ModpackExport::uniqueFingerprints({7u, 9u, 7u}) == QList<quint32>{7u, 9u},
+              "V5h uniqueSha1s / uniqueFingerprints 都是保序去重（分块那一层直接用它们）");
+
         // 读真回复：Modrinth 那一份
         const QString metaDir = QStringLiteral(REPO_ROOT_PATH) + "/tests/meta";
         QString modrinthSha1;
