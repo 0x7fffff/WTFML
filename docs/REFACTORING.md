@@ -649,4 +649,22 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 点「确定」→ 真的写进 `wtfml.folders`；再开一次、新建组、点「取消」→ 一个字节都没落盘）。
 这一段以前写不出来 —— 注释里"要过 `exec()` 这个模态循环，offscreen 下驱动不了"说的就是它。
 
-**还剩 3 处**：实例设置、资源详情页（要拿返回值）、预设编辑器（要拿 accept / reject）。
+### 2026-11-02 预设编辑器也改了（结果走回调）
+
+`PresetController::Host` 上原来那格 `execPage(dialog, title, ownerTab)`（返回值 = `execPage`
+的返回值）换成了 `showPage(dialog, title, ownerTab, onClosed)`：摆上去就返回 `bool`，
+`onClosed(int)` 在这一页收掉时叫一次，参数是 `QDialog::result()`。主窗口那一侧接的是
+`OverlayHost::showPage()` + `pageClosed()` 钩子（同分组设置那一套：接在对话框上、
+`Qt::SingleShotConnection`）。
+
+`openEditor()` 原来排在 `execPage()` 返回之后的收尾（`m_editor` 清空 / 刷新列表 /
+`hide()` + `deleteLater()`）整段挪进 `onClosed`；摆不上时删掉新页并留一句状态。
+收页语义没变：`closeEditor()` 照旧 `accept()`，`reject()` 照旧被页面接管成"问要不要保存"。
+`captureForEditor()` 里"开完立刻给页面上提示"那一句照旧在 `openEditor()` 返回之后读
+`m_editor` —— 现在开页是同步摆上去的，这一条仍然成立。
+
+验证：`PresetPreviewChecks` 里那一段从"排一发 `singleShot` 进嵌套循环"改成了顺序代码
+（开页返回时页面就在屏幕上、存草稿之后页面真的收掉了、重开草稿拿到同一份文档），
+假宿主换成一条同语义的 `showPage`（`finished` → `onClosed`）。
+
+**还剩 2 处**：实例设置、资源详情页（要拿返回值）。

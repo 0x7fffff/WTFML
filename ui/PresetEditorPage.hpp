@@ -14,8 +14,8 @@ class PresetModEditor;
 
 // One in-memory document; no sub-page writes to disk.
 //
-// ★ 它是一个**整页**（`QDialog`，由 `OverlayHost::execPage()` 铺到内容区上），打开它的方式
-// 和「实例设置」逐字一样：页眉（返回箭头 + 标题）由覆盖层自己搭，左上角不再有自己那颗
+// ★ 它是一个**整页**（`QDialog`，由 `OverlayHost::showPage()` 铺到内容区上），打开它的方式
+// 和「实例设置」同一套外壳：页眉（返回箭头 + 标题）由覆盖层自己搭，左上角不再有自己那颗
 // 「返回」按钮。`reject()` 被接管 —— 它**不关页**，只把"用户要走了"交给控制器，
 // 由控制器问"保存为草稿 / 保存为预设 / 不保存"，然后才 `accept()` 收页。
 class PresetEditorPage final : public QDialog {

@@ -385,10 +385,31 @@ MainWindow::MainWindow(QWidget *parent)
             // 收尾之后重灌实例清单：这一趟期间别的刷新（下载收尾、改设置）会把这一份
             // 按 `installingVersionIds()` 滤掉，不重刷它就一直不在列表里。
             [this]() { refreshInstalledVersions(); },
-            // 预设编辑器那一页铺在内容区上（和实例设置同一条路，见 OverlayHost::execPage）。
+            // 预设编辑器那一页铺在内容区上（和实例设置同一条路，见 OverlayHost::showPage：
+            // 摆上去就返回，收页之后才叫 onClosed）。
             // 归属传 -1 = 现在这一颗选项卡：这一页只从实例页「预设」那一档开得出来。
-            [this](QDialog *dialog, const QString &title, int ownerTab) {
-                return m_ui->overlay()->execPage(dialog, title, ownerTab);
+            [this](QDialog *dialog, const QString &title, int ownerTab,
+                   std::function<void(int)> onClosed) {
+                OverlayHost *overlay = m_ui->overlay();
+                if (!overlay->showPage(dialog, title, ownerTab)) {
+                    return false;
+                }
+                // 收页结果接在 `pageClosed()` 上：确定 / 取消 / 返回箭头 / Esc /
+                // 被别的页顶掉 —— 全汇到那一处；结果从对话框自己那份 `result()` 读
+                // （确定 = Accepted，和原来 `execPage()` 的返回值同一套）。
+                //
+                // NOTE: 接在 `dialog` 上（不是 `this` 上）当上下文：这一页收掉之后
+                // 对话框就 `deleteLater()` 了，连接跟着一起没；接在 this 上的话，每开
+                // 一次就多留一条永远匹配不上的连接。
+                connect(
+                    overlay, &OverlayHost::pageClosed, dialog,
+                    [dialog, onClosed](QWidget *page) {
+                        if (page == dialog && onClosed) {
+                            onClosed(dialog->result());
+                        }
+                    },
+                    Qt::SingleShotConnection);
+                return true;
             },
             // 页头那句「N 份预设」：和「当前文件夹：…（N 个实例）」是页头同一格，
             // 换档时由 MainWindowUI 自己换着写（见 setInstanceMode）。

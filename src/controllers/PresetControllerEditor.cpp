@@ -55,12 +55,12 @@ void PresetController::openEditor(const QString &id, bool draft) {
         }
         editableSections.insert(key);
     }
-    if (!m_host.execPage) {
+    if (!m_host.showPage) {
         if (m_page) m_page->showStatus(tr("当前界面不能打开预设编辑器。"));
         return;
     }
-    // 编辑器是**整页**（和实例设置同一条路）：铺在内容区上，页眉带返回箭头。这一句会
-    // 卡到用户把那一页收掉为止（`execPage` 里是嵌套事件循环，和 `dialog.exec()` 同义）。
+    // 编辑器是**整页**（和实例设置同一条路）：铺在内容区上，页眉带返回箭头。摆上去就
+    // 返回 —— 收页由覆盖层自己管，收掉之后才叫下面那条回调（见 `Host::showPage`）。
     auto *editor = new PresetEditorPage(state);
     editor->saveRequested = [this](bool draft) { saveEditor(draft); };
     editor->backRequested = [this] { leaveEditor(); };
@@ -69,15 +69,24 @@ void PresetController::openEditor(const QString &id, bool draft) {
                m_editorPrompt(tr("放弃修改"), text, {tr("确认"), tr("取消")}) == 0;
     };
     m_editor = editor;
-    m_host.execPage(editor, id.isEmpty() ? tr("新建预设") : tr("编辑预设"), -1);
-    // 走到这儿 = 那一页已经收掉了（用户自己走 / 存完自己走 / 这一层被别处收掉）。
-    // 收尾只做一件事：把这一页还回去。列表刷新在 closeEditor() 里做过一遍了。
-    if (m_editor == editor) {
+    const bool shown = m_host.showPage(
+        editor, id.isEmpty() ? tr("新建预设") : tr("编辑预设"), -1,
+        [this, editor](int) {
+            // 走到这儿 = 那一页已经收掉了（用户自己走 / 存完自己走 / 这一层被别处收掉）。
+            // 收尾只做一件事：把这一页还回去。列表刷新在 closeEditor() 里做过一遍了。
+            if (m_editor == editor) {
+                m_editor = nullptr;
+                if (m_page) refreshList(m_currentId);
+            }
+            editor->hide();
+            editor->deleteLater();
+        });
+    if (!shown) {
         m_editor = nullptr;
-        if (m_page) refreshList(m_currentId);
+        editor->hide();
+        editor->deleteLater();
+        if (m_page) m_page->showStatus(tr("当前界面不能打开预设编辑器。"));
     }
-    editor->hide();
-    editor->deleteLater();
 }
 
 void PresetController::closeEditor() {
@@ -86,9 +95,9 @@ void PresetController::closeEditor() {
     auto *editor = m_editor.data();
     m_editor = nullptr;
     refreshList(m_currentId);
-    // 收页 = accept()：`execPage()` 那次嵌套循环就是等这一发（reject() 已经被页面接管成
-    // "问要不要保存"，见 ui/PresetEditorPage 的 .hpp）。真正的 deleteLater 在 openEditor
-    // 返回之后。
+    // 收页 = accept()：覆盖层收到 finished 就拆这一层，随后 `pageClosed()` 叫到
+    // openEditor() 里那条回调（reject() 已经被页面接管成"问要不要保存"，见
+    // ui/PresetEditorPage 的 .hpp）。真正的 deleteLater 在那边做。
     editor->accept();
 }
 void PresetController::saveEditor(bool draft, const std::function<void(bool)> &done) {
