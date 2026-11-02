@@ -1329,3 +1329,30 @@ meta** —— 写了下次读出来就是"自定义 + 一个用户没填过的�
 行数：`src/MainWindow.cpp` 2337 → 1998，新文件 342（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+## 2026-11-03 `src/MainWindow.cpp`：行内小按钮的事件路由分出去
+
+`MainWindow.cpp` 里 1271–1490 这 220 行，就是 `eventFilter()` 那一支。它管的全是**画在
+行里的假按钮**——不是 QWidget，是代理画出来的一格，靠视口上的过滤器认"点中了没"：
+
+- 加载器那行右边的「取消」叉（`VersionTreeDelegate::clearRect()`）；
+- 组行行尾的齿轮（`InstanceGroupDelegate::gearRect()`）；
+- 实例行行尾三格：齿轮 / 置顶（↑ 与 ↓ 共用一格）/ 垃圾桶；
+- 下载页左栏分类行尾的刷新圈（`VersionTreeDelegate::refreshRect()`）；
+- 资源表第一层行身（打开详情页），箭头那一格交回展开 / 收起。
+
+搬到 `src/MainWindowEventFilter.cpp`。两条反复出现在注释里的规矩跟着一起搬，之后加一格
+按钮时不用在别处翻：
+
+- **按下就动手**，松开与双击只负责被吃掉；
+- **双击也要接**——点得快时第二发及以后是 `MouseButtonDblClick`，不接就漏给"点中了这一
+  行"那条路（连点垃圾桶的第二下会变成进实例设置）。
+
+判据仍不在这一层：哪一格在 `VersionTreeDelegate` / `InstanceGroupDelegate`（过滤器读的是
+画它们的同一个函数）；点了算哪件事仍是 `MainWindow` 的槽。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 1998 → 1781，新文件 220（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
