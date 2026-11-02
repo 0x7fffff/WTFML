@@ -971,3 +971,25 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 行数：`src/MainWindow.cpp` 5170 → 4759，新文件 411（含文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：实例这一行能做的事分出去
+
+`MainWindow.cpp` 里 2625–2886 这 262 行，主语是**一个实例本身**（不是它的文件、也不是它的
+分组）：改名、固定 / 取消固定、删除，以及两条把 controller 的事实说成人话的投影。
+
+搬到 `src/MainWindowInstanceActions.cpp`：
+
+- `applyRename()`：验证工程按**名字**驱动这个槽（`QMetaObject::invokeMethod(this,
+  "applyRename", …)`，mw_check 的 S 段），薄壳的名字不能改。
+- `pinInstance()` / `unpinInstance()`、`confirmDeleteInstance()` / `deleteInstance()`：
+  "别的账号还在跑 / 还在下载安装"的判据一律问 `installingVersionIds()` 与 `VersionManager`，
+  这一层不另拼一份。
+- `showInstanceSettingsNotice()` / `showServerListNotice()`："哪一档 → 哪句标题、哪句正文"
+  的两张表。验证工程按原文对数，改一个字就是回归 —— 分出来之后这类改动只在一个文件里审。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 4762 → 4500，新文件 262（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
