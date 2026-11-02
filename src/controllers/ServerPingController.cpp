@@ -27,6 +27,7 @@ InstanceSettingsDialog::ServerRowStatus ServerPingController::rowFromCache(
     row.latencyMs = entry.latencyMs;
     row.playersOnline = entry.playersOnline;
     row.playersMax = entry.playersMax;
+    row.versionName = entry.versionName;
     row.motdRaw = entry.motdRaw;
     row.motd = ServerPing::cleanMotd(entry.motdRaw);
     if (!entry.iconPng.isEmpty()) {
@@ -114,6 +115,7 @@ void ServerPingController::pushRows() {
             row.latencyMs = status.latencyMs;
             row.playersOnline = status.playersOnline;
             row.playersMax = status.playersMax;
+            row.versionName = status.versionName;
             row.motd = status.motd;
             row.motdRaw = status.motdRaw;
             if (!status.iconPng.isEmpty()) {
@@ -142,6 +144,7 @@ void ServerPingController::oneFinished(int index, const ServerPing::Status &stat
     entry.latencyMs = status.latencyMs;
     entry.playersOnline = status.playersOnline;
     entry.playersMax = status.playersMax;
+    entry.versionName = status.versionName;
     ServerStatusCache::save(address, entry);
     m_run.fresh.insert(index, status);
     pushRows();

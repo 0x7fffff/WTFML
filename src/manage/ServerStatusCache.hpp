@@ -36,6 +36,11 @@ struct Entry {
     /// 缓存里**真的有这一条**（假 = 没缓存过 / 文件坏了 / 地址认不出 —— 三者调用方要做
     /// 的事是同一件：当没缓存）。
     bool valid = false;
+    /// 服务器自报的版本名（`Paper 1.21.4` 这种，原样，见 ServerPing::Status::versionName）。
+    ///
+    /// NOTE: 老缓存没有这个键 ⇒ 读出来是空串 ⇒ 悬停提示里少这一截。**不编造**
+    /// （没问到过就是没问到过；空串和"服务器真报了个空名"在界面上是同一件事：不写）。
+    QString versionName;
     /// MOTD 的原样（带 `§` 码和换行，见 ServerPing::motdRaw）。
     QString motdRaw;
     /// 图标那串原始 PNG 字节（服务器没给图标就是空的）。

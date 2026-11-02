@@ -254,6 +254,13 @@ QString InstanceSettingsDialog::serverStatusText(const ServerRowStatus &status) 
     return serverStatusLines(status).join(QStringLiteral(" / "));
 }
 
+QString InstanceSettingsDialog::serverStatusTooltip(const ServerRowStatus &status) {
+    const QString text = serverStatusText(status);
+    const QString version = status.versionName.trimmed();
+    // 版本名是服务器**自己说的**，原样挂着；只是它不属于"现在几个人"，所以只进提示。
+    return version.isEmpty() ? text : text + QStringLiteral(" / ") + version;
+}
+
 QString InstanceSettingsDialog::maskedServerAddress(const QString &address) {
     const QString trimmed = address.trimmed();
     if (trimmed.isEmpty()) {
@@ -366,7 +373,7 @@ void InstanceSettingsDialog::setServerStatuses(const QList<ServerRowStatus> &sta
         // 真的一行（见建表那段）。悬停提示仍旧给**单行**那份：提示框里没有"两行"这回事，
         // 它要的是一句话。
         item->setText(2, serverStatusLines(status).join(QLatin1Char('\n')));
-        item->setToolTip(2, serverStatusText(status));
+        item->setToolTip(2, serverStatusTooltip(status));
         item->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
         // 名字单独给一句 tooltip：MOTD 那一行装不下时是被代理省略掉的，而这一行**没有**
         // 别的地方能看全（那一格只画得下一行）。**无条件写**（MOTD 是空串时这一句就是把
