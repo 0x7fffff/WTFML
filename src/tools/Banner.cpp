@@ -5,6 +5,8 @@
 
 #include "tools/Banner.hpp"
 
+#include "tools/GameVersion.hpp"
+
 #include <QHash>
 
 namespace {
@@ -183,7 +185,7 @@ QString dyeName(int index) {
     return QStringLiteral("%1染料").arg(colorName(index));
 }
 
-Plan plan(int baseColorIndex, const QList<Layer> &layers) {
+Plan plan(int baseColorIndex, const QList<Layer> &layers, const QString &version) {
     Plan result;
     if (!validColor(baseColorIndex)) {
         result.error = QStringLiteral("底色认不出来（下标 %1）—— 十六色里挑一个。")
@@ -251,18 +253,40 @@ Plan plan(int baseColorIndex, const QList<Layer> &layers) {
     }
 
     // 指令那一行只在 6 层以内（这儿已经过闸）。
-    QStringList patternTags;
-    for (const Layer &layer : layers) {
-        patternTags.append(QStringLiteral("{Pattern:\"%1\",Color:%2}")
-                               .arg(patternAt(layer.patternIndex).id)
-                               .arg(layer.colorIndex));
+    //
+    // 写法按目标版本分两套：1.20.5 起 NBT 那串不再被 `/give` 接受，图案改走物品组件
+    // （`[minecraft:banner_patterns=[{pattern:"minecraft:cross",color:"white"}]]`）。
+    // 「不限版本」（空串）照老写法给 —— 与这个参数加进来之前逐字相同。
+    const bool componentSyntax =
+        !version.isEmpty()
+        && GameVersion::availableIn(QStringLiteral("1.20.5"), version);
+    if (componentSyntax) {
+        QStringList patternEntries;
+        for (const Layer &layer : layers) {
+            patternEntries.append(QStringLiteral("{pattern:\"minecraft:%1\",color:\"%2\"}")
+                                      .arg(patternAt(layer.patternIndex).id,
+                                           colorId(layer.colorIndex)));
+        }
+        result.command = QStringLiteral("/give @p minecraft:%1_banner%2")
+                             .arg(colorId(baseColorIndex),
+                                  patternEntries.isEmpty()
+                                      ? QString()
+                                      : QStringLiteral("[minecraft:banner_patterns=[%1]]")
+                                            .arg(patternEntries.join(QChar(','))));
+    } else {
+        QStringList patternTags;
+        for (const Layer &layer : layers) {
+            patternTags.append(QStringLiteral("{Pattern:\"%1\",Color:%2}")
+                                   .arg(patternAt(layer.patternIndex).id)
+                                   .arg(layer.colorIndex));
+        }
+        result.command = QStringLiteral("/give @p minecraft:%1_banner%2")
+                             .arg(colorId(baseColorIndex),
+                                  patternTags.isEmpty()
+                                      ? QString()
+                                      : QStringLiteral("{BlockEntityTag:{Patterns:[%1]}}")
+                                            .arg(patternTags.join(QChar(','))));
     }
-    result.command = QStringLiteral("/give @p minecraft:%1_banner%2")
-                         .arg(colorId(baseColorIndex),
-                              patternTags.isEmpty()
-                                  ? QString()
-                                  : QStringLiteral("{BlockEntityTag:{Patterns:[%1]}}")
-                                        .arg(patternTags.join(QChar(','))));
 
     result.summary = QStringLiteral("底色 %1 / %2 层 / %3").arg(baseName).arg(layers.size()).arg(kMaxLayers);
     result.materials = materials.rows();

@@ -25,13 +25,15 @@ namespace GameVersion {
 
 /// 界面上「目标版本」下拉框的次序（**第一项空串 = 不限版本**）。
 ///
-/// NOTE: 1.21.4 这一档是给纹饰材料用的（树脂质 1.21.4 才有），旗帜与酿造在这一段
-/// 没有变化 —— 多一档只是让选到 1.21.4 的人不必看见「树脂质不存在」那句假话。
+/// NOTE: 1.20.5 这一档是给旗帜 `/give` 用的（那一版起图案从 NBT 换成物品组件），
+/// 与 1.20.4 前后相邻、不能省 —— 中间的版本按 1.20.5 之后处理。1.21.4 这一档是给
+/// 纹饰材料用的（树脂质 1.21.4 才有），旗帜与酿造在这一段没有变化 —— 多一档只是让
+/// 选到 1.21.4 的人不必看见「树脂质不存在」那句假话。
 inline QStringList versions() {
     return {QString(), QStringLiteral("1.14"), QStringLiteral("1.15"), QStringLiteral("1.16"),
             QStringLiteral("1.17"), QStringLiteral("1.18"), QStringLiteral("1.19"),
-            QStringLiteral("1.20"), QStringLiteral("1.20.4"), QStringLiteral("1.21"),
-            QStringLiteral("1.21.4")};
+            QStringLiteral("1.20"), QStringLiteral("1.20.4"), QStringLiteral("1.20.5"),
+            QStringLiteral("1.21"), QStringLiteral("1.21.4")};
 }
 
 /**

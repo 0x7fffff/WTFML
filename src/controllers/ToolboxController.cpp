@@ -1164,9 +1164,10 @@ void ToolboxController::refreshBanner(int baseColor, const QStringList &layers) 
         layer.colorIndex = parts.value(1).toInt();
         parsed.append(layer);
     }
-    const Banner::Plan plan = Banner::plan(baseColor, parsed);
-    QList<bool> availability;
+    // 目标版本也进判据层：1.20.5 起 `/give` 的图案写法换成物品组件（见 `Banner::plan`）。
     const QString version = m_page->bannerVersion();
+    const Banner::Plan plan = Banner::plan(baseColor, parsed, version);
+    QList<bool> availability;
     for (int i = 0; i < Banner::patternCount(); ++i) availability.append(BannerDesign::available(i, version));
     m_page->setBannerPatternAvailability(availability);
     QStringList unsupported;
