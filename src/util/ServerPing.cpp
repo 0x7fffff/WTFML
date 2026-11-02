@@ -813,6 +813,23 @@ Status ping(const QString &address) {
     if (players.contains(QStringLiteral("max"))) {
         status.playersMax = players.value(QStringLiteral("max")).toInt(-1);
     }
+    // 服务器列出的在线玩家名。只收对象里的 `name`（协议写死的那种形状）；`§` 码洗掉，
+    // 空名 / 重名跳过。上限 32：这一栏是服务器给的，长度不该由对面决定。
+    constexpr int kMaxSamplePlayers = 32;
+    const QJsonValue sampleValue = players.value(QStringLiteral("sample"));
+    if (sampleValue.isArray()) {
+        for (const QJsonValue &entry : sampleValue.toArray()) {
+            if (status.samplePlayers.size() >= kMaxSamplePlayers) {
+                break;
+            }
+            const QString name =
+                cleanMotd(entry.toObject().value(QStringLiteral("name")).toString());
+            if (name.isEmpty() || status.samplePlayers.contains(name)) {
+                continue;
+            }
+            status.samplePlayers.append(name);
+        }
+    }
     status.iconPng = decodeFavicon(root.value(QStringLiteral("favicon")).toString());
     return status;
 }

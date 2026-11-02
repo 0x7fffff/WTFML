@@ -195,8 +195,14 @@ struct Status {
     QString motd;
     /// MOTD 的**原样**：`§` 码和换行都留着（见 motdRaw()）。服务器没给就是空串。
     QString motdRaw;
-    /// 服务器自己报的版本名（比如 `Paper 1.20.4`）。没给就是空串。
+    /// 服务器自报的版本名（比如 `Paper 1.20.4`）。没给就是空串。
     QString versionName;
+    /// 服务器自报的在线玩家名（`players.sample[].name`）。**已经去掉 `§` 码**、
+    /// 空白收过；`id` 那一栏不要。最多 32 个（防一份超长数组把提示框撑破）。
+    ///
+    /// 空表 = 服务器**没给这一栏**（== 没人在线的说法不成立：很多服故意关掉或只给一部分）。
+    /// 名字是服务器自己写的，界面只当"它这么说"显示。
+    QStringList samplePlayers;
     /// 在线 / 上限人数。**服务器没报就是 -1**（不是 0 —— "一个人都没有"和"它没说"不同）。
     int playersOnline = -1;
     int playersMax = -1;

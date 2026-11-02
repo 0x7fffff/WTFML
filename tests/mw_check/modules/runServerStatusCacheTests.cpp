@@ -45,6 +45,7 @@ void runServerStatusCacheTests() {
     saved.valid = true;
     // 服务器自报的版本名也一起存（悬停提示末尾那一截，见 serverStatusTooltip()）。
     saved.versionName = QStringLiteral("Paper 1.21.4");
+    saved.samplePlayers = {QStringLiteral("Steve"), QStringLiteral("Alex")};
     // MOTD 带 `§` 码、带换行、带中文 —— 都是"存不住就走样"的东西。
     saved.motdRaw = QStringLiteral("§a欢迎来到 §l本地服§r\n§7第二行 §c红");
     saved.iconPng = QByteArrayLiteral("\x89PNG\r\n\x1a\n") + QByteArray(64, '\x00') +
@@ -62,6 +63,9 @@ void runServerStatusCacheTests() {
     check(back.versionName == saved.versionName,
           "★ T23.3 服务器自报的版本名**一字不差**（悬停提示末尾那一截靠它）",
           back.versionName);
+    check(back.samplePlayers == saved.samplePlayers,
+          "★ T23.3 玩家名单也存得住、次序不变（悬停提示末尾「在线：…」那一截靠它）",
+          back.samplePlayers.join(QStringLiteral("、")));
     check(back.motdRaw == saved.motdRaw,
           "★★ T23.3 MOTD **一个字都不差**（`§` 码和换行都在 —— 少了哪一样，那一格就"
           "只剩一行灰字）",
@@ -95,11 +99,12 @@ void runServerStatusCacheTests() {
           "那是一句**假话**而且看着完全正常",
           QStringLiteral("%1/%2").arg(unknownBack.playersOnline).arg(unknownBack.playersMax));
     check(unknownBack.latencyMs == 42 && unknownBack.motdRaw.isEmpty() &&
-              unknownBack.iconPng.isEmpty(),
-          "★ T23.4 而「没给图标 / MOTD」存回来是**空**（不是上一次那台的 —— 两台各有各的文件）",
-          QStringLiteral("motd=%1 icon=%2 字节")
+              unknownBack.iconPng.isEmpty() && unknownBack.samplePlayers.isEmpty(),
+          "★ T23.4 而「没给图标 / MOTD / 名单」存回来是**空**（不是上一次那台的 —— 两台各有各的文件）",
+          QStringLiteral("motd=%1 icon=%2 字节 names=%3")
               .arg(unknownBack.motdRaw.size())
-              .arg(unknownBack.iconPng.size()));
+              .arg(unknownBack.iconPng.size())
+              .arg(unknownBack.samplePlayers.size()));
 
     // ---------- ⑤ 重测一次：上一次那份**整条**被盖掉 ----------
     ServerStatusCache::Entry again;
@@ -110,7 +115,8 @@ void runServerStatusCacheTests() {
     const ServerStatusCache::Entry againBack = ServerStatusCache::load(address);
     check(againBack.valid && !againBack.online &&
               againBack.motdRaw == QStringLiteral("§c挂了的服") && againBack.iconPng.isEmpty() &&
-              againBack.latencyMs == -1 && againBack.playersOnline == -1,
+              againBack.latencyMs == -1 && againBack.playersOnline == -1 &&
+              againBack.samplePlayers.isEmpty(),
           "★ T23.5 第二次测的结果**整条盖掉**上一次（不许留上一次的人数/图标 —— 那些是"
           "上一台那时候的样子，而这一格写着的东西用户是会当真的）",
           QStringLiteral("motd=%1 icon=%2 字节 latency=%3")
@@ -145,6 +151,24 @@ void runServerStatusCacheTests() {
           "「没连上」，不是替它编一句「超时」");
     check(legacy.versionName.isEmpty(),
           "T23.5b 老缓存里也没有版本名 ⇒ 空串（悬停提示少那一截，不编造）");
+    check(legacy.samplePlayers.isEmpty(),
+          "T23.5b 老缓存里也没有玩家名单 ⇒ 空表（同样不编造）");
+
+    // 手改过的缓存里塞一长串名字：读回来最多 32 个、空名跳过 —— 提示框的长度不该由
+    // 盘上那份文件决定。
+    QStringList manyNames;
+    for (int i = 0; i < 40; ++i) {
+        manyNames.append(QStringLiteral("n%1").arg(i));
+    }
+    ServerStatusCache::Entry manyEntry;
+    manyEntry.valid = true;
+    manyEntry.samplePlayers = manyNames;
+    ServerStatusCache::save(address, manyEntry);
+    const ServerStatusCache::Entry manyBack = ServerStatusCache::load(address);
+    check(manyBack.samplePlayers.size() == 32 && manyBack.samplePlayers.first()
+              == QStringLiteral("n0") && manyBack.samplePlayers.last() == QStringLiteral("n31"),
+          "★★ T23.5b 缓存里的名单读回来封顶 32 个（手改的超长数组也不许撑破提示框）",
+          QString::number(manyBack.samplePlayers.size()));
 
     // ---------- ⑥ 写坏了（断电、手改）当没有，而且**不删** ----------
     writeFileAt(path, QByteArrayLiteral("{ 这不是 JSON"));

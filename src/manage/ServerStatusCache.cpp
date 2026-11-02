@@ -3,6 +3,7 @@
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 
@@ -12,6 +13,7 @@ namespace {
 
 /// 盘上那几个键（读和写各只出现一次，见下面两个函数）。
 const char *kVersionNameKey = "versionName";
+const char *kSamplePlayersKey = "samplePlayers";
 const char *kMotdKey = "motd";
 const char *kIconKey = "icon";
 const char *kLatencyKey = "latencyMs";
@@ -60,6 +62,21 @@ Entry load(const QString &address) {
     }
     const QJsonObject root = document.object();
     entry.versionName = root.value(QLatin1String(kVersionNameKey)).toString();
+    // 老缓存没有这个键 ⇒ 空表（不编造名单）。手改过的缓存里要是塞了一长串，最多留 32 个
+    // —— 与 ServerPing 解析那一头上限相同，提示框的长度不该由盘上那份文件决定。
+    constexpr int kMaxSamplePlayers = 32;
+    const QJsonValue sampleValue = root.value(QLatin1String(kSamplePlayersKey));
+    if (sampleValue.isArray()) {
+        for (const QJsonValue &value : sampleValue.toArray()) {
+            if (entry.samplePlayers.size() >= kMaxSamplePlayers) {
+                break;
+            }
+            const QString name = value.toString().trimmed();
+            if (!name.isEmpty() && !entry.samplePlayers.contains(name)) {
+                entry.samplePlayers.append(name);
+            }
+        }
+    }
     entry.motdRaw = root.value(QLatin1String(kMotdKey)).toString();
     entry.iconPng =
         QByteArray::fromBase64(root.value(QLatin1String(kIconKey)).toString().toLatin1());
@@ -86,6 +103,8 @@ void save(const QString &address, const Entry &entry) {
 
     QJsonObject root;
     root.insert(QLatin1String(kVersionNameKey), entry.versionName);
+    root.insert(QLatin1String(kSamplePlayersKey),
+                QJsonArray::fromStringList(entry.samplePlayers));
     root.insert(QLatin1String(kMotdKey), entry.motdRaw);
     // 图标是**原始 PNG 字节**，JSON 里放不了二进制 ⇒ base64。它是几 KB 的一张小图，
     // 塞进同一个文件比另开一个 `.png` 省一次"两个文件对不上"的机会。

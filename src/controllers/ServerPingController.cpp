@@ -28,6 +28,7 @@ InstanceSettingsDialog::ServerRowStatus ServerPingController::rowFromCache(
     row.playersOnline = entry.playersOnline;
     row.playersMax = entry.playersMax;
     row.versionName = entry.versionName;
+    row.samplePlayers = entry.samplePlayers;
     row.motdRaw = entry.motdRaw;
     row.motd = ServerPing::cleanMotd(entry.motdRaw);
     if (!entry.iconPng.isEmpty()) {
@@ -116,6 +117,7 @@ void ServerPingController::pushRows() {
             row.playersOnline = status.playersOnline;
             row.playersMax = status.playersMax;
             row.versionName = status.versionName;
+            row.samplePlayers = status.samplePlayers;
             row.motd = status.motd;
             row.motdRaw = status.motdRaw;
             if (!status.iconPng.isEmpty()) {
@@ -145,6 +147,7 @@ void ServerPingController::oneFinished(int index, const ServerPing::Status &stat
     entry.playersOnline = status.playersOnline;
     entry.playersMax = status.playersMax;
     entry.versionName = status.versionName;
+    entry.samplePlayers = status.samplePlayers;
     ServerStatusCache::save(address, entry);
     m_run.fresh.insert(index, status);
     pushRows();
