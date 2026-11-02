@@ -1063,6 +1063,18 @@ QString InstanceSettingsDialog::filesDownloadCategoryKey(const QString &key) {
     return QString();
 }
 
+QString InstanceSettingsDialog::filesDownloadPageKey(const QString &categoryKey) {
+    if (categoryKey.isEmpty()) {
+        return QString();
+    }
+    for (const QString &key : filePageKeys()) {
+        if (filesDownloadCategoryKey(key) == categoryKey) {
+            return key;
+        }
+    }
+    return QString();
+}
+
 bool InstanceSettingsDialog::filesNameOpensResource(const QString &key) {
     // 这四页（模组 / 资源包 / 数据包 / 光影包）出来的条目点得进详情页：匹配上了才点得动，
     // 模组也一样。名字点开和资源包三页走的是**同一条路**，唯一的分别落在那一页右上角

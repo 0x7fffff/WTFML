@@ -417,7 +417,7 @@ void runDownloadFromInstanceTests() {
               "★★ T25.7 而且开在**模组那一页**（「返回」回到哪儿，这一颗就回到哪儿）",
               navPageKey.isEmpty() ? QStringLiteral("(认不出是哪一页)") : navPageKey);
         check(back != nullptr && back->isHidden(),
-              "★★ T25.7 那条路走完，返回键也收起来了（`m_downloadFromInstanceId` 那一位清干净）");
+              "★★ T25.7 那条路走完，返回键也收起来了（`m_downloadReturn` 那一份取干净）");
         check(navSecondClicked && !overlay->isOpen(),
               "★★ T25.7 第二下「实例」= **回到实例主页**：上面那一页收掉了、露出底下的实例列表"
               "（用户原话「如果点两下那就是先返回再回到实例主页」）",
@@ -499,6 +499,130 @@ void runDownloadFromInstanceTests() {
             QApplication::processEvents();
         }
         check(overlay != nullptr && !overlay->isOpen(), "T25.9 收干净了（提示关掉了）");
+
+        // ---------- ⑩ 「返回」把来路整个还回去：哪颗根页 / 哪一页 / 滚到哪儿 ----------
+        //
+        // 这一节钉的是「逐根页迁移明确路由栈（返回恢复进入前状态）」。三样东西以前散在
+        // 三个成员上（`m_downloadFromInstanceId` / `m_downloadFromPageKey` / 那一份
+        // `FileScrollReturn`），而且"回来归哪颗根页"是拿**当下**那一颗现算的 —— 从主页
+        // 快捷入口进去的那一趟，回来会落在「实例」上。现在是一条 `NavigationReturn`：
+        // 进的时候三样一次记下，回来时原样摆回去。
+        const QString modsDir = AppPaths::versionDir(idV) + QStringLiteral("/mods");
+        QDir().mkpath(modsDir);
+        int madeFiles = 0;
+        for (int i = 0; i < 40; ++i) {
+            QFile file(modsDir +
+                       QStringLiteral("/mod-%1.jar").arg(i, 2, 10, QLatin1Char('0')));
+            if (file.open(QIODevice::WriteOnly)) {
+                file.write(QByteArrayLiteral("not a real jar"));
+                file.close();
+                ++madeFiles;
+            }
+        }
+        check(madeFiles == 40, "T25.10 前提：造够四十条（不够一屏就量不出\"跳回顶端\"）",
+              QStringLiteral("造了 %1 条").arg(madeFiles));
+
+        // 来路先摆成「主页」：下面回来时它得落回主页，而不是被"当下这一颗（下载页）"
+        // 现算成「实例」。
+        if (navHome != nullptr) {
+            navHome->click();
+            QApplication::processEvents();
+        }
+        check(tabs->currentIndex() == MainWindowUI::homeTabIndex(),
+              "T25.10 前提：此刻停在主页上（这一趟的来路归主页）");
+        QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
+                                  Q_ARG(QString, idV));
+        OverlayHost *homeHost = currentPageOverlay();
+        auto *homeDialog =
+            homeHost != nullptr ? homeHost->findChild<InstanceSettingsDialog *>() : nullptr;
+        check(homeDialog != nullptr, "T25.10 前提：从主页开出了实例设置");
+        if (homeDialog != nullptr) {
+            homeDialog->showPage(modKey);
+        }
+        InstanceFilesPage *homeFiles =
+            homeDialog != nullptr ? homeDialog->filesPage(modKey) : nullptr;
+        QListWidget *homeList = homeFiles != nullptr ? homeFiles->list() : nullptr;
+        QScrollBar *homeBar = homeList != nullptr ? homeList->verticalScrollBar() : nullptr;
+        for (int i = 0; i < 20 && (homeList == nullptr || homeList->count() != 40); ++i) {
+            QApplication::processEvents();
+        }
+        check(homeList != nullptr && homeList->count() == 40 && homeBar != nullptr &&
+                  homeBar->maximum() > 0,
+              "T25.10 前提：模组那一页摆出了四十条、真的滚得动",
+              homeList == nullptr ? QStringLiteral("<没有这一页>")
+                                  : QStringLiteral("%1 条，滚动条 0..%2")
+                                        .arg(homeList->count())
+                                        .arg(homeBar != nullptr ? homeBar->maximum() : -1));
+        InstanceFilesPage::ScrollPosition leftAt;
+        if (homeBar != nullptr && homeBar->maximum() > 0) {
+            homeBar->setValue(homeBar->maximum() / 2);
+            QApplication::processEvents();
+            if (homeFiles != nullptr) {
+                leftAt = homeFiles->scrollPosition();
+            }
+        }
+        check(!leftAt.identity.isEmpty() && homeBar != nullptr && homeBar->value() > 0,
+              "★★ T25.10 前提：离开那一刻量得出一份位置（顶上那一行是谁、滚到中间了）",
+              QStringLiteral("顶上 %1（value=%2）")
+                  .arg(leftAt.identity)
+                  .arg(homeBar != nullptr ? homeBar->value() : -1));
+
+        QAbstractButton *homeDownload =
+            homeFiles != nullptr ? homeFiles->downloadButton() : nullptr;
+        check(homeDownload != nullptr, "T25.10 前提：模组那一页顶上那颗「下载新模组」在");
+        if (homeDownload != nullptr) {
+            homeDownload->click();  // 同步收页 + 记下来路；摆选项卡那一发排在下一轮
+        }
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        for (int i = 0; i < 20 && tabs->currentIndex() != MainWindowUI::downloadTabIndex(); ++i) {
+            QApplication::processEvents();
+        }
+        check(tabs->currentIndex() == MainWindowUI::downloadTabIndex() && back != nullptr &&
+                  !back->isHidden(),
+              "T25.10 前提：落到下载页、返回键露着");
+
+        // 按那颗返回键：来路整个摆回去（非阻塞 —— 点完这一页就已经在屏幕上了）。
+        if (back != nullptr) {
+            back->click();
+        }
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        OverlayHost *backHost = currentPageOverlay();
+        auto *backDialog =
+            backHost != nullptr ? backHost->findChild<InstanceSettingsDialog *>() : nullptr;
+        check(backDialog != nullptr, "★★ T25.10 点返回键，实例设置又开起来了");
+        check(tabs->currentIndex() == MainWindowUI::homeTabIndex(),
+              "★★ T25.10 而且落回的是**原来那颗根页**（主页）—— 不是拿"
+              "「现在停在下载页」现算成「实例」",
+              QStringLiteral("停在第 %1 颗").arg(tabs->currentIndex()));
+        check(backDialog != nullptr && backDialog->currentPageKey() == modKey,
+              "★★ T25.10 而且开在**模组那一页**（来路当时停在哪一栏就回到哪一栏）",
+              backDialog == nullptr ? QStringLiteral("<没开出来>")
+                                    : backDialog->currentPageKey());
+
+        InstanceFilesPage *backFiles =
+            backDialog != nullptr ? backDialog->filesPage(modKey) : nullptr;
+        QListWidget *backList = backFiles != nullptr ? backFiles->list() : nullptr;
+        QScrollBar *backBar = backList != nullptr ? backList->verticalScrollBar() : nullptr;
+        // 还原那一发排在 `rebuildRows()` 末尾的 0 毫秒定时器里（见 restoreScrollAnchor），
+        // 所以这里要泵到它落地为止，而不是读一次就走。
+        for (int i = 0; i < 40; ++i) {
+            QApplication::processEvents();
+            if (backFiles != nullptr && !leftAt.identity.isEmpty() &&
+                backFiles->scrollPosition().identity == leftAt.identity) {
+                break;
+            }
+        }
+        check(backFiles != nullptr && backList != nullptr && backList->count() == 40 &&
+                  !leftAt.identity.isEmpty() &&
+                  backFiles->scrollPosition().identity == leftAt.identity &&
+                  backBar != nullptr && backBar->value() > 0,
+              "★★ T25.10 而且那一页**还是离开时停的那一行**（换了一个对话框也认得回来 —— "
+              "靠的是「顶上那一行是谁」，不是「滚动条停在几」）",
+              backFiles == nullptr
+                  ? QStringLiteral("<没有这一页>")
+                  : QStringLiteral("顶上 %1（该 %2，value=%3）")
+                        .arg(backFiles->scrollPosition().identity, leftAt.identity)
+                        .arg(backBar != nullptr ? backBar->value() : -1));
     }
 
     TokenStore::clear(TokenStore::microsoftKey());

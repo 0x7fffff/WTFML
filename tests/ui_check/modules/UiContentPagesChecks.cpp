@@ -3754,7 +3754,7 @@ int UiContentPagesChecks(QFrame * &bar) {
                 // 页面自己记着的那一份位置跟着一起没了。修法是把那一对数字提到页面**外面**
                 // 存（`InstanceFilesPage::ScrollPosition`）：离开那一刻量下来
                 // （`fileResourceRequested` 那一发），回来时在 `showPage()` **之前**塞回去
-                // （`MainWindow::m_fileScrollReturn` → `setScrollPosition()`）。
+                // （`MainWindow::m_instanceReturn` → `setScrollPosition()`）。
                 //
                 // 这里仿的正是那一趟：**另开一个对话框**（= 另一批 InstanceFilesPage），把
                 // 老那一页现量出来的位置塞给新的那一页，再看它列完之后停在哪儿。

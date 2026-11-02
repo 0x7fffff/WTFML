@@ -43,6 +43,7 @@ namespace BackupFiles { enum class Kind; }
 #include "controllers/InstanceSettingsController.hpp"
 #include "controllers/DownloadFilterController.hpp"
 #include "controllers/InstallOccupancy.hpp"
+#include "controllers/NavigationReturn.hpp"
 #include "controllers/ResourcePageController.hpp"
 #include "controllers/ServerListController.hpp"
 #include "manage/InstanceFilter.hpp"
@@ -787,21 +788,24 @@ private slots:
     /// 什么都不做，但会 `qWarning()` 说一句（症状是"按了没反应"，静默的话没人查得到）。
     /// 切到下载页的某一栏（实例设置那几个文件页顶上那颗「下载新模组」走的就是它）。
     ///
-    /// @param returnInstanceId 非空 = 这一次是**从那个实例的设置页进来的**：左栏顶上那颗
+    /// @param origin 非空 = 这一次是**从某个实例的设置页进来的**（`NavigationReturn` 里
+    /// 记着归哪颗根页、哪个实例、停在哪一栏、文件页滚到哪儿）：左栏顶上那颗
     /// 「← 返回实例设置」会露出来，并且把「已安装版本」选到那个实例上、把两个筛子
     /// （游戏版本 / 模组加载器）灌成那个实例的（左上角保留一个返回键，返回到实例设置
     /// 里面 / 自动放进当前实例文件夹 / 自动在搜索框里填入对应的版本和加载器）。
-    /// 别的入口一律传空。
+    /// 别的入口一律传默认值（无效的那一份）。
     ///
-    /// 回来的那一页**就是 `categoryKey`**：「下载新模组」那一栏就是实例设置里
+    /// 回来的那一页**默认就是 `categoryKey`**：「下载新模组」那一栏就是实例设置里
     /// 那一页（见 `InstanceSettingsDialog::filesDownloadCategoryKey()` ——
-    /// "这两处是一回事"的唯一出处就在它那儿），所以"来路那一页"不用再要一个参数。
-    void openDownloadCategory(const QString &categoryKey, const QString &returnInstanceId = QString());
+    /// "这两处是一回事"的唯一出处就在它那儿）；「版本升级」那一路要回来的是**另一页**
+    /// （upgrade），它自己把 `pageKey` 写进 @p origin —— 来路不再靠事后改一位。
+    void openDownloadCategory(const QString &categoryKey,
+                              const NavigationReturn &origin = NavigationReturn());
     /// `openDownloadCategory()` 的第二步：**确认那一页收干净了**再切选项卡、挑那一栏、灌
     /// 筛子。收不干净就什么都不做（理由写在 .cpp 里）。
     /// @param roundsLeft 还允许再排几轮（收页要跨事件循环轮次才落定，见 .cpp）。
     void continueOpenDownloadCategory(int row, const QString &categoryKey,
-                                      const QString &returnInstanceId, int roundsLeft);
+                                      const NavigationReturn &origin, int roundsLeft);
     /// 把某一页那两个筛子灌成**某个实例的**：版本 = 它的游戏版本，加载器 = 它的加载器。
     /// 「自动在搜索框里填入对应的版本和加载器」就是这一条；调它的是上面那个函数。
     void fillDownloadFiltersFromInstance(ResourceCatalog::Kind kind, const QString &instanceId);
@@ -1521,7 +1525,7 @@ private:
     /// 那里是这一支判据**唯一**的语义出处）。
     ///
     /// 两条来路（见实现里的注释）：① 从实例设置点「下载新模组」切到下载页
-    /// （`m_downloadFromInstanceId`）；② 资源详情页是从实例点进来的（`m_resourcePage`）。
+    /// （`m_downloadReturn`）；② 资源详情页是从实例点进来的（`m_resourcePage`）。
     bool downloadCameFromInstance() const;
 
     /// "这个前置要装进哪个实例"：游戏版本 + 加载器 + 来源（`ModDependencies::Target`）。
@@ -2791,26 +2795,22 @@ private:
     /// 和上面那份**一一对应**的行首图标（`instanceRowMark()` 的成品）。缓存它是因为算一张
     /// 要读版本 json，而且它是"行前面那张图"，筛选前后**同一行画的还是同一张**。
     QHash<QString, QIcon> m_instancePageMarks;
-    /// 「从资源详情页返回时，那一页停在哪儿」。
+    /// 「从资源详情页返回时，那一页停在哪儿」—— 一趟性的来路（见 `NavigationReturn`）。
     ///
-    /// 要保留从资源详情页退出时的滚动位置。
-    ///
-    /// 为什么得由这一层带着走：回来时那一页是**整个重新 new 出来的**
-    /// （`openInstanceSettingsNow()` 里那个栈上的对话框，收页那一刻连它一起没了），
-    /// 所以 `InstanceFilesPage` 自己那份"重列不跳回顶端"的锚点跨不过这一道重建
+    /// 要保留从资源详情页退出时的滚动位置。为什么得由这一层带着走：回来时那一页是
+    /// **整个重新 new 出来的**（`openInstanceSettings()` 里那份堆上的对话框），所以
+    /// `InstanceFilesPage` 自己那份"重列不跳回顶端"的锚点跨不过这一道重建
     /// （见 `InstanceFilesPage::ScrollPosition`）。位置在**离开那一刻**量下来
-    /// （`fileResourceRequested` 那一条接线里），开回来时在 `showPage()` 之前塞回去。
+    /// （`fileResourceRequested` 那一条接线里），开回来时在 `showPage()` 之前塞回去
+    /// （`InstanceDialogController::open()` 里 `showPage()` 之前那一段）。
     ///
-    /// NOTE: 一次只可能有一份 —— 同一时刻只可能开着一条资源详情页，所以不做表、就这四个
-    /// 成员；`instanceId` + `pageKey` 对不上（换了实例、或者开的是另一页）就整份
-    /// 作废（那种时候落回顶端才是对的），用完在 `openInstanceSettingsNow()` 里清掉。
-    struct FileScrollReturn {
-        QString instanceId;
-        QString pageKey;
-        QString identity;  ///< 最上面那一行的身份（`InstanceFilesPage::identityPath()`）
-        int delta = 0;
-    };
-    FileScrollReturn m_fileScrollReturn;
+    /// 它**也是**「← 返回实例设置」回程用的那一份：从下载页回去时由
+    /// `returnToInstanceSettingsFromDownload()` 把那条来路挪进来，于是"回哪一页、
+    /// 滚到哪儿"只有一份形状（以前是 `FileScrollReturn` 另记一份）。
+    ///
+    /// NOTE: 一次性。`openInstanceSettings()` 那一趟不论用没对上，收尾都会清掉 ——
+    /// 留着的话下一次开实例设置会拿一份过期的位置去摆（而那时用户多半已经翻到别处去了）。
+    NavigationReturn m_instanceReturn;
     /// 已经问回来的版本列表，按**请求钥匙**存（ResourceCatalog::versionsRequestKey()）。
     /// 点第三层那一下要拿它换出 URL / sha1 / 大小。
     /// NOTE: 那些事实**不放在条目上**：条目在重搜时会被整个清掉，而"这一版的文件是哪几个"
@@ -2871,21 +2871,18 @@ private:
     /// "还没问过"分得开，于是 `updateResourcePageDependencies()` 能只问缺的那几个。
     /// 键里带来源是因为两家的号不是一套（`238222` 和 `nvQzSEkH` 各自在各自的命名空间里）。
     QHash<QString, QString> m_projectTitles;
-    /// 这一次进下载页是**从哪个实例的设置页**点进来的（空 = 不是从那儿来的）。
+    /// 这一次进下载页是**从哪个实例的设置页**点进来的（空着 = 不是从那儿来的）。
     ///
-    /// 三件事读它：① 左栏顶上那颗「返回实例设置」回哪儿；② 从这一栏点下载时要不要弹
-    /// explorer 选保存位置（按「下载新模组就自动放进当前实例文件夹」那条设置，
-    /// 见 `ResourceInstallController::installNow()`）；③ 从这一栏点开一个资源的详情页时
+    /// 三件事读它：① 左栏顶上那颗「返回实例设置」回哪儿（连归哪颗根页、滚到哪儿都在这
+    /// 一份里，见 `NavigationReturn`）；② 从这一栏点下载时要不要弹 explorer 选保存位置
+    /// （按「下载新模组就自动放进当前实例文件夹」那条设置，见
+    /// `ResourceInstallController::installNow()`）；③ 从这一栏点开一个资源的详情页时
     /// 拿它当"当前实例"（chip 预选 + 加载器排前面）。
-    QString m_downloadFromInstanceId;
-    /// 上面那个实例的设置页**进来时停在哪一页**（= `openDownloadCategory()` 收到的
-    /// `categoryKey`；空 = 同上那一位也是空的）。
     ///
-    /// 只喂一件事：那颗「← 返回实例设置」回去时开在**原来那一页**上，而不是永远回「概览」
-    /// （从模组点进去，返回也在模组而非概览，其余同理）。它和
-    /// `m_downloadFromInstanceId` **同生共死** —— 那一位在哪儿被赋值/清掉，这一位就在
-    /// 哪儿，所以 `returnToInstanceSettingsFromDownload()` 里两句话并排写。
-    QString m_downloadFromPageKey;
+    /// NOTE: 它和 `m_instanceReturn` 是**两个位子**，不是一回事：这一份活到用户按
+    /// 「← 返回实例设置」（或把下载页刷回首页）；那一份是"开实例设置时用一次"的。
+    /// 两者不会同时在用（要回实例设置，就得先离开下载页），可生命周期不同，所以不合成一位。
+    NavigationReturn m_downloadReturn;
     /// 「版本」那一格**刚按过回车**的那几页（键 = 分类键，进的是 `QSet`）。
     ///
     /// 只为一件事：那一格是可输入的，在框里按回车时 Qt 会连发两发 —— 先是

@@ -505,7 +505,7 @@ void ConnectionsController::setup() {
     // —— 所以这里不是一圈循环，就接一次。
     //
     // NOTE: 那颗键要回的是"当初从哪个实例点进来"，而那个实例只有一个出处
-    // （`m_owner->m_downloadFromInstanceId`，由 openDownloadCategory 摆、由这个槽消费掉）。
+    // （`m_owner->m_downloadReturn`，由 openDownloadCategory 摆、由这个槽消费掉）。
     // 把实例号塞进信号里也能做，但那样"哪一位是活的"就有两份，而"按下时用的那一位"
     // 和"露出来的那一颗"必须永远是同一个。
     if (QPushButton *back = m_owner->m_ui->getDownloadBackButton()) {
