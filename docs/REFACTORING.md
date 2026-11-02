@@ -1039,3 +1039,27 @@ controller。`applyInstanceSettings()` 后面紧跟着的匿名命名空间（�
 行数：`src/MainWindow.cpp` 4224 → 3907，新文件 317（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：「实例设置」背后的页面数据与动作分出去
+
+`MainWindow.cpp` 里 3139–3278 这 140 行（含「世代备份」那一小节的分节注释与匿名命名空间），
+主语是**对话框要什么、按下之后交给谁**：
+
+- `instanceIdOfPath()`：从盘上路径反查是哪一页、哪个实例；
+- 配置文件：打开 / 保存 / 恢复 + `kConfigBackupGenerations`（每个实例留最近 20 份；
+  注释里写清了 20 是拍的、不是量出来的）；
+- 世界设置：进 / 出 / 落盘、`backupWorldLevelData()`；
+- `instanceHasMod()` / `instanceShaderUsable()` / `instanceModsUsable()`：三档可用性判据；
+- 服务器列表：读、`serverListProblem()`、`pingServers()`；
+- `toggleInstanceFile()` / `toggleInstanceFileForTest()`：文件页那两个开关（后者是验证工程
+  按名字用的）。
+
+搬到 `src/MainWindowInstanceSettingsWiring.cpp`。盘上的读写归 `InstanceEditorController`
+与 `ServerPingController`，这一层只做"哪一个键 → 哪一件事"的分派。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 3910 → 3770，新文件 140（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
