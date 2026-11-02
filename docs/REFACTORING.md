@@ -1063,3 +1063,24 @@ controller。`applyInstanceSettings()` 后面紧跟着的匿名命名空间（�
 行数：`src/MainWindow.cpp` 3910 → 3770，新文件 140（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：下载页的来路分出去
+
+`MainWindow.cpp` 里 2771–3035 这 265 行，主语只有一件：`m_downloadReturn`（"从哪个实例、
+哪一页点进来的"）。
+
+- `openDownloadCategory()`：登记来路、按那一栏翻页；
+- `continueOpenDownloadCategory()`：排到下一轮再开（带过去的是那几个字符串，不是上下文）；
+- `fillDownloadFiltersFromInstance()`：把实例那一栏带过去（版本 / 加载器 / 分类）；
+- `returnToInstanceSettingsFromDownload()`：取走来路并开回原页；
+- `onNavigationApplied()`：顶部那两颗里的两下 —— 按「实例」= 返回、重点「下载」= 回主页。
+
+搬到 `src/MainWindowDownloadOrigin.cpp`。第二颗判据为什么量 `reselected` 而不是
+`currentIndex()` 的注释原样跟着搬 —— 那是 mw_check T25.8 唯一能量出来的那条。
+
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 3770 → 3505，新文件 265（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
