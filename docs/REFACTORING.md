@@ -949,3 +949,25 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 行数：`src/MainWindow.cpp` 5822 → 5170，新文件 704。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+
+## 2026-11-03 `src/MainWindow.cpp`：实例分组那一片分出去
+
+`MainWindow.cpp` 里 2893–3303 这 411 行，主语只有一个：`InstanceGroupStore` 里那几张表
+（组、成员、展开状态）。从 `onGroupInstanceClicked()`（开「分组设置」）到
+`openGroupMenuFor()`（组行行尾那颗齿轮的菜单），每一件事的落点都是那个 store：
+
+- 开窗时从**当前那张树**上数组里有多少实例（不重新扫盘），确定时整份重写；
+- `clearGroupMembers()`、「清空成员」；
+- `setSelectedInstanceHomeGroup()` / `setInstanceHomeGroup()`：把实例挪进 / 挪出组；
+- `renameGroupTo()` / `deleteGroupById()` / `rememberGroupExpanded()`：改名、删除、记住展开；
+- `openGroupMenuFor()`：菜单第一项能不能点、挑目标那个框里哪一格灰着，都来自
+  `groupRowFor()` 那份快照；锚点是 `InstanceGroupDelegate::gearRect()` 那个格子。
+
+- 分组与实例树之间只经 `refreshInstalledVersions()` / `rebuildInstanceTree()` 说话，
+  不直接摸树。
+- 类接口没改；两条源列表（主 `CMakeLists.txt`、`tests/mw_check`）登记新文件。
+
+行数：`src/MainWindow.cpp` 5170 → 4759，新文件 411（含文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
