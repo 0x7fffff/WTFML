@@ -1171,5 +1171,148 @@ void runPresetStoreTests() {
         }
         check(cacheIgnored, "★ PA15 格式标记不认识的那份当没有缓存（不拿它当数据）");
     }
+
+    // ---------- PA16. 内部投影：先核对引用，再回收 ----------
+    {
+        QTemporaryDir dir;
+        check(dir.isValid(), "PA16 临时预设根目录");
+        if (dir.isValid()) {
+            const auto internalPart = [](const QString &name) {
+                Presets::PresetManifest part;
+                part.id = Presets::newPresetId();
+                part.name = name;
+                part.category = Presets::PresetCategory::GameSettings;
+                part.internalComponent = true;
+                part.createdAt = part.updatedAt = QDateTime::currentDateTime();
+                return part;
+            };
+            const auto parentWith = [](const QString &root, const QString &name,
+                                       const QJsonObject &components) {
+                Presets::PresetManifest parent = Presets::create(root, name);
+                parent.editorState.insert(QStringLiteral("components"), components);
+                Presets::saveManifest(root, parent);
+                return parent;
+            };
+
+            // 16a. 发布 / 重新发布 / 删除父预设：子项只在没人引用时跟着走。
+            const QString rootA = dir.path() + QStringLiteral("/a");
+            QJsonObject doc{{"id", Presets::newPresetId()}, {"name", QStringLiteral("综合")}};
+            doc["sections"] = QJsonArray{QJsonObject{{"id", "vanillaOptions"}, {"kind", "vanillaOptions"},
+                {"items", QJsonArray{QJsonObject{{"key", "guiScale"}, {"value", "2"}}}}}};
+            doc["modReferences"] = QJsonArray{QJsonObject{{"platform", "modrinth"},
+                {"projectId", "sodium"}, {"name", "Sodium"}}};
+            const auto first = Presets::saveEditorDocument(rootA, doc, false);
+            const QJsonObject firstParts =
+                first.manifest.editorState.value("components").toObject();
+            const QString firstGame = firstParts.value("gameSettings").toString();
+            const QString firstMods = firstParts.value("mods").toString();
+            check(first.ok && !firstGame.isEmpty() && !firstMods.isEmpty(),
+                  "PA16 综合预设发布出两个内部投影");
+            const Presets::OrphanComponents keep = Presets::orphanComponentIds(rootA);
+            check(keep.unreadable == 0 && keep.ids.isEmpty(),
+                  "★★ PA16 刚发布的两份都有人引用，核对结果为空");
+            check(Presets::sweepOrphanComponents(rootA).removedIds.isEmpty(),
+                  "PA16 回收那一趟一份都不动");
+
+            const auto second = Presets::saveEditorDocument(rootA, doc, false);
+            const QJsonObject secondParts =
+                second.manifest.editorState.value("components").toObject();
+            check(second.ok && !QFileInfo::exists(Presets::presetDir(rootA, firstGame)) &&
+                      !QFileInfo::exists(Presets::presetDir(rootA, firstMods)),
+                  "★★ PA16 重新发布换上新的投影，上一版那两份整棵移进回收站");
+            check(Presets::list(rootA).size() == 1,
+                  "★★ PA16 回收子项之后列表里还是只有那一份公开预设");
+            const QString secondGame = secondParts.value("gameSettings").toString();
+            const QString secondMods = secondParts.value("mods").toString();
+            check(Presets::remove(rootA, doc.value("id").toString()) &&
+                      !QFileInfo::exists(Presets::presetDir(rootA, secondGame)) &&
+                      !QFileInfo::exists(Presets::presetDir(rootA, secondMods)),
+                  "★★ PA16 删掉父预设，只剩它引用的那两份投影跟着回收");
+
+            // 16b. 两份父预设共享一个子项：删掉其中一份不许带走共享的那份。
+            const QString rootB = dir.path() + QStringLiteral("/b");
+            const Presets::PresetManifest shared = internalPart(QStringLiteral("共享子项"));
+            const Presets::PresetManifest onlyB = internalPart(QStringLiteral("乙的子项"));
+            check(Presets::saveManifest(rootB, shared) && Presets::saveManifest(rootB, onlyB),
+                  "PA16 造两份内部投影");
+            const Presets::PresetManifest parentA = parentWith(
+                rootB, QStringLiteral("甲"),
+                QJsonObject{{QStringLiteral("gameSettings"), shared.id}});
+            const Presets::PresetManifest parentB = parentWith(
+                rootB, QStringLiteral("乙"),
+                QJsonObject{{QStringLiteral("gameSettings"), shared.id},
+                            {QStringLiteral("mods"), onlyB.id}});
+            check(Presets::orphanComponentIds(rootB).ids.isEmpty(),
+                  "★★ PA16 两个父预设都引用着的子项不算孤儿");
+            check(Presets::remove(rootB, parentB.id) &&
+                      QFileInfo::exists(Presets::presetDir(rootB, shared.id)) &&
+                      !QFileInfo::exists(Presets::presetDir(rootB, onlyB.id)),
+                  "★★ PA16 只回收被删那份独占的投影，共享的那份留下");
+            check(Presets::remove(rootB, parentA.id) &&
+                      !QFileInfo::exists(Presets::presetDir(rootB, shared.id)),
+                  "★★ PA16 最后一个父预设删掉，共享投影才回收");
+
+            // 16c. 默认项与下标顺序表都算「有人要」，不拿它们去回收。
+            const QString rootC = dir.path() + QStringLiteral("/c");
+            const Presets::PresetManifest asDefault = internalPart(QStringLiteral("当默认的投影"));
+            check(Presets::saveManifest(rootC, asDefault) &&
+                      Presets::setDefault(rootC, Presets::PresetCategory::ResourcePacks,
+                                          asDefault.id),
+                  "PA16 把一份内部投影设成这一类默认项");
+            check(Presets::sweepOrphanComponents(rootC).removedIds.isEmpty() &&
+                      QFileInfo::exists(Presets::presetDir(rootC, asDefault.id)),
+                  "★★ PA16 下标里当默认项的那份不回收（默认项不是\"没人引用\"）");
+            check(Presets::setDefault(rootC, Presets::PresetCategory::ResourcePacks, QString()),
+                  "PA16 取消这一类默认");
+            check(Presets::sweepOrphanComponents(rootC).removedIds.contains(asDefault.id) &&
+                      !QFileInfo::exists(Presets::presetDir(rootC, asDefault.id)),
+                  "★★ PA16 取消默认之后它才成为孤儿");
+
+            const Presets::PresetManifest inOrder = internalPart(QStringLiteral("序列表里的投影"));
+            bool orderIndexOk = false;
+            Presets::PresetIndex orderIndex = Presets::loadIndex(rootC, &orderIndexOk);
+            check(orderIndexOk && Presets::saveManifest(rootC, inOrder) &&
+                      Presets::saveIndex(rootC, Presets::appendToIndex(orderIndex, inOrder.id)),
+                  "PA16 把一份内部投影写进下标顺序表");
+            check(Presets::sweepOrphanComponents(rootC).removedIds.isEmpty() &&
+                      QFileInfo::exists(Presets::presetDir(rootC, inOrder.id)),
+                  "★★ PA16 下标顺序表里出现的一律不动（不替用户改下标）");
+
+            // 16d. 有一份读不回来 ⇒ 不知道它引用了谁，整趟一个都不回收。
+            const QString rootD = dir.path() + QStringLiteral("/d");
+            const Presets::PresetManifest orphanD = internalPart(QStringLiteral("没人引用"));
+            const Presets::PresetManifest broken = Presets::create(rootD, QStringLiteral("坏的那份"));
+            check(Presets::saveManifest(rootD, orphanD) && !broken.id.isEmpty(),
+                  "PA16 造一个孤儿和一个稍后读不回来的预设");
+            writeFileAt(Presets::manifestPath(rootD, broken.id), QByteArrayLiteral("{ 这不是 json"));
+            const Presets::OrphanComponents unreadableAudit = Presets::orphanComponentIds(rootD);
+            check(unreadableAudit.unreadable > 0 && unreadableAudit.ids.isEmpty(),
+                  "★★ PA16 有一份读不回来，核对结果为空");
+            const Presets::OrphanSweepResult unreadableSweep =
+                Presets::sweepOrphanComponents(rootD);
+            check(unreadableSweep.unreadable > 0 && unreadableSweep.removedIds.isEmpty() &&
+                      QFileInfo::exists(Presets::presetDir(rootD, orphanD.id)),
+                  "★★ PA16 读不回来的情况下不回收任何投影（不知道它引用了谁）");
+
+            // 16e. 保存失败那条路：只收「这一趟刚建出来」的那几份。
+            const QString rootE = dir.path() + QStringLiteral("/e");
+            const Presets::PresetManifest failedPart =
+                internalPart(QStringLiteral("失败那趟落下的"));
+            const Presets::PresetManifest normal = Presets::create(rootE, QStringLiteral("普通"));
+            const QString half = Presets::newPresetId();
+            QDir().mkpath(Presets::filesDir(rootE, half));
+            check(Presets::saveManifest(rootE, failedPart),
+                  "PA16 造一份保存失败那趟会落下的投影");
+            check(Presets::discardInternalComponent(rootE, failedPart.id) &&
+                      !QFileInfo::exists(Presets::presetDir(rootE, failedPart.id)),
+                  "PA16 失败那趟刚建出的投影可以单独收掉");
+            check(Presets::discardInternalComponent(rootE, half) &&
+                      !QFileInfo::exists(Presets::presetDir(rootE, half)),
+                  "PA16 拷贝到一半、还没有清单的目录也能收");
+            check(!Presets::discardInternalComponent(rootE, normal.id) &&
+                      QFileInfo::exists(Presets::presetDir(rootE, normal.id)),
+                  "★★ PA16 不是内部投影的那份，单独收口的入口也不碰");
+        }
+    }
 }
 

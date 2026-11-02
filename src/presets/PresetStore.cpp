@@ -959,6 +959,132 @@ QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken) {
     return summaries;
 }
 
+namespace {
+
+/// 回收一份内部投影目录：路径必须在根里、先取目录锁、再整棵移进回收站。
+/// 不追链接的规矩由 `moveToRecycleBin()` 接着守（和 `remove()` 同一条）。
+bool recycleInternalComponent(const QString &root, const QString &id) {
+    if (!isValidPresetId(id)) {
+        return false;
+    }
+    const QString dir = presetDir(root, id);
+    if (!pathIsInsideRoot(root, dir) || !WriteDirectoryGuard::acquire(dir)) {
+        return false;
+    }
+    if (!QFileInfo::exists(dir)) {
+        return true;
+    }
+    return moveToRecycleBin(dir);
+}
+
+}  // namespace
+
+OrphanComponents orphanComponentIds(const QString &root) {
+    OrphanComponents result;
+    bool indexOk = true;
+    const PresetIndex index = loadIndex(root, &indexOk);
+    if (!indexOk) {
+        // 下标读不回来 ⇒ 不知道默认项指着谁；这一趟不猜。
+        result.unreadable = 1;
+        return result;
+    }
+
+    // 和 `list()` 看同一批：下标里的 + 盘上多出来的合法 id。
+    QStringList ids;
+    QSet<QString> seen;
+    for (const QString &id : index.order) {
+        if (seen.contains(id)) {
+            continue;
+        }
+        seen.insert(id);
+        ids.append(id);
+    }
+    QStringList extras;
+    const QStringList entries =
+        QDir(root).entryList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System);
+    for (const QString &entry : entries) {
+        if (!isValidPresetId(entry) || seen.contains(entry)) {
+            continue;
+        }
+        extras.append(entry);
+    }
+    extras.sort();
+    for (const QString &id : extras) {
+        ids.append(id);
+    }
+
+    const QList<ManifestLoadResult> loaded = loadManifests(root, ids);
+
+    QSet<QString> referenced;
+    if (!index.defaultPresetId.isEmpty()) {
+        referenced.insert(index.defaultPresetId);
+    }
+    for (auto it = index.categoryDefaults.cbegin(); it != index.categoryDefaults.cend(); ++it) {
+        if (!it.value().isEmpty()) {
+            referenced.insert(it.value());
+        }
+    }
+
+    QList<PresetManifest> manifests;
+    manifests.reserve(loaded.size());
+    for (const ManifestLoadResult &one : loaded) {
+        if (!one.ok) {
+            ++result.unreadable;
+            continue;
+        }
+        manifests.append(one.manifest);
+        const QJsonObject parts =
+            one.manifest.editorState.value(QStringLiteral("components")).toObject();
+        for (auto it = parts.begin(); it != parts.end(); ++it) {
+            if (it.value().isString()) {
+                referenced.insert(it.value().toString());
+            }
+        }
+    }
+    // 有一份读不回来就不知道它引用了谁 —— 整趟停手，`ids` 保持空。
+    if (result.unreadable > 0) {
+        return result;
+    }
+
+    for (const PresetManifest &manifest : manifests) {
+        if (!manifest.internalComponent || referenced.contains(manifest.id) ||
+            index.order.contains(manifest.id)) {
+            continue;
+        }
+        result.ids.append(manifest.id);
+    }
+    return result;
+}
+
+OrphanSweepResult sweepOrphanComponents(const QString &root) {
+    OrphanSweepResult result;
+    const OrphanComponents audit = orphanComponentIds(root);
+    result.unreadable = audit.unreadable;
+    for (const QString &id : audit.ids) {
+        if (recycleInternalComponent(root, id)) {
+            result.removedIds.append(id);
+        } else {
+            result.failedIds.append(id);
+        }
+    }
+    return result;
+}
+
+bool discardInternalComponent(const QString &root, const QString &id) {
+    if (!isValidPresetId(id)) {
+        return false;
+    }
+    if (QFileInfo::exists(manifestPath(root, id))) {
+        bool ok = false;
+        const PresetManifest manifest = loadManifest(root, id, &ok);
+        // 清单在却读不回来：不是「刚创建」的那一份，不碰。
+        if (!ok || !manifest.internalComponent) {
+            return false;
+        }
+    }
+    return recycleInternalComponent(root, id);
+}
+
 void forgetSummaryCache(const QString &root, bool keepDiskCache) {
     // 键是 manifest 的完整路径，所以按"这个根下面"整个扫一遍。
     const QString rootKey = summaryCacheRootKey(root);
@@ -1175,9 +1301,14 @@ bool remove(const QString &root, const QString &id) {
     const PresetIndex index = loadIndex(root, &indexReadable);
     if (!indexReadable) {
         // 下标本来就坏着：不拿这一趟去覆盖它。目录已经摘掉了，从用户的角度这一份没了。
+        // 引用核对同样依赖一份读得懂的下标，所以这一趟不回收子项（原因同上面那条）。
         return true;
     }
-    return saveIndex(root, dropFromIndex(index, id));
+    const bool saved = saveIndex(root, dropFromIndex(index, id));
+    // 这一份带过的综合子项可能就此没人引用了；别的父预设还引用着的那几份不动。
+    // 失败不影响「删除」本身的答案（那一份已经进了回收站）。
+    sweepOrphanComponents(root);
+    return saved;
 }
 
 bool setDefault(const QString &root, const QString &id) {
