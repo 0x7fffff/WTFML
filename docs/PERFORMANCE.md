@@ -1057,6 +1057,27 @@ endif()
 `busy` 只统计 `loadActive` 的那几发（样本数 8 → 2）。形状、踩到的坑（`slots` 是 Qt 的
 空宏）与验收（PA13）见 [预设列表的冷读改成并行](P2_PRESET_READ_PARALLEL_20261101.md)。
 
+## 2026-11-02 预设摘要缓存落盘
+
+`list()` 的摘要缓存原来只活在进程里，冷启动第一趟仍要读 1000 份 manifest（并行后
+0.40 s）。这一节把它写到 `<root>/.preset-summaries.json`：下一次启动先 stat 一遍，
+字节数 + 毫秒对得上的直接拿摘要，不再碰 manifest 正文。坏了只许变慢（当没有缓存），
+本进程写过的 manifest 在灌盘上缓存时跳过。
+
+同一份探针 exe（`build/perf-probe`，Release），1000 份预设，**一跑**
+（`build/perf-preset-cache-20261102/`；单跑，不与上面几节的 3 跑直接比较）：
+
+| 步骤 | 动作 ms |
+| --- | ---: |
+| `presets:read-store-1`（冷，读 manifest） | 441.8 |
+| `presets:read-store-2/3`（热） | 12.1 / 11.3 |
+| `presets:read-store-from-disk-cache`（下一次启动） | **18.4** |
+
+冷读 0.44 s → 18 ms（约 24×，单跑）。这一步是探针里新加的一档：先
+`forgetSummaryCache(root, true)` 只清进程里那张，再 `list()`。写那 1.7 s 没动（产品没有
+一次写 1000 份的路径，合并 fsync 等于拿掉耐久性）。形状与验收（PA15 的 11 条）见
+[预设列表的冷读改成并行](P2_PRESET_READ_PARALLEL_20261101.md)。
+
 ## 2026-11-01 起一个线程偶尔要 3 秒（只测，没改）
 
 第一次点设置页有两种形态：~10 ms，或者 **2.91–3.41 s**。栈都是

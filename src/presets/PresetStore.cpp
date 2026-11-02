@@ -35,6 +35,11 @@ namespace {
 const char *kIndexFileName = "index.json";
 const char *kManifestFileName = "manifest.json";
 const char *kFilesDirName = "files";
+/// `list()` 的摘要缓存（见 `summaryCachePath()` 与下面那张表的注释）。
+const char *kSummaryCacheFileName = ".preset-summaries.json";
+const char *kSummaryCacheFormat = "wtfml.preset-summaries";
+constexpr int kSummaryCacheVersion = 1;
+constexpr qint64 kSummaryCacheBytesLimit = 8 * 1024 * 1024;
 
 constexpr int kDisplayNameLimit = 80;
 
@@ -64,11 +69,234 @@ QHash<QString, SummaryCacheEntry> g_summaryCache;
 QMutex g_summaryCacheMutex;
 
 /// 上限只是防长跑进程里无限长；到顶整张丢掉重来（这是缓存，不是数据）。
-constexpr int kSummaryCacheLimit = 4096;
+constexpr int kSummaryCacheEntriesLimit = 4096;
+
+/// 这一趟进程里**已经从盘上那份摘要缓存灌过**的 root（`QDir::absolutePath()` 归一化）。
+/// 灌一次就够：之后都靠内存那张 + 每次的 stat 校验。
+QSet<QString> g_summaryCacheLoadedRoots;
+
+/// 本进程写过的 manifest（完整路径）。★ 盘上那份摘要是上一次进程留下的；如果本进程
+/// 写完之后"字节数 + 毫秒"都没变（同一个名字长度、同一毫秒），stat 校验认不出来。
+/// 所以这一张里的路径在灌盘上缓存时**一律跳过**，下一趟从 manifest 重读。
+QSet<QString> g_summaryCacheWrittenPaths;
 
 void forgetSummaryCacheEntry(const QString &path) {
     const QMutexLocker locker(&g_summaryCacheMutex);
     g_summaryCache.remove(path);
+    if (QFileInfo(path).fileName() == QLatin1String(kManifestFileName)) {
+        g_summaryCacheWrittenPaths.insert(path);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 摘要缓存落盘的那一份
+// ---------------------------------------------------------------------------
+//
+// 【为什么盘上还要有一份】
+//
+// 进程里那张缓存只帮第二趟：冷启动后第一次 `list()` 仍要把每份 manifest 读一遍
+// （并行之后 1000 份 0.40 s，见 `docs/P2_PRESET_READ_PARALLEL_20261101.md`）。而预设页
+// 和安装选择弹窗的第一趟就压在这一下上。把"上一次读出来的摘要 + 那一份文件的
+// 字节数/修改时刻"写在盘上，下一次启动只要 stat 一遍就能跳过 manifest 正文。
+//
+// 【形状】
+//
+// `{"format":"wtfml.preset-summaries","version":1,"entries":[{"id":…,"size":…,
+// "mtime":…,"listed":…,"name":…,…}]}`，一份文件属于一个 root（放在 `root` 底下）。
+// 判据与进程里那张一模一样：`size + mtimeMs` 对不上就读真的 manifest。
+//
+// 【它坏了的后果只有一种】
+//
+// 变慢。文件读不回来、格式标记不认识、版本比我们新、某一项缺字段 —— 都当"没有缓存"，
+// 下一趟照旧从 manifest 读。所以往这里写之前不必先校验盘上那份。
+QString summaryCacheRootKey(const QString &root) {
+    return QDir(root).absolutePath();
+}
+
+QJsonObject summaryEntryToJson(const QString &id, const SummaryCacheEntry &entry) {
+    QJsonObject object;
+    object.insert(QStringLiteral("id"), id);
+    object.insert(QStringLiteral("size"), static_cast<double>(entry.size));
+    object.insert(QStringLiteral("mtime"), static_cast<double>(entry.mtimeMs));
+    object.insert(QStringLiteral("listed"), entry.listed);
+    if (!entry.listed) {
+        return object;
+    }
+    const PresetSummary &summary = entry.summary;
+    object.insert(QStringLiteral("name"), summary.name);
+    object.insert(QStringLiteral("description"), summary.description);
+    object.insert(QStringLiteral("updatedAt"), summary.updatedAt.toString(Qt::ISODateWithMs));
+    object.insert(QStringLiteral("sections"), summary.sectionCount);
+    object.insert(QStringLiteral("category"), presetCategoryKey(summary.category));
+    object.insert(QStringLiteral("components"), QJsonArray::fromStringList(summary.componentCategories));
+    object.insert(QStringLiteral("icon"), summary.iconPath);
+    return object;
+}
+
+/// 一项读回来。**任何一格不对就整项不认**（那一份照旧去读 manifest）——
+/// 半份摘要比没有摘要危险：名字对了、类别错了，界面就会把一份预设画到错的地方。
+bool summaryEntryFromJson(const QJsonObject &object, QString *id, SummaryCacheEntry *entry) {
+    const QString entryId = object.value(QStringLiteral("id")).toString();
+    const QJsonValue sizeValue = object.value(QStringLiteral("size"));
+    const QJsonValue mtimeValue = object.value(QStringLiteral("mtime"));
+    const QJsonValue listedValue = object.value(QStringLiteral("listed"));
+    if (!isValidPresetId(entryId) || !sizeValue.isDouble() || !mtimeValue.isDouble()
+        || !listedValue.isBool()) {
+        return false;
+    }
+    SummaryCacheEntry parsed;
+    parsed.size = static_cast<qint64>(sizeValue.toDouble());
+    parsed.mtimeMs = static_cast<qint64>(mtimeValue.toDouble());
+    parsed.listed = listedValue.toBool();
+    if (parsed.size < 0 || parsed.mtimeMs < 0) {
+        return false;
+    }
+    if (parsed.listed) {
+        const QString name = object.value(QStringLiteral("name")).toString();
+        // 盘上的 manifest 不可能没有名字（`manifestFromJson` 那一关），所以空的这一项
+        // 一定是被改坏/写坏了。
+        if (name.isEmpty()) {
+            return false;
+        }
+        bool categoryOk = false;
+        const PresetCategory category =
+            presetCategoryFromKey(object.value(QStringLiteral("category")).toString(), &categoryOk);
+        const QJsonValue sections = object.value(QStringLiteral("sections"));
+        const QJsonValue components = object.value(QStringLiteral("components"));
+        const int sectionCount = sections.isDouble() ? sections.toInt(-1) : -1;
+        if (!categoryOk || sectionCount < 0 || !components.isArray()) {
+            return false;
+        }
+        PresetSummary summary;
+        summary.id = entryId;
+        summary.name = name;
+        summary.description = object.value(QStringLiteral("description")).toString();
+        const QString updatedRaw = object.value(QStringLiteral("updatedAt")).toString();
+        if (!updatedRaw.isEmpty()) {
+            summary.updatedAt = QDateTime::fromString(updatedRaw, Qt::ISODateWithMs);
+        }
+        summary.sectionCount = sectionCount;
+        summary.category = category;
+        for (const QJsonValue &value : components.toArray()) {
+            if (value.isString()) {
+                summary.componentCategories.append(value.toString());
+            }
+        }
+        summary.iconPath = object.value(QStringLiteral("icon")).toString();
+        parsed.summary = summary;
+    }
+    *id = entryId;
+    *entry = parsed;
+    return true;
+}
+
+/// 这个 root 的盘上缓存灌进进程里那张（**只补空位**：进程里已经有的比盘上的新）。
+void ensureSummaryCacheLoaded(const QString &root) {
+    const QString rootKey = summaryCacheRootKey(root);
+    {
+        const QMutexLocker locker(&g_summaryCacheMutex);
+        if (g_summaryCacheLoadedRoots.contains(rootKey)) {
+            return;
+        }
+        g_summaryCacheLoadedRoots.insert(rootKey);
+    }
+    const QFileInfo info(summaryCachePath(root));
+    if (!info.exists() || info.size() > kSummaryCacheBytesLimit) {
+        return;
+    }
+    QFile file(info.filePath());
+    if (!file.open(QIODevice::ReadOnly)) {
+        return;
+    }
+    const QByteArray bytes = file.read(kSummaryCacheBytesLimit + 1);
+    file.close();
+    if (bytes.size() > kSummaryCacheBytesLimit) {
+        return;
+    }
+    const QJsonDocument document = QJsonDocument::fromJson(bytes);
+    if (!document.isObject()) {
+        return;
+    }
+    const QJsonObject object = document.object();
+    if (object.value(QStringLiteral("format")).toString() != QLatin1String(kSummaryCacheFormat)
+        || object.value(QStringLiteral("version")).toInt(-1) != kSummaryCacheVersion) {
+        return;
+    }
+    const QJsonArray entries = object.value(QStringLiteral("entries")).toArray();
+    QList<QPair<QString, SummaryCacheEntry>> loaded;
+    loaded.reserve(qMin(entries.size(), qsizetype(kSummaryCacheEntriesLimit)));
+    for (const QJsonValue &value : entries) {
+        if (!value.isObject()) {
+            continue;
+        }
+        QString id;
+        SummaryCacheEntry entry;
+        if (!summaryEntryFromJson(value.toObject(), &id, &entry)) {
+            continue;
+        }
+        loaded.append(qMakePair(id, entry));
+        if (loaded.size() >= kSummaryCacheEntriesLimit) {
+            break;
+        }
+    }
+    if (loaded.isEmpty()) {
+        return;
+    }
+    const QMutexLocker locker(&g_summaryCacheMutex);
+    for (const auto &pair : loaded) {
+        const QString path = manifestPath(root, pair.first);
+        // 本进程写过的：盘上那份可能是写之前的，stat 撞上同一毫秒也认不出。
+        if (g_summaryCacheWrittenPaths.contains(path)) {
+            continue;
+        }
+        if (!g_summaryCache.contains(path)) {
+            g_summaryCache.insert(path, pair.second);
+        }
+    }
+}
+
+/// 把这一趟 `list()` 认得的那些（`ordered` 里、进程缓存中有的）整份重写下去。
+///
+/// 只在**真有新读回来的**时候调用（见 `list()`）。写不进去就算了：缓存坏了只许变慢。
+void writeSummaryCacheFile(const QString &root, const QStringList &ordered) {
+    QJsonArray entries;
+    {
+        const QMutexLocker locker(&g_summaryCacheMutex);
+        for (const QString &id : ordered) {
+            const auto it = g_summaryCache.constFind(manifestPath(root, id));
+            if (it == g_summaryCache.constEnd()) {
+                continue;
+            }
+            entries.append(summaryEntryToJson(id, *it));
+            if (entries.size() >= kSummaryCacheEntriesLimit) {
+                break;
+            }
+        }
+    }
+    QJsonObject object;
+    object.insert(QStringLiteral("format"), QLatin1String(kSummaryCacheFormat));
+    object.insert(QStringLiteral("version"), kSummaryCacheVersion);
+    object.insert(QStringLiteral("entries"), entries);
+    const QByteArray bytes = QJsonDocument(object).toJson(QJsonDocument::Compact);
+    if (bytes.size() > kSummaryCacheBytesLimit) {
+        return;
+    }
+    const QString path = summaryCachePath(root);
+    if (!WriteDirectoryGuard::acquire(path)) {
+        return;
+    }
+    if (!QFileInfo(path).absoluteDir().exists()) {
+        return;
+    }
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        return;
+    }
+    if (file.write(bytes) != bytes.size()) {
+        file.cancelWriting();
+        return;
+    }
+    file.commit();
 }
 
 /// 写盘：临时文件 + 原子改名（和任务账本 / 启动历史同一套）。
@@ -181,6 +409,12 @@ QString manifestPath(const QString &root, const QString &id) {
 
 QString filesDir(const QString &root, const QString &id) {
     return presetDir(root, id) + QLatin1Char('/') + QLatin1String(kFilesDirName);
+}
+
+QString summaryCachePath(const QString &root) {
+    // 和 `indexPath()` 一样是"root + 文件名"：root 的写法由调用方决定（验证工程也会给
+    // 相对路径），缓存键跟着它走没有关系 —— 它只是加速，不是数据。
+    return root + QLatin1Char('/') + QLatin1String(kSummaryCacheFileName);
 }
 
 // ---------------------------------------------------------------------------
@@ -590,6 +824,9 @@ bool isDefaultPreset(const PresetIndex &index, const PresetSummary &summary) {
 
 QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken) {
     const PresetIndex index = loadIndex(root, nullptr);
+    // 盘上那份摘要缓存只在**这个进程第一次问这个 root** 时灌进来；之后靠内存那张，
+    // 每次 list 的 stat 校验负责发现"盘上变了"。
+    ensureSummaryCacheLoaded(root);
 
     // 先把这一趟的次序定下来：下标里的（用户排好的），再接盘上多出来的。
     QStringList ordered;
@@ -656,6 +893,7 @@ QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken) {
     }
 
     // 第二趟：没命中的读回来（够多就并行）。结果按次序落回各自的格子上。
+    bool freshReads = false;
     if (!missIds.isEmpty()) {
         const QList<ManifestLoadResult> loaded = loadManifests(root, missIds);
         for (int k = 0; k < loaded.size(); ++k) {
@@ -686,14 +924,21 @@ QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken) {
                 summary.iconPath = result.manifest.editorState.value("icon").toString();
             }
             cell.resolved = true;
+            freshReads = true;
             if (cell.exists) {
                 const QMutexLocker locker(&g_summaryCacheMutex);
-                if (g_summaryCache.size() >= kSummaryCacheLimit) {
+                if (g_summaryCache.size() >= kSummaryCacheEntriesLimit) {
                     g_summaryCache.clear();
                 }
                 g_summaryCache.insert(manifestPath(root, id), cell.entry);
             }
         }
+    }
+
+    // 这一趟真读回来新的（缓存没命中、而且读成功了）⇒ 把整张摘要重写到盘上。
+    // 全是缓存命中的时候一个字节都不写：`list()` 热的那一趟还是十毫秒级。
+    if (freshReads) {
+        writeSummaryCacheFile(root, ordered);
     }
 
     QList<PresetSummary> summaries;
@@ -714,16 +959,48 @@ QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken) {
     return summaries;
 }
 
-void forgetSummaryCache(const QString &root) {
+void forgetSummaryCache(const QString &root, bool keepDiskCache) {
     // 键是 manifest 的完整路径，所以按"这个根下面"整个扫一遍。
-    const QString prefix = QDir(root).absolutePath() + QLatin1Char('/');
-    const QMutexLocker locker(&g_summaryCacheMutex);
-    for (auto it = g_summaryCache.begin(); it != g_summaryCache.end();) {
-        if (QFileInfo(it.key()).absolutePath().startsWith(prefix)) {
-            it = g_summaryCache.erase(it);
-        } else {
-            ++it;
+    const QString rootKey = summaryCacheRootKey(root);
+    const QString prefix = rootKey + QLatin1Char('/');
+    QStringList cacheFiles;
+    if (!keepDiskCache) {
+        cacheFiles.append(summaryCachePath(rootKey));
+    }
+    {
+        const QMutexLocker locker(&g_summaryCacheMutex);
+        for (auto it = g_summaryCache.begin(); it != g_summaryCache.end();) {
+            if (QFileInfo(it.key()).absolutePath().startsWith(prefix)) {
+                it = g_summaryCache.erase(it);
+            } else {
+                ++it;
+            }
         }
+        // 盘上那份也要删（`root` 自己和它底下已经灌过的那些，比如 `root/drafts`）——
+        // 不删的话"冷读"测量下一次还是会从摘要文件里拿到答案。`keepDiskCache` 那一档
+        // 只清"已灌过"的记号：下一趟 `list()` 会重新把盘上那份灌进来。
+        for (auto it = g_summaryCacheLoadedRoots.begin(); it != g_summaryCacheLoadedRoots.end();) {
+            if (*it == rootKey || it->startsWith(prefix)) {
+                if (!keepDiskCache) {
+                    cacheFiles.append(summaryCachePath(*it));
+                }
+                it = g_summaryCacheLoadedRoots.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        // 不论哪一档都清：新进程里这一串本来就是空的，留着就等于假装本进程的写还在。
+        for (auto it = g_summaryCacheWrittenPaths.begin(); it != g_summaryCacheWrittenPaths.end();) {
+            if (QFileInfo(*it).absolutePath().startsWith(prefix)) {
+                it = g_summaryCacheWrittenPaths.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    cacheFiles.removeDuplicates();
+    for (const QString &path : cacheFiles) {
+        QFile::remove(path);
     }
 }
 

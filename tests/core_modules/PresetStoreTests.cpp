@@ -1057,5 +1057,119 @@ void runPresetStoreTests() {
               "★★ PA14 坏 id 那一格当『没表过态』丢掉，明确『不要』那一格留着"
               "（不让一格坏数据把整份下标作废，也不让坏格混成『不要』）");
     }
+
+    // ---------- PA15. 摘要缓存落盘：下一次启动的第一趟不用再读 manifest ----------
+    //
+    // 进程里那张缓存只帮第二趟；冷启动第一趟仍要读每份 manifest（1000 份并行 0.40 s）。
+    // 盘上那份（`summaryCachePath()`）记的是"上一次读出来的摘要 + 那一份的字节数/毫秒"。
+    // 这几条钉住三件事：**真能从盘上灌回来**、**stat 对不上就重读**、**本进程写过的
+    // 不被盘上那份顶掉**（同字节数、同一毫秒时 stat 认不出来，只能靠写侧作废）。
+    {
+        const QString cachedRoot = temp.path() + "/persisted-summaries";
+        QDir().mkpath(cachedRoot);
+        const Presets::PresetManifest made = Presets::create(cachedRoot, QStringLiteral("落盘摘要"));
+        check(!made.id.isEmpty(), "PA15 夹具造得出来");
+
+        // 15a. 正常一趟之后盘上有那份文件；`forgetSummaryCache()` 连它一起删。
+        check(Presets::list(cachedRoot).size() == 1, "PA15 第一趟列得出来");
+        const QString cachePath = Presets::summaryCachePath(cachedRoot);
+        check(QFileInfo::exists(cachePath), "★ PA15 读过 manifest 之后盘上有一份摘要缓存");
+        Presets::forgetSummaryCache(cachedRoot, true);
+        check(QFileInfo::exists(cachePath),
+              "★ PA15 只清进程里那张时，盘上那份留着（量『下一次启动』走这一档）");
+        Presets::forgetSummaryCache(cachedRoot);
+        check(!QFileInfo::exists(cachePath),
+              "★ PA15 `forgetSummaryCache()` 把盘上那份也删了（否则『冷读』测的还是缓存）");
+
+        // 15b. 造一份"上一次进程留下的"摘要，manifest 本身写坏但字节数/时刻与摘要对得上：
+        //      这一趟只有走盘上摘要才列得出来（真去读 manifest 就会进 broken）。
+        const QString manifest = Presets::manifestPath(cachedRoot, made.id);
+        const QByteArray badBytes = QByteArrayLiteral("{ 这不是 json");
+        writeFileAt(manifest, badBytes);
+        const QFileInfo badInfo(manifest);
+        QJsonObject entry;
+        entry.insert(QStringLiteral("id"), made.id);
+        entry.insert(QStringLiteral("size"), static_cast<double>(badInfo.size()));
+        entry.insert(QStringLiteral("mtime"), static_cast<double>(badInfo.lastModified().toMSecsSinceEpoch()));
+        entry.insert(QStringLiteral("listed"), true);
+        entry.insert(QStringLiteral("name"), QStringLiteral("盘上摘要"));
+        entry.insert(QStringLiteral("description"), QString());
+        entry.insert(QStringLiteral("updatedAt"), QString());
+        entry.insert(QStringLiteral("sections"), 0);
+        entry.insert(QStringLiteral("category"), QString());
+        entry.insert(QStringLiteral("components"), QJsonArray());
+        entry.insert(QStringLiteral("icon"), QString());
+        const QJsonObject cacheDoc{
+            {QStringLiteral("format"), QStringLiteral("wtfml.preset-summaries")},
+            {QStringLiteral("version"), 1},
+            {QStringLiteral("entries"), QJsonArray{entry}}};
+        writeFileAt(cachePath, QJsonDocument(cacheDoc).toJson(QJsonDocument::Compact));
+        QList<Presets::BrokenPreset> brokenCached;
+        const QList<Presets::PresetSummary> fromDisk = Presets::list(cachedRoot, &brokenCached);
+        check(fromDisk.size() == 1 && brokenCached.isEmpty()
+                  && fromDisk.at(0).name == QStringLiteral("盘上摘要"),
+              "★★ PA15 下一次启动第一趟直接吃盘上那份摘要（manifest 坏着也没去读 —— "
+              "字节数/时刻对得上就当没变）",
+              fromDisk.isEmpty() ? QStringLiteral("（一份都没列出来）") : fromDisk.at(0).name);
+
+        // 15c. 盘上那份跟文件对不上了 ⇒ 照样去读 manifest，坏的进 broken（缓存只许变慢，
+        //      不许把一份读不回来的东西说成好的）。
+        writeFileAt(manifest, badBytes + QByteArrayLiteral(" "));
+        QList<Presets::BrokenPreset> brokenMismatch;
+        check(Presets::list(cachedRoot, &brokenMismatch).isEmpty() && brokenMismatch.size() == 1
+                  && brokenMismatch.at(0).id == made.id,
+              "★★ PA15 字节数对不上 ⇒ 重读 manifest，坏的那一份进 broken");
+
+        // 15d. 本进程写过的：盘上那份"大小 + 毫秒"正好撞上新文件，也不许拿旧名字顶上。
+        //      （写侧作废那一格，灌盘上缓存时跳过。）
+        const Presets::PresetManifest fresh = Presets::create(cachedRoot, QStringLiteral("甲甲甲"));
+        check(!fresh.id.isEmpty() && Presets::list(cachedRoot, nullptr).size() == 1,
+              "PA15 造一份好的、列一趟（坏的那份掉出去）");
+        Presets::forgetSummaryCache(cachedRoot);
+        Presets::PresetManifest renamed = fresh;
+        renamed.name = QStringLiteral("乙乙乙");  // 与"甲甲甲"同为三字节
+        check(Presets::saveManifest(cachedRoot, renamed), "PA15 本进程改名（字节数不变）");
+        const QFileInfo renamedInfo(Presets::manifestPath(cachedRoot, fresh.id));
+        QJsonObject stale;
+        stale.insert(QStringLiteral("id"), fresh.id);
+        stale.insert(QStringLiteral("size"), static_cast<double>(renamedInfo.size()));
+        stale.insert(QStringLiteral("mtime"), static_cast<double>(renamedInfo.lastModified().toMSecsSinceEpoch()));
+        stale.insert(QStringLiteral("listed"), true);
+        stale.insert(QStringLiteral("name"), QStringLiteral("甲甲甲"));
+        stale.insert(QStringLiteral("description"), QString());
+        stale.insert(QStringLiteral("updatedAt"), QString());
+        stale.insert(QStringLiteral("sections"), 0);
+        stale.insert(QStringLiteral("category"), QString());
+        stale.insert(QStringLiteral("components"), QJsonArray());
+        stale.insert(QStringLiteral("icon"), QString());
+        writeFileAt(cachePath, QJsonDocument(QJsonObject{
+                                     {QStringLiteral("format"), QStringLiteral("wtfml.preset-summaries")},
+                                     {QStringLiteral("version"), 1},
+                                     {QStringLiteral("entries"), QJsonArray{stale}}})
+                                 .toJson(QJsonDocument::Compact));
+        bool sawRenamed = false;
+        for (const Presets::PresetSummary &one : Presets::list(cachedRoot)) {
+            if (one.id == fresh.id) {
+                sawRenamed = (one.name == renamed.name);
+            }
+        }
+        check(sawRenamed,
+              "★★ PA15 本进程写过的那一份不被盘上摘要顶掉（大小/时刻撞上也只认新读的）");
+
+        // 15e. 格式标记不认识 / 版本比我们新 ⇒ 当没有缓存，照旧读 manifest。
+        Presets::forgetSummaryCache(cachedRoot);
+        writeFileAt(cachePath, QJsonDocument(QJsonObject{
+                                     {QStringLiteral("format"), QStringLiteral("别的东西")},
+                                     {QStringLiteral("version"), 1},
+                                     {QStringLiteral("entries"), QJsonArray{stale}}})
+                                 .toJson(QJsonDocument::Compact));
+        bool cacheIgnored = false;
+        for (const Presets::PresetSummary &one : Presets::list(cachedRoot)) {
+            if (one.id == fresh.id) {
+                cacheIgnored = (one.name == renamed.name);
+            }
+        }
+        check(cacheIgnored, "★ PA15 格式标记不认识的那份当没有缓存（不拿它当数据）");
+    }
 }
 

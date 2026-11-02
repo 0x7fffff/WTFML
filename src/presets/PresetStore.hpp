@@ -58,6 +58,11 @@ QString presetDir(const QString &root, const QString &id);
 QString manifestPath(const QString &root, const QString &id);
 /// `<root>/<id>/files`
 QString filesDir(const QString &root, const QString &id);
+/// `<root>/.preset-summaries.json` —— `list()` 那一张摘要缓存落在盘上的那一份。
+///
+/// 它**不是数据**：删掉只会让下一趟 `list()` 多读一遍各份 manifest，别的什么都不变。
+/// 布局见 `PresetStore.cpp` 里那张表的注释；验证工程按这个路径造/读它。
+QString summaryCachePath(const QString &root);
 
 // ---------------------------------------------------------------------------
 // 名字、id，以及"这个名字会不会跑到目录外面去"
@@ -154,15 +159,24 @@ bool saveManifest(const QString &root, const PresetManifest &manifest);
  * 两处补充（都是"别让用户丢东西"）：
  * · 盘上有、下标里没有的（用户自己拷进来一份 / 下标被写坏过）→ **追加在末尾**，不丢；
  * · 下标里有、盘上已经没有的 → 进 `broken`，**而且不替用户改下标**（读的那一趟不写盘）。
+ *
+ * 这里说的"不写盘"是**用户数据**（下标、manifest、files/）。`list()` 会顺手更新自己那份
+ * 摘要缓存（`summaryCachePath()`，见下）：内容全是从 manifest 读出来的、删了也没有后果，
+ * 作用是让下一次启动的第一趟列表不用再把每份 manifest 读一遍。
  */
 QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken = nullptr);
 
-/// 把 `root` 下所有预设的**摘要缓存**丢掉，让下一趟 `list()` 真的去读盘。
+/// 把 `root` 下所有预设的**摘要缓存**丢掉（进程里那张 + 盘上那份），让下一趟 `list()`
+/// 真的去读盘。
 ///
 /// 只给测量用（`PerfProbe` 的"后台目录加载"那一步要量的是**冷读**；缓存热着的时候它
-/// 11 ms 就回来了，量不到东西）。缓存本身只是进程内的加速，不是数据，丢一次没有任何后果。
+/// 11 ms 就回来了，量不到东西）。缓存本身只是加速，不是数据，丢一次没有任何后果。
 /// 产品代码里不该有人调它 —— 盘上变了 `list()` 自己会发现，本进程写的会自己作废。
-void forgetSummaryCache(const QString &root);
+///
+/// @param keepDiskCache `true` = 只清进程里那张、盘上那份留着：量"**下一次启动**第一趟"
+/// 走的就是这一档（盘上的摘要 + 每份的一次 stat）。本进程写过的那一串也一起清掉 ——
+/// 新进程里它本来就是空的。
+void forgetSummaryCache(const QString &root, bool keepDiskCache = false);
 
 /// **旧版**那个唯一的默认项（没有 = 空串）。**不检查它还在不在** —— 默认项丢了这件事由
 /// 列表那一侧回答（UI 用例「默认项丢失」要的是这个组合，不是一个会撒谎的"有默认项"）。
